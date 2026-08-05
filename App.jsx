@@ -15,6 +15,83 @@ import {
 import { CSS } from './styles';
 import { cloud, KEYS, kb } from './storage';
 
+/* ================= أدوات مساعدة عامة ================= */
+const uid = (p) => p + '-' + Math.random().toString(36).slice(2, 9);
+const today = () => new Date().toISOString().slice(0, 10);
+const nowISO = () => new Date().toISOString();
+
+const money = (n) =>
+  (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const short = (n) => {
+  const v = Number(n) || 0;
+  if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+  if (Math.abs(v) >= 1e3) return (v / 1e3).toFixed(1) + 'K';
+  return v.toFixed(0);
+};
+const arDate = (d) => {
+  try {
+    return new Date(d + 'T00:00:00').toLocaleDateString('ar-SA-u-nu-latn', {
+      day: '2-digit', month: 'short', year: 'numeric'
+    });
+  } catch { return d; }
+};
+const arTime = (iso) => {
+  try {
+    const t = new Date(iso), diff = (Date.now() - t.getTime()) / 1000;
+    if (diff < 60) return 'الآن';
+    if (diff < 3600) return `قبل ${Math.floor(diff / 60)} د`;
+    if (diff < 86400) return `قبل ${Math.floor(diff / 3600)} س`;
+    return t.toLocaleDateString('ar-SA-u-nu-latn', { day: '2-digit', month: 'short' });
+  } catch { return ''; }
+};
+const sum = (a, f) => a.reduce((s, x) => s + (Number(f ? f(x) : x) || 0), 0);
+const chartTone = (t) => t === 'lite'
+  ? { grid: '#DDD4C4', tick: '#8A7F72', tip: '#FFFDF8', tipTxt: '#241F1A', bar: '#E3DACA' }
+  : { grid: '#332C26', tick: '#6E635A', tip: '#1C1815', tipTxt: '#EFE7DB', bar: '#3A322B' };
+const clr = (i) => ['#C8A24A', '#4FB286', '#5B93C4', '#D9544D', '#E0A458', '#9B7BB8'][i % 6];
+
+const DENOMS = [
+  { k: 'd500', v: 500, c: '#2B6CB0' }, { k: 'd200', v: 200, c: '#5F7A55' },
+  { k: 'd100', v: 100, c: '#A83B3B' }, { k: 'd50', v: 50, c: '#2F8F5B' },
+  { k: 'd20', v: 20, c: '#9C6B2E' }, { k: 'd10', v: 10, c: '#7A5834' },
+  { k: 'd5', v: 5, c: '#6E4A94' }, { k: 'd1', v: 1, c: '#4A5157' },
+  { k: 'coins', v: 0.5, c: '#5E5E5E' }
+];
+const emptyDenoms = () => DENOMS.reduce((o, d) => ({ ...o, [d.k]: 0 }), {});
+const countDenoms = (d) => DENOMS.reduce((s, x) => s + (Number(d?.[x.k]) || 0) * x.v, 0);
+
+const ROLES = {
+  general_management: {
+    ar: 'الإدارة العليا — المدير العام', badge: 'b-brass', scope: 'all',
+    perms: ['كل الشاشات وكل الفروع', 'الاعتماد النهائي والإلغاء', 'إدارة المستخدمين والفروع', 'إدارة الرواتب والصرف']
+  },
+  finance_department: {
+    ar: 'الإدارة المالية — المحاسب الرئيسي', badge: 'b-sky', scope: 'assigned',
+    perms: ['تدقيق ومراجعة الإغلاقات', 'استلام تحويلات الخزينة', 'التقارير والقوائم المالية', 'تسجيل السلف والخصومات']
+  },
+  branch_manager: {
+    ar: 'إدارة الفرع — إدخال وترحيل', badge: 'b-mint', scope: 'own',
+    perms: ['إدخال الإغلاق اليومي لفرعه', 'جرد الفئات ومطابقة الصندوق', 'ترحيل النقدية للخزينة', 'التعديل قبل الترحيل فقط']
+  }
+};
+
+const APPS = [
+  { id: 'jahez', n: 'جاهز', c: 12 }, { id: 'hunger', n: 'هنقرستيشن', c: 15 },
+  { id: 'toyou', n: 'تويو', c: 10 }, { id: 'keeta', n: 'كيتا', c: 14 }
+];
+
+const EXP_CATS = [
+  { id: 'ec1', n: 'مشتريات مواد خام', taxable: true },
+  { id: 'ec2', n: 'رواتب وأجور', taxable: false },
+  { id: 'ec3', n: 'سلف ومسحوبات موظفين', taxable: false },
+  { id: 'ec4', n: 'صيانة وتشغيل', taxable: true },
+  { id: 'ec5', n: 'كهرباء ومياه', taxable: true },
+  { id: 'ec6', n: 'إيجار الفرع', taxable: false },
+  { id: 'ec7', n: 'نظافة ومستهلكات', taxable: true },
+  { id: 'ec8', n: 'مصاريف نثرية', taxable: true }
+];
+
+
 /* ============================================================
    منصة سحابية متكاملة لإدارة وإغلاق فروع المطاعم
    نسخة تفاعلية متعددة المستخدمين — بيانات مشتركة سحابياً
