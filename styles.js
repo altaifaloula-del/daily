@@ -53,11 +53,108 @@ export const CSS = `
 .page{padding:20px;max-width:1500px;width:100%}
 .hidden-desk{display:none}
 @media(max-width:900px){
-  .side{position:fixed;inset-inline-end:0;top:0;z-index:60;transform:translateX(105%);transition:.25s;box-shadow:-20px 0 40px rgba(0,0,0,.5)}
+  .side{position:fixed;inset-inline-end:0;top:0;z-index:60;width:82vw;max-width:300px;transform:translateX(105%);transition:.25s;box-shadow:-20px 0 40px rgba(0,0,0,.5)}
   .side.open{transform:translateX(0)}
   .hidden-desk{display:inline-flex}
-  .page{padding:14px}
-  .top{padding:10px 14px}
+  .page{padding:12px;padding-bottom:80px}
+  .top{padding:10px 12px;gap:8px}
+  .top h1{font-size:14px}
+}
+
+.actbar{
+  display:flex;align-items:center;gap:10px;
+  background:linear-gradient(90deg,rgba(200,162,74,.16),rgba(200,162,74,.06));
+  border-bottom:1px solid rgba(200,162,74,.35);
+  color:var(--brass);padding:9px 20px
+}
+.actbar-dot{
+  width:8px;height:8px;border-radius:50%;background:var(--brass);flex-shrink:0;
+  animation:pulse-dot 1.6s ease-in-out infinite
+}
+@keyframes pulse-dot{
+  0%,100%{opacity:1;transform:scale(1)}
+  50%{opacity:.4;transform:scale(1.4)}
+}
+@media(max-width:640px){.actbar{padding:8px 12px}.actbar .btn.sm{padding:6px 9px}}
+
+/* ===================== تحسينات الجوال ===================== */
+@media(max-width:640px){
+  /* منع التكبير التلقائي عند التركيز على الحقول في iOS */
+  .inp,.sel,textarea.inp{font-size:16px;padding:11px 12px}
+  .note-i{font-size:16px}
+  .pin input{font-size:20px}
+
+  /* البطاقات والمسافات */
+  .card{padding:13px;border-radius:12px}
+  .kpi{padding:12px 13px}
+  .kpi-v{font-size:20px}
+  .modal-b{padding:14px}
+  .modal-h,.modal-f{padding:12px 14px}
+  .modal-f{flex-wrap:wrap}
+  .modal-f .btn{flex:1;min-width:120px;justify-content:center}
+
+  /* الأزرار أكبر للمس */
+  .btn{padding:11px 15px;font-size:13px}
+  .btn.sm{padding:8px 12px;font-size:12px}
+
+  /* الرؤوس والصفوف تلتف */
+  .card-h{gap:8px}
+  .row{gap:8px}
+
+  /* الجداول: تمرير أفقي سلس مع تلميح */
+  .tw{margin:0 -13px;padding:0 13px;-webkit-overflow-scrolling:touch}
+  table.tb{min-width:560px}
+  .tb th,.tb td{padding:9px 8px}
+
+  /* الفئات النقدية: عمودان بدل ثلاثة */
+  .notes{grid-template-columns:repeat(2,1fr);gap:8px}
+
+  /* التذييل المتحرك يختفي (يزاحم الشريط السفلي) */
+  .tick{display:none}
+
+  /* بوابة الدخول */
+  .gate{padding:14px;align-items:flex-start;padding-top:8vh}
+  .gate-c{max-width:100%}
+
+  /* شريط علوي: إخفاء صور المتصلين لتوفير مساحة */
+  .top .av{display:none}
+
+  /* النوافذ تملأ ارتفاعاً أكبر */
+  .modal{max-height:94vh;border-radius:14px 14px 0 0;align-self:flex-end}
+  .mask{align-items:flex-end;padding:0}
+
+  /* صفوف قابلة للتمرير أفقياً (أزرار الخطوات والتبويبات) */
+  .row.scroll-x{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px}
+  .row.scroll-x::-webkit-scrollbar{height:0}
+  .row.scroll-x .btn{flex-shrink:0}
+}
+
+/* إزالة وميض اللمس الأزرق على كل الأزرار */
+.rms button,.rms a,.rms .gate-u,.rms .nav-i,.rms .botnav-i{-webkit-tap-highlight-color:transparent}
+
+/* شريط تنقّل سفلي للجوال */
+.botnav{display:none}
+@media(max-width:900px){
+  .botnav{
+    display:flex;position:fixed;inset-inline:0;bottom:0;z-index:50;
+    background:var(--ink2);border-top:1px solid var(--line);
+    padding:6px 4px calc(6px + env(safe-area-inset-bottom));
+    justify-content:space-around;align-items:stretch;
+    box-shadow:0 -8px 24px rgba(0,0,0,.35)
+  }
+  .botnav-i{
+    display:flex;flex-direction:column;align-items:center;gap:3px;
+    flex:1;padding:6px 2px;border:none;background:none;color:var(--faint);
+    cursor:pointer;border-radius:9px;font-family:inherit;position:relative;transition:.15s
+  }
+  .botnav-i.on{color:var(--brass)}
+  .botnav-i span{font-size:9.5px;line-height:1;font-weight:500}
+  .botnav-i .bdg{
+    position:absolute;top:2px;inset-inline-end:calc(50% - 20px);
+    background:var(--rose);color:#fff;font-size:8px;font-weight:700;
+    min-width:15px;height:15px;border-radius:20px;display:grid;place-items:center;padding:0 3px
+  }
+  .botnav-more{color:var(--dim)}
 }
 
 /* ---- عناصر ---- */
