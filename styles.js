@@ -58,16 +58,20 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 .page{padding:20px;max-width:1500px;width:100%;overflow-x:hidden}
 .hidden-desk{display:none}
 @media(max-width:900px){
+  .shell{display:block;width:100%;max-width:100vw;overflow-x:hidden}
   .side{position:fixed;inset-inline-end:0;top:0;z-index:60;width:82vw;max-width:300px;transform:translateX(105%);transition:.25s;box-shadow:-20px 0 40px rgba(0,0,0,.5)}
   .side.open{transform:translateX(0)}
+  .main{width:100%;max-width:100vw;overflow-x:hidden}
   .hidden-desk{display:inline-flex}
-  .page{padding:12px;padding-bottom:80px}
-  .top{padding:10px 12px;gap:6px;width:100%;max-width:100vw;overflow:hidden}
-  .top h1{font-size:13.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:1}
-  .top .row{gap:5px;flex-wrap:wrap;justify-content:flex-end}
-  .top .badge{font-size:9.5px;padding:2px 7px}
-  .top .btn.sm{padding:5px 7px}
+  .page{padding:12px;padding-bottom:80px;width:100%;max-width:100vw;overflow-x:hidden}
+  .top{padding:10px 10px;gap:6px;width:100%;max-width:100vw;overflow:hidden;flex-wrap:nowrap}
+  .toptitle{font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto}
+  .topstatus{display:flex;align-items:center;gap:4px;flex:0 0 auto;min-width:0;margin-inline-start:auto}
+  .topstatus .badge{font-size:9px;padding:2px 6px}
+  .topstatus .btn.sm{padding:5px 6px}
   .top .av{display:none}
+  .avrow{display:none}
+  .synctime .tt{display:none}
   .kpi-v{font-size:19px;overflow-wrap:anywhere}
 }
 
@@ -94,6 +98,10 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
   .card .row{flex-wrap:wrap}
   .card .row > *{min-width:0}
   .inp,.sel{max-width:100%}
+  .page > *{max-width:100%}
+  .card{max-width:100%;overflow-wrap:anywhere}
+  .grid{max-width:100%}
+  .kpi-v,.kpi-l,.kpi-s{max-width:100%;overflow:hidden;text-overflow:ellipsis}
 
   /* منع التكبير التلقائي عند التركيز على الحقول في iOS */
   .inp,.sel,textarea.inp{font-size:16px;padding:11px 12px}
