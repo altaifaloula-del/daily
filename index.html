@@ -6,9 +6,38 @@
     <meta name="theme-color" content="#14110F" />
     <title>منصة سحابية متكاملة لإدارة وإغلاق فروع المطاعم</title>
     <meta name="description" content="إغلاق يومي، ضبط نقدي، خزينة رئيسية، رواتب وسلف، موردون، وتقارير مالية سحابية متعددة المستخدمين." />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="icon.svg" />
+    <link rel="apple-touch-icon" href="icon.svg" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="إغلاق الفروع" />
   </head>
   <body style="margin:0;background:#14110F">
     <div id="root"></div>
     <script type="module" src="/main.jsx"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('sw.js?v=3').then(function (reg) {
+            // عند توفّر نسخة جديدة، فعّلها وأعد التحميل مرة واحدة تلقائياً
+            reg.addEventListener('updatefound', function () {
+              var nw = reg.installing;
+              if (!nw) return;
+              nw.addEventListener('statechange', function () {
+                if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+                  nw.postMessage && reg.waiting && reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+                }
+              });
+            });
+            reg.update();
+          }).catch(function () {});
+          var reloaded = false;
+          navigator.serviceWorker.addEventListener('controllerchange', function () {
+            if (reloaded) return; reloaded = true; window.location.reload();
+          });
+        });
+      }
+    </script>
   </body>
 </html>
