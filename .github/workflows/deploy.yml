@@ -7,6 +7,15 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
 jobs:
   # ===== 1) اختبارات قواعد أمان Firestore على المحاكي =====
   rules-tests:
@@ -14,42 +23,37 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-
       - name: تجهيز Java للمحاكي
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-
       - name: تثبيت الحزم
         run: npm ci
-
       - name: تشغيل الاختبارات
         run: npm run test:rules
 
-  # ===== 2) بناء الواجهة والتحقق من مخرجاتها =====
+  # ===== 2) بناء الواجهة =====
   build:
     name: بناء الواجهة
     needs: rules-tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-
       - name: تثبيت الحزم
         run: npm ci
 
       - name: بناء الواجهة
         env:
+          VITE_BASE: /${{ github.event.repository.name }}/
           VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
           VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
           VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
@@ -64,35 +68,24 @@ jobs:
           test -f dist/index.html || { echo "::error::لم تُبنَ الواجهة"; exit 1; }
           grep -q "firebaseapp.com" dist/assets/*.js \
             || { echo "::error::إعدادات Firebase لم تُدمج — تحقق من أسرار المستودع"; exit 1; }
-          echo "✅ البناء سليم وإعدادات Firebase مدمجة"
-          du -sh dist
+          cp dist/index.html dist/404.html   # حتى تعمل الروابط المباشرة على GitHub Pages
+          echo "✅ البناء سليم" && du -sh dist
 
-      - name: حفظ المخرجات للنشر
-        uses: actions/upload-artifact@v4
+      - name: رفع المخرجات لـ Pages
+        uses: actions/upload-pages-artifact@v3
         with:
-          name: dist
           path: dist
-          retention-days: 1
 
-  # ===== 3) النشر (لا يعمل إلا بعد نجاح الاختبارات والبناء) =====
+  # ===== 3) النشر على GitHub Pages =====
   deploy:
-    name: النشر على Firebase Hosting
+    name: النشر على GitHub Pages
     needs: build
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.pages.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
-
-      - name: جلب مخرجات البناء
-        uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist
-
       - name: النشر
-        uses: FirebaseExtended/action-hosting-deploy@v0
-        with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          channelId: live
-          projectId: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+        id: pages
+        uses: actions/deploy-pages@v4
