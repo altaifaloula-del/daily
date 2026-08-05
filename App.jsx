@@ -2491,7 +2491,8 @@ function AiCenter({ org, ops, me, myBranches, scoped, say }) {
   const analyze = async () => {
     setBusy(true); setErr(''); setRes(null);
     try {
-      const r = await fetch('/api/ai/analyze', {
+      const endpoint = (import.meta.env && import.meta.env.VITE_AI_ENDPOINT) || '/api/ai/analyze';
+      const r = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ digest })
@@ -2501,7 +2502,7 @@ function AiCenter({ org, ops, me, myBranches, scoped, say }) {
       setRes(data.result);
       say('اكتمل التحليل المالي الذكي');
     } catch (e) {
-      setErr('تعذّر إتمام التحليل. تأكد من ضبط ANTHROPIC_API_KEY في ملف .env وتشغيل الخادم.');
+      setErr('المركز المالي الذكي غير مفعّل في هذه النسخة — يحتاج وسيطاً آمناً لمفتاح التحليل. باقي وحدات المنصة تعمل كاملة.');
     }
     setBusy(false);
   };
