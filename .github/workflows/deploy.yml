@@ -1,0 +1,98 @@
+name: اختبار وبناء ونشر المنصة
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  # ===== 1) اختبارات قواعد أمان Firestore على المحاكي =====
+  rules-tests:
+    name: اختبارات قواعد الأمان (محاكي Firestore)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: تجهيز Java للمحاكي
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: تثبيت الحزم
+        run: npm ci
+
+      - name: تشغيل الاختبارات
+        run: npm run test:rules
+
+  # ===== 2) بناء الواجهة والتحقق من مخرجاتها =====
+  build:
+    name: بناء الواجهة
+    needs: rules-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: تثبيت الحزم
+        run: npm ci
+
+      - name: بناء الواجهة
+        env:
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_SENDER_ID: ${{ secrets.VITE_FIREBASE_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
+          VITE_AI_ENDPOINT: ${{ secrets.VITE_AI_ENDPOINT }}
+        run: npm run build
+
+      - name: التحقق من مخرجات البناء
+        run: |
+          test -f dist/index.html || { echo "::error::لم تُبنَ الواجهة"; exit 1; }
+          grep -q "firebaseapp.com" dist/assets/*.js \
+            || { echo "::error::إعدادات Firebase لم تُدمج — تحقق من أسرار المستودع"; exit 1; }
+          echo "✅ البناء سليم وإعدادات Firebase مدمجة"
+          du -sh dist
+
+      - name: حفظ المخرجات للنشر
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
+          retention-days: 1
+
+  # ===== 3) النشر (لا يعمل إلا بعد نجاح الاختبارات والبناء) =====
+  deploy:
+    name: النشر على Firebase Hosting
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: جلب مخرجات البناء
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: النشر
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          channelId: live
+          projectId: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
