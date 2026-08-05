@@ -20,6 +20,12 @@ const uid = (p) => p + '-' + Math.random().toString(36).slice(2, 9);
 const today = () => new Date().toISOString().slice(0, 10);
 const nowISO = () => new Date().toISOString();
 
+/* تجزئة كلمة السر (SHA-256) — لا تُخزَّن كلمة السر كنص صريح */
+async function sha(text) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text + '::rms8'));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 const money = (n) =>
   (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const short = (n) => {
@@ -103,150 +109,26 @@ const EXP_CATS = [
 /* ================= البيانات التأسيسية ================= */
 function rnd(seed) { const x = Math.sin(seed) * 10000; return x - Math.floor(x); }
 
-function seedOrg() {
-  const branches = [
-    { id: 'b-01', name: 'الفرع الرئيسي — الملقا', city: 'الرياض', managerName: 'أحمد العلي', phone: '0501112233', defaultFloat: 2000, shiftEndTime: '23:30', isActive: true, autoClosingReminderEnabled: true, inAppReminderEnabled: true, emailReminderEnabled: true, reminderBeforeMinutes: 30, managerEmails: 'admin@restaurant.sa, finance@restaurant.sa' },
-    { id: 'b-02', name: 'فرع النخيل مول', city: 'الرياض', managerName: 'سعد القحطاني', phone: '0502223344', defaultFloat: 1500, shiftEndTime: '01:30', isActive: true, autoClosingReminderEnabled: true, inAppReminderEnabled: true, emailReminderEnabled: false, reminderBeforeMinutes: 45, managerEmails: 'finance@restaurant.sa' },
-    { id: 'b-03', name: 'فرع الكورنيش', city: 'جدة', managerName: 'ماجد الزهراني', phone: '0503334455', defaultFloat: 1800, shiftEndTime: '02:30', isActive: true, autoClosingReminderEnabled: false, inAppReminderEnabled: true, emailReminderEnabled: false, reminderBeforeMinutes: 15, managerEmails: '' }
-  ];
-  const users = [
-    { id: 'u-gm', name: 'عبدالله المالك', email: 'admin@restaurant.sa', role: 'general_management', pin: '1234', isActive: true, createdAt: '2026-01-01' },
-    { id: 'u-fin', name: 'نورة الحربي', email: 'finance@restaurant.sa', role: 'finance_department', pin: '1234', allowedBranchIds: ['b-01', 'b-02', 'b-03'], isActive: true, createdAt: '2026-01-01' },
-    { id: 'u-b1', name: 'أحمد العلي', email: 'malqa@restaurant.sa', role: 'branch_manager', pin: '1234', branchId: 'b-01', isActive: true, createdAt: '2026-01-02' },
-    { id: 'u-b2', name: 'سعد القحطاني', email: 'nakheel@restaurant.sa', role: 'branch_manager', pin: '1234', branchId: 'b-02', isActive: true, createdAt: '2026-01-02' },
-    { id: 'u-b3', name: 'ماجد الزهراني', email: 'jeddah@restaurant.sa', role: 'branch_manager', pin: '1234', branchId: 'b-03', isActive: true, createdAt: '2026-01-05' }
-  ];
-  const names = ['خالد السبيعي', 'محمد الشمري', 'فيصل الدوسري', 'ياسر العتيبي', 'تركي المطيري', 'بدر الغامدي', 'عمر الحارثي', 'سلطان الرشيد', 'راكان البقمي'];
-  const jobs = ['كاشير', 'شيف', 'مساعد شيف', 'مشرف صالة', 'عامل توصيل', 'مسؤول مخزن'];
-  const employees = names.map((n, i) => ({
-    id: 'e-' + (i + 1), name: n, branchId: branches[i % 3].id, branchName: branches[i % 3].name,
-    jobTitle: jobs[i % jobs.length], baseSalary: 3200 + (i % 5) * 600, housingAllowance: 400,
-    phone: '05' + (10000000 + i * 111111), status: 'active', hireDate: '2025-0' + ((i % 8) + 1) + '-15'
-  }));
+function emptyOrg(company) {
   return {
-    company: { name: 'مجموعة مذاق الشرق للمطاعم', activity: 'مطاعم ومقاهي', taxNumber: '3001234567890003', commercialReg: '1010456789', phone: '0112345678', address: 'الرياض — طريق الملك فهد' },
-    branches, users, employees,
-    expenseCats: EXP_CATS.map(c => ({ ...c, budgetLimitMonthly: { ec1: 60000, ec2: 45000, ec3: 9000, ec4: 8000, ec5: 9000, ec6: 60000, ec7: 5000, ec8: 3000 }[c.id] || 5000 })),
+    company: company || {
+      name: '', activity: 'مطاعم ومقاهي', taxNumber: '', commercialReg: '',
+      phone: '', email: '', address: '', logoUrl: ''
+    },
+    branches: [],
+    users: [],
+    employees: [],
+    expenseCats: EXP_CATS.map(c => ({ ...c, budgetLimitMonthly: 0 })),
     deliveryApps: APPS,
-    suppliers: [
-      { id: 'sp-1', name: 'مؤسسة الخيرات للتموين', category: 'مواد غذائية', phone: '0553334441', vatNo: '3001112223330003', terms: 30, isActive: true },
-      { id: 'sp-2', name: 'شركة الألبان الوطنية', category: 'ألبان وأجبان', phone: '0553334442', vatNo: '3001112223340003', terms: 15, isActive: true },
-      { id: 'sp-3', name: 'مصنع التغليف الحديث', category: 'مواد تغليف', phone: '0553334443', vatNo: '3001112223350003', terms: 45, isActive: true },
-      { id: 'sp-4', name: 'ورشة التبريد المتخصصة', category: 'صيانة', phone: '0553334444', vatNo: '3001112223360003', terms: 7, isActive: true }
-    ]
+    suppliers: [],
+    setupComplete: false
   };
 }
 
-function seedOps(org) {
-  const closings = [], transfers = [], advances = [], notifications = [];
-  const base = new Date();
-  for (let d = 20; d >= 0; d--) {
-    const dt = new Date(base); dt.setDate(dt.getDate() - d);
-    const ds = dt.toISOString().slice(0, 10);
-    org.branches.forEach((b, bi) => {
-      const s = d * 7 + bi * 31;
-      const weekend = [4, 5].includes(dt.getDay()) ? 1.28 : 1;
-      const cash = Math.round((2600 + rnd(s) * 2200) * weekend);
-      const card = Math.round((5200 + rnd(s + 1) * 3800) * weekend);
-      const bank = d % 6 === 0 ? Math.round(600 + rnd(s + 9) * 900) : 0;
-      const delivery = APPS.map((a, ai) => {
-        const amt = Math.round((700 + rnd(s + ai + 3) * 1500) * weekend);
-        return { appId: a.id, appName: a.n, amount: amt, orderCount: Math.round(amt / 62), commissionPercentage: a.c, commissionAmount: Math.round(amt * a.c) / 100 };
-      });
-      const totalDelivery = sum(delivery, x => x.amount);
-      const exps = [
-        { id: uid('x'), categoryId: 'ec1', categoryName: 'مشتريات مواد خام', amount: Math.round(900 + rnd(s + 5) * 1400), paymentMethod: 'cash', beneficiaryName: 'مؤسسة الخيرات للتموين', isTaxable: true },
-        { id: uid('x'), categoryId: 'ec7', categoryName: 'نظافة ومستهلكات', amount: Math.round(120 + rnd(s + 6) * 260), paymentMethod: 'cash', beneficiaryName: 'سوق الجملة', isTaxable: true },
-        { id: uid('x'), categoryId: 'ec4', categoryName: 'صيانة وتشغيل', amount: d % 4 === 0 ? Math.round(200 + rnd(s + 7) * 500) : 0, paymentMethod: 'card', beneficiaryName: 'ورشة التبريد', isTaxable: true }
-      ].filter(e => e.amount > 0);
-      const cashExp = sum(exps.filter(e => e.paymentMethod === 'cash'), e => e.amount);
-      const cardExp = sum(exps.filter(e => e.paymentMethod === 'card'), e => e.amount);
-      const opening = b.defaultFloat;
-      const expected = opening + cash - cashExp;
-      const varr = d < 3 && bi === 1 ? -Math.round(20 + rnd(s + 8) * 90) : (rnd(s + 11) > 0.82 ? Math.round((rnd(s + 12) - 0.5) * 70) : 0);
-      const actual = expected + varr;
-      const den = emptyDenoms();
-      let rem = Math.max(0, Math.round(actual));
-      DENOMS.forEach(dn => { if (dn.v >= 1) { den[dn.k] = Math.floor(rem / dn.v); rem -= den[dn.k] * dn.v; } });
-      den.coins = Math.round(rem * 2);
-      const transfer = Math.max(0, Math.round(actual - opening));
-      const totalRev = cash + card + bank + totalDelivery;
-      const st = d <= 1 ? (bi === 0 ? 'submitted' : 'draft') : (d <= 3 ? 'submitted' : 'approved');
-      const cl = {
-        id: 'cl-' + b.id + '-' + ds, date: ds, branchId: b.id, branchName: b.name, managerName: b.managerName,
-        openingBalance: opening, cashSales: cash, cardSales: card, bankTransferSales: bank,
-        deliverySales: delivery, totalDeliverySales: totalDelivery, otherRevenues: [], totalOtherRevenues: 0,
-        totalRevenue: totalRev, expenses: exps, totalExpenses: sum(exps, e => e.amount),
-        totalCashExpenses: cashExp, totalCardExpenses: cardExp,
-        expectedCashInSafe: expected, actualCashCount: actual, denominationDetails: den,
-        variance: varr, varianceReason: varr < 0 ? 'فرق باقي عملاء غير موثق' : '',
-        transferredToMainTreasury: transfer, retainedFloatForTomorrow: Math.max(0, actual - transfer),
-        transferReferenceNo: 'TR-' + ds.replace(/-/g, '') + '-' + b.id.slice(-2),
-        transferStatus: d > 3 ? 'received' : 'pending',
-        status: st,
-        auditedBy: d > 3 ? 'نورة الحربي' : '', auditedAt: d > 3 ? ds + 'T09:00:00Z' : '',
-        gmApprovalStatus: d > 5 ? 'approved' : 'pending', gmApprovedBy: d > 5 ? 'عبدالله المالك' : '',
-        createdBy: b.managerName, createdAt: ds + 'T22:30:00Z', updatedAt: ds + 'T22:30:00Z'
-      };
-      closings.push(cl);
-      if (transfer > 0 && st !== 'draft') {
-        transfers.push({
-          id: uid('tr'), closingId: cl.id, date: ds, branchId: b.id, branchName: b.name,
-          amount: transfer, referenceNo: cl.transferReferenceNo, status: cl.transferStatus,
-          receivedBy: cl.transferStatus === 'received' ? 'نورة الحربي' : '', receivedAt: cl.transferStatus === 'received' ? ds + 'T10:00:00Z' : ''
-        });
-      }
-    });
-  }
-  const month = today().slice(0, 7);
-  org.employees.forEach((e, i) => {
-    if (i % 2 === 0) {
-      const b = org.branches.find(x => x.id === e.branchId);
-      advances.push({
-        id: uid('ad'), employeeId: e.id, employeeName: e.name, branchId: e.branchId, branchName: b?.name || '',
-        date: month + '-0' + ((i % 8) + 1), month, type: i % 4 === 0 ? 'advance' : 'salary_draw',
-        amount: 300 + (i % 4) * 250, reason: i % 4 === 0 ? 'سلفة ظروف عائلية' : 'مسحوبة على الراتب',
-        paymentMethod: 'cash', isUnjustified: i === 4, createdByName: b?.managerName || '', createdAt: nowISO()
-      });
-    }
-  });
-  notifications.push({
-    id: uid('n'), type: 'gm_approval', title: 'إغلاقات بانتظار الاعتماد',
-    message: 'يوجد إغلاقات مرحّلة تنتظر تدقيق الإدارة المالية والاعتماد النهائي.',
-    severity: 'medium', date: today(), createdAt: nowISO(), isRead: false
-  });
-  const invoices = [];
-  const sups = ['sp-1', 'sp-2', 'sp-3', 'sp-4'];
-  const supNames = { 'sp-1': 'مؤسسة الخيرات للتموين', 'sp-2': 'شركة الألبان الوطنية', 'sp-3': 'مصنع التغليف الحديث', 'sp-4': 'ورشة التبريد المتخصصة' };
-  for (let i = 0; i < 14; i++) {
-    const b = org.branches[i % 3];
-    const dt = new Date(); dt.setDate(dt.getDate() - (i * 3 + 1));
-    const ds = dt.toISOString().slice(0, 10);
-    const due = new Date(dt); due.setDate(due.getDate() + [30, 15, 45, 7][i % 4]);
-    const amt = Math.round(1200 + rnd(i * 13) * 5400);
-    const paid = i % 3 === 0 ? amt : (i % 3 === 1 ? Math.round(amt / 2) : 0);
-    invoices.push({
-      id: uid('inv'), supplierId: sups[i % 4], supplierName: supNames[sups[i % 4]],
-      branchId: b.id, branchName: b.name, invoiceNo: 'INV-' + (24010 + i),
-      date: ds, dueDate: due.toISOString().slice(0, 10), amount: amt,
-      paidAmount: paid, isTaxable: true, notes: ''
-    });
-  }
-  const fixedExpenses = [];
-  org.branches.forEach((b, i) => {
-    fixedExpenses.push({
-      id: uid('fx'), branchId: b.id, branchName: b.name, month,
-      rentAmount: 18000 + i * 4000, electricityBill: 2400 + i * 300, waterBill: 480,
-      internetBill: 399, otherBills: 650, dueDayOfMonth: 25, isPaid: i === 0, paidDate: i === 0 ? month + '-05' : ''
-    });
-  });
-  const disbursements = [
-    { id: uid('ds'), date: today(), category: 'توريد مواد خام مركزي', amount: 12500, beneficiary: 'مؤسسة الخيرات للتموين', method: 'bank_transfer', reference: 'PO-88120', by: 'نورة الحربي', createdAt: nowISO() },
-    { id: uid('ds'), date: today(), category: 'إيجارات الفروع', amount: 22000, beneficiary: 'شركة الأملاك العقارية', method: 'bank_transfer', reference: 'RENT-08', by: 'نورة الحربي', createdAt: nowISO() },
-    { id: uid('ds'), date: today(), category: 'صرف رواتب', amount: 31200, beneficiary: 'كشف رواتب الشهر', method: 'bank_transfer', reference: 'PAY-08', by: 'عبدالله المالك', createdAt: nowISO() }
-  ];
-  return { closings, transfers, advances, notifications, invoices, fixedExpenses, disbursements };
+function emptyOps() {
+  return { closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [] };
 }
+
 
 /* ================= الجذر ================= */
 export default function App() {
@@ -265,6 +147,8 @@ export default function App() {
   const [tour, setTour] = useState(false);
   const [live, setLive] = useState(false);
   const [offline, setOffline] = useState(typeof navigator !== 'undefined' && navigator.onLine === false);
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const [installed, setInstalled] = useState(false);
   const sid = useRef(uid('s'));
 
   const say = useCallback((msg, kind) => {
@@ -272,20 +156,19 @@ export default function App() {
     setTimeout(() => setToast(null), 3200);
   }, []);
 
-  /* --- الإقلاع وتهيئة السحابة --- */
+  /* --- الإقلاع: نسخة حية، تُهيّأ فارغة عند أول استخدام --- */
   useEffect(() => {
     (async () => {
       let o = await cloud.get(KEYS.org, null);
       if (!o || !o.branches) {
-        o = seedOrg();
-        const seeded = seedOps(o);
+        o = emptyOrg();
         await cloud.set(KEYS.org, o);
-        await cloud.set(KEYS.ops, seeded);
+        await cloud.set(KEYS.ops, emptyOps());
         await cloud.set(KEYS.pulse, { presence: {}, audit: [] });
-        setOps(seeded);
+        setOps(emptyOps());
       } else {
         const p = await cloud.get(KEYS.ops, null);
-        setOps(p || { closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [] });
+        setOps(p || emptyOps());
       }
       setOrg(o);
       setPulse(await cloud.get(KEYS.pulse, { presence: {}, audit: [] }));
@@ -299,6 +182,30 @@ export default function App() {
     window.addEventListener('online', on); window.addEventListener('offline', off);
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
   }, []);
+
+  useEffect(() => {
+    const bip = (e) => { e.preventDefault(); setInstallPrompt(e); };
+    const done = () => { setInstalled(true); setInstallPrompt(null); };
+    const standalone = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
+    if (standalone || window.navigator.standalone) setInstalled(true);
+    window.addEventListener('beforeinstallprompt', bip);
+    window.addEventListener('appinstalled', done);
+    return () => { window.removeEventListener('beforeinstallprompt', bip); window.removeEventListener('appinstalled', done); };
+  }, []);
+
+  const doInstall = useCallback(async () => {
+    if (!installPrompt) {
+      const iOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+      say(iOS
+        ? 'على آيفون: اضغط زر المشاركة في المتصفح ثم «إضافة إلى الشاشة الرئيسية»'
+        : 'لتثبيت التطبيق: افتح قائمة المتصفح واختر «تثبيت التطبيق» أو «Install app»', 'ok');
+      return;
+    }
+    installPrompt.prompt();
+    const res = await installPrompt.userChoice;
+    if (res.outcome === 'accepted') say('تم تثبيت التطبيق على جهازك');
+    setInstallPrompt(null);
+  }, [installPrompt, say]);
 
   /* --- المزامنة الدورية + الحضور --- */
   const snap = useRef({});
@@ -415,12 +322,14 @@ export default function App() {
   }, [org, me, say]);
 
   const resetAll = useCallback(async () => {
-    const o = seedOrg(); const p = seedOps(o);
+    if (!window.confirm('سيُحذف كل ما أدخلته نهائياً (الإغلاقات، الموظفون، الموردون) وتعود المنصة فارغة. هل أنت متأكد؟')) return;
+    const keepCompany = org?.company;
+    const o = emptyOrg(keepCompany); const p = emptyOps();
     await cloud.set(KEYS.org, o); await cloud.set(KEYS.ops, p);
     await cloud.set(KEYS.pulse, { presence: {}, audit: [] });
     setOrg(o); setOps(p); setPulse({ presence: {}, audit: [] });
-    say('تمت إعادة ضبط بيانات المنصة إلى الحالة التأسيسية');
-  }, [say]);
+    say('تمت إعادة المنصة إلى الوضع الفارغ');
+  }, [say, org]);
 
   /* --- نطاق الفروع حسب الدور --- */
   const myBranches = useMemo(() => {
@@ -452,8 +361,15 @@ export default function App() {
     );
   }
 
+  // أول تشغيل: لا يوجد أي مستخدم بعد → شاشة التسجيل الأولي لإنشاء حساب المالك
+  if ((org.users || []).length === 0) {
+    return <FirstRun css={CSS} theme={theme} commitOrg={commitOrg} say={say}
+      onDone={(u) => { setMe(u); setTab('admin'); }} />;
+  }
+
   if (!me) {
-    return <Gate css={CSS} theme={theme} org={org} onLogin={(u) => { setMe(u); setTab('dash'); setTour(true); }}
+    return <Gate css={CSS} theme={theme} org={org}
+      onLogin={(u) => { setMe(u); setTab('dash'); }}
       online={Object.values(pulse.presence || {}).filter(p => Date.now() - p.at < 70000)} />;
   }
 
@@ -507,11 +423,16 @@ export default function App() {
               </div>
               <button className="btn sm gh" onClick={() => setMe(null)} title="خروج"><LogOut size={13} /></button>
             </div>
+            {!installed && (
+              <button className="nav-i" onClick={doInstall} style={{ fontSize: 11.5, color: 'var(--brass)' }}>
+                <Download size={14} />تثبيت التطبيق على الجهاز
+              </button>
+            )}
             <button className="nav-i" onClick={() => setTour(true)} style={{ fontSize: 11.5 }}>
               <Compass size={14} />جولة تعريفية في المنصة
             </button>
             <button className="nav-i" onClick={resetAll} style={{ fontSize: 11.5 }}>
-              <RefreshCw size={14} />إعادة ضبط بيانات العرض
+              <Trash2 size={14} />تفريغ بيانات المنصة
             </button>
           </div>
         </aside>
@@ -604,22 +525,45 @@ export default function App() {
 }
 
 /* ================= بوابة الدخول ================= */
-function Gate({ css, org, onLogin, online, theme }) {
-  const [sel, setSel] = useState(null);
-  const [pin, setPin] = useState(['', '', '', '']);
-  const [err, setErr] = useState('');
-  const refs = [useRef(), useRef(), useRef(), useRef()];
+function BrandHead({ title, sub }) {
+  return (
+    <div style={{ textAlign: 'center', marginBottom: 24 }}>
+      <div className="brand-mark" style={{ width: 54, height: 54, margin: '0 auto 14px', fontSize: 19, borderRadius: 16 }}>
+        {(title || 'المنصة').trim().charAt(0) || 'م'}
+      </div>
+      <h1 style={{ fontSize: 20 }}>{title || 'منصة إغلاق وإدارة الفروع'}</h1>
+      <div style={{ color: 'var(--dim)', fontSize: 12.5, marginTop: 5 }}>{sub}</div>
+    </div>
+  );
+}
 
-  const type = (i, v) => {
-    if (!/^\d?$/.test(v)) return;
-    const n = [...pin]; n[i] = v; setPin(n); setErr('');
-    if (v && i < 3) refs[i + 1].current?.focus();
-    if (n.join('').length === 4) submit(n.join(''));
-  };
-  const submit = (code) => {
-    if (!sel) return;
-    if (code === (sel.pin || '1234')) onLogin(sel);
-    else { setErr('رمز الدخول غير صحيح — حاول مرة أخرى'); setPin(['', '', '', '']); refs[0].current?.focus(); }
+/* ================= التسجيل الأول (إنشاء حساب المالك) ================= */
+function FirstRun({ css, theme, commitOrg, say, onDone }) {
+  const [f, setF] = useState({ company: '', taxNumber: '', name: '', email: '', pass: '', pass2: '' });
+  const [busy, setBusy] = useState(false);
+  const set = (k, v) => setF(p => ({ ...p, [k]: v }));
+
+  const create = async () => {
+    if (!f.company.trim()) return say('اكتب اسم المنشأة', 'no');
+    if (!f.name.trim()) return say('اكتب اسمك', 'no');
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(f.email)) return say('أدخل بريداً إلكترونياً صحيحاً', 'no');
+    if (f.pass.length < 6) return say('كلمة السر يجب ألا تقل عن 6 أحرف', 'no');
+    if (f.pass !== f.pass2) return say('كلمتا السر غير متطابقتين', 'no');
+    setBusy(true);
+    const passHash = await sha(f.pass);
+    const owner = {
+      id: uid('u'), name: f.name.trim(), email: f.email.trim().toLowerCase(),
+      role: 'general_management', passHash, isActive: true, createdAt: today()
+    };
+    await commitOrg(d => ({
+      ...d,
+      company: { ...d.company, name: f.company.trim(), taxNumber: f.taxNumber.trim() },
+      users: [owner],
+      setupComplete: true
+    }), { actionType: 'create', targetType: 'user_account', targetId: owner.id, title: 'أنشأ حساب المالك وهيّأ المنصة', details: f.company.trim() });
+    setBusy(false);
+    say('تم إنشاء المنصة — أضف الآن فروعك ومستخدميك');
+    onDone(owner);
   };
 
   return (
@@ -627,77 +571,103 @@ function Gate({ css, org, onLogin, online, theme }) {
       <style dangerouslySetInnerHTML={{ __html: css }} />
       <div className="gate">
         <div className="gate-c">
-          <div style={{ textAlign: 'center', marginBottom: 26 }}>
-            <div className="brand-mark" style={{ width: 52, height: 52, margin: '0 auto 14px', fontSize: 18, borderRadius: 15 }}>مذ</div>
-            <h1 style={{ fontSize: 20 }}>{org.company.name}</h1>
-            <div style={{ color: 'var(--dim)', fontSize: 12.5, marginTop: 5 }}>
-              منصة سحابية متكاملة لإغلاق وإدارة فروع المطاعم
+          <BrandHead title="تهيئة المنصة لأول مرة" sub="أنشئ حساب المالك — سيكون لك وصول كامل لكل الشاشات" />
+          <div className="card">
+            <div className="lbl" style={{ marginBottom: 8 }}>بيانات المنشأة</div>
+            <Field label="اسم المنشأة">
+              <input className="inp" value={f.company} placeholder="مثال: مجموعة … للمطاعم" onChange={e => set('company', e.target.value)} />
+            </Field>
+            <Field label="الرقم الضريبي (اختياري الآن)">
+              <input className="inp n" value={f.taxNumber} placeholder="3xxxxxxxxxxxxx3" onChange={e => set('taxNumber', e.target.value)} />
+            </Field>
+            <hr className="hr" />
+            <div className="lbl" style={{ marginBottom: 8 }}>حساب المالك (المدير العام)</div>
+            <Field label="الاسم الكامل">
+              <input className="inp" value={f.name} onChange={e => set('name', e.target.value)} />
+            </Field>
+            <Field label="البريد الإلكتروني">
+              <input className="inp" type="email" style={{ direction: 'ltr', textAlign: 'right' }} value={f.email}
+                placeholder="owner@company.com" onChange={e => set('email', e.target.value)} />
+            </Field>
+            <div className="grid g2">
+              <Field label="كلمة السر">
+                <input className="inp" type="password" value={f.pass} onChange={e => set('pass', e.target.value)} />
+              </Field>
+              <Field label="تأكيد كلمة السر">
+                <input className="inp" type="password" value={f.pass2} onChange={e => set('pass2', e.target.value)} />
+              </Field>
             </div>
-            <div className="row" style={{ justifyContent: 'center', marginTop: 12 }}>
-              <span className="badge b-mint"><span className="dot" />{online.length} مستخدم متصل الآن</span>
-              <span className="badge b-dim"><Lock size={10} />بيانات مشتركة بين الجميع</span>
+            <button className="btn pri" style={{ width: '100%', marginTop: 6 }} disabled={busy} onClick={create}>
+              {busy ? <RefreshCw size={15} className="spin" /> : <Check size={15} />}
+              إنشاء المنصة والدخول
+            </button>
+            <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 12, lineHeight: 1.8, textAlign: 'center' }}>
+              كلمة السر تُخزَّن مجزّأة (SHA-256) ولا تُحفظ كنص. احتفظ بها — لا يمكن استرجاعها.
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
-          {!sel ? (
-            <div className="card">
-              <div className="card-t" style={{ marginBottom: 12 }}><Users size={15} />اختر حسابك للدخول</div>
-              {org.users.filter(u => u.isActive).map(u => {
-                const b = org.branches.find(x => x.id === u.branchId);
-                return (
-                  <button key={u.id} className="gate-u" onClick={() => { setSel(u); setTimeout(() => refs[0].current?.focus(), 80); }}>
-                    <div className="av" style={{ background: clr(org.users.indexOf(u)), margin: 0, width: 34, height: 34, fontSize: 13 }}>
-                      {u.name.charAt(0)}
-                    </div>
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600 }}>{u.name}</div>
-                      <div style={{ fontSize: 10.5, color: 'var(--faint)' }}>
-                        {ROLES[u.role].ar}{b ? ' • ' + b.name : ''}
-                      </div>
-                    </div>
-                    <ChevronLeft size={15} color="var(--faint)" />
-                  </button>
-                );
-              })}
-              <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 12, lineHeight: 1.7 }}>
-                افتح المنصة على جهاز آخر واختر حساباً مختلفاً — ستظهر تعديلات كل مستخدم لدى الباقين خلال ثوانٍ.
-              </div>
-            </div>
-          ) : (
-            <div className="card">
-              <div className="row" style={{ marginBottom: 18 }}>
-                <div className="av" style={{ background: clr(org.users.findIndex(u => u.id === sel.id)), margin: 0, width: 38, height: 38, fontSize: 14 }}>
-                  {sel.name.charAt(0)}
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 14, fontWeight: 600 }}>{sel.name}</div>
-                  <span className={'badge ' + ROLES[sel.role].badge} style={{ marginTop: 4 }}>{ROLES[sel.role].ar}</span>
-                </div>
-                <button className="btn sm gh" onClick={() => { setSel(null); setPin(['', '', '', '']); setErr(''); }}>
-                  <X size={14} />
+/* ================= بوابة الدخول (بريد وكلمة سر) ================= */
+function Gate({ css, org, onLogin, online, theme }) {
+  const [email, setEmail] = useState('');
+  const [pass, setPass] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [show, setShow] = useState(false);
+
+  const submit = async () => {
+    setErr(''); setBusy(true);
+    const u = (org.users || []).find(x => (x.email || '').toLowerCase() === email.trim().toLowerCase() && x.isActive);
+    if (!u) { setBusy(false); return setErr('لا يوجد حساب نشط بهذا البريد'); }
+    const h = await sha(pass);
+    // دعم الحسابات القديمة التي تملك pin بدل passHash
+    const ok = u.passHash ? u.passHash === h : (u.pin && u.pin === pass);
+    setBusy(false);
+    if (ok) onLogin(u);
+    else setErr('كلمة السر غير صحيحة');
+  };
+
+  return (
+    <div className={'rms' + (theme === 'lite' ? ' lite' : '')}>
+      <style dangerouslySetInnerHTML={{ __html: css }} />
+      <div className="gate">
+        <div className="gate-c">
+          <BrandHead title={org.company?.name || 'منصة إغلاق الفروع'} sub="منصة سحابية متكاملة لإغلاق وإدارة فروع المطاعم" />
+          <div className="row" style={{ justifyContent: 'center', marginBottom: 16 }}>
+            <span className="badge b-mint"><span className="dot" />{online.length} متصل الآن</span>
+            <span className="badge b-dim"><Lock size={10} />بيانات مشتركة ومؤمّنة</span>
+          </div>
+          <div className="card">
+            <Field label="البريد الإلكتروني">
+              <input className="inp" type="email" autoFocus style={{ direction: 'ltr', textAlign: 'right' }}
+                value={email} placeholder="you@company.com"
+                onChange={e => { setEmail(e.target.value); setErr(''); }}
+                onKeyDown={e => e.key === 'Enter' && submit()} />
+            </Field>
+            <Field label="كلمة السر">
+              <div style={{ position: 'relative' }}>
+                <input className="inp" type={show ? 'text' : 'password'} value={pass}
+                  onChange={e => { setPass(e.target.value); setErr(''); }}
+                  onKeyDown={e => e.key === 'Enter' && submit()} />
+                <button className="btn sm gh" style={{ position: 'absolute', insetInlineEnd: 4, top: 4, padding: '4px 8px' }}
+                  onClick={() => setShow(s => !s)} tabIndex={-1}>
+                  <Eye size={14} />
                 </button>
               </div>
-              <div className="lbl" style={{ textAlign: 'center', marginBottom: 12 }}>أدخل رمز الدخول السريع</div>
-              <div className="pin">
-                {pin.map((p, i) => (
-                  <input key={i} ref={refs[i]} className="num" value={p} inputMode="numeric" maxLength={1}
-                    type="password" onChange={e => type(i, e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Backspace' && !pin[i] && i > 0) refs[i - 1].current?.focus(); }} />
-                ))}
-              </div>
-              {err && <div style={{ color: 'var(--rose)', fontSize: 11.5, textAlign: 'center', marginTop: 12 }}>{err}</div>}
-              <div style={{ textAlign: 'center', marginTop: 16, fontSize: 11, color: 'var(--faint)' }}>
-                رمز العرض التجريبي: <span className="num" style={{ color: 'var(--brass)' }}>1234</span>
-              </div>
-              <hr className="hr" />
-              <div className="lbl">صلاحيات هذا الدور</div>
-              {ROLES[sel.role].perms.map((p, i) => (
-                <div key={i} style={{ fontSize: 11.5, color: 'var(--dim)', display: 'flex', gap: 7, marginBottom: 5 }}>
-                  <Check size={13} color="var(--mint)" style={{ flexShrink: 0, marginTop: 3 }} />{p}
-                </div>
-              ))}
+            </Field>
+            {err && <div style={{ color: 'var(--rose)', fontSize: 12, textAlign: 'center', marginBottom: 10 }}>{err}</div>}
+            <button className="btn pri" style={{ width: '100%' }} disabled={busy || !email || !pass} onClick={submit}>
+              {busy ? <RefreshCw size={15} className="spin" /> : <Lock size={15} />}
+              دخول
+            </button>
+            <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 14, lineHeight: 1.7, textAlign: 'center' }}>
+              نسيت كلمة السر؟ راجع المدير العام لإعادة تعيينها من إدارة المستخدمين.
             </div>
-          )}
+          </div>
         </div>
       </div>
     </div>
@@ -785,6 +755,45 @@ function Notifications({ ops, commit, onClose }) {
 function Dashboard({ org, ops, pulse, me, myBranches, scoped, online, setTab, theme }) {
   const [days, setDays] = useState(14);
   const tn = chartTone(theme);
+
+  // منصة جديدة بلا فروع بعد → دليل البدء
+  if ((org.branches || []).length === 0) {
+    const steps = [
+      { n: 1, t: 'أضف فروعك', d: 'سجّل كل فرع باسمه ومدينته والعهدة الافتتاحية.', to: 'admin', ic: Building2, done: false },
+      { n: 2, t: 'أنشئ حسابات المستخدمين', d: 'مدير لكل فرع، ومحاسب للإدارة المالية — بريد وكلمة سر لكل منهم.', to: 'admin', ic: Users, done: false },
+      { n: 3, t: 'أضف الموظفين', d: 'لتفعيل كشوف الرواتب والسلف.', to: 'admin', ic: UserCog, done: (org.employees || []).length > 0 },
+      { n: 4, t: 'سجّل أول إغلاق يومي', d: 'ابدأ التشغيل الفعلي بإغلاق وردية.', to: 'closing', ic: ClipboardCheck, done: false }
+    ];
+    return (
+      <div className="grid" style={{ gap: 14 }}>
+        <div className="card" style={{ borderColor: 'rgba(200,162,74,.3)' }}>
+          <h2 style={{ fontSize: 18, marginBottom: 6 }}>مرحباً {me.name.split(' ')[0]} — لنبدأ التهيئة</h2>
+          <div style={{ fontSize: 12.5, color: 'var(--dim)', lineHeight: 1.9 }}>
+            هذه منصة حية جديدة بلا بيانات تجريبية. أكمل الخطوات التالية لتشغيلها. كل ما تدخله يُحفظ سحابياً ويظهر لبقية المستخدمين فوراً.
+          </div>
+        </div>
+        <div className="grid g2">
+          {steps.map(st => (
+            <div key={st.n} className="card" style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+              <div className="brand-mark" style={{ width: 38, height: 38, borderRadius: 11, flexShrink: 0,
+                background: st.done ? 'linear-gradient(145deg,#4FB286,#2E8B62)' : 'linear-gradient(145deg,var(--brass),var(--brass-d))' }}>
+                {st.done ? <Check size={18} /> : <st.ic size={17} />}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="row" style={{ justifyContent: 'space-between' }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 600 }}>الخطوة {st.n}: {st.t}</div>
+                  {st.done && <span className="badge b-mint">تم</span>}
+                </div>
+                <div style={{ fontSize: 11.5, color: 'var(--dim)', margin: '5px 0 10px', lineHeight: 1.7 }}>{st.d}</div>
+                <button className="btn sm pri" onClick={() => setTab(st.to)}>ابدأ</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   const cls = scoped.closings;
   const from = new Date(); from.setDate(from.getDate() - days);
   const fromS = from.toISOString().slice(0, 10);
@@ -1215,6 +1224,17 @@ function ClosingForm({ org, me, branches, initial, commit, say, onClose, existin
             <Num label="مبيعات الشبكة (مدى/فيزا)" value={f.cardSales} onChange={v => set('cardSales', v)} />
           </div>
           <Num label="مبيعات تحويل بنكي مباشر" value={f.bankTransferSales} onChange={v => set('bankTransferSales', v)} />
+          {(f.cardSales > 0 || f.bankTransferSales > 0) && (
+            <div className="card" style={{ background: 'var(--ink)', padding: 12, marginTop: 4 }}>
+              <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                <div>
+                  <div style={{ fontSize: 12.5, fontWeight: 600 }}>إثبات تحصيل الشبكة / التحويل</div>
+                  <div style={{ fontSize: 10.5, color: 'var(--faint)' }}>صورة إشعار الشبكة أو سند التحويل — اختياري لكنه يوثّق المبلغ</div>
+                </div>
+                <PhotoField value={f.cardReceiptImage} onChange={v => set('cardReceiptImage', v)} say={say} />
+              </div>
+            </div>
+          )}
           <hr className="hr" />
           <div className="lbl" style={{ marginBottom: 10 }}>مبيعات تطبيقات التوصيل</div>
           {f.deliverySales.map((d, i) => (
@@ -1273,6 +1293,8 @@ function ClosingForm({ org, me, branches, initial, commit, say, onClose, existin
                     onChange={ev => upExp(e.id, 'receiptNumber', ev.target.value)} />
                 </Field>
               </div>
+              <PhotoField label="صورة الفاتورة / الإيصال" value={e.receiptImage}
+                onChange={v => upExp(e.id, 'receiptImage', v)} say={say} />
               <div className="row" style={{ justifyContent: 'space-between' }}>
                 <span className="badge b-dim">
                   {e.isTaxable ? <>ضريبة 15% ≈ <span className="num">{money(e.amount * 15 / 115)}</span></> : 'غير خاضع للضريبة'}
@@ -1411,11 +1433,24 @@ function ClosingView({ c, onClose }) {
             <Row key={d.appId} k={`${d.appName} (${d.orderCount} طلب)`} v={money(d.amount)} />
           ))}
           <Row k="الإجمالي" v={money(c.totalRevenue)} color="var(--brass)" />
+          {c.cardReceiptImage && (
+            <div style={{ marginTop: 8 }}>
+              <div className="lbl">إثبات الشبكة / التحويل</div>
+              <img src={c.cardReceiptImage} alt="إثبات"
+                onClick={() => window.open().document.write('<img src="'+c.cardReceiptImage+'" style="max-width:100%">')}
+                style={{ width: '100%', maxHeight: 160, objectFit: 'contain', borderRadius: 8, background: '#000', cursor: 'zoom-in' }} />
+            </div>
+          )}
         </div>
         <div className="card" style={{ background: 'var(--ink)' }}>
           <div className="card-t" style={{ marginBottom: 8, fontSize: 12.5 }}>المصروفات</div>
           {(c.expenses || []).map(e => (
-            <Row key={e.id} k={`${e.categoryName}${e.beneficiaryName ? ' — ' + e.beneficiaryName : ''}`} v={money(e.amount)} />
+            <div key={e.id}>
+              <Row k={`${e.categoryName}${e.beneficiaryName ? ' — ' + e.beneficiaryName : ''}`} v={money(e.amount)} />
+              {e.receiptImage && <img src={e.receiptImage} alt="إيصال"
+                onClick={() => window.open().document.write('<img src="'+e.receiptImage+'" style="max-width:100%">')}
+                style={{ width: 42, height: 42, objectFit: 'cover', borderRadius: 6, margin: '2px 0 8px', cursor: 'zoom-in', border: '1px solid var(--line)' }} />}
+            </div>
           ))}
           {(!c.expenses || c.expenses.length === 0) && <div className="empty" style={{ padding: 18 }}>لا مصروفات</div>}
           <Row k="الإجمالي" v={money(c.totalExpenses)} color="var(--rose)" />
@@ -2100,11 +2135,18 @@ function Admin({ org, ops, commitOrg, say }) {
   };
   const saveUser = async (u) => {
     const isNew = !org.users.some(x => x.id === u.id);
-    await commitOrg(d => ({ ...d, users: isNew ? [...d.users, u] : d.users.map(x => x.id === u.id ? u : x) }), {
-      actionType: isNew ? 'create' : 'permission_change', targetType: 'user_account', targetId: u.id,
-      title: isNew ? 'أنشأ مستخدماً جديداً' : 'عدّل صلاحيات مستخدم', details: `${u.name} — ${ROLES[u.role].ar}`
+    const email = (u.email || '').trim().toLowerCase();
+    if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return say('أدخل بريداً إلكترونياً صحيحاً', 'no');
+    if (org.users.some(x => x.id !== u.id && (x.email || '').toLowerCase() === email)) return say('هذا البريد مستخدم بحساب آخر', 'no');
+    if (isNew && (!u.newPass || u.newPass.length < 6)) return say('كلمة سر الحساب الجديد يجب ألا تقل عن 6 أحرف', 'no');
+    const rec = { ...u, email };
+    if (u.newPass) { rec.passHash = await sha(u.newPass); }
+    delete rec.newPass; delete rec.pin;
+    await commitOrg(d => ({ ...d, users: isNew ? [...d.users, rec] : d.users.map(x => x.id === rec.id ? rec : x) }), {
+      actionType: isNew ? 'create' : 'permission_change', targetType: 'user_account', targetId: rec.id,
+      title: isNew ? 'أنشأ مستخدماً جديداً' : 'عدّل بيانات مستخدم', details: `${rec.name} — ${ROLES[rec.role].ar}`
     });
-    say(isNew ? 'تم إنشاء الحساب — يمكنه الدخول برمزه الآن' : 'تم تحديث الحساب'); setUEdit(null);
+    say(isNew ? 'تم إنشاء الحساب — يدخل ببريده وكلمة سره' : 'تم تحديث الحساب'); setUEdit(null);
   };
 
   return (
@@ -2125,7 +2167,7 @@ function Admin({ org, ops, commitOrg, say }) {
         {(tab === 'branches' || tab === 'users') && <button className="btn pri" style={{ marginInlineStart: 'auto' }}
           onClick={() => tab === 'branches'
             ? setBEdit({ id: uid('b'), name: '', city: '', managerName: '', phone: '', defaultFloat: 1500, shiftEndTime: '02:00', isActive: true })
-            : setUEdit({ id: uid('u'), name: '', email: '', role: 'branch_manager', pin: '1234', branchId: org.branches[0]?.id, allowedBranchIds: [], isActive: true, createdAt: today() })}>
+            : setUEdit({ id: uid('u'), name: '', email: '', role: 'branch_manager', newPass: '', branchId: org.branches[0]?.id, allowedBranchIds: [], isActive: true, createdAt: today() })}>
           <Plus size={15} />{tab === 'branches' ? 'فرع جديد' : 'مستخدم جديد'}
         </button>}
       </div>
@@ -2233,7 +2275,7 @@ function UserForm({ u, org, onSave, onClose }) {
         <button className="btn gh" onClick={onClose}>إلغاء</button></>}>
       <div className="grid g2">
         <Field label="الاسم الكامل"><input className="inp" value={f.name} onChange={e => set('name', e.target.value)} /></Field>
-        <Field label="البريد الإلكتروني"><input className="inp" value={f.email} onChange={e => set('email', e.target.value)} placeholder="name@restaurant.sa" /></Field>
+        <Field label="البريد الإلكتروني"><input className="inp" type="email" style={{ direction: 'ltr', textAlign: 'right' }} value={f.email} onChange={e => set('email', e.target.value)} placeholder="name@company.com" /></Field>
       </div>
       <Field label="الدور والصلاحية">
         <select className="sel" value={f.role} onChange={e => set('role', e.target.value)}>
@@ -2257,8 +2299,10 @@ function UserForm({ u, org, onSave, onClose }) {
           </div>
         </Field>
       )}
-      <Field label="رمز الدخول السريع (4 أرقام)">
-        <input className="inp n" maxLength={4} value={f.pin} onChange={e => set('pin', e.target.value.replace(/[^\d]/g, ''))} />
+      <Field label={u.name ? 'كلمة سر جديدة (اتركها فارغة للإبقاء على الحالية)' : 'كلمة السر'}>
+        <input className="inp" type="password" value={f.newPass || ''} placeholder={u.name ? 'بدون تغيير' : '٦ أحرف على الأقل'}
+          onChange={e => set('newPass', e.target.value)} />
+        {u.passHash && !f.newPass && <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 4 }}>للحساب كلمة سر محفوظة — لن تتغير ما لم تكتب واحدة جديدة.</div>}
       </Field>
       <div className="card" style={{ background: 'var(--ink)', padding: 12 }}>
         <div className="lbl">ما يستطيع هذا الدور فعله</div>
@@ -2761,8 +2805,12 @@ function SystemPanel({ org, ops, commit, commitOrg, say }) {
         </div>
         <div className="grid g2">
           <Field label="الهاتف"><input className="inp n" value={c.phone} onChange={e => set('phone', e.target.value)} /></Field>
-          <Field label="العنوان"><input className="inp" value={c.address} onChange={e => set('address', e.target.value)} /></Field>
+          <Field label="البريد الإلكتروني"><input className="inp" type="email" style={{ direction: 'ltr', textAlign: 'right' }} value={c.email || ''} onChange={e => set('email', e.target.value)} /></Field>
         </div>
+        <Field label="العنوان"><input className="inp" value={c.address} onChange={e => set('address', e.target.value)} /></Field>
+        <Field label="شعار المنشأة (يظهر في الإيصالات)">
+          <PhotoField value={c.logoUrl} onChange={v => set('logoUrl', v)} say={say} />
+        </Field>
         <button className="btn pri" onClick={saveCompany}><Check size={14} />حفظ بيانات المنشأة</button>
       </div>
 
@@ -2821,6 +2869,73 @@ function SystemPanel({ org, ops, commit, commitOrg, say }) {
 }
 
 /* ================= لوحة التوقيع الرقمي ================= */
+/* ================= حقل صورة: التقاط بالكاميرا أو رفع ملف ================= */
+function compressImage(file, max = 1000, quality = 0.6) {
+  return new Promise((resolve, reject) => {
+    const rd = new FileReader();
+    rd.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const sc = Math.min(1, max / Math.max(img.width, img.height));
+        const cv = document.createElement('canvas');
+        cv.width = Math.round(img.width * sc); cv.height = Math.round(img.height * sc);
+        cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+        resolve(cv.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = reject; img.src = String(rd.result);
+    };
+    rd.onerror = reject; rd.readAsDataURL(file);
+  });
+}
+
+function PhotoField({ label, value, onChange, say }) {
+  const cam = useRef(); const file = useRef();
+  const [busy, setBusy] = useState(false);
+  const [zoom, setZoom] = useState(false);
+
+  const pick = async (e) => {
+    const f = e.target.files?.[0]; e.target.value = '';
+    if (!f) return;
+    if (!f.type.startsWith('image/')) return say && say('يُقبل رفع الصور فقط', 'no');
+    setBusy(true);
+    try { onChange(await compressImage(f)); }
+    catch { say && say('تعذّرت معالجة الصورة', 'no'); }
+    setBusy(false);
+  };
+
+  return (
+    <div className="fld">
+      {label && <label className="lbl">{label}</label>}
+      {!value ? (
+        <div className="row">
+          <button type="button" className="btn sm" disabled={busy} onClick={() => cam.current?.click()}>
+            {busy ? <RefreshCw size={13} className="spin" /> : <Camera size={13} />}التقاط
+          </button>
+          <button type="button" className="btn sm gh" disabled={busy} onClick={() => file.current?.click()}>
+            <Upload size={13} />رفع صورة
+          </button>
+        </div>
+      ) : (
+        <div className="row" style={{ alignItems: 'center' }}>
+          <img src={value} alt="مرفق" onClick={() => setZoom(true)}
+            style={{ width: 54, height: 54, objectFit: 'cover', borderRadius: 8, cursor: 'zoom-in', border: '1px solid var(--line)' }} />
+          <span className="badge b-mint"><Check size={11} />مرفق</span>
+          <button type="button" className="btn sm gh" onClick={() => onChange('')}>
+            <Trash2 size={12} color="#D9544D" />إزالة
+          </button>
+        </div>
+      )}
+      <input ref={cam} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={pick} />
+      <input ref={file} type="file" accept="image/*" style={{ display: 'none' }} onChange={pick} />
+      {zoom && (
+        <div className="mask" onClick={() => setZoom(false)}>
+          <img src={value} alt="مرفق" style={{ maxWidth: '92%', maxHeight: '90vh', borderRadius: 12, background: '#000' }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SignaturePad({ value, onChange }) {
   const ref = useRef(null);
   const drawing = useRef(false);
