@@ -13,7 +13,7 @@ import {
   CartesianGrid, Tooltip, LineChart, Line
 } from 'recharts';
 import { CSS } from './styles';
-import { cloud, KEYS, kb } from './services/storage';
+import { cloud, KEYS, kb } from './storage';
 
 /* ============================================================
    منصة سحابية متكاملة لإدارة وإغلاق فروع المطاعم
