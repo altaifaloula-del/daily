@@ -13,13 +13,16 @@ export const CSS = `
   direction:rtl; background:var(--ink); color:var(--txt); min-height:100vh;
   font-family:'IBM Plex Sans Arabic','Readex Pro',system-ui,sans-serif;
   font-size:14px; line-height:1.6; -webkit-font-smoothing:antialiased;
+  overflow-x:hidden; max-width:100vw;
 }
+.rms *{max-width:100%}
+.rms .num{max-width:none}
 .rms h1,.rms h2,.rms h3,.rms h4{font-family:'Readex Pro','IBM Plex Sans Arabic',sans-serif;font-weight:600;margin:0;letter-spacing:-.01em}
 .num{font-family:'IBM Plex Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums;direction:ltr;display:inline-block}
 .rms button{font-family:inherit}
 
 /* ---- تخطيط ---- */
-.shell{display:flex;min-height:100vh}
+.shell{display:flex;min-height:100vh;width:100%;max-width:100vw;overflow-x:hidden}
 .side{
   width:250px;flex-shrink:0;background:var(--ink2);border-inline-start:1px solid var(--line);
   padding:18px 12px;display:flex;flex-direction:column;gap:4px;
@@ -44,28 +47,34 @@ export const CSS = `
 .nav-i.on{background:var(--ink3);color:var(--txt);border-color:var(--line);box-shadow:inset 3px 0 0 -1px var(--brass)}
 .nav-i .cnt{margin-inline-start:auto;font-size:10.5px;background:var(--brass);color:#1a1410;
   border-radius:20px;padding:1px 7px;font-weight:700}
-.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.main{flex:1;min-width:0;max-width:100%;display:flex;flex-direction:column;overflow-x:hidden}
 .top{
   display:flex;align-items:center;gap:12px;padding:12px 20px;
   border-bottom:1px solid var(--line);background:rgba(20,17,15,.9);
   backdrop-filter:blur(10px);position:sticky;top:0;z-index:30;flex-wrap:wrap
 }
-.page{padding:20px;max-width:1500px;width:100%}
+.page{padding:20px;max-width:1500px;width:100%;overflow-x:hidden}
 .hidden-desk{display:none}
 @media(max-width:900px){
   .side{position:fixed;inset-inline-end:0;top:0;z-index:60;width:82vw;max-width:300px;transform:translateX(105%);transition:.25s;box-shadow:-20px 0 40px rgba(0,0,0,.5)}
   .side.open{transform:translateX(0)}
   .hidden-desk{display:inline-flex}
   .page{padding:12px;padding-bottom:80px}
-  .top{padding:10px 12px;gap:8px}
-  .top h1{font-size:14px}
+  .top{padding:10px 12px;gap:6px;width:100%;max-width:100vw;overflow:hidden}
+  .top h1{font-size:13.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:1}
+  .top .row{gap:5px;flex-wrap:wrap;justify-content:flex-end}
+  .top .badge{font-size:9.5px;padding:2px 7px}
+  .top .btn.sm{padding:5px 7px}
+  .top .av{display:none}
+  .kpi-v{font-size:19px;overflow-wrap:anywhere}
 }
 
 .actbar{
   display:flex;align-items:center;gap:10px;
   background:linear-gradient(90deg,rgba(200,162,74,.16),rgba(200,162,74,.06));
   border-bottom:1px solid rgba(200,162,74,.35);
-  color:var(--brass);padding:9px 20px
+  color:var(--brass);padding:9px 20px;
+  width:100%;max-width:100vw;overflow:hidden;box-sizing:border-box
 }
 .actbar-dot{
   width:8px;height:8px;border-radius:50%;background:var(--brass);flex-shrink:0;
@@ -75,10 +84,15 @@ export const CSS = `
   0%,100%{opacity:1;transform:scale(1)}
   50%{opacity:.4;transform:scale(1.4)}
 }
-@media(max-width:640px){.actbar{padding:8px 12px}.actbar .btn.sm{padding:6px 9px}}
+@media(max-width:640px){.actbar{padding:8px 12px}.actbar .btn.sm{padding:5px 8px;font-size:11px}}
 
 /* ===================== تحسينات الجوال ===================== */
 @media(max-width:640px){
+  /* ضمان التفاف الصفوف ومنع تجاوز الحقول ذات العرض الثابت */
+  .card .row{flex-wrap:wrap}
+  .card .row > *{min-width:0}
+  .inp,.sel{max-width:100%}
+
   /* منع التكبير التلقائي عند التركيز على الحقول في iOS */
   .inp,.sel,textarea.inp{font-size:16px;padding:11px 12px}
   .note-i{font-size:16px}
@@ -101,9 +115,9 @@ export const CSS = `
   .card-h{gap:8px}
   .row{gap:8px}
 
-  /* الجداول: تمرير أفقي سلس مع تلميح */
-  .tw{margin:0 -13px;padding:0 13px;-webkit-overflow-scrolling:touch}
-  table.tb{min-width:560px}
+  /* الجداول: تمرير أفقي داخلي دون دفع الصفحة */
+  .tw{overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%;margin:0;padding:0}
+  table.tb{min-width:520px}
   .tb th,.tb td{padding:9px 8px}
 
   /* الفئات النقدية: عمودان بدل ثلاثة */
