@@ -1,0 +1,16 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // مستندات المنصة: مقروءة ومكتوبة للمستخدمين المصادَق عليهم فقط.
+    // فعّل Anonymous Authentication في Firebase حتى تعمل المنصة مع هذه القواعد.
+    match /platform/{docId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // امنع أي مسار آخر
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
