@@ -6,7 +6,8 @@ import {
   ArrowLeftRight, UserCog, Menu, RefreshCw, Lock, Radio, Download,
   ChevronLeft, Stamp, Landmark, Receipt, CalendarDays, Store, Eye, Send,
   Sparkles, Truck, Printer, HardDrive, Settings, FileText, Upload,
-  Camera, Image as ImageIcon, Clock, Timer, Compass
+  Camera, Image as ImageIcon, Clock, Timer, Compass,
+  Fingerprint, ScanFace, ShieldAlert, Video
 } from 'lucide-react';
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis,
@@ -24,6 +25,48 @@ const nowISO = () => new Date().toISOString();
 async function sha(text) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text + '::rms8'));
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/* ================= البصمة الحيوية عبر WebAuthn (بصمة/وجه الجهاز) ================= */
+const webauthnSupported = () =>
+  typeof window !== 'undefined' && !!(window.PublicKeyCredential && navigator.credentials);
+
+const b64 = {
+  enc: (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''),
+  dec: (str) => {
+    const s = str.replace(/-/g, '+').replace(/_/g, '/'); const pad = s.length % 4 ? '='.repeat(4 - s.length % 4) : '';
+    const bin = atob(s + pad); const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i); return arr.buffer;
+  }
+};
+
+// تسجيل بصمة الجهاز لمستخدم — يعيد معرّف الاعتماد ليُخزَّن على حسابه
+async function bioEnroll(user) {
+  if (!webauthnSupported()) throw new Error('الجهاز لا يدعم البصمة الحيوية');
+  const cred = await navigator.credentials.create({
+    publicKey: {
+      challenge: crypto.getRandomValues(new Uint8Array(32)),
+      rp: { name: 'منصة إغلاق الفروع', id: location.hostname },
+      user: { id: new TextEncoder().encode(user.id), name: user.email, displayName: user.name },
+      pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+      authenticatorSelection: { userVerification: 'required', authenticatorAttachment: 'platform' },
+      timeout: 60000, attestation: 'none'
+    }
+  });
+  return b64.enc(cred.rawId);
+}
+
+// التحقق ببصمة الجهاز مقابل معرّف مخزَّن
+async function bioVerify(credId) {
+  if (!webauthnSupported()) throw new Error('الجهاز لا يدعم البصمة الحيوية');
+  await navigator.credentials.get({
+    publicKey: {
+      challenge: crypto.getRandomValues(new Uint8Array(32)),
+      allowCredentials: [{ type: 'public-key', id: b64.dec(credId), transports: ['internal'] }],
+      userVerification: 'required', timeout: 60000, rpId: location.hostname
+    }
+  });
+  return true;
 }
 
 const money = (n) =>
@@ -143,6 +186,7 @@ export default function App() {
   const [boot, setBoot] = useState('loading');
   const [toast, setToast] = useState(null);
   const [bell, setBell] = useState(false);
+  const [lastSeenAudit, setLastSeenAudit] = useState(() => Date.now());
   const [theme, setTheme] = useState('dark');
   const [tour, setTour] = useState(false);
   const [live, setLive] = useState(false);
@@ -292,7 +336,7 @@ export default function App() {
     if (log && me) {
       const pu = (await cloud.get(KEYS.pulse, { presence: {}, audit: [] })) || { presence: {}, audit: [] };
       const entry = {
-        id: uid('lg'), timestamp: nowISO(), userName: me.name, userRole: me.role,
+        id: uid('lg'), timestamp: nowISO(), at: Date.now(), userName: me.name, userRole: me.role,
         userRoleLabel: ROLES[me.role].ar, ...log
       };
       const nx = { ...pu, audit: [entry, ...(pu.audit || [])].slice(0, 150) };
@@ -312,7 +356,7 @@ export default function App() {
     setOrg(next);
     if (log && me) {
       const pu = (await cloud.get(KEYS.pulse, { presence: {}, audit: [] })) || { presence: {}, audit: [] };
-      const entry = { id: uid('lg'), timestamp: nowISO(), userName: me.name, userRole: me.role, userRoleLabel: ROLES[me.role].ar, ...log };
+      const entry = { id: uid('lg'), timestamp: nowISO(), at: Date.now(), userName: me.name, userRole: me.role, userRoleLabel: ROLES[me.role].ar, ...log };
       const nx = { ...pu, audit: [entry, ...(pu.audit || [])].slice(0, 150) };
       await cloud.set(KEYS.pulse, nx);
       setPulse(nx);
@@ -376,6 +420,11 @@ export default function App() {
   const unread = (ops.notifications || []).filter(n => !n.isRead).length;
   const pending = scoped.closings.filter(c => c.status === 'submitted').length;
   const online = Object.values(pulse.presence || {}).filter(p => Date.now() - p.at < 70000);
+
+  // النشاط الجديد منذ آخر مشاهدة للسجل (تنبيه مستمر)
+  const auditLog = pulse.audit || [];
+  const newActivity = auditLog.filter(a => (a.at || Date.parse(a.timestamp) || 0) > lastSeenAudit && a.userName !== me.name);
+  const latestActivity = auditLog[0];
 
   const NAV = [
     { id: 'dash', ar: 'لوحة المؤشرات', icon: LayoutDashboard, roles: ['all'] },
@@ -482,6 +531,29 @@ export default function App() {
             </div>
           )}
 
+          {(newActivity.length > 0 || (unread > 0 && tab !== 'audit')) && (
+            <div className="actbar">
+              <div className="row" style={{ gap: 9, alignItems: 'center', flex: 1, minWidth: 0 }}>
+                <span className="actbar-dot" />
+                <Bell size={14} style={{ flexShrink: 0 }} />
+                <span style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {newActivity.length > 0
+                    ? <>نشاط جديد: <b>{latestActivity?.userName}</b> — {latestActivity?.title}
+                        {newActivity.length > 1 && <span className="num"> (+{newActivity.length - 1})</span>}</>
+                    : <>لديك <span className="num">{unread}</span> تنبيه بانتظار الاطلاع</>}
+                </span>
+              </div>
+              <div className="row" style={{ gap: 6, flexShrink: 0 }}>
+                <button className="btn sm gh" onClick={() => { setTab('audit'); setLastSeenAudit(Date.now()); }}>
+                  <Eye size={12} />سجل النشاط
+                </button>
+                <button className="btn sm gh" onClick={() => setLastSeenAudit(Date.now())} title="إخفاء">
+                  <X size={12} />
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="page">
             {tab === 'dash' && <Dashboard {...shared} online={online} />}
             {tab === 'closing' && <Closing {...shared} />}
@@ -494,18 +566,34 @@ export default function App() {
             {tab === 'ai' && <AiCenter {...shared} />}
             {tab === 'reports' && <Reports {...shared} />}
             {tab === 'admin' && <Admin {...shared} />}
-            {tab === 'audit' && <AuditView {...shared} />}
+            {tab === 'audit' && <AuditView {...shared} onSeen={() => setLastSeenAudit(Date.now())} />}
           </div>
 
           <div className="tick">
-            <span>الشركة: {org.company.name}</span>
-            <span>الرقم الضريبي: <span className="num">{org.company.taxNumber}</span></span>
+            <span>الشركة: {org.company.name || '—'}</span>
+            {org.company.taxNumber && <span>الرقم الضريبي: <span className="num">{org.company.taxNumber}</span></span>}
             <span>الفروع النشطة: <span className="num">{org.branches.filter(b => b.isActive).length}</span></span>
             <span>الإغلاقات المسجلة: <span className="num">{ops.closings.length}</span></span>
-            <span style={{ color: 'var(--mint)' }}>المزامنة السحابية فعّالة</span>
+            <span style={{ color: live ? 'var(--mint)' : 'var(--dim)' }}>{live ? 'مزامنة لحظية' : 'مزامنة دورية'}</span>
           </div>
         </div>
       </div>
+
+      {/* شريط تنقّل سفلي — يظهر على الجوال فقط */}
+      <nav className="botnav">
+        {NAV.slice(0, 4).map(n => (
+          <button key={n.id} className={'botnav-i' + (tab === n.id ? ' on' : '')} onClick={() => { setTab(n.id); setDrawer(false); }}>
+            <n.icon size={19} />
+            <span>{n.ar.split(' ')[0]}{n.ar.split(' ')[1] ? ' ' + n.ar.split(' ')[1] : ''}</span>
+            {n.cnt > 0 && <span className="bdg">{n.cnt}</span>}
+          </button>
+        ))}
+        <button className="botnav-i botnav-more" onClick={() => setDrawer(true)}>
+          <Menu size={19} />
+          <span>المزيد</span>
+          {unread > 0 && <span className="bdg">{unread}</span>}
+        </button>
+      </nav>
 
       {bell && <Notifications ops={ops} commit={commit} onClose={() => setBell(false)} />}
       {tour && <TourModal me={me} onClose={() => setTour(false)} go={(t) => { setTab(t); setTour(false); }} />}
@@ -618,6 +706,22 @@ function Gate({ css, org, onLogin, online, theme }) {
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const [show, setShow] = useState(false);
+  const [bioBusy, setBioBusy] = useState(false);
+  const bioUsers = (org.users || []).filter(u => u.isActive && u.bioCredId);
+
+  const bioLogin = async () => {
+    setErr(''); setBioBusy(true);
+    try {
+      // نطابق البصمة مع الحساب المرتبط بها. عند تعدد الحسابات ذات البصمة على الجهاز
+      // يكفي التحقق من أحدها؛ WebAuthn سيعرض المتاح على هذا الجهاز.
+      const target = bioUsers.find(u => (u.email || '').toLowerCase() === email.trim().toLowerCase()) || bioUsers[0];
+      await bioVerify(target.bioCredId);
+      onLogin(target);
+    } catch (e) {
+      setErr('تعذّر التحقق بالبصمة. استخدم البريد وكلمة السر، أو جرّب مجدداً.');
+    }
+    setBioBusy(false);
+  };
 
   const submit = async () => {
     setErr(''); setBusy(true);
@@ -664,6 +768,17 @@ function Gate({ css, org, onLogin, online, theme }) {
               {busy ? <RefreshCw size={15} className="spin" /> : <Lock size={15} />}
               دخول
             </button>
+            {bioUsers.length > 0 && webauthnSupported() && (
+              <>
+                <div className="row" style={{ justifyContent: 'center', margin: '12px 0', color: 'var(--faint)', fontSize: 11 }}>
+                  <span style={{ height: 1, background: 'var(--line)', flex: 1 }} /> أو <span style={{ height: 1, background: 'var(--line)', flex: 1 }} />
+                </div>
+                <button className="btn" style={{ width: '100%' }} disabled={bioBusy} onClick={bioLogin}>
+                  {bioBusy ? <RefreshCw size={15} className="spin" /> : <Fingerprint size={16} />}
+                  الدخول بالبصمة الحيوية
+                </button>
+              </>
+            )}
             <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 14, lineHeight: 1.7, textAlign: 'center' }}>
               نسيت كلمة السر؟ راجع المدير العام لإعادة تعيينها من إدارة المستخدمين.
             </div>
@@ -1086,7 +1201,7 @@ function Closing({ org, ops, me, myBranches, scoped, commit, say }) {
           existing={ops.closings || []}
           onClose={() => { setOpen(false); setEdit(null); }} />
       )}
-      {view && <ClosingView c={view} onClose={() => setView(null)} />}
+      {view && <ClosingView c={view} org={org} onClose={() => setView(null)} />}
     </div>
   );
 }
@@ -1101,6 +1216,7 @@ function ClosingForm({ org, me, branches, initial, commit, say, onClose, existin
     transferredToMainTreasury: 0, varianceReason: '', notes: ''
   });
   const [step, setStep] = useState(1);
+  const [cam, setCam] = useState(false);
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   const branch = org.branches.find(b => b.id === f.branchId);
 
@@ -1115,13 +1231,19 @@ function ClosingForm({ org, me, branches, initial, commit, say, onClose, existin
 
   const setDen = (k, v) => set('denominationDetails', { ...f.denominationDetails, [k]: Math.max(0, v) });
   const addExp = () => set('expenses', [...f.expenses, {
-    id: uid('x'), categoryId: 'ec1', categoryName: 'مشتريات مواد خام', amount: 0,
-    paymentMethod: 'cash', beneficiaryName: '', receiptNumber: '', isTaxable: true
+    id: uid('ex'), categoryId: (org.expenseCats || EXP_CATS)[0]?.id, categoryName: (org.expenseCats || EXP_CATS)[0]?.n,
+    amount: 0, paymentMethod: 'cash', beneficiaryName: '', receiptNumber: '',
+    isTaxable: true, taxInvoice: false
   }]);
   const upExp = (id, k, v) => set('expenses', f.expenses.map(e => {
     if (e.id !== id) return e;
     const n = { ...e, [k]: v };
-    if (k === 'categoryId') { const c = (org.expenseCats || EXP_CATS).find(x => x.id === v); n.categoryName = c?.n || ''; n.isTaxable = !!c?.taxable; }
+    if (k === 'categoryId') {
+      const c = (org.expenseCats || EXP_CATS).find(x => x.id === v);
+      n.categoryName = c?.n || '';
+      if (!e.taxTouched) n.isTaxable = !!c?.taxable; // احترام تعديل المستخدم اليدوي
+    }
+    if (k === 'isTaxable') n.taxTouched = true;
     return n;
   }));
 
@@ -1179,7 +1301,38 @@ function ClosingForm({ org, me, branches, initial, commit, say, onClose, existin
       title: status === 'submitted' ? 'رحّل إغلاق وردية' : 'حفظ مسودة إغلاق',
       details: `${rec.branchName} — ${arDate(f.date)} · إيراد ${money(totalRevenue)} · فرق ${money(variance)}`
     });
-    say(status === 'submitted' ? 'تم ترحيل الإغلاق للإدارة المالية' : 'تم حفظ المسودة');
+
+    // ترحيل صور الإغلاق إلى أرشيف المستندات، مرتّبة حسب الفرع واليوم
+    try {
+      const stamp = arDate(f.date);
+      const docs = [];
+      const push = (img, cat, catLabel, title, amount) => {
+        if (!img) return;
+        docs.push({
+          id: 'arc-' + id + '-' + cat + (docs.length),
+          title, category: cat, categoryLabelAr: catLabel,
+          branchId: f.branchId, branchName: rec.branchName,
+          fileUrl: img, fileType: 'image', fileName: title + '.jpg',
+          fileSizeKb: Math.round(img.length * 0.75 / 1024),
+          uploadDate: f.date, uploadedBy: me.name, amount: amount || 0,
+          closingId: id, source: 'closing', uploadedAt: nowISO()
+        });
+      };
+      push(f.cardReceiptImage, 'pos_settlement', 'إثبات شبكة/تحويل', `إثبات الشبكة — ${rec.branchName} ${stamp}`, rec.cardSales);
+      push(f.sessionPhoto, 'signature', 'توثيق المسؤول', `توثيق الإغلاق — ${rec.branchName} ${stamp}`, 0);
+      (f.expenses || []).forEach((e, i) => push(e.receiptImage, 'expense', 'فاتورة مصروف',
+        `${e.categoryName || 'مصروف'}${e.beneficiaryName ? ' — ' + e.beneficiaryName : ''} (${stamp})`, e.amount));
+
+      if (docs.length) {
+        const store = await cloud.get(KEYS.files, { items: [] });
+        const prevItems = (store && Array.isArray(store.items)) ? store.items : [];
+        // نحذف أي مرفقات سابقة لنفس الإغلاق (عند التعديل) ثم نضيف الحالية
+        const kept = prevItems.filter(x => x.closingId !== id);
+        await cloud.set(KEYS.files, { items: [...docs, ...kept].slice(0, 300) });
+      }
+    } catch (err) { /* الأرشفة تكميلية — لا توقف حفظ الإغلاق */ }
+
+    say(status === 'submitted' ? 'تم ترحيل الإغلاق ومرفقاته للأرشيف' : 'تم حفظ المسودة');
     onClose();
   };
 
@@ -1197,7 +1350,7 @@ function ClosingForm({ org, me, branches, initial, commit, say, onClose, existin
         <button className="btn gh" onClick={onClose}>إلغاء</button>
       </>}>
 
-      <div className="row" style={{ marginBottom: 16, gap: 6 }}>
+      <div className="row scroll-x" style={{ marginBottom: 16, gap: 6 }}>
         {steps.map((s, i) => (
           <button key={s} className={'btn sm' + (step === i + 1 ? ' pri' : ' gh')} onClick={() => setStep(i + 1)}>
             <span className="num">{i + 1}</span> {s}
@@ -1276,7 +1429,8 @@ function ClosingForm({ org, me, branches, initial, commit, say, onClose, existin
                 <Field label="طريقة الدفع">
                   <select className="sel" value={e.paymentMethod} onChange={ev => upExp(e.id, 'paymentMethod', ev.target.value)}>
                     <option value="cash">نقداً من الصندوق</option>
-                    <option value="card">شبكة</option>
+                    <option value="card">شبكة (نقاط بيع)</option>
+                    <option value="cheque">شيك</option>
                     <option value="bank_transfer">تحويل بنكي</option>
                     <option value="deferred">آجل (على الحساب)</option>
                   </select>
@@ -1288,23 +1442,74 @@ function ClosingForm({ org, me, branches, initial, commit, say, onClose, existin
                   <input className="inp" value={e.beneficiaryName || ''} placeholder="اسم الجهة"
                     onChange={ev => upExp(e.id, 'beneficiaryName', ev.target.value)} />
                 </Field>
-                <Field label="رقم الإيصال">
+                <Field label={e.paymentMethod === 'cheque' ? 'رقم الشيك' : e.paymentMethod === 'bank_transfer' ? 'مرجع التحويل' : 'رقم الإيصال'}>
                   <input className="inp" value={e.receiptNumber || ''} placeholder="اختياري"
                     onChange={ev => upExp(e.id, 'receiptNumber', ev.target.value)} />
                 </Field>
               </div>
+
+              {/* التصنيف الضريبي للمشتريات */}
+              <div className="grid g2" style={{ gap: 9 }}>
+                <div className="fld">
+                  <label className="lbl">التصنيف الضريبي</label>
+                  <div className="row" style={{ gap: 6 }}>
+                    <button type="button" className={'btn sm' + (e.isTaxable ? ' pri' : ' gh')}
+                      onClick={() => upExp(e.id, 'isTaxable', true)}>خاضع للضريبة</button>
+                    <button type="button" className={'btn sm' + (!e.isTaxable ? ' pri' : ' gh')}
+                      onClick={() => upExp(e.id, 'isTaxable', false)}>غير خاضع</button>
+                  </div>
+                </div>
+                {e.isTaxable && (
+                  <div className="fld">
+                    <label className="lbl">نوع الفاتورة</label>
+                    <div className="row" style={{ gap: 6 }}>
+                      <button type="button" className={'btn sm' + (e.taxInvoice ? ' pri' : ' gh')}
+                        onClick={() => upExp(e.id, 'taxInvoice', true)}>ضريبية</button>
+                      <button type="button" className={'btn sm' + (!e.taxInvoice ? ' pri' : ' gh')}
+                        onClick={() => upExp(e.id, 'taxInvoice', false)}>مبسّطة</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <PhotoField label="صورة الفاتورة / الإيصال" value={e.receiptImage}
                 onChange={v => upExp(e.id, 'receiptImage', v)} say={say} />
-              <div className="row" style={{ justifyContent: 'space-between' }}>
-                <span className="badge b-dim">
-                  {e.isTaxable ? <>ضريبة 15% ≈ <span className="num">{money(e.amount * 15 / 115)}</span></> : 'غير خاضع للضريبة'}
-                </span>
+              <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                <div className="row" style={{ gap: 6 }}>
+                  {e.isTaxable ? (
+                    <span className="badge b-brass">ض.ق.م 15% ≈ <span className="num">{money(e.amount * 15 / 115)}</span></span>
+                  ) : <span className="badge b-dim">غير خاضع للضريبة</span>}
+                  {e.isTaxable && e.taxInvoice && <span className="badge b-mint">فاتورة ضريبية</span>}
+                  {e.paymentMethod === 'deferred' && <span className="badge b-amber">آجل — على الحساب</span>}
+                  {e.paymentMethod === 'cheque' && <span className="badge b-sky">شيك</span>}
+                </div>
                 <button className="btn sm gh" onClick={() => set('expenses', f.expenses.filter(x => x.id !== e.id))}>
                   <Trash2 size={13} color="#D9544D" />حذف
                 </button>
               </div>
             </div>
           ))}
+          {f.expenses.length > 0 && (
+            <div className="card" style={{ background: 'var(--ink)', padding: 12, marginTop: 12 }}>
+              <div className="lbl" style={{ marginBottom: 8 }}>تحليل المشتريات</div>
+              <div className="grid g2" style={{ gap: 8 }}>
+                <div className="mono-b"><span style={{ fontSize: 11 }}>مشتريات خاضعة للضريبة</span>
+                  <span className="num">{money(sum(f.expenses.filter(e => e.isTaxable), e => e.amount))}</span></div>
+                <div className="mono-b"><span style={{ fontSize: 11 }}>مشتريات غير خاضعة</span>
+                  <span className="num">{money(sum(f.expenses.filter(e => !e.isTaxable), e => e.amount))}</span></div>
+                <div className="mono-b"><span style={{ fontSize: 11 }}>ض.ق.م القابلة للخصم</span>
+                  <span className="num" style={{ color: 'var(--mint)' }}>{money(sum(f.expenses.filter(e => e.isTaxable), e => e.amount) * 15 / 115)}</span></div>
+                <div className="mono-b"><span style={{ fontSize: 11 }}>مشتريات آجلة (ذمم)</span>
+                  <span className="num" style={{ color: 'var(--amber)' }}>{money(sum(f.expenses.filter(e => e.paymentMethod === 'deferred'), e => e.amount))}</span></div>
+              </div>
+              <div className="row" style={{ gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+                {[['cash', 'نقد'], ['card', 'شبكة'], ['cheque', 'شيك'], ['bank_transfer', 'تحويل'], ['deferred', 'آجل']].map(([pm, lbl]) => {
+                  const v = sum(f.expenses.filter(e => e.paymentMethod === pm), e => e.amount);
+                  return v > 0 ? <span key={pm} className="badge b-dim">{lbl}: <span className="num">{money(v)}</span></span> : null;
+                })}
+              </div>
+            </div>
+          )}
           <div className="grid g2" style={{ marginTop: 12 }}>
             <div className="mono-b"><span style={{ fontSize: 12 }}>إجمالي المصروفات</span>
               <span className="num" style={{ color: 'var(--rose)', fontWeight: 600 }}>{money(totalExp)}</span></div>
@@ -1373,23 +1578,63 @@ function ClosingForm({ org, me, branches, initial, commit, say, onClose, existin
 
       {step === 4 && (
         <>
+          <div className="card" style={{ background: 'var(--ink)', padding: 14, marginBottom: 14, borderColor: 'rgba(200,162,74,.3)' }}>
+            <div className="card-t" style={{ fontSize: 13, marginBottom: 4 }}>
+              <Landmark size={15} color="var(--brass)" />ماذا تريد أن تفعل بنقد اليوم؟
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--dim)', marginBottom: 12 }}>
+              المبلغ المعدود بالصندوق <span className="num" style={{ color: 'var(--brass)' }}>{money(actual)}</span> ر.س. اختر وجهته:
+            </div>
+            <div className="grid g3" style={{ gap: 9 }}>
+              <button type="button" className={'btn' + (f.treasuryChoice === 'all' ? ' pri' : ' gh')}
+                onClick={() => { set('treasuryChoice', 'all'); set('transferredToMainTreasury', actual); }}
+                style={{ flexDirection: 'column', height: 'auto', padding: '12px 8px', gap: 5 }}>
+                <ArrowLeftRight size={18} />
+                <span style={{ fontSize: 12, fontWeight: 600 }}>ترحيل الكل للخزينة</span>
+                <span className="num" style={{ fontSize: 11, opacity: .8 }}>{money(actual)}</span>
+              </button>
+              <button type="button" className={'btn' + (f.treasuryChoice === 'float' ? ' pri' : ' gh')}
+                onClick={() => { set('treasuryChoice', 'float'); set('transferredToMainTreasury', Math.max(0, actual - (branch?.defaultFloat || 0))); }}
+                style={{ flexDirection: 'column', height: 'auto', padding: '12px 8px', gap: 5 }}>
+                <Wallet size={18} />
+                <span style={{ fontSize: 12, fontWeight: 600 }}>ترحيل الفائض وإبقاء عهدة</span>
+                <span className="num" style={{ fontSize: 11, opacity: .8 }}>عهدة {money(branch?.defaultFloat || 0)}</span>
+              </button>
+              <button type="button" className={'btn' + (f.treasuryChoice === 'keep' ? ' pri' : ' gh')}
+                onClick={() => { set('treasuryChoice', 'keep'); set('transferredToMainTreasury', 0); }}
+                style={{ flexDirection: 'column', height: 'auto', padding: '12px 8px', gap: 5 }}>
+                <Lock size={18} />
+                <span style={{ fontSize: 12, fontWeight: 600 }}>إبقاء الكل عهدة بالفرع</span>
+                <span className="num" style={{ fontSize: 11, opacity: .8 }}>0 للخزينة</span>
+              </button>
+            </div>
+          </div>
           <div className="grid g2">
             <Num label="المرحّل للخزينة الرئيسية" value={f.transferredToMainTreasury}
-              onChange={v => set('transferredToMainTreasury', Math.min(v, actual))}
-              hint={`أقصى مبلغ متاح ${money(actual)} ر.س`} />
+              onChange={v => { set('transferredToMainTreasury', Math.min(v, actual)); set('treasuryChoice', 'custom'); }}
+              hint={`أقصى مبلغ متاح ${money(actual)} ر.س — يمكنك تعديله يدوياً`} />
             <div className="fld">
               <label className="lbl">المتبقي كعهدة للغد</label>
               <div className="mono-b"><span style={{ fontSize: 11.5, color: 'var(--dim)' }}>محسوب آلياً</span>
                 <span className="num" style={{ fontWeight: 600, color: 'var(--mint)' }}>{money(retained)}</span></div>
             </div>
           </div>
-          <button className="btn sm" style={{ marginBottom: 14 }}
-            onClick={() => set('transferredToMainTreasury', Math.max(0, actual - (branch?.defaultFloat || 0)))}>
-            <Wallet size={13} />ترحيل الفائض وإبقاء العهدة ({money(branch?.defaultFloat || 0)})
-          </button>
           <Field label="ملاحظات الإغلاق">
             <textarea className="inp" value={f.notes} placeholder="ملاحظات المدير على الوردية"
               onChange={e => set('notes', e.target.value)} />
+          </Field>
+          <Field label="صورة توثيق المسؤول (اختياري)">
+            {f.sessionPhoto ? (
+              <div className="row" style={{ alignItems: 'center' }}>
+                <img src={f.sessionPhoto} alt="توثيق" style={{ width: 54, height: 54, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--line)' }} />
+                <span className="badge b-mint"><Check size={11} />تم التوثيق</span>
+                <button type="button" className="btn sm gh" onClick={() => set('sessionPhoto', '')}><Trash2 size={12} color="#D9544D" />إزالة</button>
+              </div>
+            ) : (
+              <button type="button" className="btn sm" onClick={() => setCam(true)}>
+                <ScanFace size={13} />التقاط صورة الوجه بالكاميرا
+              </button>
+            )}
           </Field>
           <Field label="توقيع المسؤول الرقمي">
             <SignaturePad value={f.managerSignature} onChange={v => set('managerSignature', v)} />
@@ -1403,11 +1648,13 @@ function ClosingForm({ org, me, branches, initial, commit, say, onClose, existin
           </div>
         </>
       )}
+      {cam && <CameraModal onClose={() => setCam(false)} say={say}
+        onCapture={(img) => { set('sessionPhoto', img); setCam(false); say('تم توثيق الصورة'); }} />}
     </Modal>
   );
 }
 
-function ClosingView({ c, onClose }) {
+function ClosingView({ c, org, onClose }) {
   const Row = ({ k, v, color }) => (
     <div className="row" style={{ justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid rgba(51,44,38,.5)', fontSize: 12.5 }}>
       <span style={{ color: 'var(--dim)' }}>{k}</span><span className="num" style={{ color }}>{v}</span>
@@ -1415,7 +1662,8 @@ function ClosingView({ c, onClose }) {
   );
   return (
     <Modal wide title={`إغلاق ${c.branchName} — ${arDate(c.date)}`} icon={Receipt} onClose={onClose}
-      foot={<><button className="btn pri" onClick={() => printReceipt(c)}><Printer size={14} />طباعة إيصال الإغلاق</button>
+      foot={<><button className="btn pri" onClick={() => printClosingA4(c, org)}><FileText size={14} />تقرير PDF رسمي</button>
+        <button className="btn" onClick={() => printReceipt(c, org)}><Printer size={14} />طباعة حرارية 80مم</button>
         <button className="btn gh" onClick={onClose}>إغلاق</button></>}>
       <div className="row" style={{ marginBottom: 14 }}>
         <Badge s={c.status} />
@@ -1445,11 +1693,16 @@ function ClosingView({ c, onClose }) {
         <div className="card" style={{ background: 'var(--ink)' }}>
           <div className="card-t" style={{ marginBottom: 8, fontSize: 12.5 }}>المصروفات</div>
           {(c.expenses || []).map(e => (
-            <div key={e.id}>
+            <div key={e.id} style={{ paddingBottom: 4 }}>
               <Row k={`${e.categoryName}${e.beneficiaryName ? ' — ' + e.beneficiaryName : ''}`} v={money(e.amount)} />
+              <div className="row" style={{ gap: 5, marginTop: 3, flexWrap: 'wrap' }}>
+                <span className="badge b-dim" style={{ fontSize: 9 }}>{({cash:'نقد',card:'شبكة',cheque:'شيك',bank_transfer:'تحويل',deferred:'آجل'})[e.paymentMethod] || e.paymentMethod}</span>
+                {e.isTaxable ? <span className="badge b-brass" style={{ fontSize: 9 }}>خاضع للضريبة{e.taxInvoice ? ' · ضريبية' : ''}</span> : <span className="badge b-dim" style={{ fontSize: 9 }}>غير خاضع</span>}
+                {e.receiptNumber && <span className="badge b-dim" style={{ fontSize: 9 }}>#{e.receiptNumber}</span>}
+              </div>
               {e.receiptImage && <img src={e.receiptImage} alt="إيصال"
                 onClick={() => window.open().document.write('<img src="'+e.receiptImage+'" style="max-width:100%">')}
-                style={{ width: 42, height: 42, objectFit: 'cover', borderRadius: 6, margin: '2px 0 8px', cursor: 'zoom-in', border: '1px solid var(--line)' }} />}
+                style={{ width: 42, height: 42, objectFit: 'cover', borderRadius: 6, margin: '4px 0 6px', cursor: 'zoom-in', border: '1px solid var(--line)' }} />}
             </div>
           ))}
           {(!c.expenses || c.expenses.length === 0) && <div className="empty" style={{ padding: 18 }}>لا مصروفات</div>}
@@ -1576,7 +1829,7 @@ function Approvals({ me, scoped, commit, say }) {
           </div>
         );
       })}
-      {view && <ClosingView c={view} onClose={() => setView(null)} />}
+      {view && <ClosingView c={view} org={org} onClose={() => setView(null)} />}
     </div>
   );
 }
@@ -2009,13 +2262,50 @@ function Reports({ org, ops, me, myBranches, scoped, say, theme }) {
     say('تم تنزيل التقرير بصيغة CSV');
   };
 
+  const printOps = () => {
+    const co = org.company || {};
+    const m = (n) => (Math.round((n || 0) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 });
+    const rows = byBranch.map(b => `<tr>
+      <td>${b.name}</td><td class="num">${b.n}</td>
+      <td class="num brass">${m(b.rev)}</td><td class="num">${m(b.cash)}</td>
+      <td class="num">${m(b.card)}</td><td class="num">${m(b.del)}</td>
+      <td class="num rose">${m(b.exp)}</td><td class="num mint">${m(b.net)}</td>
+      <td class="num">${b.margin.toFixed(1)}%</td>
+      <td class="num">${m(b.varr)}</td></tr>`).join('');
+    const w = window.open('', '_blank', 'width=980,height=780');
+    if (!w) return;
+    w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
+      <title>تقرير أداء الفروع</title><style>${A4_CSS}</style></head><body><div class="page">
+      <div class="head">
+        <div class="co">${co.logoUrl ? `<img class="logo" src="${co.logoUrl}">` : ''}
+          <div><div class="co-n">${co.name || 'المنشأة'}</div>
+          <div class="co-m">الرقم الضريبي: ${co.taxNumber || '—'}</div></div></div>
+        <div class="doc-title">تقرير الأداء التشغيلي للفروع</div>
+        <div class="doc-sub">من ${arDate(from)} إلى ${arDate(to)}</div>
+      </div>
+      <table class="t"><thead><tr>
+        <th>الفرع</th><th class="num">إغلاقات</th><th class="num">الإيراد</th><th class="num">نقدي</th>
+        <th class="num">شبكة</th><th class="num">تطبيقات</th><th class="num">المصروف</th>
+        <th class="num">الصافي</th><th class="num">الهامش</th><th class="num">فروقات</th>
+      </tr></thead><tbody>${rows}</tbody>
+      <tfoot><tr class="tot"><td>الإجمالي</td><td class="num">${sum(byBranch, b => b.n)}</td>
+        <td class="num brass">${m(T.rev)}</td><td class="num">${m(sum(byBranch, b => b.cash))}</td>
+        <td class="num">${m(sum(byBranch, b => b.card))}</td><td class="num">${m(sum(byBranch, b => b.del))}</td>
+        <td class="num rose">${m(T.exp)}</td><td class="num mint">${m(T.net)}</td><td>—</td>
+        <td class="num">${m(T.varr)}</td></tr></tfoot></table>
+      <div class="foot dim">تم التصدير آلياً من منصة إغلاق الفروع · ${new Date().toLocaleString('ar-SA-u-nu-latn')}</div>
+      </div></body></html>`);
+    w.document.close();
+    setTimeout(() => { w.focus(); w.print(); }, 500);
+  };
+
   const Tabs = () => (
-    <div className="row">
+    <div className="row scroll-x">
       <button className={'btn sm' + (mode === 'ops' ? ' pri' : ' gh')} onClick={() => setMode('ops')}>
-        <FileBarChart size={14} />تقرير الأداء التشغيلي
+        <FileBarChart size={14} />الأداء التشغيلي
       </button>
       <button className={'btn sm' + (mode === 'pnl' ? ' pri' : ' gh')} onClick={() => setMode('pnl')}>
-        <FileText size={14} />قائمة الدخل الشهرية
+        <FileText size={14} />قائمة الدخل (يومي/شهري/سنوي)
       </button>
     </div>
   );
@@ -2023,7 +2313,7 @@ function Reports({ org, ops, me, myBranches, scoped, say, theme }) {
   if (mode === 'pnl') return (
     <div className="grid" style={{ gap: 14 }}>
       <Tabs />
-      <IncomeStatement org={org} ops={ops} myBranches={myBranches} scoped={scoped} say={say} />
+      <FinancialReports org={org} ops={ops} myBranches={myBranches} scoped={scoped} say={say} />
     </div>
   );
 
@@ -2047,9 +2337,10 @@ function Reports({ org, ops, me, myBranches, scoped, say, theme }) {
               {myBranches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </div>
-          <button className="btn pri" style={{ alignSelf: 'flex-end' }} onClick={exportCsv}>
-            <Download size={14} />تصدير CSV
-          </button>
+          <div className="row" style={{ alignSelf: 'flex-end' }}>
+            <button className="btn pri" onClick={printOps}><FileText size={14} />طباعة (PDF)</button>
+            <button className="btn" onClick={exportCsv}><Download size={14} />تصدير CSV</button>
+          </div>
         </div>
       </div>
 
@@ -2237,13 +2528,13 @@ function Admin({ org, ops, commitOrg, say }) {
       {tab === 'cats' && <CategoriesPanel org={org} ops={ops} commitOrg={commitOrg} say={say} />}
       {tab === 'system' && <SystemPanel org={org} ops={ops} commit={commit} commitOrg={commitOrg} say={say} />}
 
-      {bEdit && <BranchForm b={bEdit} onSave={saveBranch} onClose={() => setBEdit(null)} />}
+      {bEdit && <BranchForm b={bEdit} say={say} onSave={saveBranch} onClose={() => setBEdit(null)} />}
       {uEdit && <UserForm u={uEdit} org={org} onSave={saveUser} onClose={() => setUEdit(null)} />}
     </div>
   );
 }
 
-function BranchForm({ b, onSave, onClose }) {
+function BranchForm({ b, say, onSave, onClose }) {
   const [f, setF] = useState(b);
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   return (
@@ -2258,12 +2549,16 @@ function BranchForm({ b, onSave, onClose }) {
         <Num label="العهدة التشغيلية الافتراضية" value={f.defaultFloat} onChange={v => set('defaultFloat', v)} />
         <Field label="وقت نهاية الوردية"><input type="time" className="inp" value={f.shiftEndTime} onChange={e => set('shiftEndTime', e.target.value)} /></Field>
       </div>
+      <Field label="شعار الفرع (يظهر في تقارير هذا الفرع)">
+        <PhotoField value={f.logoUrl} onChange={v => set('logoUrl', v)} say={say} />
+      </Field>
     </Modal>
   );
 }
 
 function UserForm({ u, org, onSave, onClose }) {
   const [f, setF] = useState(u);
+  const [bioMsg, setBioMsg] = useState('');
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   const toggle = (id) => {
     const cur = f.allowedBranchIds || [];
@@ -2304,6 +2599,42 @@ function UserForm({ u, org, onSave, onClose }) {
           onChange={e => set('newPass', e.target.value)} />
         {u.passHash && !f.newPass && <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 4 }}>للحساب كلمة سر محفوظة — لن تتغير ما لم تكتب واحدة جديدة.</div>}
       </Field>
+
+      <div className="card" style={{ background: 'var(--ink)', padding: 12 }}>
+        <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+          <div>
+            <div style={{ fontSize: 12.5, fontWeight: 600, display: 'flex', gap: 6, alignItems: 'center' }}>
+              <Fingerprint size={14} color="var(--brass)" />البصمة الحيوية لهذا الجهاز
+            </div>
+            <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 3, lineHeight: 1.6 }}>
+              تسجّل بصمة/وجه هذا الجهاز (Touch ID / Face ID / Windows Hello) لدخول أسرع.
+            </div>
+          </div>
+          {f.bioCredId ? (
+            <div className="row">
+              <span className="badge b-mint"><Check size={11} />مُفعّلة</span>
+              <button type="button" className="btn sm gh" onClick={() => set('bioCredId', undefined)}>
+                <Trash2 size={12} color="#D9544D" />إلغاء
+              </button>
+            </div>
+          ) : (
+            <button type="button" className="btn sm" disabled={bioMsg === 'busy'}
+              onClick={async () => {
+                if (!webauthnSupported()) { setBioMsg('unsupported'); return; }
+                if (!f.email) { setBioMsg('needmail'); return; }
+                setBioMsg('busy');
+                try { const id = await bioEnroll({ ...f, id: f.id }); set('bioCredId', id); setBioMsg('done'); }
+                catch { setBioMsg('fail'); }
+              }}>
+              {bioMsg === 'busy' ? <RefreshCw size={12} className="spin" /> : <ScanFace size={13} />}تفعيل البصمة
+            </button>
+          )}
+        </div>
+        {bioMsg === 'unsupported' && <div style={{ fontSize: 10.5, color: 'var(--amber)', marginTop: 8 }}>هذا الجهاز/المتصفح لا يدعم البصمة الحيوية.</div>}
+        {bioMsg === 'needmail' && <div style={{ fontSize: 10.5, color: 'var(--amber)', marginTop: 8 }}>أدخل البريد الإلكتروني أولاً.</div>}
+        {bioMsg === 'fail' && <div style={{ fontSize: 10.5, color: 'var(--rose)', marginTop: 8 }}>تعذّر التسجيل — تأكد من إعداد البصمة على الجهاز.</div>}
+        {bioMsg === 'done' && <div style={{ fontSize: 10.5, color: 'var(--mint)', marginTop: 8 }}>تم — احفظ الحساب لاعتماد البصمة.</div>}
+      </div>
       <div className="card" style={{ background: 'var(--ink)', padding: 12 }}>
         <div className="lbl">ما يستطيع هذا الدور فعله</div>
         {ROLES[f.role].perms.map((p, i) => (
@@ -2317,8 +2648,9 @@ function UserForm({ u, org, onSave, onClose }) {
 }
 
 /* ================= سجل التدقيق ================= */
-function AuditView({ pulse }) {
+function AuditView({ pulse, onSeen }) {
   const [q, setQ] = useState('');
+  useEffect(() => { onSeen && onSeen(); }, []);
   const logs = (pulse.audit || []).filter(l =>
     !q || (l.userName + l.title + l.details).toLowerCase().includes(q.toLowerCase()));
   return (
@@ -2355,55 +2687,238 @@ function AuditView({ pulse }) {
   );
 }
 
-/* ================= طباعة إيصال الإغلاق (نمط الطابعة الحرارية) ================= */
-function printReceipt(c) {
+/* ================= طباعة تقارير الإغلاق ================= */
+
+// بناء محتوى تقرير A4 رسمي مطابق للنموذج المعتمد
+function buildClosingA4(c, org) {
+  const co = org.company || {};
+  const branch = (org.branches || []).find(b => b.id === c.branchId);
+  const headLogo = (branch && branch.logoUrl) || co.logoUrl || '';
+  const money2 = (n) => (Math.round((n || 0) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const dels = (c.deliverySales || []).filter(d => d.amount > 0);
+  const statusAr = c.gmApprovalStatus === 'approved' ? 'معتمد نهائياً'
+    : c.status === 'approved' ? 'مدقّق — بانتظار الاعتماد'
+    : c.status === 'submitted' ? 'بانتظار الاعتماد' : 'مسودة';
+  const varClass = c.variance === 0 ? 'ok' : c.variance < 0 ? 'bad' : 'warn';
+  const varText = c.variance === 0 ? 'مطابق (0.00)' : c.variance < 0 ? 'عجز ' + money2(Math.abs(c.variance)) : 'فائض ' + money2(c.variance);
+
+  const delRows = dels.map(d => `<tr>
+    <td>تطبيق: ${d.appName}</td>
+    <td class="num">${money2(d.amount)}</td>
+    <td class="num dim">${money2(d.commissionAmount || 0)}-</td>
+    <td class="num">${d.orderCount || 0} طلب</td></tr>`).join('');
+
+  const payLbl = (pm) => ({cash:'نقداً',card:'شبكة',cheque:'شيك',bank_transfer:'تحويل',deferred:'آجل'})[pm] || pm;
+  const expRows = (c.expenses || []).length ? (c.expenses || []).map(e => `<tr>
+    <td>${e.categoryName || '—'}${e.isTaxable ? '<br><span style="font-size:8px;color:#8C6F2C">خاضع للضريبة' + (e.taxInvoice ? ' · فاتورة ضريبية' : '') + '</span>' : '<br><span style="font-size:8px;color:#999">غير خاضع</span>'}</td>
+    <td class="dim">${e.beneficiaryName || '—'}</td>
+    <td>${payLbl(e.paymentMethod)}${e.receiptNumber ? '<br><span style="font-size:8px;color:#999">' + e.receiptNumber + '</span>' : ''}</td>
+    <td class="ce">${e.receiptImage ? '<span class="chip">مرفق ✓</span>' : '—'}</td>
+    <td class="num rose">${money2(e.amount)} ر.س</td></tr>`).join('')
+    : `<tr><td colspan="5" class="ce dim">لا توجد مصروفات على هذه الوردية</td></tr>`;
+
+  const receiptImgs = [];
+  if (c.cardReceiptImage) receiptImgs.push({ t: 'إثبات الشبكة / التحويل', u: c.cardReceiptImage });
+  (c.expenses || []).forEach(e => { if (e.receiptImage) receiptImgs.push({ t: (e.categoryName || 'مصروف') + (e.beneficiaryName ? ' — ' + e.beneficiaryName : ''), u: e.receiptImage }); });
+  if (c.sessionPhoto) receiptImgs.push({ t: 'توثيق المسؤول', u: c.sessionPhoto });
+  const imgsBlock = receiptImgs.length ? `
+    <div class="sec-h">صور الفواتير والمرفقات (${receiptImgs.length})</div>
+    <div class="imgs">${receiptImgs.map(im => `<div class="img-c"><img src="${im.u}"><div class="img-t">${im.t}</div></div>`).join('')}</div>` : '';
+
+  return `<div class="page">
+    <div class="head">
+      <div class="co">
+        ${headLogo ? `<img class="logo" src="${headLogo}">` : ''}
+        <div>
+          <div class="co-n">${co.name || 'المنشأة'}</div>
+          <div class="co-m">الرقم الضريبي: ${co.taxNumber || '—'} · السجل التجاري: ${co.commercialReg || '—'}</div>
+        </div>
+      </div>
+      <div class="doc-title">تقرير الإغلاق اليومي الرسمي</div>
+      <div class="doc-sub">فرع ${c.branchName} · ${arDate(c.date)}</div>
+      <div class="doc-sub dim">تاريخ التصدير: ${new Date().toLocaleString('ar-SA-u-nu-latn')}</div>
+    </div>
+
+    <div class="kpis">
+      <div class="kpi"><span>إجمالي الإيرادات</span><b class="brass">${money2(c.totalRevenue)} ر.س</b></div>
+      <div class="kpi"><span>إجمالي المصروفات</span><b class="rose">${money2(c.totalExpenses)} ر.س</b></div>
+      <div class="kpi"><span>عمولات التوصيل</span><b>${money2(sum(dels, d => d.commissionAmount || 0))} ر.س</b></div>
+      <div class="kpi"><span>صافي اليوم التشغيلي</span><b class="mint">${money2(c.totalRevenue - c.totalExpenses)} ر.س</b></div>
+      <div class="kpi"><span>المحوّل للخزينة</span><b>${money2(c.transferredToMainTreasury)} ر.س</b></div>
+      <div class="kpi ${varClass}"><span>مطابقة الصندوق</span><b>${varText}</b></div>
+    </div>
+
+    <div class="meta-row">
+      <span class="badge">${statusAr}</span>
+      <span>المسؤول: ${c.managerName}</span>
+      <span>سند التحويل: ${c.transferReferenceNo || '—'}</span>
+    </div>
+
+    <div class="sec-h">تفاصيل المبيعات والإيرادات</div>
+    <table class="t">
+      <thead><tr><th>نوع الإيراد / الوسيلة</th><th class="num">المبلغ (ر.س)</th><th class="num">العمولة</th><th class="num">التفاصيل</th></tr></thead>
+      <tbody>
+        <tr><td>الرصيد الافتتاحي للعهدة</td><td class="num">${money2(c.openingBalance)}</td><td class="num dim">—</td><td class="num dim">افتتاح الصندوق</td></tr>
+        <tr><td>المبيعات النقدية (Cash)</td><td class="num">${money2(c.cashSales)}</td><td class="num dim">—</td><td class="num dim">محصّل كاش</td></tr>
+        <tr><td>مبيعات الشبكة (مدى/POS)</td><td class="num">${money2(c.cardSales)}</td><td class="num dim">—</td><td class="num dim">نقاط البيع</td></tr>
+        ${c.bankTransferSales ? `<tr><td>تحويل بنكي مباشر</td><td class="num">${money2(c.bankTransferSales)}</td><td class="num dim">—</td><td class="num dim">حساب بنكي</td></tr>` : ''}
+        ${delRows}
+      </tbody>
+      <tfoot><tr class="tot"><td>إجمالي الإيرادات</td><td class="num brass">${money2(c.totalRevenue)}</td><td colspan="2"></td></tr></tfoot>
+    </table>
+
+    <div class="sec-h">المصروفات التشغيلية المخصومة</div>
+    <table class="t">
+      <thead><tr><th>التصنيف</th><th>المورد/المستفيد</th><th>طريقة الدفع</th><th class="ce">المرفقات</th><th class="num">المبلغ</th></tr></thead>
+      <tbody>${expRows}</tbody>
+      <tfoot><tr class="tot"><td colspan="4">إجمالي المصروفات التشغيلية</td><td class="num rose">${money2(c.totalExpenses)} ر.س</td></tr></tfoot>
+    </table>
+
+    <div class="sec-h">مطابقة الصندوق والعهدة</div>
+    <table class="t compact">
+      <tr><td>المتوقع بالصندوق (كاش)</td><td class="num">${money2(c.expectedCashInSafe)} ر.س</td></tr>
+      <tr><td>العدّ الفعلي بالجرد</td><td class="num">${money2(c.actualCashCount)} ر.س</td></tr>
+      <tr><td>العهدة المتبقية للغد</td><td class="num">${money2(c.retainedFloatForTomorrow)} ر.س</td></tr>
+      <tr class="tot ${varClass}"><td>فارق الصندوق</td><td class="num">${varText}</td></tr>
+    </table>
+    ${c.varianceReason ? `<div class="note">سبب الفرق: ${c.varianceReason}</div>` : ''}
+    ${imgsBlock}
+
+    <div class="sigs">
+      <div class="sig">
+        <div class="sig-t">إعداد وتوقيع مسؤول الفرع</div>
+        <div class="sig-r dim">${c.managerName}</div>
+        ${c.managerSignature ? `<img class="sig-img" src="${c.managerSignature}">` : '<div class="sig-line"></div>'}
+        <div class="sig-ok">${c.managerSignature ? '✔ توقيع رقمي موثّق' : ''}</div>
+      </div>
+      <div class="sig">
+        <div class="sig-t">مراجعة الإدارة المالية</div>
+        <div class="sig-r dim">قسم المحاسبة والمالية</div>
+        <div class="sig-line"></div>
+        <div class="sig-ok dim">التوقيع والختم</div>
+      </div>
+      <div class="sig">
+        <div class="sig-t">اعتماد المدير العام</div>
+        <div class="sig-r dim">المالك والمدير العام</div>
+        <div class="sig-line"></div>
+        <div class="sig-ok dim">الاعتماد النهائي</div>
+      </div>
+    </div>
+    <div class="foot dim">تم تصدير هذا التقرير آلياً من منصة إغلاق الفروع · ${co.name || ''}</div>
+  </div>`;
+}
+
+const A4_CSS = `
+  @page { size: A4; margin: 12mm }
+  * { box-sizing: border-box }
+  body { font-family: 'IBM Plex Sans Arabic','Readex Pro',Tahoma,sans-serif; color: #1a1a1a; margin: 0; font-size: 11px; background: #fff }
+  .page { max-width: 186mm; margin: 0 auto }
+  .head { border-bottom: 2.5px solid #8C6F2C; padding-bottom: 10px; margin-bottom: 12px }
+  .co { display: flex; align-items: center; gap: 10px; margin-bottom: 8px }
+  .logo { height: 44px; width: 44px; object-fit: contain; border-radius: 8px }
+  .co-n { font-size: 16px; font-weight: 700; color: #14110F }
+  .co-m { font-size: 9.5px; color: #666; margin-top: 2px }
+  .doc-title { font-size: 15px; font-weight: 700; color: #8C6F2C; margin-top: 6px }
+  .doc-sub { font-size: 11px; margin-top: 2px }
+  .dim { color: #888 }
+  .kpis { display: grid; grid-template-columns: repeat(3,1fr); gap: 7px; margin-bottom: 12px }
+  .kpi { border: 1px solid #e5e0d5; border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 3px; background: #faf8f3 }
+  .kpi span { font-size: 9px; color: #777 }
+  .kpi b { font-size: 13px }
+  .kpi.ok { background: #eef8f2; border-color: #b6e2cd } .kpi.ok b { color: #2E8B62 }
+  .kpi.bad { background: #fdeeed; border-color: #f2c3bf } .kpi.bad b { color: #C0392B }
+  .kpi.warn { background: #fdf6e9; border-color: #f2ddb0 } .kpi.warn b { color: #B7791F }
+  .brass { color: #8C6F2C } .rose { color: #C0392B } .mint { color: #2E8B62 }
+  .meta-row { display: flex; gap: 14px; align-items: center; font-size: 10.5px; color: #555; margin-bottom: 12px; flex-wrap: wrap }
+  .badge { background: #8C6F2C; color: #fff; padding: 2px 10px; border-radius: 20px; font-size: 10px; font-weight: 600 }
+  .sec-h { background: #f0ebe0; color: #14110F; font-weight: 700; font-size: 11.5px; padding: 5px 9px; border-radius: 5px; margin: 12px 0 7px }
+  table.t { width: 100%; border-collapse: collapse; font-size: 10.5px }
+  table.t th { background: #14110F; color: #fff; padding: 6px 8px; text-align: right; font-weight: 600; font-size: 10px }
+  table.t th.num, table.t td.num { text-align: left; font-variant-numeric: tabular-nums; white-space: nowrap }
+  table.t th.ce, table.t td.ce { text-align: center }
+  table.t td { padding: 6px 8px; border-bottom: 1px solid #eee }
+  table.t tfoot .tot td { font-weight: 700; font-size: 11.5px; border-top: 2px solid #14110F; background: #faf8f3 }
+  table.t.compact td { padding: 6px 9px }
+  table.t .tot.ok { background: #eef8f2 } table.t .tot.bad { background: #fdeeed } table.t .tot.warn { background: #fdf6e9 }
+  .chip { background: #eef8f2; color: #2E8B62; padding: 1px 7px; border-radius: 10px; font-size: 9px; font-weight: 600 }
+  .note { font-size: 10px; color: #B7791F; margin-top: 6px; padding: 5px 9px; background: #fdf6e9; border-radius: 5px }
+  .imgs { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; margin-top: 6px }
+  .img-c { border: 1px solid #e5e0d5; border-radius: 6px; overflow: hidden }
+  .img-c img { width: 100%; height: 90px; object-fit: cover; display: block }
+  .img-t { font-size: 8.5px; padding: 4px 5px; color: #666; text-align: center }
+  .sigs { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; margin-top: 18px }
+  .sig { border: 1px solid #e5e0d5; border-radius: 8px; padding: 10px; text-align: center }
+  .sig-t { font-size: 11px; font-weight: 700 }
+  .sig-r { font-size: 9.5px; margin-top: 2px }
+  .sig-img { max-width: 100%; height: 46px; object-fit: contain; margin: 6px auto }
+  .sig-line { border-bottom: 1px dashed #999; margin: 22px 12px 6px }
+  .sig-ok { font-size: 9.5px; color: #2E8B62; font-weight: 600; margin-top: 4px }
+  .foot { text-align: center; font-size: 9px; margin-top: 16px; border-top: 1px dashed #ccc; padding-top: 8px }
+`;
+
+function printClosingA4(c, org) {
+  const w = window.open('', '_blank', 'width=880,height=1000');
+  if (!w) return;
+  w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
+    <title>تقرير الإغلاق - ${c.branchName} - ${c.date}</title><style>${A4_CSS}</style></head>
+    <body>${buildClosingA4(c, org)}</body></html>`);
+  w.document.close();
+  setTimeout(() => { w.focus(); w.print(); }, 500);
+}
+
+// طباعة حرارية 80مم بنفس ترتيب التقرير
+function printReceipt(c, org) {
+  const co = (org && org.company) || {};
+  const branch = ((org && org.branches) || []).find(b => b.id === c.branchId);
+  const thLogo = (branch && branch.logoUrl) || co.logoUrl || '';
+  const m = (n) => (Math.round((n || 0) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 });
   const line = (k, v) => `<tr><td>${k}</td><td class="v">${v}</td></tr>`;
   const dels = (c.deliverySales || []).filter(d => d.amount > 0)
-    .map(d => line(`${d.appName} (${d.orderCount})`, money(d.amount))).join('');
-  const exps = (c.expenses || []).map(e => line(e.categoryName, money(e.amount))).join('');
+    .map(d => line(`${d.appName} (${d.orderCount})`, m(d.amount))).join('');
+  const exps = (c.expenses || []).map(e => line(`${e.categoryName}${e.receiptImage ? ' 📎' : ''}`, m(e.amount))).join('');
   const dens = DENOMS.filter(d => (c.denominationDetails?.[d.k] || 0) > 0)
     .map(d => line(`${d.k === 'coins' ? 'هللات' : d.v + ' ريال'} × ${c.denominationDetails[d.k]}`,
-      money((c.denominationDetails[d.k] || 0) * d.v))).join('');
+      m((c.denominationDetails[d.k] || 0) * d.v))).join('');
   const html = `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
   <title>إيصال إغلاق ${c.branchName}</title><style>
-  @page{size:80mm auto;margin:4mm}
-  body{font-family:'IBM Plex Sans Arabic',Tahoma,sans-serif;width:72mm;margin:0 auto;color:#000;font-size:11px}
+  @page{size:80mm auto;margin:3mm}
+  body{font-family:'IBM Plex Sans Arabic',Tahoma,sans-serif;width:74mm;margin:0 auto;color:#000;font-size:11px}
   h1{font-size:14px;text-align:center;margin:0 0 2px}
-  .c{text-align:center;font-size:10px;color:#333}
-  .sep{border-top:1px dashed #000;margin:7px 0}
+  .c{text-align:center;font-size:9.5px;color:#333}
+  .sep{border-top:1px dashed #000;margin:6px 0}
   table{width:100%;border-collapse:collapse}
   td{padding:2px 0;vertical-align:top}
   td.v{text-align:left;font-family:'IBM Plex Mono',monospace;white-space:nowrap}
   .sec{font-weight:700;font-size:11px;margin-top:6px;background:#eee;padding:2px 4px}
-  .tot{font-weight:700;font-size:12.5px;border-top:1px solid #000;border-bottom:3px double #000;padding:4px 0}
-  .stamp{border:2px solid #000;padding:6px;text-align:center;font-weight:700;margin-top:8px;transform:rotate(-1deg)}
+  .tot{font-weight:700;font-size:12px;border-top:1px solid #000;border-bottom:2.5px double #000;padding:3px 0}
+  .stamp{border:2px solid #000;padding:5px;text-align:center;font-weight:700;margin-top:8px}
   </style></head><body>
-  <h1>إيصال إغلاق وردية</h1>
+  ${thLogo ? `<div class="c"><img src="${thLogo}" style="height:36px"></div>` : ''}
+  <h1>${co.name || 'إيصال إغلاق'}</h1>
+  <div class="c">تقرير إغلاق يومي</div>
   <div class="c">${c.branchName}</div>
-  <div class="c">${arDate(c.date)} · المسؤول: ${c.managerName}</div>
-  <div class="c">سند التحويل: ${c.transferReferenceNo || '—'}</div>
+  <div class="c">${arDate(c.date)} · ${c.managerName}</div>
+  <div class="c">سند: ${c.transferReferenceNo || '—'}</div>
   <div class="sep"></div>
   <div class="sec">الإيرادات</div>
-  <table>${line('مبيعات نقدية', money(c.cashSales))}${line('مبيعات الشبكة', money(c.cardSales))}
-  ${c.bankTransferSales ? line('تحويل بنكي', money(c.bankTransferSales)) : ''}${dels}</table>
-  <table><tr class="tot"><td>إجمالي الإيراد</td><td class="v">${money(c.totalRevenue)}</td></tr></table>
+  <table>${line('عهدة افتتاحية', m(c.openingBalance))}${line('مبيعات نقدية', m(c.cashSales))}${line('مبيعات الشبكة', m(c.cardSales))}
+  ${c.bankTransferSales ? line('تحويل بنكي', m(c.bankTransferSales)) : ''}${dels}</table>
+  <table><tr class="tot"><td>إجمالي الإيراد</td><td class="v">${m(c.totalRevenue)}</td></tr></table>
   <div class="sec">المصروفات</div>
   <table>${exps || '<tr><td>لا مصروفات</td><td class="v">0.00</td></tr>'}
-  ${line('المخصوم نقداً', money(c.totalCashExpenses))}</table>
-  <div class="sec">جرد الصندوق</div>
-  <table>${dens}${line('العهدة الافتتاحية', money(c.openingBalance))}
-  ${line('المتوقع بالصندوق', money(c.expectedCashInSafe))}${line('العدّ الفعلي', money(c.actualCashCount))}
-  <tr class="tot"><td>الفرق</td><td class="v">${c.variance > 0 ? '+' : ''}${money(c.variance)}</td></tr></table>
-  ${c.varianceReason ? `<div style="font-size:10px;margin-top:4px">السبب: ${c.varianceReason}</div>` : ''}
+  <tr class="tot"><td>إجمالي المصروف</td><td class="v">${m(c.totalExpenses)}</td></tr></table>
+  <div class="sec">مطابقة الصندوق</div>
+  <table>${dens}${line('المتوقع', m(c.expectedCashInSafe))}${line('الفعلي', m(c.actualCashCount))}
+  <tr class="tot"><td>الفرق</td><td class="v">${c.variance > 0 ? '+' : ''}${m(c.variance)}</td></tr></table>
+  ${c.varianceReason ? `<div style="font-size:9.5px;margin-top:4px">السبب: ${c.varianceReason}</div>` : ''}
   <div class="sec">الترحيل</div>
-  <table>${line('المرحّل للخزينة', money(c.transferredToMainTreasury))}
-  ${line('عهدة اليوم التالي', money(c.retainedFloatForTomorrow))}</table>
-  <div class="stamp">${c.variance === 0 ? 'الصندوق مطابق' : c.variance < 0 ? 'عجز نقدي: ' + money(Math.abs(c.variance)) : 'فائض نقدي: ' + money(c.variance)}</div>
+  <table>${line('المرحّل للخزينة', m(c.transferredToMainTreasury))}${line('عهدة الغد', m(c.retainedFloatForTomorrow))}</table>
+  <div class="stamp">${c.variance === 0 ? 'الصندوق مطابق ✓' : c.variance < 0 ? 'عجز: ' + m(Math.abs(c.variance)) : 'فائض: ' + m(c.variance)}</div>
   <div class="sep"></div>
-  ${c.managerSignature ? `<div style="text-align:center"><img src="${c.managerSignature}" style="max-width:52mm"></div>` : ''}
-  <div class="c">توقيع المسؤول: ____________</div>
-  <div class="c">توقيع أمين الخزينة: ____________</div>
-  <div class="c" style="margin-top:8px">طُبع في ${new Date().toLocaleString('ar-SA-u-nu-latn')}</div>
+  ${c.managerSignature ? `<div class="c"><img src="${c.managerSignature}" style="max-width:52mm"></div>` : ''}
+  <div class="c">توقيع المسؤول: __________</div>
+  <div class="c">أمين الخزينة: __________</div>
+  <div class="c" style="margin-top:8px">${new Date().toLocaleString('ar-SA-u-nu-latn')}</div>
   </body></html>`;
   const w = window.open('', '_blank', 'width=420,height=760');
   if (!w) return;
@@ -2611,19 +3126,63 @@ function AiCenter({ org, ops, me, myBranches, scoped, say }) {
 
   const analyze = async () => {
     setBusy(true); setErr(''); setRes(null);
+    const endpoint = import.meta.env && import.meta.env.VITE_AI_ENDPOINT;
+    const directKey = import.meta.env && import.meta.env.VITE_ANTHROPIC_KEY;
     try {
-      const endpoint = (import.meta.env && import.meta.env.VITE_AI_ENDPOINT) || '/api/ai/analyze';
-      const r = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ digest })
-      });
-      const data = await r.json();
-      if (!r.ok || data.error) throw new Error(data.error || 'failed');
-      setRes(data.result);
+      let result;
+      if (endpoint) {
+        // وسيط خادم آمن (الأفضل)
+        const r = await fetch(endpoint, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ digest })
+        });
+        const data = await r.json();
+        if (!r.ok || data.error) throw new Error(data.error || 'failed');
+        result = data.result;
+      } else if (directKey) {
+        // اتصال مباشر بواجهة Anthropic (مفتاح مضمّن وقت البناء)
+        const prompt = `أنت مدير مالي (CFO) لمجموعة مطاعم سعودية. حلّل البيانات التالية وأجب بالعربية الفصحى المهنية.
+
+البيانات: ${JSON.stringify(digest)}
+
+أعد كائن JSON فقط دون أي نص أو علامات markdown، بهذا الشكل تماماً:
+{
+ "الملخص_التنفيذي": "فقرة من 3 جمل",
+ "اتجاهات_المبيعات_والمصروفات": "فقرة تحليلية",
+ "توصيات_خفض_التكلفة": ["توصية 1","توصية 2","توصية 3"],
+ "مخاطر_النقدية": ["مخاطرة 1","مخاطرة 2"],
+ "تقييم_الفروع": [{"الفرع":"الاسم","الدرجة":85,"الحالة":"ممتاز","التعليق":"جملة"}]
+}
+الحالة واحدة من: ممتاز، جيد جداً، متوسط، تحت الملاحظة.`;
+        const r = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-api-key': directKey,
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true'
+          },
+          body: JSON.stringify({
+            model: 'claude-sonnet-4-5', max_tokens: 1400,
+            messages: [{ role: 'user', content: prompt }]
+          })
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data?.error?.message || 'failed');
+        const txt = (data.content || []).filter(x => x.type === 'text').map(x => x.text).join('\n');
+        const clean = txt.replace(/```json|```/g, '').trim();
+        result = JSON.parse(clean.slice(clean.indexOf('{'), clean.lastIndexOf('}') + 1));
+      } else {
+        throw new Error('no-endpoint');
+      }
+      setRes(result);
       say('اكتمل التحليل المالي الذكي');
     } catch (e) {
-      setErr('المركز المالي الذكي غير مفعّل في هذه النسخة — يحتاج وسيطاً آمناً لمفتاح التحليل. باقي وحدات المنصة تعمل كاملة.');
+      if (e.message === 'no-endpoint') {
+        setErr('المركز المالي الذكي غير مفعّل. لتفعيله: أضف سرّ VITE_ANTHROPIC_KEY في إعدادات المستودع (Actions Secrets) ثم أعد النشر. بقية وحدات المنصة تعمل كاملة.');
+      } else {
+        setErr('تعذّر إتمام التحليل: ' + (e.message || 'خطأ غير معروف') + '. تحقق من صحة المفتاح والرصيد.');
+      }
     }
     setBusy(false);
   };
@@ -2720,35 +3279,45 @@ function AiCenter({ org, ops, me, myBranches, scoped, say }) {
 
 /* ================= بيانات الشركة والنسخ الاحتياطي ================= */
 function SystemPanel({ org, ops, commit, commitOrg, say }) {
-  const [hist, setHist] = useState(null);
+  const [hist, setHist] = useState({ closings: [] });
   const [working, setWorking] = useState(false);
-  useEffect(() => { (async () => setHist(await cloud.get(KEYS.hist, { closings: [] })))(); }, []);
+  const [c, setC] = useState(() => ({ ...(org.company || {}) }));
+  const fileRef = useRef();
+  const set = (k, v) => setC(p => ({ ...p, [k]: v }));
+
+  useEffect(() => {
+    (async () => {
+      const h = await cloud.get(KEYS.hist, { closings: [] });
+      setHist(h && Array.isArray(h.closings) ? h : { closings: [] });
+    })();
+  }, []);
 
   const cutoff = (() => { const d = new Date(); d.setDate(d.getDate() - 90); return d.toISOString().slice(0, 10); })();
-  const oldOnes = (ops.closings || []).filter(c => c.date < cutoff);
+  const oldOnes = (ops.closings || []).filter(x => x.date < cutoff);
 
   const archiveOld = async () => {
     if (oldOnes.length === 0) return say('لا توجد إغلاقات أقدم من 90 يوماً', 'no');
     setWorking(true);
-    const prev = (await cloud.get(KEYS.hist, { closings: [] })).closings || [];
-    const ids = oldOnes.map(c => c.id);
-    const okStore = await cloud.set(KEYS.hist, { closings: [...oldOnes, ...prev].slice(0, 800), updatedAt: nowISO() });
-    if (!okStore) { setWorking(false); return say('تعذّر حفظ الأرشيف — أعد المحاولة', 'no'); }
-    await commit(d => ({
-      ...d,
-      closings: (d.closings || []).filter(c => c.date >= cutoff),
-      transfers: (d.transfers || []).filter(t => !ids.includes(t.closingId))
-    }), {
-      actionType: 'update', targetType: 'system_settings', targetId: 'archive',
-      title: 'أرشف إغلاقات قديمة', details: `${oldOnes.length} إغلاق أقدم من ${cutoff}`
-    });
-    setHist(await cloud.get(KEYS.hist, { closings: [] }));
+    try {
+      const cur = await cloud.get(KEYS.hist, { closings: [] });
+      const prev = (cur && Array.isArray(cur.closings)) ? cur.closings : [];
+      const ids = oldOnes.map(x => x.id);
+      const okStore = await cloud.set(KEYS.hist, { closings: [...oldOnes, ...prev].slice(0, 800), updatedAt: nowISO() });
+      if (!okStore) { setWorking(false); return say('تعذّر حفظ الأرشيف — أعد المحاولة', 'no'); }
+      await commit(d => ({
+        ...d,
+        closings: (d.closings || []).filter(x => x.date >= cutoff),
+        transfers: (d.transfers || []).filter(t => !ids.includes(t.closingId))
+      }), {
+        actionType: 'update', targetType: 'system_settings', targetId: 'archive',
+        title: 'أرشف إغلاقات قديمة', details: `${oldOnes.length} إغلاق أقدم من ${cutoff}`
+      });
+      const after = await cloud.get(KEYS.hist, { closings: [] });
+      setHist(after && Array.isArray(after.closings) ? after : { closings: [] });
+      say(`تمت أرشفة ${oldOnes.length} إغلاق — بيانات التشغيل أصبحت أخف`);
+    } catch { say('تعذّرت الأرشفة — أعد المحاولة', 'no'); }
     setWorking(false);
-    say(`تمت أرشفة ${oldOnes.length} إغلاق — بيانات التشغيل أصبحت أخف`);
   };
-  const [c, setC] = useState(org.company);
-  const set = (k, v) => setC(p => ({ ...p, [k]: v }));
-  const fileRef = useRef();
 
   const saveCompany = async () => {
     await commitOrg(d => ({ ...d, company: c }), {
@@ -2784,8 +3353,8 @@ function SystemPanel({ org, ops, commit, commitOrg, say }) {
   };
 
   const stats = [
-    ['الفروع', org.branches.length], ['المستخدمون', org.users.length],
-    ['الموظفون', org.employees.length], ['الإغلاقات', (ops.closings || []).length],
+    ['الفروع', (org.branches || []).length], ['المستخدمون', (org.users || []).length],
+    ['الموظفون', (org.employees || []).length], ['الإغلاقات', (ops.closings || []).length],
     ['سندات التحويل', (ops.transfers || []).length], ['فواتير الموردين', (ops.invoices || []).length]
   ];
   const sizes = [
@@ -2886,6 +3455,64 @@ function compressImage(file, max = 1000, quality = 0.6) {
     };
     rd.onerror = reject; rd.readAsDataURL(file);
   });
+}
+
+/* ================= كاميرا حية: التقاط صورة الوجه ================= */
+function CameraModal({ title, onCapture, onClose, say }) {
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const [ready, setReady] = useState(false);
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 640 } }, audio: false
+        });
+        if (!active) { stream.getTracks().forEach(t => t.stop()); return; }
+        streamRef.current = stream;
+        if (videoRef.current) { videoRef.current.srcObject = stream; setReady(true); }
+      } catch (e) {
+        setErr('تعذّر الوصول للكاميرا. تأكد من منح الإذن، وأن الموقع يعمل على HTTPS.');
+      }
+    })();
+    return () => { active = false; if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop()); };
+  }, []);
+
+  const snap = () => {
+    const v = videoRef.current; if (!v) return;
+    const size = Math.min(v.videoWidth, v.videoHeight) || 480;
+    const cv = document.createElement('canvas'); cv.width = 480; cv.height = 480;
+    const ctx = cv.getContext('2d');
+    const sx = (v.videoWidth - size) / 2, sy = (v.videoHeight - size) / 2;
+    ctx.drawImage(v, sx, sy, size, size, 0, 0, 480, 480);
+    onCapture(cv.toDataURL('image/jpeg', 0.7));
+  };
+
+  return (
+    <Modal title={title || 'التقاط صورة الوجه'} icon={ScanFace} onClose={onClose}
+      foot={<><button className="btn pri" disabled={!ready} onClick={snap}><Camera size={14} />التقاط الصورة</button>
+        <button className="btn gh" onClick={onClose}>إلغاء</button></>}>
+      {err ? (
+        <div className="empty" style={{ color: 'var(--rose)' }}><ShieldAlert size={22} style={{ margin: '0 auto 10px' }} /><div>{err}</div></div>
+      ) : (
+        <div style={{ position: 'relative', borderRadius: 14, overflow: 'hidden', background: '#000', aspectRatio: '1' }}>
+          <video ref={videoRef} autoPlay playsInline muted
+            style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />
+          <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', display: 'grid', placeItems: 'center' }}>
+            <div style={{ width: '62%', aspectRatio: '3/4', border: '2.5px dashed rgba(200,162,74,.75)', borderRadius: '50% 50% 46% 46%' }} />
+          </div>
+          {!ready && <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', color: '#fff' }}>
+            <RefreshCw size={22} className="spin" /></div>}
+        </div>
+      )}
+      <div style={{ fontSize: 11.5, color: 'var(--dim)', marginTop: 12, textAlign: 'center', lineHeight: 1.8 }}>
+        ضع وجهك داخل الإطار في إضاءة جيدة، ثم اضغط التقاط. تُحفظ الصورة كتوثيق مرئي للجلسة.
+      </div>
+    </Modal>
+  );
 }
 
 function PhotoField({ label, value, onChange, say }) {
@@ -3190,6 +3817,7 @@ const FILE_CATS = [
 
 function Archive({ org, me, myBranches, say }) {
   const [items, setItems] = useState(null);
+  const [branchFilter, setBranchFilter] = useState('all');
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState('all');
   const [preview, setPreview] = useState(null);
@@ -3249,8 +3877,25 @@ function Archive({ org, me, myBranches, say }) {
   const del = async (it) => { await persist((items || []).filter(x => x.id !== it.id)); say('تم حذف المستند من الأرشيف'); };
 
   const ids = myBranches.map(b => b.id);
-  const list = (items || []).filter(i => ids.includes(i.branchId) && (filter === 'all' || i.category === filter));
+  const list = (items || []).filter(i => ids.includes(i.branchId) && (filter === 'all' || i.category === filter)
+    && (branchFilter === 'all' || i.branchId === branchFilter));
   const totalKb = sum(items || [], i => i.fileSizeKb || 0);
+
+  // تجميع حسب الفرع ثم اليوم (الأحدث أولاً)
+  const grouped = (() => {
+    const byBranch = {};
+    list.forEach(it => {
+      const bk = it.branchId || 'x';
+      (byBranch[bk] = byBranch[bk] || { name: it.branchName, days: {} });
+      const dk = it.uploadDate || '—';
+      (byBranch[bk].days[dk] = byBranch[bk].days[dk] || []).push(it);
+    });
+    return Object.entries(byBranch).map(([bid, v]) => ({
+      bid, name: v.name,
+      days: Object.entries(v.days).sort((a, b) => b[0].localeCompare(a[0]))
+        .map(([date, arr]) => ({ date, arr }))
+    })).sort((a, b) => a.name.localeCompare(b.name));
+  })();
 
   return (
     <div className="grid" style={{ gap: 14 }}>
@@ -3273,12 +3918,20 @@ function Archive({ org, me, myBranches, say }) {
             <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={pick} />
           </div>
         </div>
-        <div className="row">
-          <button className={'btn sm' + (filter === 'all' ? ' pri' : ' gh')} onClick={() => setFilter('all')}>الكل</button>
+        <div className="row" style={{ marginBottom: 8 }}>
+          <button className={'btn sm' + (filter === 'all' ? ' pri' : ' gh')} onClick={() => setFilter('all')}>كل التصنيفات</button>
           {FILE_CATS.map(c => (
             <button key={c.id} className={'btn sm' + (filter === c.id ? ' pri' : ' gh')} onClick={() => setFilter(c.id)}>{c.ar}</button>
           ))}
         </div>
+        {myBranches.length > 1 && (
+          <div className="row">
+            <button className={'btn sm' + (branchFilter === 'all' ? ' pri' : ' gh')} onClick={() => setBranchFilter('all')}>كل الفروع</button>
+            {myBranches.map(b => (
+              <button key={b.id} className={'btn sm' + (branchFilter === b.id ? ' pri' : ' gh')} onClick={() => setBranchFilter(b.id)}>{b.name}</button>
+            ))}
+          </div>
+        )}
       </div>
 
       {items === null && <div className="card"><div className="empty">جارٍ تحميل الأرشيف…</div></div>}
@@ -3288,28 +3941,55 @@ function Archive({ org, me, myBranches, say }) {
         </div></div>
       )}
 
-      <div className="grid g4">
-        {list.map(it => (
-          <div key={it.id} className="card" style={{ padding: 0, overflow: 'hidden' }}>
-            <img src={it.fileUrl} alt={it.title} onClick={() => setPreview(it)}
-              style={{ width: '100%', height: 140, objectFit: 'cover', cursor: 'zoom-in', display: 'block' }} />
-            <div style={{ padding: 12 }}>
-              <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 4 }}>{it.title}</div>
-              <div className="row" style={{ gap: 6 }}>
-                <span className="badge b-brass">{FILE_CATS.find(c => c.id === it.category)?.ar}</span>
-                {it.amount > 0 && <span className="badge b-dim"><span className="num">{money(it.amount)}</span></span>}
+      {grouped.map(g => (
+        <div key={g.bid} className="card">
+          <div className="card-t" style={{ marginBottom: 12 }}>
+            <Store size={15} color="var(--brass)" />{g.name}
+            <span className="badge b-dim" style={{ marginInlineStart: 'auto' }}>
+              {sum(g.days, d => d.arr.length)} مستند
+            </span>
+          </div>
+          {g.days.map(day => (
+            <div key={day.date} style={{ marginBottom: 14 }}>
+              <div className="row" style={{ marginBottom: 8, gap: 8 }}>
+                <CalendarDays size={13} color="var(--faint)" />
+                <span style={{ fontSize: 12, fontWeight: 600 }}>{arDate(day.date)}</span>
+                <span className="badge b-dim">{day.arr.length}</span>
+                <span style={{ height: 1, flex: 1, background: 'var(--line)' }} />
               </div>
-              <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 7 }}>
-                {it.branchName} · {arDate(it.uploadDate)} · {it.uploadedBy}
-              </div>
-              <div className="row" style={{ marginTop: 9 }}>
-                <button className="btn sm gh" onClick={() => setPreview(it)}><Eye size={12} />عرض</button>
-                <button className="btn sm gh" onClick={() => del(it)}><Trash2 size={12} color="#D9544D" /></button>
+              <div className="grid g4">
+                {day.arr.map(it => (
+                  <div key={it.id} className="card" style={{ padding: 0, overflow: 'hidden', background: 'var(--ink)' }}>
+                    <div style={{ position: 'relative' }}>
+                      <img src={it.fileUrl} alt={it.title} onClick={() => setPreview(it)}
+                        style={{ width: '100%', height: 120, objectFit: 'cover', cursor: 'zoom-in', display: 'block' }} />
+                      {it.source === 'closing' && (
+                        <span className="badge b-mint" style={{ position: 'absolute', top: 6, insetInlineEnd: 6, fontSize: 9 }}>
+                          <ClipboardCheck size={9} />إغلاق
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ padding: 10 }}>
+                      <div style={{ fontSize: 11.5, fontWeight: 600, marginBottom: 4, lineHeight: 1.4,
+                        display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                        {it.title}
+                      </div>
+                      <div className="row" style={{ gap: 5 }}>
+                        <span className="badge b-brass" style={{ fontSize: 9 }}>{it.categoryLabelAr || FILE_CATS.find(c => c.id === it.category)?.ar}</span>
+                        {it.amount > 0 && <span className="badge b-dim" style={{ fontSize: 9 }}><span className="num">{money(it.amount)}</span></span>}
+                      </div>
+                      <div className="row" style={{ marginTop: 8, gap: 4 }}>
+                        <button className="btn sm gh" onClick={() => setPreview(it)}><Eye size={11} /></button>
+                        {it.source !== 'closing' && <button className="btn sm gh" onClick={() => del(it)}><Trash2 size={11} color="#D9544D" /></button>}
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      ))}
 
       {draft && (
         <Modal title="بيانات المستند قبل الأرشفة" icon={Camera} onClose={() => setDraft(null)}
@@ -3403,6 +4083,261 @@ function TourModal({ me, onClose, go }) {
         الخطوة <span className="num">{i + 1}</span> من <span className="num">{steps.length}</span> · صلاحيتك الحالية: {ROLES[me.role].ar}
       </div>
     </Modal>
+  );
+}
+
+/* ================= محرّك القوائم المالية (يومي/شهري/سنوي) ================= */
+
+// يحسب قائمة الدخل لأي مدى تاريخي ومجموعة فروع
+function computeIncome(org, ops, closings, ids, from, to) {
+  const cls = closings.filter(c => c.date >= from && c.date <= to && ids.includes(c.branchId));
+  const R = {
+    cash: sum(cls, c => c.cashSales), card: sum(cls, c => c.cardSales),
+    bank: sum(cls, c => c.bankTransferSales || 0), del: sum(cls, c => c.totalDeliverySales)
+  };
+  const grossRevenue = R.cash + R.card + R.bank + R.del;
+  const commissions = sum(cls, c => sum(c.deliverySales || [], d => d.commissionAmount || 0));
+  const netRevenue = grossRevenue - commissions;
+
+  const cats = org.expenseCats || EXP_CATS;
+  const byCat = cats.map(k => ({
+    id: k.id, n: k.n, taxable: k.taxable,
+    v: sum(cls.flatMap(c => c.expenses || []).filter(e => e.categoryId === k.id), e => e.amount)
+  })).filter(x => x.v > 0);
+  const branchExpenses = sum(byCat, x => x.v);
+
+  // الالتزامات الثابتة والرواتب: نجمعها لكل شهر يقع ضمن المدى
+  const monthsInRange = (() => {
+    const set = new Set();
+    cls.forEach(c => set.add(c.date.slice(0, 7)));
+    // نضيف كل الشهور بين from و to لضمان تضمين الالتزامات حتى بلا إغلاقات
+    let d = new Date(from.slice(0, 7) + '-01');
+    const end = new Date(to.slice(0, 7) + '-01');
+    while (d <= end) { set.add(d.toISOString().slice(0, 7)); d.setMonth(d.getMonth() + 1); }
+    return [...set];
+  })();
+  const fx = (ops.fixedExpenses || []).filter(f => monthsInRange.includes(f.month) && ids.includes(f.branchId));
+  const fixedTotal = sum(fx, f => (f.rentAmount || 0) + (f.electricityBill || 0) + (f.waterBill || 0) + (f.internetBill || 0) + (f.otherBills || 0));
+
+  const emps = (org.employees || []).filter(e => ids.includes(e.branchId));
+  const monthlyPayroll = sum(emps, e => (e.baseSalary || 0) + (e.housingAllowance || 0) + (e.transportAllowance || 0));
+  const payrollCost = monthlyPayroll * Math.max(1, monthsInRange.length);
+  const paidAtBranch = sum(byCat.filter(x => ['ec2', 'ec3'].includes(x.id)), x => x.v);
+  const payrollRemaining = Math.max(0, payrollCost - paidAtBranch);
+
+  const vatOut = grossRevenue * 15 / 115;
+  const vatIn = sum(byCat.filter(x => x.taxable), x => x.v) * 15 / 115;
+  const vatDue = vatOut - vatIn;
+
+  const totalCost = branchExpenses + fixedTotal + payrollRemaining;
+  const operatingProfit = netRevenue - totalCost;
+  const netAfterVat = operatingProfit - vatDue;
+  const cashVariance = sum(cls, c => c.variance);
+
+  return {
+    n: cls.length, R, grossRevenue, commissions, netRevenue, byCat, branchExpenses,
+    fixedTotal, payrollRemaining, vatOut, vatIn, vatDue, totalCost, operatingProfit,
+    netAfterVat, cashVariance, months: monthsInRange.length
+  };
+}
+
+// طباعة قائمة الدخل كتقرير A4 رسمي
+function printIncomeA4(org, data, meta) {
+  const co = org.company || {};
+  const logo = meta.branchLogo || co.logoUrl || '';
+  const m = (n) => (Math.round((n || 0) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const d = data;
+  const row = (k, v, cls, ind) => `<tr class="${cls || ''}"><td style="${ind ? 'padding-inline-start:22px;color:#777' : ''}">${k}</td><td class="num">${m(v)}</td></tr>`;
+  const expRows = d.byCat.map(x => row(x.n, -x.v, '', true)).join('');
+
+  const w = window.open('', '_blank', 'width=880,height=1000');
+  if (!w) return;
+  w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
+  <title>قائمة الدخل - ${meta.periodLabel}</title><style>${A4_CSS}
+    .is-t { width:100%; border-collapse:collapse; font-size:11.5px; margin-top:8px }
+    .is-t td { padding:8px 10px; border-bottom:1px solid #eee }
+    .is-t td.num { text-align:left; font-variant-numeric:tabular-nums; font-weight:500 }
+    .is-t tr.sub td { background:#faf8f3; font-weight:700; border-top:1.5px solid #ddd }
+    .is-t tr.pos td { background:#eef8f2; font-weight:700; color:#2E8B62; font-size:13px; border-top:2px solid #2E8B62 }
+    .is-t tr.neg td { background:#fdeeed; font-weight:700; color:#C0392B; font-size:13px; border-top:2px solid #C0392B }
+    .is-t tr.rev td { color:#8C6F2C }
+  </style></head><body><div class="page">
+    <div class="head">
+      <div class="co">${logo ? `<img class="logo" src="${logo}">` : ''}
+        <div><div class="co-n">${co.name || 'المنشأة'}</div>
+        <div class="co-m">الرقم الضريبي: ${co.taxNumber || '—'} · السجل التجاري: ${co.commercialReg || '—'}</div></div>
+      </div>
+      <div class="doc-title">قائمة الدخل (${meta.periodType})</div>
+      <div class="doc-sub">${meta.scopeLabel} · ${meta.periodLabel}</div>
+      <div class="doc-sub dim">عدد الإغلاقات: ${d.n} · تاريخ التصدير: ${new Date().toLocaleString('ar-SA-u-nu-latn')}</div>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><span>صافي الإيراد</span><b class="brass">${m(d.netRevenue)} ر.س</b></div>
+      <div class="kpi"><span>إجمالي التكاليف</span><b class="rose">${m(d.totalCost)} ر.س</b></div>
+      <div class="kpi ${d.netAfterVat >= 0 ? 'ok' : 'bad'}"><span>صافي الربح بعد الضريبة</span><b>${m(d.netAfterVat)} ر.س</b></div>
+    </div>
+    <table class="is-t">
+      <tr class="rev"><td>المبيعات النقدية</td><td class="num">${m(d.R.cash)}</td></tr>
+      <tr class="rev"><td>مبيعات الشبكة (مدى/POS)</td><td class="num">${m(d.R.card)}</td></tr>
+      <tr class="rev"><td>تحويل بنكي مباشر</td><td class="num">${m(d.R.bank)}</td></tr>
+      <tr class="rev"><td>مبيعات تطبيقات التوصيل</td><td class="num">${m(d.R.del)}</td></tr>
+      <tr class="sub"><td>إجمالي الإيرادات</td><td class="num">${m(d.grossRevenue)}</td></tr>
+      ${row('عمولات منصات التوصيل', -d.commissions, '', true)}
+      <tr class="sub"><td>صافي الإيرادات</td><td class="num">${m(d.netRevenue)}</td></tr>
+      <tr><td colspan="2" style="background:#14110F;color:#fff;font-weight:700;font-size:11px">التكاليف والمصروفات</td></tr>
+      ${expRows}
+      ${row('الالتزامات الثابتة (إيجار/كهرباء/مياه)', -d.fixedTotal, '', true)}
+      ${row('الرواتب غير المصروفة بالفروع', -d.payrollRemaining, '', true)}
+      <tr class="sub"><td>إجمالي التكاليف</td><td class="num">${m(-d.totalCost)}</td></tr>
+      <tr class="${d.operatingProfit >= 0 ? 'pos' : 'neg'}"><td>الربح التشغيلي</td><td class="num">${m(d.operatingProfit)}</td></tr>
+      ${row('ضريبة القيمة المضافة المستحقة', -d.vatDue, '', true)}
+      <tr class="${d.netAfterVat >= 0 ? 'pos' : 'neg'}"><td>صافي الربح بعد الضريبة</td><td class="num">${m(d.netAfterVat)}</td></tr>
+    </table>
+    <div class="sec-h">مؤشرات ضريبية ورقابية</div>
+    <table class="t compact">
+      <tr><td>ض.ق.م على المبيعات (مُخرجة)</td><td class="num">${m(d.vatOut)} ر.س</td></tr>
+      <tr><td>ض.ق.م على المشتريات (مُدخلة)</td><td class="num">${m(d.vatIn)} ر.س</td></tr>
+      <tr class="tot"><td>صافي الضريبة المستحقة للهيئة</td><td class="num">${m(d.vatDue)} ر.س</td></tr>
+      <tr><td>إجمالي فروقات الصندوق للفترة</td><td class="num">${m(d.cashVariance)} ر.س</td></tr>
+    </table>
+    <div class="sigs">
+      <div class="sig"><div class="sig-t">إعداد المحاسب</div><div class="sig-line"></div><div class="sig-ok dim">التوقيع</div></div>
+      <div class="sig"><div class="sig-t">مراجعة الإدارة المالية</div><div class="sig-line"></div><div class="sig-ok dim">التوقيع والختم</div></div>
+      <div class="sig"><div class="sig-t">اعتماد المدير العام</div><div class="sig-line"></div><div class="sig-ok dim">الاعتماد النهائي</div></div>
+    </div>
+    <div class="foot dim">قائمة استرشادية لأغراض الإدارة · ${co.name || ''} · لا تحل محل القوائم المعتمدة من المحاسب القانوني</div>
+  </div></body></html>`);
+  w.document.close();
+  setTimeout(() => { w.focus(); w.print(); }, 500);
+}
+
+/* ================= التقارير المالية الموحّدة (يومي/شهري/سنوي) ================= */
+function FinancialReports({ org, ops, myBranches, scoped, say }) {
+  const [period, setPeriod] = useState('monthly');
+  const [day, setDay] = useState(today());
+  const [month, setMonth] = useState(today().slice(0, 7));
+  const [year, setYear] = useState(today().slice(0, 4));
+  const [bid, setBid] = useState('all');
+
+  const branches = myBranches.filter(b => bid === 'all' || b.id === bid);
+  const ids = branches.map(b => b.id);
+
+  const range = period === 'daily' ? { from: day, to: day, label: arDate(day), type: 'يومية' }
+    : period === 'monthly' ? { from: month + '-01', to: month + '-31', label: month, type: 'شهرية' }
+    : { from: year + '-01-01', to: year + '-12-31', label: year, type: 'سنوية' };
+
+  const data = useMemo(() => computeIncome(org, ops, scoped.closings, ids, range.from, range.to),
+    [org, ops, scoped, ids.join(), range.from, range.to]);
+
+  const m = (n) => money(n);
+  const scopeLabel = bid === 'all' ? 'كل الفروع' : (branches[0]?.name || '');
+  const branchLogo = bid !== 'all' ? branches[0]?.logoUrl : '';
+
+  const doPrint = () => printIncomeA4(org, data, {
+    periodType: range.type, periodLabel: range.label, scopeLabel, branchLogo
+  });
+
+  const exportCsv = () => {
+    const rows = [
+      ['قائمة الدخل', range.type, range.label, scopeLabel],
+      ['مبيعات نقدية', data.R.cash], ['مبيعات الشبكة', data.R.card], ['تحويل بنكي', data.R.bank],
+      ['تطبيقات التوصيل', data.R.del], ['إجمالي الإيراد', data.grossRevenue],
+      ['عمولات التطبيقات', -data.commissions], ['صافي الإيراد', data.netRevenue],
+      ...data.byCat.map(x => ['مصروف: ' + x.n, -x.v]),
+      ['الالتزامات الثابتة', -data.fixedTotal], ['الرواتب غير المصروفة', -data.payrollRemaining],
+      ['إجمالي التكاليف', -data.totalCost], ['الربح التشغيلي', data.operatingProfit],
+      ['ض.ق.م المستحقة', -data.vatDue], ['صافي الربح بعد الضريبة', data.netAfterVat],
+      ['فروقات الصندوق', data.cashVariance]
+    ];
+    const csv = '\uFEFF' + rows.map(r => r.join(',')).join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a'); a.href = url; a.download = `قائمة-الدخل-${range.type}-${range.label}.csv`; a.click();
+    URL.revokeObjectURL(url);
+    say('تم تنزيل قائمة الدخل');
+  };
+
+  const L = ({ k, v, c, bold, ind, sub }) => (
+    <div className="row" style={{
+      justifyContent: 'space-between', padding: '9px 0',
+      borderBottom: '1px solid rgba(51,44,38,.45)', paddingInlineStart: ind ? 18 : 0,
+      background: sub ? 'rgba(200,162,74,.05)' : 'transparent'
+    }}>
+      <span style={{ fontSize: bold ? 13 : 12.5, fontWeight: bold ? 600 : 400, color: ind ? 'var(--dim)' : 'var(--txt)' }}>{k}</span>
+      <span className="num" style={{ fontSize: bold ? 14 : 12.5, fontWeight: bold ? 700 : 500, color: c }}>{money(v)}</span>
+    </div>
+  );
+
+  return (
+    <div className="grid" style={{ gap: 14 }}>
+      <div className="card">
+        <div className="row" style={{ marginBottom: 12 }}>
+          <button className={'btn sm' + (period === 'daily' ? ' pri' : ' gh')} onClick={() => setPeriod('daily')}>يومي</button>
+          <button className={'btn sm' + (period === 'monthly' ? ' pri' : ' gh')} onClick={() => setPeriod('monthly')}>شهري</button>
+          <button className={'btn sm' + (period === 'yearly' ? ' pri' : ' gh')} onClick={() => setPeriod('yearly')}>سنوي</button>
+        </div>
+        <div className="row">
+          {period === 'daily' && <div style={{ flex: 1, minWidth: 150 }}>
+            <label className="lbl">اليوم</label>
+            <input type="date" className="inp" value={day} onChange={e => setDay(e.target.value)} /></div>}
+          {period === 'monthly' && <div style={{ flex: 1, minWidth: 150 }}>
+            <label className="lbl">الشهر</label>
+            <input type="month" className="inp" value={month} onChange={e => setMonth(e.target.value)} /></div>}
+          {period === 'yearly' && <div style={{ flex: 1, minWidth: 150 }}>
+            <label className="lbl">السنة</label>
+            <select className="sel" value={year} onChange={e => setYear(e.target.value)}>
+              {[0, 1, 2, 3].map(i => { const y = String(Number(today().slice(0, 4)) - i); return <option key={y} value={y}>{y}</option>; })}
+            </select></div>}
+          <div style={{ flex: 1, minWidth: 150 }}>
+            <label className="lbl">الفرع</label>
+            <select className="sel" value={bid} onChange={e => setBid(e.target.value)}>
+              <option value="all">كل الفروع</option>
+              {myBranches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select></div>
+        </div>
+        <div className="row" style={{ marginTop: 12 }}>
+          <button className="btn pri" onClick={doPrint}><FileText size={14} />طباعة قائمة الدخل (PDF)</button>
+          <button className="btn" onClick={exportCsv}><Download size={14} />تصدير CSV</button>
+        </div>
+      </div>
+
+      <div className="grid g3">
+        <Kpi label="صافي الإيراد" value={money(data.netRevenue)} sub={`${data.n} إغلاق`} icon={TrendingUp} color="#C8A24A" />
+        <Kpi label="إجمالي التكاليف" value={money(data.totalCost)} icon={TrendingDown} color="#D9544D" />
+        <Kpi label="صافي الربح بعد الضريبة" value={money(data.netAfterVat)} icon={Wallet} color={data.netAfterVat >= 0 ? '#4FB286' : '#D9544D'} />
+      </div>
+
+      <div className="card">
+        <div className="card-t" style={{ marginBottom: 6 }}><FileText size={15} color="var(--brass)" />قائمة الدخل {range.type} — {range.label}</div>
+        <div style={{ fontSize: 11.5, color: 'var(--dim)', marginBottom: 10 }}>{scopeLabel}</div>
+        <L k="المبيعات النقدية" v={data.R.cash} c="var(--brass)" ind />
+        <L k="مبيعات الشبكة (مدى/POS)" v={data.R.card} c="var(--brass)" ind />
+        <L k="تحويل بنكي مباشر" v={data.R.bank} c="var(--brass)" ind />
+        <L k="مبيعات تطبيقات التوصيل" v={data.R.del} c="var(--brass)" ind />
+        <L k="إجمالي الإيرادات" v={data.grossRevenue} bold sub />
+        <L k="عمولات منصات التوصيل" v={-data.commissions} c="var(--rose)" ind />
+        <L k="صافي الإيرادات" v={data.netRevenue} c="var(--brass)" bold sub />
+        {data.byCat.map(x => <L key={x.id} k={x.n} v={-x.v} c="var(--rose)" ind />)}
+        <L k="الالتزامات الثابتة" v={-data.fixedTotal} c="var(--rose)" ind />
+        <L k="الرواتب غير المصروفة بالفروع" v={-data.payrollRemaining} c="var(--rose)" ind />
+        <L k="إجمالي التكاليف" v={-data.totalCost} c="var(--rose)" bold sub />
+        <L k="الربح التشغيلي" v={data.operatingProfit} c={data.operatingProfit >= 0 ? 'var(--mint)' : 'var(--rose)'} bold />
+        <L k="ضريبة القيمة المضافة المستحقة" v={-data.vatDue} c="var(--amber)" ind />
+        <div style={{ marginTop: 8, padding: '14px 16px', background: data.netAfterVat >= 0 ? 'rgba(79,178,134,.12)' : 'rgba(217,84,77,.12)', borderRadius: 12, border: '1px solid ' + (data.netAfterVat >= 0 ? 'rgba(79,178,134,.4)' : 'rgba(217,84,77,.4)') }}>
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 14, fontWeight: 700 }}>صافي الربح بعد الضريبة</span>
+            <span className="num" style={{ fontSize: 18, fontWeight: 700, color: data.netAfterVat >= 0 ? 'var(--mint)' : 'var(--rose)' }}>{money(data.netAfterVat)}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="card" style={{ background: 'var(--ink)' }}>
+        <div className="card-t" style={{ marginBottom: 10, fontSize: 12.5 }}>مؤشرات ضريبية ورقابية</div>
+        <L k="ض.ق.م على المبيعات (مُخرجة)" v={data.vatOut} />
+        <L k="ض.ق.م على المشتريات (مُدخلة)" v={data.vatIn} />
+        <L k="صافي الضريبة المستحقة للهيئة" v={data.vatDue} c="var(--amber)" bold />
+        <L k="إجمالي فروقات الصندوق للفترة" v={data.cashVariance} c={data.cashVariance < 0 ? 'var(--rose)' : 'var(--faint)'} />
+      </div>
+    </div>
   );
 }
 
