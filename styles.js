@@ -9,6 +9,8 @@ export const CSS = `
   --mint:#4FB286; --rose:#D9544D; --amber:#E0A458; --sky:#5B93C4;
 }
 *{box-sizing:border-box}
+html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;position:relative}
+#root{width:100%;max-width:100vw;overflow-x:hidden}
 .rms{
   direction:rtl; background:var(--ink); color:var(--txt); min-height:100vh;
   font-family:'IBM Plex Sans Arabic','Readex Pro',system-ui,sans-serif;
