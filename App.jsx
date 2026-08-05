@@ -488,25 +488,25 @@ export default function App() {
 
         <div className="main">
           <header className="top">
-            <button className="btn sm gh hidden-desk" onClick={() => setDrawer(true)}><Menu size={16} /></button>
-            <h1 style={{ fontSize: 15 }}>{NAV.find(n => n.id === tab)?.ar}</h1>
-            <div style={{ marginInlineStart: 'auto' }} className="row">
-              <div className="row" style={{ gap: 0 }}>
+            <button className="btn sm gh hidden-desk topmenu" onClick={() => setDrawer(true)}><Menu size={16} /></button>
+            <h1 className="toptitle">{NAV.find(n => n.id === tab)?.ar}</h1>
+            <div className="topstatus">
+              <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
                   <div key={i} className="av" title={p.name} style={{ background: clr(i) }}>{p.name.charAt(0)}</div>
                 ))}
               </div>
-              <span className={'badge ' + (live ? 'b-mint' : 'b-dim')}
+              <span className={'badge livebadge ' + (live ? 'b-mint' : 'b-dim')}
                 title={live ? 'مزامنة لحظية عبر Firestore' : 'مزامنة دورية كل 8 ثوانٍ'}>
-                <span className="dot" />{online.length} متصل{live ? ' · لحظي' : ''}
+                <span className="dot" />{online.length}{live ? ' · لحظي' : ''}
               </span>
-              <button className="btn sm gh" onClick={() => refresh(false)} title="مزامنة الآن">
+              <button className="btn sm gh synctime" onClick={() => refresh(false)} title="مزامنة الآن">
                 <RefreshCw size={14} className={syncing ? 'spin' : ''} />
-                <span className="num" style={{ fontSize: 10, color: 'var(--faint)' }}>
+                <span className="num tt" style={{ fontSize: 10, color: 'var(--faint)' }}>
                   {lastSync ? lastSync.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '--:--'}
                 </span>
               </button>
-              <button className="btn sm gh" title="تبديل السمة"
+              <button className="btn sm gh themebtn" title="تبديل السمة"
                 onClick={() => setTheme(t => t === 'lite' ? 'dark' : 'lite')}>
                 {theme === 'lite' ? '🌙' : '☀️'}
               </button>
