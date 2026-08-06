@@ -164,13 +164,13 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
   /* الفئات النقدية والملاحظات */
   .notes{grid-template-columns:repeat(2,1fr);gap:8px}
 
-  /* النوافذ كاملة الشاشة — ارتفاع ديناميكي يراعي شريط المتصفح */
-  .mask{padding:0;align-items:flex-end}
-  .modal{width:100% !important;max-width:100% !important;
-    height:92dvh;max-height:92dvh;border-radius:18px 18px 0 0;align-self:flex-end}
+  /* النافذة على الجوال: كاملة العرض، تنمو بطول محتواها، القناع يتمرّر */
+  .mask{padding:0;align-items:flex-start}
+  .modal{width:100% !important;max-width:100% !important;min-height:100%;
+    border-radius:0;margin:0}
   .modal-b{padding:14px}
-  .modal-h{padding:14px 16px}
-  .modal-f{padding:12px 14px calc(12px + env(safe-area-inset-bottom));gap:8px;flex-wrap:nowrap}
+  .modal-h{padding:14px 16px;border-radius:0}
+  .modal-f{padding:12px 14px calc(12px + env(safe-area-inset-bottom));gap:8px;flex-wrap:nowrap;border-radius:0}
   .modal-f .btn{flex:1;min-width:0;padding:12px 8px;justify-content:center}
 
   /* مؤشر الخطوات: اسم الخطوة الحالية فقط */
@@ -313,18 +313,18 @@ table.tb{width:100%;border-collapse:collapse;font-size:12.5px;min-width:520px}
 .tb tr:last-child td{border-bottom:none}
 .tb tbody tr:hover{background:rgba(255,255,255,.018)}
 
-/* ═══ معمار النافذة: عمود مرن بارتفاع محدود — المحتوى وحده يتمرّر ═══ */
+/* ═══ النافذة تنمو بطول محتواها — القناع كله يتمرّر بحرية (لا حصر داخلي) ═══ */
 .mask{position:fixed;inset:0;background:rgba(8,6,5,.62);backdrop-filter:blur(6px);z-index:80;
-  display:flex;align-items:center;justify-content:center;padding:16px;overscroll-behavior:contain}
+  overflow-y:auto;-webkit-overflow-scrolling:touch;
+  display:flex;align-items:flex-start;justify-content:center;padding:24px 16px}
 .modal{background:var(--ink2);border:1px solid var(--line);border-radius:16px;width:100%;max-width:640px;
-  max-height:min(90dvh,900px);display:flex;flex-direction:column;overflow:hidden;
-  box-shadow:0 30px 70px rgba(0,0,0,.55)}
-/* الرأس: ثابت لا يتمرّر */
-.modal-h{flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:16px 18px;border-bottom:1px solid var(--line);background:var(--ink2)}
-/* الجسم: منطقة التمرير الوحيدة */
-.modal-b{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:18px}
+  margin:auto;box-shadow:0 30px 70px rgba(0,0,0,.55)}
+/* الرأس: يبقى ظاهراً أثناء تمرير القناع */
+.modal-h{position:sticky;top:0;z-index:3;display:flex;align-items:center;justify-content:space-between;padding:16px 18px;border-bottom:1px solid var(--line);background:var(--ink2);border-radius:16px 16px 0 0}
+/* الجسم: ينمو بطول المحتوى دون تمرير داخلي */
+.modal-b{padding:18px}
 /* التذييل: ثابت دائم الظهور */
-.modal-f{flex-shrink:0;display:flex;gap:9px;justify-content:flex-start;padding:14px 18px;border-top:1px solid var(--line);background:var(--ink2)}
+.modal-f{position:sticky;bottom:0;z-index:3;display:flex;gap:9px;justify-content:flex-start;padding:14px 18px;border-top:1px solid var(--line);background:var(--ink2);border-radius:0 0 16px 16px}
 
 /* ---- التوقيع البصري: شريط جرد الفئات النقدية ---- */
 .notes{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
