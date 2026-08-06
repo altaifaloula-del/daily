@@ -31,6 +31,7 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
   position:sticky;top:0;height:100vh;overflow-y:auto
 }
 .brand{display:flex;align-items:center;gap:10px;padding:6px 8px 18px}
+.sideclose{display:none}
 .brand-mark{
   width:36px;height:36px;border-radius:10px;flex-shrink:0;
   background:linear-gradient(145deg,var(--brass),var(--brass-d));
@@ -58,11 +59,13 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 .page{padding:20px;max-width:1500px;width:100%;overflow-x:hidden}
 .hidden-desk{display:none}
 @media(max-width:900px){
-  .shell{display:block;width:100%;max-width:100vw;overflow-x:hidden}
-  .side{position:fixed;inset-inline-end:0;top:0;z-index:60;width:82vw;max-width:300px;transform:translateX(105%);transition:.25s;box-shadow:-20px 0 40px rgba(0,0,0,.5)}
+  .shell{display:block !important;width:100%;max-width:100vw;overflow-x:hidden}
+  .side{position:fixed !important;inset-inline-end:0;top:0;height:100vh;z-index:60;width:82vw;max-width:300px;transform:translateX(105%);transition:transform .25s;box-shadow:-20px 0 40px rgba(0,0,0,.5)}
   .side.open{transform:translateX(0)}
-  .main{width:100%;max-width:100vw;overflow-x:hidden}
+  .main{width:100% !important;max-width:100vw;margin:0 !important;overflow-x:hidden}
   .hidden-desk{display:inline-flex}
+  .sideclose{display:inline-flex !important;background:var(--ink3);border:1px solid var(--line);border-radius:9px;padding:7px 9px;flex-shrink:0}
+  .topmenu{background:var(--brass);color:#1a1410;border:none;font-weight:700}
   .page{padding:12px;padding-bottom:80px;width:100%;max-width:100vw;overflow-x:hidden}
   .top{padding:10px 10px;gap:6px;width:100%;max-width:100vw;overflow:hidden;flex-wrap:nowrap}
   .toptitle{font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto}
