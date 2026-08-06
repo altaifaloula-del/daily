@@ -453,7 +453,7 @@ export default function App() {
       online={Object.values(pulse.presence || {}).filter(p => Date.now() - p.at < 70000)} />;
   }
 
-  const smartAlertCount = useMemo(() => computeSmartAlerts(org, ops, myBranches).length, [org, ops, myBranches]);
+  const smartAlertCount = computeSmartAlerts(org, ops, myBranches).length;
   const unread = (ops.notifications || []).filter(n => !n.isRead).length + smartAlertCount;
   const pending = scoped.closings.filter(c => c.status === 'submitted').length;
   const online = Object.values(pulse.presence || {}).filter(p => Date.now() - p.at < 70000);
