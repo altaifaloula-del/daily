@@ -62,7 +62,7 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 .hidden-desk{display:none}
 @media(max-width:900px){
   .shell{display:block !important;width:100%;max-width:100vw;overflow-x:hidden}
-  .side{position:fixed !important;inset-inline-end:0;top:0;height:100vh;z-index:60;width:82vw;max-width:300px;transform:translateX(105%);transition:transform .25s;box-shadow:-20px 0 40px rgba(0,0,0,.5)}
+  .side{display:none !important}
   .side.open{transform:translateX(0)}
   .main{width:100% !important;max-width:100vw;margin:0 !important;overflow-x:hidden}
   .hidden-desk{display:inline-flex}
@@ -99,6 +99,22 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
   50%{opacity:.4;transform:scale(1.4)}
 }
 @media(max-width:640px){.actbar{padding:8px 12px}.actbar .btn.sm{padding:5px 8px;font-size:11px}}
+
+/* صفحة الأيقونات الكاملة (بديل القائمة على الجوال) */
+.sheet-mask{position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;animation:fadein .2s}
+@keyframes fadein{from{opacity:0}to{opacity:1}}
+.sheet{width:100%;background:var(--ink2);border-radius:20px 20px 0 0;padding:8px 16px calc(20px + env(safe-area-inset-bottom));max-height:80vh;overflow-y:auto;animation:sheetup .25s cubic-bezier(.2,.8,.2,1)}
+@keyframes sheetup{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.sheet-handle{width:40px;height:4px;border-radius:4px;background:var(--line);margin:6px auto 12px}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;font-size:14px;font-weight:600;font-family:'Readex Pro',sans-serif}
+.iconsgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.icontile{display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 6px;border-radius:14px;border:1px solid var(--line);background:var(--ink);color:var(--dim);cursor:pointer;font-family:inherit;transition:.15s}
+.icontile:active{transform:scale(.96)}
+.icontile.on{background:var(--ink3);color:var(--brass);border-color:var(--brass-d)}
+.icontile-i{position:relative;display:grid;place-items:center;width:46px;height:46px;border-radius:13px;background:var(--ink3)}
+.icontile.on .icontile-i{background:linear-gradient(145deg,var(--brass),var(--brass-d));color:#1a1410}
+.icontile span{font-size:11px;text-align:center;line-height:1.3}
+.icontile-b{position:absolute;top:-4px;inset-inline-end:-4px;background:var(--rose);color:#fff;font-size:9px;font-weight:700;min-width:16px;height:16px;border-radius:20px;display:grid;place-items:center;padding:0 3px}
 
 /* ===================== تحسينات الجوال ===================== */
 @media(max-width:640px){
