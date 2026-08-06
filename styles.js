@@ -164,13 +164,14 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
   /* الفئات النقدية والملاحظات */
   .notes{grid-template-columns:repeat(2,1fr);gap:8px}
 
-  /* النوافذ كاملة الشاشة */
-  .modal{width:100% !important;max-width:100% !important;max-height:96vh;border-radius:16px 16px 0 0;align-self:flex-end}
+  /* النوافذ كاملة الشاشة — ارتفاع ديناميكي يراعي شريط المتصفح */
   .mask{padding:0;align-items:flex-end}
+  .modal{width:100% !important;max-width:100% !important;
+    height:92dvh;max-height:92dvh;border-radius:18px 18px 0 0;align-self:flex-end}
   .modal-b{padding:14px}
-  .modal-h,.modal-f{padding:12px 14px}
-  .modal-f{flex-wrap:wrap}
-  .modal-f .btn{flex:1;min-width:120px;justify-content:center}
+  .modal-h{padding:14px 16px}
+  .modal-f{padding:12px 14px calc(12px + env(safe-area-inset-bottom));gap:8px;flex-wrap:nowrap}
+  .modal-f .btn{flex:1;min-width:0;padding:12px 8px;justify-content:center}
 
   /* مؤشر الخطوات: اسم الخطوة الحالية فقط */
   .step-lbl{display:none}
@@ -312,13 +313,18 @@ table.tb{width:100%;border-collapse:collapse;font-size:12.5px;min-width:520px}
 .tb tr:last-child td{border-bottom:none}
 .tb tbody tr:hover{background:rgba(255,255,255,.018)}
 
+/* ═══ معمار النافذة: عمود مرن بارتفاع محدود — المحتوى وحده يتمرّر ═══ */
 .mask{position:fixed;inset:0;background:rgba(8,6,5,.62);backdrop-filter:blur(6px);z-index:80;
-  display:flex;align-items:center;justify-content:center;padding:16px;overflow-y:auto}
+  display:flex;align-items:center;justify-content:center;padding:16px;overscroll-behavior:contain}
 .modal{background:var(--ink2);border:1px solid var(--line);border-radius:16px;width:100%;max-width:640px;
-  max-height:92vh;overflow-y:auto;box-shadow:0 30px 70px rgba(0,0,0,.55)}
-.modal-h{display:flex;align-items:center;justify-content:space-between;padding:16px 18px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--ink2);z-index:2}
-.modal-b{padding:18px}
-.modal-f{display:flex;gap:9px;justify-content:flex-start;padding:14px 18px;border-top:1px solid var(--line);position:sticky;bottom:0;background:var(--ink2)}
+  max-height:min(90dvh,900px);display:flex;flex-direction:column;overflow:hidden;
+  box-shadow:0 30px 70px rgba(0,0,0,.55)}
+/* الرأس: ثابت لا يتمرّر */
+.modal-h{flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:16px 18px;border-bottom:1px solid var(--line);background:var(--ink2)}
+/* الجسم: منطقة التمرير الوحيدة */
+.modal-b{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:18px}
+/* التذييل: ثابت دائم الظهور */
+.modal-f{flex-shrink:0;display:flex;gap:9px;justify-content:flex-start;padding:14px 18px;border-top:1px solid var(--line);background:var(--ink2)}
 
 /* ---- التوقيع البصري: شريط جرد الفئات النقدية ---- */
 .notes{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
