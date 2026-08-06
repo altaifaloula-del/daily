@@ -17,27 +17,29 @@
     <div id="root"></div>
     <script type="module" src="/main.jsx"></script>
     <script>
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', function () {
-          navigator.serviceWorker.register('sw.js?v=3').then(function (reg) {
-            // عند توفّر نسخة جديدة، فعّلها وأعد التحميل مرة واحدة تلقائياً
-            reg.addEventListener('updatefound', function () {
-              var nw = reg.installing;
-              if (!nw) return;
-              nw.addEventListener('statechange', function () {
-                if (nw.state === 'installed' && navigator.serviceWorker.controller) {
-                  nw.postMessage && reg.waiting && reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+      // إزالة عامل الخدمة نهائياً ومسح كل الكاش — شفاء ذاتي لأي جهاز عالق على نسخة قديمة
+      (function () {
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then(function (regs) {
+            var had = regs.length > 0;
+            regs.forEach(function (r) { r.unregister(); });
+            if ('caches' in window) {
+              caches.keys().then(function (keys) {
+                return Promise.all(keys.map(function (k) { return caches.delete(k); }));
+              }).then(function () {
+                // إن كان هناك عامل خدمة قديم، أعد التحميل مرة واحدة لعرض النسخة النظيفة
+                if (had && !sessionStorage.getItem('sw_purged')) {
+                  sessionStorage.setItem('sw_purged', '1');
+                  location.reload();
                 }
               });
-            });
-            reg.update();
+            } else if (had && !sessionStorage.getItem('sw_purged')) {
+              sessionStorage.setItem('sw_purged', '1');
+              location.reload();
+            }
           }).catch(function () {});
-          var reloaded = false;
-          navigator.serviceWorker.addEventListener('controllerchange', function () {
-            if (reloaded) return; reloaded = true; window.location.reload();
-          });
-        });
-      }
+        }
+      })();
     </script>
   </body>
 </html>
