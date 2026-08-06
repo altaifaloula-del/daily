@@ -892,7 +892,7 @@ function Gate({ css, org, onLogin, online, theme }) {
 function Modal({ title, icon: Icon, children, foot, onClose, wide }) {
   return (
     <div className="mask" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="modal" style={wide ? { maxWidth: 860 } : undefined}>
+      <div className="modal" style={wide ? { maxWidth: 1100 } : undefined}>
         <div className="modal-h">
           <div className="card-t">{Icon && <Icon size={16} color="var(--brass)" />}{title}</div>
           <button className="btn sm gh" onClick={onClose}><X size={15} /></button>
@@ -1602,15 +1602,13 @@ function Closing({ org, ops, me, myBranches, scoped, commit, say }) {
 
   return (
     <div className="grid" style={{ gap: 14 }}>
-      <div className="row" style={{ justifyContent: 'space-between' }}>
-        <div style={{ fontSize: 12.5, color: 'var(--dim)' }}>
-          سجل إغلاقات الورديات — مطابقة النقدية وترحيلها للخزينة الرئيسية
-        </div>
-        {canEdit && (
-          <button className="btn pri" onClick={() => { setEdit(null); setOpen(true); }}>
-            <Plus size={15} />إغلاق وردية جديد
-          </button>
-        )}
+      {canEdit && (
+        <button className="btn pri newclosing-btn" onClick={() => { setEdit(null); setOpen(true); }}>
+          <Plus size={17} />إغلاق وردية جديد
+        </button>
+      )}
+      <div style={{ fontSize: 12, color: 'var(--dim)', textAlign: 'center' }}>
+        سجل إغلاقات الورديات — مطابقة النقدية وترحيلها للخزينة الرئيسية
       </div>
 
       <div className="card">
