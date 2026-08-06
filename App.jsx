@@ -562,7 +562,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === tab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v3.3 ✓</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v3.7 ✓</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -1605,13 +1605,16 @@ function Closing({ org, ops, me, myBranches, scoped, commit, say }) {
 
   return (
     <div className="grid" style={{ gap: 14 }}>
-      {canEdit && (
-        <button className="btn pri newclosing-btn" onClick={() => { setEdit(null); setOpen(true); }}>
-          <Plus size={17} />إغلاق وردية جديد
-        </button>
-      )}
-      <div style={{ fontSize: 12, color: 'var(--dim)', textAlign: 'center' }}>
-        سجل إغلاقات الورديات — مطابقة النقدية وترحيلها للخزينة الرئيسية
+      <div className="pagehead">
+        <div>
+          <h2 className="pagehead-t">الإغلاق اليومي</h2>
+          <div className="pagehead-s">مطابقة النقدية وترحيلها للخزينة الرئيسية</div>
+        </div>
+        {canEdit && (
+          <button className="btn pri newclosing-btn" onClick={() => { setEdit(null); setOpen(true); }}>
+            <Plus size={16} />إغلاق وردية جديد
+          </button>
+        )}
       </div>
 
       <div className="card">
@@ -1971,9 +1974,9 @@ function ClosingForm({ org, me, branches, initial, commit, say, onClose, existin
                 <div className="fld">
                   <label className="lbl">التصنيف الضريبي</label>
                   <div className="row" style={{ gap: 6 }}>
-                    <button type="button" className={'btn sm' + (e.isTaxable ? ' pri' : ' gh')}
+                    <button type="button" style={{ flex: 1 }} className={'btn sm' + (e.isTaxable ? ' pri' : ' gh')}
                       onClick={() => upExp(e.id, 'isTaxable', true)}>خاضع للضريبة</button>
-                    <button type="button" className={'btn sm' + (!e.isTaxable ? ' pri' : ' gh')}
+                    <button type="button" style={{ flex: 1 }} className={'btn sm' + (!e.isTaxable ? ' pri' : ' gh')}
                       onClick={() => upExp(e.id, 'isTaxable', false)}>غير خاضع</button>
                   </div>
                 </div>
@@ -2074,7 +2077,7 @@ function ClosingForm({ org, me, branches, initial, commit, say, onClose, existin
               <div className="seal" style={{ '--sc': variance === 0 ? 'var(--mint)' : variance < 0 ? 'var(--rose)' : 'var(--amber)' }}>
                 <Stamp size={22} />
                 <div>
-                  <div style={{ fontWeight: 700, fontSize: 13.5, fontFamily: "'Readex Pro',sans-serif" }}>
+                  <div style={{ fontWeight: 700, fontSize: 13.5, fontFamily: "'Markazi Text',serif" }}>
                     {variance === 0 ? 'الصندوق مطابق تماماً' : variance < 0 ? 'عجز نقدي يستوجب التبرير' : 'فائض نقدي غير مبرر'}
                   </div>
                   <div style={{ fontSize: 11, opacity: .85 }}>
