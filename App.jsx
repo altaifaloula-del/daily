@@ -904,8 +904,8 @@ function Modal({ title, icon: Icon, children, foot, onClose, wide }) {
   );
 }
 
-function Field({ label, children }) {
-  return <div className="fld"><label className="lbl">{label}</label>{children}</div>;
+function Field({ label, children, style }) {
+  return <div className="fld" style={style}><label className="lbl">{label}</label>{children}</div>;
 }
 
 function Num({ label, value, onChange, hint }) {
@@ -1583,6 +1583,7 @@ function Closing({ org, ops, me, myBranches, scoped, commit, say }) {
   const [bid, setBid] = useState('all');
   const [fromD, setFromD] = useState('');
   const [toD, setToD] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
   const [limit, setLimit] = useState(15);
 
   const filtered = [...scoped.closings]
@@ -1613,37 +1614,54 @@ function Closing({ org, ops, me, myBranches, scoped, commit, say }) {
       </div>
 
       <div className="card">
-        <div className="row" style={{ marginBottom: 14 }}>
-          <div className="row" style={{ gap: 7, flex: 1, minWidth: 200 }}>
-            <Search size={14} color="var(--faint)" />
-            <input className="inp" style={{ flex: 1, minWidth: 150 }} placeholder="بحث بالفرع أو التاريخ أو المسؤول"
-              value={q} onChange={e => setQ(e.target.value)} />
-          </div>
-          <select className="sel" style={{ width: 165 }} value={st} onChange={e => setSt(e.target.value)}>
-            <option value="all">كل الحالات</option>
-            <option value="draft">مسودة</option>
-            <option value="submitted">مرحّل للمراجعة</option>
-            <option value="approved">مدقّق ومعتمد</option>
-            <option value="rejected">مرفوض</option>
-          </select>
-          {myBranches.length > 1 && (
-            <select className="sel" style={{ width: 190 }} value={bid} onChange={e => setBid(e.target.value)}>
-              <option value="all">كل الفروع</option>
-              {myBranches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
-          )}
-          <div className="row" style={{ gap: 6 }}>
-            <span style={{ fontSize: 11, color: 'var(--faint)' }}>من</span>
-            <input type="date" className="inp" style={{ width: 150 }} value={fromD} onChange={e => setFromD(e.target.value)} />
-            <span style={{ fontSize: 11, color: 'var(--faint)' }}>إلى</span>
-            <input type="date" className="inp" style={{ width: 150 }} value={toD} onChange={e => setToD(e.target.value)} />
-          </div>
-          {(q || st !== 'all' || bid !== 'all' || fromD || toD) && (
-            <button className="btn sm gh" onClick={() => { setQ(''); setSt('all'); setBid('all'); setFromD(''); setToD(''); }}>
-              <X size={13} />مسح الفلاتر
+        <div style={{ marginBottom: 14 }}>
+          <div className="row" style={{ gap: 8 }}>
+            <div className="row" style={{ gap: 7, flex: 1, minWidth: 0 }}>
+              <Search size={14} color="var(--faint)" style={{ flexShrink: 0 }} />
+              <input className="inp" style={{ flex: 1, minWidth: 0 }} placeholder="بحث سريع..."
+                value={q} onChange={e => setQ(e.target.value)} />
+            </div>
+            <button className={'btn sm' + (showFilters || st !== 'all' || bid !== 'all' || fromD || toD ? ' pri' : ' gh')}
+              onClick={() => setShowFilters(v => !v)} style={{ flexShrink: 0 }}>
+              <Search size={13} />فلترة
+              {(st !== 'all' || bid !== 'all' || fromD || toD) && <span className="num" style={{ marginInlineStart: 3 }}>•</span>}
             </button>
+            <span className="badge b-dim" style={{ flexShrink: 0 }}><span className="num">{filtered.length}</span></span>
+          </div>
+          {showFilters && (
+            <div className="card" style={{ padding: 12, marginTop: 10, background: 'var(--ink)' }}>
+              <div className="grid g2" style={{ gap: 10 }}>
+                <Field label="الحالة">
+                  <select className="sel" value={st} onChange={e => setSt(e.target.value)}>
+                    <option value="all">كل الحالات</option>
+                    <option value="draft">مسودة</option>
+                    <option value="submitted">مرحّل للمراجعة</option>
+                    <option value="approved">مدقّق ومعتمد</option>
+                    <option value="rejected">مرفوض</option>
+                  </select>
+                </Field>
+                {myBranches.length > 1 && (
+                  <Field label="الفرع">
+                    <select className="sel" value={bid} onChange={e => setBid(e.target.value)}>
+                      <option value="all">كل الفروع</option>
+                      {myBranches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                    </select>
+                  </Field>
+                )}
+                <Field label="من تاريخ">
+                  <input type="date" className="inp" value={fromD} onChange={e => setFromD(e.target.value)} />
+                </Field>
+                <Field label="إلى تاريخ">
+                  <input type="date" className="inp" value={toD} onChange={e => setToD(e.target.value)} />
+                </Field>
+              </div>
+              {(q || st !== 'all' || bid !== 'all' || fromD || toD) && (
+                <button className="btn sm gh" style={{ marginTop: 10 }} onClick={() => { setQ(''); setSt('all'); setBid('all'); setFromD(''); setToD(''); }}>
+                  <X size={13} />مسح كل الفلاتر
+                </button>
+              )}
+            </div>
           )}
-          <span className="badge b-dim"><span className="num">{filtered.length}</span> نتيجة</span>
         </div>
         <div className="tw">
           <table className="tb">
@@ -1705,7 +1723,7 @@ function ClosingForm({ org, me, branches, initial, commit, say, onClose, existin
     date: today(), branchId: branches[0]?.id || '',
     openingBalance: branches[0]?.defaultFloat || 0,
     cashSales: 0, cardSales: 0, bankTransferSales: 0,
-    deliverySales: APPS.map(a => ({ appId: a.id, appName: a.n, amount: 0, orderCount: 0, commissionPercentage: a.c })),
+    deliverySales: (org.deliveryApps || APPS).map(a => ({ appId: a.id, appName: a.n, amount: 0, orderCount: 0, commissionPercentage: a.c })),
     expenses: [], denominationDetails: emptyDenoms(),
     transferredToMainTreasury: 0, varianceReason: '', notes: ''
   });
@@ -1844,12 +1862,17 @@ function ClosingForm({ org, me, branches, initial, commit, say, onClose, existin
         <button className="btn gh" onClick={onClose}>إلغاء</button>
       </>}>
 
-      <div className="row scroll-x" style={{ marginBottom: 16, gap: 6 }}>
-        {steps.map((s, i) => (
-          <button key={s} className={'btn sm' + (step === i + 1 ? ' pri' : ' gh')} onClick={() => setStep(i + 1)}>
-            <span className="num">{i + 1}</span> {s}
-          </button>
-        ))}
+      <div className="stepper">
+        {steps.map((s, i) => {
+          const n = i + 1;
+          const state = step === n ? 'active' : step > n ? 'done' : 'todo';
+          return (
+            <button key={s} className={'step step-' + state} onClick={() => setStep(n)}>
+              <span className="step-dot">{step > n ? <Check size={13} /> : <span className="num">{n}</span>}</span>
+              <span className="step-lbl">{s}</span>
+            </button>
+          );
+        })}
       </div>
 
       {step === 1 && (
@@ -1966,8 +1989,9 @@ function ClosingForm({ org, me, branches, initial, commit, say, onClose, existin
                 )}
               </div>
 
-              <PhotoField label="صورة الفاتورة / الإيصال" value={e.receiptImage}
-                onChange={v => upExp(e.id, 'receiptImage', v)} say={say} />
+              <PhotoField label="صورة الفاتورة / الإيصال (كاميرا · صورة · PDF)" value={e.receiptImage}
+                onChange={v => upExp(e.id, 'receiptImage', v)} say={say}
+                onOcr={txt => upExp(e.id, 'note', ((e.note || '') + ' ' + txt).trim().slice(0, 500))} />
               <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
                 <div className="row" style={{ gap: 6 }}>
                   {e.isTaxable ? (
@@ -2996,6 +3020,83 @@ function Reports({ org, ops, me, myBranches, scoped, say, theme }) {
 }
 
 /* ================= الفروع والمستخدمون ================= */
+/* ============ إدارة تطبيقات التوصيل ============ */
+function DeliveryAppsPanel({ org, commitOrg, say }) {
+  const apps = org.deliveryApps || APPS;
+  const [nm, setNm] = useState('');
+  const [comm, setComm] = useState('');
+
+  const addApp = async () => {
+    const name = nm.trim();
+    if (!name) return say('أدخل اسم التطبيق', 'no');
+    const c = Number(comm) || 0;
+    if (c < 0 || c > 100) return say('نسبة العمولة يجب أن تكون بين 0 و 100', 'no');
+    if (apps.some(a => a.n === name)) return say('هذا التطبيق مضاف مسبقاً', 'no');
+    const app = { id: uid('app'), n: name, c };
+    await commitOrg(d => ({ ...d, deliveryApps: [...(d.deliveryApps || APPS), app] }), {
+      actionType: 'create', targetType: 'delivery_app', targetId: app.id, title: 'أضاف تطبيق توصيل', details: `${name} — عمولة ${c}%`
+    });
+    setNm(''); setComm(''); say('تمت إضافة التطبيق — سيظهر في الإغلاقات الجديدة');
+  };
+
+  const updateComm = async (id, c) => {
+    await commitOrg(d => ({ ...d, deliveryApps: (d.deliveryApps || APPS).map(a => a.id === id ? { ...a, c: Number(c) || 0 } : a) }), {
+      actionType: 'update', targetType: 'delivery_app', targetId: id, title: 'عدّل عمولة تطبيق توصيل', details: `عمولة ${c}%`
+    });
+  };
+
+  const removeApp = async (app) => {
+    await commitOrg(d => ({ ...d, deliveryApps: (d.deliveryApps || APPS).filter(a => a.id !== app.id) }), {
+      actionType: 'delete', targetType: 'delivery_app', targetId: app.id, title: 'حذف تطبيق توصيل', details: app.n
+    });
+    say('تم حذف التطبيق');
+  };
+
+  return (
+    <div className="grid" style={{ gap: 14 }}>
+      <div className="card" style={{ borderColor: 'rgba(200,162,74,.3)' }}>
+        <div className="card-h"><div className="card-t"><Plus size={15} />إضافة تطبيق توصيل جديد</div></div>
+        <div style={{ fontSize: 12, color: 'var(--dim)', marginBottom: 12 }}>
+          عند ظهور تطبيق توصيل جديد في السوق، أضِفه هنا فيظهر تلقائياً في نموذج الإغلاق اليومي لكل الفروع.
+        </div>
+        <div className="row" style={{ gap: 9, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <Field label="اسم التطبيق" style={{ flex: 1, minWidth: 160 }}>
+            <input className="inp" placeholder="مثال: مرسول، ذا شيف..." value={nm} onChange={e => setNm(e.target.value)} />
+          </Field>
+          <Field label="نسبة العمولة %" style={{ width: 130 }}>
+            <input className="inp n" inputMode="decimal" placeholder="0" value={comm} onChange={e => setComm(e.target.value.replace(/[^\d.]/g, ''))} />
+          </Field>
+          <button className="btn pri" onClick={addApp}><Plus size={15} />إضافة</button>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-h"><div className="card-t"><Truck size={15} />التطبيقات المفعّلة ({apps.length})</div></div>
+        <div className="tw">
+          <table className="tb">
+            <thead><tr><th>التطبيق</th><th>نسبة العمولة %</th><th></th></tr></thead>
+            <tbody>
+              {apps.map(a => (
+                <tr key={a.id}>
+                  <td style={{ fontWeight: 600 }}>{a.n}</td>
+                  <td>
+                    <input className="inp n" style={{ width: 90 }} inputMode="decimal" defaultValue={a.c}
+                      onBlur={e => updateComm(a.id, e.target.value.replace(/[^\d.]/g, ''))} />
+                  </td>
+                  <td>
+                    <button className="btn sm gh" onClick={() => removeApp(a)}><Trash2 size={12} color="#D9544D" />حذف</button>
+                  </td>
+                </tr>
+              ))}
+              {apps.length === 0 && <tr><td colSpan={3}><div className="empty">لا توجد تطبيقات. أضف تطبيقاً من الأعلى.</div></td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Admin({ org, ops, commitOrg, say }) {
   const [tab, setTab] = useState('branches');
   const [bEdit, setBEdit] = useState(null);
@@ -3036,6 +3137,9 @@ function Admin({ org, ops, commitOrg, say }) {
         </button>
         <button className={'btn sm' + (tab === 'cats' ? ' pri' : ' gh')} onClick={() => setTab('cats')}>
           <Receipt size={14} />بنود المصروف والميزانيات
+        </button>
+        <button className={'btn sm' + (tab === 'delivery' ? ' pri' : ' gh')} onClick={() => setTab('delivery')}>
+          <Truck size={14} />تطبيقات التوصيل
         </button>
         <button className={'btn sm' + (tab === 'system' ? ' pri' : ' gh')} onClick={() => setTab('system')}>
           <Settings size={14} />بيانات الشركة والنسخ الاحتياطي
@@ -3111,6 +3215,7 @@ function Admin({ org, ops, commitOrg, say }) {
       )}
 
       {tab === 'cats' && <CategoriesPanel org={org} ops={ops} commitOrg={commitOrg} say={say} />}
+      {tab === 'delivery' && <DeliveryAppsPanel org={org} commitOrg={commitOrg} say={say} />}
       {tab === 'system' && <SystemPanel org={org} ops={ops} commit={commit} commitOrg={commitOrg} say={say} />}
 
       {bEdit && <BranchForm b={bEdit} say={say} onSave={saveBranch} onClose={() => setBEdit(null)} />}
@@ -4108,10 +4213,13 @@ function CameraModal({ title, onCapture, onClose, say }) {
   );
 }
 
-function PhotoField({ label, value, onChange, say }) {
-  const cam = useRef(); const file = useRef();
+function PhotoField({ label, value, onChange, say, onOcr }) {
+  const cam = useRef(); const file = useRef(); const pdf = useRef();
   const [busy, setBusy] = useState(false);
+  const [ocrBusy, setOcrBusy] = useState(false);
   const [zoom, setZoom] = useState(false);
+
+  const isPdf = typeof value === 'string' && value.startsWith('data:application/pdf');
 
   const pick = async (e) => {
     const f = e.target.files?.[0]; e.target.value = '';
@@ -4123,23 +4231,74 @@ function PhotoField({ label, value, onChange, say }) {
     setBusy(false);
   };
 
+  const pickPdf = async (e) => {
+    const f = e.target.files?.[0]; e.target.value = '';
+    if (!f) return;
+    if (f.type !== 'application/pdf') return say && say('يُقبل ملف PDF فقط', 'no');
+    if (f.size > 4 * 1024 * 1024) return say && say('حجم الملف يتجاوز 4 ميجابايت', 'no');
+    setBusy(true);
+    try {
+      const b64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.onerror = rej; r.readAsDataURL(f); });
+      onChange(b64);
+      say && say('تم إرفاق ملف PDF');
+    } catch { say && say('تعذّر رفع الملف', 'no'); }
+    setBusy(false);
+  };
+
+  // استخراج النص من الصورة عبر OCR (تُحمّل المكتبة عند الحاجة فقط)
+  const runOcr = async () => {
+    if (!value || isPdf) return;
+    setOcrBusy(true);
+    say && say('جارٍ قراءة النص من الصورة...');
+    try {
+      if (!window.Tesseract) {
+        await new Promise((res, rej) => {
+          const sc = document.createElement('script');
+          sc.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+          sc.onload = res; sc.onerror = rej; document.head.appendChild(sc);
+        });
+      }
+      const { data } = await window.Tesseract.recognize(value, 'ara+eng');
+      const text = (data.text || '').trim();
+      if (text && onOcr) onOcr(text);
+      say && say(text ? 'تم استخراج النص' : 'لم يُعثر على نص واضح', text ? 'ok' : 'no');
+    } catch {
+      say && say('تعذّر تشغيل قارئ النص', 'no');
+    }
+    setOcrBusy(false);
+  };
+
   return (
     <div className="fld">
       {label && <label className="lbl">{label}</label>}
       {!value ? (
-        <div className="row">
+        <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
           <button type="button" className="btn sm" disabled={busy} onClick={() => cam.current?.click()}>
             {busy ? <RefreshCw size={13} className="spin" /> : <Camera size={13} />}التقاط
           </button>
           <button type="button" className="btn sm gh" disabled={busy} onClick={() => file.current?.click()}>
-            <Upload size={13} />رفع صورة
+            <Upload size={13} />صورة
+          </button>
+          <button type="button" className="btn sm gh" disabled={busy} onClick={() => pdf.current?.click()}>
+            <FileText size={13} />PDF
           </button>
         </div>
       ) : (
-        <div className="row" style={{ alignItems: 'center' }}>
-          <img src={value} alt="مرفق" onClick={() => setZoom(true)}
-            style={{ width: 54, height: 54, objectFit: 'cover', borderRadius: 8, cursor: 'zoom-in', border: '1px solid var(--line)' }} />
+        <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+          {isPdf ? (
+            <a href={value} download="مستند.pdf" className="badge b-sky" style={{ textDecoration: 'none' }}>
+              <FileText size={12} />ملف PDF مرفق
+            </a>
+          ) : (
+            <img src={value} alt="مرفق" onClick={() => setZoom(true)}
+              style={{ width: 54, height: 54, objectFit: 'cover', borderRadius: 8, cursor: 'zoom-in', border: '1px solid var(--line)' }} />
+          )}
           <span className="badge b-mint"><Check size={11} />مرفق</span>
+          {!isPdf && onOcr && (
+            <button type="button" className="btn sm gh" disabled={ocrBusy} onClick={runOcr}>
+              {ocrBusy ? <RefreshCw size={12} className="spin" /> : <Search size={12} />}قراءة OCR
+            </button>
+          )}
           <button type="button" className="btn sm gh" onClick={() => onChange('')}>
             <Trash2 size={12} color="#D9544D" />إزالة
           </button>
@@ -4147,7 +4306,8 @@ function PhotoField({ label, value, onChange, say }) {
       )}
       <input ref={cam} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={pick} />
       <input ref={file} type="file" accept="image/*" style={{ display: 'none' }} onChange={pick} />
-      {zoom && (
+      <input ref={pdf} type="file" accept="application/pdf" style={{ display: 'none' }} onChange={pickPdf} />
+      {zoom && !isPdf && (
         <div className="mask" onClick={() => setZoom(false)}>
           <img src={value} alt="مرفق" style={{ maxWidth: '92%', maxHeight: '90vh', borderRadius: 12, background: '#000' }} />
         </div>
