@@ -562,7 +562,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === tab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v3.7 ✓</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v3.8 ✓</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -893,12 +893,22 @@ function Gate({ css, org, onLogin, online, theme }) {
 
 /* ================= مكوّنات مشتركة ================= */
 function Modal({ title, icon: Icon, children, foot, onClose, wide }) {
+  // قفل تمرير الصفحة خلف النافذة + إغلاق بمفتاح Escape (تجربة تطبيق حقيقية)
+  useEffect(() => {
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = e => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => { document.body.style.overflow = prevOverflow; window.removeEventListener('keydown', onKey); };
+  }, [onClose]);
+
   return (
-    <div className="mask" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="mask" onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined}>
       <div className="modal" style={wide ? { maxWidth: 1100 } : undefined}>
         <div className="modal-h">
           <div className="card-t">{Icon && <Icon size={16} color="var(--brass)" />}{title}</div>
-          <button className="btn sm gh" onClick={onClose}><X size={15} /></button>
+          <button className="btn sm gh" onClick={onClose} aria-label="إغلاق"><X size={15} /></button>
         </div>
         <div className="modal-b">{children}</div>
         {foot && <div className="modal-f">{foot}</div>}
