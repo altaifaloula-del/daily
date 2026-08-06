@@ -32,6 +32,8 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 }
 .brand{display:flex;align-items:center;gap:10px;padding:6px 8px 18px}
 .sideclose{display:none}
+/* مؤشر حافة السحب لفتح القائمة (جوال فقط) */
+.edgehint{display:none}
 .brand-mark{
   width:36px;height:36px;border-radius:10px;flex-shrink:0;
   background:linear-gradient(145deg,var(--brass),var(--brass-d));
@@ -66,6 +68,9 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
   .hidden-desk{display:inline-flex}
   .sideclose{display:inline-flex !important;background:var(--ink3);border:1px solid var(--line);border-radius:9px;padding:7px 9px;flex-shrink:0}
   .topmenu{background:var(--brass);color:#1a1410;border:none;font-weight:700}
+  .edgehint{display:block;position:fixed;inset-inline-end:0;top:50%;transform:translateY(-50%);z-index:40;
+    width:4px;height:54px;border-radius:4px 0 0 4px;background:linear-gradient(var(--brass),var(--brass-d));
+    opacity:.5;pointer-events:none;box-shadow:-2px 0 8px rgba(200,162,74,.3)}
   .page{padding:12px;padding-bottom:80px;width:100%;max-width:100vw;overflow-x:hidden}
   .top{padding:10px 10px;gap:6px;width:100%;max-width:100vw;overflow:hidden;flex-wrap:nowrap}
   .toptitle{font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto}

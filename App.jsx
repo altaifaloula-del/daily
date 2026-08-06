@@ -181,6 +181,7 @@ export default function App() {
   const [me, setMe] = useState(null);
   const [tab, setTab] = useState('dash');
   const [drawer, setDrawer] = useState(false);
+  const touchRef = useRef({ x0: 0, y0: 0, active: false, mode: null });
   const [syncing, setSyncing] = useState(false);
   const [lastSync, setLastSync] = useState(null);
   const [boot, setBoot] = useState('loading');
@@ -446,7 +447,32 @@ export default function App() {
   return (
     <div className={'rms' + (theme === 'lite' ? ' lite' : '')}>
       <style dangerouslySetInnerHTML={{ __html: CSS + '.spin{animation:sp 1s linear infinite}@keyframes sp{to{transform:rotate(360deg)}}' }} />
-      <div className="shell">
+      <div className="shell"
+        onTouchStart={(e) => {
+          if (window.innerWidth > 900) return;
+          const t = e.touches[0];
+          const startX = t.clientX;
+          // فتح: يبدأ اللمس من الحافة اليمنى (بداية RTL) والقائمة مغلقة
+          // إغلاق: اللمس والقائمة مفتوحة
+          const nearStartEdge = startX > window.innerWidth - 28;
+          touchRef.current = {
+            x0: startX, y0: t.clientY, active: true,
+            mode: drawer ? 'close' : (nearStartEdge ? 'open' : null)
+          };
+        }}
+        onTouchMove={(e) => {
+          const r = touchRef.current;
+          if (!r.active || !r.mode) return;
+          const t = e.touches[0];
+          const dx = t.clientX - r.x0;
+          const dy = t.clientY - r.y0;
+          if (Math.abs(dy) > Math.abs(dx)) return; // تمرير عمودي، تجاهل
+          // في RTL: السحب لليسار (dx سالب) يفتح، السحب لليمين (dx موجب) يغلق
+          if (r.mode === 'open' && dx < -55) { setDrawer(true); r.mode = null; }
+          if (r.mode === 'close' && dx > 55) { setDrawer(false); r.mode = null; }
+        }}
+        onTouchEnd={() => { touchRef.current.active = false; touchRef.current.mode = null; }}>
+        {!drawer && <div className="edgehint" />}
         {drawer && <div className="mask" style={{ zIndex: 55 }} onClick={() => setDrawer(false)} />}
         <aside className={'side' + (drawer ? ' open' : '')}>
           <div className="brand">
