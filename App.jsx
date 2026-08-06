@@ -451,10 +451,13 @@ export default function App() {
         <aside className={'side' + (drawer ? ' open' : '')}>
           <div className="brand">
             <div className="brand-mark">مذ</div>
-            <div>
+            <div style={{ flex: 1, minWidth: 0 }}>
               <div className="brand-t">{org.company.name}</div>
               <div className="brand-s">CLOUD CLOSING SUITE</div>
             </div>
+            <button className="btn sm gh sideclose" onClick={() => setDrawer(false)} title="إخفاء القائمة">
+              <X size={18} />
+            </button>
           </div>
           <div className="nav-lbl">التشغيل اليومي</div>
           {NAV.map(n => (
@@ -488,7 +491,9 @@ export default function App() {
 
         <div className="main">
           <header className="top">
-            <button className="btn sm gh hidden-desk topmenu" onClick={() => setDrawer(true)}><Menu size={16} /></button>
+            <button className="btn sm gh hidden-desk topmenu" onClick={() => setDrawer(d => !d)} title={drawer ? 'إخفاء القائمة' : 'إظهار القائمة'}>
+              {drawer ? <X size={18} /> : <Menu size={18} />}
+            </button>
             <h1 className="toptitle">{NAV.find(n => n.id === tab)?.ar}</h1>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
