@@ -562,7 +562,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === tab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v3.9 ✓</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v4.0 ✓</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -892,7 +892,7 @@ function Gate({ css, org, onLogin, online, theme }) {
 }
 
 /* ================= مكوّنات مشتركة ================= */
-function Modal({ title, icon: Icon, children, foot, onClose, wide }) {
+function Modal({ title, icon: Icon, children, foot, onClose, wide, flow }) {
   // قفل تمرير الصفحة خلف النافذة + إغلاق بمفتاح Escape (تجربة تطبيق حقيقية)
   useEffect(() => {
     const prevOverflow = document.body.style.overflow;
@@ -905,7 +905,7 @@ function Modal({ title, icon: Icon, children, foot, onClose, wide }) {
   return (
     <div className="mask" onClick={e => { if (e.target === e.currentTarget) onClose(); }}
       role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined}>
-      <div className="modal" style={wide ? { maxWidth: 1100 } : undefined}>
+      <div className={'modal' + (flow ? ' modal-flow' : '')} style={flow ? undefined : (wide ? { maxWidth: 1100 } : undefined)}>
         <div className="modal-h">
           <div className="card-t">{Icon && <Icon size={16} color="var(--brass)" />}{title}</div>
           <button className="btn sm gh" onClick={onClose} aria-label="إغلاق"><X size={15} /></button>
@@ -1732,7 +1732,7 @@ function Closing({ org, ops, me, myBranches, scoped, commit, say }) {
   );
 }
 
-function ClosingForm({ org, me, branches, initial, commit, say, onClose, existing = [] }) {
+export function ClosingForm({ org, me, branches, initial, commit, say, onClose, existing = [] }) {
   const [f, setF] = useState(() => initial || {
     date: today(), branchId: branches[0]?.id || '',
     openingBalance: branches[0]?.defaultFloat || 0,
@@ -1743,6 +1743,7 @@ function ClosingForm({ org, me, branches, initial, commit, say, onClose, existin
   });
   const [step, setStep] = useState(1);
   const [cam, setCam] = useState(false);
+  const [sumOpen, setSumOpen] = useState(false);
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   const branch = org.branches.find(b => b.id === f.branchId);
 
@@ -1864,8 +1865,29 @@ function ClosingForm({ org, me, branches, initial, commit, say, onClose, existin
 
   const steps = ['المبيعات', 'المصروفات', 'جرد الصندوق', 'الترحيل'];
 
+  const vatDeduct = sum(f.expenses.filter(e => e.isTaxable), e => e.amount) * 15 / 115;
+  const vColor = variance < 0 ? 'var(--rose)' : variance > 0 ? 'var(--mint)' : 'var(--faint)';
+  const vStat = variance === 0
+    ? { c: 'var(--mint)', ic: '✔', t: 'الصندوق مطابق — لا يوجد ما يمنع الترحيل' }
+    : variance < 0
+      ? { c: 'var(--rose)', ic: '⚠', t: `عجز ${money(Math.abs(variance))} ر.س — التوثيق إلزامي قبل الترحيل` }
+      : { c: 'var(--amber)', ic: '▲', t: `فائض ${money(variance)} ر.س — راجع إدخالات المبيعات والمصروفات` };
+  const summaryRows = (
+    <>
+      <div className="mono-b"><span style={{ fontSize: 11.5, color: 'var(--dim)' }}>إجمالي الإيراد</span><span className="num" style={{ fontWeight: 600, color: 'var(--brass)' }}>{money(totalRevenue)}</span></div>
+      <div className="mono-b"><span style={{ fontSize: 11.5, color: 'var(--dim)' }}>إجمالي المصروف</span><span className="num" style={{ fontWeight: 600, color: 'var(--rose)' }}>{money(totalExp)}</span></div>
+      <div className="mono-b"><span style={{ fontSize: 11.5, color: 'var(--dim)' }}>المتوقع بالصندوق</span><span className="num" style={{ fontWeight: 600 }}>{money(expected)}</span></div>
+      <div className="mono-b"><span style={{ fontSize: 11.5, color: 'var(--dim)' }}>العدّ الفعلي</span><span className="num" style={{ fontWeight: 600, color: 'var(--brass)' }}>{money(actual)}</span></div>
+      <div className="mono-b"><span style={{ fontSize: 11.5, color: 'var(--dim)' }}>الفرق</span><span className="num" style={{ fontWeight: 600, color: vColor }}>{variance > 0 ? '+' : ''}{money(variance)}</span></div>
+      <div className="mono-b"><span style={{ fontSize: 11.5, color: 'var(--dim)' }}>ض.ق.م القابلة للخصم</span><span className="num" style={{ fontWeight: 600, color: 'var(--mint)' }}>{money(vatDeduct)}</span></div>
+      <hr className="hr" />
+      <div className="mono-b"><span style={{ fontSize: 11.5, color: 'var(--dim)' }}>صافي اليوم</span><span className="num" style={{ fontWeight: 700, fontSize: 15, color: 'var(--mint)' }}>{money(totalRevenue - totalExp)}</span></div>
+      <div className="cflow-alert" style={{ border: `1px solid ${vStat.c}55`, background: `${vStat.c}18`, color: vStat.c }}><span>{vStat.ic}</span><span>{vStat.t}</span></div>
+    </>
+  );
+
   return (
-    <Modal wide title={initial ? 'تعديل إغلاق وردية' : 'إغلاق وردية جديد'} icon={ClipboardCheck} onClose={onClose}
+    <Modal wide flow title={initial ? 'تعديل إغلاق وردية' : 'إغلاق وردية جديد'} icon={ClipboardCheck} onClose={onClose}
       foot={<>
         {step > 1 && <button className="btn" onClick={() => setStep(step - 1)}>السابق</button>}
         {step < 4 && <button className="btn pri" onClick={() => setStep(step + 1)}>التالي</button>}
@@ -1876,18 +1898,33 @@ function ClosingForm({ org, me, branches, initial, commit, say, onClose, existin
         <button className="btn gh" onClick={onClose}>إلغاء</button>
       </>}>
 
-      <div className="stepper">
-        {steps.map((s, i) => {
-          const n = i + 1;
-          const state = step === n ? 'active' : step > n ? 'done' : 'todo';
-          return (
-            <button key={s} className={'step step-' + state} onClick={() => setStep(n)}>
-              <span className="step-dot">{step > n ? <Check size={13} /> : <span className="num">{n}</span>}</span>
-              <span className="step-lbl">{s}</span>
+      <div className="cflow">
+        <div className="cflow-rail">
+          <div className="cflow-rail-h">مراحل الإغلاق</div>
+          {steps.map((s, i) => {
+            const n = i + 1;
+            const nstate = step === n ? 'active' : step > n ? 'done' : '';
+            return (
+              <button key={s} type="button" className={'cflow-node ' + nstate} onClick={() => setStep(n)}>
+                <span className="cflow-dot">{step > n ? <Check size={13} /> : n}</span>
+                <span className="cflow-meta">
+                  <span className="cflow-lbl">{s}</span>
+                  <span className="cflow-lbl-m">{['مبيعات', 'مصروفات', 'صندوق', 'ترحيل'][i]}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="cflow-main">
+          <div className={'cflow-msum' + (sumOpen ? ' open' : '')}>
+            <button type="button" className="cflow-msum-bar" onClick={() => setSumOpen(o => !o)}>
+              <span className="msum-i"><small>صافي اليوم</small><b className="num" style={{ color: 'var(--mint)' }}>{money(totalRevenue - totalExp)}</b></span>
+              <span className="msum-i"><small>الفرق</small><b className="num" style={{ color: vColor }}>{money(variance)}</b></span>
+              <span className="msum-chv">الملخّص ▾</span>
             </button>
-          );
-        })}
-      </div>
+            <div className="cflow-msum-full">{summaryRows}</div>
+          </div>
+          <div className="cflow-form">
 
       {step === 1 && (
         <>
@@ -2180,6 +2217,13 @@ function ClosingForm({ org, me, branches, initial, commit, say, onClose, existin
           </div>
         </>
       )}
+          </div>
+        </div>
+        <aside className="cflow-sum">
+          <div className="cflow-sum-h">ملخّص حيّ · يتحدّث مع كل تغيير</div>
+          {summaryRows}
+        </aside>
+      </div>
       {cam && <CameraModal onClose={() => setCam(false)} say={say}
         onCapture={(img) => { set('sessionPhoto', img); setCam(false); say('تم توثيق الصورة'); }} />}
     </Modal>
