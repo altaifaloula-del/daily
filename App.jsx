@@ -562,6 +562,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === tab)?.ar}</h1>
+            <span style={{ fontSize: 9, color: 'var(--faint)', fontFamily: 'monospace', flexShrink: 0 }}>v3.2</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -627,19 +628,21 @@ export default function App() {
           )}
 
           <div className="page">
-            {safeTab === 'dash' && <Dashboard {...shared} online={online} />}
-            {safeTab === 'compare' && <BranchCompare {...shared} />}
-            {safeTab === 'closing' && <Closing {...shared} />}
-            {safeTab === 'approve' && <Approvals {...shared} />}
-            {safeTab === 'treasury' && <Treasury {...shared} />}
-            {safeTab === 'payroll' && <Payroll {...shared} />}
-            {safeTab === 'suppliers' && <Suppliers {...shared} />}
-            {safeTab === 'shifts' && <Shifts {...shared} />}
-            {safeTab === 'archive' && <Archive {...shared} />}
-            {safeTab === 'ai' && <AiCenter {...shared} />}
-            {safeTab === 'reports' && <Reports {...shared} />}
-            {safeTab === 'admin' && <Admin {...shared} />}
-            {safeTab === 'audit' && <AuditView {...shared} onSeen={() => setLastSeenAudit(Date.now())} />}
+            <div className="page-inner">
+              {safeTab === 'dash' && <Dashboard {...shared} online={online} />}
+              {safeTab === 'compare' && <BranchCompare {...shared} />}
+              {safeTab === 'closing' && <Closing {...shared} />}
+              {safeTab === 'approve' && <Approvals {...shared} />}
+              {safeTab === 'treasury' && <Treasury {...shared} />}
+              {safeTab === 'payroll' && <Payroll {...shared} />}
+              {safeTab === 'suppliers' && <Suppliers {...shared} />}
+              {safeTab === 'shifts' && <Shifts {...shared} />}
+              {safeTab === 'archive' && <Archive {...shared} />}
+              {safeTab === 'ai' && <AiCenter {...shared} />}
+              {safeTab === 'reports' && <Reports {...shared} />}
+              {safeTab === 'admin' && <Admin {...shared} />}
+              {safeTab === 'audit' && <AuditView {...shared} onSeen={() => setLastSeenAudit(Date.now())} />}
+            </div>
           </div>
 
           <div className="tick">
