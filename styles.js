@@ -101,8 +101,6 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
   .kpi-v{font-size:20px;overflow-wrap:anywhere}
   .g2,.g3,.g4{grid-template-columns:1fr}
 }
-}
-}
 
 .actbar{
   display:flex;align-items:center;gap:10px;
