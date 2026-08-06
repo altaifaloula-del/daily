@@ -77,13 +77,18 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 }
 .page{padding:20px;max-width:1500px;width:100%;overflow-x:hidden}
 .hidden-desk{display:none}
+/* ═══════════════════════════════════════════════════════
+   التصميم المتجاوب — كتلة موحّدة واحدة (جوال ولوحي)
+   معمار: رأس ثابت + محتوى ينساب + شريط أيقونات دائم
+   ═══════════════════════════════════════════════════════ */
 @media(max-width:900px){
-  /* ===== تخطيط تطبيق جوال: رأس ثابت + محتوى + شريط سفلي ثابت ===== */
+  /* ---- الهيكل: عمود بارتفاع الشاشة ---- */
+  html,body{overflow-x:hidden}
   .shell{display:block;width:100%;max-width:100vw;overflow-x:hidden;min-height:100vh}
   .side{display:none !important}
   .main{display:block;width:100%;max-width:100vw;margin:0 !important;overflow-x:hidden}
 
-  /* الرأس ثابت أعلى الشاشة */
+  /* ---- الرأس الثابت ---- */
   .top{position:sticky;top:0;padding:10px 12px;gap:6px;width:100%;max-width:100vw;overflow:hidden;flex-wrap:nowrap;z-index:30}
   .toptitle{font-size:14px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto;font-weight:600}
   .topstatus{display:flex;align-items:center;gap:4px;flex:0 0 auto;min-width:0}
@@ -92,15 +97,82 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
   .top .av,.avrow{display:none}
   .synctime .tt{display:none}
   .hidden-desk{display:none !important}
-
-  /* المحتوى مع حشوة سفلية بحجم الشريط لئلا يُحجب آخره */
-  .page{padding:14px;padding-bottom:96px;width:100%;max-width:100vw;overflow-x:hidden}
-
-  .tick{display:none}
   .sideclose,.edgehint,.topmenu{display:none !important}
-  .kpi-v{font-size:20px;overflow-wrap:anywhere}
-  .g2,.g3,.g4{grid-template-columns:1fr}
+
+  /* ---- منطقة المحتوى (الوحيدة التي تتمرّر) ---- */
+  .page{padding:14px;padding-bottom:96px;width:100%;max-width:100vw;overflow-x:hidden}
+  .page > *{max-width:100%}
+  .tick{display:none}
+
+  /* ---- الشريط السفلي الثابت ---- */
+  .botnav{
+    display:flex !important;position:fixed;inset-inline:0;bottom:0;z-index:50;
+    background:var(--ink2);border-top:1px solid var(--line);
+    padding:6px 4px calc(6px + env(safe-area-inset-bottom));
+    justify-content:space-around;align-items:stretch;box-shadow:0 -8px 24px rgba(0,0,0,.35)
+  }
+  .botnav-i{display:flex;flex-direction:column;align-items:center;gap:3px;flex:1;padding:6px 2px;border:none;background:none;color:var(--faint);cursor:pointer;border-radius:9px;font-family:inherit;position:relative;transition:.15s}
+  .botnav-i.on{color:var(--brass)}
+  .botnav-i span{font-size:9.5px;line-height:1;font-weight:500}
+  .botnav-i .bdg{position:absolute;top:2px;inset-inline-end:calc(50% - 20px);background:var(--rose);color:#fff;font-size:8px;font-weight:700;min-width:15px;height:15px;border-radius:20px;display:grid;place-items:center;padding:0 3px}
+  .botnav-more{color:var(--dim)}
+
+  /* ---- البطاقات والشبكات ---- */
+  .card{max-width:100%;overflow-wrap:anywhere}
+  .grid,.g2,.g3,.g4{max-width:100%}
+  .card .row{flex-wrap:wrap}
+  .card .row > *{min-width:0}
 }
+
+/* ---- شاشات الجوال الأصغر (≤640) ---- */
+@media(max-width:640px){
+  .g2,.g3,.g4{grid-template-columns:1fr}
+
+  /* الحقول: 16px لمنع تكبير iOS التلقائي */
+  .inp,.sel,textarea.inp{font-size:16px;padding:11px 12px;max-width:100%}
+  .note-i{font-size:16px}
+  .pin input{font-size:20px}
+
+  /* المسافات المضغوطة */
+  .card{padding:13px;border-radius:12px}
+  .kpi{padding:12px 13px}
+  .kpi-v{font-size:20px}
+
+  /* الأزرار أكبر للمس */
+  .btn{padding:11px 15px;font-size:13px}
+  .btn.sm{padding:8px 12px;font-size:12px}
+  .card-h,.row{gap:8px}
+
+  /* الجداول: تمرير داخلي دون دفع الصفحة */
+  .tw{overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%;margin:0;padding:0}
+  table.tb{min-width:520px}
+  .tb th,.tb td{padding:9px 8px}
+
+  /* الفئات النقدية والملاحظات */
+  .notes{grid-template-columns:repeat(2,1fr);gap:8px}
+
+  /* النوافذ كاملة الشاشة */
+  .modal{width:100% !important;max-width:100% !important;max-height:96vh;border-radius:16px 16px 0 0;align-self:flex-end}
+  .mask{padding:0;align-items:flex-end}
+  .modal-b{padding:14px}
+  .modal-h,.modal-f{padding:12px 14px}
+  .modal-f{flex-wrap:wrap}
+  .modal-f .btn{flex:1;min-width:120px;justify-content:center}
+
+  /* مؤشر الخطوات: اسم الخطوة الحالية فقط */
+  .step-lbl{display:none}
+  .step{padding:8px 10px}
+  .step-active .step-lbl{display:inline}
+
+  /* بوابة الدخول */
+  .gate{padding:14px;align-items:flex-start;padding-top:8vh}
+  .gate-c{max-width:100%}
+
+  /* شريط النشاط */
+  .actbar{padding:8px 12px}
+  .actbar .btn.sm{padding:5px 8px;font-size:11px}
+}
+
 
 .actbar{
   display:flex;align-items:center;gap:10px;
@@ -117,7 +189,6 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
   0%,100%{opacity:1;transform:scale(1)}
   50%{opacity:.4;transform:scale(1.4)}
 }
-@media(max-width:640px){.actbar{padding:8px 12px}.actbar .btn.sm{padding:5px 8px;font-size:11px}}
 
 /* صفحة الأيقونات الكاملة (بديل القائمة على الجوال) */
 .sheet-mask{position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;animation:fadein .2s}
@@ -147,97 +218,15 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 .step-done{color:var(--mint);border-color:rgba(79,178,134,.35)}
 .step-done .step-dot{background:var(--mint);color:#0d1b14}
 .step-lbl{font-weight:600}
-@media(max-width:640px){.step-lbl{display:none}.step{padding:8px 10px}.step-active .step-lbl{display:inline}}
 
 /* ===================== تحسينات الجوال ===================== */
-@media(max-width:640px){
-  /* ضمان التفاف الصفوف ومنع تجاوز الحقول ذات العرض الثابت */
-  .card .row{flex-wrap:wrap}
-  .card .row > *{min-width:0}
-  .inp,.sel{max-width:100%}
-  .page > *{max-width:100%}
-  .card{max-width:100%;overflow-wrap:anywhere}
-  .grid{max-width:100%}
-  .kpi-v,.kpi-l,.kpi-s{max-width:100%;overflow:hidden;text-overflow:ellipsis}
 
-  /* منع التكبير التلقائي عند التركيز على الحقول في iOS */
-  .inp,.sel,textarea.inp{font-size:16px;padding:11px 12px}
-  .note-i{font-size:16px}
-  .pin input{font-size:20px}
-
-  /* البطاقات والمسافات */
-  .card{padding:13px;border-radius:12px}
-  .kpi{padding:12px 13px}
-  .kpi-v{font-size:20px}
-  .modal-b{padding:14px}
-  .modal-h,.modal-f{padding:12px 14px}
-  .modal-f{flex-wrap:wrap}
-  .modal-f .btn{flex:1;min-width:120px;justify-content:center}
-
-  /* الأزرار أكبر للمس */
-  .btn{padding:11px 15px;font-size:13px}
-  .btn.sm{padding:8px 12px;font-size:12px}
-
-  /* الرؤوس والصفوف تلتف */
-  .card-h{gap:8px}
-  .row{gap:8px}
-
-  /* الجداول: تمرير أفقي داخلي دون دفع الصفحة */
-  .tw{overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%;margin:0;padding:0}
-  table.tb{min-width:520px}
-  .tb th,.tb td{padding:9px 8px}
-
-  /* الفئات النقدية: عمودان بدل ثلاثة */
-  .notes{grid-template-columns:repeat(2,1fr);gap:8px}
-
-  /* التذييل المتحرك يختفي (يزاحم الشريط السفلي) */
-  .tick{display:none}
-
-  /* بوابة الدخول */
-  .gate{padding:14px;align-items:flex-start;padding-top:8vh}
-  .gate-c{max-width:100%}
-
-  /* شريط علوي: إخفاء صور المتصلين لتوفير مساحة */
-  .top .av{display:none}
-
-  /* النوافذ تملأ ارتفاعاً أكبر */
-  .modal{width:100% !important;max-width:100% !important;max-height:96vh;border-radius:16px 16px 0 0;align-self:flex-end}
-  .mask{padding:0;align-items:flex-end}
-  .mask{align-items:flex-end;padding:0}
-
-  /* صفوف قابلة للتمرير أفقياً (أزرار الخطوات والتبويبات) */
-  .row.scroll-x{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px}
-  .row.scroll-x::-webkit-scrollbar{height:0}
-  .row.scroll-x .btn{flex-shrink:0}
-}
 
 /* إزالة وميض اللمس الأزرق على كل الأزرار */
 .rms button,.rms a,.rms .gate-u,.rms .nav-i,.rms .botnav-i{-webkit-tap-highlight-color:transparent}
 
 /* شريط تنقّل سفلي للجوال */
 .botnav{display:none}
-@media(max-width:900px){
-  .botnav{
-    display:flex !important;position:fixed;inset-inline:0;bottom:0;z-index:50;
-    background:var(--ink2);border-top:1px solid var(--line);
-    padding:6px 4px calc(6px + env(safe-area-inset-bottom));
-    justify-content:space-around;align-items:stretch;
-    box-shadow:0 -8px 24px rgba(0,0,0,.35)
-  }
-  .botnav-i{
-    display:flex;flex-direction:column;align-items:center;gap:3px;
-    flex:1;padding:6px 2px;border:none;background:none;color:var(--faint);
-    cursor:pointer;border-radius:9px;font-family:inherit;position:relative;transition:.15s
-  }
-  .botnav-i.on{color:var(--brass)}
-  .botnav-i span{font-size:9.5px;line-height:1;font-weight:500}
-  .botnav-i .bdg{
-    position:absolute;top:2px;inset-inline-end:calc(50% - 20px);
-    background:var(--rose);color:#fff;font-size:8px;font-weight:700;
-    min-width:15px;height:15px;border-radius:20px;display:grid;place-items:center;padding:0 3px
-  }
-  .botnav-more{color:var(--dim)}
-}
 
 /* ---- عناصر ---- */
 .card{background:var(--ink2);border:1px solid var(--line);border-radius:var(--r-md);padding:var(--s4);box-shadow:var(--sh-1);transition:box-shadow var(--t),border-color var(--t)}
@@ -249,7 +238,6 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 .g3{grid-template-columns:repeat(3,minmax(0,1fr))}
 .g4{grid-template-columns:repeat(4,minmax(0,1fr))}
 @media(max-width:1080px){.g4{grid-template-columns:repeat(2,minmax(0,1fr))}.g3{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:640px){.g2,.g3,.g4{grid-template-columns:1fr}}
 
 .kpi{background:linear-gradient(160deg,var(--ink2),var(--ink3));border:1px solid var(--line);border-radius:var(--r-md);padding:var(--s4) var(--s4);position:relative;overflow:hidden;box-shadow:var(--sh-1);transition:transform var(--t) var(--ease-out),box-shadow var(--t)}
 .kpi:hover{transform:translateY(-2px);box-shadow:var(--sh-3)}
