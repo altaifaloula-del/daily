@@ -40,11 +40,11 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 .rms button{font-family:inherit}
 
 /* ---- تخطيط ---- */
-.shell{display:flex;min-height:100vh;width:100%;max-width:100vw;overflow-x:hidden}
+.shell{display:flex;height:100vh;width:100%;max-width:100vw;overflow:hidden}
 .side{
   width:250px;flex-shrink:0;background:var(--ink2);border-inline-start:1px solid var(--line);
   padding:18px 12px;display:flex;flex-direction:column;gap:4px;
-  position:sticky;top:0;height:100vh;overflow-y:auto
+  height:100vh;overflow-y:auto
 }
 .brand{display:flex;align-items:center;gap:10px;padding:6px 8px 18px}
 .sideclose{display:none}
@@ -69,27 +69,29 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 .nav-i.on{background:var(--ink3);color:var(--txt);border-color:var(--line);box-shadow:inset 3px 0 0 -1px var(--brass)}
 .nav-i .cnt{margin-inline-start:auto;font-size:10.5px;background:var(--brass);color:#1a1410;
   border-radius:20px;padding:1px 7px;font-weight:700}
-.main{flex:1;min-width:0;max-width:100%;display:flex;flex-direction:column;overflow-x:hidden}
+.main{flex:1;min-width:0;max-width:100%;display:flex;flex-direction:column;min-height:0;overflow:hidden}
 .top{
-  display:flex;align-items:center;gap:12px;padding:12px 20px;
+  display:flex;align-items:center;gap:12px;padding:12px 20px;flex-shrink:0;
   border-bottom:1px solid var(--line);background:rgba(20,17,15,.9);
-  backdrop-filter:blur(10px);position:sticky;top:0;z-index:30;flex-wrap:wrap
+  backdrop-filter:blur(10px);z-index:30;flex-wrap:wrap
 }
-.page{padding:20px;max-width:1500px;width:100%;overflow-x:hidden}
+.page{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:24px;width:100%}
+.page-inner{max-width:1500px;margin:0 auto;width:100%}
 .hidden-desk{display:none}
 /* ═══════════════════════════════════════════════════════
    التصميم المتجاوب — كتلة موحّدة واحدة (جوال ولوحي)
    معمار: رأس ثابت + محتوى ينساب + شريط أيقونات دائم
    ═══════════════════════════════════════════════════════ */
 @media(max-width:900px){
-  /* ---- الهيكل: عمود بارتفاع الشاشة ---- */
-  html,body{overflow-x:hidden}
-  .shell{display:block;width:100%;max-width:100vw;overflow-x:hidden;min-height:100vh}
+  /* ---- الهيكل: عمود بارتفاع الشاشة المقفل (App Shell) ---- */
+  html,body{overflow:hidden;height:100%}
+  #root{height:100dvh;height:100vh}
+  .shell{display:flex;flex-direction:column;height:100dvh;height:100vh;width:100%;max-width:100vw;overflow:hidden}
   .side{display:none !important}
-  .main{display:block;width:100%;max-width:100vw;margin:0 !important;overflow-x:hidden}
+  .main{display:flex;flex-direction:column;flex:1;min-height:0;width:100%;max-width:100vw;margin:0 !important;overflow:hidden}
 
-  /* ---- الرأس الثابت ---- */
-  .top{position:sticky;top:0;padding:10px 12px;gap:6px;width:100%;max-width:100vw;overflow:hidden;flex-wrap:nowrap;z-index:30}
+  /* ---- الرأس الثابت أعلى القشرة ---- */
+  .top{flex-shrink:0;padding:10px 12px;gap:6px;width:100%;max-width:100vw;overflow:hidden;flex-wrap:nowrap;z-index:30}
   .toptitle{font-size:14px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto;font-weight:600}
   .topstatus{display:flex;align-items:center;gap:4px;flex:0 0 auto;min-width:0}
   .topstatus .badge{font-size:9px;padding:2px 6px}
@@ -100,13 +102,14 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
   .sideclose,.edgehint,.topmenu{display:none !important}
 
   /* ---- منطقة المحتوى (الوحيدة التي تتمرّر) ---- */
-  .page{padding:14px;padding-bottom:96px;width:100%;max-width:100vw;overflow-x:hidden}
+  .page{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px;padding-bottom:20px;width:100%;max-width:100vw;overflow-x:hidden}
+  .page-inner{max-width:100%}
   .page > *{max-width:100%}
   .tick{display:none}
 
   /* ---- الشريط السفلي الثابت ---- */
   .botnav{
-    display:flex !important;position:fixed;inset-inline:0;bottom:0;z-index:50;
+    display:flex !important;flex-shrink:0;z-index:50;
     background:var(--ink2);border-top:1px solid var(--line);
     padding:6px 4px calc(6px + env(safe-area-inset-bottom));
     justify-content:space-around;align-items:stretch;box-shadow:0 -8px 24px rgba(0,0,0,.35)
@@ -147,6 +150,11 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
   .tw{overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%;margin:0;padding:0}
   table.tb{min-width:520px}
   .tb th,.tb td{padding:9px 8px}
+
+  /* صفوف تطبيقات التوصيل: تلتف بأناقة */
+  .mono-b{flex-wrap:wrap}
+  .mono-b > div:first-child{flex:1 1 100%;margin-bottom:4px}
+  .mono-b .inp.n{flex:1;max-width:none !important}
 
   /* الفئات النقدية والملاحظات */
   .notes{grid-template-columns:repeat(2,1fr);gap:8px}
@@ -349,7 +357,7 @@ table.tb{width:100%;border-collapse:collapse;font-size:12.5px;min-width:520px}
   display:flex;justify-content:space-between;align-items:center;gap:10px}
 .empty{text-align:center;padding:36px 16px;color:var(--faint);font-size:12.5px}
 .tick{display:flex;gap:22px;overflow:hidden;white-space:nowrap;font-size:11.5px;color:var(--dim);
-  border-top:1px solid var(--line);padding:8px 20px;background:var(--ink2)}
+  border-top:1px solid var(--line);padding:8px 20px;background:var(--ink2);flex-shrink:0}
 
 
 /* ===== لمسات نظام التصميم الختامية ===== */
