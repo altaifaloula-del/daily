@@ -562,7 +562,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === tab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v4.0 ✓</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v4.0.1 ✓</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -1866,23 +1866,26 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
   const steps = ['المبيعات', 'المصروفات', 'جرد الصندوق', 'الترحيل'];
 
   const vatDeduct = sum(f.expenses.filter(e => e.isTaxable), e => e.amount) * 15 / 115;
-  const vColor = variance < 0 ? 'var(--rose)' : variance > 0 ? 'var(--mint)' : 'var(--faint)';
-  const vStat = variance === 0
-    ? { c: 'var(--mint)', ic: '✔', t: 'الصندوق مطابق — لا يوجد ما يمنع الترحيل' }
-    : variance < 0
-      ? { c: 'var(--rose)', ic: '⚠', t: `عجز ${money(Math.abs(variance))} ر.س — التوثيق إلزامي قبل الترحيل` }
-      : { c: 'var(--amber)', ic: '▲', t: `فائض ${money(variance)} ر.س — راجع إدخالات المبيعات والمصروفات` };
+  const counted = actual > 0; // لم يُجرد الصندوق بعد؟ لا نُظهر عجزاً وهمياً
+  const vColor = !counted ? 'var(--faint)' : variance < 0 ? 'var(--rose)' : variance > 0 ? 'var(--mint)' : 'var(--faint)';
+  const vStat = !counted
+    ? { c: 'var(--sky)', bg: 'rgba(91,147,196,.10)', bd: 'rgba(91,147,196,.40)', ic: '◔', t: 'أكمل جرد الصندوق (الخطوة ٣) لحساب الفرق' }
+    : variance === 0
+      ? { c: 'var(--mint)', bg: 'rgba(79,178,134,.12)', bd: 'rgba(79,178,134,.45)', ic: '✔', t: 'الصندوق مطابق — لا يوجد ما يمنع الترحيل' }
+      : variance < 0
+        ? { c: 'var(--rose)', bg: 'rgba(217,84,77,.12)', bd: 'rgba(217,84,77,.45)', ic: '⚠', t: `عجز ${money(Math.abs(variance))} ر.س — التوثيق إلزامي قبل الترحيل` }
+        : { c: 'var(--amber)', bg: 'rgba(224,164,88,.12)', bd: 'rgba(224,164,88,.45)', ic: '▲', t: `فائض ${money(variance)} ر.س — راجع إدخالات المبيعات والمصروفات` };
   const summaryRows = (
     <>
       <div className="mono-b"><span style={{ fontSize: 11.5, color: 'var(--dim)' }}>إجمالي الإيراد</span><span className="num" style={{ fontWeight: 600, color: 'var(--brass)' }}>{money(totalRevenue)}</span></div>
       <div className="mono-b"><span style={{ fontSize: 11.5, color: 'var(--dim)' }}>إجمالي المصروف</span><span className="num" style={{ fontWeight: 600, color: 'var(--rose)' }}>{money(totalExp)}</span></div>
       <div className="mono-b"><span style={{ fontSize: 11.5, color: 'var(--dim)' }}>المتوقع بالصندوق</span><span className="num" style={{ fontWeight: 600 }}>{money(expected)}</span></div>
-      <div className="mono-b"><span style={{ fontSize: 11.5, color: 'var(--dim)' }}>العدّ الفعلي</span><span className="num" style={{ fontWeight: 600, color: 'var(--brass)' }}>{money(actual)}</span></div>
-      <div className="mono-b"><span style={{ fontSize: 11.5, color: 'var(--dim)' }}>الفرق</span><span className="num" style={{ fontWeight: 600, color: vColor }}>{variance > 0 ? '+' : ''}{money(variance)}</span></div>
+      <div className="mono-b"><span style={{ fontSize: 11.5, color: 'var(--dim)' }}>العدّ الفعلي</span><span className="num" style={{ fontWeight: 600, color: 'var(--brass)' }}>{counted ? money(actual) : '—'}</span></div>
+      <div className="mono-b"><span style={{ fontSize: 11.5, color: 'var(--dim)' }}>الفرق</span><span className="num" style={{ fontWeight: 600, color: vColor }}>{counted ? (variance > 0 ? '+' : '') + money(variance) : '—'}</span></div>
       <div className="mono-b"><span style={{ fontSize: 11.5, color: 'var(--dim)' }}>ض.ق.م القابلة للخصم</span><span className="num" style={{ fontWeight: 600, color: 'var(--mint)' }}>{money(vatDeduct)}</span></div>
       <hr className="hr" />
       <div className="mono-b"><span style={{ fontSize: 11.5, color: 'var(--dim)' }}>صافي اليوم</span><span className="num" style={{ fontWeight: 700, fontSize: 15, color: 'var(--mint)' }}>{money(totalRevenue - totalExp)}</span></div>
-      <div className="cflow-alert" style={{ border: `1px solid ${vStat.c}55`, background: `${vStat.c}18`, color: vStat.c }}><span>{vStat.ic}</span><span>{vStat.t}</span></div>
+      <div className="cflow-alert" style={{ border: `1px solid ${vStat.bd}`, background: vStat.bg, color: vStat.c }}><span>{vStat.ic}</span><span>{vStat.t}</span></div>
     </>
   );
 
@@ -1919,7 +1922,7 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
           <div className={'cflow-msum' + (sumOpen ? ' open' : '')}>
             <button type="button" className="cflow-msum-bar" onClick={() => setSumOpen(o => !o)}>
               <span className="msum-i"><small>صافي اليوم</small><b className="num" style={{ color: 'var(--mint)' }}>{money(totalRevenue - totalExp)}</b></span>
-              <span className="msum-i"><small>الفرق</small><b className="num" style={{ color: vColor }}>{money(variance)}</b></span>
+              <span className="msum-i"><small>الفرق</small><b className="num" style={{ color: vColor }}>{counted ? money(variance) : '—'}</b></span>
               <span className="msum-chv">الملخّص ▾</span>
             </button>
             <div className="cflow-msum-full">{summaryRows}</div>
