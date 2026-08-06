@@ -1,6 +1,6 @@
 /* تنسيقات المنصة */
 export const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Readex+Pro:wght@300;400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Markazi+Text:wght@500;600;700&family=Tajawal:wght@300;400;500;700;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
 :root{
   /* ===== نظام التصميم الموحّد — الرموز (Design Tokens) ===== */
@@ -29,13 +29,14 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 #root{width:100%;max-width:100vw;overflow-x:hidden}
 .rms{
   direction:rtl; background:var(--ink); color:var(--txt); min-height:100vh;
-  font-family:'IBM Plex Sans Arabic','Readex Pro',system-ui,sans-serif;
-  font-size:14px; line-height:1.6; -webkit-font-smoothing:antialiased;
+  font-family:'Tajawal',system-ui,-apple-system,'Segoe UI',sans-serif;
+  font-size:14px; line-height:1.65; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
+  text-rendering:optimizeLegibility; font-feature-settings:'kern' 1;
   overflow-x:hidden; max-width:100vw;
 }
 .rms *{max-width:100%}
 .rms .num{max-width:none}
-.rms h1,.rms h2,.rms h3,.rms h4{font-family:'Readex Pro','IBM Plex Sans Arabic',sans-serif;font-weight:600;margin:0;letter-spacing:-.01em}
+.rms h1,.rms h2,.rms h3,.rms h4{font-family:'Markazi Text',serif;font-weight:700;margin:0;letter-spacing:0;line-height:1.25}
 .num{font-family:'IBM Plex Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums;direction:ltr;display:inline-block}
 .rms button{font-family:inherit}
 
@@ -54,9 +55,9 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
   width:36px;height:36px;border-radius:10px;flex-shrink:0;
   background:linear-gradient(145deg,var(--brass),var(--brass-d));
   display:grid;place-items:center;color:#1a1410;font-weight:700;
-  font-family:'Readex Pro',sans-serif;box-shadow:0 2px 10px rgba(200,162,74,.25)
+  font-family:'Markazi Text',serif;box-shadow:0 2px 10px rgba(200,162,74,.25)
 }
-.brand-t{font-size:13.5px;font-weight:600;line-height:1.3;font-family:'Readex Pro',sans-serif}
+.brand-t{font-size:17px;font-weight:700;line-height:1.25;font-family:'Markazi Text',serif}
 .brand-s{font-size:10.5px;color:var(--faint);letter-spacing:.04em}
 .nav-lbl{font-size:10px;color:var(--faint);padding:14px 10px 6px;letter-spacing:.12em}
 .nav-i{
@@ -92,7 +93,7 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 
   /* ---- الرأس الثابت أعلى القشرة ---- */
   .top{flex-shrink:0;padding:10px 12px;gap:6px;width:100%;max-width:100vw;overflow:hidden;flex-wrap:nowrap;z-index:30}
-  .toptitle{font-size:14px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto;font-weight:600}
+  .toptitle{font-size:19px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto;font-weight:700;font-family:'Markazi Text',serif}
   .topstatus{display:flex;align-items:center;gap:4px;flex:0 0 auto;min-width:0}
   .topstatus .badge{font-size:9px;padding:2px 6px}
   .topstatus .btn.sm{padding:6px 7px}
@@ -120,6 +121,10 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
   .botnav-i .bdg{position:absolute;top:2px;inset-inline-end:calc(50% - 20px);background:var(--rose);color:#fff;font-size:8px;font-weight:700;min-width:15px;height:15px;border-radius:20px;display:grid;place-items:center;padding:0 3px}
   .botnav-more{color:var(--dim)}
 
+  /* رأس الصفحة على الجوال: العنوان ثم زر كامل العرض */
+  .pagehead{flex-direction:column;align-items:stretch;gap:10px}
+  .newclosing-btn{width:100%;padding:13px;font-size:14px}
+
   /* ---- البطاقات والشبكات ---- */
   .card{max-width:100%;overflow-wrap:anywhere}
   .grid,.g2,.g3,.g4{max-width:100%}
@@ -129,7 +134,7 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 
 /* ---- شاشات الجوال الأصغر (≤640) ---- */
 @media(max-width:640px){
-  .g2,.g3,.g4{grid-template-columns:1fr}
+  .g2,.g3,.g4{grid-template-columns:1fr !important}
 
   /* الحقول: 16px لمنع تكبير iOS التلقائي */
   .inp,.sel,textarea.inp{font-size:16px;padding:11px 12px;max-width:100%}
@@ -204,7 +209,7 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 .sheet{width:100%;background:var(--ink2);border-radius:20px 20px 0 0;padding:8px 16px calc(20px + env(safe-area-inset-bottom));max-height:80vh;overflow-y:auto;animation:sheetup .25s cubic-bezier(.2,.8,.2,1)}
 @keyframes sheetup{from{transform:translateY(100%)}to{transform:translateY(0)}}
 .sheet-handle{width:40px;height:4px;border-radius:4px;background:var(--line);margin:6px auto 12px}
-.sheet-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;font-size:14px;font-weight:600;font-family:'Readex Pro',sans-serif}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;font-size:14px;font-weight:600;font-family:'Markazi Text',serif}
 .iconsgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
 .icontile{display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 6px;border-radius:14px;border:1px solid var(--line);background:var(--ink);color:var(--dim);cursor:pointer;font-family:inherit;transition:.15s}
 .icontile:active{transform:scale(.96)}
@@ -214,8 +219,7 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 .icontile span{font-size:11px;text-align:center;line-height:1.3}
 .icontile-b{position:absolute;top:-4px;inset-inline-end:-4px;background:var(--rose);color:#fff;font-size:9px;font-weight:700;min-width:16px;height:16px;border-radius:20px;display:grid;place-items:center;padding:0 3px}
 
-.newclosing-btn{width:100%;padding:14px;font-size:14px;justify-content:center}
-@media(min-width:900px){.newclosing-btn{width:auto;padding:12px 20px}}
+.newclosing-btn{flex-shrink:0;padding:11px 18px;font-size:13px;justify-content:center}
 
 /* مؤشر خطوات الإغلاق اليومي */
 .stepper{display:flex;gap:6px;margin-bottom:18px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px}
@@ -236,16 +240,21 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 /* شريط تنقّل سفلي للجوال */
 .botnav{display:none}
 
+/* رأس الصفحة الموحّد (عنوان + إجراء) */
+.pagehead{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.pagehead-t{font-size:21px;font-weight:700;font-family:'Markazi Text',serif}
+.pagehead-s{font-size:12px;color:var(--dim);margin-top:2px}
+
 /* ---- عناصر ---- */
 .card{background:var(--ink2);border:1px solid var(--line);border-radius:var(--r-md);padding:var(--s4);box-shadow:var(--sh-1);transition:box-shadow var(--t),border-color var(--t)}
 .card:hover{box-shadow:var(--sh-2)}
 .card-h{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;flex-wrap:wrap}
-.card-t{font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px;font-family:'Readex Pro',sans-serif}
+.card-t{font-size:17px;font-weight:700;display:flex;align-items:center;gap:8px;font-family:'Markazi Text',serif}
 .grid{display:grid;gap:12px}
 .g2{grid-template-columns:repeat(2,minmax(0,1fr))}
 .g3{grid-template-columns:repeat(3,minmax(0,1fr))}
 .g4{grid-template-columns:repeat(4,minmax(0,1fr))}
-@media(max-width:1080px){.g4{grid-template-columns:repeat(2,minmax(0,1fr))}.g3{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(min-width:641px) and (max-width:1080px){.g4{grid-template-columns:repeat(2,minmax(0,1fr))}.g3{grid-template-columns:repeat(2,minmax(0,1fr))}}
 
 .kpi{background:linear-gradient(160deg,var(--ink2),var(--ink3));border:1px solid var(--line);border-radius:var(--r-md);padding:var(--s4) var(--s4);position:relative;overflow:hidden;box-shadow:var(--sh-1);transition:transform var(--t) var(--ease-out),box-shadow var(--t)}
 .kpi:hover{transform:translateY(-2px);box-shadow:var(--sh-3)}
@@ -347,7 +356,7 @@ table.tb{width:100%;border-collapse:collapse;font-size:12.5px;min-width:520px}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--mint);box-shadow:0 0 0 0 rgba(79,178,134,.6);animation:pulse 2.2s infinite}
 @keyframes pulse{70%{box-shadow:0 0 0 7px rgba(79,178,134,0)}100%{box-shadow:0 0 0 0 rgba(79,178,134,0)}}
 .av{width:27px;height:27px;border-radius:50%;display:grid;place-items:center;font-size:10.5px;
-  font-weight:700;border:2px solid var(--ink2);margin-inline-start:-7px;color:#16120f;font-family:'Readex Pro',sans-serif}
+  font-weight:700;border:2px solid var(--ink2);margin-inline-start:-7px;color:#16120f;font-family:'Markazi Text',serif}
 .feed{display:flex;gap:10px;padding:9px 0;border-bottom:1px solid rgba(51,44,38,.5);font-size:12px}
 .feed:last-child{border:none}
 .feed-d{width:6px;height:6px;border-radius:50%;background:var(--brass);margin-top:7px;flex-shrink:0}
@@ -355,7 +364,7 @@ table.tb{width:100%;border-collapse:collapse;font-size:12.5px;min-width:520px}
 .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .mono-b{background:var(--ink);border:1px solid var(--line);border-radius:10px;padding:11px 13px;
   display:flex;justify-content:space-between;align-items:center;gap:10px}
-.empty{text-align:center;padding:36px 16px;color:var(--faint);font-size:12.5px}
+.empty{text-align:center;padding:22px 16px;color:var(--faint);font-size:12.5px}
 .tick{display:flex;gap:22px;overflow:hidden;white-space:nowrap;font-size:11.5px;color:var(--dim);
   border-top:1px solid var(--line);padding:8px 20px;background:var(--ink2);flex-shrink:0}
 
