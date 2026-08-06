@@ -609,8 +609,6 @@ export default function App() {
             <span style={{ color: live ? 'var(--mint)' : 'var(--dim)' }}>{live ? 'مزامنة لحظية' : 'مزامنة دورية'}</span>
           </div>
         </div>
-      </div>
-
       {/* شريط تنقّل سفلي — يظهر على الجوال فقط */}
       <nav className="botnav">
         {NAV.slice(0, 4).map(n => (
@@ -626,6 +624,9 @@ export default function App() {
           {(pending + unread) > 0 && !moreSheet && <span className="bdg">{pending + unread}</span>}
         </button>
       </nav>
+      </div>
+
+
 
       {moreSheet && (
         <div className="sheet-mask" onClick={() => setMoreSheet(false)}>
