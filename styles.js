@@ -61,15 +61,13 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 .page{padding:20px;max-width:1500px;width:100%;overflow-x:hidden}
 .hidden-desk{display:none}
 @media(max-width:900px){
-  /* ===== تخطيط تطبيق جوال: رأس ثابت + محتوى قابل للتمرير + شريط سفلي ثابت ===== */
-  html,body{height:100%;overflow:hidden}
-  #root,.rms{height:100dvh;height:100vh;overflow:hidden}
-  .shell{display:flex;flex-direction:column;height:100dvh;height:100vh;width:100%;max-width:100vw;overflow:hidden}
+  /* ===== تخطيط تطبيق جوال: رأس ثابت + محتوى + شريط سفلي ثابت ===== */
+  .shell{display:block;width:100%;max-width:100vw;overflow-x:hidden;min-height:100vh}
   .side{display:none !important}
-  .main{flex:1;display:flex;flex-direction:column;width:100%;max-width:100vw;min-height:0;overflow:hidden;margin:0 !important}
+  .main{display:block;width:100%;max-width:100vw;margin:0 !important;overflow-x:hidden}
 
-  /* الرأس ثابت أعلى التطبيق */
-  .top{position:sticky;top:0;flex:0 0 auto;padding:10px 12px;gap:6px;width:100%;max-width:100vw;overflow:hidden;flex-wrap:nowrap;z-index:30}
+  /* الرأس ثابت أعلى الشاشة */
+  .top{position:sticky;top:0;padding:10px 12px;gap:6px;width:100%;max-width:100vw;overflow:hidden;flex-wrap:nowrap;z-index:30}
   .toptitle{font-size:14px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto;font-weight:600}
   .topstatus{display:flex;align-items:center;gap:4px;flex:0 0 auto;min-width:0}
   .topstatus .badge{font-size:9px;padding:2px 6px}
@@ -78,18 +76,14 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
   .synctime .tt{display:none}
   .hidden-desk{display:none !important}
 
-  /* منطقة المحتوى: هي وحدها التي تتمرّر */
-  .page{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px;padding-bottom:24px;width:100%;max-width:100vw;overflow-x:hidden}
+  /* المحتوى مع حشوة سفلية بحجم الشريط لئلا يُحجب آخره */
+  .page{padding:14px;padding-bottom:96px;width:100%;max-width:100vw;overflow-x:hidden}
 
-  /* الشريط السفلي ثابت أسفل التطبيق (ضمن التدفق لا يحجب المحتوى) */
-  .botnav{flex:0 0 auto;position:relative}
-
-  /* عناصر لم تعد مستخدمة على الجوال */
-  .sideclose,.edgehint,.topmenu,.tick,.actbar,.mask{}
   .tick{display:none}
-
+  .sideclose,.edgehint,.topmenu{display:none !important}
   .kpi-v{font-size:20px;overflow-wrap:anywhere}
   .g2,.g3,.g4{grid-template-columns:1fr}
+}
 }
 }
 
@@ -194,7 +188,7 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 .botnav{display:none}
 @media(max-width:900px){
   .botnav{
-    display:flex;flex:0 0 auto;z-index:50;
+    display:flex !important;position:fixed;inset-inline:0;bottom:0;z-index:50;
     background:var(--ink2);border-top:1px solid var(--line);
     padding:6px 4px calc(6px + env(safe-area-inset-bottom));
     justify-content:space-around;align-items:stretch;
