@@ -7,7 +7,7 @@ import {
   ChevronLeft, Stamp, Landmark, Receipt, CalendarDays, Store, Eye, Send,
   Sparkles, Truck, Printer, HardDrive, Settings, FileText, Upload,
   Camera, Image as ImageIcon, Clock, Timer, Compass,
-  Fingerprint, ScanFace, ShieldAlert, Video
+  Fingerprint, ScanFace, ShieldAlert, Video, Grid3x3
 } from 'lucide-react';
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis,
@@ -181,6 +181,7 @@ export default function App() {
   const [me, setMe] = useState(null);
   const [tab, setTab] = useState('dash');
   const [drawer, setDrawer] = useState(false);
+  const [moreSheet, setMoreSheet] = useState(false);
   const touchRef = useRef({ x0: 0, y0: 0, active: false, mode: null });
   const [syncing, setSyncing] = useState(false);
   const [lastSync, setLastSync] = useState(null);
@@ -613,18 +614,41 @@ export default function App() {
       {/* شريط تنقّل سفلي — يظهر على الجوال فقط */}
       <nav className="botnav">
         {NAV.slice(0, 4).map(n => (
-          <button key={n.id} className={'botnav-i' + (tab === n.id ? ' on' : '')} onClick={() => { setTab(n.id); setDrawer(false); }}>
-            <n.icon size={19} />
-            <span>{n.ar.split(' ')[0]}{n.ar.split(' ')[1] ? ' ' + n.ar.split(' ')[1] : ''}</span>
+          <button key={n.id} className={'botnav-i' + (tab === n.id ? ' on' : '')} onClick={() => { setTab(n.id); setMoreSheet(false); }}>
+            <n.icon size={20} />
+            <span>{n.ar.split(' ')[0]}</span>
             {n.cnt > 0 && <span className="bdg">{n.cnt}</span>}
           </button>
         ))}
-        <button className="botnav-i botnav-more" onClick={() => setDrawer(true)}>
-          <Menu size={19} />
-          <span>المزيد</span>
-          {unread > 0 && <span className="bdg">{unread}</span>}
+        <button className={'botnav-i botnav-more' + (moreSheet ? ' on' : '')} onClick={() => setMoreSheet(v => !v)}>
+          <Grid3x3 size={20} />
+          <span>الأقسام</span>
+          {(pending + unread) > 0 && !moreSheet && <span className="bdg">{pending + unread}</span>}
         </button>
       </nav>
+
+      {moreSheet && (
+        <div className="sheet-mask" onClick={() => setMoreSheet(false)}>
+          <div className="sheet" onClick={e => e.stopPropagation()}>
+            <div className="sheet-handle" />
+            <div className="sheet-head">
+              <span>كل الأقسام</span>
+              <button className="btn sm gh" onClick={() => setMoreSheet(false)}><X size={16} /></button>
+            </div>
+            <div className="iconsgrid">
+              {NAV.map(n => (
+                <button key={n.id} className={'icontile' + (tab === n.id ? ' on' : '')}
+                  onClick={() => { setTab(n.id); setMoreSheet(false); }}>
+                  <div className="icontile-i"><n.icon size={22} />
+                    {n.cnt > 0 && <span className="icontile-b">{n.cnt}</span>}
+                  </div>
+                  <span>{n.ar}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {bell && <Notifications ops={ops} commit={commit} onClose={() => setBell(false)} />}
       {tour && <TourModal me={me} onClose={() => setTour(false)} go={(t) => { setTab(t); setTour(false); }} />}
