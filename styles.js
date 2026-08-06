@@ -135,6 +135,17 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 .icontile span{font-size:11px;text-align:center;line-height:1.3}
 .icontile-b{position:absolute;top:-4px;inset-inline-end:-4px;background:var(--rose);color:#fff;font-size:9px;font-weight:700;min-width:16px;height:16px;border-radius:20px;display:grid;place-items:center;padding:0 3px}
 
+/* مؤشر خطوات الإغلاق اليومي */
+.stepper{display:flex;gap:6px;margin-bottom:18px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px}
+.step{display:flex;align-items:center;gap:7px;padding:8px 12px;border-radius:var(--r-sm);border:1px solid var(--line);background:var(--ink3);color:var(--dim);cursor:pointer;font-family:inherit;font-size:12px;white-space:nowrap;flex-shrink:0;transition:all var(--t-fast)}
+.step-dot{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:var(--ink);font-size:11px;font-weight:700;flex-shrink:0;transition:all var(--t-fast)}
+.step-active{background:linear-gradient(135deg,var(--brass-l),var(--brass-d));color:#1a1410;border-color:transparent;box-shadow:var(--sh-brass)}
+.step-active .step-dot{background:rgba(0,0,0,.2);color:#1a1410}
+.step-done{color:var(--mint);border-color:rgba(79,178,134,.35)}
+.step-done .step-dot{background:var(--mint);color:#0d1b14}
+.step-lbl{font-weight:600}
+@media(max-width:640px){.step-lbl{display:none}.step{padding:8px 10px}.step-active .step-lbl{display:inline}}
+
 /* ===================== تحسينات الجوال ===================== */
 @media(max-width:640px){
   /* ضمان التفاف الصفوف ومنع تجاوز الحقول ذات العرض الثابت */
