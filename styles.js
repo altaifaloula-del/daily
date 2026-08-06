@@ -135,6 +135,9 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 .icontile span{font-size:11px;text-align:center;line-height:1.3}
 .icontile-b{position:absolute;top:-4px;inset-inline-end:-4px;background:var(--rose);color:#fff;font-size:9px;font-weight:700;min-width:16px;height:16px;border-radius:20px;display:grid;place-items:center;padding:0 3px}
 
+.newclosing-btn{width:100%;padding:14px;font-size:14px;justify-content:center}
+@media(min-width:900px){.newclosing-btn{width:auto;padding:12px 20px}}
+
 /* مؤشر خطوات الإغلاق اليومي */
 .stepper{display:flex;gap:6px;margin-bottom:18px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px}
 .step{display:flex;align-items:center;gap:7px;padding:8px 12px;border-radius:var(--r-sm);border:1px solid var(--line);background:var(--ink3);color:var(--dim);cursor:pointer;font-family:inherit;font-size:12px;white-space:nowrap;flex-shrink:0;transition:all var(--t-fast)}
@@ -198,7 +201,8 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
   .top .av{display:none}
 
   /* النوافذ تملأ ارتفاعاً أكبر */
-  .modal{max-height:94vh;border-radius:14px 14px 0 0;align-self:flex-end}
+  .modal{width:100% !important;max-width:100% !important;max-height:96vh;border-radius:16px 16px 0 0;align-self:flex-end}
+  .mask{padding:0;align-items:flex-end}
   .mask{align-items:flex-end;padding:0}
 
   /* صفوف قابلة للتمرير أفقياً (أزرار الخطوات والتبويبات) */
@@ -303,7 +307,7 @@ table.tb{width:100%;border-collapse:collapse;font-size:12.5px;min-width:520px}
 .tb tr:last-child td{border-bottom:none}
 .tb tbody tr:hover{background:rgba(255,255,255,.018)}
 
-.mask{position:fixed;inset:0;background:rgba(8,6,5,.78);backdrop-filter:blur(4px);z-index:80;
+.mask{position:fixed;inset:0;background:rgba(8,6,5,.62);backdrop-filter:blur(6px);z-index:80;
   display:flex;align-items:center;justify-content:center;padding:16px;overflow-y:auto}
 .modal{background:var(--ink2);border:1px solid var(--line);border-radius:16px;width:100%;max-width:640px;
   max-height:92vh;overflow-y:auto;box-shadow:0 30px 70px rgba(0,0,0,.55)}
