@@ -7,7 +7,8 @@ import {
   ChevronLeft, Stamp, Landmark, Receipt, CalendarDays, Store, Eye, Send,
   Sparkles, Truck, Printer, HardDrive, Settings, FileText, Upload,
   Camera, Image as ImageIcon, Clock, Timer, Compass,
-  Fingerprint, ScanFace, ShieldAlert, Video, Grid3x3
+  Fingerprint, ScanFace, ShieldAlert, Video, Grid3x3,
+  BarChart3, CheckCircle2, ArrowUp, ArrowDown
 } from 'lucide-react';
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis,
@@ -94,6 +95,39 @@ const arTime = (iso) => {
   } catch { return ''; }
 };
 const sum = (a, f) => a.reduce((s, x) => s + (Number(f ? f(x) : x) || 0), 0);
+
+/* ============ الخطوة 4: تصدير Excel احترافي منسّق ============ */
+function exportExcel(filename, sheetTitle, headers, rows, opts = {}) {
+  const esc = (v) => String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const meta = opts.meta || []; // أسطر علوية (شركة، تاريخ...)
+  const totals = opts.totals || null; // صف إجماليات اختياري
+  const thead = '<tr>' + headers.map(h => `<th>${esc(h)}</th>`).join('') + '</tr>';
+  const tbody = rows.map(r => '<tr>' + r.map((c, i) => {
+    const numeric = typeof c === 'number';
+    return `<td class="${numeric ? 'n' : 't'}">${esc(numeric ? c : c)}</td>`;
+  }).join('') + '</tr>').join('');
+  const tfoot = totals ? '<tr class="tot">' + totals.map((c, i) =>
+    `<td class="${typeof c === 'number' ? 'n' : 't'}">${esc(c)}</td>`).join('') + '</tr>' : '';
+  const metaRows = meta.map(m => `<tr><td colspan="${headers.length}" class="meta">${esc(m)}</td></tr>`).join('');
+  const html = `<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8">
+    <style>
+      table{border-collapse:collapse;font-family:'Segoe UI',Tahoma,sans-serif;direction:rtl}
+      caption{font-size:15px;font-weight:bold;padding:10px;text-align:right}
+      th{background:#C8A24A;color:#1a1410;font-weight:bold;border:1px solid #8C6F2C;padding:7px 10px;text-align:center}
+      td{border:1px solid #ccc;padding:6px 10px}
+      td.n{mso-number-format:"#,##0.00";text-align:left}
+      td.t{text-align:right}
+      .meta{background:#F6F2E9;font-weight:bold;border:none;text-align:right}
+      .tot td{background:#241F1B;color:#fff;font-weight:bold;border:1px solid #000}
+    </style></head><body>
+    <table><caption>${esc(sheetTitle)}</caption>
+    ${metaRows}${thead}${tbody}${tfoot}</table></body></html>`;
+  const blob = new Blob(['\uFEFF' + html], { type: 'application/vnd.ms-excel;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename.endsWith('.xls') ? filename : filename + '.xls'; a.click();
+  URL.revokeObjectURL(url);
+}
 const chartTone = (t) => t === 'lite'
   ? { grid: '#DDD4C4', tick: '#8A7F72', tip: '#FFFDF8', tipTxt: '#241F1A', bar: '#E3DACA' }
   : { grid: '#332C26', tick: '#6E635A', tip: '#1C1815', tipTxt: '#EFE7DB', bar: '#3A322B' };
@@ -419,7 +453,8 @@ export default function App() {
       online={Object.values(pulse.presence || {}).filter(p => Date.now() - p.at < 70000)} />;
   }
 
-  const unread = (ops.notifications || []).filter(n => !n.isRead).length;
+  const smartAlertCount = useMemo(() => computeSmartAlerts(org, ops, myBranches).length, [org, ops, myBranches]);
+  const unread = (ops.notifications || []).filter(n => !n.isRead).length + smartAlertCount;
   const pending = scoped.closings.filter(c => c.status === 'submitted').length;
   const online = Object.values(pulse.presence || {}).filter(p => Date.now() - p.at < 70000);
 
@@ -430,6 +465,7 @@ export default function App() {
 
   const NAV = [
     { id: 'dash', ar: 'لوحة المؤشرات', icon: LayoutDashboard, roles: ['all'] },
+    { id: 'compare', ar: 'مقارنة الفروع', icon: BarChart3, roles: ['finance_department', 'general_management'] },
     { id: 'closing', ar: 'الإغلاق اليومي', icon: ClipboardCheck, roles: ['all'] },
     { id: 'approve', ar: 'التدقيق والاعتماد', icon: ShieldCheck, roles: ['finance_department', 'general_management'], cnt: pending },
     { id: 'treasury', ar: 'الخزينة والتحويلات', icon: Landmark, roles: ['all'] },
@@ -588,6 +624,7 @@ export default function App() {
 
           <div className="page">
             {tab === 'dash' && <Dashboard {...shared} online={online} />}
+            {tab === 'compare' && <BranchCompare {...shared} />}
             {tab === 'closing' && <Closing {...shared} />}
             {tab === 'approve' && <Approvals {...shared} />}
             {tab === 'treasury' && <Treasury {...shared} />}
@@ -604,8 +641,8 @@ export default function App() {
           <div className="tick">
             <span>الشركة: {org.company.name || '—'}</span>
             {org.company.taxNumber && <span>الرقم الضريبي: <span className="num">{org.company.taxNumber}</span></span>}
-            <span>الفروع النشطة: <span className="num">{org.branches.filter(b => b.isActive).length}</span></span>
-            <span>الإغلاقات المسجلة: <span className="num">{ops.closings.length}</span></span>
+            <span>{myBranches.length === 1 ? 'فرعك' : 'فروعك'}: <span className="num">{myBranches.filter(b => b.isActive).length}</span></span>
+            <span>إغلاقاتك المسجلة: <span className="num">{scoped.closings.length}</span></span>
             <span style={{ color: live ? 'var(--mint)' : 'var(--dim)' }}>{live ? 'مزامنة لحظية' : 'مزامنة دورية'}</span>
           </div>
         </div>
@@ -651,7 +688,7 @@ export default function App() {
         </div>
       )}
 
-      {bell && <Notifications ops={ops} commit={commit} onClose={() => setBell(false)} />}
+      {bell && <Notifications ops={ops} org={org} myBranches={myBranches} commit={commit} onClose={() => setBell(false)} />}
       {tour && <TourModal me={me} onClose={() => setTour(false)} go={(t) => { setTab(t); setTour(false); }} />}
 
       {toast && (
@@ -896,14 +933,93 @@ function Kpi({ label, value, sub, icon: Icon, color }) {
   );
 }
 
-function Notifications({ ops, commit, onClose }) {
+/* ============ الخطوة 2: محرّك التنبيهات الذكية الاستباقية ============ */
+function computeSmartAlerts(org, ops, myBranches, deficitThreshold = 50) {
+  const alerts = [];
+  const ids = myBranches.map(b => b.id);
+  const td = today();
+  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+
+  // 1) فروع لم تُغلق بعد موعدها اليوم
+  myBranches.forEach(b => {
+    const closed = (ops.closings || []).some(c => c.branchId === b.id && c.date === td);
+    if (!closed && b.shiftEnd) {
+      const [h, m] = b.shiftEnd.split(':').map(Number);
+      if (nowMin > (h * 60 + m) + 30) {
+        alerts.push({ id: 'late-' + b.id, sev: 'high', icon: 'clock',
+          title: 'فرع تأخّر عن الإغلاق', msg: `${b.name} تجاوز موعد الإغلاق (${b.shiftEnd}) ولم يُسجّل إغلاقه بعد.` });
+      }
+    }
+  });
+
+  // 2) عجز صندوق يتجاوز الحد اليوم
+  (ops.closings || []).filter(c => c.date === td && ids.includes(c.branchId) && c.variance < -deficitThreshold)
+    .forEach(c => alerts.push({ id: 'def-' + c.id, sev: 'high', icon: 'down',
+      title: 'عجز صندوق تجاوز الحد', msg: `${c.branchName}: عجز ${money(c.variance)} ر.س في إغلاق اليوم.` }));
+
+  // 3) فواتير موردين تستحق اليوم أو غداً أو متأخرة
+  const tomorrow = new Date(Date.now() + 864e5).toISOString().slice(0, 10);
+  (ops.invoices || []).filter(i => ids.includes(i.branchId) && (i.amount - (i.paidAmount || 0)) > 0)
+    .forEach(i => {
+      const rem = i.amount - (i.paidAmount || 0);
+      if (i.dueDate < td) alerts.push({ id: 'ovd-' + i.id, sev: 'high', icon: 'truck',
+        title: 'فاتورة مورد متأخرة', msg: `${i.supplierName} · فاتورة ${i.invoiceNo || ''} · متبقٍّ ${money(rem)} ر.س — تجاوزت ${i.dueDate}.` });
+      else if (i.dueDate === td) alerts.push({ id: 'due-' + i.id, sev: 'medium', icon: 'truck',
+        title: 'فاتورة مورد تستحق اليوم', msg: `${i.supplierName} · متبقٍّ ${money(rem)} ر.س.` });
+      else if (i.dueDate === tomorrow) alerts.push({ id: 'dtm-' + i.id, sev: 'medium', icon: 'truck',
+        title: 'فاتورة مورد تستحق غداً', msg: `${i.supplierName} · متبقٍّ ${money(rem)} ر.س.` });
+    });
+
+  // 4) سلف موظف تجاوزت راتبه لهذا الشهر
+  const month = td.slice(0, 7);
+  (org.employees || []).filter(e => ids.includes(e.branchId)).forEach(e => {
+    const adv = sum((ops.advances || []).filter(a => a.employeeId === e.id && a.month === month), a => a.amount);
+    const gross = (e.baseSalary || 0) + (e.housingAllowance || 0) + (e.transportAllowance || 0);
+    if (adv > gross && gross > 0) alerts.push({ id: 'adv-' + e.id, sev: 'medium', icon: 'wallet',
+      title: 'سلف تجاوزت الراتب', msg: `${e.name}: مجموع السلف ${money(adv)} ر.س يتجاوز صافي الراتب ${money(gross)} ر.س.` });
+  });
+
+  const order = { high: 0, medium: 1, low: 2 };
+  return alerts.sort((a, b) => order[a.sev] - order[b.sev]);
+}
+
+const ALERT_ICON = { clock: Clock, down: TrendingDown, truck: Truck, wallet: Wallet, bell: Bell };
+
+function Notifications({ ops, org, myBranches, commit, onClose }) {
   const list = [...(ops.notifications || [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const smart = computeSmartAlerts(org, ops, myBranches || []);
   const markAll = () => commit(d => ({ ...d, notifications: (d.notifications || []).map(n => ({ ...n, isRead: true })) }));
   return (
     <Modal title="مركز التنبيهات" icon={Bell} onClose={onClose}
       foot={<><button className="btn" onClick={markAll}><Check size={14} />تعليم الكل كمقروء</button>
         <button className="btn gh" onClick={onClose}>إغلاق</button></>}>
-      {list.length === 0 && <div className="empty">لا توجد تنبيهات حالياً.</div>}
+      {smart.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <div className="row" style={{ gap: 7, marginBottom: 8, color: 'var(--amber)', fontSize: 12, fontWeight: 600 }}>
+            <ShieldAlert size={15} />تنبيهات استباقية ذكية ({smart.length})
+          </div>
+          {smart.map(a => {
+            const Ic = ALERT_ICON[a.icon] || Bell;
+            return (
+              <div key={a.id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '10px 12px', marginBottom: 7,
+                borderRadius: 'var(--r-sm)', background: a.sev === 'high' ? 'rgba(217,84,77,.1)' : 'rgba(224,164,88,.1)',
+                border: '1px solid ' + (a.sev === 'high' ? 'rgba(217,84,77,.3)' : 'rgba(224,164,88,.3)') }}>
+                <div style={{ flexShrink: 0, width: 32, height: 32, borderRadius: 9, display: 'grid', placeItems: 'center',
+                  background: a.sev === 'high' ? 'rgba(217,84,77,.18)' : 'rgba(224,164,88,.18)',
+                  color: a.sev === 'high' ? 'var(--rose)' : 'var(--amber)' }}>
+                  <Ic size={16} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 600 }}>{a.title}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--dim)', marginTop: 2, lineHeight: 1.6 }}>{a.msg}</div>
+                </div>
+              </div>
+            );
+          })}
+          {list.length > 0 && <div style={{ height: 1, background: 'var(--line)', margin: '14px 0 10px' }} />}
+        </div>
+      )}
+      {list.length === 0 && smart.length === 0 && <div className="empty">لا توجد تنبيهات حالياً.</div>}
       {list.map(n => (
         <div key={n.id} className="mono-b" style={{ marginBottom: 8, alignItems: 'flex-start', opacity: n.isRead ? .55 : 1 }}>
           <div>
@@ -1064,6 +1180,157 @@ function DailyBranchReport({ org, scoped, myBranches, onClose }) {
         )}
       </div>
     </Modal>
+  );
+}
+
+/* ============ الخطوة 1: لوحة مقارنة الفروع الفورية ============ */
+function BranchCompare({ org, ops, me, myBranches, scoped, theme, setTab }) {
+  const tn = chartTone(theme);
+  const [day, setDay] = useState(today());
+
+  const rows = useMemo(() => myBranches.map(b => {
+    const c = scoped.closings.find(x => x.branchId === b.id && x.date === day);
+    return {
+      id: b.id, name: b.name,
+      closed: !!c,
+      status: c ? c.status : 'none',
+      rev: c ? c.totalRevenue : 0,
+      exp: c ? c.totalExpenses : 0,
+      net: c ? c.totalRevenue - c.totalExpenses : 0,
+      cash: c ? c.cashSales : 0,
+      variance: c ? c.variance : 0,
+      transfer: c ? c.transferredToMainTreasury : 0,
+      shiftEnd: b.shiftEnd || ''
+    };
+  }), [myBranches, scoped, day]);
+
+  const closedCount = rows.filter(r => r.closed).length;
+  const pendingRows = rows.filter(r => !r.closed);
+  const deficitRows = rows.filter(r => r.closed && r.variance < 0);
+  const totRev = sum(rows, r => r.rev);
+  const totNet = sum(rows, r => r.net);
+  const sorted = [...rows].filter(r => r.closed).sort((a, b) => b.rev - a.rev);
+  const top = sorted[0], bottom = sorted[sorted.length - 1];
+
+  // هل تأخّر فرع عن موعد إغلاقه؟
+  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+  const isToday = day === today();
+  const late = (r) => {
+    if (!isToday || r.closed || !r.shiftEnd) return false;
+    const [h, m] = r.shiftEnd.split(':').map(Number);
+    return nowMin > (h * 60 + m) + 30; // متأخر أكثر من 30 دقيقة
+  };
+
+  const barData = sorted.map(r => ({ name: r.name.replace('الفرع ', '').replace('فرع ', ''), الإيراد: r.rev, المصروف: r.exp }));
+
+  return (
+    <div className="grid" style={{ gap: 14 }}>
+      <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+        <div>
+          <h2 style={{ fontSize: 17 }}>مقارنة الفروع الفورية</h2>
+          <div style={{ fontSize: 12, color: 'var(--dim)' }}>نظرة شاملة على أداء كل الفروع في يوم واحد</div>
+        </div>
+        <input type="date" className="inp" style={{ width: 'auto' }} value={day} onChange={e => setDay(e.target.value)} />
+      </div>
+
+      <div className="grid g4">
+        <Kpi label="فروع أغلقت" value={`${closedCount} / ${rows.length}`} icon={CheckCircle2} color="#4FB286" />
+        <Kpi label="إجمالي الإيراد" value={money(totRev)} icon={TrendingUp} color="#C8A24A" />
+        <Kpi label="صافي المجموعة" value={money(totNet)} icon={Landmark} color={totNet >= 0 ? '#4FB286' : '#D9544D'} />
+        <Kpi label="فروع بعجز" value={deficitRows.length} icon={AlertTriangle} color={deficitRows.length ? '#D9544D' : '#4FB286'} />
+      </div>
+
+      {/* تنبيهات فورية */}
+      {(pendingRows.length > 0 || deficitRows.length > 0) && (
+        <div className="card" style={{ borderColor: 'rgba(224,164,88,.35)' }}>
+          <div className="card-h"><div className="card-t"><Bell size={15} color="#E0A458" />تنبيهات اليوم</div></div>
+          <div className="grid" style={{ gap: 8 }}>
+            {pendingRows.map(r => (
+              <div key={r.id} className="row" style={{ justifyContent: 'space-between', padding: '8px 12px', background: late(r) ? 'rgba(217,84,77,.1)' : 'var(--ink)', borderRadius: 9, border: '1px solid ' + (late(r) ? 'rgba(217,84,77,.3)' : 'var(--line)') }}>
+                <span className="row" style={{ gap: 8, fontSize: 12.5 }}>
+                  {late(r) ? <AlertTriangle size={14} color="#D9544D" /> : <Clock size={14} color="#E0A458" />}
+                  {r.name}
+                </span>
+                <span className="badge" style={{ color: late(r) ? '#D9544D' : '#E0A458', borderColor: 'currentColor', fontSize: 10 }}>
+                  {late(r) ? 'متأخر عن الإغلاق' : 'لم يُغلق بعد'}{r.shiftEnd ? ' · ' + r.shiftEnd : ''}
+                </span>
+              </div>
+            ))}
+            {deficitRows.map(r => (
+              <div key={r.id} className="row" style={{ justifyContent: 'space-between', padding: '8px 12px', background: 'rgba(217,84,77,.1)', borderRadius: 9, border: '1px solid rgba(217,84,77,.3)' }}>
+                <span className="row" style={{ gap: 8, fontSize: 12.5 }}><TrendingDown size={14} color="#D9544D" />{r.name}</span>
+                <span className="badge" style={{ color: '#D9544D', borderColor: 'currentColor', fontSize: 10 }}>عجز صندوق <span className="num">{money(r.variance)}</span></span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* الأفضل والأضعف */}
+      {closedCount > 1 && (
+        <div className="grid g2">
+          <div className="card" style={{ background: 'linear-gradient(135deg,rgba(79,178,134,.1),transparent)' }}>
+            <div className="row" style={{ gap: 8, color: '#4FB286', fontSize: 12, marginBottom: 6 }}><ArrowUp size={15} />الأعلى إيراداً</div>
+            <div style={{ fontSize: 15, fontWeight: 600 }}>{top?.name}</div>
+            <div className="num" style={{ fontSize: 22, color: '#4FB286', marginTop: 4 }}>{money(top?.rev || 0)}</div>
+          </div>
+          <div className="card" style={{ background: 'linear-gradient(135deg,rgba(217,84,77,.08),transparent)' }}>
+            <div className="row" style={{ gap: 8, color: '#D9544D', fontSize: 12, marginBottom: 6 }}><ArrowDown size={15} />الأدنى إيراداً</div>
+            <div style={{ fontSize: 15, fontWeight: 600 }}>{bottom?.name}</div>
+            <div className="num" style={{ fontSize: 22, color: '#D9544D', marginTop: 4 }}>{money(bottom?.rev || 0)}</div>
+          </div>
+        </div>
+      )}
+
+      {/* رسم بياني مقارن */}
+      {barData.length > 0 && (
+        <div className="card">
+          <div className="card-h"><div className="card-t"><BarChart3 size={15} />الإيراد مقابل المصروف لكل فرع</div></div>
+          <ResponsiveContainer width="100%" height={Math.max(220, barData.length * 46)}>
+            <BarChart data={barData} layout="vertical" margin={{ right: 12, left: 8 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={tn.grid} horizontal={false} />
+              <XAxis type="number" tick={{ fill: tn.tick, fontSize: 11 }} />
+              <YAxis type="category" dataKey="name" tick={{ fill: tn.tick, fontSize: 11 }} width={80} />
+              <Tooltip contentStyle={{ background: tn.tip, border: '1px solid ' + tn.grid, borderRadius: 8, fontSize: 12 }} />
+              <Bar dataKey="الإيراد" fill="#4FB286" radius={[0, 4, 4, 0]} />
+              <Bar dataKey="المصروف" fill="#D9544D" radius={[0, 4, 4, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* جدول تفصيلي */}
+      <div className="card">
+        <div className="card-h"><div className="card-t"><Building2 size={15} />تفاصيل كل الفروع</div></div>
+        <div className="tw">
+          <table className="tb">
+            <thead><tr>
+              <th>الفرع</th><th>الحالة</th><th className="num">الإيراد</th><th className="num">المصروف</th>
+              <th className="num">الصافي</th><th className="num">نقدي</th><th className="num">للخزينة</th><th className="num">الفرق</th>
+            </tr></thead>
+            <tbody>
+              {rows.map(r => (
+                <tr key={r.id}>
+                  <td>{r.name}</td>
+                  <td>
+                    {!r.closed ? <span className="badge b-dim" style={{ fontSize: 10 }}>لم يُغلق</span>
+                      : r.status === 'approved' ? <span className="badge b-mint" style={{ fontSize: 10 }}>معتمد</span>
+                      : r.status === 'submitted' ? <span className="badge b-amber" style={{ fontSize: 10 }}>بانتظار</span>
+                      : <span className="badge b-brass" style={{ fontSize: 10 }}>مغلق</span>}
+                  </td>
+                  <td className="num brass">{r.closed ? money(r.rev) : '—'}</td>
+                  <td className="num rose">{r.closed ? money(r.exp) : '—'}</td>
+                  <td className="num" style={{ color: r.net >= 0 ? '#4FB286' : '#D9544D' }}>{r.closed ? money(r.net) : '—'}</td>
+                  <td className="num">{r.closed ? money(r.cash) : '—'}</td>
+                  <td className="num">{r.closed ? money(r.transfer) : '—'}</td>
+                  <td className="num" style={{ color: r.variance < 0 ? '#D9544D' : r.variance > 0 ? '#E0A458' : 'var(--dim)' }}>{r.closed ? money(r.variance) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1308,12 +1575,16 @@ function Closing({ org, ops, me, myBranches, scoped, commit, say }) {
   const [q, setQ] = useState('');
   const [st, setSt] = useState('all');
   const [bid, setBid] = useState('all');
+  const [fromD, setFromD] = useState('');
+  const [toD, setToD] = useState('');
   const [limit, setLimit] = useState(15);
 
   const filtered = [...scoped.closings]
     .filter(c => st === 'all' || c.status === st)
     .filter(c => bid === 'all' || c.branchId === bid)
-    .filter(c => !q || (c.branchName + c.date + c.managerName).includes(q))
+    .filter(c => !fromD || c.date >= fromD)
+    .filter(c => !toD || c.date <= toD)
+    .filter(c => !q || (c.branchName + c.date + (c.managerName || '')).includes(q))
     .sort((a, b) => b.date.localeCompare(a.date));
   const list = filtered.slice(0, limit);
 
@@ -1354,6 +1625,17 @@ function Closing({ org, ops, me, myBranches, scoped, commit, say }) {
               <option value="all">كل الفروع</option>
               {myBranches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
+          )}
+          <div className="row" style={{ gap: 6 }}>
+            <span style={{ fontSize: 11, color: 'var(--faint)' }}>من</span>
+            <input type="date" className="inp" style={{ width: 150 }} value={fromD} onChange={e => setFromD(e.target.value)} />
+            <span style={{ fontSize: 11, color: 'var(--faint)' }}>إلى</span>
+            <input type="date" className="inp" style={{ width: 150 }} value={toD} onChange={e => setToD(e.target.value)} />
+          </div>
+          {(q || st !== 'all' || bid !== 'all' || fromD || toD) && (
+            <button className="btn sm gh" onClick={() => { setQ(''); setSt('all'); setBid('all'); setFromD(''); setToD(''); }}>
+              <X size={13} />مسح الفلاتر
+            </button>
           )}
           <span className="badge b-dim"><span className="num">{filtered.length}</span> نتيجة</span>
         </div>
@@ -2277,6 +2559,80 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, say }) {
 
   const totalNet = sum(rows, r => r.net);
 
+  const printPayslip = (r) => {
+    const co = org.company || {};
+    const b = org.branches.find(x => x.id === r.e.branchId);
+    const m = (n) => money(n);
+    const monthName = new Date(month + '-01').toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' });
+    const adRows = r.ads.map(a => `<tr>
+      <td>${arDate(a.date)}</td>
+      <td>${['advance', 'salary_draw'].includes(a.type) ? 'سلفة/سحب' : 'خصم/جزاء'}</td>
+      <td class="n">${m(a.amount)}</td>
+      <td>${a.reason || '—'}</td></tr>`).join('') || '<tr><td colspan="4" class="ce">لا سلف أو خصومات هذا الشهر</td></tr>';
+    const w = window.open('', '_blank', 'width=850,height=1000');
+    if (!w) return;
+    w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
+      <title>قسيمة راتب - ${r.e.name} - ${monthName}</title>
+      <style>
+        *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',Tahoma,sans-serif}
+        body{padding:32px;color:#222;background:#fff}
+        .head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #C8A24A;padding-bottom:16px;margin-bottom:20px}
+        .logo{width:64px;height:64px;object-fit:contain}
+        .co-n{font-size:19px;font-weight:bold;color:#8C6F2C}
+        .co-m{font-size:11px;color:#666;margin-top:3px}
+        .title{text-align:center;font-size:16px;font-weight:bold;margin:8px 0}
+        .sub{text-align:center;font-size:13px;color:#666;margin-bottom:20px}
+        .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;margin-bottom:20px}
+        .fld{display:flex;justify-content:space-between;padding:8px 12px;background:#F6F2E9;border-radius:6px;font-size:13px}
+        .fld b{color:#8C6F2C}
+        table{width:100%;border-collapse:collapse;margin:16px 0;font-size:12.5px}
+        th{background:#241F1B;color:#fff;padding:8px;text-align:right}
+        td{border:1px solid #ddd;padding:7px 10px}
+        td.n{text-align:left;font-variant-numeric:tabular-nums}
+        td.ce{text-align:center;color:#999}
+        .totals{margin-top:20px;border:2px solid #C8A24A;border-radius:10px;overflow:hidden}
+        .totals .row{display:flex;justify-content:space-between;padding:11px 16px;font-size:14px;border-bottom:1px solid #eee}
+        .totals .net{background:#241F1B;color:#fff;font-size:17px;font-weight:bold;border:none}
+        .sign{display:flex;justify-content:space-between;margin-top:48px;gap:40px}
+        .sign div{flex:1;text-align:center;border-top:1px solid #999;padding-top:8px;font-size:12px;color:#666}
+        @media print{body{padding:16px}}
+      </style></head><body>
+      <div class="head">
+        <div style="display:flex;gap:14px;align-items:center">
+          ${co.logoUrl ? `<img class="logo" src="${co.logoUrl}">` : ''}
+          <div><div class="co-n">${co.name || 'المنشأة'}</div>
+          <div class="co-m">الرقم الضريبي: ${co.taxNumber || '—'} · س.تجاري: ${co.commercialReg || '—'}</div></div>
+        </div>
+        <div style="text-align:left;font-size:11px;color:#888">تاريخ الإصدار<br><b>${new Date().toLocaleDateString('ar-EG')}</b></div>
+      </div>
+      <div class="title">قسيمة راتب</div>
+      <div class="sub">عن شهر ${monthName}</div>
+      <div class="grid">
+        <div class="fld"><span>اسم الموظف</span><b>${r.e.name}</b></div>
+        <div class="fld"><span>المسمى الوظيفي</span><b>${r.e.jobTitle || '—'}</b></div>
+        <div class="fld"><span>الفرع</span><b>${b?.name || '—'}</b></div>
+        <div class="fld"><span>رقم الموظف</span><b>${r.e.empNo || r.e.id.slice(-5)}</b></div>
+      </div>
+      <table><thead><tr><th>التاريخ</th><th>البند</th><th class="n">المبلغ</th><th>السبب</th></tr></thead>
+        <tbody>${adRows}</tbody></table>
+      <div class="totals">
+        <div class="row"><span>الراتب الأساسي</span><b>${m(r.e.baseSalary || 0)} ر.س</b></div>
+        <div class="row"><span>بدل السكن</span><b>${m(r.e.housingAllowance || 0)} ر.س</b></div>
+        <div class="row"><span>إجمالي الاستحقاق</span><b>${m(r.gross)} ر.س</b></div>
+        <div class="row"><span>السلف والسحوبات</span><b style="color:#C0392B">- ${m(r.draws)} ر.س</b></div>
+        <div class="row"><span>الخصومات والجزاءات</span><b style="color:#C0392B">- ${m(r.cuts)} ر.س</b></div>
+        <div class="row net"><span>صافي المستحق</span><b>${m(r.net)} ر.س</b></div>
+      </div>
+      <div class="sign">
+        <div>توقيع الموظف</div>
+        <div>المحاسب</div>
+        <div>اعتماد الإدارة</div>
+      </div>
+      </body></html>`);
+    w.document.close();
+    setTimeout(() => { w.focus(); w.print(); }, 500);
+  };
+
   return (
     <div className="grid" style={{ gap: 14 }}>
       <div className="row" style={{ justifyContent: 'space-between' }}>
@@ -2315,7 +2671,12 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, say }) {
                   <td className="num" style={{ color: 'var(--amber)' }}>{money(r.draws)}</td>
                   <td className="num" style={{ color: 'var(--rose)' }}>{money(r.cuts)}</td>
                   <td className="num" style={{ color: 'var(--mint)', fontWeight: 600 }}>{money(r.net)}</td>
-                  <td>{canPay && <button className="btn sm" onClick={() => say(`اعتُمد صرف راتب ${r.e.name} بمبلغ ${money(r.net)} ر.س`)}>اعتماد الصرف</button>}</td>
+                  <td>
+                    <div className="row" style={{ gap: 5 }}>
+                      <button className="btn sm gh" onClick={() => printPayslip(r)} title="قسيمة راتب"><Printer size={13} />قسيمة</button>
+                      {canPay && <button className="btn sm" onClick={() => say(`اعتُمد صرف راتب ${r.e.name} بمبلغ ${money(r.net)} ر.س`)}>اعتماد الصرف</button>}
+                    </div>
+                  </td>
                 </tr>
               ))}
               {rows.length === 0 && <tr><td colSpan={8}><div className="empty">لا يوجد موظفون ضمن نطاقك.</div></td></tr>}
@@ -2468,6 +2829,17 @@ function Reports({ org, ops, me, myBranches, scoped, say, theme }) {
     say('تم تنزيل التقرير بصيغة CSV');
   };
 
+  const exportXlsx = () => {
+    const headers = ['الفرع', 'عدد الإغلاقات', 'الإيراد', 'المصروف', 'الصافي', 'الهامش %', 'نقدي', 'شبكة', 'تطبيقات', 'فروقات الصندوق', 'ض.القيمة المضافة'];
+    const rows = byBranch.map(b => [b.name, b.n, +b.rev.toFixed(2), +b.exp.toFixed(2), +b.net.toFixed(2), +b.margin.toFixed(1), +b.cash.toFixed(2), +b.card.toFixed(2), +b.del.toFixed(2), +b.varr.toFixed(2), +b.vat.toFixed(2)]);
+    const t = byBranch.reduce((a, b) => ({ n: a.n + b.n, rev: a.rev + b.rev, exp: a.exp + b.exp, net: a.net + b.net, cash: a.cash + b.cash, card: a.card + b.card, del: a.del + b.del, varr: a.varr + b.varr, vat: a.vat + b.vat }), { n: 0, rev: 0, exp: 0, net: 0, cash: 0, card: 0, del: 0, varr: 0, vat: 0 });
+    exportExcel(`تقرير-الفروع-${from}_${to}`, `تقرير أداء الفروع`, headers, rows, {
+      meta: [`${org.company.name || ''} · الرقم الضريبي: ${org.company.taxNumber || '—'}`, `الفترة: من ${from} إلى ${to}`],
+      totals: ['الإجمالي', t.n, +t.rev.toFixed(2), +t.exp.toFixed(2), +t.net.toFixed(2), '', +t.cash.toFixed(2), +t.card.toFixed(2), +t.del.toFixed(2), +t.varr.toFixed(2), +t.vat.toFixed(2)]
+    });
+    say('تم تنزيل التقرير بصيغة Excel');
+  };
+
   const printOps = () => {
     const co = org.company || {};
     const m = (n) => (Math.round((n || 0) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 });
@@ -2546,6 +2918,7 @@ function Reports({ org, ops, me, myBranches, scoped, say, theme }) {
           <div className="row" style={{ alignSelf: 'flex-end' }}>
             <button className="btn pri" onClick={printOps}><FileText size={14} />طباعة (PDF)</button>
             <button className="btn" onClick={exportCsv}><Download size={14} />تصدير CSV</button>
+            <button className="btn ok" onClick={exportXlsx}><FileBarChart size={14} />تصدير Excel</button>
           </div>
         </div>
       </div>
@@ -3201,19 +3574,27 @@ function Suppliers({ org, ops, me, myBranches, commit, say }) {
         <div className="card">
           <div className="tw">
             <table className="tb">
-              <thead><tr><th>الفاتورة</th><th>المورد</th><th>الفرع</th><th>التاريخ</th><th>الاستحقاق</th>
+              <thead><tr><th>الفاتورة</th><th>المورد</th><th>الفرع</th><th>الاستحقاق</th><th>المهلة</th>
                 <th>القيمة</th><th>المسدد</th><th>المتبقي</th><th>الحالة</th><th></th></tr></thead>
               <tbody>
                 {invoices.map(i => {
                   const rem = i.amount - (i.paidAmount || 0);
                   const late = rem > 0 && i.dueDate < today();
+                  const daysLeft = i.dueDate ? Math.round((new Date(i.dueDate) - new Date(today())) / 864e5) : null;
+                  const mahla = rem <= 0 ? { t: '—', c: 'var(--faint)' }
+                    : daysLeft === null ? { t: '—', c: 'var(--faint)' }
+                    : daysLeft < 0 ? { t: `متأخر ${Math.abs(daysLeft)} يوم`, c: 'var(--rose)' }
+                    : daysLeft === 0 ? { t: 'اليوم', c: 'var(--rose)' }
+                    : daysLeft === 1 ? { t: 'غداً', c: 'var(--amber)' }
+                    : daysLeft <= 3 ? { t: `${daysLeft} أيام`, c: 'var(--amber)' }
+                    : { t: `${daysLeft} يوم`, c: 'var(--dim)' };
                   return (
                     <tr key={i.id}>
                       <td className="num" style={{ fontSize: 11 }}>{i.invoiceNo}</td>
                       <td style={{ fontSize: 12 }}>{i.supplierName}</td>
                       <td style={{ fontSize: 11.5, color: 'var(--dim)' }}>{i.branchName}</td>
-                      <td className="num" style={{ whiteSpace: 'nowrap' }}>{arDate(i.date)}</td>
                       <td className="num" style={{ whiteSpace: 'nowrap', color: late ? 'var(--rose)' : 'inherit' }}>{arDate(i.dueDate)}</td>
+                      <td style={{ whiteSpace: 'nowrap', color: mahla.c, fontSize: 11.5, fontWeight: 600 }}>{mahla.t}</td>
                       <td className="num">{money(i.amount)}</td>
                       <td className="num" style={{ color: 'var(--mint)' }}>{money(i.paidAmount || 0)}</td>
                       <td className="num" style={{ color: rem > 0 ? 'var(--amber)' : 'var(--faint)', fontWeight: 600 }}>{money(rem)}</td>
@@ -4462,6 +4843,85 @@ function FinancialReports({ org, ops, myBranches, scoped, say }) {
     say('تم تنزيل قائمة الدخل');
   };
 
+  const exportXlsx = () => {
+    const rows = [
+      ['مبيعات نقدية', +data.R.cash.toFixed(2)], ['مبيعات الشبكة', +data.R.card.toFixed(2)], ['تحويل بنكي', +data.R.bank.toFixed(2)],
+      ['تطبيقات التوصيل', +data.R.del.toFixed(2)], ['إجمالي الإيراد', +data.grossRevenue.toFixed(2)],
+      ['عمولات التطبيقات', -+data.commissions.toFixed(2)], ['صافي الإيراد', +data.netRevenue.toFixed(2)],
+      ...data.byCat.map(x => ['مصروف: ' + x.n, -+x.v.toFixed(2)]),
+      ['الالتزامات الثابتة', -+data.fixedTotal.toFixed(2)], ['الرواتب غير المصروفة', -+data.payrollRemaining.toFixed(2)],
+      ['إجمالي التكاليف', -+data.totalCost.toFixed(2)], ['الربح التشغيلي', +data.operatingProfit.toFixed(2)],
+      ['ض.ق.م المستحقة', -+data.vatDue.toFixed(2)], ['فروقات الصندوق', +data.cashVariance.toFixed(2)]
+    ];
+    exportExcel(`قائمة-الدخل-${range.type}-${range.label}`, `قائمة الدخل — ${range.label}`, ['البند', 'المبلغ (ر.س)'], rows, {
+      meta: [`${org.company.name || ''} · الرقم الضريبي: ${org.company.taxNumber || '—'}`, `النطاق: ${scopeLabel} · الفترة: ${range.label}`],
+      totals: ['صافي الربح بعد الضريبة', +data.netAfterVat.toFixed(2)]
+    });
+    say('تم تنزيل قائمة الدخل بصيغة Excel');
+  };
+
+  const exportVatDeclaration = () => {
+    const m = (n) => (Math.round((n || 0) * 100) / 100).toFixed(2);
+    const co = org.company || {};
+    // مبيعات خاضعة = الإيراد الإجمالي (شامل الضريبة) → الأساس بدون ضريبة
+    const salesBase = data.grossRevenue - data.vatOut;
+    const purchBase = sum(data.byCat.filter(x => x.taxable), x => x.v) - data.vatIn;
+    const w = window.open('', '_blank', 'width=850,height=1000');
+    if (!w) return;
+    w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
+      <title>إقرار ضريبة القيمة المضافة - ${range.label}</title>
+      <style>
+        *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',Tahoma,sans-serif}
+        body{padding:32px;color:#222}
+        .head{text-align:center;border-bottom:3px solid #C8A24A;padding-bottom:16px;margin-bottom:8px}
+        .co-n{font-size:19px;font-weight:bold;color:#8C6F2C}
+        .co-m{font-size:12px;color:#666;margin-top:4px}
+        .title{text-align:center;font-size:17px;font-weight:bold;margin:18px 0 4px}
+        .sub{text-align:center;font-size:13px;color:#666;margin-bottom:22px}
+        table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13px}
+        th{background:#241F1B;color:#fff;padding:10px;text-align:right}
+        td{border:1px solid #ddd;padding:10px 12px}
+        td.n{text-align:left;font-variant-numeric:tabular-nums;white-space:nowrap}
+        .sec{background:#F6F2E9;font-weight:bold;color:#8C6F2C}
+        .due{background:#C8A24A;color:#1a1410;font-weight:bold;font-size:15px}
+        .note{font-size:11px;color:#888;margin-top:20px;line-height:1.7}
+        .sign{display:flex;justify-content:space-between;margin-top:44px;gap:40px}
+        .sign div{flex:1;text-align:center;border-top:1px solid #999;padding-top:8px;font-size:12px;color:#666}
+        @media print{body{padding:16px}}
+      </style></head><body>
+      <div class="head">
+        <div class="co-n">${co.name || 'المنشأة'}</div>
+        <div class="co-m">الرقم الضريبي: ${co.taxNumber || '—'} · السجل التجاري: ${co.commercialReg || '—'}</div>
+      </div>
+      <div class="title">إقرار ضريبة القيمة المضافة</div>
+      <div class="sub">الفترة الضريبية: ${range.label} · ${scopeLabel}</div>
+
+      <table>
+        <thead><tr><th style="width:60%">البيان</th><th class="n">الأساس (ر.س)</th><th class="n">الضريبة (ر.س)</th></tr></thead>
+        <tbody>
+          <tr class="sec"><td colspan="3">المبيعات (ضريبة المخرجات)</td></tr>
+          <tr><td>المبيعات الخاضعة للنسبة الأساسية 15%</td><td class="n">${m(salesBase)}</td><td class="n">${m(data.vatOut)}</td></tr>
+          <tr><td><b>إجمالي ضريبة المخرجات</b></td><td class="n"></td><td class="n"><b>${m(data.vatOut)}</b></td></tr>
+
+          <tr class="sec"><td colspan="3">المشتريات (ضريبة المدخلات)</td></tr>
+          <tr><td>المشتريات الخاضعة القابلة للخصم</td><td class="n">${m(purchBase)}</td><td class="n">${m(data.vatIn)}</td></tr>
+          <tr><td><b>إجمالي ضريبة المدخلات القابلة للخصم</b></td><td class="n"></td><td class="n"><b>${m(data.vatIn)}</b></td></tr>
+
+          <tr class="due"><td>صافي الضريبة المستحقة للهيئة</td><td class="n"></td><td class="n">${m(data.vatDue)}</td></tr>
+        </tbody>
+      </table>
+
+      <div class="note">
+        • هذا الإقرار استرشادي أُنشئ آلياً من بيانات المنصة، ولا يُغني عن الإقرار الرسمي المعتمد من محاسب قانوني عبر بوابة هيئة الزكاة والضريبة والجمارك.<br>
+        • النسبة المطبّقة 15% وفق الطريقة الحسابية 15/115 على المبالغ الشاملة للضريبة.<br>
+        • تاريخ الإصدار: ${new Date().toLocaleDateString('ar-EG')}
+      </div>
+      <div class="sign"><div>المحاسب</div><div>المدير المالي</div><div>اعتماد الإدارة</div></div>
+      </body></html>`);
+    w.document.close();
+    setTimeout(() => { w.focus(); w.print(); }, 500);
+  };
+
   const L = ({ k, v, c, bold, ind, sub }) => (
     <div className="row" style={{
       justifyContent: 'space-between', padding: '9px 0',
@@ -4503,6 +4963,8 @@ function FinancialReports({ org, ops, myBranches, scoped, say }) {
         <div className="row" style={{ marginTop: 12 }}>
           <button className="btn pri" onClick={doPrint}><FileText size={14} />طباعة قائمة الدخل (PDF)</button>
           <button className="btn" onClick={exportCsv}><Download size={14} />تصدير CSV</button>
+          <button className="btn ok" onClick={exportXlsx}><FileBarChart size={14} />تصدير Excel</button>
+          <button className="btn" onClick={exportVatDeclaration}><Receipt size={14} />إقرار ض.ق.م</button>
         </div>
       </div>
 
