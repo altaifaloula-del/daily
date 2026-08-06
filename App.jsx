@@ -468,18 +468,22 @@ export default function App() {
     { id: 'compare', ar: 'مقارنة الفروع', icon: BarChart3, roles: ['finance_department', 'general_management'] },
     { id: 'closing', ar: 'الإغلاق اليومي', icon: ClipboardCheck, roles: ['all'] },
     { id: 'approve', ar: 'التدقيق والاعتماد', icon: ShieldCheck, roles: ['finance_department', 'general_management'], cnt: pending },
-    { id: 'treasury', ar: 'الخزينة والتحويلات', icon: Landmark, roles: ['all'] },
-    { id: 'payroll', ar: 'الرواتب والسلف', icon: Wallet, roles: ['all'] },
-    { id: 'suppliers', ar: 'الموردون والالتزامات', icon: Truck, roles: ['all'] },
-    { id: 'shifts', ar: 'الورديات والتذكيرات', icon: Clock, roles: ['all'] },
+    { id: 'treasury', ar: 'الخزينة والترحيل', icon: Landmark, roles: ['all'] },
+    { id: 'payroll', ar: 'الرواتب والسلف', icon: Wallet, roles: ['finance_department', 'general_management'] },
+    { id: 'suppliers', ar: 'الموردون والالتزامات', icon: Truck, roles: ['finance_department', 'general_management'] },
+    { id: 'shifts', ar: 'الورديات والتذكيرات', icon: Clock, roles: ['finance_department', 'general_management'] },
     { id: 'archive', ar: 'أرشيف المستندات', icon: ImageIcon, roles: ['all'] },
     { id: 'ai', ar: 'المركز المالي الذكي', icon: Sparkles, roles: ['finance_department', 'general_management'] },
-    { id: 'reports', ar: 'التقارير المالية', icon: FileBarChart, roles: ['all'] },
+    { id: 'reports', ar: 'التقارير المالية', icon: FileBarChart, roles: ['finance_department', 'general_management'] },
     { id: 'admin', ar: 'الفروع والمستخدمون', icon: UserCog, roles: ['general_management'] },
     { id: 'audit', ar: 'سجل التدقيق', icon: Eye, roles: ['finance_department', 'general_management'] }
   ].filter(n => n.roles.includes('all') || n.roles.includes(me.role));
 
   const shared = { org, ops, pulse, me, myBranches, scoped, commit, commitOrg, say, setTab, theme };
+
+  // حماية: منع الوصول لتبويب غير مسموح لدور المستخدم (بلا hook — بعد returns الشرطية)
+  const allowedTabs = NAV.map(n => n.id);
+  const safeTab = allowedTabs.includes(tab) ? tab : 'dash';
 
   return (
     <div className={'rms' + (theme === 'lite' ? ' lite' : '')}>
@@ -623,19 +627,19 @@ export default function App() {
           )}
 
           <div className="page">
-            {tab === 'dash' && <Dashboard {...shared} online={online} />}
-            {tab === 'compare' && <BranchCompare {...shared} />}
-            {tab === 'closing' && <Closing {...shared} />}
-            {tab === 'approve' && <Approvals {...shared} />}
-            {tab === 'treasury' && <Treasury {...shared} />}
-            {tab === 'payroll' && <Payroll {...shared} />}
-            {tab === 'suppliers' && <Suppliers {...shared} />}
-            {tab === 'shifts' && <Shifts {...shared} />}
-            {tab === 'archive' && <Archive {...shared} />}
-            {tab === 'ai' && <AiCenter {...shared} />}
-            {tab === 'reports' && <Reports {...shared} />}
-            {tab === 'admin' && <Admin {...shared} />}
-            {tab === 'audit' && <AuditView {...shared} onSeen={() => setLastSeenAudit(Date.now())} />}
+            {safeTab === 'dash' && <Dashboard {...shared} online={online} />}
+            {safeTab === 'compare' && <BranchCompare {...shared} />}
+            {safeTab === 'closing' && <Closing {...shared} />}
+            {safeTab === 'approve' && <Approvals {...shared} />}
+            {safeTab === 'treasury' && <Treasury {...shared} />}
+            {safeTab === 'payroll' && <Payroll {...shared} />}
+            {safeTab === 'suppliers' && <Suppliers {...shared} />}
+            {safeTab === 'shifts' && <Shifts {...shared} />}
+            {safeTab === 'archive' && <Archive {...shared} />}
+            {safeTab === 'ai' && <AiCenter {...shared} />}
+            {safeTab === 'reports' && <Reports {...shared} />}
+            {safeTab === 'admin' && <Admin {...shared} />}
+            {safeTab === 'audit' && <AuditView {...shared} onSeen={() => setLastSeenAudit(Date.now())} />}
           </div>
 
           <div className="tick">
@@ -648,18 +652,20 @@ export default function App() {
         </div>
       {/* شريط تنقّل سفلي — يظهر على الجوال فقط */}
       <nav className="botnav">
-        {NAV.slice(0, 4).map(n => (
+        {(NAV.length <= 5 ? NAV : NAV.slice(0, 4)).map(n => (
           <button key={n.id} className={'botnav-i' + (tab === n.id ? ' on' : '')} onClick={() => { setTab(n.id); setMoreSheet(false); }}>
             <n.icon size={20} />
             <span>{n.ar.split(' ')[0]}</span>
             {n.cnt > 0 && <span className="bdg">{n.cnt}</span>}
           </button>
         ))}
-        <button className={'botnav-i botnav-more' + (moreSheet ? ' on' : '')} onClick={() => setMoreSheet(v => !v)}>
-          <Grid3x3 size={20} />
-          <span>الأقسام</span>
-          {(pending + unread) > 0 && !moreSheet && <span className="bdg">{pending + unread}</span>}
-        </button>
+        {NAV.length > 5 && (
+          <button className={'botnav-i botnav-more' + (moreSheet ? ' on' : '')} onClick={() => setMoreSheet(v => !v)}>
+            <Grid3x3 size={20} />
+            <span>الأقسام</span>
+            {(pending + unread) > 0 && !moreSheet && <span className="bdg">{pending + unread}</span>}
+          </button>
+        )}
       </nav>
       </div>
 
