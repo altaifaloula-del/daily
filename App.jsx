@@ -607,7 +607,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v5.7 ✓</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v5.9 ✓</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2015,6 +2015,9 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
   const retained = Math.max(0, actual - f.transferredToMainTreasury);
 
   const setDen = (k, v) => set('denominationDetails', { ...f.denominationDetails, [k]: Math.max(0, v) });
+  const addDelivApp = () => set('deliverySales', [...f.deliverySales, { appId: uid('app'), appName: '', amount: 0, orderCount: 0, commissionPercentage: 0, custom: true }]);
+  const upDeliv = (i, k, v) => { const n = [...f.deliverySales]; n[i] = { ...n[i], [k]: v }; set('deliverySales', n); };
+  const removeDeliv = (i) => set('deliverySales', f.deliverySales.filter((_, x) => x !== i));
   const addExp = () => set('expenses', [...f.expenses, {
     id: uid('ex'), categoryId: (org.expenseCats || EXP_CATS)[0]?.id, categoryName: (org.expenseCats || EXP_CATS)[0]?.n,
     amount: 0, paymentMethod: 'cash', beneficiaryName: '', receiptNumber: '',
@@ -2259,17 +2262,41 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
 
             {sec('delivery', Truck, 'تطبيقات التوصيل', 'هنقرستيشن · كيتا · جاهز', <span className="num">{money(totalDelivery)}</span>, totalDelivery > 0, (
               <>
+                <div className="row" style={{ justifyContent: 'space-between', marginBottom: 10 }}>
+                  <div className="lbl" style={{ margin: 0 }}>مبيعات تطبيقات التوصيل</div>
+                  <button className="btn sm" onClick={addDelivApp}><Plus size={13} />إضافة تطبيق</button>
+                </div>
                 {f.deliverySales.map((d, i) => (
-                  <div key={d.appId} className="mono-b" style={{ marginBottom: 8 }}>
-                    <div style={{ minWidth: 78 }}>
-                      <div style={{ fontSize: 12.5, fontWeight: 600 }}>{d.appName}</div>
-                      <div style={{ fontSize: 10, color: 'var(--faint)' }}>عمولة <span className="num">{d.commissionPercentage}%</span></div>
+                  <div key={d.appId} className="card" style={{ background: 'var(--ink)', padding: 12, marginBottom: 9 }}>
+                    <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 9, gap: 8, flexWrap: 'wrap' }}>
+                      {d.custom
+                        ? <input className="inp" style={{ maxWidth: 170, minHeight: 38 }} placeholder="اسم التطبيق"
+                            value={d.appName} onChange={e => upDeliv(i, 'appName', e.target.value)} />
+                        : <div style={{ fontSize: 14, fontWeight: 700 }}>{d.appName}</div>}
+                      <div className="row" style={{ gap: 6, alignItems: 'center' }}>
+                        {d.custom
+                          ? <span className="row" style={{ gap: 4, alignItems: 'center' }}>
+                              <span style={{ fontSize: 11, color: 'var(--dim)' }}>عمولة</span>
+                              <input className="inp n" style={{ maxWidth: 56, minHeight: 38, textAlign: 'center' }} inputMode="decimal" placeholder="%"
+                                value={d.commissionPercentage === 0 ? '' : d.commissionPercentage}
+                                onChange={e => upDeliv(i, 'commissionPercentage', Number(e.target.value.replace(/[^\d.]/g, '')) || 0)} />
+                              <span style={{ fontSize: 11, color: 'var(--dim)' }}>%</span>
+                            </span>
+                          : <span className="badge b-dim">عمولة <span className="num">{d.commissionPercentage}%</span></span>}
+                        {d.custom && <button className="btn sm gh" onClick={() => removeDeliv(i)}><Trash2 size={13} color="#D9544D" /></button>}
+                      </div>
                     </div>
-                    <MoneyField value={d.amount} style={{ maxWidth: 130 }}
-                      onChange={v => { const n = [...f.deliverySales]; n[i] = { ...d, amount: v }; set('deliverySales', n); }} />
-                    <input className="inp n" style={{ maxWidth: 78 }} inputMode="numeric" placeholder="طلبات"
-                      value={d.orderCount === 0 ? '' : d.orderCount}
-                      onChange={e => { const v = Number(e.target.value.replace(/[^\d]/g, '')) || 0; const n = [...f.deliverySales]; n[i] = { ...d, orderCount: v }; set('deliverySales', n); }} />
+                    <div className="grid g2" style={{ gap: 9 }}>
+                      <div className="fld" style={{ margin: 0 }}>
+                        <label className="lbl">مبيعات التطبيق · يقبل عدة مبالغ</label>
+                        <MoneyField value={d.amount} sum onChange={v => upDeliv(i, 'amount', v)} />
+                      </div>
+                      <div className="fld" style={{ margin: 0 }}>
+                        <label className="lbl">عدد الطلبات</label>
+                        <input className="inp n" inputMode="numeric" placeholder="0" value={d.orderCount === 0 ? '' : d.orderCount}
+                          onChange={e => upDeliv(i, 'orderCount', Number(e.target.value.replace(/[^\d]/g, '')) || 0)} />
+                      </div>
+                    </div>
                   </div>
                 ))}
                 <div className="mono-b" style={{ marginTop: 12, borderColor: 'var(--brass-d)' }}>
