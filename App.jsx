@@ -172,6 +172,17 @@ function buildPartners(org, ops) {
     }));
     return t;
   };
+  // سدادات الموردين المسجّلة في الإغلاق → مدين (يقلّل ما علينا) مع طريقة الدفع
+  const PAY_AR = { cash: 'نقدًا', card: 'شبكة', bank_transfer: 'تحويل', other: 'أخرى' };
+  const payFor = (key, supId) => {
+    const t = [];
+    (ops.closings || []).forEach(c => (c.supplierPayments || []).forEach(pm => {
+      if (pm.partnerKey === key || (supId && pm.supplierId === supId)) {
+        t.push({ date: c.date, desc: 'سداد' + (PAY_AR[pm.method] ? ' (' + PAY_AR[pm.method] + ')' : '') + ' — إغلاق ' + (c.branchName || ''), ref: pm.reference || c.id, src: 'pay', debit: pm.amount || 0, credit: 0 });
+      }
+    }));
+    return t;
+  };
 
   // الموردون — فواتير + سداداتها + مشتريات الإغلاق المرتبطة + حركات يدوية
   (org.suppliers || []).forEach(sp => {
@@ -183,6 +194,7 @@ function buildPartners(org, ops) {
       linked = true;
     });
     const ct = closeFor(key, sp.id); txns.push(...ct); if (ct.length) linked = true;
+    const pt = payFor(key, sp.id); txns.push(...pt); if (pt.length) linked = true;
     txns.push(...ledFor(key));
     parts.push({ key, id: sp.id, name: sp.name, type: 'supplier', cat: sp.category || 'مورد', phone: sp.phone || '', tax: sp.vatNo || '', terms: sp.terms || 0, linked, txns });
   });
@@ -199,6 +211,7 @@ function buildPartners(org, ops) {
       linked = true;
     });
     const ce = closeFor(key); txns.push(...ce); if (ce.length) linked = true;
+    const pe = payFor(key); txns.push(...pe); if (pe.length) linked = true;
     txns.push(...ledFor(key));
     parts.push({ key, id: em.id, name: em.name, type: 'employee', cat: em.jobTitle || em.title || 'موظف', phone: em.phone || '', tax: em.nationalId || em.iqamaNo || '', terms: 0, linked, txns });
   });
@@ -206,8 +219,8 @@ function buildPartners(org, ops) {
   // العملاء والشركاء اليدويون — حركات يدوية فقط
   (org.partners || []).forEach(pt => {
     const key = pt.key || ('cust:' + pt.id);
-    const ce = closeFor(key);
-    parts.push({ key, id: pt.id, name: pt.name, type: pt.type || 'customer', cat: pt.cat || 'عميل', phone: pt.phone || '', tax: pt.tax || '', terms: pt.terms || 0, linked: ce.length > 0, custom: true, txns: [...ce, ...ledFor(key)] });
+    const ce = closeFor(key), pp = payFor(key);
+    parts.push({ key, id: pt.id, name: pt.name, type: pt.type || 'customer', cat: pt.cat || 'عميل', phone: pt.phone || '', tax: pt.tax || '', terms: pt.terms || 0, linked: (ce.length + pp.length) > 0, custom: true, txns: [...ce, ...pp, ...ledFor(key)] });
   });
 
   parts.forEach(p => {
@@ -679,7 +692,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v6.4 ✓</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v6.5 ✓</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2100,7 +2113,7 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
     openingBalance: branches[0]?.defaultFloat || 0,
     cashSales: 0, cardSales: 0, bankTransferSales: 0,
     deliverySales: (org.deliveryApps || APPS).map(a => ({ appId: a.id, appName: a.n, amount: 0, orderCount: 0, commissionPercentage: a.c })),
-    expenses: [], denominationDetails: emptyDenoms(),
+    expenses: [], supplierPayments: [], denominationDetails: emptyDenoms(),
     transferredToMainTreasury: 0, varianceReason: '', notes: ''
   });
   const [secs, setSecs] = useState(() => {
@@ -2112,6 +2125,7 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
       expenses: (d.expenses || []).length > 0,
       inventory: true,
       transfer: (d.transferredToMainTreasury || 0) > 0 || !!d.treasuryChoice,
+      supplierPay: (d.supplierPayments || []).length > 0,
       notes: !!(d.notes || d.managerSignature || d.sessionPhoto),
     };
   });
@@ -2119,12 +2133,12 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
     const willOpen = !p[k];
     // على الجوال: قسم واحد مفتوح في كل مرة (أكورديون)
     if (willOpen && typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(max-width:640px)').matches) {
-      return { sales: false, network: false, delivery: false, expenses: false, inventory: false, transfer: false, notes: false, [k]: true };
+      return { sales: false, network: false, delivery: false, expenses: false, inventory: false, transfer: false, supplierPay: false, notes: false, [k]: true };
     }
     return { ...p, [k]: !p[k] };
   });
   const allSecsOpen = Object.values(secs).every(Boolean);
-  const setAllSecs = (v) => setSecs({ sales: v, network: v, delivery: v, expenses: v, inventory: v, transfer: v, notes: v });
+  const setAllSecs = (v) => setSecs({ sales: v, network: v, delivery: v, expenses: v, inventory: v, transfer: v, supplierPay: v, notes: v });
   const [cam, setCam] = useState(false);
   const [sumOpen, setSumOpen] = useState(false);
   const [outPrompt, setOutPrompt] = useState(false);
@@ -2138,7 +2152,11 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
   const totalRevenue = f.cashSales + f.cardSales + (f.bankTransferSales || 0) + totalDelivery;
   const cashExp = sum(f.expenses.filter(e => e.paymentMethod === 'cash'), e => e.amount);
   const totalExp = sum(f.expenses, e => e.amount);
-  const expected = f.openingBalance + f.cashSales - cashExp;
+  const supPays = f.supplierPayments || [];
+  const totalSupplierPay = sum(supPays, x => x.amount);
+  const cashSupplierPay = sum(supPays.filter(x => x.method === 'cash'), x => x.amount);
+  // السداد النقدي للموردين يخرج من الصندoق فيقلّل النقد المتوقع (لضبط الجرد)
+  const expected = f.openingBalance + f.cashSales - cashExp - cashSupplierPay;
   const actual = countDenoms(f.denominationDetails);
   const variance = Math.round((actual - expected) * 100) / 100;
   const retained = Math.max(0, actual - f.transferredToMainTreasury);
@@ -2156,7 +2174,13 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
   ];
   const linkExpParty = (expId, key, name, supplierId) =>
     set('expenses', f.expenses.map(x => x.id === expId ? { ...x, partnerKey: key || undefined, beneficiaryName: name != null ? name : x.beneficiaryName, supplierId } : x));
-  // حفظ شريك جديد في الرئيسي وربطه بالمصروف — هذا ما يجعله «ينضاف إلى الرئيسي»
+  const linkPayParty = (payId, key, name, supplierId) =>
+    set('supplierPayments', (f.supplierPayments || []).map(x => x.id === payId ? { ...x, partnerKey: key || undefined, supplierName: name != null ? name : x.supplierName, supplierId } : x));
+  // سداد الموردين داخل الإغلاق
+  const addSupPay = () => set('supplierPayments', [...(f.supplierPayments || []), { id: uid('sp'), partnerKey: '', supplierName: '', amount: 0, method: 'cash', reference: '' }]);
+  const upSupPay = (id, k, v) => set('supplierPayments', (f.supplierPayments || []).map(x => x.id === id ? { ...x, [k]: v } : x));
+  const removeSupPay = (id) => set('supplierPayments', (f.supplierPayments || []).filter(x => x.id !== id));
+  // حفظ شريك جديد في الرئيسي وربطه بالمصروف/السداد — هذا ما يجعله «ينضاف إلى الرئيسي»
   const saveParty = async () => {
     const np = newParty;
     if (!np.name || !np.name.trim()) return say('اكتب اسم الشريك', 'no');
@@ -2167,8 +2191,9 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
     else if (np.type === 'employee') { key = 'emp:' + id; mut = d => ({ ...d, employees: [...(d.employees || []), { id, name, jobTitle: np.cat || '', phone: np.phone || '', baseSalary: 0, housingAllowance: 0, transportAllowance: 0, branchId: f.branchId, isActive: true }] }); }
     else { key = 'cust:' + id; mut = d => ({ ...d, partners: [...(d.partners || []), { id, key, name, type: np.type, cat: np.cat || '', phone: np.phone || '', tax: '', terms: 0 }] }); }
     await commitOrg(mut, { actionType: 'create', targetType: 'user_account', targetId: id, title: 'أضاف شريكاً للرئيسي من الإغلاق', details: name + ' — ' + (PT_TYPE[np.type] || { ar: 'عميل' }).ar });
-    linkExpParty(np.expId, key, name, np.type === 'supplier' ? id : undefined);
-    say('أُضيف إلى دفتر الشركاء بالرئيسي وارتبط بالمصروف ✓'); setNewParty(null);
+    if (np.target === 'pay') linkPayParty(np.rowId, key, name, np.type === 'supplier' ? id : undefined);
+    else linkExpParty(np.rowId, key, name, np.type === 'supplier' ? id : undefined);
+    say('أُضيف إلى دفتر الشركاء بالرئيسي ✓'); setNewParty(null);
   };
   const addExp = () => set('expenses', [...f.expenses, {
     id: uid('ex'), categoryId: (org.expenseCats || EXP_CATS)[0]?.id, categoryName: (org.expenseCats || EXP_CATS)[0]?.n,
@@ -2501,7 +2526,7 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
                       <option value="">— اربطه بشريك في الرئيسي (اختياري) —</option>
                       {partyOptions.map(o => <option key={o.key} value={o.key}>{o.name} · {o.type}</option>)}
                     </select>
-                    {commitOrg && <button type="button" className="btn sm gh" style={{ flexShrink: 0 }} onClick={() => setNewParty({ expId: e.id, type: 'supplier', name: e.beneficiaryName || '', cat: '', phone: '' })}><Plus size={13} />جديد</button>}
+                    {commitOrg && <button type="button" className="btn sm gh" style={{ flexShrink: 0 }} onClick={() => setNewParty({ target: 'exp', rowId: e.id, type: 'supplier', name: e.beneficiaryName || '', cat: '', phone: '' })}><Plus size={13} />جديد</button>}
                   </div>
                   <input className="inp" value={e.beneficiaryName || ''} placeholder="اسم الجهة"
                     onChange={ev => upExp(e.id, 'beneficiaryName', ev.target.value)} />
@@ -2581,6 +2606,49 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
             <div className="mono-b"><span style={{ fontSize: 12 }}>المخصوم نقداً من الصندوق</span>
               <span className="num" style={{ color: 'var(--amber)', fontWeight: 600 }}>{money(cashExp)}</span></div>
           </div>
+              </>
+            ))}
+
+            {sec('supplierPay', Banknote, 'سداد الموردين', 'دفعات نقد/شبكة/تحويل للموردين', <span className="num" style={{ color: 'var(--mint)' }}>{money(totalSupplierPay)}</span>, supPays.length > 0, (
+              <>
+          <div className="lbl" style={{ marginBottom: 8 }}>سجّل دفعات سداد الموردين — تُخصم الدفعة النقدية من الصندoق وتظهر في كشف حساب المورد بالرئيسي.</div>
+          {supPays.map((pm) => (
+            <div key={pm.id} className="card" style={{ background: 'var(--ink)', padding: 12, marginBottom: 10 }}>
+              <div className="row" style={{ gap: 6, marginBottom: 8 }}>
+                <select className="sel" style={{ flex: 1, minWidth: 0 }} value={pm.partnerKey || ''}
+                  onChange={ev => { const o = partyOptions.find(x => x.key === ev.target.value); linkPayParty(pm.id, ev.target.value, o ? o.name : pm.supplierName, o && o.key.startsWith('sup:') ? o.id : undefined); }}>
+                  <option value="">— اختر المورد من الرئيسي —</option>
+                  {partyOptions.map(o => <option key={o.key} value={o.key}>{o.name} · {o.type}</option>)}
+                </select>
+                {commitOrg && <button type="button" className="btn sm gh" style={{ flexShrink: 0 }} onClick={() => setNewParty({ target: 'pay', rowId: pm.id, type: 'supplier', name: pm.supplierName || '', cat: '', phone: '' })}><Plus size={13} />جديد</button>}
+                <button type="button" className="btn sm gh" style={{ flexShrink: 0 }} onClick={() => removeSupPay(pm.id)}><Trash2 size={13} color="#D9544D" /></button>
+              </div>
+              <input className="inp" style={{ marginBottom: 8 }} value={pm.supplierName || ''} placeholder="اسم المورد"
+                onChange={ev => upSupPay(pm.id, 'supplierName', ev.target.value)} />
+              <div className="grid g2">
+                <Num label="مبلغ السداد" value={pm.amount} onChange={v => upSupPay(pm.id, 'amount', v)} sum />
+                <Field label="المرجع (اختياري)"><input className="inp" value={pm.reference || ''} placeholder="رقم سند/إيصال"
+                  onChange={ev => upSupPay(pm.id, 'reference', ev.target.value)} /></Field>
+              </div>
+              <div style={{ marginTop: 8 }}>
+                <div className="lbl">طريقة الدفع</div>
+                <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+                  {[['cash', 'نقدًا'], ['card', 'شبكة'], ['bank_transfer', 'تحويل'], ['other', 'غير ذلك']].map(([m, lbl]) => (
+                    <button key={m} type="button" className={'btn sm' + (pm.method === m ? ' pri' : ' gh')} onClick={() => upSupPay(pm.id, 'method', m)}>{lbl}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ))}
+          <button className="btn sm" onClick={addSupPay}><Plus size={14} />إضافة دفعة سداد مورد</button>
+          {supPays.length > 0 && (
+            <div className="grid g2" style={{ marginTop: 12 }}>
+              <div className="mono-b"><span style={{ fontSize: 12 }}>إجمالي سداد الموردين</span>
+                <span className="num" style={{ color: 'var(--mint)', fontWeight: 600 }}>{money(totalSupplierPay)}</span></div>
+              <div className="mono-b"><span style={{ fontSize: 12 }}>المخصوم نقداً من الصندوق</span>
+                <span className="num" style={{ color: 'var(--amber)', fontWeight: 600 }}>{money(cashSupplierPay)}</span></div>
+            </div>
+          )}
               </>
             ))}
 
@@ -4482,7 +4550,8 @@ const PT_TYPE = { customer: { ar: 'عميل', c: '#5B93C4' }, supplier: { ar: '�
 const PT_SRC = {
   inv: { t: 'فاتورة', c: 'var(--amber)' }, close: { t: 'إغلاق فرع', c: 'var(--mint)' },
   adv: { t: 'سلفة/خصم', c: 'var(--violet)' }, salary: { t: 'راتب مستحق', c: 'var(--sky)' },
-  open: { t: 'افتتاحي', c: 'var(--faint)' }, manual: { t: 'يدوي', c: 'var(--sky)' }
+  open: { t: 'افتتاحي', c: 'var(--faint)' }, manual: { t: 'يدوي', c: 'var(--sky)' },
+  pay: { t: 'سداد', c: 'var(--mint)' }
 };
 
 function PartnerChip({ type }) {
