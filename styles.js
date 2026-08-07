@@ -314,17 +314,21 @@ table.tb{width:100%;border-collapse:collapse;font-size:12.5px;min-width:520px}
 .tb tbody tr:hover{background:rgba(255,255,255,.018)}
 
 /* ═══ النافذة تنمو بطول محتواها — القناع كله يتمرّر بحرية (لا حصر داخلي) ═══ */
+/* ===== معمار النوافذ: قناع لا يتمرّر مطلقاً + نافذة بعمود واحد ورأس/تذييل ثابتين وتمرير واحد ===== */
 .mask{position:fixed;inset:0;background:rgba(8,6,5,.62);backdrop-filter:blur(6px);z-index:80;
-  overflow-y:auto;-webkit-overflow-scrolling:touch;
-  display:flex;align-items:flex-start;justify-content:center;padding:24px 16px}
+  display:grid;place-items:center;padding:clamp(8px,2.4vw,26px);
+  overflow:hidden;overscroll-behavior:none}
 .modal{background:var(--ink2);border:1px solid var(--line);border-radius:16px;width:100%;max-width:640px;
-  margin:auto;box-shadow:0 30px 70px rgba(0,0,0,.55)}
-/* الرأس: يبقى ظاهراً أثناء تمرير القناع */
-.modal-h{position:sticky;top:0;z-index:3;display:flex;align-items:center;justify-content:space-between;padding:16px 18px;border-bottom:1px solid var(--line);background:var(--ink2);border-radius:16px 16px 0 0}
-/* الجسم: ينمو بطول المحتوى دون تمرير داخلي */
-.modal-b{padding:18px}
-/* التذييل: ثابت دائم الظهور */
-.modal-f{position:sticky;bottom:0;z-index:3;display:flex;gap:9px;justify-content:flex-start;padding:14px 18px;border-top:1px solid var(--line);background:var(--ink2);border-radius:0 0 16px 16px}
+  max-height:92vh;max-height:92dvh;display:flex;flex-direction:column;overflow:hidden;
+  box-shadow:0 30px 70px rgba(0,0,0,.55)}
+/* الرأس: ثابت لا يتمرّر */
+.modal-h{flex-shrink:0;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line);background:var(--ink2)}
+.modal-h-t{flex:1;min-width:0}
+.modal-h-s{font-size:11.5px;color:var(--dim);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* الجسم: حاوية التمرير الوحيدة */
+.modal-b{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:18px}
+/* التذييل: ثابت لا يتمرّر ولا يتداخل مع المحتوى */
+.modal-f{flex-shrink:0;display:flex;gap:9px;justify-content:flex-start;flex-wrap:wrap;padding:14px 18px calc(14px + env(safe-area-inset-bottom));border-top:1px solid var(--line);background:var(--ink2)}
 
 /* ---- التوقيع البصري: شريط جرد الفئات النقدية ---- */
 .notes{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
@@ -437,58 +441,36 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
    كمبيوتر: خط زمني (يمين) + نموذج (وسط) + ملخّص حيّ (يسار)
    جوال: خط زمني رفيع + نموذج + ملخّص قابل للطي
    ═══════════════════════════════════════════════════════════ */
-.modal-flow{width:100% !important;max-width:1180px !important;height:min(92vh,860px);display:flex;flex-direction:column;border-radius:16px;overflow:hidden}
-.modal-flow .modal-h,.modal-flow .modal-f{flex-shrink:0}
+/* ===== نافذة الإغلاق كمساحة عمل بحجم الشاشة (90–95%)، وعلى الجوال ملء الشاشة ===== */
+.modal-flow{width:min(1400px,94vw);height:94vh;height:94dvh;max-width:none;border-radius:18px}
 .modal-flow .modal-b{flex:1;min-height:0;overflow:hidden;padding:0}
-.cflow{display:flex;height:100%;min-height:0}
-.cflow-rail{width:228px;flex-shrink:0;background:var(--ink);border-inline-end:1px solid var(--line);padding:18px 14px;overflow-y:auto}
-.cflow-rail-h{font-size:10.5px;color:var(--faint);letter-spacing:.1em;margin-bottom:16px;padding-inline-start:6px}
-.cflow-node{display:flex;align-items:flex-start;gap:11px;background:none;border:none;cursor:pointer;font-family:inherit;padding:0 6px;position:relative;width:100%;text-align:start;margin-bottom:22px}
-.cflow-node:last-child{margin-bottom:0}
-.cflow-node::before{content:'';position:absolute;inset-inline-end:20px;top:32px;height:calc(100% + 0px);width:2px;background:var(--line)}
-.cflow-node:last-child::before{display:none}
-.cflow-dot{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-family:'IBM Plex Mono',monospace;font-size:12.5px;font-weight:700;background:var(--ink3);border:2px solid var(--line);color:var(--dim);flex-shrink:0;transition:.18s;z-index:1}
-.cflow-meta{padding-top:4px;min-width:0}
-.cflow-lbl{font-size:13.5px;font-weight:600;color:var(--dim);display:block}
-.cflow-lbl-m{display:none}
-.cflow-node.active .cflow-dot{background:linear-gradient(135deg,var(--brass-l),var(--brass-d));border-color:transparent;color:#1a1410;box-shadow:var(--sh-brass)}
-.cflow-node.active .cflow-lbl{color:var(--txt)}
-.cflow-node.done .cflow-dot{background:var(--mint);border-color:transparent;color:#0d1b14}
-.cflow-node.done .cflow-lbl{color:var(--mint)}
-.cflow-node.done::before{background:var(--mint)}
-.cflow-main{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0}
-.cflow-form{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:20px 22px}
-.cflow-sum{width:280px;flex-shrink:0;background:var(--ink);border-inline-start:1px solid var(--line);padding:16px 15px;overflow-y:auto}
+/* حاوية التمرير الوحيدة: عمود المحتوى + عمود ملخّص «لاصق» (لا تمرير منفصل) */
+.cflow{display:grid;grid-template-columns:1fr 300px;height:100%;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+.cflow-main{min-width:0}
+.cflow-form{padding:20px 22px}
+.cflow-sum{align-self:start;position:sticky;top:0;background:var(--ink);border-inline-start:1px solid var(--line);padding:16px 15px}
 .cflow-sum-h{font-size:10.5px;color:var(--faint);letter-spacing:.1em;margin-bottom:12px}
 .cflow-sum .mono-b{background:var(--ink2)}
 .cflow-alert{border-radius:10px;padding:10px 12px;font-size:12px;display:flex;gap:8px;align-items:flex-start;margin-top:8px;line-height:1.5}
 .cflow-msum{display:none}
-/* لوحي: تُخفى لوحة الملخّص الجانبية ويظهر شريط ملخّص قابل للطي */
+/* لوحي: يُخفى الملخّص الجانبي ويظهر شريط ملخّص لاصق قابل للطي — عمود واحد وتمرير واحد */
 @media(max-width:1040px){
+  .cflow{grid-template-columns:1fr}
   .cflow-sum{display:none}
-  .cflow-rail{width:194px}
-  .cflow-msum{display:block;flex-shrink:0;border-bottom:1px solid var(--line);background:var(--ink2)}
-  .cflow-msum-bar{display:flex;align-items:center;gap:16px;width:100%;padding:9px 16px;background:none;border:none;cursor:pointer;font-family:inherit;color:var(--txt)}
+  .cflow-msum{display:block;position:sticky;top:0;z-index:2;border-bottom:1px solid var(--line);background:var(--ink2)}
+  .cflow-msum-bar{display:flex;align-items:center;gap:16px;width:100%;padding:10px 16px;background:none;border:none;cursor:pointer;font-family:inherit;color:var(--txt)}
   .msum-i{display:flex;flex-direction:column;line-height:1.25;text-align:start}
   .msum-i small{font-size:9.5px;color:var(--dim)}
   .msum-i b{font-size:14px}
   .msum-chv{margin-inline-start:auto;color:var(--faint);font-size:12px}
-  .cflow-msum-full{display:none;padding:2px 14px 12px;max-height:42vh;overflow-y:auto}
+  .cflow-msum-full{display:none;padding:2px 14px 12px}
   .cflow-msum.open .cflow-msum-full{display:block}
 }
-/* جوال: خط زمني رفيع بمسمّيات قصيرة تحت النقاط */
+/* جوال: ملء الشاشة بارتفاع ديناميكي (dvh) يحترم شريط العنوان والـSafe Area */
 @media(max-width:640px){
-  .modal-flow{height:100dvh;height:100vh;max-width:100% !important;border-radius:0}
-  .cflow-rail{width:72px;padding:16px 4px}
-  .cflow-rail-h{display:none}
-  .cflow-node{flex-direction:column;align-items:center;text-align:center;gap:0;margin-bottom:20px;padding:0}
-  .cflow-node::before{inset-inline-end:calc(50% - 1px);top:30px;height:calc(100% + 4px)}
-  .cflow-dot{width:28px;height:28px}
-  .cflow-meta{padding-top:5px}
-  .cflow-lbl{display:none}
-  .cflow-lbl-m{display:block;font-size:9.5px;font-weight:600;color:var(--dim);line-height:1.2}
-  .cflow-node.active .cflow-lbl-m{color:var(--txt)}
-  .cflow-node.done .cflow-lbl-m{color:var(--mint)}
+  .mask{padding:0}
+  .modal-flow{width:100vw;height:100vh;height:100dvh;max-width:none;border-radius:0}
+  .modal-flow .modal-h{padding-top:calc(14px + env(safe-area-inset-top))}
   .cflow-form{padding:14px}
 }
 
