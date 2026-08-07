@@ -162,6 +162,16 @@ function buildPartners(org, ops) {
     date: (e.date || '').slice(0, 10), desc: e.desc || 'حركة يدوية', ref: e.ref || '',
     src: e.src || 'manual', debit: e.debit || 0, credit: e.credit || 0, entryId: e.id
   }));
+  // مصروفات/مشتريات الإغلاق المرتبطة بشريك (عبر partnerKey للجميع، أو supplierId للموردين توافقاً)
+  const closeFor = (key, supId) => {
+    const t = [];
+    (ops.closings || []).forEach(c => (c.expenses || []).forEach(e => {
+      if (e.partnerKey === key || (supId && e.supplierId === supId)) {
+        t.push({ date: c.date, desc: (e.categoryName || 'مصروف') + ' — إغلاق ' + (c.branchName || ''), ref: c.id, src: 'close', debit: 0, credit: e.amount || 0 });
+      }
+    }));
+    return t;
+  };
 
   // الموردون — فواتير + سداداتها + مشتريات الإغلاق المرتبطة + حركات يدوية
   (org.suppliers || []).forEach(sp => {
@@ -172,9 +182,7 @@ function buildPartners(org, ops) {
       if ((i.paidAmount || 0) > 0) txns.push({ date: (i.paidDate || d || '').slice(0, 10), desc: 'سداد فاتورة ' + (i.invoiceNo || ''), ref: i.invoiceNo || '', src: 'inv', debit: i.paidAmount || 0, credit: 0 });
       linked = true;
     });
-    (ops.closings || []).forEach(c => (c.expenses || []).forEach(e => {
-      if (e.supplierId === sp.id) { txns.push({ date: c.date, desc: 'مشتريات — إغلاق ' + (c.branchName || ''), ref: c.id, src: 'close', debit: 0, credit: e.amount || 0 }); linked = true; }
-    }));
+    const ct = closeFor(key, sp.id); txns.push(...ct); if (ct.length) linked = true;
     txns.push(...ledFor(key));
     parts.push({ key, id: sp.id, name: sp.name, type: 'supplier', cat: sp.category || 'مورد', phone: sp.phone || '', tax: sp.vatNo || '', terms: sp.terms || 0, linked, txns });
   });
@@ -190,6 +198,7 @@ function buildPartners(org, ops) {
       txns.push({ date: (a.date || '').slice(0, 10), desc: (isDraw ? 'سلفة/سحب على الراتب' : 'خصم/جزاء') + (a.reason ? ' — ' + a.reason : ''), ref: a.month || '', src: 'adv', debit: a.amount || 0, credit: 0 });
       linked = true;
     });
+    const ce = closeFor(key); txns.push(...ce); if (ce.length) linked = true;
     txns.push(...ledFor(key));
     parts.push({ key, id: em.id, name: em.name, type: 'employee', cat: em.jobTitle || em.title || 'موظف', phone: em.phone || '', tax: em.nationalId || em.iqamaNo || '', terms: 0, linked, txns });
   });
@@ -197,7 +206,8 @@ function buildPartners(org, ops) {
   // العملاء والشركاء اليدويون — حركات يدوية فقط
   (org.partners || []).forEach(pt => {
     const key = pt.key || ('cust:' + pt.id);
-    parts.push({ key, id: pt.id, name: pt.name, type: pt.type || 'customer', cat: pt.cat || 'عميل', phone: pt.phone || '', tax: pt.tax || '', terms: pt.terms || 0, linked: false, custom: true, txns: ledFor(key) });
+    const ce = closeFor(key);
+    parts.push({ key, id: pt.id, name: pt.name, type: pt.type || 'customer', cat: pt.cat || 'عميل', phone: pt.phone || '', tax: pt.tax || '', terms: pt.terms || 0, linked: ce.length > 0, custom: true, txns: [...ce, ...ledFor(key)] });
   });
 
   parts.forEach(p => {
@@ -669,7 +679,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v6.3 ✓</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v6.4 ✓</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -1928,7 +1938,7 @@ function Dashboard({ org, ops, pulse, me, myBranches, scoped, online, setTab, th
 }
 
 /* ================= الإغلاق اليومي ================= */
-function Closing({ org, ops, me, myBranches, scoped, commit, say }) {
+function Closing({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
   const [open, setOpen] = useState(false);
   const [edit, setEdit] = useState(null);
   const [view, setView] = useState(null);
@@ -2074,7 +2084,7 @@ function Closing({ org, ops, me, myBranches, scoped, commit, say }) {
       </div>
 
       {open && (
-        <ClosingForm key={formKey} org={org} me={me} branches={myBranches} initial={edit} commit={commit} say={say}
+        <ClosingForm key={formKey} org={org} me={me} branches={myBranches} initial={edit} commit={commit} commitOrg={commitOrg} say={say}
           existing={ops.closings || []}
           onStartNew={() => { setEdit(null); setFormKey(k => k + 1); }}
           onClose={() => { setOpen(false); setEdit(null); }} />
@@ -2084,7 +2094,7 @@ function Closing({ org, ops, me, myBranches, scoped, commit, say }) {
   );
 }
 
-export function ClosingForm({ org, me, branches, initial, commit, say, onClose, onStartNew, existing = [] }) {
+export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say, onClose, onStartNew, existing = [] }) {
   const [f, setF] = useState(() => initial || {
     date: today(), branchId: branches[0]?.id || '',
     openingBalance: branches[0]?.defaultFloat || 0,
@@ -2120,6 +2130,7 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
   const [outPrompt, setOutPrompt] = useState(false);
   const [pend, setPend] = useState(null);
   const [done, setDone] = useState(null);
+  const [newParty, setNewParty] = useState(null);   // إضافة مورد/موظف/عميل إلى الرئيسي من الإغلاق
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   const branch = org.branches.find(b => b.id === f.branchId);
 
@@ -2136,6 +2147,29 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
   const addDelivApp = () => set('deliverySales', [...f.deliverySales, { appId: uid('app'), appName: '', amount: 0, orderCount: 0, commissionPercentage: 0, custom: true }]);
   const upDeliv = (i, k, v) => { const n = [...f.deliverySales]; n[i] = { ...n[i], [k]: v }; set('deliverySales', n); };
   const removeDeliv = (i) => set('deliverySales', f.deliverySales.filter((_, x) => x !== i));
+
+  // شركاء الرئيسي المتاحون للربط (موردون + موظفون + عملاء)
+  const partyOptions = [
+    ...(org.suppliers || []).map(s => ({ key: 'sup:' + s.id, id: s.id, name: s.name, type: 'مورد' })),
+    ...(org.employees || []).map(e => ({ key: 'emp:' + e.id, id: e.id, name: e.name, type: 'موظف' })),
+    ...(org.partners || []).map(p => ({ key: p.key || 'cust:' + p.id, id: p.id, name: p.name, type: (PT_TYPE[p.type] || {}).ar || 'عميل' }))
+  ];
+  const linkExpParty = (expId, key, name, supplierId) =>
+    set('expenses', f.expenses.map(x => x.id === expId ? { ...x, partnerKey: key || undefined, beneficiaryName: name != null ? name : x.beneficiaryName, supplierId } : x));
+  // حفظ شريك جديد في الرئيسي وربطه بالمصروف — هذا ما يجعله «ينضاف إلى الرئيسي»
+  const saveParty = async () => {
+    const np = newParty;
+    if (!np.name || !np.name.trim()) return say('اكتب اسم الشريك', 'no');
+    if (!commitOrg) return say('لا تملك صلاحية الإضافة للرئيسي', 'no');
+    const name = np.name.trim(), id = uid('pt');
+    let key, mut;
+    if (np.type === 'supplier') { key = 'sup:' + id; mut = d => ({ ...d, suppliers: [...(d.suppliers || []), { id, name, category: np.cat || '', phone: np.phone || '', vatNo: '', terms: 0 }] }); }
+    else if (np.type === 'employee') { key = 'emp:' + id; mut = d => ({ ...d, employees: [...(d.employees || []), { id, name, jobTitle: np.cat || '', phone: np.phone || '', baseSalary: 0, housingAllowance: 0, transportAllowance: 0, branchId: f.branchId, isActive: true }] }); }
+    else { key = 'cust:' + id; mut = d => ({ ...d, partners: [...(d.partners || []), { id, key, name, type: np.type, cat: np.cat || '', phone: np.phone || '', tax: '', terms: 0 }] }); }
+    await commitOrg(mut, { actionType: 'create', targetType: 'user_account', targetId: id, title: 'أضاف شريكاً للرئيسي من الإغلاق', details: name + ' — ' + (PT_TYPE[np.type] || { ar: 'عميل' }).ar });
+    linkExpParty(np.expId, key, name, np.type === 'supplier' ? id : undefined);
+    say('أُضيف إلى دفتر الشركاء بالرئيسي وارتبط بالمصروف ✓'); setNewParty(null);
+  };
   const addExp = () => set('expenses', [...f.expenses, {
     id: uid('ex'), categoryId: (org.expenseCats || EXP_CATS)[0]?.id, categoryName: (org.expenseCats || EXP_CATS)[0]?.n,
     amount: 0, paymentMethod: 'cash', beneficiaryName: '', receiptNumber: '',
@@ -2458,17 +2492,17 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
               <div className="grid g3" style={{ gap: 9 }}>
                 <Num label="المبلغ" value={e.amount} onChange={v => upExp(e.id, 'amount', v)} sum />
                 <Field label="المستفيد / المورد">
-                  {(org.suppliers || []).length > 0 && (
-                    <select className="sel" style={{ marginBottom: 6 }} value={e.supplierId || ''}
+                  <div className="row" style={{ gap: 6, marginBottom: 6 }}>
+                    <select className="sel" style={{ flex: 1, minWidth: 0 }} value={e.partnerKey || ''}
                       onChange={ev => {
-                        const sp = (org.suppliers || []).find(s => s.id === ev.target.value);
-                        set('expenses', f.expenses.map(x => x.id === e.id
-                          ? { ...x, supplierId: ev.target.value || undefined, beneficiaryName: sp ? sp.name : x.beneficiaryName } : x));
+                        const o = partyOptions.find(x => x.key === ev.target.value);
+                        linkExpParty(e.id, ev.target.value, o ? o.name : e.beneficiaryName, o && o.key.startsWith('sup:') ? o.id : undefined);
                       }}>
-                      <option value="">— اربطه بمورد مسجّل (يظهر في دفتر الشركاء) —</option>
-                      {(org.suppliers || []).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      <option value="">— اربطه بشريك في الرئيسي (اختياري) —</option>
+                      {partyOptions.map(o => <option key={o.key} value={o.key}>{o.name} · {o.type}</option>)}
                     </select>
-                  )}
+                    {commitOrg && <button type="button" className="btn sm gh" style={{ flexShrink: 0 }} onClick={() => setNewParty({ expId: e.id, type: 'supplier', name: e.beneficiaryName || '', cat: '', phone: '' })}><Plus size={13} />جديد</button>}
+                  </div>
                   <input className="inp" value={e.beneficiaryName || ''} placeholder="اسم الجهة"
                     onChange={ev => upExp(e.id, 'beneficiaryName', ev.target.value)} />
                 </Field>
@@ -2688,6 +2722,28 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
       {outPrompt && pend && <OutputDialog rec={pend.rec} org={org}
         onCancel={() => { setOutPrompt(false); setPend(null); }}
         onDone={(out) => finalize('submitted', pend.rec, pend.id, pend.ref, out)} />}
+      {newParty && (
+        <Modal title="إضافة شريك جديد إلى الرئيسي" icon={Users} onClose={() => setNewParty(null)}
+          foot={<><button className="btn pri" onClick={saveParty}><Check size={14} />حفظ وربط بالمصروف</button>
+            <button className="btn gh" onClick={() => setNewParty(null)}>إلغاء</button></>}>
+          <Field label="النوع">
+            <select className="sel" value={newParty.type} onChange={ev => setNewParty({ ...newParty, type: ev.target.value })}>
+              <option value="supplier">مورد</option>
+              <option value="employee">موظف</option>
+              <option value="customer">عميل</option>
+            </select>
+          </Field>
+          <Field label="الاسم"><input className="inp" autoFocus value={newParty.name} placeholder="اسم المورد/الموظف/العميل"
+            onChange={ev => setNewParty({ ...newParty, name: ev.target.value })} /></Field>
+          <div className="grid g2">
+            <Field label={newParty.type === 'employee' ? 'المسمى الوظيفي' : 'التصنيف'}><input className="inp" value={newParty.cat}
+              onChange={ev => setNewParty({ ...newParty, cat: ev.target.value })} placeholder={newParty.type === 'supplier' ? 'مثال: مواد خام' : ''} /></Field>
+            <Field label="الجوال"><input className="inp" style={{ direction: 'ltr', textAlign: 'right' }} value={newParty.phone}
+              onChange={ev => setNewParty({ ...newParty, phone: ev.target.value })} /></Field>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--dim)', marginTop: 6, lineHeight: 1.7 }}>يُسجَّل مباشرةً في الإدارة الرئيسية (دفتر الشركاء) ويُربط بهذا المصروف — فيظهر في كشف حسابه.</div>
+        </Modal>
+      )}
       {done && <Modal title="تم إغلاق الوردية" icon={CheckCircle2} onClose={onClose}
         foot={<>
           <button className="btn pri" onClick={() => (onStartNew ? onStartNew() : onClose())}><Plus size={14} />بدء وردية جديدة</button>
