@@ -8,7 +8,8 @@ import {
   Sparkles, Truck, Printer, HardDrive, Settings, FileText, Upload,
   Camera, Image as ImageIcon, Clock, Timer, Compass,
   Fingerprint, ScanFace, ShieldAlert, Video, Grid3x3,
-  BarChart3, CheckCircle2, ArrowUp, ArrowDown
+  BarChart3, CheckCircle2, ArrowUp, ArrowDown,
+  CreditCard, Coins, ChevronDown
 } from 'lucide-react';
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis,
@@ -562,7 +563,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === tab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v4.0.1 ✓</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v5.0 ✓</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -962,11 +963,11 @@ function computeSmartAlerts(org, ops, myBranches, deficitThreshold = 50) {
   // 1) فروع لم تُغلق بعد موعدها اليوم
   myBranches.forEach(b => {
     const closed = (ops.closings || []).some(c => c.branchId === b.id && c.date === td);
-    if (!closed && b.shiftEnd) {
-      const [h, m] = b.shiftEnd.split(':').map(Number);
+    if (!closed && b.shiftEndTime) {
+      const [h, m] = b.shiftEndTime.split(':').map(Number);
       if (nowMin > (h * 60 + m) + 30) {
         alerts.push({ id: 'late-' + b.id, sev: 'high', icon: 'clock',
-          title: 'فرع تأخّر عن الإغلاق', msg: `${b.name} تجاوز موعد الإغلاق (${b.shiftEnd}) ولم يُسجّل إغلاقه بعد.` });
+          title: 'فرع تأخّر عن الإغلاق', msg: `${b.name} تجاوز موعد الإغلاق (${b.shiftEndTime}) ولم يُسجّل إغلاقه بعد.` });
       }
     }
   });
@@ -1219,7 +1220,7 @@ function BranchCompare({ org, ops, me, myBranches, scoped, theme, setTab }) {
       cash: c ? c.cashSales : 0,
       variance: c ? c.variance : 0,
       transfer: c ? c.transferredToMainTreasury : 0,
-      shiftEnd: b.shiftEnd || ''
+      shiftEnd: b.shiftEndTime || ''
     };
   }), [myBranches, scoped, day]);
 
@@ -1741,7 +1742,21 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
     expenses: [], denominationDetails: emptyDenoms(),
     transferredToMainTreasury: 0, varianceReason: '', notes: ''
   });
-  const [step, setStep] = useState(1);
+  const [secs, setSecs] = useState(() => {
+    const d = initial || {};
+    return {
+      sales: true,
+      network: (d.cardSales || 0) > 0 || (d.bankTransferSales || 0) > 0,
+      delivery: sum(d.deliverySales || [], x => x.amount) > 0,
+      expenses: (d.expenses || []).length > 0,
+      inventory: true,
+      transfer: (d.transferredToMainTreasury || 0) > 0 || !!d.treasuryChoice,
+      notes: !!(d.notes || d.managerSignature || d.sessionPhoto),
+    };
+  });
+  const toggleSec = (k) => setSecs(p => ({ ...p, [k]: !p[k] }));
+  const allSecsOpen = Object.values(secs).every(Boolean);
+  const setAllSecs = (v) => setSecs({ sales: v, network: v, delivery: v, expenses: v, inventory: v, transfer: v, notes: v });
   const [cam, setCam] = useState(false);
   const [sumOpen, setSumOpen] = useState(false);
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
@@ -1863,8 +1878,6 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
     onClose();
   };
 
-  const steps = ['المبيعات', 'المصروفات', 'جرد الصندوق', 'الترحيل'];
-
   const vatDeduct = sum(f.expenses.filter(e => e.isTaxable), e => e.amount) * 15 / 115;
   const counted = actual > 0; // لم يُجرد الصندوق بعد؟ لا نُظهر عجزاً وهمياً
   const vColor = !counted ? 'var(--faint)' : variance < 0 ? 'var(--rose)' : variance > 0 ? 'var(--mint)' : 'var(--faint)';
@@ -1877,47 +1890,48 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
         : { c: 'var(--amber)', bg: 'rgba(224,164,88,.12)', bd: 'rgba(224,164,88,.45)', ic: '▲', t: `فائض ${money(variance)} ر.س — راجع إدخالات المبيعات والمصروفات` };
   const summaryRows = (
     <>
-      <div className="mono-b"><span style={{ fontSize: 11.5, color: 'var(--dim)' }}>إجمالي الإيراد</span><span className="num" style={{ fontWeight: 600, color: 'var(--brass)' }}>{money(totalRevenue)}</span></div>
-      <div className="mono-b"><span style={{ fontSize: 11.5, color: 'var(--dim)' }}>إجمالي المصروف</span><span className="num" style={{ fontWeight: 600, color: 'var(--rose)' }}>{money(totalExp)}</span></div>
-      <div className="mono-b"><span style={{ fontSize: 11.5, color: 'var(--dim)' }}>المتوقع بالصندوق</span><span className="num" style={{ fontWeight: 600 }}>{money(expected)}</span></div>
-      <div className="mono-b"><span style={{ fontSize: 11.5, color: 'var(--dim)' }}>العدّ الفعلي</span><span className="num" style={{ fontWeight: 600, color: 'var(--brass)' }}>{counted ? money(actual) : '—'}</span></div>
-      <div className="mono-b"><span style={{ fontSize: 11.5, color: 'var(--dim)' }}>الفرق</span><span className="num" style={{ fontWeight: 600, color: vColor }}>{counted ? (variance > 0 ? '+' : '') + money(variance) : '—'}</span></div>
-      <div className="mono-b"><span style={{ fontSize: 11.5, color: 'var(--dim)' }}>ض.ق.م القابلة للخصم</span><span className="num" style={{ fontWeight: 600, color: 'var(--mint)' }}>{money(vatDeduct)}</span></div>
-      <hr className="hr" />
-      <div className="mono-b"><span style={{ fontSize: 11.5, color: 'var(--dim)' }}>صافي اليوم</span><span className="num" style={{ fontWeight: 700, fontSize: 15, color: 'var(--mint)' }}>{money(totalRevenue - totalExp)}</span></div>
-      <div className="cflow-alert" style={{ border: `1px solid ${vStat.bd}`, background: vStat.bg, color: vStat.c }}><span>{vStat.ic}</span><span>{vStat.t}</span></div>
+      <div className="esum-h">ملخّص النظام · حيّ</div>
+      <div className="esum-hero" style={{ borderColor: vStat.bd, background: vStat.bg }}>
+        <div className="esum-hero-l">الفرق (الفعلي − المتوقع)</div>
+        <div className="esum-hero-v num" style={{ color: vStat.c }}>{counted ? (variance > 0 ? '+' : '') + money(variance) : '—'}</div>
+        <div className="esum-badge" style={{ color: vStat.c, borderColor: vStat.bd, background: vStat.bg }}>
+          <span>{vStat.ic}</span><span>{!counted ? 'بانتظار الجرد' : variance === 0 ? 'الصندوق متوازن' : variance < 0 ? 'عجز نقدي' : 'فائض نقدي'}</span>
+        </div>
+      </div>
+      <div className="esum-row"><span className="k">المبيعات</span><span className="v num" style={{ color: 'var(--brass)' }}>{money(totalRevenue)}</span></div>
+      <div className="esum-row sub"><span className="k">— نقدي</span><span className="v num">{money(f.cashSales)}</span></div>
+      <div className="esum-row sub"><span className="k">— شبكة وتحويل</span><span className="v num">{money(f.cardSales + (f.bankTransferSales || 0))}</span></div>
+      <div className="esum-row sub"><span className="k">— توصيل</span><span className="v num">{money(totalDelivery)}</span></div>
+      <div className="esum-row"><span className="k">المصروفات</span><span className="v num" style={{ color: 'var(--rose)' }}>{money(totalExp)}</span></div>
+      <div className="esum-row"><span className="k">المتوقع بالصندوق</span><span className="v num">{money(expected)}</span></div>
+      <div className="esum-row"><span className="k">العدّ الفعلي</span><span className="v num" style={{ color: 'var(--brass)' }}>{counted ? money(actual) : '—'}</span></div>
+      <div className="esum-row"><span className="k">ض.ق.م القابلة للخصم</span><span className="v num" style={{ color: 'var(--mint)' }}>{money(vatDeduct)}</span></div>
+      <div className="esum-net"><span className="k">صافي اليوم</span><span className="v num">{money(totalRevenue - totalExp)}</span></div>
+      <div className="cflow-alert" style={{ border: `1px solid ${vStat.bd}`, background: vStat.bg, color: vStat.c, marginTop: 12 }}><span>{vStat.ic}</span><span>{vStat.t}</span></div>
     </>
+  );
+
+  const sec = (k, Ic, title, subt, valNode, done, body) => (
+    <div className={'esec' + (secs[k] ? ' open' : '') + (done ? ' done' : '')}>
+      <button type="button" className="esec-h" onClick={() => toggleSec(k)} aria-expanded={secs[k]}>
+        <span className="esec-ic">{done ? <Check size={16} /> : <Ic size={16} />}</span>
+        <span className="esec-t"><b>{title}</b><span>{subt}</span></span>
+        {valNode != null && <span className="esec-v">{valNode}</span>}
+        <ChevronDown size={16} className="esec-chv" />
+      </button>
+      {secs[k] && <div className="esec-b">{body}</div>}
+    </div>
   );
 
   return (
     <Modal wide flow title={initial ? 'تعديل إغلاق وردية' : 'إغلاق وردية جديد'} icon={ClipboardCheck} onClose={onClose}
       foot={<>
-        {step > 1 && <button className="btn" onClick={() => setStep(step - 1)}>السابق</button>}
-        {step < 4 && <button className="btn pri" onClick={() => setStep(step + 1)}>التالي</button>}
-        {step === 4 && <>
-          <button className="btn pri" onClick={() => save('submitted')}><Send size={14} />ترحيل للإدارة المالية</button>
-          <button className="btn" onClick={() => save('draft')}>حفظ كمسودة</button>
-        </>}
+        <button className="btn pri" onClick={() => save('submitted')}><Send size={14} />ترحيل للإدارة المالية</button>
+        <button className="btn" onClick={() => save('draft')}>حفظ كمسودة</button>
         <button className="btn gh" onClick={onClose}>إلغاء</button>
       </>}>
 
       <div className="cflow">
-        <div className="cflow-rail">
-          <div className="cflow-rail-h">مراحل الإغلاق</div>
-          {steps.map((s, i) => {
-            const n = i + 1;
-            const nstate = step === n ? 'active' : step > n ? 'done' : '';
-            return (
-              <button key={s} type="button" className={'cflow-node ' + nstate} onClick={() => setStep(n)}>
-                <span className="cflow-dot">{step > n ? <Check size={13} /> : n}</span>
-                <span className="cflow-meta">
-                  <span className="cflow-lbl">{s}</span>
-                  <span className="cflow-lbl-m">{['مبيعات', 'مصروفات', 'صندوق', 'ترحيل'][i]}</span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
         <div className="cflow-main">
           <div className={'cflow-msum' + (sumOpen ? ' open' : '')}>
             <button type="button" className="cflow-msum-bar" onClick={() => setSumOpen(o => !o)}>
@@ -1928,62 +1942,76 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
             <div className="cflow-msum-full">{summaryRows}</div>
           </div>
           <div className="cflow-form">
+            <div className="eclose-tools">
+              <span className="hint">أقسام قابلة للطي — املأ ما يلزم، والملخّص يتحدّث فورًا</span>
+              <button type="button" className="btn sm gh" onClick={() => setAllSecs(!allSecsOpen)}>{allSecsOpen ? 'طيّ الكل' : 'توسيع الكل'}</button>
+            </div>
 
-      {step === 1 && (
-        <>
-          <div className="grid g2">
-            <Field label="الفرع">
-              <select className="sel" value={f.branchId} disabled={me.role === 'branch_manager' && !!initial}
-                onChange={e => { const b = org.branches.find(x => x.id === e.target.value); setF(p => ({ ...p, branchId: e.target.value, openingBalance: b?.defaultFloat || 0 })); }}>
-                {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-              </select>
-            </Field>
-            <Field label="تاريخ الوردية">
-              <input type="date" className="inp" value={f.date} onChange={e => set('date', e.target.value)} />
-            </Field>
-          </div>
-          <div className="grid g3">
-            <Num label="العهدة الافتتاحية" value={f.openingBalance} onChange={v => set('openingBalance', v)} hint="رصيد بداية الوردية" />
-            <Num label="مبيعات نقدية (كاش)" value={f.cashSales} onChange={v => set('cashSales', v)} />
-            <Num label="مبيعات الشبكة (مدى/فيزا)" value={f.cardSales} onChange={v => set('cardSales', v)} />
-          </div>
-          <Num label="مبيعات تحويل بنكي مباشر" value={f.bankTransferSales} onChange={v => set('bankTransferSales', v)} />
-          {(f.cardSales > 0 || f.bankTransferSales > 0) && (
-            <div className="card" style={{ background: 'var(--ink)', padding: 12, marginTop: 4 }}>
-              <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                <div>
-                  <div style={{ fontSize: 12.5, fontWeight: 600 }}>إثبات تحصيل الشبكة / التحويل</div>
-                  <div style={{ fontSize: 10.5, color: 'var(--faint)' }}>صورة إشعار الشبكة أو سند التحويل — اختياري لكنه يوثّق المبلغ</div>
+            {sec('sales', Banknote, 'النقد والمبيعات', 'الفرع والتاريخ + العهدة والنقدي', <span className="num">{money(f.cashSales)}</span>, f.cashSales > 0, (
+              <>
+                <div className="grid g2">
+                  <Field label="الفرع">
+                    <select className="sel" value={f.branchId} disabled={me.role === 'branch_manager' && !!initial}
+                      onChange={e => { const b = org.branches.find(x => x.id === e.target.value); setF(p => ({ ...p, branchId: e.target.value, openingBalance: b?.defaultFloat || 0 })); }}>
+                      {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="تاريخ الوردية">
+                    <input type="date" className="inp" value={f.date} onChange={e => set('date', e.target.value)} />
+                  </Field>
                 </div>
-                <PhotoField value={f.cardReceiptImage} onChange={v => set('cardReceiptImage', v)} say={say} />
-              </div>
-            </div>
-          )}
-          <hr className="hr" />
-          <div className="lbl" style={{ marginBottom: 10 }}>مبيعات تطبيقات التوصيل</div>
-          {f.deliverySales.map((d, i) => (
-            <div key={d.appId} className="mono-b" style={{ marginBottom: 8 }}>
-              <div style={{ minWidth: 78 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 600 }}>{d.appName}</div>
-                <div style={{ fontSize: 10, color: 'var(--faint)' }}>عمولة <span className="num">{d.commissionPercentage}%</span></div>
-              </div>
-              <input className="inp n" style={{ maxWidth: 130 }} inputMode="decimal" placeholder="0.00"
-                value={d.amount === 0 ? '' : d.amount}
-                onChange={e => { const v = Number(e.target.value.replace(/[^\d.]/g, '')) || 0; const n = [...f.deliverySales]; n[i] = { ...d, amount: v }; set('deliverySales', n); }} />
-              <input className="inp n" style={{ maxWidth: 78 }} inputMode="numeric" placeholder="طلبات"
-                value={d.orderCount === 0 ? '' : d.orderCount}
-                onChange={e => { const v = Number(e.target.value.replace(/[^\d]/g, '')) || 0; const n = [...f.deliverySales]; n[i] = { ...d, orderCount: v }; set('deliverySales', n); }} />
-            </div>
-          ))}
-          <div className="mono-b" style={{ marginTop: 12, borderColor: 'var(--brass-d)' }}>
-            <span style={{ fontSize: 12.5 }}>إجمالي إيراد الوردية</span>
-            <span className="num" style={{ fontSize: 17, color: 'var(--brass)', fontWeight: 600 }}>{money(totalRevenue)}</span>
-          </div>
-        </>
-      )}
+                <div className="grid g2">
+                  <Num label="العهدة الافتتاحية" value={f.openingBalance} onChange={v => set('openingBalance', v)} hint="رصيد بداية الوردية" />
+                  <Num label="مبيعات نقدية (كاش)" value={f.cashSales} onChange={v => set('cashSales', v)} />
+                </div>
+              </>
+            ))}
 
-      {step === 2 && (
-        <>
+            {sec('network', CreditCard, 'الشبكة والتحويل', 'مدى/فيزا + تحويل بنكي مباشر', <span className="num">{money(f.cardSales + (f.bankTransferSales || 0))}</span>, (f.cardSales > 0 || f.bankTransferSales > 0), (
+              <>
+                <div className="grid g2">
+                  <Num label="مبيعات الشبكة (مدى/فيزا)" value={f.cardSales} onChange={v => set('cardSales', v)} />
+                  <Num label="مبيعات تحويل بنكي مباشر" value={f.bankTransferSales} onChange={v => set('bankTransferSales', v)} />
+                </div>
+                {(f.cardSales > 0 || f.bankTransferSales > 0) && (
+                  <div className="card" style={{ background: 'var(--ink)', padding: 12, marginTop: 4 }}>
+                    <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                      <div>
+                        <div style={{ fontSize: 12.5, fontWeight: 600 }}>إثبات تحصيل الشبكة / التحويل</div>
+                        <div style={{ fontSize: 10.5, color: 'var(--faint)' }}>صورة إشعار الشبكة أو سند التحويل — اختياري لكنه يوثّق المبلغ</div>
+                      </div>
+                      <PhotoField value={f.cardReceiptImage} onChange={v => set('cardReceiptImage', v)} say={say} />
+                    </div>
+                  </div>
+                )}
+              </>
+            ))}
+
+            {sec('delivery', Truck, 'تطبيقات التوصيل', 'هنقرستيشن · كيتا · جاهز', <span className="num">{money(totalDelivery)}</span>, totalDelivery > 0, (
+              <>
+                {f.deliverySales.map((d, i) => (
+                  <div key={d.appId} className="mono-b" style={{ marginBottom: 8 }}>
+                    <div style={{ minWidth: 78 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 600 }}>{d.appName}</div>
+                      <div style={{ fontSize: 10, color: 'var(--faint)' }}>عمولة <span className="num">{d.commissionPercentage}%</span></div>
+                    </div>
+                    <input className="inp n" style={{ maxWidth: 130 }} inputMode="decimal" placeholder="0.00"
+                      value={d.amount === 0 ? '' : d.amount}
+                      onChange={e => { const v = Number(e.target.value.replace(/[^\d.]/g, '')) || 0; const n = [...f.deliverySales]; n[i] = { ...d, amount: v }; set('deliverySales', n); }} />
+                    <input className="inp n" style={{ maxWidth: 78 }} inputMode="numeric" placeholder="طلبات"
+                      value={d.orderCount === 0 ? '' : d.orderCount}
+                      onChange={e => { const v = Number(e.target.value.replace(/[^\d]/g, '')) || 0; const n = [...f.deliverySales]; n[i] = { ...d, orderCount: v }; set('deliverySales', n); }} />
+                  </div>
+                ))}
+                <div className="mono-b" style={{ marginTop: 12, borderColor: 'var(--brass-d)' }}>
+                  <span style={{ fontSize: 12.5 }}>إجمالي إيراد الوردية</span>
+                  <span className="num" style={{ fontSize: 17, color: 'var(--brass)', fontWeight: 600 }}>{money(totalRevenue)}</span>
+                </div>
+              </>
+            ))}
+
+            {sec('expenses', Receipt, 'المصروفات والمشتريات', 'مسحوبات ومشتريات الوردية', <span className="num" style={{ color: 'var(--rose)' }}>{money(totalExp)}</span>, f.expenses.length > 0, (
+              <>
           <div className="row" style={{ justifyContent: 'space-between', marginBottom: 12 }}>
             <div className="lbl" style={{ margin: 0 }}>مصروفات ومسحوبات الوردية</div>
             <button className="btn sm" onClick={addExp}><Plus size={13} />إضافة مصروف</button>
@@ -2088,11 +2116,11 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
             <div className="mono-b"><span style={{ fontSize: 12 }}>المخصوم نقداً من الصندوق</span>
               <span className="num" style={{ color: 'var(--amber)', fontWeight: 600 }}>{money(cashExp)}</span></div>
           </div>
-        </>
-      )}
+              </>
+            ))}
 
-      {step === 3 && (
-        <>
+            {sec('inventory', Coins, 'جرد الصندوق', 'عدّ الفئات النقدية فعليًّا', <span className="num" style={{ color: 'var(--brass)' }}>{counted ? money(actual) : '—'}</span>, counted, (
+              <>
           <div className="lbl" style={{ marginBottom: 10 }}>جرد الفئات النقدية — عدّ الصندوق فعلياً</div>
           <div className="notes">
             {DENOMS.map(d => (
@@ -2145,11 +2173,11 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
                 onChange={e => set('varianceReason', e.target.value)} />
             </Field>
           )}
-        </>
-      )}
+              </>
+            ))}
 
-      {step === 4 && (
-        <>
+            {sec('transfer', Landmark, 'الترحيل للخزينة', 'وجهة نقد اليوم للخزينة الرئيسية', <span className="num">{money(f.transferredToMainTreasury)}</span>, (!!f.treasuryChoice || f.transferredToMainTreasury > 0), (
+              <>
           <div className="card" style={{ background: 'var(--ink)', padding: 14, marginBottom: 14, borderColor: 'rgba(200,162,74,.3)' }}>
             <div className="card-t" style={{ fontSize: 13, marginBottom: 4 }}>
               <Landmark size={15} color="var(--brass)" />ماذا تريد أن تفعل بنقد اليوم؟
@@ -2191,6 +2219,11 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
                 <span className="num" style={{ fontWeight: 600, color: 'var(--mint)' }}>{money(retained)}</span></div>
             </div>
           </div>
+              </>
+            ))}
+
+            {sec('notes', FileText, 'التوثيق والملاحظات', 'ملاحظات · توقيع · صورة المسؤول', null, !!(f.notes || f.managerSignature || f.sessionPhoto), (
+              <>
           <Field label="ملاحظات الإغلاق">
             <textarea className="inp" value={f.notes} placeholder="ملاحظات المدير على الوردية"
               onChange={e => set('notes', e.target.value)} />
@@ -2211,19 +2244,11 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
           <Field label="توقيع المسؤول الرقمي">
             <SignaturePad value={f.managerSignature} onChange={v => set('managerSignature', v)} />
           </Field>
-          <hr className="hr" />
-          <div className="grid g2" style={{ gap: 9 }}>
-            <div className="mono-b"><span style={{ fontSize: 11.5 }}>إجمالي الإيراد</span><span className="num" style={{ color: 'var(--brass)' }}>{money(totalRevenue)}</span></div>
-            <div className="mono-b"><span style={{ fontSize: 11.5 }}>إجمالي المصروف</span><span className="num" style={{ color: 'var(--rose)' }}>{money(totalExp)}</span></div>
-            <div className="mono-b"><span style={{ fontSize: 11.5 }}>صافي اليوم</span><span className="num" style={{ color: 'var(--mint)' }}>{money(totalRevenue - totalExp)}</span></div>
-            <div className="mono-b"><span style={{ fontSize: 11.5 }}>سند التحويل</span><span className="num" style={{ fontSize: 11 }}>TR-{f.date.replace(/-/g, '')}</span></div>
-          </div>
-        </>
-      )}
+              </>
+            ))}
           </div>
         </div>
         <aside className="cflow-sum">
-          <div className="cflow-sum-h">ملخّص حيّ · يتحدّث مع كل تغيير</div>
           {summaryRows}
         </aside>
       </div>
@@ -2264,7 +2289,7 @@ function ClosingView({ c, org, onClose }) {
             <div style={{ marginTop: 8 }}>
               <div className="lbl">إثبات الشبكة / التحويل</div>
               <img src={c.cardReceiptImage} alt="إثبات"
-                onClick={() => window.open().document.write('<img src="'+c.cardReceiptImage+'" style="max-width:100%">')}
+                onClick={() => { const w = window.open(); if (w) w.document.write('<img src="'+c.cardReceiptImage+'" style="max-width:100%">'); }}
                 style={{ width: '100%', maxHeight: 160, objectFit: 'contain', borderRadius: 8, background: '#000', cursor: 'zoom-in' }} />
             </div>
           )}
@@ -2280,7 +2305,7 @@ function ClosingView({ c, org, onClose }) {
                 {e.receiptNumber && <span className="badge b-dim" style={{ fontSize: 9 }}>#{e.receiptNumber}</span>}
               </div>
               {e.receiptImage && <img src={e.receiptImage} alt="إيصال"
-                onClick={() => window.open().document.write('<img src="'+e.receiptImage+'" style="max-width:100%">')}
+                onClick={() => { const w = window.open(); if (w) w.document.write('<img src="'+e.receiptImage+'" style="max-width:100%">'); }}
                 style={{ width: 42, height: 42, objectFit: 'cover', borderRadius: 6, margin: '4px 0 6px', cursor: 'zoom-in', border: '1px solid var(--line)' }} />}
             </div>
           ))}
@@ -2322,7 +2347,7 @@ function ClosingView({ c, org, onClose }) {
 }
 
 /* ================= التدقيق والاعتماد ================= */
-function Approvals({ me, scoped, commit, say }) {
+function Approvals({ org, me, scoped, commit, say }) {
   const [note, setNote] = useState({});
   const [view, setView] = useState(null);
   const isGM = me.role === 'general_management';
@@ -3158,7 +3183,7 @@ function DeliveryAppsPanel({ org, commitOrg, say }) {
   );
 }
 
-function Admin({ org, ops, commitOrg, say }) {
+function Admin({ org, ops, commit, commitOrg, say }) {
   const [tab, setTab] = useState('branches');
   const [bEdit, setBEdit] = useState(null);
   const [uEdit, setUEdit] = useState(null);

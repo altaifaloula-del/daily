@@ -491,4 +491,36 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
   .cflow-node.done .cflow-lbl-m{color:var(--mint)}
   .cflow-form{padding:14px}
 }
+
+/* ===== الأقسام القابلة للطي + الملخّص المؤسسي الحيّ (تصميم v5) ===== */
+.eclose-tools{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.eclose-tools .hint{flex:1;min-width:0;font-size:11px;color:var(--faint);line-height:1.4}
+.esec{border:1px solid var(--line);border-radius:14px;overflow:hidden;margin-bottom:11px;background:var(--ink2);transition:border-color .18s}
+.esec.open{border-color:var(--brass-d)}
+.esec-h{display:flex;align-items:center;gap:11px;width:100%;padding:13px 14px;background:none;border:none;cursor:pointer;color:var(--txt);text-align:start;min-height:54px;font-family:inherit}
+.esec-h:focus-visible{outline:none;box-shadow:inset 0 0 0 2px rgba(200,162,74,.45)}
+.esec-ic{width:34px;height:34px;border-radius:10px;background:var(--ink3);display:grid;place-items:center;color:var(--dim);flex-shrink:0}
+.esec.done .esec-ic{background:rgba(79,178,134,.15);color:var(--mint)}
+.esec-t{flex:1;min-width:0}
+.esec-t b{font-size:14px;font-weight:700;display:block;line-height:1.3}
+.esec-t span{font-size:11px;color:var(--dim);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.esec-v{font-family:'IBM Plex Mono',monospace;font-size:13.5px;font-weight:600;color:var(--brass);white-space:nowrap;flex-shrink:0}
+.esec-chv{color:var(--faint);transition:transform .22s var(--ease-out);flex-shrink:0}
+.esec.open .esec-chv{transform:rotate(180deg)}
+.esec-b{padding:4px 14px 15px;animation:esecin .24s var(--ease-out)}
+@keyframes esecin{from{opacity:0;transform:translateY(-7px)}to{opacity:1;transform:none}}
+.esum-h{font-size:10.5px;color:var(--faint);letter-spacing:.12em;margin-bottom:12px}
+.esum-hero{border-radius:14px;padding:13px;margin-bottom:12px;border:1px solid var(--line)}
+.esum-hero-l{font-size:11px;color:var(--dim)}
+.esum-hero-v{font-size:26px;font-weight:700;line-height:1.1;margin-top:2px}
+.esum-badge{display:inline-flex;align-items:center;gap:6px;margin-top:8px;font-size:12px;font-weight:700;padding:5px 11px;border-radius:20px;border:1px solid}
+.esum-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid rgba(120,100,80,.14);font-size:12.5px}
+.esum-row .k{color:var(--dim)}
+.esum-row .v{font-weight:600}
+.esum-row.sub{padding:4px 0;font-size:11.5px}
+.esum-row.sub .k{color:var(--faint)}
+.esum-net{margin-top:12px;border-radius:12px;padding:11px 13px;background:linear-gradient(145deg,rgba(200,162,74,.14),transparent);border:1px solid rgba(200,162,74,.3);display:flex;justify-content:space-between;align-items:center}
+.esum-net .k{font-size:12px;color:var(--dim)}
+.esum-net .v{font-size:17px;font-weight:700;color:var(--mint)}
+@media(max-width:640px){ .eclose-tools .hint{display:none} }
 `;
