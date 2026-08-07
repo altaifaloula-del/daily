@@ -612,7 +612,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v6.0 ✓</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v6.1 ✓</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -1828,6 +1828,7 @@ function Closing({ org, ops, me, myBranches, scoped, commit, say }) {
   const [open, setOpen] = useState(false);
   const [edit, setEdit] = useState(null);
   const [view, setView] = useState(null);
+  const [formKey, setFormKey] = useState(0);
   const canEdit = !!ROLES[me.role]?.create;
   const [q, setQ] = useState('');
   const [st, setSt] = useState('all');
@@ -1969,8 +1970,9 @@ function Closing({ org, ops, me, myBranches, scoped, commit, say }) {
       </div>
 
       {open && (
-        <ClosingForm org={org} me={me} branches={myBranches} initial={edit} commit={commit} say={say}
+        <ClosingForm key={formKey} org={org} me={me} branches={myBranches} initial={edit} commit={commit} say={say}
           existing={ops.closings || []}
+          onStartNew={() => { setEdit(null); setFormKey(k => k + 1); }}
           onClose={() => { setOpen(false); setEdit(null); }} />
       )}
       {view && <ClosingView c={view} org={org} onClose={() => setView(null)} />}
@@ -1978,7 +1980,7 @@ function Closing({ org, ops, me, myBranches, scoped, commit, say }) {
   );
 }
 
-export function ClosingForm({ org, me, branches, initial, commit, say, onClose, existing = [] }) {
+export function ClosingForm({ org, me, branches, initial, commit, say, onClose, onStartNew, existing = [] }) {
   const [f, setF] = useState(() => initial || {
     date: today(), branchId: branches[0]?.id || '',
     openingBalance: branches[0]?.defaultFloat || 0,
@@ -2013,6 +2015,7 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
   const [sumOpen, setSumOpen] = useState(false);
   const [outPrompt, setOutPrompt] = useState(false);
   const [pend, setPend] = useState(null);
+  const [done, setDone] = useState(null);
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   const branch = org.branches.find(b => b.id === f.branchId);
 
@@ -2144,8 +2147,13 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
     } catch (err) { /* الأرشفة تكميلية — لا توقف حفظ الإغلاق */ }
 
     setOutPrompt(false); setPend(null);
-    say(status === 'submitted' ? 'تم إتمام الإغلاق وترحيله وتسجيل قيد التدقيق' : 'تم حفظ المسودة');
-    onClose();
+    if (status === 'submitted') {
+      say('تم إغلاق الوردية بنجاح ✓');
+      setDone({ branchName: rec.branchName, total: totalRevenue, ref });
+    } else {
+      say('تم حفظ المسودة');
+      onClose();
+    }
   };
 
   // المسودة تُحفظ مباشرة؛ أمّا الإتمام فيتطلب خطوة الإخراج الرسمية أولاً (#21)
@@ -2565,6 +2573,18 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
       {outPrompt && pend && <OutputDialog rec={pend.rec} org={org}
         onCancel={() => { setOutPrompt(false); setPend(null); }}
         onDone={(out) => finalize('submitted', pend.rec, pend.id, pend.ref, out)} />}
+      {done && <Modal title="تم إغلاق الوردية" icon={CheckCircle2} onClose={onClose}
+        foot={<>
+          <button className="btn pri" onClick={() => (onStartNew ? onStartNew() : onClose())}><Plus size={14} />بدء وردية جديدة</button>
+          <button className="btn gh" onClick={onClose}>العودة للقائمة</button>
+        </>}>
+        <div style={{ textAlign: 'center', padding: '8px 0' }}>
+          <div style={{ width: 62, height: 62, borderRadius: '50%', background: 'rgba(79,178,134,.15)', color: 'var(--mint)', display: 'grid', placeItems: 'center', margin: '0 auto 14px' }}><Check size={32} /></div>
+          <div style={{ fontFamily: "'Markazi Text',serif", fontSize: 20, fontWeight: 700 }}>تم إغلاق وردية {done.branchName} بنجاح</div>
+          <div style={{ fontSize: 12.5, color: 'var(--dim)', marginTop: 8 }}>الإيراد <span className="num" style={{ color: 'var(--brass)' }}>{money(done.total)}</span> ر.س · سند <span className="num">{done.ref}</span></div>
+          <div style={{ fontSize: 11.5, color: 'var(--faint)', marginTop: 12, lineHeight: 1.7 }}>حُفظ الإغلاق وقيد التدقيق والطباعة. يمكنك بدء وردية جديدة مباشرة أو العودة للقائمة.</div>
+        </div>
+      </Modal>}
     </Modal>
   );
 }
