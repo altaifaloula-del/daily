@@ -252,6 +252,7 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 .card-h{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;flex-wrap:wrap}
 .card-t{font-size:17px;font-weight:700;display:flex;align-items:center;gap:8px;font-family:'Markazi Text',serif}
 .grid{display:grid;gap:12px}
+.grid>*{min-width:0}
 .g2{grid-template-columns:repeat(2,minmax(0,1fr))}
 .g3{grid-template-columns:repeat(3,minmax(0,1fr))}
 .g4{grid-template-columns:repeat(4,minmax(0,1fr))}
@@ -303,7 +304,7 @@ textarea.inp{resize:vertical;min-height:64px}
 .b-dim{color:var(--dim);border-color:var(--line);background:var(--ink3)}
 .b-brass{color:var(--brass);border-color:rgba(200,162,74,.4);background:rgba(200,162,74,.1)}
 
-.tw{overflow-x:auto;margin:0 -4px}
+.tw{overflow-x:auto;min-width:0;max-width:100%;margin:0 -4px}
 table.tb{width:100%;border-collapse:collapse;font-size:12.5px;min-width:520px}
 .tb th{
   text-align:start;padding:9px 10px;color:var(--faint);font-weight:500;font-size:10.5px;
@@ -552,4 +553,26 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
   .tb.cards td[colspan]{display:block}
   .tb.cards td[colspan]::before{display:none}
 }
+
+/* ===== v6.2: الدخول السريع (رقم سري) + محرّر الصورة ===== */
+.loginseg{display:flex;gap:6px;background:var(--ink3);border:1px solid var(--line);border-radius:12px;padding:4px;margin-bottom:14px}
+.loginseg-b{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px 6px;border-radius:9px;border:none;background:transparent;color:var(--dim);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;transition:.15s}
+.loginseg-b.on{background:var(--ink);color:var(--brass-l);box-shadow:inset 0 0 0 1px var(--brass-d)}
+.gate-err{color:var(--rose);font-size:12px;text-align:center;margin-bottom:10px}
+.pin-dots{display:flex;gap:12px;justify-content:center;margin:4px 0 14px}
+.pin-dot{width:13px;height:13px;border-radius:50%;border:2px solid var(--faint);transition:.15s}
+.pin-dot.on{background:var(--brass);border-color:var(--brass);box-shadow:0 0 8px rgba(200,162,74,.5)}
+.pinpad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}
+.pinkey{padding:12px 0;border-radius:12px;border:1px solid var(--line);background:var(--ink3);color:var(--txt);font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:600;cursor:pointer;transition:.12s;display:flex;align-items:center;justify-content:center;min-height:50px}
+.pinkey:hover{background:var(--ink2);border-color:var(--brass-d)}
+.pinkey:active{transform:scale(.96);background:var(--brass);color:#1a1410}
+.pinkey.ghost{font-size:13px;font-family:'Tajawal',sans-serif;color:var(--dim)}
+
+.imgstage{position:relative;width:100%;height:300px;background:#0c0a08;border:1px solid var(--line);border-radius:14px;overflow:hidden;touch-action:none;user-select:none}
+.cropbox{position:absolute;border:2px solid var(--brass);box-shadow:0 0 0 9999px rgba(0,0,0,.55);cursor:move;touch-action:none}
+.crop-grid{position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(rgba(255,255,255,.22) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.22) 1px,transparent 1px);background-size:33.33% 33.33%}
+.crop-h{position:absolute;inset-inline-start:-10px;bottom:-10px;width:22px;height:22px;border-radius:50%;background:var(--brass);border:2px solid #1a1410;cursor:nwse-resize;touch-action:none}
+.editrow{display:flex;align-items:center;gap:10px;margin:9px 2px}
+.editrow .lbl{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--dim);min-width:74px;margin:0}
+.editrow input[type=range]{flex:1;accent-color:var(--brass);height:4px}
 `;
