@@ -606,7 +606,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v5.3 ✓</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v5.4 ✓</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -936,14 +936,18 @@ function Gate({ css, org, onLogin, online, theme }) {
 }
 
 /* ================= مكوّنات مشتركة ================= */
-function Modal({ title, icon: Icon, children, foot, onClose, wide, flow }) {
-  // قفل تمرير الصفحة خلف النافذة + إغلاق بمفتاح Escape (تجربة تطبيق حقيقية)
+function Modal({ title, sub, icon: Icon, children, foot, onClose, wide, flow }) {
+  // قفل تمرير الصفحة الخلفية بالكامل (يعمل مع تداخل النوافذ) + إغلاق بمفتاح Escape
   useEffect(() => {
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    const de = document.documentElement, b = document.body;
+    const prev = { htmlO: de.style.overflow, bodyO: b.style.overflow, osb: b.style.overscrollBehavior };
+    de.style.overflow = 'hidden'; b.style.overflow = 'hidden'; b.style.overscrollBehavior = 'none';
     const onKey = e => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
-    return () => { document.body.style.overflow = prevOverflow; window.removeEventListener('keydown', onKey); };
+    return () => {
+      de.style.overflow = prev.htmlO; b.style.overflow = prev.bodyO; b.style.overscrollBehavior = prev.osb;
+      window.removeEventListener('keydown', onKey);
+    };
   }, [onClose]);
 
   return (
@@ -951,7 +955,10 @@ function Modal({ title, icon: Icon, children, foot, onClose, wide, flow }) {
       role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined}>
       <div className={'modal' + (flow ? ' modal-flow' : '')} style={flow ? undefined : (wide ? { maxWidth: 1100 } : undefined)}>
         <div className="modal-h">
-          <div className="card-t">{Icon && <Icon size={16} color="var(--brass)" />}{title}</div>
+          <div className="modal-h-t">
+            <div className="card-t">{Icon && <Icon size={16} color="var(--brass)" />}{title}</div>
+            {sub && <div className="modal-h-s">{sub}</div>}
+          </div>
           <button className="btn sm gh" onClick={onClose} aria-label="إغلاق"><X size={15} /></button>
         </div>
         <div className="modal-b">{children}</div>
@@ -1971,7 +1978,14 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
       notes: !!(d.notes || d.managerSignature || d.sessionPhoto),
     };
   });
-  const toggleSec = (k) => setSecs(p => ({ ...p, [k]: !p[k] }));
+  const toggleSec = (k) => setSecs(p => {
+    const willOpen = !p[k];
+    // على الجوال: قسم واحد مفتوح في كل مرة (أكورديون)
+    if (willOpen && typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(max-width:640px)').matches) {
+      return { sales: false, network: false, delivery: false, expenses: false, inventory: false, transfer: false, notes: false, [k]: true };
+    }
+    return { ...p, [k]: !p[k] };
+  });
   const allSecsOpen = Object.values(secs).every(Boolean);
   const setAllSecs = (v) => setSecs({ sales: v, network: v, delivery: v, expenses: v, inventory: v, transfer: v, notes: v });
   const [cam, setCam] = useState(false);
@@ -2164,6 +2178,7 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
 
   return (
     <Modal wide flow title={initial ? 'تعديل إغلاق وردية' : 'إغلاق وردية جديد'} icon={ClipboardCheck} onClose={onClose}
+      sub={`${branch?.name || 'اختر الفرع'} · ${arDate(f.date)}${initial?.transferReferenceNo ? ' · ' + initial.transferReferenceNo : ''} · ${initial ? (initial.status === 'submitted' ? 'مُرحّل' : 'مسودة') : 'إغلاق جديد'}`}
       foot={<>
         <button className="btn pri" onClick={() => save('submitted')}><Send size={14} />ترحيل للإدارة المالية</button>
         <button className="btn" onClick={() => save('draft')}>حفظ كمسودة</button>
