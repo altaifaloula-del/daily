@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   LayoutDashboard, ClipboardCheck, Banknote, Users, Building2, FileBarChart,
   ShieldCheck, Bell, LogOut, Plus, Minus, Trash2, Check, X, Search,
@@ -606,7 +607,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v5.4 ✓</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v5.5 ✓</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -950,7 +951,8 @@ function Modal({ title, sub, icon: Icon, children, foot, onClose, wide, flow }) 
     };
   }, [onClose]);
 
-  return (
+  // نُصيّر النافذة مباشرةً على body (Portal) حتى لا يحصرها أي عنصر أب فيه transform/filter
+  return createPortal((
     <div className="mask" onClick={e => { if (e.target === e.currentTarget) onClose(); }}
       role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined}>
       <div className={'modal' + (flow ? ' modal-flow' : '')} style={flow ? undefined : (wide ? { maxWidth: 1100 } : undefined)}>
@@ -965,7 +967,7 @@ function Modal({ title, sub, icon: Icon, children, foot, onClose, wide, flow }) 
         {foot && <div className="modal-f">{foot}</div>}
       </div>
     </div>
-  );
+  ), document.body);
 }
 
 function Field({ label, children, style }) {

@@ -389,8 +389,9 @@ table.tb{width:100%;border-collapse:collapse;font-size:12.5px;min-width:520px}
 /* تحديد النص بلون الهوية */
 ::selection{background:rgba(200,162,74,.3);color:var(--txt)}
 /* ظهور ناعم لمحتوى الصفحة عند التبديل */
+/* دخول الصفحة بالشفافية فقط — بلا transform حتى لا يُنشئ حاوية تحصر النوافذ الثابتة (position:fixed) */
 .page > *{animation:pagein var(--t-slow) var(--ease-out) both}
-@keyframes pagein{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes pagein{from{opacity:0}to{opacity:1}}
 /* عناوين البطاقات أوضح */
 .card-t{letter-spacing:-.01em}
 /* حلقة تركيز عامة للوصول */
