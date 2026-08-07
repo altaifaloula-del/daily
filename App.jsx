@@ -10,7 +10,8 @@ import {
   Camera, Image as ImageIcon, Clock, Timer, Compass,
   Fingerprint, ScanFace, ShieldAlert, Video, Grid3x3,
   BarChart3, CheckCircle2, ArrowUp, ArrowDown,
-  CreditCard, Coins, ChevronDown
+  CreditCard, Coins, ChevronDown, ChevronRight,
+  Crop, RotateCw, Sun, Wand2, Delete
 } from 'lucide-react';
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis,
@@ -152,6 +153,60 @@ const chartTone = (t) => t === 'lite'
   : { grid: '#332C26', tick: '#6E635A', tip: '#1C1815', tipTxt: '#EFE7DB', bar: '#3A322B' };
 const clr = (i) => ['#C8A24A', '#4FB286', '#5B93C4', '#D9544D', '#E0A458', '#9B7BB8'][i % 6];
 
+/* ================= دفتر الشركاء: تجميع حركات كل شريك من مصادرها ================= */
+// الرصيد الجاري = مجموع الدائن − مجموع المدين. موجب = دائن (علينا)، سالب = مدين (لنا).
+function buildPartners(org, ops) {
+  const parts = [];
+  const led = ops.ledgerEntries || [];
+  const ledFor = (key) => led.filter(e => e.partnerKey === key).map(e => ({
+    date: (e.date || '').slice(0, 10), desc: e.desc || 'حركة يدوية', ref: e.ref || '',
+    src: e.src || 'manual', debit: e.debit || 0, credit: e.credit || 0, entryId: e.id
+  }));
+
+  // الموردون — فواتير + سداداتها + مشتريات الإغلاق المرتبطة + حركات يدوية
+  (org.suppliers || []).forEach(sp => {
+    const key = 'sup:' + sp.id; const txns = []; let linked = false;
+    (ops.invoices || []).filter(i => i.supplierId === sp.id).forEach(i => {
+      const d = (i.date || i.createdAt || i.dueDate || today() || '').slice(0, 10);
+      txns.push({ date: d, desc: 'فاتورة توريد ' + (i.invoiceNo || ''), ref: i.invoiceNo || '', src: 'inv', debit: 0, credit: i.amount || 0 });
+      if ((i.paidAmount || 0) > 0) txns.push({ date: (i.paidDate || d || '').slice(0, 10), desc: 'سداد فاتورة ' + (i.invoiceNo || ''), ref: i.invoiceNo || '', src: 'inv', debit: i.paidAmount || 0, credit: 0 });
+      linked = true;
+    });
+    (ops.closings || []).forEach(c => (c.expenses || []).forEach(e => {
+      if (e.supplierId === sp.id) { txns.push({ date: c.date, desc: 'مشتريات — إغلاق ' + (c.branchName || ''), ref: c.id, src: 'close', debit: 0, credit: e.amount || 0 }); linked = true; }
+    }));
+    txns.push(...ledFor(key));
+    parts.push({ key, id: sp.id, name: sp.name, type: 'supplier', cat: sp.category || 'مورد', phone: sp.phone || '', tax: sp.vatNo || '', terms: sp.terms || 0, linked, txns });
+  });
+
+  // الموظفون — راتب الشهر الحالي مستحق + السلف/الخصوم + حركات يدوية
+  const curMonth = (today() || '').slice(0, 7);
+  (org.employees || []).forEach(em => {
+    const key = 'emp:' + em.id; const txns = []; let linked = false;
+    const gross = (em.baseSalary || 0) + (em.housingAllowance || 0) + (em.transportAllowance || 0);
+    if (gross > 0) txns.push({ date: curMonth + '-01', desc: 'راتب ' + curMonth + ' مستحق', ref: '', src: 'salary', debit: 0, credit: gross });
+    (ops.advances || []).filter(a => a.employeeId === em.id).forEach(a => {
+      const isDraw = ['advance', 'salary_draw'].includes(a.type);
+      txns.push({ date: (a.date || '').slice(0, 10), desc: (isDraw ? 'سلفة/سحب على الراتب' : 'خصم/جزاء') + (a.reason ? ' — ' + a.reason : ''), ref: a.month || '', src: 'adv', debit: a.amount || 0, credit: 0 });
+      linked = true;
+    });
+    txns.push(...ledFor(key));
+    parts.push({ key, id: em.id, name: em.name, type: 'employee', cat: em.jobTitle || em.title || 'موظف', phone: em.phone || '', tax: em.nationalId || em.iqamaNo || '', terms: 0, linked, txns });
+  });
+
+  // العملاء والشركاء اليدويون — حركات يدوية فقط
+  (org.partners || []).forEach(pt => {
+    const key = pt.key || ('cust:' + pt.id);
+    parts.push({ key, id: pt.id, name: pt.name, type: pt.type || 'customer', cat: pt.cat || 'عميل', phone: pt.phone || '', tax: pt.tax || '', terms: pt.terms || 0, linked: false, custom: true, txns: ledFor(key) });
+  });
+
+  parts.forEach(p => {
+    p.txns.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+    p.balance = p.txns.reduce((s, t) => s + (t.credit || 0) - (t.debit || 0), 0);
+  });
+  return parts;
+}
+
 const DENOMS = [
   { k: 'd500', v: 500, c: '#2B6CB0' }, { k: 'd200', v: 200, c: '#5F7A55' },
   { k: 'd100', v: 100, c: '#A83B3B' }, { k: 'd50', v: 50, c: '#2F8F5B' },
@@ -162,7 +217,7 @@ const DENOMS = [
 const emptyDenoms = () => DENOMS.reduce((o, d) => ({ ...o, [d.k]: 0 }), {});
 const countDenoms = (d) => DENOMS.reduce((s, x) => s + (Number(d?.[x.k]) || 0) * x.v, 0);
 
-const ALL_TABS = ['dash', 'compare', 'closing', 'approve', 'treasury', 'payroll', 'suppliers', 'shifts', 'archive', 'ai', 'reports', 'admin', 'audit'];
+const ALL_TABS = ['dash', 'compare', 'closing', 'approve', 'treasury', 'payroll', 'suppliers', 'partners', 'shifts', 'archive', 'ai', 'reports', 'admin', 'audit'];
 const ROLES = {
   // ===== الأدوار الخمسة المعتمدة =====
   cashier: {
@@ -182,7 +237,7 @@ const ROLES = {
   },
   head_office: {
     ar: 'المكتب الرئيسي — المالية والإدارة', badge: 'b-brass', scope: 'all', approver: true,
-    tabs: ['dash', 'compare', 'closing', 'approve', 'treasury', 'payroll', 'suppliers', 'shifts', 'archive', 'ai', 'reports', 'audit'],
+    tabs: ['dash', 'compare', 'closing', 'approve', 'treasury', 'payroll', 'suppliers', 'partners', 'shifts', 'archive', 'ai', 'reports', 'audit'],
     perms: ['كل الفروع والتقارير المجمّعة', 'التدقيق والاعتماد النهائي', 'الخزينة والرواتب والموردون', 'المركز المالي الذكي']
   },
   system_admin: {
@@ -198,7 +253,7 @@ const ROLES = {
   },
   finance_department: {
     ar: 'الإدارة المالية — محاسب رئيسي', badge: 'b-sky', scope: 'assigned', legacy: true,
-    tabs: ['dash', 'compare', 'closing', 'approve', 'treasury', 'payroll', 'suppliers', 'shifts', 'archive', 'ai', 'reports', 'audit'],
+    tabs: ['dash', 'compare', 'closing', 'approve', 'treasury', 'payroll', 'suppliers', 'partners', 'shifts', 'archive', 'ai', 'reports', 'audit'],
     perms: ['تدقيق ومراجعة الإغلاقات', 'استلام تحويلات الخزينة', 'التقارير والقوائم المالية']
   }
 };
@@ -248,19 +303,20 @@ function emptyOrg(company) {
     expenseCats: EXP_CATS.map(c => ({ ...c, budgetLimitMonthly: 0 })),
     deliveryApps: APPS,
     suppliers: [],
+    partners: [],
     setupComplete: false
   };
 }
 
 function emptyOps() {
-  return { closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [] };
+  return { closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [] };
 }
 
 
 /* ================= الجذر ================= */
 export default function App() {
   const [org, setOrg] = useState(null);
-  const [ops, setOps] = useState({ closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [] });
+  const [ops, setOps] = useState({ closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [] });
   const [pulse, setPulse] = useState({ presence: {}, audit: [] });
   const [me, setMe] = useState(null);
   const [tab, setTab] = useState('dash');
@@ -521,6 +577,7 @@ export default function App() {
     { id: 'treasury', ar: 'الخزينة والترحيل', icon: Landmark },
     { id: 'payroll', ar: 'الرواتب والسلف', icon: Wallet },
     { id: 'suppliers', ar: 'الموردون والالتزامات', icon: Truck },
+    { id: 'partners', ar: 'دفتر الشركاء', icon: Users },
     { id: 'shifts', ar: 'الورديات والتذكيرات', icon: Clock },
     { id: 'archive', ar: 'أرشيف المستندات', icon: ImageIcon },
     { id: 'ai', ar: 'المركز المالي الذكي', icon: Sparkles },
@@ -612,7 +669,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v6.1 ✓</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v6.2 ✓</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -686,6 +743,7 @@ export default function App() {
               {safeTab === 'treasury' && <Treasury {...shared} />}
               {safeTab === 'payroll' && <Payroll {...shared} />}
               {safeTab === 'suppliers' && <Suppliers {...shared} />}
+              {safeTab === 'partners' && <Partners {...shared} />}
               {safeTab === 'shifts' && <Shifts {...shared} />}
               {safeTab === 'archive' && <Archive {...shared} />}
               {safeTab === 'ai' && <AiCenter {...shared} />}
@@ -859,7 +917,14 @@ function Gate({ css, org, onLogin, online, theme }) {
   const [busy, setBusy] = useState(false);
   const [show, setShow] = useState(false);
   const [bioBusy, setBioBusy] = useState(false);
+  const [mode, setMode] = useState('pass');   // pass | pin
+  const [pin, setPin] = useState('');
   const bioUsers = (org.users || []).filter(u => u.isActive && u.bioCredId);
+  const hasPinUsers = (org.users || []).some(u => u.isActive && u.pinHash);
+
+  // تذكّر آخر بريد على هذا الجهاز لتسريع الدخول
+  useEffect(() => { try { const e = localStorage.getItem('rms8:lastEmail'); if (e) setEmail(e); } catch { } }, []);
+  const finish = (u) => { try { localStorage.setItem('rms8:lastEmail', u.email || ''); } catch { } onLogin(u); };
 
   const bioLogin = async () => {
     setErr(''); setBioBusy(true);
@@ -868,7 +933,7 @@ function Gate({ css, org, onLogin, online, theme }) {
       // يكفي التحقق من أحدها؛ WebAuthn سيعرض المتاح على هذا الجهاز.
       const target = bioUsers.find(u => (u.email || '').toLowerCase() === email.trim().toLowerCase()) || bioUsers[0];
       await bioVerify(target.bioCredId);
-      onLogin(target);
+      finish(target);
     } catch (e) {
       setErr('تعذّر التحقق بالبصمة. استخدم البريد وكلمة السر، أو جرّب مجدداً.');
     }
@@ -883,9 +948,21 @@ function Gate({ css, org, onLogin, online, theme }) {
     // دعم الحسابات القديمة التي تملك pin بدل passHash
     const ok = u.passHash ? u.passHash === h : (u.pin && u.pin === pass);
     setBusy(false);
-    if (ok) onLogin(u);
+    if (ok) finish(u);
     else setErr('كلمة السر غير صحيحة');
   };
+
+  const pinSubmit = async () => {
+    setErr(''); setBusy(true);
+    const u = (org.users || []).find(x => (x.email || '').toLowerCase() === email.trim().toLowerCase() && x.isActive);
+    if (!u) { setBusy(false); return setErr('لا يوجد حساب نشط بهذا البريد'); }
+    if (!u.pinHash) { setBusy(false); return setErr('لا يوجد رقم سري لهذا الحساب — ادخل بكلمة السر، ثم اضبط رقماً سرياً من إدارة المستخدمين'); }
+    const h = await sha('pin:' + pin);
+    setBusy(false);
+    if (h === u.pinHash) finish(u);
+    else { setErr('الرقم السري غير صحيح'); setPin(''); }
+  };
+  const pinKey = (d) => { setErr(''); if (d === 'del') setPin(p => p.slice(0, -1)); else setPin(p => (p.length < 6 ? p + d : p)); };
 
   return (
     <div className={'rms' + (theme === 'lite' ? ' lite' : '')}>
@@ -898,41 +975,67 @@ function Gate({ css, org, onLogin, online, theme }) {
             <span className="badge b-dim"><Lock size={10} />بيانات مشتركة ومؤمّنة</span>
           </div>
           <div className="card">
+            {(hasPinUsers || mode === 'pin') && (
+              <div className="loginseg">
+                <button type="button" className={'loginseg-b' + (mode === 'pass' ? ' on' : '')} onClick={() => { setMode('pass'); setErr(''); }}><Lock size={13} />كلمة السر</button>
+                <button type="button" className={'loginseg-b' + (mode === 'pin' ? ' on' : '')} onClick={() => { setMode('pin'); setErr(''); }}><Grid3x3 size={13} />دخول سريع برقم سري</button>
+              </div>
+            )}
             <Field label="البريد الإلكتروني">
               <input className="inp" type="email" autoFocus style={{ direction: 'ltr', textAlign: 'right' }}
                 value={email} placeholder="you@company.com"
                 onChange={e => { setEmail(e.target.value); setErr(''); }}
-                onKeyDown={e => e.key === 'Enter' && submit()} />
+                onKeyDown={e => e.key === 'Enter' && (mode === 'pin' ? pinSubmit() : submit())} />
             </Field>
-            <Field label="كلمة السر">
-              <div style={{ position: 'relative' }}>
-                <input className="inp" type={show ? 'text' : 'password'} value={pass}
-                  onChange={e => { setPass(e.target.value); setErr(''); }}
-                  onKeyDown={e => e.key === 'Enter' && submit()} />
-                <button className="btn sm gh" style={{ position: 'absolute', insetInlineEnd: 4, top: 4, padding: '4px 8px' }}
-                  onClick={() => setShow(s => !s)} tabIndex={-1}>
-                  <Eye size={14} />
+
+            {mode === 'pass' ? (
+              <>
+                <Field label="كلمة السر">
+                  <div style={{ position: 'relative' }}>
+                    <input className="inp" type={show ? 'text' : 'password'} value={pass}
+                      onChange={e => { setPass(e.target.value); setErr(''); }}
+                      onKeyDown={e => e.key === 'Enter' && submit()} />
+                    <button className="btn sm gh" style={{ position: 'absolute', insetInlineEnd: 4, top: 4, padding: '4px 8px' }}
+                      onClick={() => setShow(s => !s)} tabIndex={-1}><Eye size={14} /></button>
+                  </div>
+                </Field>
+                {err && <div className="gate-err">{err}</div>}
+                <button className="btn pri" style={{ width: '100%' }} disabled={busy || !email || !pass} onClick={submit}>
+                  {busy ? <RefreshCw size={15} className="spin" /> : <Lock size={15} />}دخول
                 </button>
-              </div>
-            </Field>
-            {err && <div style={{ color: 'var(--rose)', fontSize: 12, textAlign: 'center', marginBottom: 10 }}>{err}</div>}
-            <button className="btn pri" style={{ width: '100%' }} disabled={busy || !email || !pass} onClick={submit}>
-              {busy ? <RefreshCw size={15} className="spin" /> : <Lock size={15} />}
-              دخول
-            </button>
+              </>
+            ) : (
+              <>
+                <div className="lbl" style={{ textAlign: 'center', marginBottom: 8 }}>أدخل الرقم السري</div>
+                <div className="pin-dots">
+                  {[0, 1, 2, 3, 4, 5].map(i => <span key={i} className={'pin-dot' + (i < pin.length ? ' on' : '')} />)}
+                </div>
+                {err && <div className="gate-err">{err}</div>}
+                <div className="pinpad">
+                  {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(d =>
+                    <button key={d} type="button" className="pinkey" onClick={() => pinKey(d)}>{d}</button>)}
+                  <button type="button" className="pinkey ghost" onClick={() => setPin('')}>مسح</button>
+                  <button type="button" className="pinkey" onClick={() => pinKey('0')}>0</button>
+                  <button type="button" className="pinkey ghost" onClick={() => pinKey('del')} aria-label="حذف"><Delete size={17} /></button>
+                </div>
+                <button className="btn pri" style={{ width: '100%' }} disabled={busy || !email || pin.length < 4} onClick={pinSubmit}>
+                  {busy ? <RefreshCw size={15} className="spin" /> : <Grid3x3 size={15} />}دخول بالرقم السري
+                </button>
+              </>
+            )}
+
             {bioUsers.length > 0 && webauthnSupported() && (
               <>
                 <div className="row" style={{ justifyContent: 'center', margin: '12px 0', color: 'var(--faint)', fontSize: 11 }}>
                   <span style={{ height: 1, background: 'var(--line)', flex: 1 }} /> أو <span style={{ height: 1, background: 'var(--line)', flex: 1 }} />
                 </div>
                 <button className="btn" style={{ width: '100%' }} disabled={bioBusy} onClick={bioLogin}>
-                  {bioBusy ? <RefreshCw size={15} className="spin" /> : <Fingerprint size={16} />}
-                  الدخول بالبصمة الحيوية
+                  {bioBusy ? <RefreshCw size={15} className="spin" /> : <Fingerprint size={16} />}الدخول بالبصمة الحيوية
                 </button>
               </>
             )}
             <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 14, lineHeight: 1.7, textAlign: 'center' }}>
-              نسيت كلمة السر؟ راجع المدير العام لإعادة تعيينها من إدارة المستخدمين.
+              نسيت بياناتك؟ راجع المدير العام لإعادة تعيينها من إدارة المستخدمين.
             </div>
           </div>
         </div>
@@ -2354,6 +2457,17 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
               <div className="grid g3" style={{ gap: 9 }}>
                 <Num label="المبلغ" value={e.amount} onChange={v => upExp(e.id, 'amount', v)} sum />
                 <Field label="المستفيد / المورد">
+                  {(org.suppliers || []).length > 0 && (
+                    <select className="sel" style={{ marginBottom: 6 }} value={e.supplierId || ''}
+                      onChange={ev => {
+                        const sp = (org.suppliers || []).find(s => s.id === ev.target.value);
+                        set('expenses', f.expenses.map(x => x.id === e.id
+                          ? { ...x, supplierId: ev.target.value || undefined, beneficiaryName: sp ? sp.name : x.beneficiaryName } : x));
+                      }}>
+                      <option value="">— اربطه بمورد مسجّل (يظهر في دفتر الشركاء) —</option>
+                      {(org.suppliers || []).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                  )}
                   <input className="inp" value={e.beneficiaryName || ''} placeholder="اسم الجهة"
                     onChange={ev => upExp(e.id, 'beneficiaryName', ev.target.value)} />
                 </Field>
@@ -3549,7 +3663,8 @@ function Admin({ org, ops, commit, commitOrg, say }) {
     if (isNew && (!u.newPass || u.newPass.length < 6)) return say('كلمة سر الحساب الجديد يجب ألا تقل عن 6 أحرف', 'no');
     const rec = { ...u, email };
     if (u.newPass) { rec.passHash = await sha(u.newPass); }
-    delete rec.newPass; delete rec.pin;
+    if (u.newPin) { rec.pinHash = await sha('pin:' + u.newPin); }
+    delete rec.newPass; delete rec.newPin; delete rec.pin;
     await commitOrg(d => ({ ...d, users: isNew ? [...d.users, rec] : d.users.map(x => x.id === rec.id ? rec : x) }), {
       actionType: isNew ? 'create' : 'permission_change', targetType: 'user_account', targetId: rec.id,
       title: isNew ? 'أنشأ مستخدماً جديداً' : 'عدّل بيانات مستخدم', details: `${rec.name} — ${ROLES[rec.role].ar}`
@@ -3719,6 +3834,12 @@ function UserForm({ u, org, onSave, onClose }) {
         <input className="inp" type="password" value={f.newPass || ''} placeholder={u.name ? 'بدون تغيير' : '٦ أحرف على الأقل'}
           onChange={e => set('newPass', e.target.value)} />
         {u.passHash && !f.newPass && <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 4 }}>للحساب كلمة سر محفوظة — لن تتغير ما لم تكتب واحدة جديدة.</div>}
+      </Field>
+      <Field label="رقم سري للدخول السريع (اختياري — 4 إلى 6 أرقام)">
+        <input className="inp" inputMode="numeric" style={{ direction: 'ltr', textAlign: 'right', letterSpacing: 4 }} value={f.newPin || ''}
+          placeholder={f.pinHash ? 'محفوظ — اكتب رقماً جديداً لتغييره' : 'يمكّن الدخول السريع بالرقم'}
+          onChange={e => set('newPin', e.target.value.replace(/\D/g, '').slice(0, 6))} />
+        {f.pinHash && !f.newPin && <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 4 }}>لهذا الحساب رقم سري محفوظ للدخول السريع.</div>}
       </Field>
 
       <div className="card" style={{ background: 'var(--ink)', padding: 12 }}>
@@ -4259,6 +4380,280 @@ function Suppliers({ org, ops, me, myBranches, commit, say }) {
   );
 }
 
+/* ================= دفتر الشركاء: طباعة كشف حساب A4 ================= */
+function printPartnerStatement(p, org) {
+  const w = window.open('', '_blank', 'width=900,height=1000');
+  if (!w) return false;
+  const co = org.company || {};
+  const typeAr = { customer: 'عميل', supplier: 'مورد', employee: 'موظف' };
+  let run = 0, sdr = 0, scr = 0;
+  const rows = p.txns.map(t => {
+    run += (t.credit || 0) - (t.debit || 0); sdr += t.debit || 0; scr += t.credit || 0;
+    const rb = Math.abs(run) < 0.005 ? '0.00' : money(Math.abs(run)) + (run > 0 ? ' دائن' : ' مدين');
+    return `<tr><td>${t.date || ''}</td><td>${t.desc || ''}${t.ref ? ' · ' + t.ref : ''}</td>
+      <td class="n">${t.debit ? money(t.debit) : '—'}</td><td class="n">${t.credit ? money(t.credit) : '—'}</td><td class="n">${rb}</td></tr>`;
+  }).join('');
+  const bal = scr - sdr;
+  const balT = Math.abs(bal) < 0.005 ? 'مسدّد' : (bal > 0 ? money(bal) + ' دائن (مستحق للطرف علينا)' : money(-bal) + ' مدين (مستحق لنا على الطرف)');
+  w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>كشف حساب ${p.name}</title>
+  <style>*{font-family:'Segoe UI',Tahoma,sans-serif;box-sizing:border-box}body{margin:0;padding:28px;color:#1a1a1a}
+  .h{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #8C6F2C;padding-bottom:12px;margin-bottom:16px}
+  .co{font-size:20px;font-weight:800;color:#5a4a1e}.sub{font-size:12px;color:#666;margin-top:3px}
+  .t{font-size:22px;font-weight:800}.who{background:#faf6ee;border:1px solid #e5dcc5;border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:13px;line-height:1.9}
+  .who b{color:#5a4a1e}.bal{text-align:center;background:#f5f0e4;border:1px solid #d9cba5;border-radius:10px;padding:12px;margin-bottom:14px}
+  .bal .v{font-size:26px;font-weight:800}table{width:100%;border-collapse:collapse;font-size:12px}
+  th{background:#efe8d8;color:#4a3f22;padding:8px;text-align:right;border:1px solid #d9cba5}
+  td{padding:7px 8px;border:1px solid #e6ddc8}.n{text-align:left;font-variant-numeric:tabular-nums;direction:ltr}
+  tfoot td{background:#f5f0e4;font-weight:800;border-top:2px solid #8C6F2C}
+  .ft{margin-top:16px;font-size:10.5px;color:#888;text-align:center}</style></head><body>
+  <div class="h"><div><div class="co">${co.name || 'الشركة'}</div><div class="sub">${co.activity || ''} ${co.taxNumber ? '· رقم ضريبي ' + co.taxNumber : ''}</div></div>
+  <div style="text-align:left"><div class="t">كشف حساب</div><div class="sub">${arDate(today())}</div></div></div>
+  <div class="who"><b>الطرف:</b> ${p.name} &nbsp; <span style="background:#eee;border-radius:5px;padding:1px 7px">${typeAr[p.type] || ''}</span><br>
+  <b>التصنيف:</b> ${p.cat || '—'} &nbsp; <b>الجوال:</b> ${p.phone || '—'} &nbsp; <b>الرقم الضريبي/الهوية:</b> ${p.tax || '—'}</div>
+  <div class="bal"><div>الرصيد الحالي</div><div class="v">${balT}</div></div>
+  <table><thead><tr><th>التاريخ</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead>
+  <tbody>${rows || '<tr><td colspan=5 style="text-align:center;color:#999;padding:20px">لا حركات</td></tr>'}</tbody>
+  <tfoot><tr><td colspan="2">الإجماليات</td><td class="n">${money(sdr)}</td><td class="n">${money(scr)}</td><td class="n">${money(Math.abs(bal))}${bal > 0 ? ' دائن' : bal < 0 ? ' مدين' : ''}</td></tr></tfoot></table>
+  <div class="ft">كشف حساب صادر من منصة الإغلاق اليومي — ${co.name || ''} · ${arDate(today())}</div></body></html>`);
+  w.document.close();
+  setTimeout(() => { w.focus(); w.print(); }, 400);
+  return true;
+}
+
+/* ================= دفتر الشركاء (عملاء/موردون/موظفون · مدين ودائن) ================= */
+const PT_TYPE = { customer: { ar: 'عميل', c: '#5B93C4' }, supplier: { ar: 'مورد', c: '#E0A458' }, employee: { ar: 'موظف', c: '#9B7BB8' } };
+const PT_SRC = {
+  inv: { t: 'فاتورة', c: 'var(--amber)' }, close: { t: 'إغلاق فرع', c: 'var(--mint)' },
+  adv: { t: 'سلفة/خصم', c: 'var(--violet)' }, salary: { t: 'راتب مستحق', c: 'var(--sky)' },
+  open: { t: 'افتتاحي', c: 'var(--faint)' }, manual: { t: 'يدوي', c: 'var(--sky)' }
+};
+
+function PartnerChip({ type }) {
+  const t = PT_TYPE[type] || PT_TYPE.customer;
+  return <span className="badge" style={{ background: t.c + '28', color: t.c }}>{t.ar}</span>;
+}
+function BalCell({ bal }) {
+  if (Math.abs(bal) < 0.005) return <span className="num" style={{ color: 'var(--faint)', fontWeight: 700 }}>مسدّد</span>;
+  const cr = bal > 0;
+  return <span><span className="num" style={{ color: cr ? 'var(--rose)' : 'var(--mint)', fontWeight: 700, fontSize: 14 }}>{money(Math.abs(bal))}</span>
+    <span style={{ fontSize: 10, color: 'var(--faint)', marginInlineStart: 5 }}>{cr ? 'دائن · علينا' : 'مدين · لنا'}</span></span>;
+}
+
+function Partners({ org, ops, me, commit, commitOrg, say }) {
+  const [filter, setFilter] = useState('all');
+  const [q, setQ] = useState('');
+  const [openKey, setOpenKey] = useState(null);
+  const [addP, setAddP] = useState(null);
+  const [tx, setTx] = useState(null);
+  const canEdit = ROLES[me.role]?.scope !== 'own';
+
+  const partners = useMemo(() => buildPartners(org, ops), [org, ops]);
+  const cur = partners.find(p => p.key === openKey);
+
+  let cr = 0, dr = 0, cCust = 0, cSupp = 0, cEmp = 0;
+  partners.forEach(p => {
+    if (p.balance > 0) cr += p.balance; else dr += -p.balance;
+    if (p.type === 'customer') cCust++; else if (p.type === 'supplier') cSupp++; else cEmp++;
+  });
+  const net = cr - dr;
+  const list = partners.filter(p => (filter === 'all' || p.type === filter) && (!q || (p.name || '').includes(q)));
+
+  const saveCustomer = async () => {
+    const c = addP;
+    if (!c.name?.trim()) return say('اكتب اسم الشريك', 'no');
+    const id = uid('pt'); const key = 'cust:' + id;
+    const rec = { id, key, name: c.name.trim(), type: c.type || 'customer', cat: c.cat || '', phone: c.phone || '', tax: c.tax || '', terms: Number(c.terms) || 0 };
+    await commitOrg(d => ({ ...d, partners: [...(d.partners || []), rec] }),
+      { actionType: 'create', targetType: 'user_account', targetId: id, title: 'أضاف شريكاً لدفتر الشركاء', details: rec.name + ' — ' + (PT_TYPE[rec.type]?.ar || '') });
+    const openAmt = Number((c.opening || '').toString().replace(/,/g, '')) || 0;
+    if (openAmt > 0) {
+      const side = c.openingSide === 'debit' ? { debit: openAmt, credit: 0 } : { credit: openAmt, debit: 0 };
+      await commit(d => ({ ...d, ledgerEntries: [{ id: uid('le'), partnerKey: key, date: today(), desc: 'رصيد افتتاحي', src: 'open', ...side }, ...(d.ledgerEntries || [])] }),
+        { actionType: 'create', targetType: 'daily_closing', targetId: key, title: 'رصيد افتتاحي لشريك', details: rec.name });
+    }
+    say('تمت إضافة الشريك ✓'); setAddP(null);
+  };
+
+  const addEntry = async () => {
+    const amt = Math.abs(Number((tx.amount || '').toString().replace(/,/g, ''))) || 0;
+    if (amt <= 0) return say('أدخل مبلغاً صحيحاً', 'no');
+    const side = tx.side === 'debit' ? { debit: amt, credit: 0 } : { credit: amt, debit: 0 };
+    const entry = { id: uid('le'), partnerKey: cur.key, date: tx.date || today(), desc: tx.desc?.trim() || 'حركة يدوية', src: 'manual', ...side };
+    await commit(d => ({ ...d, ledgerEntries: [entry, ...(d.ledgerEntries || [])] }),
+      { actionType: 'create', targetType: 'daily_closing', targetId: cur.key, title: 'حركة يدوية في كشف حساب', details: `${cur.name} · ${tx.side === 'debit' ? 'مدين' : 'دائن'} ${money(amt)}` });
+    say('تم تسجيل الحركة ✓'); setTx(null);
+  };
+
+  const delEntry = async (entryId) => {
+    await commit(d => ({ ...d, ledgerEntries: (d.ledgerEntries || []).filter(e => e.id !== entryId) }),
+      { actionType: 'delete', targetType: 'daily_closing', targetId: cur.key, title: 'حذف حركة يدوية', details: cur.name });
+    say('حُذفت الحركة');
+  };
+
+  // ===== كشف حساب شريك =====
+  if (cur) {
+    let run = 0, sdr = 0, scr = 0;
+    const rows = cur.txns.map((t, i) => {
+      run += (t.credit || 0) - (t.debit || 0); sdr += t.debit || 0; scr += t.credit || 0;
+      const src = PT_SRC[t.src] || PT_SRC.manual;
+      const rbCol = Math.abs(run) < 0.005 ? 'var(--faint)' : (run > 0 ? 'var(--rose)' : 'var(--mint)');
+      return (
+        <tr key={i}>
+          <td className="num" style={{ fontSize: 11.5, whiteSpace: 'nowrap' }}>{t.date}</td>
+          <td style={{ fontSize: 12.5 }}>{t.desc}
+            <div style={{ fontSize: 10, color: src.c, marginTop: 3 }}>● {src.t}{t.ref ? ' · ' + t.ref : ''}</div></td>
+          <td className="num" style={{ textAlign: 'end' }}>{t.debit ? money(t.debit) : '—'}</td>
+          <td className="num" style={{ textAlign: 'end' }}>{t.credit ? money(t.credit) : '—'}</td>
+          <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: rbCol }}>{Math.abs(run) < 0.005 ? '0.00' : money(Math.abs(run))}</td>
+          <td style={{ textAlign: 'center' }}>{(t.src === 'manual' || t.src === 'open') && canEdit
+            ? <button className="btn sm gh" onClick={() => delEntry(t.entryId)} title="حذف"><Trash2 size={12} color="#D9544D" /></button>
+            : <span style={{ fontSize: 9, color: 'var(--faint)' }} title="حركة تلقائية — تُصحَّح من مصدرها">🔒</span>}</td>
+        </tr>
+      );
+    });
+    const bal = scr - sdr;
+    return (
+      <div className="grid" style={{ gap: 14 }}>
+        <button className="btn gh" style={{ alignSelf: 'flex-start' }} onClick={() => { setOpenKey(null); setTx(null); }}>
+          <ChevronRight size={15} />رجوع إلى دفتر الشركاء</button>
+
+        <div className="card" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 16, alignItems: 'center' }}>
+          <div>
+            <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+              <span className="card-t" style={{ fontSize: 20 }}>{cur.name}</span><PartnerChip type={cur.type} />
+              {cur.linked && <span className="badge b-mint" style={{ fontSize: 10 }}>◍ مرتبط بالفروع</span>}
+            </div>
+            <div className="row" style={{ flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+              <span className="badge b-dim">{cur.cat || '—'}</span>
+              {cur.phone && <span className="badge b-dim">الجوال <span className="num">{cur.phone}</span></span>}
+              {cur.tax && <span className="badge b-dim">ضريبي/هوية {cur.tax}</span>}
+              {cur.terms ? <span className="badge b-dim">مهلة <span className="num">{cur.terms}</span> يوم</span> : null}
+            </div>
+          </div>
+          <div style={{ textAlign: 'center', background: 'var(--ink3)', border: '1px solid var(--line)', borderRadius: 14, padding: 14 }}>
+            <div style={{ fontSize: 11.5, color: 'var(--dim)' }}>الرصيد الحالي</div>
+            <div className="num" style={{ fontSize: 28, fontWeight: 800, margin: '4px 0', color: Math.abs(bal) < 0.005 ? 'var(--faint)' : (bal > 0 ? 'var(--rose)' : 'var(--mint)') }}>{money(Math.abs(bal))}</div>
+            <div style={{ fontSize: 11, color: 'var(--faint)' }}>{Math.abs(bal) < 0.005 ? 'الحساب مسدّد' : (bal > 0 ? 'دائن — مستحق للطرف علينا' : 'مدين — مستحق لنا على الطرف')}</div>
+          </div>
+        </div>
+
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+          {canEdit && <button className="btn pri" onClick={() => setTx({ side: 'debit', date: today(), amount: '', desc: '' })}><Plus size={14} />إضافة حركة يدوية</button>}
+          <button className="btn" onClick={() => printPartnerStatement(cur, org)}><Printer size={14} />طباعة كشف الحساب</button>
+        </div>
+
+        {tx && (
+          <div className="card" style={{ border: '1px dashed var(--brass-d)', background: 'var(--ink3)' }}>
+            <div className="grid g4" style={{ alignItems: 'end', gap: 10 }}>
+              <Field label="التاريخ"><input className="inp" type="date" value={tx.date} onChange={e => setTx({ ...tx, date: e.target.value })} /></Field>
+              <Field label="البيان" style={{ gridColumn: 'span 2' }}><input className="inp" value={tx.desc} placeholder="مثال: دفعة سداد نقدية" onChange={e => setTx({ ...tx, desc: e.target.value })} /></Field>
+              <Field label="النوع"><select className="sel" value={tx.side} onChange={e => setTx({ ...tx, side: e.target.value })}>
+                <option value="debit">مدين (سداد/تخفيض ما علينا)</option>
+                <option value="credit">دائن (فاتورة/زيادة ما علينا)</option></select></Field>
+              <Field label="المبلغ"><MoneyField value={tx.amount} onChange={v => setTx({ ...tx, amount: v })} /></Field>
+              <div className="row" style={{ gap: 8 }}>
+                <button className="btn pri" onClick={addEntry}><Check size={14} />حفظ الحركة</button>
+                <button className="btn gh" onClick={() => setTx(null)}>إلغاء</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="card">
+          <div className="tw">
+            <table className="tb">
+              <thead><tr><th>التاريخ</th><th>البيان</th><th style={{ textAlign: 'end' }}>مدين</th><th style={{ textAlign: 'end' }}>دائن</th><th style={{ textAlign: 'end' }}>الرصيد</th><th></th></tr></thead>
+              <tbody>{rows.length ? rows : <tr><td colSpan={6}><div className="empty">لا حركات على هذا الحساب بعد.</div></td></tr>}</tbody>
+              <tfoot><tr style={{ background: 'var(--ink3)', fontWeight: 700 }}>
+                <td colSpan={2} style={{ padding: '11px 14px' }}>الإجماليات</td>
+                <td className="num" style={{ textAlign: 'end' }}>{money(sdr)}</td>
+                <td className="num" style={{ textAlign: 'end' }}>{money(scr)}</td>
+                <td className="num" style={{ textAlign: 'end', color: bal > 0 ? 'var(--rose)' : bal < 0 ? 'var(--mint)' : 'var(--faint)' }}>{money(Math.abs(bal))}</td>
+                <td></td></tr></tfoot>
+            </table>
+          </div>
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--faint)', lineHeight: 1.7 }}>الحركات المعلَّمة 🔒 مصدرها فواتير/إغلاقات/سلف — تُصحَّح من مصدرها للحفاظ على تطابق التدقيق. الحركات اليدوية فقط قابلة للحذف من هنا.</div>
+      </div>
+    );
+  }
+
+  // ===== قائمة الشركاء =====
+  return (
+    <div className="grid" style={{ gap: 14 }}>
+      <div className="grid g4">
+        <Kpi label="إجمالي دائن (علينا)" value={money(cr)} sub="مستحق للموردين والموظفين" icon={TrendingUp} color="#D9544D" />
+        <Kpi label="إجمالي مدين (لنا)" value={money(dr)} sub="مستحق من العملاء والسلف" icon={TrendingDown} color="#4FB286" />
+        <Kpi label="صافي المركز" value={money(Math.abs(net))} sub={net >= 0 ? 'صافي التزام علينا' : 'صافي مستحق لنا'} icon={ArrowLeftRight} color="#C8A24A" />
+        <Kpi label="عدد الشركاء" value={String(partners.length)} sub={`${cCust} عميل · ${cSupp} مورد · ${cEmp} موظف`} icon={Users} color="#5B93C4" />
+      </div>
+
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        {[['all', 'الكل', partners.length], ['customer', 'العملاء', cCust], ['supplier', 'الموردون', cSupp], ['employee', 'الموظفون', cEmp]].map(([k, lbl, n]) => (
+          <button key={k} className={'btn sm' + (filter === k ? ' pri' : ' gh')} onClick={() => setFilter(k)}>{lbl} <span className="num" style={{ opacity: .7 }}>{n}</span></button>
+        ))}
+        <div style={{ marginInlineStart: 'auto', position: 'relative' }}>
+          <input className="inp" style={{ width: 210, paddingInlineStart: 32 }} value={q} placeholder="ابحث باسم الشريك…" onChange={e => setQ(e.target.value)} />
+          <Search size={14} style={{ position: 'absolute', insetInlineStart: 10, top: 11, color: 'var(--faint)' }} />
+        </div>
+        {canEdit && <button className="btn sm" onClick={() => setAddP({ type: 'customer', openingSide: 'debit' })}><Plus size={14} />إضافة شريك</button>}
+      </div>
+
+      <div className="card">
+        <div className="tw">
+          <table className="tb cards">
+            <thead><tr><th>الشريك</th><th>النوع</th><th>الجوال</th><th>الربط بالفروع</th><th>الرصيد</th><th></th></tr></thead>
+            <tbody>
+              {list.map(p => (
+                <tr key={p.key} style={{ cursor: 'pointer' }} onClick={() => setOpenKey(p.key)}>
+                  <td data-label="الشريك"><div style={{ fontWeight: 700, fontSize: 13.5 }}>{p.name}</div><div style={{ fontSize: 11, color: 'var(--faint)' }}>{p.cat}</div></td>
+                  <td data-label="النوع"><PartnerChip type={p.type} /></td>
+                  <td data-label="الجوال" className="num" style={{ fontSize: 12, color: 'var(--dim)' }}>{p.phone || '—'}</td>
+                  <td data-label="الربط">{p.linked ? <span className="badge b-mint" style={{ fontSize: 10 }}>◍ مرتبط</span> : <span style={{ color: 'var(--faint)' }}>—</span>}</td>
+                  <td data-label="الرصيد" className="num"><BalCell bal={p.balance} /></td>
+                  <td style={{ textAlign: 'end', color: 'var(--faint)', fontSize: 11.5 }}>كشف الحساب ←</td>
+                </tr>
+              ))}
+              {list.length === 0 && <tr><td colSpan={6}><div className="empty">لا شركاء مطابقون.</div></td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {addP && (
+        <Modal title="إضافة شريك جديد" icon={Users} onClose={() => setAddP(null)}
+          foot={<><button className="btn pri" onClick={saveCustomer}><Check size={14} />حفظ الشريك</button>
+            <button className="btn gh" onClick={() => setAddP(null)}>إلغاء</button></>}>
+          <Field label="نوع الشريك">
+            <select className="sel" value={addP.type} onChange={e => setAddP({ ...addP, type: e.target.value })}>
+              <option value="customer">عميل (يدين لنا عادةً)</option>
+              <option value="supplier">مورد</option>
+              <option value="employee">موظف</option>
+            </select>
+          </Field>
+          <div style={{ fontSize: 10.5, color: 'var(--faint)', marginBottom: 8, marginTop: -4 }}>الموردون والموظفون يظهرون تلقائياً من وحداتهم؛ أضِف هنا العملاء أو أي شريك غير مسجّل.</div>
+          <Field label="الاسم"><input className="inp" value={addP.name || ''} onChange={e => setAddP({ ...addP, name: e.target.value })} placeholder="اسم الشريك أو الجهة" /></Field>
+          <div className="grid g2">
+            <Field label="التصنيف"><input className="inp" value={addP.cat || ''} onChange={e => setAddP({ ...addP, cat: e.target.value })} placeholder="مثال: عميل جملة" /></Field>
+            <Field label="الجوال"><input className="inp" style={{ direction: 'ltr', textAlign: 'right' }} value={addP.phone || ''} onChange={e => setAddP({ ...addP, phone: e.target.value })} /></Field>
+            <Field label="الرقم الضريبي/الهوية"><input className="inp" value={addP.tax || ''} onChange={e => setAddP({ ...addP, tax: e.target.value })} /></Field>
+            <Field label="مهلة السداد (يوم)"><input className="inp" inputMode="numeric" value={addP.terms || ''} onChange={e => setAddP({ ...addP, terms: e.target.value })} /></Field>
+          </div>
+          <div className="card" style={{ background: 'var(--ink)', padding: 12, marginTop: 6 }}>
+            <div className="lbl">رصيد افتتاحي (اختياري)</div>
+            <div className="grid g2">
+              <Field label="الجهة"><select className="sel" value={addP.openingSide} onChange={e => setAddP({ ...addP, openingSide: e.target.value })}>
+                <option value="debit">مدين — الطرف مدين لنا</option>
+                <option value="credit">دائن — نحن مدينون للطرف</option></select></Field>
+              <Field label="المبلغ"><MoneyField value={addP.opening || ''} onChange={v => setAddP({ ...addP, opening: v })} /></Field>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
 /* ================= المركز المالي الذكي ================= */
 function AiCenter({ org, ops, me, myBranches, scoped, say }) {
   const [busy, setBusy] = useState(false);
@@ -4631,6 +5026,7 @@ function CameraModal({ title, onCapture, onClose, say }) {
   const streamRef = useRef(null);
   const [ready, setReady] = useState(false);
   const [err, setErr] = useState('');
+  const [shot, setShot] = useState(null);
 
   useEffect(() => {
     let active = true;
@@ -4656,7 +5052,7 @@ function CameraModal({ title, onCapture, onClose, say }) {
     const ctx = cv.getContext('2d');
     const sx = (v.videoWidth - size) / 2, sy = (v.videoHeight - size) / 2;
     ctx.drawImage(v, sx, sy, size, size, 0, 0, 480, 480);
-    onCapture(cv.toDataURL('image/jpeg', 0.7));
+    setShot(cv.toDataURL('image/jpeg', 0.88));   // مرّرها إلى المحرّر قبل الاعتماد
   };
 
   return (
@@ -4679,6 +5075,134 @@ function CameraModal({ title, onCapture, onClose, say }) {
       <div style={{ fontSize: 11.5, color: 'var(--dim)', marginTop: 12, textAlign: 'center', lineHeight: 1.8 }}>
         ضع وجهك داخل الإطار في إضاءة جيدة، ثم اضغط التقاط. تُحفظ الصورة كتوثيق مرئي للجلسة.
       </div>
+      {shot && <ImageEditor src={shot} say={say} title="تحرير صورة التوثيق قبل الاعتماد"
+        onCancel={() => setShot(null)}
+        onDone={img => { setShot(null); onCapture(img); }} />}
+    </Modal>
+  );
+}
+
+// شحذ/تنقية بسيطة عبر التفاف 3×3 لإبراز التفاصيل وتقليل الضبابية
+function sharpenCanvas(ctx, w, h) {
+  try {
+    const src = ctx.getImageData(0, 0, w, h);
+    const out = ctx.createImageData(w, h);
+    const k = [0, -0.6, 0, -0.6, 3.4, -0.6, 0, -0.6, 0];
+    const S = src.data, D = out.data;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const oi = (y * w + x) * 4;
+      for (let c = 0; c < 3; c++) {
+        let a = 0, ki = 0;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const yy = Math.min(h - 1, Math.max(0, y + dy)), xx = Math.min(w - 1, Math.max(0, x + dx));
+          a += S[(yy * w + xx) * 4 + c] * k[ki++];
+        }
+        D[oi + c] = a < 0 ? 0 : a > 255 ? 255 : a;
+      }
+      D[oi + 3] = S[oi + 3];
+    }
+    ctx.putImageData(out, 0, 0);
+  } catch (e) { /* الشحذ تكميلي */ }
+}
+
+// محرّر الصورة: قصّ + تدوير + سطوع/تباين + توضيح وتنقية قبل الرفع (#2)
+function ImageEditor({ src, onDone, onCancel, say, title }) {
+  const stageRef = useRef(null);
+  const imgRef = useRef(null);
+  const [base, setBase] = useState(src);
+  const [bri, setBri] = useState(100);
+  const [con, setCon] = useState(105);
+  const [clean, setClean] = useState(true);
+  const [disp, setDisp] = useState(null);
+  const [box, setBox] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const drag = useRef(null);
+
+  const measure = () => {
+    const st = stageRef.current, im = imgRef.current;
+    if (!st || !im || !im.naturalWidth) return;
+    const sw = st.clientWidth, sh = st.clientHeight;
+    const scale = Math.min(sw / im.naturalWidth, sh / im.naturalHeight);
+    const dispW = im.naturalWidth * scale, dispH = im.naturalHeight * scale;
+    const offX = (sw - dispW) / 2, offY = (sh - dispH) / 2;
+    setDisp({ scale, offX, offY, dispW, dispH });
+    setBox({ x: offX + dispW * 0.04, y: offY + dispH * 0.04, w: dispW * 0.92, h: dispH * 0.92 });
+  };
+  useEffect(() => { const t = setTimeout(measure, 60); return () => clearTimeout(t); }, [base]);
+
+  const clamp = (b) => {
+    if (!disp) return b;
+    let w = Math.max(28, Math.min(b.w, disp.dispW));
+    let h = Math.max(28, Math.min(b.h, disp.dispH));
+    let x = Math.max(disp.offX, Math.min(b.x, disp.offX + disp.dispW - w));
+    let y = Math.max(disp.offY, Math.min(b.y, disp.offY + disp.dispH - h));
+    return { x, y, w, h };
+  };
+  const onDown = (mode) => (e) => {
+    e.preventDefault(); e.stopPropagation();
+    drag.current = { mode, sx: e.clientX, sy: e.clientY, box: { ...box } };
+    const mv = (ev) => {
+      if (!drag.current) return;
+      const dx = ev.clientX - drag.current.sx, dy = ev.clientY - drag.current.sy, b = drag.current.box;
+      if (drag.current.mode === 'move') setBox(clamp({ ...b, x: b.x + dx, y: b.y + dy }));
+      else setBox(clamp({ ...b, w: b.w + dx, h: b.h + dy }));
+    };
+    const up = () => { drag.current = null; window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); };
+    window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
+  };
+
+  const rotate = () => {
+    const im = imgRef.current; if (!im) return;
+    const c = document.createElement('canvas'); c.width = im.naturalHeight; c.height = im.naturalWidth;
+    const ctx = c.getContext('2d'); ctx.translate(c.width / 2, c.height / 2); ctx.rotate(Math.PI / 2);
+    ctx.drawImage(im, -im.naturalWidth / 2, -im.naturalHeight / 2);
+    setBase(c.toDataURL('image/jpeg', 0.92));
+  };
+
+  const apply = async () => {
+    if (!disp || !box) { onDone(base); return; }
+    setBusy(true);
+    try {
+      const im = imgRef.current;
+      const sx = (box.x - disp.offX) / disp.scale, sy = (box.y - disp.offY) / disp.scale;
+      const sw = box.w / disp.scale, sh = box.h / disp.scale;
+      const out = document.createElement('canvas');
+      out.width = Math.max(1, Math.round(sw)); out.height = Math.max(1, Math.round(sh));
+      const ctx = out.getContext('2d');
+      ctx.filter = `brightness(${bri}%) contrast(${con}%)` + (clean ? ' saturate(104%)' : '');
+      ctx.drawImage(im, sx, sy, sw, sh, 0, 0, out.width, out.height);
+      if (clean) sharpenCanvas(ctx, out.width, out.height);
+      onDone(out.toDataURL('image/jpeg', 0.82));
+    } catch (e) { say && say('تعذّرت معالجة الصورة', 'no'); onDone(base); }
+    setBusy(false);
+  };
+
+  return (
+    <Modal title={title || 'تحرير الصورة قبل الرفع'} icon={Crop} onClose={onCancel}
+      foot={<><button className="btn pri" disabled={busy} onClick={apply}>{busy ? <RefreshCw size={14} className="spin" /> : <Check size={14} />}اعتماد الصورة</button>
+        <button className="btn gh" onClick={onCancel}>إلغاء</button></>}>
+      <div className="imgstage" ref={stageRef}>
+        <img ref={imgRef} src={base} onLoad={measure} alt="تحرير"
+          style={{ filter: `brightness(${bri}%) contrast(${con}%)` + (clean ? ' saturate(104%)' : ''), position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', pointerEvents: 'none' }} />
+        {box && (
+          <div className="cropbox" style={{ left: box.x, top: box.y, width: box.w, height: box.h }} onPointerDown={onDown('move')}>
+            <span className="crop-h" onPointerDown={onDown('resize')} />
+            <span className="crop-grid" />
+          </div>
+        )}
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--dim)', textAlign: 'center', margin: '8px 0 4px' }}>اسحب الإطار لتحديد منطقة القص، والزاوية لتغيير الحجم.</div>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap', justifyContent: 'center', marginBottom: 6 }}>
+        <button className="btn sm" onClick={rotate}><RotateCw size={13} />تدوير</button>
+        <button className="btn sm" onClick={measure}><Crop size={13} />إعادة ضبط القص</button>
+        <button className={'btn sm' + (clean ? ' pri' : ' gh')} onClick={() => setClean(c => !c)}><Wand2 size={13} />توضيح وتنقية</button>
+      </div>
+      <div className="editrow"><span className="lbl"><Sun size={12} /> السطوع</span>
+        <input type="range" min="60" max="150" value={bri} onChange={e => setBri(+e.target.value)} />
+        <span className="num" style={{ fontSize: 11, width: 34 }}>{bri}%</span></div>
+      <div className="editrow"><span className="lbl">◐ التباين</span>
+        <input type="range" min="70" max="160" value={con} onChange={e => setCon(+e.target.value)} />
+        <span className="num" style={{ fontSize: 11, width: 34 }}>{con}%</span></div>
     </Modal>
   );
 }
@@ -4688,6 +5212,7 @@ function PhotoField({ label, value, onChange, say, onOcr }) {
   const [busy, setBusy] = useState(false);
   const [ocrBusy, setOcrBusy] = useState(false);
   const [zoom, setZoom] = useState(false);
+  const [editing, setEditing] = useState(null);
 
   const isPdf = typeof value === 'string' && value.startsWith('data:application/pdf');
 
@@ -4696,7 +5221,7 @@ function PhotoField({ label, value, onChange, say, onOcr }) {
     if (!f) return;
     if (!f.type.startsWith('image/')) return say && say('يُقبل رفع الصور فقط', 'no');
     setBusy(true);
-    try { onChange(await compressImage(f)); }
+    try { setEditing(await compressImage(f)); }   // افتح المحرّر قبل الاعتماد
     catch { say && say('تعذّرت معالجة الصورة', 'no'); }
     setBusy(false);
   };
@@ -4782,6 +5307,9 @@ function PhotoField({ label, value, onChange, say, onOcr }) {
           <img src={value} alt="مرفق" style={{ maxWidth: '92%', maxHeight: '90vh', borderRadius: 12, background: '#000' }} />
         </div>
       )}
+      {editing && <ImageEditor src={editing} say={say}
+        onCancel={() => setEditing(null)}
+        onDone={img => { setEditing(null); onChange(img); say && say('تم تحرير الصورة'); }} />}
     </div>
   );
 }
