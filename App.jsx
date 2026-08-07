@@ -144,18 +144,44 @@ const DENOMS = [
 const emptyDenoms = () => DENOMS.reduce((o, d) => ({ ...o, [d.k]: 0 }), {});
 const countDenoms = (d) => DENOMS.reduce((s, x) => s + (Number(d?.[x.k]) || 0) * x.v, 0);
 
+const ALL_TABS = ['dash', 'compare', 'closing', 'approve', 'treasury', 'payroll', 'suppliers', 'shifts', 'archive', 'ai', 'reports', 'admin', 'audit'];
 const ROLES = {
-  general_management: {
-    ar: 'الإدارة العليا — المدير العام', badge: 'b-brass', scope: 'all',
-    perms: ['كل الشاشات وكل الفروع', 'الاعتماد النهائي والإلغاء', 'إدارة المستخدمين والفروع', 'إدارة الرواتب والصرف']
-  },
-  finance_department: {
-    ar: 'الإدارة المالية — المحاسب الرئيسي', badge: 'b-sky', scope: 'assigned',
-    perms: ['تدقيق ومراجعة الإغلاقات', 'استلام تحويلات الخزينة', 'التقارير والقوائم المالية', 'تسجيل السلف والخصومات']
+  // ===== الأدوار الخمسة المعتمدة =====
+  cashier: {
+    ar: 'كاشير — إدخال إغلاق اليوم', badge: 'b-sky', scope: 'own', create: true, todayOnly: true,
+    tabs: ['closing'],
+    perms: ['إنشاء وترحيل إغلاق اليوم لفرعه', 'جرد الصندوق وإدخال المبيعات والمصروفات', 'اليوم الحالي فقط دون سجلّ سابق']
   },
   branch_manager: {
-    ar: 'إدارة الفرع — إدخال وترحيل', badge: 'b-mint', scope: 'own',
-    perms: ['إدخال الإغلاق اليومي لفرعه', 'جرد الفئات ومطابقة الصندوق', 'ترحيل النقدية للخزينة', 'التعديل قبل الترحيل فقط']
+    ar: 'مدير الفرع', badge: 'b-mint', scope: 'own', create: true,
+    tabs: ['closing', 'archive'],
+    perms: ['إدخال وترحيل إغلاق فرعه', 'عرض سجل إغلاقات فرعه', 'أرشيف مستندات فرعه فقط']
+  },
+  regional_manager: {
+    ar: 'مدير إقليمي — فروع مُسندة', badge: 'b-amber', scope: 'assigned',
+    tabs: ['dash', 'compare', 'closing', 'reports', 'archive'],
+    perms: ['متابعة الفروع المسندة إليه فقط', 'مقارنة وتقارير فروعه', 'لوحة مؤشرات لفروعه']
+  },
+  head_office: {
+    ar: 'المكتب الرئيسي — المالية والإدارة', badge: 'b-brass', scope: 'all', approver: true,
+    tabs: ['dash', 'compare', 'closing', 'approve', 'treasury', 'payroll', 'suppliers', 'shifts', 'archive', 'ai', 'reports', 'audit'],
+    perms: ['كل الفروع والتقارير المجمّعة', 'التدقيق والاعتماد النهائي', 'الخزينة والرواتب والموردون', 'المركز المالي الذكي']
+  },
+  system_admin: {
+    ar: 'مسؤول النظام — وصول كامل', badge: 'b-rose', scope: 'all', create: true, admin: true, approver: true,
+    tabs: ALL_TABS.slice(),
+    perms: ['وصول كامل غير مقيّد', 'إدارة الفروع والمستخدمين والأدوار', 'إعدادات النظام والنسخ الاحتياطي']
+  },
+  // ===== توافق مع الحسابات القائمة (لا تظهر عند إنشاء مستخدم جديد) =====
+  general_management: {
+    ar: 'الإدارة العليا — مدير عام', badge: 'b-brass', scope: 'all', create: true, admin: true, approver: true, legacy: true,
+    tabs: ALL_TABS.slice(),
+    perms: ['كل الشاشات وكل الفروع', 'الاعتماد والإلغاء', 'إدارة المستخدمين والفروع']
+  },
+  finance_department: {
+    ar: 'الإدارة المالية — محاسب رئيسي', badge: 'b-sky', scope: 'assigned', legacy: true,
+    tabs: ['dash', 'compare', 'closing', 'approve', 'treasury', 'payroll', 'suppliers', 'shifts', 'archive', 'ai', 'reports', 'audit'],
+    perms: ['تدقيق ومراجعة الإغلاقات', 'استلام تحويلات الخزينة', 'التقارير والقوائم المالية']
   }
 };
 
@@ -450,7 +476,7 @@ export default function App() {
 
   if (!me) {
     return <Gate css={CSS} theme={theme} org={org}
-      onLogin={(u) => { setMe(u); setTab(ROLES[u.role].scope === 'own' ? 'closing' : 'dash'); }}
+      onLogin={(u) => { setMe(u); setTab((ROLES[u.role]?.tabs || ['closing'])[0]); }}
       online={Object.values(pulse.presence || {}).filter(p => Date.now() - p.at < 70000)} />;
   }
 
@@ -465,20 +491,20 @@ export default function App() {
   const latestActivity = auditLog[0];
 
   const NAV = [
-    { id: 'dash', ar: 'لوحة المؤشرات', icon: LayoutDashboard, roles: ['finance_department', 'general_management'] },
-    { id: 'compare', ar: 'مقارنة الفروع', icon: BarChart3, roles: ['finance_department', 'general_management'] },
-    { id: 'closing', ar: 'الإغلاق اليومي', icon: ClipboardCheck, roles: ['all'] },
-    { id: 'approve', ar: 'التدقيق والاعتماد', icon: ShieldCheck, roles: ['finance_department', 'general_management'], cnt: pending },
-    { id: 'treasury', ar: 'الخزينة والترحيل', icon: Landmark, roles: ['finance_department', 'general_management'] },
-    { id: 'payroll', ar: 'الرواتب والسلف', icon: Wallet, roles: ['finance_department', 'general_management'] },
-    { id: 'suppliers', ar: 'الموردون والالتزامات', icon: Truck, roles: ['finance_department', 'general_management'] },
-    { id: 'shifts', ar: 'الورديات والتذكيرات', icon: Clock, roles: ['finance_department', 'general_management'] },
-    { id: 'archive', ar: 'أرشيف المستندات', icon: ImageIcon, roles: ['all'] },
-    { id: 'ai', ar: 'المركز المالي الذكي', icon: Sparkles, roles: ['finance_department', 'general_management'] },
-    { id: 'reports', ar: 'التقارير المالية', icon: FileBarChart, roles: ['finance_department', 'general_management'] },
-    { id: 'admin', ar: 'الفروع والمستخدمون', icon: UserCog, roles: ['general_management'] },
-    { id: 'audit', ar: 'سجل التدقيق', icon: Eye, roles: ['finance_department', 'general_management'] }
-  ].filter(n => n.roles.includes('all') || n.roles.includes(me.role));
+    { id: 'dash', ar: 'لوحة المؤشرات', icon: LayoutDashboard },
+    { id: 'compare', ar: 'مقارنة الفروع', icon: BarChart3 },
+    { id: 'closing', ar: 'الإغلاق اليومي', icon: ClipboardCheck },
+    { id: 'approve', ar: 'التدقيق والاعتماد', icon: ShieldCheck, cnt: pending },
+    { id: 'treasury', ar: 'الخزينة والترحيل', icon: Landmark },
+    { id: 'payroll', ar: 'الرواتب والسلف', icon: Wallet },
+    { id: 'suppliers', ar: 'الموردون والالتزامات', icon: Truck },
+    { id: 'shifts', ar: 'الورديات والتذكيرات', icon: Clock },
+    { id: 'archive', ar: 'أرشيف المستندات', icon: ImageIcon },
+    { id: 'ai', ar: 'المركز المالي الذكي', icon: Sparkles },
+    { id: 'reports', ar: 'التقارير المالية', icon: FileBarChart },
+    { id: 'admin', ar: 'الفروع والمستخدمون', icon: UserCog },
+    { id: 'audit', ar: 'سجل التدقيق', icon: Eye }
+  ].filter(n => (ROLES[me.role]?.tabs || []).includes(n.id));
 
   const shared = { org, ops, pulse, me, myBranches, scoped, commit, commitOrg, say, setTab, theme };
 
@@ -563,7 +589,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v5.1 ✓</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v5.2 ✓</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -744,7 +770,7 @@ function FirstRun({ css, theme, commitOrg, say, onDone }) {
     const passHash = await sha(f.pass);
     const owner = {
       id: uid('u'), name: f.name.trim(), email: f.email.trim().toLowerCase(),
-      role: 'general_management', passHash, isActive: true, createdAt: today()
+      role: 'system_admin', passHash, isActive: true, createdAt: today()
     };
     await commitOrg(d => ({
       ...d,
@@ -1591,7 +1617,7 @@ function Closing({ org, ops, me, myBranches, scoped, commit, say }) {
   const [open, setOpen] = useState(false);
   const [edit, setEdit] = useState(null);
   const [view, setView] = useState(null);
-  const canEdit = me.role === 'branch_manager' || me.role === 'general_management';
+  const canEdit = !!ROLES[me.role]?.create;
   const [q, setQ] = useState('');
   const [st, setSt] = useState('all');
   const [bid, setBid] = useState('all');
@@ -1601,6 +1627,7 @@ function Closing({ org, ops, me, myBranches, scoped, commit, say }) {
   const [limit, setLimit] = useState(15);
 
   const filtered = [...scoped.closings]
+    .filter(c => !ROLES[me.role]?.todayOnly || c.date === today())
     .filter(c => st === 'all' || c.status === st)
     .filter(c => bid === 'all' || c.branchId === bid)
     .filter(c => !fromD || c.date >= fromD)
@@ -1963,7 +1990,7 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
                         {branch?.name || branches[0]?.name || '—'}
                       </div>
                     ) : (
-                      <select className="sel" value={f.branchId} disabled={me.role === 'branch_manager' && !!initial}
+                      <select className="sel" value={f.branchId} disabled={ROLES[me.role]?.scope === 'own' && !!initial}
                         onChange={e => { const b = org.branches.find(x => x.id === e.target.value); setF(p => ({ ...p, branchId: e.target.value, openingBalance: b?.defaultFloat || 0 })); }}>
                         {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                       </select>
@@ -2363,7 +2390,7 @@ function ClosingView({ c, org, onClose }) {
 function Approvals({ org, me, scoped, commit, say }) {
   const [note, setNote] = useState({});
   const [view, setView] = useState(null);
-  const isGM = me.role === 'general_management';
+  const isGM = !!ROLES[me.role]?.approver;
   const queue = scoped.closings.filter(c => c.status === 'submitted' || (c.status === 'approved' && c.gmApprovalStatus === 'pending'))
     .sort((a, b) => b.date.localeCompare(a.date));
 
@@ -2407,7 +2434,7 @@ function Approvals({ org, me, scoped, commit, say }) {
 
       {queue.map(c => {
         const needAudit = c.status === 'submitted';
-        const canAct = needAudit ? (me.role === 'finance_department' || isGM) : isGM;
+        const canAct = needAudit ? (ROLES[me.role]?.scope !== 'own' && ROLES[me.role]?.tabs?.includes('approve')) : isGM;
         return (
           <div key={c.id} className="card" style={{ borderColor: c.variance < 0 ? 'rgba(217,84,77,.3)' : 'var(--line)' }}>
             <div className="card-h">
@@ -2455,8 +2482,8 @@ function Approvals({ org, me, scoped, commit, say }) {
 function Treasury({ org, ops, me, myBranches, scoped, commit, say }) {
   const [tab, setTab] = useState('in');
   const [add, setAdd] = useState(false);
-  const canReceive = me.role !== 'branch_manager';
-  const isCentral = me.role !== 'branch_manager';
+  const canReceive = ROLES[me.role]?.scope !== 'own';
+  const isCentral = ROLES[me.role]?.scope !== 'own';
 
   const list = [...scoped.transfers].sort((a, b) => b.date.localeCompare(a.date));
   const pending = list.filter(t => t.status === 'pending');
@@ -2676,7 +2703,7 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, say }) {
   const [add, setAdd] = useState(false);
   const ids = myBranches.map(b => b.id);
   const emps = org.employees.filter(e => ids.includes(e.branchId));
-  const canPay = me.role !== 'branch_manager';
+  const canPay = ROLES[me.role]?.scope !== 'own';
 
   const rows = emps.map(e => {
     const ads = scoped.advances.filter(a => a.employeeId === e.id && a.month === month);
@@ -3363,7 +3390,7 @@ function UserForm({ u, org, onSave, onClose }) {
       </div>
       <Field label="الدور والصلاحية">
         <select className="sel" value={f.role} onChange={e => set('role', e.target.value)}>
-          {Object.entries(ROLES).map(([k, v]) => <option key={k} value={k}>{v.ar}</option>)}
+          {Object.entries(ROLES).filter(([k, v]) => !v.legacy || k === f.role).map(([k, v]) => <option key={k} value={k}>{v.ar}</option>)}
         </select>
       </Field>
       {ROLES[f.role].scope === 'own' && (
@@ -3725,7 +3752,7 @@ function Suppliers({ org, ops, me, myBranches, commit, say }) {
     .sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''));
   const fixed = (ops.fixedExpenses || []).filter(f => ids.includes(f.branchId));
   const suppliers = org.suppliers || [];
-  const canPay = me.role !== 'branch_manager';
+  const canPay = ROLES[me.role]?.scope !== 'own';
 
   const outstanding = sum(invoices, i => i.amount - (i.paidAmount || 0));
   const overdue = invoices.filter(i => (i.amount - (i.paidAmount || 0)) > 0 && i.dueDate < today());
@@ -4544,7 +4571,7 @@ function CategoriesPanel({ org, ops, commitOrg, say }) {
 function Shifts({ org, ops, me, myBranches, commitOrg, say }) {
   const [now, setNow] = useState(new Date());
   const [edit, setEdit] = useState(null);
-  const isGM = me.role === 'general_management';
+  const isGM = ROLES[me.role]?.scope === 'all';
 
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 30000); return () => clearInterval(t); }, []);
 
@@ -4903,7 +4930,7 @@ function TourModal({ me, onClose, go }) {
     { icon: Sparkles, t: 'مدير مالي ذكي تحت الطلب', d: 'يقرأ إغلاقات فروعك ويعيد ملخصاً تنفيذياً وتوصيات لخفض التكلفة ومخاطر النقدية ودرجة أداء لكل فرع.', to: 'ai' }
   ];
   const s = steps[i];
-  const allowed = me.role === 'branch_manager' && ['approve', 'ai'].includes(s.to) ? 'dash' : s.to;
+  const allowed = (ROLES[me.role]?.tabs || []).includes(s.to) ? s.to : (ROLES[me.role]?.tabs || ['closing'])[0];
 
   return (
     <Modal title="جولة سريعة في المنصة" icon={Compass} onClose={onClose}
