@@ -607,7 +607,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v5.5 ✓</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v5.6 ✓</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -1905,7 +1905,7 @@ function Closing({ org, ops, me, myBranches, scoped, commit, say }) {
           )}
         </div>
         <div className="tw">
-          <table className="tb">
+          <table className="tb cards">
             <thead><tr>
               <th>التاريخ</th><th>الفرع</th><th>الإيراد</th><th>المصروف</th>
               <th>المتوقع بالصندوق</th><th>الفعلي</th><th>الفرق</th><th>الحالة</th><th></th>
@@ -1913,17 +1913,17 @@ function Closing({ org, ops, me, myBranches, scoped, commit, say }) {
             <tbody>
               {list.map(c => (
                 <tr key={c.id}>
-                  <td className="num" style={{ whiteSpace: 'nowrap' }}>{arDate(c.date)}</td>
-                  <td style={{ fontSize: 12 }}>{c.branchName}</td>
-                  <td className="num" style={{ color: 'var(--brass)' }}>{money(c.totalRevenue)}</td>
-                  <td className="num" style={{ color: 'var(--rose)' }}>{money(c.totalExpenses)}</td>
-                  <td className="num">{money(c.expectedCashInSafe)}</td>
-                  <td className="num">{money(c.actualCashCount)}</td>
-                  <td className="num" style={{ color: c.variance < 0 ? 'var(--rose)' : c.variance > 0 ? 'var(--mint)' : 'var(--faint)' }}>
+                  <td className="num" data-label="التاريخ" style={{ whiteSpace: 'nowrap' }}>{arDate(c.date)}</td>
+                  <td data-label="الفرع" style={{ fontSize: 12 }}>{c.branchName}</td>
+                  <td className="num" data-label="الإيراد" style={{ color: 'var(--brass)' }}>{money(c.totalRevenue)}</td>
+                  <td className="num" data-label="المصروف" style={{ color: 'var(--rose)' }}>{money(c.totalExpenses)}</td>
+                  <td className="num" data-label="المتوقع بالصندوق">{money(c.expectedCashInSafe)}</td>
+                  <td className="num" data-label="الفعلي">{money(c.actualCashCount)}</td>
+                  <td className="num" data-label="الفرق" style={{ color: c.variance < 0 ? 'var(--rose)' : c.variance > 0 ? 'var(--mint)' : 'var(--faint)' }}>
                     {c.variance > 0 ? '+' : ''}{money(c.variance)}
                   </td>
-                  <td><Badge s={c.status} /></td>
-                  <td>
+                  <td data-label="الحالة"><Badge s={c.status} /></td>
+                  <td className="acts">
                     <div className="row" style={{ gap: 5, flexWrap: 'nowrap' }}>
                       <button className="btn sm gh" onClick={() => setView(c)}><Eye size={13} /></button>
                       {canEdit && c.status === 'draft' && (
