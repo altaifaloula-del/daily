@@ -530,6 +530,10 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
 .moneysum b{color:var(--brass);font-weight:700}
 .inp-sum-ta{font-family:'IBM Plex Mono',monospace;white-space:pre}
 .inp-sum-ta.on{border-color:var(--brass-d);background:var(--ink2)}
+.money-multi{display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap}
+.money-add{flex-shrink:0}
+.money-multi-t{font-size:11.5px;color:var(--dim);padding:5px 10px;border-radius:8px;background:rgba(200,162,74,.09);border:1px solid rgba(200,162,74,.3)}
+.money-multi-t b{color:var(--brass);font-weight:700}
 
 /* ===== الجداول ذات الكلاس .cards تتحوّل إلى بطاقات على الجوال (بلا تمرير أفقي ولا إخفاء أعمدة) ===== */
 @media(max-width:760px){
@@ -539,7 +543,8 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
   .tb.cards, .tb.cards tbody, .tb.cards tr, .tb.cards td{display:block;width:100%}
   .tb.cards tr{border:1px solid var(--line);border-radius:12px;margin-bottom:10px;padding:4px 13px;background:var(--ink2)}
   .tb.cards tr:last-child td{border-bottom-color:rgba(120,100,80,.14)}
-  .tb.cards td{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid rgba(120,100,80,.14);text-align:end;white-space:normal !important;overflow-wrap:anywhere}
+  .tb.cards td{direction:rtl;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid rgba(120,100,80,.14);text-align:end;white-space:normal !important;overflow-wrap:anywhere}
+  .tb.cards td.num{unicode-bidi:plaintext}
   .tb.cards td:last-child{border-bottom:none}
   .tb.cards td::before{content:attr(data-label);color:var(--dim);font-size:11.5px;font-weight:600;text-align:start;flex-shrink:0}
   .tb.cards td.acts{justify-content:flex-end;padding-top:10px}

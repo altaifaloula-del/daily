@@ -607,7 +607,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v5.6 ✓</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v5.7 ✓</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -978,6 +978,7 @@ function Field({ label, children, style }) {
 function MoneyField({ value, onChange, sum, placeholder, autoFocus, style }) {
   const [raw, setRaw] = useState(() => (value ? money(value) : ''));
   const [focused, setFocused] = useState(false);
+  const ref = useRef(null);
   useEffect(() => {
     if (focused) return;
     if (Math.round(parseAmounts(raw).total * 100) !== Math.round((Number(value) || 0) * 100)) {
@@ -992,8 +993,15 @@ function MoneyField({ value, onChange, sum, placeholder, autoFocus, style }) {
     setRaw(s);
     onChange(parseAmounts(s).total);
   };
+  // زر «أضف مبلغًا»: يضيف فاصل + لإدخال عدة مبالغ على الجوال حيث لا تتوفّر علامة + في لوحة الأرقام
+  const addAmount = () => {
+    const base = raw.trim().replace(/[+\s]+$/, '');
+    const nv = base ? base + ' + ' : '';
+    setRaw(nv); onChange(parseAmounts(nv).total);
+    requestAnimationFrame(() => { const el = ref.current; if (el) { el.focus(); const l = el.value.length; try { el.setSelectionRange(l, l); } catch (er) {} } });
+  };
   const common = {
-    value: raw, placeholder: placeholder || '0.00', inputMode: 'decimal', autoFocus,
+    ref, value: raw, placeholder: placeholder || '0.00', inputMode: 'decimal', autoFocus,
     onFocus: () => setFocused(true),
     onBlur: () => { setFocused(false); if (!(sum && parseAmounts(raw).nums.length > 1)) setRaw(value ? money(value) : ''); },
     onChange: onText
@@ -1002,12 +1010,12 @@ function MoneyField({ value, onChange, sum, placeholder, autoFocus, style }) {
     <>
       {sum
         ? <textarea {...common} className={'inp n inp-sum-ta' + (multi ? ' on' : '')} rows={1}
-            placeholder="مبلغ واحد، أو عدة مبالغ: 500+250 أو سطر لكل مبلغ" style={{ ...style, resize: 'vertical', minHeight: 44, lineHeight: 1.6 }} />
+            placeholder="مبلغ واحد، أو عدة مبالغ: 500+250 — أو زر «أضف مبلغًا»" style={{ ...style, resize: 'vertical', minHeight: 44, lineHeight: 1.6 }} />
         : <input {...common} className="inp n" style={style} />}
-      {multi && (
-        <div className="moneysum">
-          <span><b className="num">{nums.length}</b> مبالغ</span>
-          <span>الإجمالي: <b className="num">{money(total)}</b></span>
+      {sum && (
+        <div className="money-multi">
+          <button type="button" className="btn sm gh money-add" onClick={addAmount}><Plus size={14} />أضف مبلغًا</button>
+          {multi && <span className="money-multi-t"><b className="num">{nums.length}</b> مبالغ · الإجمالي: <b className="num">{money(total)}</b></span>}
         </div>
       )}
     </>
