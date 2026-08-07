@@ -203,9 +203,14 @@ const ROLES = {
   }
 };
 
+// تطبيقات التوصيل المعروفة في السعودية — العمولة اختيارية (0 افتراضياً، تُعدّل عند الحاجة)
 const APPS = [
-  { id: 'jahez', n: 'جاهز', c: 12 }, { id: 'hunger', n: 'هنقرستيشن', c: 15 },
-  { id: 'toyou', n: 'تويو', c: 10 }, { id: 'keeta', n: 'كيتا', c: 14 }
+  { id: 'jahez', n: 'جاهز', c: 0 }, { id: 'hunger', n: 'هنقرستيشن', c: 0 },
+  { id: 'toyou', n: 'تويو', c: 0 }, { id: 'mrsool', n: 'مرسول', c: 0 },
+  { id: 'ninja', n: 'نينجا', c: 0 }, { id: 'keeta', n: 'كيتا', c: 0 },
+  { id: 'chefz', n: 'ذا شيفز', c: 0 }, { id: 'careem', n: 'كريم فود', c: 0 },
+  { id: 'noon', n: 'نون فود', c: 0 }, { id: 'cari', n: 'كاري', c: 0 },
+  { id: 'direct', n: 'المتجر الخاص / طلب مباشر', c: 0 }
 ];
 
 const EXP_CATS = [
@@ -607,7 +612,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v5.9 ✓</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v6.0 ✓</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -1058,6 +1063,7 @@ function OutputDialog({ rec, org, onDone, onCancel }) {
   const [pdfOk, setPdfOk] = useState(false);
   const [printConfirmed, setPrintConfirmed] = useState(false);
   const [printFailed, setPrintFailed] = useState(false);
+  const [pdfAck, setPdfAck] = useState(false);
   const [hash, setHash] = useState('');
 
   const needPdf = method === 'pdf' || method === 'both';
@@ -1073,7 +1079,7 @@ function OutputDialog({ rec, org, onDone, onCancel }) {
   const reprint = () => { const ok = printReceipt(rec, org, size); setAttempts(a => a + 1); setPrintFailed(ok === false); };
   const regenPdf = () => { const ok = printClosingA4(rec, org); setPdfOk(ok !== false); };
 
-  const canFinish = (!needPdf || pdfOk) && (!needPrint || printConfirmed);
+  const canFinish = (!needPdf || pdfOk || pdfAck) && (!needPrint || printConfirmed);
   const finish = () => onDone({
     outputMethod: method === 'both' ? 'طباعة + PDF' : method === 'pdf' ? 'PDF فقط' : 'طباعة حرارية',
     thermalSize: needPrint ? size + 'مم' : '—',
@@ -1134,8 +1140,8 @@ function OutputDialog({ rec, org, onDone, onCancel }) {
       ) : (
         <>
           {needPdf && statusRow('📄 تقرير PDF الرسمي',
-            pdfOk ? <span className="badge b-mint"><Check size={11} />تم الإنشاء — عايِنه ونزّله من النافذة</span>
-              : <span className="row" style={{ gap: 6 }}><span className="badge b-rose">لم تُفتح النافذة — اسمح بالمنبثقة</span><button className="btn sm" onClick={regenPdf}>إعادة</button></span>)}
+            (pdfOk || pdfAck) ? <span className="badge b-mint"><Check size={11} />{pdfOk ? 'تم الإنشاء — عايِنه ونزّله من النافذة' : 'مُتابَع'}</span>
+              : <span className="row" style={{ gap: 6, flexWrap: 'wrap' }}><span className="badge b-rose">لم تُفتح النافذة</span><button className="btn sm" onClick={regenPdf}>إعادة</button><button className="btn sm gh" onClick={() => setPdfAck(true)}>متابعة بدونها</button></span>)}
           {needPrint && (
             <>
               {statusRow(<span>🖨 طباعة حرارية {size}مم · محاولات: <span className="num">{attempts}</span></span>,
@@ -1153,6 +1159,11 @@ function OutputDialog({ rec, org, onDone, onCancel }) {
           <div className="cflow-alert" style={{ border: '1px solid rgba(200,162,74,.35)', background: 'rgba(200,162,74,.08)', color: 'var(--dim)', marginTop: 14, borderRadius: 10, padding: '10px 12px', display: 'flex', gap: 8, fontSize: 11 }}>
             <span>🔒</span><span>بصمة التقرير الرقمية: <span className="num" style={{ fontSize: 10 }}>{(hash || '').slice(0, 20)}…</span><br />الجهاز: {deviceType()} · المتصفح: {browserName()} — تُحفظ في سجل التدقيق.</span>
           </div>
+          {!canFinish && (
+            <div style={{ fontSize: 11.5, color: 'var(--amber)', marginTop: 10, textAlign: 'center', lineHeight: 1.6 }}>
+              لتفعيل زر «إتمام الإغلاق»:{needPdf && !pdfOk && !pdfAck ? ' أنشئ الـPDF أو تابِع بدونها.' : ''}{needPrint && !printConfirmed ? ' اضغط «نعم، تمت الطباعة».' : ''}
+            </div>
+          )}
         </>
       )}
     </Modal>
@@ -2045,6 +2056,7 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
       if (actual <= 0) { say('أكمل جرد الفئات النقدية قبل الترحيل', 'no'); return null; }
       if (variance !== 0 && !f.varianceReason.trim()) { say('وثّق سبب العجز أو الفائض قبل الترحيل', 'no'); return null; }
       if (f.transferredToMainTreasury > actual) { say('المرحّل للخزينة يتجاوز النقد المعدود', 'no'); return null; }
+      if (!f.sessionPhoto) { say('التقط صورة توثيق المسؤول قبل الترحيل — إجباري', 'no'); return null; }
     }
     const id = initial?.id || 'cl-' + f.branchId + '-' + f.date + '-' + Math.random().toString(36).slice(2, 5);
     const ref = 'TR-' + f.date.replace(/-/g, '') + '-' + f.branchId.slice(-2);
@@ -2524,7 +2536,7 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
             <textarea className="inp" value={f.notes} placeholder="ملاحظات المدير على الوردية"
               onChange={e => set('notes', e.target.value)} />
           </Field>
-          <Field label="صورة توثيق المسؤول (اختياري)">
+          <Field label="صورة توثيق المسؤول (إجباري قبل الترحيل)">
             {f.sessionPhoto ? (
               <div className="row" style={{ alignItems: 'center' }}>
                 <img src={f.sessionPhoto} alt="توثيق" style={{ width: 54, height: 54, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--line)' }} />
@@ -3784,18 +3796,20 @@ function buildClosingA4(c, org) {
   const branch = (org.branches || []).find(b => b.id === c.branchId);
   const headLogo = (branch && branch.logoUrl) || co.logoUrl || '';
   const money2 = (n) => (Math.round((n || 0) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const dels = (c.deliverySales || []).filter(d => d.amount > 0);
+  const dels = (c.deliverySales || []);
+  const delComm = (d) => (d.commissionAmount != null ? d.commissionAmount : (d.amount * (d.commissionPercentage || 0) / 100));
   const statusAr = c.gmApprovalStatus === 'approved' ? 'معتمد نهائياً'
     : c.status === 'approved' ? 'مدقّق — بانتظار الاعتماد'
     : c.status === 'submitted' ? 'بانتظار الاعتماد' : 'مسودة';
   const varClass = c.variance === 0 ? 'ok' : c.variance < 0 ? 'bad' : 'warn';
   const varText = c.variance === 0 ? 'مطابق (0.00)' : c.variance < 0 ? 'عجز ' + money2(Math.abs(c.variance)) : 'فائض ' + money2(c.variance);
 
-  const delRows = dels.map(d => `<tr>
-    <td>تطبيق: ${d.appName}</td>
+  const delRows = dels.length ? `<tr class="subhead"><td colspan="4">مبيعات تطبيقات التوصيل (${dels.length} تطبيقات)</td></tr>` +
+    dels.map(d => `<tr>
+    <td>تطبيق: ${d.appName || '—'}</td>
     <td class="num">${money2(d.amount)}</td>
-    <td class="num dim">${money2(d.commissionAmount || 0)}-</td>
-    <td class="num">${d.orderCount || 0} طلب</td></tr>`).join('');
+    <td class="num dim">-${money2(delComm(d))}</td>
+    <td class="num dim">${d.orderCount || 0} طلب</td></tr>`).join('') : '';
 
   const payLbl = (pm) => ({cash:'نقداً',card:'شبكة',cheque:'شيك',bank_transfer:'تحويل',deferred:'آجل'})[pm] || pm;
   const expRows = (c.expenses || []).length ? (c.expenses || []).map(e => `<tr>
@@ -3826,6 +3840,28 @@ function buildClosingA4(c, org) {
       <div class="doc-title">تقرير الإغلاق اليومي الرسمي</div>
       <div class="doc-sub">فرع ${c.branchName} · ${arDate(c.date)}</div>
       <div class="doc-sub dim">تاريخ التصدير: ${new Date().toLocaleString('ar-SA-u-nu-latn')}</div>
+    </div>
+
+    <div class="summary-card">
+      <div class="summary-h">📊 التلخيص المالي — تقرير إغلاق يومي</div>
+      <div class="summary-grid">
+        <div class="sc"><span>إجمالي المبيعات</span><b class="mint">${money2(c.totalRevenue)} ر.س</b></div>
+        <div class="sc"><span>إجمالي المصروفات</span><b class="rose">${money2(c.totalExpenses)} ر.س</b></div>
+        <div class="sc"><span>عمولات منصات التوصيل</span><b class="warn2">${money2(sum(dels, d => delComm(d)))} ر.س</b></div>
+        <div class="sc"><span>صافي الأرباح التشغيلية</span><b class="mint">${money2(c.totalRevenue - c.totalExpenses)} ر.س</b></div>
+        <div class="sc"><span>صور الفواتير المرفقة</span><b class="brass">${receiptImgs.length} صور</b></div>
+      </div>
+    </div>
+
+    <div class="banner">
+      <div class="banner-r">
+        <div class="banner-id">تقرير الإغلاق اليومي #${c.id || c.transferReferenceNo || ''}</div>
+        <div class="banner-sub">التاريخ: ${arDate(c.date)}${c.transferReferenceNo ? ' · سند: ' + c.transferReferenceNo : ''}</div>
+      </div>
+      <div class="banner-l">
+        <div>الفرع: <b>${c.branchName}</b> · المسؤول: <b>${c.managerName}</b></div>
+        <span class="banner-badge">${statusAr}</span>
+      </div>
     </div>
 
     <div class="kpis">
@@ -3943,6 +3979,18 @@ const A4_CSS = `
   .sig-line { border-bottom: 1px dashed #999; margin: 22px 12px 6px }
   .sig-ok { font-size: 9.5px; color: #2E8B62; font-weight: 600; margin-top: 4px }
   .foot { text-align: center; font-size: 9px; margin-top: 16px; border-top: 1px dashed #ccc; padding-top: 8px }
+  .summary-card { border: 1px solid #e5e0d5; border-radius: 10px; padding: 11px 14px; margin-bottom: 12px; background: #faf8f3 }
+  .summary-h { font-size: 11.5px; font-weight: 700; color: #14110F; margin-bottom: 9px }
+  .summary-grid { display: grid; grid-template-columns: repeat(5,1fr); gap: 8px }
+  .sc { text-align: center } .sc span { font-size: 8.5px; color: #777; display: block } .sc b { font-size: 12.5px; display: block; margin-top: 3px }
+  .warn2 { color: #B7791F }
+  .banner { display: flex; justify-content: space-between; align-items: center; gap: 12px; background: #14110F; color: #EFE7DB; border-radius: 10px; padding: 11px 15px; margin-bottom: 12px; flex-wrap: wrap }
+  .banner-id { font-family: 'IBM Plex Mono',ui-monospace,monospace; color: #E0C074; font-size: 12px; font-weight: 700; direction: ltr; text-align: left }
+  .banner-sub { font-size: 9px; color: #A2968A; margin-top: 3px }
+  .banner-l { text-align: end; font-size: 10px; color: #D9CFC0; display: flex; flex-direction: column; gap: 3px; align-items: flex-end }
+  .banner-l b { color: #fff }
+  .banner-badge { background: rgba(224,164,88,.22); color: #E0A458; padding: 2px 9px; border-radius: 10px; font-size: 9px; font-weight: 700 }
+  table.t .subhead td { background: #f2edfa; color: #6b4fa0; font-weight: 700; font-size: 9.5px; padding: 5px 9px }
 `;
 
 function printClosingA4(c, org) {
