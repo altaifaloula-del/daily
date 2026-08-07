@@ -541,4 +541,10 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
   .fab-new{padding:0;width:56px;min-width:56px;justify-content:center;border-radius:50%}
   .fab-new .fab-lbl{display:none}
 }
+
+/* ===== حقل عدة مبالغ (جمع تلقائي) ===== */
+.moneysum{display:flex;justify-content:space-between;gap:10px;margin-top:6px;padding:7px 11px;border-radius:9px;background:rgba(200,162,74,.09);border:1px solid rgba(200,162,74,.3);font-size:11.5px;color:var(--dim)}
+.moneysum b{color:var(--brass);font-weight:700}
+.inp-sum-ta{font-family:'IBM Plex Mono',monospace;white-space:pre}
+.inp-sum-ta.on{border-color:var(--brass-d);background:var(--ink2)}
 `;

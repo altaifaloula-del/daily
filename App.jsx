@@ -73,6 +73,23 @@ async function bioVerify(credId) {
 
 const money = (n) =>
   (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// تنسيق مالي حيّ أثناء الكتابة: فواصل آلاف مع حفظ الكسور (حتى منزلتين)
+const fmtCurStr = (s) => {
+  let v = String(s).replace(/[^\d.]/g, '');
+  const dot = v.indexOf('.');
+  if (dot !== -1) v = v.slice(0, dot + 1) + v.slice(dot + 1).replace(/\./g, '');
+  const p = v.split('.');
+  let i = (p[0] || '').replace(/^0+(?=\d)/, '') || '0';
+  i = i.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return p.length > 1 ? i + '.' + p[1].slice(0, 2) : i;
+};
+// تفكيك نص قد يحوي عدة مبالغ (مفصولة بـ + أو أسطر) إلى أرقام ومجموعها
+const parseAmounts = (s) => {
+  const parts = String(s).split(/[+\n]/).map(t => t.replace(/[^\d.]/g, '')).filter(t => t !== '' && t !== '.');
+  const nums = parts.map(Number).filter(n => !isNaN(n));
+  const total = Math.round(nums.reduce((a, b) => a + b, 0) * 100) / 100;
+  return { nums, total };
+};
 const short = (n) => {
   const v = Number(n) || 0;
   if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(2) + 'M';
@@ -589,7 +606,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v5.2 ✓</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v5.3 ✓</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -948,14 +965,180 @@ function Field({ label, children, style }) {
   return <div className="fld" style={style}><label className="lbl">{label}</label>{children}</div>;
 }
 
-function Num({ label, value, onChange, hint }) {
+// حقل مالي ذكي: تنسيق حيّ (١٬٢٥٠٫٠٠) + دعم عدة مبالغ في حقل واحد عند sum
+function MoneyField({ value, onChange, sum, placeholder, autoFocus, style }) {
+  const [raw, setRaw] = useState(() => (value ? money(value) : ''));
+  const [focused, setFocused] = useState(false);
+  useEffect(() => {
+    if (focused) return;
+    if (Math.round(parseAmounts(raw).total * 100) !== Math.round((Number(value) || 0) * 100)) {
+      setRaw(value ? money(value) : '');
+    }
+  }, [value]); // eslint-disable-line react-hooks/exhaustive-deps
+  const { nums, total } = parseAmounts(raw);
+  const multi = sum && nums.length > 1;
+  const onText = (e) => {
+    let s = e.target.value;
+    s = sum ? s.replace(/[^\d.+\n ]/g, '') : fmtCurStr(s.replace(/[^\d.]/g, ''));
+    setRaw(s);
+    onChange(parseAmounts(s).total);
+  };
+  const common = {
+    value: raw, placeholder: placeholder || '0.00', inputMode: 'decimal', autoFocus,
+    onFocus: () => setFocused(true),
+    onBlur: () => { setFocused(false); if (!(sum && parseAmounts(raw).nums.length > 1)) setRaw(value ? money(value) : ''); },
+    onChange: onText
+  };
+  return (
+    <>
+      {sum
+        ? <textarea {...common} className={'inp n inp-sum-ta' + (multi ? ' on' : '')} rows={1}
+            placeholder="مبلغ واحد، أو عدة مبالغ: 500+250 أو سطر لكل مبلغ" style={{ ...style, resize: 'vertical', minHeight: 44, lineHeight: 1.6 }} />
+        : <input {...common} className="inp n" style={style} />}
+      {multi && (
+        <div className="moneysum">
+          <span><b className="num">{nums.length}</b> مبالغ</span>
+          <span>الإجمالي: <b className="num">{money(total)}</b></span>
+        </div>
+      )}
+    </>
+  );
+}
+
+function Num({ label, value, onChange, hint, sum }) {
   return (
     <div className="fld">
-      <label className="lbl">{label}</label>
-      <input className="inp n" inputMode="decimal" value={value === 0 ? '' : value}
-        placeholder="0.00" onChange={e => onChange(Number(e.target.value.replace(/[^\d.-]/g, '')) || 0)} />
+      <label className="lbl">{label}{sum && <span style={{ color: 'var(--brass)', fontWeight: 400 }}> · يقبل عدة مبالغ</span>}</label>
+      <MoneyField value={value} onChange={onChange} sum={sum} />
       {hint && <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 4 }}>{hint}</div>}
     </div>
+  );
+}
+
+/* ================= الجهاز والمتصفح (لسجل التدقيق) ================= */
+const deviceType = () => {
+  const u = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
+  if (/iPhone|iPad|iPod/i.test(u)) return 'iPhone/iPad';
+  if (/Android/i.test(u)) return 'Android';
+  return 'كمبيوتر';
+};
+const browserName = () => {
+  const u = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
+  if (/Edg/i.test(u)) return 'Edge';
+  if (/OPR|Opera/i.test(u)) return 'Opera';
+  if (/Chrome/i.test(u)) return 'Chrome';
+  if (/Firefox/i.test(u)) return 'Firefox';
+  if (/Safari/i.test(u)) return 'Safari';
+  return 'متصفح';
+};
+
+/* ================= نافذة الإخراج الإلزامية قبل إتمام الإغلاق (#21) ================= */
+function OutputDialog({ rec, org, onDone, onCancel }) {
+  const [method, setMethod] = useState('both');
+  const [size, setSize] = useState('80');
+  const [phase, setPhase] = useState('choose'); // choose | confirm
+  const [attempts, setAttempts] = useState(0);
+  const [pdfOk, setPdfOk] = useState(false);
+  const [printConfirmed, setPrintConfirmed] = useState(false);
+  const [printFailed, setPrintFailed] = useState(false);
+  const [hash, setHash] = useState('');
+
+  const needPdf = method === 'pdf' || method === 'both';
+  const needPrint = method === 'print' || method === 'both';
+
+  const runOutputs = async () => {
+    const h = await sha([rec.transferReferenceNo, rec.branchName, rec.date, rec.totalRevenue, rec.totalExpenses, rec.actualCashCount, rec.variance, rec.transferredToMainTreasury].join('|'));
+    setHash(h);
+    if (needPdf) { const ok = printClosingA4(rec, org); setPdfOk(ok !== false); }
+    if (needPrint) { const ok = printReceipt(rec, org, size); setAttempts(1); setPrintFailed(ok === false); }
+    setPhase('confirm');
+  };
+  const reprint = () => { const ok = printReceipt(rec, org, size); setAttempts(a => a + 1); setPrintFailed(ok === false); };
+  const regenPdf = () => { const ok = printClosingA4(rec, org); setPdfOk(ok !== false); };
+
+  const canFinish = (!needPdf || pdfOk) && (!needPrint || printConfirmed);
+  const finish = () => onDone({
+    outputMethod: method === 'both' ? 'طباعة + PDF' : method === 'pdf' ? 'PDF فقط' : 'طباعة حرارية',
+    thermalSize: needPrint ? size + 'مم' : '—',
+    pdfStatus: needPdf ? (pdfOk ? 'تم الإنشاء' : 'فشل') : 'غير مطلوب',
+    printStatus: needPrint ? (printConfirmed ? 'تمت' : printFailed ? 'فشلت' : 'غير مؤكدة') : 'غير مطلوب',
+    printAttempts: attempts, device: deviceType(), browser: browserName(), reportHash: hash
+  });
+
+  const opt = (k, lbl, tag) => (
+    <button key={k} type="button" onClick={() => setMethod(k)}
+      style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'start', marginBottom: 8, padding: '13px 14px', borderRadius: 12, cursor: 'pointer', minHeight: 44,
+        border: '1px solid ' + (method === k ? 'var(--brass)' : 'var(--line)'), background: method === k ? 'rgba(200,162,74,.1)' : 'var(--ink3)', color: 'var(--txt)', fontFamily: 'inherit', fontSize: 13.5, fontWeight: 600 }}>
+      <span style={{ width: 18, height: 18, borderRadius: '50%', border: '2px solid ' + (method === k ? 'var(--brass)' : 'var(--faint)'), flexShrink: 0, display: 'grid', placeItems: 'center' }}>
+        {method === k && <span style={{ width: 9, height: 9, borderRadius: '50%', background: 'var(--brass)' }} />}
+      </span>
+      <span style={{ flex: 1 }}>{lbl}</span>
+      <span className="badge b-dim" style={{ fontSize: 9.5 }}>{tag}</span>
+    </button>
+  );
+  const statusRow = (label, node) => (
+    <div className="row" style={{ justifyContent: 'space-between', gap: 10, padding: '9px 0', borderBottom: '1px solid rgba(120,100,80,.14)', flexWrap: 'wrap' }}>
+      <span style={{ fontSize: 12.5 }}>{label}</span>{node}
+    </div>
+  );
+
+  return (
+    <Modal title="إخراج الإغلاق الرسمي — خطوة إلزامية" icon={Printer} onClose={onCancel}
+      foot={phase === 'confirm'
+        ? <>
+            <button className="btn pri" disabled={!canFinish} onClick={finish}><Check size={14} />إتمام الإغلاق</button>
+            <button className="btn gh" onClick={onCancel}>إلغاء الإغلاق</button>
+          </>
+        : <>
+            <button className="btn pri" onClick={runOutputs}><Printer size={14} />متابعة الإخراج</button>
+            <button className="btn gh" onClick={onCancel}>إلغاء</button>
+          </>}>
+      {phase === 'choose' ? (
+        <>
+          <div style={{ fontSize: 12.5, color: 'var(--dim)', marginBottom: 12 }}>
+            لا يمكن إتمام الإغلاق قبل اختيار مُخرَج رسمي واحد على الأقل:
+          </div>
+          {opt('both', '🖨 + 📄  طباعة حرارية + تقرير PDF', 'موصى به')}
+          {opt('print', '🖨  طباعة حرارية للكاشير', '58/80مم')}
+          {opt('pdf', '📄  تقرير PDF رسمي', 'A4')}
+          {needPrint && (
+            <div style={{ marginTop: 12 }}>
+              <div className="lbl">حجم ورق طابعة الكاشير</div>
+              <div className="row" style={{ gap: 8 }}>
+                <button type="button" className={'btn sm' + (size === '80' ? ' pri' : ' gh')} onClick={() => setSize('80')}>80مم</button>
+                <button type="button" className={'btn sm' + (size === '58' ? ' pri' : ' gh')} onClick={() => setSize('58')}>58مم</button>
+              </div>
+            </div>
+          )}
+          <div className="cflow-alert" style={{ border: '1px solid rgba(91,147,196,.4)', background: 'rgba(91,147,196,.1)', color: 'var(--sky)', marginTop: 14, borderRadius: 10, padding: '10px 12px', display: 'flex', gap: 8 }}>
+            <span>ℹ</span><span style={{ fontSize: 11.5, lineHeight: 1.6 }}>تُرسَل الطباعة عبر نافذة الطباعة في المتصفح — اختر طابعة الكاشير (58/80مم) المثبّتة على الجهاز. سيُطلب منك تأكيد نجاح الطباعة قبل اعتماد الإغلاق.</span>
+          </div>
+        </>
+      ) : (
+        <>
+          {needPdf && statusRow('📄 تقرير PDF الرسمي',
+            pdfOk ? <span className="badge b-mint"><Check size={11} />تم الإنشاء — عايِنه ونزّله من النافذة</span>
+              : <span className="row" style={{ gap: 6 }}><span className="badge b-rose">لم تُفتح النافذة — اسمح بالمنبثقة</span><button className="btn sm" onClick={regenPdf}>إعادة</button></span>)}
+          {needPrint && (
+            <>
+              {statusRow(<span>🖨 طباعة حرارية {size}مم · محاولات: <span className="num">{attempts}</span></span>,
+                printConfirmed ? <span className="badge b-mint"><Check size={11} />تمت الطباعة</span>
+                  : <span className="badge b-amber">بانتظار تأكيدك</span>)}
+              {!printConfirmed && (
+                <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                  <button className="btn sm pri" onClick={() => { setPrintConfirmed(true); setPrintFailed(false); }}><Check size={13} />نعم، تمت الطباعة</button>
+                  <button className="btn sm" onClick={reprint}><RefreshCw size={13} />أعد المحاولة</button>
+                  <button className="btn sm gh" onClick={() => { const ns = size === '80' ? '58' : '80'; setSize(ns); }}>بدّل الحجم</button>
+                </div>
+              )}
+            </>
+          )}
+          <div className="cflow-alert" style={{ border: '1px solid rgba(200,162,74,.35)', background: 'rgba(200,162,74,.08)', color: 'var(--dim)', marginTop: 14, borderRadius: 10, padding: '10px 12px', display: 'flex', gap: 8, fontSize: 11 }}>
+            <span>🔒</span><span>بصمة التقرير الرقمية: <span className="num" style={{ fontSize: 10 }}>{(hash || '').slice(0, 20)}…</span><br />الجهاز: {deviceType()} · المتصفح: {browserName()} — تُحفظ في سجل التدقيق.</span>
+          </div>
+        </>
+      )}
+    </Modal>
   );
 }
 
@@ -1793,6 +1976,8 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
   const setAllSecs = (v) => setSecs({ sales: v, network: v, delivery: v, expenses: v, inventory: v, transfer: v, notes: v });
   const [cam, setCam] = useState(false);
   const [sumOpen, setSumOpen] = useState(false);
+  const [outPrompt, setOutPrompt] = useState(false);
+  const [pend, setPend] = useState(null);
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   const branch = org.branches.find(b => b.id === f.branchId);
 
@@ -1823,15 +2008,16 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
     return n;
   }));
 
-  const save = async (status) => {
-    if (!f.branchId) return say('اختر الفرع أولاً', 'no');
-    if (totalRevenue <= 0) return say('أدخل مبيعات الوردية قبل الحفظ', 'no');
+  // بناء سجل الإغلاق بعد التحقّق (يعيد null عند فشل التحقّق)
+  const buildRecord = (status) => {
+    if (!f.branchId) { say('اختر الفرع أولاً', 'no'); return null; }
+    if (totalRevenue <= 0) { say('أدخل مبيعات الوردية قبل الحفظ', 'no'); return null; }
     const dup = existing.find(c => c.branchId === f.branchId && c.date === f.date && c.id !== initial?.id);
-    if (dup) return say('يوجد إغلاق مسجّل لهذا الفرع بنفس التاريخ — عدّل الإغلاق القائم بدل إنشاء نسخة ثانية', 'no');
+    if (dup) { say('يوجد إغلاق مسجّل لهذا الفرع بنفس التاريخ — عدّل الإغلاق القائم بدل إنشاء نسخة ثانية', 'no'); return null; }
     if (status === 'submitted') {
-      if (actual <= 0) return say('أكمل جرد الفئات النقدية قبل الترحيل', 'no');
-      if (variance !== 0 && !f.varianceReason.trim()) return say('وثّق سبب العجز أو الفائض قبل الترحيل', 'no');
-      if (f.transferredToMainTreasury > actual) return say('المرحّل للخزينة يتجاوز النقد المعدود', 'no');
+      if (actual <= 0) { say('أكمل جرد الفئات النقدية قبل الترحيل', 'no'); return null; }
+      if (variance !== 0 && !f.varianceReason.trim()) { say('وثّق سبب العجز أو الفائض قبل الترحيل', 'no'); return null; }
+      if (f.transferredToMainTreasury > actual) { say('المرحّل للخزينة يتجاوز النقد المعدود', 'no'); return null; }
     }
     const id = initial?.id || 'cl-' + f.branchId + '-' + f.date + '-' + Math.random().toString(36).slice(2, 5);
     const ref = 'TR-' + f.date.replace(/-/g, '') + '-' + f.branchId.slice(-2);
@@ -1843,10 +2029,15 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
       totalCardExpenses: sum(f.expenses.filter(e => e.paymentMethod === 'card'), e => e.amount),
       expectedCashInSafe: expected, actualCashCount: actual, variance,
       retainedFloatForTomorrow: retained, transferReferenceNo: ref,
-      transferStatus: status === 'submitted' ? 'pending' : 'pending',
-      status, gmApprovalStatus: 'pending',
+      transferStatus: 'pending', status, gmApprovalStatus: 'pending',
       createdBy: me.name, createdAt: initial?.createdAt || nowISO(), updatedAt: nowISO()
     };
+    return { rec: { ...rec, closingNo: ref }, id, ref };
+  };
+
+  // إتمام الحفظ فعلياً + قيد التدقيق (out = بيانات الإخراج عند الإتمام)
+  const finalize = async (status, recIn, id, ref, out) => {
+    const rec = { ...recIn, completion: out ? { ...out, at: nowISO(), by: me.name } : (recIn.completion || null) };
     await commit(d => {
       const closings = [rec, ...d.closings.filter(c => c.id !== id)];
       let transfers = d.transfers.filter(t => t.closingId !== id);
@@ -1874,8 +2065,14 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
     }, {
       actionType: initial ? 'update' : 'create', targetType: 'daily_closing', targetId: id,
       branchId: f.branchId, branchName: rec.branchName,
-      title: status === 'submitted' ? 'رحّل إغلاق وردية' : 'حفظ مسودة إغلاق',
+      title: status === 'submitted' ? 'إتمام وترحيل إغلاق وردية' : 'حفظ مسودة إغلاق',
       details: `${rec.branchName} — ${arDate(f.date)} · إيراد ${money(totalRevenue)} · فرق ${money(variance)}`
+        + (out ? ` · إخراج: ${out.outputMethod} · جهاز: ${out.device} · بصمة ${(out.reportHash || '').slice(0, 10)}` : ''),
+      ...(out ? {
+        closingNo: ref, outputMethod: out.outputMethod, printerSize: out.thermalSize,
+        pdfStatus: out.pdfStatus, printStatus: out.printStatus, printAttempts: out.printAttempts,
+        device: out.device, browser: out.browser, reportHash: out.reportHash
+      } : {})
     });
 
     // ترحيل صور الإغلاق إلى أرشيف المستندات، مرتّبة حسب الفرع واليوم
@@ -1896,20 +2093,28 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
       };
       push(f.cardReceiptImage, 'pos_settlement', 'إثبات شبكة/تحويل', `إثبات الشبكة — ${rec.branchName} ${stamp}`, rec.cardSales);
       push(f.sessionPhoto, 'signature', 'توثيق المسؤول', `توثيق الإغلاق — ${rec.branchName} ${stamp}`, 0);
-      (f.expenses || []).forEach((e, i) => push(e.receiptImage, 'expense', 'فاتورة مصروف',
+      (f.expenses || []).forEach((e) => push(e.receiptImage, 'expense', 'فاتورة مصروف',
         `${e.categoryName || 'مصروف'}${e.beneficiaryName ? ' — ' + e.beneficiaryName : ''} (${stamp})`, e.amount));
 
       if (docs.length) {
         const store = await cloud.get(KEYS.files, { items: [] });
         const prevItems = (store && Array.isArray(store.items)) ? store.items : [];
-        // نحذف أي مرفقات سابقة لنفس الإغلاق (عند التعديل) ثم نضيف الحالية
         const kept = prevItems.filter(x => x.closingId !== id);
         await cloud.set(KEYS.files, { items: [...docs, ...kept].slice(0, 300) });
       }
     } catch (err) { /* الأرشفة تكميلية — لا توقف حفظ الإغلاق */ }
 
-    say(status === 'submitted' ? 'تم ترحيل الإغلاق ومرفقاته للأرشيف' : 'تم حفظ المسودة');
+    setOutPrompt(false); setPend(null);
+    say(status === 'submitted' ? 'تم إتمام الإغلاق وترحيله وتسجيل قيد التدقيق' : 'تم حفظ المسودة');
     onClose();
+  };
+
+  // المسودة تُحفظ مباشرة؛ أمّا الإتمام فيتطلب خطوة الإخراج الرسمية أولاً (#21)
+  const save = (status) => {
+    const built = buildRecord(status);
+    if (!built) return;
+    if (status === 'submitted') { setPend(built); setOutPrompt(true); }
+    else finalize(status, built.rec, built.id, built.ref, null);
   };
 
   const vatDeduct = sum(f.expenses.filter(e => e.isTaxable), e => e.amount) * 15 / 115;
@@ -2002,7 +2207,7 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
                 </div>
                 <div className="grid g2">
                   <Num label="العهدة الافتتاحية" value={f.openingBalance} onChange={v => set('openingBalance', v)} hint="رصيد بداية الوردية" />
-                  <Num label="مبيعات نقدية (كاش)" value={f.cashSales} onChange={v => set('cashSales', v)} />
+                  <Num label="مبيعات نقدية (كاش)" value={f.cashSales} onChange={v => set('cashSales', v)} sum />
                 </div>
               </>
             ))}
@@ -2010,7 +2215,7 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
             {sec('network', CreditCard, 'الشبكة والتحويل', 'مدى/فيزا + تحويل بنكي مباشر', <span className="num">{money(f.cardSales + (f.bankTransferSales || 0))}</span>, (f.cardSales > 0 || f.bankTransferSales > 0), (
               <>
                 <div className="grid g2">
-                  <Num label="مبيعات الشبكة (مدى/فيزا)" value={f.cardSales} onChange={v => set('cardSales', v)} />
+                  <Num label="مبيعات الشبكة (مدى/فيزا)" value={f.cardSales} onChange={v => set('cardSales', v)} sum />
                   <Num label="مبيعات تحويل بنكي مباشر" value={f.bankTransferSales} onChange={v => set('bankTransferSales', v)} />
                 </div>
                 {(f.cardSales > 0 || f.bankTransferSales > 0) && (
@@ -2035,9 +2240,8 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
                       <div style={{ fontSize: 12.5, fontWeight: 600 }}>{d.appName}</div>
                       <div style={{ fontSize: 10, color: 'var(--faint)' }}>عمولة <span className="num">{d.commissionPercentage}%</span></div>
                     </div>
-                    <input className="inp n" style={{ maxWidth: 130 }} inputMode="decimal" placeholder="0.00"
-                      value={d.amount === 0 ? '' : d.amount}
-                      onChange={e => { const v = Number(e.target.value.replace(/[^\d.]/g, '')) || 0; const n = [...f.deliverySales]; n[i] = { ...d, amount: v }; set('deliverySales', n); }} />
+                    <MoneyField value={d.amount} style={{ maxWidth: 130 }}
+                      onChange={v => { const n = [...f.deliverySales]; n[i] = { ...d, amount: v }; set('deliverySales', n); }} />
                     <input className="inp n" style={{ maxWidth: 78 }} inputMode="numeric" placeholder="طلبات"
                       value={d.orderCount === 0 ? '' : d.orderCount}
                       onChange={e => { const v = Number(e.target.value.replace(/[^\d]/g, '')) || 0; const n = [...f.deliverySales]; n[i] = { ...d, orderCount: v }; set('deliverySales', n); }} />
@@ -2076,7 +2280,7 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
                 </Field>
               </div>
               <div className="grid g3" style={{ gap: 9 }}>
-                <Num label="المبلغ" value={e.amount} onChange={v => upExp(e.id, 'amount', v)} />
+                <Num label="المبلغ" value={e.amount} onChange={v => upExp(e.id, 'amount', v)} sum />
                 <Field label="المستفيد / المورد">
                   <input className="inp" value={e.beneficiaryName || ''} placeholder="اسم الجهة"
                     onChange={ev => upExp(e.id, 'beneficiaryName', ev.target.value)} />
@@ -2294,6 +2498,9 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
       </div>
       {cam && <CameraModal onClose={() => setCam(false)} say={say}
         onCapture={(img) => { set('sessionPhoto', img); setCam(false); say('تم توثيق الصورة'); }} />}
+      {outPrompt && pend && <OutputDialog rec={pend.rec} org={org}
+        onCancel={() => { setOutPrompt(false); setPend(null); }}
+        onDone={(out) => finalize('submitted', pend.rec, pend.id, pend.ref, out)} />}
     </Modal>
   );
 }
@@ -2380,6 +2587,20 @@ function ClosingView({ c, org, onClose }) {
         <div style={{ marginTop: 12 }}>
           <div className="lbl">توقيع المسؤول</div>
           <img src={c.managerSignature} alt="توقيع" style={{ maxWidth: 240, background: '#fff', borderRadius: 8, padding: 4 }} />
+        </div>
+      )}
+      {c.completion && (
+        <div className="card" style={{ background: 'var(--ink)', marginTop: 14, borderColor: 'rgba(200,162,74,.3)' }}>
+          <div className="card-t" style={{ fontSize: 12.5, marginBottom: 8 }}><ShieldCheck size={14} color="var(--brass)" />سجل إتمام الإغلاق — قيد تدقيق غير قابل للتعديل</div>
+          <div className="grid g2" style={{ gap: 8 }}>
+            <div className="mono-b"><span style={{ fontSize: 11 }}>رقم الإغلاق</span><span className="num" style={{ fontSize: 11 }}>{c.closingNo || c.transferReferenceNo || '—'}</span></div>
+            <div className="mono-b"><span style={{ fontSize: 11 }}>وسيلة الإخراج</span><span style={{ fontSize: 11.5 }}>{c.completion.outputMethod}</span></div>
+            <div className="mono-b"><span style={{ fontSize: 11 }}>حالة PDF</span><span style={{ fontSize: 11.5 }}>{c.completion.pdfStatus}</span></div>
+            <div className="mono-b"><span style={{ fontSize: 11 }}>الطباعة{c.completion.thermalSize && c.completion.thermalSize !== '—' ? ' (' + c.completion.thermalSize + ')' : ''}</span><span style={{ fontSize: 11.5 }}>{c.completion.printStatus} · محاولات <span className="num">{c.completion.printAttempts}</span></span></div>
+            <div className="mono-b"><span style={{ fontSize: 11 }}>الجهاز / المتصفح</span><span style={{ fontSize: 11 }}>{c.completion.device} · {c.completion.browser}</span></div>
+            <div className="mono-b"><span style={{ fontSize: 11 }}>المستخدم</span><span style={{ fontSize: 11 }}>{c.completion.by || c.managerName}</span></div>
+          </div>
+          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 8, wordBreak: 'break-all' }}>🔒 بصمة التقرير الرقمية: <span className="num">{c.completion.reportHash || '—'}</span></div>
         </div>
       )}
     </Modal>
@@ -3674,16 +3895,18 @@ const A4_CSS = `
 
 function printClosingA4(c, org) {
   const w = window.open('', '_blank', 'width=880,height=1000');
-  if (!w) return;
+  if (!w) return false;
   w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
     <title>تقرير الإغلاق - ${c.branchName} - ${c.date}</title><style>${A4_CSS}</style></head>
     <body>${buildClosingA4(c, org)}</body></html>`);
   w.document.close();
   setTimeout(() => { w.focus(); w.print(); }, 500);
+  return true;
 }
 
 // طباعة حرارية 80مم بنفس ترتيب التقرير
-function printReceipt(c, org) {
+function printReceipt(c, org, size) {
+  const PG = size === '58' ? 58 : 80, W = size === '58' ? 48 : 74;
   const co = (org && org.company) || {};
   const branch = ((org && org.branches) || []).find(b => b.id === c.branchId);
   const thLogo = (branch && branch.logoUrl) || co.logoUrl || '';
@@ -3697,8 +3920,8 @@ function printReceipt(c, org) {
       m((c.denominationDetails[d.k] || 0) * d.v))).join('');
   const html = `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
   <title>إيصال إغلاق ${c.branchName}</title><style>
-  @page{size:80mm auto;margin:3mm}
-  body{font-family:'IBM Plex Sans Arabic',Tahoma,sans-serif;width:74mm;margin:0 auto;color:#000;font-size:11px}
+  @page{size:${PG}mm auto;margin:3mm}
+  body{font-family:'IBM Plex Sans Arabic',Tahoma,sans-serif;width:${W}mm;margin:0 auto;color:#000;font-size:11px}
   h1{font-size:14px;text-align:center;margin:0 0 2px}
   .c{text-align:center;font-size:9.5px;color:#333}
   .sep{border-top:1px dashed #000;margin:6px 0}
@@ -3737,9 +3960,10 @@ function printReceipt(c, org) {
   <div class="c" style="margin-top:8px">${new Date().toLocaleString('ar-SA-u-nu-latn')}</div>
   </body></html>`;
   const w = window.open('', '_blank', 'width=420,height=760');
-  if (!w) return;
+  if (!w) return false;
   w.document.write(html); w.document.close();
   setTimeout(() => { w.focus(); w.print(); }, 400);
+  return true;
 }
 
 /* ================= الموردون والالتزامات الشهرية ================= */
