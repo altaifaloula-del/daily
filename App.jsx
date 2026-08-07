@@ -450,7 +450,7 @@ export default function App() {
 
   if (!me) {
     return <Gate css={CSS} theme={theme} org={org}
-      onLogin={(u) => { setMe(u); setTab('dash'); }}
+      onLogin={(u) => { setMe(u); setTab(ROLES[u.role].scope === 'own' ? 'closing' : 'dash'); }}
       online={Object.values(pulse.presence || {}).filter(p => Date.now() - p.at < 70000)} />;
   }
 
@@ -465,11 +465,11 @@ export default function App() {
   const latestActivity = auditLog[0];
 
   const NAV = [
-    { id: 'dash', ar: 'لوحة المؤشرات', icon: LayoutDashboard, roles: ['all'] },
+    { id: 'dash', ar: 'لوحة المؤشرات', icon: LayoutDashboard, roles: ['finance_department', 'general_management'] },
     { id: 'compare', ar: 'مقارنة الفروع', icon: BarChart3, roles: ['finance_department', 'general_management'] },
     { id: 'closing', ar: 'الإغلاق اليومي', icon: ClipboardCheck, roles: ['all'] },
     { id: 'approve', ar: 'التدقيق والاعتماد', icon: ShieldCheck, roles: ['finance_department', 'general_management'], cnt: pending },
-    { id: 'treasury', ar: 'الخزينة والترحيل', icon: Landmark, roles: ['all'] },
+    { id: 'treasury', ar: 'الخزينة والترحيل', icon: Landmark, roles: ['finance_department', 'general_management'] },
     { id: 'payroll', ar: 'الرواتب والسلف', icon: Wallet, roles: ['finance_department', 'general_management'] },
     { id: 'suppliers', ar: 'الموردون والالتزامات', icon: Truck, roles: ['finance_department', 'general_management'] },
     { id: 'shifts', ar: 'الورديات والتذكيرات', icon: Clock, roles: ['finance_department', 'general_management'] },
@@ -484,7 +484,7 @@ export default function App() {
 
   // حماية: منع الوصول لتبويب غير مسموح لدور المستخدم (بلا hook — بعد returns الشرطية)
   const allowedTabs = NAV.map(n => n.id);
-  const safeTab = allowedTabs.includes(tab) ? tab : 'dash';
+  const safeTab = allowedTabs.includes(tab) ? tab : (allowedTabs[0] || 'closing');
 
   return (
     <div className={'rms' + (theme === 'lite' ? ' lite' : '')}>
@@ -562,8 +562,8 @@ export default function App() {
             <button className="btn sm gh hidden-desk topmenu" onClick={() => setDrawer(d => !d)} title={drawer ? 'إخفاء القائمة' : 'إظهار القائمة'}>
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
-            <h1 className="toptitle">{NAV.find(n => n.id === tab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v5.0 ✓</span>
+            <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v5.1 ✓</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -1628,6 +1628,13 @@ function Closing({ org, ops, me, myBranches, scoped, commit, say }) {
         )}
       </div>
 
+      {/* زر عائم دائم الظهور على الجوال — لا يختفي بالتمرير */}
+      {canEdit && (
+        <button className="btn pri fab-new" onClick={() => { setEdit(null); setOpen(true); }} aria-label="فتح نموذج إغلاق وردية جديد">
+          <Plus size={20} /><span className="fab-lbl">إغلاق وردية</span>
+        </button>
+      )}
+
       <div className="card">
         <div style={{ marginBottom: 14 }}>
           <div className="row" style={{ gap: 8 }}>
@@ -1951,10 +1958,16 @@ export function ClosingForm({ org, me, branches, initial, commit, say, onClose, 
               <>
                 <div className="grid g2">
                   <Field label="الفرع">
-                    <select className="sel" value={f.branchId} disabled={me.role === 'branch_manager' && !!initial}
-                      onChange={e => { const b = org.branches.find(x => x.id === e.target.value); setF(p => ({ ...p, branchId: e.target.value, openingBalance: b?.defaultFloat || 0 })); }}>
-                      {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                    </select>
+                    {branches.length <= 1 ? (
+                      <div className="inp" style={{ display: 'flex', alignItems: 'center', background: 'var(--ink2)', color: 'var(--txt)', fontWeight: 600 }}>
+                        {branch?.name || branches[0]?.name || '—'}
+                      </div>
+                    ) : (
+                      <select className="sel" value={f.branchId} disabled={me.role === 'branch_manager' && !!initial}
+                        onChange={e => { const b = org.branches.find(x => x.id === e.target.value); setF(p => ({ ...p, branchId: e.target.value, openingBalance: b?.defaultFloat || 0 })); }}>
+                        {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                      </select>
+                    )}
                   </Field>
                   <Field label="تاريخ الوردية">
                     <input type="date" className="inp" value={f.date} onChange={e => set('date', e.target.value)} />
@@ -4716,9 +4729,10 @@ function Archive({ org, me, myBranches, say }) {
   const del = async (it) => { await persist((items || []).filter(x => x.id !== it.id)); say('تم حذف المستند من الأرشيف'); };
 
   const ids = myBranches.map(b => b.id);
-  const list = (items || []).filter(i => ids.includes(i.branchId) && (filter === 'all' || i.category === filter)
+  const mine = (items || []).filter(i => ids.includes(i.branchId));
+  const list = mine.filter(i => (filter === 'all' || i.category === filter)
     && (branchFilter === 'all' || i.branchId === branchFilter));
-  const totalKb = sum(items || [], i => i.fileSizeKb || 0);
+  const totalKb = sum(mine, i => i.fileSizeKb || 0);
 
   // تجميع حسب الفرع ثم اليوم (الأحدث أولاً)
   const grouped = (() => {
@@ -4743,7 +4757,7 @@ function Archive({ org, me, myBranches, say }) {
           <div>
             <div className="card-t"><ImageIcon size={15} color="var(--brass)" />أرشيف الإيصالات والمستندات</div>
             <div style={{ fontSize: 11.5, color: 'var(--dim)', marginTop: 5 }}>
-              {(items || []).length} مستند · <span className="num">{(totalKb / 1024).toFixed(2)}</span> ميجابايت — تُضغط الصور تلقائياً قبل الحفظ.
+              {mine.length} مستند · <span className="num">{(totalKb / 1024).toFixed(2)}</span> ميجابايت — تُضغط الصور تلقائياً قبل الحفظ.
             </div>
           </div>
           <div className="row">

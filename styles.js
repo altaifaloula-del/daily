@@ -523,4 +523,22 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
 .esum-net .k{font-size:12px;color:var(--dim)}
 .esum-net .v{font-size:17px;font-weight:700;color:var(--mint)}
 @media(max-width:640px){ .eclose-tools .hint{display:none} }
+
+/* ===== الزر العائم للإغلاق (جوال) — دائم الظهور فوق الشريط السفلي، يحترم Safe Area ===== */
+.fab-new{display:none}
+@media(max-width:900px){
+  .newclosing-btn{display:none !important}
+  .fab-new{
+    display:inline-flex !important;align-items:center;gap:8px;width:auto;
+    position:fixed;inset-inline-end:16px;bottom:calc(74px + env(safe-area-inset-bottom));
+    z-index:49;min-height:54px;padding:0 22px;border-radius:30px;
+    box-shadow:0 10px 26px rgba(200,162,74,.42),0 3px 10px rgba(0,0,0,.35);
+    font-size:14.5px;font-weight:700
+  }
+  .fab-new .fab-lbl{white-space:nowrap}
+}
+@media(max-width:360px){
+  .fab-new{padding:0;width:56px;min-width:56px;justify-content:center;border-radius:50%}
+  .fab-new .fab-lbl{display:none}
+}
 `;
