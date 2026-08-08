@@ -57,6 +57,7 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
   display:grid;place-items:center;color:#1a1410;font-weight:700;
   font-family:'Markazi Text',serif;box-shadow:0 2px 10px rgba(200,162,74,.25)
 }
+.brand-logo{width:38px;height:38px;border-radius:10px;flex-shrink:0;object-fit:cover;border:1px solid var(--line);background:var(--ink3)}
 .brand-t{font-size:17px;font-weight:700;line-height:1.25;font-family:'Markazi Text',serif}
 .brand-s{font-size:10.5px;color:var(--faint);letter-spacing:.04em}
 .nav-lbl{font-size:10px;color:var(--faint);padding:14px 10px 6px;letter-spacing:.12em}
