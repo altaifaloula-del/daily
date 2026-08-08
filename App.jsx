@@ -155,6 +155,27 @@ const clr = (i) => ['#C8A24A', '#4FB286', '#5B93C4', '#D9544D', '#E0A458', '#9B7
 
 /* ================= دفتر الشركاء: تجميع حركات كل شريك من مصادرها ================= */
 // الرصيد الجاري = مجموع الدائن − مجموع المدين. موجب = دائن (علينا)، سالب = مدين (لنا).
+// سداد المورد قد يُوزَّع على أكثر من طريقة دفع (نقد + شبكة + تحويل + غير ذلك) لنفس الدفعة/الفاتورة
+const paySplits = (pm) => {
+  if (pm.cash != null || pm.card != null || pm.transfer != null || pm.other != null)
+    return { cash: pm.cash || 0, card: pm.card || 0, transfer: pm.transfer || 0, other: pm.other || 0 };
+  const a = pm.amount || 0; // توافق مع الصيغة القديمة {method, amount}
+  return { cash: pm.method === 'cash' ? a : 0, card: pm.method === 'card' ? a : 0, transfer: pm.method === 'bank_transfer' ? a : 0, other: pm.method === 'other' ? a : 0 };
+};
+const payTotal = (pm) => { const s = paySplits(pm); return s.cash + s.card + s.transfer + s.other; };
+const payCashPart = (pm) => paySplits(pm).cash;
+const payLabel = (pm) => {
+  const s = paySplits(pm), out = [];
+  if (s.cash) out.push('نقد ' + money(s.cash));
+  if (s.card) out.push('شبكة ' + money(s.card));
+  if (s.transfer) out.push('تحويل ' + money(s.transfer));
+  if (s.other) out.push('غير ذلك ' + money(s.other));
+  return out.join(' + ');
+};
+// ترقيم تلقائي لكل شريك حسب نوعه — لتمييز التكرار في الأسماء
+const PT_PREFIX = { supplier: 'مورد', employee: 'موظف', customer: 'عميل' };
+const partnerCode = (type, seq) => (PT_PREFIX[type] || 'شريك') + '-' + String(seq).padStart(3, '0');
+
 function buildPartners(org, ops) {
   const parts = [];
   const led = ops.ledgerEntries || [];
@@ -172,13 +193,13 @@ function buildPartners(org, ops) {
     }));
     return t;
   };
-  // سدادات الموردين المسجّلة في الإغلاق → مدين (يقلّل ما علينا) مع طريقة الدفع
-  const PAY_AR = { cash: 'نقدًا', card: 'شبكة', bank_transfer: 'تحويل', other: 'أخرى' };
+  // سدادات الموردين المسجّلة في الإغلاق → مدين (يقلّل ما علينا)، وقد تُوزَّع على عدة طرق دفع
   const payFor = (key, supId) => {
     const t = [];
     (ops.closings || []).forEach(c => (c.supplierPayments || []).forEach(pm => {
       if (pm.partnerKey === key || (supId && pm.supplierId === supId)) {
-        t.push({ date: c.date, desc: 'سداد' + (PAY_AR[pm.method] ? ' (' + PAY_AR[pm.method] + ')' : '') + ' — إغلاق ' + (c.branchName || ''), ref: pm.reference || c.id, src: 'pay', debit: pm.amount || 0, credit: 0 });
+        const tot = payTotal(pm); if (tot <= 0) return;
+        t.push({ date: c.date, desc: 'سداد' + (payLabel(pm) ? ' (' + payLabel(pm) + ')' : '') + ' — إغلاق ' + (c.branchName || ''), ref: pm.reference || c.id, src: 'pay', debit: tot, credit: 0 });
       }
     }));
     return t;
@@ -223,9 +244,12 @@ function buildPartners(org, ops) {
     parts.push({ key, id: pt.id, name: pt.name, type: pt.type || 'customer', cat: pt.cat || 'عميل', phone: pt.phone || '', tax: pt.tax || '', terms: pt.terms || 0, linked: (ce.length + pp.length) > 0, custom: true, txns: [...ce, ...pp, ...ledFor(key)] });
   });
 
+  const seq = {};
   parts.forEach(p => {
     p.txns.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
     p.balance = p.txns.reduce((s, t) => s + (t.credit || 0) - (t.debit || 0), 0);
+    seq[p.type] = (seq[p.type] || 0) + 1;
+    p.code = partnerCode(p.type, seq[p.type]);   // ترقيم تلقائي لتمييز التكرار
   });
   return parts;
 }
@@ -647,7 +671,9 @@ export default function App() {
         {drawer && <div className="mask" style={{ zIndex: 55 }} onClick={() => setDrawer(false)} />}
         <aside className={'side' + (drawer ? ' open' : '')}>
           <div className="brand">
-            <div className="brand-mark">مذ</div>
+            {org.company.logoUrl
+              ? <img className="brand-logo" src={org.company.logoUrl} alt="شعار الشركة" />
+              : <div className="brand-mark">{(org.company.name || 'مذ').trim().charAt(0) || 'م'}</div>}
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="brand-t">{org.company.name}</div>
               <div className="brand-s">CLOUD CLOSING SUITE</div>
@@ -692,7 +718,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v6.5 ✓</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v6.6 ✓</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -846,12 +872,14 @@ export default function App() {
 }
 
 /* ================= بوابة الدخول ================= */
-function BrandHead({ title, sub }) {
+function BrandHead({ title, sub, logo }) {
   return (
     <div style={{ textAlign: 'center', marginBottom: 24 }}>
-      <div className="brand-mark" style={{ width: 54, height: 54, margin: '0 auto 14px', fontSize: 19, borderRadius: 16 }}>
-        {(title || 'المنصة').trim().charAt(0) || 'م'}
-      </div>
+      {logo
+        ? <img src={logo} alt="شعار" style={{ width: 64, height: 64, margin: '0 auto 14px', borderRadius: 16, objectFit: 'cover', border: '1px solid var(--line)', display: 'block' }} />
+        : <div className="brand-mark" style={{ width: 54, height: 54, margin: '0 auto 14px', fontSize: 19, borderRadius: 16 }}>
+          {(title || 'المنصة').trim().charAt(0) || 'م'}
+        </div>}
       <h1 style={{ fontSize: 20 }}>{title || 'منصة إغلاق وإدارة الفروع'}</h1>
       <div style={{ color: 'var(--dim)', fontSize: 12.5, marginTop: 5 }}>{sub}</div>
     </div>
@@ -992,7 +1020,7 @@ function Gate({ css, org, onLogin, online, theme }) {
       <style dangerouslySetInnerHTML={{ __html: css }} />
       <div className="gate">
         <div className="gate-c">
-          <BrandHead title={org.company?.name || 'منصة إغلاق الفروع'} sub="منصة سحابية متكاملة لإغلاق وإدارة فروع المطاعم" />
+          <BrandHead title={org.company?.name || 'منصة إغلاق الفروع'} sub="منصة سحابية متكاملة لإغلاق وإدارة فروع المطاعم" logo={org.company?.logoUrl} />
           <div className="row" style={{ justifyContent: 'center', marginBottom: 16 }}>
             <span className="badge b-mint"><span className="dot" />{online.length} متصل الآن</span>
             <span className="badge b-dim"><Lock size={10} />بيانات مشتركة ومؤمّنة</span>
@@ -2153,9 +2181,9 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
   const cashExp = sum(f.expenses.filter(e => e.paymentMethod === 'cash'), e => e.amount);
   const totalExp = sum(f.expenses, e => e.amount);
   const supPays = f.supplierPayments || [];
-  const totalSupplierPay = sum(supPays, x => x.amount);
-  const cashSupplierPay = sum(supPays.filter(x => x.method === 'cash'), x => x.amount);
-  // السداد النقدي للموردين يخرج من الصندoق فيقلّل النقد المتوقع (لضبط الجرد)
+  const totalSupplierPay = sum(supPays, payTotal);
+  const cashSupplierPay = sum(supPays, payCashPart);
+  // السداد النقدي للموردين يخرج من الصندوق فيقلّل النقد المتوقع (لضبط الجرد)
   const expected = f.openingBalance + f.cashSales - cashExp - cashSupplierPay;
   const actual = countDenoms(f.denominationDetails);
   const variance = Math.round((actual - expected) * 100) / 100;
@@ -2167,17 +2195,13 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
   const removeDeliv = (i) => set('deliverySales', f.deliverySales.filter((_, x) => x !== i));
 
   // شركاء الرئيسي المتاحون للربط (موردون + موظفون + عملاء)
-  const partyOptions = [
-    ...(org.suppliers || []).map(s => ({ key: 'sup:' + s.id, id: s.id, name: s.name, type: 'مورد' })),
-    ...(org.employees || []).map(e => ({ key: 'emp:' + e.id, id: e.id, name: e.name, type: 'موظف' })),
-    ...(org.partners || []).map(p => ({ key: p.key || 'cust:' + p.id, id: p.id, name: p.name, type: (PT_TYPE[p.type] || {}).ar || 'عميل' }))
-  ];
+  const partyOptions = buildPartners(org, {}).map(p => ({ key: p.key, id: p.id, name: p.name, type: (PT_TYPE[p.type] || {}).ar || 'عميل', code: p.code }));
   const linkExpParty = (expId, key, name, supplierId) =>
     set('expenses', f.expenses.map(x => x.id === expId ? { ...x, partnerKey: key || undefined, beneficiaryName: name != null ? name : x.beneficiaryName, supplierId } : x));
   const linkPayParty = (payId, key, name, supplierId) =>
     set('supplierPayments', (f.supplierPayments || []).map(x => x.id === payId ? { ...x, partnerKey: key || undefined, supplierName: name != null ? name : x.supplierName, supplierId } : x));
   // سداد الموردين داخل الإغلاق
-  const addSupPay = () => set('supplierPayments', [...(f.supplierPayments || []), { id: uid('sp'), partnerKey: '', supplierName: '', amount: 0, method: 'cash', reference: '' }]);
+  const addSupPay = () => set('supplierPayments', [...(f.supplierPayments || []), { id: uid('sp'), partnerKey: '', supplierName: '', cash: 0, card: 0, transfer: 0, other: 0, reference: '' }]);
   const upSupPay = (id, k, v) => set('supplierPayments', (f.supplierPayments || []).map(x => x.id === id ? { ...x, [k]: v } : x));
   const removeSupPay = (id) => set('supplierPayments', (f.supplierPayments || []).filter(x => x.id !== id));
   // حفظ شريك جديد في الرئيسي وربطه بالمصروف/السداد — هذا ما يجعله «ينضاف إلى الرئيسي»
@@ -2524,7 +2548,7 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
                         linkExpParty(e.id, ev.target.value, o ? o.name : e.beneficiaryName, o && o.key.startsWith('sup:') ? o.id : undefined);
                       }}>
                       <option value="">— اربطه بشريك في الرئيسي (اختياري) —</option>
-                      {partyOptions.map(o => <option key={o.key} value={o.key}>{o.name} · {o.type}</option>)}
+                      {partyOptions.map(o => <option key={o.key} value={o.key}>{o.code} · {o.name} · {o.type}</option>)}
                     </select>
                     {commitOrg && <button type="button" className="btn sm gh" style={{ flexShrink: 0 }} onClick={() => setNewParty({ target: 'exp', rowId: e.id, type: 'supplier', name: e.beneficiaryName || '', cat: '', phone: '' })}><Plus size={13} />جديد</button>}
                   </div>
@@ -2618,25 +2642,25 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
                 <select className="sel" style={{ flex: 1, minWidth: 0 }} value={pm.partnerKey || ''}
                   onChange={ev => { const o = partyOptions.find(x => x.key === ev.target.value); linkPayParty(pm.id, ev.target.value, o ? o.name : pm.supplierName, o && o.key.startsWith('sup:') ? o.id : undefined); }}>
                   <option value="">— اختر المورد من الرئيسي —</option>
-                  {partyOptions.map(o => <option key={o.key} value={o.key}>{o.name} · {o.type}</option>)}
+                  {partyOptions.map(o => <option key={o.key} value={o.key}>{o.code} · {o.name} · {o.type}</option>)}
                 </select>
                 {commitOrg && <button type="button" className="btn sm gh" style={{ flexShrink: 0 }} onClick={() => setNewParty({ target: 'pay', rowId: pm.id, type: 'supplier', name: pm.supplierName || '', cat: '', phone: '' })}><Plus size={13} />جديد</button>}
                 <button type="button" className="btn sm gh" style={{ flexShrink: 0 }} onClick={() => removeSupPay(pm.id)}><Trash2 size={13} color="#D9544D" /></button>
               </div>
               <input className="inp" style={{ marginBottom: 8 }} value={pm.supplierName || ''} placeholder="اسم المورد"
                 onChange={ev => upSupPay(pm.id, 'supplierName', ev.target.value)} />
-              <div className="grid g2">
-                <Num label="مبلغ السداد" value={pm.amount} onChange={v => upSupPay(pm.id, 'amount', v)} sum />
-                <Field label="المرجع (اختياري)"><input className="inp" value={pm.reference || ''} placeholder="رقم سند/إيصال"
-                  onChange={ev => upSupPay(pm.id, 'reference', ev.target.value)} /></Field>
+              <div className="lbl" style={{ marginBottom: 4 }}>وزّع السداد على طرق الدفع (يمكن الجمع بينها لنفس الفاتورة)</div>
+              <div className="grid g2" style={{ gap: 9 }}>
+                <Num label="نقدًا" value={paySplits(pm).cash} onChange={v => upSupPay(pm.id, 'cash', v)} sum />
+                <Num label="شبكة" value={paySplits(pm).card} onChange={v => upSupPay(pm.id, 'card', v)} sum />
+                <Num label="تحويل" value={paySplits(pm).transfer} onChange={v => upSupPay(pm.id, 'transfer', v)} sum />
+                <Num label="غير ذلك" value={paySplits(pm).other} onChange={v => upSupPay(pm.id, 'other', v)} sum />
               </div>
-              <div style={{ marginTop: 8 }}>
-                <div className="lbl">طريقة الدفع</div>
-                <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-                  {[['cash', 'نقدًا'], ['card', 'شبكة'], ['bank_transfer', 'تحويل'], ['other', 'غير ذلك']].map(([m, lbl]) => (
-                    <button key={m} type="button" className={'btn sm' + (pm.method === m ? ' pri' : ' gh')} onClick={() => upSupPay(pm.id, 'method', m)}>{lbl}</button>
-                  ))}
-                </div>
+              <div className="grid g2" style={{ gap: 9, marginTop: 9 }}>
+                <Field label="المرجع / الفاتورة (اختياري)"><input className="inp" value={pm.reference || ''} placeholder="رقم فاتورة/سند"
+                  onChange={ev => upSupPay(pm.id, 'reference', ev.target.value)} /></Field>
+                <div className="mono-b" style={{ alignSelf: 'end' }}><span style={{ fontSize: 12 }}>إجمالي هذه الدفعة</span>
+                  <span className="num" style={{ color: 'var(--mint)', fontWeight: 700 }}>{money(payTotal(pm))}</span></div>
               </div>
             </div>
           ))}
@@ -4533,7 +4557,7 @@ function printPartnerStatement(p, org) {
   .ft{margin-top:16px;font-size:10.5px;color:#888;text-align:center}</style></head><body>
   <div class="h"><div><div class="co">${co.name || 'الشركة'}</div><div class="sub">${co.activity || ''} ${co.taxNumber ? '· رقم ضريبي ' + co.taxNumber : ''}</div></div>
   <div style="text-align:left"><div class="t">كشف حساب</div><div class="sub">${arDate(today())}</div></div></div>
-  <div class="who"><b>الطرف:</b> ${p.name} &nbsp; <span style="background:#eee;border-radius:5px;padding:1px 7px">${typeAr[p.type] || ''}</span><br>
+  <div class="who"><b>الطرف:</b> ${p.name} &nbsp; <span style="background:#eee;border-radius:5px;padding:1px 7px">${typeAr[p.type] || ''}</span> &nbsp; <b>الرقم:</b> ${p.code || '—'}<br>
   <b>التصنيف:</b> ${p.cat || '—'} &nbsp; <b>الجوال:</b> ${p.phone || '—'} &nbsp; <b>الرقم الضريبي/الهوية:</b> ${p.tax || '—'}</div>
   <div class="bal"><div>الرصيد الحالي</div><div class="v">${balT}</div></div>
   <table><thead><tr><th>التاريخ</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead>
@@ -4647,6 +4671,7 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
           <div>
             <div className="row" style={{ gap: 8, alignItems: 'center' }}>
               <span className="card-t" style={{ fontSize: 20 }}>{cur.name}</span><PartnerChip type={cur.type} />
+              <span className="badge b-dim num" style={{ fontSize: 10, color: 'var(--brass)' }}>{cur.code}</span>
               {cur.linked && <span className="badge b-mint" style={{ fontSize: 10 }}>◍ مرتبط بالفروع</span>}
             </div>
             <div className="row" style={{ flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
@@ -4732,7 +4757,7 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
             <tbody>
               {list.map(p => (
                 <tr key={p.key} style={{ cursor: 'pointer' }} onClick={() => setOpenKey(p.key)}>
-                  <td data-label="الشريك"><div style={{ fontWeight: 700, fontSize: 13.5 }}>{p.name}</div><div style={{ fontSize: 11, color: 'var(--faint)' }}>{p.cat}</div></td>
+                  <td data-label="الشريك"><div style={{ fontWeight: 700, fontSize: 13.5 }}>{p.name}</div><div style={{ fontSize: 11, color: 'var(--faint)' }}><span className="num" style={{ color: 'var(--brass)' }}>{p.code}</span> · {p.cat}</div></td>
                   <td data-label="النوع"><PartnerChip type={p.type} /></td>
                   <td data-label="الجوال" className="num" style={{ fontSize: 12, color: 'var(--dim)' }}>{p.phone || '—'}</td>
                   <td data-label="الربط">{p.linked ? <span className="badge b-mint" style={{ fontSize: 10 }}>◍ مرتبط</span> : <span style={{ color: 'var(--faint)' }}>—</span>}</td>
