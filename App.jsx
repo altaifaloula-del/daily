@@ -183,12 +183,22 @@ function buildPartners(org, ops) {
     date: (e.date || '').slice(0, 10), desc: e.desc || 'حركة يدوية', ref: e.ref || '',
     src: e.src || 'manual', debit: e.debit || 0, credit: e.credit || 0, entryId: e.id
   }));
+  // الدفتر يعتمد الإغلاقات المرحّلة/المعتمدة فقط — المسودات والمرفوضة لا تدخل كشوف الحسابات
+  const countedClosings = (ops.closings || []).filter(c => c.status === 'submitted' || c.status === 'approved');
+  const EXP_PM_AR = { cash: 'نقدًا', card: 'شبكة', cheque: 'شيكًا', bank_transfer: 'تحويلًا' };
   // مصروفات/مشتريات الإغلاق المرتبطة بشريك (عبر partnerKey للجميع، أو supplierId للموردين توافقاً)
+  // الآجلة فقط ترفع الرصيد المستحق؛ المدفوعة فورًا تُقيَّد مع سدادها بنفس السطر (أثر صافٍ صفر)
   const closeFor = (key, supId) => {
     const t = [];
-    (ops.closings || []).forEach(c => (c.expenses || []).forEach(e => {
+    countedClosings.forEach(c => (c.expenses || []).forEach(e => {
       if (e.partnerKey === key || (supId && e.supplierId === supId)) {
-        t.push({ date: c.date, desc: (e.categoryName || 'مصروف') + ' — إغلاق ' + (c.branchName || ''), ref: c.id, src: 'close', debit: 0, credit: e.amount || 0 });
+        const amt = e.amount || 0; if (!amt) return;
+        const base = (e.categoryName || 'مصروف');
+        if (e.paymentMethod === 'deferred') {
+          t.push({ date: c.date, desc: base + ' (آجل — على الحساب) — إغلاق ' + (c.branchName || ''), ref: c.id, src: 'close', debit: 0, credit: amt });
+        } else {
+          t.push({ date: c.date, desc: base + ' (مسدّدة ' + (EXP_PM_AR[e.paymentMethod] || 'فورًا') + ') — إغلاق ' + (c.branchName || ''), ref: c.id, src: 'close', debit: amt, credit: amt });
+        }
       }
     }));
     return t;
@@ -196,7 +206,7 @@ function buildPartners(org, ops) {
   // سدادات الموردين المسجّلة في الإغلاق → مدين (يقلّل ما علينا)، وقد تُوزَّع على عدة طرق دفع
   const payFor = (key, supId) => {
     const t = [];
-    (ops.closings || []).forEach(c => (c.supplierPayments || []).forEach(pm => {
+    countedClosings.forEach(c => (c.supplierPayments || []).forEach(pm => {
       if (pm.partnerKey === key || (supId && pm.supplierId === supId)) {
         const tot = payTotal(pm); if (tot <= 0) return;
         t.push({ date: c.date, desc: 'سداد' + (payLabel(pm) ? ' (' + payLabel(pm) + ')' : '') + ' — إغلاق ' + (c.branchName || ''), ref: pm.reference || c.id, src: 'pay', debit: tot, credit: 0 });
@@ -217,7 +227,7 @@ function buildPartners(org, ops) {
     const ct = closeFor(key, sp.id); txns.push(...ct); if (ct.length) linked = true;
     const pt = payFor(key, sp.id); txns.push(...pt); if (pt.length) linked = true;
     txns.push(...ledFor(key));
-    parts.push({ key, id: sp.id, name: sp.name, type: 'supplier', cat: sp.category || 'مورد', phone: sp.phone || '', tax: sp.vatNo || '', terms: sp.terms || 0, linked, txns });
+    parts.push({ key, id: sp.id, name: sp.name, type: 'supplier', cat: sp.category || 'مورد', phone: sp.phone || '', tax: sp.vatNo || '', terms: sp.terms || 0, linked, txns, storedCode: sp.code });
   });
 
   // الموظفون — راتب الشهر الحالي مستحق + السلف/الخصوم + حركات يدوية
@@ -234,24 +244,41 @@ function buildPartners(org, ops) {
     const ce = closeFor(key); txns.push(...ce); if (ce.length) linked = true;
     const pe = payFor(key); txns.push(...pe); if (pe.length) linked = true;
     txns.push(...ledFor(key));
-    parts.push({ key, id: em.id, name: em.name, type: 'employee', cat: em.jobTitle || em.title || 'موظف', phone: em.phone || '', tax: em.nationalId || em.iqamaNo || '', terms: 0, linked, txns });
+    parts.push({ key, id: em.id, name: em.name, type: 'employee', cat: em.jobTitle || em.title || 'موظف', phone: em.phone || '', tax: em.nationalId || em.iqamaNo || '', terms: 0, linked, txns, storedCode: em.code });
   });
 
   // العملاء والشركاء اليدويون — حركات يدوية فقط
   (org.partners || []).forEach(pt => {
     const key = pt.key || ('cust:' + pt.id);
     const ce = closeFor(key), pp = payFor(key);
-    parts.push({ key, id: pt.id, name: pt.name, type: pt.type || 'customer', cat: pt.cat || 'عميل', phone: pt.phone || '', tax: pt.tax || '', terms: pt.terms || 0, linked: (ce.length + pp.length) > 0, custom: true, txns: [...ce, ...pp, ...ledFor(key)] });
+    parts.push({ key, id: pt.id, name: pt.name, type: pt.type || 'customer', cat: pt.cat || 'عميل', phone: pt.phone || '', tax: pt.tax || '', terms: pt.terms || 0, linked: (ce.length + pp.length) > 0, custom: true, txns: [...ce, ...pp, ...ledFor(key)], storedCode: pt.code });
   });
 
-  const seq = {};
+  // الأكواد: المخزَّنة على البطاقة ثابتة لا تتغير؛ ولمن بلا كود نُكمل الترقيم دون تصادم
+  const usedNums = {};
+  parts.forEach(p => {
+    const m2 = /-(\d+)$/.exec(p.storedCode || '');
+    if (m2) (usedNums[p.type] = usedNums[p.type] || new Set()).add(+m2[1]);
+  });
+  const nextNum = {};
   parts.forEach(p => {
     p.txns.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
     p.balance = p.txns.reduce((s, t) => s + (t.credit || 0) - (t.debit || 0), 0);
-    seq[p.type] = (seq[p.type] || 0) + 1;
-    p.code = partnerCode(p.type, seq[p.type]);   // ترقيم تلقائي لتمييز التكرار
+    if (p.storedCode) { p.code = p.storedCode; return; }
+    const u = (usedNums[p.type] = usedNums[p.type] || new Set());
+    let n = (nextNum[p.type] || 0) + 1;
+    while (u.has(n)) n++;
+    nextNum[p.type] = n; u.add(n);
+    p.code = partnerCode(p.type, n);
   });
   return parts;
+}
+
+// الرقم التالي المتاح لنوع شريك — لتثبيته على البطاقة عند الإنشاء
+function nextPartnerCode(parts, type) {
+  let max = 0;
+  parts.filter(p => p.type === type).forEach(p => { const m2 = /-(\d+)$/.exec(p.code || ''); if (m2) max = Math.max(max, +m2[1]); });
+  return partnerCode(type, max + 1);
 }
 
 const DENOMS = [
@@ -526,7 +553,7 @@ export default function App() {
       const pu = (await cloud.get(KEYS.pulse, { presence: {}, audit: [] })) || { presence: {}, audit: [] };
       const entry = {
         id: uid('lg'), timestamp: nowISO(), at: Date.now(), userName: me.name, userRole: me.role,
-        userRoleLabel: ROLES[me.role].ar, ...log
+        userRoleLabel: (ROLES[me.role] || {}).ar || me.role, ...log
       };
       const nx = { ...pu, audit: [entry, ...(pu.audit || [])].slice(0, 150) };
       await cloud.set(KEYS.pulse, nx);
@@ -545,7 +572,7 @@ export default function App() {
     setOrg(next);
     if (log && me) {
       const pu = (await cloud.get(KEYS.pulse, { presence: {}, audit: [] })) || { presence: {}, audit: [] };
-      const entry = { id: uid('lg'), timestamp: nowISO(), at: Date.now(), userName: me.name, userRole: me.role, userRoleLabel: ROLES[me.role].ar, ...log };
+      const entry = { id: uid('lg'), timestamp: nowISO(), at: Date.now(), userName: me.name, userRole: me.role, userRoleLabel: (ROLES[me.role] || {}).ar || me.role, ...log };
       const nx = { ...pu, audit: [entry, ...(pu.audit || [])].slice(0, 150) };
       await cloud.set(KEYS.pulse, nx);
       setPulse(nx);
@@ -567,7 +594,7 @@ export default function App() {
   /* --- نطاق الفروع حسب الدور --- */
   const myBranches = useMemo(() => {
     if (!org || !me) return [];
-    const s = ROLES[me.role].scope;
+    const s = (ROLES[me.role] || ROLES.cashier).scope;   // دور غير معروف → أضيق صلاحية بدل انهيار الواجهة
     if (s === 'all') return org.branches;
     if (s === 'own') return org.branches.filter(b => b.id === me.branchId);
     return org.branches.filter(b => (me.allowedBranchIds || []).includes(b.id));
@@ -694,7 +721,7 @@ export default function App() {
             <div className="mono-b" style={{ marginBottom: 8, padding: '9px 11px' }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis' }}>{me.name}</div>
-                <div style={{ fontSize: 10, color: 'var(--faint)' }}>{ROLES[me.role].ar.split('—')[0]}</div>
+                <div style={{ fontSize: 10, color: 'var(--faint)' }}>{((ROLES[me.role] || {}).ar || me.role).split('—')[0]}</div>
               </div>
               <button className="btn sm gh" onClick={() => setMe(null)} title="خروج"><LogOut size={13} /></button>
             </div>
@@ -718,7 +745,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v6.6 ✓</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v6.7 ✓</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2135,8 +2162,18 @@ function Closing({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
   );
 }
 
+// ترحيل سدادات الصيغة القديمة {method, amount} إلى خانات التوزيع — حتى لا يضيع المبلغ عند التعديل
+function normalizeSupPays(arr) {
+  return (arr || []).map(pm => {
+    if (pm.cash != null || pm.card != null || pm.transfer != null || pm.other != null) return pm;
+    const s = paySplits(pm);
+    const { method, amount, ...rest } = pm;
+    return { ...rest, ...s };
+  });
+}
+
 export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say, onClose, onStartNew, existing = [] }) {
-  const [f, setF] = useState(() => initial || {
+  const [f, setF] = useState(() => initial ? { ...initial, supplierPayments: normalizeSupPays(initial.supplierPayments) } : {
     date: today(), branchId: branches[0]?.id || '',
     openingBalance: branches[0]?.defaultFloat || 0,
     cashSales: 0, cardSales: 0, bankTransferSales: 0,
@@ -2210,10 +2247,11 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
     if (!np.name || !np.name.trim()) return say('اكتب اسم الشريك', 'no');
     if (!commitOrg) return say('لا تملك صلاحية الإضافة للرئيسي', 'no');
     const name = np.name.trim(), id = uid('pt');
+    const code = nextPartnerCode(buildPartners(org, {}), np.type === 'supplier' ? 'supplier' : np.type === 'employee' ? 'employee' : (np.type || 'customer'));
     let key, mut;
-    if (np.type === 'supplier') { key = 'sup:' + id; mut = d => ({ ...d, suppliers: [...(d.suppliers || []), { id, name, category: np.cat || '', phone: np.phone || '', vatNo: '', terms: 0 }] }); }
-    else if (np.type === 'employee') { key = 'emp:' + id; mut = d => ({ ...d, employees: [...(d.employees || []), { id, name, jobTitle: np.cat || '', phone: np.phone || '', baseSalary: 0, housingAllowance: 0, transportAllowance: 0, branchId: f.branchId, isActive: true }] }); }
-    else { key = 'cust:' + id; mut = d => ({ ...d, partners: [...(d.partners || []), { id, key, name, type: np.type, cat: np.cat || '', phone: np.phone || '', tax: '', terms: 0 }] }); }
+    if (np.type === 'supplier') { key = 'sup:' + id; mut = d => ({ ...d, suppliers: [...(d.suppliers || []), { id, code, name, category: np.cat || '', phone: np.phone || '', vatNo: '', terms: 0 }] }); }
+    else if (np.type === 'employee') { key = 'emp:' + id; mut = d => ({ ...d, employees: [...(d.employees || []), { id, code, name, jobTitle: np.cat || '', phone: np.phone || '', baseSalary: 0, housingAllowance: 0, transportAllowance: 0, branchId: f.branchId, isActive: true }] }); }
+    else { key = 'cust:' + id; mut = d => ({ ...d, partners: [...(d.partners || []), { id, key, code, name, type: np.type, cat: np.cat || '', phone: np.phone || '', tax: '', terms: 0 }] }); }
     await commitOrg(mut, { actionType: 'create', targetType: 'user_account', targetId: id, title: 'أضاف شريكاً للرئيسي من الإغلاق', details: name + ' — ' + (PT_TYPE[np.type] || { ar: 'عميل' }).ar });
     if (np.target === 'pay') linkPayParty(np.rowId, key, name, np.type === 'supplier' ? id : undefined);
     else linkExpParty(np.rowId, key, name, np.type === 'supplier' ? id : undefined);
@@ -2907,6 +2945,21 @@ function ClosingView({ c, org, onClose }) {
           <Row k="الإجمالي" v={money(c.totalExpenses)} color="var(--rose)" />
         </div>
       </div>
+      {(c.supplierPayments || []).filter(pm => payTotal(pm) > 0).length > 0 && (
+        <div className="card" style={{ background: 'var(--ink)', marginTop: 12 }}>
+          <div className="card-t" style={{ marginBottom: 8, fontSize: 12.5 }}>سداد الموردين خلال الوردية</div>
+          {(c.supplierPayments || []).filter(pm => payTotal(pm) > 0).map(pm => (
+            <div key={pm.id} style={{ paddingBottom: 4 }}>
+              <Row k={pm.supplierName || 'مورد'} v={money(payTotal(pm))} color="var(--mint)" />
+              <div className="row" style={{ gap: 5, marginTop: 3, flexWrap: 'wrap' }}>
+                <span className="badge b-dim" style={{ fontSize: 9 }}>{payLabel(pm) || '—'}</span>
+                {pm.reference && <span className="badge b-dim" style={{ fontSize: 9 }}>#{pm.reference}</span>}
+              </div>
+            </div>
+          ))}
+          <Row k="الإجمالي — منه نقدًا من الصندوق" v={`${money(sum((c.supplierPayments || []), payCashPart))} / ${money(sum((c.supplierPayments || []), payTotal))}`} color="var(--mint)" />
+        </div>
+      )}
       <hr className="hr" />
       <div className="lbl" style={{ marginBottom: 10 }}>جرد الفئات النقدية</div>
       <div className="notes">
@@ -4102,6 +4155,15 @@ function buildClosingA4(c, org) {
     <td class="num dim">${d.orderCount || 0} طلب</td></tr>`).join('') : '';
 
   const payLbl = (pm) => ({cash:'نقداً',card:'شبكة',cheque:'شيك',bank_transfer:'تحويل',deferred:'آجل'})[pm] || pm;
+  // سداد الموردين خلال الوردية — يظهر في التقرير حتى تكتمل معادلة الصندوق أمام المدقق
+  const supPaysArr = (c.supplierPayments || []).filter(pm => payTotal(pm) > 0);
+  const supPayRows = supPaysArr.map(pm => `<tr>
+    <td>${pm.supplierName || '—'}</td>
+    <td class="dim">${payLabel(pm) || '—'}</td>
+    <td class="dim">${pm.reference || '—'}</td>
+    <td class="num">${money2(payTotal(pm))} ر.س</td></tr>`).join('');
+  const supPaySum = supPaysArr.reduce((s, pm) => s + payTotal(pm), 0);
+  const supPayCash = supPaysArr.reduce((s, pm) => s + payCashPart(pm), 0);
   const expRows = (c.expenses || []).length ? (c.expenses || []).map(e => `<tr>
     <td>${e.categoryName || '—'}${e.isTaxable ? '<br><span style="font-size:8px;color:#8C6F2C">خاضع للضريبة' + (e.taxInvoice ? ' · فاتورة ضريبية' : '') + '</span>' : '<br><span style="font-size:8px;color:#999">غير خاضع</span>'}</td>
     <td class="dim">${e.beneficiaryName || '—'}</td>
@@ -4188,6 +4250,14 @@ function buildClosingA4(c, org) {
       <tbody>${expRows}</tbody>
       <tfoot><tr class="tot"><td colspan="4">إجمالي المصروفات التشغيلية</td><td class="num rose">${money2(c.totalExpenses)} ر.س</td></tr></tfoot>
     </table>
+
+    ${supPaysArr.length ? `
+    <div class="sec-h">سداد الموردين خلال الوردية</div>
+    <table class="t">
+      <thead><tr><th>المورد</th><th>توزيع الدفع</th><th>المرجع/الفاتورة</th><th class="num">المبلغ</th></tr></thead>
+      <tbody>${supPayRows}</tbody>
+      <tfoot><tr class="tot"><td colspan="3">إجمالي سداد الموردين — منه نقدًا من الصندوق ${money2(supPayCash)} ر.س</td><td class="num">${money2(supPaySum)} ر.س</td></tr></tfoot>
+    </table>` : ''}
 
     <div class="sec-h">مطابقة الصندوق والعهدة</div>
     <table class="t compact">
@@ -4305,6 +4375,9 @@ function printReceipt(c, org, size) {
   const dels = (c.deliverySales || []).filter(d => d.amount > 0)
     .map(d => line(`${d.appName} (${d.orderCount})`, m(d.amount))).join('');
   const exps = (c.expenses || []).map(e => line(`${e.categoryName}${e.receiptImage ? ' 📎' : ''}`, m(e.amount))).join('');
+  const supPaysR = (c.supplierPayments || []).filter(pm => payTotal(pm) > 0);
+  const paysR = supPaysR.map(pm => line(`${pm.supplierName || 'مورد'}${payLabel(pm) ? ' (' + payLabel(pm) + ')' : ''}`, m(payTotal(pm)))).join('');
+  const paysSum = supPaysR.reduce((s, pm) => s + payTotal(pm), 0);
   const dens = DENOMS.filter(d => (c.denominationDetails?.[d.k] || 0) > 0)
     .map(d => line(`${d.k === 'coins' ? 'هللات' : d.v + ' ريال'} × ${c.denominationDetails[d.k]}`,
       m((c.denominationDetails[d.k] || 0) * d.v))).join('');
@@ -4336,6 +4409,8 @@ function printReceipt(c, org, size) {
   <div class="sec">المصروفات</div>
   <table>${exps || '<tr><td>لا مصروفات</td><td class="v">0.00</td></tr>'}
   <tr class="tot"><td>إجمالي المصروف</td><td class="v">${m(c.totalExpenses)}</td></tr></table>
+  ${supPaysR.length ? `<div class="sec">سداد الموردين</div>
+  <table>${paysR}<tr class="tot"><td>إجمالي السداد</td><td class="v">${m(paysSum)}</td></tr></table>` : ''}
   <div class="sec">مطابقة الصندوق</div>
   <table>${dens}${line('المتوقع', m(c.expectedCashInSafe))}${line('الفعلي', m(c.actualCashCount))}
   <tr class="tot"><td>الفرق</td><td class="v">${c.variance > 0 ? '+' : ''}${m(c.variance)}</td></tr></table>
@@ -4600,6 +4675,21 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
   const partners = useMemo(() => buildPartners(org, ops), [org, ops]);
   const cur = partners.find(p => p.key === openKey);
 
+  // ترسيخ الأكواد على البطاقات القديمة مرة واحدة — حتى لا تتغير الأرقام بعد أي حذف مستقبلي
+  useEffect(() => {
+    if (!commitOrg || !canEdit) return;
+    const missing = (org.suppliers || []).some(s => !s.code) || (org.employees || []).some(e => !e.code) || (org.partners || []).some(pt => !pt.code);
+    if (!missing) return;
+    const codeMap = new Map(partners.map(p => [p.key, p.code]));
+    commitOrg(d => ({
+      ...d,
+      suppliers: (d.suppliers || []).map(s => s.code ? s : { ...s, code: codeMap.get('sup:' + s.id) }),
+      employees: (d.employees || []).map(e => e.code ? e : { ...e, code: codeMap.get('emp:' + e.id) }),
+      partners: (d.partners || []).map(pt => pt.code ? pt : { ...pt, code: codeMap.get(pt.key || ('cust:' + pt.id)) })
+    }), { actionType: 'update', targetType: 'user_account', targetId: 'partner-codes', title: 'تثبيت أرقام الشركاء', details: 'ترسيخ الترقيم التلقائي على بطاقات الشركاء' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   let cr = 0, dr = 0, cCust = 0, cSupp = 0, cEmp = 0;
   partners.forEach(p => {
     if (p.balance > 0) cr += p.balance; else dr += -p.balance;
@@ -4612,7 +4702,8 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
     const c = addP;
     if (!c.name?.trim()) return say('اكتب اسم الشريك', 'no');
     const id = uid('pt'); const key = 'cust:' + id;
-    const rec = { id, key, name: c.name.trim(), type: c.type || 'customer', cat: c.cat || '', phone: c.phone || '', tax: c.tax || '', terms: Number(c.terms) || 0 };
+    const code = nextPartnerCode(partners, c.type || 'customer');
+    const rec = { id, key, code, name: c.name.trim(), type: c.type || 'customer', cat: c.cat || '', phone: c.phone || '', tax: c.tax || '', terms: Number(c.terms) || 0 };
     await commitOrg(d => ({ ...d, partners: [...(d.partners || []), rec] }),
       { actionType: 'create', targetType: 'user_account', targetId: id, title: 'أضاف شريكاً لدفتر الشركاء', details: rec.name + ' — ' + (PT_TYPE[rec.type]?.ar || '') });
     const openAmt = Number((c.opening || '').toString().replace(/,/g, '')) || 0;
@@ -5983,7 +6074,7 @@ function TourModal({ me, onClose, go }) {
       </div>
       <hr className="hr" />
       <div style={{ fontSize: 11.5, color: 'var(--faint)' }}>
-        الخطوة <span className="num">{i + 1}</span> من <span className="num">{steps.length}</span> · صلاحيتك الحالية: {ROLES[me.role].ar}
+        الخطوة <span className="num">{i + 1}</span> من <span className="num">{steps.length}</span> · صلاحيتك الحالية: {(ROLES[me.role] || {}).ar || me.role}
       </div>
     </Modal>
   );
