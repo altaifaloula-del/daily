@@ -155,6 +155,9 @@ const clr = (i) => ['#C8A24A', '#4FB286', '#5B93C4', '#D9544D', '#E0A458', '#9B7
 
 /* ================= دفتر الشركاء: تجميع حركات كل شريك من مصادرها ================= */
 // الرصيد الجاري = مجموع الدائن − مجموع المدين. موجب = دائن (علينا)، سالب = مدين (لنا).
+// الإغلاق المُحتسب ماليًا = المرحّل أو المعتمد فقط (المسودات والمرفوضة لا تدخل الدفاتر ولا المؤشرات ولا التقارير)
+const countedClosing = (c) => !!c && (c.status === 'submitted' || c.status === 'approved');
+
 // سداد المورد قد يُوزَّع على أكثر من طريقة دفع (نقد + شبكة + تحويل + غير ذلك) لنفس الدفعة/الفاتورة
 const paySplits = (pm) => {
   if (pm.cash != null || pm.card != null || pm.transfer != null || pm.other != null)
@@ -742,7 +745,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v6.8 ✓</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v6.9 ✓</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -1389,15 +1392,18 @@ function computeSmartAlerts(org, ops, myBranches, deficitThreshold = 50) {
   });
 
   // 2) عجز صندوق يتجاوز الحد اليوم
-  (ops.closings || []).filter(c => c.date === td && ids.includes(c.branchId) && c.variance < -deficitThreshold)
+  (ops.closings || []).filter(c => countedClosing(c) && c.date === td && ids.includes(c.branchId) && c.variance < -deficitThreshold)
     .forEach(c => alerts.push({ id: 'def-' + c.id, sev: 'high', icon: 'down',
       title: 'عجز صندوق تجاوز الحد', msg: `${c.branchName}: عجز ${money(c.variance)} ر.س في إغلاق اليوم.` }));
 
   // 3) فواتير موردين تستحق اليوم أو غداً أو متأخرة
   const tomorrow = new Date(Date.now() + 864e5).toISOString().slice(0, 10);
-  (ops.invoices || []).filter(i => ids.includes(i.branchId) && (i.amount - (i.paidAmount || 0)) > 0)
+  // المتبقي = القيمة − سداد الرئيسي − سداد الفروع المرتبط (نفس معادلة شاشة الموردين)
+  const invBranchPaid = (invId) => sum((ops.closings || []).filter(countedClosing)
+    .flatMap(c => (c.supplierPayments || []).filter(pm => pm.invoiceId === invId)), payTotal);
+  (ops.invoices || []).filter(i => ids.includes(i.branchId) && (i.amount - (i.paidAmount || 0) - invBranchPaid(i.id)) > 0)
     .forEach(i => {
-      const rem = i.amount - (i.paidAmount || 0);
+      const rem = i.amount - (i.paidAmount || 0) - invBranchPaid(i.id);
       if (i.dueDate < td) alerts.push({ id: 'ovd-' + i.id, sev: 'high', icon: 'truck',
         title: 'فاتورة مورد متأخرة', msg: `${i.supplierName} · فاتورة ${i.invoiceNo || ''} · متبقٍّ ${money(rem)} ر.س — تجاوزت ${i.dueDate}.` });
       else if (i.dueDate === td) alerts.push({ id: 'due-' + i.id, sev: 'medium', icon: 'truck',
@@ -1486,7 +1492,7 @@ function DailyBranchReport({ org, scoped, myBranches, onClose }) {
     : scope === 'one' ? myBranches.filter(b => b.id === oneBranch)
     : myBranches.filter(b => someIds.includes(b.id));
 
-  const dayClosings = scoped.closings.filter(c => c.date === date &&
+  const dayClosings = scoped.closings.filter(c => countedClosing(c) && c.date === date &&
     targetBranches.some(b => b.id === c.branchId));
 
   const toggleSome = (id) => setSomeIds(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
@@ -1625,7 +1631,7 @@ function BranchCompare({ org, ops, me, myBranches, scoped, theme, setTab }) {
   const [day, setDay] = useState(today());
 
   const rows = useMemo(() => myBranches.map(b => {
-    const c = scoped.closings.find(x => x.branchId === b.id && x.date === day);
+    const c = scoped.closings.find(x => countedClosing(x) && x.branchId === b.id && x.date === day);
     return {
       id: b.id, name: b.name,
       closed: !!c,
@@ -1813,7 +1819,7 @@ function Dashboard({ org, ops, pulse, me, myBranches, scoped, online, setTab, th
     );
   }
 
-  const cls = scoped.closings;
+  const cls = scoped.closings.filter(countedClosing);
   const from = new Date(); from.setDate(from.getDate() - days);
   const fromS = from.toISOString().slice(0, 10);
   const win = cls.filter(c => c.date >= fromS);
@@ -2125,10 +2131,10 @@ function Closing({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
                   <td className="acts">
                     <div className="row" style={{ gap: 5, flexWrap: 'nowrap' }}>
                       <button className="btn sm gh" onClick={() => setView(c)}><Eye size={13} /></button>
-                      {canEdit && c.status === 'draft' && (
+                      {canEdit && (c.status === 'draft' || c.status === 'rejected') && (
                         <>
-                          <button className="btn sm gh" onClick={() => { setEdit(c); setOpen(true); }}>تعديل</button>
-                          <button className="btn sm gh" onClick={() => remove(c)}><Trash2 size={13} color="#D9544D" /></button>
+                          <button className="btn sm gh" onClick={() => { setEdit(c); setOpen(true); }}>{c.status === 'rejected' ? 'تصحيح' : 'تعديل'}</button>
+                          {c.status === 'draft' && <button className="btn sm gh" onClick={() => remove(c)}><Trash2 size={13} color="#D9544D" /></button>}
                         </>
                       )}
                     </div>
@@ -2275,7 +2281,8 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
   const buildRecord = (status) => {
     if (!f.branchId) { say('اختر الفرع أولاً', 'no'); return null; }
     if (totalRevenue <= 0) { say('أدخل مبيعات الوردية قبل الحفظ', 'no'); return null; }
-    const dup = existing.find(c => c.branchId === f.branchId && c.date === f.date && c.id !== initial?.id);
+    // المرفوض لا يمنع إعادة إغلاق اليوم — حتى لا يُقفل اليوم نهائيًا بعد الرفض
+    const dup = existing.find(c => c.branchId === f.branchId && c.date === f.date && c.id !== initial?.id && c.status !== 'rejected');
     if (dup) { say('يوجد إغلاق مسجّل لهذا الفرع بنفس التاريخ — عدّل الإغلاق القائم بدل إنشاء نسخة ثانية', 'no'); return null; }
     if (status === 'submitted') {
       if (actual <= 0) { say('أكمل جرد الفئات النقدية قبل الترحيل', 'no'); return null; }
@@ -2294,6 +2301,7 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
       expectedCashInSafe: expected, actualCashCount: actual, variance,
       retainedFloatForTomorrow: retained, transferReferenceNo: ref,
       transferStatus: 'pending', status, gmApprovalStatus: 'pending',
+      rejectionReason: status === 'submitted' ? '' : (f.rejectionReason || ''),
       createdBy: me.name, createdAt: initial?.createdAt || nowISO(), updatedAt: nowISO()
     };
     return { rec: { ...rec, closingNo: ref }, id, ref };
@@ -2371,7 +2379,7 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
         const store = await cloud.get(KEYS.files, { items: [] });
         const prevItems = (store && Array.isArray(store.items)) ? store.items : [];
         const kept = prevItems.filter(x => x.closingId !== id);
-        await cloud.set(KEYS.files, { items: [...docs, ...kept].slice(0, 300) });
+        await cloud.set(KEYS.files, { items: [...docs, ...kept].slice(0, 1500) });
       }
     } catch (err) { /* الأرشفة تكميلية — لا توقف حفظ الإغلاق */ }
 
@@ -3342,6 +3350,8 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, say }) {
   const ids = myBranches.map(b => b.id);
   const emps = org.employees.filter(e => ids.includes(e.branchId));
   const canPay = ROLES[me.role]?.scope !== 'own';
+  // ترحيل الاستحقاق/الصرف قرار على مستوى المنشأة كلها — يُقصر على الأدوار شاملة النطاق
+  const canPost = ROLES[me.role]?.scope === 'all';
 
   const rows = emps.map(e => {
     const ads = scoped.advances.filter(a => a.employeeId === e.id && a.month === month);
@@ -3466,10 +3476,10 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, say }) {
           <span className="badge b-dim">{emps.length} موظف</span>
         </div>
         <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-          {canPay && (accrualPosted
+          {canPost && (accrualPosted
             ? <span className="badge b-mint"><Check size={11} />استحقاق {month} مُرحّل للدفتر</span>
             : <button className="btn" onClick={postAccrual}><Landmark size={14} />ترحيل استحقاق الشهر للدفتر</button>)}
-          {canPay && (payoutPosted
+          {canPost && (payoutPosted
             ? <span className="badge b-mint"><Check size={11} />صرف {month} مسجّل</span>
             : <button className="btn" disabled={!accrualPosted} onClick={postPayout}><Banknote size={14} />تسجيل صرف الرواتب</button>)}
           <button className="btn pri" onClick={() => setAdd(true)}><Plus size={15} />تسجيل سلفة أو خصم</button>
@@ -3625,7 +3635,7 @@ function Reports({ org, ops, me, myBranches, scoped, say, theme }) {
   const [to, setTo] = useState(today());
   const [bid, setBid] = useState('all');
 
-  const rows = scoped.closings.filter(c => c.date >= from && c.date <= to && (bid === 'all' || c.branchId === bid));
+  const rows = scoped.closings.filter(c => countedClosing(c) && c.date >= from && c.date <= to && (bid === 'all' || c.branchId === bid));
 
   const byBranch = myBranches.filter(b => bid === 'all' || b.id === bid).map(b => {
     const bc = rows.filter(c => c.branchId === b.id);
@@ -4713,7 +4723,7 @@ function printPartnerStatement(p, org) {
 const PT_TYPE = { customer: { ar: 'عميل', c: '#5B93C4' }, supplier: { ar: 'مورد', c: '#E0A458' }, employee: { ar: 'موظف', c: '#9B7BB8' } };
 const PT_SRC = {
   inv: { t: 'فاتورة', c: 'var(--amber)' }, close: { t: 'إغلاق فرع', c: 'var(--mint)' },
-  adv: { t: 'سلفة/خصم', c: 'var(--violet)' }, salary: { t: 'راتب مستحق', c: 'var(--sky)' },
+  adv: { t: 'سلفة/خصم', c: 'var(--violet)' }, salary: { t: 'رواتب', c: 'var(--sky)' },
   open: { t: 'افتتاحي', c: 'var(--faint)' }, manual: { t: 'يدوي', c: 'var(--sky)' },
   pay: { t: 'سداد', c: 'var(--mint)' }
 };
@@ -4971,7 +4981,7 @@ function AiCenter({ org, ops, me, myBranches, scoped, say }) {
   const digest = useMemo(() => {
     const from = new Date(); from.setDate(from.getDate() - days);
     const fs = from.toISOString().slice(0, 10);
-    const win = scoped.closings.filter(c => c.date >= fs);
+    const win = scoped.closings.filter(c => countedClosing(c) && c.date >= fs);
     const perBranch = myBranches.map(b => {
       const bc = win.filter(c => c.branchId === b.id);
       const rev = sum(bc, c => c.totalRevenue), exp = sum(bc, c => c.totalExpenses);
@@ -5761,7 +5771,7 @@ function Shifts({ org, ops, me, myBranches, commitOrg, say }) {
     if (h < 6 && now.getHours() >= 6) dl.setDate(dl.getDate() + 1);
     const mins = Math.round((dl - now) / 60000);
     const workDay = h < 6 ? new Date(dl.getTime() - 86400000).toISOString().slice(0, 10) : dl.toISOString().slice(0, 10);
-    const done = (ops.closings || []).some(c => c.branchId === b.id && c.date === workDay && c.status !== 'draft');
+    const done = (ops.closings || []).some(c => c.branchId === b.id && c.date === workDay && countedClosing(c));
     const warn = mins <= (b.reminderBeforeMinutes || 30) && mins > 0;
     return { dl, mins, done, warn, late: mins < 0 && !done, workDay };
   };
