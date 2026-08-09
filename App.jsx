@@ -230,12 +230,9 @@ function buildPartners(org, ops) {
     parts.push({ key, id: sp.id, name: sp.name, type: 'supplier', cat: sp.category || 'مورد', phone: sp.phone || '', tax: sp.vatNo || '', terms: sp.terms || 0, linked, txns, storedCode: sp.code });
   });
 
-  // الموظفون — راتب الشهر الحالي مستحق + السلف/الخصوم + حركات يدوية
-  const curMonth = (today() || '').slice(0, 7);
+  // الموظفون — استحقاق وصرف الرواتب قيود دائمة تُرحَّل من شاشة الرواتب (لا سطر اصطناعي يتغيّر بالشهر)
   (org.employees || []).forEach(em => {
     const key = 'emp:' + em.id; const txns = []; let linked = false;
-    const gross = (em.baseSalary || 0) + (em.housingAllowance || 0) + (em.transportAllowance || 0);
-    if (gross > 0) txns.push({ date: curMonth + '-01', desc: 'راتب ' + curMonth + ' مستحق', ref: '', src: 'salary', debit: 0, credit: gross });
     (ops.advances || []).filter(a => a.employeeId === em.id).forEach(a => {
       const isDraw = ['advance', 'salary_draw'].includes(a.type);
       txns.push({ date: (a.date || '').slice(0, 10), desc: (isDraw ? 'سلفة/سحب على الراتب' : 'خصم/جزاء') + (a.reason ? ' — ' + a.reason : ''), ref: a.month || '', src: 'adv', debit: a.amount || 0, credit: 0 });
@@ -745,7 +742,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v6.7 ✓</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v6.8 ✓</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2153,7 +2150,7 @@ function Closing({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
 
       {open && (
         <ClosingForm key={formKey} org={org} me={me} branches={myBranches} initial={edit} commit={commit} commitOrg={commitOrg} say={say}
-          existing={ops.closings || []}
+          existing={ops.closings || []} invoices={ops.invoices || []}
           onStartNew={() => { setEdit(null); setFormKey(k => k + 1); }}
           onClose={() => { setOpen(false); setEdit(null); }} />
       )}
@@ -2172,7 +2169,7 @@ function normalizeSupPays(arr) {
   });
 }
 
-export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say, onClose, onStartNew, existing = [] }) {
+export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say, onClose, onStartNew, existing = [], invoices = [] }) {
   const [f, setF] = useState(() => initial ? { ...initial, supplierPayments: normalizeSupPays(initial.supplierPayments) } : {
     date: today(), branchId: branches[0]?.id || '',
     openingBalance: branches[0]?.defaultFloat || 0,
@@ -2306,7 +2303,14 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
   const finalize = async (status, recIn, id, ref, out) => {
     const rec = { ...recIn, completion: out ? { ...out, at: nowISO(), by: me.name } : (recIn.completion || null) };
     await commit(d => {
-      const closings = [rec, ...d.closings.filter(c => c.id !== id)];
+      // سياسة الاحتفاظ: بعد 60 يومًا تُنظَّف الصور من سجل الإغلاق (تبقى نسخها في أرشيف المستندات) لكبح تضخم التخزين
+      const cutoff = new Date(Date.now() - 60 * 864e5).toISOString().slice(0, 10);
+      const pruneImgs = (c) => {
+        if (c.imagesPruned || !c.date || c.date >= cutoff || c.status === 'draft') return c;
+        if (!c.sessionPhoto && !c.cardReceiptImage && !(c.expenses || []).some(e => e.receiptImage)) return c;
+        return { ...c, sessionPhoto: '', cardReceiptImage: '', expenses: (c.expenses || []).map(e => e.receiptImage ? { ...e, receiptImage: '' } : e), imagesPruned: true };
+      };
+      const closings = [rec, ...d.closings.filter(c => c.id !== id)].map(pruneImgs);
       let transfers = d.transfers.filter(t => t.closingId !== id);
       if (status === 'submitted' && rec.transferredToMainTreasury > 0) {
         transfers = [{
@@ -2687,6 +2691,18 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
               </div>
               <input className="inp" style={{ marginBottom: 8 }} value={pm.supplierName || ''} placeholder="اسم المورد"
                 onChange={ev => upSupPay(pm.id, 'supplierName', ev.target.value)} />
+              {pm.supplierId && invoices.some(i => i.supplierId === pm.supplierId && (i.amount - (i.paidAmount || 0)) > 0) && (
+                <select className="sel" style={{ marginBottom: 8 }} value={pm.invoiceId || ''}
+                  onChange={ev => {
+                    const inv = invoices.find(i => i.id === ev.target.value);
+                    set('supplierPayments', (f.supplierPayments || []).map(x => x.id === pm.id
+                      ? { ...x, invoiceId: ev.target.value || undefined, reference: inv ? (inv.invoiceNo || x.reference) : x.reference } : x));
+                  }}>
+                  <option value="">— اربط السداد بفاتورة مفتوحة (اختياري — يمنع الازدواج مع سداد الرئيسي) —</option>
+                  {invoices.filter(i => i.supplierId === pm.supplierId && (i.amount - (i.paidAmount || 0)) > 0)
+                    .map(i => <option key={i.id} value={i.id}>{i.invoiceNo} · متبقٍ {money(i.amount - (i.paidAmount || 0))}</option>)}
+                </select>
+              )}
               <div className="lbl" style={{ marginBottom: 4 }}>وزّع السداد على طرق الدفع (يمكن الجمع بينها لنفس الفاتورة)</div>
               <div className="grid g2" style={{ gap: 9 }}>
                 <Num label="نقدًا" value={paySplits(pm).cash} onChange={v => upSupPay(pm.id, 'cash', v)} sum />
@@ -2904,6 +2920,7 @@ function ClosingView({ c, org, onClose }) {
       <div className="row" style={{ marginBottom: 14 }}>
         <Badge s={c.status} />
         {c.gmApprovalStatus === 'approved' && <span className="badge b-brass"><ShieldCheck size={11} />معتمد من الإدارة العليا</span>}
+        {c.imagesPruned && <span className="badge b-dim" title="سياسة الاحتفاظ 60 يومًا">🗄 صور هذا الإغلاق في أرشيف المستندات</span>}
         <span className="badge b-dim">المسؤول: {c.managerName}</span>
         {c.auditedBy && <span className="badge b-sky">دقّقه: {c.auditedBy}</span>}
       </div>
@@ -3410,14 +3427,53 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, say }) {
     setTimeout(() => { w.focus(); w.print(); }, 500);
   };
 
+  // ترحيل استحقاق الشهر وقيد الصرف إلى دفتر الشركاء — قيود دائمة لا تتغيّر بتغيّر الشهر (إصلاح المراجعة #4)
+  const accrualPosted = (ops.ledgerEntries || []).some(x => x.kind === 'salary_accrual' && x.month === month);
+  const payoutPosted = (ops.ledgerEntries || []).some(x => x.kind === 'salary_payout' && x.month === month);
+  const postAccrual = async () => {
+    if (accrualPosted) return say('استحقاق هذا الشهر مُرحّل مسبقاً', 'no');
+    const entries = rows.filter(r => r.gross > 0).map(r => ({
+      id: uid('le'), partnerKey: 'emp:' + r.e.id, date: month + '-28', month, kind: 'salary_accrual',
+      desc: 'استحقاق راتب شهر ' + month, src: 'salary', debit: 0, credit: r.gross
+    }));
+    if (!entries.length) return say('لا رواتب لترحيلها هذا الشهر', 'no');
+    await commit(d => ({ ...d, ledgerEntries: [...entries, ...(d.ledgerEntries || [])] }), {
+      actionType: 'create', targetType: 'daily_closing', targetId: 'payroll-' + month,
+      title: 'رحّل استحقاق رواتب الشهر للدفتر', details: month + ' · ' + entries.length + ' موظف · إجمالي ' + money(sum(rows.filter(r => r.gross > 0), r => r.gross))
+    });
+    say('رُحّل استحقاق ' + month + ' إلى دفتر الشركاء ✓');
+  };
+  const postPayout = async () => {
+    if (!accrualPosted) return say('رحّل استحقاق الشهر أولاً', 'no');
+    if (payoutPosted) return say('صرف هذا الشهر مسجّل مسبقاً', 'no');
+    const entries = rows.filter(r => r.net > 0).map(r => ({
+      id: uid('le'), partnerKey: 'emp:' + r.e.id, date: today(), month, kind: 'salary_payout',
+      desc: 'صرف راتب شهر ' + month + ' (صافي بعد السلف والخصوم)', src: 'salary', debit: r.net, credit: 0
+    }));
+    if (!entries.length) return say('لا صافي مستحق للصرف', 'no');
+    await commit(d => ({ ...d, ledgerEntries: [...entries, ...(d.ledgerEntries || [])] }), {
+      actionType: 'create', targetType: 'daily_closing', targetId: 'payout-' + month,
+      title: 'سجّل صرف رواتب الشهر', details: month + ' · صافي ' + money(sum(rows.filter(r => r.net > 0), r => r.net))
+    });
+    say('سُجّل صرف رواتب ' + month + ' — أُقفل استحقاق الشهر في كشوف الموظفين ✓');
+  };
+
   return (
     <div className="grid" style={{ gap: 14 }}>
-      <div className="row" style={{ justifyContent: 'space-between' }}>
+      <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
         <div className="row">
           <input type="month" className="inp" style={{ width: 165 }} value={month} onChange={e => setMonth(e.target.value)} />
           <span className="badge b-dim">{emps.length} موظف</span>
         </div>
-        <button className="btn pri" onClick={() => setAdd(true)}><Plus size={15} />تسجيل سلفة أو خصم</button>
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+          {canPay && (accrualPosted
+            ? <span className="badge b-mint"><Check size={11} />استحقاق {month} مُرحّل للدفتر</span>
+            : <button className="btn" onClick={postAccrual}><Landmark size={14} />ترحيل استحقاق الشهر للدفتر</button>)}
+          {canPay && (payoutPosted
+            ? <span className="badge b-mint"><Check size={11} />صرف {month} مسجّل</span>
+            : <button className="btn" disabled={!accrualPosted} onClick={postPayout}><Banknote size={14} />تسجيل صرف الرواتب</button>)}
+          <button className="btn pri" onClick={() => setAdd(true)}><Plus size={15} />تسجيل سلفة أو خصم</button>
+        </div>
       </div>
 
       <div className="grid g4">
@@ -4443,11 +4499,18 @@ function Suppliers({ org, ops, me, myBranches, commit, say }) {
   const suppliers = org.suppliers || [];
   const canPay = ROLES[me.role]?.scope !== 'own';
 
-  const outstanding = sum(invoices, i => i.amount - (i.paidAmount || 0));
-  const overdue = invoices.filter(i => (i.amount - (i.paidAmount || 0)) > 0 && i.dueDate < today());
+  // سدادات الفروع المرتبطة بالفواتير (من الإغلاقات المرحّلة/المعتمدة) — تُحتسب دون تعديل الفاتورة فلا ازدواج
+  const branchPaid = (invId) => sum(
+    (ops.closings || []).filter(c => c.status === 'submitted' || c.status === 'approved')
+      .flatMap(c => (c.supplierPayments || []).filter(pm => pm.invoiceId === invId)), payTotal);
+  const invPaid = (i) => (i.paidAmount || 0) + branchPaid(i.id);
+  const invRem = (i) => i.amount - invPaid(i);
+
+  const outstanding = sum(invoices, invRem);
+  const overdue = invoices.filter(i => invRem(i) > 0 && i.dueDate < today());
 
   const settle = async () => {
-    const inv = pay; const v = Math.min(amt, inv.amount - (inv.paidAmount || 0));
+    const inv = pay; const v = Math.min(amt, invRem(inv));
     if (v <= 0) return say('أدخل مبلغ سداد صحيح', 'no');
     await commit(d => ({
       ...d,
@@ -4504,7 +4567,8 @@ function Suppliers({ org, ops, me, myBranches, commit, say }) {
                 <th>القيمة</th><th>المسدد</th><th>المتبقي</th><th>الحالة</th><th></th></tr></thead>
               <tbody>
                 {invoices.map(i => {
-                  const rem = i.amount - (i.paidAmount || 0);
+                  const bp = branchPaid(i.id);
+                  const rem = invRem(i);
                   const late = rem > 0 && i.dueDate < today();
                   const daysLeft = i.dueDate ? Math.round((new Date(i.dueDate) - new Date(today())) / 864e5) : null;
                   const mahla = rem <= 0 ? { t: '—', c: 'var(--faint)' }
@@ -4522,7 +4586,8 @@ function Suppliers({ org, ops, me, myBranches, commit, say }) {
                       <td className="num" style={{ whiteSpace: 'nowrap', color: late ? 'var(--rose)' : 'inherit' }}>{arDate(i.dueDate)}</td>
                       <td style={{ whiteSpace: 'nowrap', color: mahla.c, fontSize: 11.5, fontWeight: 600 }}>{mahla.t}</td>
                       <td className="num">{money(i.amount)}</td>
-                      <td className="num" style={{ color: 'var(--mint)' }}>{money(i.paidAmount || 0)}</td>
+                      <td className="num" style={{ color: 'var(--mint)' }}>{money(invPaid(i))}
+                        {bp > 0 && <div style={{ fontSize: 9, color: 'var(--faint)' }}>منه من الفروع {money(bp)}</div>}</td>
                       <td className="num" style={{ color: rem > 0 ? 'var(--amber)' : 'var(--faint)', fontWeight: 600 }}>{money(rem)}</td>
                       <td><span className={'badge ' + (rem <= 0 ? 'b-mint' : late ? 'b-rose' : 'b-amber')}>
                         {rem <= 0 ? 'مسددة' : late ? 'متأخرة' : 'قيد السداد'}</span></td>
@@ -4571,7 +4636,7 @@ function Suppliers({ org, ops, me, myBranches, commit, say }) {
               <thead><tr><th>المورد</th><th>التصنيف</th><th>الجوال</th><th>الرقم الضريبي</th><th>مهلة السداد</th><th>الرصيد المستحق</th></tr></thead>
               <tbody>
                 {suppliers.map(sp => {
-                  const bal = sum(invoices.filter(i => i.supplierId === sp.id), i => i.amount - (i.paidAmount || 0));
+                  const bal = sum(invoices.filter(i => i.supplierId === sp.id), invRem);
                   return (
                     <tr key={sp.id}>
                       <td style={{ fontSize: 12.5, fontWeight: 600 }}>{sp.name}</td>
@@ -4595,7 +4660,7 @@ function Suppliers({ org, ops, me, myBranches, commit, say }) {
             <button className="btn gh" onClick={() => setPay(null)}>إلغاء</button></>}>
           <div className="mono-b" style={{ marginBottom: 12 }}>
             <span style={{ fontSize: 12 }}>{pay.supplierName} — {pay.branchName}</span>
-            <span className="num" style={{ color: 'var(--amber)' }}>المتبقي {money(pay.amount - (pay.paidAmount || 0))}</span>
+            <span className="num" style={{ color: 'var(--amber)' }}>المتبقي {money(invRem(pay))}</span>
           </div>
           <Num label="مبلغ السداد" value={amt} onChange={setAmt} hint="يمكن السداد جزئياً على دفعات" />
         </Modal>
