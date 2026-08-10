@@ -661,4 +661,22 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
 .appperm.on .tk{background:var(--mint);border-color:var(--mint);color:#0c1410}
 .appperm.on.role .nm small{color:var(--mint)}
 .appperm.ovr .nm small{color:var(--amber)}
+
+/* شريط التطبيق (اسم + تقارير + إعدادات) — v9.4 */
+.abar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;background:var(--ink2);
+  border:1px solid var(--line);border-radius:var(--r-lg)}
+.abar-id{display:flex;align-items:center;gap:9px;font-weight:700;font-size:14px}
+.abar-ic{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;background:var(--ink3);
+  border:1px solid var(--line-g);color:var(--brass)}
+.abar-id small{display:block;font-size:9.5px;color:var(--faint);font-weight:500;margin-top:1px}
+.abar-sp{margin-inline-start:auto}
+.abar-dd{position:relative}
+.abar-back{position:fixed;inset:0;z-index:40}
+.abar-menu{position:absolute;top:calc(100% + 6px);inset-inline-end:0;min-width:230px;background:var(--ink2);
+  border:1px solid var(--line-g);border-radius:12px;box-shadow:var(--sh-4);padding:6px;z-index:41}
+.abar-menu .abar-hd{font-size:9.5px;color:var(--faint);padding:6px 10px 3px;letter-spacing:.3px}
+.abar-menu button{display:flex;align-items:center;gap:9px;width:100%;text-align:start;padding:9px 10px;border:none;
+  background:none;color:var(--txt);font:inherit;font-size:12px;border-radius:8px;cursor:pointer}
+.abar-menu button:hover{background:var(--acc-soft)}
+.abar-menu button svg{color:var(--faint);flex-shrink:0}
 `;

@@ -1609,7 +1609,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v9.3 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v9.4 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -5584,6 +5584,7 @@ function printReceipt(c, org, size) {
 /* ================= الموردون والالتزامات الشهرية ================= */
 function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const [tab, setTab] = useState('inv');
+  const [repOpen, setRepOpen] = useState(false);    // v9.4 قائمة تقارير التطبيق
   const [pay, setPay] = useState(null);
   const [amt, setAmt] = useState(0);
   const [newInv, setNewInv] = useState(null);        // نموذج فاتورة توريد (م٤)
@@ -5757,6 +5758,23 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
 
   return (
     <div className="grid" style={{ gap: 14 }}>
+      {/* شريط التطبيق — v9.4 */}
+      <div className="abar">
+        <div className="abar-id"><span className="abar-ic"><Truck size={17} /></span>الموردون والمشتريات<small>الفواتير والالتزامات · سجل الموردين · أوامر الشراء</small></div>
+        <div className="abar-sp" />
+        <div className="abar-dd">
+          <button className="btn sm" onClick={() => setRepOpen(o => !o)}><FileBarChart size={14} />التقارير<ChevronDown size={13} /></button>
+          {repOpen && (<>
+            <div className="abar-back" onClick={() => setRepOpen(false)} />
+            <div className="abar-menu">
+              <div className="abar-hd">تقارير الموردون والمشتريات</div>
+              <button onClick={() => { setRepOpen(false); printInvs(); }}><Printer size={13} />الفواتير المفتوحة وأعمار الديون</button>
+              <button onClick={() => { setRepOpen(false); setTab('po'); say('أوامر الشراء — اطبع أي أمر من زر الطابعة بجانبه'); }}><Printer size={13} />أوامر الشراء</button>
+            </div>
+          </>)}
+        </div>
+      </div>
+
       <div className="grid g4">
         <Kpi label="مستحقات الموردين" value={money(outstanding)} sub={`${allInvs.filter(i => remOf(i) > 0).length} فاتورة مفتوحة (منها ${clInvs.filter(v => cRem(v) > 0).length} من الورديات)`} icon={Truck} color="#C8A24A" />
         <Kpi label="متأخرة عن الاستحقاق" value={money(sum(overdue, remOf))} sub={`${overdue.length} فاتورة`} icon={AlertTriangle} color="#D9544D" />
@@ -6128,6 +6146,7 @@ const MOVE_KINDS = {
 };
 function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
   const [view, setView] = useState('items');        // items | moves | count | recipes
+  const [repOpen, setRepOpen] = useState(false);    // v9.4 قائمة تقارير التطبيق
   const [itemF, setItemF] = useState(null);         // نموذج صنف
   const [moveF, setMoveF] = useState(null);         // نموذج حركة
   const [prodF, setProdF] = useState(null);         // نموذج وصفة
@@ -6230,6 +6249,23 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
 
   return (
     <div className="grid" style={{ gap: 14 }}>
+      {/* شريط التطبيق — v9.4 */}
+      <div className="abar">
+        <div className="abar-id"><span className="abar-ic"><HardDrive size={17} /></span>المخزون والمنتجات<small>الأصناف · الحركات · الجرد · المنتجات والوصفات</small></div>
+        <div className="abar-sp" />
+        <div className="abar-dd">
+          <button className="btn sm" onClick={() => setRepOpen(o => !o)}><FileBarChart size={14} />التقارير<ChevronDown size={13} /></button>
+          {repOpen && (<>
+            <div className="abar-back" onClick={() => setRepOpen(false)} />
+            <div className="abar-menu">
+              <div className="abar-hd">تقارير المخزون والمنتجات</div>
+              <button onClick={() => { setRepOpen(false); printStock(); }}><Printer size={13} />تقرير المخزون والأرصدة</button>
+              <button onClick={() => { setRepOpen(false); printCountSheet(); }}><Printer size={13} />ورقة جرد ورقية</button>
+            </div>
+          </>)}
+        </div>
+      </div>
+
       <div className="grid g4">
         <Kpi label="قيمة المخزون (بآخر تكلفة)" value={money(stockValue)} sub={items.length + ' صنفاً'} icon={HardDrive} color="#C8A24A" />
         <Kpi label="أصناف تحت حد الطلب" value={String(lowItems.length)} sub={lowItems.map(i => i.name).join('، ').slice(0, 40) || 'لا شيء — ممتاز'} icon={AlertTriangle} color={lowItems.length ? '#D9544D' : '#4FB286'} />
@@ -6785,6 +6821,8 @@ function AppsCenter({ org, me, commitOrg, say, setTab, openAcctView, openInvView
 /* ================= شاشة المحاسبة — م١+م٢: دليل، قيود، ميزان، قوائم ================= */
 function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }) {
   const [view, setView] = useState('jr');           // jr قيود · coa دليل · tb ميزان · fs قوائم
+  const [repOpen, setRepOpen] = useState(false);    // v9.4 قائمة التقارير
+  const [stgOpen, setStgOpen] = useState(false);    // v9.4 قائمة الإعدادات
   const [open, setOpen] = useState({});             // القيود المفتوحة التفاصيل
   const [q, setQ] = useState('');
   const [month, setMonth] = useState('');           // فلتر شهر للقيود
@@ -7155,6 +7193,39 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
 
   return (
     <div className="grid" style={{ gap: 14 }}>
+      {/* شريط التطبيق — v9.4: اسم المحاسبة + قائمة تقاريره + إعداداته */}
+      <div className="abar">
+        <div className="abar-id"><span className="abar-ic"><Scale size={17} /></span>المحاسبة<small>القيود · الحسابات · الميزان · القوائم · مراكز التكلفة · الأصول · التسوية · الإقفال</small></div>
+        <div className="abar-sp" />
+        <div className="abar-dd">
+          <button className="btn sm" onClick={() => { setRepOpen(o => !o); setStgOpen(false); }}><FileBarChart size={14} />التقارير<ChevronDown size={13} /></button>
+          {repOpen && (<>
+            <div className="abar-back" onClick={() => setRepOpen(false)} />
+            <div className="abar-menu">
+              <div className="abar-hd">تقارير المحاسبة</div>
+              <button onClick={() => { setRepOpen(false); printJR(); }}><Printer size={13} />دفتر اليومية</button>
+              <button onClick={() => { setRepOpen(false); printTB(); }}><Printer size={13} />ميزان المراجعة</button>
+              <button onClick={() => { setRepOpen(false); printFS(); }}><Printer size={13} />القوائم المالية</button>
+              <button onClick={() => { setRepOpen(false); printCC(); }}><Printer size={13} />مراكز التكلفة والربحية</button>
+              <button onClick={() => { setRepOpen(false); printAST(); }}><Printer size={13} />سجل الأصول والإهلاك</button>
+              <button onClick={() => { setRepOpen(false); printVAT(); }}><Printer size={13} />الإقرار الضريبي</button>
+            </div>
+          </>)}
+        </div>
+        <div className="abar-dd">
+          <button className="btn sm gh" onClick={() => { setStgOpen(o => !o); setRepOpen(false); }}><Settings size={14} />إعدادات<ChevronDown size={13} /></button>
+          {stgOpen && (<>
+            <div className="abar-back" onClick={() => setStgOpen(false)} />
+            <div className="abar-menu">
+              <div className="abar-hd">إعدادات المحاسبة</div>
+              <button onClick={() => { setStgOpen(false); setView('vat'); }}><Receipt size={13} />ضريبة القيمة المضافة</button>
+              <button onClick={() => { setStgOpen(false); setView('cc'); }}><BarChart3 size={13} />توزيع مراكز التكلفة</button>
+              <button onClick={() => { setStgOpen(false); setView('lock'); }}><Lock size={13} />الإقفال الشهري</button>
+            </div>
+          </>)}
+        </div>
+      </div>
+
       <div className="grid g4">
         <Kpi label="القيود المسجّلة" value={String(A.entries.length)} sub="تلقائية من عملياتك + يدوية المحاسب" icon={FileText} color="#4FB286" />
         <Kpi label={A.balanced ? 'كل القيود متوازنة ✓' : 'يوجد قيد غير متوازن!'} value={money(A.totalDebit)}
