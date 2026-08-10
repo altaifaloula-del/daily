@@ -192,6 +192,15 @@ const clr = (i) => ['#C8A24A', '#4FB286', '#5B93C4', '#D9544D', '#E0A458', '#9B7
 // الإغلاق المُحتسب ماليًا = المرحّل أو المعتمد فقط (المسودات والمرفوضة لا تدخل الدفاتر ولا المؤشرات ولا التقارير)
 const countedClosing = (c) => !!c && (c.status === 'submitted' || c.status === 'approved');
 
+/* v8.4 — إقفال الفترات: قفل تراكمي حتى شهر (org.periodLocks.lockedThrough)
+   كل ما يغيّر قيود شهر مقفل يُمنع — والفتح استثنائي موثق بسبب من شاشة الإقفال */
+const lockedThru = (org) => ((org || {}).periodLocks || {}).lockedThrough || '';
+const periodLocked = (org, dateStr) => {
+  const lt = lockedThru(org);
+  return !!lt && !!(dateStr || '') && (dateStr || '').slice(0, 7) <= lt;
+};
+const LOCK_MSG = (d) => 'شهر ' + (d || '').slice(0, 7) + ' مقفل محاسبيًا 🔒 — الفتح الاستثنائي من المحاسبة ← الإقفال';
+
 // سداد المورد قد يُوزَّع على أكثر من طريقة دفع (نقد + شبكة + تحويل + غير ذلك) لنفس الدفعة/الفاتورة
 const paySplits = (pm) => {
   if (pm.cash != null || pm.card != null || pm.transfer != null || pm.other != null)
@@ -791,6 +800,7 @@ const REG_APPS = [
   { id: 'assets', ar: 'الأصول الثابتة والإهلاك', en: 'Fixed Assets', cat: 'ast', icon: Building2, open: { tab: 'acct', view: 'ast' }, kw: ['أصل', 'إهلاك', 'معدات', 'قيمة دفترية'], fns: ['سجل أصول بمصدر تمويل صريح', 'إهلاك شهري تلقائي بأثر رجعي', 'قيمة دفترية حية'], d: 'سجل أصولك وقيود شرائها وإهلاكها الشهري تلقائياً حتى نهاية عمرها.' },
   { id: 'bankrec', ar: 'التسوية البنكية', en: 'Bank Reconciliation', cat: 'ast', icon: Landmark, open: { tab: 'acct', view: 'bank' }, kw: ['بنك', 'تسوية', 'كشف', 'مطابقة', 'شبكة', 'فرق'], fns: ['رصيد الدفتر مقابل كشف البنك', 'فرق موثق بسجل تسويات', 'حركات البنك مفصلة'], d: 'طابق حساب البنك التجميعي مع كشفك الفعلي ووثّق الفروقات — والتصحيح بقيد يدوي.' },
   // ——— التدقيق والحوكمة ———
+  { id: 'lock', ar: 'الإقفال الشهري', en: 'Period Locking', cat: 'gov', icon: Lock, open: { tab: 'acct', view: 'lock' }, kw: ['إقفال', 'قفل', 'فترة', 'شهر', 'حماية', 'مراجع'], fns: ['قفل تراكمي حتى شهر', 'فحوصات ما قبل القفل', 'فتح استثنائي بسبب موثق', 'سجل كامل'], d: 'اقفل الشهور المعتمدة ضد أي تعديل — والفتح استثنائي موثق بسبب أمام المراجع.' },
   { id: 'audit', ar: 'سجل التدقيق', en: 'Audit Trail', cat: 'gov', icon: Eye, open: { tab: 'audit' }, kw: ['تدقيق', 'سجل', 'عملية', 'حوكمة', 'من فعل'], fns: ['كل عملية باسم صاحبها ووقتها', 'تنبيهات حية لمدير النظام'], d: 'من فعل ماذا ومتى — سجل كامل لا يُمحى لكل حركة في النظام.' },
   { id: 'archive', ar: 'أرشيف المستندات', en: 'Documents Archive', cat: 'gov', icon: ImageIcon, open: { tab: 'archive' }, kw: ['مستند', 'صورة', 'أرشيف', 'وثيقة', 'إيصال'], fns: ['صور الإغلاقات والإيصالات', 'تصفح بالفرع والتاريخ'], d: 'كل صور التوثيق والإيصالات مؤرشفة بالفرع والتاريخ.' },
   // ——— التحليل والذكاء المالي ———
@@ -1307,7 +1317,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v8.3 ⚖️</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v8.4 🔒</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2710,10 +2720,13 @@ function Closing({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
     .sort((a, b) => b.date.localeCompare(a.date));
   const list = filtered.slice(0, limit);
 
-  const remove = (c) => commit(
+  const remove = (c) => {
+    if (periodLocked(org, c.date)) return say(LOCK_MSG(c.date), 'no');
+    return commit(
     d => ({ ...d, closings: d.closings.filter(x => x.id !== c.id), transfers: d.transfers.filter(t => t.closingId !== c.id) }),
     { actionType: 'delete', targetType: 'daily_closing', targetId: c.id, branchName: c.branchName, title: 'حذف إغلاق يومي', details: `${c.branchName} — ${arDate(c.date)}` }
   ).then(() => say('تم حذف الإغلاق'));
+  };
 
   return (
     <div className="grid" style={{ gap: 14 }}>
@@ -3008,6 +3021,7 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
 
   // إتمام الحفظ فعلياً + قيد التدقيق (out = بيانات الإخراج عند الإتمام)
   const finalize = async (status, recIn, id, ref, out) => {
+    if (periodLocked(org, f.date)) return say(LOCK_MSG(f.date), 'no');
     const rec = { ...recIn, completion: out ? { ...out, at: nowISO(), by: me.name } : (recIn.completion || null) };
     await commit(d => {
       // سياسة الاحتفاظ: بعد 60 يومًا تُنظَّف الصور من سجل الإغلاق (تبقى نسخها في أرشيف المستندات) لكبح تضخم التخزين
@@ -3745,6 +3759,7 @@ function Approvals({ org, me, scoped, commit, say }) {
 
   const act = async (c, kind) => {
     const reason = note[c.id] || '';
+    if ((kind === 'audit' || kind === 'reject') && periodLocked(org, c.date)) return say(LOCK_MSG(c.date), 'no');
     if (kind === 'reject' && !reason) return say('اكتب سبب الرفض قبل الإرجاع', 'no');
     await commit(d => ({
       ...d,
@@ -3843,6 +3858,7 @@ function Treasury({ org, ops, me, myBranches, scoped, commit, say }) {
   const balance = inflow - outflow;
 
   const receive = async (t, ok) => {
+    if (periodLocked(org, t.date)) return say(LOCK_MSG(t.date), 'no');
     await commit(d => ({
       ...d,
       transfers: d.transfers.map(x => x.id === t.id ? {
@@ -3994,6 +4010,7 @@ function DisbursementForm({ me, balance, commit, say, onClose }) {
     if (f.amount <= 0) return say('أدخل مبلغ الصرف', 'no');
     if (!f.beneficiary.trim()) return say('اكتب اسم المستفيد', 'no');
     if (f.amount > balance) return say('المبلغ يتجاوز رصيد الخزينة المتاح', 'no');
+    if (periodLocked(org, f.date || today())) return say(LOCK_MSG(f.date || today()), 'no');
     const rec = { ...f, id: uid('ds'), by: me.name, createdAt: nowISO() };
     await commit(d => ({ ...d, disbursements: [rec, ...(d.disbursements || [])] }), {
       actionType: 'cash_transfer', targetType: 'cash_transfer', targetId: rec.id,
@@ -4144,6 +4161,7 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, say }) {
   const accrualPosted = (ops.ledgerEntries || []).some(x => x.kind === 'salary_accrual' && x.month === month);
   const payoutPosted = (ops.ledgerEntries || []).some(x => x.kind === 'salary_payout' && x.month === month);
   const postAccrual = async () => {
+    if (lockedThru(org) && month <= lockedThru(org)) return say(LOCK_MSG(month + '-01'), 'no');
     if (accrualPosted) return say('استحقاق هذا الشهر مُرحّل مسبقاً', 'no');
     const entries = rows.filter(r => r.gross > 0).map(r => ({
       id: uid('le'), partnerKey: 'emp:' + r.e.id, date: month + '-28', month, kind: 'salary_accrual',
@@ -4157,6 +4175,7 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, say }) {
     say('رُحّل استحقاق ' + month + ' إلى دفتر الشركاء ✓');
   };
   const postPayout = async () => {
+    if (lockedThru(org) && month <= lockedThru(org)) return say(LOCK_MSG(month + '-01'), 'no');
     if (!accrualPosted) return say('رحّل استحقاق الشهر أولاً', 'no');
     if (payoutPosted) return say('صرف هذا الشهر مسجّل مسبقاً', 'no');
     const entries = rows.filter(r => r.net > 0).map(r => ({
@@ -4270,6 +4289,7 @@ function AdvanceForm({ emps, org, me, commit, say, onClose }) {
     if (!emp) return say('اختر الموظف', 'no');
     if (f.amount <= 0) return say('أدخل مبلغاً صحيحاً', 'no');
     if (!f.reason.trim()) return say('اكتب سبب السلفة أو الخصم', 'no');
+    if (periodLocked(org, f.date)) return say(LOCK_MSG(f.date), 'no');
     const b = org.branches.find(x => x.id === emp.branchId);
     const rec = {
       ...f, id: uid('ad'), employeeName: emp.name, branchId: emp.branchId, branchName: b?.name || '',
@@ -5318,6 +5338,7 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
     if (!sp) return say('اختر المورد', 'no');
     const v = Number(f.amount) || 0;
     if (v <= 0) return say('أدخل مبلغ الفاتورة', 'no');
+    if (periodLocked(org, f.date || today())) return say(LOCK_MSG(f.date || today()), 'no');
     const br = org.branches.find(b => b.id === f.branchId);
     const rec = {
       id: uid('inv'), supplierId: sp.id, supplierName: sp.name,
@@ -6345,6 +6366,9 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const [astF, setAstF] = useState(null);           // نموذج أصل ثابت
   const [brF, setBrF] = useState({ date: today(), stmt: '', note: '' }); // نموذج تسوية بنكية
   const [mPct, setMPct] = useState(null);           // مسودة النسب اليدوية لتوزيع المركز (v8.3)
+  const [lockTo, setLockTo] = useState('');         // شهر القفل الجديد (v8.4)
+  const [unReason, setUnReason] = useState('');     // سبب الفتح الاستثنائي
+  const [unTo, setUnTo] = useState('');             // الحد الجديد بعد الفتح (فارغ = فتح الكل)
 
   // فتح شاشة محددة قادمة من مركز التطبيقات (دليل/ميزان/قوائم…)
   useEffect(() => { if (acctIntent && acctIntent.v) setView(acctIntent.v); }, [acctIntent && acctIntent.ts]);
@@ -6418,6 +6442,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     setFrom(f.toISOString().slice(0, 10)); setTo(t.toISOString().slice(0, 10));
   };
   const saveTax = async (next, title, details) => {
+    if (lockedThru(org)) return say('توجد فترات مقفلة حتى ' + lockedThru(org) + ' — تغيير الضريبة يعيد احتساب قيودها؛ افتح الإقفال أولًا', 'no');
     await commitOrg(d => ({ ...d, taxCfg: next }), {
       actionType: 'update', targetType: 'tax_settings', targetId: 'taxCfg', title, details
     });
@@ -6427,6 +6452,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const saveAst = async () => {
     const f = astF;
     if (!f.name.trim()) return say('أدخل اسم الأصل', 'no');
+    if (periodLocked(org, f.buyDate)) return say('تاريخ الشراء في شهر مقفل — ' + LOCK_MSG(f.buyDate), 'no');
     const cost = Number(f.cost) || 0;
     if (cost <= 0) return say('أدخل تكلفة الأصل', 'no');
     if (!(Number(f.lifeYears) > 0)) return say('أدخل العمر الإنتاجي بالسنوات', 'no');
@@ -6461,6 +6487,41 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     setBrF({ date: today(), stmt: '', note: '' }); say('وُثّقت التسوية — عالج الفرق بقيد يدوي إن لزم ✓');
   };
   const lastRec = (ops.bankRecs || [])[0];
+
+  // ===== v8.4: إقفال الفترات =====
+  const plCfg = org.periodLocks || {};
+  const plLog = plCfg.log || [];
+  const canLock = !!ROLES[me?.role]?.admin;
+  const prevYm = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); })();
+  const lockChecks = (m) => {
+    const end = m + '-31';
+    const cls = (ops.closings || []).filter(c => (c.date || '') <= end);
+    return {
+      drafts: cls.filter(c => c.status === 'draft' || c.status === 'rejected').length,
+      pending: cls.filter(c => c.status === 'submitted').length
+    };
+  };
+  const savePl = async (patch, title, details) => {
+    await commitOrg(d => {
+      const cur = d.periodLocks || {};
+      const log = [{ id: uid('pl'), at: nowISO(), by: me.name, ...patch.logEntry }, ...(cur.log || [])].slice(0, 60);
+      return { ...d, periodLocks: { ...cur, lockedThrough: patch.lockedThrough, log } };
+    }, { actionType: 'update', targetType: 'period_lock', targetId: 'periodLocks', title, details: details || '' });
+  };
+  const doLock = async () => {
+    const m = lockTo || prevYm;
+    if (plCfg.lockedThrough && m <= plCfg.lockedThrough) return say('المقفل حاليًا يغطي هذا الشهر أصلًا', 'no');
+    await savePl({ lockedThrough: m, logEntry: { action: 'lock', month: m } },
+      'أقفل الفترات المحاسبية حتى ' + m, 'قفل تراكمي — كل ما قبله وضمنه محمي من التعديل');
+    setLockTo(''); say('أُقفلت الفترات حتى نهاية ' + m + ' 🔒');
+  };
+  const doUnlock = async () => {
+    if (!unReason.trim()) return say('اكتب سبب الفتح الاستثنائي — إلزامي للتوثيق', 'no');
+    if (unTo && plCfg.lockedThrough && unTo >= plCfg.lockedThrough) return say('اختر حدًّا أسبق من المقفل الحالي أو اتركه فارغًا لفتح الكل', 'no');
+    await savePl({ lockedThrough: unTo || '', logEntry: { action: 'unlock', month: unTo || 'فتح كامل', reason: unReason.trim() } },
+      'فتح استثنائي للفترات المقفلة', 'السبب: ' + unReason.trim() + (unTo ? ' · الحد الجديد ' + unTo : ' · فُتح الكل'));
+    setUnReason(''); setUnTo(''); say('نُفّذ الفتح الاستثنائي ووُثّق السبب ✓');
+  };
 
   // ===== v8.0: مراكز التكلفة — كل فرع مركز + «المركز الرئيسي» لغير الموسوم بفرع =====
   const centers = [...(org.branches || []).map(b => ({ id: b.id, ar: b.name })), { id: 'central', ar: 'المركز الرئيسي' }];
@@ -6630,6 +6691,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     jm.lines.every(l => !((Number(l.debit) || 0) && (Number(l.credit) || 0))) &&
     jm.lines.filter(l => l.code && ((Number(l.debit) || 0) + (Number(l.credit) || 0)) > 0).length >= 2;
   const saveJm = async () => {
+    if (periodLocked(org, jm && jm.date)) return say(LOCK_MSG(jm.date), 'no');
     if (!jmOk) return say('القيد غير مكتمل — اختر الحسابات وتأكد أن مجموع المدين يساوي الدائن', 'no');
     const rec = {
       id: uid('jm'), date: jm.date || today(), title: jm.title.trim() || (jm.opening ? 'قيد افتتاحي' : 'قيد يدوي'),
@@ -6682,6 +6744,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         <button className={'btn sm' + (view === 'vat' ? ' pri' : ' gh')} onClick={() => setView('vat')}><Receipt size={14} />الضريبة</button>
         <button className={'btn sm' + (view === 'ast' ? ' pri' : ' gh')} onClick={() => setView('ast')}><Building2 size={14} />الأصول</button>
         <button className={'btn sm' + (view === 'bank' ? ' pri' : ' gh')} onClick={() => setView('bank')}><Landmark size={14} />التسوية البنكية</button>
+        <button className={'btn sm' + (view === 'lock' ? ' pri' : ' gh')} onClick={() => setView('lock')}><Lock size={14} />الإقفال</button>
         {canPost && <button className="btn sm" style={{ marginInlineStart: 'auto' }} onClick={newJm}><Plus size={14} />قيد يدوي / افتتاحي</button>}
       </div>
 
@@ -6704,7 +6767,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
                   <React.Fragment key={e.id}>
                     <tr onClick={() => setOpen(o => ({ ...o, [e.id]: !o[e.id] }))} style={{ cursor: 'pointer' }}>
                       <td className="num" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>{e.no}</td>
-                      <td className="num" style={{ fontSize: 11.5, whiteSpace: 'nowrap' }}>{e.date}</td>
+                      <td className="num" style={{ fontSize: 11.5, whiteSpace: 'nowrap' }}>{e.date}{periodLocked(org, e.date) ? ' 🔒' : ''}</td>
                       <td style={{ fontSize: 12.5 }}>{e.title}
                         {!e.balanced && <span className="badge b-rose" style={{ marginInlineStart: 6 }}>غير متوازن!</span>}</td>
                       <td><span className={'badge ' + srcBadge(e.src)} style={{ fontSize: 9.5 }}>{e.manual ? '' : 'تلقائي · '}{e.src}</span></td>
@@ -7008,6 +7071,76 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
               </>
             )}
           </div>
+        </div>
+      )}
+
+      {view === 'lock' && (
+        <div className="grid" style={{ gap: 12 }}>
+          <div className="grid g3">
+            <Kpi label={plCfg.lockedThrough ? 'مقفل حتى نهاية' : 'لا فترات مقفلة'} value={plCfg.lockedThrough || '—'}
+              sub={plCfg.lockedThrough ? 'كل ما قبله وضمنه محمي من التعديل' : 'اقفل الشهور المعتمدة لحمايتها'} icon={Lock} color={plCfg.lockedThrough ? '#4FB286' : '#E0A458'} />
+            <Kpi label="آخر إجراء" value={plLog[0] ? (plLog[0].action === 'lock' ? 'قفل ' + plLog[0].month : 'فتح استثنائي') : '—'}
+              sub={plLog[0] ? 'بواسطة ' + plLog[0].by + ' · ' + (plLog[0].at || '').slice(0, 10) : ''} icon={Eye} color="#5B93C4" />
+            <Kpi label="إجراءات السجل" value={String(plLog.length)} sub="كل قفل وفتح موثق دائمًا" icon={ShieldCheck} color="#C8A24A" />
+          </div>
+
+          {canLock ? (
+            <div className="grid g2" style={{ alignItems: 'start' }}>
+              <div className="card" style={{ borderColor: 'rgba(79,178,134,.4)' }}>
+                <div className="card-t" style={{ marginBottom: 8 }}><Lock size={15} color="var(--mint)" />قفل الفترات حتى شهر</div>
+                <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                  <Field label="اقفل حتى نهاية شهر" style={{ width: 160 }}>
+                    <input type="month" className="inp" value={lockTo || prevYm} onChange={e => setLockTo(e.target.value)} />
+                  </Field>
+                  <button className="btn pri" onClick={doLock}><Lock size={14} />قفل الفترات</button>
+                </div>
+                {(() => { const c = lockChecks(lockTo || prevYm);
+                  return (c.drafts > 0 || c.pending > 0) && (
+                    <div className="note" style={{ marginTop: 10 }}>
+                      ⚠️ قبل القفل: {c.drafts > 0 ? c.drafts + ' مسودة/مرفوض حتى هذا الشهر لن يمكن إتمامها بعد القفل. ' : ''}
+                      {c.pending > 0 ? c.pending + ' إغلاق مرحّل بانتظار التدقيق — اعتمده الآن أو سيلزم فتح استثنائي.' : ''}
+                    </div>
+                  ); })()}
+                <div className="note" style={{ marginTop: 8 }}>
+                  القفل تراكمي: يمنع تعديل/حذف/اعتماد الإغلاقات، والقيود اليدوية، وترحيل الرواتب، والسلف،
+                  واستلام التحويلات، والفواتير، والأصول بتواريخ الشهور المقفلة — وتغيير إعداد الضريبة أثناء وجود قفل.
+                </div>
+              </div>
+              <div className="card" style={{ borderColor: 'rgba(224,164,88,.4)' }}>
+                <div className="card-t" style={{ marginBottom: 8 }}><ShieldAlert size={15} color="var(--amber)" />فتح استثنائي (بسبب موثق)</div>
+                <Field label="سبب الفتح — إلزامي ويُسجل باسمك">
+                  <input className="inp" placeholder="مثال: تصحيح وردية ٥ أغسطس بطلب المراجع…" value={unReason} onChange={e => setUnReason(e.target.value)} />
+                </Field>
+                <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                  <Field label="الحد الجديد (اختياري — فارغ = فتح الكل)" style={{ width: 190 }}>
+                    <input type="month" className="inp" value={unTo} onChange={e => setUnTo(e.target.value)} />
+                  </Field>
+                  <button className="btn no" disabled={!plCfg.lockedThrough} onClick={doUnlock}>فتح استثنائي</button>
+                </div>
+                <div className="note" style={{ marginTop: 8 }}>بعد التصحيح أعد القفل — وكل فتحٍ يبقى في السجل أدناه وفي سجل التدقيق أمام أي مراجع.</div>
+              </div>
+            </div>
+          ) : (
+            <div className="card"><div className="empty">القفل والفتح الاستثنائي صلاحية للإدارة العليا / مسؤول النظام — يمكنك الاطلاع على الحالة والسجل.</div></div>
+          )}
+
+          {plLog.length > 0 && (
+            <div className="card">
+              <div className="card-t" style={{ marginBottom: 8 }}><Eye size={15} color="var(--brass)" />سجل الإقفال والفتح</div>
+              <div className="tw"><table className="tb">
+                <thead><tr><th>التاريخ</th><th>الإجراء</th><th>الشهر/الحد</th><th>السبب</th><th>بواسطة</th></tr></thead>
+                <tbody>{plLog.map(l => (
+                  <tr key={l.id}>
+                    <td className="num" style={{ fontSize: 11 }}>{(l.at || '').slice(0, 16).replace('T', ' ')}</td>
+                    <td>{l.action === 'lock' ? <span className="badge b-mint">قفل 🔒</span> : <span className="badge b-amber">فتح استثنائي</span>}</td>
+                    <td className="num">{l.month}</td>
+                    <td style={{ fontSize: 11.5, color: 'var(--dim)' }}>{l.reason || '—'}</td>
+                    <td style={{ fontSize: 11.5, color: 'var(--faint)' }}>{l.by}</td>
+                  </tr>
+                ))}</tbody>
+              </table></div>
+            </div>
+          )}
         </div>
       )}
 
@@ -7355,6 +7488,7 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
     const amt = Math.abs(Number((tx.amount || '').toString().replace(/,/g, ''))) || 0;
     if (amt <= 0) return say('أدخل مبلغاً صحيحاً', 'no');
     const side = tx.side === 'debit' ? { debit: amt, credit: 0 } : { credit: amt, debit: 0 };
+    if (periodLocked(org, tx.date || today())) return say(LOCK_MSG(tx.date || today()), 'no');
     const entry = { id: uid('le'), partnerKey: cur.key, date: tx.date || today(), desc: tx.desc?.trim() || 'حركة يدوية', src: 'manual', ...side };
     await commit(d => ({ ...d, ledgerEntries: [entry, ...(d.ledgerEntries || [])] }),
       { actionType: 'create', targetType: 'daily_closing', targetId: cur.key, title: 'حركة يدوية في كشف حساب', details: `${cur.name} · ${tx.side === 'debit' ? 'مدين' : 'دائن'} ${money(amt)}` });
