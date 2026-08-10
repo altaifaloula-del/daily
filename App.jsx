@@ -868,7 +868,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v7.2 🔐</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v7.3 🔐</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -1552,7 +1552,7 @@ function Kpi({ label, value, sub, icon: Icon, color }) {
   return (
     <div className="kpi" style={{ '--acc': color }}>
       <div className="kpi-l">{Icon && <Icon size={13} color={color} />}{label}</div>
-      <div className="kpi-v num" style={{ color }}>{value}</div>
+      <div className="kpi-v num">{value}</div>
       {sub && <div className="kpi-s">{sub}</div>}
     </div>
   );
