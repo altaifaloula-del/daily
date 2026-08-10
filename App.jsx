@@ -263,6 +263,11 @@ function buildPartners(org, ops) {
     });
     const ct = closeFor(key, sp.id); txns.push(...ct); if (ct.length) linked = true;
     const pt = payFor(key, sp.id); txns.push(...pt); if (pt.length) linked = true;
+    // v8.1: السدادات المركزية لفواتير الورديات المشتقة
+    (ops.closingInvPays || []).filter(x => x.supplierId === sp.id).forEach(x => {
+      txns.push({ date: (x.date || '').slice(0, 10), desc: 'سداد مركزي لمشتريات وردية', ref: x.refId || '', src: 'pay', debit: x.amount || 0, credit: 0 });
+      linked = true;
+    });
     txns.push(...ledFor(key));
     parts.push({ key, id: sp.id, name: sp.name, type: 'supplier', cat: sp.category || 'مورد', phone: sp.phone || '', tax: sp.vatNo || '', terms: sp.terms || 0, linked, txns, storedCode: sp.code });
   });
@@ -306,6 +311,32 @@ function buildPartners(org, ops) {
     p.code = partnerCode(p.type, n);
   });
   return parts;
+}
+
+/* v8.1 — فواتير مشتقة من الورديات: كل مصروف آجل مربوط بمورد في وردية معتمدة
+   يظهر كفاتورة في تطبيق المشتريات (استحقاقها = تاريخ الوردية + مهلة المورد).
+   قيدها المحاسبي هو قيد الوردية نفسه — لا قيد ثانٍ، فلا ازدواج ممكن. */
+function closingInvoices(org, ops) {
+  const out = [];
+  (ops.closings || []).filter(countedClosing).forEach(c => (c.expenses || []).forEach((e, ix) => {
+    if (e.paymentMethod !== 'deferred') return;
+    const supId = e.supplierId || ((e.partnerKey || '').startsWith('sup:') ? e.partnerKey.slice(4) : '');
+    if (!supId) return;
+    const amt = e.amount || 0; if (amt <= 0) return;
+    const sp = (org.suppliers || []).find(x => x.id === supId);
+    const terms = sp ? (Number(sp.terms) || 0) : 0;
+    const due = new Date((c.date || '') + 'T12:00:00');
+    if (!isNaN(due)) due.setDate(due.getDate() + terms);
+    out.push({
+      id: 'clx:' + c.id + ':' + (e.id || ix), source: 'closing',
+      supplierId: supId, supplierName: sp ? sp.name : (e.beneficiaryName || 'مورد'),
+      branchId: c.branchId, branchName: c.branchName || '',
+      invoiceNo: 'وردية ' + (c.date || ''), categoryName: e.categoryName || 'مشتريات',
+      amount: amt, date: c.date, dueDate: isNaN(due) ? (c.date || '') : due.toISOString().slice(0, 10),
+      closingId: c.id
+    });
+  }));
+  return out;
 }
 
 // الرقم التالي المتاح لنوع شريك — لتثبيته على البطاقة عند الإنشاء
@@ -504,6 +535,19 @@ function buildAccounting(org, ops) {
       lines: [L('2101', i.paidAmount, 0), L('1201', 0, i.paidAmount)]
     });
   });
+  // ٦مكرر) السداد المركزي لفواتير الورديات المشتقة (v8.1): مدين ذمم الموردين / دائن البنك
+  //         — قيد الفاتورة نفسها هو قيد المصروف الآجل في الوردية، فلا يتكرر هنا
+  (ops.closingInvPays || []).forEach(pmt => {
+    if (!(pmt.amount > 0)) return;
+    const spn = ((org.suppliers || []).find(x => x.id === pmt.supplierId) || {}).name || 'مورد';
+    push({
+      id: 'cip:' + pmt.id, date: (pmt.date || '').slice(0, 10),
+      title: 'سداد مركزي لمشتريات وردية — ' + spn,
+      src: 'سداد مركزي', ref: pmt.refId || pmt.id,
+      lines: [L('2101', pmt.amount, 0), L('1201', 0, pmt.amount)]
+    });
+  });
+
   // ٧) الرواتب: الاستحقاق كما رُحِّل، والصرف كما سُجِّل، وتسوية فرق السلف والخصومات
   const led = ops.ledgerEntries || [];
   const salMonths = [...new Set(led.filter(x => x.kind === 'salary_accrual' || x.kind === 'salary_payout').map(x => x.month))].sort();
@@ -805,14 +849,14 @@ function emptyOrg(company) {
 }
 
 function emptyOps() {
-  return { closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [] };
+  return { closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [] };
 }
 
 
 /* ================= الجذر ================= */
 export default function App() {
   const [org, setOrg] = useState(null);
-  const [ops, setOps] = useState({ closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [] });
+  const [ops, setOps] = useState({ closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [] });
   const [pulse, setPulse] = useState({ presence: {}, audit: [] });
   const [me, setMe] = useState(null);
   const [tab, setTab] = useState('dash');
@@ -1263,7 +1307,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v8.0 🎯</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v8.1 🔗</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -5242,8 +5286,19 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const invPaid = (i) => (i.paidAmount || 0) + branchPaid(i.id);
   const invRem = (i) => i.amount - invPaid(i);
 
-  const outstanding = sum(invoices, invRem);
-  const overdue = invoices.filter(i => invRem(i) > 0 && i.dueDate < today());
+  // v8.1: الفواتير المشتقة من الورديات (الآجلة المربوطة بموردين) + سداداتها المركزية
+  const clInvs = closingInvoices(org, ops).filter(v => ids.includes(v.branchId));
+  const cPaid = (refId) => sum((ops.closingInvPays || []).filter(x => x.refId === refId), x => x.amount);
+  const cRem = (v) => Math.max(0, v.amount - cPaid(v.id));
+  const allInvs = [
+    ...invoices.map(i => ({ ...i, source: 'stored' })),
+    ...clInvs
+  ].sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''));
+  const remOf = (x) => x.source === 'closing' ? cRem(x) : invRem(x);
+  const paidOf = (x) => x.source === 'closing' ? cPaid(x.id) : invPaid(x);
+
+  const outstanding = sum(invoices, invRem) + sum(clInvs, cRem);
+  const overdue = allInvs.filter(i => remOf(i) > 0 && i.dueDate < today());
 
   // ===== م٤: أوامر الشراء والفواتير =====
   const pos = (ops.purchaseOrders || []).sort((a, b) => (b.at || '').localeCompare(a.at || ''));
@@ -5324,7 +5379,20 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
   };
 
   const settle = async () => {
-    const inv = pay; const v = Math.min(amt, invRem(inv));
+    const inv = pay;
+    // v8.1: فاتورة مشتقة من وردية → السداد يُسجل في سجل مستقل وقيده (ذمم/بنك) يتولد تلقائياً
+    if (inv.source === 'closing') {
+      const v = Math.min(amt, cRem(inv));
+      if (v <= 0) return say('أدخل مبلغ سداد صحيح', 'no');
+      const rec = { id: uid('cip'), refId: inv.id, supplierId: inv.supplierId, amount: v, date: today(), by: me.name, at: nowISO() };
+      await commit(d => ({ ...d, closingInvPays: [rec, ...(d.closingInvPays || [])] }), {
+        actionType: 'create', targetType: 'expense', targetId: rec.id, branchName: inv.branchName,
+        title: 'سدّد مركزياً مشتريات وردية آجلة', details: `${inv.supplierName} · ${inv.invoiceNo} · ${money(v)} ر.س`
+      });
+      setPay(null); setAmt(0); say('سُجّل السداد وتولد قيده تلقائياً ✓');
+      return;
+    }
+    const v = Math.min(amt, invRem(inv));
     if (v <= 0) return say('أدخل مبلغ سداد صحيح', 'no');
     await commit(d => ({
       ...d,
@@ -5355,8 +5423,8 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
   return (
     <div className="grid" style={{ gap: 14 }}>
       <div className="grid g4">
-        <Kpi label="مستحقات الموردين" value={money(outstanding)} sub={`${invoices.filter(i => i.amount > (i.paidAmount || 0)).length} فاتورة مفتوحة`} icon={Truck} color="#C8A24A" />
-        <Kpi label="متأخرة عن الاستحقاق" value={money(sum(overdue, i => i.amount - (i.paidAmount || 0)))} sub={`${overdue.length} فاتورة`} icon={AlertTriangle} color="#D9544D" />
+        <Kpi label="مستحقات الموردين" value={money(outstanding)} sub={`${allInvs.filter(i => remOf(i) > 0).length} فاتورة مفتوحة (منها ${clInvs.filter(v => cRem(v) > 0).length} من الورديات)`} icon={Truck} color="#C8A24A" />
+        <Kpi label="متأخرة عن الاستحقاق" value={money(sum(overdue, remOf))} sub={`${overdue.length} فاتورة`} icon={AlertTriangle} color="#D9544D" />
         <Kpi label="التزامات الشهر الثابتة" value={money(sum(fixed, fxTotal))} sub={`${fixed.length} فرع`} icon={Building2} color="#5B93C4" />
         <Kpi label="غير المسدد من الثابتة" value={money(sum(fixed.filter(f => !f.isPaid), fxTotal))} icon={CalendarDays} color="#E0A458" />
       </div>
@@ -5386,9 +5454,9 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
               <thead><tr><th>الفاتورة</th><th>المورد</th><th>الفرع</th><th>الاستحقاق</th><th>المهلة</th>
                 <th>القيمة</th><th>المسدد</th><th>المتبقي</th><th>الحالة</th><th></th></tr></thead>
               <tbody>
-                {invoices.map(i => {
-                  const bp = branchPaid(i.id);
-                  const rem = invRem(i);
+                {allInvs.map(i => {
+                  const bp = i.source === 'closing' ? 0 : branchPaid(i.id);
+                  const rem = remOf(i);
                   const late = rem > 0 && i.dueDate < today();
                   const daysLeft = i.dueDate ? Math.round((new Date(i.dueDate) - new Date(today())) / 864e5) : null;
                   const mahla = rem <= 0 ? { t: '—', c: 'var(--faint)' }
@@ -5400,13 +5468,14 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
                     : { t: `${daysLeft} يوم`, c: 'var(--dim)' };
                   return (
                     <tr key={i.id}>
-                      <td className="num" style={{ fontSize: 11 }}>{i.invoiceNo}</td>
+                      <td style={{ fontSize: 11 }}><span className="num">{i.invoiceNo}</span>
+                        {i.source === 'closing' && <div><span className="badge b-mint" style={{ fontSize: 8.5, marginTop: 2 }}>من وردية · {i.categoryName}</span></div>}</td>
                       <td style={{ fontSize: 12 }}>{i.supplierName}</td>
                       <td style={{ fontSize: 11.5, color: 'var(--dim)' }}>{i.branchName}</td>
                       <td className="num" style={{ whiteSpace: 'nowrap', color: late ? 'var(--rose)' : 'inherit' }}>{arDate(i.dueDate)}</td>
                       <td style={{ whiteSpace: 'nowrap', color: mahla.c, fontSize: 11.5, fontWeight: 600 }}>{mahla.t}</td>
                       <td className="num">{money(i.amount)}</td>
-                      <td className="num" style={{ color: 'var(--mint)' }}>{money(invPaid(i))}
+                      <td className="num" style={{ color: 'var(--mint)' }}>{money(paidOf(i))}
                         {bp > 0 && <div style={{ fontSize: 9, color: 'var(--faint)' }}>منه من الفروع {money(bp)}</div>}</td>
                       <td className="num" style={{ color: rem > 0 ? 'var(--amber)' : 'var(--faint)', fontWeight: 600 }}>{money(rem)}</td>
                       <td><span className={'badge ' + (rem <= 0 ? 'b-mint' : late ? 'b-rose' : 'b-amber')}>
@@ -5416,9 +5485,15 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
                     </tr>
                   );
                 })}
-                {invoices.length === 0 && <tr><td colSpan={10}><div className="empty">لا فواتير آجلة.</div></td></tr>}
+                {allInvs.length === 0 && <tr><td colSpan={10}><div className="empty">لا فواتير آجلة — المشتريات الآجلة المربوطة بموردين في الورديات ستظهر هنا تلقائياً.</div></td></tr>}
               </tbody>
             </table>
+          </div>
+          <div className="note" style={{ marginTop: 10 }}>
+            🔗 <b>الربط التلقائي (v8.1):</b> كل مصروف آجل مربوط بمورد في وردية معتمدة يظهر هنا فاتورةً
+            باستحقاق = تاريخ الوردية + مهلة المورد — بأثر رجعي على كل الورديات السابقة.
+            قيدها المحاسبي هو قيد الوردية نفسه (لا ازدواج)، وسدادها من هنا يتولد قيده (ذمم الموردين / البنك)
+            ويظهر في كشف المورد بدفتر الشركاء.
           </div>
         </div>
       )}
