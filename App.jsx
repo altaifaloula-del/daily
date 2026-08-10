@@ -330,6 +330,15 @@ const ACC_KIND = {
   exp: { ar: 'المصروفات', nature: 'مدين' }
 };
 function buildAccounting(org, ops) {
+  // م٣: الضريبة — تُفعّل صراحةً من شاشة الضريبة (org.taxCfg)، والمبالغ المسجلة تُعامل شاملةً للضريبة
+  const tax = org.taxCfg || {};
+  const taxOn = !!tax.enabled;
+  const trate = taxOn ? (Number(tax.rate) || 15) / 100 : 0;
+  const splitVat = (grossAmt) => {
+    if (!taxOn || !grossAmt) return { net: grossAmt, vat: 0 };
+    const net = Math.round(grossAmt / (1 + trate) * 100) / 100;
+    return { net, vat: Math.round((grossAmt - net) * 100) / 100 };
+  };
   const accounts = []; const accIx = {};
   const addAcc = (code, name, kind, meta) => {
     const a = { code, name, kind, debit: 0, credit: 0, ...(meta || {}) };
@@ -353,9 +362,11 @@ function buildAccounting(org, ops) {
   });
   addAcc('1399', 'ذمم تطبيقات أخرى (غير معرّفة)', 'asset');
   addAcc('1401', 'سلف الموظفين وعُهدهم', 'asset', { link: 'الرواتب والسلف' });
+  addAcc('1501', 'ضريبة القيمة المضافة — مدخلات', 'asset', { link: 'تُخصم من الإقرار' });
   // — الخصوم —
   addAcc('2101', 'ذمم الموردين', 'liab', { link: 'دفتر الشركاء' });
   addAcc('2201', 'رواتب مستحقة', 'liab', { link: 'كشف الرواتب' });
+  addAcc('2301', 'ضريبة القيمة المضافة — مخرجات', 'liab', { link: 'مستحقة للهيئة' });
   // — حقوق الملكية (تُفعَّل بالقيد الافتتاحي في المرحلة التالية) —
   addAcc('3101', 'رأس المال والأرصدة الافتتاحية', 'equity', { link: 'القيد الافتتاحي — مرحلة تالية' });
   // — الإيرادات —
@@ -409,19 +420,27 @@ function buildAccounting(org, ops) {
         if (net) lines.push(L(code, net, 0));
         if (comm) lines.push(L('5301', comm, 0));
       });
-      lines.push(L('4101', 0, tot));
-      push({ id: 'rev:' + c.id, date: c.date, branchId: c.branchId, title: 'إيراد وردية — ' + (c.branchName || ''), src: 'إغلاق وردية', ref: c.id, lines });
+      const sv = splitVat(tot);
+      lines.push(L('4101', 0, sv.net));
+      if (sv.vat) lines.push(L('2301', 0, sv.vat));
+      push({ id: 'rev:' + c.id, date: c.date, branchId: c.branchId, title: 'إيراد وردية — ' + (c.branchName || ''), src: 'إغلاق وردية', ref: c.id, lines,
+        vat: sv.vat ? { out: sv.vat, inn: 0, netSales: sv.net, netPurch: 0 } : null });
     }
     // ٢) مصروفات الوردية: نقدًا من الصندوق، بنكيًا من البنك، وآجلًا على ذمم الموردين
     (c.expenses || []).forEach((e, ix) => {
       const amt = e.amount || 0; if (!amt) return;
       const expCode = catAcc[e.categoryId] || '5199';
       const credCode = e.paymentMethod === 'deferred' ? '2101' : pmToAcc(e.paymentMethod, bCode);
+      // السلف ليست مصروفًا خاضعًا — لا فصل ضريبي على حساب 1401
+      const tx = (e.isTaxable && expCode !== '1401') ? splitVat(amt) : { net: amt, vat: 0 };
       push({
         id: 'exp:' + c.id + ':' + (e.id || ix), date: c.date, branchId: c.branchId,
         title: (e.categoryName || 'مصروف') + (e.paymentMethod === 'deferred' ? ' (آجل — على الحساب)' : '') + ' — ' + (c.branchName || ''),
         src: 'مصروف وردية', ref: c.id,
-        lines: [L(expCode, amt, 0), L(credCode, 0, amt)]
+        lines: tx.vat
+          ? [L(expCode, tx.net, 0), L('1501', tx.vat, 0), L(credCode, 0, amt)]
+          : [L(expCode, amt, 0), L(credCode, 0, amt)],
+        vat: tx.vat ? { out: 0, inn: tx.vat, netSales: 0, netPurch: tx.net } : null
       });
     });
     // ٣) سدادات الموردين داخل الوردية — قد تتوزع على أكثر من طريقة دفع
@@ -663,8 +682,8 @@ const REG_APPS = [
   // ——— الموارد البشرية ———
   { id: 'payroll', ar: 'الرواتب والسلف', en: 'Payroll & Advances', cat: 'hr', icon: Wallet, open: { tab: 'payroll' }, kw: ['راتب', 'سلفة', 'خصم', 'استحقاق', 'صرف', 'موظف', 'قسيمة'], fns: ['كشف رواتب شهري', 'سلف وخصومات', 'ترحيل الاستحقاق والصرف للدفتر', 'قسائم رواتب'], d: 'كشف الرواتب والسلف والخصومات — مرحّلة محاسبياً باستحقاقها وصرفها.' },
   // ——— الزكاة والضريبة (خطة م٣) ———
-  { id: 'vat', ar: 'ضريبة القيمة المضافة', en: 'VAT', cat: 'tax', icon: Receipt, soon: 'م٣', kw: ['ضريبة', 'زاتكا', 'مدخلات', 'مخرجات', 'فاتورة'], fns: [], d: 'فصل ضريبة المخرجات والمدخلات في كل قيد — مرحلة الضريبة القادمة.' },
-  { id: 'vatret', ar: 'الإقرار الضريبي', en: 'VAT Return', cat: 'tax', icon: FileText, soon: 'م٣', kw: ['إقرار', 'ضريبة', 'ربع', 'زاتكا'], fns: [], d: 'مسودة إقرار ربع سنوي جاهزة من قيودك — ضمن مرحلة الضريبة.' },
+  { id: 'vat', ar: 'ضريبة القيمة المضافة', en: 'VAT', cat: 'tax', icon: Receipt, open: { tab: 'acct', view: 'vat' }, kw: ['ضريبة', 'زاتكا', 'مدخلات', 'مخرجات', 'فاتورة', 'إقرار'], fns: ['تفعيل بنسبة قابلة للضبط', 'فصل المخرجات في قيد الإيراد', 'فصل مدخلات المصروفات الخاضعة', 'مؤشرات بالفترة'], d: 'فصل تلقائي لضريبة المخرجات والمدخلات في القيود — بأثر رجعي فور التفعيل.' },
+  { id: 'vatret', ar: 'الإقرار الضريبي', en: 'VAT Return', cat: 'tax', icon: FileText, open: { tab: 'acct', view: 'vat' }, kw: ['إقرار', 'ضريبة', 'ربع', 'زاتكا'], fns: ['مسودة إقرار بالفترة', 'زر الربع الحالي', 'صافي المستحق'], d: 'مسودة إقرار جاهزة من قيودك لأي فترة تحددها.' },
   // ——— المخزون (خطة م٤) ———
   { id: 'products', ar: 'المنتجات والوصفات', en: 'Products & Recipes', cat: 'inv2', icon: Store, soon: 'م٤', kw: ['منتج', 'وصفة', 'تكلفة', 'صنف', 'مخزون'], fns: [], d: 'وصفة وتكلفة لكل منتج وخصم مخزون تلقائي مع البيع.' },
   { id: 'stock', ar: 'المستودعات والجرد', en: 'Warehouses & Stocktake', cat: 'inv2', icon: HardDrive, soon: 'م٤', kw: ['مستودع', 'جرد', 'حركة', 'تحويل', 'مخزون'], fns: [], d: 'أرصدة المخزون وحركاته وجرده الدوري.' },
@@ -1182,7 +1201,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v7.6 🧩</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v7.7 🧾</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -5545,7 +5564,7 @@ function AppsCenter({ org, me, commitOrg, say, setTab, openAcctView }) {
 }
 
 /* ================= شاشة المحاسبة — م١+م٢: دليل، قيود، ميزان، قوائم ================= */
-function Accounting({ org, ops, me, commit, say, setTab, acctIntent }) {
+function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }) {
   const [view, setView] = useState('jr');           // jr قيود · coa دليل · tb ميزان · fs قوائم
   const [open, setOpen] = useState({});             // القيود المفتوحة التفاصيل
   const [q, setQ] = useState('');
@@ -5609,6 +5628,25 @@ function Accounting({ org, ops, me, commit, say, setTab, acctIntent }) {
     - sum(A.accounts.filter(a => a.kind === 'exp'), a => balOf(a, bsAgg))) * 100) / 100;
   const bsOk = Math.abs(bsAssets - (bsLiab + bsEquity + bsProfit)) < 0.01;
 
+  // ===== م٣: الضريبة =====
+  const taxCfg = org.taxCfg || {};
+  const taxOn = !!taxCfg.enabled;
+  const taxRate = Number(taxCfg.rate) || 15;
+  const canTax = !!ROLES[me?.role]?.admin;
+  const vsum = { out: 0, inn: 0, netSales: 0, netPurch: 0 };
+  fsEntries.forEach(e => { if (e.vat) { vsum.out += e.vat.out; vsum.inn += e.vat.inn; vsum.netSales += e.vat.netSales; vsum.netPurch += e.vat.netPurch; } });
+  const vatDue = Math.round((vsum.out - vsum.inn) * 100) / 100;
+  const setQuarter = () => {
+    const d = new Date(); const qs = Math.floor(d.getMonth() / 3) * 3;
+    const f = new Date(d.getFullYear(), qs, 1), t = new Date(d.getFullYear(), qs + 3, 0);
+    setFrom(f.toISOString().slice(0, 10)); setTo(t.toISOString().slice(0, 10));
+  };
+  const saveTax = async (next, title, details) => {
+    await commitOrg(d => ({ ...d, taxCfg: next }), {
+      actionType: 'update', targetType: 'tax_settings', targetId: 'taxCfg', title, details
+    });
+  };
+
   // ===== القيد اليدوي/الافتتاحي =====
   const newJm = () => setJm({
     date: today(), title: '', opening: false,
@@ -5669,6 +5707,7 @@ function Accounting({ org, ops, me, commit, say, setTab, acctIntent }) {
         <button className={'btn sm' + (view === 'coa' ? ' pri' : ' gh')} onClick={() => setView('coa')}><Landmark size={14} />دليل الحسابات</button>
         <button className={'btn sm' + (view === 'tb' ? ' pri' : ' gh')} onClick={() => setView('tb')}><Scale size={14} />ميزان المراجعة</button>
         <button className={'btn sm' + (view === 'fs' ? ' pri' : ' gh')} onClick={() => setView('fs')}><FileBarChart size={14} />القوائم المالية</button>
+        <button className={'btn sm' + (view === 'vat' ? ' pri' : ' gh')} onClick={() => setView('vat')}><Receipt size={14} />الضريبة</button>
         {canPost && <button className="btn sm" style={{ marginInlineStart: 'auto' }} onClick={newJm}><Plus size={14} />قيد يدوي / افتتاحي</button>}
       </div>
 
@@ -5835,7 +5874,7 @@ function Accounting({ org, ops, me, commit, say, setTab, acctIntent }) {
                 </tbody>
               </table>
             </div>
-            <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 8 }}>الأرقام إجمالية شاملة الضريبة — فصل ضريبة القيمة المضافة في مرحلة الضريبة.</div>
+            <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 8 }}>{taxOn ? 'الإيرادات والمصروفات صافية — الضريبة مفصولة في حسابَي المدخلات (1501) والمخرجات (2301).' : 'الأرقام إجمالية شاملة الضريبة — فعّل الاحتساب من شاشة الضريبة لفصلها.'}</div>
           </div>
           <div className="card">
             <div className="card-t" style={{ marginBottom: 10 }}><Landmark size={15} color="var(--brass)" />قائمة المركز المالي {to ? 'حتى ' + to : '(حتى اليوم)'}</div>
@@ -5864,9 +5903,71 @@ function Accounting({ org, ops, me, commit, say, setTab, acctIntent }) {
         </div>
       )}
 
+      {view === 'vat' && (
+        <div className="grid" style={{ gap: 12 }}>
+          {/* بطاقة الإعداد — قرار التفعيل بيد الإدارة، بأثر رجعي معلن */}
+          <div className="card" style={{ borderColor: taxOn ? 'rgba(79,178,134,.45)' : 'rgba(224,164,88,.45)' }}>
+            <div className="card-h">
+              <div className="card-t"><Receipt size={15} color="var(--brass)" />إعداد ضريبة القيمة المضافة</div>
+              <span className={'badge ' + (taxOn ? 'b-mint' : 'b-amber')}>{taxOn ? 'مفعّلة — ' + taxRate + '%' : 'غير مفعّلة'}</span>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 10 }}>
+              عند التفعيل تُعامل مبالغك المسجلة (مبيعات ومصروفات موسومة «خاضعة») على أنها <b>شاملة الضريبة</b>،
+              ويفصل المحرك المخرجات والمدخلات تلقائيًا في كل القيود <b>بأثر رجعي فوري</b> — لأن القيود تُشتق حسابيًا لا تُخزَّن.
+              يمكن الإيقاف في أي وقت فتعود الأرقام إجمالية كما كانت.
+            </div>
+            {canTax ? (
+              <div className="row" style={{ gap: 9, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                <Field label="نسبة الضريبة %" style={{ width: 120 }}>
+                  <input className="inp n" inputMode="decimal" value={String(taxRate)} disabled={!canTax}
+                    onChange={e => { const v = Number(e.target.value.replace(/[^\d.]/g, '')) || 0; if (v >= 0 && v <= 50) saveTax({ ...taxCfg, rate: v }, 'عدّل نسبة ضريبة القيمة المضافة', v + '%'); }} />
+                </Field>
+                {taxOn
+                  ? <button className="btn no" onClick={() => saveTax({ ...taxCfg, enabled: false }, 'أوقف احتساب ضريبة القيمة المضافة', '')}>إيقاف الاحتساب</button>
+                  : <button className="btn pri" onClick={() => saveTax({ ...taxCfg, enabled: true, rate: taxRate }, 'فعّل احتساب ضريبة القيمة المضافة', taxRate + '%')}><Check size={14} />تفعيل الاحتساب ({taxRate}%)</button>}
+              </div>
+            ) : <div className="note">تفعيل الضريبة وتعديل نسبتها صلاحية للإدارة العليا/مسؤول النظام فقط.</div>}
+          </div>
+
+          {taxOn && <>
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              {periodBar}
+              <button className="btn sm" onClick={setQuarter}><CalendarDays size={13} />الربع الحالي</button>
+            </div>
+            <div className="grid g3">
+              <Kpi label="ضريبة المخرجات (على مبيعاتك)" value={money(vsum.out)} sub={'من مبيعات صافية ' + money(vsum.netSales)} icon={TrendingUp} color="#4FB286" />
+              <Kpi label="ضريبة المدخلات (على مشترياتك)" value={money(vsum.inn)} sub={'من مشتريات خاضعة صافية ' + money(vsum.netPurch)} icon={TrendingDown} color="#5B93C4" />
+              <Kpi label={vatDue >= 0 ? 'صافي المستحق للهيئة' : 'صافي رصيد لصالحك'} value={money(Math.abs(vatDue))} sub={from || to ? 'للفترة المحددة' : 'كامل المدة'} icon={Receipt} color="#E0A458" />
+            </div>
+            <div className="card">
+              <div className="card-t" style={{ marginBottom: 10 }}><FileText size={15} color="var(--brass)" />مسودة الإقرار — بصيغة نموذج الهيئة</div>
+              <div className="tw">
+                <table className="tb">
+                  <thead><tr><th>البند</th><th style={{ textAlign: 'end' }}>المبلغ الصافي</th><th style={{ textAlign: 'end' }}>الضريبة {taxRate}%</th></tr></thead>
+                  <tbody>
+                    <tr><td>المبيعات الخاضعة للنسبة الأساسية</td><td className="num" style={{ textAlign: 'end' }}>{money(vsum.netSales)}</td><td className="num" style={{ textAlign: 'end' }}>{money(vsum.out)}</td></tr>
+                    <tr><td>المشتريات الخاضعة للنسبة الأساسية</td><td className="num" style={{ textAlign: 'end' }}>{money(vsum.netPurch)}</td><td className="num" style={{ textAlign: 'end' }}>{money(vsum.inn)}</td></tr>
+                    <tr style={{ fontWeight: 900, background: 'rgba(200,162,74,.05)' }}>
+                      <td>صافي الضريبة {vatDue >= 0 ? 'المستحقة' : '(رصيد دائن لصالحك)'}</td><td />
+                      <td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)', fontSize: 14 }}>{money(vatDue)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div className="note" style={{ marginTop: 10 }}>
+                ⚠️ <b>بشفافية:</b> هذه مسودة تساعدك أنت ومحاسبك على تعبئة الإقرار في بوابة الهيئة — وليست تقديمًا رسميًا.
+                الفوترة الإلكترونية المعتمدة (منصة فاتورة) تتطلب ربطًا رسميًا منفصلًا.
+                فواتير التوريد المركزية الحالية غير مفصولة الضريبة — تُفصل ضمن مرحلة المشتريات م٤ عند إدخالها من النظام بحقل ضريبي.
+              </div>
+            </div>
+          </>}
+          {!taxOn && <div className="card"><div className="empty">فعّل الاحتساب أعلاه لتظهر مؤشرات الضريبة ومسودة الإقرار من قيودك مباشرة.</div></div>}
+        </div>
+      )}
+
       <div className="card" style={{ background: 'rgba(200,162,74,.04)', borderStyle: 'dashed' }}>
         <div style={{ fontSize: 11.5, color: 'var(--dim)', lineHeight: 1.9 }}>
-          <b style={{ color: 'var(--brass-l)' }}>حدود المرحلة الحالية (بشفافية):</b> المبالغ إجمالية كما سُجّلت — فصل ضريبة القيمة المضافة يأتي في مرحلة الضريبة.
+          <b style={{ color: 'var(--brass-l)' }}>حدود المرحلة الحالية (بشفافية):</b> {taxOn ? 'الضريبة مفعّلة (' + taxRate + '%) — المبيعات والمصروفات الخاضعة مفصولة تلقائيًا؛ فواتير التوريد المركزية تُفصل في م٤.' : 'المبالغ إجمالية كما سُجّلت — فصل الضريبة متاح من شاشة الضريبة متى فعّلته.'}
           كل تطبيق توصيل له ذمّة مستقلة وتُفصل عمولته تلقائيًا بنسبته المعرّفة في «الفروع والمستخدمون ← تطبيقات التوصيل»؛ وعند استلام مستحقات تطبيق في البنك سجّلها بقيد يدوي (مدين البنك / دائن ذمّة التطبيق).
           المدفوعات البنكية تتجمع في حساب بنكي واحد تُسوّى تفاصيله في مرحلة التسوية البنكية.
           بطاقات «إيجارات وفواتير الفروع» الثابتة لا تولّد قيودًا (سدادها الفعلي يدخل من مصروفات الورديات) تفاديًا للازدواج.
