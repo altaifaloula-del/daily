@@ -7,12 +7,17 @@
  */
 
 export const KEYS = {
-  org: 'rms8:org',
-  ops: 'rms8:ops',
+  org: 'rms8:org',       // المنشأة كاملة (أسرار: كلمات مشفرة، رواتب، إعدادات) — للإدارة
+  dir: 'rms8:dir',       // v9: دليل عام منزوع الأسرار — يقرؤه كل الأعضاء
+  core: 'rms8:core',     // v9: بيانات تشغيل مركزية — لأدوار المركز فقط
+  ops: 'rms8:ops',       // الهيكل القديم — يُجمَّد بعد الهجرة ويبقى نسخة تاريخية
   pulse: 'rms8:pulse',
-  files: 'rms8:files',
+  files: 'rms8:files',   // الهيكل القديم للأرشيف — بعد الهجرة لكل فرع مستنده bf_
   hist: 'rms8:hist'
 };
+// v9: مستند لكل فرع (تشغيله وأرشيف صوره) — العزل الفعلي يفرضه الخادم عبر القواعد
+export const brKey = (branchId) => 'rms8:br_' + branchId;
+export const bfKey = (branchId) => 'rms8:bf_' + branchId;
 
 export const kb = (o) => Math.round(JSON.stringify(o || {}).length / 1024);
 
@@ -218,6 +223,26 @@ const local = {
 
 /* ================= الواجهة الموحّدة ================= */
 export const cloud = {
+  /** v9: قراءة تُفرّق بين «غير موجود» و«مرفوض بالصلاحيات» — أساس مسار إقلاع الفروع */
+  async tryGet(key) {
+    const f = await firestore();
+    if (f) {
+      try {
+        const v = await fsRead(f, key);
+        if (v !== undefined) { local.set(key, v); return { ok: true, value: v }; }
+        return { ok: true, value: undefined };
+      } catch (e) {
+        if (e && (e.code === 'permission-denied' || e.code === 'PERMISSION_DENIED')) {
+          try { localStorage.removeItem(key); } catch { }   // تنظيف نسخة محلية قديمة على جهاز غير مخوّل
+          return { ok: false, denied: true };
+        }
+        console.warn('قراءة Firestore فشلت:', e);
+      }
+    }
+    const v = await this.get(key, undefined);
+    return { ok: true, value: v };
+  },
+
   async get(key, def) {
     const f = await firestore();
     if (f) {
