@@ -73,6 +73,40 @@ async function bioVerify(credId) {
   return true;
 }
 
+/* ================= تنبيهات النشاط الحيّة (إعداد لكل جهاز) ================= */
+const NOTIFY_KEY = 'rms8:notify';
+const notifyCfg = () => { try { return { on: false, sound: true, ...(JSON.parse(localStorage.getItem(NOTIFY_KEY) || '{}')) }; } catch { return { on: false, sound: true }; } };
+const saveNotifyCfg = (c) => { try { localStorage.setItem(NOTIFY_KEY, JSON.stringify({ on: !!c.on, sound: !!c.sound })); } catch { } };
+
+// إشعار متصفح (يعمل والمنصة مفتوحة ولو في تبويب/نافذة خلفية)
+function notifyBrowser(title, body, icon) {
+  try {
+    if (typeof Notification === 'undefined') return false;
+    if (Notification.permission !== 'granted') return false;
+    new Notification(title, { body, icon: icon || undefined, dir: 'rtl', lang: 'ar', tag: 'rms8-act' });
+    return true;
+  } catch { return false; }
+}
+
+// نغمة تنبيه قصيرة دون أي ملفات خارجية
+let _actx = null;
+function alertBeep() {
+  try {
+    _actx = _actx || new (window.AudioContext || window.webkitAudioContext)();
+    if (_actx.state === 'suspended') _actx.resume().catch(() => { });
+    const t0 = _actx.currentTime;
+    [[880, 0, 0.12], [1318, 0.16, 0.2]].forEach(([f, dt, dur]) => {
+      const o = _actx.createOscillator(), g = _actx.createGain();
+      o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t0 + dt);
+      g.gain.exponentialRampToValueAtTime(0.2, t0 + dt + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dt + dur);
+      o.connect(g); g.connect(_actx.destination);
+      o.start(t0 + dt); o.stop(t0 + dt + dur + 0.03);
+    });
+  } catch { }
+}
+
 const money = (n) =>
   (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 // تنسيق مالي حيّ أثناء الكتابة: فواصل آلاف مع حفظ الكسور (حتى منزلتين)
@@ -578,6 +612,23 @@ export default function App() {
     return () => clearInterval(t);
   }, [boot, live, refresh]);
 
+  /* --- تنبيهات النشاط الحيّة لمدراء النظام: إشعار متصفح + صوت لأي نشاط من الآخرين --- */
+  const actBaseRef = useRef(Date.now());
+  useEffect(() => { actBaseRef.current = Date.now(); }, [me]);
+  useEffect(() => {
+    if (!me || !ROLES[me.role]?.admin) return;
+    const cfg = notifyCfg();
+    if (!cfg.on) return;
+    const fresh = (pulse.audit || []).filter(e => (e.at || 0) > actBaseRef.current && e.userName !== me.name);
+    if (!fresh.length) return;
+    actBaseRef.current = Math.max(...fresh.map(e => e.at || 0));
+    const e = fresh[0];
+    const more = fresh.length > 1 ? ` (+${fresh.length - 1} نشاط آخر)` : '';
+    const body = `${e.userName}: ${e.title}${e.details ? ' — ' + String(e.details).slice(0, 90) : ''}${more}`;
+    notifyBrowser('نشاط جديد — ' + (org.company?.name || 'المنصة'), body, org.company?.logoUrl);
+    if (cfg.sound) alertBeep();
+  }, [pulse, me, org]);
+
   useEffect(() => {
     if (!me) return;
     const beat = async () => {
@@ -817,7 +868,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v7.1 🔐</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v7.2 🔐</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -953,7 +1004,7 @@ export default function App() {
         </div>
       )}
 
-      {bell && <Notifications ops={ops} org={org} myBranches={myBranches} commit={commit} onClose={() => setBell(false)} />}
+      {bell && <Notifications ops={ops} org={org} me={me} myBranches={myBranches} commit={commit} onClose={() => setBell(false)} />}
       {tour && <TourModal me={me} onClose={() => setTour(false)} go={(t) => { setTab(t); setTour(false); }} />}
 
       {toast && (
@@ -1562,14 +1613,62 @@ function computeSmartAlerts(org, ops, myBranches, deficitThreshold = 50) {
 
 const ALERT_ICON = { clock: Clock, down: TrendingDown, truck: Truck, wallet: Wallet, bell: Bell };
 
-function Notifications({ ops, org, myBranches, commit, onClose }) {
+function Notifications({ ops, org, me, myBranches, commit, onClose }) {
   const list = [...(ops.notifications || [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const smart = computeSmartAlerts(org, ops, myBranches || []);
   const markAll = () => commit(d => ({ ...d, notifications: (d.notifications || []).map(n => ({ ...n, isRead: true })) }));
+
+  // إعدادات تنبيهات النشاط الحيّة (لمدراء النظام — لكل جهاز)
+  const isAdminRole = !!ROLES[me?.role]?.admin;
+  const [ncfg, setNcfg] = useState(() => notifyCfg());
+  const [nMsg, setNMsg] = useState('');
+  const toggleLive = async () => {
+    setNMsg('');
+    if (!ncfg.on) {
+      if (typeof Notification === 'undefined') { setNMsg('متصفحك لا يدعم إشعارات النظام'); return; }
+      let perm = Notification.permission;
+      if (perm === 'default') perm = await Notification.requestPermission();
+      if (perm !== 'granted') { setNMsg('لم يُمنح الإذن — فعّل الإشعارات لهذا الموقع من إعدادات المتصفح'); return; }
+    }
+    const next = { on: !ncfg.on, sound: ncfg.sound };
+    saveNotifyCfg(next); setNcfg(next);
+    if (next.on) setNMsg('مفعّلة — ستصلك إشعارات أي نشاط يقوم به الآخرون أثناء فتح المنصة (ولو في تبويب خلفي)');
+  };
+  const toggleSound = () => { const next = { on: ncfg.on, sound: !ncfg.sound }; saveNotifyCfg(next); setNcfg(next); };
+  const testNow = () => {
+    const ok = notifyBrowser('تجربة تنبيه — ' + (org.company?.name || 'المنصة'), 'هكذا سيصلك إشعار النشاط', org.company?.logoUrl);
+    if (ncfg.sound) alertBeep();
+    setNMsg(ok ? 'أُرسلت التجربة ✓' : 'تعذّر الإشعار — تأكد من تفعيله ومن إذن المتصفح');
+  };
+
   return (
     <Modal title="مركز التنبيهات" icon={Bell} onClose={onClose}
       foot={<><button className="btn" onClick={markAll}><Check size={14} />تعليم الكل كمقروء</button>
         <button className="btn gh" onClick={onClose}>إغلاق</button></>}>
+      {isAdminRole && (
+        <div className="card" style={{ background: 'var(--ink)', padding: 12, marginBottom: 14, border: '1px solid ' + (ncfg.on ? 'rgba(79,178,134,.45)' : 'var(--line)') }}>
+          <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+            <div>
+              <div style={{ fontSize: 12.5, fontWeight: 700, display: 'flex', gap: 6, alignItems: 'center' }}>
+                <Radio size={14} color={ncfg.on ? 'var(--mint)' : 'var(--brass)'} />تنبيهات النشاط الحيّة (هذا الجهاز)
+              </div>
+              <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 3, lineHeight: 1.6 }}>
+                إشعار وصوت لأي نشاط يقوم به الآخرون — ترحيل إغلاق، سداد، تعديل… أثناء فتح المنصة.
+              </div>
+            </div>
+            <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+              <button className={'btn sm' + (ncfg.on ? ' ok' : ' pri')} onClick={toggleLive}>
+                {ncfg.on ? <><Check size={13} />مفعّلة — إيقاف</> : <><Bell size={13} />تفعيل</>}
+              </button>
+              <button className={'btn sm' + (ncfg.sound ? '' : ' gh')} onClick={toggleSound} title="نغمة التنبيه">
+                {ncfg.sound ? '🔊 الصوت' : '🔇 صامت'}
+              </button>
+              <button className="btn sm gh" onClick={testNow}>جرّب</button>
+            </div>
+          </div>
+          {nMsg && <div style={{ fontSize: 10.5, marginTop: 8, color: nMsg.includes('✓') || nMsg.startsWith('مفعّلة') ? 'var(--mint)' : 'var(--amber)' }}>{nMsg}</div>}
+        </div>
+      )}
       {smart.length > 0 && (
         <div style={{ marginBottom: 14 }}>
           <div className="row" style={{ gap: 7, marginBottom: 8, color: 'var(--amber)', fontSize: 12, fontWeight: 600 }}>
