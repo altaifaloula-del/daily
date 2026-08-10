@@ -245,7 +245,7 @@ function dirOf(org) {
     deliveryApps: org.deliveryApps || [],
     suppliers: (org.suppliers || []).map(x => ({ id: x.id, name: x.name, category: x.category || '', code: x.code || '', terms: x.terms || 0 })),
     employees: (org.employees || []).map(e => ({ id: e.id, name: e.name, branchId: e.branchId || '', jobTitle: e.jobTitle || '', code: e.code || '', isActive: e.isActive !== false })),
-    users: (org.users || []).map(u => ({ id: u.id, name: u.name, email: u.email || '', role: u.role, branchId: u.branchId || '', allowedBranchIds: u.allowedBranchIds || [], isActive: u.isActive !== false })),
+    users: (org.users || []).map(u => ({ id: u.id, name: u.name, email: u.email || '', role: u.role, branchId: u.branchId || '', allowedBranchIds: u.allowedBranchIds || [], appAllow: u.appAllow || [], appDeny: u.appDeny || [], isActive: u.isActive !== false })),
     partners: (org.partners || []).map(p => ({ id: p.id, key: p.key, name: p.name, type: p.type, cat: p.cat || '', code: p.code || '' })),
     periodLocks: org.periodLocks || {},
     appsCfg: org.appsCfg || {},
@@ -912,10 +912,16 @@ function verifyBackup(data) {
 // تفضيلات الاستخدام لكل مستخدم (مفضلة + آخر استخدام) — محلية على الجهاز
 const appUseGet = (uid) => { try { return JSON.parse(localStorage.getItem('rms8:appuse:' + uid) || '{}') || {}; } catch { return {}; } };
 const appUseSet = (uid, v) => { try { localStorage.setItem('rms8:appuse:' + uid, JSON.stringify(v)); } catch { } };
-const appCanSee = (role, a) => {
+// يقبل كائن المستخدم (لتخصيص الظهور لكل مستخدم) أو نص الدور (توافق قديم)
+const appCanSee = (meOrRole, a) => {
+  const role = typeof meOrRole === 'string' ? meOrRole : meOrRole?.role;
   const R = ROLES[role] || {};
   if (a.soon) return R.scope === 'all';                    // خارطة الطريق تظهر لأدوار المركز فقط
-  return (R.tabs || []).includes(a.open.tab);              // نفس صلاحيات النظام حرفياً — لا طبقة موازية
+  if (meOrRole && typeof meOrRole === 'object') {
+    if ((meOrRole.appDeny || []).includes(a.id)) return false;   // مُخفى يدويًا لهذا المستخدم
+    if ((meOrRole.appAllow || []).includes(a.id)) return true;   // مُضاف يدويًا فوق دوره
+  }
+  return (R.tabs || []).includes(a.open.tab);              // الأساس: صلاحيات دور المستخدم
 };
 const appOpenNow = (a, me, setTab, openAcctView, openInvView) => {
   if (a.soon) return false;
@@ -1438,6 +1444,17 @@ export default function App() {
   const newActivity = auditLog.filter(a => (a.at || Date.parse(a.timestamp) || 0) > lastSeenAudit && a.userName !== me.name);
   const latestActivity = auditLog[0];
 
+  // التبويبات الفعّالة = تبويبات الدور + تبويبات التطبيقات المُضافة يدويًا − التبويبات المُخفاة بالكامل
+  // «الرئيسية» تبقى دائمًا (لا خطر حجب المستخدم — يهبط على الشبكة)
+  const roleTabsMe = ROLES[me.role]?.tabs || [];
+  const grantTabsMe = (me.appAllow || []).map(id => REG_IX[id]?.open?.tab).filter(Boolean);
+  const denyDedMe = (() => {
+    const deny = new Set(me.appDeny || []);
+    if (!deny.size) return new Set();
+    const byTab = {};
+    REG_APPS.forEach(a => { (byTab[a.open.tab] = byTab[a.open.tab] || []).push(a.id); });
+    return new Set(Object.entries(byTab).filter(([t, ids]) => ids.length && ids.every(id => deny.has(id))).map(([t]) => t));
+  })();
   const NAV = [
     { id: 'home', ar: 'الرئيسية', icon: Home },
     { id: 'dash', ar: 'لوحة المؤشرات', icon: LayoutDashboard },
@@ -1457,7 +1474,7 @@ export default function App() {
     { id: 'reports', ar: 'التقارير المالية', icon: FileBarChart },
     { id: 'admin', ar: 'الفروع والمستخدمون', icon: UserCog },
     { id: 'audit', ar: 'سجل التدقيق', icon: Eye }
-  ].filter(n => n.id === 'home' || (ROLES[me.role]?.tabs || []).includes(n.id));
+  ].filter(n => n.id === 'home' || ((roleTabsMe.includes(n.id) || grantTabsMe.includes(n.id)) && !denyDedMe.has(n.id)));
 
   const shared = { org, ops, pulse, me, myBranches, scoped, commit, commitOrg, say, setTab, theme, acctIntent, openAcctView, invIntent, openInvView };
 
@@ -1549,7 +1566,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v9.1 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v9.2 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -4926,6 +4943,9 @@ function Admin({ org, ops, me, commit, commitOrg, say }) {
         <button className={'btn sm' + (tab === 'perms' ? ' pri' : ' gh')} onClick={() => setTab('perms')}>
           <ShieldCheck size={14} />مصفوفة الصلاحيات
         </button>
+        <button className={'btn sm' + (tab === 'appperms' ? ' pri' : ' gh')} onClick={() => setTab('appperms')}>
+          <Grid3x3 size={14} />ظهور التطبيقات للمستخدمين
+        </button>
         <button className={'btn sm' + (tab === 'system' ? ' pri' : ' gh')} onClick={() => setTab('system')}>
           <Settings size={14} />بيانات الشركة والنسخ الاحتياطي
         </button>
@@ -5001,6 +5021,7 @@ function Admin({ org, ops, me, commit, commitOrg, say }) {
 
       {tab === 'cats' && <CategoriesPanel org={org} ops={ops} commitOrg={commitOrg} say={say} />}
       {tab === 'delivery' && <DeliveryAppsPanel org={org} commitOrg={commitOrg} say={say} />}
+      {tab === 'appperms' && <AppPermsPanel org={org} commitOrg={commitOrg} say={say} />}
       {tab === 'system' && <SystemPanel org={org} ops={ops} me={me} commit={commit} commitOrg={commitOrg} say={say} />}
       {tab === 'perms' && (() => {
         const roleIds = ['system_admin', 'general_management', 'head_office', 'finance_department', 'regional_manager', 'branch_manager', 'cashier'];
@@ -6387,7 +6408,7 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
 function AppsStrip({ me, setTab, openAcctView, openInvView }) {
   // شريط ERP Home: المفضلة وآخر المستخدَم — يظهر أعلى لوحة المؤشرات
   const u = appUseGet(me.id);
-  const can = (a) => a && appCanSee(me.role, a) && !a.soon;
+  const can = (a) => a && appCanSee(me, a) && !a.soon;
   const favs = (u.fav || []).map(id => REG_IX[id]).filter(can).slice(0, 5);
   const recs = Object.entries(u.rec || {}).sort((a, b) => (b[1].at || 0) - (a[1].at || 0))
     .map(([id]) => REG_IX[id]).filter(can).filter(a => !favs.includes(a)).slice(0, 3);
@@ -6432,7 +6453,7 @@ function Launcher({ org, ops, me, setTab, openAcctView, openInvView }) {
   const hidden = cfg.hidden || [];
   const pend = (ops?.closings || []).filter(c => c.status === 'submitted').length;
 
-  const mine = REG_APPS.filter(a => appCanSee(me.role, a) && !a.soon && !hidden.includes(a.id));
+  const mine = REG_APPS.filter(a => appCanSee(me, a) && !a.soon && !hidden.includes(a.id));
   const norm = (s) => (s || '').replace(/[أإآ]/g, 'ا');
   const qq = norm(q.trim());
   const match = (a) => !qq || norm(a.ar + ' ' + a.en + ' ' + (a.kw || []).join(' ') + ' ' + (a.fns || []).join(' ')).includes(qq);
@@ -6483,6 +6504,65 @@ function Launcher({ org, ops, me, setTab, openAcctView, openInvView }) {
   );
 }
 
+// لوحة ظهور التطبيقات لكل مستخدم — v9.2 (تخصيص فوق الدور)
+function AppPermsPanel({ org, commitOrg, say }) {
+  const editable = (org.users || []).filter(u => !ROLES[u.role]?.admin);
+  const [uid1, setUid1] = useState(editable[0]?.id || '');
+  const u = (org.users || []).find(x => x.id === uid1);
+  if (!editable.length || !u) return <div className="card"><div className="empty">لا يوجد مستخدم قابل للتخصيص — أدوار الإدارة ترى كل التطبيقات دائمًا.</div></div>;
+  const roleTabs = ROLES[u.role]?.tabs || [];
+  const roleHas = (a) => roleTabs.includes(a.open.tab);
+  const allow = u.appAllow || [], deny = u.appDeny || [];
+  const isOn = (a) => { let on = roleHas(a); if (allow.includes(a.id)) on = true; if (deny.includes(a.id)) on = false; return on; };
+  const toggle = async (a) => {
+    const role = roleHas(a);
+    let nAllow = allow.filter(x => x !== a.id), nDeny = deny.filter(x => x !== a.id);
+    const target = !isOn(a);
+    if (target && !role) nAllow = [...nAllow, a.id];
+    if (!target && role) nDeny = [...nDeny, a.id];
+    await commitOrg(d => ({ ...d, users: (d.users || []).map(x => x.id === u.id ? { ...x, appAllow: nAllow, appDeny: nDeny } : x) }), {
+      actionType: 'update', targetType: 'user_apps', targetId: u.id, title: 'خصّص ظهور تطبيقات لمستخدم', details: u.name + ' · ' + a.ar
+    });
+    say('حُدِّث ظهور «' + a.ar + '» لـ ' + u.name);
+  };
+  const apps = REG_APPS.filter(a => !a.soon);
+  return (
+    <div className="grid" style={{ gap: 12 }}>
+      <div className="card">
+        <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
+          <UserCog size={16} color="var(--brass)" />
+          <span style={{ fontSize: 12.5, fontWeight: 600 }}>ظهور التطبيقات لكل مستخدم</span>
+          <select className="sel" style={{ minWidth: 230 }} value={uid1} onChange={e => setUid1(e.target.value)}>
+            {editable.map(x => <option key={x.id} value={x.id}>{x.name} — {(ROLES[x.role]?.ar || x.role).split('—')[0].trim()}</option>)}
+          </select>
+          <span className="badge b-dim" style={{ marginInlineStart: 'auto' }}>اضغط أي تطبيق لتغيير ظهوره لهذا المستخدم</span>
+        </div>
+        <div className="appperm-grid">
+          {apps.map(a => {
+            const on = isOn(a), role = roleHas(a);
+            const lbl = on ? (role && !deny.includes(a.id) ? 'بالدور' : 'مُضاف يدويًا') : (role ? 'مُخفى يدويًا' : 'غير ظاهر');
+            const cls = (on && role && !deny.includes(a.id)) ? ' role' : (on && !role) ? ' ovr' : (!on && role) ? ' ovr' : ' off';
+            return (
+              <button key={a.id} className={'appperm' + (on ? ' on' : '') + cls} onClick={() => toggle(a)}>
+                <span className="ic"><a.icon size={15} /></span>
+                <span className="nm">{a.ar}<small>{lbl}</small></span>
+                <span className="tk">{on ? <Check size={13} /> : ''}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div className="card" style={{ background: 'rgba(200,162,74,.04)', borderStyle: 'dashed' }}>
+        <div style={{ fontSize: 11.5, color: 'var(--dim)', lineHeight: 2 }}>
+          🟢 <b style={{ color: 'var(--mint)' }}>بالدور</b>: يظهر تلقائيًا حسب دور المستخدم ·
+          🟡 <b style={{ color: 'var(--amber)' }}>مُضاف/مُخفى يدويًا</b>: تخصيص لهذا الشخص وحده فوق دوره.
+          الإضافة تمنح التطبيق ويفتح فعلاً، والإخفاء يزيله من شاشته. لا يؤثر على بقية المستخدمين، ولا يمسّ عزل بيانات الفروع.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AppsCenter({ org, me, commitOrg, say, setTab, openAcctView, openInvView }) {
   const [q, setQ] = useState('');
   const [mode, setMode] = useState('all');          // all | fav | rec
@@ -6506,7 +6586,7 @@ function AppsCenter({ org, me, commitOrg, say, setTab, openAcctView, openInvView
   };
 
   // الرؤية: صلاحيات الأدوار الحالية نفسها + إخفاءات المشرف
-  const mine = REG_APPS.filter(a => appCanSee(me.role, a) && (manage || !hidden.includes(a.id)));
+  const mine = REG_APPS.filter(a => appCanSee(me, a) && (manage || !hidden.includes(a.id)));
   const qq = q.trim();
   const match = (a) => !qq || (a.ar + ' ' + a.en + ' ' + a.d + ' ' + (a.kw || []).join(' ')).includes(qq);
   const inMode = (a) => mode === 'fav' ? isFav(a.id) : mode === 'rec' ? !!(u.rec || {})[a.id] : true;

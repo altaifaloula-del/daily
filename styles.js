@@ -646,4 +646,19 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
   border:1px solid var(--frame-o);background:var(--acc-soft);color:var(--brass);cursor:pointer}
 @media(max-width:560px){.lh-grid{grid-template-columns:repeat(auto-fill,minmax(88px,1fr))}
   .lh-box{width:52px;height:52px;border-radius:14px}.lh-nm{font-size:10.5px}}
+
+/* ظهور التطبيقات لكل مستخدم — v9.2 */
+.appperm-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px}
+.appperm{display:flex;align-items:center;gap:10px;padding:11px 13px;border-radius:12px;border:1px solid var(--line);
+  background:var(--ink2);cursor:pointer;transition:.12s;text-align:start;font:inherit;color:var(--txt)}
+.appperm:hover{border-color:var(--line-g)}
+.appperm .ic{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;background:var(--ink3);
+  border:1px solid var(--line-g);color:var(--brass);flex-shrink:0}
+.appperm .nm{flex:1;font-size:11.5px;font-weight:600;min-width:0}
+.appperm .nm small{display:block;font-size:9px;font-weight:500;margin-top:1px;color:var(--faint)}
+.appperm .tk{width:22px;height:22px;border-radius:6px;border:1.5px solid var(--line-g);display:grid;place-items:center;color:transparent;flex-shrink:0}
+.appperm.on{border-color:rgba(79,178,134,.5);background:rgba(79,178,134,.07)}
+.appperm.on .tk{background:var(--mint);border-color:var(--mint);color:#0c1410}
+.appperm.on.role .nm small{color:var(--mint)}
+.appperm.ovr .nm small{color:var(--amber)}
 `;
