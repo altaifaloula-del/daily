@@ -1307,7 +1307,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v8.1 🔗</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v8.2 🖨️</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -5350,6 +5350,23 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
     setPoF(null); say('أُنشئ أمر الشراء ' + rec.poNo + ' ✓');
   };
 
+  // v8.2: طباعة أمر شراء كوثيقة تُرسل للمورد
+  const printPO = (p2) => {
+    const rows = (p2.lines || []).map((l, i) => `<tr><td class="n">${i + 1}</td><td>${l.desc}</td><td class="n">${l.qty}</td><td class="n">${money(l.price)}</td><td class="n">${money((l.qty || 0) * (l.price || 0))}</td></tr>`).join('');
+    printA4(org, 'أمر شراء ' + p2.poNo, arDate(p2.date || today()) + (p2.branchId ? ' · ' + ((org.branches.find(b => b.id === p2.branchId) || {}).name || '') : ' · المركز الرئيسي'),
+      `<div class="box"><b>المورد:</b> ${p2.supplierName} ${p2.note ? '· ' + p2.note : ''}<br><b>أعده:</b> ${p2.by || ''}</div>
+      <table><thead><tr><th>#</th><th>البيان</th><th>الكمية</th><th>سعر الوحدة</th><th>الإجمالي</th></tr></thead><tbody>${rows}
+      <tr class="tot"><td colspan="4">قيمة الأمر</td><td class="n">${money(poTotal(p2))}</td></tr></tbody></table>
+      <div class="sign"><div>إعداد</div><div>اعتماد الإدارة</div><div>استلام المورد</div></div>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+  };
+  const printInvs = () => {
+    const open2 = allInvs.filter(i => remOf(i) > 0);
+    const rows = open2.map(i => `<tr><td>${i.invoiceNo}${i.source === 'closing' ? ' (من وردية)' : ''}</td><td>${i.supplierName}</td><td>${i.branchName || ''}</td><td class="n">${i.dueDate || ''}</td><td class="n">${money(i.amount)}</td><td class="n">${money(paidOf(i))}</td><td class="n">${money(remOf(i))}</td></tr>`).join('');
+    printA4(org, 'الفواتير المفتوحة وأعمار الديون', arDate(today()) + ' · ' + open2.length + ' فاتورة',
+      `<table><thead><tr><th>الفاتورة</th><th>المورد</th><th>الفرع</th><th>الاستحقاق</th><th>القيمة</th><th>المسدد</th><th>المتبقي</th></tr></thead><tbody>${rows}
+      <tr class="tot"><td colspan="6">إجمالي المستحق</td><td class="n">${money(sum(open2, remOf))}</td></tr></tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+  };
+
   const saveRecv = async () => {
     const f = recv; const p2 = f.po;
     const takes = p2.lines.map((l, i) => Math.min(Math.max(Number(f.qtys[i]) || 0, 0), (l.qty || 0) - (l.received || 0)));
@@ -5449,6 +5466,9 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
 
       {tab === 'inv' && (
         <div className="card">
+          <div className="row" style={{ justifyContent: 'flex-end', marginBottom: 8 }}>
+            <button className="btn sm" onClick={printInvs}><Printer size={13} />طباعة الفواتير المفتوحة</button>
+          </div>
           <div className="tw">
             <table className="tb">
               <thead><tr><th>الفاتورة</th><th>المورد</th><th>الفرع</th><th>الاستحقاق</th><th>المهلة</th>
@@ -5572,6 +5592,7 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
                         : <span className="badge b-sky">بانتظار التوريد</span>}</td>
                       <td>{inv ? <span className="badge b-mint">مفوترة · {inv.invoiceNo}</span> : <span className="badge b-dim">لم تُفوتر</span>}</td>
                       <td><div className="row" style={{ gap: 5, flexWrap: 'wrap' }}>
+                        <button className="btn sm gh" onClick={() => printPO(p2)}><Printer size={12} /></button>
                         {canPay && p2.status !== 'received' && <button className="btn sm" onClick={() => setRecv({ po: p2, qtys: p2.lines.map(l => String((l.qty || 0) - (l.received || 0))) })}>تسجيل استلام</button>}
                         {canPay && !inv && <button className="btn sm gh" onClick={() => setNewInv({ supplierId: p2.supplierId, invoiceNo: '', amount: String(tot), taxable: true, date: today(), dueDate: today(), branchId: p2.branchId || '', poId: p2.id })}>إنشاء فاتورة</button>}
                       </div></td>
@@ -5733,6 +5754,32 @@ function printPartnerStatement(p, org) {
   return true;
 }
 
+/* ================= v8.2: مساعد طباعة A4 موحّد بترويسة الشركة ================= */
+function printA4(org, title, sub, bodyHtml) {
+  const w = window.open('', '_blank', 'width=900,height=1000');
+  if (!w) return false;
+  const co = org.company || {};
+  w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>${title}</title>
+  <style>*{font-family:'Segoe UI',Tahoma,sans-serif;box-sizing:border-box}body{margin:0;padding:26px;color:#1a1a1a;font-size:12px}
+  .h{display:flex;justify-content:space-between;border-bottom:2px solid #8C6F2C;padding-bottom:10px;margin-bottom:14px}
+  .co{font-size:18px;font-weight:800;color:#5a4a1e}.sub{font-size:11px;color:#666;margin-top:2px}
+  h1{font-size:16px;margin:0}table{width:100%;border-collapse:collapse;margin:8px 0}
+  th{background:#efe8d8;color:#4a3f22;padding:7px;border:1px solid #d9cba5;text-align:right;font-size:11px}
+  td{padding:6px 8px;border:1px solid #e6ddc8}.n{text-align:left;direction:ltr;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .tot td{background:#f5f0e4;font-weight:800;border-top:2px solid #8C6F2C}.neg{color:#C0392B}
+  .box{background:#faf6ee;border:1px solid #e5dcc5;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:11.5px}
+  .sign{display:flex;justify-content:space-around;margin-top:34px;text-align:center;font-size:11px}
+  .sign div{border-top:1px solid #999;padding-top:6px;min-width:140px}
+  .ft{margin-top:14px;font-size:10px;color:#888;text-align:center}</style></head><body>
+  <div class="h"><div><div class="co">${co.name || 'الشركة'}</div><div class="sub">${co.taxNumber ? 'الرقم الضريبي: ' + co.taxNumber : ''}</div></div>
+  <div style="text-align:left"><h1>${title}</h1><div class="sub">${sub || ''}</div></div></div>
+  ${bodyHtml}
+  <div class="ft">صادر من منصة الإغلاق اليومي — ${arDate(today())}</div></body></html>`);
+  w.document.close();
+  setTimeout(() => { w.focus(); w.print(); }, 400);
+  return true;
+}
+
 /* ================= دفتر الشركاء (عملاء/موردون/موظفون · مدين ودائن) ================= */
 const PT_TYPE = { customer: { ar: 'عميل', c: '#5B93C4' }, supplier: { ar: 'مورد', c: '#E0A458' }, employee: { ar: 'موظف', c: '#9B7BB8' } };
 const PT_SRC = {
@@ -5836,6 +5883,20 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
     setCountRows({}); say('اعتُمد الجرد وسُجّلت التسويات ✓');
   };
 
+  // v8.2: طباعة أرصدة المخزون + قائمة جرد ورقية بعمود عدّ فارغ
+  const printStock = () => {
+    const rows = items.map(it => `<tr><td>${it.name}</td><td>${it.unit}</td><td class="n">${money(it.cost)}</td><td class="n">${balOf(it.id)}</td><td class="n">${money(balOf(it.id) * (it.cost || 0))}</td><td class="n">${it.minQty || '—'}</td></tr>`).join('');
+    printA4(org, 'أرصدة المخزون', arDate(today()) + ' · ' + items.length + ' صنفًا',
+      `<table><thead><tr><th>الصنف</th><th>الوحدة</th><th>التكلفة</th><th>الرصيد</th><th>القيمة</th><th>حد الطلب</th></tr></thead><tbody>${rows}
+      <tr class="tot"><td colspan="4">قيمة المخزون الإجمالية</td><td class="n">${money(stockValue)}</td><td></td></tr></tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+  };
+  const printCountSheet = () => {
+    const rows = items.map(it => `<tr><td>${it.name}</td><td>${it.unit}</td><td class="n">${balOf(it.id)}</td><td style="height:26px"></td><td></td><td></td></tr>`).join('');
+    printA4(org, 'قائمة جرد المخزون', arDate(today()) + ' — تُملأ يدويًا أثناء العدّ ثم تُدخل في شاشة الجرد',
+      `<table><thead><tr><th>الصنف</th><th>الوحدة</th><th>الرصيد الدفتري</th><th>العدّ الفعلي</th><th>الفرق</th><th>ملاحظات</th></tr></thead><tbody>${rows}</tbody></table>
+      <div class="sign"><div>قام بالعدّ</div><div>راجعه</div><div>اعتماد</div></div>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+  };
+
   const prodCost = (p) => sum(p.parts || [], pt => (Number(pt.qty) || 0) * ((items.find(x => x.id === pt.itemId) || {}).cost || 0));
   const saveProd = async () => {
     const f = prodF;
@@ -5863,7 +5924,8 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
         <button className={'btn sm' + (view === 'moves' ? ' pri' : ' gh')} onClick={() => setView('moves')}><ArrowLeftRight size={14} />الحركات</button>
         <button className={'btn sm' + (view === 'count' ? ' pri' : ' gh')} onClick={() => setView('count')}><ClipboardCheck size={14} />الجرد</button>
         <button className={'btn sm' + (view === 'recipes' ? ' pri' : ' gh')} onClick={() => setView('recipes')}><Store size={14} />الوصفات والتكلفة</button>
-        {canW && view === 'items' && <button className="btn sm pri" style={{ marginInlineStart: 'auto' }} onClick={() => setItemF({ name: '', unit: 'كغ', cost: '', minQty: '' })}><Plus size={14} />صنف جديد</button>}
+        {view === 'items' && <button className="btn sm" style={{ marginInlineStart: 'auto' }} onClick={printStock}><Printer size={13} />طباعة الأرصدة</button>}
+        {canW && view === 'items' && <button className="btn sm pri" onClick={() => setItemF({ name: '', unit: 'كغ', cost: '', minQty: '' })}><Plus size={14} />صنف جديد</button>}
         {canW && view === 'moves' && <button className="btn sm pri" style={{ marginInlineStart: 'auto' }} onClick={() => setMoveF({ kind: 'in', itemId: items[0]?.id || '', qty: '', note: '' })}><Plus size={14} />حركة جديدة</button>}
         {canW && view === 'recipes' && <button className="btn sm pri" style={{ marginInlineStart: 'auto' }} onClick={() => setProdF({ name: '', sellPrice: '', parts: [{ itemId: items[0]?.id || '', qty: '' }] })}><Plus size={14} />منتج جديد</button>}
       </div>
@@ -5922,7 +5984,10 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
         <div className="card">
           <div className="card-h">
             <div className="card-t"><ClipboardCheck size={15} color="var(--brass)" />جرد المخزون — أدخل العدّ الفعلي واعتمد</div>
-            {canW && <button className="btn pri sm" onClick={approveCount}><Check size={14} />اعتماد الجرد وتسجيل الفروقات</button>}
+            <div className="row" style={{ gap: 6 }}>
+              <button className="btn sm" onClick={printCountSheet}><Printer size={13} />طباعة قائمة جرد ورقية</button>
+              {canW && <button className="btn pri sm" onClick={approveCount}><Check size={14} />اعتماد الجرد وتسجيل الفروقات</button>}
+            </div>
           </div>
           <div className="tw">
             <table className="tb">
@@ -6324,8 +6389,12 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     const x = m[a.code] || { debit: 0, credit: 0 };
     return (a.kind === 'asset' || a.kind === 'exp') ? x.debit - x.credit : x.credit - x.debit;
   };
-  const revP = sum(A.accounts.filter(a => a.kind === 'rev'), a => balOf(a, fsAgg));
-  const expP = sum(A.accounts.filter(a => a.kind === 'exp'), a => balOf(a, fsAgg));
+  // v8.2: قائمة الدخل تحترم فلتر الفرع (bf) — لعرض دخل كل فرع من الرئيسي
+  const isEntries = bf ? fsEntries.filter(byBranch) : fsEntries;
+  const isAgg = aggOf(isEntries);
+  const bfLabel = !bf ? '' : bf === 'central' ? 'القيود المركزية' : (((org.branches || []).find(b => b.id === bf) || {}).name || '');
+  const revP = sum(A.accounts.filter(a => a.kind === 'rev'), a => balOf(a, isAgg));
+  const expP = sum(A.accounts.filter(a => a.kind === 'exp'), a => balOf(a, isAgg));
   const netP = Math.round((revP - expP) * 100) / 100;
   const bsAssets = sum(A.accounts.filter(a => a.kind === 'asset'), a => balOf(a, bsAgg));
   const bsLiab = sum(A.accounts.filter(a => a.kind === 'liab'), a => balOf(a, bsAgg));
@@ -6413,12 +6482,60 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const ccSum = (kind, cid) => Math.round(sum(A.accounts.filter(a => a.kind === kind), a => ccVal(a, cid)) * 100) / 100;
   const ccNet = (cid) => Math.round((ccSum('rev', cid) - ccSum('exp', cid)) * 100) / 100;
 
+  // ===== v8.2: طباعة موحّدة لكل تقارير المحاسبة =====
+  const periodSub = (from || to) ? ('الفترة: ' + (from || 'البداية') + ' ← ' + (to || today())) : 'كامل المدة حتى ' + arDate(today());
+  const printTB = () => {
+    const rows = A.accounts.filter(a => tbAgg[a.code]).map(a => {
+      const x = tbAgg[a.code]; const bl = (a.kind === 'asset' || a.kind === 'exp') ? x.debit - x.credit : x.credit - x.debit;
+      return `<tr><td>${a.code} · ${a.name}</td><td class="n">${x.debit ? money(x.debit) : '—'}</td><td class="n">${x.credit ? money(x.credit) : '—'}</td><td class="n ${bl < 0 ? 'neg' : ''}">${bl < 0 ? '(' + money(-bl) + ')' : money(bl)}</td></tr>`;
+    }).join('');
+    printA4(org, 'ميزان المراجعة', periodSub + (bf ? ' · ' + (bf === 'central' ? 'القيود المركزية' : (((org.branches || []).find(b => b.id === bf) || {}).name || '')) : ' · كل الفروع'),
+      `<table><thead><tr><th>الحساب</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead><tbody>${rows}
+      <tr class="tot"><td>الإجمالي ${Math.abs(tbD - tbC) < 0.01 ? '— متوازن ✓' : ''}</td><td class="n">${money(tbD)}</td><td class="n">${money(tbC)}</td><td></td></tr></tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+  };
+  const printCC = () => {
+    const head = centers.map(c => `<th>${c.ar}</th>`).join('');
+    const rowOf = (a) => `<tr><td>${a.name}</td>${centers.map(c => `<td class="n">${ccVal(a, c.id) ? money(ccVal(a, c.id)) : '—'}</td>`).join('')}<td class="n">${money(sum(centers, c => ccVal(a, c.id)))}</td></tr>`;
+    const revRows = A.accounts.filter(a => a.kind === 'rev' && ccAgg[a.code]).map(rowOf).join('');
+    const expRows = A.accounts.filter(a => a.kind === 'exp' && ccAgg[a.code]).map(rowOf).join('');
+    printA4(org, 'مراكز التكلفة والربحية', periodSub,
+      `<table><thead><tr><th>الحساب</th>${head}<th>الإجمالي</th></tr></thead><tbody>
+      <tr class="tot"><td colspan="${centers.length + 2}">الإيرادات</td></tr>${revRows}
+      <tr class="tot"><td colspan="${centers.length + 2}">المصروفات</td></tr>${expRows}
+      <tr class="tot"><td>صافي كل مركز</td>${centers.map(c => `<td class="n ${ccNet(c.id) < 0 ? 'neg' : ''}">${ccNet(c.id) < 0 ? '(' + money(-ccNet(c.id)) + ')' : money(ccNet(c.id))}</td>`).join('')}<td class="n">${money(sum(centers, c => ccNet(c.id)))}</td></tr></tbody></table>
+      <div class="box">عمود «المركز الرئيسي» يضم ما لا يخص فرعًا بعينه — توزيعه على الفروع بنِسَب تحميل يقرّها صاحب المنشأة.</div>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+  };
+  const printJR = () => {
+    const list = entries.slice(0, 300);
+    const rows = list.map(e => `<tr><td class="n">${e.no}</td><td class="n">${e.date}</td><td>${e.title}</td><td>${e.manual ? e.src : 'تلقائي · ' + e.src}</td><td class="n">${money(e.debit)}</td></tr>`).join('');
+    printA4(org, 'دفتر اليومية', periodSub + (month ? ' · شهر ' + month : '') + (q.trim() ? ' · بحث: ' + q.trim() : '') + ' · ' + list.length + ' قيدًا',
+      `<table><thead><tr><th>رقم</th><th>التاريخ</th><th>البيان</th><th>المصدر</th><th>المبلغ</th></tr></thead><tbody>${rows}
+      <tr class="tot"><td colspan="4">إجمالي القيود المعروضة</td><td class="n">${money(sum(list, e => e.debit))}</td></tr></tbody></table>
+      <div class="box">تفاصيل أطراف كل قيد (مدين/دائن) متاحة داخل النظام بفتح القيد — وكلها متوازنة.</div>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+  };
+  const printVAT = () => {
+    printA4(org, 'مسودة الإقرار الضريبي', periodSub + ' · النسبة ' + taxRate + '%',
+      `<table><thead><tr><th>البند</th><th>المبلغ الصافي</th><th>الضريبة ${taxRate}%</th></tr></thead><tbody>
+      <tr><td>المبيعات الخاضعة للنسبة الأساسية</td><td class="n">${money(vsum.netSales)}</td><td class="n">${money(vsum.out)}</td></tr>
+      <tr><td>المشتريات الخاضعة للنسبة الأساسية</td><td class="n">${money(vsum.netPurch)}</td><td class="n">${money(vsum.inn)}</td></tr>
+      <tr class="tot"><td>صافي الضريبة ${vatDue >= 0 ? 'المستحقة' : '(رصيد دائن)'}</td><td></td><td class="n">${money(vatDue)}</td></tr></tbody></table>
+      <div class="box">مسودة داخلية تساعد على تعبئة الإقرار في بوابة الهيئة — وليست تقديمًا رسميًا.</div>
+      <div class="sign"><div>المحاسب</div><div>الإدارة المالية</div><div>اعتماد الإدارة</div></div>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+  };
+  const printAST = () => {
+    const rows = A.assetRows.map(a => `<tr><td>${a.name}</td><td class="n">${a.buyDate}</td><td class="n">${money(a.cost)}</td><td class="n">${money(a.monthly)}</td><td class="n">${money(a.accum)}</td><td class="n">${money(a.book)}</td><td>${a.done ? 'مُهلك بالكامل' : 'قيد الإهلاك ' + a.monthsDone + '/' + a.nM}</td></tr>`).join('');
+    printA4(org, 'سجل الأصول الثابتة والإهلاك', arDate(today()),
+      `<table><thead><tr><th>الأصل</th><th>الشراء</th><th>التكلفة</th><th>القسط الشهري</th><th>المجمّع</th><th>القيمة الدفترية</th><th>الحالة</th></tr></thead><tbody>${rows}
+      <tr class="tot"><td colspan="2">الإجمالي</td><td class="n">${money(sum(A.assetRows, a => a.cost))}</td><td></td><td class="n">${money(sum(A.assetRows, a => a.accum))}</td><td class="n">${money(sum(A.assetRows, a => a.book))}</td><td></td></tr></tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+  };
+
   // ===== v8.0: طباعة القوائم المالية A4 =====
   const printFS = () => {
     const w = window.open('', '_blank', 'width=900,height=1000');
     if (!w) return say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
     const co = org.company || {};
     const period = (from || to) ? ('الفترة: ' + (from || 'البداية') + ' ← ' + (to || today())) : 'كامل المدة حتى ' + arDate(today());
+    const isTitle = bfLabel ? ' — ' + bfLabel : ' (موحدة)';
     const rowsOf = (kind, agg) => A.accounts.filter(a => a.kind === kind && agg[a.code])
       .map(a => `<tr><td>${a.name}</td><td class="n">${money(balOf(a, agg))}</td></tr>`).join('');
     const bsRows = (kinds2) => A.accounts.filter(a => kinds2.includes(a.kind) && bsAgg[a.code] && Math.abs(balOf(a, bsAgg)) > 0.004)
@@ -6434,12 +6551,12 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     <div class="h"><div><div class="co">${co.name || 'الشركة'}</div><div class="sub">${co.taxNumber ? 'الرقم الضريبي: ' + co.taxNumber : ''}</div></div>
     <div style="text-align:left"><div style="font-size:17px;font-weight:800">القوائم المالية</div><div class="sub">${period}</div></div></div>
     <div class="grid2"><div>
-    <h2>قائمة الدخل</h2><table>
-    ${rowsOf('rev', fsAgg)}<tr class="tot"><td>إجمالي الإيرادات</td><td class="n">${money(revP)}</td></tr>
-    ${rowsOf('exp', fsAgg)}<tr class="tot"><td>إجمالي المصروفات</td><td class="n">(${money(expP)})</td></tr>
+    <h2>قائمة الدخل${isTitle}</h2><table>
+    ${rowsOf('rev', isAgg)}<tr class="tot"><td>إجمالي الإيرادات</td><td class="n">${money(revP)}</td></tr>
+    ${rowsOf('exp', isAgg)}<tr class="tot"><td>إجمالي المصروفات</td><td class="n">(${money(expP)})</td></tr>
     <tr class="tot"><td>${netP >= 0 ? 'صافي الربح' : 'صافي الخسارة'}</td><td class="n">${money(netP)}</td></tr></table>
     </div><div>
-    <h2>قائمة المركز المالي</h2><table>
+    <h2>قائمة المركز المالي (موحدة — البنك والخزينة ورأس المال مركزية)</h2><table>
     <tr class="tot"><td colspan="2">الأصول</td></tr>${bsRows(['asset'])}
     <tr class="tot"><td>إجمالي الأصول</td><td class="n">${money(bsAssets)}</td></tr>
     <tr class="tot"><td colspan="2">الخصوم وحقوق الملكية</td></tr>${bsRows(['liab', 'equity'])}
@@ -6524,6 +6641,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
           <div className="card-h">
             <div className="card-t"><FileText size={15} color="var(--brass)" />القيود اليومية — اضغط أي قيد لتفاصيله</div>
             <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+              <button className="btn sm" onClick={printJR}><Printer size={13} />طباعة دفتر اليومية</button>
               <input className="inp" style={{ width: 190 }} placeholder="بحث في القيود…" value={q} onChange={e => setQ(e.target.value)} />
               <input type="month" className="inp" style={{ width: 150 }} value={month} onChange={e => setMonth(e.target.value)} />
               {month && <button className="btn sm gh" onClick={() => setMonth('')}>كل الشهور</button>}
@@ -6624,7 +6742,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         <div className="card">
           <div className="card-h">
             <div className="card-t"><Scale size={15} color="var(--brass)" />ميزان المراجعة</div>
-            {periodBar}
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>{periodBar}<button className="btn sm" onClick={printTB}><Printer size={13} />طباعة</button></div>
           </div>
           <div className="tw">
             <table className="tb">
@@ -6661,19 +6779,27 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         <div className="grid g2" style={{ alignItems: 'start' }}>
           <div className="card">
             <div className="card-h">
-              <div className="card-t"><TrendingUp size={15} color="var(--mint)" />قائمة الدخل {from || to ? '(الفترة المحددة)' : '(كامل المدة)'}</div>
+              <div className="card-t"><TrendingUp size={15} color="var(--mint)" />قائمة الدخل {bfLabel ? '— ' + bfLabel : '(موحدة)'} {from || to ? '· الفترة المحددة' : ''}</div>
               <button className="btn sm" onClick={printFS}><Printer size={13} />طباعة القوائم A4</button>
             </div>
             {periodBar}
+            <div className="row" style={{ gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+              <select className="sel" style={{ width: 200 }} value={bf} onChange={e => setBf(e.target.value)}>
+                <option value="">قائمة دخل موحدة (كل الفروع)</option>
+                <option value="central">القيود المركزية فقط</option>
+                {(org.branches || []).map(b => <option key={b.id} value={b.id}>دخل {b.name}</option>)}
+              </select>
+              {bf && <span className="badge b-brass">عرض دخل: {bfLabel}</span>}
+            </div>
             <div className="tw" style={{ marginTop: 10 }}>
               <table className="tb">
                 <tbody>
-                  {A.accounts.filter(a => a.kind === 'rev' && fsAgg[a.code]).map(a => (
-                    <tr key={a.code}><td>{a.name}</td><td className="num" style={{ textAlign: 'end', color: 'var(--mint)' }}>{money(balOf(a, fsAgg))}</td></tr>
+                  {A.accounts.filter(a => a.kind === 'rev' && isAgg[a.code]).map(a => (
+                    <tr key={a.code}><td>{a.name}</td><td className="num" style={{ textAlign: 'end', color: 'var(--mint)' }}>{money(balOf(a, isAgg))}</td></tr>
                   ))}
                   <tr style={{ fontWeight: 700 }}><td>إجمالي الإيرادات</td><td className="num" style={{ textAlign: 'end', color: 'var(--mint)' }}>{money(revP)}</td></tr>
-                  {A.accounts.filter(a => a.kind === 'exp' && fsAgg[a.code]).map(a => (
-                    <tr key={a.code}><td style={{ color: 'var(--dim)' }}>{a.name}</td><td className="num" style={{ textAlign: 'end', color: 'var(--rose)' }}>({money(balOf(a, fsAgg))})</td></tr>
+                  {A.accounts.filter(a => a.kind === 'exp' && isAgg[a.code]).map(a => (
+                    <tr key={a.code}><td style={{ color: 'var(--dim)' }}>{a.name}</td><td className="num" style={{ textAlign: 'end', color: 'var(--rose)' }}>({money(balOf(a, isAgg))})</td></tr>
                   ))}
                   <tr style={{ fontWeight: 700 }}><td>إجمالي المصروفات</td><td className="num" style={{ textAlign: 'end', color: 'var(--rose)' }}>({money(expP)})</td></tr>
                   <tr style={{ fontWeight: 900, background: 'rgba(200,162,74,.05)' }}>
@@ -6722,7 +6848,10 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
             })}
           </div>
           <div className="card">
-            <div className="card-t" style={{ marginBottom: 10 }}><BarChart3 size={15} color="var(--brass)" />مراكز التكلفة — أرقام مباشرة من القيود الموسومة بالفرع</div>
+            <div className="card-h">
+              <div className="card-t"><BarChart3 size={15} color="var(--brass)" />مراكز التكلفة — أرقام مباشرة من القيود الموسومة بالفرع</div>
+              <button className="btn sm" onClick={printCC}><Printer size={13} />طباعة</button>
+            </div>
             <div className="tw">
               <table className="tb">
                 <thead><tr><th>الحساب</th>{centers.map(c => <th key={c.id} style={{ textAlign: 'end' }}>{c.ar}</th>)}<th style={{ textAlign: 'end' }}>الإجمالي</th></tr></thead>
@@ -6792,7 +6921,10 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
               <Kpi label={vatDue >= 0 ? 'صافي المستحق للهيئة' : 'صافي رصيد لصالحك'} value={money(Math.abs(vatDue))} sub={from || to ? 'للفترة المحددة' : 'كامل المدة'} icon={Receipt} color="#E0A458" />
             </div>
             <div className="card">
-              <div className="card-t" style={{ marginBottom: 10 }}><FileText size={15} color="var(--brass)" />مسودة الإقرار — بصيغة نموذج الهيئة</div>
+              <div className="card-h">
+                <div className="card-t"><FileText size={15} color="var(--brass)" />مسودة الإقرار — بصيغة نموذج الهيئة</div>
+                <button className="btn sm" onClick={printVAT}><Printer size={13} />طباعة الإقرار</button>
+              </div>
               <div className="tw">
                 <table className="tb">
                   <thead><tr><th>البند</th><th style={{ textAlign: 'end' }}>المبلغ الصافي</th><th style={{ textAlign: 'end' }}>الضريبة {taxRate}%</th></tr></thead>
@@ -6825,7 +6957,10 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
               <Kpi label="مجمّع الإهلاك" value={money(sum(A.assetRows, a => a.accum))} sub="قسط ثابت شهري تلقائي" icon={TrendingDown} color="#E0A458" />
               <Kpi label="القيمة الدفترية" value={money(sum(A.assetRows, a => a.book))} sub="التكلفة ناقص المجمّع" icon={Scale} color="#4FB286" />
             </div>
-            {canPost && <button className="btn pri" style={{ alignSelf: 'flex-start' }} onClick={() => setAstF({ name: '', cost: '', buyDate: today(), lifeYears: '5', fund: '1201', note: '' })}><Plus size={14} />أصل جديد</button>}
+            <div className="row" style={{ gap: 8, alignSelf: 'flex-start' }}>
+              <button className="btn sm" onClick={printAST}><Printer size={13} />طباعة السجل</button>
+              {canPost && <button className="btn pri" onClick={() => setAstF({ name: '', cost: '', buyDate: today(), lifeYears: '5', fund: '1201', note: '' })}><Plus size={14} />أصل جديد</button>}
+            </div>
           </div>
           <div className="card">
             <div className="tw">
