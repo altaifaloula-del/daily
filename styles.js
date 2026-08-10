@@ -584,4 +584,29 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
 .editrow{display:flex;align-items:center;gap:10px;margin:9px 2px}
 .editrow .lbl{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--dim);min-width:74px;margin:0}
 .editrow input[type=range]{flex:1;accent-color:var(--brass);height:4px}
+
+/* ═══ مركز تطبيقات ERP (v7.6) ═══ */
+.apps-hd{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.appgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:11px}
+.appc{background:var(--ink2);border:1px solid var(--line-g);border-radius:var(--r-md);padding:13px;display:flex;flex-direction:column;gap:8px;position:relative;transition:transform var(--t) var(--ease-out),box-shadow var(--t),border-color var(--t)}
+.appc:hover{transform:translateY(-2px);box-shadow:var(--sh-3);border-color:var(--frame)}
+.appc.soon{opacity:.6}
+.appc-top{display:flex;align-items:flex-start;gap:10px;padding-inline-end:26px}
+.appc-ic{width:38px;height:38px;border-radius:11px;background:var(--acc-soft);border:1px solid var(--frame-o);display:grid;place-items:center;color:var(--brass-l);flex-shrink:0}
+.appc-n{font-weight:800;font-size:13.5px;line-height:1.3}
+.appc-e{font-size:9px;color:var(--faint);letter-spacing:.04em;direction:ltr}
+.appc-d{font-size:10.8px;color:var(--dim);line-height:1.6;flex:1}
+.appc-f{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.appc-star{position:absolute;inset-inline-end:7px;inset-block-start:7px;background:none;border:none;cursor:pointer;color:var(--faint);padding:4px;border-radius:8px;line-height:1}
+.appc-star.on{color:var(--brass-l)}
+.appc-star:hover{background:var(--acc-soft);color:var(--brass-l)}
+.appcat{display:flex;align-items:center;gap:9px;margin:14px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+.appcat .t{font-family:'Markazi Text',serif;font-size:18.5px;font-weight:700}
+.appcat .c{font-size:10px;color:var(--faint)}
+.appstrip{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-bottom:2px}
+.appchip{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;border:1px solid var(--line-g);background:var(--ink2);color:var(--txt);font-size:11.5px;cursor:pointer;font-family:inherit;transition:border-color var(--t-fast),background var(--t-fast)}
+.appchip:hover{border-color:var(--frame);background:var(--ink3)}
+.appchip .st{color:var(--brass-l)}
+@media(max-width:560px){.appgrid{grid-template-columns:repeat(2,minmax(0,1fr))}.appc{padding:11px}.appc-e{display:none}}
+@media(max-width:352px){.appgrid{grid-template-columns:1fr}}
 `;

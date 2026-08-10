@@ -560,7 +560,7 @@ const DENOMS = [
 const emptyDenoms = () => DENOMS.reduce((o, d) => ({ ...o, [d.k]: 0 }), {});
 const countDenoms = (d) => DENOMS.reduce((s, x) => s + (Number(d?.[x.k]) || 0) * x.v, 0);
 
-const ALL_TABS = ['dash', 'compare', 'closing', 'approve', 'treasury', 'payroll', 'suppliers', 'partners', 'acct', 'shifts', 'archive', 'ai', 'reports', 'admin', 'audit'];
+const ALL_TABS = ['dash', 'compare', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'partners', 'acct', 'shifts', 'archive', 'ai', 'reports', 'admin', 'audit'];
 const ROLES = {
   // ===== الأدوار الخمسة المعتمدة =====
   cashier: {
@@ -570,17 +570,17 @@ const ROLES = {
   },
   branch_manager: {
     ar: 'مدير الفرع', badge: 'b-mint', scope: 'own', create: true,
-    tabs: ['closing', 'archive'],
+    tabs: ['closing', 'apps', 'archive'],
     perms: ['إدخال وترحيل إغلاق فرعه', 'عرض سجل إغلاقات فرعه', 'أرشيف مستندات فرعه فقط']
   },
   regional_manager: {
     ar: 'مدير إقليمي — فروع مُسندة', badge: 'b-amber', scope: 'assigned',
-    tabs: ['dash', 'compare', 'closing', 'reports', 'archive'],
+    tabs: ['dash', 'compare', 'closing', 'apps', 'reports', 'archive'],
     perms: ['متابعة الفروع المسندة إليه فقط', 'مقارنة وتقارير فروعه', 'لوحة مؤشرات لفروعه']
   },
   head_office: {
     ar: 'المكتب الرئيسي — المالية والإدارة', badge: 'b-brass', scope: 'all', approver: true,
-    tabs: ['dash', 'compare', 'closing', 'approve', 'treasury', 'payroll', 'suppliers', 'partners', 'acct', 'shifts', 'archive', 'ai', 'reports', 'audit'],
+    tabs: ['dash', 'compare', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'partners', 'acct', 'shifts', 'archive', 'ai', 'reports', 'audit'],
     perms: ['كل الفروع والتقارير المجمّعة', 'التدقيق والاعتماد النهائي', 'الخزينة والرواتب والموردون', 'المحاسبة والمركز المالي الذكي']
   },
   system_admin: {
@@ -596,7 +596,7 @@ const ROLES = {
   },
   finance_department: {
     ar: 'الإدارة المالية — محاسب رئيسي', badge: 'b-sky', scope: 'assigned', legacy: true,
-    tabs: ['dash', 'compare', 'closing', 'approve', 'treasury', 'payroll', 'suppliers', 'partners', 'acct', 'shifts', 'archive', 'ai', 'reports', 'audit'],
+    tabs: ['dash', 'compare', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'partners', 'acct', 'shifts', 'archive', 'ai', 'reports', 'audit'],
     perms: ['تدقيق ومراجعة الإغلاقات', 'استلام تحويلات الخزينة', 'المحاسبة والتقارير والقوائم المالية']
   }
 };
@@ -621,6 +621,81 @@ const EXP_CATS = [
   { id: 'ec7', n: 'نظافة ومستهلكات', taxable: true },
   { id: 'ec8', n: 'مصاريف نثرية', taxable: true }
 ];
+
+/* ============================================================
+   سجل التطبيقات المركزي — ERP Application Registry (v7.6)
+   كل تطبيق يشير إلى وحدة فعلية موجودة (tab + شاشة فرعية اختيارية).
+   لا صفحات وهمية: عناصر «قريباً» هي خطة التطوير المعلنة فقط،
+   معطّلة صراحةً حتى بنائها. الصلاحيات تُشتق من أدوار النظام نفسها
+   (ROLES.tabs) — لا طبقة صلاحيات موازية قد تتعارض.
+   إضافة تطبيق مستقبلاً = سطر واحد هنا.
+   ============================================================ */
+const REG_CATS = [
+  { id: 'fin', ar: 'المالية والمحاسبة', en: 'Finance & Accounting', icon: Landmark },
+  { id: 'pos', ar: 'الفروع ونقاط البيع', en: 'Branches & POS', icon: Store },
+  { id: 'pur', ar: 'المشتريات والموردون', en: 'Purchasing & Payables', icon: Truck },
+  { id: 'hr', ar: 'الموارد البشرية', en: 'Human Resources', icon: Users },
+  { id: 'tax', ar: 'الزكاة والضريبة', en: 'Zakat & VAT', icon: Receipt },
+  { id: 'inv2', ar: 'المخزون', en: 'Inventory', icon: HardDrive },
+  { id: 'ast', ar: 'الأصول والتسويات', en: 'Assets & Reconciliation', icon: Building2 },
+  { id: 'gov', ar: 'التدقيق والحوكمة', en: 'Audit & Governance', icon: ShieldCheck },
+  { id: 'bi', ar: 'التحليل والذكاء المالي', en: 'Financial Intelligence', icon: Sparkles }
+];
+const REG_APPS = [
+  // ——— المالية والمحاسبة (كلها على المحرك المحاسبي المركزي buildAccounting) ———
+  { id: 'gl', ar: 'القيود اليومية', en: 'General Ledger', cat: 'fin', icon: FileText, open: { tab: 'acct', view: 'jr' }, kw: ['قيد', 'يومية', 'أستاذ', 'محاسبة', 'مدين', 'دائن'], fns: ['قيود تلقائية من كل العمليات', 'قيد يدوي', 'قيد افتتاحي', 'بحث وفلترة', 'فتح المصدر'], d: 'كل عملياتك تتحول لقيود مزدوجة متوازنة تلقائياً — مع القيود اليدوية والافتتاحية.' },
+  { id: 'coa', ar: 'دليل الحسابات', en: 'Chart of Accounts', cat: 'fin', icon: Landmark, open: { tab: 'acct', view: 'coa' }, kw: ['حساب', 'دليل', 'شجرة', 'رصيد'], fns: ['شجرة جاهزة للمطاعم', 'أرصدة حية', 'ربط تلقائي بالفروع والموردين والتطبيقات'], d: 'شجرة الحسابات بأرصدة حية مربوطة بكياناتك — صندوق لكل فرع وذمّة لكل تطبيق.' },
+  { id: 'tb', ar: 'ميزان المراجعة', en: 'Trial Balance', cat: 'fin', icon: Scale, open: { tab: 'acct', view: 'tb' }, kw: ['ميزان', 'مراجعة', 'توازن'], fns: ['فلتر فترة', 'فلتر فرع/مركزي', 'توازن مضمون'], d: 'مدين = دائن دائماً — بأي فترة وأي فرع.' },
+  { id: 'fs', ar: 'القوائم المالية', en: 'Financial Statements', cat: 'fin', icon: FileBarChart, open: { tab: 'acct', view: 'fs' }, kw: ['قائمة', 'دخل', 'ميزانية', 'مركز مالي', 'أرباح', 'خسارة'], fns: ['قائمة الدخل بالفترة', 'المركز المالي', 'أرباح متراكمة تلقائية', 'فحص تطابق'], d: 'قائمة الدخل والمركز المالي من قيودك مباشرة، بفحص تطابق دائم.' },
+  { id: 'treasury', ar: 'الخزينة والبنوك', en: 'Treasury & Cash', cat: 'fin', icon: Banknote, open: { tab: 'treasury' }, kw: ['خزينة', 'تحويل', 'صرف', 'نقدية', 'سند', 'توريد'], fns: ['استلام تحويلات الفروع', 'أوامر الصرف', 'دفتر الخزينة'], d: 'استلام توريدات الفروع وأوامر الصرف — رصيدها يطابق حسابها المحاسبي.' },
+  { id: 'reports', ar: 'التقارير المالية', en: 'Financial Reports', cat: 'fin', icon: FileBarChart, open: { tab: 'reports' }, kw: ['تقرير', 'طباعة', 'تصدير', 'فاتورة', 'يومي', 'شهري'], fns: ['تقارير يومية وشهرية', 'طباعة واعتماد', 'تصدير'], d: 'تقارير الفروع والفترات جاهزة للطباعة والاعتماد.' },
+  // ——— الفروع ونقاط البيع ———
+  { id: 'closing', ar: 'الإغلاق اليومي للورديات', en: 'Daily Shift Closing (POS)', cat: 'pos', icon: ClipboardCheck, open: { tab: 'closing' }, kw: ['وردية', 'إغلاق', 'نقدية', 'مبيعات', 'جرد', 'فرق', 'عجز', 'فاتورة'], fns: ['فتح وإغلاق الوردية', 'جرد الفئات النقدية', 'المصروفات والسدادات', 'توثيق بالصور', 'طباعة'], d: 'قلب التشغيل: إغلاق ورديات الفروع بالجرد والتوثيق — ويولّد قيوده محاسبياً.' },
+  { id: 'approve', ar: 'التدقيق والاعتماد', en: 'Review & Approvals', cat: 'pos', icon: ShieldCheck, open: { tab: 'approve' }, kw: ['اعتماد', 'تدقيق', 'مطابقة', 'مراجعة'], fns: ['مراجعة الإغلاقات', 'اعتماد أو إرجاع', 'ملاحظات'], d: 'مراجعة إغلاقات الفروع واعتمادها النهائي من المركز.' },
+  { id: 'dash', ar: 'لوحة المؤشرات', en: 'Dashboard', cat: 'pos', icon: LayoutDashboard, open: { tab: 'dash' }, kw: ['مؤشر', 'لوحة', 'إيراد', 'ملخص'], fns: ['مؤشرات حية', 'حركة الإيرادات', 'قنوات التحصيل', 'تنبيهات ذكية'], d: 'صورة اليوم كاملة: إيرادات، مصروفات، فروقات، وتنبيهات.' },
+  { id: 'compare', ar: 'مقارنة الفروع والرقابة', en: 'Branch Compare', cat: 'pos', icon: BarChart3, open: { tab: 'compare' }, kw: ['مقارنة', 'أداء', 'رقابة', 'فرع'], fns: ['مقارنة الإيرادات', 'الالتزام بالإغلاق', 'الفروقات'], d: 'أداء الفروع جنباً إلى جنب — من يبيع ومن يلتزم.' },
+  { id: 'shifts', ar: 'الورديات والتذكيرات', en: 'Shifts & Reminders', cat: 'pos', icon: Clock, open: { tab: 'shifts' }, kw: ['وردية', 'تذكير', 'موعد'], fns: ['جدول الورديات', 'تذكيرات الإغلاق'], d: 'مواعيد الورديات وتذكيرات ما قبل الإغلاق.' },
+  { id: 'brmgmt', ar: 'الفروع والمستخدمون', en: 'Branches & Users', cat: 'pos', icon: UserCog, open: { tab: 'admin' }, kw: ['فرع', 'مستخدم', 'صلاحية', 'شعار', 'تصنيف', 'تطبيق توصيل'], fns: ['إدارة الفروع', 'المستخدمون والأدوار', 'تصنيفات المصروفات', 'تطبيقات التوصيل وعمولاتها', 'النظام'], d: 'إدارة الفروع والمستخدمين والصلاحيات وإعدادات النظام.' },
+  // ——— المشتريات والموردون ———
+  { id: 'suppliers', ar: 'الموردون والالتزامات', en: 'Suppliers & Payables', cat: 'pur', icon: Truck, open: { tab: 'suppliers' }, kw: ['مورد', 'فاتورة', 'سداد', 'التزام', 'أعمار', 'استحقاق', 'إيجار'], fns: ['فواتير التوريد الآجلة', 'السداد المركزي', 'الإيجارات والفواتير الثابتة', 'سجل الموردين'], d: 'فواتير الموردين وسداداتها والتزامات الفروع الثابتة.' },
+  { id: 'partners', ar: 'دفتر الشركاء', en: 'Partners Ledger', cat: 'pur', icon: Users, open: { tab: 'partners' }, kw: ['عميل', 'مورد', 'موظف', 'كشف حساب', 'ذمم', 'مدين', 'دائن', 'فاتورة'], fns: ['كشف حساب لكل شريك', 'ترقيم تلقائي', 'طلبات إضافة باعتماد', 'حركات يدوية'], d: 'عملاء وموردون وموظفون — مدين ودائن وكشف حساب لكل شريك.' },
+  { id: 'po', ar: 'أوامر الشراء', en: 'Purchase Orders', cat: 'pur', icon: ClipboardCheck, soon: 'م٤', kw: ['أمر شراء', 'طلب', 'استلام'], fns: [], d: 'أمر شراء ← استلام ← فاتورة ← سداد — ضمن مرحلة المشتريات والمخزون.' },
+  // ——— الموارد البشرية ———
+  { id: 'payroll', ar: 'الرواتب والسلف', en: 'Payroll & Advances', cat: 'hr', icon: Wallet, open: { tab: 'payroll' }, kw: ['راتب', 'سلفة', 'خصم', 'استحقاق', 'صرف', 'موظف', 'قسيمة'], fns: ['كشف رواتب شهري', 'سلف وخصومات', 'ترحيل الاستحقاق والصرف للدفتر', 'قسائم رواتب'], d: 'كشف الرواتب والسلف والخصومات — مرحّلة محاسبياً باستحقاقها وصرفها.' },
+  // ——— الزكاة والضريبة (خطة م٣) ———
+  { id: 'vat', ar: 'ضريبة القيمة المضافة', en: 'VAT', cat: 'tax', icon: Receipt, soon: 'م٣', kw: ['ضريبة', 'زاتكا', 'مدخلات', 'مخرجات', 'فاتورة'], fns: [], d: 'فصل ضريبة المخرجات والمدخلات في كل قيد — مرحلة الضريبة القادمة.' },
+  { id: 'vatret', ar: 'الإقرار الضريبي', en: 'VAT Return', cat: 'tax', icon: FileText, soon: 'م٣', kw: ['إقرار', 'ضريبة', 'ربع', 'زاتكا'], fns: [], d: 'مسودة إقرار ربع سنوي جاهزة من قيودك — ضمن مرحلة الضريبة.' },
+  // ——— المخزون (خطة م٤) ———
+  { id: 'products', ar: 'المنتجات والوصفات', en: 'Products & Recipes', cat: 'inv2', icon: Store, soon: 'م٤', kw: ['منتج', 'وصفة', 'تكلفة', 'صنف', 'مخزون'], fns: [], d: 'وصفة وتكلفة لكل منتج وخصم مخزون تلقائي مع البيع.' },
+  { id: 'stock', ar: 'المستودعات والجرد', en: 'Warehouses & Stocktake', cat: 'inv2', icon: HardDrive, soon: 'م٤', kw: ['مستودع', 'جرد', 'حركة', 'تحويل', 'مخزون'], fns: [], d: 'أرصدة المخزون وحركاته وجرده الدوري.' },
+  // ——— الأصول والتسويات (خطة م٥) ———
+  { id: 'assets', ar: 'الأصول الثابتة والإهلاك', en: 'Fixed Assets', cat: 'ast', icon: Building2, soon: 'م٥', kw: ['أصل', 'إهلاك', 'معدات'], fns: [], d: 'سجل الأصول وقيود الإهلاك التلقائية.' },
+  { id: 'bankrec', ar: 'التسوية البنكية', en: 'Bank Reconciliation', cat: 'ast', icon: Landmark, soon: 'م٥', kw: ['بنك', 'تسوية', 'كشف', 'مطابقة', 'شبكة'], fns: [], d: 'مطابقة الحساب البنكي التجميعي مع كشوف البنك الفعلية.' },
+  // ——— التدقيق والحوكمة ———
+  { id: 'audit', ar: 'سجل التدقيق', en: 'Audit Trail', cat: 'gov', icon: Eye, open: { tab: 'audit' }, kw: ['تدقيق', 'سجل', 'عملية', 'حوكمة', 'من فعل'], fns: ['كل عملية باسم صاحبها ووقتها', 'تنبيهات حية لمدير النظام'], d: 'من فعل ماذا ومتى — سجل كامل لا يُمحى لكل حركة في النظام.' },
+  { id: 'archive', ar: 'أرشيف المستندات', en: 'Documents Archive', cat: 'gov', icon: ImageIcon, open: { tab: 'archive' }, kw: ['مستند', 'صورة', 'أرشيف', 'وثيقة', 'إيصال'], fns: ['صور الإغلاقات والإيصالات', 'تصفح بالفرع والتاريخ'], d: 'كل صور التوثيق والإيصالات مؤرشفة بالفرع والتاريخ.' },
+  // ——— التحليل والذكاء المالي ———
+  { id: 'ai', ar: 'المركز المالي الذكي', en: 'Financial Intelligence', cat: 'bi', icon: Sparkles, open: { tab: 'ai' }, kw: ['تحليل', 'ذكاء', 'توقع', 'انحراف', 'نسبة', 'اتجاه'], fns: ['مؤشرات وتحليلات', 'كشف الانحرافات', 'توصيات'], d: 'قراءة ذكية لأرقامك: اتجاهات وانحرافات وتوصيات.' }
+];
+const REG_IX = {}; REG_APPS.forEach(a => { REG_IX[a.id] = a; });
+// تفضيلات الاستخدام لكل مستخدم (مفضلة + آخر استخدام) — محلية على الجهاز
+const appUseGet = (uid) => { try { return JSON.parse(localStorage.getItem('rms8:appuse:' + uid) || '{}') || {}; } catch { return {}; } };
+const appUseSet = (uid, v) => { try { localStorage.setItem('rms8:appuse:' + uid, JSON.stringify(v)); } catch { } };
+const appCanSee = (role, a) => {
+  const R = ROLES[role] || {};
+  if (a.soon) return R.scope === 'all';                    // خارطة الطريق تظهر لأدوار المركز فقط
+  return (R.tabs || []).includes(a.open.tab);              // نفس صلاحيات النظام حرفياً — لا طبقة موازية
+};
+const appOpenNow = (a, me, setTab, openAcctView) => {
+  if (a.soon) return false;
+  const u = appUseGet(me.id); const r = (u.rec = u.rec || {});
+  r[a.id] = { at: Date.now(), count: ((r[a.id] || {}).count || 0) + 1 };
+  appUseSet(me.id, u);
+  if (a.open.view && openAcctView) openAcctView(a.open.view);
+  setTab(a.open.tab);
+  return true;
+};
+
 
 
 /* ============================================================
@@ -663,6 +738,8 @@ export default function App() {
   const [pulse, setPulse] = useState({ presence: {}, audit: [] });
   const [me, setMe] = useState(null);
   const [tab, setTab] = useState('dash');
+  const [acctIntent, setAcctIntent] = useState(null);          // فتح المحاسبة على شاشة محددة من مركز التطبيقات
+  const openAcctView = useCallback((v) => setAcctIntent({ v, ts: Date.now() }), []);
   const [drawer, setDrawer] = useState(false);
   const [moreSheet, setMoreSheet] = useState(false);
   const touchRef = useRef({ x0: 0, y0: 0, active: false, mode: null });
@@ -1005,6 +1082,7 @@ export default function App() {
     { id: 'dash', ar: 'لوحة المؤشرات', icon: LayoutDashboard },
     { id: 'compare', ar: 'مقارنة الفروع', icon: BarChart3 },
     { id: 'closing', ar: 'الإغلاق اليومي', icon: ClipboardCheck },
+    { id: 'apps', ar: 'التطبيقات', icon: Grid3x3 },
     { id: 'approve', ar: 'التدقيق والاعتماد', icon: ShieldCheck, cnt: pending },
     { id: 'treasury', ar: 'الخزينة والترحيل', icon: Landmark },
     { id: 'payroll', ar: 'الرواتب والسلف', icon: Wallet },
@@ -1019,7 +1097,7 @@ export default function App() {
     { id: 'audit', ar: 'سجل التدقيق', icon: Eye }
   ].filter(n => (ROLES[me.role]?.tabs || []).includes(n.id));
 
-  const shared = { org, ops, pulse, me, myBranches, scoped, commit, commitOrg, say, setTab, theme };
+  const shared = { org, ops, pulse, me, myBranches, scoped, commit, commitOrg, say, setTab, theme, acctIntent, openAcctView };
 
   // حماية: منع الوصول لتبويب غير مسموح لدور المستخدم (بلا hook — بعد returns الشرطية)
   const allowedTabs = NAV.map(n => n.id);
@@ -1104,7 +1182,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v7.5 📒</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v7.6 🧩</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -1174,6 +1252,7 @@ export default function App() {
               {safeTab === 'dash' && <Dashboard {...shared} online={online} />}
               {safeTab === 'compare' && <BranchCompare {...shared} />}
               {safeTab === 'closing' && <Closing {...shared} />}
+              {safeTab === 'apps' && <AppsCenter {...shared} />}
               {safeTab === 'approve' && <Approvals {...shared} />}
               {safeTab === 'treasury' && <Treasury {...shared} />}
               {safeTab === 'payroll' && <Payroll {...shared} />}
@@ -2247,7 +2326,7 @@ function BranchCompare({ org, ops, me, myBranches, scoped, theme, setTab }) {
   );
 }
 
-function Dashboard({ org, ops, pulse, me, myBranches, scoped, online, setTab, theme }) {
+function Dashboard({ org, ops, pulse, me, myBranches, scoped, online, setTab, theme, openAcctView }) {
   const [days, setDays] = useState(14);
   const [dayReport, setDayReport] = useState(false);
   const tn = chartTone(theme);
@@ -2332,6 +2411,7 @@ function Dashboard({ org, ops, pulse, me, myBranches, scoped, online, setTab, th
 
   return (
     <div className="grid" style={{ gap: 14 }}>
+      <AppsStrip me={me} setTab={setTab} openAcctView={openAcctView} />
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <div>
           <h2 style={{ fontSize: 17 }}>مرحباً {me.name.split(' ')[0]} 👋</h2>
@@ -5262,8 +5342,210 @@ function BalCell({ bal }) {
     <span style={{ fontSize: 10, color: 'var(--faint)', marginInlineStart: 5 }}>{cr ? 'دائن · علينا' : 'مدين · لنا'}</span></span>;
 }
 
+/* ================= مركز تطبيقات ERP — بوابة وحدات النظام (v7.6) ================= */
+function AppsStrip({ me, setTab, openAcctView }) {
+  // شريط ERP Home: المفضلة وآخر المستخدَم — يظهر أعلى لوحة المؤشرات
+  const u = appUseGet(me.id);
+  const can = (a) => a && appCanSee(me.role, a) && !a.soon;
+  const favs = (u.fav || []).map(id => REG_IX[id]).filter(can).slice(0, 5);
+  const recs = Object.entries(u.rec || {}).sort((a, b) => (b[1].at || 0) - (a[1].at || 0))
+    .map(([id]) => REG_IX[id]).filter(can).filter(a => !favs.includes(a)).slice(0, 3);
+  return (
+    <div className="appstrip">
+      {favs.map(a => (
+        <button key={a.id} className="appchip" onClick={() => appOpenNow(a, me, setTab, openAcctView)}>
+          <span className="st">⭐</span>{a.ar}
+        </button>
+      ))}
+      {recs.map(a => (
+        <button key={a.id} className="appchip" onClick={() => appOpenNow(a, me, setTab, openAcctView)}>
+          <Clock size={11} />{a.ar}
+        </button>
+      ))}
+      <button className="appchip" style={{ borderColor: 'var(--frame)', color: 'var(--brass-l)' }} onClick={() => setTab('apps')}>
+        <Grid3x3 size={12} />فتح التطبيقات
+      </button>
+    </div>
+  );
+}
+
+function AppsCenter({ org, me, commitOrg, say, setTab, openAcctView }) {
+  const [q, setQ] = useState('');
+  const [mode, setMode] = useState('all');          // all | fav | rec
+  const [manage, setManage] = useState(false);
+  const [bump, setBump] = useState(0);              // لإعادة الرسم بعد تعديل المفضلة
+  const canAdmin = !!ROLES[me.role]?.admin;
+  const cfg = org.appsCfg || {};
+  const hidden = cfg.hidden || [];
+  const ordOf = (a) => (cfg.order && cfg.order[a.id] != null) ? cfg.order[a.id] : REG_APPS.indexOf(REG_IX[a.id]);
+  const u = appUseGet(me.id);
+  const isFav = (id) => (u.fav || []).includes(id);
+  const toggleFav = (id) => {
+    const v = appUseGet(me.id); v.fav = v.fav || [];
+    v.fav = v.fav.includes(id) ? v.fav.filter(x => x !== id) : [...v.fav, id];
+    appUseSet(me.id, v); setBump(b => b + 1);
+  };
+  const lastUsed = (id) => {
+    const r = (u.rec || {})[id]; if (!r) return null;
+    const d = Math.round((Date.now() - r.at) / 864e5);
+    return d <= 0 ? 'اليوم' : d === 1 ? 'أمس' : 'قبل ' + d + ' يوم';
+  };
+
+  // الرؤية: صلاحيات الأدوار الحالية نفسها + إخفاءات المشرف
+  const mine = REG_APPS.filter(a => appCanSee(me.role, a) && (manage || !hidden.includes(a.id)));
+  const qq = q.trim();
+  const match = (a) => !qq || (a.ar + ' ' + a.en + ' ' + a.d + ' ' + (a.kw || []).join(' ')).includes(qq);
+  const inMode = (a) => mode === 'fav' ? isFav(a.id) : mode === 'rec' ? !!(u.rec || {})[a.id] : true;
+  const shown = mine.filter(match).filter(inMode).sort((a, b) => ordOf(a) - ordOf(b));
+  const activeCount = mine.filter(a => !a.soon).length;
+  const favApps = mine.filter(a => isFav(a.id) && !a.soon);
+  const recApps = Object.entries(u.rec || {}).sort((a, b) => (b[1].at || 0) - (a[1].at || 0))
+    .map(([id]) => REG_IX[id]).filter(a => a && mine.includes(a)).slice(0, 6);
+
+  const saveCfg = async (next, title, details) => {
+    await commitOrg(d => ({ ...d, appsCfg: next }), {
+      actionType: 'update', targetType: 'apps_center', targetId: 'appsCfg', title, details
+    });
+  };
+  const toggleHidden = (id) => {
+    const h = hidden.includes(id) ? hidden.filter(x => x !== id) : [...hidden, id];
+    saveCfg({ ...cfg, hidden: h }, hidden.includes(id) ? 'أظهر تطبيقاً في مركز التطبيقات' : 'أخفى تطبيقاً من مركز التطبيقات', REG_IX[id]?.ar || id);
+  };
+  const move = (id, dir) => {
+    const list = REG_APPS.filter(x => x.cat === REG_IX[id].cat).sort((a, b) => ordOf(a) - ordOf(b));
+    const i = list.findIndex(x => x.id === id); const j = i + dir;
+    if (j < 0 || j >= list.length) return;
+    const order = { ...(cfg.order || {}) };
+    list.forEach((x, k) => { order[x.id] = REG_APPS.indexOf(REG_IX[x.id]); });
+    const tmp = order[list[i].id]; order[list[i].id] = order[list[j].id]; order[list[j].id] = tmp;
+    saveCfg({ ...cfg, order }, 'أعاد ترتيب تطبيقات المركز', REG_IX[id]?.ar || id);
+  };
+
+  const Card = ({ a }) => {
+    const used = lastUsed(a.id);
+    return (
+      <div className={'appc' + (a.soon ? ' soon' : '')}>
+        {!a.soon && (
+          <button className={'appc-star' + (isFav(a.id) ? ' on' : '')} title={isFav(a.id) ? 'إزالة من المفضلة' : 'إضافة للمفضلة'}
+            onClick={() => toggleFav(a.id)}>{isFav(a.id) ? '★' : '☆'}</button>
+        )}
+        <div className="appc-top">
+          <div className="appc-ic"><a.icon size={19} /></div>
+          <div style={{ minWidth: 0 }}>
+            <div className="appc-n">{a.ar}</div>
+            <div className="appc-e">{a.en}</div>
+          </div>
+        </div>
+        <div className="appc-d">{a.d}</div>
+        <div className="appc-f">
+          {a.soon
+            ? <span className="badge b-amber">قريباً · المرحلة {a.soon}</span>
+            : <span className="badge b-mint">نشط</span>}
+          {!a.soon && a.fns?.length > 0 && <span className="badge b-dim">{a.fns.length} وظائف</span>}
+          {used && <span className="badge b-dim" style={{ opacity: .8 }}>آخر استخدام: {used}</span>}
+        </div>
+        {a.soon
+          ? <button className="btn sm gh" disabled style={{ justifyContent: 'center' }}>ضمن خطة التطوير</button>
+          : <button className="btn sm pri" style={{ justifyContent: 'center' }} onClick={() => appOpenNow(a, me, setTab, openAcctView)}>فتح التطبيق</button>}
+      </div>
+    );
+  };
+
+  return (
+    <div className="grid" style={{ gap: 14 }}>
+      {/* الرأس: بحث ذكي + مرشحات + إدارة + هوية المستخدم */}
+      <div className="card" style={{ paddingBottom: 12 }}>
+        <div className="apps-hd">
+          <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 200 }}>
+            <Search size={14} style={{ position: 'absolute', insetInlineStart: 11, top: 12, color: 'var(--faint)' }} />
+            <input className="inp" style={{ paddingInlineStart: 32 }} placeholder="ابحث عن تطبيق أو وظيفة… (جرّب: فاتورة، ضريبة، راتب)"
+              value={q} onChange={e => setQ(e.target.value)} />
+          </div>
+          <button className={'btn sm' + (mode === 'all' ? ' pri' : ' gh')} onClick={() => setMode('all')}>الكل</button>
+          <button className={'btn sm' + (mode === 'fav' ? ' pri' : ' gh')} onClick={() => setMode('fav')}>⭐ المفضلة</button>
+          <button className={'btn sm' + (mode === 'rec' ? ' pri' : ' gh')} onClick={() => setMode('rec')}><Clock size={13} />الأخيرة</button>
+          {canAdmin && <button className={'btn sm' + (manage ? ' pri' : '')} onClick={() => setManage(m => !m)}><Settings size={13} />إدارة التطبيقات</button>}
+          <span className="badge b-brass" style={{ marginInlineStart: 'auto' }}>{me.name} · {ROLES[me.role]?.ar?.split(' — ')[0] || me.role}</span>
+        </div>
+        <div className="row" style={{ gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+          <span className="badge b-mint">{activeCount} تطبيقاً نشطاً لدورك</span>
+          <span className="badge b-amber">{mine.filter(a => a.soon).length} ضمن خطة التطوير</span>
+          <span className="badge b-sky">محرك محاسبي مركزي واحد — كل التطبيقات تُقيّد فيه</span>
+        </div>
+        {manage && (
+          <div className="note" style={{ marginTop: 10 }}>
+            وضع الإدارة: أخفِ أو أظهر أو رتّب التطبيقات — الإخفاء هنا لا يعطّل الشاشة نفسها من القائمة الجانبية ولا يمس أي صلاحية.
+          </div>
+        )}
+      </div>
+
+      {/* المفضلة والأخيرة أعلى المركز */}
+      {mode === 'all' && !qq && (favApps.length > 0 || recApps.length > 0) && (
+        <div className="card" style={{ padding: 12 }}>
+          {favApps.length > 0 && (
+            <div className="appstrip" style={{ marginBottom: recApps.length ? 8 : 0 }}>
+              <span style={{ fontSize: 11, color: 'var(--faint)' }}>⭐ المفضلة:</span>
+              {favApps.map(a => <button key={a.id} className="appchip" onClick={() => appOpenNow(a, me, setTab, openAcctView)}><span className="st">★</span>{a.ar}</button>)}
+            </div>
+          )}
+          {recApps.length > 0 && (
+            <div className="appstrip">
+              <span style={{ fontSize: 11, color: 'var(--faint)' }}>الأخيرة:</span>
+              {recApps.map(a => <button key={a.id} className="appchip" onClick={() => appOpenNow(a, me, setTab, openAcctView)}><Clock size={11} />{a.ar}{(u.rec || {})[a.id]?.count > 1 && <span style={{ fontSize: 9, color: 'var(--faint)' }}>×{(u.rec || {})[a.id].count}</span>}</button>)}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* الشبكة بالتصنيفات */}
+      {REG_CATS.map(c => {
+        const list = shown.filter(a => a.cat === c.id);
+        if (!list.length) return null;
+        return (
+          <div key={c.id}>
+            <div className="appcat">
+              <c.icon size={17} color="var(--brass)" />
+              <span className="t">{c.ar}</span>
+              <span className="c">{c.en} · {list.filter(a => !a.soon).length} نشط{list.some(a => a.soon) ? ' + ' + list.filter(a => a.soon).length + ' قادم' : ''}</span>
+            </div>
+            <div className="appgrid">
+              {list.map(a => manage ? (
+                <div key={a.id} className={'appc' + (hidden.includes(a.id) ? ' soon' : '')}>
+                  <div className="appc-top">
+                    <div className="appc-ic"><a.icon size={19} /></div>
+                    <div><div className="appc-n">{a.ar}</div><div className="appc-e">{a.en}</div></div>
+                  </div>
+                  <div className="appc-f" style={{ marginTop: 'auto' }}>
+                    <button className={'btn sm ' + (hidden.includes(a.id) ? 'ok' : 'gh')} onClick={() => toggleHidden(a.id)}>
+                      {hidden.includes(a.id) ? 'إظهار' : 'إخفاء'}</button>
+                    <button className="btn sm gh" onClick={() => move(a.id, -1)}>▲</button>
+                    <button className="btn sm gh" onClick={() => move(a.id, 1)}>▼</button>
+                    {hidden.includes(a.id) && <span className="badge b-rose">مخفي</span>}
+                  </div>
+                </div>
+              ) : <Card key={a.id} a={a} />)}
+            </div>
+          </div>
+        );
+      })}
+      {shown.length === 0 && (
+        <div className="card"><div className="empty">لا نتائج لبحثك — جرّب كلمة أخرى مثل «فاتورة» أو «قيد» أو «راتب».</div></div>
+      )}
+
+      <div className="card" style={{ background: 'rgba(200,162,74,.04)', borderStyle: 'dashed' }}>
+        <div style={{ fontSize: 11.5, color: 'var(--dim)', lineHeight: 1.9 }}>
+          <b style={{ color: 'var(--brass-l)' }}>معمارية المركز:</b> كل بطاقة تفتح وحدة فعلية تعمل الآن — لا صفحات وهمية.
+          التطبيقات كلها تتشارك نفس المستخدمين والفروع ودليل الحسابات والشركاء (طبقة تكامل واحدة)،
+          وكل عملية مالية فيها تصب تلقائيًا في المحرك المحاسبي المركزي: عملية ← قيد ← أستاذ ← ميزان ← قوائم.
+          بطاقات «قريباً» هي خطة التطوير المعتمدة (م٣ الضريبة، م٤ المشتريات والمخزون، م٥ الأصول والتسوية) وتظهر لأدوار المركز فقط.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ================= شاشة المحاسبة — م١+م٢: دليل، قيود، ميزان، قوائم ================= */
-function Accounting({ org, ops, me, commit, say }) {
+function Accounting({ org, ops, me, commit, say, setTab, acctIntent }) {
   const [view, setView] = useState('jr');           // jr قيود · coa دليل · tb ميزان · fs قوائم
   const [open, setOpen] = useState({});             // القيود المفتوحة التفاصيل
   const [q, setQ] = useState('');
@@ -5272,6 +5554,9 @@ function Accounting({ org, ops, me, commit, say }) {
   const [to, setTo] = useState('');
   const [bf, setBf] = useState('');                 // فلتر الفرع: '' الكل · central مركزي · bId
   const [jm, setJm] = useState(null);               // نموذج القيد اليدوي
+
+  // فتح شاشة محددة قادمة من مركز التطبيقات (دليل/ميزان/قوائم…)
+  useEffect(() => { if (acctIntent && acctIntent.v) setView(acctIntent.v); }, [acctIntent && acctIntent.ts]);
 
   const A = useMemo(() => buildAccounting(org, ops), [org, ops]);
   const canPost = ROLES[me?.role]?.scope === 'all';
@@ -5434,7 +5719,12 @@ function Accounting({ org, ops, me, commit, say }) {
                           <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 6 }}>
                             {e.manual
                               ? <>قيد {e.src === 'قيد افتتاحي' ? 'افتتاحي' : 'يدوي'} أدخله: {e.ref || '—'} — التصحيح يكون بقيد عكسي، لا حذف حفاظًا على سلامة السجل.</>
-                              : <>المصدر: {e.src} · المرجع: <span className="num">{e.ref}</span> — لم يُدخل هذا القيد يدويًا؛ تصحيح المصدر ينعكس هنا تلقائيًا.</>}
+                              : <>المصدر: {e.src} · المرجع: <span className="num">{e.ref}</span> — لم يُدخل هذا القيد يدويًا؛ تصحيح المصدر ينعكس هنا تلقائيًا.
+                                {(() => { const SRC_TAB = { 'إغلاق وردية': 'closing', 'مصروف وردية': 'closing', 'سداد مورد بالوردية': 'closing', 'تحويل خزينة': 'treasury', 'الخزينة الرئيسية': 'treasury', 'فاتورة مورد': 'suppliers', 'سداد مركزي': 'suppliers', 'كشف الرواتب': 'payroll', 'الرواتب والسلف': 'payroll' };
+                                  const t = SRC_TAB[e.src];
+                                  return t && setTab && (ROLES[me?.role]?.tabs || []).includes(t)
+                                    ? <button className="btn sm gh" style={{ marginInlineStart: 8, padding: '3px 9px', fontSize: 10.5 }} onClick={() => setTab(t)}>↗ فتح المصدر</button>
+                                    : null; })()}</>}
                           </div>
                         </div>
                       </td></tr>
