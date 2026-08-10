@@ -352,7 +352,7 @@ function buildAccounting(org, ops) {
     cashCode[b.id] = code;
     addAcc(code, 'صندوق ' + (b.name || 'فرع'), 'asset', { link: 'خزينة الفرع' });
   });
-  addAcc('1201', 'البنك — الشبكة والمدفوعات البنكية (تجميعي)', 'asset', { link: 'تسويته في مرحلة التسوية البنكية' });
+  addAcc('1201', 'البنك — الشبكة والمدفوعات البنكية (تجميعي)', 'asset', { link: 'يُطابَق من شاشة التسوية البنكية' });
   // ذمم مبوّبة: حساب مستقل لكل تطبيق توصيل — يُدمج بعمولته المعرّفة في الإعدادات
   const appAcc = {};
   (org.deliveryApps || []).forEach((a, i) => {
@@ -626,6 +626,13 @@ const emptyDenoms = () => DENOMS.reduce((o, d) => ({ ...o, [d.k]: 0 }), {});
 const countDenoms = (d) => DENOMS.reduce((s, x) => s + (Number(d?.[x.k]) || 0) * x.v, 0);
 
 const ALL_TABS = ['dash', 'compare', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'archive', 'ai', 'reports', 'admin', 'audit'];
+const TAB_AR = {
+  dash: 'لوحة المؤشرات', compare: 'مقارنة الفروع', closing: 'الإغلاق اليومي', apps: 'التطبيقات',
+  approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', payroll: 'الرواتب والسلف',
+  suppliers: 'الموردون والمشتريات', inv: 'المخزون والمنتجات', partners: 'دفتر الشركاء',
+  acct: 'المحاسبة', shifts: 'الورديات', archive: 'أرشيف المستندات', ai: 'المركز الذكي',
+  reports: 'التقارير المالية', admin: 'الفروع والمستخدمون', audit: 'سجل التدقيق'
+};
 const ROLES = {
   // ===== الأدوار الخمسة المعتمدة =====
   cashier: {
@@ -641,12 +648,12 @@ const ROLES = {
   regional_manager: {
     ar: 'مدير إقليمي — فروع مُسندة', badge: 'b-amber', scope: 'assigned',
     tabs: ['dash', 'compare', 'closing', 'apps', 'reports', 'archive'],
-    perms: ['متابعة الفروع المسندة إليه فقط', 'مقارنة وتقارير فروعه', 'لوحة مؤشرات لفروعه']
+    perms: ['متابعة الفروع المسندة إليه فقط', 'مقارنة وتقارير فروعه ولوحة مؤشراتها', 'بلا وصول للمحاسبة والخزينة والإعدادات']
   },
   head_office: {
     ar: 'المكتب الرئيسي — المالية والإدارة', badge: 'b-brass', scope: 'all', approver: true,
     tabs: ['dash', 'compare', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'archive', 'ai', 'reports', 'audit'],
-    perms: ['كل الفروع والتقارير المجمّعة', 'التدقيق والاعتماد النهائي', 'الخزينة والرواتب والموردون', 'المحاسبة والمركز المالي الذكي']
+    perms: ['كل الفروع والتقارير المجمّعة', 'التدقيق والاعتماد النهائي', 'الخزينة والرواتب والموردون والمشتريات والمخزون', 'المحاسبة الكاملة: قيود وميزان وقوائم وضريبة وأصول ومراكز تكلفة']
   },
   system_admin: {
     ar: 'مسؤول النظام — وصول كامل', badge: 'b-rose', scope: 'all', create: true, admin: true, approver: true,
@@ -660,9 +667,11 @@ const ROLES = {
     perms: ['كل الشاشات وكل الفروع', 'الاعتماد والإلغاء', 'إدارة المستخدمين والفروع']
   },
   finance_department: {
-    ar: 'الإدارة المالية — محاسب رئيسي', badge: 'b-sky', scope: 'assigned', legacy: true,
+    // إعادة ترتيب v8.0: المحاسب الرئيسي بطبيعته يعمل على المنشأة كلها — نطاق كامل
+    // بلا صلاحيات إدارة (لا مستخدمين/فروع، لا تفعيل ضريبة، لا إدارة تطبيقات)
+    ar: 'الإدارة المالية — محاسب رئيسي', badge: 'b-sky', scope: 'all', legacy: true,
     tabs: ['dash', 'compare', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'archive', 'ai', 'reports', 'audit'],
-    perms: ['تدقيق ومراجعة الإغلاقات', 'استلام تحويلات الخزينة', 'المحاسبة والتقارير والقوائم المالية']
+    perms: ['المحاسبة كاملة: قيود يدوية وافتتاحية وميزان وقوائم ومراكز تكلفة', 'الضريبة والأصول والتسوية البنكية (عرض وتسجيل — التفعيل للإدارة)', 'المشتريات والمخزون والرواتب والخزينة', 'كل الفروع — دون إدارة المستخدمين والإعدادات']
   }
 };
 
@@ -712,6 +721,7 @@ const REG_APPS = [
   { id: 'coa', ar: 'دليل الحسابات', en: 'Chart of Accounts', cat: 'fin', icon: Landmark, open: { tab: 'acct', view: 'coa' }, kw: ['حساب', 'دليل', 'شجرة', 'رصيد'], fns: ['شجرة جاهزة للمطاعم', 'أرصدة حية', 'ربط تلقائي بالفروع والموردين والتطبيقات'], d: 'شجرة الحسابات بأرصدة حية مربوطة بكياناتك — صندوق لكل فرع وذمّة لكل تطبيق.' },
   { id: 'tb', ar: 'ميزان المراجعة', en: 'Trial Balance', cat: 'fin', icon: Scale, open: { tab: 'acct', view: 'tb' }, kw: ['ميزان', 'مراجعة', 'توازن'], fns: ['فلتر فترة', 'فلتر فرع/مركزي', 'توازن مضمون'], d: 'مدين = دائن دائماً — بأي فترة وأي فرع.' },
   { id: 'fs', ar: 'القوائم المالية', en: 'Financial Statements', cat: 'fin', icon: FileBarChart, open: { tab: 'acct', view: 'fs' }, kw: ['قائمة', 'دخل', 'ميزانية', 'مركز مالي', 'أرباح', 'خسارة'], fns: ['قائمة الدخل بالفترة', 'المركز المالي', 'أرباح متراكمة تلقائية', 'فحص تطابق'], d: 'قائمة الدخل والمركز المالي من قيودك مباشرة، بفحص تطابق دائم.' },
+  { id: 'cc', ar: 'مراكز التكلفة والربحية', en: 'Cost Centers', cat: 'fin', icon: BarChart3, open: { tab: 'acct', view: 'cc' }, kw: ['مركز تكلفة', 'ربحية', 'فرع', 'صافي', 'توزيع'], fns: ['عمود لكل فرع + المركز الرئيسي', 'أرقام مباشرة من القيود الموسومة', 'صافي ربحية كل مركز'], d: 'ربحية كل فرع كمركز تكلفة مستقل — إيرادات ومصروفات وصافٍ من قيودك مباشرة.' },
   { id: 'treasury', ar: 'الخزينة والبنوك', en: 'Treasury & Cash', cat: 'fin', icon: Banknote, open: { tab: 'treasury' }, kw: ['خزينة', 'تحويل', 'صرف', 'نقدية', 'سند', 'توريد'], fns: ['استلام تحويلات الفروع', 'أوامر الصرف', 'دفتر الخزينة'], d: 'استلام توريدات الفروع وأوامر الصرف — رصيدها يطابق حسابها المحاسبي.' },
   { id: 'reports', ar: 'التقارير المالية', en: 'Financial Reports', cat: 'fin', icon: FileBarChart, open: { tab: 'reports' }, kw: ['تقرير', 'طباعة', 'تصدير', 'فاتورة', 'يومي', 'شهري'], fns: ['تقارير يومية وشهرية', 'طباعة واعتماد', 'تصدير'], d: 'تقارير الفروع والفترات جاهزة للطباعة والاعتماد.' },
   // ——— الفروع ونقاط البيع ———
@@ -1253,7 +1263,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v7.9 🏛️</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v8.0 🎯</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -4616,6 +4626,9 @@ function Admin({ org, ops, commit, commitOrg, say }) {
         <button className={'btn sm' + (tab === 'delivery' ? ' pri' : ' gh')} onClick={() => setTab('delivery')}>
           <Truck size={14} />تطبيقات التوصيل
         </button>
+        <button className={'btn sm' + (tab === 'perms' ? ' pri' : ' gh')} onClick={() => setTab('perms')}>
+          <ShieldCheck size={14} />مصفوفة الصلاحيات
+        </button>
         <button className={'btn sm' + (tab === 'system' ? ' pri' : ' gh')} onClick={() => setTab('system')}>
           <Settings size={14} />بيانات الشركة والنسخ الاحتياطي
         </button>
@@ -4692,6 +4705,41 @@ function Admin({ org, ops, commit, commitOrg, say }) {
       {tab === 'cats' && <CategoriesPanel org={org} ops={ops} commitOrg={commitOrg} say={say} />}
       {tab === 'delivery' && <DeliveryAppsPanel org={org} commitOrg={commitOrg} say={say} />}
       {tab === 'system' && <SystemPanel org={org} ops={ops} commit={commit} commitOrg={commitOrg} say={say} />}
+      {tab === 'perms' && (() => {
+        const roleIds = ['system_admin', 'general_management', 'head_office', 'finance_department', 'regional_manager', 'branch_manager', 'cashier'];
+        return (
+          <div className="grid" style={{ gap: 12 }}>
+            <div className="card">
+              <div className="card-t" style={{ marginBottom: 10 }}><ShieldCheck size={15} color="var(--brass)" />مصفوفة الصلاحيات — من يرى ماذا (المصدر الواحد للحقيقة)</div>
+              <div className="tw">
+                <table className="tb" style={{ fontSize: 11.5 }}>
+                  <thead><tr><th>الشاشة</th>{roleIds.map(r => <th key={r} style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>{(ROLES[r]?.ar || r).split(' — ')[0]}</th>)}</tr></thead>
+                  <tbody>
+                    {ALL_TABS.map(t => (
+                      <tr key={t}>
+                        <td style={{ fontWeight: 600 }}>{TAB_AR[t] || t}</td>
+                        {roleIds.map(r => {
+                          const ok = (ROLES[r]?.tabs || []).includes(t);
+                          return <td key={r} style={{ textAlign: 'center', color: ok ? 'var(--mint)' : 'var(--faint)', fontWeight: ok ? 800 : 400 }}>{ok ? '✓' : '—'}</td>;
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div className="card" style={{ background: 'rgba(200,162,74,.04)', borderStyle: 'dashed' }}>
+              <div style={{ fontSize: 11.5, color: 'var(--dim)', lineHeight: 2 }}>
+                <b style={{ color: 'var(--brass-l)' }}>صلاحيات الكتابة الحساسة (إضافة إلى رؤية الشاشات):</b><br />
+                • القيود اليدوية والأصول والتسوية البنكية وأوامر الشراء والمخزون: الأدوار كاملة النطاق (مسؤول النظام، الإدارة العليا، المكتب الرئيسي، المحاسب الرئيسي)<br />
+                • تفعيل الضريبة ونسبتها، إدارة المستخدمين والفروع، إدارة التطبيقات: أدوار الإدارة فقط (مسؤول النظام، الإدارة العليا)<br />
+                • الاعتماد النهائي للإغلاقات: أصحاب صفة «معتمِد» — والقيود التلقائية لا يعدّلها أحد: تصحيح المصدر يصحّح قيده<br />
+                • مدير الفرع والكاشير: إدخال إغلاقات فرعهم فقط، وإضافة الشركاء عبر «طلب اعتماد» يقرّه المركز
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {bEdit && <BranchForm b={bEdit} say={say} onSave={saveBranch} onClose={() => setBEdit(null)} />}
       {uEdit && <UserForm u={uEdit} org={org} onSave={saveUser} onClose={() => setUEdit(null)} />}
@@ -5203,7 +5251,11 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const poTotal = (p2) => sum(p2.lines || [], l => (Number(l.qty) || 0) * (Number(l.price) || 0));
   const poRecvQty = (p2) => sum(p2.lines || [], l => Number(l.received) || 0);
   const poAllRecv = (p2) => (p2.lines || []).every(l => (Number(l.received) || 0) >= (Number(l.qty) || 0));
-  const nextPoNo = () => 'PO-' + String(((ops.purchaseOrders || []).length + 1)).padStart(4, '0');
+  const nextPoNo = () => {
+    let mx = 0;
+    (ops.purchaseOrders || []).forEach(x => { const m2 = /(\d+)$/.exec(x.poNo || ''); if (m2) mx = Math.max(mx, +m2[1]); });
+    return 'PO-' + String(mx + 1).padStart(4, '0');
+  };
 
   const saveInv = async () => {
     const f = newInv;
@@ -6064,7 +6116,8 @@ function AppsCenter({ org, me, commitOrg, say, setTab, openAcctView, openInvView
         </div>
         <div className="row" style={{ gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
           <span className="badge b-mint">{activeCount} تطبيقاً نشطاً لدورك</span>
-          <span className="badge b-amber">{mine.filter(a => a.soon).length} ضمن خطة التطوير</span>
+          {mine.filter(a => a.soon).length > 0 && <span className="badge b-amber">{mine.filter(a => a.soon).length} ضمن خطة التطوير</span>}
+          {mine.filter(a => a.soon).length === 0 && <span className="badge b-mint">خطة المراحل مكتملة ✓</span>}
           <span className="badge b-sky">محرك محاسبي مركزي واحد — كل التطبيقات تُقيّد فيه</span>
         </div>
         {manage && (
@@ -6264,6 +6317,66 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   };
   const lastRec = (ops.bankRecs || [])[0];
 
+  // ===== v8.0: مراكز التكلفة — كل فرع مركز + «المركز الرئيسي» لغير الموسوم بفرع =====
+  const centers = [...(org.branches || []).map(b => ({ id: b.id, ar: b.name })), { id: 'central', ar: 'المركز الرئيسي' }];
+  const ccAgg = useMemo(() => {
+    const m = {};   // accCode -> centerId -> {debit, credit}
+    fsEntries.forEach(e => {
+      const cid = e.branchId || 'central';
+      e.lines.forEach(l => {
+        const acc = (m[l.code] = m[l.code] || {});
+        const c = (acc[cid] = acc[cid] || { debit: 0, credit: 0 });
+        c.debit += l.debit; c.credit += l.credit;
+      });
+    });
+    return m;
+  }, [fsEntries]);
+  const ccVal = (a, cid) => {
+    const x = (ccAgg[a.code] || {})[cid] || { debit: 0, credit: 0 };
+    return Math.round(((a.kind === 'asset' || a.kind === 'exp') ? x.debit - x.credit : x.credit - x.debit) * 100) / 100;
+  };
+  const ccSum = (kind, cid) => Math.round(sum(A.accounts.filter(a => a.kind === kind), a => ccVal(a, cid)) * 100) / 100;
+  const ccNet = (cid) => Math.round((ccSum('rev', cid) - ccSum('exp', cid)) * 100) / 100;
+
+  // ===== v8.0: طباعة القوائم المالية A4 =====
+  const printFS = () => {
+    const w = window.open('', '_blank', 'width=900,height=1000');
+    if (!w) return say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+    const co = org.company || {};
+    const period = (from || to) ? ('الفترة: ' + (from || 'البداية') + ' ← ' + (to || today())) : 'كامل المدة حتى ' + arDate(today());
+    const rowsOf = (kind, agg) => A.accounts.filter(a => a.kind === kind && agg[a.code])
+      .map(a => `<tr><td>${a.name}</td><td class="n">${money(balOf(a, agg))}</td></tr>`).join('');
+    const bsRows = (kinds2) => A.accounts.filter(a => kinds2.includes(a.kind) && bsAgg[a.code] && Math.abs(balOf(a, bsAgg)) > 0.004)
+      .map(a => `<tr><td>${a.name}</td><td class="n">${balOf(a, bsAgg) < 0 ? '(' + money(-balOf(a, bsAgg)) + ')' : money(balOf(a, bsAgg))}</td></tr>`).join('');
+    w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>القوائم المالية — ${co.name || ''}</title>
+    <style>*{font-family:'Segoe UI',Tahoma,sans-serif;box-sizing:border-box}body{margin:0;padding:26px;color:#1a1a1a;font-size:12.5px}
+    .h{display:flex;justify-content:space-between;border-bottom:2px solid #8C6F2C;padding-bottom:10px;margin-bottom:14px}
+    .co{font-size:19px;font-weight:800;color:#5a4a1e}.sub{font-size:11px;color:#666;margin-top:2px}
+    h2{font-size:15px;margin:14px 0 8px;color:#5a4a1e}table{width:100%;border-collapse:collapse;margin-bottom:8px}
+    td{padding:6px 8px;border:1px solid #e6ddc8}.n{text-align:left;direction:ltr;font-variant-numeric:tabular-nums;white-space:nowrap}
+    .tot td{background:#f5f0e4;font-weight:800;border-top:2px solid #8C6F2C}
+    .ft{margin-top:14px;font-size:10px;color:#888;text-align:center}.grid2{display:flex;gap:16px}.grid2>div{flex:1}</style></head><body>
+    <div class="h"><div><div class="co">${co.name || 'الشركة'}</div><div class="sub">${co.taxNumber ? 'الرقم الضريبي: ' + co.taxNumber : ''}</div></div>
+    <div style="text-align:left"><div style="font-size:17px;font-weight:800">القوائم المالية</div><div class="sub">${period}</div></div></div>
+    <div class="grid2"><div>
+    <h2>قائمة الدخل</h2><table>
+    ${rowsOf('rev', fsAgg)}<tr class="tot"><td>إجمالي الإيرادات</td><td class="n">${money(revP)}</td></tr>
+    ${rowsOf('exp', fsAgg)}<tr class="tot"><td>إجمالي المصروفات</td><td class="n">(${money(expP)})</td></tr>
+    <tr class="tot"><td>${netP >= 0 ? 'صافي الربح' : 'صافي الخسارة'}</td><td class="n">${money(netP)}</td></tr></table>
+    </div><div>
+    <h2>قائمة المركز المالي</h2><table>
+    <tr class="tot"><td colspan="2">الأصول</td></tr>${bsRows(['asset'])}
+    <tr class="tot"><td>إجمالي الأصول</td><td class="n">${money(bsAssets)}</td></tr>
+    <tr class="tot"><td colspan="2">الخصوم وحقوق الملكية</td></tr>${bsRows(['liab', 'equity'])}
+    <tr><td>أرباح الفترة المتراكمة</td><td class="n">${money(bsProfit)}</td></tr>
+    <tr class="tot"><td>الإجمالي ${bsOk ? '(يطابق الأصول ✓)' : ''}</td><td class="n">${money(bsLiab + bsEquity + bsProfit)}</td></tr></table>
+    </div></div>
+    ${taxOn ? '<div class="sub">الأرقام صافية — ضريبة القيمة المضافة مفصولة في حسابَي المدخلات والمخرجات.</div>' : '<div class="sub">الأرقام إجمالية شاملة الضريبة.</div>'}
+    <div class="ft">صادر من منصة الإغلاق اليومي — ${arDate(today())} · القيود مشتقة تلقائيًا ومتوازنة (مدين = دائن)</div></body></html>`);
+    w.document.close();
+    setTimeout(() => { w.focus(); w.print(); }, 400);
+  };
+
   // ===== القيد اليدوي/الافتتاحي =====
   const newJm = () => setJm({
     date: today(), title: '', opening: false,
@@ -6324,6 +6437,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         <button className={'btn sm' + (view === 'coa' ? ' pri' : ' gh')} onClick={() => setView('coa')}><Landmark size={14} />دليل الحسابات</button>
         <button className={'btn sm' + (view === 'tb' ? ' pri' : ' gh')} onClick={() => setView('tb')}><Scale size={14} />ميزان المراجعة</button>
         <button className={'btn sm' + (view === 'fs' ? ' pri' : ' gh')} onClick={() => setView('fs')}><FileBarChart size={14} />القوائم المالية</button>
+        <button className={'btn sm' + (view === 'cc' ? ' pri' : ' gh')} onClick={() => setView('cc')}><BarChart3 size={14} />مراكز التكلفة</button>
         <button className={'btn sm' + (view === 'vat' ? ' pri' : ' gh')} onClick={() => setView('vat')}><Receipt size={14} />الضريبة</button>
         <button className={'btn sm' + (view === 'ast' ? ' pri' : ' gh')} onClick={() => setView('ast')}><Building2 size={14} />الأصول</button>
         <button className={'btn sm' + (view === 'bank' ? ' pri' : ' gh')} onClick={() => setView('bank')}><Landmark size={14} />التسوية البنكية</button>
@@ -6473,6 +6587,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
           <div className="card">
             <div className="card-h">
               <div className="card-t"><TrendingUp size={15} color="var(--mint)" />قائمة الدخل {from || to ? '(الفترة المحددة)' : '(كامل المدة)'}</div>
+              <button className="btn sm" onClick={printFS}><Printer size={13} />طباعة القوائم A4</button>
             </div>
             {periodBar}
             <div className="tw" style={{ marginTop: 10 }}>
@@ -6518,6 +6633,49 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
               </table>
             </div>
             <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 8 }}>الأرصدة الافتتاحية (رأس المال، أرصدة سابقة) تُدخل من زر «قيد يدوي / افتتاحي» مقابل حساب 3101.</div>
+          </div>
+        </div>
+      )}
+
+      {view === 'cc' && (
+        <div className="grid" style={{ gap: 12 }}>
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>{periodBar}</div>
+          <div className="grid g4">
+            {centers.map(c => {
+              const n = ccNet(c.id);
+              return <Kpi key={c.id} label={'صافي ' + c.ar} value={money(n)} sub={'إيراد ' + money(ccSum('rev', c.id)) + ' − مصروف ' + money(ccSum('exp', c.id))} icon={c.id === 'central' ? Landmark : Store} color={n >= 0 ? '#4FB286' : '#D9544D'} />;
+            })}
+          </div>
+          <div className="card">
+            <div className="card-t" style={{ marginBottom: 10 }}><BarChart3 size={15} color="var(--brass)" />مراكز التكلفة — أرقام مباشرة من القيود الموسومة بالفرع</div>
+            <div className="tw">
+              <table className="tb">
+                <thead><tr><th>الحساب</th>{centers.map(c => <th key={c.id} style={{ textAlign: 'end' }}>{c.ar}</th>)}<th style={{ textAlign: 'end' }}>الإجمالي</th></tr></thead>
+                <tbody>
+                  <tr><td colSpan={centers.length + 2} style={{ background: 'var(--acc-soft)', fontWeight: 800, color: 'var(--brass-l)', fontSize: 12 }}>الإيرادات</td></tr>
+                  {A.accounts.filter(a => a.kind === 'rev' && ccAgg[a.code]).map(a => (
+                    <tr key={a.code}><td style={{ fontSize: 12 }}>{a.name}</td>
+                      {centers.map(c => <td key={c.id} className="num" style={{ textAlign: 'end' }}>{ccVal(a, c.id) ? money(ccVal(a, c.id)) : '—'}</td>)}
+                      <td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{money(sum(centers, c => ccVal(a, c.id)))}</td></tr>
+                  ))}
+                  <tr><td colSpan={centers.length + 2} style={{ background: 'var(--acc-soft)', fontWeight: 800, color: 'var(--brass-l)', fontSize: 12 }}>المصروفات</td></tr>
+                  {A.accounts.filter(a => a.kind === 'exp' && ccAgg[a.code]).map(a => (
+                    <tr key={a.code}><td style={{ fontSize: 12, color: 'var(--dim)' }}>{a.name}</td>
+                      {centers.map(c => <td key={c.id} className="num" style={{ textAlign: 'end', color: 'var(--rose)' }}>{ccVal(a, c.id) ? '(' + money(ccVal(a, c.id)) + ')' : '—'}</td>)}
+                      <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: 'var(--rose)' }}>({money(sum(centers, c => ccVal(a, c.id)))})</td></tr>
+                  ))}
+                  <tr style={{ fontWeight: 900, background: 'rgba(200,162,74,.05)' }}>
+                    <td>صافي كل مركز</td>
+                    {centers.map(c => <td key={c.id} className="num" style={{ textAlign: 'end', color: ccNet(c.id) >= 0 ? 'var(--mint)' : 'var(--rose)', fontSize: 13 }}>{ccNet(c.id) < 0 ? '(' + money(-ccNet(c.id)) + ')' : money(ccNet(c.id))}</td>)}
+                    <td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)', fontSize: 13 }}>{money(sum(centers, c => ccNet(c.id)))}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div className="note" style={{ marginTop: 10 }}>
+              💡 عمود «المركز الرئيسي» يضم ما لا يخص فرعًا بعينه (رواتب الكشف المركزي، أوامر صرف الخزينة، فواتير المركز، الإهلاك…).
+              توزيع هذه المصروفات على الفروع بنِسَب تحميل تحددها أنت — متاح كخطوة تالية متى رغبت، ولا نفترض نسبًا من عندنا.
+            </div>
           </div>
         </div>
       )}
@@ -6576,7 +6734,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
               <div className="note" style={{ marginTop: 10 }}>
                 ⚠️ <b>بشفافية:</b> هذه مسودة تساعدك أنت ومحاسبك على تعبئة الإقرار في بوابة الهيئة — وليست تقديمًا رسميًا.
                 الفوترة الإلكترونية المعتمدة (منصة فاتورة) تتطلب ربطًا رسميًا منفصلًا.
-                فواتير التوريد المركزية الحالية غير مفصولة الضريبة — تُفصل ضمن مرحلة المشتريات م٤ عند إدخالها من النظام بحقل ضريبي.
+                فواتير التوريد الجديدة تُفصل ضريبتها عبر حقل «خاضعة للضريبة» عند إدخالها؛ الفواتير القديمة المسجلة قبل الحقل تبقى إجمالية.
               </div>
             </div>
           </>}
@@ -6705,9 +6863,9 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
 
       <div className="card" style={{ background: 'rgba(200,162,74,.04)', borderStyle: 'dashed' }}>
         <div style={{ fontSize: 11.5, color: 'var(--dim)', lineHeight: 1.9 }}>
-          <b style={{ color: 'var(--brass-l)' }}>حدود المرحلة الحالية (بشفافية):</b> {taxOn ? 'الضريبة مفعّلة (' + taxRate + '%) — المبيعات والمصروفات الخاضعة مفصولة تلقائيًا؛ فواتير التوريد المركزية تُفصل في م٤.' : 'المبالغ إجمالية كما سُجّلت — فصل الضريبة متاح من شاشة الضريبة متى فعّلته.'}
+          <b style={{ color: 'var(--brass-l)' }}>حدود المرحلة الحالية (بشفافية):</b> {taxOn ? 'الضريبة مفعّلة (' + taxRate + '%) — المبيعات والمصروفات والفواتير الموسومة «خاضعة» مفصولة تلقائيًا.' : 'المبالغ إجمالية كما سُجّلت — فصل الضريبة متاح من شاشة الضريبة متى فعّلته.'}
           كل تطبيق توصيل له ذمّة مستقلة وتُفصل عمولته تلقائيًا بنسبته المعرّفة في «الفروع والمستخدمون ← تطبيقات التوصيل»؛ وعند استلام مستحقات تطبيق في البنك سجّلها بقيد يدوي (مدين البنك / دائن ذمّة التطبيق).
-          المدفوعات البنكية تتجمع في حساب بنكي واحد تُسوّى تفاصيله في مرحلة التسوية البنكية.
+          المدفوعات البنكية تتجمع في حساب واحد (1201) وتُطابقه شاشة «التسوية البنكية» مع كشفك الفعلي.
           بطاقات «إيجارات وفواتير الفروع» الثابتة لا تولّد قيودًا (سدادها الفعلي يدخل من مصروفات الورديات) تفاديًا للازدواج.
           القيود لا تُحذف — التصحيح بقيد عكسي، حفاظًا على سلامة السجل أمام أي مراجع.
         </div>
