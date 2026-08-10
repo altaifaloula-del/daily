@@ -800,6 +800,7 @@ const REG_APPS = [
   { id: 'assets', ar: 'الأصول الثابتة والإهلاك', en: 'Fixed Assets', cat: 'ast', icon: Building2, open: { tab: 'acct', view: 'ast' }, kw: ['أصل', 'إهلاك', 'معدات', 'قيمة دفترية'], fns: ['سجل أصول بمصدر تمويل صريح', 'إهلاك شهري تلقائي بأثر رجعي', 'قيمة دفترية حية'], d: 'سجل أصولك وقيود شرائها وإهلاكها الشهري تلقائياً حتى نهاية عمرها.' },
   { id: 'bankrec', ar: 'التسوية البنكية', en: 'Bank Reconciliation', cat: 'ast', icon: Landmark, open: { tab: 'acct', view: 'bank' }, kw: ['بنك', 'تسوية', 'كشف', 'مطابقة', 'شبكة', 'فرق'], fns: ['رصيد الدفتر مقابل كشف البنك', 'فرق موثق بسجل تسويات', 'حركات البنك مفصلة'], d: 'طابق حساب البنك التجميعي مع كشفك الفعلي ووثّق الفروقات — والتصحيح بقيد يدوي.' },
   // ——— التدقيق والحوكمة ———
+  { id: 'backup', ar: 'النسخ الاحتياطي والاستعادة', en: 'Backup & Restore', cat: 'gov', icon: HardDrive, open: { tab: 'admin' }, kw: ['نسخة', 'احتياطي', 'استعادة', 'لقطة', 'حماية', 'تصدير'], fns: ['نسخة كاملة موقّعة', 'فحص نسخة (تجربة استعادة)', 'استعادة بتأكيد ولقطة أمان', 'لقطات يومية محلية ٧ أيام'], d: 'نزّل نسختك، افحصها قبل الحاجة، واستعدها بأمان موثق — من الفروع والمستخدمون ← بيانات الشركة.' },
   { id: 'lock', ar: 'الإقفال الشهري', en: 'Period Locking', cat: 'gov', icon: Lock, open: { tab: 'acct', view: 'lock' }, kw: ['إقفال', 'قفل', 'فترة', 'شهر', 'حماية', 'مراجع'], fns: ['قفل تراكمي حتى شهر', 'فحوصات ما قبل القفل', 'فتح استثنائي بسبب موثق', 'سجل كامل'], d: 'اقفل الشهور المعتمدة ضد أي تعديل — والفتح استثنائي موثق بسبب أمام المراجع.' },
   { id: 'audit', ar: 'سجل التدقيق', en: 'Audit Trail', cat: 'gov', icon: Eye, open: { tab: 'audit' }, kw: ['تدقيق', 'سجل', 'عملية', 'حوكمة', 'من فعل'], fns: ['كل عملية باسم صاحبها ووقتها', 'تنبيهات حية لمدير النظام'], d: 'من فعل ماذا ومتى — سجل كامل لا يُمحى لكل حركة في النظام.' },
   { id: 'archive', ar: 'أرشيف المستندات', en: 'Documents Archive', cat: 'gov', icon: ImageIcon, open: { tab: 'archive' }, kw: ['مستند', 'صورة', 'أرشيف', 'وثيقة', 'إيصال'], fns: ['صور الإغلاقات والإيصالات', 'تصفح بالفرع والتاريخ'], d: 'كل صور التوثيق والإيصالات مؤرشفة بالفرع والتاريخ.' },
@@ -807,6 +808,38 @@ const REG_APPS = [
   { id: 'ai', ar: 'المركز المالي الذكي', en: 'Financial Intelligence', cat: 'bi', icon: Sparkles, open: { tab: 'ai' }, kw: ['تحليل', 'ذكاء', 'توقع', 'انحراف', 'نسبة', 'اتجاه'], fns: ['مؤشرات وتحليلات', 'كشف الانحرافات', 'توصيات'], d: 'قراءة ذكية لأرقامك: اتجاهات وانحرافات وتوصيات.' }
 ];
 const REG_IX = {}; REG_APPS.forEach(a => { REG_IX[a.id] = a; });
+/* v8.5 — لقطات احتياطية يومية محلية (IndexedDB) على أجهزة الإدارة:
+   حماية إضافية ضد التلف أو الحذف الخاطئ — والنسخة الملفية تبقى الحماية الخارجية */
+const snapDB = () => new Promise((res, rej) => {
+  const r = indexedDB.open('rms8-snaps', 1);
+  r.onupgradeneeded = () => { r.result.createObjectStore('snaps', { keyPath: 'key' }); };
+  r.onsuccess = () => res(r.result);
+  r.onerror = () => rej(r.error);
+});
+const snapPut = async (key, val) => { const db = await snapDB(); return new Promise((res, rej) => { const tx = db.transaction('snaps', 'readwrite'); tx.objectStore('snaps').put({ key, ...val }); tx.oncomplete = () => { db.close(); res(true); }; tx.onerror = () => { db.close(); rej(tx.error); }; }); };
+const snapAll = async () => { const db = await snapDB(); return new Promise((res, rej) => { const rq = db.transaction('snaps').objectStore('snaps').getAll(); rq.onsuccess = () => { db.close(); res(rq.result || []); }; rq.onerror = () => { db.close(); rej(rq.error); }; }); };
+const snapDel = async (key) => { const db = await snapDB(); return new Promise((res, rej) => { const tx = db.transaction('snaps', 'readwrite'); tx.objectStore('snaps').delete(key); tx.oncomplete = () => { db.close(); res(true); }; tx.onerror = () => { db.close(); rej(tx.error); }; }); };
+// فحص سلامة نسخة احتياطية: البنية + تشغيل المحرك المحاسبي عليها والتأكد من توازنها
+function verifyBackup(data) {
+  try {
+    if (!data || typeof data !== 'object') return { ok: false, err: 'الملف ليس نسخة صالحة' };
+    if (!data.org || !Array.isArray(data.org.branches) || !Array.isArray(data.org.users)) return { ok: false, err: 'بنية المنشأة ناقصة (فروع/مستخدمون)' };
+    const ops2 = data.ops || {};
+    const A = buildAccounting(data.org, ops2);
+    return {
+      ok: true,
+      counts: {
+        branches: (data.org.branches || []).length, users: (data.org.users || []).length,
+        closings: (ops2.closings || []).length, suppliers: (data.org.suppliers || []).length,
+        items: (data.org.items || []).length, assets: (data.org.assets || []).length,
+        entries: A.entries.length
+      },
+      balanced: A.balanced, totalDebit: A.totalDebit,
+      exportedAt: (data.meta && data.meta.exportedAt) || data.exportedAt || '', by: (data.meta && data.meta.by) || ''
+    };
+  } catch (e) { return { ok: false, err: 'تعذّرت قراءة النسخة: ' + (e.message || '') }; }
+}
+
 // تفضيلات الاستخدام لكل مستخدم (مفضلة + آخر استخدام) — محلية على الجهاز
 const appUseGet = (uid) => { try { return JSON.parse(localStorage.getItem('rms8:appuse:' + uid) || '{}') || {}; } catch { return {}; } };
 const appUseSet = (uid, v) => { try { localStorage.setItem('rms8:appuse:' + uid, JSON.stringify(v)); } catch { } };
@@ -1061,6 +1094,24 @@ export default function App() {
   /* --- تنبيهات النشاط الحيّة لمدراء النظام: إشعار متصفح + صوت لأي نشاط من الآخرين --- */
   const actBaseRef = useRef(Date.now());
   useEffect(() => { actBaseRef.current = Date.now(); }, [me]);
+
+  // v8.5: لقطة احتياطية يومية محلية تلقائية (أجهزة أدوار الإدارة فقط) — آخر 7 أيام
+  const snapDoneRef = useRef(false);
+  useEffect(() => {
+    if (snapDoneRef.current || !me || !ROLES[me.role]?.admin || !(org.branches || []).length) return;
+    snapDoneRef.current = true;
+    (async () => {
+      try {
+        const key = 'day-' + today();
+        const all = await snapAll();
+        if (!all.some(x => x.key === key)) {
+          await snapPut(key, { at: nowISO(), by: me.name, org, ops });
+          const days = all.filter(x => (x.key || '').startsWith('day-')).sort((a, b) => b.key.localeCompare(a.key));
+          for (const old2 of days.slice(6)) await snapDel(old2.key);
+        }
+      } catch { /* متصفح بوضع خاص أو تخزين ممتلئ — النسخة الملفية تبقى متاحة */ }
+    })();
+  }, [me, org, ops]);
   useEffect(() => {
     if (!me || !ROLES[me.role]?.admin) return;
     const cfg = notifyCfg();
@@ -1317,7 +1368,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v8.4 🔒</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v8.5 💾</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -4633,7 +4684,7 @@ function DeliveryAppsPanel({ org, commitOrg, say }) {
   );
 }
 
-function Admin({ org, ops, commit, commitOrg, say }) {
+function Admin({ org, ops, me, commit, commitOrg, say }) {
   const [tab, setTab] = useState('branches');
   const [bEdit, setBEdit] = useState(null);
   const [uEdit, setUEdit] = useState(null);
@@ -4768,7 +4819,7 @@ function Admin({ org, ops, commit, commitOrg, say }) {
 
       {tab === 'cats' && <CategoriesPanel org={org} ops={ops} commitOrg={commitOrg} say={say} />}
       {tab === 'delivery' && <DeliveryAppsPanel org={org} commitOrg={commitOrg} say={say} />}
-      {tab === 'system' && <SystemPanel org={org} ops={ops} commit={commit} commitOrg={commitOrg} say={say} />}
+      {tab === 'system' && <SystemPanel org={org} ops={ops} me={me} commit={commit} commitOrg={commitOrg} say={say} />}
       {tab === 'perms' && (() => {
         const roleIds = ['system_admin', 'general_management', 'head_office', 'finance_department', 'regional_manager', 'branch_manager', 'cashier'];
         return (
@@ -7874,7 +7925,7 @@ function AiCenter({ org, ops, me, myBranches, scoped, say }) {
 }
 
 /* ================= بيانات الشركة والنسخ الاحتياطي ================= */
-function SystemPanel({ org, ops, commit, commitOrg, say }) {
+function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
   const [hist, setHist] = useState({ closings: [] });
   const [working, setWorking] = useState(false);
   const [c, setC] = useState(() => ({ ...(org.company || {}) }));
@@ -7923,29 +7974,75 @@ function SystemPanel({ org, ops, commit, commitOrg, say }) {
     say('تم حفظ بيانات الشركة');
   };
 
-  const backup = () => {
-    const blob = new Blob([JSON.stringify({ org, ops, hist, exportedAt: nowISO() }, null, 2)], { type: 'application/json' });
+  // v8.5: حالات النسخ والاستعادة المحصّنة
+  const [vReport, setVReport] = useState(null);       // تقرير فحص نسخة
+  const [restoreArm, setRestoreArm] = useState(null); // {data, report, text} تأكيد الاستعادة
+  const [snaps, setSnaps] = useState([]);
+  const verifyRef = useRef();
+  const reloadSnaps = () => snapAll().then(a => setSnaps(a.sort((x, y) => (y.key || '').localeCompare(x.key || '')))).catch(() => setSnaps([]));
+  useEffect(() => { reloadSnaps(); }, []);
+  const lastDl = (org.backupMeta || {}).lastDownloadAt || '';
+  const dlAgeDays = lastDl ? Math.floor((Date.now() - new Date(lastDl).getTime()) / 864e5) : null;
+
+  const backup = async () => {
+    const meta = {
+      app: 'rms8', appVersion: 'v8.5', exportedAt: nowISO(), by: me?.name || '',
+      counts: { branches: (org.branches || []).length, users: (org.users || []).length, closings: (ops.closings || []).length }
+    };
+    const blob = new Blob([JSON.stringify({ meta, org, ops, hist, exportedAt: meta.exportedAt }, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = `نسخة-احتياطية-${today()}.json`; a.click();
+    await commitOrg(d => ({ ...d, backupMeta: { lastDownloadAt: nowISO(), by: me?.name || '' } }), {
+      actionType: 'update', targetType: 'system_settings', targetId: 'backup',
+      title: 'نزّل نسخة احتياطية كاملة', details: (ops.closings || []).length + ' إغلاق'
+    });
     URL.revokeObjectURL(url);
     say('تم تنزيل النسخة الاحتياطية الكاملة');
   };
 
-  const restore = (e) => {
-    const f = e.target.files?.[0]; if (!f) return;
+  const readJson = (f) => new Promise((res) => {
     const rd = new FileReader();
-    rd.onload = async () => {
-      try {
-        const data = JSON.parse(String(rd.result));
-        if (!data.org?.branches) throw new Error('bad');
-        await cloud.set(KEYS.org, data.org);
-        if (data.ops) await cloud.set(KEYS.ops, data.ops);
-        if (data.hist) await cloud.set(KEYS.hist, data.hist);
-        say('تمت الاستعادة — حدّث الصفحة لعرض البيانات المستعادة');
-      } catch { say('الملف غير صالح كنسخة احتياطية لهذه المنصة', 'no'); }
-    };
+    rd.onload = () => { try { res(JSON.parse(String(rd.result))); } catch { res(null); } };
+    rd.onerror = () => res(null);
     rd.readAsText(f);
+  });
+  // فحص نسخة دون أي تغيير — «تجربة الاستعادة» قبل الحاجة إليها
+  const verifyFile = async (e) => {
+    const f = e.target.files?.[0]; e.target.value = ''; if (!f) return;
+    const data = await readJson(f);
+    setVReport({ name: f.name, ...(data ? verifyBackup(data) : { ok: false, err: 'الملف ليس JSON صالحًا' }) });
+  };
+  // الاستعادة: فحص ← عرض ← تأكيد كتابي ← لقطة أمان ← استبدال موثق
+  const restore = async (e) => {
+    const f = e.target.files?.[0]; e.target.value = ''; if (!f) return;
+    const data = await readJson(f);
+    const rep = data ? verifyBackup(data) : { ok: false, err: 'الملف ليس JSON صالحًا' };
+    if (!rep.ok) return say('النسخة مرفوضة: ' + rep.err, 'no');
+    setRestoreArm({ data, report: rep, name: f.name, text: '' });
+  };
+  const doRestore = async () => {
+    const ra = restoreArm;
+    if (!ra || ra.text.trim() !== 'استعادة') return say('اكتب كلمة «استعادة» للتأكيد', 'no');
+    try { await snapPut('pre-restore-' + nowISO().slice(0, 19).replace(/[:T]/g, '-'), { at: nowISO(), by: me?.name || '', org, ops, preRestore: true }); } catch { }
+    await cloud.set(KEYS.org, ra.data.org);
+    if (ra.data.ops) await cloud.set(KEYS.ops, ra.data.ops);
+    if (ra.data.hist) await cloud.set(KEYS.hist, ra.data.hist);
+    try {
+      const pu = await cloud.get(KEYS.pulse, { presence: {}, audit: [] });
+      pu.audit = [{ id: uid('lg'), at: Date.now(), timestamp: nowISO(), userName: me?.name || '', userRole: me?.role || '',
+        title: 'استعاد نسخة احتياطية كاملة', details: ra.name + ' · ' + (ra.report.exportedAt || '').slice(0, 10) + ' · ' + ra.report.counts.closings + ' إغلاق' }, ...(pu.audit || [])].slice(0, 400);
+      await cloud.set(KEYS.pulse, pu);
+    } catch { }
+    setRestoreArm(null); reloadSnaps();
+    say('تمت الاستعادة ووُثّقت — حدّث الصفحة لعرض البيانات المستعادة');
+  };
+  const restoreSnap = (sn) => setRestoreArm({ data: { org: sn.org, ops: sn.ops }, report: verifyBackup({ org: sn.org, ops: sn.ops }), name: 'لقطة محلية ' + sn.key, text: '' });
+  const downloadSnap = (sn) => {
+    const blob = new Blob([JSON.stringify({ meta: { app: 'rms8', exportedAt: sn.at, by: sn.by, source: 'local-snapshot' }, org: sn.org, ops: sn.ops }, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob); const a = document.createElement('a');
+    a.href = url; a.download = `لقطة-${sn.key}.json`; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 800);
   };
 
   const stats = [
@@ -7981,16 +8078,92 @@ function SystemPanel({ org, ops, commit, commitOrg, say }) {
 
       <div className="grid" style={{ gap: 12, alignContent: 'start' }}>
         <div className="card">
-          <div className="card-t" style={{ marginBottom: 12 }}><HardDrive size={15} color="var(--brass)" />النسخ الاحتياطي والاستعادة</div>
-          <div style={{ fontSize: 12, color: 'var(--dim)', marginBottom: 12, lineHeight: 1.9 }}>
-            نزّل نسخة كاملة من بيانات المنصة بصيغة JSON، أو استعِد نسخة سابقة لتحل محل البيانات الحالية لدى جميع المستخدمين.
+          <div className="card-h">
+            <div className="card-t"><HardDrive size={15} color="var(--brass)" />النسخ الاحتياطي والاستعادة</div>
+            {dlAgeDays === null
+              ? <span className="badge b-rose">لم تُنزّل نسخة بعد — نزّل الأولى الآن</span>
+              : dlAgeDays > 7
+                ? <span className="badge b-amber">آخر تنزيل قبل {dlAgeDays} يومًا — يُنصح أسبوعيًا</span>
+                : <span className="badge b-mint">آخر تنزيل قبل {dlAgeDays} يومًا ✓ {((org.backupMeta || {}).by) ? '· ' + org.backupMeta.by : ''}</span>}
           </div>
-          <div className="row">
+          <div style={{ fontSize: 12, color: 'var(--dim)', marginBottom: 12, lineHeight: 1.9 }}>
+            المنصة مستضافة استضافة ثابتة بلا خادم مجدول — لذا الحماية «التلقائية» هي <b>لقطات يومية محلية</b> على
+            أجهزة الإدارة (أدناه)، والحماية الخارجية هي <b>النسخة الملفية</b>: نزّلها أسبوعيًا واحفظها خارج الجهاز.
+            وزر «فحص نسخة» يجري تجربة استعادة حقيقية دون أي تغيير: يقرأ الملف ويشغّل المحرك المحاسبي عليه ويثبت توازنه.
+          </div>
+          <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
             <button className="btn pri" onClick={backup}><Download size={14} />تنزيل نسخة احتياطية</button>
+            <button className="btn" onClick={() => verifyRef.current?.click()}><ShieldCheck size={14} />فحص نسخة (تجربة استعادة)</button>
             <button className="btn" onClick={() => fileRef.current?.click()}><Upload size={14} />استعادة من ملف</button>
             <input ref={fileRef} type="file" accept="application/json" style={{ display: 'none' }} onChange={restore} />
+            <input ref={verifyRef} type="file" accept="application/json" style={{ display: 'none' }} onChange={verifyFile} />
           </div>
+          {vReport && (
+            <div className="card" style={{ marginTop: 12, background: 'var(--ink)', borderColor: vReport.ok ? 'rgba(79,178,134,.45)' : 'rgba(217,84,77,.45)' }}>
+              <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                <div className="card-t" style={{ fontSize: 14 }}>{vReport.ok ? '✅ النسخة سليمة وقابلة للاستعادة' : '❌ النسخة غير صالحة'}</div>
+                <button className="btn sm gh" onClick={() => setVReport(null)}><X size={13} /></button>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 2 }}>
+                الملف: <span className="num">{vReport.name}</span>
+                {vReport.ok ? <>
+                  {vReport.exportedAt ? <> · صادرة بتاريخ <span className="num">{(vReport.exportedAt || '').slice(0, 10)}</span></> : null}
+                  <br />المحتوى: <b>{vReport.counts.branches}</b> فرع · <b>{vReport.counts.users}</b> مستخدمًا · <b>{vReport.counts.closings}</b> إغلاقًا · <b>{vReport.counts.suppliers}</b> موردًا · <b>{vReport.counts.assets}</b> أصلًا
+                  <br />المحاسبة: <b>{vReport.counts.entries}</b> قيدًا — {vReport.balanced ? <b style={{ color: 'var(--mint)' }}>متوازنة ✓ (إجمالي {money(vReport.totalDebit)})</b> : <b style={{ color: 'var(--rose)' }}>غير متوازنة!</b>}
+                </> : <><br /><span style={{ color: 'var(--rose)' }}>{vReport.err}</span></>}
+              </div>
+            </div>
+          )}
         </div>
+
+        <div className="card">
+          <div className="card-h">
+            <div className="card-t"><Clock size={15} color="var(--brass)" />اللقطات اليومية المحلية (هذا الجهاز)</div>
+            <span className={'badge ' + (snaps.some(x => x.key === 'day-' + today()) ? 'b-mint' : 'b-dim')}>
+              {snaps.some(x => x.key === 'day-' + today()) ? 'لقطة اليوم محفوظة ✓' : 'ستُحفظ تلقائيًا عند فتح المنصة'}</span>
+          </div>
+          <div style={{ fontSize: 11.5, color: 'var(--dim)', marginBottom: 10, lineHeight: 1.8 }}>
+            تُحفظ لقطة كاملة تلقائيًا أول دخول كل يوم على أجهزة أدوار الإدارة (يُحتفظ بآخر ٧ أيام) —
+            ولقطة أمان إضافية قبل كل استعادة. محلية على هذا الجهاز فقط.
+          </div>
+          {snaps.length === 0 ? <div className="empty">لا لقطات محفوظة على هذا الجهاز بعد.</div> : (
+            <div className="tw"><table className="tb">
+              <thead><tr><th>اللقطة</th><th>وقتها</th><th>محتواها</th><th /></tr></thead>
+              <tbody>{snaps.slice(0, 10).map(sn => (
+                <tr key={sn.key}>
+                  <td><span className="num" style={{ fontSize: 11 }}>{sn.key}</span> {sn.preRestore && <span className="badge b-amber" style={{ fontSize: 8.5 }}>أمان ما قبل استعادة</span>}</td>
+                  <td className="num" style={{ fontSize: 11 }}>{(sn.at || '').slice(0, 16).replace('T', ' ')}</td>
+                  <td style={{ fontSize: 11, color: 'var(--dim)' }}>{((sn.ops || {}).closings || []).length} إغلاقًا · {((sn.org || {}).users || []).length} مستخدمًا</td>
+                  <td><div className="row" style={{ gap: 5 }}>
+                    <button className="btn sm gh" onClick={() => downloadSnap(sn)}><Download size={12} /></button>
+                    <button className="btn sm" onClick={() => restoreSnap(sn)}>استعادة</button>
+                  </div></td>
+                </tr>
+              ))}</tbody>
+            </table></div>
+          )}
+        </div>
+
+        {restoreArm && (
+          <Modal title="تأكيد الاستعادة — إجراء جوهري" icon={ShieldAlert} onClose={() => setRestoreArm(null)}
+            foot={<>
+              <button className="btn gh" onClick={() => setRestoreArm(null)}>إلغاء</button>
+              <button className="btn no" disabled={restoreArm.text.trim() !== 'استعادة'} onClick={doRestore}><Check size={14} />استبدال البيانات الآن</button>
+            </>}>
+            <div className="note" style={{ marginBottom: 10 }}>
+              ستحل النسخة <b>{restoreArm.name}</b> محل بيانات المنصة الحالية <b>لدى جميع المستخدمين</b>.
+              قبل الاستبدال تُحفظ لقطة أمان من الوضع الحالي على هذا الجهاز، ويُوثَّق الإجراء في سجل التدقيق باسمك.
+            </div>
+            <div style={{ fontSize: 12, lineHeight: 2, marginBottom: 10 }}>
+              فحص النسخة: {restoreArm.report.balanced ? <b style={{ color: 'var(--mint)' }}>محاسبتها متوازنة ✓</b> : <b style={{ color: 'var(--rose)' }}>غير متوازنة!</b>}
+              · <b>{restoreArm.report.counts.closings}</b> إغلاقًا مقابل <b>{(ops.closings || []).length}</b> حاليًا
+              · <b>{restoreArm.report.counts.users}</b> مستخدمًا مقابل <b>{(org.users || []).length}</b>
+            </div>
+            <Field label="اكتب كلمة «استعادة» للتأكيد">
+              <input className="inp" value={restoreArm.text} onChange={e => setRestoreArm(r => ({ ...r, text: e.target.value }))} placeholder="استعادة" />
+            </Field>
+          </Modal>
+        )}
         <div className="card">
           <div className="card-t" style={{ marginBottom: 12 }}><HardDrive size={15} color="var(--brass)" />الصيانة وتخفيف البيانات</div>
           <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 12 }}>
