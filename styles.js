@@ -307,6 +307,7 @@ textarea.inp{resize:vertical;min-height:64px}
 .b-sky{color:var(--sky);border-color:rgba(91,147,196,.35);background:rgba(91,147,196,.1)}
 .b-dim{color:var(--dim);border-color:var(--line);background:var(--ink3)}
 .b-brass{color:var(--brass);border-color:rgba(200,162,74,.4);background:rgba(200,162,74,.1)}
+.b-violet{color:var(--violet);border-color:rgba(155,123,184,.4);background:rgba(155,123,184,.12)}
 
 .tw{overflow-x:auto;min-width:0;max-width:100%;margin:0 -4px}
 table.tb{width:100%;border-collapse:collapse;font-size:12.5px;min-width:520px}

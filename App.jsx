@@ -344,7 +344,14 @@ function buildAccounting(org, ops) {
     addAcc(code, 'صندوق ' + (b.name || 'فرع'), 'asset', { link: 'خزينة الفرع' });
   });
   addAcc('1201', 'البنك — الشبكة والمدفوعات البنكية (تجميعي)', 'asset', { link: 'تسويته في مرحلة التسوية البنكية' });
-  addAcc('1301', 'ذمم تطبيقات التوصيل', 'asset', { link: 'مبيعات التطبيقات' });
+  // ذمم مبوّبة: حساب مستقل لكل تطبيق توصيل — يُدمج بعمولته المعرّفة في الإعدادات
+  const appAcc = {};
+  (org.deliveryApps || []).forEach((a, i) => {
+    const code = '13' + String(i + 1).padStart(2, '0');
+    appAcc[a.id] = code;
+    addAcc(code, 'ذمم تطبيق — ' + (a.n || 'توصيل'), 'asset', { link: 'مبيعات ' + (a.n || 'التطبيق') + (a.c ? ' · عمولة ' + a.c + '%' : ' · بلا عمولة'), appId: a.id });
+  });
+  addAcc('1399', 'ذمم تطبيقات أخرى (غير معرّفة)', 'asset');
   addAcc('1401', 'سلف الموظفين وعُهدهم', 'asset', { link: 'الرواتب والسلف' });
   // — الخصوم —
   addAcc('2101', 'ذمم الموردين', 'liab', { link: 'دفتر الشركاء' });
@@ -355,6 +362,7 @@ function buildAccounting(org, ops) {
   addAcc('4101', 'المبيعات (إجمالية)', 'rev', { link: 'إغلاقات الورديات المعتمدة' });
   // — المصروفات —
   addAcc('5201', 'الرواتب والأجور (كشف الرواتب)', 'exp', { link: 'ترحيل الاستحقاق الشهري' });
+  addAcc('5301', 'عمولات تطبيقات التوصيل', 'exp', { link: 'نِسَب العمولة من إعدادات التطبيقات' });
   addAcc('5901', 'مصروفات الخزينة الرئيسية (أوامر الصرف)', 'exp', { link: 'شاشة الخزينة' });
   const catAcc = {};
   (org.expenseCats || []).forEach((c, i) => {
@@ -382,17 +390,27 @@ function buildAccounting(org, ops) {
   const counted = (ops.closings || []).filter(countedClosing);
   counted.forEach(c => {
     const bCode = cashCode[c.branchId] || '1101';
-    // ١) إيراد الوردية: نقدي/شبكة/تطبيقات ← المبيعات
-    const apps = sum(c.deliverySales || [], s => s.amount);
+    // ١) إيراد الوردية: نقدي/شبكة ← ثم سطر لكل تطبيق بذمّته وعمولته المسجّلة على الوردية نفسها
     const cash = c.cashSales || 0, card = c.cardSales || 0;
-    const tot = cash + card + apps;
+    const appRows = (c.deliverySales || []).filter(s => (s.amount || 0) > 0);
+    const appsGross = sum(appRows, s => s.amount);
+    const tot = cash + card + appsGross;
     if (tot > 0) {
       const lines = [];
       if (cash) lines.push(L(bCode, cash, 0));
       if (card) lines.push(L('1201', card, 0));
-      if (apps) lines.push(L('1301', apps, 0));
+      appRows.forEach(s => {
+        const gross = s.amount || 0;
+        const app = (org.deliveryApps || []).find(a => a.id === s.appId);
+        const rate = s.commissionPercentage != null ? Number(s.commissionPercentage) || 0 : (app ? Number(app.c) || 0 : 0);
+        const comm = Math.round(gross * rate) / 100;           // gross × rate% بدقة قرشين
+        const net = Math.round((gross - comm) * 100) / 100;
+        const code = appAcc[s.appId] || '1399';
+        if (net) lines.push(L(code, net, 0));
+        if (comm) lines.push(L('5301', comm, 0));
+      });
       lines.push(L('4101', 0, tot));
-      push({ id: 'rev:' + c.id, date: c.date, title: 'إيراد وردية — ' + (c.branchName || ''), src: 'إغلاق وردية', ref: c.id, lines });
+      push({ id: 'rev:' + c.id, date: c.date, branchId: c.branchId, title: 'إيراد وردية — ' + (c.branchName || ''), src: 'إغلاق وردية', ref: c.id, lines });
     }
     // ٢) مصروفات الوردية: نقدًا من الصندوق، بنكيًا من البنك، وآجلًا على ذمم الموردين
     (c.expenses || []).forEach((e, ix) => {
@@ -400,7 +418,7 @@ function buildAccounting(org, ops) {
       const expCode = catAcc[e.categoryId] || '5199';
       const credCode = e.paymentMethod === 'deferred' ? '2101' : pmToAcc(e.paymentMethod, bCode);
       push({
-        id: 'exp:' + c.id + ':' + (e.id || ix), date: c.date,
+        id: 'exp:' + c.id + ':' + (e.id || ix), date: c.date, branchId: c.branchId,
         title: (e.categoryName || 'مصروف') + (e.paymentMethod === 'deferred' ? ' (آجل — على الحساب)' : '') + ' — ' + (c.branchName || ''),
         src: 'مصروف وردية', ref: c.id,
         lines: [L(expCode, amt, 0), L(credCode, 0, amt)]
@@ -416,7 +434,7 @@ function buildAccounting(org, ops) {
       if (bank) lines.push(L('1201', 0, bank));
       const nm = supNameOf(pm);
       push({
-        id: 'spay:' + c.id + ':' + (pm.id || ix), date: c.date,
+        id: 'spay:' + c.id + ':' + (pm.id || ix), date: c.date, branchId: c.branchId,
         title: 'سداد مورد' + (nm ? ' — ' + nm : '') + ' (' + (c.branchName || '') + ')',
         src: 'سداد مورد بالوردية', ref: pm.reference || pm.invoiceId || c.id, lines
       });
@@ -427,7 +445,7 @@ function buildAccounting(org, ops) {
   (ops.transfers || []).filter(t => t.status === 'received').forEach(t => {
     if (!(t.amount > 0)) return;
     push({
-      id: 'tr:' + t.id, date: t.date, title: 'توريد نقدي للخزينة الرئيسية — ' + (t.branchName || ''),
+      id: 'tr:' + t.id, date: t.date, branchId: t.branchId, title: 'توريد نقدي للخزينة الرئيسية — ' + (t.branchName || ''),
       src: 'تحويل خزينة', ref: t.referenceNo || t.id,
       lines: [L('1101', t.amount, 0), L(cashCode[t.branchId] || '1101', 0, t.amount)]
     });
@@ -446,7 +464,7 @@ function buildAccounting(org, ops) {
   (ops.invoices || []).forEach(i => {
     const d = (i.date || i.createdAt || i.dueDate || '').slice(0, 10);
     if (i.amount > 0) push({
-      id: 'inv:' + i.id, date: d, title: 'فاتورة توريد آجلة — ' + (i.supplierName || 'مورد'),
+      id: 'inv:' + i.id, date: d, branchId: i.branchId, title: 'فاتورة توريد آجلة — ' + (i.supplierName || 'مورد'),
       src: 'فاتورة مورد', ref: i.invoiceNo || i.id,
       lines: [L('5198', i.amount, 0), L('2101', 0, i.amount)]
     });
@@ -499,6 +517,16 @@ function buildAccounting(org, ops) {
       title: 'سلفة/سحب على الراتب' + (a.reason ? ' — ' + a.reason : ''),
       src: 'الرواتب والسلف', ref: a.month || a.id,
       lines: [L('1401', a.amount, 0), L('1201', 0, a.amount)]
+    });
+  });
+
+  // ٩) القيود اليدوية والافتتاحية — يُدخلها المحاسب من شاشة المحاسبة (التصحيح بقيد عكسي لا بالحذف)
+  (ops.journalManual || []).forEach(j => {
+    push({
+      id: 'man:' + j.id, date: (j.date || '').slice(0, 10),
+      title: j.title || 'قيد يدوي', src: j.opening ? 'قيد افتتاحي' : 'قيد يدوي',
+      ref: j.by || '', manual: true,
+      lines: (j.lines || []).map(l => L(l.code, l.debit || 0, l.credit || 0))
     });
   });
 
@@ -624,14 +652,14 @@ function emptyOrg(company) {
 }
 
 function emptyOps() {
-  return { closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [] };
+  return { closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [] };
 }
 
 
 /* ================= الجذر ================= */
 export default function App() {
   const [org, setOrg] = useState(null);
-  const [ops, setOps] = useState({ closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [] });
+  const [ops, setOps] = useState({ closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [] });
   const [pulse, setPulse] = useState({ presence: {}, audit: [] });
   const [me, setMe] = useState(null);
   const [tab, setTab] = useState('dash');
@@ -1076,7 +1104,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v7.4 📒</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v7.5 📒</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -5234,14 +5262,19 @@ function BalCell({ bal }) {
     <span style={{ fontSize: 10, color: 'var(--faint)', marginInlineStart: 5 }}>{cr ? 'دائن · علينا' : 'مدين · لنا'}</span></span>;
 }
 
-/* ================= شاشة المحاسبة — م١: دليل الحسابات والقيود ================= */
-function Accounting({ org, ops }) {
-  const [view, setView] = useState('jr');           // jr = القيود · coa = دليل الحسابات
+/* ================= شاشة المحاسبة — م١+م٢: دليل، قيود، ميزان، قوائم ================= */
+function Accounting({ org, ops, me, commit, say }) {
+  const [view, setView] = useState('jr');           // jr قيود · coa دليل · tb ميزان · fs قوائم
   const [open, setOpen] = useState({});             // القيود المفتوحة التفاصيل
   const [q, setQ] = useState('');
-  const [month, setMonth] = useState('');           // فلتر شهر اختياري
+  const [month, setMonth] = useState('');           // فلتر شهر للقيود
+  const [from, setFrom] = useState('');             // فترة الميزان/القوائم
+  const [to, setTo] = useState('');
+  const [bf, setBf] = useState('');                 // فلتر الفرع: '' الكل · central مركزي · bId
+  const [jm, setJm] = useState(null);               // نموذج القيد اليدوي
 
   const A = useMemo(() => buildAccounting(org, ops), [org, ops]);
+  const canPost = ROLES[me?.role]?.scope === 'all';
 
   const entries = A.entries.filter(e =>
     (!month || (e.date || '').startsWith(month)) &&
@@ -5250,34 +5283,120 @@ function Accounting({ org, ops }) {
   const kinds = ['asset', 'liab', 'equity', 'rev', 'exp'];
   const srcBadge = (s) => s === 'إغلاق وردية' ? 'b-mint'
     : s === 'كشف الرواتب' ? 'b-sky'
+    : s === 'قيد يدوي' || s === 'قيد افتتاحي' ? 'b-violet'
     : s === 'تحويل خزينة' || s === 'الخزينة الرئيسية' ? 'b-brass'
     : s === 'فاتورة مورد' || s === 'سداد مركزي' || s === 'سداد مورد بالوردية' ? 'b-amber'
     : 'b-dim';
   const fmtBal = (n) => n < 0 ? '(' + money(-n) + ')' : money(n);
+  const codeChip = (c) => (
+    <span className="num" style={{ fontSize: 10.5, color: 'var(--brass-l)', background: 'var(--acc-soft)', border: '1px solid var(--frame-o)', borderRadius: 6, padding: '0 7px' }}>{c}</span>
+  );
+
+  // ===== تجميع بفترة/فرع — كل قيد وحدة متوازنة، لذا أي تصفية كاملة القيود تبقى متوازنة =====
+  const inPeriod = (e, f, t) => (!f || (e.date || '') >= f) && (!t || (e.date || '') <= t);
+  const byBranch = (e) => !bf ? true : bf === 'central' ? !e.branchId : e.branchId === bf;
+  const aggOf = (ents) => {
+    const m = {};
+    ents.forEach(e => e.lines.forEach(l => {
+      const a = m[l.code] || (m[l.code] = { debit: 0, credit: 0 });
+      a.debit += l.debit; a.credit += l.credit;
+    }));
+    return m;
+  };
+  const tbEntries = A.entries.filter(e => inPeriod(e, from, to) && byBranch(e));
+  const tbAgg = aggOf(tbEntries);
+  const tbD = sum(tbEntries, e => e.debit), tbC = sum(tbEntries, e => e.credit);
+  const fsEntries = A.entries.filter(e => inPeriod(e, from, to));      // قائمة الدخل بالفترة
+  const fsAgg = aggOf(fsEntries);
+  const bsEntries = A.entries.filter(e => inPeriod(e, '', to));        // المركز المالي تراكمي حتى تاريخ
+  const bsAgg = aggOf(bsEntries);
+  const balOf = (a, m) => {
+    const x = m[a.code] || { debit: 0, credit: 0 };
+    return (a.kind === 'asset' || a.kind === 'exp') ? x.debit - x.credit : x.credit - x.debit;
+  };
+  const revP = sum(A.accounts.filter(a => a.kind === 'rev'), a => balOf(a, fsAgg));
+  const expP = sum(A.accounts.filter(a => a.kind === 'exp'), a => balOf(a, fsAgg));
+  const netP = Math.round((revP - expP) * 100) / 100;
+  const bsAssets = sum(A.accounts.filter(a => a.kind === 'asset'), a => balOf(a, bsAgg));
+  const bsLiab = sum(A.accounts.filter(a => a.kind === 'liab'), a => balOf(a, bsAgg));
+  const bsEquity = sum(A.accounts.filter(a => a.kind === 'equity'), a => balOf(a, bsAgg));
+  const bsProfit = Math.round((sum(A.accounts.filter(a => a.kind === 'rev'), a => balOf(a, bsAgg))
+    - sum(A.accounts.filter(a => a.kind === 'exp'), a => balOf(a, bsAgg))) * 100) / 100;
+  const bsOk = Math.abs(bsAssets - (bsLiab + bsEquity + bsProfit)) < 0.01;
+
+  // ===== القيد اليدوي/الافتتاحي =====
+  const newJm = () => setJm({
+    date: today(), title: '', opening: false,
+    lines: [{ code: '', debit: '', credit: '' }, { code: '', debit: '', credit: '' }]
+  });
+  const jmUp = (i, k, v) => setJm(m => ({ ...m, lines: m.lines.map((l, x) => x === i ? { ...l, [k]: v } : l) }));
+  const jmD = jm ? sum(jm.lines, l => Number(l.debit) || 0) : 0;
+  const jmC = jm ? sum(jm.lines, l => Number(l.credit) || 0) : 0;
+  const jmOk = jm && jmD > 0 && Math.abs(jmD - jmC) < 0.005 &&
+    jm.lines.every(l => !((Number(l.debit) || 0) && (Number(l.credit) || 0))) &&
+    jm.lines.filter(l => l.code && ((Number(l.debit) || 0) + (Number(l.credit) || 0)) > 0).length >= 2;
+  const saveJm = async () => {
+    if (!jmOk) return say('القيد غير مكتمل — اختر الحسابات وتأكد أن مجموع المدين يساوي الدائن', 'no');
+    const rec = {
+      id: uid('jm'), date: jm.date || today(), title: jm.title.trim() || (jm.opening ? 'قيد افتتاحي' : 'قيد يدوي'),
+      opening: !!jm.opening, by: me?.name || '', createdAt: nowISO(),
+      lines: jm.lines.filter(l => l.code && ((Number(l.debit) || 0) + (Number(l.credit) || 0)) > 0)
+        .map(l => ({ code: l.code, debit: Number(l.debit) || 0, credit: Number(l.credit) || 0 }))
+    };
+    await commit(d => ({ ...d, journalManual: [rec, ...(d.journalManual || [])] }), {
+      actionType: 'create', targetType: 'journal_entry', targetId: rec.id,
+      title: rec.opening ? 'أضاف قيدًا افتتاحيًا' : 'أضاف قيدًا محاسبيًا يدويًا',
+      details: rec.title + ' · ' + money(sum(rec.lines, l => l.debit)) + ' ر.س'
+    });
+    setJm(null); say('سُجّل القيد ✓ — التصحيح لاحقًا يكون بقيد عكسي لا بالحذف');
+  };
+
+  const periodBar = (
+    <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+      <span style={{ fontSize: 11.5, color: 'var(--dim)' }}>من</span>
+      <input type="date" className="inp" style={{ width: 150 }} value={from} onChange={e => setFrom(e.target.value)} />
+      <span style={{ fontSize: 11.5, color: 'var(--dim)' }}>إلى</span>
+      <input type="date" className="inp" style={{ width: 150 }} value={to} onChange={e => setTo(e.target.value)} />
+      {view === 'tb' && (
+        <select className="sel" style={{ width: 170 }} value={bf} onChange={e => setBf(e.target.value)}>
+          <option value="">كل الفروع والمركز</option>
+          <option value="central">القيود المركزية فقط</option>
+          {(org.branches || []).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+        </select>
+      )}
+      {(from || to || bf) && <button className="btn sm gh" onClick={() => { setFrom(''); setTo(''); setBf(''); }}>إظهار الكل</button>}
+    </div>
+  );
 
   return (
     <div className="grid" style={{ gap: 14 }}>
-      <div className="grid g3">
-        <Kpi label="القيود المولّدة تلقائياً" value={String(A.entries.length)} sub="من عملياتك المعتمدة — بأثر رجعي" icon={FileText} color="#4FB286" />
+      <div className="grid g4">
+        <Kpi label="القيود المسجّلة" value={String(A.entries.length)} sub="تلقائية من عملياتك + يدوية المحاسب" icon={FileText} color="#4FB286" />
         <Kpi label={A.balanced ? 'كل القيود متوازنة ✓' : 'يوجد قيد غير متوازن!'} value={money(A.totalDebit)}
-          sub={'إجمالي المدين = إجمالي الدائن'} icon={Scale} color={A.balanced ? '#C8A24A' : '#D9544D'} />
+          sub="إجمالي المدين = إجمالي الدائن" icon={Scale} color={A.balanced ? '#C8A24A' : '#D9544D'} />
+        <Kpi label="صافي نتيجة الفترة المعروضة" value={money(netP)} sub={netP >= 0 ? 'ربح' : 'خسارة'} icon={TrendingUp} color={netP >= 0 ? '#4FB286' : '#D9544D'} />
         <Kpi label="حسابات نشطة" value={String(A.accounts.filter(a => a.active).length) + ' / ' + A.accounts.length}
           sub="من دليل الحسابات" icon={Landmark} color="#5B93C4" />
       </div>
 
       <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
         <button className={'btn sm' + (view === 'jr' ? ' pri' : ' gh')} onClick={() => setView('jr')}><FileText size={14} />القيود اليومية</button>
-        <button className={'btn sm' + (view === 'coa' ? ' pri' : ' gh')} onClick={() => setView('coa')}><Landmark size={14} />دليل الحسابات والأرصدة</button>
-        {view === 'jr' && <>
-          <input className="inp" style={{ width: 200, flex: '1 1 140px', maxWidth: 260 }} placeholder="بحث في القيود…" value={q} onChange={e => setQ(e.target.value)} />
-          <input type="month" className="inp" style={{ width: 150 }} value={month} onChange={e => setMonth(e.target.value)} />
-          {month && <button className="btn sm gh" onClick={() => setMonth('')}>كل الشهور</button>}
-        </>}
+        <button className={'btn sm' + (view === 'coa' ? ' pri' : ' gh')} onClick={() => setView('coa')}><Landmark size={14} />دليل الحسابات</button>
+        <button className={'btn sm' + (view === 'tb' ? ' pri' : ' gh')} onClick={() => setView('tb')}><Scale size={14} />ميزان المراجعة</button>
+        <button className={'btn sm' + (view === 'fs' ? ' pri' : ' gh')} onClick={() => setView('fs')}><FileBarChart size={14} />القوائم المالية</button>
+        {canPost && <button className="btn sm" style={{ marginInlineStart: 'auto' }} onClick={newJm}><Plus size={14} />قيد يدوي / افتتاحي</button>}
       </div>
 
       {view === 'jr' && (
         <div className="card">
-          <div className="card-t" style={{ marginBottom: 10 }}><FileText size={15} color="var(--brass)" />القيود اليومية — تُشتق آليًا من عملياتك، اضغط أي قيد لتفاصيله</div>
+          <div className="card-h">
+            <div className="card-t"><FileText size={15} color="var(--brass)" />القيود اليومية — اضغط أي قيد لتفاصيله</div>
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+              <input className="inp" style={{ width: 190 }} placeholder="بحث في القيود…" value={q} onChange={e => setQ(e.target.value)} />
+              <input type="month" className="inp" style={{ width: 150 }} value={month} onChange={e => setMonth(e.target.value)} />
+              {month && <button className="btn sm gh" onClick={() => setMonth('')}>كل الشهور</button>}
+            </div>
+          </div>
           <div className="tw">
             <table className="tb">
               <thead><tr><th>رقم</th><th>التاريخ</th><th>البيان</th><th>المصدر</th><th style={{ textAlign: 'end' }}>المبلغ</th></tr></thead>
@@ -5289,7 +5408,7 @@ function Accounting({ org, ops }) {
                       <td className="num" style={{ fontSize: 11.5, whiteSpace: 'nowrap' }}>{e.date}</td>
                       <td style={{ fontSize: 12.5 }}>{e.title}
                         {!e.balanced && <span className="badge b-rose" style={{ marginInlineStart: 6 }}>غير متوازن!</span>}</td>
-                      <td><span className={'badge ' + srcBadge(e.src)} style={{ fontSize: 9.5 }}>تلقائي · {e.src}</span></td>
+                      <td><span className={'badge ' + srcBadge(e.src)} style={{ fontSize: 9.5 }}>{e.manual ? '' : 'تلقائي · '}{e.src}</span></td>
                       <td className="num" style={{ textAlign: 'end', fontWeight: 600 }}>{money(e.debit)}</td>
                     </tr>
                     {open[e.id] && (
@@ -5300,7 +5419,7 @@ function Accounting({ org, ops }) {
                             <tbody>
                               {e.lines.map((l, i) => (
                                 <tr key={i}>
-                                  <td><span className="num" style={{ fontSize: 10, color: 'var(--brass-l)', background: 'var(--acc-soft)', border: '1px solid var(--frame-o)', borderRadius: 6, padding: '0 6px', marginInlineEnd: 6 }}>{l.code}</span>{l.name}</td>
+                                  <td>{codeChip(l.code)} <span style={{ marginInlineStart: 4 }}>{l.name}</span></td>
                                   <td className="num" style={{ textAlign: 'end' }}>{l.debit ? money(l.debit) : '—'}</td>
                                   <td className="num" style={{ textAlign: 'end' }}>{l.credit ? money(l.credit) : '—'}</td>
                                 </tr>
@@ -5312,7 +5431,11 @@ function Accounting({ org, ops }) {
                               </tr>
                             </tbody>
                           </table>
-                          <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 6 }}>المصدر: {e.src} · المرجع: <span className="num">{e.ref}</span> — لم يُدخل هذا القيد يدويًا؛ تصحيح المصدر ينعكس هنا تلقائيًا.</div>
+                          <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 6 }}>
+                            {e.manual
+                              ? <>قيد {e.src === 'قيد افتتاحي' ? 'افتتاحي' : 'يدوي'} أدخله: {e.ref || '—'} — التصحيح يكون بقيد عكسي، لا حذف حفاظًا على سلامة السجل.</>
+                              : <>المصدر: {e.src} · المرجع: <span className="num">{e.ref}</span> — لم يُدخل هذا القيد يدويًا؛ تصحيح المصدر ينعكس هنا تلقائيًا.</>}
+                          </div>
                         </div>
                       </td></tr>
                     )}
@@ -5327,7 +5450,7 @@ function Accounting({ org, ops }) {
 
       {view === 'coa' && (
         <div className="card">
-          <div className="card-t" style={{ marginBottom: 10 }}><Landmark size={15} color="var(--brass)" />دليل الحسابات — أرصدة حيّة من القيود التلقائية</div>
+          <div className="card-t" style={{ marginBottom: 10 }}><Landmark size={15} color="var(--brass)" />دليل الحسابات — أرصدة حيّة، وذمّة مستقلة لكل تطبيق توصيل</div>
           <div className="tw">
             <table className="tb">
               <thead><tr><th>الرمز</th><th>الحساب</th><th style={{ textAlign: 'end' }}>مدين</th><th style={{ textAlign: 'end' }}>دائن</th><th style={{ textAlign: 'end' }}>الرصيد</th></tr></thead>
@@ -5338,7 +5461,7 @@ function Accounting({ org, ops }) {
                       {ACC_KIND[k].ar} <span style={{ color: 'var(--faint)', fontWeight: 500, fontSize: 10.5 }}>· طبيعته {ACC_KIND[k].nature}</span></td></tr>
                     {A.accounts.filter(a => a.kind === k).map(a => (
                       <tr key={a.code} style={{ opacity: a.active ? 1 : .55 }}>
-                        <td><span className="num" style={{ fontSize: 10.5, color: 'var(--brass-l)', background: 'var(--acc-soft)', border: '1px solid var(--frame-o)', borderRadius: 6, padding: '0 7px' }}>{a.code}</span></td>
+                        <td>{codeChip(a.code)}</td>
                         <td style={{ fontSize: 12.5 }}>{a.name}
                           {a.link && <div style={{ fontSize: 9.5, color: 'var(--sky)' }}>مرتبط: {a.link}</div>}</td>
                         <td className="num" style={{ textAlign: 'end' }}>{a.debit ? money(a.debit) : '—'}</td>
@@ -5360,14 +5483,153 @@ function Accounting({ org, ops }) {
         </div>
       )}
 
+      {view === 'tb' && (
+        <div className="card">
+          <div className="card-h">
+            <div className="card-t"><Scale size={15} color="var(--brass)" />ميزان المراجعة</div>
+            {periodBar}
+          </div>
+          <div className="tw">
+            <table className="tb">
+              <thead><tr><th>الرمز</th><th>الحساب</th><th style={{ textAlign: 'end' }}>مدين الفترة</th><th style={{ textAlign: 'end' }}>دائن الفترة</th><th style={{ textAlign: 'end' }}>الرصيد</th></tr></thead>
+              <tbody>
+                {A.accounts.filter(a => tbAgg[a.code]).map(a => {
+                  const x = tbAgg[a.code];
+                  const b = (a.kind === 'asset' || a.kind === 'exp') ? x.debit - x.credit : x.credit - x.debit;
+                  return (
+                    <tr key={a.code}>
+                      <td>{codeChip(a.code)}</td>
+                      <td style={{ fontSize: 12.5 }}>{a.name}</td>
+                      <td className="num" style={{ textAlign: 'end' }}>{x.debit ? money(x.debit) : '—'}</td>
+                      <td className="num" style={{ textAlign: 'end' }}>{x.credit ? money(x.credit) : '—'}</td>
+                      <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: b < 0 ? 'var(--rose)' : 'var(--txt)' }}>{fmtBal(b)}</td>
+                    </tr>
+                  );
+                })}
+                {tbEntries.length === 0 && <tr><td colSpan={5}><div className="empty">لا حركة في هذه الفترة/الفرع.</div></td></tr>}
+                <tr style={{ fontWeight: 800, background: 'rgba(200,162,74,.05)' }}>
+                  <td colSpan={2}>إجمالي الفترة {Math.abs(tbD - tbC) < 0.01 ? '— متوازن ✓' : '— غير متوازن!'}</td>
+                  <td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{money(tbD)}</td>
+                  <td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{money(tbC)}</td>
+                  <td />
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 8 }}>كل قيد وحدة كاملة لا تتجزأ — لذلك يبقى الميزان متوازنًا مع أي تصفية بالفترة أو الفرع. القيود المركزية (رواتب، خزينة، فواتير المركز) تظهر ضمن خيار «القيود المركزية».</div>
+        </div>
+      )}
+
+      {view === 'fs' && (
+        <div className="grid g2" style={{ alignItems: 'start' }}>
+          <div className="card">
+            <div className="card-h">
+              <div className="card-t"><TrendingUp size={15} color="var(--mint)" />قائمة الدخل {from || to ? '(الفترة المحددة)' : '(كامل المدة)'}</div>
+            </div>
+            {periodBar}
+            <div className="tw" style={{ marginTop: 10 }}>
+              <table className="tb">
+                <tbody>
+                  {A.accounts.filter(a => a.kind === 'rev' && fsAgg[a.code]).map(a => (
+                    <tr key={a.code}><td>{a.name}</td><td className="num" style={{ textAlign: 'end', color: 'var(--mint)' }}>{money(balOf(a, fsAgg))}</td></tr>
+                  ))}
+                  <tr style={{ fontWeight: 700 }}><td>إجمالي الإيرادات</td><td className="num" style={{ textAlign: 'end', color: 'var(--mint)' }}>{money(revP)}</td></tr>
+                  {A.accounts.filter(a => a.kind === 'exp' && fsAgg[a.code]).map(a => (
+                    <tr key={a.code}><td style={{ color: 'var(--dim)' }}>{a.name}</td><td className="num" style={{ textAlign: 'end', color: 'var(--rose)' }}>({money(balOf(a, fsAgg))})</td></tr>
+                  ))}
+                  <tr style={{ fontWeight: 700 }}><td>إجمالي المصروفات</td><td className="num" style={{ textAlign: 'end', color: 'var(--rose)' }}>({money(expP)})</td></tr>
+                  <tr style={{ fontWeight: 900, background: 'rgba(200,162,74,.05)' }}>
+                    <td>{netP >= 0 ? 'صافي الربح' : 'صافي الخسارة'}{revP > 0 && <span className="badge b-dim" style={{ marginInlineStart: 8 }}>هامش {Math.round(netP / revP * 1000) / 10}%</span>}</td>
+                    <td className="num" style={{ textAlign: 'end', color: netP >= 0 ? 'var(--mint)' : 'var(--rose)', fontSize: 15 }}>{money(netP)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 8 }}>الأرقام إجمالية شاملة الضريبة — فصل ضريبة القيمة المضافة في مرحلة الضريبة.</div>
+          </div>
+          <div className="card">
+            <div className="card-t" style={{ marginBottom: 10 }}><Landmark size={15} color="var(--brass)" />قائمة المركز المالي {to ? 'حتى ' + to : '(حتى اليوم)'}</div>
+            <div className="tw">
+              <table className="tb">
+                <tbody>
+                  <tr><td colSpan={2} style={{ fontWeight: 800, color: 'var(--brass-l)' }}>الأصول</td></tr>
+                  {A.accounts.filter(a => a.kind === 'asset' && bsAgg[a.code] && Math.abs(balOf(a, bsAgg)) > 0.004).map(a => (
+                    <tr key={a.code}><td style={{ color: 'var(--dim)' }}>{a.name}</td><td className="num" style={{ textAlign: 'end' }}>{fmtBal(balOf(a, bsAgg))}</td></tr>
+                  ))}
+                  <tr style={{ fontWeight: 700 }}><td>إجمالي الأصول</td><td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{money(bsAssets)}</td></tr>
+                  <tr><td colSpan={2} style={{ fontWeight: 800, color: 'var(--brass-l)', paddingTop: 12 }}>الخصوم وحقوق الملكية</td></tr>
+                  {A.accounts.filter(a => (a.kind === 'liab' || a.kind === 'equity') && bsAgg[a.code] && Math.abs(balOf(a, bsAgg)) > 0.004).map(a => (
+                    <tr key={a.code}><td style={{ color: 'var(--dim)' }}>{a.name}</td><td className="num" style={{ textAlign: 'end' }}>{fmtBal(balOf(a, bsAgg))}</td></tr>
+                  ))}
+                  <tr><td style={{ color: 'var(--dim)' }}>أرباح الفترة المتراكمة (تلقائي)</td><td className="num" style={{ textAlign: 'end', color: bsProfit >= 0 ? 'var(--mint)' : 'var(--rose)' }}>{fmtBal(bsProfit)}</td></tr>
+                  <tr style={{ fontWeight: 800, background: 'rgba(200,162,74,.05)' }}>
+                    <td>الإجمالي {bsOk ? '— يطابق الأصول ✓' : '— لا يطابق!'}</td>
+                    <td className="num" style={{ textAlign: 'end', color: bsOk ? 'var(--brass-l)' : 'var(--rose)' }}>{money(bsLiab + bsEquity + bsProfit)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 8 }}>الأرصدة الافتتاحية (رأس المال، أرصدة سابقة) تُدخل من زر «قيد يدوي / افتتاحي» مقابل حساب 3101.</div>
+          </div>
+        </div>
+      )}
+
       <div className="card" style={{ background: 'rgba(200,162,74,.04)', borderStyle: 'dashed' }}>
         <div style={{ fontSize: 11.5, color: 'var(--dim)', lineHeight: 1.9 }}>
-          <b style={{ color: 'var(--brass-l)' }}>حدود المرحلة الأولى (بشفافية):</b> المبالغ إجمالية كما سُجّلت — فصل ضريبة القيمة المضافة يأتي في مرحلة الضريبة.
-          المدفوعات البنكية (شبكة/تحويل/شيك) تُجمَّع في حساب بنكي واحد تُسوّى تفاصيله في مرحلة التسوية البنكية.
-          بطاقات «إيجارات وفواتير الفروع» الثابتة لا تولّد قيودًا (سدادها الفعلي يدخل من مصروفات الورديات) لتفادي الازدواج.
-          الحركات اليدوية في دفتر الشركاء والأرصدة الافتتاحية تُقيَّد في المرحلة التالية مع القيود اليدوية للمحاسب.
+          <b style={{ color: 'var(--brass-l)' }}>حدود المرحلة الحالية (بشفافية):</b> المبالغ إجمالية كما سُجّلت — فصل ضريبة القيمة المضافة يأتي في مرحلة الضريبة.
+          كل تطبيق توصيل له ذمّة مستقلة وتُفصل عمولته تلقائيًا بنسبته المعرّفة في «الفروع والمستخدمون ← تطبيقات التوصيل»؛ وعند استلام مستحقات تطبيق في البنك سجّلها بقيد يدوي (مدين البنك / دائن ذمّة التطبيق).
+          المدفوعات البنكية تتجمع في حساب بنكي واحد تُسوّى تفاصيله في مرحلة التسوية البنكية.
+          بطاقات «إيجارات وفواتير الفروع» الثابتة لا تولّد قيودًا (سدادها الفعلي يدخل من مصروفات الورديات) تفاديًا للازدواج.
+          القيود لا تُحذف — التصحيح بقيد عكسي، حفاظًا على سلامة السجل أمام أي مراجع.
         </div>
       </div>
+
+      {jm && (
+        <Modal title={jm.opening ? 'قيد افتتاحي' : 'قيد محاسبي يدوي'} sub="مجموع المدين يجب أن يساوي مجموع الدائن — وكل سطر في جهة واحدة فقط"
+          icon={FileText} onClose={() => setJm(null)} wide
+          foot={<>
+            <button className="btn gh" onClick={() => setJm(null)}>إلغاء</button>
+            <button className="btn pri" disabled={!jmOk} onClick={saveJm}><Check size={14} />تسجيل القيد</button>
+          </>}>
+          <div className="row" style={{ gap: 9, flexWrap: 'wrap' }}>
+            <Field label="التاريخ" style={{ width: 160 }}>
+              <input type="date" className="inp" value={jm.date} onChange={e => setJm(m => ({ ...m, date: e.target.value }))} />
+            </Field>
+            <Field label="بيان القيد" style={{ flex: 1, minWidth: 200 }}>
+              <input className="inp" placeholder="مثال: استلام مستحقات جاهز في البنك · رصيد افتتاحي للصندوق…" value={jm.title} onChange={e => setJm(m => ({ ...m, title: e.target.value }))} />
+            </Field>
+            <label className="row" style={{ gap: 6, fontSize: 12, color: 'var(--dim)', alignItems: 'center', cursor: 'pointer', paddingTop: 16 }}>
+              <input type="checkbox" checked={jm.opening} onChange={e => setJm(m => ({ ...m, opening: e.target.checked }))} />
+              قيد افتتاحي (أرصدة بداية المدة)
+            </label>
+          </div>
+          {jm.lines.map((l, i) => (
+            <div key={i} className="row" style={{ gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+              <select className="sel jm-acc" style={{ flex: 2, minWidth: 190 }} value={l.code} onChange={e => jmUp(i, 'code', e.target.value)}>
+                <option value="">— اختر الحساب —</option>
+                {kinds.map(k => (
+                  <optgroup key={k} label={ACC_KIND[k].ar}>
+                    {A.accounts.filter(a => a.kind === k).map(a => <option key={a.code} value={a.code}>{a.code} · {a.name}</option>)}
+                  </optgroup>
+                ))}
+              </select>
+              <input className="inp n jm-d" inputMode="decimal" style={{ flex: 1, minWidth: 110 }} placeholder="مدين 0.00" value={l.debit}
+                onChange={e => jmUp(i, 'debit', e.target.value.replace(/[^\d.]/g, ''))} />
+              <input className="inp n jm-c" inputMode="decimal" style={{ flex: 1, minWidth: 110 }} placeholder="دائن 0.00" value={l.credit}
+                onChange={e => jmUp(i, 'credit', e.target.value.replace(/[^\d.]/g, ''))} />
+              {jm.lines.length > 2 && <button className="btn sm gh" onClick={() => setJm(m => ({ ...m, lines: m.lines.filter((_, x) => x !== i) }))}><X size={13} /></button>}
+            </div>
+          ))}
+          <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+            <button className="btn sm" onClick={() => setJm(m => ({ ...m, lines: [...m.lines, { code: '', debit: '', credit: '' }] }))}><Plus size={13} />سطر إضافي</button>
+            <div className="row" style={{ gap: 10, fontSize: 12.5 }}>
+              <span>مدين: <b className="num" style={{ color: 'var(--brass-l)' }}>{money(jmD)}</b></span>
+              <span>دائن: <b className="num" style={{ color: 'var(--brass-l)' }}>{money(jmC)}</b></span>
+              <span className={'badge ' + (jmOk ? 'b-mint' : 'b-rose')}>{jmOk ? 'متوازن ✓' : Math.abs(jmD - jmC) < 0.005 ? 'أكمل البيانات' : 'فرق ' + money(Math.abs(jmD - jmC))}</span>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
