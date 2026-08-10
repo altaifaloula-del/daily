@@ -363,6 +363,8 @@ function buildAccounting(org, ops) {
   addAcc('1399', 'ذمم تطبيقات أخرى (غير معرّفة)', 'asset');
   addAcc('1401', 'سلف الموظفين وعُهدهم', 'asset', { link: 'الرواتب والسلف' });
   addAcc('1501', 'ضريبة القيمة المضافة — مدخلات', 'asset', { link: 'تُخصم من الإقرار' });
+  addAcc('1701', 'الأصول الثابتة', 'asset', { link: 'سجل الأصول' });
+  addAcc('1791', 'مجمّع الإهلاك (يُطرح من الأصول)', 'asset', { link: 'قسط ثابت شهري تلقائي' });
   // — الخصوم —
   addAcc('2101', 'ذمم الموردين', 'liab', { link: 'دفتر الشركاء' });
   addAcc('2201', 'رواتب مستحقة', 'liab', { link: 'كشف الرواتب' });
@@ -374,6 +376,7 @@ function buildAccounting(org, ops) {
   // — المصروفات —
   addAcc('5201', 'الرواتب والأجور (كشف الرواتب)', 'exp', { link: 'ترحيل الاستحقاق الشهري' });
   addAcc('5301', 'عمولات تطبيقات التوصيل', 'exp', { link: 'نِسَب العمولة من إعدادات التطبيقات' });
+  addAcc('5701', 'مصروف الإهلاك', 'exp', { link: 'سجل الأصول — تلقائي' });
   addAcc('5901', 'مصروفات الخزينة الرئيسية (أوامر الصرف)', 'exp', { link: 'شاشة الخزينة' });
   const catAcc = {};
   (org.expenseCats || []).forEach((c, i) => {
@@ -546,7 +549,43 @@ function buildAccounting(org, ops) {
     });
   });
 
-  // ٩) القيود اليدوية والافتتاحية — يُدخلها المحاسب من شاشة المحاسبة (التصحيح بقيد عكسي لا بالحذف)
+  // ٩) الأصول الثابتة: قيد شراء بمصدر تمويل صريح + إهلاك قسط ثابت شهري (يُشتق كاملًا — تعديل الأصل يعيد الاشتقاق)
+  const ymAdd = (ym, k) => { const pr = ym.split('-').map(Number); const t = pr[0] * 12 + (pr[1] - 1) + k; return String(Math.floor(t / 12)).padStart(4, '0') + '-' + String((t % 12) + 1).padStart(2, '0'); };
+  const nowYm = today().slice(0, 7);
+  const FUND_AR = { '1101': 'من الخزينة الرئيسية', '1201': 'من البنك', '3101': 'قيد افتتاحي (رصيد سابق)', none: '' };
+  const depByMonth = {};
+  const assetRows = (org.assets || []).map(a => {
+    const cost = Number(a.cost) || 0;
+    const nM = Math.max(1, Math.round((Number(a.lifeYears) || 0) * 12));
+    if (cost > 0 && a.fund && a.fund !== 'none' && accIx[a.fund]) push({
+      id: 'ast:' + a.id, date: (a.buyDate || '').slice(0, 10), title: 'شراء أصل ثابت — ' + (a.name || '') + ' (' + (FUND_AR[a.fund] || '') + ')',
+      src: 'الأصول الثابتة', ref: a.id,
+      lines: [L('1701', cost, 0), L(a.fund, 0, cost)]
+    });
+    let accum = 0, monthsDone = 0;
+    if (cost > 0 && (Number(a.lifeYears) || 0) > 0 && a.buyDate) {
+      const base = Math.floor(cost / nM * 100) / 100;
+      const start = ymAdd(a.buyDate.slice(0, 7), 1);       // الإهلاك من الشهر التالي للشراء
+      for (let k = 0; k < nM; k++) {
+        const ym = ymAdd(start, k);
+        if (ym > nowYm) break;
+        const amt = k === nM - 1 ? Math.round((cost - base * (nM - 1)) * 100) / 100 : base;
+        depByMonth[ym] = Math.round(((depByMonth[ym] || 0) + amt) * 100) / 100;
+        accum = Math.round((accum + amt) * 100) / 100; monthsDone++;
+      }
+    }
+    return { ...a, cost, nM, monthly: Math.floor(cost / nM * 100) / 100, accum, book: Math.round((cost - accum) * 100) / 100, monthsDone, done: monthsDone >= nM };
+  });
+  Object.keys(depByMonth).sort().forEach(ym => {
+    if (depByMonth[ym] <= 0) return;
+    push({
+      id: 'dep:' + ym, date: ym + '-28', title: 'إهلاك شهر ' + ym + ' (قسط ثابت — كل الأصول)',
+      src: 'الأصول الثابتة', ref: 'dep-' + ym,
+      lines: [L('5701', depByMonth[ym], 0), L('1791', 0, depByMonth[ym])]
+    });
+  });
+
+  // ٩مكرر) القيود اليدوية والافتتاحية — يُدخلها المحاسب من شاشة المحاسبة (التصحيح بقيد عكسي لا بالحذف)
   (ops.journalManual || []).forEach(j => {
     push({
       id: 'man:' + j.id, date: (j.date || '').slice(0, 10),
@@ -570,7 +609,7 @@ function buildAccounting(org, ops) {
   const totalDebit = sum(entries, e => e.debit);
   const totalCredit = sum(entries, e => e.credit);
   return {
-    accounts, entries: entries.slice().reverse(), cashCode,
+    accounts, entries: entries.slice().reverse(), cashCode, assetRows,
     totalDebit, totalCredit,
     balanced: Math.abs(totalDebit - totalCredit) < 0.01 && entries.every(e => e.balanced)
   };
@@ -695,8 +734,8 @@ const REG_APPS = [
   { id: 'products', ar: 'المنتجات والوصفات', en: 'Products & Recipes', cat: 'inv2', icon: Store, open: { tab: 'inv', view: 'recipes' }, kw: ['منتج', 'وصفة', 'تكلفة', 'هامش', 'مخزون'], fns: ['وصفة بمكونات من الأصناف', 'تكلفة حقيقية بآخر شراء', 'هامش لحظي (صافي الضريبة)'], d: 'وصفة وتكلفة وهامش لكل منتج — من أصناف مخزونك وأسعارها الفعلية.' },
   { id: 'stock', ar: 'المخزون والجرد', en: 'Stock & Stocktake', cat: 'inv2', icon: HardDrive, open: { tab: 'inv', view: 'items' }, kw: ['مستودع', 'جرد', 'حركة', 'رصيد', 'هدر', 'مخزون', 'حد أدنى'], fns: ['أرصدة حية بحد أدنى وتنبيه', 'توريد وصرف وهدر', 'جرد بعدّ فعلي وتسويات موثقة'], d: 'أرصدة أصنافك وحركاتها وجردها الدوري — والتوريد من أوامر الشراء تلقائي.' },
   // ——— الأصول والتسويات (خطة م٥) ———
-  { id: 'assets', ar: 'الأصول الثابتة والإهلاك', en: 'Fixed Assets', cat: 'ast', icon: Building2, soon: 'م٥', kw: ['أصل', 'إهلاك', 'معدات'], fns: [], d: 'سجل الأصول وقيود الإهلاك التلقائية.' },
-  { id: 'bankrec', ar: 'التسوية البنكية', en: 'Bank Reconciliation', cat: 'ast', icon: Landmark, soon: 'م٥', kw: ['بنك', 'تسوية', 'كشف', 'مطابقة', 'شبكة'], fns: [], d: 'مطابقة الحساب البنكي التجميعي مع كشوف البنك الفعلية.' },
+  { id: 'assets', ar: 'الأصول الثابتة والإهلاك', en: 'Fixed Assets', cat: 'ast', icon: Building2, open: { tab: 'acct', view: 'ast' }, kw: ['أصل', 'إهلاك', 'معدات', 'قيمة دفترية'], fns: ['سجل أصول بمصدر تمويل صريح', 'إهلاك شهري تلقائي بأثر رجعي', 'قيمة دفترية حية'], d: 'سجل أصولك وقيود شرائها وإهلاكها الشهري تلقائياً حتى نهاية عمرها.' },
+  { id: 'bankrec', ar: 'التسوية البنكية', en: 'Bank Reconciliation', cat: 'ast', icon: Landmark, open: { tab: 'acct', view: 'bank' }, kw: ['بنك', 'تسوية', 'كشف', 'مطابقة', 'شبكة', 'فرق'], fns: ['رصيد الدفتر مقابل كشف البنك', 'فرق موثق بسجل تسويات', 'حركات البنك مفصلة'], d: 'طابق حساب البنك التجميعي مع كشفك الفعلي ووثّق الفروقات — والتصحيح بقيد يدوي.' },
   // ——— التدقيق والحوكمة ———
   { id: 'audit', ar: 'سجل التدقيق', en: 'Audit Trail', cat: 'gov', icon: Eye, open: { tab: 'audit' }, kw: ['تدقيق', 'سجل', 'عملية', 'حوكمة', 'من فعل'], fns: ['كل عملية باسم صاحبها ووقتها', 'تنبيهات حية لمدير النظام'], d: 'من فعل ماذا ومتى — سجل كامل لا يُمحى لكل حركة في النظام.' },
   { id: 'archive', ar: 'أرشيف المستندات', en: 'Documents Archive', cat: 'gov', icon: ImageIcon, open: { tab: 'archive' }, kw: ['مستند', 'صورة', 'أرشيف', 'وثيقة', 'إيصال'], fns: ['صور الإغلاقات والإيصالات', 'تصفح بالفرع والتاريخ'], d: 'كل صور التوثيق والإيصالات مؤرشفة بالفرع والتاريخ.' },
@@ -756,14 +795,14 @@ function emptyOrg(company) {
 }
 
 function emptyOps() {
-  return { closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [] };
+  return { closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [] };
 }
 
 
 /* ================= الجذر ================= */
 export default function App() {
   const [org, setOrg] = useState(null);
-  const [ops, setOps] = useState({ closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [] });
+  const [ops, setOps] = useState({ closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [] });
   const [pulse, setPulse] = useState({ presence: {}, audit: [] });
   const [me, setMe] = useState(null);
   const [tab, setTab] = useState('dash');
@@ -1214,7 +1253,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v7.8 📦</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v7.9 🏛️</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -6110,6 +6149,8 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const [to, setTo] = useState('');
   const [bf, setBf] = useState('');                 // فلتر الفرع: '' الكل · central مركزي · bId
   const [jm, setJm] = useState(null);               // نموذج القيد اليدوي
+  const [astF, setAstF] = useState(null);           // نموذج أصل ثابت
+  const [brF, setBrF] = useState({ date: today(), stmt: '', note: '' }); // نموذج تسوية بنكية
 
   // فتح شاشة محددة قادمة من مركز التطبيقات (دليل/ميزان/قوائم…)
   useEffect(() => { if (acctIntent && acctIntent.v) setView(acctIntent.v); }, [acctIntent && acctIntent.ts]);
@@ -6184,6 +6225,45 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     });
   };
 
+  // ===== م٥: الأصول الثابتة =====
+  const saveAst = async () => {
+    const f = astF;
+    if (!f.name.trim()) return say('أدخل اسم الأصل', 'no');
+    const cost = Number(f.cost) || 0;
+    if (cost <= 0) return say('أدخل تكلفة الأصل', 'no');
+    if (!(Number(f.lifeYears) > 0)) return say('أدخل العمر الإنتاجي بالسنوات', 'no');
+    const rec = { id: f.id || uid('as'), name: f.name.trim(), cost, buyDate: f.buyDate || today(), lifeYears: Number(f.lifeYears), fund: f.fund || 'none', note: f.note || '' };
+    await commitOrg(d => ({ ...d, assets: f.id ? (d.assets || []).map(x => x.id === f.id ? rec : x) : [...(d.assets || []), rec] }), {
+      actionType: f.id ? 'update' : 'create', targetType: 'fixed_asset', targetId: rec.id,
+      title: f.id ? 'عدّل أصلاً ثابتاً (أُعيد اشتقاق إهلاكه)' : 'سجّل أصلاً ثابتاً',
+      details: rec.name + ' · ' + money(cost) + ' · ' + rec.lifeYears + ' سنة'
+    });
+    setAstF(null); say('حُفظ الأصل — قيود الشراء والإهلاك تولّدت تلقائياً ✓');
+  };
+
+  // ===== م٥: التسوية البنكية =====
+  const bankBookAt = (d) => {
+    let v = 0;
+    A.entries.forEach(e => { if (!d || (e.date || '') <= d) e.lines.forEach(l => { if (l.code === '1201') v += l.debit - l.credit; }); });
+    return Math.round(v * 100) / 100;
+  };
+  const bankMoves = A.entries
+    .filter(e => e.lines.some(l => l.code === '1201'))
+    .slice(0, 60)
+    .map(e => ({ ...e, bankD: sum(e.lines.filter(l => l.code === '1201'), l => l.debit), bankC: sum(e.lines.filter(l => l.code === '1201'), l => l.credit) }));
+  const saveBankRec = async () => {
+    const stmt = Number(brF.stmt) || 0;
+    const book = bankBookAt(brF.date);
+    const rec = { id: uid('br'), date: brF.date || today(), stmtBalance: stmt, bookBalance: book,
+      diff: Math.round((stmt - book) * 100) / 100, note: brF.note || '', by: me?.name || '', at: nowISO() };
+    await commit(d => ({ ...d, bankRecs: [rec, ...(d.bankRecs || [])] }), {
+      actionType: 'create', targetType: 'bank_rec', targetId: rec.id,
+      title: 'وثّق تسوية بنكية', details: rec.date + ' · كشف ' + money(stmt) + ' · دفتر ' + money(book) + ' · فرق ' + money(rec.diff)
+    });
+    setBrF({ date: today(), stmt: '', note: '' }); say('وُثّقت التسوية — عالج الفرق بقيد يدوي إن لزم ✓');
+  };
+  const lastRec = (ops.bankRecs || [])[0];
+
   // ===== القيد اليدوي/الافتتاحي =====
   const newJm = () => setJm({
     date: today(), title: '', opening: false,
@@ -6245,6 +6325,8 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         <button className={'btn sm' + (view === 'tb' ? ' pri' : ' gh')} onClick={() => setView('tb')}><Scale size={14} />ميزان المراجعة</button>
         <button className={'btn sm' + (view === 'fs' ? ' pri' : ' gh')} onClick={() => setView('fs')}><FileBarChart size={14} />القوائم المالية</button>
         <button className={'btn sm' + (view === 'vat' ? ' pri' : ' gh')} onClick={() => setView('vat')}><Receipt size={14} />الضريبة</button>
+        <button className={'btn sm' + (view === 'ast' ? ' pri' : ' gh')} onClick={() => setView('ast')}><Building2 size={14} />الأصول</button>
+        <button className={'btn sm' + (view === 'bank' ? ' pri' : ' gh')} onClick={() => setView('bank')}><Landmark size={14} />التسوية البنكية</button>
         {canPost && <button className="btn sm" style={{ marginInlineStart: 'auto' }} onClick={newJm}><Plus size={14} />قيد يدوي / افتتاحي</button>}
       </div>
 
@@ -6500,6 +6582,125 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
           </>}
           {!taxOn && <div className="card"><div className="empty">فعّل الاحتساب أعلاه لتظهر مؤشرات الضريبة ومسودة الإقرار من قيودك مباشرة.</div></div>}
         </div>
+      )}
+
+      {view === 'ast' && (
+        <div className="grid" style={{ gap: 12 }}>
+          <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+            <div className="grid g3" style={{ flex: 1, minWidth: 280 }}>
+              <Kpi label="تكلفة الأصول" value={money(sum(A.assetRows, a => a.cost))} sub={A.assetRows.length + ' أصلاً مسجلاً'} icon={Building2} color="#C8A24A" />
+              <Kpi label="مجمّع الإهلاك" value={money(sum(A.assetRows, a => a.accum))} sub="قسط ثابت شهري تلقائي" icon={TrendingDown} color="#E0A458" />
+              <Kpi label="القيمة الدفترية" value={money(sum(A.assetRows, a => a.book))} sub="التكلفة ناقص المجمّع" icon={Scale} color="#4FB286" />
+            </div>
+            {canPost && <button className="btn pri" style={{ alignSelf: 'flex-start' }} onClick={() => setAstF({ name: '', cost: '', buyDate: today(), lifeYears: '5', fund: '1201', note: '' })}><Plus size={14} />أصل جديد</button>}
+          </div>
+          <div className="card">
+            <div className="tw">
+              <table className="tb">
+                <thead><tr><th>الأصل</th><th>الشراء</th><th style={{ textAlign: 'end' }}>التكلفة</th><th style={{ textAlign: 'end' }}>القسط الشهري</th><th style={{ textAlign: 'end' }}>المجمّع</th><th style={{ textAlign: 'end' }}>الدفترية</th><th>الحالة</th><th /></tr></thead>
+                <tbody>
+                  {A.assetRows.map(a => (
+                    <tr key={a.id}>
+                      <td style={{ fontWeight: 600, fontSize: 12.5 }}>{a.name}<div style={{ fontSize: 9.5, color: 'var(--faint)' }}>{a.lifeYears} سنة · {a.fund === 'none' ? 'بلا قيد شراء (مسجل سابقاً)' : 'التمويل: ' + ((({ '1101': 'الخزينة', '1201': 'البنك', '3101': 'افتتاحي' })[a.fund]) || '')}</div></td>
+                      <td className="num" style={{ fontSize: 11 }}>{a.buyDate}</td>
+                      <td className="num" style={{ textAlign: 'end' }}>{money(a.cost)}</td>
+                      <td className="num" style={{ textAlign: 'end' }}>{money(a.monthly)}</td>
+                      <td className="num" style={{ textAlign: 'end', color: 'var(--amber)' }}>{money(a.accum)}</td>
+                      <td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{money(a.book)}</td>
+                      <td>{a.done ? <span className="badge b-dim">مُهلك بالكامل</span> : <span className="badge b-mint">قيد الإهلاك · {a.monthsDone}/{a.nM} شهراً</span>}</td>
+                      <td>{canPost && <button className="btn sm gh" onClick={() => setAstF({ ...a, cost: String(a.cost), lifeYears: String(a.lifeYears) })}>تعديل</button>}</td>
+                    </tr>
+                  ))}
+                  {A.assetRows.length === 0 && <tr><td colSpan={8}><div className="empty">سجّل أصولك الثابتة (معدات المطبخ، الأثاث، السيارات…) لتتولد قيود شرائها وإهلاكها تلقائياً.</div></td></tr>}
+                </tbody>
+              </table>
+            </div>
+            <div className="note" style={{ marginTop: 10 }}>الإهلاك قسط ثابت يبدأ من الشهر التالي للشراء ويتوقف باكتمال العمر — قيد مجمّع واحد شهرياً في اليومية. تعديل الأصل يعيد اشتقاق إهلاكه كاملاً (القيود محسوبة لا مخزنة). بيع أو استبعاد الأصول: بقيد يدوي حالياً.</div>
+          </div>
+        </div>
+      )}
+
+      {view === 'bank' && (
+        <div className="grid" style={{ gap: 12 }}>
+          <div className="grid g3">
+            <Kpi label="رصيد البنك بالدفاتر (1201)" value={money(bankBookAt(''))} sub="الشبكة والمدفوعات البنكية — تجميعي" icon={Landmark} color="#C8A24A" />
+            <Kpi label={lastRec ? 'آخر تسوية موثقة' : 'لا تسويات بعد'} value={lastRec ? money(lastRec.stmtBalance) : '—'} sub={lastRec ? lastRec.date + ' · بواسطة ' + lastRec.by : 'ابدأ أول تسوية أدناه'} icon={ClipboardCheck} color="#5B93C4" />
+            <Kpi label={lastRec ? 'فرق آخر تسوية' : 'الفرق'} value={lastRec ? money(Math.abs(lastRec.diff)) : '—'} sub={lastRec ? (Math.abs(lastRec.diff) < 0.01 ? 'مطابق تماماً ✓' : lastRec.diff > 0 ? 'الكشف أعلى من الدفتر' : 'الدفتر أعلى من الكشف') : ''} icon={Scale} color={lastRec && Math.abs(lastRec.diff) >= 0.01 ? '#D9544D' : '#4FB286'} />
+          </div>
+          {canPost && (
+            <div className="card">
+              <div className="card-t" style={{ marginBottom: 10 }}><Landmark size={15} color="var(--brass)" />تسوية جديدة — أدخل رصيد كشف البنك الفعلي</div>
+              <div className="row" style={{ gap: 9, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                <Field label="بتاريخ" style={{ width: 150 }}><input type="date" className="inp" value={brF.date} onChange={e => setBrF(f => ({ ...f, date: e.target.value }))} /></Field>
+                <Field label="رصيد كشف البنك" style={{ width: 160 }}><input className="inp n" inputMode="decimal" value={brF.stmt} onChange={e => setBrF(f => ({ ...f, stmt: e.target.value.replace(/[^\d.-]/g, '') }))} /></Field>
+                <Field label="ملاحظة (اختياري)" style={{ flex: 1, minWidth: 160 }}><input className="inp" value={brF.note} placeholder="عمولات بنكية لم تُقيّد…" onChange={e => setBrF(f => ({ ...f, note: e.target.value }))} /></Field>
+                <button className="btn pri" onClick={saveBankRec}><Check size={14} />توثيق التسوية</button>
+              </div>
+              {brF.stmt !== '' && (
+                <div className="note" style={{ marginTop: 10 }}>
+                  رصيد الدفتر بتاريخ {brF.date}: <b className="num">{money(bankBookAt(brF.date))}</b> · الفرق مع الكشف:
+                  <b className="num" style={{ color: Math.abs((Number(brF.stmt) || 0) - bankBookAt(brF.date)) < 0.01 ? 'var(--mint)' : 'var(--rose)', marginInlineStart: 5 }}>
+                    {money((Number(brF.stmt) || 0) - bankBookAt(brF.date))}</b> — عالج الفرق (عمولات بنك، فروق تحصيل الشبكة…) بزر «قيد يدوي / افتتاحي».
+                </div>
+              )}
+            </div>
+          )}
+          {(ops.bankRecs || []).length > 0 && (
+            <div className="card">
+              <div className="card-t" style={{ marginBottom: 8 }}><ClipboardCheck size={15} color="var(--brass)" />سجل التسويات</div>
+              <div className="tw"><table className="tb">
+                <thead><tr><th>التاريخ</th><th style={{ textAlign: 'end' }}>كشف البنك</th><th style={{ textAlign: 'end' }}>الدفتر</th><th style={{ textAlign: 'end' }}>الفرق</th><th>ملاحظة</th><th>بواسطة</th></tr></thead>
+                <tbody>{(ops.bankRecs || []).map(r => (
+                  <tr key={r.id}>
+                    <td className="num" style={{ fontSize: 11 }}>{r.date}</td>
+                    <td className="num" style={{ textAlign: 'end' }}>{money(r.stmtBalance)}</td>
+                    <td className="num" style={{ textAlign: 'end' }}>{money(r.bookBalance)}</td>
+                    <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: Math.abs(r.diff) < 0.01 ? 'var(--mint)' : 'var(--rose)' }}>{Math.abs(r.diff) < 0.01 ? 'مطابق ✓' : money(r.diff)}</td>
+                    <td style={{ fontSize: 11, color: 'var(--dim)' }}>{r.note || '—'}</td>
+                    <td style={{ fontSize: 11, color: 'var(--faint)' }}>{r.by}</td>
+                  </tr>
+                ))}</tbody>
+              </table></div>
+            </div>
+          )}
+          <div className="card">
+            <div className="card-t" style={{ marginBottom: 8 }}><ArrowLeftRight size={15} color="var(--brass)" />حركات حساب البنك (أحدث 60)</div>
+            <div className="tw"><table className="tb">
+              <thead><tr><th>التاريخ</th><th>البيان</th><th style={{ textAlign: 'end' }}>وارد</th><th style={{ textAlign: 'end' }}>صادر</th></tr></thead>
+              <tbody>{bankMoves.map(e => (
+                <tr key={e.id}>
+                  <td className="num" style={{ fontSize: 11 }}>{e.date}</td>
+                  <td style={{ fontSize: 12 }}>{e.title}</td>
+                  <td className="num" style={{ textAlign: 'end', color: 'var(--mint)' }}>{e.bankD ? money(e.bankD) : '—'}</td>
+                  <td className="num" style={{ textAlign: 'end', color: 'var(--rose)' }}>{e.bankC ? money(e.bankC) : '—'}</td>
+                </tr>
+              ))}</tbody>
+            </table></div>
+          </div>
+        </div>
+      )}
+
+      {astF && (
+        <Modal title={astF.id ? 'تعديل أصل ثابت' : 'أصل ثابت جديد'} icon={Building2} onClose={() => setAstF(null)}
+          foot={<><button className="btn gh" onClick={() => setAstF(null)}>إلغاء</button>
+            <button className="btn pri" onClick={saveAst}><Check size={14} />حفظ الأصل</button></>}>
+          <Field label="اسم الأصل"><input className="inp" value={astF.name} placeholder="فرن مطبخ · ثلاجة عرض · سيارة توصيل…" onChange={e => setAstF(f => ({ ...f, name: e.target.value }))} /></Field>
+          <div className="grid g3">
+            <Field label="التكلفة"><input className="inp n" inputMode="decimal" value={astF.cost} onChange={e => setAstF(f => ({ ...f, cost: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+            <Field label="تاريخ الشراء"><input type="date" className="inp" value={astF.buyDate} onChange={e => setAstF(f => ({ ...f, buyDate: e.target.value }))} /></Field>
+            <Field label="العمر الإنتاجي (سنوات)"><input className="inp n" inputMode="decimal" value={astF.lifeYears} onChange={e => setAstF(f => ({ ...f, lifeYears: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+          </div>
+          <Field label="مصدر تمويل الشراء — يحدد الطرف الدائن لقيد الشراء">
+            <select className="sel" value={astF.fund} onChange={e => setAstF(f => ({ ...f, fund: e.target.value }))}>
+              <option value="1201">دُفع من البنك (1201)</option>
+              <option value="1101">دُفع من الخزينة الرئيسية (1101)</option>
+              <option value="3101">أصل قائم قبل النظام — قيد افتتاحي (3101)</option>
+              <option value="none">بلا قيد شراء (سيسوّيه المحاسب يدوياً)</option>
+            </select>
+          </Field>
+          <Field label="ملاحظة (اختياري)"><input className="inp" value={astF.note} onChange={e => setAstF(f => ({ ...f, note: e.target.value }))} /></Field>
+          <div className="note">الإهلاك يبدأ من الشهر التالي للشراء بقسط ثابت شهري حتى نهاية العمر — ويُعاد اشتقاقه تلقائياً عند أي تعديل.</div>
+        </Modal>
       )}
 
       <div className="card" style={{ background: 'rgba(200,162,74,.04)', borderStyle: 'dashed' }}>
