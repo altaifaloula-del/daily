@@ -18,7 +18,7 @@ import {
   CartesianGrid, Tooltip, LineChart, Line
 } from 'recharts';
 import { CSS } from './styles';
-import { cloud, KEYS, kb, authApi } from './storage';
+import { cloud, KEYS, kb, authApi, brKey, bfKey } from './storage';
 
 /* ================= أدوات مساعدة عامة ================= */
 const uid = (p) => p + '-' + Math.random().toString(36).slice(2, 9);
@@ -200,6 +200,75 @@ const periodLocked = (org, dateStr) => {
   return !!lt && !!(dateStr || '') && (dateStr || '').slice(0, 7) <= lt;
 };
 const LOCK_MSG = (d) => 'شهر ' + (d || '').slice(0, 7) + ' مقفل محاسبيًا 🔒 — الفتح الاستثنائي من المحاسبة ← الإقفال';
+
+/* ============================================================
+   v9.0 — عزل بيانات الفروع (أمان المرحلة الثانية)
+   البيانات تُخزَّن سحابيًا مقسّمة: دليل عام منزوع الأسرار (dir)،
+   بيانات مركزية (core)، ومستند لكل فرع (br_*) — والعزل يفرضه
+   الخادم عبر قواعد Firestore. أما داخل التطبيق فالنموذج يبقى
+   كما هو (org + ops مدمجة) — الترجمة تتم عند حواف التخزين فقط.
+   ============================================================ */
+const BR_COLS = ['closings', 'transfers', 'partnerRequests', 'notifications'];
+const CORE_COLS = ['advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays'];
+
+// تقسيم ops المدمجة إلى مستند مركزي + مستند لكل فرع
+function splitOps(ops, branchIds) {
+  const core = {};
+  CORE_COLS.forEach(c => { core[c] = ops[c] || []; });
+  BR_COLS.forEach(c => { core[c] = (ops[c] || []).filter(x => !x.branchId || !branchIds.includes(x.branchId)); });
+  const br = {};
+  branchIds.forEach(b => {
+    br[b] = {};
+    BR_COLS.forEach(c => { br[b][c] = (ops[c] || []).filter(x => x.branchId === b); });
+  });
+  return { core, br };
+}
+
+// تجميع المستندات المقسّمة إلى ops واحدة كما اعتاد التطبيق
+function composeOps(core, brMap) {
+  const out = emptyOps();
+  CORE_COLS.forEach(c => { out[c] = (core && core[c]) || []; });
+  BR_COLS.forEach(c => {
+    out[c] = [...((core && core[c]) || [])];
+    Object.keys(brMap || {}).forEach(b => { out[c] = out[c].concat((brMap[b] && brMap[b][c]) || []); });
+  });
+  return out;
+}
+
+// الدليل العام: كل ما يحتاجه الفرع للعمل — بلا كلمات مشفرة ولا رواتب ولا إعدادات حساسة
+function dirOf(org) {
+  return {
+    dirOnly: true,
+    company: { name: (org.company || {}).name || '', logoUrl: (org.company || {}).logoUrl || '', activity: (org.company || {}).activity || '' },
+    branches: (org.branches || []).map(b => ({ id: b.id, name: b.name, defaultFloat: b.defaultFloat || 0, isActive: b.isActive !== false, logoUrl: b.logoUrl || '', city: b.city || '' })),
+    expenseCats: org.expenseCats || [],
+    deliveryApps: org.deliveryApps || [],
+    suppliers: (org.suppliers || []).map(x => ({ id: x.id, name: x.name, category: x.category || '', code: x.code || '', terms: x.terms || 0 })),
+    employees: (org.employees || []).map(e => ({ id: e.id, name: e.name, branchId: e.branchId || '', jobTitle: e.jobTitle || '', code: e.code || '', isActive: e.isActive !== false })),
+    users: (org.users || []).map(u => ({ id: u.id, name: u.name, email: u.email || '', role: u.role, branchId: u.branchId || '', allowedBranchIds: u.allowedBranchIds || [], isActive: u.isActive !== false })),
+    partners: (org.partners || []).map(p => ({ id: p.id, key: p.key, name: p.name, type: p.type, cat: p.cat || '', code: p.code || '' })),
+    periodLocks: org.periodLocks || {},
+    appsCfg: org.appsCfg || {},
+    setupComplete: true, migratedV9: org.migratedV9 || ''
+  };
+}
+
+// الهجرة: تُنفَّذ مرة واحدة على جهاز الإدارة — تقسيم القديم وكتابة الدليل، مع إبقاء القديم نسخة مجمّدة
+async function migrateV9(org, ops) {
+  const branchIds = (org.branches || []).map(b => b.id);
+  const { core, br } = splitOps(ops, branchIds);
+  await cloud.set(KEYS.core, { ...core, rev: 1, migratedAt: nowISO() });
+  for (const b of branchIds) await cloud.set(brKey(b), { ...br[b], rev: 1 });
+  // أرشيف الصور: توزيعه بالفرع
+  const files = (await cloud.get(KEYS.files, { items: [] })) || { items: [] };
+  const byBr = {};
+  (files.items || []).forEach(it => { const b = it.branchId || ''; (byBr[b] = byBr[b] || []).push(it); });
+  for (const b of Object.keys(byBr)) { if (b && branchIds.includes(b)) await cloud.set(bfKey(b), { items: byBr[b] }); }
+  await cloud.set(KEYS.dir, dirOf(org));
+  const org2 = { ...org, migratedV9: nowISO() };
+  await cloud.set(KEYS.org, org2);
+  return org2;
+}
 
 // سداد المورد قد يُوزَّع على أكثر من طريقة دفع (نقد + شبكة + تحويل + غير ذلك) لنفس الدفعة/الفاتورة
 const paySplits = (pm) => {
@@ -932,18 +1001,62 @@ export default function App() {
   /* --- الإقلاع: مع المصادقة السحابية لا تُحمَّل أي بيانات قبل دخول حقيقي --- */
   const [needAuth, setNeedAuth] = useState(false);
 
-  const loadAll = useCallback(async () => {
-    let o = await cloud.get(KEYS.org, null);
+  // v9: سياق الجلسة — مركزية (ترى كل الفروع) أم فرعية (مستند فرعها فقط)
+  const dataCtx = useRef({ central: true, myBrIds: [], email: '' });
+
+  const loadAll = useCallback(async (email) => {
+    if (email) dataCtx.current.email = (email || '').toLowerCase();
+    const t = await cloud.tryGet(KEYS.org);
+    let o = t.value;
+
+    if (t.denied || (window.__forceDirOnly && !o?.__ignore)) {
+      /* ===== مسار الفرع: الخادم رفض المنشأة الكاملة — نقرأ الدليل العام فقط ===== */
+      const dir = await cloud.get(KEYS.dir, null);
+      if (!dir) { setBoot('ready'); setNeedAuth(false); setOrg(emptyOrg()); setOps(emptyOps()); return emptyOrg(); }
+      o = { ...emptyOrg(), ...dir };
+      const em = dataCtx.current.email || ((await authApi.ready()) || {}).email || '';
+      const meU = (o.users || []).find(x => (x.email || '').toLowerCase() === em && x.isActive);
+      const myBr = meU ? (meU.branchId ? [meU.branchId] : (meU.allowedBranchIds || [])) : [];
+      dataCtx.current = { central: false, myBrIds: myBr, email: em };
+      const brMap = {};
+      for (const b of myBr) brMap[b] = (await cloud.get(brKey(b), null)) || {};
+      setOps(composeOps(null, brMap));
+      setOrg(o);
+      setPulse(await cloud.get(KEYS.pulse, { presence: {}, audit: [] }));
+      setLastSync(new Date()); setBoot('ready');
+      return o;
+    }
+
+    /* ===== مسار المركز ===== */
     if (!o || !o.branches) {
       o = emptyOrg();
       await cloud.set(KEYS.org, o);
       await cloud.set(KEYS.ops, emptyOps());
       await cloud.set(KEYS.pulse, { presence: {}, audit: [] });
-      setOps(emptyOps());
-    } else {
-      const p = await cloud.get(KEYS.ops, null);
-      setOps(p || emptyOps());
     }
+    // الهجرة الآمنة لمرة واحدة: لقطة أمان ثم تقسيم القديم
+    if (!o.migratedV9 && (o.branches || []).length) {
+      try { const oldOps = (await cloud.get(KEYS.ops, null)) || emptyOps(); await snapPut('pre-v9-migration-' + today(), { at: nowISO(), by: 'migration', org: o, ops: oldOps }); } catch { }
+      const oldOps = (await cloud.get(KEYS.ops, null)) || emptyOps();
+      o = await migrateV9(o, oldOps);
+    }
+    // مزامنة نطاقات الأعضاء (فرع/مركز) مع مستندات العضوية — تعتمد عليها القواعد الخادمية
+    if (authApi.enabled && o.migratedV9 && !o.membersSyncedV9) {
+      try {
+        for (const u2 of (o.users || [])) {
+          if (!u2.email) continue;
+          await authApi.upsertMember(u2.email, { active: u2.isActive !== false, role: u2.role, branchId: u2.branchId || '', branchIds: u2.allowedBranchIds || [], scope: (ROLES[u2.role]?.scope === 'all') ? 'all' : 'branch' });
+        }
+        o = { ...o, membersSyncedV9: nowISO() };
+        await cloud.set(KEYS.org, o);
+      } catch { }
+    }
+    const branchIds = (o.branches || []).map(b => b.id);
+    dataCtx.current = { central: true, myBrIds: branchIds, email: dataCtx.current.email };
+    const core = (await cloud.get(KEYS.core, null)) || {};
+    const brMap = {};
+    for (const b of branchIds) brMap[b] = (await cloud.get(brKey(b), null)) || {};
+    setOps(composeOps(core, brMap));
     setOrg(o);
     setPulse(await cloud.get(KEYS.pulse, { presence: {}, audit: [] }));
     setLastSync(new Date());
@@ -963,6 +1076,8 @@ export default function App() {
           await authApi.signOutAll().catch(() => { });
           setNeedAuth(true); setBoot('ready'); return;
         }
+        await loadAll(u.email);
+        return;
       }
       await loadAll();
     })();
@@ -993,7 +1108,7 @@ export default function App() {
           : 'حسابك موثّق لكن عضويتك غير مهيأة بعد — اطلب من المدير فتح حسابك في «الفروع والمستخدمون» وحفظه'
       };
     }
-    const o = await loadAll();
+    const o = await loadAll(email);
     const u = (o.users || []).find(x => (x.email || '').toLowerCase() === email && x.isActive);
     if (!u && (o.users || []).length > 0) {
       await authApi.signOutAll().catch(() => { });
@@ -1052,16 +1167,24 @@ export default function App() {
   const refresh = useCallback(async (silent) => {
     if (silent && typeof document !== 'undefined' && document.hidden) return;
     if (!silent) setSyncing(true);
-    const [o, p, pu] = await Promise.all([
-      cloud.get(KEYS.org, null), cloud.get(KEYS.ops, null), cloud.get(KEYS.pulse, null)
+    const ctx = dataCtx.current;
+    const orgKey = ctx.central ? KEYS.org : KEYS.dir;
+    const [o, core, pu, ...brs] = await Promise.all([
+      cloud.get(orgKey, null),
+      ctx.central ? cloud.get(KEYS.core, null) : Promise.resolve(null),
+      cloud.get(KEYS.pulse, null),
+      ...ctx.myBrIds.map(b => cloud.get(brKey(b), null))
     ]);
+    const brMap = {}; ctx.myBrIds.forEach((b, i) => { brMap[b] = brs[i] || {}; });
+    const p = composeOps(core, brMap);
     const put = (k, v, setter) => {
       if (!v) return;
       const j = JSON.stringify(v);
       if (snap.current[k] === j) return;   // لا تغيير — نتفادى إعادة الرسم
       snap.current[k] = j; setter(v);
     };
-    put('org', o, setOrg); put('ops', p, setOps); put('pulse', pu, setPulse);
+    put('org', o ? (ctx.central ? o : { ...emptyOrg(), ...o }) : null, setOrg);
+    put('ops', p, setOps); put('pulse', pu, setPulse);
     setLastSync(new Date());
     setTimeout(() => setSyncing(false), 350);
   }, []);
@@ -1077,12 +1200,16 @@ export default function App() {
       });
       if (un) subs.push(un);
     };
-    wire('org', KEYS.org, setOrg);
-    wire('ops', KEYS.ops, setOps);
+    const ctx = dataCtx.current;
+    wire('org', ctx.central ? KEYS.org : KEYS.dir, (v) => setOrg(ctx.central ? v : { ...emptyOrg(), ...v }));
     wire('pulse', KEYS.pulse, setPulse);
+    // أي تغيير في المركزي أو مستندات الفروع → إعادة تجميع ops
+    const recompose = () => { refresh(true); };
+    if (ctx.central) { const un = cloud.subscribe?.(KEYS.core, recompose); if (un) subs.push(un); }
+    ctx.myBrIds.forEach(b => { const un = cloud.subscribe?.(brKey(b), recompose); if (un) subs.push(un); });
     if (subs.length) setLive(true);
     return () => subs.forEach(u => u());
-  }, [boot, needAuth]);
+  }, [boot, needAuth, refresh]);
 
   useEffect(() => {
     if (boot !== 'ready') return;
@@ -1090,6 +1217,17 @@ export default function App() {
     const t = setInterval(() => refresh(true), live ? 45000 : 8000);
     return () => clearInterval(t);
   }, [boot, live, refresh]);
+
+  // v9: البوابة المحلية القديمة تحدد المستخدم بعد الإقلاع — نضبط نطاق جلسة الفرع حينها
+  useEffect(() => {
+    if (!me || dataCtx.current.central) return;
+    const ids = me.branchId ? [me.branchId] : (me.allowedBranchIds || []);
+    if (JSON.stringify(ids) !== JSON.stringify(dataCtx.current.myBrIds)) {
+      dataCtx.current.myBrIds = ids;
+      dataCtx.current.email = (me.email || '').toLowerCase();
+      refresh(true);
+    }
+  }, [me, refresh]);
 
   /* --- تنبيهات النشاط الحيّة لمدراء النظام: إشعار متصفح + صوت لأي نشاط من الآخرين --- */
   const actBaseRef = useRef(Date.now());
@@ -1142,21 +1280,53 @@ export default function App() {
     return () => clearInterval(t);
   }, [me]);
 
-  /* --- الكتابة الآمنة: قراءة أحدث نسخة، تطبيق التعديل، تحقق من الإصدار، إعادة المحاولة عند التعارض --- */
+  /* --- v9: الكتابة الآمنة الموجَّهة — التعديل يقع على ops المدمجة كما اعتاد كل الكود،
+         ثم يُوزَّع على المستند المركزي ومستندات الفروع، ولا يُكتب إلا ما تغيّر فعلًا.
+         محاولة كتابة خارج نطاق الجلسة يرفضها الخادم فيفشل الحفظ بصدق --- */
   const writeOps = useCallback(async (mutator) => {
+    const ctx = dataCtx.current;
     for (let attempt = 0; attempt < 3; attempt++) {
-      const latest = (await cloud.get(KEYS.ops, null)) || ops;
-      const baseRev = latest.rev || 0;
+      // أحدث نسخة لكل مستند ضمن نطاقي
+      const core = ctx.central ? ((await cloud.get(KEYS.core, null)) || {}) : null;
+      const brMap = {};
+      for (const b of ctx.myBrIds) brMap[b] = (await cloud.get(brKey(b), null)) || {};
+      const latest = composeOps(core, brMap);
       const next = mutator(JSON.parse(JSON.stringify(latest)));
-      next.rev = baseRev + 1;
-      const ok = await cloud.set(KEYS.ops, next);
-      if (!ok) continue;
-      const check = await cloud.get(KEYS.ops, null);
-      if (check && (check.rev || 0) === next.rev) { snap.current.ops = JSON.stringify(check); setOps(check); return true; }
-      // كتب مستخدم آخر في نفس اللحظة — نعيد تطبيق التعديل على أحدث نسخة
+      const { core: coreOut, br: brOut } = splitOps(next, ctx.myBrIds);
+
+      let allOk = true, conflict = false;
+      // المستند المركزي (أدوار المركز فقط)
+      if (ctx.central) {
+        const je = (x) => JSON.stringify({ ...x, rev: 0 });
+        if (je(coreOut) !== je(core || {})) {
+          const rv = ((core || {}).rev || 0) + 1;
+          const ok = await cloud.set(KEYS.core, { ...coreOut, rev: rv });
+          if (!ok) { allOk = false; }
+          else { const chk = await cloud.get(KEYS.core, null); if (!chk || (chk.rev || 0) !== rv) conflict = true; }
+        }
+      }
+      // مستندات الفروع المتغيرة فقط
+      for (const b of ctx.myBrIds) {
+        const je = (x) => JSON.stringify({ ...x, rev: 0 });
+        if (je(brOut[b]) !== je(brMap[b] || {})) {
+          const rv = ((brMap[b] || {}).rev || 0) + 1;
+          const ok = await cloud.set(brKey(b), { ...brOut[b], rev: rv });
+          if (!ok) { allOk = false; }
+          else { const chk = await cloud.get(brKey(b), null); if (!chk || (chk.rev || 0) !== rv) conflict = true; }
+        }
+      }
+      if (!allOk) { if (attempt === 2) return false; continue; }
+      if (conflict) continue;   // كتب آخر بنفس اللحظة — نعيد على الأحدث
+      // نجاح: حدّث الحالة المدمجة
+      const core2 = ctx.central ? ((await cloud.get(KEYS.core, null)) || {}) : null;
+      const brMap2 = {};
+      for (const b of ctx.myBrIds) brMap2[b] = (await cloud.get(brKey(b), null)) || {};
+      const composed = composeOps(core2, brMap2);
+      snap.current.ops = JSON.stringify(composed); setOps(composed);
+      return true;
     }
     return false;
-  }, [ops]);
+  }, []);
 
   const commit = useCallback(async (mutator, log) => {
     const ok = await writeOps(mutator);
@@ -1183,6 +1353,8 @@ export default function App() {
     const next = mutator(JSON.parse(JSON.stringify(latest)));
     const ok = await cloud.set(KEYS.org, next);
     if (!ok) { say('تعذّر حفظ الإعدادات سحابياً — أعد المحاولة', 'no'); return false; }
+    // v9: كل تعديل للمنشأة يجدّد الدليل العام المنزوع الأسرار الذي تقرؤه أجهزة الفروع
+    try { await cloud.set(KEYS.dir, dirOf(next)); } catch { }
     snap.current.org = JSON.stringify(next);
     setOrg(next);
     if (log && me) {
@@ -1201,6 +1373,9 @@ export default function App() {
     const keepCompany = org?.company;
     const o = emptyOrg(keepCompany); const p = emptyOps();
     await cloud.set(KEYS.org, o); await cloud.set(KEYS.ops, p);
+    await cloud.set(KEYS.core, { rev: 1 });
+    for (const b of (org.branches || [])) await cloud.set(brKey(b.id), { rev: 1 });
+    await cloud.set(KEYS.dir, dirOf(o));
     await cloud.set(KEYS.pulse, { presence: {}, audit: [] });
     setOrg(o); setOps(p); setPulse({ presence: {}, audit: [] });
     say('تمت إعادة المنصة إلى الوضع الفارغ');
@@ -1368,7 +1543,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v8.5 💾</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v9.0 🛡️</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -3140,10 +3315,10 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
         `${e.categoryName || 'مصروف'}${e.beneficiaryName ? ' — ' + e.beneficiaryName : ''} (${stamp})`, e.amount));
 
       if (docs.length) {
-        const store = await cloud.get(KEYS.files, { items: [] });
+        const store = await cloud.get(bfKey(f.branchId), { items: [] });
         const prevItems = (store && Array.isArray(store.items)) ? store.items : [];
         const kept = prevItems.filter(x => x.closingId !== id);
-        await cloud.set(KEYS.files, { items: [...docs, ...kept].slice(0, 1500) });
+        await cloud.set(bfKey(f.branchId), { items: [...docs, ...kept].slice(0, 1500) });
       }
     } catch (err) { /* الأرشفة تكميلية — لا توقف حفظ الإغلاق */ }
 
@@ -4720,7 +4895,7 @@ function Admin({ org, ops, me, commit, commitOrg, say }) {
           if (!c.includes('email-already-in-use')) say('أُنشئ الحساب في المنصة لكن تعذّر إنشاء حساب المصادقة (' + c.replace('auth/', '') + ') — أعد المحاولة من تعديل المستخدم', 'no');
         }
       }
-      await authApi.upsertMember(email, { active: rec.isActive !== false, role: rec.role, branchId: rec.branchId || '' });
+      await authApi.upsertMember(email, { active: rec.isActive !== false, role: rec.role, branchId: rec.branchId || '', branchIds: rec.allowedBranchIds || [], scope: (ROLES[rec.role]?.scope === 'all') ? 'all' : 'branch' });
       await authApi.syncAdmin(email, !!ROLES[rec.role]?.admin);
     }
     say(isNew ? 'تم إنشاء الحساب — يدخل ببريده وكلمة سره' : 'تم تحديث الحساب'); setUEdit(null);
@@ -8025,7 +8200,8 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
     const ra = restoreArm;
     if (!ra || ra.text.trim() !== 'استعادة') return say('اكتب كلمة «استعادة» للتأكيد', 'no');
     try { await snapPut('pre-restore-' + nowISO().slice(0, 19).replace(/[:T]/g, '-'), { at: nowISO(), by: me?.name || '', org, ops, preRestore: true }); } catch { }
-    await cloud.set(KEYS.org, ra.data.org);
+    const o2 = { ...ra.data.org }; delete o2.migratedV9; delete o2.membersSyncedV9;
+    await cloud.set(KEYS.org, o2);                      // v9: بلا علم الهجرة — التحديث يعيد تقسيمها للمستندات
     if (ra.data.ops) await cloud.set(KEYS.ops, ra.data.ops);
     if (ra.data.hist) await cloud.set(KEYS.hist, ra.data.hist);
     try {
@@ -8781,11 +8957,29 @@ function Archive({ org, me, myBranches, say }) {
   const [draft, setDraft] = useState(null);
   const camRef = useRef(); const fileRef = useRef();
 
-  useEffect(() => { (async () => setItems((await cloud.get(KEYS.files, { items: [] })).items || []))(); }, []);
+  // v9: أرشيف موزع — مستند صور لكل فرع + مستند للمركز، والعزل يفرضه الخادم
+  const bfIds = useMemo(() => {
+    const ids = myBranches.map(b => b.id);
+    return (ROLES[me.role]?.scope === 'all') ? [...ids, 'hq'] : ids;
+  }, [myBranches, me]);
+  useEffect(() => {
+    (async () => {
+      const all = [];
+      for (const b of bfIds) {
+        const d = await cloud.get(bfKey(b), { items: [] });
+        (d.items || []).forEach(it => all.push(it.branchId ? it : { ...it, branchId: b === 'hq' ? '' : b }));
+      }
+      all.sort((a, b2) => (b2.at || '').localeCompare(a.at || ''));
+      setItems(all);
+    })();
+  }, [bfIds]);
 
+  const homeOf = (it) => (it.branchId && myBranches.some(b => b.id === it.branchId)) ? it.branchId : (bfIds.includes('hq') ? 'hq' : (bfIds[0] || 'hq'));
   const persist = async (next) => {
     setItems(next);
-    await cloud.set(KEYS.files, { items: next });
+    for (const b of bfIds) {
+      await cloud.set(bfKey(b), { items: next.filter(it => homeOf(it) === b) });
+    }
   };
 
   const compress = (file) => new Promise((resolve, reject) => {
