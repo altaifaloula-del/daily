@@ -11,7 +11,7 @@ import {
   Fingerprint, ScanFace, ShieldAlert, Video, Grid3x3,
   BarChart3, CheckCircle2, ArrowUp, ArrowDown,
   CreditCard, Coins, ChevronDown, ChevronRight,
-  Crop, RotateCw, Sun, Wand2, Delete, Scale
+  Crop, RotateCw, Sun, Wand2, Delete, Scale, Home, Star
 } from 'lucide-react';
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis,
@@ -971,7 +971,7 @@ export default function App() {
   const [ops, setOps] = useState({ closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [] });
   const [pulse, setPulse] = useState({ presence: {}, audit: [] });
   const [me, setMe] = useState(null);
-  const [tab, setTab] = useState('dash');
+  const [tab, setTab] = useState('home');
   const [acctIntent, setAcctIntent] = useState(null);          // فتح المحاسبة على شاشة محددة من مركز التطبيقات
   const openAcctView = useCallback((v) => setAcctIntent({ v, ts: Date.now() }), []);
   const [invIntent, setInvIntent] = useState(null);            // فتح المخزون على شاشة محددة
@@ -1116,7 +1116,7 @@ export default function App() {
     }
     setNeedAuth(false);
     if (u) {
-      setMe(u); setTab((ROLES[u.role]?.tabs || ['closing'])[0]);
+      setMe(u); setTab('home');
       try { localStorage.setItem('rms8:lastEmail', u.email || ''); } catch { }
     }
     return { ok: true };   // لا مستخدمين بعد → شاشة التهيئة الأولى
@@ -1424,7 +1424,7 @@ export default function App() {
 
   if (!me) {
     return <Gate css={CSS} theme={theme} org={org}
-      onLogin={(u) => { setMe(u); setTab((ROLES[u.role]?.tabs || ['closing'])[0]); }}
+      onLogin={(u) => { setMe(u); setTab('home'); }}
       online={Object.values(pulse.presence || {}).filter(p => Date.now() - p.at < 70000)} />;
   }
 
@@ -1439,10 +1439,11 @@ export default function App() {
   const latestActivity = auditLog[0];
 
   const NAV = [
+    { id: 'home', ar: 'الرئيسية', icon: Home },
     { id: 'dash', ar: 'لوحة المؤشرات', icon: LayoutDashboard },
     { id: 'compare', ar: 'مقارنة الفروع', icon: BarChart3 },
     { id: 'closing', ar: 'الإغلاق اليومي', icon: ClipboardCheck },
-    { id: 'apps', ar: 'التطبيقات', icon: Grid3x3 },
+    { id: 'apps', ar: 'إدارة التطبيقات', icon: Grid3x3 },
     { id: 'approve', ar: 'التدقيق والاعتماد', icon: ShieldCheck, cnt: pending },
     { id: 'treasury', ar: 'الخزينة والترحيل', icon: Landmark },
     { id: 'payroll', ar: 'الرواتب والسلف', icon: Wallet },
@@ -1456,7 +1457,7 @@ export default function App() {
     { id: 'reports', ar: 'التقارير المالية', icon: FileBarChart },
     { id: 'admin', ar: 'الفروع والمستخدمون', icon: UserCog },
     { id: 'audit', ar: 'سجل التدقيق', icon: Eye }
-  ].filter(n => (ROLES[me.role]?.tabs || []).includes(n.id));
+  ].filter(n => n.id === 'home' || (ROLES[me.role]?.tabs || []).includes(n.id));
 
   const shared = { org, ops, pulse, me, myBranches, scoped, commit, commitOrg, say, setTab, theme, acctIntent, openAcctView, invIntent, openInvView };
 
@@ -1542,8 +1543,13 @@ export default function App() {
             <button className="btn sm gh hidden-desk topmenu" onClick={() => setDrawer(d => !d)} title={drawer ? 'إخفاء القائمة' : 'إظهار القائمة'}>
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
-            <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v9.0 🛡️</span>
+            {safeTab !== 'home' && (
+              <button className="homebtn2" onClick={() => setTab('home')} title="الرئيسية — كل التطبيقات">
+                <Home size={17} />
+              </button>
+            )}
+            <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : NAV.find(n => n.id === safeTab)?.ar}</h1>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v9.1 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -1610,6 +1616,7 @@ export default function App() {
 
           <div className="page">
             <div className="page-inner">
+              {safeTab === 'home' && <Launcher {...shared} online={online} />}
               {safeTab === 'dash' && <Dashboard {...shared} online={online} />}
               {safeTab === 'compare' && <BranchCompare {...shared} />}
               {safeTab === 'closing' && <Closing {...shared} />}
@@ -6399,6 +6406,79 @@ function AppsStrip({ me, setTab, openAcctView, openInvView }) {
       <button className="appchip" style={{ borderColor: 'var(--frame)', color: 'var(--brass-l)' }} onClick={() => setTab('apps')}>
         <Grid3x3 size={12} />فتح التطبيقات
       </button>
+    </div>
+  );
+}
+
+// ألوان التصنيفات لواجهة التطبيقات (Launcher) — v9.1
+const CAT_CLR = {
+  fin: 'var(--brass)', pos: 'var(--mint)', pur: 'var(--sky)', hr: 'var(--violet)',
+  tax: 'var(--amber)', inv2: '#C87E4A', ast: '#C4756B', gov: '#7E93B5', bi: '#5FAE9E'
+};
+
+// واجهة البداية بنمط شبكة التطبيقات (Odoo-style) — الشاشة الرئيسية v9.1
+function Launcher({ org, ops, me, setTab, openAcctView, openInvView }) {
+  const [q, setQ] = useState('');
+  const [bump, setBump] = useState(0);
+  const u = appUseGet(me.id);
+  const isFav = (id) => (u.fav || []).includes(id);
+  const toggleFav = (id, e) => {
+    e.stopPropagation();
+    const v = appUseGet(me.id); v.fav = v.fav || [];
+    v.fav = v.fav.includes(id) ? v.fav.filter(x => x !== id) : [...v.fav, id];
+    appUseSet(me.id, v); setBump(b => b + 1);
+  };
+  const cfg = org.appsCfg || {};
+  const hidden = cfg.hidden || [];
+  const pend = (ops?.closings || []).filter(c => c.status === 'submitted').length;
+
+  const mine = REG_APPS.filter(a => appCanSee(me.role, a) && !a.soon && !hidden.includes(a.id));
+  const norm = (s) => (s || '').replace(/[أإآ]/g, 'ا');
+  const qq = norm(q.trim());
+  const match = (a) => !qq || norm(a.ar + ' ' + a.en + ' ' + (a.kw || []).join(' ') + ' ' + (a.fns || []).join(' ')).includes(qq);
+  const shown = mine.filter(match);
+  const favApps = mine.filter(a => isFav(a.id) && match(a));
+  const hour = new Date().getHours();
+  const greet = hour < 12 ? 'صباح الخير' : hour < 17 ? 'مساء الخير' : 'مساء الخير';
+
+  const Tile = (a) => (
+    <div key={a.id} className="lh-tile" style={{ '--c': CAT_CLR[a.cat] || 'var(--brass)' }}
+      onClick={() => appOpenNow(a, me, setTab, openAcctView, openInvView)} title={a.d}>
+      <button className={'lh-star' + (isFav(a.id) ? ' on' : '')} title={isFav(a.id) ? 'إزالة من المفضلة' : 'تثبيت في المفضلة'}
+        onClick={(e) => toggleFav(a.id, e)}><Star size={12} fill={isFav(a.id) ? 'currentColor' : 'none'} /></button>
+      {a.id === 'approve' && pend > 0 && <span className="lh-bdg">{pend}</span>}
+      <div className="lh-box"><a.icon size={27} />{a.fns?.length > 0 && <span className="lh-cnt">{a.fns.length}</span>}</div>
+      <div className="lh-nm">{a.ar}</div>
+    </div>
+  );
+
+  return (
+    <div className="lh">
+      <p className="lh-hi">{greet} يا <b>{(me.name || '').split(' ')[0]}</b> — كل تطبيقاتك أمامك. اضغط أي تطبيق لفتحه، والنجمة لتثبيته في المفضلة.</p>
+      <div className="lh-role"><span className="pill">{(ROLES[me.role]?.ar || me.role).split('—')[0].trim()} · {shown.length} تطبيقاً</span></div>
+      <div className="lh-search">
+        <Search size={15} className="lh-si" />
+        <input className="inp" placeholder="ابحث عن تطبيق… (جرّب: ميزان، رواتب، ضريبة)" value={q} onChange={e => setQ(e.target.value)} />
+      </div>
+
+      {favApps.length > 0 && !qq && (
+        <div className="lh-sec">
+          <div className="lh-sect"><Star size={14} className="ic" fill="currentColor" />المفضلة</div>
+          <div className="lh-grid">{favApps.map(Tile)}</div>
+        </div>
+      )}
+
+      {REG_CATS.map(c => {
+        const list = shown.filter(a => a.cat === c.id);
+        if (!list.length) return null;
+        return (
+          <div key={c.id} className="lh-sec">
+            <div className="lh-sect"><c.icon size={15} className="ic" />{c.ar}</div>
+            <div className="lh-grid">{list.map(Tile)}</div>
+          </div>
+        );
+      })}
+      {shown.length === 0 && <div className="lh-empty">لا يوجد تطبيق بهذا الاسم — جرّب كلمة أخرى</div>}
     </div>
   );
 }
