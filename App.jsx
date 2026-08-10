@@ -11,7 +11,7 @@ import {
   Fingerprint, ScanFace, ShieldAlert, Video, Grid3x3,
   BarChart3, CheckCircle2, ArrowUp, ArrowDown,
   CreditCard, Coins, ChevronDown, ChevronRight,
-  Crop, RotateCw, Sun, Wand2, Delete
+  Crop, RotateCw, Sun, Wand2, Delete, Scale
 } from 'lucide-react';
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis,
@@ -315,6 +315,213 @@ function nextPartnerCode(parts, type) {
   return partnerCode(type, max + 1);
 }
 
+/* ============================================================
+   م١ — المحاسبة الداخلية: دليل الحسابات ومحرك القيود التلقائية
+   القيود تُشتق حسابيًا من العمليات المعتمدة نفسها (لا تُخزَّن نسخة
+   ثانية) — أي تصحيح في المصدر ينعكس هنا فورًا وبأثر رجعي.
+   المبالغ في هذه المرحلة إجمالية كما سُجّلت؛ فصل ضريبة القيمة
+   المضافة يأتي في مرحلة الضريبة.
+   ============================================================ */
+const ACC_KIND = {
+  asset: { ar: 'الأصول', nature: 'مدين' },
+  liab: { ar: 'الخصوم', nature: 'دائن' },
+  equity: { ar: 'حقوق الملكية', nature: 'دائن' },
+  rev: { ar: 'الإيرادات', nature: 'دائن' },
+  exp: { ar: 'المصروفات', nature: 'مدين' }
+};
+function buildAccounting(org, ops) {
+  const accounts = []; const accIx = {};
+  const addAcc = (code, name, kind, meta) => {
+    const a = { code, name, kind, debit: 0, credit: 0, ...(meta || {}) };
+    accounts.push(a); accIx[code] = a; return a;
+  };
+  // — الأصول —
+  addAcc('1101', 'الخزينة الرئيسية', 'asset', { link: 'شاشة الخزينة والترحيل' });
+  const cashCode = {};
+  (org.branches || []).forEach((b, i) => {
+    const code = '11' + String(11 + i);
+    cashCode[b.id] = code;
+    addAcc(code, 'صندوق ' + (b.name || 'فرع'), 'asset', { link: 'خزينة الفرع' });
+  });
+  addAcc('1201', 'البنك — الشبكة والمدفوعات البنكية (تجميعي)', 'asset', { link: 'تسويته في مرحلة التسوية البنكية' });
+  addAcc('1301', 'ذمم تطبيقات التوصيل', 'asset', { link: 'مبيعات التطبيقات' });
+  addAcc('1401', 'سلف الموظفين وعُهدهم', 'asset', { link: 'الرواتب والسلف' });
+  // — الخصوم —
+  addAcc('2101', 'ذمم الموردين', 'liab', { link: 'دفتر الشركاء' });
+  addAcc('2201', 'رواتب مستحقة', 'liab', { link: 'كشف الرواتب' });
+  // — حقوق الملكية (تُفعَّل بالقيد الافتتاحي في المرحلة التالية) —
+  addAcc('3101', 'رأس المال والأرصدة الافتتاحية', 'equity', { link: 'القيد الافتتاحي — مرحلة تالية' });
+  // — الإيرادات —
+  addAcc('4101', 'المبيعات (إجمالية)', 'rev', { link: 'إغلاقات الورديات المعتمدة' });
+  // — المصروفات —
+  addAcc('5201', 'الرواتب والأجور (كشف الرواتب)', 'exp', { link: 'ترحيل الاستحقاق الشهري' });
+  addAcc('5901', 'مصروفات الخزينة الرئيسية (أوامر الصرف)', 'exp', { link: 'شاشة الخزينة' });
+  const catAcc = {};
+  (org.expenseCats || []).forEach((c, i) => {
+    // «سلف ومسحوبات» طبيعتها ذمة على الموظف لا مصروف — تُوجَّه لحساب السلف
+    if (/سلف|مسحوبات/.test(c.n || '')) { catAcc[c.id] = '1401'; return; }
+    const code = '51' + String(i + 1).padStart(2, '0');
+    catAcc[c.id] = code;
+    addAcc(code, c.n || 'مصروف', 'exp', { link: 'تصنيفات مصروفات الوردية' });
+  });
+  addAcc('5198', 'مشتريات فواتير التوريد الآجلة', 'exp', { link: 'شاشة الموردين' });
+  addAcc('5199', 'مصروفات وردية غير مصنّفة', 'exp');
+
+  // ===== محرك القيود =====
+  const entries = [];
+  const L = (code, debit, credit) => ({ code, name: (accIx[code] || { name: code }).name, debit: debit || 0, credit: credit || 0 });
+  const push = (e) => {
+    e.debit = sum(e.lines, l => l.debit); e.credit = sum(e.lines, l => l.credit);
+    e.balanced = Math.abs(e.debit - e.credit) < 0.005;
+    entries.push(e);
+  };
+  const pmToAcc = (m, bCode) => m === 'cash' ? bCode : '1201'; // شبكة/تحويل/شيك → البنك التجميعي
+  const supNameOf = (pm) => pm.supplierName
+    || ((org.suppliers || []).find(s => s.id === pm.supplierId) || {}).name || '';
+
+  const counted = (ops.closings || []).filter(countedClosing);
+  counted.forEach(c => {
+    const bCode = cashCode[c.branchId] || '1101';
+    // ١) إيراد الوردية: نقدي/شبكة/تطبيقات ← المبيعات
+    const apps = sum(c.deliverySales || [], s => s.amount);
+    const cash = c.cashSales || 0, card = c.cardSales || 0;
+    const tot = cash + card + apps;
+    if (tot > 0) {
+      const lines = [];
+      if (cash) lines.push(L(bCode, cash, 0));
+      if (card) lines.push(L('1201', card, 0));
+      if (apps) lines.push(L('1301', apps, 0));
+      lines.push(L('4101', 0, tot));
+      push({ id: 'rev:' + c.id, date: c.date, title: 'إيراد وردية — ' + (c.branchName || ''), src: 'إغلاق وردية', ref: c.id, lines });
+    }
+    // ٢) مصروفات الوردية: نقدًا من الصندوق، بنكيًا من البنك، وآجلًا على ذمم الموردين
+    (c.expenses || []).forEach((e, ix) => {
+      const amt = e.amount || 0; if (!amt) return;
+      const expCode = catAcc[e.categoryId] || '5199';
+      const credCode = e.paymentMethod === 'deferred' ? '2101' : pmToAcc(e.paymentMethod, bCode);
+      push({
+        id: 'exp:' + c.id + ':' + (e.id || ix), date: c.date,
+        title: (e.categoryName || 'مصروف') + (e.paymentMethod === 'deferred' ? ' (آجل — على الحساب)' : '') + ' — ' + (c.branchName || ''),
+        src: 'مصروف وردية', ref: c.id,
+        lines: [L(expCode, amt, 0), L(credCode, 0, amt)]
+      });
+    });
+    // ٣) سدادات الموردين داخل الوردية — قد تتوزع على أكثر من طريقة دفع
+    (c.supplierPayments || []).forEach((pm, ix) => {
+      const s = paySplits(pm); const t2 = s.cash + s.card + s.transfer + s.other;
+      if (t2 <= 0) return;
+      const lines = [L('2101', t2, 0)];
+      if (s.cash) lines.push(L(bCode, 0, s.cash));
+      const bank = s.card + s.transfer + s.other;
+      if (bank) lines.push(L('1201', 0, bank));
+      const nm = supNameOf(pm);
+      push({
+        id: 'spay:' + c.id + ':' + (pm.id || ix), date: c.date,
+        title: 'سداد مورد' + (nm ? ' — ' + nm : '') + ' (' + (c.branchName || '') + ')',
+        src: 'سداد مورد بالوردية', ref: pm.reference || pm.invoiceId || c.id, lines
+      });
+    });
+  });
+
+  // ٤) التحويلات المؤكّد استلامها → الخزينة الرئيسية (المعلّقة تبقى بعهدة الفرع حتى التأكيد)
+  (ops.transfers || []).filter(t => t.status === 'received').forEach(t => {
+    if (!(t.amount > 0)) return;
+    push({
+      id: 'tr:' + t.id, date: t.date, title: 'توريد نقدي للخزينة الرئيسية — ' + (t.branchName || ''),
+      src: 'تحويل خزينة', ref: t.referenceNo || t.id,
+      lines: [L('1101', t.amount, 0), L(cashCode[t.branchId] || '1101', 0, t.amount)]
+    });
+  });
+  // ٥) أوامر الصرف من الخزينة الرئيسية
+  (ops.disbursements || []).forEach(x => {
+    if (!(x.amount > 0)) return;
+    push({
+      id: 'dis:' + x.id, date: x.date,
+      title: 'أمر صرف — ' + (x.category || 'منصرف') + (x.beneficiary ? ' · ' + x.beneficiary : ''),
+      src: 'الخزينة الرئيسية', ref: x.reference || x.id,
+      lines: [L('5901', x.amount, 0), L('1101', 0, x.amount)]
+    });
+  });
+  // ٦) فواتير التوريد الآجلة وسداداتها المركزية (سدادات الفروع تدخل من قيود الورديات)
+  (ops.invoices || []).forEach(i => {
+    const d = (i.date || i.createdAt || i.dueDate || '').slice(0, 10);
+    if (i.amount > 0) push({
+      id: 'inv:' + i.id, date: d, title: 'فاتورة توريد آجلة — ' + (i.supplierName || 'مورد'),
+      src: 'فاتورة مورد', ref: i.invoiceNo || i.id,
+      lines: [L('5198', i.amount, 0), L('2101', 0, i.amount)]
+    });
+    if ((i.paidAmount || 0) > 0) push({
+      id: 'invp:' + i.id, date: (i.paidDate || d || '').slice(0, 10),
+      title: 'سداد مركزي لفاتورة توريد — ' + (i.supplierName || 'مورد'),
+      src: 'سداد مركزي', ref: i.invoiceNo || i.id,
+      lines: [L('2101', i.paidAmount, 0), L('1201', 0, i.paidAmount)]
+    });
+  });
+  // ٧) الرواتب: الاستحقاق كما رُحِّل، والصرف كما سُجِّل، وتسوية فرق السلف والخصومات
+  const led = ops.ledgerEntries || [];
+  const salMonths = [...new Set(led.filter(x => x.kind === 'salary_accrual' || x.kind === 'salary_payout').map(x => x.month))].sort();
+  salMonths.forEach(m => {
+    const acc = sum(led.filter(x => x.kind === 'salary_accrual' && x.month === m), x => x.credit || 0);
+    const pay = sum(led.filter(x => x.kind === 'salary_payout' && x.month === m), x => x.debit || 0);
+    if (acc > 0) push({
+      id: 'sal-acc:' + m, date: m + '-28', title: 'استحقاق رواتب شهر ' + m,
+      src: 'كشف الرواتب', ref: 'payroll-' + m,
+      lines: [L('5201', acc, 0), L('2201', 0, acc)]
+    });
+    if (pay > 0) {
+      const payDate = ((led.find(x => x.kind === 'salary_payout' && x.month === m) || {}).date || (m + '-28')).slice(0, 10);
+      push({
+        id: 'sal-pay:' + m, date: payDate, title: 'صرف رواتب شهر ' + m + ' (صافي بعد السلف والخصوم)',
+        src: 'كشف الرواتب', ref: 'payout-' + m,
+        lines: [L('2201', pay, 0), L('1201', 0, pay)]
+      });
+      const diff = Math.round((acc - pay) * 100) / 100;
+      if (diff > 0.004) {
+        const ads = (ops.advances || []).filter(a => a.month === m);
+        const draws = sum(ads.filter(a => ['advance', 'salary_draw'].includes(a.type)), a => a.amount);
+        const cd = Math.min(draws, diff);
+        const cc = Math.round((diff - cd) * 100) / 100;
+        const lines = [L('2201', diff, 0)];
+        if (cd > 0) lines.push(L('1401', 0, cd));
+        if (cc > 0) lines.push(L('5201', 0, cc));
+        push({
+          id: 'sal-set:' + m, date: payDate, title: 'تسوية سلف وخصومات رواتب ' + m,
+          src: 'كشف الرواتب', ref: 'payroll-' + m, lines
+        });
+      }
+    }
+  });
+  // ٨) صرف السلف والمسحوبات (عهدة على الموظف حتى استقطاعها من الراتب)
+  (ops.advances || []).filter(a => ['advance', 'salary_draw'].includes(a.type)).forEach(a => {
+    if (!(a.amount > 0)) return;
+    push({
+      id: 'adv:' + a.id, date: (a.date || '').slice(0, 10) || (a.month ? a.month + '-15' : ''),
+      title: 'سلفة/سحب على الراتب' + (a.reason ? ' — ' + a.reason : ''),
+      src: 'الرواتب والسلف', ref: a.month || a.id,
+      lines: [L('1401', a.amount, 0), L('1201', 0, a.amount)]
+    });
+  });
+
+  // ===== الترقيم والتجميع =====
+  entries.sort((a, b) => (a.date || '').localeCompare(b.date || '') || a.id.localeCompare(b.id));
+  entries.forEach((e, i) => { e.no = 'ق-' + String(i + 1).padStart(4, '0'); });
+  entries.forEach(e => e.lines.forEach(l => {
+    const a = accIx[l.code]; if (!a) return;
+    a.debit += l.debit; a.credit += l.credit;
+  }));
+  accounts.forEach(a => {
+    a.balance = (a.kind === 'asset' || a.kind === 'exp') ? a.debit - a.credit : a.credit - a.debit;
+    a.active = a.debit !== 0 || a.credit !== 0;
+  });
+  const totalDebit = sum(entries, e => e.debit);
+  const totalCredit = sum(entries, e => e.credit);
+  return {
+    accounts, entries: entries.slice().reverse(), cashCode,
+    totalDebit, totalCredit,
+    balanced: Math.abs(totalDebit - totalCredit) < 0.01 && entries.every(e => e.balanced)
+  };
+}
+
 const DENOMS = [
   { k: 'd500', v: 500, c: '#2B6CB0' }, { k: 'd200', v: 200, c: '#5F7A55' },
   { k: 'd100', v: 100, c: '#A83B3B' }, { k: 'd50', v: 50, c: '#2F8F5B' },
@@ -325,7 +532,7 @@ const DENOMS = [
 const emptyDenoms = () => DENOMS.reduce((o, d) => ({ ...o, [d.k]: 0 }), {});
 const countDenoms = (d) => DENOMS.reduce((s, x) => s + (Number(d?.[x.k]) || 0) * x.v, 0);
 
-const ALL_TABS = ['dash', 'compare', 'closing', 'approve', 'treasury', 'payroll', 'suppliers', 'partners', 'shifts', 'archive', 'ai', 'reports', 'admin', 'audit'];
+const ALL_TABS = ['dash', 'compare', 'closing', 'approve', 'treasury', 'payroll', 'suppliers', 'partners', 'acct', 'shifts', 'archive', 'ai', 'reports', 'admin', 'audit'];
 const ROLES = {
   // ===== الأدوار الخمسة المعتمدة =====
   cashier: {
@@ -345,8 +552,8 @@ const ROLES = {
   },
   head_office: {
     ar: 'المكتب الرئيسي — المالية والإدارة', badge: 'b-brass', scope: 'all', approver: true,
-    tabs: ['dash', 'compare', 'closing', 'approve', 'treasury', 'payroll', 'suppliers', 'partners', 'shifts', 'archive', 'ai', 'reports', 'audit'],
-    perms: ['كل الفروع والتقارير المجمّعة', 'التدقيق والاعتماد النهائي', 'الخزينة والرواتب والموردون', 'المركز المالي الذكي']
+    tabs: ['dash', 'compare', 'closing', 'approve', 'treasury', 'payroll', 'suppliers', 'partners', 'acct', 'shifts', 'archive', 'ai', 'reports', 'audit'],
+    perms: ['كل الفروع والتقارير المجمّعة', 'التدقيق والاعتماد النهائي', 'الخزينة والرواتب والموردون', 'المحاسبة والمركز المالي الذكي']
   },
   system_admin: {
     ar: 'مسؤول النظام — وصول كامل', badge: 'b-rose', scope: 'all', create: true, admin: true, approver: true,
@@ -361,8 +568,8 @@ const ROLES = {
   },
   finance_department: {
     ar: 'الإدارة المالية — محاسب رئيسي', badge: 'b-sky', scope: 'assigned', legacy: true,
-    tabs: ['dash', 'compare', 'closing', 'approve', 'treasury', 'payroll', 'suppliers', 'partners', 'shifts', 'archive', 'ai', 'reports', 'audit'],
-    perms: ['تدقيق ومراجعة الإغلاقات', 'استلام تحويلات الخزينة', 'التقارير والقوائم المالية']
+    tabs: ['dash', 'compare', 'closing', 'approve', 'treasury', 'payroll', 'suppliers', 'partners', 'acct', 'shifts', 'archive', 'ai', 'reports', 'audit'],
+    perms: ['تدقيق ومراجعة الإغلاقات', 'استلام تحويلات الخزينة', 'المحاسبة والتقارير والقوائم المالية']
   }
 };
 
@@ -775,6 +982,7 @@ export default function App() {
     { id: 'payroll', ar: 'الرواتب والسلف', icon: Wallet },
     { id: 'suppliers', ar: 'الموردون والالتزامات', icon: Truck },
     { id: 'partners', ar: 'دفتر الشركاء', icon: Users },
+    { id: 'acct', ar: 'المحاسبة', icon: Scale },
     { id: 'shifts', ar: 'الورديات والتذكيرات', icon: Clock },
     { id: 'archive', ar: 'أرشيف المستندات', icon: ImageIcon },
     { id: 'ai', ar: 'المركز المالي الذكي', icon: Sparkles },
@@ -868,7 +1076,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v7.3 🔐</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v7.4 📒</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -943,6 +1151,7 @@ export default function App() {
               {safeTab === 'payroll' && <Payroll {...shared} />}
               {safeTab === 'suppliers' && <Suppliers {...shared} />}
               {safeTab === 'partners' && <Partners {...shared} />}
+              {safeTab === 'acct' && <Accounting {...shared} />}
               {safeTab === 'shifts' && <Shifts {...shared} />}
               {safeTab === 'archive' && <Archive {...shared} />}
               {safeTab === 'ai' && <AiCenter {...shared} />}
@@ -5023,6 +5232,144 @@ function BalCell({ bal }) {
   const cr = bal > 0;
   return <span><span className="num" style={{ color: cr ? 'var(--rose)' : 'var(--mint)', fontWeight: 700, fontSize: 14 }}>{money(Math.abs(bal))}</span>
     <span style={{ fontSize: 10, color: 'var(--faint)', marginInlineStart: 5 }}>{cr ? 'دائن · علينا' : 'مدين · لنا'}</span></span>;
+}
+
+/* ================= شاشة المحاسبة — م١: دليل الحسابات والقيود ================= */
+function Accounting({ org, ops }) {
+  const [view, setView] = useState('jr');           // jr = القيود · coa = دليل الحسابات
+  const [open, setOpen] = useState({});             // القيود المفتوحة التفاصيل
+  const [q, setQ] = useState('');
+  const [month, setMonth] = useState('');           // فلتر شهر اختياري
+
+  const A = useMemo(() => buildAccounting(org, ops), [org, ops]);
+
+  const entries = A.entries.filter(e =>
+    (!month || (e.date || '').startsWith(month)) &&
+    (!q.trim() || (e.title + ' ' + e.no + ' ' + (e.src || '')).includes(q.trim()))
+  );
+  const kinds = ['asset', 'liab', 'equity', 'rev', 'exp'];
+  const srcBadge = (s) => s === 'إغلاق وردية' ? 'b-mint'
+    : s === 'كشف الرواتب' ? 'b-sky'
+    : s === 'تحويل خزينة' || s === 'الخزينة الرئيسية' ? 'b-brass'
+    : s === 'فاتورة مورد' || s === 'سداد مركزي' || s === 'سداد مورد بالوردية' ? 'b-amber'
+    : 'b-dim';
+  const fmtBal = (n) => n < 0 ? '(' + money(-n) + ')' : money(n);
+
+  return (
+    <div className="grid" style={{ gap: 14 }}>
+      <div className="grid g3">
+        <Kpi label="القيود المولّدة تلقائياً" value={String(A.entries.length)} sub="من عملياتك المعتمدة — بأثر رجعي" icon={FileText} color="#4FB286" />
+        <Kpi label={A.balanced ? 'كل القيود متوازنة ✓' : 'يوجد قيد غير متوازن!'} value={money(A.totalDebit)}
+          sub={'إجمالي المدين = إجمالي الدائن'} icon={Scale} color={A.balanced ? '#C8A24A' : '#D9544D'} />
+        <Kpi label="حسابات نشطة" value={String(A.accounts.filter(a => a.active).length) + ' / ' + A.accounts.length}
+          sub="من دليل الحسابات" icon={Landmark} color="#5B93C4" />
+      </div>
+
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        <button className={'btn sm' + (view === 'jr' ? ' pri' : ' gh')} onClick={() => setView('jr')}><FileText size={14} />القيود اليومية</button>
+        <button className={'btn sm' + (view === 'coa' ? ' pri' : ' gh')} onClick={() => setView('coa')}><Landmark size={14} />دليل الحسابات والأرصدة</button>
+        {view === 'jr' && <>
+          <input className="inp" style={{ width: 200, flex: '1 1 140px', maxWidth: 260 }} placeholder="بحث في القيود…" value={q} onChange={e => setQ(e.target.value)} />
+          <input type="month" className="inp" style={{ width: 150 }} value={month} onChange={e => setMonth(e.target.value)} />
+          {month && <button className="btn sm gh" onClick={() => setMonth('')}>كل الشهور</button>}
+        </>}
+      </div>
+
+      {view === 'jr' && (
+        <div className="card">
+          <div className="card-t" style={{ marginBottom: 10 }}><FileText size={15} color="var(--brass)" />القيود اليومية — تُشتق آليًا من عملياتك، اضغط أي قيد لتفاصيله</div>
+          <div className="tw">
+            <table className="tb">
+              <thead><tr><th>رقم</th><th>التاريخ</th><th>البيان</th><th>المصدر</th><th style={{ textAlign: 'end' }}>المبلغ</th></tr></thead>
+              <tbody>
+                {entries.map(e => (
+                  <React.Fragment key={e.id}>
+                    <tr onClick={() => setOpen(o => ({ ...o, [e.id]: !o[e.id] }))} style={{ cursor: 'pointer' }}>
+                      <td className="num" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>{e.no}</td>
+                      <td className="num" style={{ fontSize: 11.5, whiteSpace: 'nowrap' }}>{e.date}</td>
+                      <td style={{ fontSize: 12.5 }}>{e.title}
+                        {!e.balanced && <span className="badge b-rose" style={{ marginInlineStart: 6 }}>غير متوازن!</span>}</td>
+                      <td><span className={'badge ' + srcBadge(e.src)} style={{ fontSize: 9.5 }}>تلقائي · {e.src}</span></td>
+                      <td className="num" style={{ textAlign: 'end', fontWeight: 600 }}>{money(e.debit)}</td>
+                    </tr>
+                    {open[e.id] && (
+                      <tr><td colSpan={5} style={{ padding: 0 }}>
+                        <div style={{ background: 'var(--ink)', border: '1px solid var(--line-g)', borderRadius: 10, margin: '4px 2px 10px', padding: 12 }}>
+                          <table className="tb" style={{ fontSize: 12 }}>
+                            <thead><tr><th>الحساب</th><th style={{ textAlign: 'end' }}>مدين</th><th style={{ textAlign: 'end' }}>دائن</th></tr></thead>
+                            <tbody>
+                              {e.lines.map((l, i) => (
+                                <tr key={i}>
+                                  <td><span className="num" style={{ fontSize: 10, color: 'var(--brass-l)', background: 'var(--acc-soft)', border: '1px solid var(--frame-o)', borderRadius: 6, padding: '0 6px', marginInlineEnd: 6 }}>{l.code}</span>{l.name}</td>
+                                  <td className="num" style={{ textAlign: 'end' }}>{l.debit ? money(l.debit) : '—'}</td>
+                                  <td className="num" style={{ textAlign: 'end' }}>{l.credit ? money(l.credit) : '—'}</td>
+                                </tr>
+                              ))}
+                              <tr style={{ fontWeight: 700 }}>
+                                <td>الإجمالي {e.balanced ? '— متوازن ✓' : ''}</td>
+                                <td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{money(e.debit)}</td>
+                                <td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{money(e.credit)}</td>
+                              </tr>
+                            </tbody>
+                          </table>
+                          <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 6 }}>المصدر: {e.src} · المرجع: <span className="num">{e.ref}</span> — لم يُدخل هذا القيد يدويًا؛ تصحيح المصدر ينعكس هنا تلقائيًا.</div>
+                        </div>
+                      </td></tr>
+                    )}
+                  </React.Fragment>
+                ))}
+                {entries.length === 0 && <tr><td colSpan={5}><div className="empty">لا قيود مطابقة — القيود تتولّد تلقائيًا من الإغلاقات المعتمدة والسدادات والرواتب والتحويلات.</div></td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {view === 'coa' && (
+        <div className="card">
+          <div className="card-t" style={{ marginBottom: 10 }}><Landmark size={15} color="var(--brass)" />دليل الحسابات — أرصدة حيّة من القيود التلقائية</div>
+          <div className="tw">
+            <table className="tb">
+              <thead><tr><th>الرمز</th><th>الحساب</th><th style={{ textAlign: 'end' }}>مدين</th><th style={{ textAlign: 'end' }}>دائن</th><th style={{ textAlign: 'end' }}>الرصيد</th></tr></thead>
+              <tbody>
+                {kinds.map(k => (
+                  <React.Fragment key={k}>
+                    <tr><td colSpan={5} style={{ background: 'var(--acc-soft)', fontWeight: 800, color: 'var(--brass-l)', fontSize: 12.5 }}>
+                      {ACC_KIND[k].ar} <span style={{ color: 'var(--faint)', fontWeight: 500, fontSize: 10.5 }}>· طبيعته {ACC_KIND[k].nature}</span></td></tr>
+                    {A.accounts.filter(a => a.kind === k).map(a => (
+                      <tr key={a.code} style={{ opacity: a.active ? 1 : .55 }}>
+                        <td><span className="num" style={{ fontSize: 10.5, color: 'var(--brass-l)', background: 'var(--acc-soft)', border: '1px solid var(--frame-o)', borderRadius: 6, padding: '0 7px' }}>{a.code}</span></td>
+                        <td style={{ fontSize: 12.5 }}>{a.name}
+                          {a.link && <div style={{ fontSize: 9.5, color: 'var(--sky)' }}>مرتبط: {a.link}</div>}</td>
+                        <td className="num" style={{ textAlign: 'end' }}>{a.debit ? money(a.debit) : '—'}</td>
+                        <td className="num" style={{ textAlign: 'end' }}>{a.credit ? money(a.credit) : '—'}</td>
+                        <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: a.balance < 0 ? 'var(--rose)' : 'var(--txt)' }}>{fmtBal(a.balance)}</td>
+                      </tr>
+                    ))}
+                  </React.Fragment>
+                ))}
+                <tr style={{ fontWeight: 800, background: 'rgba(200,162,74,.05)' }}>
+                  <td colSpan={2}>الإجمالي {A.balanced ? '— متوازن ✓' : '— غير متوازن!'}</td>
+                  <td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{money(A.totalDebit)}</td>
+                  <td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{money(A.totalCredit)}</td>
+                  <td />
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <div className="card" style={{ background: 'rgba(200,162,74,.04)', borderStyle: 'dashed' }}>
+        <div style={{ fontSize: 11.5, color: 'var(--dim)', lineHeight: 1.9 }}>
+          <b style={{ color: 'var(--brass-l)' }}>حدود المرحلة الأولى (بشفافية):</b> المبالغ إجمالية كما سُجّلت — فصل ضريبة القيمة المضافة يأتي في مرحلة الضريبة.
+          المدفوعات البنكية (شبكة/تحويل/شيك) تُجمَّع في حساب بنكي واحد تُسوّى تفاصيله في مرحلة التسوية البنكية.
+          بطاقات «إيجارات وفواتير الفروع» الثابتة لا تولّد قيودًا (سدادها الفعلي يدخل من مصروفات الورديات) لتفادي الازدواج.
+          الحركات اليدوية في دفتر الشركاء والأرصدة الافتتاحية تُقيَّد في المرحلة التالية مع القيود اليدوية للمحاسب.
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function Partners({ org, ops, me, commit, commitOrg, say }) {
