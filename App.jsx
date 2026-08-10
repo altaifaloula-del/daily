@@ -877,6 +877,49 @@ const REG_APPS = [
   { id: 'ai', ar: 'المركز المالي الذكي', en: 'Financial Intelligence', cat: 'bi', icon: Sparkles, open: { tab: 'ai' }, kw: ['تحليل', 'ذكاء', 'توقع', 'انحراف', 'نسبة', 'اتجاه'], fns: ['مؤشرات وتحليلات', 'كشف الانحرافات', 'توصيات'], d: 'قراءة ذكية لأرقامك: اتجاهات وانحرافات وتوصيات.' }
 ];
 const REG_IX = {}; REG_APPS.forEach(a => { REG_IX[a.id] = a; });
+
+// v9.3 — تطبيقات الشاشة الرئيسية مُجمّعة (كل تطبيق يضمّ أقسامه المتشابهة، بنمط أودو)
+// المحاسبة تطبيق واحد بثمانية أقسام، الموردون بثلاثة، المخزون بأربعة… (تطابق النموذج المعتمد)
+const LAUNCH_APPS = [
+  { id: 'acct', ar: 'المحاسبة', en: 'Accounting', cat: 'fin', icon: Scale, open: { tab: 'acct' },
+    sections: ['القيود اليومية', 'دليل الحسابات', 'ميزان المراجعة', 'القوائم المالية', 'مراكز التكلفة', 'الأصول والإهلاك', 'التسوية البنكية', 'الإقفال الشهري'],
+    kw: ['قيد', 'يومية', 'حساب', 'ميزان', 'قائمة', 'دخل', 'مركز مالي', 'مراكز تكلفة', 'أصل', 'إهلاك', 'بنك', 'تسوية', 'إقفال', 'قفل', 'محاسبة'] },
+  { id: 'treasury', ar: 'الخزينة والترحيل', en: 'Treasury', cat: 'fin', icon: Landmark, open: { tab: 'treasury' },
+    sections: ['التحويلات الواردة', 'حركة الخزينة'], kw: ['خزينة', 'تحويل', 'ترحيل', 'نقد', 'بنك'] },
+  { id: 'reports', ar: 'التقارير المالية', en: 'Reports', cat: 'fin', icon: FileBarChart, open: { tab: 'reports' },
+    kw: ['تقرير', 'تقارير', 'طباعة', 'مالية'] },
+  { id: 'closing', ar: 'الإغلاق اليومي', en: 'Daily Closing', cat: 'pos', icon: ClipboardCheck, open: { tab: 'closing' },
+    sections: ['تسجيل إغلاق اليوم', 'سجل الإغلاقات'], kw: ['اغلاق', 'إغلاق', 'وردية', 'مبيعات', 'صندوق', 'كاشير'] },
+  { id: 'approve', ar: 'التدقيق والاعتماد', en: 'Approvals', cat: 'pos', icon: ShieldCheck, open: { tab: 'approve' },
+    kw: ['تدقيق', 'اعتماد', 'مراجعة'] },
+  { id: 'dash', ar: 'لوحة المؤشرات', en: 'Dashboard', cat: 'pos', icon: LayoutDashboard, open: { tab: 'dash' },
+    kw: ['مؤشر', 'لوحة', 'ملخص', 'إيراد'] },
+  { id: 'compare', ar: 'مقارنة الفروع', en: 'Branch Compare', cat: 'pos', icon: BarChart3, open: { tab: 'compare' },
+    kw: ['مقارنة', 'فروع', 'رقابة'] },
+  { id: 'shifts', ar: 'الورديات والتذكيرات', en: 'Shifts', cat: 'pos', icon: Clock, open: { tab: 'shifts' },
+    kw: ['وردية', 'تذكير', 'مناوبة'] },
+  { id: 'brmgmt', ar: 'الفروع والمستخدمون', en: 'Branches & Users', cat: 'pos', icon: UserCog, open: { tab: 'admin' },
+    sections: ['الفروع', 'المستخدمون والصلاحيات', 'بنود المصروف', 'تطبيقات التوصيل', 'ظهور التطبيقات'], kw: ['فرع', 'مستخدم', 'صلاحية', 'إعداد', 'مستخدمون'] },
+  { id: 'suppliers', ar: 'الموردون والمشتريات', en: 'Suppliers', cat: 'pur', icon: Truck, open: { tab: 'suppliers' },
+    sections: ['الفواتير والالتزامات', 'سجل الموردين', 'أوامر الشراء'], kw: ['مورد', 'فاتورة', 'التزام', 'أمر شراء', 'دفع', 'مشتريات'] },
+  { id: 'partners', ar: 'دفتر الشركاء', en: 'Partners', cat: 'pur', icon: Users, open: { tab: 'partners' },
+    kw: ['شريك', 'شركاء', 'دفتر'] },
+  { id: 'payroll', ar: 'الرواتب والسلف', en: 'Payroll', cat: 'hr', icon: Wallet, open: { tab: 'payroll' },
+    sections: ['مسير الرواتب', 'السلف'], kw: ['راتب', 'سلفة', 'موظف', 'أجور', 'رواتب'] },
+  { id: 'vat', ar: 'ضريبة القيمة المضافة', en: 'VAT', cat: 'tax', icon: Receipt, open: { tab: 'acct', view: 'vat' },
+    sections: ['احتساب الضريبة', 'الإقرار الضريبي'], kw: ['ضريبة', 'قيمة مضافة', 'زاتكا', 'مدخلات', 'مخرجات', 'إقرار'] },
+  { id: 'inv', ar: 'المخزون والمنتجات', en: 'Inventory', cat: 'inv2', icon: HardDrive, open: { tab: 'inv' },
+    sections: ['الأصناف', 'الحركات', 'الجرد', 'المنتجات والوصفات'], kw: ['مخزون', 'صنف', 'جرد', 'منتج', 'وصفة', 'مستودع', 'هدر'] },
+  { id: 'archive', ar: 'أرشيف المستندات', en: 'Documents', cat: 'gov', icon: ImageIcon, open: { tab: 'archive' },
+    kw: ['أرشيف', 'مستند', 'صورة', 'وثيقة', 'إيصال'] },
+  { id: 'audit', ar: 'سجل التدقيق', en: 'Audit Log', cat: 'gov', icon: Eye, open: { tab: 'audit' },
+    kw: ['سجل', 'تدقيق', 'نشاط', 'إجراء'] },
+  { id: 'backup', ar: 'النسخ الاحتياطي', en: 'Backup', cat: 'gov', icon: Download, open: { tab: 'admin' },
+    kw: ['نسخة', 'احتياطي', 'استعادة', 'لقطة', 'حماية'] },
+  { id: 'ai', ar: 'المركز المالي الذكي', en: 'Financial Intelligence', cat: 'bi', icon: Sparkles, open: { tab: 'ai' },
+    kw: ['ذكاء', 'تحليل', 'توقع', 'مركز'] }
+];
+const LAUNCH_IX = {}; LAUNCH_APPS.forEach(a => { LAUNCH_IX[a.id] = a; });
 /* v8.5 — لقطات احتياطية يومية محلية (IndexedDB) على أجهزة الإدارة:
    حماية إضافية ضد التلف أو الحذف الخاطئ — والنسخة الملفية تبقى الحماية الخارجية */
 const snapDB = () => new Promise((res, rej) => {
@@ -1447,12 +1490,12 @@ export default function App() {
   // التبويبات الفعّالة = تبويبات الدور + تبويبات التطبيقات المُضافة يدويًا − التبويبات المُخفاة بالكامل
   // «الرئيسية» تبقى دائمًا (لا خطر حجب المستخدم — يهبط على الشبكة)
   const roleTabsMe = ROLES[me.role]?.tabs || [];
-  const grantTabsMe = (me.appAllow || []).map(id => REG_IX[id]?.open?.tab).filter(Boolean);
+  const grantTabsMe = (me.appAllow || []).map(id => LAUNCH_IX[id]?.open?.tab).filter(Boolean);
   const denyDedMe = (() => {
     const deny = new Set(me.appDeny || []);
     if (!deny.size) return new Set();
     const byTab = {};
-    REG_APPS.forEach(a => { (byTab[a.open.tab] = byTab[a.open.tab] || []).push(a.id); });
+    LAUNCH_APPS.forEach(a => { (byTab[a.open.tab] = byTab[a.open.tab] || []).push(a.id); });
     return new Set(Object.entries(byTab).filter(([t, ids]) => ids.length && ids.every(id => deny.has(id))).map(([t]) => t));
   })();
   const NAV = [
@@ -1566,7 +1609,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v9.2 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v9.3 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -6409,9 +6452,9 @@ function AppsStrip({ me, setTab, openAcctView, openInvView }) {
   // شريط ERP Home: المفضلة وآخر المستخدَم — يظهر أعلى لوحة المؤشرات
   const u = appUseGet(me.id);
   const can = (a) => a && appCanSee(me, a) && !a.soon;
-  const favs = (u.fav || []).map(id => REG_IX[id]).filter(can).slice(0, 5);
+  const favs = (u.fav || []).map(id => LAUNCH_IX[id] || REG_IX[id]).filter(can).slice(0, 5);
   const recs = Object.entries(u.rec || {}).sort((a, b) => (b[1].at || 0) - (a[1].at || 0))
-    .map(([id]) => REG_IX[id]).filter(can).filter(a => !favs.includes(a)).slice(0, 3);
+    .map(([id]) => LAUNCH_IX[id] || REG_IX[id]).filter(can).filter(a => !favs.includes(a)).slice(0, 3);
   return (
     <div className="appstrip">
       {favs.map(a => (
@@ -6449,26 +6492,26 @@ function Launcher({ org, ops, me, setTab, openAcctView, openInvView }) {
     v.fav = v.fav.includes(id) ? v.fav.filter(x => x !== id) : [...v.fav, id];
     appUseSet(me.id, v); setBump(b => b + 1);
   };
-  const cfg = org.appsCfg || {};
-  const hidden = cfg.hidden || [];
   const pend = (ops?.closings || []).filter(c => c.status === 'submitted').length;
 
-  const mine = REG_APPS.filter(a => appCanSee(me, a) && !a.soon && !hidden.includes(a.id));
+  // التطبيقات المُجمّعة (LAUNCH_APPS): كل تطبيق يضمّ أقسامه المتشابهة
+  const mine = LAUNCH_APPS.filter(a => appCanSee(me, a));
   const norm = (s) => (s || '').replace(/[أإآ]/g, 'ا');
   const qq = norm(q.trim());
-  const match = (a) => !qq || norm(a.ar + ' ' + a.en + ' ' + (a.kw || []).join(' ') + ' ' + (a.fns || []).join(' ')).includes(qq);
+  const match = (a) => !qq || norm(a.ar + ' ' + (a.en || '') + ' ' + (a.kw || []).join(' ') + ' ' + (a.sections || []).join(' ')).includes(qq);
   const shown = mine.filter(match);
   const favApps = mine.filter(a => isFav(a.id) && match(a));
   const hour = new Date().getHours();
-  const greet = hour < 12 ? 'صباح الخير' : hour < 17 ? 'مساء الخير' : 'مساء الخير';
+  const greet = hour < 12 ? 'صباح الخير' : 'مساء الخير';
 
   const Tile = (a) => (
     <div key={a.id} className="lh-tile" style={{ '--c': CAT_CLR[a.cat] || 'var(--brass)' }}
-      onClick={() => appOpenNow(a, me, setTab, openAcctView, openInvView)} title={a.d}>
+      onClick={() => appOpenNow(a, me, setTab, openAcctView, openInvView)}
+      title={(a.sections?.length ? a.sections.join(' · ') : a.ar)}>
       <button className={'lh-star' + (isFav(a.id) ? ' on' : '')} title={isFav(a.id) ? 'إزالة من المفضلة' : 'تثبيت في المفضلة'}
         onClick={(e) => toggleFav(a.id, e)}><Star size={12} fill={isFav(a.id) ? 'currentColor' : 'none'} /></button>
       {a.id === 'approve' && pend > 0 && <span className="lh-bdg">{pend}</span>}
-      <div className="lh-box"><a.icon size={27} />{a.fns?.length > 0 && <span className="lh-cnt">{a.fns.length}</span>}</div>
+      <div className="lh-box"><a.icon size={27} />{a.sections?.length > 1 && <span className="lh-cnt" title={a.sections.length + ' أقسام'}>{a.sections.length}</span>}</div>
       <div className="lh-nm">{a.ar}</div>
     </div>
   );
@@ -6525,7 +6568,7 @@ function AppPermsPanel({ org, commitOrg, say }) {
     });
     say('حُدِّث ظهور «' + a.ar + '» لـ ' + u.name);
   };
-  const apps = REG_APPS.filter(a => !a.soon);
+  const apps = LAUNCH_APPS;
   return (
     <div className="grid" style={{ gap: 12 }}>
       <div className="card">
