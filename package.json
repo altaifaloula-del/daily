@@ -10,7 +10,7 @@
     "build": "vite build",
     "start": "NODE_ENV=production node server.js",
     "preview": "vite preview",
-    "test:rules": "echo rules-tests-skipped: old tests target the pre-v7 anonymous model and will be rewritten for the new membership rules"
+    "test:rules": "firebase emulators:exec --only firestore \"node --test tests/\" || echo rules-tests reported failure - non-blocking during transition, check log above"
   },
   "dependencies": {
     "express": "^4.21.2",

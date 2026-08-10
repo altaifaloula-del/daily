@@ -143,6 +143,16 @@ export const authApi = {
     return true;
   },
 
+  /** حالة عضويتي — تُفحص بعد الدخول لمنع تجربة مشوّشة لمن لا عضوية له */
+  async myMembership() {
+    const f = await firestore(); if (!f) return null;
+    const u = await authedUser(); if (!u) return null;
+    try {
+      const snap = await f.getDoc(f.doc(f.db, 'members', (u.email || '').toLowerCase()));
+      return { exists: snap.exists(), active: snap.exists() && snap.data().active === true };
+    } catch { return { exists: false, active: false }; }
+  },
+
   /** عضوية مستخدم (يديرها المدراء): تفعيل/تعطيل + دوره وفرعه */
   async upsertMember(email, data) {
     const f = await firestore(); if (!f) return false;
@@ -235,7 +245,11 @@ export const cloud = {
     const f = await firestore();
     if (f) {
       try { await fsWrite(f, key, val); local.set(key, val); return true; }
-      catch (e) { console.warn('كتابة Firestore فشلت:', e); }
+      catch (e) {
+        console.warn('كتابة Firestore فشلت:', e);
+        // رفض الصلاحيات قرارٌ من قواعد الأمان لا عطل شبكة — لا نتظاهر بالنجاح محلياً
+        if (e && (e.code === 'permission-denied' || e.code === 'PERMISSION_DENIED')) return false;
+      }
     }
     if (useApi && !FB_READY) {
       try {
