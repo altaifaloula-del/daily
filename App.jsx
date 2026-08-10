@@ -1307,7 +1307,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v8.2 🖨️</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v8.3 ⚖️</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -6344,6 +6344,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const [jm, setJm] = useState(null);               // نموذج القيد اليدوي
   const [astF, setAstF] = useState(null);           // نموذج أصل ثابت
   const [brF, setBrF] = useState({ date: today(), stmt: '', note: '' }); // نموذج تسوية بنكية
+  const [mPct, setMPct] = useState(null);           // مسودة النسب اليدوية لتوزيع المركز (v8.3)
 
   // فتح شاشة محددة قادمة من مركز التطبيقات (دليل/ميزان/قوائم…)
   useEffect(() => { if (acctIntent && acctIntent.v) setView(acctIntent.v); }, [acctIntent && acctIntent.ts]);
@@ -6482,6 +6483,50 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const ccSum = (kind, cid) => Math.round(sum(A.accounts.filter(a => a.kind === kind), a => ccVal(a, cid)) * 100) / 100;
   const ccNet = (cid) => Math.round((ccSum('rev', cid) - ccSum('exp', cid)) * 100) / 100;
 
+  // ===== v8.3: توزيع مصروفات المركز على الفروع — الأساس اختياري حسب الحاجة =====
+  // إما تلقائيًا بنسبة مبيعات كل فرع من الإجمالي، أو بنسب يدوية يحددها صاحب المنشأة
+  // توزيع تقريري في التقارير فقط — لا يولّد قيودًا
+  const ccCfg = org.ccAlloc || { enabled: true, basis: 'sales' };
+  const ccBasis = ccCfg.basis || 'sales';
+  const ccManual = ccCfg.manual || {};
+  const branchRev = {}; let totBranchRev = 0;
+  (org.branches || []).forEach(b => { const r = ccSum('rev', b.id); branchRev[b.id] = r; totBranchRev = Math.round((totBranchRev + r) * 100) / 100; });
+  const centralExp = ccSum('exp', 'central');
+  const manualTot = Math.round(sum(org.branches || [], b => Number(ccManual[b.id]) || 0) * 10) / 10;
+  const allocOf = {};
+  if (ccCfg.enabled && centralExp > 0) {
+    const bs2 = org.branches || [];
+    if (ccBasis === 'manual') {
+      let accum2 = 0;
+      bs2.forEach((b, i) => {
+        const pct = Number(ccManual[b.id]) || 0;
+        let v = Math.round(centralExp * pct) / 100;
+        if (Math.abs(manualTot - 100) < 0.05 && i === bs2.length - 1) v = Math.round((centralExp - accum2) * 100) / 100;
+        allocOf[b.id] = v; accum2 = Math.round((accum2 + v) * 100) / 100;
+      });
+    } else if (totBranchRev > 0) {
+      let accum2 = 0;
+      bs2.forEach((b, i) => {
+        const v = i === bs2.length - 1
+          ? Math.round((centralExp - accum2) * 100) / 100
+          : Math.round(centralExp * (branchRev[b.id] / totBranchRev) * 100) / 100;
+        allocOf[b.id] = v; accum2 = Math.round((accum2 + v) * 100) / 100;
+      });
+    }
+  }
+  const allocTot = Math.round(sum(org.branches || [], b => allocOf[b.id] || 0) * 100) / 100;
+  const unalloc = Math.round((centralExp - allocTot) * 100) / 100;
+  const shareOf = (bid) => ccBasis === 'manual'
+    ? (Number(ccManual[bid]) || 0)
+    : (totBranchRev > 0 ? Math.round(branchRev[bid] / totBranchRev * 1000) / 10 : 0);
+  const netAfter = (bid) => Math.round((ccNet(bid) - (allocOf[bid] || 0)) * 100) / 100;
+  const ccReady = ccBasis === 'manual' ? manualTot > 0 : totBranchRev > 0;
+  const saveCcAlloc = async (patch, title, details) => {
+    await commitOrg(d => ({ ...d, ccAlloc: { enabled: true, basis: 'sales', ...(d.ccAlloc || {}), ...patch } }), {
+      actionType: 'update', targetType: 'tax_settings', targetId: 'ccAlloc', title, details: details || ''
+    });
+  };
+
   // ===== v8.2: طباعة موحّدة لكل تقارير المحاسبة =====
   const periodSub = (from || to) ? ('الفترة: ' + (from || 'البداية') + ' ← ' + (to || today())) : 'كامل المدة حتى ' + arDate(today());
   const printTB = () => {
@@ -6503,7 +6548,11 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
       <tr class="tot"><td colspan="${centers.length + 2}">الإيرادات</td></tr>${revRows}
       <tr class="tot"><td colspan="${centers.length + 2}">المصروفات</td></tr>${expRows}
       <tr class="tot"><td>صافي كل مركز</td>${centers.map(c => `<td class="n ${ccNet(c.id) < 0 ? 'neg' : ''}">${ccNet(c.id) < 0 ? '(' + money(-ccNet(c.id)) + ')' : money(ccNet(c.id))}</td>`).join('')}<td class="n">${money(sum(centers, c => ccNet(c.id)))}</td></tr></tbody></table>
-      <div class="box">عمود «المركز الرئيسي» يضم ما لا يخص فرعًا بعينه — توزيعه على الفروع بنِسَب تحميل يقرّها صاحب المنشأة.</div>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+      ${ccCfg.enabled && ccReady ? `<h1 style="font-size:14px;margin:14px 0 4px">توزيع مصروفات المركز على الفروع — ${ccBasis === 'manual' ? 'نسب يدوية' : 'بنسبة المبيعات'}</h1>
+      <table><thead><tr><th>الفرع</th><th>مبيعاته</th><th>نسبته</th><th>حصته من مصروفات المركز</th><th>صافيه المباشر</th><th>صافيه بعد التحميل</th></tr></thead><tbody>
+      ${(org.branches || []).map(b => `<tr><td>${b.name}</td><td class="n">${money(branchRev[b.id] || 0)}</td><td class="n">${shareOf(b.id)}%</td><td class="n neg">(${money(allocOf[b.id] || 0)})</td><td class="n">${money(ccNet(b.id))}</td><td class="n">${money(netAfter(b.id))}</td></tr>`).join('')}
+      <tr class="tot"><td>الإجمالي</td><td class="n">${money(totBranchRev)}</td><td class="n">100%</td><td class="n">(${money(centralExp)})</td><td class="n">${money(sum(org.branches || [], b => ccNet(b.id)))}</td><td class="n">${money(sum(org.branches || [], b => netAfter(b.id)))}</td></tr></tbody></table>
+      <div class="box">${ccBasis === 'manual' ? 'الأساس: نسب يدوية حددها صاحب المنشأة (المجموع ' + manualTot + '%)' : 'القاعدة: حصة الفرع = مصروفات المركز × (مبيعاته ÷ إجمالي مبيعات الفروع)'} — توزيع تقريري لا يولّد قيودًا.</div>` : '<div class="box">عمود «المركز الرئيسي» يضم ما لا يخص فرعًا بعينه.</div>'}`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
   };
   const printJR = () => {
     const list = entries.slice(0, 300);
@@ -6878,8 +6927,86 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
             </div>
             <div className="note" style={{ marginTop: 10 }}>
               💡 عمود «المركز الرئيسي» يضم ما لا يخص فرعًا بعينه (رواتب الكشف المركزي، أوامر صرف الخزينة، فواتير المركز، الإهلاك…).
-              توزيع هذه المصروفات على الفروع بنِسَب تحميل تحددها أنت — متاح كخطوة تالية متى رغبت، ولا نفترض نسبًا من عندنا.
             </div>
+          </div>
+
+          {/* v8.3: التوزيع التحميلي — الأساس اختياري: بنسبة المبيعات أو نسب يدوية */}
+          <div className="card" style={{ borderColor: ccCfg.enabled ? 'rgba(79,178,134,.4)' : 'var(--line-g)' }}>
+            <div className="card-h">
+              <div className="card-t"><Scale size={15} color="var(--brass)" />توزيع مصروفات المركز على الفروع</div>
+              <div className="row" style={{ gap: 7, flexWrap: 'wrap' }}>
+                {canPost && ccCfg.enabled && (
+                  <select className="sel" style={{ width: 210 }} value={ccBasis}
+                    onChange={e => { setMPct(null); saveCcAlloc({ basis: e.target.value }, 'غيّر أساس توزيع مصروفات المركز', e.target.value === 'manual' ? 'نسب يدوية' : 'بنسبة المبيعات'); }}>
+                    <option value="sales">تلقائي — بنسبة المبيعات</option>
+                    <option value="manual">نسب يدوية أحددها حسب الحاجة</option>
+                  </select>
+                )}
+                {canPost && (ccCfg.enabled
+                  ? <button className="btn sm no" onClick={() => saveCcAlloc({ enabled: false }, 'أوقف توزيع مصروفات المركز')}>إيقاف التوزيع</button>
+                  : <button className="btn sm pri" onClick={() => saveCcAlloc({ enabled: true }, 'فعّل توزيع مصروفات المركز')}><Check size={13} />تفعيل التوزيع</button>)}
+              </div>
+            </div>
+            {!ccCfg.enabled && <div className="empty">التوزيع متوقف — عمود المركز يبقى كما هو في الجدول أعلاه.</div>}
+            {ccCfg.enabled && !ccReady && <div className="empty">{ccBasis === 'manual' ? 'أدخل نسب الفروع أدناه واحفظها ليبدأ التوزيع.' : 'لا مبيعات فروع في الفترة المحددة — لا أساس للتوزيع.'}</div>}
+            {ccCfg.enabled && (ccReady || ccBasis === 'manual') && (
+              <>
+                <div className="tw">
+                  <table className="tb">
+                    <thead><tr><th>الفرع</th><th style={{ textAlign: 'end' }}>مبيعاته</th><th style={{ textAlign: 'end' }}>{ccBasis === 'manual' ? 'نسبته اليدوية %' : 'نسبته من المبيعات'}</th><th style={{ textAlign: 'end' }}>حصته من مصروفات المركز</th><th style={{ textAlign: 'end' }}>صافيه المباشر</th><th style={{ textAlign: 'end' }}>صافيه بعد التحميل</th></tr></thead>
+                    <tbody>
+                      {(org.branches || []).map(b => (
+                        <tr key={b.id}>
+                          <td style={{ fontWeight: 600, fontSize: 12.5 }}>{b.name}</td>
+                          <td className="num" style={{ textAlign: 'end' }}>{money(branchRev[b.id] || 0)}</td>
+                          <td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>
+                            {ccBasis === 'manual' && canPost
+                              ? <input className="inp n cc-pct" style={{ width: 76, padding: '5px 8px', textAlign: 'end' }} inputMode="decimal"
+                                  value={(mPct || ccManual)[b.id] ?? ''} placeholder="0"
+                                  onChange={e => setMPct(m => ({ ...(m || ccManual), [b.id]: e.target.value.replace(/[^\d.]/g, '') }))} />
+                              : (shareOf(b.id) + '%')}
+                          </td>
+                          <td className="num" style={{ textAlign: 'end', color: 'var(--rose)' }}>({money(allocOf[b.id] || 0)})</td>
+                          <td className="num" style={{ textAlign: 'end' }}>{money(ccNet(b.id))}</td>
+                          <td className="num" style={{ textAlign: 'end', fontWeight: 800, color: netAfter(b.id) >= 0 ? 'var(--mint)' : 'var(--rose)', fontSize: 13 }}>{money(netAfter(b.id))}</td>
+                        </tr>
+                      ))}
+                      {unalloc > 0.004 && ccBasis === 'manual' && (
+                        <tr>
+                          <td style={{ color: 'var(--amber)', fontWeight: 700 }}>متبقٍ غير موزع (يبقى بالمركز)</td>
+                          <td /><td className="num" style={{ textAlign: 'end', color: 'var(--amber)' }}>{Math.round((100 - manualTot) * 10) / 10}%</td>
+                          <td className="num" style={{ textAlign: 'end', color: 'var(--amber)' }}>{money(unalloc)}</td><td /><td />
+                        </tr>
+                      )}
+                      <tr style={{ fontWeight: 800, background: 'rgba(200,162,74,.05)' }}>
+                        <td>مصروفات المركز</td>
+                        <td className="num" style={{ textAlign: 'end' }}>{money(totBranchRev)}</td>
+                        <td className="num" style={{ textAlign: 'end' }}>{ccBasis === 'manual' ? manualTot + '%' : '100%'}</td>
+                        <td className="num" style={{ textAlign: 'end', color: 'var(--rose)' }}>({money(allocTot)})</td>
+                        <td className="num" style={{ textAlign: 'end' }}>{money(sum(org.branches || [], b => ccNet(b.id)))}</td>
+                        <td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{money(sum(org.branches || [], b => netAfter(b.id)))}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                {ccBasis === 'manual' && canPost && (
+                  <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <button className="btn sm pri" onClick={() => {
+                      const clean = {}; (org.branches || []).forEach(b => { const v = Number((mPct || ccManual)[b.id]) || 0; if (v > 0) clean[b.id] = v; });
+                      const tot = Math.round(sum(org.branches || [], b => clean[b.id] || 0) * 10) / 10;
+                      saveCcAlloc({ manual: clean, basis: 'manual' }, 'حدّد نسب توزيع مصروفات المركز يدويًا', 'المجموع ' + tot + '%');
+                      setMPct(null);
+                    }}><Check size={13} />حفظ النسب</button>
+                    {(() => { const t = Math.round(sum(org.branches || [], b => Number((mPct || ccManual)[b.id]) || 0) * 10) / 10;
+                      return <span className={'badge ' + (Math.abs(t - 100) < 0.05 ? 'b-mint' : 'b-amber')}>مجموع النسب: {t}% {Math.abs(t - 100) < 0.05 ? '✓' : '— ما دون 100% يبقى بالمركز'}</span>; })()}
+                  </div>
+                )}
+                <div className="note" style={{ marginTop: 10 }}>
+                  ⚖️ الأساس الحالي: {ccBasis === 'manual' ? 'نسب يدوية تحددها حسب الحاجة — عدّلها متى شئت' : 'حصة الفرع = مصروفات المركز × (مبيعاته ÷ إجمالي مبيعات الفروع) للفترة المعروضة'}.
+                  توزيع <b>تقريري</b> يظهر هنا وفي الطباعة فقط — لا يولّد قيودًا محاسبية، فدفاترك تبقى نظيفة أمام المراجع.
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
