@@ -2,10 +2,53 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // مستندات المنصة: مقروءة ومكتوبة للمستخدمين المصادَق عليهم فقط.
-    // فعّل Anonymous Authentication في Firebase حتى تعمل المنصة مع هذه القواعد.
+    // ===== المرحلة الأمنية 1: لا وصول إلا بحساب مصادقة حقيقي + عضوية نشطة =====
+
+    // مستخدم موثّق حقيقي (بريد/كلمة سر) — الدخول المجهول مرفوض نهائياً
+    function realUser() {
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous'
+        && request.auth.token.email != null;
+    }
+    function userEmail() { return request.auth.token.email.lower(); }
+
+    // عضو نشط: له سجل في members أنشأه مدير ولم يُعطَّل
+    function isMember() {
+      return realUser()
+        && exists(/databases/$(database)/documents/members/$(userEmail()))
+        && get(/databases/$(database)/documents/members/$(userEmail())).data.active == true;
+    }
+
+    // مدير منصة: بريده ضمن قائمة المدراء
+    function isAdmin() {
+      return realUser()
+        && exists(/databases/$(database)/documents/platform/admins)
+        && (userEmail() in get(/databases/$(database)/documents/platform/admins).data.emails);
+    }
+
+    // قائمة المدراء: تُنشأ مرة واحدة عند الإعداد الأول (باسم منشئها فقط)،
+    // وبعدها لا يعدّلها إلا مدير قائم
+    match /platform/admins {
+      allow read: if realUser();
+      allow create: if realUser() && request.resource.data.emails == [userEmail()];
+      allow update, delete: if isAdmin();
+    }
+
+    // سجل العضوية: يكتبه المدراء فقط؛ والعضو يقرأ سجلّه
+    match /members/{memberEmail} {
+      allow read: if isAdmin() || (realUser() && userEmail() == memberEmail);
+      allow write: if isAdmin();
+    }
+
+    // بيانات المنصة:
+    //  - القراءة للأعضاء النشطين فقط
+    //  - مستندات الإعدادات (rms8_org*) — فيها المستخدمون والفروع — يكتبها المدراء فقط
+    //  - بقية المستندات (الإغلاقات/الخزينة/الأرشيف/الحضور) يكتبها الأعضاء النشطون
     match /platform/{docId} {
-      allow read, write: if request.auth != null;
+      allow read: if isMember();
+      allow write: if docId != 'admins'
+        && isMember()
+        && (!docId.matches('rms8_org.*') || isAdmin());
     }
 
     // امنع أي مسار آخر
