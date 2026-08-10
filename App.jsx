@@ -482,11 +482,18 @@ function buildAccounting(org, ops) {
   // ٦) فواتير التوريد الآجلة وسداداتها المركزية (سدادات الفروع تدخل من قيود الورديات)
   (ops.invoices || []).forEach(i => {
     const d = (i.date || i.createdAt || i.dueDate || '').slice(0, 10);
-    if (i.amount > 0) push({
-      id: 'inv:' + i.id, date: d, branchId: i.branchId, title: 'فاتورة توريد آجلة — ' + (i.supplierName || 'مورد'),
-      src: 'فاتورة مورد', ref: i.invoiceNo || i.id,
-      lines: [L('5198', i.amount, 0), L('2101', 0, i.amount)]
-    });
+    if (i.amount > 0) {
+      // فصل ضريبة المدخلات للفواتير الموسومة «خاضعة» فقط (الحقل الجديد في م٤) — القديمة بلا وسم تبقى إجمالية
+      const ti = (i.taxable === true) ? splitVat(i.amount) : { net: i.amount, vat: 0 };
+      push({
+        id: 'inv:' + i.id, date: d, branchId: i.branchId, title: 'فاتورة توريد آجلة — ' + (i.supplierName || 'مورد'),
+        src: 'فاتورة مورد', ref: i.invoiceNo || i.id,
+        lines: ti.vat
+          ? [L('5198', ti.net, 0), L('1501', ti.vat, 0), L('2101', 0, i.amount)]
+          : [L('5198', i.amount, 0), L('2101', 0, i.amount)],
+        vat: ti.vat ? { out: 0, inn: ti.vat, netSales: 0, netPurch: ti.net } : null
+      });
+    }
     if ((i.paidAmount || 0) > 0) push({
       id: 'invp:' + i.id, date: (i.paidDate || d || '').slice(0, 10),
       title: 'سداد مركزي لفاتورة توريد — ' + (i.supplierName || 'مورد'),
@@ -579,7 +586,7 @@ const DENOMS = [
 const emptyDenoms = () => DENOMS.reduce((o, d) => ({ ...o, [d.k]: 0 }), {});
 const countDenoms = (d) => DENOMS.reduce((s, x) => s + (Number(d?.[x.k]) || 0) * x.v, 0);
 
-const ALL_TABS = ['dash', 'compare', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'partners', 'acct', 'shifts', 'archive', 'ai', 'reports', 'admin', 'audit'];
+const ALL_TABS = ['dash', 'compare', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'archive', 'ai', 'reports', 'admin', 'audit'];
 const ROLES = {
   // ===== الأدوار الخمسة المعتمدة =====
   cashier: {
@@ -599,7 +606,7 @@ const ROLES = {
   },
   head_office: {
     ar: 'المكتب الرئيسي — المالية والإدارة', badge: 'b-brass', scope: 'all', approver: true,
-    tabs: ['dash', 'compare', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'partners', 'acct', 'shifts', 'archive', 'ai', 'reports', 'audit'],
+    tabs: ['dash', 'compare', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'archive', 'ai', 'reports', 'audit'],
     perms: ['كل الفروع والتقارير المجمّعة', 'التدقيق والاعتماد النهائي', 'الخزينة والرواتب والموردون', 'المحاسبة والمركز المالي الذكي']
   },
   system_admin: {
@@ -615,7 +622,7 @@ const ROLES = {
   },
   finance_department: {
     ar: 'الإدارة المالية — محاسب رئيسي', badge: 'b-sky', scope: 'assigned', legacy: true,
-    tabs: ['dash', 'compare', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'partners', 'acct', 'shifts', 'archive', 'ai', 'reports', 'audit'],
+    tabs: ['dash', 'compare', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'archive', 'ai', 'reports', 'audit'],
     perms: ['تدقيق ومراجعة الإغلاقات', 'استلام تحويلات الخزينة', 'المحاسبة والتقارير والقوائم المالية']
   }
 };
@@ -678,15 +685,15 @@ const REG_APPS = [
   // ——— المشتريات والموردون ———
   { id: 'suppliers', ar: 'الموردون والالتزامات', en: 'Suppliers & Payables', cat: 'pur', icon: Truck, open: { tab: 'suppliers' }, kw: ['مورد', 'فاتورة', 'سداد', 'التزام', 'أعمار', 'استحقاق', 'إيجار'], fns: ['فواتير التوريد الآجلة', 'السداد المركزي', 'الإيجارات والفواتير الثابتة', 'سجل الموردين'], d: 'فواتير الموردين وسداداتها والتزامات الفروع الثابتة.' },
   { id: 'partners', ar: 'دفتر الشركاء', en: 'Partners Ledger', cat: 'pur', icon: Users, open: { tab: 'partners' }, kw: ['عميل', 'مورد', 'موظف', 'كشف حساب', 'ذمم', 'مدين', 'دائن', 'فاتورة'], fns: ['كشف حساب لكل شريك', 'ترقيم تلقائي', 'طلبات إضافة باعتماد', 'حركات يدوية'], d: 'عملاء وموردون وموظفون — مدين ودائن وكشف حساب لكل شريك.' },
-  { id: 'po', ar: 'أوامر الشراء', en: 'Purchase Orders', cat: 'pur', icon: ClipboardCheck, soon: 'م٤', kw: ['أمر شراء', 'طلب', 'استلام'], fns: [], d: 'أمر شراء ← استلام ← فاتورة ← سداد — ضمن مرحلة المشتريات والمخزون.' },
+  { id: 'po', ar: 'أوامر الشراء', en: 'Purchase Orders', cat: 'pur', icon: ClipboardCheck, open: { tab: 'suppliers' }, kw: ['أمر شراء', 'طلب', 'استلام', 'مورد'], fns: ['إنشاء أمر بنود وأسعار', 'استلام كلي أو جزئي يغذي المخزون', 'تحويل لفاتورة بحقل ضريبي'], d: 'أمر شراء ← استلام ← فاتورة ← سداد — من تبويب أوامر الشراء في شاشة الموردين.' },
   // ——— الموارد البشرية ———
   { id: 'payroll', ar: 'الرواتب والسلف', en: 'Payroll & Advances', cat: 'hr', icon: Wallet, open: { tab: 'payroll' }, kw: ['راتب', 'سلفة', 'خصم', 'استحقاق', 'صرف', 'موظف', 'قسيمة'], fns: ['كشف رواتب شهري', 'سلف وخصومات', 'ترحيل الاستحقاق والصرف للدفتر', 'قسائم رواتب'], d: 'كشف الرواتب والسلف والخصومات — مرحّلة محاسبياً باستحقاقها وصرفها.' },
   // ——— الزكاة والضريبة (خطة م٣) ———
   { id: 'vat', ar: 'ضريبة القيمة المضافة', en: 'VAT', cat: 'tax', icon: Receipt, open: { tab: 'acct', view: 'vat' }, kw: ['ضريبة', 'زاتكا', 'مدخلات', 'مخرجات', 'فاتورة', 'إقرار'], fns: ['تفعيل بنسبة قابلة للضبط', 'فصل المخرجات في قيد الإيراد', 'فصل مدخلات المصروفات الخاضعة', 'مؤشرات بالفترة'], d: 'فصل تلقائي لضريبة المخرجات والمدخلات في القيود — بأثر رجعي فور التفعيل.' },
   { id: 'vatret', ar: 'الإقرار الضريبي', en: 'VAT Return', cat: 'tax', icon: FileText, open: { tab: 'acct', view: 'vat' }, kw: ['إقرار', 'ضريبة', 'ربع', 'زاتكا'], fns: ['مسودة إقرار بالفترة', 'زر الربع الحالي', 'صافي المستحق'], d: 'مسودة إقرار جاهزة من قيودك لأي فترة تحددها.' },
   // ——— المخزون (خطة م٤) ———
-  { id: 'products', ar: 'المنتجات والوصفات', en: 'Products & Recipes', cat: 'inv2', icon: Store, soon: 'م٤', kw: ['منتج', 'وصفة', 'تكلفة', 'صنف', 'مخزون'], fns: [], d: 'وصفة وتكلفة لكل منتج وخصم مخزون تلقائي مع البيع.' },
-  { id: 'stock', ar: 'المستودعات والجرد', en: 'Warehouses & Stocktake', cat: 'inv2', icon: HardDrive, soon: 'م٤', kw: ['مستودع', 'جرد', 'حركة', 'تحويل', 'مخزون'], fns: [], d: 'أرصدة المخزون وحركاته وجرده الدوري.' },
+  { id: 'products', ar: 'المنتجات والوصفات', en: 'Products & Recipes', cat: 'inv2', icon: Store, open: { tab: 'inv', view: 'recipes' }, kw: ['منتج', 'وصفة', 'تكلفة', 'هامش', 'مخزون'], fns: ['وصفة بمكونات من الأصناف', 'تكلفة حقيقية بآخر شراء', 'هامش لحظي (صافي الضريبة)'], d: 'وصفة وتكلفة وهامش لكل منتج — من أصناف مخزونك وأسعارها الفعلية.' },
+  { id: 'stock', ar: 'المخزون والجرد', en: 'Stock & Stocktake', cat: 'inv2', icon: HardDrive, open: { tab: 'inv', view: 'items' }, kw: ['مستودع', 'جرد', 'حركة', 'رصيد', 'هدر', 'مخزون', 'حد أدنى'], fns: ['أرصدة حية بحد أدنى وتنبيه', 'توريد وصرف وهدر', 'جرد بعدّ فعلي وتسويات موثقة'], d: 'أرصدة أصنافك وحركاتها وجردها الدوري — والتوريد من أوامر الشراء تلقائي.' },
   // ——— الأصول والتسويات (خطة م٥) ———
   { id: 'assets', ar: 'الأصول الثابتة والإهلاك', en: 'Fixed Assets', cat: 'ast', icon: Building2, soon: 'م٥', kw: ['أصل', 'إهلاك', 'معدات'], fns: [], d: 'سجل الأصول وقيود الإهلاك التلقائية.' },
   { id: 'bankrec', ar: 'التسوية البنكية', en: 'Bank Reconciliation', cat: 'ast', icon: Landmark, soon: 'م٥', kw: ['بنك', 'تسوية', 'كشف', 'مطابقة', 'شبكة'], fns: [], d: 'مطابقة الحساب البنكي التجميعي مع كشوف البنك الفعلية.' },
@@ -705,12 +712,15 @@ const appCanSee = (role, a) => {
   if (a.soon) return R.scope === 'all';                    // خارطة الطريق تظهر لأدوار المركز فقط
   return (R.tabs || []).includes(a.open.tab);              // نفس صلاحيات النظام حرفياً — لا طبقة موازية
 };
-const appOpenNow = (a, me, setTab, openAcctView) => {
+const appOpenNow = (a, me, setTab, openAcctView, openInvView) => {
   if (a.soon) return false;
   const u = appUseGet(me.id); const r = (u.rec = u.rec || {});
   r[a.id] = { at: Date.now(), count: ((r[a.id] || {}).count || 0) + 1 };
   appUseSet(me.id, u);
-  if (a.open.view && openAcctView) openAcctView(a.open.view);
+  if (a.open.view) {
+    if (a.open.tab === 'acct' && openAcctView) openAcctView(a.open.view);
+    if (a.open.tab === 'inv' && openInvView) openInvView(a.open.view);
+  }
   setTab(a.open.tab);
   return true;
 };
@@ -746,19 +756,21 @@ function emptyOrg(company) {
 }
 
 function emptyOps() {
-  return { closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [] };
+  return { closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [] };
 }
 
 
 /* ================= الجذر ================= */
 export default function App() {
   const [org, setOrg] = useState(null);
-  const [ops, setOps] = useState({ closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [] });
+  const [ops, setOps] = useState({ closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [] });
   const [pulse, setPulse] = useState({ presence: {}, audit: [] });
   const [me, setMe] = useState(null);
   const [tab, setTab] = useState('dash');
   const [acctIntent, setAcctIntent] = useState(null);          // فتح المحاسبة على شاشة محددة من مركز التطبيقات
   const openAcctView = useCallback((v) => setAcctIntent({ v, ts: Date.now() }), []);
+  const [invIntent, setInvIntent] = useState(null);            // فتح المخزون على شاشة محددة
+  const openInvView = useCallback((v) => setInvIntent({ v, ts: Date.now() }), []);
   const [drawer, setDrawer] = useState(false);
   const [moreSheet, setMoreSheet] = useState(false);
   const touchRef = useRef({ x0: 0, y0: 0, active: false, mode: null });
@@ -1106,6 +1118,7 @@ export default function App() {
     { id: 'treasury', ar: 'الخزينة والترحيل', icon: Landmark },
     { id: 'payroll', ar: 'الرواتب والسلف', icon: Wallet },
     { id: 'suppliers', ar: 'الموردون والالتزامات', icon: Truck },
+    { id: 'inv', ar: 'المخزون والمنتجات', icon: HardDrive },
     { id: 'partners', ar: 'دفتر الشركاء', icon: Users },
     { id: 'acct', ar: 'المحاسبة', icon: Scale },
     { id: 'shifts', ar: 'الورديات والتذكيرات', icon: Clock },
@@ -1116,7 +1129,7 @@ export default function App() {
     { id: 'audit', ar: 'سجل التدقيق', icon: Eye }
   ].filter(n => (ROLES[me.role]?.tabs || []).includes(n.id));
 
-  const shared = { org, ops, pulse, me, myBranches, scoped, commit, commitOrg, say, setTab, theme, acctIntent, openAcctView };
+  const shared = { org, ops, pulse, me, myBranches, scoped, commit, commitOrg, say, setTab, theme, acctIntent, openAcctView, invIntent, openInvView };
 
   // حماية: منع الوصول لتبويب غير مسموح لدور المستخدم (بلا hook — بعد returns الشرطية)
   const allowedTabs = NAV.map(n => n.id);
@@ -1201,7 +1214,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v7.7 🧾</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v7.8 📦</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -1276,6 +1289,7 @@ export default function App() {
               {safeTab === 'treasury' && <Treasury {...shared} />}
               {safeTab === 'payroll' && <Payroll {...shared} />}
               {safeTab === 'suppliers' && <Suppliers {...shared} />}
+              {safeTab === 'inv' && <Inventory {...shared} />}
               {safeTab === 'partners' && <Partners {...shared} />}
               {safeTab === 'acct' && <Accounting {...shared} />}
               {safeTab === 'shifts' && <Shifts {...shared} />}
@@ -2345,7 +2359,7 @@ function BranchCompare({ org, ops, me, myBranches, scoped, theme, setTab }) {
   );
 }
 
-function Dashboard({ org, ops, pulse, me, myBranches, scoped, online, setTab, theme, openAcctView }) {
+function Dashboard({ org, ops, pulse, me, myBranches, scoped, online, setTab, theme, openAcctView, openInvView }) {
   const [days, setDays] = useState(14);
   const [dayReport, setDayReport] = useState(false);
   const tn = chartTone(theme);
@@ -2430,7 +2444,7 @@ function Dashboard({ org, ops, pulse, me, myBranches, scoped, online, setTab, th
 
   return (
     <div className="grid" style={{ gap: 14 }}>
-      <AppsStrip me={me} setTab={setTab} openAcctView={openAcctView} />
+      <AppsStrip me={me} setTab={setTab} openAcctView={openAcctView} openInvView={openInvView} />
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <div>
           <h2 style={{ fontSize: 17 }}>مرحباً {me.name.split(' ')[0]} 👋</h2>
@@ -5120,10 +5134,13 @@ function printReceipt(c, org, size) {
 }
 
 /* ================= الموردون والالتزامات الشهرية ================= */
-function Suppliers({ org, ops, me, myBranches, commit, say }) {
+function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const [tab, setTab] = useState('inv');
   const [pay, setPay] = useState(null);
   const [amt, setAmt] = useState(0);
+  const [newInv, setNewInv] = useState(null);        // نموذج فاتورة توريد (م٤)
+  const [poF, setPoF] = useState(null);              // نموذج أمر شراء
+  const [recv, setRecv] = useState(null);            // نموذج استلام أمر
   const ids = myBranches.map(b => b.id);
   const invoices = (ops.invoices || []).filter(i => ids.includes(i.branchId))
     .sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''));
@@ -5140,6 +5157,80 @@ function Suppliers({ org, ops, me, myBranches, commit, say }) {
 
   const outstanding = sum(invoices, invRem);
   const overdue = invoices.filter(i => invRem(i) > 0 && i.dueDate < today());
+
+  // ===== م٤: أوامر الشراء والفواتير =====
+  const pos = (ops.purchaseOrders || []).sort((a, b) => (b.at || '').localeCompare(a.at || ''));
+  const items = org.items || [];
+  const poTotal = (p2) => sum(p2.lines || [], l => (Number(l.qty) || 0) * (Number(l.price) || 0));
+  const poRecvQty = (p2) => sum(p2.lines || [], l => Number(l.received) || 0);
+  const poAllRecv = (p2) => (p2.lines || []).every(l => (Number(l.received) || 0) >= (Number(l.qty) || 0));
+  const nextPoNo = () => 'PO-' + String(((ops.purchaseOrders || []).length + 1)).padStart(4, '0');
+
+  const saveInv = async () => {
+    const f = newInv;
+    const sp = (org.suppliers || []).find(x => x.id === f.supplierId);
+    if (!sp) return say('اختر المورد', 'no');
+    const v = Number(f.amount) || 0;
+    if (v <= 0) return say('أدخل مبلغ الفاتورة', 'no');
+    const br = org.branches.find(b => b.id === f.branchId);
+    const rec = {
+      id: uid('inv'), supplierId: sp.id, supplierName: sp.name,
+      branchId: f.branchId || '', branchName: br ? br.name : 'المركز الرئيسي',
+      invoiceNo: f.invoiceNo.trim() || ('INV-' + today().replace(/-/g, '').slice(2) + '-' + String((ops.invoices || []).length + 1).padStart(3, '0')),
+      amount: v, paidAmount: 0, taxable: !!f.taxable,
+      date: f.date || today(), dueDate: f.dueDate || today(), poId: f.poId || undefined, createdAt: nowISO()
+    };
+    await commit(d => ({ ...d, invoices: [rec, ...(d.invoices || [])],
+      purchaseOrders: f.poId ? (d.purchaseOrders || []).map(x => x.id === f.poId ? { ...x, invoiceId: rec.id } : x) : (d.purchaseOrders || []) }), {
+      actionType: 'create', targetType: 'expense', targetId: rec.id, branchName: rec.branchName,
+      title: 'سجّل فاتورة توريد آجلة', details: sp.name + ' · ' + rec.invoiceNo + ' · ' + money(v) + (rec.taxable ? ' · خاضعة للضريبة' : '')
+    });
+    setNewInv(null); say('سُجّلت الفاتورة وأنشئ قيدها المحاسبي تلقائياً ✓');
+  };
+
+  const savePo = async () => {
+    const f = poF;
+    const sp = (org.suppliers || []).find(x => x.id === f.supplierId);
+    if (!sp) return say('اختر المورد', 'no');
+    const lines = (f.lines || []).filter(l => (l.desc || '').trim() && Number(l.qty) > 0)
+      .map(l => ({ desc: l.desc.trim(), itemId: l.itemId || '', qty: Number(l.qty), price: Number(l.price) || 0, received: 0 }));
+    if (!lines.length) return say('أضف بنداً واحداً على الأقل (وصف وكمية)', 'no');
+    const rec = { id: uid('po'), poNo: nextPoNo(), supplierId: sp.id, supplierName: sp.name,
+      branchId: f.branchId || '', note: f.note || '', lines, status: 'open', by: me.name, at: nowISO(), date: today() };
+    await commit(d => ({ ...d, purchaseOrders: [rec, ...(d.purchaseOrders || [])] }), {
+      actionType: 'create', targetType: 'purchase_order', targetId: rec.id,
+      title: 'أنشأ أمر شراء', details: rec.poNo + ' · ' + sp.name + ' · ' + money(poTotal(rec))
+    });
+    setPoF(null); say('أُنشئ أمر الشراء ' + rec.poNo + ' ✓');
+  };
+
+  const saveRecv = async () => {
+    const f = recv; const p2 = f.po;
+    const takes = p2.lines.map((l, i) => Math.min(Math.max(Number(f.qtys[i]) || 0, 0), (l.qty || 0) - (l.received || 0)));
+    if (!takes.some(q => q > 0)) return say('أدخل كمية مستلمة لبند واحد على الأقل', 'no');
+    const moves = p2.lines.map((l, i) => (takes[i] > 0 && l.itemId) ? {
+      id: uid('sm'), date: today(), itemId: l.itemId, kind: 'purchase', qty: takes[i],
+      note: 'استلام ' + p2.poNo + ' — ' + l.desc, ref: p2.poNo, by: me.name, at: nowISO()
+    } : null).filter(Boolean);
+    await commit(d => ({
+      ...d,
+      stockMoves: [...moves, ...(d.stockMoves || [])],
+      purchaseOrders: (d.purchaseOrders || []).map(x => {
+        if (x.id !== p2.id) return x;
+        const lines = x.lines.map((l, i) => ({ ...l, received: (l.received || 0) + takes[i] }));
+        return { ...x, lines, status: lines.every(l => l.received >= l.qty) ? 'received' : 'partial' };
+      })
+    }), {
+      actionType: 'update', targetType: 'purchase_order', targetId: p2.id,
+      title: 'سجّل استلام أمر شراء', details: p2.poNo + ' · ' + takes.filter(q => q > 0).length + ' بند' + (moves.length ? ' · غُذّي المخزون' : '')
+    });
+    // تحديث تكلفة الأصناف المرتبطة بآخر سعر شراء
+    const costUp = p2.lines.map((l, i) => (takes[i] > 0 && l.itemId && l.price > 0) ? { id: l.itemId, cost: l.price } : null).filter(Boolean);
+    if (costUp.length) await commitOrg(d => ({
+      ...d, items: (d.items || []).map(it => { const u = costUp.find(c => c.id === it.id); return u ? { ...it, cost: u.cost } : it; })
+    }), { actionType: 'update', targetType: 'stock_item', targetId: p2.id, title: 'حدّث تكلفة أصناف بآخر شراء', details: p2.poNo });
+    setRecv(null); say('سُجّل الاستلام' + (moves.length ? ' وغُذّي المخزون تلقائياً ✓' : ' ✓'));
+  };
 
   const settle = async () => {
     const inv = pay; const v = Math.min(amt, invRem(inv));
@@ -5189,6 +5280,12 @@ function Suppliers({ org, ops, me, myBranches, commit, say }) {
         <button className={'btn sm' + (tab === 'sup' ? ' pri' : ' gh')} onClick={() => setTab('sup')}>
           <Truck size={14} />سجل الموردين
         </button>
+        <button className={'btn sm' + (tab === 'po' ? ' pri' : ' gh')} onClick={() => setTab('po')}>
+          <ClipboardCheck size={14} />أوامر الشراء
+        </button>
+        {canPay && <button className="btn sm pri" style={{ marginInlineStart: 'auto' }}
+          onClick={() => setNewInv({ supplierId: suppliers[0]?.id || '', invoiceNo: '', amount: '', taxable: true, date: today(), dueDate: today(), branchId: '' })}>
+          <Plus size={14} />فاتورة توريد جديدة</button>}
       </div>
 
       {tab === 'inv' && (
@@ -5286,6 +5383,135 @@ function Suppliers({ org, ops, me, myBranches, commit, say }) {
         </div>
       )}
 
+      {tab === 'po' && (
+        <div className="card">
+          <div className="card-h">
+            <div className="card-t"><ClipboardCheck size={15} color="var(--brass)" />أوامر الشراء — إنشاء ← استلام ← فاتورة ← سداد</div>
+            {canPay && <button className="btn sm pri" onClick={() => setPoF({ supplierId: suppliers[0]?.id || '', branchId: '', note: '', lines: [{ desc: '', itemId: '', qty: '', price: '' }] })}><Plus size={14} />أمر شراء جديد</button>}
+          </div>
+          <div className="tw">
+            <table className="tb">
+              <thead><tr><th>الأمر</th><th>المورد</th><th style={{ textAlign: 'end' }}>القيمة</th><th>الاستلام</th><th>الفاتورة</th><th /></tr></thead>
+              <tbody>
+                {pos.map(p2 => {
+                  const tot = poTotal(p2);
+                  const inv = (ops.invoices || []).find(i => i.id === p2.invoiceId);
+                  return (
+                    <tr key={p2.id}>
+                      <td><span className="num" style={{ fontSize: 11.5 }}>{p2.poNo}</span><div style={{ fontSize: 9.5, color: 'var(--faint)' }}>{p2.date} · {p2.by}</div></td>
+                      <td style={{ fontSize: 12.5 }}>{p2.supplierName}<div style={{ fontSize: 9.5, color: 'var(--faint)' }}>{(p2.lines || []).length} بند{p2.note ? ' · ' + p2.note : ''}</div></td>
+                      <td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{money(tot)}</td>
+                      <td>{p2.status === 'received' ? <span className="badge b-mint">مستلم كاملاً ✓</span>
+                        : p2.status === 'partial' ? <span className="badge b-amber">جزئي</span>
+                        : <span className="badge b-sky">بانتظار التوريد</span>}</td>
+                      <td>{inv ? <span className="badge b-mint">مفوترة · {inv.invoiceNo}</span> : <span className="badge b-dim">لم تُفوتر</span>}</td>
+                      <td><div className="row" style={{ gap: 5, flexWrap: 'wrap' }}>
+                        {canPay && p2.status !== 'received' && <button className="btn sm" onClick={() => setRecv({ po: p2, qtys: p2.lines.map(l => String((l.qty || 0) - (l.received || 0))) })}>تسجيل استلام</button>}
+                        {canPay && !inv && <button className="btn sm gh" onClick={() => setNewInv({ supplierId: p2.supplierId, invoiceNo: '', amount: String(tot), taxable: true, date: today(), dueDate: today(), branchId: p2.branchId || '', poId: p2.id })}>إنشاء فاتورة</button>}
+                      </div></td>
+                    </tr>
+                  );
+                })}
+                {pos.length === 0 && <tr><td colSpan={6}><div className="empty">لا أوامر شراء بعد — أنشئ أمرك الأول وسيغذّي المخزون عند الاستلام.</div></td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {newInv && (
+        <Modal title={newInv.poId ? 'فاتورة من أمر الشراء' : 'فاتورة توريد جديدة'} icon={FileText} onClose={() => setNewInv(null)}
+          foot={<><button className="btn gh" onClick={() => setNewInv(null)}>إلغاء</button>
+            <button className="btn pri" onClick={saveInv}><Check size={14} />تسجيل الفاتورة</button></>}>
+          <div className="grid g2">
+            <Field label="المورد">
+              <select className="sel" value={newInv.supplierId} onChange={e => setNewInv(f => ({ ...f, supplierId: e.target.value }))}>
+                {suppliers.map(sp => <option key={sp.id} value={sp.id}>{sp.name}</option>)}
+              </select>
+            </Field>
+            <Field label="رقم الفاتورة (اختياري — يُولَّد تلقائياً)">
+              <input className="inp" value={newInv.invoiceNo} onChange={e => setNewInv(f => ({ ...f, invoiceNo: e.target.value }))} />
+            </Field>
+          </div>
+          <div className="grid g3">
+            <Field label="المبلغ (شامل الضريبة إن كانت خاضعة)">
+              <input className="inp n" inputMode="decimal" value={newInv.amount} onChange={e => setNewInv(f => ({ ...f, amount: e.target.value.replace(/[^\d.]/g, '') }))} />
+            </Field>
+            <Field label="تاريخ الفاتورة"><input type="date" className="inp" value={newInv.date} onChange={e => setNewInv(f => ({ ...f, date: e.target.value }))} /></Field>
+            <Field label="تاريخ الاستحقاق"><input type="date" className="inp" value={newInv.dueDate} onChange={e => setNewInv(f => ({ ...f, dueDate: e.target.value }))} /></Field>
+          </div>
+          <div className="grid g2" style={{ alignItems: 'center' }}>
+            <Field label="الفرع (اختياري)">
+              <select className="sel" value={newInv.branchId} onChange={e => setNewInv(f => ({ ...f, branchId: e.target.value }))}>
+                <option value="">المركز الرئيسي</option>
+                {myBranches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            </Field>
+            <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', paddingTop: 14 }}>
+              <input type="checkbox" checked={!!newInv.taxable} onChange={e => setNewInv(f => ({ ...f, taxable: e.target.checked }))} />
+              خاضعة لضريبة القيمة المضافة — يفصل المحرك ضريبة المدخلات تلقائياً عند تفعيل الضريبة
+            </label>
+          </div>
+        </Modal>
+      )}
+
+      {poF && (
+        <Modal title="أمر شراء جديد" icon={ClipboardCheck} onClose={() => setPoF(null)} wide
+          foot={<><button className="btn gh" onClick={() => setPoF(null)}>إلغاء</button>
+            <button className="btn pri" onClick={savePo}><Check size={14} />إنشاء الأمر</button></>}>
+          <div className="grid g2">
+            <Field label="المورد">
+              <select className="sel" value={poF.supplierId} onChange={e => setPoF(f => ({ ...f, supplierId: e.target.value }))}>
+                {suppliers.map(sp => <option key={sp.id} value={sp.id}>{sp.name}</option>)}
+              </select>
+            </Field>
+            <Field label="ملاحظة (اختياري)"><input className="inp" value={poF.note} placeholder="توريد أسبوعي…" onChange={e => setPoF(f => ({ ...f, note: e.target.value }))} /></Field>
+          </div>
+          <div className="lbl" style={{ margin: '4px 0 6px' }}>البنود — اربط البند بصنف مخزون ليُغذّى رصيده تلقائياً عند الاستلام</div>
+          {(poF.lines || []).map((l, i) => (
+            <div key={i} className="row" style={{ gap: 7, marginBottom: 7, flexWrap: 'wrap' }}>
+              <input className="inp" style={{ flex: 2, minWidth: 150 }} placeholder="الوصف (لحم غنم مبرد…)" value={l.desc}
+                onChange={e => setPoF(f => ({ ...f, lines: f.lines.map((x, k) => k === i ? { ...x, desc: e.target.value } : x) }))} />
+              <select className="sel" style={{ flex: 1.4, minWidth: 130 }} value={l.itemId}
+                onChange={e => setPoF(f => ({ ...f, lines: f.lines.map((x, k) => k === i ? { ...x, itemId: e.target.value } : x) }))}>
+                <option value="">بلا ربط مخزون</option>
+                {items.map(it => <option key={it.id} value={it.id}>{it.name} ({it.unit})</option>)}
+              </select>
+              <input className="inp n" style={{ width: 90 }} inputMode="decimal" placeholder="الكمية" value={l.qty}
+                onChange={e => setPoF(f => ({ ...f, lines: f.lines.map((x, k) => k === i ? { ...x, qty: e.target.value.replace(/[^\d.]/g, '') } : x) }))} />
+              <input className="inp n" style={{ width: 100 }} inputMode="decimal" placeholder="سعر الوحدة" value={l.price}
+                onChange={e => setPoF(f => ({ ...f, lines: f.lines.map((x, k) => k === i ? { ...x, price: e.target.value.replace(/[^\d.]/g, '') } : x) }))} />
+              {poF.lines.length > 1 && <button className="btn sm gh" onClick={() => setPoF(f => ({ ...f, lines: f.lines.filter((_, k) => k !== i) }))}><X size={13} /></button>}
+            </div>
+          ))}
+          <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+            <button className="btn sm" onClick={() => setPoF(f => ({ ...f, lines: [...f.lines, { desc: '', itemId: '', qty: '', price: '' }] }))}><Plus size={13} />بند إضافي</button>
+            <span className="badge b-brass">قيمة الأمر: {money(sum(poF.lines || [], l => (Number(l.qty) || 0) * (Number(l.price) || 0)))}</span>
+          </div>
+        </Modal>
+      )}
+
+      {recv && (
+        <Modal title={'تسجيل استلام — ' + recv.po.poNo} icon={Truck} onClose={() => setRecv(null)}
+          foot={<><button className="btn gh" onClick={() => setRecv(null)}>إلغاء</button>
+            <button className="btn pri" onClick={saveRecv}><Check size={14} />تأكيد الاستلام</button></>}>
+          {recv.po.lines.map((l, i) => {
+            const rem = (l.qty || 0) - (l.received || 0);
+            return (
+              <div key={i} className="row" style={{ gap: 8, marginBottom: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <div style={{ flex: 2, minWidth: 150, fontSize: 12.5 }}>{l.desc}
+                  <div style={{ fontSize: 9.5, color: 'var(--faint)' }}>المطلوب <span className="num">{l.qty}</span> · المستلم سابقاً <span className="num">{l.received || 0}</span> · المتبقي <span className="num">{rem}</span>{l.itemId ? ' · مربوط بالمخزون' : ''}</div>
+                </div>
+                <input className="inp n" style={{ width: 110 }} inputMode="decimal" placeholder="المستلم الآن" value={recv.qtys[i]}
+                  disabled={rem <= 0}
+                  onChange={e => setRecv(r => ({ ...r, qtys: r.qtys.map((q, k) => k === i ? e.target.value.replace(/[^\d.]/g, '') : q) }))} />
+              </div>
+            );
+          })}
+          <div className="note">البنود المربوطة بأصناف تُضاف كمياتها للمخزون فوراً، وتتحدّث تكلفة الصنف بآخر سعر شراء.</div>
+        </Modal>
+      )}
+
       {pay && (
         <Modal title={`سداد فاتورة ${pay.invoiceNo}`} icon={Banknote} onClose={() => setPay(null)}
           foot={<><button className="btn pri" onClick={settle}><Check size={14} />تسجيل السداد</button>
@@ -5361,8 +5587,319 @@ function BalCell({ bal }) {
     <span style={{ fontSize: 10, color: 'var(--faint)', marginInlineStart: 5 }}>{cr ? 'دائن · علينا' : 'مدين · لنا'}</span></span>;
 }
 
+/* ================= م٤: المخزون والمنتجات — أصناف، حركات، جرد، وصفات ================= */
+const MOVE_KINDS = {
+  purchase: { ar: 'توريد شراء', sign: 1, c: 'b-mint' },
+  in: { ar: 'توريد يدوي', sign: 1, c: 'b-mint' },
+  out: { ar: 'صرف للتشغيل', sign: -1, c: 'b-sky' },
+  waste: { ar: 'هدر/إتلاف', sign: -1, c: 'b-rose' },
+  adjust: { ar: 'تسوية جرد', sign: 1, c: 'b-amber' }
+};
+function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
+  const [view, setView] = useState('items');        // items | moves | count | recipes
+  const [itemF, setItemF] = useState(null);         // نموذج صنف
+  const [moveF, setMoveF] = useState(null);         // نموذج حركة
+  const [prodF, setProdF] = useState(null);         // نموذج وصفة
+  const [countRows, setCountRows] = useState({});   // العدّ الفعلي أثناء الجرد
+  useEffect(() => { if (invIntent && invIntent.v) setView(invIntent.v); }, [invIntent && invIntent.ts]);
+
+  const canW = ROLES[me?.role]?.scope === 'all';
+  const items = org.items || [];
+  const products = org.products || [];
+  const moves = ops.stockMoves || [];
+  const taxCfg = org.taxCfg || {};
+  const netOf = (p) => taxCfg.enabled ? Math.round(p / (1 + (Number(taxCfg.rate) || 15) / 100) * 100) / 100 : p;
+
+  const bal = useMemo(() => {
+    const m = {};
+    moves.forEach(mv => { m[mv.itemId] = (m[mv.itemId] || 0) + (mv.qty || 0); });
+    return m;
+  }, [moves]);
+  const balOf = (id) => Math.round((bal[id] || 0) * 1000) / 1000;
+  const stockValue = sum(items, it => balOf(it.id) * (it.cost || 0));
+  const lowItems = items.filter(it => (it.minQty || 0) > 0 && balOf(it.id) <= it.minQty);
+  const stateOf = (it) => {
+    const b = balOf(it.id), mn = it.minQty || 0;
+    if (mn > 0 && b <= mn) return ['b-rose', 'اطلب الآن'];
+    if (mn > 0 && b <= mn * 1.3) return ['b-amber', 'قارب الحد'];
+    return ['b-mint', 'جيد'];
+  };
+  const itemName = (id) => (items.find(x => x.id === id) || {}).name || '—';
+
+  const saveItem = async () => {
+    const f = itemF;
+    if (!f.name.trim()) return say('أدخل اسم الصنف', 'no');
+    const rec = { id: f.id || uid('it'), name: f.name.trim(), unit: f.unit.trim() || 'وحدة', cost: Number(f.cost) || 0, minQty: Number(f.minQty) || 0, isActive: true };
+    await commitOrg(d => ({ ...d, items: f.id ? (d.items || []).map(x => x.id === f.id ? rec : x) : [...(d.items || []), rec] }), {
+      actionType: f.id ? 'update' : 'create', targetType: 'stock_item', targetId: rec.id,
+      title: f.id ? 'عدّل صنف مخزون' : 'أضاف صنف مخزون', details: rec.name + ' · ' + money(rec.cost) + '/' + rec.unit
+    });
+    setItemF(null); say('حُفظ الصنف ✓');
+  };
+
+  const saveMove = async () => {
+    const f = moveF; const it = items.find(x => x.id === f.itemId);
+    const q = Number(f.qty) || 0;
+    if (!it) return say('اختر الصنف', 'no');
+    if (q <= 0) return say('أدخل كمية صحيحة', 'no');
+    const sign = MOVE_KINDS[f.kind]?.sign || 1;
+    const rec = { id: uid('sm'), date: today(), itemId: it.id, kind: f.kind, qty: sign * q, note: f.note || '', by: me.name, at: nowISO() };
+    await commit(d => ({ ...d, stockMoves: [rec, ...(d.stockMoves || [])] }), {
+      actionType: 'create', targetType: 'stock_move', targetId: rec.id,
+      title: 'سجّل حركة مخزون — ' + (MOVE_KINDS[f.kind]?.ar || ''), details: it.name + ' · ' + q + ' ' + it.unit + (f.note ? ' · ' + f.note : '')
+    });
+    setMoveF(null); say('سُجّلت الحركة ✓');
+  };
+
+  const approveCount = async () => {
+    const diffs = items.map(it => {
+      const actual = countRows[it.id];
+      if (actual === undefined || actual === '') return null;
+      const d = Math.round((Number(actual) - balOf(it.id)) * 1000) / 1000;
+      return Math.abs(d) > 0.0005 ? { it, d } : null;
+    }).filter(Boolean);
+    if (!diffs.length) return say('لا فروقات — الأرصدة مطابقة للعدّ', 'no');
+    const recs = diffs.map(x => ({
+      id: uid('sm'), date: today(), itemId: x.it.id, kind: 'adjust', qty: x.d,
+      note: 'جرد ' + arDate(today()) + (x.d < 0 ? ' — عجز' : ' — زيادة'), by: me.name, at: nowISO()
+    }));
+    await commit(d => ({ ...d, stockMoves: [...recs, ...(d.stockMoves || [])] }), {
+      actionType: 'create', targetType: 'stocktake', targetId: 'count-' + today(),
+      title: 'اعتمد جردًا للمخزون', details: diffs.length + ' صنف بفروقات · ' + diffs.map(x => x.it.name + ' (' + (x.d > 0 ? '+' : '') + x.d + ')').join('، ').slice(0, 140)
+    });
+    setCountRows({}); say('اعتُمد الجرد وسُجّلت التسويات ✓');
+  };
+
+  const prodCost = (p) => sum(p.parts || [], pt => (Number(pt.qty) || 0) * ((items.find(x => x.id === pt.itemId) || {}).cost || 0));
+  const saveProd = async () => {
+    const f = prodF;
+    if (!f.name.trim()) return say('أدخل اسم المنتج', 'no');
+    const parts = (f.parts || []).filter(pt => pt.itemId && Number(pt.qty) > 0).map(pt => ({ itemId: pt.itemId, qty: Number(pt.qty) }));
+    const rec = { id: f.id || uid('pr'), name: f.name.trim(), sellPrice: Number(f.sellPrice) || 0, parts };
+    await commitOrg(d => ({ ...d, products: f.id ? (d.products || []).map(x => x.id === f.id ? rec : x) : [...(d.products || []), rec] }), {
+      actionType: f.id ? 'update' : 'create', targetType: 'product', targetId: rec.id,
+      title: f.id ? 'عدّل وصفة منتج' : 'أضاف منتجًا بوصفته', details: rec.name + ' · تكلفة ' + money(prodCost(rec))
+    });
+    setProdF(null); say('حُفظ المنتج ✓');
+  };
+
+  return (
+    <div className="grid" style={{ gap: 14 }}>
+      <div className="grid g4">
+        <Kpi label="قيمة المخزون (بآخر تكلفة)" value={money(stockValue)} sub={items.length + ' صنفاً'} icon={HardDrive} color="#C8A24A" />
+        <Kpi label="أصناف تحت حد الطلب" value={String(lowItems.length)} sub={lowItems.map(i => i.name).join('، ').slice(0, 40) || 'لا شيء — ممتاز'} icon={AlertTriangle} color={lowItems.length ? '#D9544D' : '#4FB286'} />
+        <Kpi label="حركات المخزون" value={String(moves.length)} sub="توريد · صرف · هدر · جرد" icon={ArrowLeftRight} color="#5B93C4" />
+        <Kpi label="منتجات بوصفات" value={String(products.length)} sub="تكلفة وهامش لكل منتج" icon={Store} color="#9B7BB8" />
+      </div>
+
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        <button className={'btn sm' + (view === 'items' ? ' pri' : ' gh')} onClick={() => setView('items')}><HardDrive size={14} />الأصناف والأرصدة</button>
+        <button className={'btn sm' + (view === 'moves' ? ' pri' : ' gh')} onClick={() => setView('moves')}><ArrowLeftRight size={14} />الحركات</button>
+        <button className={'btn sm' + (view === 'count' ? ' pri' : ' gh')} onClick={() => setView('count')}><ClipboardCheck size={14} />الجرد</button>
+        <button className={'btn sm' + (view === 'recipes' ? ' pri' : ' gh')} onClick={() => setView('recipes')}><Store size={14} />الوصفات والتكلفة</button>
+        {canW && view === 'items' && <button className="btn sm pri" style={{ marginInlineStart: 'auto' }} onClick={() => setItemF({ name: '', unit: 'كغ', cost: '', minQty: '' })}><Plus size={14} />صنف جديد</button>}
+        {canW && view === 'moves' && <button className="btn sm pri" style={{ marginInlineStart: 'auto' }} onClick={() => setMoveF({ kind: 'in', itemId: items[0]?.id || '', qty: '', note: '' })}><Plus size={14} />حركة جديدة</button>}
+        {canW && view === 'recipes' && <button className="btn sm pri" style={{ marginInlineStart: 'auto' }} onClick={() => setProdF({ name: '', sellPrice: '', parts: [{ itemId: items[0]?.id || '', qty: '' }] })}><Plus size={14} />منتج جديد</button>}
+      </div>
+
+      {view === 'items' && (
+        <div className="card">
+          <div className="tw">
+            <table className="tb">
+              <thead><tr><th>الصنف</th><th>الوحدة</th><th style={{ textAlign: 'end' }}>التكلفة</th><th style={{ textAlign: 'end' }}>الرصيد</th><th style={{ textAlign: 'end' }}>القيمة</th><th>الحالة</th><th /></tr></thead>
+              <tbody>
+                {items.map(it => {
+                  const [cls, txt] = stateOf(it); const b = balOf(it.id);
+                  return (
+                    <tr key={it.id}>
+                      <td style={{ fontWeight: 600, fontSize: 12.5 }}>{it.name}</td>
+                      <td style={{ fontSize: 11.5, color: 'var(--dim)' }}>{it.unit}</td>
+                      <td className="num" style={{ textAlign: 'end' }}>{money(it.cost)}</td>
+                      <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: b < 0 ? 'var(--rose)' : 'var(--txt)' }}>{b}</td>
+                      <td className="num" style={{ textAlign: 'end' }}>{money(b * (it.cost || 0))}</td>
+                      <td><span className={'badge ' + cls}>{txt}</span>{(it.minQty || 0) > 0 && <div style={{ fontSize: 9, color: 'var(--faint)' }}>الحد: <span className="num">{it.minQty}</span></div>}</td>
+                      <td>{canW && <button className="btn sm gh" onClick={() => setItemF({ ...it })}>تعديل</button>}</td>
+                    </tr>
+                  );
+                })}
+                {items.length === 0 && <tr><td colSpan={7}><div className="empty">لا أصناف بعد — أضف أصناف مخزونك (أرز، لحم، زيت…) ليبدأ التتبع.</div></td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {view === 'moves' && (
+        <div className="card">
+          <div className="tw">
+            <table className="tb">
+              <thead><tr><th>التاريخ</th><th>الصنف</th><th>النوع</th><th style={{ textAlign: 'end' }}>الكمية</th><th>البيان</th><th>بواسطة</th></tr></thead>
+              <tbody>
+                {moves.slice(0, 120).map(mv => (
+                  <tr key={mv.id}>
+                    <td className="num" style={{ fontSize: 11 }}>{mv.date}</td>
+                    <td style={{ fontSize: 12.5 }}>{itemName(mv.itemId)}</td>
+                    <td><span className={'badge ' + (MOVE_KINDS[mv.kind]?.c || 'b-dim')}>{MOVE_KINDS[mv.kind]?.ar || mv.kind}</span></td>
+                    <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: mv.qty < 0 ? 'var(--rose)' : 'var(--mint)' }}>{mv.qty > 0 ? '+' + mv.qty : mv.qty}</td>
+                    <td style={{ fontSize: 11, color: 'var(--dim)' }}>{mv.note || mv.ref || '—'}</td>
+                    <td style={{ fontSize: 11, color: 'var(--faint)' }}>{mv.by || '—'}</td>
+                  </tr>
+                ))}
+                {moves.length === 0 && <tr><td colSpan={6}><div className="empty">لا حركات بعد — التوريد من أوامر الشراء يظهر هنا تلقائياً.</div></td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {view === 'count' && (
+        <div className="card">
+          <div className="card-h">
+            <div className="card-t"><ClipboardCheck size={15} color="var(--brass)" />جرد المخزون — أدخل العدّ الفعلي واعتمد</div>
+            {canW && <button className="btn pri sm" onClick={approveCount}><Check size={14} />اعتماد الجرد وتسجيل الفروقات</button>}
+          </div>
+          <div className="tw">
+            <table className="tb">
+              <thead><tr><th>الصنف</th><th style={{ textAlign: 'end' }}>الرصيد الدفتري</th><th style={{ width: 130 }}>العدّ الفعلي</th><th style={{ textAlign: 'end' }}>الفرق</th></tr></thead>
+              <tbody>
+                {items.map(it => {
+                  const b = balOf(it.id);
+                  const a = countRows[it.id];
+                  const d = a === undefined || a === '' ? null : Math.round((Number(a) - b) * 1000) / 1000;
+                  return (
+                    <tr key={it.id}>
+                      <td style={{ fontSize: 12.5, fontWeight: 600 }}>{it.name} <span style={{ color: 'var(--faint)', fontSize: 10 }}>({it.unit})</span></td>
+                      <td className="num" style={{ textAlign: 'end' }}>{b}</td>
+                      <td><input className="inp n" inputMode="decimal" placeholder={String(b)} value={a === undefined ? '' : a}
+                        disabled={!canW}
+                        onChange={e => setCountRows(r => ({ ...r, [it.id]: e.target.value.replace(/[^\d.-]/g, '') }))} /></td>
+                      <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: d === null ? 'var(--faint)' : d < 0 ? 'var(--rose)' : d > 0 ? 'var(--mint)' : 'var(--faint)' }}>
+                        {d === null ? '—' : d === 0 ? 'مطابق ✓' : (d > 0 ? '+' + d : d)}</td>
+                    </tr>
+                  );
+                })}
+                {items.length === 0 && <tr><td colSpan={4}><div className="empty">أضف أصنافاً أولاً.</div></td></tr>}
+              </tbody>
+            </table>
+          </div>
+          <div className="note" style={{ marginTop: 10 }}>الفروقات تُسجَّل حركات «تسوية جرد» موثقة باسمك وتاريخها — وتظهر في سجل التدقيق.</div>
+        </div>
+      )}
+
+      {view === 'recipes' && (
+        <div className="grid g2">
+          {products.map(p => {
+            const cost = prodCost(p); const net = netOf(p.sellPrice || 0);
+            const margin = net > 0 ? Math.round((net - cost) / net * 1000) / 10 : 0;
+            return (
+              <div key={p.id} className="card">
+                <div className="card-h">
+                  <div className="card-t"><Store size={15} color="var(--brass)" />{p.name}</div>
+                  {canW && <button className="btn sm gh" onClick={() => setProdF({ ...p, parts: (p.parts || []).map(x => ({ ...x })) })}>تعديل</button>}
+                </div>
+                <table className="tb" style={{ fontSize: 12 }}>
+                  <tbody>
+                    {(p.parts || []).map((pt, i) => {
+                      const it = items.find(x => x.id === pt.itemId) || {};
+                      return <tr key={i}><td>{it.name || '؟'}</td><td className="num" style={{ textAlign: 'end' }}>{pt.qty} {it.unit || ''}</td><td className="num" style={{ textAlign: 'end' }}>{money(pt.qty * (it.cost || 0))}</td></tr>;
+                    })}
+                    <tr style={{ fontWeight: 800 }}><td>تكلفة المنتج</td><td /><td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{money(cost)}</td></tr>
+                  </tbody>
+                </table>
+                <div className="row" style={{ gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+                  <span className="badge b-brass">البيع {money(p.sellPrice)}{taxCfg.enabled ? ' شامل' : ''}</span>
+                  {taxCfg.enabled && <span className="badge b-dim">الصافي {money(net)}</span>}
+                  <span className={'badge ' + (margin >= 50 ? 'b-mint' : margin >= 30 ? 'b-amber' : 'b-rose')}>هامش {margin}%</span>
+                </div>
+              </div>
+            );
+          })}
+          {products.length === 0 && <div className="card"><div className="empty">أضف منتجاً بوصفته (مكوناته من الأصناف) لترى تكلفته الحقيقية وهامشه.</div></div>}
+        </div>
+      )}
+
+      <div className="card" style={{ background: 'rgba(200,162,74,.04)', borderStyle: 'dashed' }}>
+        <div style={{ fontSize: 11.5, color: 'var(--dim)', lineHeight: 1.9 }}>
+          <b style={{ color: 'var(--brass-l)' }}>حدود هذه المرحلة (بشفافية):</b> لا خصم تلقائي للمخزون مع البيع —
+          النظام يسجّل إجماليات المبيعات لا أصنافها، فالاستهلاك يُسجَّل «صرفًا للتشغيل» أو عبر الجرد الدوري.
+          التكلفة المعروضة بآخر سعر شراء، وتتحدّث تلقائيًا عند استلام أوامر الشراء.
+          التقييم المحاسبي للمخزون (رسملة المشتريات وتكلفة المبيعات) قرار محاسبي يُبنى في مرحلة لاحقة —
+          حاليًا تبقى المشتريات مصروفًا كما هي (طريقة الجرد الدوري المتعارفة للمطاعم).
+        </div>
+      </div>
+
+      {itemF && (
+        <Modal title={itemF.id ? 'تعديل صنف' : 'صنف مخزون جديد'} icon={HardDrive} onClose={() => setItemF(null)}
+          foot={<><button className="btn gh" onClick={() => setItemF(null)}>إلغاء</button>
+            <button className="btn pri" onClick={saveItem}><Check size={14} />حفظ الصنف</button></>}>
+          <Field label="اسم الصنف"><input className="inp" value={itemF.name} placeholder="أرز بسمتي، لحم غنم…" onChange={e => setItemF(f => ({ ...f, name: e.target.value }))} /></Field>
+          <div className="grid g3">
+            <Field label="الوحدة"><input className="inp" value={itemF.unit} placeholder="كغ · كيس · علبة" onChange={e => setItemF(f => ({ ...f, unit: e.target.value }))} /></Field>
+            <Field label="التكلفة/الوحدة"><input className="inp n" inputMode="decimal" value={itemF.cost} onChange={e => setItemF(f => ({ ...f, cost: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+            <Field label="حد الطلب الأدنى"><input className="inp n" inputMode="decimal" value={itemF.minQty} onChange={e => setItemF(f => ({ ...f, minQty: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+          </div>
+        </Modal>
+      )}
+
+      {moveF && (
+        <Modal title="حركة مخزون جديدة" icon={ArrowLeftRight} onClose={() => setMoveF(null)}
+          foot={<><button className="btn gh" onClick={() => setMoveF(null)}>إلغاء</button>
+            <button className="btn pri" onClick={saveMove}><Check size={14} />تسجيل الحركة</button></>}>
+          <div className="grid g2">
+            <Field label="نوع الحركة">
+              <select className="sel" value={moveF.kind} onChange={e => setMoveF(f => ({ ...f, kind: e.target.value }))}>
+                <option value="in">توريد يدوي (+)</option>
+                <option value="out">صرف للتشغيل (−)</option>
+                <option value="waste">هدر/إتلاف (−)</option>
+              </select>
+            </Field>
+            <Field label="الصنف">
+              <select className="sel" value={moveF.itemId} onChange={e => setMoveF(f => ({ ...f, itemId: e.target.value }))}>
+                {items.map(it => <option key={it.id} value={it.id}>{it.name} — رصيد {balOf(it.id)} {it.unit}</option>)}
+              </select>
+            </Field>
+          </div>
+          <div className="grid g2">
+            <Field label="الكمية"><input className="inp n" inputMode="decimal" value={moveF.qty} onChange={e => setMoveF(f => ({ ...f, qty: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+            <Field label="البيان (اختياري)"><input className="inp" value={moveF.note} placeholder="صرف للمطبخ · تالف بالتبريد…" onChange={e => setMoveF(f => ({ ...f, note: e.target.value }))} /></Field>
+          </div>
+        </Modal>
+      )}
+
+      {prodF && (
+        <Modal title={prodF.id ? 'تعديل منتج ووصفته' : 'منتج جديد بوصفته'} icon={Store} onClose={() => setProdF(null)} wide
+          foot={<><button className="btn gh" onClick={() => setProdF(null)}>إلغاء</button>
+            <button className="btn pri" onClick={saveProd}><Check size={14} />حفظ المنتج</button></>}>
+          <div className="grid g2">
+            <Field label="اسم المنتج"><input className="inp" value={prodF.name} placeholder="مندي لحم — وجبة" onChange={e => setProdF(f => ({ ...f, name: e.target.value }))} /></Field>
+            <Field label={'سعر البيع' + ((org.taxCfg || {}).enabled ? ' (شامل الضريبة)' : '')}>
+              <input className="inp n" inputMode="decimal" value={prodF.sellPrice} onChange={e => setProdF(f => ({ ...f, sellPrice: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+          </div>
+          <div className="lbl" style={{ margin: '4px 0 6px' }}>المكوّنات (من أصناف المخزون)</div>
+          {(prodF.parts || []).map((pt, i) => (
+            <div key={i} className="row" style={{ gap: 8, marginBottom: 7, flexWrap: 'wrap' }}>
+              <select className="sel" style={{ flex: 2, minWidth: 170 }} value={pt.itemId}
+                onChange={e => setProdF(f => ({ ...f, parts: f.parts.map((x, k) => k === i ? { ...x, itemId: e.target.value } : x) }))}>
+                <option value="">— اختر الصنف —</option>
+                {items.map(it => <option key={it.id} value={it.id}>{it.name} ({money(it.cost)}/{it.unit})</option>)}
+              </select>
+              <input className="inp n" style={{ flex: 1, minWidth: 100 }} inputMode="decimal" placeholder="الكمية" value={pt.qty}
+                onChange={e => setProdF(f => ({ ...f, parts: f.parts.map((x, k) => k === i ? { ...x, qty: e.target.value.replace(/[^\d.]/g, '') } : x) }))} />
+              {prodF.parts.length > 1 && <button className="btn sm gh" onClick={() => setProdF(f => ({ ...f, parts: f.parts.filter((_, k) => k !== i) }))}><X size={13} /></button>}
+            </div>
+          ))}
+          <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+            <button className="btn sm" onClick={() => setProdF(f => ({ ...f, parts: [...(f.parts || []), { itemId: '', qty: '' }] }))}><Plus size={13} />مكوّن إضافي</button>
+            <span className="badge b-brass">التكلفة الحالية: {money(prodCost({ parts: (prodF.parts || []).filter(x => x.itemId) }))}</span>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
 /* ================= مركز تطبيقات ERP — بوابة وحدات النظام (v7.6) ================= */
-function AppsStrip({ me, setTab, openAcctView }) {
+function AppsStrip({ me, setTab, openAcctView, openInvView }) {
   // شريط ERP Home: المفضلة وآخر المستخدَم — يظهر أعلى لوحة المؤشرات
   const u = appUseGet(me.id);
   const can = (a) => a && appCanSee(me.role, a) && !a.soon;
@@ -5372,12 +5909,12 @@ function AppsStrip({ me, setTab, openAcctView }) {
   return (
     <div className="appstrip">
       {favs.map(a => (
-        <button key={a.id} className="appchip" onClick={() => appOpenNow(a, me, setTab, openAcctView)}>
+        <button key={a.id} className="appchip" onClick={() => appOpenNow(a, me, setTab, openAcctView, openInvView)}>
           <span className="st">⭐</span>{a.ar}
         </button>
       ))}
       {recs.map(a => (
-        <button key={a.id} className="appchip" onClick={() => appOpenNow(a, me, setTab, openAcctView)}>
+        <button key={a.id} className="appchip" onClick={() => appOpenNow(a, me, setTab, openAcctView, openInvView)}>
           <Clock size={11} />{a.ar}
         </button>
       ))}
@@ -5388,7 +5925,7 @@ function AppsStrip({ me, setTab, openAcctView }) {
   );
 }
 
-function AppsCenter({ org, me, commitOrg, say, setTab, openAcctView }) {
+function AppsCenter({ org, me, commitOrg, say, setTab, openAcctView, openInvView }) {
   const [q, setQ] = useState('');
   const [mode, setMode] = useState('all');          // all | fav | rec
   const [manage, setManage] = useState(false);
@@ -5465,7 +6002,7 @@ function AppsCenter({ org, me, commitOrg, say, setTab, openAcctView }) {
         </div>
         {a.soon
           ? <button className="btn sm gh" disabled style={{ justifyContent: 'center' }}>ضمن خطة التطوير</button>
-          : <button className="btn sm pri" style={{ justifyContent: 'center' }} onClick={() => appOpenNow(a, me, setTab, openAcctView)}>فتح التطبيق</button>}
+          : <button className="btn sm pri" style={{ justifyContent: 'center' }} onClick={() => appOpenNow(a, me, setTab, openAcctView, openInvView)}>فتح التطبيق</button>}
       </div>
     );
   };
@@ -5504,13 +6041,13 @@ function AppsCenter({ org, me, commitOrg, say, setTab, openAcctView }) {
           {favApps.length > 0 && (
             <div className="appstrip" style={{ marginBottom: recApps.length ? 8 : 0 }}>
               <span style={{ fontSize: 11, color: 'var(--faint)' }}>⭐ المفضلة:</span>
-              {favApps.map(a => <button key={a.id} className="appchip" onClick={() => appOpenNow(a, me, setTab, openAcctView)}><span className="st">★</span>{a.ar}</button>)}
+              {favApps.map(a => <button key={a.id} className="appchip" onClick={() => appOpenNow(a, me, setTab, openAcctView, openInvView)}><span className="st">★</span>{a.ar}</button>)}
             </div>
           )}
           {recApps.length > 0 && (
             <div className="appstrip">
               <span style={{ fontSize: 11, color: 'var(--faint)' }}>الأخيرة:</span>
-              {recApps.map(a => <button key={a.id} className="appchip" onClick={() => appOpenNow(a, me, setTab, openAcctView)}><Clock size={11} />{a.ar}{(u.rec || {})[a.id]?.count > 1 && <span style={{ fontSize: 9, color: 'var(--faint)' }}>×{(u.rec || {})[a.id].count}</span>}</button>)}
+              {recApps.map(a => <button key={a.id} className="appchip" onClick={() => appOpenNow(a, me, setTab, openAcctView, openInvView)}><Clock size={11} />{a.ar}{(u.rec || {})[a.id]?.count > 1 && <span style={{ fontSize: 9, color: 'var(--faint)' }}>×{(u.rec || {})[a.id].count}</span>}</button>)}
             </div>
           )}
         </div>
