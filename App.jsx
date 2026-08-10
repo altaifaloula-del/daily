@@ -383,14 +383,14 @@ function emptyOrg(company) {
 }
 
 function emptyOps() {
-  return { closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [] };
+  return { closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [] };
 }
 
 
 /* ================= الجذر ================= */
 export default function App() {
   const [org, setOrg] = useState(null);
-  const [ops, setOps] = useState({ closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [] });
+  const [ops, setOps] = useState({ closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [] });
   const [pulse, setPulse] = useState({ presence: {}, audit: [] });
   const [me, setMe] = useState(null);
   const [tab, setTab] = useState('dash');
@@ -444,6 +444,12 @@ export default function App() {
         const u = await authApi.ready();
         if (!u) { setNeedAuth(true); setBoot('ready'); return; }   // بوابة الدخول أولاً
         await authApi.bootstrap();
+        // جلسة قائمة لعضوية أُوقفت لاحقاً → خروج وعرض البوابة (الرسالة تظهر عند محاولة الدخول)
+        const mem = await authApi.myMembership();
+        if (mem && !mem.active) {
+          await authApi.signOutAll().catch(() => { });
+          setNeedAuth(true); setBoot('ready'); return;
+        }
       }
       await loadAll();
     })();
@@ -464,6 +470,16 @@ export default function App() {
 
   const finishFb = useCallback(async (email) => {
     await authApi.bootstrap();
+    // بوابة العضوية: موثّق بلا عضوية نشطة لا يُكمل — رسالة واضحة بدل شاشة مشوّشة
+    const mem = await authApi.myMembership();
+    if (mem && !mem.active) {
+      await authApi.signOutAll().catch(() => { });
+      return {
+        ok: false, err: mem.exists
+          ? 'عضويتك موقوفة — راجع مسؤول النظام'
+          : 'حسابك موثّق لكن عضويتك غير مهيأة بعد — اطلب من المدير فتح حسابك في «الفروع والمستخدمون» وحفظه'
+      };
+    }
     const o = await loadAll();
     const u = (o.users || []).find(x => (x.email || '').toLowerCase() === email && x.isActive);
     if (!u && (o.users || []).length > 0) {
@@ -801,7 +817,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v7.0 🔐</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v7.1 🔐</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2363,12 +2379,34 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
   const addSupPay = () => set('supplierPayments', [...(f.supplierPayments || []), { id: uid('sp'), partnerKey: '', supplierName: '', cash: 0, card: 0, transfer: 0, other: 0, reference: '' }]);
   const upSupPay = (id, k, v) => set('supplierPayments', (f.supplierPayments || []).map(x => x.id === id ? { ...x, [k]: v } : x));
   const removeSupPay = (id) => set('supplierPayments', (f.supplierPayments || []).filter(x => x.id !== id));
+  // مع المصادقة السحابية: كتابة سجل الرئيسي للمدراء فقط — غير الإداري يرسل «طلب اعتماد» بدل كتابة تُرفض
+  const canWriteOrg = !(typeof window !== 'undefined' && window.__forceOrgReadonly) && (!authApi.enabled || !!ROLES[me.role]?.admin);
+
   // حفظ شريك جديد في الرئيسي وربطه بالمصروف/السداد — هذا ما يجعله «ينضاف إلى الرئيسي»
   const saveParty = async () => {
     const np = newParty;
     if (!np.name || !np.name.trim()) return say('اكتب اسم الشريك', 'no');
+    const nameQ = np.name.trim();
+    if (!canWriteOrg) {
+      // دور غير إداري: طلب اعتماد يصل للإدارة في دفتر الشركاء، والاسم يُسجَّل نصياً في السطر فوراً
+      const req = {
+        id: uid('pr'), name: nameQ, type: np.type || 'supplier', cat: np.cat || '', phone: np.phone || '',
+        requestedBy: me.name, branchId: f.branchId, branchName: branch?.name || '', at: nowISO()
+      };
+      const okReq = await commit(d => ({ ...d, partnerRequests: [req, ...(d.partnerRequests || [])] }), {
+        actionType: 'create', targetType: 'user_account', targetId: req.id,
+        title: 'طلب إضافة شريك للرئيسي', details: nameQ + ' — ' + (PT_TYPE[req.type] || { ar: 'عميل' }).ar + ' · بانتظار اعتماد الإدارة'
+      });
+      if (okReq) {
+        if (np.target === 'pay') linkPayParty(np.rowId, '', nameQ, undefined);
+        else linkExpParty(np.rowId, '', nameQ, undefined);
+        say('أُرسل طلب اعتماد «' + nameQ + '» للإدارة — والاسم مسجّل في السطر ✓');
+        setNewParty(null);
+      }
+      return;
+    }
     if (!commitOrg) return say('لا تملك صلاحية الإضافة للرئيسي', 'no');
-    const name = np.name.trim(), id = uid('pt');
+    const name = nameQ, id = uid('pt');
     const code = nextPartnerCode(buildPartners(org, {}), np.type === 'supplier' ? 'supplier' : np.type === 'employee' ? 'employee' : (np.type || 'customer'));
     let key, mut;
     if (np.type === 'supplier') { key = 'sup:' + id; mut = d => ({ ...d, suppliers: [...(d.suppliers || []), { id, code, name, category: np.cat || '', phone: np.phone || '', vatNo: '', terms: 0 }] }); }
@@ -2996,8 +3034,8 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
         onCancel={() => { setOutPrompt(false); setPend(null); }}
         onDone={(out) => finalize('submitted', pend.rec, pend.id, pend.ref, out)} />}
       {newParty && (
-        <Modal title="إضافة شريك جديد إلى الرئيسي" icon={Users} onClose={() => setNewParty(null)}
-          foot={<><button className="btn pri" onClick={saveParty}><Check size={14} />حفظ وربط بالمصروف</button>
+        <Modal title={canWriteOrg ? 'إضافة شريك جديد إلى الرئيسي' : 'طلب إضافة شريك (باعتماد الإدارة)'} icon={Users} onClose={() => setNewParty(null)}
+          foot={<><button className="btn pri" onClick={saveParty}><Check size={14} />{canWriteOrg ? 'حفظ وربط' : 'إرسال طلب الاعتماد'}</button>
             <button className="btn gh" onClick={() => setNewParty(null)}>إلغاء</button></>}>
           <Field label="النوع">
             <select className="sel" value={newParty.type} onChange={ev => setNewParty({ ...newParty, type: ev.target.value })}>
@@ -3014,7 +3052,11 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
             <Field label="الجوال"><input className="inp" style={{ direction: 'ltr', textAlign: 'right' }} value={newParty.phone}
               onChange={ev => setNewParty({ ...newParty, phone: ev.target.value })} /></Field>
           </div>
-          <div style={{ fontSize: 11, color: 'var(--dim)', marginTop: 6, lineHeight: 1.7 }}>يُسجَّل مباشرةً في الإدارة الرئيسية (دفتر الشركاء) ويُربط بهذا المصروف — فيظهر في كشف حسابه.</div>
+          <div style={{ fontSize: 11, color: 'var(--dim)', marginTop: 6, lineHeight: 1.7 }}>
+            {canWriteOrg
+              ? 'يُسجَّل مباشرةً في الإدارة الرئيسية (دفتر الشركاء) ويُربط بهذا السطر — فيظهر في كشف حسابه.'
+              : 'يصل الطلب للإدارة في «دفتر الشركاء» لاعتماده، ويُسجَّل الاسم نصياً في السطر فوراً. بعد الاعتماد يظهر الشريك بالسجل المركزي برقمه.'}
+          </div>
         </Modal>
       )}
       {done && <Modal title="تم إغلاق الوردية" icon={CheckCircle2} onClose={onClose}
@@ -4891,13 +4933,16 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
   const [addP, setAddP] = useState(null);
   const [tx, setTx] = useState(null);
   const canEdit = ROLES[me.role]?.scope !== 'own';
+  // كتابة سجل الرئيسي (مع المصادقة السحابية) للمدراء فقط
+  const canWriteOrgP = !(typeof window !== 'undefined' && window.__forceOrgReadonly) && (!authApi.enabled || !!ROLES[me.role]?.admin);
+  const pendReqs = ops.partnerRequests || [];
 
   const partners = useMemo(() => buildPartners(org, ops), [org, ops]);
   const cur = partners.find(p => p.key === openKey);
 
   // ترسيخ الأكواد على البطاقات القديمة مرة واحدة — حتى لا تتغير الأرقام بعد أي حذف مستقبلي
   useEffect(() => {
-    if (!commitOrg || !canEdit) return;
+    if (!commitOrg || !canEdit || !canWriteOrgP) return;
     const missing = (org.suppliers || []).some(s => !s.code) || (org.employees || []).some(e => !e.code) || (org.partners || []).some(pt => !pt.code);
     if (!missing) return;
     const codeMap = new Map(partners.map(p => [p.key, p.code]));
@@ -4918,9 +4963,48 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
   const net = cr - dr;
   const list = partners.filter(p => (filter === 'all' || p.type === filter) && (!q || (p.name || '').includes(q)));
 
+  // اعتماد/رفض طلبات الإضافة الواردة من الفروع
+  const approveReq = async (r) => {
+    const id = uid('pt');
+    const t = r.type === 'supplier' ? 'supplier' : r.type === 'employee' ? 'employee' : (r.type || 'customer');
+    const code = nextPartnerCode(partners, t);
+    let key, mut;
+    if (t === 'supplier') { key = 'sup:' + id; mut = d => ({ ...d, suppliers: [...(d.suppliers || []), { id, code, name: r.name, category: r.cat || '', phone: r.phone || '', vatNo: '', terms: 0 }] }); }
+    else if (t === 'employee') { key = 'emp:' + id; mut = d => ({ ...d, employees: [...(d.employees || []), { id, code, name: r.name, jobTitle: r.cat || '', phone: r.phone || '', baseSalary: 0, housingAllowance: 0, transportAllowance: 0, branchId: r.branchId || '', isActive: true }] }); }
+    else { key = 'cust:' + id; mut = d => ({ ...d, partners: [...(d.partners || []), { id, key, code, name: r.name, type: t, cat: r.cat || '', phone: r.phone || '', tax: '', terms: 0 }] }); }
+    const ok = await commitOrg(mut, { actionType: 'create', targetType: 'user_account', targetId: id, title: 'اعتمد طلب إضافة شريك', details: `${r.name} · ${code} · طلب من ${r.requestedBy || '—'}` });
+    if (!ok) return;
+    const openAmt = Number((r.opening || '').toString().replace(/,/g, '')) || 0;
+    await commit(d => ({
+      ...d,
+      partnerRequests: (d.partnerRequests || []).filter(x => x.id !== r.id),
+      ...(openAmt > 0 ? { ledgerEntries: [{ id: uid('le'), partnerKey: key, date: today(), desc: 'رصيد افتتاحي', src: 'open', ...(r.openingSide === 'debit' ? { debit: openAmt, credit: 0 } : { credit: openAmt, debit: 0 }) }, ...(d.ledgerEntries || [])] } : {})
+    }), { actionType: 'update', targetType: 'user_account', targetId: r.id, title: 'إغلاق طلب إضافة شريك', details: r.name });
+    say('اعتُمد الشريك ' + code + ' ✓');
+  };
+  const rejectReq = async (r) => {
+    await commit(d => ({ ...d, partnerRequests: (d.partnerRequests || []).filter(x => x.id !== r.id) }),
+      { actionType: 'delete', targetType: 'user_account', targetId: r.id, title: 'رفض طلب إضافة شريك', details: r.name });
+    say('رُفض الطلب');
+  };
+
   const saveCustomer = async () => {
     const c = addP;
     if (!c.name?.trim()) return say('اكتب اسم الشريك', 'no');
+    if (!canWriteOrgP) {
+      // دور غير إداري (كالمكتب الرئيسي المقيّد): يُرسل طلب اعتماد بدل كتابة تُرفض
+      const req = {
+        id: uid('pr'), name: c.name.trim(), type: c.type || 'customer', cat: c.cat || '', phone: c.phone || '',
+        opening: c.opening || '', openingSide: c.openingSide || 'debit',
+        requestedBy: me.name, branchId: '', branchName: '', at: nowISO()
+      };
+      const okReq = await commit(d => ({ ...d, partnerRequests: [req, ...(d.partnerRequests || [])] }), {
+        actionType: 'create', targetType: 'user_account', targetId: req.id,
+        title: 'طلب إضافة شريك للرئيسي', details: req.name + ' · بانتظار اعتماد الإدارة'
+      });
+      if (okReq) { say('أُرسل طلب اعتماد «' + req.name + '» لمسؤول النظام ✓'); setAddP(null); }
+      return;
+    }
     const id = uid('pt'); const key = 'cust:' + id;
     const code = nextPartnerCode(partners, c.type || 'customer');
     const rec = { id, key, code, name: c.name.trim(), type: c.type || 'customer', cat: c.cat || '', phone: c.phone || '', tax: c.tax || '', terms: Number(c.terms) || 0 };
@@ -5043,6 +5127,27 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
   // ===== قائمة الشركاء =====
   return (
     <div className="grid" style={{ gap: 14 }}>
+      {canWriteOrgP && pendReqs.length > 0 && (
+        <div className="card" style={{ borderColor: 'rgba(200,162,74,.45)' }}>
+          <div className="card-t" style={{ marginBottom: 10 }}><Bell size={15} color="var(--brass)" />طلبات إضافة شركاء بانتظار اعتمادك ({pendReqs.length})</div>
+          <div className="grid" style={{ gap: 8 }}>
+            {pendReqs.map(r => (
+              <div key={r.id} className="row" style={{ justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', padding: '9px 12px', background: 'var(--ink)', borderRadius: 10, border: '1px solid var(--line)' }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13 }}>{r.name} <PartnerChip type={r.type === 'supplier' ? 'supplier' : r.type === 'employee' ? 'employee' : 'customer'} /></div>
+                  <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 3 }}>
+                    {r.cat ? r.cat + ' · ' : ''}طلب من {r.requestedBy || '—'}{r.branchName ? ' — ' + r.branchName : ''}
+                  </div>
+                </div>
+                <div className="row" style={{ gap: 6, flexShrink: 0 }}>
+                  <button className="btn sm pri" onClick={() => approveReq(r)}><Check size={13} />اعتماد</button>
+                  <button className="btn sm gh" onClick={() => rejectReq(r)}><X size={13} color="#D9544D" />رفض</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="grid g4">
         <Kpi label="إجمالي دائن (علينا)" value={money(cr)} sub="مستحق للموردين والموظفين" icon={TrendingUp} color="#D9544D" />
         <Kpi label="إجمالي مدين (لنا)" value={money(dr)} sub="مستحق من العملاء والسلف" icon={TrendingDown} color="#4FB286" />
