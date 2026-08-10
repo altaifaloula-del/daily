@@ -18,7 +18,7 @@ import {
   CartesianGrid, Tooltip, LineChart, Line
 } from 'recharts';
 import { CSS } from './styles';
-import { cloud, KEYS, kb } from './storage';
+import { cloud, KEYS, kb, authApi } from './storage';
 
 /* ================= أدوات مساعدة عامة ================= */
 const uid = (p) => p + '-' + Math.random().toString(36).slice(2, 9);
@@ -416,26 +416,77 @@ export default function App() {
     setTimeout(() => setToast(null), 3200);
   }, []);
 
-  /* --- الإقلاع: نسخة حية، تُهيّأ فارغة عند أول استخدام --- */
+  /* --- الإقلاع: مع المصادقة السحابية لا تُحمَّل أي بيانات قبل دخول حقيقي --- */
+  const [needAuth, setNeedAuth] = useState(false);
+
+  const loadAll = useCallback(async () => {
+    let o = await cloud.get(KEYS.org, null);
+    if (!o || !o.branches) {
+      o = emptyOrg();
+      await cloud.set(KEYS.org, o);
+      await cloud.set(KEYS.ops, emptyOps());
+      await cloud.set(KEYS.pulse, { presence: {}, audit: [] });
+      setOps(emptyOps());
+    } else {
+      const p = await cloud.get(KEYS.ops, null);
+      setOps(p || emptyOps());
+    }
+    setOrg(o);
+    setPulse(await cloud.get(KEYS.pulse, { presence: {}, audit: [] }));
+    setLastSync(new Date());
+    setBoot('ready');
+    return o;
+  }, []);
+
   useEffect(() => {
     (async () => {
-      let o = await cloud.get(KEYS.org, null);
-      if (!o || !o.branches) {
-        o = emptyOrg();
-        await cloud.set(KEYS.org, o);
-        await cloud.set(KEYS.ops, emptyOps());
-        await cloud.set(KEYS.pulse, { presence: {}, audit: [] });
-        setOps(emptyOps());
-      } else {
-        const p = await cloud.get(KEYS.ops, null);
-        setOps(p || emptyOps());
+      if (authApi.enabled) {
+        const u = await authApi.ready();
+        if (!u) { setNeedAuth(true); setBoot('ready'); return; }   // بوابة الدخول أولاً
+        await authApi.bootstrap();
       }
-      setOrg(o);
-      setPulse(await cloud.get(KEYS.pulse, { presence: {}, audit: [] }));
-      setLastSync(new Date());
-      setBoot('ready');
+      await loadAll();
     })();
-  }, []);
+  }, [loadAll]);
+
+  /* --- دخول المصادقة السحابية --- */
+  const mapAuthErr = (e) => {
+    const c = String((e && e.code) || '');
+    if (c.includes('user-not-found')) return 'لا يوجد حساب مصادقة بهذا البريد — إن كنت المالك استخدم «الإعداد الأول»، وإلا اطلب من المدير إنشاءه';
+    if (c.includes('wrong-password') || c.includes('invalid-credential') || c.includes('invalid-login')) return 'كلمة السر غير صحيحة';
+    if (c.includes('too-many-requests')) return 'محاولات كثيرة — انتظر دقائق ثم أعد المحاولة';
+    if (c.includes('email-already-in-use')) return 'هذا البريد له حساب مصادقة — استخدم «دخول» بكلمة سرّه';
+    if (c.includes('weak-password')) return 'كلمة السر ضعيفة — 6 أحرف على الأقل';
+    if (c.includes('invalid-email')) return 'صيغة البريد غير صحيحة';
+    if (c.includes('network')) return 'تعذّر الاتصال — تحقق من الشبكة';
+    return 'تعذّر الدخول (' + c.replace('auth/', '') + ')';
+  };
+
+  const finishFb = useCallback(async (email) => {
+    await authApi.bootstrap();
+    const o = await loadAll();
+    const u = (o.users || []).find(x => (x.email || '').toLowerCase() === email && x.isActive);
+    if (!u && (o.users || []).length > 0) {
+      await authApi.signOutAll().catch(() => { });
+      return { ok: false, err: 'حسابك موثّق لكنه غير مُسجَّل في المنصة — يضيفه مسؤول النظام من «الفروع والمستخدمون»' };
+    }
+    setNeedAuth(false);
+    if (u) {
+      setMe(u); setTab((ROLES[u.role]?.tabs || ['closing'])[0]);
+      try { localStorage.setItem('rms8:lastEmail', u.email || ''); } catch { }
+    }
+    return { ok: true };   // لا مستخدمين بعد → شاشة التهيئة الأولى
+  }, [loadAll]);
+
+  const fbLogin = useCallback(async (email, pass) => {
+    try { const r = await authApi.signIn(email, pass); return await finishFb(r.email); }
+    catch (e) { return { ok: false, err: mapAuthErr(e) }; }
+  }, [finishFb]);
+
+  const fbFirstSetup = useCallback(async (email, pass) => {
+    try { const r = await authApi.firstSetup(email, pass); return await finishFb(r.email); }
+    catch (e) { return { ok: false, err: mapAuthErr(e) }; }
+  }, [finishFb]);
 
   useEffect(() => {
     const on = () => setOffline(false), off = () => setOffline(true);
@@ -487,7 +538,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (boot !== 'ready') return;
+    if (boot !== 'ready' || needAuth) return;
     const subs = [];
     const wire = (slot, key, setter) => {
       const un = cloud.subscribe?.(key, (v) => {
@@ -502,7 +553,7 @@ export default function App() {
     wire('pulse', KEYS.pulse, setPulse);
     if (subs.length) setLive(true);
     return () => subs.forEach(u => u());
-  }, [boot]);
+  }, [boot, needAuth]);
 
   useEffect(() => {
     if (boot !== 'ready') return;
@@ -619,6 +670,11 @@ export default function App() {
         </div>
       </div>
     );
+  }
+
+  // مصادقة سحابية مفعّلة ولا جلسة: بوابة الدخول الحقيقية قبل تحميل أي بيانات
+  if (needAuth && !me) {
+    return <FbGate css={CSS} theme={theme} fbLogin={fbLogin} fbFirstSetup={fbFirstSetup} />;
   }
 
   // أول تشغيل: لا يوجد أي مستخدم بعد → شاشة التسجيل الأولي لإنشاء حساب المالك
@@ -745,7 +801,7 @@ export default function App() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <h1 className="toptitle">{NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v6.9 ✓</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v7.0 🔐</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -988,6 +1044,69 @@ function FirstRun({ css, theme, commitOrg, say, onDone }) {
 }
 
 /* ================= بوابة الدخول (بريد وكلمة سر) ================= */
+/* ================= بوابة الدخول — المصادقة السحابية الحقيقية ================= */
+function FbGate({ css, theme, fbLogin, fbFirstSetup }) {
+  const [email, setEmail] = useState(() => { try { return localStorage.getItem('rms8:lastEmail') || ''; } catch { return ''; } });
+  const [pass, setPass] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [show, setShow] = useState(false);
+  const [setup, setSetup] = useState(false);
+
+  const go = async () => {
+    if (!email || !pass || busy) return;
+    setErr(''); setBusy(true);
+    const r = setup ? await fbFirstSetup(email, pass) : await fbLogin(email, pass);
+    setBusy(false);
+    if (!r.ok) setErr(r.err || 'تعذّر الدخول');
+  };
+
+  return (
+    <div className={'rms' + (theme === 'lite' ? ' lite' : '')}>
+      <style dangerouslySetInnerHTML={{ __html: css }} />
+      <div className="gate">
+        <div className="gate-c">
+          <BrandHead title="منصة الإغلاق اليومي" sub="دخول موثّق — البيانات محمية بحساب مصادقة لكل مستخدم" />
+          <div className="row" style={{ justifyContent: 'center', marginBottom: 16 }}>
+            <span className="badge b-mint"><Lock size={10} />مصادقة سحابية مفعّلة</span>
+          </div>
+          <div className="card">
+            {setup && <div style={{ border: '1px solid rgba(200,162,74,.4)', background: 'rgba(200,162,74,.08)', color: 'var(--brass-l)', borderRadius: 10, padding: '9px 12px', marginBottom: 12, fontSize: 11.5, lineHeight: 1.7 }}>
+              الإعداد الأول (مرة واحدة بعد الترقية): أدخل بريد المالك وكلمة سر جديدة — يُنشأ حساب المصادقة وتصبح مديرًا للمنصة.
+            </div>}
+            <Field label="البريد الإلكتروني">
+              <input className="inp" type="email" autoFocus style={{ direction: 'ltr', textAlign: 'right' }}
+                value={email} placeholder="you@company.com"
+                onChange={e => { setEmail(e.target.value); setErr(''); }}
+                onKeyDown={e => e.key === 'Enter' && go()} />
+            </Field>
+            <Field label={setup ? 'كلمة سر جديدة (6 أحرف فأكثر)' : 'كلمة السر'}>
+              <div style={{ position: 'relative' }}>
+                <input className="inp" type={show ? 'text' : 'password'} value={pass}
+                  onChange={e => { setPass(e.target.value); setErr(''); }}
+                  onKeyDown={e => e.key === 'Enter' && go()} />
+                <button className="btn sm gh" style={{ position: 'absolute', insetInlineEnd: 4, top: 4, padding: '4px 8px' }}
+                  onClick={() => setShow(s => !s)} tabIndex={-1}><Eye size={14} /></button>
+              </div>
+            </Field>
+            {err && <div className="gate-err">{err}</div>}
+            <button className="btn pri" style={{ width: '100%' }} disabled={busy || !email || !pass} onClick={go}>
+              {busy ? <RefreshCw size={15} className="spin" /> : <Lock size={15} />}
+              {setup ? 'إنشاء حساب المصادقة والدخول' : 'دخول'}
+            </button>
+            <button className="btn gh" style={{ width: '100%', marginTop: 10 }} onClick={() => { setSetup(s => !s); setErr(''); }}>
+              {setup ? 'لديّ حساب — عودة للدخول' : 'الإعداد الأول بعد الترقية (للمالك)'}
+            </button>
+            <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 14, lineHeight: 1.7, textAlign: 'center' }}>
+              نسيت كلمة السر؟ اطلب من المدير «إرسال رابط تعيين كلمة السر» من إدارة المستخدمين.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Gate({ css, org, onLogin, online, theme }) {
   const [email, setEmail] = useState('');
   const [pass, setPass] = useState('');
@@ -3937,6 +4056,18 @@ function Admin({ org, ops, commit, commitOrg, say }) {
       actionType: isNew ? 'create' : 'permission_change', targetType: 'user_account', targetId: rec.id,
       title: isNew ? 'أنشأ مستخدماً جديداً' : 'عدّل بيانات مستخدم', details: `${rec.name} — ${ROLES[rec.role].ar}`
     });
+    // مزامنة المصادقة السحابية: حساب دخول + عضوية + صفة مدير حسب الدور
+    if (authApi.enabled) {
+      if (isNew && u.newPass) {
+        try { await authApi.createUser(email, u.newPass); }
+        catch (e) {
+          const c = String((e && e.code) || '');
+          if (!c.includes('email-already-in-use')) say('أُنشئ الحساب في المنصة لكن تعذّر إنشاء حساب المصادقة (' + c.replace('auth/', '') + ') — أعد المحاولة من تعديل المستخدم', 'no');
+        }
+      }
+      await authApi.upsertMember(email, { active: rec.isActive !== false, role: rec.role, branchId: rec.branchId || '' });
+      await authApi.syncAdmin(email, !!ROLES[rec.role]?.admin);
+    }
     say(isNew ? 'تم إنشاء الحساب — يدخل ببريده وكلمة سره' : 'تم تحديث الحساب'); setUEdit(null);
   };
 
@@ -4061,6 +4192,7 @@ function BranchForm({ b, say, onSave, onClose }) {
 }
 
 function UserForm({ u, org, onSave, onClose }) {
+  const [resetMsg, setResetMsg] = useState('');
   const [f, setF] = useState(u);
   const [bioMsg, setBioMsg] = useState('');
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
@@ -4102,6 +4234,19 @@ function UserForm({ u, org, onSave, onClose }) {
         <input className="inp" type="password" value={f.newPass || ''} placeholder={u.name ? 'بدون تغيير' : '٦ أحرف على الأقل'}
           onChange={e => set('newPass', e.target.value)} />
         {u.passHash && !f.newPass && <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 4 }}>للحساب كلمة سر محفوظة — لن تتغير ما لم تكتب واحدة جديدة.</div>}
+        {authApi.enabled && (
+          <div style={{ fontSize: 10.5, color: 'var(--sky)', marginTop: 6, lineHeight: 1.8 }}>
+            المصادقة السحابية مفعّلة: كلمة السر هنا تُنشئ حساب دخول المستخدم <b>الجديد</b>. لتغيير كلمة سر مستخدم قائم:
+            <button type="button" className="btn sm gh" style={{ marginInlineStart: 6 }}
+              onClick={async () => {
+                if (!f.email) { setResetMsg('اكتب البريد أولاً'); return; }
+                setResetMsg('...');
+                try { await authApi.resetPass(f.email); setResetMsg('أُرسل رابط التعيين إلى ' + f.email); }
+                catch { setResetMsg('تعذّر الإرسال — تأكد من صحة البريد ووجود حساب مصادقة له'); }
+              }}>إرسال رابط تعيين كلمة السر</button>
+            {resetMsg && <div style={{ marginTop: 4, color: resetMsg.startsWith('أُرسل') ? 'var(--mint)' : 'var(--amber)' }}>{resetMsg}</div>}
+          </div>
+        )}
       </Field>
       <Field label="رقم سري للدخول السريع (اختياري — 4 إلى 6 أرقام)">
         <input className="inp" inputMode="numeric" style={{ direction: 'ltr', textAlign: 'right', letterSpacing: 4 }} value={f.newPin || ''}

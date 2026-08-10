@@ -33,29 +33,49 @@ const docId = (k) => k.replace(/[^\w-]/g, '_');
 
 let fs = null;      // وحدات Firestore المحمّلة كسولاً
 let fsFailed = false;
+let _fbAppP = null;
+
+// تطبيق Firebase واحد مشترك بين المصادقة وقاعدة البيانات
+async function fbApp() {
+  if (!FB_READY) return null;
+  if (!_fbAppP) {
+    _fbAppP = (async () => {
+      const { initializeApp, getApps, getApp } = await import('firebase/app');
+      return getApps().length ? getApp() : initializeApp(FB);
+    })();
+  }
+  return _fbAppP;
+}
+
+async function fbAuthMod() {
+  const app = await fbApp();
+  if (!app) return null;
+  const A = await import('firebase/auth');
+  return { A, a: A.getAuth(app) };
+}
+
+// المستخدم الموثّق حاليًا (بعد استقرار حالة الجلسة) — لا دخول مجهولًا بعد الآن
+async function authedUser() {
+  const m = await fbAuthMod();
+  if (!m) return null;
+  await new Promise(res => { const un = m.A.onAuthStateChanged(m.a, () => { un(); res(); }); });
+  return m.a.currentUser || null;
+}
 
 async function firestore() {
   if (!FB_READY || fsFailed) return null;
   if (fs) return fs;
   try {
-    const [{ initializeApp }, sdk] = await Promise.all([
-      import('firebase/app'),
-      import('firebase/firestore')
-    ]);
-    const app = initializeApp(FB);
+    // لا وصول لقاعدة البيانات دون جلسة مصادقة حقيقية — تُنشأ من بوابة الدخول
+    const u = await authedUser();
+    if (!u) return null;
+    const app = await fbApp();
+    const sdk = await import('firebase/firestore');
     let db;
     try {
       db = sdk.initializeFirestore(app, { localCache: sdk.persistentLocalCache({}) });
     } catch {
-      db = sdk.getFirestore(app);   // متصفح لا يدعم التخزين الدائم
-    }
-    // دخول مجهول لتلبية قواعد الأمان (يتطلب تفعيل Anonymous Auth في Firebase)
-    try {
-      const auth = await import('firebase/auth');
-      const a = auth.getAuth(app);
-      if (!a.currentUser) await auth.signInAnonymously(a);
-    } catch (e) {
-      console.warn('تعذّر الدخول المجهول — تأكد من تفعيل Anonymous Auth إن كانت القواعد تشترط المصادقة.');
+      db = sdk.getFirestore(app);   // مهيأة مسبقاً أو متصفح لا يدعم التخزين الدائم
     }
     fs = { db, ...sdk };
     return fs;
@@ -65,6 +85,84 @@ async function firestore() {
     return null;
   }
 }
+
+/* ================= المصادقة الحقيقية (بريد + كلمة سر لكل مستخدم) ================= */
+export const authApi = {
+  get enabled() { return FB_READY; },
+
+  /** الجلسة الحالية إن وُجدت */
+  async ready() {
+    const u = await authedUser();
+    return u ? { email: (u.email || '').toLowerCase() } : null;
+  },
+
+  async signIn(email, pass) {
+    const m = await fbAuthMod(); if (!m) throw new Error('no-firebase');
+    try { await m.A.setPersistence(m.a, m.A.browserLocalPersistence); } catch { }
+    const cred = await m.A.signInWithEmailAndPassword(m.a, email.trim(), pass);
+    return { email: (cred.user.email || '').toLowerCase() };
+  },
+
+  /** الإعداد الأول بعد الترقية: ينشئ حساب المالك ويدخله */
+  async firstSetup(email, pass) {
+    const m = await fbAuthMod(); if (!m) throw new Error('no-firebase');
+    const cred = await m.A.createUserWithEmailAndPassword(m.a, email.trim(), pass);
+    return { email: (cred.user.email || '').toLowerCase() };
+  },
+
+  async signOutAll() { const m = await fbAuthMod(); if (m) await m.A.signOut(m.a); },
+
+  async resetPass(email) {
+    const m = await fbAuthMod(); if (!m) throw new Error('no-firebase');
+    await m.A.sendPasswordResetEmail(m.a, (email || '').trim());
+  },
+
+  /** إنشاء حساب مصادقة لموظف جديد دون إسقاط جلسة المدير (تطبيق ثانوي مؤقت) */
+  async createUser(email, pass) {
+    const { initializeApp, deleteApp } = await import('firebase/app');
+    const A = await import('firebase/auth');
+    const sec = initializeApp(FB, 'usr-' + Math.random().toString(36).slice(2));
+    try {
+      const sa = A.getAuth(sec);
+      await A.createUserWithEmailAndPassword(sa, (email || '').trim(), pass);
+      await A.signOut(sa);
+    } finally { try { await deleteApp(sec); } catch { } }
+  },
+
+  /** تمهيد ما بعد الدخول: قائمة المدراء تُنشأ مرة واحدة باسم أول داخل، وعضويته تُرسَّخ */
+  async bootstrap() {
+    const f = await firestore(); if (!f) return false;
+    const u = await authedUser(); if (!u) return false;
+    const email = (u.email || '').toLowerCase();
+    try {
+      const ref = f.doc(f.db, 'platform', 'admins');
+      const snap = await f.getDoc(ref);
+      if (!snap.exists()) await f.setDoc(ref, { emails: [email], at: Date.now() });
+    } catch { /* القائمة موجودة ولسنا مدراء — طبيعي */ }
+    try { await f.setDoc(f.doc(f.db, 'members', email), { email, active: true, at: Date.now() }, { merge: true }); } catch { /* الكتابة للمدراء فقط */ }
+    return true;
+  },
+
+  /** عضوية مستخدم (يديرها المدراء): تفعيل/تعطيل + دوره وفرعه */
+  async upsertMember(email, data) {
+    const f = await firestore(); if (!f) return false;
+    const key = (email || '').toLowerCase();
+    try {
+      await f.setDoc(f.doc(f.db, 'members', key), { email: key, ...(data || {}), at: Date.now() }, { merge: true });
+      return true;
+    } catch { return false; }
+  },
+
+  /** مزامنة صفة «مدير» (كتابة الإعدادات) مع دور المستخدم */
+  async syncAdmin(email, makeAdmin) {
+    const f = await firestore(); if (!f) return false;
+    const key = (email || '').toLowerCase();
+    try {
+      await f.updateDoc(f.doc(f.db, 'platform', 'admins'), { emails: makeAdmin ? f.arrayUnion(key) : f.arrayRemove(key) });
+      return true;
+    } catch { return false; }
+  }
+};
 
 async function fsRead(f, key) {
   const snap = await f.getDoc(f.doc(f.db, COL, docId(key)));
