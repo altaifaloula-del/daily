@@ -1609,7 +1609,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v9.4 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v9.5 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -4139,6 +4139,7 @@ function Approvals({ org, me, scoped, commit, say }) {
 function Treasury({ org, ops, me, myBranches, scoped, commit, say }) {
   const [tab, setTab] = useState('in');
   const [add, setAdd] = useState(false);
+  const [repOpen, setRepOpen] = useState(false);    // v9.5 قائمة تقارير التطبيق
   const canReceive = ROLES[me.role]?.scope !== 'own';
   const isCentral = ROLES[me.role]?.scope !== 'own';
 
@@ -4177,8 +4178,31 @@ function Treasury({ org, ops, me, myBranches, scoped, commit, say }) {
     return items.map(i => { run += i.kind === 'in' ? i.amount : -i.amount; return { ...i, run }; }).reverse();
   }, [ops]);
 
+  const printTreasury = () => {
+    const rws = ledger.map(i => `<tr><td class="n">${arDate(i.date)}</td><td>${i.label}</td><td>${i.ref || ''}</td><td class="n">${i.kind === 'in' ? money(i.amount) : '—'}</td><td class="n">${i.kind === 'out' ? money(i.amount) : '—'}</td><td class="n">${money(i.run)}</td></tr>`).join('');
+    printA4(org, 'كشف حركة الخزينة الرئيسية', arDate(today()) + ' · الرصيد الحالي ' + money(balance),
+      `<table><thead><tr><th>التاريخ</th><th>البيان</th><th>المرجع</th><th>وارد</th><th>منصرف</th><th>الرصيد</th></tr></thead><tbody>${rws}
+      <tr class="tot"><td colspan="3">الإجمالي</td><td class="n">${money(inflow)}</td><td class="n">${money(outflow)}</td><td class="n">${money(balance)}</td></tr></tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+  };
+
   return (
     <div className="grid" style={{ gap: 14 }}>
+      {/* شريط التطبيق — v9.5 */}
+      <div className="abar">
+        <div className="abar-id"><span className="abar-ic"><Landmark size={17} /></span>الخزينة والترحيل<small>التحويلات الواردة · حركة الخزينة</small></div>
+        <div className="abar-sp" />
+        {isCentral && <div className="abar-dd">
+          <button className="btn sm" onClick={() => setRepOpen(o => !o)}><FileBarChart size={14} />التقارير<ChevronDown size={13} /></button>
+          {repOpen && (<>
+            <div className="abar-back" onClick={() => setRepOpen(false)} />
+            <div className="abar-menu">
+              <div className="abar-hd">تقارير الخزينة</div>
+              <button onClick={() => { setRepOpen(false); printTreasury(); }}><Printer size={13} />كشف حركة الخزينة الرئيسية</button>
+            </div>
+          </>)}
+        </div>}
+      </div>
+
       <div className="grid g4">
         {isCentral && <Kpi label="رصيد الخزينة الرئيسية" value={money(balance)} sub="الوارد ناقص المنصرف" icon={Landmark} color="#C8A24A" />}
         <Kpi label="بانتظار الاستلام" value={money(sum(pending, t => t.amount))} sub={`${pending.length} سند`} icon={ArrowLeftRight} color="#E0A458" />
@@ -4360,6 +4384,7 @@ function DisbursementForm({ me, balance, commit, say, onClose }) {
 function Payroll({ org, ops, me, myBranches, scoped, commit, say }) {
   const [month, setMonth] = useState(today().slice(0, 7));
   const [add, setAdd] = useState(false);
+  const [repOpen, setRepOpen] = useState(false);    // v9.5 قائمة تقارير التطبيق
   const ids = myBranches.map(b => b.id);
   const emps = org.employees.filter(e => ids.includes(e.branchId));
   const canPay = ROLES[me.role]?.scope !== 'own';
@@ -4375,6 +4400,14 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, say }) {
   });
 
   const totalNet = sum(rows, r => r.net);
+
+  const printMuster = () => {
+    const monthName = new Date(month + '-01').toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' });
+    const rws = rows.map(r => `<tr><td>${r.e.name}</td><td>${(org.branches.find(b => b.id === r.e.branchId) || {}).name || ''}</td><td class="n">${money(r.gross)}</td><td class="n">${r.draws ? money(r.draws) : '—'}</td><td class="n">${r.cuts ? money(r.cuts) : '—'}</td><td class="n">${money(r.net)}</td></tr>`).join('');
+    printA4(org, 'مسير الرواتب — ' + monthName, arDate(today()) + ' · ' + rows.length + ' موظف',
+      `<table><thead><tr><th>الموظف</th><th>الفرع</th><th>الإجمالي</th><th>سلف/سحب</th><th>خصومات</th><th>الصافي</th></tr></thead><tbody>${rws}
+      <tr class="tot"><td colspan="5">إجمالي صافي المسير</td><td class="n">${money(totalNet)}</td></tr></tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+  };
 
   const printPayslip = (r) => {
     const co = org.company || {};
@@ -4485,6 +4518,22 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, say }) {
 
   return (
     <div className="grid" style={{ gap: 14 }}>
+      {/* شريط التطبيق — v9.5 */}
+      <div className="abar">
+        <div className="abar-id"><span className="abar-ic"><Wallet size={17} /></span>الرواتب والسلف<small>مسير الرواتب · السلف والخصومات</small></div>
+        <div className="abar-sp" />
+        <div className="abar-dd">
+          <button className="btn sm" onClick={() => setRepOpen(o => !o)}><FileBarChart size={14} />التقارير<ChevronDown size={13} /></button>
+          {repOpen && (<>
+            <div className="abar-back" onClick={() => setRepOpen(false)} />
+            <div className="abar-menu">
+              <div className="abar-hd">تقارير الرواتب</div>
+              <button onClick={() => { setRepOpen(false); printMuster(); }}><Printer size={13} />مسير الرواتب الشهري</button>
+            </div>
+          </>)}
+        </div>
+      </div>
+
       <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
         <div className="row">
           <input type="month" className="inp" style={{ width: 165 }} value={month} onChange={e => setMonth(e.target.value)} />
@@ -4644,6 +4693,7 @@ function AdvanceForm({ emps, org, me, commit, say, onClose }) {
 
 /* ================= التقارير المالية ================= */
 function Reports({ org, ops, me, myBranches, scoped, say, theme }) {
+  const [repOpen, setRepOpen] = useState(false);    // v9.5 قائمة تقارير التطبيق
   const tn = chartTone(theme);
   const [mode, setMode] = useState('ops');
   const d30 = new Date(); d30.setDate(d30.getDate() - 29);
@@ -4756,6 +4806,24 @@ function Reports({ org, ops, me, myBranches, scoped, say, theme }) {
 
   return (
     <div className="grid" style={{ gap: 14 }}>
+      {/* شريط التطبيق — v9.5 */}
+      <div className="abar">
+        <div className="abar-id"><span className="abar-ic"><FileBarChart size={17} /></span>التقارير المالية<small>تقرير الفروع · التصدير · قائمة الدخل</small></div>
+        <div className="abar-sp" />
+        <div className="abar-dd">
+          <button className="btn sm" onClick={() => setRepOpen(o => !o)}><FileBarChart size={14} />التقارير<ChevronDown size={13} /></button>
+          {repOpen && (<>
+            <div className="abar-back" onClick={() => setRepOpen(false)} />
+            <div className="abar-menu">
+              <div className="abar-hd">تقارير ومخرجات</div>
+              <button onClick={() => { setRepOpen(false); printOps(); }}><Printer size={13} />طباعة تقرير الفروع</button>
+              <button onClick={() => { setRepOpen(false); exportCsv(); }}><Download size={13} />تصدير CSV</button>
+              <button onClick={() => { setRepOpen(false); exportXlsx(); }}><Download size={13} />تصدير Excel</button>
+            </div>
+          </>)}
+        </div>
+      </div>
+
       <Tabs />
       <div className="card">
         <div className="row">
