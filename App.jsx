@@ -916,7 +916,7 @@ const DENOMS = [
 const emptyDenoms = () => DENOMS.reduce((o, d) => ({ ...o, [d.k]: 0 }), {});
 const countDenoms = (d) => DENOMS.reduce((s, x) => s + (Number(d?.[x.k]) || 0) * x.v, 0);
 
-const ALL_TABS = ['exec', 'alerts', 'dash', 'compare', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'archive', 'ai', 'reports', 'admin', 'audit'];
+const ALL_TABS = ['exec', 'alerts', 'dash', 'compare', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'admin', 'audit'];
 const TAB_AR = {
   dash: 'لوحة المؤشرات', compare: 'مقارنة الفروع', closing: 'الإغلاق اليومي', apps: 'التطبيقات',
   approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', payroll: 'الرواتب والسلف',
@@ -943,7 +943,7 @@ const ROLES = {
   },
   head_office: {
     ar: 'المكتب الرئيسي — المالية والإدارة', badge: 'b-brass', scope: 'all', approver: true,
-    tabs: ['exec', 'alerts', 'dash', 'compare', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'archive', 'ai', 'reports', 'audit'],
+    tabs: ['exec', 'alerts', 'dash', 'compare', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'audit'],
     perms: ['كل الفروع والتقارير المجمّعة', 'التدقيق والاعتماد النهائي', 'الخزينة والرواتب والموردون والمشتريات والمخزون', 'المحاسبة الكاملة: قيود وميزان وقوائم وضريبة وأصول ومراكز تكلفة']
   },
   system_admin: {
@@ -961,7 +961,7 @@ const ROLES = {
     // إعادة ترتيب v8.0: المحاسب الرئيسي بطبيعته يعمل على المنشأة كلها — نطاق كامل
     // بلا صلاحيات إدارة (لا مستخدمين/فروع، لا تفعيل ضريبة، لا إدارة تطبيقات)
     ar: 'الإدارة المالية — محاسب رئيسي', badge: 'b-sky', scope: 'all', legacy: true,
-    tabs: ['exec', 'alerts', 'dash', 'compare', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'archive', 'ai', 'reports', 'audit'],
+    tabs: ['exec', 'alerts', 'dash', 'compare', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'audit'],
     perms: ['المحاسبة كاملة: قيود يدوية وافتتاحية وميزان وقوائم ومراكز تكلفة', 'الضريبة والأصول والتسوية البنكية (عرض وتسجيل — التفعيل للإدارة)', 'المشتريات والمخزون والرواتب والخزينة', 'كل الفروع — دون إدارة المستخدمين والإعدادات']
   }
 };
@@ -1085,8 +1085,10 @@ const LAUNCH_APPS = [
     sections: ['احتساب الضريبة', 'الإقرار الضريبي'], kw: ['ضريبة', 'قيمة مضافة', 'زاتكا', 'مدخلات', 'مخرجات', 'إقرار'] },
   { id: 'inv', ar: 'المخزون والمنتجات', en: 'Inventory', cat: 'inv2', icon: HardDrive, open: { tab: 'inv' },
     sections: ['الأصناف', 'الحركات', 'الجرد', 'المنتجات والوصفات'], kw: ['مخزون', 'صنف', 'جرد', 'منتج', 'وصفة', 'مستودع', 'هدر'] },
-  { id: 'archive', ar: 'أرشيف المستندات', en: 'Documents', cat: 'gov', icon: ImageIcon, open: { tab: 'archive' },
-    kw: ['أرشيف', 'مستند', 'صورة', 'وثيقة', 'إيصال'] },
+  { id: 'docs', ar: 'مركز المستندات', en: 'Documents', cat: 'gov', icon: Stamp, open: { tab: 'docs' },
+    sections: ['السجل التجاري', 'الشهادات والرخص', 'العقود والتأمين', 'تنبيهات الانتهاء'], kw: ['وثيقة', 'مستند', 'سجل تجاري', 'رخصة', 'شهادة', 'ضريبة', 'زكاة', 'عقد', 'انتهاء', 'صلاحية', 'تجديد'] },
+  { id: 'archive', ar: 'أرشيف المستندات', en: 'Archive', cat: 'gov', icon: ImageIcon, open: { tab: 'archive' },
+    kw: ['أرشيف', 'صورة', 'إيصال', 'مرفق'] },
   { id: 'audit', ar: 'سجل التدقيق', en: 'Audit Log', cat: 'gov', icon: Eye, open: { tab: 'audit' },
     kw: ['سجل', 'تدقيق', 'نشاط', 'إجراء'] },
   { id: 'backup', ar: 'النسخ الاحتياطي', en: 'Backup', cat: 'gov', icon: Download, open: { tab: 'admin' },
@@ -1097,7 +1099,7 @@ const LAUNCH_APPS = [
 const LAUNCH_IX = {}; LAUNCH_APPS.forEach(a => { LAUNCH_IX[a.id] = a; });
 // ترتيب عرض مقصود (لا عشوائي) — تدفّق منطقي: التشغيل اليومي ← المالية ← المشتريات ←
 // المخزون ← الموارد البشرية ← الضريبة ← الحوكمة ← الذكاء (متجاورة لونيًا وموضوعيًا، بنمط أودو)
-const LAUNCH_ORDER = ['exec', 'alerts', 'closing', 'sales', 'approve', 'dash', 'compare', 'shifts', 'acct', 'treasury', 'reports', 'suppliers', 'partners', 'inv', 'payroll', 'vat', 'brmgmt', 'backup', 'audit', 'archive', 'ai'];
+const LAUNCH_ORDER = ['exec', 'alerts', 'closing', 'sales', 'approve', 'dash', 'compare', 'shifts', 'acct', 'treasury', 'reports', 'suppliers', 'partners', 'inv', 'payroll', 'vat', 'brmgmt', 'docs', 'backup', 'audit', 'archive', 'ai'];
 const launchRank = (id) => { const i = LAUNCH_ORDER.indexOf(id); return i < 0 ? 999 : i; };
 /* v8.5 — لقطات احتياطية يومية محلية (IndexedDB) على أجهزة الإدارة:
    حماية إضافية ضد التلف أو الحذف الخاطئ — والنسخة الملفية تبقى الحماية الخارجية */
@@ -1726,6 +1728,7 @@ export default function App() {
     { id: 'partners', ar: 'دفتر الشركاء', icon: Users },
     { id: 'acct', ar: 'المحاسبة', icon: Scale },
     { id: 'shifts', ar: 'الورديات والتذكيرات', icon: Clock },
+    { id: 'docs', ar: 'مركز المستندات', icon: Stamp },
     { id: 'archive', ar: 'أرشيف المستندات', icon: ImageIcon },
     { id: 'ai', ar: 'المركز المالي الذكي', icon: Sparkles },
     { id: 'reports', ar: 'التقارير المالية', icon: FileBarChart },
@@ -1823,7 +1826,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v11.6 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v11.7 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -1937,6 +1940,7 @@ export default function App() {
               {safeTab === 'partners' && <Partners {...shared} />}
               {safeTab === 'acct' && <Accounting {...shared} />}
               {safeTab === 'shifts' && <Shifts {...shared} />}
+              {safeTab === 'docs' && <DocsCenter {...shared} />}
               {safeTab === 'archive' && <Archive {...shared} />}
               {safeTab === 'ai' && <AiCenter {...shared} />}
               {safeTab === 'reports' && <Reports {...shared} />}
@@ -3356,6 +3360,13 @@ function AlertsCenter({ org, ops, me, myBranches, scoped, setTab, openAcctView, 
   if (assetsDone > 0) push('low', 'setup', assetsDone + ' أصل اكتمل إهلاكه', 'راجعها للاستبعاد أو إعادة التقييم.', { label: 'الأصول', go: () => goAcct('ast') });
   const hasActivity = (ops.closings || []).some(countedClosing) || (ops.invoices || []).length > 0;
   if (hasActivity && !(org.openingBalances && (org.openingBalances.lines || []).length)) push('low', 'setup', 'الأرصدة الافتتاحية غير مُدخلة', 'أدخِل أرصدة ما قبل المنصة لدقّة المركز المالي.', { label: 'الأرصدة', go: () => goAcct('ob') });
+  // v11.7 — انتهاء صلاحية الوثائق الرسمية
+  const docRemind = Number((org.docCfg && org.docCfg.remindDays) != null ? org.docCfg.remindDays : 45) || 45;
+  (org.documents || []).forEach(dc => {
+    if (!dc.expiryDate) return; const dl = dd(td, dc.expiryDate);
+    if (dl < 0) push('high', 'setup', 'وثيقة منتهية: ' + DOC_LABEL(dc.type), (dc.number ? dc.number + ' · ' : '') + 'انتهت في ' + dc.expiryDate + ' — جدّدها فورًا.', { label: 'الوثائق', go: () => setTab('docs') });
+    else if (dl <= docRemind) push('mid', 'setup', 'وثيقة تنتهي قريبًا: ' + DOC_LABEL(dc.type), (dc.number ? dc.number + ' · ' : '') + 'تنتهي في ' + dc.expiryDate + ' (' + dl + ' يومًا).', { label: 'الوثائق', go: () => setTab('docs') });
+  });
 
   const sevRank = { high: 0, mid: 1, low: 2 };
   AL.sort((a, b) => sevRank[a.sev] - sevRank[b.sev]);
@@ -11359,6 +11370,116 @@ const FILE_CATS = [
   { id: 'payroll', ar: 'مستند رواتب' }, { id: 'official_doc', ar: 'مستند رسمي' },
   { id: 'general', ar: 'عام' }
 ];
+
+// ===== v11.7: مركز المستندات الذكي — سجل الوثائق الرسمية وتتبّع صلاحياتها والتنبيه قبل الانتهاء =====
+const DOC_TYPES = [
+  { id: 'cr', ar: 'السجل التجاري' }, { id: 'vat', ar: 'شهادة ضريبة القيمة المضافة' }, { id: 'zakat', ar: 'شهادة الزكاة' },
+  { id: 'municipal', ar: 'رخصة البلدية' }, { id: 'civil', ar: 'رخصة الدفاع المدني' }, { id: 'lease', ar: 'عقد إيجار' },
+  { id: 'insurance', ar: 'شهادة تأمين' }, { id: 'saudization', ar: 'شهادة السعودة (نطاقات)' }, { id: 'chamber', ar: 'اشتراك الغرفة التجارية' },
+  { id: 'work_permit', ar: 'رخصة/تصريح عمل' }, { id: 'other', ar: 'أخرى' }
+];
+const DOC_LABEL = (t) => (DOC_TYPES.find(x => x.id === t) || {}).ar || 'وثيقة';
+function DocsCenter({ org, ops, me, myBranches, commitOrg, say }) {
+  const [f, setF] = useState(null);   // نموذج إضافة/تعديل
+  const [remD, setRemD] = useState(String((org.docCfg && org.docCfg.remindDays) != null ? org.docCfg.remindDays : 45));
+  const canW = ROLES[me.role]?.scope === 'all' || !!ROLES[me.role]?.admin;
+  const td = today();
+  const daysLeft = (d) => { const x = Date.parse(td), y = Date.parse(d); return (isNaN(x) || isNaN(y)) ? null : Math.round((y - x) / 86400000); };
+  const remindDays = Number(remD) || 45;
+  const docs = (org.documents || []).map(d => ({ ...d, dl: d.expiryDate ? daysLeft(d.expiryDate) : null }))
+    .sort((a, b) => (a.dl == null ? 1e9 : a.dl) - (b.dl == null ? 1e9 : b.dl));
+  const stOf = (d) => d.dl == null ? 'perm' : d.dl < 0 ? 'expired' : d.dl <= remindDays ? 'soon' : 'valid';
+  const nExpired = docs.filter(d => stOf(d) === 'expired').length;
+  const nSoon = docs.filter(d => stOf(d) === 'soon').length;
+  const stCls = { expired: 'b-rose', soon: 'b-amber', valid: 'b-mint', perm: 'b-dim' };
+  const stTx = (d) => { const s = stOf(d); return s === 'expired' ? 'منتهية منذ ' + Math.abs(d.dl) + ' يومًا' : s === 'soon' ? 'تنتهي خلال ' + d.dl + ' يومًا' : s === 'valid' ? 'سارية (' + d.dl + ' يومًا)' : 'دائمة'; };
+
+  const saveCfg = async () => { await commitOrg(d => ({ ...d, docCfg: { remindDays: Number(remD) || 45 } }), { actionType: 'update', targetType: 'year_end', targetId: 'doccfg', title: 'حدّث مهلة تنبيه الوثائق', details: (Number(remD) || 45) + ' يومًا' }); say('حُفظت مهلة التنبيه ✓'); };
+  const save = async () => {
+    if (!f.type) return say('اختر نوع الوثيقة', 'no');
+    const rec = { id: f.id || uid('doc'), type: f.type, number: (f.number || '').trim(), branchId: f.branchId || '', issueDate: f.issueDate || '', expiryDate: f.expiryDate || '', notes: (f.notes || '').trim() };
+    await commitOrg(d => ({ ...d, documents: f.id ? (d.documents || []).map(x => x.id === f.id ? rec : x) : [...(d.documents || []), rec] }), {
+      actionType: f.id ? 'update' : 'create', targetType: 'official_doc', targetId: rec.id, title: f.id ? 'عدّل وثيقة' : 'أضاف وثيقة', details: DOC_LABEL(rec.type) + (rec.number ? ' · ' + rec.number : '')
+    });
+    setF(null); say('حُفظت الوثيقة ✓');
+  };
+  const del = async (id) => {
+    await commitOrg(d => ({ ...d, documents: (d.documents || []).filter(x => x.id !== id) }), { actionType: 'delete', targetType: 'official_doc', targetId: id, title: 'حذف وثيقة', details: id });
+    say('حُذفت الوثيقة');
+  };
+
+  return (
+    <div className="grid" style={{ gap: 14 }}>
+      <div className="abar">
+        <div className="abar-id"><span className="abar-ic"><Stamp size={17} /></span>مركز المستندات<small>الوثائق الرسمية وتتبّع الصلاحيات والتنبيه قبل الانتهاء</small></div>
+      </div>
+
+      <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' }}>
+        {canW && <div className="row" style={{ gap: 8, alignItems: 'flex-end' }}>
+          <Field label="التنبيه قبل الانتهاء بـ (يوم)" style={{ width: 160 }}><input className="inp n" inputMode="numeric" value={remD} onChange={e => setRemD(e.target.value.replace(/[^\d]/g, ''))} /></Field>
+          <button className="btn sm" onClick={saveCfg}><Check size={13} />حفظ المهلة</button>
+        </div>}
+        {canW && <button className="btn pri" onClick={() => setF({ type: '', number: '', branchId: '', issueDate: '', expiryDate: '', notes: '' })}><Plus size={15} />وثيقة جديدة</button>}
+      </div>
+
+      <div className="grid g3">
+        <Kpi label="إجمالي الوثائق" value={String(docs.length)} sub="في السجل" icon={Stamp} color="#C8A24A" />
+        <Kpi label="منتهية" value={String(nExpired)} sub="تتطلب تجديدًا فوريًا" icon={AlertTriangle} color={nExpired ? '#D9544D' : '#4FB286'} />
+        <Kpi label={'تنتهي خلال ' + remindDays + ' يومًا'} value={String(nSoon)} sub="جهّز التجديد" icon={CalendarDays} color={nSoon ? '#E0A458' : '#4FB286'} />
+      </div>
+
+      <div className="card">
+        <div className="tw">
+          <table className="tb">
+            <thead><tr><th>الوثيقة</th><th>الرقم</th><th>الفرع</th><th>الإصدار</th><th>الانتهاء</th><th>الحالة</th><th /></tr></thead>
+            <tbody>
+              {docs.map(d => (
+                <tr key={d.id} style={stOf(d) === 'expired' ? { background: 'rgba(217,84,77,.05)' } : null}>
+                  <td style={{ fontWeight: 600, fontSize: 12.5 }}>{DOC_LABEL(d.type)}{d.notes ? <div style={{ fontSize: 9.5, color: 'var(--faint)' }}>{d.notes}</div> : null}</td>
+                  <td className="num" style={{ fontSize: 11.5 }}>{d.number || '—'}</td>
+                  <td style={{ fontSize: 11, color: 'var(--dim)' }}>{(org.branches || []).find(b => b.id === d.branchId)?.name || 'المنشأة'}</td>
+                  <td className="num" style={{ fontSize: 11 }}>{d.issueDate || '—'}</td>
+                  <td className="num" style={{ fontSize: 11, fontWeight: 700, color: stOf(d) === 'expired' ? 'var(--rose)' : stOf(d) === 'soon' ? 'var(--amber)' : 'inherit' }}>{d.expiryDate || 'دائمة'}</td>
+                  <td><span className={'badge ' + stCls[stOf(d)]} style={{ fontSize: 9.5 }}>{stTx(d)}</span></td>
+                  <td>{canW && <div className="row" style={{ gap: 5, justifyContent: 'flex-end' }}>
+                    <button className="btn sm gh" onClick={() => setF({ ...d })}>تعديل</button>
+                    <button className="btn sm gh" onClick={() => del(d.id)} title="حذف"><Trash2 size={13} /></button>
+                  </div>}</td>
+                </tr>
+              ))}
+              {docs.length === 0 && <tr><td colSpan={7}><div className="empty">لا وثائق مسجّلة بعد. أضِف سجلك التجاري وشهاداتك ورخصك لتتبّع صلاحياتها والتنبيه قبل انتهائها.</div></td></tr>}
+            </tbody>
+          </table>
+        </div>
+        <div className="note" style={{ marginTop: 10 }}>سجّل وثائقك الرسمية بتاريخ انتهائها، فتظهر حالتها (سارية/تنتهي قريبًا/منتهية) وتصلك تنبيهات في «مركز التنبيهات» و«اللوحة التنفيذية» قبل الانتهاء بالمهلة المحددة. الوثائق الدائمة اتركها بلا تاريخ انتهاء.</div>
+      </div>
+
+      {f && (
+        <Modal title={f.id ? 'تعديل وثيقة' : 'وثيقة جديدة'} icon={Stamp} onClose={() => setF(null)}
+          foot={<><button className="btn gh" onClick={() => setF(null)}>إلغاء</button><button className="btn pri" onClick={save}><Check size={14} />حفظ</button></>}>
+          <Field label="نوع الوثيقة">
+            <select className="sel" value={f.type} onChange={e => setF(s => ({ ...s, type: e.target.value }))}>
+              <option value="">— اختر —</option>
+              {DOC_TYPES.map(t => <option key={t.id} value={t.id}>{t.ar}</option>)}
+            </select>
+          </Field>
+          <div className="grid g2">
+            <Field label="رقم الوثيقة"><input className="inp" value={f.number} onChange={e => setF(s => ({ ...s, number: e.target.value }))} /></Field>
+            <Field label="الفرع (اختياري)">
+              <select className="sel" value={f.branchId} onChange={e => setF(s => ({ ...s, branchId: e.target.value }))}>
+                <option value="">المنشأة (عام)</option>
+                {(org.branches || []).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            </Field>
+            <Field label="تاريخ الإصدار"><input type="date" className="inp" value={f.issueDate} onChange={e => setF(s => ({ ...s, issueDate: e.target.value }))} /></Field>
+            <Field label="تاريخ الانتهاء (اتركه فارغًا للدائمة)"><input type="date" className="inp" value={f.expiryDate} onChange={e => setF(s => ({ ...s, expiryDate: e.target.value }))} /></Field>
+          </div>
+          <Field label="ملاحظة (اختياري)"><input className="inp" value={f.notes} onChange={e => setF(s => ({ ...s, notes: e.target.value }))} /></Field>
+        </Modal>
+      )}
+    </div>
+  );
+}
 
 function Archive({ org, me, myBranches, say }) {
   const [items, setItems] = useState(null);
