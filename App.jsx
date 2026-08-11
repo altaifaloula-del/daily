@@ -1095,8 +1095,9 @@ const DENOMS = [
 const emptyDenoms = () => DENOMS.reduce((o, d) => ({ ...o, [d.k]: 0 }), {});
 const countDenoms = (d) => DENOMS.reduce((s, x) => s + (Number(d?.[x.k]) || 0) * x.v, 0);
 
-const ALL_TABS = ['exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit'];
+const ALL_TABS = ['analytics', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit'];
 const TAB_AR = {
+  analytics: 'مركز التحليل والأداء', exec: 'اللوحة التنفيذية',
   dash: 'لوحة المؤشرات', compare: 'مقارنة الفروع', growth: 'تحليلات النمو', breakeven: 'تحليل التعادل', scorecard: 'لوحة الأهداف', scenario: 'ماذا-لو', boardpack: 'تقرير الإدارة', cashflow: 'التدفق النقدي', closing: 'الإغلاق اليومي', apps: 'التطبيقات',
   approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', payroll: 'الرواتب والسلف', workforce: 'الجدولة والحضور',
   suppliers: 'الموردون والمشتريات', inv: 'المخزون والمنتجات', reorder: 'المشتريات الذكية', partners: 'دفتر الشركاء',
@@ -1117,12 +1118,12 @@ const ROLES = {
   },
   regional_manager: {
     ar: 'مدير إقليمي — فروع مُسندة', badge: 'b-amber', scope: 'assigned',
-    tabs: ['dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'reports', 'archive'],
+    tabs: ['analytics', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'reports', 'archive'],
     perms: ['متابعة الفروع المسندة إليه فقط', 'مقارنة وتقارير فروعه ولوحة مؤشراتها ونموّها', 'بلا وصول للمحاسبة والخزينة والإعدادات']
   },
   head_office: {
     ar: 'المكتب الرئيسي — المالية والإدارة', badge: 'b-brass', scope: 'all', approver: true,
-    tabs: ['exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
+    tabs: ['analytics', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['كل الفروع والتقارير المجمّعة', 'التدقيق والاعتماد النهائي', 'الخزينة والرواتب والموردون والمشتريات والمخزون', 'المحاسبة الكاملة: قيود وميزان وقوائم وضريبة وأصول ومراكز تكلفة']
   },
   system_admin: {
@@ -1140,7 +1141,7 @@ const ROLES = {
     // إعادة ترتيب v8.0: المحاسب الرئيسي بطبيعته يعمل على المنشأة كلها — نطاق كامل
     // بلا صلاحيات إدارة (لا مستخدمين/فروع، لا تفعيل ضريبة، لا إدارة تطبيقات)
     ar: 'الإدارة المالية — محاسب رئيسي', badge: 'b-sky', scope: 'all', legacy: true,
-    tabs: ['exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
+    tabs: ['analytics', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['المحاسبة كاملة: قيود يدوية وافتتاحية وميزان وقوائم ومراكز تكلفة', 'الضريبة والأصول والتسوية البنكية (عرض وتسجيل — التفعيل للإدارة)', 'المشتريات والمخزون والرواتب والخزينة', 'كل الفروع — دون إدارة المستخدمين والإعدادات']
   }
 };
@@ -1230,18 +1231,10 @@ const REG_IX = {}; REG_APPS.forEach(a => { REG_IX[a.id] = a; });
 // v9.3 — تطبيقات الشاشة الرئيسية مُجمّعة (كل تطبيق يضمّ أقسامه المتشابهة، بنمط أودو)
 // المحاسبة تطبيق واحد بثمانية أقسام، الموردون بثلاثة، المخزون بأربعة… (تطابق النموذج المعتمد)
 const LAUNCH_APPS = [
-  { id: 'exec', ar: 'اللوحة التنفيذية', en: 'Executive', cat: 'bi', icon: Compass, open: { tab: 'exec' },
-    sections: ['مؤشرات اليوم', 'الربح مقابل الموازنة', 'أعلى المتأخرين', 'أهم النِسَب', 'تنبيهات'], kw: ['لوحة', 'تنفيذية', 'ملخص', 'مؤشرات', 'نقد', 'ربح', 'تنبيهات', 'مدير', 'إدارة'] },
+  { id: 'analytics', ar: 'مركز التحليل والأداء', en: 'Analytics & Performance', cat: 'bi', icon: Compass, open: { tab: 'analytics' },
+    sections: ['اللوحة التنفيذية', 'لوحة المؤشرات', 'مقارنة الفروع', 'تحليلات النمو', 'تحليل التعادل', 'لوحة الأهداف', 'ماذا-لو', 'المركز الذكي'], kw: ['تحليل', 'أداء', 'لوحة', 'تنفيذية', 'مؤشرات', 'مقارنة', 'فروع', 'نمو', 'تعادل', 'أهداف', 'سيناريو', 'ماذا لو', 'ذكاء', 'توقع', 'kpi'] },
   { id: 'alerts', ar: 'مركز التنبيهات', en: 'Alerts', cat: 'bi', icon: Bell, open: { tab: 'alerts' },
     sections: ['موردون', 'موازنة', 'نقد وسيولة', 'مخزون', 'ضريبة', 'تشغيل', 'إعداد'], kw: ['تنبيه', 'تنبيهات', 'إنذار', 'متأخر', 'تجاوز', 'عجز', 'متابعة', 'إجراء'] },
-  { id: 'growth', ar: 'تحليلات النمو', en: 'Growth', cat: 'bi', icon: TrendingUp, open: { tab: 'growth' },
-    sections: ['نمو السنة', 'نمو الشهر', 'اتجاه المبيعات', 'مقارنة سنة بسنة', 'نمو الفروع'], kw: ['نمو', 'مقارنة', 'سنوي', 'سنة', 'اتجاه', 'تحليل', 'مبيعات', 'أداء', 'تطور'] },
-  { id: 'breakeven', ar: 'تحليل التعادل', en: 'Break-even', cat: 'bi', icon: Scale, open: { tab: 'breakeven' },
-    sections: ['نقطة التعادل', 'هامش الأمان', 'تكلفة الطعام', 'تكلفة العمالة', 'تصنيف التكاليف'], kw: ['تعادل', 'تكلفة', 'طعام', 'عمالة', 'ثابت', 'متغير', 'هامش', 'ربحية', 'أولية', 'prime'] },
-  { id: 'scorecard', ar: 'لوحة الأهداف', en: 'Scorecard', cat: 'bi', icon: CheckCircle2, open: { tab: 'scorecard' },
-    sections: ['المؤشرات مقابل الأهداف', 'إشارات لونية', 'اختيار المؤشرات'], kw: ['هدف', 'أهداف', 'مؤشر', 'مؤشرات', 'إنجاز', 'تحقق', 'scorecard', 'kpi', 'مستهدف'] },
-  { id: 'scenario', ar: 'ماذا-لو (سيناريوهات)', en: 'What-if', cat: 'bi', icon: Compass, open: { tab: 'scenario' },
-    sections: ['روافع القرار', 'الحالي مقابل السيناريو', 'أثر الربح والتعادل'], kw: ['سيناريو', 'ماذا لو', 'محاكاة', 'تخطيط', 'قرار', 'أسعار', 'فرع جديد', 'توظيف', 'what-if'] },
   { id: 'boardpack', ar: 'تقرير الإدارة الشهري', en: 'Board Pack', cat: 'bi', icon: FileText, open: { tab: 'boardpack' },
     sections: ['الملخص التنفيذي', 'قائمة الدخل', 'المركز المالي', 'الذمم', 'أداء الفروع'], kw: ['تقرير', 'إدارة', 'شهري', 'حزمة', 'مالك', 'ملخص', 'قوائم', 'board', 'شامل'] },
   { id: 'cashflow', ar: 'التدفق النقدي (13 أسبوعًا)', en: 'Cash Flow', cat: 'bi', icon: Banknote, open: { tab: 'cashflow' },
@@ -1263,10 +1256,6 @@ const LAUNCH_APPS = [
     sections: ['حسب القناة', 'حسب الفرع', 'حسب التطبيق'], kw: ['مبيعات', 'نقاط البيع', 'نقطة بيع', 'قناة', 'نقد', 'شبكة', 'توصيل', 'تحليل'] },
   { id: 'approve', ar: 'التدقيق والاعتماد', en: 'Approvals', cat: 'pos', icon: ShieldCheck, open: { tab: 'approve' },
     kw: ['تدقيق', 'اعتماد', 'مراجعة'] },
-  { id: 'dash', ar: 'لوحة المؤشرات', en: 'Dashboard', cat: 'pos', icon: LayoutDashboard, open: { tab: 'dash' },
-    kw: ['مؤشر', 'لوحة', 'ملخص', 'إيراد'] },
-  { id: 'compare', ar: 'مقارنة الفروع', en: 'Branch Compare', cat: 'pos', icon: BarChart3, open: { tab: 'compare' },
-    kw: ['مقارنة', 'فروع', 'رقابة'] },
   { id: 'shifts', ar: 'الورديات والتذكيرات', en: 'Shifts', cat: 'pos', icon: Clock, open: { tab: 'shifts' },
     kw: ['وردية', 'تذكير', 'مناوبة'] },
   { id: 'brmgmt', ar: 'الفروع والمستخدمون', en: 'Branches & Users', cat: 'pos', icon: UserCog, open: { tab: 'admin' },
@@ -1293,13 +1282,11 @@ const LAUNCH_APPS = [
     kw: ['سجل', 'تدقيق', 'نشاط', 'إجراء'] },
   { id: 'backup', ar: 'النسخ الاحتياطي', en: 'Backup', cat: 'gov', icon: Download, open: { tab: 'admin' },
     kw: ['نسخة', 'احتياطي', 'استعادة', 'لقطة', 'حماية'] },
-  { id: 'ai', ar: 'المركز المالي الذكي', en: 'Financial Intelligence', cat: 'bi', icon: Sparkles, open: { tab: 'ai' },
-    kw: ['ذكاء', 'تحليل', 'توقع', 'مركز'] }
 ];
 const LAUNCH_IX = {}; LAUNCH_APPS.forEach(a => { LAUNCH_IX[a.id] = a; });
 // ترتيب عرض مقصود (لا عشوائي) — تدفّق منطقي: التشغيل اليومي ← المالية ← المشتريات ←
 // المخزون ← الموارد البشرية ← الضريبة ← الحوكمة ← الذكاء (متجاورة لونيًا وموضوعيًا، بنمط أودو)
-const LAUNCH_ORDER = ['exec', 'boardpack', 'alerts', 'growth', 'breakeven', 'cashflow', 'scorecard', 'scenario', 'closing', 'sales', 'approve', 'dash', 'compare', 'shifts', 'acct', 'treasury', 'reports', 'rbuild', 'suppliers', 'reorder', 'partners', 'inv', 'payroll', 'workforce', 'vat', 'brmgmt', 'entities', 'docs', 'backup', 'audit', 'archive', 'ai'];
+const LAUNCH_ORDER = ['analytics', 'boardpack', 'alerts', 'cashflow', 'closing', 'sales', 'approve', 'shifts', 'acct', 'treasury', 'reports', 'rbuild', 'suppliers', 'reorder', 'partners', 'inv', 'payroll', 'workforce', 'vat', 'brmgmt', 'entities', 'docs', 'backup', 'audit', 'archive'];
 const launchRank = (id) => { const i = LAUNCH_ORDER.indexOf(id); return i < 0 ? 999 : i; };
 /* v8.5 — لقطات احتياطية يومية محلية (IndexedDB) على أجهزة الإدارة:
    حماية إضافية ضد التلف أو الحذف الخاطئ — والنسخة الملفية تبقى الحماية الخارجية */
@@ -1913,14 +1900,8 @@ export default function App() {
   })();
   const NAV = [
     { id: 'home', ar: 'الرئيسية', icon: Home },
-    { id: 'exec', ar: 'اللوحة التنفيذية', icon: Compass },
+    { id: 'analytics', ar: 'مركز التحليل والأداء', icon: Compass },
     { id: 'alerts', ar: 'مركز التنبيهات', icon: Bell },
-    { id: 'dash', ar: 'لوحة المؤشرات', icon: LayoutDashboard },
-    { id: 'compare', ar: 'مقارنة الفروع', icon: BarChart3 },
-    { id: 'growth', ar: 'تحليلات النمو', icon: TrendingUp },
-    { id: 'breakeven', ar: 'تحليل التعادل', icon: Scale },
-    { id: 'scorecard', ar: 'لوحة الأهداف', icon: CheckCircle2 },
-    { id: 'scenario', ar: 'ماذا-لو (سيناريوهات)', icon: Compass },
     { id: 'boardpack', ar: 'تقرير الإدارة الشهري', icon: FileText },
     { id: 'cashflow', ar: 'التدفق النقدي (13 أسبوعًا)', icon: Banknote },
     { id: 'sales', ar: 'المبيعات', icon: CircleDollarSign },
@@ -1938,7 +1919,6 @@ export default function App() {
     { id: 'shifts', ar: 'الورديات والتذكيرات', icon: Clock },
     { id: 'docs', ar: 'مركز المستندات', icon: Stamp },
     { id: 'archive', ar: 'أرشيف المستندات', icon: ImageIcon },
-    { id: 'ai', ar: 'المركز المالي الذكي', icon: Sparkles },
     { id: 'reports', ar: 'التقارير المالية', icon: FileBarChart },
     { id: 'rbuild', ar: 'منشئ التقارير', icon: Wand2 },
     { id: 'entities', ar: 'مركز المنشآت', icon: Building2 },
@@ -1949,7 +1929,7 @@ export default function App() {
   const shared = { org, ops, pulse, me, myBranches, scoped, commit, commitOrg, say, setTab, theme, acctIntent, openAcctView, invIntent, openInvView };
 
   // حماية: منع الوصول لتبويب غير مسموح لدور المستخدم (بلا hook — بعد returns الشرطية)
-  const allowedTabs = NAV.map(n => n.id);
+  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai'] : [])];
   const safeTab = allowedTabs.includes(tab) ? tab : (allowedTabs[0] || 'closing');
 
   return (
@@ -2035,8 +2015,8 @@ export default function App() {
                 <Home size={17} />
               </button>
             )}
-            <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v13.3 🚀</span>
+            <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v13.4 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2135,14 +2115,8 @@ export default function App() {
           <div className="page">
             <div className="page-inner">
               {safeTab === 'home' && <Launcher {...shared} online={online} />}
-              {safeTab === 'exec' && <ExecDashboard {...shared} />}
+              {['analytics', 'exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai'].includes(safeTab) && <Analytics {...shared} online={online} view={safeTab} />}
               {safeTab === 'alerts' && <AlertsCenter {...shared} />}
-              {safeTab === 'dash' && <Dashboard {...shared} online={online} />}
-              {safeTab === 'compare' && <BranchCompare {...shared} />}
-              {safeTab === 'growth' && <GrowthAnalytics {...shared} />}
-              {safeTab === 'breakeven' && <BreakEven {...shared} />}
-              {safeTab === 'scorecard' && <Scorecard {...shared} />}
-              {safeTab === 'scenario' && <Scenario {...shared} />}
               {safeTab === 'boardpack' && <BoardPack {...shared} />}
               {safeTab === 'cashflow' && <CashFlow13 {...shared} />}
               {safeTab === 'sales' && <Sales {...shared} />}
@@ -2160,7 +2134,6 @@ export default function App() {
               {safeTab === 'shifts' && <Shifts {...shared} />}
               {safeTab === 'docs' && <DocsCenter {...shared} />}
               {safeTab === 'archive' && <Archive {...shared} />}
-              {safeTab === 'ai' && <AiCenter {...shared} />}
               {safeTab === 'reports' && <Reports {...shared} />}
               {safeTab === 'rbuild' && <ReportBuilder {...shared} />}
               {safeTab === 'entities' && <EntitiesCenter {...shared} />}
@@ -4757,6 +4730,49 @@ function ReportBuilder({ org, ops, me, myBranches, scoped, commitOrg, say, theme
       </div>
 
       <div className="note">💡 كل الأرقام مشتقّة من بياناتك المعتمدة مباشرةً. «أرصدة الحسابات» تتأثر بالفترة والفرع كميزان مراجعة مصغّر؛ احفظ إعداداتك كقالب لتكرّر التقرير بضغطة.</div>
+    </div>
+  );
+}
+
+/* ============================================================
+   v13.4 — مركز التحليل والأداء (دمج ثمانية تطبيقات تحليل في مركز واحد بأقسام)
+   يحترم صلاحيات الدور فيعرض الأقسام المسموح بها فقط. «القسم الحالي» يساوي التبويب العام،
+   فتظل كل الروابط القديمة (setTab) تعمل وتفتح داخل المركز — بلا فقدان أي ميزة، ومتوافق رجعيًا.
+   ============================================================ */
+const ANALYTICS_VIEWS = [
+  { id: 'exec', ar: 'اللوحة التنفيذية', icon: Compass },
+  { id: 'dash', ar: 'لوحة المؤشرات', icon: LayoutDashboard },
+  { id: 'compare', ar: 'مقارنة الفروع', icon: BarChart3 },
+  { id: 'growth', ar: 'تحليلات النمو', icon: TrendingUp },
+  { id: 'breakeven', ar: 'تحليل التعادل', icon: Scale },
+  { id: 'scorecard', ar: 'لوحة الأهداف', icon: CheckCircle2 },
+  { id: 'scenario', ar: 'ماذا-لو', icon: Compass },
+  { id: 'ai', ar: 'المركز الذكي', icon: Sparkles }
+];
+function Analytics(props) {
+  const { me, setTab } = props;
+  const rt = ROLES[me.role]?.tabs || [];
+  const full = ROLES[me.role]?.scope === 'all';
+  const views = ANALYTICS_VIEWS.filter(v => full || rt.includes(v.id));
+  const cur = (views.find(v => v.id === props.view) || views[0] || { id: 'exec' }).id;
+  return (
+    <div className="grid" style={{ gap: 12 }}>
+      <div className="tw"><div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+        {views.map(v => (
+          <button key={v.id} className={'btn sm' + (cur === v.id ? ' pri' : ' gh')} onClick={() => setTab(v.id)}>
+            <v.icon size={14} />{v.ar}
+          </button>
+        ))}
+      </div></div>
+      {cur === 'exec' && <ExecDashboard {...props} />}
+      {cur === 'dash' && <Dashboard {...props} />}
+      {cur === 'compare' && <BranchCompare {...props} />}
+      {cur === 'growth' && <GrowthAnalytics {...props} />}
+      {cur === 'breakeven' && <BreakEven {...props} />}
+      {cur === 'scorecard' && <Scorecard {...props} />}
+      {cur === 'scenario' && <Scenario {...props} />}
+      {cur === 'ai' && <AiCenter {...props} />}
+      {!views.length && <div className="card"><div className="empty">لا توجد أقسام تحليل متاحة لصلاحيتك.</div></div>}
     </div>
   );
 }
