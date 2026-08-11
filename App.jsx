@@ -483,11 +483,13 @@ function buildAccounting(org, ops) {
   addAcc('3101', 'رأس المال والأرصدة الافتتاحية', 'equity', { link: 'الأرصدة الافتتاحية — من شاشة المحاسبة' });
   // — الإيرادات —
   addAcc('4101', 'المبيعات (إجمالية)', 'rev', { link: 'إغلاقات الورديات المعتمدة' });
+  addAcc('4201', 'أرباح بيع/استبعاد الأصول', 'rev', { link: 'سجل الأصول — عند البيع بأعلى من القيمة الدفترية' });
   // — المصروفات —
   addAcc('5201', 'الرواتب والأجور (كشف الرواتب)', 'exp', { link: 'ترحيل الاستحقاق الشهري' });
   addAcc('5301', 'عمولات تطبيقات التوصيل', 'exp', { link: 'نِسَب العمولة من إعدادات التطبيقات' });
   addAcc('5302', 'خصومات وغرامات تطبيقات التوصيل', 'exp', { link: 'تسوية كشوف التطبيقات — فروق الإيداع' });
   addAcc('5701', 'مصروف الإهلاك', 'exp', { link: 'سجل الأصول — تلقائي' });
+  addAcc('5801', 'خسائر بيع/استبعاد الأصول', 'exp', { link: 'سجل الأصول — عند البيع بأقل من القيمة الدفترية' });
   addAcc('5901', 'مصروفات الخزينة الرئيسية (أوامر الصرف)', 'exp', { link: 'شاشة الخزينة' });
   const catAcc = {};
   (org.expenseCats || []).forEach((c, i) => {
@@ -682,11 +684,13 @@ function buildAccounting(org, ops) {
   const assetRows = (org.assets || []).map(a => {
     const cost = Number(a.cost) || 0;
     const nM = Math.max(1, Math.round((Number(a.lifeYears) || 0) * 12));
-    if (cost > 0 && a.fund && a.fund !== 'none' && accIx[a.fund]) push({
+    const funded = cost > 0 && a.fund && a.fund !== 'none' && accIx[a.fund];
+    if (funded) push({
       id: 'ast:' + a.id, date: (a.buyDate || '').slice(0, 10), title: 'شراء أصل ثابت — ' + (a.name || '') + ' (' + (FUND_AR[a.fund] || '') + ')',
       src: 'الأصول الثابتة', ref: a.id,
       lines: [L('1701', cost, 0), L(a.fund, 0, cost)]
     });
+    const dispYm = a.disposedDate ? a.disposedDate.slice(0, 7) : '';   // يتوقف الإهلاك عند شهر الاستبعاد
     let accum = 0, monthsDone = 0;
     if (cost > 0 && (Number(a.lifeYears) || 0) > 0 && a.buyDate) {
       const base = Math.floor(cost / nM * 100) / 100;
@@ -694,12 +698,34 @@ function buildAccounting(org, ops) {
       for (let k = 0; k < nM; k++) {
         const ym = ymAdd(start, k);
         if (ym > nowYm) break;
+        if (dispYm && ym >= dispYm) break;                 // لا إهلاك في شهر الاستبعاد وما بعده
         const amt = k === nM - 1 ? Math.round((cost - base * (nM - 1)) * 100) / 100 : base;
         depByMonth[ym] = Math.round(((depByMonth[ym] || 0) + amt) * 100) / 100;
         accum = Math.round((accum + amt) * 100) / 100; monthsDone++;
       }
     }
-    return { ...a, cost, nM, monthly: Math.floor(cost / nM * 100) / 100, accum, book: Math.round((cost - accum) * 100) / 100, monthsDone, done: monthsDone >= nM };
+    const book = Math.round((cost - accum) * 100) / 100;
+    // بيع/استبعاد الأصل: إخراجه بالتكلفة + إقفال مجمّع إهلاكه، والفرق مع سعر البيع ربح (4201) أو خسارة (5801)
+    // القيد متوازن دائمًا: مدين (المقبوض + المجمّع + خسارة) = دائن (التكلفة + ربح)
+    let disposed = false, gain = 0, salePrice = 0;
+    if (a.disposedDate && funded) {
+      disposed = true;
+      salePrice = Number(a.salePrice) || 0;
+      gain = Math.round((salePrice - book) * 100) / 100;
+      const saleFund = a.saleFund && accIx[a.saleFund] ? a.saleFund : '1201';
+      const lines = [];
+      if (salePrice > 0) lines.push(L(saleFund, salePrice, 0));   // المقبوض من البيع (بنك/خزينة)
+      if (accum > 0) lines.push(L('1791', accum, 0));            // إقفال مجمّع الإهلاك
+      lines.push(L('1701', 0, cost));                           // إخراج الأصل بتكلفته
+      if (gain > 0.005) lines.push(L('4201', 0, gain));          // ربح بيع
+      else if (gain < -0.005) lines.push(L('5801', -gain, 0));   // خسارة بيع/استبعاد
+      push({
+        id: 'disp:' + a.id, date: a.disposedDate.slice(0, 10),
+        title: 'بيع/استبعاد أصل — ' + (a.name || '') + (gain > 0.005 ? ' (ربح ' + money(gain) + ')' : gain < -0.005 ? ' (خسارة ' + money(-gain) + ')' : ' (بلا ربح/خسارة)'),
+        src: 'الأصول الثابتة', ref: a.id, lines
+      });
+    }
+    return { ...a, cost, nM, monthly: Math.floor(cost / nM * 100) / 100, accum, book, monthsDone, done: monthsDone >= nM, disposed, gain, salePrice };
   });
   Object.keys(depByMonth).sort().forEach(ym => {
     if (depByMonth[ym] <= 0) return;
@@ -1665,7 +1691,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v10.1 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v10.2 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -7131,6 +7157,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const [bf, setBf] = useState('');                 // فلتر الفرع: '' الكل · central مركزي · bId
   const [jm, setJm] = useState(null);               // نموذج القيد اليدوي
   const [astF, setAstF] = useState(null);           // نموذج أصل ثابت
+  const [dspF, setDspF] = useState(null);           // نموذج بيع/استبعاد أصل
   const [brF, setBrF] = useState({ date: today(), stmt: '', note: '' }); // نموذج تسوية بنكية
   const [mPct, setMPct] = useState(null);           // مسودة النسب اليدوية لتوزيع المركز (v8.3)
   const [lockTo, setLockTo] = useState('');         // شهر القفل الجديد (v8.4)
@@ -7230,6 +7257,50 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
       details: rec.name + ' · ' + money(cost) + ' · ' + rec.lifeYears + ' سنة'
     });
     setAstF(null); say('حُفظ الأصل — قيود الشراء والإهلاك تولّدت تلقائياً ✓');
+  };
+
+  // القيمة الدفترية عند تاريخ محدد (لمعاينة الربح/الخسارة قبل التأكيد) — يطابق منطق المحرك تمامًا
+  const assetBookAt = (a, dateStr) => {
+    const cost = Number(a.cost) || 0;
+    const nM = Math.max(1, Math.round((Number(a.lifeYears) || 0) * 12));
+    if (!(cost > 0 && Number(a.lifeYears) > 0 && a.buyDate)) return { accum: 0, book: cost };
+    const ymAdd2 = (ym, k) => { const pr = ym.split('-').map(Number); const t = pr[0] * 12 + (pr[1] - 1) + k; return String(Math.floor(t / 12)).padStart(4, '0') + '-' + String((t % 12) + 1).padStart(2, '0'); };
+    const dispYm = dateStr ? dateStr.slice(0, 7) : '';
+    const base = Math.floor(cost / nM * 100) / 100;
+    const start = ymAdd2(a.buyDate.slice(0, 7), 1);
+    let accum = 0;
+    for (let k = 0; k < nM; k++) {
+      const ym = ymAdd2(start, k);
+      if (dispYm && ym >= dispYm) break;
+      const amt = k === nM - 1 ? Math.round((cost - base * (nM - 1)) * 100) / 100 : base;
+      accum = Math.round((accum + amt) * 100) / 100;
+    }
+    return { accum, book: Math.round((cost - accum) * 100) / 100 };
+  };
+  const saveDispose = async () => {
+    const f = dspF;
+    const a = (org.assets || []).find(x => x.id === f.id);
+    if (!a) return setDspF(null);
+    if (!f.disposedDate) return say('أدخل تاريخ البيع/الاستبعاد', 'no');
+    if (f.disposedDate < a.buyDate) return say('تاريخ الاستبعاد قبل تاريخ الشراء', 'no');
+    if (f.disposedDate > today()) return say('لا يمكن استبعاد أصل بتاريخ مستقبلي', 'no');
+    if (periodLocked(org, f.disposedDate)) return say('تاريخ الاستبعاد في شهر مقفل — ' + LOCK_MSG(f.disposedDate), 'no');
+    const salePrice = Number(f.salePrice) || 0;
+    const rec = { ...a, disposedDate: f.disposedDate, salePrice, saleFund: f.saleFund || '1201' };
+    await commitOrg(d => ({ ...d, assets: (d.assets || []).map(x => x.id === f.id ? rec : x) }), {
+      actionType: 'update', targetType: 'fixed_asset', targetId: a.id,
+      title: 'سجّل بيع/استبعاد أصل ثابت', details: a.name + ' · سعر البيع ' + money(salePrice) + ' · ' + f.disposedDate
+    });
+    setDspF(null); say('سُجّل الاستبعاد — قيد الإقفال والربح/الخسارة تولّد تلقائياً ✓');
+  };
+  const undoDispose = async (id) => {
+    const a = (org.assets || []).find(x => x.id === id); if (!a) return;
+    const rec = { ...a }; delete rec.disposedDate; delete rec.salePrice; delete rec.saleFund;
+    await commitOrg(d => ({ ...d, assets: (d.assets || []).map(x => x.id === id ? rec : x) }), {
+      actionType: 'update', targetType: 'fixed_asset', targetId: id,
+      title: 'ألغى بيع/استبعاد أصل ثابت', details: a.name
+    });
+    say('أُلغي الاستبعاد — عاد الأصل نشطاً وأُعيد احتساب إهلاكه ✓');
   };
 
   // ===== م٥: التسوية البنكية =====
@@ -7400,10 +7471,11 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
       <div class="sign"><div>المحاسب</div><div>الإدارة المالية</div><div>اعتماد الإدارة</div></div>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
   };
   const printAST = () => {
-    const rows = A.assetRows.map(a => `<tr><td>${a.name}</td><td class="n">${a.buyDate}</td><td class="n">${money(a.cost)}</td><td class="n">${money(a.monthly)}</td><td class="n">${money(a.accum)}</td><td class="n">${money(a.book)}</td><td>${a.done ? 'مُهلك بالكامل' : 'قيد الإهلاك ' + a.monthsDone + '/' + a.nM}</td></tr>`).join('');
+    const act = A.assetRows.filter(a => !a.disposed);
+    const rows = A.assetRows.map(a => `<tr${a.disposed ? ' style="color:#999"' : ''}><td>${a.name}</td><td class="n">${a.buyDate}</td><td class="n">${money(a.cost)}</td><td class="n">${money(a.monthly)}</td><td class="n">${money(a.accum)}</td><td class="n">${a.disposed ? '—' : money(a.book)}</td><td>${a.disposed ? 'مُستبعَد ' + a.disposedDate + (Math.abs(a.gain) >= 0.005 ? (a.gain > 0 ? ' (ربح ' : ' (خسارة ') + money(Math.abs(a.gain)) + ')' : '') : a.done ? 'مُهلك بالكامل' : 'قيد الإهلاك ' + a.monthsDone + '/' + a.nM}</td></tr>`).join('');
     printA4(org, 'سجل الأصول الثابتة والإهلاك', arDate(today()),
       `<table><thead><tr><th>الأصل</th><th>الشراء</th><th>التكلفة</th><th>القسط الشهري</th><th>المجمّع</th><th>القيمة الدفترية</th><th>الحالة</th></tr></thead><tbody>${rows}
-      <tr class="tot"><td colspan="2">الإجمالي</td><td class="n">${money(sum(A.assetRows, a => a.cost))}</td><td></td><td class="n">${money(sum(A.assetRows, a => a.accum))}</td><td class="n">${money(sum(A.assetRows, a => a.book))}</td><td></td></tr></tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+      <tr class="tot"><td colspan="2">إجمالي الأصول القائمة</td><td class="n">${money(sum(act, a => a.cost))}</td><td></td><td class="n">${money(sum(act, a => a.accum))}</td><td class="n">${money(sum(act, a => a.book))}</td><td></td></tr></tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
   };
 
   // ===== v8.0: طباعة القوائم المالية A4 =====
@@ -8162,9 +8234,9 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         <div className="grid" style={{ gap: 12 }}>
           <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
             <div className="grid g3" style={{ flex: 1, minWidth: 280 }}>
-              <Kpi label="تكلفة الأصول" value={money(sum(A.assetRows, a => a.cost))} sub={A.assetRows.length + ' أصلاً مسجلاً'} icon={Building2} color="#C8A24A" />
-              <Kpi label="مجمّع الإهلاك" value={money(sum(A.assetRows, a => a.accum))} sub="قسط ثابت شهري تلقائي" icon={TrendingDown} color="#E0A458" />
-              <Kpi label="القيمة الدفترية" value={money(sum(A.assetRows, a => a.book))} sub="التكلفة ناقص المجمّع" icon={Scale} color="#4FB286" />
+              <Kpi label="تكلفة الأصول القائمة" value={money(sum(A.assetRows.filter(a => !a.disposed), a => a.cost))} sub={A.assetRows.filter(a => !a.disposed).length + ' أصلاً قائماً' + (A.assetRows.some(a => a.disposed) ? ' · ' + A.assetRows.filter(a => a.disposed).length + ' مُستبعَد' : '')} icon={Building2} color="#C8A24A" />
+              <Kpi label="مجمّع الإهلاك" value={money(sum(A.assetRows.filter(a => !a.disposed), a => a.accum))} sub="قسط ثابت شهري تلقائي" icon={TrendingDown} color="#E0A458" />
+              <Kpi label="القيمة الدفترية" value={money(sum(A.assetRows.filter(a => !a.disposed), a => a.book))} sub="للأصول القائمة (التكلفة − المجمّع)" icon={Scale} color="#4FB286" />
             </div>
             <div className="row" style={{ gap: 8, alignSelf: 'flex-start' }}>
               <button className="btn sm" onClick={printAST}><Printer size={13} />طباعة السجل</button>
@@ -8177,22 +8249,29 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
                 <thead><tr><th>الأصل</th><th>الشراء</th><th style={{ textAlign: 'end' }}>التكلفة</th><th style={{ textAlign: 'end' }}>القسط الشهري</th><th style={{ textAlign: 'end' }}>المجمّع</th><th style={{ textAlign: 'end' }}>الدفترية</th><th>الحالة</th><th /></tr></thead>
                 <tbody>
                   {A.assetRows.map(a => (
-                    <tr key={a.id}>
+                    <tr key={a.id} style={a.disposed ? { opacity: .62 } : null}>
                       <td style={{ fontWeight: 600, fontSize: 12.5 }}>{a.name}<div style={{ fontSize: 9.5, color: 'var(--faint)' }}>{a.lifeYears} سنة · {a.fund === 'none' ? 'بلا قيد شراء (مسجل سابقاً)' : 'التمويل: ' + ((({ '1101': 'الخزينة', '1201': 'البنك', '3101': 'افتتاحي' })[a.fund]) || '')}</div></td>
                       <td className="num" style={{ fontSize: 11 }}>{a.buyDate}</td>
                       <td className="num" style={{ textAlign: 'end' }}>{money(a.cost)}</td>
                       <td className="num" style={{ textAlign: 'end' }}>{money(a.monthly)}</td>
                       <td className="num" style={{ textAlign: 'end', color: 'var(--amber)' }}>{money(a.accum)}</td>
-                      <td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{money(a.book)}</td>
-                      <td>{a.done ? <span className="badge b-dim">مُهلك بالكامل</span> : <span className="badge b-mint">قيد الإهلاك · {a.monthsDone}/{a.nM} شهراً</span>}</td>
-                      <td>{canPost && <button className="btn sm gh" onClick={() => setAstF({ ...a, cost: String(a.cost), lifeYears: String(a.lifeYears) })}>تعديل</button>}</td>
+                      <td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{a.disposed ? '—' : money(a.book)}</td>
+                      <td>{a.disposed
+                        ? <span className="badge b-dim" title={'بيع ' + money(a.salePrice) + ' بتاريخ ' + a.disposedDate}>مُستبعَد · {a.disposedDate}{Math.abs(a.gain) >= 0.005 ? <b style={{ marginInlineStart: 4, color: a.gain > 0 ? 'var(--mint)' : 'var(--rose)' }}>{a.gain > 0 ? 'ربح ' : 'خسارة '}{money(Math.abs(a.gain))}</b> : ''}</span>
+                        : a.done ? <span className="badge b-dim">مُهلك بالكامل</span> : <span className="badge b-mint">قيد الإهلاك · {a.monthsDone}/{a.nM} شهراً</span>}</td>
+                      <td><div className="row" style={{ gap: 5, justifyContent: 'flex-end' }}>{canPost && (a.disposed
+                        ? <button className="btn sm gh" onClick={() => undoDispose(a.id)}>تراجع</button>
+                        : <>
+                          <button className="btn sm gh" onClick={() => setAstF({ ...a, cost: String(a.cost), lifeYears: String(a.lifeYears) })}>تعديل</button>
+                          {a.fund !== 'none' && <button className="btn sm" onClick={() => setDspF({ id: a.id, name: a.name, disposedDate: today(), salePrice: '', saleFund: '1201' })}>بيع/استبعاد</button>}
+                        </>)}</div></td>
                     </tr>
                   ))}
                   {A.assetRows.length === 0 && <tr><td colSpan={8}><div className="empty">سجّل أصولك الثابتة (معدات المطبخ، الأثاث، السيارات…) لتتولد قيود شرائها وإهلاكها تلقائياً.</div></td></tr>}
                 </tbody>
               </table>
             </div>
-            <div className="note" style={{ marginTop: 10 }}>الإهلاك قسط ثابت يبدأ من الشهر التالي للشراء ويتوقف باكتمال العمر — قيد مجمّع واحد شهرياً في اليومية. تعديل الأصل يعيد اشتقاق إهلاكه كاملاً (القيود محسوبة لا مخزنة). بيع أو استبعاد الأصول: بقيد يدوي حالياً.</div>
+            <div className="note" style={{ marginTop: 10 }}>الإهلاك قسط ثابت يبدأ من الشهر التالي للشراء ويتوقف باكتمال العمر — قيد مجمّع واحد شهرياً في اليومية. تعديل الأصل يعيد اشتقاق إهلاكه كاملاً (القيود محسوبة لا مخزنة). <b style={{ color: 'var(--brass-l)' }}>البيع/الاستبعاد</b>: يتوقف الإهلاك عند شهر البيع، ويتولّد قيد إقفال متوازن يُخرج الأصل ومجمّعه ويحتسب الفرق مع سعر البيع ربحًا (4201) أو خسارة (5801) تلقائيًا.</div>
           </div>
         </div>
       )}
@@ -8279,6 +8358,38 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
           <div className="note">الإهلاك يبدأ من الشهر التالي للشراء بقسط ثابت شهري حتى نهاية العمر — ويُعاد اشتقاقه تلقائياً عند أي تعديل.</div>
         </Modal>
       )}
+
+      {dspF && (() => {
+        const raw = (org.assets || []).find(x => x.id === dspF.id) || {};
+        const pv = assetBookAt(raw, dspF.disposedDate);
+        const salePrice = Number(dspF.salePrice) || 0;
+        const gain = Math.round((salePrice - pv.book) * 100) / 100;
+        return (
+          <Modal title={'بيع/استبعاد أصل — ' + dspF.name} icon={TrendingDown} onClose={() => setDspF(null)}
+            foot={<><button className="btn gh" onClick={() => setDspF(null)}>إلغاء</button>
+              <button className="btn pri" onClick={saveDispose}><Check size={14} />تأكيد الاستبعاد</button></>}>
+            <div className="grid g2">
+              <Field label="تاريخ البيع/الاستبعاد"><input type="date" className="inp" value={dspF.disposedDate} onChange={e => setDspF(f => ({ ...f, disposedDate: e.target.value }))} /></Field>
+              <Field label="سعر البيع (اتركه صفرًا للاستبعاد/التخريد بلا مقابل)"><input className="inp n" inputMode="decimal" value={dspF.salePrice} onChange={e => setDspF(f => ({ ...f, salePrice: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+            </div>
+            <Field label="أين دخل مبلغ البيع؟">
+              <select className="sel" value={dspF.saleFund} onChange={e => setDspF(f => ({ ...f, saleFund: e.target.value }))}>
+                <option value="1201">دخل إلى البنك (1201)</option>
+                <option value="1101">دخل إلى الخزينة الرئيسية (1101)</option>
+              </select>
+            </Field>
+            <div className="card" style={{ background: 'rgba(200,162,74,.05)', marginTop: 4 }}>
+              <div className="row" style={{ justifyContent: 'space-between', fontSize: 12.5 }}><span style={{ color: 'var(--dim)' }}>القيمة الدفترية عند {dspF.disposedDate || '—'}</span><b className="num">{money(pv.book)}</b></div>
+              <div className="row" style={{ justifyContent: 'space-between', fontSize: 12.5, marginTop: 5 }}><span style={{ color: 'var(--dim)' }}>سعر البيع</span><b className="num">{money(salePrice)}</b></div>
+              <div className="row" style={{ justifyContent: 'space-between', fontSize: 13.5, marginTop: 7, paddingTop: 7, borderTop: '1px solid var(--line)', fontWeight: 800 }}>
+                <span>{Math.abs(gain) < 0.005 ? 'بلا ربح أو خسارة' : gain > 0 ? 'ربح البيع (4201)' : 'خسارة البيع/الاستبعاد (5801)'}</span>
+                <b className="num" style={{ color: Math.abs(gain) < 0.005 ? 'var(--dim)' : gain > 0 ? 'var(--mint)' : 'var(--rose)' }}>{money(Math.abs(gain))}</b>
+              </div>
+            </div>
+            <div className="note">سيتوقف الإهلاك عند شهر البيع، ويتولّد قيد إقفال متوازن: مدين ({dspF.saleFund === '1101' ? 'الخزينة' : 'البنك'} + مجمّع الإهلاك{gain < -0.005 ? ' + الخسارة' : ''}) = دائن (تكلفة الأصل{gain > 0.005 ? ' + الربح' : ''}). يمكنك التراجع لاحقًا من زر «تراجع».</div>
+          </Modal>
+        );
+      })()}
 
       <div className="card" style={{ background: 'rgba(200,162,74,.04)', borderStyle: 'dashed' }}>
         <div style={{ fontSize: 11.5, color: 'var(--dim)', lineHeight: 1.9 }}>
