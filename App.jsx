@@ -453,15 +453,15 @@ function buildAccounting(org, ops) {
     const a = { code, name, kind, debit: 0, credit: 0, ...(meta || {}) };
     accounts.push(a); accIx[code] = a; return a;
   };
-  // — الأصول —
-  addAcc('1101', 'الخزينة الرئيسية', 'asset', { link: 'شاشة الخزينة والترحيل' });
+  // — الأصول —  (النقد وما في حكمه مُعلَّم بـ cash:true لقائمة التدفقات النقدية)
+  addAcc('1101', 'الخزينة الرئيسية', 'asset', { link: 'شاشة الخزينة والترحيل', cash: true });
   const cashCode = {};
   (org.branches || []).forEach((b, i) => {
     const code = '11' + String(11 + i);
     cashCode[b.id] = code;
-    addAcc(code, 'صندوق ' + (b.name || 'فرع'), 'asset', { link: 'خزينة الفرع' });
+    addAcc(code, 'صندوق ' + (b.name || 'فرع'), 'asset', { link: 'خزينة الفرع', cash: true });
   });
-  addAcc('1201', 'البنك — الشبكة والمدفوعات البنكية (تجميعي)', 'asset', { link: 'يُطابَق من شاشة التسوية البنكية' });
+  addAcc('1201', 'البنك — الشبكة والمدفوعات البنكية (تجميعي)', 'asset', { link: 'يُطابَق من شاشة التسوية البنكية', cash: true });
   // ذمم مبوّبة: حساب مستقل لكل تطبيق توصيل — يُدمج بعمولته المعرّفة في الإعدادات
   const appAcc = {};
   (org.deliveryApps || []).forEach((a, i) => {
@@ -1717,7 +1717,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v10.3 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v10.4 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -7253,6 +7253,36 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     - sum(A.accounts.filter(a => a.kind === 'exp'), a => balOf(a, bsAgg))) * 100) / 100;
   const bsOk = Math.abs(bsAssets - (bsLiab + bsEquity + bsProfit)) < 0.01;
 
+  // ===== v10.4: قائمة التدفقات النقدية (الطريقة المباشرة على حسابات النقد) =====
+  // النقد وما في حكمه = الحسابات المُعلَّمة cash:true (الخزائن + البنك). صافي أثر أي قيد على النقد = Σ(مدين−دائن) لأسطر النقد.
+  // التحويلات الداخلية بين الخزائن أثرها صفر (طرفاها نقد) فتُلغى تلقائيًا. قيد إقفال السنة لا يمسّ النقد فلا يظهر.
+  const cashSet = new Set(A.accounts.filter(a => a.cash).map(a => a.code));
+  const accByCode = {}; A.accounts.forEach(a => { accByCode[a.code] = a; });
+  const cashDelta = (e) => sum(e.lines.filter(l => cashSet.has(l.code)), l => l.debit - l.credit);
+  const cashBalOver = (ents) => { const m = aggOf(ents); return sum(A.accounts.filter(a => a.cash), a => balOf(a, m)); };
+  const cfClassOf = (e) => {                 // التصنيف بحسب الطرف غير النقدي: أصل ثابت⇒استثماري · حقوق ملكية⇒تمويلي · غير ذلك⇒تشغيلي
+    const non = e.lines.filter(l => !cashSet.has(l.code));
+    if (non.some(l => l.code === '1701' || l.code === '1791')) return 'inv';
+    if (non.some(l => (accByCode[l.code] || {}).kind === 'equity')) return 'fin';
+    return 'op';
+  };
+  const cfLabelOf = (e, cls) => {
+    if (cls === 'inv') return (e.id || '').startsWith('disp:') ? 'متحصّلات بيع/استبعاد أصول' : 'شراء أصول ثابتة';
+    if (cls === 'fin') return e.src === 'قيد افتتاحي' ? 'رأس المال الافتتاحي' : (cashDelta(e) >= 0 ? 'تمويل/إضافات رأس المال' : 'مسحوبات وتوزيعات');
+    return ({ 'إغلاق وردية': 'مقبوضات المبيعات', 'مصروف وردية': 'مدفوعات المصروفات التشغيلية', 'سداد مورد بالوردية': 'مدفوعات الموردين', 'سداد مورد': 'مدفوعات الموردين', 'سداد مركزي': 'مدفوعات الموردين', 'كشف الرواتب': 'مدفوعات الرواتب', 'تسوية تطبيقات': 'تحصيل مستحقات تطبيقات التوصيل', 'الخزينة الرئيسية': 'أوامر صرف من الخزينة', 'قيد يدوي': 'حركات نقدية يدوية' })[e.src] || 'حركات تشغيلية أخرى';
+  };
+  const cfPeriodEntries = A.entries.filter(e => inPeriod(e, from, to) && byBranch(e) && Math.abs(cashDelta(e)) > 0.004);
+  const cfBuckets = { op: {}, inv: {}, fin: {} };
+  cfPeriodEntries.forEach(e => { const cls = cfClassOf(e); const lb = cfLabelOf(e, cls); cfBuckets[cls][lb] = Math.round(((cfBuckets[cls][lb] || 0) + cashDelta(e)) * 100) / 100; });
+  const cfRows = (cls) => Object.entries(cfBuckets[cls]).map(([label, amt]) => ({ label, amt })).sort((a, b) => b.amt - a.amt);
+  const cfNet = (cls) => Math.round(sum(Object.values(cfBuckets[cls]), v => v) * 100) / 100;
+  const cfOp = cfNet('op'), cfInv = cfNet('inv'), cfFin = cfNet('fin');
+  const cfChange = Math.round((cfOp + cfInv + cfFin) * 100) / 100;
+  const cfBegin = from ? Math.round(cashBalOver(A.entries.filter(e => (e.date || '') < from && byBranch(e))) * 100) / 100 : 0;
+  const cfEndBook = Math.round(cashBalOver(A.entries.filter(e => inPeriod(e, '', to) && byBranch(e))) * 100) / 100;
+  const cfEndComputed = Math.round((cfBegin + cfChange) * 100) / 100;
+  const cfOk = Math.abs(cfEndComputed - cfEndBook) < 0.01;
+
   // ===== م٣: الضريبة =====
   const taxCfg = org.taxCfg || {};
   const taxOn = !!taxCfg.enabled;
@@ -7509,6 +7539,26 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
       <tr class="tot"><td colspan="2">إجمالي الأصول القائمة</td><td class="n">${money(sum(act, a => a.cost))}</td><td></td><td class="n">${money(sum(act, a => a.accum))}</td><td class="n">${money(sum(act, a => a.book))}</td><td></td></tr></tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
   };
 
+  // ===== v10.4: طباعة قائمة التدفقات النقدية A4 =====
+  const printCF = () => {
+    const secHtml = (cls, title, sub) => {
+      const rows = cfRows(cls).map(r => `<tr><td>${r.label}</td><td class="n">${r.amt < 0 ? '(' + money(-r.amt) + ')' : money(r.amt)}</td></tr>`).join('') || '<tr><td>لا حركة في الفترة</td><td class="n">0.00</td></tr>';
+      const n = cfNet(cls);
+      return `<tr class="sec"><td colspan="2">${title}</td></tr>${rows}<tr class="sub"><td>${sub}</td><td class="n">${n < 0 ? '(' + money(-n) + ')' : money(n)}</td></tr>`;
+    };
+    const period = (from || to) ? ('الفترة: ' + (from || 'البداية') + ' ← ' + (to || arDate(today()))) : 'حتى ' + arDate(today());
+    printA4(org, 'قائمة التدفقات النقدية' + (bfLabel ? ' — ' + bfLabel : ''), period,
+      `<table><tbody>
+        <tr class="tot"><td>النقد في بداية الفترة</td><td class="n">${money(cfBegin)}</td></tr>
+        ${secHtml('op', 'الأنشطة التشغيلية', 'صافي النقد من الأنشطة التشغيلية')}
+        ${secHtml('inv', 'الأنشطة الاستثمارية', 'صافي النقد من الأنشطة الاستثمارية')}
+        ${secHtml('fin', 'الأنشطة التمويلية', 'صافي النقد من الأنشطة التمويلية')}
+        <tr class="tot"><td>صافي التغيّر في النقد</td><td class="n">${cfChange < 0 ? '(' + money(-cfChange) + ')' : money(cfChange)}</td></tr>
+        <tr class="tot"><td>النقد في نهاية الفترة (محسوب)</td><td class="n">${money(cfEndComputed)}</td></tr>
+        <tr class="tot"><td>مطابقة رصيد النقد الدفتري ${cfOk ? '✓' : '(لا يطابق)'}</td><td class="n">${money(cfEndBook)}</td></tr>
+      </tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+  };
+
   // ===== v8.0: طباعة القوائم المالية A4 =====
   const printFS = () => {
     const w = window.open('', '_blank', 'width=900,height=1000');
@@ -7691,6 +7741,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         <button className={'btn sm' + (view === 'coa' ? ' pri' : ' gh')} onClick={() => setView('coa')}><Landmark size={14} />دليل الحسابات</button>
         <button className={'btn sm' + (view === 'tb' ? ' pri' : ' gh')} onClick={() => setView('tb')}><Scale size={14} />ميزان المراجعة</button>
         <button className={'btn sm' + (view === 'fs' ? ' pri' : ' gh')} onClick={() => setView('fs')}><FileBarChart size={14} />القوائم المالية</button>
+        <button className={'btn sm' + (view === 'cf' ? ' pri' : ' gh')} onClick={() => setView('cf')}><ArrowLeftRight size={14} />التدفقات النقدية</button>
         <button className={'btn sm' + (view === 'cc' ? ' pri' : ' gh')} onClick={() => setView('cc')}><BarChart3 size={14} />مراكز التكلفة</button>
         <button className={'btn sm' + (view === 'vat' ? ' pri' : ' gh')} onClick={() => setView('vat')}><Receipt size={14} />الضريبة</button>
         <button className={'btn sm' + (view === 'ast' ? ' pri' : ' gh')} onClick={() => setView('ast')}><Building2 size={14} />الأصول</button>
@@ -7903,6 +7954,65 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
           </div>
         </div>
       )}
+
+      {view === 'cf' && (() => {
+        const Section = (cls, title, sub) => (
+          <React.Fragment>
+            <tr><td colSpan={2} style={{ fontWeight: 800, color: 'var(--brass-l)', paddingTop: 12 }}>{title}</td></tr>
+            {cfRows(cls).map(r => (
+              <tr key={cls + r.label}><td style={{ color: 'var(--dim)' }}>{r.label}</td>
+                <td className="num" style={{ textAlign: 'end', color: r.amt >= 0 ? 'var(--mint)' : 'var(--rose)' }}>{fmtBal(r.amt)}</td></tr>
+            ))}
+            {cfRows(cls).length === 0 && <tr><td style={{ color: 'var(--faint)', fontSize: 11 }}>لا حركة في الفترة</td><td className="num" style={{ textAlign: 'end', color: 'var(--faint)' }}>0.00</td></tr>}
+            <tr style={{ fontWeight: 700, borderTop: '1px solid var(--line)' }}><td>{sub}</td>
+              <td className="num" style={{ textAlign: 'end', color: cfNet(cls) >= 0 ? 'var(--mint)' : 'var(--rose)' }}>{fmtBal(cfNet(cls))}</td></tr>
+          </React.Fragment>
+        );
+        return (
+          <div className="grid" style={{ gap: 12 }}>
+            <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+              {periodBar}
+              <div className="row" style={{ gap: 8 }}>
+                <select className="sel" style={{ width: 190 }} value={bf} onChange={e => setBf(e.target.value)}>
+                  <option value="">تدفقات موحدة (كل الفروع)</option>
+                  <option value="central">القيود المركزية فقط</option>
+                  {(org.branches || []).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+                <button className="btn sm" onClick={printCF}><Printer size={13} />طباعة A4</button>
+              </div>
+            </div>
+            <div className="grid g3">
+              <Kpi label="صافي التدفق التشغيلي" value={money(cfOp)} sub="من نشاطك اليومي" icon={RefreshCw} color={cfOp >= 0 ? '#4FB286' : '#D9544D'} />
+              <Kpi label="صافي التدفق الاستثماري" value={money(cfInv)} sub="شراء/بيع الأصول" icon={Building2} color={cfInv >= 0 ? '#4FB286' : '#E0A458'} />
+              <Kpi label="صافي التدفق التمويلي" value={money(cfFin)} sub="رأس المال والمسحوبات" icon={Landmark} color={cfFin >= 0 ? '#4FB286' : '#E0A458'} />
+            </div>
+            <div className="card">
+              <div className="card-t" style={{ marginBottom: 10 }}><ArrowLeftRight size={15} color="var(--brass)" />قائمة التدفقات النقدية {from || to ? '· الفترة المحددة' : '(حتى اليوم)'} {bfLabel ? '— ' + bfLabel : ''}</div>
+              <div className="tw">
+                <table className="tb">
+                  <tbody>
+                    <tr style={{ fontWeight: 700, background: 'rgba(91,147,196,.05)' }}><td>النقد في بداية الفترة</td><td className="num" style={{ textAlign: 'end' }}>{money(cfBegin)}</td></tr>
+                    {Section('op', 'الأنشطة التشغيلية', 'صافي النقد من الأنشطة التشغيلية')}
+                    {Section('inv', 'الأنشطة الاستثمارية', 'صافي النقد من الأنشطة الاستثمارية')}
+                    {Section('fin', 'الأنشطة التمويلية', 'صافي النقد من الأنشطة التمويلية')}
+                    <tr style={{ fontWeight: 900, background: 'rgba(200,162,74,.06)', borderTop: '2px solid var(--brass)' }}><td>صافي التغيّر في النقد</td>
+                      <td className="num" style={{ textAlign: 'end', color: cfChange >= 0 ? 'var(--mint)' : 'var(--rose)', fontSize: 14 }}>{fmtBal(cfChange)}</td></tr>
+                    <tr style={{ fontWeight: 800 }}><td>النقد في نهاية الفترة (محسوب)</td><td className="num" style={{ textAlign: 'end' }}>{money(cfEndComputed)}</td></tr>
+                    <tr style={{ fontWeight: 800, background: 'rgba(200,162,74,.05)' }}>
+                      <td>مطابقة رصيد النقد الدفتري {cfOk ? '— مطابق ✓' : '— لا يطابق!'}</td>
+                      <td className="num" style={{ textAlign: 'end', color: cfOk ? 'var(--brass-l)' : 'var(--rose)' }}>{money(cfEndBook)}</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div className="note" style={{ marginTop: 10 }}>
+                «النقد وما في حكمه» = الخزائن + البنك. بالطريقة المباشرة تُصنَّف كل حركة نقدية: <b>تشغيلية</b> (مبيعات، مصروفات، موردون، رواتب)،
+                <b> استثمارية</b> (شراء/بيع الأصول الثابتة)، أو <b>تمويلية</b> (رأس المال، المسحوبات). التحويلات بين خزائنك لا تظهر لأنها لا تُغيّر إجمالي النقد،
+                وقيد إقفال السنة لا يمسّ النقد. صافي التغيّر يطابق حركة رصيد النقد الفعلية دائمًا.
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {view === 'cc' && (
         <div className="grid" style={{ gap: 12 }}>
