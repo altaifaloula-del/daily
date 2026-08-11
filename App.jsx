@@ -1717,7 +1717,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v10.4 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v10.5 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -7180,6 +7180,13 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     const y = org.yearEnd || {};
     return { enabled: !!y.enabled, closeDate: y.closeDate || (String(new Date().getFullYear() - 1) + '-12-31') };
   });
+  const [budD, setBudD] = useState(() => {          // v10.5 مسودة الموازنة التقديرية (مبالغ شهرية لكل حساب)
+    const bg = org.budget || {};
+    const map = {};
+    (bg.lines || []).forEach(l => { if (l.amount) map[l.code] = String(l.amount); });
+    return { enabled: !!bg.enabled, map };
+  });
+  const [bMonth, setBMonth] = useState(() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }); // شهر المقارنة
   const [q, setQ] = useState('');
   const [month, setMonth] = useState('');           // فلتر شهر للقيود
   const [from, setFrom] = useState('');             // فترة الميزان/القوائم
@@ -7282,6 +7289,26 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const cfEndBook = Math.round(cashBalOver(A.entries.filter(e => inPeriod(e, '', to) && byBranch(e))) * 100) / 100;
   const cfEndComputed = Math.round((cfBegin + cfChange) * 100) / 100;
   const cfOk = Math.abs(cfEndComputed - cfEndBook) < 0.01;
+
+  // ===== v10.5: الموازنة التقديرية والانحرافات (مبالغ شهرية · مقارنة الفعلي بالمخطّط لشهر مختار) =====
+  const budgetOn = !!(org.budget && org.budget.enabled);
+  const budMap = {}; ((org.budget && org.budget.lines) || []).forEach(l => { budMap[l.code] = Number(l.amount) || 0; });
+  const budAccounts = A.accounts.filter(a => (a.kind === 'rev' || a.kind === 'exp') && !['4201', '5801', '5150'].includes(a.code));
+  const monAgg = aggOf(A.entries.filter(e => (e.date || '').slice(0, 7) === bMonth));
+  const budActual = (a) => Math.round(balOf(a, monAgg) * 100) / 100;
+  const budRows = budAccounts.filter(a => (budMap[a.code] > 0) || Math.abs(budActual(a)) > 0.004).map(a => {
+    const budget = Math.round((budMap[a.code] || 0) * 100) / 100;
+    const actual = budActual(a);
+    const variance = Math.round((actual - budget) * 100) / 100;
+    const pct = budget > 0 ? Math.round(variance / budget * 1000) / 10 : null;
+    return { a, budget, actual, variance, pct, over: a.kind === 'exp' ? variance > 0.005 : variance < -0.005 };
+  });
+  const budRevB = sum(budAccounts.filter(a => a.kind === 'rev'), a => budMap[a.code] || 0);
+  const budRevA = sum(budAccounts.filter(a => a.kind === 'rev'), a => budActual(a));
+  const budExpB = sum(budAccounts.filter(a => a.kind === 'exp'), a => budMap[a.code] || 0);
+  const budExpA = sum(budAccounts.filter(a => a.kind === 'exp'), a => budActual(a));
+  const budNetB = Math.round((budRevB - budExpB) * 100) / 100;
+  const budNetA = Math.round((budRevA - budExpA) * 100) / 100;
 
   // ===== م٣: الضريبة =====
   const taxCfg = org.taxCfg || {};
@@ -7559,6 +7586,21 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
       </tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
   };
 
+  // ===== v10.5: طباعة الموازنة والانحرافات A4 =====
+  const printBudget = () => {
+    const rows = budRows.map(r => {
+      const vtxt = r.variance < 0 ? '(' + money(-r.variance) + ')' : money(r.variance);
+      const state = r.a.kind === 'exp' ? (r.over ? 'تجاوز' : 'ضمن الميزانية') : (r.actual + 0.005 >= r.budget ? 'تحقّق الهدف' : 'دون الهدف');
+      return `<tr><td>${r.a.name}</td><td class="n">${money(r.budget)}</td><td class="n">${money(r.actual)}</td><td class="n">${vtxt}</td><td class="n">${r.pct == null ? '—' : r.pct + '%'}</td><td>${state}</td></tr>`;
+    }).join('');
+    printA4(org, 'الموازنة التقديرية والانحرافات — شهر ' + bMonth, arDate(today()),
+      `<table><thead><tr><th>البند</th><th>الموازنة</th><th>الفعلي</th><th>الفرق</th><th>النسبة</th><th>الحالة</th></tr></thead><tbody>${rows}
+      <tr class="tot"><td>إجمالي الإيرادات</td><td class="n">${money(budRevB)}</td><td class="n">${money(budRevA)}</td><td class="n">${(budRevA - budRevB) < 0 ? '(' + money(budRevB - budRevA) + ')' : money(budRevA - budRevB)}</td><td></td><td></td></tr>
+      <tr class="tot"><td>إجمالي المصروفات</td><td class="n">${money(budExpB)}</td><td class="n">${money(budExpA)}</td><td class="n">${(budExpA - budExpB) < 0 ? '(' + money(budExpB - budExpA) + ')' : money(budExpA - budExpB)}</td><td></td><td></td></tr>
+      <tr class="tot"><td>صافي الربح</td><td class="n">${money(budNetB)}</td><td class="n">${money(budNetA)}</td><td class="n">${(budNetA - budNetB) < 0 ? '(' + money(budNetB - budNetA) + ')' : money(budNetA - budNetB)}</td><td></td><td></td></tr>
+      </tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+  };
+
   // ===== v8.0: طباعة القوائم المالية A4 =====
   const printFS = () => {
     const w = window.open('', '_blank', 'width=900,height=1000');
@@ -7657,6 +7699,17 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     say(yeD.enabled ? 'فُعّل الإقفال — تولّد قيد إقفال السنة وحُوّل الصافي إلى الأرباح المبقاة ✓' : 'أُوقف إقفال السنة');
   };
 
+  // v10.5 — حفظ الموازنة التقديرية (مبالغ شهرية لكل حساب إيراد/مصروف)
+  const saveBudget = async () => {
+    const lines = Object.keys(budD.map).map(code => { const amount = Math.round((Number(budD.map[code]) || 0) * 100) / 100; return amount > 0 ? { code, amount } : null; }).filter(Boolean);
+    await commitOrg(d => ({ ...d, budget: { enabled: !!budD.enabled, lines } }), {
+      actionType: 'update', targetType: 'budget', targetId: 'budget',
+      title: budD.enabled ? 'حدّث/فعّل الموازنة التقديرية' : 'أوقف الموازنة التقديرية',
+      details: lines.length + ' بند'
+    });
+    say(budD.enabled ? 'حُفظت الموازنة — قارِن الفعلي بالمخطّط شهريًا ✓' : 'حُفظت الموازنة (موقوفة)');
+  };
+
   // v9.9 — حفظ تسوية كشف تطبيق توصيل
   const saveStl = async () => {
     if (!stlF) return;
@@ -7742,6 +7795,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         <button className={'btn sm' + (view === 'tb' ? ' pri' : ' gh')} onClick={() => setView('tb')}><Scale size={14} />ميزان المراجعة</button>
         <button className={'btn sm' + (view === 'fs' ? ' pri' : ' gh')} onClick={() => setView('fs')}><FileBarChart size={14} />القوائم المالية</button>
         <button className={'btn sm' + (view === 'cf' ? ' pri' : ' gh')} onClick={() => setView('cf')}><ArrowLeftRight size={14} />التدفقات النقدية</button>
+        <button className={'btn sm' + (view === 'bud' ? ' pri' : ' gh')} onClick={() => setView('bud')}><BarChart3 size={14} />الموازنة</button>
         <button className={'btn sm' + (view === 'cc' ? ' pri' : ' gh')} onClick={() => setView('cc')}><BarChart3 size={14} />مراكز التكلفة</button>
         <button className={'btn sm' + (view === 'vat' ? ' pri' : ' gh')} onClick={() => setView('vat')}><Receipt size={14} />الضريبة</button>
         <button className={'btn sm' + (view === 'ast' ? ' pri' : ' gh')} onClick={() => setView('ast')}><Building2 size={14} />الأصول</button>
@@ -8010,6 +8064,95 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
                 وقيد إقفال السنة لا يمسّ النقد. صافي التغيّر يطابق حركة رصيد النقد الفعلية دائمًا.
               </div>
             </div>
+          </div>
+        );
+      })()}
+
+      {view === 'bud' && (() => {
+        const setB = (code, v) => setBudD(s => ({ ...s, map: { ...s.map, [code]: v.replace(/[^\d.]/g, '') } }));
+        const BudLine = (a) => (
+          <div key={a.code} className="row" style={{ gap: 8, marginBottom: 6, alignItems: 'center' }}>
+            <span style={{ flex: 1, fontSize: 12, minWidth: 0 }}>{a.name}</span>
+            <input className="inp n" style={{ width: 120 }} inputMode="decimal" value={budD.map[a.code] || ''} placeholder="0.00"
+              onChange={e => setB(a.code, e.target.value)} disabled={!canPost} />
+          </div>
+        );
+        const revIn = budAccounts.filter(a => a.kind === 'rev');
+        const expIn = budAccounts.filter(a => a.kind === 'exp');
+        return (
+          <div className="grid" style={{ gap: 12 }}>
+            <div className="card">
+              <div className="card-t"><BarChart3 size={15} color="var(--brass)" />الموازنة التقديرية والانحرافات</div>
+              <div className="note" style={{ margin: '8px 0 12px' }}>
+                حدّد <b>ميزانيتك الشهرية المتوقّعة</b> لكل بند (إيراد/مصروف)، ثم قارن الفعلي بالمخطّط لأي شهر مع نسبة الانحراف.
+                الموازنة على مستوى المنشأة (كل الفروع)، و<b>موقوفة افتراضيًا</b> حتى تُدخل بنودك وتفعّلها.
+              </div>
+              <label className="row" style={{ gap: 6, fontSize: 12, cursor: 'pointer', marginBottom: 12 }}>
+                <input type="checkbox" checked={budD.enabled} onChange={e => setBudD(s => ({ ...s, enabled: e.target.checked }))} disabled={!canPost} />
+                تفعيل الموازنة والمقارنة
+              </label>
+              <div className="grid g2" style={{ alignItems: 'start' }}>
+                <div className="card" style={{ background: 'rgba(79,178,134,.05)' }}>
+                  <div className="lbl" style={{ marginBottom: 8 }}>الإيرادات — الهدف الشهري</div>
+                  {revIn.map(BudLine)}
+                </div>
+                <div className="card" style={{ background: 'rgba(217,84,77,.05)' }}>
+                  <div className="lbl" style={{ marginBottom: 8 }}>المصروفات — الموازنة الشهرية</div>
+                  {expIn.map(BudLine)}
+                </div>
+              </div>
+              {canPost && <div className="row" style={{ justifyContent: 'flex-end', marginTop: 12 }}><button className="btn pri" onClick={saveBudget}><Check size={14} />{budD.enabled ? 'حفظ وتفعيل الموازنة' : 'حفظ (موقوفة)'}</button></div>}
+            </div>
+
+            {budgetOn ? (
+              <div className="card">
+                <div className="card-h">
+                  <div className="card-t"><BarChart3 size={15} color="var(--brass)" />مقارنة الفعلي بالمخطّط</div>
+                  <div className="row" style={{ gap: 8 }}>
+                    <span style={{ fontSize: 11.5, color: 'var(--dim)' }}>الشهر</span>
+                    <input type="month" className="inp" style={{ width: 150 }} value={bMonth} onChange={e => setBMonth(e.target.value)} />
+                    <button className="btn sm" onClick={printBudget}><Printer size={13} />طباعة</button>
+                  </div>
+                </div>
+                <div className="grid g3" style={{ marginTop: 10 }}>
+                  <Kpi label="الإيرادات (فعلي)" value={money(budRevA)} sub={'الهدف ' + money(budRevB) + ' · ' + (budRevA + 0.005 >= budRevB ? 'محقَّق' : 'دونه')} icon={TrendingUp} color={budRevA + 0.005 >= budRevB ? '#4FB286' : '#E0A458'} />
+                  <Kpi label="المصروفات (فعلي)" value={money(budExpA)} sub={'الموازنة ' + money(budExpB) + ' · ' + (budExpA <= budExpB + 0.005 ? 'ضمنها' : 'تجاوز')} icon={TrendingDown} color={budExpA <= budExpB + 0.005 ? '#4FB286' : '#D9544D'} />
+                  <Kpi label="صافي الربح (فعلي)" value={money(budNetA)} sub={'المخطّط ' + money(budNetB)} icon={Scale} color={budNetA + 0.005 >= budNetB ? '#4FB286' : '#E0A458'} />
+                </div>
+                <div className="tw" style={{ marginTop: 12 }}>
+                  <table className="tb">
+                    <thead><tr><th>البند</th><th style={{ textAlign: 'end' }}>الموازنة الشهرية</th><th style={{ textAlign: 'end' }}>الفعلي ({bMonth})</th><th style={{ textAlign: 'end' }}>الفرق</th><th style={{ textAlign: 'end' }}>النسبة</th><th>الحالة</th></tr></thead>
+                    <tbody>
+                      {budRows.map(r => {
+                        const stTxt = r.a.kind === 'exp' ? (r.over ? 'تجاوز' : 'ضمن الميزانية') : (r.actual + 0.005 >= r.budget ? 'تحقّق الهدف' : 'دون الهدف');
+                        const stCls = r.a.kind === 'exp' ? (r.over ? 'b-rose' : 'b-mint') : (r.actual + 0.005 >= r.budget ? 'b-mint' : 'b-amber');
+                        return (
+                          <tr key={r.a.code}>
+                            <td style={{ fontSize: 12.5 }}>{r.a.name}</td>
+                            <td className="num" style={{ textAlign: 'end' }}>{r.budget ? money(r.budget) : '—'}</td>
+                            <td className="num" style={{ textAlign: 'end' }}>{money(r.actual)}</td>
+                            <td className="num" style={{ textAlign: 'end', color: r.over ? 'var(--rose)' : 'var(--mint)' }}>{fmtBal(r.variance)}</td>
+                            <td className="num" style={{ textAlign: 'end', color: 'var(--dim)' }}>{r.pct == null ? '—' : (r.pct > 0 ? '+' : '') + r.pct + '%'}</td>
+                            <td><span className={'badge ' + stCls}>{stTxt}</span></td>
+                          </tr>
+                        );
+                      })}
+                      {budRows.length === 0 && <tr><td colSpan={6}><div className="empty">لا بنود موازنة ولا حركة في {bMonth}. أدخل بنود الموازنة أعلاه.</div></td></tr>}
+                      <tr style={{ fontWeight: 800, background: 'rgba(200,162,74,.05)' }}>
+                        <td>صافي الربح</td>
+                        <td className="num" style={{ textAlign: 'end' }}>{money(budNetB)}</td>
+                        <td className="num" style={{ textAlign: 'end' }}>{money(budNetA)}</td>
+                        <td className="num" style={{ textAlign: 'end', color: (budNetA + 0.005 >= budNetB) ? 'var(--mint)' : 'var(--rose)' }}>{fmtBal(Math.round((budNetA - budNetB) * 100) / 100)}</td>
+                        <td /><td />
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div className="note" style={{ marginTop: 10 }}>الفعلي مصدره قيودك المرحّلة لذلك الشهر. المصروف يتجاوز حين يزيد الفعلي عن الموازنة، والإيراد يحقّق هدفه حين يبلغه أو يتخطّاه. البنود بلا موازنة تظهر فعليها للاطّلاع فقط.</div>
+              </div>
+            ) : (
+              <div className="note">فعّل الموازنة أعلاه وأدخل بنودها الشهرية لتظهر مقارنة الفعلي بالمخطّط والانحرافات.</div>
+            )}
           </div>
         );
       })()}
