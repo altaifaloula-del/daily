@@ -1823,7 +1823,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v11.4 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v11.5 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -7729,6 +7729,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const [bMonth, setBMonth] = useState(() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }); // شهر المقارنة
   const [apSel, setApSel] = useState(null);         // v10.7 المورد المختار لكشف الحساب
   const [fcD, setFcD] = useState(() => { const f = org.forecastCfg || {}; return { monthlySales: f.monthlySales != null ? String(f.monthlySales) : '', monthlyOpex: f.monthlyOpex != null ? String(f.monthlyOpex) : '', buffer: f.safetyBuffer != null ? String(f.safetyBuffer) : '', horizon: f.horizon || 6 }; }); // v11.4 توقّع نقدي
+  const [mcMonth, setMcMonth] = useState(() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }); // v11.5 شهر الإقفال
   const [q, setQ] = useState('');
   const [month, setMonth] = useState('');           // فلتر شهر للقيود
   const [from, setFrom] = useState('');             // فترة الميزان/القوائم
@@ -7745,6 +7746,9 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
 
   // فتح شاشة محددة قادمة من مركز التطبيقات (دليل/ميزان/قوائم…)
   useEffect(() => { if (acctIntent && acctIntent.v) setView(acctIntent.v); }, [acctIntent && acctIntent.ts]);
+  // v11.5 — على شاشة حزمة الإقفال: اضبط فترة التقارير على شهر الإقفال المختار
+  const mcLastDay = (m) => { const pr = m.split('-').map(Number); return m + '-' + String(new Date(pr[0], pr[1], 0).getDate()).padStart(2, '0'); };
+  useEffect(() => { if (view === 'mclose') { setFrom(mcMonth + '-01'); setTo(mcLastDay(mcMonth)); } }, [view, mcMonth]);
 
   const A = useMemo(() => buildAccounting(org, ops), [org, ops]);
   const canPost = ROLES[me?.role]?.scope === 'all';
@@ -8559,6 +8563,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         <button className={'btn sm' + (view === 'vat' ? ' pri' : ' gh')} onClick={() => setView('vat')}><Receipt size={14} />الضريبة</button>
         <button className={'btn sm' + (view === 'ast' ? ' pri' : ' gh')} onClick={() => setView('ast')}><Building2 size={14} />الأصول</button>
         <button className={'btn sm' + (view === 'bank' ? ' pri' : ' gh')} onClick={() => setView('bank')}><Landmark size={14} />التسوية البنكية</button>
+        <button className={'btn sm' + (view === 'mclose' ? ' pri' : ' gh')} onClick={() => setView('mclose')}><ClipboardCheck size={14} />حزمة الإقفال</button>
         <button className={'btn sm' + (view === 'lock' ? ' pri' : ' gh')} onClick={() => setView('lock')}><Lock size={14} />الإقفال</button>
         <button className={'btn sm' + (view === 'astl' ? ' pri' : ' gh')} onClick={() => setView('astl')}><Truck size={14} />تسوية التطبيقات</button>
         <button className={'btn sm' + (view === 'ob' ? ' pri' : ' gh')} onClick={() => setView('ob')}><Landmark size={14} />الأرصدة الافتتاحية</button>
@@ -9474,6 +9479,80 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
               </div>
             </div>
             {active && <div className="note">✓ قيد «إقفال السنة المالية حتى {(org.yearEnd || {}).closeDate}» يظهر في اليومية (مُوسَّم كإقفال) ويُحوّل الصافي إلى الأرباح المبقاة. قائمة الدخل غير متأثرة، والمركز المالي يعرض «الأرباح المبقاة» ضمن حقوق الملكية.</div>}
+          </div>
+        );
+      })()}
+
+      {view === 'mclose' && (() => {
+        const mEnd = mcLastDay(mcMonth);
+        const mClosings = (ops.closings || []).filter(c => (c.date || '').slice(0, 7) === mcMonth);
+        const notApproved = mClosings.filter(c => c.status !== 'approved').length;
+        const deficits = mClosings.filter(c => countedClosing(c) && (c.variance || 0) < 0).length;
+        const bankMoved = A.entries.some(e => (e.date || '').slice(0, 7) <= mcMonth && e.lines.some(l => l.code === '1201'));
+        const bankOk = (ops.bankRecs || []).some(r => (r.date || '') >= mEnd);
+        const hasItems = (org.items || []).length > 0;
+        const invOn = !!(org.invValuation && org.invValuation.enabled);
+        const hasEmp = (org.employees || []).filter(e => e.isActive !== false).length > 0;
+        const payAcc = (ops.ledgerEntries || []).some(x => x.kind === 'salary_accrual' && x.month === mcMonth);
+        const payPay = (ops.ledgerEntries || []).some(x => x.kind === 'salary_payout' && x.month === mcMonth);
+        const taxOn2 = !!(org.taxCfg && org.taxCfg.enabled);
+        const locked = periodLocked(org, mEnd);
+        const chk = [];
+        if (mClosings.length === 0) chk.push({ st: 'info', label: 'إغلاقات الشهر', detail: 'لا إغلاقات مسجّلة لهذا الشهر بعد.', act: { l: 'الإغلاق', go: () => setTab('closing') } });
+        else chk.push({ st: notApproved === 0 ? 'done' : 'pending', label: 'اعتماد كل إغلاقات الشهر', detail: notApproved === 0 ? mClosings.length + ' إغلاق — كلها معتمدة' : notApproved + ' إغلاق بانتظار الاعتماد', act: { l: 'الاعتماد', go: () => setTab('approve') } });
+        chk.push({ st: deficits === 0 ? 'done' : 'pending', label: 'معالجة فروقات الصندوق', detail: deficits === 0 ? 'لا عجز في إغلاقات الشهر' : deficits + ' إغلاق فيه عجز صندوق', act: { l: 'المقارنة', go: () => setTab('compare') } });
+        if (bankMoved) chk.push({ st: bankOk ? 'done' : 'pending', label: 'التسوية البنكية للشهر', detail: bankOk ? 'طُوبِقَ رصيد البنك مع الكشف' : 'لم تُوثَّق تسوية بنكية بعد نهاية الشهر', act: { l: 'التسوية', go: () => setView('bank') } });
+        if (hasItems) chk.push({ st: invOn ? 'done' : 'pending', label: 'رسملة المخزون', detail: invOn ? 'مفعّلة — تكلفة البضاعة والمخزون صحيحة' : 'غير مفعّلة — قد تختلّ تكلفة البضاعة المباعة', act: { l: 'المخزون', go: () => setTab('inv') } });
+        if (hasEmp) chk.push({ st: (payAcc && payPay) ? 'done' : 'pending', label: 'ترحيل رواتب الشهر', detail: (payAcc && payPay) ? 'رُحّل الاستحقاق وسُجّل الصرف' : !payAcc ? 'لم يُرحّل استحقاق الرواتب' : 'رُحّل الاستحقاق ولم يُسجّل الصرف', act: { l: 'الرواتب', go: () => setTab('payroll') } });
+        if (taxOn2) chk.push({ st: 'info', label: 'مراجعة الضريبة', detail: 'راجع مسودة الإقرار للفترة قبل التقديم', act: { l: 'الضريبة', go: () => setView('vat') } });
+        chk.push({ st: locked ? 'done' : 'pending', label: 'قفل فترة الشهر (آخر خطوة)', detail: locked ? 'الشهر مقفل ضد التعديل' : 'اقفله بعد اكتمال المراجعة لحماية الأرقام', act: { l: 'الإقفال', go: () => setView('lock') } });
+        const applicable = chk.filter(c => c.st !== 'info');
+        const doneN = applicable.filter(c => c.st === 'done').length;
+        const allDone = applicable.length > 0 && doneN === applicable.length;
+        const stCls = { done: 'b-mint', pending: 'b-amber', info: 'b-dim' }, stTx = { done: 'تمّت', pending: 'ناقصة', info: 'مراجعة' };
+        return (
+          <div className="grid" style={{ gap: 12 }}>
+            <div className="card">
+              <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+                  <ClipboardCheck size={16} color="var(--brass)" />
+                  <b style={{ fontSize: 13.5 }}>حزمة الإقفال الشهري</b>
+                  <input type="month" className="inp" style={{ width: 150 }} value={mcMonth} onChange={e => setMcMonth(e.target.value)} />
+                </div>
+                <span className={'badge ' + (allDone ? 'b-mint' : 'b-amber')} style={{ fontSize: 12.5, padding: '6px 12px' }}>{allDone ? 'جاهز للإقفال ✓' : doneN + ' من ' + applicable.length + ' خطوات مكتملة'}</span>
+              </div>
+              <div style={{ height: 8, borderRadius: 5, background: 'var(--ink3)', marginTop: 10, overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: (applicable.length ? doneN / applicable.length * 100 : 0) + '%', background: allDone ? 'var(--mint)' : 'var(--brass)', borderRadius: 5 }} />
+              </div>
+            </div>
+
+            <div className="grid" style={{ gap: 8 }}>
+              {chk.map((c, i) => (
+                <div key={i} className="card" style={{ borderInlineStart: '3px solid ' + (c.st === 'done' ? 'var(--mint)' : c.st === 'pending' ? 'var(--amber)' : 'var(--dim)') }}>
+                  <div className="row" style={{ justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+                    <div style={{ flex: 1, minWidth: 220 }}>
+                      <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+                        <span className={'badge ' + stCls[c.st]} style={{ fontSize: 9.5 }}>{stTx[c.st]}</span>
+                        <b style={{ fontSize: 13 }}>{c.label}</b>
+                      </div>
+                      <div style={{ fontSize: 11.5, color: 'var(--dim)', marginTop: 4 }}>{c.detail}</div>
+                    </div>
+                    {c.act && <button className={'btn sm' + (c.st === 'done' ? ' gh' : '')} onClick={c.act.go}>{c.act.l}<ChevronLeft size={13} /></button>}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="card">
+              <div className="card-t" style={{ marginBottom: 4 }}><FileBarChart size={15} color="var(--brass)" />حزمة تقارير الشهر — {mcMonth}</div>
+              <div className="note" style={{ marginBottom: 10 }}>كل التقارير أدناه مضبوطة تلقائيًا على شهر الإقفال المختار.</div>
+              <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                <button className="btn" onClick={printFS}><Printer size={14} />القوائم المالية</button>
+                <button className="btn" onClick={printTB}><Printer size={14} />ميزان المراجعة</button>
+                <button className="btn" onClick={printForecast}><Printer size={14} />التوقّع النقدي</button>
+                <button className="btn pri" onClick={exportExcel}><Download size={14} />تصدير كل التقارير (Excel)</button>
+              </div>
+            </div>
           </div>
         );
       })()}
