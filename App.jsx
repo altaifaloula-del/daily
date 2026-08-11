@@ -479,7 +479,7 @@ function buildAccounting(org, ops) {
   addAcc('2201', 'رواتب مستحقة', 'liab', { link: 'كشف الرواتب' });
   addAcc('2301', 'ضريبة القيمة المضافة — مخرجات', 'liab', { link: 'مستحقة للهيئة' });
   // — حقوق الملكية (تُفعَّل بالقيد الافتتاحي في المرحلة التالية) —
-  addAcc('3101', 'رأس المال والأرصدة الافتتاحية', 'equity', { link: 'القيد الافتتاحي — مرحلة تالية' });
+  addAcc('3101', 'رأس المال والأرصدة الافتتاحية', 'equity', { link: 'الأرصدة الافتتاحية — من شاشة المحاسبة' });
   // — الإيرادات —
   addAcc('4101', 'المبيعات (إجمالية)', 'rev', { link: 'إغلاقات الورديات المعتمدة' });
   // — المصروفات —
@@ -706,6 +706,20 @@ function buildAccounting(org, ops) {
       lines: [L('5701', depByMonth[ym], 0), L('1791', 0, depByMonth[ym])]
     });
   });
+
+  // ٩) الأرصدة الافتتاحية (رصيد ما قبل المنصة) — قيد افتتاحي واحد، وحساب رأس المال (3101) يوازنه تلقائيًا
+  //     رأس المال المحسوب = مجموع الموجودات − مجموع المطلوبات (معادلة الميزانية)
+  const ob = org.openingBalances;
+  if (ob && ob.enabled !== false && (ob.lines || []).some(l => (l.debit || 0) || (l.credit || 0))) {
+    const obLines = (ob.lines || []).filter(l => (l.debit || 0) || (l.credit || 0)).map(l => L(l.code, l.debit || 0, l.credit || 0));
+    const d = sum(obLines, l => l.debit), c = sum(obLines, l => l.credit);
+    const diff = Math.round((d - c) * 100) / 100;   // موجب = موجودات أكثر ⇒ رأس المال دائن
+    if (Math.abs(diff) >= 0.005) obLines.push(L('3101', diff < 0 ? -diff : 0, diff > 0 ? diff : 0));
+    push({
+      id: 'opening', date: (ob.asOf || today()).slice(0, 10),
+      title: 'الأرصدة الافتتاحية (رصيد ما قبل المنصة)', src: 'قيد افتتاحي', ref: 'افتتاحي', opening: true, lines: obLines
+    });
+  }
 
   // ٩مكرر) القيود اليدوية والافتتاحية — يُدخلها المحاسب من شاشة المحاسبة (التصحيح بقيد عكسي لا بالحذف)
   (ops.journalManual || []).forEach(j => {
@@ -1610,7 +1624,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v9.6 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v9.7 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -6911,6 +6925,12 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const [view, setView] = useState('jr');           // jr قيود · coa دليل · tb ميزان · fs قوائم
   const [repOpen, setRepOpen] = useState(false);    // v9.4 قائمة التقارير
   const [stgOpen, setStgOpen] = useState(false);    // v9.4 قائمة الإعدادات
+  const [obD, setObD] = useState(() => {            // v9.7 مسودة الأرصدة الافتتاحية
+    const o = org.openingBalances || {};
+    const map = {};
+    (o.lines || []).forEach(l => { map[l.code] = String((l.debit || 0) || (l.credit || 0)); });
+    return { asOf: o.asOf || today(), enabled: o.enabled !== false, map };
+  });
   const [open, setOpen] = useState({});             // القيود المفتوحة التفاصيل
   const [q, setQ] = useState('');
   const [month, setMonth] = useState('');           // فلتر شهر للقيود
@@ -7262,6 +7282,23 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     setJm(null); say('سُجّل القيد ✓ — التصحيح لاحقًا يكون بقيد عكسي لا بالحذف');
   };
 
+  // v9.7 — الحسابات القابلة لإدخال رصيد افتتاحي (أصول/خصوم، عدا ضريبة ومجمع إهلاك وأصول ثابتة ورأس المال المحسوب)
+  const obAccounts = A.accounts.filter(a => (a.kind === 'asset' || a.kind === 'liab') && !['1501', '2301', '1701', '1791'].includes(a.code));
+  const saveOB = async () => {
+    const asOf = (obD.asOf || today()).slice(0, 10);
+    if (periodLocked(org, asOf)) return say(LOCK_MSG(asOf), 'no');
+    const lines = obAccounts.map(a => {
+      const amt = Math.round((Number(obD.map[a.code]) || 0) * 100) / 100;
+      if (!amt) return null;
+      return a.kind === 'asset' ? { code: a.code, debit: amt, credit: 0 } : { code: a.code, debit: 0, credit: amt };
+    }).filter(Boolean);
+    await commitOrg(d => ({ ...d, openingBalances: { asOf, enabled: obD.enabled !== false, lines } }), {
+      actionType: 'update', targetType: 'opening_balances', targetId: 'ob',
+      title: 'حدّث الأرصدة الافتتاحية', details: lines.length + ' حساب · بتاريخ ' + asOf
+    });
+    say('حُفظت الأرصدة الافتتاحية — يظهر القيد الافتتاحي في اليومية والميزان');
+  };
+
   const periodBar = (
     <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
       <span style={{ fontSize: 11.5, color: 'var(--dim)' }}>من</span>
@@ -7309,6 +7346,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
               <button onClick={() => { setStgOpen(false); setView('vat'); }}><Receipt size={13} />ضريبة القيمة المضافة</button>
               <button onClick={() => { setStgOpen(false); setView('cc'); }}><BarChart3 size={13} />توزيع مراكز التكلفة</button>
               <button onClick={() => { setStgOpen(false); setView('lock'); }}><Lock size={13} />الإقفال الشهري</button>
+              <button onClick={() => { setStgOpen(false); setView('ob'); }}><Landmark size={13} />الأرصدة الافتتاحية</button>
             </div>
           </>)}
         </div>
@@ -7333,6 +7371,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         <button className={'btn sm' + (view === 'ast' ? ' pri' : ' gh')} onClick={() => setView('ast')}><Building2 size={14} />الأصول</button>
         <button className={'btn sm' + (view === 'bank' ? ' pri' : ' gh')} onClick={() => setView('bank')}><Landmark size={14} />التسوية البنكية</button>
         <button className={'btn sm' + (view === 'lock' ? ' pri' : ' gh')} onClick={() => setView('lock')}><Lock size={14} />الإقفال</button>
+        <button className={'btn sm' + (view === 'ob' ? ' pri' : ' gh')} onClick={() => setView('ob')}><Landmark size={14} />الأرصدة الافتتاحية</button>
         {canPost && <button className="btn sm" style={{ marginInlineStart: 'auto' }} onClick={newJm}><Plus size={14} />قيد يدوي / افتتاحي</button>}
       </div>
 
@@ -7533,7 +7572,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
                 </tbody>
               </table>
             </div>
-            <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 8 }}>الأرصدة الافتتاحية (رأس المال، أرصدة سابقة) تُدخل من زر «قيد يدوي / افتتاحي» مقابل حساب 3101.</div>
+            <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 8 }}>الأرصدة الافتتاحية (نقدية، بنك، ذمم، موردون…) تُدخل من تبويب «الأرصدة الافتتاحية» ورأس المال يُحسب تلقائيًا.</div>
           </div>
         </div>
       )}
@@ -7661,6 +7700,71 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
           </div>
         </div>
       )}
+
+      {view === 'ob' && (() => {
+        const assets = obAccounts.filter(a => a.kind === 'asset');
+        const liabs = obAccounts.filter(a => a.kind === 'liab');
+        const sd = (arr) => sum(arr, a => Number(obD.map[a.code]) || 0);
+        const totA = sd(assets), totL = sd(liabs);
+        const capital = Math.round((totA - totL) * 100) / 100;
+        const setAmt = (code, v) => setObD(s => ({ ...s, map: { ...s.map, [code]: v.replace(/[^\d.]/g, '') } }));
+        const obLocked = periodLocked(org, obD.asOf);
+        const Line = (a) => (
+          <div key={a.code} className="row" style={{ gap: 8, marginBottom: 6, alignItems: 'center' }}>
+            <span style={{ flex: 1, fontSize: 12, minWidth: 0 }}>{a.code} · {a.name}</span>
+            <input className="inp n" style={{ width: 130 }} inputMode="decimal" value={obD.map[a.code] || ''}
+              onChange={e => setAmt(a.code, e.target.value)} placeholder="0.00" disabled={!canPost} />
+          </div>
+        );
+        return (
+          <div className="grid" style={{ gap: 12 }}>
+            <div className="card">
+              <div className="card-t"><Landmark size={15} color="var(--brass)" />الأرصدة الافتتاحية — رصيد ما قبل المنصة</div>
+              <div className="note" style={{ margin: '8px 0 12px' }}>
+                أدخِل أرصدة حساباتك كما كانت قبل بدء التشغيل على المنصة (نقدية، بنك، ذمم، موردون…).
+                <b> رأس المال يُحسب تلقائيًا</b> = الموجودات − المطلوبات، وتُسجَّل جميعها بقيدٍ افتتاحي واحد متوازن بتاريخ الرصيد.
+                الأصول الثابتة تُدخل من تبويب «الأصول» (بتمويل: قيد افتتاحي)، لا من هنا.
+              </div>
+              <div className="row" style={{ gap: 14, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 12 }}>
+                <Field label="تاريخ الرصيد الافتتاحي (عادةً يوم ما قبل التشغيل)">
+                  <input type="date" className="inp" style={{ width: 170 }} value={obD.asOf}
+                    onChange={e => setObD(s => ({ ...s, asOf: e.target.value }))} disabled={!canPost} />
+                </Field>
+                <label className="row" style={{ gap: 6, fontSize: 12, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={obD.enabled !== false} onChange={e => setObD(s => ({ ...s, enabled: e.target.checked }))} disabled={!canPost} />
+                  تفعيل الأرصدة الافتتاحية في المحاسبة
+                </label>
+              </div>
+              {obLocked && <div className="note" style={{ marginBottom: 10, borderColor: 'rgba(224,164,88,.4)' }}>⚠️ شهر {String(obD.asOf).slice(0, 7)} مقفل — افتح الإقفال أولًا لتعديل الأرصدة الافتتاحية.</div>}
+              <div className="grid g2" style={{ alignItems: 'start' }}>
+                <div className="card" style={{ background: 'rgba(91,147,196,.05)' }}>
+                  <div className="lbl" style={{ marginBottom: 8 }}>الموجودات (أصول)</div>
+                  {assets.map(Line)}
+                  <div className="row" style={{ justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--line)' }}>
+                    <b style={{ fontSize: 12 }}>مجموع الموجودات</b><b className="num">{money(totA)}</b>
+                  </div>
+                </div>
+                <div className="card" style={{ background: 'rgba(224,164,88,.05)' }}>
+                  <div className="lbl" style={{ marginBottom: 8 }}>المطلوبات (خصوم)</div>
+                  {liabs.map(Line)}
+                  <div className="row" style={{ justifyContent: 'space-between', marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--line)' }}>
+                    <b style={{ fontSize: 12 }}>مجموع المطلوبات</b><b className="num">{money(totL)}</b>
+                  </div>
+                </div>
+              </div>
+              <div className="row" style={{ gap: 14, marginTop: 14, flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span className="badge b-brass" style={{ fontSize: 12.5, padding: '6px 12px' }}>
+                  رأس المال المحسوب (3101) = الموجودات − المطلوبات: <b className="num">{money(capital)}</b>
+                </span>
+                {canPost && <button className="btn pri" disabled={obLocked} onClick={saveOB}><Check size={14} />حفظ الأرصدة الافتتاحية</button>}
+              </div>
+            </div>
+            {org.openingBalances && (org.openingBalances.lines || []).length > 0 && (
+              <div className="note">✓ الأرصدة الافتتاحية مُفعّلة حاليًا بتاريخ {org.openingBalances.asOf} — تظهر كقيد «الأرصدة الافتتاحية» في اليومية وتنعكس في الميزان والمركز المالي.</div>
+            )}
+          </div>
+        );
+      })()}
 
       {view === 'lock' && (
         <div className="grid" style={{ gap: 12 }}>
