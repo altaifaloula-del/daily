@@ -1998,7 +1998,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v13.9 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v14.0 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -9301,6 +9301,7 @@ function Launcher({ org, ops, me, setTab, openAcctView, openInvView }) {
   const fullMe = ROLES[me.role]?.scope === 'all';
   const secIndex = Object.entries(HUBS).flatMap(([hubId, h]) => h.views.filter(v => fullMe || rtMe.includes(v.id)).map(v => ({ id: v.id, ar: v.ar, icon: v.icon, hubId, hubAr: h.ar, cat: (LAUNCH_IX[hubId] || {}).cat })));
   const matchedSecs = qq ? secIndex.filter(v => norm(v.ar + ' ' + v.hubAr).includes(qq)) : [];
+  const favSecs = secIndex.filter(v => isFav(v.id));   // v14.0 — أقسام مثبّتة في المفضلة
   const hour = new Date().getHours();
   const greet = hour < 12 ? 'صباح الخير' : 'مساء الخير';
 
@@ -9316,9 +9317,20 @@ function Launcher({ org, ops, me, setTab, openAcctView, openInvView }) {
     </div>
   );
 
+  const SecTile = (v) => (
+    <div key={'sec:' + v.hubId + ':' + v.id} className="lh-tile" style={{ '--c': CAT_CLR[v.cat] || 'var(--brass)' }}
+      onClick={() => setTab(v.id)} title={v.hubAr + ' ← ' + v.ar}>
+      <button className={'lh-star' + (isFav(v.id) ? ' on' : '')} title={isFav(v.id) ? 'إزالة من المفضلة' : 'تثبيت في المفضلة'}
+        onClick={(e) => toggleFav(v.id, e)}><Star size={12} fill={isFav(v.id) ? 'currentColor' : 'none'} /></button>
+      <div className="lh-box"><v.icon size={25} /></div>
+      <div className="lh-nm">{v.ar}</div>
+      <div style={{ fontSize: 9, color: 'var(--faint)', marginTop: 1, textAlign: 'center' }}>{v.hubAr}</div>
+    </div>
+  );
+
   return (
     <div className="lh">
-      <p className="lh-hi">{greet} يا <b>{(me.name || '').split(' ')[0]}</b> — كل تطبيقاتك أمامك. اضغط أي تطبيق لفتحه، والنجمة لتثبيته في المفضلة.</p>
+      <p className="lh-hi">{greet} يا <b>{(me.name || '').split(' ')[0]}</b> — كل تطبيقاتك أمامك. اضغط أي تطبيق أو قسم لفتحه، والنجمة لتثبيته في المفضلة.</p>
       <div className="lh-role"><span className="pill">{(ROLES[me.role]?.ar || me.role).split('—')[0].trim()} · {shown.length} تطبيقاً</span></div>
       <div className="lh-search">
         <Search size={15} className="lh-si" />
@@ -9328,23 +9340,14 @@ function Launcher({ org, ops, me, setTab, openAcctView, openInvView }) {
       {qq && matchedSecs.length > 0 && (
         <div className="lh-sec">
           <div className="lh-sect"><Search size={14} className="ic" />أقسام مطابقة — انتقال مباشر</div>
-          <div className="lh-grid">
-            {matchedSecs.map(v => (
-              <div key={v.hubId + ':' + v.id} className="lh-tile" style={{ '--c': CAT_CLR[v.cat] || 'var(--brass)' }}
-                onClick={() => setTab(v.id)} title={v.hubAr + ' ← ' + v.ar}>
-                <div className="lh-box"><v.icon size={25} /></div>
-                <div className="lh-nm">{v.ar}</div>
-                <div style={{ fontSize: 9, color: 'var(--faint)', marginTop: 1, textAlign: 'center' }}>{v.hubAr}</div>
-              </div>
-            ))}
-          </div>
+          <div className="lh-grid">{matchedSecs.map(SecTile)}</div>
         </div>
       )}
 
-      {favApps.length > 0 && !qq && (
+      {(favApps.length + favSecs.length) > 0 && !qq && (
         <div className="lh-sec">
           <div className="lh-sect"><Star size={14} className="ic" fill="currentColor" />المفضلة</div>
-          <div className="lh-grid">{favApps.map(Tile)}</div>
+          <div className="lh-grid">{favApps.map(Tile)}{favSecs.map(SecTile)}</div>
         </div>
       )}
 
