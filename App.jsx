@@ -139,6 +139,7 @@ const arDate = (d) => {
     });
   } catch { return d; }
 };
+const monthLabel = (ym) => { try { return new Date(ym + '-01T00:00:00').toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' }); } catch { return ym; } };
 const arTime = (iso) => {
   try {
     const t = new Date(iso), diff = (Date.now() - t.getTime()) / 1000;
@@ -1094,9 +1095,9 @@ const DENOMS = [
 const emptyDenoms = () => DENOMS.reduce((o, d) => ({ ...o, [d.k]: 0 }), {});
 const countDenoms = (d) => DENOMS.reduce((s, x) => s + (Number(d?.[x.k]) || 0) * x.v, 0);
 
-const ALL_TABS = ['exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit'];
+const ALL_TABS = ['exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit'];
 const TAB_AR = {
-  dash: 'لوحة المؤشرات', compare: 'مقارنة الفروع', growth: 'تحليلات النمو', breakeven: 'تحليل التعادل', closing: 'الإغلاق اليومي', apps: 'التطبيقات',
+  dash: 'لوحة المؤشرات', compare: 'مقارنة الفروع', growth: 'تحليلات النمو', breakeven: 'تحليل التعادل', scorecard: 'لوحة الأهداف', closing: 'الإغلاق اليومي', apps: 'التطبيقات',
   approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', payroll: 'الرواتب والسلف',
   suppliers: 'الموردون والمشتريات', inv: 'المخزون والمنتجات', partners: 'دفتر الشركاء',
   acct: 'المحاسبة', shifts: 'الورديات', archive: 'أرشيف المستندات', ai: 'المركز الذكي',
@@ -1121,7 +1122,7 @@ const ROLES = {
   },
   head_office: {
     ar: 'المكتب الرئيسي — المالية والإدارة', badge: 'b-brass', scope: 'all', approver: true,
-    tabs: ['exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
+    tabs: ['exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['كل الفروع والتقارير المجمّعة', 'التدقيق والاعتماد النهائي', 'الخزينة والرواتب والموردون والمشتريات والمخزون', 'المحاسبة الكاملة: قيود وميزان وقوائم وضريبة وأصول ومراكز تكلفة']
   },
   system_admin: {
@@ -1139,7 +1140,7 @@ const ROLES = {
     // إعادة ترتيب v8.0: المحاسب الرئيسي بطبيعته يعمل على المنشأة كلها — نطاق كامل
     // بلا صلاحيات إدارة (لا مستخدمين/فروع، لا تفعيل ضريبة، لا إدارة تطبيقات)
     ar: 'الإدارة المالية — محاسب رئيسي', badge: 'b-sky', scope: 'all', legacy: true,
-    tabs: ['exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
+    tabs: ['exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['المحاسبة كاملة: قيود يدوية وافتتاحية وميزان وقوائم ومراكز تكلفة', 'الضريبة والأصول والتسوية البنكية (عرض وتسجيل — التفعيل للإدارة)', 'المشتريات والمخزون والرواتب والخزينة', 'كل الفروع — دون إدارة المستخدمين والإعدادات']
   }
 };
@@ -1236,6 +1237,8 @@ const LAUNCH_APPS = [
     sections: ['نمو السنة', 'نمو الشهر', 'اتجاه المبيعات', 'مقارنة سنة بسنة', 'نمو الفروع'], kw: ['نمو', 'مقارنة', 'سنوي', 'سنة', 'اتجاه', 'تحليل', 'مبيعات', 'أداء', 'تطور'] },
   { id: 'breakeven', ar: 'تحليل التعادل', en: 'Break-even', cat: 'bi', icon: Scale, open: { tab: 'breakeven' },
     sections: ['نقطة التعادل', 'هامش الأمان', 'تكلفة الطعام', 'تكلفة العمالة', 'تصنيف التكاليف'], kw: ['تعادل', 'تكلفة', 'طعام', 'عمالة', 'ثابت', 'متغير', 'هامش', 'ربحية', 'أولية', 'prime'] },
+  { id: 'scorecard', ar: 'لوحة الأهداف', en: 'Scorecard', cat: 'bi', icon: CheckCircle2, open: { tab: 'scorecard' },
+    sections: ['المؤشرات مقابل الأهداف', 'إشارات لونية', 'اختيار المؤشرات'], kw: ['هدف', 'أهداف', 'مؤشر', 'مؤشرات', 'إنجاز', 'تحقق', 'scorecard', 'kpi', 'مستهدف'] },
   { id: 'acct', ar: 'المحاسبة', en: 'Accounting', cat: 'fin', icon: Scale, open: { tab: 'acct' },
     sections: ['القيود اليومية', 'دليل الحسابات', 'ميزان المراجعة', 'القوائم المالية', 'مراكز التكلفة', 'الأصول والإهلاك', 'التسوية البنكية', 'الإقفال الشهري'],
     kw: ['قيد', 'يومية', 'حساب', 'ميزان', 'قائمة', 'دخل', 'مركز مالي', 'مراكز تكلفة', 'أصل', 'إهلاك', 'بنك', 'تسوية', 'إقفال', 'قفل', 'محاسبة'] },
@@ -1285,7 +1288,7 @@ const LAUNCH_APPS = [
 const LAUNCH_IX = {}; LAUNCH_APPS.forEach(a => { LAUNCH_IX[a.id] = a; });
 // ترتيب عرض مقصود (لا عشوائي) — تدفّق منطقي: التشغيل اليومي ← المالية ← المشتريات ←
 // المخزون ← الموارد البشرية ← الضريبة ← الحوكمة ← الذكاء (متجاورة لونيًا وموضوعيًا، بنمط أودو)
-const LAUNCH_ORDER = ['exec', 'alerts', 'growth', 'breakeven', 'closing', 'sales', 'approve', 'dash', 'compare', 'shifts', 'acct', 'treasury', 'reports', 'rbuild', 'suppliers', 'partners', 'inv', 'payroll', 'vat', 'brmgmt', 'entities', 'docs', 'backup', 'audit', 'archive', 'ai'];
+const LAUNCH_ORDER = ['exec', 'alerts', 'growth', 'breakeven', 'scorecard', 'closing', 'sales', 'approve', 'dash', 'compare', 'shifts', 'acct', 'treasury', 'reports', 'rbuild', 'suppliers', 'partners', 'inv', 'payroll', 'vat', 'brmgmt', 'entities', 'docs', 'backup', 'audit', 'archive', 'ai'];
 const launchRank = (id) => { const i = LAUNCH_ORDER.indexOf(id); return i < 0 ? 999 : i; };
 /* v8.5 — لقطات احتياطية يومية محلية (IndexedDB) على أجهزة الإدارة:
    حماية إضافية ضد التلف أو الحذف الخاطئ — والنسخة الملفية تبقى الحماية الخارجية */
@@ -1905,6 +1908,7 @@ export default function App() {
     { id: 'compare', ar: 'مقارنة الفروع', icon: BarChart3 },
     { id: 'growth', ar: 'تحليلات النمو', icon: TrendingUp },
     { id: 'breakeven', ar: 'تحليل التعادل', icon: Scale },
+    { id: 'scorecard', ar: 'لوحة الأهداف', icon: CheckCircle2 },
     { id: 'sales', ar: 'المبيعات', icon: CircleDollarSign },
     { id: 'closing', ar: 'الإغلاق اليومي', icon: ClipboardCheck },
     { id: 'apps', ar: 'إدارة التطبيقات', icon: Grid3x3 },
@@ -2016,7 +2020,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v12.7 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v12.8 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2121,6 +2125,7 @@ export default function App() {
               {safeTab === 'compare' && <BranchCompare {...shared} />}
               {safeTab === 'growth' && <GrowthAnalytics {...shared} />}
               {safeTab === 'breakeven' && <BreakEven {...shared} />}
+              {safeTab === 'scorecard' && <Scorecard {...shared} />}
               {safeTab === 'sales' && <Sales {...shared} />}
               {safeTab === 'closing' && <Closing {...shared} />}
               {safeTab === 'apps' && <AppsCenter {...shared} />}
@@ -3315,6 +3320,116 @@ function BranchCompare({ org, ops, me, myBranches, scoped, theme, setTab }) {
 }
 
 // ===== v10.8: اللوحة التنفيذية الموحّدة — تجمع مؤشرات كل الوحدات في شاشة واحدة =====
+/* ============================================================
+   v12.8 — لوحة مؤشرات بأهداف (Scorecard)
+   اختر مؤشراتك، حدّد أهدافها الشهرية، وتابع تحقّقها بإشارات لونية.
+   القيم الفعلية من قيودك؛ الأهداف بيدك — بلا افتراض.
+   ============================================================ */
+const SC_KPIS = [
+  { k: 'rev', ar: 'إيراد الشهر', unit: 'sar', dir: 'up' },
+  { k: 'net', ar: 'صافي ربح الشهر', unit: 'sar', dir: 'up' },
+  { k: 'margin', ar: 'هامش صافي الربح', unit: 'pct', dir: 'up' },
+  { k: 'food', ar: 'تكلفة الطعام', unit: 'pct', dir: 'down' },
+  { k: 'labor', ar: 'تكلفة العمالة', unit: 'pct', dir: 'down' },
+  { k: 'prime', ar: 'التكلفة الأولية (طعام+عمالة)', unit: 'pct', dir: 'down' },
+  { k: 'avgday', ar: 'متوسط الإغلاق اليومي', unit: 'sar', dir: 'up' },
+  { k: 'variance', ar: 'فرق الصندوق (تسامح)', unit: 'sar', dir: 'zero' },
+  { k: 'count', ar: 'عدد الإغلاقات', unit: 'num', dir: 'up' },
+  { k: 'cash', ar: 'النقد الحالي', unit: 'sar', dir: 'up' }
+];
+function Scorecard({ org, ops, me, scoped, commitOrg, say, setTab }) {
+  const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+  const A = useMemo(() => buildAccounting(org, ops), [org, ops]);
+  const [month, setMonth] = useState(today().slice(0, 7));
+  const [tg, setTg] = useState(() => ({ ...((org.scorecard && org.scorecard.targets) || {}) }));
+  const [enabled, setEnabled] = useState(() => (org.scorecard && org.scorecard.enabled) || SC_KPIS.map(k => k.k));
+  const canPost = ROLES[me?.role]?.scope === 'all';
+
+  const agg = useMemo(() => { const m = {}; A.entries.forEach(e => { if ((e.date || '').slice(0, 7) !== month) return; e.lines.forEach(l => { const x = m[l.code] || (m[l.code] = { d: 0, c: 0 }); x.d += l.debit; x.c += l.credit; }); }); return m; }, [A, month]);
+  const accBal = (code, kind) => { const x = agg[code]; if (!x) return 0; return (kind === 'exp' || kind === 'asset') ? x.d - x.c : x.c - x.d; };
+  const rev = r2(sum(A.accounts.filter(a => a.kind === 'rev'), a => accBal(a.code, 'rev')));
+  const exp = r2(sum(A.accounts.filter(a => a.kind === 'exp'), a => accBal(a.code, 'exp')));
+  const net = r2(rev - exp);
+  const margin = rev > 0.004 ? r2(net / rev * 100) : 0;
+  const labor = r2(accBal('5201', 'exp') + accBal('5202', 'exp'));
+  const laborPct = rev > 0.004 ? r2(labor / rev * 100) : 0;
+  const costClass = org.costClass || {};
+  const isVarDefault = (code, name) => ['5301', '5302', '5198', '5150', '5199'].includes(code) || /مواد|مشتريات|بضاعة|خامات|طعام/.test(name || '');
+  const expAccts = A.accounts.filter(a => a.kind === 'exp' && agg[a.code]).map(a => ({ code: a.code, name: a.name, amt: r2(accBal(a.code, 'exp')) }));
+  const variable = r2(sum(expAccts.filter(a => (costClass[a.code] || (isVarDefault(a.code, a.name) ? 'variable' : 'fixed')) === 'variable'), a => a.amt));
+  const commissions = r2(accBal('5301', 'exp') + accBal('5302', 'exp'));
+  const foodPct = rev > 0.004 ? r2((variable - commissions) / rev * 100) : 0;
+  const prime = r2(foodPct + laborPct);
+  const counted = scoped.closings.filter(c => countedClosing(c) && (c.date || '').slice(0, 7) === month);
+  const days = new Set(counted.map(c => c.date)).size || 1;
+  const val = { rev, net, margin, food: foodPct, labor: laborPct, prime, avgday: r2(rev / days), variance: r2(sum(counted, c => c.variance || 0)), count: counted.length, cash: r2(sum(A.accounts.filter(a => a.cash), a => a.balance)) };
+
+  const numT = (k) => { const v = tg[k]; if (v == null || v === '') return null; const n = Number(String(v).replace(/[^\d.-]/g, '')); return isNaN(n) ? null : n; };
+  const statusOf = (kpi, actual, target) => {
+    if (target == null) return { s: 'none', c: '#7E7566', ar: 'بلا هدف' };
+    if (kpi.dir === 'up') return actual >= target ? { s: 'ok', c: '#4FB286', ar: 'محقّق' } : actual >= target * 0.85 ? { s: 'near', c: '#E0A458', ar: 'قريب' } : { s: 'miss', c: '#D9544D', ar: 'دون الهدف' };
+    if (kpi.dir === 'down') return actual <= target ? { s: 'ok', c: '#4FB286', ar: 'محقّق' } : actual <= target * 1.15 ? { s: 'near', c: '#E0A458', ar: 'قريب' } : { s: 'miss', c: '#D9544D', ar: 'تجاوز الهدف' };
+    return Math.abs(actual) <= Math.abs(target) ? { s: 'ok', c: '#4FB286', ar: 'ضمن الحد' } : Math.abs(actual) <= Math.abs(target) * 2 ? { s: 'near', c: '#E0A458', ar: 'قريب' } : { s: 'miss', c: '#D9544D', ar: 'خارج الحد' };
+  };
+  const fmtVal = (kpi, v) => kpi.unit === 'pct' ? (r2(v).toFixed(1) + '%') : kpi.unit === 'num' ? String(r2(v)) : money(v);
+  const rows = SC_KPIS.filter(k => enabled.includes(k.k)).map(kpi => { const actual = r2(val[kpi.k]); const target = numT(kpi.k); return { kpi, actual, target, st: statusOf(kpi, actual, target) }; });
+  const withTarget = rows.filter(r => r.target != null);
+  const achieved = withTarget.filter(r => r.st.s === 'ok').length;
+
+  const save = async () => { await commitOrg(d => ({ ...d, scorecard: { targets: tg, enabled } }), { actionType: 'update', targetType: 'tax_settings', targetId: 'scorecard', title: 'حفظ لوحة الأهداف', details: withTarget.length + ' هدف' }); say('حُفظت اللوحة ✓'); };
+  const toggleKpi = (k) => setEnabled(e => e.includes(k) ? e.filter(x => x !== k) : [...e, k]);
+  const exportSC = () => { try { const head = ['المؤشر', 'القيمة الحالية', 'الهدف', 'الحالة']; const body = rows.map(r => [r.kpi.ar, r.kpi.unit === 'pct' ? r2(r.actual) : r.actual, r.target == null ? '' : r.target, r.st.ar]); const blob = makeXlsx([{ name: 'لوحة الأهداف ' + month, rows: [head, ...body] }]); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'لوحة_الأهداف_' + month + '.xlsx'; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(url), 1500); say('نُزّلت اللوحة (Excel) ✓'); } catch (e) { say('تعذّر توليد Excel', 'no'); } };
+
+  return (
+    <div className="grid" style={{ gap: 14 }}>
+      <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+        <div>
+          <h2 style={{ fontSize: 17 }}>لوحة المؤشرات بأهداف</h2>
+          <div style={{ fontSize: 12, color: 'var(--dim)' }}>حدّد أهدافك الشهرية وتابع تحقّقها بإشارات لونية — القيم من قيودك</div>
+        </div>
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+          <input type="month" className="inp" style={{ width: 'auto' }} value={month} onChange={e => setMonth(e.target.value)} />
+          <button className="btn sm" onClick={exportSC}><Download size={13} />Excel</button>
+          {canPost && <button className="btn sm pri" onClick={save}><Check size={14} />حفظ</button>}
+        </div>
+      </div>
+
+      <div className="grid g3">
+        <Kpi label="أهداف محقّقة" value={achieved + ' / ' + withTarget.length} sub={withTarget.length ? Math.round(achieved / withTarget.length * 100) + '% من أهدافك' : 'حدّد أهدافك أدناه'} icon={CheckCircle2} color={withTarget.length && achieved === withTarget.length ? '#4FB286' : achieved > 0 ? '#E0A458' : '#7E7566'} />
+        <Kpi label="إيراد الشهر" value={money(rev)} sub={monthLabel(month)} icon={TrendingUp} color="#C8A24A" />
+        <Kpi label="صافي الشهر" value={money(net)} sub={'هامش ' + margin + '%'} icon={Landmark} color={net >= 0 ? '#4FB286' : '#D9544D'} />
+      </div>
+
+      <div className="card">
+        <div className="card-t" style={{ marginBottom: 10 }}><CheckCircle2 size={15} color="var(--brass)" />المؤشرات مقابل الأهداف — {monthLabel(month)}</div>
+        <div className="tw">
+          <table className="tb">
+            <thead><tr><th>المؤشر</th><th style={{ textAlign: 'end' }}>القيمة الحالية</th><th style={{ textAlign: 'center' }}>الهدف</th><th style={{ textAlign: 'center' }}>الحالة</th></tr></thead>
+            <tbody>
+              {rows.map(r => (
+                <tr key={r.kpi.k}>
+                  <td style={{ fontSize: 12.5, fontWeight: 600 }}>{r.kpi.ar}<span style={{ fontSize: 9.5, color: 'var(--faint)' }}> · {r.kpi.dir === 'up' ? 'الأعلى أفضل' : r.kpi.dir === 'down' ? 'الأقل أفضل' : 'قرب الصفر'}</span></td>
+                  <td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{fmtVal(r.kpi, r.actual)}</td>
+                  <td style={{ textAlign: 'center' }}>
+                    <input className="inp n" style={{ width: 100, textAlign: 'center' }} inputMode="decimal" value={tg[r.kpi.k] != null ? tg[r.kpi.k] : ''} placeholder="—" disabled={!canPost} onChange={e => setTg(s => ({ ...s, [r.kpi.k]: e.target.value.replace(/[^\d.-]/g, '') }))} />
+                  </td>
+                  <td style={{ textAlign: 'center' }}><span className="badge" style={{ background: 'transparent', border: '1px solid ' + r.st.c, color: r.st.c }}>● {r.st.ar}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--dim)', margin: '12px 0 6px' }}>المؤشرات المعروضة (اضغط لإظهار/إخفاء)</div>
+        <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+          {SC_KPIS.map(k => <button key={k.k} className={'btn sm' + (enabled.includes(k.k) ? ' pri' : ' gh')} onClick={() => canPost && toggleKpi(k.k)} disabled={!canPost}>{enabled.includes(k.k) ? '✓ ' : ''}{k.ar}</button>)}
+        </div>
+      </div>
+
+      <div className="note">🎯 القيمة الحالية تُحتسب من قيود الشهر المختار؛ الهدف تحدّده أنت. الإشارة: <b style={{ color: '#4FB286' }}>أخضر</b> محقّق · <b style={{ color: '#E0A458' }}>أصفر</b> قريب (ضمن ١٥٪) · <b style={{ color: '#D9544D' }}>أحمر</b> بعيد. نِسَب الطعام والعمالة تتبع تصنيف التكاليف في «تحليل التعادل».</div>
+    </div>
+  );
+}
+
 /* ============================================================
    v12.6 — تحليل التعادل وتكلفة الطعام
    من أرقامك الفعلية (إيراد ومصروفات الشهر): تصنيف التكاليف ثابت/متغيّر
