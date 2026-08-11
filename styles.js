@@ -76,10 +76,15 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
   border-radius:20px;padding:1px 7px;font-weight:700}
 .main{flex:1;min-width:0;max-width:100%;display:flex;flex-direction:column;min-height:0;overflow:hidden}
 .top{
-  display:flex;align-items:center;gap:12px;padding:12px 20px;flex-shrink:0;
+  display:flex;align-items:center;gap:12px;padding:12px 22px;flex-shrink:0;
   border-bottom:1px solid var(--line);background:rgba(20,17,15,.9);
   backdrop-filter:blur(10px);z-index:30;flex-wrap:wrap
 }
+.top .toptitle{font-size:21px;font-weight:800;font-family:'Markazi Text',serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:42vw;margin:0;letter-spacing:.2px}
+.topstatus{display:flex;align-items:center;gap:8px;margin-inline-start:auto;flex:0 0 auto}
+.topstatus .btn.sm.gh{width:36px;height:36px;padding:0;display:inline-grid;place-items:center;border-radius:10px}
+.topstatus .synctime{width:auto !important;padding:0 10px !important;gap:5px}
+.topstatus .livebadge{padding:5px 10px;border-radius:999px;font-weight:600}
 .page{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:24px;width:100%}
 .page-inner{max-width:1500px;margin:0 auto;width:100%}
 .hidden-desk{display:none}
@@ -624,29 +629,31 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
 .lh-sect{font-size:11px;color:var(--faint);letter-spacing:.3px;margin:0 4px 12px;display:flex;align-items:center;gap:8px}
 .lh-sect .ic{color:var(--brass)}
 .lh-sect::after{content:'';flex:1;height:1px;background:linear-gradient(to left,var(--line),transparent)}
-.lh-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:10px 6px}
-@media(min-width:901px){.lh-grid{grid-template-columns:repeat(9,1fr)}}
-.lh-tile{position:relative;display:flex;flex-direction:column;align-items:center;gap:9px;padding:15px 6px 12px;
-  border-radius:14px;cursor:pointer;border:1px solid transparent;transition:.15s;background:none}
-.lh-tile:hover{background:var(--acc-soft);border-color:var(--line-g);transform:translateY(-2px)}
-.lh-box{width:60px;height:60px;border-radius:16px;display:grid;place-items:center;position:relative;
+.lh-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(134px,1fr));gap:18px 14px}
+@media(min-width:901px){.lh-grid{grid-template-columns:repeat(6,1fr)}}
+.lh-tile{position:relative;display:flex;flex-direction:column;align-items:center;gap:12px;padding:20px 8px 16px;
+  border-radius:18px;cursor:pointer;border:1px solid transparent;transition:.15s;background:none}
+.lh-tile:hover{background:var(--acc-soft);border-color:var(--line-g);transform:translateY(-3px)}
+.lh-box{width:82px;height:82px;border-radius:22px;display:grid;place-items:center;position:relative;
   background:var(--ink3);border:1px solid var(--line-g);box-shadow:var(--sh-2);transition:.15s;color:var(--c,var(--brass))}
 .lh-tile:hover .lh-box{border-color:color-mix(in srgb, var(--c,var(--brass)) 45%, var(--line-g))}
-.lh-nm{font-size:11.5px;font-weight:600;text-align:center;line-height:1.45;color:var(--txt);max-width:116px}
-.lh-star{position:absolute;top:7px;inset-inline-start:9px;width:22px;height:22px;border:1px solid var(--line);
-  border-radius:7px;color:var(--faint);cursor:pointer;display:grid;place-items:center;opacity:0;transition:.15s;
+.lh-nm{font-size:13.5px;font-weight:600;text-align:center;line-height:1.45;color:var(--txt);max-width:160px}
+.lh-star{position:absolute;top:9px;inset-inline-start:11px;width:26px;height:26px;border:1px solid var(--line);
+  border-radius:8px;color:var(--faint);cursor:pointer;display:grid;place-items:center;opacity:0;transition:.15s;
   background:color-mix(in srgb,var(--ink3) 82%,transparent)}
 .lh-tile:hover .lh-star{opacity:1}
 .lh-star.on{opacity:1;color:var(--amber);border-color:var(--amber)}
-.lh-bdg{position:absolute;top:9px;inset-inline-end:16px;min-width:17px;height:17px;border-radius:999px;
-  background:var(--rose);color:#fff;font-size:9.5px;font-weight:700;display:grid;place-items:center;padding:0 4px}
-.lh-cnt{position:absolute;top:-6px;inset-inline-start:-6px;min-width:16px;height:16px;border-radius:999px;
-  background:var(--brass);color:#14110f;font-size:8.5px;font-weight:800;display:grid;place-items:center;padding:0 4px}
+.lh-bdg{position:absolute;top:11px;inset-inline-end:20px;min-width:18px;height:18px;border-radius:999px;
+  background:var(--rose);color:#fff;font-size:10px;font-weight:700;display:grid;place-items:center;padding:0 4px}
+.lh-cnt{position:absolute;top:-8px;inset-inline-start:-8px;min-width:24px;height:24px;border-radius:999px;
+  background:var(--brass);color:#14110f;font-size:12px;font-weight:800;display:grid;place-items:center;padding:0 5px;
+  border:2px solid var(--ink2);box-shadow:var(--sh-2)}
 .lh-empty{color:var(--faint);text-align:center;font-size:12px;padding:30px}
 .homebtn2{display:inline-grid;place-items:center;width:34px;height:34px;border-radius:9px;flex-shrink:0;
   border:1px solid var(--frame-o);background:var(--acc-soft);color:var(--brass);cursor:pointer}
-@media(max-width:560px){.lh-grid{grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:8px 4px}
-  .lh-box{width:52px;height:52px;border-radius:14px}.lh-nm{font-size:10.5px}}
+@media(max-width:560px){.lh-grid{grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:14px 8px}
+  .lh-box{width:66px;height:66px;border-radius:18px}.lh-nm{font-size:11.5px}
+  .lh-cnt{min-width:21px;height:21px;font-size:11px}}
 
 /* ظهور التطبيقات لكل مستخدم — v9.2 */
 .appperm-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px}
@@ -686,7 +693,7 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
   .side{display:none !important}
   .main{width:100%;max-width:100%}
 }
-.usermenu{position:relative;flex-shrink:0}
+.usermenu{position:relative;flex-shrink:0;border-inline-start:1px solid var(--line);padding-inline-start:10px;margin-inline-start:3px}
 .usermenu-btn{display:flex;align-items:center;gap:8px;padding:4px 10px 4px 5px;border-radius:999px;
   border:1px solid var(--line);background:var(--ink3);cursor:pointer;color:var(--txt)}
 .usermenu-btn:hover{border-color:var(--line-g)}

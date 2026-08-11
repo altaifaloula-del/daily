@@ -1998,7 +1998,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v14.0 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v14.1 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -9312,7 +9312,7 @@ function Launcher({ org, ops, me, setTab, openAcctView, openInvView }) {
       <button className={'lh-star' + (isFav(a.id) ? ' on' : '')} title={isFav(a.id) ? 'إزالة من المفضلة' : 'تثبيت في المفضلة'}
         onClick={(e) => toggleFav(a.id, e)}><Star size={12} fill={isFav(a.id) ? 'currentColor' : 'none'} /></button>
       {a.id === 'approve' && pend > 0 && <span className="lh-bdg">{pend}</span>}
-      <div className="lh-box"><a.icon size={27} />{a.sections?.length > 1 && <span className="lh-cnt" title={a.sections.length + ' أقسام'}>{a.sections.length}</span>}</div>
+      <div className="lh-box"><a.icon size={36} />{a.sections?.length > 1 && <span className="lh-cnt" title={a.sections.length + ' أقسام'}>{a.sections.length}</span>}</div>
       <div className="lh-nm">{a.ar}</div>
     </div>
   );
@@ -9322,9 +9322,9 @@ function Launcher({ org, ops, me, setTab, openAcctView, openInvView }) {
       onClick={() => setTab(v.id)} title={v.hubAr + ' ← ' + v.ar}>
       <button className={'lh-star' + (isFav(v.id) ? ' on' : '')} title={isFav(v.id) ? 'إزالة من المفضلة' : 'تثبيت في المفضلة'}
         onClick={(e) => toggleFav(v.id, e)}><Star size={12} fill={isFav(v.id) ? 'currentColor' : 'none'} /></button>
-      <div className="lh-box"><v.icon size={25} /></div>
+      <div className="lh-box"><v.icon size={32} /></div>
       <div className="lh-nm">{v.ar}</div>
-      <div style={{ fontSize: 9, color: 'var(--faint)', marginTop: 1, textAlign: 'center' }}>{v.hubAr}</div>
+      <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 1, textAlign: 'center' }}>{v.hubAr}</div>
     </div>
   );
 
