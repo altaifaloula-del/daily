@@ -404,6 +404,50 @@ function supplierAging(p, todayStr) {
   return { b0: r(bk.b0), b30: r(bk.b30), b60: r(bk.b60), b90: r(bk.b90), total: r(bk.b0 + bk.b30 + bk.b60 + bk.b90), credit: r(pay) };
 }
 
+// ===== v11.3: توليد ملف Excel حقيقي (.xlsx) بلا أي مكتبة — ZIP(store)+CRC32+OOXML، دعم RTL وأرقام وعناوين عريضة =====
+const _crcTab = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1); t[n] = c >>> 0; } return t; })();
+function _crc32(b) { let c = 0xFFFFFFFF; for (let i = 0; i < b.length; i++) c = _crcTab[(c ^ b[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+function _zipStore(files) {
+  const enc = new TextEncoder(); const u16 = n => [n & 255, (n >> 8) & 255]; const u32 = n => [n & 255, (n >> 8) & 255, (n >> 16) & 255, (n >> 24) & 255];
+  const parts = []; const central = []; let offset = 0;
+  files.forEach(f => {
+    const name = enc.encode(f.name); const data = f.data; const crc = _crc32(data); const len = data.length;
+    const lh = new Uint8Array([].concat([0x50, 0x4b, 0x03, 0x04], u16(20), u16(0), u16(0), u16(0), u16(33), u32(crc), u32(len), u32(len), u16(name.length), u16(0)));
+    parts.push(lh, name, data);
+    central.push(new Uint8Array([].concat([0x50, 0x4b, 0x01, 0x02], u16(20), u16(20), u16(0), u16(0), u16(0), u16(33), u32(crc), u32(len), u32(len), u16(name.length), u16(0), u16(0), u16(0), u16(0), u32(0), u32(offset))), name);
+    offset += lh.length + name.length + len;
+  });
+  let cLen = 0; central.forEach(c => cLen += c.length);
+  const end = new Uint8Array([].concat([0x50, 0x4b, 0x05, 0x06], u16(0), u16(0), u16(files.length), u16(files.length), u32(cLen), u32(offset), u16(0)));
+  return new Blob(parts.concat(central, [end]), { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+function _colName(i) { let s = ''; i++; while (i > 0) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; }
+function _xe(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function _sheetXml(rows) {
+  let body = '';
+  (rows || []).forEach((row, r) => {
+    let cells = '';
+    row.forEach((v, c) => {
+      const ref = _colName(c) + (r + 1); const st = r === 0 ? ' s="1"' : '';
+      if (typeof v === 'number' && isFinite(v)) cells += `<c r="${ref}"${st}><v>${v}</v></c>`;
+      else cells += `<c r="${ref}"${st} t="inlineStr"><is><t xml:space="preserve">${_xe(v == null ? '' : v)}</t></is></c>`;
+    });
+    body += `<row r="${r + 1}">${cells}</row>`;
+  });
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView rightToLeft="1" workbookViewId="0"/></sheetViews><sheetData>${body}</sheetData></worksheet>`;
+}
+function makeXlsx(sheets) {
+  const enc = new TextEncoder(); const files = []; const add = (name, str) => files.push({ name, data: enc.encode(str) });
+  const names = sheets.map((s, i) => (s.name || ('ورقة' + (i + 1))).slice(0, 31).replace(/[\\/?*[\]:]/g, ' '));
+  add('[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${sheets.map((s, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}</Types>`);
+  add('_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`);
+  add('xl/workbook.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${names.map((n, i) => `<sheet name="${_xe(n)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets></workbook>`);
+  add('xl/_rels/workbook.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheets.map((s, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`);
+  add('xl/styles.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="1"><fill><patternFill patternType="none"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" applyFont="1"/></cellXfs></styleSheet>`);
+  sheets.forEach((s, i) => add(`xl/worksheets/sheet${i + 1}.xml`, _sheetXml(s.rows)));
+  return _zipStore(files);
+}
+
 /* v8.1 — فواتير مشتقة من الورديات: كل مصروف آجل مربوط بمورد في وردية معتمدة
    يظهر كفاتورة في تطبيق المشتريات (استحقاقها = تاريخ الوردية + مهلة المورد).
    قيدها المحاسبي هو قيد الوردية نفسه — لا قيد ثانٍ، فلا ازدواج ممكن. */
@@ -1779,7 +1823,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v11.2 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v11.3 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -8340,6 +8384,35 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     return rows;
   };
   const coaRows = () => { const rows = [['رمز الحساب', 'اسم الحساب', 'النوع']]; A.accounts.forEach(a => rows.push([a.code, a.name, kindAr[a.kind] || a.kind])); return rows; };
+  const isRows = () => {
+    const R = (n) => Math.round(n * 100) / 100; const rows = [['الحساب', 'المبلغ']];
+    A.accounts.filter(a => a.kind === 'rev' && isAgg[a.code]).forEach(a => rows.push([a.name, R(balOf(a, isAgg))]));
+    rows.push(['إجمالي الإيرادات', R(revP)]);
+    A.accounts.filter(a => a.kind === 'exp' && isAgg[a.code]).forEach(a => rows.push([a.name, R(balOf(a, isAgg))]));
+    rows.push(['إجمالي المصروفات', R(expP)], [netP >= 0 ? 'صافي الربح' : 'صافي الخسارة', R(netP)]);
+    return rows;
+  };
+  const bsRows = () => {
+    const R = (n) => Math.round(n * 100) / 100; const rows = [['الحساب', 'المبلغ']];
+    A.accounts.filter(a => a.kind === 'asset' && bsAgg[a.code] && Math.abs(balOf(a, bsAgg)) > 0.004).forEach(a => rows.push([a.name, R(balOf(a, bsAgg))]));
+    rows.push(['إجمالي الأصول', R(bsAssets)]);
+    A.accounts.filter(a => (a.kind === 'liab' || a.kind === 'equity') && bsAgg[a.code] && Math.abs(balOf(a, bsAgg)) > 0.004).forEach(a => rows.push([a.name, R(balOf(a, bsAgg))]));
+    rows.push(['أرباح الفترة المتراكمة', R(bsProfit)], ['إجمالي الخصوم وحقوق الملكية', R(bsLiab + bsEquity + bsProfit)]);
+    return rows;
+  };
+  const dlBlob = (name, blob) => { const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(url), 1500); };
+  const exportExcel = () => {
+    try {
+      const blob = makeXlsx([
+        { name: 'دليل الحسابات', rows: coaRows() },
+        { name: 'اليومية', rows: journalRows() },
+        { name: 'ميزان المراجعة', rows: tbRows() },
+        { name: 'قائمة الدخل', rows: isRows() },
+        { name: 'المركز المالي', rows: bsRows() }
+      ]);
+      dlBlob('حزمة_المحاسب_' + expTag + '.xlsx', blob);
+    } catch (e) { say('تعذّر توليد ملف Excel — جرّب تصدير CSV', 'no'); }
+  };
   const exportJournal = () => dlFile('يومية_' + expTag + '.csv', toCsv(journalRows()));
   const exportTB = () => dlFile('ميزان_المراجعة_' + expTag + '.csv', toCsv(tbRows()));
   const exportFS = () => dlFile('القوائم_المالية_' + expTag + '.csv', toCsv(fsRows()));
@@ -8510,6 +8583,17 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
               {(org.branches || []).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </div>
+          <div className="card" style={{ borderColor: 'var(--brass)', background: 'rgba(200,162,74,.06)' }}>
+            <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
+              <div style={{ flex: 1, minWidth: 240 }}>
+                <div className="card-t"><FileBarChart size={16} color="var(--brass)" />ملف Excel واحد — كل شيء (موصى به)</div>
+                <div className="note" style={{ marginTop: 6 }}>ملف <b>.xlsx</b> حقيقي بخمس أوراق منفصلة: <b>دليل الحسابات · اليومية · ميزان المراجعة · قائمة الدخل · المركز المالي</b> — يفتح مباشرةً في Excel بلا تحويل، بالعربية من اليمين لليسار، والأرقام أرقامٌ قابلة للحساب والعناوين عريضة.</div>
+              </div>
+              <button className="btn pri" style={{ fontSize: 14, padding: '11px 18px' }} onClick={exportExcel}><Download size={16} />تصدير Excel (.xlsx)</button>
+            </div>
+          </div>
+
+          <div style={{ fontSize: 11.5, color: 'var(--faint)', marginTop: 2 }}>أو صدّر كل جزء وحده بصيغة CSV (لأنظمة محاسبية تستورد CSV):</div>
           <div className="grid g2">
             <div className="card">
               <div className="card-t" style={{ marginBottom: 6 }}><FileText size={15} color="var(--brass)" />دفتر اليومية</div>
@@ -8532,7 +8616,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
               <button className="btn pri" onClick={exportPack}><Download size={14} />تصدير الحزمة الكاملة (CSV)</button>
             </div>
           </div>
-          <div className="note">الملفات بصيغة CSV بترميز UTF-8 (بعلامة BOM) — تفتح مباشرةً في Excel أو Google Sheets بالعربية سليمةً، وتحمل اسم الفترة في اسم الملف. الأرقام خام بلا فواصل ليقرأها Excel كأرقام. تحترم الملفات فلتر الفترة (من/إلى) والفرع المحدد أعلاه.</div>
+          <div className="note">ملف Excel (.xlsx) مبنيّ داخل متصفحك بلا أي خدمة خارجية، ويفتح دون أي تحذير صيغة. وملفات CSV بترميز UTF-8 (بعلامة BOM) تفتح أيضًا في Excel وGoogle Sheets بالعربية سليمةً. الأرقام خام بلا فواصل ليقرأها Excel كأرقام قابلة للحساب، وكل الملفات تحمل اسم الفترة وتحترم فلتر الفترة (من/إلى) والفرع المحدد أعلاه.</div>
         </div>
       )}
 
