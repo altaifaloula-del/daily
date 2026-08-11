@@ -1391,7 +1391,7 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [bell, setBell] = useState(false);
   const [lastSeenAudit, setLastSeenAudit] = useState(() => Date.now());
-  const [theme, setTheme] = useState('dark');
+  const [theme, setTheme] = useState(() => { try { return localStorage.getItem('rms8:theme') || 'lite'; } catch { return 'lite'; } });
   const [tour, setTour] = useState(false);
   const [live, setLive] = useState(false);
   const [offline, setOffline] = useState(typeof navigator !== 'undefined' && navigator.onLine === false);
@@ -1998,7 +1998,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v14.1 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v14.2 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2016,7 +2016,7 @@ export default function App() {
                 </span>
               </button>
               <button className="btn sm gh themebtn" title="تبديل السمة"
-                onClick={() => setTheme(t => t === 'lite' ? 'dark' : 'lite')}>
+                onClick={() => setTheme(t => { const n = t === 'lite' ? 'dark' : 'lite'; try { localStorage.setItem('rms8:theme', n); } catch { } return n; })}>
                 {theme === 'lite' ? '🌙' : '☀️'}
               </button>
               <button className="btn sm gh" onClick={() => setBell(true)} style={{ position: 'relative' }}>
