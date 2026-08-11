@@ -491,6 +491,7 @@ function buildAccounting(org, ops) {
   // — الخصوم —
   addAcc('2101', 'ذمم الموردين', 'liab', { link: 'دفتر الشركاء' });
   addAcc('2201', 'رواتب مستحقة', 'liab', { link: 'كشف الرواتب' });
+  addAcc('2202', 'تأمينات اجتماعية مستحقة (GOSI)', 'liab', { link: 'حصتا الموظف وصاحب العمل — تُحوّل للتأمينات' });
   addAcc('2301', 'ضريبة القيمة المضافة — مخرجات', 'liab', { link: 'مستحقة للهيئة' });
   // — حقوق الملكية (تُفعَّل بالقيد الافتتاحي في المرحلة التالية) —
   addAcc('3101', 'رأس المال والأرصدة الافتتاحية', 'equity', { link: 'الأرصدة الافتتاحية — من شاشة المحاسبة' });
@@ -500,6 +501,7 @@ function buildAccounting(org, ops) {
   addAcc('4201', 'أرباح بيع/استبعاد الأصول', 'rev', { link: 'سجل الأصول — عند البيع بأعلى من القيمة الدفترية' });
   // — المصروفات —
   addAcc('5201', 'الرواتب والأجور (كشف الرواتب)', 'exp', { link: 'ترحيل الاستحقاق الشهري' });
+  addAcc('5202', 'التأمينات الاجتماعية — حصة صاحب العمل', 'exp', { link: 'كشف الرواتب — عند تفعيل التأمينات' });
   addAcc('5301', 'عمولات تطبيقات التوصيل', 'exp', { link: 'نِسَب العمولة من إعدادات التطبيقات' });
   addAcc('5302', 'خصومات وغرامات تطبيقات التوصيل', 'exp', { link: 'تسوية كشوف التطبيقات — فروق الإيداع' });
   addAcc('5701', 'مصروف الإهلاك', 'exp', { link: 'سجل الأصول — تلقائي' });
@@ -657,26 +659,36 @@ function buildAccounting(org, ops) {
       lines: [L('5201', acc, 0), L('2201', 0, acc)]
     });
     if (pay > 0) {
-      const payDate = ((led.find(x => x.kind === 'salary_payout' && x.month === m) || {}).date || (m + '-28')).slice(0, 10);
+      const payoutEntries = led.filter(x => x.kind === 'salary_payout' && x.month === m);
+      const payDate = ((payoutEntries[0] || {}).date || (m + '-28')).slice(0, 10);
+      const gosiEmp = Math.round(sum(payoutEntries, x => x.gosi || 0) * 100) / 100;   // حصة الموظف المستقطعة (v11.0)
+      const gosiEr = Math.round(sum(payoutEntries, x => x.gosiEr || 0) * 100) / 100;  // حصة صاحب العمل
       push({
-        id: 'sal-pay:' + m, date: payDate, title: 'صرف رواتب شهر ' + m + ' (صافي بعد السلف والخصوم)',
+        id: 'sal-pay:' + m, date: payDate, title: 'صرف رواتب شهر ' + m + ' (صافي بعد السلف والخصوم' + (gosiEmp > 0.004 ? ' والتأمينات' : '') + ')',
         src: 'كشف الرواتب', ref: 'payout-' + m,
         lines: [L('2201', pay, 0), L('1201', 0, pay)]
       });
-      const diff = Math.round((acc - pay) * 100) / 100;
+      const diff = Math.round((acc - pay) * 100) / 100;   // = السلف + الخصومات + حصة الموظف من التأمينات
       if (diff > 0.004) {
         const ads = (ops.advances || []).filter(a => a.month === m);
         const draws = sum(ads.filter(a => ['advance', 'salary_draw'].includes(a.type)), a => a.amount);
-        const cd = Math.min(draws, diff);
-        const cc = Math.round((diff - cd) * 100) / 100;
+        const cd = Math.min(draws, diff);                             // سلف مُستردّة ← 1401
+        const gd = Math.min(gosiEmp, Math.round((diff - cd) * 100) / 100);  // حصة الموظف من التأمينات ← 2202
+        const cc = Math.round((diff - cd - gd) * 100) / 100;          // خصومات/جزاءات ← عكس 5201
         const lines = [L('2201', diff, 0)];
         if (cd > 0) lines.push(L('1401', 0, cd));
+        if (gd > 0) lines.push(L('2202', 0, gd));
         if (cc > 0) lines.push(L('5201', 0, cc));
         push({
-          id: 'sal-set:' + m, date: payDate, title: 'تسوية سلف وخصومات رواتب ' + m,
+          id: 'sal-set:' + m, date: payDate, title: 'تسوية سلف وخصومات' + (gd > 0.004 ? ' وتأمينات' : '') + ' رواتب ' + m,
           src: 'كشف الرواتب', ref: 'payroll-' + m, lines
         });
       }
+      // حصة صاحب العمل من التأمينات: مصروف إضافي (5202) والتزام مستحق (2202)
+      if (gosiEr > 0.004) push({
+        id: 'gosi-er:' + m, date: payDate, title: 'تأمينات اجتماعية — حصة صاحب العمل ' + m,
+        src: 'كشف الرواتب', ref: 'gosi-' + m, lines: [L('5202', gosiEr, 0), L('2202', 0, gosiEr)]
+      });
     }
   });
   // ٨) صرف السلف والمسحوبات (عهدة على الموظف حتى استقطاعها من الراتب)
@@ -1736,7 +1748,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v10.9 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v11.0 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -4946,32 +4958,50 @@ function DisbursementForm({ me, balance, commit, say, onClose }) {
 }
 
 /* ================= الرواتب والسلف ================= */
-function Payroll({ org, ops, me, myBranches, scoped, commit, say }) {
+function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
   const [month, setMonth] = useState(today().slice(0, 7));
   const [add, setAdd] = useState(false);
   const [repOpen, setRepOpen] = useState(false);    // v9.5 قائمة تقارير التطبيق
+  const [compF, setCompF] = useState(null);         // v11.0 تعديل راتب/بدلات موظف
+  const [gosiD, setGosiD] = useState(() => { const g = org.gosiCfg || {}; return { enabled: !!g.enabled, empRate: String(g.empRate != null ? g.empRate : 9.75), erRate: String(g.erRate != null ? g.erRate : 11.75) }; });
   const ids = myBranches.map(b => b.id);
   const emps = org.employees.filter(e => ids.includes(e.branchId));
   const canPay = ROLES[me.role]?.scope !== 'own';
   // ترحيل الاستحقاق/الصرف قرار على مستوى المنشأة كلها — يُقصر على الأدوار شاملة النطاق
   const canPost = ROLES[me.role]?.scope === 'all';
 
+  // v11.0 — التأمينات الاجتماعية (GOSI): موقوفة افتراضيًا، بنِسَب قابلة للتعديل، وعلى وعاء الأساسي+السكن
+  const gosi = org.gosiCfg || {};
+  const gosiOn = !!gosi.enabled;
+  const gosiEmpRate = Number(gosi.empRate != null ? gosi.empRate : 9.75) || 0;
+  const gosiErRate = Number(gosi.erRate != null ? gosi.erRate : 11.75) || 0;
+  const r2 = (n) => Math.round(n * 100) / 100;
   const rows = emps.map(e => {
     const ads = scoped.advances.filter(a => a.employeeId === e.id && a.month === month);
     const draws = sum(ads.filter(a => ['advance', 'salary_draw'].includes(a.type)), a => a.amount);
     const cuts = sum(ads.filter(a => !['advance', 'salary_draw'].includes(a.type)), a => a.amount);
-    const gross = e.baseSalary + (e.housingAllowance || 0);
-    return { e, ads, draws, cuts, gross, net: gross - draws - cuts, flags: ads.filter(a => a.isUnjustified).length };
+    const allow = (e.housingAllowance || 0) + (e.transportAllowance || 0) + (e.otherAllowance || 0);
+    const gross = r2((e.baseSalary || 0) + allow);
+    const gosiBase = e.gosiWage != null ? Number(e.gosiWage) || 0 : r2((e.baseSalary || 0) + (e.housingAllowance || 0));
+    const gEmp = (gosiOn && e.gosiSubject) ? r2(gosiBase * gosiEmpRate / 100) : 0;
+    const gEr = (gosiOn && e.gosiSubject) ? r2(gosiBase * gosiErRate / 100) : 0;
+    return { e, ads, draws, cuts, allow, gross, gEmp, gEr, net: r2(gross - draws - cuts - gEmp), flags: ads.filter(a => a.isUnjustified).length };
   });
 
   const totalNet = sum(rows, r => r.net);
+  const totalGross = sum(rows, r => r.gross);
+  const totalGEmp = r2(sum(rows, r => r.gEmp));
+  const totalGEr = r2(sum(rows, r => r.gEr));
+  const totalGosi = r2(totalGEmp + totalGEr);
 
   const printMuster = () => {
     const monthName = new Date(month + '-01').toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' });
-    const rws = rows.map(r => `<tr><td>${r.e.name}</td><td>${(org.branches.find(b => b.id === r.e.branchId) || {}).name || ''}</td><td class="n">${money(r.gross)}</td><td class="n">${r.draws ? money(r.draws) : '—'}</td><td class="n">${r.cuts ? money(r.cuts) : '—'}</td><td class="n">${money(r.net)}</td></tr>`).join('');
+    const gc = gosiOn ? '<th>تأمينات</th>' : '';
+    const rws = rows.map(r => `<tr><td>${r.e.name}</td><td>${(org.branches.find(b => b.id === r.e.branchId) || {}).name || ''}</td><td class="n">${money(r.e.baseSalary || 0)}</td><td class="n">${r.allow ? money(r.allow) : '—'}</td><td class="n">${money(r.gross)}</td><td class="n">${r.draws ? money(r.draws) : '—'}</td><td class="n">${r.cuts ? money(r.cuts) : '—'}</td>${gosiOn ? `<td class="n">${r.gEmp ? money(r.gEmp) : '—'}</td>` : ''}<td class="n">${money(r.net)}</td></tr>`).join('');
+    const span = gosiOn ? 8 : 7;
     printA4(org, 'مسير الرواتب — ' + monthName, arDate(today()) + ' · ' + rows.length + ' موظف',
-      `<table><thead><tr><th>الموظف</th><th>الفرع</th><th>الإجمالي</th><th>سلف/سحب</th><th>خصومات</th><th>الصافي</th></tr></thead><tbody>${rws}
-      <tr class="tot"><td colspan="5">إجمالي صافي المسير</td><td class="n">${money(totalNet)}</td></tr></tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+      `<table><thead><tr><th>الموظف</th><th>الفرع</th><th>الأساسي</th><th>البدلات</th><th>الإجمالي</th><th>سلف/سحب</th><th>خصومات</th>${gc}<th>الصافي</th></tr></thead><tbody>${rws}
+      <tr class="tot"><td colspan="${span}">إجمالي صافي المسير</td><td class="n">${money(totalNet)}</td></tr>${gosiOn ? `<tr class="tot"><td colspan="${span}">إجمالي التأمينات للتحويل (موظف + صاحب عمل)</td><td class="n">${money(totalGosi)}</td></tr>` : ''}</tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
   };
 
   const printPayslip = (r) => {
@@ -5033,11 +5063,15 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, say }) {
       <div class="totals">
         <div class="row"><span>الراتب الأساسي</span><b>${m(r.e.baseSalary || 0)} ر.س</b></div>
         <div class="row"><span>بدل السكن</span><b>${m(r.e.housingAllowance || 0)} ر.س</b></div>
+        ${(r.e.transportAllowance || 0) ? `<div class="row"><span>بدل النقل</span><b>${m(r.e.transportAllowance || 0)} ر.س</b></div>` : ''}
+        ${(r.e.otherAllowance || 0) ? `<div class="row"><span>بدلات أخرى</span><b>${m(r.e.otherAllowance || 0)} ر.س</b></div>` : ''}
         <div class="row"><span>إجمالي الاستحقاق</span><b>${m(r.gross)} ر.س</b></div>
         <div class="row"><span>السلف والسحوبات</span><b style="color:#C0392B">- ${m(r.draws)} ر.س</b></div>
         <div class="row"><span>الخصومات والجزاءات</span><b style="color:#C0392B">- ${m(r.cuts)} ر.س</b></div>
+        ${r.gEmp ? `<div class="row"><span>التأمينات الاجتماعية (حصة الموظف)</span><b style="color:#C0392B">- ${m(r.gEmp)} ر.س</b></div>` : ''}
         <div class="row net"><span>صافي المستحق</span><b>${m(r.net)} ر.س</b></div>
       </div>
+      ${r.gEr ? `<div style="margin-top:10px;font-size:11px;color:#666;text-align:center">حصة صاحب العمل من التأمينات: ${m(r.gEr)} ر.س (على المنشأة، خارج صافي الموظف)</div>` : ''}
       <div class="sign">
         <div>توقيع الموظف</div>
         <div>المحاسب</div>
@@ -5071,14 +5105,34 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, say }) {
     if (payoutPosted) return say('صرف هذا الشهر مسجّل مسبقاً', 'no');
     const entries = rows.filter(r => r.net > 0).map(r => ({
       id: uid('le'), partnerKey: 'emp:' + r.e.id, date: today(), month, kind: 'salary_payout',
-      desc: 'صرف راتب شهر ' + month + ' (صافي بعد السلف والخصوم)', src: 'salary', debit: r.net, credit: 0
+      desc: 'صرف راتب شهر ' + month + ' (صافي بعد السلف والخصوم' + (r.gEmp > 0.004 ? ' والتأمينات' : '') + ')', src: 'salary', debit: r.net, credit: 0,
+      gosi: r.gEmp || 0, gosiEr: r.gEr || 0
     }));
     if (!entries.length) return say('لا صافي مستحق للصرف', 'no');
     await commit(d => ({ ...d, ledgerEntries: [...entries, ...(d.ledgerEntries || [])] }), {
       actionType: 'create', targetType: 'daily_closing', targetId: 'payout-' + month,
-      title: 'سجّل صرف رواتب الشهر', details: month + ' · صافي ' + money(sum(rows.filter(r => r.net > 0), r => r.net))
+      title: 'سجّل صرف رواتب الشهر', details: month + ' · صافي ' + money(sum(rows.filter(r => r.net > 0), r => r.net)) + (totalGosi > 0.004 ? ' · تأمينات ' + money(totalGosi) : '')
     });
     say('سُجّل صرف رواتب ' + month + ' — أُقفل استحقاق الشهر في كشوف الموظفين ✓');
+  };
+  // v11.0 — حفظ إعداد التأمينات الاجتماعية
+  const saveGosi = async () => {
+    await commitOrg(d => ({ ...d, gosiCfg: { enabled: !!gosiD.enabled, empRate: Number(gosiD.empRate) || 0, erRate: Number(gosiD.erRate) || 0 } }), {
+      actionType: 'update', targetType: 'year_end', targetId: 'gosi',
+      title: gosiD.enabled ? 'فعّل/حدّث التأمينات الاجتماعية' : 'أوقف التأمينات الاجتماعية',
+      details: gosiD.enabled ? ('موظف ' + gosiD.empRate + '% · صاحب العمل ' + gosiD.erRate + '%') : 'موقوفة'
+    });
+    say(gosiD.enabled ? 'حُفظ إعداد التأمينات — تُحتسب لكل موظف مشمول ✓' : 'أُوقفت التأمينات');
+  };
+  // v11.0 — حفظ راتب وبدلات موظف
+  const saveComp = async () => {
+    const f = compF;
+    const patch = { baseSalary: Number(f.baseSalary) || 0, housingAllowance: Number(f.housingAllowance) || 0, transportAllowance: Number(f.transportAllowance) || 0, otherAllowance: Number(f.otherAllowance) || 0, gosiSubject: !!f.gosiSubject };
+    await commitOrg(d => ({ ...d, employees: (d.employees || []).map(x => x.id === f.id ? { ...x, ...patch } : x) }), {
+      actionType: 'update', targetType: 'user_account', targetId: f.id,
+      title: 'حدّث راتب/بدلات موظف', details: f.name + ' · أساسي ' + money(patch.baseSalary)
+    });
+    setCompF(null); say('حُفظ راتب ' + f.name + ' ✓');
   };
 
   return (
@@ -5116,46 +5170,97 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, say }) {
       </div>
 
       <div className="grid g4">
-        <Kpi label="إجمالي الرواتب الأساسية" value={money(sum(rows, r => r.gross))} icon={Wallet} color="#C8A24A" />
+        <Kpi label="إجمالي الاستحقاق (أساسي + بدلات)" value={money(totalGross)} icon={Wallet} color="#C8A24A" />
         <Kpi label="السلف والمسحوبات" value={money(sum(rows, r => r.draws))} icon={TrendingDown} color="#E0A458" />
-        <Kpi label="الخصومات والجزاءات" value={money(sum(rows, r => r.cuts))} icon={AlertTriangle} color="#D9544D" />
-        <Kpi label="صافي المستحق للصرف" value={money(totalNet)} icon={Banknote} color="#4FB286" />
+        {gosiOn
+          ? <Kpi label="التأمينات (موظف + عمل)" value={money(totalGosi)} sub={'استقطاع ' + money(totalGEmp) + ' · صاحب العمل ' + money(totalGEr)} icon={ShieldCheck} color="#5B93C4" />
+          : <Kpi label="الخصومات والجزاءات" value={money(sum(rows, r => r.cuts))} icon={AlertTriangle} color="#D9544D" />}
+        <Kpi label="صافي المستحق للصرف" value={money(totalNet)} sub={gosiOn ? 'بعد السلف والخصوم والتأمينات' : 'بعد السلف والخصوم'} icon={Banknote} color="#4FB286" />
       </div>
+
+      {canPost && (
+        <div className="card">
+          <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+            <label className="row" style={{ gap: 6, fontSize: 12.5, cursor: 'pointer' }}>
+              <input type="checkbox" checked={gosiD.enabled} onChange={e => setGosiD(s => ({ ...s, enabled: e.target.checked }))} />
+              <ShieldCheck size={15} color="var(--brass)" />تفعيل التأمينات الاجتماعية (GOSI)
+            </label>
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <Field label="حصة الموظف %" style={{ width: 110 }}><input className="inp n" inputMode="decimal" value={gosiD.empRate} onChange={e => setGosiD(s => ({ ...s, empRate: e.target.value.replace(/[^\d.]/g, '') }))} disabled={!gosiD.enabled} /></Field>
+              <Field label="حصة صاحب العمل %" style={{ width: 130 }}><input className="inp n" inputMode="decimal" value={gosiD.erRate} onChange={e => setGosiD(s => ({ ...s, erRate: e.target.value.replace(/[^\d.]/g, '') }))} disabled={!gosiD.enabled} /></Field>
+              <button className="btn pri" onClick={saveGosi}><Check size={14} />حفظ إعداد التأمينات</button>
+            </div>
+          </div>
+          <div className="note" style={{ marginTop: 8 }}>موقوفة افتراضيًا. عند التفعيل تُحتسب على وعاء (الأساسي + السكن) للموظفين المشمولين فقط (فعّل «مشمول بالتأمينات» لكل موظف من «تعديل الراتب»). النِسَب الافتراضية 9.75% للموظف و11.75% لصاحب العمل — عدّلها حسب فئة الموظف. حصة الموظف تُستقطع من الصافي، وحصة صاحب العمل مصروف إضافي؛ ويظهر قيدهما في المحاسبة (5202/2202) عند تسجيل الصرف.</div>
+        </div>
+      )}
 
       <div className="card">
         <div className="card-t" style={{ marginBottom: 12 }}><Users size={15} color="var(--brass)" />كشف رواتب {month}</div>
         <div className="tw">
           <table className="tb">
             <thead><tr>
-              <th>الموظف</th><th>الفرع</th><th>المسمى</th><th>الإجمالي</th>
-              <th>سلف ومسحوبات</th><th>خصومات</th><th>الصافي</th><th></th>
+              <th>الموظف</th><th>الفرع</th><th style={{ textAlign: 'end' }}>الأساسي</th><th style={{ textAlign: 'end' }}>البدلات</th><th style={{ textAlign: 'end' }}>الإجمالي</th>
+              <th style={{ textAlign: 'end' }}>سلف</th><th style={{ textAlign: 'end' }}>خصومات</th>{gosiOn && <th style={{ textAlign: 'end' }}>تأمينات</th>}<th style={{ textAlign: 'end' }}>الصافي</th><th></th>
             </tr></thead>
             <tbody>
               {rows.map(r => (
                 <tr key={r.e.id}>
                   <td>
-                    <div style={{ fontSize: 12.5, fontWeight: 600 }}>{r.e.name}</div>
-                    {r.flags > 0 && <span className="badge b-rose" style={{ marginTop: 3 }}>{r.flags} سحبية غير مبررة</span>}
+                    <div style={{ fontSize: 12.5, fontWeight: 600 }}>{r.e.name}<span style={{ fontSize: 9.5, color: 'var(--faint)', marginInlineStart: 6 }}>{r.e.jobTitle}</span></div>
+                    <div className="row" style={{ gap: 4, marginTop: 3 }}>
+                      {r.flags > 0 && <span className="badge b-rose">{r.flags} سحبية غير مبررة</span>}
+                      {gosiOn && r.e.gosiSubject && <span className="badge b-sky" style={{ fontSize: 9 }}>مشمول تأمينات</span>}
+                    </div>
                   </td>
                   <td style={{ fontSize: 11.5, color: 'var(--dim)' }}>{org.branches.find(b => b.id === r.e.branchId)?.name}</td>
-                  <td style={{ fontSize: 11.5, color: 'var(--dim)' }}>{r.e.jobTitle}</td>
-                  <td className="num">{money(r.gross)}</td>
-                  <td className="num" style={{ color: 'var(--amber)' }}>{money(r.draws)}</td>
-                  <td className="num" style={{ color: 'var(--rose)' }}>{money(r.cuts)}</td>
-                  <td className="num" style={{ color: 'var(--mint)', fontWeight: 600 }}>{money(r.net)}</td>
+                  <td className="num" style={{ textAlign: 'end' }}>{money(r.e.baseSalary || 0)}</td>
+                  <td className="num" style={{ textAlign: 'end', color: 'var(--dim)' }}>{r.allow ? money(r.allow) : '—'}</td>
+                  <td className="num" style={{ textAlign: 'end', fontWeight: 600 }}>{money(r.gross)}</td>
+                  <td className="num" style={{ textAlign: 'end', color: 'var(--amber)' }}>{r.draws ? money(r.draws) : '—'}</td>
+                  <td className="num" style={{ textAlign: 'end', color: 'var(--rose)' }}>{r.cuts ? money(r.cuts) : '—'}</td>
+                  {gosiOn && <td className="num" style={{ textAlign: 'end', color: 'var(--sky)' }}>{r.gEmp ? money(r.gEmp) : '—'}</td>}
+                  <td className="num" style={{ textAlign: 'end', color: 'var(--mint)', fontWeight: 700 }}>{money(r.net)}</td>
                   <td>
-                    <div className="row" style={{ gap: 5 }}>
+                    <div className="row" style={{ gap: 5, justifyContent: 'flex-end' }}>
+                      {canPost && <button className="btn sm gh" onClick={() => setCompF({ id: r.e.id, name: r.e.name, baseSalary: String(r.e.baseSalary || 0), housingAllowance: String(r.e.housingAllowance || 0), transportAllowance: String(r.e.transportAllowance || 0), otherAllowance: String(r.e.otherAllowance || 0), gosiSubject: !!r.e.gosiSubject })}>تعديل الراتب</button>}
                       <button className="btn sm gh" onClick={() => printPayslip(r)} title="قسيمة راتب"><Printer size={13} />قسيمة</button>
-                      {canPay && <button className="btn sm" onClick={() => say(`اعتُمد صرف راتب ${r.e.name} بمبلغ ${money(r.net)} ر.س`)}>اعتماد الصرف</button>}
                     </div>
                   </td>
                 </tr>
               ))}
-              {rows.length === 0 && <tr><td colSpan={8}><div className="empty">لا يوجد موظفون ضمن نطاقك.</div></td></tr>}
+              {rows.length === 0 && <tr><td colSpan={gosiOn ? 10 : 9}><div className="empty">لا يوجد موظفون ضمن نطاقك.</div></td></tr>}
             </tbody>
           </table>
         </div>
       </div>
+
+      {gosiOn && rows.some(r => r.gEmp > 0.004 || r.gEr > 0.004) && (
+        <div className="card">
+          <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />التأمينات الاجتماعية — للتحويل عن شهر {month}</div>
+            <span className="badge b-brass">الإجمالي للتحويل: <b className="num">{money(totalGosi)}</b></span></div>
+          <div className="tw" style={{ marginTop: 8 }}>
+            <table className="tb">
+              <thead><tr><th>الموظف</th><th style={{ textAlign: 'end' }}>وعاء التأمين</th><th style={{ textAlign: 'end' }}>حصة الموظف</th><th style={{ textAlign: 'end' }}>حصة صاحب العمل</th><th style={{ textAlign: 'end' }}>الإجمالي</th></tr></thead>
+              <tbody>
+                {rows.filter(r => r.gEmp > 0.004 || r.gEr > 0.004).map(r => (
+                  <tr key={r.e.id}>
+                    <td style={{ fontSize: 12.5 }}>{r.e.name}</td>
+                    <td className="num" style={{ textAlign: 'end', color: 'var(--dim)' }}>{money((r.e.gosiWage != null ? Number(r.e.gosiWage) || 0 : (r.e.baseSalary || 0) + (r.e.housingAllowance || 0)))}</td>
+                    <td className="num" style={{ textAlign: 'end', color: 'var(--sky)' }}>{money(r.gEmp)}</td>
+                    <td className="num" style={{ textAlign: 'end', color: 'var(--amber)' }}>{money(r.gEr)}</td>
+                    <td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{money(r2(r.gEmp + r.gEr))}</td>
+                  </tr>
+                ))}
+                <tr style={{ fontWeight: 800, background: 'rgba(200,162,74,.05)' }}>
+                  <td>الإجمالي</td><td /><td className="num" style={{ textAlign: 'end' }}>{money(totalGEmp)}</td><td className="num" style={{ textAlign: 'end' }}>{money(totalGEr)}</td><td className="num" style={{ textAlign: 'end' }}>{money(totalGosi)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div className="note" style={{ marginTop: 8 }}>حصة الموظف مُستقطعة من صافي راتبه، وحصة صاحب العمل مصروف على المنشأة — كلاهما التزام يُحوَّل للتأمينات (حساب 2202). يُرحَّل قيدهما تلقائيًا عند «تسجيل صرف الرواتب».</div>
+        </div>
+      )}
 
       <div className="card">
         <div className="card-t" style={{ marginBottom: 12 }}><Receipt size={15} color="var(--brass)" />حركة السلف والخصومات</div>
@@ -5183,6 +5288,30 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, say }) {
       </div>
 
       {add && <AdvanceForm emps={emps} org={org} me={me} commit={commit} say={say} onClose={() => setAdd(false)} />}
+
+      {compF && (
+        <Modal title={'راتب وبدلات — ' + compF.name} icon={Wallet} onClose={() => setCompF(null)}
+          foot={<><button className="btn gh" onClick={() => setCompF(null)}>إلغاء</button>
+            <button className="btn pri" onClick={saveComp}><Check size={14} />حفظ</button></>}>
+          <div className="grid g2">
+            <Field label="الراتب الأساسي"><input className="inp n" inputMode="decimal" value={compF.baseSalary} onChange={e => setCompF(f => ({ ...f, baseSalary: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+            <Field label="بدل السكن"><input className="inp n" inputMode="decimal" value={compF.housingAllowance} onChange={e => setCompF(f => ({ ...f, housingAllowance: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+            <Field label="بدل النقل"><input className="inp n" inputMode="decimal" value={compF.transportAllowance} onChange={e => setCompF(f => ({ ...f, transportAllowance: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+            <Field label="بدلات أخرى"><input className="inp n" inputMode="decimal" value={compF.otherAllowance} onChange={e => setCompF(f => ({ ...f, otherAllowance: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+          </div>
+          <label className="row" style={{ gap: 6, fontSize: 12.5, cursor: 'pointer', marginTop: 8 }}>
+            <input type="checkbox" checked={compF.gosiSubject} onChange={e => setCompF(f => ({ ...f, gosiSubject: e.target.checked }))} />
+            مشمول بالتأمينات الاجتماعية (تُحتسب على الأساسي + السكن)
+          </label>
+          <div className="card" style={{ background: 'rgba(200,162,74,.05)', marginTop: 8 }}>
+            <div className="row" style={{ justifyContent: 'space-between', fontWeight: 800, fontSize: 13.5 }}>
+              <span>إجمالي الاستحقاق الشهري</span>
+              <b className="num">{money(r2((Number(compF.baseSalary) || 0) + (Number(compF.housingAllowance) || 0) + (Number(compF.transportAllowance) || 0) + (Number(compF.otherAllowance) || 0)))}</b>
+            </div>
+          </div>
+          <div className="note">يُطبَّق على مسير هذا الشهر والأشهر القادمة. تعديل الراتب لا يغيّر أشهرًا سبق ترحيل استحقاقها.</div>
+        </Modal>
+      )}
     </div>
   );
 }
