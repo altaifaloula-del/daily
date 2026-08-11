@@ -1,6 +1,6 @@
 /* تنسيقات المنصة */
 export const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Markazi+Text:wght@500;600;700&family=Tajawal:wght@300;400;500;700;900&family=IBM+Plex+Mono:wght@400;500;600&family=Cairo:wght@400;600;700;900&family=Almarai:wght@400;700;800&family=Changa:wght@500;600;700&family=El+Messiri:wght@500;600;700&family=Reem+Kufi:wght@500;600;700&family=Amiri:wght@400;700&family=Lalezar&family=Aref+Ruqaa:wght@700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Markazi+Text:wght@500;600;700&family=Tajawal:wght@300;400;500;700;900&family=IBM+Plex+Mono:wght@400;500;600&family=Cairo:wght@400;600;700&family=Almarai:wght@400;700;800&display=swap');
 
 :root{
   /* ===== نظام التصميم الموحّد — الرموز (Design Tokens) ===== */
@@ -76,7 +76,7 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 .rms .tk{border-radius:var(--tk-r,6px)}
 
 /* ── 1) الملكي الذهبي — فخم دافئ · أيقونة مربّعة مذهّبة · خط رقعة ── */
-.rms.thm-royal{--acc:#A87D28;--r-sm:9px;--r:12px;--r-md:16px;--r-lg:20px;--r-xl:24px;--ico-r:20px;--ico-sw:2;--tk-r:6px;--font-head:'Aref Ruqaa','Markazi Text',serif;--font-ui:'Tajawal',sans-serif}
+.rms.thm-royal{--acc:#A87D28;--r-sm:9px;--r:12px;--r-md:16px;--r-lg:20px;--r-xl:24px;--ico-r:20px;--ico-sw:2;--tk-r:6px;--font-head:'Markazi Text',serif;--font-ui:'Tajawal',sans-serif}
 .rms.thm-royal .lh-box{background:linear-gradient(150deg,color-mix(in srgb,var(--c) 20%,var(--ink2)),var(--ink3));border:1px solid color-mix(in srgb,var(--brass) 42%,var(--line-g));box-shadow:0 7px 20px -9px color-mix(in srgb,var(--brass) 50%,transparent),inset 0 1px 0 color-mix(in srgb,#fff 16%,transparent)}
 .rms.thm-royal .lh-bg::before{background:radial-gradient(900px 560px at 82% -8%,color-mix(in srgb,var(--brass) 16%,transparent),transparent 60%),radial-gradient(760px 520px at 6% 110%,color-mix(in srgb,var(--brass) 10%,transparent),transparent 55%)}
 .rms.thm-royal .lh-bg::after{content:'';position:absolute;inset:0;background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--brass) 5%,transparent) 0 2px,transparent 2px 22px);opacity:.5}
@@ -107,7 +107,7 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 .rms.thm-minimal .lh-bg::before{background:none}
 
 /* ── 4) المرتفع الفاخر — أيقونات ممتلئة ملوّنة · ظلال قوية · خط عريض ── */
-.rms.thm-elevated{--acc:#6A44A8;--r-sm:12px;--r:14px;--r-md:18px;--r-lg:24px;--r-xl:28px;--ico-r:26px;--ico-sw:2.25;--tk-r:8px;--font-head:'Changa',sans-serif;--font-ui:'Cairo',sans-serif}
+.rms.thm-elevated{--acc:#6A44A8;--r-sm:12px;--r:14px;--r-md:18px;--r-lg:24px;--r-xl:28px;--ico-r:26px;--ico-sw:2.25;--tk-r:8px;--font-head:'Cairo',sans-serif;--font-ui:'Tajawal',sans-serif}
 .rms.thm-elevated .card,.rms.thm-elevated .kpi{box-shadow:var(--sh-3);border-color:transparent}
 .rms.thm-elevated .card:hover,.rms.thm-elevated .kpi:hover{box-shadow:var(--sh-4);transform:translateY(-3px)}
 .rms.thm-elevated .lh-box{background:linear-gradient(145deg,var(--c),color-mix(in srgb,var(--c) 52%,#000));color:#fff;border:none;box-shadow:0 12px 26px -10px color-mix(in srgb,var(--c) 70%,transparent),0 3px 8px rgba(0,0,0,.2)}
@@ -129,13 +129,13 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 .rms.thm-corporate .lh-bg::after{content:'';position:absolute;inset:0;background:linear-gradient(color-mix(in srgb,var(--line) 55%,transparent) 1px,transparent 1px),linear-gradient(90deg,color-mix(in srgb,var(--line) 55%,transparent) 1px,transparent 1px);background-size:44px 44px;opacity:.35}
 
 /* ── 6) الأخضر السعودي — هوية وطنية · نمط شيفرون · خط كوفي ── */
-.rms.thm-saudi{--acc:#0F7A3D;--r-sm:8px;--r:11px;--r-md:15px;--r-lg:18px;--r-xl:22px;--ico-r:16px;--ico-sw:2;--tk-r:6px;--font-head:'Reem Kufi',sans-serif;--font-ui:'Tajawal',sans-serif}
+.rms.thm-saudi{--acc:#0F7A3D;--r-sm:8px;--r:11px;--r-md:15px;--r-lg:18px;--r-xl:22px;--ico-r:16px;--ico-sw:2;--tk-r:6px;--font-head:'Markazi Text',serif;--font-ui:'Tajawal',sans-serif}
 .rms.thm-saudi .lh-box{background:linear-gradient(150deg,color-mix(in srgb,var(--c) 16%,var(--ink2)),var(--ink3));border:1px solid color-mix(in srgb,var(--acc) 34%,var(--line-g))}
 .rms.thm-saudi .lh-bg::before{background:radial-gradient(880px 560px at 82% -8%,color-mix(in srgb,#0F7A3D 14%,transparent),transparent 60%),radial-gradient(760px 520px at 6% 110%,color-mix(in srgb,#0F7A3D 9%,transparent),transparent 55%)}
 .rms.thm-saudi .lh-bg::after{content:'';position:absolute;inset:0;background:repeating-linear-gradient(45deg,color-mix(in srgb,#0F7A3D 5%,transparent) 0 3px,transparent 3px 18px);opacity:.5}
 
 /* ── 7) النيون الليلي — سايبر متوهّج · أيقونة بحوافّ نيون · شبكة + كتل ── */
-.rms.thm-neon{--acc:#16C8E6;--r-sm:9px;--r:12px;--r-md:15px;--r-lg:19px;--r-xl:24px;--ico-r:16px;--ico-sw:2;--tk-r:5px;--font-head:'Lalezar',cursive;--font-ui:'Tajawal',sans-serif}
+.rms.thm-neon{--acc:#16C8E6;--r-sm:9px;--r:12px;--r-md:15px;--r-lg:19px;--r-xl:24px;--ico-r:16px;--ico-sw:2;--tk-r:5px;--font-head:'Cairo',sans-serif;--font-ui:'Tajawal',sans-serif}
 .rms.mode-dark.thm-neon{--ink:#07070F;--ink2:#0E0E1A;--ink3:#161626;--line:#242438;--txt:#E7F4FF;--dim:#9AA6C8;--faint:#5A6488}
 .rms.mode-light.thm-neon{--ink:#EAF0FF;--ink2:#FFFFFF;--ink3:#E2E9FB;--line:#CBD6F2;--txt:#0E1230;--dim:#4A5480;--faint:#8A93B8}
 .rms.thm-neon .lh-box{background:color-mix(in srgb,var(--c) 12%,var(--ink2));border:1.5px solid color-mix(in srgb,var(--c) 60%,transparent);box-shadow:0 0 0 1px color-mix(in srgb,var(--c) 28%,transparent),0 0 18px -2px color-mix(in srgb,var(--c) 52%,transparent),inset 0 0 14px -6px color-mix(in srgb,var(--c) 60%,transparent)}
@@ -148,7 +148,7 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 .rms.thm-neon .lh-bg::after{content:'';position:absolute;inset:0;background:linear-gradient(color-mix(in srgb,var(--acc) 8%,transparent) 1px,transparent 1px),linear-gradient(90deg,color-mix(in srgb,var(--acc) 8%,transparent) 1px,transparent 1px);background-size:38px 38px;opacity:.5}
 
 /* ── 8) الترابي الصحراوي — دافئ عضوي · أيقونة دائرية طينية · زوايا كبيرة ── */
-.rms.thm-desert{--acc:#B4622F;--r-sm:14px;--r:18px;--r-md:22px;--r-lg:28px;--r-xl:34px;--ico-r:50%;--ico-sw:2;--tk-r:10px;--font-head:'El Messiri',serif;--font-ui:'Almarai',sans-serif}
+.rms.thm-desert{--acc:#B4622F;--r-sm:14px;--r:18px;--r-md:22px;--r-lg:28px;--r-xl:34px;--ico-r:50%;--ico-sw:2;--tk-r:10px;--font-head:'Markazi Text',serif;--font-ui:'Tajawal',sans-serif}
 .rms.mode-light.thm-desert{--ink:#F3EADB;--ink2:#FFFBF3;--ink3:#EDE0CC;--line:#E0CFB4;--txt:#3A2A1C;--dim:#7A6650;--faint:#A6906F}
 .rms.mode-dark.thm-desert{--ink:#1C1611;--ink2:#241C15;--ink3:#2E241B;--line:#3E3020;--txt:#F0E4D2;--dim:#B6A188;--faint:#7E6B54}
 .rms.thm-desert .lh-box{background:radial-gradient(circle at 35% 28%,color-mix(in srgb,var(--c) 26%,var(--ink2)),var(--ink3));border:1px solid color-mix(in srgb,var(--c) 30%,var(--line));box-shadow:0 8px 20px -10px color-mix(in srgb,var(--c) 45%,transparent)}
@@ -166,7 +166,7 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 .rms.thm-pastel .lh-bg::before{background:radial-gradient(680px 520px at 12% 0%,color-mix(in srgb,#F2A6C8 34%,transparent),transparent 60%),radial-gradient(660px 520px at 90% 14%,color-mix(in srgb,#B6A6F0 30%,transparent),transparent 60%),radial-gradient(700px 560px at 58% 110%,color-mix(in srgb,#A6E6D0 26%,transparent),transparent 60%)}
 
 /* ── 10) الورقي الكلاسيكي — دفتر أستاذ · أيقونة مربّعة مفرّغة · حقول مسطّرة · خط نسخ ── */
-.rms.thm-paper{--acc:#A6321F;--r-sm:4px;--r:5px;--r-md:6px;--r-lg:8px;--r-xl:10px;--ico-r:6px;--ico-sw:1.75;--tk-r:2px;--font-head:'Amiri',serif;--font-ui:'Tajawal',serif}
+.rms.thm-paper{--acc:#A6321F;--r-sm:4px;--r:5px;--r-md:6px;--r-lg:8px;--r-xl:10px;--ico-r:6px;--ico-sw:1.75;--tk-r:2px;--font-head:'Markazi Text',serif;--font-ui:'Tajawal',sans-serif}
 .rms.mode-light.thm-paper{--ink:#F4EFE3;--ink2:#FCF8EE;--ink3:#EDE5D3;--line:#DDD2BB;--txt:#2A2420;--dim:#6B6152;--faint:#9A8E78}
 .rms.mode-dark.thm-paper{--ink:#171310;--ink2:#1F1A15;--ink3:#28221B;--line:#3A3225;--txt:#EDE4D2;--dim:#B3A588;--faint:#7C6E58}
 .rms.thm-paper .card,.rms.thm-paper .kpi{box-shadow:none;border:1px solid var(--line-g);outline:1px solid color-mix(in srgb,var(--line) 60%,transparent);outline-offset:3px}
@@ -181,7 +181,7 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 .rms.thm-paper .lh-bg::after{content:'';position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent 0 27px,color-mix(in srgb,var(--line) 55%,transparent) 27px 28px);opacity:.6}
 
 /* ── 11) الصناعي الفحمي — لوحة تقنية · أيقونة مقصوصة الزاوية · خلفية تظليل · نبرة أمبر ── */
-.rms.thm-carbon{--acc:#F59E0B;--r-sm:5px;--r:6px;--r-md:7px;--r-lg:9px;--r-xl:11px;--ico-r:7px;--ico-sw:2;--tk-r:3px;--font-head:'Changa',sans-serif;--font-ui:'Tajawal',sans-serif}
+.rms.thm-carbon{--acc:#F59E0B;--r-sm:5px;--r:6px;--r-md:7px;--r-lg:9px;--r-xl:11px;--ico-r:7px;--ico-sw:2;--tk-r:3px;--font-head:'Almarai',sans-serif;--font-ui:'Tajawal',sans-serif}
 .rms.mode-dark.thm-carbon{--ink:#111318;--ink2:#181B22;--ink3:#20242D;--line:#2E3440;--txt:#E7ECF3;--dim:#9AA6B8;--faint:#5E6878}
 .rms.mode-light.thm-carbon{--ink:#EDF0F4;--ink2:#FFFFFF;--ink3:#E3E8EF;--line:#CDD5E0;--txt:#1A2130;--dim:#4E5866;--faint:#8792A3}
 .rms.thm-carbon .lh-box{background:var(--ink3);border:1px solid color-mix(in srgb,var(--acc) 28%,var(--line));box-shadow:none;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,12px 100%,0 calc(100% - 12px))}
