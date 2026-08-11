@@ -1717,7 +1717,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v10.5 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v10.6 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -7310,6 +7310,35 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const budNetB = Math.round((budRevB - budExpB) * 100) / 100;
   const budNetA = Math.round((budRevA - budExpA) * 100) / 100;
 
+  // ===== v10.6: التحليل المالي والنِسَب ومقارنة الفترات (مشتقّ بالكامل — بلا إعدادات) =====
+  const r2 = (n) => Math.round(n * 100) / 100;
+  const ymAddC = (ym, k) => { const pr = ym.split('-').map(Number); const t = pr[0] * 12 + (pr[1] - 1) + k; return String(Math.floor(t / 12)).padStart(4, '0') + '-' + String((t % 12) + 1).padStart(2, '0'); };
+  const nowYmC = (() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); })();
+  const anlEndYm = to ? to.slice(0, 7) : nowYmC;
+  const monthIS = (ym) => {
+    const ma = aggOf(A.entries.filter(e => (e.date || '').slice(0, 7) === ym && !e.closing && byBranch(e)));
+    const rev = sum(A.accounts.filter(a => a.kind === 'rev'), a => balOf(a, ma));
+    const exp = sum(A.accounts.filter(a => a.kind === 'exp'), a => balOf(a, ma));
+    return { ym, rev: r2(rev), exp: r2(exp), net: r2(rev - exp) };
+  };
+  const anlTrend = Array.from({ length: 6 }, (_, i) => monthIS(ymAddC(anlEndYm, i - 5)));  // 6 أشهر تنتهي عند الفترة
+  const anlCur = anlTrend[5], anlPrev = anlTrend[4];
+  const pctChange = (c, p) => Math.abs(p) < 0.005 ? null : (c - p) / Math.abs(p) * 100;
+  // النِسَب — الربحية من قائمة الدخل للفترة، والسيولة/الرفع من المركز المالي حتى نهايتها
+  const anTotAssets = bsAssets, anTotLiab = bsLiab, anTotEquity = r2(bsEquity + bsProfit);
+  const anNetFixed = r2(balOf(accByCode['1701'], bsAgg) + balOf(accByCode['1791'], bsAgg));
+  const anInventory = r2(balOf(accByCode['1601'], bsAgg));
+  const anCurAssets = r2(anTotAssets - anNetFixed);
+  const anCash = r2(cashBalOver(bsEntries.filter(e => byBranch(e))));
+  const anDiv = (a, b) => Math.abs(b) < 0.005 ? null : a / b;
+  const ratios = {
+    netMargin: anDiv(netP, revP), expRatio: anDiv(expP, revP), roa: anDiv(netP, anTotAssets), roe: anDiv(netP, anTotEquity),
+    current: anDiv(anCurAssets, anTotLiab), quick: anDiv(anCurAssets - anInventory, anTotLiab), cashRatio: anDiv(anCash, anTotLiab), workingCap: r2(anCurAssets - anTotLiab),
+    de: anDiv(anTotLiab, anTotEquity), da: anDiv(anTotLiab, anTotAssets), turnover: anDiv(revP, anTotAssets)
+  };
+  const pctTxt = (x) => x == null ? '—' : (Math.round(x * 1000) / 10) + '%';
+  const xTxt = (x) => x == null ? '—' : (Math.round(x * 100) / 100).toFixed(2) + '×';
+
   // ===== م٣: الضريبة =====
   const taxCfg = org.taxCfg || {};
   const taxOn = !!taxCfg.enabled;
@@ -7601,6 +7630,27 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
       </tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
   };
 
+  // ===== v10.6: طباعة التحليل والنِسَب A4 =====
+  const printAnalysis = () => {
+    const rr = (label, val) => `<tr><td>${label}</td><td class="n">${val}</td></tr>`;
+    const trend = anlTrend.map(m => `<tr><td>${m.ym}</td><td class="n">${money(m.rev)}</td><td class="n">${money(m.exp)}</td><td class="n">${money(m.net)}</td></tr>`).join('');
+    const period = (from || to) ? ('الفترة: ' + (from || 'البداية') + ' ← ' + (to || arDate(today()))) : 'حتى ' + arDate(today());
+    printA4(org, 'التحليل المالي والنِسَب' + (bfLabel ? ' — ' + bfLabel : ''), period,
+      `<div style="display:flex;gap:16px">
+        <table style="flex:1"><thead><tr><th colspan="2">الربحية</th></tr></thead><tbody>
+          ${rr('هامش الربح الصافي', pctTxt(ratios.netMargin))}${rr('نسبة المصروفات للإيراد', pctTxt(ratios.expRatio))}${rr('العائد على الأصول', pctTxt(ratios.roa))}${rr('العائد على حقوق الملكية', pctTxt(ratios.roe))}
+        </tbody></table>
+        <table style="flex:1"><thead><tr><th colspan="2">السيولة</th></tr></thead><tbody>
+          ${rr('النسبة الجارية', xTxt(ratios.current))}${rr('النسبة السريعة', xTxt(ratios.quick))}${rr('نسبة النقد', xTxt(ratios.cashRatio))}${rr('رأس المال العامل', money(ratios.workingCap))}
+        </tbody></table>
+        <table style="flex:1"><thead><tr><th colspan="2">الرفع والكفاءة</th></tr></thead><tbody>
+          ${rr('الدين إلى حقوق الملكية', xTxt(ratios.de))}${rr('الخصوم إلى الأصول', pctTxt(ratios.da))}${rr('معدل دوران الأصول', xTxt(ratios.turnover))}
+        </tbody></table>
+      </div>
+      <h3 style="margin:14px 0 6px;color:#5a4a1e">الاتجاه الشهري (آخر 6 أشهر)</h3>
+      <table><thead><tr><th>الشهر</th><th>الإيرادات</th><th>المصروفات</th><th>صافي الربح</th></tr></thead><tbody>${trend}</tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+  };
+
   // ===== v8.0: طباعة القوائم المالية A4 =====
   const printFS = () => {
     const w = window.open('', '_blank', 'width=900,height=1000');
@@ -7796,6 +7846,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         <button className={'btn sm' + (view === 'fs' ? ' pri' : ' gh')} onClick={() => setView('fs')}><FileBarChart size={14} />القوائم المالية</button>
         <button className={'btn sm' + (view === 'cf' ? ' pri' : ' gh')} onClick={() => setView('cf')}><ArrowLeftRight size={14} />التدفقات النقدية</button>
         <button className={'btn sm' + (view === 'bud' ? ' pri' : ' gh')} onClick={() => setView('bud')}><BarChart3 size={14} />الموازنة</button>
+        <button className={'btn sm' + (view === 'anl' ? ' pri' : ' gh')} onClick={() => setView('anl')}><TrendingUp size={14} />التحليل والنِسَب</button>
         <button className={'btn sm' + (view === 'cc' ? ' pri' : ' gh')} onClick={() => setView('cc')}><BarChart3 size={14} />مراكز التكلفة</button>
         <button className={'btn sm' + (view === 'vat' ? ' pri' : ' gh')} onClick={() => setView('vat')}><Receipt size={14} />الضريبة</button>
         <button className={'btn sm' + (view === 'ast' ? ' pri' : ' gh')} onClick={() => setView('ast')}><Building2 size={14} />الأصول</button>
@@ -8153,6 +8204,83 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
             ) : (
               <div className="note">فعّل الموازنة أعلاه وأدخل بنودها الشهرية لتظهر مقارنة الفعلي بالمخطّط والانحرافات.</div>
             )}
+          </div>
+        );
+      })()}
+
+      {view === 'anl' && (() => {
+        const chgTxt = (c, p) => { const v = pctChange(c, p); return v == null ? '—' : (v >= 0 ? '+' : '') + (Math.round(v * 10) / 10) + '%'; };
+        const Ratio = (label, val, color) => (
+          <div className="row" style={{ justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid var(--line)' }}>
+            <span style={{ fontSize: 12, color: 'var(--dim)' }}>{label}</span>
+            <b className="num" style={{ fontSize: 12.5, color: color || 'var(--txt)' }}>{val}</b>
+          </div>
+        );
+        const maxNet = Math.max(...anlTrend.map(m => Math.abs(m.net)), 1);
+        return (
+          <div className="grid" style={{ gap: 12 }}>
+            <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+              {periodBar}
+              <div className="row" style={{ gap: 8 }}>
+                <select className="sel" style={{ width: 190 }} value={bf} onChange={e => setBf(e.target.value)}>
+                  <option value="">تحليل موحّد (كل الفروع)</option>
+                  <option value="central">القيود المركزية فقط</option>
+                  {(org.branches || []).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+                <button className="btn sm" onClick={printAnalysis}><Printer size={13} />طباعة A4</button>
+              </div>
+            </div>
+            {/* مقارنة شهر بشهر */}
+            <div className="grid g3">
+              <Kpi label={'الإيرادات — ' + anlCur.ym} value={money(anlCur.rev)} sub={'السابق ' + money(anlPrev.rev) + ' · ' + chgTxt(anlCur.rev, anlPrev.rev)} icon={TrendingUp} color={anlCur.rev + 0.005 >= anlPrev.rev ? '#4FB286' : '#D9544D'} />
+              <Kpi label={'المصروفات — ' + anlCur.ym} value={money(anlCur.exp)} sub={'السابق ' + money(anlPrev.exp) + ' · ' + chgTxt(anlCur.exp, anlPrev.exp)} icon={TrendingDown} color={anlCur.exp <= anlPrev.exp + 0.005 ? '#4FB286' : '#D9544D'} />
+              <Kpi label={'صافي الربح — ' + anlCur.ym} value={money(anlCur.net)} sub={'السابق ' + money(anlPrev.net) + ' · ' + chgTxt(anlCur.net, anlPrev.net)} icon={Scale} color={anlCur.net + 0.005 >= anlPrev.net ? '#4FB286' : '#E0A458'} />
+            </div>
+            {/* النِسَب */}
+            <div className="grid g3">
+              <div className="card">
+                <div className="card-t" style={{ marginBottom: 8 }}><TrendingUp size={14} color="var(--mint)" />الربحية</div>
+                {Ratio('هامش الربح الصافي', pctTxt(ratios.netMargin), ratios.netMargin == null ? null : ratios.netMargin >= 0 ? 'var(--mint)' : 'var(--rose)')}
+                {Ratio('نسبة المصروفات للإيراد', pctTxt(ratios.expRatio))}
+                {Ratio('العائد على الأصول (ROA)', pctTxt(ratios.roa))}
+                {Ratio('العائد على حقوق الملكية (ROE)', pctTxt(ratios.roe))}
+              </div>
+              <div className="card">
+                <div className="card-t" style={{ marginBottom: 8 }}><Wallet size={14} color="var(--brass)" />السيولة</div>
+                {Ratio('النسبة الجارية', xTxt(ratios.current), ratios.current == null ? null : ratios.current >= 1 ? 'var(--mint)' : 'var(--amber)')}
+                {Ratio('النسبة السريعة', xTxt(ratios.quick), ratios.quick == null ? null : ratios.quick >= 1 ? 'var(--mint)' : 'var(--amber)')}
+                {Ratio('نسبة النقد', xTxt(ratios.cashRatio))}
+                {Ratio('رأس المال العامل', money(ratios.workingCap), ratios.workingCap >= 0 ? 'var(--mint)' : 'var(--rose)')}
+              </div>
+              <div className="card">
+                <div className="card-t" style={{ marginBottom: 8 }}><Scale size={14} color="var(--brass)" />الرفع والكفاءة</div>
+                {Ratio('الدين إلى حقوق الملكية', xTxt(ratios.de))}
+                {Ratio('الخصوم إلى الأصول', pctTxt(ratios.da))}
+                {Ratio('معدل دوران الأصول', xTxt(ratios.turnover))}
+                {Ratio('إجمالي الأصول', money(anTotAssets))}
+              </div>
+            </div>
+            {/* الاتجاه الشهري */}
+            <div className="card">
+              <div className="card-t" style={{ marginBottom: 10 }}><BarChart3 size={15} color="var(--brass)" />الاتجاه الشهري — آخر 6 أشهر {bfLabel ? '· ' + bfLabel : ''}</div>
+              <div className="tw">
+                <table className="tb">
+                  <thead><tr><th>الشهر</th><th style={{ textAlign: 'end' }}>الإيرادات</th><th style={{ textAlign: 'end' }}>المصروفات</th><th style={{ textAlign: 'end' }}>صافي الربح</th><th style={{ width: '32%' }}>الاتجاه</th></tr></thead>
+                  <tbody>
+                    {anlTrend.map(m => (
+                      <tr key={m.ym}>
+                        <td className="num" style={{ fontSize: 11.5 }}>{m.ym}</td>
+                        <td className="num" style={{ textAlign: 'end', color: 'var(--mint)' }}>{money(m.rev)}</td>
+                        <td className="num" style={{ textAlign: 'end', color: 'var(--rose)' }}>{money(m.exp)}</td>
+                        <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: m.net >= 0 ? 'var(--mint)' : 'var(--rose)' }}>{fmtBal(m.net)}</td>
+                        <td><div style={{ height: 10, borderRadius: 5, width: Math.max(2, Math.abs(m.net) / maxNet * 100) + '%', background: m.net >= 0 ? 'var(--mint)' : 'var(--rose)', opacity: .75 }} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="note" style={{ marginTop: 10 }}>النِسَب مشتقّة من قوائمك مباشرةً: الربحية من قائمة الدخل للفترة المحددة، والسيولة والرفع من المركز المالي حتى نهايتها. الاتجاه يعرض آخر ٦ أشهر منتهيةً بالفترة (أو الشهر الحالي). «×» تعني «مرّة»، والقيم بلا بسط/مقام صالح تظهر «—».</div>
+            </div>
           </div>
         );
       })()}
