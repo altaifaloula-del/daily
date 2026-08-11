@@ -1081,13 +1081,13 @@ const DENOMS = [
 const emptyDenoms = () => DENOMS.reduce((o, d) => ({ ...o, [d.k]: 0 }), {});
 const countDenoms = (d) => DENOMS.reduce((s, x) => s + (Number(d?.[x.k]) || 0) * x.v, 0);
 
-const ALL_TABS = ['exec', 'alerts', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'admin', 'audit'];
+const ALL_TABS = ['exec', 'alerts', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit'];
 const TAB_AR = {
   dash: 'لوحة المؤشرات', compare: 'مقارنة الفروع', growth: 'تحليلات النمو', closing: 'الإغلاق اليومي', apps: 'التطبيقات',
   approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', payroll: 'الرواتب والسلف',
   suppliers: 'الموردون والمشتريات', inv: 'المخزون والمنتجات', partners: 'دفتر الشركاء',
   acct: 'المحاسبة', shifts: 'الورديات', archive: 'أرشيف المستندات', ai: 'المركز الذكي',
-  reports: 'التقارير المالية', rbuild: 'منشئ التقارير', admin: 'الفروع والمستخدمون', audit: 'سجل التدقيق'
+  reports: 'التقارير المالية', rbuild: 'منشئ التقارير', entities: 'مركز المنشآت', admin: 'الفروع والمستخدمون', audit: 'سجل التدقيق'
 };
 const ROLES = {
   // ===== الأدوار الخمسة المعتمدة =====
@@ -1108,7 +1108,7 @@ const ROLES = {
   },
   head_office: {
     ar: 'المكتب الرئيسي — المالية والإدارة', badge: 'b-brass', scope: 'all', approver: true,
-    tabs: ['exec', 'alerts', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'audit'],
+    tabs: ['exec', 'alerts', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['كل الفروع والتقارير المجمّعة', 'التدقيق والاعتماد النهائي', 'الخزينة والرواتب والموردون والمشتريات والمخزون', 'المحاسبة الكاملة: قيود وميزان وقوائم وضريبة وأصول ومراكز تكلفة']
   },
   system_admin: {
@@ -1126,7 +1126,7 @@ const ROLES = {
     // إعادة ترتيب v8.0: المحاسب الرئيسي بطبيعته يعمل على المنشأة كلها — نطاق كامل
     // بلا صلاحيات إدارة (لا مستخدمين/فروع، لا تفعيل ضريبة، لا إدارة تطبيقات)
     ar: 'الإدارة المالية — محاسب رئيسي', badge: 'b-sky', scope: 'all', legacy: true,
-    tabs: ['exec', 'alerts', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'audit'],
+    tabs: ['exec', 'alerts', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['المحاسبة كاملة: قيود يدوية وافتتاحية وميزان وقوائم ومراكز تكلفة', 'الضريبة والأصول والتسوية البنكية (عرض وتسجيل — التفعيل للإدارة)', 'المشتريات والمخزون والرواتب والخزينة', 'كل الفروع — دون إدارة المستخدمين والإعدادات']
   }
 };
@@ -1230,6 +1230,8 @@ const LAUNCH_APPS = [
     kw: ['تقرير', 'تقارير', 'طباعة', 'مالية'] },
   { id: 'rbuild', ar: 'منشئ التقارير', en: 'Report Builder', cat: 'fin', icon: Wand2, open: { tab: 'rbuild' },
     sections: ['مصدر البيانات', 'الفترة والفرع', 'التجميع والأعمدة', 'قوالب محفوظة'], kw: ['تقرير', 'مخصص', 'منشئ', 'قالب', 'أعمدة', 'تصدير', 'بناء', 'مرن'] },
+  { id: 'entities', ar: 'مركز المنشآت', en: 'Entities', cat: 'fin', icon: Building2, open: { tab: 'entities' },
+    sections: ['النظرة الموحّدة', 'إدارة المنشآت', 'إسناد الفروع'], kw: ['منشأة', 'منشآت', 'شركة', 'شركات', 'كيان', 'موحّد', 'مجموعة', 'رقم ضريبي', 'تعدد'] },
   { id: 'closing', ar: 'الإغلاق اليومي', en: 'Daily Closing', cat: 'pos', icon: ClipboardCheck, open: { tab: 'closing' },
     sections: ['تسجيل إغلاق اليوم', 'سجل الإغلاقات'], kw: ['اغلاق', 'إغلاق', 'وردية', 'مبيعات', 'صندوق', 'كاشير', 'نقطة بيع', 'نقاط البيع'] },
   { id: 'sales', ar: 'المبيعات', en: 'Sales', cat: 'pos', icon: CircleDollarSign, open: { tab: 'sales' },
@@ -1268,7 +1270,7 @@ const LAUNCH_APPS = [
 const LAUNCH_IX = {}; LAUNCH_APPS.forEach(a => { LAUNCH_IX[a.id] = a; });
 // ترتيب عرض مقصود (لا عشوائي) — تدفّق منطقي: التشغيل اليومي ← المالية ← المشتريات ←
 // المخزون ← الموارد البشرية ← الضريبة ← الحوكمة ← الذكاء (متجاورة لونيًا وموضوعيًا، بنمط أودو)
-const LAUNCH_ORDER = ['exec', 'alerts', 'growth', 'closing', 'sales', 'approve', 'dash', 'compare', 'shifts', 'acct', 'treasury', 'reports', 'rbuild', 'suppliers', 'partners', 'inv', 'payroll', 'vat', 'brmgmt', 'docs', 'backup', 'audit', 'archive', 'ai'];
+const LAUNCH_ORDER = ['exec', 'alerts', 'growth', 'closing', 'sales', 'approve', 'dash', 'compare', 'shifts', 'acct', 'treasury', 'reports', 'rbuild', 'suppliers', 'partners', 'inv', 'payroll', 'vat', 'brmgmt', 'entities', 'docs', 'backup', 'audit', 'archive', 'ai'];
 const launchRank = (id) => { const i = LAUNCH_ORDER.indexOf(id); return i < 0 ? 999 : i; };
 /* v8.5 — لقطات احتياطية يومية محلية (IndexedDB) على أجهزة الإدارة:
    حماية إضافية ضد التلف أو الحذف الخاطئ — والنسخة الملفية تبقى الحماية الخارجية */
@@ -1903,6 +1905,7 @@ export default function App() {
     { id: 'ai', ar: 'المركز المالي الذكي', icon: Sparkles },
     { id: 'reports', ar: 'التقارير المالية', icon: FileBarChart },
     { id: 'rbuild', ar: 'منشئ التقارير', icon: Wand2 },
+    { id: 'entities', ar: 'مركز المنشآت', icon: Building2 },
     { id: 'admin', ar: 'الفروع والمستخدمون', icon: UserCog },
     { id: 'audit', ar: 'سجل التدقيق', icon: Eye }
   ].filter(n => n.id === 'home' || ((roleTabsMe.includes(n.id) || grantTabsMe.includes(n.id)) && !denyDedMe.has(n.id)));
@@ -1997,7 +2000,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v12.0 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v12.1 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2117,6 +2120,7 @@ export default function App() {
               {safeTab === 'ai' && <AiCenter {...shared} />}
               {safeTab === 'reports' && <Reports {...shared} />}
               {safeTab === 'rbuild' && <ReportBuilder {...shared} />}
+              {safeTab === 'entities' && <EntitiesCenter {...shared} />}
               {safeTab === 'admin' && <Admin {...shared} />}
               {safeTab === 'audit' && <AuditView {...shared} onSeen={() => setLastSeenAudit(Date.now())} />}
             </div>
@@ -3523,6 +3527,169 @@ function GrowthAnalytics({ org, ops, me, myBranches, scoped, setTab, theme, say 
 }
 
 /* ============================================================
+   v12.1 — تعدّد المنشآت/الشركات (اختياري، مطفأ افتراضيًا)
+   المنشأة الرئيسية = org.company (كما هي). المنشآت الإضافية في org.entities،
+   وكل فرع يُسنَد لمنشأة عبر branch.entityId (فارغ = الرئيسية). بلا منشآت
+   إضافية يبقى النظام أحادي المنشأة تمامًا كما كان — توافق رجعي كامل.
+   ============================================================ */
+function entityList(org) {
+  const co = org.company || {};
+  const primary = { id: 'primary', name: co.name || 'المنشأة الرئيسية', taxNumber: co.taxNumber || '', commercialReg: co.commercialReg || '', activity: co.activity || '', primary: true };
+  return [primary, ...((org.entities || []).map(e => ({ ...e, primary: false })))];
+}
+function branchEntityId(b) { return (b && b.entityId) ? b.entityId : 'primary'; }
+function entityById(org, id) { const l = entityList(org); return l.find(e => e.id === (id || 'primary')) || l[0]; }
+function multiEntityOn(org) { return (org.entities || []).length > 0; }
+
+function EntitiesCenter({ org, ops, me, myBranches, scoped, commitOrg, say }) {
+  const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+  const admin = !!ROLES[me?.role]?.admin;
+  const ents = entityList(org);
+  const branches = org.branches || [];
+  const counted = (scoped.closings || []).filter(countedClosing);
+  const [from, setFrom] = useState(''); const [to, setTo] = useState('');
+  const [ef, setEf] = useState(null); // نموذج منشأة (إضافة/تعديل)
+  const inP = (d) => (!from || d >= from) && (!to || d <= to);
+  const brOfEnt = (eid) => branches.filter(b => branchEntityId(b) === eid);
+  const figFor = (eid) => {
+    const bids = new Set(brOfEnt(eid).map(b => b.id));
+    const cs = counted.filter(c => bids.has(c.branchId) && inP(c.date || ''));
+    const rev = r2(sum(cs, c => c.totalRevenue || 0)), exp = r2(sum(cs, c => c.totalExpenses || 0));
+    return { nb: brOfEnt(eid).length, n: cs.length, rev, exp, net: r2(rev - exp) };
+  };
+  const rows = ents.map(e => ({ e, ...figFor(e.id) }));
+  const tot = { nb: sum(rows, r => r.nb), rev: r2(sum(rows, r => r.rev)), exp: r2(sum(rows, r => r.exp)), net: r2(sum(rows, r => r.net)) };
+
+  const preset = (kind) => {
+    const d = new Date(), y = d.getFullYear(), m = d.getMonth(), iso = (dt) => dt.toISOString().slice(0, 10);
+    if (kind === 'month') { setFrom(iso(new Date(y, m, 1))); setTo(iso(new Date(y, m + 1, 0))); }
+    else if (kind === 'year') { setFrom(y + '-01-01'); setTo(y + '-12-31'); }
+    else { setFrom(''); setTo(''); }
+  };
+
+  const saveEnt = async () => {
+    const f = ef; if (!f.name.trim()) return say('أدخل اسم المنشأة', 'no');
+    if (f.primary) {
+      await commitOrg(d => ({ ...d, company: { ...(d.company || {}), name: f.name.trim(), taxNumber: (f.taxNumber || '').trim(), commercialReg: (f.commercialReg || '').trim(), activity: (f.activity || '').trim() } }), { actionType: 'update', targetType: 'entity', targetId: 'primary', title: 'تعديل المنشأة الرئيسية', details: f.name.trim() });
+    } else if (f.id) {
+      await commitOrg(d => ({ ...d, entities: (d.entities || []).map(e => e.id === f.id ? { ...e, name: f.name.trim(), taxNumber: (f.taxNumber || '').trim(), commercialReg: (f.commercialReg || '').trim(), activity: (f.activity || '').trim() } : e) }), { actionType: 'update', targetType: 'entity', targetId: f.id, title: 'تعديل منشأة', details: f.name.trim() });
+    } else {
+      const id = 'ent' + Date.now().toString(36);
+      await commitOrg(d => ({ ...d, entities: [...(d.entities || []), { id, name: f.name.trim(), taxNumber: (f.taxNumber || '').trim(), commercialReg: (f.commercialReg || '').trim(), activity: (f.activity || '').trim() }] }), { actionType: 'create', targetType: 'entity', targetId: id, title: 'إضافة منشأة', details: f.name.trim() });
+    }
+    setEf(null);
+  };
+  const delEnt = async (e) => {
+    if (e.primary) return;
+    await commitOrg(d => ({ ...d, entities: (d.entities || []).filter(x => x.id !== e.id), branches: (d.branches || []).map(b => branchEntityId(b) === e.id ? { ...b, entityId: '' } : b) }), { actionType: 'delete', targetType: 'entity', targetId: e.id, title: 'حذف منشأة', details: e.name });
+  };
+  const assignBranch = async (bId, eid) => {
+    await commitOrg(d => ({ ...d, branches: (d.branches || []).map(b => b.id === bId ? { ...b, entityId: eid === 'primary' ? '' : eid } : b) }), { actionType: 'update', targetType: 'branch', targetId: bId, title: 'إسناد فرع لمنشأة', details: entityById(org, eid).name });
+  };
+
+  return (
+    <div className="grid" style={{ gap: 14 }}>
+      <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+        <div>
+          <h2 style={{ fontSize: 17 }}>مركز المنشآت</h2>
+          <div style={{ fontSize: 12, color: 'var(--dim)' }}>أدِر أكثر من منشأة/شركة بأرقام ضريبية وفروع مستقلة — بنظرة موحّدة ولكل منشأة</div>
+        </div>
+        <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+          <input className="inp" style={{ width: 'auto' }} type="date" value={from} onChange={e => setFrom(e.target.value)} />
+          <input className="inp" style={{ width: 'auto' }} type="date" value={to} onChange={e => setTo(e.target.value)} />
+          <button className="btn sm gh" onClick={() => preset('month')}>هذا الشهر</button>
+          <button className="btn sm gh" onClick={() => preset('year')}>هذه السنة</button>
+          <button className="btn sm gh" onClick={() => preset('all')}>الكل</button>
+        </div>
+      </div>
+
+      <div className="grid g3">
+        <Kpi label="عدد المنشآت" value={ents.length} sub={multiEntityOn(org) ? (org.entities.length + ' إضافية + الرئيسية') : 'منشأة واحدة (الوضع الافتراضي)'} icon={Building2} color="#C8A24A" />
+        <Kpi label="إجمالي الفروع" value={tot.nb} sub="موزّعة على المنشآت" icon={Store} color="#5B93C4" />
+        <Kpi label="صافي المجموعة (موحّد)" value={money(tot.net)} sub={(from || to) ? 'للفترة المحددة' : 'كل المدة'} icon={Landmark} color={tot.net >= 0 ? '#4FB286' : '#D9544D'} />
+      </div>
+
+      <div className="card">
+        <div className="card-t" style={{ marginBottom: 10 }}><Building2 size={15} color="var(--brass)" />النظرة الموحّدة — كل منشأة على حدة</div>
+        <div className="tw">
+          <table className="tb">
+            <thead><tr><th>المنشأة</th><th>الرقم الضريبي</th><th style={{ textAlign: 'center' }}>الفروع</th><th style={{ textAlign: 'end' }}>الإيراد</th><th style={{ textAlign: 'end' }}>المصروفات</th><th style={{ textAlign: 'end' }}>الصافي</th></tr></thead>
+            <tbody>
+              {rows.map(r => (
+                <tr key={r.e.id}>
+                  <td>{r.e.name} {r.e.primary && <span className="badge b-brass" style={{ marginInlineStart: 6 }}>الرئيسية</span>}</td>
+                  <td className="num" style={{ fontSize: 11, color: r.e.taxNumber ? 'inherit' : 'var(--amber)' }}>{r.e.taxNumber || 'غير محدّد'}</td>
+                  <td className="num" style={{ textAlign: 'center' }}>{r.nb}</td>
+                  <td className="num" style={{ textAlign: 'end' }}>{money(r.rev)}</td>
+                  <td className="num" style={{ textAlign: 'end' }}>{money(r.exp)}</td>
+                  <td className="num" style={{ textAlign: 'end', color: r.net >= 0 ? 'var(--mint)' : '#D9544D' }}>{money(r.net)}</td>
+                </tr>
+              ))}
+              <tr style={{ fontWeight: 900, background: 'rgba(200,162,74,.05)' }}>
+                <td>الإجمالي الموحّد</td><td /><td className="num" style={{ textAlign: 'center' }}>{tot.nb}</td>
+                <td className="num" style={{ textAlign: 'end' }}>{money(tot.rev)}</td>
+                <td className="num" style={{ textAlign: 'end' }}>{money(tot.exp)}</td>
+                <td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{money(tot.net)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {admin ? (
+        <div className="grid g2" style={{ alignItems: 'start' }}>
+          <div className="card">
+            <div className="card-h">
+              <div className="card-t"><Building2 size={15} color="var(--brass)" />المنشآت</div>
+              <button className="btn sm pri" onClick={() => setEf({ name: '', taxNumber: '', commercialReg: '', activity: '' })}><Plus size={14} />منشأة جديدة</button>
+            </div>
+            {ents.map(e => (
+              <div key={e.id} className="row" style={{ justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--frame-o)' }}>
+                <div>
+                  <div style={{ fontWeight: 700 }}>{e.name} {e.primary && <span className="badge b-brass" style={{ marginInlineStart: 6 }}>الرئيسية</span>}</div>
+                  <div style={{ fontSize: 11, color: 'var(--dim)' }}>ض: {e.taxNumber || '—'} · س.ت: {e.commercialReg || '—'}</div>
+                </div>
+                <div className="row" style={{ gap: 6 }}>
+                  <button className="btn sm gh" onClick={() => setEf({ ...e })}><Settings size={13} /></button>
+                  {!e.primary && <button className="btn sm gh" onClick={() => delEnt(e)}><Trash2 size={13} /></button>}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="card">
+            <div className="card-t" style={{ marginBottom: 10 }}><Store size={15} color="var(--brass)" />إسناد الفروع للمنشآت</div>
+            {branches.length ? branches.map(b => (
+              <div key={b.id} className="row" style={{ justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom: '1px solid var(--frame-o)' }}>
+                <span style={{ fontSize: 13 }}>{b.name}</span>
+                <select className="inp" style={{ width: 190 }} value={branchEntityId(b)} onChange={e => assignBranch(b.id, e.target.value)}>
+                  {ents.map(en => <option key={en.id} value={en.id}>{en.name}{en.primary ? ' (الرئيسية)' : ''}</option>)}
+                </select>
+              </div>
+            )) : <div className="empty">لا فروع بعد.</div>}
+          </div>
+        </div>
+      ) : <div className="note">إدارة المنشآت وإسناد الفروع صلاحية للإدارة العليا/مسؤول النظام. هذه الشاشة لك للعرض الموحّد.</div>}
+
+      {ef && (
+        <Modal title={ef.primary ? 'تعديل المنشأة الرئيسية' : ef.id ? 'تعديل منشأة' : 'منشأة جديدة'} icon={Building2} onClose={() => setEf(null)}
+          foot={<><button className="btn gh" onClick={() => setEf(null)}>إلغاء</button><button className="btn pri" onClick={saveEnt}><Check size={14} />حفظ</button></>}>
+          <div className="grid g2" style={{ gap: 10 }}>
+            <Field label="اسم المنشأة"><input className="inp" value={ef.name} onChange={e => setEf({ ...ef, name: e.target.value })} /></Field>
+            <Field label="الرقم الضريبي"><input className="inp n" value={ef.taxNumber} placeholder="3xxxxxxxxxxxxx3" onChange={e => setEf({ ...ef, taxNumber: e.target.value })} /></Field>
+            <Field label="السجل التجاري"><input className="inp n" value={ef.commercialReg} onChange={e => setEf({ ...ef, commercialReg: e.target.value })} /></Field>
+            <Field label="النشاط"><input className="inp" value={ef.activity} onChange={e => setEf({ ...ef, activity: e.target.value })} /></Field>
+          </div>
+          {ef.primary && <div className="note" style={{ marginTop: 10 }}>هذه بيانات منشأتك الرئيسية (تُستخدم في الفواتير والتقارير) — تعديلها هنا يعدّل «بيانات الشركة».</div>}
+        </Modal>
+      )}
+
+      <div className="note">💡 المنشأة الرئيسية هي منشأتك الحالية بلا أي تغيير. أضِف منشأة فقط إن كنت تدير أكثر من كيان قانوني؛ عندها تظهر خيارات المنشأة في <b>فاتورة زاتكا</b> و<b>منشئ التقارير</b>. الفروع غير المُسندة تبقى ضمن الرئيسية.</div>
+    </div>
+  );
+}
+
+/* ============================================================
    v12.0 — منشئ التقارير المخصّصة
    تقرير يبنيه المستخدم بنفسه: مصدر (إغلاقات/مصروفات/أرصدة) + فترة + فرع +
    تجميع + اختيار أعمدة + فرز، مع حفظ قوالب وإعادة استخدامها وطباعة/Excel/CSV.
@@ -3564,7 +3731,7 @@ const RB_KIND_AR = { asset: 'أصول', liab: 'التزامات', equity: 'حق�
 const RB_PM_AR = { cash: 'نقدًا', card: 'شبكة', deferred: 'آجل', credit: 'آجل', cheque: 'شيك', bank_transfer: 'تحويل' };
 function ReportBuilder({ org, ops, me, myBranches, scoped, commitOrg, say, theme }) {
   const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
-  const [cfg, setCfg] = useState({ source: 'closings', from: '', to: '', branch: '', groupBy: 'none', cols: RB_SOURCES.closings.dflt.slice(), sortBy: '', sortDir: 'desc' });
+  const [cfg, setCfg] = useState({ source: 'closings', from: '', to: '', branch: '', entity: '', groupBy: 'none', cols: RB_SOURCES.closings.dflt.slice(), sortBy: '', sortDir: 'desc' });
   const [tplName, setTplName] = useState('');
   const S = RB_SOURCES[cfg.source];
   const set = (patch) => setCfg(c => ({ ...c, ...patch }));
@@ -3577,10 +3744,13 @@ function ReportBuilder({ org, ops, me, myBranches, scoped, commitOrg, say, theme
   const inP = (d) => (!cfg.from || d >= cfg.from) && (!cfg.to || d <= cfg.to);
   const brOk = (bid) => !cfg.branch ? true : cfg.branch === 'central' ? !bid : bid === cfg.branch;
   const brName = (bid) => (myBranches.find(b => b.id === bid) || {}).name || (bid ? '—' : 'المركز الرئيسي');
+  const rbEntMap = {}; (org.branches || []).forEach(b => rbEntMap[b.id] = branchEntityId(b));
+  const entOk = (bid) => !cfg.entity ? true : rbEntMap[bid] === cfg.entity;
+  const rbMulti = multiEntityOn(org);
 
   const records = useMemo(() => {
     if (cfg.source === 'closings') {
-      return counted.filter(c => inP(c.date || '') && brOk(c.branchId)).map(c => ({
+      return counted.filter(c => inP(c.date || '') && brOk(c.branchId) && entOk(c.branchId)).map(c => ({
         date: c.date, branch: c.branchName || brName(c.branchId),
         rev: r2(c.totalRevenue), exp: r2(c.totalExpenses), net: r2((c.totalRevenue || 0) - (c.totalExpenses || 0)),
         cash: r2(c.cashSales), card: r2(c.cardSales), delivery: r2(sum(c.deliverySales || [], s => s.amount || 0)),
@@ -3589,17 +3759,17 @@ function ReportBuilder({ org, ops, me, myBranches, scoped, commitOrg, say, theme
     }
     if (cfg.source === 'expenses') {
       const out = [];
-      counted.filter(c => inP(c.date || '') && brOk(c.branchId)).forEach(c => (c.expenses || []).forEach(e => {
+      counted.filter(c => inP(c.date || '') && brOk(c.branchId) && entOk(c.branchId)).forEach(c => (c.expenses || []).forEach(e => {
         if (!((e.amount || 0) > 0)) return;
         out.push({ date: c.date, branch: c.branchName || brName(c.branchId), category: e.categoryName || 'مصروف', beneficiary: e.beneficiaryName || '—', method: RB_PM_AR[e.paymentMethod] || e.paymentMethod || '—', amount: r2(e.amount), count: 1 });
       }));
       return out;
     }
     const acc = {}; A.accounts.forEach(a => acc[a.code] = { code: a.code, name: a.name, kind: a.kind, d: 0, c: 0 });
-    A.entries.forEach(e => { if (!inP(e.date || '')) return; if (!brOk(e.branchId)) return; e.lines.forEach(l => { const x = acc[l.code]; if (x) { x.d += l.debit; x.c += l.credit; } }); });
+    A.entries.forEach(e => { if (!inP(e.date || '')) return; if (!brOk(e.branchId)) return; if (!entOk(e.branchId)) return; e.lines.forEach(l => { const x = acc[l.code]; if (x) { x.d += l.debit; x.c += l.credit; } }); });
     return Object.values(acc).map(a => ({ code: a.code, name: a.name, kind: RB_KIND_AR[a.kind] || a.kind, debit: r2(a.d), credit: r2(a.c), balance: r2((a.kind === 'asset' || a.kind === 'exp') ? a.d - a.c : a.c - a.d) }))
       .filter(x => Math.abs(x.debit) > 0.004 || Math.abs(x.credit) > 0.004);
-  }, [cfg.source, cfg.from, cfg.to, cfg.branch, counted, A]);
+  }, [cfg.source, cfg.from, cfg.to, cfg.branch, cfg.entity, counted, A]);
 
   const grouped = useMemo(() => {
     if (cfg.groupBy === 'none') return records;
@@ -3643,7 +3813,7 @@ function ReportBuilder({ org, ops, me, myBranches, scoped, commitOrg, say, theme
     await commitOrg(d => ({ ...d, reportTemplates: [...(d.reportTemplates || []).filter(t => t.name !== nm), { id, name: nm, cfg: { ...cfg } }] }), { actionType: 'create', targetType: 'report_template', targetId: id, title: 'حفظ قالب تقرير', details: nm });
     setTplName(''); say('حُفظ القالب «' + nm + '»', 'ok');
   };
-  const loadTpl = (t) => setCfg({ source: 'closings', from: '', to: '', branch: '', groupBy: 'none', cols: [], sortBy: '', sortDir: 'desc', ...t.cfg, cols: (t.cfg.cols || []).slice() });
+  const loadTpl = (t) => setCfg({ source: 'closings', from: '', to: '', branch: '', entity: '', groupBy: 'none', cols: [], sortBy: '', sortDir: 'desc', ...t.cfg, cols: (t.cfg.cols || []).slice() });
   const delTpl = async (t) => { await commitOrg(d => ({ ...d, reportTemplates: (d.reportTemplates || []).filter(x => x.id !== t.id) }), { actionType: 'delete', targetType: 'report_template', targetId: t.id, title: 'حذف قالب تقرير', details: t.name }); };
 
   const dlBlob = (name, blob) => { const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(url), 1500); };
@@ -3654,7 +3824,7 @@ function ReportBuilder({ org, ops, me, myBranches, scoped, commitOrg, say, theme
     const tot = visCols.map((c, i) => i === 0 ? 'الإجمالي' : (c.num ? totals[c.k] : ''));
     return { head, body, tot };
   };
-  const subLine = () => S.ar + ((cfg.from || cfg.to) ? ' · ' + (cfg.from || 'البداية') + ' → ' + (cfg.to || 'النهاية') : ' · كل المدة') + (cfg.branch ? ' · ' + (cfg.branch === 'central' ? 'المركز الرئيسي' : brName(cfg.branch)) : ' · كل الفروع') + (isGroup ? ' · ' + visCols[0].ar : '');
+  const subLine = () => S.ar + ((cfg.from || cfg.to) ? ' · ' + (cfg.from || 'البداية') + ' → ' + (cfg.to || 'النهاية') : ' · كل المدة') + (cfg.entity ? ' · ' + entityById(org, cfg.entity).name : '') + (cfg.branch ? ' · ' + (cfg.branch === 'central' ? 'المركز الرئيسي' : brName(cfg.branch)) : ' · كل الفروع') + (isGroup ? ' · ' + visCols[0].ar : '');
   const exportCsv = () => { const { head, body, tot } = matrix(); dlBlob('تقرير_مخصص.csv', new Blob(['﻿' + [head, ...body, tot].map(r => r.map(csvCell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' })); };
   const exportXlsx = () => { try { const { head, body, tot } = matrix(); dlBlob('تقرير_مخصص.xlsx', makeXlsx([{ name: S.ar.slice(0, 28), rows: [head, ...body, tot] }])); } catch (e) { say('تعذّر توليد Excel', 'no'); } };
   const printRep = () => {
@@ -3689,6 +3859,7 @@ function ReportBuilder({ org, ops, me, myBranches, scoped, commitOrg, say, theme
           <Field label="من تاريخ"><input className="inp" type="date" value={cfg.from} onChange={e => set({ from: e.target.value })} /></Field>
           <Field label="إلى تاريخ"><input className="inp" type="date" value={cfg.to} onChange={e => set({ to: e.target.value })} /></Field>
           <Field label="الفرع"><select className="inp" value={cfg.branch} onChange={e => set({ branch: e.target.value })}>{branchOpts.map(o => <option key={o.v} value={o.v}>{o.ar}</option>)}</select></Field>
+          {rbMulti && <Field label="المنشأة"><select className="inp" value={cfg.entity} onChange={e => set({ entity: e.target.value })}><option value="">كل المنشآت</option>{entityList(org).map(en => <option key={en.id} value={en.id}>{en.name}</option>)}</select></Field>}
         </div>
         <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
           {[['month', 'هذا الشهر'], ['quarter', 'هذا الربع'], ['year', 'هذه السنة'], ['lastyear', 'السنة الماضية'], ['all', 'كل المدة']].map(pz => <button key={pz[0]} className="btn sm gh" onClick={() => preset(pz[0])}>{pz[1]}</button>)}
@@ -8395,7 +8566,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const [fcD, setFcD] = useState(() => { const f = org.forecastCfg || {}; return { monthlySales: f.monthlySales != null ? String(f.monthlySales) : '', monthlyOpex: f.monthlyOpex != null ? String(f.monthlyOpex) : '', buffer: f.safetyBuffer != null ? String(f.safetyBuffer) : '', horizon: f.horizon || 6 }; }); // v11.4 توقّع نقدي
   const [mcMonth, setMcMonth] = useState(() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }); // v11.5 شهر الإقفال
   const [audD, setAudD] = useState(() => { const a = org.auditCfg || {}; return { largeAmount: a.largeAmount != null ? String(a.largeAmount) : '5000' }; }); // v11.6 عتبة التدقيق
-  const [einvF, setEinvF] = useState({ mode: 'gross', amount: '', buyer: '', invNo: '', date: today(), time: '', desc: 'مبيعات', closingId: '' }); // v11.8 الفوترة المبسّطة (زاتكا)
+  const [einvF, setEinvF] = useState({ mode: 'gross', amount: '', buyer: '', invNo: '', date: today(), time: '', desc: 'مبيعات', closingId: '', entity: 'primary' }); // v11.8 الفوترة المبسّطة (زاتكا) · v12.1 المنشأة المُصدِرة
   const [einvRaw, setEinvRaw] = useState(false); // إظهار سلسلة TLV الخام
   const [q, setQ] = useState('');
   const [month, setMonth] = useState('');           // فلتر شهر للقيود
@@ -8583,8 +8754,9 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   };
 
   // ===== v11.8: الفوترة الإلكترونية المبسّطة (زاتكا — رمز QR للمرحلة الأولى) =====
-  const einvSeller = (org.company && org.company.name) || '';
-  const einvSellerVat = (org.company && org.company.taxNumber) || '';
+  const einvEnt = entityById(org, einvF.entity);
+  const einvSeller = einvEnt.name || '';
+  const einvSellerVat = einvEnt.taxNumber || '';
   const einvRate = taxOn ? taxRate : 15;            // النسبة المعتمدة (تُعرض 15% افتراضيًا للفاتورة إن كانت الضريبة موقوفة)
   const _e2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
   const einvAmt = Number(String(einvF.amount).replace(/[^\d.]/g, '')) || 0;
@@ -10503,6 +10675,15 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
           <div className="grid g2" style={{ gap: 12, alignItems: 'start' }}>
             <div className="card">
               <div className="card-t" style={{ marginBottom: 10 }}><FileText size={15} color="var(--brass)" />بيانات الفاتورة</div>
+              {multiEntityOn(org) && (
+                <div style={{ marginBottom: 10 }}>
+                  <Field label="المنشأة المُصدِرة">
+                    <select className="inp" value={einvF.entity} onChange={e => setEinvF(f => ({ ...f, entity: e.target.value }))}>
+                      {entityList(org).map(en => <option key={en.id} value={en.id}>{en.name}{en.taxNumber ? ' — ' + en.taxNumber : ' (بلا رقم ضريبي)'}</option>)}
+                    </select>
+                  </Field>
+                </div>
+              )}
               <div className="row" style={{ gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
                 <button className={'btn sm' + (einvF.mode === 'gross' ? ' pri' : ' gh')} onClick={() => setEinvF(f => ({ ...f, mode: 'gross' }))}>المبلغ شامل الضريبة</button>
                 <button className={'btn sm' + (einvF.mode === 'net' ? ' pri' : ' gh')} onClick={() => setEinvF(f => ({ ...f, mode: 'net' }))}>المبلغ قبل الضريبة</button>
