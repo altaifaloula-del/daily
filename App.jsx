@@ -2013,7 +2013,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v12.2 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v12.3 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -5905,6 +5905,7 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
   const [add, setAdd] = useState(false);
   const [repOpen, setRepOpen] = useState(false);    // v9.5 قائمة تقارير التطبيق
   const [compF, setCompF] = useState(null);         // v11.0 تعديل راتب/بدلات موظف
+  const [eosF, setEosF] = useState(null);           // v12.3 حاسبة نهاية الخدمة
   const [gosiD, setGosiD] = useState(() => { const g = org.gosiCfg || {}; return { enabled: !!g.enabled, empRate: String(g.empRate != null ? g.empRate : 9.75), erRate: String(g.erRate != null ? g.erRate : 11.75) }; });
   const ids = myBranches.map(b => b.id);
   const emps = org.employees.filter(e => ids.includes(e.branchId));
@@ -5944,6 +5945,37 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
     printA4(org, 'مسير الرواتب — ' + monthName, arDate(today()) + ' · ' + rows.length + ' موظف',
       `<table><thead><tr><th>الموظف</th><th>الفرع</th><th>الأساسي</th><th>البدلات</th><th>الإجمالي</th><th>سلف/سحب</th><th>خصومات</th>${gc}<th>الصافي</th></tr></thead><tbody>${rws}
       <tr class="tot"><td colspan="${span}">إجمالي صافي المسير</td><td class="n">${money(totalNet)}</td></tr>${gosiOn ? `<tr class="tot"><td colspan="${span}">إجمالي التأمينات للتحويل (موظف + صاحب عمل)</td><td class="n">${money(totalGosi)}</td></tr>` : ''}</tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+  };
+
+  // ===== v12.3: حماية الأجور (WPS) ونهاية الخدمة =====
+  const empGrossOf = (e) => r2((e.baseSalary || 0) + (e.housingAllowance || 0) + (e.transportAllowance || 0) + (e.otherAllowance || 0));
+  const tenureYears = (hire, end) => { if (!hire) return 0; const h = Date.parse(hire + 'T00:00:00'), t = Date.parse((end || today()) + 'T00:00:00'); if (isNaN(h) || isNaN(t) || t < h) return 0; return (t - h) / (365.25 * 86400000); };
+  const eosFull = (wage, years) => years <= 5 ? wage * 0.5 * years : wage * (2.5 + (years - 5));
+  const eosEntitled = (wage, years, reason) => { const full = eosFull(wage, years); if (reason === 'termination') return full; if (years < 2) return 0; if (years < 5) return full / 3; if (years < 10) return full * 2 / 3; return full; };
+  const fmtYears = (y) => { const yr = Math.floor(y + 1e-9); const mo = Math.round((y - yr) * 12); return yr + ' سنة' + (mo ? ' و' + mo + ' شهر' : ''); };
+  const exportWPS = () => {
+    const head = ['رقم الهوية/الإقامة', 'اسم الموظف', 'الآيبان IBAN', 'الأساسي', 'بدل السكن', 'بدلات أخرى', 'الاستقطاعات', 'صافي الراتب', 'أيام العمل'];
+    const lines = rows.map(r => [r.e.idNumber || r.e.iqamaNo || r.e.nationalId || '', r.e.name, r.e.iban || '', r.e.baseSalary || 0, r.e.housingAllowance || 0, r2((r.e.transportAllowance || 0) + (r.e.otherAllowance || 0)), r2(r.draws + r.cuts + r.gEmp), r.net, 30]);
+    const csvCell = (v) => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const csv = '﻿' + [head, ...lines].map(r => r.map(csvCell).join(',')).join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' }); const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'حماية_الأجور_WPS_' + month + '.csv'; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(url), 1500);
+    const missing = rows.filter(r => !(r.e.iban && (r.e.idNumber || r.e.iqamaNo || r.e.nationalId))).length;
+    say(missing ? ('نُزّل الملف — لكن ' + missing + ' موظف بلا آيبان/هوية كاملة؛ أكمِلها من «تعديل الراتب»') : 'نُزّل ملف حماية الأجور ✓', missing ? 'no' : 'ok');
+  };
+  const printEOSlip = (emp, calc) => {
+    printA4(org, 'مخالصة نهاية الخدمة — ' + emp.name, 'حتى ' + arDate(calc.endDate) + ' · ' + (calc.reason === 'termination' ? 'إنهاء من صاحب العمل' : 'استقالة'),
+      `<table><tbody>
+      <tr><td>تاريخ التعيين</td><td class="n">${emp.hireDate || '—'}</td></tr>
+      <tr><td>تاريخ انتهاء الخدمة</td><td class="n">${calc.endDate}</td></tr>
+      <tr><td>مدة الخدمة</td><td class="n">${fmtYears(calc.years)}</td></tr>
+      <tr><td>الأجر الشهري (أساسي + بدلات)</td><td class="n">${money(calc.wage)}</td></tr>
+      <tr><td>مكافأة نهاية الخدمة الكاملة</td><td class="n">${money(calc.full)}</td></tr>
+      <tr><td>المستحق حسب سبب الانتهاء</td><td class="n">${money(calc.entitled)}</td></tr>
+      ${calc.leavePay ? `<tr><td>بدل إجازة متبقية (${calc.leaveDays} يوم)</td><td class="n">${money(calc.leavePay)}</td></tr>` : ''}
+      <tr class="tot"><td>إجمالي المخالصة النهائية</td><td class="n">${money(calc.total)}</td></tr>
+      </tbody></table>
+      <div class="box" style="margin-top:12px;font-size:10px;color:#777">محسوبة وفق نظام العمل السعودي (م 84/85): نصف شهر عن كل سنة للخمس الأولى، وشهر كامل لما بعدها؛ وتُخفَّض في الاستقالة حسب المدة. تقدير استرشادي؛ التسوية النهائية قد تشمل بنودًا أخرى.</div>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
   };
 
   const printPayslip = (r) => {
@@ -6069,7 +6101,7 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
   // v11.0 — حفظ راتب وبدلات موظف
   const saveComp = async () => {
     const f = compF;
-    const patch = { baseSalary: Number(f.baseSalary) || 0, housingAllowance: Number(f.housingAllowance) || 0, transportAllowance: Number(f.transportAllowance) || 0, otherAllowance: Number(f.otherAllowance) || 0, gosiSubject: !!f.gosiSubject };
+    const patch = { baseSalary: Number(f.baseSalary) || 0, housingAllowance: Number(f.housingAllowance) || 0, transportAllowance: Number(f.transportAllowance) || 0, otherAllowance: Number(f.otherAllowance) || 0, gosiSubject: !!f.gosiSubject, hireDate: (f.hireDate || '').trim(), iban: (f.iban || '').trim().replace(/\s/g, ''), idNumber: (f.idNumber || '').trim() };
     await commitOrg(d => ({ ...d, employees: (d.employees || []).map(x => x.id === f.id ? { ...x, ...patch } : x) }), {
       actionType: 'update', targetType: 'user_account', targetId: f.id,
       title: 'حدّث راتب/بدلات موظف', details: f.name + ' · أساسي ' + money(patch.baseSalary)
@@ -6165,7 +6197,7 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
                   <td className="num" style={{ textAlign: 'end', color: 'var(--mint)', fontWeight: 700 }}>{money(r.net)}</td>
                   <td>
                     <div className="row" style={{ gap: 5, justifyContent: 'flex-end' }}>
-                      {canPost && <button className="btn sm gh" onClick={() => setCompF({ id: r.e.id, name: r.e.name, baseSalary: String(r.e.baseSalary || 0), housingAllowance: String(r.e.housingAllowance || 0), transportAllowance: String(r.e.transportAllowance || 0), otherAllowance: String(r.e.otherAllowance || 0), gosiSubject: !!r.e.gosiSubject })}>تعديل الراتب</button>}
+                      {canPost && <button className="btn sm gh" onClick={() => setCompF({ id: r.e.id, name: r.e.name, baseSalary: String(r.e.baseSalary || 0), housingAllowance: String(r.e.housingAllowance || 0), transportAllowance: String(r.e.transportAllowance || 0), otherAllowance: String(r.e.otherAllowance || 0), gosiSubject: !!r.e.gosiSubject, hireDate: r.e.hireDate || '', iban: r.e.iban || '', idNumber: r.e.idNumber || r.e.iqamaNo || r.e.nationalId || '' })}>تعديل الراتب</button>}
                       <button className="btn sm gh" onClick={() => printPayslip(r)} title="قسيمة راتب"><Printer size={13} />قسيمة</button>
                     </div>
                   </td>
@@ -6229,7 +6261,73 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
         </div>
       </div>
 
+      <div className="card">
+        <div className="card-h">
+          <div className="card-t"><ShieldCheck size={15} color="var(--brass)" />الأجور والتسويات — حماية الأجور ونهاية الخدمة</div>
+          {canPay && <button className="btn sm" onClick={exportWPS}><Download size={13} />ملف حماية الأجور (WPS)</button>}
+        </div>
+        <div className="tw">
+          <table className="tb">
+            <thead><tr><th>الموظف</th><th>تاريخ التعيين</th><th>مدة الخدمة</th><th style={{ textAlign: 'end' }}>الأجر الشهري</th><th style={{ textAlign: 'end' }}>مكافأة نهاية الخدمة (لو انتهت اليوم)</th><th /></tr></thead>
+            <tbody>
+              {emps.map(e => { const wage = empGrossOf(e); const yrs = tenureYears(e.hireDate, today()); const full = r2(eosFull(wage, yrs)); return (
+                <tr key={e.id}>
+                  <td style={{ fontWeight: 600, fontSize: 12.5 }}>{e.name}</td>
+                  <td className="num" style={{ fontSize: 11 }}>{e.hireDate || <span style={{ color: 'var(--amber)' }}>غير محدّد</span>}</td>
+                  <td className="num" style={{ fontSize: 11 }}>{e.hireDate ? fmtYears(yrs) : '—'}</td>
+                  <td className="num" style={{ textAlign: 'end' }}>{money(wage)}</td>
+                  <td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{e.hireDate ? money(full) : '—'}</td>
+                  <td><button className="btn sm gh" onClick={() => setEosF({ id: e.id, reason: 'termination', endDate: today(), leaveDays: '' })}>تسوية</button></td>
+                </tr>
+              ); })}
+              {emps.length === 0 && <tr><td colSpan={6}><div className="empty">لا موظفون في نطاقك.</div></td></tr>}
+              {emps.length > 0 && (() => { const tot = r2(sum(emps, e => eosFull(empGrossOf(e), tenureYears(e.hireDate, today())))); return (
+                <tr style={{ fontWeight: 800, background: 'rgba(200,162,74,.05)' }}>
+                  <td colSpan={4}>مخصّص نهاية الخدمة التقديري (لو انتهت خدمة الجميع اليوم)</td>
+                  <td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{money(tot)}</td><td />
+                </tr>
+              ); })()}
+            </tbody>
+          </table>
+        </div>
+        <div className="note" style={{ marginTop: 10 }}>ملف حماية الأجور (WPS) يُصدَّر CSV من مسير الشهر — أكمِل الآيبان ورقم الهوية لكل موظف من «تعديل الراتب». مكافأة نهاية الخدمة وفق نظام العمل السعودي (نصف شهر لكل سنة في الخمس الأولى، وشهر كامل لما بعدها). أضِف تاريخ التعيين ليظهر حسابها. اضغط «تسوية» لمخالصة مفصّلة بسبب الانتهاء وبدل الإجازة.</div>
+      </div>
+
       {add && <AdvanceForm emps={emps} org={org} me={me} commit={commit} say={say} onClose={() => setAdd(false)} />}
+
+      {eosF && (() => {
+        const emp = emps.find(e => e.id === eosF.id); if (!emp) return null;
+        const wage = empGrossOf(emp), years = tenureYears(emp.hireDate, eosF.endDate);
+        const full = r2(eosFull(wage, years)), entitled = r2(eosEntitled(wage, years, eosF.reason));
+        const leaveDays = Number(String(eosF.leaveDays).replace(/[^\d.]/g, '')) || 0, leavePay = r2(leaveDays * wage / 30);
+        const total = r2(entitled + leavePay);
+        const calc = { endDate: eosF.endDate, reason: eosF.reason, years, wage, full, entitled, leaveDays, leavePay, total };
+        return (
+          <Modal title={'تسوية نهاية الخدمة — ' + emp.name} icon={ShieldCheck} onClose={() => setEosF(null)}
+            foot={<><button className="btn gh" onClick={() => setEosF(null)}>إغلاق</button><button className="btn pri" disabled={!emp.hireDate} onClick={() => printEOSlip(emp, calc)}><Printer size={14} />طباعة المخالصة</button></>}>
+            {!emp.hireDate ? <div className="note">أضف «تاريخ التعيين» لهذا الموظف من «تعديل الراتب» أولًا لحساب المدة والمكافأة.</div> : <>
+              <div className="grid g2">
+                <Field label="سبب انتهاء الخدمة">
+                  <select className="inp" value={eosF.reason} onChange={e => setEosF(f => ({ ...f, reason: e.target.value }))}>
+                    <option value="termination">إنهاء من صاحب العمل</option>
+                    <option value="resignation">استقالة</option>
+                  </select>
+                </Field>
+                <Field label="تاريخ انتهاء الخدمة"><input className="inp" type="date" value={eosF.endDate} onChange={e => setEosF(f => ({ ...f, endDate: e.target.value }))} /></Field>
+                <Field label="أيام إجازة متبقية (اختياري)"><input className="inp n" inputMode="decimal" value={eosF.leaveDays} onChange={e => setEosF(f => ({ ...f, leaveDays: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+                <Field label="الأجر الشهري"><input className="inp n" value={money(wage)} disabled /></Field>
+              </div>
+              <div className="card" style={{ background: 'rgba(200,162,74,.05)', marginTop: 10 }}>
+                {[['مدة الخدمة', fmtYears(years)], ['المكافأة الكاملة', money(full)], ['المستحق حسب السبب', money(entitled)], leaveDays ? ['بدل الإجازة المتبقية', money(leavePay)] : null].filter(Boolean).map((x, i) => (
+                  <div key={i} className="row" style={{ justifyContent: 'space-between', fontSize: 12.5, padding: '3px 0' }}><span>{x[0]}</span><b className="num">{x[1]}</b></div>
+                ))}
+                <div className="row" style={{ justifyContent: 'space-between', fontWeight: 900, fontSize: 14, borderTop: '1px solid var(--frame-o)', marginTop: 6, paddingTop: 6 }}><span>إجمالي المخالصة</span><b className="num" style={{ color: 'var(--brass-l)' }}>{money(total)}</b></div>
+              </div>
+              <div className="note" style={{ marginTop: 8 }}>وفق نظام العمل: نصف شهر لكل سنة في الخمس الأولى وشهر كامل لما بعدها. الاستقالة: لا شيء تحت سنتين، الثلث حتى ٥ سنوات، الثلثان حتى ١٠، وكامل بعدها. تقدير استرشادي.</div>
+            </>}
+          </Modal>
+        );
+      })()}
 
       {compF && (
         <Modal title={'راتب وبدلات — ' + compF.name} icon={Wallet} onClose={() => setCompF(null)}
@@ -6240,6 +6338,11 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
             <Field label="بدل السكن"><input className="inp n" inputMode="decimal" value={compF.housingAllowance} onChange={e => setCompF(f => ({ ...f, housingAllowance: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
             <Field label="بدل النقل"><input className="inp n" inputMode="decimal" value={compF.transportAllowance} onChange={e => setCompF(f => ({ ...f, transportAllowance: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
             <Field label="بدلات أخرى"><input className="inp n" inputMode="decimal" value={compF.otherAllowance} onChange={e => setCompF(f => ({ ...f, otherAllowance: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+          </div>
+          <div className="grid g2" style={{ marginTop: 8 }}>
+            <Field label="تاريخ التعيين (لنهاية الخدمة)"><input className="inp" type="date" value={compF.hireDate} onChange={e => setCompF(f => ({ ...f, hireDate: e.target.value }))} /></Field>
+            <Field label="رقم الهوية/الإقامة (لحماية الأجور)"><input className="inp n" value={compF.idNumber} onChange={e => setCompF(f => ({ ...f, idNumber: e.target.value }))} /></Field>
+            <Field label="الآيبان IBAN (لحماية الأجور)" style={{ gridColumn: '1 / -1' }}><input className="inp n" value={compF.iban} placeholder="SA00 0000 0000 0000 0000 0000" onChange={e => setCompF(f => ({ ...f, iban: e.target.value }))} /></Field>
           </div>
           <label className="row" style={{ gap: 6, fontSize: 12.5, cursor: 'pointer', marginTop: 8 }}>
             <input type="checkbox" checked={compF.gosiSubject} onChange={e => setCompF(f => ({ ...f, gosiSubject: e.target.checked }))} />
