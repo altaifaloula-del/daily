@@ -1717,7 +1717,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v10.6 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v10.7 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -7187,6 +7187,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     return { enabled: !!bg.enabled, map };
   });
   const [bMonth, setBMonth] = useState(() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }); // شهر المقارنة
+  const [apSel, setApSel] = useState(null);         // v10.7 المورد المختار لكشف الحساب
   const [q, setQ] = useState('');
   const [month, setMonth] = useState('');           // فلتر شهر للقيود
   const [from, setFrom] = useState('');             // فترة الميزان/القوائم
@@ -7338,6 +7339,25 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   };
   const pctTxt = (x) => x == null ? '—' : (Math.round(x * 1000) / 10) + '%';
   const xTxt = (x) => x == null ? '—' : (Math.round(x * 100) / 100).toFixed(2) + '×';
+
+  // ===== v10.7: أعمار ديون الموردين وكشوف الحساب =====
+  // الفواتير/الآجل (دائن فقط) أعباء مؤرّخة، والسدادات (مدين فقط) تُطبَّق على الأقدم أولًا (FIFO)، والباقي المفتوح يُصنَّف بعُمره.
+  // المصروفات المسدّدة فورًا (مدين=دائن) تُستثنى — ليست ذمّة قائمة. المجموع المفتوح = رصيد المورد دائمًا.
+  const apToday = today();
+  const apDaysBetween = (a, b) => { const x = Date.parse(a), y = Date.parse(b); return (isNaN(x) || isNaN(y)) ? 0 : Math.max(0, Math.floor((y - x) / 86400000)); };
+  const apAgingOf = (p) => {
+    const charges = p.txns.filter(t => (t.credit || 0) > 0 && !((t.debit || 0) > 0)).map(t => ({ date: t.date, open: t.credit }));
+    charges.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+    let pay = p.txns.reduce((s, t) => s + (((t.debit || 0) > 0 && !((t.credit || 0) > 0)) ? t.debit : 0), 0);
+    for (const ch of charges) { if (pay <= 0.004) break; const ap = Math.min(pay, ch.open); ch.open -= ap; pay -= ap; }
+    const bk = { b0: 0, b30: 0, b60: 0, b90: 0 };
+    charges.forEach(ch => { if (ch.open <= 0.004) return; const d = apDaysBetween(ch.date, apToday); if (d <= 30) bk.b0 += ch.open; else if (d <= 60) bk.b30 += ch.open; else if (d <= 90) bk.b60 += ch.open; else bk.b90 += ch.open; });
+    return { b0: r2(bk.b0), b30: r2(bk.b30), b60: r2(bk.b60), b90: r2(bk.b90), total: r2(bk.b0 + bk.b30 + bk.b60 + bk.b90), credit: r2(pay) };
+  };
+  const apSuppliers = buildPartners(org, ops).filter(p => p.type === 'supplier');
+  const apRows = apSuppliers.map(p => ({ p, ...apAgingOf(p) })).filter(r => r.total > 0.004 || r.credit > 0.004);
+  const apTot = { owed: r2(sum(apRows, r => r.total)), b0: r2(sum(apRows, r => r.b0)), b30: r2(sum(apRows, r => r.b30)), b60: r2(sum(apRows, r => r.b60)), b90: r2(sum(apRows, r => r.b90)), credit: r2(sum(apRows, r => r.credit)), debtors: apRows.filter(r => r.total > 0.004).length };
+  const apStmt = (p) => { let run = 0; return p.txns.map(t => { run = r2(run + (t.credit || 0) - (t.debit || 0)); return { ...t, run }; }); };
 
   // ===== م٣: الضريبة =====
   const taxCfg = org.taxCfg || {};
@@ -7651,6 +7671,21 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
       <table><thead><tr><th>الشهر</th><th>الإيرادات</th><th>المصروفات</th><th>صافي الربح</th></tr></thead><tbody>${trend}</tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
   };
 
+  // ===== v10.7: طباعة أعمار الموردين وكشف الحساب A4 =====
+  const printAging = () => {
+    const rows = apRows.map(r => `<tr><td>${r.p.name}</td><td class="n">${r.p.terms ? r.p.terms + ' يوم' : '—'}</td><td class="n">${money(r.b0)}</td><td class="n">${money(r.b30)}</td><td class="n">${money(r.b60)}</td><td class="n">${money(r.b90)}</td><td class="n">${money(r.total)}</td></tr>`).join('');
+    printA4(org, 'أعمار ديون الموردين', 'حتى ' + arDate(apToday),
+      `<table><thead><tr><th>المورد</th><th>المهلة</th><th>جاري ≤30</th><th>31–60</th><th>61–90</th><th>أكثر من 90</th><th>الإجمالي</th></tr></thead><tbody>${rows}
+      <tr class="tot"><td>الإجمالي</td><td></td><td class="n">${money(apTot.b0)}</td><td class="n">${money(apTot.b30)}</td><td class="n">${money(apTot.b60)}</td><td class="n">${money(apTot.b90)}</td><td class="n">${money(apTot.owed)}</td></tr>
+      </tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+  };
+  const printSupStatement = (p) => {
+    const rows = apStmt(p).map(t => `<tr><td class="n">${t.date}</td><td>${t.desc}</td><td class="n">${t.credit ? money(t.credit) : ''}</td><td class="n">${t.debit ? money(t.debit) : ''}</td><td class="n">${money(t.run)}</td></tr>`).join('');
+    printA4(org, 'كشف حساب مورد — ' + p.name, 'حتى ' + arDate(apToday),
+      `<table><thead><tr><th>التاريخ</th><th>البيان</th><th>فاتورة/عليك</th><th>سداد</th><th>الرصيد</th></tr></thead><tbody>${rows}
+      <tr class="tot"><td colspan="4">الرصيد المستحق للمورد</td><td class="n">${money(p.balance)}</td></tr></tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+  };
+
   // ===== v8.0: طباعة القوائم المالية A4 =====
   const printFS = () => {
     const w = window.open('', '_blank', 'width=900,height=1000');
@@ -7847,6 +7882,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         <button className={'btn sm' + (view === 'cf' ? ' pri' : ' gh')} onClick={() => setView('cf')}><ArrowLeftRight size={14} />التدفقات النقدية</button>
         <button className={'btn sm' + (view === 'bud' ? ' pri' : ' gh')} onClick={() => setView('bud')}><BarChart3 size={14} />الموازنة</button>
         <button className={'btn sm' + (view === 'anl' ? ' pri' : ' gh')} onClick={() => setView('anl')}><TrendingUp size={14} />التحليل والنِسَب</button>
+        <button className={'btn sm' + (view === 'apage' ? ' pri' : ' gh')} onClick={() => { setView('apage'); setApSel(null); }}><Users size={14} />أعمار الموردين</button>
         <button className={'btn sm' + (view === 'cc' ? ' pri' : ' gh')} onClick={() => setView('cc')}><BarChart3 size={14} />مراكز التكلفة</button>
         <button className={'btn sm' + (view === 'vat' ? ' pri' : ' gh')} onClick={() => setView('vat')}><Receipt size={14} />الضريبة</button>
         <button className={'btn sm' + (view === 'ast' ? ' pri' : ' gh')} onClick={() => setView('ast')}><Building2 size={14} />الأصول</button>
@@ -8280,6 +8316,96 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
                 </table>
               </div>
               <div className="note" style={{ marginTop: 10 }}>النِسَب مشتقّة من قوائمك مباشرةً: الربحية من قائمة الدخل للفترة المحددة، والسيولة والرفع من المركز المالي حتى نهايتها. الاتجاه يعرض آخر ٦ أشهر منتهيةً بالفترة (أو الشهر الحالي). «×» تعني «مرّة»، والقيم بلا بسط/مقام صالح تظهر «—».</div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {view === 'apage' && (() => {
+        const sel = apSel ? apSuppliers.find(p => p.id === apSel) : null;
+        if (sel) {
+          const stmt = apStmt(sel);
+          return (
+            <div className="grid" style={{ gap: 12 }}>
+              <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                <button className="btn sm gh" onClick={() => setApSel(null)}><ChevronRight size={14} />رجوع للأعمار</button>
+                <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+                  <b style={{ fontSize: 14 }}>كشف حساب — {sel.name}</b>
+                  <button className="btn sm" onClick={() => printSupStatement(sel)}><Printer size={13} />طباعة A4</button>
+                </div>
+              </div>
+              <div className="grid g3">
+                <Kpi label="الرصيد المستحق للمورد" value={money(sel.balance)} sub={sel.balance > 0 ? 'عليك سداده' : sel.balance < 0 ? 'دفعة مقدمة لصالحك' : 'مسوّى'} icon={Users} color={sel.balance > 0.004 ? '#D9544D' : '#4FB286'} />
+                <Kpi label="مهلة السداد" value={sel.terms ? sel.terms + ' يوم' : '—'} sub={sel.phone || 'بلا هاتف'} icon={ClipboardCheck} color="#5B93C4" />
+                <Kpi label="عدد الحركات" value={String(stmt.length)} sub={sel.tax ? 'ر.ض ' + sel.tax : 'مورد'} icon={FileText} color="#C8A24A" />
+              </div>
+              <div className="card">
+                <div className="tw">
+                  <table className="tb">
+                    <thead><tr><th>التاريخ</th><th>البيان</th><th style={{ textAlign: 'end' }}>فاتورة/عليك</th><th style={{ textAlign: 'end' }}>سداد</th><th style={{ textAlign: 'end' }}>الرصيد</th></tr></thead>
+                    <tbody>
+                      {stmt.map((t, i) => (
+                        <tr key={i}>
+                          <td className="num" style={{ fontSize: 11 }}>{t.date}</td>
+                          <td style={{ fontSize: 12 }}>{t.desc}</td>
+                          <td className="num" style={{ textAlign: 'end', color: 'var(--rose)' }}>{t.credit ? money(t.credit) : '—'}</td>
+                          <td className="num" style={{ textAlign: 'end', color: 'var(--mint)' }}>{t.debit ? money(t.debit) : '—'}</td>
+                          <td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{money(t.run)}</td>
+                        </tr>
+                      ))}
+                      {stmt.length === 0 && <tr><td colSpan={5}><div className="empty">لا حركات لهذا المورد بعد.</div></td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="note" style={{ marginTop: 10 }}>«فاتورة/عليك» يرفع رصيدك المستحق، و«سداد» يخفضه. الرصيد الجاري تراكمي حتى كل حركة. المصروفات المسدّدة فورًا تظهر بطرفيها (أثرها صافٍ صفر).</div>
+              </div>
+            </div>
+          );
+        }
+        return (
+          <div className="grid" style={{ gap: 12 }}>
+            <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+              <div className="grid g4" style={{ flex: 1, minWidth: 300 }}>
+                <Kpi label="إجمالي المستحق للموردين" value={money(apTot.owed)} sub={apTot.debtors + ' مورد مدين'} icon={Users} color="#C8A24A" />
+                <Kpi label="جاري (≤30 يوم)" value={money(apTot.b0)} sub="غير متأخر" icon={ClipboardCheck} color="#4FB286" />
+                <Kpi label="متأخر 31–90" value={money(r2(apTot.b30 + apTot.b60))} sub="يستحق المتابعة" icon={AlertTriangle} color="#E0A458" />
+                <Kpi label="متأخر أكثر من 90" value={money(apTot.b90)} sub="أولوية سداد" icon={AlertTriangle} color={apTot.b90 > 0.004 ? '#D9544D' : '#4FB286'} />
+              </div>
+              <button className="btn sm" style={{ alignSelf: 'flex-start' }} onClick={printAging}><Printer size={13} />طباعة الأعمار</button>
+            </div>
+            <div className="card">
+              <div className="card-t" style={{ marginBottom: 8 }}><Users size={15} color="var(--brass)" />أعمار ديون الموردين — حتى {apToday}</div>
+              <div className="tw">
+                <table className="tb">
+                  <thead><tr><th>المورد</th><th style={{ textAlign: 'end' }}>جاري ≤30</th><th style={{ textAlign: 'end' }}>31–60</th><th style={{ textAlign: 'end' }}>61–90</th><th style={{ textAlign: 'end' }}>أكثر من 90</th><th style={{ textAlign: 'end' }}>الإجمالي</th><th /></tr></thead>
+                  <tbody>
+                    {apRows.map(r => (
+                      <tr key={r.p.id}>
+                        <td style={{ fontWeight: 600, fontSize: 12.5 }}>{r.p.name}<div style={{ fontSize: 9.5, color: 'var(--faint)' }}>{r.p.terms ? 'مهلة ' + r.p.terms + ' يوم' : 'بلا مهلة'}{r.credit > 0.004 ? ' · دفعة مقدمة ' + money(r.credit) : ''}</div></td>
+                        <td className="num" style={{ textAlign: 'end' }}>{r.b0 ? money(r.b0) : '—'}</td>
+                        <td className="num" style={{ textAlign: 'end', color: r.b30 ? 'var(--amber)' : 'inherit' }}>{r.b30 ? money(r.b30) : '—'}</td>
+                        <td className="num" style={{ textAlign: 'end', color: r.b60 ? 'var(--amber)' : 'inherit' }}>{r.b60 ? money(r.b60) : '—'}</td>
+                        <td className="num" style={{ textAlign: 'end', color: r.b90 ? 'var(--rose)' : 'inherit', fontWeight: r.b90 ? 700 : 400 }}>{r.b90 ? money(r.b90) : '—'}</td>
+                        <td className="num" style={{ textAlign: 'end', fontWeight: 800 }}>{money(r.total)}</td>
+                        <td><button className="btn sm gh" onClick={() => setApSel(r.p.id)}>كشف حساب</button></td>
+                      </tr>
+                    ))}
+                    {apRows.length === 0 && <tr><td colSpan={7}><div className="empty">لا ذمم موردين قائمة — كل الفواتير مسدّدة أو لا فواتير آجلة بعد.</div></td></tr>}
+                    {apRows.length > 0 && (
+                      <tr style={{ fontWeight: 800, background: 'rgba(200,162,74,.05)' }}>
+                        <td>الإجمالي</td>
+                        <td className="num" style={{ textAlign: 'end' }}>{money(apTot.b0)}</td>
+                        <td className="num" style={{ textAlign: 'end' }}>{money(apTot.b30)}</td>
+                        <td className="num" style={{ textAlign: 'end' }}>{money(apTot.b60)}</td>
+                        <td className="num" style={{ textAlign: 'end', color: apTot.b90 > 0.004 ? 'var(--rose)' : 'inherit' }}>{money(apTot.b90)}</td>
+                        <td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{money(apTot.owed)}</td>
+                        <td />
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <div className="note" style={{ marginTop: 10 }}>الأعمار تُحتسب بتطبيق سداداتك على أقدم الفواتير أولًا، ثم تصنيف المتبقّي المفتوح بعُمره من تاريخ الفاتورة. المجموع يطابق رصيد المورد في دفتر الذمم. اضغط «كشف حساب» لتفاصيل حركة أي مورد ورصيده الجاري.</div>
             </div>
           </div>
         );
