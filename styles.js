@@ -478,8 +478,8 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
 /* خلفية الواجهة الرئيسية (تحت التطبيقات): توهّج بلون الهوية + علامة/شعار باهت */
 .lh-bg{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
 .lh-bg::before{content:'';position:absolute;inset:0;background:radial-gradient(920px 540px at 82% -8%,color-mix(in srgb,var(--brass) 13%,transparent),transparent 60%),radial-gradient(780px 540px at 4% 112%,color-mix(in srgb,var(--brass) 8%,transparent),transparent 55%)}
-.lh-wm{position:absolute;inset-block-start:50%;inset-inline-start:50%;transform:translate(-50%,-48%);width:min(60vw,680px);max-width:none;opacity:.035;object-fit:contain}
-.lh-wm.mark{font-family:'Markazi Text',serif;font-weight:700;font-size:min(56vw,580px);line-height:1;color:var(--brass);opacity:.045;width:auto}
+.lh-wm{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(56vw,600px);height:auto;max-width:none;opacity:.04;object-fit:contain;pointer-events:none}
+.lh-wm.mark{font-family:'Markazi Text',serif;font-weight:700;font-size:min(52vw,540px);line-height:1;color:var(--brass);opacity:.05;width:auto;height:auto}
 .lh{position:relative;z-index:1}
 
 /* ---- بوابة الدخول ---- */
