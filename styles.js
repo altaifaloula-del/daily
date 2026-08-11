@@ -624,7 +624,8 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
 .lh-sect{font-size:11px;color:var(--faint);letter-spacing:.3px;margin:0 4px 12px;display:flex;align-items:center;gap:8px}
 .lh-sect .ic{color:var(--brass)}
 .lh-sect::after{content:'';flex:1;height:1px;background:linear-gradient(to left,var(--line),transparent)}
-.lh-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(108px,1fr));gap:6px 4px}
+.lh-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:10px 6px}
+@media(min-width:901px){.lh-grid{grid-template-columns:repeat(9,1fr)}}
 .lh-tile{position:relative;display:flex;flex-direction:column;align-items:center;gap:9px;padding:15px 6px 12px;
   border-radius:14px;cursor:pointer;border:1px solid transparent;transition:.15s;background:none}
 .lh-tile:hover{background:var(--acc-soft);border-color:var(--line-g);transform:translateY(-2px)}
@@ -644,7 +645,7 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
 .lh-empty{color:var(--faint);text-align:center;font-size:12px;padding:30px}
 .homebtn2{display:inline-grid;place-items:center;width:34px;height:34px;border-radius:9px;flex-shrink:0;
   border:1px solid var(--frame-o);background:var(--acc-soft);color:var(--brass);cursor:pointer}
-@media(max-width:560px){.lh-grid{grid-template-columns:repeat(auto-fill,minmax(88px,1fr))}
+@media(max-width:560px){.lh-grid{grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:8px 4px}
   .lh-box{width:52px;height:52px;border-radius:14px}.lh-nm{font-size:10.5px}}
 
 /* ظهور التطبيقات لكل مستخدم — v9.2 */
