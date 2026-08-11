@@ -484,7 +484,7 @@ table.tb{width:100%;border-collapse:collapse;font-size:12.5px;min-width:520px}
 .mask{position:fixed;inset:0;background:rgba(8,6,5,.62);backdrop-filter:blur(6px);z-index:80;
   display:grid;place-items:center;padding:clamp(8px,2.4vw,26px);
   overflow:hidden;overscroll-behavior:none}
-.modal{background:var(--ink2);border:1px solid var(--line);border-radius:16px;width:100%;max-width:640px;
+.modal{background:var(--ink2);border:1px solid var(--line);border-radius:var(--r-lg);width:100%;max-width:640px;
   max-height:92vh;max-height:92dvh;display:flex;flex-direction:column;overflow:hidden;
   box-shadow:0 30px 70px rgba(0,0,0,.55)}
 /* الرأس: ثابت لا يتمرّر */
@@ -608,7 +608,7 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
    جوال: خط زمني رفيع + نموذج + ملخّص قابل للطي
    ═══════════════════════════════════════════════════════════ */
 /* ===== نافذة الإغلاق كمساحة عمل بحجم الشاشة (90–95%)، وعلى الجوال ملء الشاشة ===== */
-.modal-flow{width:min(1400px,94vw);height:94vh;height:94dvh;max-width:none;border-radius:18px}
+.modal-flow{width:min(1400px,94vw);height:94vh;height:94dvh;max-width:none;border-radius:var(--r-xl)}
 .modal-flow .modal-b{flex:1;min-height:0;overflow:hidden;padding:0}
 /* حاوية التمرير الوحيدة: عمود المحتوى + عمود ملخّص «لاصق» (لا تمرير منفصل) */
 .cflow{display:grid;grid-template-columns:1fr 300px;height:100%;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}

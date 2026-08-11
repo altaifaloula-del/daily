@@ -183,9 +183,29 @@ function exportExcel(filename, sheetTitle, headers, rows, opts = {}) {
   a.href = url; a.download = filename.endsWith('.xls') ? filename : filename + '.xls'; a.click();
   URL.revokeObjectURL(url);
 }
-const chartTone = (t) => t === 'lite'
-  ? { grid: '#DDD4C4', tick: '#8A7F72', tip: '#FFFDF8', tipTxt: '#241F1A', bar: '#E3DACA' }
-  : { grid: '#332C26', tick: '#6E635A', tip: '#1C1815', tipTxt: '#EFE7DB', bar: '#3A322B' };
+/* ألوان الرسوم البيانية تتبع الثيم النشط ووضعه (نهار/ليل) بقراءة متغيّرات CSS الحيّة.
+   grid/tick/tip من الأسطح؛ accent=هوية الثيم؛ pos/neg/warn دلالية (إيراد/مصروف/تكلفة). */
+const _cget = (cs, n, fb) => { try { const v = (cs.getPropertyValue(n) || '').trim(); return v || fb; } catch { return fb; } };
+const chartTone = () => {
+  try {
+    if (typeof document !== 'undefined') {
+      const el = document.querySelector('.rms');
+      if (el) {
+        const cs = getComputedStyle(el);
+        const acc = _cget(cs, '--acc', '#C8A24A');
+        return {
+          grid: _cget(cs, '--line', '#332C26'), tick: _cget(cs, '--faint', '#6E635A'),
+          axis: _cget(cs, '--dim', '#8A7F72'), tip: _cget(cs, '--ink2', '#1C1815'),
+          tipTxt: _cget(cs, '--txt', '#EFE7DB'), bar: _cget(cs, '--dim', '#3A322B'),
+          accent: acc, pos: _cget(cs, '--mint', '#4FB286'), neg: _cget(cs, '--rose', '#D9544D'),
+          warn: _cget(cs, '--amber', '#E0A458'), info: _cget(cs, '--sky', '#5B93C4'), muted: _cget(cs, '--dim', '#7E7566'),
+          series: [acc, _cget(cs, '--sky', '#5B93C4'), _cget(cs, '--mint', '#4FB286'), _cget(cs, '--amber', '#E0A458'), _cget(cs, '--violet', '#9B7BB8'), _cget(cs, '--rose', '#D9544D')]
+        };
+      }
+    }
+  } catch (e) { }
+  return { grid: '#332C26', tick: '#6E635A', axis: '#8A7F72', tip: '#1C1815', tipTxt: '#EFE7DB', bar: '#3A322B', accent: '#C8A24A', pos: '#4FB286', neg: '#D9544D', warn: '#E0A458', info: '#5B93C4', muted: '#7E7566', series: ['#C8A24A', '#5B93C4', '#4FB286', '#E0A458', '#9B7BB8', '#D9544D'] };
+};
 const clr = (i) => ['#C8A24A', '#4FB286', '#5B93C4', '#D9544D', '#E0A458', '#9B7BB8'][i % 6];
 
 /* ================= دفتر الشركاء: تجميع حركات كل شريك من مصادرها ================= */
@@ -2022,7 +2042,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v14.7 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v14.8 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -3291,9 +3311,9 @@ function BranchCompare({ org, ops, me, myBranches, scoped, theme, setTab }) {
               <CartesianGrid strokeDasharray="3 3" stroke={tn.grid} horizontal={false} />
               <XAxis type="number" tick={{ fill: tn.tick, fontSize: 11 }} />
               <YAxis type="category" dataKey="name" tick={{ fill: tn.tick, fontSize: 11 }} width={80} />
-              <Tooltip contentStyle={{ background: tn.tip, border: '1px solid ' + tn.grid, borderRadius: 8, fontSize: 12 }} />
-              <Bar dataKey="الإيراد" fill="#4FB286" radius={[0, 4, 4, 0]} />
-              <Bar dataKey="المصروف" fill="#D9544D" radius={[0, 4, 4, 0]} />
+              <Tooltip contentStyle={{ background: tn.tip, border: '1px solid ' + tn.grid, borderRadius: 8, fontSize: 12, color: tn.tipTxt }} />
+              <Bar dataKey="الإيراد" fill={tn.pos} radius={[0, 4, 4, 0]} />
+              <Bar dataKey="المصروف" fill={tn.neg} radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -3849,8 +3869,8 @@ function Scenario({ org, ops, me, scoped, theme, say }) {
                   <XAxis dataKey="name" tick={{ fill: tn.tick, fontSize: 10 }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fill: tn.tick, fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={short} />
                   <Tooltip cursor={{ fill: 'rgba(255,255,255,.03)' }} contentStyle={{ background: tn.tip, border: '1px solid ' + tn.grid, borderRadius: 10, fontSize: 12, direction: 'rtl', color: tn.tipTxt }} formatter={(v, n) => [money(v), n]} />
-                  <Bar dataKey="الحالي" fill="#7E7566" radius={[5, 5, 0, 0]} />
-                  <Bar dataKey="السيناريو" fill="#C8A24A" radius={[5, 5, 0, 0]} />
+                  <Bar dataKey="الحالي" fill={tn.muted} radius={[5, 5, 0, 0]} />
+                  <Bar dataKey="السيناريو" fill={tn.accent} radius={[5, 5, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -4057,8 +4077,8 @@ function BreakEven({ org, ops, me, scoped, setTab, theme, commitOrg, say }) {
                 <XAxis dataKey="s" tick={{ fill: tn.tick, fontSize: 9.5 }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fill: tn.tick, fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={short} />
                 <Tooltip contentStyle={{ background: tn.tip, border: '1px solid ' + tn.grid, borderRadius: 10, fontSize: 12, direction: 'rtl', color: tn.tipTxt }} formatter={(v, n) => [money(v), n]} />
-                <Line type="monotone" dataKey="الإيراد" stroke="#4FB286" strokeWidth={2.2} dot={false} />
-                <Line type="monotone" dataKey="التكلفة الكلية" stroke="#E0A458" strokeWidth={2.2} dot={false} />
+                <Line type="monotone" dataKey="الإيراد" stroke={tn.pos} strokeWidth={2.2} dot={false} />
+                <Line type="monotone" dataKey="التكلفة الكلية" stroke={tn.warn} strokeWidth={2.2} dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -4251,8 +4271,8 @@ function GrowthAnalytics({ org, ops, me, myBranches, scoped, setTab, theme, say 
               <XAxis dataKey="lbl" tick={{ fill: tn.tick, fontSize: 9.5 }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fill: tn.tick, fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={short} />
               <Tooltip contentStyle={{ background: tn.tip, border: '1px solid ' + tn.grid, borderRadius: 10, fontSize: 12, direction: 'rtl', color: tn.tipTxt }} labelStyle={{ color: '#A2968A' }} formatter={(v, n) => [money(v), n]} />
-              <Line type="monotone" dataKey="الإيراد" stroke="#C8A24A" strokeWidth={2.4} dot={{ r: 2 }} />
-              <Line type="monotone" dataKey="الصافي" stroke="#4FB286" strokeWidth={1.8} dot={{ r: 2 }} />
+              <Line type="monotone" dataKey="الإيراد" stroke={tn.accent} strokeWidth={2.4} dot={{ r: 2 }} />
+              <Line type="monotone" dataKey="الصافي" stroke={tn.pos} strokeWidth={1.8} dot={{ r: 2 }} />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -4273,8 +4293,8 @@ function GrowthAnalytics({ org, ops, me, myBranches, scoped, setTab, theme, say 
               <XAxis dataKey="lbl" tick={{ fill: tn.tick, fontSize: 9.5 }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fill: tn.tick, fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={short} />
               <Tooltip cursor={{ fill: 'rgba(255,255,255,.03)' }} contentStyle={{ background: tn.tip, border: '1px solid ' + tn.grid, borderRadius: 10, fontSize: 12, direction: 'rtl', color: tn.tipTxt }} formatter={(v, n) => [money(v), 'سنة ' + n]} />
-              <Bar dataKey={yr} fill="#C8A24A" radius={[5, 5, 0, 0]} />
-              <Bar dataKey={prevYr} fill="#7E7566" radius={[5, 5, 0, 0]} />
+              <Bar dataKey={yr} fill={tn.accent} radius={[5, 5, 0, 0]} />
+              <Bar dataKey={prevYr} fill={tn.muted} radius={[5, 5, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -5314,8 +5334,8 @@ function Dashboard({ org, ops, pulse, me, myBranches, scoped, online, setTab, th
               <YAxis tick={{ fill: tn.tick, fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={short} />
               <Tooltip contentStyle={{ background: tn.tip, border: '1px solid ' + tn.grid, borderRadius: 10, fontSize: 12, direction: 'rtl', color: tn.tipTxt }}
                 labelStyle={{ color: '#A2968A' }} formatter={(v, n) => [money(v), n === 'rev' ? 'الإيراد' : n === 'exp' ? 'المصروف' : 'الصافي']} />
-              <Area type="monotone" dataKey="rev" stroke="#C8A24A" strokeWidth={2} fill="url(#gr)" />
-              <Area type="monotone" dataKey="exp" stroke="#D9544D" strokeWidth={1.6} fill="url(#ge)" />
+              <Area type="monotone" dataKey="rev" stroke={tn.accent} strokeWidth={2} fill="url(#gr)" />
+              <Area type="monotone" dataKey="exp" stroke={tn.neg} strokeWidth={1.6} fill="url(#ge)" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -5334,7 +5354,7 @@ function Dashboard({ org, ops, pulse, me, myBranches, scoped, online, setTab, th
                   contentStyle={{ background: tn.tip, border: '1px solid ' + tn.grid, borderRadius: 10, fontSize: 12, direction: 'rtl', color: tn.tipTxt }}
                   formatter={(v, n) => [money(v), n === 'rev' ? 'الإيراد' : 'الصافي']} />
                 <Bar dataKey="rev" fill={tn.bar} radius={[5, 5, 0, 0]} />
-                <Bar dataKey="net" fill="#C8A24A" radius={[5, 5, 0, 0]} />
+                <Bar dataKey="net" fill={tn.accent} radius={[5, 5, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -7482,7 +7502,7 @@ function Reports({ org, ops, me, myBranches, scoped, say, theme }) {
               <YAxis tick={{ fill: tn.tick, fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={short} />
               <Tooltip contentStyle={{ background: tn.tip, border: '1px solid ' + tn.grid, borderRadius: 10, fontSize: 12, direction: 'rtl', color: tn.tipTxt }}
                 formatter={v => [money(v), 'الصافي']} />
-              <Line type="monotone" dataKey="net" stroke="#4FB286" strokeWidth={2.2} dot={false} />
+              <Line type="monotone" dataKey="net" stroke={tn.pos} strokeWidth={2.2} dot={false} />
             </LineChart>
           </ResponsiveContainer>
         </div>
