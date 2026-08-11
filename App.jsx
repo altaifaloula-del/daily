@@ -934,6 +934,10 @@ const LAUNCH_APPS = [
     kw: ['ذكاء', 'تحليل', 'توقع', 'مركز'] }
 ];
 const LAUNCH_IX = {}; LAUNCH_APPS.forEach(a => { LAUNCH_IX[a.id] = a; });
+// ترتيب عرض مقصود (لا عشوائي) — تدفّق منطقي: التشغيل اليومي ← المالية ← المشتريات ←
+// المخزون ← الموارد البشرية ← الضريبة ← الحوكمة ← الذكاء (متجاورة لونيًا وموضوعيًا، بنمط أودو)
+const LAUNCH_ORDER = ['closing', 'approve', 'dash', 'compare', 'shifts', 'acct', 'treasury', 'reports', 'suppliers', 'partners', 'inv', 'payroll', 'vat', 'brmgmt', 'backup', 'audit', 'archive', 'ai'];
+const launchRank = (id) => { const i = LAUNCH_ORDER.indexOf(id); return i < 0 ? 999 : i; };
 /* v8.5 — لقطات احتياطية يومية محلية (IndexedDB) على أجهزة الإدارة:
    حماية إضافية ضد التلف أو الحذف الخاطئ — والنسخة الملفية تبقى الحماية الخارجية */
 const snapDB = () => new Promise((res, rej) => {
@@ -1624,7 +1628,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v9.7 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v9.8 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -6633,7 +6637,7 @@ function Launcher({ org, ops, me, setTab, openAcctView, openInvView }) {
   const pend = (ops?.closings || []).filter(c => c.status === 'submitted').length;
 
   // التطبيقات المُجمّعة (LAUNCH_APPS): كل تطبيق يضمّ أقسامه المتشابهة
-  const mine = LAUNCH_APPS.filter(a => appCanSee(me, a));
+  const mine = LAUNCH_APPS.filter(a => appCanSee(me, a)).sort((a, b) => launchRank(a.id) - launchRank(b.id));
   const norm = (s) => (s || '').replace(/[أإآ]/g, 'ا');
   const qq = norm(q.trim());
   const match = (a) => !qq || norm(a.ar + ' ' + (a.en || '') + ' ' + (a.kw || []).join(' ') + ' ' + (a.sections || []).join(' ')).includes(qq);
@@ -6670,16 +6674,11 @@ function Launcher({ org, ops, me, setTab, openAcctView, openInvView }) {
         </div>
       )}
 
-      {REG_CATS.map(c => {
-        const list = shown.filter(a => a.cat === c.id);
-        if (!list.length) return null;
-        return (
-          <div key={c.id} className="lh-sec">
-            <div className="lh-sect"><c.icon size={15} className="ic" />{c.ar}</div>
-            <div className="lh-grid">{list.map(Tile)}</div>
-          </div>
-        );
-      })}
+      {/* شبكة موحّدة مرتّبة بتدفّق منطقي — نمط أودو (بلا صفوف مبعثرة) */}
+      <div className="lh-sec">
+        <div className="lh-sect">{qq ? `نتائج «${q.trim()}»` : 'كل التطبيقات'}</div>
+        <div className="lh-grid">{shown.map(Tile)}</div>
+      </div>
       {shown.length === 0 && <div className="lh-empty">لا يوجد تطبيق بهذا الاسم — جرّب كلمة أخرى</div>}
     </div>
   );
