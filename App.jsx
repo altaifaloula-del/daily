@@ -11,7 +11,7 @@ import {
   Fingerprint, ScanFace, ShieldAlert, Video, Grid3x3,
   BarChart3, CheckCircle2, ArrowUp, ArrowDown,
   CreditCard, Coins, ChevronDown, ChevronRight,
-  Crop, RotateCw, Sun, Wand2, Delete, Scale, Home, Star
+  Crop, RotateCw, Sun, Wand2, Delete, Scale, Home, Star, QrCode
 } from 'lucide-react';
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis,
@@ -446,6 +446,171 @@ function makeXlsx(sheets) {
   add('xl/styles.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="1"><fill><patternFill patternType="none"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" applyFont="1"/></cellXfs></styleSheet>`);
   sheets.forEach((s, i) => add(`xl/worksheets/sheet${i + 1}.xml`, _sheetXml(s.rows)));
   return _zipStore(files);
+}
+
+/* ============================================================
+   v11.8 — الفوترة الإلكترونية (زاتكا / رمز QR) — من غير أي مكتبة خارجية
+   مولّد رمز QR كامل (نمط البايت، اختيار الإصدار والتصحيح تلقائيًا) +
+   بانٍ لرمز زاتكا للمرحلة الأولى (TLV بترميز Base64). خوارزمية عامة
+   (Nayuki، ملكية عامة) تم التحقق منها بفكّ فعلي عبر jsQR.
+   ============================================================ */
+const _QR_ECC_CW = [
+  [-1, 7, 10, 15, 20, 26, 18, 20, 24, 30, 18, 20, 24, 26, 30, 22, 24, 28, 30, 28, 28, 28, 28, 30, 30, 26, 28, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30],
+  [-1, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26, 30, 22, 22, 24, 24, 28, 28, 26, 26, 26, 26, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28],
+  [-1, 13, 22, 18, 26, 18, 24, 18, 22, 20, 24, 28, 26, 24, 20, 30, 24, 28, 28, 26, 30, 28, 30, 30, 30, 30, 28, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30],
+  [-1, 17, 28, 22, 16, 22, 28, 26, 26, 24, 28, 24, 28, 22, 24, 24, 30, 28, 28, 26, 28, 30, 24, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]
+];
+const _QR_ECC_BLOCKS = [
+  [-1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 4, 4, 4, 4, 4, 6, 6, 6, 6, 7, 8, 8, 9, 9, 10, 12, 12, 12, 13, 14, 15, 16, 17, 18, 19, 19, 20, 21, 22, 24, 25],
+  [-1, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5, 5, 8, 9, 9, 10, 10, 11, 13, 14, 16, 17, 17, 18, 20, 21, 23, 25, 26, 28, 29, 31, 33, 35, 37, 38, 40, 43, 45, 47, 49],
+  [-1, 1, 1, 2, 2, 4, 4, 6, 6, 8, 8, 8, 10, 12, 16, 12, 17, 16, 18, 21, 20, 23, 23, 25, 27, 29, 34, 34, 35, 38, 40, 43, 45, 48, 51, 53, 56, 59, 62, 65, 68],
+  [-1, 1, 1, 2, 4, 4, 4, 5, 6, 8, 8, 11, 11, 16, 16, 18, 16, 19, 21, 25, 25, 25, 34, 30, 32, 35, 37, 40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 70, 74, 77, 81]
+];
+function _qrMul(x, y) { let z = 0; for (let i = 7; i >= 0; i--) { z = (z << 1) ^ ((z >>> 7) * 0x11D); z ^= ((y >>> i) & 1) * x; } return z & 0xFF; }
+function _qrDivisor(degree) {
+  const result = []; for (let i = 0; i < degree - 1; i++) result.push(0); result.push(1);
+  let root = 1;
+  for (let i = 0; i < degree; i++) {
+    for (let j = 0; j < result.length; j++) { result[j] = _qrMul(result[j], root); if (j + 1 < result.length) result[j] ^= result[j + 1]; }
+    root = _qrMul(root, 0x02);
+  }
+  return result;
+}
+function _qrRemainder(data, divisor) {
+  const result = divisor.map(() => 0);
+  for (const b of data) { const factor = b ^ result.shift(); result.push(0); divisor.forEach((coef, i) => { result[i] ^= _qrMul(coef, factor); }); }
+  return result;
+}
+function _qrRawModules(ver) { let r = (16 * ver + 128) * ver + 64; if (ver >= 2) { const na = Math.floor(ver / 7) + 2; r -= (25 * na - 10) * na - 55; if (ver >= 7) r -= 36; } return r; }
+function _qrDataCodewords(ver, ecl) { return Math.floor(_qrRawModules(ver) / 8) - _QR_ECC_CW[ecl][ver] * _QR_ECC_BLOCKS[ecl][ver]; }
+function _qrAlign(ver) {
+  if (ver === 1) return [];
+  const num = Math.floor(ver / 7) + 2;
+  const step = (ver === 32) ? 26 : Math.ceil((ver * 4 + 4) / (num * 2 - 2)) * 2;
+  const result = [6];
+  for (let pos = ver * 4 + 10; result.length < num; pos -= step) result.splice(1, 0, pos);
+  return result;
+}
+// يبني مصفوفة رمز QR منطقية (true=خانة داكنة). ecl: 0=L,1=M,2=Q,3=H
+function qrMatrix(text, ecl) {
+  if (ecl == null) ecl = 1;
+  const bytes = Array.from(new TextEncoder().encode(text));
+  let version = 1;
+  for (; version <= 40; version++) {
+    const cap = _qrDataCodewords(version, ecl); const ccBits = version <= 9 ? 8 : 16;
+    if (Math.ceil((4 + ccBits + bytes.length * 8) / 8) <= cap) break;
+  }
+  if (version > 40) throw new Error('QR: data too long');
+  const bb = [];
+  const append = (val, len) => { for (let i = len - 1; i >= 0; i--) bb.push((val >>> i) & 1); };
+  append(0x4, 4); append(bytes.length, version <= 9 ? 8 : 16);
+  for (const b of bytes) append(b, 8);
+  const dataCap = _qrDataCodewords(version, ecl) * 8;
+  append(0, Math.min(4, dataCap - bb.length));
+  while (bb.length % 8 !== 0) bb.push(0);
+  for (let pad = 0xEC; bb.length < dataCap; pad ^= 0xEC ^ 0x11) append(pad, 8);
+  const dataCodewords = [];
+  for (let i = 0; i < bb.length; i += 8) { let b = 0; for (let j = 0; j < 8; j++) b = (b << 1) | bb[i + j]; dataCodewords.push(b); }
+  const numBlocks = _QR_ECC_BLOCKS[ecl][version], eccLen = _QR_ECC_CW[ecl][version];
+  const rawCodewords = Math.floor(_qrRawModules(version) / 8);
+  const numShort = numBlocks - rawCodewords % numBlocks, shortLen = Math.floor(rawCodewords / numBlocks);
+  const blocks = [], divisor = _qrDivisor(eccLen); let k = 0;
+  for (let i = 0; i < numBlocks; i++) { const datLen = shortLen - eccLen + (i < numShort ? 0 : 1); const dat = dataCodewords.slice(k, k + datLen); k += datLen; blocks.push({ dat, ecc: _qrRemainder(dat, divisor) }); }
+  const allCodewords = []; const maxDat = shortLen - eccLen + 1;
+  for (let i = 0; i < maxDat; i++) for (let j = 0; j < numBlocks; j++) { if (i < blocks[j].dat.length) allCodewords.push(blocks[j].dat[i]); }
+  for (let i = 0; i < eccLen; i++) for (let j = 0; j < numBlocks; j++) allCodewords.push(blocks[j].ecc[i]);
+  const size = version * 4 + 17;
+  const modules = [], isFunction = [];
+  for (let i = 0; i < size; i++) { modules.push(new Array(size).fill(false)); isFunction.push(new Array(size).fill(false)); }
+  const setFunc = (x, y, dark) => { modules[y][x] = dark; isFunction[y][x] = true; };
+  const drawFinder = (cx, cy) => { for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) { const dist = Math.max(Math.abs(dx), Math.abs(dy)), xx = cx + dx, yy = cy + dy; if (xx >= 0 && xx < size && yy >= 0 && yy < size) setFunc(xx, yy, dist !== 2 && dist !== 4); } };
+  drawFinder(3, 3); drawFinder(size - 4, 3); drawFinder(3, size - 4);
+  for (let i = 0; i < size; i++) { if (!isFunction[6][i]) setFunc(i, 6, i % 2 === 0); if (!isFunction[i][6]) setFunc(6, i, i % 2 === 0); }
+  const ap = _qrAlign(version);
+  for (let i = 0; i < ap.length; i++) for (let j = 0; j < ap.length; j++) {
+    if ((i === 0 && j === 0) || (i === 0 && j === ap.length - 1) || (i === ap.length - 1 && j === 0)) continue;
+    const cx = ap[i], cy = ap[j];
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) setFunc(cx + dx, cy + dy, Math.max(Math.abs(dx), Math.abs(dy)) !== 1);
+  }
+  for (let i = 0; i < 9; i++) { isFunction[i][8] = true; isFunction[8][i] = true; }
+  for (let i = 0; i < 8; i++) { isFunction[8][size - 1 - i] = true; isFunction[size - 1 - i][8] = true; }
+  setFunc(8, size - 8, true);
+  if (version >= 7) for (let i = 0; i < 18; i++) { const a = size - 11 + i % 3, b = Math.floor(i / 3); isFunction[b][a] = true; isFunction[a][b] = true; }
+  const dataBits = [];
+  for (const cw of allCodewords) for (let i = 7; i >= 0; i--) dataBits.push((cw >>> i) & 1);
+  let bitIdx = 0;
+  for (let right = size - 1; right >= 1; right -= 2) {
+    if (right === 6) right = 5;
+    for (let vert = 0; vert < size; vert++) for (let jj = 0; jj < 2; jj++) {
+      const x = right - jj, upward = ((right + 1) & 2) === 0, y = upward ? size - 1 - vert : vert;
+      if (!isFunction[y][x] && bitIdx < dataBits.length) { modules[y][x] = dataBits[bitIdx] === 1; bitIdx++; }
+    }
+  }
+  const applyMask = (mask, grid) => {
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+      if (isFunction[y][x]) continue;
+      let inv = false;
+      switch (mask) {
+        case 0: inv = (x + y) % 2 === 0; break; case 1: inv = y % 2 === 0; break;
+        case 2: inv = x % 3 === 0; break; case 3: inv = (x + y) % 3 === 0; break;
+        case 4: inv = (Math.floor(x / 3) + Math.floor(y / 2)) % 2 === 0; break;
+        case 5: inv = (x * y) % 2 + (x * y) % 3 === 0; break;
+        case 6: inv = ((x * y) % 2 + (x * y) % 3) % 2 === 0; break;
+        case 7: inv = ((x + y) % 2 + (x * y) % 3) % 2 === 0; break;
+      }
+      if (inv) grid[y][x] = !grid[y][x];
+    }
+  };
+  const drawFormat = (mask, grid) => {
+    const eccFmt = [1, 0, 3, 2][ecl]; const data = (eccFmt << 3) | mask;
+    let rem = data; for (let i = 0; i < 10; i++) rem = (rem << 1) ^ ((rem >>> 9) * 0x537);
+    const bits = ((data << 10) | rem) ^ 0x5412;
+    for (let i = 0; i <= 5; i++) grid[i][8] = ((bits >>> i) & 1) !== 0;
+    grid[7][8] = ((bits >>> 6) & 1) !== 0; grid[8][8] = ((bits >>> 7) & 1) !== 0; grid[8][7] = ((bits >>> 8) & 1) !== 0;
+    for (let i = 9; i < 15; i++) grid[8][14 - i] = ((bits >>> i) & 1) !== 0;
+    for (let i = 0; i < 8; i++) grid[8][size - 1 - i] = ((bits >>> i) & 1) !== 0;
+    for (let i = 8; i < 15; i++) grid[size - 15 + i][8] = ((bits >>> i) & 1) !== 0;
+    grid[size - 8][8] = true;
+  };
+  const drawVersion = (grid) => {
+    if (version < 7) return;
+    let rem = version; for (let i = 0; i < 12; i++) rem = (rem << 1) ^ ((rem >>> 11) * 0x1F25);
+    const bits = (version << 12) | rem;
+    for (let i = 0; i < 18; i++) { const bit = ((bits >>> i) & 1) !== 0, a = Math.floor(i / 3), b = size - 11 + i % 3; grid[a][b] = bit; grid[b][a] = bit; }
+  };
+  const penalty = (grid) => {
+    let p = 0;
+    for (let y = 0; y < size; y++) { let run = 1; for (let x = 1; x < size; x++) { if (grid[y][x] === grid[y][x - 1]) { run++; if (run === 5) p += 3; else if (run > 5) p++; } else run = 1; } }
+    for (let x = 0; x < size; x++) { let run = 1; for (let y = 1; y < size; y++) { if (grid[y][x] === grid[y - 1][x]) { run++; if (run === 5) p += 3; else if (run > 5) p++; } else run = 1; } }
+    for (let y = 0; y < size - 1; y++) for (let x = 0; x < size - 1; x++) if (grid[y][x] === grid[y][x + 1] && grid[y][x] === grid[y + 1][x] && grid[y][x] === grid[y + 1][x + 1]) p += 3;
+    let dark = 0; for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) if (grid[y][x]) dark++;
+    p += Math.floor(Math.abs(dark * 100 / (size * size) - 50) / 5) * 10;
+    return p;
+  };
+  let best = null, bestP = Infinity;
+  for (let mask = 0; mask < 8; mask++) { const grid = modules.map(r => r.slice()); applyMask(mask, grid); drawFormat(mask, grid); drawVersion(grid); const p = penalty(grid); if (p < bestP) { bestP = p; best = grid; } }
+  return best;
+}
+// Base64 من مصفوفة بايتات (متوافق مع المتصفح)
+function _qrB64(bytes) { let s = ''; for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]); return btoa(s); }
+// رمز زاتكا للمرحلة الأولى: TLV (وسم-طول-قيمة) بترميز Base64 — 5 حقول إلزامية
+function zatcaTLV(seller, vatNo, tsISO, total, vatAmount) {
+  const enc = new TextEncoder();
+  const tlv = (tag, valStr) => { const v = enc.encode(String(valStr == null ? '' : valStr)); const out = new Uint8Array(2 + v.length); out[0] = tag; out[1] = v.length; out.set(v, 2); return out; };
+  const parts = [tlv(1, seller), tlv(2, vatNo), tlv(3, tsISO), tlv(4, Number(total || 0).toFixed(2)), tlv(5, Number(vatAmount || 0).toFixed(2))];
+  let len = 0; parts.forEach(p => len += p.length);
+  const buf = new Uint8Array(len); let off = 0; parts.forEach(p => { buf.set(p, off); off += p.length; });
+  return _qrB64(buf);
+}
+// يحوّل نصًّا إلى رمز QR كصورة SVG (سلسلة) — للمعاينة الحية وللطباعة
+function qrSvg(text, opts) {
+  opts = opts || {};
+  const ecl = opts.ecl != null ? opts.ecl : 1, quiet = opts.quiet != null ? opts.quiet : 4, px = opts.px || 220;
+  let mat; try { mat = qrMatrix(text, ecl); } catch (e) { return ''; }
+  const n = mat.length, total = n + quiet * 2, dark = opts.dark || '#111', light = opts.light || '#fff';
+  let rects = '';
+  for (let y = 0; y < n; y++) { let x = 0; while (x < n) { if (mat[y][x]) { let w = 1; while (x + w < n && mat[y][x + w]) w++; rects += `<rect x="${x + quiet}" y="${y + quiet}" width="${w}" height="1"/>`; x += w; } else x++; } }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${px}" height="${px}" viewBox="0 0 ${total} ${total}" shape-rendering="crispEdges"><rect width="${total}" height="${total}" fill="${light}"/><g fill="${dark}">${rects}</g></svg>`;
 }
 
 /* v8.1 — فواتير مشتقة من الورديات: كل مصروف آجل مربوط بمورد في وردية معتمدة
@@ -1826,7 +1991,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v11.7 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v11.8 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -7742,6 +7907,8 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const [fcD, setFcD] = useState(() => { const f = org.forecastCfg || {}; return { monthlySales: f.monthlySales != null ? String(f.monthlySales) : '', monthlyOpex: f.monthlyOpex != null ? String(f.monthlyOpex) : '', buffer: f.safetyBuffer != null ? String(f.safetyBuffer) : '', horizon: f.horizon || 6 }; }); // v11.4 توقّع نقدي
   const [mcMonth, setMcMonth] = useState(() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }); // v11.5 شهر الإقفال
   const [audD, setAudD] = useState(() => { const a = org.auditCfg || {}; return { largeAmount: a.largeAmount != null ? String(a.largeAmount) : '5000' }; }); // v11.6 عتبة التدقيق
+  const [einvF, setEinvF] = useState({ mode: 'gross', amount: '', buyer: '', invNo: '', date: today(), time: '', desc: 'مبيعات', closingId: '' }); // v11.8 الفوترة المبسّطة (زاتكا)
+  const [einvRaw, setEinvRaw] = useState(false); // إظهار سلسلة TLV الخام
   const [q, setQ] = useState('');
   const [month, setMonth] = useState('');           // فلتر شهر للقيود
   const [from, setFrom] = useState('');             // فترة الميزان/القوائم
@@ -7925,6 +8092,49 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     await commitOrg(d => ({ ...d, taxCfg: next }), {
       actionType: 'update', targetType: 'tax_settings', targetId: 'taxCfg', title, details
     });
+  };
+
+  // ===== v11.8: الفوترة الإلكترونية المبسّطة (زاتكا — رمز QR للمرحلة الأولى) =====
+  const einvSeller = (org.company && org.company.name) || '';
+  const einvSellerVat = (org.company && org.company.taxNumber) || '';
+  const einvRate = taxOn ? taxRate : 15;            // النسبة المعتمدة (تُعرض 15% افتراضيًا للفاتورة إن كانت الضريبة موقوفة)
+  const _e2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+  const einvAmt = Number(String(einvF.amount).replace(/[^\d.]/g, '')) || 0;
+  const einvCalc = (() => {
+    let net, vat, gross;
+    if (einvF.mode === 'net') { net = _e2(einvAmt); vat = _e2(net * einvRate / 100); gross = _e2(net + vat); }
+    else { gross = _e2(einvAmt); vat = _e2(gross * einvRate / (100 + einvRate)); net = _e2(gross - vat); }
+    return { net, vat, gross };
+  })();
+  const einvTs = einvF.date + 'T' + (/^\d{2}:\d{2}$/.test(einvF.time) ? einvF.time : '12:00') + ':00Z';
+  const einvNo = einvF.invNo.trim() || ('مبسّطة-' + (einvF.date || today()).replace(/-/g, ''));
+  const einvReady = !!einvSeller && !!einvSellerVat && einvCalc.gross > 0;
+  const einvB64 = einvReady ? zatcaTLV(einvSeller, einvSellerVat, einvTs, einvCalc.gross, einvCalc.vat) : '';
+  const einvClosings = (ops.closings || []).filter(countedClosing).slice().sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 80);
+  const printEInv = () => {
+    if (!einvReady) return say(einvSellerVat ? 'أدخل مبلغ الفاتورة أولًا' : 'أضف الرقم الضريبي للمنشأة من الإعدادات ← بيانات الشركة', 'no');
+    const svg = qrSvg(einvB64, { ecl: 1, px: 150 });
+    const body = `
+    <div class="box" style="display:flex;justify-content:space-between;align-items:flex-start;gap:18px">
+      <div style="line-height:1.9">
+        <div style="font-size:15px;font-weight:800;color:#5a4a1e">فاتورة ضريبية مبسّطة</div>
+        <div class="sub">Simplified Tax Invoice</div>
+        <div style="margin-top:8px">رقم الفاتورة: <b>${_xe(einvNo)}</b></div>
+        <div>التاريخ: <span class="n">${einvF.date}${einvF.time ? ' ' + einvF.time : ''}</span></div>
+        ${einvF.buyer.trim() ? '<div>العميل: ' + _xe(einvF.buyer.trim()) + '</div>' : ''}
+      </div>
+      <div style="text-align:center">${svg}<div class="sub" style="margin-top:3px">امسح رمز QR للتحقق</div></div>
+    </div>
+    <table>
+      <thead><tr><th>البيان</th><th class="n">المبلغ (ر.س)</th></tr></thead>
+      <tbody>
+        <tr><td>${_xe(einvF.desc.trim() || 'مبيعات')} — قبل الضريبة</td><td class="n">${money(einvCalc.net)}</td></tr>
+        <tr><td>ضريبة القيمة المضافة (${einvRate}%)</td><td class="n">${money(einvCalc.vat)}</td></tr>
+        <tr class="tot"><td>الإجمالي شامل الضريبة</td><td class="n">${money(einvCalc.gross)}</td></tr>
+      </tbody>
+    </table>
+    <div class="box" style="font-size:10px;color:#777">فاتورة مبسّطة متوافقة مع متطلبات المرحلة الأولى للفوترة الإلكترونية (رمز QR بترميز TLV الحاوي: اسم البائع، الرقم الضريبي، التاريخ والوقت، الإجمالي، وقيمة الضريبة). الربط المعتمد للمرحلة الثانية يتطلب شهادة رقمية وتكامل بوابة «فاتورة» من هيئة الزكاة والضريبة والجمارك.</div>`;
+    printA4(org, 'فاتورة ضريبية مبسّطة', 'الرقم الضريبي للبائع: ' + (einvSellerVat || '—'), body) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
   };
 
   // ===== م٥: الأصول الثابتة =====
@@ -8581,6 +8791,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         <button className={'btn sm' + (view === 'export' ? ' pri' : ' gh')} onClick={() => setView('export')}><Download size={14} />تصدير للمحاسب</button>
         <button className={'btn sm' + (view === 'cc' ? ' pri' : ' gh')} onClick={() => setView('cc')}><BarChart3 size={14} />مراكز التكلفة</button>
         <button className={'btn sm' + (view === 'vat' ? ' pri' : ' gh')} onClick={() => setView('vat')}><Receipt size={14} />الضريبة</button>
+        <button className={'btn sm' + (view === 'einv' ? ' pri' : ' gh')} onClick={() => setView('einv')}><QrCode size={14} />الفوترة (زاتكا)</button>
         <button className={'btn sm' + (view === 'ast' ? ' pri' : ' gh')} onClick={() => setView('ast')}><Building2 size={14} />الأصول</button>
         <button className={'btn sm' + (view === 'bank' ? ' pri' : ' gh')} onClick={() => setView('bank')}><Landmark size={14} />التسوية البنكية</button>
         <button className={'btn sm' + (view === 'mclose' ? ' pri' : ' gh')} onClick={() => setView('mclose')}><ClipboardCheck size={14} />حزمة الإقفال</button>
@@ -9784,6 +9995,88 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
             </div>
           </>}
           {!taxOn && <div className="card"><div className="empty">فعّل الاحتساب أعلاه لتظهر مؤشرات الضريبة ومسودة الإقرار من قيودك مباشرة.</div></div>}
+        </div>
+      )}
+
+      {view === 'einv' && (
+        <div className="grid" style={{ gap: 12 }}>
+          <div className="card" style={{ borderColor: einvSellerVat ? 'rgba(79,178,134,.4)' : 'rgba(224,164,88,.5)' }}>
+            <div className="card-h">
+              <div className="card-t"><QrCode size={15} color="var(--brass)" />الفوترة الإلكترونية المبسّطة — رمز زاتكا (QR)</div>
+              <span className={'badge ' + (einvSellerVat ? 'b-mint' : 'b-amber')}>{einvSellerVat ? 'جاهزة' : 'الرقم الضريبي ناقص'}</span>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9 }}>
+              أنشئ <b>فاتورة ضريبية مبسّطة</b> بضغطة، مع <b>رمز QR</b> متوافق مع متطلبات المرحلة الأولى للفوترة الإلكترونية.
+              يحوي الرمز (بترميز TLV المعتمد): اسم البائع، الرقم الضريبي، التاريخ والوقت، الإجمالي شامل الضريبة، وقيمة الضريبة — قابل للمسح والتحقق بأي قارئ.
+            </div>
+            {!einvSellerVat && <div className="note" style={{ marginTop: 8 }}>⚠️ رمز زاتكا يتطلب <b>الرقم الضريبي للمنشأة</b>. أضِفه من <b>الإعدادات ← بيانات الشركة</b> ثم عُد هنا.</div>}
+          </div>
+
+          <div className="grid g2" style={{ gap: 12, alignItems: 'start' }}>
+            <div className="card">
+              <div className="card-t" style={{ marginBottom: 10 }}><FileText size={15} color="var(--brass)" />بيانات الفاتورة</div>
+              <div className="row" style={{ gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+                <button className={'btn sm' + (einvF.mode === 'gross' ? ' pri' : ' gh')} onClick={() => setEinvF(f => ({ ...f, mode: 'gross' }))}>المبلغ شامل الضريبة</button>
+                <button className={'btn sm' + (einvF.mode === 'net' ? ' pri' : ' gh')} onClick={() => setEinvF(f => ({ ...f, mode: 'net' }))}>المبلغ قبل الضريبة</button>
+              </div>
+              <div className="grid g2" style={{ gap: 9 }}>
+                <Field label={einvF.mode === 'gross' ? 'المبلغ شامل الضريبة (ر.س)' : 'المبلغ قبل الضريبة (ر.س)'}>
+                  <input className="inp n" inputMode="decimal" value={einvF.amount} placeholder="0.00" onChange={e => setEinvF(f => ({ ...f, amount: e.target.value, closingId: '' }))} />
+                </Field>
+                <Field label="نسبة الضريبة"><input className="inp n" value={einvRate + '%'} disabled /></Field>
+                <Field label="رقم الفاتورة (اختياري)"><input className="inp" value={einvF.invNo} placeholder={einvNo} onChange={e => setEinvF(f => ({ ...f, invNo: e.target.value }))} /></Field>
+                <Field label="البيان"><input className="inp" value={einvF.desc} onChange={e => setEinvF(f => ({ ...f, desc: e.target.value }))} /></Field>
+                <Field label="التاريخ"><input className="inp" type="date" value={einvF.date} onChange={e => setEinvF(f => ({ ...f, date: e.target.value }))} /></Field>
+                <Field label="الوقت (اختياري)"><input className="inp" type="time" value={einvF.time} onChange={e => setEinvF(f => ({ ...f, time: e.target.value }))} /></Field>
+                <Field label="العميل (اختياري)"><input className="inp" value={einvF.buyer} placeholder="المبسّطة لا تتطلب بيانات العميل" onChange={e => setEinvF(f => ({ ...f, buyer: e.target.value }))} /></Field>
+                <Field label="أو عبّئ المبلغ من إغلاق يوم">
+                  <select className="inp" value={einvF.closingId} onChange={e => {
+                    const id = e.target.value; const c = einvClosings.find(x => x.id === id);
+                    setEinvF(f => ({ ...f, closingId: id, mode: 'gross', amount: c ? String(c.totalRevenue || 0) : f.amount, date: c ? (c.date || f.date) : f.date, desc: c ? ('مبيعات ' + (c.branchName || '')) : f.desc }));
+                  }}>
+                    <option value="">— بدون —</option>
+                    {einvClosings.map(c => <option key={c.id} value={c.id}>{c.date} · {c.branchName || 'فرع'} · {money(c.totalRevenue || 0)}</option>)}
+                  </select>
+                </Field>
+              </div>
+            </div>
+
+            <div className="card" style={{ textAlign: 'center' }}>
+              <div className="card-t" style={{ marginBottom: 10, justifyContent: 'center' }}><QrCode size={15} color="var(--brass)" />المعاينة الحيّة</div>
+              {einvReady ? (
+                <>
+                  <div id="einv-qr" style={{ display: 'inline-block', background: '#fff', padding: 10, borderRadius: 12, border: '1px solid var(--frame-o)' }}
+                    dangerouslySetInnerHTML={{ __html: qrSvg(einvB64, { ecl: 1, px: 240 }) }} />
+                  <div className="grid g3" style={{ gap: 8, marginTop: 12 }}>
+                    <div style={{ background: 'var(--acc-soft)', border: '1px solid var(--frame-o)', borderRadius: 10, padding: '8px 6px' }}>
+                      <div style={{ fontSize: 10.5, color: 'var(--dim)' }}>قبل الضريبة</div>
+                      <div className="num" style={{ fontSize: 14, fontWeight: 800 }}>{money(einvCalc.net)}</div>
+                    </div>
+                    <div style={{ background: 'var(--acc-soft)', border: '1px solid var(--frame-o)', borderRadius: 10, padding: '8px 6px' }}>
+                      <div style={{ fontSize: 10.5, color: 'var(--dim)' }}>الضريبة {einvRate}%</div>
+                      <div className="num" style={{ fontSize: 14, fontWeight: 800, color: 'var(--brass-l)' }}>{money(einvCalc.vat)}</div>
+                    </div>
+                    <div style={{ background: 'var(--acc-soft)', border: '1px solid var(--frame-o)', borderRadius: 10, padding: '8px 6px' }}>
+                      <div style={{ fontSize: 10.5, color: 'var(--dim)' }}>الإجمالي</div>
+                      <div className="num" style={{ fontSize: 14, fontWeight: 800, color: 'var(--mint)' }}>{money(einvCalc.gross)}</div>
+                    </div>
+                  </div>
+                  <div className="row" style={{ gap: 8, justifyContent: 'center', marginTop: 12, flexWrap: 'wrap' }}>
+                    <button className="btn pri" onClick={printEInv}><Printer size={14} />طباعة الفاتورة المبسّطة</button>
+                    <button className="btn sm gh" onClick={() => setEinvRaw(v => !v)}>{einvRaw ? 'إخفاء' : 'إظهار'} سلسلة الترميز</button>
+                  </div>
+                  {einvRaw && <div data-einv-b64="1" style={{ marginTop: 10, fontFamily: 'monospace', fontSize: 10, wordBreak: 'break-all', direction: 'ltr', textAlign: 'left', background: 'var(--acc-soft)', border: '1px solid var(--frame-o)', borderRadius: 8, padding: 10 }}>{einvB64}</div>}
+                </>
+              ) : (
+                <div className="empty" style={{ padding: '30px 10px' }}>{einvSellerVat ? 'أدخل مبلغ الفاتورة لتظهر المعاينة ورمز QR.' : 'أضف الرقم الضريبي للمنشأة أولًا (الإعدادات ← بيانات الشركة).'}</div>
+              )}
+            </div>
+          </div>
+
+          <div className="note">
+            💡 <b>بشفافية:</b> هذه فاتورة مبسّطة (بيع للأفراد B2C) متوافقة مع <b>المرحلة الأولى</b> عبر رمز QR. لا تُخزَّن هنا كسجل رسمي ولا تُرسَل للهيئة —
+            الربط المعتمد للمرحلة الثانية (التكامل مع بوابة «فاتورة») يتطلب شهادة رقمية وربطًا رسميًا منفصلًا.
+          </div>
         </div>
       )}
 
