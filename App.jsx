@@ -2013,7 +2013,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v12.3 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v12.4 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -5956,12 +5956,12 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
   const exportWPS = () => {
     const head = ['رقم الهوية/الإقامة', 'اسم الموظف', 'الآيبان IBAN', 'الأساسي', 'بدل السكن', 'بدلات أخرى', 'الاستقطاعات', 'صافي الراتب', 'أيام العمل'];
     const lines = rows.map(r => [r.e.idNumber || r.e.iqamaNo || r.e.nationalId || '', r.e.name, r.e.iban || '', r.e.baseSalary || 0, r.e.housingAllowance || 0, r2((r.e.transportAllowance || 0) + (r.e.otherAllowance || 0)), r2(r.draws + r.cuts + r.gEmp), r.net, 30]);
-    const csvCell = (v) => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-    const csv = '﻿' + [head, ...lines].map(r => r.map(csvCell).join(',')).join('\r\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' }); const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = 'حماية_الأجور_WPS_' + month + '.csv'; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(url), 1500);
-    const missing = rows.filter(r => !(r.e.iban && (r.e.idNumber || r.e.iqamaNo || r.e.nationalId))).length;
-    say(missing ? ('نُزّل الملف — لكن ' + missing + ' موظف بلا آيبان/هوية كاملة؛ أكمِلها من «تعديل الراتب»') : 'نُزّل ملف حماية الأجور ✓', missing ? 'no' : 'ok');
+    try {
+      const blob = makeXlsx([{ name: ('حماية الأجور ' + month).slice(0, 28), rows: [head, ...lines] }]);
+      const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'حماية_الأجور_WPS_' + month + '.xlsx'; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(url), 1500);
+      const missing = rows.filter(r => !(r.e.iban && (r.e.idNumber || r.e.iqamaNo || r.e.nationalId))).length;
+      say(missing ? ('نُزّل ملف Excel — لكن ' + missing + ' موظف بلا آيبان/هوية كاملة؛ أكمِلها من «تعديل الراتب»') : 'نُزّل ملف حماية الأجور (Excel) ✓', missing ? 'no' : 'ok');
+    } catch (e) { say('تعذّر توليد ملف Excel', 'no'); }
   };
   const printEOSlip = (emp, calc) => {
     printA4(org, 'مخالصة نهاية الخدمة — ' + emp.name, 'حتى ' + arDate(calc.endDate) + ' · ' + (calc.reason === 'termination' ? 'إنهاء من صاحب العمل' : 'استقالة'),
@@ -7958,6 +7958,7 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
   const [moveF, setMoveF] = useState(null);         // نموذج حركة
   const [prodF, setProdF] = useState(null);         // نموذج وصفة
   const [countRows, setCountRows] = useState({});   // العدّ الفعلي أثناء الجرد
+  const [menuQty, setMenuQty] = useState({});        // v12.4 مسودة كميات البيع الشهرية لهندسة القائمة
   const [ivD, setIvD] = useState(() => { const v = org.invValuation || {}; return { enabled: !!v.enabled, auto: v.auto !== false, asOf: v.asOf || today(), value: v.value != null ? String(v.value) : '' }; });
   useEffect(() => { if (invIntent && invIntent.v) setView(invIntent.v); }, [invIntent && invIntent.ts]);
 
@@ -8054,6 +8055,32 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
   };
 
   const prodCost = (p) => sum(p.parts || [], pt => (Number(pt.qty) || 0) * ((items.find(x => x.id === pt.itemId) || {}).cost || 0));
+  // v12.4 — هندسة القائمة: كمية البيع الشهرية (يدخلها المستخدم) × هامش الوصفة
+  const menuQtyOf = (p) => { const raw = menuQty[p.id]; return Number(String(raw != null ? raw : (p.salesQty || 0)).replace(/[^\d.]/g, '')) || 0; };
+  const saveMenuQty = async () => {
+    await commitOrg(d => ({ ...d, products: (d.products || []).map(p => ({ ...p, salesQty: menuQtyOf(p) })) }), { actionType: 'update', targetType: 'inventory', targetId: 'menuQty', title: 'حفظ كميات البيع الشهرية (هندسة القائمة)', details: products.length + ' منتج' });
+    say('حُفظت الكميات ✓');
+  };
+  const exportMenuXlsx = () => {
+    const r2m = (n) => Math.round((Number(n) || 0) * 100) / 100;
+    const head = ['المنتج', 'سعر البيع', 'الصافي', 'التكلفة', 'هامش الوحدة', 'الهامش %', 'الكمية الشهرية', 'مساهمة الربح', 'التصنيف'];
+    const cls = menuClassifier();
+    const body = products.map(p => { const cost = prodCost(p), net = netOf(p.sellPrice || 0), cm = r2m(net - cost), qty = menuQtyOf(p); return [p.name, p.sellPrice || 0, net, cost, cm, net > 0 ? Math.round((net - cost) / net * 1000) / 10 : 0, qty, r2m(cm * qty), cls(p).k]; });
+    try {
+      const blob = makeXlsx([{ name: 'هندسة القائمة', rows: [head, ...body] }]);
+      const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'هندسة_القائمة.xlsx'; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(url), 1500);
+      say('نُزّل تحليل القائمة (Excel) ✓');
+    } catch (e) { say('تعذّر توليد ملف Excel', 'no'); }
+  };
+  // مُصنِّف نجم/لغز/حصان/كلب وفق (الرواج × الربحية) — قواطع كازافانا-سميث
+  const menuClassifier = () => {
+    const r2m = (n) => Math.round((Number(n) || 0) * 100) / 100;
+    const rw = products.map(p => { const cost = prodCost(p), net = netOf(p.sellPrice || 0); return { id: p.id, cm: r2m(net - cost), qty: menuQtyOf(p) }; });
+    const withQty = rw.filter(r => r.qty > 0); const N = withQty.length;
+    const totalQty = sum(withQty, r => r.qty); const totalCM = sum(withQty, r => r.cm * r.qty);
+    const avgCM = totalQty > 0 ? totalCM / totalQty : 0; const popCut = N > 0 ? 0.7 * totalQty / N : 0;
+    return (p) => { const r = rw.find(x => x.id === p.id) || { cm: 0, qty: 0 }; if (r.qty <= 0) return { k: 'بلا كمية', c: 'b-dim' }; const hiPop = r.qty >= popCut, hiCM = r.cm >= avgCM; if (hiPop && hiCM) return { k: 'نجم', c: 'b-mint' }; if (!hiPop && hiCM) return { k: 'لغز', c: 'b-sky' }; if (hiPop && !hiCM) return { k: 'حصان', c: 'b-amber' }; return { k: 'كلب', c: 'b-rose' }; };
+  };
   const saveProd = async () => {
     const f = prodF;
     if (!f.name.trim()) return say('أدخل اسم المنتج', 'no');
@@ -8097,6 +8124,9 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
         <button className={'btn sm' + (view === 'moves' ? ' pri' : ' gh')} onClick={() => setView('moves')}><ArrowLeftRight size={14} />الحركات</button>
         <button className={'btn sm' + (view === 'count' ? ' pri' : ' gh')} onClick={() => setView('count')}><ClipboardCheck size={14} />الجرد</button>
         <button className={'btn sm' + (view === 'recipes' ? ' pri' : ' gh')} onClick={() => setView('recipes')}><Store size={14} />الوصفات والتكلفة</button>
+        <button className={'btn sm' + (view === 'menu' ? ' pri' : ' gh')} onClick={() => setView('menu')}><BarChart3 size={14} />هندسة القائمة</button>
+        {view === 'menu' && <button className="btn sm" style={{ marginInlineStart: 'auto' }} onClick={exportMenuXlsx}><Download size={13} />Excel</button>}
+        {view === 'menu' && canW && <button className="btn sm pri" onClick={saveMenuQty}><Check size={14} />حفظ الكميات</button>}
         {view === 'items' && <button className="btn sm" style={{ marginInlineStart: 'auto' }} onClick={printStock}><Printer size={13} />طباعة الأرصدة</button>}
         {canW && view === 'items' && <button className="btn sm pri" onClick={() => setItemF({ name: '', unit: 'كغ', cost: '', minQty: '' })}><Plus size={14} />صنف جديد</button>}
         {canW && view === 'moves' && <button className="btn sm pri" style={{ marginInlineStart: 'auto' }} onClick={() => setMoveF({ kind: 'in', itemId: items[0]?.id || '', qty: '', note: '' })}><Plus size={14} />حركة جديدة</button>}
@@ -8250,6 +8280,56 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
           {products.length === 0 && <div className="card"><div className="empty">أضف منتجاً بوصفته (مكوناته من الأصناف) لترى تكلفته الحقيقية وهامشه.</div></div>}
         </div>
       )}
+
+      {view === 'menu' && (() => {
+        const r2m = (n) => Math.round((Number(n) || 0) * 100) / 100;
+        const cls = menuClassifier();
+        const rowsM = products.map(p => { const cost = prodCost(p), net = netOf(p.sellPrice || 0), cm = r2m(net - cost), qty = menuQtyOf(p); return { p, cost, net, cm, qty, contribution: r2m(cm * qty), marginPct: net > 0 ? Math.round((net - cost) / net * 1000) / 10 : 0, cl: cls(p) }; });
+        const counts = { 'نجم': 0, 'لغز': 0, 'حصان': 0, 'كلب': 0 };
+        rowsM.forEach(r => { if (counts[r.cl.k] != null) counts[r.cl.k]++; });
+        const totalContribution = r2m(sum(rowsM, r => r.contribution));
+        const anyQty = rowsM.some(r => r.qty > 0);
+        return (
+          <div className="grid" style={{ gap: 12 }}>
+            {products.length === 0 ? <div className="card"><div className="empty">أضف منتجاتك ووصفاتها من «الوصفات والتكلفة» أولًا، ثم أدخل كميات بيعها الشهرية هنا.</div></div> : <>
+              <div className="grid g4">
+                <div className="card" style={{ padding: '10px 12px' }}><div style={{ fontSize: 11, color: 'var(--dim)' }}>⭐ نجوم (ربحي ورائج)</div><div className="num" style={{ fontSize: 20, fontWeight: 800, color: 'var(--mint)' }}>{counts['نجم']}</div></div>
+                <div className="card" style={{ padding: '10px 12px' }}><div style={{ fontSize: 11, color: 'var(--dim)' }}>❓ ألغاز (ربحي قليل الطلب)</div><div className="num" style={{ fontSize: 20, fontWeight: 800, color: '#5B93C4' }}>{counts['لغز']}</div></div>
+                <div className="card" style={{ padding: '10px 12px' }}><div style={{ fontSize: 11, color: 'var(--dim)' }}>🐎 أحصنة (رائج ضعيف الهامش)</div><div className="num" style={{ fontSize: 20, fontWeight: 800, color: 'var(--amber)' }}>{counts['حصان']}</div></div>
+                <div className="card" style={{ padding: '10px 12px' }}><div style={{ fontSize: 11, color: 'var(--dim)' }}>🐕 كلاب (ضعيف الطلب والهامش)</div><div className="num" style={{ fontSize: 20, fontWeight: 800, color: 'var(--rose)' }}>{counts['كلب']}</div></div>
+              </div>
+              <div className="card">
+                <div className="card-t" style={{ marginBottom: 8 }}><BarChart3 size={15} color="var(--brass)" />هندسة القائمة — أدخل كمية البيع الشهرية لكل منتج</div>
+                <div className="tw">
+                  <table className="tb">
+                    <thead><tr><th>المنتج</th><th style={{ textAlign: 'end' }}>البيع</th><th style={{ textAlign: 'end' }}>التكلفة</th><th style={{ textAlign: 'end' }}>هامش الوحدة</th><th style={{ textAlign: 'end' }}>الهامش %</th><th style={{ textAlign: 'center' }}>كمية/شهر</th><th style={{ textAlign: 'end' }}>مساهمة الربح</th><th style={{ textAlign: 'center' }}>التصنيف</th></tr></thead>
+                    <tbody>
+                      {rowsM.map(r => (
+                        <tr key={r.p.id}>
+                          <td style={{ fontWeight: 600, fontSize: 12.5 }}>{r.p.name}</td>
+                          <td className="num" style={{ textAlign: 'end' }}>{money(r.p.sellPrice || 0)}</td>
+                          <td className="num" style={{ textAlign: 'end' }}>{money(r.cost)}</td>
+                          <td className="num" style={{ textAlign: 'end', color: r.cm >= 0 ? 'var(--mint)' : 'var(--rose)' }}>{money(r.cm)}</td>
+                          <td className="num" style={{ textAlign: 'end' }}>{r.marginPct}%</td>
+                          <td style={{ textAlign: 'center' }}>{canW ? <input className="inp n" style={{ width: 80, textAlign: 'center' }} inputMode="decimal" value={menuQty[r.p.id] != null ? menuQty[r.p.id] : (r.p.salesQty || '')} placeholder="0" onChange={e => setMenuQty(m => ({ ...m, [r.p.id]: e.target.value.replace(/[^\d.]/g, '') }))} /> : <span className="num">{r.qty}</span>}</td>
+                          <td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{money(r.contribution)}</td>
+                          <td style={{ textAlign: 'center' }}><span className={'badge ' + r.cl.c}>{r.cl.k}</span></td>
+                        </tr>
+                      ))}
+                      <tr style={{ fontWeight: 800, background: 'rgba(200,162,74,.05)' }}><td colSpan={6}>إجمالي مساهمة الربح الشهرية (من الكميات المُدخلة)</td><td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{money(totalContribution)}</td><td /></tr>
+                    </tbody>
+                  </table>
+                </div>
+                {!anyQty && <div className="note" style={{ marginTop: 8 }}>أدخل كمية البيع الشهرية لمنتجاتك (ثم «حفظ الكميات») ليصنّفها النظام. التكلفة والهامش يأتيان من وصفاتك تلقائيًا.</div>}
+              </div>
+              <div className="note">
+                <b>كيف تُقرأ؟</b> يقارن النظام كل منتج بمتوسط القائمة في بُعدين: <b>الرواج</b> (كمية البيع) و<b>الربحية</b> (هامش الوحدة).
+                <b> ⭐ نجم</b>: رائج وربحي — أبرِزه. <b>❓ لغز</b>: ربحي لكن قليل الطلب — روّج له. <b>🐎 حصان</b>: رائج ضعيف الهامش — راجع تكلفته أو سعره. <b>🐕 كلب</b>: ضعيف الطلب والهامش — طوّره أو أزِله. القواطع: متوسط الهامش المرجّح، و٧٠٪ من متوسط الكمية.
+              </div>
+            </>}
+          </div>
+        );
+      })()}
 
       <div className="card" style={{ background: 'rgba(200,162,74,.04)', borderStyle: 'dashed' }}>
         <div style={{ fontSize: 11.5, color: 'var(--dim)', lineHeight: 1.9 }}>
