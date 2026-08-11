@@ -5,8 +5,8 @@ export const CSS = `
 :root{
   /* ===== نظام التصميم الموحّد — الرموز (Design Tokens) ===== */
   /* الأسطح — v7.3 «النحاسي الملكي المطوَّر»: أعمق وأنقى */
-  --ink:#14110F; --ink2:#1B1714; --ink3:#231E19; --line:#373028;
-  --txt:#F2EADD; --dim:#A89A8B; --faint:#71655A;
+  --ink:#1A1613; --ink2:#221D19; --ink3:#2A2420; --line:#3C352C;
+  --txt:#F2EADD; --dim:#AE9F8F; --faint:#786B5E;
   /* حدود مذهّبة + إطار البوابة + تباين الأرقام */
   --line-g:#57492F; --frame:rgba(200,162,74,.5); --frame-o:rgba(200,162,74,.2);
   --num:#FBF5E9; --acc-soft:rgba(200,162,74,.13);
@@ -77,7 +77,7 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 .main{flex:1;min-width:0;max-width:100%;display:flex;flex-direction:column;min-height:0;overflow:hidden}
 .top{
   display:flex;align-items:center;gap:12px;padding:12px 22px;flex-shrink:0;
-  border-bottom:1px solid var(--line);background:rgba(20,17,15,.9);
+  border-bottom:1px solid var(--line);background:rgba(26,22,19,.9);
   backdrop-filter:blur(10px);z-index:30;flex-wrap:wrap
 }
 .top .toptitle{font-size:21px;font-weight:800;font-family:'Markazi Text',serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:42vw;margin:0;letter-spacing:.2px}
@@ -412,19 +412,20 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
 
 /* ---- السمة الفاتحة ---- */
 .rms.lite{
-  --ink:#F6F2E9; --ink2:#FFFDF8; --ink3:#EFE9DC; --line:#DDD4C4;
-  --txt:#241F1A; --dim:#6C6155; --faint:#9A8E7F;
-  --line-g:#CEBFA0; --frame:rgba(154,118,32,.42); --frame-o:rgba(154,118,32,.18);
-  --num:#1B150F; --acc-soft:rgba(154,118,32,.12);
-  --brass:#9A7620; --brass-d:#7A5C15; --brass-l:#B8942E; --mint:#2E8B62; --rose:#C0392B;
-  --amber:#B57A1E; --sky:#3A6D9E; --violet:#7D5FA0; --note-bg:rgba(255,253,248,.93);
-  /* ظلال أنعم تناسب الخلفية الفاتحة */
-  --sh-1:0 1px 2px rgba(90,70,30,.10); --sh-2:0 2px 10px rgba(90,70,30,.12);
-  --sh-3:0 6px 20px rgba(90,70,30,.15); --sh-4:0 14px 40px rgba(90,70,30,.18);
-  --sh-brass:0 8px 20px -8px rgba(154,118,32,.4);
-  --ring:0 0 0 3px rgba(154,118,32,.28);
+  /* ═══ الهوية الفاتحة الاحترافية: أبيض دافئ نظيف + ذهبي راقٍ ═══ */
+  --ink:#F5F1EA; --ink2:#FFFFFF; --ink3:#EEE8DD; --line:#E4DCCD;
+  --txt:#2A251F; --dim:#6B6153; --faint:#9C917F;
+  --line-g:#DBD0BB; --frame:rgba(168,125,40,.40); --frame-o:rgba(168,125,40,.15);
+  --num:#1E1912; --acc-soft:rgba(168,125,40,.10);
+  --brass:#A87D28; --brass-d:#856019; --brass-l:#C29A3E; --mint:#2F9469; --rose:#C63D34;
+  --amber:#B27A1C; --sky:#3E71A6; --violet:#7E5FA6; --note-bg:rgba(255,255,255,.96);
+  /* ظلال ناعمة ونظيفة تناسب الخلفية الفاتحة */
+  --sh-1:0 1px 2px rgba(60,45,20,.05); --sh-2:0 3px 12px rgba(60,45,20,.08);
+  --sh-3:0 8px 24px rgba(60,45,20,.11); --sh-4:0 16px 44px rgba(60,45,20,.15);
+  --sh-brass:0 8px 22px -8px rgba(168,125,40,.35);
+  --ring:0 0 0 3px rgba(168,125,40,.24);
 }
-.rms.lite .top{background:rgba(255,253,248,.92)}
+.rms.lite .top{background:rgba(255,255,255,.9)}
 .rms.lite .note-v{color:#1B1712}
 .rms.lite .note-u,.rms.lite .note-t{color:#5A5148}
 .rms.lite .note-i{background:rgba(255,255,255,.85);color:#241F1A;border-color:rgba(0,0,0,.14)}
