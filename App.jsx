@@ -860,7 +860,7 @@ const DENOMS = [
 const emptyDenoms = () => DENOMS.reduce((o, d) => ({ ...o, [d.k]: 0 }), {});
 const countDenoms = (d) => DENOMS.reduce((s, x) => s + (Number(d?.[x.k]) || 0) * x.v, 0);
 
-const ALL_TABS = ['exec', 'dash', 'compare', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'archive', 'ai', 'reports', 'admin', 'audit'];
+const ALL_TABS = ['exec', 'alerts', 'dash', 'compare', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'archive', 'ai', 'reports', 'admin', 'audit'];
 const TAB_AR = {
   dash: 'لوحة المؤشرات', compare: 'مقارنة الفروع', closing: 'الإغلاق اليومي', apps: 'التطبيقات',
   approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', payroll: 'الرواتب والسلف',
@@ -887,7 +887,7 @@ const ROLES = {
   },
   head_office: {
     ar: 'المكتب الرئيسي — المالية والإدارة', badge: 'b-brass', scope: 'all', approver: true,
-    tabs: ['exec', 'dash', 'compare', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'archive', 'ai', 'reports', 'audit'],
+    tabs: ['exec', 'alerts', 'dash', 'compare', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'archive', 'ai', 'reports', 'audit'],
     perms: ['كل الفروع والتقارير المجمّعة', 'التدقيق والاعتماد النهائي', 'الخزينة والرواتب والموردون والمشتريات والمخزون', 'المحاسبة الكاملة: قيود وميزان وقوائم وضريبة وأصول ومراكز تكلفة']
   },
   system_admin: {
@@ -905,7 +905,7 @@ const ROLES = {
     // إعادة ترتيب v8.0: المحاسب الرئيسي بطبيعته يعمل على المنشأة كلها — نطاق كامل
     // بلا صلاحيات إدارة (لا مستخدمين/فروع، لا تفعيل ضريبة، لا إدارة تطبيقات)
     ar: 'الإدارة المالية — محاسب رئيسي', badge: 'b-sky', scope: 'all', legacy: true,
-    tabs: ['exec', 'dash', 'compare', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'archive', 'ai', 'reports', 'audit'],
+    tabs: ['exec', 'alerts', 'dash', 'compare', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'archive', 'ai', 'reports', 'audit'],
     perms: ['المحاسبة كاملة: قيود يدوية وافتتاحية وميزان وقوائم ومراكز تكلفة', 'الضريبة والأصول والتسوية البنكية (عرض وتسجيل — التفعيل للإدارة)', 'المشتريات والمخزون والرواتب والخزينة', 'كل الفروع — دون إدارة المستخدمين والإعدادات']
   }
 };
@@ -996,6 +996,8 @@ const REG_IX = {}; REG_APPS.forEach(a => { REG_IX[a.id] = a; });
 const LAUNCH_APPS = [
   { id: 'exec', ar: 'اللوحة التنفيذية', en: 'Executive', cat: 'bi', icon: Compass, open: { tab: 'exec' },
     sections: ['مؤشرات اليوم', 'الربح مقابل الموازنة', 'أعلى المتأخرين', 'أهم النِسَب', 'تنبيهات'], kw: ['لوحة', 'تنفيذية', 'ملخص', 'مؤشرات', 'نقد', 'ربح', 'تنبيهات', 'مدير', 'إدارة'] },
+  { id: 'alerts', ar: 'مركز التنبيهات', en: 'Alerts', cat: 'bi', icon: Bell, open: { tab: 'alerts' },
+    sections: ['موردون', 'موازنة', 'نقد وسيولة', 'مخزون', 'ضريبة', 'تشغيل', 'إعداد'], kw: ['تنبيه', 'تنبيهات', 'إنذار', 'متأخر', 'تجاوز', 'عجز', 'متابعة', 'إجراء'] },
   { id: 'acct', ar: 'المحاسبة', en: 'Accounting', cat: 'fin', icon: Scale, open: { tab: 'acct' },
     sections: ['القيود اليومية', 'دليل الحسابات', 'ميزان المراجعة', 'القوائم المالية', 'مراكز التكلفة', 'الأصول والإهلاك', 'التسوية البنكية', 'الإقفال الشهري'],
     kw: ['قيد', 'يومية', 'حساب', 'ميزان', 'قائمة', 'دخل', 'مركز مالي', 'مراكز تكلفة', 'أصل', 'إهلاك', 'بنك', 'تسوية', 'إقفال', 'قفل', 'محاسبة'] },
@@ -1039,7 +1041,7 @@ const LAUNCH_APPS = [
 const LAUNCH_IX = {}; LAUNCH_APPS.forEach(a => { LAUNCH_IX[a.id] = a; });
 // ترتيب عرض مقصود (لا عشوائي) — تدفّق منطقي: التشغيل اليومي ← المالية ← المشتريات ←
 // المخزون ← الموارد البشرية ← الضريبة ← الحوكمة ← الذكاء (متجاورة لونيًا وموضوعيًا، بنمط أودو)
-const LAUNCH_ORDER = ['exec', 'closing', 'sales', 'approve', 'dash', 'compare', 'shifts', 'acct', 'treasury', 'reports', 'suppliers', 'partners', 'inv', 'payroll', 'vat', 'brmgmt', 'backup', 'audit', 'archive', 'ai'];
+const LAUNCH_ORDER = ['exec', 'alerts', 'closing', 'sales', 'approve', 'dash', 'compare', 'shifts', 'acct', 'treasury', 'reports', 'suppliers', 'partners', 'inv', 'payroll', 'vat', 'brmgmt', 'backup', 'audit', 'archive', 'ai'];
 const launchRank = (id) => { const i = LAUNCH_ORDER.indexOf(id); return i < 0 ? 999 : i; };
 /* v8.5 — لقطات احتياطية يومية محلية (IndexedDB) على أجهزة الإدارة:
    حماية إضافية ضد التلف أو الحذف الخاطئ — والنسخة الملفية تبقى الحماية الخارجية */
@@ -1623,6 +1625,7 @@ export default function App() {
   const NAV = [
     { id: 'home', ar: 'الرئيسية', icon: Home },
     { id: 'exec', ar: 'اللوحة التنفيذية', icon: Compass },
+    { id: 'alerts', ar: 'مركز التنبيهات', icon: Bell },
     { id: 'dash', ar: 'لوحة المؤشرات', icon: LayoutDashboard },
     { id: 'compare', ar: 'مقارنة الفروع', icon: BarChart3 },
     { id: 'sales', ar: 'المبيعات', icon: CircleDollarSign },
@@ -1733,7 +1736,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v10.8 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v10.9 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -1821,6 +1824,7 @@ export default function App() {
             <div className="page-inner">
               {safeTab === 'home' && <Launcher {...shared} online={online} />}
               {safeTab === 'exec' && <ExecDashboard {...shared} />}
+              {safeTab === 'alerts' && <AlertsCenter {...shared} />}
               {safeTab === 'dash' && <Dashboard {...shared} online={online} />}
               {safeTab === 'compare' && <BranchCompare {...shared} />}
               {safeTab === 'sales' && <Sales {...shared} />}
@@ -3151,8 +3155,9 @@ function ExecDashboard({ org, ops, me, myBranches, scoped, setTab, openAcctView,
         </div>
 
         <div className="card">
-          <div className="card-t" style={{ marginBottom: 8 }}><Bell size={15} color="var(--brass)" />تنبيهات سريعة</div>
-          <div className="grid" style={{ gap: 7 }}>
+          <div className="card-h"><div className="card-t"><Bell size={15} color="var(--brass)" />تنبيهات سريعة</div>
+            <button className="btn sm gh" onClick={() => setTab('alerts')}>عرض الكل<ChevronLeft size={13} /></button></div>
+          <div className="grid" style={{ gap: 7, marginTop: 6 }}>
             {alerts.map((a, i) => (
               <button key={i} className="row" onClick={a.go} style={{ justifyContent: 'space-between', gap: 8, background: 'var(--ink3)', border: '1px solid var(--line)', borderRadius: 9, padding: '9px 11px', cursor: 'pointer', textAlign: 'start' }}>
                 <span style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}><span className={'badge ' + sevCls[a.sev]} style={{ fontSize: 9.5, flexShrink: 0 }}>{sevTxt[a.sev]}</span>{a.txt}</span>
@@ -3175,6 +3180,142 @@ function ExecDashboard({ org, ops, me, myBranches, scoped, setTab, openAcctView,
           <button className="btn sm gh" onClick={() => setTab('sales')}><CircleDollarSign size={13} />المبيعات</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ===== v10.9: مركز التنبيهات الذكية — قائمة إجراءات حيّة عبر كل الوحدات، بأولويات وفئات وتصفية =====
+function AlertsCenter({ org, ops, me, myBranches, scoped, setTab, openAcctView, openInvView }) {
+  const A = useMemo(() => buildAccounting(org, ops), [org, ops]);
+  const sups = useMemo(() => buildPartners(org, ops).filter(p => p.type === 'supplier'), [org, ops]);
+  const [catF, setCatF] = useState('all');
+  const [sevF, setSevF] = useState('all');
+  const td = today(); const ym = td.slice(0, 7);
+  const r2 = (n) => Math.round(n * 100) / 100;
+  const dd = (a, b) => { const x = Date.parse(a), y = Date.parse(b); return (isNaN(x) || isNaN(y)) ? 0 : Math.floor((y - x) / 86400000); };
+  const accByCode = {}; A.accounts.forEach(a => { accByCode[a.code] = a; });
+  const goAcct = (v) => { setTab('acct'); openAcctView && openAcctView(v); };
+  const AL = [];
+  const push = (sev, cat, title, detail, action) => AL.push({ sev, cat, title, detail, action });
+
+  // موردون
+  const aged = sups.map(p => ({ p, ...supplierAging(p, td) }));
+  const over90 = r2(sum(aged, r => r.b90)), over60 = r2(sum(aged, r => r.b60));
+  const n90 = aged.filter(r => r.b90 > 0.004).length;
+  if (over90 > 0.004) push('high', 'suppliers', 'ذمم موردين متأخرة أكثر من 90 يومًا', money(over90) + ' على ' + n90 + ' مورد — أولوية سداد.', { label: 'الأعمار', go: () => goAcct('apage') });
+  if (over60 > 0.004) push('mid', 'suppliers', 'ذمم في شريحة 61–90 يومًا', money(over60) + ' تقترب من التأخّر الحرج.', { label: 'الأعمار', go: () => goAcct('apage') });
+  const credSup = aged.filter(r => r.credit > 0.004);
+  if (credSup.length) push('low', 'suppliers', credSup.length + ' مورد برصيد دفعة مقدمة', 'دفعتَ أكثر من المستحق — استرجاع أو خصم لاحق.', { label: 'الأعمار', go: () => goAcct('apage') });
+
+  // موازنة
+  const budgetOn = !!(org.budget && org.budget.enabled);
+  if (budgetOn) {
+    const monAgg = {}; A.entries.forEach(e => { if ((e.date || '').slice(0, 7) === ym && !e.closing) e.lines.forEach(l => { const x = monAgg[l.code] || (monAgg[l.code] = { d: 0, c: 0 }); x.d += l.debit; x.c += l.credit; }); });
+    (org.budget.lines || []).forEach(l => {
+      const a = accByCode[l.code]; if (!a || a.kind !== 'exp') return;
+      const x = monAgg[l.code] || { d: 0, c: 0 }; const actual = r2(x.d - x.c);
+      if (actual > (l.amount || 0) + 0.005) push('mid', 'budget', 'تجاوز موازنة: ' + a.name, 'الفعلي ' + money(actual) + ' مقابل موازنة ' + money(l.amount) + ' هذا الشهر.', { label: 'الموازنة', go: () => goAcct('bud') });
+    });
+  } else push('low', 'budget', 'الموازنة غير مفعّلة', 'فعّلها لمقارنة الأداء بالمخطّط والتنبيه عند التجاوز.', { label: 'تفعيل', go: () => goAcct('bud') });
+
+  // نقد وسيولة
+  A.accounts.filter(a => a.cash && a.balance < -0.004).forEach(a => push('high', 'cash', 'رصيد نقدي سالب: ' + a.name, money(a.balance) + ' — راجع القيود أو مصدر التمويل.', { label: 'دليل الحسابات', go: () => goAcct('coa') }));
+  const totLiab = sum(A.accounts.filter(a => a.kind === 'liab'), a => a.balance);
+  const totAssets = sum(A.accounts.filter(a => a.kind === 'asset'), a => a.balance);
+  const netFixed = ((accByCode['1701'] || {}).balance || 0) + ((accByCode['1791'] || {}).balance || 0);
+  const curAssets = r2(totAssets - netFixed);
+  if (totLiab > 0.005 && curAssets / totLiab < 1) push('mid', 'cash', 'النسبة الجارية دون 1', 'الأصول المتداولة ' + money(curAssets) + ' أقل من الخصوم ' + money(totLiab) + '.', { label: 'التحليل', go: () => goAcct('anl') });
+  const recs = (ops.bankRecs || []).slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  const bankMoved = A.entries.some(e => e.lines.some(l => l.code === '1201'));
+  if (bankMoved) { const last = recs[recs.length - 1];
+    if (!last) push('low', 'cash', 'لم تُجرِ تسوية بنكية بعد', 'طابِق رصيد البنك الدفتري مع كشفك الفعلي.', { label: 'التسوية', go: () => goAcct('bank') });
+    else if (dd(last.date, td) > 30) push('mid', 'cash', 'آخر تسوية بنكية قبل ' + dd(last.date, td) + ' يومًا', 'راجع مطابقة البنك دوريًا.', { label: 'التسوية', go: () => goAcct('bank') }); }
+
+  // مخزون
+  const stockBal = {}; (ops.stockMoves || []).forEach(m => { stockBal[m.itemId] = (stockBal[m.itemId] || 0) + (Number(m.qty) || 0); });
+  const low = (org.items || []).filter(it => (Number(it.minQty) || 0) > 0 && (stockBal[it.id] || 0) < (Number(it.minQty) || 0));
+  if (low.length) push('mid', 'inventory', low.length + ' صنف تحت حد الأمان', low.slice(0, 4).map(it => it.name).join('، ') + (low.length > 4 ? '…' : '') + ' — أعِد التزويد.', { label: 'المخزون', go: () => setTab('inv') });
+  if ((org.items || []).length && (ops.stockMoves || []).length && !(org.invValuation && org.invValuation.enabled)) push('low', 'inventory', 'رسملة المخزون غير مفعّلة', 'فعّلها لتظهر تكلفة البضاعة المباعة والمخزون بدقّة.', { label: 'المخزون', go: () => setTab('inv') });
+
+  // ضريبة
+  if (org.taxCfg && org.taxCfg.enabled) {
+    let out = 0, inn = 0; A.entries.forEach(e => { if (e.vat) { out += e.vat.out; inn += e.vat.inn; } });
+    const vatDue = r2(out - inn);
+    if (vatDue > 0.004) push('mid', 'tax', 'صافي ضريبة مستحقة (تقديري)', money(vatDue) + ' — راجع مسودة الإقرار.', { label: 'الضريبة', go: () => goAcct('vat') });
+  }
+
+  // تشغيل
+  const pendingApp = (ops.closings || []).filter(c => c.status === 'submitted').length;
+  if (pendingApp > 0) push('mid', 'ops', pendingApp + ' إغلاق بانتظار الاعتماد', 'راجعها واعتمدها لتُرحَّل نهائيًا.', { label: 'الاعتماد', go: () => setTab('approve') });
+  const defs = (ops.closings || []).filter(c => countedClosing(c) && (c.variance || 0) < 0 && dd(c.date, td) >= 0 && dd(c.date, td) <= 7);
+  if (defs.length) push('high', 'ops', defs.length + ' عجز صندوق خلال أسبوع', 'إجمالي ' + money(r2(sum(defs, c => c.variance))) + ' — راقب الفروع.', { label: 'المقارنة', go: () => setTab('compare') });
+  const unjust = (ops.advances || []).filter(a => a.isUnjustified).length;
+  if (unjust > 0) push('mid', 'ops', unjust + ' سلفة غير مبررة', 'راجعها في شاشة الرواتب والسلف.', { label: 'الرواتب', go: () => setTab('payroll') });
+
+  // إعداد/حوكمة
+  const assetsDone = (A.assetRows || []).filter(a => a.done && !a.disposed).length;
+  if (assetsDone > 0) push('low', 'setup', assetsDone + ' أصل اكتمل إهلاكه', 'راجعها للاستبعاد أو إعادة التقييم.', { label: 'الأصول', go: () => goAcct('ast') });
+  const hasActivity = (ops.closings || []).some(countedClosing) || (ops.invoices || []).length > 0;
+  if (hasActivity && !(org.openingBalances && (org.openingBalances.lines || []).length)) push('low', 'setup', 'الأرصدة الافتتاحية غير مُدخلة', 'أدخِل أرصدة ما قبل المنصة لدقّة المركز المالي.', { label: 'الأرصدة', go: () => goAcct('ob') });
+
+  const sevRank = { high: 0, mid: 1, low: 2 };
+  AL.sort((a, b) => sevRank[a.sev] - sevRank[b.sev]);
+  const counts = { high: AL.filter(a => a.sev === 'high').length, mid: AL.filter(a => a.sev === 'mid').length, low: AL.filter(a => a.sev === 'low').length };
+  const catMap = { suppliers: 'موردون', budget: 'موازنة', cash: 'نقد وسيولة', inventory: 'مخزون', tax: 'ضريبة', ops: 'تشغيل', setup: 'إعداد' };
+  const cats = [['all', 'كل الفئات'], ['suppliers', 'موردون'], ['budget', 'موازنة'], ['cash', 'نقد وسيولة'], ['inventory', 'مخزون'], ['tax', 'ضريبة'], ['ops', 'تشغيل'], ['setup', 'إعداد']];
+  const sevCls = { high: 'b-rose', mid: 'b-amber', low: 'b-dim' }, sevTxt = { high: 'عاجل', mid: 'متابعة', low: 'اقتراح' };
+  const shown = AL.filter(a => (catF === 'all' || a.cat === catF) && (sevF === 'all' || a.sev === sevF));
+
+  return (
+    <div className="grid" style={{ gap: 14 }}>
+      <div className="abar">
+        <div className="abar-id"><span className="abar-ic"><Bell size={17} /></span>مركز التنبيهات<small>قائمة إجراءات حيّة — تختفي تلقائيًا عند حلّها · {td}</small></div>
+      </div>
+
+      <div className="grid g4">
+        <Kpi label="إجمالي التنبيهات" value={String(AL.length)} sub="عبر كل الوحدات" icon={Bell} color="#C8A24A" />
+        <Kpi label="عاجل" value={String(counts.high)} sub="يتطلب إجراءً الآن" icon={AlertTriangle} color={counts.high ? '#D9544D' : '#4FB286'} />
+        <Kpi label="متابعة" value={String(counts.mid)} sub="راقبه هذا الأسبوع" icon={Clock} color={counts.mid ? '#E0A458' : '#4FB286'} />
+        <Kpi label="اقتراح" value={String(counts.low)} sub="تحسينات وإعداد" icon={Sparkles} color="#5B93C4" />
+      </div>
+
+      <div className="card">
+        <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
+          <span style={{ fontSize: 11.5, color: 'var(--dim)', marginInlineEnd: 2 }}>الأولوية:</span>
+          {[['all', 'الكل'], ['high', 'عاجل'], ['mid', 'متابعة'], ['low', 'اقتراح']].map(([k, l]) => (
+            <button key={k} className={'btn sm' + (sevF === k ? ' pri' : ' gh')} onClick={() => setSevF(k)}>{l}</button>
+          ))}
+        </div>
+        <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          <span style={{ fontSize: 11.5, color: 'var(--dim)', marginInlineEnd: 2 }}>الفئة:</span>
+          {cats.map(([k, l]) => (
+            <button key={k} className={'btn sm' + (catF === k ? ' pri' : ' gh')} onClick={() => setCatF(k)}>{l}</button>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid" style={{ gap: 8 }}>
+        {shown.map((a, i) => (
+          <div key={i} className="card" style={{ borderInlineStart: '3px solid ' + (a.sev === 'high' ? 'var(--rose)' : a.sev === 'mid' ? 'var(--amber)' : 'var(--dim)') }}>
+            <div className="row" style={{ justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 220 }}>
+                <div className="row" style={{ gap: 7, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span className={'badge ' + sevCls[a.sev]} style={{ fontSize: 9.5 }}>{sevTxt[a.sev]}</span>
+                  <span className="badge b-dim" style={{ fontSize: 9.5 }}>{catMap[a.cat]}</span>
+                  <b style={{ fontSize: 13 }}>{a.title}</b>
+                </div>
+                <div style={{ fontSize: 11.5, color: 'var(--dim)', marginTop: 4 }}>{a.detail}</div>
+              </div>
+              {a.action && <button className="btn sm" onClick={a.action.go}>{a.action.label}<ChevronLeft size={13} /></button>}
+            </div>
+          </div>
+        ))}
+        {shown.length === 0 && (
+          <div className="card"><div className="empty">{AL.length === 0 ? 'لا تنبيهات — كل شيء ضمن المسار ✓' : 'لا تنبيهات ضمن هذا التصنيف.'}</div></div>
+        )}
+      </div>
+
+      <div className="note">التنبيهات مشتقّة حيًّا من بياناتك وتختفي تلقائيًا عند معالجة سببها — لا حاجة لإغلاقها يدويًا. العتبات المعتمدة: تأخّر الموردين ٩٠ يومًا، أي عجز صندوق خلال أسبوع، المخزون تحت حد الأمان المعرّف لكل صنف، وتقادم التسوية البنكية بعد ٣٠ يومًا.</div>
     </div>
   );
 }
