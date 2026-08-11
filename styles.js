@@ -1,6 +1,6 @@
 /* تنسيقات المنصة */
 export const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Markazi+Text:wght@500;600;700&family=Tajawal:wght@300;400;500;700;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Markazi+Text:wght@500;600;700&family=Tajawal:wght@300;400;500;700;900&family=IBM+Plex+Mono:wght@400;500;600&family=Cairo:wght@400;600;700;900&family=Almarai:wght@400;700;800&family=Changa:wght@500;600;700&family=El+Messiri:wght@500;600;700&family=Reem+Kufi:wght@500;600;700&family=Amiri:wght@400;700&family=Lalezar&family=Aref+Ruqaa:wght@700&display=swap');
 
 :root{
   /* ===== نظام التصميم الموحّد — الرموز (Design Tokens) ===== */
@@ -32,7 +32,7 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 #root{width:100%;max-width:100vw;overflow-x:hidden}
 .rms{
   direction:rtl; background:var(--ink); color:var(--txt); min-height:100vh;
-  font-family:'Tajawal',system-ui,-apple-system,'Segoe UI',sans-serif;
+  font-family:var(--font-ui,'Tajawal',system-ui,-apple-system,'Segoe UI',sans-serif);
   font-size:14px; line-height:1.65; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
   text-rendering:optimizeLegibility; font-feature-settings:'kern' 1;
   overflow-x:hidden; max-width:100vw;
@@ -63,36 +63,138 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
   --mint:#4FB286;--rose:#DA5A53;--amber:#E0A458;--sky:#5B93C4;--violet:#9B7BB8;
   --sh-1:0 1px 2px rgba(0,0,0,.24);--sh-2:0 2px 9px rgba(0,0,0,.30);--sh-3:0 6px 20px rgba(0,0,0,.36);--sh-4:0 14px 40px rgba(0,0,0,.44)
 }
-/* ── الهويات اللونية (١١) ── */
-/* ── الثيمات الاحترافية (٦): كلٌّ أسلوب تصميم مختلف، لا مجرّد لون ── */
-.rms.thm-royal{--acc:#A87D28;--r-md:16px;--r-lg:20px}
-.rms.thm-glass{--acc:#2E7CC4;--r-md:16px;--r-lg:20px}
-.rms.thm-minimal{--acc:#46525E;--r-md:12px;--r-lg:14px}
-.rms.thm-elevated{--acc:#6A44A8;--r-md:18px;--r-lg:22px}
-.rms.thm-corporate{--acc:#33459C;--r-md:8px;--r-lg:10px}
-.rms.thm-saudi{--acc:#0F7A3D;--r-md:15px;--r-lg:18px}
-/* الزجاجي: بطاقات شفّافة مع ضبابية */
-.rms.thm-glass .card,.rms.thm-glass .kpi{background:color-mix(in srgb,var(--ink2) 70%,transparent);backdrop-filter:blur(13px);-webkit-backdrop-filter:blur(13px);border-color:color-mix(in srgb,var(--ink2) 55%,var(--line))}
-.rms.thm-glass .lh-box{background:color-mix(in srgb,var(--ink2) 62%,transparent);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
-/* المسطّح النقي: بلا ظلال، حدود رفيعة، هدوء */
+/* ══════════════ ١١ هوية تصميم كاملة (ثيمات) — v14.7 ══════════════
+   كل ثيم يغيّر كل تفصيلة: لون الهوية + الزوايا + الظلال/الضبابية
+   + شكل الأيقونة وحاويتها وسماكتها + نمط الخلفية + أسلوب الأزرار
+   وبار البحث والحقول ومربّع الاختيار + الخط. الألوان الدلالية
+   والتدرّجات تُشتقّ تلقائيًا من --acc (كتلة الاشتقاق أعلاه). */
+
+/* مستهلِكات مشتركة تقودها متغيّرات كل ثيم (شكل + سماكة الأيقونة + مربّع الاختيار) */
+.rms input[type=checkbox],.rms input[type=radio]{accent-color:var(--brass);width:16px;height:16px;cursor:pointer}
+.rms .lh-box svg,.rms .appc-ic svg,.rms .abar-ic svg,.rms .esec-ic svg,.rms .appperm .ic svg,.rms .homebtn2 svg{stroke-width:var(--ico-sw,2)}
+.rms .lh-box{border-radius:var(--ico-r,22px)}
+.rms .tk{border-radius:var(--tk-r,6px)}
+
+/* ── 1) الملكي الذهبي — فخم دافئ · أيقونة مربّعة مذهّبة · خط رقعة ── */
+.rms.thm-royal{--acc:#A87D28;--r-sm:9px;--r:12px;--r-md:16px;--r-lg:20px;--r-xl:24px;--ico-r:20px;--ico-sw:2;--tk-r:6px;--font-head:'Aref Ruqaa','Markazi Text',serif;--font-ui:'Tajawal',sans-serif}
+.rms.thm-royal .lh-box{background:linear-gradient(150deg,color-mix(in srgb,var(--c) 20%,var(--ink2)),var(--ink3));border:1px solid color-mix(in srgb,var(--brass) 42%,var(--line-g));box-shadow:0 7px 20px -9px color-mix(in srgb,var(--brass) 50%,transparent),inset 0 1px 0 color-mix(in srgb,#fff 16%,transparent)}
+.rms.thm-royal .lh-bg::before{background:radial-gradient(900px 560px at 82% -8%,color-mix(in srgb,var(--brass) 16%,transparent),transparent 60%),radial-gradient(760px 520px at 6% 110%,color-mix(in srgb,var(--brass) 10%,transparent),transparent 55%)}
+.rms.thm-royal .lh-bg::after{content:'';position:absolute;inset:0;background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--brass) 5%,transparent) 0 2px,transparent 2px 22px);opacity:.5}
+
+/* ── 2) الزجاجي الشفّاف — بطاقات ضبابية · أيقونة دائرية زجاجية · أزرار وحقول حبّة ── */
+.rms.thm-glass{--acc:#2E7CC4;--r-sm:12px;--r:14px;--r-md:18px;--r-lg:22px;--r-xl:26px;--ico-r:50%;--ico-sw:1.75;--tk-r:50%;--font-head:'Cairo',sans-serif;--font-ui:'Tajawal',sans-serif}
+.rms.thm-glass .card,.rms.thm-glass .kpi{background:color-mix(in srgb,var(--ink2) 66%,transparent);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-color:color-mix(in srgb,#fff 14%,var(--line))}
+.rms.thm-glass .lh-box{background:color-mix(in srgb,var(--ink2) 52%,transparent);backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px);border:1px solid color-mix(in srgb,#fff 24%,var(--line));box-shadow:0 8px 24px -12px color-mix(in srgb,var(--acc) 42%,transparent),inset 0 1px 0 color-mix(in srgb,#fff 26%,transparent)}
+.rms.thm-glass .btn,.rms.thm-glass .inp,.rms.thm-glass .sel{border-radius:999px}
+.rms.thm-glass .btn{background:color-mix(in srgb,var(--ink2) 58%,transparent);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.rms.thm-glass .lh-search .inp{background:color-mix(in srgb,var(--ink2) 52%,transparent);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.rms.thm-glass .lh-bg::before{background:radial-gradient(720px 520px at 14% 0%,color-mix(in srgb,#2E7CC4 24%,transparent),transparent 60%),radial-gradient(680px 520px at 90% 18%,color-mix(in srgb,#33BEC4 18%,transparent),transparent 60%),radial-gradient(740px 560px at 60% 110%,color-mix(in srgb,#6E7CF0 16%,transparent),transparent 60%)}
+
+/* ── 3) النقي المسطّح — بلا ظلال ولا حاوية أيقونة · حقول بخطّ سفلي · خط سانس ── */
+.rms.thm-minimal{--acc:#46525E;--r-sm:5px;--r:6px;--r-md:8px;--r-lg:10px;--r-xl:12px;--ico-r:12px;--ico-sw:1.5;--tk-r:3px;--font-head:'Tajawal',sans-serif;--font-ui:'Tajawal',sans-serif}
 .rms.thm-minimal .card,.rms.thm-minimal .kpi{box-shadow:none;border:1px solid var(--line);background:var(--ink2)}
-.rms.thm-minimal .card:hover,.rms.thm-minimal .kpi:hover{box-shadow:var(--sh-1);transform:none;border-color:var(--line-g)}
+.rms.thm-minimal .card:hover,.rms.thm-minimal .kpi:hover{box-shadow:none;transform:none;border-color:var(--line-g)}
 .rms.thm-minimal .kpi::after{display:none}
-.rms.thm-minimal .lh-box{box-shadow:none;background:var(--ink3);border-color:var(--line)}
-.rms.thm-minimal .lh-tile:hover{transform:none}
-/* المرتفع الفاخر: ظلال أقوى ورفعٌ عند التمرير */
-.rms.thm-elevated .card,.rms.thm-elevated .kpi{box-shadow:var(--sh-2)}
-.rms.thm-elevated .card:hover,.rms.thm-elevated .kpi:hover{box-shadow:var(--sh-3);transform:translateY(-2px)}
-.rms.thm-elevated .lh-box{box-shadow:var(--sh-2)}
+.rms.thm-minimal .kpi::before{width:2px}
+.rms.thm-minimal .lh-box{box-shadow:none;background:transparent;border:none}
+.rms.thm-minimal .lh-tile:hover{transform:none;background:var(--acc-soft)}
+.rms.thm-minimal .btn{box-shadow:none;background:transparent;border:1px solid var(--line)}
+.rms.thm-minimal .btn:hover:not(:disabled){box-shadow:none;background:var(--acc-soft);border-color:var(--line-g)}
+.rms.thm-minimal .btn.pri{background:var(--brass);background-image:none;color:#fff;box-shadow:none}
+.rms.thm-minimal .inp,.rms.thm-minimal .sel{background:transparent;border:none;border-bottom:1.5px solid var(--line);border-radius:0;padding-inline:2px}
+.rms.thm-minimal .inp:focus,.rms.thm-minimal .sel:focus{box-shadow:none;background:transparent;border-bottom-color:var(--brass)}
+.rms.thm-minimal .lh-search .inp{border:1px solid var(--line);border-radius:8px;padding-inline-start:34px}
+.rms.thm-minimal .lh-bg::before{background:none}
+
+/* ── 4) المرتفع الفاخر — أيقونات ممتلئة ملوّنة · ظلال قوية · خط عريض ── */
+.rms.thm-elevated{--acc:#6A44A8;--r-sm:12px;--r:14px;--r-md:18px;--r-lg:24px;--r-xl:28px;--ico-r:26px;--ico-sw:2.25;--tk-r:8px;--font-head:'Changa',sans-serif;--font-ui:'Cairo',sans-serif}
+.rms.thm-elevated .card,.rms.thm-elevated .kpi{box-shadow:var(--sh-3);border-color:transparent}
+.rms.thm-elevated .card:hover,.rms.thm-elevated .kpi:hover{box-shadow:var(--sh-4);transform:translateY(-3px)}
+.rms.thm-elevated .lh-box{background:linear-gradient(145deg,var(--c),color-mix(in srgb,var(--c) 52%,#000));color:#fff;border:none;box-shadow:0 12px 26px -10px color-mix(in srgb,var(--c) 70%,transparent),0 3px 8px rgba(0,0,0,.2)}
 .rms.thm-elevated .lh-tile:hover{transform:translateY(-6px)}
-.rms.thm-elevated .lh-tile:hover .lh-box{box-shadow:var(--sh-3)}
-/* المؤسسي الحادّ: زوايا صغيرة وحدود واضحة */
+.rms.thm-elevated .lh-tile:hover .lh-box{box-shadow:0 18px 34px -12px color-mix(in srgb,var(--c) 80%,transparent)}
+.rms.thm-elevated .btn{box-shadow:var(--sh-2)}
+.rms.thm-elevated .inp,.rms.thm-elevated .sel{background:var(--ink3);border-color:transparent;box-shadow:inset 0 1px 3px rgba(0,0,0,.12)}
+.rms.thm-elevated .lh-bg::before{background:radial-gradient(760px 560px at 12% -6%,color-mix(in srgb,#6A44A8 22%,transparent),transparent 60%),radial-gradient(720px 560px at 90% 110%,color-mix(in srgb,#B06AC8 16%,transparent),transparent 60%)}
+
+/* ── 5) المؤسسي الحادّ — زوايا حادّة · أيقونة مربّعة محدّدة · خلفية شبكية ── */
+.rms.thm-corporate{--acc:#33459C;--r-sm:3px;--r:4px;--r-md:5px;--r-lg:7px;--r-xl:8px;--ico-r:5px;--ico-sw:2;--tk-r:2px;--font-head:'Almarai',sans-serif;--font-ui:'Tajawal',sans-serif}
 .rms.thm-corporate .card,.rms.thm-corporate .kpi{border:1px solid var(--line-g);box-shadow:var(--sh-1)}
-.rms.thm-corporate .lh-box{border-radius:10px}
-.rms.thm-corporate .btn,.rms.thm-corporate .inp,.rms.thm-corporate .sel{border-radius:8px}
+.rms.thm-corporate .lh-box{background:var(--ink2);border:1.5px solid var(--line-g);box-shadow:none}
+.rms.thm-corporate .lh-tile:hover{transform:none;background:var(--acc-soft)}
+.rms.thm-corporate .lh-tile:hover .lh-box{border-color:var(--brass)}
+.rms.thm-corporate .btn{box-shadow:none;border-width:1.5px}
+.rms.thm-corporate .btn.pri{background:var(--brass);background-image:none;color:#fff}
+.rms.thm-corporate .lh-bg::before{background:radial-gradient(900px 600px at 100% -10%,color-mix(in srgb,var(--brass) 10%,transparent),transparent 55%)}
+.rms.thm-corporate .lh-bg::after{content:'';position:absolute;inset:0;background:linear-gradient(color-mix(in srgb,var(--line) 55%,transparent) 1px,transparent 1px),linear-gradient(90deg,color-mix(in srgb,var(--line) 55%,transparent) 1px,transparent 1px);background-size:44px 44px;opacity:.35}
+
+/* ── 6) الأخضر السعودي — هوية وطنية · نمط شيفرون · خط كوفي ── */
+.rms.thm-saudi{--acc:#0F7A3D;--r-sm:8px;--r:11px;--r-md:15px;--r-lg:18px;--r-xl:22px;--ico-r:16px;--ico-sw:2;--tk-r:6px;--font-head:'Reem Kufi',sans-serif;--font-ui:'Tajawal',sans-serif}
+.rms.thm-saudi .lh-box{background:linear-gradient(150deg,color-mix(in srgb,var(--c) 16%,var(--ink2)),var(--ink3));border:1px solid color-mix(in srgb,var(--acc) 34%,var(--line-g))}
+.rms.thm-saudi .lh-bg::before{background:radial-gradient(880px 560px at 82% -8%,color-mix(in srgb,#0F7A3D 14%,transparent),transparent 60%),radial-gradient(760px 520px at 6% 110%,color-mix(in srgb,#0F7A3D 9%,transparent),transparent 55%)}
+.rms.thm-saudi .lh-bg::after{content:'';position:absolute;inset:0;background:repeating-linear-gradient(45deg,color-mix(in srgb,#0F7A3D 5%,transparent) 0 3px,transparent 3px 18px);opacity:.5}
+
+/* ── 7) النيون الليلي — سايبر متوهّج · أيقونة بحوافّ نيون · شبكة + كتل ── */
+.rms.thm-neon{--acc:#16C8E6;--r-sm:9px;--r:12px;--r-md:15px;--r-lg:19px;--r-xl:24px;--ico-r:16px;--ico-sw:2;--tk-r:5px;--font-head:'Lalezar',cursive;--font-ui:'Tajawal',sans-serif}
+.rms.mode-dark.thm-neon{--ink:#07070F;--ink2:#0E0E1A;--ink3:#161626;--line:#242438;--txt:#E7F4FF;--dim:#9AA6C8;--faint:#5A6488}
+.rms.mode-light.thm-neon{--ink:#EAF0FF;--ink2:#FFFFFF;--ink3:#E2E9FB;--line:#CBD6F2;--txt:#0E1230;--dim:#4A5480;--faint:#8A93B8}
+.rms.thm-neon .lh-box{background:color-mix(in srgb,var(--c) 12%,var(--ink2));border:1.5px solid color-mix(in srgb,var(--c) 60%,transparent);box-shadow:0 0 0 1px color-mix(in srgb,var(--c) 28%,transparent),0 0 18px -2px color-mix(in srgb,var(--c) 52%,transparent),inset 0 0 14px -6px color-mix(in srgb,var(--c) 60%,transparent)}
+.rms.thm-neon .lh-tile:hover{transform:translateY(-3px)}
+.rms.thm-neon .lh-tile:hover .lh-box{box-shadow:0 0 0 1px var(--c),0 0 26px 0 color-mix(in srgb,var(--c) 62%,transparent)}
+.rms.thm-neon .btn{border-color:color-mix(in srgb,var(--acc) 30%,var(--line))}
+.rms.thm-neon .btn.pri{box-shadow:0 0 18px -4px color-mix(in srgb,var(--acc) 72%,transparent)}
+.rms.thm-neon .inp:focus,.rms.thm-neon .sel:focus{box-shadow:0 0 0 3px color-mix(in srgb,var(--acc) 26%,transparent),0 0 16px -4px color-mix(in srgb,var(--acc) 52%,transparent)}
+.rms.thm-neon .lh-bg::before{background:radial-gradient(720px 540px at 12% 0%,color-mix(in srgb,#16C8E6 26%,transparent),transparent 58%),radial-gradient(680px 520px at 92% 12%,color-mix(in srgb,#E838B0 22%,transparent),transparent 58%),radial-gradient(720px 560px at 60% 110%,color-mix(in srgb,#7C4DFF 20%,transparent),transparent 60%)}
+.rms.thm-neon .lh-bg::after{content:'';position:absolute;inset:0;background:linear-gradient(color-mix(in srgb,var(--acc) 8%,transparent) 1px,transparent 1px),linear-gradient(90deg,color-mix(in srgb,var(--acc) 8%,transparent) 1px,transparent 1px);background-size:38px 38px;opacity:.5}
+
+/* ── 8) الترابي الصحراوي — دافئ عضوي · أيقونة دائرية طينية · زوايا كبيرة ── */
+.rms.thm-desert{--acc:#B4622F;--r-sm:14px;--r:18px;--r-md:22px;--r-lg:28px;--r-xl:34px;--ico-r:50%;--ico-sw:2;--tk-r:10px;--font-head:'El Messiri',serif;--font-ui:'Almarai',sans-serif}
+.rms.mode-light.thm-desert{--ink:#F3EADB;--ink2:#FFFBF3;--ink3:#EDE0CC;--line:#E0CFB4;--txt:#3A2A1C;--dim:#7A6650;--faint:#A6906F}
+.rms.mode-dark.thm-desert{--ink:#1C1611;--ink2:#241C15;--ink3:#2E241B;--line:#3E3020;--txt:#F0E4D2;--dim:#B6A188;--faint:#7E6B54}
+.rms.thm-desert .lh-box{background:radial-gradient(circle at 35% 28%,color-mix(in srgb,var(--c) 26%,var(--ink2)),var(--ink3));border:1px solid color-mix(in srgb,var(--c) 30%,var(--line));box-shadow:0 8px 20px -10px color-mix(in srgb,var(--c) 45%,transparent)}
+.rms.thm-desert .btn,.rms.thm-desert .inp,.rms.thm-desert .sel{border-radius:16px}
+.rms.thm-desert .lh-search .inp{border-radius:999px}
+.rms.thm-desert .lh-bg::before{background:radial-gradient(900px 620px at 80% -10%,color-mix(in srgb,#D98A45 20%,transparent),transparent 60%),radial-gradient(820px 560px at 8% 112%,color-mix(in srgb,#B4622F 14%,transparent),transparent 58%),linear-gradient(180deg,transparent 58%,color-mix(in srgb,#C9915A 12%,transparent))}
+
+/* ── 9) الباستيل الهادئ — ناعم لطيف · أيقونة دائرية باستيل · أزرار حبّة ── */
+.rms.thm-pastel{--acc:#D96FA6;--r-sm:14px;--r:18px;--r-md:22px;--r-lg:28px;--r-xl:34px;--ico-r:50%;--ico-sw:1.75;--tk-r:50%;--font-head:'Cairo',sans-serif;--font-ui:'Tajawal',sans-serif}
+.rms.mode-light.thm-pastel{--ink:#FBF6FB;--ink2:#FFFFFF;--ink3:#F5EDF6;--line:#EEDDED;--txt:#3B2E3A;--dim:#8A7A88;--faint:#B6A6B4}
+.rms.mode-dark.thm-pastel{--ink:#1A151C;--ink2:#221C25;--ink3:#2B2330;--line:#3A3040;--txt:#F0E7F2;--dim:#B7A6BC;--faint:#83718A}
+.rms.thm-pastel .card,.rms.thm-pastel .kpi{box-shadow:0 8px 22px -14px color-mix(in srgb,var(--acc) 45%,transparent)}
+.rms.thm-pastel .lh-box{background:color-mix(in srgb,var(--c) 18%,var(--ink2));border:1px solid color-mix(in srgb,var(--c) 22%,transparent);box-shadow:0 8px 20px -12px color-mix(in srgb,var(--c) 50%,transparent)}
+.rms.thm-pastel .btn,.rms.thm-pastel .inp,.rms.thm-pastel .sel{border-radius:999px}
+.rms.thm-pastel .lh-bg::before{background:radial-gradient(680px 520px at 12% 0%,color-mix(in srgb,#F2A6C8 34%,transparent),transparent 60%),radial-gradient(660px 520px at 90% 14%,color-mix(in srgb,#B6A6F0 30%,transparent),transparent 60%),radial-gradient(700px 560px at 58% 110%,color-mix(in srgb,#A6E6D0 26%,transparent),transparent 60%)}
+
+/* ── 10) الورقي الكلاسيكي — دفتر أستاذ · أيقونة مربّعة مفرّغة · حقول مسطّرة · خط نسخ ── */
+.rms.thm-paper{--acc:#A6321F;--r-sm:4px;--r:5px;--r-md:6px;--r-lg:8px;--r-xl:10px;--ico-r:6px;--ico-sw:1.75;--tk-r:2px;--font-head:'Amiri',serif;--font-ui:'Tajawal',serif}
+.rms.mode-light.thm-paper{--ink:#F4EFE3;--ink2:#FCF8EE;--ink3:#EDE5D3;--line:#DDD2BB;--txt:#2A2420;--dim:#6B6152;--faint:#9A8E78}
+.rms.mode-dark.thm-paper{--ink:#171310;--ink2:#1F1A15;--ink3:#28221B;--line:#3A3225;--txt:#EDE4D2;--dim:#B3A588;--faint:#7C6E58}
+.rms.thm-paper .card,.rms.thm-paper .kpi{box-shadow:none;border:1px solid var(--line-g);outline:1px solid color-mix(in srgb,var(--line) 60%,transparent);outline-offset:3px}
+.rms.thm-paper .lh-box{background:transparent;border:1.5px solid var(--line-g);box-shadow:none}
+.rms.thm-paper .lh-tile:hover{transform:none;background:var(--acc-soft)}
+.rms.thm-paper .btn{box-shadow:none}
+.rms.thm-paper .btn.pri{background:var(--brass);background-image:none;color:#fff}
+.rms.thm-paper .inp,.rms.thm-paper .sel{background:transparent;border:none;border-bottom:1.5px solid var(--line-g);border-radius:0}
+.rms.thm-paper .inp:focus,.rms.thm-paper .sel:focus{box-shadow:none;background:transparent;border-bottom-color:var(--brass)}
+.rms.thm-paper .lh-search .inp{border:1.5px solid var(--line-g);border-radius:6px;padding-inline-start:34px}
+.rms.thm-paper .lh-bg::before{background:none}
+.rms.thm-paper .lh-bg::after{content:'';position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent 0 27px,color-mix(in srgb,var(--line) 55%,transparent) 27px 28px);opacity:.6}
+
+/* ── 11) الصناعي الفحمي — لوحة تقنية · أيقونة مقصوصة الزاوية · خلفية تظليل · نبرة أمبر ── */
+.rms.thm-carbon{--acc:#F59E0B;--r-sm:5px;--r:6px;--r-md:7px;--r-lg:9px;--r-xl:11px;--ico-r:7px;--ico-sw:2;--tk-r:3px;--font-head:'Changa',sans-serif;--font-ui:'Tajawal',sans-serif}
+.rms.mode-dark.thm-carbon{--ink:#111318;--ink2:#181B22;--ink3:#20242D;--line:#2E3440;--txt:#E7ECF3;--dim:#9AA6B8;--faint:#5E6878}
+.rms.mode-light.thm-carbon{--ink:#EDF0F4;--ink2:#FFFFFF;--ink3:#E3E8EF;--line:#CDD5E0;--txt:#1A2130;--dim:#4E5866;--faint:#8792A3}
+.rms.thm-carbon .lh-box{background:var(--ink3);border:1px solid color-mix(in srgb,var(--acc) 28%,var(--line));box-shadow:none;clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,12px 100%,0 calc(100% - 12px))}
+.rms.thm-carbon .lh-tile:hover{transform:none}
+.rms.thm-carbon .lh-tile:hover .lh-box{border-color:var(--acc);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--acc) 40%,transparent)}
+.rms.thm-carbon .btn{box-shadow:none}
+.rms.thm-carbon .btn.pri{background:var(--brass);background-image:none;color:#14110a}
+.rms.thm-carbon .inp,.rms.thm-carbon .sel{background:var(--ink3)}
+.rms.thm-carbon .lh-bg::before{background:radial-gradient(880px 580px at 90% -8%,color-mix(in srgb,var(--acc) 12%,transparent),transparent 55%)}
+.rms.thm-carbon .lh-bg::after{content:'';position:absolute;inset:0;background:repeating-linear-gradient(45deg,color-mix(in srgb,var(--line) 40%,transparent) 0 1px,transparent 1px 9px);opacity:.5}
 .rms *{max-width:100%}
 .rms .num{max-width:none}
-.rms h1,.rms h2,.rms h3,.rms h4{font-family:'Markazi Text',serif;font-weight:700;margin:0;letter-spacing:0;line-height:1.25}
+.rms h1,.rms h2,.rms h3,.rms h4{font-family:var(--font-head,'Markazi Text',serif);font-weight:700;margin:0;letter-spacing:0;line-height:1.25}
 .num{font-family:'IBM Plex Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums;direction:ltr;display:inline-block}
 .rms button{font-family:inherit}
 
@@ -111,10 +213,10 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
   width:36px;height:36px;border-radius:10px;flex-shrink:0;
   background:linear-gradient(140deg,var(--brass-l),var(--brass));
   display:grid;place-items:center;color:#1a1410;font-weight:700;
-  font-family:'Markazi Text',serif;box-shadow:0 2px 12px rgba(200,162,74,.3)
+  font-family:var(--font-head,'Markazi Text',serif);box-shadow:0 2px 12px rgba(200,162,74,.3)
 }
 .brand-logo{width:38px;height:38px;border-radius:10px;flex-shrink:0;object-fit:cover;border:1px solid var(--line);background:var(--ink3)}
-.brand-t{font-size:17px;font-weight:700;line-height:1.25;font-family:'Markazi Text',serif}
+.brand-t{font-size:17px;font-weight:700;line-height:1.25;font-family:var(--font-head,'Markazi Text',serif)}
 .brand-s{font-size:10.5px;color:var(--faint);letter-spacing:.04em}
 .nav-lbl{font-size:10px;color:var(--faint);padding:14px 10px 6px;letter-spacing:.12em}
 .nav-i{
@@ -133,7 +235,7 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
   border-bottom:1px solid var(--line);background:color-mix(in srgb,var(--ink2) 88%,transparent);
   backdrop-filter:blur(10px);z-index:30;flex-wrap:wrap
 }
-.top .toptitle{font-size:21px;font-weight:800;font-family:'Markazi Text',serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:42vw;margin:0;letter-spacing:.2px}
+.top .toptitle{font-size:21px;font-weight:800;font-family:var(--font-head,'Markazi Text',serif);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:42vw;margin:0;letter-spacing:.2px}
 .topstatus{display:flex;align-items:center;gap:8px;margin-inline-start:auto;flex:0 0 auto}
 .topstatus .btn.sm.gh{width:36px;height:36px;padding:0;display:inline-grid;place-items:center;border-radius:10px}
 .topstatus .synctime{width:auto !important;padding:0 10px !important;gap:5px}
@@ -155,7 +257,7 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 
   /* ---- الرأس الثابت أعلى القشرة ---- */
   .top{flex-shrink:0;padding:10px 12px;gap:6px;width:100%;max-width:100vw;overflow:hidden;flex-wrap:nowrap;z-index:30}
-  .toptitle{font-size:19px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto;font-weight:700;font-family:'Markazi Text',serif}
+  .toptitle{font-size:19px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto;font-weight:700;font-family:var(--font-head,'Markazi Text',serif)}
   .topstatus{display:flex;align-items:center;gap:4px;flex:0 0 auto;min-width:0}
   .topstatus .badge{font-size:9px;padding:2px 6px}
   .topstatus .btn.sm{padding:6px 7px}
@@ -272,7 +374,7 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 .sheet{width:100%;background:var(--ink2);border-radius:20px 20px 0 0;padding:8px 16px calc(20px + env(safe-area-inset-bottom));max-height:80vh;overflow-y:auto;animation:sheetup .25s cubic-bezier(.2,.8,.2,1)}
 @keyframes sheetup{from{transform:translateY(100%)}to{transform:translateY(0)}}
 .sheet-handle{width:40px;height:4px;border-radius:4px;background:var(--line);margin:6px auto 12px}
-.sheet-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;font-size:14px;font-weight:600;font-family:'Markazi Text',serif}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;font-size:14px;font-weight:600;font-family:var(--font-head,'Markazi Text',serif)}
 .iconsgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
 .icontile{display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 6px;border-radius:14px;border:1px solid var(--line);background:var(--ink);color:var(--dim);cursor:pointer;font-family:inherit;transition:.15s}
 .icontile:active{transform:scale(.96)}
@@ -305,14 +407,14 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 
 /* رأس الصفحة الموحّد (عنوان + إجراء) */
 .pagehead{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-.pagehead-t{font-size:21px;font-weight:700;font-family:'Markazi Text',serif}
+.pagehead-t{font-size:21px;font-weight:700;font-family:var(--font-head,'Markazi Text',serif)}
 .pagehead-s{font-size:12px;color:var(--dim);margin-top:2px}
 
 /* ---- عناصر ---- */
 .card{background:var(--ink2);border:1px solid var(--line-g);border-radius:var(--r-md);padding:var(--s4);box-shadow:var(--sh-1);transition:box-shadow var(--t),border-color var(--t)}
 .card:hover{box-shadow:var(--sh-2)}
 .card-h{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;flex-wrap:wrap}
-.card-t{font-size:17px;font-weight:700;display:flex;align-items:center;gap:8px;font-family:'Markazi Text',serif}
+.card-t{font-size:17px;font-weight:700;display:flex;align-items:center;gap:8px;font-family:var(--font-head,'Markazi Text',serif)}
 .grid{display:grid;gap:12px}
 .grid>*{min-width:0}
 .g2{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -430,7 +532,7 @@ table.tb{width:100%;border-collapse:collapse;font-size:12.5px;min-width:520px}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--mint);box-shadow:0 0 0 0 rgba(79,178,134,.6);animation:pulse 2.2s infinite}
 @keyframes pulse{70%{box-shadow:0 0 0 7px rgba(79,178,134,0)}100%{box-shadow:0 0 0 0 rgba(79,178,134,0)}}
 .av{width:27px;height:27px;border-radius:50%;display:grid;place-items:center;font-size:10.5px;
-  font-weight:700;border:2px solid var(--ink2);margin-inline-start:-7px;color:#16120f;font-family:'Markazi Text',serif}
+  font-weight:700;border:2px solid var(--ink2);margin-inline-start:-7px;color:#16120f;font-family:var(--font-head,'Markazi Text',serif)}
 .feed{display:flex;gap:10px;padding:9px 0;border-bottom:1px solid rgba(51,44,38,.5);font-size:12px}
 .feed:last-child{border:none}
 .feed-d{width:6px;height:6px;border-radius:50%;background:var(--brass);margin-top:7px;flex-shrink:0}
@@ -466,7 +568,7 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
 /* ---- السمة الفاتحة ---- */
 /* النص فوق لون الهوية: أبيض افتراضًا، وداكن للهويات الفاتحة (الذهبي/النحاسي) */
 .rms .btn.pri,.rms .brand-mark,.rms .av,.rms .lh-cnt,.rms .nav-i .cnt,.rms .step-active,.rms .icontile.on .icontile-i,.rms .toplogo-mark{color:#fff}
-.rms.thm-royal .btn.pri,.rms.thm-royal .brand-mark,.rms.thm-royal .lh-cnt,.rms.thm-royal .nav-i .cnt,.rms.thm-royal .step-active,.rms.thm-royal .icontile.on .icontile-i,.rms.thm-royal .toplogo-mark{color:#1a1410}
+.rms:is(.thm-royal,.thm-carbon,.thm-neon,.thm-pastel) :is(.btn.pri,.brand-mark,.lh-cnt,.nav-i .cnt,.step-active,.icontile.on .icontile-i,.toplogo-mark){color:#1a1410}
 .rms.mode-light .note-v{color:#1B1712}
 .rms.mode-light .note-u,.rms.mode-light .note-t{color:#5A5148}
 .rms.mode-light .note-i{background:rgba(255,255,255,.9);color:#241F1A;border-color:rgba(0,0,0,.12)}
@@ -474,12 +576,12 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
 .gate{background:radial-gradient(1100px 560px at 80% -8%,color-mix(in srgb,var(--brass) 13%,transparent),transparent 62%),var(--ink) !important}
 /* شعار الشركة في الرأس */
 .toplogo{width:34px;height:34px;border-radius:9px;object-fit:cover;flex-shrink:0;border:1px solid var(--line);background:var(--ink2)}
-.toplogo-mark{width:34px;height:34px;border-radius:9px;flex-shrink:0;display:grid;place-items:center;font-family:'Markazi Text',serif;font-weight:700;font-size:19px;background:linear-gradient(140deg,var(--brass-l),var(--brass))}
+.toplogo-mark{width:34px;height:34px;border-radius:9px;flex-shrink:0;display:grid;place-items:center;font-family:var(--font-head,'Markazi Text',serif);font-weight:700;font-size:19px;background:linear-gradient(140deg,var(--brass-l),var(--brass))}
 /* خلفية الواجهة الرئيسية (تحت التطبيقات): توهّج بلون الهوية + علامة/شعار باهت */
 .lh-bg{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
 .lh-bg::before{content:'';position:absolute;inset:0;background:radial-gradient(920px 540px at 82% -8%,color-mix(in srgb,var(--brass) 13%,transparent),transparent 60%),radial-gradient(780px 540px at 4% 112%,color-mix(in srgb,var(--brass) 8%,transparent),transparent 55%)}
 .lh-wm{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(56vw,600px);height:auto;max-width:none;opacity:.04;object-fit:contain;pointer-events:none}
-.lh-wm.mark{font-family:'Markazi Text',serif;font-weight:700;font-size:min(52vw,540px);line-height:1;color:var(--brass);opacity:.05;width:auto;height:auto}
+.lh-wm.mark{font-family:var(--font-head,'Markazi Text',serif);font-weight:700;font-size:min(52vw,540px);line-height:1;color:var(--brass);opacity:.05;width:auto;height:auto}
 .lh{position:relative;z-index:1}
 
 /* ---- بوابة الدخول ---- */
@@ -654,7 +756,7 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
 .appc-star.on{color:var(--brass-l)}
 .appc-star:hover{background:var(--acc-soft);color:var(--brass-l)}
 .appcat{display:flex;align-items:center;gap:9px;margin:14px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line)}
-.appcat .t{font-family:'Markazi Text',serif;font-size:18.5px;font-weight:700}
+.appcat .t{font-family:var(--font-head,'Markazi Text',serif);font-size:18.5px;font-weight:700}
 .appcat .c{font-size:10px;color:var(--faint)}
 .appstrip{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-bottom:2px}
 .appchip{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;border:1px solid var(--line-g);background:var(--ink2);color:var(--txt);font-size:11.5px;cursor:pointer;font-family:inherit;transition:border-color var(--t-fast),background var(--t-fast)}
