@@ -209,7 +209,7 @@ const LOCK_MSG = (d) => 'شهر ' + (d || '').slice(0, 7) + ' مقفل محاس�
    كما هو (org + ops مدمجة) — الترجمة تتم عند حواف التخزين فقط.
    ============================================================ */
 const BR_COLS = ['closings', 'transfers', 'partnerRequests', 'notifications'];
-const CORE_COLS = ['advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays'];
+const CORE_COLS = ['advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements'];
 
 // تقسيم ops المدمجة إلى مستند مركزي + مستند لكل فرع
 function splitOps(ops, branchIds) {
@@ -485,6 +485,7 @@ function buildAccounting(org, ops) {
   // — المصروفات —
   addAcc('5201', 'الرواتب والأجور (كشف الرواتب)', 'exp', { link: 'ترحيل الاستحقاق الشهري' });
   addAcc('5301', 'عمولات تطبيقات التوصيل', 'exp', { link: 'نِسَب العمولة من إعدادات التطبيقات' });
+  addAcc('5302', 'خصومات وغرامات تطبيقات التوصيل', 'exp', { link: 'تسوية كشوف التطبيقات — فروق الإيداع' });
   addAcc('5701', 'مصروف الإهلاك', 'exp', { link: 'سجل الأصول — تلقائي' });
   addAcc('5901', 'مصروفات الخزينة الرئيسية (أوامر الصرف)', 'exp', { link: 'شاشة الخزينة' });
   const catAcc = {};
@@ -720,6 +721,23 @@ function buildAccounting(org, ops) {
       title: 'الأرصدة الافتتاحية (رصيد ما قبل المنصة)', src: 'قيد افتتاحي', ref: 'افتتاحي', opening: true, lines: obLines
     });
   }
+
+  // ٩ب) تسوية كشوف تطبيقات التوصيل: إيداع للبنك + خصومات موثّقة ← يُقفلان ذمة التطبيق
+  //     مدين البنك (المودع) + مدين خصومات (الفروق الموثّقة) = دائن ذمة التطبيق (المُقفَل)
+  (ops.appSettlements || []).forEach(s => {
+    const dep = Math.round((Number(s.deposit) || 0) * 100) / 100;
+    const ded = Math.round((Number(s.deductions) || 0) * 100) / 100;
+    const cleared = Math.round((dep + ded) * 100) / 100;
+    if (cleared <= 0) return;
+    const acc = appAcc[s.appId] || '1399';
+    const appNm = ((org.deliveryApps || []).find(a => a.id === s.appId) || {}).n || 'تطبيق';
+    const lines = [];
+    if (dep) lines.push(L('1201', dep, 0));
+    if (ded > 0) lines.push(L('5302', ded, 0));
+    else if (ded < 0) lines.push(L('5302', 0, -ded));   // إيداع أعلى من المتوقع (مكافأة/تصحيح) — دائن المصروف
+    lines.push(L(acc, 0, cleared));
+    push({ id: 'astl:' + s.id, date: (s.date || '').slice(0, 10), title: 'تسوية كشف ' + appNm + ' — إيداع ' + money(dep), src: 'تسوية تطبيقات', ref: s.by || '', lines });
+  });
 
   // ٩مكرر) القيود اليدوية والافتتاحية — يُدخلها المحاسب من شاشة المحاسبة (التصحيح بقيد عكسي لا بالحذف)
   (ops.journalManual || []).forEach(j => {
@@ -1028,14 +1046,14 @@ function emptyOrg(company) {
 }
 
 function emptyOps() {
-  return { closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [] };
+  return { closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [] };
 }
 
 
 /* ================= الجذر ================= */
 export default function App() {
   const [org, setOrg] = useState(null);
-  const [ops, setOps] = useState({ closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [] });
+  const [ops, setOps] = useState({ closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [] });
   const [pulse, setPulse] = useState({ presence: {}, audit: [] });
   const [me, setMe] = useState(null);
   const [tab, setTab] = useState('home');
@@ -1628,7 +1646,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v9.8 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v9.9 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -6931,6 +6949,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     return { asOf: o.asOf || today(), enabled: o.enabled !== false, map };
   });
   const [open, setOpen] = useState({});             // القيود المفتوحة التفاصيل
+  const [stlF, setStlF] = useState(null);           // v9.9 نموذج تسوية كشف تطبيق
   const [q, setQ] = useState('');
   const [month, setMonth] = useState('');           // فلتر شهر للقيود
   const [from, setFrom] = useState('');             // فترة الميزان/القوائم
@@ -7298,6 +7317,23 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     say('حُفظت الأرصدة الافتتاحية — يظهر القيد الافتتاحي في اليومية والميزان');
   };
 
+  // v9.9 — حفظ تسوية كشف تطبيق توصيل
+  const saveStl = async () => {
+    if (!stlF) return;
+    if (periodLocked(org, stlF.date)) return say(LOCK_MSG(stlF.date), 'no');
+    if (!stlF.appId) return say('اختر تطبيق التوصيل', 'no');
+    const dep = Math.round((Number(stlF.deposit) || 0) * 100) / 100;
+    const ded = Math.round((Number(stlF.deductions) || 0) * 100) / 100;
+    if (dep + ded <= 0) return say('أدخل مبلغ الإيداع', 'no');
+    const appNm = ((org.deliveryApps || []).find(a => a.id === stlF.appId) || {}).n || 'تطبيق';
+    const rec = { id: uid('astl'), appId: stlF.appId, date: stlF.date || today(), deposit: dep, deductions: ded, note: stlF.note || '', by: me?.name || '', createdAt: nowISO() };
+    await commit(d => ({ ...d, appSettlements: [rec, ...(d.appSettlements || [])] }), {
+      actionType: 'create', targetType: 'app_settlement', targetId: rec.id,
+      title: 'سجّل تسوية كشف تطبيق', details: appNm + ' · إيداع ' + money(dep) + (ded ? ' · خصم ' + money(ded) : '')
+    });
+    setStlF(null); say('سُجّلت التسوية — أُقفلت ذمة ' + appNm + ' بمقدار ' + money(dep + ded));
+  };
+
   const periodBar = (
     <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
       <span style={{ fontSize: 11.5, color: 'var(--dim)' }}>من</span>
@@ -7370,6 +7406,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         <button className={'btn sm' + (view === 'ast' ? ' pri' : ' gh')} onClick={() => setView('ast')}><Building2 size={14} />الأصول</button>
         <button className={'btn sm' + (view === 'bank' ? ' pri' : ' gh')} onClick={() => setView('bank')}><Landmark size={14} />التسوية البنكية</button>
         <button className={'btn sm' + (view === 'lock' ? ' pri' : ' gh')} onClick={() => setView('lock')}><Lock size={14} />الإقفال</button>
+        <button className={'btn sm' + (view === 'astl' ? ' pri' : ' gh')} onClick={() => setView('astl')}><Truck size={14} />تسوية التطبيقات</button>
         <button className={'btn sm' + (view === 'ob' ? ' pri' : ' gh')} onClick={() => setView('ob')}><Landmark size={14} />الأرصدة الافتتاحية</button>
         {canPost && <button className="btn sm" style={{ marginInlineStart: 'auto' }} onClick={newJm}><Plus size={14} />قيد يدوي / افتتاحي</button>}
       </div>
@@ -7699,6 +7736,53 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
           </div>
         </div>
       )}
+
+      {view === 'astl' && (() => {
+        const apps = org.deliveryApps || [];
+        const stls = (ops.appSettlements || []).slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+        const recvOf = (appId) => { const a = A.accounts.find(x => x.appId === appId); return a ? a.balance : 0; };
+        const appNm = (id) => (apps.find(a => a.id === id) || {}).n || '—';
+        return (
+          <div className="grid" style={{ gap: 12 }}>
+            <div className="card">
+              <div className="card-t"><Truck size={15} color="var(--brass)" />تسوية كشوف تطبيقات التوصيل</div>
+              <div className="note" style={{ margin: '8px 0 12px' }}>
+                طابِق ما أودعه كل تطبيق فعليًا في بنكك مع ذمّته في دفاترك. الفرق (رسوم إضافية، طلبات ملغاة، غرامات)
+                يُسجَّل خصمًا موثّقًا. <b>القيد: مدين البنك (المُودَع) + مدين الخصومات (الفرق) = إقفال ذمة التطبيق.</b>
+              </div>
+              {apps.length === 0 ? <div className="empty">لا تطبيقات توصيل — أضِفها من «الفروع والمستخدمون ← تطبيقات التوصيل».</div> : (
+                <div className="grid g3">
+                  {apps.map(a => { const recv = recvOf(a.id); return (
+                    <Kpi key={a.id} label={'ذمة ' + a.n} value={money(recv)} sub={recv > 0.5 ? 'مستحق لك — بانتظار التسوية' : (recv < -0.5 ? 'رصيد دائن' : 'مسوّاة بالكامل ✓')}
+                      icon={Truck} color={recv > 0.5 ? '#E0A458' : '#4FB286'} />
+                  ); })}
+                </div>
+              )}
+              {canPost && apps.length > 0 && <div className="row" style={{ marginTop: 12 }}>
+                <button className="btn pri" onClick={() => setStlF({ id: '', appId: apps[0]?.id || '', date: today(), deposit: '', deductions: '', note: '' })}><Plus size={14} />تسجيل تسوية إيداع</button>
+              </div>}
+            </div>
+            {stls.length > 0 && (
+              <div className="card">
+                <div className="card-t" style={{ marginBottom: 8 }}><Eye size={15} color="var(--brass)" />سجل التسويات</div>
+                <div className="tw"><table className="tb">
+                  <thead><tr><th>التاريخ</th><th>التطبيق</th><th>المُودَع (بنك)</th><th>الخصومات</th><th>المُقفَل من الذمة</th><th>ملاحظة</th></tr></thead>
+                  <tbody>{stls.map(s => (
+                    <tr key={s.id}>
+                      <td className="num" style={{ fontSize: 11 }}>{(s.date || '').slice(0, 10)}</td>
+                      <td style={{ fontWeight: 600 }}>{appNm(s.appId)}</td>
+                      <td className="num">{money(s.deposit)}</td>
+                      <td className="num" style={{ color: (Number(s.deductions) || 0) > 0 ? 'var(--rose)' : 'var(--dim)' }}>{s.deductions ? money(s.deductions) : '—'}</td>
+                      <td className="num" style={{ fontWeight: 700 }}>{money((Number(s.deposit) || 0) + (Number(s.deductions) || 0))}</td>
+                      <td style={{ fontSize: 11, color: 'var(--dim)' }}>{s.note || '—'}</td>
+                    </tr>
+                  ))}</tbody>
+                </table></div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {view === 'ob' && (() => {
         const assets = obAccounts.filter(a => a.kind === 'asset');
@@ -8031,6 +8115,38 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
           القيود لا تُحذف — التصحيح بقيد عكسي، حفاظًا على سلامة السجل أمام أي مراجع.
         </div>
       </div>
+
+      {stlF && (() => {
+        const appNm = ((org.deliveryApps || []).find(a => a.id === stlF.appId) || {}).n || 'تطبيق';
+        const recvA = A.accounts.find(x => x.appId === stlF.appId);
+        const recv = recvA ? recvA.balance : 0;
+        const cleared = (Number(stlF.deposit) || 0) + (Number(stlF.deductions) || 0);
+        const set = (k, v) => setStlF(f => ({ ...f, [k]: v }));
+        return (
+          <Modal title="تسوية كشف تطبيق توصيل" sub="طابِق إيداع التطبيق مع ذمّته — والفرق خصمٌ موثّق" icon={Truck} onClose={() => setStlF(null)}
+            foot={<><button className="btn gh" onClick={() => setStlF(null)}>إلغاء</button>
+              <button className="btn pri" onClick={saveStl}><Check size={14} />تسجيل التسوية</button></>}>
+            <div className="grid g2">
+              <Field label="التطبيق">
+                <select className="sel" value={stlF.appId} onChange={e => set('appId', e.target.value)}>
+                  {(org.deliveryApps || []).map(a => <option key={a.id} value={a.id}>{a.n}</option>)}
+                </select>
+              </Field>
+              <Field label="تاريخ الإيداع"><input type="date" className="inp" value={stlF.date} onChange={e => set('date', e.target.value)} /></Field>
+            </div>
+            <div className="note" style={{ margin: '4px 0 10px' }}>ذمة <b>{appNm}</b> الحالية في دفاترك: <b className="num">{money(recv)}</b> — هذا ما يُفترض أن يُسوّى.</div>
+            <div className="grid g2">
+              <Num label="المبلغ المُودَع في البنك" value={stlF.deposit} onChange={v => set('deposit', v)} />
+              <Num label="الخصومات/الرسوم الموثّقة (الفرق)" value={stlF.deductions} onChange={v => set('deductions', v)} hint="رسوم إضافية، طلبات ملغاة، غرامات" />
+            </div>
+            <Field label="ملاحظة"><input className="inp" value={stlF.note} placeholder="رقم كشف التطبيق أو ملاحظة" onChange={e => set('note', e.target.value)} /></Field>
+            <div className="row" style={{ justifyContent: 'space-between', marginTop: 8, flexWrap: 'wrap', gap: 8 }}>
+              <span className="badge b-sky">سيُقفل من الذمة: <b className="num">{money(cleared)}</b></span>
+              <span className={'badge ' + (Math.abs(recv - cleared) < 0.5 ? 'b-mint' : 'b-amber')}>{Math.abs(recv - cleared) < 0.5 ? 'يطابق الذمة تمامًا ✓' : 'المتبقّي بعد التسوية: ' + money(recv - cleared)}</span>
+            </div>
+          </Modal>
+        );
+      })()}
 
       {jm && (
         <Modal title={jm.opening ? 'قيد افتتاحي' : 'قيد محاسبي يدوي'} sub="مجموع المدين يجب أن يساوي مجموع الدائن — وكل سطر في جهة واحدة فقط"
