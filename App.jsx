@@ -1095,9 +1095,9 @@ const DENOMS = [
 const emptyDenoms = () => DENOMS.reduce((o, d) => ({ ...o, [d.k]: 0 }), {});
 const countDenoms = (d) => DENOMS.reduce((s, x) => s + (Number(d?.[x.k]) || 0) * x.v, 0);
 
-const ALL_TABS = ['analytics', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit'];
+const ALL_TABS = ['analytics', 'reporting', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit'];
 const TAB_AR = {
-  analytics: 'مركز التحليل والأداء', exec: 'اللوحة التنفيذية',
+  analytics: 'مركز التحليل والأداء', reporting: 'مركز التقارير', exec: 'اللوحة التنفيذية',
   dash: 'لوحة المؤشرات', compare: 'مقارنة الفروع', growth: 'تحليلات النمو', breakeven: 'تحليل التعادل', scorecard: 'لوحة الأهداف', scenario: 'ماذا-لو', boardpack: 'تقرير الإدارة', cashflow: 'التدفق النقدي', closing: 'الإغلاق اليومي', apps: 'التطبيقات',
   approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', payroll: 'الرواتب والسلف', workforce: 'الجدولة والحضور',
   suppliers: 'الموردون والمشتريات', inv: 'المخزون والمنتجات', reorder: 'المشتريات الذكية', partners: 'دفتر الشركاء',
@@ -1118,12 +1118,12 @@ const ROLES = {
   },
   regional_manager: {
     ar: 'مدير إقليمي — فروع مُسندة', badge: 'b-amber', scope: 'assigned',
-    tabs: ['analytics', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'reports', 'archive'],
+    tabs: ['analytics', 'reporting', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'reports', 'archive'],
     perms: ['متابعة الفروع المسندة إليه فقط', 'مقارنة وتقارير فروعه ولوحة مؤشراتها ونموّها', 'بلا وصول للمحاسبة والخزينة والإعدادات']
   },
   head_office: {
     ar: 'المكتب الرئيسي — المالية والإدارة', badge: 'b-brass', scope: 'all', approver: true,
-    tabs: ['analytics', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
+    tabs: ['analytics', 'reporting', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['كل الفروع والتقارير المجمّعة', 'التدقيق والاعتماد النهائي', 'الخزينة والرواتب والموردون والمشتريات والمخزون', 'المحاسبة الكاملة: قيود وميزان وقوائم وضريبة وأصول ومراكز تكلفة']
   },
   system_admin: {
@@ -1141,7 +1141,7 @@ const ROLES = {
     // إعادة ترتيب v8.0: المحاسب الرئيسي بطبيعته يعمل على المنشأة كلها — نطاق كامل
     // بلا صلاحيات إدارة (لا مستخدمين/فروع، لا تفعيل ضريبة، لا إدارة تطبيقات)
     ar: 'الإدارة المالية — محاسب رئيسي', badge: 'b-sky', scope: 'all', legacy: true,
-    tabs: ['analytics', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
+    tabs: ['analytics', 'reporting', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['المحاسبة كاملة: قيود يدوية وافتتاحية وميزان وقوائم ومراكز تكلفة', 'الضريبة والأصول والتسوية البنكية (عرض وتسجيل — التفعيل للإدارة)', 'المشتريات والمخزون والرواتب والخزينة', 'كل الفروع — دون إدارة المستخدمين والإعدادات']
   }
 };
@@ -1235,19 +1235,13 @@ const LAUNCH_APPS = [
     sections: ['اللوحة التنفيذية', 'لوحة المؤشرات', 'مقارنة الفروع', 'تحليلات النمو', 'تحليل التعادل', 'لوحة الأهداف', 'ماذا-لو', 'المركز الذكي'], kw: ['تحليل', 'أداء', 'لوحة', 'تنفيذية', 'مؤشرات', 'مقارنة', 'فروع', 'نمو', 'تعادل', 'أهداف', 'سيناريو', 'ماذا لو', 'ذكاء', 'توقع', 'kpi'] },
   { id: 'alerts', ar: 'مركز التنبيهات', en: 'Alerts', cat: 'bi', icon: Bell, open: { tab: 'alerts' },
     sections: ['موردون', 'موازنة', 'نقد وسيولة', 'مخزون', 'ضريبة', 'تشغيل', 'إعداد'], kw: ['تنبيه', 'تنبيهات', 'إنذار', 'متأخر', 'تجاوز', 'عجز', 'متابعة', 'إجراء'] },
-  { id: 'boardpack', ar: 'تقرير الإدارة الشهري', en: 'Board Pack', cat: 'bi', icon: FileText, open: { tab: 'boardpack' },
-    sections: ['الملخص التنفيذي', 'قائمة الدخل', 'المركز المالي', 'الذمم', 'أداء الفروع'], kw: ['تقرير', 'إدارة', 'شهري', 'حزمة', 'مالك', 'ملخص', 'قوائم', 'board', 'شامل'] },
-  { id: 'cashflow', ar: 'التدفق النقدي (13 أسبوعًا)', en: 'Cash Flow', cat: 'bi', icon: Banknote, open: { tab: 'cashflow' },
-    sections: ['الافتراضات', 'مسار الرصيد', 'الجدول الأسبوعي', 'فجوات السيولة'], kw: ['تدفق', 'نقدي', 'سيولة', 'أسبوع', 'تنبؤ', 'عجز', 'رصيد', 'cash', 'flow'] },
   { id: 'acct', ar: 'المحاسبة', en: 'Accounting', cat: 'fin', icon: Scale, open: { tab: 'acct' },
     sections: ['القيود اليومية', 'دليل الحسابات', 'ميزان المراجعة', 'القوائم المالية', 'مراكز التكلفة', 'الأصول والإهلاك', 'التسوية البنكية', 'الإقفال الشهري'],
     kw: ['قيد', 'يومية', 'حساب', 'ميزان', 'قائمة', 'دخل', 'مركز مالي', 'مراكز تكلفة', 'أصل', 'إهلاك', 'بنك', 'تسوية', 'إقفال', 'قفل', 'محاسبة'] },
   { id: 'treasury', ar: 'الخزينة والترحيل', en: 'Treasury', cat: 'fin', icon: Landmark, open: { tab: 'treasury' },
     sections: ['التحويلات الواردة', 'حركة الخزينة'], kw: ['خزينة', 'تحويل', 'ترحيل', 'نقد', 'بنك'] },
-  { id: 'reports', ar: 'التقارير المالية', en: 'Reports', cat: 'fin', icon: FileBarChart, open: { tab: 'reports' },
-    kw: ['تقرير', 'تقارير', 'طباعة', 'مالية'] },
-  { id: 'rbuild', ar: 'منشئ التقارير', en: 'Report Builder', cat: 'fin', icon: Wand2, open: { tab: 'rbuild' },
-    sections: ['مصدر البيانات', 'الفترة والفرع', 'التجميع والأعمدة', 'قوالب محفوظة'], kw: ['تقرير', 'مخصص', 'منشئ', 'قالب', 'أعمدة', 'تصدير', 'بناء', 'مرن'] },
+  { id: 'reporting', ar: 'مركز التقارير', en: 'Reports Center', cat: 'fin', icon: FileBarChart, open: { tab: 'reporting' },
+    sections: ['التقارير المالية', 'منشئ التقارير', 'تقرير الإدارة الشهري', 'التدفق النقدي (13 أسبوعًا)'], kw: ['تقرير', 'تقارير', 'طباعة', 'تصدير', 'منشئ', 'قالب', 'إدارة', 'شهري', 'حزمة', 'تدفق', 'نقدي', 'سيولة', 'مالية'] },
   { id: 'entities', ar: 'مركز المنشآت', en: 'Entities', cat: 'fin', icon: Building2, open: { tab: 'entities' },
     sections: ['النظرة الموحّدة', 'إدارة المنشآت', 'إسناد الفروع'], kw: ['منشأة', 'منشآت', 'شركة', 'شركات', 'كيان', 'موحّد', 'مجموعة', 'رقم ضريبي', 'تعدد'] },
   { id: 'closing', ar: 'الإغلاق اليومي', en: 'Daily Closing', cat: 'pos', icon: ClipboardCheck, open: { tab: 'closing' },
@@ -1286,7 +1280,7 @@ const LAUNCH_APPS = [
 const LAUNCH_IX = {}; LAUNCH_APPS.forEach(a => { LAUNCH_IX[a.id] = a; });
 // ترتيب عرض مقصود (لا عشوائي) — تدفّق منطقي: التشغيل اليومي ← المالية ← المشتريات ←
 // المخزون ← الموارد البشرية ← الضريبة ← الحوكمة ← الذكاء (متجاورة لونيًا وموضوعيًا، بنمط أودو)
-const LAUNCH_ORDER = ['analytics', 'boardpack', 'alerts', 'cashflow', 'closing', 'sales', 'approve', 'shifts', 'acct', 'treasury', 'reports', 'rbuild', 'suppliers', 'reorder', 'partners', 'inv', 'payroll', 'workforce', 'vat', 'brmgmt', 'entities', 'docs', 'backup', 'audit', 'archive'];
+const LAUNCH_ORDER = ['analytics', 'reporting', 'alerts', 'closing', 'sales', 'approve', 'shifts', 'acct', 'treasury', 'suppliers', 'reorder', 'partners', 'inv', 'payroll', 'workforce', 'vat', 'brmgmt', 'entities', 'docs', 'backup', 'audit', 'archive'];
 const launchRank = (id) => { const i = LAUNCH_ORDER.indexOf(id); return i < 0 ? 999 : i; };
 /* v8.5 — لقطات احتياطية يومية محلية (IndexedDB) على أجهزة الإدارة:
    حماية إضافية ضد التلف أو الحذف الخاطئ — والنسخة الملفية تبقى الحماية الخارجية */
@@ -1902,8 +1896,7 @@ export default function App() {
     { id: 'home', ar: 'الرئيسية', icon: Home },
     { id: 'analytics', ar: 'مركز التحليل والأداء', icon: Compass },
     { id: 'alerts', ar: 'مركز التنبيهات', icon: Bell },
-    { id: 'boardpack', ar: 'تقرير الإدارة الشهري', icon: FileText },
-    { id: 'cashflow', ar: 'التدفق النقدي (13 أسبوعًا)', icon: Banknote },
+    { id: 'reporting', ar: 'مركز التقارير', icon: FileBarChart },
     { id: 'sales', ar: 'المبيعات', icon: CircleDollarSign },
     { id: 'closing', ar: 'الإغلاق اليومي', icon: ClipboardCheck },
     { id: 'apps', ar: 'إدارة التطبيقات', icon: Grid3x3 },
@@ -1919,8 +1912,6 @@ export default function App() {
     { id: 'shifts', ar: 'الورديات والتذكيرات', icon: Clock },
     { id: 'docs', ar: 'مركز المستندات', icon: Stamp },
     { id: 'archive', ar: 'أرشيف المستندات', icon: ImageIcon },
-    { id: 'reports', ar: 'التقارير المالية', icon: FileBarChart },
-    { id: 'rbuild', ar: 'منشئ التقارير', icon: Wand2 },
     { id: 'entities', ar: 'مركز المنشآت', icon: Building2 },
     { id: 'admin', ar: 'الفروع والمستخدمون', icon: UserCog },
     { id: 'audit', ar: 'سجل التدقيق', icon: Eye }
@@ -1929,7 +1920,7 @@ export default function App() {
   const shared = { org, ops, pulse, me, myBranches, scoped, commit, commitOrg, say, setTab, theme, acctIntent, openAcctView, invIntent, openInvView };
 
   // حماية: منع الوصول لتبويب غير مسموح لدور المستخدم (بلا hook — بعد returns الشرطية)
-  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai'] : [])];
+  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : [])];
   const safeTab = allowedTabs.includes(tab) ? tab : (allowedTabs[0] || 'closing');
 
   return (
@@ -2016,7 +2007,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v13.4 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v13.5 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2117,8 +2108,7 @@ export default function App() {
               {safeTab === 'home' && <Launcher {...shared} online={online} />}
               {['analytics', 'exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai'].includes(safeTab) && <Analytics {...shared} online={online} view={safeTab} />}
               {safeTab === 'alerts' && <AlertsCenter {...shared} />}
-              {safeTab === 'boardpack' && <BoardPack {...shared} />}
-              {safeTab === 'cashflow' && <CashFlow13 {...shared} />}
+              {['reporting', 'reports', 'rbuild', 'boardpack', 'cashflow'].includes(safeTab) && <ReportsHub {...shared} view={safeTab} />}
               {safeTab === 'sales' && <Sales {...shared} />}
               {safeTab === 'closing' && <Closing {...shared} />}
               {safeTab === 'apps' && <AppsCenter {...shared} />}
@@ -2134,8 +2124,6 @@ export default function App() {
               {safeTab === 'shifts' && <Shifts {...shared} />}
               {safeTab === 'docs' && <DocsCenter {...shared} />}
               {safeTab === 'archive' && <Archive {...shared} />}
-              {safeTab === 'reports' && <Reports {...shared} />}
-              {safeTab === 'rbuild' && <ReportBuilder {...shared} />}
               {safeTab === 'entities' && <EntitiesCenter {...shared} />}
               {safeTab === 'admin' && <Admin {...shared} />}
               {safeTab === 'audit' && <AuditView {...shared} onSeen={() => setLastSeenAudit(Date.now())} />}
@@ -3434,6 +3422,41 @@ function SmartPurchasing({ org, ops, me, commit, commitOrg, say }) {
    تنبؤ أسبوعي بالنقد الداخل والخارج لكشف فجوات السيولة مبكرًا.
    الافتراضات مبدئية من متوسطاتك الفعلية وذممك — كلها قابلة للتعديل. بلا افتراض خفيّ.
    ============================================================ */
+/* ============================================================
+   v13.5 — مركز التقارير (دمج أربعة تطبيقات تقارير في مركز واحد بأقسام)
+   نفس نمط مركز التحليل: يحترم صلاحيات الدور، «القسم الحالي» = التبويب العام،
+   والروابط القديمة تفتح داخل المركز. بلا فقدان أي ميزة، ومتوافق رجعيًا.
+   ============================================================ */
+const REPORTS_VIEWS = [
+  { id: 'reports', ar: 'التقارير المالية', icon: FileBarChart },
+  { id: 'rbuild', ar: 'منشئ التقارير', icon: Wand2 },
+  { id: 'boardpack', ar: 'تقرير الإدارة الشهري', icon: FileText },
+  { id: 'cashflow', ar: 'التدفق النقدي (13 أسبوعًا)', icon: Banknote }
+];
+function ReportsHub(props) {
+  const { me, setTab } = props;
+  const rt = ROLES[me.role]?.tabs || [];
+  const full = ROLES[me.role]?.scope === 'all';
+  const views = REPORTS_VIEWS.filter(v => full || rt.includes(v.id));
+  const cur = (views.find(v => v.id === props.view) || views[0] || { id: 'reports' }).id;
+  return (
+    <div className="grid" style={{ gap: 12 }}>
+      <div className="tw"><div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+        {views.map(v => (
+          <button key={v.id} className={'btn sm' + (cur === v.id ? ' pri' : ' gh')} onClick={() => setTab(v.id)}>
+            <v.icon size={14} />{v.ar}
+          </button>
+        ))}
+      </div></div>
+      {cur === 'reports' && <Reports {...props} />}
+      {cur === 'rbuild' && <ReportBuilder {...props} />}
+      {cur === 'boardpack' && <BoardPack {...props} />}
+      {cur === 'cashflow' && <CashFlow13 {...props} />}
+      {!views.length && <div className="card"><div className="empty">لا توجد تقارير متاحة لصلاحيتك.</div></div>}
+    </div>
+  );
+}
+
 function CashFlow13({ org, ops, me, scoped, theme, commitOrg, say }) {
   const tn = chartTone(theme);
   const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
