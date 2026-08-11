@@ -1779,7 +1779,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v11.1 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v11.2 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -8299,6 +8299,57 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     setStlF(null); say('سُجّلت التسوية — أُقفلت ذمة ' + appNm + ' بمقدار ' + money(dep + ded));
   };
 
+  // ===== v11.2: تصدير للمحاسب — CSV بترميز UTF-8 (يفتح في Excel بالعربية)، يحترم الفترة والفرع =====
+  const csvCell = (v) => { const s = String(v == null ? '' : v); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const toCsv = (rows) => '﻿' + rows.map(r => r.map(csvCell).join(',')).join('\r\n');
+  const dlFile = (name, text) => {
+    const blob = new Blob([text], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob); const a = document.createElement('a');
+    a.href = url; a.download = name; document.body.appendChild(a); a.click();
+    document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(url), 1500);
+  };
+  const kindAr = { asset: 'أصول', liab: 'خصوم', equity: 'حقوق ملكية', rev: 'إيرادات', exp: 'مصروفات' };
+  const expTag = (from || to) ? ((from || 'البداية') + '_' + (to || today())) : ('حتى_' + today());
+  const journalRows = () => {
+    const rows = [['رقم القيد', 'التاريخ', 'البيان', 'المصدر', 'رمز الحساب', 'اسم الحساب', 'مدين', 'دائن']];
+    tbEntries.slice().sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.no || '').localeCompare(b.no || ''))
+      .forEach(e => e.lines.forEach(l => rows.push([e.no, e.date, e.title, e.src, l.code, l.name, l.debit || '', l.credit || ''])));
+    rows.push(['', '', '', '', '', 'الإجمالي', Math.round(tbD * 100) / 100, Math.round(tbC * 100) / 100]);
+    return rows;
+  };
+  const tbRows = () => {
+    const rows = [['رمز الحساب', 'اسم الحساب', 'النوع', 'مدين', 'دائن', 'الرصيد']];
+    A.accounts.filter(a => tbAgg[a.code]).forEach(a => { const x = tbAgg[a.code]; rows.push([a.code, a.name, kindAr[a.kind] || a.kind, Math.round(x.debit * 100) / 100, Math.round(x.credit * 100) / 100, Math.round(balOf(a, tbAgg) * 100) / 100]); });
+    rows.push(['', 'الإجمالي', '', Math.round(tbD * 100) / 100, Math.round(tbC * 100) / 100, '']);
+    return rows;
+  };
+  const fsRows = () => {
+    const R = (n) => Math.round(n * 100) / 100;
+    const rows = [['قائمة الدخل', ''], ['الحساب', 'المبلغ']];
+    A.accounts.filter(a => a.kind === 'rev' && isAgg[a.code]).forEach(a => rows.push([a.name, R(balOf(a, isAgg))]));
+    rows.push(['إجمالي الإيرادات', R(revP)]);
+    A.accounts.filter(a => a.kind === 'exp' && isAgg[a.code]).forEach(a => rows.push([a.name, R(balOf(a, isAgg))]));
+    rows.push(['إجمالي المصروفات', R(expP)]);
+    rows.push([netP >= 0 ? 'صافي الربح' : 'صافي الخسارة', R(netP)], ['', '']);
+    rows.push(['قائمة المركز المالي', ''], ['الحساب', 'المبلغ']);
+    A.accounts.filter(a => a.kind === 'asset' && bsAgg[a.code] && Math.abs(balOf(a, bsAgg)) > 0.004).forEach(a => rows.push([a.name, R(balOf(a, bsAgg))]));
+    rows.push(['إجمالي الأصول', R(bsAssets)]);
+    A.accounts.filter(a => (a.kind === 'liab' || a.kind === 'equity') && bsAgg[a.code] && Math.abs(balOf(a, bsAgg)) > 0.004).forEach(a => rows.push([a.name, R(balOf(a, bsAgg))]));
+    rows.push(['أرباح الفترة المتراكمة', R(bsProfit)]);
+    rows.push(['إجمالي الخصوم وحقوق الملكية', R(bsLiab + bsEquity + bsProfit)]);
+    return rows;
+  };
+  const coaRows = () => { const rows = [['رمز الحساب', 'اسم الحساب', 'النوع']]; A.accounts.forEach(a => rows.push([a.code, a.name, kindAr[a.kind] || a.kind])); return rows; };
+  const exportJournal = () => dlFile('يومية_' + expTag + '.csv', toCsv(journalRows()));
+  const exportTB = () => dlFile('ميزان_المراجعة_' + expTag + '.csv', toCsv(tbRows()));
+  const exportFS = () => dlFile('القوائم_المالية_' + expTag + '.csv', toCsv(fsRows()));
+  const exportPack = () => {
+    const co = (org.company && org.company.name) || 'المنشأة';
+    const all = [['حزمة المحاسب — ' + co], ['الفترة', expTag], [''], ['— دليل الحسابات —']]
+      .concat(coaRows(), [[''], ['— دفتر اليومية —']], journalRows(), [[''], ['— ميزان المراجعة —']], tbRows(), [[''], ['— القوائم المالية —']], fsRows());
+    dlFile('حزمة_المحاسب_' + expTag + '.csv', toCsv(all));
+  };
+
   const periodBar = (
     <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
       <span style={{ fontSize: 11.5, color: 'var(--dim)' }}>من</span>
@@ -8370,6 +8421,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         <button className={'btn sm' + (view === 'bud' ? ' pri' : ' gh')} onClick={() => setView('bud')}><BarChart3 size={14} />الموازنة</button>
         <button className={'btn sm' + (view === 'anl' ? ' pri' : ' gh')} onClick={() => setView('anl')}><TrendingUp size={14} />التحليل والنِسَب</button>
         <button className={'btn sm' + (view === 'apage' ? ' pri' : ' gh')} onClick={() => { setView('apage'); setApSel(null); }}><Users size={14} />أعمار الموردين</button>
+        <button className={'btn sm' + (view === 'export' ? ' pri' : ' gh')} onClick={() => setView('export')}><Download size={14} />تصدير للمحاسب</button>
         <button className={'btn sm' + (view === 'cc' ? ' pri' : ' gh')} onClick={() => setView('cc')}><BarChart3 size={14} />مراكز التكلفة</button>
         <button className={'btn sm' + (view === 'vat' ? ' pri' : ' gh')} onClick={() => setView('vat')}><Receipt size={14} />الضريبة</button>
         <button className={'btn sm' + (view === 'ast' ? ' pri' : ' gh')} onClick={() => setView('ast')}><Building2 size={14} />الأصول</button>
@@ -8445,6 +8497,42 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {view === 'export' && (
+        <div className="grid" style={{ gap: 12 }}>
+          <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+            {periodBar}
+            <select className="sel" style={{ width: 200 }} value={bf} onChange={e => setBf(e.target.value)}>
+              <option value="">كل الفروع والمركز</option>
+              <option value="central">القيود المركزية فقط</option>
+              {(org.branches || []).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          </div>
+          <div className="grid g2">
+            <div className="card">
+              <div className="card-t" style={{ marginBottom: 6 }}><FileText size={15} color="var(--brass)" />دفتر اليومية</div>
+              <div className="note" style={{ marginBottom: 10 }}>كل القيود سطرًا سطرًا (رقم القيد، التاريخ، البيان، رمز الحساب واسمه، مدين، دائن) للفترة والفرع المحددين.</div>
+              <button className="btn pri" onClick={exportJournal}><Download size={14} />تصدير اليومية (CSV)</button>
+            </div>
+            <div className="card">
+              <div className="card-t" style={{ marginBottom: 6 }}><Scale size={15} color="var(--brass)" />ميزان المراجعة</div>
+              <div className="note" style={{ marginBottom: 10 }}>كل حساب برمزه ونوعه ومجموع مدينه ودائنه ورصيده — جاهز للمراجعة.</div>
+              <button className="btn pri" onClick={exportTB}><Download size={14} />تصدير الميزان (CSV)</button>
+            </div>
+            <div className="card">
+              <div className="card-t" style={{ marginBottom: 6 }}><FileBarChart size={15} color="var(--brass)" />القوائم المالية</div>
+              <div className="note" style={{ marginBottom: 10 }}>قائمة الدخل والمركز المالي في ملف واحد بأرقام الفترة المحددة.</div>
+              <button className="btn pri" onClick={exportFS}><Download size={14} />تصدير القوائم (CSV)</button>
+            </div>
+            <div className="card" style={{ borderColor: 'var(--frame)' }}>
+              <div className="card-t" style={{ marginBottom: 6 }}><Download size={15} color="var(--brass)" />الحزمة الكاملة</div>
+              <div className="note" style={{ marginBottom: 10 }}>ملف واحد يجمع: دليل الحسابات + اليومية + ميزان المراجعة + القوائم — كل ما يحتاجه محاسبك بضغطة.</div>
+              <button className="btn pri" onClick={exportPack}><Download size={14} />تصدير الحزمة الكاملة (CSV)</button>
+            </div>
+          </div>
+          <div className="note">الملفات بصيغة CSV بترميز UTF-8 (بعلامة BOM) — تفتح مباشرةً في Excel أو Google Sheets بالعربية سليمةً، وتحمل اسم الفترة في اسم الملف. الأرقام خام بلا فواصل ليقرأها Excel كأرقام. تحترم الملفات فلتر الفترة (من/إلى) والفرع المحدد أعلاه.</div>
         </div>
       )}
 
