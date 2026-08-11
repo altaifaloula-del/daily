@@ -1095,12 +1095,12 @@ const DENOMS = [
 const emptyDenoms = () => DENOMS.reduce((o, d) => ({ ...o, [d.k]: 0 }), {});
 const countDenoms = (d) => DENOMS.reduce((s, x) => s + (Number(d?.[x.k]) || 0) * x.v, 0);
 
-const ALL_TABS = ['analytics', 'reporting', 'people', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit'];
+const ALL_TABS = ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit'];
 const TAB_AR = {
   analytics: 'مركز التحليل والأداء', reporting: 'مركز التقارير', exec: 'اللوحة التنفيذية',
   dash: 'لوحة المؤشرات', compare: 'مقارنة الفروع', growth: 'تحليلات النمو', breakeven: 'تحليل التعادل', scorecard: 'لوحة الأهداف', scenario: 'ماذا-لو', boardpack: 'تقرير الإدارة', cashflow: 'التدفق النقدي', closing: 'الإغلاق اليومي', apps: 'التطبيقات',
   approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', people: 'شؤون الموظفين', payroll: 'الرواتب والسلف', workforce: 'الجدولة والحضور',
-  suppliers: 'الموردون والمشتريات', inv: 'المخزون والمنتجات', reorder: 'المشتريات الذكية', partners: 'دفتر الشركاء',
+  purchasing: 'المشتريات والموردون', suppliers: 'الموردون والمشتريات', inv: 'المخزون والمنتجات', reorder: 'المشتريات الذكية', partners: 'دفتر الشركاء',
   acct: 'المحاسبة', shifts: 'الورديات', archive: 'أرشيف المستندات', ai: 'المركز الذكي',
   reports: 'التقارير المالية', rbuild: 'منشئ التقارير', entities: 'مركز المنشآت', admin: 'الفروع والمستخدمون', audit: 'سجل التدقيق'
 };
@@ -1123,7 +1123,7 @@ const ROLES = {
   },
   head_office: {
     ar: 'المكتب الرئيسي — المالية والإدارة', badge: 'b-brass', scope: 'all', approver: true,
-    tabs: ['analytics', 'reporting', 'people', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
+    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['كل الفروع والتقارير المجمّعة', 'التدقيق والاعتماد النهائي', 'الخزينة والرواتب والموردون والمشتريات والمخزون', 'المحاسبة الكاملة: قيود وميزان وقوائم وضريبة وأصول ومراكز تكلفة']
   },
   system_admin: {
@@ -1141,7 +1141,7 @@ const ROLES = {
     // إعادة ترتيب v8.0: المحاسب الرئيسي بطبيعته يعمل على المنشأة كلها — نطاق كامل
     // بلا صلاحيات إدارة (لا مستخدمين/فروع، لا تفعيل ضريبة، لا إدارة تطبيقات)
     ar: 'الإدارة المالية — محاسب رئيسي', badge: 'b-sky', scope: 'all', legacy: true,
-    tabs: ['analytics', 'reporting', 'people', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
+    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['المحاسبة كاملة: قيود يدوية وافتتاحية وميزان وقوائم ومراكز تكلفة', 'الضريبة والأصول والتسوية البنكية (عرض وتسجيل — التفعيل للإدارة)', 'المشتريات والمخزون والرواتب والخزينة', 'كل الفروع — دون إدارة المستخدمين والإعدادات']
   }
 };
@@ -1252,10 +1252,8 @@ const LAUNCH_APPS = [
     kw: ['تدقيق', 'اعتماد', 'مراجعة'] },
   { id: 'brmgmt', ar: 'الفروع والمستخدمون', en: 'Branches & Users', cat: 'pos', icon: UserCog, open: { tab: 'admin' },
     sections: ['الفروع', 'المستخدمون والصلاحيات', 'بنود المصروف', 'تطبيقات التوصيل', 'ظهور التطبيقات'], kw: ['فرع', 'مستخدم', 'صلاحية', 'إعداد', 'مستخدمون'] },
-  { id: 'reorder', ar: 'المشتريات الذكية', en: 'Smart Purchasing', cat: 'pur', icon: ClipboardCheck, open: { tab: 'reorder' },
-    sections: ['تحليل إعادة الطلب', 'الكميات المقترحة', 'إنشاء أمر شراء', 'أيام التغطية'], kw: ['شراء', 'مشتريات', 'إعادة طلب', 'نفاد', 'حد أدنى', 'مخزون', 'reorder', 'مورد'] },
-  { id: 'suppliers', ar: 'الموردون والمشتريات', en: 'Suppliers', cat: 'pur', icon: Truck, open: { tab: 'suppliers' },
-    sections: ['الفواتير والالتزامات', 'سجل الموردين', 'أوامر الشراء'], kw: ['مورد', 'فاتورة', 'التزام', 'أمر شراء', 'دفع', 'مشتريات'] },
+  { id: 'purchasing', ar: 'المشتريات والموردون', en: 'Purchasing & Suppliers', cat: 'pur', icon: Truck, open: { tab: 'purchasing' },
+    sections: ['الموردون والمشتريات', 'الفواتير والالتزامات', 'سجل الموردين', 'أوامر الشراء', 'المشتريات الذكية', 'إعادة الطلب'], kw: ['مورد', 'موردون', 'فاتورة', 'التزام', 'أمر شراء', 'دفع', 'مشتريات', 'شراء', 'إعادة طلب', 'نفاد', 'حد أدنى', 'مخزون', 'reorder'] },
   { id: 'partners', ar: 'دفتر الشركاء', en: 'Partners', cat: 'pur', icon: Users, open: { tab: 'partners' },
     kw: ['شريك', 'شركاء', 'دفتر'] },
   { id: 'people', ar: 'شؤون الموظفين', en: 'People & Payroll', cat: 'hr', icon: Wallet, open: { tab: 'people' },
@@ -1276,7 +1274,7 @@ const LAUNCH_APPS = [
 const LAUNCH_IX = {}; LAUNCH_APPS.forEach(a => { LAUNCH_IX[a.id] = a; });
 // ترتيب عرض مقصود (لا عشوائي) — تدفّق منطقي: التشغيل اليومي ← المالية ← المشتريات ←
 // المخزون ← الموارد البشرية ← الضريبة ← الحوكمة ← الذكاء (متجاورة لونيًا وموضوعيًا، بنمط أودو)
-const LAUNCH_ORDER = ['analytics', 'reporting', 'people', 'alerts', 'closing', 'sales', 'approve', 'acct', 'treasury', 'suppliers', 'reorder', 'partners', 'inv', 'vat', 'brmgmt', 'entities', 'docs', 'backup', 'audit', 'archive'];
+const LAUNCH_ORDER = ['analytics', 'reporting', 'people', 'alerts', 'closing', 'sales', 'approve', 'acct', 'treasury', 'purchasing', 'partners', 'inv', 'vat', 'brmgmt', 'entities', 'docs', 'backup', 'audit', 'archive'];
 const launchRank = (id) => { const i = LAUNCH_ORDER.indexOf(id); return i < 0 ? 999 : i; };
 /* v8.5 — لقطات احتياطية يومية محلية (IndexedDB) على أجهزة الإدارة:
    حماية إضافية ضد التلف أو الحذف الخاطئ — والنسخة الملفية تبقى الحماية الخارجية */
@@ -1899,9 +1897,8 @@ export default function App() {
     { id: 'approve', ar: 'التدقيق والاعتماد', icon: ShieldCheck, cnt: pending },
     { id: 'treasury', ar: 'الخزينة والترحيل', icon: Landmark },
     { id: 'people', ar: 'شؤون الموظفين', icon: Wallet },
-    { id: 'suppliers', ar: 'الموردون والالتزامات', icon: Truck },
+    { id: 'purchasing', ar: 'المشتريات والموردون', icon: Truck },
     { id: 'inv', ar: 'المخزون والمنتجات', icon: HardDrive },
-    { id: 'reorder', ar: 'المشتريات الذكية', icon: ClipboardCheck },
     { id: 'partners', ar: 'دفتر الشركاء', icon: Users },
     { id: 'acct', ar: 'المحاسبة', icon: Scale },
     { id: 'docs', ar: 'مركز المستندات', icon: Stamp },
@@ -1914,7 +1911,7 @@ export default function App() {
   const shared = { org, ops, pulse, me, myBranches, scoped, commit, commitOrg, say, setTab, theme, acctIntent, openAcctView, invIntent, openInvView };
 
   // حماية: منع الوصول لتبويب غير مسموح لدور المستخدم (بلا hook — بعد returns الشرطية)
-  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : []), ...(NAV.some(n => n.id === 'people') ? ['payroll', 'workforce', 'shifts'] : [])];
+  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : []), ...(NAV.some(n => n.id === 'people') ? ['payroll', 'workforce', 'shifts'] : []), ...(NAV.some(n => n.id === 'purchasing') ? ['suppliers', 'reorder'] : [])];
   const safeTab = allowedTabs.includes(tab) ? tab : (allowedTabs[0] || 'closing');
 
   return (
@@ -2001,7 +1998,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v13.6 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v13.7 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2109,9 +2106,8 @@ export default function App() {
               {safeTab === 'approve' && <Approvals {...shared} />}
               {safeTab === 'treasury' && <Treasury {...shared} />}
               {['people', 'payroll', 'workforce', 'shifts'].includes(safeTab) && <PeopleHub {...shared} view={safeTab} />}
-              {safeTab === 'suppliers' && <Suppliers {...shared} />}
+              {['purchasing', 'suppliers', 'reorder'].includes(safeTab) && <PurchasingHub {...shared} view={safeTab} />}
               {safeTab === 'inv' && <Inventory {...shared} />}
-              {safeTab === 'reorder' && <SmartPurchasing {...shared} />}
               {safeTab === 'partners' && <Partners {...shared} />}
               {safeTab === 'acct' && <Accounting {...shared} />}
               {safeTab === 'docs' && <DocsCenter {...shared} />}
@@ -3299,6 +3295,37 @@ function BranchCompare({ org, ops, me, myBranches, scoped, theme, setTab }) {
    حدود دنيا/عليا للأصناف، ومعدّل استهلاك، وأيام تغطية، واقتراح كميات
    الطلب، وإنشاء أمر شراء بضغطة. من مخزونك الفعلي — الحدود بيدك، بلا افتراض.
    ============================================================ */
+/* ============================================================
+   v13.7 — مركز المشتريات والموردون (دمج «الموردون» و«المشتريات الذكية» في مركز واحد بأقسام)
+   آخر دفعات خطة الدمج. نفس النمط: يحترم صلاحيات الدور، «القسم الحالي» = التبويب العام،
+   والروابط القديمة تفتح داخل المركز. بلا فقدان أي ميزة، ومتوافق رجعيًا.
+   ============================================================ */
+const PURCHASING_VIEWS = [
+  { id: 'suppliers', ar: 'الموردون والمشتريات', icon: Truck },
+  { id: 'reorder', ar: 'المشتريات الذكية', icon: ClipboardCheck }
+];
+function PurchasingHub(props) {
+  const { me, setTab } = props;
+  const rt = ROLES[me.role]?.tabs || [];
+  const full = ROLES[me.role]?.scope === 'all';
+  const views = PURCHASING_VIEWS.filter(v => full || rt.includes(v.id));
+  const cur = (views.find(v => v.id === props.view) || views[0] || { id: 'suppliers' }).id;
+  return (
+    <div className="grid" style={{ gap: 12 }}>
+      <div className="tw"><div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+        {views.map(v => (
+          <button key={v.id} className={'btn sm' + (cur === v.id ? ' pri' : ' gh')} onClick={() => setTab(v.id)}>
+            <v.icon size={14} />{v.ar}
+          </button>
+        ))}
+      </div></div>
+      {cur === 'suppliers' && <Suppliers {...props} />}
+      {cur === 'reorder' && <SmartPurchasing {...props} />}
+      {!views.length && <div className="card"><div className="empty">لا توجد أقسام متاحة لصلاحيتك.</div></div>}
+    </div>
+  );
+}
+
 function SmartPurchasing({ org, ops, me, commit, commitOrg, say }) {
   const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
   const items = org.items || [];
