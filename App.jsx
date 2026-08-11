@@ -1998,7 +1998,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v13.8 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v13.9 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -9296,6 +9296,11 @@ function Launcher({ org, ops, me, setTab, openAcctView, openInvView }) {
   const match = (a) => !qq || norm(a.ar + ' ' + (a.en || '') + ' ' + (a.kw || []).join(' ') + ' ' + (a.sections || []).join(' ')).includes(qq);
   const shown = mine.filter(match);
   const favApps = mine.filter(a => isFav(a.id) && match(a));
+  // v13.9 — فهرس الأقسام داخل المراكز: بحث يقفز مباشرةً لأي قسم (وفق صلاحية الدور)
+  const rtMe = ROLES[me.role]?.tabs || [];
+  const fullMe = ROLES[me.role]?.scope === 'all';
+  const secIndex = Object.entries(HUBS).flatMap(([hubId, h]) => h.views.filter(v => fullMe || rtMe.includes(v.id)).map(v => ({ id: v.id, ar: v.ar, icon: v.icon, hubId, hubAr: h.ar, cat: (LAUNCH_IX[hubId] || {}).cat })));
+  const matchedSecs = qq ? secIndex.filter(v => norm(v.ar + ' ' + v.hubAr).includes(qq)) : [];
   const hour = new Date().getHours();
   const greet = hour < 12 ? 'صباح الخير' : 'مساء الخير';
 
@@ -9317,8 +9322,24 @@ function Launcher({ org, ops, me, setTab, openAcctView, openInvView }) {
       <div className="lh-role"><span className="pill">{(ROLES[me.role]?.ar || me.role).split('—')[0].trim()} · {shown.length} تطبيقاً</span></div>
       <div className="lh-search">
         <Search size={15} className="lh-si" />
-        <input className="inp" placeholder="ابحث عن تطبيق… (جرّب: ميزان، رواتب، ضريبة)" value={q} onChange={e => setQ(e.target.value)} />
+        <input className="inp" placeholder="ابحث عن تطبيق أو قسم… (جرّب: تعادل، رواتب، تدفق نقدي)" value={q} onChange={e => setQ(e.target.value)} />
       </div>
+
+      {qq && matchedSecs.length > 0 && (
+        <div className="lh-sec">
+          <div className="lh-sect"><Search size={14} className="ic" />أقسام مطابقة — انتقال مباشر</div>
+          <div className="lh-grid">
+            {matchedSecs.map(v => (
+              <div key={v.hubId + ':' + v.id} className="lh-tile" style={{ '--c': CAT_CLR[v.cat] || 'var(--brass)' }}
+                onClick={() => setTab(v.id)} title={v.hubAr + ' ← ' + v.ar}>
+                <div className="lh-box"><v.icon size={25} /></div>
+                <div className="lh-nm">{v.ar}</div>
+                <div style={{ fontSize: 9, color: 'var(--faint)', marginTop: 1, textAlign: 'center' }}>{v.hubAr}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {favApps.length > 0 && !qq && (
         <div className="lh-sec">
