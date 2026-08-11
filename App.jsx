@@ -481,6 +481,7 @@ function buildAccounting(org, ops) {
   addAcc('2301', 'ضريبة القيمة المضافة — مخرجات', 'liab', { link: 'مستحقة للهيئة' });
   // — حقوق الملكية (تُفعَّل بالقيد الافتتاحي في المرحلة التالية) —
   addAcc('3101', 'رأس المال والأرصدة الافتتاحية', 'equity', { link: 'الأرصدة الافتتاحية — من شاشة المحاسبة' });
+  addAcc('3201', 'الأرباح المبقاة (المدوّرة)', 'equity', { link: 'قيد إقفال السنة المالية — من شاشة المحاسبة' });
   // — الإيرادات —
   addAcc('4101', 'المبيعات (إجمالية)', 'rev', { link: 'إغلاقات الورديات المعتمدة' });
   addAcc('4201', 'أرباح بيع/استبعاد الأصول', 'rev', { link: 'سجل الأصول — عند البيع بأعلى من القيمة الدفترية' });
@@ -790,6 +791,31 @@ function buildAccounting(org, ops) {
       lines: (j.lines || []).map(l => L(l.code, l.debit || 0, l.credit || 0))
     });
   });
+
+  // ٩د) قيد إقفال السنة المالية: يُصفّر الإيرادات والمصروفات حتى تاريخ الإقفال ويحوّل صافيها إلى «الأرباح المبقاة» (3201)
+  //     يُستثنى من قائمة الدخل (closing:true) فتبقى قائمة الدخل تعرض الأداء التشغيلي، ويُدرَج في الميزان والمركز المالي
+  //     التوازن مضمون: مدين (الإيرادات + صافي الخسارة) = دائن (المصروفات + صافي الربح)
+  const ye = org.yearEnd;
+  if (ye && ye.enabled && ye.closeDate) {
+    const cd = ye.closeDate.slice(0, 10);
+    const cm = {};
+    entries.forEach(e => { if ((e.date || '') <= cd) e.lines.forEach(l => { const x = cm[l.code] || (cm[l.code] = { debit: 0, credit: 0 }); x.debit += l.debit; x.credit += l.credit; }); });
+    let dr = 0, cr = 0; const clLines = [];
+    accounts.filter(a => a.kind === 'rev' || a.kind === 'exp').forEach(a => {
+      const agg = cm[a.code] || { debit: 0, credit: 0 };
+      const bal = a.kind === 'rev' ? agg.credit - agg.debit : agg.debit - agg.credit; // الرصيد الطبيعي
+      if (Math.abs(bal) < 0.005) return;
+      if (a.kind === 'rev') { if (bal > 0) { clLines.push(L(a.code, bal, 0)); dr += bal; } else { clLines.push(L(a.code, 0, -bal)); cr += -bal; } }
+      else { if (bal > 0) { clLines.push(L(a.code, 0, bal)); cr += bal; } else { clLines.push(L(a.code, -bal, 0)); dr += -bal; } }
+    });
+    const plug = Math.round((dr - cr) * 100) / 100;   // موجب = ربح (دائن للأرباح المبقاة) · سالب = خسارة
+    if (Math.abs(plug) >= 0.005) clLines.push(plug > 0 ? L('3201', 0, plug) : L('3201', -plug, 0));
+    if (clLines.length) push({
+      id: 'yearend', date: cd,
+      title: 'قيد إقفال السنة المالية حتى ' + cd + (plug > 0 ? ' (ربح مُدوّر ' + money(plug) + ')' : plug < 0 ? ' (خسارة مُدوّرة ' + money(-plug) + ')' : ''),
+      src: 'إقفال سنوي', ref: 'إقفال', closing: true, lines: clLines
+    });
+  }
 
   // ===== الترقيم والتجميع =====
   entries.sort((a, b) => (a.date || '').localeCompare(b.date || '') || a.id.localeCompare(b.id));
@@ -1691,7 +1717,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v10.2 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v10.3 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -7150,6 +7176,10 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   });
   const [open, setOpen] = useState({});             // القيود المفتوحة التفاصيل
   const [stlF, setStlF] = useState(null);           // v9.9 نموذج تسوية كشف تطبيق
+  const [yeD, setYeD] = useState(() => {            // v10.3 مسودة إقفال السنة المالية
+    const y = org.yearEnd || {};
+    return { enabled: !!y.enabled, closeDate: y.closeDate || (String(new Date().getFullYear() - 1) + '-12-31') };
+  });
   const [q, setQ] = useState('');
   const [month, setMonth] = useState('');           // فلتر شهر للقيود
   const [from, setFrom] = useState('');             // فترة الميزان/القوائم
@@ -7178,6 +7208,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const srcBadge = (s) => s === 'إغلاق وردية' ? 'b-mint'
     : s === 'كشف الرواتب' ? 'b-sky'
     : s === 'قيد يدوي' || s === 'قيد افتتاحي' ? 'b-violet'
+    : s === 'إقفال سنوي' ? 'b-brass'
     : s === 'تحويل خزينة' || s === 'الخزينة الرئيسية' ? 'b-brass'
     : s === 'فاتورة مورد' || s === 'سداد مركزي' || s === 'سداد مورد بالوردية' ? 'b-amber'
     : 'b-dim';
@@ -7200,7 +7231,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const tbEntries = A.entries.filter(e => inPeriod(e, from, to) && byBranch(e));
   const tbAgg = aggOf(tbEntries);
   const tbD = sum(tbEntries, e => e.debit), tbC = sum(tbEntries, e => e.credit);
-  const fsEntries = A.entries.filter(e => inPeriod(e, from, to));      // قائمة الدخل بالفترة
+  const fsEntries = A.entries.filter(e => inPeriod(e, from, to) && !e.closing);  // قائمة الدخل بالفترة (تستثني قيد الإقفال السنوي)
   const fsAgg = aggOf(fsEntries);
   const bsEntries = A.entries.filter(e => inPeriod(e, '', to));        // المركز المالي تراكمي حتى تاريخ
   const bsAgg = aggOf(bsEntries);
@@ -7563,6 +7594,19 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     say('حُفظت الأرصدة الافتتاحية — يظهر القيد الافتتاحي في اليومية والميزان');
   };
 
+  // v10.3 — حفظ إعداد إقفال السنة المالية (قيد إقفال آلي يُصفّر الإيرادات/المصروفات إلى الأرباح المبقاة)
+  const saveYearEnd = async () => {
+    const cd = (yeD.closeDate || '').slice(0, 10);
+    if (yeD.enabled && !cd) return say('اختر تاريخ إقفال السنة', 'no');
+    if (yeD.enabled && cd > today()) return say('تاريخ الإقفال في المستقبل — اختر تاريخًا منتهيًا', 'no');
+    await commitOrg(d => ({ ...d, yearEnd: { enabled: !!yeD.enabled, closeDate: cd } }), {
+      actionType: 'update', targetType: 'year_end', targetId: 'yearend',
+      title: yeD.enabled ? 'فعّل إقفال السنة المالية' : 'أوقف إقفال السنة المالية',
+      details: yeD.enabled ? ('حتى ' + cd) : 'موقوف'
+    });
+    say(yeD.enabled ? 'فُعّل الإقفال — تولّد قيد إقفال السنة وحُوّل الصافي إلى الأرباح المبقاة ✓' : 'أُوقف إقفال السنة');
+  };
+
   // v9.9 — حفظ تسوية كشف تطبيق توصيل
   const saveStl = async () => {
     if (!stlF) return;
@@ -7654,6 +7698,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         <button className={'btn sm' + (view === 'lock' ? ' pri' : ' gh')} onClick={() => setView('lock')}><Lock size={14} />الإقفال</button>
         <button className={'btn sm' + (view === 'astl' ? ' pri' : ' gh')} onClick={() => setView('astl')}><Truck size={14} />تسوية التطبيقات</button>
         <button className={'btn sm' + (view === 'ob' ? ' pri' : ' gh')} onClick={() => setView('ob')}><Landmark size={14} />الأرصدة الافتتاحية</button>
+        <button className={'btn sm' + (view === 'yend' ? ' pri' : ' gh')} onClick={() => setView('yend')}><CalendarDays size={14} />إقفال السنة</button>
         {canPost && <button className="btn sm" style={{ marginInlineStart: 'auto' }} onClick={newJm}><Plus size={14} />قيد يدوي / افتتاحي</button>}
       </div>
 
@@ -8091,6 +8136,60 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
             {org.openingBalances && (org.openingBalances.lines || []).length > 0 && (
               <div className="note">✓ الأرصدة الافتتاحية مُفعّلة حاليًا بتاريخ {org.openingBalances.asOf} — تظهر كقيد «الأرصدة الافتتاحية» في اليومية وتنعكس في الميزان والمركز المالي.</div>
             )}
+          </div>
+        );
+      })()}
+
+      {view === 'yend' && (() => {
+        const cd = (yeD.closeDate || '').slice(0, 10);
+        const opAgg = {};
+        A.entries.forEach(e => { if (!e.closing && (e.date || '') <= cd) e.lines.forEach(l => { const x = opAgg[l.code] || (opAgg[l.code] = { debit: 0, credit: 0 }); x.debit += l.debit; x.credit += l.credit; }); });
+        const revAccts = A.accounts.filter(a => a.kind === 'rev');
+        const expAccts = A.accounts.filter(a => a.kind === 'exp');
+        const bOf = (a) => { const x = opAgg[a.code] || { debit: 0, credit: 0 }; return a.kind === 'rev' ? x.credit - x.debit : x.debit - x.credit; };
+        const totRev = Math.round(sum(revAccts, bOf) * 100) / 100;
+        const totExp = Math.round(sum(expAccts, bOf) * 100) / 100;
+        const net = Math.round((totRev - totExp) * 100) / 100;
+        const retainedNow = Math.round(((A.accounts.find(a => a.code === '3201') || {}).balance || 0) * 100) / 100;
+        const active = !!(org.yearEnd && org.yearEnd.enabled);
+        const yeLocked = periodLocked(org, cd);
+        return (
+          <div className="grid" style={{ gap: 12 }}>
+            <div className="card">
+              <div className="card-t"><CalendarDays size={15} color="var(--brass)" />إقفال السنة المالية</div>
+              <div className="note" style={{ margin: '8px 0 12px' }}>
+                في نهاية كل سنة، يُصفَّر رصيد <b>الإيرادات والمصروفات</b> ويُحوَّل صافيها (ربح أو خسارة) إلى
+                حساب <b>«الأرباح المبقاة (3201)»</b> ضمن حقوق الملكية — فتبدأ السنة الجديدة بأرباح صفرية.
+                قائمة الدخل تبقى تعرض الأداء التشغيلي كما هو (قيد الإقفال لا يظهر فيها)، بينما ينعكس التدوير في
+                <b> الميزان والمركز المالي</b>. <b>موقوف افتراضيًا</b>، وقابل للتراجع بإلغاء التفعيل، ومؤمّن ضد الشهور المقفلة.
+              </div>
+              <div className="row" style={{ gap: 14, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 12 }}>
+                <Field label="تاريخ نهاية السنة المالية (يُقفَل حتى هذا التاريخ)">
+                  <input type="date" className="inp" style={{ width: 170 }} value={yeD.closeDate}
+                    onChange={e => setYeD(s => ({ ...s, closeDate: e.target.value }))} disabled={!canPost} />
+                </Field>
+                <label className="row" style={{ gap: 6, fontSize: 12, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={yeD.enabled} onChange={e => setYeD(s => ({ ...s, enabled: e.target.checked }))} disabled={!canPost} />
+                  تفعيل قيد إقفال السنة
+                </label>
+              </div>
+              {yeLocked && <div className="note" style={{ marginBottom: 10, borderColor: 'rgba(224,164,88,.4)' }}>⚠️ شهر {cd.slice(0, 7)} مقفل — افتح الإقفال أولًا لتعديل إقفال السنة.</div>}
+              <div className="card" style={{ background: 'rgba(200,162,74,.05)' }}>
+                <div className="row" style={{ justifyContent: 'space-between', fontSize: 12.5, marginBottom: 6 }}><span style={{ color: 'var(--dim)' }}>إجمالي الإيرادات حتى {cd || '—'}</span><b className="num" style={{ color: 'var(--mint)' }}>{money(totRev)}</b></div>
+                <div className="row" style={{ justifyContent: 'space-between', fontSize: 12.5, marginBottom: 6 }}><span style={{ color: 'var(--dim)' }}>إجمالي المصروفات حتى {cd || '—'}</span><b className="num" style={{ color: 'var(--rose)' }}>{money(totExp)}</b></div>
+                <div className="row" style={{ justifyContent: 'space-between', fontSize: 14, paddingTop: 8, borderTop: '1px solid var(--line)', fontWeight: 800 }}>
+                  <span>{net >= 0 ? 'صافي ربح يُدوَّر إلى الأرباح المبقاة' : 'صافي خسارة تُخصم من الأرباح المبقاة'}</span>
+                  <b className="num" style={{ color: net >= 0 ? 'var(--mint)' : 'var(--rose)' }}>{money(Math.abs(net))}</b>
+                </div>
+              </div>
+              <div className="row" style={{ gap: 14, marginTop: 14, flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span className={'badge ' + (active ? 'b-mint' : 'b-dim')} style={{ fontSize: 12.5, padding: '6px 12px' }}>
+                  {active ? <>مُفعّل — رصيد الأرباح المبقاة (3201) الآن: <b className="num">{money(retainedNow)}</b></> : 'غير مُفعّل — لن يتولّد قيد إقفال'}
+                </span>
+                {canPost && <button className="btn pri" disabled={yeLocked} onClick={saveYearEnd}><Check size={14} />{yeD.enabled ? 'حفظ وتفعيل الإقفال' : 'حفظ (موقوف)'}</button>}
+              </div>
+            </div>
+            {active && <div className="note">✓ قيد «إقفال السنة المالية حتى {(org.yearEnd || {}).closeDate}» يظهر في اليومية (مُوسَّم كإقفال) ويُحوّل الصافي إلى الأرباح المبقاة. قائمة الدخل غير متأثرة، والمركز المالي يعرض «الأرباح المبقاة» ضمن حقوق الملكية.</div>}
           </div>
         );
       })()}
