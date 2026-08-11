@@ -1823,7 +1823,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v11.3 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v11.4 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -7728,6 +7728,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   });
   const [bMonth, setBMonth] = useState(() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }); // شهر المقارنة
   const [apSel, setApSel] = useState(null);         // v10.7 المورد المختار لكشف الحساب
+  const [fcD, setFcD] = useState(() => { const f = org.forecastCfg || {}; return { monthlySales: f.monthlySales != null ? String(f.monthlySales) : '', monthlyOpex: f.monthlyOpex != null ? String(f.monthlyOpex) : '', buffer: f.safetyBuffer != null ? String(f.safetyBuffer) : '', horizon: f.horizon || 6 }; }); // v11.4 توقّع نقدي
   const [q, setQ] = useState('');
   const [month, setMonth] = useState('');           // فلتر شهر للقيود
   const [from, setFrom] = useState('');             // فترة الميزان/القوائم
@@ -8326,6 +8327,16 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     say(budD.enabled ? 'حُفظت الموازنة — قارِن الفعلي بالمخطّط شهريًا ✓' : 'حُفظت الموازنة (موقوفة)');
   };
 
+  // v11.4 — حفظ افتراضات التوقّع النقدي (فارغ = يستخدم المتوسط التاريخي تلقائيًا)
+  const saveForecast = async () => {
+    const num = (s) => s === '' ? null : (Math.round((Number(s) || 0) * 100) / 100);
+    await commitOrg(d => ({ ...d, forecastCfg: { monthlySales: num(fcD.monthlySales), monthlyOpex: num(fcD.monthlyOpex), safetyBuffer: num(fcD.buffer), horizon: Number(fcD.horizon) || 6 } }), {
+      actionType: 'update', targetType: 'year_end', targetId: 'forecast',
+      title: 'حدّث افتراضات التوقّع النقدي', details: 'أفق ' + (fcD.horizon || 6) + ' أشهر'
+    });
+    say('حُفظت افتراضات التوقّع ✓');
+  };
+
   // v9.9 — حفظ تسوية كشف تطبيق توصيل
   const saveStl = async () => {
     if (!stlF) return;
@@ -8416,6 +8427,54 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const exportJournal = () => dlFile('يومية_' + expTag + '.csv', toCsv(journalRows()));
   const exportTB = () => dlFile('ميزان_المراجعة_' + expTag + '.csv', toCsv(tbRows()));
   const exportFS = () => dlFile('القوائم_المالية_' + expTag + '.csv', toCsv(fsRows()));
+
+  // ===== v11.4: محرك التوقّع النقدي — رصيد حالي + مبيعات متوقّعة + تحصيل ذمم التطبيقات − (موردون مستحقون + رواتب + مصروفات تشغيل) =====
+  const fcastData = () => {
+    const R = (n) => Math.round(n * 100) / 100;
+    const cashNow = R(sum(A.accounts.filter(a => a.cash), a => a.balance));
+    const appRecv = R(sum(A.accounts.filter(a => /^13/.test(a.code)), a => a.balance));   // ذمم التطبيقات — تُحصّل قريبًا
+    const cc = (ops.closings || []).filter(countedClosing);
+    const recent = [...new Set(cc.map(c => (c.date || '').slice(0, 7)))].sort().slice(-6);
+    const nMo = Math.max(1, recent.length);
+    const inRecent = (c) => recent.includes((c.date || '').slice(0, 7));
+    const avgSales = Math.round(sum(cc.filter(inRecent), c => c.totalRevenue || 0) / nMo);
+    const avgOpex = Math.round(sum(cc.filter(inRecent), c => sum(c.expenses || [], e => e.amount || 0)) / nMo);
+    const gcfg = org.gosiCfg || {};
+    const payroll = R(sum((org.employees || []).filter(e => e.isActive !== false), e => {
+      const gross = (e.baseSalary || 0) + (e.housingAllowance || 0) + (e.transportAllowance || 0) + (e.otherAllowance || 0);
+      const gEr = (gcfg.enabled && e.gosiSubject) ? Math.round(((e.baseSalary || 0) + (e.housingAllowance || 0)) * (Number(gcfg.erRate) || 0)) / 100 : 0;
+      return gross + gEr;
+    }));
+    const paidInCl = (id) => sum(cc.flatMap(c => (c.supplierPayments || []).filter(pm => pm.invoiceId === id)), pm => payTotal(pm));
+    const outstanding = (ops.invoices || []).map(i => ({ due: ((i.dueDate || i.date || today()) + '').slice(0, 7), rem: Math.max(0, (i.amount || 0) - (i.paidAmount || 0) - paidInCl(i.id)) })).filter(x => x.rem > 0.004);
+    const monthlySales = fcD.monthlySales !== '' ? (Number(fcD.monthlySales) || 0) : avgSales;
+    const monthlyOpex = fcD.monthlyOpex !== '' ? (Number(fcD.monthlyOpex) || 0) : avgOpex;
+    const buffer = fcD.buffer !== '' ? (Number(fcD.buffer) || 0) : 0;
+    const horizon = Math.max(1, Math.min(12, Number(fcD.horizon) || 6));
+    const ymAddL = (ym, k) => { const pr = ym.split('-').map(Number); const t = pr[0] * 12 + (pr[1] - 1) + k; return String(Math.floor(t / 12)).padStart(4, '0') + '-' + String((t % 12) + 1).padStart(2, '0'); };
+    const curYm = today().slice(0, 7);
+    let opening = cashNow; const rows = [];
+    for (let k = 0; k < horizon; k++) {
+      const ym = ymAddL(curYm, k);
+      const recv = k === 0 ? appRecv : 0;
+      const payDue = R(sum(outstanding.filter(o => k === 0 ? o.due <= ym : o.due === ym), o => o.rem));
+      const inflow = R(monthlySales + recv);
+      const outflow = R(payDue + payroll + monthlyOpex);
+      const closing = R(opening + inflow - outflow);
+      rows.push({ ym, opening: R(opening), sales: monthlySales, recv, payDue, payroll, opex: monthlyOpex, inflow, outflow, closing });
+      opening = closing;
+    }
+    const minClosing = rows.length ? Math.min(...rows.map(r => r.closing)) : cashNow;
+    const gap = rows.find(r => r.closing < buffer - 0.004);
+    return { cashNow, appRecv, avgSales, avgOpex, payroll, monthlySales, monthlyOpex, buffer, horizon, rows, minClosing, gap };
+  };
+  const printForecast = () => {
+    const f = fcastData();
+    const rws = f.rows.map(r => `<tr><td>${r.ym}</td><td class="n">${money(r.opening)}</td><td class="n">${money(r.sales)}</td><td class="n">${r.recv ? money(r.recv) : '—'}</td><td class="n">${r.payDue ? money(r.payDue) : '—'}</td><td class="n">${money(r.payroll)}</td><td class="n">${money(r.opex)}</td><td class="n">${money(r.closing)}</td></tr>`).join('');
+    printA4(org, 'التوقّع النقدي — ' + f.horizon + ' أشهر', 'من ' + arDate(today()) + ' · النقد الآن ' + money(f.cashNow),
+      `<table><thead><tr><th>الشهر</th><th>أول المدة</th><th>مبيعات متوقّعة</th><th>تحصيل تطبيقات</th><th>موردون مستحقون</th><th>رواتب</th><th>مصروفات تشغيل</th><th>آخر المدة</th></tr></thead><tbody>${rws}
+      <tr class="tot"><td colspan="7">أدنى رصيد متوقّع خلال المدة</td><td class="n">${money(f.minClosing)}</td></tr></tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+  };
   const exportPack = () => {
     const co = (org.company && org.company.name) || 'المنشأة';
     const all = [['حزمة المحاسب — ' + co], ['الفترة', expTag], [''], ['— دليل الحسابات —']]
@@ -8491,6 +8550,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         <button className={'btn sm' + (view === 'tb' ? ' pri' : ' gh')} onClick={() => setView('tb')}><Scale size={14} />ميزان المراجعة</button>
         <button className={'btn sm' + (view === 'fs' ? ' pri' : ' gh')} onClick={() => setView('fs')}><FileBarChart size={14} />القوائم المالية</button>
         <button className={'btn sm' + (view === 'cf' ? ' pri' : ' gh')} onClick={() => setView('cf')}><ArrowLeftRight size={14} />التدفقات النقدية</button>
+        <button className={'btn sm' + (view === 'fcast' ? ' pri' : ' gh')} onClick={() => setView('fcast')}><TrendingUp size={14} />التوقّع النقدي</button>
         <button className={'btn sm' + (view === 'bud' ? ' pri' : ' gh')} onClick={() => setView('bud')}><BarChart3 size={14} />الموازنة</button>
         <button className={'btn sm' + (view === 'anl' ? ' pri' : ' gh')} onClick={() => setView('anl')}><TrendingUp size={14} />التحليل والنِسَب</button>
         <button className={'btn sm' + (view === 'apage' ? ' pri' : ' gh')} onClick={() => { setView('apage'); setApSel(null); }}><Users size={14} />أعمار الموردين</button>
@@ -8809,6 +8869,64 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
                 <b> استثمارية</b> (شراء/بيع الأصول الثابتة)، أو <b>تمويلية</b> (رأس المال، المسحوبات). التحويلات بين خزائنك لا تظهر لأنها لا تُغيّر إجمالي النقد،
                 وقيد إقفال السنة لا يمسّ النقد. صافي التغيّر يطابق حركة رصيد النقد الفعلية دائمًا.
               </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {view === 'fcast' && (() => {
+        const f = fcastData();
+        const maxAbs = Math.max(1, ...f.rows.map(r => Math.abs(r.closing)));
+        return (
+          <div className="grid" style={{ gap: 12 }}>
+            <div className="card">
+              <div className="card-h"><div className="card-t"><TrendingUp size={15} color="var(--brass)" />افتراضات التوقّع</div>
+                <button className="btn sm" onClick={printForecast}><Printer size={13} />طباعة A4</button></div>
+              <div className="note" style={{ margin: '6px 0 10px' }}>القيم فارغةً تُحسب تلقائيًا من متوسط آخر ٦ أشهر. الرواتب ومستحقات الموردين تُؤخذ من بياناتك الفعلية (بتواريخ الاستحقاق). عدّل التقديرات كما تتوقّع.</div>
+              <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                <Field label="مبيعات شهرية متوقّعة" style={{ width: 160 }}><input className="inp n" inputMode="decimal" value={fcD.monthlySales} placeholder={'تلقائي: ' + money(f.avgSales)} onChange={e => setFcD(s => ({ ...s, monthlySales: e.target.value.replace(/[^\d.]/g, '') }))} disabled={!canPost} /></Field>
+                <Field label="مصروفات تشغيل شهرية" style={{ width: 160 }}><input className="inp n" inputMode="decimal" value={fcD.monthlyOpex} placeholder={'تلقائي: ' + money(f.avgOpex)} onChange={e => setFcD(s => ({ ...s, monthlyOpex: e.target.value.replace(/[^\d.]/g, '') }))} disabled={!canPost} /></Field>
+                <Field label="حد الأمان النقدي" style={{ width: 140 }}><input className="inp n" inputMode="decimal" value={fcD.buffer} placeholder="0.00" onChange={e => setFcD(s => ({ ...s, buffer: e.target.value.replace(/[^\d.]/g, '') }))} disabled={!canPost} /></Field>
+                <Field label="الأفق" style={{ width: 110 }}>
+                  <select className="sel" value={fcD.horizon} onChange={e => setFcD(s => ({ ...s, horizon: Number(e.target.value) }))} disabled={!canPost}>
+                    <option value={3}>٣ أشهر</option><option value={6}>٦ أشهر</option><option value={12}>١٢ شهرًا</option>
+                  </select>
+                </Field>
+                {canPost && <button className="btn pri" onClick={saveForecast}><Check size={14} />حفظ الافتراضات</button>}
+              </div>
+            </div>
+
+            <div className="grid g3">
+              <Kpi label="النقد الآن (خزائن + بنك)" value={money(f.cashNow)} sub={'+ ذمم تطبيقات ' + money(f.appRecv)} icon={Wallet} color="#C8A24A" />
+              <Kpi label="أدنى رصيد متوقّع" value={money(f.minClosing)} sub={'خلال ' + f.horizon + ' أشهر'} icon={TrendingDown} color={f.minClosing < f.buffer - 0.004 ? '#D9544D' : '#4FB286'} />
+              <Kpi label={f.gap ? 'أول شهر عجز متوقّع' : 'لا عجز متوقّع'} value={f.gap ? f.gap.ym : '✓'} sub={f.gap ? 'الرصيد ' + money(f.gap.closing) : 'ضمن حد الأمان'} icon={AlertTriangle} color={f.gap ? '#D9544D' : '#4FB286'} />
+            </div>
+
+            {f.gap && <div className="note" style={{ borderColor: 'rgba(217,84,77,.4)', color: 'var(--rose)' }}>⚠️ يُتوقّع أن ينخفض النقد دون حد الأمان في {f.gap.ym} (رصيد {money(f.gap.closing)}). راجع مواعيد سداد الموردين أو رتّب تمويلًا مسبقًا.</div>}
+
+            <div className="card">
+              <div className="card-t" style={{ marginBottom: 8 }}><TrendingUp size={15} color="var(--brass)" />التوقّع الشهري</div>
+              <div className="tw">
+                <table className="tb">
+                  <thead><tr><th>الشهر</th><th style={{ textAlign: 'end' }}>أول المدة</th><th style={{ textAlign: 'end' }}>مبيعات</th><th style={{ textAlign: 'end' }}>تحصيل تطبيقات</th><th style={{ textAlign: 'end' }}>موردون</th><th style={{ textAlign: 'end' }}>رواتب</th><th style={{ textAlign: 'end' }}>تشغيل</th><th style={{ textAlign: 'end' }}>آخر المدة</th><th style={{ width: '16%' }} /></tr></thead>
+                  <tbody>
+                    {f.rows.map(r => (
+                      <tr key={r.ym}>
+                        <td className="num" style={{ fontSize: 11.5 }}>{r.ym}</td>
+                        <td className="num" style={{ textAlign: 'end' }}>{money(r.opening)}</td>
+                        <td className="num" style={{ textAlign: 'end', color: 'var(--mint)' }}>{money(r.sales)}</td>
+                        <td className="num" style={{ textAlign: 'end', color: 'var(--mint)' }}>{r.recv ? money(r.recv) : '—'}</td>
+                        <td className="num" style={{ textAlign: 'end', color: 'var(--rose)' }}>{r.payDue ? money(r.payDue) : '—'}</td>
+                        <td className="num" style={{ textAlign: 'end', color: 'var(--rose)' }}>{money(r.payroll)}</td>
+                        <td className="num" style={{ textAlign: 'end', color: 'var(--rose)' }}>{money(r.opex)}</td>
+                        <td className="num" style={{ textAlign: 'end', fontWeight: 800, color: r.closing < f.buffer - 0.004 ? 'var(--rose)' : 'var(--mint)' }}>{money(r.closing)}</td>
+                        <td><div style={{ height: 9, borderRadius: 5, width: Math.max(2, Math.abs(r.closing) / maxAbs * 100) + '%', background: r.closing < f.buffer - 0.004 ? 'var(--rose)' : 'var(--mint)', opacity: .75 }} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="note" style={{ marginTop: 10 }}>توقّع تقديري: المبيعات والمصروفات التشغيلية تقديرات (متوسط تاريخي قابل للتعديل)، بينما <b>الرواتب والتأمينات ومستحقات الموردين</b> من التزاماتك الفعلية بتواريخها. ذمم التطبيقات الحالية تُحصَّل في الشهر الأول. ليس ضمانًا — أداة تخطيط للسيولة.</div>
             </div>
           </div>
         );
