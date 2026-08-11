@@ -1104,16 +1104,19 @@ const TAB_AR = {
   acct: 'المحاسبة', shifts: 'الورديات', archive: 'أرشيف المستندات', ai: 'المركز الذكي',
   reports: 'التقارير المالية', rbuild: 'منشئ التقارير', entities: 'مركز المنشآت', admin: 'الفروع والمستخدمون', audit: 'سجل التدقيق'
 };
-// ═══ هويات المنصّة اللونية (١١) × وضع ليل/نهار — v14.4 ═══
+// ═══ ثيمات المنصّة الاحترافية (٦ أساليب تصميم) × وضع ليل/نهار — v14.5 ═══
 const THEME_META = {
-  gold: { name: 'الذهبي', color: '#A87D28' }, blue: { name: 'الأزرق', color: '#2A5DA8' }, emerald: { name: 'الزمردي', color: '#1E8A5A' },
-  slate: { name: 'الرمادي', color: '#46525E' }, wine: { name: 'النبيذي', color: '#8E2E43' }, bronze: { name: 'النحاسي', color: '#9A6520' },
-  navy: { name: 'الكحلي', color: '#33459C' }, teal: { name: 'التركوازي', color: '#0E8A8A' }, purple: { name: 'البنفسجي', color: '#6A44A8' },
-  terra: { name: 'الطيني', color: '#C05A2E' }, saudi: { name: 'الأخضر السعودي', color: '#0F7A3D' }
+  royal: { name: 'الملكي الذهبي', desc: 'أنيق دافئ', color: '#A87D28' },
+  glass: { name: 'الزجاجي الشفّاف', desc: 'بطاقات ضبابية', color: '#2E7CC4' },
+  minimal: { name: 'النقي المسطّح', desc: 'بسيط بلا ظلال', color: '#46525E' },
+  elevated: { name: 'المرتفع الفاخر', desc: 'ظلال وارتفاع', color: '#6A44A8' },
+  corporate: { name: 'المؤسسي الحادّ', desc: 'زوايا حادّة', color: '#33459C' },
+  saudi: { name: 'الأخضر السعودي', desc: 'هوية وطنية', color: '#0F7A3D' }
 };
-const THEME_ORDER = ['gold', 'blue', 'emerald', 'slate', 'wine', 'bronze', 'navy', 'teal', 'purple', 'terra', 'saudi'];
-const normAcc = (t) => THEME_META[t] ? t : (t === 'charcoal' ? 'bronze' : t === 'midnight' ? 'navy' : 'gold');
-const themeCls = (acc, mode) => 'rms mode-' + (mode === 'dark' ? 'dark' : 'light') + ' acc-' + normAcc(acc);
+const THEME_ORDER = ['royal', 'glass', 'minimal', 'elevated', 'corporate', 'saudi'];
+const THEME_LEGACY = { gold: 'royal', charcoal: 'royal', bronze: 'royal', terra: 'royal', lite: 'royal', dark: 'royal', blue: 'glass', teal: 'glass', midnight: 'glass', slate: 'minimal', navy: 'corporate', purple: 'elevated', wine: 'elevated', emerald: 'saudi' };
+const normTheme = (t) => THEME_META[t] ? t : (THEME_LEGACY[t] || 'royal');
+const themeCls = (t, mode) => 'rms mode-' + (mode === 'dark' ? 'dark' : 'light') + ' thm-' + normTheme(t);
 
 const ROLES = {
   // ===== الأدوار الخمسة المعتمدة =====
@@ -1403,7 +1406,7 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [bell, setBell] = useState(false);
   const [lastSeenAudit, setLastSeenAudit] = useState(() => Date.now());
-  const [theme, setTheme] = useState(() => { try { return normAcc(localStorage.getItem('rms8:theme') || 'gold'); } catch { return 'gold'; } });
+  const [theme, setTheme] = useState(() => { try { return normTheme(localStorage.getItem('rms8:theme') || 'gold'); } catch { return 'gold'; } });
   const [mode, setMode] = useState(() => { try { return localStorage.getItem('rms8:mode') === 'dark' ? 'dark' : 'light'; } catch { return 'light'; } });
   const [tour, setTour] = useState(false);
   const [live, setLive] = useState(false);
@@ -2014,7 +2017,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v14.4 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v14.5 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2033,11 +2036,11 @@ export default function App() {
               </button>
               <button className="btn sm gh" title={mode === 'dark' ? 'التبديل إلى الوضع النهاري' : 'التبديل إلى الوضع الليلي'} onClick={() => setMode(m => { const n = m === 'dark' ? 'light' : 'dark'; try { localStorage.setItem('rms8:mode', n); } catch { } return n; })} style={{ fontSize: 15 }}>{mode === 'dark' ? '🌞' : '🌙'}</button>
               <div style={{ position: 'relative', flexShrink: 0 }}>
-                <button className="btn sm gh themebtn" title="لون هوية المنصّة" onClick={() => setThemePick(v => !v)} style={{ fontSize: 15 }}>🎨</button>
+                <button className="btn sm gh themebtn" title="ثيم المنصّة" onClick={() => setThemePick(v => !v)} style={{ fontSize: 15 }}>🎨</button>
                 {themePick && (<>
                   <div className="usermenu-back" onClick={() => setThemePick(false)} />
                   <div className="usermenu-menu" style={{ minWidth: 252, padding: 8, zIndex: 70 }}>
-                    <div className="umhd" style={{ padding: '4px 6px 8px' }}><b>مظهر المنصّة</b><small>الهوية اللونية والوضع — فوريّ ومحفوظ</small></div>
+                    <div className="umhd" style={{ padding: '4px 6px 8px' }}><b>ثيم المنصّة</b><small>أسلوب التصميم والوضع — فوريّ ومحفوظ</small></div>
                     <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
                       {[['light', '🌞 نهار'], ['dark', '🌙 ليل']].map(([mv, lbl]) => (
                         <button key={mv} onClick={() => { setMode(mv); try { localStorage.setItem('rms8:mode', mv); } catch { } }}
@@ -2045,11 +2048,11 @@ export default function App() {
                       ))}
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                      {THEME_ORDER.map(id => { const m = THEME_META[id]; const on = normAcc(theme) === id; return (
+                      {THEME_ORDER.map(id => { const m = THEME_META[id]; const on = normTheme(theme) === id; return (
                         <button key={id} onClick={() => { setTheme(id); try { localStorage.setItem('rms8:theme', id); } catch { } }}
                           style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 9px', borderRadius: 9, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'start', border: '1px solid ' + (on ? 'var(--brass)' : 'var(--line)'), background: on ? 'var(--acc-soft)' : 'transparent', color: 'var(--txt)' }}>
-                          <span style={{ width: 18, height: 18, borderRadius: '50%', flexShrink: 0, background: m.color, boxShadow: 'inset 0 0 0 2px rgba(255,255,255,.35)' }} />
-                          <span style={{ fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}{on ? ' ✓' : ''}</span>
+                          <span style={{ width: 20, height: 20, borderRadius: '50%', flexShrink: 0, background: m.color, boxShadow: 'inset 0 0 0 2px rgba(255,255,255,.35)' }} />
+                          <span style={{ minWidth: 0, display: 'flex', flexDirection: 'column', lineHeight: 1.15 }}><span style={{ fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}{on ? ' ✓' : ''}</span><span style={{ fontSize: 9, color: 'var(--faint)', whiteSpace: 'nowrap' }}>{m.desc}</span></span>
                         </button>
                       ); })}
                     </div>

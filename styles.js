@@ -64,17 +64,32 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
   --sh-1:0 1px 2px rgba(0,0,0,.24);--sh-2:0 2px 9px rgba(0,0,0,.30);--sh-3:0 6px 20px rgba(0,0,0,.36);--sh-4:0 14px 40px rgba(0,0,0,.44)
 }
 /* ── الهويات اللونية (١١) ── */
-.rms.acc-gold{--acc:#A87D28}
-.rms.acc-blue{--acc:#2A5DA8}
-.rms.acc-emerald{--acc:#1E8A5A}
-.rms.acc-slate{--acc:#46525E}
-.rms.acc-wine{--acc:#8E2E43}
-.rms.acc-bronze{--acc:#9A6520}
-.rms.acc-navy{--acc:#33459C}
-.rms.acc-teal{--acc:#0E8A8A}
-.rms.acc-purple{--acc:#6A44A8}
-.rms.acc-terra{--acc:#C05A2E}
-.rms.acc-saudi{--acc:#0F7A3D}
+/* ── الثيمات الاحترافية (٦): كلٌّ أسلوب تصميم مختلف، لا مجرّد لون ── */
+.rms.thm-royal{--acc:#A87D28;--r-md:16px;--r-lg:20px}
+.rms.thm-glass{--acc:#2E7CC4;--r-md:16px;--r-lg:20px}
+.rms.thm-minimal{--acc:#46525E;--r-md:12px;--r-lg:14px}
+.rms.thm-elevated{--acc:#6A44A8;--r-md:18px;--r-lg:22px}
+.rms.thm-corporate{--acc:#33459C;--r-md:8px;--r-lg:10px}
+.rms.thm-saudi{--acc:#0F7A3D;--r-md:15px;--r-lg:18px}
+/* الزجاجي: بطاقات شفّافة مع ضبابية */
+.rms.thm-glass .card,.rms.thm-glass .kpi{background:color-mix(in srgb,var(--ink2) 70%,transparent);backdrop-filter:blur(13px);-webkit-backdrop-filter:blur(13px);border-color:color-mix(in srgb,var(--ink2) 55%,var(--line))}
+.rms.thm-glass .lh-box{background:color-mix(in srgb,var(--ink2) 62%,transparent);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+/* المسطّح النقي: بلا ظلال، حدود رفيعة، هدوء */
+.rms.thm-minimal .card,.rms.thm-minimal .kpi{box-shadow:none;border:1px solid var(--line);background:var(--ink2)}
+.rms.thm-minimal .card:hover,.rms.thm-minimal .kpi:hover{box-shadow:var(--sh-1);transform:none;border-color:var(--line-g)}
+.rms.thm-minimal .kpi::after{display:none}
+.rms.thm-minimal .lh-box{box-shadow:none;background:var(--ink3);border-color:var(--line)}
+.rms.thm-minimal .lh-tile:hover{transform:none}
+/* المرتفع الفاخر: ظلال أقوى ورفعٌ عند التمرير */
+.rms.thm-elevated .card,.rms.thm-elevated .kpi{box-shadow:var(--sh-2)}
+.rms.thm-elevated .card:hover,.rms.thm-elevated .kpi:hover{box-shadow:var(--sh-3);transform:translateY(-2px)}
+.rms.thm-elevated .lh-box{box-shadow:var(--sh-2)}
+.rms.thm-elevated .lh-tile:hover{transform:translateY(-6px)}
+.rms.thm-elevated .lh-tile:hover .lh-box{box-shadow:var(--sh-3)}
+/* المؤسسي الحادّ: زوايا صغيرة وحدود واضحة */
+.rms.thm-corporate .card,.rms.thm-corporate .kpi{border:1px solid var(--line-g);box-shadow:var(--sh-1)}
+.rms.thm-corporate .lh-box{border-radius:10px}
+.rms.thm-corporate .btn,.rms.thm-corporate .inp,.rms.thm-corporate .sel{border-radius:8px}
 .rms *{max-width:100%}
 .rms .num{max-width:none}
 .rms h1,.rms h2,.rms h3,.rms h4{font-family:'Markazi Text',serif;font-weight:700;margin:0;letter-spacing:0;line-height:1.25}
@@ -451,7 +466,7 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
 /* ---- السمة الفاتحة ---- */
 /* النص فوق لون الهوية: أبيض افتراضًا، وداكن للهويات الفاتحة (الذهبي/النحاسي) */
 .rms .btn.pri,.rms .brand-mark,.rms .av,.rms .lh-cnt,.rms .nav-i .cnt,.rms .step-active,.rms .icontile.on .icontile-i,.rms .toplogo-mark{color:#fff}
-.rms.acc-gold .btn.pri,.rms.acc-gold .brand-mark,.rms.acc-gold .lh-cnt,.rms.acc-gold .nav-i .cnt,.rms.acc-gold .step-active,.rms.acc-gold .icontile.on .icontile-i,.rms.acc-gold .toplogo-mark,.rms.acc-bronze .btn.pri,.rms.acc-bronze .brand-mark,.rms.acc-bronze .lh-cnt,.rms.acc-bronze .nav-i .cnt,.rms.acc-bronze .step-active,.rms.acc-bronze .icontile.on .icontile-i,.rms.acc-bronze .toplogo-mark{color:#1a1410}
+.rms.thm-royal .btn.pri,.rms.thm-royal .brand-mark,.rms.thm-royal .lh-cnt,.rms.thm-royal .nav-i .cnt,.rms.thm-royal .step-active,.rms.thm-royal .icontile.on .icontile-i,.rms.thm-royal .toplogo-mark{color:#1a1410}
 .rms.mode-light .note-v{color:#1B1712}
 .rms.mode-light .note-u,.rms.mode-light .note-t{color:#5A5148}
 .rms.mode-light .note-i{background:rgba(255,255,255,.9);color:#241F1A;border-color:rgba(0,0,0,.12)}
@@ -463,8 +478,8 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
 /* خلفية الواجهة الرئيسية (تحت التطبيقات): توهّج بلون الهوية + علامة/شعار باهت */
 .lh-bg{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
 .lh-bg::before{content:'';position:absolute;inset:0;background:radial-gradient(920px 540px at 82% -8%,color-mix(in srgb,var(--brass) 13%,transparent),transparent 60%),radial-gradient(780px 540px at 4% 112%,color-mix(in srgb,var(--brass) 8%,transparent),transparent 55%)}
-.lh-wm{position:absolute;inset-block-start:36%;inset-inline-start:50%;transform:translate(-50%,-50%);width:min(42vw,400px);max-width:none;opacity:.06;object-fit:contain}
-.lh-wm.mark{font-family:'Markazi Text',serif;font-weight:700;font-size:min(36vw,340px);line-height:1;color:var(--brass);opacity:.07;width:auto}
+.lh-wm{position:absolute;inset-block-start:50%;inset-inline-start:50%;transform:translate(-50%,-48%);width:min(60vw,680px);max-width:none;opacity:.035;object-fit:contain}
+.lh-wm.mark{font-family:'Markazi Text',serif;font-weight:700;font-size:min(56vw,580px);line-height:1;color:var(--brass);opacity:.045;width:auto}
 .lh{position:relative;z-index:1}
 
 /* ---- بوابة الدخول ---- */
