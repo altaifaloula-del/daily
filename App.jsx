@@ -1823,7 +1823,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v11.5 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v11.6 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -7730,6 +7730,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const [apSel, setApSel] = useState(null);         // v10.7 المورد المختار لكشف الحساب
   const [fcD, setFcD] = useState(() => { const f = org.forecastCfg || {}; return { monthlySales: f.monthlySales != null ? String(f.monthlySales) : '', monthlyOpex: f.monthlyOpex != null ? String(f.monthlyOpex) : '', buffer: f.safetyBuffer != null ? String(f.safetyBuffer) : '', horizon: f.horizon || 6 }; }); // v11.4 توقّع نقدي
   const [mcMonth, setMcMonth] = useState(() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }); // v11.5 شهر الإقفال
+  const [audD, setAudD] = useState(() => { const a = org.auditCfg || {}; return { largeAmount: a.largeAmount != null ? String(a.largeAmount) : '5000' }; }); // v11.6 عتبة التدقيق
   const [q, setQ] = useState('');
   const [month, setMonth] = useState('');           // فلتر شهر للقيود
   const [from, setFrom] = useState('');             // فترة الميزان/القوائم
@@ -8341,6 +8342,14 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     say('حُفظت افتراضات التوقّع ✓');
   };
 
+  // v11.6 — حفظ عتبة التدقيق
+  const saveAudit = async () => {
+    await commitOrg(d => ({ ...d, auditCfg: { largeAmount: Math.round((Number(audD.largeAmount) || 0) * 100) / 100 } }), {
+      actionType: 'update', targetType: 'year_end', targetId: 'audit', title: 'حدّث عتبة التدقيق الداخلي', details: 'حد المبلغ الكبير ' + money(Number(audD.largeAmount) || 0)
+    });
+    say('حُفظت عتبة التدقيق ✓');
+  };
+
   // v9.9 — حفظ تسوية كشف تطبيق توصيل
   const saveStl = async () => {
     if (!stlF) return;
@@ -8564,6 +8573,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         <button className={'btn sm' + (view === 'ast' ? ' pri' : ' gh')} onClick={() => setView('ast')}><Building2 size={14} />الأصول</button>
         <button className={'btn sm' + (view === 'bank' ? ' pri' : ' gh')} onClick={() => setView('bank')}><Landmark size={14} />التسوية البنكية</button>
         <button className={'btn sm' + (view === 'mclose' ? ' pri' : ' gh')} onClick={() => setView('mclose')}><ClipboardCheck size={14} />حزمة الإقفال</button>
+        <button className={'btn sm' + (view === 'ctrl' ? ' pri' : ' gh')} onClick={() => setView('ctrl')}><ShieldCheck size={14} />الضوابط والتدقيق</button>
         <button className={'btn sm' + (view === 'lock' ? ' pri' : ' gh')} onClick={() => setView('lock')}><Lock size={14} />الإقفال</button>
         <button className={'btn sm' + (view === 'astl' ? ' pri' : ' gh')} onClick={() => setView('astl')}><Truck size={14} />تسوية التطبيقات</button>
         <button className={'btn sm' + (view === 'ob' ? ' pri' : ' gh')} onClick={() => setView('ob')}><Landmark size={14} />الأرصدة الافتتاحية</button>
@@ -9553,6 +9563,80 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
                 <button className="btn pri" onClick={exportExcel}><Download size={14} />تصدير كل التقارير (Excel)</button>
               </div>
             </div>
+          </div>
+        );
+      })()}
+
+      {view === 'ctrl' && (() => {
+        const largeAmt = audD.largeAmount !== '' ? (Number(audD.largeAmount) || 0) : 5000;
+        const cc = (ops.closings || []).filter(countedClosing);
+        const F = [];
+        const add = (sev, cat, title, detail) => F.push({ sev, cat, title, detail });
+        // ١) فصل المهام: نفس الشخص أنشأ واعتمد
+        (ops.closings || []).forEach(c => { if (c.auditedBy && c.managerName && c.auditedBy === c.managerName) add('high', 'فصل المهام', 'نفس الشخص أنشأ الإغلاق واعتمده', (c.branchName || '') + ' · ' + c.date + ' · ' + c.managerName + ' — يجب فصل الإنشاء عن الاعتماد.'); });
+        // ٢) قيود يدوية كبيرة
+        (ops.journalManual || []).forEach(j => { const t = sum(j.lines || [], l => l.debit || 0); if (t >= largeAmt) add('mid', 'قيود يدوية', 'قيد يدوي كبير', (j.title || 'قيد يدوي') + ' · ' + (j.date || '').slice(0, 10) + ' · ' + money(t) + ' — القيود اليدوية تتجاوز الأتمتة؛ راجع سندها.'); });
+        // ٣) مبالغ شاذة (إيراد إغلاق مرتفع إحصائيًا)
+        if (cc.length >= 4) {
+          const revs = cc.map(c => c.totalRevenue || 0); const mean = sum(revs, x => x) / revs.length;
+          const sd = Math.sqrt(sum(revs, x => (x - mean) * (x - mean)) / revs.length);
+          cc.forEach(c => { if (sd > 0 && (c.totalRevenue || 0) > mean + 3 * sd) add('mid', 'مبالغ شاذة', 'إيراد إغلاق شاذّ (مرتفع بشكل غير معتاد)', (c.branchName || '') + ' · ' + c.date + ' · ' + money(c.totalRevenue) + ' مقابل متوسط ' + money(Math.round(mean)) + ' — تحقّق من الإدخال.'); });
+        }
+        // ٤) ازدواج محتمل: مصروف بنفس اليوم والبند والمبلغ
+        const em = {};
+        cc.forEach(c => (c.expenses || []).forEach(e => { if (!(e.amount > 0)) return; const k = c.date + '|' + (e.categoryName || '') + '|' + e.amount; (em[k] = em[k] || []).push(1); }));
+        Object.entries(em).forEach(([k, arr]) => { if (arr.length >= 2) { const pr = k.split('|'); add('high', 'ازدواج محتمل', 'مصروف مكرّر بنفس اليوم والمبلغ', pr[1] + ' · ' + pr[0] + ' · ' + money(Number(pr[2])) + ' — تكرّر ' + arr.length + ' مرات، قد يكون مزدوجًا.'); } });
+        // ٥) فروقات صندوق متكررة
+        const db = {};
+        cc.forEach(c => { if ((c.variance || 0) < 0) db[c.branchName || '—'] = (db[c.branchName || '—'] || 0) + 1; });
+        Object.entries(db).forEach(([br, n]) => { if (n >= 2) add('high', 'فروقات متكررة', 'عجز صندوق متكرّر', br + ' · ' + n + ' حالات عجز — نمط يستحق التحقيق لا حادثة منفردة.'); });
+        // ٦) سلف متكررة لموظف
+        const ab = {};
+        (ops.advances || []).filter(a => ['advance', 'salary_draw'].includes(a.type)).forEach(a => { const key = a.employeeName || a.employeeId || '—'; ab[key] = (ab[key] || 0) + 1; });
+        Object.entries(ab).forEach(([e2, n]) => { if (n >= 3) add('mid', 'سلف متكررة', 'سلف متكرّرة لموظف', e2 + ' · ' + n + ' سلف — راجع سبب التكرار.'); });
+        // ٧) مدفوعات موردين بلا فاتورة مرتبطة
+        cc.forEach(c => (c.supplierPayments || []).forEach(pm => { const t = payTotal(pm); if (t > 0 && !pm.invoiceId) add('high', 'مدفوعات غير مدعّمة', 'سداد مورد بلا فاتورة مرتبطة', (pm.supplierName || 'مورد') + ' · ' + c.date + ' · ' + money(t) + ' — لا فاتورة مرجعية؛ وثّق السند.'); }));
+        // ٨) مبالغ مستديرة كبيرة
+        cc.forEach(c => (c.expenses || []).forEach(e => { const a = e.amount || 0; if (a >= largeAmt && a % 1000 === 0) add('low', 'مبالغ مستديرة', 'مبلغ مستدير كبير', (e.categoryName || 'مصروف') + ' · ' + c.date + ' · ' + money(a) + ' — المبالغ المستديرة الكبيرة قد تكون تقديرات؛ تحقّق.'); }));
+
+        const rank = { high: 0, mid: 1, low: 2 }; F.sort((a, b) => rank[a.sev] - rank[b.sev]);
+        const nHi = F.filter(f => f.sev === 'high').length, nMd = F.filter(f => f.sev === 'mid').length, nLo = F.filter(f => f.sev === 'low').length;
+        const sevCls = { high: 'b-rose', mid: 'b-amber', low: 'b-dim' }, sevTx = { high: 'مرتفع', mid: 'متوسط', low: 'منخفض' };
+        return (
+          <div className="grid" style={{ gap: 12 }}>
+            <div className="card">
+              <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end' }}>
+                <div><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />الضوابط الداخلية والتدقيق</div>
+                  <div className="note" style={{ marginTop: 6 }}>فحص جنائيّ لبياناتك يكشف الشذوذ والازدواج وفصل المهام — <b>مؤشرات للمراجعة لا اتهامات</b>. راجع كل ملاحظة بسندها.</div></div>
+                <div className="row" style={{ gap: 8, alignItems: 'flex-end' }}>
+                  <Field label="حد «المبلغ الكبير»" style={{ width: 150 }}><input className="inp n" inputMode="decimal" value={audD.largeAmount} onChange={e => setAudD({ largeAmount: e.target.value.replace(/[^\d.]/g, '') })} disabled={!canPost} /></Field>
+                  {canPost && <button className="btn pri" onClick={saveAudit}><Check size={14} />حفظ</button>}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid g3">
+              <Kpi label="إجمالي الملاحظات" value={String(F.length)} sub="عبر ٨ ضوابط" icon={ShieldCheck} color={F.length ? '#C8A24A' : '#4FB286'} />
+              <Kpi label="مرتفعة المخاطر" value={String(nHi)} sub="تتطلب تحقيقًا" icon={AlertTriangle} color={nHi ? '#D9544D' : '#4FB286'} />
+              <Kpi label="متوسطة/منخفضة" value={nMd + ' / ' + nLo} sub="مراجعة" icon={Eye} color="#5B93C4" />
+            </div>
+
+            <div className="grid" style={{ gap: 8 }}>
+              {F.slice(0, 60).map((f, i) => (
+                <div key={i} className="card" style={{ borderInlineStart: '3px solid ' + (f.sev === 'high' ? 'var(--rose)' : f.sev === 'mid' ? 'var(--amber)' : 'var(--dim)') }}>
+                  <div className="row" style={{ gap: 7, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span className={'badge ' + sevCls[f.sev]} style={{ fontSize: 9.5 }}>{sevTx[f.sev]}</span>
+                    <span className="badge b-dim" style={{ fontSize: 9.5 }}>{f.cat}</span>
+                    <b style={{ fontSize: 13 }}>{f.title}</b>
+                  </div>
+                  <div style={{ fontSize: 11.5, color: 'var(--dim)', marginTop: 4 }}>{f.detail}</div>
+                </div>
+              ))}
+              {F.length === 0 && <div className="card"><div className="empty">لا ملاحظات رقابية — ضوابطك سليمة ✓</div></div>}
+              {F.length > 60 && <div className="note">عُرضت أول ٦٠ ملاحظة من {F.length}. عالِج المرتفعة أولًا.</div>}
+            </div>
+
+            <div className="note">الضوابط المفحوصة: فصل المهام (منشئ الإغلاق ≠ معتمِده) · القيود اليدوية الكبيرة · المبالغ الشاذة إحصائيًا · الازدواج المحتمل · فروقات الصندوق المتكررة · السلف المتكررة · مدفوعات الموردين بلا فاتورة · المبالغ المستديرة الكبيرة. عدّل «حد المبلغ الكبير» أعلاه حسب حجم نشاطك.</div>
           </div>
         );
       })()}
