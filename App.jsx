@@ -1176,6 +1176,7 @@ export default function App() {
   const [offline, setOffline] = useState(typeof navigator !== 'undefined' && navigator.onLine === false);
   const [installPrompt, setInstallPrompt] = useState(null);
   const [installed, setInstalled] = useState(false);
+  const [updateReady, setUpdateReady] = useState(false);   // v11.1 توفّر نسخة أحدث منشورة
   const sid = useRef(uid('s'));
 
   const say = useCallback((msg, kind) => {
@@ -1346,6 +1347,36 @@ export default function App() {
     if (res.outcome === 'accepted') say('تم تثبيت التطبيق على جهازك');
     setInstallPrompt(null);
   }, [installPrompt, say]);
+
+  // v11.1 — تحديث فوري للأحدث: يزيل عامل الخدمة وكل الكاش ويعيد التحميل بلا تخزين مؤقت (يعمل على الجوال بضغطة)
+  const forceUpdate = useCallback(async () => {
+    try {
+      if ('serviceWorker' in navigator) { const regs = await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r => r.unregister())); }
+      if (typeof caches !== 'undefined') { const ks = await caches.keys(); await Promise.all(ks.map(k => caches.delete(k))); }
+    } catch (e) { /* تجاهل */ }
+    location.replace(location.pathname + '?u=' + Date.now());   // معلمة كسر الكاش تضمن جلب index.html جديدًا
+  }, []);
+
+  // v11.1 — كشف تلقائي لنسخة أحدث منشورة: يقارن اسم حزمة index.html المنشورة باسم الحزمة الجارية
+  useEffect(() => {
+    const grab = (s) => (String(s || '').match(/assets\/index-[\w-]+\.js/) || [])[0] || '';
+    const mineEl = document.querySelector('script[type=module][src*="assets/index-"]');
+    const mine = grab(mineEl && mineEl.getAttribute('src'));
+    if (!mine) return;   // بيئة تطوير (بلا حزمة مُجمّعة) — لا فحص
+    let stop = false;
+    const check = async () => {
+      try {
+        const r = await fetch(location.pathname + '?_c=' + Date.now(), { cache: 'no-store' });
+        if (!r.ok) return; const html = await r.text(); const latest = grab(html);
+        if (latest && latest !== mine && !stop) setUpdateReady(true);
+      } catch (e) { /* غير متصل — تجاهل */ }
+    };
+    const t = setInterval(check, 150000);        // كل ٢٫٥ دقيقة
+    const onFocus = () => check();
+    window.addEventListener('focus', onFocus);
+    const first = setTimeout(check, 9000);       // فحص أولي بعد التحميل
+    return () => { stop = true; clearInterval(t); clearTimeout(first); window.removeEventListener('focus', onFocus); };
+  }, []);
 
   /* --- المزامنة الدورية + الحضور --- */
   const snap = useRef({});
@@ -1748,7 +1779,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v11.0 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v11.1 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -1790,6 +1821,7 @@ export default function App() {
                     <div className="umhd"><b>{me.name}</b><small>{me.email || ''}</small></div>
                     <button onClick={() => { setUserMenu(false); setTab('home'); }}><Home size={14} />الرئيسية — كل التطبيقات</button>
                     {!installed && <button onClick={() => { setUserMenu(false); doInstall(); }}><Download size={14} />تثبيت التطبيق على الجهاز</button>}
+                    <button onClick={() => { setUserMenu(false); forceUpdate(); }}><RefreshCw size={14} />تحديث للأحدث (مسح الكاش){updateReady ? ' — نسخة جديدة!' : ''}</button>
                     <button onClick={() => { setUserMenu(false); setTour(true); }}><Compass size={14} />جولة تعريفية في المنصة</button>
                     <button onClick={() => { setUserMenu(false); resetAll(); }}><Trash2 size={14} />تفريغ بيانات المنصة</button>
                     <button className="danger" onClick={() => { setUserMenu(false); setMe(null); }}><LogOut size={14} />تسجيل الخروج</button>
@@ -1798,6 +1830,17 @@ export default function App() {
               </div>
             </div>
           </header>
+
+          {updateReady && (
+            <div style={{
+              background: 'rgba(79,178,134,.16)', borderBottom: '1px solid rgba(79,178,134,.45)',
+              color: 'var(--mint)', padding: '9px 20px', fontSize: 12.5, display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap'
+            }}>
+              <RefreshCw size={15} />
+              نسخة أحدث من المنصة متوفّرة الآن.
+              <button className="btn sm pri" onClick={forceUpdate}><RefreshCw size={13} />تحديث الآن</button>
+            </div>
+          )}
 
           {offline && (
             <div style={{
