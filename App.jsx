@@ -1095,9 +1095,9 @@ const DENOMS = [
 const emptyDenoms = () => DENOMS.reduce((o, d) => ({ ...o, [d.k]: 0 }), {});
 const countDenoms = (d) => DENOMS.reduce((s, x) => s + (Number(d?.[x.k]) || 0) * x.v, 0);
 
-const ALL_TABS = ['exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit'];
+const ALL_TABS = ['exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit'];
 const TAB_AR = {
-  dash: 'لوحة المؤشرات', compare: 'مقارنة الفروع', growth: 'تحليلات النمو', breakeven: 'تحليل التعادل', scorecard: 'لوحة الأهداف', scenario: 'ماذا-لو', boardpack: 'تقرير الإدارة', closing: 'الإغلاق اليومي', apps: 'التطبيقات',
+  dash: 'لوحة المؤشرات', compare: 'مقارنة الفروع', growth: 'تحليلات النمو', breakeven: 'تحليل التعادل', scorecard: 'لوحة الأهداف', scenario: 'ماذا-لو', boardpack: 'تقرير الإدارة', cashflow: 'التدفق النقدي', closing: 'الإغلاق اليومي', apps: 'التطبيقات',
   approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', payroll: 'الرواتب والسلف',
   suppliers: 'الموردون والمشتريات', inv: 'المخزون والمنتجات', partners: 'دفتر الشركاء',
   acct: 'المحاسبة', shifts: 'الورديات', archive: 'أرشيف المستندات', ai: 'المركز الذكي',
@@ -1122,7 +1122,7 @@ const ROLES = {
   },
   head_office: {
     ar: 'المكتب الرئيسي — المالية والإدارة', badge: 'b-brass', scope: 'all', approver: true,
-    tabs: ['exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
+    tabs: ['exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['كل الفروع والتقارير المجمّعة', 'التدقيق والاعتماد النهائي', 'الخزينة والرواتب والموردون والمشتريات والمخزون', 'المحاسبة الكاملة: قيود وميزان وقوائم وضريبة وأصول ومراكز تكلفة']
   },
   system_admin: {
@@ -1140,7 +1140,7 @@ const ROLES = {
     // إعادة ترتيب v8.0: المحاسب الرئيسي بطبيعته يعمل على المنشأة كلها — نطاق كامل
     // بلا صلاحيات إدارة (لا مستخدمين/فروع، لا تفعيل ضريبة، لا إدارة تطبيقات)
     ar: 'الإدارة المالية — محاسب رئيسي', badge: 'b-sky', scope: 'all', legacy: true,
-    tabs: ['exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
+    tabs: ['exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'suppliers', 'inv', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['المحاسبة كاملة: قيود يدوية وافتتاحية وميزان وقوائم ومراكز تكلفة', 'الضريبة والأصول والتسوية البنكية (عرض وتسجيل — التفعيل للإدارة)', 'المشتريات والمخزون والرواتب والخزينة', 'كل الفروع — دون إدارة المستخدمين والإعدادات']
   }
 };
@@ -1243,6 +1243,8 @@ const LAUNCH_APPS = [
     sections: ['روافع القرار', 'الحالي مقابل السيناريو', 'أثر الربح والتعادل'], kw: ['سيناريو', 'ماذا لو', 'محاكاة', 'تخطيط', 'قرار', 'أسعار', 'فرع جديد', 'توظيف', 'what-if'] },
   { id: 'boardpack', ar: 'تقرير الإدارة الشهري', en: 'Board Pack', cat: 'bi', icon: FileText, open: { tab: 'boardpack' },
     sections: ['الملخص التنفيذي', 'قائمة الدخل', 'المركز المالي', 'الذمم', 'أداء الفروع'], kw: ['تقرير', 'إدارة', 'شهري', 'حزمة', 'مالك', 'ملخص', 'قوائم', 'board', 'شامل'] },
+  { id: 'cashflow', ar: 'التدفق النقدي (13 أسبوعًا)', en: 'Cash Flow', cat: 'bi', icon: Banknote, open: { tab: 'cashflow' },
+    sections: ['الافتراضات', 'مسار الرصيد', 'الجدول الأسبوعي', 'فجوات السيولة'], kw: ['تدفق', 'نقدي', 'سيولة', 'أسبوع', 'تنبؤ', 'عجز', 'رصيد', 'cash', 'flow'] },
   { id: 'acct', ar: 'المحاسبة', en: 'Accounting', cat: 'fin', icon: Scale, open: { tab: 'acct' },
     sections: ['القيود اليومية', 'دليل الحسابات', 'ميزان المراجعة', 'القوائم المالية', 'مراكز التكلفة', 'الأصول والإهلاك', 'التسوية البنكية', 'الإقفال الشهري'],
     kw: ['قيد', 'يومية', 'حساب', 'ميزان', 'قائمة', 'دخل', 'مركز مالي', 'مراكز تكلفة', 'أصل', 'إهلاك', 'بنك', 'تسوية', 'إقفال', 'قفل', 'محاسبة'] },
@@ -1292,7 +1294,7 @@ const LAUNCH_APPS = [
 const LAUNCH_IX = {}; LAUNCH_APPS.forEach(a => { LAUNCH_IX[a.id] = a; });
 // ترتيب عرض مقصود (لا عشوائي) — تدفّق منطقي: التشغيل اليومي ← المالية ← المشتريات ←
 // المخزون ← الموارد البشرية ← الضريبة ← الحوكمة ← الذكاء (متجاورة لونيًا وموضوعيًا، بنمط أودو)
-const LAUNCH_ORDER = ['exec', 'boardpack', 'alerts', 'growth', 'breakeven', 'scorecard', 'scenario', 'closing', 'sales', 'approve', 'dash', 'compare', 'shifts', 'acct', 'treasury', 'reports', 'rbuild', 'suppliers', 'partners', 'inv', 'payroll', 'vat', 'brmgmt', 'entities', 'docs', 'backup', 'audit', 'archive', 'ai'];
+const LAUNCH_ORDER = ['exec', 'boardpack', 'alerts', 'growth', 'breakeven', 'cashflow', 'scorecard', 'scenario', 'closing', 'sales', 'approve', 'dash', 'compare', 'shifts', 'acct', 'treasury', 'reports', 'rbuild', 'suppliers', 'partners', 'inv', 'payroll', 'vat', 'brmgmt', 'entities', 'docs', 'backup', 'audit', 'archive', 'ai'];
 const launchRank = (id) => { const i = LAUNCH_ORDER.indexOf(id); return i < 0 ? 999 : i; };
 /* v8.5 — لقطات احتياطية يومية محلية (IndexedDB) على أجهزة الإدارة:
    حماية إضافية ضد التلف أو الحذف الخاطئ — والنسخة الملفية تبقى الحماية الخارجية */
@@ -1915,6 +1917,7 @@ export default function App() {
     { id: 'scorecard', ar: 'لوحة الأهداف', icon: CheckCircle2 },
     { id: 'scenario', ar: 'ماذا-لو (سيناريوهات)', icon: Compass },
     { id: 'boardpack', ar: 'تقرير الإدارة الشهري', icon: FileText },
+    { id: 'cashflow', ar: 'التدفق النقدي (13 أسبوعًا)', icon: Banknote },
     { id: 'sales', ar: 'المبيعات', icon: CircleDollarSign },
     { id: 'closing', ar: 'الإغلاق اليومي', icon: ClipboardCheck },
     { id: 'apps', ar: 'إدارة التطبيقات', icon: Grid3x3 },
@@ -2026,7 +2029,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v13.0 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v13.1 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2134,6 +2137,7 @@ export default function App() {
               {safeTab === 'scorecard' && <Scorecard {...shared} />}
               {safeTab === 'scenario' && <Scenario {...shared} />}
               {safeTab === 'boardpack' && <BoardPack {...shared} />}
+              {safeTab === 'cashflow' && <CashFlow13 {...shared} />}
               {safeTab === 'sales' && <Sales {...shared} />}
               {safeTab === 'closing' && <Closing {...shared} />}
               {safeTab === 'apps' && <AppsCenter {...shared} />}
@@ -3328,6 +3332,136 @@ function BranchCompare({ org, ops, me, myBranches, scoped, theme, setTab }) {
 }
 
 // ===== v10.8: اللوحة التنفيذية الموحّدة — تجمع مؤشرات كل الوحدات في شاشة واحدة =====
+/* ============================================================
+   v13.1 — التدفق النقدي المتدحرج (13 أسبوعًا)
+   تنبؤ أسبوعي بالنقد الداخل والخارج لكشف فجوات السيولة مبكرًا.
+   الافتراضات مبدئية من متوسطاتك الفعلية وذممك — كلها قابلة للتعديل. بلا افتراض خفيّ.
+   ============================================================ */
+function CashFlow13({ org, ops, me, scoped, theme, commitOrg, say }) {
+  const tn = chartTone(theme);
+  const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+  const A = useMemo(() => buildAccounting(org, ops), [org, ops]);
+  const num = (s) => Number(String(s).replace(/[^\d.-]/g, '')) || 0;
+  const [cfg, setCfg] = useState(() => { const c = org.cashflowCfg || {}; return { wkSales: c.wkSales != null ? String(c.wkSales) : '', wkOpex: c.wkOpex != null ? String(c.wkOpex) : '', payroll: c.payroll != null ? String(c.payroll) : '', fixed: c.fixed != null ? String(c.fixed) : '', colWeeks: c.colWeeks != null ? String(c.colWeeks) : '4', startCash: c.startCash != null ? String(c.startCash) : '' }; });
+  const canPost = ROLES[me?.role]?.scope === 'all';
+
+  const cash0 = r2(sum(A.accounts.filter(a => a.cash), a => a.balance));
+  const counted = scoped.closings.filter(countedClosing);
+  const cutoff = new Date(Date.now() - 56 * 86400000).toISOString().slice(0, 10);
+  const recent = counted.filter(c => (c.date || '') >= cutoff);
+  const wkRevDef = recent.length ? r2(sum(recent, c => c.totalRevenue || 0) / 8) : 0;
+  const wkExpDef = recent.length ? r2(sum(recent, c => c.totalExpenses || 0) / 8) : 0;
+  const payrollDef = r2(sum(org.employees || [], e => (e.baseSalary || 0) + (e.housingAllowance || 0) + (e.transportAllowance || 0) + (e.otherAllowance || 0)));
+  const arTot = r2(sum(buildPartners(org, ops).filter(p => p.type === 'customer'), p => customerAging(p, today()).total));
+  const apTot = r2(sum(buildPartners(org, ops).filter(p => p.type === 'supplier'), p => supplierAging(p, today()).total));
+
+  const startCash = cfg.startCash !== '' ? num(cfg.startCash) : cash0;
+  const wkSales = cfg.wkSales !== '' ? num(cfg.wkSales) : wkRevDef;
+  const wkOpex = cfg.wkOpex !== '' ? num(cfg.wkOpex) : wkExpDef;
+  const payroll = cfg.payroll !== '' ? num(cfg.payroll) : payrollDef;
+  const fixed = num(cfg.fixed);
+  const colWeeks = Math.min(13, Math.max(1, Math.round(num(cfg.colWeeks) || 4)));
+
+  const weeks = useMemo(() => {
+    const out = []; let bal = startCash; let lastMonth = null; const start = new Date();
+    for (let w = 0; w < 13; w++) {
+      const ws = new Date(start.getTime() + w * 7 * 86400000);
+      const ym = ws.getFullYear() + '-' + ws.getMonth(); const newMonth = ym !== lastMonth; lastMonth = ym;
+      const inAR = w < colWeeks ? r2(arTot / colWeeks) : 0, outAP = w < colWeeks ? r2(apTot / colWeeks) : 0;
+      const outPay = newMonth ? payroll : 0, outFix = newMonth ? fixed : 0;
+      const inflow = r2(wkSales + inAR), outflow = r2(wkOpex + outAP + outPay + outFix);
+      const net = r2(inflow - outflow); bal = r2(bal + net);
+      out.push({ label: ws.toISOString().slice(5, 10), inflow, outflow, net, bal, gap: bal < -0.004, pay: outPay > 0 });
+    }
+    return out;
+  }, [startCash, wkSales, wkOpex, payroll, fixed, colWeeks, arTot, apTot]);
+
+  const minBal = weeks.reduce((m, w) => Math.min(m, w.bal), startCash);
+  const gapCount = weeks.filter(w => w.gap).length;
+  const endBal = weeks.length ? weeks[12].bal : startCash;
+  const chartData = [{ label: 'الآن', الرصيد: startCash }, ...weeks.map(w => ({ label: w.label, الرصيد: w.bal }))];
+
+  const save = async () => { await commitOrg(d => ({ ...d, cashflowCfg: { wkSales: num(wkSales), wkOpex: num(wkOpex), payroll: num(payroll), fixed: num(fixed), colWeeks, startCash: num(startCash) } }), { actionType: 'update', targetType: 'tax_settings', targetId: 'cashflowCfg', title: 'حفظ إعداد التدفق النقدي', details: '13 أسبوعًا' }); say('حُفظ الإعداد ✓'); };
+  const exportCF = () => { try { const head = ['الأسبوع', 'النقد الداخل', 'النقد الخارج', 'صافي الأسبوع', 'الرصيد النهائي']; const body = weeks.map(w => [w.label, w.inflow, w.outflow, w.net, w.bal]); const blob = makeXlsx([{ name: 'تدفق 13 أسبوعًا', rows: [head, ...body] }]); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'التدفق_النقدي_13أسبوع.xlsx'; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(url), 1500); say('نُزّل التدفق (Excel) ✓'); } catch (e) { say('تعذّر توليد Excel', 'no'); } };
+
+  const F = (label, key, ph, hint) => (
+    <Field label={label}><input className="inp n" inputMode="decimal" value={cfg[key]} placeholder={ph} disabled={!canPost} onChange={e => setCfg(s => ({ ...s, [key]: e.target.value.replace(/[^\d.-]/g, '') }))} />
+      {hint && <div style={{ fontSize: 9.5, color: 'var(--faint)', marginTop: 2 }}>{hint}</div>}</Field>
+  );
+
+  return (
+    <div className="grid" style={{ gap: 14 }}>
+      <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+        <div>
+          <h2 style={{ fontSize: 17 }}>التدفق النقدي المتدحرج — ١٣ أسبوعًا</h2>
+          <div style={{ fontSize: 12, color: 'var(--dim)' }}>توقّع النقد أسبوعًا بأسبوع لتكتشف فجوات السيولة قبل وقوعها</div>
+        </div>
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+          <button className="btn sm" onClick={exportCF}><Download size={13} />Excel</button>
+          {canPost && <button className="btn sm pri" onClick={save}><Check size={14} />حفظ الإعداد</button>}
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-t" style={{ marginBottom: 10 }}><Settings size={15} color="var(--brass)" />الافتراضات (اتركها فارغة لاستخدام المبدئي من بياناتك)</div>
+        <div className="grid g3" style={{ gap: 10 }}>
+          {F('النقد الابتدائي', 'startCash', money(cash0), 'رصيدك النقدي الحالي')}
+          {F('مبيعات أسبوعية متوقعة', 'wkSales', money(wkRevDef), 'متوسط آخر ٨ أسابيع')}
+          {F('مصروفات تشغيلية أسبوعية', 'wkOpex', money(wkExpDef), 'متوسط آخر ٨ أسابيع')}
+          {F('رواتب شهرية', 'payroll', money(payrollDef), 'مرّة كل شهر')}
+          {F('التزامات ثابتة شهرية', 'fixed', '0', 'إيجار ونحوه — مرّة كل شهر')}
+          {F('أسابيع تحصيل/سداد الذمم', 'colWeeks', '4', 'توزيع الذمم المدينة/الدائنة')}
+        </div>
+        <div className="note" style={{ marginTop: 8 }}>الذمم المدينة ({money(arTot)}) تُوزَّع تحصيلًا على أول {colWeeks} أسابيع، والدائنة ({money(apTot)}) سدادًا كذلك. الرواتب والثابتة مرّة عند بداية كل شهر.</div>
+      </div>
+
+      <div className="grid g3">
+        <Kpi label="أدنى رصيد نقدي متوقّع" value={money(minBal)} sub={minBal < 0 ? 'عجز متوقّع!' : 'يبقى موجبًا'} icon={AlertTriangle} color={minBal < 0 ? '#D9544D' : minBal < startCash * 0.25 ? '#E0A458' : '#4FB286'} />
+        <Kpi label="أسابيع العجز (رصيد سالب)" value={String(gapCount)} sub={gapCount ? 'تحتاج تدبير سيولة' : 'لا فجوات خلال ١٣ أسبوعًا'} icon={CalendarDays} color={gapCount ? '#D9544D' : '#4FB286'} />
+        <Kpi label="الرصيد بعد ١٣ أسبوعًا" value={money(endBal)} sub={(endBal >= startCash ? 'أعلى من البداية' : 'أقل من البداية') + ' (' + money(startCash) + ')'} icon={Banknote} color={endBal >= 0 ? '#4FB286' : '#D9544D'} />
+      </div>
+
+      <div className="card">
+        <div className="card-t" style={{ marginBottom: 14 }}><TrendingUp size={15} color="var(--brass)" />مسار الرصيد النقدي — إن هبط تحت الصفر فهناك فجوة</div>
+        <div style={{ height: 240, direction: 'ltr' }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={chartData} margin={{ top: 6, right: 10, left: -8, bottom: 0 }}>
+              <CartesianGrid stroke={tn.grid} vertical={false} />
+              <XAxis dataKey="label" tick={{ fill: tn.tick, fontSize: 9 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: tn.tick, fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={short} />
+              <Tooltip contentStyle={{ background: tn.tip, border: '1px solid ' + tn.grid, borderRadius: 10, fontSize: 12, direction: 'rtl', color: tn.tipTxt }} formatter={(v) => [money(v), 'الرصيد']} />
+              <Line type="monotone" dataKey="الرصيد" stroke={minBal < 0 ? '#D9544D' : '#4FB286'} strokeWidth={2.4} dot={{ r: 2 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-t" style={{ marginBottom: 8 }}><FileText size={15} color="var(--brass)" />الجدول الأسبوعي</div>
+        <div className="tw">
+          <table className="tb">
+            <thead><tr><th>الأسبوع (يبدأ)</th><th style={{ textAlign: 'end' }}>الداخل</th><th style={{ textAlign: 'end' }}>الخارج</th><th style={{ textAlign: 'end' }}>الصافي</th><th style={{ textAlign: 'end' }}>الرصيد</th><th style={{ textAlign: 'center' }}>الحالة</th></tr></thead>
+            <tbody>
+              {weeks.map((w, i) => (
+                <tr key={i} style={w.gap ? { background: 'rgba(217,84,77,.07)' } : null}>
+                  <td className="num" style={{ fontSize: 11 }}>{w.label}{w.pay && <span className="badge b-sky" style={{ marginInlineStart: 6, fontSize: 9 }}>رواتب</span>}</td>
+                  <td className="num" style={{ textAlign: 'end', color: 'var(--mint)' }}>{money(w.inflow)}</td>
+                  <td className="num" style={{ textAlign: 'end', color: '#D9544D' }}>{money(w.outflow)}</td>
+                  <td className="num" style={{ textAlign: 'end', color: w.net >= 0 ? 'var(--mint)' : '#D9544D' }}>{w.net >= 0 ? '+' : ''}{money(w.net)}</td>
+                  <td className="num" style={{ textAlign: 'end', fontWeight: 800, color: w.gap ? '#D9544D' : 'inherit' }}>{money(w.bal)}</td>
+                  <td style={{ textAlign: 'center' }}>{w.gap ? <span className="badge b-rose">عجز</span> : <span className="badge b-mint">سليم</span>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="note">💡 تنبؤ استرشادي متدحرج من اليوم. المبيعات والمصروفات الأسبوعية مبدئيًا من متوسط آخر ٨ أسابيع، والذمم من أعمارها، والرواتب والثابتة عند بداية كل شهر — عدّل أيّ افتراض ليعكس واقعك. راقب <b>أدنى رصيد</b> و<b>أسابيع العجز</b> لتدبّر السيولة مبكرًا.</div>
+    </div>
+  );
+}
+
 /* ============================================================
    v13.0 — تقرير الإدارة الشهري الشامل (حزمة المالك)
    يجمع القوائم والمؤشرات والأعمار والتعادل والنمو وأداء الفروع في تقرير
