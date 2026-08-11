@@ -1104,16 +1104,21 @@ const TAB_AR = {
   acct: 'المحاسبة', shifts: 'الورديات', archive: 'أرشيف المستندات', ai: 'المركز الذكي',
   reports: 'التقارير المالية', rbuild: 'منشئ التقارير', entities: 'مركز المنشآت', admin: 'الفروع والمستخدمون', audit: 'سجل التدقيق'
 };
-// ═══ ثيمات المنصّة الاحترافية (٦ أساليب تصميم) × وضع ليل/نهار — v14.5 ═══
+// ═══ ثيمات المنصّة الاحترافية (١١ أسلوب تصميم كامل) × وضع ليل/نهار — v14.7 ═══
 const THEME_META = {
-  royal: { name: 'الملكي الذهبي', desc: 'أنيق دافئ', color: '#A87D28' },
+  royal: { name: 'الملكي الذهبي', desc: 'فخم دافئ', color: '#A87D28' },
   glass: { name: 'الزجاجي الشفّاف', desc: 'بطاقات ضبابية', color: '#2E7CC4' },
   minimal: { name: 'النقي المسطّح', desc: 'بسيط بلا ظلال', color: '#46525E' },
   elevated: { name: 'المرتفع الفاخر', desc: 'ظلال وارتفاع', color: '#6A44A8' },
   corporate: { name: 'المؤسسي الحادّ', desc: 'زوايا حادّة', color: '#33459C' },
-  saudi: { name: 'الأخضر السعودي', desc: 'هوية وطنية', color: '#0F7A3D' }
+  saudi: { name: 'الأخضر السعودي', desc: 'هوية وطنية', color: '#0F7A3D' },
+  neon: { name: 'النيون الليلي', desc: 'سايبر متوهّج', color: '#16C8E6' },
+  desert: { name: 'الترابي الصحراوي', desc: 'دافئ عضوي', color: '#B4622F' },
+  pastel: { name: 'الباستيل الهادئ', desc: 'ناعم لطيف', color: '#D96FA6' },
+  paper: { name: 'الورقي الكلاسيكي', desc: 'دفتر أستاذ', color: '#A6321F' },
+  carbon: { name: 'الصناعي الفحمي', desc: 'لوحة تقنية', color: '#F59E0B' }
 };
-const THEME_ORDER = ['royal', 'glass', 'minimal', 'elevated', 'corporate', 'saudi'];
+const THEME_ORDER = ['royal', 'glass', 'minimal', 'elevated', 'corporate', 'saudi', 'neon', 'desert', 'pastel', 'paper', 'carbon'];
 const THEME_LEGACY = { gold: 'royal', charcoal: 'royal', bronze: 'royal', terra: 'royal', lite: 'royal', dark: 'royal', blue: 'glass', teal: 'glass', midnight: 'glass', slate: 'minimal', navy: 'corporate', purple: 'elevated', wine: 'elevated', emerald: 'saudi' };
 const normTheme = (t) => THEME_META[t] ? t : (THEME_LEGACY[t] || 'royal');
 const themeCls = (t, mode) => 'rms mode-' + (mode === 'dark' ? 'dark' : 'light') + ' thm-' + normTheme(t);
@@ -2017,7 +2022,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v14.6 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v14.7 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
