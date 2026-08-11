@@ -679,4 +679,31 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
   background:none;color:var(--txt);font:inherit;font-size:12px;border-radius:8px;cursor:pointer}
 .abar-menu button:hover{background:var(--acc-soft)}
 .abar-menu button svg{color:var(--faint);flex-shrink:0}
+
+/* إخفاء القائمة الجانبية على الحاسوب — شبكة تطبيقات صرفة + قائمة حساب بالرأس — v9.6 */
+@media(min-width:901px){
+  .side{display:none !important}
+  .main{width:100%;max-width:100%}
+}
+.usermenu{position:relative;flex-shrink:0}
+.usermenu-btn{display:flex;align-items:center;gap:8px;padding:4px 10px 4px 5px;border-radius:999px;
+  border:1px solid var(--line);background:var(--ink3);cursor:pointer;color:var(--txt)}
+.usermenu-btn:hover{border-color:var(--line-g)}
+.usermenu-btn .uav{width:26px;height:26px;border-radius:999px;background:var(--acc-soft);color:var(--brass);
+  display:grid;place-items:center;font-weight:700;font-size:12px;flex-shrink:0}
+.usermenu-btn .un{font-size:11.5px;font-weight:600;line-height:1.25;text-align:start;white-space:nowrap}
+.usermenu-btn .un small{display:block;font-size:9px;color:var(--faint);font-weight:500}
+.usermenu-menu{position:absolute;top:calc(100% + 8px);inset-inline-end:0;min-width:230px;background:var(--ink2);
+  border:1px solid var(--line-g);border-radius:14px;box-shadow:var(--sh-4);padding:6px;z-index:61}
+.usermenu-menu .umhd{padding:9px 11px;border-bottom:1px solid var(--line);margin-bottom:4px}
+.usermenu-menu .umhd b{font-size:12.5px}
+.usermenu-menu .umhd small{display:block;font-size:10px;color:var(--faint);margin-top:1px}
+.usermenu-menu button{display:flex;align-items:center;gap:10px;width:100%;text-align:start;padding:9px 11px;
+  border:none;background:none;color:var(--txt);font:inherit;font-size:12px;border-radius:8px;cursor:pointer}
+.usermenu-menu button:hover{background:var(--acc-soft)}
+.usermenu-menu button svg{color:var(--faint);flex-shrink:0}
+.usermenu-menu button.danger:hover{background:rgba(217,84,77,.12);color:var(--rose)}
+.usermenu-menu button.danger:hover svg{color:var(--rose)}
+.usermenu-back{position:fixed;inset:0;z-index:60}
+@media(max-width:900px){.usermenu-btn .un{display:none}}
 `;

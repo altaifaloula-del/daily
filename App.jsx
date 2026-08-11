@@ -1027,6 +1027,7 @@ export default function App() {
   const openInvView = useCallback((v) => setInvIntent({ v, ts: Date.now() }), []);
   const [drawer, setDrawer] = useState(false);
   const [moreSheet, setMoreSheet] = useState(false);
+  const [userMenu, setUserMenu] = useState(false);   // v9.6 قائمة الحساب في الرأس
   const touchRef = useRef({ x0: 0, y0: 0, active: false, mode: null });
   const [syncing, setSyncing] = useState(false);
   const [lastSync, setLastSync] = useState(null);
@@ -1609,7 +1610,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v9.5 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v9.6 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -1638,6 +1639,25 @@ export default function App() {
                   placeItems: 'center', color: '#fff', fontWeight: 700
                 }}>{unread}</span>}
               </button>
+              {/* قائمة الحساب — v9.6 (بديل ذيل القائمة الجانبية المخفية) */}
+              <div className="usermenu">
+                <button className="usermenu-btn" onClick={() => setUserMenu(v => !v)} title="حسابي">
+                  <span className="uav">{(me.name || 'م').trim().charAt(0)}</span>
+                  <span className="un">{(me.name || '').split(' ')[0]}<small>{((ROLES[me.role] || {}).ar || me.role).split('—')[0].trim()}</small></span>
+                  <ChevronDown size={13} />
+                </button>
+                {userMenu && (<>
+                  <div className="usermenu-back" onClick={() => setUserMenu(false)} />
+                  <div className="usermenu-menu">
+                    <div className="umhd"><b>{me.name}</b><small>{me.email || ''}</small></div>
+                    <button onClick={() => { setUserMenu(false); setTab('home'); }}><Home size={14} />الرئيسية — كل التطبيقات</button>
+                    {!installed && <button onClick={() => { setUserMenu(false); doInstall(); }}><Download size={14} />تثبيت التطبيق على الجهاز</button>}
+                    <button onClick={() => { setUserMenu(false); setTour(true); }}><Compass size={14} />جولة تعريفية في المنصة</button>
+                    <button onClick={() => { setUserMenu(false); resetAll(); }}><Trash2 size={14} />تفريغ بيانات المنصة</button>
+                    <button className="danger" onClick={() => { setUserMenu(false); setMe(null); }}><LogOut size={14} />تسجيل الخروج</button>
+                  </div>
+                </>)}
+              </div>
             </div>
           </header>
 
