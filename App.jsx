@@ -1998,7 +1998,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v13.7 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v13.8 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2097,16 +2097,16 @@ export default function App() {
           <div className="page">
             <div className="page-inner">
               {safeTab === 'home' && <Launcher {...shared} online={online} />}
-              {['analytics', 'exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai'].includes(safeTab) && <Analytics {...shared} online={online} view={safeTab} />}
+              {['analytics', 'exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai'].includes(safeTab) && <Hub hubId="analytics" {...shared} online={online} view={safeTab} />}
               {safeTab === 'alerts' && <AlertsCenter {...shared} />}
-              {['reporting', 'reports', 'rbuild', 'boardpack', 'cashflow'].includes(safeTab) && <ReportsHub {...shared} view={safeTab} />}
+              {['reporting', 'reports', 'rbuild', 'boardpack', 'cashflow'].includes(safeTab) && <Hub hubId="reporting" {...shared} view={safeTab} />}
               {safeTab === 'sales' && <Sales {...shared} />}
               {safeTab === 'closing' && <Closing {...shared} />}
               {safeTab === 'apps' && <AppsCenter {...shared} />}
               {safeTab === 'approve' && <Approvals {...shared} />}
               {safeTab === 'treasury' && <Treasury {...shared} />}
-              {['people', 'payroll', 'workforce', 'shifts'].includes(safeTab) && <PeopleHub {...shared} view={safeTab} />}
-              {['purchasing', 'suppliers', 'reorder'].includes(safeTab) && <PurchasingHub {...shared} view={safeTab} />}
+              {['people', 'payroll', 'workforce', 'shifts'].includes(safeTab) && <Hub hubId="people" {...shared} view={safeTab} />}
+              {['purchasing', 'suppliers', 'reorder'].includes(safeTab) && <Hub hubId="purchasing" {...shared} view={safeTab} />}
               {safeTab === 'inv' && <Inventory {...shared} />}
               {safeTab === 'partners' && <Partners {...shared} />}
               {safeTab === 'acct' && <Accounting {...shared} />}
@@ -3295,37 +3295,6 @@ function BranchCompare({ org, ops, me, myBranches, scoped, theme, setTab }) {
    حدود دنيا/عليا للأصناف، ومعدّل استهلاك، وأيام تغطية، واقتراح كميات
    الطلب، وإنشاء أمر شراء بضغطة. من مخزونك الفعلي — الحدود بيدك، بلا افتراض.
    ============================================================ */
-/* ============================================================
-   v13.7 — مركز المشتريات والموردون (دمج «الموردون» و«المشتريات الذكية» في مركز واحد بأقسام)
-   آخر دفعات خطة الدمج. نفس النمط: يحترم صلاحيات الدور، «القسم الحالي» = التبويب العام،
-   والروابط القديمة تفتح داخل المركز. بلا فقدان أي ميزة، ومتوافق رجعيًا.
-   ============================================================ */
-const PURCHASING_VIEWS = [
-  { id: 'suppliers', ar: 'الموردون والمشتريات', icon: Truck },
-  { id: 'reorder', ar: 'المشتريات الذكية', icon: ClipboardCheck }
-];
-function PurchasingHub(props) {
-  const { me, setTab } = props;
-  const rt = ROLES[me.role]?.tabs || [];
-  const full = ROLES[me.role]?.scope === 'all';
-  const views = PURCHASING_VIEWS.filter(v => full || rt.includes(v.id));
-  const cur = (views.find(v => v.id === props.view) || views[0] || { id: 'suppliers' }).id;
-  return (
-    <div className="grid" style={{ gap: 12 }}>
-      <div className="tw"><div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-        {views.map(v => (
-          <button key={v.id} className={'btn sm' + (cur === v.id ? ' pri' : ' gh')} onClick={() => setTab(v.id)}>
-            <v.icon size={14} />{v.ar}
-          </button>
-        ))}
-      </div></div>
-      {cur === 'suppliers' && <Suppliers {...props} />}
-      {cur === 'reorder' && <SmartPurchasing {...props} />}
-      {!views.length && <div className="card"><div className="empty">لا توجد أقسام متاحة لصلاحيتك.</div></div>}
-    </div>
-  );
-}
-
 function SmartPurchasing({ org, ops, me, commit, commitOrg, say }) {
   const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
   const items = org.items || [];
@@ -3441,41 +3410,6 @@ function SmartPurchasing({ org, ops, me, commit, commitOrg, say }) {
    تنبؤ أسبوعي بالنقد الداخل والخارج لكشف فجوات السيولة مبكرًا.
    الافتراضات مبدئية من متوسطاتك الفعلية وذممك — كلها قابلة للتعديل. بلا افتراض خفيّ.
    ============================================================ */
-/* ============================================================
-   v13.5 — مركز التقارير (دمج أربعة تطبيقات تقارير في مركز واحد بأقسام)
-   نفس نمط مركز التحليل: يحترم صلاحيات الدور، «القسم الحالي» = التبويب العام،
-   والروابط القديمة تفتح داخل المركز. بلا فقدان أي ميزة، ومتوافق رجعيًا.
-   ============================================================ */
-const REPORTS_VIEWS = [
-  { id: 'reports', ar: 'التقارير المالية', icon: FileBarChart },
-  { id: 'rbuild', ar: 'منشئ التقارير', icon: Wand2 },
-  { id: 'boardpack', ar: 'تقرير الإدارة الشهري', icon: FileText },
-  { id: 'cashflow', ar: 'التدفق النقدي (13 أسبوعًا)', icon: Banknote }
-];
-function ReportsHub(props) {
-  const { me, setTab } = props;
-  const rt = ROLES[me.role]?.tabs || [];
-  const full = ROLES[me.role]?.scope === 'all';
-  const views = REPORTS_VIEWS.filter(v => full || rt.includes(v.id));
-  const cur = (views.find(v => v.id === props.view) || views[0] || { id: 'reports' }).id;
-  return (
-    <div className="grid" style={{ gap: 12 }}>
-      <div className="tw"><div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-        {views.map(v => (
-          <button key={v.id} className={'btn sm' + (cur === v.id ? ' pri' : ' gh')} onClick={() => setTab(v.id)}>
-            <v.icon size={14} />{v.ar}
-          </button>
-        ))}
-      </div></div>
-      {cur === 'reports' && <Reports {...props} />}
-      {cur === 'rbuild' && <ReportBuilder {...props} />}
-      {cur === 'boardpack' && <BoardPack {...props} />}
-      {cur === 'cashflow' && <CashFlow13 {...props} />}
-      {!views.length && <div className="card"><div className="empty">لا توجد تقارير متاحة لصلاحيتك.</div></div>}
-    </div>
-  );
-}
-
 function CashFlow13({ org, ops, me, scoped, theme, commitOrg, say }) {
   const tn = chartTone(theme);
   const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
@@ -4777,44 +4711,80 @@ function ReportBuilder({ org, ops, me, myBranches, scoped, commitOrg, say, theme
 }
 
 /* ============================================================
-   v13.4 — مركز التحليل والأداء (دمج ثمانية تطبيقات تحليل في مركز واحد بأقسام)
-   يحترم صلاحيات الدور فيعرض الأقسام المسموح بها فقط. «القسم الحالي» يساوي التبويب العام،
-   فتظل كل الروابط القديمة (setTab) تعمل وتفتح داخل المركز — بلا فقدان أي ميزة، ومتوافق رجعيًا.
+   v13.8 — نمط المراكز الموحّد (Hub) + تحسين التجربة
+   مكوّن واحد عام لكل المراكز: ترويسة «نظرة عامة» (اسم المركز ووصفه) + شريط أقسام،
+   يحترم صلاحيات الدور فيعرض المسموح فقط، ويتذكّر آخر قسم فتحته في كل مركز (لكل مستخدم).
+   «القسم الحالي» = التبويب العام، فتظل الروابط القديمة تعمل وتفتح داخل المركز — بلا فقدان أي ميزة.
    ============================================================ */
-const ANALYTICS_VIEWS = [
-  { id: 'exec', ar: 'اللوحة التنفيذية', icon: Compass },
-  { id: 'dash', ar: 'لوحة المؤشرات', icon: LayoutDashboard },
-  { id: 'compare', ar: 'مقارنة الفروع', icon: BarChart3 },
-  { id: 'growth', ar: 'تحليلات النمو', icon: TrendingUp },
-  { id: 'breakeven', ar: 'تحليل التعادل', icon: Scale },
-  { id: 'scorecard', ar: 'لوحة الأهداف', icon: CheckCircle2 },
-  { id: 'scenario', ar: 'ماذا-لو', icon: Compass },
-  { id: 'ai', ar: 'المركز الذكي', icon: Sparkles }
-];
-function Analytics(props) {
-  const { me, setTab } = props;
+const HUBS = {
+  analytics: {
+    ar: 'مركز التحليل والأداء', desc: 'لوحاتك ومؤشراتك وتحليلاتك في مكان واحد', icon: Compass,
+    views: [
+      { id: 'exec', ar: 'اللوحة التنفيذية', icon: Compass, comp: ExecDashboard },
+      { id: 'dash', ar: 'لوحة المؤشرات', icon: LayoutDashboard, comp: Dashboard },
+      { id: 'compare', ar: 'مقارنة الفروع', icon: BarChart3, comp: BranchCompare },
+      { id: 'growth', ar: 'تحليلات النمو', icon: TrendingUp, comp: GrowthAnalytics },
+      { id: 'breakeven', ar: 'تحليل التعادل', icon: Scale, comp: BreakEven },
+      { id: 'scorecard', ar: 'لوحة الأهداف', icon: CheckCircle2, comp: Scorecard },
+      { id: 'scenario', ar: 'ماذا-لو', icon: Compass, comp: Scenario },
+      { id: 'ai', ar: 'المركز الذكي', icon: Sparkles, comp: AiCenter }
+    ]
+  },
+  reporting: {
+    ar: 'مركز التقارير', desc: 'التقارير المالية والإدارية وبناؤها وتصديرها', icon: FileBarChart,
+    views: [
+      { id: 'reports', ar: 'التقارير المالية', icon: FileBarChart, comp: Reports },
+      { id: 'rbuild', ar: 'منشئ التقارير', icon: Wand2, comp: ReportBuilder },
+      { id: 'boardpack', ar: 'تقرير الإدارة الشهري', icon: FileText, comp: BoardPack },
+      { id: 'cashflow', ar: 'التدفق النقدي (13 أسبوعًا)', icon: Banknote, comp: CashFlow13 }
+    ]
+  },
+  people: {
+    ar: 'شؤون الموظفين', desc: 'الرواتب والسلف والجدولة والحضور والورديات', icon: Wallet,
+    views: [
+      { id: 'payroll', ar: 'الرواتب والسلف', icon: Wallet, comp: Payroll },
+      { id: 'workforce', ar: 'الجدولة والحضور', icon: CalendarDays, comp: Workforce },
+      { id: 'shifts', ar: 'الورديات والتذكيرات', icon: Clock, comp: Shifts }
+    ]
+  },
+  purchasing: {
+    ar: 'المشتريات والموردون', desc: 'الموردون والفواتير وأوامر الشراء وإعادة الطلب', icon: Truck,
+    views: [
+      { id: 'suppliers', ar: 'الموردون والمشتريات', icon: Truck, comp: Suppliers },
+      { id: 'reorder', ar: 'المشتريات الذكية', icon: ClipboardCheck, comp: SmartPurchasing }
+    ]
+  }
+};
+function Hub({ hubId, view, ...rest }) {
+  const me = rest.me;
+  const cfg = HUBS[hubId] || { ar: '', desc: '', icon: Compass, views: [] };
   const rt = ROLES[me.role]?.tabs || [];
   const full = ROLES[me.role]?.scope === 'all';
-  const views = ANALYTICS_VIEWS.filter(v => full || rt.includes(v.id));
-  const cur = (views.find(v => v.id === props.view) || views[0] || { id: 'exec' }).id;
+  const views = cfg.views.filter(v => full || rt.includes(v.id));
+  const remembered = (appUseGet(me.id).hubView || {})[hubId];
+  const cur = (views.find(v => v.id === view) || views.find(v => v.id === remembered) || views[0] || {}).id;
+  const go = (id) => { const u = appUseGet(me.id); u.hubView = { ...(u.hubView || {}), [hubId]: id }; appUseSet(me.id, u); rest.setTab(id); };
+  const Cur = (views.find(v => v.id === cur) || {}).comp;
+  const HubIcon = cfg.icon;
   return (
     <div className="grid" style={{ gap: 12 }}>
-      <div className="tw"><div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-        {views.map(v => (
-          <button key={v.id} className={'btn sm' + (cur === v.id ? ' pri' : ' gh')} onClick={() => setTab(v.id)}>
-            <v.icon size={14} />{v.ar}
-          </button>
-        ))}
-      </div></div>
-      {cur === 'exec' && <ExecDashboard {...props} />}
-      {cur === 'dash' && <Dashboard {...props} />}
-      {cur === 'compare' && <BranchCompare {...props} />}
-      {cur === 'growth' && <GrowthAnalytics {...props} />}
-      {cur === 'breakeven' && <BreakEven {...props} />}
-      {cur === 'scorecard' && <Scorecard {...props} />}
-      {cur === 'scenario' && <Scenario {...props} />}
-      {cur === 'ai' && <AiCenter {...props} />}
-      {!views.length && <div className="card"><div className="empty">لا توجد أقسام تحليل متاحة لصلاحيتك.</div></div>}
+      <div className="card" style={{ padding: '9px 13px' }}>
+        <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+          <div className="row" style={{ gap: 8, alignItems: 'center', minWidth: 0 }}>
+            <HubIcon size={16} color="var(--brass)" />
+            <b style={{ fontSize: 13 }}>{cfg.ar}</b>
+            <span style={{ fontSize: 11, color: 'var(--dim)' }} className="hub-desc">· {cfg.desc}</span>
+          </div>
+          <div className="tw"><div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+            {views.map(v => (
+              <button key={v.id} className={'btn sm' + (cur === v.id ? ' pri' : ' gh')} onClick={() => go(v.id)}>
+                <v.icon size={13} />{v.ar}
+              </button>
+            ))}
+          </div></div>
+        </div>
+      </div>
+      {Cur ? <Cur {...rest} /> : <div className="card"><div className="empty">لا توجد أقسام متاحة لصلاحيتك.</div></div>}
     </div>
   );
 }
@@ -6761,39 +6731,6 @@ function DisbursementForm({ me, balance, commit, say, onClose }) {
 }
 
 /* ================= الرواتب والسلف ================= */
-/* ============================================================
-   v13.6 — مركز شؤون الموظفين (دمج ثلاثة تطبيقات: الرواتب + الجدولة والحضور + الورديات)
-   نفس نمط مراكز التحليل والتقارير: يحترم صلاحيات الدور، «القسم الحالي» = التبويب العام،
-   والروابط القديمة تفتح داخل المركز. بلا فقدان أي ميزة، ومتوافق رجعيًا.
-   ============================================================ */
-const PEOPLE_VIEWS = [
-  { id: 'payroll', ar: 'الرواتب والسلف', icon: Wallet },
-  { id: 'workforce', ar: 'الجدولة والحضور', icon: CalendarDays },
-  { id: 'shifts', ar: 'الورديات والتذكيرات', icon: Clock }
-];
-function PeopleHub(props) {
-  const { me, setTab } = props;
-  const rt = ROLES[me.role]?.tabs || [];
-  const full = ROLES[me.role]?.scope === 'all';
-  const views = PEOPLE_VIEWS.filter(v => full || rt.includes(v.id));
-  const cur = (views.find(v => v.id === props.view) || views[0] || { id: 'payroll' }).id;
-  return (
-    <div className="grid" style={{ gap: 12 }}>
-      <div className="tw"><div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-        {views.map(v => (
-          <button key={v.id} className={'btn sm' + (cur === v.id ? ' pri' : ' gh')} onClick={() => setTab(v.id)}>
-            <v.icon size={14} />{v.ar}
-          </button>
-        ))}
-      </div></div>
-      {cur === 'payroll' && <Payroll {...props} />}
-      {cur === 'workforce' && <Workforce {...props} />}
-      {cur === 'shifts' && <Shifts {...props} />}
-      {!views.length && <div className="card"><div className="empty">لا توجد أقسام متاحة لصلاحيتك.</div></div>}
-    </div>
-  );
-}
-
 function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
   const [month, setMonth] = useState(today().slice(0, 7));
   const [add, setAdd] = useState(false);
