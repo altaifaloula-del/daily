@@ -41,6 +41,7 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
    كل ثيم يحدّد لُبّ ألوانه فقط؛ والباقي (الحدود المذهّبة، الظلال، حلقة التركيز،
    تدرّجات الهوية) مشتقّ تلقائيًا عبر color-mix من --brass و--ink. */
 .rms{
+  --brass:var(--acc);
   --brass-d:color-mix(in srgb,var(--brass) 76%,#000);
   --brass-l:color-mix(in srgb,var(--brass) 70%,#fff);
   --line-g:color-mix(in srgb,var(--brass) 26%,var(--line));
@@ -50,19 +51,30 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
   --sh-brass:0 8px 22px -8px color-mix(in srgb,var(--brass) 42%,transparent);
   --ring:0 0 0 3px color-mix(in srgb,var(--brass) 30%,transparent);
 }
-.rms.light{--sh-1:0 1px 2px rgba(45,35,18,.05);--sh-2:0 3px 12px rgba(45,35,18,.08);--sh-3:0 8px 24px rgba(45,35,18,.11);--sh-4:0 16px 44px rgba(45,35,18,.15)}
-.rms.dark{--sh-1:0 1px 2px rgba(0,0,0,.24);--sh-2:0 2px 9px rgba(0,0,0,.30);--sh-3:0 6px 20px rgba(0,0,0,.36);--sh-4:0 14px 40px rgba(0,0,0,.44)}
-.rms.th-gold{--ink:#F5F1EA;--ink2:#FFFFFF;--ink3:#EEE8DD;--line:#E4DCCD;--txt:#2A251F;--dim:#6B6153;--faint:#9C917F;--brass:#A87D28;--mint:#2F9469;--rose:#C63D34;--amber:#B27A1C;--sky:#3E71A6;--violet:#7E5FA6}
-.rms.th-blue{--ink:#F4F6F9;--ink2:#FFFFFF;--ink3:#EAEEF4;--line:#DCE3EC;--txt:#1E2A38;--dim:#5B6472;--faint:#93A0B0;--brass:#2A5DA8;--mint:#2F9469;--rose:#C63D34;--amber:#C0821E;--sky:#2A5DA8;--violet:#7E5FA6}
-.rms.th-emerald{--ink:#F2F7F3;--ink2:#FFFFFF;--ink3:#E7F0EA;--line:#DCE8DF;--txt:#1C2A22;--dim:#566259;--faint:#8A968C;--brass:#1E8A5A;--mint:#1E8A5A;--rose:#C63D34;--amber:#B27A1C;--sky:#3E71A6;--violet:#7E5FA6}
-.rms.th-slate{--ink:#F5F6F7;--ink2:#FFFFFF;--ink3:#ECEEF0;--line:#E0E3E7;--txt:#23272B;--dim:#626A72;--faint:#98A0A8;--brass:#3E4C59;--mint:#2F9469;--rose:#C63D34;--amber:#B27A1C;--sky:#4A6FA5;--violet:#7E5FA6}
-.rms.th-wine{--ink:#F8F3F3;--ink2:#FFFFFF;--ink3:#F0E7E7;--line:#E7D8DA;--txt:#2C1F22;--dim:#6E5B5E;--faint:#A08E90;--brass:#8E2E43;--mint:#2F9469;--rose:#C0392B;--amber:#B27A1C;--sky:#3E71A6;--violet:#8E5FA0}
-.rms.th-charcoal{--ink:#1A1613;--ink2:#221D19;--ink3:#2A2420;--line:#3C352C;--txt:#F2EADD;--dim:#AE9F8F;--faint:#786B5E;--brass:#C8A24A;--mint:#4FB286;--rose:#D9544D;--amber:#E0A458;--sky:#5B93C4;--violet:#9B7BB8}
-.rms.th-midnight{--ink:#121A2A;--ink2:#1A2438;--ink3:#22304A;--line:#2C3A54;--txt:#E6EDF7;--dim:#93A2BC;--faint:#68789A;--brass:#4C8DD8;--mint:#46B98C;--rose:#E0605A;--amber:#E0A458;--sky:#4C8DD8;--violet:#9B87D0}
-.rms.th-teal{--ink:#F1F7F7;--ink2:#FFFFFF;--ink3:#E4F0F0;--line:#D6E7E7;--txt:#17292A;--dim:#4F6364;--faint:#87999A;--brass:#0E8A8A;--mint:#2F9469;--rose:#C63D34;--amber:#B27A1C;--sky:#0E8A8A;--violet:#7E5FA6}
-.rms.th-purple{--ink:#F6F4FA;--ink2:#FFFFFF;--ink3:#EDE8F4;--line:#E2DAEE;--txt:#271E33;--dim:#5F5670;--faint:#948AA6;--brass:#6A44A8;--mint:#2F9469;--rose:#C63D34;--amber:#B27A1C;--sky:#4A6FA5;--violet:#6A44A8}
-.rms.th-terra{--ink:#F9F3ED;--ink2:#FFFFFF;--ink3:#F1E5DA;--line:#EAD9C9;--txt:#2E241C;--dim:#6E5F52;--faint:#A0907F;--brass:#C05A2E;--mint:#2F9469;--rose:#C0392B;--amber:#C0821E;--sky:#3E71A6;--violet:#7E5FA6}
-.rms.th-saudi{--ink:#F2F6F2;--ink2:#FFFFFF;--ink3:#E6EFE7;--line:#D9E6DB;--txt:#16261B;--dim:#52604F;--faint:#88968A;--brass:#0F7A3D;--mint:#0F7A3D;--rose:#C63D34;--amber:#B27A1C;--sky:#3E71A6;--violet:#7E5FA6}
+/* ── الوضع النهاري (فاتح) ── */
+.rms.mode-light{
+  --ink:#F4F3F0;--ink2:#FFFFFF;--ink3:#ECEAE4;--line:#E4E0D8;--txt:#262320;--dim:#68625A;--faint:#9A948B;
+  --mint:#2F9469;--rose:#C63D34;--amber:#B27A1C;--sky:#3E71A6;--violet:#7E5FA6;
+  --sh-1:0 1px 2px rgba(45,35,18,.05);--sh-2:0 3px 12px rgba(45,35,18,.08);--sh-3:0 8px 24px rgba(45,35,18,.11);--sh-4:0 16px 44px rgba(45,35,18,.15)
+}
+/* ── الوضع الليلي (داكن) ── */
+.rms.mode-dark{
+  --ink:#1A1714;--ink2:#221F1B;--ink3:#2A2621;--line:#3A352E;--txt:#EFEAE2;--dim:#AAA298;--faint:#776F64;
+  --mint:#4FB286;--rose:#DA5A53;--amber:#E0A458;--sky:#5B93C4;--violet:#9B7BB8;
+  --sh-1:0 1px 2px rgba(0,0,0,.24);--sh-2:0 2px 9px rgba(0,0,0,.30);--sh-3:0 6px 20px rgba(0,0,0,.36);--sh-4:0 14px 40px rgba(0,0,0,.44)
+}
+/* ── الهويات اللونية (١١) ── */
+.rms.acc-gold{--acc:#A87D28}
+.rms.acc-blue{--acc:#2A5DA8}
+.rms.acc-emerald{--acc:#1E8A5A}
+.rms.acc-slate{--acc:#46525E}
+.rms.acc-wine{--acc:#8E2E43}
+.rms.acc-bronze{--acc:#9A6520}
+.rms.acc-navy{--acc:#33459C}
+.rms.acc-teal{--acc:#0E8A8A}
+.rms.acc-purple{--acc:#6A44A8}
+.rms.acc-terra{--acc:#C05A2E}
+.rms.acc-saudi{--acc:#0F7A3D}
 .rms *{max-width:100%}
 .rms .num{max-width:none}
 .rms h1,.rms h2,.rms h3,.rms h4{font-family:'Markazi Text',serif;font-weight:700;margin:0;letter-spacing:0;line-height:1.25}
@@ -437,15 +449,23 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
 @media(prefers-reduced-motion:reduce){*{animation:none !important;transition-duration:.01ms !important}}
 
 /* ---- السمة الفاتحة ---- */
-/* توافقيات الثيمات الفاتحة: النص فوق لون الهوية = أبيض، وألوان الملاحظات وخلفية البوابة */
-.rms.light .btn.pri,.rms.light .brand-mark,.rms.light .av,.rms.light .lh-cnt,.rms.light .nav-i .cnt,.rms.light .step-active,.rms.light .icontile.on .icontile-i{color:#fff}
-.rms.light .note-v{color:#1B1712}
-.rms.light .note-u,.rms.light .note-t{color:#5A5148}
-.rms.light .note-i{background:rgba(255,255,255,.9);color:#241F1A;border-color:rgba(0,0,0,.12)}
-.rms.light .stp{background:rgba(255,255,255,.8);color:#241F1A;border-color:rgba(0,0,0,.1)}
-.rms.light .gate{background:radial-gradient(1100px 560px at 80% -8%,color-mix(in srgb,var(--brass) 13%,transparent),transparent 62%),var(--ink)}
-/* الأزرق الليلي: نص فاتح فوق الأزرق للهوية */
-.rms.th-midnight .btn.pri,.rms.th-midnight .brand-mark,.rms.th-midnight .lh-cnt,.rms.th-midnight .nav-i .cnt,.rms.th-midnight .step-active,.rms.th-midnight .icontile.on .icontile-i{color:#EAF1FB}
+/* النص فوق لون الهوية: أبيض افتراضًا، وداكن للهويات الفاتحة (الذهبي/النحاسي) */
+.rms .btn.pri,.rms .brand-mark,.rms .av,.rms .lh-cnt,.rms .nav-i .cnt,.rms .step-active,.rms .icontile.on .icontile-i,.rms .toplogo-mark{color:#fff}
+.rms.acc-gold .btn.pri,.rms.acc-gold .brand-mark,.rms.acc-gold .lh-cnt,.rms.acc-gold .nav-i .cnt,.rms.acc-gold .step-active,.rms.acc-gold .icontile.on .icontile-i,.rms.acc-gold .toplogo-mark,.rms.acc-bronze .btn.pri,.rms.acc-bronze .brand-mark,.rms.acc-bronze .lh-cnt,.rms.acc-bronze .nav-i .cnt,.rms.acc-bronze .step-active,.rms.acc-bronze .icontile.on .icontile-i,.rms.acc-bronze .toplogo-mark{color:#1a1410}
+.rms.mode-light .note-v{color:#1B1712}
+.rms.mode-light .note-u,.rms.mode-light .note-t{color:#5A5148}
+.rms.mode-light .note-i{background:rgba(255,255,255,.9);color:#241F1A;border-color:rgba(0,0,0,.12)}
+.rms.mode-light .stp{background:rgba(255,255,255,.8);color:#241F1A;border-color:rgba(0,0,0,.1)}
+.gate{background:radial-gradient(1100px 560px at 80% -8%,color-mix(in srgb,var(--brass) 13%,transparent),transparent 62%),var(--ink) !important}
+/* شعار الشركة في الرأس */
+.toplogo{width:34px;height:34px;border-radius:9px;object-fit:cover;flex-shrink:0;border:1px solid var(--line);background:var(--ink2)}
+.toplogo-mark{width:34px;height:34px;border-radius:9px;flex-shrink:0;display:grid;place-items:center;font-family:'Markazi Text',serif;font-weight:700;font-size:19px;background:linear-gradient(140deg,var(--brass-l),var(--brass))}
+/* خلفية الواجهة الرئيسية (تحت التطبيقات): توهّج بلون الهوية + علامة/شعار باهت */
+.lh-bg{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+.lh-bg::before{content:'';position:absolute;inset:0;background:radial-gradient(920px 540px at 82% -8%,color-mix(in srgb,var(--brass) 13%,transparent),transparent 60%),radial-gradient(780px 540px at 4% 112%,color-mix(in srgb,var(--brass) 8%,transparent),transparent 55%)}
+.lh-wm{position:absolute;inset-block-start:36%;inset-inline-start:50%;transform:translate(-50%,-50%);width:min(42vw,400px);max-width:none;opacity:.06;object-fit:contain}
+.lh-wm.mark{font-family:'Markazi Text',serif;font-weight:700;font-size:min(36vw,340px);line-height:1;color:var(--brass);opacity:.07;width:auto}
+.lh{position:relative;z-index:1}
 
 /* ---- بوابة الدخول ---- */
 .gate{min-height:100vh;display:grid;place-items:center;padding:20px;

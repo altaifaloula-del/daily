@@ -1104,23 +1104,16 @@ const TAB_AR = {
   acct: 'المحاسبة', shifts: 'الورديات', archive: 'أرشيف المستندات', ai: 'المركز الذكي',
   reports: 'التقارير المالية', rbuild: 'منشئ التقارير', entities: 'مركز المنشآت', admin: 'الفروع والمستخدمون', audit: 'سجل التدقيق'
 };
-// ═══ ثيمات المنصّة (١١ ثيمًا) — v14.3 ═══
+// ═══ هويات المنصّة اللونية (١١) × وضع ليل/نهار — v14.4 ═══
 const THEME_META = {
-  gold: { name: 'الذهبي الملكي', base: 'light', brand: '#A87D28', bg: '#F5F1EA' },
-  blue: { name: 'الأزرق التنفيذي', base: 'light', brand: '#2A5DA8', bg: '#F4F6F9' },
-  emerald: { name: 'الأخضر الزمردي', base: 'light', brand: '#1E8A5A', bg: '#F2F7F3' },
-  slate: { name: 'الرمادي الحديث', base: 'light', brand: '#3E4C59', bg: '#F5F6F7' },
-  wine: { name: 'النبيذي الفاخر', base: 'light', brand: '#8E2E43', bg: '#F8F3F3' },
-  charcoal: { name: 'الفحمي الذهبي', base: 'dark', brand: '#C8A24A', bg: '#1A1613' },
-  midnight: { name: 'الأزرق الليلي', base: 'dark', brand: '#4C8DD8', bg: '#121A2A' },
-  teal: { name: 'التركوازي', base: 'light', brand: '#0E8A8A', bg: '#F1F7F7' },
-  purple: { name: 'البنفسجي الملكي', base: 'light', brand: '#6A44A8', bg: '#F6F4FA' },
-  terra: { name: 'الطيني الدافئ', base: 'light', brand: '#C05A2E', bg: '#F9F3ED' },
-  saudi: { name: 'الأخضر السعودي', base: 'light', brand: '#0F7A3D', bg: '#F2F6F2' }
+  gold: { name: 'الذهبي', color: '#A87D28' }, blue: { name: 'الأزرق', color: '#2A5DA8' }, emerald: { name: 'الزمردي', color: '#1E8A5A' },
+  slate: { name: 'الرمادي', color: '#46525E' }, wine: { name: 'النبيذي', color: '#8E2E43' }, bronze: { name: 'النحاسي', color: '#9A6520' },
+  navy: { name: 'الكحلي', color: '#33459C' }, teal: { name: 'التركوازي', color: '#0E8A8A' }, purple: { name: 'البنفسجي', color: '#6A44A8' },
+  terra: { name: 'الطيني', color: '#C05A2E' }, saudi: { name: 'الأخضر السعودي', color: '#0F7A3D' }
 };
-const THEME_ORDER = ['gold', 'blue', 'emerald', 'slate', 'wine', 'charcoal', 'midnight', 'teal', 'purple', 'terra', 'saudi'];
-const normTheme = (t) => t === 'lite' ? 'gold' : t === 'dark' ? 'charcoal' : (THEME_META[t] ? t : 'gold');
-const themeCls = (t) => { const id = normTheme(t); return 'rms ' + THEME_META[id].base + ' th-' + id; };
+const THEME_ORDER = ['gold', 'blue', 'emerald', 'slate', 'wine', 'bronze', 'navy', 'teal', 'purple', 'terra', 'saudi'];
+const normAcc = (t) => THEME_META[t] ? t : (t === 'charcoal' ? 'bronze' : t === 'midnight' ? 'navy' : 'gold');
+const themeCls = (acc, mode) => 'rms mode-' + (mode === 'dark' ? 'dark' : 'light') + ' acc-' + normAcc(acc);
 
 const ROLES = {
   // ===== الأدوار الخمسة المعتمدة =====
@@ -1410,7 +1403,8 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [bell, setBell] = useState(false);
   const [lastSeenAudit, setLastSeenAudit] = useState(() => Date.now());
-  const [theme, setTheme] = useState(() => { try { return normTheme(localStorage.getItem('rms8:theme') || 'gold'); } catch { return 'gold'; } });
+  const [theme, setTheme] = useState(() => { try { return normAcc(localStorage.getItem('rms8:theme') || 'gold'); } catch { return 'gold'; } });
+  const [mode, setMode] = useState(() => { try { return localStorage.getItem('rms8:mode') === 'dark' ? 'dark' : 'light'; } catch { return 'light'; } });
   const [tour, setTour] = useState(false);
   const [live, setLive] = useState(false);
   const [offline, setOffline] = useState(typeof navigator !== 'undefined' && navigator.onLine === false);
@@ -1934,7 +1928,7 @@ export default function App() {
   const safeTab = allowedTabs.includes(tab) ? tab : (allowedTabs[0] || 'closing');
 
   return (
-    <div className={themeCls(theme)}>
+    <div className={themeCls(theme, mode)}>
       <style dangerouslySetInnerHTML={{ __html: CSS + '.spin{animation:sp 1s linear infinite}@keyframes sp{to{transform:rotate(360deg)}}' }} />
       <div className="shell"
         onTouchStart={(e) => {
@@ -2016,8 +2010,11 @@ export default function App() {
                 <Home size={17} />
               </button>
             )}
+            {org.company.logoUrl
+              ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
+              : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v14.3 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v14.4 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2034,19 +2031,24 @@ export default function App() {
                   {lastSync ? lastSync.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '--:--'}
                 </span>
               </button>
+              <button className="btn sm gh" title={mode === 'dark' ? 'التبديل إلى الوضع النهاري' : 'التبديل إلى الوضع الليلي'} onClick={() => setMode(m => { const n = m === 'dark' ? 'light' : 'dark'; try { localStorage.setItem('rms8:mode', n); } catch { } return n; })} style={{ fontSize: 15 }}>{mode === 'dark' ? '🌞' : '🌙'}</button>
               <div style={{ position: 'relative', flexShrink: 0 }}>
-                <button className="btn sm gh themebtn" title="تغيير مظهر المنصّة (ثيم)" onClick={() => setThemePick(v => !v)} style={{ fontSize: 15 }}>🎨</button>
+                <button className="btn sm gh themebtn" title="لون هوية المنصّة" onClick={() => setThemePick(v => !v)} style={{ fontSize: 15 }}>🎨</button>
                 {themePick && (<>
                   <div className="usermenu-back" onClick={() => setThemePick(false)} />
-                  <div className="usermenu-menu" style={{ minWidth: 268, padding: 8, zIndex: 70 }}>
-                    <div className="umhd" style={{ padding: '4px 6px 9px' }}><b>مظهر المنصّة</b><small>اختر ثيمًا — يُطبَّق فورًا ويُحفظ لك</small></div>
+                  <div className="usermenu-menu" style={{ minWidth: 252, padding: 8, zIndex: 70 }}>
+                    <div className="umhd" style={{ padding: '4px 6px 8px' }}><b>مظهر المنصّة</b><small>الهوية اللونية والوضع — فوريّ ومحفوظ</small></div>
+                    <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                      {[['light', '🌞 نهار'], ['dark', '🌙 ليل']].map(([mv, lbl]) => (
+                        <button key={mv} onClick={() => { setMode(mv); try { localStorage.setItem('rms8:mode', mv); } catch { } }}
+                          style={{ flex: 1, padding: '7px 6px', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit', fontSize: 11.5, fontWeight: 600, color: 'var(--txt)', border: '1px solid ' + (mode === mv ? 'var(--brass)' : 'var(--line)'), background: mode === mv ? 'var(--acc-soft)' : 'transparent' }}>{lbl}</button>
+                      ))}
+                    </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                      {THEME_ORDER.map(id => { const m = THEME_META[id]; const on = normTheme(theme) === id; return (
+                      {THEME_ORDER.map(id => { const m = THEME_META[id]; const on = normAcc(theme) === id; return (
                         <button key={id} onClick={() => { setTheme(id); try { localStorage.setItem('rms8:theme', id); } catch { } }}
                           style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 9px', borderRadius: 9, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'start', border: '1px solid ' + (on ? 'var(--brass)' : 'var(--line)'), background: on ? 'var(--acc-soft)' : 'transparent', color: 'var(--txt)' }}>
-                          <span style={{ width: 22, height: 22, borderRadius: 6, flexShrink: 0, background: m.bg, border: '1px solid var(--line)', position: 'relative', boxShadow: 'var(--sh-1)' }}>
-                            <span style={{ position: 'absolute', insetInlineStart: 3, insetBlockStart: 3, width: 10, height: 10, borderRadius: 3, background: m.brand }} />
-                          </span>
+                          <span style={{ width: 18, height: 18, borderRadius: '50%', flexShrink: 0, background: m.color, boxShadow: 'inset 0 0 0 2px rgba(255,255,255,.35)' }} />
                           <span style={{ fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}{on ? ' ✓' : ''}</span>
                         </button>
                       ); })}
@@ -2267,7 +2269,7 @@ function FirstRun({ css, theme, commitOrg, say, onDone }) {
   };
 
   return (
-    <div className={themeCls(theme)}>
+    <div className={themeCls(theme, mode)}>
       <style dangerouslySetInnerHTML={{ __html: css }} />
       <div className="gate">
         <div className="gate-c">
@@ -2330,7 +2332,7 @@ function FbGate({ css, theme, fbLogin, fbFirstSetup }) {
   };
 
   return (
-    <div className={themeCls(theme)}>
+    <div className={themeCls(theme, mode)}>
       <style dangerouslySetInnerHTML={{ __html: css }} />
       <div className="gate">
         <div className="gate-c">
@@ -2430,7 +2432,7 @@ function Gate({ css, org, onLogin, online, theme }) {
   const pinKey = (d) => { setErr(''); if (d === 'del') setPin(p => p.slice(0, -1)); else setPin(p => (p.length < 6 ? p + d : p)); };
 
   return (
-    <div className={themeCls(theme)}>
+    <div className={themeCls(theme, mode)}>
       <style dangerouslySetInnerHTML={{ __html: css }} />
       <div className="gate">
         <div className="gate-c">
@@ -9364,6 +9366,12 @@ function Launcher({ org, ops, me, setTab, openAcctView, openInvView }) {
   );
 
   return (
+    <>
+    <div className="lh-bg" aria-hidden="true">
+      {org.company?.logoUrl
+        ? <img className="lh-wm" src={org.company.logoUrl} alt="" />
+        : <div className="lh-wm mark">{(org.company?.name || 'م').trim().charAt(0) || 'م'}</div>}
+    </div>
     <div className="lh">
       <p className="lh-hi">{greet} يا <b>{(me.name || '').split(' ')[0]}</b> — كل تطبيقاتك أمامك. اضغط أي تطبيق أو قسم لفتحه، والنجمة لتثبيته في المفضلة.</p>
       <div className="lh-role"><span className="pill">{(ROLES[me.role]?.ar || me.role).split('—')[0].trim()} · {shown.length} تطبيقاً</span></div>
@@ -9393,6 +9401,7 @@ function Launcher({ org, ops, me, setTab, openAcctView, openInvView }) {
       </div>
       {shown.length === 0 && <div className="lh-empty">لا يوجد تطبيق بهذا الاسم — جرّب كلمة أخرى</div>}
     </div>
+    </>
   );
 }
 
