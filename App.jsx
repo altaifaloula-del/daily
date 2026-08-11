@@ -404,6 +404,19 @@ function supplierAging(p, todayStr) {
   return { b0: r(bk.b0), b30: r(bk.b30), b60: r(bk.b60), b90: r(bk.b90), total: r(bk.b0 + bk.b30 + bk.b60 + bk.b90), credit: r(pay) };
 }
 
+// v12.2 — أعمار ذمّة عميل (مدينة): الأعباء (مدين فقط = على العميل) تُطبَّق عليها التحصيلات (دائن فقط) بالأقدم أولًا، والمتبقّي المفتوح يُصنَّف بعُمره. مرآة أعمار الموردين باتجاه معاكس.
+function customerAging(p, todayStr) {
+  const charges = (p.txns || []).filter(t => (t.debit || 0) > 0 && !((t.credit || 0) > 0)).map(t => ({ date: t.date, open: t.debit }));
+  charges.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  let pay = (p.txns || []).reduce((s, t) => s + (((t.credit || 0) > 0 && !((t.debit || 0) > 0)) ? t.credit : 0), 0);
+  for (const ch of charges) { if (pay <= 0.004) break; const ap = Math.min(pay, ch.open); ch.open -= ap; pay -= ap; }
+  const dd = (a, b) => { const x = Date.parse(a), y = Date.parse(b); return (isNaN(x) || isNaN(y)) ? 0 : Math.max(0, Math.floor((y - x) / 86400000)); };
+  const bk = { b0: 0, b30: 0, b60: 0, b90: 0 };
+  charges.forEach(ch => { if (ch.open <= 0.004) return; const d = dd(ch.date, todayStr); if (d <= 30) bk.b0 += ch.open; else if (d <= 60) bk.b30 += ch.open; else if (d <= 90) bk.b60 += ch.open; else bk.b90 += ch.open; });
+  const r = (n) => Math.round(n * 100) / 100;
+  return { b0: r(bk.b0), b30: r(bk.b30), b60: r(bk.b60), b90: r(bk.b90), total: r(bk.b0 + bk.b30 + bk.b60 + bk.b90), credit: r(pay) };
+}
+
 // ===== v11.3: توليد ملف Excel حقيقي (.xlsx) بلا أي مكتبة — ZIP(store)+CRC32+OOXML، دعم RTL وأرقام وعناوين عريضة =====
 const _crcTab = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1); t[n] = c >>> 0; } return t; })();
 function _crc32(b) { let c = 0xFFFFFFFF; for (let i = 0; i < b.length; i++) c = _crcTab[(c ^ b[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
@@ -2000,7 +2013,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v12.1 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v12.2 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -4134,6 +4147,13 @@ function AlertsCenter({ org, ops, me, myBranches, scoped, setTab, openAcctView, 
   const credSup = aged.filter(r => r.credit > 0.004);
   if (credSup.length) push('low', 'suppliers', credSup.length + ' مورد برصيد دفعة مقدمة', 'دفعتَ أكثر من المستحق — استرجاع أو خصم لاحق.', { label: 'الأعمار', go: () => goAcct('apage') });
 
+  // عملاء وذمم مدينة (v12.2)
+  const arAged = buildPartners(org, ops).filter(p => p.type === 'customer').map(p => { const ag = customerAging(p, td); const lim = Number(((org.partners || []).find(x => x.id === p.id) || {}).creditLimit) || 0; return { p, ...ag, lim, over: lim > 0 && ag.total > lim + 0.004 }; });
+  const ar90 = r2(sum(arAged, r => r.b90)), arN90 = arAged.filter(r => r.b90 > 0.004).length;
+  if (ar90 > 0.004) push('high', 'customers', 'ذمم عملاء متأخرة أكثر من 90 يومًا', money(ar90) + ' على ' + arN90 + ' عميل — أولوية تحصيل.', { label: 'أعمار العملاء', go: () => goAcct('arage') });
+  const arOver = arAged.filter(r => r.over);
+  if (arOver.length) push('high', 'customers', arOver.length + ' عميل تجاوز حد الائتمان', 'راجع حدودهم قبل بيع آجل إضافي.', { label: 'أعمار العملاء', go: () => goAcct('arage') });
+
   // موازنة
   const budgetOn = !!(org.budget && org.budget.enabled);
   if (budgetOn) {
@@ -4195,8 +4215,8 @@ function AlertsCenter({ org, ops, me, myBranches, scoped, setTab, openAcctView, 
   const sevRank = { high: 0, mid: 1, low: 2 };
   AL.sort((a, b) => sevRank[a.sev] - sevRank[b.sev]);
   const counts = { high: AL.filter(a => a.sev === 'high').length, mid: AL.filter(a => a.sev === 'mid').length, low: AL.filter(a => a.sev === 'low').length };
-  const catMap = { suppliers: 'موردون', budget: 'موازنة', cash: 'نقد وسيولة', inventory: 'مخزون', tax: 'ضريبة', ops: 'تشغيل', setup: 'إعداد' };
-  const cats = [['all', 'كل الفئات'], ['suppliers', 'موردون'], ['budget', 'موازنة'], ['cash', 'نقد وسيولة'], ['inventory', 'مخزون'], ['tax', 'ضريبة'], ['ops', 'تشغيل'], ['setup', 'إعداد']];
+  const catMap = { suppliers: 'موردون', customers: 'عملاء', budget: 'موازنة', cash: 'نقد وسيولة', inventory: 'مخزون', tax: 'ضريبة', ops: 'تشغيل', setup: 'إعداد' };
+  const cats = [['all', 'كل الفئات'], ['suppliers', 'موردون'], ['customers', 'عملاء'], ['budget', 'موازنة'], ['cash', 'نقد وسيولة'], ['inventory', 'مخزون'], ['tax', 'ضريبة'], ['ops', 'تشغيل'], ['setup', 'إعداد']];
   const sevCls = { high: 'b-rose', mid: 'b-amber', low: 'b-dim' }, sevTxt = { high: 'عاجل', mid: 'متابعة', low: 'اقتراح' };
   const shown = AL.filter(a => (catF === 'all' || a.cat === catF) && (sevF === 'all' || a.sev === sevF));
 
@@ -8563,6 +8583,8 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   });
   const [bMonth, setBMonth] = useState(() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }); // شهر المقارنة
   const [apSel, setApSel] = useState(null);         // v10.7 المورد المختار لكشف الحساب
+  const [arSel, setArSel] = useState(null);         // v12.2 العميل المختار لكشف الحساب
+  const [arLimitF, setArLimitF] = useState(null);   // v12.2 نموذج تعديل حد ائتمان عميل
   const [fcD, setFcD] = useState(() => { const f = org.forecastCfg || {}; return { monthlySales: f.monthlySales != null ? String(f.monthlySales) : '', monthlyOpex: f.monthlyOpex != null ? String(f.monthlyOpex) : '', buffer: f.safetyBuffer != null ? String(f.safetyBuffer) : '', horizon: f.horizon || 6 }; }); // v11.4 توقّع نقدي
   const [mcMonth, setMcMonth] = useState(() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }); // v11.5 شهر الإقفال
   const [audD, setAudD] = useState(() => { const a = org.auditCfg || {}; return { largeAmount: a.largeAmount != null ? String(a.largeAmount) : '5000' }; }); // v11.6 عتبة التدقيق
@@ -8732,6 +8754,19 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const apRows = apSuppliers.map(p => ({ p, ...apAgingOf(p) })).filter(r => r.total > 0.004 || r.credit > 0.004);
   const apTot = { owed: r2(sum(apRows, r => r.total)), b0: r2(sum(apRows, r => r.b0)), b30: r2(sum(apRows, r => r.b30)), b60: r2(sum(apRows, r => r.b60)), b90: r2(sum(apRows, r => r.b90)), credit: r2(sum(apRows, r => r.credit)), debtors: apRows.filter(r => r.total > 0.004).length };
   const apStmt = (p) => { let run = 0; return p.txns.map(t => { run = r2(run + (t.credit || 0) - (t.debit || 0)); return { ...t, run }; }); };
+
+  // ===== v12.2: العملاء والذمم المدينة (مرآة الموردين باتجاه معاكس) =====
+  const arToday = today();
+  const arCustomers = buildPartners(org, ops).filter(p => p.type === 'customer');
+  const custRec = (id) => (org.partners || []).find(x => x.id === id) || {};
+  const arRows = arCustomers.map(p => { const ag = customerAging(p, arToday); const limit = Number(custRec(p.id).creditLimit) || 0; return { p, ...ag, limit, over: limit > 0 && ag.total > limit + 0.004 }; }).filter(r => r.total > 0.004 || r.credit > 0.004);
+  const arTot = { owed: r2(sum(arRows, r => r.total)), b0: r2(sum(arRows, r => r.b0)), b30: r2(sum(arRows, r => r.b30)), b60: r2(sum(arRows, r => r.b60)), b90: r2(sum(arRows, r => r.b90)), credit: r2(sum(arRows, r => r.credit)), debtors: arRows.filter(r => r.total > 0.004).length, over: arRows.filter(r => r.over).length };
+  const arStmt = (p) => { let run = 0; return p.txns.map(t => { run = r2(run + (t.debit || 0) - (t.credit || 0)); return { ...t, run }; }); };
+  const saveArLimit = async () => {
+    const f = arLimitF; const lim = Number(String(f.limit).replace(/[^\d.]/g, '')) || 0;
+    await commitOrg(d => ({ ...d, partners: (d.partners || []).map(pt => pt.id === f.id ? { ...pt, creditLimit: lim } : pt) }), { actionType: 'update', targetType: 'customer', targetId: f.id, title: 'تعديل حد ائتمان عميل', details: f.name + ' — ' + money(lim) });
+    setArLimitF(null);
+  };
 
   // ===== م٣: الضريبة =====
   const taxCfg = org.taxCfg || {};
@@ -9103,6 +9138,19 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
       `<table><thead><tr><th>التاريخ</th><th>البيان</th><th>فاتورة/عليك</th><th>سداد</th><th>الرصيد</th></tr></thead><tbody>${rows}
       <tr class="tot"><td colspan="4">الرصيد المستحق للمورد</td><td class="n">${money(p.balance)}</td></tr></tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
   };
+  const printArAging = () => {
+    const rows = arRows.map(r => `<tr><td>${_xe(r.p.name)}</td><td class="n">${r.limit ? money(r.limit) : '—'}</td><td class="n">${money(r.b0)}</td><td class="n">${money(r.b30)}</td><td class="n">${money(r.b60)}</td><td class="n">${money(r.b90)}</td><td class="n">${money(r.total)}</td></tr>`).join('');
+    printA4(org, 'أعمار الذمم المدينة (العملاء)', 'حتى ' + arDate(arToday),
+      `<table><thead><tr><th>العميل</th><th>حد الائتمان</th><th>جاري ≤30</th><th>31–60</th><th>61–90</th><th>أكثر من 90</th><th>الإجمالي</th></tr></thead><tbody>${rows}
+      <tr class="tot"><td colspan="2">الإجمالي</td><td class="n">${money(arTot.b0)}</td><td class="n">${money(arTot.b30)}</td><td class="n">${money(arTot.b60)}</td><td class="n">${money(arTot.b90)}</td><td class="n">${money(arTot.owed)}</td></tr>
+      </tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+  };
+  const printCustStatement = (p) => {
+    const rows = arStmt(p).map(t => `<tr><td class="n">${t.date}</td><td>${_xe(t.desc)}</td><td class="n">${t.debit ? money(t.debit) : ''}</td><td class="n">${t.credit ? money(t.credit) : ''}</td><td class="n">${money(t.run)}</td></tr>`).join('');
+    printA4(org, 'كشف حساب عميل — ' + p.name, 'حتى ' + arDate(arToday),
+      `<table><thead><tr><th>التاريخ</th><th>البيان</th><th>على العميل</th><th>تحصيل</th><th>الرصيد المدين</th></tr></thead><tbody>${rows}
+      <tr class="tot"><td colspan="4">إجمالي المستحق على العميل</td><td class="n">${money(r2(-p.balance))}</td></tr></tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+  };
 
   // ===== v8.0: طباعة القوائم المالية A4 =====
   const printFS = () => {
@@ -9448,6 +9496,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         <button className={'btn sm' + (view === 'bud' ? ' pri' : ' gh')} onClick={() => setView('bud')}><BarChart3 size={14} />الموازنة</button>
         <button className={'btn sm' + (view === 'anl' ? ' pri' : ' gh')} onClick={() => setView('anl')}><TrendingUp size={14} />التحليل والنِسَب</button>
         <button className={'btn sm' + (view === 'apage' ? ' pri' : ' gh')} onClick={() => { setView('apage'); setApSel(null); }}><Users size={14} />أعمار الموردين</button>
+        <button className={'btn sm' + (view === 'arage' ? ' pri' : ' gh')} onClick={() => { setView('arage'); setArSel(null); }}><Users size={14} />أعمار العملاء</button>
         <button className={'btn sm' + (view === 'export' ? ' pri' : ' gh')} onClick={() => setView('export')}><Download size={14} />تصدير للمحاسب</button>
         <button className={'btn sm' + (view === 'cc' ? ' pri' : ' gh')} onClick={() => setView('cc')}><BarChart3 size={14} />مراكز التكلفة</button>
         <button className={'btn sm' + (view === 'vat' ? ' pri' : ' gh')} onClick={() => setView('vat')}><Receipt size={14} />الضريبة</button>
@@ -10081,6 +10130,109 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
               </div>
               <div className="note" style={{ marginTop: 10 }}>الأعمار تُحتسب بتطبيق سداداتك على أقدم الفواتير أولًا، ثم تصنيف المتبقّي المفتوح بعُمره من تاريخ الفاتورة. المجموع يطابق رصيد المورد في دفتر الذمم. اضغط «كشف حساب» لتفاصيل حركة أي مورد ورصيده الجاري.</div>
             </div>
+          </div>
+        );
+      })()}
+
+      {view === 'arage' && (() => {
+        const sel = arSel ? arCustomers.find(p => p.id === arSel) : null;
+        if (sel) {
+          const stmt = arStmt(sel); const due = r2(-sel.balance); const lim = Number(custRec(sel.id).creditLimit) || 0;
+          return (
+            <div className="grid" style={{ gap: 12 }}>
+              <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                <button className="btn sm gh" onClick={() => setArSel(null)}><ChevronRight size={14} />رجوع للأعمار</button>
+                <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+                  <b style={{ fontSize: 14 }}>كشف حساب — {sel.name}</b>
+                  <button className="btn sm" onClick={() => printCustStatement(sel)}><Printer size={13} />طباعة A4</button>
+                </div>
+              </div>
+              <div className="grid g3">
+                <Kpi label="المستحق على العميل" value={money(due)} sub={due > 0.004 ? 'مدين لك' : due < -0.004 ? 'رصيد دائن لصالحه' : 'مسوّى'} icon={Users} color={due > 0.004 ? '#E0A458' : '#4FB286'} />
+                <Kpi label="حد الائتمان" value={lim ? money(lim) : 'غير محدّد'} sub={lim && due > lim + 0.004 ? 'تجاوز الحد بـ ' + money(r2(due - lim)) : lim ? 'ضمن الحد' : 'اضبطه من الأعمار'} icon={ShieldCheck} color={lim && due > lim + 0.004 ? '#D9544D' : '#5B93C4'} />
+                <Kpi label="عدد الحركات" value={String(stmt.length)} sub={sel.phone || (sel.tax ? 'ر.ض ' + sel.tax : 'عميل')} icon={FileText} color="#C8A24A" />
+              </div>
+              <div className="card">
+                <div className="tw">
+                  <table className="tb">
+                    <thead><tr><th>التاريخ</th><th>البيان</th><th style={{ textAlign: 'end' }}>على العميل</th><th style={{ textAlign: 'end' }}>تحصيل</th><th style={{ textAlign: 'end' }}>الرصيد المدين</th></tr></thead>
+                    <tbody>
+                      {stmt.map((t, i) => (
+                        <tr key={i}>
+                          <td className="num" style={{ fontSize: 11 }}>{t.date}</td>
+                          <td style={{ fontSize: 12 }}>{t.desc}</td>
+                          <td className="num" style={{ textAlign: 'end', color: 'var(--amber)' }}>{t.debit ? money(t.debit) : '—'}</td>
+                          <td className="num" style={{ textAlign: 'end', color: 'var(--mint)' }}>{t.credit ? money(t.credit) : '—'}</td>
+                          <td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{money(t.run)}</td>
+                        </tr>
+                      ))}
+                      {stmt.length === 0 && <tr><td colSpan={5}><div className="empty">لا حركات لهذا العميل بعد.</div></td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="note" style={{ marginTop: 10 }}>«على العميل» يرفع رصيده المدين (بيع آجل)، و«تحصيل» يخفضه. الرصيد الجاري تراكمي. تُسجَّل الحركات من دفتر الشركاء.</div>
+              </div>
+            </div>
+          );
+        }
+        return (
+          <div className="grid" style={{ gap: 12 }}>
+            <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+              <div className="grid g4" style={{ flex: 1, minWidth: 300 }}>
+                <Kpi label="إجمالي الذمم المدينة" value={money(arTot.owed)} sub={arTot.debtors + ' عميل مدين'} icon={Users} color="#C8A24A" />
+                <Kpi label="جاري (≤30 يوم)" value={money(arTot.b0)} sub="غير متأخر" icon={ClipboardCheck} color="#4FB286" />
+                <Kpi label="متأخر 31–90" value={money(r2(arTot.b30 + arTot.b60))} sub="يستحق المتابعة" icon={AlertTriangle} color="#E0A458" />
+                <Kpi label="تجاوزوا حد الائتمان" value={String(arTot.over)} sub={arTot.b90 > 0.004 ? 'متأخر +90: ' + money(arTot.b90) : 'راقب الحدود'} icon={ShieldAlert} color={arTot.over > 0 || arTot.b90 > 0.004 ? '#D9544D' : '#4FB286'} />
+              </div>
+              <button className="btn sm" style={{ alignSelf: 'flex-start' }} onClick={printArAging}><Printer size={13} />طباعة الأعمار</button>
+            </div>
+            <div className="card">
+              <div className="card-t" style={{ marginBottom: 8 }}><Users size={15} color="var(--brass)" />أعمار الذمم المدينة — العملاء حتى {arToday}</div>
+              <div className="tw">
+                <table className="tb">
+                  <thead><tr><th>العميل</th><th style={{ textAlign: 'end' }}>جاري ≤30</th><th style={{ textAlign: 'end' }}>31–60</th><th style={{ textAlign: 'end' }}>61–90</th><th style={{ textAlign: 'end' }}>أكثر من 90</th><th style={{ textAlign: 'end' }}>الإجمالي</th><th style={{ textAlign: 'end' }}>حد الائتمان</th><th /></tr></thead>
+                  <tbody>
+                    {arRows.map(r => (
+                      <tr key={r.p.id} style={r.over ? { background: 'rgba(217,84,77,.06)' } : null}>
+                        <td style={{ fontWeight: 600, fontSize: 12.5 }}>{r.p.name}{r.over && <span className="badge b-rose" style={{ marginInlineStart: 6 }}>تجاوز الحد</span>}<div style={{ fontSize: 9.5, color: 'var(--faint)' }}>{r.p.phone || (r.p.terms ? 'مهلة ' + r.p.terms + ' يوم' : 'عميل')}{r.credit > 0.004 ? ' · رصيد دائن ' + money(r.credit) : ''}</div></td>
+                        <td className="num" style={{ textAlign: 'end' }}>{r.b0 ? money(r.b0) : '—'}</td>
+                        <td className="num" style={{ textAlign: 'end', color: r.b30 ? 'var(--amber)' : 'inherit' }}>{r.b30 ? money(r.b30) : '—'}</td>
+                        <td className="num" style={{ textAlign: 'end', color: r.b60 ? 'var(--amber)' : 'inherit' }}>{r.b60 ? money(r.b60) : '—'}</td>
+                        <td className="num" style={{ textAlign: 'end', color: r.b90 ? 'var(--rose)' : 'inherit', fontWeight: r.b90 ? 700 : 400 }}>{r.b90 ? money(r.b90) : '—'}</td>
+                        <td className="num" style={{ textAlign: 'end', fontWeight: 800 }}>{money(r.total)}</td>
+                        <td className="num" style={{ textAlign: 'end', color: r.over ? 'var(--rose)' : 'var(--dim)' }}>{r.limit ? money(r.limit) : '—'}</td>
+                        <td><div className="row" style={{ gap: 4, justifyContent: 'flex-end' }}>
+                          {canPost && <button className="btn sm gh" onClick={() => setArLimitF({ id: r.p.id, name: r.p.name, limit: r.limit ? String(r.limit) : '' })} title="حد الائتمان"><ShieldCheck size={13} /></button>}
+                          <button className="btn sm gh" onClick={() => setArSel(r.p.id)}>كشف حساب</button>
+                        </div></td>
+                      </tr>
+                    ))}
+                    {arRows.length === 0 && <tr><td colSpan={8}><div className="empty">لا ذمم عملاء قائمة — سجّل بيعًا آجلًا لعميل من «دفتر الشركاء» لتظهر هنا بأعمارها.</div></td></tr>}
+                    {arRows.length > 0 && (
+                      <tr style={{ fontWeight: 800, background: 'rgba(200,162,74,.05)' }}>
+                        <td>الإجمالي</td>
+                        <td className="num" style={{ textAlign: 'end' }}>{money(arTot.b0)}</td>
+                        <td className="num" style={{ textAlign: 'end' }}>{money(arTot.b30)}</td>
+                        <td className="num" style={{ textAlign: 'end' }}>{money(arTot.b60)}</td>
+                        <td className="num" style={{ textAlign: 'end', color: arTot.b90 > 0.004 ? 'var(--rose)' : 'inherit' }}>{money(arTot.b90)}</td>
+                        <td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{money(arTot.owed)}</td>
+                        <td /><td />
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <div className="note" style={{ marginTop: 10 }}>مرآة أعمار الموردين: «على العميل» (بيع آجل) يرفع ذمّته المدينة، والتحصيلات تُطبَّق على الأقدم أولًا. تُسجَّل حركات العملاء من «دفتر الشركاء» (نوع: عميل). حدّ الائتمان اختياري؛ عند تجاوزه يُميَّز العميل بالأحمر.</div>
+            </div>
+            {arLimitF && (
+              <Modal title={'حد ائتمان — ' + arLimitF.name} icon={ShieldCheck} onClose={() => setArLimitF(null)}
+                foot={<><button className="btn gh" onClick={() => setArLimitF(null)}>إلغاء</button><button className="btn pri" onClick={saveArLimit}><Check size={14} />حفظ</button></>}>
+                <Field label="حد الائتمان (ر.س) — اترّكه صفرًا لإلغائه">
+                  <input className="inp n" inputMode="decimal" value={arLimitF.limit} placeholder="0.00" onChange={e => setArLimitF({ ...arLimitF, limit: e.target.value })} />
+                </Field>
+                <div className="note" style={{ marginTop: 10 }}>عند تجاوز رصيد العميل المدين هذا الحد، يظهر تنبيه أحمر في الأعمار. لا يمنع البيع — هو مؤشر رقابي.</div>
+              </Modal>
+            )}
           </div>
         );
       })()}
