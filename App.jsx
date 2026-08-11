@@ -472,6 +472,7 @@ function buildAccounting(org, ops) {
   addAcc('1399', 'ذمم تطبيقات أخرى (غير معرّفة)', 'asset');
   addAcc('1401', 'سلف الموظفين وعُهدهم', 'asset', { link: 'الرواتب والسلف' });
   addAcc('1501', 'ضريبة القيمة المضافة — مدخلات', 'asset', { link: 'تُخصم من الإقرار' });
+  addAcc('1601', 'المخزون — بضاعة آخر المدة', 'asset', { link: 'رسملة المخزون — من شاشة المخزون' });
   addAcc('1701', 'الأصول الثابتة', 'asset', { link: 'سجل الأصول' });
   addAcc('1791', 'مجمّع الإهلاك (يُطرح من الأصول)', 'asset', { link: 'قسط ثابت شهري تلقائي' });
   // — الخصوم —
@@ -498,6 +499,7 @@ function buildAccounting(org, ops) {
   });
   addAcc('5198', 'مشتريات فواتير التوريد الآجلة', 'exp', { link: 'شاشة الموردين' });
   addAcc('5199', 'مصروفات وردية غير مصنّفة', 'exp');
+  addAcc('5150', 'بضاعة آخر المدة (تُخفّض تكلفة المشتريات)', 'exp', { link: 'رسملة المخزون — الطريقة الدورية' });
 
   // ===== محرك القيود =====
   const entries = [];
@@ -738,6 +740,20 @@ function buildAccounting(org, ops) {
     lines.push(L(acc, 0, cleared));
     push({ id: 'astl:' + s.id, date: (s.date || '').slice(0, 10), title: 'تسوية كشف ' + appNm + ' — إيداع ' + money(dep), src: 'تسوية تطبيقات', ref: s.by || '', lines });
   });
+
+  // ٩ج) رسملة المخزون (الطريقة الدورية): بضاعة آخر المدة تُرسمَل أصلًا (1601) وتُخفّض تكلفة الفترة (5150 دائن)
+  //     فيصير: تكلفة البضاعة المباعة = المشتريات − بضاعة آخر المدة، والمخزون يظهر أصلًا في المركز المالي
+  const iv = org.invValuation;
+  if (iv && iv.enabled) {
+    const bal = {};
+    (ops.stockMoves || []).forEach(m => { bal[m.itemId] = (bal[m.itemId] || 0) + (Number(m.qty) || 0); });
+    const autoVal = (org.items || []).reduce((s, it) => s + Math.max(0, bal[it.id] || 0) * (Number(it.cost) || 0), 0);
+    const val = Math.round((iv.auto !== false ? autoVal : (Number(iv.value) || 0)) * 100) / 100;
+    if (val > 0) push({
+      id: 'invval', date: (iv.asOf || today()).slice(0, 10),
+      title: 'رسملة المخزون — بضاعة آخر المدة', src: 'تسوية مخزون', ref: '', lines: [L('1601', val, 0), L('5150', 0, val)]
+    });
+  }
 
   // ٩مكرر) القيود اليدوية والافتتاحية — يُدخلها المحاسب من شاشة المحاسبة (التصحيح بقيد عكسي لا بالحذف)
   (ops.journalManual || []).forEach(j => {
@@ -1646,7 +1662,7 @@ export default function App() {
               </button>
             )}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : NAV.find(n => n.id === safeTab)?.ar}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v9.9 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700 }}>v10.0 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -6275,6 +6291,7 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
   const [moveF, setMoveF] = useState(null);         // نموذج حركة
   const [prodF, setProdF] = useState(null);         // نموذج وصفة
   const [countRows, setCountRows] = useState({});   // العدّ الفعلي أثناء الجرد
+  const [ivD, setIvD] = useState(() => { const v = org.invValuation || {}; return { enabled: !!v.enabled, auto: v.auto !== false, asOf: v.asOf || today(), value: v.value != null ? String(v.value) : '' }; });
   useEffect(() => { if (invIntent && invIntent.v) setView(invIntent.v); }, [invIntent && invIntent.ts]);
 
   const canW = ROLES[me?.role]?.scope === 'all';
@@ -6292,6 +6309,17 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
   const balOf = (id) => Math.round((bal[id] || 0) * 1000) / 1000;
   const stockValue = sum(items, it => balOf(it.id) * (it.cost || 0));
   const lowItems = items.filter(it => (it.minQty || 0) > 0 && balOf(it.id) <= it.minQty);
+
+  // v10.0 — رسملة المخزون (الطريقة الدورية): بضاعة آخر المدة تُرسمل أصلًا وتُخفّض تكلفة الفترة
+  const saveIv = async () => {
+    if (periodLocked(org, ivD.asOf)) return say(LOCK_MSG(ivD.asOf), 'no');
+    const val = ivD.auto ? stockValue : (Math.round((Number(ivD.value) || 0) * 100) / 100);
+    await commitOrg(d => ({ ...d, invValuation: { enabled: ivD.enabled, auto: ivD.auto, asOf: ivD.asOf || today(), value: val } }), {
+      actionType: 'update', targetType: 'inventory_valuation', targetId: 'iv',
+      title: 'حدّث رسملة المخزون', details: (ivD.enabled ? 'مُفعّلة · ' : 'موقوفة · ') + money(val)
+    });
+    say(ivD.enabled ? 'فُعّلت رسملة المخزون — يظهر قيد بضاعة آخر المدة في المحاسبة' : 'أُوقفت رسملة المخزون');
+  };
   const stateOf = (it) => {
     const b = balOf(it.id), mn = it.minQty || 0;
     if (mn > 0 && b <= mn) return ['b-rose', 'اطلب الآن'];
@@ -6455,6 +6483,35 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {view === 'count' && (
+        <div className="card" style={{ borderColor: ivD.enabled ? 'rgba(79,178,134,.4)' : 'var(--line)' }}>
+          <div className="card-t" style={{ marginBottom: 8 }}><Landmark size={15} color="var(--brass)" />رسملة المخزون — بضاعة آخر المدة (الطريقة الدورية)</div>
+          <div className="note" style={{ marginBottom: 10 }}>
+            عند التفعيل: تُرسمَل قيمة المخزون الحالية أصلًا في المركز المالي، وتُخفّض تكلفة الفترة — فتصير
+            <b> تكلفة البضاعة المباعة = المشتريات − بضاعة آخر المدة</b>. (موقوفة افتراضيًا؛ فعّلها عند الحاجة.)
+          </div>
+          <div className="row" style={{ gap: 14, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <label className="row" style={{ gap: 6, fontSize: 12, cursor: canW ? 'pointer' : 'default' }}>
+              <input type="checkbox" checked={ivD.enabled} disabled={!canW} onChange={e => setIvD(s => ({ ...s, enabled: e.target.checked }))} />
+              تفعيل رسملة المخزون
+            </label>
+            <label className="row" style={{ gap: 6, fontSize: 12, cursor: canW ? 'pointer' : 'default' }}>
+              <input type="checkbox" checked={ivD.auto} disabled={!canW} onChange={e => setIvD(s => ({ ...s, auto: e.target.checked }))} />
+              القيمة تلقائيًا من المخزون الحالي
+            </label>
+            <Field label="تاريخ التسوية" style={{ width: 160 }}>
+              <input type="date" className="inp" value={ivD.asOf} disabled={!canW} onChange={e => setIvD(s => ({ ...s, asOf: e.target.value }))} />
+            </Field>
+            {!ivD.auto && <Field label="قيمة بضاعة آخر المدة (يدوي)" style={{ width: 180 }}>
+              <input className="inp n" inputMode="decimal" value={ivD.value} disabled={!canW} onChange={e => setIvD(s => ({ ...s, value: e.target.value.replace(/[^\d.]/g, '') }))} />
+            </Field>}
+            <span className="badge b-brass">قيمة المخزون الحالية: <b className="num">{money(stockValue)}</b></span>
+            {canW && <button className="btn pri" style={{ marginInlineStart: 'auto' }} onClick={saveIv}><Check size={14} />حفظ</button>}
+          </div>
+          {periodLocked(org, ivD.asOf) && <div className="note" style={{ marginTop: 8, borderColor: 'rgba(224,164,88,.4)' }}>⚠️ شهر {String(ivD.asOf).slice(0, 7)} مقفل — افتح الإقفال أولًا.</div>}
         </div>
       )}
 
