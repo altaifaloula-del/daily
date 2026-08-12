@@ -780,6 +780,8 @@ function buildAccounting(org, ops) {
   addAcc('5198', 'مشتريات فواتير التوريد الآجلة', 'exp', { link: 'شاشة الموردين' });
   addAcc('5199', 'مصروفات وردية غير مصنّفة', 'exp');
   addAcc('5150', 'بضاعة آخر المدة (تُخفّض تكلفة المشتريات)', 'exp', { link: 'رسملة المخزون — الطريقة الدورية' });
+  // v15.3: الحسابات المخصّصة التي يضيفها المستخدم من دليل الحسابات (إضافة/تعديل/حذف)
+  (org.customAccounts || []).forEach(ca => { if (ca && ca.code && !accIx[ca.code]) addAcc(String(ca.code), ca.name || String(ca.code), ca.kind || 'exp', { link: 'حساب مخصّص', custom: true }); });
 
   // ===== محرك القيود =====
   const entries = [];
@@ -2069,7 +2071,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.2 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.3 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -9755,6 +9757,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const [audD, setAudD] = useState(() => { const a = org.auditCfg || {}; return { largeAmount: a.largeAmount != null ? String(a.largeAmount) : '5000' }; }); // v11.6 عتبة التدقيق
   const [einvF, setEinvF] = useState({ mode: 'gross', amount: '', buyer: '', buyerId: '', buyerVat: '', buyerAddress: '', type: 'simplified', invNo: '', date: today(), time: '', desc: 'مبيعات', closingId: '', entity: 'primary' }); // v11.8 الفوترة (زاتكا) · v12.1 المنشأة · v15.2 مبسّطة/ضريبية + بيانات العميل
   const [einvRaw, setEinvRaw] = useState(false); // إظهار سلسلة TLV الخام
+  const [coaF, setCoaF] = useState(null); // v15.3 نموذج إضافة/تعديل حساب مخصّص في دليل الحسابات
   const [zkD, setZkD] = useState(() => { const z = org.zakatCfg || {}; return { rate: z.rate != null ? String(z.rate) : '2.5', provisions: z.provisions != null ? String(z.provisions) : '', ltLoans: z.ltLoans != null ? String(z.ltLoans) : '', ltInvest: z.ltInvest != null ? String(z.ltInvest) : '', ownerType: z.ownerType || 'saudi', saudiPct: z.saudiPct != null ? String(z.saudiPct) : '100', incomeTaxRate: z.incomeTaxRate != null ? String(z.incomeTaxRate) : '20' }; }); // v12.5 حاسبة الزكاة · v15.1 نوع الملكية + ضريبة الدخل
   const [q, setQ] = useState('');
   const [month, setMonth] = useState('');           // فلتر شهر للقيود
@@ -9837,6 +9840,24 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   // التحويلات الداخلية بين الخزائن أثرها صفر (طرفاها نقد) فتُلغى تلقائيًا. قيد إقفال السنة لا يمسّ النقد فلا يظهر.
   const cashSet = new Set(A.accounts.filter(a => a.cash).map(a => a.code));
   const accByCode = {}; A.accounts.forEach(a => { accByCode[a.code] = a; });
+  // v15.3 — إضافة/تعديل/حذف حسابات مخصّصة في دليل الحسابات (الحسابات النظامية محميّة)
+  const saveAcct = async () => {
+    const f = coaF; const code = String(f.code || '').trim(); const name = String(f.name || '').trim();
+    if (!code || !name) return say('أدخل رمز الحساب واسمه', 'no');
+    if (!/^[0-9A-Za-z\-]{2,12}$/.test(code)) return say('الرمز: أرقام أو أحرف إنجليزية (٢–١٢)', 'no');
+    const clash = A.accounts.find(a => a.code === code && a.code !== f.origCode);
+    if (clash) return say(clash.custom ? 'يوجد حساب مخصّص بهذا الرمز' : 'الرمز محجوز لحساب نظامي — اختر رمزًا آخر', 'no');
+    await commitOrg(d => { const list = (d.customAccounts || []).filter(x => x.code !== f.origCode); return { ...d, customAccounts: [...list, { code, name, kind: f.kind || 'exp' }] }; },
+      { actionType: f.origCode ? 'update' : 'create', targetType: 'tax_settings', targetId: code, title: (f.origCode ? 'تعديل' : 'إضافة') + ' حساب في الدليل', details: code + ' · ' + name });
+    setCoaF(null); say('حُفظ الحساب ✓');
+  };
+  const delAcct = async (a) => {
+    if (!a.custom) return say('لا يمكن حذف حساب نظامي', 'no');
+    if ((a.debit || 0) !== 0 || (a.credit || 0) !== 0) return say('لا يُحذف حساب عليه حركة — انقل قيوده أولًا', 'no');
+    await commitOrg(d => ({ ...d, customAccounts: (d.customAccounts || []).filter(x => x.code !== a.code) }),
+      { actionType: 'delete', targetType: 'tax_settings', targetId: a.code, title: 'حذف حساب من الدليل', details: a.code + ' · ' + a.name });
+    say('حُذف الحساب ✓');
+  };
   const cashDelta = (e) => sum(e.lines.filter(l => cashSet.has(l.code)), l => l.debit - l.credit);
   const cashBalOver = (ents) => { const m = aggOf(ents); return sum(A.accounts.filter(a => a.cash), a => balOf(a, m)); };
   const cfClassOf = (e) => {                 // التصنيف بحسب الطرف غير النقدي: أصل ثابت⇒استثماري · حقوق ملكية⇒تمويلي · غير ذلك⇒تشغيلي
@@ -10805,7 +10826,24 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
 
       {view === 'coa' && (
         <div className="card">
-          <div className="card-t" style={{ marginBottom: 10 }}><Landmark size={15} color="var(--brass)" />دليل الحسابات — أرصدة حيّة، وذمّة مستقلة لكل تطبيق توصيل</div>
+          <div className="card-h">
+            <div className="card-t"><Landmark size={15} color="var(--brass)" />دليل الحسابات — أرصدة حيّة</div>
+            {canPost && <button className="btn sm pri" onClick={() => setCoaF({ code: '', name: '', kind: 'exp', origCode: '' })}><Plus size={14} />إضافة حساب</button>}
+          </div>
+          {coaF && (
+            <div className="card" style={{ background: 'var(--ink3)', border: '1px dashed var(--brass-d)', marginBottom: 10 }}>
+              <div className="grid g4" style={{ gap: 9, alignItems: 'end' }}>
+                <Field label="الرمز"><input className="inp n" value={coaF.code} onChange={e => setCoaF(s => ({ ...s, code: e.target.value.replace(/[^0-9A-Za-z\-]/g, '') }))} placeholder="مثال 5205" /></Field>
+                <Field label="اسم الحساب" style={{ gridColumn: 'span 2' }}><input className="inp" value={coaF.name} onChange={e => setCoaF(s => ({ ...s, name: e.target.value }))} placeholder="اسم الحساب" /></Field>
+                <Field label="النوع"><select className="inp sel" value={coaF.kind} onChange={e => setCoaF(s => ({ ...s, kind: e.target.value }))}>{Object.keys(ACC_KIND).map(k => <option key={k} value={k}>{ACC_KIND[k].ar}</option>)}</select></Field>
+              </div>
+              <div className="row" style={{ gap: 8, marginTop: 10 }}>
+                <button className="btn pri" onClick={saveAcct}><Check size={14} />{coaF.origCode ? 'حفظ التعديل' : 'إضافة الحساب'}</button>
+                <button className="btn gh" onClick={() => setCoaF(null)}>إلغاء</button>
+              </div>
+              <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 8 }}>الحساب المخصّص يظهر في الدليل وميزان المراجعة، ويُستخدم في القيود اليدوية. الحسابات النظامية لا تُعدَّل ولا تُحذف.</div>
+            </div>
+          )}
           <div className="tw">
             <table className="tb">
               <thead><tr><th>الرمز</th><th>الحساب</th><th style={{ textAlign: 'end' }}>مدين</th><th style={{ textAlign: 'end' }}>دائن</th><th style={{ textAlign: 'end' }}>الرصيد</th></tr></thead>
@@ -10818,7 +10856,12 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
                       <tr key={a.code} style={{ opacity: a.active ? 1 : .55 }}>
                         <td>{codeChip(a.code)}</td>
                         <td style={{ fontSize: 12.5 }}>{a.name}
-                          {a.link && <div style={{ fontSize: 9.5, color: 'var(--sky)' }}>مرتبط: {a.link}</div>}</td>
+                          {a.custom && <span className="badge b-brass" style={{ fontSize: 8.5, marginInlineStart: 6, padding: '1px 6px' }}>مخصّص</span>}
+                          {a.link && <div style={{ fontSize: 9.5, color: 'var(--sky)' }}>مرتبط: {a.link}</div>}
+                          {a.custom && canPost && <div className="row" style={{ gap: 6, marginTop: 3 }}>
+                            <button className="btn sm gh" style={{ padding: '2px 8px', fontSize: 10 }} onClick={() => setCoaF({ code: a.code, name: a.name, kind: a.kind, origCode: a.code })}>تعديل</button>
+                            <button className="btn sm gh" style={{ padding: '2px 8px', fontSize: 10, color: 'var(--rose)' }} onClick={() => delAcct(a)}>حذف</button>
+                          </div>}</td>
                         <td className="num" style={{ textAlign: 'end' }}>{a.debit ? money(a.debit) : '—'}</td>
                         <td className="num" style={{ textAlign: 'end' }}>{a.credit ? money(a.credit) : '—'}</td>
                         <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: a.balance < 0 ? 'var(--rose)' : 'var(--txt)' }}>{fmtBal(a.balance)}</td>
