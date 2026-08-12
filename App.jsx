@@ -2107,7 +2107,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.7 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.8 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2157,9 +2157,9 @@ export default function App() {
                   placeItems: 'center', color: '#fff', fontWeight: 700
                 }}>{unread}</span>}
               </button>
-              {/* قائمة الحساب — v9.6 (بديل ذيل القائمة الجانبية المخفية) */}
+              {/* قائمة الحساب — v9.6 (بديل ذيل القائمة الجانبية المخفية) · v15.8: على الجوال تفتح لوحة «الأقسام» السفلية بدل القائمة المنسدلة التي يقصّها رأس الجوال */}
               <div className="usermenu">
-                <button className="usermenu-btn" onClick={() => setUserMenu(v => !v)} title="حسابي">
+                <button className="usermenu-btn" onClick={() => { if (typeof window !== 'undefined' && window.innerWidth <= 900) { setUserMenu(false); setMoreSheet(true); } else { setUserMenu(v => !v); } }} title="حسابي">
                   <span className="uav">{(me.name || 'م').trim().charAt(0)}</span>
                   <span className="un">{(me.name || '').split(' ')[0]}<small>{((ROLES[me.role] || {}).ar || me.role).split('—')[0].trim()}</small></span>
                   <ChevronDown size={13} />
