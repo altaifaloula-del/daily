@@ -258,11 +258,14 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
   /* ---- الرأس الثابت أعلى القشرة ---- */
   .top{flex-shrink:0;padding:10px 12px;gap:6px;width:100%;max-width:100vw;overflow:hidden;flex-wrap:nowrap;z-index:30}
   .toptitle{font-size:19px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto;font-weight:700;font-family:var(--font-head,'Markazi Text',serif)}
-  .topstatus{display:flex;align-items:center;gap:4px;flex:0 0 auto;min-width:0}
+  .topstatus{display:flex;align-items:center;gap:4px;flex:0 1 auto;min-width:0}
   .topstatus .badge{font-size:9px;padding:2px 6px}
   .topstatus .btn.sm{padding:6px 7px}
   .top .av,.avrow{display:none}
   .synctime .tt{display:none}
+  /* v15.7: تخفيف ازدحام رأس الجوال حتى تظهر «قائمة الحساب» (فيها تسجيل الخروج) بلا اقتصاص */
+  .topstatus .livebadge,.topstatus .synctime,.topstatus .themebtn{display:none !important}
+  .usermenu{flex-shrink:0}
   .hidden-desk{display:none !important}
   .sideclose,.edgehint,.topmenu{display:none !important}
 
