@@ -2069,7 +2069,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.1 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.2 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -9753,7 +9753,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const [fcD, setFcD] = useState(() => { const f = org.forecastCfg || {}; return { monthlySales: f.monthlySales != null ? String(f.monthlySales) : '', monthlyOpex: f.monthlyOpex != null ? String(f.monthlyOpex) : '', buffer: f.safetyBuffer != null ? String(f.safetyBuffer) : '', horizon: f.horizon || 6 }; }); // v11.4 توقّع نقدي
   const [mcMonth, setMcMonth] = useState(() => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }); // v11.5 شهر الإقفال
   const [audD, setAudD] = useState(() => { const a = org.auditCfg || {}; return { largeAmount: a.largeAmount != null ? String(a.largeAmount) : '5000' }; }); // v11.6 عتبة التدقيق
-  const [einvF, setEinvF] = useState({ mode: 'gross', amount: '', buyer: '', invNo: '', date: today(), time: '', desc: 'مبيعات', closingId: '', entity: 'primary' }); // v11.8 الفوترة المبسّطة (زاتكا) · v12.1 المنشأة المُصدِرة
+  const [einvF, setEinvF] = useState({ mode: 'gross', amount: '', buyer: '', buyerId: '', buyerVat: '', buyerAddress: '', type: 'simplified', invNo: '', date: today(), time: '', desc: 'مبيعات', closingId: '', entity: 'primary' }); // v11.8 الفوترة (زاتكا) · v12.1 المنشأة · v15.2 مبسّطة/ضريبية + بيانات العميل
   const [einvRaw, setEinvRaw] = useState(false); // إظهار سلسلة TLV الخام
   const [zkD, setZkD] = useState(() => { const z = org.zakatCfg || {}; return { rate: z.rate != null ? String(z.rate) : '2.5', provisions: z.provisions != null ? String(z.provisions) : '', ltLoans: z.ltLoans != null ? String(z.ltLoans) : '', ltInvest: z.ltInvest != null ? String(z.ltInvest) : '', ownerType: z.ownerType || 'saudi', saudiPct: z.saudiPct != null ? String(z.saudiPct) : '100', incomeTaxRate: z.incomeTaxRate != null ? String(z.incomeTaxRate) : '20' }; }); // v12.5 حاسبة الزكاة · v15.1 نوع الملكية + ضريبة الدخل
   const [q, setQ] = useState('');
@@ -9958,6 +9958,10 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const einvEnt = entityById(org, einvF.entity);
   const einvSeller = einvEnt.name || '';
   const einvSellerVat = einvEnt.taxNumber || '';
+  const einvSellerAddr = einvEnt.primary ? ((org.company || {}).address || '') : (einvEnt.address || ''); // v15.2 عنوان البائع
+  const einvSellerCR = einvEnt.commercialReg || '';
+  const einvIsStd = einvF.type === 'standard';                                                          // فاتورة ضريبية (B2B)
+  const einvCustomers = (org.partners || []).filter(p => (p.type || 'customer') === 'customer');        // عملاء دفتر الشركاء
   const einvRate = taxOn ? taxRate : 15;            // النسبة المعتمدة (تُعرض 15% افتراضيًا للفاتورة إن كانت الضريبة موقوفة)
   const _e2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
   const einvAmt = Number(String(einvF.amount).replace(/[^\d.]/g, '')) || 0;
@@ -9968,21 +9972,25 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     return { net, vat, gross };
   })();
   const einvTs = einvF.date + 'T' + (/^\d{2}:\d{2}$/.test(einvF.time) ? einvF.time : '12:00') + ':00Z';
-  const einvNo = einvF.invNo.trim() || ('مبسّطة-' + String((org.einvSeq || 0) + 1).padStart(5, '0')); // v15: عدّاد تسلسلي فريد (ICV)
+  const einvNo = einvF.invNo.trim() || ((einvF.type === 'standard' ? 'ضريبية-' : 'مبسّطة-') + String((org.einvSeq || 0) + 1).padStart(5, '0')); // v15: عدّاد تسلسلي فريد (ICV)
   const einvReady = !!einvSeller && !!einvSellerVat && einvCalc.gross > 0;
   const einvB64 = einvReady ? zatcaTLV(einvSeller, einvSellerVat, einvTs, einvCalc.gross, einvCalc.vat) : '';
   const einvClosings = (ops.closings || []).filter(countedClosing).slice().sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 80);
   const printEInv = () => {
     if (!einvReady) return say(einvSellerVat ? 'أدخل مبلغ الفاتورة أولًا' : 'أضف الرقم الضريبي للمنشأة من الإعدادات ← بيانات الشركة', 'no');
     const svg = qrSvg(einvB64, { ecl: 1, px: 150 });
+    const buyerBlock = einvIsStd
+      ? `<div style="margin-top:6px"><b>المشتري:</b> ${_xe(einvF.buyer.trim() || '—')}${einvF.buyerVat.trim() ? ' · الرقم الضريبي: ' + _xe(einvF.buyerVat.trim()) : ''}${einvF.buyerAddress.trim() ? '<br>العنوان: ' + _xe(einvF.buyerAddress.trim()) : ''}</div>`
+      : (einvF.buyer.trim() ? `<div style="margin-top:6px">العميل: ${_xe(einvF.buyer.trim())}</div>` : '');
     const body = `
     <div class="box" style="display:flex;justify-content:space-between;align-items:flex-start;gap:18px">
       <div style="line-height:1.9">
-        <div style="font-size:15px;font-weight:800;color:#5a4a1e">فاتورة ضريبية مبسّطة</div>
-        <div class="sub">Simplified Tax Invoice</div>
-        <div style="margin-top:8px">رقم الفاتورة: <b>${_xe(einvNo)}</b></div>
-        <div>التاريخ: <span class="n">${einvF.date}${einvF.time ? ' ' + einvF.time : ''}</span></div>
-        ${einvF.buyer.trim() ? '<div>العميل: ' + _xe(einvF.buyer.trim()) + '</div>' : ''}
+        <div style="font-size:15px;font-weight:800;color:#5a4a1e">${einvIsStd ? 'فاتورة ضريبية' : 'فاتورة ضريبية مبسّطة'}</div>
+        <div class="sub">${einvIsStd ? 'Tax Invoice' : 'Simplified Tax Invoice'}</div>
+        <div style="margin-top:8px"><b>البائع:</b> ${_xe(einvSeller)} · الرقم الضريبي: ${_xe(einvSellerVat)}${einvSellerCR ? ' · س.ت ' + _xe(einvSellerCR) : ''}</div>
+        ${einvSellerAddr ? '<div>العنوان: ' + _xe(einvSellerAddr) + '</div>' : ''}
+        <div style="margin-top:6px">رقم الفاتورة: <b>${_xe(einvNo)}</b> · التاريخ: <span class="n">${einvF.date}${einvF.time ? ' ' + einvF.time : ''}</span></div>
+        ${buyerBlock}
       </div>
       <div style="text-align:center">${svg}<div class="sub" style="margin-top:3px">امسح رمز QR للتحقق</div></div>
     </div>
@@ -9994,10 +10002,10 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         <tr class="tot"><td>الإجمالي شامل الضريبة</td><td class="n">${money(einvCalc.gross)}</td></tr>
       </tbody>
     </table>
-    <div class="box" style="font-size:10px;color:#777">فاتورة مبسّطة متوافقة مع متطلبات المرحلة الأولى للفوترة الإلكترونية (رمز QR بترميز TLV الحاوي: اسم البائع، الرقم الضريبي، التاريخ والوقت، الإجمالي، وقيمة الضريبة). الربط المعتمد للمرحلة الثانية يتطلب شهادة رقمية وتكامل بوابة «فاتورة» من هيئة الزكاة والضريبة والجمارك.</div>`;
-    const ok = printA4(org, 'فاتورة ضريبية مبسّطة', 'الرقم الضريبي للبائع: ' + (einvSellerVat || '—'), body);
+    <div class="box" style="font-size:10px;color:#777">${einvIsStd ? 'فاتورة ضريبية (B2B) تحوي بيانات البائع والمشتري كاملة' : 'فاتورة ضريبية مبسّطة (B2C)'} متوافقة مع المرحلة الأولى للفوترة الإلكترونية (رمز QR بترميز TLV: اسم البائع، الرقم الضريبي، التاريخ والوقت، الإجمالي، وقيمة الضريبة). الربط المعتمد للمرحلة الثانية يتطلب شهادة رقمية وتكامل بوابة «فاتورة» من هيئة الزكاة والضريبة والجمارك.</div>`;
+    const ok = printA4(org, einvIsStd ? 'فاتورة ضريبية' : 'فاتورة ضريبية مبسّطة', 'البائع: ' + (einvSeller || '—') + ' · الرقم الضريبي: ' + (einvSellerVat || '—'), body);
     if (!ok) return say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
-    if (!einvF.invNo.trim()) commitOrg(d => ({ ...d, einvSeq: (d.einvSeq || 0) + 1 }), { actionType: 'create', targetType: 'tax_settings', targetId: 'einvSeq', title: 'إصدار فاتورة إلكترونية مبسّطة', details: einvNo }).catch(() => { });
+    if (!einvF.invNo.trim()) commitOrg(d => ({ ...d, einvSeq: (d.einvSeq || 0) + 1 }), { actionType: 'create', targetType: 'tax_settings', targetId: 'einvSeq', title: 'إصدار ' + (einvIsStd ? 'فاتورة ضريبية' : 'فاتورة مبسّطة'), details: einvNo }).catch(() => { });
   };
 
   // ===== م٥: الأصول الثابتة =====
@@ -11983,12 +11991,12 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         <div className="grid" style={{ gap: 12 }}>
           <div className="card" style={{ borderColor: einvSellerVat ? 'rgba(79,178,134,.4)' : 'rgba(224,164,88,.5)' }}>
             <div className="card-h">
-              <div className="card-t"><QrCode size={15} color="var(--brass)" />الفوترة الإلكترونية المبسّطة — رمز زاتكا (QR)</div>
+              <div className="card-t"><QrCode size={15} color="var(--brass)" />الفوترة الإلكترونية — رمز زاتكا (QR)</div>
               <span className={'badge ' + (einvSellerVat ? 'b-mint' : 'b-amber')}>{einvSellerVat ? 'جاهزة' : 'الرقم الضريبي ناقص'}</span>
             </div>
             <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9 }}>
-              أنشئ <b>فاتورة ضريبية مبسّطة</b> بضغطة، مع <b>رمز QR</b> متوافق مع متطلبات المرحلة الأولى للفوترة الإلكترونية.
-              يحوي الرمز (بترميز TLV المعتمد): اسم البائع، الرقم الضريبي، التاريخ والوقت، الإجمالي شامل الضريبة، وقيمة الضريبة — قابل للمسح والتحقق بأي قارئ.
+              أنشئ <b>فاتورة ضريبية مبسّطة</b> (للأفراد B2C — بلا بيانات عميل) أو <b>فاتورة ضريبية</b> (للمنشآت B2B — ببيانات البائع والمشتري كاملة)،
+              مع <b>رمز QR</b> متوافق مع المرحلة الأولى (اسم البائع، الرقم الضريبي، التاريخ، الإجمالي، الضريبة).
             </div>
             {!einvSellerVat && <div className="note" style={{ marginTop: 8 }}>⚠️ رمز زاتكا يتطلب <b>الرقم الضريبي للمنشأة</b>. أضِفه من <b>الإعدادات ← بيانات الشركة</b> ثم عُد هنا.</div>}
           </div>
@@ -11996,6 +12004,16 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
           <div className="grid g2" style={{ gap: 12, alignItems: 'start' }}>
             <div className="card">
               <div className="card-t" style={{ marginBottom: 10 }}><FileText size={15} color="var(--brass)" />بيانات الفاتورة</div>
+              <div className="row" style={{ gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+                <button className={'btn sm' + (!einvIsStd ? ' pri' : ' gh')} onClick={() => setEinvF(f => ({ ...f, type: 'simplified' }))}>مبسّطة (للأفراد)</button>
+                <button className={'btn sm' + (einvIsStd ? ' pri' : ' gh')} onClick={() => setEinvF(f => ({ ...f, type: 'standard' }))}>ضريبية (للمنشآت)</button>
+              </div>
+              <div className="mono-b" style={{ marginBottom: 10, flexDirection: 'column', alignItems: 'stretch', gap: 3 }}>
+                <div style={{ fontSize: 10.5, color: 'var(--faint)' }}>بيانات البائع (منشأتك)</div>
+                <div style={{ fontSize: 12.5, fontWeight: 700 }}>{einvSeller || '— أضِف اسم الشركة من الإعدادات —'}</div>
+                <div style={{ fontSize: 11, color: 'var(--dim)' }}>الرقم الضريبي: <span className="num">{einvSellerVat || '—'}</span>{einvSellerCR ? ' · س.ت ' + einvSellerCR : ''}</div>
+                {einvSellerAddr && <div style={{ fontSize: 11, color: 'var(--dim)' }}>العنوان: {einvSellerAddr}</div>}
+              </div>
               {multiEntityOn(org) && (
                 <div style={{ marginBottom: 10 }}>
                   <Field label="المنشأة المُصدِرة">
@@ -12018,7 +12036,16 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
                 <Field label="البيان"><input className="inp" value={einvF.desc} onChange={e => setEinvF(f => ({ ...f, desc: e.target.value }))} /></Field>
                 <Field label="التاريخ"><input className="inp" type="date" value={einvF.date} onChange={e => setEinvF(f => ({ ...f, date: e.target.value }))} /></Field>
                 <Field label="الوقت (اختياري)"><input className="inp" type="time" value={einvF.time} onChange={e => setEinvF(f => ({ ...f, time: e.target.value }))} /></Field>
-                <Field label="العميل (اختياري)"><input className="inp" value={einvF.buyer} placeholder="المبسّطة لا تتطلب بيانات العميل" onChange={e => setEinvF(f => ({ ...f, buyer: e.target.value }))} /></Field>
+                {einvIsStd ? (
+                  <Field label="اختر العميل (من دفتر الشركاء)">
+                    <select className="inp" value={einvF.buyerId} onChange={e => { const c = einvCustomers.find(x => x.id === e.target.value); setEinvF(f => ({ ...f, buyerId: e.target.value, buyer: c ? c.name : f.buyer, buyerVat: c ? (c.vatNo || c.tax || '') : f.buyerVat, buyerAddress: c ? (c.address || '') : f.buyerAddress })); }}>
+                      <option value="">— إدخال يدوي —</option>
+                      {einvCustomers.map(c => <option key={c.id} value={c.id}>{c.name}{(c.vatNo || c.tax) ? ' — ' + (c.vatNo || c.tax) : ''}</option>)}
+                    </select>
+                  </Field>
+                ) : (
+                  <Field label="العميل (اختياري)"><input className="inp" value={einvF.buyer} placeholder="المبسّطة لا تتطلب بيانات العميل" onChange={e => setEinvF(f => ({ ...f, buyer: e.target.value }))} /></Field>
+                )}
                 <Field label="أو عبّئ المبلغ من إغلاق يوم">
                   <select className="inp" value={einvF.closingId} onChange={e => {
                     const id = e.target.value; const c = einvClosings.find(x => x.id === id);
@@ -12029,6 +12056,13 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
                   </select>
                 </Field>
               </div>
+              {einvIsStd && (
+                <div className="grid g2" style={{ gap: 9, marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--line)' }}>
+                  <Field label="اسم المشتري"><input className="inp" value={einvF.buyer} onChange={e => setEinvF(f => ({ ...f, buyer: e.target.value }))} placeholder="اسم المنشأة المشترية" /></Field>
+                  <Field label="الرقم الضريبي للمشتري"><input className="inp n" value={einvF.buyerVat} onChange={e => setEinvF(f => ({ ...f, buyerVat: e.target.value }))} placeholder="١٥ رقمًا" /></Field>
+                  <Field label="عنوان المشتري" style={{ gridColumn: 'span 2' }}><input className="inp" value={einvF.buyerAddress} onChange={e => setEinvF(f => ({ ...f, buyerAddress: e.target.value }))} placeholder="المدينة، الحي، الشارع، الرمز البريدي" /></Field>
+                </div>
+              )}
             </div>
 
             <div className="card" style={{ textAlign: 'center' }}>
@@ -12051,8 +12085,13 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
                       <div className="num" style={{ fontSize: 14, fontWeight: 800, color: 'var(--mint)' }}>{money(einvCalc.gross)}</div>
                     </div>
                   </div>
+                  <div style={{ marginTop: 12, textAlign: 'start', fontSize: 11.5, background: 'var(--ink3)', border: '1px solid var(--line)', borderRadius: 10, padding: '9px 11px', lineHeight: 1.9 }}>
+                    <div><span style={{ color: 'var(--faint)' }}>البائع:</span> <b>{einvSeller || '—'}</b> · <span className="num">{einvSellerVat || '—'}</span></div>
+                    {einvIsStd && <div><span style={{ color: 'var(--faint)' }}>المشتري:</span> <b>{einvF.buyer || '—'}</b>{einvF.buyerVat ? ' · ' : ''}<span className="num">{einvF.buyerVat}</span>{einvF.buyerAddress ? ' · ' + einvF.buyerAddress : ''}</div>}
+                    <div><span style={{ color: 'var(--faint)' }}>النوع:</span> {einvIsStd ? 'فاتورة ضريبية (للمنشآت)' : 'فاتورة ضريبية مبسّطة (للأفراد)'} · رقم <span className="num">{einvNo}</span></div>
+                  </div>
                   <div className="row" style={{ gap: 8, justifyContent: 'center', marginTop: 12, flexWrap: 'wrap' }}>
-                    <button className="btn pri" onClick={printEInv}><Printer size={14} />طباعة الفاتورة المبسّطة</button>
+                    <button className="btn pri" onClick={printEInv}><Printer size={14} />طباعة {einvIsStd ? 'الفاتورة الضريبية' : 'الفاتورة المبسّطة'}</button>
                     <button className="btn sm gh" onClick={() => setEinvRaw(v => !v)}>{einvRaw ? 'إخفاء' : 'إظهار'} سلسلة الترميز</button>
                   </div>
                   {einvRaw && <div data-einv-b64="1" style={{ marginTop: 10, fontFamily: 'monospace', fontSize: 10, wordBreak: 'break-all', direction: 'ltr', textAlign: 'left', background: 'var(--acc-soft)', border: '1px solid var(--frame-o)', borderRadius: 8, padding: 10 }}>{einvB64}</div>}
@@ -12064,8 +12103,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
           </div>
 
           <div className="note">
-            💡 <b>بشفافية:</b> هذه فاتورة مبسّطة (بيع للأفراد B2C) متوافقة مع <b>المرحلة الأولى</b> عبر رمز QR. لا تُخزَّن هنا كسجل رسمي ولا تُرسَل للهيئة —
-            الربط المعتمد للمرحلة الثانية (التكامل مع بوابة «فاتورة») يتطلب شهادة رقمية وربطًا رسميًا منفصلًا.
+            💡 <b>بشفافية:</b> <b>المبسّطة</b> للبيع للأفراد (B2C) بلا بيانات عميل؛ <b>الضريبية</b> للمنشآت (B2B) وتُظهر بيانات البائع والمشتري كاملة (اختر العميل من دفتر الشركاء — بياناته الضريبية تُملأ تلقائيًا). كلاهما بـ<b>رمز QR</b> للمرحلة الأولى. لا تُخزَّن هنا كسجل رسمي ولا تُرسَل للهيئة — الربط المعتمد للمرحلة الثانية (بوابة «فاتورة») يتطلب شهادة رقمية وربطًا رسميًا منفصلًا.
           </div>
         </div>
       )}
