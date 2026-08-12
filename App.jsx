@@ -414,9 +414,10 @@ function buildPartners(org, ops) {
 
 // v10.7/v10.8 — أعمار ذمّة مورد: الأعباء (دائن فقط) تُطبَّق عليها السدادات (مدين فقط) بالأقدم أولًا، والمتبقّي يُصنَّف بعُمره
 function supplierAging(p, todayStr) {
-  const charges = (p.txns || []).filter(t => (t.credit || 0) > 0 && !((t.debit || 0) > 0)).map(t => ({ date: t.date, open: t.credit }));
+  const upto = (t) => !todayStr || !t.date || t.date <= todayStr; // v15.5: أعمار كما في تاريخ — تُستثنى الحركات بعده
+  const charges = (p.txns || []).filter(t => upto(t) && (t.credit || 0) > 0 && !((t.debit || 0) > 0)).map(t => ({ date: t.date, open: t.credit }));
   charges.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
-  let pay = (p.txns || []).reduce((s, t) => s + (((t.debit || 0) > 0 && !((t.credit || 0) > 0)) ? t.debit : 0), 0);
+  let pay = (p.txns || []).reduce((s, t) => s + ((upto(t) && (t.debit || 0) > 0 && !((t.credit || 0) > 0)) ? t.debit : 0), 0);
   for (const ch of charges) { if (pay <= 0.004) break; const ap = Math.min(pay, ch.open); ch.open -= ap; pay -= ap; }
   const dd = (a, b) => { const x = Date.parse(a), y = Date.parse(b); return (isNaN(x) || isNaN(y)) ? 0 : Math.max(0, Math.floor((y - x) / 86400000)); };
   const bk = { b0: 0, b30: 0, b60: 0, b90: 0 };
@@ -427,9 +428,10 @@ function supplierAging(p, todayStr) {
 
 // v12.2 — أعمار ذمّة عميل (مدينة): الأعباء (مدين فقط = على العميل) تُطبَّق عليها التحصيلات (دائن فقط) بالأقدم أولًا، والمتبقّي المفتوح يُصنَّف بعُمره. مرآة أعمار الموردين باتجاه معاكس.
 function customerAging(p, todayStr) {
-  const charges = (p.txns || []).filter(t => (t.debit || 0) > 0 && !((t.credit || 0) > 0)).map(t => ({ date: t.date, open: t.debit }));
+  const upto = (t) => !todayStr || !t.date || t.date <= todayStr; // v15.5: أعمار كما في تاريخ
+  const charges = (p.txns || []).filter(t => upto(t) && (t.debit || 0) > 0 && !((t.credit || 0) > 0)).map(t => ({ date: t.date, open: t.debit }));
   charges.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
-  let pay = (p.txns || []).reduce((s, t) => s + (((t.credit || 0) > 0 && !((t.debit || 0) > 0)) ? t.credit : 0), 0);
+  let pay = (p.txns || []).reduce((s, t) => s + ((upto(t) && (t.credit || 0) > 0 && !((t.debit || 0) > 0)) ? t.credit : 0), 0);
   for (const ch of charges) { if (pay <= 0.004) break; const ap = Math.min(pay, ch.open); ch.open -= ap; pay -= ap; }
   const dd = (a, b) => { const x = Date.parse(a), y = Date.parse(b); return (isNaN(x) || isNaN(y)) ? 0 : Math.max(0, Math.floor((y - x) / 86400000)); };
   const bk = { b0: 0, b30: 0, b60: 0, b90: 0 };
@@ -2103,7 +2105,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.4 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.5 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -5837,6 +5839,7 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
     });
 
     // ترحيل صور الإغلاق إلى أرشيف المستندات، مرتّبة حسب الفرع واليوم
+    let archivedCount = 0;
     try {
       const stamp = arDate(f.date);
       const docs = [];
@@ -5862,13 +5865,14 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
         const prevItems = (store && Array.isArray(store.items)) ? store.items : [];
         const kept = prevItems.filter(x => x.closingId !== id);
         await cloud.set(bfKey(f.branchId), { items: [...docs, ...kept].slice(0, 1500) });
+        archivedCount = docs.length;
       }
     } catch (err) { /* الأرشفة تكميلية — لا توقف حفظ الإغلاق */ }
 
     setOutPrompt(false); setPend(null);
     if (status === 'submitted') {
-      say('تم إغلاق الوردية بنجاح ✓');
-      setDone({ branchName: rec.branchName, total: totalRevenue, ref });
+      say(archivedCount ? `تم إغلاق الوردية ✓ ورُحّل ${archivedCount} مستندًا للأرشيف` : 'تم إغلاق الوردية بنجاح ✓');
+      setDone({ branchName: rec.branchName, total: totalRevenue, ref, docsArchived: archivedCount });
     } else {
       say('تم حفظ المسودة');
       onClose();
@@ -6394,6 +6398,11 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
           <div style={{ fontFamily: "'Markazi Text',serif", fontSize: 20, fontWeight: 700 }}>تم إغلاق وردية {done.branchName} بنجاح</div>
           <div style={{ fontSize: 12.5, color: 'var(--dim)', marginTop: 8 }}>الإيراد <span className="num" style={{ color: 'var(--brass)' }}>{money(done.total)}</span> ر.س · سند <span className="num">{done.ref}</span></div>
           <div style={{ fontSize: 11.5, color: 'var(--faint)', marginTop: 12, lineHeight: 1.7 }}>حُفظ الإغلاق وقيد التدقيق والطباعة. يمكنك بدء وردية جديدة مباشرة أو العودة للقائمة.</div>
+          {done.docsArchived > 0 && (
+            <div style={{ fontSize: 11.5, color: 'var(--mint)', marginTop: 10, background: 'rgba(79,178,134,.1)', border: '1px solid rgba(79,178,134,.3)', borderRadius: 8, padding: '8px 12px', lineHeight: 1.7 }}>
+              🗄 رُحّلت <b>{done.docsArchived}</b> مستندًا من هذا الإغلاق (إثبات الشبكة/التحويل · توثيق المسؤول · فواتير المصروفات) تلقائيًا إلى <b>«أرشيف المستندات»</b> — تجدها مرتّبة بالفرع والتاريخ.
+            </div>
+          )}
         </div>
       </Modal>}
     </Modal>
@@ -6616,6 +6625,7 @@ function Treasury({ org, ops, me, myBranches, scoped, commit, say }) {
   const [tab, setTab] = useState('in');
   const [add, setAdd] = useState(false);
   const [repOpen, setRepOpen] = useState(false);    // v9.5 قائمة تقارير التطبيق
+  const [from, setFrom] = useState(''); const [to, setTo] = useState(''); // v15.5: فلتر التاريخ لكشف الخزينة
   const canReceive = ROLES[me.role]?.scope !== 'own';
   const isCentral = ROLES[me.role]?.scope !== 'own';
 
@@ -6653,12 +6663,18 @@ function Treasury({ org, ops, me, myBranches, scoped, commit, say }) {
     let run = 0;
     return items.map(i => { run += i.kind === 'in' ? i.amount : -i.amount; return { ...i, run }; }).reverse();
   }, [ops]);
+  // v15.5: كشف الخزينة ضمن نطاق التاريخ (الرصيد الجاري يبقى تراكميًا حقيقيًا حتى كل حركة)
+  const inRange = (d) => (!from || (d || '') >= from) && (!to || (d || '') <= to);
+  const fLedger = useMemo(() => ledger.filter(i => inRange(i.date)), [ledger, from, to]);
+  const pIn = sum(fLedger.filter(i => i.kind === 'in'), i => i.amount);
+  const pOut = sum(fLedger.filter(i => i.kind === 'out'), i => i.amount);
+  const rangeSub = (from || to) ? ('من ' + (from ? arDate(from) : 'البداية') + ' إلى ' + (to ? arDate(to) : arDate(today()))) : ('كل الحركات · حتى ' + arDate(today()));
 
   const printTreasury = () => {
-    const rws = ledger.map(i => `<tr><td class="n">${arDate(i.date)}</td><td>${i.label}</td><td>${i.ref || ''}</td><td class="n">${i.kind === 'in' ? money(i.amount) : '—'}</td><td class="n">${i.kind === 'out' ? money(i.amount) : '—'}</td><td class="n">${money(i.run)}</td></tr>`).join('');
-    printA4(org, 'كشف حركة الخزينة الرئيسية', arDate(today()) + ' · الرصيد الحالي ' + money(balance),
+    const rws = fLedger.map(i => `<tr><td class="n">${arDate(i.date)}</td><td>${i.label}</td><td>${i.ref || ''}</td><td class="n">${i.kind === 'in' ? money(i.amount) : '—'}</td><td class="n">${i.kind === 'out' ? money(i.amount) : '—'}</td><td class="n">${money(i.run)}</td></tr>`).join('');
+    printA4(org, 'كشف حركة الخزينة الرئيسية', rangeSub + ' · الرصيد الحالي ' + money(balance),
       `<table><thead><tr><th>التاريخ</th><th>البيان</th><th>المرجع</th><th>وارد</th><th>منصرف</th><th>الرصيد</th></tr></thead><tbody>${rws}
-      <tr class="tot"><td colspan="3">الإجمالي</td><td class="n">${money(inflow)}</td><td class="n">${money(outflow)}</td><td class="n">${money(balance)}</td></tr></tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+      <tr class="tot"><td colspan="3">${(from || to) ? 'إجمالي الفترة' : 'الإجمالي'}</td><td class="n">${money(from || to ? pIn : inflow)}</td><td class="n">${money(from || to ? pOut : outflow)}</td><td class="n">${money(balance)}</td></tr></tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
   };
 
   return (
@@ -6766,12 +6782,23 @@ function Treasury({ org, ops, me, myBranches, scoped, commit, say }) {
 
       {tab === 'led' && isCentral && (
         <div className="card">
-          <div className="card-t" style={{ marginBottom: 12 }}><FileText size={15} color="var(--brass)" />كشف حركة الخزينة الرئيسية</div>
+          <div className="card-h">
+            <div className="card-t"><FileText size={15} color="var(--brass)" />كشف حركة الخزينة الرئيسية</div>
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{ fontSize: 11.5, color: 'var(--dim)' }}>من</span>
+              <input type="date" className="inp" style={{ width: 145 }} value={from} onChange={e => setFrom(e.target.value)} />
+              <span style={{ fontSize: 11.5, color: 'var(--dim)' }}>إلى</span>
+              <input type="date" className="inp" style={{ width: 145 }} value={to} onChange={e => setTo(e.target.value)} />
+              {(from || to) && <button className="btn sm gh" onClick={() => { setFrom(''); setTo(''); }}>إظهار الكل</button>}
+              <button className="btn sm" onClick={printTreasury}><Printer size={13} />طباعة</button>
+            </div>
+          </div>
+          <div style={{ fontSize: 11.5, color: 'var(--dim)', marginBottom: 8 }}>{rangeSub}{(from || to) && <> · وارد الفترة <b style={{ color: 'var(--mint)' }}>{money(pIn)}</b> · منصرف الفترة <b style={{ color: 'var(--rose)' }}>{money(pOut)}</b></>}</div>
           <div className="tw">
             <table className="tb">
               <thead><tr><th>التاريخ</th><th>البيان</th><th>المرجع</th><th>وارد</th><th>منصرف</th><th>الرصيد</th></tr></thead>
               <tbody>
-                {ledger.slice(0, 80).map(i => (
+                {fLedger.slice(0, 200).map(i => (
                   <tr key={i.kind + i.id}>
                     <td className="num" style={{ whiteSpace: 'nowrap' }}>{arDate(i.date)}</td>
                     <td style={{ fontSize: 12 }}>{i.label}</td>
@@ -6781,7 +6808,7 @@ function Treasury({ org, ops, me, myBranches, scoped, commit, say }) {
                     <td className="num" style={{ fontWeight: 600, color: 'var(--brass)' }}>{money(i.run)}</td>
                   </tr>
                 ))}
-                {ledger.length === 0 && <tr><td colSpan={6}><div className="empty">لا حركات على الخزينة بعد.</div></td></tr>}
+                {fLedger.length === 0 && <tr><td colSpan={6}><div className="empty">{(from || to) ? 'لا حركات ضمن هذه الفترة.' : 'لا حركات على الخزينة بعد.'}</div></td></tr>}
               </tbody>
             </table>
           </div>
@@ -9976,20 +10003,20 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   // ===== v10.7: أعمار ديون الموردين وكشوف الحساب =====
   // الفواتير/الآجل (دائن فقط) أعباء مؤرّخة، والسدادات (مدين فقط) تُطبَّق على الأقدم أولًا (FIFO)، والباقي المفتوح يُصنَّف بعُمره.
   // المصروفات المسدّدة فورًا (مدين=دائن) تُستثنى — ليست ذمّة قائمة. المجموع المفتوح = رصيد المورد دائمًا.
-  const apToday = today();
+  const [apToday, setApToday] = useState(today()); // v15.5: أعمار الموردين كما في تاريخ (قابل للاختيار)
   const apAgingOf = (p) => supplierAging(p, apToday);
   const apSuppliers = buildPartners(org, ops).filter(p => p.type === 'supplier');
   const apRows = apSuppliers.map(p => ({ p, ...apAgingOf(p) })).filter(r => r.total > 0.004 || r.credit > 0.004);
   const apTot = { owed: r2(sum(apRows, r => r.total)), b0: r2(sum(apRows, r => r.b0)), b30: r2(sum(apRows, r => r.b30)), b60: r2(sum(apRows, r => r.b60)), b90: r2(sum(apRows, r => r.b90)), credit: r2(sum(apRows, r => r.credit)), debtors: apRows.filter(r => r.total > 0.004).length };
-  const apStmt = (p) => { let run = 0; return p.txns.map(t => { run = r2(run + (t.credit || 0) - (t.debit || 0)); return { ...t, run }; }); };
+  const apStmt = (p) => { let run = 0; return (p.txns || []).filter(t => !t.date || t.date <= apToday).map(t => { run = r2(run + (t.credit || 0) - (t.debit || 0)); return { ...t, run }; }); };
 
   // ===== v12.2: العملاء والذمم المدينة (مرآة الموردين باتجاه معاكس) =====
-  const arToday = today();
+  const [arToday, setArToday] = useState(today()); // v15.5: أعمار العملاء كما في تاريخ (قابل للاختيار)
   const arCustomers = buildPartners(org, ops).filter(p => p.type === 'customer');
   const custRec = (id) => (org.partners || []).find(x => x.id === id) || {};
   const arRows = arCustomers.map(p => { const ag = customerAging(p, arToday); const limit = Number(custRec(p.id).creditLimit) || 0; return { p, ...ag, limit, over: limit > 0 && ag.total > limit + 0.004 }; }).filter(r => r.total > 0.004 || r.credit > 0.004);
   const arTot = { owed: r2(sum(arRows, r => r.total)), b0: r2(sum(arRows, r => r.b0)), b30: r2(sum(arRows, r => r.b30)), b60: r2(sum(arRows, r => r.b60)), b90: r2(sum(arRows, r => r.b90)), credit: r2(sum(arRows, r => r.credit)), debtors: arRows.filter(r => r.total > 0.004).length, over: arRows.filter(r => r.over).length };
-  const arStmt = (p) => { let run = 0; return p.txns.map(t => { run = r2(run + (t.debit || 0) - (t.credit || 0)); return { ...t, run }; }); };
+  const arStmt = (p) => { let run = 0; return (p.txns || []).filter(t => !t.date || t.date <= arToday).map(t => { run = r2(run + (t.debit || 0) - (t.credit || 0)); return { ...t, run }; }); };
   const saveArLimit = async () => {
     const f = arLimitF; const lim = Number(String(f.limit).replace(/[^\d.]/g, '')) || 0;
     await commitOrg(d => ({ ...d, partners: (d.partners || []).map(pt => pt.id === f.id ? { ...pt, creditLimit: lim } : pt) }), { actionType: 'update', targetType: 'customer', targetId: f.id, title: 'تعديل حد ائتمان عميل', details: f.name + ' — ' + money(lim) });
@@ -10884,8 +10911,13 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         <div className="card">
           <div className="card-h">
             <div className="card-t"><Landmark size={15} color="var(--brass)" />دليل الحسابات — أرصدة حيّة</div>
-            {canPost && <button className="btn sm pri" onClick={() => setCoaF({ code: '', name: '', kind: 'exp', origCode: '' })}><Plus size={14} />إضافة حساب</button>}
+            {canPost && <button className="btn pri" onClick={() => setCoaF({ code: '', name: '', kind: 'exp', origCode: '' })}><Plus size={15} />إضافة حساب جديد</button>}
           </div>
+          {canPost && !coaF && (
+            <div className="note" style={{ background: 'rgba(200,162,74,.07)', border: '1px solid var(--brass-d)', borderRadius: 10, padding: '9px 12px', marginBottom: 10 }}>
+              💡 <b>تقدر تضيف حساباتك الخاصة:</b> اضغط «<b>إضافة حساب جديد</b>» بالأعلى. وأي حساب تضيفه يظهر موسومًا بـ«<b>مخصّص</b>» ويظهر تحته زرّا «<b>تعديل</b>» و«<b>حذف</b>». الحسابات النظامية محميّة (لا تُعدَّل ولا تُحذف) لأنها مرتبطة بالترحيل التلقائي. {(A.accounts.filter(a => a.custom).length > 0) && <span>— لديك حاليًا <b>{A.accounts.filter(a => a.custom).length}</b> حساب مخصّص.</span>}
+            </div>
+          )}
           {coaF && (
             <div className="card" style={{ background: 'var(--ink3)', border: '1px dashed var(--brass-d)', marginBottom: 10 }}>
               <div className="grid g4" style={{ gap: 9, alignItems: 'end' }}>
@@ -10914,9 +10946,9 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
                         <td style={{ fontSize: 12.5 }}>{a.name}
                           {a.custom && <span className="badge b-brass" style={{ fontSize: 8.5, marginInlineStart: 6, padding: '1px 6px' }}>مخصّص</span>}
                           {a.link && <div style={{ fontSize: 9.5, color: 'var(--sky)' }}>مرتبط: {a.link}</div>}
-                          {a.custom && canPost && <div className="row" style={{ gap: 6, marginTop: 3 }}>
-                            <button className="btn sm gh" style={{ padding: '2px 8px', fontSize: 10 }} onClick={() => setCoaF({ code: a.code, name: a.name, kind: a.kind, origCode: a.code })}>تعديل</button>
-                            <button className="btn sm gh" style={{ padding: '2px 8px', fontSize: 10, color: 'var(--rose)' }} onClick={() => delAcct(a)}>حذف</button>
+                          {a.custom && canPost && <div className="row" style={{ gap: 7, marginTop: 5 }}>
+                            <button className="btn sm" style={{ padding: '4px 12px', fontSize: 11.5 }} onClick={() => setCoaF({ code: a.code, name: a.name, kind: a.kind, origCode: a.code })}>✏️ تعديل</button>
+                            <button className="btn sm gh" style={{ padding: '4px 12px', fontSize: 11.5, color: 'var(--rose)' }} onClick={() => delAcct(a)}><Trash2 size={12} />حذف</button>
                           </div>}</td>
                         <td className="num" style={{ textAlign: 'end' }}>{a.debit ? money(a.debit) : '—'}</td>
                         <td className="num" style={{ textAlign: 'end' }}>{a.credit ? money(a.credit) : '—'}</td>
@@ -11373,7 +11405,13 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
               <button className="btn sm" style={{ alignSelf: 'flex-start' }} onClick={printAging}><Printer size={13} />طباعة الأعمار</button>
             </div>
             <div className="card">
-              <div className="card-t" style={{ marginBottom: 8 }}><Users size={15} color="var(--brass)" />أعمار ديون الموردين — حتى {apToday}</div>
+              <div className="card-h">
+                <div className="card-t"><Users size={15} color="var(--brass)" />أعمار ديون الموردين</div>
+                <label className="row" style={{ gap: 6, fontSize: 11.5, color: 'var(--dim)', alignItems: 'center' }}>كما في تاريخ:
+                  <input type="date" className="inp" style={{ width: 150 }} value={apToday} onChange={e => setApToday(e.target.value || today())} />
+                  {apToday !== today() && <button className="btn sm gh" onClick={() => setApToday(today())}>اليوم</button>}
+                </label>
+              </div>
               <div className="tw">
                 <table className="tb">
                   <thead><tr><th>المورد</th><th style={{ textAlign: 'end' }}>جاري ≤30</th><th style={{ textAlign: 'end' }}>31–60</th><th style={{ textAlign: 'end' }}>61–90</th><th style={{ textAlign: 'end' }}>أكثر من 90</th><th style={{ textAlign: 'end' }}>الإجمالي</th><th /></tr></thead>
@@ -11463,7 +11501,13 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
               <button className="btn sm" style={{ alignSelf: 'flex-start' }} onClick={printArAging}><Printer size={13} />طباعة الأعمار</button>
             </div>
             <div className="card">
-              <div className="card-t" style={{ marginBottom: 8 }}><Users size={15} color="var(--brass)" />أعمار الذمم المدينة — العملاء حتى {arToday}</div>
+              <div className="card-h">
+                <div className="card-t"><Users size={15} color="var(--brass)" />أعمار الذمم المدينة — العملاء</div>
+                <label className="row" style={{ gap: 6, fontSize: 11.5, color: 'var(--dim)', alignItems: 'center' }}>كما في تاريخ:
+                  <input type="date" className="inp" style={{ width: 150 }} value={arToday} onChange={e => setArToday(e.target.value || today())} />
+                  {arToday !== today() && <button className="btn sm gh" onClick={() => setArToday(today())}>اليوم</button>}
+                </label>
+              </div>
               <div className="tw">
                 <table className="tb">
                   <thead><tr><th>العميل</th><th style={{ textAlign: 'end' }}>جاري ≤30</th><th style={{ textAlign: 'end' }}>31–60</th><th style={{ textAlign: 'end' }}>61–90</th><th style={{ textAlign: 'end' }}>أكثر من 90</th><th style={{ textAlign: 'end' }}>الإجمالي</th><th style={{ textAlign: 'end' }}>حد الائتمان</th><th /></tr></thead>
