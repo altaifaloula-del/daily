@@ -368,7 +368,7 @@ function buildPartners(org, ops) {
       linked = true;
     });
     txns.push(...ledFor(key));
-    parts.push({ key, id: sp.id, name: sp.name, type: 'supplier', cat: sp.category || 'مورد', phone: sp.phone || '', tax: sp.vatNo || '', terms: sp.terms || 0, linked, txns, storedCode: sp.code });
+    parts.push({ key, id: sp.id, name: sp.name, type: 'supplier', cat: sp.category || 'مورد', phone: sp.phone || '', tax: sp.vatNo || '', address: sp.address || '', taxable: !!sp.taxable, terms: sp.terms || 0, linked, txns, storedCode: sp.code });
   });
 
   // الموظفون — استحقاق وصرف الرواتب قيود دائمة تُرحَّل من شاشة الرواتب (لا سطر اصطناعي يتغيّر بالشهر)
@@ -389,7 +389,7 @@ function buildPartners(org, ops) {
   (org.partners || []).forEach(pt => {
     const key = pt.key || ('cust:' + pt.id);
     const ce = closeFor(key), pp = payFor(key);
-    parts.push({ key, id: pt.id, name: pt.name, type: pt.type || 'customer', cat: pt.cat || 'عميل', phone: pt.phone || '', tax: pt.tax || '', terms: pt.terms || 0, linked: (ce.length + pp.length) > 0, custom: true, txns: [...ce, ...pp, ...ledFor(key)], storedCode: pt.code });
+    parts.push({ key, id: pt.id, name: pt.name, type: pt.type || 'customer', cat: pt.cat || 'عميل', phone: pt.phone || '', tax: pt.tax || '', address: pt.address || '', taxable: !!pt.taxable, terms: pt.terms || 0, linked: (ce.length + pp.length) > 0, custom: true, txns: [...ce, ...pp, ...ledFor(key)], storedCode: pt.code });
   });
 
   // الأكواد: المخزَّنة على البطاقة ثابتة لا تتغير؛ ولمن بلا كود نُكمل الترقيم دون تصادم
@@ -694,6 +694,24 @@ const ACC_KIND = {
   rev: { ar: 'الإيرادات', nature: 'دائن' },
   exp: { ar: 'المصروفات', nature: 'مدين' }
 };
+/* v15: نِسب التأمينات الاجتماعية حسب اللوائح — سعودي (قديم/جديد) وغير سعودي، مع سقف الأجر الخاضع.
+   القيم افتراضات نظامية قابلة للتعديل من إعداد التأمينات؛ عند عدم تحديد الجنسية تُستخدم النِّسب العامة (توافق رجعي). */
+const GOSI_DEF = { saudiOldEmp: 9.75, saudiOldEr: 11.75, saudiNewEmp: 10.75, saudiNewEr: 12.75, nonSaudiEmp: 0, nonSaudiEr: 2, ceiling: 45000, newFrom: '2024-07-03' };
+function gosiRatesFor(e, gcfg) {
+  gcfg = gcfg || {};
+  const base0 = e.gosiWage != null ? Number(e.gosiWage) || 0 : Math.round(((e.baseSalary || 0) + (e.housingAllowance || 0)) * 100) / 100;
+  const cap = Number(gcfg.ceiling != null ? gcfg.ceiling : GOSI_DEF.ceiling) || GOSI_DEF.ceiling;
+  const pick = (k) => Number(gcfg[k] != null ? gcfg[k] : GOSI_DEF[k]) || 0;
+  if (e.nationality === 'nonSaudi') return { emp: pick('nonSaudiEmp'), er: pick('nonSaudiEr'), base: Math.min(base0, cap), cat: 'غير سعودي' };
+  if (e.nationality === 'saudi') {
+    const isNew = (e.hireDate || '') >= (gcfg.newFrom || GOSI_DEF.newFrom);
+    return isNew
+      ? { emp: pick('saudiNewEmp'), er: pick('saudiNewEr'), base: Math.min(base0, cap), cat: 'سعودي (جديد)' }
+      : { emp: pick('saudiOldEmp'), er: pick('saudiOldEr'), base: Math.min(base0, cap), cat: 'سعودي (قديم)' };
+  }
+  return { emp: Number(gcfg.empRate != null ? gcfg.empRate : GOSI_DEF.saudiOldEmp) || 0, er: Number(gcfg.erRate != null ? gcfg.erRate : GOSI_DEF.saudiOldEr) || 0, base: base0, cat: 'عام' };
+}
+
 function buildAccounting(org, ops) {
   // م٣: الضريبة — تُفعّل صراحةً من شاشة الضريبة (org.taxCfg)، والمبالغ المسجلة تُعامل شاملةً للضريبة
   const tax = org.taxCfg || {};
@@ -747,6 +765,7 @@ function buildAccounting(org, ops) {
   addAcc('5202', 'التأمينات الاجتماعية — حصة صاحب العمل', 'exp', { link: 'كشف الرواتب — عند تفعيل التأمينات' });
   addAcc('5301', 'عمولات تطبيقات التوصيل', 'exp', { link: 'نِسَب العمولة من إعدادات التطبيقات' });
   addAcc('5302', 'خصومات وغرامات تطبيقات التوصيل', 'exp', { link: 'تسوية كشوف التطبيقات — فروق الإيداع' });
+  addAcc('5401', 'عجز/فائض الصندوق', 'exp', { link: 'فرق الجرد النقدي في الإغلاق اليومي (المعدود − المتوقّع)' });
   addAcc('5701', 'مصروف الإهلاك', 'exp', { link: 'سجل الأصول — تلقائي' });
   addAcc('5801', 'خسائر بيع/استبعاد الأصول', 'exp', { link: 'سجل الأصول — عند البيع بأقل من القيمة الدفترية' });
   addAcc('5901', 'مصروفات الخزينة الرئيسية (أوامر الصرف)', 'exp', { link: 'شاشة الخزينة' });
@@ -778,14 +797,15 @@ function buildAccounting(org, ops) {
   counted.forEach(c => {
     const bCode = cashCode[c.branchId] || '1101';
     // ١) إيراد الوردية: نقدي/شبكة ← ثم سطر لكل تطبيق بذمّته وعمولته المسجّلة على الوردية نفسها
-    const cash = c.cashSales || 0, card = c.cardSales || 0;
+    const cash = c.cashSales || 0, card = c.cardSales || 0, bankT = c.bankTransferSales || 0;
     const appRows = (c.deliverySales || []).filter(s => (s.amount || 0) > 0);
     const appsGross = sum(appRows, s => s.amount);
-    const tot = cash + card + appsGross;
+    const tot = cash + card + bankT + appsGross;
     if (tot > 0) {
       const lines = [];
       if (cash) lines.push(L(bCode, cash, 0));
       if (card) lines.push(L('1201', card, 0));
+      if (bankT) lines.push(L('1201', bankT, 0)); // v15: تحصيل التحويل البنكي المباشر في البنك
       appRows.forEach(s => {
         const gross = s.amount || 0;
         const app = (org.deliveryApps || []).find(a => a.id === s.appId);
@@ -801,6 +821,13 @@ function buildAccounting(org, ops) {
       if (sv.vat) lines.push(L('2301', 0, sv.vat));
       push({ id: 'rev:' + c.id, date: c.date, branchId: c.branchId, title: 'إيراد وردية — ' + (c.branchName || ''), src: 'إغلاق وردية', ref: c.id, lines,
         vat: sv.vat ? { out: sv.vat, inn: 0, netSales: sv.net, netPurch: 0 } : null });
+    }
+    // v15) ترحيل فرق جرد الصندوق (عجز/فائض) — يجعل رصيد الخزينة الدفتري يطابق النقد المعدود فعلًا
+    const varc = Math.round((c.variance || 0) * 100) / 100;
+    if (varc) {
+      push({ id: 'cashvar:' + c.id, date: c.date, branchId: c.branchId,
+        title: (varc < 0 ? 'عجز صندوق — ' : 'فائض صندوق — ') + (c.branchName || ''), src: 'فرق جرد الصندوق', ref: c.id,
+        lines: varc < 0 ? [L('5401', -varc, 0), L(bCode, 0, -varc)] : [L(bCode, varc, 0), L('5401', 0, varc)] });
     }
     // ٢) مصروفات الوردية: نقدًا من الصندوق، بنكيًا من البنك، وآجلًا على ذمم الموردين
     (c.expenses || []).forEach((e, ix) => {
@@ -2042,7 +2069,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v14.9 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.0 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -5672,7 +5699,7 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
     const name = nameQ, id = uid('pt');
     const code = nextPartnerCode(buildPartners(org, {}), np.type === 'supplier' ? 'supplier' : np.type === 'employee' ? 'employee' : (np.type || 'customer'));
     let key, mut;
-    if (np.type === 'supplier') { key = 'sup:' + id; mut = d => ({ ...d, suppliers: [...(d.suppliers || []), { id, code, name, category: np.cat || '', phone: np.phone || '', vatNo: '', terms: 0 }] }); }
+    if (np.type === 'supplier') { key = 'sup:' + id; mut = d => ({ ...d, suppliers: [...(d.suppliers || []), { id, code, name, category: np.cat || '', phone: np.phone || '', vatNo: '', address: '', taxable: false, terms: 0 }] }); }
     else if (np.type === 'employee') { key = 'emp:' + id; mut = d => ({ ...d, employees: [...(d.employees || []), { id, code, name, jobTitle: np.cat || '', phone: np.phone || '', baseSalary: 0, housingAllowance: 0, transportAllowance: 0, branchId: f.branchId, isActive: true }] }); }
     else { key = 'cust:' + id; mut = d => ({ ...d, partners: [...(d.partners || []), { id, key, code, name, type: np.type, cat: np.cat || '', phone: np.phone || '', tax: '', terms: 0 }] }); }
     await commitOrg(mut, { actionType: 'create', targetType: 'user_account', targetId: id, title: 'أضاف شريكاً للرئيسي من الإغلاق', details: name + ' — ' + (PT_TYPE[np.type] || { ar: 'عميل' }).ar });
@@ -6802,7 +6829,18 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
   const [repOpen, setRepOpen] = useState(false);    // v9.5 قائمة تقارير التطبيق
   const [compF, setCompF] = useState(null);         // v11.0 تعديل راتب/بدلات موظف
   const [eosF, setEosF] = useState(null);           // v12.3 حاسبة نهاية الخدمة
-  const [gosiD, setGosiD] = useState(() => { const g = org.gosiCfg || {}; return { enabled: !!g.enabled, empRate: String(g.empRate != null ? g.empRate : 9.75), erRate: String(g.erRate != null ? g.erRate : 11.75) }; });
+  const [gosiD, setGosiD] = useState(() => {
+    const g = org.gosiCfg || {};
+    return {
+      enabled: !!g.enabled,
+      empRate: String(g.empRate != null ? g.empRate : 9.75), erRate: String(g.erRate != null ? g.erRate : 11.75),
+      saudiOldEmp: String(g.saudiOldEmp != null ? g.saudiOldEmp : (g.empRate != null ? g.empRate : 9.75)),
+      saudiOldEr: String(g.saudiOldEr != null ? g.saudiOldEr : (g.erRate != null ? g.erRate : 11.75)),
+      saudiNewEmp: String(g.saudiNewEmp != null ? g.saudiNewEmp : 10.75), saudiNewEr: String(g.saudiNewEr != null ? g.saudiNewEr : 12.75),
+      nonSaudiEmp: String(g.nonSaudiEmp != null ? g.nonSaudiEmp : 0), nonSaudiEr: String(g.nonSaudiEr != null ? g.nonSaudiEr : 2),
+      ceiling: String(g.ceiling != null ? g.ceiling : 45000),
+    };
+  });
   const ids = myBranches.map(b => b.id);
   const emps = org.employees.filter(e => ids.includes(e.branchId));
   const canPay = ROLES[me.role]?.scope !== 'own';
@@ -6821,9 +6859,10 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
     const cuts = sum(ads.filter(a => !['advance', 'salary_draw'].includes(a.type)), a => a.amount);
     const allow = (e.housingAllowance || 0) + (e.transportAllowance || 0) + (e.otherAllowance || 0);
     const gross = r2((e.baseSalary || 0) + allow);
-    const gosiBase = e.gosiWage != null ? Number(e.gosiWage) || 0 : r2((e.baseSalary || 0) + (e.housingAllowance || 0));
-    const gEmp = (gosiOn && e.gosiSubject) ? r2(gosiBase * gosiEmpRate / 100) : 0;
-    const gEr = (gosiOn && e.gosiSubject) ? r2(gosiBase * gosiErRate / 100) : 0;
+    const gr = gosiRatesFor(e, org.gosiCfg);
+    const gosiBase = gr.base;
+    const gEmp = (gosiOn && e.gosiSubject) ? r2(gosiBase * gr.emp / 100) : 0;
+    const gEr = (gosiOn && e.gosiSubject) ? r2(gosiBase * gr.er / 100) : 0;
     return { e, ads, draws, cuts, allow, gross, gEmp, gEr, net: r2(gross - draws - cuts - gEmp), flags: ads.filter(a => a.isUnjustified).length };
   });
 
@@ -6987,17 +7026,24 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
   };
   // v11.0 — حفظ إعداد التأمينات الاجتماعية
   const saveGosi = async () => {
-    await commitOrg(d => ({ ...d, gosiCfg: { enabled: !!gosiD.enabled, empRate: Number(gosiD.empRate) || 0, erRate: Number(gosiD.erRate) || 0 } }), {
+    await commitOrg(d => ({ ...d, gosiCfg: {
+      enabled: !!gosiD.enabled,
+      empRate: Number(gosiD.saudiOldEmp) || 0, erRate: Number(gosiD.saudiOldEr) || 0,
+      saudiOldEmp: Number(gosiD.saudiOldEmp) || 0, saudiOldEr: Number(gosiD.saudiOldEr) || 0,
+      saudiNewEmp: Number(gosiD.saudiNewEmp) || 0, saudiNewEr: Number(gosiD.saudiNewEr) || 0,
+      nonSaudiEmp: Number(gosiD.nonSaudiEmp) || 0, nonSaudiEr: Number(gosiD.nonSaudiEr) || 0,
+      ceiling: Number(gosiD.ceiling) || 45000,
+    } }), {
       actionType: 'update', targetType: 'year_end', targetId: 'gosi',
       title: gosiD.enabled ? 'فعّل/حدّث التأمينات الاجتماعية' : 'أوقف التأمينات الاجتماعية',
-      details: gosiD.enabled ? ('موظف ' + gosiD.empRate + '% · صاحب العمل ' + gosiD.erRate + '%') : 'موقوفة'
+      details: gosiD.enabled ? ('سعودي قديم ' + gosiD.saudiOldEr + '% · جديد ' + gosiD.saudiNewEr + '% · غير سعودي ' + gosiD.nonSaudiEr + '%') : 'موقوفة'
     });
     say(gosiD.enabled ? 'حُفظ إعداد التأمينات — تُحتسب لكل موظف مشمول ✓' : 'أُوقفت التأمينات');
   };
   // v11.0 — حفظ راتب وبدلات موظف
   const saveComp = async () => {
     const f = compF;
-    const patch = { baseSalary: Number(f.baseSalary) || 0, housingAllowance: Number(f.housingAllowance) || 0, transportAllowance: Number(f.transportAllowance) || 0, otherAllowance: Number(f.otherAllowance) || 0, gosiSubject: !!f.gosiSubject, hireDate: (f.hireDate || '').trim(), iban: (f.iban || '').trim().replace(/\s/g, ''), idNumber: (f.idNumber || '').trim() };
+    const patch = { baseSalary: Number(f.baseSalary) || 0, housingAllowance: Number(f.housingAllowance) || 0, transportAllowance: Number(f.transportAllowance) || 0, otherAllowance: Number(f.otherAllowance) || 0, gosiSubject: !!f.gosiSubject, nationality: f.nationality || '', hireDate: (f.hireDate || '').trim(), iban: (f.iban || '').trim().replace(/\s/g, ''), idNumber: (f.idNumber || '').trim() };
     await commitOrg(d => ({ ...d, employees: (d.employees || []).map(x => x.id === f.id ? { ...x, ...patch } : x) }), {
       actionType: 'update', targetType: 'user_account', targetId: f.id,
       title: 'حدّث راتب/بدلات موظف', details: f.name + ' · أساسي ' + money(patch.baseSalary)
@@ -7055,13 +7101,21 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
               <input type="checkbox" checked={gosiD.enabled} onChange={e => setGosiD(s => ({ ...s, enabled: e.target.checked }))} />
               <ShieldCheck size={15} color="var(--brass)" />تفعيل التأمينات الاجتماعية (GOSI)
             </label>
-            <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-              <Field label="حصة الموظف %" style={{ width: 110 }}><input className="inp n" inputMode="decimal" value={gosiD.empRate} onChange={e => setGosiD(s => ({ ...s, empRate: e.target.value.replace(/[^\d.]/g, '') }))} disabled={!gosiD.enabled} /></Field>
-              <Field label="حصة صاحب العمل %" style={{ width: 130 }}><input className="inp n" inputMode="decimal" value={gosiD.erRate} onChange={e => setGosiD(s => ({ ...s, erRate: e.target.value.replace(/[^\d.]/g, '') }))} disabled={!gosiD.enabled} /></Field>
-              <button className="btn pri" onClick={saveGosi}><Check size={14} />حفظ إعداد التأمينات</button>
-            </div>
+            <button className="btn pri" onClick={saveGosi} disabled={!gosiD.enabled}><Check size={14} />حفظ إعداد التأمينات</button>
           </div>
-          <div className="note" style={{ marginTop: 8 }}>موقوفة افتراضيًا. عند التفعيل تُحتسب على وعاء (الأساسي + السكن) للموظفين المشمولين فقط (فعّل «مشمول بالتأمينات» لكل موظف من «تعديل الراتب»). النِسَب الافتراضية 9.75% للموظف و11.75% لصاحب العمل — عدّلها حسب فئة الموظف. حصة الموظف تُستقطع من الصافي، وحصة صاحب العمل مصروف إضافي؛ ويظهر قيدهما في المحاسبة (5202/2202) عند تسجيل الصرف.</div>
+          {gosiD.enabled && (
+            <div className="grid g3" style={{ gap: 8, marginTop: 10 }}>
+              <Field label="سعودي (قديم) — موظف %"><input className="inp n" inputMode="decimal" value={gosiD.saudiOldEmp} onChange={e => setGosiD(s => ({ ...s, saudiOldEmp: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+              <Field label="سعودي (قديم) — صاحب العمل %"><input className="inp n" inputMode="decimal" value={gosiD.saudiOldEr} onChange={e => setGosiD(s => ({ ...s, saudiOldEr: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+              <Field label="سقف الأجر الخاضع (ر.س)"><input className="inp n" inputMode="decimal" value={gosiD.ceiling} onChange={e => setGosiD(s => ({ ...s, ceiling: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+              <Field label="سعودي (جديد ٢٠٢٤+) — موظف %"><input className="inp n" inputMode="decimal" value={gosiD.saudiNewEmp} onChange={e => setGosiD(s => ({ ...s, saudiNewEmp: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+              <Field label="سعودي (جديد ٢٠٢٤+) — صاحب العمل %"><input className="inp n" inputMode="decimal" value={gosiD.saudiNewEr} onChange={e => setGosiD(s => ({ ...s, saudiNewEr: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+              <div />
+              <Field label="غير سعودي — موظف %"><input className="inp n" inputMode="decimal" value={gosiD.nonSaudiEmp} onChange={e => setGosiD(s => ({ ...s, nonSaudiEmp: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+              <Field label="غير سعودي — صاحب العمل % (أخطار مهنية)"><input className="inp n" inputMode="decimal" value={gosiD.nonSaudiEr} onChange={e => setGosiD(s => ({ ...s, nonSaudiEr: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+            </div>
+          )}
+          <div className="note" style={{ marginTop: 8 }}>تُحتسب على وعاء (الأساسي + السكن) بحدّ أقصى السقف، للموظفين المشمولين فقط. تُطبَّق النسبة حسب «جنسية» الموظف (تُحدَّد من «تعديل الراتب»): سعودي قديم/جديد بحسب تاريخ التعيين قبل/بعد ٣ يوليو ٢٠٢٤، أو غير سعودي (٢٪ أخطار مهنية على صاحب العمل فقط). عند عدم تحديد الجنسية تُستخدم نِسَب «سعودي (قديم)». القيم افتراضات نظامية حالية — راجِعها مع GOSI/مُدد. يظهر القيد في المحاسبة (5202/2202) عند تسجيل الصرف.</div>
         </div>
       )}
 
@@ -7093,7 +7147,7 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
                   <td className="num" style={{ textAlign: 'end', color: 'var(--mint)', fontWeight: 700 }}>{money(r.net)}</td>
                   <td>
                     <div className="row" style={{ gap: 5, justifyContent: 'flex-end' }}>
-                      {canPost && <button className="btn sm gh" onClick={() => setCompF({ id: r.e.id, name: r.e.name, baseSalary: String(r.e.baseSalary || 0), housingAllowance: String(r.e.housingAllowance || 0), transportAllowance: String(r.e.transportAllowance || 0), otherAllowance: String(r.e.otherAllowance || 0), gosiSubject: !!r.e.gosiSubject, hireDate: r.e.hireDate || '', iban: r.e.iban || '', idNumber: r.e.idNumber || r.e.iqamaNo || r.e.nationalId || '' })}>تعديل الراتب</button>}
+                      {canPost && <button className="btn sm gh" onClick={() => setCompF({ id: r.e.id, name: r.e.name, baseSalary: String(r.e.baseSalary || 0), housingAllowance: String(r.e.housingAllowance || 0), transportAllowance: String(r.e.transportAllowance || 0), otherAllowance: String(r.e.otherAllowance || 0), gosiSubject: !!r.e.gosiSubject, nationality: r.e.nationality || '', hireDate: r.e.hireDate || '', iban: r.e.iban || '', idNumber: r.e.idNumber || r.e.iqamaNo || r.e.nationalId || '' })}>تعديل الراتب</button>}
                       <button className="btn sm gh" onClick={() => printPayslip(r)} title="قسيمة راتب"><Printer size={13} />قسيمة</button>
                     </div>
                   </td>
@@ -7236,7 +7290,8 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
             <Field label="بدلات أخرى"><input className="inp n" inputMode="decimal" value={compF.otherAllowance} onChange={e => setCompF(f => ({ ...f, otherAllowance: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
           </div>
           <div className="grid g2" style={{ marginTop: 8 }}>
-            <Field label="تاريخ التعيين (لنهاية الخدمة)"><input className="inp" type="date" value={compF.hireDate} onChange={e => setCompF(f => ({ ...f, hireDate: e.target.value }))} /></Field>
+            <Field label="الجنسية (لنِسبة التأمينات)"><select className="inp sel" value={compF.nationality || ''} onChange={e => setCompF(f => ({ ...f, nationality: e.target.value }))}><option value="">غير محدّد</option><option value="saudi">سعودي</option><option value="nonSaudi">غير سعودي</option></select></Field>
+            <Field label="تاريخ التعيين (نهاية الخدمة + نظام التأمينات)"><input className="inp" type="date" value={compF.hireDate} onChange={e => setCompF(f => ({ ...f, hireDate: e.target.value }))} /></Field>
             <Field label="رقم الهوية/الإقامة (لحماية الأجور)"><input className="inp n" value={compF.idNumber} onChange={e => setCompF(f => ({ ...f, idNumber: e.target.value }))} /></Field>
             <Field label="الآيبان IBAN (لحماية الأجور)" style={{ gridColumn: '1 / -1' }}><input className="inp n" value={compF.iban} placeholder="SA00 0000 0000 0000 0000 0000" onChange={e => setCompF(f => ({ ...f, iban: e.target.value }))} /></Field>
           </div>
@@ -9913,7 +9968,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     return { net, vat, gross };
   })();
   const einvTs = einvF.date + 'T' + (/^\d{2}:\d{2}$/.test(einvF.time) ? einvF.time : '12:00') + ':00Z';
-  const einvNo = einvF.invNo.trim() || ('مبسّطة-' + (einvF.date || today()).replace(/-/g, ''));
+  const einvNo = einvF.invNo.trim() || ('مبسّطة-' + String((org.einvSeq || 0) + 1).padStart(5, '0')); // v15: عدّاد تسلسلي فريد (ICV)
   const einvReady = !!einvSeller && !!einvSellerVat && einvCalc.gross > 0;
   const einvB64 = einvReady ? zatcaTLV(einvSeller, einvSellerVat, einvTs, einvCalc.gross, einvCalc.vat) : '';
   const einvClosings = (ops.closings || []).filter(countedClosing).slice().sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 80);
@@ -9940,7 +9995,9 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
       </tbody>
     </table>
     <div class="box" style="font-size:10px;color:#777">فاتورة مبسّطة متوافقة مع متطلبات المرحلة الأولى للفوترة الإلكترونية (رمز QR بترميز TLV الحاوي: اسم البائع، الرقم الضريبي، التاريخ والوقت، الإجمالي، وقيمة الضريبة). الربط المعتمد للمرحلة الثانية يتطلب شهادة رقمية وتكامل بوابة «فاتورة» من هيئة الزكاة والضريبة والجمارك.</div>`;
-    printA4(org, 'فاتورة ضريبية مبسّطة', 'الرقم الضريبي للبائع: ' + (einvSellerVat || '—'), body) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+    const ok = printA4(org, 'فاتورة ضريبية مبسّطة', 'الرقم الضريبي للبائع: ' + (einvSellerVat || '—'), body);
+    if (!ok) return say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+    if (!einvF.invNo.trim()) commitOrg(d => ({ ...d, einvSeq: (d.einvSeq || 0) + 1 }), { actionType: 'create', targetType: 'tax_settings', targetId: 'einvSeq', title: 'إصدار فاتورة إلكترونية مبسّطة', details: einvNo }).catch(() => { });
   };
 
   // ===== م٥: الأصول الثابتة =====
@@ -10495,7 +10552,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     const gcfg = org.gosiCfg || {};
     const payroll = R(sum((org.employees || []).filter(e => e.isActive !== false), e => {
       const gross = (e.baseSalary || 0) + (e.housingAllowance || 0) + (e.transportAllowance || 0) + (e.otherAllowance || 0);
-      const gEr = (gcfg.enabled && e.gosiSubject) ? Math.round(((e.baseSalary || 0) + (e.housingAllowance || 0)) * (Number(gcfg.erRate) || 0)) / 100 : 0;
+      const grr = gosiRatesFor(e, gcfg); const gEr = (gcfg.enabled && e.gosiSubject) ? Math.round(grr.base * grr.er) / 100 : 0;
       return gross + gEr;
     }));
     const paidInCl = (id) => sum(cc.flatMap(c => (c.supplierPayments || []).filter(pm => pm.invoiceId === id)), pm => payTotal(pm));
@@ -12018,7 +12075,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         const capital = r2(accByCode['3101'] ? accByCode['3101'].balance : 0);
         const retained = r2(accByCode['3201'] ? accByCode['3201'].balance : 0);
         const netFixed = r2((accByCode['1701'] ? accByCode['1701'].balance : 0) + (accByCode['1791'] ? accByCode['1791'].balance : 0));
-        const netProfit = r2(netP);
+        const netProfit = r2(bsProfit); // v15: الربح غير المقفل فقط — يمنع ازدواج الاحتساب مع 3201 عند الإقفال السنوي
         const provisions = num(zkD.provisions), ltLoans = num(zkD.ltLoans), ltInvest = num(zkD.ltInvest);
         const additions = r2(capital + retained + provisions + ltLoans + netProfit);
         const deductions = r2(netFixed + ltInvest);
@@ -12029,7 +12086,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         const rate = num(zkD.rate) || 2.5;
         const zakat = r2(base * rate / 100);
         const periodSub2 = (from || to) ? ((from || 'البداية') + ' ← ' + (to || today())) : 'كامل المدة حتى ' + today();
-        const zkAdd = [['رأس المال (3101)', capital], ['الأرباح المبقاة (3201)', retained], ['المخصصات والاحتياطيات', provisions], ['القروض والالتزامات طويلة الأجل', ltLoans], ['صافي ربح الفترة', netProfit]];
+        const zkAdd = [['رأس المال (3101)', capital], ['الأرباح المبقاة (3201)', retained], ['المخصصات والاحتياطيات', provisions], ['القروض والالتزامات طويلة الأجل', ltLoans], ['صافي ربح الفترة (غير المقفل)', netProfit]];
         const zkDed = [['صافي الأصول الثابتة (1701/1791)', netFixed], ['الاستثمارات طويلة الأجل', ltInvest]];
         const saveZakat = async () => { await commitOrg(d => ({ ...d, zakatCfg: { rate, provisions, ltLoans, ltInvest } }), { actionType: 'update', targetType: 'tax_settings', targetId: 'zakatCfg', title: 'حفظ إعداد الزكاة', details: 'النسبة ' + rate + '%' }); say('حُفظ إعداد الزكاة ✓'); };
         const zkTable = () => [['البند', 'المبلغ'], ['الإضافات (مصادر التمويل)', ''], ...zkAdd, ['إجمالي الإضافات', additions], ['المخصومات', ''], ...zkDed, ['إجمالي المخصومات', deductions], ['وعاء الزكاة', base], ['النسبة %', rate], ['الزكاة المستحقة', zakat]];
@@ -12051,7 +12108,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
             </div>
             <div className="grid g3">
               <Kpi label="وعاء الزكاة" value={money(base)} sub={floored ? 'رُفع لصافي الربح المعدّل' : 'مصادر − مخصومات'} icon={Landmark} color="#C8A24A" />
-              <Kpi label="النسبة المطبّقة" value={rate + '%'} sub="2.5% هجري · 2.5775% ميلادي" icon={Receipt} color="#5B93C4" />
+              <Kpi label="النسبة المطبّقة" value={rate + '%'} sub="2.5% هجري · 2.5771% ميلادي" icon={Receipt} color="#5B93C4" />
               <Kpi label="الزكاة المستحقة (تقديري)" value={money(zakat)} sub="للفترة المحددة" icon={Landmark} color="#4FB286" />
             </div>
             <div className="grid g2" style={{ alignItems: 'start' }}>
@@ -12383,7 +12440,7 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
     const t = r.type === 'supplier' ? 'supplier' : r.type === 'employee' ? 'employee' : (r.type || 'customer');
     const code = nextPartnerCode(partners, t);
     let key, mut;
-    if (t === 'supplier') { key = 'sup:' + id; mut = d => ({ ...d, suppliers: [...(d.suppliers || []), { id, code, name: r.name, category: r.cat || '', phone: r.phone || '', vatNo: '', terms: 0 }] }); }
+    if (t === 'supplier') { key = 'sup:' + id; mut = d => ({ ...d, suppliers: [...(d.suppliers || []), { id, code, name: r.name, category: r.cat || '', phone: r.phone || '', vatNo: '', address: '', taxable: false, terms: 0 }] }); }
     else if (t === 'employee') { key = 'emp:' + id; mut = d => ({ ...d, employees: [...(d.employees || []), { id, code, name: r.name, jobTitle: r.cat || '', phone: r.phone || '', baseSalary: 0, housingAllowance: 0, transportAllowance: 0, branchId: r.branchId || '', isActive: true }] }); }
     else { key = 'cust:' + id; mut = d => ({ ...d, partners: [...(d.partners || []), { id, key, code, name: r.name, type: t, cat: r.cat || '', phone: r.phone || '', tax: '', terms: 0 }] }); }
     const ok = await commitOrg(mut, { actionType: 'create', targetType: 'user_account', targetId: id, title: 'اعتمد طلب إضافة شريك', details: `${r.name} · ${code} · طلب من ${r.requestedBy || '—'}` });
@@ -12405,6 +12462,13 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
   const saveCustomer = async () => {
     const c = addP;
     if (!c.name?.trim()) return say('اكتب اسم الشريك', 'no');
+    if (c.edit) {
+      if (!canWriteOrgP) return say('تعديل بيانات الكرت للإدارة فقط', 'no');
+      const patch = { name: c.name.trim(), cat: c.cat || '', phone: c.phone || '', terms: Number(c.terms) || 0, address: c.address || '', taxable: !!c.taxable };
+      if (c.isSup) await commitOrg(d => ({ ...d, suppliers: (d.suppliers || []).map(s => s.id === c.id ? { ...s, ...patch, vatNo: c.tax || '' } : s) }), { actionType: 'update', targetType: 'user_account', targetId: c.id, title: 'حدّث بيانات كرت مورد', details: c.name });
+      else await commitOrg(d => ({ ...d, partners: (d.partners || []).map(p => p.id === c.id ? { ...p, ...patch, tax: c.tax || '', vatNo: c.tax || '' } : p) }), { actionType: 'update', targetType: 'user_account', targetId: c.id, title: 'حدّث بيانات كرت عميل', details: c.name });
+      say('حُدّثت بيانات الكرت ✓'); setAddP(null); return;
+    }
     if (!canWriteOrgP) {
       // دور غير إداري (كالمكتب الرئيسي المقيّد): يُرسل طلب اعتماد بدل كتابة تُرفض
       const req = {
@@ -12421,7 +12485,7 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
     }
     const id = uid('pt'); const key = 'cust:' + id;
     const code = nextPartnerCode(partners, c.type || 'customer');
-    const rec = { id, key, code, name: c.name.trim(), type: c.type || 'customer', cat: c.cat || '', phone: c.phone || '', tax: c.tax || '', terms: Number(c.terms) || 0 };
+    const rec = { id, key, code, name: c.name.trim(), type: c.type || 'customer', cat: c.cat || '', phone: c.phone || '', tax: c.tax || '', vatNo: c.tax || '', address: c.address || '', taxable: !!c.taxable, terms: Number(c.terms) || 0 };
     await commitOrg(d => ({ ...d, partners: [...(d.partners || []), rec] }),
       { actionType: 'create', targetType: 'user_account', targetId: id, title: 'أضاف شريكاً لدفتر الشركاء', details: rec.name + ' — ' + (PT_TYPE[rec.type]?.ar || '') });
     const openAmt = Number((c.opening || '').toString().replace(/,/g, '')) || 0;
@@ -12487,7 +12551,9 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
             <div className="row" style={{ flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
               <span className="badge b-dim">{cur.cat || '—'}</span>
               {cur.phone && <span className="badge b-dim">الجوال <span className="num">{cur.phone}</span></span>}
-              {cur.tax && <span className="badge b-dim">ضريبي/هوية {cur.tax}</span>}
+              {cur.tax && <span className="badge b-dim">الرقم الضريبي <span className="num">{cur.tax}</span></span>}
+              {cur.taxable && <span className="badge b-mint">خاضع للضريبة</span>}
+              {cur.address && <span className="badge b-dim">📍 {cur.address}</span>}
               {cur.terms ? <span className="badge b-dim">مهلة <span className="num">{cur.terms}</span> يوم</span> : null}
             </div>
           </div>
@@ -12501,6 +12567,7 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
         <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
           {canEdit && <button className="btn pri" onClick={() => setTx({ side: 'debit', date: today(), amount: '', desc: '' })}><Plus size={14} />إضافة حركة يدوية</button>}
           <button className="btn" onClick={() => printPartnerStatement(cur, org)}><Printer size={14} />طباعة كشف الحساب</button>
+          {canEdit && (cur.type === 'customer' || cur.type === 'supplier') && <button className="btn" onClick={() => setAddP({ edit: true, id: cur.id, isSup: cur.type === 'supplier' || (cur.key || '').startsWith('sup:'), type: cur.type, name: cur.name, cat: (cur.cat === 'مورد' || cur.cat === 'عميل') ? '' : (cur.cat || ''), phone: cur.phone || '', tax: cur.tax || '', address: cur.address || '', taxable: !!cur.taxable, terms: cur.terms || '' })}><Settings size={14} />تعديل بيانات الكرت</button>}
         </div>
 
         {tx && (
@@ -12603,9 +12670,10 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
       </div>
 
       {addP && (
-        <Modal title="إضافة شريك جديد" icon={Users} onClose={() => setAddP(null)}
-          foot={<><button className="btn pri" onClick={saveCustomer}><Check size={14} />حفظ الشريك</button>
+        <Modal title={addP.edit ? 'تعديل بيانات الكرت' : 'إضافة شريك جديد'} icon={Users} onClose={() => setAddP(null)}
+          foot={<><button className="btn pri" onClick={saveCustomer}><Check size={14} />{addP.edit ? 'حفظ التعديلات' : 'حفظ الشريك'}</button>
             <button className="btn gh" onClick={() => setAddP(null)}>إلغاء</button></>}>
+          {!addP.edit && (<>
           <Field label="نوع الشريك">
             <select className="sel" value={addP.type} onChange={e => setAddP({ ...addP, type: e.target.value })}>
               <option value="customer">عميل (يدين لنا عادةً)</option>
@@ -12614,13 +12682,20 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
             </select>
           </Field>
           <div style={{ fontSize: 10.5, color: 'var(--faint)', marginBottom: 8, marginTop: -4 }}>الموردون والموظفون يظهرون تلقائياً من وحداتهم؛ أضِف هنا العملاء أو أي شريك غير مسجّل.</div>
+          </>)}
           <Field label="الاسم"><input className="inp" value={addP.name || ''} onChange={e => setAddP({ ...addP, name: e.target.value })} placeholder="اسم الشريك أو الجهة" /></Field>
           <div className="grid g2">
             <Field label="التصنيف"><input className="inp" value={addP.cat || ''} onChange={e => setAddP({ ...addP, cat: e.target.value })} placeholder="مثال: عميل جملة" /></Field>
             <Field label="الجوال"><input className="inp" style={{ direction: 'ltr', textAlign: 'right' }} value={addP.phone || ''} onChange={e => setAddP({ ...addP, phone: e.target.value })} /></Field>
-            <Field label="الرقم الضريبي/الهوية"><input className="inp" value={addP.tax || ''} onChange={e => setAddP({ ...addP, tax: e.target.value })} /></Field>
+            <Field label="الرقم الضريبي (١٥ رقمًا للمسجّل)"><input className="inp n" value={addP.tax || ''} onChange={e => setAddP({ ...addP, tax: e.target.value })} placeholder="3XXXXXXXXXXXX03" /></Field>
             <Field label="مهلة السداد (يوم)"><input className="inp" inputMode="numeric" value={addP.terms || ''} onChange={e => setAddP({ ...addP, terms: e.target.value })} /></Field>
           </div>
+          <Field label="العنوان الوطني (للفاتورة الضريبية)"><input className="inp" value={addP.address || ''} onChange={e => setAddP({ ...addP, address: e.target.value })} placeholder="المدينة، الحي، الشارع، الرمز البريدي" /></Field>
+          <label className="row" style={{ gap: 6, fontSize: 12.5, cursor: 'pointer', marginTop: 4 }}>
+            <input type="checkbox" checked={!!addP.taxable} onChange={e => setAddP({ ...addP, taxable: e.target.checked })} />
+            خاضع لضريبة القيمة المضافة (مسجّل ضريبيًا)
+          </label>
+          {!addP.edit && (
           <div className="card" style={{ background: 'var(--ink)', padding: 12, marginTop: 6 }}>
             <div className="lbl">رصيد افتتاحي (اختياري)</div>
             <div className="grid g2">
@@ -12630,6 +12705,7 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
               <Field label="المبلغ"><MoneyField value={addP.opening || ''} onChange={v => setAddP({ ...addP, opening: v })} /></Field>
             </div>
           </div>
+          )}
         </Modal>
       )}
     </div>
@@ -14426,8 +14502,9 @@ function computeIncome(org, ops, closings, ids, from, to) {
   const paidAtBranch = sum(byCat.filter(x => ['ec2', 'ec3'].includes(x.id)), x => x.v);
   const payrollRemaining = Math.max(0, payrollCost - paidAtBranch);
 
-  const vatOut = grossRevenue * 15 / 115;
-  const vatIn = sum(byCat.filter(x => x.taxable), x => x.v) * 15 / 115;
+  const _tc = org.taxCfg || {}; const _vr = _tc.enabled ? (Number(_tc.rate) || 15) : 0; // v15: تتبع تفعيل الضريبة ونسبتها
+  const vatOut = _vr ? grossRevenue * _vr / (100 + _vr) : 0;
+  const vatIn = _vr ? sum(byCat.filter(x => x.taxable), x => x.v) * _vr / (100 + _vr) : 0;
   const vatDue = vatOut - vatIn;
 
   const totalCost = branchExpenses + fixedTotal + payrollRemaining;
@@ -14757,8 +14834,9 @@ function IncomeStatement({ org, ops, myBranches, scoped, say }) {
   const paidAtBranch = sum(byCat.filter(x => ['ec2', 'ec3'].includes(x.id)), x => x.v);
   const payrollRemaining = Math.max(0, payrollCost - paidAtBranch);
 
-  const vatOut = grossRevenue * 15 / 115;
-  const vatIn = sum(byCat.filter(x => x.taxable), x => x.v) * 15 / 115;
+  const _tc = org.taxCfg || {}; const _vr = _tc.enabled ? (Number(_tc.rate) || 15) : 0; // v15: تتبع تفعيل الضريبة ونسبتها
+  const vatOut = _vr ? grossRevenue * _vr / (100 + _vr) : 0;
+  const vatIn = _vr ? sum(byCat.filter(x => x.taxable), x => x.v) * _vr / (100 + _vr) : 0;
   const vatDue = vatOut - vatIn;
 
   const totalCost = branchExpenses + fixedTotal + payrollRemaining;
