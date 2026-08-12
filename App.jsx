@@ -2107,7 +2107,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.6 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.7 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2284,6 +2284,19 @@ export default function App() {
             <div className="sheet-head">
               <span>كل الأقسام</span>
               <button className="btn sm gh" onClick={() => setMoreSheet(false)}><X size={16} /></button>
+            </div>
+            <div style={{ marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid var(--line)' }}>
+              <div className="row" style={{ gap: 10, alignItems: 'center', padding: '2px 4px 10px' }}>
+                <span style={{ width: 40, height: 40, borderRadius: '50%', background: 'var(--acc-soft)', color: 'var(--brass)', display: 'grid', placeItems: 'center', fontWeight: 800, flexShrink: 0 }}>{(me.name || 'م').trim().charAt(0)}</span>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{me.name}</div>
+                  <div style={{ fontSize: 10.5, color: 'var(--faint)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{me.email || ((ROLES[me.role] || {}).ar || me.role)}</div>
+                </div>
+              </div>
+              <div className="grid g2" style={{ gap: 8 }}>
+                <button className="btn gh" onClick={() => { setMoreSheet(false); forceUpdate(); }}><RefreshCw size={15} />تحديث للأحدث</button>
+                <button className="btn" style={{ background: 'rgba(217,84,77,.14)', color: 'var(--rose)', borderColor: 'rgba(217,84,77,.42)' }} onClick={() => { setMoreSheet(false); setMe(null); }}><LogOut size={15} />تسجيل الخروج</button>
+              </div>
             </div>
             <div className="iconsgrid">
               {NAV.map(n => (
