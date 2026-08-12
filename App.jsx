@@ -1204,6 +1204,8 @@ const THEME_META = {
 const THEME_ORDER = ['royal', 'glass', 'minimal', 'elevated', 'corporate', 'saudi', 'neon', 'desert', 'pastel', 'paper', 'carbon'];
 const THEME_LEGACY = { gold: 'royal', charcoal: 'royal', bronze: 'royal', terra: 'royal', lite: 'royal', dark: 'royal', blue: 'glass', teal: 'glass', midnight: 'glass', slate: 'minimal', navy: 'corporate', purple: 'elevated', wine: 'elevated', emerald: 'saudi' };
 const normTheme = (t) => THEME_META[t] ? t : (THEME_LEGACY[t] || 'royal');
+// v15.6: قراءة وضع النهار/الليل المحفوظ — تُستخدم في شاشات ما قبل الدخول التي لا تملك حالة mode
+const readMode = () => { try { return localStorage.getItem('rms8:mode') === 'dark' ? 'dark' : 'light'; } catch { return 'light'; } };
 const themeCls = (t, mode) => 'rms mode-' + (mode === 'dark' ? 'dark' : 'light') + ' thm-' + normTheme(t);
 
 const ROLES = {
@@ -2105,7 +2107,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.5 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.6 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2360,7 +2362,7 @@ function FirstRun({ css, theme, commitOrg, say, onDone }) {
   };
 
   return (
-    <div className={themeCls(theme, mode)}>
+    <div className={themeCls(theme, readMode())}>
       <style dangerouslySetInnerHTML={{ __html: css }} />
       <div className="gate">
         <div className="gate-c">
@@ -2423,7 +2425,7 @@ function FbGate({ css, theme, fbLogin, fbFirstSetup }) {
   };
 
   return (
-    <div className={themeCls(theme, mode)}>
+    <div className={themeCls(theme, readMode())}>
       <style dangerouslySetInnerHTML={{ __html: css }} />
       <div className="gate">
         <div className="gate-c">
@@ -2523,7 +2525,7 @@ function Gate({ css, org, onLogin, online, theme }) {
   const pinKey = (d) => { setErr(''); if (d === 'del') setPin(p => p.slice(0, -1)); else setPin(p => (p.length < 6 ? p + d : p)); };
 
   return (
-    <div className={themeCls(theme, mode)}>
+    <div className={themeCls(theme, readMode())}>
       <style dangerouslySetInnerHTML={{ __html: css }} />
       <div className="gate">
         <div className="gate-c">
