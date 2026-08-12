@@ -736,6 +736,19 @@ function buildAccounting(org, ops) {
     addAcc(code, 'صندوق ' + (b.name || 'فرع'), 'asset', { link: 'خزينة الفرع', cash: true });
   });
   addAcc('1201', 'البنك — الشبكة والمدفوعات البنكية (تجميعي)', 'asset', { link: 'يُطابَق من شاشة التسوية البنكية', cash: true });
+  // v15.4: لكل فرع له حساب بنكي مُدخَل — بنك مستقل + حساب وسيط «تحصيلات تحت التحويل» (اختياري، لا يمسّ الفروع القديمة)
+  const branchHasBank = (b) => !!(b && ((b.bankName && String(b.bankName).trim()) || (b.bankIban && String(b.bankIban).trim())));
+  const bankCode = {};   // بنك الفرع — تحصيلات الشبكة/التحويل بالفرع
+  const clrCode = {};    // حساب وسيط الفرع — نقدٌ غادر الفرع ولم يصل الرئيسي بعد
+  (org.branches || []).forEach((b, i) => {
+    if (!branchHasBank(b)) return;
+    const bk = '12' + String(11 + i);
+    bankCode[b.id] = bk;
+    addAcc(bk, 'بنك الفرع — ' + (b.name || 'فرع') + (b.bankName ? ' (' + b.bankName + ')' : ''), 'asset', { link: 'تحصيلات الشبكة والتحويل بالفرع', cash: true });
+    const cl = '19' + String(11 + i);
+    clrCode[b.id] = cl;
+    addAcc(cl, 'حساب وسيط — تحصيلات تحت التحويل — ' + (b.name || 'فرع'), 'asset', { link: 'نقدٌ غادر الفرع للرئيسي ولم يُستلَم بعد', cash: true });
+  });
   // ذمم مبوّبة: حساب مستقل لكل تطبيق توصيل — يُدمج بعمولته المعرّفة في الإعدادات
   const appAcc = {};
   (org.deliveryApps || []).forEach((a, i) => {
@@ -791,13 +804,14 @@ function buildAccounting(org, ops) {
     e.balanced = Math.abs(e.debit - e.credit) < 0.005;
     entries.push(e);
   };
-  const pmToAcc = (m, bCode) => m === 'cash' ? bCode : '1201'; // شبكة/تحويل/شيك → البنك التجميعي
+  const pmToAcc = (m, bCode, bkCode) => m === 'cash' ? bCode : (bkCode || '1201'); // شبكة/تحويل/شيك → بنك الفرع (إن وُجد) أو البنك التجميعي
   const supNameOf = (pm) => pm.supplierName
     || ((org.suppliers || []).find(s => s.id === pm.supplierId) || {}).name || '';
 
   const counted = (ops.closings || []).filter(countedClosing);
   counted.forEach(c => {
     const bCode = cashCode[c.branchId] || '1101';
+    const bkCode = bankCode[c.branchId] || '1201'; // v15.4: بنك الفرع (إن وُجد) وإلا البنك التجميعي
     // ١) إيراد الوردية: نقدي/شبكة ← ثم سطر لكل تطبيق بذمّته وعمولته المسجّلة على الوردية نفسها
     const cash = c.cashSales || 0, card = c.cardSales || 0, bankT = c.bankTransferSales || 0;
     const appRows = (c.deliverySales || []).filter(s => (s.amount || 0) > 0);
@@ -806,8 +820,8 @@ function buildAccounting(org, ops) {
     if (tot > 0) {
       const lines = [];
       if (cash) lines.push(L(bCode, cash, 0));
-      if (card) lines.push(L('1201', card, 0));
-      if (bankT) lines.push(L('1201', bankT, 0)); // v15: تحصيل التحويل البنكي المباشر في البنك
+      if (card) lines.push(L(bkCode, card, 0));
+      if (bankT) lines.push(L(bkCode, bankT, 0)); // v15: تحصيل التحويل البنكي المباشر في البنك (v15.4: بنك الفرع إن وُجد)
       appRows.forEach(s => {
         const gross = s.amount || 0;
         const app = (org.deliveryApps || []).find(a => a.id === s.appId);
@@ -835,7 +849,7 @@ function buildAccounting(org, ops) {
     (c.expenses || []).forEach((e, ix) => {
       const amt = e.amount || 0; if (!amt) return;
       const expCode = catAcc[e.categoryId] || '5199';
-      const credCode = e.paymentMethod === 'deferred' ? '2101' : pmToAcc(e.paymentMethod, bCode);
+      const credCode = e.paymentMethod === 'deferred' ? '2101' : pmToAcc(e.paymentMethod, bCode, bkCode);
       // السلف ليست مصروفًا خاضعًا — لا فصل ضريبي على حساب 1401
       const tx = (e.isTaxable && expCode !== '1401') ? splitVat(amt) : { net: amt, vat: 0 };
       push({
@@ -855,7 +869,7 @@ function buildAccounting(org, ops) {
       const lines = [L('2101', t2, 0)];
       if (s.cash) lines.push(L(bCode, 0, s.cash));
       const bank = s.card + s.transfer + s.other;
-      if (bank) lines.push(L('1201', 0, bank));
+      if (bank) lines.push(L(bkCode, 0, bank));
       const nm = supNameOf(pm);
       push({
         id: 'spay:' + c.id + ':' + (pm.id || ix), date: c.date, branchId: c.branchId,
@@ -865,14 +879,32 @@ function buildAccounting(org, ops) {
     });
   });
 
-  // ٤) التحويلات المؤكّد استلامها → الخزينة الرئيسية (المعلّقة تبقى بعهدة الفرع حتى التأكيد)
-  (ops.transfers || []).filter(t => t.status === 'received').forEach(t => {
+  // ٤) توريد النقد من الفرع للخزينة الرئيسية
+  //    فرعٌ بحساب بنكي مُدخَل (v15.4): يمرّ عبر حساب وسيط — «تحت التحويل» عند الإرسال ← «الخزينة الرئيسية» عند الاستلام،
+  //    فيظهر النقد في الطريق. وفرعٌ بلا حساب بنكي: سلوك سابق تمامًا (يُرحَّل عند الاستلام مباشرةً).
+  (ops.transfers || []).forEach(t => {
     if (!(t.amount > 0)) return;
-    push({
-      id: 'tr:' + t.id, date: t.date, branchId: t.branchId, title: 'توريد نقدي للخزينة الرئيسية — ' + (t.branchName || ''),
-      src: 'تحويل خزينة', ref: t.referenceNo || t.id,
-      lines: [L('1101', t.amount, 0), L(cashCode[t.branchId] || '1101', 0, t.amount)]
-    });
+    const src = cashCode[t.branchId] || '1101';
+    const clr = clrCode[t.branchId];
+    if (clr) {
+      if (t.status !== 'pending' && t.status !== 'received') return; // مرفوض/مُعاد: النقد يبقى بالفرع — لا قيد
+      push({
+        id: 'trs:' + t.id, date: t.date, branchId: t.branchId, title: 'توريد نقدي — تحت التحويل — ' + (t.branchName || ''),
+        src: 'تحويل خزينة', ref: t.referenceNo || t.id,
+        lines: [L(clr, t.amount, 0), L(src, 0, t.amount)]
+      });
+      if (t.status === 'received') push({
+        id: 'trr:' + t.id, date: (t.receivedAt || t.date || '').slice(0, 10), branchId: t.branchId, title: 'استلام التوريد بالخزينة الرئيسية — ' + (t.branchName || ''),
+        src: 'تحويل خزينة', ref: t.referenceNo || t.id,
+        lines: [L('1101', t.amount, 0), L(clr, 0, t.amount)]
+      });
+    } else if (t.status === 'received') {
+      push({
+        id: 'tr:' + t.id, date: t.date, branchId: t.branchId, title: 'توريد نقدي للخزينة الرئيسية — ' + (t.branchName || ''),
+        src: 'تحويل خزينة', ref: t.referenceNo || t.id,
+        lines: [L('1101', t.amount, 0), L(src, 0, t.amount)]
+      });
+    }
   });
   // ٥) أوامر الصرف من الخزينة الرئيسية
   (ops.disbursements || []).forEach(x => {
@@ -2071,7 +2103,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.3 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.4 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -7772,6 +7804,7 @@ function Admin({ org, ops, me, commit, commitOrg, say }) {
                 <div>المدينة: {b.city} · المسؤول: {b.managerName}</div>
                 <div>الجوال: <span className="num">{b.phone}</span> · نهاية الوردية: <span className="num">{b.shiftEndTime}</span></div>
                 <div>العهدة الافتراضية: <span className="num" style={{ color: 'var(--brass)' }}>{money(b.defaultFloat)}</span> ر.س</div>
+                {(b.bankName || b.bankIban) && <div>🏦 بنك الفرع: <b style={{ color: 'var(--brass)' }}>{b.bankName || '—'}</b>{b.bankIban ? <> · <span className="num" style={{ direction: 'ltr', unicodeBidi: 'embed' }}>{b.bankIban}</span></> : ''}</div>}
               </div>
               <div className="row" style={{ marginTop: 12 }}>
                 <button className="btn sm" onClick={() => setBEdit(b)}>تعديل</button>
@@ -7882,6 +7915,14 @@ function BranchForm({ b, say, onSave, onClose }) {
         <Field label="جوال الفرع"><input className="inp n" value={f.phone} onChange={e => set('phone', e.target.value)} /></Field>
         <Num label="العهدة التشغيلية الافتراضية" value={f.defaultFloat} onChange={v => set('defaultFloat', v)} />
         <Field label="وقت نهاية الوردية"><input type="time" className="inp" value={f.shiftEndTime} onChange={e => set('shiftEndTime', e.target.value)} /></Field>
+      </div>
+      <div className="card" style={{ marginTop: 6, background: 'rgba(200,162,74,.05)', borderColor: 'var(--frame)' }}>
+        <div className="card-t" style={{ marginBottom: 4 }}><Landmark size={14} color="var(--brass)" />الحساب البنكي للفرع (اختياري)</div>
+        <div className="note" style={{ marginBottom: 10 }}>عند إدخال بنكٍ للفرع، تُنشأ له في المحاسبة حساباتٌ مستقلّة: <b>بنك الفرع</b> (تُرحَّل إليه تحصيلات الشبكة والتحويل بدل البنك التجميعي) و<b>حساب وسيط «تحصيلات تحت التحويل»</b> يمرّ عبره توريد النقد للخزينة الرئيسية فتَظهر المبالغ في الطريق. اتركه فارغًا ليعمل الفرع كالسابق تمامًا.</div>
+        <div className="grid g2">
+          <Field label="اسم البنك"><input className="inp" value={f.bankName || ''} onChange={e => set('bankName', e.target.value)} placeholder="مثال: مصرف الراجحي" /></Field>
+          <Field label="الآيبان / رقم الحساب"><input className="inp n" style={{ direction: 'ltr', textAlign: 'right' }} value={f.bankIban || ''} onChange={e => set('bankIban', e.target.value)} placeholder="SA00 0000 0000 0000 0000 0000" /></Field>
+        </div>
       </div>
       <Field label="شعار الفرع (يظهر في تقارير هذا الفرع)">
         <PhotoField value={f.logoUrl} onChange={v => set('logoUrl', v)} say={say} />
@@ -10566,6 +10607,13 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const exportJournal = () => dlFile('يومية_' + expTag + '.csv', toCsv(journalRows()));
   const exportTB = () => dlFile('ميزان_المراجعة_' + expTag + '.csv', toCsv(tbRows()));
   const exportFS = () => dlFile('القوائم_المالية_' + expTag + '.csv', toCsv(fsRows()));
+  // v15.4: تصدير كل تقرير في ملف Excel (.xlsx) مستقل — بدل الملف المجمّع
+  const xlOne = (base, rows) => { try { dlBlob(base + '_' + expTag + '.xlsx', makeXlsx([{ name: base.replace(/_/g, ' ').slice(0, 28), rows }])); } catch (e) { say('تعذّر توليد Excel', 'no'); } };
+  const xlCoa = () => xlOne('دليل_الحسابات', coaRows());
+  const xlJournal = () => xlOne('دفتر_اليومية', journalRows());
+  const xlTB = () => xlOne('ميزان_المراجعة', tbRows());
+  const xlIS = () => xlOne('قائمة_الدخل', isRows());
+  const xlBS = () => xlOne('المركز_المالي', bsRows());
 
   // ===== v11.4: محرك التوقّع النقدي — رصيد حالي + مبيعات متوقّعة + تحصيل ذمم التطبيقات − (موردون مستحقون + رواتب + مصروفات تشغيل) =====
   const fcastData = () => {
@@ -10787,40 +10835,48 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
               {(org.branches || []).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </div>
-          <div className="card" style={{ borderColor: 'var(--brass)', background: 'rgba(200,162,74,.06)' }}>
-            <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
-              <div style={{ flex: 1, minWidth: 240 }}>
-                <div className="card-t"><FileBarChart size={16} color="var(--brass)" />ملف Excel واحد — كل شيء (موصى به)</div>
-                <div className="note" style={{ marginTop: 6 }}>ملف <b>.xlsx</b> حقيقي بخمس أوراق منفصلة: <b>دليل الحسابات · اليومية · ميزان المراجعة · قائمة الدخل · المركز المالي</b> — يفتح مباشرةً في Excel بلا تحويل، بالعربية من اليمين لليسار، والأرقام أرقامٌ قابلة للحساب والعناوين عريضة.</div>
-              </div>
-              <button className="btn pri" style={{ fontSize: 14, padding: '11px 18px' }} onClick={exportExcel}><Download size={16} />تصدير Excel (.xlsx)</button>
-            </div>
-          </div>
-
-          <div style={{ fontSize: 11.5, color: 'var(--faint)', marginTop: 2 }}>أو صدّر كل جزء وحده بصيغة CSV (لأنظمة محاسبية تستورد CSV):</div>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--brass-l)', marginTop: 2 }}>كل تقرير في ملف Excel (.xlsx) مستقل — لكل عنصر ملفّه وحده</div>
           <div className="grid g2">
+            <div className="card">
+              <div className="card-t" style={{ marginBottom: 6 }}><Landmark size={15} color="var(--brass)" />دليل الحسابات</div>
+              <div className="note" style={{ marginBottom: 10 }}>كل حساب برمزه واسمه ونوعه (أصول/خصوم/حقوق ملكية/إيرادات/مصروفات) — بما فيها حساباتك المخصّصة.</div>
+              <button className="btn pri" onClick={xlCoa}><Download size={14} />تصدير دليل الحسابات (Excel)</button>
+            </div>
             <div className="card">
               <div className="card-t" style={{ marginBottom: 6 }}><FileText size={15} color="var(--brass)" />دفتر اليومية</div>
               <div className="note" style={{ marginBottom: 10 }}>كل القيود سطرًا سطرًا (رقم القيد، التاريخ، البيان، رمز الحساب واسمه، مدين، دائن) للفترة والفرع المحددين.</div>
-              <button className="btn pri" onClick={exportJournal}><Download size={14} />تصدير اليومية (CSV)</button>
+              <button className="btn pri" onClick={xlJournal}><Download size={14} />تصدير اليومية (Excel)</button>
             </div>
             <div className="card">
               <div className="card-t" style={{ marginBottom: 6 }}><Scale size={15} color="var(--brass)" />ميزان المراجعة</div>
               <div className="note" style={{ marginBottom: 10 }}>كل حساب برمزه ونوعه ومجموع مدينه ودائنه ورصيده — جاهز للمراجعة.</div>
-              <button className="btn pri" onClick={exportTB}><Download size={14} />تصدير الميزان (CSV)</button>
+              <button className="btn pri" onClick={xlTB}><Download size={14} />تصدير الميزان (Excel)</button>
             </div>
             <div className="card">
-              <div className="card-t" style={{ marginBottom: 6 }}><FileBarChart size={15} color="var(--brass)" />القوائم المالية</div>
-              <div className="note" style={{ marginBottom: 10 }}>قائمة الدخل والمركز المالي في ملف واحد بأرقام الفترة المحددة.</div>
-              <button className="btn pri" onClick={exportFS}><Download size={14} />تصدير القوائم (CSV)</button>
+              <div className="card-t" style={{ marginBottom: 6 }}><FileBarChart size={15} color="var(--brass)" />قائمة الدخل</div>
+              <div className="note" style={{ marginBottom: 10 }}>الإيرادات والمصروفات وصافي الربح/الخسارة بأرقام الفترة المحددة.</div>
+              <button className="btn pri" onClick={xlIS}><Download size={14} />تصدير قائمة الدخل (Excel)</button>
+            </div>
+            <div className="card">
+              <div className="card-t" style={{ marginBottom: 6 }}><Landmark size={15} color="var(--brass)" />قائمة المركز المالي</div>
+              <div className="note" style={{ marginBottom: 10 }}>الأصول والخصوم وحقوق الملكية وأرباح الفترة — الميزانية العمومية للفترة المحددة.</div>
+              <button className="btn pri" onClick={xlBS}><Download size={14} />تصدير المركز المالي (Excel)</button>
             </div>
             <div className="card" style={{ borderColor: 'var(--frame)' }}>
-              <div className="card-t" style={{ marginBottom: 6 }}><Download size={15} color="var(--brass)" />الحزمة الكاملة</div>
-              <div className="note" style={{ marginBottom: 10 }}>ملف واحد يجمع: دليل الحسابات + اليومية + ميزان المراجعة + القوائم — كل ما يحتاجه محاسبك بضغطة.</div>
-              <button className="btn pri" onClick={exportPack}><Download size={14} />تصدير الحزمة الكاملة (CSV)</button>
+              <div className="card-t" style={{ marginBottom: 6 }}><Download size={15} color="var(--brass)" />أو ملف واحد بكل الأوراق</div>
+              <div className="note" style={{ marginBottom: 10 }}>إذا فضّلت ملفًا واحدًا: كتاب Excel بخمس أوراق (دليل الحسابات · اليومية · الميزان · قائمة الدخل · المركز المالي).</div>
+              <button className="btn" onClick={exportExcel}><Download size={14} />الكل في ملف واحد (Excel)</button>
             </div>
           </div>
-          <div className="note">ملف Excel (.xlsx) مبنيّ داخل متصفحك بلا أي خدمة خارجية، ويفتح دون أي تحذير صيغة. وملفات CSV بترميز UTF-8 (بعلامة BOM) تفتح أيضًا في Excel وGoogle Sheets بالعربية سليمةً. الأرقام خام بلا فواصل ليقرأها Excel كأرقام قابلة للحساب، وكل الملفات تحمل اسم الفترة وتحترم فلتر الفترة (من/إلى) والفرع المحدد أعلاه.</div>
+          <div className="note">ملفات <b>.xlsx</b> حقيقية مبنيّة داخل متصفحك بلا أي خدمة خارجية، تفتح مباشرةً في Excel وGoogle Sheets بالعربية من اليمين لليسار، والأرقام أرقامٌ قابلة للحساب والعناوين عريضة. كل ملف يحمل اسم الفترة ويحترم فلتر الفترة (من/إلى) والفرع المحدد أعلاه.
+            <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 11, color: 'var(--faint)' }}>تحتاج CSV لنظام محاسبي قديم؟</span>
+              <button className="btn sm gh" onClick={exportJournal}>اليومية CSV</button>
+              <button className="btn sm gh" onClick={exportTB}>الميزان CSV</button>
+              <button className="btn sm gh" onClick={exportFS}>القوائم CSV</button>
+              <button className="btn sm gh" onClick={exportPack}>الحزمة الكاملة CSV</button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -14985,6 +15041,24 @@ function IncomeStatement({ org, ops, myBranches, scoped, say }) {
     URL.revokeObjectURL(url);
     say('تم تنزيل قائمة الدخل');
   };
+  // v15.4: تصدير Excel لقائمة الدخل الشهرية
+  const exportXlsx = () => {
+    const N = (n) => Math.round((n || 0) * 100) / 100;
+    const xrows = [
+      ['مبيعات نقدية', N(R.cash)], ['مبيعات الشبكة', N(R.card)], ['تحويل بنكي', N(R.bank)],
+      ['تطبيقات التوصيل', N(R.del)], ['إجمالي الإيراد', N(grossRevenue)],
+      ['عمولات التطبيقات', -N(commissions)], ['صافي الإيراد', N(netRevenue)],
+      ...byCat.map(x => ['مصروف: ' + x.n, -N(x.v)]),
+      ['الالتزامات الثابتة', -N(fixedTotal)], ['الرواتب غير المصروفة بالفروع', -N(payrollRemaining)],
+      ['إجمالي التكاليف', -N(totalCost)], ['الربح التشغيلي', N(operatingProfit)],
+      ['ض.ق.م المستحقة', -N(vatDue)], ['فروقات الصندوق', N(cashVariance)]
+    ];
+    exportExcel(`قائمة-الدخل-${month}`, `قائمة الدخل — ${month}`, ['البند', 'المبلغ (ر.س)'], xrows, {
+      meta: [`${org.company.name || ''} · الرقم الضريبي: ${org.company.taxNumber || '—'}`, `النطاق: ${bid === 'all' ? 'كل الفروع' : (branches[0]?.name || '')} · الشهر: ${month}`],
+      totals: ['صافي الربح بعد الضريبة', N(netAfterVat)]
+    });
+    say('تم تنزيل قائمة الدخل بصيغة Excel');
+  };
 
   return (
     <>
@@ -15001,9 +15075,10 @@ function IncomeStatement({ org, ops, myBranches, scoped, say }) {
               {myBranches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </div>
-          <button className="btn pri" style={{ alignSelf: 'flex-end' }} onClick={exportCsv}>
-            <Download size={14} />تصدير القائمة
-          </button>
+          <div className="row" style={{ alignSelf: 'flex-end', gap: 8 }}>
+            <button className="btn pri" onClick={exportXlsx}><FileBarChart size={14} />تصدير Excel</button>
+            <button className="btn gh" onClick={exportCsv}><Download size={14} />CSV</button>
+          </div>
         </div>
       </div>
 
