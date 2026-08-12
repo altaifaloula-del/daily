@@ -2069,7 +2069,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.0 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.1 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -9755,7 +9755,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const [audD, setAudD] = useState(() => { const a = org.auditCfg || {}; return { largeAmount: a.largeAmount != null ? String(a.largeAmount) : '5000' }; }); // v11.6 عتبة التدقيق
   const [einvF, setEinvF] = useState({ mode: 'gross', amount: '', buyer: '', invNo: '', date: today(), time: '', desc: 'مبيعات', closingId: '', entity: 'primary' }); // v11.8 الفوترة المبسّطة (زاتكا) · v12.1 المنشأة المُصدِرة
   const [einvRaw, setEinvRaw] = useState(false); // إظهار سلسلة TLV الخام
-  const [zkD, setZkD] = useState(() => { const z = org.zakatCfg || {}; return { rate: z.rate != null ? String(z.rate) : '2.5', provisions: z.provisions != null ? String(z.provisions) : '', ltLoans: z.ltLoans != null ? String(z.ltLoans) : '', ltInvest: z.ltInvest != null ? String(z.ltInvest) : '' }; }); // v12.5 حاسبة الزكاة
+  const [zkD, setZkD] = useState(() => { const z = org.zakatCfg || {}; return { rate: z.rate != null ? String(z.rate) : '2.5', provisions: z.provisions != null ? String(z.provisions) : '', ltLoans: z.ltLoans != null ? String(z.ltLoans) : '', ltInvest: z.ltInvest != null ? String(z.ltInvest) : '', ownerType: z.ownerType || 'saudi', saudiPct: z.saudiPct != null ? String(z.saudiPct) : '100', incomeTaxRate: z.incomeTaxRate != null ? String(z.incomeTaxRate) : '20' }; }); // v12.5 حاسبة الزكاة · v15.1 نوع الملكية + ضريبة الدخل
   const [q, setQ] = useState('');
   const [month, setMonth] = useState('');           // فلتر شهر للقيود
   const [from, setFrom] = useState('');             // فترة الميزان/القوائم
@@ -10669,7 +10669,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         <button className={'btn sm' + (view === 'cc' ? ' pri' : ' gh')} onClick={() => setView('cc')}><BarChart3 size={14} />مراكز التكلفة</button>
         <button className={'btn sm' + (view === 'vat' ? ' pri' : ' gh')} onClick={() => setView('vat')}><Receipt size={14} />الضريبة</button>
         <button className={'btn sm' + (view === 'einv' ? ' pri' : ' gh')} onClick={() => setView('einv')}><QrCode size={14} />الفوترة (زاتكا)</button>
-        <button className={'btn sm' + (view === 'zakat' ? ' pri' : ' gh')} onClick={() => setView('zakat')}><Landmark size={14} />الزكاة</button>
+        <button className={'btn sm' + (view === 'zakat' ? ' pri' : ' gh')} onClick={() => setView('zakat')}><Landmark size={14} />الزكاة والضريبة</button>
         <button className={'btn sm' + (view === 'ast' ? ' pri' : ' gh')} onClick={() => setView('ast')}><Building2 size={14} />الأصول</button>
         <button className={'btn sm' + (view === 'bank' ? ' pri' : ' gh')} onClick={() => setView('bank')}><Landmark size={14} />التسوية البنكية</button>
         <button className={'btn sm' + (view === 'mclose' ? ' pri' : ' gh')} onClick={() => setView('mclose')}><ClipboardCheck size={14} />حزمة الإقفال</button>
@@ -12085,11 +12085,20 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         base = r2(Math.max(base, 0));
         const rate = num(zkD.rate) || 2.5;
         const zakat = r2(base * rate / 100);
+        // v15.1: نوع ملكية المنشأة — الزكاة على الحصة السعودية/الخليجية، وضريبة الدخل على الحصة الأجنبية
+        const saudiShare = zkD.ownerType === 'foreign' ? 0 : (zkD.ownerType === 'mixed' ? Math.max(0, Math.min(100, num(zkD.saudiPct))) : 100);
+        const foreignShare = r2(100 - saudiShare);
+        const ownerLabel = zkD.ownerType === 'foreign' ? 'أجنبية بالكامل' : (zkD.ownerType === 'mixed' ? 'مختلطة' : 'سعودية/خليجية');
+        const zakatDue = r2(zakat * saudiShare / 100);
+        const incTaxRate = num(zkD.incomeTaxRate) || 20;
+        const incTaxBase = r2(Math.max(0, netProfit));
+        const incomeTax = r2(incTaxBase * foreignShare / 100 * incTaxRate / 100);
+        const dueTotal = r2(zakatDue + incomeTax);
         const periodSub2 = (from || to) ? ((from || 'البداية') + ' ← ' + (to || today())) : 'كامل المدة حتى ' + today();
         const zkAdd = [['رأس المال (3101)', capital], ['الأرباح المبقاة (3201)', retained], ['المخصصات والاحتياطيات', provisions], ['القروض والالتزامات طويلة الأجل', ltLoans], ['صافي ربح الفترة (غير المقفل)', netProfit]];
         const zkDed = [['صافي الأصول الثابتة (1701/1791)', netFixed], ['الاستثمارات طويلة الأجل', ltInvest]];
-        const saveZakat = async () => { await commitOrg(d => ({ ...d, zakatCfg: { rate, provisions, ltLoans, ltInvest } }), { actionType: 'update', targetType: 'tax_settings', targetId: 'zakatCfg', title: 'حفظ إعداد الزكاة', details: 'النسبة ' + rate + '%' }); say('حُفظ إعداد الزكاة ✓'); };
-        const zkTable = () => [['البند', 'المبلغ'], ['الإضافات (مصادر التمويل)', ''], ...zkAdd, ['إجمالي الإضافات', additions], ['المخصومات', ''], ...zkDed, ['إجمالي المخصومات', deductions], ['وعاء الزكاة', base], ['النسبة %', rate], ['الزكاة المستحقة', zakat]];
+        const saveZakat = async () => { await commitOrg(d => ({ ...d, zakatCfg: { rate, provisions, ltLoans, ltInvest, ownerType: zkD.ownerType, saudiPct: num(zkD.saudiPct), incomeTaxRate: incTaxRate } }), { actionType: 'update', targetType: 'tax_settings', targetId: 'zakatCfg', title: 'حفظ إعداد الزكاة والضريبة', details: ownerLabel + ' · زكاة ' + rate + '% · دخل ' + incTaxRate + '%' }); say('حُفظ الإعداد ✓'); };
+        const zkTable = () => [['البند', 'المبلغ'], ['الإضافات (مصادر التمويل)', ''], ...zkAdd, ['إجمالي الإضافات', additions], ['المخصومات', ''], ...zkDed, ['إجمالي المخصومات', deductions], ['وعاء الزكاة', base], ['نسبة الزكاة %', rate], ['الزكاة على كامل الوعاء', zakat], ['نوع الملكية', ownerLabel], ['الحصة السعودية %', saudiShare], ['الزكاة المستحقة (حصة سعودية)', zakatDue], ['الحصة الأجنبية %', foreignShare], ['نسبة ضريبة الدخل %', incTaxRate], ['ضريبة الدخل المستحقة', incomeTax], ['الإجمالي المستحق (زكاة + دخل)', dueTotal]];
         const exportZakatXlsx = () => { try { const blob = makeXlsx([{ name: 'حاسبة الزكاة', rows: zkTable() }]); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'حاسبة_الزكاة.xlsx'; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(url), 1500); say('نُزّلت حاسبة الزكاة (Excel) ✓'); } catch (e) { say('تعذّر توليد Excel', 'no'); } };
         const printZakat = () => {
           const rws = (arr) => arr.map(x => `<tr><td>${_xe(x[0])}</td><td class="n">${money(x[1])}</td></tr>`).join('');
@@ -12097,8 +12106,12 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
             `<table><thead><tr><th>الإضافات (مصادر التمويل)</th><th class="n">المبلغ</th></tr></thead><tbody>${rws(zkAdd)}<tr class="tot"><td>إجمالي الإضافات</td><td class="n">${money(additions)}</td></tr></tbody></table>
             <table><thead><tr><th>المخصومات</th><th class="n">المبلغ</th></tr></thead><tbody>${rws(zkDed)}<tr class="tot"><td>إجمالي المخصومات</td><td class="n">${money(deductions)}</td></tr></tbody></table>
             <table><tbody><tr class="tot"><td>وعاء الزكاة${floored ? ' (رُفع لصافي الربح)' : ''}</td><td class="n">${money(base)}</td></tr>
-            <tr class="tot"><td>الزكاة المستحقة (${rate}%)</td><td class="n">${money(zakat)}</td></tr></tbody></table>
-            <div class="box" style="margin-top:12px;font-size:10px;color:#777">تقدير استرشادي بطريقة «مصادر الأموال». الإقرار الرسمي للهيئة يخضع لضوابط تفصيلية. راجع محاسبك.</div>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+            <tr><td>الزكاة على كامل الوعاء (${rate}%)</td><td class="n">${money(zakat)}</td></tr>
+            <tr><td>نوع الملكية</td><td class="n">${_xe(ownerLabel)}${zkD.ownerType !== 'saudi' ? ` (${saudiShare}% سعودي · ${foreignShare}% أجنبي)` : ''}</td></tr>
+            ${saudiShare > 0 ? `<tr class="tot"><td>الزكاة المستحقة${saudiShare < 100 ? ` — حصة سعودية (${saudiShare}%)` : ''}</td><td class="n">${money(zakatDue)}</td></tr>` : ''}
+            ${foreignShare > 0 ? `<tr class="tot"><td>ضريبة الدخل — حصة أجنبية (${foreignShare}% × ${incTaxRate}%)</td><td class="n">${money(incomeTax)}</td></tr>` : ''}
+            <tr class="tot"><td>الإجمالي المستحق (زكاة + ضريبة دخل)</td><td class="n">${money(dueTotal)}</td></tr></tbody></table>
+            <div class="box" style="margin-top:12px;font-size:10px;color:#777">تقدير استرشادي: الزكاة (٢.٥٪ على الحصة السعودية/الخليجية) وضريبة الدخل (على الحصة الأجنبية) بطريقة «مصادر الأموال». الإقرار الرسمي للهيئة يخضع لضوابط تفصيلية. راجع محاسبك.</div>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
         };
         return (
           <div className="grid" style={{ gap: 12 }}>
@@ -12107,9 +12120,9 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
               <div className="row" style={{ gap: 8 }}><button className="btn sm" onClick={printZakat}><Printer size={13} />طباعة</button><button className="btn sm" onClick={exportZakatXlsx}><Download size={13} />Excel</button></div>
             </div>
             <div className="grid g3">
-              <Kpi label="وعاء الزكاة" value={money(base)} sub={floored ? 'رُفع لصافي الربح المعدّل' : 'مصادر − مخصومات'} icon={Landmark} color="#C8A24A" />
-              <Kpi label="النسبة المطبّقة" value={rate + '%'} sub="2.5% هجري · 2.5771% ميلادي" icon={Receipt} color="#5B93C4" />
-              <Kpi label="الزكاة المستحقة (تقديري)" value={money(zakat)} sub="للفترة المحددة" icon={Landmark} color="#4FB286" />
+              <Kpi label="الزكاة المستحقة (تقديري)" value={saudiShare > 0 ? money(zakatDue) : 'غير مطبّقة'} sub={saudiShare === 100 ? ('ملكية سعودية/خليجية · وعاء ' + money(base)) : (saudiShare > 0 ? ('على حصة ' + saudiShare + '% · وعاء ' + money(base)) : 'منشأة أجنبية — ضريبة دخل')} icon={Landmark} color="#4FB286" />
+              <Kpi label="ضريبة الدخل المستحقة (تقديري)" value={foreignShare > 0 ? money(incomeTax) : 'غير مطبّقة'} sub={foreignShare > 0 ? ('حصة ' + foreignShare + '% × ' + incTaxRate + '% من صافي الربح') : 'لا حصة أجنبية'} icon={Receipt} color="#5B93C4" />
+              <Kpi label="الإجمالي المستحق" value={money(dueTotal)} sub="زكاة + ضريبة دخل" icon={CircleDollarSign} color="#C8A24A" />
             </div>
             <div className="grid g2" style={{ alignItems: 'start' }}>
               <div className="card">
@@ -12122,12 +12135,25 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
                   {zkDed.map((x, i) => <tr key={'d' + i}><td>{x[0]}</td><td className="num" style={{ textAlign: 'end' }}>({money(x[1])})</td></tr>)}
                   <tr style={{ fontWeight: 700 }}><td>إجمالي المخصومات</td><td className="num" style={{ textAlign: 'end' }}>({money(deductions)})</td></tr>
                   <tr style={{ fontWeight: 900, background: 'rgba(200,162,74,.08)' }}><td>وعاء الزكاة{floored ? ' (رُفع لصافي الربح)' : ''}</td><td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)', fontSize: 14 }}>{money(base)}</td></tr>
-                  <tr style={{ fontWeight: 900 }}><td>الزكاة المستحقة ({rate}%)</td><td className="num" style={{ textAlign: 'end', color: 'var(--mint)', fontSize: 14 }}>{money(zakat)}</td></tr>
+                  <tr style={{ fontWeight: 700 }}><td>الزكاة على كامل الوعاء ({rate}%)</td><td className="num" style={{ textAlign: 'end', color: 'var(--dim)', fontSize: 13 }}>{money(zakat)}</td></tr>
+                  <tr><td>نوع الملكية</td><td className="num" style={{ textAlign: 'end' }}>{ownerLabel}{zkD.ownerType !== 'saudi' ? ' (' + saudiShare + '% سعودي · ' + foreignShare + '% أجنبي)' : ''}</td></tr>
+                  {saudiShare > 0 && <tr style={{ fontWeight: 900, background: 'rgba(79,178,134,.08)' }}><td>الزكاة المستحقة{saudiShare < 100 ? ' — حصة الملكية السعودية (' + saudiShare + '%)' : ''}</td><td className="num" style={{ textAlign: 'end', color: 'var(--mint)', fontSize: 14 }}>{money(zakatDue)}</td></tr>}
+                  {foreignShare > 0 && <tr style={{ fontWeight: 900, background: 'rgba(91,147,196,.08)' }}><td>ضريبة الدخل المستحقة — الحصة الأجنبية ({foreignShare}% × {incTaxRate}%)</td><td className="num" style={{ textAlign: 'end', color: 'var(--sky)', fontSize: 14 }}>{money(incomeTax)}</td></tr>}
+                  {foreignShare > 0 && saudiShare > 0 && <tr style={{ fontWeight: 900, background: 'rgba(200,162,74,.08)' }}><td>الإجمالي المستحق (زكاة + ضريبة دخل)</td><td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)', fontSize: 14 }}>{money(dueTotal)}</td></tr>}
                 </tbody></table></div>
               </div>
               <div className="card">
                 <div className="card-t" style={{ marginBottom: 10 }}><Settings size={15} color="var(--brass)" />بنود يدوية وإعداد</div>
                 {canPost ? <>
+                  <div className="grid g2" style={{ gap: 9, marginBottom: 9 }}>
+                    <Field label="نوع ملكية المنشأة"><select className="inp sel" value={zkD.ownerType} onChange={e => setZkD(s => ({ ...s, ownerType: e.target.value }))}>
+                      <option value="saudi">سعودية/خليجية — زكاة كاملة</option>
+                      <option value="mixed">مختلطة — زكاة + ضريبة دخل</option>
+                      <option value="foreign">أجنبية بالكامل — ضريبة دخل فقط</option>
+                    </select></Field>
+                    {zkD.ownerType === 'mixed' && <Field label="نسبة الملكية السعودية/الخليجية %"><input className="inp n" inputMode="decimal" value={zkD.saudiPct} onChange={e => setZkD(s => ({ ...s, saudiPct: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>}
+                    {zkD.ownerType !== 'saudi' && <Field label="نسبة ضريبة الدخل %"><input className="inp n" inputMode="decimal" value={zkD.incomeTaxRate} onChange={e => setZkD(s => ({ ...s, incomeTaxRate: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>}
+                  </div>
                   <div className="grid g2" style={{ gap: 9 }}>
                     <Field label="المخصصات والاحتياطيات"><input className="inp n" inputMode="decimal" value={zkD.provisions} placeholder="0" onChange={e => setZkD(s => ({ ...s, provisions: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
                     <Field label="قروض والتزامات طويلة الأجل"><input className="inp n" inputMode="decimal" value={zkD.ltLoans} placeholder="0" onChange={e => setZkD(s => ({ ...s, ltLoans: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
@@ -12139,7 +12165,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
                 <div className="note" style={{ marginTop: 10 }}>البنود المشتقة (رأس المال، الأرباح المبقاة، الأصول الثابتة، صافي الربح) تأتي من قيودك تلقائيًا. أضِف يدويًا ما لا يظهر في الحسابات (قروض/استثمارات/مخصصات).</div>
               </div>
             </div>
-            <div className="note">⚠️ <b>بشفافية:</b> هذه <b>حاسبة استرشادية</b> بطريقة «مصادر الأموال» لمساعدتك ومحاسبك على تقدير الزكاة — وليست إقرارًا رسميًا. الوعاء الرسمي يخضع لضوابط الهيئة التفصيلية، والوعاء لا يقل عن صافي الربح المعدّل (طُبّق تلقائيًا).</div>
+            <div className="note">⚠️ <b>بشفافية:</b> حاسبة <b>استرشادية</b> بطريقة «مصادر الأموال». تُطبَّق حسب <b>نوع الملكية</b>: الزكاة (٢.٥٪) على الحصة السعودية/الخليجية، و<b>ضريبة الدخل</b> (٢٠٪ افتراضيًا) على الحصة الأجنبية من صافي الربح. المنشأة الأجنبية بالكامل تخضع لضريبة الدخل فقط، والسعودية للزكاة فقط. ليست إقرارًا رسميًا — الوعاء الرسمي يخضع لضوابط الهيئة، والوعاء لا يقل عن صافي الربح المعدّل (طُبّق تلقائيًا). راجِع محاسبك.</div>
           </div>
         );
       })()}
