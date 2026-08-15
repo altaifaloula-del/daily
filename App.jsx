@@ -1247,8 +1247,25 @@ const ROLES = {
     ar: 'الإدارة المالية — محاسب رئيسي', badge: 'b-sky', scope: 'all', legacy: true,
     tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['المحاسبة كاملة: قيود يدوية وافتتاحية وميزان وقوائم ومراكز تكلفة', 'الضريبة والأصول والتسوية البنكية (عرض وتسجيل — التفعيل للإدارة)', 'المشتريات والمخزون والرواتب والخزينة', 'كل الفروع — دون إدارة المستخدمين والإعدادات']
+  },
+  // ===== v15.9: نماذج صلاحيات المحاسب — نطاق «المحاسبة + التقارير المالية فقط» =====
+  accountant: {
+    // «يُدخل ولا يعدّل»: يُرحّل القيود ويُدخل البيانات، لكن لا يُعدّل/يحذف الحسابات أو الأصول ولا يغيّر الإعدادات
+    ar: 'محاسب — محاسبة وتقارير (إدخال بلا تعديل)', badge: 'b-sky', scope: 'all', postOnly: true, limitedApps: true,
+    tabs: ['acct', 'reporting'],
+    perms: ['المحاسبة كاملة (عرض وإدخال): القيود اليدوية والافتتاحية، الميزان، القوائم، الضريبة، الزكاة، الأصول، مراكز التكلفة، التسوية، الإقفال', 'التقارير المالية ومنشئ التقارير وحزمة المجلس والتدفق النقدي — لكل الفروع', 'يُدخل القيود ويُصدّر ويطبع — دون تعديل/حذف الحسابات أو استبعاد الأصول أو تعديل حدود الائتمان', 'بلا خزينة/رواتب/موردين/مخزون، وبلا إدارة مستخدمين/فروع/إعدادات، وبلا اعتماد إغلاقات']
+  },
+  accountant_view: {
+    // للمراجعة الخارجية: اطّلاع وتصدير فقط، بلا أي إدخال أو تعديل
+    ar: 'مراجع مالي — محاسبة وتقارير (عرض فقط)', badge: 'b-dim', scope: 'all', readOnly: true, limitedApps: true,
+    tabs: ['acct', 'reporting'],
+    perms: ['اطّلاع كامل على المحاسبة والتقارير المالية لكل الفروع', 'تصدير وطباعة كل التقارير (Excel وPDF)', 'دون أي إدخال أو تعديل أو حذف — مناسب للمراجع/المدقّق الخارجي']
   }
 };
+// v15.9: اشتقاق صلاحيات الكتابة من الدور — canPost=إدخال/ترحيل، canEdit=تعديل/حذف/تغيير إعدادات.
+// (للأدوار القائمة: readOnly/postOnly غير معرّفين ⇒ canPost=canEdit=النطاق الكامل، بلا أي تغيير سلوك.)
+const rolePost = (role) => ROLES[role]?.scope === 'all' && !ROLES[role]?.readOnly;
+const roleEdit = (role) => rolePost(role) && !ROLES[role]?.postOnly;
 
 // تطبيقات التوصيل المعروفة في السعودية — العمولة اختيارية (0 افتراضياً، تُعدّل عند الحاجة)
 const APPS = [
@@ -1419,7 +1436,7 @@ const appUseSet = (uid, v) => { try { localStorage.setItem('rms8:appuse:' + uid,
 const appCanSee = (meOrRole, a) => {
   const role = typeof meOrRole === 'string' ? meOrRole : meOrRole?.role;
   const R = ROLES[role] || {};
-  if (a.soon) return R.scope === 'all';                    // خارطة الطريق تظهر لأدوار المركز فقط
+  if (a.soon) return R.scope === 'all' && !R.limitedApps;  // خارطة الطريق تظهر لأدوار المركز فقط (لا للأدوار المحدودة)
   if (meOrRole && typeof meOrRole === 'object') {
     if ((meOrRole.appDeny || []).includes(a.id)) return false;   // مُخفى يدويًا لهذا المستخدم
     if ((meOrRole.appAllow || []).includes(a.id)) return true;   // مُضاف يدويًا فوق دوره
@@ -2107,7 +2124,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.8 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.9 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -3559,7 +3576,7 @@ function CashFlow13({ org, ops, me, scoped, theme, commitOrg, say }) {
   const A = useMemo(() => buildAccounting(org, ops), [org, ops]);
   const num = (s) => Number(String(s).replace(/[^\d.-]/g, '')) || 0;
   const [cfg, setCfg] = useState(() => { const c = org.cashflowCfg || {}; return { wkSales: c.wkSales != null ? String(c.wkSales) : '', wkOpex: c.wkOpex != null ? String(c.wkOpex) : '', payroll: c.payroll != null ? String(c.payroll) : '', fixed: c.fixed != null ? String(c.fixed) : '', colWeeks: c.colWeeks != null ? String(c.colWeeks) : '4', startCash: c.startCash != null ? String(c.startCash) : '' }; });
-  const canPost = ROLES[me?.role]?.scope === 'all';
+  const canPost = rolePost(me?.role);
 
   const cash0 = r2(sum(A.accounts.filter(a => a.cash), a => a.balance));
   const counted = scoped.closings.filter(countedClosing);
@@ -3984,7 +4001,7 @@ function Scorecard({ org, ops, me, scoped, commitOrg, say, setTab }) {
   const [month, setMonth] = useState(today().slice(0, 7));
   const [tg, setTg] = useState(() => ({ ...((org.scorecard && org.scorecard.targets) || {}) }));
   const [enabled, setEnabled] = useState(() => (org.scorecard && org.scorecard.enabled) || SC_KPIS.map(k => k.k));
-  const canPost = ROLES[me?.role]?.scope === 'all';
+  const canPost = rolePost(me?.role);
 
   const agg = useMemo(() => { const m = {}; A.entries.forEach(e => { if ((e.date || '').slice(0, 7) !== month) return; e.lines.forEach(l => { const x = m[l.code] || (m[l.code] = { d: 0, c: 0 }); x.d += l.debit; x.c += l.credit; }); }); return m; }, [A, month]);
   const accBal = (code, kind) => { const x = agg[code]; if (!x) return 0; return (kind === 'exp' || kind === 'asset') ? x.d - x.c : x.c - x.d; };
@@ -4084,7 +4101,7 @@ function BreakEven({ org, ops, me, scoped, setTab, theme, commitOrg, say }) {
   const [month, setMonth] = useState(today().slice(0, 7));
   const [ovr, setOvr] = useState(() => ({ ...(org.costClass || {}) }));
   const [daysStr, setDaysStr] = useState(String((org.beCfg && org.beCfg.days) || 30));
-  const canPost = ROLES[me?.role]?.scope === 'all';
+  const canPost = rolePost(me?.role);
 
   const agg = useMemo(() => { const m = {}; A.entries.forEach(e => { if ((e.date || '').slice(0, 7) !== month) return; e.lines.forEach(l => { const x = m[l.code] || (m[l.code] = { d: 0, c: 0 }); x.d += l.debit; x.c += l.credit; }); }); return m; }, [A, month]);
   const acctBal = (code, kind) => { const x = agg[code]; if (!x) return 0; return (kind === 'exp' || kind === 'asset') ? x.d - x.c : x.c - x.d; };
@@ -6921,7 +6938,7 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
   const emps = org.employees.filter(e => ids.includes(e.branchId));
   const canPay = ROLES[me.role]?.scope !== 'own';
   // ترحيل الاستحقاق/الصرف قرار على مستوى المنشأة كلها — يُقصر على الأدوار شاملة النطاق
-  const canPost = ROLES[me.role]?.scope === 'all';
+  const canPost = rolePost(me.role);
 
   // v11.0 — التأمينات الاجتماعية (GOSI): موقوفة افتراضيًا، بنِسَب قابلة للتعديل، وعلى وعاء الأساسي+السكن
   const gosi = org.gosiCfg || {};
@@ -9503,8 +9520,8 @@ function Launcher({ org, ops, me, setTab, openAcctView, openInvView }) {
   const favApps = mine.filter(a => isFav(a.id) && match(a));
   // v13.9 — فهرس الأقسام داخل المراكز: بحث يقفز مباشرةً لأي قسم (وفق صلاحية الدور)
   const rtMe = ROLES[me.role]?.tabs || [];
-  const fullMe = ROLES[me.role]?.scope === 'all';
-  const secIndex = Object.entries(HUBS).flatMap(([hubId, h]) => h.views.filter(v => fullMe || rtMe.includes(v.id)).map(v => ({ id: v.id, ar: v.ar, icon: v.icon, hubId, hubAr: h.ar, cat: (LAUNCH_IX[hubId] || {}).cat })));
+  const fullMe = ROLES[me.role]?.scope === 'all' && !ROLES[me.role]?.limitedApps;  // v15.9: الأدوار المحدودة (المحاسب) لا ترى كل الأقسام في البحث
+  const secIndex = Object.entries(HUBS).flatMap(([hubId, h]) => h.views.filter(v => fullMe || rtMe.includes(v.id) || rtMe.includes(hubId)).map(v => ({ id: v.id, ar: v.ar, icon: v.icon, hubId, hubAr: h.ar, cat: (LAUNCH_IX[hubId] || {}).cat })));
   const matchedSecs = qq ? secIndex.filter(v => norm(v.ar + ' ' + v.hubAr).includes(qq)) : [];
   const favSecs = secIndex.filter(v => isFav(v.id));   // v14.0 — أقسام مثبّتة في المفضلة
   const hour = new Date().getHours();
@@ -9863,7 +9880,8 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   useEffect(() => { if (view === 'mclose') { setFrom(mcMonth + '-01'); setTo(mcLastDay(mcMonth)); } }, [view, mcMonth]);
 
   const A = useMemo(() => buildAccounting(org, ops), [org, ops]);
-  const canPost = ROLES[me?.role]?.scope === 'all';
+  const canPost = rolePost(me?.role);            // إدخال/ترحيل (قيود، أرصدة افتتاحية، إضافة حساب/أصل…)
+  const canEdit = roleEdit(me?.role);            // v15.9: تعديل/حذف موجود (يُمنع على «محاسب — إدخال بلا تعديل»)
 
   const entries = A.entries.filter(e =>
     (!month || (e.date || '').startsWith(month)) &&
@@ -10961,7 +10979,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
                         <td style={{ fontSize: 12.5 }}>{a.name}
                           {a.custom && <span className="badge b-brass" style={{ fontSize: 8.5, marginInlineStart: 6, padding: '1px 6px' }}>مخصّص</span>}
                           {a.link && <div style={{ fontSize: 9.5, color: 'var(--sky)' }}>مرتبط: {a.link}</div>}
-                          {a.custom && canPost && <div className="row" style={{ gap: 7, marginTop: 5 }}>
+                          {a.custom && canEdit && <div className="row" style={{ gap: 7, marginTop: 5 }}>
                             <button className="btn sm" style={{ padding: '4px 12px', fontSize: 11.5 }} onClick={() => setCoaF({ code: a.code, name: a.name, kind: a.kind, origCode: a.code })}>✏️ تعديل</button>
                             <button className="btn sm gh" style={{ padding: '4px 12px', fontSize: 11.5, color: 'var(--rose)' }} onClick={() => delAcct(a)}><Trash2 size={12} />حذف</button>
                           </div>}</td>
@@ -11537,7 +11555,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
                         <td className="num" style={{ textAlign: 'end', fontWeight: 800 }}>{money(r.total)}</td>
                         <td className="num" style={{ textAlign: 'end', color: r.over ? 'var(--rose)' : 'var(--dim)' }}>{r.limit ? money(r.limit) : '—'}</td>
                         <td><div className="row" style={{ gap: 4, justifyContent: 'flex-end' }}>
-                          {canPost && <button className="btn sm gh" onClick={() => setArLimitF({ id: r.p.id, name: r.p.name, limit: r.limit ? String(r.limit) : '' })} title="حد الائتمان"><ShieldCheck size={13} /></button>}
+                          {canEdit && <button className="btn sm gh" onClick={() => setArLimitF({ id: r.p.id, name: r.p.name, limit: r.limit ? String(r.limit) : '' })} title="حد الائتمان"><ShieldCheck size={13} /></button>}
                           <button className="btn sm gh" onClick={() => setArSel(r.p.id)}>كشف حساب</button>
                         </div></td>
                       </tr>
@@ -12395,7 +12413,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
                       <td>{a.disposed
                         ? <span className="badge b-dim" title={'بيع ' + money(a.salePrice) + ' بتاريخ ' + a.disposedDate}>مُستبعَد · {a.disposedDate}{Math.abs(a.gain) >= 0.005 ? <b style={{ marginInlineStart: 4, color: a.gain > 0 ? 'var(--mint)' : 'var(--rose)' }}>{a.gain > 0 ? 'ربح ' : 'خسارة '}{money(Math.abs(a.gain))}</b> : ''}</span>
                         : a.done ? <span className="badge b-dim">مُهلك بالكامل</span> : <span className="badge b-mint">قيد الإهلاك · {a.monthsDone}/{a.nM} شهراً</span>}</td>
-                      <td><div className="row" style={{ gap: 5, justifyContent: 'flex-end' }}>{canPost && (a.disposed
+                      <td><div className="row" style={{ gap: 5, justifyContent: 'flex-end' }}>{canEdit && (a.disposed
                         ? <button className="btn sm gh" onClick={() => undoDispose(a.id)}>تراجع</button>
                         : <>
                           <button className="btn sm gh" onClick={() => setAstF({ ...a, cost: String(a.cost), lifeYears: String(a.lifeYears) })}>تعديل</button>
