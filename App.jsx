@@ -1393,6 +1393,19 @@ const LAUNCH_APPS = [
     kw: ['نسخة', 'احتياطي', 'استعادة', 'لقطة', 'حماية'] },
 ];
 const LAUNCH_IX = {}; LAUNCH_APPS.forEach(a => { LAUNCH_IX[a.id] = a; });
+// v15.10: أقسام شاشة المحاسبة القابلة للتخصيص لكل مستخدم — تُخفى عبر appDeny بالمفتاح acctsec:<view>
+const ACCT_SECTIONS = [
+  { v: 'jr', ar: 'القيود اليومية' }, { v: 'coa', ar: 'دليل الحسابات' }, { v: 'tb', ar: 'ميزان المراجعة' },
+  { v: 'fs', ar: 'القوائم المالية' }, { v: 'cf', ar: 'التدفقات النقدية' }, { v: 'fcast', ar: 'التوقّع النقدي' },
+  { v: 'bud', ar: 'الموازنة' }, { v: 'anl', ar: 'التحليل والنِسَب' }, { v: 'apage', ar: 'أعمار الموردين' },
+  { v: 'arage', ar: 'أعمار العملاء' }, { v: 'export', ar: 'تصدير للمحاسب' }, { v: 'cc', ar: 'مراكز التكلفة' },
+  { v: 'vat', ar: 'الضريبة (ق.م)' }, { v: 'einv', ar: 'الفوترة (زاتكا)' }, { v: 'zakat', ar: 'الزكاة وضريبة الدخل' },
+  { v: 'ast', ar: 'الأصول والإهلاك' }, { v: 'bank', ar: 'التسوية البنكية' }, { v: 'mclose', ar: 'حزمة الإقفال' },
+  { v: 'ctrl', ar: 'الضوابط والتدقيق' }, { v: 'lock', ar: 'الإقفال الشهري' }, { v: 'astl', ar: 'تسوية التطبيقات' },
+  { v: 'ob', ar: 'الأرصدة الافتتاحية' }, { v: 'yend', ar: 'إقفال السنة' }
+];
+const acctSecKey = (v) => 'acctsec:' + v;
+const ACCT_SEC_AR = {}; ACCT_SECTIONS.forEach(s => { ACCT_SEC_AR[s.v] = s.ar; });
 // ترتيب عرض مقصود (لا عشوائي) — تدفّق منطقي: التشغيل اليومي ← المالية ← المشتريات ←
 // المخزون ← الموارد البشرية ← الضريبة ← الحوكمة ← الذكاء (متجاورة لونيًا وموضوعيًا، بنمط أودو)
 const LAUNCH_ORDER = ['analytics', 'reporting', 'people', 'alerts', 'closing', 'sales', 'approve', 'acct', 'treasury', 'purchasing', 'partners', 'inv', 'vat', 'brmgmt', 'entities', 'docs', 'backup', 'audit', 'archive'];
@@ -2124,7 +2137,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.9 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.10 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -9611,6 +9624,16 @@ function AppPermsPanel({ org, commitOrg, say }) {
     });
     say('حُدِّث ظهور «' + a.ar + '» لـ ' + u.name);
   };
+  // v15.10: تخصيص أقسام شاشة المحاسبة لكل مستخدم (تُخزَّن كـ acctsec:<view> في appDeny)
+  const toggleSec = async (v) => {
+    const key = acctSecKey(v); const was = deny.includes(key);
+    const nDeny = was ? deny.filter(x => x !== key) : [...deny, key];
+    await commitOrg(d => ({ ...d, users: (d.users || []).map(x => x.id === u.id ? { ...x, appDeny: nDeny } : x) }), {
+      actionType: 'update', targetType: 'user_apps', targetId: u.id, title: 'خصّص أقسام المحاسبة لمستخدم', details: u.name + ' · ' + ACCT_SEC_AR[v] + ' · ' + (was ? 'إظهار' : 'إخفاء')
+    });
+    say((was ? 'أُظهر' : 'أُخفي') + ' قسم «' + ACCT_SEC_AR[v] + '» لـ ' + u.name);
+  };
+  const acctUser = (ROLES[u.role]?.tabs || []).includes('acct');
   const apps = LAUNCH_APPS;
   return (
     <div className="grid" style={{ gap: 12 }}>
@@ -9638,11 +9661,37 @@ function AppPermsPanel({ org, commitOrg, say }) {
           })}
         </div>
       </div>
+
+      {/* v15.10: تخصيص أقسام شاشة المحاسبة لهذا المستخدم — يظهر فقط لمن يملك وصول المحاسبة */}
+      {acctUser && (
+        <div className="card">
+          <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 6 }}>
+            <Scale size={16} color="var(--brass)" />
+            <span style={{ fontSize: 12.5, fontWeight: 600 }}>أقسام شاشة المحاسبة لـ {u.name}</span>
+            <span className="badge b-dim" style={{ marginInlineStart: 'auto' }}>اضغط أي قسم لإظهاره/إخفائه داخل «المحاسبة»</span>
+          </div>
+          <div className="note" style={{ marginBottom: 10 }}>الأخضر = ظاهر له داخل شاشة المحاسبة. اضغط لإخفاء ما لا يخصّه (مثلاً: الزكاة · إقفال السنة · الأصول · الضوابط). لا يؤثّر على القيود التلقائية ولا على بقية المستخدمين.</div>
+          <div className="appperm-grid">
+            {ACCT_SECTIONS.map(s => {
+              const on = !deny.includes(acctSecKey(s.v));
+              return (
+                <button key={s.v} className={'appperm' + (on ? ' on role' : ' off')} onClick={() => toggleSec(s.v)}>
+                  <span className="ic"><Scale size={14} /></span>
+                  <span className="nm">{s.ar}<small>{on ? 'ظاهر' : 'مخفي'}</small></span>
+                  <span className="tk">{on ? <Check size={13} /> : ''}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div className="card" style={{ background: 'rgba(200,162,74,.04)', borderStyle: 'dashed' }}>
         <div style={{ fontSize: 11.5, color: 'var(--dim)', lineHeight: 2 }}>
           🟢 <b style={{ color: 'var(--mint)' }}>بالدور</b>: يظهر تلقائيًا حسب دور المستخدم ·
           🟡 <b style={{ color: 'var(--amber)' }}>مُضاف/مُخفى يدويًا</b>: تخصيص لهذا الشخص وحده فوق دوره.
           الإضافة تمنح التطبيق ويفتح فعلاً، والإخفاء يزيله من شاشته. لا يؤثر على بقية المستخدمين، ولا يمسّ عزل بيانات الفروع.
+          <br /><b style={{ color: 'var(--brass-l)' }}>لوحة «أقسام شاشة المحاسبة» أعلاه</b> تتيح لك تخصيص ما يراه المحاسب داخل المحاسبة تفصيلًا (قسمًا قسمًا) — يظهر تأثيرها فورًا في شاشته.
         </div>
       </div>
     </div>
@@ -9882,6 +9931,10 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const A = useMemo(() => buildAccounting(org, ops), [org, ops]);
   const canPost = rolePost(me?.role);            // إدخال/ترحيل (قيود، أرصدة افتتاحية، إضافة حساب/أصل…)
   const canEdit = roleEdit(me?.role);            // v15.9: تعديل/حذف موجود (يُمنع على «محاسب — إدخال بلا تعديل»)
+  // v15.10: تخصيص أقسام المحاسبة لكل مستخدم — يُخفى القسم إن أُخفي من «الإعدادات ← ظهور التطبيقات للمستخدمين ← أقسام المحاسبة»
+  const acctDeny = useMemo(() => new Set((me && me.appDeny) || []), [me]);
+  const viewOK = (v) => !acctDeny.has(acctSecKey(v));
+  useEffect(() => { if (!viewOK(view)) setView(ACCT_SECTIONS.map(s => s.v).find(viewOK) || 'jr'); }, [view, acctDeny]);
 
   const entries = A.entries.filter(e =>
     (!month || (e.date || '').startsWith(month)) &&
@@ -10758,12 +10811,12 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
             <div className="abar-back" onClick={() => setRepOpen(false)} />
             <div className="abar-menu">
               <div className="abar-hd">تقارير المحاسبة</div>
-              <button onClick={() => { setRepOpen(false); printJR(); }}><Printer size={13} />دفتر اليومية</button>
-              <button onClick={() => { setRepOpen(false); printTB(); }}><Printer size={13} />ميزان المراجعة</button>
-              <button onClick={() => { setRepOpen(false); printFS(); }}><Printer size={13} />القوائم المالية</button>
-              <button onClick={() => { setRepOpen(false); printCC(); }}><Printer size={13} />مراكز التكلفة والربحية</button>
-              <button onClick={() => { setRepOpen(false); printAST(); }}><Printer size={13} />سجل الأصول والإهلاك</button>
-              <button onClick={() => { setRepOpen(false); printVAT(); }}><Printer size={13} />الإقرار الضريبي</button>
+              {viewOK('jr') && <button onClick={() => { setRepOpen(false); printJR(); }}><Printer size={13} />دفتر اليومية</button>}
+              {viewOK('tb') && <button onClick={() => { setRepOpen(false); printTB(); }}><Printer size={13} />ميزان المراجعة</button>}
+              {viewOK('fs') && <button onClick={() => { setRepOpen(false); printFS(); }}><Printer size={13} />القوائم المالية</button>}
+              {viewOK('cc') && <button onClick={() => { setRepOpen(false); printCC(); }}><Printer size={13} />مراكز التكلفة والربحية</button>}
+              {viewOK('ast') && <button onClick={() => { setRepOpen(false); printAST(); }}><Printer size={13} />سجل الأصول والإهلاك</button>}
+              {viewOK('vat') && <button onClick={() => { setRepOpen(false); printVAT(); }}><Printer size={13} />الإقرار الضريبي</button>}
             </div>
           </>)}
         </div>
@@ -10773,9 +10826,9 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
             <div className="abar-back" onClick={() => setStgOpen(false)} />
             <div className="abar-menu">
               <div className="abar-hd">إعدادات المحاسبة</div>
-              <button onClick={() => { setStgOpen(false); setView('vat'); }}><Receipt size={13} />ضريبة القيمة المضافة</button>
-              <button onClick={() => { setStgOpen(false); setView('cc'); }}><BarChart3 size={13} />توزيع مراكز التكلفة</button>
-              <button onClick={() => { setStgOpen(false); setView('lock'); }}><Lock size={13} />الإقفال الشهري</button>
+              {viewOK('vat') && <button onClick={() => { setStgOpen(false); setView('vat'); }}><Receipt size={13} />ضريبة القيمة المضافة</button>}
+              {viewOK('cc') && <button onClick={() => { setStgOpen(false); setView('cc'); }}><BarChart3 size={13} />توزيع مراكز التكلفة</button>}
+              {viewOK('lock') && <button onClick={() => { setStgOpen(false); setView('lock'); }}><Lock size={13} />الإقفال الشهري</button>}
               <button onClick={() => { setStgOpen(false); setView('ob'); }}><Landmark size={13} />الأرصدة الافتتاحية</button>
             </div>
           </>)}
@@ -10792,29 +10845,29 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
       </div>
 
       <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-        <button className={'btn sm' + (view === 'jr' ? ' pri' : ' gh')} onClick={() => setView('jr')}><FileText size={14} />القيود اليومية</button>
-        <button className={'btn sm' + (view === 'coa' ? ' pri' : ' gh')} onClick={() => setView('coa')}><Landmark size={14} />دليل الحسابات</button>
-        <button className={'btn sm' + (view === 'tb' ? ' pri' : ' gh')} onClick={() => setView('tb')}><Scale size={14} />ميزان المراجعة</button>
-        <button className={'btn sm' + (view === 'fs' ? ' pri' : ' gh')} onClick={() => setView('fs')}><FileBarChart size={14} />القوائم المالية</button>
-        <button className={'btn sm' + (view === 'cf' ? ' pri' : ' gh')} onClick={() => setView('cf')}><ArrowLeftRight size={14} />التدفقات النقدية</button>
-        <button className={'btn sm' + (view === 'fcast' ? ' pri' : ' gh')} onClick={() => setView('fcast')}><TrendingUp size={14} />التوقّع النقدي</button>
-        <button className={'btn sm' + (view === 'bud' ? ' pri' : ' gh')} onClick={() => setView('bud')}><BarChart3 size={14} />الموازنة</button>
-        <button className={'btn sm' + (view === 'anl' ? ' pri' : ' gh')} onClick={() => setView('anl')}><TrendingUp size={14} />التحليل والنِسَب</button>
-        <button className={'btn sm' + (view === 'apage' ? ' pri' : ' gh')} onClick={() => { setView('apage'); setApSel(null); }}><Users size={14} />أعمار الموردين</button>
-        <button className={'btn sm' + (view === 'arage' ? ' pri' : ' gh')} onClick={() => { setView('arage'); setArSel(null); }}><Users size={14} />أعمار العملاء</button>
-        <button className={'btn sm' + (view === 'export' ? ' pri' : ' gh')} onClick={() => setView('export')}><Download size={14} />تصدير للمحاسب</button>
-        <button className={'btn sm' + (view === 'cc' ? ' pri' : ' gh')} onClick={() => setView('cc')}><BarChart3 size={14} />مراكز التكلفة</button>
-        <button className={'btn sm' + (view === 'vat' ? ' pri' : ' gh')} onClick={() => setView('vat')}><Receipt size={14} />الضريبة</button>
-        <button className={'btn sm' + (view === 'einv' ? ' pri' : ' gh')} onClick={() => setView('einv')}><QrCode size={14} />الفوترة (زاتكا)</button>
-        <button className={'btn sm' + (view === 'zakat' ? ' pri' : ' gh')} onClick={() => setView('zakat')}><Landmark size={14} />الزكاة والضريبة</button>
-        <button className={'btn sm' + (view === 'ast' ? ' pri' : ' gh')} onClick={() => setView('ast')}><Building2 size={14} />الأصول</button>
-        <button className={'btn sm' + (view === 'bank' ? ' pri' : ' gh')} onClick={() => setView('bank')}><Landmark size={14} />التسوية البنكية</button>
-        <button className={'btn sm' + (view === 'mclose' ? ' pri' : ' gh')} onClick={() => setView('mclose')}><ClipboardCheck size={14} />حزمة الإقفال</button>
-        <button className={'btn sm' + (view === 'ctrl' ? ' pri' : ' gh')} onClick={() => setView('ctrl')}><ShieldCheck size={14} />الضوابط والتدقيق</button>
-        <button className={'btn sm' + (view === 'lock' ? ' pri' : ' gh')} onClick={() => setView('lock')}><Lock size={14} />الإقفال</button>
-        <button className={'btn sm' + (view === 'astl' ? ' pri' : ' gh')} onClick={() => setView('astl')}><Truck size={14} />تسوية التطبيقات</button>
-        <button className={'btn sm' + (view === 'ob' ? ' pri' : ' gh')} onClick={() => setView('ob')}><Landmark size={14} />الأرصدة الافتتاحية</button>
-        <button className={'btn sm' + (view === 'yend' ? ' pri' : ' gh')} onClick={() => setView('yend')}><CalendarDays size={14} />إقفال السنة</button>
+        {viewOK('jr') && <button className={'btn sm' + (view === 'jr' ? ' pri' : ' gh')} onClick={() => setView('jr')}><FileText size={14} />القيود اليومية</button>}
+        {viewOK('coa') && <button className={'btn sm' + (view === 'coa' ? ' pri' : ' gh')} onClick={() => setView('coa')}><Landmark size={14} />دليل الحسابات</button>}
+        {viewOK('tb') && <button className={'btn sm' + (view === 'tb' ? ' pri' : ' gh')} onClick={() => setView('tb')}><Scale size={14} />ميزان المراجعة</button>}
+        {viewOK('fs') && <button className={'btn sm' + (view === 'fs' ? ' pri' : ' gh')} onClick={() => setView('fs')}><FileBarChart size={14} />القوائم المالية</button>}
+        {viewOK('cf') && <button className={'btn sm' + (view === 'cf' ? ' pri' : ' gh')} onClick={() => setView('cf')}><ArrowLeftRight size={14} />التدفقات النقدية</button>}
+        {viewOK('fcast') && <button className={'btn sm' + (view === 'fcast' ? ' pri' : ' gh')} onClick={() => setView('fcast')}><TrendingUp size={14} />التوقّع النقدي</button>}
+        {viewOK('bud') && <button className={'btn sm' + (view === 'bud' ? ' pri' : ' gh')} onClick={() => setView('bud')}><BarChart3 size={14} />الموازنة</button>}
+        {viewOK('anl') && <button className={'btn sm' + (view === 'anl' ? ' pri' : ' gh')} onClick={() => setView('anl')}><TrendingUp size={14} />التحليل والنِسَب</button>}
+        {viewOK('apage') && <button className={'btn sm' + (view === 'apage' ? ' pri' : ' gh')} onClick={() => { setView('apage'); setApSel(null); }}><Users size={14} />أعمار الموردين</button>}
+        {viewOK('arage') && <button className={'btn sm' + (view === 'arage' ? ' pri' : ' gh')} onClick={() => { setView('arage'); setArSel(null); }}><Users size={14} />أعمار العملاء</button>}
+        {viewOK('export') && <button className={'btn sm' + (view === 'export' ? ' pri' : ' gh')} onClick={() => setView('export')}><Download size={14} />تصدير للمحاسب</button>}
+        {viewOK('cc') && <button className={'btn sm' + (view === 'cc' ? ' pri' : ' gh')} onClick={() => setView('cc')}><BarChart3 size={14} />مراكز التكلفة</button>}
+        {viewOK('vat') && <button className={'btn sm' + (view === 'vat' ? ' pri' : ' gh')} onClick={() => setView('vat')}><Receipt size={14} />الضريبة</button>}
+        {viewOK('einv') && <button className={'btn sm' + (view === 'einv' ? ' pri' : ' gh')} onClick={() => setView('einv')}><QrCode size={14} />الفوترة (زاتكا)</button>}
+        {viewOK('zakat') && <button className={'btn sm' + (view === 'zakat' ? ' pri' : ' gh')} onClick={() => setView('zakat')}><Landmark size={14} />الزكاة والضريبة</button>}
+        {viewOK('ast') && <button className={'btn sm' + (view === 'ast' ? ' pri' : ' gh')} onClick={() => setView('ast')}><Building2 size={14} />الأصول</button>}
+        {viewOK('bank') && <button className={'btn sm' + (view === 'bank' ? ' pri' : ' gh')} onClick={() => setView('bank')}><Landmark size={14} />التسوية البنكية</button>}
+        {viewOK('mclose') && <button className={'btn sm' + (view === 'mclose' ? ' pri' : ' gh')} onClick={() => setView('mclose')}><ClipboardCheck size={14} />حزمة الإقفال</button>}
+        {viewOK('ctrl') && <button className={'btn sm' + (view === 'ctrl' ? ' pri' : ' gh')} onClick={() => setView('ctrl')}><ShieldCheck size={14} />الضوابط والتدقيق</button>}
+        {viewOK('lock') && <button className={'btn sm' + (view === 'lock' ? ' pri' : ' gh')} onClick={() => setView('lock')}><Lock size={14} />الإقفال</button>}
+        {viewOK('astl') && <button className={'btn sm' + (view === 'astl' ? ' pri' : ' gh')} onClick={() => setView('astl')}><Truck size={14} />تسوية التطبيقات</button>}
+        {viewOK('ob') && <button className={'btn sm' + (view === 'ob' ? ' pri' : ' gh')} onClick={() => setView('ob')}><Landmark size={14} />الأرصدة الافتتاحية</button>}
+        {viewOK('yend') && <button className={'btn sm' + (view === 'yend' ? ' pri' : ' gh')} onClick={() => setView('yend')}><CalendarDays size={14} />إقفال السنة</button>}
         {canPost && <button className="btn sm" style={{ marginInlineStart: 'auto' }} onClick={newJm}><Plus size={14} />قيد يدوي / افتتاحي</button>}
       </div>
 
