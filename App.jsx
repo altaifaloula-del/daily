@@ -1024,7 +1024,8 @@ function buildAccounting(org, ops) {
     });
     const dispYm = a.disposedDate ? a.disposedDate.slice(0, 7) : '';   // يتوقف الإهلاك عند شهر الاستبعاد
     let accum = 0, monthsDone = 0;
-    if (cost > 0 && (Number(a.lifeYears) || 0) > 0 && a.buyDate) {
+    // v15.11: الإهلاك التلقائي فقط للأصول المرسملة بقيد شراء (funded). أصل «بلا قيد شراء» (none) يسوّيه المحاسب يدويًا — فلا إهلاك تلقائي يخلق مجمّع إهلاك بلا أصل.
+    if (funded && (Number(a.lifeYears) || 0) > 0 && a.buyDate) {
       const base = Math.floor(cost / nM * 100) / 100;
       const start = ymAdd(a.buyDate.slice(0, 7), 1);       // الإهلاك من الشهر التالي للشراء
       for (let k = 0; k < nM; k++) {
@@ -2137,7 +2138,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.10 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.11 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -4675,7 +4676,7 @@ function ReportBuilder({ org, ops, me, myBranches, scoped, commitOrg, say, theme
   const set = (patch) => setCfg(c => ({ ...c, ...patch }));
   const setSource = (src) => setCfg(c => ({ ...c, source: src, groupBy: 'none', cols: RB_SOURCES[src].dflt.slice(), sortBy: '' }));
   const toggleCol = (k) => setCfg(c => ({ ...c, cols: c.cols.includes(k) ? c.cols.filter(x => x !== k) : [...c.cols, k] }));
-  const canManage = ROLES[me?.role]?.scope === 'all';
+  const canManage = rolePost(me?.role);  // v15.11: منع «عرض فقط» (مراجع) من حفظ/حذف قوالب التقارير
 
   const A = useMemo(() => buildAccounting(org, ops), [org, ops]);
   const counted = useMemo(() => (scoped.closings || []).filter(countedClosing), [scoped]);
@@ -6860,12 +6861,12 @@ function Treasury({ org, ops, me, myBranches, scoped, commit, say }) {
         </div>
       )}
 
-      {add && <DisbursementForm me={me} balance={balance} commit={commit} say={say} onClose={() => setAdd(false)} />}
+      {add && <DisbursementForm org={org} me={me} balance={balance} commit={commit} say={say} onClose={() => setAdd(false)} />}
     </div>
   );
 }
 
-function DisbursementForm({ me, balance, commit, say, onClose }) {
+function DisbursementForm({ org, me, balance, commit, say, onClose }) {
   const [f, setF] = useState({
     date: today(), category: 'توريد مواد خام مركزي', amount: 0,
     beneficiary: '', method: 'bank_transfer', reference: ''
@@ -10180,7 +10181,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     <div class="box" style="font-size:10px;color:#777">${einvIsStd ? 'فاتورة ضريبية (B2B) تحوي بيانات البائع والمشتري كاملة' : 'فاتورة ضريبية مبسّطة (B2C)'} متوافقة مع المرحلة الأولى للفوترة الإلكترونية (رمز QR بترميز TLV: اسم البائع، الرقم الضريبي، التاريخ والوقت، الإجمالي، وقيمة الضريبة). الربط المعتمد للمرحلة الثانية يتطلب شهادة رقمية وتكامل بوابة «فاتورة» من هيئة الزكاة والضريبة والجمارك.</div>`;
     const ok = printA4(org, einvIsStd ? 'فاتورة ضريبية' : 'فاتورة ضريبية مبسّطة', 'البائع: ' + (einvSeller || '—') + ' · الرقم الضريبي: ' + (einvSellerVat || '—'), body);
     if (!ok) return say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
-    if (!einvF.invNo.trim()) commitOrg(d => ({ ...d, einvSeq: (d.einvSeq || 0) + 1 }), { actionType: 'create', targetType: 'tax_settings', targetId: 'einvSeq', title: 'إصدار ' + (einvIsStd ? 'فاتورة ضريبية' : 'فاتورة مبسّطة'), details: einvNo }).catch(() => { });
+    if (!einvF.invNo.trim() && canPost) commitOrg(d => ({ ...d, einvSeq: (d.einvSeq || 0) + 1 }), { actionType: 'create', targetType: 'tax_settings', targetId: 'einvSeq', title: 'إصدار ' + (einvIsStd ? 'فاتورة ضريبية' : 'فاتورة مبسّطة'), details: einvNo }).catch(() => { });  // v15.11: لا يزيد التسلسل لدور «عرض فقط»
   };
 
   // ===== م٥: الأصول الثابتة =====
@@ -10868,10 +10869,15 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         {viewOK('astl') && <button className={'btn sm' + (view === 'astl' ? ' pri' : ' gh')} onClick={() => setView('astl')}><Truck size={14} />تسوية التطبيقات</button>}
         {viewOK('ob') && <button className={'btn sm' + (view === 'ob' ? ' pri' : ' gh')} onClick={() => setView('ob')}><Landmark size={14} />الأرصدة الافتتاحية</button>}
         {viewOK('yend') && <button className={'btn sm' + (view === 'yend' ? ' pri' : ' gh')} onClick={() => setView('yend')}><CalendarDays size={14} />إقفال السنة</button>}
-        {canPost && <button className="btn sm" style={{ marginInlineStart: 'auto' }} onClick={newJm}><Plus size={14} />قيد يدوي / افتتاحي</button>}
+        {canPost && ACCT_SECTIONS.some(s => viewOK(s.v)) && <button className="btn sm" style={{ marginInlineStart: 'auto' }} onClick={newJm}><Plus size={14} />قيد يدوي / افتتاحي</button>}
       </div>
 
-      {view === 'jr' && (
+      {/* v15.11: لا قسم متاح (أُخفيت كل الأقسام لهذا المستخدم) — رسالة بدل تسريب اليومية */}
+      {!ACCT_SECTIONS.some(s => viewOK(s.v)) && (
+        <div className="card"><div className="empty">لا توجد أقسام محاسبة متاحة لحسابك حاليًا — تواصل مع مدير النظام لتخصيص الأقسام من «ظهور التطبيقات للمستخدمين».</div></div>
+      )}
+
+      {view === 'jr' && viewOK('jr') && (
         <div className="card">
           <div className="card-h">
             <div className="card-t"><FileText size={15} color="var(--brass)" />القيود اليومية — اضغط أي قيد لتفاصيله</div>
@@ -11925,7 +11931,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
                 <span className={'badge ' + (active ? 'b-mint' : 'b-dim')} style={{ fontSize: 12.5, padding: '6px 12px' }}>
                   {active ? <>مُفعّل — رصيد الأرباح المبقاة (3201) الآن: <b className="num">{money(retainedNow)}</b></> : 'غير مُفعّل — لن يتولّد قيد إقفال'}
                 </span>
-                {canPost && <button className="btn pri" disabled={yeLocked} onClick={saveYearEnd}><Check size={14} />{yeD.enabled ? 'حفظ وتفعيل الإقفال' : 'حفظ (موقوف)'}</button>}
+                {canEdit && <button className="btn pri" disabled={yeLocked} onClick={saveYearEnd}><Check size={14} />{yeD.enabled ? 'حفظ وتفعيل الإقفال' : 'حفظ (موقوف)'}</button>}
               </div>
             </div>
             {active && <div className="note">✓ قيد «إقفال السنة المالية حتى {(org.yearEnd || {}).closeDate}» يظهر في اليومية (مُوسَّم كإقفال) ويُحوّل الصافي إلى الأرباح المبقاة. قائمة الدخل غير متأثرة، والمركز المالي يعرض «الأرباح المبقاة» ضمن حقوق الملكية.</div>}
@@ -12411,7 +12417,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
               </div>
               <div className="card">
                 <div className="card-t" style={{ marginBottom: 10 }}><Settings size={15} color="var(--brass)" />بنود يدوية وإعداد</div>
-                {canPost ? <>
+                {canEdit ? <>
                   <div className="grid g2" style={{ gap: 9, marginBottom: 9 }}>
                     <Field label="نوع ملكية المنشأة"><select className="inp sel" value={zkD.ownerType} onChange={e => setZkD(s => ({ ...s, ownerType: e.target.value }))}>
                       <option value="saudi">سعودية/خليجية — زكاة كاملة</option>
