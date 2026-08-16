@@ -803,7 +803,9 @@ function buildAccounting(org, ops) {
   const L = (code, debit, credit) => ({ code, name: (accIx[code] || { name: code }).name, debit: debit || 0, credit: credit || 0 });
   const push = (e) => {
     e.debit = sum(e.lines, l => l.debit); e.credit = sum(e.lines, l => l.credit);
-    e.balanced = Math.abs(e.debit - e.credit) < 0.005;
+    // v15.12: سماح توازن = هللة كاملة (0.01) بدل نصف هللة (0.005) — نصف الهللة هو نفسه أسوأ خطأ تقريب،
+    //         فكان قد يُظهر قيدًا سليمًا كأنه غير متوازن عند مدخلٍ بكسور أدق من الهللة. لا يغيّر أي قيد فعلي.
+    e.balanced = Math.abs(e.debit - e.credit) < 0.01;
     entries.push(e);
   };
   const pmToAcc = (m, bCode, bkCode) => m === 'cash' ? bCode : (bkCode || '1201'); // شبكة/تحويل/شيك → بنك الفرع (إن وُجد) أو البنك التجميعي
@@ -1267,6 +1269,11 @@ const ROLES = {
 // (للأدوار القائمة: readOnly/postOnly غير معرّفين ⇒ canPost=canEdit=النطاق الكامل، بلا أي تغيير سلوك.)
 const rolePost = (role) => ROLES[role]?.scope === 'all' && !ROLES[role]?.readOnly;
 const roleEdit = (role) => rolePost(role) && !ROLES[role]?.postOnly;
+// v15.12: البوابة الأمنية المركزية — الحارس داخل عملية الحفظ نفسها (دفاع بعمق).
+//   need='post' يتطلب صلاحية الإدخال، need='edit' يتطلب صلاحية التعديل/الإعدادات،
+//   بلا need = بلا اشتراط (توافق خلفي كامل: كل الكتابات التشغيلية للكاشير/المدراء تمر كما كانت).
+//   بهذا لا يُنفَّذ أي حفظ حسّاس دون فحص الصلاحية — حتى لو نسي زرٌّ ما فحصه.
+const capOK = (role, need) => !need || (need === 'post' ? rolePost(role) : need === 'edit' ? roleEdit(role) : true);
 
 // تطبيقات التوصيل المعروفة في السعودية — العمولة اختيارية (0 افتراضياً، تُعدّل عند الحاجة)
 const APPS = [
@@ -1903,6 +1910,8 @@ export default function App() {
   }, []);
 
   const commit = useCallback(async (mutator, log) => {
+    // v15.12: البوابة المركزية — ترفض أي حفظ حسّاس (log.need) لا يملك المستخدم صلاحيته، مهما كان مصدر النداء.
+    if (log?.need && !capOK(me?.role, log.need)) { say('لا تملك صلاحية هذا الإجراء — تواصل مع مدير النظام', 'no'); return false; }
     const ok = await writeOps(mutator);
     if (!ok) {
       say('تعذّر الحفظ السحابي بعد عدة محاولات — تحقق من الاتصال وأعد المحاولة', 'no');
@@ -1923,6 +1932,8 @@ export default function App() {
   }, [writeOps, me, say]);
 
   const commitOrg = useCallback(async (mutator, log) => {
+    // v15.12: البوابة المركزية — نفس الحارس على كتابات الإعدادات/المنشأة.
+    if (log?.need && !capOK(me?.role, log.need)) { say('لا تملك صلاحية هذا الإجراء — تواصل مع مدير النظام', 'no'); return false; }
     const latest = (await cloud.get(KEYS.org, null)) || org;
     const next = mutator(JSON.parse(JSON.stringify(latest)));
     const ok = await cloud.set(KEYS.org, next);
@@ -2138,7 +2149,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.11 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.12 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -3628,7 +3639,7 @@ function CashFlow13({ org, ops, me, scoped, theme, commitOrg, say }) {
   const endBal = weeks.length ? weeks[12].bal : startCash;
   const chartData = [{ label: 'الآن', الرصيد: startCash }, ...weeks.map(w => ({ label: w.label, الرصيد: w.bal }))];
 
-  const save = async () => { await commitOrg(d => ({ ...d, cashflowCfg: { wkSales: num(wkSales), wkOpex: num(wkOpex), payroll: num(payroll), fixed: num(fixed), colWeeks, startCash: num(startCash) } }), { actionType: 'update', targetType: 'tax_settings', targetId: 'cashflowCfg', title: 'حفظ إعداد التدفق النقدي', details: '13 أسبوعًا' }); say('حُفظ الإعداد ✓'); };
+  const save = async () => { await commitOrg(d => ({ ...d, cashflowCfg: { wkSales: num(wkSales), wkOpex: num(wkOpex), payroll: num(payroll), fixed: num(fixed), colWeeks, startCash: num(startCash) } }), { actionType: 'update', targetType: 'tax_settings', targetId: 'cashflowCfg', need: 'post', title: 'حفظ إعداد التدفق النقدي', details: '13 أسبوعًا' }); say('حُفظ الإعداد ✓'); };
   const exportCF = () => { try { const head = ['الأسبوع', 'النقد الداخل', 'النقد الخارج', 'صافي الأسبوع', 'الرصيد النهائي']; const body = weeks.map(w => [w.label, w.inflow, w.outflow, w.net, w.bal]); const blob = makeXlsx([{ name: 'تدفق 13 أسبوعًا', rows: [head, ...body] }]); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'التدفق_النقدي_13أسبوع.xlsx'; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(url), 1500); say('نُزّل التدفق (Excel) ✓'); } catch (e) { say('تعذّر توليد Excel', 'no'); } };
 
   const F = (label, key, ph, hint) => (
@@ -4749,11 +4760,11 @@ function ReportBuilder({ org, ops, me, myBranches, scoped, commitOrg, say, theme
   const saveTpl = async () => {
     const nm = tplName.trim(); if (!nm) return say('أدخل اسمًا للقالب', 'no');
     const id = 'rt' + Date.now().toString(36);
-    await commitOrg(d => ({ ...d, reportTemplates: [...(d.reportTemplates || []).filter(t => t.name !== nm), { id, name: nm, cfg: { ...cfg } }] }), { actionType: 'create', targetType: 'report_template', targetId: id, title: 'حفظ قالب تقرير', details: nm });
+    await commitOrg(d => ({ ...d, reportTemplates: [...(d.reportTemplates || []).filter(t => t.name !== nm), { id, name: nm, cfg: { ...cfg } }] }), { actionType: 'create', targetType: 'report_template', targetId: id, need: 'post', title: 'حفظ قالب تقرير', details: nm });
     setTplName(''); say('حُفظ القالب «' + nm + '»', 'ok');
   };
   const loadTpl = (t) => setCfg({ source: 'closings', from: '', to: '', branch: '', entity: '', groupBy: 'none', cols: [], sortBy: '', sortDir: 'desc', ...t.cfg, cols: (t.cfg.cols || []).slice() });
-  const delTpl = async (t) => { await commitOrg(d => ({ ...d, reportTemplates: (d.reportTemplates || []).filter(x => x.id !== t.id) }), { actionType: 'delete', targetType: 'report_template', targetId: t.id, title: 'حذف قالب تقرير', details: t.name }); };
+  const delTpl = async (t) => { await commitOrg(d => ({ ...d, reportTemplates: (d.reportTemplates || []).filter(x => x.id !== t.id) }), { actionType: 'delete', targetType: 'report_template', targetId: t.id, need: 'post', title: 'حذف قالب تقرير', details: t.name }); };
 
   const dlBlob = (name, blob) => { const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(url), 1500); };
   const csvCell = (v) => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
@@ -6587,6 +6598,8 @@ function Approvals({ org, me, scoped, commit, say }) {
     if (kind === 'reject' && !reason) return say('اكتب سبب الرفض قبل الإرجاع', 'no');
     await commit(d => ({
       ...d,
+      // v15.12: رفض الإغلاق يُبطِل توريده أيضًا (الحالة → rejected) فلا يبقى قيدٌ «تحت التحويل» وهمي في الحساب الوسيط ولا نقصٌ في نقد الفرع. (مطابق لسلوك حذف الإغلاق.)
+      transfers: kind === 'reject' ? (d.transfers || []).map(t => t.closingId === c.id ? { ...t, status: 'rejected' } : t) : d.transfers,
       closings: d.closings.map(x => {
         if (x.id !== c.id) return x;
         if (kind === 'audit') return { ...x, status: 'approved', auditedBy: me.name, auditedAt: nowISO(), updatedAt: nowISO() };
@@ -6949,7 +6962,7 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
     };
   });
   const ids = myBranches.map(b => b.id);
-  const emps = org.employees.filter(e => ids.includes(e.branchId));
+  const emps = (org.employees || []).filter(e => ids.includes(e.branchId));
   const canPay = ROLES[me.role]?.scope !== 'own';
   // ترحيل الاستحقاق/الصرف قرار على مستوى المنشأة كلها — يُقصر على الأدوار شاملة النطاق
   const canPost = rolePost(me.role);
@@ -7905,10 +7918,10 @@ function Admin({ org, ops, me, commit, commitOrg, say }) {
                           <div style={{ fontSize: 10.5, color: 'var(--faint)' }}>{u.email}</div></div>
                       </div>
                     </td>
-                    <td><span className={'badge ' + ROLES[u.role].badge}>{ROLES[u.role].ar.split('—')[0]}</span></td>
+                    <td><span className={'badge ' + (ROLES[u.role] || ROLES.cashier).badge}>{(ROLES[u.role] || ROLES.cashier).ar.split('—')[0]}</span></td>
                     <td style={{ fontSize: 11.5, color: 'var(--dim)' }}>
-                      {ROLES[u.role].scope === 'all' ? 'جميع الفروع'
-                        : ROLES[u.role].scope === 'own' ? (org.branches.find(b => b.id === u.branchId)?.name || '—')
+                      {(ROLES[u.role] || ROLES.cashier).scope === 'all' ? 'جميع الفروع'
+                        : (ROLES[u.role] || ROLES.cashier).scope === 'own' ? (org.branches.find(b => b.id === u.branchId)?.name || '—')
                           : `${(u.allowedBranchIds || []).length} فرع مصرّح`}
                     </td>
                     <td><span className={'badge ' + (u.isActive ? 'b-mint' : 'b-dim')}>{u.isActive ? 'نشط' : 'موقوف'}</span></td>
@@ -8140,7 +8153,7 @@ function AuditView({ pulse, onSeen }) {
                 <tr key={l.id}>
                   <td style={{ fontSize: 11, color: 'var(--faint)', whiteSpace: 'nowrap' }}>{arTime(l.timestamp)}</td>
                   <td style={{ fontSize: 12, fontWeight: 600 }}>{l.userName}</td>
-                  <td><span className={'badge ' + ROLES[l.userRole].badge}>{ROLES[l.userRole].ar.split('—')[0]}</span></td>
+                  <td><span className={'badge ' + (ROLES[l.userRole] || ROLES.cashier).badge}>{(ROLES[l.userRole] || ROLES.cashier).ar.split('—')[0]}</span></td>
                   <td style={{ fontSize: 12 }}>{l.title}</td>
                   <td style={{ fontSize: 11.5, color: 'var(--dim)' }}>{l.details}</td>
                 </tr>
@@ -9621,7 +9634,7 @@ function AppPermsPanel({ org, commitOrg, say }) {
     if (target && !role) nAllow = [...nAllow, a.id];
     if (!target && role) nDeny = [...nDeny, a.id];
     await commitOrg(d => ({ ...d, users: (d.users || []).map(x => x.id === u.id ? { ...x, appAllow: nAllow, appDeny: nDeny } : x) }), {
-      actionType: 'update', targetType: 'user_apps', targetId: u.id, title: 'خصّص ظهور تطبيقات لمستخدم', details: u.name + ' · ' + a.ar
+      actionType: 'update', targetType: 'user_apps', targetId: u.id, need: 'edit', title: 'خصّص ظهور تطبيقات لمستخدم', details: u.name + ' · ' + a.ar
     });
     say('حُدِّث ظهور «' + a.ar + '» لـ ' + u.name);
   };
@@ -9630,7 +9643,7 @@ function AppPermsPanel({ org, commitOrg, say }) {
     const key = acctSecKey(v); const was = deny.includes(key);
     const nDeny = was ? deny.filter(x => x !== key) : [...deny, key];
     await commitOrg(d => ({ ...d, users: (d.users || []).map(x => x.id === u.id ? { ...x, appDeny: nDeny } : x) }), {
-      actionType: 'update', targetType: 'user_apps', targetId: u.id, title: 'خصّص أقسام المحاسبة لمستخدم', details: u.name + ' · ' + ACCT_SEC_AR[v] + ' · ' + (was ? 'إظهار' : 'إخفاء')
+      actionType: 'update', targetType: 'user_apps', targetId: u.id, need: 'edit', title: 'خصّص أقسام المحاسبة لمستخدم', details: u.name + ' · ' + ACCT_SEC_AR[v] + ' · ' + (was ? 'إظهار' : 'إخفاء')
     });
     say((was ? 'أُظهر' : 'أُخفي') + ' قسم «' + ACCT_SEC_AR[v] + '» لـ ' + u.name);
   };
@@ -10003,14 +10016,14 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     const clash = A.accounts.find(a => a.code === code && a.code !== f.origCode);
     if (clash) return say(clash.custom ? 'يوجد حساب مخصّص بهذا الرمز' : 'الرمز محجوز لحساب نظامي — اختر رمزًا آخر', 'no');
     await commitOrg(d => { const list = (d.customAccounts || []).filter(x => x.code !== f.origCode); return { ...d, customAccounts: [...list, { code, name, kind: f.kind || 'exp' }] }; },
-      { actionType: f.origCode ? 'update' : 'create', targetType: 'tax_settings', targetId: code, title: (f.origCode ? 'تعديل' : 'إضافة') + ' حساب في الدليل', details: code + ' · ' + name });
+      { actionType: f.origCode ? 'update' : 'create', targetType: 'tax_settings', targetId: code, need: f.origCode ? 'edit' : 'post', title: (f.origCode ? 'تعديل' : 'إضافة') + ' حساب في الدليل', details: code + ' · ' + name });
     setCoaF(null); say('حُفظ الحساب ✓');
   };
   const delAcct = async (a) => {
     if (!a.custom) return say('لا يمكن حذف حساب نظامي', 'no');
     if ((a.debit || 0) !== 0 || (a.credit || 0) !== 0) return say('لا يُحذف حساب عليه حركة — انقل قيوده أولًا', 'no');
     await commitOrg(d => ({ ...d, customAccounts: (d.customAccounts || []).filter(x => x.code !== a.code) }),
-      { actionType: 'delete', targetType: 'tax_settings', targetId: a.code, title: 'حذف حساب من الدليل', details: a.code + ' · ' + a.name });
+      { actionType: 'delete', targetType: 'tax_settings', targetId: a.code, need: 'edit', title: 'حذف حساب من الدليل', details: a.code + ' · ' + a.name });
     say('حُذف الحساب ✓');
   };
   const cashDelta = (e) => sum(e.lines.filter(l => cashSet.has(l.code)), l => l.debit - l.credit);
@@ -10106,7 +10119,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const arStmt = (p) => { let run = 0; return (p.txns || []).filter(t => !t.date || t.date <= arToday).map(t => { run = r2(run + (t.debit || 0) - (t.credit || 0)); return { ...t, run }; }); };
   const saveArLimit = async () => {
     const f = arLimitF; const lim = Number(String(f.limit).replace(/[^\d.]/g, '')) || 0;
-    await commitOrg(d => ({ ...d, partners: (d.partners || []).map(pt => pt.id === f.id ? { ...pt, creditLimit: lim } : pt) }), { actionType: 'update', targetType: 'customer', targetId: f.id, title: 'تعديل حد ائتمان عميل', details: f.name + ' — ' + money(lim) });
+    await commitOrg(d => ({ ...d, partners: (d.partners || []).map(pt => pt.id === f.id ? { ...pt, creditLimit: lim } : pt) }), { actionType: 'update', targetType: 'customer', targetId: f.id, need: 'edit', title: 'تعديل حد ائتمان عميل', details: f.name + ' — ' + money(lim) });
     setArLimitF(null);
   };
 
@@ -10126,7 +10139,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const saveTax = async (next, title, details) => {
     if (lockedThru(org)) return say('توجد فترات مقفلة حتى ' + lockedThru(org) + ' — تغيير الضريبة يعيد احتساب قيودها؛ افتح الإقفال أولًا', 'no');
     await commitOrg(d => ({ ...d, taxCfg: next }), {
-      actionType: 'update', targetType: 'tax_settings', targetId: 'taxCfg', title, details
+      actionType: 'update', targetType: 'tax_settings', targetId: 'taxCfg', need: 'edit', title, details
     });
   };
 
@@ -10181,7 +10194,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     <div class="box" style="font-size:10px;color:#777">${einvIsStd ? 'فاتورة ضريبية (B2B) تحوي بيانات البائع والمشتري كاملة' : 'فاتورة ضريبية مبسّطة (B2C)'} متوافقة مع المرحلة الأولى للفوترة الإلكترونية (رمز QR بترميز TLV: اسم البائع، الرقم الضريبي، التاريخ والوقت، الإجمالي، وقيمة الضريبة). الربط المعتمد للمرحلة الثانية يتطلب شهادة رقمية وتكامل بوابة «فاتورة» من هيئة الزكاة والضريبة والجمارك.</div>`;
     const ok = printA4(org, einvIsStd ? 'فاتورة ضريبية' : 'فاتورة ضريبية مبسّطة', 'البائع: ' + (einvSeller || '—') + ' · الرقم الضريبي: ' + (einvSellerVat || '—'), body);
     if (!ok) return say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
-    if (!einvF.invNo.trim() && canPost) commitOrg(d => ({ ...d, einvSeq: (d.einvSeq || 0) + 1 }), { actionType: 'create', targetType: 'tax_settings', targetId: 'einvSeq', title: 'إصدار ' + (einvIsStd ? 'فاتورة ضريبية' : 'فاتورة مبسّطة'), details: einvNo }).catch(() => { });  // v15.11: لا يزيد التسلسل لدور «عرض فقط»
+    if (!einvF.invNo.trim() && canPost) commitOrg(d => ({ ...d, einvSeq: (d.einvSeq || 0) + 1 }), { actionType: 'create', targetType: 'tax_settings', targetId: 'einvSeq', need: 'post', title: 'إصدار ' + (einvIsStd ? 'فاتورة ضريبية' : 'فاتورة مبسّطة'), details: einvNo }).catch(() => { });  // v15.11: لا يزيد التسلسل لدور «عرض فقط»
   };
 
   // ===== م٥: الأصول الثابتة =====
@@ -10195,7 +10208,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     const rec = { id: f.id || uid('as'), name: f.name.trim(), cost, buyDate: f.buyDate || today(), lifeYears: Number(f.lifeYears), fund: f.fund || 'none', note: f.note || '' };
     await commitOrg(d => ({ ...d, assets: f.id ? (d.assets || []).map(x => x.id === f.id ? rec : x) : [...(d.assets || []), rec] }), {
       actionType: f.id ? 'update' : 'create', targetType: 'fixed_asset', targetId: rec.id,
-      title: f.id ? 'عدّل أصلاً ثابتاً (أُعيد اشتقاق إهلاكه)' : 'سجّل أصلاً ثابتاً',
+      need: f.id ? 'edit' : 'post', title: f.id ? 'عدّل أصلاً ثابتاً (أُعيد اشتقاق إهلاكه)' : 'سجّل أصلاً ثابتاً',
       details: rec.name + ' · ' + money(cost) + ' · ' + rec.lifeYears + ' سنة'
     });
     setAstF(null); say('حُفظ الأصل — قيود الشراء والإهلاك تولّدت تلقائياً ✓');
@@ -10231,16 +10244,21 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     const rec = { ...a, disposedDate: f.disposedDate, salePrice, saleFund: f.saleFund || '1201' };
     await commitOrg(d => ({ ...d, assets: (d.assets || []).map(x => x.id === f.id ? rec : x) }), {
       actionType: 'update', targetType: 'fixed_asset', targetId: a.id,
-      title: 'سجّل بيع/استبعاد أصل ثابت', details: a.name + ' · سعر البيع ' + money(salePrice) + ' · ' + f.disposedDate
+      need: 'edit', title: 'سجّل بيع/استبعاد أصل ثابت', details: a.name + ' · سعر البيع ' + money(salePrice) + ' · ' + f.disposedDate
     });
-    setDspF(null); say('سُجّل الاستبعاد — قيد الإقفال والربح/الخسارة تولّد تلقائياً ✓');
+    setDspF(null);
+    // v15.12: الأصل «بلا قيد شراء» (none) لا تكلفةَ له في الدفاتر، فلا يُولَّد قيد بيع تلقائي — ننبّه المحاسب لتسجيله يدويًا (اتساقًا مع سياسة v15.11).
+    const autoJournal = a.fund && a.fund !== 'none' && (Number(a.cost) || 0) > 0;
+    say(autoJournal
+      ? 'سُجّل الاستبعاد — قيد الإقفال والربح/الخسارة تولّد تلقائياً ✓'
+      : 'سُجّل الاستبعاد. تنبيه: هذا أصل «بلا قيد شراء» فلن يُولَّد قيد بيع تلقائيًا — سجّل قيد المقبوض والربح/الخسارة يدويًا ⚠', autoJournal ? '' : 'no');
   };
   const undoDispose = async (id) => {
     const a = (org.assets || []).find(x => x.id === id); if (!a) return;
     const rec = { ...a }; delete rec.disposedDate; delete rec.salePrice; delete rec.saleFund;
     await commitOrg(d => ({ ...d, assets: (d.assets || []).map(x => x.id === id ? rec : x) }), {
       actionType: 'update', targetType: 'fixed_asset', targetId: id,
-      title: 'ألغى بيع/استبعاد أصل ثابت', details: a.name
+      need: 'edit', title: 'ألغى بيع/استبعاد أصل ثابت', details: a.name
     });
     say('أُلغي الاستبعاد — عاد الأصل نشطاً وأُعيد احتساب إهلاكه ✓');
   };
@@ -10262,7 +10280,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
       diff: Math.round((stmt - book) * 100) / 100, note: brF.note || '', by: me?.name || '', at: nowISO() };
     await commit(d => ({ ...d, bankRecs: [rec, ...(d.bankRecs || [])] }), {
       actionType: 'create', targetType: 'bank_rec', targetId: rec.id,
-      title: 'وثّق تسوية بنكية', details: rec.date + ' · كشف ' + money(stmt) + ' · دفتر ' + money(book) + ' · فرق ' + money(rec.diff)
+      need: 'post', title: 'وثّق تسوية بنكية', details: rec.date + ' · كشف ' + money(stmt) + ' · دفتر ' + money(book) + ' · فرق ' + money(rec.diff)
     });
     setBrF({ date: today(), stmt: '', note: '' }); say('وُثّقت التسوية — عالج الفرق بقيد يدوي إن لزم ✓');
   };
@@ -10286,7 +10304,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
       const cur = d.periodLocks || {};
       const log = [{ id: uid('pl'), at: nowISO(), by: me.name, ...patch.logEntry }, ...(cur.log || [])].slice(0, 60);
       return { ...d, periodLocks: { ...cur, lockedThrough: patch.lockedThrough, log } };
-    }, { actionType: 'update', targetType: 'period_lock', targetId: 'periodLocks', title, details: details || '' });
+    }, { actionType: 'update', targetType: 'period_lock', targetId: 'periodLocks', need: 'edit', title, details: details || '' });
   };
   const doLock = async () => {
     const m = lockTo || prevYm;
@@ -10364,7 +10382,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const ccReady = ccBasis === 'manual' ? manualTot > 0 : totBranchRev > 0;
   const saveCcAlloc = async (patch, title, details) => {
     await commitOrg(d => ({ ...d, ccAlloc: { enabled: true, basis: 'sales', ...(d.ccAlloc || {}), ...patch } }), {
-      actionType: 'update', targetType: 'tax_settings', targetId: 'ccAlloc', title, details: details || ''
+      actionType: 'update', targetType: 'tax_settings', targetId: 'ccAlloc', need: 'post', title, details: details || ''
     });
   };
 
@@ -10566,7 +10584,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     };
     await commit(d => ({ ...d, journalManual: [rec, ...(d.journalManual || [])] }), {
       actionType: 'create', targetType: 'journal_entry', targetId: rec.id,
-      title: rec.opening ? 'أضاف قيدًا افتتاحيًا' : 'أضاف قيدًا محاسبيًا يدويًا',
+      need: 'post', title: rec.opening ? 'أضاف قيدًا افتتاحيًا' : 'أضاف قيدًا محاسبيًا يدويًا',
       details: rec.title + ' · ' + money(sum(rec.lines, l => l.debit)) + ' ر.س'
     });
     setJm(null); say('سُجّل القيد ✓ — التصحيح لاحقًا يكون بقيد عكسي لا بالحذف');
@@ -10584,7 +10602,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     }).filter(Boolean);
     await commitOrg(d => ({ ...d, openingBalances: { asOf, enabled: obD.enabled !== false, lines } }), {
       actionType: 'update', targetType: 'opening_balances', targetId: 'ob',
-      title: 'حدّث الأرصدة الافتتاحية', details: lines.length + ' حساب · بتاريخ ' + asOf
+      need: 'post', title: 'حدّث الأرصدة الافتتاحية', details: lines.length + ' حساب · بتاريخ ' + asOf
     });
     say('حُفظت الأرصدة الافتتاحية — يظهر القيد الافتتاحي في اليومية والميزان');
   };
@@ -10596,7 +10614,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     if (yeD.enabled && cd > today()) return say('تاريخ الإقفال في المستقبل — اختر تاريخًا منتهيًا', 'no');
     await commitOrg(d => ({ ...d, yearEnd: { enabled: !!yeD.enabled, closeDate: cd } }), {
       actionType: 'update', targetType: 'year_end', targetId: 'yearend',
-      title: yeD.enabled ? 'فعّل إقفال السنة المالية' : 'أوقف إقفال السنة المالية',
+      need: 'edit', title: yeD.enabled ? 'فعّل إقفال السنة المالية' : 'أوقف إقفال السنة المالية',
       details: yeD.enabled ? ('حتى ' + cd) : 'موقوف'
     });
     say(yeD.enabled ? 'فُعّل الإقفال — تولّد قيد إقفال السنة وحُوّل الصافي إلى الأرباح المبقاة ✓' : 'أُوقف إقفال السنة');
@@ -10607,7 +10625,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     const lines = Object.keys(budD.map).map(code => { const amount = Math.round((Number(budD.map[code]) || 0) * 100) / 100; return amount > 0 ? { code, amount } : null; }).filter(Boolean);
     await commitOrg(d => ({ ...d, budget: { enabled: !!budD.enabled, lines } }), {
       actionType: 'update', targetType: 'budget', targetId: 'budget',
-      title: budD.enabled ? 'حدّث/فعّل الموازنة التقديرية' : 'أوقف الموازنة التقديرية',
+      need: 'post', title: budD.enabled ? 'حدّث/فعّل الموازنة التقديرية' : 'أوقف الموازنة التقديرية',
       details: lines.length + ' بند'
     });
     say(budD.enabled ? 'حُفظت الموازنة — قارِن الفعلي بالمخطّط شهريًا ✓' : 'حُفظت الموازنة (موقوفة)');
@@ -10618,7 +10636,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     const num = (s) => s === '' ? null : (Math.round((Number(s) || 0) * 100) / 100);
     await commitOrg(d => ({ ...d, forecastCfg: { monthlySales: num(fcD.monthlySales), monthlyOpex: num(fcD.monthlyOpex), safetyBuffer: num(fcD.buffer), horizon: Number(fcD.horizon) || 6 } }), {
       actionType: 'update', targetType: 'year_end', targetId: 'forecast',
-      title: 'حدّث افتراضات التوقّع النقدي', details: 'أفق ' + (fcD.horizon || 6) + ' أشهر'
+      need: 'post', title: 'حدّث افتراضات التوقّع النقدي', details: 'أفق ' + (fcD.horizon || 6) + ' أشهر'
     });
     say('حُفظت افتراضات التوقّع ✓');
   };
@@ -10626,7 +10644,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   // v11.6 — حفظ عتبة التدقيق
   const saveAudit = async () => {
     await commitOrg(d => ({ ...d, auditCfg: { largeAmount: Math.round((Number(audD.largeAmount) || 0) * 100) / 100 } }), {
-      actionType: 'update', targetType: 'year_end', targetId: 'audit', title: 'حدّث عتبة التدقيق الداخلي', details: 'حد المبلغ الكبير ' + money(Number(audD.largeAmount) || 0)
+      actionType: 'update', targetType: 'year_end', targetId: 'audit', need: 'edit', title: 'حدّث عتبة التدقيق الداخلي', details: 'حد المبلغ الكبير ' + money(Number(audD.largeAmount) || 0)
     });
     say('حُفظت عتبة التدقيق ✓');
   };
@@ -10643,7 +10661,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     const rec = { id: uid('astl'), appId: stlF.appId, date: stlF.date || today(), deposit: dep, deductions: ded, note: stlF.note || '', by: me?.name || '', createdAt: nowISO() };
     await commit(d => ({ ...d, appSettlements: [rec, ...(d.appSettlements || [])] }), {
       actionType: 'create', targetType: 'app_settlement', targetId: rec.id,
-      title: 'سجّل تسوية كشف تطبيق', details: appNm + ' · إيداع ' + money(dep) + (ded ? ' · خصم ' + money(ded) : '')
+      need: 'post', title: 'سجّل تسوية كشف تطبيق', details: appNm + ' · إيداع ' + money(dep) + (ded ? ' · خصم ' + money(ded) : '')
     });
     setStlF(null); say('سُجّلت التسوية — أُقفلت ذمة ' + appNm + ' بمقدار ' + money(dep + ded));
   };
@@ -12055,8 +12073,8 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
                 <div><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />الضوابط الداخلية والتدقيق</div>
                   <div className="note" style={{ marginTop: 6 }}>فحص جنائيّ لبياناتك يكشف الشذوذ والازدواج وفصل المهام — <b>مؤشرات للمراجعة لا اتهامات</b>. راجع كل ملاحظة بسندها.</div></div>
                 <div className="row" style={{ gap: 8, alignItems: 'flex-end' }}>
-                  <Field label="حد «المبلغ الكبير»" style={{ width: 150 }}><input className="inp n" inputMode="decimal" value={audD.largeAmount} onChange={e => setAudD({ largeAmount: e.target.value.replace(/[^\d.]/g, '') })} disabled={!canPost} /></Field>
-                  {canPost && <button className="btn pri" onClick={saveAudit}><Check size={14} />حفظ</button>}
+                  <Field label="حد «المبلغ الكبير»" style={{ width: 150 }}><input className="inp n" inputMode="decimal" value={audD.largeAmount} onChange={e => setAudD({ largeAmount: e.target.value.replace(/[^\d.]/g, '') })} disabled={!canEdit} /></Field>
+                  {canEdit && <button className="btn pri" onClick={saveAudit}><Check size={14} />حفظ</button>}
                 </div>
               </div>
             </div>
@@ -12370,7 +12388,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         const periodSub2 = (from || to) ? ((from || 'البداية') + ' ← ' + (to || today())) : 'كامل المدة حتى ' + today();
         const zkAdd = [['رأس المال (3101)', capital], ['الأرباح المبقاة (3201)', retained], ['المخصصات والاحتياطيات', provisions], ['القروض والالتزامات طويلة الأجل', ltLoans], ['صافي ربح الفترة (غير المقفل)', netProfit]];
         const zkDed = [['صافي الأصول الثابتة (1701/1791)', netFixed], ['الاستثمارات طويلة الأجل', ltInvest]];
-        const saveZakat = async () => { await commitOrg(d => ({ ...d, zakatCfg: { rate, provisions, ltLoans, ltInvest, ownerType: zkD.ownerType, saudiPct: num(zkD.saudiPct), incomeTaxRate: incTaxRate } }), { actionType: 'update', targetType: 'tax_settings', targetId: 'zakatCfg', title: 'حفظ إعداد الزكاة والضريبة', details: ownerLabel + ' · زكاة ' + rate + '% · دخل ' + incTaxRate + '%' }); say('حُفظ الإعداد ✓'); };
+        const saveZakat = async () => { await commitOrg(d => ({ ...d, zakatCfg: { rate, provisions, ltLoans, ltInvest, ownerType: zkD.ownerType, saudiPct: num(zkD.saudiPct), incomeTaxRate: incTaxRate } }), { actionType: 'update', targetType: 'tax_settings', targetId: 'zakatCfg', need: 'edit', title: 'حفظ إعداد الزكاة والضريبة', details: ownerLabel + ' · زكاة ' + rate + '% · دخل ' + incTaxRate + '%' }); say('حُفظ الإعداد ✓'); };
         const zkTable = () => [['البند', 'المبلغ'], ['الإضافات (مصادر التمويل)', ''], ...zkAdd, ['إجمالي الإضافات', additions], ['المخصومات', ''], ...zkDed, ['إجمالي المخصومات', deductions], ['وعاء الزكاة', base], ['نسبة الزكاة %', rate], ['الزكاة على كامل الوعاء', zakat], ['نوع الملكية', ownerLabel], ['الحصة السعودية %', saudiShare], ['الزكاة المستحقة (حصة سعودية)', zakatDue], ['الحصة الأجنبية %', foreignShare], ['نسبة ضريبة الدخل %', incTaxRate], ['ضريبة الدخل المستحقة', incomeTax], ['الإجمالي المستحق (زكاة + دخل)', dueTotal]];
         const exportZakatXlsx = () => { try { const blob = makeXlsx([{ name: 'حاسبة الزكاة', rows: zkTable() }]); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'حاسبة_الزكاة.xlsx'; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(url), 1500); say('نُزّلت حاسبة الزكاة (Excel) ✓'); } catch (e) { say('تعذّر توليد Excel', 'no'); } };
         const printZakat = () => {
@@ -15128,7 +15146,7 @@ function IncomeStatement({ org, ops, myBranches, scoped, say }) {
   const fx = (ops.fixedExpenses || []).filter(f => f.month === month && ids.includes(f.branchId));
   const fixedTotal = sum(fx, f => f.rentAmount + f.electricityBill + f.waterBill + f.internetBill + f.otherBills);
 
-  const emps = org.employees.filter(e => ids.includes(e.branchId));
+  const emps = (org.employees || []).filter(e => ids.includes(e.branchId));
   const payrollCost = sum(emps, e => e.baseSalary + (e.housingAllowance || 0) + (e.transportAllowance || 0));
   const paidAtBranch = sum(byCat.filter(x => ['ec2', 'ec3'].includes(x.id)), x => x.v);
   const payrollRemaining = Math.max(0, payrollCost - paidAtBranch);
