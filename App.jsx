@@ -952,9 +952,9 @@ function buildAccounting(org, ops) {
     }
     if ((i.paidAmount || 0) > 0) push({
       id: 'invp:' + i.id, date: (i.paidDate || d || '').slice(0, 10),
-      title: 'سداد مركزي لفاتورة توريد — ' + (i.supplierName || 'مورد'),
+      title: 'سداد مركزي لفاتورة توريد — ' + (i.supplierName || 'مورد') + (i.payFund === '1101' ? ' (نقداً من الخزينة)' : ''),
       src: 'سداد مركزي', ref: i.invoiceNo || i.id,
-      lines: [L('2101', i.paidAmount, 0), L('1201', 0, i.paidAmount)]
+      lines: [L('2101', i.paidAmount, 0), L(i.payFund === '1101' ? '1101' : '1201', 0, i.paidAmount)]   // v15.19: مصدر السداد المختار
     });
   });
   // ٦مكرر) السداد المركزي لفواتير الورديات المشتقة (v8.1): مدين ذمم الموردين / دائن البنك
@@ -964,9 +964,9 @@ function buildAccounting(org, ops) {
     const spn = ((org.suppliers || []).find(x => x.id === pmt.supplierId) || {}).name || 'مورد';
     push({
       id: 'cip:' + pmt.id, date: (pmt.date || '').slice(0, 10),
-      title: 'سداد مركزي لمشتريات وردية — ' + spn,
+      title: 'سداد مركزي لمشتريات وردية — ' + spn + (pmt.fund === '1101' ? ' (نقداً من الخزينة)' : ''),
       src: 'سداد مركزي', ref: pmt.refId || pmt.id,
-      lines: [L('2101', pmt.amount, 0), L('1201', 0, pmt.amount)]
+      lines: [L('2101', pmt.amount, 0), L(pmt.fund === '1101' ? '1101' : '1201', 0, pmt.amount)]   // v15.19: مصدر السداد المختار
     });
   });
 
@@ -986,10 +986,14 @@ function buildAccounting(org, ops) {
       const payDate = ((payoutEntries[0] || {}).date || (m + '-28')).slice(0, 10);
       const gosiEmp = Math.round(sum(payoutEntries, x => x.gosi || 0) * 100) / 100;   // حصة الموظف المستقطعة (v11.0)
       const gosiEr = Math.round(sum(payoutEntries, x => x.gosiEr || 0) * 100) / 100;  // حصة صاحب العمل
+      // v15.19: مصدر صرف الرواتب يُحترم كما سُجّل (fund على قيود الصرف): بنك و/أو خزينة رئيسية.
+      // قيود قديمة بلا fund تبقى على البنك (سلوكها السابق حرفيًا).
+      const payCashT = Math.round(sum(payoutEntries.filter(x => x.fund === '1101'), x => x.debit || 0) * 100) / 100;
+      const payBankT = Math.round((pay - payCashT) * 100) / 100;
       push({
-        id: 'sal-pay:' + m, date: payDate, title: 'صرف رواتب شهر ' + m + ' (صافي بعد السلف والخصوم' + (gosiEmp > 0.004 ? ' والتأمينات' : '') + ')',
+        id: 'sal-pay:' + m, date: payDate, title: 'صرف رواتب شهر ' + m + ' (صافي بعد السلف والخصوم' + (gosiEmp > 0.004 ? ' والتأمينات' : '') + ')' + (payCashT > 0.004 ? (payBankT > 0.004 ? ' — بنك + خزينة' : ' — نقداً من الخزينة') : ''),
         src: 'كشف الرواتب', ref: 'payout-' + m,
-        lines: [L('2201', pay, 0), L('1201', 0, pay)]
+        lines: [L('2201', pay, 0), ...(payBankT > 0.004 ? [L('1201', 0, payBankT)] : []), ...(payCashT > 0.004 ? [L('1101', 0, payCashT)] : [])]
       });
       const diff = Math.round((acc - pay) * 100) / 100;   // = السلف + الخصومات + حصة الموظف من التأمينات
       if (diff > 0.004) {
@@ -1015,13 +1019,20 @@ function buildAccounting(org, ops) {
     }
   });
   // ٨) صرف السلف والمسحوبات (عهدة على الموظف حتى استقطاعها من الراتب)
+  // v15.19: نحترم «طريقة الصرف» المسجّلة على السلفة نفسها — كانت كل السلف تُخصم من البنك
+  // خطأً مهما كانت الطريقة المختارة (أحد أسباب ظهور رصيد البنك سالبًا):
+  // «نقداً من صندوق الفرع» ← صندوق فرع الموظف · «عهدة نثرية» ← الخزينة الرئيسية ·
+  // «تحويل بنكي» ← البنك. سجل قديم بلا طريقة محفوظة يبقى على البنك (سلوكه السابق حرفيًا).
   (ops.advances || []).filter(a => ['advance', 'salary_draw'].includes(a.type)).forEach(a => {
     if (!(a.amount > 0)) return;
+    const advSrc = a.paymentMethod === 'cash' ? (cashCode[a.branchId] || '1101')
+      : a.paymentMethod === 'petty_cash' ? '1101'
+        : '1201';
     push({
       id: 'adv:' + a.id, date: (a.date || '').slice(0, 10) || (a.month ? a.month + '-15' : ''),
       title: 'سلفة/سحب على الراتب' + (a.reason ? ' — ' + a.reason : ''),
       src: 'الرواتب والسلف', ref: a.month || a.id,
-      lines: [L('1401', a.amount, 0), L('1201', 0, a.amount)]
+      lines: [L('1401', a.amount, 0), L(advSrc, 0, a.amount)]
     });
   });
 
@@ -2184,7 +2195,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.18 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.19 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -7046,6 +7057,7 @@ function DisbursementForm({ org, me, balance, commit, say, onClose }) {
 function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
   const [month, setMonth] = useState(today().slice(0, 7));
   const [add, setAdd] = useState(false);
+  const [payFund, setPayFund] = useState('1201');   // v15.19: مصدر صرف الرواتب — بنك (افتراضي) أو خزينة رئيسية
   const [repOpen, setRepOpen] = useState(false);    // v9.5 قائمة تقارير التطبيق
   const [compF, setCompF] = useState(null);         // v11.0 تعديل راتب/بدلات موظف
   const [eosF, setEosF] = useState(null);           // v12.3 حاسبة نهاية الخدمة
@@ -7235,14 +7247,15 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
     const entries = rows.filter(r => r.net > 0).map(r => ({
       id: uid('le'), partnerKey: 'emp:' + r.e.id, date: today(), month, kind: 'salary_payout',
       desc: 'صرف راتب شهر ' + month + ' (صافي بعد السلف والخصوم' + (r.gEmp > 0.004 ? ' والتأمينات' : '') + ')', src: 'salary', debit: r.net, credit: 0,
-      gosi: r.gEmp || 0, gosiEr: r.gEr || 0
+      gosi: r.gEmp || 0, gosiEr: r.gEr || 0,
+      fund: payFund   // v15.19: مصدر صرف الرواتب المختار (بنك 1201 أو خزينة رئيسية 1101)
     }));
     if (!entries.length) return say('لا صافي مستحق للصرف', 'no');
     await commit(d => ({ ...d, ledgerEntries: [...entries, ...(d.ledgerEntries || [])] }), {
       actionType: 'create', targetType: 'daily_closing', targetId: 'payout-' + month,
-      title: 'سجّل صرف رواتب الشهر', details: month + ' · صافي ' + money(sum(rows.filter(r => r.net > 0), r => r.net)) + (totalGosi > 0.004 ? ' · تأمينات ' + money(totalGosi) : '')
+      title: 'سجّل صرف رواتب الشهر', details: month + ' · صافي ' + money(sum(rows.filter(r => r.net > 0), r => r.net)) + (payFund === '1101' ? ' · نقداً من الخزينة' : ' · من البنك') + (totalGosi > 0.004 ? ' · تأمينات ' + money(totalGosi) : '')
     });
-    say('سُجّل صرف رواتب ' + month + ' — أُقفل استحقاق الشهر في كشوف الموظفين ✓');
+    say('سُجّل صرف رواتب ' + month + (payFund === '1101' ? ' نقداً من الخزينة الرئيسية' : ' من البنك') + ' — أُقفل استحقاق الشهر في كشوف الموظفين ✓');
   };
   // v11.0 — حفظ إعداد التأمينات الاجتماعية
   const saveGosi = async () => {
@@ -7298,6 +7311,13 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
           {canPost && (accrualPosted
             ? <span className="badge b-mint"><Check size={11} />استحقاق {month} مُرحّل للدفتر</span>
             : <button className="btn" onClick={postAccrual}><Landmark size={14} />ترحيل استحقاق الشهر للدفتر</button>)}
+          {canPost && !payoutPosted && (
+            <select className="sel" style={{ width: 'auto' }} value={payFund} title="مصدر صرف الرواتب"
+              onChange={e => setPayFund(e.target.value)}>
+              <option value="1201">الصرف من البنك</option>
+              <option value="1101">الصرف نقداً من الخزينة الرئيسية</option>
+            </select>
+          )}
           {canPost && (payoutPosted
             ? <span className="badge b-mint"><Check size={11} />صرف {month} مسجّل</span>
             : <button className="btn" disabled={!accrualPosted} onClick={postPayout}><Banknote size={14} />تسجيل صرف الرواتب</button>)}
@@ -8615,6 +8635,7 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const [repOpen, setRepOpen] = useState(false);    // v9.4 قائمة تقارير التطبيق
   const [pay, setPay] = useState(null);
   const [amt, setAmt] = useState(0);
+  const [payFund, setPayFund] = useState('1201');   // v15.19: مصدر السداد — بنك (افتراضي) أو خزينة رئيسية
   const [newInv, setNewInv] = useState(null);        // نموذج فاتورة توريد (م٤)
   const [poF, setPoF] = useState(null);              // نموذج أمر شراء
   const [recv, setRecv] = useState(null);            // نموذج استلام أمر
@@ -8748,10 +8769,10 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
     if (inv.source === 'closing') {
       const v = Math.min(amt, cRem(inv));
       if (v <= 0) return say('أدخل مبلغ سداد صحيح', 'no');
-      const rec = { id: uid('cip'), refId: inv.id, supplierId: inv.supplierId, amount: v, date: today(), by: me.name, at: nowISO() };
+      const rec = { id: uid('cip'), refId: inv.id, supplierId: inv.supplierId, amount: v, date: today(), by: me.name, at: nowISO(), fund: payFund };
       await commit(d => ({ ...d, closingInvPays: [rec, ...(d.closingInvPays || [])] }), {
         actionType: 'create', targetType: 'expense', targetId: rec.id, branchName: inv.branchName,
-        title: 'سدّد مركزياً مشتريات وردية آجلة', details: `${inv.supplierName} · ${inv.invoiceNo} · ${money(v)} ر.س`
+        title: 'سدّد مركزياً مشتريات وردية آجلة', details: `${inv.supplierName} · ${inv.invoiceNo} · ${money(v)} ر.س` + (payFund === '1101' ? ' · نقداً من الخزينة' : ' · من البنك')
       });
       setPay(null); setAmt(0); say('سُجّل السداد وتولد قيده تلقائياً ✓');
       return;
@@ -8760,10 +8781,10 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
     if (v <= 0) return say('أدخل مبلغ سداد صحيح', 'no');
     await commit(d => ({
       ...d,
-      invoices: (d.invoices || []).map(i => i.id === inv.id ? { ...i, paidAmount: (i.paidAmount || 0) + v } : i)
+      invoices: (d.invoices || []).map(i => i.id === inv.id ? { ...i, paidAmount: (i.paidAmount || 0) + v, payFund } : i)
     }), {
       actionType: 'update', targetType: 'expense', targetId: inv.id, branchName: inv.branchName,
-      title: 'سدّد دفعة لمورد', details: `${inv.supplierName} · فاتورة ${inv.invoiceNo} · ${money(v)} ر.س`
+      title: 'سدّد دفعة لمورد', details: `${inv.supplierName} · فاتورة ${inv.invoiceNo} · ${money(v)} ر.س` + (payFund === '1101' ? ' · نقداً من الخزينة' : ' · من البنك')
     });
     say(`تم تسجيل سداد ${money(v)} ر.س لـ${inv.supplierName}`);
     setPay(null); setAmt(0);
@@ -9072,6 +9093,15 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
             <span className="num" style={{ color: 'var(--amber)' }}>المتبقي {money(invRem(pay))}</span>
           </div>
           <Num label="مبلغ السداد" value={amt} onChange={setAmt} hint="يمكن السداد جزئياً على دفعات" />
+          <Field label="مصدر السداد">
+            <select className="sel" value={payFund} onChange={e => setPayFund(e.target.value)}>
+              <option value="1201">من البنك</option>
+              <option value="1101">نقداً من الخزينة الرئيسية</option>
+            </select>
+          </Field>
+          <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 4, lineHeight: 1.7 }}>
+            يُقيَّد السداد على المصدر المختار في المحاسبة تلقائيًا. للفاتورة الواحدة المسدَّدة على دفعات، يُعتمد مصدر آخر دفعة لكامل سداداتها.
+          </div>
         </Modal>
       )}
     </div>
