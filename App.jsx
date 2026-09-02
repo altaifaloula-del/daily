@@ -261,13 +261,14 @@ function dirOf(org) {
   return {
     dirOnly: true,
     company: { name: (org.company || {}).name || '', logoUrl: (org.company || {}).logoUrl || '', activity: (org.company || {}).activity || '' },
-    branches: (org.branches || []).map(b => ({ id: b.id, name: b.name, defaultFloat: b.defaultFloat || 0, isActive: b.isActive !== false, logoUrl: b.logoUrl || '', city: b.city || '' })),
+    branches: (org.branches || []).map(b => ({ id: b.id, name: b.name, defaultFloat: b.defaultFloat || 0, isActive: b.isActive !== false, logoUrl: b.logoUrl || '', city: b.city || '', bankName: b.bankName || '', bankAcc: b.bankAcc || '' })),
     expenseCats: org.expenseCats || [],
     deliveryApps: org.deliveryApps || [],
     suppliers: (org.suppliers || []).map(x => ({ id: x.id, name: x.name, category: x.category || '', code: x.code || '', terms: x.terms || 0 })),
     employees: (org.employees || []).map(e => ({ id: e.id, name: e.name, branchId: e.branchId || '', jobTitle: e.jobTitle || '', code: e.code || '', isActive: e.isActive !== false })),
     users: (org.users || []).map(u => ({ id: u.id, name: u.name, email: u.email || '', role: u.role, branchId: u.branchId || '', allowedBranchIds: u.allowedBranchIds || [], appAllow: u.appAllow || [], appDeny: u.appDeny || [], isActive: u.isActive !== false })),
     partners: (org.partners || []).map(p => ({ id: p.id, key: p.key, name: p.name, type: p.type, cat: p.cat || '', code: p.code || '' })),
+    customAccounts: org.customAccounts || [],   // v15.21: لازمة لتطابق أكواد بنوك الفروع المربوطة بالدليل على أجهزة الفروع
     periodLocks: org.periodLocks || {},
     appsCfg: org.appsCfg || {},
     setupComplete: true, migratedV9: org.migratedV9 || ''
@@ -311,10 +312,16 @@ const payLabel = (pm) => {
 // v15.20 — بنوك الفروع المعرّفة، للاستخدام في الواجهات (محدِّدات مصدر الصرف والتسوية البنكية).
 // الأكواد بنفس منطق buildAccounting حرفياً: '12'+(11+فهرس الفرع) — أي تعديل هناك يستلزم تعديلاً هنا.
 const branchBanks = (org) => {
-  const out = [];
+  const out = []; const seen = new Set();
+  const validAcc = (code) => !!code && (String(code) === '1201' || ((org && org.customAccounts) || []).some(ca => String(ca.code) === String(code)));
   (org?.branches || []).forEach((b, i) => {
-    if (!(b && ((b.bankName && String(b.bankName).trim()) || (b.bankIban && String(b.bankIban).trim())))) return;
-    out.push({ code: '12' + String(11 + i), branchId: b.id, name: 'بنك ' + (b.name || 'فرع') + (b.bankName ? ' — ' + b.bankName : '') });
+    if (!(b && ((b.bankName && String(b.bankName).trim()) || (b.bankIban && String(b.bankIban).trim()) || (b.bankAcc && String(b.bankAcc).trim())))) return;
+    // v15.21: الربط الصريح بحساب من الدليل يتقدّم على الكود التلقائي؛ 1201 لا يُكرَّر (مُدرج كخيار ثابت في القوائم)
+    const code = validAcc(b.bankAcc) ? String(b.bankAcc) : '12' + String(11 + i);
+    if (code === '1201' || seen.has(code)) return;
+    seen.add(code);
+    const ca = ((org && org.customAccounts) || []).find(x => String(x.code) === code);
+    out.push({ code, branchId: b.id, name: ca ? (ca.name || code) : ('بنك ' + (b.name || 'فرع') + (b.bankName ? ' — ' + b.bankName : '')) });
   });
   return out;
 };
@@ -765,14 +772,21 @@ function buildAccounting(org, ops) {
   });
   addAcc('1201', 'البنك — الشبكة والمدفوعات البنكية (تجميعي)', 'asset', { link: 'يُطابَق من شاشة التسوية البنكية', cash: true });
   // v15.4: لكل فرع له حساب بنكي مُدخَل — بنك مستقل + حساب وسيط «تحصيلات تحت التحويل» (اختياري، لا يمسّ الفروع القديمة)
-  const branchHasBank = (b) => !!(b && ((b.bankName && String(b.bankName).trim()) || (b.bankIban && String(b.bankIban).trim())));
+  // v15.21: يمكن ربط بنك الفرع بحساب قائم من الدليل (b.bankAcc: التجميعي 1201 أو حساب مخصّص «أصول»)
+  //         بدل الحساب التلقائي — الربط الصريح ثابت لا يتأثر بترتيب الفروع، ويجوز اشتراك أكثر من فرع بحساب واحد.
+  const branchHasBank = (b) => !!(b && ((b.bankName && String(b.bankName).trim()) || (b.bankIban && String(b.bankIban).trim()) || (b.bankAcc && String(b.bankAcc).trim())));
+  const validBankAcc = (code) => !!code && (String(code) === '1201' || (org.customAccounts || []).some(ca => String(ca.code) === String(code)));
   const bankCode = {};   // بنك الفرع — تحصيلات الشبكة/التحويل بالفرع
   const clrCode = {};    // حساب وسيط الفرع — نقدٌ غادر الفرع ولم يصل الرئيسي بعد
   (org.branches || []).forEach((b, i) => {
     if (!branchHasBank(b)) return;
-    const bk = '12' + String(11 + i);
-    bankCode[b.id] = bk;
-    addAcc(bk, 'بنك الفرع — ' + (b.name || 'فرع') + (b.bankName ? ' (' + b.bankName + ')' : ''), 'asset', { link: 'تحصيلات الشبكة والتحويل بالفرع', cash: true });
+    if (validBankAcc(b.bankAcc)) {
+      bankCode[b.id] = String(b.bankAcc);   // حساب من الدليل — يُسجَّل لاحقاً ضمن الحسابات المخصّصة (أو هو 1201 القائم)
+    } else {
+      const bk = '12' + String(11 + i);
+      bankCode[b.id] = bk;
+      addAcc(bk, 'بنك الفرع — ' + (b.name || 'فرع') + (b.bankName ? ' (' + b.bankName + ')' : ''), 'asset', { link: 'تحصيلات الشبكة والتحويل بالفرع', cash: true });
+    }
     const cl = '19' + String(11 + i);
     clrCode[b.id] = cl;
     addAcc(cl, 'حساب وسيط — تحصيلات تحت التحويل — ' + (b.name || 'فرع'), 'asset', { link: 'نقدٌ غادر الفرع للرئيسي ولم يُستلَم بعد', cash: true });
@@ -822,7 +836,12 @@ function buildAccounting(org, ops) {
   addAcc('5199', 'مصروفات وردية غير مصنّفة', 'exp');
   addAcc('5150', 'بضاعة آخر المدة (تُخفّض تكلفة المشتريات)', 'exp', { link: 'رسملة المخزون — الطريقة الدورية' });
   // v15.3: الحسابات المخصّصة التي يضيفها المستخدم من دليل الحسابات (إضافة/تعديل/حذف)
-  (org.customAccounts || []).forEach(ca => { if (ca && ca.code && !accIx[ca.code]) addAcc(String(ca.code), ca.name || String(ca.code), ca.kind || 'exp', { link: 'حساب مخصّص', custom: true }); });
+  (org.customAccounts || []).forEach(ca => {
+    if (!(ca && ca.code && !accIx[ca.code])) return;
+    // v15.21: حساب مخصّص مربوط كبنك فرع يُعامل كنقد وما في حكمه (يدخل مؤشر «النقد الآن»)
+    const isBranchBank = Object.values(bankCode).includes(String(ca.code));
+    addAcc(String(ca.code), ca.name || String(ca.code), ca.kind || 'exp', { link: isBranchBank ? 'بنك فرع (مربوط من كرت الفرع)' : 'حساب مخصّص', custom: true, ...(isBranchBank ? { cash: true } : {}) });
+  });
 
   // ===== محرك القيود =====
   const entries = [];
@@ -2210,7 +2229,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.20 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.21 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -8144,13 +8163,13 @@ function Admin({ org, ops, me, commit, commitOrg, say }) {
         );
       })()}
 
-      {bEdit && <BranchForm b={bEdit} say={say} onSave={saveBranch} onClose={() => setBEdit(null)} />}
+      {bEdit && <BranchForm b={bEdit} org={org} say={say} onSave={saveBranch} onClose={() => setBEdit(null)} />}
       {uEdit && <UserForm u={uEdit} org={org} onSave={saveUser} onClose={() => setUEdit(null)} />}
     </div>
   );
 }
 
-function BranchForm({ b, say, onSave, onClose }) {
+function BranchForm({ b, org, say, onSave, onClose }) {
   const [f, setF] = useState(b);
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   return (
@@ -8167,10 +8186,23 @@ function BranchForm({ b, say, onSave, onClose }) {
       </div>
       <div className="card" style={{ marginTop: 6, background: 'rgba(200,162,74,.05)', borderColor: 'var(--frame)' }}>
         <div className="card-t" style={{ marginBottom: 4 }}><Landmark size={14} color="var(--brass)" />الحساب البنكي للفرع (اختياري)</div>
-        <div className="note" style={{ marginBottom: 10 }}>عند إدخال بنكٍ للفرع، تُنشأ له في المحاسبة حساباتٌ مستقلّة: <b>بنك الفرع</b> (تُرحَّل إليه تحصيلات الشبكة والتحويل بدل البنك التجميعي) و<b>حساب وسيط «تحصيلات تحت التحويل»</b> يمرّ عبره توريد النقد للخزينة الرئيسية فتَظهر المبالغ في الطريق. اتركه فارغًا ليعمل الفرع كالسابق تمامًا.</div>
+        <div className="note" style={{ marginBottom: 10 }}>عند إدخال بنكٍ للفرع، تُرحَّل إليه تحصيلات الشبكة والتحويل بدل البنك التجميعي، ويُنشأ للفرع <b>حساب وسيط «تحصيلات تحت التحويل»</b> يمرّ عبره توريد النقد للخزينة الرئيسية. اتركه فارغًا ليعمل الفرع كالسابق تمامًا.</div>
         <div className="grid g2">
           <Field label="اسم البنك"><input className="inp" value={f.bankName || ''} onChange={e => set('bankName', e.target.value)} placeholder="مثال: مصرف الراجحي" /></Field>
           <Field label="الآيبان / رقم الحساب"><input className="inp n" style={{ direction: 'ltr', textAlign: 'right' }} value={f.bankIban || ''} onChange={e => set('bankIban', e.target.value)} placeholder="SA00 0000 0000 0000 0000 0000" /></Field>
+        </div>
+        {/* v15.21 — ربط بنك الفرع بحساب قائم في الدليل المحاسبي بدل الحساب التلقائي */}
+        <Field label="حساب البنك في الدليل المحاسبي">
+          <select className="sel" value={f.bankAcc || ''} onChange={e => set('bankAcc', e.target.value)}>
+            <option value="">تلقائي — يُنشأ حساب مستقل باسم الفرع (الوضع المعتاد)</option>
+            <option value="1201">1201 · البنك — الشبكة والمدفوعات البنكية (تجميعي)</option>
+            {((org && org.customAccounts) || []).filter(a => (a.kind || '') === 'asset').map(a => (
+              <option key={a.code} value={String(a.code)}>{a.code} · {a.name}</option>
+            ))}
+          </select>
+        </Field>
+        <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: -4, lineHeight: 1.7 }}>
+          اختر حساباً من دليلك المحاسبي لتُرحَّل إليه تحصيلات هذا الفرع مباشرةً (يظهر هنا: البنك التجميعي + حساباتك المخصّصة من نوع «أصول» — أنشئها أولاً من المحاسبة ← دليل الحسابات). يمكن ربط أكثر من فرع بنفس الحساب إن كانا يصبّان في حساب بنكي واحد فعلاً.
         </div>
       </div>
       <Field label="شعار الفرع (يظهر في تقارير هذا الفرع)">
