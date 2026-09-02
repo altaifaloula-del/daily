@@ -2184,7 +2184,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.17 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.18 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -5764,7 +5764,7 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
       inventory: true,
       transfer: (d.transferredToMainTreasury || 0) > 0 || !!d.treasuryChoice,
       supplierPay: (d.supplierPayments || []).length > 0,
-      notes: !!(d.notes || d.managerSignature || d.sessionPhoto),
+      notes: !!(d.notes || d.managerSignature || d.sessionPhoto || (d.sessionPhotos || []).length),
     };
   });
   const toggleSec = (k) => setSecs(p => {
@@ -5800,6 +5800,11 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
   const retained = Math.max(0, actual - f.transferredToMainTreasury);
 
   const setDen = (k, v) => set('denominationDetails', { ...f.denominationDetails, [k]: Math.max(0, v) });
+  // v15.18 — صور توثيق متعددة عند الترحيل، بتوافق خلفي كامل: الإغلاقات القديمة بحقلها
+  // المفرد sessionPhoto تُعرض وتعمل كما هي، والجديدة تحمل sessionPhotos + أول صورة تُنسخ
+  // في sessionPhoto نفسه حتى تبقى كل الشاشات/التقارير/الأرشفة القديمة صحيحة بلا تعديل.
+  const sPhotos = f.sessionPhotos || (f.sessionPhoto ? [f.sessionPhoto] : []);
+  const setPhotos = (arr) => setF(p => ({ ...p, sessionPhotos: arr, sessionPhoto: arr[0] || '' }));
   const addDelivApp = () => set('deliverySales', [...f.deliverySales, { appId: uid('app'), appName: '', amount: 0, orderCount: 0, commissionPercentage: 0, custom: true }]);
   const upDeliv = (i, k, v) => { const n = [...f.deliverySales]; n[i] = { ...n[i], [k]: v }; set('deliverySales', n); };
   const removeDeliv = (i) => set('deliverySales', f.deliverySales.filter((_, x) => x !== i));
@@ -5902,12 +5907,14 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
       if (actual <= 0) { say('أكمل جرد الفئات النقدية قبل الترحيل', 'no'); return null; }
       if (variance !== 0 && !f.varianceReason.trim()) { say('وثّق سبب العجز أو الفائض قبل الترحيل', 'no'); return null; }
       if (f.transferredToMainTreasury > actual) { say('المرحّل للخزينة يتجاوز النقد المعدود', 'no'); return null; }
-      if (!f.sessionPhoto) { say('التقط صورة توثيق المسؤول قبل الترحيل — إجباري', 'no'); return null; }
+      // v15.18: صورة التوثيق إجبارية لكل الأدوار عدا الكاشير (بطلب صريح من المالك) — تبقى متاحة له اختيارياً
+      if (me.role !== 'cashier' && sPhotos.length === 0) { say('التقط صورة توثيق المسؤول قبل الترحيل — إجباري', 'no'); return null; }
     }
     const id = initial?.id || 'cl-' + f.branchId + '-' + f.date + '-' + Math.random().toString(36).slice(2, 5);
     const ref = 'TR-' + f.date.replace(/-/g, '') + '-' + f.branchId.slice(-2);
     const rec = {
       ...f, id, branchName: branch?.name || '', managerName: me.name,
+      sessionPhotos: sPhotos, sessionPhoto: sPhotos[0] || '',
       deliverySales: f.deliverySales.map(d => ({ ...d, commissionAmount: Math.round(d.amount * (d.commissionPercentage || 0)) / 100 })),
       totalDeliverySales: totalDelivery, otherRevenues: [], totalOtherRevenues: 0,
       totalRevenue, totalExpenses: totalExp, totalCashExpenses: cashExp,
@@ -5925,13 +5932,16 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
   const finalize = async (status, recIn, id, ref, out) => {
     if (periodLocked(org, f.date)) return say(LOCK_MSG(f.date), 'no');
     const rec = { ...recIn, completion: out ? { ...out, at: nowISO(), by: me.name } : (recIn.completion || null) };
-    await commit(d => {
+    // v15.18: نتحقق من نجاح الحفظ فعلياً — فشل الحفظ سابقاً كان يُتجاهَل فيظهر «تم الحفظ»
+    // ويُغلق النموذج بينما لم يُكتب شيء للسحابة (فتختفي المسودة). الآن: عند الفشل تبقى
+    // النافذة مفتوحة ببياناتها كاملة ليعيد المستخدم المحاولة (رسالة الخطأ يعرضها commit).
+    const okSave = await commit(d => {
       // سياسة الاحتفاظ: بعد 60 يومًا تُنظَّف الصور من سجل الإغلاق (تبقى نسخها في أرشيف المستندات) لكبح تضخم التخزين
       const cutoff = new Date(Date.now() - 60 * 864e5).toISOString().slice(0, 10);
       const pruneImgs = (c) => {
         if (c.imagesPruned || !c.date || c.date >= cutoff || c.status === 'draft') return c;
-        if (!c.sessionPhoto && !c.cardReceiptImage && !(c.expenses || []).some(e => e.receiptImage)) return c;
-        return { ...c, sessionPhoto: '', cardReceiptImage: '', expenses: (c.expenses || []).map(e => e.receiptImage ? { ...e, receiptImage: '' } : e), imagesPruned: true };
+        if (!c.sessionPhoto && !(c.sessionPhotos || []).length && !c.cardReceiptImage && !(c.expenses || []).some(e => e.receiptImage)) return c;
+        return { ...c, sessionPhoto: '', sessionPhotos: [], cardReceiptImage: '', expenses: (c.expenses || []).map(e => e.receiptImage ? { ...e, receiptImage: '' } : e), imagesPruned: true };
       };
       const closings = [rec, ...d.closings.filter(c => c.id !== id)].map(pruneImgs);
       let transfers = d.transfers.filter(t => t.closingId !== id);
@@ -5968,6 +5978,7 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
         device: out.device, browser: out.browser, reportHash: out.reportHash
       } : {})
     });
+    if (!okSave) { setOutPrompt(false); setPend(null); return; }   // v15.18: لا نجاح زائف — البيانات باقية أمامك، أعد المحاولة
 
     // ترحيل صور الإغلاق إلى أرشيف المستندات، مرتّبة حسب الفرع واليوم
     let archivedCount = 0;
@@ -5987,7 +5998,8 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
         });
       };
       push(f.cardReceiptImage, 'pos_settlement', 'إثبات شبكة/تحويل', `إثبات الشبكة — ${rec.branchName} ${stamp}`, rec.cardSales);
-      push(f.sessionPhoto, 'signature', 'توثيق المسؤول', `توثيق الإغلاق — ${rec.branchName} ${stamp}`, 0);
+      (rec.sessionPhotos && rec.sessionPhotos.length ? rec.sessionPhotos : (rec.sessionPhoto ? [rec.sessionPhoto] : []))
+        .forEach((img, i, arr) => push(img, 'signature', 'توثيق المسؤول', `توثيق الإغلاق${arr.length > 1 ? ' ' + (i + 1) : ''} — ${rec.branchName} ${stamp}`, 0));
       (f.expenses || []).forEach((e) => push(e.receiptImage, 'expense', 'فاتورة مصروف',
         `${e.categoryName || 'مصروف'}${e.beneficiaryName ? ' — ' + e.beneficiaryName : ''} (${stamp})`, e.amount));
 
@@ -6458,24 +6470,31 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
               </>
             ))}
 
-            {sec('notes', FileText, 'التوثيق والملاحظات', 'ملاحظات · توقيع · صورة المسؤول', null, !!(f.notes || f.managerSignature || f.sessionPhoto), (
+            {sec('notes', FileText, 'التوثيق والملاحظات', 'ملاحظات · توقيع · صور التوثيق', null, !!(f.notes || f.managerSignature || sPhotos.length), (
               <>
           <Field label="ملاحظات الإغلاق">
             <textarea className="inp" value={f.notes} placeholder="ملاحظات المدير على الوردية"
               onChange={e => set('notes', e.target.value)} />
           </Field>
-          <Field label="صورة توثيق المسؤول (إجباري قبل الترحيل)">
-            {f.sessionPhoto ? (
-              <div className="row" style={{ alignItems: 'center' }}>
-                <img src={f.sessionPhoto} alt="توثيق" style={{ width: 54, height: 54, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--line)' }} />
-                <span className="badge b-mint"><Check size={11} />تم التوثيق</span>
-                <button type="button" className="btn sm gh" onClick={() => set('sessionPhoto', '')}><Trash2 size={12} color="#D9544D" />إزالة</button>
+          <Field label={me.role === 'cashier'
+            ? 'صور توثيق الوردية (اختيارية للكاشير — يمكن التقاط أكثر من صورة)'
+            : 'صور توثيق المسؤول (إجباري قبل الترحيل — يمكن التقاط أكثر من صورة)'}>
+            {sPhotos.length > 0 && (
+              <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 8 }}>
+                {sPhotos.map((img, i) => (
+                  <div key={i} style={{ position: 'relative' }}>
+                    <img src={img} alt={'توثيق ' + (i + 1)} style={{ width: 54, height: 54, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--line)', display: 'block' }} />
+                    <button type="button" className="btn sm gh" title="إزالة هذه الصورة"
+                      style={{ position: 'absolute', top: -9, insetInlineEnd: -9, padding: '2px 5px', background: 'var(--ink2)', borderRadius: 999 }}
+                      onClick={() => setPhotos(sPhotos.filter((_, x) => x !== i))}><X size={11} color="#D9544D" /></button>
+                  </div>
+                ))}
+                <span className="badge b-mint"><Check size={11} />{sPhotos.length > 1 ? sPhotos.length + ' صور موثّقة' : 'تم التوثيق'}</span>
               </div>
-            ) : (
-              <button type="button" className="btn sm" onClick={() => setCam(true)}>
-                <ScanFace size={13} />التقاط صورة الوجه بالكاميرا
-              </button>
             )}
+            <button type="button" className="btn sm" onClick={() => setCam(true)}>
+              <ScanFace size={13} />{sPhotos.length ? 'التقاط صورة إضافية' : 'التقاط صورة بالكاميرا'}
+            </button>
           </Field>
           <Field label="توقيع المسؤول الرقمي">
             <SignaturePad value={f.managerSignature} onChange={v => set('managerSignature', v)} />
@@ -6489,7 +6508,7 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
         </aside>
       </div>
       {cam && <CameraModal onClose={() => setCam(false)} say={say}
-        onCapture={(img) => { set('sessionPhoto', img); setCam(false); say('تم توثيق الصورة'); }} />}
+        onCapture={(img) => { setPhotos([...sPhotos, img]); setCam(false); say('تم توثيق الصورة (' + (sPhotos.length + 1) + ') — يمكنك التقاط صورة إضافية من نفس الزر'); }} />}
       {outPrompt && pend && <OutputDialog rec={pend.rec} org={org}
         onCancel={() => { setOutPrompt(false); setPend(null); }}
         onDone={(out) => finalize('submitted', pend.rec, pend.id, pend.ref, out)} />}
@@ -8333,7 +8352,8 @@ function buildClosingA4(c, org) {
   const receiptImgs = [];
   if (c.cardReceiptImage) receiptImgs.push({ t: 'إثبات الشبكة / التحويل', u: c.cardReceiptImage });
   (c.expenses || []).forEach(e => { if (e.receiptImage) receiptImgs.push({ t: (e.categoryName || 'مصروف') + (e.beneficiaryName ? ' — ' + e.beneficiaryName : ''), u: e.receiptImage }); });
-  if (c.sessionPhoto) receiptImgs.push({ t: 'توثيق المسؤول', u: c.sessionPhoto });
+  ((c.sessionPhotos && c.sessionPhotos.length) ? c.sessionPhotos : (c.sessionPhoto ? [c.sessionPhoto] : []))
+    .forEach((u, i, arr) => receiptImgs.push({ t: 'توثيق المسؤول' + (arr.length > 1 ? ' ' + (i + 1) : ''), u }));
   const imgsBlock = receiptImgs.length ? `
     <div class="sec-h">صور الفواتير والمرفقات (${receiptImgs.length})</div>
     <div class="imgs">${receiptImgs.map(im => `<div class="img-c"><img src="${im.u}"><div class="img-t">${im.t}</div></div>`).join('')}</div>` : '';
