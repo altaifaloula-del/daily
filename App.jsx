@@ -229,7 +229,7 @@ const LOCK_MSG = (d) => 'شهر ' + (d || '').slice(0, 7) + ' مقفل محاس�
    الخادم عبر قواعد Firestore. أما داخل التطبيق فالنموذج يبقى
    كما هو (org + ops مدمجة) — الترجمة تتم عند حواف التخزين فقط.
    ============================================================ */
-const BR_COLS = ['closings', 'transfers', 'partnerRequests', 'notifications'];
+const BR_COLS = ['closings', 'transfers', 'partnerRequests', 'notifications', 'branchPartners'];
 const CORE_COLS = ['advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules'];
 
 // تقسيم ops المدمجة إلى مستند مركزي + مستند لكل فرع
@@ -390,6 +390,21 @@ function buildPartners(org, ops) {
     const key = pt.key || ('cust:' + pt.id);
     const ce = closeFor(key), pp = payFor(key);
     parts.push({ key, id: pt.id, name: pt.name, type: pt.type || 'customer', cat: pt.cat || 'عميل', phone: pt.phone || '', tax: pt.tax || '', address: pt.address || '', taxable: !!pt.taxable, terms: pt.terms || 0, linked: (ce.length + pp.length) > 0, custom: true, txns: [...ce, ...pp, ...ledFor(key)], storedCode: pt.code });
+  });
+
+  // v15.14 — شركاء الفرع: أُضيفوا فوريًا من فرعهم بلا اعتماد إداري (br store)؛ يُجمَّعون هنا
+  // للعرض المركزي. إن رُقّي أحدهم لاحقًا لدفتر الشركاء الرسمي بنفس المفتاح، تسقط نسخة الفرع
+  // هنا تلقائيًا (المركزي أولًا) فلا يظهر مكررًا.
+  const orgKeys = new Set(parts.map(p => p.key));
+  (ops.branchPartners || []).forEach(bp => {
+    if (orgKeys.has(bp.key)) return;
+    const ce = closeFor(bp.key), pp = payFor(bp.key);
+    parts.push({
+      key: bp.key, id: bp.id, name: bp.name, type: bp.type || 'customer',
+      cat: bp.cat || (PT_TYPE[bp.type] || {}).ar || 'عميل', phone: bp.phone || '', tax: '', terms: 0,
+      linked: (ce.length + pp.length) > 0, custom: true, txns: [...ce, ...pp, ...ledFor(bp.key)],
+      storedCode: bp.code, source: 'branch', branchOrigin: bp.branchId || '', branchOriginName: bp.branchName || ''
+    });
   });
 
   // الأكواد: المخزَّنة على البطاقة ثابتة لا تتغير؛ ولمن بلا كود نُكمل الترقيم دون تصادم
@@ -1508,14 +1523,14 @@ function emptyOrg(company) {
 }
 
 function emptyOps() {
-  return { closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [] };
+  return { closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [] };
 }
 
 
 /* ================= الجذر ================= */
 export default function App() {
   const [org, setOrg] = useState(null);
-  const [ops, setOps] = useState({ closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [] });
+  const [ops, setOps] = useState({ closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [] });
   const [pulse, setPulse] = useState({ presence: {}, audit: [] });
   const [me, setMe] = useState(null);
   const [tab, setTab] = useState('home');
@@ -1543,10 +1558,15 @@ export default function App() {
   const [installed, setInstalled] = useState(false);
   const [updateReady, setUpdateReady] = useState(false);   // v11.1 توفّر نسخة أحدث منشورة
   const sid = useRef(uid('s'));
+  const toastTimer = useRef(null);
 
+  // v15.14: نلغي أي مؤقّت إخفاء سابق قبل جدولة مؤقّت جديد — وإلا فرسالة سريعة تالية لأخرى
+  // خلال أقل من 3.2 ثانية (كإضافة شريك ثم ترقيته مباشرة) قد تُخفى قبل أن يراها المستخدم،
+  // لأن مؤقّت الرسالة الأقدم كان سيبقى يعمل ويُخفي الرسالة الأحدث دون علاقة بها.
   const say = useCallback((msg, kind) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast({ msg, kind: kind || 'ok' });
-    setTimeout(() => setToast(null), 3200);
+    toastTimer.current = setTimeout(() => setToast(null), 3200);
   }, []);
 
   /* --- الإقلاع: مع المصادقة السحابية لا تُحمَّل أي بيانات قبل دخول حقيقي --- */
@@ -2149,7 +2169,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.13 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.14 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -5674,7 +5694,7 @@ function Closing({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
 
       {open && (
         <ClosingForm key={formKey} org={org} me={me} branches={myBranches} initial={edit} commit={commit} commitOrg={commitOrg} say={say}
-          existing={ops.closings || []} invoices={ops.invoices || []}
+          existing={ops.closings || []} invoices={ops.invoices || []} branchPartners={ops.branchPartners || []}
           onStartNew={() => { setEdit(null); setFormKey(k => k + 1); }}
           onClose={() => { setOpen(false); setEdit(null); }} />
       )}
@@ -5693,7 +5713,7 @@ function normalizeSupPays(arr) {
   });
 }
 
-export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say, onClose, onStartNew, existing = [], invoices = [] }) {
+export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say, onClose, onStartNew, existing = [], invoices = [], branchPartners = [] }) {
   const [f, setF] = useState(() => initial ? { ...initial, supplierPayments: normalizeSupPays(initial.supplierPayments) } : {
     date: today(), branchId: branches[0]?.id || '',
     openingBalance: branches[0]?.defaultFloat || 0,
@@ -5752,8 +5772,19 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
   const upDeliv = (i, k, v) => { const n = [...f.deliverySales]; n[i] = { ...n[i], [k]: v }; set('deliverySales', n); };
   const removeDeliv = (i) => set('deliverySales', f.deliverySales.filter((_, x) => x !== i));
 
-  // شركاء الرئيسي المتاحون للربط (موردون + موظفون + عملاء)
-  const partyOptions = buildPartners(org, {}).map(p => ({ key: p.key, id: p.id, name: p.name, type: (PT_TYPE[p.type] || {}).ar || 'عميل', code: p.code }));
+  // شركاء الرئيسي المتاحون للربط (موردون + موظفون + عملاء) + شركاء هذا الفرع تحديدًا (لم يُرقَّوا بعد)
+  const myBranchPartners = (branchPartners || []).filter(bp => bp.branchId === f.branchId);
+  const partyOptions = buildPartners(org, { branchPartners: myBranchPartners }).map(p => ({
+    key: p.key, id: p.id, name: p.name, type: (PT_TYPE[p.type] || {}).ar || 'عميل', rawType: p.type, code: p.code,
+    source: p.source || 'org', branchOriginName: p.branchOriginName || ''
+  }));
+  // منع التكرار: هل هذا الاسم (بنفس النوع) موجود مسبقًا ضمن الخيارات المتاحة؟
+  const findPartyByName = (name, type) => {
+    const q = (name || '').trim().toLowerCase();
+    if (!q) return null;
+    const t = type === 'supplier' ? 'supplier' : type === 'employee' ? 'employee' : (type || 'customer');
+    return partyOptions.find(o => o.name.trim().toLowerCase() === q && o.rawType === t) || null;
+  };
   const linkExpParty = (expId, key, name, supplierId) =>
     set('expenses', f.expenses.map(x => x.id === expId ? { ...x, partnerKey: key || undefined, beneficiaryName: name != null ? name : x.beneficiaryName, supplierId } : x));
   const linkPayParty = (payId, key, name, supplierId) =>
@@ -5770,27 +5801,38 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
     const np = newParty;
     if (!np.name || !np.name.trim()) return say('اكتب اسم الشريك', 'no');
     const nameQ = np.name.trim();
+    // منع التكرار: لو الاسم موجود مسبقًا بنفس النوع (مركزيًا أو في دفتر هذا الفرع) نربط بالبطاقة القائمة بدل تكرارها
+    const dupe = findPartyByName(nameQ, np.type);
+    if (dupe) {
+      if (np.target === 'pay') linkPayParty(np.rowId, dupe.key, dupe.name, dupe.rawType === 'supplier' ? dupe.id : undefined);
+      else linkExpParty(np.rowId, dupe.key, dupe.name, dupe.rawType === 'supplier' ? dupe.id : undefined);
+      say('«' + dupe.name + '» موجود مسبقًا (' + dupe.code + ') — رُبطت الحركة به بدل تكراره ✓');
+      setNewParty(null);
+      return;
+    }
     if (!canWriteOrg) {
-      // دور غير إداري: طلب اعتماد يصل للإدارة في دفتر الشركاء، والاسم يُسجَّل نصياً في السطر فوراً
-      const req = {
-        id: uid('pr'), name: nameQ, type: np.type || 'supplier', cat: np.cat || '', phone: np.phone || '',
-        requestedBy: me.name, branchId: f.branchId, branchName: branch?.name || '', at: nowISO()
-      };
-      const okReq = await commit(d => ({ ...d, partnerRequests: [req, ...(d.partnerRequests || [])] }), {
-        actionType: 'create', targetType: 'user_account', targetId: req.id,
-        title: 'طلب إضافة شريك للرئيسي', details: nameQ + ' — ' + (PT_TYPE[req.type] || { ar: 'عميل' }).ar + ' · بانتظار اعتماد الإدارة'
+      // v15.14: دور غير إداري: يُضاف فورًا إلى دفتر شركاء هذا الفرع (بلا انتظار اعتماد)، ويُربط بالسطر مباشرة،
+      // ويظهر مُجمَّعًا في دفتر الشركاء بالرئيسي — والإدارة تقدر ترقّيه لاحقًا للسجل الرسمي بضغطة واحدة.
+      const id = uid('bp');
+      const type = np.type === 'supplier' ? 'supplier' : np.type === 'employee' ? 'employee' : (np.type || 'customer');
+      const key = (type === 'supplier' ? 'sup:' : type === 'employee' ? 'emp:' : 'cust:') + id;
+      const code = nextPartnerCode(buildPartners(org, { branchPartners: myBranchPartners }), type);
+      const bp = { id, key, type, name: nameQ, cat: np.cat || '', phone: np.phone || '', code, branchId: f.branchId, branchName: branch?.name || '', createdBy: me.name, at: nowISO() };
+      const ok = await commit(d => ({ ...d, branchPartners: [bp, ...(d.branchPartners || [])] }), {
+        actionType: 'create', targetType: 'user_account', targetId: id,
+        title: 'أضاف شريكاً لدفتر الفرع', details: nameQ + ' — ' + (PT_TYPE[type] || { ar: 'عميل' }).ar + ' · فرع ' + (branch?.name || '')
       });
-      if (okReq) {
-        if (np.target === 'pay') linkPayParty(np.rowId, '', nameQ, undefined);
-        else linkExpParty(np.rowId, '', nameQ, undefined);
-        say('أُرسل طلب اعتماد «' + nameQ + '» للإدارة — والاسم مسجّل في السطر ✓');
+      if (ok) {
+        if (np.target === 'pay') linkPayParty(np.rowId, key, nameQ, type === 'supplier' ? id : undefined);
+        else linkExpParty(np.rowId, key, nameQ, type === 'supplier' ? id : undefined);
+        say('أُضيف «' + nameQ + '» لدفتر شركاء الفرع ورُبط بالسطر فورًا ✓');
         setNewParty(null);
       }
       return;
     }
     if (!commitOrg) return say('لا تملك صلاحية الإضافة للرئيسي', 'no');
     const name = nameQ, id = uid('pt');
-    const code = nextPartnerCode(buildPartners(org, {}), np.type === 'supplier' ? 'supplier' : np.type === 'employee' ? 'employee' : (np.type || 'customer'));
+    const code = nextPartnerCode(buildPartners(org, { branchPartners: myBranchPartners }), np.type === 'supplier' ? 'supplier' : np.type === 'employee' ? 'employee' : (np.type || 'customer'));
     let key, mut;
     if (np.type === 'supplier') { key = 'sup:' + id; mut = d => ({ ...d, suppliers: [...(d.suppliers || []), { id, code, name, category: np.cat || '', phone: np.phone || '', vatNo: '', address: '', taxable: false, terms: 0 }] }); }
     else if (np.type === 'employee') { key = 'emp:' + id; mut = d => ({ ...d, employees: [...(d.employees || []), { id, code, name, jobTitle: np.cat || '', phone: np.phone || '', baseSalary: 0, housingAllowance: 0, transportAllowance: 0, branchId: f.branchId, isActive: true }] }); }
@@ -6420,8 +6462,8 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
         onCancel={() => { setOutPrompt(false); setPend(null); }}
         onDone={(out) => finalize('submitted', pend.rec, pend.id, pend.ref, out)} />}
       {newParty && (
-        <Modal title={canWriteOrg ? 'إضافة شريك جديد إلى الرئيسي' : 'طلب إضافة شريك (باعتماد الإدارة)'} icon={Users} onClose={() => setNewParty(null)}
-          foot={<><button className="btn pri" onClick={saveParty}><Check size={14} />{canWriteOrg ? 'حفظ وربط' : 'إرسال طلب الاعتماد'}</button>
+        <Modal title={canWriteOrg ? 'إضافة شريك جديد إلى الرئيسي' : 'إضافة شريك جديد إلى دفتر الفرع'} icon={Users} onClose={() => setNewParty(null)}
+          foot={<><button className="btn pri" onClick={saveParty}><Check size={14} />{canWriteOrg ? 'حفظ وربط' : 'إضافة وربط فورًا'}</button>
             <button className="btn gh" onClick={() => setNewParty(null)}>إلغاء</button></>}>
           <Field label="النوع">
             <select className="sel" value={newParty.type} onChange={ev => setNewParty({ ...newParty, type: ev.target.value })}>
@@ -6430,8 +6472,15 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
               <option value="customer">عميل</option>
             </select>
           </Field>
-          <Field label="الاسم"><input className="inp" autoFocus value={newParty.name} placeholder="اسم المورد/الموظف/العميل"
-            onChange={ev => setNewParty({ ...newParty, name: ev.target.value })} /></Field>
+          <Field label="الاسم"><input className="inp" autoFocus list="party-suggest" value={newParty.name} placeholder="اسم المورد/الموظف/العميل"
+            onChange={ev => setNewParty({ ...newParty, name: ev.target.value })} />
+            <datalist id="party-suggest">{partyOptions.map(o => <option key={o.key} value={o.name} />)}</datalist>
+          </Field>
+          {newParty.name && newParty.name.trim() && findPartyByName(newParty.name, newParty.type) && (
+            <div style={{ fontSize: 11, color: 'var(--amber)', marginTop: -6, marginBottom: 8, lineHeight: 1.7 }}>
+              ⚠ «{findPartyByName(newParty.name, newParty.type).name}» موجود مسبقًا ({findPartyByName(newParty.name, newParty.type).code}) — سيُربط السطر بنفس البطاقة بدل إنشاء بطاقة مكررة.
+            </div>
+          )}
           <div className="grid g2">
             <Field label={newParty.type === 'employee' ? 'المسمى الوظيفي' : 'التصنيف'}><input className="inp" value={newParty.cat}
               onChange={ev => setNewParty({ ...newParty, cat: ev.target.value })} placeholder={newParty.type === 'supplier' ? 'مثال: مواد خام' : ''} /></Field>
@@ -6441,7 +6490,7 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
           <div style={{ fontSize: 11, color: 'var(--dim)', marginTop: 6, lineHeight: 1.7 }}>
             {canWriteOrg
               ? 'يُسجَّل مباشرةً في الإدارة الرئيسية (دفتر الشركاء) ويُربط بهذا السطر — فيظهر في كشف حسابه.'
-              : 'يصل الطلب للإدارة في «دفتر الشركاء» لاعتماده، ويُسجَّل الاسم نصياً في السطر فوراً. بعد الاعتماد يظهر الشريك بالسجل المركزي برقمه.'}
+              : 'يُضاف فورًا لدفتر شركاء هذا الفرع ويُربط بالسطر مباشرة بلا انتظار — ويظهر مُجمَّعًا في دفتر الشركاء بالرئيسي فورًا. تقدر الإدارة ترقّيه لاحقًا للسجل الرسمي بضغطة واحدة، وكل حركاته تبقى مربوطة.'}
           </div>
         </Modal>
       )}
@@ -12792,6 +12841,23 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
     say('رُفض الطلب');
   };
 
+  // v15.14 — ترقية شريك أضافه فرع (بلا اعتماد) إلى دفتر الشركاء الرسمي بالرئيسي.
+  // يُكتب بنفس المفتاح والمعرّف فتبقى كل حركاته (المصروفات/السدادات المرتبطة) مربوطة دون تغيير.
+  const promotePartner = async (p) => {
+    if (!canWriteOrgP) return say('الترقية للسجل المركزي للإدارة فقط', 'no');
+    const id = p.id;
+    let mut;
+    if (p.type === 'supplier') mut = d => ({ ...d, suppliers: [...(d.suppliers || []), { id, code: p.code, name: p.name, category: p.cat || '', phone: p.phone || '', vatNo: '', address: '', taxable: false, terms: 0 }] });
+    else if (p.type === 'employee') mut = d => ({ ...d, employees: [...(d.employees || []), { id, code: p.code, name: p.name, jobTitle: p.cat || '', phone: p.phone || '', baseSalary: 0, housingAllowance: 0, transportAllowance: 0, branchId: p.branchOrigin || '', isActive: true }] });
+    else mut = d => ({ ...d, partners: [...(d.partners || []), { id, key: p.key, code: p.code, name: p.name, type: p.type, cat: p.cat || '', phone: p.phone || '', tax: '', terms: 0 }] });
+    const ok = await commitOrg(mut, { actionType: 'update', targetType: 'user_account', targetId: id, need: 'edit', title: 'رقّى شريك فرع إلى السجل المركزي', details: p.name + ' — من فرع ' + (p.branchOriginName || '') });
+    if (!ok) return;
+    await commit(d => ({ ...d, branchPartners: (d.branchPartners || []).filter(x => x.id !== p.id) }),
+      { actionType: 'delete', targetType: 'user_account', targetId: p.id, title: 'إزالة شريك من دفتر الفرع بعد الترقية', details: p.name });
+    setOpenKey(null);
+    say('رُقّي «' + p.name + '» إلى السجل المركزي الرسمي ✓ — وكل حركاته السابقة بقيت مربوطة');
+  };
+
   const saveCustomer = async () => {
     const c = addP;
     if (!c.name?.trim()) return say('اكتب اسم الشريك', 'no');
@@ -12880,6 +12946,7 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
               <span className="card-t" style={{ fontSize: 20 }}>{cur.name}</span><PartnerChip type={cur.type} />
               <span className="badge b-dim num" style={{ fontSize: 10, color: 'var(--brass)' }}>{cur.code}</span>
               {cur.linked && <span className="badge b-mint" style={{ fontSize: 10 }}>◍ مرتبط بالفروع</span>}
+              {cur.source === 'branch' && <span className="badge b-amber" style={{ fontSize: 10 }}>🏬 من فرع {cur.branchOriginName || ''} — لم يُرقَّ للرئيسي بعد</span>}
             </div>
             <div className="row" style={{ flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
               <span className="badge b-dim">{cur.cat || '—'}</span>
@@ -12901,6 +12968,7 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
           {canEdit && <button className="btn pri" onClick={() => setTx({ side: 'debit', date: today(), amount: '', desc: '' })}><Plus size={14} />إضافة حركة يدوية</button>}
           <button className="btn" onClick={() => printPartnerStatement(cur, org)}><Printer size={14} />طباعة كشف الحساب</button>
           {canEdit && (cur.type === 'customer' || cur.type === 'supplier') && <button className="btn" onClick={() => setAddP({ edit: true, id: cur.id, isSup: cur.type === 'supplier' || (cur.key || '').startsWith('sup:'), type: cur.type, name: cur.name, cat: (cur.cat === 'مورد' || cur.cat === 'عميل') ? '' : (cur.cat || ''), phone: cur.phone || '', tax: cur.tax || '', address: cur.address || '', taxable: !!cur.taxable, terms: cur.terms || '' })}><Settings size={14} />تعديل بيانات الكرت</button>}
+          {canWriteOrgP && cur.source === 'branch' && <button className="btn pri" onClick={() => promotePartner(cur)}><ArrowUp size={14} />ترقية للسجل المركزي</button>}
         </div>
 
         {tx && (
@@ -12988,7 +13056,7 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
             <tbody>
               {list.map(p => (
                 <tr key={p.key} style={{ cursor: 'pointer' }} onClick={() => setOpenKey(p.key)}>
-                  <td data-label="الشريك"><div style={{ fontWeight: 700, fontSize: 13.5 }}>{p.name}</div><div style={{ fontSize: 11, color: 'var(--faint)' }}><span className="num" style={{ color: 'var(--brass)' }}>{p.code}</span> · {p.cat}</div></td>
+                  <td data-label="الشريك"><div style={{ fontWeight: 700, fontSize: 13.5 }}>{p.name}{p.source === 'branch' && <span className="badge b-amber" style={{ fontSize: 9, marginInlineStart: 6 }}>فرع</span>}</div><div style={{ fontSize: 11, color: 'var(--faint)' }}><span className="num" style={{ color: 'var(--brass)' }}>{p.code}</span> · {p.cat}</div></td>
                   <td data-label="النوع"><PartnerChip type={p.type} /></td>
                   <td data-label="الجوال" className="num" style={{ fontSize: 12, color: 'var(--dim)' }}>{p.phone || '—'}</td>
                   <td data-label="الربط">{p.linked ? <span className="badge b-mint" style={{ fontSize: 10 }}>◍ مرتبط</span> : <span style={{ color: 'var(--faint)' }}>—</span>}</td>
