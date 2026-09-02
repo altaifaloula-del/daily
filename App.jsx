@@ -1925,6 +1925,36 @@ export default function App() {
     if (cfg.sound) alertBeep();
   }, [pulse, me, org]);
 
+  /* --- v15.24: مهلة انتهاء الجلسة (خمول) — معطّلة افتراضياً، تُفعَّل من إعدادات النظام --- */
+  const lastActRef = useRef(Date.now());
+  const [sessWarnLeft, setSessWarnLeft] = useState(null);   // ثوانٍ متبقية في التحذير، null = لا تحذير
+  useEffect(() => {
+    const bumpAct = () => { lastActRef.current = Date.now(); };
+    const evs = ['pointerdown', 'keydown', 'touchstart', 'wheel'];
+    evs.forEach(ev => window.addEventListener(ev, bumpAct, { passive: true }));
+    return () => evs.forEach(ev => window.removeEventListener(ev, bumpAct));
+  }, []);
+  const sessLogout = useCallback(async () => {
+    setSessWarnLeft(null);
+    // خروج سحابي صحيح: إنهاء جلسة المصادقة أيضاً حتى تظهر بوابة الدخول الحقيقية لا بوابة محلية
+    if (authApi.enabled) { try { await authApi.signOutAll(); } catch { } setNeedAuth(true); }
+    setMe(null);
+  }, []);
+  useEffect(() => {
+    const cfg = (org && org.sessionCfg) || {};
+    if (!me || !cfg.enabled) { setSessWarnLeft(null); return; }
+    // خطّافا اختبار (على غرار __forceOrgReadonly): يقصّران المهلة والتحذير للفحص الآلي فقط
+    const limit = (typeof window !== 'undefined' && window.__sessTestMs) || Math.max(1, Number(cfg.minutes) || 15) * 60000;
+    const warnDur = (typeof window !== 'undefined' && window.__sessTestWarnMs) || 60000;
+    const t = setInterval(() => {
+      const idle = Date.now() - lastActRef.current;
+      if (idle >= limit + warnDur) sessLogout();
+      else if (idle >= limit) setSessWarnLeft(Math.max(0, Math.ceil((limit + warnDur - idle) / 1000)));
+      else setSessWarnLeft(w => (w == null ? w : null));   // عاد النشاط أثناء التحذير — يختفي تلقائياً
+    }, 1000);
+    return () => clearInterval(t);
+  }, [me, org, sessLogout]);
+
   useEffect(() => {
     if (!me) return;
     const beat = async () => {
@@ -2229,7 +2259,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.23 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.24 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2441,6 +2471,21 @@ export default function App() {
       {bell && <Notifications ops={ops} org={org} me={me} myBranches={myBranches} commit={commit} onClose={() => setBell(false)} />}
       {tour && <TourModal me={me} onClose={() => setTour(false)} go={(t) => { setTab(t); setTour(false); }} />}
 
+      {sessWarnLeft != null && (
+        <Modal title="ستنتهي الجلسة قريباً" icon={Clock}
+          onClose={() => { lastActRef.current = Date.now(); setSessWarnLeft(null); }}>
+          <div style={{ textAlign: 'center', padding: '6px 0' }}>
+            <div className="num" style={{ fontSize: 44, fontWeight: 800, color: sessWarnLeft <= 10 ? 'var(--rose)' : 'var(--brass)' }}>{sessWarnLeft}</div>
+            <div style={{ fontSize: 12.5, color: 'var(--dim)', marginTop: 6, lineHeight: 1.8 }}>
+              لا يوجد نشاط منذ فترة — حمايةً لحسابك سيُسجَّل خروجك تلقائياً خلال الثواني أعلاه.
+            </div>
+            <button className="btn pri" style={{ marginTop: 14 }}
+              onClick={() => { lastActRef.current = Date.now(); setSessWarnLeft(null); }}>
+              <Check size={14} />متابعة الجلسة
+            </button>
+          </div>
+        </Modal>
+      )}
       {toast && (
         <div style={{
           position: 'fixed', bottom: 20, insetInlineStart: 20, zIndex: 99,
@@ -13734,6 +13779,20 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
     say('تم حفظ بيانات الشركة');
   };
 
+  // v15.24 — مهلة انتهاء الجلسة التلقائية (معطّلة افتراضياً — تفعيل صريح من الإدارة)
+  const [sessD, setSessD] = useState(() => { const s = org.sessionCfg || {}; return { enabled: !!s.enabled, minutes: String(s.minutes || 15) }; });
+  const saveSess = async () => {
+    const mins = Math.max(1, Math.min(480, Number(sessD.minutes) || 15));
+    const ok = await commitOrg(d => ({ ...d, sessionCfg: { enabled: !!sessD.enabled, minutes: mins } }), {
+      actionType: 'update', targetType: 'system_settings', targetId: 'sessionCfg', need: 'edit',
+      title: sessD.enabled ? 'فعّل مهلة انتهاء الجلسة' : 'أوقف مهلة انتهاء الجلسة',
+      details: sessD.enabled ? ('خمول ' + mins + ' دقيقة ثم تحذير دقيقة ثم خروج تلقائي') : ''
+    });
+    if (!ok) return;
+    setSessD(s => ({ ...s, minutes: String(mins) }));
+    say(sessD.enabled ? 'فُعّلت مهلة الجلسة: خروج تلقائي بعد ' + mins + ' دقيقة خمول (لجميع المستخدمين) ✓' : 'أُوقفت مهلة انتهاء الجلسة');
+  };
+
   // v8.5: حالات النسخ والاستعادة المحصّنة
   const [vReport, setVReport] = useState(null);       // تقرير فحص نسخة
   const [restoreArm, setRestoreArm] = useState(null); // {data, report, text} تأكيد الاستعادة
@@ -13835,6 +13894,27 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
           <PhotoField value={c.logoUrl} onChange={v => set('logoUrl', v)} say={say} />
         </Field>
         <button className="btn pri" onClick={saveCompany}><Check size={14} />حفظ بيانات المنشأة</button>
+
+        {/* v15.24 — مهلة انتهاء الجلسة */}
+        <div className="card" style={{ marginTop: 12, background: 'var(--ink)' }}>
+          <div className="card-t" style={{ marginBottom: 8 }}><Clock size={15} color="var(--brass)" />مهلة انتهاء الجلسة التلقائية</div>
+          <div className="note" style={{ marginBottom: 10 }}>
+            عند التفعيل: أي مستخدم يترك المنصّة بلا نشاط للمدة المحددة يظهر له تحذير لمدة دقيقة
+            (مع زر «متابعة الجلسة»)، فإن لم يستجب يُسجَّل خروجه تلقائياً — حماية مهمة للأجهزة
+            المشتركة كأجهزة الكاشير. <b>معطّلة افتراضياً.</b>
+          </div>
+          <div className="row" style={{ gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            <label className="row" style={{ gap: 6, cursor: 'pointer', fontSize: 12.5, paddingBottom: 10 }}>
+              <input type="checkbox" checked={sessD.enabled} onChange={e => setSessD(s => ({ ...s, enabled: e.target.checked }))} />
+              تفعيل مهلة الجلسة
+            </label>
+            <Field label="مدة الخمول (بالدقائق)" style={{ width: 150 }}>
+              <input className="inp n" inputMode="numeric" value={sessD.minutes} disabled={!sessD.enabled}
+                onChange={e => setSessD(s => ({ ...s, minutes: e.target.value.replace(/[^\d]/g, '') }))} />
+            </Field>
+            <button className="btn pri" style={{ marginBottom: 1 }} onClick={saveSess}><Check size={14} />حفظ إعداد الجلسة</button>
+          </div>
+        </div>
       </div>
 
       <div className="grid" style={{ gap: 12, alignContent: 'start' }}>
