@@ -643,18 +643,26 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
 .lh-tile:hover .lh-box{transform:scale(1.06) rotate(-1.5deg);
   box-shadow:0 12px 28px color-mix(in srgb,var(--c,var(--brass)) 24%,transparent)}
 
-/* ═══ v15.16 — أيقونات حيّة داخل البلاطات + سحب وإفلات لإعادة الترتيب ═══
+/* ═══ v15.16/v15.23 — أيقونات حيّة بروح Lordicon: رسم ذاتي + بوب مرن ═══
+   محاكاة بأسلوبنا (خطوط stroke تُرسم ذاتياً) دون أي أصول أو مكتبات خارجية.
    (قاعدة prefers-reduced-motion العامة تُعطّل الحركات تلقائياً لمن فعّل تقليل الحركة) */
 @keyframes icoLive{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-3px) rotate(-1.6deg)}}
-@keyframes icoWiggle{0%{transform:scale(1) rotate(0)}30%{transform:scale(1.16) rotate(-7deg)}60%{transform:scale(1.1) rotate(6deg)}100%{transform:scale(1.13) rotate(0)}}
+@keyframes icoDraw{from{stroke-dashoffset:150}to{stroke-dashoffset:0}}
+@keyframes icoPop{0%{transform:scale(1) rotate(0)}45%{transform:scale(1.17) rotate(-4deg)}75%{transform:scale(1.08) rotate(2deg)}100%{transform:scale(1.12) rotate(0)}}
 /* تنفّس هادئ متواصل للأيقونات — بأطوار ومدد متفاوتة حتى لا تتحرك كلها معاً كجوقة */
-.lh-box svg{animation:icoLive 4.6s ease-in-out infinite}
+.lh-box svg{animation:icoLive 4.6s ease-in-out infinite;transition:filter .2s ease}
 .lh-grid .lh-tile:nth-child(3n) .lh-box svg{animation-delay:-1.6s}
 .lh-grid .lh-tile:nth-child(3n+1) .lh-box svg{animation-delay:-3.1s}
 .lh-grid .lh-tile:nth-child(4n) .lh-box svg{animation-duration:5.6s}
 .lh-grid .lh-tile:nth-child(5n) .lh-box svg{animation-duration:4s}
-/* عند المرور: قفزة مرحة بدل التنفّس */
-.lh-tile:hover .lh-box svg{animation:icoWiggle .45s ease forwards}
+/* intro: الأيقونات ترسم خطوطها ذاتياً مرة واحدة عند فتح الرئيسية (توقيتها مع الظهور المتعاقب) */
+.lh-grid .lh-tile .lh-box svg *{stroke-dasharray:150;animation:icoDraw .95s .18s cubic-bezier(.4,0,.2,1) both}
+/* hover: الأيقونة تعيد رسم خطوطها بسلاسة (توقيع Lordicon) + بوب مرن + تشبّع لوني وخط أسمك قليلاً */
+.lh-tile:hover .lh-box svg{animation:icoPop .55s cubic-bezier(.3,.7,.3,1.35) forwards;filter:saturate(1.4) brightness(1.07)}
+.lh-tile:hover .lh-box svg *{stroke-dasharray:150;animation:icoDraw .7s cubic-bezier(.4,0,.2,1) forwards;stroke-width:2.3;transition:stroke-width .2s ease}
+/* نفس روح الرسم الذاتي على أيقونات أقسام نموذج الإغلاق وقائمة الجوال الجانبية */
+.esec-h:hover .esec-ic svg *{stroke-dasharray:120;animation:icoDraw .6s cubic-bezier(.4,0,.2,1) forwards}
+.nav-i:hover svg *{stroke-dasharray:120;animation:icoDraw .6s cubic-bezier(.4,0,.2,1) forwards}
 /* السحب والإفلات */
 .lh-tile{touch-action:pan-y;-webkit-user-select:none;user-select:none}
 .lh-drag-src{opacity:.28}
