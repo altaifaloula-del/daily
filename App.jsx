@@ -1647,7 +1647,22 @@ export default function App() {
           await authApi.signOutAll().catch(() => { });
           setNeedAuth(true); setBoot('ready'); return;
         }
-        await loadAll(u.email);
+        const o2 = await loadAll(u.email);
+        // v15.15 — إصلاح جذري: جلسة موثّقة قائمة كانت تحمّل البيانات ثم تعرض بوابة «ثانية»
+        // تفحص كلمة السر محليًا (passHash قد يكون قديمًا/غير متزامن) فيعلق المستخدم على
+        // «كلمة السر غير صحيحة» رغم أن مصادقته السحابية صحيحة تمامًا. الصحيح: من اجتاز
+        // المصادقة السحابية وعضويته نشطة وحسابه مسجَّل بالمنصة يدخل مباشرة — نفس منطق
+        // finishFb حرفيًا بعد الدخول اليدوي.
+        const uu = ((o2 && o2.users) || []).find(x => (x.email || '').toLowerCase() === u.email && x.isActive);
+        if (uu) {
+          setMe(uu); setTab('home');
+          try { localStorage.setItem('rms8:lastEmail', uu.email || ''); } catch { }
+        } else if (((o2 && o2.users) || []).length > 0) {
+          // جلسة موثّقة لبريد لم يعد مسجّلًا/نشطًا بالمنصة (حساب حُذف مثلاً): خروج وبوابة
+          // المصادقة — لا بوابة محلية عالقة بلا مخرج.
+          await authApi.signOutAll().catch(() => { });
+          setNeedAuth(true);
+        }
         return;
       }
       await loadAll();
@@ -2169,7 +2184,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.14 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.15 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2395,10 +2410,10 @@ export default function App() {
 /* ================= بوابة الدخول ================= */
 function BrandHead({ title, sub, logo }) {
   return (
-    <div style={{ textAlign: 'center', marginBottom: 24 }}>
+    <div className="bhead" style={{ textAlign: 'center', marginBottom: 24 }}>
       {logo
-        ? <img src={logo} alt="شعار" style={{ width: 64, height: 64, margin: '0 auto 14px', borderRadius: 16, objectFit: 'cover', border: '1px solid var(--line)', display: 'block' }} />
-        : <div className="brand-mark" style={{ width: 54, height: 54, margin: '0 auto 14px', fontSize: 19, borderRadius: 16 }}>
+        ? <img src={logo} alt="شعار" className="bhead-logo" style={{ width: 64, height: 64, margin: '0 auto 14px', borderRadius: 16, objectFit: 'cover', border: '1px solid var(--line)', display: 'block' }} />
+        : <div className="brand-mark bhead-logo" style={{ width: 54, height: 54, margin: '0 auto 14px', fontSize: 19, borderRadius: 16 }}>
           {(title || 'المنصة').trim().charAt(0) || 'م'}
         </div>}
       <h1 style={{ fontSize: 20 }}>{title || 'منصة إغلاق وإدارة الفروع'}</h1>
@@ -7872,6 +7887,24 @@ function Admin({ org, ops, me, commit, commitOrg, say }) {
     if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return say('أدخل بريداً إلكترونياً صحيحاً', 'no');
     if (org.users.some(x => x.id !== u.id && (x.email || '').toLowerCase() === email)) return say('هذا البريد مستخدم بحساب آخر', 'no');
     if (isNew && (!u.newPass || u.newPass.length < 6)) return say('كلمة سر الحساب الجديد يجب ألا تقل عن 6 أحرف', 'no');
+    if (isNew && u.newPass && u.newPass !== u.newPass.trim()) return say('كلمة السر تبدأ أو تنتهي بمسافة — احذفها ثم أعد الحفظ (المسافات الخفية أشهر سبب لفشل الدخول لاحقاً)', 'no');
+    // v15.15 — إصلاح جذري: كان إنشاء حساب المصادقة يجري «بعد» حفظ السجل، وفشله (خصوصاً بريد
+    // ما زال قائماً في Firebase من محاولة سابقة) يُبتلع بصمت وتظهر رسالة «تم إنشاء الحساب»
+    // بينما كلمة السر الجديدة لم تصل لحساب الدخول إطلاقاً — فيفشل دخول الموظف للأبد بلا
+    // تفسير. الصحيح: إنشاء حساب المصادقة أولاً، وعند فشله نوقف الحفظ ونشرح بدقة ماذا يُفعل.
+    if (authApi.enabled && isNew && u.newPass) {
+      try { await authApi.createUser(email, u.newPass); }
+      catch (e) {
+        const c = String((e && e.code) || '');
+        if (c.includes('email-already-in-use')) {
+          return say('يوجد حساب دخول قديم بهذا البريد في Firebase وكلمة سره القديمة هي التي ستبقى سارية — لن تُطبَّق كلمة السر الجديدة. الحل: احذف هذا البريد من لوحة Firebase (Authentication → Users) ثم أعد إنشاء المستخدم هنا.', 'no');
+        }
+        if (c.includes('weak-password')) return say('كلمة السر ضعيفة وفق سياسة Firebase — اختر كلمة أقوى ثم أعد المحاولة', 'no');
+        if (c.includes('invalid-email')) return say('البريد الإلكتروني غير مقبول لدى Firebase — تأكد من صياغته', 'no');
+        if (c.includes('network')) return say('تعذّر الاتصال بخادم المصادقة — تحقق من الشبكة وأعد المحاولة (لم يُحفَظ شيء)', 'no');
+        return say('تعذّر إنشاء حساب الدخول (' + c.replace('auth/', '') + ') — لم يُحفَظ المستخدم. أعد المحاولة', 'no');
+      }
+    }
     const rec = { ...u, email };
     if (u.newPass) { rec.passHash = await sha(u.newPass); }
     if (u.newPin) { rec.pinHash = await sha('pin:' + u.newPin); }
@@ -7880,19 +7913,12 @@ function Admin({ org, ops, me, commit, commitOrg, say }) {
       actionType: isNew ? 'create' : 'permission_change', targetType: 'user_account', targetId: rec.id,
       title: isNew ? 'أنشأ مستخدماً جديداً' : 'عدّل بيانات مستخدم', details: `${rec.name} — ${ROLES[rec.role].ar}`
     });
-    // مزامنة المصادقة السحابية: حساب دخول + عضوية + صفة مدير حسب الدور
+    // مزامنة العضوية وصفة المدير حسب الدور
     if (authApi.enabled) {
-      if (isNew && u.newPass) {
-        try { await authApi.createUser(email, u.newPass); }
-        catch (e) {
-          const c = String((e && e.code) || '');
-          if (!c.includes('email-already-in-use')) say('أُنشئ الحساب في المنصة لكن تعذّر إنشاء حساب المصادقة (' + c.replace('auth/', '') + ') — أعد المحاولة من تعديل المستخدم', 'no');
-        }
-      }
       await authApi.upsertMember(email, { active: rec.isActive !== false, role: rec.role, branchId: rec.branchId || '', branchIds: rec.allowedBranchIds || [], scope: (ROLES[rec.role]?.scope === 'all') ? 'all' : 'branch' });
       await authApi.syncAdmin(email, !!ROLES[rec.role]?.admin);
     }
-    say(isNew ? 'تم إنشاء الحساب — يدخل ببريده وكلمة سره' : 'تم تحديث الحساب'); setUEdit(null);
+    say(isNew ? 'تم إنشاء الحساب — يدخل ببريده وكلمة سره ✓' : 'تم تحديث الحساب'); setUEdit(null);
   };
 
   const delUser = async (u) => {
@@ -8086,6 +8112,7 @@ function UserForm({ u, org, onSave, onClose }) {
   const [resetMsg, setResetMsg] = useState('');
   const [f, setF] = useState(u);
   const [bioMsg, setBioMsg] = useState('');
+  const [showPw, setShowPw] = useState(false); // v15.15 — استعراض كلمة السر أثناء الكتابة (رمز العين)
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   const toggle = (id) => {
     const cur = f.allowedBranchIds || [];
@@ -8122,8 +8149,20 @@ function UserForm({ u, org, onSave, onClose }) {
         </Field>
       )}
       <Field label={u.name ? 'كلمة سر جديدة (اتركها فارغة للإبقاء على الحالية)' : 'كلمة السر'}>
-        <input className="inp" type="password" value={f.newPass || ''} placeholder={u.name ? 'بدون تغيير' : '٦ أحرف على الأقل'}
-          onChange={e => set('newPass', e.target.value)} />
+        <div style={{ position: 'relative' }}>
+          <input className="inp" type={showPw ? 'text' : 'password'} value={f.newPass || ''} placeholder={u.name ? 'بدون تغيير' : '٦ أحرف على الأقل'}
+            style={showPw ? { direction: 'ltr', textAlign: 'right', letterSpacing: 1 } : undefined}
+            onChange={e => set('newPass', e.target.value)} />
+          <button type="button" className="btn sm gh pw-eye" style={{ position: 'absolute', insetInlineEnd: 4, top: 4, padding: '4px 8px' }}
+            title={showPw ? 'إخفاء كلمة السر' : 'إظهار كلمة السر'}
+            onClick={() => setShowPw(s => !s)} tabIndex={-1}><Eye size={14} /></button>
+        </div>
+        {showPw && f.newPass && (
+          <div style={{ fontSize: 10.5, color: 'var(--brass-l)', marginTop: 4 }}>
+            تُكتب هكذا حرفاً بحرف: <b className="num" style={{ direction: 'ltr', unicodeBidi: 'isolate', letterSpacing: 2 }}>{f.newPass}</b>
+            {f.newPass !== f.newPass.trim() && <span style={{ color: 'var(--rose)' }}> — ⚠ تحوي مسافة في البداية أو النهاية!</span>}
+          </div>
+        )}
         {u.passHash && !f.newPass && <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 4 }}>للحساب كلمة سر محفوظة — لن تتغير ما لم تكتب واحدة جديدة.</div>}
         {authApi.enabled && (
           <div style={{ fontSize: 10.5, color: 'var(--sky)', marginTop: 6, lineHeight: 1.8 }}>
