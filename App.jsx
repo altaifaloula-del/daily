@@ -2184,7 +2184,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.16 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.17 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -5591,6 +5591,19 @@ function Closing({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
   ).then(() => say('تم حذف الإغلاق'));
   };
 
+  // v15.17 — حذف نهائي لإغلاق مُرحّل/معتمد (للإدارة فقط): تصفير إدخال تجريبي بعينه.
+  // القيود المحاسبية مشتقّة حسابيًا من الإغلاقات نفسها (لا نسخة مخزّنة) — فحذف الإغلاق
+  // يُصفّر أثره من كل الحسابات والتقارير فورًا وبأثر رجعي، دون أي مساس بغيره من البيانات.
+  const removeFinal = (c) => {
+    if (periodLocked(org, c.date)) return say(LOCK_MSG(c.date), 'no');
+    if (!window.confirm('حذف نهائي لإغلاق «' + c.branchName + ' — ' + arDate(c.date) + '» (إيراد ' + money(c.totalRevenue) + ' ر.س)؟\n\nسيختفي من كل السجلات والتقارير والحسابات فورًا وبأثر رجعي، وتُحذف تحويلاته المرتبطة بالخزينة، ولا يمكن التراجع.\nبقية الإغلاقات وكل البيانات الأخرى لا تتأثر إطلاقًا، ويصبح هذا اليوم قابلًا لإغلاق جديد.')) return;
+    return commit(
+      d => ({ ...d, closings: d.closings.filter(x => x.id !== c.id), transfers: (d.transfers || []).filter(t => t.closingId !== c.id) }),
+      { actionType: 'delete', targetType: 'daily_closing', targetId: c.id, branchName: c.branchName, need: 'edit', title: 'حذف نهائي لإغلاق مُرحّل (تصفير)', details: `${c.branchName} — ${arDate(c.date)} · إيراد ${money(c.totalRevenue)} · كان بحالة ${c.status}` }
+    ).then(ok => { if (ok) say('حُذف الإغلاق نهائيًا — وأثره أُزيل من كل الحسابات والتقارير ✓'); });
+  };
+  const isAdminMe = !!ROLES[me.role]?.admin;
+
   return (
     <div className="grid" style={{ gap: 14 }}>
       <div className="pagehead">
@@ -5689,6 +5702,10 @@ function Closing({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
                           <button className="btn sm gh" onClick={() => { setEdit(c); setOpen(true); }}>{c.status === 'rejected' ? 'تصحيح' : 'تعديل'}</button>
                           {c.status === 'draft' && <button className="btn sm gh" onClick={() => remove(c)}><Trash2 size={13} color="#D9544D" /></button>}
                         </>
+                      )}
+                      {isAdminMe && c.status !== 'draft' && (
+                        <button className="btn sm gh" title="حذف نهائي — تصفير هذا الإغلاق من كل السجلات والحسابات (للإدارة)"
+                          onClick={() => removeFinal(c)}><Trash2 size={13} color="#D9544D" /></button>
                       )}
                     </div>
                   </td>
