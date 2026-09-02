@@ -308,6 +308,17 @@ const payLabel = (pm) => {
   if (s.other) out.push('غير ذلك ' + money(s.other));
   return out.join(' + ');
 };
+// v15.20 — بنوك الفروع المعرّفة، للاستخدام في الواجهات (محدِّدات مصدر الصرف والتسوية البنكية).
+// الأكواد بنفس منطق buildAccounting حرفياً: '12'+(11+فهرس الفرع) — أي تعديل هناك يستلزم تعديلاً هنا.
+const branchBanks = (org) => {
+  const out = [];
+  (org?.branches || []).forEach((b, i) => {
+    if (!(b && ((b.bankName && String(b.bankName).trim()) || (b.bankIban && String(b.bankIban).trim())))) return;
+    out.push({ code: '12' + String(11 + i), branchId: b.id, name: 'بنك ' + (b.name || 'فرع') + (b.bankName ? ' — ' + b.bankName : '') });
+  });
+  return out;
+};
+
 // ترقيم تلقائي لكل شريك حسب نوعه — لتمييز التكرار في الأسماء
 const PT_PREFIX = { supplier: 'مورد', employee: 'موظف', customer: 'عميل' };
 const partnerCode = (type, seq) => (PT_PREFIX[type] || 'شريك') + '-' + String(seq).padStart(3, '0');
@@ -954,7 +965,7 @@ function buildAccounting(org, ops) {
       id: 'invp:' + i.id, date: (i.paidDate || d || '').slice(0, 10),
       title: 'سداد مركزي لفاتورة توريد — ' + (i.supplierName || 'مورد') + (i.payFund === '1101' ? ' (نقداً من الخزينة)' : ''),
       src: 'سداد مركزي', ref: i.invoiceNo || i.id,
-      lines: [L('2101', i.paidAmount, 0), L(i.payFund === '1101' ? '1101' : '1201', 0, i.paidAmount)]   // v15.19: مصدر السداد المختار
+      lines: [L('2101', i.paidAmount, 0), L((i.payFund && accIx[i.payFund]) ? i.payFund : '1201', 0, i.paidAmount)]   // v15.19/v15.20: المصدر المختار (خزينة أو أي بنك — تجميعي/فرع)
     });
   });
   // ٦مكرر) السداد المركزي لفواتير الورديات المشتقة (v8.1): مدين ذمم الموردين / دائن البنك
@@ -966,7 +977,7 @@ function buildAccounting(org, ops) {
       id: 'cip:' + pmt.id, date: (pmt.date || '').slice(0, 10),
       title: 'سداد مركزي لمشتريات وردية — ' + spn + (pmt.fund === '1101' ? ' (نقداً من الخزينة)' : ''),
       src: 'سداد مركزي', ref: pmt.refId || pmt.id,
-      lines: [L('2101', pmt.amount, 0), L(pmt.fund === '1101' ? '1101' : '1201', 0, pmt.amount)]   // v15.19: مصدر السداد المختار
+      lines: [L('2101', pmt.amount, 0), L((pmt.fund && accIx[pmt.fund]) ? pmt.fund : '1201', 0, pmt.amount)]   // v15.19/v15.20: المصدر المختار (خزينة أو أي بنك)
     });
   });
 
@@ -986,14 +997,18 @@ function buildAccounting(org, ops) {
       const payDate = ((payoutEntries[0] || {}).date || (m + '-28')).slice(0, 10);
       const gosiEmp = Math.round(sum(payoutEntries, x => x.gosi || 0) * 100) / 100;   // حصة الموظف المستقطعة (v11.0)
       const gosiEr = Math.round(sum(payoutEntries, x => x.gosiEr || 0) * 100) / 100;  // حصة صاحب العمل
-      // v15.19: مصدر صرف الرواتب يُحترم كما سُجّل (fund على قيود الصرف): بنك و/أو خزينة رئيسية.
-      // قيود قديمة بلا fund تبقى على البنك (سلوكها السابق حرفيًا).
-      const payCashT = Math.round(sum(payoutEntries.filter(x => x.fund === '1101'), x => x.debit || 0) * 100) / 100;
-      const payBankT = Math.round((pay - payCashT) * 100) / 100;
+      // v15.19/v15.20: مصدر صرف الرواتب يُحترم كما سُجّل (fund على قيود الصرف): خزينة رئيسية
+      // أو أي بنك (تجميعي/بنك فرع). قيود قديمة بلا fund تبقى على البنك التجميعي (سلوكها السابق).
+      const payByFund = {};
+      payoutEntries.forEach(x => {
+        const fc = (x.fund && accIx[x.fund]) ? x.fund : '1201';
+        payByFund[fc] = Math.round(((payByFund[fc] || 0) + (x.debit || 0)) * 100) / 100;
+      });
+      const payCashT = payByFund['1101'] || 0;
       push({
-        id: 'sal-pay:' + m, date: payDate, title: 'صرف رواتب شهر ' + m + ' (صافي بعد السلف والخصوم' + (gosiEmp > 0.004 ? ' والتأمينات' : '') + ')' + (payCashT > 0.004 ? (payBankT > 0.004 ? ' — بنك + خزينة' : ' — نقداً من الخزينة') : ''),
+        id: 'sal-pay:' + m, date: payDate, title: 'صرف رواتب شهر ' + m + ' (صافي بعد السلف والخصوم' + (gosiEmp > 0.004 ? ' والتأمينات' : '') + ')' + (payCashT > 0.004 ? (pay - payCashT > 0.004 ? ' — بنك + خزينة' : ' — نقداً من الخزينة') : ''),
         src: 'كشف الرواتب', ref: 'payout-' + m,
-        lines: [L('2201', pay, 0), ...(payBankT > 0.004 ? [L('1201', 0, payBankT)] : []), ...(payCashT > 0.004 ? [L('1101', 0, payCashT)] : [])]
+        lines: [L('2201', pay, 0), ...Object.entries(payByFund).filter(([, v]) => v > 0.004).map(([c, v]) => L(c, 0, v))]
       });
       const diff = Math.round((acc - pay) * 100) / 100;   // = السلف + الخصومات + حصة الموظف من التأمينات
       if (diff > 0.004) {
@@ -2195,7 +2210,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.19 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.20 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -7314,7 +7329,8 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
           {canPost && !payoutPosted && (
             <select className="sel" style={{ width: 'auto' }} value={payFund} title="مصدر صرف الرواتب"
               onChange={e => setPayFund(e.target.value)}>
-              <option value="1201">الصرف من البنك</option>
+              <option value="1201">الصرف من البنك التجميعي</option>
+              {branchBanks(org).map(bb => <option key={bb.code} value={bb.code}>الصرف من {bb.name}</option>)}
               <option value="1101">الصرف نقداً من الخزينة الرئيسية</option>
             </select>
           )}
@@ -9095,7 +9111,8 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
           <Num label="مبلغ السداد" value={amt} onChange={setAmt} hint="يمكن السداد جزئياً على دفعات" />
           <Field label="مصدر السداد">
             <select className="sel" value={payFund} onChange={e => setPayFund(e.target.value)}>
-              <option value="1201">من البنك</option>
+              <option value="1201">من البنك التجميعي</option>
+              {branchBanks(org).map(bb => <option key={bb.code} value={bb.code}>من {bb.name}</option>)}
               <option value="1101">نقداً من الخزينة الرئيسية</option>
             </select>
           </Field>
@@ -10222,6 +10239,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const [astF, setAstF] = useState(null);           // نموذج أصل ثابت
   const [dspF, setDspF] = useState(null);           // نموذج بيع/استبعاد أصل
   const [brF, setBrF] = useState({ date: today(), stmt: '', note: '' }); // نموذج تسوية بنكية
+  const [brAcc, setBrAcc] = useState('1201');   // v15.20: البنك محل التسوية — التجميعي أو أي بنك فرع معرّف
   const [mPct, setMPct] = useState(null);           // مسودة النسب اليدوية لتوزيع المركز (v8.3)
   const [lockTo, setLockTo] = useState('');         // شهر القفل الجديد (v8.4)
   const [unReason, setUnReason] = useState('');     // سبب الفتح الاستثنائي
@@ -10554,28 +10572,31 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     say('أُلغي الاستبعاد — عاد الأصل نشطاً وأُعيد احتساب إهلاكه ✓');
   };
 
-  // ===== م٥: التسوية البنكية =====
+  // ===== م٥: التسوية البنكية — v15.20: لكل بنك (التجميعي أو بنك فرع) تسويته المستقلة =====
+  const brBanks = branchBanks(org);
+  const bankLabel = (code) => code === '1201' || !code ? 'البنك التجميعي' : ((brBanks.find(x => x.code === code) || {}).name || ('حساب ' + code));
   const bankBookAt = (d) => {
     let v = 0;
-    A.entries.forEach(e => { if (!d || (e.date || '') <= d) e.lines.forEach(l => { if (l.code === '1201') v += l.debit - l.credit; }); });
+    A.entries.forEach(e => { if (!d || (e.date || '') <= d) e.lines.forEach(l => { if (l.code === brAcc) v += l.debit - l.credit; }); });
     return Math.round(v * 100) / 100;
   };
   const bankMoves = A.entries
-    .filter(e => e.lines.some(l => l.code === '1201'))
+    .filter(e => e.lines.some(l => l.code === brAcc))
     .slice(0, 60)
-    .map(e => ({ ...e, bankD: sum(e.lines.filter(l => l.code === '1201'), l => l.debit), bankC: sum(e.lines.filter(l => l.code === '1201'), l => l.credit) }));
+    .map(e => ({ ...e, bankD: sum(e.lines.filter(l => l.code === brAcc), l => l.debit), bankC: sum(e.lines.filter(l => l.code === brAcc), l => l.credit) }));
   const saveBankRec = async () => {
     const stmt = Number(brF.stmt) || 0;
     const book = bankBookAt(brF.date);
-    const rec = { id: uid('br'), date: brF.date || today(), stmtBalance: stmt, bookBalance: book,
+    const rec = { id: uid('br'), date: brF.date || today(), acc: brAcc, stmtBalance: stmt, bookBalance: book,
       diff: Math.round((stmt - book) * 100) / 100, note: brF.note || '', by: me?.name || '', at: nowISO() };
     await commit(d => ({ ...d, bankRecs: [rec, ...(d.bankRecs || [])] }), {
       actionType: 'create', targetType: 'bank_rec', targetId: rec.id,
-      need: 'post', title: 'وثّق تسوية بنكية', details: rec.date + ' · كشف ' + money(stmt) + ' · دفتر ' + money(book) + ' · فرق ' + money(rec.diff)
+      need: 'post', title: 'وثّق تسوية بنكية', details: bankLabel(brAcc) + ' · ' + rec.date + ' · كشف ' + money(stmt) + ' · دفتر ' + money(book) + ' · فرق ' + money(rec.diff)
     });
-    setBrF({ date: today(), stmt: '', note: '' }); say('وُثّقت التسوية — عالج الفرق بقيد يدوي إن لزم ✓');
+    setBrF({ date: today(), stmt: '', note: '' }); say('وُثّقت تسوية ' + bankLabel(brAcc) + ' — عالج الفرق بقيد يدوي إن لزم ✓');
   };
-  const lastRec = (ops.bankRecs || [])[0];
+  // آخر تسوية للبنك المختار نفسه (سجلات قديمة بلا acc تُعامل كتجميعي)
+  const lastRec = (ops.bankRecs || []).find(r => (r.acc || '1201') === brAcc);
 
   // ===== v8.4: إقفال الفترات =====
   const plCfg = org.periodLocks || {};
@@ -12800,8 +12821,17 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
 
       {view === 'bank' && (
         <div className="grid" style={{ gap: 12 }}>
+          {brBanks.length > 0 && (
+            <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span className="lbl" style={{ margin: 0 }}>البنك محل التسوية:</span>
+              <select className="sel" style={{ width: 'auto' }} value={brAcc} onChange={e => setBrAcc(e.target.value)}>
+                <option value="1201">البنك التجميعي (1201)</option>
+                {brBanks.map(bb => <option key={bb.code} value={bb.code}>{bb.name} ({bb.code})</option>)}
+              </select>
+            </div>
+          )}
           <div className="grid g3">
-            <Kpi label="رصيد البنك بالدفاتر (1201)" value={money(bankBookAt(''))} sub="الشبكة والمدفوعات البنكية — تجميعي" icon={Landmark} color="#C8A24A" />
+            <Kpi label={'رصيد ' + bankLabel(brAcc) + ' بالدفاتر (' + brAcc + ')'} value={money(bankBookAt(''))} sub={brAcc === '1201' ? 'الشبكة والمدفوعات البنكية — تجميعي' : 'تحصيلات الشبكة والتحويل بالفرع'} icon={Landmark} color="#C8A24A" />
             <Kpi label={lastRec ? 'آخر تسوية موثقة' : 'لا تسويات بعد'} value={lastRec ? money(lastRec.stmtBalance) : '—'} sub={lastRec ? lastRec.date + ' · بواسطة ' + lastRec.by : 'ابدأ أول تسوية أدناه'} icon={ClipboardCheck} color="#5B93C4" />
             <Kpi label={lastRec ? 'فرق آخر تسوية' : 'الفرق'} value={lastRec ? money(Math.abs(lastRec.diff)) : '—'} sub={lastRec ? (Math.abs(lastRec.diff) < 0.01 ? 'مطابق تماماً ✓' : lastRec.diff > 0 ? 'الكشف أعلى من الدفتر' : 'الدفتر أعلى من الكشف') : ''} icon={Scale} color={lastRec && Math.abs(lastRec.diff) >= 0.01 ? '#D9544D' : '#4FB286'} />
           </div>
@@ -12827,10 +12857,11 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
             <div className="card">
               <div className="card-t" style={{ marginBottom: 8 }}><ClipboardCheck size={15} color="var(--brass)" />سجل التسويات</div>
               <div className="tw"><table className="tb">
-                <thead><tr><th>التاريخ</th><th style={{ textAlign: 'end' }}>كشف البنك</th><th style={{ textAlign: 'end' }}>الدفتر</th><th style={{ textAlign: 'end' }}>الفرق</th><th>ملاحظة</th><th>بواسطة</th></tr></thead>
+                <thead><tr><th>التاريخ</th><th>البنك</th><th style={{ textAlign: 'end' }}>كشف البنك</th><th style={{ textAlign: 'end' }}>الدفتر</th><th style={{ textAlign: 'end' }}>الفرق</th><th>ملاحظة</th><th>بواسطة</th></tr></thead>
                 <tbody>{(ops.bankRecs || []).map(r => (
                   <tr key={r.id}>
                     <td className="num" style={{ fontSize: 11 }}>{r.date}</td>
+                    <td style={{ fontSize: 11, color: 'var(--dim)' }}>{bankLabel(r.acc)}</td>
                     <td className="num" style={{ textAlign: 'end' }}>{money(r.stmtBalance)}</td>
                     <td className="num" style={{ textAlign: 'end' }}>{money(r.bookBalance)}</td>
                     <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: Math.abs(r.diff) < 0.01 ? 'var(--mint)' : 'var(--rose)' }}>{Math.abs(r.diff) < 0.01 ? 'مطابق ✓' : money(r.diff)}</td>
@@ -12842,7 +12873,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
             </div>
           )}
           <div className="card">
-            <div className="card-t" style={{ marginBottom: 8 }}><ArrowLeftRight size={15} color="var(--brass)" />حركات حساب البنك (أحدث 60)</div>
+            <div className="card-t" style={{ marginBottom: 8 }}><ArrowLeftRight size={15} color="var(--brass)" />حركات {bankLabel(brAcc)} (أحدث 60)</div>
             <div className="tw"><table className="tb">
               <thead><tr><th>التاريخ</th><th>البيان</th><th style={{ textAlign: 'end' }}>وارد</th><th style={{ textAlign: 'end' }}>صادر</th></tr></thead>
               <tbody>{bankMoves.map(e => (
