@@ -666,6 +666,25 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
 body.lh-dragging{cursor:grabbing !important}
 body.lh-dragging *{cursor:grabbing !important}
 
+/* ═══ v15.22 — تلميح فوري باسم المزامن (ودوره) عند المرور على أيقونات المتصلين بالرأس ═══ */
+.avtip{position:relative;cursor:default}
+.avtip:hover{z-index:82}
+.avtip::after{
+  content:attr(data-tip);position:absolute;top:calc(100% + 9px);left:50%;
+  transform:translate(-50%,-4px);background:var(--ink2);color:var(--txt);
+  border:1px solid var(--line-g);box-shadow:var(--sh-3);padding:6px 11px;border-radius:9px;
+  font-size:11px;font-weight:600;white-space:nowrap;pointer-events:none;
+  opacity:0;visibility:hidden;transition:opacity .14s ease,transform .14s ease;z-index:83
+}
+.avtip::before{
+  content:'';position:absolute;top:calc(100% + 5px);left:50%;transform:translateX(-50%) rotate(45deg);
+  width:8px;height:8px;background:var(--ink2);border-top:1px solid var(--line-g);
+  border-inline-start:1px solid var(--line-g);opacity:0;visibility:hidden;
+  transition:opacity .14s ease;pointer-events:none;z-index:84
+}
+.avtip:hover::after{opacity:1;visibility:visible;transform:translate(-50%,0)}
+.avtip:hover::before{opacity:1;visibility:visible}
+
 /* ═══════════════════════════════════════════════════════════
    شاشة الإغلاق اليومي — تصميم متجاوب v4.0
    كمبيوتر: خط زمني (يمين) + نموذج (وسط) + ملخّص حيّ (يسار)

@@ -2229,11 +2229,14 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.21 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.22 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
-                  <div key={i} className="av" title={p.name} style={{ background: clr(i) }}>{p.name.charAt(0)}</div>
+                  <div key={i} className="av avtip" style={{ background: clr(i) }}
+                    data-tip={p.name + ((ROLES[p.role] || {}).ar ? ' · ' + ROLES[p.role].ar.split('—')[0].trim() : '')}>
+                    {p.name.charAt(0)}
+                  </div>
                 ))}
               </div>
               <span className={'badge livebadge ' + (live ? 'b-mint' : 'b-dim')}
