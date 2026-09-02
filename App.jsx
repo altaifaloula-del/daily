@@ -1928,6 +1928,7 @@ export default function App() {
   /* --- v15.24: مهلة انتهاء الجلسة (خمول) — معطّلة افتراضياً، تُفعَّل من إعدادات النظام --- */
   const lastActRef = useRef(Date.now());
   const [sessWarnLeft, setSessWarnLeft] = useState(null);   // ثوانٍ متبقية في التحذير، null = لا تحذير
+  const [locked, setLocked] = useState(false);              // v15.25: شاشة القفل — عودة بالدخول السريع (رقم سري/بصمة)
   useEffect(() => {
     const bumpAct = () => { lastActRef.current = Date.now(); };
     const evs = ['pointerdown', 'keydown', 'touchstart', 'wheel'];
@@ -1935,25 +1936,31 @@ export default function App() {
     return () => evs.forEach(ev => window.removeEventListener(ev, bumpAct));
   }, []);
   const sessLogout = useCallback(async () => {
-    setSessWarnLeft(null);
+    setSessWarnLeft(null); setLocked(false);
     // خروج سحابي صحيح: إنهاء جلسة المصادقة أيضاً حتى تظهر بوابة الدخول الحقيقية لا بوابة محلية
     if (authApi.enabled) { try { await authApi.signOutAll(); } catch { } setNeedAuth(true); }
     setMe(null);
   }, []);
   useEffect(() => {
     const cfg = (org && org.sessionCfg) || {};
-    if (!me || !cfg.enabled) { setSessWarnLeft(null); return; }
+    if (!me || !cfg.enabled || locked) { setSessWarnLeft(null); return; }
     // خطّافا اختبار (على غرار __forceOrgReadonly): يقصّران المهلة والتحذير للفحص الآلي فقط
     const limit = (typeof window !== 'undefined' && window.__sessTestMs) || Math.max(1, Number(cfg.minutes) || 15) * 60000;
     const warnDur = (typeof window !== 'undefined' && window.__sessTestWarnMs) || 60000;
     const t = setInterval(() => {
       const idle = Date.now() - lastActRef.current;
-      if (idle >= limit + warnDur) sessLogout();
+      if (idle >= limit + warnDur) {
+        // v15.25: عند التهيئة على «قفل» ولدى المستخدم دخول سريع (رقم سري/بصمة) نقفل الشاشة
+        // بدل الخروج الكامل؛ من لا يملك أياً منهما يسقط للخروج الكامل الآمن.
+        if (cfg.onTimeout === 'lock' && (me.pinHash || me.bioCredId)) {
+          setSessWarnLeft(null); lastActRef.current = Date.now(); setLocked(true);
+        } else sessLogout();
+      }
       else if (idle >= limit) setSessWarnLeft(Math.max(0, Math.ceil((limit + warnDur - idle) / 1000)));
       else setSessWarnLeft(w => (w == null ? w : null));   // عاد النشاط أثناء التحذير — يختفي تلقائياً
     }, 1000);
     return () => clearInterval(t);
-  }, [me, org, sessLogout]);
+  }, [me, org, locked, sessLogout]);
 
   useEffect(() => {
     if (!me) return;
@@ -2123,6 +2130,13 @@ export default function App() {
       online={Object.values(pulse.presence || {}).filter(p => Date.now() - p.at < 70000)} />;
   }
 
+  // v15.25: الشاشة مقفلة — عودة سريعة برقم سري/بصمة (الجلسة السحابية باقية تحتها)
+  if (locked) {
+    return <LockScreen me={me} theme={theme} mode={mode}
+      onUnlock={() => { setLocked(false); lastActRef.current = Date.now(); }}
+      onLogout={sessLogout} />;
+  }
+
   const smartAlertCount = computeSmartAlerts(org, ops, myBranches).length;
   const unread = (ops.notifications || []).filter(n => !n.isRead).length + smartAlertCount;
   const pending = scoped.closings.filter(c => c.status === 'submitted').length;
@@ -2259,7 +2273,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.24 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.25 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2327,8 +2341,11 @@ export default function App() {
                     {!installed && <button onClick={() => { setUserMenu(false); doInstall(); }}><Download size={14} />تثبيت التطبيق على الجهاز</button>}
                     <button onClick={() => { setUserMenu(false); forceUpdate(); }}><RefreshCw size={14} />تحديث للأحدث (مسح الكاش){updateReady ? ' — نسخة جديدة!' : ''}</button>
                     <button onClick={() => { setUserMenu(false); setTour(true); }}><Compass size={14} />جولة تعريفية في المنصة</button>
+                    {(me.pinHash || me.bioCredId) && (
+                      <button onClick={() => { setUserMenu(false); setLocked(true); }}><Lock size={14} />قفل الشاشة — عودة بالدخول السريع</button>
+                    )}
                     <button onClick={() => { setUserMenu(false); resetAll(); }}><Trash2 size={14} />تفريغ بيانات المنصة</button>
-                    <button className="danger" onClick={() => { setUserMenu(false); setMe(null); }}><LogOut size={14} />تسجيل الخروج</button>
+                    <button className="danger" onClick={() => { setUserMenu(false); sessLogout(); }}><LogOut size={14} />تسجيل الخروج</button>
                   </div>
                 </>)}
               </div>
@@ -2646,6 +2663,77 @@ function FbGate({ css, theme, fbLogin, fbFirstSetup }) {
             <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 14, lineHeight: 1.7, textAlign: 'center' }}>
               نسيت كلمة السر؟ اطلب من المدير «إرسال رابط تعيين كلمة السر» من إدارة المستخدمين.
             </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* v15.25 — شاشة القفل: عودة سريعة للجلسة برقم سري أو بصمة دون إعادة كتابة البريد وكلمة السر */
+function LockScreen({ me, theme, mode, onUnlock, onLogout }) {
+  const [pin, setPin] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const tryPin = async () => {
+    setErr('');
+    const h = await sha('pin:' + pin);
+    if (h === me.pinHash) onUnlock();
+    else { setErr('الرقم السري غير صحيح'); setPin(''); }
+  };
+  const key = (d) => { setErr(''); if (d === 'del') setPin(p => p.slice(0, -1)); else setPin(p => (p.length < 6 ? p + d : p)); };
+  const tryBio = async () => {
+    setBusy(true); setErr('');
+    try { await bioVerify(me.bioCredId); onUnlock(); }
+    catch { setErr('تعذّر التحقق بالبصمة — جرّب الرقم السري'); }
+    setBusy(false);
+  };
+  return (
+    <div className={themeCls(theme, mode || readMode())}>
+      <style dangerouslySetInnerHTML={{ __html: CSS }} />
+      <div className="gate">
+        <div className="gate-c">
+          <div className="bhead" style={{ textAlign: 'center', marginBottom: 20 }}>
+            <div className="brand-mark bhead-logo" style={{ width: 54, height: 54, margin: '0 auto 12px', fontSize: 19, borderRadius: 16 }}>
+              {(me.name || 'م').trim().charAt(0) || 'م'}
+            </div>
+            <h1 style={{ fontSize: 19 }}>الشاشة مقفلة 🔒</h1>
+            <div style={{ color: 'var(--dim)', fontSize: 12.5, marginTop: 5 }}>
+              {me.name} — ادخل سريعاً برقمك السري{me.bioCredId ? ' أو بصمتك' : ''}
+            </div>
+          </div>
+          <div className="card">
+            {me.pinHash ? (<>
+              <div className="pin-dots">
+                {[0, 1, 2, 3, 4, 5].map(i => <span key={i} className={'pin-dot' + (i < pin.length ? ' on' : '')} />)}
+              </div>
+              {err && <div className="gate-err">{err}</div>}
+              <div className="pinpad">
+                {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(d =>
+                  <button key={d} type="button" className="pinkey" onClick={() => key(d)}>{d}</button>)}
+                <button type="button" className="pinkey ghost" onClick={() => setPin('')}>مسح</button>
+                <button type="button" className="pinkey" onClick={() => key('0')}>0</button>
+                <button type="button" className="pinkey ghost" onClick={() => key('del')} aria-label="حذف"><Delete size={17} /></button>
+              </div>
+              <button className="btn pri" style={{ width: '100%' }} disabled={pin.length < 4} onClick={tryPin}>
+                <Grid3x3 size={15} />فتح
+              </button>
+            </>) : (
+              <>
+                {err && <div className="gate-err">{err}</div>}
+                <div className="empty" style={{ padding: '10px 0' }}>
+                  لا رقم سري لحسابك — استخدم البصمة أو الخروج الكامل. (يُضبط الرقم السري من إدارة المستخدمين.)
+                </div>
+              </>
+            )}
+            {me.bioCredId && webauthnSupported() && (
+              <button className="btn" style={{ width: '100%', marginTop: 10 }} disabled={busy} onClick={tryBio}>
+                {busy ? <RefreshCw size={15} className="spin" /> : <Fingerprint size={16} />}فتح بالبصمة الحيوية
+              </button>
+            )}
+            <button className="btn gh" style={{ width: '100%', marginTop: 10 }} onClick={onLogout}>
+              <LogOut size={14} />تسجيل خروج كامل — دخول بحساب آخر
+            </button>
           </div>
         </div>
       </div>
@@ -13780,17 +13868,19 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
   };
 
   // v15.24 — مهلة انتهاء الجلسة التلقائية (معطّلة افتراضياً — تفعيل صريح من الإدارة)
-  const [sessD, setSessD] = useState(() => { const s = org.sessionCfg || {}; return { enabled: !!s.enabled, minutes: String(s.minutes || 15) }; });
+  const [sessD, setSessD] = useState(() => { const s = org.sessionCfg || {}; return { enabled: !!s.enabled, minutes: String(s.minutes || 15), onTimeout: s.onTimeout || 'logout' }; });
   const saveSess = async () => {
     const mins = Math.max(1, Math.min(480, Number(sessD.minutes) || 15));
-    const ok = await commitOrg(d => ({ ...d, sessionCfg: { enabled: !!sessD.enabled, minutes: mins } }), {
+    const ok = await commitOrg(d => ({ ...d, sessionCfg: { enabled: !!sessD.enabled, minutes: mins, onTimeout: sessD.onTimeout || 'logout' } }), {
       actionType: 'update', targetType: 'system_settings', targetId: 'sessionCfg', need: 'edit',
       title: sessD.enabled ? 'فعّل مهلة انتهاء الجلسة' : 'أوقف مهلة انتهاء الجلسة',
-      details: sessD.enabled ? ('خمول ' + mins + ' دقيقة ثم تحذير دقيقة ثم خروج تلقائي') : ''
+      details: sessD.enabled ? ('خمول ' + mins + ' دقيقة ثم تحذير دقيقة ثم ' + (sessD.onTimeout === 'lock' ? 'قفل بدخول سريع' : 'خروج كامل')) : ''
     });
     if (!ok) return;
     setSessD(s => ({ ...s, minutes: String(mins) }));
-    say(sessD.enabled ? 'فُعّلت مهلة الجلسة: خروج تلقائي بعد ' + mins + ' دقيقة خمول (لجميع المستخدمين) ✓' : 'أُوقفت مهلة انتهاء الجلسة');
+    say(sessD.enabled
+      ? 'فُعّلت مهلة الجلسة: بعد ' + mins + ' دقيقة خمول ← ' + (sessD.onTimeout === 'lock' ? 'قفل الشاشة (عودة برقم سري/بصمة)' : 'خروج كامل') + ' ✓'
+      : 'أُوقفت مهلة انتهاء الجلسة');
   };
 
   // v8.5: حالات النسخ والاستعادة المحصّنة
@@ -13911,6 +14001,13 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
             <Field label="مدة الخمول (بالدقائق)" style={{ width: 150 }}>
               <input className="inp n" inputMode="numeric" value={sessD.minutes} disabled={!sessD.enabled}
                 onChange={e => setSessD(s => ({ ...s, minutes: e.target.value.replace(/[^\d]/g, '') }))} />
+            </Field>
+            <Field label="عند انتهاء المهلة" style={{ width: 260 }}>
+              <select className="sel" value={sessD.onTimeout} disabled={!sessD.enabled}
+                onChange={e => setSessD(s => ({ ...s, onTimeout: e.target.value }))}>
+                <option value="logout">تسجيل خروج كامل</option>
+                <option value="lock">قفل الشاشة — عودة بالدخول السريع (رقم سري/بصمة)</option>
+              </select>
             </Field>
             <button className="btn pri" style={{ marginBottom: 1 }} onClick={saveSess}><Check size={14} />حفظ إعداد الجلسة</button>
           </div>
