@@ -605,6 +605,44 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
   background:var(--ink2);border:1px solid var(--line);border-radius:11px;color:var(--txt);outline:none}
 .pin input:focus{border-color:var(--brass);box-shadow:0 0 0 3px rgba(200,162,74,.12)}
 
+/* ═══ v15.15 — لمسات حركية لبوابة الدخول والرئيسية ═══
+   ملاحظة: قاعدة prefers-reduced-motion العامة أعلاه تُعطّل كل هذه الحركات تلقائياً
+   لمن فعّل «تقليل الحركة» في جهازه — لا حاجة لأي استثناء إضافي. */
+@keyframes gateGlowA{0%,100%{transform:translate3d(0,0,0) scale(1);opacity:.5}50%{transform:translate3d(-44px,28px,0) scale(1.13);opacity:.8}}
+@keyframes gateGlowB{0%,100%{transform:translate3d(0,0,0) scale(1);opacity:.35}50%{transform:translate3d(48px,-32px,0) scale(1.16);opacity:.65}}
+@keyframes riseIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+@keyframes logoFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+@keyframes logoHalo{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--brass) 32%,transparent),0 6px 22px rgba(0,0,0,.16)}
+  50%{box-shadow:0 0 0 13px transparent,0 10px 28px rgba(0,0,0,.2)}}
+@keyframes btnSheen{from{transform:translateX(-140%) skewX(-18deg)}to{transform:translateX(260%) skewX(-18deg)}}
+/* توهّجان ذهبيان يتنفّسان ببطء خلف بوابة الدخول */
+.gate{position:relative;overflow:hidden}
+.gate::before,.gate::after{content:'';position:absolute;border-radius:50%;filter:blur(58px);pointer-events:none;will-change:transform}
+.gate::before{width:440px;height:440px;top:-140px;inset-inline-end:-120px;
+  background:color-mix(in srgb,var(--brass) 20%,transparent);animation:gateGlowA 11s ease-in-out infinite}
+.gate::after{width:370px;height:370px;bottom:-130px;inset-inline-start:-110px;
+  background:color-mix(in srgb,var(--brass) 13%,transparent);animation:gateGlowB 14s ease-in-out infinite}
+/* دخول تدريجي أنيق للبطاقة، وطفوّ هادئ مع هالة للشعار */
+.gate-c{position:relative;z-index:1;animation:riseIn .55s cubic-bezier(.2,.7,.2,1) both}
+.gate-c .card{animation:riseIn .6s .12s cubic-bezier(.2,.7,.2,1) backwards}
+.gate .bhead-logo{animation:logoFloat 5.5s ease-in-out infinite,logoHalo 5.5s ease-in-out infinite}
+/* لمعة تعبر زر الدخول عند المرور عليه */
+.gate .btn.pri{position:relative;overflow:hidden}
+.gate .btn.pri::after{content:'';position:absolute;top:0;bottom:0;inset-inline-start:0;width:38%;pointer-events:none;
+  background:linear-gradient(105deg,transparent,rgba(255,255,255,.26),transparent);transform:translateX(-140%) skewX(-18deg)}
+.gate .btn.pri:hover::after{animation:btnSheen .8s ease}
+/* الرئيسية: ظهور متعاقب للتطبيقات + حيوية أعمق عند المرور */
+.lh-grid .lh-tile{animation:riseIn .45s cubic-bezier(.2,.7,.2,1) both}
+.lh-grid .lh-tile:nth-child(1){animation-delay:.02s}.lh-grid .lh-tile:nth-child(2){animation-delay:.05s}
+.lh-grid .lh-tile:nth-child(3){animation-delay:.08s}.lh-grid .lh-tile:nth-child(4){animation-delay:.11s}
+.lh-grid .lh-tile:nth-child(5){animation-delay:.14s}.lh-grid .lh-tile:nth-child(6){animation-delay:.17s}
+.lh-grid .lh-tile:nth-child(7){animation-delay:.2s}.lh-grid .lh-tile:nth-child(8){animation-delay:.23s}
+.lh-grid .lh-tile:nth-child(9){animation-delay:.26s}.lh-grid .lh-tile:nth-child(10){animation-delay:.29s}
+.lh-grid .lh-tile:nth-child(11){animation-delay:.32s}.lh-grid .lh-tile:nth-child(12){animation-delay:.35s}
+.lh-box{transition:transform .22s cubic-bezier(.2,.7,.2,1),box-shadow .22s,border-color .22s}
+.lh-tile:hover .lh-box{transform:scale(1.06) rotate(-1.5deg);
+  box-shadow:0 12px 28px color-mix(in srgb,var(--c,var(--brass)) 24%,transparent)}
+
 /* ═══════════════════════════════════════════════════════════
    شاشة الإغلاق اليومي — تصميم متجاوب v4.0
    كمبيوتر: خط زمني (يمين) + نموذج (وسط) + ملخّص حيّ (يسار)
