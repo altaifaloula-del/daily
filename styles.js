@@ -643,6 +643,29 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
 .lh-tile:hover .lh-box{transform:scale(1.06) rotate(-1.5deg);
   box-shadow:0 12px 28px color-mix(in srgb,var(--c,var(--brass)) 24%,transparent)}
 
+/* ═══ v15.16 — أيقونات حيّة داخل البلاطات + سحب وإفلات لإعادة الترتيب ═══
+   (قاعدة prefers-reduced-motion العامة تُعطّل الحركات تلقائياً لمن فعّل تقليل الحركة) */
+@keyframes icoLive{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-3px) rotate(-1.6deg)}}
+@keyframes icoWiggle{0%{transform:scale(1) rotate(0)}30%{transform:scale(1.16) rotate(-7deg)}60%{transform:scale(1.1) rotate(6deg)}100%{transform:scale(1.13) rotate(0)}}
+/* تنفّس هادئ متواصل للأيقونات — بأطوار ومدد متفاوتة حتى لا تتحرك كلها معاً كجوقة */
+.lh-box svg{animation:icoLive 4.6s ease-in-out infinite}
+.lh-grid .lh-tile:nth-child(3n) .lh-box svg{animation-delay:-1.6s}
+.lh-grid .lh-tile:nth-child(3n+1) .lh-box svg{animation-delay:-3.1s}
+.lh-grid .lh-tile:nth-child(4n) .lh-box svg{animation-duration:5.6s}
+.lh-grid .lh-tile:nth-child(5n) .lh-box svg{animation-duration:4s}
+/* عند المرور: قفزة مرحة بدل التنفّس */
+.lh-tile:hover .lh-box svg{animation:icoWiggle .45s ease forwards}
+/* السحب والإفلات */
+.lh-tile{touch-action:pan-y;-webkit-user-select:none;user-select:none}
+.lh-drag-src{opacity:.28}
+.lh-drag-src .lh-box{border-style:dashed;box-shadow:none}
+.lh-drag-ghost{position:fixed;z-index:999;pointer-events:none;margin:0;background:var(--ink2);
+  border:1px solid var(--brass-d);border-radius:18px;animation:none !important;
+  transform:scale(1.07) rotate(2deg);filter:drop-shadow(0 18px 32px rgba(0,0,0,.38))}
+.lh-drag-ghost .lh-star{display:none}
+body.lh-dragging{cursor:grabbing !important}
+body.lh-dragging *{cursor:grabbing !important}
+
 /* ═══════════════════════════════════════════════════════════
    شاشة الإغلاق اليومي — تصميم متجاوب v4.0
    كمبيوتر: خط زمني (يمين) + نموذج (وسط) + ملخّص حيّ (يسار)

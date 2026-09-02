@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import {
   LayoutDashboard, ClipboardCheck, Banknote, Users, Building2, FileBarChart,
@@ -2184,7 +2184,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.15 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.16 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -9642,8 +9642,126 @@ function Launcher({ org, ops, me, setTab, openAcctView, openInvView }) {
   };
   const pend = (ops?.closings || []).filter(c => c.status === 'submitted').length;
 
-  // التطبيقات المُجمّعة (LAUNCH_APPS): كل تطبيق يضمّ أقسامه المتشابهة
-  const mine = LAUNCH_APPS.filter(a => appCanSee(me, a)).sort((a, b) => launchRank(a.id) - launchRank(b.id));
+  /* ===== v15.16 — إعادة ترتيب التطبيقات بالسحب والإفلات =====
+     الترتيب المخصّص يُحفَظ لكل مستخدم على جهازه (rms8:appuse — نفس مخزن المفضلة).
+     تطبيق جديد لم يدخل الترتيب المحفوظ بعد يظهر في موضعه المنطقي الافتراضي. */
+  const [tileOrder, setTileOrder] = useState(() => (appUseGet(me.id).order || []));
+  const [dragId, setDragId] = useState(null);
+  const gridRef = useRef(null);
+  const flipRef = useRef(null);          // لقطات مواقع البلاطات قبل تغيير الترتيب (FLIP)
+  const mineIdsRef = useRef([]);
+  const suppressClick = useRef(false);   // منع «نقرة» فتح التطبيق بعد إفلات سحب
+  const dragSt = useRef({ id: null, active: false, ghost: null, offX: 0, offY: 0, px: 0, py: 0, pendingId: null, pendingNode: null, lpTimer: null, moved: false });
+
+  const orderRank = (id) => { const i = tileOrder.indexOf(id); return i < 0 ? 1000 + launchRank(id) : i; };
+
+  // انزلاق سلس (FLIP) لبقية البلاطات عند تغيّر الترتيب أثناء السحب
+  const snapRects = () => {
+    const m = new Map();
+    (gridRef.current ? gridRef.current.querySelectorAll('[data-appid]') : []).forEach(el => m.set(el.dataset.appid, el.getBoundingClientRect()));
+    return m;
+  };
+  useLayoutEffect(() => {
+    const prev = flipRef.current; flipRef.current = null;
+    if (!prev || !gridRef.current) return;
+    gridRef.current.querySelectorAll('[data-appid]').forEach(el => {
+      if (el.dataset.appid === dragSt.current.id) return;
+      const p = prev.get(el.dataset.appid); if (!p) return;
+      const n = el.getBoundingClientRect();
+      const dx = p.left - n.left, dy = p.top - n.top;
+      if (!dx && !dy) return;
+      el.style.animation = 'none';        // حركة الدخول المتدرّج تتغلّب على transform المضمّن — نعطّلها بعد اكتمالها
+      el.style.transition = 'none'; el.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+      requestAnimationFrame(() => { el.style.transition = 'transform .28s cubic-bezier(.2,.7,.2,1)'; el.style.transform = ''; });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tileOrder]);
+
+  const blockTouchScroll = (e) => { if (dragSt.current.active) e.preventDefault(); };
+  const endDrag = useCallback(() => {
+    const st = dragSt.current;
+    if (st.lpTimer) { clearTimeout(st.lpTimer); st.lpTimer = null; }
+    window.removeEventListener('pointermove', winMoveRef.current);
+    window.removeEventListener('pointerup', winUpRef.current);
+    window.removeEventListener('pointercancel', winUpRef.current);
+    window.removeEventListener('touchmove', blockTouchScroll);
+    document.body.classList.remove('lh-dragging');
+    if (st.ghost) { st.ghost.remove(); st.ghost = null; }
+    if (st.active && st.moved) {
+      const v = appUseGet(me.id); v.order = mineIdsRef.current.slice(); appUseSet(me.id, v);
+      suppressClick.current = true; setTimeout(() => { suppressClick.current = false; }, 300);
+    }
+    st.active = false; st.id = null; st.pendingId = null; st.pendingNode = null; st.moved = false;
+    setDragId(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me.id]);
+
+  const beginDrag = (id, node, x, y) => {
+    const st = dragSt.current;
+    st.id = id; st.active = true; st.moved = false;
+    const r = node.getBoundingClientRect();
+    st.offX = x - r.left; st.offY = y - r.top;
+    const g = node.cloneNode(true);
+    g.classList.add('lh-drag-ghost');
+    g.style.width = r.width + 'px'; g.style.height = r.height + 'px';
+    g.style.left = (x - st.offX) + 'px'; g.style.top = (y - st.offY) + 'px';
+    document.body.appendChild(g);
+    st.ghost = g;
+    document.body.classList.add('lh-dragging');
+    window.addEventListener('touchmove', blockTouchScroll, { passive: false });
+    setDragId(id);
+  };
+
+  const onDragMove = (x, y) => {
+    const st = dragSt.current; if (!st.active || !st.ghost) return;
+    st.moved = true;
+    st.ghost.style.left = (x - st.offX) + 'px'; st.ghost.style.top = (y - st.offY) + 'px';
+    st.ghost.style.display = 'none';
+    const el = document.elementFromPoint(x, y);
+    st.ghost.style.display = '';
+    const t = el && el.closest && el.closest('[data-appid]');
+    if (t && t.dataset.appid !== st.id) {
+      const ids = mineIdsRef.current.slice();
+      const from = ids.indexOf(st.id), to = ids.indexOf(t.dataset.appid);
+      if (from > -1 && to > -1 && from !== to) {
+        ids.splice(to, 0, ids.splice(from, 1)[0]);
+        flipRef.current = snapRects();
+        setTileOrder(ids);
+      }
+    }
+  };
+
+  const winMoveRef = useRef(null), winUpRef = useRef(null);
+  winMoveRef.current = (e) => {
+    const st = dragSt.current;
+    if (st.active) { onDragMove(e.clientX, e.clientY); return; }
+    if (!st.pendingId) return;
+    const dx = e.clientX - st.px, dy = e.clientY - st.py;
+    const dist = Math.hypot(dx, dy);
+    if (st.lpTimer) { // لمس: تحرّك قبل اكتمال الضغط المطوّل = تمرير عادي، نلغي
+      if (dist > 12) { clearTimeout(st.lpTimer); st.lpTimer = null; st.pendingId = null; endDrag(); }
+      return;
+    }
+    if (dist > 6) beginDrag(st.pendingId, st.pendingNode, e.clientX, e.clientY); // فأرة: يبدأ بعد حركة صغيرة
+  };
+  winUpRef.current = () => endDrag();
+
+  const tilePointerDown = (a) => (e) => {
+    if (qq) return;                                   // لا ترتيب داخل نتائج البحث
+    if (e.target.closest && e.target.closest('.lh-star')) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const st = dragSt.current;
+    st.px = e.clientX; st.py = e.clientY; st.pendingId = a.id; st.pendingNode = e.currentTarget;
+    if (e.pointerType === 'touch') st.lpTimer = setTimeout(() => { st.lpTimer = null; beginDrag(a.id, st.pendingNode, st.px, st.py); }, 350);
+    window.addEventListener('pointermove', winMoveRef.current);
+    window.addEventListener('pointerup', winUpRef.current);
+    window.addEventListener('pointercancel', winUpRef.current);
+  };
+  useEffect(() => () => endDrag(), [endDrag]);        // تنظيف عند مغادرة الشاشة
+
+  // التطبيقات المُجمّعة (LAUNCH_APPS): كل تطبيق يضمّ أقسامه المتشابهة — بترتيب المستخدم المخصّص إن وُجد
+  const mine = LAUNCH_APPS.filter(a => appCanSee(me, a)).sort((a, b) => orderRank(a.id) - orderRank(b.id));
+  mineIdsRef.current = mine.map(a => a.id);
   const norm = (s) => (s || '').replace(/[أإآ]/g, 'ا');
   const qq = norm(q.trim());
   const match = (a) => !qq || norm(a.ar + ' ' + (a.en || '') + ' ' + (a.kw || []).join(' ') + ' ' + (a.sections || []).join(' ')).includes(qq);
@@ -9658,10 +9776,12 @@ function Launcher({ org, ops, me, setTab, openAcctView, openInvView }) {
   const hour = new Date().getHours();
   const greet = hour < 12 ? 'صباح الخير' : 'مساء الخير';
 
-  const Tile = (a) => (
-    <div key={a.id} className="lh-tile" style={{ '--c': CAT_CLR[a.cat] || 'var(--brass)' }}
-      onClick={() => appOpenNow(a, me, setTab, openAcctView, openInvView)}
-      title={(a.sections?.length ? a.sections.join(' · ') : a.ar)}>
+  const Tile = (a, draggable) => (
+    <div key={a.id} className={'lh-tile' + (dragId === a.id ? ' lh-drag-src' : '')}
+      style={{ '--c': CAT_CLR[a.cat] || 'var(--brass)' }}
+      {...(draggable ? { 'data-appid': a.id, onPointerDown: tilePointerDown(a) } : {})}
+      onClick={() => { if (suppressClick.current) return; appOpenNow(a, me, setTab, openAcctView, openInvView); }}
+      title={(a.sections?.length ? a.sections.join(' · ') : a.ar) + (draggable ? ' — اسحبه لتغيير ترتيبه' : '')}>
       <button className={'lh-star' + (isFav(a.id) ? ' on' : '')} title={isFav(a.id) ? 'إزالة من المفضلة' : 'تثبيت في المفضلة'}
         onClick={(e) => toggleFav(a.id, e)}><Star size={12} fill={isFav(a.id) ? 'currentColor' : 'none'} /></button>
       {a.id === 'approve' && pend > 0 && <span className="lh-bdg">{pend}</span>}
@@ -9689,7 +9809,7 @@ function Launcher({ org, ops, me, setTab, openAcctView, openInvView }) {
         : <div className="lh-wm mark">{(org.company?.name || 'م').trim().charAt(0) || 'م'}</div>}
     </div>
     <div className="lh">
-      <p className="lh-hi">{greet} يا <b>{(me.name || '').split(' ')[0]}</b> — كل تطبيقاتك أمامك. اضغط أي تطبيق أو قسم لفتحه، والنجمة لتثبيته في المفضلة.</p>
+      <p className="lh-hi">{greet} يا <b>{(me.name || '').split(' ')[0]}</b> — كل تطبيقاتك أمامك. اضغط أي تطبيق لفتحه، والنجمة لتثبيته في المفضلة، واسحبه (أو اضغط عليه مطوّلًا بالجوال) لنقله حيث تشاء.</p>
       <div className="lh-role"><span className="pill">{(ROLES[me.role]?.ar || me.role).split('—')[0].trim()} · {shown.length} تطبيقاً</span></div>
       <div className="lh-search">
         <Search size={15} className="lh-si" />
@@ -9706,14 +9826,14 @@ function Launcher({ org, ops, me, setTab, openAcctView, openInvView }) {
       {(favApps.length + favSecs.length) > 0 && !qq && (
         <div className="lh-sec">
           <div className="lh-sect"><Star size={14} className="ic" fill="currentColor" />المفضلة</div>
-          <div className="lh-grid">{favApps.map(Tile)}{favSecs.map(SecTile)}</div>
+          <div className="lh-grid">{favApps.map(a => Tile(a, false))}{favSecs.map(SecTile)}</div>
         </div>
       )}
 
       {/* شبكة موحّدة مرتّبة بتدفّق منطقي — نمط أودو (بلا صفوف مبعثرة) */}
       <div className="lh-sec">
         <div className="lh-sect">{qq ? `نتائج «${q.trim()}»` : 'كل التطبيقات'}</div>
-        <div className="lh-grid">{shown.map(Tile)}</div>
+        <div className="lh-grid" ref={gridRef}>{shown.map(a => Tile(a, !qq))}</div>
       </div>
       {shown.length === 0 && <div className="lh-empty">لا يوجد تطبيق بهذا الاسم — جرّب كلمة أخرى</div>}
     </div>
