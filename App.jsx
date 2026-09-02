@@ -2149,7 +2149,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.12 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.13 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -7846,6 +7846,19 @@ function Admin({ org, ops, me, commit, commitOrg, say }) {
     say(isNew ? 'تم إنشاء الحساب — يدخل ببريده وكلمة سره' : 'تم تحديث الحساب'); setUEdit(null);
   };
 
+  const delUser = async (u) => {
+    if (u.id === me.id) return say('لا يمكنك حذف حسابك الحالي', 'no');
+    if ((ROLES[u.role] || {}).admin && org.users.filter(x => x.isActive && (ROLES[x.role] || {}).admin).length <= 1) {
+      return say('لا يمكن حذف آخر حساب مدير نشط في المنصة', 'no');
+    }
+    if (!window.confirm(`سيُحذف حساب «${u.name}» (${u.email}) نهائياً من المنصة، ويصبح بريده متاحاً لإنشاء حساب جديد به. إغلاقاته وسجلاته السابقة تبقى محفوظة في فرعها. هل أنت متأكد؟`)) return;
+    await commitOrg(d => ({ ...d, users: d.users.filter(x => x.id !== u.id) }), {
+      actionType: 'delete', targetType: 'user_account', targetId: u.id, title: 'حذف مستخدماً', details: `${u.name} — ${u.email}`
+    });
+    if (authApi.enabled) { try { await authApi.upsertMember(u.email, { active: false }); } catch { } }
+    say('تم حذف الحساب');
+  };
+
   return (
     <div className="grid" style={{ gap: 14 }}>
       <div className="row">
@@ -7928,8 +7941,11 @@ function Admin({ org, ops, me, commit, commitOrg, say }) {
                     <td>
                       <div className="row" style={{ gap: 5, flexWrap: 'nowrap' }}>
                         <button className="btn sm" onClick={() => setUEdit(u)}>تعديل</button>
-                        <button className="btn sm gh" onClick={() => saveUser({ ...u, isActive: !u.isActive })}>
+                        <button className="btn sm gh" onClick={() => saveUser({ ...u, isActive: !u.isActive })} title={u.isActive ? 'إيقاف الحساب' : 'تفعيل الحساب'}>
                           {u.isActive ? <Lock size={12} /> : <Check size={12} />}
+                        </button>
+                        <button className="btn sm gh" onClick={() => delUser(u)} title="حذف الحساب نهائياً" style={{ color: 'var(--rose)' }}>
+                          <Trash2 size={12} />
                         </button>
                       </div>
                     </td>
