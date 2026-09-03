@@ -2346,7 +2346,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v16.4 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v16.5 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -3221,6 +3221,34 @@ const ST = {
   approved: ['b-mint', 'مدقّق ومعتمد'], rejected: ['b-rose', 'مرفوض'],
   pending: ['b-amber', 'قيد الانتظار'], received: ['b-mint', 'مستلم بالخزينة']
 };
+/* v16.5 — مرفقات PDF: حقول الصور تقبل PDF أيضاً (ميزة قائمة)، لكن العرض كان يضعها في
+   وسم <img> فتظهر «صورة مكسورة». هذه الأدوات تكشف النوع وتفتح PDF بشكل صحيح. */
+const isPdfData = (v) => typeof v === 'string' && v.startsWith('data:application/pdf');
+const openPdfData = (v, name) => {
+  try {
+    const bin = atob((v.split(',')[1] || ''));
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    const url = URL.createObjectURL(new Blob([arr], { type: 'application/pdf' }));
+    const a = document.createElement('a');
+    a.href = url; a.target = '_blank'; a.rel = 'noopener';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (e) { /* ملف تالف */ }
+};
+function PdfTile({ v, label, small }) {
+  return (
+    <button type="button" className="btn" onClick={() => openPdfData(v, label)}
+      style={{ display: 'flex', alignItems: 'center', gap: 8, width: small ? 'auto' : '100%', justifyContent: 'flex-start', padding: small ? '6px 10px' : '12px 14px' }}>
+      <FileText size={small ? 13 : 17} color="var(--rose)" />
+      <span style={{ textAlign: 'start', minWidth: 0 }}>
+        <b style={{ fontSize: small ? 11 : 12.5, display: 'block' }}>{label || 'مرفق PDF'}</b>
+        {!small && <small style={{ color: 'var(--dim)', fontSize: 10.5 }}>ملف PDF — اضغط للفتح في تبويب جديد</small>}
+      </span>
+    </button>
+  );
+}
+
 function Badge({ s }) {
   const [c, t] = ST[s] || ['b-dim', s];
   return <span className={'badge ' + c}>{t}</span>;
@@ -6282,11 +6310,12 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
       const docs = [];
       const push = (img, cat, catLabel, title, amount) => {
         if (!img) return;
+        const pdfA = typeof img === 'string' && img.startsWith('data:application/pdf');
         docs.push({
           id: 'arc-' + id + '-' + cat + (docs.length),
           title, category: cat, categoryLabelAr: catLabel,
           branchId: f.branchId, branchName: rec.branchName,
-          fileUrl: img, fileType: 'image', fileName: title + '.jpg',
+          fileUrl: img, fileType: pdfA ? 'pdf' : 'image', fileName: title + (pdfA ? '.pdf' : '.jpg'),
           fileSizeKb: Math.round(img.length * 0.75 / 1024),
           uploadDate: f.date, uploadedBy: me.name, amount: amount || 0,
           closingId: id, source: 'closing', uploadedAt: nowISO()
@@ -6873,7 +6902,9 @@ function ClosingView({ c, org, onClose }) {
   // v16.4: التكبير كان يفتح نافذة متصفح خارجية (window.open + document.write) وبعض
   // المتصفحات تحجبها فتظهر صفحة فارغة بصورة مكسورة — استُبدل بعارض داخل المنصة نفسها.
   const [zoom, setZoom] = useState(null);
-  const zoomImg = (img) => setZoom(img);
+  const [zoomErr, setZoomErr] = useState(false);
+  // v16.5: ملف PDF يُفتح بعارض المتصفح مباشرة (وسم <img> لا يعرض PDF فيظهر مكسوراً)
+  const zoomImg = (img) => { if (isPdfData(img)) { openPdfData(img); return; } setZoomErr(false); setZoom(img); };
   useEffect(() => {
     if (!zoom) return;
     // Escape يغلق العارض فقط دون إغلاق نافذة الاستعراض خلفه (التقاط قبل مستمع النافذة)
@@ -6906,9 +6937,11 @@ function ClosingView({ c, org, onClose }) {
           {c.cardReceiptImage && (
             <div style={{ marginTop: 8 }}>
               <div className="lbl">إثبات الشبكة / التحويل</div>
-              <img src={c.cardReceiptImage} alt="إثبات"
-                onClick={() => zoomImg(c.cardReceiptImage)}
-                style={{ width: '100%', maxHeight: 160, objectFit: 'contain', borderRadius: 8, background: '#000', cursor: 'zoom-in' }} />
+              {isPdfData(c.cardReceiptImage)
+                ? <PdfTile v={c.cardReceiptImage} label="إثبات الشبكة / التحويل" />
+                : <img src={c.cardReceiptImage} alt="إثبات"
+                  onClick={() => zoomImg(c.cardReceiptImage)}
+                  style={{ width: '100%', maxHeight: 160, objectFit: 'contain', borderRadius: 8, background: '#000', cursor: 'zoom-in' }} />}
             </div>
           )}
         </div>
@@ -6922,9 +6955,11 @@ function ClosingView({ c, org, onClose }) {
                 {e.isTaxable ? <span className="badge b-brass" style={{ fontSize: 9 }}>خاضع للضريبة{e.taxInvoice ? ' · ضريبية' : ''}</span> : <span className="badge b-dim" style={{ fontSize: 9 }}>غير خاضع</span>}
                 {e.receiptNumber && <span className="badge b-dim" style={{ fontSize: 9 }}>#{e.receiptNumber}</span>}
               </div>
-              {e.receiptImage && <img src={e.receiptImage} alt="إيصال"
-                onClick={() => zoomImg(e.receiptImage)}
-                style={{ width: 42, height: 42, objectFit: 'cover', borderRadius: 6, margin: '4px 0 6px', cursor: 'zoom-in', border: '1px solid var(--line)' }} />}
+              {e.receiptImage && (isPdfData(e.receiptImage)
+                ? <div style={{ margin: '4px 0 6px' }}><PdfTile small v={e.receiptImage} label="إيصال PDF" /></div>
+                : <img src={e.receiptImage} alt="إيصال"
+                  onClick={() => zoomImg(e.receiptImage)}
+                  style={{ width: 42, height: 42, objectFit: 'cover', borderRadius: 6, margin: '4px 0 6px', cursor: 'zoom-in', border: '1px solid var(--line)' }} />)}
             </div>
           ))}
           {(!c.expenses || c.expenses.length === 0) && <div className="empty" style={{ padding: 18 }}>لا مصروفات</div>}
@@ -7008,7 +7043,17 @@ function ClosingView({ c, org, onClose }) {
       {zoom && (
         <div onClick={() => setZoom(null)} role="dialog" aria-label="معاينة الصورة"
           style={{ position: 'fixed', inset: 0, zIndex: 96, background: 'rgba(8,6,5,.92)', display: 'grid', placeItems: 'center', padding: 18, cursor: 'zoom-out' }}>
-          <img src={zoom} alt="معاينة مكبّرة" style={{ maxWidth: '96vw', maxHeight: '90vh', objectFit: 'contain', borderRadius: 10, boxShadow: '0 24px 70px rgba(0,0,0,.6)' }} />
+          {zoomErr
+            ? <div style={{ background: 'var(--ink2)', border: '1px solid var(--line-g)', borderRadius: 14, padding: '26px 30px', textAlign: 'center', maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+              <AlertTriangle size={26} color="var(--amber)" style={{ marginBottom: 10 }} />
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>تعذّر عرض هذا المرفق</div>
+              <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.8 }}>
+                الملف المحفوظ تالف أو من نوع غير مدعوم للعرض. إن كان الإغلاق قديمًا فقد تجد نسخته في «أرشيف المستندات».
+              </div>
+              <button className="btn sm" style={{ marginTop: 12 }} onClick={() => setZoom(null)}>إغلاق</button>
+            </div>
+            : <img src={zoom} alt="معاينة مكبّرة" onError={() => setZoomErr(true)}
+              style={{ maxWidth: '96vw', maxHeight: '90vh', objectFit: 'contain', borderRadius: 10, boxShadow: '0 24px 70px rgba(0,0,0,.6)' }} />}
           <button className="btn sm" onClick={() => setZoom(null)}
             style={{ position: 'fixed', top: 16, insetInlineStart: 16, zIndex: 97 }}><X size={14} />إغلاق المعاينة</button>
           <div style={{ position: 'fixed', bottom: 14, insetInline: 0, textAlign: 'center', color: 'rgba(255,255,255,.55)', fontSize: 11.5, pointerEvents: 'none' }}>
@@ -8708,14 +8753,19 @@ function buildClosingA4(c, org) {
     <td class="num rose">${money2(e.amount)} ر.س</td></tr>`).join('')
     : `<tr><td colspan="5" class="ce dim">لا توجد مصروفات على هذه الوردية</td></tr>`;
 
-  const receiptImgs = [];
-  if (c.cardReceiptImage) receiptImgs.push({ t: 'إثبات الشبكة / التحويل', u: c.cardReceiptImage });
-  (c.expenses || []).forEach(e => { if (e.receiptImage) receiptImgs.push({ t: (e.categoryName || 'مصروف') + (e.beneficiaryName ? ' — ' + e.beneficiaryName : ''), u: e.receiptImage }); });
+  // v16.5: مرفقات PDF لا تُوضع في <img> (تظهر مكسورة) — تُذكر عدّاً في التقرير وتُفتح من المنصة
+  const allAtt = [];
+  if (c.cardReceiptImage) allAtt.push({ t: 'إثبات الشبكة / التحويل', u: c.cardReceiptImage });
+  (c.expenses || []).forEach(e => { if (e.receiptImage) allAtt.push({ t: (e.categoryName || 'مصروف') + (e.beneficiaryName ? ' — ' + e.beneficiaryName : ''), u: e.receiptImage }); });
   ((c.sessionPhotos && c.sessionPhotos.length) ? c.sessionPhotos : (c.sessionPhoto ? [c.sessionPhoto] : []))
-    .forEach((u, i, arr) => receiptImgs.push({ t: 'توثيق المسؤول' + (arr.length > 1 ? ' ' + (i + 1) : ''), u }));
-  const imgsBlock = receiptImgs.length ? `
-    <div class="sec-h">صور الفواتير والمرفقات (${receiptImgs.length})</div>
-    <div class="imgs">${receiptImgs.map(im => `<div class="img-c"><img src="${im.u}"><div class="img-t">${im.t}</div></div>`).join('')}</div>` : '';
+    .forEach((u, i, arr) => allAtt.push({ t: 'توثيق المسؤول' + (arr.length > 1 ? ' ' + (i + 1) : ''), u }));
+  const isPdfU = (v) => typeof v === 'string' && v.indexOf('data:application/pdf') === 0;
+  const receiptImgs = allAtt.filter(im => !isPdfU(im.u));
+  const pdfAtts = allAtt.filter(im => isPdfU(im.u));
+  const imgsBlock = (receiptImgs.length || pdfAtts.length) ? `
+    <div class="sec-h">صور الفواتير والمرفقات (${allAtt.length})</div>
+    ${receiptImgs.length ? `<div class="imgs">${receiptImgs.map(im => `<div class="img-c"><img src="${im.u}"><div class="img-t">${im.t}</div></div>`).join('')}</div>` : ''}
+    ${pdfAtts.length ? `<div style="font-size:9.5px;color:#666;margin-top:4px">📎 مرفقات PDF (${pdfAtts.length}): ${pdfAtts.map(x => x.t).join(' · ')} — تُفتح من شاشة استعراض الإغلاق في المنصة.</div>` : ''}` : '';
 
   return `<div class="page">
     <div class="head">
@@ -15363,8 +15413,16 @@ function Archive({ org, me, myBranches, say }) {
                 {day.arr.map(it => (
                   <div key={it.id} className="card" style={{ padding: 0, overflow: 'hidden', background: 'var(--ink)' }}>
                     <div style={{ position: 'relative' }}>
-                      <img src={it.fileUrl} alt={it.title} onClick={() => setPreview(it)}
-                        style={{ width: '100%', height: 120, objectFit: 'cover', cursor: 'zoom-in', display: 'block' }} />
+                      {isPdfData(it.fileUrl)
+                        ? <div onClick={() => openPdfData(it.fileUrl, it.title)}
+                          style={{ width: '100%', height: 120, display: 'grid', placeItems: 'center', cursor: 'pointer', background: 'var(--ink3)' }}>
+                          <div style={{ textAlign: 'center' }}>
+                            <FileText size={30} color="var(--rose)" />
+                            <div style={{ fontSize: 10.5, color: 'var(--dim)', marginTop: 5 }}>ملف PDF — اضغط للفتح</div>
+                          </div>
+                        </div>
+                        : <img src={it.fileUrl} alt={it.title} onClick={() => setPreview(it)}
+                          style={{ width: '100%', height: 120, objectFit: 'cover', cursor: 'zoom-in', display: 'block' }} />}
                       {it.source === 'closing' && (
                         <span className="badge b-mint" style={{ position: 'absolute', top: 6, insetInlineEnd: 6, fontSize: 9 }}>
                           <ClipboardCheck size={9} />إغلاق
@@ -15427,7 +15485,13 @@ function Archive({ org, me, myBranches, say }) {
       {preview && (
         <Modal wide title={preview.title} icon={ImageIcon} onClose={() => setPreview(null)}
           foot={<button className="btn gh" onClick={() => setPreview(null)}>إغلاق</button>}>
-          <img src={preview.fileUrl} alt={preview.title} style={{ width: '100%', borderRadius: 10, background: '#000' }} />
+          {isPdfData(preview.fileUrl)
+            ? <div style={{ textAlign: 'center', padding: '26px 12px', background: 'var(--ink3)', borderRadius: 10 }}>
+              <FileText size={34} color="var(--rose)" style={{ marginBottom: 8 }} />
+              <div style={{ fontSize: 12.5, color: 'var(--dim)', marginBottom: 12 }}>هذا المستند ملف PDF — يُفتح بعارض المتصفح</div>
+              <button className="btn pri" onClick={() => openPdfData(preview.fileUrl, preview.title)}><FileText size={14} />فتح الملف</button>
+            </div>
+            : <img src={preview.fileUrl} alt={preview.title} style={{ width: '100%', borderRadius: 10, background: '#000' }} />}
           <div className="row" style={{ marginTop: 12 }}>
             <span className="badge b-brass">{FILE_CATS.find(c => c.id === preview.category)?.ar}</span>
             <span className="badge b-dim">{preview.branchName}</span>
