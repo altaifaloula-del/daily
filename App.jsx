@@ -1276,7 +1276,7 @@ const ROLES = {
   cashier: {
     ar: 'كاشير — إدخال إغلاق اليوم', badge: 'b-sky', scope: 'own', create: true, todayOnly: true,
     tabs: ['closing'],
-    perms: ['إنشاء وترحيل إغلاق اليوم لفرعه', 'جرد الصندوق وإدخال المبيعات والمصروفات', 'اليوم الحالي فقط دون سجلّ سابق — عدا مسوداته غير المكتملة فتظهر دائماً']
+    perms: ['إنشاء وترحيل إغلاق اليوم لفرعه', 'جرد الصندوق وإدخال المبيعات والمصروفات', 'اليوم الحالي فقط دون سجلّ سابق — عدا مسوداته والمرفوضات المعادة للتصحيح فتظهر دائماً']
   },
   branch_manager: {
     ar: 'مدير الفرع', badge: 'b-mint', scope: 'own', create: true,
@@ -1825,6 +1825,9 @@ export default function App() {
 
   /* --- المزامنة الدورية + الحضور --- */
   const snap = useRef({});
+  // v15.28 — مخبأ المستندات الحيّ: الاستماع اللحظي يحدّث نسخة المستند الواصل هنا فقط
+  // ويعيد التجميع محلياً بصفر قراءات إضافية (كان كل إشعار يعيد قراءة كل المستندات).
+  const docsCache = useRef({ core: null, br: {} });
   const refresh = useCallback(async (silent) => {
     if (silent && typeof document !== 'undefined' && document.hidden) return;
     if (!silent) setSyncing(true);
@@ -1837,6 +1840,7 @@ export default function App() {
       ...ctx.myBrIds.map(b => cloud.get(brKey(b), null))
     ]);
     const brMap = {}; ctx.myBrIds.forEach((b, i) => { brMap[b] = brs[i] || {}; });
+    docsCache.current = { core: core || null, br: brMap };
     const p = composeOps(core, brMap);
     const put = (k, v, setter) => {
       if (!v) return;
@@ -1864,18 +1868,28 @@ export default function App() {
     const ctx = dataCtx.current;
     wire('org', ctx.central ? KEYS.org : KEYS.dir, (v) => setOrg(ctx.central ? v : { ...emptyOrg(), ...v }));
     wire('pulse', KEYS.pulse, setPulse);
-    // أي تغيير في المركزي أو مستندات الفروع → إعادة تجميع ops
-    const recompose = () => { refresh(true); };
-    if (ctx.central) { const un = cloud.subscribe?.(KEYS.core, recompose); if (un) subs.push(un); }
-    ctx.myBrIds.forEach(b => { const un = cloud.subscribe?.(brKey(b), recompose); if (un) subs.push(un); });
+    // v15.28: المستند الواصل لحظياً يُخزَّن في المخبأ ويُعاد التجميع محلياً — صفر قراءات
+    // إضافية (سابقاً كان كل إشعار يستدعي refresh كاملاً يقرأ كل المستندات من جديد).
+    const cacheRecompose = () => {
+      const dc = docsCache.current;
+      const ready = (!ctx.central || dc.core != null) && ctx.myBrIds.every(b => dc.br[b] != null);
+      if (!ready) return;   // اللقطات الأولى لم تكتمل بعد — نُبقي على ما حمّله الإقلاع
+      const composed = composeOps(ctx.central ? dc.core : null, dc.br);
+      const j = JSON.stringify(composed);
+      if (snap.current.ops === j) return;
+      snap.current.ops = j; setOps(composed); setLastSync(new Date());
+    };
+    if (ctx.central) { const un = cloud.subscribe?.(KEYS.core, (v) => { docsCache.current.core = v || {}; cacheRecompose(); }); if (un) subs.push(un); }
+    ctx.myBrIds.forEach(b => { const un = cloud.subscribe?.(brKey(b), (v) => { docsCache.current.br[b] = v || {}; cacheRecompose(); }); if (un) subs.push(un); });
     if (subs.length) setLive(true);
     return () => subs.forEach(u => u());
   }, [boot, needAuth, refresh]);
 
   useEffect(() => {
     if (boot !== 'ready') return;
-    // مع الاستماع اللحظي يكفي استطلاع احتياطي متباعد
-    const t = setInterval(() => refresh(true), live ? 45000 : 8000);
+    // v15.28: مع الاستماع اللحظي (الذي يوصل كل تغيير فور وقوعه) يكفي استطلاع احتياطي كل
+    // ٥ دقائق بدل ٤٥ ثانية — خفض قراءات الاستطلاع نحو ٧ أضعاف دون أي تأثير على الفورية.
+    const t = setInterval(() => refresh(true), live ? 300000 : 8000);
     return () => clearInterval(t);
   }, [boot, live, refresh]);
 
@@ -1964,18 +1978,23 @@ export default function App() {
 
   useEffect(() => {
     if (!me) return;
+    // v15.28 ترشيد: نبضة كل ٦٠ ثانية بدل ٢٠ (بنافذة حضور ١٥٠ ثانية بدل ٧٠ في كل مواضع
+    // العرض) وتتوقف والتبويب مخفي — خفض قراءات/كتابات النبض ٣ أضعاف فأكثر لكل جهاز.
     const beat = async () => {
+      if (typeof document !== 'undefined' && document.hidden) return;
       const pu = await cloud.get(KEYS.pulse, { presence: {}, audit: [] });
       const pres = { ...(pu.presence || {}) };
       pres[sid.current] = { name: me.name, role: me.role, at: Date.now() };
-      Object.keys(pres).forEach(k => { if (Date.now() - (pres[k].at || 0) > 70000) delete pres[k]; });
+      Object.keys(pres).forEach(k => { if (Date.now() - (pres[k].at || 0) > 150000) delete pres[k]; });
       const next = { ...pu, presence: pres };
       await cloud.set(KEYS.pulse, next);
       setPulse(next);
     };
     beat();
-    const t = setInterval(beat, 20000);
-    return () => clearInterval(t);
+    const t = setInterval(beat, 60000);
+    const onVis = () => { if (!document.hidden) beat(); };   // عودة التبويب = نبضة فورية
+    document.addEventListener('visibilitychange', onVis);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVis); };
   }, [me]);
 
   /* --- v9: الكتابة الآمنة الموجَّهة — التعديل يقع على ops المدمجة كما اعتاد كل الكود،
@@ -1993,14 +2012,16 @@ export default function App() {
       const { core: coreOut, br: brOut } = splitOps(next, ctx.myBrIds);
 
       let allOk = true, conflict = false;
+      let wroteCoreDoc = null; const wroteBrDocs = {};
       // المستند المركزي (أدوار المركز فقط)
       if (ctx.central) {
         const je = (x) => JSON.stringify({ ...x, rev: 0 });
         if (je(coreOut) !== je(core || {})) {
           const rv = ((core || {}).rev || 0) + 1;
-          const ok = await cloud.set(KEYS.core, { ...coreOut, rev: rv });
+          const doc = { ...coreOut, rev: rv };
+          const ok = await cloud.set(KEYS.core, doc);
           if (!ok) { allOk = false; }
-          else { const chk = await cloud.get(KEYS.core, null); if (!chk || (chk.rev || 0) !== rv) conflict = true; }
+          else { const chk = await cloud.get(KEYS.core, null); if (!chk || (chk.rev || 0) !== rv) conflict = true; else wroteCoreDoc = doc; }
         }
       }
       // مستندات الفروع المتغيرة فقط
@@ -2008,19 +2029,19 @@ export default function App() {
         const je = (x) => JSON.stringify({ ...x, rev: 0 });
         if (je(brOut[b]) !== je(brMap[b] || {})) {
           const rv = ((brMap[b] || {}).rev || 0) + 1;
-          const ok = await cloud.set(brKey(b), { ...brOut[b], rev: rv });
+          const doc = { ...brOut[b], rev: rv };
+          const ok = await cloud.set(brKey(b), doc);
           if (!ok) { allOk = false; }
-          else { const chk = await cloud.get(brKey(b), null); if (!chk || (chk.rev || 0) !== rv) conflict = true; }
+          else { const chk = await cloud.get(brKey(b), null); if (!chk || (chk.rev || 0) !== rv) conflict = true; else wroteBrDocs[b] = doc; }
         }
       }
       if (!allOk) { if (attempt === 2) return false; continue; }
       if (conflict) continue;   // كتب آخر بنفس اللحظة — نعيد على الأحدث
-      // نجاح: حدّث الحالة المدمجة
-      const core2 = ctx.central ? ((await cloud.get(KEYS.core, null)) || {}) : null;
-      const brMap2 = {};
-      for (const b of ctx.myBrIds) brMap2[b] = (await cloud.get(brKey(b), null)) || {};
-      const composed = composeOps(core2, brMap2);
-      snap.current.ops = JSON.stringify(composed); setOps(composed);
+      // v15.28: نجاح — ما كتبناه (وما قرأناه للتو قبله) هو الحالة الكاملة بين أيدينا؛
+      // لا حاجة لإعادة قراءة كل المستندات من السحابة (كانت تكلف قراءة لكل فرع بعد كل حفظ).
+      if (ctx.central) docsCache.current.core = wroteCoreDoc || core || {};
+      for (const b of ctx.myBrIds) docsCache.current.br[b] = wroteBrDocs[b] || brMap[b] || {};
+      snap.current.ops = JSON.stringify(next); setOps(next);
       return true;
     }
     return false;
@@ -2127,7 +2148,7 @@ export default function App() {
   if (!me) {
     return <Gate css={CSS} theme={theme} org={org}
       onLogin={(u) => { setMe(u); setTab('home'); }}
-      online={Object.values(pulse.presence || {}).filter(p => Date.now() - p.at < 70000)} />;
+      online={Object.values(pulse.presence || {}).filter(p => Date.now() - p.at < 150000)} />;
   }
 
   // v15.25: الشاشة مقفلة — عودة سريعة برقم سري/بصمة (الجلسة السحابية باقية تحتها)
@@ -2140,7 +2161,7 @@ export default function App() {
   const smartAlertCount = computeSmartAlerts(org, ops, myBranches).length;
   const unread = (ops.notifications || []).filter(n => !n.isRead).length + smartAlertCount;
   const pending = scoped.closings.filter(c => c.status === 'submitted').length;
-  const online = Object.values(pulse.presence || {}).filter(p => Date.now() - p.at < 70000);
+  const online = Object.values(pulse.presence || {}).filter(p => Date.now() - p.at < 150000);
 
   // النشاط الجديد منذ آخر مشاهدة للسجل (تنبيه مستمر)
   const auditLog = pulse.audit || [];
@@ -2273,7 +2294,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.26 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.28 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -5755,9 +5776,10 @@ function Closing({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
   const [limit, setLimit] = useState(15);
 
   const filtered = [...scoped.closings]
-    // v15.26: قيْد «اليوم فقط» (الكاشير) لا يحجب مسوداته غير المكتملة — تظهر دائماً مهما كان
-    // تاريخها ليُكملها أو يرحّلها، بينما السجل المرحّل/المعتمد يبقى لليوم الحالي فقط.
-    .filter(c => !ROLES[me.role]?.todayOnly || c.date === today() || c.status === 'draft')
+    // v15.26/v15.27: قيْد «اليوم فقط» (الكاشير) لا يحجب ما ينتظر عمله — المسودات غير المكتملة
+    // والمرفوضات المعادة للتصحيح تظهر دائماً مهما كان تاريخها، بينما السجل المرحّل/المعتمد
+    // يبقى لليوم الحالي فقط (منع تصفّح تاريخ المبيعات).
+    .filter(c => !ROLES[me.role]?.todayOnly || c.date === today() || c.status === 'draft' || c.status === 'rejected')
     .filter(c => st === 'all' || c.status === st)
     .filter(c => bid === 'all' || c.branchId === bid)
     .filter(c => !fromD || c.date >= fromD)
