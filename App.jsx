@@ -2521,7 +2521,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v16.8 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v16.9 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -6201,6 +6201,14 @@ function Closing({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
                           {c.status === 'draft' && <button className="btn sm gh" onClick={() => remove(c)}><Trash2 size={13} color="#D9544D" /></button>}
                         </>
                       )}
+                      {/* v16.9 — بطلب المالك: الإدارة تعدّل الإغلاق المرحّل/المعتمد وتعيده مسودة ليراجعها الكاشير */}
+                      {isAdminMe && (c.status === 'submitted' || c.status === 'approved') && (
+                        <button className="btn sm gh" title="تعديل الإغلاق وإعادته مسودة ليراجعها الكاشير ويرحّله من جديد (للإدارة)"
+                          onClick={() => {
+                            if (periodLocked(org, c.date)) return say(LOCK_MSG(c.date), 'no');
+                            setEdit(c); setOpen(true);
+                          }}>تعديل كمسودة</button>
+                      )}
                       {isAdminMe && c.status !== 'draft' && (
                         <button className="btn sm gh" title="حذف نهائي — تصفير هذا الإغلاق من كل السجلات والحسابات (للإدارة)"
                           onClick={() => removeFinal(c)}><Trash2 size={13} color="#D9544D" /></button>
@@ -6396,6 +6404,9 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
     return n;
   }));
 
+  // v16.9 — الإدارة تعدّل إغلاقاً مرحّلاً/معتمداً: يعود مسودةً حصراً ليراجعها الكاشير
+  const demoteMode = !!(initial && (initial.status === 'submitted' || initial.status === 'approved'));
+
   // بناء سجل الإغلاق بعد التحقّق (يعيد null عند فشل التحقّق)
   const buildRecord = (status) => {
     if (!f.branchId) { say('اختر الفرع أولاً', 'no'); return null; }
@@ -6428,6 +6439,8 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
       retainedFloatForTomorrow: retained, transferReferenceNo: ref,
       transferStatus: 'pending', status, gmApprovalStatus: 'pending',
       rejectionReason: status === 'submitted' ? '' : (f.rejectionReason || ''),
+      // v16.9: عند العودة مسودةً تُمسح آثار التدقيق السابقة — دورة اعتماد جديدة نظيفة
+      ...(status === 'draft' ? { auditedBy: '', auditNote: '' } : {}),
       createdBy: me.name, createdAt: initial?.createdAt || nowISO(), updatedAt: nowISO()
     };
     return { rec: { ...rec, closingNo: ref }, id, ref };
@@ -6470,11 +6483,20 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
           severity: 'high', branchId: f.branchId, date: f.date, createdAt: nowISO(), isRead: false
         }, ...notifications].slice(0, 60);
       }
+      // v16.9: الإدارة أعادت إغلاقاً مرحّلاً/معتمداً إلى مسودة — إشعار حتى يراجعه الكاشير ويرحّله
+      if (status === 'draft' && demoteMode) {
+        notifications = [{
+          id: uid('n'), type: 'closing_reverted', title: 'إغلاق أُعيد مسودةً للمراجعة',
+          message: `${rec.branchName} — ${arDate(f.date)} · عدّلته الإدارة (${me.name}) وأعادته مسودة — راجعه ورحّله من جديد`,
+          severity: 'medium', branchId: f.branchId, closingId: id, date: f.date, createdAt: nowISO(), isRead: false
+        }, ...notifications].slice(0, 60);
+      }
       return { ...d, closings, transfers, notifications };
     }, {
       actionType: initial ? 'update' : 'create', targetType: 'daily_closing', targetId: id,
       branchId: f.branchId, branchName: rec.branchName,
-      title: status === 'submitted' ? 'إتمام وترحيل إغلاق وردية' : 'حفظ مسودة إغلاق',
+      title: status === 'submitted' ? 'إتمام وترحيل إغلاق وردية'
+        : (demoteMode ? 'أعادت الإدارة إغلاقاً مرحّلاً إلى مسودة للمراجعة' : 'حفظ مسودة إغلاق'),
       details: `${rec.branchName} — ${arDate(f.date)} · إيراد ${money(totalRevenue)} · فرق ${money(variance)}`
         + (out ? ` · إخراج: ${out.outputMethod} · جهاز: ${out.device} · بصمة ${(out.reportHash || '').slice(0, 10)}` : ''),
       ...(out ? {
@@ -6523,7 +6545,7 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
       say(archivedCount ? `تم إغلاق الوردية ✓ ورُحّل ${archivedCount} مستندًا للأرشيف` : 'تم إغلاق الوردية بنجاح ✓');
       setDone({ branchName: rec.branchName, total: totalRevenue, ref, docsArchived: archivedCount });
     } else {
-      say('تم حفظ المسودة');
+      say(demoteMode ? 'أُعيد الإغلاق مسودةً وأُشعر الفرع — يراجعه الكاشير ويرحّله من جديد ✓' : 'تم حفظ المسودة');
       onClose();
     }
   };
@@ -6585,7 +6607,11 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
   return (
     <Modal wide flow title={initial ? 'تعديل إغلاق وردية' : 'إغلاق وردية جديد'} icon={ClipboardCheck} onClose={onClose}
       sub={`${branch?.name || 'اختر الفرع'} · ${arDate(f.date)}${initial?.transferReferenceNo ? ' · ' + initial.transferReferenceNo : ''} · ${initial ? (initial.status === 'submitted' ? 'مُرحّل' : 'مسودة') : 'إغلاق جديد'}`}
-      foot={<>
+      foot={demoteMode ? <>
+        {/* v16.9: تعديل الإدارة لإغلاق مرحّل/معتمد — الحفظ الوحيد المتاح هو مسودة ليراجعها الكاشير */}
+        <button className="btn pri" onClick={() => save('draft')}><FileText size={14} />حفظ كمسودة ليراجعها الكاشير</button>
+        <button className="btn gh" onClick={onClose}>إلغاء</button>
+      </> : <>
         <button className="btn pri" onClick={() => save('submitted')}><Send size={14} />ترحيل للإدارة المالية</button>
         <button className="btn" onClick={() => save('draft')}>حفظ كمسودة</button>
         <button className="btn gh" onClick={onClose}>إلغاء</button>
