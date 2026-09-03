@@ -326,6 +326,166 @@ const branchBanks = (org) => {
   return out;
 };
 
+/* ═══ v16.7 — وسيط الشبكة تحت التسوية + قارئ كشف البنك والمطابقة ═══ */
+// كود وسيط الشبكة مشتق من كود البنك نفسه (عائلة 18 — ثابت لا يتأثر بترتيب الفروع)
+const posClrOf = (bank) => String(bank) === '1201' ? '1801'
+  : (/^12\d\d$/.test(String(bank)) ? '18' + String(bank).slice(2) : '18' + String(bank));
+// بنك الفرع بنفس منطق buildAccounting حرفياً (كما branchBanks أعلاه)
+const bankOfBranch = (org, branchId) => {
+  const bs = (org && org.branches) || [];
+  const i = bs.findIndex(b => b.id === branchId);
+  if (i < 0) return '1201';
+  const b = bs[i];
+  const has = !!(b && ((b.bankName && String(b.bankName).trim()) || (b.bankIban && String(b.bankIban).trim()) || (b.bankAcc && String(b.bankAcc).trim())));
+  if (!has) return '1201';
+  const validAcc = (code) => !!code && (String(code) === '1201' || ((org && org.customAccounts) || []).some(ca => String(ca.code) === String(code)));
+  return validAcc(b.bankAcc) ? String(b.bankAcc) : '12' + String(11 + i);
+};
+const stAddDays = (d, n) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+// أرقام الكشوف: فواصل آلاف، أرقام عربية-هندية، أقواس سالبة، رموز عملة
+const stNum = (v) => {
+  if (v == null) return 0;
+  let s = String(v).trim();
+  if (!s) return 0;
+  const AR = '٠١٢٣٤٥٦٧٨٩';
+  s = s.replace(/[٠-٩]/g, ch => String(AR.indexOf(ch))).replace(/[٬,\s]/g, '').replace(/ر\.?س|SAR|SR/gi, '');
+  let neg = false;
+  if (/^\(.*\)$/.test(s)) { neg = true; s = s.slice(1, -1); }
+  if (s.endsWith('-')) { neg = true; s = s.slice(0, -1); }
+  const n = parseFloat(s);
+  if (!isFinite(n)) return 0;
+  return neg ? -n : n;
+};
+// تواريخ الكشوف: ISO · يوم/شهر/سنة (السائد بكشوف البنوك السعودية) · رقم إكسل التسلسلي
+const stDate = (v) => {
+  if (v == null) return '';
+  const s = String(v).trim().replace(/[٠-٩]/g, ch => String('٠١٢٣٤٥٦٧٨٩'.indexOf(ch)));
+  let m = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+  if (m) return m[1] + '-' + m[2].padStart(2, '0') + '-' + m[3].padStart(2, '0');
+  m = s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})/);
+  if (m) return m[3] + '-' + m[2].padStart(2, '0') + '-' + m[1].padStart(2, '0');
+  const n = parseFloat(s);
+  if (isFinite(n) && n > 25569 && n < 80000) {   // تاريخ إكسل تسلسلي
+    return new Date(Math.round((n - 25569) * 86400000)).toISOString().slice(0, 10);
+  }
+  return '';
+};
+// CSV: يدعم الفاصلة والفاصلة المنقوطة وTab والاقتباس وBOM
+const parseCsvGrid = (text) => {
+  const t = String(text).replace(/^﻿/, '');
+  const firstLine = t.slice(0, t.indexOf('\n') > -1 ? t.indexOf('\n') : t.length);
+  const delim = (firstLine.match(/;/g) || []).length > (firstLine.match(/,/g) || []).length ? ';'
+    : ((firstLine.match(/\t/g) || []).length > (firstLine.match(/,/g) || []).length ? '\t' : ',');
+  const grid = []; let row = []; let cell = ''; let q = false;
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (q) {
+      if (ch === '"') { if (t[i + 1] === '"') { cell += '"'; i++; } else q = false; }
+      else cell += ch;
+    } else if (ch === '"') q = true;
+    else if (ch === delim) { row.push(cell); cell = ''; }
+    else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && t[i + 1] === '\n') i++;
+      row.push(cell); cell = '';
+      if (row.some(c => String(c).trim() !== '')) grid.push(row);
+      row = [];
+    } else cell += ch;
+  }
+  row.push(cell);
+  if (row.some(c => String(c).trim() !== '')) grid.push(row);
+  return grid;
+};
+// XLSX: قارئ مصغّر — سجل الدليل المركزي للـzip + فك deflate عبر DecompressionStream + XML للورقة الأولى
+const parseXlsxGrid = async (buf) => {
+  const u8 = new Uint8Array(buf);
+  const dv = new DataView(buf);
+  let eocd = -1;
+  for (let i = u8.length - 22; i >= Math.max(0, u8.length - 66000); i--) {
+    if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error('zip');
+  const cnt = dv.getUint16(eocd + 10, true);
+  let off = dv.getUint32(eocd + 16, true);
+  const entries = {};
+  for (let e = 0; e < cnt; e++) {
+    if (dv.getUint32(off, true) !== 0x02014b50) break;
+    const method = dv.getUint16(off + 10, true);
+    const csize = dv.getUint32(off + 20, true);
+    const nlen = dv.getUint16(off + 28, true), elen = dv.getUint16(off + 30, true), clen = dv.getUint16(off + 32, true);
+    const lho = dv.getUint32(off + 42, true);
+    const name = new TextDecoder().decode(u8.slice(off + 46, off + 46 + nlen));
+    entries[name] = { method, csize, lho };
+    off += 46 + nlen + elen + clen;
+  }
+  const readEntry = async (name) => {
+    const en = entries[name];
+    if (!en) return null;
+    const lnlen = dv.getUint16(en.lho + 26, true), lelen = dv.getUint16(en.lho + 28, true);
+    const data = u8.slice(en.lho + 30 + lnlen + lelen, en.lho + 30 + lnlen + lelen + en.csize);
+    if (en.method === 0) return new TextDecoder().decode(data);
+    if (typeof DecompressionStream === 'undefined') throw new Error('ds');
+    const ds = new DecompressionStream('deflate-raw');
+    const ab = await new Response(new Blob([data]).stream().pipeThrough(ds)).arrayBuffer();
+    return new TextDecoder().decode(ab);
+  };
+  const dec = (s) => String(s || '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+  const sstXml = await readEntry('xl/sharedStrings.xml');
+  const sst = [];
+  if (sstXml) {
+    const sis = sstXml.split('<si>').slice(1);
+    sis.forEach(si => {
+      let txt = '';
+      const parts = si.match(/<t[^>]*>([\s\S]*?)<\/t>/g) || [];
+      parts.forEach(p => { txt += dec(p.replace(/<t[^>]*>/, '').replace('</t>', '')); });
+      sst.push(txt);
+    });
+  }
+  const sheetName = Object.keys(entries).find(n => /^xl\/worksheets\/sheet1\.xml$/.test(n)) || Object.keys(entries).find(n => /^xl\/worksheets\/sheet\d+\.xml$/.test(n));
+  const shXml = await readEntry(sheetName);
+  if (!shXml) throw new Error('sheet');
+  const grid = [];
+  const rowRe = /<row[^>]*>([\s\S]*?)<\/row>/g; let rm;
+  while ((rm = rowRe.exec(shXml))) {
+    const cells = [];
+    const cellRe = /<c([^>]*)(?:\/>|>([\s\S]*?)<\/c>)/g; let cm;
+    while ((cm = cellRe.exec(rm[1]))) {
+      const attrs = cm[1] || ''; const inner = cm[2] || '';
+      const ref = (attrs.match(/r="([A-Z]+)\d+"/) || [])[1] || '';
+      let col = 0;
+      for (const ch of ref) col = col * 26 + (ch.charCodeAt(0) - 64);
+      col = Math.max(0, col - 1);
+      const type = (attrs.match(/t="(\w+)"/) || [])[1] || '';
+      let val = '';
+      const vM = inner.match(/<v>([\s\S]*?)<\/v>/);
+      if (type === 'inlineStr') { const tM = inner.match(/<t[^>]*>([\s\S]*?)<\/t>/); val = dec(tM ? tM[1] : ''); }
+      else if (vM) val = type === 's' ? (sst[Number(vM[1])] ?? '') : dec(vM[1]);
+      cells[col] = val;
+    }
+    grid.push(Array.from(cells, x => x ?? ''));
+  }
+  return grid.filter(r => r.some(c => String(c).trim() !== ''));
+};
+// اكتشاف أعمدة الكشف تلقائياً بكلمات مفاتيح شائعة (عربي/إنجليزي)
+const detectStmtMap = (grid) => {
+  const kw = {
+    date: ['تاريخ', 'التاريخ', 'date', 'يوم'],
+    credit: ['دائن', 'إيداع', 'ايداع', 'وارد', 'credit', 'deposit'],
+    debit: ['مدين', 'خصم', 'سحب', 'صادر', 'debit', 'withdraw'],
+    amount: ['مبلغ', 'المبلغ', 'قيمة', 'amount'],
+    desc: ['وصف', 'بيان', 'البيان', 'تفاصيل', 'description', 'details', 'narration']
+  };
+  const hit = (cell, list) => { const s = String(cell || '').toLowerCase(); return list.some(k => s.includes(k)); };
+  for (let r = 0; r < Math.min(grid.length, 12); r++) {
+    const row = grid[r] || [];
+    const m = { date: -1, credit: -1, debit: -1, amount: -1, desc: -1 };
+    row.forEach((cell, ci) => {
+      Object.keys(kw).forEach(k => { if (m[k] < 0 && hit(cell, kw[k])) m[k] = ci; });
+    });
+    if (m.date >= 0 && (m.credit >= 0 || m.amount >= 0)) return { ...m, start: r + 1 };
+  }
+  return null;
+};
+
 // ترقيم تلقائي لكل شريك حسب نوعه — لتمييز التكرار في الأسماء
 const PT_PREFIX = { supplier: 'مورد', employee: 'موظف', customer: 'عميل' };
 const partnerCode = (type, seq) => (PT_PREFIX[type] || 'شريك') + '-' + String(seq).padStart(3, '0');
@@ -791,6 +951,20 @@ function buildAccounting(org, ops) {
     clrCode[b.id] = cl;
     addAcc(cl, 'حساب وسيط — تحصيلات تحت التحويل — ' + (b.name || 'فرع'), 'asset', { link: 'نقدٌ غادر الفرع للرئيسي ولم يُستلَم بعد', cash: true });
   });
+  // v16.7 — وسيط الشبكة تحت التسوية (اختياري، يسري من شهر يحدده المالك): مبيعات الشبكة
+  // تُقيَّد في وسيط البنك بدل البنك مباشرة (البنك يسوّيها لاحقاً بعد خصم رسومه)، ثم
+  // تُقفل في البنك من شاشة التسوية البنكية عند المطابقة مع الكشف. عائلة الرمز 18.
+  const pcCfg = org.posClearing || {};
+  const pcFrom = (pcCfg.enabled && pcCfg.from) ? String(pcCfg.from) : null;
+  const pcOn = (d) => !!(pcFrom && d && String(d).slice(0, 7) >= pcFrom);
+  if (pcFrom) {
+    const usedBanks = new Set(['1201', ...Object.values(bankCode)]);
+    usedBanks.forEach(bk => {
+      const names = (org.branches || []).filter(b => bankCode[b.id] === bk).map(b => b.name).filter(Boolean);
+      addAcc(posClrOf(bk), 'وسيط الشبكة تحت التسوية — ' + (bk === '1201' ? 'البنك التجميعي' : (names.join('، ') || ('بنك ' + bk))), 'asset',
+        { link: 'شبكة لم يسوّها البنك بعد — تُقفل من شاشة التسوية البنكية', cash: true });
+    });
+  }
   // ذمم مبوّبة: حساب مستقل لكل تطبيق توصيل — يُدمج بعمولته المعرّفة في الإعدادات
   const appAcc = {};
   (org.deliveryApps || []).forEach((a, i) => {
@@ -869,7 +1043,8 @@ function buildAccounting(org, ops) {
     if (tot > 0) {
       const lines = [];
       if (cash) lines.push(L(bCode, cash, 0));
-      if (card) lines.push(L(bkCode, card, 0));
+      // v16.7: مع تفعيل وسيط الشبكة، الشبكة تدخل الوسيط (البنك يسوّيها لاحقاً) — التحويل البنكي المباشر يبقى للبنك
+      if (card) lines.push(L(pcOn(c.date) ? posClrOf(bkCode) : bkCode, card, 0));
       if (bankT) lines.push(L(bkCode, bankT, 0)); // v15: تحصيل التحويل البنكي المباشر في البنك (v15.4: بنك الفرع إن وُجد)
       appRows.forEach(s => {
         const gross = s.amount || 0;
@@ -2346,7 +2521,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v16.6 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v16.7 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -10971,6 +11146,101 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   // آخر تسوية للبنك المختار نفسه (سجلات قديمة بلا acc تُعامل كتجميعي)
   const lastRec = (ops.bankRecs || []).find(r => (r.acc || '1201') === brAcc);
 
+  // ===== v16.7: وسيط الشبكة تحت التسوية + رفع كشف البنك والمطابقة =====
+  const pcCfgUi = org.posClearing || {};
+  const clrAcc = posClrOf(brAcc);
+  const clrBal = (() => { const a = A.accounts.find(x => x.code === clrAcc); return a ? Math.round(a.balance * 100) / 100 : 0; })();
+  const canEditMe = capOK(me?.role, 'edit');
+  const [pcF, setPcF] = useState(() => ({ enabled: !!pcCfgUi.enabled, from: pcCfgUi.from || new Date().toISOString().slice(0, 7) }));
+  const savePc = async () => {
+    if (pcF.enabled && !pcF.from) return say('حدد الشهر الذي يسري منه الوسيط', 'no');
+    const ok = await commitOrg(d => ({ ...d, posClearing: { enabled: !!pcF.enabled, from: pcF.from } }), {
+      actionType: 'update', targetType: 'settings', targetId: 'posClearing', need: 'edit',
+      title: pcF.enabled ? 'فعّل وسيط الشبكة تحت التسوية' : 'أوقف وسيط الشبكة تحت التسوية',
+      details: pcF.enabled ? ('يسري من ' + pcF.from) : ''
+    });
+    if (ok) say(pcF.enabled ? 'فُعّل وسيط الشبكة — يسري على إغلاقات ' + pcF.from + ' فما بعد ✓' : 'أُوقف وسيط الشبكة — عادت الشبكة تدخل البنك مباشرة');
+  };
+
+  const [stF, setStF] = useState(null);        // {name, grid, map} — الكشف المرفوع وخريطته
+  const [stMonth, setStMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [stMatch, setStMatch] = useState(null); // نتيجة المطابقة
+  const stPick = async (e) => {
+    const f = e.target.files?.[0]; e.target.value = '';
+    if (!f) return;
+    try {
+      let grid;
+      if (/\.(xlsx)$/i.test(f.name)) grid = await parseXlsxGrid(await f.arrayBuffer());
+      else grid = parseCsvGrid(await f.text());
+      if (!grid || grid.length < 2) return say('الملف فارغ أو غير مقروء — جرّب تصديره CSV من بنكك', 'no');
+      const map = detectStmtMap(grid);
+      setStMatch(null);
+      setStF({ name: f.name, grid, map: map || { date: 0, credit: -1, debit: -1, amount: 1, desc: -1, start: 1 }, auto: !!map });
+      say(map ? 'قُرئ الكشف (' + (grid.length - map.start) + ' سطراً) وتعرّفت على أعمدته تلقائياً ✓' : 'قُرئ الكشف — حدّد الأعمدة يدوياً ثم اضغط «طابق»');
+    } catch (err) {
+      say('تعذّرت قراءة الملف — إن كان Excel قديماً (.xls) فاحفظه بصيغة CSV أو xlsx وأعد رفعه', 'no');
+    }
+  };
+  const stRun = () => {
+    if (!stF) return say('ارفع ملف كشف البنك أولاً', 'no');
+    const { grid, map } = stF;
+    const deposits = [];
+    for (let r = map.start; r < grid.length; r++) {
+      const g = grid[r] || [];
+      const d = stDate(g[map.date]);
+      let credit = 0;
+      if (map.credit >= 0) credit = stNum(g[map.credit]);
+      else if (map.amount >= 0) credit = Math.max(0, stNum(g[map.amount]));
+      if (!d || !(credit > 0)) continue;
+      deposits.push({ date: d, amount: Math.round(credit * 100) / 100, desc: String(g[map.desc] ?? '').slice(0, 70), used: false });
+    }
+    const mStart = stMonth + '-01';
+    const nm = new Date(mStart + 'T12:00:00Z'); nm.setUTCMonth(nm.getUTCMonth() + 1);
+    const mEnd = stAddDays(nm.toISOString().slice(0, 10), 6);   // حتى نهاية الشهر + ٦ أيام (تسوية آخر الشهر تصل أول التالي)
+    const dep = deposits.filter(x => x.date >= mStart && x.date <= mEnd).sort((a, b) => a.date.localeCompare(b.date));
+    const sysMap = {};
+    (ops.closings || []).forEach(c => {
+      if (!(c.status === 'submitted' || c.status === 'approved')) return;
+      if ((c.date || '').slice(0, 7) !== stMonth) return;
+      if (bankOfBranch(org, c.branchId) !== brAcc) return;
+      const amt = Math.round((c.cardSales || 0) * 100) / 100;
+      if (amt > 0) sysMap[c.date] = Math.round(((sysMap[c.date] || 0) + amt) * 100) / 100;
+    });
+    const sys = Object.entries(sysMap).map(([date, amount]) => ({ date, amount, used: false })).sort((a, b) => a.date.localeCompare(b.date));
+    const matched = [];
+    sys.forEach(s => {
+      const hit = dep.find(dp => !dp.used && Math.abs(dp.amount - s.amount) < 0.01 && dp.date >= s.date && dp.date <= stAddDays(s.date, 4));
+      if (hit) { hit.used = true; s.used = true; matched.push({ sDate: s.date, bDate: hit.date, amount: s.amount }); }
+    });
+    const r2s = (arr) => Math.round(sum(arr, x => x.amount) * 100) / 100;
+    const res = {
+      month: stMonth, bank: brAcc, depCount: dep.length,
+      sysTotal: r2s(sys), bankTotal: r2s(dep), matchedTotal: r2s(matched),
+      matched, sysUn: sys.filter(s => !s.used), bankUn: dep.filter(x => !x.used)
+    };
+    res.diff = Math.round((res.sysTotal - res.bankTotal) * 100) / 100;
+    setStMatch(res);
+    setClsAmt(String(res.matchedTotal || ''));
+  };
+  const [clsAmt, setClsAmt] = useState('');
+  const [clsDate, setClsDate] = useState(() => today());
+  const postClearingClose = async () => {
+    const amt = Math.round((Number(clsAmt) || 0) * 100) / 100;
+    if (!(amt > 0)) return say('أدخل مبلغ الإقفال', 'no');
+    if (periodLocked(org, clsDate)) return say(LOCK_MSG(clsDate), 'no');
+    if (amt > clrBal + 0.01) return say('المبلغ أكبر من رصيد الوسيط الحالي (' + money(clrBal) + ')', 'no');
+    const rec = {
+      id: uid('jm'), date: clsDate, title: 'إقفال وسيط الشبكة في ' + bankLabel(brAcc) + (stMatch ? ' — مطابقة ' + stMatch.month : ''),
+      opening: false, by: me?.name || '', createdAt: nowISO(),
+      lines: [{ code: brAcc, debit: amt, credit: 0 }, { code: clrAcc, debit: 0, credit: amt }]
+    };
+    const ok = await commit(d => ({ ...d, journalManual: [rec, ...(d.journalManual || [])] }), {
+      actionType: 'create', targetType: 'journal_entry', targetId: rec.id, need: 'post',
+      title: 'قيد إقفال وسيط الشبكة', details: bankLabel(brAcc) + ' · ' + money(amt) + ' ر.س'
+    });
+    if (ok) { setClsAmt(''); say('أُقفل ' + money(amt) + ' من وسيط الشبكة في ' + bankLabel(brAcc) + ' ✓'); }
+  };
+
   // ===== v8.4: إقفال الفترات =====
   const plCfg = org.periodLocks || {};
   const plLog = plCfg.log || [];
@@ -13203,6 +13473,124 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
               </select>
             </div>
           )}
+          {/* ═══ v16.7: وسيط الشبكة تحت التسوية ═══ */}
+          <div className="card" style={{ background: 'rgba(200,162,74,.05)', borderColor: 'var(--frame)' }}>
+            <div className="card-h" style={{ marginBottom: 6 }}>
+              <div className="card-t" style={{ fontSize: 14 }}><ArrowLeftRight size={15} color="var(--brass)" />وسيط الشبكة تحت التسوية{pcCfgUi.enabled ? '' : ' — غير مفعّل'}</div>
+              {pcCfgUi.enabled && <span className="badge b-mint">مفعّل من {pcCfgUi.from}</span>}
+            </div>
+            <div className="note" style={{ marginBottom: 10 }}>
+              عند التفعيل: مبيعات <b>الشبكة</b> تُقيَّد في حساب وسيط لكل بنك بدل دخول البنك مباشرة (لأن البنك يسوّيها
+              بعد يوم أو أكثر وبخصم رسومه)، ثم <b>تُقفل في البنك من هنا عند المطابقة</b> مع الكشف. النقد والتحويل
+              البنكي المباشر لا يتغيّران، والتاريخ الأقدم من شهر السريان يبقى كما هو تمامًا.
+            </div>
+            {canEditMe && (
+              <div className="row" style={{ gap: 9, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                <label className="row" style={{ gap: 7, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={pcF.enabled} onChange={e => setPcF(f => ({ ...f, enabled: e.target.checked }))} />
+                  <span style={{ fontSize: 12.5, fontWeight: 600 }}>تفعيل وسيط الشبكة</span>
+                </label>
+                <Field label="يسري من شهر" style={{ width: 160, marginBottom: 0 }}>
+                  <input type="month" className="inp" value={pcF.from} onChange={e => setPcF(f => ({ ...f, from: e.target.value }))} />
+                </Field>
+                <button className="btn pri" onClick={savePc}><Check size={14} />حفظ الإعداد</button>
+              </div>
+            )}
+            {pcCfgUi.enabled && (
+              <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                <span className="badge b-brass">رصيد وسيط {bankLabel(brAcc)}: <span className="num">{money(clrBal)}</span> ر.س</span>
+                {clrBal > 0.009 && <span className="badge b-amber">شبكة لم يسوّها البنك بعد — طابِق ثم أقفِل أدناه</span>}
+                {Math.abs(clrBal) <= 0.009 && <span className="badge b-mint">الوسيط مُقفل بالكامل ✓</span>}
+              </div>
+            )}
+          </div>
+
+          {/* ═══ v16.7: رفع كشف البنك والمطابقة الآلية ═══ */}
+          {canPost && (
+            <div className="card">
+              <div className="card-t" style={{ marginBottom: 8 }}><FileBarChart size={15} color="var(--brass)" />مطابقة كشف {bankLabel(brAcc)} — ارفع الملف واعرف الفارق أين</div>
+              <div className="row" style={{ gap: 9, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                <Field label="شهر المطابقة" style={{ width: 150, marginBottom: 0 }}>
+                  <input type="month" className="inp" value={stMonth} onChange={e => { setStMonth(e.target.value); setStMatch(null); }} />
+                </Field>
+                <div>
+                  <input type="file" accept=".csv,.xlsx,text/csv" style={{ display: 'none' }} id="stfile" onChange={stPick} />
+                  <button className="btn" onClick={() => document.getElementById('stfile').click()}><Download size={14} />رفع كشف البنك (Excel / CSV)</button>
+                </div>
+                {stF && <span className="badge b-dim" style={{ direction: 'ltr' }}>{stF.name}</span>}
+                {stF && <button className="btn pri" onClick={stRun}><Scale size={14} />طابِق الآن</button>}
+              </div>
+              {stF && !stF.auto && (
+                <div style={{ marginTop: 10, padding: 10, borderRadius: 10, border: '1px dashed var(--line-g)' }}>
+                  <div className="lbl">لم أتعرّف على أعمدة الكشف تلقائيًا — حدّدها يدويًا (رقم العمود يبدأ من ١ يمينًا في الملف):</div>
+                  <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                    {[['date', 'عمود التاريخ'], ['credit', 'عمود الإيداع (دائن)'], ['amount', 'أو عمود المبلغ'], ['desc', 'عمود الوصف (اختياري)']].map(([k, lb]) => (
+                      <Field key={k} label={lb} style={{ width: 140, marginBottom: 0 }}>
+                        <select className="sel" value={stF.map[k]} onChange={e => setStF(s => ({ ...s, map: { ...s.map, [k]: Number(e.target.value) } }))}>
+                          <option value={-1}>—</option>
+                          {(stF.grid[0] || []).map((_, ci) => <option key={ci} value={ci}>عمود {ci + 1}{stF.grid[stF.map.start] ? ' · ' + String(stF.grid[stF.map.start][ci] ?? '').slice(0, 14) : ''}</option>)}
+                        </select>
+                      </Field>
+                    ))}
+                    <Field label="أول صف بيانات" style={{ width: 110, marginBottom: 0 }}>
+                      <input className="inp n" inputMode="numeric" value={stF.map.start + 1} onChange={e => setStF(s => ({ ...s, map: { ...s.map, start: Math.max(0, (Number(e.target.value) || 1) - 1) } }))} />
+                    </Field>
+                  </div>
+                </div>
+              )}
+              {stMatch && (
+                <div style={{ marginTop: 12 }}>
+                  <div className="grid g4" style={{ gap: 9 }}>
+                    <div className="mono-b"><span style={{ fontSize: 11 }}>شبكة النظام — {stMatch.month}</span><span className="num" style={{ color: 'var(--brass)' }}>{money(stMatch.sysTotal)}</span></div>
+                    <div className="mono-b"><span style={{ fontSize: 11 }}>إيداعات الكشف</span><span className="num">{money(stMatch.bankTotal)}</span></div>
+                    <div className="mono-b"><span style={{ fontSize: 11 }}>تطابق تلقائيًا</span><span className="num" style={{ color: 'var(--mint)' }}>{money(stMatch.matchedTotal)}</span></div>
+                    <div className="mono-b" style={{ borderColor: Math.abs(stMatch.diff) < 0.01 ? 'rgba(79,178,134,.4)' : 'rgba(217,84,77,.4)' }}>
+                      <span style={{ fontSize: 11 }}>الفارق</span>
+                      <span className="num" style={{ color: Math.abs(stMatch.diff) < 0.01 ? 'var(--mint)' : 'var(--rose)' }}>{Math.abs(stMatch.diff) < 0.01 ? 'مطابق ✓' : money(stMatch.diff)}</span>
+                    </div>
+                  </div>
+                  {(stMatch.sysUn.length > 0 || stMatch.bankUn.length > 0) ? (
+                    <div className="grid g2" style={{ gap: 10, marginTop: 10 }}>
+                      <div>
+                        <div className="lbl" style={{ color: 'var(--rose)' }}>⚠ في النظام ولم تظهر في الكشف ({stMatch.sysUn.length}) — شبكة لم يسوّها البنك بعد أو سُوّيت بخصم رسوم</div>
+                        {stMatch.sysUn.length ? (
+                          <div className="tw"><table className="tb" style={{ minWidth: 0 }}>
+                            <thead><tr><th>يوم البيع</th><th style={{ textAlign: 'end' }}>شبكة النظام</th></tr></thead>
+                            <tbody>{stMatch.sysUn.map(s => <tr key={s.date}><td className="num" style={{ fontSize: 11 }}>{s.date}</td><td className="num" style={{ textAlign: 'end' }}>{money(s.amount)}</td></tr>)}</tbody>
+                          </table></div>
+                        ) : <div className="empty" style={{ padding: 12 }}>لا شيء — كل أيام النظام وجدت مقابلها ✓</div>}
+                      </div>
+                      <div>
+                        <div className="lbl" style={{ color: 'var(--amber)' }}>⚠ في الكشف بلا مقابل في النظام ({stMatch.bankUn.length}) — إيداعات أخرى أو تسويات مجمّعة/منقوصة الرسوم</div>
+                        {stMatch.bankUn.length ? (
+                          <div className="tw"><table className="tb" style={{ minWidth: 0 }}>
+                            <thead><tr><th>تاريخ الإيداع</th><th>الوصف</th><th style={{ textAlign: 'end' }}>المبلغ</th></tr></thead>
+                            <tbody>{stMatch.bankUn.map((x, i) => <tr key={i}><td className="num" style={{ fontSize: 11 }}>{x.date}</td><td style={{ fontSize: 11, color: 'var(--dim)' }}>{x.desc || '—'}</td><td className="num" style={{ textAlign: 'end' }}>{money(x.amount)}</td></tr>)}</tbody>
+                          </table></div>
+                        ) : <div className="empty" style={{ padding: 12 }}>لا شيء — كل إيداعات الكشف وجدت مقابلها ✓</div>}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="note" style={{ marginTop: 10 }}>🎉 مطابقة كاملة — كل أيام شبكة النظام وجدت إيداعاتها في الكشف والعكس.</div>
+                  )}
+                  {pcCfgUi.enabled && (
+                    <div className="row" style={{ gap: 9, marginTop: 12, flexWrap: 'wrap', alignItems: 'flex-end', padding: '10px 12px', borderRadius: 10, background: 'var(--acc-soft)', border: '1px solid var(--frame-o)' }}>
+                      <b style={{ fontSize: 12.5 }}>إقفال المطابَق في البنك:</b>
+                      <Field label="المبلغ" style={{ width: 140, marginBottom: 0 }}>
+                        <input className="inp n" inputMode="decimal" value={clsAmt} onChange={e => setClsAmt(e.target.value.replace(/[^\d.]/g, ''))} />
+                      </Field>
+                      <Field label="بتاريخ" style={{ width: 145, marginBottom: 0 }}>
+                        <input type="date" className="inp" value={clsDate} onChange={e => setClsDate(e.target.value)} />
+                      </Field>
+                      <button className="btn pri" onClick={postClearingClose}><Check size={14} />قيد الإقفال (بنك من وسيط)</button>
+                      <span style={{ fontSize: 10.5, color: 'var(--dim)' }}>رصيد الوسيط الحالي: <span className="num">{money(clrBal)}</span></span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="grid g3">
             <Kpi label={'رصيد ' + bankLabel(brAcc) + ' بالدفاتر (' + brAcc + ')'} value={money(bankBookAt(''))} sub={brAcc === '1201' ? 'الشبكة والمدفوعات البنكية — تجميعي' : 'تحصيلات الشبكة والتحويل بالفرع'} icon={Landmark} color="#C8A24A" />
             <Kpi label={lastRec ? 'آخر تسوية موثقة' : 'لا تسويات بعد'} value={lastRec ? money(lastRec.stmtBalance) : '—'} sub={lastRec ? lastRec.date + ' · بواسطة ' + lastRec.by : 'ابدأ أول تسوية أدناه'} icon={ClipboardCheck} color="#5B93C4" />
