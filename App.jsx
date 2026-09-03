@@ -1276,7 +1276,7 @@ const ROLES = {
   cashier: {
     ar: 'كاشير — إدخال إغلاق اليوم', badge: 'b-sky', scope: 'own', create: true, todayOnly: true,
     tabs: ['closing'],
-    perms: ['إنشاء وترحيل إغلاق اليوم لفرعه', 'جرد الصندوق وإدخال المبيعات والمصروفات', 'اليوم الحالي فقط دون سجلّ سابق']
+    perms: ['إنشاء وترحيل إغلاق اليوم لفرعه', 'جرد الصندوق وإدخال المبيعات والمصروفات', 'اليوم الحالي فقط دون سجلّ سابق — عدا مسوداته غير المكتملة فتظهر دائماً']
   },
   branch_manager: {
     ar: 'مدير الفرع', badge: 'b-mint', scope: 'own', create: true,
@@ -2273,7 +2273,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.25 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.26 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -5755,7 +5755,9 @@ function Closing({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
   const [limit, setLimit] = useState(15);
 
   const filtered = [...scoped.closings]
-    .filter(c => !ROLES[me.role]?.todayOnly || c.date === today())
+    // v15.26: قيْد «اليوم فقط» (الكاشير) لا يحجب مسوداته غير المكتملة — تظهر دائماً مهما كان
+    // تاريخها ليُكملها أو يرحّلها، بينما السجل المرحّل/المعتمد يبقى لليوم الحالي فقط.
+    .filter(c => !ROLES[me.role]?.todayOnly || c.date === today() || c.status === 'draft')
     .filter(c => st === 'all' || c.status === st)
     .filter(c => bid === 'all' || c.branchId === bid)
     .filter(c => !fromD || c.date >= fromD)
