@@ -1603,6 +1603,19 @@ export default function App() {
   const [installed, setInstalled] = useState(false);
   const [updateReady, setUpdateReady] = useState(false);   // v11.1 توفّر نسخة أحدث منشورة
   const sid = useRef(uid('s'));
+  // v15.29 — جلسة واحدة لكل مستخدم (عدا أدوار الإدارة): هوية ثابتة لهذا المتصفح تبقى
+  // عبر إعادة التحميل وتتشاركها تبويبات المتصفح الواحد (فلا يطرد المتصفح نفسه)،
+  // بينما يحمل كل متصفح/جهاز آخر هوية مختلفة فيُكشف الدخول المزدوج ويُنهى الأقدم.
+  const bsid = useRef((() => {
+    try {
+      if (typeof window !== 'undefined' && window.__bsidTest) return window.__bsidTest;   // خطّاف اختبار آلي فقط
+      let v = localStorage.getItem('rms8:bsid');
+      if (!v) { v = uid('bw'); localStorage.setItem('rms8:bsid', v); }
+      return v;
+    } catch { return uid('bw'); }
+  })());
+  const claimRef = useRef({ done: false, at: 0 });          // مطالبة هذا المتصفح بجلسة المستخدم الحالي
+  const [kickMsg, setKickMsg] = useState(null);             // سبب الإنهاء التلقائي — يُعرض في بوابة الدخول
   const toastTimer = useRef(null);
 
   // v15.14: نلغي أي مؤقّت إخفاء سابق قبل جدولة مؤقّت جديد — وإلا فرسالة سريعة تالية لأخرى
@@ -1976,17 +1989,39 @@ export default function App() {
     return () => clearInterval(t);
   }, [me, org, locked, sessLogout]);
 
+  // v15.29: رسالة الإنهاء التلقائي (دخول من متصفح آخر) — تُمسح فور دخول ناجح جديد
+  useEffect(() => { if (me) setKickMsg(null); }, [me]);
+  const kickOut = useCallback(() => {
+    setKickMsg('تم تسجيل الدخول لحسابك من متصفح أو جهاز آخر، فأُنهيت هذه الجلسة تلقائياً حفاظاً على سلامة إدخال البيانات. إن لم يكن ذلك أنت فغيّر كلمة السر فوراً.');
+    sessLogout();
+  }, [sessLogout]);
+
   useEffect(() => {
     if (!me) return;
-    // v15.28 ترشيد: نبضة كل ٦٠ ثانية بدل ٢٠ (بنافذة حضور ١٥٠ ثانية بدل ٧٠ في كل مواضع
-    // العرض) وتتوقف والتبويب مخفي — خفض قراءات/كتابات النبض ٣ أضعاف فأكثر لكل جهاز.
+    // v15.29 — جلسة واحدة لكل مستخدم (عدا أدوار الإدارة admin): عند الدخول يطالب هذا
+    // المتصفح بالجلسة داخل مستند النبض (logins[معرّف المستخدم] = هوية المتصفح + لحظة
+    // الدخول)، وأي متصفح آخر لنفس المستخدم يكتشف مطالبة أحدث فيخرج تلقائياً — الأحدث
+    // دائماً يفوز، فلا إدخال مزدوج متعارض. صفر قراءات إضافية: الفحص داخل قراءة النبضة
+    // القائمة أصلاً، والاكتشاف اللحظي عبر اشتراك النبض القائم أصلاً.
+    claimRef.current = { done: false, at: Date.now() };
+    const single = !(ROLES[me.role] || {}).admin;
     const beat = async () => {
       if (typeof document !== 'undefined' && document.hidden) return;
       const pu = await cloud.get(KEYS.pulse, { presence: {}, audit: [] });
+      if (single && claimRef.current.done) {
+        const lg = (pu.logins || {})[me.id];
+        if (lg && lg.sid !== bsid.current && (lg.at || 0) > claimRef.current.at) { kickOut(); return; }
+        // مطالبة أقدم أو ممسوحة بكتابة متزامنة عتيقة → نعيد كتابة مطالبتنا الأحدث أدناه
+      }
       const pres = { ...(pu.presence || {}) };
       pres[sid.current] = { name: me.name, role: me.role, at: Date.now() };
       Object.keys(pres).forEach(k => { if (Date.now() - (pres[k].at || 0) > 150000) delete pres[k]; });
       const next = { ...pu, presence: pres };
+      if (single) {
+        next.logins = { ...(pu.logins || {}) };
+        next.logins[me.id] = { sid: bsid.current, at: claimRef.current.at, name: me.name };
+        claimRef.current.done = true;
+      }
       await cloud.set(KEYS.pulse, next);
       setPulse(next);
     };
@@ -1995,7 +2030,15 @@ export default function App() {
     const onVis = () => { if (!document.hidden) beat(); };   // عودة التبويب = نبضة فورية
     document.addEventListener('visibilitychange', onVis);
     return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVis); };
-  }, [me]);
+  }, [me, kickOut]);
+
+  // v15.29: الاكتشاف اللحظي — أي تحديث للنبض يصل (اشتراك لحظي أو استطلاع) يُفحص فوراً،
+  // فالمتصفح الأقدم يخرج خلال ثوانٍ من دخول الأحدث دون انتظار النبضة التالية.
+  useEffect(() => {
+    if (!me || (ROLES[me.role] || {}).admin || !claimRef.current.done) return;
+    const lg = (pulse.logins || {})[me.id];
+    if (lg && lg.sid !== bsid.current && (lg.at || 0) > claimRef.current.at) kickOut();
+  }, [pulse, me, kickOut]);
 
   /* --- v9: الكتابة الآمنة الموجَّهة — التعديل يقع على ops المدمجة كما اعتاد كل الكود،
          ثم يُوزَّع على المستند المركزي ومستندات الفروع، ولا يُكتب إلا ما تغيّر فعلًا.
@@ -2136,7 +2179,7 @@ export default function App() {
 
   // مصادقة سحابية مفعّلة ولا جلسة: بوابة الدخول الحقيقية قبل تحميل أي بيانات
   if (needAuth && !me) {
-    return <FbGate css={CSS} theme={theme} fbLogin={fbLogin} fbFirstSetup={fbFirstSetup} />;
+    return <FbGate css={CSS} theme={theme} fbLogin={fbLogin} fbFirstSetup={fbFirstSetup} notice={kickMsg} />;
   }
 
   // أول تشغيل: لا يوجد أي مستخدم بعد → شاشة التسجيل الأولي لإنشاء حساب المالك
@@ -2146,7 +2189,7 @@ export default function App() {
   }
 
   if (!me) {
-    return <Gate css={CSS} theme={theme} org={org}
+    return <Gate css={CSS} theme={theme} org={org} notice={kickMsg}
       onLogin={(u) => { setMe(u); setTab('home'); }}
       online={Object.values(pulse.presence || {}).filter(p => Date.now() - p.at < 150000)} />;
   }
@@ -2294,7 +2337,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.28 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.29 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2629,7 +2672,7 @@ function FirstRun({ css, theme, commitOrg, say, onDone }) {
 
 /* ================= بوابة الدخول (بريد وكلمة سر) ================= */
 /* ================= بوابة الدخول — المصادقة السحابية الحقيقية ================= */
-function FbGate({ css, theme, fbLogin, fbFirstSetup }) {
+function FbGate({ css, theme, fbLogin, fbFirstSetup, notice }) {
   const [email, setEmail] = useState(() => { try { return localStorage.getItem('rms8:lastEmail') || ''; } catch { return ''; } });
   const [pass, setPass] = useState('');
   const [err, setErr] = useState('');
@@ -2655,6 +2698,7 @@ function FbGate({ css, theme, fbLogin, fbFirstSetup }) {
             <span className="badge b-mint"><Lock size={10} />مصادقة سحابية مفعّلة</span>
           </div>
           <div className="card">
+            {notice && <div style={{ border: '1px solid rgba(200,162,74,.45)', background: 'rgba(200,162,74,.10)', color: 'var(--brass-l)', borderRadius: 10, padding: '10px 12px', marginBottom: 12, fontSize: 12, lineHeight: 1.8, textAlign: 'center' }}>{notice}</div>}
             {setup && <div style={{ border: '1px solid rgba(200,162,74,.4)', background: 'rgba(200,162,74,.08)', color: 'var(--brass-l)', borderRadius: 10, padding: '9px 12px', marginBottom: 12, fontSize: 11.5, lineHeight: 1.7 }}>
               الإعداد الأول (مرة واحدة بعد الترقية): أدخل بريد المالك وكلمة سر جديدة — يُنشأ حساب المصادقة وتصبح مديرًا للمنصة.
             </div>}
@@ -2762,7 +2806,7 @@ function LockScreen({ me, theme, mode, onUnlock, onLogout }) {
   );
 }
 
-function Gate({ css, org, onLogin, online, theme }) {
+function Gate({ css, org, onLogin, online, theme, notice }) {
   const [email, setEmail] = useState('');
   const [pass, setPass] = useState('');
   const [err, setErr] = useState('');
@@ -2827,6 +2871,7 @@ function Gate({ css, org, onLogin, online, theme }) {
             <span className="badge b-dim"><Lock size={10} />بيانات مشتركة ومؤمّنة</span>
           </div>
           <div className="card">
+            {notice && <div style={{ border: '1px solid rgba(200,162,74,.45)', background: 'rgba(200,162,74,.10)', color: 'var(--brass-l)', borderRadius: 10, padding: '10px 12px', marginBottom: 12, fontSize: 12, lineHeight: 1.8, textAlign: 'center' }}>{notice}</div>}
             {(hasPinUsers || mode === 'pin') && (
               <div className="loginseg">
                 <button type="button" className={'loginseg-b' + (mode === 'pass' ? ' on' : '')} onClick={() => { setMode('pass'); setErr(''); }}><Lock size={13} />كلمة السر</button>
