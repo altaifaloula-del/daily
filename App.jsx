@@ -2346,7 +2346,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v16.3 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v16.4 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -6870,7 +6870,17 @@ function ClosingView({ c, org, onClose }) {
   // v16.2: صور توثيق المسؤول كانت محفوظة مع الإغلاق (وتظهر في تقرير PDF والأرشيف)
   // لكن نافذة الاستعراض لم تكن تعرضها إطلاقاً — قسم العرض أدناه جديد.
   const sessPhotos = (c.sessionPhotos && c.sessionPhotos.length) ? c.sessionPhotos : (c.sessionPhoto ? [c.sessionPhoto] : []);
-  const zoomImg = (img) => { const w = window.open(); if (w) w.document.write('<body style="margin:0;background:#111;display:grid;place-items:center;min-height:100vh"><img src="' + img + '" style="max-width:100%"></body>'); };
+  // v16.4: التكبير كان يفتح نافذة متصفح خارجية (window.open + document.write) وبعض
+  // المتصفحات تحجبها فتظهر صفحة فارغة بصورة مكسورة — استُبدل بعارض داخل المنصة نفسها.
+  const [zoom, setZoom] = useState(null);
+  const zoomImg = (img) => setZoom(img);
+  useEffect(() => {
+    if (!zoom) return;
+    // Escape يغلق العارض فقط دون إغلاق نافذة الاستعراض خلفه (التقاط قبل مستمع النافذة)
+    const onKey = (e) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); setZoom(null); } };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [zoom]);
   return (
     <Modal wide title={`إغلاق ${c.branchName} — ${arDate(c.date)}`} icon={Receipt} onClose={onClose}
       foot={<><button className="btn pri" onClick={() => printClosingA4(c, org)}><FileText size={14} />تقرير PDF رسمي</button>
@@ -6897,7 +6907,7 @@ function ClosingView({ c, org, onClose }) {
             <div style={{ marginTop: 8 }}>
               <div className="lbl">إثبات الشبكة / التحويل</div>
               <img src={c.cardReceiptImage} alt="إثبات"
-                onClick={() => { const w = window.open(); if (w) w.document.write('<img src="'+c.cardReceiptImage+'" style="max-width:100%">'); }}
+                onClick={() => zoomImg(c.cardReceiptImage)}
                 style={{ width: '100%', maxHeight: 160, objectFit: 'contain', borderRadius: 8, background: '#000', cursor: 'zoom-in' }} />
             </div>
           )}
@@ -6913,7 +6923,7 @@ function ClosingView({ c, org, onClose }) {
                 {e.receiptNumber && <span className="badge b-dim" style={{ fontSize: 9 }}>#{e.receiptNumber}</span>}
               </div>
               {e.receiptImage && <img src={e.receiptImage} alt="إيصال"
-                onClick={() => { const w = window.open(); if (w) w.document.write('<img src="'+e.receiptImage+'" style="max-width:100%">'); }}
+                onClick={() => zoomImg(e.receiptImage)}
                 style={{ width: 42, height: 42, objectFit: 'cover', borderRadius: 6, margin: '4px 0 6px', cursor: 'zoom-in', border: '1px solid var(--line)' }} />}
             </div>
           ))}
@@ -6993,6 +7003,17 @@ function ClosingView({ c, org, onClose }) {
             <div className="mono-b"><span style={{ fontSize: 11 }}>المستخدم</span><span style={{ fontSize: 11 }}>{c.completion.by || c.managerName}</span></div>
           </div>
           <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 8, wordBreak: 'break-all' }}>🔒 بصمة التقرير الرقمية: <span className="num">{c.completion.reportHash || '—'}</span></div>
+        </div>
+      )}
+      {zoom && (
+        <div onClick={() => setZoom(null)} role="dialog" aria-label="معاينة الصورة"
+          style={{ position: 'fixed', inset: 0, zIndex: 96, background: 'rgba(8,6,5,.92)', display: 'grid', placeItems: 'center', padding: 18, cursor: 'zoom-out' }}>
+          <img src={zoom} alt="معاينة مكبّرة" style={{ maxWidth: '96vw', maxHeight: '90vh', objectFit: 'contain', borderRadius: 10, boxShadow: '0 24px 70px rgba(0,0,0,.6)' }} />
+          <button className="btn sm" onClick={() => setZoom(null)}
+            style={{ position: 'fixed', top: 16, insetInlineStart: 16, zIndex: 97 }}><X size={14} />إغلاق المعاينة</button>
+          <div style={{ position: 'fixed', bottom: 14, insetInline: 0, textAlign: 'center', color: 'rgba(255,255,255,.55)', fontSize: 11.5, pointerEvents: 'none' }}>
+            اضغط في أي مكان للإغلاق
+          </div>
         </div>
       )}
     </Modal>
