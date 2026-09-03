@@ -1782,6 +1782,15 @@ export default function App() {
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
   }, []);
 
+  // v16.0 — النوافذ المنبثقة تُرسم عبر portal خارج غلاف الثيم، فكانت تبقى بالألوان الداكنة
+  // القديمة مهما كان الثيم/الوضع. نزامن أصناف الثيم على body نفسه فترث كل النوافذ
+  // الثيمَ والوضع الفاتح/الداكن الحاليين تلقائياً (وقواعد mode-light للنوافذ تعمل أخيراً).
+  useEffect(() => {
+    const cs = themeCls(theme, mode).split(' ').filter(Boolean);
+    document.body.classList.add(...cs);
+    return () => document.body.classList.remove(...cs);
+  }, [theme, mode]);
+
   useEffect(() => {
     const bip = (e) => { e.preventDefault(); setInstallPrompt(e); };
     const done = () => { setInstalled(true); setInstallPrompt(null); };
@@ -2337,7 +2346,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v15.29 🚀</span>
+            <span className="verchip" style={{ alignSelf: 'center' }}>v16.0 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2568,14 +2577,10 @@ export default function App() {
         </Modal>
       )}
       {toast && (
-        <div style={{
-          position: 'fixed', bottom: 20, insetInlineStart: 20, zIndex: 99,
-          background: toast.kind === 'no' ? 'rgba(217,84,77,.15)' : 'rgba(79,178,134,.14)',
-          border: '1px solid ' + (toast.kind === 'no' ? 'rgba(217,84,77,.45)' : 'rgba(79,178,134,.45)'),
-          color: toast.kind === 'no' ? '#D9544D' : '#4FB286',
-          padding: '11px 16px', borderRadius: 11, fontSize: 12.5, maxWidth: 340,
-          backdropFilter: 'blur(8px)'
-        }}>{toast.msg}</div>
+        <div className={'toast ' + (toast.kind === 'no' ? 'no' : 'ok')} role="status" aria-live="polite">
+          <span className="tic">{toast.kind === 'no' ? <AlertTriangle size={14} /> : <Check size={14} />}</span>
+          <span style={{ minWidth: 0 }}>{toast.msg}</span>
+        </div>
       )}
     </div>
   );
@@ -5242,7 +5247,7 @@ function Hub({ hubId, view, ...rest }) {
             <b style={{ fontSize: 13 }}>{cfg.ar}</b>
             <span style={{ fontSize: 11, color: 'var(--dim)' }} className="hub-desc">· {cfg.desc}</span>
           </div>
-          <div className="tw"><div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+          <div className="tw"><div className="toolstrip" style={{ padding: 4, flexWrap: 'nowrap' }}>
             {views.map(v => (
               <button key={v.id} className={'btn sm' + (cur === v.id ? ' pri' : ' gh')} onClick={() => go(v.id)}>
                 <v.icon size={13} />{v.ar}
@@ -5934,12 +5939,12 @@ function Closing({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
             <tbody>
               {list.map(c => (
                 <tr key={c.id}>
-                  <td className="num" data-label="التاريخ" style={{ whiteSpace: 'nowrap' }}>{arDate(c.date)}</td>
+                  <td data-label="التاريخ" style={{ whiteSpace: 'nowrap', fontSize: 12, fontWeight: 600 }}>{arDate(c.date)}</td>
                   <td data-label="الفرع" style={{ fontSize: 12 }}>{c.branchName}</td>
-                  <td className="num" data-label="الإيراد" style={{ color: 'var(--brass)' }}>{money(c.totalRevenue)}</td>
-                  <td className="num" data-label="المصروف" style={{ color: 'var(--rose)' }}>{money(c.totalExpenses)}</td>
-                  <td className="num" data-label="المتوقع بالصندوق">{money(c.expectedCashInSafe)}</td>
-                  <td className="num" data-label="الفعلي">{money(c.actualCashCount)}</td>
+                  <td className="num" data-label="الإيراد" style={{ color: 'var(--brass)', fontWeight: 600 }}>{money(c.totalRevenue)}</td>
+                  <td className="num" data-label="المصروف" style={{ color: c.totalExpenses ? 'var(--rose)' : 'var(--faint)' }}>{money(c.totalExpenses)}</td>
+                  <td className="num" data-label="المتوقع بالصندوق" style={{ color: c.expectedCashInSafe ? undefined : 'var(--faint)' }}>{money(c.expectedCashInSafe)}</td>
+                  <td className="num" data-label="الفعلي" style={{ color: c.actualCashCount ? undefined : 'var(--faint)' }}>{money(c.actualCashCount)}</td>
                   <td className="num" data-label="الفرق" style={{ color: c.variance < 0 ? 'var(--rose)' : c.variance > 0 ? 'var(--mint)' : 'var(--faint)' }}>
                     {c.variance > 0 ? '+' : ''}{money(c.variance)}
                   </td>
@@ -8271,9 +8276,10 @@ function Admin({ org, ops, me, commit, commitOrg, say }) {
                 <span className={'badge ' + (b.isActive ? 'b-mint' : 'b-dim')}>{b.isActive ? 'نشط' : 'موقوف'}</span>
               </div>
               <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 2 }}>
-                <div>المدينة: {b.city} · المسؤول: {b.managerName}</div>
-                <div>الجوال: <span className="num">{b.phone}</span> · نهاية الوردية: <span className="num">{b.shiftEndTime}</span></div>
+                {(b.city || b.managerName) && <div>{b.city ? <>المدينة: {b.city}</> : null}{b.city && b.managerName ? ' · ' : ''}{b.managerName ? <>المسؤول: {b.managerName}</> : null}</div>}
+                {(b.phone || b.shiftEndTime) && <div>{b.phone ? <>الجوال: <span className="num">{b.phone}</span></> : null}{b.phone && b.shiftEndTime ? ' · ' : ''}{b.shiftEndTime ? <>نهاية الوردية: <span className="num">{b.shiftEndTime}</span></> : null}</div>}
                 <div>العهدة الافتراضية: <span className="num" style={{ color: 'var(--brass)' }}>{money(b.defaultFloat)}</span> ر.س</div>
+                {!b.city && !b.managerName && !b.phone && <div style={{ color: 'var(--faint)' }}>أكمل بيانات الفرع (المدينة، المسؤول، الجوال) من «تعديل»</div>}
                 {(b.bankName || b.bankIban) && <div>🏦 بنك الفرع: <b style={{ color: 'var(--brass)' }}>{b.bankName || '—'}</b>{b.bankIban ? <> · <span className="num" style={{ direction: 'ltr', unicodeBidi: 'embed' }}>{b.bankIban}</span></> : ''}</div>}
               </div>
               <div className="row" style={{ marginTop: 12 }}>
@@ -10130,7 +10136,7 @@ function Launcher({ org, ops, me, setTab, openAcctView, openInvView }) {
         : <div className="lh-wm mark">{(org.company?.name || 'م').trim().charAt(0) || 'م'}</div>}
     </div>
     <div className="lh">
-      <p className="lh-hi">{greet} يا <b>{(me.name || '').split(' ')[0]}</b> — كل تطبيقاتك أمامك. اضغط أي تطبيق لفتحه، والنجمة لتثبيته في المفضلة، واسحبه (أو اضغط عليه مطوّلًا بالجوال) لنقله حيث تشاء.</p>
+      <p className="lh-hi"><span className="lh-greet">{greet} يا <b>{(me.name || '').split(' ')[0]}</b></span><span className="lh-hint"> — كل تطبيقاتك أمامك. اضغط أي تطبيق لفتحه، والنجمة لتثبيته في المفضلة، واسحبه (أو اضغط عليه مطوّلًا بالجوال) لنقله حيث تشاء.</span></p>
       <div className="lh-role"><span className="pill">{(ROLES[me.role]?.ar || me.role).split('—')[0].trim()} · {shown.length} تطبيقاً</span></div>
       <div className="lh-search">
         <Search size={15} className="lh-si" />
@@ -11412,7 +11418,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
           sub="من دليل الحسابات" icon={Landmark} color="#5B93C4" />
       </div>
 
-      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+      <div className="toolstrip">
         {viewOK('jr') && <button className={'btn sm' + (view === 'jr' ? ' pri' : ' gh')} onClick={() => setView('jr')}><FileText size={14} />القيود اليومية</button>}
         {viewOK('coa') && <button className={'btn sm' + (view === 'coa' ? ' pri' : ' gh')} onClick={() => setView('coa')}><Landmark size={14} />دليل الحسابات</button>}
         {viewOK('tb') && <button className={'btn sm' + (view === 'tb' ? ' pri' : ' gh')} onClick={() => setView('tb')}><Scale size={14} />ميزان المراجعة</button>}
