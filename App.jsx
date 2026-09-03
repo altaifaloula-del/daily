@@ -1782,6 +1782,15 @@ export default function App() {
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
   }, []);
 
+  // v16.2 — بطلب المالك: نوافذ الإدخال والاستعراض تتبع ألوان الشاشة (الوضع الفاتح/الداكن
+  // والثيم المختار). النوافذ تُرسم عبر portal خارج غلاف الثيم فكانت تبقى داكنة دائماً؛
+  // مزامنة أصناف الثيم على body تجعلها ترث الثيم والوضع الحاليين تلقائياً.
+  useEffect(() => {
+    const cs = themeCls(theme, mode).split(' ').filter(Boolean);
+    document.body.classList.add(...cs);
+    return () => document.body.classList.remove(...cs);
+  }, [theme, mode]);
+
   useEffect(() => {
     const bip = (e) => { e.preventDefault(); setInstallPrompt(e); };
     const done = () => { setInstalled(true); setInstallPrompt(null); };
@@ -2337,7 +2346,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v16.1 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v16.2 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -6818,10 +6827,14 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
 
 function ClosingView({ c, org, onClose }) {
   const Row = ({ k, v, color }) => (
-    <div className="row" style={{ justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid rgba(51,44,38,.5)', fontSize: 12.5 }}>
+    <div className="row" style={{ justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid var(--line)', fontSize: 12.5 }}>
       <span style={{ color: 'var(--dim)' }}>{k}</span><span className="num" style={{ color }}>{v}</span>
     </div>
   );
+  // v16.2: صور توثيق المسؤول كانت محفوظة مع الإغلاق (وتظهر في تقرير PDF والأرشيف)
+  // لكن نافذة الاستعراض لم تكن تعرضها إطلاقاً — قسم العرض أدناه جديد.
+  const sessPhotos = (c.sessionPhotos && c.sessionPhotos.length) ? c.sessionPhotos : (c.sessionPhoto ? [c.sessionPhoto] : []);
+  const zoomImg = (img) => { const w = window.open(); if (w) w.document.write('<body style="margin:0;background:#111;display:grid;place-items:center;min-height:100vh"><img src="' + img + '" style="max-width:100%"></body>'); };
   return (
     <Modal wide title={`إغلاق ${c.branchName} — ${arDate(c.date)}`} icon={Receipt} onClose={onClose}
       foot={<><button className="btn pri" onClick={() => printClosingA4(c, org)}><FileText size={14} />تقرير PDF رسمي</button>
@@ -6910,6 +6923,22 @@ function ClosingView({ c, org, onClose }) {
         <div className="mono-b"><span style={{ fontSize: 11.5 }}>عهدة الغد</span><span className="num">{money(c.retainedFloatForTomorrow)}</span></div>
       </div>
       {c.notes && <div style={{ marginTop: 12, fontSize: 12, color: 'var(--dim)' }}>ملاحظات: {c.notes}</div>}
+      {sessPhotos.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <div className="lbl">صور توثيق المسؤول ({sessPhotos.length}) — اضغط أي صورة لتكبيرها</div>
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            {sessPhotos.map((img, i) => (
+              <img key={i} src={img} alt={'صورة توثيق ' + (i + 1)} onClick={() => zoomImg(img)}
+                style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: 10, border: '1px solid var(--line-g)', cursor: 'zoom-in' }} />
+            ))}
+          </div>
+        </div>
+      )}
+      {c.imagesPruned && sessPhotos.length === 0 && (
+        <div style={{ marginTop: 12, fontSize: 11.5, color: 'var(--dim)' }}>
+          🗄 صور هذا الإغلاق نُقلت إلى «أرشيف المستندات» (سياسة الاحتفاظ 60 يومًا) — تجدها هناك باسم الفرع وتاريخ اليوم.
+        </div>
+      )}
       {c.managerSignature && (
         <div style={{ marginTop: 12 }}>
           <div className="lbl">توقيع المسؤول</div>
