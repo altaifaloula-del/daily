@@ -2521,7 +2521,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v16.7 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v16.8 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -6295,6 +6295,8 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
   const expected = f.openingBalance + f.cashSales - cashExp - cashSupplierPay;
   const actual = countDenoms(f.denominationDetails);
   const variance = Math.round((actual - expected) * 100) / 100;
+  // v16.8 — يوم بلا نقد متوقع (مبيعات شبكة/تحويل فقط، لا عهدة): الجرد صفر منطقي ولا يعيق الترحيل
+  const zeroCashDay = Math.abs(expected) <= 0.004;
   const retained = Math.max(0, actual - f.transferredToMainTreasury);
 
   const setDen = (k, v) => set('denominationDetails', { ...f.denominationDetails, [k]: Math.max(0, v) });
@@ -6402,7 +6404,12 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
     const dup = existing.find(c => c.branchId === f.branchId && c.date === f.date && c.id !== initial?.id && c.status !== 'rejected');
     if (dup) { say('يوجد إغلاق مسجّل لهذا الفرع بنفس التاريخ — عدّل الإغلاق القائم بدل إنشاء نسخة ثانية', 'no'); return null; }
     if (status === 'submitted') {
-      if (actual <= 0) { say('أكمل جرد الفئات النقدية قبل الترحيل', 'no'); return null; }
+      // v16.8: كان يُشترط عدّ موجب دائمًا — فيوم كل مبيعاته شبكة (صندوق صفر) يستحيل إغلاقه.
+      // الآن: لا نقد متوقع ← يمر مباشرة؛ نقد متوقع وصندوق فارغ فعلًا ← إقرار صريح + توثيق سبب العجز.
+      if (actual <= 0 && !zeroCashDay && !f.zeroCashConfirmed) {
+        say('أكمل جرد الفئات النقدية قبل الترحيل — وإن كان الصندوق فارغًا فعلًا فعلّم «الصندوق فارغ» في قسم الجرد', 'no');
+        return null;
+      }
       if (variance !== 0 && !f.varianceReason.trim()) { say('وثّق سبب العجز أو الفائض قبل الترحيل', 'no'); return null; }
       if (f.transferredToMainTreasury > actual) { say('المرحّل للخزينة يتجاوز النقد المعدود', 'no'); return null; }
       // v15.18: صورة التوثيق إجبارية لكل الأدوار عدا الكاشير (بطلب صريح من المالك) — تبقى متاحة له اختيارياً
@@ -6530,7 +6537,8 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
   };
 
   const vatDeduct = sum(f.expenses.filter(e => e.isTaxable), e => e.amount) * 15 / 115;
-  const counted = actual > 0; // لم يُجرد الصندوق بعد؟ لا نُظهر عجزاً وهمياً
+  // v16.8: الجرد يُعد مكتملاً أيضاً عندما لا نقد متوقع أصلاً (0.00 منطقية) أو أقرّ المستخدم بفراغ الصندوق
+  const counted = actual > 0 || zeroCashDay || !!f.zeroCashConfirmed; // لم يُجرد الصندوق بعد؟ لا نُظهر عجزاً وهمياً
   const vColor = !counted ? 'var(--faint)' : variance < 0 ? 'var(--rose)' : variance > 0 ? 'var(--mint)' : 'var(--faint)';
   const vStat = !counted
     ? { c: 'var(--sky)', bg: 'rgba(91,147,196,.10)', bd: 'rgba(91,147,196,.40)', ic: '◔', t: 'أكمل جرد الصندوق (الخطوة ٣) لحساب الفرق' }
@@ -6897,8 +6905,23 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
               </span></div>
           </div>
 
+          {/* v16.8: صندوق فارغ فعليًا رغم وجود نقد متوقع — إقرار صريح يفتح الترحيل مع توثيق العجز */}
+          {actual === 0 && !zeroCashDay && (
+            <label className="row" style={{ gap: 9, marginTop: 12, cursor: 'pointer', padding: '11px 13px', borderRadius: 10, border: '1.5px dashed var(--line-g)', background: 'var(--acc-soft)', alignItems: 'flex-start' }}>
+              <input type="checkbox" checked={!!f.zeroCashConfirmed} onChange={e => set('zeroCashConfirmed', e.target.checked)} style={{ marginTop: 2 }} />
+              <span style={{ fontSize: 12, lineHeight: 1.7 }}>
+                <b>أُجري الجرد والصندوق فارغ فعلًا (0.00)</b> — رغم أن المتوقع <b className="num">{money(expected)}</b>.
+                سيُسجَّل الفرق كعجز ويلزم توثيق سببه قبل الترحيل.
+              </span>
+            </label>
+          )}
+          {actual === 0 && zeroCashDay && (
+            <div className="note" style={{ marginTop: 12 }}>
+              لا نقد متوقع بالصندوق لهذا اليوم (مبيعات غير نقدية ولا عهدة افتتاحية) — الجرد مكتمل تلقائيًا بقيمة 0.00 ويمكنك الترحيل مباشرة.
+            </div>
+          )}
           <div style={{ marginTop: 14 }}>
-            {actual > 0 && (
+            {counted && (
               <div className="seal" style={{ '--sc': variance === 0 ? 'var(--mint)' : variance < 0 ? 'var(--rose)' : 'var(--amber)' }}>
                 <Stamp size={22} />
                 <div>
