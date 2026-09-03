@@ -2346,7 +2346,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v16.2 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v16.3 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2762,6 +2762,23 @@ function LockScreen({ me, theme, mode, onUnlock, onLogout }) {
     catch { setErr('تعذّر التحقق بالبصمة — جرّب الرقم السري'); }
     setBusy(false);
   };
+  // v16.3 — بطلب المالك: لوحة القفل تستجيب للوحة المفاتيح مباشرة (مع بقاء الفأرة):
+  // أرقام 0-9 (ومكافئاتها العربية ٠-٩ ولوحة الأرقام الجانبية) + Backspace للمسح + Enter للفتح.
+  useEffect(() => {
+    const AR = '٠١٢٣٤٥٦٧٨٩';
+    const onKey = (e) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const tag = ((e.target && e.target.tagName) || '').toUpperCase();
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      let d = e.key;
+      if (AR.includes(d)) d = String(AR.indexOf(d));
+      if (/^[0-9]$/.test(d)) { e.preventDefault(); key(d); }
+      else if (e.key === 'Backspace') { e.preventDefault(); key('del'); }
+      else if (e.key === 'Enter') { e.preventDefault(); if (pin.length >= 4) tryPin(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [pin]);
   return (
     <div className={themeCls(theme, mode || readMode())}>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
@@ -2868,6 +2885,25 @@ function Gate({ css, org, onLogin, online, theme, notice }) {
     else { setErr('الرقم السري غير صحيح'); setPin(''); }
   };
   const pinKey = (d) => { setErr(''); if (d === 'del') setPin(p => p.slice(0, -1)); else setPin(p => (p.length < 6 ? p + d : p)); };
+
+  // v16.3 — بوابة «الدخول السريع برقم سري» تستجيب للوحة المفاتيح مباشرة (والفأرة متاحة كما هي):
+  // أرقام 0-9/٠-٩/لوحة الأرقام + Backspace للمسح + Enter للدخول. الكتابة داخل حقل البريد لا تُلتقط.
+  useEffect(() => {
+    if (mode !== 'pin') return;
+    const AR = '٠١٢٣٤٥٦٧٨٩';
+    const onKey = (e) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const tag = ((e.target && e.target.tagName) || '').toUpperCase();
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      let d = e.key;
+      if (AR.includes(d)) d = String(AR.indexOf(d));
+      if (/^[0-9]$/.test(d)) { e.preventDefault(); pinKey(d); }
+      else if (e.key === 'Backspace') { e.preventDefault(); pinKey('del'); }
+      else if (e.key === 'Enter') { e.preventDefault(); if (pin.length >= 4) pinSubmit(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [mode, pin, email]);
 
   return (
     <div className={themeCls(theme, readMode())}>
