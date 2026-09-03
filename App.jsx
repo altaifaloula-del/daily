@@ -2346,7 +2346,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v16.5 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v16.6 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -15325,7 +15325,29 @@ function Archive({ org, me, myBranches, say }) {
     setDraft(null);
   };
 
-  const del = async (it) => { await persist((items || []).filter(x => x.id !== it.id)); say('تم حذف المستند من الأرشيف'); };
+  // v16.6 — بطلب المالك: مدير النظام يستطيع حذف أي مستند حتى مستندات توثيق الإغلاق
+  // (كانت محمية من الحذف للجميع). مع تأكيد صريح، ويُقيَّد الحذف في سجل التدقيق.
+  const isAdminMe = !!ROLES[me.role]?.admin;
+  const del = async (it) => {
+    const closingDoc = it.source === 'closing';
+    if (closingDoc && !isAdminMe) return;   // حارس إضافي فوق إخفاء الزر
+    const msg = closingDoc
+      ? 'هذا مستند توثيق مؤرشف من إغلاق يومي — حذفه نهائي ولا يمكن استرداده، وسيُقيَّد الحذف باسمك في سجل التدقيق. هل أنت متأكد؟'
+      : 'حذف هذا المستند من الأرشيف نهائياً؟';
+    if (!window.confirm(msg)) return;
+    await persist((items || []).filter(x => x.id !== it.id));
+    try {
+      const pu = await cloud.get(KEYS.pulse, { presence: {}, audit: [] });
+      const entry = {
+        id: uid('lg'), timestamp: nowISO(), at: Date.now(), userName: me.name, userRole: me.role,
+        userRoleLabel: (ROLES[me.role] || {}).ar || me.role, actionType: 'delete', targetType: 'archive_doc',
+        targetId: it.id, branchId: it.branchId, branchName: it.branchName,
+        title: 'حذف مستند من الأرشيف', details: (it.title || '') + (closingDoc ? ' · مستند توثيق إغلاق' : '')
+      };
+      await cloud.set(KEYS.pulse, { ...pu, audit: [entry, ...(pu.audit || [])].slice(0, 150) });
+    } catch (e) { /* السجل تكميلي */ }
+    say('تم حذف المستند من الأرشيف');
+  };
 
   const ids = myBranches.map(b => b.id);
   const mine = (items || []).filter(i => ids.includes(i.branchId));
@@ -15440,7 +15462,12 @@ function Archive({ org, me, myBranches, say }) {
                       </div>
                       <div className="row" style={{ marginTop: 8, gap: 4 }}>
                         <button className="btn sm gh" onClick={() => setPreview(it)}><Eye size={11} /></button>
-                        {it.source !== 'closing' && <button className="btn sm gh" onClick={() => del(it)}><Trash2 size={11} color="#D9544D" /></button>}
+                        {(it.source !== 'closing' || isAdminMe) && (
+                          <button className="btn sm gh" onClick={() => del(it)}
+                            title={it.source === 'closing' ? 'حذف نهائي لمستند توثيق إغلاق (لمدير النظام) — يُقيَّد في سجل التدقيق' : 'حذف المستند'}>
+                            <Trash2 size={11} color="#D9544D" />
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
