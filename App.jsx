@@ -1416,7 +1416,7 @@ const DENOMS = [
 const emptyDenoms = () => DENOMS.reduce((o, d) => ({ ...o, [d.k]: 0 }), {});
 const countDenoms = (d) => DENOMS.reduce((s, x) => s + (Number(d?.[x.k]) || 0) * x.v, 0);
 
-const ALL_TABS = ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit'];
+const ALL_TABS = ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit'];
 const TAB_AR = {
   analytics: 'مركز التحليل والأداء', reporting: 'مركز التقارير', exec: 'اللوحة التنفيذية',
   dash: 'لوحة المؤشرات', compare: 'مقارنة الفروع', growth: 'تحليلات النمو', breakeven: 'تحليل التعادل', scorecard: 'لوحة الأهداف', scenario: 'ماذا-لو', boardpack: 'تقرير الإدارة', cashflow: 'التدفق النقدي', closing: 'الإغلاق اليومي', apps: 'التطبيقات',
@@ -1465,7 +1465,7 @@ const ROLES = {
   },
   head_office: {
     ar: 'المكتب الرئيسي — المالية والإدارة', badge: 'b-brass', scope: 'all', approver: true,
-    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
+    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['كل الفروع والتقارير المجمّعة', 'التدقيق والاعتماد النهائي', 'الخزينة والرواتب والموردون والمشتريات والمخزون', 'المحاسبة الكاملة: قيود وميزان وقوائم وضريبة وأصول ومراكز تكلفة']
   },
   system_admin: {
@@ -1483,7 +1483,7 @@ const ROLES = {
     // إعادة ترتيب v8.0: المحاسب الرئيسي بطبيعته يعمل على المنشأة كلها — نطاق كامل
     // بلا صلاحيات إدارة (لا مستخدمين/فروع، لا تفعيل ضريبة، لا إدارة تطبيقات)
     ar: 'الإدارة المالية — محاسب رئيسي', badge: 'b-sky', scope: 'all', legacy: true,
-    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
+    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['المحاسبة كاملة: قيود يدوية وافتتاحية وميزان وقوائم ومراكز تكلفة', 'الضريبة والأصول والتسوية البنكية (عرض وتسجيل — التفعيل للإدارة)', 'المشتريات والمخزون والرواتب والخزينة', 'كل الفروع — دون إدارة المستخدمين والإعدادات']
   },
   // ===== v15.9: نماذج صلاحيات المحاسب — نطاق «المحاسبة + التقارير المالية فقط» =====
@@ -1621,7 +1621,7 @@ const LAUNCH_APPS = [
   { id: 'partners', ar: 'دفتر الشركاء', en: 'Partners', cat: 'pur', icon: Users, open: { tab: 'partners' },
     kw: ['شريك', 'شركاء', 'دفتر'] },
   { id: 'people', ar: 'شؤون الموظفين', en: 'People & Payroll', cat: 'hr', icon: Wallet, open: { tab: 'people' },
-    sections: ['الرواتب والسلف', 'الجدولة والحضور', 'الورديات والتذكيرات'], kw: ['راتب', 'رواتب', 'سلفة', 'موظف', 'أجور', 'جدولة', 'حضور', 'ساعات', 'عمالة', 'دوام', 'وردية', 'تذكير', 'شؤون'] },
+    sections: ['البيانات الرئيسية', 'الرواتب والسلف', 'الجدولة والحضور', 'الورديات والتذكيرات'], kw: ['راتب', 'رواتب', 'سلفة', 'موظف', 'أجور', 'جدولة', 'حضور', 'ساعات', 'عمالة', 'دوام', 'وردية', 'تذكير', 'شؤون', 'قسم', 'أقسام', 'وظيفة', 'وظائف', 'عقد', 'مستند'] },
   { id: 'vat', ar: 'ضريبة القيمة المضافة', en: 'VAT', cat: 'tax', icon: Receipt, open: { tab: 'acct', view: 'vat' },
     sections: ['احتساب الضريبة', 'الإقرار الضريبي'], kw: ['ضريبة', 'قيمة مضافة', 'زاتكا', 'مدخلات', 'مخرجات', 'إقرار'] },
   { id: 'inv', ar: 'المخزون والمنتجات', en: 'Inventory', cat: 'inv2', icon: HardDrive, open: { tab: 'inv' },
@@ -1734,6 +1734,8 @@ function emptyOrg(company) {
     branches: [],
     users: [],
     employees: [],
+    departments: [],
+    positions: [],
     expenseCats: EXP_CATS.map(c => ({ ...c, budgetLimitMonthly: 0 })),
     deliveryApps: APPS,
     suppliers: [],
@@ -2521,7 +2523,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v16.9 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v17.0 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2655,7 +2657,7 @@ export default function App() {
               {safeTab === 'apps' && <AppsCenter {...shared} />}
               {safeTab === 'approve' && <Approvals {...shared} />}
               {safeTab === 'treasury' && <Treasury {...shared} />}
-              {['people', 'payroll', 'workforce', 'shifts'].includes(safeTab) && <Hub hubId="people" {...shared} view={safeTab} />}
+              {['people', 'hrmaster', 'payroll', 'workforce', 'shifts'].includes(safeTab) && <Hub hubId="people" {...shared} view={safeTab} />}
               {['purchasing', 'suppliers', 'reorder'].includes(safeTab) && <Hub hubId="purchasing" {...shared} view={safeTab} />}
               {safeTab === 'inv' && <Inventory {...shared} />}
               {safeTab === 'partners' && <Partners {...shared} />}
@@ -5455,8 +5457,9 @@ const HUBS = {
     ]
   },
   people: {
-    ar: 'شؤون الموظفين', desc: 'الرواتب والسلف والجدولة والحضور والورديات', icon: Wallet,
+    ar: 'شؤون الموظفين', desc: 'البيانات الرئيسية والرواتب والسلف والجدولة والحضور والورديات', icon: Wallet,
     views: [
+      { id: 'hrmaster', ar: 'البيانات الرئيسية', icon: Building2, comp: HrMaster },
       { id: 'payroll', ar: 'الرواتب والسلف', icon: Wallet, comp: Payroll },
       { id: 'workforce', ar: 'الجدولة والحضور', icon: CalendarDays, comp: Workforce },
       { id: 'shifts', ar: 'الورديات والتذكيرات', icon: Clock, comp: Shifts }
@@ -8141,6 +8144,326 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
             </div>
           </div>
           <div className="note">يُطبَّق على مسير هذا الشهر والأشهر القادمة. تعديل الراتب لا يغيّر أشهرًا سبق ترحيل استحقاقها.</div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function HrMaster({ org, me, commitOrg, say }) {
+  const [view, setView] = useState('depts');
+  const [deptF, setDeptF] = useState(null);
+  const [posF, setPosF] = useState(null);
+  const [assignF, setAssignF] = useState(null);
+  const [docsFor, setDocsFor] = useState(null);
+  const [docF, setDocF] = useState(null);
+
+  const depts = org.departments || [];
+  const positions = org.positions || [];
+  const emps = org.employees || [];
+  const DOC_KINDS = { contract: 'عقد عمل', id: 'هوية/إقامة', cert: 'شهادة/مؤهل', license: 'رخصة/ترخيص', other: 'أخرى' };
+
+  const posCountByDept = (dId) => positions.filter(p => p.departmentId === dId).length;
+  const empCountByDept = (dId) => emps.filter(e => e.departmentId === dId).length;
+  const empCountByPos = (pId) => emps.filter(e => e.positionId === pId).length;
+
+  const saveDept = async () => {
+    const f = deptF; const name = (f.name || '').trim();
+    if (!name) return say('اسم القسم مطلوب', 'no');
+    const isNew = !f.id;
+    const id = f.id || uid('dept');
+    await commitOrg(d => ({
+      ...d, departments: isNew
+        ? [...(d.departments || []), { id, name, note: (f.note || '').trim(), active: true }]
+        : (d.departments || []).map(x => x.id === id ? { ...x, name, note: (f.note || '').trim() } : x)
+    }), { actionType: isNew ? 'create' : 'update', targetType: 'user_account', targetId: id, title: (isNew ? 'أضاف قسمًا' : 'حدّث قسمًا') + ': ' + name, details: f.note || '' });
+    setDeptF(null); say((isNew ? 'أُضيف القسم' : 'حُفظ القسم') + ' ✓');
+  };
+  const toggleDept = async (d) => {
+    await commitOrg(x => ({ ...x, departments: (x.departments || []).map(y => y.id === d.id ? { ...y, active: !y.active } : y) }),
+      { actionType: 'update', targetType: 'user_account', targetId: d.id, title: (d.active === false ? 'فعّل قسمًا' : 'عطّل قسمًا') + ': ' + d.name, details: '' });
+    say(d.active === false ? 'أُعيد تفعيل القسم' : 'عُطّل القسم');
+  };
+  const delDept = async (d) => {
+    if (posCountByDept(d.id) > 0 || empCountByDept(d.id) > 0) return say('لا يمكن حذف قسم مرتبط بوظائف أو موظفين — استخدم «تعطيل» بدلًا من ذلك', 'no');
+    if (!window.confirm('حذف القسم «' + d.name + '» نهائيًا؟')) return;
+    await commitOrg(x => ({ ...x, departments: (x.departments || []).filter(y => y.id !== d.id) }),
+      { actionType: 'delete', targetType: 'user_account', targetId: d.id, title: 'حذف قسمًا: ' + d.name, details: '' });
+    say('حُذف القسم');
+  };
+
+  const savePos = async () => {
+    const f = posF; const title = (f.title || '').trim();
+    if (!title) return say('المسمى الوظيفي مطلوب', 'no');
+    const isNew = !f.id;
+    const id = f.id || uid('pos');
+    await commitOrg(d => ({
+      ...d, positions: isNew
+        ? [...(d.positions || []), { id, title, departmentId: f.departmentId || '', duties: (f.duties || '').trim(), active: true }]
+        : (d.positions || []).map(x => x.id === id ? { ...x, title, departmentId: f.departmentId || '', duties: (f.duties || '').trim() } : x)
+    }), { actionType: isNew ? 'create' : 'update', targetType: 'user_account', targetId: id, title: (isNew ? 'أضاف وظيفة' : 'حدّث وظيفة') + ': ' + title, details: (depts.find(x => x.id === f.departmentId) || {}).name || '' });
+    setPosF(null); say((isNew ? 'أُضيفت الوظيفة' : 'حُفظت الوظيفة') + ' ✓');
+  };
+  const togglePos = async (p) => {
+    await commitOrg(x => ({ ...x, positions: (x.positions || []).map(y => y.id === p.id ? { ...y, active: !y.active } : y) }),
+      { actionType: 'update', targetType: 'user_account', targetId: p.id, title: (p.active === false ? 'فعّل وظيفة' : 'عطّل وظيفة') + ': ' + p.title, details: '' });
+    say(p.active === false ? 'أُعيد تفعيل الوظيفة' : 'عُطّلت الوظيفة');
+  };
+  const delPos = async (p) => {
+    if (empCountByPos(p.id) > 0) return say('لا يمكن حذف وظيفة مُسندة لموظفين — استخدم «تعطيل» بدلًا من ذلك', 'no');
+    if (!window.confirm('حذف الوظيفة «' + p.title + '» نهائيًا؟')) return;
+    await commitOrg(x => ({ ...x, positions: (x.positions || []).filter(y => y.id !== p.id) }),
+      { actionType: 'delete', targetType: 'user_account', targetId: p.id, title: 'حذف وظيفة: ' + p.title, details: '' });
+    say('حُذفت الوظيفة');
+  };
+
+  const saveAssign = async () => {
+    const f = assignF;
+    const pos = positions.find(p => p.id === f.positionId);
+    await commitOrg(d => ({
+      ...d, employees: (d.employees || []).map(x => x.id === f.id ? {
+        ...x, departmentId: f.departmentId || '', positionId: f.positionId || '',
+        jobTitle: (f.syncTitle && pos) ? pos.title : x.jobTitle
+      } : x)
+    }), { actionType: 'update', targetType: 'user_account', targetId: f.id, title: 'حدّث القسم/الوظيفة لموظف', details: f.name + (pos ? ' → ' + pos.title : '') });
+    setAssignF(null); say('حُفظ ✓');
+  };
+
+  const empDocs = (e) => e.docs || [];
+  const saveDoc = async () => {
+    const f = docF; const emp = docsFor;
+    if (!(f.title || '').trim()) return say('عنوان المستند مطلوب', 'no');
+    const isNew = !f.id;
+    const id = f.id || uid('edoc');
+    const entry = { id, kind: f.kind || 'other', title: f.title.trim(), number: (f.number || '').trim(), issueDate: f.issueDate || '', expiryDate: f.expiryDate || '', file: f.file || '' };
+    await commitOrg(d => ({
+      ...d, employees: (d.employees || []).map(x => x.id === emp.id ? {
+        ...x, docs: isNew ? [...(x.docs || []), entry] : (x.docs || []).map(y => y.id === id ? entry : y)
+      } : x)
+    }), { actionType: isNew ? 'create' : 'update', targetType: 'user_account', targetId: emp.id, title: (isNew ? 'أضاف مستند موظف' : 'حدّث مستند موظف') + ': ' + entry.title, details: emp.name });
+    setDocF(null); say('حُفظ المستند ✓');
+    setDocsFor(d => d ? { ...d, docs: isNew ? [...(d.docs || []), entry] : (d.docs || []).map(y => y.id === id ? entry : y) } : d);
+  };
+  const delDoc = async (docId) => {
+    const emp = docsFor;
+    if (!window.confirm('حذف هذا المستند؟')) return;
+    await commitOrg(d => ({ ...d, employees: (d.employees || []).map(x => x.id === emp.id ? { ...x, docs: (x.docs || []).filter(y => y.id !== docId) } : x) }),
+      { actionType: 'delete', targetType: 'user_account', targetId: emp.id, title: 'حذف مستند موظف', details: emp.name });
+    say('حُذف المستند');
+    setDocsFor(d => d ? { ...d, docs: (d.docs || []).filter(y => y.id !== docId) } : d);
+  };
+
+  const expiryTag = (dt) => {
+    if (!dt) return null;
+    const days = Math.round((Date.parse(dt + 'T00:00:00') - Date.parse(today() + 'T00:00:00')) / 86400000);
+    if (days < 0) return <span className="badge b-rose">منتهٍ منذ {Math.abs(days)} يوم</span>;
+    if (days <= 30) return <span className="badge b-amber">ينتهي خلال {days} يوم</span>;
+    return <span className="badge b-mint">ساري</span>;
+  };
+
+  return (
+    <div className="grid" style={{ gap: 12 }}>
+      <div className="card" style={{ padding: '8px 12px' }}>
+        <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+          <button className={'btn sm' + (view === 'depts' ? ' pri' : ' gh')} onClick={() => setView('depts')}><Building2 size={13} />الأقسام</button>
+          <button className={'btn sm' + (view === 'positions' ? ' pri' : ' gh')} onClick={() => setView('positions')}><UserCog size={13} />الوظائف</button>
+          <button className={'btn sm' + (view === 'emps' ? ' pri' : ' gh')} onClick={() => setView('emps')}><FileText size={13} />بيانات ومستندات الموظفين</button>
+        </div>
+      </div>
+
+      {view === 'depts' && (
+        <div className="card">
+          <div className="card-h">
+            <div className="card-t"><Building2 size={15} color="var(--brass)" />الأقسام</div>
+            <button className="btn sm" onClick={() => setDeptF({ name: '', note: '' })}><Plus size={13} />قسم جديد</button>
+          </div>
+          <div className="tw">
+            <table className="tb">
+              <thead><tr><th>القسم</th><th>ملاحظة</th><th style={{ textAlign: 'end' }}>الوظائف</th><th style={{ textAlign: 'end' }}>الموظفون</th><th>الحالة</th><th /></tr></thead>
+              <tbody>
+                {depts.map(d => (
+                  <tr key={d.id}>
+                    <td style={{ fontWeight: 600 }}>{d.name}</td>
+                    <td style={{ fontSize: 11.5, color: 'var(--dim)' }}>{d.note || '—'}</td>
+                    <td className="num" style={{ textAlign: 'end' }}>{posCountByDept(d.id)}</td>
+                    <td className="num" style={{ textAlign: 'end' }}>{empCountByDept(d.id)}</td>
+                    <td>{d.active === false ? <span className="badge b-dim">معطّل</span> : <span className="badge b-mint">نشط</span>}</td>
+                    <td>
+                      <div className="row" style={{ gap: 5, justifyContent: 'flex-end' }}>
+                        <button className="btn sm gh" onClick={() => setDeptF({ id: d.id, name: d.name, note: d.note || '' })}>تعديل</button>
+                        <button className="btn sm gh" onClick={() => toggleDept(d)}>{d.active === false ? 'تفعيل' : 'تعطيل'}</button>
+                        <button className="btn sm gh" style={{ color: 'var(--rose)' }} onClick={() => delDept(d)}><Trash2 size={13} /></button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {depts.length === 0 && <tr><td colSpan={6}><div className="empty">لا توجد أقسام بعد — أضف أول قسم.</div></td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {view === 'positions' && (
+        <div className="card">
+          <div className="card-h">
+            <div className="card-t"><UserCog size={15} color="var(--brass)" />الوظائف</div>
+            <button className="btn sm" onClick={() => setPosF({ title: '', departmentId: depts[0]?.id || '', duties: '' })} disabled={depts.length === 0}><Plus size={13} />وظيفة جديدة</button>
+          </div>
+          {depts.length === 0 && <div className="note">أضف قسمًا واحدًا على الأقل أولًا قبل إنشاء وظيفة.</div>}
+          <div className="tw">
+            <table className="tb">
+              <thead><tr><th>الوظيفة</th><th>القسم</th><th style={{ textAlign: 'end' }}>الموظفون</th><th>الحالة</th><th /></tr></thead>
+              <tbody>
+                {positions.map(p => (
+                  <tr key={p.id}>
+                    <td style={{ fontWeight: 600 }}>{p.title}{p.duties && <div style={{ fontSize: 10.5, color: 'var(--faint)', fontWeight: 400, marginTop: 2 }}>{p.duties.slice(0, 80)}{p.duties.length > 80 ? '…' : ''}</div>}</td>
+                    <td style={{ fontSize: 12 }}>{(depts.find(d => d.id === p.departmentId) || {}).name || <span style={{ color: 'var(--amber)' }}>بلا قسم</span>}</td>
+                    <td className="num" style={{ textAlign: 'end' }}>{empCountByPos(p.id)}</td>
+                    <td>{p.active === false ? <span className="badge b-dim">معطّلة</span> : <span className="badge b-mint">نشطة</span>}</td>
+                    <td>
+                      <div className="row" style={{ gap: 5, justifyContent: 'flex-end' }}>
+                        <button className="btn sm gh" onClick={() => setPosF({ id: p.id, title: p.title, departmentId: p.departmentId || '', duties: p.duties || '' })}>تعديل</button>
+                        <button className="btn sm gh" onClick={() => togglePos(p)}>{p.active === false ? 'تفعيل' : 'تعطيل'}</button>
+                        <button className="btn sm gh" style={{ color: 'var(--rose)' }} onClick={() => delPos(p)}><Trash2 size={13} /></button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {positions.length === 0 && <tr><td colSpan={5}><div className="empty">لا توجد وظائف بعد.</div></td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {view === 'emps' && (
+        <div className="card">
+          <div className="card-t" style={{ marginBottom: 10 }}><Users size={15} color="var(--brass)" />الموظفون — القسم والوظيفة والمستندات</div>
+          <div className="tw">
+            <table className="tb">
+              <thead><tr><th>الموظف</th><th>الفرع</th><th>القسم</th><th>الوظيفة</th><th style={{ textAlign: 'end' }}>المستندات</th><th /></tr></thead>
+              <tbody>
+                {emps.map(e => {
+                  const dept = depts.find(d => d.id === e.departmentId);
+                  const pos = positions.find(p => p.id === e.positionId);
+                  const docs = empDocs(e);
+                  const expSoon = docs.some(x => x.expiryDate && Math.round((Date.parse(x.expiryDate + 'T00:00:00') - Date.parse(today() + 'T00:00:00')) / 86400000) <= 30);
+                  return (
+                    <tr key={e.id}>
+                      <td style={{ fontWeight: 600, fontSize: 12.5 }}>{e.name}<span style={{ fontSize: 9.5, color: 'var(--faint)', marginInlineStart: 6 }}>{e.jobTitle}</span></td>
+                      <td style={{ fontSize: 11.5, color: 'var(--dim)' }}>{(org.branches.find(b => b.id === e.branchId) || {}).name || '—'}</td>
+                      <td style={{ fontSize: 12 }}>{dept?.name || '—'}</td>
+                      <td style={{ fontSize: 12 }}>{pos?.title || '—'}</td>
+                      <td className="num" style={{ textAlign: 'end' }}>{docs.length}{expSoon && <span className="badge b-amber" style={{ marginInlineStart: 5, fontSize: 9 }}>انتباه</span>}</td>
+                      <td>
+                        <div className="row" style={{ gap: 5, justifyContent: 'flex-end' }}>
+                          <button className="btn sm gh" onClick={() => setAssignF({ id: e.id, name: e.name, departmentId: e.departmentId || '', positionId: e.positionId || '', syncTitle: true })}>القسم/الوظيفة</button>
+                          <button className="btn sm gh" onClick={() => setDocsFor(e)}><FileText size={13} />المستندات</button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {emps.length === 0 && <tr><td colSpan={6}><div className="empty">لا يوجد موظفون بعد.</div></td></tr>}
+              </tbody>
+            </table>
+          </div>
+          <div className="note" style={{ marginTop: 8 }}>ربط الموظف بقسم/وظيفة اختياري ولا يغيّر أي شاشة أخرى في المنصّة — يُستخدم لاحقًا في مراحل الموارد البشرية القادمة (السياسات والتقييم والمكافآت).</div>
+        </div>
+      )}
+
+      {deptF && (
+        <Modal title={deptF.id ? 'تعديل قسم' : 'قسم جديد'} icon={Building2} onClose={() => setDeptF(null)}
+          foot={<><button className="btn gh" onClick={() => setDeptF(null)}>إلغاء</button><button className="btn pri" onClick={saveDept}><Check size={14} />حفظ</button></>}>
+          <Field label="اسم القسم"><input className="inp" value={deptF.name} onChange={e => setDeptF(f => ({ ...f, name: e.target.value }))} autoFocus /></Field>
+          <Field label="ملاحظة (اختياري)"><input className="inp" value={deptF.note} onChange={e => setDeptF(f => ({ ...f, note: e.target.value }))} /></Field>
+        </Modal>
+      )}
+
+      {posF && (
+        <Modal title={posF.id ? 'تعديل وظيفة' : 'وظيفة جديدة'} icon={UserCog} onClose={() => setPosF(null)}
+          foot={<><button className="btn gh" onClick={() => setPosF(null)}>إلغاء</button><button className="btn pri" onClick={savePos}><Check size={14} />حفظ</button></>}>
+          <Field label="المسمى الوظيفي"><input className="inp" value={posF.title} onChange={e => setPosF(f => ({ ...f, title: e.target.value }))} autoFocus /></Field>
+          <Field label="القسم">
+            <select className="inp sel" value={posF.departmentId} onChange={e => setPosF(f => ({ ...f, departmentId: e.target.value }))}>
+              <option value="">— بلا قسم —</option>
+              {depts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </select>
+          </Field>
+          <Field label="الوصف الوظيفي / المهام (اختياري)"><textarea className="inp" rows={4} value={posF.duties} onChange={e => setPosF(f => ({ ...f, duties: e.target.value }))} placeholder="مهام ومسؤوليات هذه الوظيفة..." /></Field>
+        </Modal>
+      )}
+
+      {assignF && (
+        <Modal title={'القسم والوظيفة — ' + assignF.name} icon={UserCog} onClose={() => setAssignF(null)}
+          foot={<><button className="btn gh" onClick={() => setAssignF(null)}>إلغاء</button><button className="btn pri" onClick={saveAssign}><Check size={14} />حفظ</button></>}>
+          <Field label="القسم">
+            <select className="inp sel" value={assignF.departmentId} onChange={e => setAssignF(f => ({ ...f, departmentId: e.target.value, positionId: '' }))}>
+              <option value="">— بلا قسم —</option>
+              {depts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </select>
+          </Field>
+          <Field label="الوظيفة">
+            <select className="inp sel" value={assignF.positionId} onChange={e => setAssignF(f => ({ ...f, positionId: e.target.value }))}>
+              <option value="">— بلا وظيفة —</option>
+              {positions.filter(p => !assignF.departmentId || p.departmentId === assignF.departmentId).map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
+            </select>
+          </Field>
+          <label className="row" style={{ gap: 6, fontSize: 12.5, cursor: 'pointer', marginTop: 8 }}>
+            <input type="checkbox" checked={assignF.syncTitle} onChange={e => setAssignF(f => ({ ...f, syncTitle: e.target.checked }))} />
+            حدّث «المسمى الوظيفي» المعروض في المنصّة تلقائيًا من الوظيفة المختارة
+          </label>
+        </Modal>
+      )}
+
+      {docsFor && (
+        <Modal title={'مستندات وعقود — ' + docsFor.name} icon={FileText} wide onClose={() => setDocsFor(null)}
+          foot={<button className="btn gh" onClick={() => setDocsFor(null)}>إغلاق</button>}>
+          <div className="row" style={{ justifyContent: 'flex-end', marginBottom: 8 }}>
+            <button className="btn sm" onClick={() => setDocF({ kind: 'contract', title: '', number: '', issueDate: '', expiryDate: '', file: '' })}><Plus size={13} />مستند جديد</button>
+          </div>
+          <div className="tw">
+            <table className="tb">
+              <thead><tr><th>النوع</th><th>العنوان</th><th>الرقم</th><th>الإصدار</th><th>الانتهاء</th><th /></tr></thead>
+              <tbody>
+                {empDocs(docsFor).map(x => (
+                  <tr key={x.id}>
+                    <td style={{ fontSize: 11.5 }}>{DOC_KINDS[x.kind] || 'أخرى'}</td>
+                    <td style={{ fontWeight: 600, fontSize: 12 }}>{x.title}{x.file && <FileText size={11} style={{ marginInlineStart: 5, color: 'var(--brass)' }} />}</td>
+                    <td style={{ fontSize: 11.5, color: 'var(--dim)' }}>{x.number || '—'}</td>
+                    <td className="num" style={{ fontSize: 11 }}>{x.issueDate || '—'}</td>
+                    <td className="num" style={{ fontSize: 11 }}>{x.expiryDate || '—'} {expiryTag(x.expiryDate)}</td>
+                    <td>
+                      <div className="row" style={{ gap: 5, justifyContent: 'flex-end' }}>
+                        <button className="btn sm gh" onClick={() => setDocF({ id: x.id, kind: x.kind, title: x.title, number: x.number, issueDate: x.issueDate, expiryDate: x.expiryDate, file: x.file })}>تعديل</button>
+                        <button className="btn sm gh" style={{ color: 'var(--rose)' }} onClick={() => delDoc(x.id)}><Trash2 size={13} /></button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {empDocs(docsFor).length === 0 && <tr><td colSpan={6}><div className="empty">لا مستندات مرفوعة لهذا الموظف بعد.</div></td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </Modal>
+      )}
+
+      {docF && docsFor && (
+        <Modal title={docF.id ? 'تعديل مستند' : 'مستند جديد'} icon={FileText} onClose={() => setDocF(null)}
+          foot={<><button className="btn gh" onClick={() => setDocF(null)}>إلغاء</button><button className="btn pri" onClick={saveDoc}><Check size={14} />حفظ</button></>}>
+          <div className="grid g2">
+            <Field label="النوع">
+              <select className="inp sel" value={docF.kind} onChange={e => setDocF(f => ({ ...f, kind: e.target.value }))}>
+                {Object.entries(DOC_KINDS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </Field>
+            <Field label="العنوان"><input className="inp" value={docF.title} onChange={e => setDocF(f => ({ ...f, title: e.target.value }))} /></Field>
+            <Field label="الرقم (اختياري)"><input className="inp" value={docF.number} onChange={e => setDocF(f => ({ ...f, number: e.target.value }))} /></Field>
+            <Field label="تاريخ الإصدار (اختياري)"><input className="inp" type="date" value={docF.issueDate} onChange={e => setDocF(f => ({ ...f, issueDate: e.target.value }))} /></Field>
+            <Field label="تاريخ الانتهاء (اختياري)"><input className="inp" type="date" value={docF.expiryDate} onChange={e => setDocF(f => ({ ...f, expiryDate: e.target.value }))} /></Field>
+          </div>
+          <PhotoField label="المرفق (صورة أو PDF، اختياري)" value={docF.file} onChange={v => setDocF(f => ({ ...f, file: v }))} say={say} />
         </Modal>
       )}
     </div>
