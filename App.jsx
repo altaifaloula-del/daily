@@ -1423,11 +1423,11 @@ const DENOMS = [
 const emptyDenoms = () => DENOMS.reduce((o, d) => ({ ...o, [d.k]: 0 }), {});
 const countDenoms = (d) => DENOMS.reduce((s, x) => s + (Number(d?.[x.k]) || 0) * x.v, 0);
 
-const ALL_TABS = ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit'];
+const ALL_TABS = ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit'];
 const TAB_AR = {
   analytics: 'مركز التحليل والأداء', reporting: 'مركز التقارير', exec: 'اللوحة التنفيذية',
   dash: 'لوحة المؤشرات', compare: 'مقارنة الفروع', growth: 'تحليلات النمو', breakeven: 'تحليل التعادل', scorecard: 'لوحة الأهداف', scenario: 'ماذا-لو', boardpack: 'تقرير الإدارة', cashflow: 'التدفق النقدي', closing: 'الإغلاق اليومي', apps: 'التطبيقات',
-  approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', people: 'شؤون الموظفين', payroll: 'الرواتب والسلف', workforce: 'الجدولة والحضور', hrmaster: 'البيانات الرئيسية', hrpolicy: 'السياسات والأدوار', attendance: 'الحضور الموثَّق', shiftengine: 'محرّك الورديات',
+  approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', people: 'شؤون الموظفين', payroll: 'الرواتب والسلف', workforce: 'الجدولة والحضور', hrmaster: 'البيانات الرئيسية', hrpolicy: 'السياسات والأدوار', attendance: 'الحضور الموثَّق', shiftengine: 'محرّك الورديات', tasks: 'المهام',
   purchasing: 'المشتريات والموردون', suppliers: 'الموردون والمشتريات', inv: 'المخزون والمنتجات', reorder: 'المشتريات الذكية', partners: 'دفتر الشركاء',
   acct: 'المحاسبة', shifts: 'الورديات', archive: 'أرشيف المستندات', ai: 'المركز الذكي',
   reports: 'التقارير المالية', rbuild: 'منشئ التقارير', entities: 'مركز المنشآت', admin: 'الفروع والمستخدمون', audit: 'سجل التدقيق'
@@ -1457,22 +1457,22 @@ const ROLES = {
   // ===== الأدوار الخمسة المعتمدة =====
   cashier: {
     ar: 'كاشير — إدخال إغلاق اليوم', badge: 'b-sky', scope: 'own', create: true, todayOnly: true,
-    tabs: ['closing', 'attendance'],
+    tabs: ['closing', 'attendance', 'tasks'],
     perms: ['إنشاء وترحيل إغلاق اليوم لفرعه', 'جرد الصندوق وإدخال المبيعات والمصروفات', 'تسجيل حضور وانصراف موظفي فرعه من جهاز الفرع', 'اليوم الحالي فقط دون سجلّ سابق — عدا مسوداته والمرفوضات المعادة للتصحيح فتظهر دائماً']
   },
   branch_manager: {
     ar: 'مدير الفرع', badge: 'b-mint', scope: 'own', create: true,
-    tabs: ['closing', 'sales', 'apps', 'archive', 'attendance', 'shiftengine'],
+    tabs: ['closing', 'sales', 'apps', 'archive', 'attendance', 'shiftengine', 'tasks'],
     perms: ['إدخال وترحيل إغلاق فرعه', 'عرض سجل إغلاقات فرعه', 'أرشيف مستندات فرعه فقط', 'تسجيل الحضور وضبط أرقام PIN وسجل حضور فرعه', 'محرّك ورديات فرعه: قوالب، تعيين أسبوعي، مطابقة حضور، تبديل وردية، طلب نقل موظف']
   },
   regional_manager: {
     ar: 'مدير إقليمي — فروع مُسندة', badge: 'b-amber', scope: 'assigned',
-    tabs: ['analytics', 'reporting', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'reports', 'archive', 'attendance', 'shiftengine'],
+    tabs: ['analytics', 'reporting', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'reports', 'archive', 'attendance', 'shiftengine', 'tasks'],
     perms: ['متابعة الفروع المسندة إليه فقط', 'مقارنة وتقارير فروعه ولوحة مؤشراتها ونموّها', 'سجل حضور فروعه المسندة ومحرّك ورديات فروعه', 'بلا وصول للمحاسبة والخزينة والإعدادات']
   },
   head_office: {
     ar: 'المكتب الرئيسي — المالية والإدارة', badge: 'b-brass', scope: 'all', approver: true,
-    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
+    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['كل الفروع والتقارير المجمّعة', 'التدقيق والاعتماد النهائي', 'الخزينة والرواتب والموردون والمشتريات والمخزون', 'المحاسبة الكاملة: قيود وميزان وقوائم وضريبة وأصول ومراكز تكلفة']
   },
   system_admin: {
@@ -1490,7 +1490,7 @@ const ROLES = {
     // إعادة ترتيب v8.0: المحاسب الرئيسي بطبيعته يعمل على المنشأة كلها — نطاق كامل
     // بلا صلاحيات إدارة (لا مستخدمين/فروع، لا تفعيل ضريبة، لا إدارة تطبيقات)
     ar: 'الإدارة المالية — محاسب رئيسي', badge: 'b-sky', scope: 'all', legacy: true,
-    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
+    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['المحاسبة كاملة: قيود يدوية وافتتاحية وميزان وقوائم ومراكز تكلفة', 'الضريبة والأصول والتسوية البنكية (عرض وتسجيل — التفعيل للإدارة)', 'المشتريات والمخزون والرواتب والخزينة', 'كل الفروع — دون إدارة المستخدمين والإعدادات']
   },
   // ===== v15.9: نماذج صلاحيات المحاسب — نطاق «المحاسبة + التقارير المالية فقط» =====
@@ -1582,6 +1582,7 @@ const REG_APPS = [
   { id: 'workforce', ar: 'الجدولة والحضور', en: 'Scheduling & Labor', cat: 'hr', icon: CalendarDays, open: { tab: 'workforce' }, kw: ['جدولة', 'وردية', 'حضور', 'ساعات', 'عمالة', 'دوام', 'موظف', 'تحسين', 'إنتاجية'], fns: ['جدول ساعات أسبوعي لكل موظف', 'تسجيل الحضور الفعلي', 'نسبة العمالة من المبيعات', 'المبيعات لكل ساعة عمل', 'تنبيهات الزيادة والنقص'], d: 'خطّط ساعات فريقك أسبوعياً، سجّل الحضور، وقِس نسبة العمالة من مبيعاتك — بهدف قابل للضبط.' },
   { id: 'attendance', ar: 'الحضور الموثَّق', en: 'Verified Attendance', cat: 'hr', icon: Fingerprint, open: { tab: 'attendance' }, kw: ['حضور', 'انصراف', 'بصمة', 'PIN', 'جيوفنس', 'موقع', 'كاشير', 'كيوسك'], fns: ['تسجيل حضور وانصراف من جهاز الفرع بـPIN', 'تحقّق تلقائي من نطاق جيوفنس الفرع', 'سجل حضور كامل قابل للفلترة'], d: 'تسجيل حضور وانصراف الموظفين من جهاز الفرع نفسه — برقم PIN وتحقّق موقعي، دون حساب دخول شخصي لكل موظف.' },
   { id: 'shiftengine', ar: 'محرّك الورديات', en: 'Shift Engine', cat: 'hr', icon: ArrowLeftRight, open: { tab: 'shiftengine' }, kw: ['وردية', 'ورديات', 'تعيين', 'تبديل', 'نقل موظف', 'قالب وردية', 'جدول'], fns: ['قوالب ورديات لكل فرع', 'تقويم تعيين أسبوعي', 'مطابقة تلقائية مع الحضور الفعلي', 'طلبات تبديل وردية', 'طلبات نقل موظف بين الفروع'], d: 'قوالب ورديات جاهزة، تقويم تعيين أسبوعي، مطابقة تلقائية مع الحضور الفعلي، وطلبات تبديل وردية أو نقل موظف بين الفروع.' },
+  { id: 'tasks', ar: 'المهام', en: 'Tasks', cat: 'hr', icon: CheckCircle2, open: { tab: 'tasks' }, kw: ['مهام', 'مهمة', 'تشيك ليست', 'تكليف', 'التزام', 'قائمة مهام'], fns: ['قوائم مهام يومية/أسبوعية متكررة لكل فرع', 'تكليف مهام فردية لموظف معيّن', 'قائمة مهام مرتبطة بالوردية', 'تقرير الالتزام بالمهام لكل موظف/فرع'], d: 'قوائم مهام متكررة لكل فرع، تكليف مهام فردية، إنجاز من جهاز الفرع، وتقرير التزام لكل موظف وفرع.' },
   // ——— الزكاة والضريبة (خطة م٣) ———
   { id: 'vat', ar: 'ضريبة القيمة المضافة', en: 'VAT', cat: 'tax', icon: Receipt, open: { tab: 'acct', view: 'vat' }, kw: ['ضريبة', 'زاتكا', 'مدخلات', 'مخرجات', 'فاتورة', 'إقرار'], fns: ['تفعيل بنسبة قابلة للضبط', 'فصل المخرجات في قيد الإيراد', 'فصل مدخلات المصروفات الخاضعة', 'مؤشرات بالفترة'], d: 'فصل تلقائي لضريبة المخرجات والمدخلات في القيود — بأثر رجعي فور التفعيل.' },
   { id: 'vatret', ar: 'الإقرار الضريبي', en: 'VAT Return', cat: 'tax', icon: FileText, open: { tab: 'acct', view: 'vat' }, kw: ['إقرار', 'ضريبة', 'ربع', 'زاتكا'], fns: ['مسودة إقرار بالفترة', 'زر الربع الحالي', 'صافي المستحق'], d: 'مسودة إقرار جاهزة من قيودك لأي فترة تحددها.' },
@@ -1623,6 +1624,8 @@ const LAUNCH_APPS = [
     sections: ['تسجيل حضور/انصراف', 'أرقام PIN', 'سجل الحضور'], kw: ['حضور', 'انصراف', 'بصمة', 'pin', 'جيوفنس', 'كيوسك', 'موظف'] },
   { id: 'shiftengine', ar: 'محرّك الورديات', en: 'Shift Engine', cat: 'pos', icon: ArrowLeftRight, open: { tab: 'shiftengine' },
     sections: ['قوالب الورديات', 'تعيين أسبوعي', 'مطابقة الحضور', 'تبديل وردية', 'نقل موظف'], kw: ['وردية', 'ورديات', 'تعيين', 'تبديل', 'نقل', 'قالب', 'جدول'] },
+  { id: 'tasks', ar: 'المهام', en: 'Tasks', cat: 'pos', icon: CheckCircle2, open: { tab: 'tasks' },
+    sections: ['قوالب مهام متكررة', 'تكليف فردي', 'إنجاز المهام', 'تقرير الالتزام'], kw: ['مهام', 'مهمة', 'تكليف', 'التزام', 'تشيك ليست'] },
   { id: 'sales', ar: 'المبيعات', en: 'Sales', cat: 'pos', icon: CircleDollarSign, open: { tab: 'sales' },
     sections: ['حسب القناة', 'حسب الفرع', 'حسب التطبيق'], kw: ['مبيعات', 'نقاط البيع', 'نقطة بيع', 'قناة', 'نقد', 'شبكة', 'توصيل', 'تحليل'] },
   { id: 'approve', ar: 'التدقيق والاعتماد', en: 'Approvals', cat: 'pos', icon: ShieldCheck, open: { tab: 'approve' },
@@ -2430,6 +2433,7 @@ export default function App() {
     { id: 'closing', ar: 'الإغلاق اليومي', icon: ClipboardCheck },
     { id: 'attendance', ar: 'الحضور الموثَّق', icon: Fingerprint },
     { id: 'shiftengine', ar: 'محرّك الورديات', icon: ArrowLeftRight },
+    { id: 'tasks', ar: 'المهام', icon: CheckCircle2 },
     { id: 'apps', ar: 'إدارة التطبيقات', icon: Grid3x3 },
     { id: 'approve', ar: 'التدقيق والاعتماد', icon: ShieldCheck, cnt: pending },
     { id: 'treasury', ar: 'الخزينة والترحيل', icon: Landmark },
@@ -2538,7 +2542,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v20.0 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v21.0 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2671,6 +2675,7 @@ export default function App() {
               {safeTab === 'closing' && <Closing {...shared} />}
               {safeTab === 'attendance' && <Attendance {...shared} />}
               {safeTab === 'shiftengine' && <ShiftEngine {...shared} />}
+              {safeTab === 'tasks' && <Tasks {...shared} />}
               {safeTab === 'apps' && <AppsCenter {...shared} />}
               {safeTab === 'approve' && <Approvals {...shared} />}
               {safeTab === 'treasury' && <Treasury {...shared} />}
@@ -9440,6 +9445,331 @@ function ShiftEngine({ org, me, myBranches, commitOrg, commit, say }) {
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Tasks({ org, me, myBranches, commitOrg, say }) {
+  const role = ROLES[me.role] || {};
+  const isAll = role.scope === 'all';
+  const isCashier = me.role === 'cashier';
+  const canManage = me.role === 'branch_manager' || isAll; // إنشاء/تعديل القوالب والتكليف الفردي: مدير الفرع + أدوار المركز
+  const canComplete = canManage || isCashier; // إنجاز المهام من كشك الفرع: مدير الفرع، أدوار المركز، والكاشير
+  const branches = myBranches || [];
+
+  const [view, setView] = useState('checklist');
+  useEffect(() => { if (isCashier && view !== 'checklist') setView('checklist'); }, [isCashier]); // eslint-disable-line
+  const [branchId, setBranchId] = useState((branches[0] || {}).id || '');
+  useEffect(() => {
+    if (!branches.find(b => b.id === branchId)) setBranchId((branches[0] || {}).id || '');
+  }, [branches, branchId]);
+  const branch = branches.find(b => b.id === branchId) || null;
+
+  const emps = (org.employees || []).filter(e => e.isActive !== false && branch && e.branchId === branch.id);
+  const weekdayOf = (ds) => new Date(ds + 'T00:00:00').getDay();
+
+  // === ١) قوالب مهام متكررة (يومية/أسبوعية) لكل فرع ===
+  const templates = (org.taskTemplates || []).filter(t => branch && t.branchId === branch.id);
+  const [tplF, setTplF] = useState(null); // {id?, title, freq:'daily'|'weekly', weekdays:[], note}
+  const saveTpl = async () => {
+    if (!branch) return;
+    if (!tplF.title) return say('أدخل عنوان المهمة', 'no');
+    const rec = { id: tplF.id || uid('ttpl'), branchId: branch.id, title: tplF.title, freq: tplF.freq || 'daily', weekdays: tplF.freq === 'weekly' ? (tplF.weekdays || []) : [0, 1, 2, 3, 4, 5, 6], note: tplF.note || '', isActive: true };
+    const exists = (org.taskTemplates || []).some(t => t.id === rec.id);
+    await commitOrg(d => ({ ...d, taskTemplates: exists ? (d.taskTemplates || []).map(t => t.id === rec.id ? rec : t) : [...(d.taskTemplates || []), rec] }),
+      { actionType: exists ? 'update' : 'create', targetType: 'task_template', targetId: rec.id, branchName: branch.name, title: exists ? 'عدّل قالب مهمة' : 'أضاف قالب مهمة', details: branch.name + ' — ' + rec.title });
+    say('حُفظ قالب المهمة ✓'); setTplF(null);
+  };
+  const delTpl = async (t) => {
+    if (!window.confirm('حذف قالب مهمة «' + t.title + '»؟')) return;
+    await commitOrg(d => ({ ...d, taskTemplates: (d.taskTemplates || []).filter(x => x.id !== t.id) }),
+      { actionType: 'delete', targetType: 'task_template', targetId: t.id, branchName: branch.name, title: 'حذف قالب مهمة', details: t.title });
+    say('حُذف القالب ✓');
+  };
+
+  // === ٢) تكليف مهمة فردية لموظف معيّن ===
+  const assigns = (org.taskAssignments || []).filter(a => branch && a.branchId === branch.id).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  const [assignF, setAssignF] = useState({ empId: '', title: '', dueDate: today(), priority: 'normal', note: '' });
+  const saveAssign = async () => {
+    if (!branch) return;
+    const emp = emps.find(e => e.id === assignF.empId);
+    if (!emp || !assignF.title) return say('اختر الموظف وأدخل عنوان المهمة', 'no');
+    const rec = { id: uid('task'), branchId: branch.id, employeeId: emp.id, employeeName: emp.name, title: assignF.title, note: assignF.note || '', dueDate: assignF.dueDate || today(), priority: assignF.priority || 'normal', status: 'open', createdBy: me.id, createdByName: me.name, createdAt: nowISO() };
+    await commitOrg(d => ({ ...d, taskAssignments: [rec, ...(d.taskAssignments || [])] }),
+      { actionType: 'create', targetType: 'task_assignment', targetId: rec.id, branchName: branch.name, title: 'تكليف مهمة فردية', details: emp.name + ' — ' + rec.title });
+    say('أُسندت المهمة ✓'); setAssignF({ empId: '', title: '', dueDate: today(), priority: 'normal', note: '' });
+  };
+  const cancelAssign = async (a) => {
+    if (!window.confirm('إلغاء المهمة «' + a.title + '»؟')) return;
+    await commitOrg(d => ({ ...d, taskAssignments: (d.taskAssignments || []).filter(x => x.id !== a.id) }),
+      { actionType: 'delete', targetType: 'task_assignment', targetId: a.id, branchName: branch.name, title: 'إلغاء مهمة فردية', details: a.title });
+    say('أُلغيت المهمة');
+  };
+
+  // === ٣) قائمة المهام من كشك الفرع (جهاز مشترك) — اختيار موظف ثم إنجاز مهامه ===
+  const [empId, setEmpId] = useState('');
+  useEffect(() => { if (!emps.find(e => e.id === empId)) setEmpId(''); }, [emps, empId]); // eslint-disable-line
+  const chkEmp = emps.find(e => e.id === empId) || null;
+  const dueTemplatesToday = branch ? templates.filter(t => t.isActive !== false && (t.freq === 'daily' || (t.weekdays || []).includes(weekdayOf(today())))) : [];
+  const completionsToday = (org.taskCompletions || []).filter(c => c.employeeId === empId && c.date === today());
+  const isTplDone = (tplId) => completionsToday.some(c => c.templateId === tplId);
+  const openIndivToday = chkEmp ? assigns.filter(a => a.employeeId === chkEmp.id && a.status === 'open' && a.dueDate <= today()) : [];
+  const toggleTpl = async (t) => {
+    if (!chkEmp || !branch) return;
+    if (isTplDone(t.id)) {
+      await commitOrg(d => ({ ...d, taskCompletions: (d.taskCompletions || []).filter(c => !(c.templateId === t.id && c.employeeId === chkEmp.id && c.date === today())) }),
+        { actionType: 'update', targetType: 'task_completion', targetId: t.id, branchName: branch.name, title: 'إلغاء إنجاز مهمة متكررة', details: chkEmp.name + ' — ' + t.title });
+    } else {
+      const rec = { id: uid('tcomp'), templateId: t.id, branchId: branch.id, employeeId: chkEmp.id, employeeName: chkEmp.name, date: today(), doneAt: nowISO(), doneBy: me.id, doneByName: me.name };
+      await commitOrg(d => ({ ...d, taskCompletions: [rec, ...(d.taskCompletions || [])] }),
+        { actionType: 'create', targetType: 'task_completion', targetId: rec.id, branchName: branch.name, title: 'إنجاز مهمة متكررة', details: chkEmp.name + ' — ' + t.title });
+    }
+  };
+  const doneIndiv = async (a) => {
+    if (!branch) return;
+    await commitOrg(d => ({ ...d, taskAssignments: (d.taskAssignments || []).map(x => x.id === a.id ? { ...x, status: 'done', doneAt: nowISO(), doneBy: me.id, doneByName: me.name } : x) }),
+      { actionType: 'update', targetType: 'task_assignment', targetId: a.id, branchName: branch.name, title: 'إنجاز مهمة فردية', details: a.employeeName + ' — ' + a.title });
+    say('أُنجزت المهمة ✓');
+  };
+
+  // === ٤) تقرير الالتزام بالمهام لكل موظف/فرع ===
+  const [repFrom, setRepFrom] = useState(today());
+  const [repTo, setRepTo] = useState(today());
+  const dateRange = () => {
+    const arr = []; let d = repFrom;
+    while (d <= repTo && arr.length < 62) { arr.push(d); const nd = new Date(d + 'T00:00:00'); nd.setDate(nd.getDate() + 1); d = nd.toISOString().slice(0, 10); }
+    return arr;
+  };
+  const dates = dateRange();
+  const reportRows = emps.map(e => {
+    let expected = 0, done = 0;
+    dates.forEach(ds => {
+      const wd = weekdayOf(ds);
+      templates.filter(t => t.isActive !== false && (t.freq === 'daily' || (t.weekdays || []).includes(wd))).forEach(t => {
+        expected++;
+        if ((org.taskCompletions || []).some(c => c.templateId === t.id && c.employeeId === e.id && c.date === ds)) done++;
+      });
+    });
+    const indiv = assigns.filter(a => a.employeeId === e.id && a.dueDate >= repFrom && a.dueDate <= repTo);
+    const indivDone = indiv.filter(a => a.status === 'done').length;
+    const totalExpected = expected + indiv.length;
+    const totalDone = done + indivDone;
+    const pct = totalExpected ? Math.round((totalDone / totalExpected) * 100) : null;
+    return { e, expected: totalExpected, done: totalDone, pct };
+  });
+
+  if (!branch && branches.length === 0) {
+    return <div className="card"><div className="empty">لا يوجد فرع مُسند لحسابك — راجع مسؤول النظام.</div></div>;
+  }
+
+  return (
+    <div className="grid" style={{ gap: 12 }}>
+      {!isCashier && (
+        <div className="card" style={{ padding: '8px 12px' }}>
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap', justifyContent: 'space-between' }}>
+            <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+              <button className={'btn sm' + (view === 'templates' ? ' pri' : ' gh')} onClick={() => setView('templates')}><CheckCircle2 size={13} />قوالب المهام المتكررة</button>
+              <button className={'btn sm' + (view === 'assign' ? ' pri' : ' gh')} onClick={() => setView('assign')}><Send size={13} />تكليف فردي</button>
+              <button className={'btn sm' + (view === 'checklist' ? ' pri' : ' gh')} onClick={() => setView('checklist')}><UserCog size={13} />إنجاز المهام</button>
+              <button className={'btn sm' + (view === 'report' ? ' pri' : ' gh')} onClick={() => setView('report')}><FileBarChart size={13} />تقرير الالتزام</button>
+            </div>
+            {branches.length > 1 && (
+              <select className="inp sel" style={{ width: 180 }} value={branchId} onChange={e => setBranchId(e.target.value)}>
+                {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            )}
+          </div>
+        </div>
+      )}
+
+      {view === 'templates' && branch && (
+        <div className="card">
+          <div className="card-h" style={{ marginBottom: 8 }}>
+            <div className="card-t"><CheckCircle2 size={15} color="var(--brass)" />قوالب المهام المتكررة — {branch.name}</div>
+            {canManage && <button className="btn sm pri" onClick={() => setTplF({ title: '', freq: 'daily', weekdays: [], note: '' })}><Plus size={13} />قالب جديد</button>}
+          </div>
+          <div className="tw">
+            <table className="tb">
+              <thead><tr><th>العنوان</th><th>التكرار</th><th>الأيام</th><th>ملاحظة</th>{canManage && <th />}</tr></thead>
+              <tbody>
+                {templates.map(t => (
+                  <tr key={t.id}>
+                    <td style={{ fontWeight: 600, fontSize: 12.5 }}>{t.title}</td>
+                    <td><span className="badge b-dim">{t.freq === 'weekly' ? 'أسبوعي' : 'يومي'}</span></td>
+                    <td style={{ fontSize: 11 }}>{t.freq === 'weekly' ? (t.weekdays || []).map(d => HR_WEEK_DAYS.find(x => x.v === d)?.ar.slice(0, 3)).join('، ') : 'كل يوم'}</td>
+                    <td style={{ fontSize: 12 }}>{t.note || '—'}</td>
+                    {canManage && <td>
+                      <div className="row" style={{ gap: 5, justifyContent: 'flex-end' }}>
+                        <button className="btn sm gh" onClick={() => setTplF({ ...t })}>تعديل</button>
+                        <button className="btn sm gh" onClick={() => delTpl(t)}><Trash2 size={13} /></button>
+                      </div>
+                    </td>}
+                  </tr>
+                ))}
+                {templates.length === 0 && <tr><td colSpan={canManage ? 5 : 4}><div className="empty">لا توجد قوالب مهام لهذا الفرع بعد.</div></td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {tplF && (
+        <Modal title={tplF.id ? 'تعديل قالب مهمة' : 'قالب مهمة جديد'} icon={CheckCircle2} onClose={() => setTplF(null)}
+          foot={<>
+            <button className="btn gh" onClick={() => setTplF(null)}>إلغاء</button>
+            <button className="btn pri" onClick={saveTpl}><Check size={14} />حفظ</button>
+          </>}>
+          <div className="grid" style={{ gap: 10 }}>
+            <Field label="عنوان المهمة">
+              <input className="inp" autoFocus value={tplF.title} onChange={e => setTplF(f => ({ ...f, title: e.target.value }))} placeholder="تنظيف صالة العملاء" />
+            </Field>
+            <Field label="التكرار">
+              <select className="inp sel" value={tplF.freq} onChange={e => setTplF(f => ({ ...f, freq: e.target.value }))}>
+                <option value="daily">يومي (كل يوم)</option>
+                <option value="weekly">أسبوعي (أيام محدَّدة)</option>
+              </select>
+            </Field>
+            {tplF.freq === 'weekly' && (
+              <Field label="أيام التكرار">
+                <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
+                  {HR_WEEK_DAYS.map(d => (
+                    <label key={d.v} className="row" style={{ gap: 5, fontSize: 12.5, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={(tplF.weekdays || []).includes(d.v)}
+                        onChange={e => setTplF(f => ({ ...f, weekdays: e.target.checked ? [...(f.weekdays || []), d.v] : (f.weekdays || []).filter(x => x !== d.v) }))} />
+                      {d.ar}
+                    </label>
+                  ))}
+                </div>
+              </Field>
+            )}
+            <Field label="ملاحظة (اختياري)">
+              <input className="inp" value={tplF.note} onChange={e => setTplF(f => ({ ...f, note: e.target.value }))} />
+            </Field>
+          </div>
+        </Modal>
+      )}
+
+      {view === 'assign' && branch && (
+        <div className="grid" style={{ gap: 12 }}>
+          {canManage && (
+            <div className="card">
+              <div className="card-t" style={{ marginBottom: 8 }}><Send size={15} color="var(--brass)" />تكليف مهمة فردية لموظف معيّن</div>
+              <div className="grid g3">
+                <Field label="الموظف"><select className="inp sel" value={assignF.empId} onChange={e => setAssignF(f => ({ ...f, empId: e.target.value }))}><option value="">اختر</option>{emps.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select></Field>
+                <Field label="عنوان المهمة"><input className="inp" value={assignF.title} onChange={e => setAssignF(f => ({ ...f, title: e.target.value }))} /></Field>
+                <Field label="تاريخ الاستحقاق"><input type="date" className="inp" value={assignF.dueDate} onChange={e => setAssignF(f => ({ ...f, dueDate: e.target.value }))} /></Field>
+                <Field label="الأولوية">
+                  <select className="inp sel" value={assignF.priority} onChange={e => setAssignF(f => ({ ...f, priority: e.target.value }))}>
+                    <option value="normal">عادية</option>
+                    <option value="high">عاجلة</option>
+                  </select>
+                </Field>
+                <Field label="ملاحظة (اختياري)"><input className="inp" value={assignF.note} onChange={e => setAssignF(f => ({ ...f, note: e.target.value }))} /></Field>
+              </div>
+              <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
+                <button className="btn pri" onClick={saveAssign}><Send size={14} />إسناد المهمة</button>
+              </div>
+            </div>
+          )}
+          <div className="card">
+            <div className="card-t" style={{ marginBottom: 8 }}>المهام الفردية — {branch.name}</div>
+            <div className="tw">
+              <table className="tb">
+                <thead><tr><th>الموظف</th><th>العنوان</th><th>الاستحقاق</th><th>الأولوية</th><th>الحالة</th>{canManage && <th />}</tr></thead>
+                <tbody>
+                  {assigns.map(a => (
+                    <tr key={a.id}>
+                      <td style={{ fontWeight: 600, fontSize: 12.5 }}>{a.employeeName}</td>
+                      <td style={{ fontSize: 12.5 }}>{a.title}</td>
+                      <td className="num">{a.dueDate}</td>
+                      <td><span className={'badge ' + (a.priority === 'high' ? 'b-rose' : 'b-dim')}>{a.priority === 'high' ? 'عاجلة' : 'عادية'}</span></td>
+                      <td><span className={'badge ' + (a.status === 'done' ? 'b-mint' : 'b-amber')}>{a.status === 'done' ? 'منجزة' : 'مفتوحة'}</span></td>
+                      {canManage && <td>
+                        {a.status !== 'done' && <div className="row" style={{ gap: 5, justifyContent: 'flex-end' }}>
+                          <button className="btn sm gh" onClick={() => cancelAssign(a)}><Trash2 size={13} /></button>
+                        </div>}
+                      </td>}
+                    </tr>
+                  ))}
+                  {assigns.length === 0 && <tr><td colSpan={canManage ? 6 : 5}><div className="empty">لا توجد مهام فردية بعد.</div></td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {view === 'checklist' && branch && (
+        <div className="grid" style={{ gap: 12 }}>
+          <div className="card">
+            <Field label="الموظف">
+              <select className="inp sel" value={empId} onChange={e => setEmpId(e.target.value)}>
+                <option value="">اختر الموظف</option>
+                {emps.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+              </select>
+            </Field>
+          </div>
+          {chkEmp && (
+            <>
+              <div className="card">
+                <div className="card-t" style={{ marginBottom: 8 }}>مهام اليوم المتكررة — {chkEmp.name}</div>
+                <div className="grid" style={{ gap: 6 }}>
+                  {dueTemplatesToday.map(t => (
+                    <label key={t.id} className="row" style={{ gap: 8, justifyContent: 'space-between', padding: '7px 10px', border: '1px solid var(--line)', borderRadius: 10, cursor: canComplete ? 'pointer' : 'default' }}>
+                      <span className="row" style={{ gap: 8 }}>
+                        <input type="checkbox" checked={isTplDone(t.id)} disabled={!canComplete} onChange={() => canComplete && toggleTpl(t)} />
+                        {t.title}
+                      </span>
+                      {isTplDone(t.id) && <span className="badge b-mint">منجزة</span>}
+                    </label>
+                  ))}
+                  {dueTemplatesToday.length === 0 && <div className="empty">لا توجد مهام متكررة مستحقة اليوم لهذا الفرع.</div>}
+                </div>
+              </div>
+              <div className="card">
+                <div className="card-t" style={{ marginBottom: 8 }}>مهام فردية مستحقة</div>
+                <div className="grid" style={{ gap: 6 }}>
+                  {openIndivToday.map(a => (
+                    <div key={a.id} className="row" style={{ gap: 8, justifyContent: 'space-between', padding: '7px 10px', border: '1px solid var(--line)', borderRadius: 10 }}>
+                      <span style={{ fontSize: 12.5 }}>{a.title} {a.priority === 'high' && <span className="badge b-rose" style={{ marginInlineStart: 6 }}>عاجلة</span>}</span>
+                      {canComplete && <button className="btn sm pri" onClick={() => doneIndiv(a)}><Check size={13} />إنجاز</button>}
+                    </div>
+                  ))}
+                  {openIndivToday.length === 0 && <div className="empty">لا توجد مهام فردية مفتوحة ومستحقة لهذا الموظف.</div>}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {view === 'report' && branch && (
+        <div className="card">
+          <div className="card-h" style={{ marginBottom: 8 }}>
+            <div className="card-t"><FileBarChart size={15} color="var(--brass)" />تقرير الالتزام بالمهام — {branch.name}</div>
+            <div className="row" style={{ gap: 8 }}>
+              <input type="date" className="inp" value={repFrom} onChange={e => setRepFrom(e.target.value)} />
+              <input type="date" className="inp" value={repTo} onChange={e => setRepTo(e.target.value)} />
+            </div>
+          </div>
+          <div className="tw">
+            <table className="tb">
+              <thead><tr><th>الموظف</th><th>المهام المستحقة</th><th>المُنجزة</th><th>نسبة الالتزام</th></tr></thead>
+              <tbody>
+                {reportRows.map(r => (
+                  <tr key={r.e.id}>
+                    <td style={{ fontWeight: 600, fontSize: 12.5 }}>{r.e.name}</td>
+                    <td className="num">{r.expected}</td>
+                    <td className="num">{r.done}</td>
+                    <td><span className={'badge ' + (r.pct == null ? 'b-dim' : r.pct >= 90 ? 'b-mint' : r.pct >= 70 ? 'b-amber' : 'b-rose')}>{r.pct == null ? '—' : r.pct + '%'}</span></td>
+                  </tr>
+                ))}
+                {reportRows.length === 0 && <tr><td colSpan={4}><div className="empty">لا يوجد موظفون نشطون لهذا الفرع.</div></td></tr>}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
