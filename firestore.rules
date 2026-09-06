@@ -2,7 +2,6 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ===== المرحلة الأمنية 1 (كما كانت): مصادقة حقيقية + عضوية نشطة =====
     function realUser() {
       return request.auth != null
         && request.auth.token.firebase.sign_in_provider != 'anonymous'
@@ -10,45 +9,25 @@ service cloud.firestore {
     }
     function userEmail() { return request.auth.token.email.lower(); }
 
-    function memberPath() { return /databases/$(database)/documents/members/$(userEmail()); }
-
     function isMember() {
-      return realUser() && exists(memberPath()) && get(memberPath()).data.active == true;
-    }
-
-    function isAdmin() {
       return realUser()
-        && exists(/databases/$(database)/documents/platform/admins)
-        && (userEmail() in get(/databases/$(database)/documents/platform/admins).data.emails);
+        && exists(/databases/$(database)$(userEmail())).data;
     }
-
-    // ===== المرحلة الأمنية 2 (جديدة): عزل الفروع الفعلي + كتم أسرار المنشأة =====
-    // سجل العضوية (members/{email}) يحمل منذ v9: role/branchId/branchIds/scope — تُزامَن
-    // تلقائياً مع بيانات المستخدمين في org عبر upsertMember (راجع App.jsx/storage.js).
-    // scope=='all' يطابق حرفياً ROLES التي عندها scope:'all' في الكود (head_office،
-    // system_admin، accountant، accountant_view...)، وهي نفسها التي يقرأ عميلها
-    // rms8_org الكامل بدل rms8_dir (راجع ctx.central في App.jsx).
-    function memberData() { return get(memberPath()).data; }
 
     function isCentral() {
       return isMember() && ('scope' in memberData()) && memberData().scope == 'all';
     }
     function myBranchId() {
-      return isMember() && ('branchId' in memberData()) ? memberData().branchId : '';
+      return (isMember() && ('branchId' in memberData())) ? memberData().branchId : '';
     }
     function myBranchIds() {
       return (isMember() && ('branchIds' in memberData()) && memberData().branchIds is list)
         ? memberData().branchIds : [];
     }
-    // أي فرع يملك المستخدم صلاحية الوصول إليه: مدير منصّة أو مركزي (كل الفروع)،
-    // أو فرعه المفرد، أو ضمن قائمة فروعه المُسنَدة (مدير إقليمي).
     function canBranch(bId) {
       return isAdmin() || isCentral() || myBranchId() == bId || (bId in myBranchIds());
     }
 
-    // docId تُبنى من المفتاح المنطقي بعد استبدال أي رمز غير حرف/رقم/شرطة بـ"_"
-    // (راجع docId() في storage.js)، والمستندات الكبيرة تُقسَّم بلاحقة "__<رقم>".
-    // نُسقط لاحقة التقسيم أولاً قبل أي مطابقة.
     function baseId(id) { return id.split('__')[0]; }
 
     function isOrgDoc(id)    { return baseId(id).matches('^rms8_org.*$'); }
@@ -61,8 +40,6 @@ service cloud.firestore {
       return isBrDoc(id) ? baseId(id).split('rms8_br_')[1] : baseId(id).split('rms8_bf_')[1];
     }
 
-    // سجل تدقيق rms8_pulse لا يُقلَّص/يُمسَح من غير مدير (يمنع إخفاء الأثر) — v9.1،
-    // مطبَّق هنا خادمياً وليس فقط اعتماداً على انضباط العميل.
     function pulseAuditSafe() {
       return isAdmin()
         || !('audit' in resource.data)
@@ -82,12 +59,6 @@ service cloud.firestore {
     }
 
     match /platform/{docId} {
-      // rms8_org* — أسرار المنشأة كاملة (كلمات مرور مشفّرة، رواتب، إعدادات): القراءة
-      // للمركزيين/المدراء فقط (تطابق ما يفعله العميل فعلياً: الفرعي يقرأ dir لا org).
-      // rms8_core — بيانات تشغيل مركزية: للمركزيين/المدراء فقط.
-      // rms8_br_*/rms8_bf_* — بيانات فرع بعينه: لأصحاب ذلك الفرع أو المركزيين/المدراء فقط.
-      // غير ذلك (rms8_dir/rms8_ops/rms8_pulse/rms8_hist/rms8_files وغيرها) كما كانت:
-      // أي عضو نشط.
       allow read: if isMember()
         && (!isOrgDoc(docId)    || isCentral() || isAdmin())
         && (!isCoreDoc(docId)   || isCentral() || isAdmin())
@@ -97,12 +68,10 @@ service cloud.firestore {
         && (!isOrgDoc(docId)    || isAdmin())
         && (!isCoreDoc(docId)   || isCentral() || isAdmin())
         && (!isBranchDoc(docId) || canBranch(branchIdOf(docId)))
-        // rms8_dir دليل مشتق تلقائياً من org — يكتبه المدراء فقط (ضمن مسار حفظ org نفسه)
         && (docId != 'rms8_dir' || isAdmin())
         && (docId != 'rms8_pulse' || pulseAuditSafe());
     }
 
-    // امنع أي مسار آخر
     match /{document=**} {
       allow read, write: if false;
     }
