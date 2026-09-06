@@ -1423,11 +1423,11 @@ const DENOMS = [
 const emptyDenoms = () => DENOMS.reduce((o, d) => ({ ...o, [d.k]: 0 }), {});
 const countDenoms = (d) => DENOMS.reduce((s, x) => s + (Number(d?.[x.k]) || 0) * x.v, 0);
 
-const ALL_TABS = ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit'];
+const ALL_TABS = ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit'];
 const TAB_AR = {
   analytics: 'مركز التحليل والأداء', reporting: 'مركز التقارير', exec: 'اللوحة التنفيذية',
   dash: 'لوحة المؤشرات', compare: 'مقارنة الفروع', growth: 'تحليلات النمو', breakeven: 'تحليل التعادل', scorecard: 'لوحة الأهداف', scenario: 'ماذا-لو', boardpack: 'تقرير الإدارة', cashflow: 'التدفق النقدي', closing: 'الإغلاق اليومي', apps: 'التطبيقات',
-  approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', people: 'شؤون الموظفين', payroll: 'الرواتب والسلف', workforce: 'الجدولة والحضور', hrmaster: 'البيانات الرئيسية', hrpolicy: 'السياسات والأدوار', attendance: 'الحضور الموثَّق', shiftengine: 'محرّك الورديات', tasks: 'المهام',
+  approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', people: 'شؤون الموظفين', payroll: 'الرواتب والسلف', workforce: 'الجدولة والحضور', hrmaster: 'البيانات الرئيسية', hrpolicy: 'السياسات والأدوار', attendance: 'الحضور الموثَّق', shiftengine: 'محرّك الورديات', tasks: 'المهام', points: 'دفتر النقاط',
   purchasing: 'المشتريات والموردون', suppliers: 'الموردون والمشتريات', inv: 'المخزون والمنتجات', reorder: 'المشتريات الذكية', partners: 'دفتر الشركاء',
   acct: 'المحاسبة', shifts: 'الورديات', archive: 'أرشيف المستندات', ai: 'المركز الذكي',
   reports: 'التقارير المالية', rbuild: 'منشئ التقارير', entities: 'مركز المنشآت', admin: 'الفروع والمستخدمون', audit: 'سجل التدقيق'
@@ -1457,22 +1457,22 @@ const ROLES = {
   // ===== الأدوار الخمسة المعتمدة =====
   cashier: {
     ar: 'كاشير — إدخال إغلاق اليوم', badge: 'b-sky', scope: 'own', create: true, todayOnly: true,
-    tabs: ['closing', 'attendance', 'tasks'],
+    tabs: ['closing', 'attendance', 'tasks', 'points'],
     perms: ['إنشاء وترحيل إغلاق اليوم لفرعه', 'جرد الصندوق وإدخال المبيعات والمصروفات', 'تسجيل حضور وانصراف موظفي فرعه من جهاز الفرع', 'اليوم الحالي فقط دون سجلّ سابق — عدا مسوداته والمرفوضات المعادة للتصحيح فتظهر دائماً']
   },
   branch_manager: {
     ar: 'مدير الفرع', badge: 'b-mint', scope: 'own', create: true,
-    tabs: ['closing', 'sales', 'apps', 'archive', 'attendance', 'shiftengine', 'tasks'],
+    tabs: ['closing', 'sales', 'apps', 'archive', 'attendance', 'shiftengine', 'tasks', 'points'],
     perms: ['إدخال وترحيل إغلاق فرعه', 'عرض سجل إغلاقات فرعه', 'أرشيف مستندات فرعه فقط', 'تسجيل الحضور وضبط أرقام PIN وسجل حضور فرعه', 'محرّك ورديات فرعه: قوالب، تعيين أسبوعي، مطابقة حضور، تبديل وردية، طلب نقل موظف']
   },
   regional_manager: {
     ar: 'مدير إقليمي — فروع مُسندة', badge: 'b-amber', scope: 'assigned',
-    tabs: ['analytics', 'reporting', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'reports', 'archive', 'attendance', 'shiftengine', 'tasks'],
+    tabs: ['analytics', 'reporting', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'reports', 'archive', 'attendance', 'shiftengine', 'tasks', 'points'],
     perms: ['متابعة الفروع المسندة إليه فقط', 'مقارنة وتقارير فروعه ولوحة مؤشراتها ونموّها', 'سجل حضور فروعه المسندة ومحرّك ورديات فروعه', 'بلا وصول للمحاسبة والخزينة والإعدادات']
   },
   head_office: {
     ar: 'المكتب الرئيسي — المالية والإدارة', badge: 'b-brass', scope: 'all', approver: true,
-    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
+    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['كل الفروع والتقارير المجمّعة', 'التدقيق والاعتماد النهائي', 'الخزينة والرواتب والموردون والمشتريات والمخزون', 'المحاسبة الكاملة: قيود وميزان وقوائم وضريبة وأصول ومراكز تكلفة']
   },
   system_admin: {
@@ -1490,7 +1490,7 @@ const ROLES = {
     // إعادة ترتيب v8.0: المحاسب الرئيسي بطبيعته يعمل على المنشأة كلها — نطاق كامل
     // بلا صلاحيات إدارة (لا مستخدمين/فروع، لا تفعيل ضريبة، لا إدارة تطبيقات)
     ar: 'الإدارة المالية — محاسب رئيسي', badge: 'b-sky', scope: 'all', legacy: true,
-    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
+    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['المحاسبة كاملة: قيود يدوية وافتتاحية وميزان وقوائم ومراكز تكلفة', 'الضريبة والأصول والتسوية البنكية (عرض وتسجيل — التفعيل للإدارة)', 'المشتريات والمخزون والرواتب والخزينة', 'كل الفروع — دون إدارة المستخدمين والإعدادات']
   },
   // ===== v15.9: نماذج صلاحيات المحاسب — نطاق «المحاسبة + التقارير المالية فقط» =====
@@ -1583,6 +1583,7 @@ const REG_APPS = [
   { id: 'attendance', ar: 'الحضور الموثَّق', en: 'Verified Attendance', cat: 'hr', icon: Fingerprint, open: { tab: 'attendance' }, kw: ['حضور', 'انصراف', 'بصمة', 'PIN', 'جيوفنس', 'موقع', 'كاشير', 'كيوسك'], fns: ['تسجيل حضور وانصراف من جهاز الفرع بـPIN', 'تحقّق تلقائي من نطاق جيوفنس الفرع', 'سجل حضور كامل قابل للفلترة'], d: 'تسجيل حضور وانصراف الموظفين من جهاز الفرع نفسه — برقم PIN وتحقّق موقعي، دون حساب دخول شخصي لكل موظف.' },
   { id: 'shiftengine', ar: 'محرّك الورديات', en: 'Shift Engine', cat: 'hr', icon: ArrowLeftRight, open: { tab: 'shiftengine' }, kw: ['وردية', 'ورديات', 'تعيين', 'تبديل', 'نقل موظف', 'قالب وردية', 'جدول'], fns: ['قوالب ورديات لكل فرع', 'تقويم تعيين أسبوعي', 'مطابقة تلقائية مع الحضور الفعلي', 'طلبات تبديل وردية', 'طلبات نقل موظف بين الفروع'], d: 'قوالب ورديات جاهزة، تقويم تعيين أسبوعي، مطابقة تلقائية مع الحضور الفعلي، وطلبات تبديل وردية أو نقل موظف بين الفروع.' },
   { id: 'tasks', ar: 'المهام', en: 'Tasks', cat: 'hr', icon: CheckCircle2, open: { tab: 'tasks' }, kw: ['مهام', 'مهمة', 'تشيك ليست', 'تكليف', 'التزام', 'قائمة مهام'], fns: ['قوائم مهام يومية/أسبوعية متكررة لكل فرع', 'تكليف مهام فردية لموظف معيّن', 'قائمة مهام مرتبطة بالوردية', 'تقرير الالتزام بالمهام لكل موظف/فرع'], d: 'قوائم مهام متكررة لكل فرع، تكليف مهام فردية، إنجاز من جهاز الفرع، وتقرير التزام لكل موظف وفرع.' },
+  { id: 'points', ar: 'دفتر النقاط', en: 'Points Ledger', cat: 'hr', icon: Star, open: { tab: 'points' }, kw: ['نقاط', 'دفتر نقاط', 'ترتيب', 'تحفيز', 'مكافأة', 'رصيد'], fns: ['دفتر نقاط لكل موظف مع حركات يدوية بسبب موثَّق', 'قواعد نقاط تلقائية من الحضور والورديات والمهام (قابلة للضبط)', 'لوحة ترتيب شهرية للفرع والشركة', 'عرض رصيد الموظف من كشك الفرع بـPIN'], d: 'رصيد نقاط لكل موظف يجمع الحركات اليدوية والنقاط التلقائية من الحضور والمهام، مع لوحة ترتيب شهرية وعرض للموظف من جهاز الفرع.' },
   // ——— الزكاة والضريبة (خطة م٣) ———
   { id: 'vat', ar: 'ضريبة القيمة المضافة', en: 'VAT', cat: 'tax', icon: Receipt, open: { tab: 'acct', view: 'vat' }, kw: ['ضريبة', 'زاتكا', 'مدخلات', 'مخرجات', 'فاتورة', 'إقرار'], fns: ['تفعيل بنسبة قابلة للضبط', 'فصل المخرجات في قيد الإيراد', 'فصل مدخلات المصروفات الخاضعة', 'مؤشرات بالفترة'], d: 'فصل تلقائي لضريبة المخرجات والمدخلات في القيود — بأثر رجعي فور التفعيل.' },
   { id: 'vatret', ar: 'الإقرار الضريبي', en: 'VAT Return', cat: 'tax', icon: FileText, open: { tab: 'acct', view: 'vat' }, kw: ['إقرار', 'ضريبة', 'ربع', 'زاتكا'], fns: ['مسودة إقرار بالفترة', 'زر الربع الحالي', 'صافي المستحق'], d: 'مسودة إقرار جاهزة من قيودك لأي فترة تحددها.' },
@@ -1626,6 +1627,8 @@ const LAUNCH_APPS = [
     sections: ['قوالب الورديات', 'تعيين أسبوعي', 'مطابقة الحضور', 'تبديل وردية', 'نقل موظف'], kw: ['وردية', 'ورديات', 'تعيين', 'تبديل', 'نقل', 'قالب', 'جدول'] },
   { id: 'tasks', ar: 'المهام', en: 'Tasks', cat: 'pos', icon: CheckCircle2, open: { tab: 'tasks' },
     sections: ['قوالب مهام متكررة', 'تكليف فردي', 'إنجاز المهام', 'تقرير الالتزام'], kw: ['مهام', 'مهمة', 'تكليف', 'التزام', 'تشيك ليست'] },
+  { id: 'points', ar: 'دفتر النقاط', en: 'Points Ledger', cat: 'pos', icon: Star, open: { tab: 'points' },
+    sections: ['دفتر النقاط', 'قواعد النقاط', 'لوحة الترتيب', 'رصيدي (كشك)'], kw: ['نقاط', 'ترتيب', 'تحفيز', 'رصيد', 'مكافأة'] },
   { id: 'sales', ar: 'المبيعات', en: 'Sales', cat: 'pos', icon: CircleDollarSign, open: { tab: 'sales' },
     sections: ['حسب القناة', 'حسب الفرع', 'حسب التطبيق'], kw: ['مبيعات', 'نقاط البيع', 'نقطة بيع', 'قناة', 'نقد', 'شبكة', 'توصيل', 'تحليل'] },
   { id: 'approve', ar: 'التدقيق والاعتماد', en: 'Approvals', cat: 'pos', icon: ShieldCheck, open: { tab: 'approve' },
@@ -2434,6 +2437,7 @@ export default function App() {
     { id: 'attendance', ar: 'الحضور الموثَّق', icon: Fingerprint },
     { id: 'shiftengine', ar: 'محرّك الورديات', icon: ArrowLeftRight },
     { id: 'tasks', ar: 'المهام', icon: CheckCircle2 },
+    { id: 'points', ar: 'دفتر النقاط', icon: Star },
     { id: 'apps', ar: 'إدارة التطبيقات', icon: Grid3x3 },
     { id: 'approve', ar: 'التدقيق والاعتماد', icon: ShieldCheck, cnt: pending },
     { id: 'treasury', ar: 'الخزينة والترحيل', icon: Landmark },
@@ -2542,7 +2546,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v21.0 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v22.0 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2676,6 +2680,7 @@ export default function App() {
               {safeTab === 'attendance' && <Attendance {...shared} />}
               {safeTab === 'shiftengine' && <ShiftEngine {...shared} />}
               {safeTab === 'tasks' && <Tasks {...shared} />}
+              {safeTab === 'points' && <PointsLedger {...shared} />}
               {safeTab === 'apps' && <AppsCenter {...shared} />}
               {safeTab === 'approve' && <Approvals {...shared} />}
               {safeTab === 'treasury' && <Treasury {...shared} />}
@@ -8503,6 +8508,8 @@ const defaultHrPolicies = () => ({
   overtimeEnabled: false, overtimeMaxHoursPerMonth: 30,
   scoreWeightsEnabled: false, scoreWeights: { attendance: 25, quality: 25, tasks: 25, discipline: 25 },
 });
+// م٦ — قواعد النقاط التلقائية (مُعطَّلة افتراضيًا حتى يراجعها المالك ويفعّلها — قرار H/3 في hr-audit-m0)
+const defaultPointsRules = () => ({ enabled: false, onTime: 1, late: -1, absent: -3, taskDone: 1 });
 // كود نافذة زمنية للمعاينة فقط — دالة تجزئة خفيفة متزامنة (ليست تشفيرًا فعليًا).
 // التحقّق الأمني الحقيقي عند تسجيل الحضور بمسح الرمز يُبنى في م٣ فوق نفس السرّ المخزَّن هنا.
 function hrHashStr(s) {
@@ -9771,6 +9778,287 @@ function Tasks({ org, me, myBranches, commitOrg, say }) {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PointsLedger({ org, me, myBranches, commitOrg, say }) {
+  const role = ROLES[me.role] || {};
+  const isAll = role.scope === 'all';
+  const isCashier = me.role === 'cashier';
+  const canManage = me.role === 'branch_manager' || isAll; // حركات يدوية: مدير الفرع + أدوار المركز
+  const canRules = isAll; // قواعد النقاط التلقائية سياسة على مستوى الشركة: أدوار المركز فقط
+  const branches = myBranches || [];
+  const policies = { ...defaultHrPolicies(), ...(org.hrPolicies || {}) };
+  const tolerance = Number(policies.lateToleranceMinutes) || 0;
+  const rules = { ...defaultPointsRules(), ...(org.pointsRules || {}) };
+
+  const [view, setView] = useState(isCashier ? 'kiosk' : 'ledger');
+  useEffect(() => { if (isCashier && view !== 'kiosk') setView('kiosk'); }, [isCashier]); // eslint-disable-line
+  const [branchId, setBranchId] = useState((branches[0] || {}).id || '');
+  useEffect(() => {
+    if (!branches.find(b => b.id === branchId)) setBranchId((branches[0] || {}).id || '');
+  }, [branches, branchId]);
+  const branch = branches.find(b => b.id === branchId) || null;
+  const branchIds = branches.map(b => b.id);
+  const emps = (org.employees || []).filter(e => e.isActive !== false && branch && e.branchId === branch.id);
+
+  const addDays = (ds, n) => { const d = new Date(ds + 'T00:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+  const parseHM = (t) => { const [h, m] = String(t || '00:00').split(':').map(Number); return (h || 0) * 60 + (m || 0); };
+  const [ym, setYm] = useState(() => today().slice(0, 7));
+  const monthFrom = ym + '-01';
+  const monthTo = ym + '-31';
+
+  // === النقاط التلقائية (مُشتقّة، لا تُخزَّن — نفس فلسفة buildAccounting) من م٣/م٤/م٥ ===
+  const autoFor = (emp, from, to) => {
+    const c = { onTime: 0, late: 0, absent: 0, tasks: 0 };
+    (org.shiftAssignments || []).filter(a => a.empId === emp.id).forEach(a => {
+      (a.shiftIds || []).forEach((sid, di) => {
+        if (!sid) return;
+        const ds = addDays(a.weekStart, di);
+        if (ds < from || ds > to || ds > today()) return;
+        const tpl = (org.shiftTemplates || []).find(t => t.id === sid);
+        const evs = (org.attendanceEvents || []).filter(ev => ev.employeeId === emp.id && (ev.at || '').slice(0, 10) === ds).sort((x, y) => (x.at < y.at ? -1 : 1));
+        const inEv = evs.find(ev => ev.type === 'in');
+        if (!inEv) { if (ds < today()) c.absent++; return; }
+        const inMin = new Date(inEv.at).getHours() * 60 + new Date(inEv.at).getMinutes();
+        const lateBy = tpl ? inMin - parseHM(tpl.startTime) - tolerance : 0;
+        if (lateBy > 0) c.late++; else c.onTime++;
+      });
+    });
+    c.tasks = (org.taskCompletions || []).filter(x => x.employeeId === emp.id && x.date >= from && x.date <= to).length
+      + (org.taskAssignments || []).filter(x => x.employeeId === emp.id && x.status === 'done' && (x.doneAt || '').slice(0, 10) >= from && (x.doneAt || '').slice(0, 10) <= to).length;
+    const pts = rules.enabled ? c.onTime * Number(rules.onTime || 0) + c.late * Number(rules.late || 0) + c.absent * Number(rules.absent || 0) + c.tasks * Number(rules.taskDone || 0) : 0;
+    return { ...c, pts };
+  };
+  const manualFor = (emp, from, to) => (org.pointsEntries || []).filter(x => x.employeeId === emp.id && x.date >= from && x.date <= to).reduce((s, x) => s + Number(x.points || 0), 0);
+  const ALL_FROM = '0000-00-00', ALL_TO = '9999-99-99';
+  const balanceOf = (emp) => manualFor(emp, ALL_FROM, ALL_TO) + autoFor(emp, ALL_FROM, ALL_TO).pts;
+
+  // === ١) حركات يدوية ===
+  const [entF, setEntF] = useState({ empId: '', points: '', reason: '', date: today() });
+  const entries = (org.pointsEntries || []).filter(x => branchIds.includes(x.branchId)).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  const saveEntry = async () => {
+    if (!branch) return;
+    const emp = emps.find(e => e.id === entF.empId);
+    const pts = Number(entF.points);
+    if (!emp || !pts || !entF.reason) return say('اختر الموظف وأدخل عدد النقاط (موجب أو سالب) والسبب', 'no');
+    const rec = { id: uid('pt'), branchId: branch.id, employeeId: emp.id, employeeName: emp.name, date: entF.date || today(), points: pts, reason: entF.reason, source: 'manual', createdBy: me.id, createdByName: me.name, createdAt: nowISO() };
+    await commitOrg(d => ({ ...d, pointsEntries: [rec, ...(d.pointsEntries || [])] }),
+      { actionType: 'create', targetType: 'points_entry', targetId: rec.id, branchName: branch.name, title: pts > 0 ? 'إضافة نقاط لموظف' : 'خصم نقاط من موظف', details: emp.name + ': ' + (pts > 0 ? '+' : '') + pts + ' — ' + rec.reason });
+    say('سُجِّلت الحركة ✓'); setEntF({ empId: '', points: '', reason: '', date: today() });
+  };
+  const delEntry = async (x) => {
+    if (!window.confirm('حذف حركة النقاط «' + x.reason + '» (' + x.points + ') لـ' + x.employeeName + '؟')) return;
+    await commitOrg(d => ({ ...d, pointsEntries: (d.pointsEntries || []).filter(y => y.id !== x.id) }),
+      { actionType: 'delete', targetType: 'points_entry', targetId: x.id, branchName: branch ? branch.name : '', title: 'حذف حركة نقاط', details: x.employeeName + ': ' + x.points });
+    say('حُذفت الحركة');
+  };
+
+  // === ٢) قواعد النقاط التلقائية ===
+  const [rulesF, setRulesF] = useState(rules);
+  const saveRules = async () => {
+    const rec = { enabled: !!rulesF.enabled, onTime: Number(rulesF.onTime) || 0, late: Number(rulesF.late) || 0, absent: Number(rulesF.absent) || 0, taskDone: Number(rulesF.taskDone) || 0 };
+    await commitOrg(d => ({ ...d, pointsRules: rec }),
+      { actionType: 'update', targetType: 'points_rules', targetId: 'pointsRules', title: 'تعديل قواعد النقاط التلقائية', details: (rec.enabled ? 'مفعَّلة' : 'مُعطَّلة') + ' — حضور ' + rec.onTime + ' / تأخير ' + rec.late + ' / غياب ' + rec.absent + ' / مهمة ' + rec.taskDone });
+    say('حُفظت قواعد النقاط ✓');
+  };
+
+  // === ٣) لوحة الترتيب الشهرية ===
+  const [boardScope, setBoardScope] = useState('branch');
+  const boardEmps = boardScope === 'all' ? (org.employees || []).filter(e => e.isActive !== false && branchIds.includes(e.branchId)) : emps;
+  const boardRows = boardEmps.map(e => {
+    const auto = autoFor(e, monthFrom, monthTo);
+    const manual = manualFor(e, monthFrom, monthTo);
+    return { e, auto, manual, total: manual + auto.pts, branchName: ((org.branches || []).find(b => b.id === e.branchId) || {}).name || '' };
+  }).sort((a, b) => b.total - a.total);
+
+  // === ٤) كشك الفرع: رصيدي بعد PIN ===
+  const [kEmpId, setKEmpId] = useState('');
+  const [kPin, setKPin] = useState('');
+  const [kShown, setKShown] = useState(null); // employee object after verified PIN
+  const kioskCheck = async () => {
+    const emp = emps.find(e => e.id === kEmpId);
+    if (!emp) return say('اختر الموظف', 'no');
+    if (!/^\d{4,6}$/.test(kPin)) return say('أدخل رقم PIN المكوّن من ٤ إلى ٦ أرقام', 'no');
+    const hash = await sha(kPin);
+    if (!emp.attendancePinHash || emp.attendancePinHash !== hash) { setKPin(''); return say('رقم PIN غير صحيح', 'no'); }
+    setKShown(emp); setKPin('');
+  };
+
+  if (!branch && branches.length === 0) {
+    return <div className="card"><div className="empty">لا يوجد فرع مُسند لحسابك — راجع مسؤول النظام.</div></div>;
+  }
+  const signed = (n) => (n > 0 ? '+' : '') + n;
+
+  return (
+    <div className="grid" style={{ gap: 12 }}>
+      {!isCashier && (
+        <div className="card" style={{ padding: '8px 12px' }}>
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap', justifyContent: 'space-between' }}>
+            <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+              <button className={'btn sm' + (view === 'ledger' ? ' pri' : ' gh')} onClick={() => setView('ledger')}><Star size={13} />دفتر النقاط</button>
+              {canRules && <button className={'btn sm' + (view === 'rules' ? ' pri' : ' gh')} onClick={() => setView('rules')}><Settings size={13} />قواعد النقاط</button>}
+              <button className={'btn sm' + (view === 'board' ? ' pri' : ' gh')} onClick={() => setView('board')}><BarChart3 size={13} />لوحة الترتيب</button>
+              <button className={'btn sm' + (view === 'kiosk' ? ' pri' : ' gh')} onClick={() => setView('kiosk')}><Fingerprint size={13} />رصيدي (كشك)</button>
+            </div>
+            {branches.length > 1 && (
+              <select className="inp sel" style={{ width: 180 }} value={branchId} onChange={e => setBranchId(e.target.value)}>
+                {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            )}
+          </div>
+        </div>
+      )}
+
+      {view === 'ledger' && branch && (
+        <div className="grid" style={{ gap: 12 }}>
+          {!rules.enabled && <div className="note">قواعد النقاط التلقائية <b>مُعطَّلة</b> حاليًا — الأرصدة أدناه من الحركات اليدوية فقط. {canRules ? 'فعِّلها من «قواعد النقاط».' : 'تفعيلها من أدوار المركز.'}</div>}
+          {canManage && (
+            <div className="card">
+              <div className="card-t" style={{ marginBottom: 8 }}><Plus size={15} color="var(--brass)" />حركة نقاط يدوية</div>
+              <div className="grid g3">
+                <Field label="الموظف"><select className="inp sel" value={entF.empId} onChange={e => setEntF(f => ({ ...f, empId: e.target.value }))}><option value="">اختر</option>{emps.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select></Field>
+                <Field label="النقاط (موجب للإضافة، سالب للخصم)"><input className="inp n" inputMode="numeric" value={entF.points} onChange={e => setEntF(f => ({ ...f, points: e.target.value.replace(/[^\d-]/g, '') }))} placeholder="+5 أو -3" /></Field>
+                <Field label="التاريخ"><input type="date" className="inp" value={entF.date} onChange={e => setEntF(f => ({ ...f, date: e.target.value }))} /></Field>
+                <Field label="السبب (إلزامي)" style={{ gridColumn: '1 / -1' }}><input className="inp" value={entF.reason} onChange={e => setEntF(f => ({ ...f, reason: e.target.value }))} placeholder="مثال: تعامل ممتاز مع شكوى عميل" /></Field>
+              </div>
+              <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
+                <button className="btn pri" onClick={saveEntry}><Check size={14} />تسجيل الحركة</button>
+              </div>
+            </div>
+          )}
+          <div className="card">
+            <div className="card-t" style={{ marginBottom: 8 }}>أرصدة النقاط — {branch.name}</div>
+            <div className="tw">
+              <table className="tb">
+                <thead><tr><th>الموظف</th><th>يدوي</th><th>تلقائي</th><th>الرصيد</th></tr></thead>
+                <tbody>
+                  {emps.map(e => { const m = manualFor(e, ALL_FROM, ALL_TO); const a = autoFor(e, ALL_FROM, ALL_TO).pts; return (
+                    <tr key={e.id}>
+                      <td style={{ fontWeight: 600, fontSize: 12.5 }}>{e.name}</td>
+                      <td className="num">{signed(m)}</td>
+                      <td className="num">{signed(a)}</td>
+                      <td><span className={'badge ' + (m + a > 0 ? 'b-mint' : m + a < 0 ? 'b-rose' : 'b-dim')}>{signed(m + a)}</span></td>
+                    </tr>
+                  ); })}
+                  {emps.length === 0 && <tr><td colSpan={4}><div className="empty">لا يوجد موظفون نشطون لهذا الفرع.</div></td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div className="card">
+            <div className="card-t" style={{ marginBottom: 8 }}>سجل الحركات اليدوية</div>
+            <div className="tw">
+              <table className="tb">
+                <thead><tr><th>التاريخ</th><th>الموظف</th><th>النقاط</th><th>السبب</th><th>بواسطة</th>{canManage && <th />}</tr></thead>
+                <tbody>
+                  {entries.filter(x => x.branchId === branch.id).map(x => (
+                    <tr key={x.id}>
+                      <td className="num">{x.date}</td>
+                      <td style={{ fontWeight: 600, fontSize: 12.5 }}>{x.employeeName}</td>
+                      <td><span className={'badge ' + (x.points > 0 ? 'b-mint' : 'b-rose')}>{signed(x.points)}</span></td>
+                      <td style={{ fontSize: 12 }}>{x.reason}</td>
+                      <td style={{ fontSize: 11.5 }}>{x.createdByName}</td>
+                      {canManage && <td><button className="btn sm gh" onClick={() => delEntry(x)}><Trash2 size={13} /></button></td>}
+                    </tr>
+                  ))}
+                  {entries.filter(x => x.branchId === branch.id).length === 0 && <tr><td colSpan={canManage ? 6 : 5}><div className="empty">لا توجد حركات يدوية بعد.</div></td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {view === 'rules' && canRules && (
+        <div className="card">
+          <div className="card-t" style={{ marginBottom: 8 }}><Settings size={15} color="var(--brass)" />قواعد النقاط التلقائية (على مستوى الشركة)</div>
+          <div className="note" style={{ marginBottom: 10 }}>تُحسب تلقائيًا من الحضور الموثَّق (م٣) مقابل الوردية المجدولة (م٤) ومن إنجاز المهام (م٥) — بلا تخزين مزدوج، أي تعديل هنا يعيد الاحتساب فورًا لكل الفترات. تبقى مُعطَّلة حتى تفعّلها صراحةً.</div>
+          <label className="row" style={{ gap: 8, marginBottom: 10, cursor: 'pointer' }}>
+            <input type="checkbox" checked={!!rulesF.enabled} onChange={e => setRulesF(f => ({ ...f, enabled: e.target.checked }))} />
+            <b>تفعيل النقاط التلقائية</b>
+          </label>
+          <div className="grid g2">
+            <Field label="حضور في الوقت (لكل وردية)"><input className="inp n" value={rulesF.onTime} onChange={e => setRulesF(f => ({ ...f, onTime: e.target.value.replace(/[^\d-]/g, '') }))} /></Field>
+            <Field label="تأخير (لكل وردية)"><input className="inp n" value={rulesF.late} onChange={e => setRulesF(f => ({ ...f, late: e.target.value.replace(/[^\d-]/g, '') }))} /></Field>
+            <Field label="غياب عن وردية مجدولة"><input className="inp n" value={rulesF.absent} onChange={e => setRulesF(f => ({ ...f, absent: e.target.value.replace(/[^\d-]/g, '') }))} /></Field>
+            <Field label="إنجاز مهمة (متكررة أو فردية)"><input className="inp n" value={rulesF.taskDone} onChange={e => setRulesF(f => ({ ...f, taskDone: e.target.value.replace(/[^\d-]/g, '') }))} /></Field>
+          </div>
+          <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
+            <button className="btn pri" onClick={saveRules}><Check size={14} />حفظ القواعد</button>
+          </div>
+        </div>
+      )}
+
+      {view === 'board' && branch && (
+        <div className="card">
+          <div className="card-h" style={{ marginBottom: 8 }}>
+            <div className="card-t"><BarChart3 size={15} color="var(--brass)" />لوحة الترتيب — {boardScope === 'all' ? 'كل فروعي' : branch.name}</div>
+            <div className="row" style={{ gap: 8 }}>
+              <input type="month" className="inp" value={ym} onChange={e => setYm(e.target.value)} />
+              {branches.length > 1 && <select className="inp sel" value={boardScope} onChange={e => setBoardScope(e.target.value)}><option value="branch">هذا الفرع</option><option value="all">كل فروعي</option></select>}
+            </div>
+          </div>
+          <div className="tw">
+            <table className="tb">
+              <thead><tr><th>#</th><th>الموظف</th>{boardScope === 'all' && <th>الفرع</th>}<th>في الوقت</th><th>تأخير</th><th>غياب</th><th>مهام</th><th>يدوي</th><th>الإجمالي</th></tr></thead>
+              <tbody>
+                {boardRows.map((r, i) => (
+                  <tr key={r.e.id}>
+                    <td className="num">{i + 1}</td>
+                    <td style={{ fontWeight: 600, fontSize: 12.5 }}>{i === 0 && r.total > 0 ? '🏆 ' : ''}{r.e.name}</td>
+                    {boardScope === 'all' && <td style={{ fontSize: 12 }}>{r.branchName}</td>}
+                    <td className="num">{r.auto.onTime}</td>
+                    <td className="num">{r.auto.late}</td>
+                    <td className="num">{r.auto.absent}</td>
+                    <td className="num">{r.auto.tasks}</td>
+                    <td className="num">{signed(r.manual)}</td>
+                    <td><span className={'badge ' + (r.total > 0 ? 'b-mint' : r.total < 0 ? 'b-rose' : 'b-dim')}>{signed(r.total)}</span></td>
+                  </tr>
+                ))}
+                {boardRows.length === 0 && <tr><td colSpan={9}><div className="empty">لا يوجد موظفون نشطون.</div></td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {view === 'kiosk' && branch && (
+        <div className="grid" style={{ gap: 12 }}>
+          {!kShown ? (
+            <div className="card">
+              <div className="card-t" style={{ marginBottom: 8 }}><Fingerprint size={15} color="var(--brass)" />رصيدي من النقاط — {branch.name}</div>
+              <div className="grid g2">
+                <Field label="الموظف"><select className="inp sel" value={kEmpId} onChange={e => setKEmpId(e.target.value)}><option value="">اختر</option>{emps.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select></Field>
+                <Field label="رقم PIN"><input className="inp n" type="password" inputMode="numeric" value={kPin} onChange={e => setKPin(e.target.value.replace(/\D/g, '').slice(0, 6))} onKeyDown={e => e.key === 'Enter' && kioskCheck()} /></Field>
+              </div>
+              <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
+                <button className="btn pri" onClick={kioskCheck}><Eye size={14} />عرض رصيدي</button>
+              </div>
+            </div>
+          ) : (() => { const a = autoFor(kShown, monthFrom, monthTo); const m = manualFor(kShown, monthFrom, monthTo); const bal = balanceOf(kShown); const my = (org.pointsEntries || []).filter(x => x.employeeId === kShown.id).sort((x, y) => (x.createdAt < y.createdAt ? 1 : -1)).slice(0, 10); return (
+            <div className="card">
+              <div className="card-h" style={{ marginBottom: 8 }}>
+                <div className="card-t"><Star size={15} color="var(--brass)" />{kShown.name}</div>
+                <button className="btn sm gh" onClick={() => { setKShown(null); setKEmpId(''); }}><X size={13} />إغلاق</button>
+              </div>
+              <div style={{ textAlign: 'center', padding: '14px 0' }}>
+                <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>رصيدي الإجمالي</div>
+                <div style={{ fontSize: 34, fontWeight: 800, color: bal >= 0 ? 'var(--mint)' : 'var(--rose)' }}>{signed(bal)}</div>
+                <div style={{ fontSize: 12, marginTop: 6 }}>هذا الشهر: يدوي {signed(m)} · تلقائي {signed(a.pts)} (في الوقت {a.onTime} · تأخير {a.late} · غياب {a.absent} · مهام {a.tasks})</div>
+              </div>
+              <div className="card-t" style={{ marginBottom: 6, fontSize: 12.5 }}>آخر الحركات اليدوية</div>
+              {my.length === 0 ? <div className="empty">لا توجد حركات يدوية.</div> : my.map(x => (
+                <div key={x.id} className="row" style={{ justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--line)', fontSize: 12.5 }}>
+                  <span>{x.date} — {x.reason}</span>
+                  <span className={'badge ' + (x.points > 0 ? 'b-mint' : 'b-rose')}>{signed(x.points)}</span>
+                </div>
+              ))}
+            </div>
+          ); })()}
         </div>
       )}
     </div>
