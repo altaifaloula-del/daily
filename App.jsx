@@ -1423,11 +1423,11 @@ const DENOMS = [
 const emptyDenoms = () => DENOMS.reduce((o, d) => ({ ...o, [d.k]: 0 }), {});
 const countDenoms = (d) => DENOMS.reduce((s, x) => s + (Number(d?.[x.k]) || 0) * x.v, 0);
 
-const ALL_TABS = ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit'];
+const ALL_TABS = ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit'];
 const TAB_AR = {
   analytics: 'مركز التحليل والأداء', reporting: 'مركز التقارير', exec: 'اللوحة التنفيذية',
   dash: 'لوحة المؤشرات', compare: 'مقارنة الفروع', growth: 'تحليلات النمو', breakeven: 'تحليل التعادل', scorecard: 'لوحة الأهداف', scenario: 'ماذا-لو', boardpack: 'تقرير الإدارة', cashflow: 'التدفق النقدي', closing: 'الإغلاق اليومي', apps: 'التطبيقات',
-  approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', people: 'شؤون الموظفين', payroll: 'الرواتب والسلف', workforce: 'الجدولة والحضور', hrmaster: 'البيانات الرئيسية', hrpolicy: 'السياسات والأدوار', attendance: 'الحضور الموثَّق', shiftengine: 'محرّك الورديات', tasks: 'المهام', points: 'دفتر النقاط',
+  approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', people: 'شؤون الموظفين', payroll: 'الرواتب والسلف', workforce: 'الجدولة والحضور', hrmaster: 'البيانات الرئيسية', hrpolicy: 'السياسات والأدوار', attendance: 'الحضور الموثَّق', shiftengine: 'محرّك الورديات', tasks: 'المهام', points: 'دفتر النقاط', kpi: 'الأداء والتقييم',
   purchasing: 'المشتريات والموردون', suppliers: 'الموردون والمشتريات', inv: 'المخزون والمنتجات', reorder: 'المشتريات الذكية', partners: 'دفتر الشركاء',
   acct: 'المحاسبة', shifts: 'الورديات', archive: 'أرشيف المستندات', ai: 'المركز الذكي',
   reports: 'التقارير المالية', rbuild: 'منشئ التقارير', entities: 'مركز المنشآت', admin: 'الفروع والمستخدمون', audit: 'سجل التدقيق'
@@ -1462,17 +1462,17 @@ const ROLES = {
   },
   branch_manager: {
     ar: 'مدير الفرع', badge: 'b-mint', scope: 'own', create: true,
-    tabs: ['closing', 'sales', 'apps', 'archive', 'attendance', 'shiftengine', 'tasks', 'points'],
+    tabs: ['closing', 'sales', 'apps', 'archive', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi'],
     perms: ['إدخال وترحيل إغلاق فرعه', 'عرض سجل إغلاقات فرعه', 'أرشيف مستندات فرعه فقط', 'تسجيل الحضور وضبط أرقام PIN وسجل حضور فرعه', 'محرّك ورديات فرعه: قوالب، تعيين أسبوعي، مطابقة حضور، تبديل وردية، طلب نقل موظف']
   },
   regional_manager: {
     ar: 'مدير إقليمي — فروع مُسندة', badge: 'b-amber', scope: 'assigned',
-    tabs: ['analytics', 'reporting', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'reports', 'archive', 'attendance', 'shiftengine', 'tasks', 'points'],
+    tabs: ['analytics', 'reporting', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'reports', 'archive', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi'],
     perms: ['متابعة الفروع المسندة إليه فقط', 'مقارنة وتقارير فروعه ولوحة مؤشراتها ونموّها', 'سجل حضور فروعه المسندة ومحرّك ورديات فروعه', 'بلا وصول للمحاسبة والخزينة والإعدادات']
   },
   head_office: {
     ar: 'المكتب الرئيسي — المالية والإدارة', badge: 'b-brass', scope: 'all', approver: true,
-    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
+    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['كل الفروع والتقارير المجمّعة', 'التدقيق والاعتماد النهائي', 'الخزينة والرواتب والموردون والمشتريات والمخزون', 'المحاسبة الكاملة: قيود وميزان وقوائم وضريبة وأصول ومراكز تكلفة']
   },
   system_admin: {
@@ -1490,7 +1490,7 @@ const ROLES = {
     // إعادة ترتيب v8.0: المحاسب الرئيسي بطبيعته يعمل على المنشأة كلها — نطاق كامل
     // بلا صلاحيات إدارة (لا مستخدمين/فروع، لا تفعيل ضريبة، لا إدارة تطبيقات)
     ar: 'الإدارة المالية — محاسب رئيسي', badge: 'b-sky', scope: 'all', legacy: true,
-    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
+    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['المحاسبة كاملة: قيود يدوية وافتتاحية وميزان وقوائم ومراكز تكلفة', 'الضريبة والأصول والتسوية البنكية (عرض وتسجيل — التفعيل للإدارة)', 'المشتريات والمخزون والرواتب والخزينة', 'كل الفروع — دون إدارة المستخدمين والإعدادات']
   },
   // ===== v15.9: نماذج صلاحيات المحاسب — نطاق «المحاسبة + التقارير المالية فقط» =====
@@ -1584,6 +1584,7 @@ const REG_APPS = [
   { id: 'shiftengine', ar: 'محرّك الورديات', en: 'Shift Engine', cat: 'hr', icon: ArrowLeftRight, open: { tab: 'shiftengine' }, kw: ['وردية', 'ورديات', 'تعيين', 'تبديل', 'نقل موظف', 'قالب وردية', 'جدول'], fns: ['قوالب ورديات لكل فرع', 'تقويم تعيين أسبوعي', 'مطابقة تلقائية مع الحضور الفعلي', 'طلبات تبديل وردية', 'طلبات نقل موظف بين الفروع'], d: 'قوالب ورديات جاهزة، تقويم تعيين أسبوعي، مطابقة تلقائية مع الحضور الفعلي، وطلبات تبديل وردية أو نقل موظف بين الفروع.' },
   { id: 'tasks', ar: 'المهام', en: 'Tasks', cat: 'hr', icon: CheckCircle2, open: { tab: 'tasks' }, kw: ['مهام', 'مهمة', 'تشيك ليست', 'تكليف', 'التزام', 'قائمة مهام'], fns: ['قوائم مهام يومية/أسبوعية متكررة لكل فرع', 'تكليف مهام فردية لموظف معيّن', 'قائمة مهام مرتبطة بالوردية', 'تقرير الالتزام بالمهام لكل موظف/فرع'], d: 'قوائم مهام متكررة لكل فرع، تكليف مهام فردية، إنجاز من جهاز الفرع، وتقرير التزام لكل موظف وفرع.' },
   { id: 'points', ar: 'دفتر النقاط', en: 'Points Ledger', cat: 'hr', icon: Star, open: { tab: 'points' }, kw: ['نقاط', 'دفتر نقاط', 'ترتيب', 'تحفيز', 'مكافأة', 'رصيد'], fns: ['دفتر نقاط لكل موظف مع حركات يدوية بسبب موثَّق', 'قواعد نقاط تلقائية من الحضور والورديات والمهام (قابلة للضبط)', 'لوحة ترتيب شهرية للفرع والشركة', 'عرض رصيد الموظف من كشك الفرع بـPIN'], d: 'رصيد نقاط لكل موظف يجمع الحركات اليدوية والنقاط التلقائية من الحضور والمهام، مع لوحة ترتيب شهرية وعرض للموظف من جهاز الفرع.' },
+  { id: 'kpi', ar: 'الأداء والتقييم', en: 'Performance & KPI', cat: 'hr', icon: TrendingUp, open: { tab: 'kpi' }, kw: ['تقييم', 'أداء', 'kpi', 'درجة', 'مؤشرات', 'أهداف', 'بطاقة أداء'], fns: ['درجة أداء شهرية مركّبة لكل موظف بأوزان قابلة للضبط', 'تقييم المدير الشهري للجودة', 'أهداف KPI لكل فرع مقابل الفعلي', 'بطاقة أداء الموظف (سجل ٦ أشهر + اتجاه) قابلة للطباعة'], d: 'درجة أداء شهرية من 100 تجمع الحضور والمهام والانضباط وتقييم المدير بأوزان قابلة للضبط، مع أهداف KPI للفرع وبطاقة أداء لكل موظف.' },
   // ——— الزكاة والضريبة (خطة م٣) ———
   { id: 'vat', ar: 'ضريبة القيمة المضافة', en: 'VAT', cat: 'tax', icon: Receipt, open: { tab: 'acct', view: 'vat' }, kw: ['ضريبة', 'زاتكا', 'مدخلات', 'مخرجات', 'فاتورة', 'إقرار'], fns: ['تفعيل بنسبة قابلة للضبط', 'فصل المخرجات في قيد الإيراد', 'فصل مدخلات المصروفات الخاضعة', 'مؤشرات بالفترة'], d: 'فصل تلقائي لضريبة المخرجات والمدخلات في القيود — بأثر رجعي فور التفعيل.' },
   { id: 'vatret', ar: 'الإقرار الضريبي', en: 'VAT Return', cat: 'tax', icon: FileText, open: { tab: 'acct', view: 'vat' }, kw: ['إقرار', 'ضريبة', 'ربع', 'زاتكا'], fns: ['مسودة إقرار بالفترة', 'زر الربع الحالي', 'صافي المستحق'], d: 'مسودة إقرار جاهزة من قيودك لأي فترة تحددها.' },
@@ -1629,6 +1630,8 @@ const LAUNCH_APPS = [
     sections: ['قوالب مهام متكررة', 'تكليف فردي', 'إنجاز المهام', 'تقرير الالتزام'], kw: ['مهام', 'مهمة', 'تكليف', 'التزام', 'تشيك ليست'] },
   { id: 'points', ar: 'دفتر النقاط', en: 'Points Ledger', cat: 'pos', icon: Star, open: { tab: 'points' },
     sections: ['دفتر النقاط', 'قواعد النقاط', 'لوحة الترتيب', 'رصيدي (كشك)'], kw: ['نقاط', 'ترتيب', 'تحفيز', 'رصيد', 'مكافأة'] },
+  { id: 'kpi', ar: 'الأداء والتقييم', en: 'Performance & KPI', cat: 'pos', icon: TrendingUp, open: { tab: 'kpi' },
+    sections: ['درجات الأداء', 'تقييم المدير', 'أهداف KPI', 'بطاقة الموظف'], kw: ['تقييم', 'أداء', 'kpi', 'درجة', 'أهداف'] },
   { id: 'sales', ar: 'المبيعات', en: 'Sales', cat: 'pos', icon: CircleDollarSign, open: { tab: 'sales' },
     sections: ['حسب القناة', 'حسب الفرع', 'حسب التطبيق'], kw: ['مبيعات', 'نقاط البيع', 'نقطة بيع', 'قناة', 'نقد', 'شبكة', 'توصيل', 'تحليل'] },
   { id: 'approve', ar: 'التدقيق والاعتماد', en: 'Approvals', cat: 'pos', icon: ShieldCheck, open: { tab: 'approve' },
@@ -2438,6 +2441,7 @@ export default function App() {
     { id: 'shiftengine', ar: 'محرّك الورديات', icon: ArrowLeftRight },
     { id: 'tasks', ar: 'المهام', icon: CheckCircle2 },
     { id: 'points', ar: 'دفتر النقاط', icon: Star },
+    { id: 'kpi', ar: 'الأداء والتقييم', icon: TrendingUp },
     { id: 'apps', ar: 'إدارة التطبيقات', icon: Grid3x3 },
     { id: 'approve', ar: 'التدقيق والاعتماد', icon: ShieldCheck, cnt: pending },
     { id: 'treasury', ar: 'الخزينة والترحيل', icon: Landmark },
@@ -2546,7 +2550,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v22.0 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v23.0 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2681,6 +2685,7 @@ export default function App() {
               {safeTab === 'shiftengine' && <ShiftEngine {...shared} />}
               {safeTab === 'tasks' && <Tasks {...shared} />}
               {safeTab === 'points' && <PointsLedger {...shared} />}
+              {safeTab === 'kpi' && <Performance {...shared} />}
               {safeTab === 'apps' && <AppsCenter {...shared} />}
               {safeTab === 'approve' && <Approvals {...shared} />}
               {safeTab === 'treasury' && <Treasury {...shared} />}
@@ -8507,6 +8512,7 @@ const defaultHrPolicies = () => ({
   workHoursPerDay: 8, weeklyOffDays: [5], lateToleranceMinutes: 15,
   overtimeEnabled: false, overtimeMaxHoursPerMonth: 30,
   scoreWeightsEnabled: false, scoreWeights: { attendance: 25, quality: 25, tasks: 25, discipline: 25 },
+  disciplineBase: 50, disciplinePointValue: 5, // م٧: محور الانضباط = القاعدة + (صافي نقاط الشهر × قيمة النقطة)، محصور 0–100
 });
 // م٦ — قواعد النقاط التلقائية (مُعطَّلة افتراضيًا حتى يراجعها المالك ويفعّلها — قرار H/3 في hr-audit-m0)
 const defaultPointsRules = () => ({ enabled: false, onTime: 1, late: -1, absent: -3, taskDone: 1 });
@@ -10059,6 +10065,351 @@ function PointsLedger({ org, me, myBranches, commitOrg, say }) {
               ))}
             </div>
           ); })()}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ===== م٧ — دوال نقيّة مشتركة لإحصاءات الموظف والدرجة المركّبة (مُشتقّة، لا تُخزَّن) =====
+function hrEmpStats(org, emp, from, to) {
+  const policies = { ...defaultHrPolicies(), ...(org.hrPolicies || {}) };
+  const tolerance = Number(policies.lateToleranceMinutes) || 0;
+  const rules = { ...defaultPointsRules(), ...(org.pointsRules || {}) };
+  const td = today();
+  const cap = to < td ? to : td;
+  const addDays = (ds, n) => { const d = new Date(ds + 'T00:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+  const parseHM = (t) => { const [h, m] = String(t || '00:00').split(':').map(Number); return (h || 0) * 60 + (m || 0); };
+  const s = { onTime: 0, late: 0, absent: 0, tasksExpected: 0, tasksDone: 0, manualPts: 0, manualCount: 0, autoPts: 0 };
+  (org.shiftAssignments || []).filter(a => a.empId === emp.id).forEach(a => {
+    (a.shiftIds || []).forEach((sid, di) => {
+      if (!sid) return;
+      const ds = addDays(a.weekStart, di);
+      if (ds < from || ds > cap) return;
+      const tpl = (org.shiftTemplates || []).find(t => t.id === sid);
+      const evs = (org.attendanceEvents || []).filter(ev => ev.employeeId === emp.id && (ev.at || '').slice(0, 10) === ds).sort((x, y) => (x.at < y.at ? -1 : 1));
+      const inEv = evs.find(ev => ev.type === 'in');
+      if (!inEv) { if (ds < td) s.absent++; return; }
+      const inMin = new Date(inEv.at).getHours() * 60 + new Date(inEv.at).getMinutes();
+      const lateBy = tpl ? inMin - parseHM(tpl.startTime) - tolerance : 0;
+      if (lateBy > 0) s.late++; else s.onTime++;
+    });
+  });
+  if (from <= cap) {
+    for (let ds = from, guard = 0; ds <= cap && guard < 62; ds = addDays(ds, 1), guard++) {
+      const wd = new Date(ds + 'T00:00:00').getDay();
+      (org.taskTemplates || []).filter(t => t.branchId === emp.branchId && t.isActive !== false && (t.freq === 'daily' || (t.weekdays || []).includes(wd))).forEach(t => {
+        s.tasksExpected++;
+        if ((org.taskCompletions || []).some(c => c.templateId === t.id && c.employeeId === emp.id && c.date === ds)) s.tasksDone++;
+      });
+    }
+  }
+  (org.taskAssignments || []).filter(x => x.employeeId === emp.id && x.dueDate >= from && x.dueDate <= cap).forEach(x => { s.tasksExpected++; if (x.status === 'done') s.tasksDone++; });
+  const manual = (org.pointsEntries || []).filter(x => x.employeeId === emp.id && x.date >= from && x.date <= to);
+  s.manualCount = manual.length;
+  s.manualPts = manual.reduce((a, x) => a + Number(x.points || 0), 0);
+  const taskCount = (org.taskCompletions || []).filter(x => x.employeeId === emp.id && x.date >= from && x.date <= to).length
+    + (org.taskAssignments || []).filter(x => x.employeeId === emp.id && x.status === 'done' && (x.doneAt || '').slice(0, 10) >= from && (x.doneAt || '').slice(0, 10) <= to).length;
+  s.autoPts = rules.enabled ? s.onTime * Number(rules.onTime || 0) + s.late * Number(rules.late || 0) + s.absent * Number(rules.absent || 0) + taskCount * Number(rules.taskDone || 0) : 0;
+  s.pointsActivity = s.manualCount > 0 || (rules.enabled && (s.onTime + s.late + s.absent + taskCount > 0));
+  return s;
+}
+function hrScoreFor(org, emp, ym) {
+  const from = ym + '-01', to = ym + '-31';
+  const st = hrEmpStats(org, emp, from, to);
+  const policies = { ...defaultHrPolicies(), ...(org.hrPolicies || {}) };
+  const w = policies.scoreWeightsEnabled ? (policies.scoreWeights || {}) : defaultHrPolicies().scoreWeights;
+  const base = Number(policies.disciplineBase); const pv = Number(policies.disciplinePointValue);
+  const attTotal = st.onTime + st.late + st.absent;
+  const rv = (org.qualityReviews || []).find(r => r.employeeId === emp.id && r.ym === ym) || null;
+  const axes = {
+    attendance: attTotal ? Math.round(st.onTime / attTotal * 100) : null,
+    tasks: st.tasksExpected ? Math.round(st.tasksDone / st.tasksExpected * 100) : null,
+    discipline: st.pointsActivity ? Math.max(0, Math.min(100, Math.round((isNaN(base) ? 50 : base) + (st.manualPts + st.autoPts) * (isNaN(pv) ? 5 : pv)))) : null,
+    quality: rv ? Math.round(((Number(rv.workQuality) + Number(rv.customerService) + Number(rv.teamwork)) / 3 - 1) / 4 * 100) : null,
+  };
+  let num = 0, den = 0;
+  Object.keys(axes).forEach(k => { const wk = Number(w[k]) || 0; if (axes[k] != null && wk > 0) { num += axes[k] * wk; den += wk; } });
+  return { st, axes, score: den ? Math.round(num / den) : null, review: rv, weights: w, weightsEnabled: !!policies.scoreWeightsEnabled };
+}
+
+function Performance({ org, me, myBranches, commitOrg, say }) {
+  const role = ROLES[me.role] || {};
+  const isAll = role.scope === 'all';
+  const canManage = me.role === 'branch_manager' || isAll; // تقييم المدير الشهري
+  const canConfig = isAll; // الأوزان وأهداف KPI: أدوار المركز
+  const branches = myBranches || [];
+  const policies = { ...defaultHrPolicies(), ...(org.hrPolicies || {}) };
+
+  const [view, setView] = useState('scores');
+  const [branchId, setBranchId] = useState((branches[0] || {}).id || '');
+  useEffect(() => { if (!branches.find(b => b.id === branchId)) setBranchId((branches[0] || {}).id || ''); }, [branches, branchId]);
+  const branch = branches.find(b => b.id === branchId) || null;
+  const emps = (org.employees || []).filter(e => e.isActive !== false && branch && e.branchId === branch.id);
+  const [ym, setYm] = useState(() => today().slice(0, 7));
+  const ymAdd = (y, n) => { const [Y, M] = y.split('-').map(Number); const d = new Date(Y, M - 1 + n, 1); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); };
+  const ymLabel = (y) => { const [Y, M] = y.split('-').map(Number); return new Date(Y, M - 1, 1).toLocaleDateString('ar', { month: 'long', year: 'numeric' }); };
+  const scoreBadge = (v) => v == null ? 'b-dim' : v >= 85 ? 'b-mint' : v >= 70 ? 'b-amber' : 'b-rose';
+  const fmt = (v) => v == null ? '—' : v;
+
+  // === ١) الدرجات الشهرية ===
+  const rows = emps.map(e => ({ e, ...hrScoreFor(org, e, ym) }));
+  const [wf, setWf] = useState({ scoreWeightsEnabled: !!policies.scoreWeightsEnabled, scoreWeights: { ...(policies.scoreWeights || {}) }, disciplineBase: policies.disciplineBase, disciplinePointValue: policies.disciplinePointValue });
+  const saveWeights = async () => {
+    const w = wf.scoreWeights || {};
+    const sum = (Number(w.attendance) || 0) + (Number(w.quality) || 0) + (Number(w.tasks) || 0) + (Number(w.discipline) || 0);
+    if (wf.scoreWeightsEnabled && sum !== 100) return say('مجموع الأوزان يجب أن يساوي 100 (الحالي ' + sum + ')', 'no');
+    const patch = { scoreWeightsEnabled: !!wf.scoreWeightsEnabled, scoreWeights: { attendance: Number(w.attendance) || 0, quality: Number(w.quality) || 0, tasks: Number(w.tasks) || 0, discipline: Number(w.discipline) || 0 }, disciplineBase: Number(wf.disciplineBase) || 0, disciplinePointValue: Number(wf.disciplinePointValue) || 0 };
+    await commitOrg(d => ({ ...d, hrPolicies: { ...defaultHrPolicies(), ...(d.hrPolicies || {}), ...patch } }),
+      { actionType: 'update', targetType: 'settings', targetId: 'hrPolicies', title: 'ضبط أوزان درجة الأداء', details: (patch.scoreWeightsEnabled ? 'مفعَّلة' : 'مُعطَّلة') + ' — حضور ' + patch.scoreWeights.attendance + ' / جودة ' + patch.scoreWeights.quality + ' / مهام ' + patch.scoreWeights.tasks + ' / انضباط ' + patch.scoreWeights.discipline });
+    say('حُفظت أوزان الدرجة ✓');
+  };
+  const [showW, setShowW] = useState(false);
+
+  // === ٢) تقييم المدير الشهري ===
+  const [rvEmp, setRvEmp] = useState('');
+  const existing = (org.qualityReviews || []).find(r => r.employeeId === rvEmp && r.ym === ym) || null;
+  const [rvF, setRvF] = useState({ workQuality: 3, customerService: 3, teamwork: 3, note: '' });
+  useEffect(() => { setRvF(existing ? { workQuality: existing.workQuality, customerService: existing.customerService, teamwork: existing.teamwork, note: existing.note || '' } : { workQuality: 3, customerService: 3, teamwork: 3, note: '' }); }, [rvEmp, ym, existing && existing.id]); // eslint-disable-line
+  const saveReview = async () => {
+    const emp = emps.find(e => e.id === rvEmp);
+    if (!emp || !branch) return say('اختر الموظف', 'no');
+    const rec = { id: existing ? existing.id : uid('qr'), branchId: branch.id, employeeId: emp.id, employeeName: emp.name, ym, workQuality: Number(rvF.workQuality), customerService: Number(rvF.customerService), teamwork: Number(rvF.teamwork), note: rvF.note || '', reviewedBy: me.id, reviewedByName: me.name, reviewedAt: nowISO() };
+    await commitOrg(d => ({ ...d, qualityReviews: existing ? (d.qualityReviews || []).map(r => r.id === rec.id ? rec : r) : [rec, ...(d.qualityReviews || [])] }),
+      { actionType: existing ? 'update' : 'create', targetType: 'quality_review', targetId: rec.id, branchName: branch.name, title: 'تقييم المدير الشهري', details: emp.name + ' — ' + ym + ' (' + rec.workQuality + '/' + rec.customerService + '/' + rec.teamwork + ')' });
+    say('حُفظ التقييم ✓');
+  };
+  const monthReviews = (org.qualityReviews || []).filter(r => r.ym === ym && branch && r.branchId === branch.id);
+  const RATE = [1, 2, 3, 4, 5];
+  const rateSel = (k, label) => (
+    <Field label={label}>
+      <select className="inp sel" value={rvF[k]} onChange={e => setRvF(f => ({ ...f, [k]: e.target.value }))}>
+        {RATE.map(v => <option key={v} value={v}>{v} — {['ضعيف', 'مقبول', 'جيد', 'جيد جدًا', 'ممتاز'][v - 1]}</option>)}
+      </select>
+    </Field>
+  );
+
+  // === ٣) أهداف KPI للفرع مقابل الفعلي ===
+  const targetsOf = (bid) => ({ onTimePct: '', taskPct: '', avgScore: '', ...(((org.kpiTargets || {})[bid]) || {}) });
+  const [tgF, setTgF] = useState(() => targetsOf(branchId));
+  useEffect(() => { setTgF(targetsOf(branchId)); }, [branchId, org.kpiTargets]); // eslint-disable-line
+  const saveTargets = async () => {
+    if (!branch) return;
+    const rec = { onTimePct: Number(tgF.onTimePct) || 0, taskPct: Number(tgF.taskPct) || 0, avgScore: Number(tgF.avgScore) || 0 };
+    await commitOrg(d => ({ ...d, kpiTargets: { ...(d.kpiTargets || {}), [branch.id]: rec } }),
+      { actionType: 'update', targetType: 'settings', targetId: 'kpiTargets:' + branch.id, branchName: branch.name, title: 'ضبط أهداف KPI للفرع', details: branch.name + ' — حضور ' + rec.onTimePct + '% / مهام ' + rec.taskPct + '% / درجة ' + rec.avgScore });
+    say('حُفظت أهداف الفرع ✓');
+  };
+  const branchActual = (() => {
+    let on = 0, tot = 0, te = 0, tdn = 0; const scores = [];
+    rows.forEach(r => { on += r.st.onTime; tot += r.st.onTime + r.st.late + r.st.absent; te += r.st.tasksExpected; tdn += r.st.tasksDone; if (r.score != null) scores.push(r.score); });
+    return { onTimePct: tot ? Math.round(on / tot * 100) : null, taskPct: te ? Math.round(tdn / te * 100) : null, avgScore: scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null };
+  })();
+  const tg = targetsOf(branchId);
+  const kpiRows = [
+    { k: 'onTimePct', ar: 'نسبة الحضور في الوقت', unit: '%' },
+    { k: 'taskPct', ar: 'نسبة إنجاز المهام', unit: '%' },
+    { k: 'avgScore', ar: 'متوسط درجة الأداء', unit: '' },
+  ];
+
+  // === ٤) بطاقة أداء الموظف (٦ أشهر + اتجاه) ===
+  const [cardEmp, setCardEmp] = useState('');
+  const cEmp = emps.find(e => e.id === cardEmp) || null;
+  const months6 = [5, 4, 3, 2, 1, 0].map(n => ymAdd(ym, -n));
+  const cardRows = cEmp ? months6.map(m => ({ m, ...hrScoreFor(org, cEmp, m) })) : [];
+  const withScore = cardRows.filter(r => r.score != null);
+  const trend = withScore.length >= 2 ? withScore[withScore.length - 1].score - withScore[withScore.length - 2].score : null;
+
+  if (!branch && branches.length === 0) {
+    return <div className="card"><div className="empty">لا يوجد فرع مُسند لحسابك — راجع مسؤول النظام.</div></div>;
+  }
+
+  return (
+    <div className="grid" style={{ gap: 12 }}>
+      <div className="card" style={{ padding: '8px 12px' }}>
+        <div className="row" style={{ gap: 6, flexWrap: 'wrap', justifyContent: 'space-between' }}>
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+            <button className={'btn sm' + (view === 'scores' ? ' pri' : ' gh')} onClick={() => setView('scores')}><TrendingUp size={13} />درجات الأداء</button>
+            <button className={'btn sm' + (view === 'review' ? ' pri' : ' gh')} onClick={() => setView('review')}><Star size={13} />تقييم المدير</button>
+            <button className={'btn sm' + (view === 'targets' ? ' pri' : ' gh')} onClick={() => setView('targets')}><BarChart3 size={13} />أهداف KPI</button>
+            <button className={'btn sm' + (view === 'card' ? ' pri' : ' gh')} onClick={() => setView('card')}><FileText size={13} />بطاقة الموظف</button>
+          </div>
+          <div className="row" style={{ gap: 8 }}>
+            <input type="month" className="inp" value={ym} onChange={e => setYm(e.target.value)} />
+            {branches.length > 1 && (
+              <select className="inp sel" style={{ width: 180 }} value={branchId} onChange={e => setBranchId(e.target.value)}>
+                {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {view === 'scores' && branch && (
+        <div className="grid" style={{ gap: 12 }}>
+          <div className="card">
+            <div className="card-h" style={{ marginBottom: 6 }}>
+              <div className="card-t"><Settings size={15} color="var(--brass)" />أوزان الدرجة النهائية {policies.scoreWeightsEnabled ? <span className="badge b-mint">مخصّصة</span> : <span className="badge b-dim">الافتراضية المتساوية (مُعطَّلة)</span>}</div>
+              {canConfig && <button className="btn sm gh" onClick={() => setShowW(v => !v)}>{showW ? 'إخفاء' : 'ضبط الأوزان'}</button>}
+            </div>
+            <div style={{ fontSize: 12 }}>حضور {fmt(rows[0]?.weights.attendance ?? policies.scoreWeights.attendance)} · جودة {fmt(policies.scoreWeightsEnabled ? policies.scoreWeights.quality : 25)} · مهام {fmt(policies.scoreWeightsEnabled ? policies.scoreWeights.tasks : 25)} · انضباط {fmt(policies.scoreWeightsEnabled ? policies.scoreWeights.discipline : 25)} — المحاور غير المتاحة لموظف (بلا جدولة/مهام/تقييم) تُستبعد ويُعاد توزيع الوزن على الباقي.</div>
+            {showW && canConfig && (
+              <div style={{ marginTop: 10 }}>
+                <label className="row" style={{ gap: 8, marginBottom: 8, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={!!wf.scoreWeightsEnabled} onChange={e => setWf(f => ({ ...f, scoreWeightsEnabled: e.target.checked }))} />
+                  <b>تفعيل الأوزان المخصّصة</b> (يجب أن يكون مجموعها 100)
+                </label>
+                <div className="grid g3">
+                  {[['attendance', 'الحضور'], ['quality', 'الجودة (تقييم المدير)'], ['tasks', 'المهام'], ['discipline', 'الانضباط (النقاط)']].map(([k, l]) => (
+                    <Field key={k} label={l}><input className="inp n" inputMode="numeric" value={wf.scoreWeights[k] ?? ''} onChange={e => setWf(f => ({ ...f, scoreWeights: { ...f.scoreWeights, [k]: e.target.value.replace(/\D/g, '') } }))} /></Field>
+                  ))}
+                  <Field label="قاعدة محور الانضباط (0–100)"><input className="inp n" inputMode="numeric" value={wf.disciplineBase ?? ''} onChange={e => setWf(f => ({ ...f, disciplineBase: e.target.value.replace(/\D/g, '') }))} /></Field>
+                  <Field label="قيمة النقطة الواحدة في محور الانضباط"><input className="inp n" inputMode="numeric" value={wf.disciplinePointValue ?? ''} onChange={e => setWf(f => ({ ...f, disciplinePointValue: e.target.value.replace(/\D/g, '') }))} /></Field>
+                </div>
+                <div className="row" style={{ justifyContent: 'flex-end', marginTop: 8 }}><button className="btn pri" onClick={saveWeights}><Check size={14} />حفظ الأوزان</button></div>
+              </div>
+            )}
+          </div>
+          <div className="card">
+            <div className="card-t" style={{ marginBottom: 8 }}><TrendingUp size={15} color="var(--brass)" />درجات الأداء — {branch.name} — {ymLabel(ym)}</div>
+            <div className="tw">
+              <table className="tb">
+                <thead><tr><th>الموظف</th><th>الحضور</th><th>المهام</th><th>الانضباط</th><th>الجودة</th><th>الدرجة</th></tr></thead>
+                <tbody>
+                  {rows.map(r => (
+                    <tr key={r.e.id}>
+                      <td style={{ fontWeight: 600, fontSize: 12.5 }}>{r.e.name}</td>
+                      <td className="num" title={r.st.onTime + ' في الوقت / ' + r.st.late + ' تأخير / ' + r.st.absent + ' غياب'}>{fmt(r.axes.attendance)}</td>
+                      <td className="num" title={r.st.tasksDone + ' من ' + r.st.tasksExpected}>{fmt(r.axes.tasks)}</td>
+                      <td className="num" title={'صافي النقاط ' + (r.st.manualPts + r.st.autoPts)}>{fmt(r.axes.discipline)}</td>
+                      <td className="num">{fmt(r.axes.quality)}{!r.review && canManage ? <span style={{ fontSize: 10.5, color: 'var(--muted)', marginInlineStart: 4 }}>(بلا تقييم)</span> : null}</td>
+                      <td><span className={'badge ' + scoreBadge(r.score)} style={{ fontWeight: 700 }}>{r.score == null ? '—' : r.score + ' / 100'}</span></td>
+                    </tr>
+                  ))}
+                  {rows.length === 0 && <tr><td colSpan={6}><div className="empty">لا يوجد موظفون نشطون لهذا الفرع.</div></td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {view === 'review' && branch && (
+        <div className="grid" style={{ gap: 12 }}>
+          {canManage && (
+            <div className="card">
+              <div className="card-t" style={{ marginBottom: 8 }}><Star size={15} color="var(--brass)" />تقييم المدير الشهري — {ymLabel(ym)}</div>
+              <div className="grid g2">
+                <Field label="الموظف"><select className="inp sel" value={rvEmp} onChange={e => setRvEmp(e.target.value)}><option value="">اختر</option>{emps.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select></Field>
+                {rvEmp && existing && <div className="note" style={{ alignSelf: 'end' }}>يوجد تقييم محفوظ لهذا الشهر (بواسطة {existing.reviewedByName}) — الحفظ يُحدِّثه.</div>}
+              </div>
+              {rvEmp && (<>
+                <div className="grid g3" style={{ marginTop: 8 }}>
+                  {rateSel('workQuality', 'جودة العمل')}
+                  {rateSel('customerService', 'التعامل مع العملاء')}
+                  {rateSel('teamwork', 'العمل الجماعي')}
+                </div>
+                <Field label="ملاحظات (اختياري)" style={{ marginTop: 8 }}><input className="inp" value={rvF.note} onChange={e => setRvF(f => ({ ...f, note: e.target.value }))} /></Field>
+                <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}><button className="btn pri" onClick={saveReview}><Check size={14} />حفظ التقييم</button></div>
+              </>)}
+            </div>
+          )}
+          <div className="card">
+            <div className="card-t" style={{ marginBottom: 8 }}>تقييمات {ymLabel(ym)} — {branch.name}</div>
+            <div className="tw">
+              <table className="tb">
+                <thead><tr><th>الموظف</th><th>جودة العمل</th><th>العملاء</th><th>الجماعي</th><th>المتوسط</th><th>ملاحظة</th><th>بواسطة</th></tr></thead>
+                <tbody>
+                  {monthReviews.map(r => { const avg = ((Number(r.workQuality) + Number(r.customerService) + Number(r.teamwork)) / 3); return (
+                    <tr key={r.id}>
+                      <td style={{ fontWeight: 600, fontSize: 12.5 }}>{r.employeeName}</td>
+                      <td className="num">{r.workQuality}</td><td className="num">{r.customerService}</td><td className="num">{r.teamwork}</td>
+                      <td><span className={'badge ' + (avg >= 4 ? 'b-mint' : avg >= 3 ? 'b-amber' : 'b-rose')}>{avg.toFixed(1)}</span></td>
+                      <td style={{ fontSize: 12 }}>{r.note || '—'}</td>
+                      <td style={{ fontSize: 11.5 }}>{r.reviewedByName}</td>
+                    </tr>
+                  ); })}
+                  {monthReviews.length === 0 && <tr><td colSpan={7}><div className="empty">لا توجد تقييمات لهذا الشهر بعد.</div></td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {view === 'targets' && branch && (
+        <div className="grid" style={{ gap: 12 }}>
+          {canConfig && (
+            <div className="card">
+              <div className="card-t" style={{ marginBottom: 8 }}><Settings size={15} color="var(--brass)" />أهداف KPI — {branch.name}</div>
+              <div className="grid g3">
+                <Field label="نسبة الحضور في الوقت المستهدفة (%)"><input className="inp n" inputMode="numeric" value={tgF.onTimePct} onChange={e => setTgF(f => ({ ...f, onTimePct: e.target.value.replace(/\D/g, '') }))} /></Field>
+                <Field label="نسبة إنجاز المهام المستهدفة (%)"><input className="inp n" inputMode="numeric" value={tgF.taskPct} onChange={e => setTgF(f => ({ ...f, taskPct: e.target.value.replace(/\D/g, '') }))} /></Field>
+                <Field label="متوسط درجة الأداء المستهدف (من 100)"><input className="inp n" inputMode="numeric" value={tgF.avgScore} onChange={e => setTgF(f => ({ ...f, avgScore: e.target.value.replace(/\D/g, '') }))} /></Field>
+              </div>
+              <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}><button className="btn pri" onClick={saveTargets}><Check size={14} />حفظ الأهداف</button></div>
+            </div>
+          )}
+          <div className="card">
+            <div className="card-t" style={{ marginBottom: 8 }}><BarChart3 size={15} color="var(--brass)" />الفعلي مقابل المستهدف — {branch.name} — {ymLabel(ym)}</div>
+            <div className="tw">
+              <table className="tb">
+                <thead><tr><th>المؤشر</th><th>المستهدف</th><th>الفعلي</th><th>الحالة</th></tr></thead>
+                <tbody>
+                  {kpiRows.map(k => { const t = Number(tg[k.k]) || 0; const a = branchActual[k.k]; const ok = a != null && t > 0 ? a >= t : null; return (
+                    <tr key={k.k}>
+                      <td style={{ fontWeight: 600, fontSize: 12.5 }}>{k.ar}</td>
+                      <td className="num">{t > 0 ? t + k.unit : '—'}</td>
+                      <td className="num">{a == null ? '—' : a + k.unit}</td>
+                      <td><span className={'badge ' + (ok == null ? 'b-dim' : ok ? 'b-mint' : 'b-rose')}>{ok == null ? (t > 0 ? 'لا بيانات' : 'بلا هدف') : ok ? 'محقَّق ✓' : 'دون الهدف'}</span></td>
+                    </tr>
+                  ); })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {view === 'card' && branch && (
+        <div className="grid" style={{ gap: 12 }}>
+          <div className="card">
+            <div className="row" style={{ gap: 8, justifyContent: 'space-between', flexWrap: 'wrap' }}>
+              <Field label="الموظف" style={{ minWidth: 220 }}><select className="inp sel" value={cardEmp} onChange={e => setCardEmp(e.target.value)}><option value="">اختر</option>{emps.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select></Field>
+              {cEmp && <button className="btn sm gh" style={{ alignSelf: 'end' }} onClick={() => window.print()}><Printer size={13} />طباعة البطاقة</button>}
+            </div>
+          </div>
+          {cEmp && (
+            <div className="card">
+              <div className="card-h" style={{ marginBottom: 8 }}>
+                <div className="card-t"><FileText size={15} color="var(--brass)" />بطاقة أداء — {cEmp.name} — {branch.name}</div>
+                {trend != null && <span className={'badge ' + (trend > 0 ? 'b-mint' : trend < 0 ? 'b-rose' : 'b-dim')}>{trend > 0 ? '▲ تحسّن +' + trend : trend < 0 ? '▼ تراجع ' + trend : '— ثابت'}</span>}
+              </div>
+              <div className="tw">
+                <table className="tb">
+                  <thead><tr><th>الشهر</th><th>الحضور</th><th>المهام</th><th>الانضباط</th><th>الجودة</th><th>الدرجة</th></tr></thead>
+                  <tbody>
+                    {cardRows.map(r => (
+                      <tr key={r.m}>
+                        <td style={{ fontSize: 12.5 }}>{ymLabel(r.m)}</td>
+                        <td className="num">{fmt(r.axes.attendance)}</td>
+                        <td className="num">{fmt(r.axes.tasks)}</td>
+                        <td className="num">{fmt(r.axes.discipline)}</td>
+                        <td className="num">{fmt(r.axes.quality)}</td>
+                        <td><span className={'badge ' + scoreBadge(r.score)} style={{ fontWeight: 700 }}>{r.score == null ? '—' : r.score}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {cardRows.some(r => r.review && r.review.note) && (
+                <div style={{ marginTop: 10 }}>
+                  <div className="card-t" style={{ fontSize: 12.5, marginBottom: 4 }}>ملاحظات المدير</div>
+                  {cardRows.filter(r => r.review && r.review.note).map(r => <div key={r.m} style={{ fontSize: 12, padding: '4px 0', borderBottom: '1px solid var(--line)' }}><b>{ymLabel(r.m)}:</b> {r.review.note} <span style={{ color: 'var(--muted)' }}>— {r.review.reviewedByName}</span></div>)}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
