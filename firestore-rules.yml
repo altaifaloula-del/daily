@@ -7,7 +7,22 @@ on:
   workflow_dispatch:
 
 jobs:
+  # ===== مانع فعلي: القواعد لا تُنشَر أبداً إن رسبت اختبارات المحاكي =====
+  test:
+    name: اختبار القواعد على المحاكي
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: تثبيت الحزم
+        run: npm ci
+      - name: تشغيل اختبارات rules.test.mjs على محاكي Firestore
+        run: npx --yes firebase-tools@13 emulators:exec --only firestore "node --test rules.test.mjs"
+
   rules:
+    name: نشر القواعد
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

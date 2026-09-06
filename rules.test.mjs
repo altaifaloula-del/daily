@@ -19,15 +19,23 @@ import { doc, getDoc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 
 let env;
 const OWNER = 'owner@test.com';      // مدير (ضمن platform/admins)
-const STAFF = 'staff@test.com';      // عضو نشط غير مدير
+const STAFF = 'staff@test.com';      // عضو نشط غير مدير (بلا scope/فرع — توافق قديم)
 const FROZEN = 'frozen@test.com';    // عضوية موقوفة
 const GHOST = 'ghost@test.com';      // موثّق بلا عضوية
+const CENTRAL = 'central@test.com';  // عضو مركزي scope:'all' (محاسب/إدارة مالية)
+const BR_A = 'cashierA@test.com';    // كاشير الفرع A فقط
+const BR_B = 'cashierB@test.com';    // كاشير الفرع B فقط
+const REGIONAL = 'regional@test.com'; // مدير إقليمي مُسنَد للفرع A فقط (ضمن branchIds)
 
 const db = (ctx) => ctx.firestore();
 const owner = () => env.authenticatedContext('u-owner', { email: OWNER }).firestore();
 const staff = () => env.authenticatedContext('u-staff', { email: STAFF }).firestore();
 const frozen = () => env.authenticatedContext('u-frozen', { email: FROZEN }).firestore();
 const ghost = () => env.authenticatedContext('u-ghost', { email: GHOST }).firestore();
+const central = () => env.authenticatedContext('u-central', { email: CENTRAL }).firestore();
+const brA = () => env.authenticatedContext('u-brA', { email: BR_A }).firestore();
+const brB = () => env.authenticatedContext('u-brB', { email: BR_B }).firestore();
+const regional = () => env.authenticatedContext('u-regional', { email: REGIONAL }).firestore();
 const noEmail = () => env.authenticatedContext('u-anonlike').firestore(); // مصادق بلا بريد ≈ مجهول
 const visitor = () => env.unauthenticatedContext().firestore();
 
@@ -42,8 +50,17 @@ before(async () => {
     await setDoc(doc(d, 'members', OWNER), { email: OWNER, active: true });
     await setDoc(doc(d, 'members', STAFF), { email: STAFF, active: true });
     await setDoc(doc(d, 'members', FROZEN), { email: FROZEN, active: false });
+    await setDoc(doc(d, 'members', CENTRAL), { email: CENTRAL, active: true, scope: 'all', role: 'accountant' });
+    await setDoc(doc(d, 'members', BR_A), { email: BR_A, active: true, scope: 'branch', branchId: 'b-AAA', branchIds: [], role: 'cashier' });
+    await setDoc(doc(d, 'members', BR_B), { email: BR_B, active: true, scope: 'branch', branchId: 'b-BBB', branchIds: [], role: 'cashier' });
+    await setDoc(doc(d, 'members', REGIONAL), { email: REGIONAL, active: true, scope: 'branch', branchId: '', branchIds: ['b-AAA'], role: 'regional_manager' });
     await setDoc(doc(d, 'platform', 'rms8_ops'), { value: '{}', parts: 1 });
     await setDoc(doc(d, 'platform', 'rms8_org'), { value: '{}', parts: 1 });
+    await setDoc(doc(d, 'platform', 'rms8_dir'), { value: '{}', parts: 1 });
+    await setDoc(doc(d, 'platform', 'rms8_core'), { value: '{}', parts: 1 });
+    await setDoc(doc(d, 'platform', 'rms8_br_b-AAA'), { value: '{}', parts: 1 });
+    await setDoc(doc(d, 'platform', 'rms8_bf_b-AAA'), { value: '{}', parts: 1 });
+    await setDoc(doc(d, 'platform', 'rms8_br_b-BBB'), { value: '{}', parts: 1 });
   });
 });
 
@@ -109,4 +126,67 @@ test('التمهيد: إنشاء قائمة المدراء عند غيابها �
   await assertSucceeds(setDoc(doc(ghost(), 'platform', 'admins'), { emails: [GHOST] }));
   // وبعد وجودها لا يُعاد إنشاؤها/تعديلها من غير مدير قائم
   await assertFails(setDoc(doc(staff(), 'platform', 'admins'), { emails: [STAFF] }));
+});
+
+/* ===== المرحلة الأمنية 2: عزل الفروع + كتم أسرار المنشأة (أُضيفت بعد تدقيق HR م٠) ===== */
+
+test('rms8_org: القراءة للمركزيين والمدراء فقط — الفرعي والعضو القديم بلا scope يُرفَضان', async () => {
+  await assertSucceeds(getDoc(doc(central(), 'platform', 'rms8_org')));
+  await assertSucceeds(getDoc(doc(owner(), 'platform', 'rms8_org')));
+  await assertFails(getDoc(doc(brA(), 'platform', 'rms8_org')));
+  await assertFails(getDoc(doc(staff(), 'platform', 'rms8_org'))); // عضو قديم بلا حقل scope — لا يُفترض له وصول مركزي
+});
+
+test('rms8_core: تشغيل مركزي — للمركزيين/المدراء فقط قراءةً وكتابةً', async () => {
+  await assertSucceeds(getDoc(doc(central(), 'platform', 'rms8_core')));
+  await assertSucceeds(setDoc(doc(central(), 'platform', 'rms8_core'), { value: '{"x":1}', parts: 1 }));
+  await assertFails(getDoc(doc(brA(), 'platform', 'rms8_core')));
+  await assertFails(setDoc(doc(brA(), 'platform', 'rms8_core'), { value: '{}', parts: 1 }));
+});
+
+test('rms8_dir: يقرؤه أي عضو نشط، لكن يكتبه المدراء فقط', async () => {
+  await assertSucceeds(getDoc(doc(brA(), 'platform', 'rms8_dir')));
+  await assertSucceeds(getDoc(doc(staff(), 'platform', 'rms8_dir')));
+  await assertFails(setDoc(doc(brA(), 'platform', 'rms8_dir'), { value: '{}', parts: 1 }));
+  await assertFails(setDoc(doc(central(), 'platform', 'rms8_dir'), { value: '{}', parts: 1 }));
+  await assertSucceeds(setDoc(doc(owner(), 'platform', 'rms8_dir'), { value: '{}', parts: 1 }));
+});
+
+test('عزل الفروع: كاشير الفرع A يصل لمستند فرعه فقط، لا فرع B', async () => {
+  await assertSucceeds(getDoc(doc(brA(), 'platform', 'rms8_br_b-AAA')));
+  await assertSucceeds(setDoc(doc(brA(), 'platform', 'rms8_br_b-AAA'), { value: '{"x":1}', parts: 1 }));
+  await assertSucceeds(getDoc(doc(brA(), 'platform', 'rms8_bf_b-AAA')));
+  await assertFails(getDoc(doc(brA(), 'platform', 'rms8_br_b-BBB')));
+  await assertFails(setDoc(doc(brA(), 'platform', 'rms8_br_b-BBB'), { value: '{}', parts: 1 }));
+});
+
+test('عزل الفروع: كاشير الفرع B لا يصل لمستند الفرع A، ولا لمستندات التقسيم التابعة له', async () => {
+  await assertFails(getDoc(doc(brB(), 'platform', 'rms8_br_b-AAA')));
+  await assertFails(getDoc(doc(brB(), 'platform', 'rms8_bf_b-AAA')));
+  await assertFails(setDoc(doc(brB(), 'platform', 'rms8_br_b-AAA__0'), { chunk: 'x' }));
+});
+
+test('عزل الفروع: مدير إقليمي مُسنَد لفرع A فقط يصل له لا لفرع B', async () => {
+  await assertSucceeds(getDoc(doc(regional(), 'platform', 'rms8_br_b-AAA')));
+  await assertFails(getDoc(doc(regional(), 'platform', 'rms8_br_b-BBB')));
+});
+
+test('عزل الفروع: المركزي والمدير يصلان لكل الفروع', async () => {
+  await assertSucceeds(getDoc(doc(central(), 'platform', 'rms8_br_b-AAA')));
+  await assertSucceeds(getDoc(doc(central(), 'platform', 'rms8_br_b-BBB')));
+  await assertSucceeds(getDoc(doc(owner(), 'platform', 'rms8_br_b-BBB')));
+  await assertSucceeds(setDoc(doc(central(), 'platform', 'rms8_br_b-BBB'), { value: '{"y":1}', parts: 1 }));
+});
+
+test('rms8_pulse: أي عضو نشط يقرأ/يكتب، لكن لا يُقلَّص سجل audit إلا من مدير', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(db(ctx), 'platform', 'rms8_pulse'), { presence: {}, audit: [{ a: 1 }, { a: 2 }, { a: 3 }] });
+  });
+  await assertSucceeds(getDoc(doc(brA(), 'platform', 'rms8_pulse')));
+  // إضافة حدث جديد (المصفوفة تكبر) — مقبول من عضو عادي
+  await assertSucceeds(setDoc(doc(brA(), 'platform', 'rms8_pulse'), { presence: {}, audit: [{ a: 4 }, { a: 1 }, { a: 2 }, { a: 3 }] }));
+  // تقليص/مسح السجل من عضو عادي — مرفوض
+  await assertFails(setDoc(doc(brB(), 'platform', 'rms8_pulse'), { presence: {}, audit: [{ a: 1 }] }));
+  // المدير وحده يقدر يقلّص السجل عند الحاجة
+  await assertSucceeds(setDoc(doc(owner(), 'platform', 'rms8_pulse'), { presence: {}, audit: [] }));
 });
