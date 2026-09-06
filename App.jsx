@@ -30,6 +30,13 @@ async function sha(text) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text + '::rms8'));
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
+/* المسافة بالأمتار بين نقطتين (Haversine) — للتحقّق من نطاق جيوفنس الفرع عند تسجيل الحضور (م٣) */
+function haversineMeters(lat1, lng1, lat2, lng2) {
+  const R = 6371000, rad = Math.PI / 180;
+  const dLat = (lat2 - lat1) * rad, dLng = (lng2 - lng1) * rad;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLng / 2) ** 2;
+  return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+}
 
 /* ================= البصمة الحيوية عبر WebAuthn (بصمة/وجه الجهاز) ================= */
 const webauthnSupported = () =>
@@ -1416,11 +1423,11 @@ const DENOMS = [
 const emptyDenoms = () => DENOMS.reduce((o, d) => ({ ...o, [d.k]: 0 }), {});
 const countDenoms = (d) => DENOMS.reduce((s, x) => s + (Number(d?.[x.k]) || 0) * x.v, 0);
 
-const ALL_TABS = ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit'];
+const ALL_TABS = ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit'];
 const TAB_AR = {
   analytics: 'مركز التحليل والأداء', reporting: 'مركز التقارير', exec: 'اللوحة التنفيذية',
   dash: 'لوحة المؤشرات', compare: 'مقارنة الفروع', growth: 'تحليلات النمو', breakeven: 'تحليل التعادل', scorecard: 'لوحة الأهداف', scenario: 'ماذا-لو', boardpack: 'تقرير الإدارة', cashflow: 'التدفق النقدي', closing: 'الإغلاق اليومي', apps: 'التطبيقات',
-  approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', people: 'شؤون الموظفين', payroll: 'الرواتب والسلف', workforce: 'الجدولة والحضور',
+  approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', people: 'شؤون الموظفين', payroll: 'الرواتب والسلف', workforce: 'الجدولة والحضور', hrmaster: 'البيانات الرئيسية', hrpolicy: 'السياسات والأدوار', attendance: 'الحضور الموثَّق',
   purchasing: 'المشتريات والموردون', suppliers: 'الموردون والمشتريات', inv: 'المخزون والمنتجات', reorder: 'المشتريات الذكية', partners: 'دفتر الشركاء',
   acct: 'المحاسبة', shifts: 'الورديات', archive: 'أرشيف المستندات', ai: 'المركز الذكي',
   reports: 'التقارير المالية', rbuild: 'منشئ التقارير', entities: 'مركز المنشآت', admin: 'الفروع والمستخدمون', audit: 'سجل التدقيق'
@@ -1450,22 +1457,22 @@ const ROLES = {
   // ===== الأدوار الخمسة المعتمدة =====
   cashier: {
     ar: 'كاشير — إدخال إغلاق اليوم', badge: 'b-sky', scope: 'own', create: true, todayOnly: true,
-    tabs: ['closing'],
-    perms: ['إنشاء وترحيل إغلاق اليوم لفرعه', 'جرد الصندوق وإدخال المبيعات والمصروفات', 'اليوم الحالي فقط دون سجلّ سابق — عدا مسوداته والمرفوضات المعادة للتصحيح فتظهر دائماً']
+    tabs: ['closing', 'attendance'],
+    perms: ['إنشاء وترحيل إغلاق اليوم لفرعه', 'جرد الصندوق وإدخال المبيعات والمصروفات', 'تسجيل حضور وانصراف موظفي فرعه من جهاز الفرع', 'اليوم الحالي فقط دون سجلّ سابق — عدا مسوداته والمرفوضات المعادة للتصحيح فتظهر دائماً']
   },
   branch_manager: {
     ar: 'مدير الفرع', badge: 'b-mint', scope: 'own', create: true,
-    tabs: ['closing', 'sales', 'apps', 'archive'],
-    perms: ['إدخال وترحيل إغلاق فرعه', 'عرض سجل إغلاقات فرعه', 'أرشيف مستندات فرعه فقط']
+    tabs: ['closing', 'sales', 'apps', 'archive', 'attendance'],
+    perms: ['إدخال وترحيل إغلاق فرعه', 'عرض سجل إغلاقات فرعه', 'أرشيف مستندات فرعه فقط', 'تسجيل الحضور وضبط أرقام PIN وسجل حضور فرعه']
   },
   regional_manager: {
     ar: 'مدير إقليمي — فروع مُسندة', badge: 'b-amber', scope: 'assigned',
-    tabs: ['analytics', 'reporting', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'reports', 'archive'],
-    perms: ['متابعة الفروع المسندة إليه فقط', 'مقارنة وتقارير فروعه ولوحة مؤشراتها ونموّها', 'بلا وصول للمحاسبة والخزينة والإعدادات']
+    tabs: ['analytics', 'reporting', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'reports', 'archive', 'attendance'],
+    perms: ['متابعة الفروع المسندة إليه فقط', 'مقارنة وتقارير فروعه ولوحة مؤشراتها ونموّها', 'سجل حضور فروعه المسندة', 'بلا وصول للمحاسبة والخزينة والإعدادات']
   },
   head_office: {
     ar: 'المكتب الرئيسي — المالية والإدارة', badge: 'b-brass', scope: 'all', approver: true,
-    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
+    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['كل الفروع والتقارير المجمّعة', 'التدقيق والاعتماد النهائي', 'الخزينة والرواتب والموردون والمشتريات والمخزون', 'المحاسبة الكاملة: قيود وميزان وقوائم وضريبة وأصول ومراكز تكلفة']
   },
   system_admin: {
@@ -1483,7 +1490,7 @@ const ROLES = {
     // إعادة ترتيب v8.0: المحاسب الرئيسي بطبيعته يعمل على المنشأة كلها — نطاق كامل
     // بلا صلاحيات إدارة (لا مستخدمين/فروع، لا تفعيل ضريبة، لا إدارة تطبيقات)
     ar: 'الإدارة المالية — محاسب رئيسي', badge: 'b-sky', scope: 'all', legacy: true,
-    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
+    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['المحاسبة كاملة: قيود يدوية وافتتاحية وميزان وقوائم ومراكز تكلفة', 'الضريبة والأصول والتسوية البنكية (عرض وتسجيل — التفعيل للإدارة)', 'المشتريات والمخزون والرواتب والخزينة', 'كل الفروع — دون إدارة المستخدمين والإعدادات']
   },
   // ===== v15.9: نماذج صلاحيات المحاسب — نطاق «المحاسبة + التقارير المالية فقط» =====
@@ -1573,6 +1580,7 @@ const REG_APPS = [
   // ——— الموارد البشرية ———
   { id: 'payroll', ar: 'الرواتب والسلف', en: 'Payroll & Advances', cat: 'hr', icon: Wallet, open: { tab: 'payroll' }, kw: ['راتب', 'سلفة', 'خصم', 'استحقاق', 'صرف', 'موظف', 'قسيمة'], fns: ['كشف رواتب شهري', 'سلف وخصومات', 'ترحيل الاستحقاق والصرف للدفتر', 'قسائم رواتب'], d: 'كشف الرواتب والسلف والخصومات — مرحّلة محاسبياً باستحقاقها وصرفها.' },
   { id: 'workforce', ar: 'الجدولة والحضور', en: 'Scheduling & Labor', cat: 'hr', icon: CalendarDays, open: { tab: 'workforce' }, kw: ['جدولة', 'وردية', 'حضور', 'ساعات', 'عمالة', 'دوام', 'موظف', 'تحسين', 'إنتاجية'], fns: ['جدول ساعات أسبوعي لكل موظف', 'تسجيل الحضور الفعلي', 'نسبة العمالة من المبيعات', 'المبيعات لكل ساعة عمل', 'تنبيهات الزيادة والنقص'], d: 'خطّط ساعات فريقك أسبوعياً، سجّل الحضور، وقِس نسبة العمالة من مبيعاتك — بهدف قابل للضبط.' },
+  { id: 'attendance', ar: 'الحضور الموثَّق', en: 'Verified Attendance', cat: 'hr', icon: Fingerprint, open: { tab: 'attendance' }, kw: ['حضور', 'انصراف', 'بصمة', 'PIN', 'جيوفنس', 'موقع', 'كاشير', 'كيوسك'], fns: ['تسجيل حضور وانصراف من جهاز الفرع بـPIN', 'تحقّق تلقائي من نطاق جيوفنس الفرع', 'سجل حضور كامل قابل للفلترة'], d: 'تسجيل حضور وانصراف الموظفين من جهاز الفرع نفسه — برقم PIN وتحقّق موقعي، دون حساب دخول شخصي لكل موظف.' },
   // ——— الزكاة والضريبة (خطة م٣) ———
   { id: 'vat', ar: 'ضريبة القيمة المضافة', en: 'VAT', cat: 'tax', icon: Receipt, open: { tab: 'acct', view: 'vat' }, kw: ['ضريبة', 'زاتكا', 'مدخلات', 'مخرجات', 'فاتورة', 'إقرار'], fns: ['تفعيل بنسبة قابلة للضبط', 'فصل المخرجات في قيد الإيراد', 'فصل مدخلات المصروفات الخاضعة', 'مؤشرات بالفترة'], d: 'فصل تلقائي لضريبة المخرجات والمدخلات في القيود — بأثر رجعي فور التفعيل.' },
   { id: 'vatret', ar: 'الإقرار الضريبي', en: 'VAT Return', cat: 'tax', icon: FileText, open: { tab: 'acct', view: 'vat' }, kw: ['إقرار', 'ضريبة', 'ربع', 'زاتكا'], fns: ['مسودة إقرار بالفترة', 'زر الربع الحالي', 'صافي المستحق'], d: 'مسودة إقرار جاهزة من قيودك لأي فترة تحددها.' },
@@ -1610,6 +1618,8 @@ const LAUNCH_APPS = [
     sections: ['النظرة الموحّدة', 'إدارة المنشآت', 'إسناد الفروع'], kw: ['منشأة', 'منشآت', 'شركة', 'شركات', 'كيان', 'موحّد', 'مجموعة', 'رقم ضريبي', 'تعدد'] },
   { id: 'closing', ar: 'الإغلاق اليومي', en: 'Daily Closing', cat: 'pos', icon: ClipboardCheck, open: { tab: 'closing' },
     sections: ['تسجيل إغلاق اليوم', 'سجل الإغلاقات'], kw: ['اغلاق', 'إغلاق', 'وردية', 'مبيعات', 'صندوق', 'كاشير', 'نقطة بيع', 'نقاط البيع'] },
+  { id: 'attendance', ar: 'الحضور الموثَّق', en: 'Verified Attendance', cat: 'pos', icon: Fingerprint, open: { tab: 'attendance' },
+    sections: ['تسجيل حضور/انصراف', 'أرقام PIN', 'سجل الحضور'], kw: ['حضور', 'انصراف', 'بصمة', 'pin', 'جيوفنس', 'كيوسك', 'موظف'] },
   { id: 'sales', ar: 'المبيعات', en: 'Sales', cat: 'pos', icon: CircleDollarSign, open: { tab: 'sales' },
     sections: ['حسب القناة', 'حسب الفرع', 'حسب التطبيق'], kw: ['مبيعات', 'نقاط البيع', 'نقطة بيع', 'قناة', 'نقد', 'شبكة', 'توصيل', 'تحليل'] },
   { id: 'approve', ar: 'التدقيق والاعتماد', en: 'Approvals', cat: 'pos', icon: ShieldCheck, open: { tab: 'approve' },
@@ -2523,7 +2533,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v18.0 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v19.0 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2654,6 +2664,7 @@ export default function App() {
               {['reporting', 'reports', 'rbuild', 'boardpack', 'cashflow'].includes(safeTab) && <Hub hubId="reporting" {...shared} view={safeTab} />}
               {safeTab === 'sales' && <Sales {...shared} />}
               {safeTab === 'closing' && <Closing {...shared} />}
+              {safeTab === 'attendance' && <Attendance {...shared} />}
               {safeTab === 'apps' && <AppsCenter {...shared} />}
               {safeTab === 'approve' && <Approvals {...shared} />}
               {safeTab === 'treasury' && <Treasury {...shared} />}
@@ -8752,6 +8763,261 @@ function HrPolicy({ org, me, commitOrg, say }) {
           </Modal>
         );
       })()}
+    </div>
+  );
+}
+
+/* ============================================================
+   م٣ — الحضور الموثَّق (Verified Attendance)
+   بلا حساب دخول شخصي للموظف وبلا دخول مجهول (Anonymous Auth) وبلا أي
+   تعديل على قواعد Firestore: التسجيل يتم فقط عبر جهاز الفرع المشترك
+   (جلسة الكاشير/مدير الفرع المُصادَق عليها أصلاً)، برقم PIN خاص بكل
+   موظف (مُجزَّأ SHA-256 عبر sha()) + تحقّق موقعي اختياري (جيوفنس الفرع
+   من م٢، عبر haversineMeters) يُسجَّل كعلَم امتثال بلا حجب العملية.
+   ============================================================ */
+function Attendance({ org, me, myBranches, commitOrg, say }) {
+  const isCashier = me.role === 'cashier';
+  const events = org.attendanceEvents || [];
+  const branches = myBranches || [];
+
+  const [view, setView] = useState('kiosk');
+  const [branchId, setBranchId] = useState((branches[0] || {}).id || '');
+  useEffect(() => {
+    if (!branches.find(b => b.id === branchId)) setBranchId((branches[0] || {}).id || '');
+  }, [branches, branchId]);
+  const branch = branches.find(b => b.id === branchId) || null;
+
+  const emps = (org.employees || []).filter(e => e.isActive !== false && branch && e.branchId === branch.id);
+
+  const lastEventToday = (empId) => {
+    const d = today();
+    return events
+      .filter(ev => ev.employeeId === empId && (ev.at || '').slice(0, 10) === d)
+      .sort((a, b) => (a.at < b.at ? 1 : -1))[0] || null;
+  };
+  const nextType = (empId) => (lastEventToday(empId)?.type === 'in' ? 'out' : 'in');
+
+  // --- كشك تسجيل الحضور ---
+  const [pinFor, setPinFor] = useState(null);
+  const [pinVal, setPinVal] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const doCheck = async () => {
+    if (!pinFor || !branch) return;
+    if (!/^\d{4,6}$/.test(pinVal)) return say('أدخل رقم PIN المكوّن من ٤ إلى ٦ أرقام', 'no');
+    setBusy(true);
+    const hash = await sha(pinVal);
+    if (!pinFor.attendancePinHash || pinFor.attendancePinHash !== hash) {
+      setBusy(false); setPinVal('');
+      return say('رقم PIN غير صحيح', 'no');
+    }
+    const type = nextType(pinFor.id);
+    const rec = {
+      id: uid('att'), branchId: branch.id, branchName: branch.name, employeeId: pinFor.id, employeeName: pinFor.name,
+      type, at: nowISO(), recordedBy: me.id, recordedByName: me.name,
+      lat: null, lng: null, distanceMeters: null, withinGeofence: null
+    };
+    const finish = async (pos) => {
+      if (pos) {
+        rec.lat = +pos.coords.latitude.toFixed(6);
+        rec.lng = +pos.coords.longitude.toFixed(6);
+        if (branch.geofence && branch.geofence.lat !== '' && branch.geofence.lat != null) {
+          rec.distanceMeters = haversineMeters(rec.lat, rec.lng, branch.geofence.lat, branch.geofence.lng);
+          rec.withinGeofence = rec.distanceMeters <= (branch.geofence.radiusMeters || 100);
+        }
+      }
+      await commitOrg(d => ({ ...d, attendanceEvents: [rec, ...(d.attendanceEvents || [])] }), {
+        actionType: 'update', targetType: 'attendance', targetId: rec.id, branchName: branch.name,
+        title: type === 'in' ? 'تسجيل حضور موظف' : 'تسجيل انصراف موظف',
+        details: pinFor.name + (rec.withinGeofence === false ? ' — خارج نطاق الفرع (' + rec.distanceMeters + 'م)' : '')
+      });
+      setBusy(false); setPinFor(null); setPinVal('');
+      say((type === 'in' ? 'سُجِّل الحضور' : 'سُجِّل الانصراف') + ' — ' + pinFor.name + ' ✓' +
+        (rec.withinGeofence === false ? ' (تنبيه: خارج نطاق الفرع)' : ''));
+    };
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(pos => finish(pos), () => finish(null), { timeout: 8000 });
+    } else finish(null);
+  };
+
+  // --- ضبط أرقام PIN للموظفين ---
+  const [pinSetFor, setPinSetFor] = useState(null);
+  const [np1, setNp1] = useState('');
+  const [np2, setNp2] = useState('');
+  const savePin = async () => {
+    if (!pinSetFor) return;
+    if (!/^\d{4,6}$/.test(np1)) return say('رقم PIN يجب أن يكون ٤ إلى ٦ أرقام', 'no');
+    if (np1 !== np2) return say('رقما PIN غير متطابقين', 'no');
+    const hash = await sha(np1);
+    await commitOrg(d => ({ ...d, employees: (d.employees || []).map(x => x.id === pinSetFor.id ? { ...x, attendancePinHash: hash } : x) }),
+      { actionType: 'update', targetType: 'user_account', targetId: pinSetFor.id, title: 'ضبط رقم PIN للحضور', details: pinSetFor.name });
+    say('حُفظ رقم PIN ✓');
+    setPinSetFor(null); setNp1(''); setNp2('');
+  };
+  const clearPin = async (e) => {
+    if (!window.confirm('إلغاء رقم PIN الحالي لـ«' + e.name + '»؟ لن يستطيع تسجيل حضوره حتى يُضبط رقم جديد.')) return;
+    await commitOrg(d => ({ ...d, employees: (d.employees || []).map(x => x.id === e.id ? { ...x, attendancePinHash: '' } : x) }),
+      { actionType: 'update', targetType: 'user_account', targetId: e.id, title: 'إلغاء رقم PIN للحضور', details: e.name });
+    say('أُلغي رقم PIN ✓');
+  };
+
+  // --- سجل الحضور ---
+  const [logBranch, setLogBranch] = useState('');
+  const [logEmp, setLogEmp] = useState('');
+  const [logFrom, setLogFrom] = useState(today());
+  const [logTo, setLogTo] = useState(today());
+  const branchIds = branches.map(b => b.id);
+  const logRows = events
+    .filter(ev => branchIds.includes(ev.branchId))
+    .filter(ev => !logBranch || ev.branchId === logBranch)
+    .filter(ev => !logEmp || ev.employeeId === logEmp)
+    .filter(ev => (!logFrom || (ev.at || '') >= logFrom) && (!logTo || (ev.at || '').slice(0, 10) <= logTo))
+    .sort((a, b) => (a.at < b.at ? 1 : -1));
+
+  if (!branch && branches.length === 0) {
+    return <div className="card"><div className="empty">لا يوجد فرع مُسند لحسابك — راجع مسؤول النظام.</div></div>;
+  }
+
+  return (
+    <div className="grid" style={{ gap: 12 }}>
+      {!isCashier && (
+        <div className="card" style={{ padding: '8px 12px' }}>
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap', justifyContent: 'space-between' }}>
+            <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+              <button className={'btn sm' + (view === 'kiosk' ? ' pri' : ' gh')} onClick={() => setView('kiosk')}><Fingerprint size={13} />تسجيل حضور/انصراف</button>
+              <button className={'btn sm' + (view === 'pin' ? ' pri' : ' gh')} onClick={() => setView('pin')}><ShieldCheck size={13} />أرقام PIN</button>
+              <button className={'btn sm' + (view === 'log' ? ' pri' : ' gh')} onClick={() => setView('log')}><Clock size={13} />سجل الحضور</button>
+            </div>
+            {branches.length > 1 && (
+              <select className="inp sel" style={{ width: 180 }} value={branchId} onChange={e => setBranchId(e.target.value)}>
+                {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            )}
+          </div>
+        </div>
+      )}
+
+      {view === 'kiosk' && branch && (
+        <div className="card">
+          <div className="card-t" style={{ marginBottom: 4 }}><Fingerprint size={15} color="var(--brass)" />تسجيل الحضور — {branch.name}</div>
+          <div className="note" style={{ marginBottom: 10 }}>اختر اسمك ثم أدخل رقم PIN الخاص بك من جهاز الفرع — يُحدَّد الحضور أو الانصراف تلقائيًا.</div>
+          <div className="grid g3">
+            {emps.map(e => {
+              const nt = nextType(e.id);
+              return (
+                <button key={e.id} className="card" style={{ padding: 12, textAlign: 'center', cursor: 'pointer', border: '1px solid var(--frame-o)' }}
+                  onClick={() => { setPinFor(e); setPinVal(''); }}>
+                  <div style={{ fontWeight: 700, fontSize: 13 }}>{e.name}</div>
+                  <div style={{ marginTop: 6 }}>
+                    <span className={'badge ' + (nt === 'in' ? 'b-mint' : 'b-amber')}>{nt === 'in' ? 'تسجيل حضور' : 'تسجيل انصراف'}</span>
+                  </div>
+                  {!e.attendancePinHash && <div style={{ fontSize: 9.5, color: 'var(--rose)', marginTop: 4 }}>لا يوجد رقم PIN — راجع مدير الفرع</div>}
+                </button>
+              );
+            })}
+            {emps.length === 0 && <div className="empty">لا يوجد موظفون في هذا الفرع بعد — أضِفهم من «البيانات الرئيسية».</div>}
+          </div>
+        </div>
+      )}
+
+      {view === 'pin' && !isCashier && (
+        <div className="card">
+          <div className="card-t" style={{ marginBottom: 6 }}><ShieldCheck size={15} color="var(--brass)" />أرقام PIN للحضور</div>
+          <div className="note" style={{ marginBottom: 10 }}>رقم PIN من ٤ إلى ٦ أرقام يُستخدم لتسجيل حضور/انصراف الموظف من جهاز الفرع فقط — لا يُستخدم لتسجيل الدخول للنظام.</div>
+          <div className="tw">
+            <table className="tb">
+              <thead><tr><th>الموظف</th><th>الحالة</th><th /></tr></thead>
+              <tbody>
+                {emps.map(e => (
+                  <tr key={e.id}>
+                    <td style={{ fontWeight: 600, fontSize: 12.5 }}>{e.name}</td>
+                    <td>{e.attendancePinHash ? <span className="badge b-mint">مُفعَّل</span> : <span className="badge b-dim">غير مُفعَّل</span>}</td>
+                    <td>
+                      <div className="row" style={{ gap: 5, justifyContent: 'flex-end' }}>
+                        <button className="btn sm gh" onClick={() => { setPinSetFor(e); setNp1(''); setNp2(''); }}><Lock size={13} />{e.attendancePinHash ? 'إعادة ضبط' : 'ضبط رقم PIN'}</button>
+                        {e.attendancePinHash && <button className="btn sm gh" onClick={() => clearPin(e)}><Trash2 size={13} />إلغاء</button>}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {emps.length === 0 && <tr><td colSpan={3}><div className="empty">لا يوجد موظفون في هذا الفرع بعد.</div></td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {view === 'log' && !isCashier && (
+        <div className="card">
+          <div className="card-t" style={{ marginBottom: 10 }}><Clock size={15} color="var(--brass)" />سجل الحضور</div>
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+            {branches.length > 1 && (
+              <select className="inp sel" style={{ width: 160 }} value={logBranch} onChange={e => setLogBranch(e.target.value)}>
+                <option value="">كل الفروع</option>
+                {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            )}
+            <select className="inp sel" style={{ width: 160 }} value={logEmp} onChange={e => setLogEmp(e.target.value)}>
+              <option value="">كل الموظفين</option>
+              {(org.employees || []).filter(e => branchIds.includes(e.branchId)).map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+            </select>
+            <input className="inp" type="date" style={{ width: 140 }} value={logFrom} onChange={e => setLogFrom(e.target.value)} />
+            <input className="inp" type="date" style={{ width: 140 }} value={logTo} onChange={e => setLogTo(e.target.value)} />
+          </div>
+          <div className="tw">
+            <table className="tb">
+              <thead><tr><th>الوقت</th><th>الموظف</th><th>الفرع</th><th>النوع</th><th>الموقع</th></tr></thead>
+              <tbody>
+                {logRows.map(ev => (
+                  <tr key={ev.id}>
+                    <td style={{ fontSize: 12 }}>{new Date(ev.at).toLocaleString('ar-SA')}</td>
+                    <td style={{ fontWeight: 600, fontSize: 12.5 }}>{ev.employeeName}</td>
+                    <td style={{ fontSize: 12 }}>{ev.branchName}</td>
+                    <td><span className={'badge ' + (ev.type === 'in' ? 'b-mint' : 'b-amber')}>{ev.type === 'in' ? 'حضور' : 'انصراف'}</span></td>
+                    <td>
+                      {ev.withinGeofence === true && <span className="badge b-mint">ضمن النطاق</span>}
+                      {ev.withinGeofence === false && <span className="badge b-rose">خارج النطاق ({ev.distanceMeters}م)</span>}
+                      {ev.withinGeofence == null && <span className="badge b-dim">—</span>}
+                    </td>
+                  </tr>
+                ))}
+                {logRows.length === 0 && <tr><td colSpan={5}><div className="empty">لا توجد سجلات حضور ضمن هذه الفلاتر.</div></td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {pinFor && (
+        <Modal title={'تسجيل ' + (nextType(pinFor.id) === 'in' ? 'حضور' : 'انصراف') + ' — ' + pinFor.name} icon={Fingerprint} onClose={() => { setPinFor(null); setPinVal(''); }}
+          foot={<>
+            <button className="btn gh" onClick={() => { setPinFor(null); setPinVal(''); }}>إلغاء</button>
+            <button className="btn pri" disabled={busy} onClick={doCheck}><Check size={14} />{busy ? 'جارٍ...' : 'تأكيد'}</button>
+          </>}>
+          <Field label="رقم PIN">
+            <input className="inp" type="password" inputMode="numeric" maxLength={6} autoFocus value={pinVal}
+              onChange={e => setPinVal(e.target.value.replace(/\D/g, ''))}
+              onKeyDown={e => { if (e.key === 'Enter') doCheck(); }} placeholder="••••" />
+          </Field>
+        </Modal>
+      )}
+
+      {pinSetFor && (
+        <Modal title={'ضبط رقم PIN — ' + pinSetFor.name} icon={Lock} onClose={() => setPinSetFor(null)}
+          foot={<>
+            <button className="btn gh" onClick={() => setPinSetFor(null)}>إلغاء</button>
+            <button className="btn pri" onClick={savePin}><Check size={14} />حفظ</button>
+          </>}>
+          <div className="grid" style={{ gap: 10 }}>
+            <Field label="رقم PIN الجديد (٤-٦ أرقام)">
+              <input className="inp" type="password" inputMode="numeric" maxLength={6} autoFocus value={np1} onChange={e => setNp1(e.target.value.replace(/\D/g, ''))} placeholder="••••" />
+            </Field>
+            <Field label="تأكيد رقم PIN">
+              <input className="inp" type="password" inputMode="numeric" maxLength={6} value={np2} onChange={e => setNp2(e.target.value.replace(/\D/g, ''))} placeholder="••••" />
+            </Field>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
