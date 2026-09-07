@@ -238,7 +238,7 @@ const LOCK_MSG = (d) => 'شهر ' + (d || '').slice(0, 7) + ' مقفل محاس�
    ============================================================ */
 const BR_COLS = ['closings', 'transfers', 'partnerRequests', 'notifications', 'branchPartners',
   // v24.0 — بيانات HR التشغيلية لكل فرع (م٣–م٧): تُخزَّن في مستند الفرع كي تقرأها وتكتبها أجهزة الفروع (لا تصل لـ org)
-  'attendanceEvents', 'hrPins', 'shiftTemplates', 'shiftAssignments', 'shiftSwapRequests', 'branchTransferRequests', 'taskTemplates', 'taskAssignments', 'taskCompletions', 'pointsEntries', 'qualityReviews'];
+  'attendanceEvents', 'hrPins', 'shiftTemplates', 'shiftAssignments', 'shiftSwapRequests', 'branchTransferRequests', 'taskTemplates', 'taskAssignments', 'taskCompletions', 'pointsEntries', 'qualityReviews', 'rewardRequests'];
 const CORE_COLS = ['advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules'];
 
 // تقسيم ops المدمجة إلى مستند مركزي + مستند لكل فرع
@@ -281,7 +281,7 @@ function dirOf(org) {
     periodLocks: org.periodLocks || {},
     appsCfg: org.appsCfg || {},
     // v24.0: إعدادات HR غير الحساسة التي تحتاجها شاشات الفروع (سماحية التأخير، أوزان الدرجة، قواعد النقاط، أهداف KPI)
-    hrPolicies: org.hrPolicies || {}, pointsRules: org.pointsRules || {}, kpiTargets: org.kpiTargets || {},
+    hrPolicies: org.hrPolicies || {}, pointsRules: org.pointsRules || {}, kpiTargets: org.kpiTargets || {}, rewardTiers: org.rewardTiers || {},
     setupComplete: true, migratedV9: org.migratedV9 || ''
   };
 }
@@ -594,7 +594,7 @@ function buildPartners(org, ops) {
   // الموظفون — استحقاق وصرف الرواتب قيود دائمة تُرحَّل من شاشة الرواتب (لا سطر اصطناعي يتغيّر بالشهر)
   (org.employees || []).forEach(em => {
     const key = 'emp:' + em.id; const txns = []; let linked = false;
-    (ops.advances || []).filter(a => a.employeeId === em.id).forEach(a => {
+    (ops.advances || []).filter(a => a.employeeId === em.id && a.type !== 'bonus').forEach(a => {   // المكافأة (م٨) داخل استحقاق الراتب أصلًا — لا تُعرض كمديونية على الموظف
       const isDraw = ['advance', 'salary_draw'].includes(a.type);
       txns.push({ date: (a.date || '').slice(0, 10), desc: (isDraw ? 'سلفة/سحب على الراتب' : 'خصم/جزاء') + (a.reason ? ' — ' + a.reason : ''), ref: a.month || '', src: 'adv', debit: a.amount || 0, credit: 0 });
       linked = true;
@@ -1458,11 +1458,11 @@ const DENOMS = [
 const emptyDenoms = () => DENOMS.reduce((o, d) => ({ ...o, [d.k]: 0 }), {});
 const countDenoms = (d) => DENOMS.reduce((s, x) => s + (Number(d?.[x.k]) || 0) * x.v, 0);
 
-const ALL_TABS = ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit'];
+const ALL_TABS = ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit'];
 const TAB_AR = {
   analytics: 'مركز التحليل والأداء', reporting: 'مركز التقارير', exec: 'اللوحة التنفيذية',
   dash: 'لوحة المؤشرات', compare: 'مقارنة الفروع', growth: 'تحليلات النمو', breakeven: 'تحليل التعادل', scorecard: 'لوحة الأهداف', scenario: 'ماذا-لو', boardpack: 'تقرير الإدارة', cashflow: 'التدفق النقدي', closing: 'الإغلاق اليومي', apps: 'التطبيقات',
-  approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', people: 'شؤون الموظفين', payroll: 'الرواتب والسلف', workforce: 'الجدولة والحضور', hrmaster: 'البيانات الرئيسية', hrpolicy: 'السياسات والأدوار', attendance: 'الحضور الموثَّق', shiftengine: 'محرّك الورديات', tasks: 'المهام', points: 'دفتر النقاط', kpi: 'الأداء والتقييم',
+  approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', people: 'شؤون الموظفين', payroll: 'الرواتب والسلف', workforce: 'الجدولة والحضور', hrmaster: 'البيانات الرئيسية', hrpolicy: 'السياسات والأدوار', attendance: 'الحضور الموثَّق', shiftengine: 'محرّك الورديات', tasks: 'المهام', points: 'دفتر النقاط', kpi: 'الأداء والتقييم', rewards: 'المكافآت والجزاءات',
   purchasing: 'المشتريات والموردون', suppliers: 'الموردون والمشتريات', inv: 'المخزون والمنتجات', reorder: 'المشتريات الذكية', partners: 'دفتر الشركاء',
   acct: 'المحاسبة', shifts: 'الورديات', archive: 'أرشيف المستندات', ai: 'المركز الذكي',
   reports: 'التقارير المالية', rbuild: 'منشئ التقارير', entities: 'مركز المنشآت', admin: 'الفروع والمستخدمون', audit: 'سجل التدقيق'
@@ -1497,17 +1497,17 @@ const ROLES = {
   },
   branch_manager: {
     ar: 'مدير الفرع', badge: 'b-mint', scope: 'own', create: true,
-    tabs: ['closing', 'sales', 'apps', 'archive', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi'],
+    tabs: ['closing', 'sales', 'apps', 'archive', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards'],
     perms: ['إدخال وترحيل إغلاق فرعه', 'عرض سجل إغلاقات فرعه', 'أرشيف مستندات فرعه فقط', 'تسجيل الحضور وضبط أرقام PIN وسجل حضور فرعه', 'محرّك ورديات فرعه: قوالب، تعيين أسبوعي، مطابقة حضور، تبديل وردية، طلب نقل موظف']
   },
   regional_manager: {
     ar: 'مدير إقليمي — فروع مُسندة', badge: 'b-amber', scope: 'assigned',
-    tabs: ['analytics', 'reporting', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'reports', 'archive', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi'],
+    tabs: ['analytics', 'reporting', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'reports', 'archive', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards'],
     perms: ['متابعة الفروع المسندة إليه فقط', 'مقارنة وتقارير فروعه ولوحة مؤشراتها ونموّها', 'سجل حضور فروعه المسندة ومحرّك ورديات فروعه', 'بلا وصول للمحاسبة والخزينة والإعدادات']
   },
   head_office: {
     ar: 'المكتب الرئيسي — المالية والإدارة', badge: 'b-brass', scope: 'all', approver: true,
-    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
+    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['كل الفروع والتقارير المجمّعة', 'التدقيق والاعتماد النهائي', 'الخزينة والرواتب والموردون والمشتريات والمخزون', 'المحاسبة الكاملة: قيود وميزان وقوائم وضريبة وأصول ومراكز تكلفة']
   },
   system_admin: {
@@ -1525,7 +1525,7 @@ const ROLES = {
     // إعادة ترتيب v8.0: المحاسب الرئيسي بطبيعته يعمل على المنشأة كلها — نطاق كامل
     // بلا صلاحيات إدارة (لا مستخدمين/فروع، لا تفعيل ضريبة، لا إدارة تطبيقات)
     ar: 'الإدارة المالية — محاسب رئيسي', badge: 'b-sky', scope: 'all', legacy: true,
-    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
+    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['المحاسبة كاملة: قيود يدوية وافتتاحية وميزان وقوائم ومراكز تكلفة', 'الضريبة والأصول والتسوية البنكية (عرض وتسجيل — التفعيل للإدارة)', 'المشتريات والمخزون والرواتب والخزينة', 'كل الفروع — دون إدارة المستخدمين والإعدادات']
   },
   // ===== v15.9: نماذج صلاحيات المحاسب — نطاق «المحاسبة + التقارير المالية فقط» =====
@@ -1620,6 +1620,7 @@ const REG_APPS = [
   { id: 'tasks', ar: 'المهام', en: 'Tasks', cat: 'hr', icon: CheckCircle2, open: { tab: 'tasks' }, kw: ['مهام', 'مهمة', 'تشيك ليست', 'تكليف', 'التزام', 'قائمة مهام'], fns: ['قوائم مهام يومية/أسبوعية متكررة لكل فرع', 'تكليف مهام فردية لموظف معيّن', 'قائمة مهام مرتبطة بالوردية', 'تقرير الالتزام بالمهام لكل موظف/فرع'], d: 'قوائم مهام متكررة لكل فرع، تكليف مهام فردية، إنجاز من جهاز الفرع، وتقرير التزام لكل موظف وفرع.' },
   { id: 'points', ar: 'دفتر النقاط', en: 'Points Ledger', cat: 'hr', icon: Star, open: { tab: 'points' }, kw: ['نقاط', 'دفتر نقاط', 'ترتيب', 'تحفيز', 'مكافأة', 'رصيد'], fns: ['دفتر نقاط لكل موظف مع حركات يدوية بسبب موثَّق', 'قواعد نقاط تلقائية من الحضور والورديات والمهام (قابلة للضبط)', 'لوحة ترتيب شهرية للفرع والشركة', 'عرض رصيد الموظف من كشك الفرع بـPIN'], d: 'رصيد نقاط لكل موظف يجمع الحركات اليدوية والنقاط التلقائية من الحضور والمهام، مع لوحة ترتيب شهرية وعرض للموظف من جهاز الفرع.' },
   { id: 'kpi', ar: 'الأداء والتقييم', en: 'Performance & KPI', cat: 'hr', icon: TrendingUp, open: { tab: 'kpi' }, kw: ['تقييم', 'أداء', 'kpi', 'درجة', 'مؤشرات', 'أهداف', 'بطاقة أداء'], fns: ['درجة أداء شهرية مركّبة لكل موظف بأوزان قابلة للضبط', 'تقييم المدير الشهري للجودة', 'أهداف KPI لكل فرع مقابل الفعلي', 'بطاقة أداء الموظف (سجل ٦ أشهر + اتجاه) قابلة للطباعة'], d: 'درجة أداء شهرية من 100 تجمع الحضور والمهام والانضباط وتقييم المدير بأوزان قابلة للضبط، مع أهداف KPI للفرع وبطاقة أداء لكل موظف.' },
+  { id: 'rewards', ar: 'المكافآت والجزاءات', en: 'Rewards & Penalties', cat: 'hr', icon: Coins, open: { tab: 'rewards' }, kw: ['مكافأة', 'مكافآت', 'جزاء', 'جزاءات', 'اعتماد', 'حافز', 'خصم', 'راتب'], fns: ['طلب مكافأة أو جزاء لموظف بمبلغ وسبب', 'سلسلة اعتماد مركزية بسجل كامل', 'ترحيل تلقائي لمسيّر الرواتب بعد الاعتماد', 'شرائح مكافآت تلقائية حسب درجة الأداء (قابلة للضبط، مُعطَّلة افتراضيًا)'], d: 'طلبات مكافآت وجزاءات من الفروع، اعتماد مركزي، وترحيل تلقائي لمسيّر الرواتب بعد الاعتماد — مع شرائح مكافآت اختيارية مبنية على درجة الأداء.' },
   // ——— الزكاة والضريبة (خطة م٣) ———
   { id: 'vat', ar: 'ضريبة القيمة المضافة', en: 'VAT', cat: 'tax', icon: Receipt, open: { tab: 'acct', view: 'vat' }, kw: ['ضريبة', 'زاتكا', 'مدخلات', 'مخرجات', 'فاتورة', 'إقرار'], fns: ['تفعيل بنسبة قابلة للضبط', 'فصل المخرجات في قيد الإيراد', 'فصل مدخلات المصروفات الخاضعة', 'مؤشرات بالفترة'], d: 'فصل تلقائي لضريبة المخرجات والمدخلات في القيود — بأثر رجعي فور التفعيل.' },
   { id: 'vatret', ar: 'الإقرار الضريبي', en: 'VAT Return', cat: 'tax', icon: FileText, open: { tab: 'acct', view: 'vat' }, kw: ['إقرار', 'ضريبة', 'ربع', 'زاتكا'], fns: ['مسودة إقرار بالفترة', 'زر الربع الحالي', 'صافي المستحق'], d: 'مسودة إقرار جاهزة من قيودك لأي فترة تحددها.' },
@@ -1667,6 +1668,8 @@ const LAUNCH_APPS = [
     sections: ['دفتر النقاط', 'قواعد النقاط', 'لوحة الترتيب', 'رصيدي (كشك)'], kw: ['نقاط', 'ترتيب', 'تحفيز', 'رصيد', 'مكافأة'] },
   { id: 'kpi', ar: 'الأداء والتقييم', en: 'Performance & KPI', cat: 'pos', icon: TrendingUp, open: { tab: 'kpi' },
     sections: ['درجات الأداء', 'تقييم المدير', 'أهداف KPI', 'بطاقة الموظف'], kw: ['تقييم', 'أداء', 'kpi', 'درجة', 'أهداف'] },
+  { id: 'rewards', ar: 'المكافآت والجزاءات', en: 'Rewards & Penalties', cat: 'pos', icon: Coins, open: { tab: 'rewards' },
+    sections: ['الطلبات', 'قائمة الاعتماد', 'شرائح المكافآت'], kw: ['مكافأة', 'جزاء', 'اعتماد', 'حافز', 'خصم'] },
   { id: 'sales', ar: 'المبيعات', en: 'Sales', cat: 'pos', icon: CircleDollarSign, open: { tab: 'sales' },
     sections: ['حسب القناة', 'حسب الفرع', 'حسب التطبيق'], kw: ['مبيعات', 'نقاط البيع', 'نقطة بيع', 'قناة', 'نقد', 'شبكة', 'توصيل', 'تحليل'] },
   { id: 'approve', ar: 'التدقيق والاعتماد', en: 'Approvals', cat: 'pos', icon: ShieldCheck, open: { tab: 'approve' },
@@ -1803,7 +1806,7 @@ function emptyOrg(company) {
 
 function emptyOps() {
   return { closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
-    attendanceEvents: [], hrPins: [], shiftTemplates: [], shiftAssignments: [], shiftSwapRequests: [], branchTransferRequests: [], taskTemplates: [], taskAssignments: [], taskCompletions: [], pointsEntries: [], qualityReviews: [] };
+    attendanceEvents: [], hrPins: [], shiftTemplates: [], shiftAssignments: [], shiftSwapRequests: [], branchTransferRequests: [], taskTemplates: [], taskAssignments: [], taskCompletions: [], pointsEntries: [], qualityReviews: [], rewardRequests: [] };
 }
 
 
@@ -2485,6 +2488,7 @@ export default function App() {
     { id: 'tasks', ar: 'المهام', icon: CheckCircle2 },
     { id: 'points', ar: 'دفتر النقاط', icon: Star },
     { id: 'kpi', ar: 'الأداء والتقييم', icon: TrendingUp },
+    { id: 'rewards', ar: 'المكافآت والجزاءات', icon: Coins },
     { id: 'apps', ar: 'إدارة التطبيقات', icon: Grid3x3 },
     { id: 'approve', ar: 'التدقيق والاعتماد', icon: ShieldCheck, cnt: pending },
     { id: 'treasury', ar: 'الخزينة والترحيل', icon: Landmark },
@@ -2593,7 +2597,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v24.1 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v25.0 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2729,6 +2733,7 @@ export default function App() {
               {safeTab === 'tasks' && <Tasks {...shared} />}
               {safeTab === 'points' && <PointsLedger {...shared} />}
               {safeTab === 'kpi' && <Performance {...shared} />}
+              {safeTab === 'rewards' && <Rewards {...shared} />}
               {safeTab === 'apps' && <AppsCenter {...shared} />}
               {safeTab === 'approve' && <Approvals {...shared} />}
               {safeTab === 'treasury' && <Treasury {...shared} />}
@@ -7761,14 +7766,15 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
   const rows = emps.map(e => {
     const ads = scoped.advances.filter(a => a.employeeId === e.id && a.month === month);
     const draws = sum(ads.filter(a => ['advance', 'salary_draw'].includes(a.type)), a => a.amount);
-    const cuts = sum(ads.filter(a => !['advance', 'salary_draw'].includes(a.type)), a => a.amount);
+    const bonus = r2(sum(ads.filter(a => a.type === 'bonus'), a => a.amount));   // م٨ (v25.0): مكافآت معتمدة تُضاف للإجمالي
+    const cuts = sum(ads.filter(a => !['advance', 'salary_draw', 'bonus'].includes(a.type)), a => a.amount);   // الجزاءات المعتمدة (discipline_penalty) خصم كسائر الخصومات
     const allow = (e.housingAllowance || 0) + (e.transportAllowance || 0) + (e.otherAllowance || 0);
-    const gross = r2((e.baseSalary || 0) + allow);
+    const gross = r2((e.baseSalary || 0) + allow + bonus);
     const gr = gosiRatesFor(e, org.gosiCfg);
     const gosiBase = gr.base;
     const gEmp = (gosiOn && e.gosiSubject) ? r2(gosiBase * gr.emp / 100) : 0;
     const gEr = (gosiOn && e.gosiSubject) ? r2(gosiBase * gr.er / 100) : 0;
-    return { e, ads, draws, cuts, allow, gross, gEmp, gEr, net: r2(gross - draws - cuts - gEmp), flags: ads.filter(a => a.isUnjustified).length };
+    return { e, ads, draws, bonus, cuts, allow, gross, gEmp, gEr, net: r2(gross - draws - cuts - gEmp), flags: ads.filter(a => a.isUnjustified).length };
   });
 
   const totalNet = sum(rows, r => r.net);
@@ -7780,10 +7786,10 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
   const printMuster = () => {
     const monthName = new Date(month + '-01').toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' });
     const gc = gosiOn ? '<th>تأمينات</th>' : '';
-    const rws = rows.map(r => `<tr><td>${r.e.name}</td><td>${(org.branches.find(b => b.id === r.e.branchId) || {}).name || ''}</td><td class="n">${money(r.e.baseSalary || 0)}</td><td class="n">${r.allow ? money(r.allow) : '—'}</td><td class="n">${money(r.gross)}</td><td class="n">${r.draws ? money(r.draws) : '—'}</td><td class="n">${r.cuts ? money(r.cuts) : '—'}</td>${gosiOn ? `<td class="n">${r.gEmp ? money(r.gEmp) : '—'}</td>` : ''}<td class="n">${money(r.net)}</td></tr>`).join('');
-    const span = gosiOn ? 8 : 7;
+    const rws = rows.map(r => `<tr><td>${r.e.name}</td><td>${(org.branches.find(b => b.id === r.e.branchId) || {}).name || ''}</td><td class="n">${money(r.e.baseSalary || 0)}</td><td class="n">${r.allow ? money(r.allow) : '—'}</td><td class="n">${r.bonus ? money(r.bonus) : '—'}</td><td class="n">${money(r.gross)}</td><td class="n">${r.draws ? money(r.draws) : '—'}</td><td class="n">${r.cuts ? money(r.cuts) : '—'}</td>${gosiOn ? `<td class="n">${r.gEmp ? money(r.gEmp) : '—'}</td>` : ''}<td class="n">${money(r.net)}</td></tr>`).join('');
+    const span = gosiOn ? 9 : 8;
     printA4(org, 'مسير الرواتب — ' + monthName, arDate(today()) + ' · ' + rows.length + ' موظف',
-      `<table><thead><tr><th>الموظف</th><th>الفرع</th><th>الأساسي</th><th>البدلات</th><th>الإجمالي</th><th>سلف/سحب</th><th>خصومات</th>${gc}<th>الصافي</th></tr></thead><tbody>${rws}
+      `<table><thead><tr><th>الموظف</th><th>الفرع</th><th>الأساسي</th><th>البدلات</th><th>مكافآت</th><th>الإجمالي</th><th>سلف/سحب</th><th>خصومات</th>${gc}<th>الصافي</th></tr></thead><tbody>${rws}
       <tr class="tot"><td colspan="${span}">إجمالي صافي المسير</td><td class="n">${money(totalNet)}</td></tr>${gosiOn ? `<tr class="tot"><td colspan="${span}">إجمالي التأمينات للتحويل (موظف + صاحب عمل)</td><td class="n">${money(totalGosi)}</td></tr>` : ''}</tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
   };
 
@@ -7795,7 +7801,7 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
   const fmtYears = (y) => { const yr = Math.floor(y + 1e-9); const mo = Math.round((y - yr) * 12); return yr + ' سنة' + (mo ? ' و' + mo + ' شهر' : ''); };
   const exportWPS = () => {
     const head = ['رقم الهوية/الإقامة', 'اسم الموظف', 'الآيبان IBAN', 'الأساسي', 'بدل السكن', 'بدلات أخرى', 'الاستقطاعات', 'صافي الراتب', 'أيام العمل'];
-    const lines = rows.map(r => [r.e.idNumber || r.e.iqamaNo || r.e.nationalId || '', r.e.name, r.e.iban || '', r.e.baseSalary || 0, r.e.housingAllowance || 0, r2((r.e.transportAllowance || 0) + (r.e.otherAllowance || 0)), r2(r.draws + r.cuts + r.gEmp), r.net, 30]);
+    const lines = rows.map(r => [r.e.idNumber || r.e.iqamaNo || r.e.nationalId || '', r.e.name, r.e.iban || '', r.e.baseSalary || 0, r.e.housingAllowance || 0, r2((r.e.transportAllowance || 0) + (r.e.otherAllowance || 0) + (r.bonus || 0)), r2(r.draws + r.cuts + r.gEmp), r.net, 30]);
     try {
       const blob = makeXlsx([{ name: ('حماية الأجور ' + month).slice(0, 28), rows: [head, ...lines] }]);
       const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'حماية_الأجور_WPS_' + month + '.xlsx'; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(url), 1500);
@@ -8110,8 +8116,8 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
                 <tr key={a.id}>
                   <td className="num" style={{ whiteSpace: 'nowrap' }}>{arDate(a.date)}</td>
                   <td style={{ fontSize: 12 }}>{a.employeeName}</td>
-                  <td><span className={'badge ' + (['advance', 'salary_draw'].includes(a.type) ? 'b-amber' : 'b-rose')}>
-                    {{ advance: 'سلفة', salary_draw: 'مسحوبة', discount: 'خصم', absence_penalty: 'غياب', lateness_penalty: 'تأخير', other: 'أخرى' }[a.type]}
+                  <td><span className={'badge ' + (['advance', 'salary_draw'].includes(a.type) ? 'b-amber' : a.type === 'bonus' ? 'b-mint' : 'b-rose')}>
+                    {{ advance: 'سلفة', salary_draw: 'مسحوبة', discount: 'خصم', absence_penalty: 'غياب', lateness_penalty: 'تأخير', bonus: 'مكافأة معتمدة', discipline_penalty: 'جزاء معتمد', other: 'أخرى' }[a.type] || a.type}
                   </span></td>
                   <td className="num">{money(a.amount)}</td>
                   <td style={{ fontSize: 11.5, color: 'var(--dim)' }}>{a.reason}</td>
@@ -8559,6 +8565,8 @@ const defaultHrPolicies = () => ({
 });
 // م٦ — قواعد النقاط التلقائية (مُعطَّلة افتراضيًا حتى يراجعها المالك ويفعّلها — قرار H/3 في hr-audit-m0)
 const defaultPointsRules = () => ({ enabled: false, onTime: 1, late: -1, absent: -3, taskDone: 1 });
+// م٨ — شرائح مكافآت تلقائية حسب درجة الأداء (م٧): مُعطَّلة افتراضيًا (قرار H/3)؛ تُولِّد طلبات مقترحة تمرّ بالاعتماد نفسه
+const defaultRewardTiers = () => ({ enabled: false, tiers: [{ minScore: 90, amount: 500 }, { minScore: 80, amount: 250 }] });
 // كود نافذة زمنية للمعاينة فقط — دالة تجزئة خفيفة متزامنة (ليست تشفيرًا فعليًا).
 // التحقّق الأمني الحقيقي عند تسجيل الحضور بمسح الرمز يُبنى في م٣ فوق نفس السرّ المخزَّن هنا.
 function hrHashStr(s) {
@@ -10559,6 +10567,234 @@ function Performance({ org, ops, me, myBranches, commit, commitOrg, say }) {
               )}
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Rewards({ org, ops, me, myBranches, commit, commitOrg, say }) {
+  const role = ROLES[me.role] || {};
+  const isAll = role.scope === 'all';
+  const canRequest = me.role === 'branch_manager' || isAll;   // تسجيل طلب: مدير الفرع + أدوار المركز
+  const canApprove = !!role.approver;                          // الاعتماد/الرفض: المكتب الرئيسي، مسؤول النظام، الإدارة العليا (قرار H/5: اعتماد كامل قبل أي أثر مالي)
+  const canTiers = isAll;                                      // شرائح المكافآت: أدوار المركز
+  const branches = myBranches || [];
+  const tiersCfg = { ...defaultRewardTiers(), ...(org.rewardTiers || {}) };
+
+  const [view, setView] = useState(canApprove ? 'queue' : 'requests');
+  const [branchId, setBranchId] = useState((branches[0] || {}).id || '');
+  useEffect(() => { if (!branches.find(b => b.id === branchId)) setBranchId((branches[0] || {}).id || ''); }, [branches, branchId]);
+  const branch = branches.find(b => b.id === branchId) || null;
+  const branchIds = branches.map(b => b.id);
+  const emps = (org.employees || []).filter(e => e.isActive !== false && branch && e.branchId === branch.id);
+  const [ym, setYm] = useState(() => today().slice(0, 7));
+  const ymLabel = (y) => { const [Y, M] = String(y).split('-').map(Number); return isNaN(Y) ? y : new Date(Y, M - 1, 1).toLocaleDateString('ar', { month: 'long', year: 'numeric' }); };
+  const kindAr = (k) => k === 'reward' ? 'مكافأة' : 'جزاء';
+  const statusBadge = (st) => <span className={'badge ' + (st === 'approved' ? 'b-mint' : st === 'rejected' ? 'b-rose' : 'b-amber')}>{st === 'approved' ? 'معتمد ومُرحَّل' : st === 'rejected' ? 'مرفوض' : 'قيد الاعتماد'}</span>;
+  const allReqs = (ops.rewardRequests || []).filter(r => branchIds.includes(r.branchId)).sort((a, b) => (a.requestedAt < b.requestedAt ? 1 : -1));
+
+  // === ١) طلب مكافأة/جزاء ===
+  const [f, setF] = useState({ empId: '', kind: 'reward', amount: '', reason: '', month: today().slice(0, 7) });
+  const submit = async () => {
+    if (!branch) return;
+    const emp = emps.find(e => e.id === f.empId);
+    const amt = Number(f.amount);
+    if (!emp) return say('اختر الموظف', 'no');
+    if (!(amt > 0)) return say('أدخل مبلغًا صحيحًا أكبر من صفر', 'no');
+    if (!String(f.reason || '').trim()) return say('السبب إلزامي', 'no');
+    if (!/^\d{4}-\d{2}$/.test(f.month)) return say('اختر شهر الراتب المستهدف', 'no');
+    if (lockedThru(org) && f.month <= lockedThru(org)) return say(LOCK_MSG(f.month + '-01'), 'no');
+    const rec = { id: uid('rw'), branchId: branch.id, branchName: branch.name, employeeId: emp.id, employeeName: emp.name, kind: f.kind, amount: Math.round(amt * 100) / 100, reason: f.reason.trim(), month: f.month, source: 'manual', status: 'pending', requestedBy: me.id, requestedByName: me.name, requestedAt: nowISO() };
+    const ok = await commit(d => ({ ...d, rewardRequests: [rec, ...(d.rewardRequests || [])] }),
+      { actionType: 'create', targetType: 'reward_request', targetId: rec.id, branchName: branch.name, title: 'طلب ' + kindAr(rec.kind) + ' لموظف', details: emp.name + ' · ' + money(rec.amount) + ' ر.س · ' + rec.reason + ' · شهر ' + rec.month });
+    if (!ok) return;
+    say('أُرسل طلب ' + kindAr(rec.kind) + ' ✓ — بانتظار الاعتماد المركزي');
+    setF({ empId: '', kind: 'reward', amount: '', reason: '', month: f.month });
+  };
+  const cancelReq = async (r) => {
+    if (r.status !== 'pending') return;
+    if (!window.confirm('إلغاء طلب ' + kindAr(r.kind) + ' لـ«' + r.employeeName + '»؟')) return;
+    await commit(d => ({ ...d, rewardRequests: (d.rewardRequests || []).filter(x => x.id !== r.id) }),
+      { actionType: 'delete', targetType: 'reward_request', targetId: r.id, branchName: r.branchName, title: 'إلغاء طلب ' + kindAr(r.kind), details: r.employeeName + ' · ' + money(r.amount) });
+    say('أُلغي الطلب');
+  };
+
+  // === ٢) الاعتماد المركزي + ٣) الترحيل التلقائي لمسيّر الرواتب ===
+  const [notes, setNotes] = useState({});
+  const pending = allReqs.filter(r => r.status === 'pending');
+  const decided = allReqs.filter(r => r.status !== 'pending');
+  const decide = async (r, approve) => {
+    if (!canApprove) return;
+    const note = (notes[r.id] || '').trim();
+    if (approve) {
+      if (lockedThru(org) && r.month <= lockedThru(org)) return say(LOCK_MSG(r.month + '-01'), 'no');
+      // idempotent: إن كانت حركة الراتب موجودة من محاولة سابقة لم تكتمل، لا تُنشأ ثانية
+      const existing = (ops.advances || []).find(a => a.rewardId === r.id);
+      const adv = existing || {
+        id: uid('ad'), rewardId: r.id, employeeId: r.employeeId, employeeName: r.employeeName, branchId: r.branchId, branchName: r.branchName,
+        month: r.month, date: r.month + '-28', type: r.kind === 'reward' ? 'bonus' : 'discipline_penalty', amount: r.amount,
+        reason: (r.kind === 'reward' ? 'مكافأة معتمدة' : 'جزاء معتمد') + (r.source === 'tier' ? ' (شريحة أداء)' : '') + ': ' + r.reason,
+        paymentMethod: 'salary', isUnjustified: false, createdByName: me.name, createdAt: nowISO()
+      };
+      const ok = await commit(d => ({
+        ...d,
+        advances: existing ? (d.advances || []) : [adv, ...(d.advances || [])],
+        rewardRequests: (d.rewardRequests || []).map(x => x.id === r.id ? { ...x, status: 'approved', decidedBy: me.id, decidedByName: me.name, decidedAt: nowISO(), decisionNote: note, advanceId: adv.id } : x)
+      }), { actionType: 'approve', targetType: 'reward_request', targetId: r.id, branchName: r.branchName, title: 'اعتماد ' + kindAr(r.kind) + ' وترحيلها لمسيّر الرواتب', details: r.employeeName + ' · ' + money(r.amount) + ' ر.س · شهر ' + r.month + (note ? ' · ' + note : '') });
+      if (ok) say('اعتُمدت ' + kindAr(r.kind) + ' ورُحِّلت لمسيّر رواتب ' + r.month + ' ✓');
+    } else {
+      if (!note) return say('اكتب سبب الرفض في الملاحظة', 'no');
+      const ok = await commit(d => ({ ...d, rewardRequests: (d.rewardRequests || []).map(x => x.id === r.id ? { ...x, status: 'rejected', decidedBy: me.id, decidedByName: me.name, decidedAt: nowISO(), decisionNote: note } : x) }),
+        { actionType: 'reject', targetType: 'reward_request', targetId: r.id, branchName: r.branchName, title: 'رفض طلب ' + kindAr(r.kind), details: r.employeeName + ' · ' + money(r.amount) + ' · ' + note });
+      if (ok) say('رُفض الطلب');
+    }
+  };
+
+  // === ٤) شرائح مكافآت تلقائية حسب درجة الأداء (م٧) ===
+  const [tf, setTf] = useState({ enabled: !!tiersCfg.enabled, tiers: (tiersCfg.tiers || []).map(t => ({ minScore: String(t.minScore), amount: String(t.amount) })) });
+  const saveTiers = async () => {
+    const tiers = tf.tiers.map(t => ({ minScore: Number(t.minScore), amount: Number(t.amount) })).filter(t => t.minScore > 0 && t.minScore <= 100 && t.amount > 0).sort((a, b) => b.minScore - a.minScore);
+    if (tf.enabled && !tiers.length) return say('أضف شريحة واحدة على الأقل (درجة من 1 إلى 100 ومبلغ أكبر من صفر)', 'no');
+    const rec = { enabled: !!tf.enabled, tiers };
+    const ok = await commitOrg(d => ({ ...d, rewardTiers: rec }),
+      { actionType: 'update', targetType: 'settings', targetId: 'rewardTiers', title: 'ضبط شرائح المكافآت التلقائية', details: (rec.enabled ? 'مفعَّلة' : 'مُعطَّلة') + ' — ' + tiers.map(t => '≥' + t.minScore + ' ⇒ ' + t.amount).join(' · ') });
+    if (ok) { say('حُفظت الشرائح ✓'); setTf({ enabled: rec.enabled, tiers: tiers.map(t => ({ minScore: String(t.minScore), amount: String(t.amount) })) }); }
+  };
+  const tierFor = (score) => { if (score == null) return null; return (tiersCfg.tiers || []).slice().sort((a, b) => b.minScore - a.minScore).find(t => score >= t.minScore) || null; };
+  const genTier = async () => {
+    if (!tiersCfg.enabled) return say('الشرائح مُعطَّلة — فعّلها واحفظها أولًا', 'no');
+    if (lockedThru(org) && ym <= lockedThru(org)) return say(LOCK_MSG(ym + '-01'), 'no');
+    const all = (org.employees || []).filter(e => e.isActive !== false && branchIds.includes(e.branchId));
+    const recs = [];
+    all.forEach(e => {
+      if ((ops.rewardRequests || []).some(r => r.source === 'tier' && r.employeeId === e.id && r.month === ym)) return;
+      const sc = hrScoreFor(org, ops, e, ym);
+      const t = tierFor(sc.score);
+      if (!t) return;
+      const b = (org.branches || []).find(x => x.id === e.branchId) || {};
+      recs.push({ id: uid('rw'), branchId: e.branchId, branchName: b.name || '', employeeId: e.id, employeeName: e.name, kind: 'reward', amount: t.amount, reason: 'درجة أداء ' + sc.score + '/100 ≥ ' + t.minScore + ' لشهر ' + ym, month: ym, source: 'tier', scoreSnapshot: sc.score, axesSnapshot: sc.axes, status: 'pending', requestedBy: me.id, requestedByName: me.name + ' (تلقائي)', requestedAt: nowISO() });
+    });
+    if (!recs.length) return say('لا مقترحات جديدة لهذا الشهر (لا درجات تبلغ الشرائح، أو المقترحات موجودة مسبقًا)', 'no');
+    const ok = await commit(d => ({ ...d, rewardRequests: [...recs, ...(d.rewardRequests || [])] }),
+      { actionType: 'create', targetType: 'reward_request', targetId: 'tier-' + ym, title: 'توليد مقترحات مكافآت الشرائح', details: 'شهر ' + ym + ' · ' + recs.length + ' مقترحًا' });
+    if (ok) say('وُلِّد ' + recs.length + ' مقترح مكافأة لشهر ' + ym + ' — بانتظار الاعتماد ✓');
+  };
+
+  if (!branch && branches.length === 0) {
+    return <div className="card"><div className="empty">لا يوجد فرع مُسند لحسابك — راجع مسؤول النظام.</div></div>;
+  }
+
+  const ReqTable = ({ rows, actions }) => (
+    <div className="tw">
+      <table className="tb">
+        <thead><tr><th>الموظف</th>{branches.length > 1 && <th>الفرع</th>}<th>النوع</th><th>المبلغ</th><th>الشهر</th><th>السبب</th><th>الطالب</th><th>الحالة</th>{actions && <th />}</tr></thead>
+        <tbody>
+          {rows.map(r => (
+            <tr key={r.id}>
+              <td style={{ fontWeight: 600, fontSize: 12.5 }}>{r.employeeName}</td>
+              {branches.length > 1 && <td style={{ fontSize: 12 }}>{r.branchName}</td>}
+              <td><span className={'badge ' + (r.kind === 'reward' ? 'b-mint' : 'b-rose')}>{kindAr(r.kind)}{r.source === 'tier' ? ' · شريحة' : ''}</span></td>
+              <td className="num">{money(r.amount)}</td>
+              <td className="num">{r.month}</td>
+              <td style={{ fontSize: 12 }}>{r.reason}{r.decisionNote ? <div style={{ fontSize: 11, color: 'var(--muted)' }}>قرار: {r.decisionNote} — {r.decidedByName}</div> : null}</td>
+              <td style={{ fontSize: 11.5 }}>{r.requestedByName}</td>
+              <td>{statusBadge(r.status)}</td>
+              {actions && <td>{actions(r)}</td>}
+            </tr>
+          ))}
+          {rows.length === 0 && <tr><td colSpan={9}><div className="empty">لا توجد طلبات.</div></td></tr>}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  return (
+    <div className="grid" style={{ gap: 12 }}>
+      <div className="card" style={{ padding: '8px 12px' }}>
+        <div className="row" style={{ gap: 6, flexWrap: 'wrap', justifyContent: 'space-between' }}>
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+            <button className={'btn sm' + (view === 'requests' ? ' pri' : ' gh')} onClick={() => setView('requests')}><Coins size={13} />الطلبات</button>
+            {canApprove && <button className={'btn sm' + (view === 'queue' ? ' pri' : ' gh')} onClick={() => setView('queue')}><ShieldCheck size={13} />قائمة الاعتماد{pending.length ? <span className="badge b-amber" style={{ marginInlineStart: 6 }}>{pending.length}</span> : null}</button>}
+            {canTiers && <button className={'btn sm' + (view === 'tiers' ? ' pri' : ' gh')} onClick={() => setView('tiers')}><TrendingUp size={13} />شرائح المكافآت</button>}
+          </div>
+          {branches.length > 1 && (
+            <select className="inp sel" style={{ width: 180 }} value={branchId} onChange={e => setBranchId(e.target.value)}>
+              {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          )}
+        </div>
+      </div>
+
+      {view === 'requests' && branch && (
+        <div className="grid" style={{ gap: 12 }}>
+          {canRequest && (
+            <div className="card">
+              <div className="card-t" style={{ marginBottom: 8 }}><Coins size={15} color="var(--brass)" />طلب مكافأة أو جزاء — {branch.name}</div>
+              <div className="note" style={{ marginBottom: 8 }}>الطلب لا يُنتج أي أثر مالي حتى يعتمده المكتب الرئيسي؛ بعد الاعتماد يُرحَّل تلقائيًا إلى مسيّر رواتب الشهر المحدَّد (المكافأة تُضاف للإجمالي، والجزاء يُخصم).</div>
+              <div className="grid g3">
+                <Field label="الموظف"><select className="inp sel" value={f.empId} onChange={e => setF(x => ({ ...x, empId: e.target.value }))}><option value="">اختر</option>{emps.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select></Field>
+                <Field label="النوع"><select className="inp sel" value={f.kind} onChange={e => setF(x => ({ ...x, kind: e.target.value }))}><option value="reward">مكافأة (تُضاف للراتب)</option><option value="penalty">جزاء (يُخصم من الراتب)</option></select></Field>
+                <Field label="المبلغ (ر.س)"><input className="inp n" inputMode="decimal" value={f.amount} onChange={e => setF(x => ({ ...x, amount: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+                <Field label="شهر الراتب المستهدف"><input type="month" className="inp" value={f.month} onChange={e => setF(x => ({ ...x, month: e.target.value }))} /></Field>
+                <Field label="السبب (إلزامي)" style={{ gridColumn: 'span 2' }}><input className="inp" value={f.reason} onChange={e => setF(x => ({ ...x, reason: e.target.value }))} placeholder="مثال: تغطية وردية إضافية في موسم الذروة" /></Field>
+              </div>
+              <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}><button className="btn pri" onClick={submit}><Send size={14} />إرسال الطلب للاعتماد</button></div>
+            </div>
+          )}
+          <div className="card">
+            <div className="card-t" style={{ marginBottom: 8 }}>طلبات {branch.name}</div>
+            <ReqTable rows={allReqs.filter(r => r.branchId === branch.id)} actions={canRequest ? (r) => (r.status === 'pending' && (r.requestedBy === me.id || isAll) ? <button className="btn sm gh" onClick={() => cancelReq(r)}><Trash2 size={13} />إلغاء</button> : null) : null} />
+          </div>
+        </div>
+      )}
+
+      {view === 'queue' && canApprove && (
+        <div className="grid" style={{ gap: 12 }}>
+          <div className="card">
+            <div className="card-t" style={{ marginBottom: 8 }}><ShieldCheck size={15} color="var(--brass)" />قائمة الاعتماد — {pending.length} طلب قيد الانتظار (كل فروعي)</div>
+            <div className="note" style={{ marginBottom: 8 }}>الاعتماد يُرحِّل الطلب فورًا إلى مسيّر رواتب الشهر المحدَّد كحركة «مكافأة معتمدة» أو «جزاء معتمد» — لا يمكن اعتماد طلب لشهر مقفل محاسبيًا.</div>
+            <ReqTable rows={pending} actions={(r) => (
+              <div className="grid" style={{ gap: 5, minWidth: 180 }}>
+                <input className="inp" placeholder="ملاحظة القرار (إلزامية للرفض)" value={notes[r.id] || ''} onChange={e => setNotes(n => ({ ...n, [r.id]: e.target.value }))} />
+                <div className="row" style={{ gap: 5, justifyContent: 'flex-end' }}>
+                  <button className="btn sm pri" onClick={() => decide(r, true)}><Check size={13} />اعتماد وترحيل</button>
+                  <button className="btn sm gh" onClick={() => decide(r, false)}><X size={13} />رفض</button>
+                </div>
+              </div>
+            )} />
+          </div>
+          <div className="card">
+            <div className="card-t" style={{ marginBottom: 8 }}>سجل القرارات</div>
+            <ReqTable rows={decided} />
+          </div>
+        </div>
+      )}
+
+      {view === 'tiers' && canTiers && (
+        <div className="card">
+          <div className="card-t" style={{ marginBottom: 6 }}><TrendingUp size={15} color="var(--brass)" />شرائح المكافآت التلقائية حسب درجة الأداء {tiersCfg.enabled ? <span className="badge b-mint">مفعَّلة</span> : <span className="badge b-dim">مُعطَّلة</span>}</div>
+          <div className="note" style={{ marginBottom: 10 }}>تُولِّد شهريًا — بضغطة زر — طلبات مكافأة مقترحة لكل موظف بلغت درجته (م٧) إحدى الشرائح، مع تثبيت لقطة الدرجة وقت الاقتراح. المقترحات تمرّ بقائمة الاعتماد نفسها ولا تُرحَّل إلا بعد اعتمادها. مُعطَّلة افتراضيًا حتى تراجعوها.</div>
+          <label className="row" style={{ gap: 8, marginBottom: 8, cursor: 'pointer' }}>
+            <input type="checkbox" checked={!!tf.enabled} onChange={e => setTf(x => ({ ...x, enabled: e.target.checked }))} /><b>تفعيل الشرائح</b>
+          </label>
+          <div className="grid" style={{ gap: 6 }}>
+            {tf.tiers.map((t, i) => (
+              <div key={i} className="row" style={{ gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                <Field label="الدرجة من (≥)"><input className="inp n" inputMode="numeric" value={t.minScore} onChange={e => setTf(x => ({ ...x, tiers: x.tiers.map((y, j) => j === i ? { ...y, minScore: e.target.value.replace(/\D/g, '') } : y) }))} /></Field>
+                <Field label="مبلغ المكافأة (ر.س)"><input className="inp n" inputMode="decimal" value={t.amount} onChange={e => setTf(x => ({ ...x, tiers: x.tiers.map((y, j) => j === i ? { ...y, amount: e.target.value.replace(/[^\d.]/g, '') } : y) }))} /></Field>
+                <button className="btn sm gh" onClick={() => setTf(x => ({ ...x, tiers: x.tiers.filter((_, j) => j !== i) }))}><Trash2 size={13} /></button>
+              </div>
+            ))}
+            <div><button className="btn sm gh" onClick={() => setTf(x => ({ ...x, tiers: [...x.tiers, { minScore: '', amount: '' }] }))}><Plus size={13} />شريحة</button></div>
+          </div>
+          <div className="row" style={{ justifyContent: 'space-between', marginTop: 12, flexWrap: 'wrap', gap: 8 }}>
+            <div className="row" style={{ gap: 8 }}>
+              <input type="month" className="inp" value={ym} onChange={e => setYm(e.target.value)} />
+              <button className="btn gh" disabled={!tiersCfg.enabled} onClick={genTier}><Sparkles size={14} />توليد مقترحات {ymLabel(ym)}</button>
+            </div>
+            <button className="btn pri" onClick={saveTiers}><Check size={14} />حفظ الشرائح</button>
+          </div>
         </div>
       )}
     </div>
