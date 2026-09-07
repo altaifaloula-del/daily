@@ -2601,7 +2601,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v26.0 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v26.1 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -8272,7 +8272,7 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
   );
 }
 
-function HrMaster({ org, me, commitOrg, say }) {
+function HrMaster({ org, ops, me, commitOrg, commit, say }) {
   const [view, setView] = useState('depts');
   const [deptF, setDeptF] = useState(null);
   const [posF, setPosF] = useState(null);
@@ -8352,27 +8352,65 @@ function HrMaster({ org, me, commitOrg, say }) {
     setAssignF(null); say('حُفظ ✓');
   };
 
-  // v25.1 — إنشاء موظف جديد مباشرة من البيانات الرئيسية (أدوار المركز)
+  // v25.1 — إنشاء موظف جديد مباشرة من البيانات الرئيسية (أدوار المركز)؛ v26.1 — التعديل بنفس النموذج
+  const empToForm = (e) => ({ id: e.id, name: e.name || '', branchId: e.branchId || '', jobTitle: e.jobTitle || '', departmentId: e.departmentId || '', positionId: e.positionId || '', phone: e.phone || '', idNumber: e.idNumber || e.iqamaNo || e.nationalId || '', nationality: e.nationality || '', hireDate: e.hireDate || '', baseSalary: String(e.baseSalary || 0), housingAllowance: String(e.housingAllowance || 0), transportAllowance: String(e.transportAllowance || 0), gosiSubject: !!e.gosiSubject });
   const saveEmp = async () => {
     const f = empF; const name = (f.name || '').trim();
     if (!name) return say('اسم الموظف مطلوب', 'no');
     if (!f.branchId) return say('اختر فرع الموظف — بدونه لن يظهر في شاشات الحضور والمهام', 'no');
-    if (emps.some(x => (x.name || '').trim() === name && x.branchId === f.branchId && x.isActive !== false) && !window.confirm('يوجد موظف نشط بنفس الاسم في هذا الفرع — إضافة موظف آخر بنفس الاسم؟')) return;
-    const id = uid('emp');
     const pos = positions.find(p => p.id === f.positionId);
-    const rec = {
-      id, code: nextPartnerCode(buildPartners(org, {}), 'employee'), name, branchId: f.branchId,
+    const patch = {
+      name, branchId: f.branchId,
       jobTitle: (f.jobTitle || '').trim() || (pos ? pos.title : ''), departmentId: f.departmentId || (pos ? pos.departmentId || '' : ''), positionId: f.positionId || '',
       phone: (f.phone || '').trim(), idNumber: (f.idNumber || '').trim(), nationality: f.nationality || '', hireDate: f.hireDate || '',
-      baseSalary: Number(f.baseSalary) || 0, housingAllowance: Number(f.housingAllowance) || 0, transportAllowance: Number(f.transportAllowance) || 0, otherAllowance: 0,
-      gosiSubject: !!f.gosiSubject, isActive: true, docs: [], createdAt: nowISO(), createdByName: me.name
+      baseSalary: Number(f.baseSalary) || 0, housingAllowance: Number(f.housingAllowance) || 0, transportAllowance: Number(f.transportAllowance) || 0,
+      gosiSubject: !!f.gosiSubject
     };
+    if (f.id) {
+      const prev = emps.find(x => x.id === f.id) || {};
+      const branchChanged = prev.branchId && prev.branchId !== patch.branchId;
+      const ok = await commitOrg(d => ({ ...d, employees: (d.employees || []).map(x => x.id === f.id ? { ...x, ...patch, updatedAt: nowISO(), updatedByName: me.name } : x) }),
+        { actionType: 'update', targetType: 'user_account', targetId: f.id, branchName: ((org.branches || []).find(b => b.id === patch.branchId) || {}).name || '', title: 'عدّل بيانات موظف', details: name + (branchChanged ? ' — نُقل إلى فرع آخر' : '') });
+      if (!ok) return;
+      setEmpF(null); say('حُدِّثت بيانات «' + name + '» ✓' + (branchChanged ? ' — أعد ضبط PIN/البطاقة في فرعه الجديد' : ''));
+      return;
+    }
+    if (emps.some(x => (x.name || '').trim() === name && x.branchId === f.branchId && x.isActive !== false) && !window.confirm('يوجد موظف نشط بنفس الاسم في هذا الفرع — إضافة موظف آخر بنفس الاسم؟')) return;
+    const id = uid('emp');
+    const rec = { id, code: nextPartnerCode(buildPartners(org, {}), 'employee'), ...patch, otherAllowance: 0, isActive: true, docs: [], createdAt: nowISO(), createdByName: me.name };
     const ok = await commitOrg(d => ({ ...d, employees: [...(d.employees || []), rec] }),
       { actionType: 'create', targetType: 'user_account', targetId: id, branchName: ((org.branches || []).find(b => b.id === rec.branchId) || {}).name || '', title: 'أضاف موظفًا جديدًا', details: name + (rec.jobTitle ? ' — ' + rec.jobTitle : '') + ' · ' + rec.code });
     if (!ok) return;
     setEmpF(null);
     say('أُضيف الموظف «' + name + '» ✓ — اضبط له رقم PIN أو أصدر بطاقة QR من «الحضور الموثَّق ← أرقام PIN»');
   };
+  // v26.1 — إيقاف/تفعيل (حذف ناعم يحفظ التاريخ المالي)، وحذف نهائي فقط لموظف بلا أي سجلات
+  const toggleEmp = async (e) => {
+    const off = e.isActive !== false;
+    if (!window.confirm((off ? 'إيقاف الموظف «' : 'إعادة تفعيل الموظف «') + e.name + '»؟' + (off ? ' سيختفي من الرواتب والحضور والمهام مع بقاء كل سجلاته.' : ''))) return;
+    await commitOrg(d => ({ ...d, employees: (d.employees || []).map(x => x.id === e.id ? { ...x, isActive: !off, ...(off ? { endDate: today() } : { endDate: '' }) } : x) }),
+      { actionType: 'update', targetType: 'user_account', targetId: e.id, title: off ? 'أوقف موظفًا' : 'أعاد تفعيل موظف', details: e.name });
+    say(off ? 'أُوقف الموظف — سجلاته محفوظة' : 'أُعيد تفعيل الموظف ✓');
+  };
+  const empRecordCount = (e) => {
+    const o = ops || {}; const key = 'emp:' + e.id;
+    return (o.advances || []).filter(a => a.employeeId === e.id).length + (o.ledgerEntries || []).filter(l => l.partnerKey === key).length
+      + (o.attendanceEvents || []).filter(x => x.employeeId === e.id).length + (o.shiftAssignments || []).filter(x => x.empId === e.id && (x.shiftIds || []).some(Boolean)).length
+      + (o.taskAssignments || []).filter(x => x.employeeId === e.id).length + (o.taskCompletions || []).filter(x => x.employeeId === e.id).length
+      + (o.pointsEntries || []).filter(x => x.employeeId === e.id).length + (o.qualityReviews || []).filter(x => x.employeeId === e.id).length + (o.rewardRequests || []).filter(x => x.employeeId === e.id).length
+      + (o.closings || []).filter(c => JSON.stringify(c).includes('"' + key + '"')).length;
+  };
+  const deleteEmp = async (e) => {
+    const n = empRecordCount(e);
+    if (n > 0) return say('لا يمكن الحذف النهائي: للموظف ' + n + ' سجلًا (رواتب/حضور/مهام/نقاط…) — استخدم «إيقاف» للحفاظ على التاريخ', 'no');
+    if (!window.confirm('حذف الموظف «' + e.name + '» نهائيًا؟ لا يمكن التراجع.')) return;
+    const ok = await commitOrg(d => ({ ...d, employees: (d.employees || []).filter(x => x.id !== e.id) }),
+      { actionType: 'delete', targetType: 'user_account', targetId: e.id, title: 'حذف موظف نهائيًا (بلا سجلات)', details: e.name });
+    if (!ok) return;
+    if (commit && ((ops || {}).hrPins || []).some(p => p.employeeId === e.id)) await commit(d => ({ ...d, hrPins: (d.hrPins || []).filter(p => p.employeeId !== e.id) }));
+    say('حُذف الموظف نهائيًا');
+  };
+  const [showInactive, setShowInactive] = useState(false);
 
   const empDocs = (e) => e.docs || [];
   const saveDoc = async () => {
@@ -8486,20 +8524,23 @@ function HrMaster({ org, me, commitOrg, say }) {
         <div className="card">
           <div className="card-h" style={{ marginBottom: 10 }}>
             <div className="card-t"><Users size={15} color="var(--brass)" />الموظفون — القسم والوظيفة والمستندات</div>
-            <button className="btn sm pri" onClick={() => setEmpF({ name: '', branchId: ((org.branches || []).find(b => b.isActive !== false) || {}).id || '', jobTitle: '', departmentId: '', positionId: '', phone: '', idNumber: '', nationality: '', hireDate: today(), baseSalary: '', housingAllowance: '', transportAllowance: '', gosiSubject: false })}><Plus size={13} />موظف جديد</button>
+            <div className="row" style={{ gap: 6 }}>
+              <label className="row" style={{ gap: 5, fontSize: 12, cursor: 'pointer' }}><input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} />إظهار الموقوفين</label>
+              <button className="btn sm pri" onClick={() => setEmpF({ name: '', branchId: ((org.branches || []).find(b => b.isActive !== false) || {}).id || '', jobTitle: '', departmentId: '', positionId: '', phone: '', idNumber: '', nationality: '', hireDate: today(), baseSalary: '', housingAllowance: '', transportAllowance: '', gosiSubject: false })}><Plus size={13} />موظف جديد</button>
+            </div>
           </div>
           <div className="tw">
             <table className="tb">
               <thead><tr><th>الموظف</th><th>الفرع</th><th>القسم</th><th>الوظيفة</th><th style={{ textAlign: 'end' }}>المستندات</th><th /></tr></thead>
               <tbody>
-                {emps.map(e => {
+                {emps.filter(e => showInactive || e.isActive !== false).map(e => {
                   const dept = depts.find(d => d.id === e.departmentId);
                   const pos = positions.find(p => p.id === e.positionId);
                   const docs = empDocs(e);
                   const expSoon = docs.some(x => x.expiryDate && Math.round((Date.parse(x.expiryDate + 'T00:00:00') - Date.parse(today() + 'T00:00:00')) / 86400000) <= 30);
                   return (
                     <tr key={e.id}>
-                      <td style={{ fontWeight: 600, fontSize: 12.5 }}>{e.name}<span style={{ fontSize: 9.5, color: 'var(--faint)', marginInlineStart: 6 }}>{e.jobTitle}</span></td>
+                      <td style={{ fontWeight: 600, fontSize: 12.5 }}>{e.name}<span style={{ fontSize: 9.5, color: 'var(--faint)', marginInlineStart: 6 }}>{e.jobTitle}</span>{e.isActive === false && <span className="badge b-dim" style={{ marginInlineStart: 6, fontSize: 9 }}>موقوف</span>}</td>
                       <td style={{ fontSize: 11.5, color: 'var(--dim)' }}>{(org.branches.find(b => b.id === e.branchId) || {}).name || '—'}</td>
                       <td style={{ fontSize: 12 }}>{dept?.name || '—'}</td>
                       <td style={{ fontSize: 12 }}>{pos?.title || '—'}</td>
@@ -8508,6 +8549,9 @@ function HrMaster({ org, me, commitOrg, say }) {
                         <div className="row" style={{ gap: 5, justifyContent: 'flex-end' }}>
                           <button className="btn sm gh" onClick={() => setAssignF({ id: e.id, name: e.name, departmentId: e.departmentId || '', positionId: e.positionId || '', syncTitle: true })}>القسم/الوظيفة</button>
                           <button className="btn sm gh" onClick={() => setDocsFor(e)}><FileText size={13} />المستندات</button>
+                          <button className="btn sm gh" onClick={() => setEmpF(empToForm(e))}>تعديل</button>
+                          <button className="btn sm gh" onClick={() => toggleEmp(e)}>{e.isActive === false ? 'تفعيل' : 'إيقاف'}</button>
+                          {e.isActive === false && <button className="btn sm gh" title="حذف نهائي (فقط لموظف بلا أي سجلات)" onClick={() => deleteEmp(e)}><Trash2 size={13} /></button>}
                         </div>
                       </td>
                     </tr>
@@ -8544,7 +8588,7 @@ function HrMaster({ org, me, commitOrg, say }) {
       )}
 
       {empF && (
-        <Modal title="موظف جديد" icon={Users} onClose={() => setEmpF(null)}
+        <Modal title={empF.id ? 'تعديل بيانات موظف' : 'موظف جديد'} icon={Users} onClose={() => setEmpF(null)}
           foot={<><button className="btn pri" onClick={saveEmp}><Check size={14} />حفظ الموظف</button>
             <button className="btn gh" onClick={() => setEmpF(null)}>إلغاء</button></>}>
           <div className="grid" style={{ gap: 10 }}>
@@ -8576,7 +8620,7 @@ function HrMaster({ org, me, commitOrg, say }) {
               <Field label="بدل النقل"><input className="inp n" inputMode="decimal" value={empF.transportAllowance} onChange={e => setEmpF(f => ({ ...f, transportAllowance: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
               <label className="row" style={{ gap: 8, alignSelf: 'end', cursor: 'pointer', paddingBottom: 8 }}><input type="checkbox" checked={!!empF.gosiSubject} onChange={e => setEmpF(f => ({ ...f, gosiSubject: e.target.checked }))} />مشمول بالتأمينات الاجتماعية</label>
             </div>
-            <div className="note">بعد الحفظ: اضبط رقم PIN أو أصدر بطاقة QR للموظف من «الحضور الموثَّق ← أرقام PIN» (مدير فرعه يستطيع ذلك أيضًا). الراتب والبدلات قابلة للتعديل لاحقًا من «الرواتب والسلف».</div>
+            <div className="note">{empF.id ? 'تغيير الفرع يُبقي كل السجلات السابقة؛ PIN وبطاقة QR مرتبطان بالفرع القديم فأعد ضبطهما في الفرع الجديد.' : 'بعد الحفظ: اضبط رقم PIN أو أصدر بطاقة QR للموظف من «الحضور الموثَّق ← أرقام PIN» (مدير فرعه يستطيع ذلك أيضًا). الراتب والبدلات قابلة للتعديل لاحقًا من «الرواتب والسلف».'}</div>
           </div>
         </Modal>
       )}
@@ -9125,6 +9169,16 @@ function Attendance({ org, ops, me, myBranches, commit, say }) {
     say('صدرت بطاقة QR لـ' + e.name + ' ✓');
   };
 
+  // --- v26.1: حذف حدث حضور خاطئ (مدير الفرع/المركز) — بسبب موثَّق في سجل التدقيق ---
+  const canFixLog = me.role === 'branch_manager' || (ROLES[me.role] || {}).scope === 'all';
+  const delEvent = async (ev) => {
+    const reason = window.prompt('سبب حذف حدث «' + (ev.type === 'in' ? 'حضور' : 'انصراف') + '» لـ' + ev.employeeName + ' (' + new Date(ev.at).toLocaleString('ar-SA') + ')؟');
+    if (reason == null) return;
+    if (!String(reason).trim()) return say('السبب إلزامي لحذف حدث حضور', 'no');
+    const ok = await commit(d => ({ ...d, attendanceEvents: (d.attendanceEvents || []).filter(x => x.id !== ev.id) }),
+      { actionType: 'delete', targetType: 'attendance', targetId: ev.id, branchName: ev.branchName, title: 'حذف حدث حضور', details: ev.employeeName + ' · ' + (ev.type === 'in' ? 'حضور' : 'انصراف') + ' · ' + new Date(ev.at).toLocaleString('ar-SA') + ' — السبب: ' + String(reason).trim() });
+    if (ok) say('حُذف الحدث وسُجِّل السبب في التدقيق');
+  };
   // --- سجل الحضور ---
   const [logBranch, setLogBranch] = useState('');
   const [logEmp, setLogEmp] = useState('');
@@ -9240,7 +9294,7 @@ function Attendance({ org, ops, me, myBranches, commit, say }) {
           </div>
           <div className="tw">
             <table className="tb">
-              <thead><tr><th>الوقت</th><th>الموظف</th><th>الفرع</th><th>النوع</th><th>الطريقة</th><th>الموقع</th></tr></thead>
+              <thead><tr><th>الوقت</th><th>الموظف</th><th>الفرع</th><th>النوع</th><th>الطريقة</th><th>الموقع</th>{canFixLog && <th />}</tr></thead>
               <tbody>
                 {logRows.map(ev => (
                   <tr key={ev.id}>
@@ -9254,9 +9308,10 @@ function Attendance({ org, ops, me, myBranches, commit, say }) {
                       {ev.withinGeofence === false && <span className="badge b-rose">خارج النطاق ({ev.distanceMeters}م)</span>}
                       {ev.withinGeofence == null && <span className="badge b-dim">—</span>}
                     </td>
+                    {canFixLog && <td><button className="btn sm gh" title="حذف حدث خاطئ" onClick={() => delEvent(ev)}><Trash2 size={13} /></button></td>}
                   </tr>
                 ))}
-                {logRows.length === 0 && <tr><td colSpan={6}><div className="empty">لا توجد سجلات حضور ضمن هذه الفلاتر.</div></td></tr>}
+                {logRows.length === 0 && <tr><td colSpan={canFixLog ? 7 : 6}><div className="empty">لا توجد سجلات حضور ضمن هذه الفلاتر.</div></td></tr>}
               </tbody>
             </table>
           </div>
@@ -9421,6 +9476,19 @@ function ShiftEngine({ org, ops, me, myBranches, commitOrg, commit, say }) {
     await commit(d => ({ ...d, shiftSwapRequests: [rec, ...(d.shiftSwapRequests || [])] }),
       { actionType: 'create', targetType: 'shift_swap', targetId: rec.id, branchName: branch.name, title: 'طلب تبديل وردية', details: rec.empFromName + ' ↔ ' + rec.empToName + ' — ' + HR_WEEK_DAYS[rec.day].ar });
     say('أُرسل طلب التبديل ✓'); setSwapF({ di: 0, empA: '', empB: '' });
+  };
+  // v26.1 — إلغاء طلب معلّق (تبديل/نقل) قبل البتّ فيه
+  const cancelSwap = async (r) => {
+    if (r.status !== 'pending' || !window.confirm('إلغاء طلب التبديل بين ' + r.empFromName + ' و' + r.empToName + '؟')) return;
+    await commit(d => ({ ...d, shiftSwapRequests: (d.shiftSwapRequests || []).filter(x => x.id !== r.id) }),
+      { actionType: 'delete', targetType: 'shift_swap', targetId: r.id, branchName: r.branchName, title: 'إلغاء طلب تبديل وردية', details: r.empFromName + ' ↔ ' + r.empToName });
+    say('أُلغي الطلب');
+  };
+  const cancelTransfer = async (r) => {
+    if (r.status !== 'pending' || !window.confirm('إلغاء طلب نقل «' + r.employeeName + '» إلى ' + r.toBranchName + '؟')) return;
+    await commit(d => ({ ...d, branchTransferRequests: (d.branchTransferRequests || []).filter(x => x.id !== r.id) }),
+      { actionType: 'delete', targetType: 'branch_transfer', targetId: r.id, branchName: r.fromBranchName, title: 'إلغاء طلب نقل موظف', details: r.employeeName });
+    say('أُلغي الطلب');
   };
   const decideSwap = async (r, approve) => {
     if (approve) {
@@ -9665,6 +9733,7 @@ function ShiftEngine({ org, ops, me, myBranches, commitOrg, commit, say }) {
                         {r.status === 'pending' && <div className="row" style={{ gap: 5, justifyContent: 'flex-end' }}>
                           <button className="btn sm pri" onClick={() => decideSwap(r, true)}><Check size={13} />اعتماد</button>
                           <button className="btn sm gh" onClick={() => decideSwap(r, false)}><X size={13} />رفض</button>
+                          <button className="btn sm gh" title="إلغاء الطلب" onClick={() => cancelSwap(r)}><Trash2 size={13} /></button>
                         </div>}
                       </td>}
                     </tr>
@@ -9697,7 +9766,7 @@ function ShiftEngine({ org, ops, me, myBranches, commitOrg, commit, say }) {
             <div className="note" style={{ marginBottom: 8 }}>اعتماد النقل يُغيِّر فرع الموظف فعليًا فور الموافقة — متاح لأدوار المركز فقط لأثره المالي والتنظيمي العابر للفروع.</div>
             <div className="tw">
               <table className="tb">
-                <thead><tr><th>الموظف</th><th>من</th><th>إلى</th><th>الحالة</th>{canApproveTransfer && <th />}</tr></thead>
+                <thead><tr><th>الموظف</th><th>من</th><th>إلى</th><th>الحالة</th>{(canApproveTransfer || canEdit) && <th />}</tr></thead>
                 <tbody>
                   {transferReqs.map(r => (
                     <tr key={r.id}>
@@ -9705,15 +9774,16 @@ function ShiftEngine({ org, ops, me, myBranches, commitOrg, commit, say }) {
                       <td style={{ fontSize: 12 }}>{r.fromBranchName}</td>
                       <td style={{ fontSize: 12 }}>{r.toBranchName}</td>
                       <td><span className={'badge ' + (r.status === 'approved' ? 'b-mint' : r.status === 'rejected' ? 'b-rose' : 'b-amber')}>{r.status === 'approved' ? 'معتمد' : r.status === 'rejected' ? 'مرفوض' : 'قيد الانتظار'}</span></td>
-                      {canApproveTransfer && <td>
+                      {(canApproveTransfer || canEdit) && <td>
                         {r.status === 'pending' && <div className="row" style={{ gap: 5, justifyContent: 'flex-end' }}>
-                          <button className="btn sm pri" onClick={() => decideTransfer(r, true)}><Check size={13} />اعتماد</button>
-                          <button className="btn sm gh" onClick={() => decideTransfer(r, false)}><X size={13} />رفض</button>
+                          {canApproveTransfer && <button className="btn sm pri" onClick={() => decideTransfer(r, true)}><Check size={13} />اعتماد</button>}
+                          {canApproveTransfer && <button className="btn sm gh" onClick={() => decideTransfer(r, false)}><X size={13} />رفض</button>}
+                          <button className="btn sm gh" title="إلغاء الطلب" onClick={() => cancelTransfer(r)}><Trash2 size={13} /></button>
                         </div>}
                       </td>}
                     </tr>
                   ))}
-                  {transferReqs.length === 0 && <tr><td colSpan={canApproveTransfer ? 5 : 4}><div className="empty">لا توجد طلبات نقل بعد.</div></td></tr>}
+                  {transferReqs.length === 0 && <tr><td colSpan={(canApproveTransfer || canEdit) ? 5 : 4}><div className="empty">لا توجد طلبات نقل بعد.</div></td></tr>}
                 </tbody>
               </table>
             </div>
@@ -9773,6 +9843,15 @@ function Tasks({ org, ops, me, myBranches, commit, say }) {
     await commit(d => ({ ...d, taskAssignments: [rec, ...(d.taskAssignments || [])] }),
       { actionType: 'create', targetType: 'task_assignment', targetId: rec.id, branchName: branch.name, title: 'تكليف مهمة فردية', details: emp.name + ' — ' + rec.title });
     say('أُسندت المهمة ✓'); setAssignF({ empId: '', title: '', dueDate: today(), priority: 'normal', note: '' });
+  };
+  // v26.1 — تعديل مهمة فردية مفتوحة
+  const [editA, setEditA] = useState(null);
+  const saveEditA = async () => {
+    const f = editA; if (!f) return;
+    if (!String(f.title || '').trim()) return say('عنوان المهمة مطلوب', 'no');
+    await commit(d => ({ ...d, taskAssignments: (d.taskAssignments || []).map(x => x.id === f.id ? { ...x, title: f.title.trim(), dueDate: f.dueDate || x.dueDate, priority: f.priority || 'normal', note: f.note || '', updatedAt: nowISO(), updatedByName: me.name } : x) }),
+      { actionType: 'update', targetType: 'task_assignment', targetId: f.id, branchName: branch ? branch.name : '', title: 'عدّل مهمة فردية', details: f.title });
+    setEditA(null); say('حُدِّثت المهمة ✓');
   };
   const cancelAssign = async (a) => {
     if (!window.confirm('إلغاء المهمة «' + a.title + '»؟')) return;
@@ -9888,6 +9967,19 @@ function Tasks({ org, ops, me, myBranches, commit, say }) {
         </div>
       )}
 
+      {editA && (
+        <Modal title="تعديل مهمة فردية" icon={Send} onClose={() => setEditA(null)}
+          foot={<><button className="btn gh" onClick={() => setEditA(null)}>إلغاء</button><button className="btn pri" onClick={saveEditA}><Check size={14} />حفظ</button></>}>
+          <div className="grid" style={{ gap: 10 }}>
+            <Field label="عنوان المهمة"><input className="inp" autoFocus value={editA.title} onChange={e => setEditA(f => ({ ...f, title: e.target.value }))} /></Field>
+            <div className="grid g2">
+              <Field label="تاريخ الاستحقاق"><input type="date" className="inp" value={editA.dueDate} onChange={e => setEditA(f => ({ ...f, dueDate: e.target.value }))} /></Field>
+              <Field label="الأولوية"><select className="inp sel" value={editA.priority} onChange={e => setEditA(f => ({ ...f, priority: e.target.value }))}><option value="normal">عادية</option><option value="high">عاجلة</option></select></Field>
+            </div>
+            <Field label="ملاحظة"><input className="inp" value={editA.note} onChange={e => setEditA(f => ({ ...f, note: e.target.value }))} /></Field>
+          </div>
+        </Modal>
+      )}
       {tplF && (
         <Modal title={tplF.id ? 'تعديل قالب مهمة' : 'قالب مهمة جديد'} icon={CheckCircle2} onClose={() => setTplF(null)}
           foot={<>
@@ -9961,6 +10053,7 @@ function Tasks({ org, ops, me, myBranches, commit, say }) {
                       <td><span className={'badge ' + (a.status === 'done' ? 'b-mint' : 'b-amber')}>{a.status === 'done' ? 'منجزة' : 'مفتوحة'}</span></td>
                       {canManage && <td>
                         {a.status !== 'done' && <div className="row" style={{ gap: 5, justifyContent: 'flex-end' }}>
+                          <button className="btn sm gh" onClick={() => setEditA({ id: a.id, title: a.title, dueDate: a.dueDate, priority: a.priority || 'normal', note: a.note || '' })}>تعديل</button>
                           <button className="btn sm gh" onClick={() => cancelAssign(a)}><Trash2 size={13} /></button>
                         </div>}
                       </td>}
@@ -10440,6 +10533,13 @@ function Performance({ org, ops, me, myBranches, commit, commitOrg, say }) {
     say('حُفظ التقييم ✓');
   };
   const monthReviews = (ops.qualityReviews || []).filter(r => r.ym === ym && branch && r.branchId === branch.id);
+  // v26.1 — حذف تقييم شهري
+  const delReview = async (r) => {
+    if (!window.confirm('حذف تقييم «' + r.employeeName + '» لشهر ' + r.ym + '؟ سيُستبعد محور الجودة من درجته.')) return;
+    await commit(d => ({ ...d, qualityReviews: (d.qualityReviews || []).filter(x => x.id !== r.id) }),
+      { actionType: 'delete', targetType: 'quality_review', targetId: r.id, branchName: r.branchName || (branch ? branch.name : ''), title: 'حذف تقييم المدير الشهري', details: r.employeeName + ' — ' + r.ym });
+    say('حُذف التقييم');
+  };
   const RATE = [1, 2, 3, 4, 5];
   const rateSel = (k, label) => (
     <Field label={label}>
@@ -10578,7 +10678,7 @@ function Performance({ org, ops, me, myBranches, commit, commitOrg, say }) {
             <div className="card-t" style={{ marginBottom: 8 }}>تقييمات {ymLabel(ym)} — {branch.name}</div>
             <div className="tw">
               <table className="tb">
-                <thead><tr><th>الموظف</th><th>جودة العمل</th><th>العملاء</th><th>الجماعي</th><th>المتوسط</th><th>ملاحظة</th><th>بواسطة</th></tr></thead>
+                <thead><tr><th>الموظف</th><th>جودة العمل</th><th>العملاء</th><th>الجماعي</th><th>المتوسط</th><th>ملاحظة</th><th>بواسطة</th>{canManage && <th />}</tr></thead>
                 <tbody>
                   {monthReviews.map(r => { const avg = ((Number(r.workQuality) + Number(r.customerService) + Number(r.teamwork)) / 3); return (
                     <tr key={r.id}>
@@ -10587,9 +10687,10 @@ function Performance({ org, ops, me, myBranches, commit, commitOrg, say }) {
                       <td><span className={'badge ' + (avg >= 4 ? 'b-mint' : avg >= 3 ? 'b-amber' : 'b-rose')}>{avg.toFixed(1)}</span></td>
                       <td style={{ fontSize: 12 }}>{r.note || '—'}</td>
                       <td style={{ fontSize: 11.5 }}>{r.reviewedByName}</td>
+                      {canManage && <td><div className="row" style={{ gap: 5, justifyContent: 'flex-end' }}><button className="btn sm gh" onClick={() => setRvEmp(r.employeeId)}>تعديل</button><button className="btn sm gh" onClick={() => delReview(r)}><Trash2 size={13} /></button></div></td>}
                     </tr>
                   ); })}
-                  {monthReviews.length === 0 && <tr><td colSpan={7}><div className="empty">لا توجد تقييمات لهذا الشهر بعد.</div></td></tr>}
+                  {monthReviews.length === 0 && <tr><td colSpan={canManage ? 8 : 7}><div className="empty">لا توجد تقييمات لهذا الشهر بعد.</div></td></tr>}
                 </tbody>
               </table>
             </div>
@@ -10754,6 +10855,18 @@ function Rewards({ org, ops, me, myBranches, commit, commitOrg, say }) {
     }
   };
 
+  // v26.1 — التراجع عن اعتماد (إعادة الطلب إلى «قيد الاعتماد» وحذف حركة الراتب) ما دام استحقاق الشهر لم يُرحَّل للدفتر
+  const revertApproval = async (r) => {
+    if (!canApprove || r.status !== 'approved') return;
+    const accrued = (ops.ledgerEntries || []).some(x => x.kind === 'salary_accrual' && x.month === r.month);
+    if (accrued) return say('لا يمكن التراجع: استحقاق رواتب شهر ' + r.month + ' مُرحَّل للدفتر — عالجه بقيد يدوي أو طلب معاكس', 'no');
+    if (lockedThru(org) && r.month <= lockedThru(org)) return say(LOCK_MSG(r.month + '-01'), 'no');
+    if (!window.confirm('التراجع عن اعتماد ' + kindAr(r.kind) + ' «' + r.employeeName + '» (' + money(r.amount) + ')؟ ستُحذف حركة الراتب ويعود الطلب قيد الاعتماد.')) return;
+    const ok = await commit(d => ({ ...d, advances: (d.advances || []).filter(a => a.rewardId !== r.id), rewardRequests: (d.rewardRequests || []).map(x => x.id === r.id ? { ...x, status: 'pending', decidedBy: '', decidedByName: '', decidedAt: '', decisionNote: '', advanceId: '', revertedAt: nowISO(), revertedByName: me.name } : x) }),
+      { actionType: 'update', targetType: 'reward_request', targetId: r.id, branchName: r.branchName, title: 'التراجع عن اعتماد ' + kindAr(r.kind), details: r.employeeName + ' · ' + money(r.amount) + ' · شهر ' + r.month });
+    if (ok) say('تراجعتَ عن الاعتماد — الطلب قيد الاعتماد مجددًا');
+  };
+
   // === ٤) شرائح مكافآت تلقائية حسب درجة الأداء (م٧) ===
   const [tf, setTf] = useState({ enabled: !!tiersCfg.enabled, tiers: (tiersCfg.tiers || []).map(t => ({ minScore: String(t.minScore), amount: String(t.amount) })) });
   const saveTiers = async () => {
@@ -10869,7 +10982,7 @@ function Rewards({ org, ops, me, myBranches, commit, commitOrg, say }) {
           </div>
           <div className="card">
             <div className="card-t" style={{ marginBottom: 8 }}>سجل القرارات</div>
-            <ReqTable rows={decided} />
+            <ReqTable rows={decided} actions={(r) => (r.status === 'approved' ? <button className="btn sm gh" title="التراجع عن الاعتماد" onClick={() => revertApproval(r)}><X size={13} />تراجع</button> : null)} />
           </div>
         </div>
       )}
