@@ -256,13 +256,6 @@ function splitOps(ops, branchIds) {
   return { core, br };
 }
 
-// v27.2 — مقارنة محتوى مستندين بمعزل عن بيانات الكتابة (rev/wtag): لا نكتب إلا ما تغيّر فعلًا
-const sameDoc = (a, b) => JSON.stringify({ ...(a || {}), rev: 0, wtag: '' }) === JSON.stringify({ ...(b || {}), rev: 0, wtag: '' });
-// v27.2 — التحقق من أن ما قرأناه بعد الكتابة هو ما كتبناه نحن: بوسم الكاتب (wtag) لا برقم rev وحده.
-// كاتبان انطلقا من نفس الأساس (المركز وجهاز فرع في اللحظة نفسها) ينتجان نفس رقم rev، فكان الأخير
-// يطغى بصمت على الأول دون أن يُكتشف التصادم. المستندات القديمة بلا wtag تُقارَن بالرقم.
-const wroteMine = (chk, doc) => !!chk && (doc.wtag ? chk.wtag === doc.wtag : (chk.rev || 0) === (doc.rev || 0));
-
 // تجميع المستندات المقسّمة إلى ops واحدة كما اعتاد التطبيق
 function composeOps(core, brMap) {
   const out = emptyOps();
@@ -2377,22 +2370,24 @@ export default function App() {
       let wroteCoreDoc = null; const wroteBrDocs = {};
       // المستند المركزي (أدوار المركز فقط)
       if (ctx.central) {
-        if (!sameDoc(coreOut, core)) {
+        const je = (x) => JSON.stringify({ ...x, rev: 0 });
+        if (je(coreOut) !== je(core || {})) {
           const rv = ((core || {}).rev || 0) + 1;
-          const doc = { ...coreOut, rev: rv, wtag: uid('w') };   // v27.2: وسم كاتب لكشف التصادم
+          const doc = { ...coreOut, rev: rv };
           const ok = await cloud.set(KEYS.core, doc);
           if (!ok) { allOk = false; }
-          else { const chk = await cloud.get(KEYS.core, null); if (!wroteMine(chk, doc)) conflict = true; else wroteCoreDoc = doc; }
+          else { const chk = await cloud.get(KEYS.core, null); if (!chk || (chk.rev || 0) !== rv) conflict = true; else wroteCoreDoc = doc; }
         }
       }
       // مستندات الفروع المتغيرة فقط
       for (const b of ctx.myBrIds) {
-        if (!sameDoc(brOut[b], brMap[b])) {
+        const je = (x) => JSON.stringify({ ...x, rev: 0 });
+        if (je(brOut[b]) !== je(brMap[b] || {})) {
           const rv = ((brMap[b] || {}).rev || 0) + 1;
-          const doc = { ...brOut[b], rev: rv, wtag: uid('w') };   // v27.2: وسم كاتب لكشف التصادم
+          const doc = { ...brOut[b], rev: rv };
           const ok = await cloud.set(brKey(b), doc);
           if (!ok) { allOk = false; if (String((cloud.lastError || {}).code || '').toLowerCase().includes('permission')) { lastWriteErr.current = 'denied'; return false; } }
-          else { const chk = await cloud.get(brKey(b), null); if (!wroteMine(chk, doc)) conflict = true; else wroteBrDocs[b] = doc; }
+          else { const chk = await cloud.get(brKey(b), null); if (!chk || (chk.rev || 0) !== rv) conflict = true; else wroteBrDocs[b] = doc; }
         }
       }
       if (!allOk) { if (attempt === 2) { lastWriteErr.current = lastWriteErr.current || 'net'; return false; } continue; }
@@ -2666,7 +2661,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v27.2 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v27.1 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -12253,17 +12248,11 @@ function Admin({ org, ops, me, commit, commitOrg, say }) {
       title: isNew ? 'أنشأ مستخدماً جديداً' : 'عدّل بيانات مستخدم', details: `${rec.name} — ${ROLES[rec.role].ar}`
     });
     // مزامنة العضوية وصفة المدير حسب الدور
-    // v27.2: فشل المزامنة كان يُبتلع بصمت (upsertMember تعيد false) فيُحفظ المستخدم بلا عضوية خادمية صحيحة
-    // ⇒ جهاز فرعه لا يستطيع قراءة/كتابة بياناته. نُبلغ صراحةً.
-    let memOk = true;
     if (authApi.enabled) {
-      memOk = await authApi.upsertMember(email, { active: rec.isActive !== false, role: rec.role, branchId: rec.branchId || '', branchIds: rec.allowedBranchIds || [], scope: (ROLES[rec.role]?.scope === 'all') ? 'all' : 'branch' });
-      const admOk = await authApi.syncAdmin(email, !!ROLES[rec.role]?.admin);
-      if (memOk && !admOk && ROLES[rec.role]?.admin) say('حُفظ المستخدم لكن تعذّر إدراجه في قائمة المدراء على الخادم — نفّذ الحفظ من حساب مسؤول النظام الأول', 'no');
+      await authApi.upsertMember(email, { active: rec.isActive !== false, role: rec.role, branchId: rec.branchId || '', branchIds: rec.allowedBranchIds || [], scope: (ROLES[rec.role]?.scope === 'all') ? 'all' : 'branch' });
+      await authApi.syncAdmin(email, !!ROLES[rec.role]?.admin);
     }
-    if (!memOk) say('حُفظ المستخدم في المنصة، لكن تعذّرت مزامنة عضويته على الخادم (حسابك ليس ضمن قائمة المدراء على الخادم) — لن يستطيع هذا المستخدم قراءة/كتابة بيانات فرعه حتى تُنفَّذ «مزامنة صلاحيات الأعضاء» من حساب مسؤول النظام الأول', 'no');
-    else say(isNew ? 'تم إنشاء الحساب — يدخل ببريده وكلمة سره ✓' : 'تم تحديث الحساب');
-    setUEdit(null);
+    say(isNew ? 'تم إنشاء الحساب — يدخل ببريده وكلمة سره ✓' : 'تم تحديث الحساب'); setUEdit(null);
   };
 
   const delUser = async (u) => {
