@@ -1876,6 +1876,7 @@ export default function App() {
   // (سابقًا كان رفض القراءة يسقط بصمت إلى نسخة localStorage القديمة فتبدو الشاشات «تعمل» بينما كل كتابة سحابية ترفض)
   const [accessErr, setAccessErr] = useState(null);
   const lastWriteErr = useRef('');   // 'denied' | 'net' | 'scope' | ''
+  const [brSetVer, setBrSetVer] = useState(0);   // v27.3: يتغيّر عند تغيّر مجموعة الفروع المشترَك بها — يُعيد بناء الاشتراكات الحيّة
   const sid = useRef(uid('s'));
   // v15.29 — جلسة واحدة لكل مستخدم (عدا أدوار الإدارة): هوية ثابتة لهذا المتصفح تبقى
   // عبر إعادة التحميل وتتشاركها تبويبات المتصفح الواحد (فلا يطرد المتصفح نفسه)،
@@ -2200,7 +2201,7 @@ export default function App() {
     ctx.myBrIds.forEach(b => { const un = cloud.subscribe?.(brKey(b), (v) => { docsCache.current.br[b] = v || {}; cacheRecompose(); }); if (un) subs.push(un); });
     if (subs.length) setLive(true);
     return () => subs.forEach(u => u());
-  }, [boot, needAuth, refresh]);
+  }, [boot, needAuth, refresh, brSetVer]);   // v27.3: brSetVer يُعيد بناء الاشتراكات عند تغيّر مجموعة الفروع (فرع جديد يظهر حيًّا بلا إعادة تحميل)
 
   useEffect(() => {
     if (boot !== 'ready') return;
@@ -2213,16 +2214,21 @@ export default function App() {
     return () => { clearInterval(t); if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVis); };
   }, [boot, live, refresh]);
 
-  // v9: البوابة المحلية القديمة تحدد المستخدم بعد الإقلاع — نضبط نطاق جلسة الفرع حينها
+  // v9: نضبط نطاق فروع الجلسة بعد الإقلاع.
+  // v27.3: يشمل الآن حساب المركز أيضًا — كان مستثنى صراحةً، فأي فرع يُنشأ/يُسند بعد فتح صفحة
+  // المركز لم يكن يُقرأ مستنده ولا يُشترَك فيه حتى إعادة تحميل كاملة، فلا يظهر حضوره ولا بياناته
+  // في المركز والتقارير. الآن عند تغيّر قائمة الفروع نحدّث النطاق ونعيد بناء الاشتراكات فورًا.
   useEffect(() => {
-    if (!me || dataCtx.current.central) return;
-    const ids = branchIdsOfUser(me) || [];   // v27.1: نفس قاعدة myBranches
+    if (!me) return;
+    const central = dataCtx.current.central;
+    const ids = central ? (org.branches || []).map(b => b.id) : (branchIdsOfUser(me) || []);
     if (JSON.stringify(ids) !== JSON.stringify(dataCtx.current.myBrIds)) {
       dataCtx.current.myBrIds = ids;
-      dataCtx.current.email = (me.email || '').toLowerCase();
+      if (!central) dataCtx.current.email = (me.email || '').toLowerCase();
+      setBrSetVer(v => v + 1);   // يُعيد تشغيل تأثير الاشتراكات على المجموعة الجديدة
       refresh(true);
     }
-  }, [me, refresh]);
+  }, [me, org, refresh]);
 
   /* --- تنبيهات النشاط الحيّة لمدراء النظام: إشعار متصفح + صوت لأي نشاط من الآخرين --- */
   const actBaseRef = useRef(Date.now());
@@ -2666,7 +2672,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v27.2 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v27.3 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
