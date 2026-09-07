@@ -2597,7 +2597,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v25.0 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v25.1 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -8239,6 +8239,7 @@ function HrMaster({ org, me, commitOrg, say }) {
   const [assignF, setAssignF] = useState(null);
   const [docsFor, setDocsFor] = useState(null);
   const [docF, setDocF] = useState(null);
+  const [empF, setEmpF] = useState(null); // v25.1: نموذج موظف جديد (لم يكن للموظفين نموذج إنشاء مباشر — كانوا يُضافون فقط عبر مسارات الشركاء)
 
   const depts = org.departments || [];
   const positions = org.positions || [];
@@ -8309,6 +8310,28 @@ function HrMaster({ org, me, commitOrg, say }) {
       } : x)
     }), { actionType: 'update', targetType: 'user_account', targetId: f.id, title: 'حدّث القسم/الوظيفة لموظف', details: f.name + (pos ? ' → ' + pos.title : '') });
     setAssignF(null); say('حُفظ ✓');
+  };
+
+  // v25.1 — إنشاء موظف جديد مباشرة من البيانات الرئيسية (أدوار المركز)
+  const saveEmp = async () => {
+    const f = empF; const name = (f.name || '').trim();
+    if (!name) return say('اسم الموظف مطلوب', 'no');
+    if (!f.branchId) return say('اختر فرع الموظف — بدونه لن يظهر في شاشات الحضور والمهام', 'no');
+    if (emps.some(x => (x.name || '').trim() === name && x.branchId === f.branchId && x.isActive !== false) && !window.confirm('يوجد موظف نشط بنفس الاسم في هذا الفرع — إضافة موظف آخر بنفس الاسم؟')) return;
+    const id = uid('emp');
+    const pos = positions.find(p => p.id === f.positionId);
+    const rec = {
+      id, code: nextPartnerCode(buildPartners(org, {}), 'employee'), name, branchId: f.branchId,
+      jobTitle: (f.jobTitle || '').trim() || (pos ? pos.title : ''), departmentId: f.departmentId || (pos ? pos.departmentId || '' : ''), positionId: f.positionId || '',
+      phone: (f.phone || '').trim(), idNumber: (f.idNumber || '').trim(), nationality: f.nationality || '', hireDate: f.hireDate || '',
+      baseSalary: Number(f.baseSalary) || 0, housingAllowance: Number(f.housingAllowance) || 0, transportAllowance: Number(f.transportAllowance) || 0, otherAllowance: 0,
+      gosiSubject: !!f.gosiSubject, isActive: true, docs: [], createdAt: nowISO(), createdByName: me.name
+    };
+    const ok = await commitOrg(d => ({ ...d, employees: [...(d.employees || []), rec] }),
+      { actionType: 'create', targetType: 'user_account', targetId: id, branchName: ((org.branches || []).find(b => b.id === rec.branchId) || {}).name || '', title: 'أضاف موظفًا جديدًا', details: name + (rec.jobTitle ? ' — ' + rec.jobTitle : '') + ' · ' + rec.code });
+    if (!ok) return;
+    setEmpF(null);
+    say('أُضيف الموظف «' + name + '» ✓ — اضبط له رقم PIN أو أصدر بطاقة QR من «الحضور الموثَّق ← أرقام PIN»');
   };
 
   const empDocs = (e) => e.docs || [];
@@ -8421,7 +8444,10 @@ function HrMaster({ org, me, commitOrg, say }) {
 
       {view === 'emps' && (
         <div className="card">
-          <div className="card-t" style={{ marginBottom: 10 }}><Users size={15} color="var(--brass)" />الموظفون — القسم والوظيفة والمستندات</div>
+          <div className="card-h" style={{ marginBottom: 10 }}>
+            <div className="card-t"><Users size={15} color="var(--brass)" />الموظفون — القسم والوظيفة والمستندات</div>
+            <button className="btn sm pri" onClick={() => setEmpF({ name: '', branchId: ((org.branches || []).find(b => b.isActive !== false) || {}).id || '', jobTitle: '', departmentId: '', positionId: '', phone: '', idNumber: '', nationality: '', hireDate: today(), baseSalary: '', housingAllowance: '', transportAllowance: '', gosiSubject: false })}><Plus size={13} />موظف جديد</button>
+          </div>
           <div className="tw">
             <table className="tb">
               <thead><tr><th>الموظف</th><th>الفرع</th><th>القسم</th><th>الوظيفة</th><th style={{ textAlign: 'end' }}>المستندات</th><th /></tr></thead>
@@ -8477,6 +8503,43 @@ function HrMaster({ org, me, commitOrg, say }) {
         </Modal>
       )}
 
+      {empF && (
+        <Modal title="موظف جديد" icon={Users} onClose={() => setEmpF(null)}
+          foot={<><button className="btn pri" onClick={saveEmp}><Check size={14} />حفظ الموظف</button>
+            <button className="btn gh" onClick={() => setEmpF(null)}>إلغاء</button></>}>
+          <div className="grid" style={{ gap: 10 }}>
+            <div className="grid g2">
+              <Field label="الاسم الكامل"><input className="inp" autoFocus value={empF.name} onChange={e => setEmpF(f => ({ ...f, name: e.target.value }))} placeholder="كما في الهوية" /></Field>
+              <Field label="الفرع (إلزامي)">
+                <select className="inp sel" value={empF.branchId} onChange={e => setEmpF(f => ({ ...f, branchId: e.target.value }))}>
+                  <option value="">اختر الفرع</option>
+                  {(org.branches || []).filter(b => b.isActive !== false).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+              </Field>
+            </div>
+            <div className="grid g3">
+              <Field label="القسم"><select className="inp sel" value={empF.departmentId} onChange={e => setEmpF(f => ({ ...f, departmentId: e.target.value, positionId: '' }))}><option value="">—</option>{depts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select></Field>
+              <Field label="الوظيفة"><select className="inp sel" value={empF.positionId} onChange={e => setEmpF(f => ({ ...f, positionId: e.target.value }))}><option value="">—</option>{positions.filter(p => !empF.departmentId || p.departmentId === empF.departmentId).map(p => <option key={p.id} value={p.id}>{p.title}</option>)}</select></Field>
+              <Field label="المسمّى (إن لم تُختر وظيفة)"><input className="inp" value={empF.jobTitle} onChange={e => setEmpF(f => ({ ...f, jobTitle: e.target.value }))} placeholder="كاشير، شيف…" /></Field>
+            </div>
+            <div className="grid g3">
+              <Field label="الجوال"><input className="inp" style={{ direction: 'ltr', textAlign: 'right' }} value={empF.phone} onChange={e => setEmpF(f => ({ ...f, phone: e.target.value }))} /></Field>
+              <Field label="رقم الهوية/الإقامة"><input className="inp n" value={empF.idNumber} onChange={e => setEmpF(f => ({ ...f, idNumber: e.target.value.replace(/\D/g, '') }))} /></Field>
+              <Field label="تاريخ التعيين"><input type="date" className="inp" value={empF.hireDate} onChange={e => setEmpF(f => ({ ...f, hireDate: e.target.value }))} /></Field>
+            </div>
+            <div className="grid g3">
+              <Field label="الجنسية (لنِسبة التأمينات)"><select className="inp sel" value={empF.nationality} onChange={e => setEmpF(f => ({ ...f, nationality: e.target.value }))}><option value="">غير محدّد</option><option value="saudi">سعودي</option><option value="nonSaudi">غير سعودي</option></select></Field>
+              <Field label="الراتب الأساسي"><input className="inp n" inputMode="decimal" value={empF.baseSalary} onChange={e => setEmpF(f => ({ ...f, baseSalary: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+              <Field label="بدل السكن"><input className="inp n" inputMode="decimal" value={empF.housingAllowance} onChange={e => setEmpF(f => ({ ...f, housingAllowance: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+            </div>
+            <div className="grid g2">
+              <Field label="بدل النقل"><input className="inp n" inputMode="decimal" value={empF.transportAllowance} onChange={e => setEmpF(f => ({ ...f, transportAllowance: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+              <label className="row" style={{ gap: 8, alignSelf: 'end', cursor: 'pointer', paddingBottom: 8 }}><input type="checkbox" checked={!!empF.gosiSubject} onChange={e => setEmpF(f => ({ ...f, gosiSubject: e.target.checked }))} />مشمول بالتأمينات الاجتماعية</label>
+            </div>
+            <div className="note">بعد الحفظ: اضبط رقم PIN أو أصدر بطاقة QR للموظف من «الحضور الموثَّق ← أرقام PIN» (مدير فرعه يستطيع ذلك أيضًا). الراتب والبدلات قابلة للتعديل لاحقًا من «الرواتب والسلف».</div>
+          </div>
+        </Modal>
+      )}
       {assignF && (
         <Modal title={'القسم والوظيفة — ' + assignF.name} icon={UserCog} onClose={() => setAssignF(null)}
           foot={<><button className="btn gh" onClick={() => setAssignF(null)}>إلغاء</button><button className="btn pri" onClick={saveAssign}><Check size={14} />حفظ</button></>}>
