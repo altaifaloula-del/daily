@@ -236,7 +236,9 @@ const LOCK_MSG = (d) => 'شهر ' + (d || '').slice(0, 7) + ' مقفل محاس�
    الخادم عبر قواعد Firestore. أما داخل التطبيق فالنموذج يبقى
    كما هو (org + ops مدمجة) — الترجمة تتم عند حواف التخزين فقط.
    ============================================================ */
-const BR_COLS = ['closings', 'transfers', 'partnerRequests', 'notifications', 'branchPartners'];
+const BR_COLS = ['closings', 'transfers', 'partnerRequests', 'notifications', 'branchPartners',
+  // v24.0 — بيانات HR التشغيلية لكل فرع (م٣–م٧): تُخزَّن في مستند الفرع كي تقرأها وتكتبها أجهزة الفروع (لا تصل لـ org)
+  'attendanceEvents', 'hrPins', 'shiftTemplates', 'shiftAssignments', 'shiftSwapRequests', 'branchTransferRequests', 'taskTemplates', 'taskAssignments', 'taskCompletions', 'pointsEntries', 'qualityReviews'];
 const CORE_COLS = ['advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules'];
 
 // تقسيم ops المدمجة إلى مستند مركزي + مستند لكل فرع
@@ -268,7 +270,7 @@ function dirOf(org) {
   return {
     dirOnly: true,
     company: { name: (org.company || {}).name || '', logoUrl: (org.company || {}).logoUrl || '', activity: (org.company || {}).activity || '' },
-    branches: (org.branches || []).map(b => ({ id: b.id, name: b.name, defaultFloat: b.defaultFloat || 0, isActive: b.isActive !== false, logoUrl: b.logoUrl || '', city: b.city || '', bankName: b.bankName || '', bankAcc: b.bankAcc || '' })),
+    branches: (org.branches || []).map(b => ({ id: b.id, name: b.name, defaultFloat: b.defaultFloat || 0, isActive: b.isActive !== false, logoUrl: b.logoUrl || '', city: b.city || '', bankName: b.bankName || '', bankAcc: b.bankAcc || '', geofence: b.geofence || null })),   // v24.0: الجيوفنس لازم لكشك الحضور على جهاز الفرع
     expenseCats: org.expenseCats || [],
     deliveryApps: org.deliveryApps || [],
     suppliers: (org.suppliers || []).map(x => ({ id: x.id, name: x.name, category: x.category || '', code: x.code || '', terms: x.terms || 0 })),
@@ -278,6 +280,8 @@ function dirOf(org) {
     customAccounts: org.customAccounts || [],   // v15.21: لازمة لتطابق أكواد بنوك الفروع المربوطة بالدليل على أجهزة الفروع
     periodLocks: org.periodLocks || {},
     appsCfg: org.appsCfg || {},
+    // v24.0: إعدادات HR غير الحساسة التي تحتاجها شاشات الفروع (سماحية التأخير، أوزان الدرجة، قواعد النقاط، أهداف KPI)
+    hrPolicies: org.hrPolicies || {}, pointsRules: org.pointsRules || {}, kpiTargets: org.kpiTargets || {},
     setupComplete: true, migratedV9: org.migratedV9 || ''
   };
 }
@@ -297,6 +301,37 @@ async function migrateV9(org, ops) {
   const org2 = { ...org, migratedV9: nowISO() };
   await cloud.set(KEYS.org, org2);
   return org2;
+}
+
+// v24.0 — هجرة لمرة واحدة (على جهاز المركز): بيانات HR التشغيلية (م٣–م٧) التي حُفظت في org
+// تنتقل إلى مستندات الفروع (rms8_br_*) كي تقرأها وتكتبها أجهزة الفروع؛ org لا يقرؤه إلا المركز.
+const HR_MIGRATE_COLS = ['attendanceEvents', 'shiftTemplates', 'shiftAssignments', 'shiftSwapRequests', 'branchTransferRequests', 'taskTemplates', 'taskAssignments', 'taskCompletions', 'pointsEntries', 'qualityReviews'];
+async function migrateHrToOps(o) {
+  const branchIds = (o.branches || []).map(b => b.id);
+  const byBr = {}; const coreAdd = {};
+  const put = (c, rec) => {
+    const b = rec.branchId && branchIds.includes(rec.branchId) ? rec.branchId : null;
+    if (b) { byBr[b] = byBr[b] || {}; (byBr[b][c] = byBr[b][c] || []).push(rec); }
+    else { (coreAdd[c] = coreAdd[c] || []).push(rec); }
+  };
+  HR_MIGRATE_COLS.forEach(c => (o[c] || []).forEach(rec => put(c, (c === 'branchTransferRequests' && !rec.branchId) ? { ...rec, branchId: rec.fromBranchId } : rec)));
+  (o.employees || []).forEach(e => { if (e.attendancePinHash) put('hrPins', { id: uid('pin'), branchId: e.branchId, employeeId: e.id, pinHash: e.attendancePinHash, updatedAt: nowISO() }); });
+  const merge = (doc, add) => {
+    const next = { ...doc, rev: (doc.rev || 0) + 1 };
+    Object.keys(add).forEach(c => { const ids = new Set((doc[c] || []).map(x => x.id)); next[c] = [...(doc[c] || []), ...add[c].filter(x => !ids.has(x.id))]; });
+    return next;
+  };
+  for (const b of Object.keys(byBr)) {
+    const doc = (await cloud.get(brKey(b), null)) || {};
+    if (!(await cloud.set(brKey(b), merge(doc, byBr[b])))) throw new Error('hr-migrate-br:' + b);
+  }
+  if (Object.keys(coreAdd).length) {
+    const core = (await cloud.get(KEYS.core, null)) || {};
+    if (!(await cloud.set(KEYS.core, merge(core, coreAdd)))) throw new Error('hr-migrate-core');
+  }
+  const o2 = { ...o, hrMigratedV24: nowISO(), employees: (o.employees || []).map(e => { const { attendancePinHash, ...rest } = e; return rest; }) };
+  HR_MIGRATE_COLS.forEach(c => { delete o2[c]; });
+  return o2;
 }
 
 // سداد المورد قد يُوزَّع على أكثر من طريقة دفع (نقد + شبكة + تحويل + غير ذلك) لنفس الدفعة/الفاتورة
@@ -1767,7 +1802,8 @@ function emptyOrg(company) {
 }
 
 function emptyOps() {
-  return { closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [] };
+  return { closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
+    attendanceEvents: [], hrPins: [], shiftTemplates: [], shiftAssignments: [], shiftSwapRequests: [], branchTransferRequests: [], taskTemplates: [], taskAssignments: [], taskCompletions: [], pointsEntries: [], qualityReviews: [] };
 }
 
 
@@ -1878,6 +1914,13 @@ export default function App() {
         o = { ...o, membersSyncedV9: nowISO() };
         await cloud.set(KEYS.org, o);
       } catch { }
+    }
+    // v24.0: نقل بيانات HR من org إلى مستندات الفروع + تجديد الدليل العام (يحمل الآن إعدادات HR غير الحساسة) — مرة واحدة
+    if (o.migratedV9 && !o.hrMigratedV24) {
+      try {
+        const o3 = await migrateHrToOps(o);
+        if (await cloud.set(KEYS.org, o3)) { o = o3; try { await cloud.set(KEYS.dir, dirOf(o)); } catch { } }
+      } catch (e) { console.warn('هجرة HR v24.0 لم تكتمل — ستُعاد في التحميل التالي:', e); }
     }
     const branchIds = (o.branches || []).map(b => b.id);
     dataCtx.current = { central: true, myBrIds: branchIds, email: dataCtx.current.email };
@@ -2550,7 +2593,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v23.0 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v24.0 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -8799,9 +8842,10 @@ function HrPolicy({ org, me, commitOrg, say }) {
    موظف (مُجزَّأ SHA-256 عبر sha()) + تحقّق موقعي اختياري (جيوفنس الفرع
    من م٢، عبر haversineMeters) يُسجَّل كعلَم امتثال بلا حجب العملية.
    ============================================================ */
-function Attendance({ org, me, myBranches, commitOrg, say }) {
+function Attendance({ org, ops, me, myBranches, commit, say }) {
   const isCashier = me.role === 'cashier';
-  const events = org.attendanceEvents || [];
+  const events = ops.attendanceEvents || [];
+  const pinHashOf = (empId) => (((ops.hrPins || []).find(p => p.employeeId === empId)) || {}).pinHash || '';
   const branches = myBranches || [];
 
   const [view, setView] = useState('kiosk');
@@ -8831,7 +8875,7 @@ function Attendance({ org, me, myBranches, commitOrg, say }) {
     if (!/^\d{4,6}$/.test(pinVal)) return say('أدخل رقم PIN المكوّن من ٤ إلى ٦ أرقام', 'no');
     setBusy(true);
     const hash = await sha(pinVal);
-    if (!pinFor.attendancePinHash || pinFor.attendancePinHash !== hash) {
+    if (!pinHashOf(pinFor.id) || pinHashOf(pinFor.id) !== hash) {
       setBusy(false); setPinVal('');
       return say('رقم PIN غير صحيح', 'no');
     }
@@ -8850,7 +8894,7 @@ function Attendance({ org, me, myBranches, commitOrg, say }) {
           rec.withinGeofence = rec.distanceMeters <= (branch.geofence.radiusMeters || 100);
         }
       }
-      await commitOrg(d => ({ ...d, attendanceEvents: [rec, ...(d.attendanceEvents || [])] }), {
+      await commit(d => ({ ...d, attendanceEvents: [rec, ...(d.attendanceEvents || [])] }), {
         actionType: 'update', targetType: 'attendance', targetId: rec.id, branchName: branch.name,
         title: type === 'in' ? 'تسجيل حضور موظف' : 'تسجيل انصراف موظف',
         details: pinFor.name + (rec.withinGeofence === false ? ' — خارج نطاق الفرع (' + rec.distanceMeters + 'م)' : '')
@@ -8873,14 +8917,14 @@ function Attendance({ org, me, myBranches, commitOrg, say }) {
     if (!/^\d{4,6}$/.test(np1)) return say('رقم PIN يجب أن يكون ٤ إلى ٦ أرقام', 'no');
     if (np1 !== np2) return say('رقما PIN غير متطابقين', 'no');
     const hash = await sha(np1);
-    await commitOrg(d => ({ ...d, employees: (d.employees || []).map(x => x.id === pinSetFor.id ? { ...x, attendancePinHash: hash } : x) }),
+    await commit(d => ({ ...d, hrPins: [...(d.hrPins || []).filter(p => p.employeeId !== pinSetFor.id), { id: uid('pin'), branchId: pinSetFor.branchId, employeeId: pinSetFor.id, pinHash: hash, updatedAt: nowISO() }] }),
       { actionType: 'update', targetType: 'user_account', targetId: pinSetFor.id, title: 'ضبط رقم PIN للحضور', details: pinSetFor.name });
     say('حُفظ رقم PIN ✓');
     setPinSetFor(null); setNp1(''); setNp2('');
   };
   const clearPin = async (e) => {
     if (!window.confirm('إلغاء رقم PIN الحالي لـ«' + e.name + '»؟ لن يستطيع تسجيل حضوره حتى يُضبط رقم جديد.')) return;
-    await commitOrg(d => ({ ...d, employees: (d.employees || []).map(x => x.id === e.id ? { ...x, attendancePinHash: '' } : x) }),
+    await commit(d => ({ ...d, hrPins: (d.hrPins || []).filter(p => p.employeeId !== e.id) }),
       { actionType: 'update', targetType: 'user_account', targetId: e.id, title: 'إلغاء رقم PIN للحضور', details: e.name });
     say('أُلغي رقم PIN ✓');
   };
@@ -8935,7 +8979,7 @@ function Attendance({ org, me, myBranches, commitOrg, say }) {
                   <div style={{ marginTop: 6 }}>
                     <span className={'badge ' + (nt === 'in' ? 'b-mint' : 'b-amber')}>{nt === 'in' ? 'تسجيل حضور' : 'تسجيل انصراف'}</span>
                   </div>
-                  {!e.attendancePinHash && <div style={{ fontSize: 9.5, color: 'var(--rose)', marginTop: 4 }}>لا يوجد رقم PIN — راجع مدير الفرع</div>}
+                  {!pinHashOf(e.id) && <div style={{ fontSize: 9.5, color: 'var(--rose)', marginTop: 4 }}>لا يوجد رقم PIN — راجع مدير الفرع</div>}
                 </button>
               );
             })}
@@ -8955,11 +8999,11 @@ function Attendance({ org, me, myBranches, commitOrg, say }) {
                 {emps.map(e => (
                   <tr key={e.id}>
                     <td style={{ fontWeight: 600, fontSize: 12.5 }}>{e.name}</td>
-                    <td>{e.attendancePinHash ? <span className="badge b-mint">مُفعَّل</span> : <span className="badge b-dim">غير مُفعَّل</span>}</td>
+                    <td>{pinHashOf(e.id) ? <span className="badge b-mint">مُفعَّل</span> : <span className="badge b-dim">غير مُفعَّل</span>}</td>
                     <td>
                       <div className="row" style={{ gap: 5, justifyContent: 'flex-end' }}>
-                        <button className="btn sm gh" onClick={() => { setPinSetFor(e); setNp1(''); setNp2(''); }}><Lock size={13} />{e.attendancePinHash ? 'إعادة ضبط' : 'ضبط رقم PIN'}</button>
-                        {e.attendancePinHash && <button className="btn sm gh" onClick={() => clearPin(e)}><Trash2 size={13} />إلغاء</button>}
+                        <button className="btn sm gh" onClick={() => { setPinSetFor(e); setNp1(''); setNp2(''); }}><Lock size={13} />{pinHashOf(e.id) ? 'إعادة ضبط' : 'ضبط رقم PIN'}</button>
+                        {pinHashOf(e.id) && <button className="btn sm gh" onClick={() => clearPin(e)}><Trash2 size={13} />إلغاء</button>}
                       </div>
                     </td>
                   </tr>
@@ -9049,12 +9093,12 @@ function Attendance({ org, me, myBranches, commitOrg, say }) {
 /* ============================================================
    م٤ — محرّك الورديات (Shift Engine)
    قوالب ورديات لكل فرع + تقويم تعيين أسبوعي + مطابقة تلقائية مع
-   الحضور الفعلي (org.attendanceEvents من م٣) + طلبات تبديل وردية بين
+   الحضور الفعلي (ops.attendanceEvents من م٣) + طلبات تبديل وردية بين
    موظفين + طلبات نقل موظف بين الفروع. تبويب مستقل (وليس متداخلًا داخل
    people) — مضاف صراحةً في ثلاثة مواضع معًا: ROLES.tabs، بلاطة
    LAUNCH_APPS/REG_APPS، ومصفوفة NAV (درس v19.0→v19.1، راجع الدليل).
    ============================================================ */
-function ShiftEngine({ org, me, myBranches, commitOrg, commit, say }) {
+function ShiftEngine({ org, ops, me, myBranches, commitOrg, commit, say }) {
   const role = ROLES[me.role] || {};
   const isAll = role.scope === 'all';
   const canEdit = role.scope === 'own' || isAll; // تعديل: مدير الفرع + أدوار المركز — بلا تعديل للمدير الإقليمي (اطّلاع فقط)
@@ -9072,7 +9116,7 @@ function ShiftEngine({ org, me, myBranches, commitOrg, commit, say }) {
   const branchIds = branches.map(b => b.id);
 
   const emps = (org.employees || []).filter(e => e.isActive !== false && branch && e.branchId === branch.id);
-  const templates = (org.shiftTemplates || []).filter(t => branch && t.branchId === branch.id);
+  const templates = (ops.shiftTemplates || []).filter(t => branch && t.branchId === branch.id);
 
   const addDays = (ds, n) => { const d = new Date(ds + 'T00:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
   const weekdayOf = (ds) => new Date(ds + 'T00:00:00').getDay();
@@ -9090,21 +9134,21 @@ function ShiftEngine({ org, me, myBranches, commitOrg, commit, say }) {
     if (!branch) return;
     if (!tplF.name || !tplF.startTime || !tplF.endTime) return say('أدخل الاسم ووقتي البداية والنهاية', 'no');
     const rec = { id: tplF.id || uid('shtpl'), branchId: branch.id, name: tplF.name, startTime: tplF.startTime, endTime: tplF.endTime, breakMinutes: Number(tplF.breakMinutes) || 0, days: tplF.days && tplF.days.length ? tplF.days : [0, 1, 2, 3, 4, 5, 6] };
-    const exists = (org.shiftTemplates || []).some(t => t.id === rec.id);
-    await commitOrg(d => ({ ...d, shiftTemplates: exists ? (d.shiftTemplates || []).map(t => t.id === rec.id ? rec : t) : [...(d.shiftTemplates || []), rec] }),
+    const exists = (ops.shiftTemplates || []).some(t => t.id === rec.id);
+    await commit(d => ({ ...d, shiftTemplates: exists ? (d.shiftTemplates || []).map(t => t.id === rec.id ? rec : t) : [...(d.shiftTemplates || []), rec] }),
       { actionType: exists ? 'update' : 'create', targetType: 'shift_template', targetId: rec.id, branchName: branch.name, title: exists ? 'عدّل قالب وردية' : 'أضاف قالب وردية', details: branch.name + ' — ' + rec.name });
     say('حُفظ قالب الوردية ✓'); setTplF(null);
   };
   const delTpl = async (t) => {
     if (!window.confirm('حذف قالب «' + t.name + '»؟ التعيينات القائمة عليه ستظهر بلا قالب (لن تُحذف بياناتها).')) return;
-    await commitOrg(d => ({ ...d, shiftTemplates: (d.shiftTemplates || []).filter(x => x.id !== t.id) }),
+    await commit(d => ({ ...d, shiftTemplates: (d.shiftTemplates || []).filter(x => x.id !== t.id) }),
       { actionType: 'delete', targetType: 'shift_template', targetId: t.id, branchName: branch.name, title: 'حذف قالب وردية', details: t.name });
     say('حُذف القالب ✓');
   };
 
-  // === ٢) تقويم التعيين الأسبوعي (org.shiftAssignments — تُبقيها بجانب org.attendanceEvents وطلبات التبديل/النقل
+  // === ٢) تقويم التعيين الأسبوعي (ops.shiftAssignments — تُبقيها بجانب ops.attendanceEvents وطلبات التبديل/النقل
   // في نفس المستند كي يُعتمَد التبديل بكتابة ذرّية واحدة تُحدِّث التعيين وحالة الطلب معًا) ===
-  const assignRecs = (org.shiftAssignments || []).filter(a => a.weekStart === weekStart && branch && a.branchId === branch.id);
+  const assignRecs = (ops.shiftAssignments || []).filter(a => a.weekStart === weekStart && branch && a.branchId === branch.id);
   const [draftAssign, setDraftAssign] = useState({}); // {empId: [7]}
   const shiftIdsOf = (empId) => {
     if (draftAssign[empId]) return draftAssign[empId];
@@ -9116,7 +9160,7 @@ function ShiftEngine({ org, me, myBranches, commitOrg, commit, say }) {
   const saveAssign = async () => {
     if (!branch) return;
     const recs = emps.map(e => ({ id: (assignRecs.find(a => a.empId === e.id) || {}).id || uid('shas'), weekStart, empId: e.id, branchId: branch.id, shiftIds: shiftIdsOf(e.id) }));
-    await commitOrg(d => ({ ...d, shiftAssignments: [...(d.shiftAssignments || []).filter(a => !(a.weekStart === weekStart && a.branchId === branch.id)), ...recs] }),
+    await commit(d => ({ ...d, shiftAssignments: [...(d.shiftAssignments || []).filter(a => !(a.weekStart === weekStart && a.branchId === branch.id)), ...recs] }),
       { actionType: 'update', targetType: 'shift_assignment', targetId: weekStart, branchName: branch.name, title: 'حفظ تعيين ورديات الأسبوع', details: branch.name + ' — أسبوع ' + weekStart });
     setDraftAssign({}); say('حُفظ تعيين الأسبوع ✓');
   };
@@ -9134,7 +9178,7 @@ function ShiftEngine({ org, me, myBranches, commitOrg, commit, say }) {
       const tpl = templates.find(t => t.id === shiftId);
       const ds = days[di];
       if (ds > today()) { matchRows.push({ e, ds, tpl, status: 'upcoming' }); return; }
-      const evs = (org.attendanceEvents || []).filter(ev => ev.employeeId === e.id && (ev.at || '').slice(0, 10) === ds).sort((a, b) => a.at < b.at ? -1 : 1);
+      const evs = (ops.attendanceEvents || []).filter(ev => ev.employeeId === e.id && (ev.at || '').slice(0, 10) === ds).sort((a, b) => a.at < b.at ? -1 : 1);
       const inEv = evs.find(ev => ev.type === 'in');
       const outEvs = evs.filter(ev => ev.type === 'out');
       const outEv = outEvs[outEvs.length - 1];
@@ -9155,23 +9199,23 @@ function ShiftEngine({ org, me, myBranches, commitOrg, commit, say }) {
 
   // === ٤) طلبات تبديل الوردية ===
   const [swapF, setSwapF] = useState({ di: 0, empA: '', empB: '' });
-  const swapReqs = (org.shiftSwapRequests || []).filter(r => branchIds.includes(r.branchId)).sort((a, b) => (a.requestedAt < b.requestedAt ? 1 : -1));
+  const swapReqs = (ops.shiftSwapRequests || []).filter(r => branchIds.includes(r.branchId)).sort((a, b) => (a.requestedAt < b.requestedAt ? 1 : -1));
   const requestSwap = async () => {
     if (!branch || !swapF.empA || !swapF.empB || swapF.empA === swapF.empB) return say('اختر موظفين مختلفين', 'no');
     const rec = { id: uid('swap'), weekStart, day: Number(swapF.di), branchId: branch.id, branchName: branch.name, empFromId: swapF.empA, empFromName: emps.find(e => e.id === swapF.empA)?.name || '', empToId: swapF.empB, empToName: emps.find(e => e.id === swapF.empB)?.name || '', status: 'pending', requestedBy: me.id, requestedByName: me.name, requestedAt: nowISO() };
-    await commitOrg(d => ({ ...d, shiftSwapRequests: [rec, ...(d.shiftSwapRequests || [])] }),
+    await commit(d => ({ ...d, shiftSwapRequests: [rec, ...(d.shiftSwapRequests || [])] }),
       { actionType: 'create', targetType: 'shift_swap', targetId: rec.id, branchName: branch.name, title: 'طلب تبديل وردية', details: rec.empFromName + ' ↔ ' + rec.empToName + ' — ' + HR_WEEK_DAYS[rec.day].ar });
     say('أُرسل طلب التبديل ✓'); setSwapF({ di: 0, empA: '', empB: '' });
   };
   const decideSwap = async (r, approve) => {
     if (approve) {
-      const recA = (org.shiftAssignments || []).find(a => a.weekStart === r.weekStart && a.branchId === r.branchId && a.empId === r.empFromId);
-      const recB = (org.shiftAssignments || []).find(a => a.weekStart === r.weekStart && a.branchId === r.branchId && a.empId === r.empToId);
+      const recA = (ops.shiftAssignments || []).find(a => a.weekStart === r.weekStart && a.branchId === r.branchId && a.empId === r.empFromId);
+      const recB = (ops.shiftAssignments || []).find(a => a.weekStart === r.weekStart && a.branchId === r.branchId && a.empId === r.empToId);
       const arrA = (recA && recA.shiftIds) || Array(7).fill('');
       const arrB = (recB && recB.shiftIds) || Array(7).fill('');
       const newArrA = [...arrA]; const newArrB = [...arrB];
       const tmp = newArrA[r.day]; newArrA[r.day] = newArrB[r.day]; newArrB[r.day] = tmp;
-      await commitOrg(d => {
+      await commit(d => {
         let list = (d.shiftAssignments || []).slice();
         const upsert = (empId, arr) => {
           const idx = list.findIndex(a => a.weekStart === r.weekStart && a.branchId === r.branchId && a.empId === empId);
@@ -9183,7 +9227,7 @@ function ShiftEngine({ org, me, myBranches, commitOrg, commit, say }) {
       }, { actionType: 'update', targetType: 'shift_swap', targetId: r.id, branchName: r.branchName, title: 'اعتماد تبديل وردية', details: r.empFromName + ' ↔ ' + r.empToName });
       say('اعتُمد التبديل وطُبِّق على الجدول ✓');
     } else {
-      await commitOrg(d => ({ ...d, shiftSwapRequests: (d.shiftSwapRequests || []).map(x => x.id === r.id ? { ...x, status: 'rejected', decidedBy: me.id, decidedByName: me.name, decidedAt: nowISO() } : x) }),
+      await commit(d => ({ ...d, shiftSwapRequests: (d.shiftSwapRequests || []).map(x => x.id === r.id ? { ...x, status: 'rejected', decidedBy: me.id, decidedByName: me.name, decidedAt: nowISO() } : x) }),
         { actionType: 'update', targetType: 'shift_swap', targetId: r.id, branchName: r.branchName, title: 'رفض تبديل وردية', details: r.empFromName + ' ↔ ' + r.empToName });
       say('رُفض الطلب');
     }
@@ -9191,26 +9235,26 @@ function ShiftEngine({ org, me, myBranches, commitOrg, commit, say }) {
 
   // === ٥) طلبات نقل موظف بين الفروع ===
   const [trF, setTrF] = useState({ empId: '', toBranchId: '', note: '' });
-  const transferReqs = (org.branchTransferRequests || []).filter(r => branchIds.includes(r.fromBranchId) || isAll).sort((a, b) => (a.requestedAt < b.requestedAt ? 1 : -1));
+  const transferReqs = (ops.branchTransferRequests || []).filter(r => branchIds.includes(r.fromBranchId) || isAll).sort((a, b) => (a.requestedAt < b.requestedAt ? 1 : -1));
   const requestTransfer = async () => {
     if (!branch || !trF.empId || !trF.toBranchId) return say('اختر الموظف والفرع الجديد', 'no');
     const emp = (org.employees || []).find(x => x.id === trF.empId);
     const toB = (org.branches || []).find(x => x.id === trF.toBranchId);
-    const rec = { id: uid('trreq'), employeeId: emp.id, employeeName: emp.name, fromBranchId: branch.id, fromBranchName: branch.name, toBranchId: toB.id, toBranchName: toB.name, note: trF.note || '', status: 'pending', requestedBy: me.id, requestedByName: me.name, requestedAt: nowISO() };
-    await commitOrg(d => ({ ...d, branchTransferRequests: [rec, ...(d.branchTransferRequests || [])] }),
+    const rec = { id: uid('trreq'), branchId: branch.id, employeeId: emp.id, employeeName: emp.name, fromBranchId: branch.id, fromBranchName: branch.name, toBranchId: toB.id, toBranchName: toB.name, note: trF.note || '', status: 'pending', requestedBy: me.id, requestedByName: me.name, requestedAt: nowISO() };
+    await commit(d => ({ ...d, branchTransferRequests: [rec, ...(d.branchTransferRequests || [])] }),
       { actionType: 'create', targetType: 'branch_transfer', targetId: rec.id, branchName: branch.name, title: 'طلب نقل موظف بين الفروع', details: emp.name + ': ' + branch.name + ' ← ' + toB.name });
     say('أُرسل طلب النقل ✓'); setTrF({ empId: '', toBranchId: '', note: '' });
   };
   const decideTransfer = async (r, approve) => {
     if (approve) {
-      await commitOrg(d => ({
-        ...d,
-        employees: (d.employees || []).map(x => x.id === r.employeeId ? { ...x, branchId: r.toBranchId } : x),
-        branchTransferRequests: (d.branchTransferRequests || []).map(x => x.id === r.id ? { ...x, status: 'approved', decidedBy: me.id, decidedByName: me.name, decidedAt: nowISO() } : x)
-      }), { actionType: 'update', targetType: 'branch_transfer', targetId: r.id, branchName: r.toBranchName, title: 'اعتماد نقل موظف بين الفروع', details: r.employeeName + ': ' + r.fromBranchName + ' ← ' + r.toBranchName });
+      // v24.0: نقل الموظف في org (أدوار المركز تكتبه) ثم حالة الطلب في مستند الفرع — بترتيب يجعل إعادة المحاولة آمنة
+      const ok1 = await commitOrg(d => ({ ...d, employees: (d.employees || []).map(x => x.id === r.employeeId ? { ...x, branchId: r.toBranchId } : x) }),
+        { actionType: 'update', targetType: 'branch_transfer', targetId: r.id, branchName: r.toBranchName, title: 'اعتماد نقل موظف بين الفروع', details: r.employeeName + ': ' + r.fromBranchName + ' ← ' + r.toBranchName });
+      if (!ok1) return;
+      await commit(d => ({ ...d, branchTransferRequests: (d.branchTransferRequests || []).map(x => x.id === r.id ? { ...x, status: 'approved', decidedBy: me.id, decidedByName: me.name, decidedAt: nowISO() } : x) }));
       say('اعتُمد النقل — الموظف الآن ضمن ' + r.toBranchName + ' ✓');
     } else {
-      await commitOrg(d => ({ ...d, branchTransferRequests: (d.branchTransferRequests || []).map(x => x.id === r.id ? { ...x, status: 'rejected', decidedBy: me.id, decidedByName: me.name, decidedAt: nowISO() } : x) }),
+      await commit(d => ({ ...d, branchTransferRequests: (d.branchTransferRequests || []).map(x => x.id === r.id ? { ...x, status: 'rejected', decidedBy: me.id, decidedByName: me.name, decidedAt: nowISO() } : x) }),
         { actionType: 'update', targetType: 'branch_transfer', targetId: r.id, branchName: r.fromBranchName, title: 'رفض نقل موظف بين الفروع', details: r.employeeName });
       say('رُفض الطلب');
     }
@@ -9465,7 +9509,7 @@ function ShiftEngine({ org, me, myBranches, commitOrg, commit, say }) {
   );
 }
 
-function Tasks({ org, me, myBranches, commitOrg, say }) {
+function Tasks({ org, ops, me, myBranches, commit, say }) {
   const role = ROLES[me.role] || {};
   const isAll = role.scope === 'all';
   const isCashier = me.role === 'cashier';
@@ -9485,39 +9529,39 @@ function Tasks({ org, me, myBranches, commitOrg, say }) {
   const weekdayOf = (ds) => new Date(ds + 'T00:00:00').getDay();
 
   // === ١) قوالب مهام متكررة (يومية/أسبوعية) لكل فرع ===
-  const templates = (org.taskTemplates || []).filter(t => branch && t.branchId === branch.id);
+  const templates = (ops.taskTemplates || []).filter(t => branch && t.branchId === branch.id);
   const [tplF, setTplF] = useState(null); // {id?, title, freq:'daily'|'weekly', weekdays:[], note}
   const saveTpl = async () => {
     if (!branch) return;
     if (!tplF.title) return say('أدخل عنوان المهمة', 'no');
     const rec = { id: tplF.id || uid('ttpl'), branchId: branch.id, title: tplF.title, freq: tplF.freq || 'daily', weekdays: tplF.freq === 'weekly' ? (tplF.weekdays || []) : [0, 1, 2, 3, 4, 5, 6], note: tplF.note || '', isActive: true };
-    const exists = (org.taskTemplates || []).some(t => t.id === rec.id);
-    await commitOrg(d => ({ ...d, taskTemplates: exists ? (d.taskTemplates || []).map(t => t.id === rec.id ? rec : t) : [...(d.taskTemplates || []), rec] }),
+    const exists = (ops.taskTemplates || []).some(t => t.id === rec.id);
+    await commit(d => ({ ...d, taskTemplates: exists ? (d.taskTemplates || []).map(t => t.id === rec.id ? rec : t) : [...(d.taskTemplates || []), rec] }),
       { actionType: exists ? 'update' : 'create', targetType: 'task_template', targetId: rec.id, branchName: branch.name, title: exists ? 'عدّل قالب مهمة' : 'أضاف قالب مهمة', details: branch.name + ' — ' + rec.title });
     say('حُفظ قالب المهمة ✓'); setTplF(null);
   };
   const delTpl = async (t) => {
     if (!window.confirm('حذف قالب مهمة «' + t.title + '»؟')) return;
-    await commitOrg(d => ({ ...d, taskTemplates: (d.taskTemplates || []).filter(x => x.id !== t.id) }),
+    await commit(d => ({ ...d, taskTemplates: (d.taskTemplates || []).filter(x => x.id !== t.id) }),
       { actionType: 'delete', targetType: 'task_template', targetId: t.id, branchName: branch.name, title: 'حذف قالب مهمة', details: t.title });
     say('حُذف القالب ✓');
   };
 
   // === ٢) تكليف مهمة فردية لموظف معيّن ===
-  const assigns = (org.taskAssignments || []).filter(a => branch && a.branchId === branch.id).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  const assigns = (ops.taskAssignments || []).filter(a => branch && a.branchId === branch.id).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
   const [assignF, setAssignF] = useState({ empId: '', title: '', dueDate: today(), priority: 'normal', note: '' });
   const saveAssign = async () => {
     if (!branch) return;
     const emp = emps.find(e => e.id === assignF.empId);
     if (!emp || !assignF.title) return say('اختر الموظف وأدخل عنوان المهمة', 'no');
     const rec = { id: uid('task'), branchId: branch.id, employeeId: emp.id, employeeName: emp.name, title: assignF.title, note: assignF.note || '', dueDate: assignF.dueDate || today(), priority: assignF.priority || 'normal', status: 'open', createdBy: me.id, createdByName: me.name, createdAt: nowISO() };
-    await commitOrg(d => ({ ...d, taskAssignments: [rec, ...(d.taskAssignments || [])] }),
+    await commit(d => ({ ...d, taskAssignments: [rec, ...(d.taskAssignments || [])] }),
       { actionType: 'create', targetType: 'task_assignment', targetId: rec.id, branchName: branch.name, title: 'تكليف مهمة فردية', details: emp.name + ' — ' + rec.title });
     say('أُسندت المهمة ✓'); setAssignF({ empId: '', title: '', dueDate: today(), priority: 'normal', note: '' });
   };
   const cancelAssign = async (a) => {
     if (!window.confirm('إلغاء المهمة «' + a.title + '»؟')) return;
-    await commitOrg(d => ({ ...d, taskAssignments: (d.taskAssignments || []).filter(x => x.id !== a.id) }),
+    await commit(d => ({ ...d, taskAssignments: (d.taskAssignments || []).filter(x => x.id !== a.id) }),
       { actionType: 'delete', targetType: 'task_assignment', targetId: a.id, branchName: branch.name, title: 'إلغاء مهمة فردية', details: a.title });
     say('أُلغيت المهمة');
   };
@@ -9527,23 +9571,23 @@ function Tasks({ org, me, myBranches, commitOrg, say }) {
   useEffect(() => { if (!emps.find(e => e.id === empId)) setEmpId(''); }, [emps, empId]); // eslint-disable-line
   const chkEmp = emps.find(e => e.id === empId) || null;
   const dueTemplatesToday = branch ? templates.filter(t => t.isActive !== false && (t.freq === 'daily' || (t.weekdays || []).includes(weekdayOf(today())))) : [];
-  const completionsToday = (org.taskCompletions || []).filter(c => c.employeeId === empId && c.date === today());
+  const completionsToday = (ops.taskCompletions || []).filter(c => c.employeeId === empId && c.date === today());
   const isTplDone = (tplId) => completionsToday.some(c => c.templateId === tplId);
   const openIndivToday = chkEmp ? assigns.filter(a => a.employeeId === chkEmp.id && a.status === 'open' && a.dueDate <= today()) : [];
   const toggleTpl = async (t) => {
     if (!chkEmp || !branch) return;
     if (isTplDone(t.id)) {
-      await commitOrg(d => ({ ...d, taskCompletions: (d.taskCompletions || []).filter(c => !(c.templateId === t.id && c.employeeId === chkEmp.id && c.date === today())) }),
+      await commit(d => ({ ...d, taskCompletions: (d.taskCompletions || []).filter(c => !(c.templateId === t.id && c.employeeId === chkEmp.id && c.date === today())) }),
         { actionType: 'update', targetType: 'task_completion', targetId: t.id, branchName: branch.name, title: 'إلغاء إنجاز مهمة متكررة', details: chkEmp.name + ' — ' + t.title });
     } else {
       const rec = { id: uid('tcomp'), templateId: t.id, branchId: branch.id, employeeId: chkEmp.id, employeeName: chkEmp.name, date: today(), doneAt: nowISO(), doneBy: me.id, doneByName: me.name };
-      await commitOrg(d => ({ ...d, taskCompletions: [rec, ...(d.taskCompletions || [])] }),
+      await commit(d => ({ ...d, taskCompletions: [rec, ...(d.taskCompletions || [])] }),
         { actionType: 'create', targetType: 'task_completion', targetId: rec.id, branchName: branch.name, title: 'إنجاز مهمة متكررة', details: chkEmp.name + ' — ' + t.title });
     }
   };
   const doneIndiv = async (a) => {
     if (!branch) return;
-    await commitOrg(d => ({ ...d, taskAssignments: (d.taskAssignments || []).map(x => x.id === a.id ? { ...x, status: 'done', doneAt: nowISO(), doneBy: me.id, doneByName: me.name } : x) }),
+    await commit(d => ({ ...d, taskAssignments: (d.taskAssignments || []).map(x => x.id === a.id ? { ...x, status: 'done', doneAt: nowISO(), doneBy: me.id, doneByName: me.name } : x) }),
       { actionType: 'update', targetType: 'task_assignment', targetId: a.id, branchName: branch.name, title: 'إنجاز مهمة فردية', details: a.employeeName + ' — ' + a.title });
     say('أُنجزت المهمة ✓');
   };
@@ -9563,7 +9607,7 @@ function Tasks({ org, me, myBranches, commitOrg, say }) {
       const wd = weekdayOf(ds);
       templates.filter(t => t.isActive !== false && (t.freq === 'daily' || (t.weekdays || []).includes(wd))).forEach(t => {
         expected++;
-        if ((org.taskCompletions || []).some(c => c.templateId === t.id && c.employeeId === e.id && c.date === ds)) done++;
+        if ((ops.taskCompletions || []).some(c => c.templateId === t.id && c.employeeId === e.id && c.date === ds)) done++;
       });
     });
     const indiv = assigns.filter(a => a.employeeId === e.id && a.dueDate >= repFrom && a.dueDate <= repTo);
@@ -9790,7 +9834,7 @@ function Tasks({ org, me, myBranches, commitOrg, say }) {
   );
 }
 
-function PointsLedger({ org, me, myBranches, commitOrg, say }) {
+function PointsLedger({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const role = ROLES[me.role] || {};
   const isAll = role.scope === 'all';
   const isCashier = me.role === 'cashier';
@@ -9820,13 +9864,13 @@ function PointsLedger({ org, me, myBranches, commitOrg, say }) {
   // === النقاط التلقائية (مُشتقّة، لا تُخزَّن — نفس فلسفة buildAccounting) من م٣/م٤/م٥ ===
   const autoFor = (emp, from, to) => {
     const c = { onTime: 0, late: 0, absent: 0, tasks: 0 };
-    (org.shiftAssignments || []).filter(a => a.empId === emp.id).forEach(a => {
+    (ops.shiftAssignments || []).filter(a => a.empId === emp.id).forEach(a => {
       (a.shiftIds || []).forEach((sid, di) => {
         if (!sid) return;
         const ds = addDays(a.weekStart, di);
         if (ds < from || ds > to || ds > today()) return;
-        const tpl = (org.shiftTemplates || []).find(t => t.id === sid);
-        const evs = (org.attendanceEvents || []).filter(ev => ev.employeeId === emp.id && (ev.at || '').slice(0, 10) === ds).sort((x, y) => (x.at < y.at ? -1 : 1));
+        const tpl = (ops.shiftTemplates || []).find(t => t.id === sid);
+        const evs = (ops.attendanceEvents || []).filter(ev => ev.employeeId === emp.id && (ev.at || '').slice(0, 10) === ds).sort((x, y) => (x.at < y.at ? -1 : 1));
         const inEv = evs.find(ev => ev.type === 'in');
         if (!inEv) { if (ds < today()) c.absent++; return; }
         const inMin = new Date(inEv.at).getHours() * 60 + new Date(inEv.at).getMinutes();
@@ -9834,31 +9878,31 @@ function PointsLedger({ org, me, myBranches, commitOrg, say }) {
         if (lateBy > 0) c.late++; else c.onTime++;
       });
     });
-    c.tasks = (org.taskCompletions || []).filter(x => x.employeeId === emp.id && x.date >= from && x.date <= to).length
-      + (org.taskAssignments || []).filter(x => x.employeeId === emp.id && x.status === 'done' && (x.doneAt || '').slice(0, 10) >= from && (x.doneAt || '').slice(0, 10) <= to).length;
+    c.tasks = (ops.taskCompletions || []).filter(x => x.employeeId === emp.id && x.date >= from && x.date <= to).length
+      + (ops.taskAssignments || []).filter(x => x.employeeId === emp.id && x.status === 'done' && (x.doneAt || '').slice(0, 10) >= from && (x.doneAt || '').slice(0, 10) <= to).length;
     const pts = rules.enabled ? c.onTime * Number(rules.onTime || 0) + c.late * Number(rules.late || 0) + c.absent * Number(rules.absent || 0) + c.tasks * Number(rules.taskDone || 0) : 0;
     return { ...c, pts };
   };
-  const manualFor = (emp, from, to) => (org.pointsEntries || []).filter(x => x.employeeId === emp.id && x.date >= from && x.date <= to).reduce((s, x) => s + Number(x.points || 0), 0);
+  const manualFor = (emp, from, to) => (ops.pointsEntries || []).filter(x => x.employeeId === emp.id && x.date >= from && x.date <= to).reduce((s, x) => s + Number(x.points || 0), 0);
   const ALL_FROM = '0000-00-00', ALL_TO = '9999-99-99';
   const balanceOf = (emp) => manualFor(emp, ALL_FROM, ALL_TO) + autoFor(emp, ALL_FROM, ALL_TO).pts;
 
   // === ١) حركات يدوية ===
   const [entF, setEntF] = useState({ empId: '', points: '', reason: '', date: today() });
-  const entries = (org.pointsEntries || []).filter(x => branchIds.includes(x.branchId)).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  const entries = (ops.pointsEntries || []).filter(x => branchIds.includes(x.branchId)).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
   const saveEntry = async () => {
     if (!branch) return;
     const emp = emps.find(e => e.id === entF.empId);
     const pts = Number(entF.points);
     if (!emp || !pts || !entF.reason) return say('اختر الموظف وأدخل عدد النقاط (موجب أو سالب) والسبب', 'no');
     const rec = { id: uid('pt'), branchId: branch.id, employeeId: emp.id, employeeName: emp.name, date: entF.date || today(), points: pts, reason: entF.reason, source: 'manual', createdBy: me.id, createdByName: me.name, createdAt: nowISO() };
-    await commitOrg(d => ({ ...d, pointsEntries: [rec, ...(d.pointsEntries || [])] }),
+    await commit(d => ({ ...d, pointsEntries: [rec, ...(d.pointsEntries || [])] }),
       { actionType: 'create', targetType: 'points_entry', targetId: rec.id, branchName: branch.name, title: pts > 0 ? 'إضافة نقاط لموظف' : 'خصم نقاط من موظف', details: emp.name + ': ' + (pts > 0 ? '+' : '') + pts + ' — ' + rec.reason });
     say('سُجِّلت الحركة ✓'); setEntF({ empId: '', points: '', reason: '', date: today() });
   };
   const delEntry = async (x) => {
     if (!window.confirm('حذف حركة النقاط «' + x.reason + '» (' + x.points + ') لـ' + x.employeeName + '؟')) return;
-    await commitOrg(d => ({ ...d, pointsEntries: (d.pointsEntries || []).filter(y => y.id !== x.id) }),
+    await commit(d => ({ ...d, pointsEntries: (d.pointsEntries || []).filter(y => y.id !== x.id) }),
       { actionType: 'delete', targetType: 'points_entry', targetId: x.id, branchName: branch ? branch.name : '', title: 'حذف حركة نقاط', details: x.employeeName + ': ' + x.points });
     say('حُذفت الحركة');
   };
@@ -9890,7 +9934,8 @@ function PointsLedger({ org, me, myBranches, commitOrg, say }) {
     if (!emp) return say('اختر الموظف', 'no');
     if (!/^\d{4,6}$/.test(kPin)) return say('أدخل رقم PIN المكوّن من ٤ إلى ٦ أرقام', 'no');
     const hash = await sha(kPin);
-    if (!emp.attendancePinHash || emp.attendancePinHash !== hash) { setKPin(''); return say('رقم PIN غير صحيح', 'no'); }
+    const ph = (((ops.hrPins || []).find(p => p.employeeId === emp.id)) || {}).pinHash || '';
+    if (!ph || ph !== hash) { setKPin(''); return say('رقم PIN غير صحيح', 'no'); }
     setKShown(emp); setKPin('');
   };
 
@@ -10045,7 +10090,7 @@ function PointsLedger({ org, me, myBranches, commitOrg, say }) {
                 <button className="btn pri" onClick={kioskCheck}><Eye size={14} />عرض رصيدي</button>
               </div>
             </div>
-          ) : (() => { const a = autoFor(kShown, monthFrom, monthTo); const m = manualFor(kShown, monthFrom, monthTo); const bal = balanceOf(kShown); const my = (org.pointsEntries || []).filter(x => x.employeeId === kShown.id).sort((x, y) => (x.createdAt < y.createdAt ? 1 : -1)).slice(0, 10); return (
+          ) : (() => { const a = autoFor(kShown, monthFrom, monthTo); const m = manualFor(kShown, monthFrom, monthTo); const bal = balanceOf(kShown); const my = (ops.pointsEntries || []).filter(x => x.employeeId === kShown.id).sort((x, y) => (x.createdAt < y.createdAt ? 1 : -1)).slice(0, 10); return (
             <div className="card">
               <div className="card-h" style={{ marginBottom: 8 }}>
                 <div className="card-t"><Star size={15} color="var(--brass)" />{kShown.name}</div>
@@ -10072,7 +10117,7 @@ function PointsLedger({ org, me, myBranches, commitOrg, say }) {
 }
 
 // ===== م٧ — دوال نقيّة مشتركة لإحصاءات الموظف والدرجة المركّبة (مُشتقّة، لا تُخزَّن) =====
-function hrEmpStats(org, emp, from, to) {
+function hrEmpStats(org, ops, emp, from, to) {
   const policies = { ...defaultHrPolicies(), ...(org.hrPolicies || {}) };
   const tolerance = Number(policies.lateToleranceMinutes) || 0;
   const rules = { ...defaultPointsRules(), ...(org.pointsRules || {}) };
@@ -10081,13 +10126,13 @@ function hrEmpStats(org, emp, from, to) {
   const addDays = (ds, n) => { const d = new Date(ds + 'T00:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
   const parseHM = (t) => { const [h, m] = String(t || '00:00').split(':').map(Number); return (h || 0) * 60 + (m || 0); };
   const s = { onTime: 0, late: 0, absent: 0, tasksExpected: 0, tasksDone: 0, manualPts: 0, manualCount: 0, autoPts: 0 };
-  (org.shiftAssignments || []).filter(a => a.empId === emp.id).forEach(a => {
+  (ops.shiftAssignments || []).filter(a => a.empId === emp.id).forEach(a => {
     (a.shiftIds || []).forEach((sid, di) => {
       if (!sid) return;
       const ds = addDays(a.weekStart, di);
       if (ds < from || ds > cap) return;
-      const tpl = (org.shiftTemplates || []).find(t => t.id === sid);
-      const evs = (org.attendanceEvents || []).filter(ev => ev.employeeId === emp.id && (ev.at || '').slice(0, 10) === ds).sort((x, y) => (x.at < y.at ? -1 : 1));
+      const tpl = (ops.shiftTemplates || []).find(t => t.id === sid);
+      const evs = (ops.attendanceEvents || []).filter(ev => ev.employeeId === emp.id && (ev.at || '').slice(0, 10) === ds).sort((x, y) => (x.at < y.at ? -1 : 1));
       const inEv = evs.find(ev => ev.type === 'in');
       if (!inEv) { if (ds < td) s.absent++; return; }
       const inMin = new Date(inEv.at).getHours() * 60 + new Date(inEv.at).getMinutes();
@@ -10098,30 +10143,30 @@ function hrEmpStats(org, emp, from, to) {
   if (from <= cap) {
     for (let ds = from, guard = 0; ds <= cap && guard < 62; ds = addDays(ds, 1), guard++) {
       const wd = new Date(ds + 'T00:00:00').getDay();
-      (org.taskTemplates || []).filter(t => t.branchId === emp.branchId && t.isActive !== false && (t.freq === 'daily' || (t.weekdays || []).includes(wd))).forEach(t => {
+      (ops.taskTemplates || []).filter(t => t.branchId === emp.branchId && t.isActive !== false && (t.freq === 'daily' || (t.weekdays || []).includes(wd))).forEach(t => {
         s.tasksExpected++;
-        if ((org.taskCompletions || []).some(c => c.templateId === t.id && c.employeeId === emp.id && c.date === ds)) s.tasksDone++;
+        if ((ops.taskCompletions || []).some(c => c.templateId === t.id && c.employeeId === emp.id && c.date === ds)) s.tasksDone++;
       });
     }
   }
-  (org.taskAssignments || []).filter(x => x.employeeId === emp.id && x.dueDate >= from && x.dueDate <= cap).forEach(x => { s.tasksExpected++; if (x.status === 'done') s.tasksDone++; });
-  const manual = (org.pointsEntries || []).filter(x => x.employeeId === emp.id && x.date >= from && x.date <= to);
+  (ops.taskAssignments || []).filter(x => x.employeeId === emp.id && x.dueDate >= from && x.dueDate <= cap).forEach(x => { s.tasksExpected++; if (x.status === 'done') s.tasksDone++; });
+  const manual = (ops.pointsEntries || []).filter(x => x.employeeId === emp.id && x.date >= from && x.date <= to);
   s.manualCount = manual.length;
   s.manualPts = manual.reduce((a, x) => a + Number(x.points || 0), 0);
-  const taskCount = (org.taskCompletions || []).filter(x => x.employeeId === emp.id && x.date >= from && x.date <= to).length
-    + (org.taskAssignments || []).filter(x => x.employeeId === emp.id && x.status === 'done' && (x.doneAt || '').slice(0, 10) >= from && (x.doneAt || '').slice(0, 10) <= to).length;
+  const taskCount = (ops.taskCompletions || []).filter(x => x.employeeId === emp.id && x.date >= from && x.date <= to).length
+    + (ops.taskAssignments || []).filter(x => x.employeeId === emp.id && x.status === 'done' && (x.doneAt || '').slice(0, 10) >= from && (x.doneAt || '').slice(0, 10) <= to).length;
   s.autoPts = rules.enabled ? s.onTime * Number(rules.onTime || 0) + s.late * Number(rules.late || 0) + s.absent * Number(rules.absent || 0) + taskCount * Number(rules.taskDone || 0) : 0;
   s.pointsActivity = s.manualCount > 0 || (rules.enabled && (s.onTime + s.late + s.absent + taskCount > 0));
   return s;
 }
-function hrScoreFor(org, emp, ym) {
+function hrScoreFor(org, ops, emp, ym) {
   const from = ym + '-01', to = ym + '-31';
-  const st = hrEmpStats(org, emp, from, to);
+  const st = hrEmpStats(org, ops, emp, from, to);
   const policies = { ...defaultHrPolicies(), ...(org.hrPolicies || {}) };
   const w = policies.scoreWeightsEnabled ? (policies.scoreWeights || {}) : defaultHrPolicies().scoreWeights;
   const base = Number(policies.disciplineBase); const pv = Number(policies.disciplinePointValue);
   const attTotal = st.onTime + st.late + st.absent;
-  const rv = (org.qualityReviews || []).find(r => r.employeeId === emp.id && r.ym === ym) || null;
+  const rv = (ops.qualityReviews || []).find(r => r.employeeId === emp.id && r.ym === ym) || null;
   const axes = {
     attendance: attTotal ? Math.round(st.onTime / attTotal * 100) : null,
     tasks: st.tasksExpected ? Math.round(st.tasksDone / st.tasksExpected * 100) : null,
@@ -10133,7 +10178,7 @@ function hrScoreFor(org, emp, ym) {
   return { st, axes, score: den ? Math.round(num / den) : null, review: rv, weights: w, weightsEnabled: !!policies.scoreWeightsEnabled };
 }
 
-function Performance({ org, me, myBranches, commitOrg, say }) {
+function Performance({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const role = ROLES[me.role] || {};
   const isAll = role.scope === 'all';
   const canManage = me.role === 'branch_manager' || isAll; // تقييم المدير الشهري
@@ -10153,7 +10198,7 @@ function Performance({ org, me, myBranches, commitOrg, say }) {
   const fmt = (v) => v == null ? '—' : v;
 
   // === ١) الدرجات الشهرية ===
-  const rows = emps.map(e => ({ e, ...hrScoreFor(org, e, ym) }));
+  const rows = emps.map(e => ({ e, ...hrScoreFor(org, ops, e, ym) }));
   const [wf, setWf] = useState({ scoreWeightsEnabled: !!policies.scoreWeightsEnabled, scoreWeights: { ...(policies.scoreWeights || {}) }, disciplineBase: policies.disciplineBase, disciplinePointValue: policies.disciplinePointValue });
   const saveWeights = async () => {
     const w = wf.scoreWeights || {};
@@ -10168,18 +10213,18 @@ function Performance({ org, me, myBranches, commitOrg, say }) {
 
   // === ٢) تقييم المدير الشهري ===
   const [rvEmp, setRvEmp] = useState('');
-  const existing = (org.qualityReviews || []).find(r => r.employeeId === rvEmp && r.ym === ym) || null;
+  const existing = (ops.qualityReviews || []).find(r => r.employeeId === rvEmp && r.ym === ym) || null;
   const [rvF, setRvF] = useState({ workQuality: 3, customerService: 3, teamwork: 3, note: '' });
   useEffect(() => { setRvF(existing ? { workQuality: existing.workQuality, customerService: existing.customerService, teamwork: existing.teamwork, note: existing.note || '' } : { workQuality: 3, customerService: 3, teamwork: 3, note: '' }); }, [rvEmp, ym, existing && existing.id]); // eslint-disable-line
   const saveReview = async () => {
     const emp = emps.find(e => e.id === rvEmp);
     if (!emp || !branch) return say('اختر الموظف', 'no');
     const rec = { id: existing ? existing.id : uid('qr'), branchId: branch.id, employeeId: emp.id, employeeName: emp.name, ym, workQuality: Number(rvF.workQuality), customerService: Number(rvF.customerService), teamwork: Number(rvF.teamwork), note: rvF.note || '', reviewedBy: me.id, reviewedByName: me.name, reviewedAt: nowISO() };
-    await commitOrg(d => ({ ...d, qualityReviews: existing ? (d.qualityReviews || []).map(r => r.id === rec.id ? rec : r) : [rec, ...(d.qualityReviews || [])] }),
+    await commit(d => ({ ...d, qualityReviews: existing ? (d.qualityReviews || []).map(r => r.id === rec.id ? rec : r) : [rec, ...(d.qualityReviews || [])] }),
       { actionType: existing ? 'update' : 'create', targetType: 'quality_review', targetId: rec.id, branchName: branch.name, title: 'تقييم المدير الشهري', details: emp.name + ' — ' + ym + ' (' + rec.workQuality + '/' + rec.customerService + '/' + rec.teamwork + ')' });
     say('حُفظ التقييم ✓');
   };
-  const monthReviews = (org.qualityReviews || []).filter(r => r.ym === ym && branch && r.branchId === branch.id);
+  const monthReviews = (ops.qualityReviews || []).filter(r => r.ym === ym && branch && r.branchId === branch.id);
   const RATE = [1, 2, 3, 4, 5];
   const rateSel = (k, label) => (
     <Field label={label}>
@@ -10216,7 +10261,7 @@ function Performance({ org, me, myBranches, commitOrg, say }) {
   const [cardEmp, setCardEmp] = useState('');
   const cEmp = emps.find(e => e.id === cardEmp) || null;
   const months6 = [5, 4, 3, 2, 1, 0].map(n => ymAdd(ym, -n));
-  const cardRows = cEmp ? months6.map(m => ({ m, ...hrScoreFor(org, cEmp, m) })) : [];
+  const cardRows = cEmp ? months6.map(m => ({ m, ...hrScoreFor(org, ops, cEmp, m) })) : [];
   const withScore = cardRows.filter(r => r.score != null);
   const trend = withScore.length >= 2 ? withScore[withScore.length - 1].score - withScore[withScore.length - 2].score : null;
 
