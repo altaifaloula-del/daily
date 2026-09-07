@@ -2672,7 +2672,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v27.4 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v27.5 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -17667,6 +17667,10 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
   const saveCustomer = async () => {
     const c = addP;
     if (!c.name?.trim()) return say('اكتب اسم الشريك', 'no');
+    // v27.5 (إصلاح §١٢/18): «موظف» لا يُنشأ من دفتر الشركاء — كان يكتب بطاقة وهمية في org.partners
+    // (مفتاح cust:) بلا فرع ولا راتب، لا تظهر في الحضور/الرواتب. الموظف الحقيقي يُنشأ في «البيانات
+    // الرئيسية» (بفرع إلزامي) ويظهر هنا تلقائيًا عبر buildPartners (مفتاح emp:).
+    if (!c.edit && c.type === 'employee') return say('الموظف يُضاف من «البيانات الرئيسية ← موظف جديد» (بفرع إلزامي)، ثم يظهر هنا تلقائيًا. دفتر الشركاء للعملاء والموردين فقط.', 'no');
     if (c.edit) {
       if (!canWriteOrgP) return say('تعديل بيانات الكرت للإدارة فقط', 'no');
       const patch = { name: c.name.trim(), cat: c.cat || '', phone: c.phone || '', terms: Number(c.terms) || 0, address: c.address || '', taxable: !!c.taxable };
@@ -17885,10 +17889,9 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
             <select className="sel" value={addP.type} onChange={e => setAddP({ ...addP, type: e.target.value })}>
               <option value="customer">عميل (يدين لنا عادةً)</option>
               <option value="supplier">مورد</option>
-              <option value="employee">موظف</option>
             </select>
           </Field>
-          <div style={{ fontSize: 10.5, color: 'var(--faint)', marginBottom: 8, marginTop: -4 }}>الموردون والموظفون يظهرون تلقائياً من وحداتهم؛ أضِف هنا العملاء أو أي شريك غير مسجّل.</div>
+          <div style={{ fontSize: 10.5, color: 'var(--faint)', marginBottom: 8, marginTop: -4 }}>الموظفون يُضافون من «البيانات الرئيسية ← موظف جديد» (بفرع إلزامي) ويظهرون هنا تلقائيًا؛ أضِف هنا العملاء أو الموردين غير المسجّلين.</div>
           </>)}
           <Field label="الاسم"><input className="inp" value={addP.name || ''} onChange={e => setAddP({ ...addP, name: e.target.value })} placeholder="اسم الشريك أو الجهة" /></Field>
           <div className="grid g2">
