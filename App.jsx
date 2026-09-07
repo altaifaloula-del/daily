@@ -2593,7 +2593,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v24.0 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v24.1 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -8825,7 +8825,7 @@ function HrPolicy({ org, me, commitOrg, say }) {
             <div style={{ textAlign: 'center' }}>
               <div style={{ display: 'inline-block', background: '#fff', padding: 10, borderRadius: 12, border: '1px solid var(--frame-o)' }}
                 dangerouslySetInnerHTML={{ __html: qrSvg(payload, { ecl: 1, px: 220 }) }} />
-              <div className="note" style={{ marginTop: 10 }}>يتجدّد الرمز تلقائيًا خلال {secLeft} ثانية — هذه معاينة فقط، والتفعيل الفعلي لمسح الحضور في م٣.</div>
+              <div className="note" style={{ marginTop: 10 }}>يتجدّد الرمز تلقائيًا خلال {secLeft} ثانية — معاينة فقط، غير مُستخدَم حاليًا: تسجيل الحضور المعتمد يتم من شاشة «الحضور الموثَّق» على جهاز الفرع برقم PIN (بقرار الإدارة، بلا مسح من جوال الموظف).</div>
             </div>
           </Modal>
         );
@@ -8845,7 +8845,9 @@ function HrPolicy({ org, me, commitOrg, say }) {
 function Attendance({ org, ops, me, myBranches, commit, say }) {
   const isCashier = me.role === 'cashier';
   const events = ops.attendanceEvents || [];
-  const pinHashOf = (empId) => (((ops.hrPins || []).find(p => p.employeeId === empId)) || {}).pinHash || '';
+  const pinRecOf = (empId) => ((ops.hrPins || []).find(p => p.employeeId === empId)) || null;
+  const pinHashOf = (empId) => (pinRecOf(empId) || {}).pinHash || '';
+  const badgeHashOf = (empId) => (pinRecOf(empId) || {}).badgeHash || '';
   const branches = myBranches || [];
 
   const [view, setView] = useState('kiosk');
@@ -8870,19 +8872,12 @@ function Attendance({ org, ops, me, myBranches, commit, say }) {
   const [pinVal, setPinVal] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const doCheck = async () => {
-    if (!pinFor || !branch) return;
-    if (!/^\d{4,6}$/.test(pinVal)) return say('أدخل رقم PIN المكوّن من ٤ إلى ٦ أرقام', 'no');
-    setBusy(true);
-    const hash = await sha(pinVal);
-    if (!pinHashOf(pinFor.id) || pinHashOf(pinFor.id) !== hash) {
-      setBusy(false); setPinVal('');
-      return say('رقم PIN غير صحيح', 'no');
-    }
-    const type = nextType(pinFor.id);
+  // v24.1: تسجيل الحدث نفسه مشترك بين مسار PIN ومسار بطاقة QR
+  const recordEvent = async (emp, via) => {
+    const type = nextType(emp.id);
     const rec = {
-      id: uid('att'), branchId: branch.id, branchName: branch.name, employeeId: pinFor.id, employeeName: pinFor.name,
-      type, at: nowISO(), recordedBy: me.id, recordedByName: me.name,
+      id: uid('att'), branchId: branch.id, branchName: branch.name, employeeId: emp.id, employeeName: emp.name,
+      type, at: nowISO(), via: via || 'pin', recordedBy: me.id, recordedByName: me.name,
       lat: null, lng: null, distanceMeters: null, withinGeofence: null
     };
     const finish = async (pos) => {
@@ -8894,19 +8889,89 @@ function Attendance({ org, ops, me, myBranches, commit, say }) {
           rec.withinGeofence = rec.distanceMeters <= (branch.geofence.radiusMeters || 100);
         }
       }
-      await commit(d => ({ ...d, attendanceEvents: [rec, ...(d.attendanceEvents || [])] }), {
+      const ok = await commit(d => ({ ...d, attendanceEvents: [rec, ...(d.attendanceEvents || [])] }), {
         actionType: 'update', targetType: 'attendance', targetId: rec.id, branchName: branch.name,
-        title: type === 'in' ? 'تسجيل حضور موظف' : 'تسجيل انصراف موظف',
-        details: pinFor.name + (rec.withinGeofence === false ? ' — خارج نطاق الفرع (' + rec.distanceMeters + 'م)' : '')
+        title: (type === 'in' ? 'تسجيل حضور موظف' : 'تسجيل انصراف موظف') + (via === 'badge' ? ' (بطاقة QR)' : ''),
+        details: emp.name + (rec.withinGeofence === false ? ' — خارج نطاق الفرع (' + rec.distanceMeters + 'م)' : '')
       });
       setBusy(false); setPinFor(null); setPinVal('');
-      say((type === 'in' ? 'سُجِّل الحضور' : 'سُجِّل الانصراف') + ' — ' + pinFor.name + ' ✓' +
+      if (ok) say((type === 'in' ? 'سُجِّل الحضور' : 'سُجِّل الانصراف') + ' — ' + emp.name + ' ✓' +
         (rec.withinGeofence === false ? ' (تنبيه: خارج نطاق الفرع)' : ''));
     };
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(pos => finish(pos), () => finish(null), { timeout: 8000 });
     } else finish(null);
   };
+  const doCheck = async () => {
+    if (!pinFor || !branch || busy) return;
+    if (!/^\d{4,6}$/.test(pinVal)) return say('أدخل رقم PIN المكوّن من ٤ إلى ٦ أرقام', 'no');
+    setBusy(true);
+    const hash = await sha(pinVal);
+    if (!pinHashOf(pinFor.id) || pinHashOf(pinFor.id) !== hash) {
+      setBusy(false); setPinVal('');
+      return say('رقم PIN غير صحيح', 'no');
+    }
+    await recordEvent(pinFor, 'pin');
+  };
+
+  // --- v24.1: بطاقة QR الشخصية للموظف — يمسحها جهاز الفرع (كاميرا أو ماسح USB) بدل كتابة PIN ---
+  const [scanBuf, setScanBuf] = useState('');
+  const handleBadge = async (raw) => {
+    if (!branch || busy) return;
+    const t = String(raw || '').trim();
+    setScanBuf('');
+    const m = t.match(/^ATT:([^:]+):(.+)$/);
+    if (!m) return say('رمز غير معروف — ليست بطاقة حضور صالحة', 'no');
+    const emp = emps.find(e => e.id === m[1]);
+    if (!emp) return say('البطاقة لموظف ليس ضمن هذا الفرع', 'no');
+    setBusy(true);
+    const h = await sha(m[2]);
+    if (!badgeHashOf(emp.id) || badgeHashOf(emp.id) !== h) { setBusy(false); return say('بطاقة ملغاة أو غير صالحة — أعد إصدارها من مدير الفرع', 'no'); }
+    await recordEvent(emp, 'badge');
+  };
+  const [cam, setCam] = useState(false);
+  const videoRef = useRef(null); const streamRef = useRef(null); const rafRef = useRef(0);
+  const stopCam = () => {
+    if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(rafRef.current);
+    try { ((streamRef.current && streamRef.current.getTracks()) || []).forEach(t => t.stop()); } catch { }
+    streamRef.current = null; setCam(false);
+  };
+  const loadJsQR = () => new Promise((res, rej) => {
+    if (window.jsQR) return res(window.jsQR);
+    const sc = document.createElement('script'); sc.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';
+    sc.onload = () => res(window.jsQR); sc.onerror = () => rej(new Error('jsqr')); document.head.appendChild(sc);
+  });
+  const startCam = async () => {
+    if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) return say('المتصفح لا يدعم الكاميرا — استخدم ماسح USB أو رقم PIN', 'no');
+    setCam(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      streamRef.current = stream;
+      const v = videoRef.current; if (!v) { stopCam(); return; }
+      v.srcObject = stream; await v.play();
+      let detector = null;
+      if ('BarcodeDetector' in window) { try { detector = new window.BarcodeDetector({ formats: ['qr_code'] }); } catch { detector = null; } }
+      let jsQR = null;
+      if (!detector) { try { jsQR = await loadJsQR(); } catch { stopCam(); return say('تعذّر تحميل قارئ QR — تحقّق من الاتصال أو استخدم ماسح USB / رقم PIN', 'no'); } }
+      const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      let lastTry = 0;
+      const tick = async () => {
+        if (!streamRef.current) return;
+        const now = Date.now();
+        if (now - lastTry > 250 && v.readyState >= 2) {
+          lastTry = now; let text = '';
+          try {
+            if (detector) { const codes = await detector.detect(v); text = ((codes || [])[0] || {}).rawValue || ''; }
+            else { canvas.width = v.videoWidth; canvas.height = v.videoHeight; ctx.drawImage(v, 0, 0); const img = ctx.getImageData(0, 0, canvas.width, canvas.height); const r = jsQR(img.data, img.width, img.height); text = r ? r.data : ''; }
+          } catch { }
+          if (text) { stopCam(); handleBadge(text); return; }
+        }
+        rafRef.current = requestAnimationFrame(tick);
+      };
+      rafRef.current = requestAnimationFrame(tick);
+    } catch (e) { stopCam(); say('تعذّر فتح الكاميرا — اسمح بالوصول للكاميرا أو استخدم ماسح USB / رقم PIN', 'no'); }
+  };
+  useEffect(() => () => stopCam(), []); // eslint-disable-line
 
   // --- ضبط أرقام PIN للموظفين ---
   const [pinSetFor, setPinSetFor] = useState(null);
@@ -8917,16 +8982,36 @@ function Attendance({ org, ops, me, myBranches, commit, say }) {
     if (!/^\d{4,6}$/.test(np1)) return say('رقم PIN يجب أن يكون ٤ إلى ٦ أرقام', 'no');
     if (np1 !== np2) return say('رقما PIN غير متطابقين', 'no');
     const hash = await sha(np1);
-    await commit(d => ({ ...d, hrPins: [...(d.hrPins || []).filter(p => p.employeeId !== pinSetFor.id), { id: uid('pin'), branchId: pinSetFor.branchId, employeeId: pinSetFor.id, pinHash: hash, updatedAt: nowISO() }] }),
+    await commit(d => { const prev = (d.hrPins || []).find(p => p.employeeId === pinSetFor.id) || {}; return { ...d, hrPins: [...(d.hrPins || []).filter(p => p.employeeId !== pinSetFor.id), { id: prev.id || uid('pin'), branchId: pinSetFor.branchId, employeeId: pinSetFor.id, badgeHash: prev.badgeHash || '', pinHash: hash, updatedAt: nowISO() }] }; },
       { actionType: 'update', targetType: 'user_account', targetId: pinSetFor.id, title: 'ضبط رقم PIN للحضور', details: pinSetFor.name });
     say('حُفظ رقم PIN ✓');
     setPinSetFor(null); setNp1(''); setNp2('');
   };
   const clearPin = async (e) => {
     if (!window.confirm('إلغاء رقم PIN الحالي لـ«' + e.name + '»؟ لن يستطيع تسجيل حضوره حتى يُضبط رقم جديد.')) return;
-    await commit(d => ({ ...d, hrPins: (d.hrPins || []).filter(p => p.employeeId !== e.id) }),
+    await commit(d => ({ ...d, hrPins: (d.hrPins || []).map(p => p.employeeId === e.id ? { ...p, pinHash: '', updatedAt: nowISO() } : p).filter(p => p.pinHash || p.badgeHash) }),
       { actionType: 'update', targetType: 'user_account', targetId: e.id, title: 'إلغاء رقم PIN للحضور', details: e.name });
     say('أُلغي رقم PIN ✓');
+  };
+  // v24.1: إصدار/تجديد بطاقة QR — السرّ يُطبع مرة واحدة على البطاقة ولا يُخزَّن إلا مُجزَّأً في مستند الفرع؛ التجديد يُلغي البطاقة السابقة
+  const issueBadge = async (e) => {
+    if (badgeHashOf(e.id) && !window.confirm('إصدار بطاقة جديدة لـ«' + e.name + '»؟ البطاقة الحالية ستتوقف فورًا عن العمل.')) return;
+    const w = window.open('', '_blank', 'width=520,height=720');   // تُفتح قبل أي انتظار كي لا يحجبها المتصفح
+    const secret = uid('b').slice(2) + Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10);
+    const hash = await sha(secret);
+    const ok = await commit(d => { const prev = (d.hrPins || []).find(p => p.employeeId === e.id) || {}; return { ...d, hrPins: [...(d.hrPins || []).filter(p => p.employeeId !== e.id), { id: prev.id || uid('pin'), branchId: e.branchId, employeeId: e.id, pinHash: prev.pinHash || '', badgeHash: hash, badgeIssuedAt: nowISO(), updatedAt: nowISO() }] }; },
+      { actionType: 'update', targetType: 'user_account', targetId: e.id, branchName: branch ? branch.name : '', title: 'إصدار بطاقة QR للحضور', details: e.name });
+    if (!ok) { if (w) w.close(); return; }
+    const payload = 'ATT:' + e.id + ':' + secret;
+    const co = (org.company || {}).name || '';
+    const html = '<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>بطاقة حضور — ' + e.name + '</title>' +
+      '<style>body{font-family:Tahoma,sans-serif;margin:0;padding:24px;display:flex;justify-content:center}.card{width:320px;border:2px solid #8C6F2C;border-radius:14px;padding:18px;text-align:center}' +
+      '.co{font-size:12px;color:#5a4a1e;font-weight:700}.nm{font-size:20px;font-weight:800;margin:8px 0 2px}.br{font-size:12px;color:#666;margin-bottom:10px}.code{font-family:monospace;font-size:9px;color:#888;word-break:break-all;margin-top:8px;direction:ltr}.hint{font-size:10.5px;color:#666;margin-top:8px}@media print{body{padding:0}}</style></head><body><div class="card">' +
+      '<div class="co">' + co + '</div><div class="nm">' + e.name + '</div><div class="br">' + (branch ? branch.name : '') + ' · بطاقة حضور</div>' +
+      qrSvg(payload, { ecl: 2, px: 240 }) + '<div class="code">' + payload + '</div><div class="hint">امسح البطاقة على جهاز الفرع لتسجيل الحضور/الانصراف. البطاقة شخصية — لا تُعِرها لأحد.</div></div>' +
+      '<script>setTimeout(function(){window.print()},400)</script></body></html>';
+    if (w) { w.document.write(html); w.document.close(); } else say('اسمح بالنوافذ المنبثقة لطباعة البطاقة', 'no');
+    say('صدرت بطاقة QR لـ' + e.name + ' ✓');
   };
 
   // --- سجل الحضور ---
@@ -8968,7 +9053,15 @@ function Attendance({ org, ops, me, myBranches, commit, say }) {
       {view === 'kiosk' && branch && (
         <div className="card">
           <div className="card-t" style={{ marginBottom: 4 }}><Fingerprint size={15} color="var(--brass)" />تسجيل الحضور — {branch.name}</div>
-          <div className="note" style={{ marginBottom: 10 }}>اختر اسمك ثم أدخل رقم PIN الخاص بك من جهاز الفرع — يُحدَّد الحضور أو الانصراف تلقائيًا.</div>
+          <div className="note" style={{ marginBottom: 10 }}>امسح بطاقة QR الخاصة بك (بالكاميرا أو بماسح USB)، أو اختر اسمك ثم أدخل رقم PIN — يُحدَّد الحضور أو الانصراف تلقائيًا.</div>
+          <div className="card" style={{ marginBottom: 12, padding: 12, border: '1px solid var(--frame-o)' }}>
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <Field label="مسح بطاقة QR (ماسح USB أو لصق الرمز)" style={{ flex: 1, minWidth: 220 }}>
+                <input className="inp" autoFocus value={scanBuf} onChange={e => setScanBuf(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleBadge(scanBuf); }} placeholder="وجّه الماسح للبطاقة…" />
+              </Field>
+              <button className="btn pri" disabled={busy} onClick={startCam}><Camera size={14} />فتح الكاميرا</button>
+            </div>
+          </div>
           <div className="grid g3">
             {emps.map(e => {
               const nt = nextType(e.id);
@@ -8979,7 +9072,7 @@ function Attendance({ org, ops, me, myBranches, commit, say }) {
                   <div style={{ marginTop: 6 }}>
                     <span className={'badge ' + (nt === 'in' ? 'b-mint' : 'b-amber')}>{nt === 'in' ? 'تسجيل حضور' : 'تسجيل انصراف'}</span>
                   </div>
-                  {!pinHashOf(e.id) && <div style={{ fontSize: 9.5, color: 'var(--rose)', marginTop: 4 }}>لا يوجد رقم PIN — راجع مدير الفرع</div>}
+                  {!pinHashOf(e.id) && !badgeHashOf(e.id) && <div style={{ fontSize: 9.5, color: 'var(--rose)', marginTop: 4 }}>لا يوجد رقم PIN ولا بطاقة — راجع مدير الفرع</div>}
                 </button>
               );
             })}
@@ -8991,24 +9084,26 @@ function Attendance({ org, ops, me, myBranches, commit, say }) {
       {view === 'pin' && !isCashier && (
         <div className="card">
           <div className="card-t" style={{ marginBottom: 6 }}><ShieldCheck size={15} color="var(--brass)" />أرقام PIN للحضور</div>
-          <div className="note" style={{ marginBottom: 10 }}>رقم PIN من ٤ إلى ٦ أرقام يُستخدم لتسجيل حضور/انصراف الموظف من جهاز الفرع فقط — لا يُستخدم لتسجيل الدخول للنظام.</div>
+          <div className="note" style={{ marginBottom: 10 }}>رقم PIN من ٤ إلى ٦ أرقام، أو بطاقة QR شخصية تُطبع ويمسحها جهاز الفرع — كلاهما لتسجيل الحضور من جهاز الفرع فقط، لا لتسجيل الدخول للنظام. إعادة إصدار البطاقة تُلغي السابقة فورًا.</div>
           <div className="tw">
             <table className="tb">
-              <thead><tr><th>الموظف</th><th>الحالة</th><th /></tr></thead>
+              <thead><tr><th>الموظف</th><th>PIN</th><th>بطاقة QR</th><th /></tr></thead>
               <tbody>
                 {emps.map(e => (
                   <tr key={e.id}>
                     <td style={{ fontWeight: 600, fontSize: 12.5 }}>{e.name}</td>
                     <td>{pinHashOf(e.id) ? <span className="badge b-mint">مُفعَّل</span> : <span className="badge b-dim">غير مُفعَّل</span>}</td>
+                    <td>{badgeHashOf(e.id) ? <span className="badge b-mint">صادرة</span> : <span className="badge b-dim">لا توجد</span>}</td>
                     <td>
-                      <div className="row" style={{ gap: 5, justifyContent: 'flex-end' }}>
+                      <div className="row" style={{ gap: 5, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                         <button className="btn sm gh" onClick={() => { setPinSetFor(e); setNp1(''); setNp2(''); }}><Lock size={13} />{pinHashOf(e.id) ? 'إعادة ضبط' : 'ضبط رقم PIN'}</button>
                         {pinHashOf(e.id) && <button className="btn sm gh" onClick={() => clearPin(e)}><Trash2 size={13} />إلغاء</button>}
+                        <button className="btn sm gh" onClick={() => issueBadge(e)}><QrCode size={13} />{badgeHashOf(e.id) ? 'إعادة إصدار البطاقة' : 'بطاقة QR'}</button>
                       </div>
                     </td>
                   </tr>
                 ))}
-                {emps.length === 0 && <tr><td colSpan={3}><div className="empty">لا يوجد موظفون في هذا الفرع بعد.</div></td></tr>}
+                {emps.length === 0 && <tr><td colSpan={4}><div className="empty">لا يوجد موظفون في هذا الفرع بعد.</div></td></tr>}
               </tbody>
             </table>
           </div>
@@ -9034,7 +9129,7 @@ function Attendance({ org, ops, me, myBranches, commit, say }) {
           </div>
           <div className="tw">
             <table className="tb">
-              <thead><tr><th>الوقت</th><th>الموظف</th><th>الفرع</th><th>النوع</th><th>الموقع</th></tr></thead>
+              <thead><tr><th>الوقت</th><th>الموظف</th><th>الفرع</th><th>النوع</th><th>الطريقة</th><th>الموقع</th></tr></thead>
               <tbody>
                 {logRows.map(ev => (
                   <tr key={ev.id}>
@@ -9042,6 +9137,7 @@ function Attendance({ org, ops, me, myBranches, commit, say }) {
                     <td style={{ fontWeight: 600, fontSize: 12.5 }}>{ev.employeeName}</td>
                     <td style={{ fontSize: 12 }}>{ev.branchName}</td>
                     <td><span className={'badge ' + (ev.type === 'in' ? 'b-mint' : 'b-amber')}>{ev.type === 'in' ? 'حضور' : 'انصراف'}</span></td>
+                    <td><span className="badge b-dim">{ev.via === 'badge' ? 'بطاقة QR' : 'PIN'}</span></td>
                     <td>
                       {ev.withinGeofence === true && <span className="badge b-mint">ضمن النطاق</span>}
                       {ev.withinGeofence === false && <span className="badge b-rose">خارج النطاق ({ev.distanceMeters}م)</span>}
@@ -9049,13 +9145,21 @@ function Attendance({ org, ops, me, myBranches, commit, say }) {
                     </td>
                   </tr>
                 ))}
-                {logRows.length === 0 && <tr><td colSpan={5}><div className="empty">لا توجد سجلات حضور ضمن هذه الفلاتر.</div></td></tr>}
+                {logRows.length === 0 && <tr><td colSpan={6}><div className="empty">لا توجد سجلات حضور ضمن هذه الفلاتر.</div></td></tr>}
               </tbody>
             </table>
           </div>
         </div>
       )}
 
+      {cam && (
+        <Modal title="مسح بطاقة QR" icon={Camera} onClose={stopCam} foot={<button className="btn gh" onClick={stopCam}>إغلاق</button>}>
+          <div style={{ textAlign: 'center' }}>
+            <video ref={videoRef} playsInline muted style={{ width: '100%', maxWidth: 380, borderRadius: 12, background: '#000' }} />
+            <div className="note" style={{ marginTop: 8 }}>وجّه الكاميرا نحو بطاقة الموظف — يُسجَّل الحضور فور قراءتها.</div>
+          </div>
+        </Modal>
+      )}
       {pinFor && (
         <Modal title={'تسجيل ' + (nextType(pinFor.id) === 'in' ? 'حضور' : 'انصراف') + ' — ' + pinFor.name} icon={Fingerprint} onClose={() => { setPinFor(null); setPinVal(''); }}
           foot={<>
