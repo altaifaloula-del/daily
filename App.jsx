@@ -256,6 +256,13 @@ function splitOps(ops, branchIds) {
   return { core, br };
 }
 
+// v27.2 — مقارنة محتوى مستندين بمعزل عن بيانات الكتابة (rev/wtag): لا نكتب إلا ما تغيّر فعلًا
+const sameDoc = (a, b) => JSON.stringify({ ...(a || {}), rev: 0, wtag: '' }) === JSON.stringify({ ...(b || {}), rev: 0, wtag: '' });
+// v27.2 — التحقق من أن ما قرأناه بعد الكتابة هو ما كتبناه نحن: بوسم الكاتب (wtag) لا برقم rev وحده.
+// كاتبان انطلقا من نفس الأساس (المركز وجهاز فرع في اللحظة نفسها) ينتجان نفس رقم rev، فكان الأخير
+// يطغى بصمت على الأول دون أن يُكتشف التصادم. المستندات القديمة بلا wtag تُقارَن بالرقم.
+const wroteMine = (chk, doc) => !!chk && (doc.wtag ? chk.wtag === doc.wtag : (chk.rev || 0) === (doc.rev || 0));
+
 // تجميع المستندات المقسّمة إلى ops واحدة كما اعتاد التطبيق
 function composeOps(core, brMap) {
   const out = emptyOps();
@@ -1547,6 +1554,23 @@ const ROLES = {
 // v15.9: اشتقاق صلاحيات الكتابة من الدور — canPost=إدخال/ترحيل، canEdit=تعديل/حذف/تغيير إعدادات.
 // (للأدوار القائمة: readOnly/postOnly غير معرّفين ⇒ canPost=canEdit=النطاق الكامل، بلا أي تغيير سلوك.)
 const rolePost = (role) => ROLES[role]?.scope === 'all' && !ROLES[role]?.readOnly;
+// v27.1 — نطاق فروع المستخدم كما تعرضه الواجهة (myBranches): null = كل الفروع (المركز)، وإلا قائمة معرّفات.
+// نطاق الكتابة (dataCtx.myBrIds) يجب أن يطابقه حرفيًا — أي سجل بفرع خارج هذا النطاق لا يُحفظ من جهاز الفرع.
+const branchIdsOfUser = (u) => {
+  if (!u) return [];
+  const s = (ROLES[u.role] || ROLES.cashier).scope;
+  if (s === 'all') return null;
+  if (s === 'own') return u.branchId ? [u.branchId] : [];
+  return u.allowedBranchIds || [];
+};
+// v27.1 — سجلات في next (بعد mutator) تقع خارج نطاق الفروع المسموح كتابته — على مسار الفرع تضيع بصمت إن لم تُرفض
+function outOfScopeRecords(next, latest, myBrIds) {
+  const seen = new Set();
+  BR_COLS.forEach(c => ((latest || {})[c] || []).forEach(x => seen.add(c + ':' + x.id)));
+  const out = [];
+  BR_COLS.forEach(c => ((next || {})[c] || []).forEach(x => { if (!seen.has(c + ':' + x.id) && (!x.branchId || !(myBrIds || []).includes(x.branchId))) out.push({ col: c, id: x.id, branchId: x.branchId || '' }); }));
+  return out;
+}
 const roleEdit = (role) => rolePost(role) && !ROLES[role]?.postOnly;
 // v15.12: البوابة الأمنية المركزية — الحارس داخل عملية الحفظ نفسها (دفاع بعمق).
 //   need='post' يتطلب صلاحية الإدخال، need='edit' يتطلب صلاحية التعديل/الإعدادات،
@@ -1848,6 +1872,10 @@ export default function App() {
   const [installPrompt, setInstallPrompt] = useState(null);
   const [installed, setInstalled] = useState(false);
   const [updateReady, setUpdateReady] = useState(false);   // v11.1 توفّر نسخة أحدث منشورة
+  // v27.1 — تشخيص صلاحيات الخادم على جهاز الفرع: {kind:'dir'|'branch'|'member', ids, mem, expected}
+  // (سابقًا كان رفض القراءة يسقط بصمت إلى نسخة localStorage القديمة فتبدو الشاشات «تعمل» بينما كل كتابة سحابية ترفض)
+  const [accessErr, setAccessErr] = useState(null);
+  const lastWriteErr = useRef('');   // 'denied' | 'net' | 'scope' | ''
   const sid = useRef(uid('s'));
   // v15.29 — جلسة واحدة لكل مستخدم (عدا أدوار الإدارة): هوية ثابتة لهذا المتصفح تبقى
   // عبر إعادة التحميل وتتشاركها تبويبات المتصفح الواحد (فلا يطرد المتصفح نفسه)،
@@ -1886,15 +1914,25 @@ export default function App() {
 
     if (t.denied || (window.__forceDirOnly && !o?.__ignore)) {
       /* ===== مسار الفرع: الخادم رفض المنشأة الكاملة — نقرأ الدليل العام فقط ===== */
-      const dir = await cloud.get(KEYS.dir, null);
+      // v27.1: tryGet بدل get — رفض الصلاحيات يُعلَن صراحةً (ولا يُخفى بنسخة localStorage قديمة)
+      const dr = await cloud.tryGet(KEYS.dir);
+      const dir = dr.value || null;
+      if (dr.denied) setAccessErr({ kind: 'dir' });
       if (!dir) { setBoot('ready'); setNeedAuth(false); setOrg(emptyOrg()); setOps(emptyOps()); return emptyOrg(); }
       o = { ...emptyOrg(), ...dir };
       const em = dataCtx.current.email || ((await authApi.ready()) || {}).email || '';
       const meU = (o.users || []).find(x => (x.email || '').toLowerCase() === em && x.isActive);
-      const myBr = meU ? (meU.branchId ? [meU.branchId] : (meU.allowedBranchIds || [])) : [];
+      // v27.1: نطاق الجلسة يطابق myBranches حرفيًا (المدير الإقليمي = فروعه المُسندة وإن كان له branchId)
+      const myBr = branchIdsOfUser(meU) || [];
       dataCtx.current = { central: false, myBrIds: myBr, email: em };
-      const brMap = {};
-      for (const b of myBr) brMap[b] = (await cloud.get(brKey(b), null)) || {};
+      const brMap = {}; const deniedBr = [];
+      for (const b of myBr) { const r = await cloud.tryGet(brKey(b)); if (r.denied) deniedBr.push(b); brMap[b] = r.value || {}; }
+      if (deniedBr.length) {
+        // نقارن عضوية الخادم (التي تعتمد عليها القواعد) بسجل المستخدم في المنصة لتسمية السبب بدقة
+        let mem = null; try { mem = await authApi.myMembership(); } catch { mem = null; }
+        setAccessErr({ kind: 'branch', ids: deniedBr, mem, expected: myBr });
+      }
+      docsCache.current = { core: null, br: brMap };
       setOps(composeOps(null, brMap));
       setOrg(o);
       setPulse(await cloud.get(KEYS.pulse, { presence: {}, audit: [] }));
@@ -1938,6 +1976,10 @@ export default function App() {
     const core = (await cloud.get(KEYS.core, null)) || {};
     const brMap = {};
     for (const b of branchIds) brMap[b] = (await cloud.get(brKey(b), null)) || {};
+    // v27.1: تهيئة المخبأ الحيّ منذ الإقلاع — كان يبقى فارغًا حتى تصل لقطة كل مستند فرع (ومستند فرع غير موجود
+    // لا يرسل لقطة أبدًا) فتتعطّل إعادة التجميع اللحظية حتى أول استطلاع دوري (٥ دقائق) — أي أن حضورًا يُسجَّل
+    // من جهاز فرع قد لا يظهر في المركز إلا بعد دقائق أو بعد «مزامنة الآن».
+    docsCache.current = { core, br: brMap };
     setOps(composeOps(core, brMap));
     setOrg(o);
     setPulse(await cloud.get(KEYS.pulse, { presence: {}, audit: [] }));
@@ -2165,13 +2207,16 @@ export default function App() {
     // v15.28: مع الاستماع اللحظي (الذي يوصل كل تغيير فور وقوعه) يكفي استطلاع احتياطي كل
     // ٥ دقائق بدل ٤٥ ثانية — خفض قراءات الاستطلاع نحو ٧ أضعاف دون أي تأثير على الفورية.
     const t = setInterval(() => refresh(true), live ? 300000 : 8000);
-    return () => clearInterval(t);
+    // v27.1: العودة إلى التبويب = مزامنة فورية (الاستطلاع الدوري يتوقف والتبويب مخفي، فقد يتأخر ما سجّلته الفروع)
+    const onVis = () => { if (typeof document !== 'undefined' && !document.hidden) refresh(true); };
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVis);
+    return () => { clearInterval(t); if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVis); };
   }, [boot, live, refresh]);
 
   // v9: البوابة المحلية القديمة تحدد المستخدم بعد الإقلاع — نضبط نطاق جلسة الفرع حينها
   useEffect(() => {
     if (!me || dataCtx.current.central) return;
-    const ids = me.branchId ? [me.branchId] : (me.allowedBranchIds || []);
+    const ids = branchIdsOfUser(me) || [];   // v27.1: نفس قاعدة myBranches
     if (JSON.stringify(ids) !== JSON.stringify(dataCtx.current.myBrIds)) {
       dataCtx.current.myBrIds = ids;
       dataCtx.current.email = (me.email || '').toLowerCase();
@@ -2307,40 +2352,50 @@ export default function App() {
          محاولة كتابة خارج نطاق الجلسة يرفضها الخادم فيفشل الحفظ بصدق --- */
   const writeOps = useCallback(async (mutator) => {
     const ctx = dataCtx.current;
+    lastWriteErr.current = '';
     for (let attempt = 0; attempt < 3; attempt++) {
       // أحدث نسخة لكل مستند ضمن نطاقي
       const core = ctx.central ? ((await cloud.get(KEYS.core, null)) || {}) : null;
       const brMap = {};
-      for (const b of ctx.myBrIds) brMap[b] = (await cloud.get(brKey(b), null)) || {};
+      for (const b of ctx.myBrIds) {
+        // v27.1: على مسار الفرع، رفض القراءة = رفض كتابة حتمًا — نُبلغ بدقة بدل الكتابة فوق نسخة localStorage قديمة
+        const r = await cloud.tryGet(brKey(b));
+        if (r.denied) { lastWriteErr.current = 'denied'; setAccessErr(a => a || { kind: 'branch', ids: [b], expected: ctx.myBrIds }); return false; }
+        brMap[b] = r.value || {};
+      }
       const latest = composeOps(core, brMap);
       const next = mutator(JSON.parse(JSON.stringify(latest)));
+      // v27.1: على مسار الفرع لا يُكتب المستند المركزي — أي سجل جديد بلا فرع أو لفرع خارج نطاقي كان يضيع بصمت
+      // (يظهر محليًا ثم يختفي بعد إعادة التحميل). نرفضه صراحةً.
+      if (!ctx.central) {
+        const lost = outOfScopeRecords(next, latest, ctx.myBrIds);
+        if (lost.length) { lastWriteErr.current = 'scope'; console.warn('writeOps: سجلات خارج نطاق الفرع لن تُحفظ', lost, ctx.myBrIds); return false; }
+      }
       const { core: coreOut, br: brOut } = splitOps(next, ctx.myBrIds);
 
       let allOk = true, conflict = false;
       let wroteCoreDoc = null; const wroteBrDocs = {};
       // المستند المركزي (أدوار المركز فقط)
       if (ctx.central) {
-        const je = (x) => JSON.stringify({ ...x, rev: 0 });
-        if (je(coreOut) !== je(core || {})) {
+        if (!sameDoc(coreOut, core)) {
           const rv = ((core || {}).rev || 0) + 1;
-          const doc = { ...coreOut, rev: rv };
+          const doc = { ...coreOut, rev: rv, wtag: uid('w') };   // v27.2: وسم كاتب لكشف التصادم
           const ok = await cloud.set(KEYS.core, doc);
           if (!ok) { allOk = false; }
-          else { const chk = await cloud.get(KEYS.core, null); if (!chk || (chk.rev || 0) !== rv) conflict = true; else wroteCoreDoc = doc; }
+          else { const chk = await cloud.get(KEYS.core, null); if (!wroteMine(chk, doc)) conflict = true; else wroteCoreDoc = doc; }
         }
       }
       // مستندات الفروع المتغيرة فقط
       for (const b of ctx.myBrIds) {
-        const je = (x) => JSON.stringify({ ...x, rev: 0 });
-        if (je(brOut[b]) !== je(brMap[b] || {})) {
+        if (!sameDoc(brOut[b], brMap[b])) {
           const rv = ((brMap[b] || {}).rev || 0) + 1;
-          const doc = { ...brOut[b], rev: rv };
+          const doc = { ...brOut[b], rev: rv, wtag: uid('w') };   // v27.2: وسم كاتب لكشف التصادم
           const ok = await cloud.set(brKey(b), doc);
-          if (!ok) { allOk = false; }
-          else { const chk = await cloud.get(brKey(b), null); if (!chk || (chk.rev || 0) !== rv) conflict = true; else wroteBrDocs[b] = doc; }
+          if (!ok) { allOk = false; if (String((cloud.lastError || {}).code || '').toLowerCase().includes('permission')) { lastWriteErr.current = 'denied'; return false; } }
+          else { const chk = await cloud.get(brKey(b), null); if (!wroteMine(chk, doc)) conflict = true; else wroteBrDocs[b] = doc; }
         }
       }
-      if (!allOk) { if (attempt === 2) return false; continue; }
+      if (!allOk) { if (attempt === 2) { lastWriteErr.current = lastWriteErr.current || 'net'; return false; } continue; }
       if (conflict) continue;   // كتب آخر بنفس اللحظة — نعيد على الأحدث
       // v15.28: نجاح — ما كتبناه (وما قرأناه للتو قبله) هو الحالة الكاملة بين أيدينا؛
       // لا حاجة لإعادة قراءة كل المستندات من السحابة (كانت تكلف قراءة لكل فرع بعد كل حفظ).
@@ -2357,7 +2412,11 @@ export default function App() {
     if (log?.need && !capOK(me?.role, log.need)) { say('لا تملك صلاحية هذا الإجراء — تواصل مع مدير النظام', 'no'); return false; }
     const ok = await writeOps(mutator);
     if (!ok) {
-      say('تعذّر الحفظ السحابي بعد عدة محاولات — تحقق من الاتصال وأعد المحاولة', 'no');
+      // v27.1: رسالة تُسمّي السبب — رفض صلاحيات الخادم (عضوية الحساب لا تحمل فرعه) يختلف تمامًا عن انقطاع الشبكة
+      const k = lastWriteErr.current;
+      if (k === 'denied') say('رفض الخادم حفظ بيانات فرعك (صلاحيات، لا اتصال): عضوية حسابك على الخادم لا تحمل هذا الفرع — اطلب من مسؤول النظام «مزامنة صلاحيات الأعضاء» من الفروع والمستخدمين ثم أعد الدخول', 'no');
+      else if (k === 'scope') say('لم يُحفظ: السجل يخص فرعًا خارج نطاق حسابك (أو بلا فرع) — راجع إعداد فرع حسابك', 'no');
+      else say('تعذّر الحفظ السحابي بعد عدة محاولات — تحقق من الاتصال وأعد المحاولة', 'no');
       return false;
     }
     if (log && me) {
@@ -2607,7 +2666,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v27.0 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v27.2 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2696,6 +2755,27 @@ export default function App() {
               <button className="btn sm pri" onClick={forceUpdate}><RefreshCw size={13} />تحديث الآن</button>
             </div>
           )}
+
+          {accessErr && (() => {
+            // v27.1 — تشخيص صلاحيات الخادم على جهاز الفرع (يظهر بدل الفشل الصامت)
+            const nm = (id) => ((org.branches || []).find(x => x.id === id) || {}).name || id;
+            const mem = accessErr.mem || null;
+            const memBr = mem ? [mem.branchId, ...(mem.branchIds || [])].filter(Boolean) : [];
+            const diag = accessErr.kind === 'dir'
+              ? 'الخادم رفض قراءة الدليل العام لهذا الحساب — عضويته على الخادم غير نشطة أو غير موجودة.'
+              : 'الخادم رفض قراءة/كتابة بيانات فرع ' + (accessErr.ids || []).map(nm).join('، ') + ' لهذا الحساب'
+                + (mem && mem.exists ? ' — عضويته على الخادم' + (memBr.length ? ' مرتبطة بفرع ' + memBr.map(nm).join('، ') : ' بلا فرع') + (mem.scope ? ' (نطاق ' + mem.scope + ')' : '') + ' بينما حسابه في المنصة مرتبط بفرع ' + (accessErr.expected || []).map(nm).join('، ') + '.' : (mem && !mem.exists ? ' — لا توجد عضوية له على الخادم.' : '.'));
+            return (
+              <div style={{ background: 'rgba(217,84,77,.14)', borderBottom: '1px solid rgba(217,84,77,.45)', color: 'var(--rose)', padding: '9px 20px', fontSize: 12.5, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                <ShieldAlert size={16} />
+                <div style={{ flex: 1, minWidth: 240 }}>
+                  <b>لن تُحفظ أي بيانات من هذا الجهاز سحابيًا.</b> {diag}
+                  <div style={{ fontSize: 11.5, marginTop: 3, color: 'var(--dim)' }}>الحل: يفتح مسؤول النظام «الفروع والمستخدمون ← المستخدمون» ويضغط «مزامنة صلاحيات الأعضاء» (أو يعيد حفظ هذا المستخدم)، ثم يُعاد الدخول هنا.</div>
+                </div>
+                <button className="btn sm" onClick={() => location.reload()}><RefreshCw size={13} />أعد المحاولة</button>
+              </div>
+            );
+          })()}
 
           {offline && (
             <div style={{
@@ -12173,11 +12253,17 @@ function Admin({ org, ops, me, commit, commitOrg, say }) {
       title: isNew ? 'أنشأ مستخدماً جديداً' : 'عدّل بيانات مستخدم', details: `${rec.name} — ${ROLES[rec.role].ar}`
     });
     // مزامنة العضوية وصفة المدير حسب الدور
+    // v27.2: فشل المزامنة كان يُبتلع بصمت (upsertMember تعيد false) فيُحفظ المستخدم بلا عضوية خادمية صحيحة
+    // ⇒ جهاز فرعه لا يستطيع قراءة/كتابة بياناته. نُبلغ صراحةً.
+    let memOk = true;
     if (authApi.enabled) {
-      await authApi.upsertMember(email, { active: rec.isActive !== false, role: rec.role, branchId: rec.branchId || '', branchIds: rec.allowedBranchIds || [], scope: (ROLES[rec.role]?.scope === 'all') ? 'all' : 'branch' });
-      await authApi.syncAdmin(email, !!ROLES[rec.role]?.admin);
+      memOk = await authApi.upsertMember(email, { active: rec.isActive !== false, role: rec.role, branchId: rec.branchId || '', branchIds: rec.allowedBranchIds || [], scope: (ROLES[rec.role]?.scope === 'all') ? 'all' : 'branch' });
+      const admOk = await authApi.syncAdmin(email, !!ROLES[rec.role]?.admin);
+      if (memOk && !admOk && ROLES[rec.role]?.admin) say('حُفظ المستخدم لكن تعذّر إدراجه في قائمة المدراء على الخادم — نفّذ الحفظ من حساب مسؤول النظام الأول', 'no');
     }
-    say(isNew ? 'تم إنشاء الحساب — يدخل ببريده وكلمة سره ✓' : 'تم تحديث الحساب'); setUEdit(null);
+    if (!memOk) say('حُفظ المستخدم في المنصة، لكن تعذّرت مزامنة عضويته على الخادم (حسابك ليس ضمن قائمة المدراء على الخادم) — لن يستطيع هذا المستخدم قراءة/كتابة بيانات فرعه حتى تُنفَّذ «مزامنة صلاحيات الأعضاء» من حساب مسؤول النظام الأول', 'no');
+    else say(isNew ? 'تم إنشاء الحساب — يدخل ببريده وكلمة سره ✓' : 'تم تحديث الحساب');
+    setUEdit(null);
   };
 
   const delUser = async (u) => {
@@ -12191,6 +12277,23 @@ function Admin({ org, ops, me, commit, commitOrg, say }) {
     });
     if (authApi.enabled) { try { await authApi.upsertMember(u.email, { active: false }); } catch { } }
     say('تم حذف الحساب');
+  };
+
+  // v27.1 — إعادة مزامنة عضويات الخادم (members/{email}: الفرع/النطاق/الدور) لكل المستخدمين — هي ما تعتمد عليه
+  // قواعد Firestore لعزل الفروع؛ عضوية بلا فرع صحيح = جهاز الفرع يقرأ نسخة قديمة ولا يستطيع حفظ أي شيء سحابيًا.
+  const [memSync, setMemSync] = useState(null);
+  const syncMembers = async () => {
+    if (!authApi.enabled) return say('المصادقة السحابية غير مفعّلة في هذه النسخة', 'no');
+    setMemSync('busy');
+    let ok = 0, fail = 0; const failed = [];
+    for (const u of (org.users || [])) {
+      if (!u.email) continue;
+      const r = await authApi.upsertMember(u.email, { active: u.isActive !== false, role: u.role, branchId: u.branchId || '', branchIds: u.allowedBranchIds || [], scope: (ROLES[u.role]?.scope === 'all') ? 'all' : 'branch' });
+      if (r) { ok++; try { await authApi.syncAdmin(u.email, !!ROLES[u.role]?.admin); } catch { } } else { fail++; failed.push(u.name || u.email); }
+    }
+    setMemSync({ ok, fail, failed });
+    if (fail) say('تعذّرت مزامنة ' + fail + ' عضوية (' + failed.slice(0, 3).join('، ') + (fail > 3 ? '…' : '') + ') — حسابك ليس ضمن قائمة المدراء على الخادم (platform/admins)؛ نفّذها من حساب مسؤول النظام الأول', 'no');
+    else say('زُومنت عضويات ' + ok + ' مستخدم مع الخادم ✓ — أعد الدخول على أجهزة الفروع');
   };
 
   return (
@@ -12252,6 +12355,11 @@ function Admin({ org, ops, me, commit, commitOrg, say }) {
 
       {tab === 'users' && (
         <div className="card">
+          <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+            <div className="note" style={{ flex: 1, minWidth: 260 }}>قواعد الخادم تعزل الفروع اعتمادًا على «عضوية» كل حساب (الفرع/النطاق). إن ظهر على جهاز فرع شريط أحمر «لن تُحفظ أي بيانات» أو اختفى حضور/إغلاق بعد إعادة التحميل، اضغط «مزامنة صلاحيات الأعضاء» ثم أعد الدخول على ذلك الجهاز.</div>
+            <button className="btn sm" disabled={memSync === 'busy'} onClick={syncMembers} title="إعادة كتابة members/{email} لكل المستخدمين من سجلاتهم هنا"><ShieldCheck size={13} />{memSync === 'busy' ? 'جارٍ المزامنة…' : 'مزامنة صلاحيات الأعضاء'}</button>
+            {memSync && memSync !== 'busy' && <span className={'badge ' + (memSync.fail ? 'b-rose' : 'b-mint')}>{memSync.ok} ✓{memSync.fail ? ' · ' + memSync.fail + ' ✗' : ''}</span>}
+          </div>
           <div className="tw">
             <table className="tb">
               <thead><tr><th>المستخدم</th><th>الدور</th><th>النطاق</th><th>الحالة</th><th></th></tr></thead>

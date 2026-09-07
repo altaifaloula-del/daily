@@ -154,8 +154,10 @@ export const authApi = {
     const u = await authedUser(); if (!u) return null;
     try {
       const snap = await f.getDoc(f.doc(f.db, 'members', (u.email || '').toLowerCase()));
-      return { exists: snap.exists(), active: snap.exists() && snap.data().active === true };
-    } catch { return { exists: false, active: false }; }
+      const d = snap.exists() ? (snap.data() || {}) : {};
+      // v27.1: نعيد أيضًا ما تعتمد عليه قواعد Firestore (الفرع/النطاق/الدور) كي تُشخِّص الواجهة أي تعارض مع سجل المستخدم في المنصة
+      return { exists: snap.exists(), active: snap.exists() && d.active === true, role: d.role || '', branchId: d.branchId || '', branchIds: Array.isArray(d.branchIds) ? d.branchIds : [], scope: d.scope || '' };
+    } catch { return { exists: false, active: false, role: '', branchId: '', branchIds: [], scope: '' }; }
   },
 
   /** عضوية مستخدم (يديرها المدراء): تفعيل/تعطيل + دوره وفرعه */
@@ -250,7 +252,7 @@ export const cloud = {
         const v = await fsRead(f, key);
         if (v !== undefined) { local.set(key, v); return v; }
         return def;
-      } catch (e) { console.warn('قراءة Firestore فشلت:', e); }
+      } catch (e) { cloud.lastError = { key, op: 'get', code: String((e && e.code) || ''), at: Date.now() }; console.warn('قراءة Firestore فشلت:', e); }
     }
     if (useApi && !FB_READY) {
       try {
@@ -271,6 +273,7 @@ export const cloud = {
     if (f) {
       try { await fsWrite(f, key, val); local.set(key, val); return true; }
       catch (e) {
+        cloud.lastError = { key, op: 'set', code: String((e && e.code) || ''), at: Date.now() };   // v27.1: يقرؤه App لتمييز رفض الصلاحيات عن انقطاع الشبكة
         console.warn('كتابة Firestore فشلت:', e);
         // v15.18: أي فشل سحابي (صلاحيات أو شبكة أو غيره) = فشل صادق يعود للمنادي.
         // سابقاً كان غير-الصلاحيات يسقط للتخزين المحلي «بنجاح» زائف، فتظهر البيانات
@@ -313,6 +316,7 @@ export const cloud = {
     return () => { dead = true; if (stop) stop(); };
   },
 
+  lastError: null,   // v27.1: آخر خطأ سحابي {key, op, code, at}
   get mode() { return FB_READY ? 'firestore' : (useApi ? 'server' : 'local'); },
   get live() { return FB_READY; }
 };
