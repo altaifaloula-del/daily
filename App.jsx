@@ -2672,7 +2672,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v27.3 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v27.4 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -11159,7 +11159,9 @@ function hrAttendanceDetail(org, ops, emp, from, to) {
   const td = today(); const cap = to < td ? to : td;
   const addDays = (ds, n) => { const d = new Date(ds + 'T00:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
   const parseHM = (t) => { const [h, m] = String(t || '00:00').split(':').map(Number); return (h || 0) * 60 + (m || 0); };
-  const s = { scheduled: 0, present: 0, onTime: 0, late: 0, lateMinutes: 0, absent: 0, early: 0, earlyMinutes: 0, noCheckout: 0, unscheduledIns: 0 };
+  const s = { scheduled: 0, present: 0, onTime: 0, late: 0, lateMinutes: 0, absent: 0, early: 0, earlyMinutes: 0, noCheckout: 0, unscheduledIns: 0,
+    // v27.4 — حضور فعلي بلا اعتماد على الجدولة (يعمل حتى بلا ورديات مُعيَّنة)
+    actualDays: 0, workedMinutes: 0, openDays: 0 };
   const seen = new Set();
   (ops.shiftAssignments || []).filter(a => a.empId === emp.id).forEach(a => {
     (a.shiftIds || []).forEach((sid, di) => {
@@ -11183,9 +11185,21 @@ function hrAttendanceDetail(org, ops, emp, from, to) {
       } else if (!outEv && ds < td) s.noCheckout++;
     });
   });
-  // حضور مسجَّل في أيام غير مجدولة (معلوماتي)
-  const inDays = new Set((ops.attendanceEvents || []).filter(ev => ev.employeeId === emp.id && ev.type === 'in' && (ev.at || '').slice(0, 10) >= from && (ev.at || '').slice(0, 10) <= cap).map(ev => (ev.at || '').slice(0, 10)));
-  inDays.forEach(ds => { if (!seen.has(ds)) s.unscheduledIns++; });
+  // v27.4 — الحضور الفعلي: يُحسب من البصمات مباشرة لكل يوم (بلا حاجة لوردية مُعيَّنة)
+  //   actualDays = أيام بها بصمة دخول، workedMinutes = مجموع (آخر خروج − أول دخول) لكل يوم، openDays = دخول بلا خروج
+  const byDay = {};
+  (ops.attendanceEvents || []).filter(ev => ev.employeeId === emp.id && (ev.at || '').slice(0, 10) >= from && (ev.at || '').slice(0, 10) <= cap)
+    .forEach(ev => { const ds = (ev.at || '').slice(0, 10); (byDay[ds] = byDay[ds] || []).push(ev); });
+  Object.keys(byDay).forEach(ds => {
+    const evs = byDay[ds].sort((a, b) => (a.at < b.at ? -1 : 1));
+    const firstIn = evs.find(e => e.type === 'in');
+    if (!firstIn) return;                         // يوم بلا دخول لا يُعدّ حضورًا
+    s.actualDays++;
+    if (!seen.has(ds)) s.unscheduledIns++;        // دخول في يوم غير مجدول (معلوماتي)
+    const outs = evs.filter(e => e.type === 'out'); const lastOut = outs[outs.length - 1];
+    if (lastOut && lastOut.at > firstIn.at) { const mins = Math.round((new Date(lastOut.at) - new Date(firstIn.at)) / 60000); if (mins > 0) s.workedMinutes += mins; }
+    else s.openDays++;                            // دخول بلا انصراف (فعلي)
+  });
   return s;
 }
 
@@ -11233,8 +11247,10 @@ function HrDashboard({ org, ops, me, myBranches, say, setTab }) {
   // === ٢) تقرير الحضور الشهري التفصيلي ===
   const repBranches = branchId ? branches.filter(b => b.id === branchId) : branches;
   const attRows = repBranches.flatMap(b => empsOf(b.id).map(e => ({ e, b, ...hrAttendanceDetail(org, ops, e, from, to) })));
-  const attHead = ['الموظف', 'الفرع', 'أيام مجدولة', 'حضور', 'في الوقت', 'تأخير (مرات)', 'دقائق التأخير', 'غياب', 'انصراف مبكر (مرات)', 'دقائق مبكرة', 'بلا انصراف', 'نسبة الحضور في الوقت %'];
-  const attLine = (r) => [r.e.name, r.b.name, r.scheduled, r.present, r.onTime, r.late, r.lateMinutes, r.absent, r.early, r.earlyMinutes, r.noCheckout, pct(r.onTime, r.scheduled) == null ? '' : pct(r.onTime, r.scheduled)];
+  // v27.4 — أعمدة «الحضور الفعلي» (بلا اعتماد على الجدولة) أولًا، ثم أعمدة الالتزام بالوردية المجدولة
+  const hoursOf = (m) => m > 0 ? Math.round(m / 6) / 10 : 0;   // دقائق ⇒ ساعات بمنزلة عشرية
+  const attHead = ['الموظف', 'الفرع', 'أيام حضور فعلي', 'ساعات فعلية', 'دخول بلا انصراف', 'أيام مجدولة', 'حضور مقابل الوردية', 'في الوقت', 'تأخير (مرات)', 'دقائق التأخير', 'غياب', 'انصراف مبكر (مرات)', 'دقائق مبكرة', 'بلا انصراف (مجدول)', 'نسبة الحضور في الوقت %'];
+  const attLine = (r) => [r.e.name, r.b.name, r.actualDays, hoursOf(r.workedMinutes), r.openDays, r.scheduled, r.present, r.onTime, r.late, r.lateMinutes, r.absent, r.early, r.earlyMinutes, r.noCheckout, pct(r.onTime, r.scheduled) == null ? '' : pct(r.onTime, r.scheduled)];
   // === ٣) تقرير المكافآت والجزاءات والنقاط ===
   const rwRows = repBranches.flatMap(b => empsOf(b.id).map(e => {
     const reqs = (ops.rewardRequests || []).filter(r => r.employeeId === e.id && r.month === ym);
@@ -11344,6 +11360,7 @@ function HrDashboard({ org, ops, me, myBranches, say, setTab }) {
       {view === 'attendance' && (
         <div className="card">
           <ToolBar title="تقرير الحضور الشهري" head={attHead} lines={attRows.map(attLine)} fileName="تقرير_الحضور" />
+          <div className="note" style={{ marginBottom: 8 }}>الأعمدة الأولى «الحضور الفعلي» (أيام الحضور والساعات) تُحسب من البصمات مباشرة وتعمل بلا ورديات. أعمدة «مقابل الوردية» (حضور/تأخير/غياب/نسبة) لا تُحسب إلا لموظف له ورديات مُعيَّنة في «محرّك الورديات» — تبقى صفرًا لمن لا وردية له.</div>
           <div className="tw">
             <table className="tb">
               <thead><tr>{attHead.map(h => <th key={h}>{h}</th>)}</tr></thead>
