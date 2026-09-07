@@ -11,7 +11,7 @@ import {
   Fingerprint, ScanFace, ShieldAlert, Video, Grid3x3,
   BarChart3, CheckCircle2, ArrowUp, ArrowDown,
   CreditCard, Coins, ChevronDown, ChevronRight,
-  Crop, RotateCw, Sun, Wand2, Delete, Scale, Home, Star, QrCode
+  Crop, RotateCw, Sun, Wand2, Delete, Scale, Home, Star, QrCode, Signature, PenLine
 } from 'lucide-react';
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis,
@@ -238,7 +238,9 @@ const LOCK_MSG = (d) => 'شهر ' + (d || '').slice(0, 7) + ' مقفل محاس�
    ============================================================ */
 const BR_COLS = ['closings', 'transfers', 'partnerRequests', 'notifications', 'branchPartners',
   // v24.0 — بيانات HR التشغيلية لكل فرع (م٣–م٧): تُخزَّن في مستند الفرع كي تقرأها وتكتبها أجهزة الفروع (لا تصل لـ org)
-  'attendanceEvents', 'hrPins', 'shiftTemplates', 'shiftAssignments', 'shiftSwapRequests', 'branchTransferRequests', 'taskTemplates', 'taskAssignments', 'taskCompletions', 'pointsEntries', 'qualityReviews', 'rewardRequests'];
+  'attendanceEvents', 'hrPins', 'shiftTemplates', 'shiftAssignments', 'shiftSwapRequests', 'branchTransferRequests', 'taskTemplates', 'taskAssignments', 'taskCompletions', 'pointsEntries', 'qualityReviews', 'rewardRequests',
+  // v27.0 — م١٠: مستندات التوقيع الإلكتروني (إقرارات استلام الراتب وإشعارات المكافآت/الجزاءات) — يوقّعها الموظف من جهاز الفرع
+  'hrSignDocs'];
 const CORE_COLS = ['advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules'];
 
 // تقسيم ops المدمجة إلى مستند مركزي + مستند لكل فرع
@@ -1458,11 +1460,11 @@ const DENOMS = [
 const emptyDenoms = () => DENOMS.reduce((o, d) => ({ ...o, [d.k]: 0 }), {});
 const countDenoms = (d) => DENOMS.reduce((s, x) => s + (Number(d?.[x.k]) || 0) * x.v, 0);
 
-const ALL_TABS = ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'hrdash', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit'];
+const ALL_TABS = ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'hrdash', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit'];
 const TAB_AR = {
   analytics: 'مركز التحليل والأداء', reporting: 'مركز التقارير', exec: 'اللوحة التنفيذية',
   dash: 'لوحة المؤشرات', compare: 'مقارنة الفروع', growth: 'تحليلات النمو', breakeven: 'تحليل التعادل', scorecard: 'لوحة الأهداف', scenario: 'ماذا-لو', boardpack: 'تقرير الإدارة', cashflow: 'التدفق النقدي', closing: 'الإغلاق اليومي', apps: 'التطبيقات',
-  approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', people: 'شؤون الموظفين', payroll: 'الرواتب والسلف', workforce: 'الجدولة والحضور', hrmaster: 'البيانات الرئيسية', hrpolicy: 'السياسات والأدوار', attendance: 'الحضور الموثَّق', shiftengine: 'محرّك الورديات', tasks: 'المهام', points: 'دفتر النقاط', kpi: 'الأداء والتقييم', rewards: 'المكافآت والجزاءات', hrdash: 'لوحة الموارد البشرية',
+  approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', people: 'شؤون الموظفين', payroll: 'الرواتب والسلف', workforce: 'الجدولة والحضور', hrmaster: 'البيانات الرئيسية', hrpolicy: 'السياسات والأدوار', attendance: 'الحضور الموثَّق', shiftengine: 'محرّك الورديات', tasks: 'المهام', points: 'دفتر النقاط', kpi: 'الأداء والتقييم', rewards: 'المكافآت والجزاءات', esign: 'التوقيع الإلكتروني', hrdash: 'لوحة الموارد البشرية',
   purchasing: 'المشتريات والموردون', suppliers: 'الموردون والمشتريات', inv: 'المخزون والمنتجات', reorder: 'المشتريات الذكية', partners: 'دفتر الشركاء',
   acct: 'المحاسبة', shifts: 'الورديات', archive: 'أرشيف المستندات', ai: 'المركز الذكي',
   reports: 'التقارير المالية', rbuild: 'منشئ التقارير', entities: 'مركز المنشآت', admin: 'الفروع والمستخدمون', audit: 'سجل التدقيق'
@@ -1492,22 +1494,22 @@ const ROLES = {
   // ===== الأدوار الخمسة المعتمدة =====
   cashier: {
     ar: 'كاشير — إدخال إغلاق اليوم', badge: 'b-sky', scope: 'own', create: true, todayOnly: true,
-    tabs: ['closing', 'attendance', 'tasks', 'points'],
-    perms: ['إنشاء وترحيل إغلاق اليوم لفرعه', 'جرد الصندوق وإدخال المبيعات والمصروفات', 'تسجيل حضور وانصراف موظفي فرعه من جهاز الفرع', 'اليوم الحالي فقط دون سجلّ سابق — عدا مسوداته والمرفوضات المعادة للتصحيح فتظهر دائماً']
+    tabs: ['closing', 'attendance', 'tasks', 'points', 'esign'],
+    perms: ['إنشاء وترحيل إغلاق اليوم لفرعه', 'جرد الصندوق وإدخال المبيعات والمصروفات', 'تسجيل حضور وانصراف موظفي فرعه من جهاز الفرع', 'كشك التوقيع الإلكتروني: يوقّع موظفو فرعه إقرارات الراتب والإشعارات بعد التحقق بـPIN', 'اليوم الحالي فقط دون سجلّ سابق — عدا مسوداته والمرفوضات المعادة للتصحيح فتظهر دائماً']
   },
   branch_manager: {
     ar: 'مدير الفرع', badge: 'b-mint', scope: 'own', create: true,
-    tabs: ['closing', 'sales', 'apps', 'archive', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'hrdash'],
-    perms: ['إدخال وترحيل إغلاق فرعه', 'عرض سجل إغلاقات فرعه', 'أرشيف مستندات فرعه فقط', 'تسجيل الحضور وضبط أرقام PIN وسجل حضور فرعه', 'محرّك ورديات فرعه: قوالب، تعيين أسبوعي، مطابقة حضور، تبديل وردية، طلب نقل موظف']
+    tabs: ['closing', 'sales', 'apps', 'archive', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'hrdash'],
+    perms: ['إدخال وترحيل إغلاق فرعه', 'عرض سجل إغلاقات فرعه', 'أرشيف مستندات فرعه فقط', 'تسجيل الحضور وضبط أرقام PIN وسجل حضور فرعه', 'محرّك ورديات فرعه: قوالب، تعيين أسبوعي، مطابقة حضور، تبديل وردية، طلب نقل موظف', 'كشك التوقيع الإلكتروني وسجل إقرارات فرعه (بلا مبالغ الرواتب)']
   },
   regional_manager: {
     ar: 'مدير إقليمي — فروع مُسندة', badge: 'b-amber', scope: 'assigned',
-    tabs: ['analytics', 'reporting', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'reports', 'archive', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'hrdash'],
+    tabs: ['analytics', 'reporting', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'reports', 'archive', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'hrdash'],
     perms: ['متابعة الفروع المسندة إليه فقط', 'مقارنة وتقارير فروعه ولوحة مؤشراتها ونموّها', 'سجل حضور فروعه المسندة ومحرّك ورديات فروعه', 'بلا وصول للمحاسبة والخزينة والإعدادات']
   },
   head_office: {
     ar: 'المكتب الرئيسي — المالية والإدارة', badge: 'b-brass', scope: 'all', approver: true,
-    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'hrdash', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
+    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'hrdash', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['كل الفروع والتقارير المجمّعة', 'التدقيق والاعتماد النهائي', 'الخزينة والرواتب والموردون والمشتريات والمخزون', 'المحاسبة الكاملة: قيود وميزان وقوائم وضريبة وأصول ومراكز تكلفة']
   },
   system_admin: {
@@ -1525,7 +1527,7 @@ const ROLES = {
     // إعادة ترتيب v8.0: المحاسب الرئيسي بطبيعته يعمل على المنشأة كلها — نطاق كامل
     // بلا صلاحيات إدارة (لا مستخدمين/فروع، لا تفعيل ضريبة، لا إدارة تطبيقات)
     ar: 'الإدارة المالية — محاسب رئيسي', badge: 'b-sky', scope: 'all', legacy: true,
-    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'hrdash', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
+    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'hrdash', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['المحاسبة كاملة: قيود يدوية وافتتاحية وميزان وقوائم ومراكز تكلفة', 'الضريبة والأصول والتسوية البنكية (عرض وتسجيل — التفعيل للإدارة)', 'المشتريات والمخزون والرواتب والخزينة', 'كل الفروع — دون إدارة المستخدمين والإعدادات']
   },
   // ===== v15.9: نماذج صلاحيات المحاسب — نطاق «المحاسبة + التقارير المالية فقط» =====
@@ -1621,6 +1623,7 @@ const REG_APPS = [
   { id: 'points', ar: 'دفتر النقاط', en: 'Points Ledger', cat: 'hr', icon: Star, open: { tab: 'points' }, kw: ['نقاط', 'دفتر نقاط', 'ترتيب', 'تحفيز', 'مكافأة', 'رصيد'], fns: ['دفتر نقاط لكل موظف مع حركات يدوية بسبب موثَّق', 'قواعد نقاط تلقائية من الحضور والورديات والمهام (قابلة للضبط)', 'لوحة ترتيب شهرية للفرع والشركة', 'عرض رصيد الموظف من كشك الفرع بـPIN'], d: 'رصيد نقاط لكل موظف يجمع الحركات اليدوية والنقاط التلقائية من الحضور والمهام، مع لوحة ترتيب شهرية وعرض للموظف من جهاز الفرع.' },
   { id: 'kpi', ar: 'الأداء والتقييم', en: 'Performance & KPI', cat: 'hr', icon: TrendingUp, open: { tab: 'kpi' }, kw: ['تقييم', 'أداء', 'kpi', 'درجة', 'مؤشرات', 'أهداف', 'بطاقة أداء'], fns: ['درجة أداء شهرية مركّبة لكل موظف بأوزان قابلة للضبط', 'تقييم المدير الشهري للجودة', 'أهداف KPI لكل فرع مقابل الفعلي', 'بطاقة أداء الموظف (سجل ٦ أشهر + اتجاه) قابلة للطباعة'], d: 'درجة أداء شهرية من 100 تجمع الحضور والمهام والانضباط وتقييم المدير بأوزان قابلة للضبط، مع أهداف KPI للفرع وبطاقة أداء لكل موظف.' },
   { id: 'rewards', ar: 'المكافآت والجزاءات', en: 'Rewards & Penalties', cat: 'hr', icon: Coins, open: { tab: 'rewards' }, kw: ['مكافأة', 'مكافآت', 'جزاء', 'جزاءات', 'اعتماد', 'حافز', 'خصم', 'راتب'], fns: ['طلب مكافأة أو جزاء لموظف بمبلغ وسبب', 'سلسلة اعتماد مركزية بسجل كامل', 'ترحيل تلقائي لمسيّر الرواتب بعد الاعتماد', 'شرائح مكافآت تلقائية حسب درجة الأداء (قابلة للضبط، مُعطَّلة افتراضيًا)'], d: 'طلبات مكافآت وجزاءات من الفروع، اعتماد مركزي، وترحيل تلقائي لمسيّر الرواتب بعد الاعتماد — مع شرائح مكافآت اختيارية مبنية على درجة الأداء.' },
+  { id: 'esign', ar: 'التوقيع الإلكتروني', en: 'E-Signature', cat: 'hr', icon: Signature, open: { tab: 'esign' }, kw: ['توقيع', 'إقرار', 'استلام', 'راتب', 'قسيمة', 'إشعار', 'جزاء', 'مكافأة', 'كشك', 'PIN'], fns: ['إقرار استلام الراتب الشهري يوقّعه الموظف بإصبعه بعد التحقق بـPIN', 'إشعارات المكافآت والجزاءات المعتمدة توقَّع بالعلم', 'التوقيع من كشك الفرع أو من شاشة الرواتب بالمكتب', 'التوقيع يظهر على قسيمة الراتب ومسير الرواتب المطبوعين', 'سجل إقرارات وتقرير حالة التوقيعات وتنبيه بغير الموقَّع'], d: 'توقيع إلكتروني للموظف على إقرارات استلام الراتب وإشعارات المكافآت والجزاءات — من جهاز الفرع بعد التحقق بـPIN، ويُطبع على القسائم والمسير.' },
   { id: 'hrdash', ar: 'لوحة الموارد البشرية', en: 'HR Dashboard', cat: 'hr', icon: LayoutDashboard, open: { tab: 'hrdash' }, kw: ['لوحة', 'تقارير', 'حضور', 'مكافآت', 'نقاط', 'موارد بشرية', 'hr', 'excel'], fns: ['لوحة HR تنفيذية لكل الفروع بمقارنة شهرية', 'تقرير الحضور الشهري التفصيلي (طباعة وExcel)', 'تقرير المكافآت والجزاءات والنقاط', 'تنبيهات HR في مركز التنبيهات'], d: 'لوحة تنفيذية لمؤشرات الموارد البشرية لكل الفروع، وتقارير الحضور والمكافآت والنقاط قابلة للطباعة وExcel.' },
   // ——— الزكاة والضريبة (خطة م٣) ———
   { id: 'vat', ar: 'ضريبة القيمة المضافة', en: 'VAT', cat: 'tax', icon: Receipt, open: { tab: 'acct', view: 'vat' }, kw: ['ضريبة', 'زاتكا', 'مدخلات', 'مخرجات', 'فاتورة', 'إقرار'], fns: ['تفعيل بنسبة قابلة للضبط', 'فصل المخرجات في قيد الإيراد', 'فصل مدخلات المصروفات الخاضعة', 'مؤشرات بالفترة'], d: 'فصل تلقائي لضريبة المخرجات والمدخلات في القيود — بأثر رجعي فور التفعيل.' },
@@ -1671,6 +1674,8 @@ const LAUNCH_APPS = [
     sections: ['درجات الأداء', 'تقييم المدير', 'أهداف KPI', 'بطاقة الموظف'], kw: ['تقييم', 'أداء', 'kpi', 'درجة', 'أهداف'] },
   { id: 'rewards', ar: 'المكافآت والجزاءات', en: 'Rewards & Penalties', cat: 'pos', icon: Coins, open: { tab: 'rewards' },
     sections: ['الطلبات', 'قائمة الاعتماد', 'شرائح المكافآت'], kw: ['مكافأة', 'جزاء', 'اعتماد', 'حافز', 'خصم'] },
+  { id: 'esign', ar: 'التوقيع الإلكتروني', en: 'E-Signature', cat: 'pos', icon: Signature, open: { tab: 'esign' },
+    sections: ['كشك التوقيع', 'سجل الإقرارات', 'تقرير حالة التوقيعات'], kw: ['توقيع', 'إقرار', 'استلام', 'راتب', 'قسيمة', 'إشعار', 'كشك'] },
   { id: 'hrdash', ar: 'لوحة الموارد البشرية', en: 'HR Dashboard', cat: 'bi', icon: LayoutDashboard, open: { tab: 'hrdash' },
     sections: ['اللوحة التنفيذية', 'تقرير الحضور', 'المكافآت والنقاط'], kw: ['لوحة', 'تقارير', 'حضور', 'مكافآت', 'نقاط', 'hr'] },
   { id: 'sales', ar: 'المبيعات', en: 'Sales', cat: 'pos', icon: CircleDollarSign, open: { tab: 'sales' },
@@ -1809,7 +1814,7 @@ function emptyOrg(company) {
 
 function emptyOps() {
   return { closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
-    attendanceEvents: [], hrPins: [], shiftTemplates: [], shiftAssignments: [], shiftSwapRequests: [], branchTransferRequests: [], taskTemplates: [], taskAssignments: [], taskCompletions: [], pointsEntries: [], qualityReviews: [], rewardRequests: [] };
+    attendanceEvents: [], hrPins: [], shiftTemplates: [], shiftAssignments: [], shiftSwapRequests: [], branchTransferRequests: [], taskTemplates: [], taskAssignments: [], taskCompletions: [], pointsEntries: [], qualityReviews: [], rewardRequests: [], hrSignDocs: [] };
 }
 
 
@@ -2492,6 +2497,7 @@ export default function App() {
     { id: 'points', ar: 'دفتر النقاط', icon: Star },
     { id: 'kpi', ar: 'الأداء والتقييم', icon: TrendingUp },
     { id: 'rewards', ar: 'المكافآت والجزاءات', icon: Coins },
+    { id: 'esign', ar: 'التوقيع الإلكتروني', icon: Signature },
     { id: 'hrdash', ar: 'لوحة الموارد البشرية', icon: LayoutDashboard },
     { id: 'apps', ar: 'إدارة التطبيقات', icon: Grid3x3 },
     { id: 'approve', ar: 'التدقيق والاعتماد', icon: ShieldCheck, cnt: pending },
@@ -2601,7 +2607,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v26.1 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v27.0 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2738,6 +2744,7 @@ export default function App() {
               {safeTab === 'points' && <PointsLedger {...shared} />}
               {safeTab === 'kpi' && <Performance {...shared} />}
               {safeTab === 'rewards' && <Rewards {...shared} />}
+              {safeTab === 'esign' && <ESign {...shared} />}
               {safeTab === 'hrdash' && <HrDashboard {...shared} />}
               {safeTab === 'apps' && <AppsCenter {...shared} />}
               {safeTab === 'approve' && <Approvals {...shared} />}
@@ -5880,6 +5887,12 @@ function AlertsCenter({ org, ops, me, myBranches, scoped, setTab, openAcctView, 
     // موظفون بلا PIN ولا بطاقة (م٣)
     const noPin = hrEmps.filter(e => !(ops.hrPins || []).some(p => p.employeeId === e.id && (p.pinHash || p.badgeHash))).length;
     if (noPin) push('low', 'hr', noPin + ' موظف بلا رقم PIN ولا بطاقة QR', 'لن يستطيعوا تسجيل الحضور من جهاز الفرع.', { label: 'أرقام PIN', go: () => setTab('attendance') });
+    // م١٠ (v27.0) — إقرارات/إشعارات بانتظار توقيع الموظف تجاوزت مهلة التذكير (hrPolicies.signReminderDays)
+    const overdueSign = overdueSignDocs(org, ops, hrIds, td);
+    if (overdueSign.length) {
+      const sd = Number((org.hrPolicies || {}).signReminderDays != null ? org.hrPolicies.signReminderDays : defaultHrPolicies().signReminderDays) || 0;
+      push('mid', 'hr', overdueSign.length + ' إقرار/إشعار بانتظار توقيع الموظف منذ أكثر من ' + sd + ' أيام', [...new Set(overdueSign.map(x => x.employeeName))].slice(0, 4).join('، ') + (overdueSign.length > 4 ? '…' : '') + ' — يوقّعون من كشك الفرع بعد التحقق بـPIN.', { label: 'التوقيع الإلكتروني', go: () => setTab('esign') });
+    }
   } catch (e) { }
 
   const sevRank = { high: 0, mid: 1, low: 2 };
@@ -7823,14 +7836,32 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
   const totalGEr = r2(sum(rows, r => r.gEr));
   const totalGosi = r2(totalGEmp + totalGEr);
 
+  // م١٠ (v27.0) — إقرارات استلام الراتب الموقَّعة إلكترونيًا (ops.hrSignDocs): تُصدر تلقائيًا مع تسجيل الصرف، ويوقّعها الموظف من كشك الفرع أو من هنا
+  const slipDocOf = (empId) => (ops.hrSignDocs || []).find(d => d.docType === 'payslip' && d.month === month && d.employeeId === empId && d.status !== 'voided') || null;
+  const slipDocs = rows.map(r => slipDocOf(r.e.id)).filter(Boolean);
+  const slipSigned = slipDocs.filter(d => d.status === 'signed').length;
+  const missingSlips = rows.filter(r => r.net > 0 && !slipDocOf(r.e.id)).length;
+  const [signRow, setSignRow] = useState(null);   // {emp, doc} — توقيع الاستلام من شاشة الرواتب (المكتب)
+  const issueSlips = async () => {
+    if (!missingSlips) return say('كل قسائم هذا الشهر صادرة للتوقيع مسبقًا', 'no');
+    const ok = await commit(d => ({ ...d, hrSignDocs: [...buildPayslipSignDocs(rows, month, d.hrSignDocs || [], org.branches || [], me), ...(d.hrSignDocs || [])] }), {
+      actionType: 'create', targetType: 'hr_sign_doc', targetId: 'payslips-' + month,
+      title: 'إصدار قسائم الشهر للتوقيع الإلكتروني', details: month + ' · ' + missingSlips + ' قسيمة'
+    });
+    if (ok) say('صدرت ' + missingSlips + ' قسيمة للتوقيع — يوقّعها الموظفون من كشك الفرع أو من هنا ✓');
+  };
+  // خلية توقيع الموظف في المسير المطبوع: التوقيع الإلكتروني إن وُجد، وإلا فراغ للتوقيع اليدوي
+  const musterSigCell = (r) => { const sd = slipDocOf(r.e.id); return sd && sd.status === 'signed' ? sigSvg(sd.sig, { width: 90 }) : (sd ? '<span style="font-size:9px;color:#999">بانتظار التوقيع</span>' : ''); };
+
   const printMuster = () => {
     const monthName = new Date(month + '-01').toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' });
     const gc = gosiOn ? '<th>تأمينات</th>' : '';
-    const rws = rows.map(r => `<tr><td>${r.e.name}</td><td>${(org.branches.find(b => b.id === r.e.branchId) || {}).name || ''}</td><td class="n">${money(r.e.baseSalary || 0)}</td><td class="n">${r.allow ? money(r.allow) : '—'}</td><td class="n">${r.bonus ? money(r.bonus) : '—'}</td><td class="n">${money(r.gross)}</td><td class="n">${r.draws ? money(r.draws) : '—'}</td><td class="n">${r.cuts ? money(r.cuts) : '—'}</td>${gosiOn ? `<td class="n">${r.gEmp ? money(r.gEmp) : '—'}</td>` : ''}<td class="n">${money(r.net)}</td></tr>`).join('');
+    const rws = rows.map(r => `<tr><td>${r.e.name}</td><td>${(org.branches.find(b => b.id === r.e.branchId) || {}).name || ''}</td><td class="n">${money(r.e.baseSalary || 0)}</td><td class="n">${r.allow ? money(r.allow) : '—'}</td><td class="n">${r.bonus ? money(r.bonus) : '—'}</td><td class="n">${money(r.gross)}</td><td class="n">${r.draws ? money(r.draws) : '—'}</td><td class="n">${r.cuts ? money(r.cuts) : '—'}</td>${gosiOn ? `<td class="n">${r.gEmp ? money(r.gEmp) : '—'}</td>` : ''}<td class="n">${money(r.net)}</td><td style="width:100px;height:36px;text-align:center">${musterSigCell(r)}</td></tr>`).join('');
     const span = gosiOn ? 9 : 8;
-    printA4(org, 'مسير الرواتب — ' + monthName, arDate(today()) + ' · ' + rows.length + ' موظف',
-      `<table><thead><tr><th>الموظف</th><th>الفرع</th><th>الأساسي</th><th>البدلات</th><th>مكافآت</th><th>الإجمالي</th><th>سلف/سحب</th><th>خصومات</th>${gc}<th>الصافي</th></tr></thead><tbody>${rws}
-      <tr class="tot"><td colspan="${span}">إجمالي صافي المسير</td><td class="n">${money(totalNet)}</td></tr>${gosiOn ? `<tr class="tot"><td colspan="${span}">إجمالي التأمينات للتحويل (موظف + صاحب عمل)</td><td class="n">${money(totalGosi)}</td></tr>` : ''}</tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+    printA4(org, 'مسير الرواتب — ' + monthName, arDate(today()) + ' · ' + rows.length + ' موظف' + (slipDocs.length ? ' · توقيعات إلكترونية ' + slipSigned + '/' + slipDocs.length : ''),
+      `<table><thead><tr><th>الموظف</th><th>الفرع</th><th>الأساسي</th><th>البدلات</th><th>مكافآت</th><th>الإجمالي</th><th>سلف/سحب</th><th>خصومات</th>${gc}<th>الصافي</th><th>توقيع الموظف</th></tr></thead><tbody>${rws}
+      <tr class="tot"><td colspan="${span}">إجمالي صافي المسير</td><td class="n">${money(totalNet)}</td><td></td></tr>${gosiOn ? `<tr class="tot"><td colspan="${span}">إجمالي التأمينات للتحويل (موظف + صاحب عمل)</td><td class="n">${money(totalGosi)}</td><td></td></tr>` : ''}</tbody></table>
+      ${slipDocs.length ? '<div class="ft" style="text-align:right">التوقيعات الإلكترونية مسجَّلة عبر كشك الفرع/المكتب بعد التحقق بـPIN أو بحضور مستخدم مركزي — تفاصيلها في «التوقيع الإلكتروني ← سجل الإقرارات».</div>' : ''}`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
   };
 
   // ===== v12.3: حماية الأجور (WPS) ونهاية الخدمة =====
@@ -7933,7 +7964,7 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
       </div>
       ${r.gEr ? `<div style="margin-top:10px;font-size:11px;color:#666;text-align:center">حصة صاحب العمل من التأمينات: ${m(r.gEr)} ر.س (على المنشأة، خارج صافي الموظف)</div>` : ''}
       <div class="sign">
-        <div>توقيع الموظف</div>
+        <div>${(() => { const sd = slipDocOf(r.e.id); return sd && sd.status === 'signed' ? sigBlockHtml(sd, 150) + '<div style="margin-top:4px">توقيع الموظف — إقرار استلام</div>' : (sd ? 'توقيع الموظف <span style="font-size:9px;color:#999">(بانتظار التوقيع الإلكتروني)</span>' : 'توقيع الموظف'); })()}</div>
         <div>المحاسب</div>
         <div>اعتماد الإدارة</div>
       </div>
@@ -7970,11 +8001,13 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
       fund: payFund   // v15.19: مصدر صرف الرواتب المختار (بنك 1201 أو خزينة رئيسية 1101)
     }));
     if (!entries.length) return say('لا صافي مستحق للصرف', 'no');
-    await commit(d => ({ ...d, ledgerEntries: [...entries, ...(d.ledgerEntries || [])] }), {
+    // م١٠ (v27.0): مع قيد الصرف تُصدر قسيمة إقرار استلام لكل موظف (تُكتب في مستند فرعه كي يوقّعها من كشك الفرع)
+    const ok = await commit(d => ({ ...d, ledgerEntries: [...entries, ...(d.ledgerEntries || [])], hrSignDocs: [...buildPayslipSignDocs(rows, month, d.hrSignDocs || [], org.branches || [], me), ...(d.hrSignDocs || [])] }), {
       actionType: 'create', targetType: 'daily_closing', targetId: 'payout-' + month,
-      title: 'سجّل صرف رواتب الشهر', details: month + ' · صافي ' + money(sum(rows.filter(r => r.net > 0), r => r.net)) + (payFund === '1101' ? ' · نقداً من الخزينة' : ' · من البنك') + (totalGosi > 0.004 ? ' · تأمينات ' + money(totalGosi) : '')
+      title: 'سجّل صرف رواتب الشهر', details: month + ' · صافي ' + money(sum(rows.filter(r => r.net > 0), r => r.net)) + (payFund === '1101' ? ' · نقداً من الخزينة' : ' · من البنك') + (totalGosi > 0.004 ? ' · تأمينات ' + money(totalGosi) : '') + ' · صدرت ' + entries.length + ' قسيمة للتوقيع الإلكتروني'
     });
-    say('سُجّل صرف رواتب ' + month + (payFund === '1101' ? ' نقداً من الخزينة الرئيسية' : ' من البنك') + ' — أُقفل استحقاق الشهر في كشوف الموظفين ✓');
+    if (!ok) return;
+    say('سُجّل صرف رواتب ' + month + (payFund === '1101' ? ' نقداً من الخزينة الرئيسية' : ' من البنك') + ' — أُقفل استحقاق الشهر وصدرت قسائم الإقرار للتوقيع الإلكتروني ✓');
   };
   // v11.0 — حفظ إعداد التأمينات الاجتماعية
   const saveGosi = async () => {
@@ -8041,6 +8074,8 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
           {canPost && (payoutPosted
             ? <span className="badge b-mint"><Check size={11} />صرف {month} مسجّل</span>
             : <button className="btn" disabled={!accrualPosted} onClick={postPayout}><Banknote size={14} />تسجيل صرف الرواتب</button>)}
+          {canPost && payoutPosted && missingSlips > 0 && <button className="btn" onClick={issueSlips} title="لأشهر صُرفت قبل تفعيل التوقيع الإلكتروني"><Signature size={14} />إصدار قسائم الشهر للتوقيع ({missingSlips})</button>}
+          {slipDocs.length > 0 && <span className={'badge ' + (slipSigned === slipDocs.length ? 'b-mint' : 'b-amber')} title="إقرارات استلام الراتب الموقَّعة إلكترونيًا"><Signature size={11} />التوقيعات {slipSigned}/{slipDocs.length}</span>}
           <button className="btn pri" onClick={() => setAdd(true)}><Plus size={15} />تسجيل سلفة أو خصم</button>
         </div>
       </div>
@@ -8085,10 +8120,10 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
           <table className="tb">
             <thead><tr>
               <th>الموظف</th><th>الفرع</th><th style={{ textAlign: 'end' }}>الأساسي</th><th style={{ textAlign: 'end' }}>البدلات</th><th style={{ textAlign: 'end' }}>الإجمالي</th>
-              <th style={{ textAlign: 'end' }}>سلف</th><th style={{ textAlign: 'end' }}>خصومات</th>{gosiOn && <th style={{ textAlign: 'end' }}>تأمينات</th>}<th style={{ textAlign: 'end' }}>الصافي</th><th></th>
+              <th style={{ textAlign: 'end' }}>سلف</th><th style={{ textAlign: 'end' }}>خصومات</th>{gosiOn && <th style={{ textAlign: 'end' }}>تأمينات</th>}<th style={{ textAlign: 'end' }}>الصافي</th><th>التوقيع</th><th></th>
             </tr></thead>
             <tbody>
-              {rows.map(r => (
+              {rows.map(r => { const sd = slipDocOf(r.e.id); return (
                 <tr key={r.e.id}>
                   <td>
                     <div style={{ fontSize: 12.5, fontWeight: 600 }}>{r.e.name}<span style={{ fontSize: 9.5, color: 'var(--faint)', marginInlineStart: 6 }}>{r.e.jobTitle}</span></div>
@@ -8106,14 +8141,20 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
                   {gosiOn && <td className="num" style={{ textAlign: 'end', color: 'var(--sky)' }}>{r.gEmp ? money(r.gEmp) : '—'}</td>}
                   <td className="num" style={{ textAlign: 'end', color: 'var(--mint)', fontWeight: 700 }}>{money(r.net)}</td>
                   <td>
+                    {!sd && (payoutPosted && r.net > 0 ? <span className="badge b-dim" title="أصدرها من زر «إصدار قسائم الشهر للتوقيع»">لم تُصدر</span> : <span style={{ color: 'var(--faint)' }}>—</span>)}
+                    {sd && sd.status === 'signed' && <span className="badge b-mint" title={'وُقِّع ' + new Date(sd.signedAt).toLocaleString('ar-SA') + (sd.pinVerified ? ' · PIN' : ' · بحضور ' + sd.witnessName)}><Check size={11} />موقَّع</span>}
+                    {sd && sd.status === 'pending' && <span className="badge b-amber">بانتظار التوقيع</span>}
+                  </td>
+                  <td>
                     <div className="row" style={{ gap: 5, justifyContent: 'flex-end' }}>
                       {canPost && <button className="btn sm gh" onClick={() => setCompF({ id: r.e.id, name: r.e.name, baseSalary: String(r.e.baseSalary || 0), housingAllowance: String(r.e.housingAllowance || 0), transportAllowance: String(r.e.transportAllowance || 0), otherAllowance: String(r.e.otherAllowance || 0), gosiSubject: !!r.e.gosiSubject, nationality: r.e.nationality || '', hireDate: r.e.hireDate || '', iban: r.e.iban || '', idNumber: r.e.idNumber || r.e.iqamaNo || r.e.nationalId || '' })}>تعديل الراتب</button>}
+                      {sd && sd.status === 'pending' && <button className="btn sm gh" onClick={() => setSignRow({ emp: r.e, doc: sd })} title="يوقّع الموظف هنا بحضورك (PIN أو شاهد)"><PenLine size={13} />توقيع الاستلام</button>}
                       <button className="btn sm gh" onClick={() => printPayslip(r)} title="قسيمة راتب"><Printer size={13} />قسيمة</button>
                     </div>
                   </td>
                 </tr>
-              ))}
-              {rows.length === 0 && <tr><td colSpan={gosiOn ? 10 : 9}><div className="empty">لا يوجد موظفون ضمن نطاقك.</div></td></tr>}
+              ); })}
+              {rows.length === 0 && <tr><td colSpan={gosiOn ? 11 : 10}><div className="empty">لا يوجد موظفون ضمن نطاقك.</div></td></tr>}
             </tbody>
           </table>
         </div>
@@ -8204,6 +8245,7 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
       </div>
 
       {add && <AdvanceForm emps={emps} org={org} me={me} commit={commit} say={say} onClose={() => setAdd(false)} />}
+      {signRow && <SignDocsModal org={org} ops={ops} me={me} emp={signRow.emp} docs={[signRow.doc]} onClose={() => setSignRow(null)} commit={commit} say={say} via="central" />}
 
       {eosF && (() => {
         const emp = emps.find(e => e.id === eosF.id); if (!emp) return null;
@@ -8398,6 +8440,7 @@ function HrMaster({ org, ops, me, commitOrg, commit, say }) {
       + (o.attendanceEvents || []).filter(x => x.employeeId === e.id).length + (o.shiftAssignments || []).filter(x => x.empId === e.id && (x.shiftIds || []).some(Boolean)).length
       + (o.taskAssignments || []).filter(x => x.employeeId === e.id).length + (o.taskCompletions || []).filter(x => x.employeeId === e.id).length
       + (o.pointsEntries || []).filter(x => x.employeeId === e.id).length + (o.qualityReviews || []).filter(x => x.employeeId === e.id).length + (o.rewardRequests || []).filter(x => x.employeeId === e.id).length
+      + (o.hrSignDocs || []).filter(x => x.employeeId === e.id).length
       + (o.closings || []).filter(c => JSON.stringify(c).includes('"' + key + '"')).length;
   };
   const deleteEmp = async (e) => {
@@ -8709,6 +8752,7 @@ const defaultHrPolicies = () => ({
   overtimeEnabled: false, overtimeMaxHoursPerMonth: 30,
   scoreWeightsEnabled: false, scoreWeights: { attendance: 25, quality: 25, tasks: 25, discipline: 25 },
   disciplineBase: 50, disciplinePointValue: 5, // م٧: محور الانضباط = القاعدة + (صافي نقاط الشهر × قيمة النقطة)، محصور 0–100
+  signReminderDays: 3, // م١٠ (v27.0): بعد كم يومًا من إصدار إقرار/إشعار غير موقَّع يظهر تنبيه في مركز التنبيهات
 });
 // م٦ — قواعد النقاط التلقائية (مُعطَّلة افتراضيًا حتى يراجعها المالك ويفعّلها — قرار H/3 في hr-audit-m0)
 const defaultPointsRules = () => ({ enabled: false, onTime: 1, late: -1, absent: -3, taskDone: 1 });
@@ -8813,6 +8857,7 @@ function HrPolicy({ org, me, commitOrg, say }) {
           <div className="grid g2">
             <Num label="ساعات الدوام القياسية يوميًا" value={pf.workHoursPerDay} onChange={v => setPf(f => ({ ...f, workHoursPerDay: v }))} />
             <Num label="سماحية التأخير (دقائق) قبل احتساب تأخير" value={pf.lateToleranceMinutes} onChange={v => setPf(f => ({ ...f, lateToleranceMinutes: v }))} />
+            <Num label="تنبيه بالإقرارات غير الموقَّعة بعد (أيام) من إصدارها" value={pf.signReminderDays} onChange={v => setPf(f => ({ ...f, signReminderDays: v }))} hint="م١٠ — إقرارات استلام الراتب وإشعارات المكافآت/الجزاءات التي لم يوقّعها الموظف من كشك الفرع" />
           </div>
           <Field label="أيام الإجازة الأسبوعية الافتراضية">
             <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
@@ -10844,9 +10889,11 @@ function Rewards({ org, ops, me, myBranches, commit, commitOrg, say }) {
       const ok = await commit(d => ({
         ...d,
         advances: existing ? (d.advances || []) : [adv, ...(d.advances || [])],
-        rewardRequests: (d.rewardRequests || []).map(x => x.id === r.id ? { ...x, status: 'approved', decidedBy: me.id, decidedByName: me.name, decidedAt: nowISO(), decisionNote: note, advanceId: adv.id } : x)
-      }), { actionType: 'approve', targetType: 'reward_request', targetId: r.id, branchName: r.branchName, title: 'اعتماد ' + kindAr(r.kind) + ' وترحيلها لمسيّر الرواتب', details: r.employeeName + ' · ' + money(r.amount) + ' ر.س · شهر ' + r.month + (note ? ' · ' + note : '') });
-      if (ok) say('اعتُمدت ' + kindAr(r.kind) + ' ورُحِّلت لمسيّر رواتب ' + r.month + ' ✓');
+        rewardRequests: (d.rewardRequests || []).map(x => x.id === r.id ? { ...x, status: 'approved', decidedBy: me.id, decidedByName: me.name, decidedAt: nowISO(), decisionNote: note, advanceId: adv.id } : x),
+        // م١٠ (v27.0): إشعار بالعلم يوقّعه الموظف من كشك الفرع (idempotent على refId)
+        hrSignDocs: (d.hrSignDocs || []).some(x => x.refId === r.id) ? (d.hrSignDocs || []) : [rewardSignDoc(r, me), ...(d.hrSignDocs || [])]
+      }), { actionType: 'approve', targetType: 'reward_request', targetId: r.id, branchName: r.branchName, title: 'اعتماد ' + kindAr(r.kind) + ' وترحيلها لمسيّر الرواتب', details: r.employeeName + ' · ' + money(r.amount) + ' ر.س · شهر ' + r.month + (note ? ' · ' + note : '') + ' · صدر إشعار للتوقيع الإلكتروني' });
+      if (ok) say('اعتُمدت ' + kindAr(r.kind) + ' ورُحِّلت لمسيّر رواتب ' + r.month + ' وصدر إشعار بالعلم للتوقيع ✓');
     } else {
       if (!note) return say('اكتب سبب الرفض في الملاحظة', 'no');
       const ok = await commit(d => ({ ...d, rewardRequests: (d.rewardRequests || []).map(x => x.id === r.id ? { ...x, status: 'rejected', decidedBy: me.id, decidedByName: me.name, decidedAt: nowISO(), decisionNote: note } : x) }),
@@ -10862,7 +10909,9 @@ function Rewards({ org, ops, me, myBranches, commit, commitOrg, say }) {
     if (accrued) return say('لا يمكن التراجع: استحقاق رواتب شهر ' + r.month + ' مُرحَّل للدفتر — عالجه بقيد يدوي أو طلب معاكس', 'no');
     if (lockedThru(org) && r.month <= lockedThru(org)) return say(LOCK_MSG(r.month + '-01'), 'no');
     if (!window.confirm('التراجع عن اعتماد ' + kindAr(r.kind) + ' «' + r.employeeName + '» (' + money(r.amount) + ')؟ ستُحذف حركة الراتب ويعود الطلب قيد الاعتماد.')) return;
-    const ok = await commit(d => ({ ...d, advances: (d.advances || []).filter(a => a.rewardId !== r.id), rewardRequests: (d.rewardRequests || []).map(x => x.id === r.id ? { ...x, status: 'pending', decidedBy: '', decidedByName: '', decidedAt: '', decisionNote: '', advanceId: '', revertedAt: nowISO(), revertedByName: me.name } : x) }),
+    const ok = await commit(d => ({ ...d, advances: (d.advances || []).filter(a => a.rewardId !== r.id), rewardRequests: (d.rewardRequests || []).map(x => x.id === r.id ? { ...x, status: 'pending', decidedBy: '', decidedByName: '', decidedAt: '', decisionNote: '', advanceId: '', revertedAt: nowISO(), revertedByName: me.name } : x),
+      // م١٠: إشعار التوقيع المعلّق يُحذف، والموقَّع يُعلَّم «مُلغى» (يبقى أثرًا)
+      hrSignDocs: (d.hrSignDocs || []).filter(x => !(x.refId === r.id && x.status === 'pending')).map(x => (x.refId === r.id && x.status === 'signed') ? { ...x, status: 'voided', voidedAt: nowISO(), voidedByName: me.name } : x) }),
       { actionType: 'update', targetType: 'reward_request', targetId: r.id, branchName: r.branchName, title: 'التراجع عن اعتماد ' + kindAr(r.kind), details: r.employeeName + ' · ' + money(r.amount) + ' · شهر ' + r.month });
     if (ok) say('تراجعتَ عن الاعتماد — الطلب قيد الاعتماد مجددًا');
   };
@@ -10915,7 +10964,7 @@ function Rewards({ org, ops, me, myBranches, commit, commitOrg, say }) {
               <td className="num">{r.month}</td>
               <td style={{ fontSize: 12 }}>{r.reason}{r.decisionNote ? <div style={{ fontSize: 11, color: 'var(--muted)' }}>قرار: {r.decisionNote} — {r.decidedByName}</div> : null}</td>
               <td style={{ fontSize: 11.5 }}>{r.requestedByName}</td>
-              <td>{statusBadge(r.status)}</td>
+              <td>{statusBadge(r.status)}{r.status === 'approved' && (() => { const sd = (ops.hrSignDocs || []).find(x => x.refId === r.id); return sd ? <div style={{ marginTop: 3 }}><span className={'badge ' + (sd.status === 'signed' ? 'b-mint' : sd.status === 'voided' ? 'b-dim' : 'b-amber')} style={{ fontSize: 9.5 }}><PenLine size={10} />{sd.status === 'signed' ? 'وقّع بالعلم' : sd.status === 'voided' ? 'إشعار مُلغى' : 'بانتظار توقيع الموظف'}</span></div> : null; })()}</td>
               {actions && <td>{actions(r)}</td>}
             </tr>
           ))}
@@ -11234,6 +11283,473 @@ function HrDashboard({ org, ops, me, myBranches, say, setTab }) {
             </table>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+/* ================= م١٠ (v27.0) — التوقيع الإلكتروني: إقرارات استلام الراتب وإشعارات المكافآت/الجزاءات =================
+   نموذج البيانات: ops.hrSignDocs[] — ضمن BR_COLS (مستند الفرع) كي يقرأه ويكتبه جهاز الفرع، ويقرأه المركز:
+   { id, branchId, branchName, employeeId, employeeName, docType:'payslip'|'reward'|'penalty', month, refId, title, amount,
+     lines:{base,allow,bonus,gross,draws,cuts,gEmp,net} (القسيمة فقط), reason, issuedAt, issuedBy, issuedByName,
+     status:'pending'|'signed'|'voided', signedAt, signedVia:'branch_kiosk'|'central', signedOnBy, signedOnByName,
+     pinVerified, witnessName, sig:{w,h,s:[[x,y,x,y,…],…]} (مسارات متجهة مبسَّطة — لا صور), sigHash }
+   الإصدار: المركز (تسجيل صرف الرواتب / اعتماد مكافأة أو جزاء). التوقيع: كشك الفرع بعد التحقق بـPIN، أو من المكتب.
+   ============================================================================================================ */
+const SIG_W = 400, SIG_H = 160;
+const SIGN_DOC_AR = { payslip: 'إقرار استلام راتب', reward: 'إشعار مكافأة', penalty: 'إشعار جزاء' };
+const escH = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// تبسيط المسارات: تقريب لأعداد صحيحة داخل الإطار وإسقاط النقاط الأقرب من minDist إلى آخر نقطة محفوظة (تصغير الحجم المخزَّن بلا أثر مرئي)
+function simplifySig(strokes, minDist) {
+  const md = minDist == null ? 1.5 : minDist;
+  const out = [];
+  (strokes || []).forEach(pts => {
+    const s = []; let lx = null, ly = null;
+    for (let i = 0; i + 1 < pts.length; i += 2) {
+      const x = Math.round(Math.min(SIG_W, Math.max(0, Number(pts[i]) || 0))), y = Math.round(Math.min(SIG_H, Math.max(0, Number(pts[i + 1]) || 0)));
+      const last = i + 2 >= pts.length;
+      if (lx != null && !last && Math.hypot(x - lx, y - ly) < md) continue;
+      s.push(x, y); lx = x; ly = y;
+    }
+    if (s.length >= 2) out.push(s);
+  });
+  return out;
+}
+const sigPoints = (sig) => ((sig && sig.s) || []).reduce((n, s) => n + Math.floor(s.length / 2), 0);
+function sigPathD(sig) {
+  return ((sig && sig.s) || []).map(pts => {
+    if (pts.length < 2) return '';
+    let d = 'M' + pts[0] + ' ' + pts[1];
+    if (pts.length < 4) return d + ' l0.5 0';   // نقطة مفردة تُرسم كنقطة
+    for (let i = 2; i + 1 < pts.length; i += 2) d += ' L' + pts[i] + ' ' + pts[i + 1];
+    return d;
+  }).filter(Boolean).join(' ');
+}
+// SVG للطباعة/التصدير (نص) — والمكوّن SigView للعرض داخل التطبيق
+function sigSvg(sig, opts) {
+  const o = opts || {};
+  if (!sigPoints(sig)) return '';
+  const w = o.width || 160, W = sig.w || SIG_W, H = sig.h || SIG_H, h = Math.round(w * H / W);
+  return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + W + ' ' + H + '" width="' + w + '" height="' + h + '" style="display:block;margin:0 auto"><path d="' + sigPathD(sig) + '" fill="none" stroke="' + (o.stroke || '#1b2a6b') + '" stroke-width="' + (o.sw || 3) + '" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+}
+function SigView({ sig, width, style }) {
+  if (!sigPoints(sig)) return <span style={{ color: 'var(--faint)' }}>—</span>;
+  const w = width || 120, W = sig.w || SIG_W, H = sig.h || SIG_H;
+  return <svg viewBox={'0 0 ' + W + ' ' + H} width={w} height={Math.round(w * H / W)} style={{ display: 'block', background: '#fff', borderRadius: 6, ...(style || {}) }}><path d={sigPathD(sig)} fill="none" stroke="#1b2a6b" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+
+// قسائم الشهر: مستند إقرار لكل موظف صافيه > 0 لا يملك مستندًا لهذا الشهر بعد (idempotent — يُستدعى داخل mutator على أحدث نسخة)
+function buildPayslipSignDocs(rows, month, existing, branches, me) {
+  const has = new Set((existing || []).filter(d => d.docType === 'payslip' && d.month === month && d.status !== 'voided').map(d => d.employeeId));
+  return (rows || []).filter(r => r.net > 0 && !has.has(r.e.id)).map(r => {
+    const b = (branches || []).find(x => x.id === r.e.branchId) || {};
+    return {
+      id: uid('sg'), branchId: r.e.branchId || '', branchName: b.name || '', employeeId: r.e.id, employeeName: r.e.name,
+      docType: 'payslip', month, refId: 'payout-' + month, title: 'إقرار استلام راتب شهر ' + month, amount: r.net,
+      lines: { base: r.e.baseSalary || 0, allow: r.allow || 0, bonus: r.bonus || 0, gross: r.gross, draws: r.draws || 0, cuts: r.cuts || 0, gEmp: r.gEmp || 0, net: r.net },
+      reason: '', issuedAt: nowISO(), issuedBy: me ? me.id : '', issuedByName: me ? me.name : '', status: 'pending',
+      signedAt: '', signedVia: '', signedOnBy: '', signedOnByName: '', pinVerified: false, witnessName: '', sig: null, sigHash: ''
+    };
+  });
+}
+// إشعار بالعلم عند الاعتماد النهائي لمكافأة/جزاء (م٨)
+function rewardSignDoc(r, me) {
+  return {
+    id: uid('sg'), branchId: r.branchId || '', branchName: r.branchName || '', employeeId: r.employeeId, employeeName: r.employeeName,
+    docType: r.kind === 'reward' ? 'reward' : 'penalty', month: r.month, refId: r.id, title: (r.kind === 'reward' ? 'إشعار مكافأة' : 'إشعار جزاء') + ' — شهر ' + r.month, amount: r.amount,
+    lines: null, reason: r.reason || '', issuedAt: nowISO(), issuedBy: me ? me.id : '', issuedByName: me ? me.name : '', status: 'pending',
+    signedAt: '', signedVia: '', signedOnBy: '', signedOnByName: '', pinVerified: false, witnessName: '', sig: null, sigHash: ''
+  };
+}
+// نص الإقرار الذي يوقّعه الموظف
+function signDeclaration(doc) {
+  const m = money(doc.amount || 0);
+  if (doc.docType === 'payslip') return 'أقرّ أنا ' + doc.employeeName + ' باستلام صافي راتبي عن شهر ' + doc.month + ' وقدره ' + m + ' ر.س بعد السلف والخصومات الموضّحة، وبأنه لا مطالبة لي عن هذا الشهر.';
+  if (doc.docType === 'reward') return 'أقرّ أنا ' + doc.employeeName + ' بالعلم باعتماد مكافأة قدرها ' + m + ' ر.س تُضاف إلى راتب شهر ' + doc.month + (doc.reason ? ' — السبب: ' + doc.reason : '') + '.';
+  return 'أقرّ أنا ' + doc.employeeName + ' بالعلم بتوقيع جزاء قدره ' + m + ' ر.س يُخصم من راتب شهر ' + doc.month + (doc.reason ? ' — السبب: ' + doc.reason : '') + '، مع احتفاظي بحق التظلّم وفق النظام.';
+}
+// مستندات معلّقة تجاوزت مهلة التذكير (hrPolicies.signReminderDays) — لمركز التنبيهات
+function overdueSignDocs(org, ops, branchIds, todayStr) {
+  const pol = (org || {}).hrPolicies || {};
+  const days = Math.max(0, Number(pol.signReminderDays != null ? pol.signReminderDays : defaultHrPolicies().signReminderDays) || 0);
+  const d = new Date((todayStr || today()) + 'T00:00:00'); d.setDate(d.getDate() - days);
+  const cutoff = d.toISOString().slice(0, 10);
+  return ((ops || {}).hrSignDocs || []).filter(x => x.status === 'pending' && (branchIds || []).includes(x.branchId) && (x.issuedAt || '').slice(0, 10) <= cutoff);
+}
+// كتلة التوقيع للطباعة (قسيمة الراتب، المسير، الإقرار)
+function sigBlockHtml(doc, width) {
+  if (!doc || doc.status !== 'signed' || !sigPoints(doc.sig)) return '';
+  let when = ''; try { when = new Date(doc.signedAt).toLocaleString('ar-SA'); } catch { when = doc.signedAt || ''; }
+  return '<div style="text-align:center">' + sigSvg(doc.sig, { width: width || 150 }) + '<div style="font-size:9.5px;color:#555;margin-top:2px">وُقِّع إلكترونيًا ' + escH(when) + (doc.pinVerified ? ' · تحقّق PIN' : (doc.witnessName ? ' · بحضور ' + escH(doc.witnessName) : '')) + (doc.sigHash ? ' · #' + escH(String(doc.sigHash).slice(0, 10)) : '') + '</div></div>';
+}
+// صفحة الإقرار A4 (للطباعة من السجل أو من شاشة الرواتب)
+function signDocHtml(doc, showAmounts) {
+  const L = doc.lines || {}; const m = (n) => money(n);
+  let body = '';
+  if (doc.docType === 'payslip') {
+    body = showAmounts ? `<table><tbody>
+      <tr><td>الراتب الأساسي</td><td class="n">${m(L.base)}</td></tr>
+      <tr><td>البدلات</td><td class="n">${m(L.allow)}</td></tr>
+      ${L.bonus ? `<tr><td>مكافآت معتمدة</td><td class="n">${m(L.bonus)}</td></tr>` : ''}
+      <tr><td>إجمالي الاستحقاق</td><td class="n">${m(L.gross)}</td></tr>
+      <tr><td>السلف والسحوبات</td><td class="n neg">- ${m(L.draws)}</td></tr>
+      <tr><td>الخصومات والجزاءات</td><td class="n neg">- ${m(L.cuts)}</td></tr>
+      ${L.gEmp ? `<tr><td>التأمينات الاجتماعية (حصة الموظف)</td><td class="n neg">- ${m(L.gEmp)}</td></tr>` : ''}
+      <tr class="tot"><td>صافي المستلم</td><td class="n">${m(L.net)}</td></tr></tbody></table>`
+      : `<table><tbody><tr><td>شهر الراتب</td><td class="n">${escH(doc.month)}</td></tr><tr><td>صافي المستلم</td><td class="n">${m(doc.amount)}</td></tr></tbody></table>`;
+  } else {
+    body = `<table><tbody><tr><td>النوع</td><td>${SIGN_DOC_AR[doc.docType] || ''}</td></tr><tr><td>المبلغ</td><td class="n">${m(doc.amount)}</td></tr><tr><td>شهر الراتب</td><td class="n">${escH(doc.month)}</td></tr><tr><td>السبب</td><td>${escH(doc.reason) || '—'}</td></tr></tbody></table>`;
+  }
+  const signed = doc.status === 'signed';
+  const sigPart = signed
+    ? `<div style="display:flex;justify-content:space-around;margin-top:24px;align-items:flex-end"><div style="text-align:center"><div style="font-size:11px;color:#555;margin-bottom:4px">توقيع الموظف</div>${sigBlockHtml(doc, 170)}</div><div class="sign" style="margin-top:0"><div>${escH(doc.witnessName ? 'الشاهد: ' + doc.witnessName : 'المحاسب / الإدارة')}</div></div></div>`
+    : `<div class="sign"><div>توقيع الموظف</div><div>المحاسب / الإدارة</div></div>`;
+  return `<div class="box"><b>${escH(doc.employeeName)}</b>${doc.branchName ? ' · ' + escH(doc.branchName) : ''} · رقم المستند ${escH(doc.id)}<br>أُصدر ${escH((doc.issuedAt || '').slice(0, 10))}${doc.issuedByName ? ' بواسطة ' + escH(doc.issuedByName) : ''} · الحالة: ${signed ? 'موقَّع إلكترونيًا' : doc.status === 'voided' ? 'مُلغى' : 'بانتظار التوقيع'}</div>
+  ${body}
+  <div class="box" style="margin-top:12px;font-size:12.5px;line-height:1.9">${escH(signDeclaration(doc))}</div>
+  ${sigPart}`;
+}
+
+// لوحة التوقيع: قلم/لمس/فأرة عبر Pointer Events — الرسم على canvas للاستجابة الفورية، والمسارات تُخزَّن بإحداثيات منطقية SIG_W×SIG_H
+function HrSignPad({ onChange, disabled }) {
+  const canvasRef = useRef(null);
+  const strokes = useRef([]);   // مسارات مكتملة
+  const cur = useRef(null);     // المسار الجاري
+  const [, bump] = useState(0);
+  const geom = () => {
+    const c = canvasRef.current; const rect = c ? c.getBoundingClientRect() : { left: 0, top: 0, width: 0, height: 0 };
+    return { rect, sx: rect.width ? SIG_W / rect.width : 1, sy: rect.height ? SIG_H / rect.height : 1 };
+  };
+  const redraw = () => {
+    const c = canvasRef.current; if (!c) return;
+    let ctx = null; try { ctx = c.getContext('2d'); } catch { ctx = null; }
+    if (!ctx) return;   // بيئات بلا canvas (اختبارات) — المسارات تُسجَّل رغم ذلك
+    const rect = c.getBoundingClientRect(); const dpr = window.devicePixelRatio || 1;
+    const cw = Math.max(1, Math.round((rect.width || SIG_W) * dpr)), ch = Math.max(1, Math.round((rect.height || SIG_H) * dpr));
+    if (c.width !== cw || c.height !== ch) { c.width = cw; c.height = ch; }
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, c.width, c.height);
+    ctx.setTransform(c.width / SIG_W, 0, 0, c.height / SIG_H, 0, 0);
+    ctx.save(); ctx.strokeStyle = 'rgba(0,0,0,.18)'; ctx.lineWidth = 1; ctx.setLineDash([6, 6]); ctx.beginPath(); ctx.moveTo(24, SIG_H - 34); ctx.lineTo(SIG_W - 24, SIG_H - 34); ctx.stroke(); ctx.restore();
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#1b2a6b'; ctx.lineWidth = 3;
+    const all = cur.current ? [...strokes.current, cur.current] : strokes.current;
+    all.forEach(pts => {
+      if (pts.length < 2) return;
+      ctx.beginPath(); ctx.moveTo(pts[0], pts[1]);
+      if (pts.length < 4) ctx.lineTo(pts[0] + 0.5, pts[1]);
+      for (let i = 2; i + 1 < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
+      ctx.stroke();
+    });
+  };
+  const pt = (e) => { const { rect, sx, sy } = geom(); return [((e.clientX || 0) - rect.left) * sx, ((e.clientY || 0) - rect.top) * sy]; };
+  const emit = () => { const s = simplifySig(strokes.current); onChange && onChange(s.length ? { w: SIG_W, h: SIG_H, s } : null); };
+  const down = (e) => {
+    if (disabled) return;
+    if (e.preventDefault) e.preventDefault();
+    try { if (e.currentTarget && e.currentTarget.setPointerCapture && e.pointerId != null) e.currentTarget.setPointerCapture(e.pointerId); } catch { }
+    cur.current = pt(e); redraw();
+  };
+  const move = (e) => { if (!cur.current) return; if (e.preventDefault) e.preventDefault(); cur.current.push(...pt(e)); redraw(); };
+  const up = (e) => { if (!cur.current) return; if (e && e.preventDefault) e.preventDefault(); strokes.current.push(cur.current); cur.current = null; redraw(); emit(); bump(x => x + 1); };
+  const clear = () => { strokes.current = []; cur.current = null; redraw(); emit(); bump(x => x + 1); };
+  const undo = () => { strokes.current.pop(); redraw(); emit(); bump(x => x + 1); };
+  useEffect(() => { redraw(); const h = () => redraw(); window.addEventListener('resize', h); return () => window.removeEventListener('resize', h); }, []); // eslint-disable-line
+  const n = strokes.current.length;
+  return (
+    <div>
+      <canvas ref={canvasRef} data-testid="sigpad" aria-label="لوحة التوقيع"
+        style={{ width: '100%', maxWidth: 520, aspectRatio: SIG_W + ' / ' + SIG_H, display: 'block', border: '1.5px dashed var(--brass)', borderRadius: 12, background: '#fff', touchAction: 'none', cursor: disabled ? 'not-allowed' : 'crosshair' }}
+        onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onPointerLeave={up} />
+      <div className="row" style={{ gap: 6, marginTop: 6, justifyContent: 'space-between', flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 10.5, color: 'var(--faint)' }}>{n ? n + ' خط' : 'وقّع بإصبعك أو بالقلم داخل الإطار'}</div>
+        <div className="row" style={{ gap: 6 }}>
+          <button type="button" className="btn sm gh" disabled={!n} onClick={undo}>تراجع</button>
+          <button type="button" className="btn sm gh" disabled={!n} onClick={clear}><Trash2 size={13} />مسح</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// نافذة التوقيع: تحقّق PIN مرة واحدة (أو بحضور مستخدم مركزي) ثم التوقيع على كل مستند معلّق للموظف على التوالي
+function SignDocsModal({ org, ops, me, emp, docs, onClose, commit, say, via }) {
+  const isAll = (ROLES[me.role] || {}).scope === 'all';
+  const pinRec = (ops.hrPins || []).find(p => p.employeeId === emp.id) || {};
+  const hasPin = !!pinRec.pinHash;
+  const [list] = useState(() => (docs || []).filter(d => d.status === 'pending'));   // تُجمَّد عند الفتح كي لا يقفز الترتيب بعد كل حفظ
+  const [step, setStep] = useState('pin');
+  const [pin, setPin] = useState('');
+  const [witness, setWitness] = useState(false);
+  const [idx, setIdx] = useState(0);
+  const [sig, setSig] = useState(null);
+  const [agree, setAgree] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [doneN, setDoneN] = useState(0);
+  const doc = list[idx] || null;
+  const verify = async () => {
+    if (busy) return;
+    if (!hasPin) return say('لا يوجد رقم PIN لهذا الموظف', 'no');
+    if (!/^\d{4,6}$/.test(pin)) return say('أدخل رقم PIN المكوّن من ٤ إلى ٦ أرقام', 'no');
+    setBusy(true); const h = await sha(pin); setBusy(false);
+    if (h !== pinRec.pinHash) { setPin(''); return say('رقم PIN غير صحيح', 'no'); }
+    setPin(''); setStep('sign');
+  };
+  const witnessGo = () => {
+    if (!isAll) return;
+    if (!window.confirm('التوقيع بحضورك دون تحقّق PIN؟ سيُسجَّل اسمك شاهدًا على المستند.')) return;
+    setWitness(true); setStep('sign');
+  };
+  const save = async () => {
+    if (!doc || busy) return;
+    if (sigPoints(sig) < 6) return say('ارسم توقيعك داخل الإطار أولًا', 'no');
+    if (!agree) return say('أكّد قراءة نص الإقرار والموافقة عليه', 'no');
+    setBusy(true);
+    const signedAt = nowISO();
+    const sigHash = await sha(JSON.stringify(sig) + '|' + doc.id + '|' + emp.id + '|' + signedAt);
+    const patch = { status: 'signed', signedAt, signedVia: via || (isAll ? 'central' : 'branch_kiosk'), signedOnBy: me.id, signedOnByName: me.name, pinVerified: !witness, witnessName: witness ? me.name : '', sig, sigHash };
+    const ok = await commit(d => ({ ...d, hrSignDocs: (d.hrSignDocs || []).map(x => (x.id === doc.id && x.status === 'pending') ? { ...x, ...patch } : x) }),
+      { actionType: 'update', targetType: 'hr_sign_doc', targetId: doc.id, branchName: doc.branchName, title: 'توقيع إلكتروني — ' + (SIGN_DOC_AR[doc.docType] || doc.docType), details: emp.name + ' · ' + doc.title + ' · ' + money(doc.amount) + ' ر.س · ' + (witness ? 'بحضور ' + me.name : 'تحقّق PIN') });
+    setBusy(false);
+    if (!ok) return;
+    say('حُفظ توقيع ' + emp.name + ' ✓');
+    setDoneN(n => n + 1); setSig(null); setAgree(false);
+    if (idx + 1 < list.length) setIdx(idx + 1); else setStep('done');
+  };
+  const L = (doc && doc.lines) || {};
+  const title = step === 'done' ? 'اكتمل التوقيع — ' + emp.name : (doc ? (SIGN_DOC_AR[doc.docType] || 'توقيع') + ' — ' + emp.name : 'توقيع — ' + emp.name);
+  return (
+    <Modal title={title} icon={Signature} onClose={onClose} wide
+      foot={<>
+        <button className="btn gh" onClick={onClose}>{step === 'done' ? 'إغلاق' : 'إلغاء'}</button>
+        {step === 'pin' && <button className="btn pri" disabled={busy || !hasPin} onClick={verify}><Check size={14} />{busy ? 'جارٍ...' : 'تأكيد PIN'}</button>}
+        {step === 'sign' && <button className="btn pri" disabled={busy} onClick={save}><PenLine size={14} />{busy ? 'جارٍ الحفظ...' : 'اعتماد التوقيع'}</button>}
+      </>}>
+      {step === 'pin' && (
+        <div className="grid" style={{ gap: 10 }}>
+          <div className="note">لديك <b>{list.length}</b> {list.length === 1 ? 'مستند' : 'مستندات'} بانتظار توقيعك: {list.map(d => SIGN_DOC_AR[d.docType] + ' (' + d.month + ')').join('، ')}. تُعرض التفاصيل والمبالغ بعد التحقق من هويتك.</div>
+          {hasPin ? (
+            <Field label="رقم PIN الخاص بك">
+              <input className="inp" type="password" inputMode="numeric" maxLength={6} autoFocus value={pin}
+                onChange={e => setPin(e.target.value.replace(/\D/g, ''))} onKeyDown={e => { if (e.key === 'Enter') verify(); }} placeholder="••••" />
+            </Field>
+          ) : (
+            <div className="note" style={{ color: 'var(--rose)' }}>لا يوجد رقم PIN لهذا الموظف — يضبطه مدير الفرع من «الحضور الموثَّق ← أرقام PIN».</div>
+          )}
+          {isAll && (
+            <div className="row" style={{ justifyContent: 'flex-end' }}>
+              <button className="btn sm gh" onClick={witnessGo}><Eye size={13} />التوقيع بحضوري ({me.name}) دون PIN</button>
+            </div>
+          )}
+        </div>
+      )}
+      {step === 'sign' && doc && (
+        <div className="grid" style={{ gap: 10 }}>
+          <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+            <span className={'badge ' + (doc.docType === 'penalty' ? 'b-rose' : doc.docType === 'reward' ? 'b-mint' : 'b-brass')}>{SIGN_DOC_AR[doc.docType]} · شهر {doc.month}</span>
+            <span className="badge b-dim">المستند {idx + 1} من {list.length}</span>
+          </div>
+          <div className="card" style={{ padding: 12, border: '1px solid var(--frame-o)' }}>
+            <div style={{ fontSize: 12.5, color: 'var(--dim)' }}>{doc.docType === 'payslip' ? 'صافي المستلم' : 'المبلغ'}</div>
+            <div className="num" style={{ fontSize: 24, fontWeight: 800, color: doc.docType === 'penalty' ? 'var(--rose)' : 'var(--mint)' }}>{money(doc.amount)} <span style={{ fontSize: 12, fontWeight: 400 }}>ر.س</span></div>
+            {doc.docType === 'payslip' && (
+              <div className="grid g2" style={{ gap: 4, marginTop: 8, fontSize: 12 }}>
+                <div>الأساسي: <b className="num">{money(L.base)}</b></div><div>البدلات: <b className="num">{money(L.allow)}</b></div>
+                {L.bonus > 0 && <div>مكافآت: <b className="num">{money(L.bonus)}</b></div>}
+                <div>الإجمالي: <b className="num">{money(L.gross)}</b></div>
+                <div>سلف/سحوبات: <b className="num" style={{ color: 'var(--amber)' }}>{money(L.draws)}</b></div>
+                <div>خصومات/جزاءات: <b className="num" style={{ color: 'var(--rose)' }}>{money(L.cuts)}</b></div>
+                {L.gEmp > 0 && <div>تأمينات: <b className="num" style={{ color: 'var(--sky)' }}>{money(L.gEmp)}</b></div>}
+              </div>
+            )}
+            {doc.docType !== 'payslip' && <div style={{ fontSize: 12.5, marginTop: 6 }}>السبب: <b>{doc.reason || '—'}</b></div>}
+          </div>
+          <div className="card" style={{ padding: 10, background: 'rgba(200,162,74,.06)', fontSize: 12.5, lineHeight: 1.8 }}>{signDeclaration(doc)}</div>
+          <label className="row" style={{ gap: 6, fontSize: 12.5, cursor: 'pointer' }}>
+            <input type="checkbox" checked={agree} onChange={e => setAgree(e.target.checked)} />قرأتُ نص الإقرار وأوافق عليه
+          </label>
+          <HrSignPad key={doc.id} onChange={setSig} />
+          {witness && <div className="note" style={{ color: 'var(--amber)' }}>سيُسجَّل هذا التوقيع بحضور {me.name} دون تحقّق PIN.</div>}
+        </div>
+      )}
+      {step === 'done' && (
+        <div className="empty" style={{ padding: 20 }}>
+          <CheckCircle2 size={34} color="var(--mint)" />
+          <div style={{ marginTop: 8, fontWeight: 700 }}>اكتمل توقيع {doneN} {doneN === 1 ? 'مستند' : 'مستندات'} ✓</div>
+          <div style={{ fontSize: 11.5, color: 'var(--faint)', marginTop: 4 }}>شكرًا {emp.name} — يظهر توقيعك على القسيمة والمسير المطبوعين.</div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+// شاشة «التوقيع الإلكتروني»: كشك الفرع (كل الأدوار) + سجل الإقرارات وتقرير الحالة (غير الكاشير) + إلغاء المعلّق (المركز)
+function ESign({ org, ops, me, myBranches, commit, say }) {
+  const role = ROLES[me.role] || {};
+  const isAll = role.scope === 'all';
+  const isCashier = me.role === 'cashier';
+  const canCancel = isAll;          // إلغاء مستند معلّق: أدوار المركز (الجهة المُصدِرة)
+  const showAmounts = isAll;        // مبالغ الرواتب لا تُعرض لأدوار الفروع في السجل — يراها الموظف نفسه بعد PIN فقط
+  const branches = myBranches || [];
+  const [view, setView] = useState('kiosk');
+  const [branchId, setBranchId] = useState((branches[0] || {}).id || '');
+  useEffect(() => { if (!branches.find(b => b.id === branchId)) setBranchId((branches[0] || {}).id || ''); }, [branches, branchId]);
+  const branch = branches.find(b => b.id === branchId) || null;
+  const branchIds = branches.map(b => b.id);
+  const emps = (org.employees || []).filter(e => e.isActive !== false && branch && e.branchId === branch.id);
+  const docsAll = (ops.hrSignDocs || []).filter(d => branchIds.includes(d.branchId));
+  const pendingOf = (empId) => docsAll.filter(d => d.employeeId === empId && d.status === 'pending' && branch && d.branchId === branch.id).sort((a, b) => (a.issuedAt < b.issuedAt ? -1 : 1));
+  const [signFor, setSignFor] = useState(null);
+  const ymLabel = (y) => { const [Y, M] = String(y).split('-').map(Number); return isNaN(Y) ? y : new Date(Y, M - 1, 1).toLocaleDateString('ar', { month: 'long', year: 'numeric' }); };
+  const statusBadge = (d) => d.status === 'signed' ? <span className="badge b-mint"><Check size={11} />موقَّع</span> : d.status === 'voided' ? <span className="badge b-dim">مُلغى</span> : <span className="badge b-amber">بانتظار التوقيع</span>;
+  const viaAr = (d) => d.status !== 'signed' ? '—' : (d.pinVerified ? 'PIN' : 'بحضور ' + (d.witnessName || '')) + (d.signedVia === 'central' ? ' · المكتب' : ' · جهاز الفرع');
+
+  // === سجل الإقرارات ===
+  const [ym, setYm] = useState(() => today().slice(0, 7));
+  const [logBranch, setLogBranch] = useState('');
+  const [logStatus, setLogStatus] = useState('');
+  const [logType, setLogType] = useState('');
+  const logRows = docsAll
+    .filter(d => !ym || d.month === ym)
+    .filter(d => !logBranch || d.branchId === logBranch)
+    .filter(d => !logStatus || d.status === logStatus)
+    .filter(d => !logType || d.docType === logType)
+    .sort((a, b) => (a.issuedAt < b.issuedAt ? 1 : -1));
+  const monthDocs = docsAll.filter(d => d.month === ym && (!logBranch || d.branchId === logBranch));
+  const nSigned = monthDocs.filter(d => d.status === 'signed').length, nPending = monthDocs.filter(d => d.status === 'pending').length;
+  const [viewDoc, setViewDoc] = useState(null);
+  const cancelDoc = async (d) => {
+    if (!canCancel || d.status !== 'pending') return;
+    if (!window.confirm('إلغاء «' + d.title + '» لـ' + d.employeeName + '؟ يمكن إعادة إصداره من شاشة الرواتب.')) return;
+    const ok = await commit(x => ({ ...x, hrSignDocs: (x.hrSignDocs || []).filter(y => y.id !== d.id) }),
+      { actionType: 'delete', targetType: 'hr_sign_doc', targetId: d.id, branchName: d.branchName, title: 'إلغاء مستند توقيع معلّق', details: d.employeeName + ' · ' + d.title });
+    if (ok) say('أُلغي المستند');
+  };
+  const printDoc = (d) => {
+    printA4(org, (SIGN_DOC_AR[d.docType] || 'إقرار') + ' — ' + d.employeeName, 'شهر ' + d.month + ' · ' + (d.branchName || ''), signDocHtml(d, showAmounts)) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+  };
+  const printReport = () => {
+    const rws = logRows.map(d => `<tr><td>${escH(d.employeeName)}</td><td>${escH(d.branchName)}</td><td>${SIGN_DOC_AR[d.docType] || ''}</td><td class="n">${escH(d.month)}</td>${showAmounts ? `<td class="n">${money(d.amount)}</td>` : ''}<td>${d.status === 'signed' ? 'موقَّع' : d.status === 'voided' ? 'مُلغى' : 'بانتظار التوقيع'}</td><td class="n">${d.signedAt ? escH(new Date(d.signedAt).toLocaleString('ar-SA')) : '—'}</td><td>${escH(viaAr(d))}</td><td style="width:110px">${d.status === 'signed' ? sigSvg(d.sig, { width: 100 }) : ''}</td></tr>`).join('');
+    printA4(org, 'تقرير حالة التوقيعات — ' + ymLabel(ym), (logBranch ? (branches.find(b => b.id === logBranch) || {}).name + ' · ' : '') + 'موقَّع ' + nSigned + ' · بانتظار ' + nPending,
+      `<table><thead><tr><th>الموظف</th><th>الفرع</th><th>المستند</th><th>الشهر</th>${showAmounts ? '<th>المبلغ</th>' : ''}<th>الحالة</th><th>وقت التوقيع</th><th>الطريقة</th><th>التوقيع</th></tr></thead><tbody>${rws || '<tr><td colspan="9" style="text-align:center;color:#888">لا مستندات ضمن هذه الفلاتر</td></tr>'}</tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+  };
+
+  if (!branch && branches.length === 0) {
+    return <div className="card"><div className="empty">لا يوجد فرع مُسند لحسابك — راجع مسؤول النظام.</div></div>;
+  }
+  return (
+    <div className="grid" style={{ gap: 12 }}>
+      {!isCashier && (
+        <div className="card" style={{ padding: '8px 12px' }}>
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap', justifyContent: 'space-between' }}>
+            <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+              <button className={'btn sm' + (view === 'kiosk' ? ' pri' : ' gh')} onClick={() => setView('kiosk')}><Signature size={13} />كشك التوقيع</button>
+              <button className={'btn sm' + (view === 'log' ? ' pri' : ' gh')} onClick={() => setView('log')}><FileText size={13} />سجل الإقرارات</button>
+            </div>
+            {branches.length > 1 && view === 'kiosk' && (
+              <select className="inp sel" style={{ width: 180 }} value={branchId} onChange={e => setBranchId(e.target.value)}>
+                {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            )}
+          </div>
+        </div>
+      )}
+
+      {view === 'kiosk' && branch && (
+        <div className="card">
+          <div className="card-t" style={{ marginBottom: 4 }}><Signature size={15} color="var(--brass)" />كشك التوقيع الإلكتروني — {branch.name}</div>
+          <div className="note" style={{ marginBottom: 10 }}>اختر اسمك، أدخل رقم PIN، اقرأ الإقرار ثم وقّع بإصبعك. تُعرض المبالغ لك وحدك بعد التحقق من هويتك، ويظهر توقيعك على قسيمة الراتب والمسير المطبوعين.</div>
+          <div className="grid g3">
+            {emps.map(e => {
+              const pend = pendingOf(e.id);
+              const n = pend.length;
+              return (
+                <button key={e.id} className="card" disabled={!n} style={{ padding: 12, textAlign: 'center', cursor: n ? 'pointer' : 'default', border: '1px solid var(--frame-o)', opacity: n ? 1 : 0.6 }}
+                  onClick={() => { if (n) setSignFor(e); }}>
+                  <div style={{ fontWeight: 700, fontSize: 13 }}>{e.name}</div>
+                  <div style={{ marginTop: 6 }}>
+                    {n ? <span className="badge b-amber">{n} {n === 1 ? 'مستند بانتظار توقيعك' : 'مستندات بانتظار توقيعك'}</span> : <span className="badge b-dim">لا مستندات بانتظارك</span>}
+                  </div>
+                  {n > 0 && <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>{pend.map(d => SIGN_DOC_AR[d.docType] + ' ' + d.month).join(' · ')}</div>}
+                </button>
+              );
+            })}
+            {emps.length === 0 && <div className="empty">لا يوجد موظفون في هذا الفرع بعد — أضِفهم من «البيانات الرئيسية».</div>}
+          </div>
+        </div>
+      )}
+
+      {view === 'log' && !isCashier && (
+        <div className="card">
+          <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+            <div className="card-t"><FileText size={15} color="var(--brass)" />سجل الإقرارات والإشعارات</div>
+            <div className="row" style={{ gap: 6 }}>
+              <span className="badge b-mint">موقَّع {nSigned}</span>
+              <span className="badge b-amber">بانتظار {nPending}</span>
+              <button className="btn sm gh" onClick={printReport}><Printer size={13} />تقرير حالة التوقيعات</button>
+            </div>
+          </div>
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+            <input type="month" className="inp" style={{ width: 150 }} value={ym} onChange={e => setYm(e.target.value)} />
+            {branches.length > 1 && (
+              <select className="inp sel" style={{ width: 160 }} value={logBranch} onChange={e => setLogBranch(e.target.value)}>
+                <option value="">كل الفروع</option>
+                {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            )}
+            <select className="inp sel" style={{ width: 150 }} value={logType} onChange={e => setLogType(e.target.value)}>
+              <option value="">كل المستندات</option>
+              <option value="payslip">إقرارات الراتب</option>
+              <option value="reward">إشعارات المكافآت</option>
+              <option value="penalty">إشعارات الجزاءات</option>
+            </select>
+            <select className="inp sel" style={{ width: 150 }} value={logStatus} onChange={e => setLogStatus(e.target.value)}>
+              <option value="">كل الحالات</option>
+              <option value="pending">بانتظار التوقيع</option>
+              <option value="signed">موقَّع</option>
+              <option value="voided">مُلغى</option>
+            </select>
+          </div>
+          <div className="tw">
+            <table className="tb">
+              <thead><tr><th>الموظف</th><th>الفرع</th><th>المستند</th><th>الشهر</th>{showAmounts && <th style={{ textAlign: 'end' }}>المبلغ</th>}<th>الحالة</th><th>وقت التوقيع</th><th>الطريقة</th><th>التوقيع</th><th /></tr></thead>
+              <tbody>
+                {logRows.map(d => (
+                  <tr key={d.id}>
+                    <td style={{ fontWeight: 600, fontSize: 12.5 }}>{d.employeeName}</td>
+                    <td style={{ fontSize: 12 }}>{d.branchName}</td>
+                    <td><span className={'badge ' + (d.docType === 'penalty' ? 'b-rose' : d.docType === 'reward' ? 'b-mint' : 'b-brass')}>{SIGN_DOC_AR[d.docType]}</span></td>
+                    <td className="num">{d.month}</td>
+                    {showAmounts && <td className="num" style={{ textAlign: 'end' }}>{money(d.amount)}</td>}
+                    <td>{statusBadge(d)}</td>
+                    <td style={{ fontSize: 11.5 }}>{d.signedAt ? new Date(d.signedAt).toLocaleString('ar-SA') : '—'}</td>
+                    <td style={{ fontSize: 11.5 }}>{viaAr(d)}</td>
+                    <td>{d.status === 'signed' ? <button className="btn sm gh" onClick={() => setViewDoc(d)} title="عرض التوقيع"><SigView sig={d.sig} width={70} /></button> : <span style={{ color: 'var(--faint)' }}>—</span>}</td>
+                    <td>
+                      <div className="row" style={{ gap: 5, justifyContent: 'flex-end' }}>
+                        <button className="btn sm gh" onClick={() => printDoc(d)} title="طباعة الإقرار"><Printer size={13} /></button>
+                        {canCancel && d.status === 'pending' && <button className="btn sm gh" onClick={() => cancelDoc(d)} title="إلغاء المستند المعلّق"><Trash2 size={13} /></button>}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {logRows.length === 0 && <tr><td colSpan={showAmounts ? 10 : 9}><div className="empty">لا مستندات ضمن هذه الفلاتر — تُصدَر قسائم الشهر تلقائيًا عند «تسجيل صرف الرواتب»، وإشعارات المكافآت/الجزاءات عند اعتمادها.</div></td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {signFor && (
+        <SignDocsModal org={org} ops={ops} me={me} emp={signFor} docs={pendingOf(signFor.id)} onClose={() => setSignFor(null)} commit={commit} say={say} via={isAll ? 'central' : 'branch_kiosk'} />
+      )}
+      {viewDoc && (
+        <Modal title={SIGN_DOC_AR[viewDoc.docType] + ' — ' + viewDoc.employeeName} icon={Signature} onClose={() => setViewDoc(null)} foot={<button className="btn gh" onClick={() => setViewDoc(null)}>إغلاق</button>}>
+          <div className="grid" style={{ gap: 8, textAlign: 'center' }}>
+            <SigView sig={viewDoc.sig} width={320} style={{ margin: '0 auto', border: '1px solid var(--frame-o)' }} />
+            <div style={{ fontSize: 11.5, color: 'var(--dim)' }}>وُقِّع {viewDoc.signedAt ? new Date(viewDoc.signedAt).toLocaleString('ar-SA') : ''} · {viaAr(viewDoc)}{viewDoc.sigHash ? ' · #' + String(viewDoc.sigHash).slice(0, 10) : ''}</div>
+            <div style={{ fontSize: 12, lineHeight: 1.8 }}>{signDeclaration(viewDoc)}</div>
+          </div>
+        </Modal>
       )}
     </div>
   );
