@@ -1477,9 +1477,9 @@ const ALL_TABS = ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'ale
 const TAB_AR = {
   analytics: 'مركز التحليل والأداء', reporting: 'مركز التقارير', exec: 'اللوحة التنفيذية',
   dash: 'لوحة المؤشرات', compare: 'مقارنة الفروع', growth: 'تحليلات النمو', breakeven: 'تحليل التعادل', scorecard: 'لوحة الأهداف', scenario: 'ماذا-لو', boardpack: 'تقرير الإدارة', cashflow: 'التدفق النقدي', closing: 'الإغلاق اليومي', apps: 'التطبيقات',
-  approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', people: 'شؤون الموظفين', payroll: 'الرواتب والسلف', workforce: 'الجدولة والحضور', hrmaster: 'البيانات الرئيسية', hrpolicy: 'السياسات والأدوار', attendance: 'الحضور الموثَّق', shiftengine: 'محرّك الورديات', tasks: 'المهام', points: 'دفتر النقاط', kpi: 'الأداء والتقييم', rewards: 'المكافآت والجزاءات', esign: 'التوقيع الإلكتروني', corrective: 'الإجراءات التصحيحية', training: 'التدريب والشهادات', rolekpi: 'مؤشرات الأداء بالدور', hrdash: 'لوحة الموارد البشرية', perfsnap: 'تجميد الأداء الشهري',
+  approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', people: 'شؤون الموظفين', payroll: 'الرواتب والسلف', workforce: 'تخطيط العمالة والتكلفة', hrmaster: 'البيانات الرئيسية', hrpolicy: 'السياسات والأدوار', attendance: 'الحضور الموثَّق', shiftengine: 'محرّك الورديات', tasks: 'المهام', points: 'دفتر النقاط', kpi: 'الأداء والتقييم', rewards: 'المكافآت والجزاءات', esign: 'التوقيع الإلكتروني', corrective: 'الإجراءات التصحيحية', training: 'التدريب والشهادات', rolekpi: 'مؤشرات الأداء بالدور', hrdash: 'لوحة الموارد البشرية', perfsnap: 'تجميد الأداء الشهري',
   purchasing: 'المشتريات والموردون', suppliers: 'الموردون والمشتريات', inv: 'المخزون والمنتجات', reorder: 'المشتريات الذكية', partners: 'دفتر الشركاء',
-  acct: 'المحاسبة', shifts: 'الورديات', archive: 'أرشيف المستندات', ai: 'المركز الذكي',
+  acct: 'المحاسبة', shifts: 'مواعيد الإغلاق والتذكيرات', archive: 'أرشيف المستندات', ai: 'المركز الذكي',
   reports: 'التقارير المالية', rbuild: 'منشئ التقارير', entities: 'مركز المنشآت', admin: 'الفروع والمستخدمون', audit: 'سجل التدقيق'
 };
 // ═══ ثيمات المنصّة الاحترافية (١١ أسلوب تصميم كامل) × وضع ليل/نهار — v14.7 ═══
@@ -1638,7 +1638,7 @@ const REG_APPS = [
   { id: 'approve', ar: 'التدقيق والاعتماد', en: 'Review & Approvals', cat: 'pos', icon: ShieldCheck, open: { tab: 'approve' }, kw: ['اعتماد', 'تدقيق', 'مطابقة', 'مراجعة'], fns: ['مراجعة الإغلاقات', 'اعتماد أو إرجاع', 'ملاحظات'], d: 'مراجعة إغلاقات الفروع واعتمادها النهائي من المركز.' },
   { id: 'dash', ar: 'لوحة المؤشرات', en: 'Dashboard', cat: 'pos', icon: LayoutDashboard, open: { tab: 'dash' }, kw: ['مؤشر', 'لوحة', 'إيراد', 'ملخص'], fns: ['مؤشرات حية', 'حركة الإيرادات', 'قنوات التحصيل', 'تنبيهات ذكية'], d: 'صورة اليوم كاملة: إيرادات، مصروفات، فروقات، وتنبيهات.' },
   { id: 'compare', ar: 'مقارنة الفروع والرقابة', en: 'Branch Compare', cat: 'pos', icon: BarChart3, open: { tab: 'compare' }, kw: ['مقارنة', 'أداء', 'رقابة', 'فرع'], fns: ['مقارنة الإيرادات', 'الالتزام بالإغلاق', 'الفروقات'], d: 'أداء الفروع جنباً إلى جنب — من يبيع ومن يلتزم.' },
-  { id: 'shifts', ar: 'الورديات والتذكيرات', en: 'Shifts & Reminders', cat: 'pos', icon: Clock, open: { tab: 'shifts' }, kw: ['وردية', 'تذكير', 'موعد'], fns: ['جدول الورديات', 'تذكيرات الإغلاق'], d: 'مواعيد الورديات وتذكيرات ما قبل الإغلاق.' },
+  { id: 'shifts', ar: 'مواعيد الإغلاق والتذكيرات', en: 'Closing Deadlines', cat: 'pos', icon: Clock, open: { tab: 'shifts' }, kw: ['إغلاق', 'موعد', 'تذكير', 'تأخر', 'وردية', 'مراقبة'], fns: ['موعد إغلاق لكل فرع', 'تنبيه قبل الموعد', 'رصد الفروع المتأخرة عن الإغلاق'], d: 'مراقبة التزام الفروع بموعد إغلاق اليوم — تنبيه قبل الموعد ورصد المتأخرين.' },
   { id: 'brmgmt', ar: 'الفروع والمستخدمون', en: 'Branches & Users', cat: 'pos', icon: UserCog, open: { tab: 'admin' }, kw: ['فرع', 'مستخدم', 'صلاحية', 'شعار', 'تصنيف', 'تطبيق توصيل'], fns: ['إدارة الفروع', 'المستخدمون والأدوار', 'تصنيفات المصروفات', 'تطبيقات التوصيل وعمولاتها', 'النظام'], d: 'إدارة الفروع والمستخدمين والصلاحيات وإعدادات النظام.' },
   // ——— المشتريات والموردون ———
   { id: 'suppliers', ar: 'الموردون والالتزامات', en: 'Suppliers & Payables', cat: 'pur', icon: Truck, open: { tab: 'suppliers' }, kw: ['مورد', 'فاتورة', 'سداد', 'التزام', 'أعمار', 'استحقاق', 'إيجار'], fns: ['فواتير التوريد الآجلة', 'السداد المركزي', 'الإيجارات والفواتير الثابتة', 'سجل الموردين'], d: 'فواتير الموردين وسداداتها والتزامات الفروع الثابتة.' },
@@ -1646,7 +1646,7 @@ const REG_APPS = [
   { id: 'po', ar: 'أوامر الشراء', en: 'Purchase Orders', cat: 'pur', icon: ClipboardCheck, open: { tab: 'suppliers' }, kw: ['أمر شراء', 'طلب', 'استلام', 'مورد'], fns: ['إنشاء أمر بنود وأسعار', 'استلام كلي أو جزئي يغذي المخزون', 'تحويل لفاتورة بحقل ضريبي'], d: 'أمر شراء ← استلام ← فاتورة ← سداد — من تبويب أوامر الشراء في شاشة الموردين.' },
   // ——— الموارد البشرية ———
   { id: 'payroll', ar: 'الرواتب والسلف', en: 'Payroll & Advances', cat: 'hr', icon: Wallet, open: { tab: 'payroll' }, kw: ['راتب', 'سلفة', 'خصم', 'استحقاق', 'صرف', 'موظف', 'قسيمة'], fns: ['كشف رواتب شهري', 'سلف وخصومات', 'ترحيل الاستحقاق والصرف للدفتر', 'قسائم رواتب'], d: 'كشف الرواتب والسلف والخصومات — مرحّلة محاسبياً باستحقاقها وصرفها.' },
-  { id: 'workforce', ar: 'الجدولة والحضور', en: 'Scheduling & Labor', cat: 'hr', icon: CalendarDays, open: { tab: 'workforce' }, kw: ['جدولة', 'وردية', 'حضور', 'ساعات', 'عمالة', 'دوام', 'موظف', 'تحسين', 'إنتاجية'], fns: ['جدول ساعات أسبوعي لكل موظف', 'تسجيل الحضور الفعلي', 'نسبة العمالة من المبيعات', 'المبيعات لكل ساعة عمل', 'تنبيهات الزيادة والنقص'], d: 'خطّط ساعات فريقك أسبوعياً، سجّل الحضور، وقِس نسبة العمالة من مبيعاتك — بهدف قابل للضبط.' },
+  { id: 'workforce', ar: 'تخطيط العمالة والتكلفة', en: 'Labor Planning & Cost', cat: 'hr', icon: CalendarDays, open: { tab: 'workforce' }, kw: ['جدولة', 'ساعات', 'عمالة', 'تكلفة', 'دوام', 'تخطيط', 'إنتاجية', 'مبيعات لكل ساعة'], fns: ['تخطيط ساعات أسبوعي لكل موظف', 'الساعات الفعلية تلقائيًا من الحضور الموثَّق', 'نسبة العمالة من المبيعات', 'المبيعات لكل ساعة عمل', 'تنبيهات الزيادة والنقص'], d: 'خطّط ساعات فريقك، والفعلي يأتي من الحضور الموثَّق، وقِس نسبة العمالة من مبيعاتك — بهدف قابل للضبط.' },
   { id: 'attendance', ar: 'الحضور الموثَّق', en: 'Verified Attendance', cat: 'hr', icon: Fingerprint, open: { tab: 'attendance' }, kw: ['حضور', 'انصراف', 'بصمة', 'PIN', 'جيوفنس', 'موقع', 'كاشير', 'كيوسك'], fns: ['تسجيل حضور وانصراف من جهاز الفرع بـPIN', 'تحقّق تلقائي من نطاق جيوفنس الفرع', 'سجل حضور كامل قابل للفلترة'], d: 'تسجيل حضور وانصراف الموظفين من جهاز الفرع نفسه — برقم PIN وتحقّق موقعي، دون حساب دخول شخصي لكل موظف.' },
   { id: 'shiftengine', ar: 'محرّك الورديات', en: 'Shift Engine', cat: 'hr', icon: ArrowLeftRight, open: { tab: 'shiftengine' }, kw: ['وردية', 'ورديات', 'تعيين', 'تبديل', 'نقل موظف', 'قالب وردية', 'جدول'], fns: ['قوالب ورديات لكل فرع', 'تقويم تعيين أسبوعي', 'مطابقة تلقائية مع الحضور الفعلي', 'طلبات تبديل وردية', 'طلبات نقل موظف بين الفروع'], d: 'قوالب ورديات جاهزة، تقويم تعيين أسبوعي، مطابقة تلقائية مع الحضور الفعلي، وطلبات تبديل وردية أو نقل موظف بين الفروع.' },
   { id: 'tasks', ar: 'المهام', en: 'Tasks', cat: 'hr', icon: CheckCircle2, open: { tab: 'tasks' }, kw: ['مهام', 'مهمة', 'تشيك ليست', 'تكليف', 'التزام', 'قائمة مهام'], fns: ['قوائم مهام يومية/أسبوعية متكررة لكل فرع', 'تكليف مهام فردية لموظف معيّن', 'قائمة مهام مرتبطة بالوردية', 'تقرير الالتزام بالمهام لكل موظف/فرع'], d: 'قوائم مهام متكررة لكل فرع، تكليف مهام فردية، إنجاز من جهاز الفرع، وتقرير التزام لكل موظف وفرع.' },
@@ -1696,6 +1696,8 @@ const LAUNCH_APPS = [
     sections: ['النظرة الموحّدة', 'إدارة المنشآت', 'إسناد الفروع'], kw: ['منشأة', 'منشآت', 'شركة', 'شركات', 'كيان', 'موحّد', 'مجموعة', 'رقم ضريبي', 'تعدد'] },
   { id: 'closing', ar: 'الإغلاق اليومي', en: 'Daily Closing', cat: 'pos', icon: ClipboardCheck, open: { tab: 'closing' },
     sections: ['تسجيل إغلاق اليوم', 'سجل الإغلاقات'], kw: ['اغلاق', 'إغلاق', 'وردية', 'مبيعات', 'صندوق', 'كاشير', 'نقطة بيع', 'نقاط البيع'] },
+  { id: 'shifts', ar: 'مواعيد الإغلاق والتذكيرات', en: 'Closing Deadlines', cat: 'pos', icon: Clock, open: { tab: 'shifts' },
+    sections: ['مواعيد الإغلاق', 'التذكيرات', 'المتأخرون'], kw: ['إغلاق', 'موعد', 'تذكير', 'تأخر', 'مراقبة'] },
   { id: 'hrops', ar: 'الموارد البشرية — التشغيل', en: 'HR Operations', cat: 'hr', icon: Fingerprint, open: { tab: 'hrops' },
     sections: ['الحضور الموثَّق', 'محرّك الورديات', 'المهام', 'دفتر النقاط', 'التوقيع الإلكتروني'], kw: ['حضور', 'انصراف', 'وردية', 'مهام', 'نقاط', 'توقيع', 'pin', 'كيوسك', 'موظف'] },
   { id: 'hrperf', ar: 'الأداء والانضباط', en: 'Performance & Discipline', cat: 'hr', icon: TrendingUp, open: { tab: 'hrperf' },
@@ -1711,7 +1713,7 @@ const LAUNCH_APPS = [
   { id: 'partners', ar: 'دفتر الشركاء', en: 'Partners', cat: 'pur', icon: Users, open: { tab: 'partners' },
     kw: ['شريك', 'شركاء', 'دفتر'] },
   { id: 'people', ar: 'شؤون الموظفين', en: 'People & Payroll', cat: 'hr', icon: Wallet, open: { tab: 'people' },
-    sections: ['البيانات الرئيسية', 'السياسات والأدوار', 'الرواتب والسلف', 'الجدولة والحضور', 'الورديات والتذكيرات'], kw: ['راتب', 'رواتب', 'سلفة', 'موظف', 'أجور', 'جدولة', 'حضور', 'ساعات', 'عمالة', 'دوام', 'وردية', 'تذكير', 'شؤون', 'قسم', 'أقسام', 'وظيفة', 'وظائف', 'عقد', 'مستند', 'سياسة', 'سياسات', 'جيوفنس', 'موقع', 'رمز', 'QR', 'مدير مباشر', 'رئيس قسم'] },
+    sections: ['البيانات الرئيسية', 'السياسات والأدوار', 'الرواتب والسلف', 'تخطيط العمالة والتكلفة'], kw: ['راتب', 'رواتب', 'سلفة', 'موظف', 'أجور', 'جدولة', 'حضور', 'ساعات', 'عمالة', 'دوام', 'وردية', 'تذكير', 'شؤون', 'قسم', 'أقسام', 'وظيفة', 'وظائف', 'عقد', 'مستند', 'سياسة', 'سياسات', 'جيوفنس', 'موقع', 'رمز', 'QR', 'مدير مباشر', 'رئيس قسم'] },
   { id: 'vat', ar: 'ضريبة القيمة المضافة', en: 'VAT', cat: 'tax', icon: Receipt, open: { tab: 'acct', view: 'vat' },
     sections: ['احتساب الضريبة', 'الإقرار الضريبي'], kw: ['ضريبة', 'قيمة مضافة', 'زاتكا', 'مدخلات', 'مخرجات', 'إقرار'] },
   { id: 'inv', ar: 'المخزون والمنتجات', en: 'Inventory', cat: 'inv2', icon: HardDrive, open: { tab: 'inv' },
@@ -2554,6 +2556,7 @@ export default function App() {
     { id: 'reporting', ar: 'مركز التقارير', icon: FileBarChart },
     { id: 'sales', ar: 'المبيعات', icon: CircleDollarSign },
     { id: 'closing', ar: 'الإغلاق اليومي', icon: ClipboardCheck },
+    { id: 'shifts', ar: 'مواعيد الإغلاق والتذكيرات', icon: Clock },
     { id: 'hrops', ar: 'الموارد البشرية — التشغيل', icon: Fingerprint },
     { id: 'hrperf', ar: 'الأداء والانضباط', icon: TrendingUp },
     { id: 'apps', ar: 'إدارة التطبيقات', icon: Grid3x3 },
@@ -2574,7 +2577,7 @@ export default function App() {
   const shared = { org, ops, pulse, me, myBranches, scoped, commit, commitOrg, say, setTab, theme, acctIntent, openAcctView, invIntent, openInvView };
 
   // حماية: منع الوصول لتبويب غير مسموح لدور المستخدم (بلا hook — بعد returns الشرطية)
-  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : []), ...(NAV.some(n => n.id === 'people') ? ['payroll', 'workforce', 'shifts'] : []), ...(NAV.some(n => n.id === 'purchasing') ? ['suppliers', 'reorder'] : []), ...(NAV.some(n => n.id === 'hrops') ? ['attendance', 'shiftengine', 'tasks', 'points', 'esign'] : []), ...(NAV.some(n => n.id === 'hrperf') ? ['kpi', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'] : [])];
+  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : []), ...(NAV.some(n => n.id === 'people') ? ['payroll', 'workforce'] : []), ...(NAV.some(n => n.id === 'purchasing') ? ['suppliers', 'reorder'] : []), ...(NAV.some(n => n.id === 'hrops') ? ['attendance', 'shiftengine', 'tasks', 'points', 'esign'] : []), ...(NAV.some(n => n.id === 'hrperf') ? ['kpi', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'] : [])];
   const safeTab = allowedTabs.includes(tab) ? tab : (allowedTabs[0] || 'closing');
 
   return (
@@ -2664,7 +2667,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v27.11 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v27.12 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2821,7 +2824,8 @@ export default function App() {
               {safeTab === 'apps' && <AppsCenter {...shared} />}
               {safeTab === 'approve' && <Approvals {...shared} />}
               {safeTab === 'treasury' && <Treasury {...shared} />}
-              {['people', 'hrmaster', 'hrpolicy', 'payroll', 'workforce', 'shifts'].includes(safeTab) && <Hub hubId="people" {...shared} view={safeTab} />}
+              {['people', 'hrmaster', 'hrpolicy', 'payroll', 'workforce'].includes(safeTab) && <Hub hubId="people" {...shared} view={safeTab} />}
+              {safeTab === 'shifts' && <Shifts {...shared} />}
               {['purchasing', 'suppliers', 'reorder'].includes(safeTab) && <Hub hubId="purchasing" {...shared} view={safeTab} />}
               {safeTab === 'inv' && <Inventory {...shared} />}
               {safeTab === 'partners' && <Partners {...shared} />}
@@ -5621,13 +5625,12 @@ const HUBS = {
     ]
   },
   people: {
-    ar: 'شؤون الموظفين', desc: 'البيانات الرئيسية والرواتب والسلف والجدولة والحضور والورديات', icon: Wallet,
+    ar: 'شؤون الموظفين', desc: 'البيانات الرئيسية والسياسات والرواتب والسلف وتخطيط العمالة', icon: Wallet,
     views: [
       { id: 'hrmaster', ar: 'البيانات الرئيسية', icon: Building2, comp: HrMaster },
       { id: 'hrpolicy', ar: 'السياسات والأدوار', icon: ShieldCheck, comp: HrPolicy },
       { id: 'payroll', ar: 'الرواتب والسلف', icon: Wallet, comp: Payroll },
-      { id: 'workforce', ar: 'الجدولة والحضور', icon: CalendarDays, comp: Workforce },
-      { id: 'shifts', ar: 'الورديات والتذكيرات', icon: Clock, comp: Shifts }
+      { id: 'workforce', ar: 'تخطيط العمالة والتكلفة', icon: CalendarDays, comp: Workforce }
     ]
   },
   purchasing: {
@@ -20193,7 +20196,7 @@ function CategoriesPanel({ org, ops, commitOrg, say }) {
 
 /* ================= الورديات وتذكيرات الإغلاق ================= */
 /* ============================================================
-   v13.3 — الجدولة والحضور وتحسين العمالة
+   v13.3 — تخطيط العمالة والتكلفة (الفعلي من الحضور الموثَّق منذ v27.12)
    جدول ساعات أسبوعي لكل موظف + تسجيل الحضور الفعلي + قياس نسبة العمالة
    من المبيعات (من الإغلاقات المعتمدة) بهدف قابل للضبط. كل الإعدادات صريحة — بلا افتراض خفيّ.
    الأجر/الساعة = (الأساسي + البدلات) ÷ الساعات الشهرية المعيارية (افتراضي ٢٠٨ = ٢٦×٨، قابل للتعديل).
@@ -20229,7 +20232,15 @@ function Workforce({ org, ops, me, myBranches, scoped, commit, commitOrg, say })
   const stored = (empId, key, di) => { const r = recOf(empId); return r && r[key] && r[key][di] != null ? r[key][di] : null; };
   const shown = (empId, di) => { const dr = draft[empId]; if (dr && dr[mode] && dr[mode][di] != null) return dr[mode][di]; const v = stored(empId, mode, di); return v != null ? String(v) : ''; };
   const planOf = (empId, di) => { const dr = draft[empId]; if (dr && dr.plan && dr.plan[di] != null) return num(dr.plan[di]); return num(stored(empId, 'plan', di)); };
-  const actOf = (empId, di) => { const dr = draft[empId]; if (dr && dr.actual && dr.actual[di] != null) return num(dr.actual[di]); return num(stored(empId, 'actual', di)); };
+  // (ج) v27.12 — الساعات الفعلية تُحسب من الحضور الموثَّق مباشرةً (لا إدخال يدوي)
+  const attHoursOf = (empId, ds) => {
+    const evs = (ops.attendanceEvents || []).filter(x => x.employeeId === empId && (x.at || '').slice(0, 10) === ds).sort((a, b) => (a.at < b.at ? -1 : 1));
+    const firstIn = evs.find(e => e.type === 'in'); if (!firstIn) return 0;
+    const outs = evs.filter(e => e.type === 'out'); const lastOut = outs[outs.length - 1];
+    if (!lastOut || lastOut.at <= firstIn.at) return 0;
+    return r2((new Date(lastOut.at) - new Date(firstIn.at)) / 3600000);
+  };
+  const actOf = (empId, di) => attHoursOf(empId, days[di]);
   const effOf = (empId, di) => mode === 'plan' ? planOf(empId, di) : actOf(empId, di);
   const setCell = (empId, di, v) => setDraft(s => { const cur = s[empId] || {}; const arr = cur[mode] ? [...cur[mode]] : Array(7).fill(null); arr[di] = v.replace(/[^\d.]/g, ''); return { ...s, [empId]: { ...cur, [mode]: arr } }; });
 
@@ -20301,8 +20312,8 @@ function Workforce({ org, ops, me, myBranches, scoped, commit, commitOrg, say })
     <div className="grid" style={{ gap: 14 }}>
       <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
         <div>
-          <h2 style={{ fontSize: 17 }}>الجدولة والحضور وتحسين العمالة</h2>
-          <div style={{ fontSize: 12, color: 'var(--dim)' }}>خطّط ساعات فريقك، سجّل الحضور، واضبط نسبة العمالة على مبيعاتك</div>
+          <h2 style={{ fontSize: 17 }}>تخطيط العمالة والتكلفة</h2>
+          <div style={{ fontSize: 12, color: 'var(--dim)' }}>خطّط ساعات فريقك، والفعلي من الحضور الموثَّق، واضبط نسبة العمالة على مبيعاتك</div>
         </div>
         <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
           <button className="btn sm" onClick={printSched}><Printer size={13} />طباعة الجدول</button>
@@ -20334,12 +20345,12 @@ function Workforce({ org, ops, me, myBranches, scoped, commit, commitOrg, say })
 
         {mode === 'actual' && (
           <div className="note" style={{ borderColor: 'rgba(91,147,196,.3)' }}>
-            {hasActual ? <>الحضور الفعلي <b>{actTot}</b> ساعة مقابل المخطط <b>{planTot}</b> ساعة — الفرق <b style={{ color: actTot > planTot ? 'var(--rose)' : 'var(--mint)' }}>{r2(actTot - planTot)}</b> ساعة.</> : 'لم يُسجَّل حضور فعلي لهذا الأسبوع بعد — أدخل الساعات الفعلية التي عملها كل موظف (٠ = غياب) ثم احفظ.'}
+            {hasActual ? <>الحضور الفعلي <b>{actTot}</b> ساعة مقابل المخطط <b>{planTot}</b> ساعة — الفرق <b style={{ color: actTot > planTot ? 'var(--rose)' : 'var(--mint)' }}>{r2(actTot - planTot)}</b> ساعة.</> : 'لا حضور موثَّق مُسجَّل لهذا الأسبوع بعد — تظهر الساعات الفعلية هنا تلقائيًا فور تسجيل الموظفين حضورهم من كشك الفرع.'}
           </div>
         )}
 
         <div className="card">
-          <div className="card-t" style={{ marginBottom: 8 }}><CalendarDays size={15} color="var(--brass)" />{mode === 'plan' ? 'الجدول الأسبوعي — ساعات العمل المخطّطة لكل موظف' : 'الحضور الفعلي — الساعات التي عملها كل موظف (٠ = غياب)'}</div>
+          <div className="card-t" style={{ marginBottom: 8 }}><CalendarDays size={15} color="var(--brass)" />{mode === 'plan' ? 'الجدول الأسبوعي — ساعات العمل المخطّطة لكل موظف' : 'الحضور الفعلي — ساعات العمل المحسوبة من الحضور الموثَّق'}</div>
           <div className="tw">
             <table className="tb">
               <thead><tr><th>الموظف</th>{days.map((ds, di) => <th key={di} style={{ textAlign: 'center', minWidth: 46 }}>{dNm(ds)}<div style={{ fontSize: 9, color: 'var(--faint)', fontWeight: 400 }}>{dDay(ds)}</div></th>)}<th style={{ textAlign: 'end' }}>الساعات</th><th style={{ textAlign: 'end' }}>التكلفة</th></tr></thead>
@@ -20349,7 +20360,9 @@ function Workforce({ org, ops, me, myBranches, scoped, commit, commitOrg, say })
                     <td style={{ fontWeight: 600, fontSize: 12.5 }}>{e.name}<span style={{ fontSize: 9.5, color: 'var(--faint)' }}> · {e.jobTitle || ''}</span></td>
                     {D7.map(di => (
                       <td key={di} style={{ textAlign: 'center' }}>
-                        <input className="inp n" style={{ width: 44, textAlign: 'center', padding: '4px 2px' }} inputMode="decimal" value={shown(e.id, di)} placeholder="—" disabled={!canW} onChange={ev => setCell(e.id, di, ev.target.value)} />
+                        {mode === 'actual'
+                          ? <span className="num" style={{ fontSize: 12.5 }}>{actOf(e.id, di) || '—'}</span>
+                          : <input className="inp n" style={{ width: 44, textAlign: 'center', padding: '4px 2px' }} inputMode="decimal" value={shown(e.id, di)} placeholder="—" disabled={!canW} onChange={ev => setCell(e.id, di, ev.target.value)} />}
                       </td>
                     ))}
                     <td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{rowHours(e.id) || '—'}</td>
