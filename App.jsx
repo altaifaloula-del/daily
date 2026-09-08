@@ -242,7 +242,9 @@ const BR_COLS = ['closings', 'transfers', 'partnerRequests', 'notifications', 'b
   // v27.0 — م١٠: مستندات التوقيع الإلكتروني (إقرارات استلام الراتب وإشعارات المكافآت/الجزاءات) — يوقّعها الموظف من جهاز الفرع
   'hrSignDocs',
   // v27.6 — م٢٠: الإجراءات التأديبية التصحيحية وخطط تحسين الأداء (PIP) — بفرعها كي يقرأها/يكتبها جهاز الفرع
-  'hrCorrective', 'hrPips'];
+  'hrCorrective', 'hrPips',
+  // v27.7 — م١٩: سجلات التدريب والشهادات (البرامج المركزية في org.trainingPrograms)
+  'hrTraining'];
 const CORE_COLS = ['advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules'];
 
 // تقسيم ops المدمجة إلى مستند مركزي + مستند لكل فرع
@@ -292,7 +294,7 @@ function dirOf(org) {
     periodLocks: org.periodLocks || {},
     appsCfg: org.appsCfg || {},
     // v24.0: إعدادات HR غير الحساسة التي تحتاجها شاشات الفروع (سماحية التأخير، أوزان الدرجة، قواعد النقاط، أهداف KPI)
-    hrPolicies: org.hrPolicies || {}, pointsRules: org.pointsRules || {}, kpiTargets: org.kpiTargets || {}, rewardTiers: org.rewardTiers || {},
+    hrPolicies: org.hrPolicies || {}, pointsRules: org.pointsRules || {}, kpiTargets: org.kpiTargets || {}, rewardTiers: org.rewardTiers || {}, trainingPrograms: org.trainingPrograms || [],
     setupComplete: true, migratedV9: org.migratedV9 || ''
   };
 }
@@ -1469,11 +1471,11 @@ const DENOMS = [
 const emptyDenoms = () => DENOMS.reduce((o, d) => ({ ...o, [d.k]: 0 }), {});
 const countDenoms = (d) => DENOMS.reduce((s, x) => s + (Number(d?.[x.k]) || 0) * x.v, 0);
 
-const ALL_TABS = ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'hrdash', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit'];
+const ALL_TABS = ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'hrdash', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit'];
 const TAB_AR = {
   analytics: 'مركز التحليل والأداء', reporting: 'مركز التقارير', exec: 'اللوحة التنفيذية',
   dash: 'لوحة المؤشرات', compare: 'مقارنة الفروع', growth: 'تحليلات النمو', breakeven: 'تحليل التعادل', scorecard: 'لوحة الأهداف', scenario: 'ماذا-لو', boardpack: 'تقرير الإدارة', cashflow: 'التدفق النقدي', closing: 'الإغلاق اليومي', apps: 'التطبيقات',
-  approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', people: 'شؤون الموظفين', payroll: 'الرواتب والسلف', workforce: 'الجدولة والحضور', hrmaster: 'البيانات الرئيسية', hrpolicy: 'السياسات والأدوار', attendance: 'الحضور الموثَّق', shiftengine: 'محرّك الورديات', tasks: 'المهام', points: 'دفتر النقاط', kpi: 'الأداء والتقييم', rewards: 'المكافآت والجزاءات', esign: 'التوقيع الإلكتروني', corrective: 'الإجراءات التصحيحية', hrdash: 'لوحة الموارد البشرية',
+  approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', people: 'شؤون الموظفين', payroll: 'الرواتب والسلف', workforce: 'الجدولة والحضور', hrmaster: 'البيانات الرئيسية', hrpolicy: 'السياسات والأدوار', attendance: 'الحضور الموثَّق', shiftengine: 'محرّك الورديات', tasks: 'المهام', points: 'دفتر النقاط', kpi: 'الأداء والتقييم', rewards: 'المكافآت والجزاءات', esign: 'التوقيع الإلكتروني', corrective: 'الإجراءات التصحيحية', training: 'التدريب والشهادات', hrdash: 'لوحة الموارد البشرية',
   purchasing: 'المشتريات والموردون', suppliers: 'الموردون والمشتريات', inv: 'المخزون والمنتجات', reorder: 'المشتريات الذكية', partners: 'دفتر الشركاء',
   acct: 'المحاسبة', shifts: 'الورديات', archive: 'أرشيف المستندات', ai: 'المركز الذكي',
   reports: 'التقارير المالية', rbuild: 'منشئ التقارير', entities: 'مركز المنشآت', admin: 'الفروع والمستخدمون', audit: 'سجل التدقيق'
@@ -1508,17 +1510,17 @@ const ROLES = {
   },
   branch_manager: {
     ar: 'مدير الفرع', badge: 'b-mint', scope: 'own', create: true,
-    tabs: ['closing', 'sales', 'apps', 'archive', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'hrdash'],
+    tabs: ['closing', 'sales', 'apps', 'archive', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'hrdash'],
     perms: ['إدخال وترحيل إغلاق فرعه', 'عرض سجل إغلاقات فرعه', 'أرشيف مستندات فرعه فقط', 'تسجيل الحضور وضبط أرقام PIN وسجل حضور فرعه', 'محرّك ورديات فرعه: قوالب، تعيين أسبوعي، مطابقة حضور، تبديل وردية، طلب نقل موظف', 'كشك التوقيع الإلكتروني وسجل إقرارات فرعه (بلا مبالغ الرواتب)']
   },
   regional_manager: {
     ar: 'مدير إقليمي — فروع مُسندة', badge: 'b-amber', scope: 'assigned',
-    tabs: ['analytics', 'reporting', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'reports', 'archive', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'hrdash'],
+    tabs: ['analytics', 'reporting', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'reports', 'archive', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'hrdash'],
     perms: ['متابعة الفروع المسندة إليه فقط', 'مقارنة وتقارير فروعه ولوحة مؤشراتها ونموّها', 'سجل حضور فروعه المسندة ومحرّك ورديات فروعه', 'بلا وصول للمحاسبة والخزينة والإعدادات']
   },
   head_office: {
     ar: 'المكتب الرئيسي — المالية والإدارة', badge: 'b-brass', scope: 'all', approver: true,
-    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'hrdash', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
+    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'hrdash', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['كل الفروع والتقارير المجمّعة', 'التدقيق والاعتماد النهائي', 'الخزينة والرواتب والموردون والمشتريات والمخزون', 'المحاسبة الكاملة: قيود وميزان وقوائم وضريبة وأصول ومراكز تكلفة']
   },
   system_admin: {
@@ -1536,7 +1538,7 @@ const ROLES = {
     // إعادة ترتيب v8.0: المحاسب الرئيسي بطبيعته يعمل على المنشأة كلها — نطاق كامل
     // بلا صلاحيات إدارة (لا مستخدمين/فروع، لا تفعيل ضريبة، لا إدارة تطبيقات)
     ar: 'الإدارة المالية — محاسب رئيسي', badge: 'b-sky', scope: 'all', legacy: true,
-    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'hrdash', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
+    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'hrdash', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['المحاسبة كاملة: قيود يدوية وافتتاحية وميزان وقوائم ومراكز تكلفة', 'الضريبة والأصول والتسوية البنكية (عرض وتسجيل — التفعيل للإدارة)', 'المشتريات والمخزون والرواتب والخزينة', 'كل الفروع — دون إدارة المستخدمين والإعدادات']
   },
   // ===== v15.9: نماذج صلاحيات المحاسب — نطاق «المحاسبة + التقارير المالية فقط» =====
@@ -1651,6 +1653,7 @@ const REG_APPS = [
   { id: 'rewards', ar: 'المكافآت والجزاءات', en: 'Rewards & Penalties', cat: 'hr', icon: Coins, open: { tab: 'rewards' }, kw: ['مكافأة', 'مكافآت', 'جزاء', 'جزاءات', 'اعتماد', 'حافز', 'خصم', 'راتب'], fns: ['طلب مكافأة أو جزاء لموظف بمبلغ وسبب', 'سلسلة اعتماد مركزية بسجل كامل', 'ترحيل تلقائي لمسيّر الرواتب بعد الاعتماد', 'شرائح مكافآت تلقائية حسب درجة الأداء (قابلة للضبط، مُعطَّلة افتراضيًا)'], d: 'طلبات مكافآت وجزاءات من الفروع، اعتماد مركزي، وترحيل تلقائي لمسيّر الرواتب بعد الاعتماد — مع شرائح مكافآت اختيارية مبنية على درجة الأداء.' },
   { id: 'esign', ar: 'التوقيع الإلكتروني', en: 'E-Signature', cat: 'hr', icon: Signature, open: { tab: 'esign' }, kw: ['توقيع', 'إقرار', 'استلام', 'راتب', 'قسيمة', 'إشعار', 'جزاء', 'مكافأة', 'كشك', 'PIN'], fns: ['إقرار استلام الراتب الشهري يوقّعه الموظف بإصبعه بعد التحقق بـPIN', 'إشعارات المكافآت والجزاءات المعتمدة توقَّع بالعلم', 'التوقيع من كشك الفرع أو من شاشة الرواتب بالمكتب', 'التوقيع يظهر على قسيمة الراتب ومسير الرواتب المطبوعين', 'سجل إقرارات وتقرير حالة التوقيعات وتنبيه بغير الموقَّع'], d: 'توقيع إلكتروني للموظف على إقرارات استلام الراتب وإشعارات المكافآت والجزاءات — من جهاز الفرع بعد التحقق بـPIN، ويُطبع على القسائم والمسير.' },
   { id: 'corrective', ar: 'الإجراءات التصحيحية', en: 'Corrective Actions', cat: 'hr', icon: ShieldAlert, open: { tab: 'corrective' }, kw: ['جزاء', 'تأديب', 'إنذار', 'مخالفة', 'لائحة', 'تظلّم', 'خطة تحسين', 'pip', 'محضر'], fns: ['فتح إجراء تأديبي متدرّج حسب لائحة الجزاءات', 'اعتماد مركزي وترحيل الغرامة للرواتب بسقف نظامي', 'محضر بالعلم يوقّعه الموظف من كشك الفرع', 'خطط تحسين الأداء (PIP) بأهداف ومراجعات', 'محو الجزاء تلقائيًا بعد المدة النظامية'], d: 'إجراءات تأديبية متدرّجة وفق نظام العمل ولائحة المنشأة، باعتماد مركزي ومحضر توقيع، وخطط تحسين أداء بديلة تطويرية.' },
+  { id: 'training', ar: 'التدريب والشهادات', en: 'Training & Certifications', cat: 'hr', icon: Stamp, open: { tab: 'training' }, kw: ['تدريب', 'شهادة', 'صحية', 'سلامة الغذاء', 'انتهاء', 'امتثال', 'برنامج', 'هاسب'], fns: ['برامج تدريب وشهادات بمدد صلاحية', 'تسجيل اجتياز الموظفين وحساب تاريخ الانتهاء', 'مصفوفة امتثال للتدريب الإلزامي لكل موظف', 'تنبيهات انتهاء الشهادات والنقص الإلزامي'], d: 'برامج التدريب والشهادات الإلزامية (الشهادة الصحية، سلامة الغذاء) بمدد صلاحية، مع مصفوفة امتثال وتنبيهات انتهاء ونقص.' },
   { id: 'hrdash', ar: 'لوحة الموارد البشرية', en: 'HR Dashboard', cat: 'hr', icon: LayoutDashboard, open: { tab: 'hrdash' }, kw: ['لوحة', 'تقارير', 'حضور', 'مكافآت', 'نقاط', 'موارد بشرية', 'hr', 'excel'], fns: ['لوحة HR تنفيذية لكل الفروع بمقارنة شهرية', 'تقرير الحضور الشهري التفصيلي (طباعة وExcel)', 'تقرير المكافآت والجزاءات والنقاط', 'تنبيهات HR في مركز التنبيهات'], d: 'لوحة تنفيذية لمؤشرات الموارد البشرية لكل الفروع، وتقارير الحضور والمكافآت والنقاط قابلة للطباعة وExcel.' },
   // ——— الزكاة والضريبة (خطة م٣) ———
   { id: 'vat', ar: 'ضريبة القيمة المضافة', en: 'VAT', cat: 'tax', icon: Receipt, open: { tab: 'acct', view: 'vat' }, kw: ['ضريبة', 'زاتكا', 'مدخلات', 'مخرجات', 'فاتورة', 'إقرار'], fns: ['تفعيل بنسبة قابلة للضبط', 'فصل المخرجات في قيد الإيراد', 'فصل مدخلات المصروفات الخاضعة', 'مؤشرات بالفترة'], d: 'فصل تلقائي لضريبة المخرجات والمدخلات في القيود — بأثر رجعي فور التفعيل.' },
@@ -1705,6 +1708,8 @@ const LAUNCH_APPS = [
     sections: ['كشك التوقيع', 'سجل الإقرارات', 'تقرير حالة التوقيعات'], kw: ['توقيع', 'إقرار', 'استلام', 'راتب', 'قسيمة', 'إشعار', 'كشك'] },
   { id: 'corrective', ar: 'الإجراءات التصحيحية', en: 'Corrective Actions', cat: 'pos', icon: ShieldAlert, open: { tab: 'corrective' },
     sections: ['الإجراءات التأديبية', 'الاعتماد', 'خطط تحسين الأداء', 'اللائحة'], kw: ['جزاء', 'تأديب', 'إنذار', 'مخالفة', 'لائحة', 'تظلّم', 'خطة تحسين', 'pip', 'محضر'] },
+  { id: 'training', ar: 'التدريب والشهادات', en: 'Training & Certifications', cat: 'pos', icon: Stamp, open: { tab: 'training' },
+    sections: ['سجل التدريب', 'مصفوفة الامتثال', 'البرامج'], kw: ['تدريب', 'شهادة', 'صحية', 'سلامة الغذاء', 'امتثال', 'برنامج'] },
   { id: 'hrdash', ar: 'لوحة الموارد البشرية', en: 'HR Dashboard', cat: 'bi', icon: LayoutDashboard, open: { tab: 'hrdash' },
     sections: ['اللوحة التنفيذية', 'تقرير الحضور', 'المكافآت والنقاط'], kw: ['لوحة', 'تقارير', 'حضور', 'مكافآت', 'نقاط', 'hr'] },
   { id: 'sales', ar: 'المبيعات', en: 'Sales', cat: 'pos', icon: CircleDollarSign, open: { tab: 'sales' },
@@ -1843,7 +1848,7 @@ function emptyOrg(company) {
 
 function emptyOps() {
   return { closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
-    attendanceEvents: [], hrPins: [], shiftTemplates: [], shiftAssignments: [], shiftSwapRequests: [], branchTransferRequests: [], taskTemplates: [], taskAssignments: [], taskCompletions: [], pointsEntries: [], qualityReviews: [], rewardRequests: [], hrSignDocs: [], hrCorrective: [], hrPips: [] };
+    attendanceEvents: [], hrPins: [], shiftTemplates: [], shiftAssignments: [], shiftSwapRequests: [], branchTransferRequests: [], taskTemplates: [], taskAssignments: [], taskCompletions: [], pointsEntries: [], qualityReviews: [], rewardRequests: [], hrSignDocs: [], hrCorrective: [], hrPips: [], hrTraining: [] };
 }
 
 
@@ -2569,6 +2574,7 @@ export default function App() {
     { id: 'rewards', ar: 'المكافآت والجزاءات', icon: Coins },
     { id: 'esign', ar: 'التوقيع الإلكتروني', icon: Signature },
     { id: 'corrective', ar: 'الإجراءات التصحيحية', icon: ShieldAlert },
+    { id: 'training', ar: 'التدريب والشهادات', icon: Stamp },
     { id: 'hrdash', ar: 'لوحة الموارد البشرية', icon: LayoutDashboard },
     { id: 'apps', ar: 'إدارة التطبيقات', icon: Grid3x3 },
     { id: 'approve', ar: 'التدقيق والاعتماد', icon: ShieldCheck, cnt: pending },
@@ -2678,7 +2684,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v27.6 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v27.7 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2838,6 +2844,7 @@ export default function App() {
               {safeTab === 'rewards' && <Rewards {...shared} />}
               {safeTab === 'esign' && <ESign {...shared} />}
               {safeTab === 'corrective' && <Corrective {...shared} />}
+              {safeTab === 'training' && <Training {...shared} />}
               {safeTab === 'hrdash' && <HrDashboard {...shared} />}
               {safeTab === 'apps' && <AppsCenter {...shared} />}
               {safeTab === 'approve' && <Approvals {...shared} />}
@@ -5993,6 +6000,14 @@ function AlertsCenter({ org, ops, me, myBranches, scoped, setTab, openAcctView, 
     const _actPip = new Set((ops.hrPips || []).filter(p => p.status === 'active').map(p => p.employeeId));
     const _lowN = hrEmps.filter(e => { const sc = hrScoreFor(org, ops, e, td.slice(0, 7)).score; return sc != null && sc < _pipTh && !_actPip.has(e.id); }).length;
     if (_lowN) push('low', 'hr', _lowN + ' موظف بدرجة أداء دون العتبة (' + _pipTh + ') بلا خطة تحسين نشطة', 'افتح خطة تحسين أداء أو راجع إجراءاتهم.', { label: 'خطط تحسين الأداء', go: () => setTab('corrective') });
+    // م١٩ (v27.7) — شهادات منتهية/قريبة + نقص تدريب إلزامي
+    const _progs = (org.trainingPrograms && org.trainingPrograms.length) ? org.trainingPrograms : defaultTrainingPrograms();
+    const _trAlertDays = Number((org.hrPolicies || {}).trainingExpiryAlertDays) || 30;
+    const _trRecs = (ops.hrTraining || []).filter(r => hrIds.includes(r.branchId));
+    const _expTr = expiringTraining(_trRecs, _trAlertDays, td);
+    if (_expTr.length) push('mid', 'hr', _expTr.length + ' شهادة تدريب منتهية أو تنتهي خلال ' + _trAlertDays + ' يومًا', [...new Set(_expTr.map(x => x.employeeName))].slice(0, 4).join('، ') + ' — جدّدها في التدريب والشهادات.', { label: 'التدريب والشهادات', go: () => setTab('training') });
+    let _missN = 0; hrEmps.forEach(e => { _missN += missingRequiredTraining(_progs, _trRecs, e, td).length; });
+    if (_missN) push('mid', 'hr', _missN + ' تدريب إلزامي ناقص لدى موظفي فروعك', 'راجع مصفوفة الامتثال في التدريب والشهادات.', { label: 'مصفوفة الامتثال', go: () => setTab('training') });
   } catch (e) { }
 
   const sevRank = { high: 0, mid: 1, low: 2 };
@@ -8856,6 +8871,7 @@ const defaultHrPolicies = () => ({
   // م٢٠ (v27.6) — الإجراءات التأديبية (نظام العمل — افتراضات قابلة للضبط؛ لائحة المنشأة المسجّلة هي المرجع الملزم)
   penaltyEraseDays: 180, fineCapDaysPerMonth: 5, chargeWindowDays: 30, objectionDays: 15, pipTriggerScore: 60,
   penaltySchedule: defaultPenaltySchedule(),
+  trainingExpiryAlertDays: 30, // م١٩ (v27.7): تنبيه قبل انتهاء الشهادة بعدد الأيام
 });
 // م٦ — قواعد النقاط التلقائية (مُعطَّلة افتراضيًا حتى يراجعها المالك ويفعّلها — قرار H/3 في hr-audit-m0)
 const defaultPointsRules = () => ({ enabled: false, onTime: 1, late: -1, absent: -3, taskDone: 1 });
@@ -11671,6 +11687,263 @@ function Corrective({ org, ops, me, myBranches, commit, commitOrg, say }) {
             </div>
             <div className="row" style={{ justifyContent: 'flex-end', marginTop: 12 }}><button className="btn pri" onClick={saveConfig}><Check size={14} />حفظ اللائحة</button></div>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+/* ================= م١٩ (v27.7) — التدريب والشهادات الإلزامية =================
+   نموذج البيانات:
+   - org.trainingPrograms[] (إعداد مركزي، يصل الفروع عبر dirOf): { id, title, category, validityMonths(0=بلا انتهاء), mandatory, requiredJobTitles[], provider }
+   - ops.hrTraining[] (BR_COLS — بفرعها؛ يقرأه/يكتبه جهاز الفرع ويقرأه المركز):
+       { id, branchId, employeeId, employeeName, programId, programTitle, status:'planned'|'in_progress'|'completed',
+         plannedDate, completedDate, expiryDate, score, result:'pass'|'fail'|'', certNo, note, recordedBy/Name, recordedAt }
+   - الإعداد في org.hrPolicies: trainingExpiryAlertDays (تنبيه قبل انتهاء الشهادة).
+   السياق (السعودية): الشهادة الصحية إلزامية لكل متداولي الأغذية وصلاحيتها سنة (وزارة البلديات)؛
+   وتدريب سلامة الغذاء من جهة معتمدة لدى هيئة الغذاء والدواء. المدد والبرامج قابلة للضبط — لائحة الجهة الرسمية هي المرجع.
+   المصادر موثّقة في claude/hr-training-v27.7.md.
+   ============================================================================= */
+function defaultTrainingPrograms() {
+  return [
+    { id: 'health_cert', title: 'الشهادة الصحية (متداول أغذية)', category: 'إلزامي', validityMonths: 12, mandatory: true, requiredJobTitles: [], provider: 'وزارة البلديات / بلدي' },
+    { id: 'food_safety', title: 'تدريب سلامة الغذاء الأساسي', category: 'سلامة غذاء', validityMonths: 36, mandatory: true, requiredJobTitles: [], provider: 'جهة معتمدة (هيئة الغذاء والدواء)' },
+    { id: 'haccp', title: 'نظام الهاسب (HACCP) للمشرفين', category: 'سلامة غذاء', validityMonths: 36, mandatory: false, requiredJobTitles: ['مدير الفرع', 'مشرف', 'شيف'], provider: 'جهة معتمدة' },
+    { id: 'fire_safety', title: 'السلامة ومكافحة الحريق', category: 'سلامة', validityMonths: 24, mandatory: false, requiredJobTitles: [], provider: 'الدفاع المدني / جهة معتمدة' },
+    { id: 'customer_service', title: 'مهارات خدمة العملاء', category: 'مهارات', validityMonths: 0, mandatory: false, requiredJobTitles: [], provider: 'داخلي' },
+  ];
+}
+const TRAIN_STATUS_AR = { planned: 'مجدول', in_progress: 'جارٍ', completed: 'مكتمل', expired: 'منتهية' };
+function addMonthsStr(dateStr, months) {
+  if (!dateStr) return '';
+  const [Y, M, D] = dateStr.split('-').map(Number); const d = new Date(Y, (M - 1) + (Number(months) || 0), D || 1);
+  return d.toISOString().slice(0, 10);
+}
+const trainingExpiryOf = (completedDate, validityMonths) => (!completedDate || !(Number(validityMonths) > 0)) ? '' : addMonthsStr(completedDate, validityMonths);
+// الحالة الفعلية الآن: مكتمل بشهادة منتهية ⇒ 'expired'
+function trainingStatusNow(rec, todayStr) {
+  const td = todayStr || today();
+  if (rec.status === 'completed' && rec.expiryDate && rec.expiryDate < td) return 'expired';
+  return rec.status;
+}
+// هل البرنامج مطلوب لهذا الموظف (إلزامي، ومطابق لمسماه إن حُدّدت مسميات)
+function programRequiredFor(prog, emp) {
+  if (!prog || !prog.mandatory) return false;
+  const jt = (prog.requiredJobTitles || []);
+  return jt.length === 0 || jt.includes(emp.jobTitle || '');
+}
+// آخر سجل مكتمل ساري المفعول لبرنامج
+function activeTrainingRecord(records, empId, programId, todayStr) {
+  const td = todayStr || today();
+  return (records || []).filter(r => r.employeeId === empId && r.programId === programId && r.status === 'completed')
+    .filter(r => !r.expiryDate || r.expiryDate >= td)
+    .sort((a, b) => ((a.completedDate || '') < (b.completedDate || '') ? 1 : -1))[0] || null;
+}
+// برامج إلزامية ينقص الموظف اجتيازها ساريةً
+function missingRequiredTraining(programs, records, emp, todayStr) {
+  return (programs || []).filter(p => programRequiredFor(p, emp)).filter(p => !activeTrainingRecord(records, emp.id, p.id, todayStr));
+}
+// سجلات مكتملة تنتهي خلال days (أو منتهية) — للتنبيهات والمصفوفة
+function expiringTraining(records, days, todayStr) {
+  const td = todayStr || today(); const lim = addMonthsStr(td, 0);
+  const cutoff = (() => { const d = new Date(td + 'T00:00:00'); d.setDate(d.getDate() + (Number(days) || 0)); return d.toISOString().slice(0, 10); })();
+  void lim;
+  return (records || []).filter(r => r.status === 'completed' && r.expiryDate && r.expiryDate <= cutoff);
+}
+
+function Training({ org, ops, me, myBranches, commit, commitOrg, say }) {
+  const role = ROLES[me.role] || {};
+  const isAll = role.scope === 'all';
+  const canManage = me.role === 'branch_manager' || isAll;   // تسجيل/تحديث سجلات التدريب
+  const canConfig = isAll;                                   // البرامج المركزية
+  const branches = myBranches || [];
+  const pol = { ...defaultHrPolicies(), ...(org.hrPolicies || {}) };
+  const alertDays = Number(pol.trainingExpiryAlertDays) || 30;
+  const programs = (org.trainingPrograms && org.trainingPrograms.length) ? org.trainingPrograms : defaultTrainingPrograms();
+  const td = today();
+
+  const [view, setView] = useState('records');
+  const [branchId, setBranchId] = useState((branches[0] || {}).id || '');
+  useEffect(() => { if (!branches.find(b => b.id === branchId)) setBranchId((branches[0] || {}).id || ''); }, [branches, branchId]); // eslint-disable-line
+  const branch = branches.find(b => b.id === branchId) || null;
+  const branchIds = branches.map(b => b.id);
+  const emps = (org.employees || []).filter(e => e.isActive !== false && branch && e.branchId === branch.id);
+  const allRecs = (ops.hrTraining || []).filter(r => branchIds.includes(r.branchId)).sort((a, b) => ((a.completedDate || a.plannedDate || '') < (b.completedDate || b.plannedDate || '') ? 1 : -1));
+  const progById = (id) => programs.find(p => p.id === id) || null;
+  const statusBadge = (st) => { const cls = st === 'completed' ? 'b-mint' : st === 'expired' ? 'b-rose' : st === 'in_progress' ? 'b-sky' : 'b-amber'; return <span className={'badge ' + cls}>{TRAIN_STATUS_AR[st] || st}</span>; };
+
+  // ===== ١) تسجيل/تحديث سجل تدريب =====
+  const emptyF = { id: '', empId: '', programId: '', status: 'completed', plannedDate: td, completedDate: td, score: '', result: 'pass', certNo: '', note: '' };
+  const [f, setF] = useState(emptyF);
+  const selProg = progById(f.programId);
+  const previewExpiry = (f.status === 'completed' && selProg) ? trainingExpiryOf(f.completedDate, selProg.validityMonths) : '';
+  const editRec = (r) => setF({ id: r.id, empId: r.employeeId, programId: r.programId, status: r.status, plannedDate: r.plannedDate || td, completedDate: r.completedDate || td, score: r.score != null ? String(r.score) : '', result: r.result || '', certNo: r.certNo || '', note: r.note || '' });
+  const submit = async () => {
+    if (!branch) return;
+    const emp = emps.find(e => e.id === f.empId); const prog = progById(f.programId);
+    if (!emp) return say('اختر الموظف', 'no');
+    if (!prog) return say('اختر البرنامج التدريبي', 'no');
+    const completedDate = f.status === 'completed' ? (f.completedDate || td) : '';
+    const rec = {
+      id: f.id || uid('tr'), branchId: branch.id, branchName: branch.name, employeeId: emp.id, employeeName: emp.name,
+      programId: prog.id, programTitle: prog.title, status: f.status,
+      plannedDate: f.plannedDate || '', completedDate, expiryDate: trainingExpiryOf(completedDate, prog.validityMonths),
+      score: f.score === '' ? null : Number(f.score), result: f.status === 'completed' ? (f.result || 'pass') : '', certNo: (f.certNo || '').trim(), note: (f.note || '').trim(),
+      recordedBy: me.id, recordedByName: me.name, recordedAt: nowISO()
+    };
+    const ok = await commit(d => ({ ...d, hrTraining: f.id ? (d.hrTraining || []).map(x => x.id === f.id ? rec : x) : [rec, ...(d.hrTraining || [])] }),
+      { actionType: f.id ? 'update' : 'create', targetType: 'training_record', targetId: rec.id, branchName: branch.name, title: (f.id ? 'تحديث' : 'تسجيل') + ' سجل تدريب', details: emp.name + ' · ' + prog.title + ' · ' + (TRAIN_STATUS_AR[rec.status] || rec.status) + (rec.expiryDate ? ' · ينتهي ' + rec.expiryDate : '') });
+    if (ok) { say('حُفظ سجل التدريب ✓'); setF({ ...emptyF, plannedDate: f.plannedDate, completedDate: f.completedDate }); }
+  };
+  const delRec = async (r) => {
+    if (!window.confirm('حذف سجل تدريب «' + r.programTitle + '» لـ' + r.employeeName + '؟')) return;
+    await commit(d => ({ ...d, hrTraining: (d.hrTraining || []).filter(x => x.id !== r.id) }),
+      { actionType: 'delete', targetType: 'training_record', targetId: r.id, branchName: r.branchName, title: 'حذف سجل تدريب', details: r.employeeName + ' · ' + r.programTitle });
+    say('حُذف السجل');
+  };
+
+  // ===== ٢) البرامج (المركز) =====
+  const [cf, setCf] = useState(() => programs.map(p => ({ ...p, requiredJobTitles: (p.requiredJobTitles || []).join('، ') })));
+  const saveProgs = async () => {
+    const list = (cf || []).filter(p => String(p.title || '').trim()).map(p => ({
+      id: (p.id || uid('tp')), title: p.title.trim(), category: (p.category || '').trim(), validityMonths: Number(p.validityMonths) || 0,
+      mandatory: !!p.mandatory, requiredJobTitles: String(p.requiredJobTitles || '').split(/[،,]/).map(s => s.trim()).filter(Boolean), provider: (p.provider || '').trim()
+    }));
+    const ok = await commitOrg(d => ({ ...d, trainingPrograms: list }),
+      { actionType: 'update', targetType: 'settings', targetId: 'trainingPrograms', title: 'ضبط البرامج التدريبية', details: list.length + ' برنامجًا · ' + list.filter(p => p.mandatory).length + ' إلزامي' });
+    if (ok) say('حُفظت البرامج ✓');
+  };
+
+  if (!branch && branches.length === 0) return <div className="card"><div className="empty">لا يوجد فرع مُسند لحسابك — راجع مسؤول النظام.</div></div>;
+
+  // بيانات المصفوفة: الموظفون × البرامج الإلزامية المنطبقة
+  const mandProgs = programs.filter(p => p.mandatory);
+  const cellFor = (emp, prog) => {
+    if (!programRequiredFor(prog, emp)) return { t: 'na', ar: '—', cls: 'b-dim' };
+    const rec = activeTrainingRecord(ops.hrTraining || [], emp.id, prog.id, td);
+    if (!rec) return { t: 'missing', ar: 'مفقود', cls: 'b-rose' };
+    if (rec.expiryDate) {
+      const soon = (() => { const d = new Date(td + 'T00:00:00'); d.setDate(d.getDate() + alertDays); return rec.expiryDate <= d.toISOString().slice(0, 10); })();
+      if (soon) return { t: 'soon', ar: 'ينتهي ' + rec.expiryDate, cls: 'b-amber' };
+      return { t: 'ok', ar: 'ساري حتى ' + rec.expiryDate, cls: 'b-mint' };
+    }
+    return { t: 'ok', ar: 'مكتمل', cls: 'b-mint' };
+  };
+
+  return (
+    <div className="grid" style={{ gap: 12 }}>
+      <div className="card" style={{ padding: '8px 12px' }}>
+        <div className="row" style={{ gap: 6, flexWrap: 'wrap', justifyContent: 'space-between' }}>
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+            <button className={'btn sm' + (view === 'records' ? ' pri' : ' gh')} onClick={() => setView('records')}><Stamp size={13} />سجل التدريب</button>
+            <button className={'btn sm' + (view === 'matrix' ? ' pri' : ' gh')} onClick={() => setView('matrix')}><ClipboardCheck size={13} />مصفوفة الامتثال</button>
+            {canConfig && <button className={'btn sm' + (view === 'programs' ? ' pri' : ' gh')} onClick={() => setView('programs')}><FileText size={13} />البرامج</button>}
+          </div>
+          {branches.length > 1 && view !== 'programs' && (
+            <select className="inp sel" style={{ width: 180 }} value={branchId} onChange={e => setBranchId(e.target.value)}>
+              {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          )}
+        </div>
+      </div>
+
+      {view === 'records' && branch && (
+        <div className="grid" style={{ gap: 12 }}>
+          {canManage && (
+            <div className="card">
+              <div className="card-t" style={{ marginBottom: 8 }}><Stamp size={15} color="var(--brass)" />{f.id ? 'تحديث سجل تدريب' : 'تسجيل تدريب/شهادة'} — {branch.name}</div>
+              <div className="note" style={{ marginBottom: 8 }}>سجّل اجتياز الموظف برنامجًا تدريبيًا أو شهادة؛ يُحسب تاريخ الانتهاء تلقائيًا من مدة صلاحية البرنامج، وتظهر الشهادات المنتهية قريبًا في مركز التنبيهات ومصفوفة الامتثال.</div>
+              <div className="grid g3">
+                <Field label="الموظف"><select className="inp sel" value={f.empId} onChange={e => setF(x => ({ ...x, empId: e.target.value }))}><option value="">اختر</option>{emps.map(e => <option key={e.id} value={e.id}>{e.name}{e.jobTitle ? ' — ' + e.jobTitle : ''}</option>)}</select></Field>
+                <Field label="البرنامج"><select className="inp sel" value={f.programId} onChange={e => setF(x => ({ ...x, programId: e.target.value }))}><option value="">اختر</option>{programs.map(p => <option key={p.id} value={p.id}>{p.title}{p.mandatory ? ' (إلزامي)' : ''}</option>)}</select></Field>
+                <Field label="الحالة"><select className="inp sel" value={f.status} onChange={e => setF(x => ({ ...x, status: e.target.value }))}><option value="planned">مجدول</option><option value="in_progress">جارٍ</option><option value="completed">مكتمل</option></select></Field>
+                {f.status !== 'completed' && <Field label="تاريخ الجدولة"><input type="date" className="inp" value={f.plannedDate} onChange={e => setF(x => ({ ...x, plannedDate: e.target.value }))} /></Field>}
+                {f.status === 'completed' && <Field label="تاريخ الإكمال"><input type="date" className="inp" value={f.completedDate} onChange={e => setF(x => ({ ...x, completedDate: e.target.value }))} /></Field>}
+                {f.status === 'completed' && <Field label="النتيجة"><select className="inp sel" value={f.result} onChange={e => setF(x => ({ ...x, result: e.target.value }))}><option value="pass">اجتياز</option><option value="fail">عدم اجتياز</option></select></Field>}
+                {f.status === 'completed' && <Field label="الدرجة (اختياري)"><input className="inp n" inputMode="numeric" value={f.score} onChange={e => setF(x => ({ ...x, score: e.target.value.replace(/\D/g, '') }))} /></Field>}
+                {f.status === 'completed' && <Field label="رقم الشهادة (اختياري)"><input className="inp" value={f.certNo} onChange={e => setF(x => ({ ...x, certNo: e.target.value }))} /></Field>}
+                <Field label="ملاحظة (اختياري)" style={{ gridColumn: 'span 2' }}><input className="inp" value={f.note} onChange={e => setF(x => ({ ...x, note: e.target.value }))} /></Field>
+              </div>
+              {previewExpiry && <div className="note" style={{ marginTop: 8 }}>تاريخ انتهاء الشهادة المحسوب: <b>{previewExpiry}</b> (مدة الصلاحية {selProg.validityMonths} شهرًا).</div>}
+              {f.status === 'completed' && selProg && !(selProg.validityMonths > 0) && <div className="note" style={{ marginTop: 8 }}>هذا البرنامج بلا تاريخ انتهاء.</div>}
+              <div className="row" style={{ justifyContent: 'flex-end', gap: 6, marginTop: 10 }}>
+                {f.id && <button className="btn gh" onClick={() => setF(emptyF)}>إلغاء التحرير</button>}
+                <button className="btn pri" onClick={submit}><Check size={14} />{f.id ? 'تحديث' : 'حفظ'}</button>
+              </div>
+            </div>
+          )}
+          <div className="card">
+            <div className="card-t" style={{ marginBottom: 8 }}>سجل تدريب {branch.name}</div>
+            <div className="tw">
+              <table className="tb">
+                <thead><tr><th>الموظف</th><th>البرنامج</th><th>الحالة</th><th>الإكمال</th><th>الانتهاء</th><th>النتيجة</th><th>الشهادة</th>{canManage && <th />}</tr></thead>
+                <tbody>
+                  {allRecs.filter(r => r.branchId === branch.id).map(r => { const st = trainingStatusNow(r, td); return (
+                    <tr key={r.id}>
+                      <td style={{ fontWeight: 600, fontSize: 12.5 }}>{r.employeeName}</td>
+                      <td style={{ fontSize: 12 }}>{r.programTitle}</td>
+                      <td>{statusBadge(st)}</td>
+                      <td className="num" style={{ fontSize: 11.5 }}>{r.completedDate || '—'}</td>
+                      <td className="num" style={{ fontSize: 11.5 }}>{r.expiryDate || '—'}</td>
+                      <td style={{ fontSize: 11.5 }}>{r.result === 'pass' ? 'اجتياز' : r.result === 'fail' ? 'عدم اجتياز' : '—'}{r.score != null ? ' · ' + r.score : ''}</td>
+                      <td style={{ fontSize: 11.5 }}>{r.certNo || '—'}</td>
+                      {canManage && <td><div className="row" style={{ gap: 4 }}><button className="btn sm gh" onClick={() => editRec(r)}>تحرير</button><button className="btn sm gh" onClick={() => delRec(r)}><Trash2 size={13} /></button></div></td>}
+                    </tr>
+                  ); })}
+                  {allRecs.filter(r => r.branchId === branch.id).length === 0 && <tr><td colSpan={canManage ? 8 : 7}><div className="empty">لا سجلات تدريب بعد.</div></td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {view === 'matrix' && branch && (
+        <div className="card">
+          <div className="card-t" style={{ marginBottom: 8 }}><ClipboardCheck size={15} color="var(--brass)" />مصفوفة الامتثال للتدريب الإلزامي — {branch.name}</div>
+          <div className="note" style={{ marginBottom: 8 }}>لكل موظف والبرامج الإلزامية المنطبقة على مسماه: <span className="badge b-mint">ساري</span> <span className="badge b-amber">ينتهي خلال {alertDays} يومًا</span> <span className="badge b-rose">مفقود/منتهٍ</span> <span className="badge b-dim">غير مطلوب</span>.</div>
+          <div className="tw">
+            <table className="tb">
+              <thead><tr><th>الموظف</th>{mandProgs.map(p => <th key={p.id} style={{ fontSize: 11 }}>{p.title}</th>)}</tr></thead>
+              <tbody>
+                {emps.map(e => (
+                  <tr key={e.id}>
+                    <td style={{ fontWeight: 600, fontSize: 12.5 }}>{e.name}<div style={{ fontSize: 10, color: 'var(--faint)' }}>{e.jobTitle || ''}</div></td>
+                    {mandProgs.map(p => { const c = cellFor(e, p); return <td key={p.id}><span className={'badge ' + c.cls} style={{ fontSize: 9.5 }}>{c.ar}</span></td>; })}
+                  </tr>
+                ))}
+                {emps.length === 0 && <tr><td colSpan={mandProgs.length + 1}><div className="empty">لا موظفين نشطين.</div></td></tr>}
+                {mandProgs.length === 0 && <tr><td colSpan={1}><div className="empty">لا برامج إلزامية معرَّفة — أضِفها من «البرامج».</div></td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {view === 'programs' && canConfig && (
+        <div className="card">
+          <div className="card-t" style={{ marginBottom: 6 }}><FileText size={15} color="var(--brass)" />البرامج التدريبية والشهادات</div>
+          <div className="note" style={{ marginBottom: 10 }}>عرِّف برامجك وشهاداتك ومدد صلاحيتها. البرامج «الإلزامية» تدخل مصفوفة الامتثال وتنبيهات النقص؛ حصر «المسميات المطلوبة» (مفصولة بفواصل) يقصر الإلزام على تلك المسميات — واتركه فارغًا ليشمل الجميع. المدد الافتراضية مبنية على متطلبات السعودية (الشهادة الصحية سنة)، وهي قابلة للضبط حسب لائحة الجهة الرسمية.</div>
+          <div className="grid" style={{ gap: 8 }}>
+            {cf.map((p, i) => (
+              <div key={i} className="card" style={{ padding: 10, border: '1px solid var(--frame-o)' }}>
+                <div className="row" style={{ gap: 6, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                  <Field label="البرنامج/الشهادة" style={{ flex: 2, minWidth: 180 }}><input className="inp" value={p.title} onChange={e => setCf(x => x.map((y, j) => j === i ? { ...y, title: e.target.value } : y))} /></Field>
+                  <Field label="التصنيف"><input className="inp" style={{ width: 120 }} value={p.category} onChange={e => setCf(x => x.map((y, j) => j === i ? { ...y, category: e.target.value } : y))} /></Field>
+                  <Field label="الصلاحية (شهر، 0=دائم)"><input className="inp n" style={{ width: 120 }} inputMode="numeric" value={p.validityMonths} onChange={e => setCf(x => x.map((y, j) => j === i ? { ...y, validityMonths: e.target.value.replace(/\D/g, '') } : y))} /></Field>
+                  <button className="btn sm gh" onClick={() => setCf(x => x.filter((_, j) => j !== i))}><Trash2 size={13} /></button>
+                </div>
+                <div className="row" style={{ gap: 6, alignItems: 'flex-end', flexWrap: 'wrap', marginTop: 6 }}>
+                  <label className="row" style={{ gap: 6, fontSize: 12.5, cursor: 'pointer' }}><input type="checkbox" checked={!!p.mandatory} onChange={e => setCf(x => x.map((y, j) => j === i ? { ...y, mandatory: e.target.checked } : y))} />إلزامي</label>
+                  <Field label="المسميات المطلوبة (فارغ=الجميع)" style={{ flex: 2, minWidth: 180 }}><input className="inp" value={p.requiredJobTitles} onChange={e => setCf(x => x.map((y, j) => j === i ? { ...y, requiredJobTitles: e.target.value } : y))} placeholder="مثال: شيف، مشرف" /></Field>
+                  <Field label="الجهة"><input className="inp" style={{ width: 160 }} value={p.provider} onChange={e => setCf(x => x.map((y, j) => j === i ? { ...y, provider: e.target.value } : y))} /></Field>
+                </div>
+              </div>
+            ))}
+            <div><button className="btn sm gh" onClick={() => setCf(x => [...x, { id: '', title: '', category: '', validityMonths: 0, mandatory: false, requiredJobTitles: '', provider: '' }])}><Plus size={13} />برنامج</button></div>
+          </div>
+          <div className="row" style={{ justifyContent: 'flex-end', marginTop: 12 }}><button className="btn pri" onClick={saveProgs}><Check size={14} />حفظ البرامج</button></div>
         </div>
       )}
     </div>
