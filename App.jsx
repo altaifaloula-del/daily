@@ -244,7 +244,9 @@ const BR_COLS = ['closings', 'transfers', 'partnerRequests', 'notifications', 'b
   // v27.6 — م٢٠: الإجراءات التأديبية التصحيحية وخطط تحسين الأداء (PIP) — بفرعها كي يقرأها/يكتبها جهاز الفرع
   'hrCorrective', 'hrPips',
   // v27.7 — م١٩: سجلات التدريب والشهادات (البرامج المركزية في org.trainingPrograms)
-  'hrTraining'];
+  'hrTraining',
+  // v27.9 — م١١: قياسات KPI الشهرية لكل موظف (تعريفات المؤشرات في org.roleKpis)
+  'hrKpiEntries'];
 const CORE_COLS = ['advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules'];
 
 // تقسيم ops المدمجة إلى مستند مركزي + مستند لكل فرع
@@ -294,7 +296,7 @@ function dirOf(org) {
     periodLocks: org.periodLocks || {},
     appsCfg: org.appsCfg || {},
     // v24.0: إعدادات HR غير الحساسة التي تحتاجها شاشات الفروع (سماحية التأخير، أوزان الدرجة، قواعد النقاط، أهداف KPI)
-    hrPolicies: org.hrPolicies || {}, pointsRules: org.pointsRules || {}, kpiTargets: org.kpiTargets || {}, rewardTiers: org.rewardTiers || {}, trainingPrograms: org.trainingPrograms || [],
+    hrPolicies: org.hrPolicies || {}, pointsRules: org.pointsRules || {}, kpiTargets: org.kpiTargets || {}, rewardTiers: org.rewardTiers || {}, trainingPrograms: org.trainingPrograms || [], roleKpis: org.roleKpis || [],
     setupComplete: true, migratedV9: org.migratedV9 || ''
   };
 }
@@ -1471,11 +1473,11 @@ const DENOMS = [
 const emptyDenoms = () => DENOMS.reduce((o, d) => ({ ...o, [d.k]: 0 }), {});
 const countDenoms = (d) => DENOMS.reduce((s, x) => s + (Number(d?.[x.k]) || 0) * x.v, 0);
 
-const ALL_TABS = ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'hrdash', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit'];
+const ALL_TABS = ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit'];
 const TAB_AR = {
   analytics: 'مركز التحليل والأداء', reporting: 'مركز التقارير', exec: 'اللوحة التنفيذية',
   dash: 'لوحة المؤشرات', compare: 'مقارنة الفروع', growth: 'تحليلات النمو', breakeven: 'تحليل التعادل', scorecard: 'لوحة الأهداف', scenario: 'ماذا-لو', boardpack: 'تقرير الإدارة', cashflow: 'التدفق النقدي', closing: 'الإغلاق اليومي', apps: 'التطبيقات',
-  approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', people: 'شؤون الموظفين', payroll: 'الرواتب والسلف', workforce: 'الجدولة والحضور', hrmaster: 'البيانات الرئيسية', hrpolicy: 'السياسات والأدوار', attendance: 'الحضور الموثَّق', shiftengine: 'محرّك الورديات', tasks: 'المهام', points: 'دفتر النقاط', kpi: 'الأداء والتقييم', rewards: 'المكافآت والجزاءات', esign: 'التوقيع الإلكتروني', corrective: 'الإجراءات التصحيحية', training: 'التدريب والشهادات', hrdash: 'لوحة الموارد البشرية',
+  approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', people: 'شؤون الموظفين', payroll: 'الرواتب والسلف', workforce: 'الجدولة والحضور', hrmaster: 'البيانات الرئيسية', hrpolicy: 'السياسات والأدوار', attendance: 'الحضور الموثَّق', shiftengine: 'محرّك الورديات', tasks: 'المهام', points: 'دفتر النقاط', kpi: 'الأداء والتقييم', rewards: 'المكافآت والجزاءات', esign: 'التوقيع الإلكتروني', corrective: 'الإجراءات التصحيحية', training: 'التدريب والشهادات', rolekpi: 'مؤشرات الأداء بالدور', hrdash: 'لوحة الموارد البشرية',
   purchasing: 'المشتريات والموردون', suppliers: 'الموردون والمشتريات', inv: 'المخزون والمنتجات', reorder: 'المشتريات الذكية', partners: 'دفتر الشركاء',
   acct: 'المحاسبة', shifts: 'الورديات', archive: 'أرشيف المستندات', ai: 'المركز الذكي',
   reports: 'التقارير المالية', rbuild: 'منشئ التقارير', entities: 'مركز المنشآت', admin: 'الفروع والمستخدمون', audit: 'سجل التدقيق'
@@ -1510,17 +1512,17 @@ const ROLES = {
   },
   branch_manager: {
     ar: 'مدير الفرع', badge: 'b-mint', scope: 'own', create: true,
-    tabs: ['closing', 'sales', 'apps', 'archive', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'hrdash'],
+    tabs: ['closing', 'sales', 'apps', 'archive', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash'],
     perms: ['إدخال وترحيل إغلاق فرعه', 'عرض سجل إغلاقات فرعه', 'أرشيف مستندات فرعه فقط', 'تسجيل الحضور وضبط أرقام PIN وسجل حضور فرعه', 'محرّك ورديات فرعه: قوالب، تعيين أسبوعي، مطابقة حضور، تبديل وردية، طلب نقل موظف', 'كشك التوقيع الإلكتروني وسجل إقرارات فرعه (بلا مبالغ الرواتب)']
   },
   regional_manager: {
     ar: 'مدير إقليمي — فروع مُسندة', badge: 'b-amber', scope: 'assigned',
-    tabs: ['analytics', 'reporting', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'reports', 'archive', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'hrdash'],
+    tabs: ['analytics', 'reporting', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'reports', 'archive', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash'],
     perms: ['متابعة الفروع المسندة إليه فقط', 'مقارنة وتقارير فروعه ولوحة مؤشراتها ونموّها', 'سجل حضور فروعه المسندة ومحرّك ورديات فروعه', 'بلا وصول للمحاسبة والخزينة والإعدادات']
   },
   head_office: {
     ar: 'المكتب الرئيسي — المالية والإدارة', badge: 'b-brass', scope: 'all', approver: true,
-    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'hrdash', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
+    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['كل الفروع والتقارير المجمّعة', 'التدقيق والاعتماد النهائي', 'الخزينة والرواتب والموردون والمشتريات والمخزون', 'المحاسبة الكاملة: قيود وميزان وقوائم وضريبة وأصول ومراكز تكلفة']
   },
   system_admin: {
@@ -1538,7 +1540,7 @@ const ROLES = {
     // إعادة ترتيب v8.0: المحاسب الرئيسي بطبيعته يعمل على المنشأة كلها — نطاق كامل
     // بلا صلاحيات إدارة (لا مستخدمين/فروع، لا تفعيل ضريبة، لا إدارة تطبيقات)
     ar: 'الإدارة المالية — محاسب رئيسي', badge: 'b-sky', scope: 'all', legacy: true,
-    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'hrdash', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
+    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['المحاسبة كاملة: قيود يدوية وافتتاحية وميزان وقوائم ومراكز تكلفة', 'الضريبة والأصول والتسوية البنكية (عرض وتسجيل — التفعيل للإدارة)', 'المشتريات والمخزون والرواتب والخزينة', 'كل الفروع — دون إدارة المستخدمين والإعدادات']
   },
   // ===== v15.9: نماذج صلاحيات المحاسب — نطاق «المحاسبة + التقارير المالية فقط» =====
@@ -1654,6 +1656,7 @@ const REG_APPS = [
   { id: 'esign', ar: 'التوقيع الإلكتروني', en: 'E-Signature', cat: 'hr', icon: Signature, open: { tab: 'esign' }, kw: ['توقيع', 'إقرار', 'استلام', 'راتب', 'قسيمة', 'إشعار', 'جزاء', 'مكافأة', 'كشك', 'PIN'], fns: ['إقرار استلام الراتب الشهري يوقّعه الموظف بإصبعه بعد التحقق بـPIN', 'إشعارات المكافآت والجزاءات المعتمدة توقَّع بالعلم', 'التوقيع من كشك الفرع أو من شاشة الرواتب بالمكتب', 'التوقيع يظهر على قسيمة الراتب ومسير الرواتب المطبوعين', 'سجل إقرارات وتقرير حالة التوقيعات وتنبيه بغير الموقَّع'], d: 'توقيع إلكتروني للموظف على إقرارات استلام الراتب وإشعارات المكافآت والجزاءات — من جهاز الفرع بعد التحقق بـPIN، ويُطبع على القسائم والمسير.' },
   { id: 'corrective', ar: 'الإجراءات التصحيحية', en: 'Corrective Actions', cat: 'hr', icon: ShieldAlert, open: { tab: 'corrective' }, kw: ['جزاء', 'تأديب', 'إنذار', 'مخالفة', 'لائحة', 'تظلّم', 'خطة تحسين', 'pip', 'محضر'], fns: ['فتح إجراء تأديبي متدرّج حسب لائحة الجزاءات', 'اعتماد مركزي وترحيل الغرامة للرواتب بسقف نظامي', 'محضر بالعلم يوقّعه الموظف من كشك الفرع', 'خطط تحسين الأداء (PIP) بأهداف ومراجعات', 'محو الجزاء تلقائيًا بعد المدة النظامية'], d: 'إجراءات تأديبية متدرّجة وفق نظام العمل ولائحة المنشأة، باعتماد مركزي ومحضر توقيع، وخطط تحسين أداء بديلة تطويرية.' },
   { id: 'training', ar: 'التدريب والشهادات', en: 'Training & Certifications', cat: 'hr', icon: Stamp, open: { tab: 'training' }, kw: ['تدريب', 'شهادة', 'صحية', 'سلامة الغذاء', 'انتهاء', 'امتثال', 'برنامج', 'هاسب'], fns: ['برامج تدريب وشهادات بمدد صلاحية', 'تسجيل اجتياز الموظفين وحساب تاريخ الانتهاء', 'مصفوفة امتثال للتدريب الإلزامي لكل موظف', 'تنبيهات انتهاء الشهادات والنقص الإلزامي'], d: 'برامج التدريب والشهادات الإلزامية (الشهادة الصحية، سلامة الغذاء) بمدد صلاحية، مع مصفوفة امتثال وتنبيهات انتهاء ونقص.' },
+  { id: 'rolekpi', ar: 'مؤشرات الأداء بالدور', en: 'Role KPIs', cat: 'hr', icon: TrendingUp, open: { tab: 'rolekpi' }, kw: ['مؤشر', 'kpi', 'أداء', 'دور', 'هدف', 'قياس', 'تحقّق', 'كاشير', 'شيف'], fns: ['مكتبة مؤشرات لكل مسمى وظيفي بهدف ووزن واتجاه', 'إدخال قياسات شهرية لكل موظف وحساب نسبة التحقّق', 'محور خامس اختياري في درجة الأداء المركّبة (م٧)', 'مُعطَّل افتراضيًا حتى يفعّله المركز'], d: 'مكتبة مؤشرات أداء خاصة بكل دور (فروق النقد للكاشير، الجودة والهدر للمطبخ…)، قياس شهري، ومحور اختياري في الدرجة المركّبة.' },
   { id: 'hrdash', ar: 'لوحة الموارد البشرية', en: 'HR Dashboard', cat: 'hr', icon: LayoutDashboard, open: { tab: 'hrdash' }, kw: ['لوحة', 'تقارير', 'حضور', 'مكافآت', 'نقاط', 'موارد بشرية', 'hr', 'excel'], fns: ['لوحة HR تنفيذية لكل الفروع بمقارنة شهرية', 'تقرير الحضور الشهري التفصيلي (طباعة وExcel)', 'تقرير المكافآت والجزاءات والنقاط', 'تنبيهات HR في مركز التنبيهات'], d: 'لوحة تنفيذية لمؤشرات الموارد البشرية لكل الفروع، وتقارير الحضور والمكافآت والنقاط قابلة للطباعة وExcel.' },
   // ——— الزكاة والضريبة (خطة م٣) ———
   { id: 'vat', ar: 'ضريبة القيمة المضافة', en: 'VAT', cat: 'tax', icon: Receipt, open: { tab: 'acct', view: 'vat' }, kw: ['ضريبة', 'زاتكا', 'مدخلات', 'مخرجات', 'فاتورة', 'إقرار'], fns: ['تفعيل بنسبة قابلة للضبط', 'فصل المخرجات في قيد الإيراد', 'فصل مدخلات المصروفات الخاضعة', 'مؤشرات بالفترة'], d: 'فصل تلقائي لضريبة المخرجات والمدخلات في القيود — بأثر رجعي فور التفعيل.' },
@@ -1710,6 +1713,8 @@ const LAUNCH_APPS = [
     sections: ['الإجراءات التأديبية', 'الاعتماد', 'خطط تحسين الأداء', 'اللائحة'], kw: ['جزاء', 'تأديب', 'إنذار', 'مخالفة', 'لائحة', 'تظلّم', 'خطة تحسين', 'pip', 'محضر'] },
   { id: 'training', ar: 'التدريب والشهادات', en: 'Training & Certifications', cat: 'pos', icon: Stamp, open: { tab: 'training' },
     sections: ['سجل التدريب', 'مصفوفة الامتثال', 'البرامج'], kw: ['تدريب', 'شهادة', 'صحية', 'سلامة الغذاء', 'امتثال', 'برنامج'] },
+  { id: 'rolekpi', ar: 'مؤشرات الأداء بالدور', en: 'Role KPIs', cat: 'pos', icon: TrendingUp, open: { tab: 'rolekpi' },
+    sections: ['التقييم الشهري', 'المكتبة والتفعيل'], kw: ['مؤشر', 'kpi', 'أداء', 'دور', 'هدف', 'قياس'] },
   { id: 'hrdash', ar: 'لوحة الموارد البشرية', en: 'HR Dashboard', cat: 'bi', icon: LayoutDashboard, open: { tab: 'hrdash' },
     sections: ['اللوحة التنفيذية', 'تقرير الحضور', 'المكافآت والنقاط'], kw: ['لوحة', 'تقارير', 'حضور', 'مكافآت', 'نقاط', 'hr'] },
   { id: 'sales', ar: 'المبيعات', en: 'Sales', cat: 'pos', icon: CircleDollarSign, open: { tab: 'sales' },
@@ -1848,7 +1853,7 @@ function emptyOrg(company) {
 
 function emptyOps() {
   return { closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
-    attendanceEvents: [], hrPins: [], shiftTemplates: [], shiftAssignments: [], shiftSwapRequests: [], branchTransferRequests: [], taskTemplates: [], taskAssignments: [], taskCompletions: [], pointsEntries: [], qualityReviews: [], rewardRequests: [], hrSignDocs: [], hrCorrective: [], hrPips: [], hrTraining: [] };
+    attendanceEvents: [], hrPins: [], shiftTemplates: [], shiftAssignments: [], shiftSwapRequests: [], branchTransferRequests: [], taskTemplates: [], taskAssignments: [], taskCompletions: [], pointsEntries: [], qualityReviews: [], rewardRequests: [], hrSignDocs: [], hrCorrective: [], hrPips: [], hrTraining: [], hrKpiEntries: [] };
 }
 
 
@@ -2575,6 +2580,7 @@ export default function App() {
     { id: 'esign', ar: 'التوقيع الإلكتروني', icon: Signature },
     { id: 'corrective', ar: 'الإجراءات التصحيحية', icon: ShieldAlert },
     { id: 'training', ar: 'التدريب والشهادات', icon: Stamp },
+    { id: 'rolekpi', ar: 'مؤشرات الأداء بالدور', icon: TrendingUp },
     { id: 'hrdash', ar: 'لوحة الموارد البشرية', icon: LayoutDashboard },
     { id: 'apps', ar: 'إدارة التطبيقات', icon: Grid3x3 },
     { id: 'approve', ar: 'التدقيق والاعتماد', icon: ShieldCheck, cnt: pending },
@@ -2684,7 +2690,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v27.8 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v27.9 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2845,6 +2851,7 @@ export default function App() {
               {safeTab === 'esign' && <ESign {...shared} />}
               {safeTab === 'corrective' && <Corrective {...shared} />}
               {safeTab === 'training' && <Training {...shared} />}
+              {safeTab === 'rolekpi' && <RoleKpi {...shared} />}
               {safeTab === 'hrdash' && <HrDashboard {...shared} />}
               {safeTab === 'apps' && <AppsCenter {...shared} />}
               {safeTab === 'approve' && <Approvals {...shared} />}
@@ -8945,6 +8952,7 @@ const defaultHrPolicies = () => ({
   penaltyEraseDays: 180, fineCapDaysPerMonth: 5, chargeWindowDays: 30, objectionDays: 15, pipTriggerScore: 60,
   penaltySchedule: defaultPenaltySchedule(),
   trainingExpiryAlertDays: 30, // م١٩ (v27.7): تنبيه قبل انتهاء الشهادة بعدد الأيام
+  roleKpiEnabled: false, roleKpiWeight: 20, // م١١ (v27.9): محور مؤشرات الدور — مُعطَّل افتراضيًا
 });
 // م٦ — قواعد النقاط التلقائية (مُعطَّلة افتراضيًا حتى يراجعها المالك ويفعّلها — قرار H/3 في hr-audit-m0)
 const defaultPointsRules = () => ({ enabled: false, onTime: 1, late: -1, absent: -3, taskDone: 1 });
@@ -10712,14 +10720,18 @@ function hrScoreFor(org, ops, emp, ym) {
   const base = Number(policies.disciplineBase); const pv = Number(policies.disciplinePointValue);
   const attTotal = st.onTime + st.late + st.absent;
   const rv = (ops.qualityReviews || []).find(r => r.employeeId === emp.id && r.ym === ym) || null;
+  // م١١ (v27.9): محور مؤشرات الدور — مُعطَّل افتراضيًا (roleKpiEnabled=false) فلا يغيّر أي درجة قائمة
+  const rkOn = !!policies.roleKpiEnabled;
+  const rkW = rkOn ? (Number(policies.roleKpiWeight) || 0) : 0;
   const axes = {
     attendance: attTotal ? Math.round(st.onTime / attTotal * 100) : null,
     tasks: st.tasksExpected ? Math.round(st.tasksDone / st.tasksExpected * 100) : null,
     discipline: st.pointsActivity ? Math.max(0, Math.min(100, Math.round((isNaN(base) ? 50 : base) + (st.manualPts + st.autoPts) * (isNaN(pv) ? 5 : pv)))) : null,
     quality: rv ? Math.round(((Number(rv.workQuality) + Number(rv.customerService) + Number(rv.teamwork)) / 3 - 1) / 4 * 100) : null,
+    roleKpi: rkOn ? hrRoleKpiScore(org, ops, emp, ym).score : null,
   };
   let num = 0, den = 0;
-  Object.keys(axes).forEach(k => { const wk = Number(w[k]) || 0; if (axes[k] != null && wk > 0) { num += axes[k] * wk; den += wk; } });
+  Object.keys(axes).forEach(k => { const wk = k === 'roleKpi' ? rkW : (Number(w[k]) || 0); if (axes[k] != null && wk > 0) { num += axes[k] * wk; den += wk; } });
   return { st, axes, score: den ? Math.round(num / den) : null, review: rv, weights: w, weightsEnabled: !!policies.scoreWeightsEnabled };
 }
 
@@ -12017,6 +12029,205 @@ function Training({ org, ops, me, myBranches, commit, commitOrg, say }) {
             <div><button className="btn sm gh" onClick={() => setCf(x => [...x, { id: '', title: '', category: '', validityMonths: 0, mandatory: false, requiredJobTitles: '', provider: '' }])}><Plus size={13} />برنامج</button></div>
           </div>
           <div className="row" style={{ justifyContent: 'flex-end', marginTop: 12 }}><button className="btn pri" onClick={saveProgs}><Check size={14} />حفظ البرامج</button></div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+/* ================= م١١ (v27.9) — مكتبة مؤشرات الأداء لكل دور (Role KPIs) =================
+   نموذج البيانات:
+   - org.roleKpis[] (إعداد مركزي، يصل الفروع عبر dirOf): { id, jobTitles[], title, unit, direction:'higher'|'lower', target, weight }
+   - ops.hrKpiEntries[] (BR_COLS — بفرعها): { id, branchId, employeeId, employeeName, ym, values:{kpiId:number}, recordedBy/Name, recordedAt }
+   - org.hrPolicies.roleKpiEnabled (افتراضي false) + roleKpiWeight (وزن المحور في الدرجة المركّبة م٧ عند التفعيل).
+   التكامل: عند التفعيل فقط يُضاف محور roleKpi إلى hrScoreFor؛ وهو مُعطَّل افتراضيًا فلا يغيّر أي درجة قائمة.
+   ========================================================================================= */
+function defaultRoleKpis() {
+  return [
+    { id: 'cash_var', jobTitles: ['كاشير'], title: 'دقة النقدية (إجمالي الفروقات شهريًا)', unit: 'ريال', direction: 'lower', target: 0, weight: 40 },
+    { id: 'avg_ticket', jobTitles: ['كاشير'], title: 'متوسط قيمة الطلب', unit: 'ريال', direction: 'higher', target: 50, weight: 30 },
+    { id: 'food_quality', jobTitles: ['شيف', 'مساعد شيف'], title: 'الالتزام بمعايير الجودة', unit: '%', direction: 'higher', target: 95, weight: 50 },
+    { id: 'waste', jobTitles: ['شيف', 'مساعد شيف'], title: 'نسبة الهدر', unit: '%', direction: 'lower', target: 5, weight: 30 },
+    { id: 'prep_time', jobTitles: [], title: 'زمن تجهيز الطلب', unit: 'دقيقة', direction: 'lower', target: 8, weight: 20 },
+    { id: 'csat', jobTitles: [], title: 'رضا العملاء', unit: '%', direction: 'higher', target: 90, weight: 30 },
+  ];
+}
+// نسبة تحقّق مؤشر واحد (0–100) وفق الاتجاه والهدف
+function kpiAchievement(actual, target, direction) {
+  const a = Number(actual), tgt = Number(target) || 0;
+  if (actual == null || actual === '' || isNaN(a)) return null;
+  if (direction === 'lower') {
+    if (a <= tgt) return 100;
+    if (tgt <= 0) return 0;                 // الهدف صفر وتجاوزه ⇒ 0
+    return Math.max(0, Math.round(tgt / a * 100));
+  }
+  if (tgt <= 0) return a > 0 ? 100 : 0;
+  return Math.max(0, Math.min(100, Math.round(a / tgt * 100)));
+}
+// مؤشرات منطبقة على مسمى الموظف (فارغة jobTitles ⇒ للجميع)
+function roleKpisFor(org, emp) {
+  const kpis = (org.roleKpis && org.roleKpis.length) ? org.roleKpis : defaultRoleKpis();
+  return kpis.filter(k => !(k.jobTitles || []).length || (k.jobTitles || []).includes(emp.jobTitle || ''));
+}
+// درجة KPI بالدور لموظف/شهر (مُشتقّة): متوسط مرجّح لنسب التحقّق للمؤشرات المُدخَلة
+function hrRoleKpiScore(org, ops, emp, ym) {
+  const kpis = roleKpisFor(org, emp);
+  const entry = (ops.hrKpiEntries || []).find(e => e.employeeId === emp.id && e.ym === ym) || null;
+  const vals = (entry && entry.values) || {};
+  let num = 0, den = 0; const items = [];
+  kpis.forEach(k => {
+    const w = Number(k.weight) || 0;
+    const ach = kpiAchievement(vals[k.id], k.target, k.direction);
+    items.push({ kpi: k, actual: vals[k.id], ach });
+    if (ach != null && w > 0) { num += ach * w; den += w; }
+  });
+  return { score: den ? Math.round(num / den) : null, items, hasEntry: !!entry };
+}
+
+function RoleKpi({ org, ops, me, myBranches, commit, commitOrg, say }) {
+  const role = ROLES[me.role] || {};
+  const isAll = role.scope === 'all';
+  const canManage = me.role === 'branch_manager' || isAll;   // إدخال قياسات الشهر
+  const canConfig = isAll;                                   // المكتبة والتفعيل
+  const branches = myBranches || [];
+  const pol = { ...defaultHrPolicies(), ...(org.hrPolicies || {}) };
+  const kpisAll = (org.roleKpis && org.roleKpis.length) ? org.roleKpis : defaultRoleKpis();
+
+  const [view, setView] = useState('entry');
+  const [branchId, setBranchId] = useState((branches[0] || {}).id || '');
+  useEffect(() => { if (!branches.find(b => b.id === branchId)) setBranchId((branches[0] || {}).id || ''); }, [branches, branchId]); // eslint-disable-line
+  const branch = branches.find(b => b.id === branchId) || null;
+  const emps = (org.employees || []).filter(e => e.isActive !== false && branch && e.branchId === branch.id);
+  const [ym, setYm] = useState(() => today().slice(0, 7));
+  const ymLabel = (y) => { const [Y, M] = String(y).split('-').map(Number); return isNaN(Y) ? y : new Date(Y, M - 1, 1).toLocaleDateString('ar', { month: 'long', year: 'numeric' }); };
+
+  // ===== ١) إدخال القياسات الشهرية =====
+  const [empId, setEmpId] = useState('');
+  useEffect(() => { if (!emps.find(e => e.id === empId)) setEmpId((emps[0] || {}).id || ''); }, [branchId, emps.length]); // eslint-disable-line
+  const selEmp = emps.find(e => e.id === empId) || null;
+  const empKpis = selEmp ? roleKpisFor(org, selEmp) : [];
+  const existing = selEmp ? (ops.hrKpiEntries || []).find(e => e.employeeId === selEmp.id && e.ym === ym) : null;
+  const [vals, setVals] = useState({});
+  useEffect(() => { setVals((existing && existing.values) ? { ...existing.values } : {}); }, [empId, ym, existing && existing.id]); // eslint-disable-line
+  const liveScore = selEmp ? (() => { let num = 0, den = 0; empKpis.forEach(k => { const ach = kpiAchievement(vals[k.id], k.target, k.direction); const w = Number(k.weight) || 0; if (ach != null && w > 0) { num += ach * w; den += w; } }); return den ? Math.round(num / den) : null; })() : null;
+  const saveEntry = async () => {
+    if (!branch || !selEmp) return say('اختر الموظف', 'no');
+    const clean = {}; Object.keys(vals).forEach(k => { if (vals[k] !== '' && vals[k] != null) clean[k] = Number(vals[k]); });
+    if (!Object.keys(clean).length) return say('أدخل قيمة مؤشر واحد على الأقل', 'no');
+    const rec = existing
+      ? { ...existing, values: clean, recordedBy: me.id, recordedByName: me.name, recordedAt: nowISO() }
+      : { id: uid('kpi'), branchId: branch.id, branchName: branch.name, employeeId: selEmp.id, employeeName: selEmp.name, ym, values: clean, recordedBy: me.id, recordedByName: me.name, recordedAt: nowISO() };
+    const ok = await commit(d => ({ ...d, hrKpiEntries: existing ? (d.hrKpiEntries || []).map(x => x.id === existing.id ? rec : x) : [rec, ...(d.hrKpiEntries || [])] }),
+      { actionType: existing ? 'update' : 'create', targetType: 'kpi_entry', targetId: rec.id, branchName: branch.name, title: 'قياسات KPI شهرية', details: selEmp.name + ' · ' + ymLabel(ym) + ' · ' + Object.keys(clean).length + ' مؤشر' });
+    if (ok) say('حُفظت القياسات ✓');
+  };
+
+  // ===== ٢) المكتبة + التفعيل (المركز) =====
+  const [cf, setCf] = useState(() => ({
+    roleKpiEnabled: !!pol.roleKpiEnabled, roleKpiWeight: String(Number(pol.roleKpiWeight) || 20),
+    kpis: kpisAll.map(k => ({ ...k, jobTitles: (k.jobTitles || []).join('، '), target: String(k.target), weight: String(k.weight) }))
+  }));
+  const saveLib = async () => {
+    const list = (cf.kpis || []).filter(k => String(k.title || '').trim()).map(k => ({
+      id: k.id || uid('rk'), title: k.title.trim(), unit: (k.unit || '').trim(), direction: k.direction === 'lower' ? 'lower' : 'higher',
+      target: Number(k.target) || 0, weight: Number(k.weight) || 0,
+      jobTitles: String(k.jobTitles || '').split(/[،,]/).map(s => s.trim()).filter(Boolean)
+    }));
+    const ok = await commitOrg(d => ({ ...d, roleKpis: list, hrPolicies: { ...defaultHrPolicies(), ...(d.hrPolicies || {}), roleKpiEnabled: !!cf.roleKpiEnabled, roleKpiWeight: Number(cf.roleKpiWeight) || 0 } }),
+      { actionType: 'update', targetType: 'settings', targetId: 'roleKpis', title: 'ضبط مكتبة مؤشرات الأداء بالدور', details: list.length + ' مؤشر · ' + (cf.roleKpiEnabled ? 'مفعّل بوزن ' + (Number(cf.roleKpiWeight) || 0) : 'غير مفعّل في الدرجة') });
+    if (ok) say('حُفظت المكتبة ✓');
+  };
+
+  if (!branch && branches.length === 0) return <div className="card"><div className="empty">لا يوجد فرع مُسند لحسابك — راجع مسؤول النظام.</div></div>;
+
+  const achBadge = (ach) => ach == null ? <span className="badge b-dim">—</span> : <span className={'badge ' + (ach >= 85 ? 'b-mint' : ach >= 60 ? 'b-amber' : 'b-rose')}>{ach}%</span>;
+
+  return (
+    <div className="grid" style={{ gap: 12 }}>
+      <div className="card" style={{ padding: '8px 12px' }}>
+        <div className="row" style={{ gap: 6, flexWrap: 'wrap', justifyContent: 'space-between' }}>
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+            <button className={'btn sm' + (view === 'entry' ? ' pri' : ' gh')} onClick={() => setView('entry')}><TrendingUp size={13} />التقييم الشهري</button>
+            {canConfig && <button className={'btn sm' + (view === 'library' ? ' pri' : ' gh')} onClick={() => setView('library')}><FileText size={13} />المكتبة والتفعيل</button>}
+          </div>
+          <div className="row" style={{ gap: 8 }}>
+            {view === 'entry' && <input type="month" className="inp" value={ym} onChange={e => setYm(e.target.value)} />}
+            {branches.length > 1 && view === 'entry' && (
+              <select className="inp sel" style={{ width: 180 }} value={branchId} onChange={e => setBranchId(e.target.value)}>
+                {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {view === 'entry' && branch && (
+        <div className="grid" style={{ gap: 12 }}>
+          {!pol.roleKpiEnabled && <div className="note" style={{ color: 'var(--amber)' }}>محور مؤشرات الدور غير مفعّل في درجة الأداء المركّبة (م٧) — يمكنك إدخال القياسات الآن، لكنها لن تؤثّر في الدرجة حتى يفعّلها المركز من «المكتبة والتفعيل». هذا مقصود كي لا تتغيّر الدرجات القائمة قبل مراجعتك.</div>}
+          <div className="card">
+            <div className="card-t" style={{ marginBottom: 8 }}><TrendingUp size={15} color="var(--brass)" />قياسات مؤشرات الأداء — {branch.name} · {ymLabel(ym)}</div>
+            <div className="grid g3" style={{ marginBottom: 8 }}>
+              <Field label="الموظف"><select className="inp sel" value={empId} onChange={e => setEmpId(e.target.value)}><option value="">اختر</option>{emps.map(e => <option key={e.id} value={e.id}>{e.name}{e.jobTitle ? ' — ' + e.jobTitle : ''}</option>)}</select></Field>
+              {selEmp && <div style={{ alignSelf: 'flex-end' }}><span className="badge b-dim">درجة KPI: </span> {achBadge(liveScore)}</div>}
+            </div>
+            {selEmp ? (empKpis.length ? (
+              <div className="tw">
+                <table className="tb">
+                  <thead><tr><th>المؤشر</th><th>الاتجاه</th><th>الهدف</th><th>الفعلي</th><th>الوزن</th><th>التحقّق</th></tr></thead>
+                  <tbody>
+                    {empKpis.map(k => { const ach = kpiAchievement(vals[k.id], k.target, k.direction); return (
+                      <tr key={k.id}>
+                        <td style={{ fontWeight: 600, fontSize: 12.5 }}>{k.title}{k.unit ? <span style={{ fontSize: 10.5, color: 'var(--faint)' }}> ({k.unit})</span> : null}</td>
+                        <td style={{ fontSize: 11.5 }}>{k.direction === 'lower' ? 'الأقل أفضل' : 'الأعلى أفضل'}</td>
+                        <td className="num">{k.target}</td>
+                        <td style={{ width: 120 }}><input className="inp n" inputMode="decimal" value={vals[k.id] == null ? '' : vals[k.id]} onChange={e => setVals(v => ({ ...v, [k.id]: e.target.value.replace(/[^\d.]/g, '') }))} /></td>
+                        <td className="num">{k.weight}</td>
+                        <td>{achBadge(ach)}</td>
+                      </tr>
+                    ); })}
+                  </tbody>
+                </table>
+              </div>
+            ) : <div className="empty">لا مؤشرات منطبقة على مسمى «{selEmp.jobTitle || '—'}» — أضِف مؤشرات في المكتبة أو اترك مسمياتها فارغة لتشمل الجميع.</div>) : <div className="empty">اختر موظفًا لإدخال قياساته.</div>}
+            {selEmp && empKpis.length > 0 && canManage && (
+              <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}><button className="btn pri" onClick={saveEntry}><Check size={14} />حفظ القياسات</button></div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {view === 'library' && canConfig && (
+        <div className="grid" style={{ gap: 12 }}>
+          <div className="card">
+            <div className="card-t" style={{ marginBottom: 6 }}><TrendingUp size={15} color="var(--brass)" />تفعيل المحور في درجة الأداء</div>
+            <div className="note" style={{ marginBottom: 8 }}>عند التفعيل يُضاف «مؤشرات الدور» محورًا خامسًا في درجة الأداء المركّبة (م٧) بالوزن المحدَّد — تُطبَّع الدرجة تلقائيًا مع بقية المحاور المتوفّرة. مُعطَّل افتراضيًا كي لا يغيّر أي درجة قائمة قبل مراجعتك.</div>
+            <div className="row" style={{ gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <label className="row" style={{ gap: 6, cursor: 'pointer' }}><input type="checkbox" checked={!!cf.roleKpiEnabled} onChange={e => setCf(x => ({ ...x, roleKpiEnabled: e.target.checked }))} /><b>تفعيل محور مؤشرات الدور في الدرجة</b></label>
+              <Field label="وزن المحور"><input className="inp n" style={{ width: 100 }} inputMode="numeric" value={cf.roleKpiWeight} onChange={e => setCf(x => ({ ...x, roleKpiWeight: e.target.value.replace(/\D/g, '') }))} /></Field>
+            </div>
+          </div>
+          <div className="card">
+            <div className="card-t" style={{ marginBottom: 6 }}><FileText size={15} color="var(--brass)" />مكتبة مؤشرات الأداء لكل دور</div>
+            <div className="note" style={{ marginBottom: 8 }}>عرّف مؤشرات كل مسمى وظيفي وهدفه ووزنه واتجاهه (الأعلى/الأقل أفضل). «المسميات» مفصولة بفواصل — فارغة تعني «لكل المسميات». الوزن نسبي داخل مؤشرات الموظف نفسه.</div>
+            <div className="grid" style={{ gap: 8 }}>
+              {cf.kpis.map((k, i) => (
+                <div key={i} className="card" style={{ padding: 10, border: '1px solid var(--frame-o)' }}>
+                  <div className="row" style={{ gap: 6, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                    <Field label="المؤشر" style={{ flex: 2, minWidth: 180 }}><input className="inp" value={k.title} onChange={e => setCf(x => ({ ...x, kpis: x.kpis.map((y, j) => j === i ? { ...y, title: e.target.value } : y) }))} /></Field>
+                    <Field label="الوحدة"><input className="inp" style={{ width: 90 }} value={k.unit} onChange={e => setCf(x => ({ ...x, kpis: x.kpis.map((y, j) => j === i ? { ...y, unit: e.target.value } : y) }))} /></Field>
+                    <Field label="الاتجاه"><select className="inp sel" style={{ width: 130 }} value={k.direction} onChange={e => setCf(x => ({ ...x, kpis: x.kpis.map((y, j) => j === i ? { ...y, direction: e.target.value } : y) }))}><option value="higher">الأعلى أفضل</option><option value="lower">الأقل أفضل</option></select></Field>
+                    <Field label="الهدف"><input className="inp n" style={{ width: 90 }} inputMode="decimal" value={k.target} onChange={e => setCf(x => ({ ...x, kpis: x.kpis.map((y, j) => j === i ? { ...y, target: e.target.value.replace(/[^\d.]/g, '') } : y) }))} /></Field>
+                    <Field label="الوزن"><input className="inp n" style={{ width: 80 }} inputMode="numeric" value={k.weight} onChange={e => setCf(x => ({ ...x, kpis: x.kpis.map((y, j) => j === i ? { ...y, weight: e.target.value.replace(/\D/g, '') } : y) }))} /></Field>
+                    <button className="btn sm gh" onClick={() => setCf(x => ({ ...x, kpis: x.kpis.filter((_, j) => j !== i) }))}><Trash2 size={13} /></button>
+                  </div>
+                  <Field label="المسميات المنطبقة (فارغ = الجميع)" style={{ marginTop: 6 }}><input className="inp" value={k.jobTitles} onChange={e => setCf(x => ({ ...x, kpis: x.kpis.map((y, j) => j === i ? { ...y, jobTitles: e.target.value } : y) }))} placeholder="مثال: كاشير، شيف" /></Field>
+                </div>
+              ))}
+              <div><button className="btn sm gh" onClick={() => setCf(x => ({ ...x, kpis: [...x.kpis, { id: '', title: '', unit: '', direction: 'higher', target: '0', weight: '20', jobTitles: '' }] }))}><Plus size={13} />مؤشر</button></div>
+            </div>
+            <div className="row" style={{ justifyContent: 'flex-end', marginTop: 12 }}><button className="btn pri" onClick={saveLib}><Check size={14} />حفظ المكتبة والتفعيل</button></div>
+          </div>
         </div>
       )}
     </div>
