@@ -2667,7 +2667,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v27.12 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v27.13 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -9387,21 +9387,30 @@ function Attendance({ org, ops, me, myBranches, commit, say }) {
   const issueBadge = async (e) => {
     if (badgeHashOf(e.id) && !window.confirm('إصدار بطاقة جديدة لـ«' + e.name + '»؟ البطاقة الحالية ستتوقف فورًا عن العمل.')) return;
     const w = window.open('', '_blank', 'width=520,height=720');   // تُفتح قبل أي انتظار كي لا يحجبها المتصفح
-    const secret = uid('b').slice(2) + Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10);
-    const hash = await sha(secret);
-    const ok = await commit(d => { const prev = (d.hrPins || []).find(p => p.employeeId === e.id) || {}; return { ...d, hrPins: [...(d.hrPins || []).filter(p => p.employeeId !== e.id), { id: prev.id || uid('pin'), branchId: e.branchId, employeeId: e.id, pinHash: prev.pinHash || '', badgeHash: hash, badgeIssuedAt: nowISO(), updatedAt: nowISO() }] }; },
-      { actionType: 'update', targetType: 'user_account', targetId: e.id, branchName: branch ? branch.name : '', title: 'إصدار بطاقة QR للحضور', details: e.name });
-    if (!ok) { if (w) w.close(); return; }
-    const payload = 'ATT:' + e.id + ':' + secret;
-    const co = (org.company || {}).name || '';
-    const html = '<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>بطاقة حضور — ' + e.name + '</title>' +
-      '<style>body{font-family:Tahoma,sans-serif;margin:0;padding:24px;display:flex;justify-content:center}.card{width:320px;border:2px solid #8C6F2C;border-radius:14px;padding:18px;text-align:center}' +
-      '.co{font-size:12px;color:#5a4a1e;font-weight:700}.nm{font-size:20px;font-weight:800;margin:8px 0 2px}.br{font-size:12px;color:#666;margin-bottom:10px}.code{font-family:monospace;font-size:9px;color:#888;word-break:break-all;margin-top:8px;direction:ltr}.hint{font-size:10.5px;color:#666;margin-top:8px}@media print{body{padding:0}}</style></head><body><div class="card">' +
-      '<div class="co">' + co + '</div><div class="nm">' + e.name + '</div><div class="br">' + (branch ? branch.name : '') + ' · بطاقة حضور</div>' +
-      qrSvg(payload, { ecl: 2, px: 240 }) + '<div class="code">' + payload + '</div><div class="hint">امسح البطاقة على جهاز الفرع لتسجيل الحضور/الانصراف. البطاقة شخصية — لا تُعِرها لأحد.</div></div>' +
-      '<script>setTimeout(function(){window.print()},400)</script></body></html>';
-    if (w) { w.document.write(html); w.document.close(); } else say('اسمح بالنوافذ المنبثقة لطباعة البطاقة', 'no');
-    say('صدرت بطاقة QR لـ' + e.name + ' ✓');
+    // v27.13: النافذة لا تبقى فارغة أبدًا — رسالة فورية، ثم البطاقة أو سبب الفشل صريحًا
+    const showMsg = (msg, err) => { try { if (w) { w.document.open(); w.document.write('<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>بطاقة حضور</title></head><body style="font-family:Tahoma,sans-serif;padding:28px;text-align:center;font-size:14px;color:' + (err ? '#b00' : '#333') + '">' + escH(msg) + '</body></html>'); w.document.close(); } } catch (_) { } };
+    if (w) showMsg('جارٍ إصدار البطاقة…');
+    try {
+      const secret = uid('b').slice(2) + Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10);
+      const hash = await sha(secret);
+      const ok = await commit(d => { const prev = (d.hrPins || []).find(p => p.employeeId === e.id) || {}; return { ...d, hrPins: [...(d.hrPins || []).filter(p => p.employeeId !== e.id), { id: prev.id || uid('pin'), branchId: e.branchId, employeeId: e.id, pinHash: prev.pinHash || '', badgeHash: hash, badgeIssuedAt: nowISO(), updatedAt: nowISO() }] }; },
+        { actionType: 'update', targetType: 'user_account', targetId: e.id, branchName: branch ? branch.name : '', title: 'إصدار بطاقة QR للحضور', details: e.name });
+      if (!ok) { showMsg('تعذّر حفظ البطاقة — تحقّق من الصلاحية أو الاتصال ثم أعِد المحاولة.', true); say('تعذّر إصدار البطاقة — لم تُحفظ', 'no'); return; }
+      const payload = 'ATT:' + e.id + ':' + secret;
+      const co = (org.company || {}).name || '';
+      const svg = qrSvg(payload, { ecl: 2, px: 240 });
+      const html = '<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>بطاقة حضور — ' + escH(e.name) + '</title>' +
+        '<style>body{font-family:Tahoma,sans-serif;margin:0;padding:24px;display:flex;justify-content:center}.card{width:320px;border:2px solid #8C6F2C;border-radius:14px;padding:18px;text-align:center}' +
+        '.co{font-size:12px;color:#5a4a1e;font-weight:700}.nm{font-size:20px;font-weight:800;margin:8px 0 2px}.br{font-size:12px;color:#666;margin-bottom:10px}.code{font-family:monospace;font-size:9px;color:#888;word-break:break-all;margin-top:8px;direction:ltr}.hint{font-size:10.5px;color:#666;margin-top:8px}@media print{body{padding:0}}</style></head><body><div class="card">' +
+        '<div class="co">' + escH(co) + '</div><div class="nm">' + escH(e.name) + '</div><div class="br">' + escH(branch ? branch.name : '') + ' · بطاقة حضور</div>' +
+        (svg || '<div style="color:#b00;font-size:12px">تعذّر توليد رمز QR — استخدم الرمز النصّي أدناه.</div>') + '<div class="code">' + escH(payload) + '</div><div class="hint">امسح البطاقة على جهاز الفرع لتسجيل الحضور/الانصراف. البطاقة شخصية — لا تُعِرها لأحد.</div></div>' +
+        '<script>setTimeout(function(){window.print()},400)<\/script></body></html>';
+      if (w) { w.document.open(); w.document.write(html); w.document.close(); } else say('اسمح بالنوافذ المنبثقة لطباعة البطاقة', 'no');
+      say('صدرت بطاقة QR لـ' + e.name + ' ✓');
+    } catch (err) {
+      showMsg('تعذّر إصدار البطاقة: ' + (err && err.message ? err.message : 'خطأ غير متوقع'), true);
+      say('تعذّر إصدار البطاقة: ' + (err && err.message ? err.message : 'خطأ غير متوقع'), 'no');
+    }
   };
 
   // --- v26.1: حذف حدث حضور خاطئ (مدير الفرع/المركز) — بسبب موثَّق في سجل التدقيق ---
