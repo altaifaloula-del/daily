@@ -2684,7 +2684,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v27.7 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v27.8 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -8429,10 +8429,34 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
   );
 }
 
+// م٣ (v27.8) — بناء وصف وظيفي كامل قابل للطباعة من حقول الوظيفة
+function positionJdHtml(pos, org) {
+  const progs = (org.trainingPrograms && org.trainingPrograms.length) ? org.trainingPrograms : defaultTrainingPrograms();
+  const posName = (id) => ((org.positions || []).find(p => p.id === id) || {}).title || '—';
+  const deptName = ((org.departments || []).find(d => d.id === pos.departmentId) || {}).name || '—';
+  const list = (s) => { const items = String(s || '').split(/\r?\n/).map(x => x.trim()).filter(Boolean); return items.length ? '<ul style="margin:4px 0;padding-inline-start:18px">' + items.map(i => '<li>' + escH(i) + '</li>').join('') + '</ul>' : '—'; };
+  const reqT = (pos.requiredTrainingIds || []).map(id => (progs.find(p => p.id === id) || {}).title).filter(Boolean);
+  const row = (k, v) => '<tr><td style="width:160px;color:#555;vertical-align:top">' + k + '</td><td>' + v + '</td></tr>';
+  return '<table><tbody>' +
+    row('المسمى الوظيفي', '<b>' + escH(pos.title) + '</b>') +
+    row('الكود / الدرجة / المستوى', [pos.code, pos.grade, pos.level].map(x => escH(x || '—')).join(' · ')) +
+    row('القسم', escH(deptName)) +
+    row('يرفع تقاريره إلى', escH(posName(pos.reportsToId))) +
+    row('الوظيفة البديلة', escH(posName(pos.backupPositionId))) +
+    row('ملخص الوظيفة', escH(pos.summary || '—')) +
+    row('المهام والمسؤوليات', list(pos.duties)) +
+    row('المؤهلات والخبرات', list(pos.qualifications)) +
+    row('الجدارات والمهارات', list(pos.competencies)) +
+    row('الصلاحيات', list(pos.authorities)) +
+    row('القيود والمحظورات', list(pos.restrictions)) +
+    row('التدريب/الشهادات المطلوبة', reqT.length ? escH(reqT.join('، ')) : '—') +
+    '</tbody></table>';
+}
 function HrMaster({ org, ops, me, commitOrg, commit, say }) {
   const [view, setView] = useState('depts');
   const [deptF, setDeptF] = useState(null);
   const [posF, setPosF] = useState(null);
+  const [jdView, setJdView] = useState(null);
   const [assignF, setAssignF] = useState(null);
   const [docsFor, setDocsFor] = useState(null);
   const [docF, setDocF] = useState(null);
@@ -8477,10 +8501,18 @@ function HrMaster({ org, ops, me, commitOrg, commit, say }) {
     if (!title) return say('المسمى الوظيفي مطلوب', 'no');
     const isNew = !f.id;
     const id = f.id || uid('pos');
+    const jd = {
+      code: (f.code || '').trim(), grade: (f.grade || '').trim(), level: (f.level || '').trim(),
+      reportsToId: f.reportsToId || '', backupPositionId: f.backupPositionId || '',
+      summary: (f.summary || '').trim(), duties: (f.duties || '').trim(),
+      qualifications: (f.qualifications || '').trim(), competencies: (f.competencies || '').trim(),
+      authorities: (f.authorities || '').trim(), restrictions: (f.restrictions || '').trim(),
+      requiredTrainingIds: Array.isArray(f.requiredTrainingIds) ? f.requiredTrainingIds : []
+    };
     await commitOrg(d => ({
       ...d, positions: isNew
-        ? [...(d.positions || []), { id, title, departmentId: f.departmentId || '', duties: (f.duties || '').trim(), active: true }]
-        : (d.positions || []).map(x => x.id === id ? { ...x, title, departmentId: f.departmentId || '', duties: (f.duties || '').trim() } : x)
+        ? [...(d.positions || []), { id, title, departmentId: f.departmentId || '', ...jd, active: true }]
+        : (d.positions || []).map(x => x.id === id ? { ...x, title, departmentId: f.departmentId || '', ...jd } : x)
     }), { actionType: isNew ? 'create' : 'update', targetType: 'user_account', targetId: id, title: (isNew ? 'أضاف وظيفة' : 'حدّث وظيفة') + ': ' + title, details: (depts.find(x => x.id === f.departmentId) || {}).name || '' });
     setPosF(null); say((isNew ? 'أُضيفت الوظيفة' : 'حُفظت الوظيفة') + ' ✓');
   };
@@ -8649,7 +8681,7 @@ function HrMaster({ org, ops, me, commitOrg, commit, say }) {
         <div className="card">
           <div className="card-h">
             <div className="card-t"><UserCog size={15} color="var(--brass)" />الوظائف</div>
-            <button className="btn sm" onClick={() => setPosF({ title: '', departmentId: depts[0]?.id || '', duties: '' })} disabled={depts.length === 0}><Plus size={13} />وظيفة جديدة</button>
+            <button className="btn sm" onClick={() => setPosF({ title: '', departmentId: depts[0]?.id || '', code: '', grade: '', level: '', reportsToId: '', backupPositionId: '', summary: '', duties: '', qualifications: '', competencies: '', authorities: '', restrictions: '', requiredTrainingIds: [] })} disabled={depts.length === 0}><Plus size={13} />وظيفة جديدة</button>
           </div>
           {depts.length === 0 && <div className="note">أضف قسمًا واحدًا على الأقل أولًا قبل إنشاء وظيفة.</div>}
           <div className="tw">
@@ -8664,7 +8696,8 @@ function HrMaster({ org, ops, me, commitOrg, commit, say }) {
                     <td>{p.active === false ? <span className="badge b-dim">معطّلة</span> : <span className="badge b-mint">نشطة</span>}</td>
                     <td>
                       <div className="row" style={{ gap: 5, justifyContent: 'flex-end' }}>
-                        <button className="btn sm gh" onClick={() => setPosF({ id: p.id, title: p.title, departmentId: p.departmentId || '', duties: p.duties || '' })}>تعديل</button>
+                        <button className="btn sm gh" onClick={() => setJdView(p)}><FileText size={13} />الوصف</button>
+                        <button className="btn sm gh" onClick={() => setPosF({ id: p.id, title: p.title, departmentId: p.departmentId || '', code: p.code || '', grade: p.grade || '', level: p.level || '', reportsToId: p.reportsToId || '', backupPositionId: p.backupPositionId || '', summary: p.summary || '', duties: p.duties || '', qualifications: p.qualifications || '', competencies: p.competencies || '', authorities: p.authorities || '', restrictions: p.restrictions || '', requiredTrainingIds: p.requiredTrainingIds || [] })}>تعديل</button>
                         <button className="btn sm gh" onClick={() => togglePos(p)}>{p.active === false ? 'تفعيل' : 'تعطيل'}</button>
                         <button className="btn sm gh" style={{ color: 'var(--rose)' }} onClick={() => delPos(p)}><Trash2 size={13} /></button>
                       </div>
@@ -8732,16 +8765,56 @@ function HrMaster({ org, ops, me, commitOrg, commit, say }) {
       )}
 
       {posF && (
-        <Modal title={posF.id ? 'تعديل وظيفة' : 'وظيفة جديدة'} icon={UserCog} onClose={() => setPosF(null)}
+        <Modal title={posF.id ? 'تعديل وصف وظيفي' : 'وظيفة جديدة'} icon={UserCog} onClose={() => setPosF(null)} wide
           foot={<><button className="btn gh" onClick={() => setPosF(null)}>إلغاء</button><button className="btn pri" onClick={savePos}><Check size={14} />حفظ</button></>}>
-          <Field label="المسمى الوظيفي"><input className="inp" value={posF.title} onChange={e => setPosF(f => ({ ...f, title: e.target.value }))} autoFocus /></Field>
-          <Field label="القسم">
-            <select className="inp sel" value={posF.departmentId} onChange={e => setPosF(f => ({ ...f, departmentId: e.target.value }))}>
-              <option value="">— بلا قسم —</option>
-              {depts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-            </select>
+          <div className="grid g3">
+            <Field label="المسمى الوظيفي"><input className="inp" value={posF.title} onChange={e => setPosF(f => ({ ...f, title: e.target.value }))} autoFocus /></Field>
+            <Field label="القسم">
+              <select className="inp sel" value={posF.departmentId} onChange={e => setPosF(f => ({ ...f, departmentId: e.target.value }))}>
+                <option value="">— بلا قسم —</option>
+                {depts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            </Field>
+            <Field label="الكود الوظيفي"><input className="inp" value={posF.code || ''} onChange={e => setPosF(f => ({ ...f, code: e.target.value }))} placeholder="مثال: KIT-03" /></Field>
+            <Field label="الدرجة"><input className="inp" value={posF.grade || ''} onChange={e => setPosF(f => ({ ...f, grade: e.target.value }))} /></Field>
+            <Field label="المستوى"><input className="inp" value={posF.level || ''} onChange={e => setPosF(f => ({ ...f, level: e.target.value }))} placeholder="مثال: مبتدئ/متوسط/قيادي" /></Field>
+            <Field label="يرفع تقاريره إلى">
+              <select className="inp sel" value={posF.reportsToId || ''} onChange={e => setPosF(f => ({ ...f, reportsToId: e.target.value }))}>
+                <option value="">—</option>
+                {positions.filter(p => p.id !== posF.id).map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
+              </select>
+            </Field>
+            <Field label="الوظيفة البديلة">
+              <select className="inp sel" value={posF.backupPositionId || ''} onChange={e => setPosF(f => ({ ...f, backupPositionId: e.target.value }))}>
+                <option value="">—</option>
+                {positions.filter(p => p.id !== posF.id).map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
+              </select>
+            </Field>
+          </div>
+          <Field label="ملخص الوظيفة"><textarea className="inp" rows={2} value={posF.summary || ''} onChange={e => setPosF(f => ({ ...f, summary: e.target.value }))} placeholder="الغرض العام من الوظيفة في سطر أو سطرين" /></Field>
+          <div className="grid g2">
+            <Field label="المهام والمسؤوليات (سطر لكل مهمة)"><textarea className="inp" rows={4} value={posF.duties} onChange={e => setPosF(f => ({ ...f, duties: e.target.value }))} placeholder={'استقبال الطلبات\nتحضير الأصناف وفق المعايير'} /></Field>
+            <Field label="المؤهلات والخبرات (سطر لكل بند)"><textarea className="inp" rows={4} value={posF.qualifications || ''} onChange={e => setPosF(f => ({ ...f, qualifications: e.target.value }))} placeholder={'الثانوية كحد أدنى\nخبرة سنة في مطاعم'} /></Field>
+            <Field label="الجدارات والمهارات (سطر لكل بند)"><textarea className="inp" rows={4} value={posF.competencies || ''} onChange={e => setPosF(f => ({ ...f, competencies: e.target.value }))} placeholder={'العمل الجماعي\nسرعة تحت الضغط'} /></Field>
+            <Field label="الصلاحيات (سطر لكل بند)"><textarea className="inp" rows={4} value={posF.authorities || ''} onChange={e => setPosF(f => ({ ...f, authorities: e.target.value }))} placeholder={'صرف مصروف نثري حتى حد\nاعتماد خصم للعميل حتى نسبة'} /></Field>
+          </div>
+          <Field label="القيود والمحظورات (سطر لكل بند)"><textarea className="inp" rows={3} value={posF.restrictions || ''} onChange={e => setPosF(f => ({ ...f, restrictions: e.target.value }))} placeholder={'لا يفتح الخزنة دون المدير\nلا يمنح خصمًا فوق الحد'} /></Field>
+          <Field label="التدريب والشهادات المطلوبة (ربط م١٩)">
+            <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
+              {((org.trainingPrograms && org.trainingPrograms.length) ? org.trainingPrograms : defaultTrainingPrograms()).map(pr => (
+                <label key={pr.id} className="row" style={{ gap: 5, fontSize: 12.5, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={(posF.requiredTrainingIds || []).includes(pr.id)} onChange={() => setPosF(f => ({ ...f, requiredTrainingIds: (f.requiredTrainingIds || []).includes(pr.id) ? f.requiredTrainingIds.filter(x => x !== pr.id) : [...(f.requiredTrainingIds || []), pr.id] }))} />{pr.title}{pr.mandatory ? ' (إلزامي)' : ''}
+                </label>
+              ))}
+            </div>
           </Field>
-          <Field label="الوصف الوظيفي / المهام (اختياري)"><textarea className="inp" rows={4} value={posF.duties} onChange={e => setPosF(f => ({ ...f, duties: e.target.value }))} placeholder="مهام ومسؤوليات هذه الوظيفة..." /></Field>
+        </Modal>
+      )}
+
+      {jdView && (
+        <Modal title={'الوصف الوظيفي — ' + jdView.title} icon={UserCog} onClose={() => setJdView(null)} wide
+          foot={<><button className="btn gh" onClick={() => setJdView(null)}>إغلاق</button><button className="btn pri" onClick={() => { printA4(org, 'الوصف الوظيفي — ' + jdView.title, (depts.find(d => d.id === jdView.departmentId) || {}).name || '', positionJdHtml(jdView, org)) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no'); }}><Printer size={14} />طباعة</button></>}>
+          <div className="jdbox" style={{ fontSize: 13, lineHeight: 1.9 }} dangerouslySetInnerHTML={{ __html: positionJdHtml(jdView, org) }} />
         </Modal>
       )}
 
