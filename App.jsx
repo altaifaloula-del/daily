@@ -1473,7 +1473,7 @@ const DENOMS = [
 const emptyDenoms = () => DENOMS.reduce((o, d) => ({ ...o, [d.k]: 0 }), {});
 const countDenoms = (d) => DENOMS.reduce((s, x) => s + (Number(d?.[x.k]) || 0) * x.v, 0);
 
-const ALL_TABS = ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'perfsnap', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit'];
+const ALL_TABS = ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'hrops', 'hrperf', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'perfsnap', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit'];
 const TAB_AR = {
   analytics: 'مركز التحليل والأداء', reporting: 'مركز التقارير', exec: 'اللوحة التنفيذية',
   dash: 'لوحة المؤشرات', compare: 'مقارنة الفروع', growth: 'تحليلات النمو', breakeven: 'تحليل التعادل', scorecard: 'لوحة الأهداف', scenario: 'ماذا-لو', boardpack: 'تقرير الإدارة', cashflow: 'التدفق النقدي', closing: 'الإغلاق اليومي', apps: 'التطبيقات',
@@ -1507,22 +1507,22 @@ const ROLES = {
   // ===== الأدوار الخمسة المعتمدة =====
   cashier: {
     ar: 'كاشير — إدخال إغلاق اليوم', badge: 'b-sky', scope: 'own', create: true, todayOnly: true,
-    tabs: ['closing', 'attendance', 'tasks', 'points', 'esign'],
+    tabs: ['closing', 'hrops', 'attendance', 'tasks', 'points', 'esign'],
     perms: ['إنشاء وترحيل إغلاق اليوم لفرعه', 'جرد الصندوق وإدخال المبيعات والمصروفات', 'تسجيل حضور وانصراف موظفي فرعه من جهاز الفرع', 'كشك التوقيع الإلكتروني: يوقّع موظفو فرعه إقرارات الراتب والإشعارات بعد التحقق بـPIN', 'اليوم الحالي فقط دون سجلّ سابق — عدا مسوداته والمرفوضات المعادة للتصحيح فتظهر دائماً']
   },
   branch_manager: {
     ar: 'مدير الفرع', badge: 'b-mint', scope: 'own', create: true,
-    tabs: ['closing', 'sales', 'apps', 'archive', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash'],
+    tabs: ['closing', 'sales', 'apps', 'archive', 'hrops', 'hrperf', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash'],
     perms: ['إدخال وترحيل إغلاق فرعه', 'عرض سجل إغلاقات فرعه', 'أرشيف مستندات فرعه فقط', 'تسجيل الحضور وضبط أرقام PIN وسجل حضور فرعه', 'محرّك ورديات فرعه: قوالب، تعيين أسبوعي، مطابقة حضور، تبديل وردية، طلب نقل موظف', 'كشك التوقيع الإلكتروني وسجل إقرارات فرعه (بلا مبالغ الرواتب)']
   },
   regional_manager: {
     ar: 'مدير إقليمي — فروع مُسندة', badge: 'b-amber', scope: 'assigned',
-    tabs: ['analytics', 'reporting', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'reports', 'archive', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash'],
+    tabs: ['analytics', 'reporting', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'reports', 'archive', 'hrops', 'hrperf', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash'],
     perms: ['متابعة الفروع المسندة إليه فقط', 'مقارنة وتقارير فروعه ولوحة مؤشراتها ونموّها', 'سجل حضور فروعه المسندة ومحرّك ورديات فروعه', 'بلا وصول للمحاسبة والخزينة والإعدادات']
   },
   head_office: {
     ar: 'المكتب الرئيسي — المالية والإدارة', badge: 'b-brass', scope: 'all', approver: true,
-    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'perfsnap', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
+    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'hrops', 'hrperf', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'perfsnap', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['كل الفروع والتقارير المجمّعة', 'التدقيق والاعتماد النهائي', 'الخزينة والرواتب والموردون والمشتريات والمخزون', 'المحاسبة الكاملة: قيود وميزان وقوائم وضريبة وأصول ومراكز تكلفة']
   },
   system_admin: {
@@ -1540,7 +1540,7 @@ const ROLES = {
     // إعادة ترتيب v8.0: المحاسب الرئيسي بطبيعته يعمل على المنشأة كلها — نطاق كامل
     // بلا صلاحيات إدارة (لا مستخدمين/فروع، لا تفعيل ضريبة، لا إدارة تطبيقات)
     ar: 'الإدارة المالية — محاسب رئيسي', badge: 'b-sky', scope: 'all', legacy: true,
-    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'perfsnap', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
+    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'hrops', 'hrperf', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'perfsnap', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['المحاسبة كاملة: قيود يدوية وافتتاحية وميزان وقوائم ومراكز تكلفة', 'الضريبة والأصول والتسوية البنكية (عرض وتسجيل — التفعيل للإدارة)', 'المشتريات والمخزون والرواتب والخزينة', 'كل الفروع — دون إدارة المستخدمين والإعدادات']
   },
   // ===== v15.9: نماذج صلاحيات المحاسب — نطاق «المحاسبة + التقارير المالية فقط» =====
@@ -1696,30 +1696,10 @@ const LAUNCH_APPS = [
     sections: ['النظرة الموحّدة', 'إدارة المنشآت', 'إسناد الفروع'], kw: ['منشأة', 'منشآت', 'شركة', 'شركات', 'كيان', 'موحّد', 'مجموعة', 'رقم ضريبي', 'تعدد'] },
   { id: 'closing', ar: 'الإغلاق اليومي', en: 'Daily Closing', cat: 'pos', icon: ClipboardCheck, open: { tab: 'closing' },
     sections: ['تسجيل إغلاق اليوم', 'سجل الإغلاقات'], kw: ['اغلاق', 'إغلاق', 'وردية', 'مبيعات', 'صندوق', 'كاشير', 'نقطة بيع', 'نقاط البيع'] },
-  { id: 'attendance', ar: 'الحضور الموثَّق', en: 'Verified Attendance', cat: 'pos', icon: Fingerprint, open: { tab: 'attendance' },
-    sections: ['تسجيل حضور/انصراف', 'أرقام PIN', 'سجل الحضور'], kw: ['حضور', 'انصراف', 'بصمة', 'pin', 'جيوفنس', 'كيوسك', 'موظف'] },
-  { id: 'shiftengine', ar: 'محرّك الورديات', en: 'Shift Engine', cat: 'pos', icon: ArrowLeftRight, open: { tab: 'shiftengine' },
-    sections: ['قوالب الورديات', 'تعيين أسبوعي', 'مطابقة الحضور', 'تبديل وردية', 'نقل موظف'], kw: ['وردية', 'ورديات', 'تعيين', 'تبديل', 'نقل', 'قالب', 'جدول'] },
-  { id: 'tasks', ar: 'المهام', en: 'Tasks', cat: 'pos', icon: CheckCircle2, open: { tab: 'tasks' },
-    sections: ['قوالب مهام متكررة', 'تكليف فردي', 'إنجاز المهام', 'تقرير الالتزام'], kw: ['مهام', 'مهمة', 'تكليف', 'التزام', 'تشيك ليست'] },
-  { id: 'points', ar: 'دفتر النقاط', en: 'Points Ledger', cat: 'pos', icon: Star, open: { tab: 'points' },
-    sections: ['دفتر النقاط', 'قواعد النقاط', 'لوحة الترتيب', 'رصيدي (كشك)'], kw: ['نقاط', 'ترتيب', 'تحفيز', 'رصيد', 'مكافأة'] },
-  { id: 'kpi', ar: 'الأداء والتقييم', en: 'Performance & KPI', cat: 'pos', icon: TrendingUp, open: { tab: 'kpi' },
-    sections: ['درجات الأداء', 'تقييم المدير', 'أهداف KPI', 'بطاقة الموظف'], kw: ['تقييم', 'أداء', 'kpi', 'درجة', 'أهداف'] },
-  { id: 'rewards', ar: 'المكافآت والجزاءات', en: 'Rewards & Penalties', cat: 'pos', icon: Coins, open: { tab: 'rewards' },
-    sections: ['الطلبات', 'قائمة الاعتماد', 'شرائح المكافآت'], kw: ['مكافأة', 'جزاء', 'اعتماد', 'حافز', 'خصم'] },
-  { id: 'esign', ar: 'التوقيع الإلكتروني', en: 'E-Signature', cat: 'pos', icon: Signature, open: { tab: 'esign' },
-    sections: ['كشك التوقيع', 'سجل الإقرارات', 'تقرير حالة التوقيعات'], kw: ['توقيع', 'إقرار', 'استلام', 'راتب', 'قسيمة', 'إشعار', 'كشك'] },
-  { id: 'corrective', ar: 'الإجراءات التصحيحية', en: 'Corrective Actions', cat: 'pos', icon: ShieldAlert, open: { tab: 'corrective' },
-    sections: ['الإجراءات التأديبية', 'الاعتماد', 'خطط تحسين الأداء', 'اللائحة'], kw: ['جزاء', 'تأديب', 'إنذار', 'مخالفة', 'لائحة', 'تظلّم', 'خطة تحسين', 'pip', 'محضر'] },
-  { id: 'training', ar: 'التدريب والشهادات', en: 'Training & Certifications', cat: 'pos', icon: Stamp, open: { tab: 'training' },
-    sections: ['سجل التدريب', 'مصفوفة الامتثال', 'البرامج'], kw: ['تدريب', 'شهادة', 'صحية', 'سلامة الغذاء', 'امتثال', 'برنامج'] },
-  { id: 'rolekpi', ar: 'مؤشرات الأداء بالدور', en: 'Role KPIs', cat: 'pos', icon: TrendingUp, open: { tab: 'rolekpi' },
-    sections: ['التقييم الشهري', 'المكتبة والتفعيل'], kw: ['مؤشر', 'kpi', 'أداء', 'دور', 'هدف', 'قياس'] },
-  { id: 'hrdash', ar: 'لوحة الموارد البشرية', en: 'HR Dashboard', cat: 'bi', icon: LayoutDashboard, open: { tab: 'hrdash' },
-    sections: ['اللوحة التنفيذية', 'تقرير الحضور', 'المكافآت والنقاط'], kw: ['لوحة', 'تقارير', 'حضور', 'مكافآت', 'نقاط', 'hr'] },
-  { id: 'perfsnap', ar: 'تجميد الأداء الشهري', en: 'Performance Snapshot', cat: 'bi', icon: Lock, open: { tab: 'perfsnap' },
-    sections: ['تجميد الشهر', 'كشف الانحراف', 'الشهور المجمّدة'], kw: ['تجميد', 'لقطة', 'أداء', 'ثبات', 'تلاعب'] },
+  { id: 'hrops', ar: 'الموارد البشرية — التشغيل', en: 'HR Operations', cat: 'hr', icon: Fingerprint, open: { tab: 'hrops' },
+    sections: ['الحضور الموثَّق', 'محرّك الورديات', 'المهام', 'دفتر النقاط', 'التوقيع الإلكتروني'], kw: ['حضور', 'انصراف', 'وردية', 'مهام', 'نقاط', 'توقيع', 'pin', 'كيوسك', 'موظف'] },
+  { id: 'hrperf', ar: 'الأداء والانضباط', en: 'Performance & Discipline', cat: 'hr', icon: TrendingUp, open: { tab: 'hrperf' },
+    sections: ['الأداء والتقييم', 'مؤشرات الأداء بالدور', 'المكافآت والجزاءات', 'الإجراءات التصحيحية', 'التدريب والشهادات', 'تجميد الأداء', 'لوحة الموارد البشرية'], kw: ['أداء', 'تقييم', 'kpi', 'مؤشر', 'مكافأة', 'جزاء', 'تأديب', 'إجراء', 'تدريب', 'شهادة', 'تجميد', 'لوحة'] },
   { id: 'sales', ar: 'المبيعات', en: 'Sales', cat: 'pos', icon: CircleDollarSign, open: { tab: 'sales' },
     sections: ['حسب القناة', 'حسب الفرع', 'حسب التطبيق'], kw: ['مبيعات', 'نقاط البيع', 'نقطة بيع', 'قناة', 'نقد', 'شبكة', 'توصيل', 'تحليل'] },
   { id: 'approve', ar: 'التدقيق والاعتماد', en: 'Approvals', cat: 'pos', icon: ShieldCheck, open: { tab: 'approve' },
@@ -2574,18 +2554,8 @@ export default function App() {
     { id: 'reporting', ar: 'مركز التقارير', icon: FileBarChart },
     { id: 'sales', ar: 'المبيعات', icon: CircleDollarSign },
     { id: 'closing', ar: 'الإغلاق اليومي', icon: ClipboardCheck },
-    { id: 'attendance', ar: 'الحضور الموثَّق', icon: Fingerprint },
-    { id: 'shiftengine', ar: 'محرّك الورديات', icon: ArrowLeftRight },
-    { id: 'tasks', ar: 'المهام', icon: CheckCircle2 },
-    { id: 'points', ar: 'دفتر النقاط', icon: Star },
-    { id: 'kpi', ar: 'الأداء والتقييم', icon: TrendingUp },
-    { id: 'rewards', ar: 'المكافآت والجزاءات', icon: Coins },
-    { id: 'esign', ar: 'التوقيع الإلكتروني', icon: Signature },
-    { id: 'corrective', ar: 'الإجراءات التصحيحية', icon: ShieldAlert },
-    { id: 'training', ar: 'التدريب والشهادات', icon: Stamp },
-    { id: 'rolekpi', ar: 'مؤشرات الأداء بالدور', icon: TrendingUp },
-    { id: 'hrdash', ar: 'لوحة الموارد البشرية', icon: LayoutDashboard },
-    { id: 'perfsnap', ar: 'تجميد الأداء الشهري', icon: Lock },
+    { id: 'hrops', ar: 'الموارد البشرية — التشغيل', icon: Fingerprint },
+    { id: 'hrperf', ar: 'الأداء والانضباط', icon: TrendingUp },
     { id: 'apps', ar: 'إدارة التطبيقات', icon: Grid3x3 },
     { id: 'approve', ar: 'التدقيق والاعتماد', icon: ShieldCheck, cnt: pending },
     { id: 'treasury', ar: 'الخزينة والترحيل', icon: Landmark },
@@ -2604,7 +2574,7 @@ export default function App() {
   const shared = { org, ops, pulse, me, myBranches, scoped, commit, commitOrg, say, setTab, theme, acctIntent, openAcctView, invIntent, openInvView };
 
   // حماية: منع الوصول لتبويب غير مسموح لدور المستخدم (بلا hook — بعد returns الشرطية)
-  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : []), ...(NAV.some(n => n.id === 'people') ? ['payroll', 'workforce', 'shifts'] : []), ...(NAV.some(n => n.id === 'purchasing') ? ['suppliers', 'reorder'] : [])];
+  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : []), ...(NAV.some(n => n.id === 'people') ? ['payroll', 'workforce', 'shifts'] : []), ...(NAV.some(n => n.id === 'purchasing') ? ['suppliers', 'reorder'] : []), ...(NAV.some(n => n.id === 'hrops') ? ['attendance', 'shiftengine', 'tasks', 'points', 'esign'] : []), ...(NAV.some(n => n.id === 'hrperf') ? ['kpi', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'] : [])];
   const safeTab = allowedTabs.includes(tab) ? tab : (allowedTabs[0] || 'closing');
 
   return (
@@ -2694,7 +2664,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v27.10 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v27.11 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2846,18 +2816,8 @@ export default function App() {
               {['reporting', 'reports', 'rbuild', 'boardpack', 'cashflow'].includes(safeTab) && <Hub hubId="reporting" {...shared} view={safeTab} />}
               {safeTab === 'sales' && <Sales {...shared} />}
               {safeTab === 'closing' && <Closing {...shared} />}
-              {safeTab === 'attendance' && <Attendance {...shared} />}
-              {safeTab === 'shiftengine' && <ShiftEngine {...shared} />}
-              {safeTab === 'tasks' && <Tasks {...shared} />}
-              {safeTab === 'points' && <PointsLedger {...shared} />}
-              {safeTab === 'kpi' && <Performance {...shared} />}
-              {safeTab === 'rewards' && <Rewards {...shared} />}
-              {safeTab === 'esign' && <ESign {...shared} />}
-              {safeTab === 'corrective' && <Corrective {...shared} />}
-              {safeTab === 'training' && <Training {...shared} />}
-              {safeTab === 'rolekpi' && <RoleKpi {...shared} />}
-              {safeTab === 'hrdash' && <HrDashboard {...shared} />}
-              {safeTab === 'perfsnap' && <PerfSnap {...shared} />}
+              {['hrops', 'attendance', 'shiftengine', 'tasks', 'points', 'esign'].includes(safeTab) && <Hub hubId="hrops" {...shared} view={safeTab} />}
+              {['hrperf', 'kpi', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'].includes(safeTab) && <Hub hubId="hrperf" {...shared} view={safeTab} />}
               {safeTab === 'apps' && <AppsCenter {...shared} />}
               {safeTab === 'approve' && <Approvals {...shared} />}
               {safeTab === 'treasury' && <Treasury {...shared} />}
@@ -5675,6 +5635,28 @@ const HUBS = {
     views: [
       { id: 'suppliers', ar: 'الموردون والمشتريات', icon: Truck, comp: Suppliers },
       { id: 'reorder', ar: 'المشتريات الذكية', icon: ClipboardCheck, comp: SmartPurchasing }
+    ]
+  },
+  hrops: {
+    ar: 'الموارد البشرية — التشغيل', desc: 'الحضور والورديات والمهام والنقاط والتوقيع الإلكتروني', icon: Fingerprint,
+    views: [
+      { id: 'attendance', ar: 'الحضور الموثَّق', icon: Fingerprint, comp: Attendance },
+      { id: 'shiftengine', ar: 'محرّك الورديات', icon: ArrowLeftRight, comp: ShiftEngine },
+      { id: 'tasks', ar: 'المهام', icon: CheckCircle2, comp: Tasks },
+      { id: 'points', ar: 'دفتر النقاط', icon: Star, comp: PointsLedger },
+      { id: 'esign', ar: 'التوقيع الإلكتروني', icon: Signature, comp: ESign }
+    ]
+  },
+  hrperf: {
+    ar: 'الأداء والانضباط', desc: 'التقييم ومؤشرات الدور والحوافز والإجراءات التصحيحية والتدريب وتجميد الأداء ولوحة HR', icon: TrendingUp,
+    views: [
+      { id: 'kpi', ar: 'الأداء والتقييم', icon: TrendingUp, comp: Performance },
+      { id: 'rolekpi', ar: 'مؤشرات الأداء بالدور', icon: TrendingUp, comp: RoleKpi },
+      { id: 'rewards', ar: 'المكافآت والجزاءات', icon: Coins, comp: Rewards },
+      { id: 'corrective', ar: 'الإجراءات التصحيحية', icon: ShieldAlert, comp: Corrective },
+      { id: 'training', ar: 'التدريب والشهادات', icon: Stamp, comp: Training },
+      { id: 'perfsnap', ar: 'تجميد الأداء الشهري', icon: Lock, comp: PerfSnap },
+      { id: 'hrdash', ar: 'لوحة الموارد البشرية', icon: LayoutDashboard, comp: HrDashboard }
     ]
   }
 };
