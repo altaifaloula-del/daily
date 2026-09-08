@@ -240,7 +240,9 @@ const BR_COLS = ['closings', 'transfers', 'partnerRequests', 'notifications', 'b
   // v24.0 — بيانات HR التشغيلية لكل فرع (م٣–م٧): تُخزَّن في مستند الفرع كي تقرأها وتكتبها أجهزة الفروع (لا تصل لـ org)
   'attendanceEvents', 'hrPins', 'shiftTemplates', 'shiftAssignments', 'shiftSwapRequests', 'branchTransferRequests', 'taskTemplates', 'taskAssignments', 'taskCompletions', 'pointsEntries', 'qualityReviews', 'rewardRequests',
   // v27.0 — م١٠: مستندات التوقيع الإلكتروني (إقرارات استلام الراتب وإشعارات المكافآت/الجزاءات) — يوقّعها الموظف من جهاز الفرع
-  'hrSignDocs'];
+  'hrSignDocs',
+  // v27.6 — م٢٠: الإجراءات التأديبية التصحيحية وخطط تحسين الأداء (PIP) — بفرعها كي يقرأها/يكتبها جهاز الفرع
+  'hrCorrective', 'hrPips'];
 const CORE_COLS = ['advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules'];
 
 // تقسيم ops المدمجة إلى مستند مركزي + مستند لكل فرع
@@ -1467,11 +1469,11 @@ const DENOMS = [
 const emptyDenoms = () => DENOMS.reduce((o, d) => ({ ...o, [d.k]: 0 }), {});
 const countDenoms = (d) => DENOMS.reduce((s, x) => s + (Number(d?.[x.k]) || 0) * x.v, 0);
 
-const ALL_TABS = ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'hrdash', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit'];
+const ALL_TABS = ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'hrdash', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit'];
 const TAB_AR = {
   analytics: 'مركز التحليل والأداء', reporting: 'مركز التقارير', exec: 'اللوحة التنفيذية',
   dash: 'لوحة المؤشرات', compare: 'مقارنة الفروع', growth: 'تحليلات النمو', breakeven: 'تحليل التعادل', scorecard: 'لوحة الأهداف', scenario: 'ماذا-لو', boardpack: 'تقرير الإدارة', cashflow: 'التدفق النقدي', closing: 'الإغلاق اليومي', apps: 'التطبيقات',
-  approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', people: 'شؤون الموظفين', payroll: 'الرواتب والسلف', workforce: 'الجدولة والحضور', hrmaster: 'البيانات الرئيسية', hrpolicy: 'السياسات والأدوار', attendance: 'الحضور الموثَّق', shiftengine: 'محرّك الورديات', tasks: 'المهام', points: 'دفتر النقاط', kpi: 'الأداء والتقييم', rewards: 'المكافآت والجزاءات', esign: 'التوقيع الإلكتروني', hrdash: 'لوحة الموارد البشرية',
+  approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', people: 'شؤون الموظفين', payroll: 'الرواتب والسلف', workforce: 'الجدولة والحضور', hrmaster: 'البيانات الرئيسية', hrpolicy: 'السياسات والأدوار', attendance: 'الحضور الموثَّق', shiftengine: 'محرّك الورديات', tasks: 'المهام', points: 'دفتر النقاط', kpi: 'الأداء والتقييم', rewards: 'المكافآت والجزاءات', esign: 'التوقيع الإلكتروني', corrective: 'الإجراءات التصحيحية', hrdash: 'لوحة الموارد البشرية',
   purchasing: 'المشتريات والموردون', suppliers: 'الموردون والمشتريات', inv: 'المخزون والمنتجات', reorder: 'المشتريات الذكية', partners: 'دفتر الشركاء',
   acct: 'المحاسبة', shifts: 'الورديات', archive: 'أرشيف المستندات', ai: 'المركز الذكي',
   reports: 'التقارير المالية', rbuild: 'منشئ التقارير', entities: 'مركز المنشآت', admin: 'الفروع والمستخدمون', audit: 'سجل التدقيق'
@@ -1506,17 +1508,17 @@ const ROLES = {
   },
   branch_manager: {
     ar: 'مدير الفرع', badge: 'b-mint', scope: 'own', create: true,
-    tabs: ['closing', 'sales', 'apps', 'archive', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'hrdash'],
+    tabs: ['closing', 'sales', 'apps', 'archive', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'hrdash'],
     perms: ['إدخال وترحيل إغلاق فرعه', 'عرض سجل إغلاقات فرعه', 'أرشيف مستندات فرعه فقط', 'تسجيل الحضور وضبط أرقام PIN وسجل حضور فرعه', 'محرّك ورديات فرعه: قوالب، تعيين أسبوعي، مطابقة حضور، تبديل وردية، طلب نقل موظف', 'كشك التوقيع الإلكتروني وسجل إقرارات فرعه (بلا مبالغ الرواتب)']
   },
   regional_manager: {
     ar: 'مدير إقليمي — فروع مُسندة', badge: 'b-amber', scope: 'assigned',
-    tabs: ['analytics', 'reporting', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'reports', 'archive', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'hrdash'],
+    tabs: ['analytics', 'reporting', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'reports', 'archive', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'hrdash'],
     perms: ['متابعة الفروع المسندة إليه فقط', 'مقارنة وتقارير فروعه ولوحة مؤشراتها ونموّها', 'سجل حضور فروعه المسندة ومحرّك ورديات فروعه', 'بلا وصول للمحاسبة والخزينة والإعدادات']
   },
   head_office: {
     ar: 'المكتب الرئيسي — المالية والإدارة', badge: 'b-brass', scope: 'all', approver: true,
-    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'hrdash', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
+    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'hrdash', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['كل الفروع والتقارير المجمّعة', 'التدقيق والاعتماد النهائي', 'الخزينة والرواتب والموردون والمشتريات والمخزون', 'المحاسبة الكاملة: قيود وميزان وقوائم وضريبة وأصول ومراكز تكلفة']
   },
   system_admin: {
@@ -1534,7 +1536,7 @@ const ROLES = {
     // إعادة ترتيب v8.0: المحاسب الرئيسي بطبيعته يعمل على المنشأة كلها — نطاق كامل
     // بلا صلاحيات إدارة (لا مستخدمين/فروع، لا تفعيل ضريبة، لا إدارة تطبيقات)
     ar: 'الإدارة المالية — محاسب رئيسي', badge: 'b-sky', scope: 'all', legacy: true,
-    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'hrdash', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
+    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'hrdash', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit'],
     perms: ['المحاسبة كاملة: قيود يدوية وافتتاحية وميزان وقوائم ومراكز تكلفة', 'الضريبة والأصول والتسوية البنكية (عرض وتسجيل — التفعيل للإدارة)', 'المشتريات والمخزون والرواتب والخزينة', 'كل الفروع — دون إدارة المستخدمين والإعدادات']
   },
   // ===== v15.9: نماذج صلاحيات المحاسب — نطاق «المحاسبة + التقارير المالية فقط» =====
@@ -1648,6 +1650,7 @@ const REG_APPS = [
   { id: 'kpi', ar: 'الأداء والتقييم', en: 'Performance & KPI', cat: 'hr', icon: TrendingUp, open: { tab: 'kpi' }, kw: ['تقييم', 'أداء', 'kpi', 'درجة', 'مؤشرات', 'أهداف', 'بطاقة أداء'], fns: ['درجة أداء شهرية مركّبة لكل موظف بأوزان قابلة للضبط', 'تقييم المدير الشهري للجودة', 'أهداف KPI لكل فرع مقابل الفعلي', 'بطاقة أداء الموظف (سجل ٦ أشهر + اتجاه) قابلة للطباعة'], d: 'درجة أداء شهرية من 100 تجمع الحضور والمهام والانضباط وتقييم المدير بأوزان قابلة للضبط، مع أهداف KPI للفرع وبطاقة أداء لكل موظف.' },
   { id: 'rewards', ar: 'المكافآت والجزاءات', en: 'Rewards & Penalties', cat: 'hr', icon: Coins, open: { tab: 'rewards' }, kw: ['مكافأة', 'مكافآت', 'جزاء', 'جزاءات', 'اعتماد', 'حافز', 'خصم', 'راتب'], fns: ['طلب مكافأة أو جزاء لموظف بمبلغ وسبب', 'سلسلة اعتماد مركزية بسجل كامل', 'ترحيل تلقائي لمسيّر الرواتب بعد الاعتماد', 'شرائح مكافآت تلقائية حسب درجة الأداء (قابلة للضبط، مُعطَّلة افتراضيًا)'], d: 'طلبات مكافآت وجزاءات من الفروع، اعتماد مركزي، وترحيل تلقائي لمسيّر الرواتب بعد الاعتماد — مع شرائح مكافآت اختيارية مبنية على درجة الأداء.' },
   { id: 'esign', ar: 'التوقيع الإلكتروني', en: 'E-Signature', cat: 'hr', icon: Signature, open: { tab: 'esign' }, kw: ['توقيع', 'إقرار', 'استلام', 'راتب', 'قسيمة', 'إشعار', 'جزاء', 'مكافأة', 'كشك', 'PIN'], fns: ['إقرار استلام الراتب الشهري يوقّعه الموظف بإصبعه بعد التحقق بـPIN', 'إشعارات المكافآت والجزاءات المعتمدة توقَّع بالعلم', 'التوقيع من كشك الفرع أو من شاشة الرواتب بالمكتب', 'التوقيع يظهر على قسيمة الراتب ومسير الرواتب المطبوعين', 'سجل إقرارات وتقرير حالة التوقيعات وتنبيه بغير الموقَّع'], d: 'توقيع إلكتروني للموظف على إقرارات استلام الراتب وإشعارات المكافآت والجزاءات — من جهاز الفرع بعد التحقق بـPIN، ويُطبع على القسائم والمسير.' },
+  { id: 'corrective', ar: 'الإجراءات التصحيحية', en: 'Corrective Actions', cat: 'hr', icon: ShieldAlert, open: { tab: 'corrective' }, kw: ['جزاء', 'تأديب', 'إنذار', 'مخالفة', 'لائحة', 'تظلّم', 'خطة تحسين', 'pip', 'محضر'], fns: ['فتح إجراء تأديبي متدرّج حسب لائحة الجزاءات', 'اعتماد مركزي وترحيل الغرامة للرواتب بسقف نظامي', 'محضر بالعلم يوقّعه الموظف من كشك الفرع', 'خطط تحسين الأداء (PIP) بأهداف ومراجعات', 'محو الجزاء تلقائيًا بعد المدة النظامية'], d: 'إجراءات تأديبية متدرّجة وفق نظام العمل ولائحة المنشأة، باعتماد مركزي ومحضر توقيع، وخطط تحسين أداء بديلة تطويرية.' },
   { id: 'hrdash', ar: 'لوحة الموارد البشرية', en: 'HR Dashboard', cat: 'hr', icon: LayoutDashboard, open: { tab: 'hrdash' }, kw: ['لوحة', 'تقارير', 'حضور', 'مكافآت', 'نقاط', 'موارد بشرية', 'hr', 'excel'], fns: ['لوحة HR تنفيذية لكل الفروع بمقارنة شهرية', 'تقرير الحضور الشهري التفصيلي (طباعة وExcel)', 'تقرير المكافآت والجزاءات والنقاط', 'تنبيهات HR في مركز التنبيهات'], d: 'لوحة تنفيذية لمؤشرات الموارد البشرية لكل الفروع، وتقارير الحضور والمكافآت والنقاط قابلة للطباعة وExcel.' },
   // ——— الزكاة والضريبة (خطة م٣) ———
   { id: 'vat', ar: 'ضريبة القيمة المضافة', en: 'VAT', cat: 'tax', icon: Receipt, open: { tab: 'acct', view: 'vat' }, kw: ['ضريبة', 'زاتكا', 'مدخلات', 'مخرجات', 'فاتورة', 'إقرار'], fns: ['تفعيل بنسبة قابلة للضبط', 'فصل المخرجات في قيد الإيراد', 'فصل مدخلات المصروفات الخاضعة', 'مؤشرات بالفترة'], d: 'فصل تلقائي لضريبة المخرجات والمدخلات في القيود — بأثر رجعي فور التفعيل.' },
@@ -1700,6 +1703,8 @@ const LAUNCH_APPS = [
     sections: ['الطلبات', 'قائمة الاعتماد', 'شرائح المكافآت'], kw: ['مكافأة', 'جزاء', 'اعتماد', 'حافز', 'خصم'] },
   { id: 'esign', ar: 'التوقيع الإلكتروني', en: 'E-Signature', cat: 'pos', icon: Signature, open: { tab: 'esign' },
     sections: ['كشك التوقيع', 'سجل الإقرارات', 'تقرير حالة التوقيعات'], kw: ['توقيع', 'إقرار', 'استلام', 'راتب', 'قسيمة', 'إشعار', 'كشك'] },
+  { id: 'corrective', ar: 'الإجراءات التصحيحية', en: 'Corrective Actions', cat: 'pos', icon: ShieldAlert, open: { tab: 'corrective' },
+    sections: ['الإجراءات التأديبية', 'الاعتماد', 'خطط تحسين الأداء', 'اللائحة'], kw: ['جزاء', 'تأديب', 'إنذار', 'مخالفة', 'لائحة', 'تظلّم', 'خطة تحسين', 'pip', 'محضر'] },
   { id: 'hrdash', ar: 'لوحة الموارد البشرية', en: 'HR Dashboard', cat: 'bi', icon: LayoutDashboard, open: { tab: 'hrdash' },
     sections: ['اللوحة التنفيذية', 'تقرير الحضور', 'المكافآت والنقاط'], kw: ['لوحة', 'تقارير', 'حضور', 'مكافآت', 'نقاط', 'hr'] },
   { id: 'sales', ar: 'المبيعات', en: 'Sales', cat: 'pos', icon: CircleDollarSign, open: { tab: 'sales' },
@@ -1838,7 +1843,7 @@ function emptyOrg(company) {
 
 function emptyOps() {
   return { closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
-    attendanceEvents: [], hrPins: [], shiftTemplates: [], shiftAssignments: [], shiftSwapRequests: [], branchTransferRequests: [], taskTemplates: [], taskAssignments: [], taskCompletions: [], pointsEntries: [], qualityReviews: [], rewardRequests: [], hrSignDocs: [] };
+    attendanceEvents: [], hrPins: [], shiftTemplates: [], shiftAssignments: [], shiftSwapRequests: [], branchTransferRequests: [], taskTemplates: [], taskAssignments: [], taskCompletions: [], pointsEntries: [], qualityReviews: [], rewardRequests: [], hrSignDocs: [], hrCorrective: [], hrPips: [] };
 }
 
 
@@ -2563,6 +2568,7 @@ export default function App() {
     { id: 'kpi', ar: 'الأداء والتقييم', icon: TrendingUp },
     { id: 'rewards', ar: 'المكافآت والجزاءات', icon: Coins },
     { id: 'esign', ar: 'التوقيع الإلكتروني', icon: Signature },
+    { id: 'corrective', ar: 'الإجراءات التصحيحية', icon: ShieldAlert },
     { id: 'hrdash', ar: 'لوحة الموارد البشرية', icon: LayoutDashboard },
     { id: 'apps', ar: 'إدارة التطبيقات', icon: Grid3x3 },
     { id: 'approve', ar: 'التدقيق والاعتماد', icon: ShieldCheck, cnt: pending },
@@ -2672,7 +2678,7 @@ export default function App() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v27.5 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v27.6 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2831,6 +2837,7 @@ export default function App() {
               {safeTab === 'kpi' && <Performance {...shared} />}
               {safeTab === 'rewards' && <Rewards {...shared} />}
               {safeTab === 'esign' && <ESign {...shared} />}
+              {safeTab === 'corrective' && <Corrective {...shared} />}
               {safeTab === 'hrdash' && <HrDashboard {...shared} />}
               {safeTab === 'apps' && <AppsCenter {...shared} />}
               {safeTab === 'approve' && <Approvals {...shared} />}
@@ -5979,6 +5986,13 @@ function AlertsCenter({ org, ops, me, myBranches, scoped, setTab, openAcctView, 
       const sd = Number((org.hrPolicies || {}).signReminderDays != null ? org.hrPolicies.signReminderDays : defaultHrPolicies().signReminderDays) || 0;
       push('mid', 'hr', overdueSign.length + ' إقرار/إشعار بانتظار توقيع الموظف منذ أكثر من ' + sd + ' أيام', [...new Set(overdueSign.map(x => x.employeeName))].slice(0, 4).join('، ') + (overdueSign.length > 4 ? '…' : '') + ' — يوقّعون من كشك الفرع بعد التحقق بـPIN.', { label: 'التوقيع الإلكتروني', go: () => setTab('esign') });
     }
+    // م٢٠ (v27.6) — إجراءات تأديبية بانتظار الاعتماد + مقترحات خطط تحسين الأداء
+    const pendCorr = (ops.hrCorrective || []).filter(c => hrIds.includes(c.branchId) && c.status === 'pending').length;
+    if (pendCorr) push('mid', 'hr', pendCorr + ' إجراء تأديبي بانتظار الاعتماد المركزي', 'راجعها في الإجراءات التصحيحية.', { label: 'الإجراءات التصحيحية', go: () => setTab('corrective') });
+    const _polC = { ...defaultHrPolicies(), ...(org.hrPolicies || {}) }; const _pipTh = Number(_polC.pipTriggerScore) || 60;
+    const _actPip = new Set((ops.hrPips || []).filter(p => p.status === 'active').map(p => p.employeeId));
+    const _lowN = hrEmps.filter(e => { const sc = hrScoreFor(org, ops, e, td.slice(0, 7)).score; return sc != null && sc < _pipTh && !_actPip.has(e.id); }).length;
+    if (_lowN) push('low', 'hr', _lowN + ' موظف بدرجة أداء دون العتبة (' + _pipTh + ') بلا خطة تحسين نشطة', 'افتح خطة تحسين أداء أو راجع إجراءاتهم.', { label: 'خطط تحسين الأداء', go: () => setTab('corrective') });
   } catch (e) { }
 
   const sevRank = { high: 0, mid: 1, low: 2 };
@@ -8839,6 +8853,9 @@ const defaultHrPolicies = () => ({
   scoreWeightsEnabled: false, scoreWeights: { attendance: 25, quality: 25, tasks: 25, discipline: 25 },
   disciplineBase: 50, disciplinePointValue: 5, // م٧: محور الانضباط = القاعدة + (صافي نقاط الشهر × قيمة النقطة)، محصور 0–100
   signReminderDays: 3, // م١٠ (v27.0): بعد كم يومًا من إصدار إقرار/إشعار غير موقَّع يظهر تنبيه في مركز التنبيهات
+  // م٢٠ (v27.6) — الإجراءات التأديبية (نظام العمل — افتراضات قابلة للضبط؛ لائحة المنشأة المسجّلة هي المرجع الملزم)
+  penaltyEraseDays: 180, fineCapDaysPerMonth: 5, chargeWindowDays: 30, objectionDays: 15, pipTriggerScore: 60,
+  penaltySchedule: defaultPenaltySchedule(),
 });
 // م٦ — قواعد النقاط التلقائية (مُعطَّلة افتراضيًا حتى يراجعها المالك ويفعّلها — قرار H/3 في hr-audit-m0)
 const defaultPointsRules = () => ({ enabled: false, onTime: 1, late: -1, absent: -3, taskDone: 1 });
@@ -11152,6 +11169,515 @@ function Rewards({ org, ops, me, myBranches, commit, commitOrg, say }) {
   );
 }
 
+/* ================= م٢٠ (v27.6) — الإجراءات التأديبية التصحيحية + خطط تحسين الأداء (PIP) =================
+   نموذج البيانات (BR_COLS — بفرعها كي يقرأه/يكتبه جهاز الفرع ويقرأه المركز):
+   ops.hrCorrective[] = { id, branchId, branchName, employeeId, employeeName, month(YYYY-MM), date,
+     category, code, title, level, penaltyType, fineDays, fineAmount, description, discoveredAt, investigation, witnessName,
+     status:'pending'|'approved'|'rejected', requestedBy/Name, requestedAt, decidedBy/Name, decidedAt, decisionNote,
+     expiresAt, advanceId, signRefId, objection:{at,text,decidedNote,decidedByName,decidedAt} }
+   ops.hrPips[] = { id, branchId, branchName, employeeId, employeeName, openedAt, reason, triggerScore, triggerMonth,
+     objectives:[{text,metric,target}], mentorName, startAt, endAt, reviews:[{at,byName,note,progress}],
+     status:'active'|'passed'|'failed'|'closed', outcome, closedByName, closedAt }
+   نظام العمل السعودي (افتراضات قابلة للضبط في اللائحة — المرجع الملزم هو لائحة المنشأة المسجّلة بوزارة الموارد البشرية):
+   أنواع الجزاءات وتدرّجها؛ محو الجزاء بعد ١٨٠ يومًا من الإبلاغ؛ سقف الغرامة أجر ٥ أيام شهريًا؛
+   مهلة المؤاخذة ٣٠ يومًا من اكتشاف المخالفة؛ ومهلة تظلّم الموظف ١٥ يومًا من إبلاغه بالجزاء.
+   ====================================================================================================== */
+const PEN_TYPES = [
+  { k: 'verbal', ar: 'تنبيه شفهي', rank: 1 },
+  { k: 'warning', ar: 'إنذار كتابي', rank: 2 },
+  { k: 'fine', ar: 'غرامة (خصم أيام أجر)', rank: 3 },
+  { k: 'deny_raise', ar: 'الحرمان من العلاوة أو تأجيلها', rank: 4 },
+  { k: 'deny_promo', ar: 'الحرمان من الترقية', rank: 5 },
+  { k: 'suspend', ar: 'الإيقاف عن العمل', rank: 6 },
+  { k: 'dismiss', ar: 'توصية بالفصل', rank: 7 },
+];
+const penTypeAr = (k) => (PEN_TYPES.find(t => t.k === k) || {}).ar || k;
+function defaultPenaltySchedule() {
+  const lad = (arr) => arr.map((x, i) => ({ level: i + 1, penaltyType: x[0], fineDays: x[1] || 0 }));
+  return [
+    { code: 'late', category: 'حضور', title: 'التأخّر عن موعد العمل', ladder: lad([['verbal', 0], ['warning', 0], ['fine', 0.5], ['fine', 1]]) },
+    { code: 'absence', category: 'حضور', title: 'الغياب بدون إذن', ladder: lad([['warning', 0], ['fine', 1], ['fine', 3], ['dismiss', 0]]) },
+    { code: 'hygiene', category: 'سلامة ونظافة', title: 'الإخلال بمعايير النظافة أو السلامة', ladder: lad([['verbal', 0], ['warning', 0], ['fine', 1], ['fine', 3]]) },
+    { code: 'customer', category: 'سلوك', title: 'سوء التعامل مع العميل', ladder: lad([['warning', 0], ['fine', 1], ['fine', 3], ['suspend', 0]]) },
+    { code: 'quality', category: 'جودة', title: 'مخالفة معايير التحضير أو الجودة', ladder: lad([['verbal', 0], ['warning', 0], ['fine', 1], ['fine', 2]]) },
+    { code: 'cash', category: 'عهدة ونقدية', title: 'مخالفة تعليمات العهدة أو النقدية', ladder: lad([['warning', 0], ['fine', 2], ['fine', 5], ['dismiss', 0]]) },
+  ];
+}
+// جزاءات معتمدة سابقة لنفس المخالفة ما زالت سارية (لم يمضِ عليها eraseDays) — أساس التدرّج ومحو الجزاء
+function activePriorCorrectives(list, empId, code, asOfStr, eraseDays) {
+  const asOf = new Date((asOfStr || today()) + 'T00:00:00');
+  return (list || []).filter(c => c.employeeId === empId && c.code === code && c.status === 'approved')
+    .filter(c => { const ds = (c.date || (c.decidedAt || '').slice(0, 10) || asOfStr); const d = new Date(ds + 'T00:00:00'); return (asOf - d) / 86400000 <= (Number(eraseDays) || 180); })
+    .sort((a, b) => ((a.date || '') < (b.date || '') ? -1 : 1));
+}
+// المستوى التالي في سلّم اللائحة بحسب عدد الجزاءات السارية السابقة (0 ⇒ المستوى الأول)
+function suggestNextLevel(schedule, code, priorCount) {
+  const item = (schedule || []).find(s => s.code === code);
+  if (!item || !(item.ladder || []).length) return null;
+  const idx = Math.min(Number(priorCount) || 0, item.ladder.length - 1);
+  return { ...item.ladder[idx], overflow: (Number(priorCount) || 0) >= item.ladder.length, title: item.title, category: item.category };
+}
+const correctiveExpiry = (dateStr, eraseDays) => { const d = new Date((dateStr || today()) + 'T00:00:00'); d.setDate(d.getDate() + (Number(eraseDays) || 180)); return d.toISOString().slice(0, 10); };
+const dailyWageOf = (base) => (Number(base) || 0) / 30;   // أجر اليوم = الأساسي ÷ ٣٠ (نظام العمل)
+// الغرامة المقترحة بحدّ نظام العمل: fineDays أيام أجر، بحيث لا يتجاوز مجموع غرامات الشهر السقف
+function fineSuggest(base, fineDays, capDays, priorFineDaysThisMonth) {
+  const dw = dailyWageOf(base);
+  const remaining = Math.max(0, (Number(capDays) || 5) - (Number(priorFineDaysThisMonth) || 0));
+  const days = Math.min(Number(fineDays) || 0, remaining);
+  return { days, amount: Math.round(dw * days * 100) / 100, dw: Math.round(dw * 100) / 100, capped: (Number(fineDays) || 0) > remaining, remaining };
+}
+const pipTriggered = (score, threshold) => score != null && score < (Number(threshold) || 0);
+const daysBetween = (aStr, bStr) => Math.round((new Date((bStr || today()) + 'T00:00:00') - new Date((aStr || today()) + 'T00:00:00')) / 86400000);
+
+// محضر إجراء تأديبي يوقّعه الموظف بالعلم من كشك الفرع (م١٠) — إثبات المؤاخذة في محضر وفق نظام العمل
+function correctiveSignDoc(rec, me) {
+  return {
+    id: uid('sg'), branchId: rec.branchId || '', branchName: rec.branchName || '', employeeId: rec.employeeId, employeeName: rec.employeeName,
+    docType: 'corrective', month: rec.month || (rec.date || '').slice(0, 7), refId: rec.id,
+    title: 'محضر إجراء تأديبي — ' + (rec.title || rec.category || ''), amount: rec.fineAmount || 0,
+    lines: null, reason: (rec.category ? rec.category + ' · ' : '') + penTypeAr(rec.penaltyType) + (rec.description ? ' — ' + rec.description : ''),
+    issuedAt: nowISO(), issuedBy: me ? me.id : '', issuedByName: me ? me.name : '', status: 'pending',
+    signedAt: '', signedVia: '', signedOnBy: '', signedOnByName: '', pinVerified: false, witnessName: '', sig: null, sigHash: ''
+  };
+}
+
+function Corrective({ org, ops, me, myBranches, commit, commitOrg, say }) {
+  const role = ROLES[me.role] || {};
+  const isAll = role.scope === 'all';
+  const canRequest = me.role === 'branch_manager' || isAll;   // فتح إجراء: مدير الفرع + المركز
+  const canApprove = !!role.approver;                         // الاعتماد النهائي: المكتب الرئيسي/مسؤول النظام/الإدارة العليا
+  const canConfig = isAll;                                    // اللائحة والنوافذ الزمنية: أدوار المركز
+  const branches = myBranches || [];
+  const pol = { ...defaultHrPolicies(), ...(org.hrPolicies || {}) };
+  const schedule = (pol.penaltySchedule && pol.penaltySchedule.length) ? pol.penaltySchedule : defaultPenaltySchedule();
+  const eraseDays = Number(pol.penaltyEraseDays) || 180;
+  const capDays = Number(pol.fineCapDaysPerMonth) || 5;
+  const chargeWindow = Number(pol.chargeWindowDays) || 30;
+  const objectionDays = Number(pol.objectionDays) || 15;
+  const pipThreshold = Number(pol.pipTriggerScore) || 60;
+
+  const [view, setView] = useState(canApprove ? 'queue' : 'log');
+  const [branchId, setBranchId] = useState((branches[0] || {}).id || '');
+  useEffect(() => { if (!branches.find(b => b.id === branchId)) setBranchId((branches[0] || {}).id || ''); }, [branches, branchId]); // eslint-disable-line
+  const branch = branches.find(b => b.id === branchId) || null;
+  const branchIds = branches.map(b => b.id);
+  const emps = (org.employees || []).filter(e => e.isActive !== false && branch && e.branchId === branch.id);
+  const empName = (id) => ((org.employees || []).find(e => e.id === id) || {}).name || '';
+  const allRecs = (ops.hrCorrective || []).filter(r => branchIds.includes(r.branchId)).sort((a, b) => (a.requestedAt < b.requestedAt ? 1 : -1));
+  const allPips = (ops.hrPips || []).filter(p => branchIds.includes(p.branchId)).sort((a, b) => (a.openedAt < b.openedAt ? 1 : -1));
+  const td = today();
+  const ymLabel = (y) => { const [Y, M] = String(y).split('-').map(Number); return isNaN(Y) ? y : new Date(Y, M - 1, 1).toLocaleDateString('ar', { month: 'long', year: 'numeric' }); };
+  const penBadge = (k) => { const rank = (PEN_TYPES.find(t => t.k === k) || {}).rank || 0; return <span className={'badge ' + (rank >= 6 ? 'b-rose' : rank >= 3 ? 'b-amber' : 'b-sky')}>{penTypeAr(k)}</span>; };
+  const statusBadge = (st) => <span className={'badge ' + (st === 'approved' ? 'b-mint' : st === 'rejected' ? 'b-rose' : 'b-amber')}>{st === 'approved' ? 'معتمد' : st === 'rejected' ? 'مرفوض' : 'قيد الاعتماد'}</span>;
+
+  // ===== ١) فتح إجراء تأديبي =====
+  const emptyF = { empId: '', code: '', penaltyType: 'warning', fineDays: '0', description: '', discoveredAt: td, date: td, investigation: '', witnessName: '' };
+  const [f, setF] = useState(emptyF);
+  const selItem = schedule.find(s => s.code === f.code) || null;
+  const priorActives = f.empId && f.code ? activePriorCorrectives(ops.hrCorrective || [], f.empId, f.code, f.date, eraseDays) : [];
+  const suggestion = f.code ? suggestNextLevel(schedule, f.code, priorActives.length) : null;
+  // تطبيق اقتراح السلّم تلقائيًا عند تغيّر الموظف/المخالفة (يبقى قابلًا لتعديل المدير يدويًا)
+  useEffect(() => {
+    if (suggestion) setF(x => ({ ...x, penaltyType: suggestion.penaltyType, fineDays: String(suggestion.fineDays || 0), description: x.description || (selItem ? selItem.title : '') }));
+  }, [f.empId, f.code]); // eslint-disable-line
+  const priorFineDaysMonth = (empId, month, exclId) => (ops.hrCorrective || []).filter(c => c.employeeId === empId && c.status === 'approved' && c.penaltyType === 'fine' && (c.month === month) && c.id !== exclId).reduce((a, c) => a + (Number(c.fineDays) || 0), 0);
+  const selEmp = emps.find(e => e.id === f.empId) || null;
+  const fineCalc = (selEmp && f.penaltyType === 'fine') ? fineSuggest(selEmp.baseSalary, f.fineDays, capDays, priorFineDaysMonth(f.empId, (f.date || td).slice(0, 7))) : null;
+  const chargeLate = f.discoveredAt && daysBetween(f.discoveredAt, f.date) > chargeWindow;
+
+  const submit = async () => {
+    if (!branch) return;
+    if (!selEmp) return say('اختر الموظف', 'no');
+    if (!f.code) return say('اختر نوع المخالفة من اللائحة', 'no');
+    if (!String(f.description || '').trim()) return say('اكتب وصف المخالفة', 'no');
+    const month = (f.date || td).slice(0, 7);
+    if (f.penaltyType === 'fine' && lockedThru(org) && month <= lockedThru(org)) return say(LOCK_MSG(month + '-01'), 'no');
+    const fc = f.penaltyType === 'fine' ? fineSuggest(selEmp.baseSalary, f.fineDays, capDays, priorFineDaysMonth(f.empId, month)) : { days: 0, amount: 0 };
+    const rec = {
+      id: uid('cr'), branchId: branch.id, branchName: branch.name, employeeId: selEmp.id, employeeName: selEmp.name,
+      month, date: f.date || td, category: selItem ? selItem.category : '', code: f.code, title: selItem ? selItem.title : '',
+      level: priorActives.length + 1, penaltyType: f.penaltyType, fineDays: fc.days || 0, fineAmount: fc.amount || 0,
+      description: f.description.trim(), discoveredAt: f.discoveredAt || td, investigation: (f.investigation || '').trim(), witnessName: (f.witnessName || '').trim(),
+      status: 'pending', requestedBy: me.id, requestedByName: me.name, requestedAt: nowISO()
+    };
+    const ok = await commit(d => ({ ...d, hrCorrective: [rec, ...(d.hrCorrective || [])] }),
+      { actionType: 'create', targetType: 'corrective_action', targetId: rec.id, branchName: branch.name, title: 'فتح إجراء تأديبي', details: rec.employeeName + ' · ' + rec.title + ' · مستوى ' + rec.level + ' · ' + penTypeAr(rec.penaltyType) + (rec.fineAmount ? ' (' + money(rec.fineAmount) + ' ر.س)' : '') });
+    if (!ok) return;
+    say('سُجِّل الإجراء ✓ — بانتظار الاعتماد المركزي');
+    setF({ ...emptyF, date: f.date, discoveredAt: f.discoveredAt });
+  };
+  const cancelReq = async (r) => {
+    if (r.status !== 'pending') return;
+    if (!window.confirm('إلغاء إجراء «' + r.employeeName + '»؟')) return;
+    await commit(d => ({ ...d, hrCorrective: (d.hrCorrective || []).filter(x => x.id !== r.id) }),
+      { actionType: 'delete', targetType: 'corrective_action', targetId: r.id, branchName: r.branchName, title: 'إلغاء إجراء تأديبي', details: r.employeeName + ' · ' + (r.title || '') });
+    say('أُلغي الإجراء');
+  };
+
+  // ===== ٢) الاعتماد المركزي (+ ترحيل الغرامة لمسيّر الرواتب + إصدار محضر التوقيع) =====
+  const [notes, setNotes] = useState({});
+  const pending = allRecs.filter(r => r.status === 'pending');
+  const decided = allRecs.filter(r => r.status !== 'pending');
+  const decide = async (r, approve) => {
+    if (!canApprove) return;
+    const note = (notes[r.id] || '').trim();
+    if (approve) {
+      const month = r.month || (r.date || '').slice(0, 7);
+      let adv = null, fineAmt = 0;
+      if (r.penaltyType === 'fine') {
+        if (lockedThru(org) && month <= lockedThru(org)) return say(LOCK_MSG(month + '-01'), 'no');
+        const fc = fineSuggest(((org.employees || []).find(e => e.id === r.employeeId) || {}).baseSalary, r.fineDays, capDays, priorFineDaysMonth(r.employeeId, month, r.id));
+        fineAmt = fc.amount;
+        const existing = (ops.advances || []).find(a => a.correctiveId === r.id);
+        adv = existing || {
+          id: uid('ad'), correctiveId: r.id, employeeId: r.employeeId, employeeName: r.employeeName, branchId: r.branchId, branchName: r.branchName,
+          month, date: month + '-28', type: 'discipline_penalty', amount: fineAmt,
+          reason: 'غرامة تأديبية معتمدة: ' + (r.title || '') + ' — مستوى ' + r.level, paymentMethod: 'salary', isUnjustified: false, createdByName: me.name, createdAt: nowISO()
+        };
+        if (existing) adv = { ...existing, amount: fineAmt };
+      }
+      const ok = await commit(d => {
+        const hasAdv = adv ? (d.advances || []).some(a => a.correctiveId === r.id) : false;
+        return {
+          ...d,
+          advances: !adv ? (d.advances || []) : (hasAdv ? (d.advances || []).map(a => a.correctiveId === r.id ? { ...a, amount: fineAmt } : a) : [adv, ...(d.advances || [])]),
+          hrCorrective: (d.hrCorrective || []).map(x => x.id === r.id ? { ...x, status: 'approved', fineAmount: fineAmt, decidedBy: me.id, decidedByName: me.name, decidedAt: nowISO(), decisionNote: note, expiresAt: correctiveExpiry(r.date, eraseDays), advanceId: adv ? adv.id : '', signRefId: r.id } : x),
+          hrSignDocs: (d.hrSignDocs || []).some(x => x.refId === r.id) ? (d.hrSignDocs || []) : [correctiveSignDoc({ ...r, fineAmount: fineAmt }, me), ...(d.hrSignDocs || [])]
+        };
+      }, { actionType: 'approve', targetType: 'corrective_action', targetId: r.id, branchName: r.branchName, title: 'اعتماد إجراء تأديبي', details: r.employeeName + ' · ' + (r.title || '') + ' · ' + penTypeAr(r.penaltyType) + (fineAmt ? ' · غرامة ' + money(fineAmt) + ' ر.س لشهر ' + month : '') + ' · صدر محضر للتوقيع' + (note ? ' · ' + note : '') });
+      if (ok) say('اعتُمد الإجراء ✓' + (fineAmt ? ' ورُحِّلت الغرامة لمسيّر رواتب ' + month : '') + ' وصدر محضر بالعلم للتوقيع');
+    } else {
+      if (!note) return say('اكتب سبب الرفض في الملاحظة', 'no');
+      const ok = await commit(d => ({ ...d, hrCorrective: (d.hrCorrective || []).map(x => x.id === r.id ? { ...x, status: 'rejected', decidedBy: me.id, decidedByName: me.name, decidedAt: nowISO(), decisionNote: note } : x) }),
+        { actionType: 'reject', targetType: 'corrective_action', targetId: r.id, branchName: r.branchName, title: 'رفض إجراء تأديبي', details: r.employeeName + ' · ' + note });
+      if (ok) say('رُفض الإجراء');
+    }
+  };
+  const revertApproval = async (r) => {
+    if (!canApprove || r.status !== 'approved') return;
+    const month = r.month || (r.date || '').slice(0, 7);
+    if (r.penaltyType === 'fine') {
+      const accrued = (ops.ledgerEntries || []).some(x => x.kind === 'salary_accrual' && x.month === month);
+      if (accrued) return say('لا يمكن التراجع: استحقاق رواتب شهر ' + month + ' مُرحَّل للدفتر — عالجه بقيد يدوي', 'no');
+      if (lockedThru(org) && month <= lockedThru(org)) return say(LOCK_MSG(month + '-01'), 'no');
+    }
+    if (!window.confirm('التراجع عن اعتماد إجراء «' + r.employeeName + '»؟ ستُحذف الغرامة إن وُجدت ويعود الإجراء قيد الاعتماد.')) return;
+    const ok = await commit(d => ({
+      ...d,
+      advances: (d.advances || []).filter(a => a.correctiveId !== r.id),
+      hrCorrective: (d.hrCorrective || []).map(x => x.id === r.id ? { ...x, status: 'pending', decidedBy: '', decidedByName: '', decidedAt: '', decisionNote: '', expiresAt: '', advanceId: '' } : x),
+      hrSignDocs: (d.hrSignDocs || []).filter(x => !(x.refId === r.id && x.status === 'pending')).map(x => (x.refId === r.id && x.status === 'signed') ? { ...x, status: 'voided', voidedAt: nowISO(), voidedByName: me.name } : x)
+    }), { actionType: 'update', targetType: 'corrective_action', targetId: r.id, branchName: r.branchName, title: 'التراجع عن اعتماد إجراء تأديبي', details: r.employeeName + ' · ' + (r.title || '') });
+    if (ok) say('تراجعتَ عن الاعتماد — الإجراء قيد الاعتماد مجددًا');
+  };
+  // تظلّم الموظف (خلال objectionDays من الاعتماد) — يُسجَّل ثم يبتّه المركز
+  const [objTxt, setObjTxt] = useState({});
+  const logObjection = async (r) => {
+    const t = (objTxt[r.id] || '').trim(); if (!t) return say('اكتب نص التظلّم', 'no');
+    const ok = await commit(d => ({ ...d, hrCorrective: (d.hrCorrective || []).map(x => x.id === r.id ? { ...x, objection: { at: nowISO(), text: t, decidedNote: '', decidedByName: '', decidedAt: '' } } : x) }),
+      { actionType: 'update', targetType: 'corrective_action', targetId: r.id, branchName: r.branchName, title: 'تسجيل تظلّم موظف', details: r.employeeName + ' · ' + t });
+    if (ok) { say('سُجِّل التظلّم ✓'); setObjTxt(o => ({ ...o, [r.id]: '' })); }
+  };
+  const decideObjection = async (r, note) => {
+    if (!canApprove) return; const n = (note || '').trim(); if (!n) return say('اكتب قرار البتّ في التظلّم', 'no');
+    const ok = await commit(d => ({ ...d, hrCorrective: (d.hrCorrective || []).map(x => x.id === r.id ? { ...x, objection: { ...(x.objection || {}), decidedNote: n, decidedByName: me.name, decidedAt: nowISO() } } : x) }),
+      { actionType: 'update', targetType: 'corrective_action', targetId: r.id, branchName: r.branchName, title: 'البتّ في تظلّم موظف', details: r.employeeName + ' · ' + n });
+    if (ok) say('سُجِّل قرار التظلّم');
+  };
+
+  // ===== ٣) خطط تحسين الأداء (PIP) =====
+  const curYm = td.slice(0, 7);
+  const activePipEmpIds = new Set(allPips.filter(p => p.status === 'active').map(p => p.employeeId));
+  const belowThreshold = branch ? emps.map(e => ({ e, sc: hrScoreFor(org, ops, e, curYm).score })).filter(x => pipTriggered(x.sc, pipThreshold) && !activePipEmpIds.has(x.e.id)) : [];
+  const [pf, setPf] = useState(null);   // نموذج فتح PIP للموظف المحدَّد
+  const openPipForm = (e, sc) => {
+    const end = new Date(td + 'T00:00:00'); end.setDate(end.getDate() + 30);
+    setPf({ empId: e.id, empName: e.name, reason: sc != null ? ('درجة الأداء ' + sc + '/100 دون العتبة ' + pipThreshold) : 'قرار إداري', triggerScore: sc, mentorName: '', startAt: td, endAt: end.toISOString().slice(0, 10), objectives: [{ text: '', metric: '', target: '' }] });
+  };
+  const savePip = async () => {
+    if (!pf || !branch) return;
+    const objs = (pf.objectives || []).filter(o => String(o.text || '').trim()).map(o => ({ text: o.text.trim(), metric: (o.metric || '').trim(), target: (o.target || '').trim() }));
+    if (!objs.length) return say('أضف هدفًا واحدًا على الأقل', 'no');
+    const rec = { id: uid('pip'), branchId: branch.id, branchName: branch.name, employeeId: pf.empId, employeeName: pf.empName, openedAt: nowISO(), reason: pf.reason, triggerScore: pf.triggerScore, triggerMonth: curYm, objectives: objs, mentorName: (pf.mentorName || '').trim(), startAt: pf.startAt, endAt: pf.endAt, reviews: [], status: 'active', outcome: '', closedByName: '', closedAt: '' };
+    const ok = await commit(d => ({ ...d, hrPips: [rec, ...(d.hrPips || [])] }),
+      { actionType: 'create', targetType: 'pip', targetId: rec.id, branchName: branch.name, title: 'فتح خطة تحسين أداء', details: rec.employeeName + ' · ' + objs.length + ' هدف · حتى ' + rec.endAt });
+    if (ok) { say('فُتحت خطة تحسين الأداء ✓'); setPf(null); }
+  };
+  const [rvTxt, setRvTxt] = useState({});
+  const addReview = async (p) => {
+    const v = rvTxt[p.id] || {}; const note = (v.note || '').trim(); const progress = Number(v.progress);
+    if (!note) return say('اكتب ملاحظة المراجعة', 'no');
+    const rev = { at: nowISO(), byName: me.name, note, progress: isNaN(progress) ? null : Math.max(0, Math.min(100, progress)) };
+    const ok = await commit(d => ({ ...d, hrPips: (d.hrPips || []).map(x => x.id === p.id ? { ...x, reviews: [...(x.reviews || []), rev] } : x) }),
+      { actionType: 'update', targetType: 'pip', targetId: p.id, branchName: p.branchName, title: 'مراجعة خطة تحسين أداء', details: p.employeeName + ' · ' + note + (rev.progress != null ? ' · ' + rev.progress + '%' : '') });
+    if (ok) { say('سُجِّلت المراجعة ✓'); setRvTxt(o => ({ ...o, [p.id]: {} })); }
+  };
+  const closePip = async (p, outcome) => {
+    const outAr = { passed: 'ناجحة', failed: 'غير ناجحة', closed: 'مُغلقة' }[outcome] || outcome;
+    if (!window.confirm('إغلاق خطة «' + p.employeeName + '» كـ«' + outAr + '»؟')) return;
+    const ok = await commit(d => ({ ...d, hrPips: (d.hrPips || []).map(x => x.id === p.id ? { ...x, status: outcome, outcome: outAr, closedByName: me.name, closedAt: nowISO() } : x) }),
+      { actionType: 'update', targetType: 'pip', targetId: p.id, branchName: p.branchName, title: 'إغلاق خطة تحسين أداء', details: p.employeeName + ' · ' + outAr });
+    if (ok) say('أُغلقت الخطة (' + outAr + ')');
+  };
+
+  // ===== ٤) اللائحة والنوافذ الزمنية (المركز) =====
+  const [cf, setCf] = useState(() => ({
+    penaltyEraseDays: String(eraseDays), fineCapDaysPerMonth: String(capDays), chargeWindowDays: String(chargeWindow), objectionDays: String(objectionDays), pipTriggerScore: String(pipThreshold),
+    penaltySchedule: schedule.map(s => ({ ...s, ladder: (s.ladder || []).map(l => ({ ...l })) }))
+  }));
+  const saveConfig = async () => {
+    const sched = (cf.penaltySchedule || []).filter(s => String(s.code || '').trim() && String(s.title || '').trim()).map(s => ({
+      code: s.code.trim(), category: (s.category || '').trim(), title: s.title.trim(),
+      ladder: (s.ladder || []).map((l, i) => ({ level: i + 1, penaltyType: l.penaltyType || 'warning', fineDays: Number(l.fineDays) || 0 }))
+    }));
+    const patch = { penaltyEraseDays: Number(cf.penaltyEraseDays) || 180, fineCapDaysPerMonth: Number(cf.fineCapDaysPerMonth) || 5, chargeWindowDays: Number(cf.chargeWindowDays) || 30, objectionDays: Number(cf.objectionDays) || 15, pipTriggerScore: Number(cf.pipTriggerScore) || 60, penaltySchedule: sched };
+    const ok = await commitOrg(d => ({ ...d, hrPolicies: { ...defaultHrPolicies(), ...(d.hrPolicies || {}), ...patch } }),
+      { actionType: 'update', targetType: 'settings', targetId: 'hrPolicies.penalty', title: 'ضبط لائحة الجزاءات والنوافذ الزمنية', details: sched.length + ' مخالفة · محو ' + patch.penaltyEraseDays + 'ي · سقف غرامة ' + patch.fineCapDaysPerMonth + ' أيام · عتبة PIP ' + patch.pipTriggerScore });
+    if (ok) say('حُفظت اللائحة ✓');
+  };
+
+  if (!branch && branches.length === 0) return <div className="card"><div className="empty">لا يوجد فرع مُسند لحسابك — راجع مسؤول النظام.</div></div>;
+
+  const CorrTable = ({ rows, actions }) => (
+    <div className="tw">
+      <table className="tb">
+        <thead><tr><th>الموظف</th>{branches.length > 1 && <th>الفرع</th>}<th>المخالفة</th><th>المستوى</th><th>الجزاء</th><th>الغرامة</th><th>التاريخ</th><th>الحالة</th>{actions && <th />}</tr></thead>
+        <tbody>
+          {rows.map(r => (
+            <tr key={r.id}>
+              <td style={{ fontWeight: 600, fontSize: 12.5 }}>{r.employeeName}</td>
+              {branches.length > 1 && <td style={{ fontSize: 12 }}>{r.branchName}</td>}
+              <td style={{ fontSize: 12 }}>{r.title || '—'}{r.category ? <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{r.category}</div> : null}{r.description ? <div style={{ fontSize: 10.5, color: 'var(--faint)' }}>{r.description}</div> : null}</td>
+              <td className="num">{r.level}</td>
+              <td>{penBadge(r.penaltyType)}</td>
+              <td className="num">{r.penaltyType === 'fine' ? money(r.fineAmount || 0) : '—'}</td>
+              <td className="num" style={{ fontSize: 11.5 }}>{r.date}{r.status === 'approved' && r.expiresAt ? <div style={{ fontSize: 10, color: 'var(--faint)' }}>يُمحى {r.expiresAt}</div> : null}</td>
+              <td>{statusBadge(r.status)}{r.decisionNote ? <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>{r.decisionNote}</div> : null}{r.status === 'approved' && (() => { const sd = (ops.hrSignDocs || []).find(x => x.refId === r.id); return sd ? <div style={{ marginTop: 3 }}><span className={'badge ' + (sd.status === 'signed' ? 'b-mint' : sd.status === 'voided' ? 'b-dim' : 'b-amber')} style={{ fontSize: 9.5 }}><PenLine size={10} />{sd.status === 'signed' ? 'وقّع المحضر' : sd.status === 'voided' ? 'محضر مُلغى' : 'بانتظار توقيع الموظف'}</span></div> : null; })()}{r.objection ? <div style={{ marginTop: 3, fontSize: 10.5, color: 'var(--amber)' }}>تظلّم: {r.objection.text}{r.objection.decidedNote ? <div style={{ color: 'var(--mint)' }}>القرار: {r.objection.decidedNote}</div> : null}</div> : null}</td>
+              {actions && <td>{actions(r)}</td>}
+            </tr>
+          ))}
+          {rows.length === 0 && <tr><td colSpan={branches.length > 1 ? 9 : 8}><div className="empty">لا توجد إجراءات.</div></td></tr>}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  return (
+    <div className="grid" style={{ gap: 12 }}>
+      <div className="card" style={{ padding: '8px 12px' }}>
+        <div className="row" style={{ gap: 6, flexWrap: 'wrap', justifyContent: 'space-between' }}>
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+            <button className={'btn sm' + (view === 'log' ? ' pri' : ' gh')} onClick={() => setView('log')}><ShieldAlert size={13} />الإجراءات التأديبية</button>
+            {canApprove && <button className={'btn sm' + (view === 'queue' ? ' pri' : ' gh')} onClick={() => setView('queue')}><ShieldCheck size={13} />الاعتماد{pending.length ? <span className="badge b-amber" style={{ marginInlineStart: 6 }}>{pending.length}</span> : null}</button>}
+            <button className={'btn sm' + (view === 'pip' ? ' pri' : ' gh')} onClick={() => setView('pip')}><ClipboardCheck size={13} />خطط تحسين الأداء{belowThreshold.length ? <span className="badge b-rose" style={{ marginInlineStart: 6 }}>{belowThreshold.length}</span> : null}</button>
+            {canConfig && <button className={'btn sm' + (view === 'schedule' ? ' pri' : ' gh')} onClick={() => setView('schedule')}><Scale size={13} />اللائحة</button>}
+          </div>
+          {branches.length > 1 && view !== 'schedule' && (
+            <select className="inp sel" style={{ width: 180 }} value={branchId} onChange={e => setBranchId(e.target.value)}>
+              {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          )}
+        </div>
+      </div>
+
+      {view === 'log' && branch && (
+        <div className="grid" style={{ gap: 12 }}>
+          {canRequest && (
+            <div className="card">
+              <div className="card-t" style={{ marginBottom: 8 }}><ShieldAlert size={15} color="var(--brass)" />فتح إجراء تأديبي — {branch.name}</div>
+              <div className="note" style={{ marginBottom: 8 }}>يُحدَّد الجزاء تلقائيًا حسب سلّم اللائحة وعدد المخالفات السابقة السارية للموظف (تُمحى بعد {eraseDays} يومًا). لا أثر مالي قبل الاعتماد المركزي؛ بعد الاعتماد يصدر محضر بالعلم يوقّعه الموظف من كشك الفرع، وتُرحَّل الغرامة — إن وُجدت — لمسيّر الرواتب.</div>
+              <div className="grid g3">
+                <Field label="الموظف"><select className="inp sel" value={f.empId} onChange={e => setF(x => ({ ...x, empId: e.target.value }))}><option value="">اختر</option>{emps.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select></Field>
+                <Field label="المخالفة (من اللائحة)"><select className="inp sel" value={f.code} onChange={e => setF(x => ({ ...x, code: e.target.value }))}><option value="">اختر</option>{schedule.map(s => <option key={s.code} value={s.code}>{s.title} ({s.category})</option>)}</select></Field>
+                <Field label="تاريخ المخالفة"><input type="date" className="inp" value={f.date} onChange={e => setF(x => ({ ...x, date: e.target.value }))} /></Field>
+                <Field label="نوع الجزاء"><select className="inp sel" value={f.penaltyType} onChange={e => setF(x => ({ ...x, penaltyType: e.target.value }))}>{PEN_TYPES.map(t => <option key={t.k} value={t.k}>{t.ar}</option>)}</select></Field>
+                {f.penaltyType === 'fine' && <Field label="أيام الغرامة (أجر)"><input className="inp n" inputMode="decimal" value={f.fineDays} onChange={e => setF(x => ({ ...x, fineDays: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>}
+                <Field label="تاريخ اكتشاف المخالفة"><input type="date" className="inp" value={f.discoveredAt} onChange={e => setF(x => ({ ...x, discoveredAt: e.target.value }))} /></Field>
+                <Field label="وصف المخالفة (إلزامي)" style={{ gridColumn: 'span 2' }}><input className="inp" value={f.description} onChange={e => setF(x => ({ ...x, description: e.target.value }))} placeholder="ماذا حدث بالتحديد ومتى وأين" /></Field>
+                <Field label="الشاهد (اختياري)"><input className="inp" value={f.witnessName} onChange={e => setF(x => ({ ...x, witnessName: e.target.value }))} /></Field>
+                <Field label="التحقيق ودفاع الموظف (محضر — نظام العمل)" style={{ gridColumn: 'span 3' }}><textarea className="inp" rows={2} value={f.investigation} onChange={e => setF(x => ({ ...x, investigation: e.target.value }))} placeholder="ما أُبلِغ به الموظف كتابةً، واستجوابه، ودفاعه — يُثبَت في المحضر" /></Field>
+              </div>
+              {(suggestion || priorActives.length > 0 || fineCalc || chargeLate) && (
+                <div className="card" style={{ padding: 10, marginTop: 8, background: 'rgba(200,162,74,.06)', fontSize: 12, lineHeight: 1.9 }}>
+                  {priorActives.length > 0 && <div>سجل ساري لهذه المخالفة: <b>{priorActives.length}</b> جزاء سابق ⇒ هذا هو المستوى <b>{priorActives.length + 1}</b>.</div>}
+                  {priorActives.length === 0 && <div>لا جزاء ساري سابق لهذه المخالفة ⇒ المستوى <b>الأول</b>.</div>}
+                  {suggestion && <div>اقتراح اللائحة: <b>{penTypeAr(suggestion.penaltyType)}</b>{suggestion.overflow ? ' (تجاوز أعلى درجات السلّم — راجع اللائحة)' : ''}.</div>}
+                  {fineCalc && <div>الغرامة: {fineCalc.days} يوم أجر × {money(fineCalc.dw)} = <b>{money(fineCalc.amount)} ر.س</b>{fineCalc.capped ? <span style={{ color: 'var(--rose)' }}> — محدودة بسقف {capDays} أيام أجر شهريًا (المتبقي هذا الشهر {fineCalc.remaining} يوم)</span> : ''}.</div>}
+                  {chargeLate && <div style={{ color: 'var(--rose)' }}>⚠ مضى أكثر من {chargeWindow} يومًا بين اكتشاف المخالفة وتاريخها — قد تسقط المؤاخذة نظامًا (المادة ٦٩).</div>}
+                </div>
+              )}
+              <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}><button className="btn pri" onClick={submit}><Send size={14} />إرسال للاعتماد</button></div>
+            </div>
+          )}
+          <div className="card">
+            <div className="card-t" style={{ marginBottom: 8 }}>سجل إجراءات {branch.name}</div>
+            <CorrTable rows={allRecs.filter(r => r.branchId === branch.id)} actions={(r) => (
+              <div className="grid" style={{ gap: 4, minWidth: 150 }}>
+                {r.status === 'pending' && canRequest && (r.requestedBy === me.id || isAll) && <button className="btn sm gh" onClick={() => cancelReq(r)}><Trash2 size={13} />إلغاء</button>}
+                {r.status === 'approved' && !r.objection && daysBetween((r.decidedAt || '').slice(0, 10), td) <= objectionDays && (
+                  <><input className="inp" style={{ fontSize: 11 }} placeholder={'تظلّم (خلال ' + objectionDays + ' يوم)'} value={objTxt[r.id] || ''} onChange={e => setObjTxt(o => ({ ...o, [r.id]: e.target.value }))} /><button className="btn sm gh" onClick={() => logObjection(r)}>تسجيل تظلّم</button></>
+                )}
+                {r.status === 'approved' && r.objection && !r.objection.decidedNote && canApprove && (
+                  <><input className="inp" style={{ fontSize: 11 }} placeholder="قرار البتّ" value={notes['obj-' + r.id] || ''} onChange={e => setNotes(n => ({ ...n, ['obj-' + r.id]: e.target.value }))} /><button className="btn sm gh" onClick={() => decideObjection(r, notes['obj-' + r.id])}>بتّ التظلّم</button></>
+                )}
+              </div>
+            )} />
+          </div>
+        </div>
+      )}
+
+      {view === 'queue' && canApprove && (
+        <div className="grid" style={{ gap: 12 }}>
+          <div className="card">
+            <div className="card-t" style={{ marginBottom: 8 }}><ShieldCheck size={15} color="var(--brass)" />اعتماد الإجراءات التأديبية — {pending.length} قيد الانتظار (كل فروعي)</div>
+            <div className="note" style={{ marginBottom: 8 }}>الاعتماد يُثبِّت مدة محو الجزاء، ويصدر محضرًا بالعلم للتوقيع الإلكتروني، ويُرحِّل الغرامة (إن وُجدت) لمسيّر رواتب الشهر — بسقف {capDays} أيام أجر شهريًا.</div>
+            <CorrTable rows={pending} actions={(r) => (
+              <div className="grid" style={{ gap: 5, minWidth: 190 }}>
+                <input className="inp" placeholder="ملاحظة القرار (إلزامية للرفض)" value={notes[r.id] || ''} onChange={e => setNotes(n => ({ ...n, [r.id]: e.target.value }))} />
+                <div className="row" style={{ gap: 5, justifyContent: 'flex-end' }}>
+                  <button className="btn sm pri" onClick={() => decide(r, true)}><Check size={13} />اعتماد</button>
+                  <button className="btn sm gh" onClick={() => decide(r, false)}><X size={13} />رفض</button>
+                </div>
+              </div>
+            )} />
+          </div>
+          <div className="card">
+            <div className="card-t" style={{ marginBottom: 8 }}>سجل القرارات</div>
+            <CorrTable rows={decided} actions={(r) => (r.status === 'approved' ? <button className="btn sm gh" title="التراجع عن الاعتماد" onClick={() => revertApproval(r)}><X size={13} />تراجع</button> : null)} />
+          </div>
+        </div>
+      )}
+
+      {view === 'pip' && branch && (
+        <div className="grid" style={{ gap: 12 }}>
+          <div className="card">
+            <div className="card-t" style={{ marginBottom: 8 }}><ClipboardCheck size={15} color="var(--brass)" />خطط تحسين الأداء — {branch.name}</div>
+            <div className="note" style={{ marginBottom: 8 }}>خطة تحسين الأداء بديل تطويري عن الجزاء: أهداف قابلة للقياس ومدة ومراجعات دورية. تُقترح تلقائيًا لمن درجته (م٧) لشهر {ymLabel(curYm)} دون العتبة {pipThreshold} وليست لديه خطة نشطة.</div>
+            {belowThreshold.length > 0 ? (
+              <div className="grid g3">
+                {belowThreshold.map(({ e, sc }) => (
+                  <div key={e.id} className="card" style={{ padding: 10, border: '1px solid var(--frame-o)' }}>
+                    <div style={{ fontWeight: 700, fontSize: 13 }}>{e.name}</div>
+                    <div style={{ marginTop: 4 }}><span className="badge b-rose">درجة {sc}/100</span></div>
+                    <button className="btn sm pri" style={{ marginTop: 8 }} onClick={() => openPipForm(e, sc)}><Plus size={13} />فتح خطة</button>
+                  </div>
+                ))}
+              </div>
+            ) : <div className="empty">لا موظفين دون العتبة لهذا الشهر — أو خططهم نشطة. يمكنك فتح خطة يدويًا لأي موظف.</div>}
+            <div className="row" style={{ marginTop: 10, gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <Field label="فتح خطة يدويًا لموظف"><select className="inp sel" style={{ width: 200 }} value={(pf && pf.manualSel) || ''} onChange={e => { const emp = emps.find(x => x.id === e.target.value); if (emp) openPipForm(emp, hrScoreFor(org, ops, emp, curYm).score); }}><option value="">اختر موظفًا</option>{emps.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select></Field>
+            </div>
+          </div>
+
+          {pf && (
+            <div className="card">
+              <div className="card-t" style={{ marginBottom: 8 }}><ClipboardCheck size={15} color="var(--brass)" />خطة تحسين أداء — {pf.empName}</div>
+              <div className="grid g3">
+                <Field label="السبب"><input className="inp" value={pf.reason} onChange={e => setPf(x => ({ ...x, reason: e.target.value }))} /></Field>
+                <Field label="المسؤول/الموجّه"><input className="inp" value={pf.mentorName} onChange={e => setPf(x => ({ ...x, mentorName: e.target.value }))} /></Field>
+                <Field label="من"><input type="date" className="inp" value={pf.startAt} onChange={e => setPf(x => ({ ...x, startAt: e.target.value }))} /></Field>
+                <Field label="إلى"><input type="date" className="inp" value={pf.endAt} onChange={e => setPf(x => ({ ...x, endAt: e.target.value }))} /></Field>
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 600, margin: '10px 0 4px' }}>الأهداف القابلة للقياس</div>
+              <div className="grid" style={{ gap: 6 }}>
+                {pf.objectives.map((o, i) => (
+                  <div key={i} className="row" style={{ gap: 6, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                    <Field label="الهدف" style={{ flex: 2, minWidth: 180 }}><input className="inp" value={o.text} onChange={e => setPf(x => ({ ...x, objectives: x.objectives.map((y, j) => j === i ? { ...y, text: e.target.value } : y) }))} /></Field>
+                    <Field label="المقياس"><input className="inp" value={o.metric} onChange={e => setPf(x => ({ ...x, objectives: x.objectives.map((y, j) => j === i ? { ...y, metric: e.target.value } : y) }))} /></Field>
+                    <Field label="المستهدف"><input className="inp" value={o.target} onChange={e => setPf(x => ({ ...x, objectives: x.objectives.map((y, j) => j === i ? { ...y, target: e.target.value } : y) }))} /></Field>
+                    <button className="btn sm gh" onClick={() => setPf(x => ({ ...x, objectives: x.objectives.filter((_, j) => j !== i) }))}><Trash2 size={13} /></button>
+                  </div>
+                ))}
+                <div><button className="btn sm gh" onClick={() => setPf(x => ({ ...x, objectives: [...x.objectives, { text: '', metric: '', target: '' }] }))}><Plus size={13} />هدف</button></div>
+              </div>
+              <div className="row" style={{ justifyContent: 'flex-end', gap: 6, marginTop: 10 }}>
+                <button className="btn gh" onClick={() => setPf(null)}>إلغاء</button>
+                <button className="btn pri" onClick={savePip}><Check size={14} />فتح الخطة</button>
+              </div>
+            </div>
+          )}
+
+          <div className="card">
+            <div className="card-t" style={{ marginBottom: 8 }}>الخطط النشطة والمغلقة — {branch.name}</div>
+            <div className="grid" style={{ gap: 10 }}>
+              {allPips.filter(p => p.branchId === branch.id).map(p => (
+                <div key={p.id} className="card" style={{ padding: 12, border: '1px solid var(--frame-o)' }}>
+                  <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                    <div><b>{p.employeeName}</b> <span className="badge b-dim" style={{ fontSize: 10 }}>{p.startAt} ← {p.endAt}</span></div>
+                    <span className={'badge ' + (p.status === 'active' ? 'b-amber' : p.status === 'passed' ? 'b-mint' : p.status === 'failed' ? 'b-rose' : 'b-dim')}>{p.status === 'active' ? 'نشطة' : p.outcome || p.status}</span>
+                  </div>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>{p.reason}{p.mentorName ? ' · الموجّه: ' + p.mentorName : ''}</div>
+                  <ul style={{ margin: '6px 0', paddingInlineStart: 18, fontSize: 12 }}>{p.objectives.map((o, i) => <li key={i}>{o.text}{o.metric ? ' — ' + o.metric : ''}{o.target ? ' (' + o.target + ')' : ''}</li>)}</ul>
+                  {(p.reviews || []).length > 0 && <div style={{ fontSize: 11, color: 'var(--dim)', borderTop: '1px dashed var(--frame-o)', paddingTop: 6 }}>{p.reviews.map((rv, i) => <div key={i}>• {(rv.at || '').slice(0, 10)} — {rv.note}{rv.progress != null ? ' (' + rv.progress + '%)' : ''} — {rv.byName}</div>)}</div>}
+                  {p.status === 'active' && (
+                    <div className="row" style={{ gap: 6, marginTop: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                      <Field label="مراجعة" style={{ flex: 2, minWidth: 160 }}><input className="inp" value={(rvTxt[p.id] || {}).note || ''} onChange={e => setRvTxt(o => ({ ...o, [p.id]: { ...(o[p.id] || {}), note: e.target.value } }))} /></Field>
+                      <Field label="التقدّم %"><input className="inp n" inputMode="numeric" style={{ width: 80 }} value={(rvTxt[p.id] || {}).progress || ''} onChange={e => setRvTxt(o => ({ ...o, [p.id]: { ...(o[p.id] || {}), progress: e.target.value.replace(/\D/g, '') } }))} /></Field>
+                      <button className="btn sm gh" onClick={() => addReview(p)}><Plus size={13} />مراجعة</button>
+                      <div className="row" style={{ gap: 4 }}>
+                        <button className="btn sm pri" onClick={() => closePip(p, 'passed')}>ناجحة</button>
+                        <button className="btn sm gh" onClick={() => closePip(p, 'failed')}>غير ناجحة</button>
+                        <button className="btn sm gh" onClick={() => closePip(p, 'closed')}>إغلاق</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+              {allPips.filter(p => p.branchId === branch.id).length === 0 && <div className="empty">لا خطط بعد.</div>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {view === 'schedule' && canConfig && (
+        <div className="grid" style={{ gap: 12 }}>
+          <div className="card">
+            <div className="card-t" style={{ marginBottom: 6 }}><Scale size={15} color="var(--brass)" />النوافذ الزمنية (نظام العمل — قابلة للضبط)</div>
+            <div className="note" style={{ marginBottom: 8 }}>القيم الافتراضية مبنية على نظام العمل السعودي؛ عدّلوها لتطابق لائحة تنظيم العمل المسجّلة لمنشأتكم لدى وزارة الموارد البشرية — هي المرجع الملزم.</div>
+            <div className="grid g3">
+              <Field label="محو الجزاء بعد (يوم)"><input className="inp n" inputMode="numeric" value={cf.penaltyEraseDays} onChange={e => setCf(x => ({ ...x, penaltyEraseDays: e.target.value.replace(/\D/g, '') }))} /></Field>
+              <Field label="سقف الغرامة الشهري (أيام أجر)"><input className="inp n" inputMode="numeric" value={cf.fineCapDaysPerMonth} onChange={e => setCf(x => ({ ...x, fineCapDaysPerMonth: e.target.value.replace(/\D/g, '') }))} /></Field>
+              <Field label="مهلة المؤاخذة من الاكتشاف (يوم)"><input className="inp n" inputMode="numeric" value={cf.chargeWindowDays} onChange={e => setCf(x => ({ ...x, chargeWindowDays: e.target.value.replace(/\D/g, '') }))} /></Field>
+              <Field label="مهلة تظلّم الموظف (يوم)"><input className="inp n" inputMode="numeric" value={cf.objectionDays} onChange={e => setCf(x => ({ ...x, objectionDays: e.target.value.replace(/\D/g, '') }))} /></Field>
+              <Field label="عتبة اقتراح خطة تحسين الأداء (من 100)"><input className="inp n" inputMode="numeric" value={cf.pipTriggerScore} onChange={e => setCf(x => ({ ...x, pipTriggerScore: e.target.value.replace(/\D/g, '') }))} /></Field>
+            </div>
+          </div>
+          <div className="card">
+            <div className="card-t" style={{ marginBottom: 6 }}><Scale size={15} color="var(--brass)" />لائحة المخالفات وسلّم الجزاءات</div>
+            <div className="grid" style={{ gap: 10 }}>
+              {cf.penaltySchedule.map((s, si) => (
+                <div key={si} className="card" style={{ padding: 10, border: '1px solid var(--frame-o)' }}>
+                  <div className="row" style={{ gap: 6, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                    <Field label="الرمز"><input className="inp" style={{ width: 90 }} value={s.code} onChange={e => setCf(x => ({ ...x, penaltySchedule: x.penaltySchedule.map((y, j) => j === si ? { ...y, code: e.target.value } : y) }))} /></Field>
+                    <Field label="التصنيف"><input className="inp" style={{ width: 120 }} value={s.category} onChange={e => setCf(x => ({ ...x, penaltySchedule: x.penaltySchedule.map((y, j) => j === si ? { ...y, category: e.target.value } : y) }))} /></Field>
+                    <Field label="المخالفة" style={{ flex: 2, minWidth: 180 }}><input className="inp" value={s.title} onChange={e => setCf(x => ({ ...x, penaltySchedule: x.penaltySchedule.map((y, j) => j === si ? { ...y, title: e.target.value } : y) }))} /></Field>
+                    <button className="btn sm gh" onClick={() => setCf(x => ({ ...x, penaltySchedule: x.penaltySchedule.filter((_, j) => j !== si) }))}><Trash2 size={13} /></button>
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--dim)', margin: '6px 0 4px' }}>سلّم الجزاء بالتكرار (المستوى ١ = أول مرة):</div>
+                  <div className="grid" style={{ gap: 4 }}>
+                    {(s.ladder || []).map((l, li) => (
+                      <div key={li} className="row" style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <span className="badge b-dim">{li + 1}</span>
+                        <select className="inp sel" style={{ width: 200 }} value={l.penaltyType} onChange={e => setCf(x => ({ ...x, penaltySchedule: x.penaltySchedule.map((y, j) => j === si ? { ...y, ladder: y.ladder.map((z, k) => k === li ? { ...z, penaltyType: e.target.value } : z) } : y) }))}>{PEN_TYPES.map(t => <option key={t.k} value={t.k}>{t.ar}</option>)}</select>
+                        {l.penaltyType === 'fine' && <input className="inp n" style={{ width: 90 }} inputMode="decimal" placeholder="أيام أجر" value={l.fineDays} onChange={e => setCf(x => ({ ...x, penaltySchedule: x.penaltySchedule.map((y, j) => j === si ? { ...y, ladder: y.ladder.map((z, k) => k === li ? { ...z, fineDays: e.target.value.replace(/[^\d.]/g, '') } : z) } : y) }))} />}
+                        <button className="btn sm gh" onClick={() => setCf(x => ({ ...x, penaltySchedule: x.penaltySchedule.map((y, j) => j === si ? { ...y, ladder: y.ladder.filter((_, k) => k !== li) } : y) }))}><X size={12} /></button>
+                      </div>
+                    ))}
+                    <div><button className="btn sm gh" onClick={() => setCf(x => ({ ...x, penaltySchedule: x.penaltySchedule.map((y, j) => j === si ? { ...y, ladder: [...(y.ladder || []), { level: (y.ladder || []).length + 1, penaltyType: 'warning', fineDays: 0 }] } : y) }))}><Plus size={12} />درجة</button></div>
+                  </div>
+                </div>
+              ))}
+              <div><button className="btn sm gh" onClick={() => setCf(x => ({ ...x, penaltySchedule: [...x.penaltySchedule, { code: '', category: '', title: '', ladder: [{ level: 1, penaltyType: 'verbal', fineDays: 0 }] }] }))}><Plus size={13} />مخالفة</button></div>
+            </div>
+            <div className="row" style={{ justifyContent: 'flex-end', marginTop: 12 }}><button className="btn pri" onClick={saveConfig}><Check size={14} />حفظ اللائحة</button></div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 // ===== م٩ — تفصيل حضور موظف لفترة (مُشتقّ، لا يُخزَّن): أيام مجدولة، حضور، تأخير بالدقائق، غياب، انصراف مبكر =====
 function hrAttendanceDetail(org, ops, emp, from, to) {
   const policies = { ...defaultHrPolicies(), ...(org.hrPolicies || {}) };
@@ -11400,7 +11926,7 @@ function HrDashboard({ org, ops, me, myBranches, say, setTab }) {
    الإصدار: المركز (تسجيل صرف الرواتب / اعتماد مكافأة أو جزاء). التوقيع: كشك الفرع بعد التحقق بـPIN، أو من المكتب.
    ============================================================================================================ */
 const SIG_W = 400, SIG_H = 160;
-const SIGN_DOC_AR = { payslip: 'إقرار استلام راتب', reward: 'إشعار مكافأة', penalty: 'إشعار جزاء' };
+const SIGN_DOC_AR = { payslip: 'إقرار استلام راتب', reward: 'إشعار مكافأة', penalty: 'إشعار جزاء', corrective: 'محضر إجراء تأديبي' };
 const escH = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 // تبسيط المسارات: تقريب لأعداد صحيحة داخل الإطار وإسقاط النقاط الأقرب من minDist إلى آخر نقطة محفوظة (تصغير الحجم المخزَّن بلا أثر مرئي)
@@ -11470,6 +11996,7 @@ function signDeclaration(doc) {
   const m = money(doc.amount || 0);
   if (doc.docType === 'payslip') return 'أقرّ أنا ' + doc.employeeName + ' باستلام صافي راتبي عن شهر ' + doc.month + ' وقدره ' + m + ' ر.س بعد السلف والخصومات الموضّحة، وبأنه لا مطالبة لي عن هذا الشهر.';
   if (doc.docType === 'reward') return 'أقرّ أنا ' + doc.employeeName + ' بالعلم باعتماد مكافأة قدرها ' + m + ' ر.س تُضاف إلى راتب شهر ' + doc.month + (doc.reason ? ' — السبب: ' + doc.reason : '') + '.';
+  if (doc.docType === 'corrective') return 'أقرّ أنا ' + doc.employeeName + ' بالعلم بالإجراء التأديبي: ' + (doc.reason || doc.title || '') + (doc.amount ? ' — بغرامة قدرها ' + m + ' ر.س تُخصم من راتب شهر ' + doc.month : '') + '، وقد أُبلِغتُ به واستُجوِبتُ، مع احتفاظي بحق التظلّم خلال المدة النظامية.';
   return 'أقرّ أنا ' + doc.employeeName + ' بالعلم بتوقيع جزاء قدره ' + m + ' ر.س يُخصم من راتب شهر ' + doc.month + (doc.reason ? ' — السبب: ' + doc.reason : '') + '، مع احتفاظي بحق التظلّم وفق النظام.';
 }
 // مستندات معلّقة تجاوزت مهلة التذكير (hrPolicies.signReminderDays) — لمركز التنبيهات
@@ -11502,7 +12029,9 @@ function signDocHtml(doc, showAmounts) {
       <tr class="tot"><td>صافي المستلم</td><td class="n">${m(L.net)}</td></tr></tbody></table>`
       : `<table><tbody><tr><td>شهر الراتب</td><td class="n">${escH(doc.month)}</td></tr><tr><td>صافي المستلم</td><td class="n">${m(doc.amount)}</td></tr></tbody></table>`;
   } else {
-    body = `<table><tbody><tr><td>النوع</td><td>${SIGN_DOC_AR[doc.docType] || ''}</td></tr><tr><td>المبلغ</td><td class="n">${m(doc.amount)}</td></tr><tr><td>شهر الراتب</td><td class="n">${escH(doc.month)}</td></tr><tr><td>السبب</td><td>${escH(doc.reason) || '—'}</td></tr></tbody></table>`;
+    body = doc.docType === 'corrective'
+      ? `<table><tbody><tr><td>الإجراء</td><td>${escH(doc.title || 'محضر إجراء تأديبي')}</td></tr>${doc.amount ? `<tr><td>الغرامة</td><td class="n">${m(doc.amount)}</td></tr>` : ''}<tr><td>الشهر</td><td class="n">${escH(doc.month)}</td></tr><tr><td>البيان</td><td>${escH(doc.reason) || '—'}</td></tr></tbody></table>`
+      : `<table><tbody><tr><td>النوع</td><td>${SIGN_DOC_AR[doc.docType] || ''}</td></tr><tr><td>المبلغ</td><td class="n">${m(doc.amount)}</td></tr><tr><td>شهر الراتب</td><td class="n">${escH(doc.month)}</td></tr><tr><td>السبب</td><td>${escH(doc.reason) || '—'}</td></tr></tbody></table>`;
   }
   const signed = doc.status === 'signed';
   const sigPart = signed
@@ -11648,12 +12177,12 @@ function SignDocsModal({ org, ops, me, emp, docs, onClose, commit, say, via }) {
       {step === 'sign' && doc && (
         <div className="grid" style={{ gap: 10 }}>
           <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
-            <span className={'badge ' + (doc.docType === 'penalty' ? 'b-rose' : doc.docType === 'reward' ? 'b-mint' : 'b-brass')}>{SIGN_DOC_AR[doc.docType]} · شهر {doc.month}</span>
+            <span className={'badge ' + ((doc.docType === 'penalty' || doc.docType === 'corrective') ? 'b-rose' : doc.docType === 'reward' ? 'b-mint' : 'b-brass')}>{SIGN_DOC_AR[doc.docType]} · شهر {doc.month}</span>
             <span className="badge b-dim">المستند {idx + 1} من {list.length}</span>
           </div>
           <div className="card" style={{ padding: 12, border: '1px solid var(--frame-o)' }}>
-            <div style={{ fontSize: 12.5, color: 'var(--dim)' }}>{doc.docType === 'payslip' ? 'صافي المستلم' : 'المبلغ'}</div>
-            <div className="num" style={{ fontSize: 24, fontWeight: 800, color: doc.docType === 'penalty' ? 'var(--rose)' : 'var(--mint)' }}>{money(doc.amount)} <span style={{ fontSize: 12, fontWeight: 400 }}>ر.س</span></div>
+            <div style={{ fontSize: 12.5, color: 'var(--dim)' }}>{doc.docType === 'payslip' ? 'صافي المستلم' : doc.docType === 'corrective' ? 'الغرامة' : 'المبلغ'}</div>
+            <div className="num" style={{ fontSize: 24, fontWeight: 800, color: (doc.docType === 'penalty' || doc.docType === 'corrective') ? 'var(--rose)' : 'var(--mint)' }}>{doc.docType === 'corrective' && !doc.amount ? <span style={{ fontSize: 15, fontWeight: 700 }}>بلا غرامة مالية</span> : <>{money(doc.amount)} <span style={{ fontSize: 12, fontWeight: 400 }}>ر.س</span></>}</div>
             {doc.docType === 'payslip' && (
               <div className="grid g2" style={{ gap: 4, marginTop: 8, fontSize: 12 }}>
                 <div>الأساسي: <b className="num">{money(L.base)}</b></div><div>البدلات: <b className="num">{money(L.allow)}</b></div>
@@ -11804,6 +12333,7 @@ function ESign({ org, ops, me, myBranches, commit, say }) {
               <option value="payslip">إقرارات الراتب</option>
               <option value="reward">إشعارات المكافآت</option>
               <option value="penalty">إشعارات الجزاءات</option>
+              <option value="corrective">محاضر الإجراءات التأديبية</option>
             </select>
             <select className="inp sel" style={{ width: 150 }} value={logStatus} onChange={e => setLogStatus(e.target.value)}>
               <option value="">كل الحالات</option>
