@@ -11,7 +11,18 @@ service cloud.firestore {
 
     function isMember() {
       return realUser()
-        && exists(/databases/$(database)$(userEmail())).data;
+        && exists(/databases/$(database)/documents/members/$(userEmail()))
+        && get(/databases/$(database)/documents/members/$(userEmail())).data.active == true;
+    }
+
+    function isAdmin() {
+      return realUser()
+        && exists(/databases/$(database)/documents/platform/admins)
+        && (userEmail() in get(/databases/$(database)/documents/platform/admins).data.emails);
+    }
+
+    function memberData() {
+      return get(/databases/$(database)/documents/members/$(userEmail())).data;
     }
 
     function isCentral() {
@@ -65,13 +76,60 @@ service cloud.firestore {
         && (!isBranchDoc(docId) || canBranch(branchIdOf(docId)));
 
       allow write: if isMember()
+        && docId != 'admins'
         && (!isOrgDoc(docId)    || isAdmin())
         && (!isCoreDoc(docId)   || isCentral() || isAdmin())
         && (!isBranchDoc(docId) || canBranch(branchIdOf(docId)))
         && (docId != 'rms8_dir' || isAdmin())
         && (docId != 'rms8_pulse' || pulseAuditSafe());
     }
+    /* ===== v28.0 — وحدة تقييم العملاء بالـ QR ===== */
+    function validRating(v) { return v is int && v >= 1 && v <= 5; }
+    function shortOrNull(v) { return v == null || (v is string && v.size() <= 20); }
+    function qrBranchOpen(bId) {
+      return bId is string && bId.matches('^[A-Za-z0-9_-]{1,80}$')
+        && exists(/databases/$(database)/documents/qr_branches/$(bId))
+        && get(/databases/$(database)/documents/qr_branches/$(bId)).data.active == true;
+    }
 
+    match /qr_branches/{branchId} {
+      allow read: if true;
+      allow create, update: if isMember() && (isAdmin() || isCentral())
+        && request.resource.data.keys().hasOnly(['name', 'company', 'active', 'updatedAt'])
+        && request.resource.data.name is string && request.resource.data.name.size() <= 80
+        && request.resource.data.active is bool;
+      allow delete: if isAdmin();
+    }
+
+    match /qr_feedback/{id} {
+      allow create: if request.resource.data.keys().hasOnly(['branchId', 'ratings', 'comment', 'tableNo', 'invoiceNo', 'source', 'createdAt'])
+        && request.resource.data.keys().hasAll(['branchId', 'ratings', 'comment', 'tableNo', 'invoiceNo', 'source', 'createdAt'])
+        && qrBranchOpen(request.resource.data.branchId)
+        && request.resource.data.ratings is map
+        && request.resource.data.ratings.keys().hasOnly(['quality', 'taste', 'temp', 'size', 'staff', 'speed', 'pro', 'clean', 'vibe', 'comfort'])
+        && request.resource.data.ratings.keys().hasAll(['quality', 'taste', 'temp', 'size', 'staff', 'speed', 'pro', 'clean', 'vibe', 'comfort'])
+        && validRating(request.resource.data.ratings.quality)
+        && validRating(request.resource.data.ratings.taste)
+        && validRating(request.resource.data.ratings.temp)
+        && validRating(request.resource.data.ratings.size)
+        && validRating(request.resource.data.ratings.staff)
+        && validRating(request.resource.data.ratings.speed)
+        && validRating(request.resource.data.ratings.pro)
+        && validRating(request.resource.data.ratings.clean)
+        && validRating(request.resource.data.ratings.vibe)
+        && validRating(request.resource.data.ratings.comfort)
+        && request.resource.data.comment is string
+        && request.resource.data.comment.size() <= 1000
+        && shortOrNull(request.resource.data.tableNo)
+        && shortOrNull(request.resource.data.invoiceNo)
+        && request.resource.data.source == 'qr'
+        && request.resource.data.createdAt == request.time;
+      allow read: if isMember() && canBranch(resource.data.branchId);
+      allow update: if isMember() && canBranch(resource.data.branchId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'notes', 'resolvedAt', 'updatedAt', 'ai', 'aiError'])
+        && (!('status' in request.resource.data) || request.resource.data.status in ['new', 'in_progress', 'resolved']);
+      allow delete: if isAdmin();
+    }
     match /{document=**} {
       allow read, write: if false;
     }
