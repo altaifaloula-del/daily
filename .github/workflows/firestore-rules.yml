@@ -3,7 +3,7 @@ name: نشر قواعد أمان Firestore
 on:
   push:
     branches: [main]
-    paths: ['firestore.rules']
+    paths: ['firestore.rules', 'firestore.indexes.json']
   workflow_dispatch:
 
 jobs:
@@ -23,6 +23,6 @@ jobs:
           fi
           echo "$SA" > "$RUNNER_TEMP/sa.json"
           echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/sa.json" >> $GITHUB_ENV
-      - name: نشر القواعد
+      - name: نشر القواعد والفهارس
         if: env.GOOGLE_APPLICATION_CREDENTIALS != ''
-        run: npx --yes firebase-tools@13 deploy --only firestore:rules --project "${{ secrets.VITE_FIREBASE_PROJECT_ID }}"
+        run: npx --yes firebase-tools@13 deploy --only firestore:rules,firestore:indexes --project "${{ secrets.VITE_FIREBASE_PROJECT_ID }}"
