@@ -15,7 +15,7 @@ import {
   assertFails,
   assertSucceeds
 } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, deleteDoc, addDoc, collection, serverTimestamp } from 'firebase/firestore';
 
 let env;
 const OWNER = 'owner@test.com';      // مدير (ضمن platform/admins)
@@ -189,4 +189,63 @@ test('rms8_pulse: أي عضو نشط يقرأ/يكتب، لكن لا يُقلَ�
   await assertFails(setDoc(doc(brB(), 'platform', 'rms8_pulse'), { presence: {}, audit: [{ a: 1 }] }));
   // المدير وحده يقدر يقلّص السجل عند الحاجة
   await assertSucceeds(setDoc(doc(owner(), 'platform', 'rms8_pulse'), { presence: {}, audit: [] }));
+});
+
+/* ===== v28.0 — وحدة تقييم العملاء بالـ QR (qr_branches / qr_feedback) ===== */
+const RATINGS = { quality: 5, taste: 4, temp: 4, size: 5, staff: 3, speed: 2, pro: 4, clean: 5, vibe: 4, comfort: 4 };
+const fbDoc = (over) => ({ branchId: 'b-AAA', ratings: { ...RATINGS }, comment: 'ممتاز', tableNo: '7', invoiceNo: null, source: 'qr', createdAt: serverTimestamp(), ...over });
+
+test('QR: تهيئة بيانات الوحدة', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    const d = db(ctx);
+    await setDoc(doc(d, 'platform', 'admins'), { emails: [OWNER] });   // اختبار التمهيد أعلاه يستبدل قائمة المدراء
+    await setDoc(doc(d, 'qr_branches', 'b-AAA'), { name: 'فرع أ', company: 'تجربة', active: true });
+    await setDoc(doc(d, 'qr_branches', 'b-OFF'), { name: 'فرع موقوف', company: 'تجربة', active: false });
+    await setDoc(doc(d, 'qr_feedback', 'fb-A'), { branchId: 'b-AAA', ratings: RATINGS, comment: 'x', tableNo: null, invoiceNo: null, source: 'qr', createdAt: new Date() });
+    await setDoc(doc(d, 'qr_feedback', 'fb-B'), { branchId: 'b-BBB', ratings: RATINGS, comment: 'y', tableNo: null, invoiceNo: null, source: 'qr', createdAt: new Date() });
+  });
+});
+
+test('QR: حالة الفرع تُقرأ علنًا لصفحة العميل، ولا يكتبها إلا المركز', async () => {
+  await assertSucceeds(getDoc(doc(visitor(), 'qr_branches', 'b-AAA')));
+  await assertFails(setDoc(doc(visitor(), 'qr_branches', 'b-AAA'), { name: 'x', active: true }));
+  await assertFails(setDoc(doc(brA(), 'qr_branches', 'b-AAA'), { name: 'x', active: true }));
+  await assertFails(setDoc(doc(staff(), 'qr_branches', 'b-AAA'), { name: 'x', active: true }));
+  await assertSucceeds(setDoc(doc(central(), 'qr_branches', 'b-AAA'), { name: 'فرع أ', company: 'تجربة', active: true, updatedAt: serverTimestamp() }));
+  await assertFails(setDoc(doc(central(), 'qr_branches', 'b-AAA'), { name: 'فرع أ', active: true, extra: 1 }));
+});
+
+test('QR: الزائر بلا تسجيل دخول يرسل تقييمًا صحيحًا لفرع مفعّل', async () => {
+  await assertSucceeds(addDoc(collection(visitor(), 'qr_feedback'), fbDoc()));
+});
+
+test('QR: تُرفض التقييمات المخالفة للشكل أو لفرع موقوف/غير موجود', async () => {
+  const v = visitor();
+  const { comfort, ...nine } = RATINGS;
+  await assertFails(addDoc(collection(v, 'qr_feedback'), fbDoc({ ratings: { ...RATINGS, taste: 6 } })));
+  await assertFails(addDoc(collection(v, 'qr_feedback'), fbDoc({ ratings: { ...RATINGS, taste: 4.5 } })));
+  await assertFails(addDoc(collection(v, 'qr_feedback'), fbDoc({ ratings: nine })));
+  await assertFails(addDoc(collection(v, 'qr_feedback'), fbDoc({ overall: 5 })));
+  await assertFails(addDoc(collection(v, 'qr_feedback'), fbDoc({ status: 'resolved' })));
+  await assertFails(addDoc(collection(v, 'qr_feedback'), fbDoc({ comment: 'x'.repeat(1001) })));
+  await assertFails(addDoc(collection(v, 'qr_feedback'), fbDoc({ tableNo: '1'.repeat(21) })));
+  await assertFails(addDoc(collection(v, 'qr_feedback'), fbDoc({ createdAt: new Date() })));
+  await assertFails(addDoc(collection(v, 'qr_feedback'), fbDoc({ branchId: 'b-OFF' })));
+  await assertFails(addDoc(collection(v, 'qr_feedback'), fbDoc({ branchId: 'b-NONE' })));
+});
+
+test('QR: قراءة التقييمات لأعضاء الفرع والمركز فقط', async () => {
+  await assertFails(getDoc(doc(visitor(), 'qr_feedback', 'fb-A')));
+  await assertSucceeds(getDoc(doc(brA(), 'qr_feedback', 'fb-A')));
+  await assertFails(getDoc(doc(brA(), 'qr_feedback', 'fb-B')));
+  await assertSucceeds(getDoc(doc(regional(), 'qr_feedback', 'fb-A')));
+  await assertSucceeds(getDoc(doc(central(), 'qr_feedback', 'fb-B')));
+});
+
+test('QR: معالجة الشكوى تعدّل حقول المتابعة فقط ولفرع المستخدم فقط', async () => {
+  await assertSucceeds(updateDoc(doc(brA(), 'qr_feedback', 'fb-A'), { status: 'in_progress', updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(brA(), 'qr_feedback', 'fb-A'), { status: 'closed' }));
+  await assertFails(updateDoc(doc(brA(), 'qr_feedback', 'fb-A'), { 'ratings.taste': 5 }));
+  await assertFails(updateDoc(doc(brB(), 'qr_feedback', 'fb-A'), { status: 'resolved' }));
+  await assertFails(updateDoc(doc(visitor(), 'qr_feedback', 'fb-A'), { status: 'resolved' }));
 });
