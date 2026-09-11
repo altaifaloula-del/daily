@@ -85,10 +85,10 @@ test('العضوية الموقوفة لا تصل للبيانات', async () =>
   await assertFails(getDoc(doc(frozen(), 'platform', 'rms8_ops')));
 });
 
-test('العضو النشط يقرأ ويكتب بيانات التشغيل (ومستندات التقسيم)', async () => {
-  await assertSucceeds(getDoc(doc(staff(), 'platform', 'rms8_ops')));
-  await assertSucceeds(setDoc(doc(staff(), 'platform', 'rms8_ops'), { value: '{"x":1}', parts: 1 }));
-  await assertSucceeds(setDoc(doc(staff(), 'platform', 'rms8_files__0'), { chunk: 'abc' }));
+test('العضو النشط يقرأ ويكتب مستند فرعه وأجزاءه بالشكل الحقيقي', async () => {
+  await assertSucceeds(getDoc(doc(brA(), 'platform', 'rms8_br_b-AAA')));
+  await assertSucceeds(setDoc(doc(brA(), 'platform', 'rms8_br_b-AAA'), { value: '{"x":1}', parts: 1, updatedAt: 1 }));
+  await assertSucceeds(setDoc(doc(brA(), 'platform', 'rms8_br_b-AAA__0'), { chunk: 'abc' }));
 });
 
 test('العضو غير الإداري لا يكتب مستندات الإعدادات rms8_org*', async () => {
@@ -126,6 +126,8 @@ test('التمهيد: إنشاء قائمة المدراء عند غيابها �
   await assertSucceeds(setDoc(doc(ghost(), 'platform', 'admins'), { emails: [GHOST] }));
   // وبعد وجودها لا يُعاد إنشاؤها/تعديلها من غير مدير قائم
   await assertFails(setDoc(doc(staff(), 'platform', 'admins'), { emails: [STAFF] }));
+  // إعادة القائمة الأصلية حتى لا تتأثر الاختبارات اللاحقة بترتيب التنفيذ
+  await env.withSecurityRulesDisabled(async (ctx) => { await setDoc(doc(db(ctx), 'platform', 'admins'), { emails: [OWNER] }); });
 });
 
 /* ===== المرحلة الأمنية 2: عزل الفروع + كتم أسرار المنشأة (أُضيفت بعد تدقيق HR م٠) ===== */
@@ -178,17 +180,12 @@ test('عزل الفروع: المركزي والمدير يصلان لكل ال�
   await assertSucceeds(setDoc(doc(central(), 'platform', 'rms8_br_b-BBB'), { value: '{"y":1}', parts: 1 }));
 });
 
-test('rms8_pulse: أي عضو نشط يقرأ/يكتب، لكن لا يُقلَّص سجل audit إلا من مدير', async () => {
-  await env.withSecurityRulesDisabled(async (ctx) => {
-    await setDoc(doc(db(ctx), 'platform', 'rms8_pulse'), { presence: {}, audit: [{ a: 1 }, { a: 2 }, { a: 3 }] });
-  });
+test('rms8_pulse: يُكتب بالشكل الحقيقي فقط ({parts, updatedAt, value})', async () => {
+  const pulse = (o) => ({ value: JSON.stringify(o), parts: 1, updatedAt: Date.now() });
   await assertSucceeds(getDoc(doc(brA(), 'platform', 'rms8_pulse')));
-  // إضافة حدث جديد (المصفوفة تكبر) — مقبول من عضو عادي
-  await assertSucceeds(setDoc(doc(brA(), 'platform', 'rms8_pulse'), { presence: {}, audit: [{ a: 4 }, { a: 1 }, { a: 2 }, { a: 3 }] }));
-  // تقليص/مسح السجل من عضو عادي — مرفوض
-  await assertFails(setDoc(doc(brB(), 'platform', 'rms8_pulse'), { presence: {}, audit: [{ a: 1 }] }));
-  // المدير وحده يقدر يقلّص السجل عند الحاجة
-  await assertSucceeds(setDoc(doc(owner(), 'platform', 'rms8_pulse'), { presence: {}, audit: [] }));
+  await assertSucceeds(setDoc(doc(brA(), 'platform', 'rms8_pulse'), pulse({ presence: {}, audit: [{ a: 1 }] })));
+  // الشكل غير الحقيقي (حقول مباشرة) مرفوض. حماية محتوى audit نفسه تحتاج نقل السجل إلى مجموعة مستقلة — غير مغطاة هنا.
+  await assertFails(setDoc(doc(brB(), 'platform', 'rms8_pulse'), { presence: {}, audit: [] }));
 });
 
 /* ===== v28.0 — وحدة تقييم العملاء بالـ QR (qr_branches / qr_feedback) ===== */
@@ -248,4 +245,44 @@ test('QR: معالجة الشكوى تعدّل حقول المتابعة فقط 
   await assertFails(updateDoc(doc(brA(), 'qr_feedback', 'fb-A'), { 'ratings.taste': 5 }));
   await assertFails(updateDoc(doc(brB(), 'qr_feedback', 'fb-A'), { status: 'resolved' }));
   await assertFails(updateDoc(doc(visitor(), 'qr_feedback', 'fb-A'), { status: 'resolved' }));
+});
+
+/* ===== v28.1 — تشديد مستندات المنصة وصفة المدير ===== */
+test('v28.1: أسماء المستندات غير المعروفة مرفوضة حتى للمدير', async () => {
+  await assertFails(getDoc(doc(owner(), 'platform', 'rms8_secret')));
+  await assertFails(setDoc(doc(owner(), 'platform', 'rms8_secret'), { value: '{}', parts: 1 }));
+  await assertFails(setDoc(doc(brA(), 'platform', 'random_doc'), { value: '{}', parts: 1 }));
+});
+
+test('v28.1: المستندات القديمة (ops/files/hist) للمركز والمدير فقط', async () => {
+  await assertFails(getDoc(doc(brA(), 'platform', 'rms8_hist')));
+  await assertFails(setDoc(doc(brA(), 'platform', 'rms8_hist'), { value: '{"closings":[]}', parts: 1 }));
+  await assertFails(getDoc(doc(staff(), 'platform', 'rms8_ops')));
+  await assertSucceeds(getDoc(doc(central(), 'platform', 'rms8_ops')));
+  await assertSucceeds(setDoc(doc(central(), 'platform', 'rms8_hist'), { value: '{"closings":[]}', parts: 1, updatedAt: 1 }));
+});
+
+test('v28.1: شكل المستند وسقف الأجزاء', async () => {
+  await assertFails(setDoc(doc(brA(), 'platform', 'rms8_br_b-AAA'), { value: '', parts: 100000, updatedAt: 1 }));
+  await assertFails(setDoc(doc(brA(), 'platform', 'rms8_br_b-AAA'), { value: '{}', parts: 1, extra: true }));
+  await assertFails(setDoc(doc(brA(), 'platform', 'rms8_br_b-AAA__0'), { chunk: 'x', parts: 1 }));
+  await assertSucceeds(setDoc(doc(brA(), 'platform', 'rms8_br_b-AAA'), { value: '', parts: 3, updatedAt: 1 }));
+});
+
+test('v28.1: أجزاء الدليل مقيدة كالدليل نفسه', async () => {
+  await assertFails(setDoc(doc(brA(), 'platform', 'rms8_dir__0'), { chunk: 'x' }));
+  await assertSucceeds(setDoc(doc(owner(), 'platform', 'rms8_dir__0'), { chunk: 'x' }));
+});
+
+test('v28.1: المدير الموقوف يفقد صلاحياته رغم بقاء بريده في القائمة', async () => {
+  const EX = 'exadmin@test.com';
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    const d = db(ctx);
+    await setDoc(doc(d, 'platform', 'admins'), { emails: [OWNER, EX] });
+    await setDoc(doc(d, 'members', EX), { email: EX, active: false });
+  });
+  const ex = env.authenticatedContext('u-ex', { email: EX }).firestore();
+  await assertFails(setDoc(doc(ex, 'members', EX), { email: EX, active: true, scope: 'all' }));
+  await assertFails(getDoc(doc(ex, 'platform', 'rms8_org')));
+  await assertSucceeds(setDoc(doc(owner(), 'members', 'new2@test.com'), { email: 'new2@test.com', active: true }));
 });

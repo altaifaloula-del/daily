@@ -1951,6 +1951,8 @@ function PlatformApp() {
     }
 
     /* ===== مسار المركز ===== */
+    // v28.1: قراءة فاشلة أو مستند تالف ≠ منصة جديدة — لا نكتب منشأة فارغة فوق بيانات لم نستطع قراءتها
+    if (!o && cloud.readFailed(KEYS.org)) { setBoot('error'); return null; }
     if (!o || !o.branches) {
       o = emptyOrg();
       await cloud.set(KEYS.org, o);
@@ -1980,6 +1982,11 @@ function PlatformApp() {
         const o3 = await migrateHrToOps(o);
         if (await cloud.set(KEYS.org, o3)) { o = o3; try { await cloud.set(KEYS.dir, dirOf(o)); } catch { } }
       } catch (e) { console.warn('هجرة HR v24.0 لم تكتمل — ستُعاد في التحميل التالي:', e); }
+    }
+    // v28.1: مع مصادقة Firebase لا مكان لبصمات كلمات السر في مستند المنشأة (يقرؤه كل دور مركزي) — تُحذف مرة واحدة
+    if (authApi.enabled && (o.users || []).some(u2 => u2.passHash || u2.pin)) {
+      const o4 = { ...o, users: o.users.map(u2 => { const { passHash, pin, ...rest } = u2; return rest; }) };
+      if (await cloud.set(KEYS.org, o4)) o = o4;
     }
     const branchIds = (o.branches || []).map(b => b.id);
     dataCtx.current = { central: true, myBrIds: branchIds, email: dataCtx.current.email };
@@ -2058,6 +2065,7 @@ function PlatformApp() {
       };
     }
     const o = await loadAll(email);
+    if (!o) return { ok: false, err: 'تعذّرت قراءة بيانات المنصة من السحابة — لم يُكتب شيء، أعد المحاولة بعد لحظات' };
     const u = (o.users || []).find(x => (x.email || '').toLowerCase() === email && x.isActive);
     if (!u && (o.users || []).length > 0) {
       await authApi.signOutAll().catch(() => { });
@@ -2431,6 +2439,7 @@ function PlatformApp() {
       const k = lastWriteErr.current;
       if (k === 'denied') say('رفض الخادم حفظ بيانات فرعك (صلاحيات، لا اتصال): عضوية حسابك على الخادم لا تحمل هذا الفرع — اطلب من مسؤول النظام «مزامنة صلاحيات الأعضاء» من الفروع والمستخدمين ثم أعد الدخول', 'no');
       else if (k === 'scope') say('لم يُحفظ: السجل يخص فرعًا خارج نطاق حسابك (أو بلا فرع) — راجع إعداد فرع حسابك', 'no');
+      else if (String((cloud.lastError || {}).code) === 'read-failed') say('لم يُحفظ: تعذّرت قراءة النسخة الحالية من السحابة (قد تكون تالفة)، فلم يُكتب شيء حمايةً للبيانات — أعد تحميل الصفحة، وإن تكرر تواصل مع المطوّر', 'no');
       else say('تعذّر الحفظ السحابي بعد عدة محاولات — تحقق من الاتصال وأعد المحاولة', 'no');
       return false;
     }
@@ -2470,18 +2479,23 @@ function PlatformApp() {
     return true;
   }, [org, me, say]);
 
+  // v28.1: تفريغ المنصة لمسؤول النظام فقط، بتأكيد مكتوب، ويبقى سجل التدقيق ويُقيَّد فيه الحدث
   const resetAll = useCallback(async () => {
-    if (!window.confirm('سيُحذف كل ما أدخلته نهائياً (الإغلاقات، الموظفون، الموردون) وتعود المنصة فارغة. هل أنت متأكد؟')) return;
+    if (!me || !(ROLES[me.role] || {}).admin) return say('تفريغ المنصة لمسؤول النظام فقط', 'no');
+    const typed = window.prompt('سيُحذف كل ما أُدخل نهائياً (الإغلاقات، الموظفون، الموردون، المستخدمون) وتعود المنصة فارغة.\nنزّل نسخة احتياطية أولًا.\n\nللتأكيد اكتب: تفريغ نهائي');
+    if ((typed || '').trim() !== 'تفريغ نهائي') return say('أُلغي التفريغ — لم يتغير شيء', 'no');
     const keepCompany = org?.company;
     const o = emptyOrg(keepCompany); const p = emptyOps();
-    await cloud.set(KEYS.org, o); await cloud.set(KEYS.ops, p);
-    await cloud.set(KEYS.core, { rev: 1 });
-    for (const b of (org.branches || [])) await cloud.set(brKey(b.id), { rev: 1 });
-    await cloud.set(KEYS.dir, dirOf(o));
-    await cloud.set(KEYS.pulse, { presence: {}, audit: [] });
-    setOrg(o); setOps(p); setPulse({ presence: {}, audit: [] });
-    say('تمت إعادة المنصة إلى الوضع الفارغ');
-  }, [say, org]);
+    const pu = (await cloud.get(KEYS.pulse, { presence: {}, audit: [] })) || { presence: {}, audit: [] };
+    const entry = { id: uid('lg'), timestamp: nowISO(), at: Date.now(), userName: me.name, userRole: me.role, userRoleLabel: (ROLES[me.role] || {}).ar || me.role, actionType: 'delete', targetType: 'system_settings', targetId: 'reset', title: 'فرّغ بيانات المنصة بالكامل', details: (org.branches || []).length + ' فرع · ' + (ops.closings || []).length + ' إغلاق' };
+    const nx = { ...pu, audit: [entry, ...(pu.audit || [])] };
+    if (!(await cloud.set(KEYS.pulse, nx))) return say('تعذّر توثيق التفريغ في السجل — أُلغي ولم يتغير شيء', 'no');
+    const results = [await cloud.set(KEYS.org, o), await cloud.set(KEYS.ops, p), await cloud.set(KEYS.core, { rev: 1 })];
+    for (const b of (org.branches || [])) results.push(await cloud.set(brKey(b.id), { rev: 1 }));
+    results.push(await cloud.set(KEYS.dir, dirOf(o)));
+    setOrg(o); setOps(p); setPulse(nx);
+    say(results.every(Boolean) ? 'تمت إعادة المنصة إلى الوضع الفارغ' : 'تم التفريغ جزئيًا — بعض المستندات تعذّرت كتابتها، حدّث الصفحة وتحقق', results.every(Boolean) ? 'ok' : 'no');
+  }, [say, org, ops, me]);
 
   /* --- نطاق الفروع حسب الدور --- */
   const myBranches = useMemo(() => {
@@ -2500,6 +2514,20 @@ function PlatformApp() {
       advances: (ops.advances || []).filter(a => ids.includes(a.branchId))
     };
   }, [ops, myBranches]);
+
+  if (boot === 'error') {
+    return (
+      <div className="rms" style={{ display: 'grid', placeItems: 'center', minHeight: '100vh', padding: 24 }}>
+        <style dangerouslySetInnerHTML={{ __html: CSS }} />
+        <div style={{ textAlign: 'center', maxWidth: 460 }}>
+          <AlertTriangle size={28} color="#D9544D" />
+          <div style={{ marginTop: 12, fontSize: 15, fontWeight: 700 }}>تعذّرت قراءة بيانات المنشأة من السحابة</div>
+          <div style={{ marginTop: 8, color: '#A2968A', fontSize: 13, lineHeight: 1.9 }}>لم يُكتب أي شيء حمايةً للبيانات. تحقق من الاتصال ثم أعد تحميل الصفحة، وإن تكرر الأمر تواصل مع المطوّر.</div>
+          <button className="btn pri" style={{ marginTop: 16 }} onClick={() => location.reload()}><RefreshCw size={14} />إعادة التحميل</button>
+        </div>
+      </div>
+    );
+  }
 
   if (boot === 'loading') {
     return (
@@ -2748,7 +2776,7 @@ function PlatformApp() {
                     {(me.pinHash || me.bioCredId) && (
                       <button onClick={() => { setUserMenu(false); setLocked(true); }}><Lock size={14} />قفل الشاشة — عودة بالدخول السريع</button>
                     )}
-                    <button onClick={() => { setUserMenu(false); resetAll(); }}><Trash2 size={14} />تفريغ بيانات المنصة</button>
+                    {(ROLES[me.role] || {}).admin && <button onClick={() => { setUserMenu(false); resetAll(); }}><Trash2 size={14} />تفريغ بيانات المنصة</button>}
                     <button className="danger" onClick={() => { setUserMenu(false); sessLogout(); }}><LogOut size={14} />تسجيل الخروج</button>
                   </div>
                 </>)}
@@ -2974,10 +3002,11 @@ function FirstRun({ css, theme, commitOrg, say, onDone }) {
     if (f.pass.length < 6) return say('كلمة السر يجب ألا تقل عن 6 أحرف', 'no');
     if (f.pass !== f.pass2) return say('كلمتا السر غير متطابقتين', 'no');
     setBusy(true);
-    const passHash = await sha(f.pass);
+    // v28.1: مع Firebase تحفظ المصادقةُ كلمة السر — لا بصمة في مستند المنشأة
+    const passHash = authApi.enabled ? '' : await sha(f.pass);
     const owner = {
       id: uid('u'), name: f.name.trim(), email: f.email.trim().toLowerCase(),
-      role: 'system_admin', passHash, isActive: true, createdAt: today()
+      role: 'system_admin', ...(passHash ? { passHash } : {}), isActive: true, createdAt: today()
     };
     await commitOrg(d => ({
       ...d,
@@ -6795,7 +6824,7 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
         const store = await cloud.get(bfKey(f.branchId), { items: [] });
         const prevItems = (store && Array.isArray(store.items)) ? store.items : [];
         const kept = prevItems.filter(x => x.closingId !== id);
-        await cloud.set(bfKey(f.branchId), { items: [...docs, ...kept].slice(0, 1500) });
+        await cloud.set(bfKey(f.branchId), { items: [...docs, ...kept] });   // v28.1: لا اقتطاع لمستندات توثيق الإغلاق
         archivedCount = docs.length;
       }
     } catch (err) { /* الأرشفة تكميلية — لا توقف حفظ الإغلاق */ }
@@ -9416,7 +9445,7 @@ function Attendance({ org, ops, me, myBranches, commit, say }) {
         '<div class="co">' + escH(co) + '</div><div class="nm">' + escH(e.name) + '</div><div class="br">' + escH(branch ? branch.name : '') + ' · بطاقة حضور</div>' +
         (svg || '<div style="color:#b00;font-size:12px">تعذّر توليد رمز QR — استخدم الرمز النصّي أدناه.</div>') + '<div class="code">' + escH(payload) + '</div><div class="hint">امسح البطاقة على جهاز الفرع لتسجيل الحضور/الانصراف. البطاقة شخصية — لا تُعِرها لأحد.</div></div>' +
         '<script>setTimeout(function(){window.print()},400)<\/script></body></html>';
-      if (w) { w.document.open(); w.document.write(html); w.document.close(); } else say('اسمح بالنوافذ المنبثقة لطباعة البطاقة', 'no');
+      if (w) { w.document.open(); w.document.write(html); w.document.close(); setTimeout(() => { try { w.focus(); w.print(); } catch (_) { } }, 400); } else say('اسمح بالنوافذ المنبثقة لطباعة البطاقة', 'no');
       say('صدرت بطاقة QR لـ' + e.name + ' ✓');
     } catch (err) {
       showMsg('تعذّر إصدار البطاقة: ' + (err && err.message ? err.message : 'خطأ غير متوقع'), true);
@@ -12646,6 +12675,44 @@ const SIG_W = 400, SIG_H = 160;
 const SIGN_DOC_AR = { payslip: 'إقرار استلام راتب', reward: 'إشعار مكافأة', penalty: 'إشعار جزاء', corrective: 'محضر إجراء تأديبي' };
 const escH = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
+/* v28.1 — حماية نوافذ الطباعة: كل HTML يُكتب في نافذة about:blank (ترث صلاحيات جلسة المستخدم) يُنقّى أولًا —
+   تُحذف السكربتات والإطارات وخصائص الأحداث وروابط javascript:، فلا ينفّذ نصٌّ أدخله مستخدم (سبب فرق، اسم، ملاحظة) أي كود */
+function safePrintHtml(html) {
+  try {
+    const doc = new DOMParser().parseFromString(String(html == null ? '' : html), 'text/html');
+    doc.querySelectorAll('script,iframe,frame,frameset,object,embed,applet,base,form,link,meta[http-equiv]').forEach(n => n.remove());
+    doc.querySelectorAll('*').forEach(el => {
+      Array.from(el.attributes).forEach(a => {
+        const n = a.name.toLowerCase();
+        const v = String(a.value || '').replace(/[\s -]+/g, '').toLowerCase();
+        if (n.startsWith('on')) el.removeAttribute(a.name);
+        else if (['src', 'href', 'xlink:href', 'action', 'formaction', 'srcset', 'background', 'poster', 'data'].includes(n)) {
+          const ok = v === '' || v.startsWith('#') || v.startsWith('data:image/') || v.startsWith('https:') || v.startsWith('http:') || v.startsWith('blob:');
+          if (!ok) el.removeAttribute(a.name);
+        } else if (n === 'style' && /expression\(|javascript:|url\(/.test(v)) el.removeAttribute(a.name);
+      });
+    });
+    return '<!doctype html>' + doc.documentElement.outerHTML;
+  } catch (e) { return ''; }
+}
+(function installPrintGuard() {
+  if (typeof window === 'undefined' || window.__rmsPrintGuard) return;
+  window.__rmsPrintGuard = true;
+  const nativeOpen = window.open;
+  window.open = function (url, ...rest) {
+    const w = nativeOpen.call(window, url, ...rest);
+    try {
+      if (w && (!url || url === 'about:blank')) {
+        const d = w.document;
+        const nativeWrite = d.write.bind(d);
+        d.write = (...parts) => nativeWrite(safePrintHtml(parts.join('')));
+        d.writeln = (...parts) => nativeWrite(safePrintHtml(parts.join('')));
+      }
+    } catch (e) { /* نافذة من أصل آخر — لا تعنينا */ }
+    return w;
+  };
+})();
+
 // تبسيط المسارات: تقريب لأعداد صحيحة داخل الإطار وإسقاط النقاط الأقرب من minDist إلى آخر نقطة محفوظة (تصغير الحجم المخزَّن بلا أثر مرئي)
 function simplifySig(strokes, minDist) {
   const md = minDist == null ? 1.5 : minDist;
@@ -13515,7 +13582,13 @@ function Admin({ org, ops, me, commit, commitOrg, say }) {
       }
     }
     const rec = { ...u, email };
-    if (u.newPass) { rec.passHash = await sha(u.newPass); }
+    // v28.1: مع Firebase لا تُخزَّن بصمة كلمة السر في مستند المنشأة، وتغيير كلمة سر حساب قائم يتم برابط على بريده
+    if (u.newPass && !authApi.enabled) { rec.passHash = await sha(u.newPass); }
+    if (authApi.enabled) { delete rec.passHash; delete rec.pin; }
+    let resetMail = '';
+    if (authApi.enabled && !isNew && u.newPass) {
+      try { await authApi.resetPass(email); resetMail = 'sent'; } catch { resetMail = 'failed'; }
+    }
     if (u.newPin) { rec.pinHash = await sha('pin:' + u.newPin); }
     delete rec.newPass; delete rec.newPin; delete rec.pin;
     await commitOrg(d => ({ ...d, users: isNew ? [...d.users, rec] : d.users.map(x => x.id === rec.id ? rec : x) }), {
@@ -13528,10 +13601,12 @@ function Admin({ org, ops, me, commit, commitOrg, say }) {
     let memOk = true;
     if (authApi.enabled) {
       memOk = await authApi.upsertMember(email, { active: rec.isActive !== false, role: rec.role, branchId: rec.branchId || '', branchIds: rec.allowedBranchIds || [], scope: (ROLES[rec.role]?.scope === 'all') ? 'all' : 'branch' });
-      const admOk = await authApi.syncAdmin(email, !!ROLES[rec.role]?.admin);
+      const admOk = await authApi.syncAdmin(email, !!ROLES[rec.role]?.admin && rec.isActive !== false);   // v28.1: الموقوف يخرج من قائمة المدراء
       if (memOk && !admOk && ROLES[rec.role]?.admin) say('حُفظ المستخدم لكن تعذّر إدراجه في قائمة المدراء على الخادم — نفّذ الحفظ من حساب مسؤول النظام الأول', 'no');
     }
     if (!memOk) say('حُفظ المستخدم في المنصة، لكن تعذّرت مزامنة عضويته على الخادم (حسابك ليس ضمن قائمة المدراء على الخادم) — لن يستطيع هذا المستخدم قراءة/كتابة بيانات فرعه حتى تُنفَّذ «مزامنة صلاحيات الأعضاء» من حساب مسؤول النظام الأول', 'no');
+    else if (resetMail === 'sent') say('تم تحديث الحساب — كلمة السر لا تُغيَّر من هنا؛ أُرسل للمستخدم رابط تعيين كلمة سر جديدة على بريده ✓');
+    else if (resetMail === 'failed') say('تم تحديث الحساب، لكن كلمة السر لم تتغير: تعذّر إرسال رابط التعيين إلى بريد المستخدم — أعد المحاولة', 'no');
     else say(isNew ? 'تم إنشاء الحساب — يدخل ببريده وكلمة سره ✓' : 'تم تحديث الحساب');
     setUEdit(null);
   };
@@ -13545,7 +13620,13 @@ function Admin({ org, ops, me, commit, commitOrg, say }) {
     await commitOrg(d => ({ ...d, users: d.users.filter(x => x.id !== u.id) }), {
       actionType: 'delete', targetType: 'user_account', targetId: u.id, title: 'حذف مستخدماً', details: `${u.name} — ${u.email}`
     });
-    if (authApi.enabled) { try { await authApi.upsertMember(u.email, { active: false }); } catch { } }
+    if (authApi.enabled) {
+      try { await authApi.upsertMember(u.email, { active: false }); } catch { }
+      // v28.1: المحذوف يخرج من قائمة المدراء على الخادم — وإلا بقي قادرًا على إعادة تفعيل عضويته بنفسه
+      let admOut = false;
+      try { admOut = await authApi.syncAdmin(u.email, false); } catch { admOut = false; }
+      if (!admOut && (ROLES[u.role] || {}).admin) return say('حُذف الحساب من المنصة، لكن تعذّر إخراجه من قائمة المدراء على الخادم — نفّذ الحذف من حساب مسؤول النظام الأول أو أزل بريده من platform/admins في Firebase', 'no');
+    }
     say('تم حذف الحساب');
   };
 
@@ -13559,7 +13640,7 @@ function Admin({ org, ops, me, commit, commitOrg, say }) {
     for (const u of (org.users || [])) {
       if (!u.email) continue;
       const r = await authApi.upsertMember(u.email, { active: u.isActive !== false, role: u.role, branchId: u.branchId || '', branchIds: u.allowedBranchIds || [], scope: (ROLES[u.role]?.scope === 'all') ? 'all' : 'branch' });
-      if (r) { ok++; try { await authApi.syncAdmin(u.email, !!ROLES[u.role]?.admin); } catch { } } else { fail++; failed.push(u.name || u.email); }
+      if (r) { ok++; try { await authApi.syncAdmin(u.email, !!ROLES[u.role]?.admin && u.isActive !== false); } catch { } } else { fail++; failed.push(u.name || u.email); }
     }
     setMemSync({ ok, fail, failed });
     if (fail) say('تعذّرت مزامنة ' + fail + ' عضوية (' + failed.slice(0, 3).join('، ') + (fail > 3 ? '…' : '') + ') — حسابك ليس ضمن قائمة المدراء على الخادم (platform/admins)؛ نفّذها من حساب مسؤول النظام الأول', 'no');
@@ -19470,6 +19551,9 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
   const oldOnes = (ops.closings || []).filter(x => x.date < cutoff);
 
   const archiveOld = async () => {
+    // v28.1: موقوفة — كانت تُخرج إيرادات الإغلاقات المؤرشفة من الدفاتر وتحذف ما يزيد عن 800 إغلاق
+    return say('أرشفة الإغلاقات موقوفة مؤقتًا لأنها تُخرج إيرادات الفترات السابقة من الدفاتر. بياناتك باقية كما هي.', 'no');
+    // eslint-disable-next-line no-unreachable
     if (oldOnes.length === 0) return say('لا توجد إغلاقات أقدم من 90 يوماً', 'no');
     setWorking(true);
     try {
@@ -19557,8 +19641,12 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
     setVReport({ name: f.name, ...(data ? verifyBackup(data) : { ok: false, err: 'الملف ليس JSON صالحًا' }) });
   };
   // الاستعادة: فحص ← عرض ← تأكيد كتابي ← لقطة أمان ← استبدال موثق
+  // v28.1: الاستعادة موقوفة من الواجهة — غير ذرّية وتُطلق هجرة قديمة قد تكتب بيانات مجمّدة فوق الحالية
+  const RESTORE_OFF = 'الاستعادة من الواجهة موقوفة مؤقتًا لأنها قد تكتب بيانات قديمة فوق الحالية. «فحص نسخة» ما زال متاحًا، وللاستعادة الطارئة تواصل مع المطوّر.';
   const restore = async (e) => {
     const f = e.target.files?.[0]; e.target.value = ''; if (!f) return;
+    return say(RESTORE_OFF, 'no');
+    // eslint-disable-next-line no-unreachable
     const data = await readJson(f);
     const rep = data ? verifyBackup(data) : { ok: false, err: 'الملف ليس JSON صالحًا' };
     if (!rep.ok) return say('النسخة مرفوضة: ' + rep.err, 'no');
@@ -19566,6 +19654,8 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
   };
   const doRestore = async () => {
     const ra = restoreArm;
+    return say(RESTORE_OFF, 'no');
+    // eslint-disable-next-line no-unreachable
     if (!ra || ra.text.trim() !== 'استعادة') return say('اكتب كلمة «استعادة» للتأكيد', 'no');
     try { await snapPut('pre-restore-' + nowISO().slice(0, 19).replace(/[:T]/g, '-'), { at: nowISO(), by: me?.name || '', org, ops, preRestore: true }); } catch { }
     const o2 = { ...ra.data.org }; delete o2.migratedV9; delete o2.membersSyncedV9;
@@ -19581,7 +19671,7 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
     setRestoreArm(null); reloadSnaps();
     say('تمت الاستعادة ووُثّقت — حدّث الصفحة لعرض البيانات المستعادة');
   };
-  const restoreSnap = (sn) => setRestoreArm({ data: { org: sn.org, ops: sn.ops }, report: verifyBackup({ org: sn.org, ops: sn.ops }), name: 'لقطة محلية ' + sn.key, text: '' });
+  const restoreSnap = (sn) => (sn ? say(RESTORE_OFF, 'no') : null) || setRestoreArm({ data: { org: sn.org, ops: sn.ops }, report: verifyBackup({ org: sn.org, ops: sn.ops }), name: 'لقطة محلية ' + sn.key, text: '' });
   const downloadSnap = (sn) => {
     const blob = new Blob([JSON.stringify({ meta: { app: 'rms8', exportedAt: sn.at, by: sn.by, source: 'local-snapshot' }, org: sn.org, ops: sn.ops }, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob); const a = document.createElement('a');
@@ -20708,17 +20798,21 @@ function Archive({ org, me, myBranches, say }) {
         const d = await cloud.get(bfKey(b), { items: [] });
         (d.items || []).forEach(it => all.push(it.branchId ? it : { ...it, branchId: b === 'hq' ? '' : b }));
       }
-      all.sort((a, b2) => (b2.at || '').localeCompare(a.at || ''));
+      all.sort((a, b2) => (b2.uploadedAt || b2.at || '').localeCompare(a.uploadedAt || a.at || ''));
       setItems(all);
     })();
   }, [bfIds]);
 
   const homeOf = (it) => (it.branchId && myBranches.some(b => b.id === it.branchId)) ? it.branchId : (bfIds.includes('hq') ? 'hq' : (bfIds[0] || 'hq'));
-  const persist = async (next) => {
-    setItems(next);
-    for (const b of bfIds) {
-      await cloud.set(bfKey(b), { items: next.filter(it => homeOf(it) === b) });
+  // v28.1: يُكتب مستند الفرع المتأثر فقط، ولا تتغير الواجهة إلا بعد نجاح الحفظ
+  // (سابقًا تُعاد كتابة مستندات كل الفروع بالقائمة المعروضة، فأي اقتطاع أو تحميل ناقص يمحو أرشيف الجميع)
+  const persist = async (next, homes) => {
+    for (const b of [...new Set(homes)]) {
+      const ok = await cloud.set(bfKey(b), { items: next.filter(it => homeOf(it) === b) });
+      if (!ok) { say('تعذّر حفظ الأرشيف — لم يتغير شيء، أعد المحاولة', 'no'); return false; }
     }
+    setItems(next);
+    return true;
   };
 
   const compress = (file) => new Promise((resolve, reject) => {
@@ -20759,7 +20853,8 @@ function Archive({ org, me, myBranches, say }) {
     if (!draft.title.trim()) return say('اكتب عنوان المستند', 'no');
     const b = org.branches.find(x => x.id === draft.branchId);
     const rec = { ...draft, branchName: b?.name || '', uploadedAt: nowISO() };
-    await persist([rec, ...(items || [])].slice(0, 60));
+    if (items === null) return say('انتظر اكتمال تحميل الأرشيف ثم احفظ', 'no');
+    if (!(await persist([rec, ...items], [homeOf(rec)]))) return;
     say('تمت أرشفة المستند وأصبح متاحاً لبقية المستخدمين');
     setDraft(null);
   };
@@ -20774,7 +20869,8 @@ function Archive({ org, me, myBranches, say }) {
       ? 'هذا مستند توثيق مؤرشف من إغلاق يومي — حذفه نهائي ولا يمكن استرداده، وسيُقيَّد الحذف باسمك في سجل التدقيق. هل أنت متأكد؟'
       : 'حذف هذا المستند من الأرشيف نهائياً؟';
     if (!window.confirm(msg)) return;
-    await persist((items || []).filter(x => x.id !== it.id));
+    if (items === null) return;
+    if (!(await persist(items.filter(x => x.id !== it.id), [homeOf(it)]))) return;
     try {
       const pu = await cloud.get(KEYS.pulse, { presence: {}, audit: [] });
       const entry = {
@@ -22156,8 +22252,9 @@ function QrBranchesView({ org, brs, fb, pub, canPublish, canAddBranch, commitOrg
       '<div class="co">' + escH(company) + '</div><div class="t">قيّم تجربتك</div><div class="br">' + escH(b.name) + '</div>' +
       (svg || '<div style="color:#b00">تعذّر توليد الرمز</div>') +
       '<div class="h">امسح الرمز بكاميرا الجوال — دقيقة واحدة وبدون تسجيل دخول</div><div class="u">' + escH(url) + '</div></div>' +
-      '<script>setTimeout(function(){window.print()},400)<\/script></body></html>';
+      '</body></html>';
     w.document.open(); w.document.write(html); w.document.close();
+    setTimeout(() => { try { w.focus(); w.print(); } catch (_) { } }, 400);
   };
 
   // إضافة فرع للمنصة (نفس حفظ شاشة «الفروع والمستخدمون» وسجل تدقيقها) ثم تفعيل استقبال تقييماته مباشرة

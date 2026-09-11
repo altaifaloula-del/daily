@@ -33,12 +33,35 @@ const FB = {
 };
 const FB_READY = !!(FB.apiKey && FB.projectId);
 const COL = E.VITE_FIREBASE_COLLECTION || 'platform';
-const CHUNK = 700000; // مستند Firestore محدود بميغابايت — نقسّم القيم الكبيرة
+// v28.1: التقسيم بالبايت لا بعدد الأحرف — الحرف العربي بايتان في UTF-8 وحد مستند Firestore ميبيبايت واحد
+const CHUNK_BYTES = 900000;
+const MAX_PARTS = 500;          // سقف أجزاء المستند الواحد (يطابق قواعد Firestore) — يمنع حلقات قراءة لا تنتهي
+const BATCH_MAX_PARTS = 10;     // حتى 10 أجزاء تُكتب مع رأسها في دفعة ذرّية واحدة (دون حد طلب 10MiB)
 const docId = (k) => k.replace(/[^\w-]/g, '_');
+
+/** يقسم نصًا إلى أجزاء لا يتجاوز كل منها maxBytes بترميز UTF-8، دون شطر أزواج البدائل */
+export function splitUtf8(s, maxBytes = CHUNK_BYTES) {
+  const out = [];
+  let start = 0, bytes = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    const pair = c >= 0xD800 && c <= 0xDBFF && i + 1 < s.length;
+    const n = c < 0x80 ? 1 : c < 0x800 ? 2 : pair ? 4 : 3;
+    if (bytes + n > maxBytes && i > start) { out.push(s.slice(start, i)); start = i; bytes = 0; }
+    bytes += n;
+    if (pair) i++;
+  }
+  out.push(s.slice(start));
+  return out;
+}
 
 let fs = null;      // وحدات Firestore المحمّلة كسولاً
 let fsFailed = false;
 let _fbAppP = null;
+
+// v28.1: مفاتيح تعذّرت قراءتها من السحابة (خطأ أو مستند تالف) — تُرفض الكتابة عليها حتى تنجح قراءة لاحقة،
+// كي لا تُكتب نسخة فارغة أو قديمة فوق بيانات لم نستطع قراءتها
+const failedReads = new Set();
 
 // تطبيق Firebase واحد مشترك بين المصادقة وقاعدة البيانات
 async function fbApp() {
@@ -181,6 +204,12 @@ export const authApi = {
   }
 };
 
+function corruptErr(key, why) {
+  const e = new Error('data-corrupt: ' + key + ' (' + why + ')');
+  e.code = 'data-corrupt';
+  return e;
+}
+
 async function fsRead(f, key) {
   const snap = await f.getDoc(f.doc(f.db, COL, docId(key)));
   if (!snap.exists()) return undefined;
@@ -188,28 +217,46 @@ async function fsRead(f, key) {
   return await fsAssemble(f, key, d);
 }
 
+// v28.1: المستند التالف (جزء مفقود أو JSON غير صالح) يُرمى كخطأ صريح — كان يُعاد undefined فيُعامل كمستند
+// غير موجود، ثم يكتب التطبيق نسخة فارغة فوقه
 async function fsAssemble(f, key, d) {
   if (!d) return undefined;
-  if ((d.parts || 1) === 1) return d.value ? JSON.parse(d.value) : undefined;
-  const parts = [];
-  for (let i = 0; i < d.parts; i++) {
-    const c = await f.getDoc(f.doc(f.db, COL, docId(key) + '__' + i));
-    parts.push(c.exists() ? c.data().chunk : '');
+  const parts = d.parts || 1;
+  if (!Number.isInteger(parts) || parts < 1 || parts > MAX_PARTS) throw corruptErr(key, 'parts=' + d.parts);
+  if (parts === 1) {
+    if (!d.value) return undefined;
+    try { return JSON.parse(d.value); } catch { throw corruptErr(key, 'json'); }
   }
-  try { return JSON.parse(parts.join('')); } catch { return undefined; }
+  const chunks = [];
+  for (let i = 0; i < parts; i++) {
+    const c = await f.getDoc(f.doc(f.db, COL, docId(key) + '__' + i));
+    const chunk = c.exists() ? (c.data() || {}).chunk : undefined;
+    if (typeof chunk !== 'string') throw corruptErr(key, 'chunk ' + i);
+    chunks.push(chunk);
+  }
+  try { return JSON.parse(chunks.join('')); } catch { throw corruptErr(key, 'json'); }
 }
 
 async function fsWrite(f, key, val) {
   const s = JSON.stringify(val);
-  const parts = Math.max(1, Math.ceil(s.length / CHUNK));
-  if (parts > 1) {
-    for (let i = 0; i < parts; i++) {
-      await f.setDoc(f.doc(f.db, COL, docId(key) + '__' + i), { chunk: s.slice(i * CHUNK, (i + 1) * CHUNK) });
-    }
+  const chunks = splitUtf8(s);
+  const parts = chunks.length;
+  if (parts > MAX_PARTS) { const e = new Error('doc-too-large: ' + key); e.code = 'doc-too-large'; throw e; }
+  const headRef = f.doc(f.db, COL, docId(key));
+  const head = { parts, updatedAt: Date.now(), value: parts === 1 ? s : '' };
+  if (parts === 1) { await f.setDoc(headRef, head); return true; }
+  if (parts <= BATCH_MAX_PARTS && f.writeBatch) {
+    // الأجزاء والرأس معًا: إما أن تُكتب كلها أو لا يُكتب شيء — لا رأس قديم مع أجزاء جديدة
+    const batch = f.writeBatch(f.db);
+    chunks.forEach((chunk, i) => batch.set(f.doc(f.db, COL, docId(key) + '__' + i), { chunk }));
+    batch.set(headRef, head);
+    await batch.commit();
+    return true;
   }
-  await f.setDoc(f.doc(f.db, COL, docId(key)), {
-    parts, updatedAt: Date.now(), value: parts === 1 ? s : ''
-  });
+  for (let i = 0; i < parts; i++) {
+    await f.setDoc(f.doc(f.db, COL, docId(key) + '__' + i), { chunk: chunks[i] });
+  }
+  await f.setDoc(headRef, head);
   return true;
 }
 
@@ -231,6 +278,7 @@ export const cloud = {
     if (f) {
       try {
         const v = await fsRead(f, key);
+        failedReads.delete(key);
         if (v !== undefined) { local.set(key, v); return { ok: true, value: v }; }
         return { ok: true, value: undefined };
       } catch (e) {
@@ -238,6 +286,7 @@ export const cloud = {
           try { localStorage.removeItem(key); } catch { }   // تنظيف نسخة محلية قديمة على جهاز غير مخوّل
           return { ok: false, denied: true };
         }
+        failedReads.add(key);
         console.warn('قراءة Firestore فشلت:', e);
       }
     }
@@ -250,9 +299,14 @@ export const cloud = {
     if (f) {
       try {
         const v = await fsRead(f, key);
+        failedReads.delete(key);
         if (v !== undefined) { local.set(key, v); return v; }
         return def;
-      } catch (e) { cloud.lastError = { key, op: 'get', code: String((e && e.code) || ''), at: Date.now() }; console.warn('قراءة Firestore فشلت:', e); }
+      } catch (e) {
+        failedReads.add(key);
+        cloud.lastError = { key, op: 'get', code: String((e && e.code) || ''), at: Date.now() };
+        console.warn('قراءة Firestore فشلت:', e);
+      }
     }
     if (useApi && !FB_READY) {
       try {
@@ -271,6 +325,12 @@ export const cloud = {
   async set(key, val) {
     const f = await firestore();
     if (f) {
+      // v28.1: لا كتابة فوق مستند فشلت آخر قراءة له — ما في أيدينا قد يكون فارغًا أو قديمًا
+      if (failedReads.has(key)) {
+        cloud.lastError = { key, op: 'set', code: 'read-failed', at: Date.now() };
+        console.warn('رُفضت الكتابة: آخر قراءة لهذا المستند فشلت —', key);
+        return false;
+      }
       try { await fsWrite(f, key, val); local.set(key, val); return true; }
       catch (e) {
         cloud.lastError = { key, op: 'set', code: String((e && e.code) || ''), at: Date.now() };   // v27.1: يقرؤه App لتمييز رفض الصلاحيات عن انقطاع الشبكة
@@ -309,12 +369,16 @@ export const cloud = {
         if (!snap.exists()) return;
         try {
           const v = await fsAssemble(f, key, snap.data());
+          failedReads.delete(key);
           if (v !== undefined) { local.set(key, v); cb(v); }
-        } catch (e) { console.warn('استماع Firestore:', e); }
+        } catch (e) { failedReads.add(key); console.warn('استماع Firestore:', e); }
       }, (e) => console.warn('انقطع الاستماع اللحظي:', e));
     });
     return () => { dead = true; if (stop) stop(); };
   },
+
+  /** v28.1: هل فشلت آخر قراءة سحابية لهذا المفتاح؟ (الكتابة عليه مرفوضة حتى تنجح قراءة) */
+  readFailed(key) { return failedReads.has(key); },
 
   lastError: null,   // v27.1: آخر خطأ سحابي {key, op, code, at}
   get mode() { return FB_READY ? 'firestore' : (useApi ? 'server' : 'local'); },
