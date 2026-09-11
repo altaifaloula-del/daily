@@ -13592,7 +13592,7 @@ function Admin({ org, ops, me, commit, commitOrg, say }) {
         </button>
         {(tab === 'branches' || tab === 'users') && <button className="btn pri" style={{ marginInlineStart: 'auto' }}
           onClick={() => tab === 'branches'
-            ? setBEdit({ id: uid('b'), name: '', city: '', managerName: '', phone: '', defaultFloat: 1500, shiftEndTime: '02:00', isActive: true })
+            ? setBEdit(newBranchDraft())
             : setUEdit({ id: uid('u'), name: '', email: '', role: 'branch_manager', newPass: '', branchId: org.branches[0]?.id, allowedBranchIds: [], isActive: true, createdAt: today() })}>
           <Plus size={15} />{tab === 'branches' ? 'فرع جديد' : 'مستخدم جديد'}
         </button>}
@@ -13714,6 +13714,9 @@ function Admin({ org, ops, me, commit, commitOrg, say }) {
     </div>
   );
 }
+
+// مسودة فرع جديد بالقيم الافتراضية — مشتركة بين «الفروع والمستخدمون» ووحدة تقييم العملاء
+const newBranchDraft = () => ({ id: uid('b'), name: '', city: '', managerName: '', phone: '', defaultFloat: 1500, shiftEndTime: '02:00', isActive: true });
 
 function BranchForm({ b, org, say, onSave, onClose }) {
   const [f, setF] = useState(b);
@@ -21569,6 +21572,23 @@ const qrStatusOf = (f) => (QR_STATUS[f.status] ? f.status : 'new');
 const qrOverdue = (f) => qrStatusOf(f) !== 'resolved' && qrMs(f.createdAt) > 0 && Date.now() - qrMs(f.createdAt) > QR_SLA_MS;
 const qrDate = (ts) => { const ms = qrMs(ts); return ms ? new Date(ms).toLocaleString('ar-SA-u-ca-gregory-nu-latn', { dateStyle: 'medium', timeStyle: 'short' }) : '—'; };
 const qrSentBadge = (s) => (s === 'سلبي' ? 'b-rose' : s === 'إيجابي' ? 'b-mint' : 'b-amber');
+// إحصاءات كل فرع: العدد والمتوسط والاتجاه الأسبوعي (آخر 7 أيام مقابل السبعة قبلها) والشكاوى — للوحة وللتقرير المطبوع
+const qrBranchStats = (fb, brs) => {
+  const now = Date.now(), wk = 7 * 864e5;
+  return brs.map(b => {
+    const all = fb.filter(f => f.branchId === b.id);
+    const cur = all.filter(f => now - qrMs(f.createdAt) <= wk);
+    const prev = all.filter(f => { const a = now - qrMs(f.createdAt); return a > wk && a <= 2 * wk; });
+    const ca = qrAvg(cur.map(qrOverall)), pa = qrAvg(prev.map(qrOverall));
+    const complaints = all.filter(qrIsComplaint);
+    return {
+      b, n: all.length, a: qrAvg(all.map(qrOverall)),
+      trend: cur.length && prev.length && pa ? ((ca - pa) / pa) * 100 : 0,
+      complaints: complaints.length,
+      open: complaints.filter(f => qrStatusOf(f) !== 'resolved').length
+    };
+  });
+};
 
 // معرّف الفرع من رابط رمز QR — يُقبل شكل المعرّفات فقط
 const qrRateParam = () => {
@@ -21729,7 +21749,7 @@ function QrRatePublic({ branchId }) {
 }
 
 /* ---------- لوحة الإدارة: تقييم العملاء (تبويب qrfb) ---------- */
-function QrFeedback({ org, me, myBranches, say }) {
+function QrFeedback({ org, me, myBranches, say, commitOrg }) {
   const R = ROLES[me.role] || {};
   const central = R.scope === 'all';
   const ro = !!R.readOnly;
@@ -21835,6 +21855,10 @@ function QrFeedback({ org, me, myBranches, say }) {
             <option value={30}>آخر 30 يومًا</option>
             <option value={90}>آخر 90 يومًا</option>
           </select>
+          <button className="btn sm gh" disabled={loading || !!err}
+            onClick={() => qrPrintReport({ org, fb: scopeFb, brs: sel === 'all' ? brs : brs.filter(b => b.id === sel), days, sel, nb, say })}>
+            <Printer size={13} />طباعة التقرير
+          </button>
           {loading && <span style={{ fontSize: 11.5, color: 'var(--dim)' }}><RefreshCw size={12} className="spin" /> جارٍ التحميل…</span>}
         </div>
       </div>
@@ -21855,7 +21879,7 @@ function QrFeedback({ org, me, myBranches, say }) {
 
       {view === 'dash' && err?.kind !== 'nofb' && <QrDashboard fb={fb} scopeFb={scopeFb} brs={brs} sel={sel} nb={nb} upd={upd} ro={ro} say={say} loading={loading} />}
       {view === 'complaints' && err?.kind !== 'nofb' && <QrComplaints scopeFb={scopeFb} nb={nb} upd={upd} ro={ro} me={me} loading={loading} />}
-      {view === 'branches' && err?.kind !== 'nofb' && <QrBranchesView org={org} brs={brs} fb={fb} pub={pub} canPublish={central && !ro} say={say} />}
+      {view === 'branches' && err?.kind !== 'nofb' && <QrBranchesView org={org} brs={brs} fb={fb} pub={pub} canPublish={central && !ro} canAddBranch={!!R.admin} commitOrg={commitOrg} say={say} />}
     </div>
   );
 }
@@ -21864,20 +21888,7 @@ function QrDashboard({ fb, scopeFb, brs, sel, nb, upd, ro, say, loading }) {
   const [aiBusy, setAiBusy] = useState(false);
   const wk = 7 * 864e5;
 
-  const rows = useMemo(() => {
-    const now = Date.now();
-    return brs.map(b => {
-      const all = fb.filter(f => f.branchId === b.id);
-      const cur = all.filter(f => now - qrMs(f.createdAt) <= wk);
-      const prev = all.filter(f => { const a = now - qrMs(f.createdAt); return a > wk && a <= 2 * wk; });
-      const ca = qrAvg(cur.map(qrOverall)), pa = qrAvg(prev.map(qrOverall));
-      return {
-        b, n: all.length, a: qrAvg(all.map(qrOverall)),
-        trend: cur.length && prev.length && pa ? ((ca - pa) / pa) * 100 : 0,
-        open: all.filter(f => qrIsComplaint(f) && qrStatusOf(f) !== 'resolved').length
-      };
-    });
-  }, [fb, brs]); // eslint-disable-line react-hooks/exhaustive-deps
+  const rows = useMemo(() => qrBranchStats(fb, brs), [fb, brs]);
 
   // مركز الذكاء: نفس منطق التوصيات اليومية في المواصفات، يُحسب لحظيًا من بيانات الأسبوعين الأخيرين
   const insights = useMemo(() => {
@@ -22099,9 +22110,10 @@ function QrComplaints({ scopeFb, nb, upd, ro, me, loading }) {
 }
 
 /* ---------- رموز QR للفروع: تفعيل الاستقبال + معاينة وتحميل وطباعة ---------- */
-function QrBranchesView({ org, brs, fb, pub, canPublish, say }) {
+function QrBranchesView({ org, brs, fb, pub, canPublish, canAddBranch, commitOrg, say }) {
   const [busyId, setBusyId] = useState('');
   const [show, setShow] = useState(null);
+  const [bNew, setBNew] = useState(null);   // مسودة فرع جديد (نفس نموذج «الفروع والمستخدمون»)
   const company = String((org.company || {}).name || '').slice(0, 80);
 
   const publish = async (b, active) => {
@@ -22148,12 +22160,28 @@ function QrBranchesView({ org, brs, fb, pub, canPublish, say }) {
     w.document.open(); w.document.write(html); w.document.close();
   };
 
+  // إضافة فرع للمنصة (نفس حفظ شاشة «الفروع والمستخدمون» وسجل تدقيقها) ثم تفعيل استقبال تقييماته مباشرة
+  const addBranch = async (b) => {
+    if (!String(b.name || '').trim()) return say('أدخل اسم الفرع', 'no');
+    const ok = await commitOrg(d => ({ ...d, branches: [...(d.branches || []), b] }), {
+      actionType: 'create', targetType: 'branch', targetId: b.id, branchName: b.name,
+      title: 'أضاف فرعاً جديداً', details: `${b.name} — ${b.city || ''} (من وحدة تقييم العملاء)`
+    });
+    if (!ok) return;
+    setBNew(null);
+    say('تمت إضافة الفرع ✓');
+    await publish(b, true);
+  };
+
   const showB = show ? (brs.find(b => b.id === show) || null) : null;
 
   return (
     <div className="grid" style={{ gap: 12 }}>
       <div className="card">
-        <div className="card-h"><div className="card-t"><QrCode size={15} color="var(--brass)" />رموز التقييم للفروع</div></div>
+        <div className="card-h">
+          <div className="card-t"><QrCode size={15} color="var(--brass)" />رموز التقييم للفروع</div>
+          {canAddBranch && <button className="btn sm pri" onClick={() => setBNew(newBranchDraft())}><Plus size={13} />إضافة فرع</button>}
+        </div>
         <div className="note" style={{ marginBottom: 10, fontSize: 11.5 }}>
           {canPublish
             ? 'فعّل استقبال التقييمات لكل فرع أولًا (ينشر اسم الفرع فقط للعامة)، ثم اطبع الرمز وضعه على الطاولات. الإيقاف يمنع الإرسال فورًا دون حذف أي تقييم.'
@@ -22195,6 +22223,8 @@ function QrBranchesView({ org, brs, fb, pub, canPublish, say }) {
         </div>
       </div>
 
+      {bNew && <BranchForm b={bNew} org={org} say={say} onSave={addBranch} onClose={() => setBNew(null)} />}
+
       {showB && (() => {
         const url = qrRateUrl(showB.id);
         return (
@@ -22218,6 +22248,76 @@ function QrBranchesView({ org, brs, fb, pub, canPublish, say }) {
       })()}
     </div>
   );
+}
+
+/* ---------- تقرير تقييم العملاء للطباعة (A4) — للفترة والفرع المحدَّدين في الشاشة ---------- */
+function qrPrintReport({ org, fb, brs, days, sel, nb, say }) {
+  const w = window.open('', '_blank', 'width=980,height=780');
+  if (!w) return say('اسمح بالنوافذ المنبثقة لطباعة التقرير', 'no');
+  const co = org.company || {};
+  const e = escH;
+  const f1 = (n) => (Number.isFinite(n) && n > 0 ? n.toFixed(1) : '—');
+  const iso = (ms) => new Date(ms).toISOString().slice(0, 10);
+  const to = Date.now(), from = to - days * 864e5;
+  const complaints = fb.filter(qrIsComplaint).sort((a, b) => qrMs(b.createdAt) - qrMs(a.createdAt));
+  const open = complaints.filter(c => qrStatusOf(c) !== 'resolved');
+  const overdue = open.filter(qrOverdue);
+  const overall = qrAvg(fb.map(qrOverall));
+  const happy = fb.length ? Math.round(fb.filter(x => qrOverall(x) >= 4).length / fb.length * 100) : 0;
+  const issues = Object.entries(fb.reduce((m, x) => { const i = x.ai && x.ai.issue; if (i && i !== '—') m[i] = (m[i] || 0) + 1; return m; }, {})).sort((a, b) => b[1] - a[1]);
+  const withComment = fb.filter(x => x.comment);
+  const kpi = (label, val, cls) => `<div class="kpi ${cls || ''}"><span>${label}</span><b>${val}</b></div>`;
+  const empty = (cols, txt) => `<tr><td colspan="${cols}" class="dim">${txt}</td></tr>`;
+
+  const branchRows = qrBranchStats(fb, brs).map(r => `<tr><td>${e(r.b.name)}</td><td class="num">${r.n}</td><td class="num">${f1(r.a)}</td>
+    <td class="num">${r.trend ? (r.trend > 0 ? '▲ ' : '▼ ') + Math.abs(r.trend).toFixed(0) + '%' : '—'}</td>
+    <td class="num">${r.complaints}</td><td class="num ${r.open ? 'rose' : ''}">${r.open}</td></tr>`).join('');
+  const itemRows = QR_ITEMS.map(i => {
+    const v = qrAvg(fb.map(x => Number(x.ratings && x.ratings[i.key]) || 0).filter(Boolean));
+    return `<tr><td>${e(i.category)}</td><td>${e(i.label)}</td><td class="num ${v && v < 3 ? 'rose' : ''}">${f1(v)}</td></tr>`;
+  }).join('');
+  const issueRows = issues.map(([n, c]) => `<tr><td>${e(n)}</td><td class="num">${c}</td></tr>`).join('');
+  const complaintRows = complaints.map(c => `<tr><td class="num">#${e(c.id.slice(0, 6).toUpperCase())}</td><td>${e(nb(c.branchId))}</td>
+    <td class="num">${e(qrDate(c.createdAt))}</td><td class="num">${f1(qrOverall(c))}</td>
+    <td>${e(QR_STATUS[qrStatusOf(c)].ar)}${qrOverdue(c) ? ' <span class="rose">(تجاوزت المهلة)</span>' : ''}</td>
+    <td>${e(c.comment || '—')}${c.tableNo ? `<div class="dim">طاولة ${e(c.tableNo)}</div>` : ''}</td></tr>`).join('');
+  const commentRows = withComment.slice(0, 40).map(x => `<tr><td>${e(nb(x.branchId))}</td><td class="num">${e(qrDate(x.createdAt))}</td>
+    <td class="num">${f1(qrOverall(x))}</td><td>${e(x.comment)}</td><td>${x.ai ? e(x.ai.sentiment) : '—'}</td></tr>`).join('');
+  const scope = sel === 'all' ? 'كل الفروع' : e((brs[0] || {}).name || nb(sel));
+
+  w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
+    <title>تقرير تقييم العملاء</title><style>${A4_CSS}</style></head><body><div class="page">
+    <div class="head">
+      <div class="co">${co.logoUrl ? `<img class="logo" src="${e(co.logoUrl)}">` : ''}
+        <div><div class="co-n">${e(co.name || 'المنشأة')}</div><div class="co-m">الرقم الضريبي: ${e(co.taxNumber || '—')}</div></div></div>
+      <div class="doc-title">تقرير تقييم العملاء (QR)</div>
+      <div class="doc-sub">${scope} · من ${arDate(iso(from))} إلى ${arDate(iso(to))} (آخر ${days} يومًا)</div>
+    </div>
+    <div class="kpis">
+      ${kpi('عدد التقييمات', fb.length)}
+      ${kpi('متوسط التقييم', f1(overall) + ' / 5', overall && overall < 3.5 ? 'bad' : 'ok')}
+      ${kpi('نسبة الرضا (4 نجوم فأكثر)', happy + '%', happy >= 70 ? 'ok' : 'warn')}
+      ${kpi('إجمالي الشكاوى', complaints.length, complaints.length ? 'warn' : 'ok')}
+      ${kpi('شكاوى مفتوحة', open.length, open.length ? 'bad' : 'ok')}
+      ${kpi('تجاوزت مهلة 24 ساعة', overdue.length, overdue.length ? 'bad' : 'ok')}
+    </div>
+    <div class="sec-h">مقارنة الفروع</div>
+    <table class="t"><thead><tr><th>الفرع</th><th class="num">التقييمات</th><th class="num">المتوسط</th><th class="num">الاتجاه الأسبوعي</th><th class="num">الشكاوى</th><th class="num">مفتوحة</th></tr></thead>
+      <tbody>${branchRows || empty(6, 'لا توجد فروع')}</tbody></table>
+    <div class="sec-h">متوسط عناصر التقييم</div>
+    <table class="t compact"><thead><tr><th>الفئة</th><th>العنصر</th><th class="num">المتوسط من 5</th></tr></thead><tbody>${itemRows}</tbody></table>
+    ${issues.length ? `<div class="sec-h">أكثر المشاكل (من تحليل التعليقات)</div>
+    <table class="t compact"><thead><tr><th>المشكلة</th><th class="num">التكرار</th></tr></thead><tbody>${issueRows}</tbody></table>` : ''}
+    <div class="sec-h">الشكاوى (تقييم أقل من 3)</div>
+    <table class="t"><thead><tr><th>الرقم</th><th>الفرع</th><th>التاريخ</th><th class="num">التقييم</th><th>الحالة</th><th>التعليق</th></tr></thead>
+      <tbody>${complaintRows || empty(6, 'لا توجد شكاوى في هذه الفترة')}</tbody></table>
+    <div class="sec-h">آخر التعليقات${withComment.length > 40 ? ' (أحدث 40 من ' + withComment.length + ')' : ''}</div>
+    <table class="t"><thead><tr><th>الفرع</th><th>التاريخ</th><th class="num">التقييم</th><th>التعليق</th><th>الانطباع</th></tr></thead>
+      <tbody>${commentRows || empty(5, 'لا توجد تعليقات مكتوبة')}</tbody></table>
+    <div class="foot dim">تم التصدير آليًا من وحدة تقييم العملاء · ${new Date().toLocaleString('ar-SA-u-nu-latn')}</div>
+    </div></body></html>`);
+  w.document.close();
+  setTimeout(() => { w.focus(); w.print(); }, 500);
 }
 
 /* ---------- تحليل التعليقات بـ Claude ----------
