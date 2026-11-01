@@ -2726,7 +2726,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v28.2 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v28.3 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -15972,6 +15972,8 @@ function MizanMerge({ org, ops, me, commit, commitOrg, say, A }) {
   const [map, setMap] = useState({});
   const [busy, setBusy] = useState(false);
   const [confirmUndo, setConfirmUndo] = useState('');
+  const [unlockWhy, setUnlockWhy] = useState('');   // v28.3: سبب الفتح المؤقت للأشهر المقفلة أثناء الدمج
+  const canUnlock = !!ROLES[me?.role]?.admin;        // نفس صلاحية الفتح الاستثنائي في شاشة الإقفال
   const batches = cfg.batches || [];
   const loadFile = (f) => {
     if (!f) return;
@@ -15993,9 +15995,14 @@ function MizanMerge({ org, ops, me, commit, commitOrg, say, A }) {
     await commitOrg(d => ({ ...d, mizanCfg: { ...(d.mizanCfg || {}), enabled: on } }),
       { actionType: 'update', targetType: 'tax_settings', targetId: 'mizanCfg', need: 'post', title: on ? 'تفعيل دمج بيانات ميزان' : 'إيقاف دمج بيانات ميزان', details: '' });
   };
-  const doImport = async () => {
+  const doImport = async (viaUnlock) => {
     if (!plan || busy) return;
-    if (plan.lockedMonths.length) return say('أشهر مقفلة محاسبيًا: ' + plan.lockedMonths.join('، ') + ' — افتحها أولًا', 'no');
+    // v28.3: الأشهر المقفلة — إما فتحها يدويًا من شاشة الإقفال، أو فتح مؤقت موثّق بسبب يعاد بعده القفل تلقائيًا
+    const prevLock = lockedThru(org);
+    const tmpUnlock = !!(viaUnlock && plan.lockedMonths.length);
+    if (plan.lockedMonths.length && !tmpUnlock) return say('أشهر مقفلة محاسبيًا: ' + plan.lockedMonths.join('، ') + ' — افتحها أولًا', 'no');
+    if (tmpUnlock && !canUnlock) return say('الفتح المؤقت للأشهر المقفلة لمسؤول النظام فقط', 'no');
+    if (tmpUnlock && !unlockWhy.trim()) return say('اكتب سبب الفتح المؤقت — إلزامي للتوثيق', 'no');
     if (plan.missing.length) return say('حسابات مربوطة بأكواد غير موجودة: ' + plan.missing.join('، '), 'no');
     if (plan.noSup) return say('سجلات بلا مورد مطابق — راجع الحزمة', 'no');
     setBusy(true);
@@ -16003,7 +16010,9 @@ function MizanMerge({ org, ops, me, commit, commitOrg, say, A }) {
       const rec = { batch: pkg.batch, at: nowISO(), by: me?.name || '', counts: { suppliers: plan.newSups.length, accounts: plan.newAccs.length, invoices: plan.invoices.length, payments: plan.payments.length, journals: plan.journals.length }, map };
       const okOrg = await commitOrg(d => {
         const haveS = new Set((d.suppliers || []).map(s => s.id)); const haveA = new Set((d.customAccounts || []).map(a => String(a.code)));
-        return { ...d,
+        const pl = d.periodLocks || {};
+        const plNext = tmpUnlock ? { periodLocks: { ...pl, lockedThrough: '', log: [{ id: uid('pl'), at: nowISO(), by: me?.name || '', action: 'unlock', month: 'فتح مؤقت لدمج ميزان', reason: unlockWhy.trim() }, ...(pl.log || [])].slice(0, 60) } } : {};
+        return { ...d, ...plNext,
           suppliers: [...(d.suppliers || []), ...plan.newSups.filter(s => !haveS.has(s.id))],
           customAccounts: [...(d.customAccounts || []), ...plan.newAccs.filter(a => !haveA.has(a.code))],
           mizanCfg: { ...(d.mizanCfg || {}), enabled: true, lastMap: map, batches: [...((d.mizanCfg || {}).batches || []).filter(b => b.batch !== rec.batch), rec] } };
@@ -16015,10 +16024,21 @@ function MizanMerge({ org, ops, me, commit, commitOrg, say, A }) {
         journalManual: [...plan.journals, ...(d.journalManual || [])] }),
         { actionType: 'create', targetType: 'journal_entry', targetId: pkg.batch, need: 'post', title: 'دمج ميزان — الفواتير والسدادات وقيود البنوك',
           details: plan.invoices.length + ' فاتورة · ' + plan.payments.length + ' سداد · ' + plan.journals.length + ' قيد' });
-      if (ok) { say('تم الدمج ✓ — ' + plan.invoices.length + ' فاتورة و' + plan.payments.length + ' سدادًا و' + plan.journals.length + ' قيدًا'); setPkg(null); }
-    } finally { setBusy(false); }
+      if (ok) { say('تم الدمج ✓ — ' + plan.invoices.length + ' فاتورة و' + plan.payments.length + ' سدادًا و' + plan.journals.length + ' قيدًا' + (tmpUnlock ? ' — وأُعيد القفل حتى ' + prevLock : '')); setPkg(null); setUnlockWhy(''); }
+    } finally {
+      // v28.3: إعادة القفل كما كان دائمًا — نجح الدمج أو فشل
+      if (tmpUnlock && prevLock) {
+        await commitOrg(d => { const pl = d.periodLocks || {}; return { ...d, periodLocks: { ...pl, lockedThrough: prevLock, log: [{ id: uid('pl'), at: nowISO(), by: me?.name || '', action: 'lock', month: prevLock, reason: 'إعادة القفل تلقائيًا بعد دمج ميزان' }, ...(pl.log || [])].slice(0, 60) } }; },
+          { actionType: 'update', targetType: 'period_lock', targetId: 'periodLocks', need: 'edit', title: 'إعادة قفل الفترات بعد دمج ميزان', details: 'حتى ' + prevLock });
+      }
+      setBusy(false);
+    }
   };
   const undo = async (batch) => {
+    // v28.3: الإلغاء يحذف قيودًا — يحترم الإقفال الشهري (يُفتح من المحاسبة ← الإقفال عند الحاجة)
+    const bDates = [...(ops.invoices || []), ...(ops.closingInvPays || []), ...(ops.journalManual || [])].filter(x => x.mizanBatch === batch).map(x => x.date);
+    const lk = [...new Set(bDates.filter(d => periodLocked(org, d)).map(d => d.slice(0, 7)))].sort();
+    if (lk.length) return say('لا يُلغى: الدفعة تشمل أشهرًا مقفلة (' + lk.join('، ') + ') — افتحها من المحاسبة ← الإقفال أولًا', 'no');
     if (confirmUndo !== batch) { setConfirmUndo(batch); return; }
     setConfirmUndo('');
     const ok = await commit(d => ({ ...d,
@@ -16084,7 +16104,14 @@ function MizanMerge({ org, ops, me, commit, commitOrg, say, A }) {
               <span className="badge b-brass">إجمالي الفواتير {money(pkg.totals?.invoices)} · الضريبة {money(pkg.totals?.vat)}</span>
             </div>
             {pkg.note && <div className="hint" style={{ marginTop: 8 }}>{pkg.note}</div>}
-            {plan.lockedMonths.length > 0 && <div className="note" style={{ marginTop: 8, borderColor: '#D9544D' }}>أشهر مقفلة محاسبيًا تمنع الدمج: {plan.lockedMonths.join('، ')}</div>}
+            {plan.lockedMonths.length > 0 && <div className="note" style={{ marginTop: 8, borderColor: '#D9544D' }}>
+              أشهر مقفلة محاسبيًا: {plan.lockedMonths.join('، ')} (مقفل حتى {lockedThru(org)}).
+              {canUnlock ? <div style={{ marginTop: 8 }}>
+                يمكن الدمج بفتح مؤقت موثّق: تُفتح الأشهر، يتم الدمج، ثم يُعاد القفل حتى {lockedThru(org)} تلقائيًا — ويُسجَّل الفتح وإعادة القفل في سجل الإقفال والتدقيق.
+                <div className="row" style={{ gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                  <input className="inp" style={{ flex: 1, minWidth: 260 }} placeholder="سبب الفتح المؤقت (إلزامي)" value={unlockWhy} onChange={e => setUnlockWhy(e.target.value)} />
+                </div></div> : <div style={{ marginTop: 6 }}>الفتح المؤقت لمسؤول النظام فقط — أو افتحها من المحاسبة ← الإقفال.</div>}
+            </div>}
           </div>
 
           <div className="card">
@@ -16114,8 +16141,11 @@ function MizanMerge({ org, ops, me, commit, commitOrg, say, A }) {
                 return <tr key={b.mid}><td>{b.name}</td><td>{b.code}</td><td className="n">{money(b.pkgNet)}</td><td className="n">{money(b.close)}</td>
                   <td>{okB === null ? <span className="badge b-dim">دفعة جزئية</span> : okB ? <span className="badge b-mint">مطابق ✓</span> : <span className="badge b-rose">لا يطابق</span>}</td></tr>; })}</tbody></table>
             <div className="row" style={{ gap: 8, marginTop: 12 }}>
-              <button className="btn pri" disabled={busy || plan.lockedMonths.length > 0 || plan.missing.length > 0 || (plan.invoices.length + plan.payments.length + plan.journals.length) === 0} onClick={doImport}>
-                <Check size={15} />{busy ? 'جارٍ الدمج…' : 'دمج'}</button>
+              {plan.lockedMonths.length === 0
+                ? <button className="btn pri" disabled={busy || plan.missing.length > 0 || (plan.invoices.length + plan.payments.length + plan.journals.length) === 0} onClick={() => doImport(false)}>
+                    <Check size={15} />{busy ? 'جارٍ الدمج…' : 'دمج'}</button>
+                : <button className="btn pri" disabled={busy || !canUnlock || !unlockWhy.trim() || plan.missing.length > 0 || (plan.invoices.length + plan.payments.length + plan.journals.length) === 0} onClick={() => doImport(true)}>
+                    <Lock size={15} />{busy ? 'جارٍ الدمج…' : 'فتح مؤقت ← دمج ← إعادة القفل'}</button>}
               <button className="btn gh" onClick={() => setPkg(null)}>إلغاء</button>
             </div>
           </div>
