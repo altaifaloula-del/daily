@@ -2726,7 +2726,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v28.3 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v28.4 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -16018,10 +16018,12 @@ function MizanMerge({ org, ops, me, commit, commitOrg, say, A }) {
           mizanCfg: { ...(d.mizanCfg || {}), enabled: true, lastMap: map, batches: [...((d.mizanCfg || {}).batches || []).filter(b => b.batch !== rec.batch), rec] } };
       }, { actionType: 'create', targetType: 'tax_settings', targetId: pkg.batch, need: 'post', title: 'دمج ميزان — الموردون والحسابات', details: plan.newSups.length + ' مورد · ' + plan.newAccs.length + ' حساب' });
       if (okOrg === false) { setBusy(false); return; }
+      // v28.4: الحافظ يعيد تطبيق الدالة عند تعارض الكتابة (حتى 3 مرات) — لا نضيف سجلًا موجودًا بمعرّفه أبدًا
+      const addNew = (arr, add) => { const have = new Set((arr || []).map(x => x.id)); return [...add.filter(x => !have.has(x.id)), ...(arr || [])]; };
       const ok = await commit(d => ({ ...d,
-        invoices: [...plan.invoices, ...(d.invoices || [])],
-        closingInvPays: [...plan.payments, ...(d.closingInvPays || [])],
-        journalManual: [...plan.journals, ...(d.journalManual || [])] }),
+        invoices: addNew(d.invoices, plan.invoices),
+        closingInvPays: addNew(d.closingInvPays, plan.payments),
+        journalManual: addNew(d.journalManual, plan.journals) }),
         { actionType: 'create', targetType: 'journal_entry', targetId: pkg.batch, need: 'post', title: 'دمج ميزان — الفواتير والسدادات وقيود البنوك',
           details: plan.invoices.length + ' فاتورة · ' + plan.payments.length + ' سداد · ' + plan.journals.length + ' قيد' });
       if (ok) { say('تم الدمج ✓ — ' + plan.invoices.length + ' فاتورة و' + plan.payments.length + ' سدادًا و' + plan.journals.length + ' قيدًا' + (tmpUnlock ? ' — وأُعيد القفل حتى ' + prevLock : '')); setPkg(null); setUnlockWhy(''); }
@@ -16052,6 +16054,18 @@ function MizanMerge({ org, ops, me, commit, commitOrg, say, A }) {
       say('أُلغيت سجلات الدفعة ✓ (الموردون والحسابات المضافة باقية بلا حركة)');
     }
   };
+  // v28.4: كشف وإزالة النسخ المكررة من سجلات ميزان (نتيجة إعادة محاولة الحفظ في v28.2/v28.3) — يُبقي نسخة واحدة لكل معرّف
+  const dupCount = (arr) => { const seen = new Set(); let n = 0, amt = 0; (arr || []).forEach(x => { if (!x || !x.mizanBatch) return; if (seen.has(x.id)) { n++; amt += Number(x.amount) || 0; } else seen.add(x.id); }); return { n, amt: mzR2(amt) }; };
+  const dups = { inv: dupCount(ops.invoices), pay: dupCount(ops.closingInvPays), jr: dupCount(ops.journalManual) };
+  const dupTotal = dups.inv.n + dups.pay.n + dups.jr.n;
+  const dedupe = async () => {
+    if (!canUnlock) return say('إزالة المكرر لمسؤول النظام فقط', 'no');
+    const uniq = (arr) => { const seen = new Set(); return (arr || []).filter(x => { if (!x || !x.mizanBatch) return true; if (seen.has(x.id)) return false; seen.add(x.id); return true; }); };
+    const ok = await commit(d => ({ ...d, invoices: uniq(d.invoices), closingInvPays: uniq(d.closingInvPays), journalManual: uniq(d.journalManual) }),
+      { actionType: 'delete', targetType: 'journal_entry', targetId: 'mizan-dedupe', need: 'edit', title: 'إزالة النسخ المكررة من دمج ميزان',
+        details: dups.inv.n + ' فاتورة · ' + dups.pay.n + ' سداد · ' + dups.jr.n + ' قيد (نسخ مطابقة بنفس المعرّف — تصحيح خطأ حفظ)' });
+    if (ok) say('أُزيلت النسخ المكررة ✓ — بقيت نسخة واحدة من كل سجل');
+  };
   // أرصدة البنوك المربوطة الآن مقابل كشوف الحزمة المستوردة
   const live = batches.filter(b => !b.undoneAt);
   const bankNow = (code) => { const a = A.accounts.find(x => x.code === code); return a ? mzR2((a.debit || 0) - (a.credit || 0)) : null; };
@@ -16075,6 +16089,17 @@ function MizanMerge({ org, ops, me, commit, commitOrg, say, A }) {
           {cfg.enabled && !live.length && <button className="btn sm gh" onClick={() => enable(false)}>إيقاف</button>}
         </div>
       </div>
+
+      {dupTotal > 0 && (
+        <div className="card" style={{ borderColor: '#D9544D' }}>
+          <div className="card-t" style={{ marginBottom: 8, color: '#D9544D' }}><AlertTriangle size={15} />سجلات مكررة من الدمج — الأرقام مضاعفة</div>
+          <div className="note" style={{ lineHeight: 1.9 }}>
+            حُفظت بعض سجلات ميزان أكثر من مرة بنفس المعرّف (إعادة محاولة الحفظ عند تعارض الكتابة): {dups.inv.n} فاتورة ({money(dups.inv.amt)}) · {dups.pay.n} سداد ({money(dups.pay.amt)}) · {dups.jr.n} قيد.
+            <br />الإزالة تُبقي نسخة واحدة من كل سجل ولا تمسّ أي بيانات أخرى، وتُسجَّل في سجل التدقيق.
+          </div>
+          <div className="row" style={{ marginTop: 10 }}>{canUnlock ? <button className="btn pri" onClick={dedupe}><Trash2 size={14} />إزالة النسخ المكررة</button> : <span className="hint">لمسؤول النظام فقط</span>}</div>
+        </div>
+      )}
 
       {live.length > 0 && (
         <div className="card">
