@@ -591,7 +591,10 @@ function buildPartners(org, ops) {
     const key = 'sup:' + sp.id; const txns = []; let linked = false;
     (ops.invoices || []).filter(i => i.supplierId === sp.id).forEach(i => {
       const d = (i.date || i.createdAt || i.dueDate || today() || '').slice(0, 10);
-      txns.push({ date: d, desc: 'فاتورة توريد ' + (i.invoiceNo || ''), ref: i.invoiceNo || '', src: 'inv', debit: 0, credit: i.amount || 0 });
+      // v28.2: الإشعار الدائن (مبلغ سالب) يُعرض مدينًا يخفض الرصيد بدل دائن سالب
+      txns.push((i.amount || 0) < 0
+        ? { date: d, desc: 'إشعار دائن من المورد ' + (i.invoiceNo || ''), ref: i.invoiceNo || '', src: 'inv', debit: -i.amount, credit: 0 }
+        : { date: d, desc: 'فاتورة توريد ' + (i.invoiceNo || ''), ref: i.invoiceNo || '', src: 'inv', debit: 0, credit: i.amount || 0 });
       if ((i.paidAmount || 0) > 0) txns.push({ date: (i.paidDate || d || '').slice(0, 10), desc: 'سداد فاتورة ' + (i.invoiceNo || ''), ref: i.invoiceNo || '', src: 'inv', debit: i.paidAmount || 0, credit: 0 });
       linked = true;
     });
@@ -599,7 +602,7 @@ function buildPartners(org, ops) {
     const pt = payFor(key, sp.id); txns.push(...pt); if (pt.length) linked = true;
     // v8.1: السدادات المركزية لفواتير الورديات المشتقة
     (ops.closingInvPays || []).filter(x => x.supplierId === sp.id).forEach(x => {
-      txns.push({ date: (x.date || '').slice(0, 10), desc: 'سداد مركزي لمشتريات وردية', ref: x.refId || '', src: 'pay', debit: x.amount || 0, credit: 0 });
+      txns.push({ date: (x.date || '').slice(0, 10), desc: x.mizanId ? ('سداد من البنك' + (x.payType ? ' — ' + x.payType : '') + (x.bankRef ? ' · ' + x.bankRef : '')) : 'سداد مركزي لمشتريات وردية', ref: x.mizanId || x.refId || '', src: 'pay', debit: x.amount || 0, credit: 0 });
       linked = true;
     });
     txns.push(...ledFor(key));
@@ -1071,7 +1074,8 @@ function buildAccounting(org, ops) {
     if (!(ca && ca.code && !accIx[ca.code])) return;
     // v15.21: حساب مخصّص مربوط كبنك فرع يُعامل كنقد وما في حكمه (يدخل مؤشر «النقد الآن»)
     const isBranchBank = Object.values(bankCode).includes(String(ca.code));
-    addAcc(String(ca.code), ca.name || String(ca.code), ca.kind || 'exp', { link: isBranchBank ? 'بنك فرع (مربوط من كرت الفرع)' : 'حساب مخصّص', custom: true, ...(isBranchBank ? { cash: true } : {}) });
+    // v28.2: حساب مخصّص موسوم cash (بنوك/وسطاء نقد مستوردة من ميزان) يُعامل كنقد وما في حكمه
+    addAcc(String(ca.code), ca.name || String(ca.code), ca.kind || 'exp', { link: isBranchBank ? 'بنك فرع (مربوط من كرت الفرع)' : (ca.mizanBatch ? 'حساب مستورد من ميزان' : 'حساب مخصّص'), custom: true, ...((isBranchBank || ca.cash) ? { cash: true } : {}) });
   });
 
   // ===== محرك القيود =====
@@ -1202,14 +1206,30 @@ function buildAccounting(org, ops) {
     const d = (i.date || i.createdAt || i.dueDate || '').slice(0, 10);
     if (i.amount > 0) {
       // فصل ضريبة المدخلات للفواتير الموسومة «خاضعة» فقط (الحقل الجديد في م٤) — القديمة بلا وسم تبقى إجمالية
-      const ti = (i.taxable === true) ? splitVat(i.amount) : { net: i.amount, vat: 0 };
+      // v28.2: فواتير مستوردة تحمل ضريبتها الفعلية (vatAmt) وحساب مصروفها (accCode) — القديمة بلا الحقلين كما هي
+      const ti = (typeof i.vatAmt === 'number')
+        ? { net: Math.round((i.amount - i.vatAmt) * 100) / 100, vat: Math.round(i.vatAmt * 100) / 100 }
+        : (i.taxable === true) ? splitVat(i.amount) : { net: i.amount, vat: 0 };
+      const exC = (i.accCode && accIx[i.accCode]) ? String(i.accCode) : '5198';
       push({
         id: 'inv:' + i.id, date: d, branchId: i.branchId, title: 'فاتورة توريد آجلة — ' + (i.supplierName || 'مورد'),
         src: 'فاتورة مورد', ref: i.invoiceNo || i.id,
         lines: ti.vat
-          ? [L('5198', ti.net, 0), L('1501', ti.vat, 0), L('2101', 0, i.amount)]
-          : [L('5198', i.amount, 0), L('2101', 0, i.amount)],
+          ? [L(exC, ti.net, 0), L('1501', ti.vat, 0), L('2101', 0, i.amount)]
+          : [L(exC, i.amount, 0), L('2101', 0, i.amount)],
         vat: ti.vat ? { out: 0, inn: ti.vat, netSales: 0, netPurch: ti.net } : null
+      });
+    } else if (i.amount < 0 && i.mizanId) {
+      // v28.2: إشعار دائن من مورد (مرتجع) مستورد من ميزان — يعكس قيد الفاتورة: يخفض الذمة والمصروف وضريبة المدخلات
+      const a = Math.round(-i.amount * 100) / 100;
+      const v = Math.round(Math.abs(typeof i.vatAmt === 'number' ? i.vatAmt : 0) * 100) / 100;
+      const n = Math.round((a - v) * 100) / 100;
+      const exC = (i.accCode && accIx[i.accCode]) ? String(i.accCode) : '5198';
+      push({
+        id: 'inv:' + i.id, date: d, branchId: i.branchId, title: 'إشعار دائن من مورد — ' + (i.supplierName || 'مورد'),
+        src: 'فاتورة مورد', ref: i.invoiceNo || i.id,
+        lines: v ? [L('2101', a, 0), L(exC, 0, n), L('1501', 0, v)] : [L('2101', a, 0), L(exC, 0, a)],
+        vat: v ? { out: 0, inn: -v, netSales: 0, netPurch: -n } : null
       });
     }
     if ((i.paidAmount || 0) > 0) push({
@@ -1226,7 +1246,7 @@ function buildAccounting(org, ops) {
     const spn = ((org.suppliers || []).find(x => x.id === pmt.supplierId) || {}).name || 'مورد';
     push({
       id: 'cip:' + pmt.id, date: (pmt.date || '').slice(0, 10),
-      title: 'سداد مركزي لمشتريات وردية — ' + spn + (pmt.fund === '1101' ? ' (نقداً من الخزينة)' : ''),
+      title: (pmt.mizanId ? 'سداد مورد من البنك — ' + spn + (pmt.payType ? ' (' + pmt.payType + ')' : '') : 'سداد مركزي لمشتريات وردية — ' + spn + (pmt.fund === '1101' ? ' (نقداً من الخزينة)' : '')),
       src: 'سداد مركزي', ref: pmt.refId || pmt.id,
       lines: [L('2101', pmt.amount, 0), L((pmt.fund && accIx[pmt.fund]) ? pmt.fund : '1201', 0, pmt.amount)]   // v15.19/v15.20: المصدر المختار (خزينة أو أي بنك)
     });
@@ -1740,7 +1760,8 @@ const ACCT_SECTIONS = [
   { v: 'vat', ar: 'الضريبة (ق.م)' }, { v: 'einv', ar: 'الفوترة (زاتكا)' }, { v: 'zakat', ar: 'الزكاة وضريبة الدخل' },
   { v: 'ast', ar: 'الأصول والإهلاك' }, { v: 'bank', ar: 'التسوية البنكية' }, { v: 'mclose', ar: 'حزمة الإقفال' },
   { v: 'ctrl', ar: 'الضوابط والتدقيق' }, { v: 'lock', ar: 'الإقفال الشهري' }, { v: 'astl', ar: 'تسوية التطبيقات' },
-  { v: 'ob', ar: 'الأرصدة الافتتاحية' }, { v: 'yend', ar: 'إقفال السنة' }
+  { v: 'ob', ar: 'الأرصدة الافتتاحية' }, { v: 'yend', ar: 'إقفال السنة' },
+  { v: 'mizan', ar: 'دمج بيانات ميزان' }   // v28.2
 ];
 const acctSecKey = (v) => 'acctsec:' + v;
 const ACCT_SEC_AR = {}; ACCT_SECTIONS.forEach(s => { ACCT_SEC_AR[s.v] = s.ar; });
@@ -2705,7 +2726,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v27.13 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v28.2 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -14323,7 +14344,8 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const [poF, setPoF] = useState(null);              // نموذج أمر شراء
   const [recv, setRecv] = useState(null);            // نموذج استلام أمر
   const ids = myBranches.map(b => b.id);
-  const invoices = (ops.invoices || []).filter(i => ids.includes(i.branchId))
+  // v28.2: فواتير المركز (بلا فرع، ومنها المستوردة من ميزان) تظهر للأدوار المركزية
+  const invoices = (ops.invoices || []).filter(i => ids.includes(i.branchId) || (!i.branchId && ROLES[me.role]?.scope !== 'own'))
     .sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''));
   const fixed = (ops.fixedExpenses || []).filter(f => ids.includes(f.branchId));
   const suppliers = org.suppliers || [];
@@ -14333,8 +14355,10 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const branchPaid = (invId) => sum(
     (ops.closings || []).filter(c => c.status === 'submitted' || c.status === 'approved')
       .flatMap(c => (c.supplierPayments || []).filter(pm => pm.invoiceId === invId)), payTotal);
-  const invPaid = (i) => (i.paidAmount || 0) + branchPaid(i.id);
-  const invRem = (i) => i.amount - invPaid(i);
+  // v28.2: سدادات مركزية مخصّصة على الفاتورة (alloc) — من دمج ميزان
+  const allocPaid = useMemo(() => { const m = {}; (ops.closingInvPays || []).forEach(x => (x.alloc || []).forEach(([id, v]) => { m[id] = (m[id] || 0) + (Number(v) || 0); })); return m; }, [ops.closingInvPays]);
+  const invPaid = (i) => (i.paidAmount || 0) + branchPaid(i.id) + (allocPaid[i.id] || 0);
+  const invRem = (i) => (i.amount < 0 ? 0 : i.amount - invPaid(i));   // v28.2: الإشعار الدائن لا يُعد فاتورة مفتوحة
 
   // v8.1: الفواتير المشتقة من الورديات (الآجلة المربوطة بموردين) + سداداتها المركزية
   const clInvs = closingInvoices(org, ops).filter(v => ids.includes(v.branchId));
@@ -15864,6 +15888,243 @@ function AppsCenter({ org, me, commitOrg, say, setTab, openAcctView, openInvView
 }
 
 /* ================= شاشة المحاسبة — م١+م٢: دليل، قيود، ميزان، قوائم ================= */
+/* ═══════════════════════════════════════════════════════════════════════════════════════
+   v28.2 — دمج بيانات «ميزان المحاسبي» (حزمة mizan-export)
+   ───────────────────────────────────────────────────────────────────────────────────────
+   • مُطفأ افتراضيًا: لا شيء يتغيّر حتى يفعّله صاحب صلاحية الترحيل ويستورد الحزمة بنفسه.
+   • لا افتراض: كل حساب في الحزمة يُربط صراحةً بحساب في الدليل (أو يُنشأ حساب مخصّص جديد)،
+     والموردون يُطابَقون بالرقم الضريبي ثم بالاسم، والمكرّر (نفس الدفعة) لا يُستورد مرتين.
+   • يحترم الإقفال الشهري: أي سجل في شهر مقفل يمنع الاستيراد كله.
+   • التراجع ممكن: كل سجل مستورد يحمل mizanBatch، وزر «إلغاء الدفعة» يحذف سجلاتها التشغيلية.
+   ═══════════════════════════════════════════════════════════════════════════════════════ */
+const MZ_FIXED = { '211001': '2101', '115001': '1501' };          // ذمم الموردين وضريبة المدخلات — ثابتان بطبيعتهما
+const MZ_SUGGEST = { '213002': '2301', '319001': '3101' };        // اقتراح أولي قابل للتغيير
+const MZ_KIND_AR = { asset: 'أصل', liab: 'خصم', equity: 'حقوق ملكية', rev: 'إيراد', exp: 'مصروف' };
+const mzNorm = (s) => String(s || '').replace(/[ًٌٍَُِّْـ]/g, '').replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/\s+/g, ' ').trim();
+const mzNewCode = (c) => 'MZ-' + c;
+const mzR2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
+function mizanPlan(org, ops, pkg, map) {
+  const A = buildAccounting(org, ops);
+  const accSet = new Set(A.accounts.map(a => a.code));
+  const target = (code) => MZ_FIXED[code] || (map[code] === '__new' || !map[code] ? mzNewCode(code) : map[code]);
+  // الموردون: الرقم الضريبي أولًا ثم الاسم بعد التطبيع — ولا مطابقة غير ذلك
+  const exVat = {}; const exName = {};
+  (org.suppliers || []).forEach(s => { const v = String(s.vatNo || '').trim(); if (v) exVat[v] = s; exName[mzNorm(s.name)] = s; });
+  const supMap = {}; const newSups = []; let supByVat = 0, supByName = 0;
+  (pkg.suppliers || []).forEach(s => {
+    const hit = (s.vat && exVat[s.vat]) || exName[mzNorm(s.name)];
+    if (hit) { supMap[s.mid] = { id: hit.id, name: hit.name }; if (s.vat && exVat[s.vat]) supByVat++; else supByName++; return; }
+    const id = 'sup-mz-' + s.mid;
+    supMap[s.mid] = { id, name: s.name };
+    newSups.push({ id, name: s.name, category: 'مورد', phone: '', vatNo: s.vat || '', address: '', taxable: !!s.vat, terms: 0, mizanBatch: pkg.batch, mizanId: s.mid });
+  });
+  // الحسابات الجديدة المطلوب إنشاؤها
+  const pkgAcc = {}; (pkg.accounts || []).forEach(a => { pkgAcc[a.code] = a; });
+  const bankCodes = new Set((pkg.banks || []).map(b => b.acc));
+  const newAccs = [];
+  (pkg.accounts || []).forEach(a => {
+    if (MZ_FIXED[a.code]) return;
+    const t = target(a.code);
+    if (t === mzNewCode(a.code) && !accSet.has(t)) newAccs.push({ code: t, name: a.name, kind: a.kind, ...(bankCodes.has(a.code) || a.code === '111902' || a.code === '111903' ? { cash: true } : {}), mizanBatch: pkg.batch });
+  });
+  const missing = (pkg.accounts || []).filter(a => { const t = target(a.code); return !MZ_FIXED[a.code] && t !== mzNewCode(a.code) && !accSet.has(t); }).map(a => a.code);
+  // التكرار: نفس الدفعة أو نفس المعرّف المستورد
+  const has = (arr) => new Set((arr || []).filter(x => x && x.mizanId).map(x => x.mizanId));
+  const invHas = has(ops.invoices), payHas = has(ops.closingInvPays), jrHas = has(ops.journalManual);
+  const invId = (mid) => 'mz-' + mid;
+  const invoices = (pkg.invoices || []).filter(i => !invHas.has(i.mid)).map(i => {
+    const sp = supMap[i.sup] || { id: '', name: '' };
+    return {
+      id: invId(i.mid), supplierId: sp.id, supplierName: sp.name, branchId: '', branchName: 'المركز الرئيسي',
+      invoiceNo: i.inv || i.mid, amount: mzR2(i.total), paidAmount: 0, taxable: (i.vat || 0) > 0, vatAmt: mzR2(i.vat), accCode: target(i.acc),
+      date: i.date, dueDate: i.date, createdAt: nowISO(), note: i.note || '', mizanBatch: pkg.batch, mizanId: i.mid, mizanSrc: i.src || ''
+    };
+  });
+  const bankAcc = {}; (pkg.banks || []).forEach(b => { bankAcc[b.mid] = target(b.acc); });
+  const payments = (pkg.payments || []).filter(p => !payHas.has(p.mid)).map(p => ({
+    id: 'mzp-' + p.mid, refId: 'mizan:' + p.mid, supplierId: (supMap[p.sup] || {}).id || '', amount: mzR2(p.amount), date: p.date,
+    by: 'استيراد ميزان', at: nowISO(), fund: bankAcc[p.bank], alloc: (p.alloc || []).map(a => [invId(a[0]), mzR2(a[1])]),
+    payType: p.payType || '', payee: p.payee || '', bankRef: p.bankRef || '', memo: p.memo || '', mizanBatch: pkg.batch, mizanId: p.mid
+  }));
+  const journals = (pkg.journals || []).filter(j => !jrHas.has(j.mid)).map(j => ({
+    id: 'mzj-' + j.mid, date: j.date, title: j.title, opening: !!j.opening, by: 'استيراد ميزان', createdAt: nowISO(),
+    lines: j.lines.map(l => ({ code: MZ_FIXED[l.acc] || target(l.acc), debit: mzR2(l.d), credit: mzR2(l.c) })), mizanBatch: pkg.batch, mizanId: j.mid
+  }));
+  const locked = [...invoices.map(x => x.date), ...payments.map(x => x.date), ...journals.map(x => x.date)].filter(d => periodLocked(org, d));
+  const lockedMonths = [...new Set(locked.map(d => d.slice(0, 7)))].sort();
+  const noSup = invoices.filter(i => !i.supplierId).length + payments.filter(p => !p.supplierId).length;
+  // أثر الحزمة وحدها على كل بنك مربوط = رصيد الكشف (فحص توازن قبل الحفظ)
+  const bankCheck = (pkg.banks || []).map(b => {
+    const code = bankAcc[b.mid];
+    const fromPays = -sum(payments.filter(p => p.fund === code), p => p.amount);
+    const fromJr = sum(journals.flatMap(j => j.lines).filter(l => l.code === code), l => l.debit - l.credit);
+    return { mid: b.mid, name: b.name, code, close: b.close, asOf: b.asOf, pkgNet: mzR2(fromPays + fromJr) };
+  });
+  return { supMap, newSups, supByVat, supByName, newAccs, missing, invoices, payments, journals, lockedMonths, noSup, bankCheck,
+    dup: { inv: (pkg.invoices || []).length - invoices.length, pay: (pkg.payments || []).length - payments.length, jr: (pkg.journals || []).length - journals.length } };
+}
+
+function MizanMerge({ org, ops, me, commit, commitOrg, say, A }) {
+  const cfg = org.mizanCfg || {};
+  const canPost = rolePost(me?.role);
+  const [pkg, setPkg] = useState(null);
+  const [map, setMap] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [confirmUndo, setConfirmUndo] = useState('');
+  const batches = cfg.batches || [];
+  const loadFile = (f) => {
+    if (!f) return;
+    const rd = new FileReader();
+    rd.onload = () => {
+      try {
+        const p = JSON.parse(String(rd.result || ''));
+        if (p.format !== 'mizan-export' || !Array.isArray(p.invoices) || !Array.isArray(p.accounts)) return say('الملف ليس حزمة تصدير من «ميزان المحاسبي»', 'no');
+        const m = {};
+        (p.accounts || []).forEach(a => { if (!MZ_FIXED[a.code]) m[a.code] = (cfg.lastMap || {})[a.code] || MZ_SUGGEST[a.code] || '__new'; });
+        setMap(m); setPkg(p);
+      } catch (e) { say('تعذّرت قراءة الملف: ' + (e.message || e), 'no'); }
+    };
+    rd.readAsText(f);
+  };
+  const plan = useMemo(() => pkg ? mizanPlan(org, ops, pkg, map) : null, [org, ops, pkg, map]);
+  const accOpts = useMemo(() => A.accounts.slice().sort((a, b) => a.code.localeCompare(b.code)), [A]);
+  const enable = async (on) => {
+    await commitOrg(d => ({ ...d, mizanCfg: { ...(d.mizanCfg || {}), enabled: on } }),
+      { actionType: 'update', targetType: 'tax_settings', targetId: 'mizanCfg', need: 'post', title: on ? 'تفعيل دمج بيانات ميزان' : 'إيقاف دمج بيانات ميزان', details: '' });
+  };
+  const doImport = async () => {
+    if (!plan || busy) return;
+    if (plan.lockedMonths.length) return say('أشهر مقفلة محاسبيًا: ' + plan.lockedMonths.join('، ') + ' — افتحها أولًا', 'no');
+    if (plan.missing.length) return say('حسابات مربوطة بأكواد غير موجودة: ' + plan.missing.join('، '), 'no');
+    if (plan.noSup) return say('سجلات بلا مورد مطابق — راجع الحزمة', 'no');
+    setBusy(true);
+    try {
+      const rec = { batch: pkg.batch, at: nowISO(), by: me?.name || '', counts: { suppliers: plan.newSups.length, accounts: plan.newAccs.length, invoices: plan.invoices.length, payments: plan.payments.length, journals: plan.journals.length }, map };
+      const okOrg = await commitOrg(d => {
+        const haveS = new Set((d.suppliers || []).map(s => s.id)); const haveA = new Set((d.customAccounts || []).map(a => String(a.code)));
+        return { ...d,
+          suppliers: [...(d.suppliers || []), ...plan.newSups.filter(s => !haveS.has(s.id))],
+          customAccounts: [...(d.customAccounts || []), ...plan.newAccs.filter(a => !haveA.has(a.code))],
+          mizanCfg: { ...(d.mizanCfg || {}), enabled: true, lastMap: map, batches: [...((d.mizanCfg || {}).batches || []).filter(b => b.batch !== rec.batch), rec] } };
+      }, { actionType: 'create', targetType: 'tax_settings', targetId: pkg.batch, need: 'post', title: 'دمج ميزان — الموردون والحسابات', details: plan.newSups.length + ' مورد · ' + plan.newAccs.length + ' حساب' });
+      if (okOrg === false) { setBusy(false); return; }
+      const ok = await commit(d => ({ ...d,
+        invoices: [...plan.invoices, ...(d.invoices || [])],
+        closingInvPays: [...plan.payments, ...(d.closingInvPays || [])],
+        journalManual: [...plan.journals, ...(d.journalManual || [])] }),
+        { actionType: 'create', targetType: 'journal_entry', targetId: pkg.batch, need: 'post', title: 'دمج ميزان — الفواتير والسدادات وقيود البنوك',
+          details: plan.invoices.length + ' فاتورة · ' + plan.payments.length + ' سداد · ' + plan.journals.length + ' قيد' });
+      if (ok) { say('تم الدمج ✓ — ' + plan.invoices.length + ' فاتورة و' + plan.payments.length + ' سدادًا و' + plan.journals.length + ' قيدًا'); setPkg(null); }
+    } finally { setBusy(false); }
+  };
+  const undo = async (batch) => {
+    if (confirmUndo !== batch) { setConfirmUndo(batch); return; }
+    setConfirmUndo('');
+    const ok = await commit(d => ({ ...d,
+      invoices: (d.invoices || []).filter(x => x.mizanBatch !== batch),
+      closingInvPays: (d.closingInvPays || []).filter(x => x.mizanBatch !== batch),
+      journalManual: (d.journalManual || []).filter(x => x.mizanBatch !== batch) }),
+      { actionType: 'delete', targetType: 'journal_entry', targetId: batch, need: 'edit', title: 'إلغاء دفعة دمج ميزان', details: batch });
+    if (ok) {
+      await commitOrg(d => ({ ...d, mizanCfg: { ...(d.mizanCfg || {}), batches: ((d.mizanCfg || {}).batches || []).map(b => b.batch === batch ? { ...b, undoneAt: nowISO(), undoneBy: me?.name || '' } : b) } }),
+        { actionType: 'update', targetType: 'tax_settings', targetId: batch, need: 'edit', title: 'تعليم دفعة ميزان كملغاة', details: batch });
+      say('أُلغيت سجلات الدفعة ✓ (الموردون والحسابات المضافة باقية بلا حركة)');
+    }
+  };
+  // أرصدة البنوك المربوطة الآن مقابل كشوف الحزمة المستوردة
+  const live = batches.filter(b => !b.undoneAt);
+  const bankNow = (code) => { const a = A.accounts.find(x => x.code === code); return a ? mzR2((a.debit || 0) - (a.credit || 0)) : null; };
+
+  if (!canPost) return <div className="card"><div className="empty">دمج بيانات ميزان متاح لمن يملك صلاحية الترحيل فقط.</div></div>;
+  return (
+    <div className="grid" style={{ gap: 12 }}>
+      <div className="card">
+        <div className="card-h">
+          <div className="card-t"><Upload size={15} color="var(--brass)" />دمج بيانات «ميزان المحاسبي»</div>
+          {cfg.enabled ? <span className="badge b-mint">مفعّل</span> : <span className="badge b-dim">غير مفعّل</span>}
+        </div>
+        <div className="note" style={{ lineHeight: 1.9 }}>
+          يستورد من حزمة <b>mizan-export</b>: الموردين، وفواتير المشتريات بحسابها وضريبتها الفعلية، وسداد الموردين من كشوف البنك مع تخصيصه على الفواتير، وقيود مطابقة البنوك الشهرية والأرصدة الافتتاحية للبنوك.
+          <br />المبيعات <b>لا</b> تُستورد — مصدرها الإغلاقات اليومية. لا يتغيّر شيء قبل ضغط «دمج».
+        </div>
+        <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+          {!cfg.enabled && <button className="btn sm pri" onClick={() => enable(true)}><Check size={14} />تفعيل الدمج</button>}
+          {cfg.enabled && <label className="btn sm pri" style={{ cursor: 'pointer' }}><Upload size={14} />اختيار ملف الحزمة (JSON)
+            <input type="file" accept=".json,application/json" style={{ display: 'none' }} onChange={e => { loadFile(e.target.files && e.target.files[0]); e.target.value = ''; }} /></label>}
+          {cfg.enabled && !live.length && <button className="btn sm gh" onClick={() => enable(false)}>إيقاف</button>}
+        </div>
+      </div>
+
+      {live.length > 0 && (
+        <div className="card">
+          <div className="card-t" style={{ marginBottom: 8 }}><ClipboardCheck size={15} color="var(--brass)" />الدفعات المدموجة</div>
+          <table className="tb"><thead><tr><th>الدفعة</th><th>التاريخ</th><th>بواسطة</th><th>فواتير</th><th>سدادات</th><th>قيود</th><th></th></tr></thead>
+            <tbody>{live.map(b => (
+              <tr key={b.batch}><td>{b.batch}</td><td>{(b.at || '').slice(0, 10)}</td><td>{b.by}</td><td className="n">{b.counts?.invoices}</td><td className="n">{b.counts?.payments}</td><td className="n">{b.counts?.journals}</td>
+                <td><button className={'btn sm ' + (confirmUndo === b.batch ? 'pri' : 'gh')} onClick={() => undo(b.batch)}><Trash2 size={13} />{confirmUndo === b.batch ? 'تأكيد الإلغاء' : 'إلغاء الدفعة'}</button></td></tr>))}</tbody></table>
+          {(() => { const lm = live[live.length - 1].map || {}; const banks = [['519192', '111104'], ['534779', '111105'], ['534886', '111106']];
+            return <div style={{ marginTop: 10 }}><div className="lbl">أرصدة البنوك المربوطة الآن (كل الحركات في المنصة)</div>
+              <table className="tb"><thead><tr><th>حساب الراجحي</th><th>الحساب في الدليل</th><th style={{ textAlign: 'end' }}>الرصيد الدفتري الآن</th></tr></thead>
+                <tbody>{banks.map(([m, c]) => { const code = lm[c] && lm[c] !== '__new' ? lm[c] : mzNewCode(c); const v = bankNow(code);
+                  return <tr key={m}><td>463608015{m}</td><td>{code} — {(A.accounts.find(a => a.code === code) || {}).name || '—'}</td><td className="n">{v == null ? '—' : money(v)}</td></tr>; })}</tbody></table>
+              <div className="hint">رصيد الكشف في 31/10/2026: 13,846.87 · 35,478.83 · 5,471.32 — يتطابق ما لم تُرحَّل حركات أخرى على نفس الحساب بعد الربط.</div></div>; })()}
+        </div>
+      )}
+
+      {pkg && plan && (
+        <>
+          <div className="card">
+            <div className="card-t" style={{ marginBottom: 8 }}><FileText size={15} color="var(--brass)" />محتوى الحزمة — {pkg.company || ''} · {pkg.period?.from} إلى {pkg.period?.to}</div>
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+              <span className="badge b-sky">{pkg.suppliers.length} مورد ({plan.newSups.length} جديد · {plan.supByVat} بالرقم الضريبي · {plan.supByName} بالاسم)</span>
+              <span className="badge b-sky">{plan.invoices.length} فاتورة جديدة{plan.dup.inv ? ' · ' + plan.dup.inv + ' مستوردة سابقًا' : ''}</span>
+              <span className="badge b-sky">{plan.payments.length} سداد{plan.dup.pay ? ' · ' + plan.dup.pay + ' سابق' : ''}</span>
+              <span className="badge b-sky">{plan.journals.length} قيد بنك{plan.dup.jr ? ' · ' + plan.dup.jr + ' سابق' : ''}</span>
+              <span className="badge b-brass">إجمالي الفواتير {money(pkg.totals?.invoices)} · الضريبة {money(pkg.totals?.vat)}</span>
+            </div>
+            {pkg.note && <div className="hint" style={{ marginTop: 8 }}>{pkg.note}</div>}
+            {plan.lockedMonths.length > 0 && <div className="note" style={{ marginTop: 8, borderColor: '#D9544D' }}>أشهر مقفلة محاسبيًا تمنع الدمج: {plan.lockedMonths.join('، ')}</div>}
+          </div>
+
+          <div className="card">
+            <div className="card-t" style={{ marginBottom: 6 }}><Landmark size={15} color="var(--brass)" />ربط الحسابات — اختر لكل حساب في ميزان مقابله في الدليل</div>
+            <div className="hint" style={{ marginBottom: 8 }}>
+              «حساب جديد» يُنشئ حسابًا مخصّصًا برمز MZ-… (آمن، لا يمسّ أي رصيد قائم). اربط بحساب قائم فقط إذا كان هو نفسه فعلًا.
+              <b> تنبيه:</b> 111901 هو متحصلات الشبكة والتطبيقات في البنك؛ إن ربطت بنك الراجحي ببنك فرع تُرحَّل إليه مبيعات الشبكة من الإغلاقات فاربط 111901 بوسيط الشبكة تحت التسوية لذلك البنك وإلا تكررت المبيعات في البنك.
+            </div>
+            <div style={{ maxHeight: 420, overflow: 'auto' }}>
+              <table className="tb"><thead><tr><th>حساب ميزان</th><th>النوع</th><th>المقابل في المنصة</th></tr></thead>
+                <tbody>{pkg.accounts.map(a => (
+                  <tr key={a.code}><td>{a.code} — {a.name}</td><td>{MZ_KIND_AR[a.kind] || a.kind}</td>
+                    <td>{MZ_FIXED[a.code] ? <span>{MZ_FIXED[a.code]} — {(A.accounts.find(x => x.code === MZ_FIXED[a.code]) || {}).name} <span className="badge b-dim">ثابت</span></span> :
+                      <select className="sel" value={map[a.code] || '__new'} onChange={e => setMap(m => ({ ...m, [a.code]: e.target.value }))}>
+                        <option value="__new">حساب جديد {mzNewCode(a.code)} — {a.name}</option>
+                        {accOpts.filter(x => x.kind === a.kind && x.code !== mzNewCode(a.code)).map(x => <option key={x.code} value={x.code}>{x.code} — {x.name}</option>)}
+                      </select>}
+                    </td></tr>))}</tbody></table>
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="card-t" style={{ marginBottom: 8 }}><Scale size={15} color="var(--brass)" />فحص البنوك قبل الحفظ — أثر الحزمة على كل بنك = رصيد الكشف</div>
+            <table className="tb"><thead><tr><th>الحساب</th><th>يُرحَّل إلى</th><th style={{ textAlign: 'end' }}>أثر الحزمة</th><th style={{ textAlign: 'end' }}>رصيد الكشف</th><th></th></tr></thead>
+              <tbody>{plan.bankCheck.map(b => {
+                const okB = plan.dup.jr === 0 && plan.dup.pay === 0 ? Math.abs(b.pkgNet - b.close) < 0.01 : null;
+                return <tr key={b.mid}><td>{b.name}</td><td>{b.code}</td><td className="n">{money(b.pkgNet)}</td><td className="n">{money(b.close)}</td>
+                  <td>{okB === null ? <span className="badge b-dim">دفعة جزئية</span> : okB ? <span className="badge b-mint">مطابق ✓</span> : <span className="badge b-rose">لا يطابق</span>}</td></tr>; })}</tbody></table>
+            <div className="row" style={{ gap: 8, marginTop: 12 }}>
+              <button className="btn pri" disabled={busy || plan.lockedMonths.length > 0 || plan.missing.length > 0 || (plan.invoices.length + plan.payments.length + plan.journals.length) === 0} onClick={doImport}>
+                <Check size={15} />{busy ? 'جارٍ الدمج…' : 'دمج'}</button>
+              <button className="btn gh" onClick={() => setPkg(null)}>إلغاء</button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }) {
   const [view, setView] = useState('jr');           // jr قيود · coa دليل · tb ميزان · fs قوائم
   const [repOpen, setRepOpen] = useState(false);    // v9.4 قائمة التقارير
@@ -16961,6 +17222,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         {viewOK('astl') && <button className={'btn sm' + (view === 'astl' ? ' pri' : ' gh')} onClick={() => setView('astl')}><Truck size={14} />تسوية التطبيقات</button>}
         {viewOK('ob') && <button className={'btn sm' + (view === 'ob' ? ' pri' : ' gh')} onClick={() => setView('ob')}><Landmark size={14} />الأرصدة الافتتاحية</button>}
         {viewOK('yend') && <button className={'btn sm' + (view === 'yend' ? ' pri' : ' gh')} onClick={() => setView('yend')}><CalendarDays size={14} />إقفال السنة</button>}
+        {viewOK('mizan') && canPost && <button className={'btn sm' + (view === 'mizan' ? ' pri' : ' gh')} onClick={() => setView('mizan')}><Upload size={14} />دمج ميزان</button>}
         {canPost && ACCT_SECTIONS.some(s => viewOK(s.v)) && <button className="btn sm" style={{ marginInlineStart: 'auto' }} onClick={newJm}><Plus size={14} />قيد يدوي / افتتاحي</button>}
       </div>
 
@@ -18581,6 +18843,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         </div>
       )}
 
+      {view === 'mizan' && viewOK('mizan') && <MizanMerge org={org} ops={ops} me={me} commit={commit} commitOrg={commitOrg} say={say} A={A} />}
       {view === 'bank' && (
         <div className="grid" style={{ gap: 12 }}>
           {brBanks.length > 0 && (
