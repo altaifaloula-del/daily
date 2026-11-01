@@ -2726,7 +2726,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v28.6 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v28.7 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -16105,6 +16105,24 @@ function MizanMerge({ org, ops, me, commit, commitOrg, say, A }) {
           {cfg.enabled && !live.length && <button className="btn sm gh" onClick={() => enable(false)}>إيقاف</button>}
         </div>
       </div>
+
+      {/* v28.7: تشخيص — من أين تأتي القيود؟ لكشف أي تضخّم في الأرقام بمصدره */}
+      {(() => {
+        const g = {}; (A.entries || []).forEach(e => { const k = e.src || 'غير محدد'; const o = g[k] || (g[k] = { n: 0, dr: 0, from: '9999', to: '' }); o.n++; o.dr += e.debit || 0; if ((e.date || '') < o.from) o.from = e.date || ''; if ((e.date || '') > o.to) o.to = e.date || ''; });
+        const rows = Object.entries(g).sort((a, b) => b[1].dr - a[1].dr);
+        const mz = (arr) => { const a = (arr || []).filter(x => x && x.mizanBatch); return a.length + ' (' + new Set(a.map(x => x.id)).size + ' فريد)'; };
+        const revT = sum(A.accounts.filter(a => a.kind === 'rev'), a => (a.credit || 0) - (a.debit || 0));
+        const expT = sum(A.accounts.filter(a => a.kind === 'exp'), a => (a.debit || 0) - (a.credit || 0));
+        return <div className="card">
+          <div className="card-t" style={{ marginBottom: 8 }}><BarChart3 size={15} color="var(--brass)" />تشخيص: مصادر القيود في المنصة (كل الفترات)</div>
+          <table className="tb"><thead><tr><th>المصدر</th><th style={{ textAlign: 'end' }}>عدد القيود</th><th style={{ textAlign: 'end' }}>إجمالي المدين</th><th>من</th><th>إلى</th></tr></thead>
+            <tbody>{rows.map(([k, o]) => <tr key={k}><td>{k}</td><td className="n">{o.n}</td><td className="n">{money(o.dr)}</td><td>{o.from}</td><td>{o.to}</td></tr>)}</tbody></table>
+          <div className="hint" style={{ marginTop: 8 }}>
+            سجلات ميزان المخزّنة: فواتير {mz(ops.invoices)} · سدادات {mz(ops.closingInvPays)} · قيود {mz(ops.journalManual)}
+            {' '}· الإيرادات {money(revT)} · المصروفات {money(expT)} · الصافي {money(revT - expT)}
+          </div>
+        </div>;
+      })()}
 
       {dupTotal > 0 && (
         <div className="card" style={{ borderColor: '#D9544D' }}>
