@@ -1432,8 +1432,8 @@ function buildAccounting(org, ops) {
   (ops.journalManual || []).forEach(j => {
     push({
       id: 'man:' + j.id, date: (j.date || '').slice(0, 10),
-      title: j.title || 'قيد يدوي', src: j.opening ? 'قيد افتتاحي' : 'قيد يدوي',
-      ref: j.by || '', manual: true,
+      title: j.title || 'قيد يدوي', src: j.opening ? 'قيد افتتاحي' : (j.mizanSales ? 'مبيعات مستوردة' : 'قيد يدوي'),
+      ref: j.by || '', manual: true, ...(j.vat ? { vat: j.vat } : {}),   // v28.5: قيد مبيعات مستورد يحمل أثره الضريبي لشاشة الضريبة
       lines: (j.lines || []).map(l => L(l.code, l.debit || 0, l.credit || 0))
     });
   });
@@ -2726,7 +2726,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v28.4 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v28.5 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -15898,13 +15898,13 @@ function AppsCenter({ org, me, commitOrg, say, setTab, openAcctView, openInvView
    • التراجع ممكن: كل سجل مستورد يحمل mizanBatch، وزر «إلغاء الدفعة» يحذف سجلاتها التشغيلية.
    ═══════════════════════════════════════════════════════════════════════════════════════ */
 const MZ_FIXED = { '211001': '2101', '115001': '1501' };          // ذمم الموردين وضريبة المدخلات — ثابتان بطبيعتهما
-const MZ_SUGGEST = { '213002': '2301', '319001': '3101' };        // اقتراح أولي قابل للتغيير
+const MZ_SUGGEST = { '213002': '2301', '319001': '3101', '411009': '4101', '213001': '2301' };   // v28.5: المبيعات وضريبة المخرجات        // اقتراح أولي قابل للتغيير
 const MZ_KIND_AR = { asset: 'أصل', liab: 'خصم', equity: 'حقوق ملكية', rev: 'إيراد', exp: 'مصروف' };
 const mzNorm = (s) => String(s || '').replace(/[ًٌٍَُِّْـ]/g, '').replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/\s+/g, ' ').trim();
 const mzNewCode = (c) => 'MZ-' + c;
 const mzR2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
-function mizanPlan(org, ops, pkg, map) {
+function mizanPlan(org, ops, pkg, map, withSales) {
   const A = buildAccounting(org, ops);
   const accSet = new Set(A.accounts.map(a => a.code));
   const target = (code) => MZ_FIXED[code] || (map[code] === '__new' || !map[code] ? mzNewCode(code) : map[code]);
@@ -15951,6 +15951,21 @@ function mizanPlan(org, ops, pkg, map) {
     id: 'mzj-' + j.mid, date: j.date, title: j.title, opening: !!j.opening, by: 'استيراد ميزان', createdAt: nowISO(),
     lines: j.lines.map(l => ({ code: MZ_FIXED[l.acc] || target(l.acc), debit: mzR2(l.d), credit: mzR2(l.c) })), mizanBatch: pkg.batch, mizanId: j.mid
   }));
+  // v28.5: المبيعات الربعية الإجمالية — قيد لكل بند، ويُستبعد أي ربع فيه إغلاقات يومية معتمدة/مرحّلة (تفاديًا لتكرار المبيعات)
+  const qStart = (d) => { const y = d.slice(0, 4), m = +d.slice(5, 7); return y + '-' + String(m - ((m - 1) % 3)).padStart(2, '0') + '-01'; };
+  const closingsIn = (from, to) => (ops.closings || []).filter(c => countedClosing(c) && (c.date || '') >= from && (c.date || '') <= to).length;
+  const salesAll = (pkg.sales || []).map(x => ({ ...x, from: qStart(x.date), closings: closingsIn(qStart(x.date), x.date) }));
+  const salesSkip = salesAll.filter(x => x.closings > 0);
+  const salesJr = !withSales ? [] : salesAll.filter(x => !x.closings && !jrHas.has(x.mid)).map(x => {
+    const gross = mzR2(x.net + x.vat);
+    return {
+      id: 'mzj-' + x.mid, date: x.date, title: x.desc + (x.note ? ' — ' + x.note : ''), opening: false, by: 'استيراد ميزان', createdAt: nowISO(),
+      lines: [{ code: target('111901'), debit: gross, credit: 0 }, { code: target('411009'), debit: 0, credit: mzR2(x.net) }, ...(x.vat ? [{ code: target('213001'), debit: 0, credit: mzR2(x.vat) }] : [])],
+      vat: x.vat ? { out: mzR2(x.vat), inn: 0, netSales: mzR2(x.net), netPurch: 0 } : null,
+      mizanBatch: pkg.batch, mizanId: x.mid, mizanSales: true
+    };
+  });
+  journals.push(...salesJr);
   const locked = [...invoices.map(x => x.date), ...payments.map(x => x.date), ...journals.map(x => x.date)].filter(d => periodLocked(org, d));
   const lockedMonths = [...new Set(locked.map(d => d.slice(0, 7)))].sort();
   const noSup = invoices.filter(i => !i.supplierId).length + payments.filter(p => !p.supplierId).length;
@@ -15961,8 +15976,8 @@ function mizanPlan(org, ops, pkg, map) {
     const fromJr = sum(journals.flatMap(j => j.lines).filter(l => l.code === code), l => l.debit - l.credit);
     return { mid: b.mid, name: b.name, code, close: b.close, asOf: b.asOf, pkgNet: mzR2(fromPays + fromJr) };
   });
-  return { supMap, newSups, supByVat, supByName, newAccs, missing, invoices, payments, journals, lockedMonths, noSup, bankCheck,
-    dup: { inv: (pkg.invoices || []).length - invoices.length, pay: (pkg.payments || []).length - payments.length, jr: (pkg.journals || []).length - journals.length } };
+  return { supMap, newSups, supByVat, supByName, newAccs, missing, invoices, payments, journals, lockedMonths, noSup, bankCheck, salesAll, salesSkip, salesJr,
+    dup: { inv: (pkg.invoices || []).length - invoices.length, pay: (pkg.payments || []).length - payments.length, jr: (pkg.journals || []).length - (journals.length - salesJr.length) } };
 }
 
 function MizanMerge({ org, ops, me, commit, commitOrg, say, A }) {
@@ -15972,7 +15987,8 @@ function MizanMerge({ org, ops, me, commit, commitOrg, say, A }) {
   const [map, setMap] = useState({});
   const [busy, setBusy] = useState(false);
   const [confirmUndo, setConfirmUndo] = useState('');
-  const [unlockWhy, setUnlockWhy] = useState('');   // v28.3: سبب الفتح المؤقت للأشهر المقفلة أثناء الدمج
+  const [unlockWhy, setUnlockWhy] = useState('');
+  const [withSales, setWithSales] = useState(true);   // v28.5: استيراد المبيعات الربعية (للأرباع بلا إغلاقات يومية فقط)   // v28.3: سبب الفتح المؤقت للأشهر المقفلة أثناء الدمج
   const canUnlock = !!ROLES[me?.role]?.admin;        // نفس صلاحية الفتح الاستثنائي في شاشة الإقفال
   const batches = cfg.batches || [];
   const loadFile = (f) => {
@@ -15989,7 +16005,7 @@ function MizanMerge({ org, ops, me, commit, commitOrg, say, A }) {
     };
     rd.readAsText(f);
   };
-  const plan = useMemo(() => pkg ? mizanPlan(org, ops, pkg, map) : null, [org, ops, pkg, map]);
+  const plan = useMemo(() => pkg ? mizanPlan(org, ops, pkg, map, withSales) : null, [org, ops, pkg, map, withSales]);
   const accOpts = useMemo(() => A.accounts.slice().sort((a, b) => a.code.localeCompare(b.code)), [A]);
   const enable = async (on) => {
     await commitOrg(d => ({ ...d, mizanCfg: { ...(d.mizanCfg || {}), enabled: on } }),
@@ -16125,7 +16141,8 @@ function MizanMerge({ org, ops, me, commit, commitOrg, say, A }) {
               <span className="badge b-sky">{pkg.suppliers.length} مورد ({plan.newSups.length} جديد · {plan.supByVat} بالرقم الضريبي · {plan.supByName} بالاسم)</span>
               <span className="badge b-sky">{plan.invoices.length} فاتورة جديدة{plan.dup.inv ? ' · ' + plan.dup.inv + ' مستوردة سابقًا' : ''}</span>
               <span className="badge b-sky">{plan.payments.length} سداد{plan.dup.pay ? ' · ' + plan.dup.pay + ' سابق' : ''}</span>
-              <span className="badge b-sky">{plan.journals.length} قيد بنك{plan.dup.jr ? ' · ' + plan.dup.jr + ' سابق' : ''}</span>
+              <span className="badge b-sky">{plan.journals.length - plan.salesJr.length} قيد بنك{plan.dup.jr ? ' · ' + plan.dup.jr + ' سابق' : ''}</span>
+              {plan.salesJr.length > 0 && <span className="badge b-mint">{plan.salesJr.length} قيد مبيعات ربعية</span>}
               <span className="badge b-brass">إجمالي الفواتير {money(pkg.totals?.invoices)} · الضريبة {money(pkg.totals?.vat)}</span>
             </div>
             {pkg.note && <div className="hint" style={{ marginTop: 8 }}>{pkg.note}</div>}
@@ -16138,6 +16155,21 @@ function MizanMerge({ org, ops, me, commit, commitOrg, say, A }) {
                 </div></div> : <div style={{ marginTop: 6 }}>الفتح المؤقت لمسؤول النظام فقط — أو افتحها من المحاسبة ← الإقفال.</div>}
             </div>}
           </div>
+
+          {plan.salesAll.length > 0 && (
+            <div className="card">
+              <div className="card-h">
+                <div className="card-t"><TrendingUp size={15} color="var(--brass)" />المبيعات الربعية الإجمالية (من ملفات المصدر)</div>
+                <label className="row" style={{ gap: 6, cursor: 'pointer' }}><input type="checkbox" checked={withSales} onChange={e => setWithSales(e.target.checked)} />استيراد المبيعات</label>
+              </div>
+              <div className="hint" style={{ marginBottom: 8 }}>قيد لكل بند: مدين المتحصلات الوسيط (111901) / دائن المبيعات وضريبة المخرجات. يتعادل الوسيط مع متحصلات البنوك والباقي يمثّل النقدي وغير المحصّل. أي ربع فيه إغلاقات يومية يُستبعد تلقائيًا حتى لا تتكرر المبيعات.</div>
+              <table className="tb"><thead><tr><th>التاريخ</th><th>البيان</th><th style={{ textAlign: 'end' }}>قبل الضريبة</th><th style={{ textAlign: 'end' }}>الضريبة</th><th>الحالة</th></tr></thead>
+                <tbody>{plan.salesAll.map(x => {
+                  const done = (ops.journalManual || []).some(j => j.mizanId === x.mid);
+                  return <tr key={x.mid}><td>{x.date}</td><td>{x.desc}{x.note ? <span className="badge b-amber" style={{ marginInlineStart: 6 }}>{x.note}</span> : null}</td><td className="n">{money(x.net)}</td><td className="n">{money(x.vat)}</td>
+                    <td>{done ? <span className="badge b-dim">مستورد سابقًا</span> : x.closings ? <span className="badge b-rose">مستبعد — {x.closings} إغلاق في الربع</span> : withSales ? <span className="badge b-mint">سيُستورد</span> : <span className="badge b-dim">غير محدد</span>}</td></tr>; })}</tbody></table>
+            </div>
+          )}
 
           <div className="card">
             <div className="card-t" style={{ marginBottom: 6 }}><Landmark size={15} color="var(--brass)" />ربط الحسابات — اختر لكل حساب في ميزان مقابله في الدليل</div>
