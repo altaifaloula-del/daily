@@ -57,7 +57,7 @@ async function bioEnroll(user) {
   const cred = await navigator.credentials.create({
     publicKey: {
       challenge: crypto.getRandomValues(new Uint8Array(32)),
-      rp: { name: 'منصة إغلاق الفروع', id: location.hostname },
+      rp: { name: 'ميزان — منصة إدارة المطاعم', id: location.hostname },
       user: { id: new TextEncoder().encode(user.id), name: user.email, displayName: user.name },
       pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
       authenticatorSelection: { userVerification: 'required', authenticatorAttachment: 'platform' },
@@ -1761,7 +1761,7 @@ const ACCT_SECTIONS = [
   { v: 'ast', ar: 'الأصول والإهلاك' }, { v: 'bank', ar: 'التسوية البنكية' }, { v: 'mclose', ar: 'حزمة الإقفال' },
   { v: 'ctrl', ar: 'الضوابط والتدقيق' }, { v: 'lock', ar: 'الإقفال الشهري' }, { v: 'astl', ar: 'تسوية التطبيقات' },
   { v: 'ob', ar: 'الأرصدة الافتتاحية' }, { v: 'yend', ar: 'إقفال السنة' },
-  { v: 'mizan', ar: 'دمج بيانات ميزان' }   // v28.2
+  { v: 'mizan', ar: 'استيراد البيانات التاريخية' }   // v28.2
 ];
 const acctSecKey = (v) => 'acctsec:' + v;
 const ACCT_SEC_AR = {}; ACCT_SECTIONS.forEach(s => { ACCT_SEC_AR[s.v] = s.ar; });
@@ -1831,7 +1831,7 @@ const appOpenNow = (a, me, setTab, openAcctView, openInvView) => {
 
 
 /* ============================================================
-   منصة سحابية متكاملة لإدارة وإغلاق فروع المطاعم
+   ميزان — منصة إدارة المطاعم (سابقًا: منصة الإغلاق اليومي) — v28.6
    نسخة تفاعلية متعددة المستخدمين — بيانات مشتركة سحابياً
    ============================================================ */
 
@@ -2726,7 +2726,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v28.5 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v28.6 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -3004,7 +3004,7 @@ function BrandHead({ title, sub, logo }) {
         : <div className="brand-mark bhead-logo" style={{ width: 54, height: 54, margin: '0 auto 14px', fontSize: 19, borderRadius: 16 }}>
           {(title || 'المنصة').trim().charAt(0) || 'م'}
         </div>}
-      <h1 style={{ fontSize: 20 }}>{title || 'منصة إغلاق وإدارة الفروع'}</h1>
+      <h1 style={{ fontSize: 20 }}>{title || 'ميزان — منصة إدارة المطاعم'}</h1>
       <div style={{ color: 'var(--dim)', fontSize: 12.5, marginTop: 5 }}>{sub}</div>
     </div>
   );
@@ -3108,7 +3108,7 @@ function FbGate({ css, theme, fbLogin, fbFirstSetup, notice }) {
       <style dangerouslySetInnerHTML={{ __html: css }} />
       <div className="gate">
         <div className="gate-c">
-          <BrandHead title="منصة الإغلاق اليومي" sub="دخول موثّق — البيانات محمية بحساب مصادقة لكل مستخدم" />
+          <BrandHead title="ميزان — منصة إدارة المطاعم" sub="دخول موثّق — البيانات محمية بحساب مصادقة لكل مستخدم" />
           <div className="row" style={{ justifyContent: 'center', marginBottom: 16 }}>
             <span className="badge b-mint"><Lock size={10} />مصادقة سحابية مفعّلة</span>
           </div>
@@ -3316,7 +3316,7 @@ function Gate({ css, org, onLogin, online, theme, notice }) {
       <style dangerouslySetInnerHTML={{ __html: css }} />
       <div className="gate">
         <div className="gate-c">
-          <BrandHead title={org.company?.name || 'منصة إغلاق الفروع'} sub="منصة سحابية متكاملة لإغلاق وإدارة فروع المطاعم" logo={org.company?.logoUrl} />
+          <BrandHead title={org.company?.name || 'ميزان'} sub="ميزان — منصة إدارة المطاعم: الإغلاق اليومي والمحاسبة والمشتريات والمخزون والموارد البشرية" logo={org.company?.logoUrl} />
           <div className="row" style={{ justifyContent: 'center', marginBottom: 16 }}>
             <span className="badge b-mint"><span className="dot" />{online.length} متصل الآن</span>
             <span className="badge b-dim"><Lock size={10} />بيانات مشتركة ومؤمّنة</span>
@@ -13351,7 +13351,7 @@ function Reports({ org, ops, me, myBranches, scoped, say, theme }) {
         <td class="num">${m(sum(byBranch, b => b.card))}</td><td class="num">${m(sum(byBranch, b => b.del))}</td>
         <td class="num rose">${m(T.exp)}</td><td class="num mint">${m(T.net)}</td><td>—</td>
         <td class="num">${m(T.varr)}</td></tr></tfoot></table>
-      <div class="foot dim">تم التصدير آلياً من منصة إغلاق الفروع · ${new Date().toLocaleString('ar-SA-u-nu-latn')}</div>
+      <div class="foot dim">تم التصدير آلياً من منصة ميزان · ${new Date().toLocaleString('ar-SA-u-nu-latn')}</div>
       </div></body></html>`);
     w.document.close();
     setTimeout(() => { w.focus(); w.print(); }, 500);
@@ -14191,7 +14191,7 @@ function buildClosingA4(c, org) {
         <div class="sig-ok dim">الاعتماد النهائي</div>
       </div>
     </div>
-    <div class="foot dim">تم تصدير هذا التقرير آلياً من منصة إغلاق الفروع · ${co.name || ''}</div>
+    <div class="foot dim">تم تصدير هذا التقرير آلياً من منصة ميزان · ${co.name || ''}</div>
   </div>`;
 }
 
@@ -14850,7 +14850,7 @@ function printPartnerStatement(p, org) {
   <table><thead><tr><th>التاريخ</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead>
   <tbody>${rows || '<tr><td colspan=5 style="text-align:center;color:#999;padding:20px">لا حركات</td></tr>'}</tbody>
   <tfoot><tr><td colspan="2">الإجماليات</td><td class="n">${money(sdr)}</td><td class="n">${money(scr)}</td><td class="n">${money(Math.abs(bal))}${bal > 0 ? ' دائن' : bal < 0 ? ' مدين' : ''}</td></tr></tfoot></table>
-  <div class="ft">كشف حساب صادر من منصة الإغلاق اليومي — ${co.name || ''} · ${arDate(today())}</div></body></html>`);
+  <div class="ft">كشف حساب صادر من منصة ميزان — ${co.name || ''} · ${arDate(today())}</div></body></html>`);
   w.document.close();
   setTimeout(() => { w.focus(); w.print(); }, 400);
   return true;
@@ -14876,7 +14876,7 @@ function printA4(org, title, sub, bodyHtml) {
   <div class="h"><div><div class="co">${co.name || 'الشركة'}</div><div class="sub">${co.taxNumber ? 'الرقم الضريبي: ' + co.taxNumber : ''}</div></div>
   <div style="text-align:left"><h1>${title}</h1><div class="sub">${sub || ''}</div></div></div>
   ${bodyHtml}
-  <div class="ft">صادر من منصة الإغلاق اليومي — ${arDate(today())}</div></body></html>`);
+  <div class="ft">صادر من منصة ميزان — ${arDate(today())}</div></body></html>`);
   w.document.close();
   setTimeout(() => { w.focus(); w.print(); }, 400);
   return true;
@@ -16091,7 +16091,7 @@ function MizanMerge({ org, ops, me, commit, commitOrg, say, A }) {
     <div className="grid" style={{ gap: 12 }}>
       <div className="card">
         <div className="card-h">
-          <div className="card-t"><Upload size={15} color="var(--brass)" />دمج بيانات «ميزان المحاسبي»</div>
+          <div className="card-t"><Upload size={15} color="var(--brass)" />استيراد البيانات التاريخية — حزمة «ميزان المحاسبي» (النموذج الأولي)</div>
           {cfg.enabled ? <span className="badge b-mint">مفعّل</span> : <span className="badge b-dim">غير مفعّل</span>}
         </div>
         <div className="note" style={{ lineHeight: 1.9 }}>
@@ -16979,7 +16979,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     <tr class="tot"><td>الإجمالي ${bsOk ? '(يطابق الأصول ✓)' : ''}</td><td class="n">${money(bsLiab + bsEquity + bsProfit)}</td></tr></table>
     </div></div>
     ${taxOn ? '<div class="sub">الأرقام صافية — ضريبة القيمة المضافة مفصولة في حسابَي المدخلات والمخرجات.</div>' : '<div class="sub">الأرقام إجمالية شاملة الضريبة.</div>'}
-    <div class="ft">صادر من منصة الإغلاق اليومي — ${arDate(today())} · القيود مشتقة تلقائيًا ومتوازنة (مدين = دائن)</div></body></html>`);
+    <div class="ft">صادر من منصة ميزان — ${arDate(today())} · القيود مشتقة تلقائيًا ومتوازنة (مدين = دائن)</div></body></html>`);
     w.document.close();
     setTimeout(() => { w.focus(); w.print(); }, 400);
   };
@@ -17309,7 +17309,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         {viewOK('astl') && <button className={'btn sm' + (view === 'astl' ? ' pri' : ' gh')} onClick={() => setView('astl')}><Truck size={14} />تسوية التطبيقات</button>}
         {viewOK('ob') && <button className={'btn sm' + (view === 'ob' ? ' pri' : ' gh')} onClick={() => setView('ob')}><Landmark size={14} />الأرصدة الافتتاحية</button>}
         {viewOK('yend') && <button className={'btn sm' + (view === 'yend' ? ' pri' : ' gh')} onClick={() => setView('yend')}><CalendarDays size={14} />إقفال السنة</button>}
-        {viewOK('mizan') && canPost && <button className={'btn sm' + (view === 'mizan' ? ' pri' : ' gh')} onClick={() => setView('mizan')}><Upload size={14} />دمج ميزان</button>}
+        {viewOK('mizan') && canPost && <button className={'btn sm' + (view === 'mizan' ? ' pri' : ' gh')} onClick={() => setView('mizan')}><Upload size={14} />استيراد البيانات التاريخية</button>}
         {canPost && ACCT_SECTIONS.some(s => viewOK(s.v)) && <button className="btn sm" style={{ marginInlineStart: 'auto' }} onClick={newJm}><Plus size={14} />قيد يدوي / افتتاحي</button>}
       </div>
 
