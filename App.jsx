@@ -2734,7 +2734,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v29.1 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v29.2 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -20020,6 +20020,69 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
     setWorking(false);
   };
 
+  // v29.2 — حذف كل بيانات الإغلاق اليومي (لمسؤول النظام فقط): الإغلاقات + توريداتها + تنبيهاتها
+  //   + صور توثيقها في أرشيف المستندات + أرشيف الإغلاقات القديم. قبل الحذف: لقطة أمان محلية
+  //   وملف تنزيل بكل ما سيُحذف (قابل للرجوع إليه). القيود المحاسبية للإغلاقات مشتقّة حسابيًا فتزول معها.
+  const isSysAdmin = !!ROLES[me.role]?.admin;
+  const [wipe, setWipe] = useState({ open: false, text: '', busy: false, done: null });
+  const wClosings = ops.closings || [];
+  const wIds = new Set(wClosings.map(x => x.id));
+  const wTransfers = (ops.transfers || []).filter(t => t.closingId && wIds.has(t.closingId));
+  const wNotes = (ops.notifications || []).filter(n => n.closingId && wIds.has(n.closingId));
+  const wLocked = wClosings.filter(x => periodLocked(org, x.date));
+  const WIPE_WORD = 'احذف الإغلاقات';
+  const wipeClosings = async () => {
+    if (!isSysAdmin) return say('هذا الإجراء لمسؤول النظام فقط', 'no');
+    if (wipe.text.trim() !== WIPE_WORD) return say('اكتب «' + WIPE_WORD + '» للتأكيد', 'no');
+    if (wLocked.length) return say('يوجد ' + wLocked.length + ' إغلاق في فترة مقفلة — افتح الفترة أولًا من «الإقفال الشهري»', 'no');
+    setWipe(w => ({ ...w, busy: true }));
+    try {
+      // ١) أرشيف المستندات: صور توثيق الإغلاقات في مستند كل فرع + المركز
+      const bIds = [...(org.branches || []).map(b => b.id), 'hq'];
+      const arch = {};
+      for (const b of bIds) {
+        const doc = await cloud.get(bfKey(b), { items: [] });
+        const items = (doc && Array.isArray(doc.items)) ? doc.items : [];
+        const gone = items.filter(it => it.source === 'closing' || (it.closingId && wIds.has(it.closingId)));
+        if (gone.length) arch[b] = { keep: items.filter(it => !gone.includes(it)), gone };
+      }
+      const h = await cloud.get(KEYS.hist, { closings: [] });
+      const histClosings = (h && Array.isArray(h.closings)) ? h.closings : [];
+      // ٢) ملف بكل ما سيُحذف + لقطة أمان محلية — قبل أي كتابة
+      const removed = { meta: { app: 'rms8', kind: 'deleted-closings', at: nowISO(), by: me?.name || '' },
+        closings: wClosings, transfers: wTransfers, notifications: wNotes, histClosings,
+        archive: Object.fromEntries(Object.entries(arch).map(([b, v]) => [b, v.gone])) };
+      try {
+        const blob = new Blob([JSON.stringify(removed)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob); const a = document.createElement('a');
+        a.href = url; a.download = 'الإغلاقات-المحذوفة-' + today() + '.json'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 4000);
+      } catch { }
+      try { await snapPut('pre-wipe-closings-' + nowISO().slice(0, 19).replace(/[:T]/g, '-'), { at: nowISO(), by: me?.name || '', org, ops, preWipe: true }); } catch { }
+      // ٣) الحذف من بيانات التشغيل (مستندات الفروع) — كتابة موجَّهة عبر البوابة المركزية
+      const ok = await commit(d => ({
+        ...d,
+        closings: [],
+        transfers: (d.transfers || []).filter(t => !(t.closingId && wIds.has(t.closingId))),
+        notifications: (d.notifications || []).filter(n => !(n.closingId && wIds.has(n.closingId)))
+      }), { actionType: 'delete', targetType: 'daily_closing', targetId: 'all', need: 'edit',
+        title: 'حذف كل بيانات الإغلاق اليومي', details: wClosings.length + ' إغلاق · ' + wTransfers.length + ' توريد · ' + wNotes.length + ' تنبيه' });
+      if (!ok) { setWipe(w => ({ ...w, busy: false })); return; }
+      // ٤) الأرشيف وأرشيف الإغلاقات القديم
+      let archDone = 0, archFail = 0;
+      for (const [b, v] of Object.entries(arch)) {
+        if (await cloud.set(bfKey(b), { items: v.keep })) archDone += v.gone.length; else archFail++;
+      }
+      let histOk = true;
+      if (histClosings.length) histOk = !!(await cloud.set(KEYS.hist, { closings: [], updatedAt: nowISO() }));
+      if (histOk) setHist({ closings: [] });
+      setWipe({ open: false, text: '', busy: false, done: { closings: wClosings.length, transfers: wTransfers.length, notes: wNotes.length, archDone, archFail, hist: histOk ? histClosings.length : -1 } });
+      say(archFail || !histOk ? 'حُذفت الإغلاقات — بقيت أجزاء من الأرشيف لم تُحذف، أعد المحاولة' : 'حُذفت كل بيانات الإغلاق اليومي ✓');
+    } catch (e) {
+      setWipe(w => ({ ...w, busy: false }));
+      say('تعذّر الحذف — لم يكتمل، تحقق من الاتصال وأعد المحاولة', 'no');
+    }
+  };
+
   const saveCompany = async () => {
     await commitOrg(d => ({ ...d, company: c }), {
       actionType: 'update', targetType: 'system_settings', targetId: 'company',
@@ -20295,6 +20358,47 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
             </span>
           </div>
         </div>
+        {isSysAdmin && (
+          <div className="card" style={{ borderColor: 'rgba(217,84,77,.45)' }}>
+            <div className="card-t" style={{ marginBottom: 10, color: '#D9544D' }}><Trash2 size={15} />حذف كل بيانات الإغلاق اليومي</div>
+            <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 10 }}>
+              يحذف نهائيًا كل الإغلاقات لكل الفروع، مع توريداتها وتنبيهاتها وصور توثيقها في أرشيف المستندات.
+              قيود الإيراد والمصروفات المشتقّة من الإغلاقات تختفي من المحاسبة والتقارير فورًا.
+              قبل الحذف يُنزَّل تلقائيًا ملف بكل ما سيُحذف للرجوع إليه.
+            </div>
+            <div className="grid g4" style={{ gap: 9, marginBottom: 10 }}>
+              {[['الإغلاقات', wClosings.length], ['التوريدات المرتبطة', wTransfers.length], ['التنبيهات المرتبطة', wNotes.length], ['في فترة مقفلة', wLocked.length]].map(([k, v]) => (
+                <div key={k} className="mono-b" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+                  <span style={{ fontSize: 10.5, color: 'var(--faint)' }}>{k}</span>
+                  <span className="num" style={{ fontSize: 16, color: k === 'في فترة مقفلة' && v ? '#D9544D' : 'var(--brass)' }}>{v}</span>
+                </div>
+              ))}
+            </div>
+            {wipe.done && (
+              <div className="note" style={{ marginBottom: 10 }}>
+                ✓ حُذف {wipe.done.closings} إغلاق و{wipe.done.transfers} توريد و{wipe.done.notes} تنبيه، و{wipe.done.archDone} صورة من الأرشيف
+                {wipe.done.hist > 0 ? ' و' + wipe.done.hist + ' إغلاق من الأرشيف القديم' : ''}.
+                {(wipe.done.archFail > 0 || wipe.done.hist < 0) && <b style={{ color: '#D9544D' }}> بقي جزء من الأرشيف لم يُحذف — أعد المحاولة.</b>}
+              </div>
+            )}
+            {!wipe.open ? (
+              <button className="btn" style={{ color: '#D9544D', borderColor: 'rgba(217,84,77,.5)' }} disabled={wipe.busy} onClick={() => setWipe(w => ({ ...w, open: true, text: '' }))}>
+                <Trash2 size={14} />{wClosings.length ? 'حذف ' + wClosings.length + ' إغلاق وكل ما يرتبط بها' : 'تنظيف صور الإغلاقات المتبقية في الأرشيف'}
+              </button>
+            ) : (
+              <div className="grid" style={{ gap: 9 }}>
+                <div style={{ fontSize: 12, color: 'var(--txt)' }}>للتأكيد اكتب: <b>{WIPE_WORD}</b></div>
+                <input className="inp" value={wipe.text} onChange={e => setWipe(w => ({ ...w, text: e.target.value }))} placeholder={WIPE_WORD} disabled={wipe.busy} />
+                <div className="row" style={{ gap: 8 }}>
+                  <button className="btn" style={{ background: '#D9544D', color: '#fff', borderColor: '#D9544D' }} disabled={wipe.busy || wipe.text.trim() !== WIPE_WORD} onClick={wipeClosings}>
+                    {wipe.busy ? <RefreshCw size={14} className="spin" /> : <Trash2 size={14} />}حذف نهائي
+                  </button>
+                  <button className="btn gh" disabled={wipe.busy} onClick={() => setWipe(w => ({ ...w, open: false, text: '' }))}>إلغاء</button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
         <div className="card">
           <div className="card-t" style={{ marginBottom: 12 }}><FileBarChart size={15} color="var(--brass)" />حجم قاعدة البيانات</div>
           <div className="grid g3" style={{ gap: 9 }}>
