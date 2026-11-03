@@ -976,4 +976,13 @@ body.lh-dragging *{cursor:grabbing !important}
 .usermenu-menu button.danger:hover svg{color:var(--rose)}
 .usermenu-back{position:fixed;inset:0;z-index:60}
 @media(max-width:900px){.usermenu-btn .un{display:none}}
+
+/* v29.1 — تطبيق الشاشة الرئيسية في الآيفون (Standalone): شريط الحالة شفاف فوق الصفحة،
+   فيُزاح الرأس وشاشة الدخول بمقدار المنطقة الآمنة (= صفر في المتصفحات العادية، فلا تغيير عليها) */
+.top{padding-top:calc(12px + env(safe-area-inset-top))}
+@media(max-width:900px){.top{padding-top:calc(10px + env(safe-area-inset-top))}}
+.gate{padding-top:calc(20px + env(safe-area-inset-top));padding-bottom:calc(20px + env(safe-area-inset-bottom))}
+@media(max-width:640px){.gate{padding-top:calc(8vh + env(safe-area-inset-top));padding-bottom:calc(14px + env(safe-area-inset-bottom))}}
+html,body{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+@media(max-width:900px){input,select,textarea{font-size:16px}}
 `;
