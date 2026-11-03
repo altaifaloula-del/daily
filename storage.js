@@ -62,6 +62,10 @@ let _fbAppP = null;
 // v28.1: مفاتيح تعذّرت قراءتها من السحابة (خطأ أو مستند تالف) — تُرفض الكتابة عليها حتى تنجح قراءة لاحقة،
 // كي لا تُكتب نسخة فارغة أو قديمة فوق بيانات لم نستطع قراءتها
 const failedReads = new Set();
+// v29.0: بصمة رأس آخر نسخة قُرئت كاملة لكل مستند (updatedAt|parts). أول لقطة يرسلها الاستماع اللحظي
+// بعد الإقلاع تحمل نفس البصمة غالبًا — كانت تُعيد تنزيل المستند كاملًا (بكل أجزائه) بلا أي تغيير.
+const loadedStamp = new Map();
+const stampOf = (d) => (d && d.updatedAt != null) ? (d.updatedAt + '|' + (d.parts || 1)) : null;
 
 // تطبيق Firebase واحد مشترك بين المصادقة وقاعدة البيانات
 async function fbApp() {
@@ -214,7 +218,9 @@ async function fsRead(f, key) {
   const snap = await f.getDoc(f.doc(f.db, COL, docId(key)));
   if (!snap.exists()) return undefined;
   const d = snap.data();
-  return await fsAssemble(f, key, d);
+  const v = await fsAssemble(f, key, d);
+  const st = stampOf(d); if (v !== undefined && st) loadedStamp.set(key, st); else loadedStamp.delete(key);
+  return v;
 }
 
 // v28.1: المستند التالف (جزء مفقود أو JSON غير صالح) يُرمى كخطأ صريح — كان يُعاد undefined فيُعامل كمستند
@@ -227,13 +233,13 @@ async function fsAssemble(f, key, d) {
     if (!d.value) return undefined;
     try { return JSON.parse(d.value); } catch { throw corruptErr(key, 'json'); }
   }
-  const chunks = [];
-  for (let i = 0; i < parts; i++) {
-    const c = await f.getDoc(f.doc(f.db, COL, docId(key) + '__' + i));
+  // v29.0: الأجزاء تُقرأ معًا بالتوازي بدل واحدٍ تلو الآخر — الترتيب محفوظ بفهرس المصفوفة
+  const snaps = await Promise.all(Array.from({ length: parts }, (_, i) => f.getDoc(f.doc(f.db, COL, docId(key) + '__' + i))));
+  const chunks = snaps.map((c, i) => {
     const chunk = c.exists() ? (c.data() || {}).chunk : undefined;
     if (typeof chunk !== 'string') throw corruptErr(key, 'chunk ' + i);
-    chunks.push(chunk);
-  }
+    return chunk;
+  });
   try { return JSON.parse(chunks.join('')); } catch { throw corruptErr(key, 'json'); }
 }
 
@@ -367,8 +373,12 @@ export const cloud = {
       if (!f || dead) return;
       stop = f.onSnapshot(f.doc(f.db, COL, docId(key)), async (snap) => {
         if (!snap.exists()) return;
+        const d = snap.data(), st = stampOf(d);
+        // v29.0: نفس النسخة التي قُرئت للتو — لا تنزيل ولا إعادة رسم. الكتابات المحلية المعلّقة تمرّ كما كانت.
+        if (st && !snap.metadata?.hasPendingWrites && loadedStamp.get(key) === st && !failedReads.has(key)) return;
         try {
-          const v = await fsAssemble(f, key, snap.data());
+          const v = await fsAssemble(f, key, d);
+          if (st && v !== undefined) loadedStamp.set(key, st);
           failedReads.delete(key);
           if (v !== undefined) { local.set(key, v); cb(v); }
         } catch (e) { failedReads.add(key); console.warn('استماع Firestore:', e); }

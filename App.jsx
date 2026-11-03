@@ -1957,7 +1957,9 @@ function PlatformApp() {
       const myBr = branchIdsOfUser(meU) || [];
       dataCtx.current = { central: false, myBrIds: myBr, email: em };
       const brMap = {}; const deniedBr = [];
-      for (const b of myBr) { const r = await cloud.tryGet(brKey(b)); if (r.denied) deniedBr.push(b); brMap[b] = r.value || {}; }
+      // v29.0: مستندات فروع المستخدم + النبض بالتوازي بدل الطابور
+      const [brRes, pulseB] = await Promise.all([Promise.all(myBr.map(b => cloud.tryGet(brKey(b)))), cloud.get(KEYS.pulse, { presence: {}, audit: [] })]);
+      myBr.forEach((b, i) => { const r = brRes[i]; if (r.denied) deniedBr.push(b); brMap[b] = r.value || {}; });
       if (deniedBr.length) {
         // نقارن عضوية الخادم (التي تعتمد عليها القواعد) بسجل المستخدم في المنصة لتسمية السبب بدقة
         let mem = null; try { mem = await authApi.myMembership(); } catch { mem = null; }
@@ -1966,7 +1968,7 @@ function PlatformApp() {
       docsCache.current = { core: null, br: brMap };
       setOps(composeOps(null, brMap));
       setOrg(o);
-      setPulse(await cloud.get(KEYS.pulse, { presence: {}, audit: [] }));
+      setPulse(pulseB);
       setLastSync(new Date()); setBoot('ready');
       return o;
     }
@@ -2011,16 +2013,22 @@ function PlatformApp() {
     }
     const branchIds = (o.branches || []).map(b => b.id);
     dataCtx.current = { central: true, myBrIds: branchIds, email: dataCtx.current.email };
-    const core = (await cloud.get(KEYS.core, null)) || {};
+    // v29.0: مستند المركز ومستندات الفروع ونبض النظام تُقرأ معًا بالتوازي بدل الطابور
+    const [core0, brVals, pulse0] = await Promise.all([
+      cloud.get(KEYS.core, null),
+      Promise.all(branchIds.map(b => cloud.get(brKey(b), null))),
+      cloud.get(KEYS.pulse, { presence: {}, audit: [] })
+    ]);
+    const core = core0 || {};
     const brMap = {};
-    for (const b of branchIds) brMap[b] = (await cloud.get(brKey(b), null)) || {};
+    branchIds.forEach((b, i) => { brMap[b] = brVals[i] || {}; });
     // v27.1: تهيئة المخبأ الحيّ منذ الإقلاع — كان يبقى فارغًا حتى تصل لقطة كل مستند فرع (ومستند فرع غير موجود
     // لا يرسل لقطة أبدًا) فتتعطّل إعادة التجميع اللحظية حتى أول استطلاع دوري (٥ دقائق) — أي أن حضورًا يُسجَّل
     // من جهاز فرع قد لا يظهر في المركز إلا بعد دقائق أو بعد «مزامنة الآن».
     docsCache.current = { core, br: brMap };
     setOps(composeOps(core, brMap));
     setOrg(o);
-    setPulse(await cloud.get(KEYS.pulse, { presence: {}, audit: [] }));
+    setPulse(pulse0);
     setLastSync(new Date());
     setBoot('ready');
     return o;
@@ -2726,7 +2734,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v28.9 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v29.0 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
