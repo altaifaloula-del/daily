@@ -2726,7 +2726,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v28.8 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v28.9 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -16235,6 +16235,10 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const [repOpen, setRepOpen] = useState(false);    // v9.4 قائمة التقارير
   const [stgOpen, setStgOpen] = useState(false);    // v9.4 قائمة الإعدادات
   const [acctNavOpen, setAcctNavOpen] = useState(null); // v28.8 القائمة المنسدلة المفتوحة لأقسام المحاسبة
+  // v28.9: طريقة عرض أقسام المحاسبة — 'dd' قوائم منسدلة (الافتراضي) أو 'grid' شبكة بطاقات؛ تُحفظ في متصفح المستخدم فقط
+  const [acctNavMode, setAcctNavMode] = useState(() => { try { return localStorage.getItem('mizan:acctNavMode') === 'grid' ? 'grid' : 'dd'; } catch (e) { return 'dd'; } });
+  const [acctGridOpen, setAcctGridOpen] = useState(true);
+  const switchAcctNav = (m) => { setAcctNavMode(m); setAcctNavOpen(null); setAcctGridOpen(true); try { localStorage.setItem('mizan:acctNavMode', m); } catch (e) {} };
   const [obD, setObD] = useState(() => {            // v9.7 مسودة الأرصدة الافتتاحية
     const o = org.openingBalances || {};
     const map = {};
@@ -17304,9 +17308,9 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
           sub="من دليل الحسابات" icon={Landmark} color="#5B93C4" />
       </div>
 
-      {/* v28.8: أقسام المحاسبة في قوائم منسدلة مجمّعة بدل صف الأزرار الطويل — نفس الأقسام ونفس الصلاحيات (viewOK) */}
+      {/* v28.8: أقسام المحاسبة في قوائم منسدلة مجمّعة بدل صف الأزرار الطويل — v28.9: + عرض شبكة اختياري. نفس الأقسام ونفس الصلاحيات (viewOK) */}
       {(() => {
-        const go = (v) => { setAcctNavOpen(null); setView(v); if (v === 'apage') setApSel(null); if (v === 'arage') setArSel(null); };
+        const go = (v) => { setAcctNavOpen(null); setAcctGridOpen(false); setView(v); if (v === 'apage') setApSel(null); if (v === 'arage') setArSel(null); };
         const IT = {
           jr: ['القيود اليومية', FileText], coa: ['دليل الحسابات', Landmark], tb: ['ميزان المراجعة', Scale], ob: ['الأرصدة الافتتاحية', Landmark],
           fs: ['القوائم المالية', FileBarChart], cf: ['التدفقات النقدية', ArrowLeftRight], fcast: ['التوقّع النقدي', TrendingUp], bud: ['الموازنة', BarChart3], anl: ['التحليل والنِسَب', TrendingUp], cc: ['مراكز التكلفة', BarChart3],
@@ -17326,6 +17330,44 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
           { id: 'tools', ar: 'أدوات', icon: Download, items: ['export', 'mizan'] }
         ];
         const ok = (v) => viewOK(v) && (v !== 'mizan' || canPost);
+        const manualBtn = canPost && ACCT_SECTIONS.some(s => viewOK(s.v)) && <button className="btn sm" style={{ marginInlineStart: 'auto' }} onClick={newJm}><Plus size={14} />قيد يدوي / افتتاحي</button>;
+        const modeSw = (
+          <div className="acct-mode" role="group" aria-label="طريقة عرض الأقسام">
+            <button className={acctNavMode === 'dd' ? 'on' : ''} onClick={() => switchAcctNav('dd')} title="قوائم منسدلة"><ChevronDown size={14} /><span>قوائم</span></button>
+            <button className={acctNavMode === 'grid' ? 'on' : ''} onClick={() => switchAcctNav('grid')} title="شبكة"><Grid3x3 size={14} /><span>شبكة</span></button>
+          </div>
+        );
+        if (acctNavMode === 'grid') {
+          const cur = IT[view];
+          const CurI = cur ? cur[1] : FileText;
+          return (
+            <div className="acct-gridnav">
+              <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                {acctGridOpen
+                  ? <div className="acct-gtitle"><Grid3x3 size={15} />أقسام المحاسبة</div>
+                  : <button className="btn sm pri" onClick={() => setAcctGridOpen(true)}><Grid3x3 size={14} />كل الأقسام</button>}
+                {!acctGridOpen && cur && <div className="acct-gcur"><CurI size={14} />{cur[0]}</div>}
+                {acctGridOpen && cur && <button className="btn sm gh" onClick={() => setAcctGridOpen(false)}>إخفاء الشبكة<ChevronDown size={13} style={{ transform: 'rotate(180deg)' }} /></button>}
+                {modeSw}
+                {manualBtn}
+              </div>
+              {acctGridOpen && GROUPS.map(g => {
+                const its = g.items.filter(ok);
+                if (!its.length) return null;
+                return (
+                  <div className="acct-gsec" key={g.id}>
+                    <div className="acct-ghd"><g.icon size={13} />{g.ar}</div>
+                    <div className="acct-grid">
+                      {its.map(v => { const [n, I] = IT[v]; return (
+                        <button key={v} className={'acct-tile' + (view === v ? ' on' : '')} onClick={() => go(v)}><I size={20} /><span>{n}</span></button>
+                      ); })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        }
         return (
           <div className="row acct-nav" style={{ gap: 8, flexWrap: 'wrap' }}>
             {GROUPS.map(g => {
@@ -17350,7 +17392,8 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
                 </div>
               );
             })}
-            {canPost && ACCT_SECTIONS.some(s => viewOK(s.v)) && <button className="btn sm" style={{ marginInlineStart: 'auto' }} onClick={newJm}><Plus size={14} />قيد يدوي / افتتاحي</button>}
+            {modeSw}
+            {manualBtn}
           </div>
         );
       })()}
