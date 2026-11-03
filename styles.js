@@ -929,6 +929,10 @@ body.lh-dragging *{cursor:grabbing !important}
   background:none;color:var(--txt);font:inherit;font-size:12px;border-radius:8px;cursor:pointer}
 .abar-menu button:hover{background:var(--acc-soft)}
 .abar-menu button svg{color:var(--faint);flex-shrink:0}
+/* v28.8 — قوائم أقسام المحاسبة المنسدلة: تنفتح من طرف الزر نحو داخل الشاشة */
+.acct-nav{position:relative}
+.acct-nav .abar-menu{inset-inline-end:auto;inset-inline-start:0;max-width:calc(100vw - 32px)}
+@media(max-width:700px){.acct-nav .abar-dd{position:static}.acct-nav .abar-menu{inset-inline:0;min-width:0;max-width:none}}
 
 /* إخفاء القائمة الجانبية على الحاسوب — شبكة تطبيقات صرفة + قائمة حساب بالرأس — v9.6 */
 @media(min-width:901px){

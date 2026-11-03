@@ -2726,7 +2726,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v28.7 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v28.8 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -16234,6 +16234,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const [view, setView] = useState('jr');           // jr قيود · coa دليل · tb ميزان · fs قوائم
   const [repOpen, setRepOpen] = useState(false);    // v9.4 قائمة التقارير
   const [stgOpen, setStgOpen] = useState(false);    // v9.4 قائمة الإعدادات
+  const [acctNavOpen, setAcctNavOpen] = useState(null); // v28.8 القائمة المنسدلة المفتوحة لأقسام المحاسبة
   const [obD, setObD] = useState(() => {            // v9.7 مسودة الأرصدة الافتتاحية
     const o = org.openingBalances || {};
     const map = {};
@@ -17303,33 +17304,56 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
           sub="من دليل الحسابات" icon={Landmark} color="#5B93C4" />
       </div>
 
-      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-        {viewOK('jr') && <button className={'btn sm' + (view === 'jr' ? ' pri' : ' gh')} onClick={() => setView('jr')}><FileText size={14} />القيود اليومية</button>}
-        {viewOK('coa') && <button className={'btn sm' + (view === 'coa' ? ' pri' : ' gh')} onClick={() => setView('coa')}><Landmark size={14} />دليل الحسابات</button>}
-        {viewOK('tb') && <button className={'btn sm' + (view === 'tb' ? ' pri' : ' gh')} onClick={() => setView('tb')}><Scale size={14} />ميزان المراجعة</button>}
-        {viewOK('fs') && <button className={'btn sm' + (view === 'fs' ? ' pri' : ' gh')} onClick={() => setView('fs')}><FileBarChart size={14} />القوائم المالية</button>}
-        {viewOK('cf') && <button className={'btn sm' + (view === 'cf' ? ' pri' : ' gh')} onClick={() => setView('cf')}><ArrowLeftRight size={14} />التدفقات النقدية</button>}
-        {viewOK('fcast') && <button className={'btn sm' + (view === 'fcast' ? ' pri' : ' gh')} onClick={() => setView('fcast')}><TrendingUp size={14} />التوقّع النقدي</button>}
-        {viewOK('bud') && <button className={'btn sm' + (view === 'bud' ? ' pri' : ' gh')} onClick={() => setView('bud')}><BarChart3 size={14} />الموازنة</button>}
-        {viewOK('anl') && <button className={'btn sm' + (view === 'anl' ? ' pri' : ' gh')} onClick={() => setView('anl')}><TrendingUp size={14} />التحليل والنِسَب</button>}
-        {viewOK('apage') && <button className={'btn sm' + (view === 'apage' ? ' pri' : ' gh')} onClick={() => { setView('apage'); setApSel(null); }}><Users size={14} />أعمار الموردين</button>}
-        {viewOK('arage') && <button className={'btn sm' + (view === 'arage' ? ' pri' : ' gh')} onClick={() => { setView('arage'); setArSel(null); }}><Users size={14} />أعمار العملاء</button>}
-        {viewOK('export') && <button className={'btn sm' + (view === 'export' ? ' pri' : ' gh')} onClick={() => setView('export')}><Download size={14} />تصدير للمحاسب</button>}
-        {viewOK('cc') && <button className={'btn sm' + (view === 'cc' ? ' pri' : ' gh')} onClick={() => setView('cc')}><BarChart3 size={14} />مراكز التكلفة</button>}
-        {viewOK('vat') && <button className={'btn sm' + (view === 'vat' ? ' pri' : ' gh')} onClick={() => setView('vat')}><Receipt size={14} />الضريبة</button>}
-        {viewOK('einv') && <button className={'btn sm' + (view === 'einv' ? ' pri' : ' gh')} onClick={() => setView('einv')}><QrCode size={14} />الفوترة (زاتكا)</button>}
-        {viewOK('zakat') && <button className={'btn sm' + (view === 'zakat' ? ' pri' : ' gh')} onClick={() => setView('zakat')}><Landmark size={14} />الزكاة والضريبة</button>}
-        {viewOK('ast') && <button className={'btn sm' + (view === 'ast' ? ' pri' : ' gh')} onClick={() => setView('ast')}><Building2 size={14} />الأصول</button>}
-        {viewOK('bank') && <button className={'btn sm' + (view === 'bank' ? ' pri' : ' gh')} onClick={() => setView('bank')}><Landmark size={14} />التسوية البنكية</button>}
-        {viewOK('mclose') && <button className={'btn sm' + (view === 'mclose' ? ' pri' : ' gh')} onClick={() => setView('mclose')}><ClipboardCheck size={14} />حزمة الإقفال</button>}
-        {viewOK('ctrl') && <button className={'btn sm' + (view === 'ctrl' ? ' pri' : ' gh')} onClick={() => setView('ctrl')}><ShieldCheck size={14} />الضوابط والتدقيق</button>}
-        {viewOK('lock') && <button className={'btn sm' + (view === 'lock' ? ' pri' : ' gh')} onClick={() => setView('lock')}><Lock size={14} />الإقفال</button>}
-        {viewOK('astl') && <button className={'btn sm' + (view === 'astl' ? ' pri' : ' gh')} onClick={() => setView('astl')}><Truck size={14} />تسوية التطبيقات</button>}
-        {viewOK('ob') && <button className={'btn sm' + (view === 'ob' ? ' pri' : ' gh')} onClick={() => setView('ob')}><Landmark size={14} />الأرصدة الافتتاحية</button>}
-        {viewOK('yend') && <button className={'btn sm' + (view === 'yend' ? ' pri' : ' gh')} onClick={() => setView('yend')}><CalendarDays size={14} />إقفال السنة</button>}
-        {viewOK('mizan') && canPost && <button className={'btn sm' + (view === 'mizan' ? ' pri' : ' gh')} onClick={() => setView('mizan')}><Upload size={14} />استيراد البيانات التاريخية</button>}
-        {canPost && ACCT_SECTIONS.some(s => viewOK(s.v)) && <button className="btn sm" style={{ marginInlineStart: 'auto' }} onClick={newJm}><Plus size={14} />قيد يدوي / افتتاحي</button>}
-      </div>
+      {/* v28.8: أقسام المحاسبة في قوائم منسدلة مجمّعة بدل صف الأزرار الطويل — نفس الأقسام ونفس الصلاحيات (viewOK) */}
+      {(() => {
+        const go = (v) => { setAcctNavOpen(null); setView(v); if (v === 'apage') setApSel(null); if (v === 'arage') setArSel(null); };
+        const IT = {
+          jr: ['القيود اليومية', FileText], coa: ['دليل الحسابات', Landmark], tb: ['ميزان المراجعة', Scale], ob: ['الأرصدة الافتتاحية', Landmark],
+          fs: ['القوائم المالية', FileBarChart], cf: ['التدفقات النقدية', ArrowLeftRight], fcast: ['التوقّع النقدي', TrendingUp], bud: ['الموازنة', BarChart3], anl: ['التحليل والنِسَب', TrendingUp], cc: ['مراكز التكلفة', BarChart3],
+          apage: ['أعمار الموردين', Users], arage: ['أعمار العملاء', Users],
+          vat: ['الضريبة (ق.م)', Receipt], einv: ['الفوترة (زاتكا)', QrCode], zakat: ['الزكاة وضريبة الدخل', Landmark],
+          bank: ['التسوية البنكية', Landmark], ast: ['الأصول والإهلاك', Building2], astl: ['تسوية التطبيقات', Truck],
+          mclose: ['حزمة الإقفال', ClipboardCheck], ctrl: ['الضوابط والتدقيق', ShieldCheck], lock: ['الإقفال الشهري', Lock], yend: ['إقفال السنة', CalendarDays],
+          export: ['تصدير للمحاسب', Download], mizan: ['استيراد البيانات التاريخية', Upload]
+        };
+        const GROUPS = [
+          { id: 'books', ar: 'الدفاتر', icon: FileText, items: ['jr', 'coa', 'tb', 'ob'] },
+          { id: 'stmts', ar: 'القوائم والتحليل', icon: FileBarChart, items: ['fs', 'cf', 'fcast', 'bud', 'anl', 'cc'] },
+          { id: 'ages', ar: 'الذمم والأعمار', icon: Users, items: ['apage', 'arage'] },
+          { id: 'tax', ar: 'الضريبة والزكاة', icon: Receipt, items: ['vat', 'einv', 'zakat'] },
+          { id: 'bank', ar: 'البنوك والأصول', icon: Building2, items: ['bank', 'ast', 'astl'] },
+          { id: 'close', ar: 'الإقفال والرقابة', icon: Lock, items: ['mclose', 'ctrl', 'lock', 'yend'] },
+          { id: 'tools', ar: 'أدوات', icon: Download, items: ['export', 'mizan'] }
+        ];
+        const ok = (v) => viewOK(v) && (v !== 'mizan' || canPost);
+        return (
+          <div className="row acct-nav" style={{ gap: 8, flexWrap: 'wrap' }}>
+            {GROUPS.map(g => {
+              const its = g.items.filter(ok);
+              if (!its.length) return null;
+              const act = its.includes(view);
+              const Ic = act ? IT[view][1] : g.icon;
+              return (
+                <div className="abar-dd" key={g.id}>
+                  <button className={'btn sm' + (act ? ' pri' : ' gh')} onClick={() => { setAcctNavOpen(o => o === g.id ? null : g.id); setRepOpen(false); setStgOpen(false); }}>
+                    <Ic size={14} />{act ? g.ar + ': ' + IT[view][0] : g.ar}<ChevronDown size={13} />
+                  </button>
+                  {acctNavOpen === g.id && (<>
+                    <div className="abar-back" onClick={() => setAcctNavOpen(null)} />
+                    <div className="abar-menu">
+                      <div className="abar-hd">{g.ar}</div>
+                      {its.map(v => { const [n, I] = IT[v]; return (
+                        <button key={v} onClick={() => go(v)} style={view === v ? { background: 'var(--acc-soft)', fontWeight: 700 } : undefined}><I size={13} />{n}{view === v && <Check size={13} style={{ marginInlineStart: 'auto' }} />}</button>
+                      ); })}
+                    </div>
+                  </>)}
+                </div>
+              );
+            })}
+            {canPost && ACCT_SECTIONS.some(s => viewOK(s.v)) && <button className="btn sm" style={{ marginInlineStart: 'auto' }} onClick={newJm}><Plus size={14} />قيد يدوي / افتتاحي</button>}
+          </div>
+        );
+      })()}
 
       {/* v15.11: لا قسم متاح (أُخفيت كل الأقسام لهذا المستخدم) — رسالة بدل تسريب اليومية */}
       {!ACCT_SECTIONS.some(s => viewOK(s.v)) && (
