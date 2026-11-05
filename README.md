@@ -118,8 +118,8 @@ npm start                 # يشغّل الخادم ويخدم dist → http://l
 1. من https://dashboard.render.com اختر **New → Blueprint** واربطه بهذا المستودع — يقرأ `render.yaml` تلقائيًا.
 2. أدخل القيمتين المطلوبتين:
    - `ANTHROPIC_API_KEY` — مفتاحك من platform.claude.com (على الخادم فقط — **لا تضعه أبدًا في متغير يبدأ بـ `VITE_`**).
-   - `FIREBASE_API_KEY` — نفس قيمة سر `VITE_FIREBASE_API_KEY` في GitHub.
-3. بقية القيم مضبوطة في الملف: `FIREBASE_PROJECT_ID=daily-5a260`، `ALLOWED_ORIGINS=https://altaifaloula-del.github.io`، الخطة المجانية.
+   - `FIREBASE_API_KEY` — نفس قيمة سر `VITE_FIREBASE_API_KEY` في GitHub (Web API Key من إعدادات مشروع Firebase). معرّف المشروع يُستنتج تلقائيًا من رمز دخول المستخدم بعد التحقق منه.
+3. بقية القيم مضبوطة في الملف: `ALLOWED_ORIGINS=https://altaifaloula-del.github.io`، الخطة المجانية.
 4. فحص الصحة: `https://<رابط-Render>/api/health`.
 5. أضف سر GitHub `VITE_AI_ENDPOINT` = `https://<رابط-Render>/api/ai/analyze` وأعد تشغيل سير النشر.
 
