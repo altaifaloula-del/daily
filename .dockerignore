@@ -3,3 +3,7 @@ dist
 .env
 data
 .git
+.github
+tests
+firestore-debug.log
+*.log

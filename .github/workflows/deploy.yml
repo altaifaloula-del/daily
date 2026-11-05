@@ -61,6 +61,7 @@ jobs:
           VITE_FIREBASE_SENDER_ID: ${{ secrets.VITE_FIREBASE_SENDER_ID }}
           VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
           VITE_AI_ENDPOINT: ${{ secrets.VITE_AI_ENDPOINT }}
+          VITE_AI_FEEDBACK_ENDPOINT: ${{ secrets.VITE_AI_FEEDBACK_ENDPOINT }}
         run: npm run build
 
       - name: التحقق من مخرجات البناء

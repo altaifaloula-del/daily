@@ -63,7 +63,9 @@ service cloud.firestore {
     }
 
     match /platform/admins {
-      allow read: if realUser();
+      // قائمة بريد المدراء لا تُكشف لأي حساب مسجّل: تُقرأ للأعضاء/المدراء فقط،
+      // وغيابها (resource == null) يُقرأ لأي موثّق كي يعمل تمهيد أول مالك.
+      allow read: if realUser() && (resource == null || isMember() || isAdmin());
       allow create: if realUser() && request.resource.data.emails == [userEmail()];
       allow update, delete: if isAdmin();
     }

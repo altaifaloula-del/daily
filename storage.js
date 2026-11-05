@@ -144,6 +144,13 @@ export const authApi = {
 
   async signOutAll() { const m = await fbAuthMod(); if (m) await m.A.signOut(m.a); },
 
+  /** رمز هوية الجلسة الحالية (Firebase ID token) — يُرسل لوسيط الخادم كي يتحقق من العضوية */
+  async idToken() {
+    const u = await authedUser();
+    if (!u) return null;
+    try { return await u.getIdToken(); } catch { return null; }
+  },
+
   async resetPass(email) {
     const m = await fbAuthMod(); if (!m) throw new Error('no-firebase');
     await m.A.sendPasswordResetEmail(m.a, (email || '').trim());

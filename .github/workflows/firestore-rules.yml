@@ -3,11 +3,33 @@ name: نشر قواعد أمان Firestore
 on:
   push:
     branches: [main]
-    paths: ['firestore.rules', 'firestore.indexes.json']
+    paths: ['firestore.rules', 'firestore.indexes.json', 'tests/**']
   workflow_dispatch:
 
 jobs:
+  # ===== مانع فعلي: القواعد لا تُنشَر أبداً إن رسبت اختبارات المحاكي =====
+  test:
+    name: اختبار القواعد على المحاكي
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: تجهيز Java للمحاكي
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: تثبيت الحزم
+        run: npm ci
+      - name: تشغيل اختبارات tests/rules.test.mjs على محاكي Firestore
+        run: npm run test:rules
+
   rules:
+    name: نشر القواعد والفهارس
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,8 +43,12 @@ jobs:
             echo "::warning::لم يُضبط FIREBASE_SERVICE_ACCOUNT — انشر القواعد يدوياً من لوحة Firebase."
             exit 0
           fi
-          echo "$SA" > "$RUNNER_TEMP/sa.json"
+          umask 077
+          printf '%s' "$SA" > "$RUNNER_TEMP/sa.json"
           echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/sa.json" >> $GITHUB_ENV
       - name: نشر القواعد والفهارس
         if: env.GOOGLE_APPLICATION_CREDENTIALS != ''
         run: npx --yes firebase-tools@13 deploy --only firestore:rules,firestore:indexes --project "${{ secrets.VITE_FIREBASE_PROJECT_ID }}"
+      - name: حذف ملف الاعتماد
+        if: always()
+        run: rm -f "$RUNNER_TEMP/sa.json"
