@@ -111,20 +111,17 @@ npm start                 # يشغّل الخادم ويخدم dist → http://l
 
 المنصة تُنشر كخدمة Node واحدة: الخادم يخدم الواجهة المبنية ويؤمّن وسيط الذكاء المالي في آنٍ معاً.
 
-### الطريقة الموصى بها — Render أو Railway
+### الطريقة الموصى بها — Render (خادم الذكاء الاصطناعي)
 
-1. ارفع المشروع على GitHub.
-2. أنشئ خدمة Web جديدة واربطها بالمستودع (ملف `render.yaml` مرفق ويضبط كل شيء تلقائياً).
-3. أضف متغيرات البيئة في لوحة الخدمة:
-   - `ANTHROPIC_API_KEY` — للمركز المالي الذكي وتحليل تعليقات QR بنموذج `claude-opus-5-5` (قابل للتغيير بـ `AI_MODEL`)، على الخادم فقط — **لا تضعه أبدًا في متغير يبدأ بـ `VITE_`**.
-   - `ALLOWED_ORIGINS` — إن كانت الواجهة على نطاق آخر (مثل GitHub Pages): `https://your-user.github.io`.
-   - متغيرات `VITE_FIREBASE_*` — **مطلوبة وقت البناء** لأن Vite يدمجها في حزمة الواجهة.
-4. أوامر الخدمة:
-   - البناء: `npm install && npm run build`
-   - التشغيل: `node server.js`
-   - فحص الصحة: `/api/health`
+الواجهة تُنشر على GitHub Pages، وRender يشغّل الخادم وحده (وسيط الذكاء الاصطناعي).
 
-بعد أول نشر ناجح ستحصل على رابط مثل `https://your-app.onrender.com` تفتحه الفروع من أي مدينة.
+1. من https://dashboard.render.com اختر **New → Blueprint** واربطه بهذا المستودع — يقرأ `render.yaml` تلقائيًا.
+2. أدخل القيمتين المطلوبتين:
+   - `ANTHROPIC_API_KEY` — مفتاحك من platform.claude.com (على الخادم فقط — **لا تضعه أبدًا في متغير يبدأ بـ `VITE_`**).
+   - `FIREBASE_API_KEY` — نفس قيمة سر `VITE_FIREBASE_API_KEY` في GitHub.
+3. بقية القيم مضبوطة في الملف: `FIREBASE_PROJECT_ID=daily-5a260`، `ALLOWED_ORIGINS=https://altaifaloula-del.github.io`، الخطة المجانية.
+4. فحص الصحة: `https://<رابط-Render>/api/health`.
+5. أضف سر GitHub `VITE_AI_ENDPOINT` = `https://<رابط-Render>/api/ai/analyze` وأعد تشغيل سير النشر.
 
 ### النشر بحاوية Docker
 

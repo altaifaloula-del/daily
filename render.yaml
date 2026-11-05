@@ -1,27 +1,22 @@
+# خادم وسيط الذكاء الاصطناعي فقط — الواجهة تُنشر على GitHub Pages
 services:
   - type: web
-    name: restaurant-cloud-platform
+    name: mizan-ai
     runtime: node
-    plan: starter
-    buildCommand: npm install && npm run build
+    plan: free            # المجانية تنام بعد 15 دقيقة خمول (أول طلب بعدها يتأخر ~دقيقة). غيّرها إلى starter لإلغاء ذلك
+    buildCommand: npm install --omit=dev
     startCommand: node server.js
     healthCheckPath: /api/health
     envVars:
       - key: NODE_VERSION
         value: 20
+      - key: NODE_ENV
+        value: production
       - key: ANTHROPIC_API_KEY
         sync: false
+      - key: FIREBASE_API_KEY
+        sync: false
+      - key: FIREBASE_PROJECT_ID
+        value: daily-5a260
       - key: ALLOWED_ORIGINS
         value: https://altaifaloula-del.github.io
-      - key: VITE_FIREBASE_API_KEY
-        sync: false
-      - key: VITE_FIREBASE_AUTH_DOMAIN
-        sync: false
-      - key: VITE_FIREBASE_PROJECT_ID
-        sync: false
-      - key: VITE_FIREBASE_STORAGE_BUCKET
-        sync: false
-      - key: VITE_FIREBASE_SENDER_ID
-        sync: false
-      - key: VITE_FIREBASE_APP_ID
-        sync: false
