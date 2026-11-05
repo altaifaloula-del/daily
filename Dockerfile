@@ -21,5 +21,8 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 COPY server.js ./
 COPY --from=build /app/dist ./dist
+# التشغيل بمستخدم غير جذري
+RUN mkdir -p /app/data && chown -R node:node /app/data
+USER node
 EXPOSE 8787
 CMD ["node", "server.js"]
