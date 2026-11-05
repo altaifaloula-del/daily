@@ -24,8 +24,17 @@ const STORE = path.join(DATA_DIR, 'store.json');
 
 // إعدادات Firebase على الخادم (تُقبل أسماء VITE_ نفسها لتسهيل النشر على Render)
 const FB_API_KEY = process.env.FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY || '';
+// معرّف المشروع اختياري: إن لم يُضبط يُؤخذ من رمز المستخدم بعد التحقق منه بمفتاح المشروع
 const FB_PROJECT = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || '';
-const FB_READY = !!(FB_API_KEY && FB_PROJECT);
+const FB_READY = !!FB_API_KEY;
+
+// يقرأ حقل aud (معرّف مشروع Firebase) من رمز JWT — لا يُستخدم إلا بعد أن تقبل Google الرمز بمفتاح مشروعنا
+function tokenProject(idToken) {
+  try {
+    const p = JSON.parse(Buffer.from(String(idToken).split('.')[1], 'base64url').toString('utf8'));
+    return typeof p.aud === 'string' && /^[a-z0-9-]{4,40}$/.test(p.aud) ? p.aud : '';
+  } catch { return ''; }
+}
 
 // تخزين الخادم المحلي: بلا مصادقة بطبيعته، فلا يعمل إلا للتطوير المحلي أو بتفعيل صريح، وأبدًا مع Firebase
 const STORE_ENABLED = !FB_READY && (!IS_PROD || process.env.ENABLE_STORE_API === '1');
@@ -171,8 +180,12 @@ async function verifyMember(idToken) {
   const email = String((u && u.email) || '').toLowerCase();
   if (!email || u.disabled) return null;
 
+  // Google قبلت الرمز بمفتاح مشروعنا، فمعرّف المشروع داخله موثوق. إن ضُبط FIREBASE_PROJECT_ID يجب أن يطابقه.
+  const project = tokenProject(idToken);
+  if (!project || (FB_PROJECT && project !== FB_PROJECT)) return null;
+
   // 2) عضوية نشطة — تُقرأ برمز المستخدم نفسه فتسري قواعد Firestore (يقرأ العضو سجله فقط)
-  const docUrl = 'https://firestore.googleapis.com/v1/projects/' + encodeURIComponent(FB_PROJECT)
+  const docUrl = 'https://firestore.googleapis.com/v1/projects/' + encodeURIComponent(project)
     + '/databases/(default)/documents/members/' + encodeURIComponent(email);
   const m = await fetch(docUrl, { headers: { authorization: 'Bearer ' + idToken } });
   if (!m.ok) return null;
@@ -188,7 +201,7 @@ async function verifyMember(idToken) {
 async function requireMember(req, res, next) {
   if (!FB_READY) {
     // بلا Firebase لا توجد هوية للتحقق منها — يُسمح فقط في التطوير المحلي
-    if (IS_PROD) return res.status(503).json({ error: 'إعدادات Firebase غير مضبوطة على الخادم (FIREBASE_API_KEY / FIREBASE_PROJECT_ID)' });
+    if (IS_PROD) return res.status(503).json({ error: 'إعدادات Firebase غير مضبوطة على الخادم (FIREBASE_API_KEY)' });
     req.user = { email: 'local-dev' };
     return next();
   }

@@ -16,7 +16,5 @@ services:
         sync: false
       - key: FIREBASE_API_KEY
         sync: false
-      - key: FIREBASE_PROJECT_ID
-        value: daily-5a260
       - key: ALLOWED_ORIGINS
         value: https://altaifaloula-del.github.io
