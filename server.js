@@ -11,6 +11,7 @@
  *  • حد معدل للطلبات لكل مستخدم/عنوان، وسقف لحجم الطلب، وترويسات أمان أساسية.
  */
 import express from 'express';
+import Anthropic from '@anthropic-ai/sdk';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -205,32 +206,45 @@ async function requireMember(req, res, next) {
 }
 
 /* ================= الذكاء الاصطناعي ================= */
-const AI_MODEL = process.env.AI_MODEL || 'claude-sonnet-4-5';
+const AI_MODEL = process.env.AI_MODEL || 'claude-opus-5-5';
+const AI_EFFORT = process.env.AI_EFFORT || 'medium';
 const ISSUES = ['وقت الخدمة', 'جودة الطعام', 'الأسعار', 'النظافة', 'الخدمة', 'المكان'];
 
+let anthropic = null;
+function aiClient() {
+  if (!process.env.ANTHROPIC_API_KEY) { const e = new Error('ANTHROPIC_API_KEY غير مضبوط على الخادم'); e.status = 501; throw e; }
+  if (!anthropic) anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  return anthropic;
+}
+
 async function callClaude({ system, user, maxTokens }) {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) { const e = new Error('ANTHROPIC_API_KEY غير مضبوط على الخادم'); e.status = 501; throw e; }
-  const r = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({
+  const client = aiClient();
+  let msg;
+  try {
+    msg = await client.beta.messages.create({
       model: AI_MODEL,
       max_tokens: maxTokens,
+      output_config: { effort: AI_EFFORT },
+      // عند رفض الطلب لأسباب السلامة يعيد الخادم المحاولة تلقائيًا على نموذج بديل مناسب
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default',
       ...(system ? { system } : {}),
       messages: [{ role: 'user', content: user }]
-    })
-  });
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok) {
-    console.error('anthropic error', r.status, data?.error?.message);
+    });
+  } catch (err) {
+    if (err instanceof Anthropic.AuthenticationError) console.error('anthropic: invalid API key');
+    else if (err instanceof Anthropic.RateLimitError) { const e = new Error('مزود الذكاء الاصطناعي مشغول — أعد المحاولة بعد قليل'); e.status = 429; throw e; }
+    else if (err instanceof Anthropic.APIError) console.error('anthropic error', err.status, err.message);
+    else console.error('anthropic connection error', err);
     const e = new Error('فشل الاتصال بمزود الذكاء الاصطناعي'); e.status = 502; throw e;
   }
-  if (data.stop_reason === 'max_tokens') { const e = new Error('اقتُطع رد التحليل — أعد المحاولة'); e.status = 502; throw e; }
-  const txt = (data.content || []).filter(x => x.type === 'text').map(x => x.text).join('\n').replace(/```json|```/g, '').trim();
+  if (msg.stop_reason === 'refusal') { const e = new Error('رفض مزود الذكاء الاصطناعي هذا الطلب'); e.status = 422; throw e; }
+  if (msg.stop_reason === 'max_tokens') { const e = new Error('اقتُطع رد التحليل — أعد المحاولة'); e.status = 502; throw e; }
+  const txt = msg.content.filter(x => x.type === 'text').map(x => x.text).join('\n').replace(/```json|```/g, '').trim();
   const a = txt.indexOf('{'), b = txt.lastIndexOf('}');
   if (a < 0 || b <= a) { const e = new Error('رد غير صالح من مزود الذكاء الاصطناعي'); e.status = 502; throw e; }
-  return JSON.parse(txt.slice(a, b + 1));
+  try { return JSON.parse(txt.slice(a, b + 1)); }
+  catch { const e = new Error('رد غير صالح من مزود الذكاء الاصطناعي'); e.status = 502; throw e; }
 }
 
 const aiJson = express.json({ limit: '1mb' });
@@ -257,7 +271,7 @@ app.post('/api/ai/analyze', aiJson, requireMember, aiLimit, async (req, res) => 
 }
 الحالة يجب أن تكون واحدة من: ممتاز، جيد جداً، متوسط، تحت الملاحظة.`;
   try {
-    res.json({ result: await callClaude({ system, user: prompt, maxTokens: 1400 }) });
+    res.json({ result: await callClaude({ system, user: prompt, maxTokens: 16000 }) });
   } catch (e) { aiErr(res, e); }
 });
 
@@ -274,7 +288,7 @@ app.post('/api/ai/feedback', aiJson, requireMember, aiLimit, async (req, res) =>
     'severity عدد صحيح من 1 (بسيط) إلى 5 (حرج). أعد نتيجة واحدة لكل تعليق.'
   ].join('\n');
   try {
-    const parsed = await callClaude({ system, user: JSON.stringify(payload), maxTokens: 4096 });
+    const parsed = await callClaude({ system, user: JSON.stringify(payload), maxTokens: 16000 });
     res.json({ results: Array.isArray(parsed.results) ? parsed.results : [] });
   } catch (e) { aiErr(res, e); }
 });
