@@ -2212,22 +2212,22 @@ const REG_IX = {}; REG_APPS.forEach(a => { REG_IX[a.id] = a; });
 // v9.3 — تطبيقات الشاشة الرئيسية مُجمّعة (كل تطبيق يضمّ أقسامه المتشابهة، بنمط أودو)
 // المحاسبة تطبيق واحد بثمانية أقسام، الموردون بثلاثة، المخزون بأربعة… (تطابق النموذج المعتمد)
 const LAUNCH_APPS = [
-  { id: 'analytics', ar: 'مركز التحليل والأداء', en: 'Analytics & Performance', cat: 'bi', icon: Compass, open: { tab: 'analytics' },
+  { id: 'analytics', tabs: ['analytics', 'alerts'], ar: 'التحليل والتنبيهات', en: 'Analytics & Alerts', cat: 'bi', icon: Compass, open: { tab: 'analytics' },
     sections: ['اللوحة التنفيذية', 'لوحة المؤشرات', 'مقارنة الفروع', 'تحليلات النمو', 'تحليل التعادل', 'لوحة الأهداف', 'ماذا-لو', 'المركز الذكي'], kw: ['تحليل', 'أداء', 'لوحة', 'تنفيذية', 'مؤشرات', 'مقارنة', 'فروع', 'نمو', 'تعادل', 'أهداف', 'سيناريو', 'ماذا لو', 'ذكاء', 'توقع', 'kpi'] },
-  { id: 'alerts', ar: 'مركز التنبيهات', en: 'Alerts', cat: 'bi', icon: Bell, open: { tab: 'alerts' },
+  { id: 'alerts', hideOnHome: 'analytics', ar: 'مركز التنبيهات', en: 'Alerts', cat: 'bi', icon: Bell, open: { tab: 'alerts' },
     sections: ['موردون', 'موازنة', 'نقد وسيولة', 'مخزون', 'ضريبة', 'تشغيل', 'إعداد'], kw: ['تنبيه', 'تنبيهات', 'إنذار', 'متأخر', 'تجاوز', 'عجز', 'متابعة', 'إجراء'] },
-  { id: 'acct', ar: 'المحاسبة', en: 'Accounting', cat: 'fin', icon: Scale, open: { tab: 'acct' },
+  { id: 'acct', tabs: ['acct', 'treasury', 'entities'], ar: 'المالية والمحاسبة', en: 'Finance & Accounting', cat: 'fin', icon: Scale, open: { tab: 'acct' },
     sections: ['القيود اليومية', 'دليل الحسابات', 'ميزان المراجعة', 'القوائم المالية', 'مراكز التكلفة', 'الأصول والإهلاك', 'التسوية البنكية', 'الإقفال الشهري'],
     kw: ['قيد', 'يومية', 'حساب', 'ميزان', 'قائمة', 'دخل', 'مركز مالي', 'مراكز تكلفة', 'أصل', 'إهلاك', 'بنك', 'تسوية', 'إقفال', 'قفل', 'محاسبة'] },
-  { id: 'treasury', ar: 'الخزينة والترحيل', en: 'Treasury', cat: 'fin', icon: Landmark, open: { tab: 'treasury' },
+  { id: 'treasury', hideOnHome: 'acct', ar: 'الخزينة والترحيل', en: 'Treasury', cat: 'fin', icon: Landmark, open: { tab: 'treasury' },
     sections: ['التحويلات الواردة', 'حركة الخزينة'], kw: ['خزينة', 'تحويل', 'ترحيل', 'نقد', 'بنك'] },
   { id: 'reporting', ar: 'مركز التقارير', en: 'Reports Center', cat: 'fin', icon: FileBarChart, open: { tab: 'reporting' },
     sections: ['التقارير المالية', 'منشئ التقارير', 'تقرير الإدارة الشهري', 'التدفق النقدي (13 أسبوعًا)'], kw: ['تقرير', 'تقارير', 'طباعة', 'تصدير', 'منشئ', 'قالب', 'إدارة', 'شهري', 'حزمة', 'تدفق', 'نقدي', 'سيولة', 'مالية'] },
-  { id: 'entities', ar: 'مركز المنشآت', en: 'Entities', cat: 'fin', icon: Building2, open: { tab: 'entities' },
+  { id: 'entities', hideOnHome: 'acct', ar: 'مركز المنشآت', en: 'Entities', cat: 'fin', icon: Building2, open: { tab: 'entities' },
     sections: ['النظرة الموحّدة', 'إدارة المنشآت', 'إسناد الفروع'], kw: ['منشأة', 'منشآت', 'شركة', 'شركات', 'كيان', 'موحّد', 'مجموعة', 'رقم ضريبي', 'تعدد'] },
-  { id: 'closing', ar: 'الإغلاق اليومي', en: 'Daily Closing', cat: 'pos', icon: ClipboardCheck, open: { tab: 'closing' },
+  { id: 'closing', tabs: ['closing', 'approve', 'shifts'], ar: 'الإغلاق اليومي والاعتماد', en: 'Daily Closing & Approvals', cat: 'pos', icon: ClipboardCheck, open: { tab: 'closing' },
     sections: ['تسجيل إغلاق اليوم', 'سجل الإغلاقات'], kw: ['اغلاق', 'إغلاق', 'وردية', 'مبيعات', 'صندوق', 'كاشير', 'نقطة بيع', 'نقاط البيع'] },
-  { id: 'shifts', ar: 'مواعيد الإغلاق والتذكيرات', en: 'Closing Deadlines', cat: 'pos', icon: Clock, open: { tab: 'shifts' },
+  { id: 'shifts', hideOnHome: 'closing', ar: 'مواعيد الإغلاق والتذكيرات', en: 'Closing Deadlines', cat: 'pos', icon: Clock, open: { tab: 'shifts' },
     sections: ['مواعيد الإغلاق', 'التذكيرات', 'المتأخرون'], kw: ['إغلاق', 'موعد', 'تذكير', 'تأخر', 'مراقبة'] },
   { id: 'hrops', ar: 'الموارد البشرية — التشغيل', en: 'HR Operations', cat: 'hr', icon: Fingerprint, open: { tab: 'hrops' },
     sections: ['الحضور الموثَّق', 'محرّك الورديات', 'المهام', 'دفتر النقاط', 'التوقيع الإلكتروني'], kw: ['حضور', 'انصراف', 'وردية', 'مهام', 'نقاط', 'توقيع', 'pin', 'كيوسك', 'موظف'] },
@@ -2239,11 +2239,11 @@ const LAUNCH_APPS = [
     sections: ['الأرصدة', 'الوارد', 'طلب من الرئيسي', 'صرف وهدر', 'الجرد'], kw: ['مستودع', 'فرع', 'تحويل', 'استلام', 'طلب', 'هدر', 'جرد'] },
   { id: 'sales', ar: 'المبيعات', en: 'Sales', cat: 'pos', icon: CircleDollarSign, open: { tab: 'sales' },
     sections: ['حسب القناة', 'حسب الفرع', 'حسب التطبيق'], kw: ['مبيعات', 'نقاط البيع', 'نقطة بيع', 'قناة', 'نقد', 'شبكة', 'توصيل', 'تحليل'] },
-  { id: 'approve', ar: 'التدقيق والاعتماد', en: 'Approvals', cat: 'pos', icon: ShieldCheck, open: { tab: 'approve' },
+  { id: 'approve', hideOnHome: 'closing', ar: 'التدقيق والاعتماد', en: 'Approvals', cat: 'pos', icon: ShieldCheck, open: { tab: 'approve' },
     kw: ['تدقيق', 'اعتماد', 'مراجعة'] },
-  { id: 'brmgmt', ar: 'الفروع والمستخدمون', en: 'Branches & Users', cat: 'pos', icon: UserCog, open: { tab: 'admin' },
+  { id: 'brmgmt', ar: 'الإعدادات والمستخدمون', en: 'Settings & Users', cat: 'gov', icon: UserCog, open: { tab: 'admin' },
     sections: ['الفروع', 'المستخدمون والصلاحيات', 'بنود المصروف', 'تطبيقات التوصيل', 'ظهور التطبيقات'], kw: ['فرع', 'مستخدم', 'صلاحية', 'إعداد', 'مستخدمون'] },
-  { id: 'purchasing', ar: 'المشتريات والموردون', en: 'Purchasing & Suppliers', cat: 'pur', icon: Truck, open: { tab: 'purchasing' },
+  { id: 'purchasing', ar: 'المشتريات', en: 'Purchasing & Suppliers', cat: 'pur', icon: Truck, open: { tab: 'purchasing' },
     sections: ['الموردون والمشتريات', 'الفواتير والالتزامات', 'سجل الموردين', 'أوامر الشراء', 'المشتريات الذكية', 'إعادة الطلب'], kw: ['مورد', 'موردون', 'فاتورة', 'التزام', 'أمر شراء', 'دفع', 'مشتريات', 'شراء', 'إعادة طلب', 'نفاد', 'حد أدنى', 'مخزون', 'reorder'] },
   { id: 'partners', ar: 'جهات الاتصال', en: 'Contacts', cat: 'pur', icon: Users, open: { tab: 'partners' },
     kw: ['جهات الاتصال', 'اتصال', 'شريك', 'شركاء', 'دفتر', 'موردون', 'عملاء'] },
@@ -2253,13 +2253,13 @@ const LAUNCH_APPS = [
     sections: ['احتساب الضريبة', 'الإقرار الضريبي'], kw: ['ضريبة', 'قيمة مضافة', 'زاتكا', 'مدخلات', 'مخرجات', 'إقرار'] },
   { id: 'inv', ar: 'المخزون والمنتجات', en: 'Inventory', cat: 'inv2', icon: HardDrive, open: { tab: 'inv' },
     sections: ['الأصناف', 'الحركات', 'الجرد', 'المنتجات والوصفات'], kw: ['مخزون', 'صنف', 'جرد', 'منتج', 'وصفة', 'مستودع', 'هدر'] },
-  { id: 'docs', ar: 'مركز المستندات', en: 'Documents', cat: 'gov', icon: Stamp, open: { tab: 'docs' },
+  { id: 'docs', tabs: ['docs', 'archive'], ar: 'المستندات والأرشيف', en: 'Documents & Archive', cat: 'gov', icon: Stamp, open: { tab: 'docs' },
     sections: ['السجل التجاري', 'الشهادات والرخص', 'العقود والتأمين', 'تنبيهات الانتهاء'], kw: ['وثيقة', 'مستند', 'سجل تجاري', 'رخصة', 'شهادة', 'ضريبة', 'زكاة', 'عقد', 'انتهاء', 'صلاحية', 'تجديد'] },
-  { id: 'archive', ar: 'أرشيف المستندات', en: 'Archive', cat: 'gov', icon: ImageIcon, open: { tab: 'archive' },
+  { id: 'archive', hideOnHome: 'docs', ar: 'أرشيف المستندات', en: 'Archive', cat: 'gov', icon: ImageIcon, open: { tab: 'archive' },
     kw: ['أرشيف', 'صورة', 'إيصال', 'مرفق'] },
   { id: 'audit', ar: 'سجل التدقيق', en: 'Audit Log', cat: 'gov', icon: Eye, open: { tab: 'audit' },
     kw: ['سجل', 'تدقيق', 'نشاط', 'إجراء'] },
-  { id: 'backup', ar: 'النسخ الاحتياطي', en: 'Backup', cat: 'gov', icon: Download, open: { tab: 'admin' },
+  { id: 'backup', hideOnHome: 'brmgmt', ar: 'النسخ الاحتياطي', en: 'Backup', cat: 'gov', icon: Download, open: { tab: 'admin' },
     kw: ['نسخة', 'احتياطي', 'استعادة', 'لقطة', 'حماية'] },
 ];
 const LAUNCH_IX = {}; LAUNCH_APPS.forEach(a => { LAUNCH_IX[a.id] = a; });
@@ -2277,9 +2277,9 @@ const ACCT_SECTIONS = [
 ];
 const acctSecKey = (v) => 'acctsec:' + v;
 const ACCT_SEC_AR = {}; ACCT_SECTIONS.forEach(s => { ACCT_SEC_AR[s.v] = s.ar; });
-// ترتيب عرض مقصود (لا عشوائي) — تدفّق منطقي: التشغيل اليومي ← المالية ← المشتريات ←
-// المخزون ← الموارد البشرية ← الضريبة ← الحوكمة ← الذكاء (متجاورة لونيًا وموضوعيًا، بنمط أودو)
-const LAUNCH_ORDER = ['analytics', 'reporting', 'people', 'alerts', 'closing', 'sales', 'qrfb', 'approve', 'acct', 'treasury', 'purchasing', 'partners', 'inv', 'vat', 'brmgmt', 'entities', 'docs', 'backup', 'audit', 'archive'];
+// v31.5 — ترتيب حسب دورة العمل: التشغيل اليومي (الإغلاق والمبيعات) ← المخزون والمشتريات وجهات الاتصال ←
+// المالية والضريبة والتقارير والتحليل ← الموارد البشرية ← المستندات والإعدادات والتدقيق. المدمجة في غيرها في الآخر (لا تظهر مستقلة)
+const LAUNCH_ORDER = ['closing', 'sales', 'qrfb', 'whbranch', 'inv', 'purchasing', 'partners', 'acct', 'vat', 'reporting', 'analytics', 'hrops', 'people', 'hrperf', 'docs', 'brmgmt', 'audit', 'approve', 'shifts', 'alerts', 'treasury', 'entities', 'archive', 'backup'];
 const launchRank = (id) => { const i = LAUNCH_ORDER.indexOf(id); return i < 0 ? 999 : i; };
 /* v8.5 — لقطات احتياطية يومية محلية (IndexedDB) على أجهزة الإدارة:
    حماية إضافية ضد التلف أو الحذف الخاطئ — والنسخة الملفية تبقى الحماية الخارجية */
@@ -2325,7 +2325,7 @@ const appCanSee = (meOrRole, a) => {
     if ((meOrRole.appDeny || []).includes(a.id)) return false;   // مُخفى يدويًا لهذا المستخدم
     if ((meOrRole.appAllow || []).includes(a.id)) return true;   // مُضاف يدويًا فوق دوره
   }
-  return (R.tabs || []).includes(a.open.tab);              // الأساس: صلاحيات دور المستخدم
+  return (a.tabs || [a.open.tab]).some(t => (R.tabs || []).includes(t));   // الأساس: صلاحيات الدور (v31.5: التطبيق المدمج يظهر إن سُمح بأي من أقسامه)
 };
 const appOpenNow = (a, me, setTab, openAcctView, openInvView) => {
   if (a.soon) return false;
@@ -2336,7 +2336,9 @@ const appOpenNow = (a, me, setTab, openAcctView, openInvView) => {
     if (a.open.tab === 'acct' && openAcctView) openAcctView(a.open.view);
     if (a.open.tab === 'inv' && openInvView) openInvView(a.open.view);
   }
-  setTab(a.open.tab);
+  // v31.5: التطبيق المدمج يفتح على أول قسم مسموح للمستخدم
+  const rt = (ROLES[me.role] || {}).tabs || [];
+  setTab(a.tabs && !rt.includes(a.open.tab) ? (a.tabs.find(t => rt.includes(t)) || a.open.tab) : a.open.tab);
   return true;
 };
 
@@ -3232,11 +3234,11 @@ function PlatformApp() {
   })();
   const NAV = [
     { id: 'home', ar: 'الرئيسية', icon: Home },
-    { id: 'analytics', ar: 'مركز التحليل والأداء', icon: Compass },
+    { id: 'analytics', ar: 'التحليل والتنبيهات', icon: Compass },
     { id: 'alerts', ar: 'مركز التنبيهات', icon: Bell },
     { id: 'reporting', ar: 'مركز التقارير', icon: FileBarChart },
     { id: 'sales', ar: 'المبيعات', icon: CircleDollarSign },
-    { id: 'closing', ar: 'الإغلاق اليومي', icon: ClipboardCheck },
+    { id: 'closing', ar: 'الإغلاق اليومي والاعتماد', icon: ClipboardCheck, cnt: pending },
     { id: 'shifts', ar: 'مواعيد الإغلاق والتذكيرات', icon: Clock },
     { id: 'hrops', ar: 'الموارد البشرية — التشغيل', icon: Fingerprint },
     { id: 'hrperf', ar: 'الأداء والانضباط', icon: TrendingUp },
@@ -3249,13 +3251,16 @@ function PlatformApp() {
     { id: 'inv', ar: 'المخزون والمنتجات', icon: HardDrive },
     { id: 'whbranch', ar: 'مستودع الفرع', icon: Truck },
     { id: 'partners', ar: 'جهات الاتصال', icon: Users },
-    { id: 'acct', ar: 'المحاسبة', icon: Scale },
-    { id: 'docs', ar: 'مركز المستندات', icon: Stamp },
+    { id: 'acct', ar: 'المالية والمحاسبة', icon: Scale },
+    { id: 'docs', ar: 'المستندات والأرشيف', icon: Stamp },
     { id: 'archive', ar: 'أرشيف المستندات', icon: ImageIcon },
     { id: 'entities', ar: 'مركز المنشآت', icon: Building2 },
-    { id: 'admin', ar: 'الفروع والمستخدمون', icon: UserCog },
+    { id: 'admin', ar: 'الإعدادات والمستخدمون', icon: UserCog },
     { id: 'audit', ar: 'سجل التدقيق', icon: Eye }
   ].filter(n => n.id === 'home' || ((roleTabsMe.includes(n.id) || grantTabsMe.includes(n.id)) && !denyDedMe.has(n.id)));
+  // v31.5: الأقسام المدمجة لا تتكرر في القائمة الجانبية ما دام قسمها الأم ظاهرًا (تبقى مسموحة ويُوصل إليها من داخله)
+  const NAV_PARENT = { alerts: 'analytics', approve: 'closing', shifts: 'closing', treasury: 'acct', entities: 'acct', archive: 'docs' };
+  const NAV_SHOW = NAV.filter(n => !(NAV_PARENT[n.id] && NAV.some(m => m.id === NAV_PARENT[n.id])));
 
   const shared = { org, ops, pulse, me, myBranches, scoped, commit, commitOrg, say, setTab, theme, acctIntent, openAcctView, invIntent, openInvView };
 
@@ -3307,7 +3312,7 @@ function PlatformApp() {
             </button>
           </div>
           <div className="nav-lbl">التشغيل اليومي</div>
-          {NAV.map(n => (
+          {NAV_SHOW.map(n => (
             <button key={n.id} className={'nav-i' + (tab === n.id ? ' on' : '')}
               onClick={() => { setTab(n.id); setDrawer(false); }}>
               <n.icon size={16} />{n.ar}
@@ -3350,7 +3355,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v31.3 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v31.5 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -3506,27 +3511,22 @@ function PlatformApp() {
           <div className="page">
             <div className="page-inner">
               {safeTab === 'home' && <Launcher {...shared} online={online} />}
-              {['analytics', 'exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai'].includes(safeTab) && <Hub hubId="analytics" {...shared} online={online} view={safeTab} />}
-              {safeTab === 'alerts' && <AlertsCenter {...shared} />}
+              {['analytics', 'exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'alerts'].includes(safeTab) && <Hub hubId="analytics" {...shared} online={online} view={safeTab} />}
               {['reporting', 'reports', 'rbuild', 'boardpack', 'cashflow'].includes(safeTab) && <Hub hubId="reporting" {...shared} view={safeTab} />}
               {safeTab === 'sales' && <SalesHub {...shared} />}
-              {safeTab === 'closing' && <Closing {...shared} />}
+              {['closing', 'approve', 'shifts'].includes(safeTab) && <Hub hubId="closehub" {...shared} view={safeTab} />}
               {['hrops', 'attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'esign'].includes(safeTab) && <Hub hubId="hrops" {...shared} view={safeTab} />}
               {['hrperf', 'kpi', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'].includes(safeTab) && <Hub hubId="hrperf" {...shared} view={safeTab} />}
               {safeTab === 'qrfb' && <QrFeedback {...shared} />}
               {safeTab === 'apps' && <AppsCenter {...shared} />}
-              {safeTab === 'approve' && <Approvals {...shared} />}
-              {safeTab === 'treasury' && <Treasury {...shared} />}
+
               {['people', 'hrmaster', 'hrpolicy', 'payroll', 'workforce'].includes(safeTab) && <Hub hubId="people" {...shared} view={safeTab} />}
-              {safeTab === 'shifts' && <Shifts {...shared} />}
               {['purchasing', 'suppliers', 'reorder'].includes(safeTab) && <Hub hubId="purchasing" {...shared} view={safeTab} />}
               {safeTab === 'inv' && <Inventory {...shared} />}
               {safeTab === 'whbranch' && <BranchWarehouse {...shared} />}
               {safeTab === 'partners' && <Partners {...shared} />}
-              {safeTab === 'acct' && <Accounting {...shared} />}
-              {safeTab === 'docs' && <DocsCenter {...shared} />}
-              {safeTab === 'archive' && <Archive {...shared} />}
-              {safeTab === 'entities' && <EntitiesCenter {...shared} />}
+              {['acct', 'treasury', 'entities'].includes(safeTab) && <Hub hubId="finhub" {...shared} view={safeTab} />}
+              {['docs', 'archive'].includes(safeTab) && <Hub hubId="docshub" {...shared} view={safeTab} />}
               {safeTab === 'admin' && <Admin {...shared} />}
               {safeTab === 'audit' && <AuditView {...shared} onSeen={() => setLastSeenAudit(Date.now())} />}
             </div>
@@ -3585,7 +3585,7 @@ function PlatformApp() {
               </div>
             </div>
             <div className="iconsgrid">
-              {NAV.map(n => (
+              {NAV_SHOW.map(n => (
                 <button key={n.id} className={'icontile' + (tab === n.id ? ' on' : '')}
                   onClick={() => { setTab(n.id); setMoreSheet(false); }}>
                   <div className="icontile-i"><n.icon size={22} />
@@ -6689,7 +6689,8 @@ const HUBS = {
       { id: 'breakeven', ar: 'تحليل التعادل', icon: Scale, comp: BreakEven },
       { id: 'scorecard', ar: 'لوحة الأهداف', icon: CheckCircle2, comp: Scorecard },
       { id: 'scenario', ar: 'ماذا-لو', icon: Compass, comp: Scenario },
-      { id: 'ai', ar: 'المركز الذكي', icon: Sparkles, comp: AiCenter }
+      { id: 'ai', ar: 'المركز الذكي', icon: Sparkles, comp: AiCenter },
+      { id: 'alerts', ar: 'التنبيهات', icon: Bell, comp: AlertsCenter }
     ]
   },
   reporting: {
@@ -6728,6 +6729,30 @@ const HUBS = {
       { id: 'esign', ar: 'التوقيع الإلكتروني', icon: Signature, comp: ESign }
     ]
   },
+  // v31.5 — دمج المتشابهات: أيقونة واحدة وأقسامها داخلها
+  closehub: {
+    ar: 'الإغلاق اليومي والاعتماد', desc: 'إدخال الإغلاق ← التدقيق والاعتماد ← المواعيد والتذكيرات', icon: ClipboardCheck,
+    views: [
+      { id: 'closing', ar: 'الإغلاق اليومي', icon: ClipboardCheck, comp: Closing },
+      { id: 'approve', ar: 'التدقيق والاعتماد', icon: ShieldCheck, comp: Approvals },
+      { id: 'shifts', ar: 'المواعيد والتذكيرات', icon: Clock, comp: Shifts }
+    ]
+  },
+  finhub: {
+    ar: 'المالية والمحاسبة', desc: 'القيود والقوائم والتسويات ← الخزينة والترحيل ← المنشآت', icon: Scale,
+    views: [
+      { id: 'acct', ar: 'المحاسبة', icon: Scale, comp: Accounting },
+      { id: 'treasury', ar: 'الخزينة والترحيل', icon: Landmark, comp: Treasury },
+      { id: 'entities', ar: 'المنشآت', icon: Building2, comp: EntitiesCenter }
+    ]
+  },
+  docshub: {
+    ar: 'المستندات والأرشيف', desc: 'المستندات الرسمية والصادرة ← أرشيف الصور والمرفقات', icon: Stamp,
+    views: [
+      { id: 'docs', ar: 'مركز المستندات', icon: Stamp, comp: DocsCenter },
+      { id: 'archive', ar: 'الأرشيف', icon: ImageIcon, comp: Archive }
+    ]
+  },
   hrperf: {
     ar: 'الأداء والانضباط', desc: 'التقييم ومؤشرات الدور والحوافز والإجراءات التصحيحية والتدريب وتجميد الأداء ولوحة HR', icon: TrendingUp,
     views: [
@@ -6745,8 +6770,9 @@ function Hub({ hubId, view, ...rest }) {
   const me = rest.me;
   const cfg = HUBS[hubId] || { ar: '', desc: '', icon: Compass, views: [] };
   const rt = ROLES[me.role]?.tabs || [];
-  const full = ROLES[me.role]?.scope === 'all';
-  const views = cfg.views.filter(v => full || rt.includes(v.id));
+  const full = ROLES[me.role]?.scope === 'all' && !ROLES[me.role]?.limitedApps;   // v31.5: الأدوار المحدودة (المحاسب) ترى أقسام دورها فقط داخل المراكز المدمجة
+  const granted = (me.appAllow || []).map(id => (LAUNCH_IX[id] || {}).open).filter(Boolean).map(o => o.tab);
+  const views = cfg.views.filter(v => full || rt.includes(v.id) || granted.includes(v.id));
   const remembered = (appUseGet(me.id).hubView || {})[hubId];
   const cur = (views.find(v => v.id === view) || views.find(v => v.id === remembered) || views[0] || {}).id;
   const go = (id) => { const u = appUseGet(me.id); u.hubView = { ...(u.hubView || {}), [hubId]: id }; appUseSet(me.id, u); rest.setTab(id); };
@@ -18083,7 +18109,8 @@ function Launcher({ org, ops, me, setTab, openAcctView, openInvView }) {
   useEffect(() => () => endDrag(), [endDrag]);        // تنظيف عند مغادرة الشاشة
 
   // التطبيقات المُجمّعة (LAUNCH_APPS): كل تطبيق يضمّ أقسامه المتشابهة — بترتيب المستخدم المخصّص إن وُجد
-  const mine = LAUNCH_APPS.filter(a => appCanSee(me, a)).sort((a, b) => orderRank(a.id) - orderRank(b.id));
+  // v31.5: التطبيقات المدمجة في غيرها لا تظهر مستقلة (إلا إن لم يُتح للمستخدم تطبيقها الأم)
+  const mine = LAUNCH_APPS.filter(a => appCanSee(me, a) && !(a.hideOnHome && LAUNCH_IX[a.hideOnHome] && appCanSee(me, LAUNCH_IX[a.hideOnHome]))).sort((a, b) => orderRank(a.id) - orderRank(b.id));
   mineIdsRef.current = mine.map(a => a.id);
   const norm = (s) => (s || '').replace(/[أإآ]/g, 'ا');
   const qq = norm(q.trim());
