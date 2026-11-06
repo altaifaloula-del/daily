@@ -223,10 +223,11 @@ function corruptErr(key, why) {
 
 async function fsRead(f, key) {
   const snap = await f.getDoc(f.doc(f.db, COL, docId(key)));
-  if (!snap.exists()) return undefined;
+  if (!snap.exists()) { loadedStamp.delete(key); return undefined; }
   const d = snap.data();
   const v = await fsAssemble(f, key, d);
-  const st = stampOf(d); if (v !== undefined && st) loadedStamp.set(key, st); else loadedStamp.delete(key);
+  // v29.5: البصمة تُحفظ لكل مستند موجود (حتى الفارغ) — عليها تعتمد الكتابة المشروطة
+  const st = stampOf(d); if (st) loadedStamp.set(key, st); else loadedStamp.delete(key);
   return v;
 }
 
@@ -257,19 +258,42 @@ async function fsWrite(f, key, val) {
   if (parts > MAX_PARTS) { const e = new Error('doc-too-large: ' + key); e.code = 'doc-too-large'; throw e; }
   const headRef = f.doc(f.db, COL, docId(key));
   const head = { parts, updatedAt: Date.now(), value: parts === 1 ? s : '' };
-  if (parts === 1) { await f.setDoc(headRef, head); return true; }
+  if (parts === 1) { await f.setDoc(headRef, head); loadedStamp.set(key, stampOf(head)); return true; }
   if (parts <= BATCH_MAX_PARTS && f.writeBatch) {
     // الأجزاء والرأس معًا: إما أن تُكتب كلها أو لا يُكتب شيء — لا رأس قديم مع أجزاء جديدة
     const batch = f.writeBatch(f.db);
     chunks.forEach((chunk, i) => batch.set(f.doc(f.db, COL, docId(key) + '__' + i), { chunk }));
     batch.set(headRef, head);
     await batch.commit();
+    loadedStamp.set(key, stampOf(head));
     return true;
   }
   for (let i = 0; i < parts; i++) {
     await f.setDoc(f.doc(f.db, COL, docId(key) + '__' + i), { chunk: chunks[i] });
   }
   await f.setDoc(headRef, head);
+  loadedStamp.set(key, stampOf(head));
+  return true;
+}
+
+/* v29.5 — كتابة مشروطة (compare-and-set) داخل معاملة Firestore:
+   تُكتب القيمة فقط إن كان رأس المستند ما زال على النسخة التي قرأناها آخر مرة (updatedAt|parts).
+   وإلا تُرفض بـ conflict فيعيد المنادي القراءة والتعديل على الأحدث — لا يمحو أحدٌ تعديل غيره. */
+async function fsWriteIf(f, key, val, expected) {
+  const s = JSON.stringify(val);
+  const chunks = splitUtf8(s);
+  const parts = chunks.length;
+  if (parts > MAX_PARTS) { const e = new Error('doc-too-large: ' + key); e.code = 'doc-too-large'; throw e; }
+  const headRef = f.doc(f.db, COL, docId(key));
+  const head = { parts, updatedAt: Date.now(), value: parts === 1 ? s : '' };
+  await f.runTransaction(f.db, async (tx) => {
+    const cur = await tx.get(headRef);
+    const curStamp = cur.exists() ? stampOf(cur.data()) : null;
+    if ((curStamp || null) !== (expected || null)) { const e = new Error('conflict: ' + key); e.code = 'conflict'; throw e; }
+    if (parts > 1) chunks.forEach((chunk, i) => tx.set(f.doc(f.db, COL, docId(key) + '__' + i), { chunk }));
+    tx.set(headRef, head);
+  });
+  loadedStamp.set(key, stampOf(head));
   return true;
 }
 
@@ -392,6 +416,21 @@ export const cloud = {
       }, (e) => console.warn('انقطع الاستماع اللحظي:', e));
     });
     return () => { dead = true; if (stop) stop(); };
+  },
+
+  /** v29.5: كتابة مشروطة — تنجح فقط إن لم يكتب أحد على المستند منذ آخر قراءة له (get/tryGet/subscribe).
+   *  تعيد 'ok' أو 'conflict' (عدّل غيرك المستند — أعد القراءة والتعديل) أو 'fail'. بلا Firestore: كتابة عادية. */
+  async setIfUnchanged(key, val) {
+    const f = await firestore();
+    if (!f) return (await this.set(key, val)) ? 'ok' : 'fail';
+    if (failedReads.has(key)) { cloud.lastError = { key, op: 'set', code: 'read-failed', at: Date.now() }; return 'fail'; }
+    try { await fsWriteIf(f, key, val, loadedStamp.get(key) || null); local.set(key, val); return 'ok'; }
+    catch (e) {
+      if (e && e.code === 'conflict') return 'conflict';
+      cloud.lastError = { key, op: 'set', code: String((e && e.code) || ''), at: Date.now() };
+      console.warn('كتابة Firestore المشروطة فشلت:', e);
+      return 'fail';
+    }
   },
 
   /** v28.1: هل فشلت آخر قراءة سحابية لهذا المفتاح؟ (الكتابة عليه مرفوضة حتى تنجح قراءة) */

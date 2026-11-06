@@ -233,6 +233,24 @@ const periodLocked = (org, dateStr) => {
   const lt = lockedThru(org);
   return !!lt && !!(dateStr || '') && (dateStr || '').slice(0, 7) <= lt;
 };
+/* v29.5 — حارس مركزي للإقفال: بصمة قيود الأشهر المقفلة قبل الحفظ وبعده. أي اختلاف (من أي شاشة أو إعداد:
+   تعديل إغلاق، ربط بنك فرع، تغيير تصنيف، قيد يدوي…) يُرفض — كما في أي نظام محاسبي. الحد = الأدنى بين القفل قبل وبعد،
+   فإجراء الفتح الموثّق نفسه (الذي يخفّض القفل) لا يُمنع. */
+function lockedLedgerSig(org, ops, lt) {
+  try {
+    return buildAccounting(org || {}, ops || {}).entries
+      .filter(e => e.date && String(e.date).slice(0, 7) <= lt)
+      .map(e => e.id + '|' + e.date + '|' + e.lines.map(l => l.code + ':' + (Math.round((l.debit || 0) * 100)) + ':' + (Math.round((l.credit || 0) * 100))).join(','))
+      .sort().join('\n');
+  } catch (e) { console.warn('lockedLedgerSig', e); return null; }
+}
+function lockedLedgerChanged(orgA, opsA, orgB, opsB) {
+  const a = lockedThru(orgA), b = lockedThru(orgB);
+  if (!a || !b) return false;
+  const lt = a < b ? a : b;
+  const x = lockedLedgerSig(orgA, opsA, lt), y = lockedLedgerSig(orgB, opsB, lt);
+  return x !== null && y !== null && x !== y;
+}
 const LOCK_MSG = (d) => 'شهر ' + (d || '').slice(0, 7) + ' مقفل محاسبيًا 🔒 — الفتح الاستثنائي من المحاسبة ← الإقفال';
 
 /* ============================================================
@@ -1905,7 +1923,9 @@ export default function App() {
 
 function PlatformApp() {
   const [org, setOrg] = useState(null);
+  const orgNow = useRef(null); orgNow.current = org;   // v29.5: للحارس المركزي للإقفال داخل writeOps
   const [ops, setOps] = useState({ closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [] });
+  const opsNow = useRef(null); opsNow.current = ops;   // v29.5: للحارس المركزي للإقفال داخل commitOrg
   const [pulse, setPulse] = useState({ presence: {}, audit: [] });
   const [me, setMe] = useState(null);
   const [tab, setTab] = useState('home');
@@ -2396,6 +2416,8 @@ function PlatformApp() {
     const single = !(ROLES[me.role] || {}).admin;
     const beat = async () => {
       if (typeof document !== 'undefined' && document.hidden) return;
+      // v29.5: النبضة تُكتب مشروطة — إن أضاف أحدٌ قيد تدقيق بعد قراءتنا نعيد على الأحدث بدل محوه
+      for (let tryN = 0; tryN < 3; tryN++) {
       const pu = await cloud.get(KEYS.pulse, { presence: {}, audit: [] });
       if (single && claimRef.current.done) {
         const lg = (pu.logins || {})[me.id];
@@ -2411,8 +2433,11 @@ function PlatformApp() {
         next.logins[me.id] = { sid: bsid.current, at: claimRef.current.at, name: me.name };
         claimRef.current.done = true;
       }
-      await cloud.set(KEYS.pulse, next);
-      setPulse(next);
+      const r = await cloud.setIfUnchanged(KEYS.pulse, next);
+      if (r === 'conflict') continue;
+      if (r === 'ok') setPulse(next);
+      return;
+      }
     };
     beat();
     const t = setInterval(beat, 60000);
@@ -2435,7 +2460,7 @@ function PlatformApp() {
   const writeOps = useCallback(async (mutator) => {
     const ctx = dataCtx.current;
     lastWriteErr.current = '';
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 5; attempt++) {
       // أحدث نسخة لكل مستند ضمن نطاقي
       const core = ctx.central ? ((await cloud.get(KEYS.core, null)) || {}) : null;
       const brMap = {};
@@ -2447,6 +2472,8 @@ function PlatformApp() {
       }
       const latest = composeOps(core, brMap);
       const next = mutator(JSON.parse(JSON.stringify(latest)));
+      // v29.5: الحارس المركزي — لا تعديل لقيود شهر مقفل مهما كانت الشاشة
+      if (orgNow.current && lockedLedgerChanged(orgNow.current, latest, orgNow.current, next)) { lastWriteErr.current = 'locked'; return false; }
       // v27.1: على مسار الفرع لا يُكتب المستند المركزي — أي سجل جديد بلا فرع أو لفرع خارج نطاقي كان يضيع بصمت
       // (يظهر محليًا ثم يختفي بعد إعادة التحميل). نرفضه صراحةً.
       if (!ctx.central) {
@@ -2462,9 +2489,11 @@ function PlatformApp() {
         if (!sameDoc(coreOut, core)) {
           const rv = ((core || {}).rev || 0) + 1;
           const doc = { ...coreOut, rev: rv, wtag: uid('w') };   // v27.2: وسم كاتب لكشف التصادم
-          const ok = await cloud.set(KEYS.core, doc);
-          if (!ok) { allOk = false; }
-          else { const chk = await cloud.get(KEYS.core, null); if (!wroteMine(chk, doc)) conflict = true; else wroteCoreDoc = doc; }
+          // v29.5: كتابة مشروطة — تُرفض إن عدّل غيري المستند بعد قراءتي، فنعيد على الأحدث (لا يُمحى تعديله)
+          const r = await cloud.setIfUnchanged(KEYS.core, doc);
+          if (r === 'conflict') conflict = true;
+          else if (r !== 'ok') { allOk = false; }
+          else wroteCoreDoc = doc;
         }
       }
       // مستندات الفروع المتغيرة فقط
@@ -2472,12 +2501,13 @@ function PlatformApp() {
         if (!sameDoc(brOut[b], brMap[b])) {
           const rv = ((brMap[b] || {}).rev || 0) + 1;
           const doc = { ...brOut[b], rev: rv, wtag: uid('w') };   // v27.2: وسم كاتب لكشف التصادم
-          const ok = await cloud.set(brKey(b), doc);
-          if (!ok) { allOk = false; if (String((cloud.lastError || {}).code || '').toLowerCase().includes('permission')) { lastWriteErr.current = 'denied'; return false; } }
-          else { const chk = await cloud.get(brKey(b), null); if (!wroteMine(chk, doc)) conflict = true; else wroteBrDocs[b] = doc; }
+          const r = await cloud.setIfUnchanged(brKey(b), doc);   // v29.5: كتابة مشروطة
+          if (r === 'conflict') conflict = true;
+          else if (r !== 'ok') { allOk = false; if (String((cloud.lastError || {}).code || '').toLowerCase().includes('permission')) { lastWriteErr.current = 'denied'; return false; } }
+          else wroteBrDocs[b] = doc;
         }
       }
-      if (!allOk) { if (attempt === 2) { lastWriteErr.current = lastWriteErr.current || 'net'; return false; } continue; }
+      if (!allOk) { if (attempt >= 2) { lastWriteErr.current = lastWriteErr.current || 'net'; return false; } continue; }
       if (conflict) continue;   // كتب آخر بنفس اللحظة — نعيد على الأحدث
       // v15.28: نجاح — ما كتبناه (وما قرأناه للتو قبله) هو الحالة الكاملة بين أيدينا؛
       // لا حاجة لإعادة قراءة كل المستندات من السحابة (كانت تكلف قراءة لكل فرع بعد كل حفظ).
@@ -2489,6 +2519,19 @@ function PlatformApp() {
     return false;
   }, []);
 
+  // v29.5: إضافة قيد لسجل التدقيق بكتابة مشروطة — كانت نبضات الحضور (كل دقيقة من كل جهاز) تكتب مستند النبض كاملًا
+  // فتمحو أي قيد تدقيق أُضيف بين قراءتها وكتابتها
+  const appendAudit = useCallback(async (entry) => {
+    for (let i = 0; i < 4; i++) {
+      const pu = (await cloud.get(KEYS.pulse, { presence: {}, audit: [] })) || { presence: {}, audit: [] };
+      const nx = { ...pu, audit: [entry, ...(pu.audit || [])].slice(0, 150) };
+      const r = await cloud.setIfUnchanged(KEYS.pulse, nx);
+      if (r === 'ok') { setPulse(nx); return true; }
+      if (r === 'fail') return false;
+    }
+    return false;
+  }, []);
+
   const commit = useCallback(async (mutator, log) => {
     // v15.12: البوابة المركزية — ترفض أي حفظ حسّاس (log.need) لا يملك المستخدم صلاحيته، مهما كان مصدر النداء.
     if (log?.need && !capOK(me?.role, log.need)) { say('لا تملك صلاحية هذا الإجراء — تواصل مع مدير النظام', 'no'); return false; }
@@ -2496,47 +2539,44 @@ function PlatformApp() {
     if (!ok) {
       // v27.1: رسالة تُسمّي السبب — رفض صلاحيات الخادم (عضوية الحساب لا تحمل فرعه) يختلف تمامًا عن انقطاع الشبكة
       const k = lastWriteErr.current;
-      if (k === 'denied') say('رفض الخادم حفظ بيانات فرعك (صلاحيات، لا اتصال): عضوية حسابك على الخادم لا تحمل هذا الفرع — اطلب من مسؤول النظام «مزامنة صلاحيات الأعضاء» من الفروع والمستخدمين ثم أعد الدخول', 'no');
+      if (k === 'locked') say('لم يُحفظ: هذا التعديل يغيّر قيودًا في شهر مقفل محاسبيًا 🔒 — الفتح الاستثنائي من المحاسبة ← الإقفال', 'no');
+      else if (k === 'denied') say('رفض الخادم حفظ بيانات فرعك (صلاحيات، لا اتصال): عضوية حسابك على الخادم لا تحمل هذا الفرع — اطلب من مسؤول النظام «مزامنة صلاحيات الأعضاء» من الفروع والمستخدمين ثم أعد الدخول', 'no');
       else if (k === 'scope') say('لم يُحفظ: السجل يخص فرعًا خارج نطاق حسابك (أو بلا فرع) — راجع إعداد فرع حسابك', 'no');
       else if (String((cloud.lastError || {}).code) === 'read-failed') say('لم يُحفظ: تعذّرت قراءة النسخة الحالية من السحابة (قد تكون تالفة)، فلم يُكتب شيء حمايةً للبيانات — أعد تحميل الصفحة، وإن تكرر تواصل مع المطوّر', 'no');
       else say('تعذّر الحفظ السحابي بعد عدة محاولات — تحقق من الاتصال وأعد المحاولة', 'no');
       return false;
     }
-    if (log && me) {
-      const pu = (await cloud.get(KEYS.pulse, { presence: {}, audit: [] })) || { presence: {}, audit: [] };
-      const entry = {
-        id: uid('lg'), timestamp: nowISO(), at: Date.now(), userName: me.name, userRole: me.role,
-        userRoleLabel: (ROLES[me.role] || {}).ar || me.role, ...log
-      };
-      const nx = { ...pu, audit: [entry, ...(pu.audit || [])].slice(0, 150) };
-      await cloud.set(KEYS.pulse, nx);
-      setPulse(nx);
-    }
+    if (log && me) await appendAudit({
+      id: uid('lg'), timestamp: nowISO(), at: Date.now(), userName: me.name, userRole: me.role,
+      userRoleLabel: (ROLES[me.role] || {}).ar || me.role, ...log
+    });
     setLastSync(new Date());
     return true;
-  }, [writeOps, me, say]);
+  }, [writeOps, me, say, appendAudit]);
 
   const commitOrg = useCallback(async (mutator, log) => {
     // v15.12: البوابة المركزية — نفس الحارس على كتابات الإعدادات/المنشأة.
     if (log?.need && !capOK(me?.role, log.need)) { say('لا تملك صلاحية هذا الإجراء — تواصل مع مدير النظام', 'no'); return false; }
-    const latest = (await cloud.get(KEYS.org, null)) || org;
-    const next = mutator(JSON.parse(JSON.stringify(latest)));
-    const ok = await cloud.set(KEYS.org, next);
-    if (!ok) { say('تعذّر حفظ الإعدادات سحابياً — أعد المحاولة', 'no'); return false; }
+    // v29.5: كتابة مشروطة مع إعادة المحاولة — لا يمحو حفظُ إعدادات تعديلَ مستخدم آخر في اللحظة نفسها
+    let next = null, saved = false;
+    for (let attempt = 0; attempt < 5 && !saved; attempt++) {
+      const latest = (await cloud.get(KEYS.org, null)) || org;
+      next = mutator(JSON.parse(JSON.stringify(latest)));
+      // الحارس المركزي للإقفال: إعداد يغيّر قيود شهر مقفل (ربط بنك، تصنيف، تطبيق…) يُرفض
+      if (lockedLedgerChanged(latest, opsNow.current, next, opsNow.current)) { say('لم يُحفظ: هذا التعديل يغيّر قيودًا في شهر مقفل محاسبيًا 🔒 — الفتح الاستثنائي من المحاسبة ← الإقفال', 'no'); return false; }
+      const r = await cloud.setIfUnchanged(KEYS.org, next);
+      if (r === 'ok') saved = true;
+      else if (r === 'fail') break;
+    }
+    if (!saved) { say('تعذّر حفظ الإعدادات سحابياً — أعد المحاولة', 'no'); return false; }
     // v9: كل تعديل للمنشأة يجدّد الدليل العام المنزوع الأسرار الذي تقرؤه أجهزة الفروع
     try { await cloud.set(KEYS.dir, dirOf(next)); } catch { }
     snap.current.org = JSON.stringify(next);
     setOrg(next);
-    if (log && me) {
-      const pu = (await cloud.get(KEYS.pulse, { presence: {}, audit: [] })) || { presence: {}, audit: [] };
-      const entry = { id: uid('lg'), timestamp: nowISO(), at: Date.now(), userName: me.name, userRole: me.role, userRoleLabel: (ROLES[me.role] || {}).ar || me.role, ...log };
-      const nx = { ...pu, audit: [entry, ...(pu.audit || [])].slice(0, 150) };
-      await cloud.set(KEYS.pulse, nx);
-      setPulse(nx);
-    }
+    if (log && me) await appendAudit({ id: uid('lg'), timestamp: nowISO(), at: Date.now(), userName: me.name, userRole: me.role, userRoleLabel: (ROLES[me.role] || {}).ar || me.role, ...log });
     setLastSync(new Date());
     return true;
-  }, [org, me, say]);
+  }, [org, me, say, appendAudit]);
 
   // v28.1: تفريغ المنصة لمسؤول النظام فقط، بتأكيد مكتوب، ويبقى سجل التدقيق ويُقيَّد فيه الحدث
   const resetAll = useCallback(async () => {
@@ -2764,7 +2804,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v29.4 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v29.5 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (

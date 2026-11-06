@@ -25,7 +25,8 @@ const GHOST = 'ghost@test.com';      // موثّق بلا عضوية
 const CENTRAL = 'central@test.com';  // عضو مركزي scope:'all' (محاسب/إدارة مالية)
 const BR_A = 'cashiera@test.com';    // كاشير الفرع A فقط
 const BR_B = 'cashierb@test.com';    // كاشير الفرع B فقط
-const REGIONAL = 'regional@test.com'; // مدير إقليمي مُسنَد للفرع A فقط (ضمن branchIds)
+const REGIONAL = 'regional@test.com';
+const VIEWER = 'viewer@test.com';     // محاسب للعرض فقط (accountant_view) // مدير إقليمي مُسنَد للفرع A فقط (ضمن branchIds)
 
 const db = (ctx) => ctx.firestore();
 const owner = () => env.authenticatedContext('u-owner', { email: OWNER }).firestore();
@@ -36,6 +37,7 @@ const central = () => env.authenticatedContext('u-central', { email: CENTRAL }).
 const brA = () => env.authenticatedContext('u-brA', { email: BR_A }).firestore();
 const brB = () => env.authenticatedContext('u-brB', { email: BR_B }).firestore();
 const regional = () => env.authenticatedContext('u-regional', { email: REGIONAL }).firestore();
+const viewer = () => env.authenticatedContext('u-viewer', { email: VIEWER }).firestore();
 const noEmail = () => env.authenticatedContext('u-anonlike').firestore(); // مصادق بلا بريد ≈ مجهول
 const visitor = () => env.unauthenticatedContext().firestore();
 
@@ -53,6 +55,7 @@ before(async () => {
     await setDoc(doc(d, 'members', CENTRAL), { email: CENTRAL, active: true, scope: 'all', role: 'accountant' });
     await setDoc(doc(d, 'members', BR_A), { email: BR_A, active: true, scope: 'branch', branchId: 'b-AAA', branchIds: [], role: 'cashier' });
     await setDoc(doc(d, 'members', BR_B), { email: BR_B, active: true, scope: 'branch', branchId: 'b-BBB', branchIds: [], role: 'cashier' });
+    await setDoc(doc(d, 'members', VIEWER), { email: VIEWER, active: true, scope: 'all', role: 'accountant_view' });
     await setDoc(doc(d, 'members', REGIONAL), { email: REGIONAL, active: true, scope: 'branch', branchId: '', branchIds: ['b-AAA'], role: 'regional_manager' });
     await setDoc(doc(d, 'platform', 'rms8_ops'), { value: '{}', parts: 1 });
     await setDoc(doc(d, 'platform', 'rms8_org'), { value: '{}', parts: 1 });
@@ -289,4 +292,18 @@ test('v28.1: المدير الموقوف يفقد صلاحياته رغم بقا
   await assertFails(setDoc(doc(ex, 'members', EX), { email: EX, active: true, scope: 'all' }));
   await assertFails(getDoc(doc(ex, 'platform', 'rms8_org')));
   await assertSucceeds(setDoc(doc(owner(), 'members', 'new2@test.com'), { email: 'new2@test.com', active: true }));
+});
+
+/* ===== v29.5 — أدوار العرض فقط ===== */
+test('v29.5: المحاسب للعرض فقط يقرأ كل شيء ولا يكتب إلا النبض', async () => {
+  await assertSucceeds(getDoc(doc(viewer(), 'platform', 'rms8_core')));
+  await assertSucceeds(getDoc(doc(viewer(), 'platform', 'rms8_br_b-AAA')));
+  await assertFails(setDoc(doc(viewer(), 'platform', 'rms8_core'), { value: '{"x":1}', parts: 1, updatedAt: 1 }));
+  await assertFails(setDoc(doc(viewer(), 'platform', 'rms8_br_b-AAA'), { value: '{"x":1}', parts: 1, updatedAt: 1 }));
+  await assertFails(setDoc(doc(viewer(), 'platform', 'rms8_core__0'), { chunk: 'x' }));
+  await assertSucceeds(setDoc(doc(viewer(), 'platform', 'rms8_pulse'), { value: '{"presence":{}}', parts: 1, updatedAt: 1 }));
+  await assertFails(setDoc(doc(viewer(), 'qr_branches', 'b-AAA'), { name: 'x', company: 'y', active: true }));
+  await assertFails(updateDoc(doc(viewer(), 'qr_feedback', 'fb-A'), { status: 'resolved' }));
+  // المحاسب الكامل ما زال يكتب
+  await assertSucceeds(setDoc(doc(central(), 'platform', 'rms8_core'), { value: '{"y":2}', parts: 1, updatedAt: 2 }));
 });
