@@ -149,6 +149,7 @@ function buildNotifEvents(org, ops, me, myBranches) {
         if (myWh.includes(t.fromWh) && t.kind === 'b2b' && (t.status === 'sent' || t.status === 'rejected'))
           push('inv:out:' + t.id + ':' + t.status, 'inv', t.status === 'sent' ? 'اعتمد المركز تحويلك إلى ' + whName(org, t.toWh) : 'رُفض تحويلك إلى ' + whName(org, t.toWh), t.rejectNote || linesTxt(t), 'whbranch');
       });
+      (countSchedule(org, ops) || []).forEach(x => { if (myWh.includes(x.w.id) && (x.st === 'over' || x.st === 'due')) push('inv:cnt:' + x.w.id + ':' + x.due, 'inv', (x.st === 'over' ? 'جرد دوري متأخر — ' : 'جرد دوري مستحق اليوم — ') + x.w.name, 'آخر جرد: ' + (x.last || 'لا يوجد') + ' · الموعد ' + x.due, 'whbranch'); });
       {
         const SB = stockByWh(org, ops);
         myWh.forEach(w => (org.items || []).forEach(it => { const mn = Number(it.minQty) || 0; const q = ((SB.byWh[w] || {})[it.id]) || 0;
@@ -363,7 +364,9 @@ const BR_COLS = ['closings', 'transfers', 'partnerRequests', 'notifications', 'b
   // v31.1 — مبيعات المنتجات (الكميات) لكل فرع وفترة — أساس الاستهلاك النظري
   'productSales',
   // v31.2 — طلبات الإجازات (يرفعها الفرع ويعتمدها المركز)
-  'leaveRequests'];
+  'leaveRequests',
+  // v31.4 — سجل جلسات الجرد (حتى المطابقة بلا فروقات) — أساس الجرد الدوري المجدول
+  'stockCounts'];
 const CORE_COLS = ['salesInvoices', 'advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules', 'hrScoreSnapshots'];
 
 // تقسيم ops المدمجة إلى مستند مركزي + مستند لكل فرع
@@ -729,6 +732,29 @@ function siVerify(list) {
 const siPaid = (x) => Math.round((x.receipts || []).reduce((a, r) => a + (Number(r.amount) || 0), 0) * 100) / 100;
 const siCredited = (ops, x) => Math.round((ops.salesInvoices || []).filter(c => c.kind === 'credit' && c.refId === x.id).reduce((a, c) => a + (Number(c.total) || 0), 0) * 100) / 100;
 const siRem = (ops, x) => x.kind === 'credit' || x.terms !== 'credit' ? 0 : Math.max(0, Math.round((x.total - siPaid(x) - siCredited(ops, x)) * 100) / 100);
+
+/* v31.4 — الجرد الدوري المجدول: لكل مستودع موعد جرد حسب التكرار، وآخر جرد من سجل الجلسات أو تسويات الجرد */
+const COUNT_FREQ = { weekly: { ar: 'أسبوعي', d: 7 }, biweekly: { ar: 'كل أسبوعين', d: 14 }, monthly: { ar: 'شهري', d: 30 } };
+function countSchedule(org, ops) {
+  const c = org.countCfg || {}; if (!c.freq || !COUNT_FREQ[c.freq]) return null;
+  const whs = whOn(org) ? whOf(org) : [{ id: MAIN_WH, name: 'المخزون', kind: 'main' }];
+  const td = today();
+  return whs.map(w => {
+    const fromLog = (ops.stockCounts || []).filter(x => (x.whId || MAIN_WH) === w.id).map(x => x.date);
+    const fromAdj = [...(ops.stockMoves || []).filter(m => (m.whId || MAIN_WH) === w.id), ...(ops.whMoves || []).filter(m => m.whId === w.id)].filter(m => m.kind === 'adjust').map(m => m.date);
+    const last = [...fromLog, ...fromAdj].filter(Boolean).sort().slice(-1)[0] || '';
+    const base = last || c.since || td;
+    const due = isoD(new Date(Date.parse(base + 'T12:00:00') + COUNT_FREQ[c.freq].d * 86400000));
+    const st = !last && !c.since ? 'due' : due < td ? 'over' : due === td ? 'due' : (Date.parse(due) - Date.parse(td)) / 86400000 <= 2 ? 'soon' : 'ok';
+    return { w, last, due, st };
+  });
+}
+// أصناف الجرد الدوري: الكل أو الأعلى قيمة في المستودع (افتراضي 15)
+function countFocus(org, ops, whId) {
+  const c = org.countCfg || {}; if (c.scope !== 'top') return null;
+  const SB = stockByWh(org, ops); const AVG = itemAvgCosts(org, ops); const bal = (whOn(org) ? SB.byWh[whId] : SB.total) || {};
+  return new Set((org.items || []).filter(isStocked).map(it => ({ id: it.id, v: Math.max(0, bal[it.id] || 0) * (AVG[it.id] || 0) })).sort((a, b) => b.v - a.v).slice(0, Number(c.top) || 15).filter(x => x.v > 0).map(x => x.id));
+}
 
 /* v31.2 — الإجازات وفق نظام العمل السعودي
    السنوية: 21 يومًا وتصبح 30 بعد 5 سنوات خدمة (م109) — تُستحق يوميًا بالتناسب. المرضية (م117): أول 30 يومًا بأجر كامل، ثم 60 بثلاثة أرباع، ثم 30 بلا أجر خلال السنة.
@@ -2186,22 +2212,22 @@ const REG_IX = {}; REG_APPS.forEach(a => { REG_IX[a.id] = a; });
 // v9.3 — تطبيقات الشاشة الرئيسية مُجمّعة (كل تطبيق يضمّ أقسامه المتشابهة، بنمط أودو)
 // المحاسبة تطبيق واحد بثمانية أقسام، الموردون بثلاثة، المخزون بأربعة… (تطابق النموذج المعتمد)
 const LAUNCH_APPS = [
-  { id: 'analytics', ar: 'مركز التحليل والأداء', en: 'Analytics & Performance', cat: 'bi', icon: Compass, open: { tab: 'analytics' },
+  { id: 'analytics', tabs: ['analytics', 'alerts'], ar: 'التحليل والتنبيهات', en: 'Analytics & Alerts', cat: 'bi', icon: Compass, open: { tab: 'analytics' },
     sections: ['اللوحة التنفيذية', 'لوحة المؤشرات', 'مقارنة الفروع', 'تحليلات النمو', 'تحليل التعادل', 'لوحة الأهداف', 'ماذا-لو', 'المركز الذكي'], kw: ['تحليل', 'أداء', 'لوحة', 'تنفيذية', 'مؤشرات', 'مقارنة', 'فروع', 'نمو', 'تعادل', 'أهداف', 'سيناريو', 'ماذا لو', 'ذكاء', 'توقع', 'kpi'] },
-  { id: 'alerts', ar: 'مركز التنبيهات', en: 'Alerts', cat: 'bi', icon: Bell, open: { tab: 'alerts' },
+  { id: 'alerts', hideOnHome: 'analytics', ar: 'مركز التنبيهات', en: 'Alerts', cat: 'bi', icon: Bell, open: { tab: 'alerts' },
     sections: ['موردون', 'موازنة', 'نقد وسيولة', 'مخزون', 'ضريبة', 'تشغيل', 'إعداد'], kw: ['تنبيه', 'تنبيهات', 'إنذار', 'متأخر', 'تجاوز', 'عجز', 'متابعة', 'إجراء'] },
-  { id: 'acct', ar: 'المحاسبة', en: 'Accounting', cat: 'fin', icon: Scale, open: { tab: 'acct' },
+  { id: 'acct', tabs: ['acct', 'treasury', 'entities'], ar: 'المالية والمحاسبة', en: 'Finance & Accounting', cat: 'fin', icon: Scale, open: { tab: 'acct' },
     sections: ['القيود اليومية', 'دليل الحسابات', 'ميزان المراجعة', 'القوائم المالية', 'مراكز التكلفة', 'الأصول والإهلاك', 'التسوية البنكية', 'الإقفال الشهري'],
     kw: ['قيد', 'يومية', 'حساب', 'ميزان', 'قائمة', 'دخل', 'مركز مالي', 'مراكز تكلفة', 'أصل', 'إهلاك', 'بنك', 'تسوية', 'إقفال', 'قفل', 'محاسبة'] },
-  { id: 'treasury', ar: 'الخزينة والترحيل', en: 'Treasury', cat: 'fin', icon: Landmark, open: { tab: 'treasury' },
+  { id: 'treasury', hideOnHome: 'acct', ar: 'الخزينة والترحيل', en: 'Treasury', cat: 'fin', icon: Landmark, open: { tab: 'treasury' },
     sections: ['التحويلات الواردة', 'حركة الخزينة'], kw: ['خزينة', 'تحويل', 'ترحيل', 'نقد', 'بنك'] },
   { id: 'reporting', ar: 'مركز التقارير', en: 'Reports Center', cat: 'fin', icon: FileBarChart, open: { tab: 'reporting' },
     sections: ['التقارير المالية', 'منشئ التقارير', 'تقرير الإدارة الشهري', 'التدفق النقدي (13 أسبوعًا)'], kw: ['تقرير', 'تقارير', 'طباعة', 'تصدير', 'منشئ', 'قالب', 'إدارة', 'شهري', 'حزمة', 'تدفق', 'نقدي', 'سيولة', 'مالية'] },
-  { id: 'entities', ar: 'مركز المنشآت', en: 'Entities', cat: 'fin', icon: Building2, open: { tab: 'entities' },
+  { id: 'entities', hideOnHome: 'acct', ar: 'مركز المنشآت', en: 'Entities', cat: 'fin', icon: Building2, open: { tab: 'entities' },
     sections: ['النظرة الموحّدة', 'إدارة المنشآت', 'إسناد الفروع'], kw: ['منشأة', 'منشآت', 'شركة', 'شركات', 'كيان', 'موحّد', 'مجموعة', 'رقم ضريبي', 'تعدد'] },
-  { id: 'closing', ar: 'الإغلاق اليومي', en: 'Daily Closing', cat: 'pos', icon: ClipboardCheck, open: { tab: 'closing' },
+  { id: 'closing', tabs: ['closing', 'approve', 'shifts'], ar: 'الإغلاق اليومي والاعتماد', en: 'Daily Closing & Approvals', cat: 'pos', icon: ClipboardCheck, open: { tab: 'closing' },
     sections: ['تسجيل إغلاق اليوم', 'سجل الإغلاقات'], kw: ['اغلاق', 'إغلاق', 'وردية', 'مبيعات', 'صندوق', 'كاشير', 'نقطة بيع', 'نقاط البيع'] },
-  { id: 'shifts', ar: 'مواعيد الإغلاق والتذكيرات', en: 'Closing Deadlines', cat: 'pos', icon: Clock, open: { tab: 'shifts' },
+  { id: 'shifts', hideOnHome: 'closing', ar: 'مواعيد الإغلاق والتذكيرات', en: 'Closing Deadlines', cat: 'pos', icon: Clock, open: { tab: 'shifts' },
     sections: ['مواعيد الإغلاق', 'التذكيرات', 'المتأخرون'], kw: ['إغلاق', 'موعد', 'تذكير', 'تأخر', 'مراقبة'] },
   { id: 'hrops', ar: 'الموارد البشرية — التشغيل', en: 'HR Operations', cat: 'hr', icon: Fingerprint, open: { tab: 'hrops' },
     sections: ['الحضور الموثَّق', 'محرّك الورديات', 'المهام', 'دفتر النقاط', 'التوقيع الإلكتروني'], kw: ['حضور', 'انصراف', 'وردية', 'مهام', 'نقاط', 'توقيع', 'pin', 'كيوسك', 'موظف'] },
@@ -2213,11 +2239,11 @@ const LAUNCH_APPS = [
     sections: ['الأرصدة', 'الوارد', 'طلب من الرئيسي', 'صرف وهدر', 'الجرد'], kw: ['مستودع', 'فرع', 'تحويل', 'استلام', 'طلب', 'هدر', 'جرد'] },
   { id: 'sales', ar: 'المبيعات', en: 'Sales', cat: 'pos', icon: CircleDollarSign, open: { tab: 'sales' },
     sections: ['حسب القناة', 'حسب الفرع', 'حسب التطبيق'], kw: ['مبيعات', 'نقاط البيع', 'نقطة بيع', 'قناة', 'نقد', 'شبكة', 'توصيل', 'تحليل'] },
-  { id: 'approve', ar: 'التدقيق والاعتماد', en: 'Approvals', cat: 'pos', icon: ShieldCheck, open: { tab: 'approve' },
+  { id: 'approve', hideOnHome: 'closing', ar: 'التدقيق والاعتماد', en: 'Approvals', cat: 'pos', icon: ShieldCheck, open: { tab: 'approve' },
     kw: ['تدقيق', 'اعتماد', 'مراجعة'] },
-  { id: 'brmgmt', ar: 'الفروع والمستخدمون', en: 'Branches & Users', cat: 'pos', icon: UserCog, open: { tab: 'admin' },
+  { id: 'brmgmt', ar: 'الإعدادات والمستخدمون', en: 'Settings & Users', cat: 'gov', icon: UserCog, open: { tab: 'admin' },
     sections: ['الفروع', 'المستخدمون والصلاحيات', 'بنود المصروف', 'تطبيقات التوصيل', 'ظهور التطبيقات'], kw: ['فرع', 'مستخدم', 'صلاحية', 'إعداد', 'مستخدمون'] },
-  { id: 'purchasing', ar: 'المشتريات والموردون', en: 'Purchasing & Suppliers', cat: 'pur', icon: Truck, open: { tab: 'purchasing' },
+  { id: 'purchasing', ar: 'المشتريات', en: 'Purchasing & Suppliers', cat: 'pur', icon: Truck, open: { tab: 'purchasing' },
     sections: ['الموردون والمشتريات', 'الفواتير والالتزامات', 'سجل الموردين', 'أوامر الشراء', 'المشتريات الذكية', 'إعادة الطلب'], kw: ['مورد', 'موردون', 'فاتورة', 'التزام', 'أمر شراء', 'دفع', 'مشتريات', 'شراء', 'إعادة طلب', 'نفاد', 'حد أدنى', 'مخزون', 'reorder'] },
   { id: 'partners', ar: 'جهات الاتصال', en: 'Contacts', cat: 'pur', icon: Users, open: { tab: 'partners' },
     kw: ['جهات الاتصال', 'اتصال', 'شريك', 'شركاء', 'دفتر', 'موردون', 'عملاء'] },
@@ -2227,13 +2253,13 @@ const LAUNCH_APPS = [
     sections: ['احتساب الضريبة', 'الإقرار الضريبي'], kw: ['ضريبة', 'قيمة مضافة', 'زاتكا', 'مدخلات', 'مخرجات', 'إقرار'] },
   { id: 'inv', ar: 'المخزون والمنتجات', en: 'Inventory', cat: 'inv2', icon: HardDrive, open: { tab: 'inv' },
     sections: ['الأصناف', 'الحركات', 'الجرد', 'المنتجات والوصفات'], kw: ['مخزون', 'صنف', 'جرد', 'منتج', 'وصفة', 'مستودع', 'هدر'] },
-  { id: 'docs', ar: 'مركز المستندات', en: 'Documents', cat: 'gov', icon: Stamp, open: { tab: 'docs' },
+  { id: 'docs', tabs: ['docs', 'archive'], ar: 'المستندات والأرشيف', en: 'Documents & Archive', cat: 'gov', icon: Stamp, open: { tab: 'docs' },
     sections: ['السجل التجاري', 'الشهادات والرخص', 'العقود والتأمين', 'تنبيهات الانتهاء'], kw: ['وثيقة', 'مستند', 'سجل تجاري', 'رخصة', 'شهادة', 'ضريبة', 'زكاة', 'عقد', 'انتهاء', 'صلاحية', 'تجديد'] },
-  { id: 'archive', ar: 'أرشيف المستندات', en: 'Archive', cat: 'gov', icon: ImageIcon, open: { tab: 'archive' },
+  { id: 'archive', hideOnHome: 'docs', ar: 'أرشيف المستندات', en: 'Archive', cat: 'gov', icon: ImageIcon, open: { tab: 'archive' },
     kw: ['أرشيف', 'صورة', 'إيصال', 'مرفق'] },
   { id: 'audit', ar: 'سجل التدقيق', en: 'Audit Log', cat: 'gov', icon: Eye, open: { tab: 'audit' },
     kw: ['سجل', 'تدقيق', 'نشاط', 'إجراء'] },
-  { id: 'backup', ar: 'النسخ الاحتياطي', en: 'Backup', cat: 'gov', icon: Download, open: { tab: 'admin' },
+  { id: 'backup', hideOnHome: 'brmgmt', ar: 'النسخ الاحتياطي', en: 'Backup', cat: 'gov', icon: Download, open: { tab: 'admin' },
     kw: ['نسخة', 'احتياطي', 'استعادة', 'لقطة', 'حماية'] },
 ];
 const LAUNCH_IX = {}; LAUNCH_APPS.forEach(a => { LAUNCH_IX[a.id] = a; });
@@ -2251,9 +2277,9 @@ const ACCT_SECTIONS = [
 ];
 const acctSecKey = (v) => 'acctsec:' + v;
 const ACCT_SEC_AR = {}; ACCT_SECTIONS.forEach(s => { ACCT_SEC_AR[s.v] = s.ar; });
-// ترتيب عرض مقصود (لا عشوائي) — تدفّق منطقي: التشغيل اليومي ← المالية ← المشتريات ←
-// المخزون ← الموارد البشرية ← الضريبة ← الحوكمة ← الذكاء (متجاورة لونيًا وموضوعيًا، بنمط أودو)
-const LAUNCH_ORDER = ['analytics', 'reporting', 'people', 'alerts', 'closing', 'sales', 'qrfb', 'approve', 'acct', 'treasury', 'purchasing', 'partners', 'inv', 'vat', 'brmgmt', 'entities', 'docs', 'backup', 'audit', 'archive'];
+// v31.5 — ترتيب حسب دورة العمل: التشغيل اليومي (الإغلاق والمبيعات) ← المخزون والمشتريات وجهات الاتصال ←
+// المالية والضريبة والتقارير والتحليل ← الموارد البشرية ← المستندات والإعدادات والتدقيق. المدمجة في غيرها في الآخر (لا تظهر مستقلة)
+const LAUNCH_ORDER = ['closing', 'sales', 'qrfb', 'whbranch', 'inv', 'purchasing', 'partners', 'acct', 'vat', 'reporting', 'analytics', 'hrops', 'people', 'hrperf', 'docs', 'brmgmt', 'audit', 'approve', 'shifts', 'alerts', 'treasury', 'entities', 'archive', 'backup'];
 const launchRank = (id) => { const i = LAUNCH_ORDER.indexOf(id); return i < 0 ? 999 : i; };
 /* v8.5 — لقطات احتياطية يومية محلية (IndexedDB) على أجهزة الإدارة:
    حماية إضافية ضد التلف أو الحذف الخاطئ — والنسخة الملفية تبقى الحماية الخارجية */
@@ -2299,7 +2325,7 @@ const appCanSee = (meOrRole, a) => {
     if ((meOrRole.appDeny || []).includes(a.id)) return false;   // مُخفى يدويًا لهذا المستخدم
     if ((meOrRole.appAllow || []).includes(a.id)) return true;   // مُضاف يدويًا فوق دوره
   }
-  return (R.tabs || []).includes(a.open.tab);              // الأساس: صلاحيات دور المستخدم
+  return (a.tabs || [a.open.tab]).some(t => (R.tabs || []).includes(t));   // الأساس: صلاحيات الدور (v31.5: التطبيق المدمج يظهر إن سُمح بأي من أقسامه)
 };
 const appOpenNow = (a, me, setTab, openAcctView, openInvView) => {
   if (a.soon) return false;
@@ -2310,7 +2336,9 @@ const appOpenNow = (a, me, setTab, openAcctView, openInvView) => {
     if (a.open.tab === 'acct' && openAcctView) openAcctView(a.open.view);
     if (a.open.tab === 'inv' && openInvView) openInvView(a.open.view);
   }
-  setTab(a.open.tab);
+  // v31.5: التطبيق المدمج يفتح على أول قسم مسموح للمستخدم
+  const rt = (ROLES[me.role] || {}).tabs || [];
+  setTab(a.tabs && !rt.includes(a.open.tab) ? (a.tabs.find(t => rt.includes(t)) || a.open.tab) : a.open.tab);
   return true;
 };
 
@@ -2347,7 +2375,7 @@ function emptyOrg(company) {
 }
 
 function emptyOps() {
-  return { leaveRequests: [], productSales: [], salesInvoices: [], closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
+  return { stockCounts: [], leaveRequests: [], productSales: [], salesInvoices: [], closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
     attendanceEvents: [], hrPins: [], shiftTemplates: [], shiftAssignments: [], shiftSwapRequests: [], branchTransferRequests: [], taskTemplates: [], taskAssignments: [], taskCompletions: [], pointsEntries: [], qualityReviews: [], rewardRequests: [], hrSignDocs: [], hrCorrective: [], hrPips: [], hrTraining: [], hrKpiEntries: [], hrScoreSnapshots: [] };
 }
 
@@ -3116,6 +3144,11 @@ function PlatformApp() {
     if (cfg.sound) alertBeep();
   }, [org, ops, me, myBranches, openInvView]);
 
+  // v31.3 — التحقق بخطوتين: حالة المستخدم وسياسة الإلزام (v31.5: قبل أي return شرطي — كان بعده فيتغيّر عدد الـhooks عند انتهاء التحميل فتظهر شاشة سوداء)
+  const [mfaS, setMfaS] = useState(null); const [mfaPol, setMfaPol] = useState(null); const [mfaOpen, setMfaOpen] = useState(false);
+  const mfaReload = useCallback(async () => { if (!authApi.enabled) return; const [i, p] = await Promise.all([authApi.mfaInfo().catch(() => null), authApi.getPolicy().catch(() => null)]); setMfaS(i); setMfaPol(p); }, []);
+  useEffect(() => { if (me && authApi.enabled) mfaReload(); }, [me && me.id, mfaReload]);
+
   if (boot === 'error') {
     return (
       <div className="rms" style={{ display: 'grid', placeItems: 'center', minHeight: '100vh', padding: 24 }}>
@@ -3142,10 +3175,6 @@ function PlatformApp() {
     );
   }
 
-  // v31.3 — التحقق بخطوتين: حالة المستخدم وسياسة الإلزام
-  const [mfaS, setMfaS] = useState(null); const [mfaPol, setMfaPol] = useState(null); const [mfaOpen, setMfaOpen] = useState(false);
-  const mfaReload = useCallback(async () => { if (!authApi.enabled) return; const [i, p] = await Promise.all([authApi.mfaInfo().catch(() => null), authApi.getPolicy().catch(() => null)]); setMfaS(i); setMfaPol(p); }, []);
-  useEffect(() => { if (me && authApi.enabled) mfaReload(); }, [me && me.id, mfaReload]);
   const mfaNeed = !!(me && mfaPol && ((mfaPol.admins && (ROLES[me.role] || {}).admin) || (mfaPol.roles || []).includes(me.role)));
 
   // مصادقة سحابية مفعّلة ولا جلسة: بوابة الدخول الحقيقية قبل تحميل أي بيانات
@@ -3206,11 +3235,11 @@ function PlatformApp() {
   })();
   const NAV = [
     { id: 'home', ar: 'الرئيسية', icon: Home },
-    { id: 'analytics', ar: 'مركز التحليل والأداء', icon: Compass },
+    { id: 'analytics', ar: 'التحليل والتنبيهات', icon: Compass },
     { id: 'alerts', ar: 'مركز التنبيهات', icon: Bell },
     { id: 'reporting', ar: 'مركز التقارير', icon: FileBarChart },
     { id: 'sales', ar: 'المبيعات', icon: CircleDollarSign },
-    { id: 'closing', ar: 'الإغلاق اليومي', icon: ClipboardCheck },
+    { id: 'closing', ar: 'الإغلاق اليومي والاعتماد', icon: ClipboardCheck, cnt: pending },
     { id: 'shifts', ar: 'مواعيد الإغلاق والتذكيرات', icon: Clock },
     { id: 'hrops', ar: 'الموارد البشرية — التشغيل', icon: Fingerprint },
     { id: 'hrperf', ar: 'الأداء والانضباط', icon: TrendingUp },
@@ -3223,13 +3252,16 @@ function PlatformApp() {
     { id: 'inv', ar: 'المخزون والمنتجات', icon: HardDrive },
     { id: 'whbranch', ar: 'مستودع الفرع', icon: Truck },
     { id: 'partners', ar: 'جهات الاتصال', icon: Users },
-    { id: 'acct', ar: 'المحاسبة', icon: Scale },
-    { id: 'docs', ar: 'مركز المستندات', icon: Stamp },
+    { id: 'acct', ar: 'المالية والمحاسبة', icon: Scale },
+    { id: 'docs', ar: 'المستندات والأرشيف', icon: Stamp },
     { id: 'archive', ar: 'أرشيف المستندات', icon: ImageIcon },
     { id: 'entities', ar: 'مركز المنشآت', icon: Building2 },
-    { id: 'admin', ar: 'الفروع والمستخدمون', icon: UserCog },
+    { id: 'admin', ar: 'الإعدادات والمستخدمون', icon: UserCog },
     { id: 'audit', ar: 'سجل التدقيق', icon: Eye }
   ].filter(n => n.id === 'home' || ((roleTabsMe.includes(n.id) || grantTabsMe.includes(n.id)) && !denyDedMe.has(n.id)));
+  // v31.5: الأقسام المدمجة لا تتكرر في القائمة الجانبية ما دام قسمها الأم ظاهرًا (تبقى مسموحة ويُوصل إليها من داخله)
+  const NAV_PARENT = { alerts: 'analytics', approve: 'closing', shifts: 'closing', treasury: 'acct', entities: 'acct', archive: 'docs' };
+  const NAV_SHOW = NAV.filter(n => !(NAV_PARENT[n.id] && NAV.some(m => m.id === NAV_PARENT[n.id])));
 
   const shared = { org, ops, pulse, me, myBranches, scoped, commit, commitOrg, say, setTab, theme, acctIntent, openAcctView, invIntent, openInvView };
 
@@ -3281,7 +3313,7 @@ function PlatformApp() {
             </button>
           </div>
           <div className="nav-lbl">التشغيل اليومي</div>
-          {NAV.map(n => (
+          {NAV_SHOW.map(n => (
             <button key={n.id} className={'nav-i' + (tab === n.id ? ' on' : '')}
               onClick={() => { setTab(n.id); setDrawer(false); }}>
               <n.icon size={16} />{n.ar}
@@ -3324,7 +3356,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v31.3 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v31.5 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -3480,27 +3512,22 @@ function PlatformApp() {
           <div className="page">
             <div className="page-inner">
               {safeTab === 'home' && <Launcher {...shared} online={online} />}
-              {['analytics', 'exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai'].includes(safeTab) && <Hub hubId="analytics" {...shared} online={online} view={safeTab} />}
-              {safeTab === 'alerts' && <AlertsCenter {...shared} />}
+              {['analytics', 'exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'alerts'].includes(safeTab) && <Hub hubId="analytics" {...shared} online={online} view={safeTab} />}
               {['reporting', 'reports', 'rbuild', 'boardpack', 'cashflow'].includes(safeTab) && <Hub hubId="reporting" {...shared} view={safeTab} />}
               {safeTab === 'sales' && <SalesHub {...shared} />}
-              {safeTab === 'closing' && <Closing {...shared} />}
+              {['closing', 'approve', 'shifts'].includes(safeTab) && <Hub hubId="closehub" {...shared} view={safeTab} />}
               {['hrops', 'attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'esign'].includes(safeTab) && <Hub hubId="hrops" {...shared} view={safeTab} />}
               {['hrperf', 'kpi', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'].includes(safeTab) && <Hub hubId="hrperf" {...shared} view={safeTab} />}
               {safeTab === 'qrfb' && <QrFeedback {...shared} />}
               {safeTab === 'apps' && <AppsCenter {...shared} />}
-              {safeTab === 'approve' && <Approvals {...shared} />}
-              {safeTab === 'treasury' && <Treasury {...shared} />}
+
               {['people', 'hrmaster', 'hrpolicy', 'payroll', 'workforce'].includes(safeTab) && <Hub hubId="people" {...shared} view={safeTab} />}
-              {safeTab === 'shifts' && <Shifts {...shared} />}
               {['purchasing', 'suppliers', 'reorder'].includes(safeTab) && <Hub hubId="purchasing" {...shared} view={safeTab} />}
               {safeTab === 'inv' && <Inventory {...shared} />}
               {safeTab === 'whbranch' && <BranchWarehouse {...shared} />}
               {safeTab === 'partners' && <Partners {...shared} />}
-              {safeTab === 'acct' && <Accounting {...shared} />}
-              {safeTab === 'docs' && <DocsCenter {...shared} />}
-              {safeTab === 'archive' && <Archive {...shared} />}
-              {safeTab === 'entities' && <EntitiesCenter {...shared} />}
+              {['acct', 'treasury', 'entities'].includes(safeTab) && <Hub hubId="finhub" {...shared} view={safeTab} />}
+              {['docs', 'archive'].includes(safeTab) && <Hub hubId="docshub" {...shared} view={safeTab} />}
               {safeTab === 'admin' && <Admin {...shared} />}
               {safeTab === 'audit' && <AuditView {...shared} onSeen={() => setLastSeenAudit(Date.now())} />}
             </div>
@@ -3559,7 +3586,7 @@ function PlatformApp() {
               </div>
             </div>
             <div className="iconsgrid">
-              {NAV.map(n => (
+              {NAV_SHOW.map(n => (
                 <button key={n.id} className={'icontile' + (tab === n.id ? ' on' : '')}
                   onClick={() => { setTab(n.id); setMoreSheet(false); }}>
                   <div className="icontile-i"><n.icon size={22} />
@@ -6663,7 +6690,8 @@ const HUBS = {
       { id: 'breakeven', ar: 'تحليل التعادل', icon: Scale, comp: BreakEven },
       { id: 'scorecard', ar: 'لوحة الأهداف', icon: CheckCircle2, comp: Scorecard },
       { id: 'scenario', ar: 'ماذا-لو', icon: Compass, comp: Scenario },
-      { id: 'ai', ar: 'المركز الذكي', icon: Sparkles, comp: AiCenter }
+      { id: 'ai', ar: 'المركز الذكي', icon: Sparkles, comp: AiCenter },
+      { id: 'alerts', ar: 'التنبيهات', icon: Bell, comp: AlertsCenter }
     ]
   },
   reporting: {
@@ -6702,6 +6730,30 @@ const HUBS = {
       { id: 'esign', ar: 'التوقيع الإلكتروني', icon: Signature, comp: ESign }
     ]
   },
+  // v31.5 — دمج المتشابهات: أيقونة واحدة وأقسامها داخلها
+  closehub: {
+    ar: 'الإغلاق اليومي والاعتماد', desc: 'إدخال الإغلاق ← التدقيق والاعتماد ← المواعيد والتذكيرات', icon: ClipboardCheck,
+    views: [
+      { id: 'closing', ar: 'الإغلاق اليومي', icon: ClipboardCheck, comp: Closing },
+      { id: 'approve', ar: 'التدقيق والاعتماد', icon: ShieldCheck, comp: Approvals },
+      { id: 'shifts', ar: 'المواعيد والتذكيرات', icon: Clock, comp: Shifts }
+    ]
+  },
+  finhub: {
+    ar: 'المالية والمحاسبة', desc: 'القيود والقوائم والتسويات ← الخزينة والترحيل ← المنشآت', icon: Scale,
+    views: [
+      { id: 'acct', ar: 'المحاسبة', icon: Scale, comp: Accounting },
+      { id: 'treasury', ar: 'الخزينة والترحيل', icon: Landmark, comp: Treasury },
+      { id: 'entities', ar: 'المنشآت', icon: Building2, comp: EntitiesCenter }
+    ]
+  },
+  docshub: {
+    ar: 'المستندات والأرشيف', desc: 'المستندات الرسمية والصادرة ← أرشيف الصور والمرفقات', icon: Stamp,
+    views: [
+      { id: 'docs', ar: 'مركز المستندات', icon: Stamp, comp: DocsCenter },
+      { id: 'archive', ar: 'الأرشيف', icon: ImageIcon, comp: Archive }
+    ]
+  },
   hrperf: {
     ar: 'الأداء والانضباط', desc: 'التقييم ومؤشرات الدور والحوافز والإجراءات التصحيحية والتدريب وتجميد الأداء ولوحة HR', icon: TrendingUp,
     views: [
@@ -6719,8 +6771,9 @@ function Hub({ hubId, view, ...rest }) {
   const me = rest.me;
   const cfg = HUBS[hubId] || { ar: '', desc: '', icon: Compass, views: [] };
   const rt = ROLES[me.role]?.tabs || [];
-  const full = ROLES[me.role]?.scope === 'all';
-  const views = cfg.views.filter(v => full || rt.includes(v.id));
+  const full = ROLES[me.role]?.scope === 'all' && !ROLES[me.role]?.limitedApps;   // v31.5: الأدوار المحدودة (المحاسب) ترى أقسام دورها فقط داخل المراكز المدمجة
+  const granted = (me.appAllow || []).map(id => (LAUNCH_IX[id] || {}).open).filter(Boolean).map(o => o.tab);
+  const views = cfg.views.filter(v => full || rt.includes(v.id) || granted.includes(v.id));
   const remembered = (appUseGet(me.id).hubView || {})[hubId];
   const cur = (views.find(v => v.id === view) || views.find(v => v.id === remembered) || views[0] || {}).id;
   const go = (id) => { const u = appUseGet(me.id); u.hubView = { ...(u.hubView || {}), [hubId]: id }; appUseSet(me.id, u); rest.setTab(id); };
@@ -16592,6 +16645,34 @@ function WhLines({ items, lines, setLines, field, max }) {
   );
 }
 
+/* v31.4 — بطاقة الجرد الدوري المجدول: التكرار والنطاق + حالة كل مستودع */
+function CountScheduleCard({ org, ops, me, commitOrg, say }) {
+  const c = org.countCfg || {}; const canSet = !!(ROLES[me?.role] || {}).scope && ROLES[me.role].scope === 'all' && rolePost(me.role);
+  const [f, setF] = useState(null);
+  const sch = countSchedule(org, ops);
+  const save = async () => {
+    const next = { freq: f.freq || '', scope: f.scope || 'all', top: Math.max(5, Number(f.top) || 15), since: today() };
+    const ok = await commitOrg(d => ({ ...d, countCfg: next }), { actionType: 'update', targetType: 'settings', targetId: 'countCfg', need: 'edit', title: next.freq ? 'جدولة الجرد الدوري' : 'إيقاف الجرد الدوري', details: next.freq ? COUNT_FREQ[next.freq].ar + ' · ' + (next.scope === 'top' ? 'أعلى ' + next.top + ' صنف قيمة' : 'كل الأصناف') : '' });
+    if (ok) { setF(null); say(next.freq ? 'جُدول الجرد الدوري ✓ — تصل الفروع تنبيهات بموعدها' : 'أُوقف الجرد الدوري'); }
+  };
+  const ST = { over: ['متأخر', 'b-rose'], due: ['مستحق اليوم', 'b-amber'], soon: ['قريب', 'b-sky'], ok: ['في موعده', 'b-mint'] };
+  return (
+    <div className="card">
+      <div className="card-h"><div className="card-t"><ClipboardCheck size={15} color="var(--brass)" />الجرد الدوري المجدول {sch ? <span className="badge b-mint" style={{ marginInlineStart: 8 }}>{COUNT_FREQ[c.freq].ar} · {c.scope === 'top' ? 'أعلى ' + (c.top || 15) + ' صنف قيمة' : 'كل الأصناف'}</span> : <span className="badge b-dim" style={{ marginInlineStart: 8 }}>غير مجدول</span>}</div>
+        {canSet && !f && <button className="btn sm" onClick={() => setF({ freq: c.freq || 'weekly', scope: c.scope || 'top', top: String(c.top || 15) })}>{sch ? 'تعديل' : 'جدولة'}</button>}</div>
+      {f && <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'end', marginBottom: 10 }}>
+        <Field label="التكرار" style={{ marginBottom: 0 }}><select className="sel" value={f.freq} onChange={e => setF(x => ({ ...x, freq: e.target.value }))}><option value="">موقوف</option>{Object.entries(COUNT_FREQ).map(([k, v]) => <option key={k} value={k}>{v.ar}</option>)}</select></Field>
+        <Field label="النطاق" style={{ marginBottom: 0 }}><select className="sel" value={f.scope} onChange={e => setF(x => ({ ...x, scope: e.target.value }))}><option value="top">الأصناف الأعلى قيمة</option><option value="all">كل الأصناف</option></select></Field>
+        {f.scope === 'top' && <Field label="عددها" style={{ width: 90, marginBottom: 0 }}><input className="inp n" inputMode="numeric" value={f.top} onChange={e => setF(x => ({ ...x, top: e.target.value.replace(/\D/g, '') }))} /></Field>}
+        <button className="btn pri" onClick={save}><Check size={14} />حفظ</button><button className="btn gh" onClick={() => setF(null)}>إلغاء</button>
+      </div>}
+      {sch ? <div className="tw"><table className="tb">
+        <thead><tr><th>المستودع</th><th>آخر جرد</th><th>الموعد التالي</th><th>الحالة</th></tr></thead>
+        <tbody>{sch.map(x => <tr key={x.w.id}><td style={{ fontSize: 12.5 }}>{x.w.name}</td><td className="num" style={{ fontSize: 11.5 }}>{x.last || '—'}</td><td className="num" style={{ fontSize: 11.5 }}>{x.due}</td><td><span className={'badge ' + ST[x.st][1]}>{ST[x.st][0]}</span></td></tr>)}</tbody>
+      </table></div> : <div className="note">جدولة الجرد ترسل للفروع تنبيهًا بموعد الجرد وتبرز الأصناف الأعلى قيمة لعدّها، فيُكتشف العجز مبكرًا بدل نهاية الشهر.</div>}
+    </div>);
+}
+
 function WarehousesPanel({ org, ops, me, commit, commitOrg, say }) {
   const items = (org.items || []).filter(isStocked);
   const whs = whOf(org);
@@ -16747,6 +16828,8 @@ function WarehousesPanel({ org, ops, me, commit, commitOrg, say }) {
           </tbody>
         </table></div>
       </div>
+
+      <CountScheduleCard org={org} ops={ops} me={me} commitOrg={commitOrg} say={say} />
 
       {LOTS.length > 0 && (() => { const td2 = today(), lim30 = isoD(new Date(Date.now() + 30 * 86400000)); const near = LOTS.filter(l => l.expiry <= lim30);
         return (
@@ -16907,10 +16990,13 @@ function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
     if (ok) { setMvF({ kind: mvF.kind, lines: [{ itemId: '', qty: '' }], note: '' }); say('سُجّلت الحركة ✓'); }
   };
   const approveCount = async () => {
+    const counted = items.filter(it => cnt[it.id] !== undefined && cnt[it.id] !== '').length;
+    if (!counted) return say('أدخل العدّ الفعلي لصنف واحد على الأقل', 'no');
     const diffs = items.map(it => { const a = cnt[it.id]; if (a === undefined || a === '') return null; const d = q3(Number(a) - qOf(it.id)); return Math.abs(d) > 0.0005 ? { it, d } : null; }).filter(Boolean);
-    if (!diffs.length) return say('لا فروقات — الأرصدة مطابقة للعدّ', 'no');
+    const logRec = { id: uid('sc'), whId: wh.id, branchId: wh.branchId, date: today(), counted, diffs: diffs.length, by: me.name, at: nowISO() };
+    if (!diffs.length) { const ok0 = await commit(d => ({ ...d, stockCounts: [logRec, ...(d.stockCounts || [])] }), { actionType: 'create', targetType: 'stocktake', targetId: logRec.id, branchName: whName(org, wh.id), title: 'جرد مطابق — ' + wh.name, details: counted + ' صنف بلا فروقات' }); if (ok0) { setCnt({}); say('سُجّل الجرد — مطابق بلا فروقات ✓'); } return; }
     const recs = diffs.map(x => ({ id: uid('wm'), whId: wh.id, branchId: wh.branchId, itemId: x.it.id, kind: 'adjust', qty: x.d, note: 'جرد ' + today() + (x.d < 0 ? ' — عجز' : ' — زيادة'), date: today(), by: me.name, at: nowISO() }));
-    const ok = await commit(d => ({ ...d, whMoves: [...recs, ...(d.whMoves || [])] }),
+    const ok = await commit(d => ({ ...d, whMoves: [...recs, ...(d.whMoves || [])], stockCounts: [logRec, ...(d.stockCounts || [])] }),
       { actionType: 'create', targetType: 'stocktake', targetId: 'whcount-' + wh.id + '-' + today(), branchName: whName(org, wh.id), title: 'اعتماد جرد ' + wh.name, details: diffs.map(x => x.it.name + ' (' + (x.d > 0 ? '+' : '') + x.d + ')').join('، ').slice(0, 160) });
     if (ok) { setCnt({}); say('اعتُمد الجرد ✓'); }
   };
@@ -17024,13 +17110,19 @@ function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
 
       {view === 'count' && (
         <div className="card">
+          {(() => { const sc = (countSchedule(org, ops) || []).find(x => x.w.id === wh.id); const fc = countFocus(org, ops, wh.id); return sc ? (
+            <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+              <span className={'badge ' + (sc.st === 'over' ? 'b-rose' : sc.st === 'due' ? 'b-amber' : 'b-dim')}>الجرد الدوري ({COUNT_FREQ[(org.countCfg || {}).freq].ar}): {sc.st === 'over' ? 'متأخر منذ ' + sc.due : sc.st === 'due' ? 'مستحق اليوم' : 'القادم ' + sc.due}</span>
+              <span className="badge b-dim">آخر جرد: {sc.last || '—'}</span>
+              {fc && <span className="badge b-brass">المطلوب: الأصناف المميّزة بـ ★ (الأعلى قيمة)</span>}
+            </div>) : null; })()}
           <div className="tw"><table className="tb">
             <thead><tr><th>الصنف</th><th style={{ textAlign: 'end' }}>الرصيد الدفتري</th><th style={{ width: 130 }}>العدّ الفعلي</th><th style={{ textAlign: 'end' }}>الفرق</th></tr></thead>
-            <tbody>{items.map(it => { const b = qOf(it.id), a = cnt[it.id]; const d = a === undefined || a === '' ? null : q3(Number(a) - b); return (
-              <tr key={it.id}><td>{it.name} <span style={{ fontSize: 10.5, color: 'var(--faint)' }}>{it.unit}</span></td>
+            <tbody>{(() => { const fc = countFocus(org, ops, wh.id); return (fc ? [...items].sort((x, y) => (fc.has(y.id) ? 1 : 0) - (fc.has(x.id) ? 1 : 0)) : items).map(it => { const b = qOf(it.id), a = cnt[it.id]; const d = a === undefined || a === '' ? null : q3(Number(a) - b); return (
+              <tr key={it.id}><td>{fc && fc.has(it.id) ? <span style={{ color: 'var(--brass)' }}>★ </span> : null}{it.name} <span style={{ fontSize: 10.5, color: 'var(--faint)' }}>{it.unit}</span></td>
                 <td className="num" style={{ textAlign: 'end' }}>{b}</td>
                 <td><input className="inp n" inputMode="decimal" value={a ?? ''} onChange={e => setCnt(c => ({ ...c, [it.id]: e.target.value }))} /></td>
-                <td className="num" style={{ textAlign: 'end', color: d == null ? 'var(--faint)' : d < 0 ? 'var(--rose)' : d > 0 ? 'var(--mint)' : undefined }}>{d == null ? '—' : (d > 0 ? '+' + d : d)}</td></tr>); })}
+                <td className="num" style={{ textAlign: 'end', color: d == null ? 'var(--faint)' : d < 0 ? 'var(--rose)' : d > 0 ? 'var(--mint)' : undefined }}>{d == null ? '—' : (d > 0 ? '+' + d : d)}</td></tr>); }); })()}
             </tbody></table></div>
           <button className="btn pri" style={{ marginTop: 10 }} onClick={approveCount}><Check size={14} />اعتماد الجرد وتسجيل الفروقات</button>
         </div>
@@ -17396,12 +17488,15 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
       const d = Math.round((Number(actual) - mainOf(it.id)) * 1000) / 1000;
       return Math.abs(d) > 0.0005 ? { it, d } : null;
     }).filter(Boolean);
-    if (!diffs.length) return say('لا فروقات — الأرصدة مطابقة للعدّ', 'no');
+    const counted = items.filter(isStocked).filter(it => countRows[it.id] !== undefined && countRows[it.id] !== '').length;
+    if (!counted) return say('أدخل العدّ الفعلي لصنف واحد على الأقل', 'no');
+    const logRec = { id: uid('sc'), whId: MAIN_WH, date: today(), counted, diffs: diffs.length, by: me.name, at: nowISO() };
+    if (!diffs.length) { await commit(d => ({ ...d, stockCounts: [logRec, ...(d.stockCounts || [])] }), { actionType: 'create', targetType: 'stocktake', targetId: logRec.id, title: 'جرد مطابق للمخزون', details: counted + ' صنف بلا فروقات' }); setCountRows({}); return say('سُجّل الجرد — مطابق بلا فروقات ✓'); }
     const recs = diffs.map(x => ({
       id: uid('sm'), date: today(), itemId: x.it.id, kind: 'adjust', qty: x.d,
       note: 'جرد ' + arDate(today()) + (x.d < 0 ? ' — عجز' : ' — زيادة'), by: me.name, at: nowISO()
     }));
-    await commit(d => ({ ...d, stockMoves: [...recs, ...(d.stockMoves || [])] }), {
+    await commit(d => ({ ...d, stockMoves: [...recs, ...(d.stockMoves || [])], stockCounts: [logRec, ...(d.stockCounts || [])] }), {
       actionType: 'create', targetType: 'stocktake', targetId: 'count-' + today(),
       title: 'اعتمد جردًا للمخزون', details: diffs.length + ' صنف بفروقات · ' + diffs.map(x => x.it.name + ' (' + (x.d > 0 ? '+' : '') + x.d + ')').join('، ').slice(0, 140)
     });
@@ -18015,7 +18110,8 @@ function Launcher({ org, ops, me, setTab, openAcctView, openInvView }) {
   useEffect(() => () => endDrag(), [endDrag]);        // تنظيف عند مغادرة الشاشة
 
   // التطبيقات المُجمّعة (LAUNCH_APPS): كل تطبيق يضمّ أقسامه المتشابهة — بترتيب المستخدم المخصّص إن وُجد
-  const mine = LAUNCH_APPS.filter(a => appCanSee(me, a)).sort((a, b) => orderRank(a.id) - orderRank(b.id));
+  // v31.5: التطبيقات المدمجة في غيرها لا تظهر مستقلة (إلا إن لم يُتح للمستخدم تطبيقها الأم)
+  const mine = LAUNCH_APPS.filter(a => appCanSee(me, a) && !(a.hideOnHome && LAUNCH_IX[a.hideOnHome] && appCanSee(me, LAUNCH_IX[a.hideOnHome]))).sort((a, b) => orderRank(a.id) - orderRank(b.id));
   mineIdsRef.current = mine.map(a => a.id);
   const norm = (s) => (s || '').replace(/[أإآ]/g, 'ا');
   const qq = norm(q.trim());
@@ -19194,6 +19290,52 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     res.diff = Math.round((res.sysTotal - res.bankTotal) * 100) / 100;
     setStMatch(res);
     setClsAmt(String(res.matchedTotal || ''));
+  };
+  // v31.4 — مطابقة شاملة: كل سطر في الكشف (إيداع/سحب) مقابل قيود هذا البنك بالمبلغ والتاريخ (±5 أيام)
+  const [fullM, setFullM] = useState(null);
+  const [fixAcc, setFixAcc] = useState({});
+  const stLines = () => {
+    const { grid, map } = stF; const out = [];
+    for (let r = map.start; r < grid.length; r++) { const g = grid[r] || []; const d = stDate(g[map.date]); if (!d) continue;
+      let a = 0; const cr = map.credit >= 0 ? stNum(g[map.credit]) : 0, dr = map.debit >= 0 ? stNum(g[map.debit]) : 0;
+      if (cr > 0) a = cr; else if (dr > 0) a = -dr; else if (map.amount >= 0) a = stNum(g[map.amount]);
+      if (!a) continue; out.push({ i: r, date: d, amount: Math.round(a * 100) / 100, desc: String(g[map.desc] ?? '').slice(0, 80) }); }
+    return out;
+  };
+  const stFull = () => {
+    if (!stF) return say('ارفع ملف كشف البنك أولاً', 'no');
+    const mStart = stMonth + '-01', mEnd = monthEnd(stMonth);
+    const bank = stLines().filter(x => x.date >= mStart && x.date <= mEnd).map(x => ({ ...x, used: false }));
+    const lo = stAddDays(mStart, -5), hi = stAddDays(mEnd, 5);
+    const book = A.entries.filter(e => (e.date || '') >= lo && (e.date || '') <= hi && e.lines.some(l => l.code === brAcc))
+      .map(e => ({ id: e.id, date: e.date, title: e.title, amount: Math.round(sum(e.lines.filter(l => l.code === brAcc), l => l.debit - l.credit) * 100) / 100, used: false }))
+      .filter(b => Math.abs(b.amount) > 0.004);
+    const dd = (a, b) => Math.abs((Date.parse(a + 'T12:00:00Z') - Date.parse(b + 'T12:00:00Z')) / 86400000);
+    const matched = [];
+    bank.forEach(x => { let best = null; book.forEach(b => { if (b.used || Math.abs(b.amount - x.amount) > 0.009 || dd(b.date, x.date) > 5) return; if (!best || dd(b.date, x.date) < dd(best.date, x.date)) best = b; });
+      if (best) { best.used = true; x.used = true; matched.push({ bank: x, book: best }); } });
+    const bankUn = bank.filter(x => !x.used), bookUn = book.filter(b => !b.used && b.date >= mStart && b.date <= mEnd);
+    const bookEnd = bankBookAt(mEnd);
+    const r2x = (n) => Math.round(n * 100) / 100;
+    // رصيد الكشف المتوقع = رصيد الدفتر + ما في الكشف ولم يُقيَّد − ما قُيِّد ولم يظهر في الكشف
+    const expStmt = r2x(bookEnd + sum(bankUn, x => x.amount) - sum(bookUn, b => b.amount));
+    setFullM({ month: stMonth, bank: bank.length, matched, bankUn, bookUn, bookEnd, expStmt });
+    const sug = {}; bankUn.forEach(x => { sug[x.i] = suggestAcc(x); }); setFixAcc(sug);
+  };
+  const accOpts = A.accounts.filter(a => a.code !== brAcc && !a.cash && a.kind !== 'equity');
+  const suggestAcc = (x) => { const t = String(x.desc || ''); const find = (re) => (A.accounts.find(a => re.test(a.name || '')) || {}).code;
+    if (/رسوم|عمولة|عمولات|fee|charge|commission/i.test(t)) return find(/رسوم بنك|عمولات بنك|مصاريف بنك/) || '5901';
+    if (/رواتب|salary|payroll|wps/i.test(t)) return '2201';
+    if (/زكاة|ضريبة|zatca|vat/i.test(t)) return x.amount < 0 ? '2301' : '';
+    return ''; };
+  const postFix = async (x) => {
+    const code = fixAcc[x.i]; if (!code) return say('اختر الحساب المقابل', 'no');
+    if (periodLocked(org, x.date)) return say(LOCK_MSG(x.date), 'no');
+    const a = Math.abs(x.amount);
+    const rec = { id: uid('jm'), date: x.date, title: 'من كشف ' + bankLabel(brAcc) + ': ' + (x.desc || (x.amount > 0 ? 'إيداع' : 'سحب')), opening: false, by: me?.name || '', createdAt: nowISO(), src: 'bank-stmt',
+      lines: x.amount > 0 ? [{ code: brAcc, debit: a, credit: 0 }, { code, debit: 0, credit: a }] : [{ code, debit: a, credit: 0 }, { code: brAcc, debit: 0, credit: a }] };
+    const ok = await commit(d => ({ ...d, journalManual: [rec, ...(d.journalManual || [])] }), { actionType: 'create', targetType: 'journal_entry', targetId: rec.id, need: 'post', title: 'قيد من كشف البنك', details: bankLabel(brAcc) + ' · ' + x.date + ' · ' + money(x.amount) + ' · ' + (x.desc || '') });
+    if (ok) { say('قُيّد ✓ — أعد المطابقة لتحديث الأرصدة'); setFullM(m => m ? { ...m, bankUn: m.bankUn.filter(y => y.i !== x.i), fixed: [...(m.fixed || []), x] } : m); }
   };
   const [clsAmt, setClsAmt] = useState('');
   const [clsDate, setClsDate] = useState(() => today());
@@ -21566,13 +21708,14 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
                   <button className="btn" onClick={() => document.getElementById('stfile').click()}><Download size={14} />رفع كشف البنك (Excel / CSV)</button>
                 </div>
                 {stF && <span className="badge b-dim" style={{ direction: 'ltr' }}>{stF.name}</span>}
-                {stF && <button className="btn pri" onClick={stRun}><Scale size={14} />طابِق الآن</button>}
+                {stF && <button className="btn pri" onClick={stRun}><Scale size={14} />مطابقة الشبكة</button>}
+                {stF && <button className="btn" onClick={stFull}><Scale size={14} />مطابقة شاملة لكل الحركات</button>}
               </div>
               {stF && !stF.auto && (
                 <div style={{ marginTop: 10, padding: 10, borderRadius: 10, border: '1px dashed var(--line-g)' }}>
                   <div className="lbl">لم أتعرّف على أعمدة الكشف تلقائيًا — حدّدها يدويًا (رقم العمود يبدأ من ١ يمينًا في الملف):</div>
                   <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-                    {[['date', 'عمود التاريخ'], ['credit', 'عمود الإيداع (دائن)'], ['amount', 'أو عمود المبلغ'], ['desc', 'عمود الوصف (اختياري)']].map(([k, lb]) => (
+                    {[['date', 'عمود التاريخ'], ['credit', 'عمود الإيداع (دائن)'], ['debit', 'عمود السحب (مدين)'], ['amount', 'أو عمود المبلغ'], ['desc', 'عمود الوصف (اختياري)']].map(([k, lb]) => (
                       <Field key={k} label={lb} style={{ width: 140, marginBottom: 0 }}>
                         <select className="sel" value={stF.map[k]} onChange={e => setStF(s => ({ ...s, map: { ...s.map, [k]: Number(e.target.value) } }))}>
                           <option value={-1}>—</option>
@@ -21584,6 +21727,33 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
                       <input className="inp n" inputMode="numeric" value={stF.map.start + 1} onChange={e => setStF(s => ({ ...s, map: { ...s.map, start: Math.max(0, (Number(e.target.value) || 1) - 1) } }))} />
                     </Field>
                   </div>
+                </div>
+              )}
+              {fullM && (
+                <div style={{ marginTop: 12 }}>
+                  <div className="grid g4" style={{ gap: 9 }}>
+                    <div className="mono-b"><span style={{ fontSize: 11 }}>حركات الكشف — {fullM.month}</span><span className="num">{fullM.bank}</span></div>
+                    <div className="mono-b"><span style={{ fontSize: 11 }}>تطابقت تلقائيًا</span><span className="num" style={{ color: 'var(--mint)' }}>{fullM.matched.length}</span></div>
+                    <div className="mono-b"><span style={{ fontSize: 11 }}>رصيد الدفتر آخر الشهر</span><span className="num">{money(fullM.bookEnd)}</span></div>
+                    <div className="mono-b"><span style={{ fontSize: 11 }}>رصيد الكشف المتوقع</span><span className="num" style={{ color: 'var(--brass)' }}>{money(fullM.expStmt)}</span></div>
+                  </div>
+                  <div className="note" style={{ marginTop: 6 }}>قارن «رصيد الكشف المتوقع» برصيد آخر يوم في كشفك: إن تساويا فالتسوية مكتملة. الفرق يعني سطرًا غير مقروء أو قيدًا بمبلغ مختلف.</div>
+                  {fullM.bankUn.length > 0 && <>
+                    <div className="lbl" style={{ marginTop: 10 }}>في الكشف وغير مقيّد في الدفاتر ({fullM.bankUn.length}) — قيّده بضغطة</div>
+                    <div className="tw"><table className="tb"><tbody>
+                      {fullM.bankUn.map(x => (
+                        <tr key={x.i}><td className="num" style={{ fontSize: 11.5 }}>{x.date}</td><td style={{ fontSize: 12 }}>{x.desc || '—'}</td>
+                          <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: x.amount < 0 ? 'var(--rose)' : 'var(--mint)' }}>{money(x.amount)}</td>
+                          <td><select className="sel" style={{ minWidth: 170 }} value={fixAcc[x.i] || ''} onChange={e => setFixAcc(f => ({ ...f, [x.i]: e.target.value }))}>
+                            <option value="">— الحساب المقابل —</option>{accOpts.map(a => <option key={a.code} value={a.code}>{a.code} · {a.name}</option>)}</select></td>
+                          <td><button className="btn sm pri" onClick={() => postFix(x)}>قيّد</button></td></tr>))}
+                    </tbody></table></div></>}
+                  {fullM.bookUn.length > 0 && <>
+                    <div className="lbl" style={{ marginTop: 10 }}>مقيّد في الدفاتر ولم يظهر في الكشف ({fullM.bookUn.length}) — شيكات معلّقة أو إيداعات في الطريق أو أخطاء</div>
+                    <div className="tw"><table className="tb"><tbody>
+                      {fullM.bookUn.map(b => <tr key={b.id}><td className="num" style={{ fontSize: 11.5 }}>{b.date}</td><td style={{ fontSize: 12 }}>{b.title}</td><td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{money(b.amount)}</td></tr>)}
+                    </tbody></table></div></>}
+                  {!fullM.bankUn.length && !fullM.bookUn.length && <div className="note" style={{ color: 'var(--mint)', marginTop: 8 }}>✓ كل حركات الكشف تطابقت مع الدفاتر.</div>}
                 </div>
               )}
               {stMatch && (
