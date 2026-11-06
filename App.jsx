@@ -699,14 +699,14 @@ function sha256Hex(str) {
   }
   return H.map(x => (x >>> 0).toString(16).padStart(8, '0')).join('');
 }
-const SI_SERIES = { invoice: 'INV', credit: 'CRN' };
+const SI_SERIES = { invoice: 'فاتورة', credit: 'إشعار' };
 // المحتوى المُبصَم: كل ما يغيّر أثر الفاتورة (التحصيلات خارجه لأنها تُضاف لاحقًا)
 const siCanon = (x) => JSON.stringify([x.no, x.kind, x.type, x.date, x.time || '', x.entityId || '', x.branchId || '', x.customerKey || '', (x.buyer || {}).name || '', (x.buyer || {}).vat || '',
   (x.lines || []).map(l => [l.desc, l.qty, l.price, l.vatRate, l.net, l.vat]), x.net, x.vat, x.total, x.terms, x.fund || '', x.refId || '', !!x.inClosing, x.icv, x.pih || '']);
 const siSorted = (list) => (list || []).slice().sort((a, b) => (a.icv || 0) - (b.icv || 0));
 // بناء سجل جديد داخل دالة الحفظ (على أحدث نسخة) — الرقم والعداد والبصمة تُحسب هنا فلا يتكرر رقم بين جهازين
 function siStamp(list, rec) {
-  const yr = String(rec.date || '').slice(0, 4), pre = SI_SERIES[rec.kind] || 'INV';
+  const yr = String(rec.date || '').slice(0, 4), pre = SI_SERIES[rec.kind] || 'فاتورة';
   const seq = 1 + (list || []).filter(x => x.kind === rec.kind && String(x.date || '').slice(0, 4) === yr).reduce((mx, x) => Math.max(mx, Number(x.seq) || 0), 0);
   const last = siSorted(list).slice(-1)[0];
   const out = { ...rec, seq, no: pre + '-' + yr + '-' + String(seq).padStart(5, '0'), icv: ((last && last.icv) || 0) + 1, pih: (last && last.hash) || '0' };
@@ -4513,7 +4513,6 @@ function printSalesInvoice(org, x, orig) {
     <div class="box" style="display:flex;justify-content:space-between;align-items:flex-start;gap:18px">
       <div style="line-height:1.9">
         <div style="font-size:15px;font-weight:800;color:#5a4a1e">${title}</div>
-        <div class="sub">${cr ? 'Credit Note' : (std ? 'Tax Invoice' : 'Simplified Tax Invoice')}</div>
         <div style="margin-top:8px"><b>البائع:</b> ${_xe(seller)} · الرقم الضريبي: ${_xe(svat || '—')}${scr ? ' · س.ت ' + _xe(scr) : ''}</div>
         ${sAddr ? '<div>العنوان: ' + _xe(sAddr) + '</div>' : ''}
         <div style="margin-top:6px">الرقم: <b>${_xe(x.no)}</b> · التاريخ: <span class="n">${x.date}${x.time ? ' ' + x.time : ''}</span>${x.terms === 'credit' && !cr ? ' · الاستحقاق: <span class="n">' + (x.dueDate || '') + '</span>' : ''}</div>
@@ -4530,7 +4529,7 @@ function printSalesInvoice(org, x, orig) {
         <tr class="tot"><td colspan="7">${cr ? 'إجمالي الإشعار' : 'الإجمالي شامل الضريبة'}</td><td class="n">${money(x.total)}</td></tr>
       </tbody>
     </table>
-    <div class="box" style="font-size:9.5px;color:#888;direction:ltr;text-align:left">ICV ${x.icv} · ${x.hash ? x.hash.slice(0, 32) + '…' : ''}</div>`;
+    <div class="box" style="font-size:9.5px;color:#888">التسلسل في السجل: ${x.icv} · البصمة الرقمية: <span style="direction:ltr;unicode-bidi:embed">${x.hash ? x.hash.slice(0, 32) + '…' : ''}</span></div>`;
   return printA4(org, title + ' ' + x.no, 'البائع: ' + seller + (svat ? ' · الرقم الضريبي: ' + svat : ''), body);
 }
 function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
@@ -4578,7 +4577,7 @@ function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
     let made = null;
     const ok = await commit(d => { const rec = siStamp(d.salesInvoices || [], base); made = rec; return { ...d, salesInvoices: [...(d.salesInvoices || []), rec] }; },
       { actionType: 'create', targetType: 'sales_invoice', targetId: base.id, need: 'post', title: 'أصدر فاتورة مبيعات', details: (base.buyer.name || 'عميل نقدي') + ' · ' + money(T.total) + (x.terms === 'credit' ? ' · آجل' : '') });
-    if (ok && made) { setF(null); say('صدرت الفاتورة ' + made.no + ' ✓'); printSalesInvoice(org, made); }
+    if (ok && made) { setF(null); say('صدرت ' + made.no + ' ✓'); printSalesInvoice(org, made); }
   };
   const saveRc = async () => {
     const x = byId(rc.id); const a = r2(rc.amount); const rem = siRem(ops, x);
@@ -4603,7 +4602,7 @@ function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
     let made = null;
     const ok = await commit(d => { const rec = siStamp(d.salesInvoices || [], base); made = rec; return { ...d, salesInvoices: [...(d.salesInvoices || []), rec] }; },
       { actionType: 'create', targetType: 'sales_invoice', targetId: base.id, need: 'post', title: 'أصدر إشعارًا دائنًا للمبيعات', details: 'عن ' + o.no + ' · ' + money(T.total) + ' · ' + reason });
-    if (ok && made) { setCn(null); say('صدر الإشعار الدائن ' + made.no + ' ✓'); printSalesInvoice(org, made, o); }
+    if (ok && made) { setCn(null); say('صدر ' + made.no + ' (إشعار دائن) ✓'); printSalesInvoice(org, made, o); }
   };
 
   const mth = today().slice(0, 7);
@@ -4655,7 +4654,7 @@ function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
           {shown.length === 0 && <tr><td colSpan={7}><div className="empty">لا فواتير بعد — كل فاتورة تصدر هنا تُرقَّم تلقائيًا ولا تُحذف، وتُصحَّح بإشعار دائن.</div></td></tr>}
         </tbody>
       </table></div></div>
-      <div className="note">سجل دائم: الترقيم متسلسل لكل سنة (INV للفواتير وCRN للإشعارات)، ولكل مستند بصمة مرتبطة بسابقه فيُكشف أي تعديل أو حذف. الفاتورة الآجلة تُقيَّد على ذمم العملاء وتظهر في كشف العميل وأعمار الذمم، والنقدية على الصندوق أو البنك؛ أما المسجّلة ضمن إغلاق وردية فتُرقَّم وتُطبع فقط دون قيد ثانٍ.</div>
+      <div className="note">سجل دائم: الترقيم متسلسل لكل سنة («فاتورة-السنة-الرقم» للفواتير و«إشعار-السنة-الرقم» للإشعارات الدائنة)، ولكل مستند بصمة مرتبطة بسابقه فيُكشف أي تعديل أو حذف. الفاتورة الآجلة تُقيَّد على ذمم العملاء وتظهر في كشف العميل وأعمار الذمم، والنقدية على الصندوق أو البنك؛ أما المسجّلة ضمن إغلاق وردية فتُرقَّم وتُطبع فقط دون قيد ثانٍ.</div>
 
       {f && (
         <Modal title="فاتورة مبيعات جديدة" icon={FileText} wide onClose={() => setF(null)}
