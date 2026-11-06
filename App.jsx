@@ -2854,7 +2854,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v30.0 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v30.1 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -15121,6 +15121,18 @@ function stockByWh(org, ops, asOf) {
   (ops.whTransfers || []).forEach(t => {
     if (t.status !== 'sent' && t.status !== 'received') return;
     if (!okD(t.sentDate)) return;
+    // v30.1 — فرع إلى فرع: نسختان. «الصادرة» (مستند المرسِل) تخصم من مستودعه عند اعتماد المركز؛
+    // «الواردة» (ينشئها المركز في مستند المستلم) بضاعة في الطريق حتى يستلمها — فلا يُحتسب شيء مرتين.
+    if (t.kind === 'b2b') { (t.lines || []).forEach(l => add(t.fromWh, l.itemId, -(Number(l.qtySent) || 0))); return; }
+    if (t.kind === 'b2b-in') {
+      const rin = t.status === 'received' && okD(t.receivedDate);
+      (t.lines || []).forEach(l => {
+        const sq = Number(l.qtySent) || 0; if (!sq) return;
+        if (rin) add(t.toWh, l.itemId, Number(l.qtyRecv) || 0);
+        else { transit[l.itemId] = (transit[l.itemId] || 0) + sq; total[l.itemId] = (total[l.itemId] || 0) + sq; }
+      });
+      return;
+    }
     const recvd = t.status === 'received' && okD(t.receivedDate);
     (t.lines || []).forEach(l => {
       const sq = Number(l.qtySent) || 0; if (!sq) return;
@@ -15142,7 +15154,8 @@ const MOVE_KINDS = {
   adjust: { ar: 'تسوية جرد', sign: 1, c: 'b-amber' }
 };
 /* ============ v29.9 — لوحة المستودعات (المركز): الإعداد، الأرصدة، صرف التحويلات ============ */
-const WH_ST = { requested: ['b-amber', 'مطلوب'], sent: ['b-sky', 'في الطريق'], received: ['b-mint', 'مُستلم'], cancelled: ['b-dim', 'ملغى'] };
+const WH_ST = { requested: ['b-amber', 'مطلوب'], proposed: ['b-amber', 'بانتظار اعتماد المركز'], sent: ['b-sky', 'في الطريق'], received: ['b-mint', 'مُستلم'], cancelled: ['b-dim', 'ملغى'], rejected: ['b-rose', 'مرفوض'] };
+const WH_KIND = { b2b: 'فرع ← فرع', return: 'إرجاع للرئيسي' };
 function WhLines({ items, lines, setLines, field, max }) {
   return (
     <div className="grid" style={{ gap: 6 }}>
@@ -15220,6 +15233,36 @@ function WarehousesPanel({ org, ops, me, commit, commitOrg, say }) {
     }, { actionType: 'create', targetType: 'stock_move', targetId: f.id || 'new-transfer', title: 'صرف تحويل مخزني إلى ' + to.name, details: lines.map(l => itemOf(l.itemId).name + ' ' + l.qtySent).join('، ').slice(0, 160) });
     if (ok) { setSendF(null); say('صُرف التحويل — البضاعة «في الطريق» حتى يستلمها الفرع ✓'); }
   };
+  // v30.1 — اعتماد تحويل فرع ← فرع: تُخصم الكمية من المرسِل وتُنشأ نسخة «واردة» في مستند المستلم (في الطريق)
+  const inCopyOf = (t) => (ops.whTransfers || []).find(x => x.kind === 'b2b-in' && x.linkId === t.id);
+  const approveB2B = async (t) => {
+    const short = (t.lines || []).find(l => (Number(l.qtySent) || 0) > qOf(t.fromWh, l.itemId) + 0.0005);
+    if (short) return say('رصيد ' + whName(org, t.fromWh) + ' لا يكفي: ' + itemOf(short.itemId).name + ' (المتاح ' + qOf(t.fromWh, short.itemId) + ')', 'no');
+    const to = whs.find(w => w.id === t.toWh); if (!to) return say('المستودع المستلم غير موجود', 'no');
+    const stamp = { status: 'sent', sentDate: today(), approvedBy: me.name, approvedAt: nowISO() };
+    const ok = await commit(d => {
+      let list = (d.whTransfers || []).map(x => x.id === t.id && x.status === 'proposed' ? { ...x, ...stamp } : x);
+      if (!list.some(x => x.kind === 'b2b-in' && x.linkId === t.id)) {
+        list = [{ id: t.id + '-in', kind: 'b2b-in', linkId: t.id, no: t.no, fromWh: t.fromWh, toWh: t.toWh, branchId: to.branchId, lines: (t.lines || []).map(l => ({ itemId: l.itemId, qtySent: l.qtySent, qtyRecv: 0 })),
+          requestedBy: t.requestedBy, at: t.at, note: t.note || '', ...stamp }, ...list];
+      }
+      return { ...d, whTransfers: list };
+    }, { actionType: 'update', targetType: 'stock_move', targetId: t.id, title: 'اعتماد تحويل ' + whName(org, t.fromWh) + ' ← ' + whName(org, t.toWh), details: (t.no || '') + ' · ' + (t.lines || []).map(l => itemOf(l.itemId).name + ' ' + l.qtySent).join('، ').slice(0, 150) });
+    if (ok) say('اعتُمد التحويل — خُصم من ' + whName(org, t.fromWh) + ' وهو في الطريق حتى يستلمه ' + whName(org, t.toWh) + ' ✓');
+  };
+  const rejectT = async (t) => {
+    const why = window.prompt('سبب رفض التحويل ' + (t.no || '') + ':'); if (why === null) return;
+    await commit(d => ({ ...d, whTransfers: (d.whTransfers || []).map(x => x.id === t.id && x.status === 'proposed' ? { ...x, status: 'rejected', rejectedBy: me.name, rejectedAt: nowISO(), rejectNote: why } : x) }),
+      { actionType: 'update', targetType: 'stock_move', targetId: t.id, title: 'رفض تحويل مخزني', details: (t.no || '') + ' · ' + why });
+  };
+  // إرجاع من فرع: يستلمه المستودع الرئيسي بالكميات الفعلية
+  const [retF, setRetF] = useState(null);
+  const receiveReturn = async () => {
+    const t = retF; const lines = t.lines.map(l => ({ ...l, qtyRecv: q3(l.qtyRecv) }));
+    const ok = await commit(d => ({ ...d, whTransfers: (d.whTransfers || []).map(x => x.id === t.id && x.status === 'sent' ? { ...x, lines, status: 'received', receivedDate: today(), receivedBy: me.name, receivedAt: nowISO() } : x) }),
+      { actionType: 'update', targetType: 'stock_move', targetId: t.id, title: 'استلام إرجاع في المستودع الرئيسي', details: (t.no || '') + ' · ' + lines.map(l => itemOf(l.itemId).name + ' ' + l.qtyRecv).join('، ').slice(0, 150) });
+    if (ok) { setRetF(null); say('استُلم الإرجاع في المستودع الرئيسي ✓'); }
+  };
   const cancelT = async (t) => {
     if (t.status !== 'requested') return;
     await commit(d => ({ ...d, whTransfers: (d.whTransfers || []).map(x => x.id === t.id && x.status === 'requested' ? { ...x, status: 'cancelled', cancelledBy: me.name, cancelledAt: nowISO() } : x) }),
@@ -15238,14 +15281,14 @@ function WarehousesPanel({ org, ops, me, commit, commitOrg, say }) {
     </div>
   );
 
-  const pendingReq = transfers.filter(t => t.status === 'requested');
+  const pendingReq = transfers.filter(t => t.status === 'requested' || (t.kind === 'b2b' && t.status === 'proposed') || (t.kind === 'return' && t.status === 'sent'));
   const inTransit = transfers.filter(t => t.status === 'sent');
   return (
     <>
       <div className="grid g4">
         <Kpi label="المستودعات" value={String(whs.length)} sub={'رئيسي + ' + whs.filter(w => w.kind === 'branch').length + ' فرعي'} icon={HardDrive} color="#C8A24A" />
-        <Kpi label="طلبات بانتظار الصرف" value={String(pendingReq.length)} sub="من الفروع" icon={ClipboardCheck} color="#E0A458" />
-        <Kpi label="تحويلات في الطريق" value={String(inTransit.length)} sub={money(Math.round(Object.entries(SB.transit).reduce((s, [id, q]) => s + q * costOf(id), 0) * 100) / 100) + ' ر.س'} icon={Truck} color="#5B93C4" />
+        <Kpi label="بانتظار إجراء المركز" value={String(pendingReq.length)} sub="صرف · اعتماد فرع←فرع · استلام إرجاع" icon={ClipboardCheck} color="#E0A458" />
+        <Kpi label="تحويلات في الطريق" value={String(inTransit.filter(t => t.kind !== 'b2b').length)} sub={money(Math.round(Object.entries(SB.transit).reduce((s, [id, q]) => s + q * costOf(id), 0) * 100) / 100) + ' ر.س'} icon={Truck} color="#5B93C4" />
         <Kpi label="قيمة المخزون — كل المستودعات" value={money(whs.reduce((s, w) => s + valOf(w.id), 0))} sub="بالتكلفة" icon={Landmark} color="#4FB286" />
       </div>
 
@@ -15292,18 +15335,23 @@ function WarehousesPanel({ org, ops, me, commit, commitOrg, say }) {
         <div className="tw"><table className="tb">
           <thead><tr><th>الرقم</th><th>إلى</th><th>الأصناف</th><th>الحالة</th><th>التواريخ</th><th></th></tr></thead>
           <tbody>
-            {transfers.slice(0, 150).map(t => {
-              const [c, tx] = WH_ST[t.status] || ['b-dim', t.status];
+            {transfers.filter(t => t.kind !== 'b2b-in').slice(0, 150).map(t => {
+              const inC = t.kind === 'b2b' ? inCopyOf(t) : null;
+              const stShown = inC ? inC.status : t.status;
+              const [c, tx] = WH_ST[stShown] || ['b-dim', stShown];
               const diff = t.status === 'received' && (t.lines || []).some(l => Math.abs((Number(l.qtySent) || 0) - (Number(l.qtyRecv) || 0)) > 0.0005);
               return (
                 <tr key={t.id}>
                   <td className="num" style={{ fontSize: 11 }}>{t.no}</td>
-                  <td style={{ fontSize: 12 }}>{whName(org, t.toWh)}</td>
+                  <td style={{ fontSize: 12 }}>{t.kind ? <span style={{ fontSize: 10.5, color: 'var(--faint)' }}>{WH_KIND[t.kind]}<br /></span> : null}{t.kind ? whName(org, t.fromWh) + ' ← ' : ''}{whName(org, t.toWh)}</td>
                   <td style={{ fontSize: 11.5 }}>{(t.lines || []).map(l => itemOf(l.itemId).name + ' ' + (t.status === 'requested' ? l.qtyReq : t.status === 'received' ? (l.qtyRecv + (Math.abs((Number(l.qtySent) || 0) - (Number(l.qtyRecv) || 0)) > 0.0005 ? ' من ' + l.qtySent : '')) : l.qtySent)).join('، ')}</td>
                   <td><span className={'badge ' + c}>{tx}</span>{diff && <span className="badge b-rose" style={{ marginInlineStart: 4 }}>فرق استلام</span>}</td>
                   <td style={{ fontSize: 10.5, color: 'var(--dim)' }}>{(t.at || '').slice(0, 10)}{t.sentDate ? ' · صُرف ' + t.sentDate : ''}{t.receivedDate ? ' · استُلم ' + t.receivedDate : ''}</td>
                   <td style={{ whiteSpace: 'nowrap' }}>{canW && t.status === 'requested' && <><button className="btn sm pri" onClick={() => openSend(t)}><Send size={12} />صرف</button>
-                    <button className="btn sm gh" onClick={() => cancelT(t)}><X size={12} /></button></>}</td>
+                    <button className="btn sm gh" onClick={() => cancelT(t)}><X size={12} /></button></>}
+                    {canW && t.kind === 'b2b' && t.status === 'proposed' && <><button className="btn sm pri" onClick={() => approveB2B(t)}><Check size={12} />اعتماد</button>
+                    <button className="btn sm gh" style={{ color: 'var(--rose)' }} onClick={() => rejectT(t)}><X size={12} />رفض</button></>}
+                    {canW && t.kind === 'return' && t.status === 'sent' && <button className="btn sm pri" onClick={() => setRetF({ id: t.id, no: t.no, lines: (t.lines || []).map(l => ({ ...l, qtyRecv: l.qtySent })) })}><Check size={12} />استلام</button>}</td>
                 </tr>);
             })}
             {transfers.length === 0 && <tr><td colSpan={6}><div className="empty">لا تحويلات بعد — تطلبها الفروع من شاشة «مستودع الفرع» أو يبادر بها المركز</div></td></tr>}
@@ -15323,6 +15371,16 @@ function WarehousesPanel({ org, ops, me, commit, commitOrg, say }) {
             <WhLines items={items} lines={sendF.lines} setLines={(fn) => setSendF(f => ({ ...f, lines: typeof fn === 'function' ? fn(f.lines) : fn }))} field="qtySent" max={(id) => qOf(MAIN_WH, id)} />
           </Field>
           <Field label="ملاحظة"><input className="inp" value={sendF.note} onChange={e => setSendF(f => ({ ...f, note: e.target.value }))} /></Field>
+        </Modal>
+      )}
+      {retF && (
+        <Modal title={'استلام إرجاع ' + (retF.no || '')} icon={Truck} onClose={() => setRetF(null)}
+          foot={<><button className="btn pri" onClick={receiveReturn}><Check size={14} />تأكيد الاستلام في الرئيسي</button><button className="btn gh" onClick={() => setRetF(null)}>إلغاء</button></>}>
+          {retF.lines.map((l, i) => (
+            <div key={i} className="row" style={{ gap: 8, alignItems: 'center', marginBottom: 6 }}>
+              <span style={{ flex: 1, fontSize: 12.5 }}>{itemOf(l.itemId).name} <span style={{ color: 'var(--faint)', fontSize: 11 }}>(مُرسَل {l.qtySent})</span></span>
+              <input className="inp n" style={{ width: 120 }} inputMode="decimal" value={l.qtyRecv} onChange={e => setRetF(f => ({ ...f, lines: f.lines.map((x, j) => j === i ? { ...x, qtyRecv: e.target.value } : x) }))} />
+            </div>))}
         </Modal>
       )}
       {ren && (
@@ -15345,13 +15403,17 @@ function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
   const [mvF, setMvF] = useState({ kind: 'out', lines: [{ itemId: '', qty: '' }], note: '' });
   const [recvF, setRecvF] = useState(null);
   const [cnt, setCnt] = useState({});
+  const [outF, setOutF] = useState({ kind: 'b2b', toWh: '', lines: [{ itemId: '', qtySent: '' }], note: '' });   // v30.1 صادر
   useEffect(() => { if (!mine.some(w => w.id === whId) && mine[0]) setWhId(mine[0].id); }, [mine.map(w => w.id).join(',')]); // eslint-disable-line
   const wh = mine.find(w => w.id === whId);
   const SB = useMemo(() => stockByWh(org, ops), [org, ops]);
   const qOf = (id) => q3(((SB.byWh[whId] || {})[id]) || 0);
   const itemOf = (id) => (org.items || []).find(x => x.id === id) || { name: '—', unit: '' };
-  const myT = (ops.whTransfers || []).filter(t => t.toWh === whId).sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
+  // الوارد: من الرئيسي، أو نسخة «واردة» لتحويل فرع←فرع اعتمده المركز (لا النسخة الصادرة لفرع آخر)
+  const myT = (ops.whTransfers || []).filter(t => t.toWh === whId && t.kind !== 'b2b' && t.kind !== 'return').sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
   const incoming = myT.filter(t => t.status === 'sent');
+  const myOut = (ops.whTransfers || []).filter(t => t.fromWh === whId && (t.kind === 'b2b' || t.kind === 'return')).sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
+  const otherWhs = whOf(org).filter(w => w.kind === 'branch' && w.id !== whId);
   const myMoves = (ops.whMoves || []).filter(m => m.whId === whId).sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
 
   if (!whOn(org)) return <div className="card"><div className="empty">لم تُفعَّل المستودعات بعد — يُنشئها المركز من «المخزون والمنتجات ← المستودعات».</div></div>;
@@ -15365,6 +15427,28 @@ function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
     const ok = await commit(d => ({ ...d, whTransfers: [rec, ...(d.whTransfers || [])] }),
       { actionType: 'create', targetType: 'stock_move', targetId: rec.id, branchName: whName(org, wh.id), title: 'طلب تحويل من المستودع الرئيسي', details: lines.map(l => itemOf(l.itemId).name + ' ' + l.qtyReq).join('، ').slice(0, 160) });
     if (ok) { setReqLines([{ itemId: '', qtyReq: '' }]); say('أُرسل الطلب للمستودع الرئيسي ✓'); }
+  };
+  // v30.1 — صادر: إرجاع للرئيسي (يخرج فورًا ويستلمه المركز) أو تحويل لفرع آخر (بانتظار اعتماد المركز)
+  const sendOut = async () => {
+    const f = outF;
+    const lines = f.lines.filter(l => l.itemId && (Number(l.qtySent) || 0) > 0).map(l => ({ itemId: l.itemId, qtyReq: q3(l.qtySent), qtySent: q3(l.qtySent), qtyRecv: 0 }));
+    if (!lines.length) return say('أضف صنفًا وكمية', 'no');
+    if (f.kind === 'b2b' && !otherWhs.some(w => w.id === f.toWh)) return say('اختر الفرع المستلم', 'no');
+    const over = lines.find(l => l.qtySent > qOf(l.itemId) + 0.0005);
+    if (over) return say('الكمية تتجاوز رصيد مستودعك: ' + itemOf(over.itemId).name + ' (المتاح ' + qOf(over.itemId) + ')', 'no');
+    const ret = f.kind === 'return';
+    const rec = { id: uid('wtr'), kind: f.kind, no: (ret ? 'RET-' : 'B2B-') + today().replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 5).toUpperCase(),
+      fromWh: wh.id, toWh: ret ? (wh.parentId || MAIN_WH) : f.toWh, branchId: wh.branchId, lines, note: f.note || '', requestedBy: me.name, at: nowISO(),
+      ...(ret ? { status: 'sent', sentDate: today(), sentBy: me.name, sentAt: nowISO() } : { status: 'proposed' }) };
+    const ok = await commit(d => ({ ...d, whTransfers: [rec, ...(d.whTransfers || [])] }),
+      { actionType: 'create', targetType: 'stock_move', targetId: rec.id, branchName: whName(org, wh.id),
+        title: ret ? 'إرجاع للمستودع الرئيسي' : 'طلب تحويل إلى ' + whName(org, f.toWh) + ' (بانتظار اعتماد المركز)', details: lines.map(l => itemOf(l.itemId).name + ' ' + l.qtySent).join('، ').slice(0, 160) });
+    if (ok) { setOutF({ kind: f.kind, toWh: f.toWh, lines: [{ itemId: '', qtySent: '' }], note: '' }); say(ret ? 'أُرسل الإرجاع — يستلمه المستودع الرئيسي ✓' : 'أُرسل للمركز للاعتماد — لا يُخصم من مستودعك قبل الاعتماد ✓'); }
+  };
+  const cancelOut = async (t) => {
+    if (t.status !== 'proposed') return;
+    await commit(d => ({ ...d, whTransfers: (d.whTransfers || []).map(x => x.id === t.id && x.status === 'proposed' ? { ...x, status: 'cancelled', cancelledBy: me.name, cancelledAt: nowISO() } : x) }),
+      { actionType: 'update', targetType: 'stock_move', targetId: t.id, branchName: whName(org, wh.id), title: 'إلغاء طلب تحويل صادر', details: t.no || '' });
   };
   const receive = async () => {
     const t = recvF;
@@ -15407,6 +15491,7 @@ function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
           <Tab id="bal" icon={ClipboardCheck}>الأرصدة</Tab>
           <Tab id="in" icon={Truck}>الوارد {incoming.length ? '(' + incoming.length + ')' : ''}</Tab>
           <Tab id="req" icon={Send}>طلب من الرئيسي</Tab>
+          <Tab id="out" icon={ArrowLeftRight}>صادر (فرع / إرجاع)</Tab>
           <Tab id="mv" icon={ArrowLeftRight}>صرف وهدر</Tab>
           <Tab id="count" icon={Scale}>الجرد</Tab>
         </div>
@@ -15450,6 +15535,43 @@ function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
           <div style={{ fontSize: 12.5, color: 'var(--dim)', marginBottom: 10 }}>يُرسل الطلب إلى {whName(org, wh.parentId || MAIN_WH)}، ويظهر لديك في «الوارد» بعد صرفه.</div>
           <WhLines items={items} lines={reqLines} setLines={setReqLines} field="qtyReq" />
           <button className="btn pri" style={{ marginTop: 10 }} onClick={request}><Send size={14} />إرسال الطلب</button>
+        </div>
+      )}
+
+      {view === 'out' && (
+        <div className="card">
+          <div className="row" style={{ gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+            <button className={'btn sm' + (outF.kind === 'b2b' ? ' pri' : ' gh')} onClick={() => setOutF(f => ({ ...f, kind: 'b2b' }))}>تحويل إلى فرع آخر</button>
+            <button className={'btn sm' + (outF.kind === 'return' ? ' pri' : ' gh')} onClick={() => setOutF(f => ({ ...f, kind: 'return' }))}>إرجاع للمستودع الرئيسي</button>
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--dim)', marginBottom: 10, lineHeight: 1.8 }}>
+            {outF.kind === 'b2b'
+              ? 'يُرسل الطلب للمركز للاعتماد. عند الاعتماد يُخصم من مستودعك وتصبح البضاعة في الطريق حتى يؤكد الفرع المستلم الكميات الفعلية.'
+              : 'تخرج الكميات من مستودعك فور الإرسال (في الطريق) حتى يستلمها المستودع الرئيسي بالكميات الفعلية.'}
+          </div>
+          {outF.kind === 'b2b' && (
+            <Field label="الفرع المستلم">
+              <select className="inp sel" value={outF.toWh} onChange={e => setOutF(f => ({ ...f, toWh: e.target.value }))}>
+                <option value="">— اختر —</option>
+                {otherWhs.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+              </select>
+            </Field>
+          )}
+          <WhLines items={items} lines={outF.lines} setLines={(fn) => setOutF(f => ({ ...f, lines: typeof fn === 'function' ? fn(f.lines) : fn }))} field="qtySent" max={qOf} />
+          <Field label="البيان"><input className="inp" value={outF.note} onChange={e => setOutF(f => ({ ...f, note: e.target.value }))} placeholder={outF.kind === 'return' ? 'سبب الإرجاع (فائض، قرب انتهاء…)' : 'سبب التحويل'} /></Field>
+          <button className="btn pri" onClick={sendOut}><Send size={14} />{outF.kind === 'b2b' ? 'إرسال للاعتماد' : 'إرسال الإرجاع'}</button>
+
+          <div className="card-t" style={{ margin: '16px 0 8px', fontSize: 13 }}>الصادر من مستودعك</div>
+          <div className="tw"><table className="tb">
+            <thead><tr><th>الرقم</th><th>إلى</th><th>الأصناف</th><th>الحالة</th><th></th></tr></thead>
+            <tbody>{myOut.slice(0, 60).map(t => { const [c, tx] = WH_ST[t.status] || ['b-dim', t.status]; return (
+              <tr key={t.id}><td className="num" style={{ fontSize: 11 }}>{t.no}</td>
+                <td style={{ fontSize: 12 }}>{whName(org, t.toWh)}</td>
+                <td style={{ fontSize: 11.5 }}>{(t.lines || []).map(l => itemOf(l.itemId).name + ' ' + l.qtySent).join('، ')}</td>
+                <td><span className={'badge ' + c}>{t.kind === 'b2b' && t.status === 'sent' ? 'معتمد — في الطريق' : tx}</span>{t.rejectNote ? <div style={{ fontSize: 10.5, color: 'var(--rose)' }}>{t.rejectNote}</div> : null}</td>
+                <td>{t.status === 'proposed' && <button className="btn sm gh" onClick={() => cancelOut(t)}><X size={12} />إلغاء</button>}</td></tr>); })}
+              {!myOut.length && <tr><td colSpan={5}><div className="empty">لا صادر بعد</div></td></tr>}
+            </tbody></table></div>
         </div>
       )}
 
