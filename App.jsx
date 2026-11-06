@@ -2804,7 +2804,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v29.7 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v29.8 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -20185,6 +20185,79 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
     }
   };
 
+  // v29.8 — حذف كل البيانات المحاسبية (لمسؤول النظام فقط) تمهيدًا لإعادة الرفع من جديد:
+  //   الإغلاقات وتوريداتها وتنبيهاتها وصورها · فواتير الموردين · السدادات · القيود اليدوية والمستوردة ·
+  //   أوامر الصرف · تسويات التطبيقات · التسويات البنكية · الأرصدة الافتتاحية · قيد إقفال السنة · دفعات ميزان (تُعلَّم ملغاة).
+  //   الرواتب والسلف اختيارية. يبقى: الشركة والفروع والمستخدمون والموظفون والموردون ودليل الحسابات والأصول والمخزون والإعدادات.
+  const [acWipe, setAcWipe] = useState({ open: false, text: '', busy: false, payroll: false, done: null });
+  const AC_WORD = 'احذف البيانات المحاسبية';
+  const acCols = ['invoices', 'closingInvPays', 'journalManual', 'disbursements', 'appSettlements', 'bankRecs'];
+  const acPayCols = ['ledgerEntries', 'advances'];
+  const acCount = (k) => (ops[k] || []).length;
+  const acAllTransfers = ops.transfers || [];
+  const acObLines = ((org.openingBalances || {}).lines || []).filter(l => (l.debit || 0) || (l.credit || 0)).length;
+  const acLockedNow = lockedThru(org);
+  const wipeAccounting = async () => {
+    if (!isSysAdmin) return say('هذا الإجراء لمسؤول النظام فقط', 'no');
+    if (acWipe.text.trim() !== AC_WORD) return say('اكتب «' + AC_WORD + '» للتأكيد', 'no');
+    if (acLockedNow) return say('الفترات مقفلة حتى ' + acLockedNow + ' — افتح الإقفال أولًا من المحاسبة ← الإقفال (فتح موثّق)، ثم أعد المحاولة', 'no');
+    setAcWipe(w => ({ ...w, busy: true }));
+    try {
+      const cols = [...acCols, ...(acWipe.payroll ? acPayCols : [])];
+      // ١) صور توثيق الإغلاقات في الأرشيف + أرشيف الإغلاقات القديم (كما في أداة حذف الإغلاقات)
+      const bIds = [...(org.branches || []).map(b => b.id), 'hq'];
+      const arch = {};
+      for (const b of bIds) {
+        const doc = await cloud.get(bfKey(b), { items: [] });
+        const items = (doc && Array.isArray(doc.items)) ? doc.items : [];
+        const gone = items.filter(it => it.source === 'closing' || (it.closingId && wIds.has(it.closingId)));
+        if (gone.length) arch[b] = { keep: items.filter(it => !gone.includes(it)), gone };
+      }
+      const h = await cloud.get(KEYS.hist, { closings: [] });
+      const histClosings = (h && Array.isArray(h.closings)) ? h.closings : [];
+      // ٢) ملف بكل ما سيُحذف + لقطة أمان محلية — قبل أي كتابة
+      const removed = { meta: { app: 'rms8', kind: 'deleted-accounting', at: nowISO(), by: me?.name || '', payroll: !!acWipe.payroll },
+        closings: wClosings, transfers: acAllTransfers, notifications: wNotes, histClosings,
+        ...Object.fromEntries(cols.map(k => [k, ops[k] || []])),
+        openingBalances: org.openingBalances || null, yearEnd: org.yearEnd || null, mizanBatches: (org.mizanCfg || {}).batches || [],
+        archive: Object.fromEntries(Object.entries(arch).map(([b, v]) => [b, v.gone])) };
+      try {
+        const blob = new Blob([JSON.stringify(removed)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob); const a = document.createElement('a');
+        a.href = url; a.download = 'البيانات-المحاسبية-المحذوفة-' + today() + '.json'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 4000);
+      } catch { }
+      try { await snapPut('pre-wipe-accounting-' + nowISO().slice(0, 19).replace(/[:T]/g, '-'), { at: nowISO(), by: me?.name || '', org, ops, preWipe: true }); } catch { }
+      // ٣) بيانات التشغيل (المركز + الفروع)
+      const ok = await commit(d => ({
+        ...d,
+        closings: [], transfers: [],
+        notifications: (d.notifications || []).filter(n => !(n.closingId && wIds.has(n.closingId))),
+        ...Object.fromEntries(cols.map(k => [k, []]))
+      }), { actionType: 'delete', targetType: 'journal_entry', targetId: 'accounting-all', need: 'edit',
+        title: 'حذف كل البيانات المحاسبية (تمهيدًا لإعادة الرفع)',
+        details: [wClosings.length + ' إغلاق', acAllTransfers.length + ' توريد', ...cols.map(k => acCount(k) + ' ' + k), acObLines + ' سطر افتتاحي'].join(' · ') });
+      if (!ok) { setAcWipe(w => ({ ...w, busy: false })); return; }
+      // ٤) إعدادات المنشأة: الأرصدة الافتتاحية وقيد إقفال السنة ودفعات ميزان (تبقى خريطة الربط لإعادة الاستيراد)
+      const okOrg = await commitOrg(d => ({
+        ...d,
+        openingBalances: { ...(d.openingBalances || {}), enabled: false, lines: [] },
+        yearEnd: d.yearEnd ? { ...d.yearEnd, enabled: false } : d.yearEnd,
+        mizanCfg: d.mizanCfg ? { ...d.mizanCfg, batches: (d.mizanCfg.batches || []).map(b => b.undoneAt ? b : { ...b, undoneAt: nowISO(), undoneBy: (me?.name || '') + ' — حذف شامل' }) } : d.mizanCfg
+      }), { actionType: 'delete', targetType: 'tax_settings', targetId: 'accounting-all', need: 'edit', title: 'مسح الأرصدة الافتتاحية وإقفال السنة ودفعات ميزان', details: acObLines + ' سطر افتتاحي' });
+      // ٥) الأرشيف
+      let archDone = 0, archFail = 0;
+      for (const [b, v] of Object.entries(arch)) { if (await cloud.set(bfKey(b), { items: v.keep })) archDone += v.gone.length; else archFail++; }
+      let histOk = true;
+      if (histClosings.length) histOk = !!(await cloud.set(KEYS.hist, { closings: [], updatedAt: nowISO() }));
+      if (histOk) setHist({ closings: [] });
+      setAcWipe({ open: false, text: '', busy: false, payroll: false, done: { okOrg, archFail, histOk } });
+      say(!okOrg ? 'حُذفت السجلات — لكن تعذّر مسح الأرصدة الافتتاحية؛ أعد تشغيل الأداة لإكمالها' : (archFail || !histOk) ? 'حُذفت البيانات المحاسبية — بقي جزء من الأرشيف، أعد المحاولة' : 'حُذفت كل البيانات المحاسبية ✓ — المنصة جاهزة لإعادة الرفع');
+    } catch (e) {
+      setAcWipe(w => ({ ...w, busy: false }));
+      say('تعذّر الحذف — لم يكتمل، تحقق من الاتصال وأعد المحاولة', 'no');
+    }
+  };
+
   const saveCompany = async () => {
     await commitOrg(d => ({ ...d, company: c }), {
       actionType: 'update', targetType: 'system_settings', targetId: 'company',
@@ -20496,6 +20569,54 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
                     {wipe.busy ? <RefreshCw size={14} className="spin" /> : <Trash2 size={14} />}حذف نهائي
                   </button>
                   <button className="btn gh" disabled={wipe.busy} onClick={() => setWipe(w => ({ ...w, open: false, text: '' }))}>إلغاء</button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        {isSysAdmin && (
+          <div className="card" style={{ borderColor: 'rgba(217,84,77,.6)' }}>
+            <div className="card-t" style={{ marginBottom: 10, color: '#D9544D' }}><Trash2 size={15} />حذف كل البيانات المحاسبية (لإعادة الرفع من جديد)</div>
+            <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 10 }}>
+              يحذف نهائيًا: الإغلاقات اليومية وتوريداتها وصورها، فواتير الموردين، السدادات، القيود اليدوية والمستوردة، أوامر الصرف، تسويات التطبيقات والبنوك، الأرصدة الافتتاحية،
+              وتُعلَّم دفعات ميزان ملغاة (تبقى خريطة الربط لإعادة الاستيراد).
+              <b> يبقى:</b> الشركة والفروع والمستخدمون والموظفون والموردون ودليل الحسابات والأصول والمخزون والإعدادات.
+              قبل الحذف يُنزَّل تلقائيًا ملف بكل ما سيُحذف. نزّل نسخة احتياطية كاملة أولًا.
+            </div>
+            <div className="grid g4" style={{ gap: 9, marginBottom: 10 }}>
+              {[['إغلاقات', wClosings.length], ['توريدات', acAllTransfers.length], ['فواتير موردين', acCount('invoices')], ['سدادات', acCount('closingInvPays')],
+                ['قيود يدوية/مستوردة', acCount('journalManual')], ['أوامر صرف', acCount('disbursements')], ['أسطر افتتاحية', acObLines], ['مقفل حتى', acLockedNow || '—']].map(([k, v]) => (
+                <div key={k} className="mono-b" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+                  <span style={{ fontSize: 10.5, color: 'var(--faint)' }}>{k}</span>
+                  <span className="num" style={{ fontSize: 16, color: k === 'مقفل حتى' && acLockedNow ? '#D9544D' : 'var(--brass)' }}>{v}</span>
+                </div>
+              ))}
+            </div>
+            {acLockedNow && <div className="note" style={{ marginBottom: 10, borderColor: 'rgba(217,84,77,.5)' }}>الفترات مقفلة حتى {acLockedNow} — افتح الإقفال أولًا من المحاسبة ← الإقفال، ثم عد إلى هنا.</div>}
+            {acWipe.done && (
+              <div className="note" style={{ marginBottom: 10 }}>
+                ✓ حُذفت البيانات المحاسبية.{!acWipe.done.okOrg && <b style={{ color: '#D9544D' }}> لم تُمسح الأرصدة الافتتاحية — أعد تشغيل الأداة.</b>}
+                {(acWipe.done.archFail > 0 || !acWipe.done.histOk) && <b style={{ color: '#D9544D' }}> بقي جزء من الأرشيف — أعد المحاولة.</b>}
+                {' '}الخطوة التالية: أعد الاستيراد من «دمج بيانات ميزان».
+              </div>
+            )}
+            {!acWipe.open ? (
+              <button className="btn" style={{ color: '#D9544D', borderColor: 'rgba(217,84,77,.5)' }} disabled={acWipe.busy} onClick={() => setAcWipe(w => ({ ...w, open: true, text: '' }))}>
+                <Trash2 size={14} />حذف كل البيانات المحاسبية
+              </button>
+            ) : (
+              <div className="grid" style={{ gap: 9 }}>
+                <label className="row" style={{ gap: 8, fontSize: 12.5, alignItems: 'center' }}>
+                  <input type="checkbox" checked={acWipe.payroll} onChange={e => setAcWipe(w => ({ ...w, payroll: e.target.checked }))} disabled={acWipe.busy} />
+                  حذف قيود الرواتب ({acCount('ledgerEntries')}) والسلف ({acCount('advances')}) أيضًا — اتركه غير محدد إن كانت الرواتب تُدار من المنصة ولن تُعاد من ميزان
+                </label>
+                <div style={{ fontSize: 12, color: 'var(--txt)' }}>للتأكيد اكتب: <b>{AC_WORD}</b></div>
+                <input className="inp" value={acWipe.text} onChange={e => setAcWipe(w => ({ ...w, text: e.target.value }))} placeholder={AC_WORD} disabled={acWipe.busy} />
+                <div className="row" style={{ gap: 8 }}>
+                  <button className="btn" style={{ background: '#D9544D', color: '#fff', borderColor: '#D9544D' }} disabled={acWipe.busy || acWipe.text.trim() !== AC_WORD || !!acLockedNow} onClick={wipeAccounting}>
+                    {acWipe.busy ? <RefreshCw size={14} className="spin" /> : <Trash2 size={14} />}حذف نهائي
+                  </button>
+                  <button className="btn gh" disabled={acWipe.busy} onClick={() => setAcWipe(w => ({ ...w, open: false, text: '' }))}>إلغاء</button>
                 </div>
               </div>
             )}
