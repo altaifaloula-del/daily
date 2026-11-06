@@ -122,10 +122,21 @@ async function firestore() {
 // v31.3 — التحقق بخطوتين (TOTP عبر تطبيق المصادقة): يفرضه Firebase نفسه بعد التسجيل — كلمة السر وحدها لا تكفي
 let mfaResolver = null, mfaSecret = null;
 const mfaErr = (code) => { const e = new Error(code); e.code = code; return e; };
-async function reauthIf(m, u, pass) {
+async function reauthIf(m, u, pass, code) {
   if (!pass) return;
   const cred = m.A.EmailAuthProvider.credential(u.email, pass);
-  await m.A.reauthenticateWithCredential(u, cred);
+  try { await m.A.reauthenticateWithCredential(u, cred); }
+  catch (e) {
+    // v31.9: حساب مفعّل بخطوتين — إعادة التحقق تتطلب رمز التطبيق أيضًا
+    if (e && e.code === 'auth/multi-factor-auth-required') {
+      if (!code) throw mfaErr('mfa-code-needed');
+      const r = m.A.getMultiFactorResolver(m.a, e);
+      const h = r.hints.find(x => x.factorId === 'totp'); if (!h) throw mfaErr('mfa-unsupported');
+      await r.resolveSignIn(m.A.TotpMultiFactorGenerator.assertionForSignIn(h.uid, String(code).replace(/\D/g, '')));
+      return;
+    }
+    throw e;
+  }
 }
 export const authApi = {
   get enabled() { return FB_READY; },
@@ -188,10 +199,10 @@ export const authApi = {
     return true;
   },
 
-  /** إلغاء التحقق بخطوتين (يتطلب كلمة السر) */
-  async mfaRemove(pass) {
+  /** إلغاء التحقق بخطوتين (يتطلب كلمة السر ورمز التطبيق) */
+  async mfaRemove(pass, code) {
     const m = await fbAuthMod(); const u = await authedUser(); if (!m || !u) throw mfaErr('no-session');
-    await reauthIf(m, u, pass);
+    await reauthIf(m, u, pass, code);
     const mf = m.A.multiFactor(u);
     for (const f of mf.enrolledFactors.filter(x => x.factorId === 'totp')) await mf.unenroll(f);
     return true;
@@ -225,6 +236,14 @@ export const authApi = {
     const u = await authedUser();
     if (!u) return null;
     try { return await u.getIdToken(); } catch { return null; }
+  },
+
+  /** v31.9 — تغيير كلمة السر ذاتيًا: تحقق بالكلمة الحالية (ورمز التطبيق إن كان مفعّلًا) ثم التحديث */
+  async changePassword(current, next, code) {
+    const m = await fbAuthMod(); const u = await authedUser(); if (!m || !u) throw mfaErr('no-session');
+    await reauthIf(m, u, current, code);
+    await m.A.updatePassword(u, next);
+    return true;
   },
 
   async resetPass(email) {

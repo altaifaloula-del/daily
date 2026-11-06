@@ -3146,6 +3146,7 @@ function PlatformApp() {
 
   // v31.3 — التحقق بخطوتين: حالة المستخدم وسياسة الإلزام (v31.5: قبل أي return شرطي — كان بعده فيتغيّر عدد الـhooks عند انتهاء التحميل فتظهر شاشة سوداء)
   const [mfaS, setMfaS] = useState(null); const [mfaPol, setMfaPol] = useState(null); const [mfaOpen, setMfaOpen] = useState(false);
+  const [pwOpen, setPwOpen] = useState(false);   // v31.9 تغيير كلمة السر
   const mfaReload = useCallback(async () => { if (!authApi.enabled) return; const [i, p] = await Promise.all([authApi.mfaInfo().catch(() => null), authApi.getPolicy().catch(() => null)]); setMfaS(i); setMfaPol(p); }, []);
   useEffect(() => { if (me && authApi.enabled) mfaReload(); }, [me && me.id, mfaReload]);
 
@@ -3356,7 +3357,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v31.8 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v31.9 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -3424,6 +3425,7 @@ function PlatformApp() {
                     {!installed && <button onClick={() => { setUserMenu(false); doInstall(); }}><Download size={14} />تثبيت التطبيق على الجهاز</button>}
                     <button onClick={() => { setUserMenu(false); forceUpdate(); }}><RefreshCw size={14} />تحديث للأحدث (مسح الكاش){updateReady ? ' — نسخة جديدة!' : ''}</button>
                     <button onClick={() => { setUserMenu(false); setTour(true); }}><Compass size={14} />جولة تعريفية في المنصة</button>
+                    {authApi.enabled && <button onClick={() => { setUserMenu(false); setPwOpen(true); }}><Lock size={14} />تغيير كلمة السر</button>}
                     {authApi.enabled && <button onClick={() => { setUserMenu(false); setMfaOpen(true); }}><ShieldCheck size={14} />التحقق بخطوتين{mfaS && mfaS.enrolled ? ' ✓' : ''}</button>}
                     {(me.pinHash || me.bioCredId) && (
                       <button onClick={() => { setUserMenu(false); setLocked(true); }}><Lock size={14} />قفل الشاشة — عودة بالدخول السريع</button>
@@ -3562,6 +3564,8 @@ function PlatformApp() {
 
 
 
+      {pwOpen && <Modal title="تغيير كلمة السر" icon={Lock} onClose={() => setPwOpen(false)}>
+        <PasswordPanel me={me} mfa={!!(mfaS && mfaS.enrolled)} say={say} onDone={() => setPwOpen(false)} /></Modal>}
       {mfaOpen && <Modal title="التحقق بخطوتين" icon={ShieldCheck} onClose={() => setMfaOpen(false)}>
         <MfaPanel me={me} required={mfaNeed} onDone={sessLogout} onLogout={sessLogout} say={say} info={mfaS} reload={mfaReload} /></Modal>}
       {moreSheet && (
@@ -3584,6 +3588,7 @@ function PlatformApp() {
                 <button className="btn gh" onClick={() => { setMoreSheet(false); forceUpdate(); }}><RefreshCw size={15} />تحديث للأحدث</button>
                 <button className="btn" style={{ background: 'rgba(217,84,77,.14)', color: 'var(--rose)', borderColor: 'rgba(217,84,77,.42)' }} onClick={() => { setMoreSheet(false); setMe(null); }}><LogOut size={15} />تسجيل الخروج</button>
               </div>
+              {authApi.enabled && <button className="btn" style={{ width: '100%', marginTop: 8 }} onClick={() => { setMoreSheet(false); setPwOpen(true); }}><Lock size={15} />تغيير كلمة السر</button>}
               {authApi.enabled && <button className="btn" style={{ width: '100%', marginTop: 8 }} onClick={() => { setMoreSheet(false); setMfaOpen(true); }}>
                 <ShieldCheck size={15} />التحقق بخطوتين{mfaS && mfaS.enrolled ? ' — مفعّل ✓' : ' — غير مفعّل'}</button>}
             </div>
@@ -3759,6 +3764,43 @@ function MfaPolicyCard({ org, me, commitOrg, say }) {
     </div>);
 }
 
+/* v31.9 — تغيير كلمة السر ذاتيًا (Firebase): الكلمة الحالية + رمز التطبيق إن كان التحقق بخطوتين مفعّلًا */
+const pwStrength = (p) => { p = String(p || ''); if (p.length < 8) return 'ثمانية أحرف على الأقل'; if (!/[A-Za-z؀-ۿ]/.test(p) || !/\d/.test(p)) return 'تحتوي حروفًا وأرقامًا معًا'; return ''; };
+function PasswordPanel({ me, mfa, say, onDone }) {
+  const [f, setF] = useState({ cur: '', next: '', conf: '', code: '' }); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false); const [show, setShow] = useState(false); const [needCode, setNeedCode] = useState(mfa);
+  const set = (k, v) => { setF(x => ({ ...x, [k]: v })); setErr(''); };
+  const save = async () => {
+    if (!f.cur) return setErr('اكتب كلمة السر الحالية');
+    const w = pwStrength(f.next); if (w) return setErr('كلمة السر الجديدة يجب أن تكون ' + w);
+    if (f.next !== f.conf) return setErr('التأكيد لا يطابق كلمة السر الجديدة');
+    if (f.next === f.cur) return setErr('اختر كلمة سر مختلفة عن الحالية');
+    if (needCode && f.code.length !== 6) return setErr('اكتب رمز تطبيق المصادقة (6 أرقام)');
+    setBusy(true);
+    try { await authApi.changePassword(f.cur, f.next, needCode ? f.code : ''); say('تغيّرت كلمة السر ✓ — استخدمها في دخولك القادم'); onDone && onDone(); }
+    catch (e) { const c = String((e && e.code) || '');
+      if (c === 'mfa-code-needed') { setNeedCode(true); setErr('حسابك محمي بخطوتين — اكتب رمز تطبيق المصادقة ثم أعد المحاولة'); }
+      else if (c.includes('wrong-password') || c.includes('invalid-credential') || c.includes('invalid-login')) setErr('كلمة السر الحالية غير صحيحة');
+      else if (c.includes('invalid-verification-code')) setErr('رمز التطبيق غير صحيح');
+      else if (c.includes('weak-password')) setErr('كلمة السر الجديدة ضعيفة');
+      else if (c.includes('too-many-requests')) setErr('محاولات كثيرة — انتظر دقائق');
+      else setErr('تعذّر التغيير (' + c.replace('auth/', '') + ')'); }
+    setBusy(false);
+  };
+  const t = show ? 'text' : 'password';
+  return (
+    <div className="grid" style={{ gap: 4 }}>
+      <Field label="كلمة السر الحالية"><input className="inp" type={t} autoComplete="current-password" value={f.cur} onChange={e => set('cur', e.target.value)} /></Field>
+      <Field label="كلمة السر الجديدة"><input className="inp" type={t} autoComplete="new-password" value={f.next} onChange={e => set('next', e.target.value)} /></Field>
+      <Field label="تأكيد كلمة السر الجديدة"><input className="inp" type={t} autoComplete="new-password" value={f.conf} onChange={e => set('conf', e.target.value)} onKeyDown={e => e.key === 'Enter' && save()} /></Field>
+      {needCode && <Field label="رمز تطبيق المصادقة"><input className="inp n" inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000" style={{ letterSpacing: 5, textAlign: 'center', direction: 'ltr' }} value={f.code} onChange={e => set('code', e.target.value.replace(/\D/g, '').slice(0, 6))} /></Field>}
+      <label className="row" style={{ gap: 6, fontSize: 12, cursor: 'pointer' }}><input type="checkbox" checked={show} onChange={e => setShow(e.target.checked)} />إظهار كلمات السر</label>
+      {f.next && <div style={{ fontSize: 11, color: pwStrength(f.next) ? 'var(--amber)' : 'var(--mint)' }}>{pwStrength(f.next) ? 'يلزم: ' + pwStrength(f.next) : 'كلمة سر مناسبة ✓'}</div>}
+      {err && <div className="gate-err">{err}</div>}
+      <button className="btn pri" disabled={busy} onClick={save}>{busy ? <RefreshCw size={14} className="spin" /> : <Check size={14} />}حفظ كلمة السر الجديدة</button>
+      <div style={{ fontSize: 10.5, color: 'var(--faint)', lineHeight: 1.7 }}>نسيت الحالية؟ سجّل الخروج واضغط «نسيت كلمة السر؟» في شاشة الدخول فيصلك رابط التعيين على {me.email || 'بريدك'}.</div>
+    </div>);
+}
+
 /* v31.3 — لوحة التحقق بخطوتين: تسجيل تطبيق المصادقة (رمز QR + مفتاح احتياطي) أو إلغاؤه */
 function MfaPanel({ me, required, inline, onDone, onLogout, say, info, reload }) {
   const [step, setStep] = useState('idle'); const [pass, setPass] = useState(''); const [code, setCode] = useState('');
@@ -3776,7 +3818,8 @@ function MfaPanel({ me, required, inline, onDone, onLogout, say, info, reload })
   const finish = async () => { if (code.length !== 6 || busy) return; setBusy(true); setErr('');
     try { await authApi.mfaFinish(code); setStep('done'); say('فُعّل التحقق بخطوتين ✓ — سجّل الدخول من جديد بالرمز'); setTimeout(() => onDone && onDone(), 2500); } catch (e) { setErr(errOf(e)); } setBusy(false); };
   const remove = async () => { if (!pass || busy) return; if (!window.confirm('إلغاء التحقق بخطوتين؟ يصبح حسابك محميًا بكلمة السر وحدها.')) return; setBusy(true); setErr('');
-    try { await authApi.mfaRemove(pass); say('أُلغي التحقق بخطوتين — سجّل الدخول من جديد'); setTimeout(() => onLogout && onLogout(), 1500); } catch (e) { setErr(errOf(e)); } setBusy(false); };
+    if (code.length !== 6) { setBusy(false); return setErr('اكتب رمز تطبيق المصادقة الحالي'); }
+    try { await authApi.mfaRemove(pass, code); say('أُلغي التحقق بخطوتين — سجّل الدخول من جديد'); setTimeout(() => onLogout && onLogout(), 1500); } catch (e) { setErr(errOf(e)); } setBusy(false); };
   const sendV = async () => { setBusy(true); try { await authApi.sendVerify(); say('أُرسل رابط توثيق البريد إلى ' + me.email); } catch { setErr('تعذّر إرسال رابط التوثيق'); } setBusy(false); };
   const checkV = async () => { setBusy(true); const ok = await authApi.emailVerified(); setBusy(false); if (ok) { setStep('idle'); setErr(''); say('وُثّق البريد ✓ — تابع التفعيل'); } else setErr('لم يُوثَّق البريد بعد — افتح الرابط في بريدك ثم أعد المحاولة'); };
   const keyFmt = (k) => String(k || '').replace(/(.{4})/g, '$1 ').trim();
@@ -3788,6 +3831,7 @@ function MfaPanel({ me, required, inline, onDone, onLogout, say, info, reload })
         {info && !info.used && <div className="note" style={{ color: 'var(--amber)' }}>هذه الجلسة بدأت قبل التفعيل — سجّل الخروج وادخل بالرمز ليصبح دخولك محميًا.</div>}
         {required ? <div className="note">سياسة المنشأة تُلزم دورك بالتحقق بخطوتين — لا يمكن إلغاؤه.</div> : <>
           <Field label="كلمة السر (لإلغاء التحقق بخطوتين)"><input className="inp" type="password" value={pass} onChange={e => setPass(e.target.value)} /></Field>
+          <Field label="رمز التطبيق الحالي"><input className="inp n" inputMode="numeric" maxLength={6} placeholder="000000" style={{ direction: 'ltr', textAlign: 'center', letterSpacing: 4 }} value={code} onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} /></Field>
           <button className="btn gh" disabled={busy || !pass} onClick={remove}>إلغاء التحقق بخطوتين</button></>}
       </>}
       {(!info || !info.enrolled) && step === 'idle' && <>
@@ -3817,7 +3861,7 @@ function MfaPanel({ me, required, inline, onDone, onLogout, say, info, reload })
 }
 
 function FbGate({ css, theme, fbLogin, fbMfa, fbFirstSetup, notice }) {
-  const [mfa, setMfa] = useState(false); const [code, setCode] = useState('');
+  const [mfa, setMfa] = useState(false); const [code, setCode] = useState(''); const [note, setNote] = useState('');
   const [email, setEmail] = useState(() => { try { return localStorage.getItem('rms8:lastEmail') || ''; } catch { return ''; } });
   const [pass, setPass] = useState('');
   const [err, setErr] = useState('');
@@ -3889,9 +3933,12 @@ function FbGate({ css, theme, fbLogin, fbMfa, fbFirstSetup, notice }) {
             <button className="btn gh" style={{ width: '100%', marginTop: 10 }} onClick={() => { setSetup(s => !s); setErr(''); }}>
               {setup ? 'لديّ حساب — عودة للدخول' : 'الإعداد الأول بعد الترقية (للمالك)'}
             </button>
-            <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 14, lineHeight: 1.7, textAlign: 'center' }}>
-              نسيت كلمة السر؟ اطلب من المدير «إرسال رابط تعيين كلمة السر» من إدارة المستخدمين.
-            </div>
+            {!setup && <button className="btn gh" style={{ width: '100%', marginTop: 10 }} disabled={busy} onClick={async () => {
+              if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return setErr('اكتب بريدك الإلكتروني أولًا ثم اضغط «نسيت كلمة السر؟»');
+              setBusy(true); try { await authApi.resetPass(email); } catch { } setBusy(false);
+              setErr(''); setNote('إن كان البريد مسجّلًا فسيصله رابط تعيين كلمة السر خلال دقائق — تفقّد البريد غير المرغوب أيضًا.');
+            }}><Lock size={14} />نسيت كلمة السر؟</button>}
+            {note && <div style={{ fontSize: 11.5, color: 'var(--mint)', marginTop: 10, lineHeight: 1.7, textAlign: 'center' }}>{note}</div>}
             </>)}
           </div>
         </div>
