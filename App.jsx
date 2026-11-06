@@ -22,7 +22,13 @@ import { cloud, KEYS, kb, authApi, brKey, bfKey } from './storage';
 
 /* ================= أدوات مساعدة عامة ================= */
 const uid = (p) => p + '-' + Math.random().toString(36).slice(2, 9);
-const today = () => new Date().toISOString().slice(0, 10);
+// v29.3: التواريخ بتوقيت الجهاز المحلي (السعودية UTC+3) — toISOString كان يعيد تاريخ UTC
+// فيُرجع «أمس» بين 00:00 و03:00، ويُنقص يومًا من كل تاريخ يُبنى من منتصف الليل المحلي (addDays(d,1) = d)
+const pad2 = (n) => String(n).padStart(2, '0');
+const isoD = (dt) => dt.getFullYear() + '-' + pad2(dt.getMonth() + 1) + '-' + pad2(dt.getDate());
+const today = () => isoD(new Date());
+// يوم العمل للإغلاق: ما قبل 6 صباحًا يخص وردية اليوم السابق (المطاعم تغلق بعد منتصف الليل)
+const businessDay = () => { const d = new Date(); if (d.getHours() < 6) d.setDate(d.getDate() - 1); return isoD(d); };
 const nowISO = () => new Date().toISOString();
 
 /* تجزئة كلمة السر (SHA-256) — لا تُخزَّن كلمة السر كنص صريح */
@@ -921,7 +927,7 @@ function closingInvoices(org, ops) {
       supplierId: supId, supplierName: sp ? sp.name : (e.beneficiaryName || 'مورد'),
       branchId: c.branchId, branchName: c.branchName || '',
       invoiceNo: 'وردية ' + (c.date || ''), categoryName: e.categoryName || 'مشتريات',
-      amount: amt, date: c.date, dueDate: isNaN(due) ? (c.date || '') : due.toISOString().slice(0, 10),
+      amount: amt, date: c.date, dueDate: isNaN(due) ? (c.date || '') : isoD(due),
       closingId: c.id
     });
   }));
@@ -2734,7 +2740,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v29.2 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v29.3 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -3686,10 +3692,16 @@ function computeSmartAlerts(org, ops, myBranches, deficitThreshold = 50) {
   const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
 
   // 1) فروع لم تُغلق بعد موعدها اليوم
+  // v29.3: الوردية التي تنتهي بعد منتصف الليل (قبل 6 ص) تخص يوم العمل السابق — كان التنبيه يفحص إغلاق «اليوم»
+  // فيظهر «تأخّر عن الإغلاق» طوال النهار التالي، ولا يظهر أبدًا في وقته الصحيح بعد منتصف الليل
   myBranches.forEach(b => {
-    const closed = (ops.closings || []).some(c => c.branchId === b.id && c.date === td);
-    if (!closed && b.shiftEndTime) {
-      const [h, m] = b.shiftEndTime.split(':').map(Number);
+    if (!b.shiftEndTime) return;
+    const [h, m] = b.shiftEndTime.split(':').map(Number);
+    const afterMidnight = h < 6, nowH = new Date().getHours();
+    if (afterMidnight && nowH >= 6) return;                       // موعد الليلة لم يأتِ بعد
+    const wd = afterMidnight ? businessDay() : td;
+    const closed = (ops.closings || []).some(c => c.branchId === b.id && c.date === wd);
+    if (!closed) {
       if (nowMin > (h * 60 + m) + 30) {
         alerts.push({ id: 'late-' + b.id, sev: 'high', icon: 'clock',
           title: 'فرع تأخّر عن الإغلاق', msg: `${b.name} تجاوز موعد الإغلاق (${b.shiftEndTime}) ولم يُسجّل إغلاقه بعد.` });
@@ -3698,12 +3710,12 @@ function computeSmartAlerts(org, ops, myBranches, deficitThreshold = 50) {
   });
 
   // 2) عجز صندوق يتجاوز الحد اليوم
-  (ops.closings || []).filter(c => countedClosing(c) && c.date === td && ids.includes(c.branchId) && c.variance < -deficitThreshold)
+  (ops.closings || []).filter(c => countedClosing(c) && c.date === businessDay() && ids.includes(c.branchId) && c.variance < -deficitThreshold)
     .forEach(c => alerts.push({ id: 'def-' + c.id, sev: 'high', icon: 'down',
       title: 'عجز صندوق تجاوز الحد', msg: `${c.branchName}: عجز ${money(c.variance)} ر.س في إغلاق اليوم.` }));
 
   // 3) فواتير موردين تستحق اليوم أو غداً أو متأخرة
-  const tomorrow = new Date(Date.now() + 864e5).toISOString().slice(0, 10);
+  const tomorrow = isoD(new Date(Date.now() + 864e5));
   // المتبقي = القيمة − سداد الرئيسي − سداد الفروع المرتبط (نفس معادلة شاشة الموردين)
   const invBranchPaid = (invId) => sum((ops.closings || []).filter(countedClosing)
     .flatMap(c => (c.supplierPayments || []).filter(pm => pm.invoiceId === invId)), payTotal);
@@ -3837,7 +3849,7 @@ function Notifications({ ops, org, me, myBranches, commit, onClose }) {
 /* ================= لوحة المؤشرات ================= */
 /* ================= طباعة تقارير الفروع اليومية ================= */
 function DailyBranchReport({ org, scoped, myBranches, onClose }) {
-  const [date, setDate] = useState(today());
+  const [date, setDate] = useState(businessDay());
   const [scope, setScope] = useState('all'); // all | one | some
   const [oneBranch, setOneBranch] = useState(myBranches[0]?.id || '');
   const [someIds, setSomeIds] = useState([]);
@@ -4095,7 +4107,7 @@ function Sales({ org, ops, me, myBranches, scoped, setTab, say }) {
 /* ============ الخطوة 1: لوحة مقارنة الفروع الفورية ============ */
 function BranchCompare({ org, ops, me, myBranches, scoped, theme, setTab }) {
   const tn = chartTone(theme);
-  const [day, setDay] = useState(today());
+  const [day, setDay] = useState(businessDay());
 
   const rows = useMemo(() => myBranches.map(b => {
     const c = scoped.closings.find(x => countedClosing(x) && x.branchId === b.id && x.date === day);
@@ -4259,7 +4271,7 @@ function SmartPurchasing({ org, ops, me, commit, commitOrg, say }) {
 
   const bal = {}; moves.forEach(m => { bal[m.itemId] = (bal[m.itemId] || 0) + (Number(m.qty) || 0); });
   const balOf = (id) => Math.round((bal[id] || 0) * 1000) / 1000;
-  const cutoff = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+  const cutoff = isoD(new Date(Date.now() - 30 * 86400000));
   const usage = {}; moves.forEach(m => { if ((Number(m.qty) || 0) < 0 && (m.at || m.date || '').slice(0, 10) >= cutoff) usage[m.itemId] = (usage[m.itemId] || 0) + (-(Number(m.qty) || 0)); });
   const lastPrice = {}; (ops.purchaseOrders || []).forEach(po => (po.lines || []).forEach(l => { if (l.itemId && (Number(l.price) || 0) > 0) lastPrice[l.itemId] = Number(l.price); }));
 
@@ -4374,7 +4386,7 @@ function CashFlow13({ org, ops, me, scoped, theme, commitOrg, say }) {
 
   const cash0 = r2(sum(A.accounts.filter(a => a.cash), a => a.balance));
   const counted = scoped.closings.filter(countedClosing);
-  const cutoff = new Date(Date.now() - 56 * 86400000).toISOString().slice(0, 10);
+  const cutoff = isoD(new Date(Date.now() - 56 * 86400000));
   const recent = counted.filter(c => (c.date || '') >= cutoff);
   const wkRevDef = recent.length ? r2(sum(recent, c => c.totalRevenue || 0) / 8) : 0;
   const wkExpDef = recent.length ? r2(sum(recent, c => c.totalExpenses || 0) / 8) : 0;
@@ -5280,7 +5292,7 @@ function EntitiesCenter({ org, ops, me, myBranches, scoped, commitOrg, say }) {
   const tot = { nb: sum(rows, r => r.nb), rev: r2(sum(rows, r => r.rev)), exp: r2(sum(rows, r => r.exp)), net: r2(sum(rows, r => r.net)) };
 
   const preset = (kind) => {
-    const d = new Date(), y = d.getFullYear(), m = d.getMonth(), iso = (dt) => dt.toISOString().slice(0, 10);
+    const d = new Date(), y = d.getFullYear(), m = d.getMonth(), iso = (dt) => isoD(dt);
     if (kind === 'month') { setFrom(iso(new Date(y, m, 1))); setTo(iso(new Date(y, m + 1, 0))); }
     else if (kind === 'year') { setFrom(y + '-01-01'); setTo(y + '-12-31'); }
     else { setFrom(''); setTo(''); }
@@ -5517,7 +5529,7 @@ function ReportBuilder({ org, ops, me, myBranches, scoped, commitOrg, say, theme
   const totals = {}; visCols.forEach(c => { if (c.num) totals[c.k] = r2(sum(rows, r => r[c.k] || 0)); });
 
   const preset = (kind) => {
-    const d = new Date(), y = d.getFullYear(), m = d.getMonth(), iso = (dt) => dt.toISOString().slice(0, 10);
+    const d = new Date(), y = d.getFullYear(), m = d.getMonth(), iso = (dt) => isoD(dt);
     if (kind === 'month') set({ from: iso(new Date(y, m, 1)), to: iso(new Date(y, m + 1, 0)) });
     else if (kind === 'quarter') { const qs = Math.floor(m / 3) * 3; set({ from: iso(new Date(y, qs, 1)), to: iso(new Date(y, qs + 3, 0)) }); }
     else if (kind === 'year') set({ from: y + '-01-01', to: y + '-12-31' });
@@ -5811,7 +5823,8 @@ function ExecDashboard({ org, ops, me, myBranches, scoped, setTab, openAcctView,
 
   const stockBal = {}; (ops.stockMoves || []).forEach(m => { stockBal[m.itemId] = (stockBal[m.itemId] || 0) + (Number(m.qty) || 0); });
   const lowStock = (org.items || []).filter(it => (Number(it.minQty) || 0) > 0 && (stockBal[it.id] || 0) < (Number(it.minQty) || 0));
-  const deficitsToday = counted.filter(c => c.date === td && (c.variance || 0) < 0).length;
+  const bdT = businessDay();
+  const deficitsToday = counted.filter(c => c.date === bdT && (c.variance || 0) < 0).length;
 
   const alerts = [];
   if (tot90 > 0.004) alerts.push({ sev: 'high', txt: 'ذمم موردين متأخرة أكثر من 90 يومًا: ' + money(tot90), go: () => goAcct('apage') });
@@ -6040,8 +6053,8 @@ function AlertsCenter({ org, ops, me, myBranches, scoped, setTab, openAcctView, 
     const pendTr = (ops.branchTransferRequests || []).filter(r => hrIds.includes(r.branchId) && r.status === 'pending').length;
     if (pendSw + pendTr) push('mid', 'hr', (pendSw ? pendSw + ' طلب تبديل وردية' : '') + (pendSw && pendTr ? ' و' : '') + (pendTr ? pendTr + ' طلب نقل موظف' : '') + ' بانتظار البتّ', 'راجعها في محرّك الورديات.', { label: 'محرّك الورديات', go: () => setTab('shiftengine') });
     // ورديات بلا تغطية غدًا (م٤)
-    const tmr = new Date(td + 'T00:00:00'); tmr.setDate(tmr.getDate() + 1); const tds = tmr.toISOString().slice(0, 10); const twd = tmr.getDay();
-    const addD = (ds, n) => { const d = new Date(ds + 'T00:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+    const tmr = new Date(td + 'T00:00:00'); tmr.setDate(tmr.getDate() + 1); const tds = isoD(tmr); const twd = tmr.getDay();
+    const addD = (ds, n) => { const d = new Date(ds + 'T00:00:00'); d.setDate(d.getDate() + n); return isoD(d); };
     const uncovered = [];
     hrBranches.forEach(b => {
       (ops.shiftTemplates || []).filter(t => t.branchId === b.id && (t.days || []).includes(twd)).forEach(t => {
@@ -6183,7 +6196,7 @@ function Dashboard({ org, ops, pulse, me, myBranches, scoped, online, setTab, th
 
   const cls = scoped.closings.filter(countedClosing);
   const from = new Date(); from.setDate(from.getDate() - days);
-  const fromS = from.toISOString().slice(0, 10);
+  const fromS = isoD(from);
   const win = cls.filter(c => c.date >= fromS);
 
   const rev = sum(win, c => c.totalRevenue);
@@ -6218,7 +6231,7 @@ function Dashboard({ org, ops, pulse, me, myBranches, scoped, online, setTab, th
   const chTotal = sum(channels, c => c.v) || 1;
 
   const pendingT = scoped.transfers.filter(t => t.status === 'pending');
-  const missing = myBranches.filter(b => !cls.some(c => c.date === today() && c.branchId === b.id));
+  const missing = myBranches.filter(b => !cls.some(c => c.date === businessDay() && c.branchId === b.id));
   const audit = (pulse.audit || []).slice(0, 8);
 
   return (
@@ -6390,7 +6403,7 @@ function Closing({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
     // v15.26/v15.27: قيْد «اليوم فقط» (الكاشير) لا يحجب ما ينتظر عمله — المسودات غير المكتملة
     // والمرفوضات المعادة للتصحيح تظهر دائماً مهما كان تاريخها، بينما السجل المرحّل/المعتمد
     // يبقى لليوم الحالي فقط (منع تصفّح تاريخ المبيعات).
-    .filter(c => !ROLES[me.role]?.todayOnly || c.date === today() || c.status === 'draft' || c.status === 'rejected')
+    .filter(c => !ROLES[me.role]?.todayOnly || c.date === today() || c.date === businessDay() || c.status === 'draft' || c.status === 'rejected')
     .filter(c => st === 'all' || c.status === st)
     .filter(c => bid === 'all' || c.branchId === bid)
     .filter(c => !fromD || c.date >= fromD)
@@ -6571,7 +6584,7 @@ function normalizeSupPays(arr) {
 
 export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say, onClose, onStartNew, existing = [], invoices = [], branchPartners = [] }) {
   const [f, setF] = useState(() => initial ? { ...initial, supplierPayments: normalizeSupPays(initial.supplierPayments) } : {
-    date: today(), branchId: branches[0]?.id || '',
+    date: businessDay(), branchId: branches[0]?.id || '',
     openingBalance: branches[0]?.defaultFloat || 0,
     cashSales: 0, cardSales: 0, bankTransferSales: 0,
     deliverySales: (org.deliveryApps || APPS).map(a => ({ appId: a.id, appName: a.n, amount: 0, orderCount: 0, commissionPercentage: a.c })),
@@ -6773,7 +6786,7 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
     // النافذة مفتوحة ببياناتها كاملة ليعيد المستخدم المحاولة (رسالة الخطأ يعرضها commit).
     const okSave = await commit(d => {
       // سياسة الاحتفاظ: بعد 60 يومًا تُنظَّف الصور من سجل الإغلاق (تبقى نسخها في أرشيف المستندات) لكبح تضخم التخزين
-      const cutoff = new Date(Date.now() - 60 * 864e5).toISOString().slice(0, 10);
+      const cutoff = isoD(new Date(Date.now() - 60 * 864e5));
       const pruneImgs = (c) => {
         if (c.imagesPruned || !c.date || c.date >= cutoff || c.status === 'draft') return c;
         if (!c.sessionPhoto && !(c.sessionPhotos || []).length && !c.cardReceiptImage && !(c.expenses || []).some(e => e.receiptImage)) return c;
@@ -9701,7 +9714,7 @@ function ShiftEngine({ org, ops, me, myBranches, commitOrg, commit, say }) {
   const emps = (org.employees || []).filter(e => e.isActive !== false && branch && e.branchId === branch.id);
   const templates = (ops.shiftTemplates || []).filter(t => branch && t.branchId === branch.id);
 
-  const addDays = (ds, n) => { const d = new Date(ds + 'T00:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+  const addDays = (ds, n) => { const d = new Date(ds + 'T00:00:00'); d.setDate(d.getDate() + n); return isoD(d); };
   const weekdayOf = (ds) => new Date(ds + 'T00:00:00').getDay();
   const dNm = (ds) => new Date(ds + 'T00:00:00').toLocaleDateString('ar', { weekday: 'short' });
   const dDay = (ds) => new Date(ds + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' });
@@ -10204,7 +10217,7 @@ function Tasks({ org, ops, me, myBranches, commit, say }) {
   const [repTo, setRepTo] = useState(today());
   const dateRange = () => {
     const arr = []; let d = repFrom;
-    while (d <= repTo && arr.length < 62) { arr.push(d); const nd = new Date(d + 'T00:00:00'); nd.setDate(nd.getDate() + 1); d = nd.toISOString().slice(0, 10); }
+    while (d <= repTo && arr.length < 62) { arr.push(d); const nd = new Date(d + 'T00:00:00'); nd.setDate(nd.getDate() + 1); d = isoD(nd); }
     return arr;
   };
   const dates = dateRange();
@@ -10476,7 +10489,7 @@ function PointsLedger({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const branchIds = branches.map(b => b.id);
   const emps = (org.employees || []).filter(e => e.isActive !== false && branch && e.branchId === branch.id);
 
-  const addDays = (ds, n) => { const d = new Date(ds + 'T00:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+  const addDays = (ds, n) => { const d = new Date(ds + 'T00:00:00'); d.setDate(d.getDate() + n); return isoD(d); };
   const parseHM = (t) => { const [h, m] = String(t || '00:00').split(':').map(Number); return (h || 0) * 60 + (m || 0); };
   const [ym, setYm] = useState(() => today().slice(0, 7));
   const monthFrom = ym + '-01';
@@ -10744,7 +10757,7 @@ function hrEmpStats(org, ops, emp, from, to) {
   const rules = { ...defaultPointsRules(), ...(org.pointsRules || {}) };
   const td = today();
   const cap = to < td ? to : td;
-  const addDays = (ds, n) => { const d = new Date(ds + 'T00:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+  const addDays = (ds, n) => { const d = new Date(ds + 'T00:00:00'); d.setDate(d.getDate() + n); return isoD(d); };
   const parseHM = (t) => { const [h, m] = String(t || '00:00').split(':').map(Number); return (h || 0) * 60 + (m || 0); };
   const s = { onTime: 0, late: 0, absent: 0, tasksExpected: 0, tasksDone: 0, manualPts: 0, manualCount: 0, autoPts: 0 };
   (ops.shiftAssignments || []).filter(a => a.empId === emp.id).forEach(a => {
@@ -11386,7 +11399,7 @@ function suggestNextLevel(schedule, code, priorCount) {
   const idx = Math.min(Number(priorCount) || 0, item.ladder.length - 1);
   return { ...item.ladder[idx], overflow: (Number(priorCount) || 0) >= item.ladder.length, title: item.title, category: item.category };
 }
-const correctiveExpiry = (dateStr, eraseDays) => { const d = new Date((dateStr || today()) + 'T00:00:00'); d.setDate(d.getDate() + (Number(eraseDays) || 180)); return d.toISOString().slice(0, 10); };
+const correctiveExpiry = (dateStr, eraseDays) => { const d = new Date((dateStr || today()) + 'T00:00:00'); d.setDate(d.getDate() + (Number(eraseDays) || 180)); return isoD(d); };
 const dailyWageOf = (base) => (Number(base) || 0) / 30;   // أجر اليوم = الأساسي ÷ ٣٠ (نظام العمل)
 // الغرامة المقترحة بحدّ نظام العمل: fineDays أيام أجر، بحيث لا يتجاوز مجموع غرامات الشهر السقف
 function fineSuggest(base, fineDays, capDays, priorFineDaysThisMonth) {
@@ -11561,7 +11574,7 @@ function Corrective({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const [pf, setPf] = useState(null);   // نموذج فتح PIP للموظف المحدَّد
   const openPipForm = (e, sc) => {
     const end = new Date(td + 'T00:00:00'); end.setDate(end.getDate() + 30);
-    setPf({ empId: e.id, empName: e.name, reason: sc != null ? ('درجة الأداء ' + sc + '/100 دون العتبة ' + pipThreshold) : 'قرار إداري', triggerScore: sc, mentorName: '', startAt: td, endAt: end.toISOString().slice(0, 10), objectives: [{ text: '', metric: '', target: '' }] });
+    setPf({ empId: e.id, empName: e.name, reason: sc != null ? ('درجة الأداء ' + sc + '/100 دون العتبة ' + pipThreshold) : 'قرار إداري', triggerScore: sc, mentorName: '', startAt: td, endAt: isoD(end), objectives: [{ text: '', metric: '', target: '' }] });
   };
   const savePip = async () => {
     if (!pf || !branch) return;
@@ -11871,7 +11884,7 @@ const TRAIN_STATUS_AR = { planned: 'مجدول', in_progress: 'جارٍ', comple
 function addMonthsStr(dateStr, months) {
   if (!dateStr) return '';
   const [Y, M, D] = dateStr.split('-').map(Number); const d = new Date(Y, (M - 1) + (Number(months) || 0), D || 1);
-  return d.toISOString().slice(0, 10);
+  return isoD(d);
 }
 const trainingExpiryOf = (completedDate, validityMonths) => (!completedDate || !(Number(validityMonths) > 0)) ? '' : addMonthsStr(completedDate, validityMonths);
 // الحالة الفعلية الآن: مكتمل بشهادة منتهية ⇒ 'expired'
@@ -11900,7 +11913,7 @@ function missingRequiredTraining(programs, records, emp, todayStr) {
 // سجلات مكتملة تنتهي خلال days (أو منتهية) — للتنبيهات والمصفوفة
 function expiringTraining(records, days, todayStr) {
   const td = todayStr || today(); const lim = addMonthsStr(td, 0);
-  const cutoff = (() => { const d = new Date(td + 'T00:00:00'); d.setDate(d.getDate() + (Number(days) || 0)); return d.toISOString().slice(0, 10); })();
+  const cutoff = (() => { const d = new Date(td + 'T00:00:00'); d.setDate(d.getDate() + (Number(days) || 0)); return isoD(d); })();
   void lim;
   return (records || []).filter(r => r.status === 'completed' && r.expiryDate && r.expiryDate <= cutoff);
 }
@@ -11977,7 +11990,7 @@ function Training({ org, ops, me, myBranches, commit, commitOrg, say }) {
     const rec = activeTrainingRecord(ops.hrTraining || [], emp.id, prog.id, td);
     if (!rec) return { t: 'missing', ar: 'مفقود', cls: 'b-rose' };
     if (rec.expiryDate) {
-      const soon = (() => { const d = new Date(td + 'T00:00:00'); d.setDate(d.getDate() + alertDays); return rec.expiryDate <= d.toISOString().slice(0, 10); })();
+      const soon = (() => { const d = new Date(td + 'T00:00:00'); d.setDate(d.getDate() + alertDays); return rec.expiryDate <= isoD(d); })();
       if (soon) return { t: 'soon', ar: 'ينتهي ' + rec.expiryDate, cls: 'b-amber' };
       return { t: 'ok', ar: 'ساري حتى ' + rec.expiryDate, cls: 'b-mint' };
     }
@@ -12458,7 +12471,7 @@ function hrAttendanceDetail(org, ops, emp, from, to) {
   const policies = { ...defaultHrPolicies(), ...(org.hrPolicies || {}) };
   const tolerance = Number(policies.lateToleranceMinutes) || 0;
   const td = today(); const cap = to < td ? to : td;
-  const addDays = (ds, n) => { const d = new Date(ds + 'T00:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+  const addDays = (ds, n) => { const d = new Date(ds + 'T00:00:00'); d.setDate(d.getDate() + n); return isoD(d); };
   const parseHM = (t) => { const [h, m] = String(t || '00:00').split(':').map(Number); return (h || 0) * 60 + (m || 0); };
   const s = { scheduled: 0, present: 0, onTime: 0, late: 0, lateMinutes: 0, absent: 0, early: 0, earlyMinutes: 0, noCheckout: 0, unscheduledIns: 0,
     // v27.4 — حضور فعلي بلا اعتماد على الجدولة (يعمل حتى بلا ورديات مُعيَّنة)
@@ -12819,7 +12832,7 @@ function overdueSignDocs(org, ops, branchIds, todayStr) {
   const pol = (org || {}).hrPolicies || {};
   const days = Math.max(0, Number(pol.signReminderDays != null ? pol.signReminderDays : defaultHrPolicies().signReminderDays) || 0);
   const d = new Date((todayStr || today()) + 'T00:00:00'); d.setDate(d.getDate() - days);
-  const cutoff = d.toISOString().slice(0, 10);
+  const cutoff = isoD(d);
   return ((ops || {}).hrSignDocs || []).filter(x => x.status === 'pending' && (branchIds || []).includes(x.branchId) && (x.issuedAt || '').slice(0, 10) <= cutoff);
 }
 // كتلة التوقيع للطباعة (قسيمة الراتب، المسير، الإقرار)
@@ -13278,7 +13291,7 @@ function Reports({ org, ops, me, myBranches, scoped, say, theme }) {
   const tn = chartTone(theme);
   const [mode, setMode] = useState('ops');
   const d30 = new Date(); d30.setDate(d30.getDate() - 29);
-  const [from, setFrom] = useState(d30.toISOString().slice(0, 10));
+  const [from, setFrom] = useState(isoD(d30));
   const [to, setTo] = useState(today());
   const [bid, setBid] = useState('all');
 
@@ -16491,7 +16504,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const setQuarter = () => {
     const d = new Date(); const qs = Math.floor(d.getMonth() / 3) * 3;
     const f = new Date(d.getFullYear(), qs, 1), t = new Date(d.getFullYear(), qs + 3, 0);
-    setFrom(f.toISOString().slice(0, 10)); setTo(t.toISOString().slice(0, 10));
+    setFrom(isoD(f)); setTo(isoD(t));
   };
   const saveTax = async (next, title, details) => {
     if (lockedThru(org)) return say('توجد فترات مقفلة حتى ' + lockedThru(org) + ' — تغيير الضريبة يعيد احتساب قيودها؛ افتح الإقفال أولًا', 'no');
@@ -16651,7 +16664,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const clrAcc = posClrOf(brAcc);
   const clrBal = (() => { const a = A.accounts.find(x => x.code === clrAcc); return a ? Math.round(a.balance * 100) / 100 : 0; })();
   const canEditMe = capOK(me?.role, 'edit');
-  const [pcF, setPcF] = useState(() => ({ enabled: !!pcCfgUi.enabled, from: pcCfgUi.from || new Date().toISOString().slice(0, 7) }));
+  const [pcF, setPcF] = useState(() => ({ enabled: !!pcCfgUi.enabled, from: pcCfgUi.from || isoD(new Date()).slice(0, 7) }));
   const savePc = async () => {
     if (pcF.enabled && !pcF.from) return say('حدد الشهر الذي يسري منه الوسيط', 'no');
     const ok = await commitOrg(d => ({ ...d, posClearing: { enabled: !!pcF.enabled, from: pcF.from } }), {
@@ -16663,7 +16676,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   };
 
   const [stF, setStF] = useState(null);        // {name, grid, map} — الكشف المرفوع وخريطته
-  const [stMonth, setStMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [stMonth, setStMonth] = useState(() => isoD(new Date()).slice(0, 7));
   const [stMatch, setStMatch] = useState(null); // نتيجة المطابقة
   const stPick = async (e) => {
     const f = e.target.files?.[0]; e.target.value = '';
@@ -16745,7 +16758,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const plCfg = org.periodLocks || {};
   const plLog = plCfg.log || [];
   const canLock = !!ROLES[me?.role]?.admin;
-  const prevYm = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); })();
+  const prevYm = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return isoD(d).slice(0, 7); })();
   const lockChecks = (m) => {
     const end = m + '-31';
     const cls = (ops.closings || []).filter(c => (c.date || '') <= end);
@@ -19707,7 +19720,7 @@ function AiCenter({ org, ops, me, myBranches, scoped, say, setTab }) {
 
   const digest = useMemo(() => {
     const from = new Date(); from.setDate(from.getDate() - days);
-    const fs = from.toISOString().slice(0, 10);
+    const fs = isoD(from);
     const win = scoped.closings.filter(c => countedClosing(c) && c.date >= fs);
     const perBranch = myBranches.map(b => {
       const bc = win.filter(c => c.branchId === b.id);
@@ -19958,7 +19971,7 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
     })();
   }, []);
 
-  const cutoff = (() => { const d = new Date(); d.setDate(d.getDate() - 90); return d.toISOString().slice(0, 10); })();
+  const cutoff = (() => { const d = new Date(); d.setDate(d.getDate() - 90); return isoD(d); })();
   const oldOnes = (ops.closings || []).filter(x => x.date < cutoff);
 
   const archiveOld = async () => {
@@ -20844,7 +20857,7 @@ function Workforce({ org, ops, me, myBranches, scoped, commit, commitOrg, say })
   const grossOf = (e) => r2((e.baseSalary || 0) + (e.housingAllowance || 0) + (e.transportAllowance || 0) + (e.otherAllowance || 0));
   const rateOf = (e) => stdH > 0 ? grossOf(e) / stdH : 0;
 
-  const addDays = (ds, n) => { const d = new Date(ds + 'T00:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+  const addDays = (ds, n) => { const d = new Date(ds + 'T00:00:00'); d.setDate(d.getDate() + n); return isoD(d); };
   const [weekStart, setWeekStart] = useState(() => addDays(today(), -6));   // آخر ٧ أيام حتى اليوم (بيانات مبيعات حقيقية)
   const [mode, setMode] = useState('plan');     // plan | actual
   const [draft, setDraft] = useState({});        // { empId: { plan:[7], actual:[7] } }
@@ -21069,7 +21082,7 @@ function Shifts({ org, ops, me, myBranches, commitOrg, say }) {
     // الورديات التي تنتهي بعد منتصف الليل تخص يوم العمل السابق
     if (h < 6 && now.getHours() >= 6) dl.setDate(dl.getDate() + 1);
     const mins = Math.round((dl - now) / 60000);
-    const workDay = h < 6 ? new Date(dl.getTime() - 86400000).toISOString().slice(0, 10) : dl.toISOString().slice(0, 10);
+    const workDay = h < 6 ? isoD(new Date(dl.getTime() - 86400000)) : isoD(dl);
     const done = (ops.closings || []).some(c => c.branchId === b.id && c.date === workDay && countedClosing(c));
     const warn = mins <= (b.reminderBeforeMinutes || 30) && mins > 0;
     return { dl, mins, done, warn, late: mins < 0 && !done, workDay };
@@ -22868,7 +22881,7 @@ function qrPrintReport({ org, fb, brs, days, sel, nb, say }) {
   const co = org.company || {};
   const e = escH;
   const f1 = (n) => (Number.isFinite(n) && n > 0 ? n.toFixed(1) : '—');
-  const iso = (ms) => new Date(ms).toISOString().slice(0, 10);
+  const iso = (ms) => isoD(new Date(ms));
   const to = Date.now(), from = to - days * 864e5;
   const complaints = fb.filter(qrIsComplaint).sort((a, b) => qrMs(b.createdAt) - qrMs(a.createdAt));
   const open = complaints.filter(c => qrStatusOf(c) !== 'resolved');
