@@ -3357,7 +3357,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v31.9 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v31.10 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -3840,7 +3840,8 @@ function MfaPanel({ me, required, inline, onDone, onLogout, say, info, reload })
         <button className="btn pri" disabled={busy || !pass} onClick={start}>{busy ? <RefreshCw size={14} className="spin" /> : <ShieldCheck size={14} />}بدء التفعيل</button>
       </>}
       {step === 'verify' && <>
-        <div className="note">يتطلب التحقق بخطوتين بريدًا موثّقًا. أرسل رابط التوثيق إلى <b>{me.email}</b>، افتحه من بريدك، ثم اضغط «تحققت».</div>
+        <div className="note">يتطلب التحقق بخطوتين بريدًا موثّقًا. أرسل رابط التوثيق إلى <b>{me.email}</b>، افتحه من بريدك، ثم اضغط «تحققت».
+          <div style={{ marginTop: 6 }}>💡 إن لم تجد الرسالة فابحث في <b>البريد غير المرغوب فيه</b>. هناك يعطّل البريد الروابط — اضغط «ليست رسالة مزعجة» لتنتقل إلى الوارد فيعمل الرابط، أو انسخ الرابط كاملًا والصقه في المتصفح.</div></div>
         <div className="row" style={{ gap: 8 }}><button className="btn" disabled={busy} onClick={sendV}>إرسال رابط التوثيق</button><button className="btn pri" disabled={busy} onClick={checkV}>تحققت — متابعة</button></div>
       </>}
       {step === 'scan' && sec && <>
@@ -3936,7 +3937,7 @@ function FbGate({ css, theme, fbLogin, fbMfa, fbFirstSetup, notice }) {
             {!setup && <button className="btn gh" style={{ width: '100%', marginTop: 10 }} disabled={busy} onClick={async () => {
               if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return setErr('اكتب بريدك الإلكتروني أولًا ثم اضغط «نسيت كلمة السر؟»');
               setBusy(true); try { await authApi.resetPass(email); } catch { } setBusy(false);
-              setErr(''); setNote('إن كان البريد مسجّلًا فسيصله رابط تعيين كلمة السر خلال دقائق — تفقّد البريد غير المرغوب أيضًا.');
+              setErr(''); setNote('إن كان البريد مسجّلًا فسيصله رابط تعيين كلمة السر خلال دقائق. إن وجدته في البريد غير المرغوب فيه فاضغط «ليست رسالة مزعجة» ليعمل الرابط، أو انسخه والصقه في المتصفح.');
             }}><Lock size={14} />نسيت كلمة السر؟</button>}
             {note && <div style={{ fontSize: 11.5, color: 'var(--mint)', marginTop: 10, lineHeight: 1.7, textAlign: 'center' }}>{note}</div>}
             </>)}

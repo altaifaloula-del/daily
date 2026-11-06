@@ -121,6 +121,10 @@ async function firestore() {
 /* ================= المصادقة الحقيقية (بريد + كلمة سر لكل مستخدم) ================= */
 // v31.3 — التحقق بخطوتين (TOTP عبر تطبيق المصادقة): يفرضه Firebase نفسه بعد التسجيل — كلمة السر وحدها لا تكفي
 let mfaResolver = null, mfaSecret = null;
+// v31.10 — رسائل المصادقة (توثيق البريد/تعيين كلمة السر) بالعربية، ورابط عودة للمنصة بعد إتمام الإجراء
+function arMail(m) { try { m.a.languageCode = 'ar'; } catch { } }
+function backUrl() { try { return location.origin + location.pathname; } catch { return undefined; } }
+const actSettings = () => { const url = backUrl(); return url && /^https:\/\//.test(url) ? { url, handleCodeInApp: false } : undefined; };
 const mfaErr = (code) => { const e = new Error(code); e.code = code; return e; };
 async function reauthIf(m, u, pass, code) {
   if (!pass) return;
@@ -209,7 +213,9 @@ export const authApi = {
   },
 
   /** التسجيل يتطلب بريدًا موثّقًا: إرسال رابط التوثيق ثم التحقق بعد فتحه */
-  async sendVerify() { const m = await fbAuthMod(); const u = await authedUser(); if (!m || !u) return false; await m.A.sendEmailVerification(u); return true; },
+  async sendVerify() { const m = await fbAuthMod(); const u = await authedUser(); if (!m || !u) return false; arMail(m);
+    try { await m.A.sendEmailVerification(u, actSettings()); } catch (e) { if (String(e && e.code).includes('unauthorized-continue-uri') || String(e && e.code).includes('invalid-continue-uri')) await m.A.sendEmailVerification(u); else throw e; }
+    return true; },
   async emailVerified() { const u = await authedUser(); if (!u) return false; try { await u.reload(); } catch { } return !!u.emailVerified; },
 
   /** سياسة الإلزام (platform/security) — تقرؤها قواعد الأمان أيضًا فتُفرض على الخادم */
@@ -248,7 +254,9 @@ export const authApi = {
 
   async resetPass(email) {
     const m = await fbAuthMod(); if (!m) throw new Error('no-firebase');
-    await m.A.sendPasswordResetEmail(m.a, (email || '').trim());
+    arMail(m);
+    try { await m.A.sendPasswordResetEmail(m.a, (email || '').trim(), actSettings()); }
+    catch (e) { if (String(e && e.code).includes('continue-uri')) await m.A.sendPasswordResetEmail(m.a, (email || '').trim()); else throw e; }
   },
 
   /** إنشاء حساب مصادقة لموظف جديد دون إسقاط جلسة المدير (تطبيق ثانوي مؤقت) */
