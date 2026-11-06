@@ -2804,7 +2804,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v29.6 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v29.8 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -14467,6 +14467,41 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const outstanding = sum(invoices, invRem) + sum(clInvs, cRem);
   const overdue = allInvs.filter(i => remOf(i) > 0 && i.dueDate < today());
 
+  // v29.7: بحث في الفواتير (آلاف الفواتير المستوردة كانت تُعرض كلها دفعة واحدة بلا بحث)
+  const [invQ, setInvQ] = useState('');
+  const INV_CAP = 300;
+  const invShown = (() => {
+    const q = invQ.trim().toLowerCase();
+    const list = q ? allInvs.filter(i => (String(i.invoiceNo || '') + ' ' + (i.supplierName || '') + ' ' + (i.mizanId || '')).toLowerCase().includes(q)) : allInvs;
+    return { list: list.slice(0, INV_CAP), total: list.length };
+  })();
+
+  // v29.7: حذف فاتورة مورد مفردة (مكررة أو مستوردة خطأً) — كان الحذف متاحًا فقط لدفعة استيراد كاملة.
+  // ضوابط: صلاحية التعديل، لا سداد مسجّل عليها من المنصة، ليست في شهر مقفل، تأكيد بكتابة رقمها، وسجل تدقيق بنسخة منها.
+  // السدادات البنكية الموزّعة عليها (alloc) تنتقل لتوأمها (نفس المورد والتاريخ والمبلغ) إن وُجد، وإلا تبقى على المورد غير موزّعة.
+  const canDelInv = roleEdit(me.role);
+  const delInv = async (inv) => {
+    if (!canDelInv) return say('حذف الفواتير لمن يملك صلاحية التعديل فقط', 'no');
+    if ((inv.paidAmount || 0) > 0 || branchPaid(inv.id) > 0) return say('على الفاتورة سداد مسجّل من المنصة — لا تُحذف. صحّحها بإشعار دائن أو قيد يدوي', 'no');
+    const d0 = (inv.date || inv.createdAt || inv.dueDate || '').slice(0, 10);
+    if (periodLocked(org, d0)) return say(LOCK_MSG(d0), 'no');
+    const twin = invoices.find(x => x.id !== inv.id && x.supplierId === inv.supplierId && (x.date || '').slice(0, 10) === d0 && Math.abs((x.amount || 0) - (inv.amount || 0)) < 0.005);
+    const typed = window.prompt('حذف فاتورة ' + (inv.invoiceNo || '') + ' — ' + (inv.supplierName || '') + ' بمبلغ ' + money(inv.amount) + ' بتاريخ ' + d0
+      + (twin ? '\nتوأمها المطابق: ' + (twin.invoiceNo || '') + ' (تنتقل إليه السدادات الموزّعة على هذه)' : '\nلا توجد فاتورة مطابقة لنفس المورد والتاريخ والمبلغ')
+      + '\n\nللتأكيد اكتب رقم الفاتورة: ' + (inv.invoiceNo || ''));
+    if ((typed || '').trim() !== String(inv.invoiceNo || '').trim()) return say('أُلغي الحذف — لم يتغير شيء', 'no');
+    const snapshot = JSON.stringify({ id: inv.id, invoiceNo: inv.invoiceNo, supplierName: inv.supplierName, amount: inv.amount, vatAmt: inv.vatAmt, date: d0, mizanId: inv.mizanId || '', mizanBatch: inv.mizanBatch || '' });
+    const ok = await commit(d => ({
+      ...d,
+      invoices: (d.invoices || []).filter(x => x.id !== inv.id),
+      closingInvPays: (d.closingInvPays || []).map(p => Array.isArray(p.alloc) && p.alloc.some(([id]) => id === inv.id)
+        ? { ...p, alloc: twin ? p.alloc.map(([id, v]) => [id === inv.id ? twin.id : id, v]) : p.alloc.filter(([id]) => id !== inv.id) }
+        : p)
+    }), { actionType: 'delete', targetType: 'expense', targetId: inv.id, need: 'edit', branchName: inv.branchName || '',
+      title: 'حذف فاتورة مورد', details: snapshot });
+    if (ok) say('حُذفت الفاتورة ' + (inv.invoiceNo || '') + (twin ? ' ونُقلت سداداتها الموزّعة إلى ' + (twin.invoiceNo || '') : '') + ' ✓');
+  };
+
   // ===== م٤: أوامر الشراء والفواتير =====
   const pos = (ops.purchaseOrders || []).sort((a, b) => (b.at || '').localeCompare(a.at || ''));
   const items = org.items || [];
@@ -14654,15 +14689,17 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
 
       {tab === 'inv' && (
         <div className="card">
-          <div className="row" style={{ justifyContent: 'flex-end', marginBottom: 8 }}>
+          <div className="row" style={{ justifyContent: 'space-between', marginBottom: 8, gap: 8, flexWrap: 'wrap' }}>
+            <input className="inp" style={{ maxWidth: 320 }} placeholder="بحث برقم الفاتورة أو اسم المورد…" value={invQ} onChange={e => setInvQ(e.target.value)} />
             <button className="btn sm" onClick={printInvs}><Printer size={13} />طباعة الفواتير المفتوحة</button>
           </div>
+          {invShown.total > invShown.list.length && <div className="note" style={{ marginBottom: 8, fontSize: 12 }}>يُعرض أول {invShown.list.length} من {invShown.total} فاتورة — استخدم البحث للوصول لفاتورة محددة.</div>}
           <div className="tw">
             <table className="tb">
               <thead><tr><th>الفاتورة</th><th>المورد</th><th>الفرع</th><th>الاستحقاق</th><th>المهلة</th>
                 <th>القيمة</th><th>المسدد</th><th>المتبقي</th><th>الحالة</th><th></th></tr></thead>
               <tbody>
-                {allInvs.map(i => {
+                {invShown.list.map(i => {
                   const bp = i.source === 'closing' ? 0 : branchPaid(i.id);
                   const rem = remOf(i);
                   const late = rem > 0 && i.dueDate < today();
@@ -14688,11 +14725,13 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
                       <td className="num" style={{ color: rem > 0 ? 'var(--amber)' : 'var(--faint)', fontWeight: 600 }}>{money(rem)}</td>
                       <td><span className={'badge ' + (rem <= 0 ? 'b-mint' : late ? 'b-rose' : 'b-amber')}>
                         {rem <= 0 ? 'مسددة' : late ? 'متأخرة' : 'قيد السداد'}</span></td>
-                      <td>{rem > 0 && canPay &&
-                        <button className="btn sm" onClick={() => { setPay(i); setAmt(rem); }}>سداد</button>}</td>
+                      <td style={{ whiteSpace: 'nowrap' }}>{rem > 0 && canPay &&
+                        <button className="btn sm" onClick={() => { setPay(i); setAmt(rem); }}>سداد</button>}
+                        {i.source === 'stored' && canDelInv && <button className="btn sm gh" title="حذف فاتورة مكررة أو مستوردة خطأً" style={{ color: 'var(--rose)', marginInlineStart: 4 }} onClick={() => delInv(i)}><Trash2 size={12} /></button>}</td>
                     </tr>
                   );
                 })}
+                {invShown.total === 0 && invQ.trim() && <tr><td colSpan={10}><div className="empty">لا فاتورة تطابق «{invQ}»</div></td></tr>}
                 {allInvs.length === 0 && <tr><td colSpan={10}><div className="empty">لا فواتير آجلة — المشتريات الآجلة المربوطة بموردين في الورديات ستظهر هنا تلقائياً.</div></td></tr>}
               </tbody>
             </table>
@@ -20146,6 +20185,79 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
     }
   };
 
+  // v29.8 — حذف كل البيانات المحاسبية (لمسؤول النظام فقط) تمهيدًا لإعادة الرفع من جديد:
+  //   الإغلاقات وتوريداتها وتنبيهاتها وصورها · فواتير الموردين · السدادات · القيود اليدوية والمستوردة ·
+  //   أوامر الصرف · تسويات التطبيقات · التسويات البنكية · الأرصدة الافتتاحية · قيد إقفال السنة · دفعات ميزان (تُعلَّم ملغاة).
+  //   الرواتب والسلف اختيارية. يبقى: الشركة والفروع والمستخدمون والموظفون والموردون ودليل الحسابات والأصول والمخزون والإعدادات.
+  const [acWipe, setAcWipe] = useState({ open: false, text: '', busy: false, payroll: false, done: null });
+  const AC_WORD = 'احذف البيانات المحاسبية';
+  const acCols = ['invoices', 'closingInvPays', 'journalManual', 'disbursements', 'appSettlements', 'bankRecs'];
+  const acPayCols = ['ledgerEntries', 'advances'];
+  const acCount = (k) => (ops[k] || []).length;
+  const acAllTransfers = ops.transfers || [];
+  const acObLines = ((org.openingBalances || {}).lines || []).filter(l => (l.debit || 0) || (l.credit || 0)).length;
+  const acLockedNow = lockedThru(org);
+  const wipeAccounting = async () => {
+    if (!isSysAdmin) return say('هذا الإجراء لمسؤول النظام فقط', 'no');
+    if (acWipe.text.trim() !== AC_WORD) return say('اكتب «' + AC_WORD + '» للتأكيد', 'no');
+    if (acLockedNow) return say('الفترات مقفلة حتى ' + acLockedNow + ' — افتح الإقفال أولًا من المحاسبة ← الإقفال (فتح موثّق)، ثم أعد المحاولة', 'no');
+    setAcWipe(w => ({ ...w, busy: true }));
+    try {
+      const cols = [...acCols, ...(acWipe.payroll ? acPayCols : [])];
+      // ١) صور توثيق الإغلاقات في الأرشيف + أرشيف الإغلاقات القديم (كما في أداة حذف الإغلاقات)
+      const bIds = [...(org.branches || []).map(b => b.id), 'hq'];
+      const arch = {};
+      for (const b of bIds) {
+        const doc = await cloud.get(bfKey(b), { items: [] });
+        const items = (doc && Array.isArray(doc.items)) ? doc.items : [];
+        const gone = items.filter(it => it.source === 'closing' || (it.closingId && wIds.has(it.closingId)));
+        if (gone.length) arch[b] = { keep: items.filter(it => !gone.includes(it)), gone };
+      }
+      const h = await cloud.get(KEYS.hist, { closings: [] });
+      const histClosings = (h && Array.isArray(h.closings)) ? h.closings : [];
+      // ٢) ملف بكل ما سيُحذف + لقطة أمان محلية — قبل أي كتابة
+      const removed = { meta: { app: 'rms8', kind: 'deleted-accounting', at: nowISO(), by: me?.name || '', payroll: !!acWipe.payroll },
+        closings: wClosings, transfers: acAllTransfers, notifications: wNotes, histClosings,
+        ...Object.fromEntries(cols.map(k => [k, ops[k] || []])),
+        openingBalances: org.openingBalances || null, yearEnd: org.yearEnd || null, mizanBatches: (org.mizanCfg || {}).batches || [],
+        archive: Object.fromEntries(Object.entries(arch).map(([b, v]) => [b, v.gone])) };
+      try {
+        const blob = new Blob([JSON.stringify(removed)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob); const a = document.createElement('a');
+        a.href = url; a.download = 'البيانات-المحاسبية-المحذوفة-' + today() + '.json'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 4000);
+      } catch { }
+      try { await snapPut('pre-wipe-accounting-' + nowISO().slice(0, 19).replace(/[:T]/g, '-'), { at: nowISO(), by: me?.name || '', org, ops, preWipe: true }); } catch { }
+      // ٣) بيانات التشغيل (المركز + الفروع)
+      const ok = await commit(d => ({
+        ...d,
+        closings: [], transfers: [],
+        notifications: (d.notifications || []).filter(n => !(n.closingId && wIds.has(n.closingId))),
+        ...Object.fromEntries(cols.map(k => [k, []]))
+      }), { actionType: 'delete', targetType: 'journal_entry', targetId: 'accounting-all', need: 'edit',
+        title: 'حذف كل البيانات المحاسبية (تمهيدًا لإعادة الرفع)',
+        details: [wClosings.length + ' إغلاق', acAllTransfers.length + ' توريد', ...cols.map(k => acCount(k) + ' ' + k), acObLines + ' سطر افتتاحي'].join(' · ') });
+      if (!ok) { setAcWipe(w => ({ ...w, busy: false })); return; }
+      // ٤) إعدادات المنشأة: الأرصدة الافتتاحية وقيد إقفال السنة ودفعات ميزان (تبقى خريطة الربط لإعادة الاستيراد)
+      const okOrg = await commitOrg(d => ({
+        ...d,
+        openingBalances: { ...(d.openingBalances || {}), enabled: false, lines: [] },
+        yearEnd: d.yearEnd ? { ...d.yearEnd, enabled: false } : d.yearEnd,
+        mizanCfg: d.mizanCfg ? { ...d.mizanCfg, batches: (d.mizanCfg.batches || []).map(b => b.undoneAt ? b : { ...b, undoneAt: nowISO(), undoneBy: (me?.name || '') + ' — حذف شامل' }) } : d.mizanCfg
+      }), { actionType: 'delete', targetType: 'tax_settings', targetId: 'accounting-all', need: 'edit', title: 'مسح الأرصدة الافتتاحية وإقفال السنة ودفعات ميزان', details: acObLines + ' سطر افتتاحي' });
+      // ٥) الأرشيف
+      let archDone = 0, archFail = 0;
+      for (const [b, v] of Object.entries(arch)) { if (await cloud.set(bfKey(b), { items: v.keep })) archDone += v.gone.length; else archFail++; }
+      let histOk = true;
+      if (histClosings.length) histOk = !!(await cloud.set(KEYS.hist, { closings: [], updatedAt: nowISO() }));
+      if (histOk) setHist({ closings: [] });
+      setAcWipe({ open: false, text: '', busy: false, payroll: false, done: { okOrg, archFail, histOk } });
+      say(!okOrg ? 'حُذفت السجلات — لكن تعذّر مسح الأرصدة الافتتاحية؛ أعد تشغيل الأداة لإكمالها' : (archFail || !histOk) ? 'حُذفت البيانات المحاسبية — بقي جزء من الأرشيف، أعد المحاولة' : 'حُذفت كل البيانات المحاسبية ✓ — المنصة جاهزة لإعادة الرفع');
+    } catch (e) {
+      setAcWipe(w => ({ ...w, busy: false }));
+      say('تعذّر الحذف — لم يكتمل، تحقق من الاتصال وأعد المحاولة', 'no');
+    }
+  };
+
   const saveCompany = async () => {
     await commitOrg(d => ({ ...d, company: c }), {
       actionType: 'update', targetType: 'system_settings', targetId: 'company',
@@ -20457,6 +20569,54 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
                     {wipe.busy ? <RefreshCw size={14} className="spin" /> : <Trash2 size={14} />}حذف نهائي
                   </button>
                   <button className="btn gh" disabled={wipe.busy} onClick={() => setWipe(w => ({ ...w, open: false, text: '' }))}>إلغاء</button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        {isSysAdmin && (
+          <div className="card" style={{ borderColor: 'rgba(217,84,77,.6)' }}>
+            <div className="card-t" style={{ marginBottom: 10, color: '#D9544D' }}><Trash2 size={15} />حذف كل البيانات المحاسبية (لإعادة الرفع من جديد)</div>
+            <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 10 }}>
+              يحذف نهائيًا: الإغلاقات اليومية وتوريداتها وصورها، فواتير الموردين، السدادات، القيود اليدوية والمستوردة، أوامر الصرف، تسويات التطبيقات والبنوك، الأرصدة الافتتاحية،
+              وتُعلَّم دفعات ميزان ملغاة (تبقى خريطة الربط لإعادة الاستيراد).
+              <b> يبقى:</b> الشركة والفروع والمستخدمون والموظفون والموردون ودليل الحسابات والأصول والمخزون والإعدادات.
+              قبل الحذف يُنزَّل تلقائيًا ملف بكل ما سيُحذف. نزّل نسخة احتياطية كاملة أولًا.
+            </div>
+            <div className="grid g4" style={{ gap: 9, marginBottom: 10 }}>
+              {[['إغلاقات', wClosings.length], ['توريدات', acAllTransfers.length], ['فواتير موردين', acCount('invoices')], ['سدادات', acCount('closingInvPays')],
+                ['قيود يدوية/مستوردة', acCount('journalManual')], ['أوامر صرف', acCount('disbursements')], ['أسطر افتتاحية', acObLines], ['مقفل حتى', acLockedNow || '—']].map(([k, v]) => (
+                <div key={k} className="mono-b" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+                  <span style={{ fontSize: 10.5, color: 'var(--faint)' }}>{k}</span>
+                  <span className="num" style={{ fontSize: 16, color: k === 'مقفل حتى' && acLockedNow ? '#D9544D' : 'var(--brass)' }}>{v}</span>
+                </div>
+              ))}
+            </div>
+            {acLockedNow && <div className="note" style={{ marginBottom: 10, borderColor: 'rgba(217,84,77,.5)' }}>الفترات مقفلة حتى {acLockedNow} — افتح الإقفال أولًا من المحاسبة ← الإقفال، ثم عد إلى هنا.</div>}
+            {acWipe.done && (
+              <div className="note" style={{ marginBottom: 10 }}>
+                ✓ حُذفت البيانات المحاسبية.{!acWipe.done.okOrg && <b style={{ color: '#D9544D' }}> لم تُمسح الأرصدة الافتتاحية — أعد تشغيل الأداة.</b>}
+                {(acWipe.done.archFail > 0 || !acWipe.done.histOk) && <b style={{ color: '#D9544D' }}> بقي جزء من الأرشيف — أعد المحاولة.</b>}
+                {' '}الخطوة التالية: أعد الاستيراد من «دمج بيانات ميزان».
+              </div>
+            )}
+            {!acWipe.open ? (
+              <button className="btn" style={{ color: '#D9544D', borderColor: 'rgba(217,84,77,.5)' }} disabled={acWipe.busy} onClick={() => setAcWipe(w => ({ ...w, open: true, text: '' }))}>
+                <Trash2 size={14} />حذف كل البيانات المحاسبية
+              </button>
+            ) : (
+              <div className="grid" style={{ gap: 9 }}>
+                <label className="row" style={{ gap: 8, fontSize: 12.5, alignItems: 'center' }}>
+                  <input type="checkbox" checked={acWipe.payroll} onChange={e => setAcWipe(w => ({ ...w, payroll: e.target.checked }))} disabled={acWipe.busy} />
+                  حذف قيود الرواتب ({acCount('ledgerEntries')}) والسلف ({acCount('advances')}) أيضًا — اتركه غير محدد إن كانت الرواتب تُدار من المنصة ولن تُعاد من ميزان
+                </label>
+                <div style={{ fontSize: 12, color: 'var(--txt)' }}>للتأكيد اكتب: <b>{AC_WORD}</b></div>
+                <input className="inp" value={acWipe.text} onChange={e => setAcWipe(w => ({ ...w, text: e.target.value }))} placeholder={AC_WORD} disabled={acWipe.busy} />
+                <div className="row" style={{ gap: 8 }}>
+                  <button className="btn" style={{ background: '#D9544D', color: '#fff', borderColor: '#D9544D' }} disabled={acWipe.busy || acWipe.text.trim() !== AC_WORD || !!acLockedNow} onClick={wipeAccounting}>
+                    {acWipe.busy ? <RefreshCw size={14} className="spin" /> : <Trash2 size={14} />}حذف نهائي
+                  </button>
+                  <button className="btn gh" disabled={acWipe.busy} onClick={() => setAcWipe(w => ({ ...w, open: false, text: '' }))}>إلغاء</button>
                 </div>
               </div>
             )}
