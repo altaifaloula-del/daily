@@ -21,7 +21,7 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
       - name: تثبيت الحزم
         run: npm ci
       - name: تشغيل اختبارات tests/rules.test.mjs على محاكي Firestore
@@ -48,7 +48,7 @@ jobs:
           echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/sa.json" >> $GITHUB_ENV
       - name: نشر القواعد والفهارس
         if: env.GOOGLE_APPLICATION_CREDENTIALS != ''
-        run: npx --yes firebase-tools@13 deploy --only firestore:rules,firestore:indexes --project "${{ secrets.VITE_FIREBASE_PROJECT_ID }}"
+        run: npx --yes firebase-tools@15 deploy --only firestore:rules,firestore:indexes --project "${{ secrets.VITE_FIREBASE_PROJECT_ID }}"
       - name: حذف ملف الاعتماد
         if: always()
         run: rm -f "$RUNNER_TEMP/sa.json"
