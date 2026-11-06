@@ -360,7 +360,7 @@ const BR_COLS = ['closings', 'transfers', 'partnerRequests', 'notifications', 'b
   'hrKpiEntries',
   // v29.9 — المستودعات: حركات مستودع الفرع وتحويلاته (يكتبها جهاز الفرع)
   'whMoves', 'whTransfers'];
-const CORE_COLS = ['advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules', 'hrScoreSnapshots'];
+const CORE_COLS = ['salesInvoices', 'advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules', 'hrScoreSnapshots'];
 
 // تقسيم ops المدمجة إلى مستند مركزي + مستند لكل فرع
 function splitOps(ops, branchIds) {
@@ -681,6 +681,51 @@ function invPayments(i) {
 // تاريخ محلي من طابع زمني كامل (nowISO بتوقيت UTC) — أو التاريخ كما هو إن كان YYYY-MM-DD
 const dayOf = (v) => { const t = String(v || ''); if (t.length > 10 && t.includes('T')) { const x = new Date(t); if (!isNaN(x)) return isoD(x); } return t.slice(0, 10); };
 
+/* v31.0 — سجل فواتير المبيعات: سجل دائم مرقّم متسلسلًا (لكل سلسلة وسنة) لا يُعدَّل ولا يُحذف — يُعكس بإشعار دائن.
+   كل فاتورة تحمل بصمة SHA-256 لمحتواها مع بصمة السابقة (سلسلة) فيُكشف أي تعديل أو حذف لاحق. */
+function sha256Hex(str) {
+  const K = [0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2];
+  const b = new TextEncoder().encode(String(str)); const l = b.length; const n = (((l + 9) + 63) >> 6) << 6; const m = new Uint8Array(n); m.set(b); m[l] = 0x80;
+  const bits = l * 8; for (let i = 0; i < 8; i++) m[n - 1 - i] = Math.floor(bits / Math.pow(2, 8 * i)) & 255;
+  const H = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19]; const w = new Array(64);
+  const r = (x, k) => (x >>> k) | (x << (32 - k));
+  for (let o = 0; o < n; o += 64) {
+    for (let i = 0; i < 16; i++) w[i] = (m[o + 4 * i] << 24) | (m[o + 4 * i + 1] << 16) | (m[o + 4 * i + 2] << 8) | m[o + 4 * i + 3];
+    for (let i = 16; i < 64; i++) { const s0 = r(w[i - 15], 7) ^ r(w[i - 15], 18) ^ (w[i - 15] >>> 3), s1 = r(w[i - 2], 17) ^ r(w[i - 2], 19) ^ (w[i - 2] >>> 10); w[i] = (w[i - 16] + s0 + w[i - 7] + s1) | 0; }
+    let [a, bb, c, d, e, f, g, h] = H;
+    for (let i = 0; i < 64; i++) { const S1 = r(e, 6) ^ r(e, 11) ^ r(e, 25), ch = (e & f) ^ (~e & g), t1 = (h + S1 + ch + K[i] + w[i]) | 0, S0 = r(a, 2) ^ r(a, 13) ^ r(a, 22), mj = (a & bb) ^ (a & c) ^ (bb & c), t2 = (S0 + mj) | 0;
+      h = g; g = f; f = e; e = (d + t1) | 0; d = c; c = bb; bb = a; a = (t1 + t2) | 0; }
+    H[0] = (H[0] + a) | 0; H[1] = (H[1] + bb) | 0; H[2] = (H[2] + c) | 0; H[3] = (H[3] + d) | 0; H[4] = (H[4] + e) | 0; H[5] = (H[5] + f) | 0; H[6] = (H[6] + g) | 0; H[7] = (H[7] + h) | 0;
+  }
+  return H.map(x => (x >>> 0).toString(16).padStart(8, '0')).join('');
+}
+const SI_SERIES = { invoice: 'فاتورة', credit: 'إشعار' };
+// المحتوى المُبصَم: كل ما يغيّر أثر الفاتورة (التحصيلات خارجه لأنها تُضاف لاحقًا)
+const siCanon = (x) => JSON.stringify([x.no, x.kind, x.type, x.date, x.time || '', x.entityId || '', x.branchId || '', x.customerKey || '', (x.buyer || {}).name || '', (x.buyer || {}).vat || '',
+  (x.lines || []).map(l => [l.desc, l.qty, l.price, l.vatRate, l.net, l.vat]), x.net, x.vat, x.total, x.terms, x.fund || '', x.refId || '', !!x.inClosing, x.icv, x.pih || '']);
+const siSorted = (list) => (list || []).slice().sort((a, b) => (a.icv || 0) - (b.icv || 0));
+// بناء سجل جديد داخل دالة الحفظ (على أحدث نسخة) — الرقم والعداد والبصمة تُحسب هنا فلا يتكرر رقم بين جهازين
+function siStamp(list, rec) {
+  const yr = String(rec.date || '').slice(0, 4), pre = SI_SERIES[rec.kind] || 'فاتورة';
+  const seq = 1 + (list || []).filter(x => x.kind === rec.kind && String(x.date || '').slice(0, 4) === yr).reduce((mx, x) => Math.max(mx, Number(x.seq) || 0), 0);
+  const last = siSorted(list).slice(-1)[0];
+  const out = { ...rec, seq, no: pre + '-' + yr + '-' + String(seq).padStart(5, '0'), icv: ((last && last.icv) || 0) + 1, pih: (last && last.hash) || '0' };
+  out.hash = sha256Hex(siCanon(out));
+  return out;
+}
+function siVerify(list) {
+  const L = siSorted(list); let prev = '0';
+  for (let i = 0; i < L.length; i++) { const x = L[i];
+    if (x.icv !== i + 1) return { ok: false, at: x.no, why: 'فجوة في العداد عند ' + x.no };
+    if ((x.pih || '0') !== prev) return { ok: false, at: x.no, why: 'انقطاع السلسلة عند ' + x.no };
+    if (sha256Hex(siCanon(x)) !== x.hash) return { ok: false, at: x.no, why: 'محتوى معدّل في ' + x.no };
+    prev = x.hash; }
+  return { ok: true, n: L.length };
+}
+const siPaid = (x) => Math.round((x.receipts || []).reduce((a, r) => a + (Number(r.amount) || 0), 0) * 100) / 100;
+const siCredited = (ops, x) => Math.round((ops.salesInvoices || []).filter(c => c.kind === 'credit' && c.refId === x.id).reduce((a, c) => a + (Number(c.total) || 0), 0) * 100) / 100;
+const siRem = (ops, x) => x.kind === 'credit' || x.terms !== 'credit' ? 0 : Math.max(0, Math.round((x.total - siPaid(x) - siCredited(ops, x)) * 100) / 100);
+
 /* v30.8 — مخصص مكافأة نهاية الخدمة (نظام العمل م84): يُقاس على أساس الاستحقاق الكامل (إنهاء من صاحب العمل)
    بأجر آخر شهر (الأساسي + البدلات)، ويُرحَّل شهريًا كقيد دائم: الفرق بين المخصص المطلوب ورصيده المسجّل.
    السجلات في ledgerEntries بلا partnerKey (لا تظهر في كشف الموظف لأنها ليست مستحقة الدفع بعد). */
@@ -818,6 +863,15 @@ function buildPartners(org, ops) {
     parts.push({ key, id: sp.id, ...contactOf(sp), name: sp.name, type: 'supplier', cat: sp.category || 'مورد', phone: sp.phone || '', tax: sp.vatNo || '', address: sp.address || '', taxable: !!sp.taxable, terms: sp.terms || 0, linked, txns, storedCode: sp.code });
   });
 
+  // v31.0: حركات العميل من سجل فواتير المبيعات (الآجلة فقط: الفاتورة مدين، التحصيل والإشعار الدائن دائن)
+  const siFor = (key) => { const t = [];
+    (ops.salesInvoices || []).filter(x => x.customerKey === key && !x.inClosing).forEach(x => {
+      if (x.kind === 'credit') { if (x.terms === 'credit') t.push({ date: x.date, desc: 'إشعار دائن ' + x.no, ref: x.no, src: 'si', debit: 0, credit: x.total }); return; }
+      if (x.terms !== 'credit') return;
+      t.push({ date: x.date, desc: 'فاتورة مبيعات ' + x.no, ref: x.no, src: 'si', debit: x.total, credit: 0, due: x.dueDate });
+      (x.receipts || []).forEach(r => t.push({ date: r.date, desc: 'تحصيل عن ' + x.no, ref: x.no, src: 'si', debit: 0, credit: Number(r.amount) || 0 }));
+    }); return t; };
+
   // الموظفون — استحقاق وصرف الرواتب قيود دائمة تُرحَّل من شاشة الرواتب (لا سطر اصطناعي يتغيّر بالشهر)
   (org.employees || []).forEach(em => {
     const key = 'emp:' + em.id; const txns = []; let linked = false;
@@ -835,7 +889,7 @@ function buildPartners(org, ops) {
   // العملاء والشركاء اليدويون — حركات يدوية فقط
   (org.partners || []).forEach(pt => {
     const key = pt.key || ('cust:' + pt.id);
-    const ce = closeFor(key), pp = payFor(key);
+    const ce = [...closeFor(key), ...siFor(key)], pp = payFor(key);
     parts.push({ key, id: pt.id, ...contactOf(pt), name: pt.name, type: pt.type || 'customer', cat: pt.cat || 'عميل', phone: pt.phone || '', tax: pt.tax || '', address: pt.address || '', taxable: !!pt.taxable, terms: pt.terms || 0, linked: (ce.length + pp.length) > 0, custom: true, txns: [...ce, ...pp, ...ledFor(key)], storedCode: pt.code });
   });
 
@@ -1242,6 +1296,7 @@ function buildAccounting(org, ops) {
     addAcc(code, 'ذمم تطبيق — ' + (a.n || 'توصيل'), 'asset', { link: 'مبيعات ' + (a.n || 'التطبيق') + (a.c ? ' · عمولة ' + a.c + '%' : ' · بلا عمولة'), appId: a.id });
   });
   addAcc('1399', 'ذمم تطبيقات أخرى (غير معرّفة)', 'asset');
+  addAcc('1380', 'ذمم العملاء — مبيعات آجلة', 'asset', { link: 'سجل فواتير المبيعات' });
   addAcc('1401', 'سلف الموظفين وعُهدهم', 'asset', { link: 'الرواتب والسلف' });
   addAcc('1501', 'ضريبة القيمة المضافة — مدخلات', 'asset', { link: 'تُخصم من الإقرار' });
   addAcc('1601', 'المخزون — بضاعة آخر المدة', 'asset', { link: 'رسملة المخزون — من شاشة المخزون' });
@@ -1272,6 +1327,7 @@ function buildAccounting(org, ops) {
   addAcc('3201', 'الأرباح المبقاة (المدوّرة)', 'equity', { link: 'قيد إقفال السنة المالية — من شاشة المحاسبة' });
   // — الإيرادات —
   addAcc('4101', 'المبيعات (إجمالية)', 'rev', { link: 'إغلاقات الورديات المعتمدة' });
+  addAcc('4102', 'مبيعات بالفواتير (عملاء ومؤسسات)', 'rev', { link: 'سجل فواتير المبيعات — غير المسجّلة في الإغلاقات' });
   addAcc('4201', 'أرباح بيع/استبعاد الأصول', 'rev', { link: 'سجل الأصول — عند البيع بأعلى من القيمة الدفترية' });
   // — المصروفات —
   addAcc('5201', 'الرواتب والأجور (كشف الرواتب)', 'exp', { link: 'ترحيل الاستحقاق الشهري' });
@@ -1483,6 +1539,24 @@ function buildAccounting(org, ops) {
       src: 'سداد مركزي', ref: pmt.refId || pmt.id,
       lines: [L('2101', pmt.amount, 0), L((pmt.fund && accIx[pmt.fund]) ? pmt.fund : '1201', 0, pmt.amount)]   // v15.19/v15.20: المصدر المختار (خزينة أو أي بنك)
     });
+  });
+
+  // ٦-ب) v31.0 فواتير المبيعات: الآجلة على ذمم العملاء، والنقدية على الصندوق/البنك. المسجّلة في إغلاق وردية لا تُقيَّد مرة ثانية.
+  const siById = {}; (ops.salesInvoices || []).forEach(x => { siById[x.id] = x; });
+  (ops.salesInvoices || []).forEach(x => {
+    const fundOf = (f) => (f && accIx[f]) ? f : '1201';
+    if (!x.inClosing && x.total > 0) {
+      const orig = x.kind === 'credit' ? (siById[x.refId] || {}) : x;
+      const side = (orig.terms === 'credit' && x.kind !== 'credit') || (x.kind === 'credit' && x.terms === 'credit') ? '1380' : fundOf(x.fund);
+      const net = Math.round((x.net || 0) * 100) / 100, vt = Math.round((x.vat || 0) * 100) / 100;
+      const lines = x.kind === 'credit'
+        ? [L('4102', net, 0), ...(vt ? [L('2301', vt, 0)] : []), L(side, 0, x.total)]
+        : [L(side, x.total, 0), L('4102', 0, net), ...(vt ? [L('2301', 0, vt)] : [])];
+      push({ id: 'si:' + x.id, date: x.date, ...(x.branchId ? { branchId: x.branchId } : {}), title: (x.kind === 'credit' ? 'إشعار دائن مبيعات ' + x.no + ' (عن ' + (orig.no || '') + ')' : (x.terms === 'credit' ? 'فاتورة مبيعات آجلة ' : 'فاتورة مبيعات نقدية ') + x.no) + ' — ' + ((x.buyer || {}).name || 'عميل'),
+        src: 'فواتير المبيعات', ref: x.no, lines, vat: vt ? (x.kind === 'credit' ? { out: -vt, inn: 0, netSales: -net, netPurch: 0 } : { out: vt, inn: 0, netSales: net, netPurch: 0 }) : null });
+    }
+    (x.receipts || []).forEach(r => { const a = Math.round((Number(r.amount) || 0) * 100) / 100; if (!(a > 0)) return;
+      push({ id: 'sir:' + r.id, date: r.date, ...(x.branchId ? { branchId: x.branchId } : {}), title: 'تحصيل من عميل — ' + ((x.buyer || {}).name || '') + ' عن ' + x.no, src: 'فواتير المبيعات', ref: x.no, lines: [L(fundOf(r.fund), a, 0), L('1380', 0, a)] }); });
   });
 
   // ٧) الرواتب: الاستحقاق كما رُحِّل، والصرف كما سُجِّل، وتسوية فرق السلف والخصومات
@@ -2189,7 +2263,7 @@ function emptyOrg(company) {
 }
 
 function emptyOps() {
-  return { closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
+  return { salesInvoices: [], closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
     attendanceEvents: [], hrPins: [], shiftTemplates: [], shiftAssignments: [], shiftSwapRequests: [], branchTransferRequests: [], taskTemplates: [], taskAssignments: [], taskCompletions: [], pointsEntries: [], qualityReviews: [], rewardRequests: [], hrSignDocs: [], hrCorrective: [], hrPips: [], hrTraining: [], hrKpiEntries: [], hrScoreSnapshots: [] };
 }
 
@@ -3139,7 +3213,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v30.9 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v31.0 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -3297,7 +3371,7 @@ function PlatformApp() {
               {['analytics', 'exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai'].includes(safeTab) && <Hub hubId="analytics" {...shared} online={online} view={safeTab} />}
               {safeTab === 'alerts' && <AlertsCenter {...shared} />}
               {['reporting', 'reports', 'rbuild', 'boardpack', 'cashflow'].includes(safeTab) && <Hub hubId="reporting" {...shared} view={safeTab} />}
-              {safeTab === 'sales' && <Sales {...shared} />}
+              {safeTab === 'sales' && <SalesHub {...shared} />}
               {safeTab === 'closing' && <Closing {...shared} />}
               {['hrops', 'attendance', 'shiftengine', 'tasks', 'points', 'esign'].includes(safeTab) && <Hub hubId="hrops" {...shared} view={safeTab} />}
               {['hrperf', 'kpi', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'].includes(safeTab) && <Hub hubId="hrperf" {...shared} view={safeTab} />}
@@ -4410,6 +4484,255 @@ function DailyBranchReport({ org, scoped, myBranches, onClose }) {
 }
 
 /* ============ تطبيق المبيعات — تحليل مبيعات نقاط البيع (مصدرها الإغلاق اليومي) v10.1 ============ */
+/* ============================================================
+   v31.0 — سجل فواتير المبيعات (مرقّم متسلسلًا، بصمة سلسلة، قيد وذمم وإشعار دائن وحد ائتمان)
+   ============================================================ */
+function SalesHub(props) {
+  const [v, setV] = useState('analysis');
+  return (
+    <div className="grid" style={{ gap: 12 }}>
+      <div className="row" style={{ gap: 6 }}>
+        <button className={'btn sm' + (v === 'analysis' ? ' pri' : ' gh')} onClick={() => setV('analysis')}><BarChart3 size={14} />تحليل المبيعات</button>
+        <button className={'btn sm' + (v === 'invoices' ? ' pri' : ' gh')} onClick={() => setV('invoices')}><FileText size={14} />فواتير المبيعات</button>
+      </div>
+      {v === 'analysis' ? <Sales {...props} /> : <SalesInvoices {...props} />}
+    </div>
+  );
+}
+function printSalesInvoice(org, x, orig) {
+  const ent = entityById(org, x.entityId);
+  const seller = ent.name || ((org.company || {}).name) || '', svat = ent.taxNumber || '', scr = ent.commercialReg || '';
+  const sAddr = ent.primary ? ((org.company || {}).address || '') : (ent.address || '');
+  const std = x.type === 'standard', cr = x.kind === 'credit';
+  const ts = x.date + 'T' + (/^\d{2}:\d{2}$/.test(x.time || '') ? x.time : '12:00') + ':00Z';
+  const svg = svat ? qrSvg(zatcaTLV(seller, svat, ts, x.total, x.vat), { ecl: 1, px: 140 }) : '';
+  const b = x.buyer || {};
+  const title = cr ? (std ? 'إشعار دائن ضريبي' : 'إشعار دائن ضريبي مبسّط') : (std ? 'فاتورة ضريبية' : 'فاتورة ضريبية مبسّطة');
+  const rows = (x.lines || []).map((l, i) => `<tr><td>${i + 1}</td><td>${_xe(l.desc || '')}</td><td class="n">${l.qty}</td><td class="n">${money(l.price)}</td><td class="n">${money(l.net)}</td><td class="n">${l.vatRate}%</td><td class="n">${money(l.vat)}</td><td class="n">${money(Math.round((l.net + l.vat) * 100) / 100)}</td></tr>`).join('');
+  const body = `
+    <div class="box" style="display:flex;justify-content:space-between;align-items:flex-start;gap:18px">
+      <div style="line-height:1.9">
+        <div style="font-size:15px;font-weight:800;color:#5a4a1e">${title}</div>
+        <div style="margin-top:8px"><b>البائع:</b> ${_xe(seller)} · الرقم الضريبي: ${_xe(svat || '—')}${scr ? ' · س.ت ' + _xe(scr) : ''}</div>
+        ${sAddr ? '<div>العنوان: ' + _xe(sAddr) + '</div>' : ''}
+        <div style="margin-top:6px">الرقم: <b>${_xe(x.no)}</b> · التاريخ: <span class="n">${x.date}${x.time ? ' ' + x.time : ''}</span>${x.terms === 'credit' && !cr ? ' · الاستحقاق: <span class="n">' + (x.dueDate || '') + '</span>' : ''}</div>
+        ${cr && orig ? '<div>عن الفاتورة: <b>' + _xe(orig.no) + '</b> بتاريخ ' + orig.date + (x.reason ? ' — السبب: ' + _xe(x.reason) : '') + '</div>' : ''}
+        ${b.name ? `<div style="margin-top:6px"><b>${std ? 'المشتري' : 'العميل'}:</b> ${_xe(b.name)}${b.vat ? ' · الرقم الضريبي: ' + _xe(b.vat) : ''}${b.crNo ? ' · س.ت ' + _xe(b.crNo) : ''}${std && b.address ? '<br>العنوان: ' + _xe(b.address) : ''}</div>` : ''}
+      </div>
+      <div style="text-align:center">${svg}<div class="sub" style="margin-top:3px">${svg ? 'امسح رمز QR للتحقق' : ''}</div></div>
+    </div>
+    <table>
+      <thead><tr><th>#</th><th>البيان</th><th class="n">الكمية</th><th class="n">سعر الوحدة</th><th class="n">قبل الضريبة</th><th class="n">النسبة</th><th class="n">الضريبة</th><th class="n">الإجمالي</th></tr></thead>
+      <tbody>${rows}
+        <tr><td colspan="7">الإجمالي قبل الضريبة</td><td class="n">${money(x.net)}</td></tr>
+        <tr><td colspan="7">ضريبة القيمة المضافة</td><td class="n">${money(x.vat)}</td></tr>
+        <tr class="tot"><td colspan="7">${cr ? 'إجمالي الإشعار' : 'الإجمالي شامل الضريبة'}</td><td class="n">${money(x.total)}</td></tr>
+      </tbody>
+    </table>
+    <div class="box" style="font-size:9.5px;color:#888">التسلسل في السجل: ${x.icv} · البصمة الرقمية: <span style="direction:ltr;unicode-bidi:embed">${x.hash ? x.hash.slice(0, 32) + '…' : ''}</span></div>`;
+  return printA4(org, title + ' ' + x.no, 'البائع: ' + seller + (svat ? ' · الرقم الضريبي: ' + svat : ''), body);
+}
+function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
+  const all = ops.salesInvoices || [];
+  const central = ROLES[me.role]?.scope === 'all';
+  const brIds = (myBranches || []).map(b => b.id);
+  const list = all.filter(x => central || brIds.includes(x.branchId));
+  const canIssue = rolePost(me.role);
+  const tax = org.taxCfg || {}; const vatRate = tax.enabled ? (Number(tax.rate) || 15) : 0;
+  const customers = useMemo(() => buildPartners(org, ops).filter(p => p.type === 'customer'), [org, ops]);
+  const ents = entityList(org);
+  const chain = useMemo(() => siVerify(all), [all]);
+  const [q, setQ] = useState(''); const [flt, setFlt] = useState('all');
+  const [f, setF] = useState(null); const [rc, setRc] = useState(null); const [cn, setCn] = useState(null);
+  const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+  const byId = (id) => all.find(x => x.id === id);
+  const custOf = (key) => customers.find(c => c.key === key);
+  const custOwed = (key) => { const c = custOf(key); return c ? Math.max(0, -c.balance) : 0; };
+  const fundOpts = (<><option value="1101">نقدًا — الخزينة الرئيسية</option><option value="1201">البنك التجميعي</option>{branchBanks(org).map(bb => <option key={bb.code} value={bb.code}>{bb.name}</option>)}</>);
+  const lineCalc = (l) => { const qty = Number(l.qty) || 0, pr = Number(l.price) || 0, net = r2(qty * pr), vt = r2(net * (Number(l.vatRate) || 0) / 100); return { net, vat: vt }; };
+  const totals = (lines) => { const L = lines.map(lineCalc); return { net: r2(sum(L, x => x.net)), vat: r2(sum(L, x => x.vat)), total: r2(sum(L, x => x.net + x.vat)) }; };
+  const newInv = () => setF({ type: 'simplified', entityId: (ents[0] || {}).id || 'primary', branchId: central ? '' : (brIds[0] || ''), date: today(), time: new Date().toTimeString().slice(0, 5), customerKey: '', buyerName: '', terms: 'cash', fund: '1101', inClosing: false, lines: [{ desc: '', qty: '1', price: '', vatRate: String(vatRate) }] });
+
+  const save = async () => {
+    const x = f; const lines = (x.lines || []).filter(l => (l.desc || '').trim() && (Number(l.qty) || 0) > 0 && (Number(l.price) || 0) > 0);
+    if (!lines.length) return say('أضف بندًا واحدًا على الأقل (بيان وكمية وسعر)', 'no');
+    if (periodLocked(org, x.date)) return say(LOCK_MSG(x.date), 'no');
+    const c = x.customerKey ? custOf(x.customerKey) : null;
+    if (x.type === 'standard') {
+      if (!c) return say('الفاتورة الضريبية تتطلب عميلًا من جهات الاتصال', 'no');
+      if (!(c.tax || '').trim()) return say('العميل بلا رقم ضريبي — أكمله من جهات الاتصال أو أصدر فاتورة مبسّطة', 'no');
+      const miss = naMissing(c.na); if (miss.length && !c.address) return say('العنوان الوطني للعميل ناقص: ' + miss.join('، '), 'no');
+    }
+    if (x.terms === 'credit' && !c) return say('البيع الآجل يتطلب عميلًا من جهات الاتصال', 'no');
+    if (x.terms === 'credit' && x.inClosing) return say('البيع الآجل لا يكون ضمن إغلاق وردية نقدي', 'no');
+    const L = lines.map(l => { const k = lineCalc(l); return { desc: l.desc.trim(), qty: Number(l.qty), price: r2(l.price), vatRate: Number(l.vatRate) || 0, net: k.net, vat: k.vat }; });
+    const T = totals(lines);
+    if (x.terms === 'credit') { const lim = Number(c.creditLimit) || 0; const owed = custOwed(c.key);
+      if (lim > 0 && owed + T.total > lim + 0.004) { if (!ROLES[me.role]?.admin) return say('تتجاوز حد ائتمان العميل (' + money(lim) + ') — المستحق الحالي ' + money(owed) + '. يلزم اعتماد مسؤول النظام', 'no');
+        if (!window.confirm('الفاتورة تتجاوز حد ائتمان العميل ' + money(lim) + ' (المستحق ' + money(owed) + '). تجاوز الحد باعتمادك؟')) return; } }
+    const due = (() => { const dd = new Date(x.date + 'T12:00:00'); dd.setDate(dd.getDate() + (Number(c && c.terms) || 0)); return isoD(dd); })();
+    const base = { id: uid('si'), kind: 'invoice', type: x.type, entityId: x.entityId || 'primary', branchId: x.branchId || '', date: x.date, time: x.time || '',
+      customerKey: c ? c.key : '', buyer: c ? { name: c.name, vat: c.tax || '', address: c.address || '', crNo: c.crNo || '' } : { name: (x.buyerName || '').trim() },
+      lines: L, net: T.net, vat: T.vat, total: T.total, terms: x.terms, ...(x.terms === 'cash' ? { fund: x.fund || '1101' } : { dueDate: due }), inClosing: !!x.inClosing, receipts: [], by: me.name, at: nowISO() };
+    let made = null;
+    const ok = await commit(d => { const rec = siStamp(d.salesInvoices || [], base); made = rec; return { ...d, salesInvoices: [...(d.salesInvoices || []), rec] }; },
+      { actionType: 'create', targetType: 'sales_invoice', targetId: base.id, need: 'post', title: 'أصدر فاتورة مبيعات', details: (base.buyer.name || 'عميل نقدي') + ' · ' + money(T.total) + (x.terms === 'credit' ? ' · آجل' : '') });
+    if (ok && made) { setF(null); say('صدرت ' + made.no + ' ✓'); printSalesInvoice(org, made); }
+  };
+  const saveRc = async () => {
+    const x = byId(rc.id); const a = r2(rc.amount); const rem = siRem(ops, x);
+    if (!(a > 0)) return say('أدخل مبلغ التحصيل', 'no'); if (a > rem + 0.004) return say('أكبر من المتبقي ' + money(rem), 'no');
+    if (periodLocked(org, rc.date)) return say(LOCK_MSG(rc.date), 'no');
+    const r = { id: uid('rc'), date: rc.date, amount: a, fund: rc.fund || '1201', by: me.name, at: nowISO() };
+    const ok = await commit(d => ({ ...d, salesInvoices: (d.salesInvoices || []).map(y => y.id === x.id ? { ...y, receipts: [...(y.receipts || []), r] } : y) }),
+      { actionType: 'create', targetType: 'sales_invoice', targetId: x.id, need: 'post', title: 'تحصيل من عميل', details: x.no + ' · ' + money(a) });
+    if (ok) { setRc(null); say('سُجّل التحصيل ✓'); }
+  };
+  const saveCn = async () => {
+    const o = byId(cn.id); const reason = (cn.reason || '').trim(); if (!reason) return say('اكتب سبب الإشعار الدائن', 'no');
+    if (periodLocked(org, cn.date)) return say(LOCK_MSG(cn.date), 'no');
+    const already = all.filter(c => c.kind === 'credit' && c.refId === o.id);
+    const L = o.lines.map((l, i) => { const back = sum(already, c => ((c.lines || []).find(z => z.src === i) || {}).qty || 0); const can = Math.max(0, l.qty - back); const q2 = Math.min(Number(cn.qtys[i]) || 0, can);
+      if (!(q2 > 0)) return null; const net = r2(q2 * l.price), vt = r2(net * l.vatRate / 100); return { src: i, desc: l.desc, qty: q2, price: l.price, vatRate: l.vatRate, net, vat: vt }; }).filter(Boolean);
+    if (!L.length) return say('أدخل كمية مرتجعة', 'no');
+    const T = { net: r2(sum(L, l => l.net)), vat: r2(sum(L, l => l.vat)) }; T.total = r2(T.net + T.vat);
+    const settle = o.terms === 'credit' ? (cn.settle || 'credit') : 'cash';
+    const base = { id: uid('si'), kind: 'credit', refId: o.id, type: o.type, entityId: o.entityId, branchId: o.branchId, date: cn.date, time: new Date().toTimeString().slice(0, 5), customerKey: o.customerKey, buyer: o.buyer,
+      lines: L, net: T.net, vat: T.vat, total: T.total, terms: settle, ...(settle === 'cash' ? { fund: cn.fund || o.fund || '1101' } : {}), inClosing: !!o.inClosing, reason, receipts: [], by: me.name, at: nowISO() };
+    let made = null;
+    const ok = await commit(d => { const rec = siStamp(d.salesInvoices || [], base); made = rec; return { ...d, salesInvoices: [...(d.salesInvoices || []), rec] }; },
+      { actionType: 'create', targetType: 'sales_invoice', targetId: base.id, need: 'post', title: 'أصدر إشعارًا دائنًا للمبيعات', details: 'عن ' + o.no + ' · ' + money(T.total) + ' · ' + reason });
+    if (ok && made) { setCn(null); say('صدر ' + made.no + ' (إشعار دائن) ✓'); printSalesInvoice(org, made, o); }
+  };
+
+  const mth = today().slice(0, 7);
+  const invs = list.filter(x => x.kind === 'invoice');
+  const kMonth = r2(sum(invs.filter(x => (x.date || '').startsWith(mth)), x => x.total) - sum(list.filter(x => x.kind === 'credit' && (x.date || '').startsWith(mth)), x => x.total));
+  const kOpen = r2(sum(invs, x => siRem(ops, x)));
+  const kOver = r2(sum(invs.filter(x => x.dueDate && x.dueDate < today()), x => siRem(ops, x)));
+  const FLT = { all: () => true, open: x => x.kind === 'invoice' && siRem(ops, x) > 0, credit: x => x.kind === 'invoice' && x.terms === 'credit', cash: x => x.kind === 'invoice' && x.terms !== 'credit', cn: x => x.kind === 'credit' };
+  const shown = siSorted(list).reverse().filter(x => (FLT[flt] || FLT.all)(x)
+    && (!q.trim() || [x.no, (x.buyer || {}).name, (x.buyer || {}).vat].some(v => v && String(v).includes(q.trim()))));
+  const T = f ? totals(f.lines || []) : null;
+  const fc = f && f.customerKey ? custOf(f.customerKey) : null;
+
+  return (
+    <div className="grid" style={{ gap: 12 }}>
+      <div className="grid g4">
+        <Kpi label="مبيعات الفواتير هذا الشهر" value={money(kMonth)} sub="بعد الإشعارات الدائنة" icon={FileText} color="#C8A24A" />
+        <Kpi label="ذمم العملاء المفتوحة" value={money(kOpen)} sub="فواتير آجلة لم تُحصَّل" icon={Wallet} color="#5B93C4" />
+        <Kpi label="متأخرة السداد" value={money(kOver)} sub="تجاوزت تاريخ الاستحقاق" icon={AlertTriangle} color="#D9544D" />
+        <Kpi label="سلامة السجل" value={chain.ok ? 'سليم ✓' : 'خلل!'} sub={chain.ok ? (chain.n || 0) + ' مستند بسلسلة بصمات متصلة' : chain.why} icon={ShieldCheck} color={chain.ok ? '#4FB286' : '#D9544D'} />
+      </div>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        {[['all', 'الكل'], ['open', 'مفتوحة'], ['credit', 'آجلة'], ['cash', 'نقدية'], ['cn', 'إشعارات دائنة']].map(([k, t]) => (
+          <button key={k} className={'btn sm' + (flt === k ? ' pri' : ' gh')} onClick={() => setFlt(k)}>{t}</button>))}
+        <input className="inp" style={{ width: 220, marginInlineStart: 'auto' }} placeholder="ابحث بالرقم أو العميل أو الرقم الضريبي…" value={q} onChange={e => setQ(e.target.value)} />
+        {canIssue && <button className="btn sm pri" onClick={newInv}><Plus size={14} />فاتورة مبيعات</button>}
+      </div>
+      <div className="card"><div className="tw"><table className="tb">
+        <thead><tr><th>الرقم</th><th>العميل</th><th>النوع</th><th style={{ textAlign: 'end' }}>الإجمالي</th><th style={{ textAlign: 'end' }}>المتبقي</th><th>الحالة</th><th></th></tr></thead>
+        <tbody>
+          {shown.map(x => { const rem = siRem(ops, x), crd = siCredited(ops, x), o = x.kind === 'credit' ? byId(x.refId) : null; return (
+            <tr key={x.id}>
+              <td><span className="num" style={{ fontSize: 11.5, fontWeight: 700 }}>{x.no}</span><div style={{ fontSize: 9.5, color: 'var(--faint)' }}>{x.date} · {x.by}</div></td>
+              <td style={{ fontSize: 12.5 }}>{(x.buyer || {}).name || <span style={{ color: 'var(--faint)' }}>عميل نقدي</span>}{(x.buyer || {}).vat ? <div className="num" style={{ fontSize: 9.5, color: 'var(--faint)' }}>{x.buyer.vat}</div> : null}</td>
+              <td><span className="badge b-dim">{x.kind === 'credit' ? 'إشعار دائن' + (o ? ' عن ' + o.no : '') : (x.type === 'standard' ? 'ضريبية' : 'مبسّطة') + ' · ' + (x.terms === 'credit' ? 'آجل' : 'نقدي')}</span>{x.inClosing && <div><span className="badge b-dim" style={{ marginTop: 3 }}>ضمن إغلاق وردية</span></div>}</td>
+              <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: x.kind === 'credit' ? 'var(--rose)' : undefined }}>{x.kind === 'credit' ? '−' : ''}{money(x.total)}</td>
+              <td className="num" style={{ textAlign: 'end' }}>{x.kind === 'invoice' && x.terms === 'credit' ? money(rem) : '—'}</td>
+              <td>{x.kind === 'credit' ? <span className="badge b-amber">{x.reason || 'مرتجع'}</span>
+                : x.terms !== 'credit' ? <span className="badge b-mint">{crd > 0 ? 'نقدية — عليها إشعار' : 'نقدية ✓'}</span>
+                : rem <= 0.004 ? <span className="badge b-mint">محصّلة ✓</span>
+                : x.dueDate && x.dueDate < today() ? <span className="badge b-rose">متأخرة منذ {x.dueDate}</span>
+                : <span className="badge b-sky">مستحقة {x.dueDate}</span>}</td>
+              <td><div className="row" style={{ gap: 5, flexWrap: 'wrap' }}>
+                <button className="btn sm gh" title="طباعة" onClick={() => printSalesInvoice(org, x, o)}><Printer size={12} /></button>
+                {canIssue && x.kind === 'invoice' && x.terms === 'credit' && rem > 0.004 && <button className="btn sm" onClick={() => setRc({ id: x.id, amount: String(rem), date: today(), fund: '1201' })}>تحصيل</button>}
+                {canIssue && x.kind === 'invoice' && crd < x.total - 0.004 && <button className="btn sm gh" onClick={() => setCn({ id: x.id, date: today(), reason: '', settle: 'credit', fund: x.fund || '1101', qtys: x.lines.map(() => '') })}>إشعار دائن</button>}
+              </div></td>
+            </tr>); })}
+          {shown.length === 0 && <tr><td colSpan={7}><div className="empty">لا فواتير بعد — كل فاتورة تصدر هنا تُرقَّم تلقائيًا ولا تُحذف، وتُصحَّح بإشعار دائن.</div></td></tr>}
+        </tbody>
+      </table></div></div>
+      <div className="note">سجل دائم: الترقيم متسلسل لكل سنة («فاتورة-السنة-الرقم» للفواتير و«إشعار-السنة-الرقم» للإشعارات الدائنة)، ولكل مستند بصمة مرتبطة بسابقه فيُكشف أي تعديل أو حذف. الفاتورة الآجلة تُقيَّد على ذمم العملاء وتظهر في كشف العميل وأعمار الذمم، والنقدية على الصندوق أو البنك؛ أما المسجّلة ضمن إغلاق وردية فتُرقَّم وتُطبع فقط دون قيد ثانٍ.</div>
+
+      {f && (
+        <Modal title="فاتورة مبيعات جديدة" icon={FileText} wide onClose={() => setF(null)}
+          foot={<><button className="btn gh" onClick={() => setF(null)}>إلغاء</button><button className="btn pri" onClick={save}><Check size={14} />إصدار وطباعة</button></>}>
+          <div className="grid g4">
+            <Field label="النوع"><select className="sel" value={f.type} onChange={e => setF(x => ({ ...x, type: e.target.value }))}><option value="simplified">مبسّطة (أفراد)</option><option value="standard">ضريبية (منشآت)</option></select></Field>
+            {ents.length > 1 && <Field label="المنشأة البائعة"><select className="sel" value={f.entityId} onChange={e => setF(x => ({ ...x, entityId: e.target.value }))}>{ents.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}</select></Field>}
+            <Field label="الفرع"><select className="sel" value={f.branchId} onChange={e => setF(x => ({ ...x, branchId: e.target.value }))}>{central && <option value="">المركز الرئيسي</option>}{(myBranches || []).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></Field>
+            <Field label="التاريخ"><input type="date" className="inp" value={f.date} onChange={e => setF(x => ({ ...x, date: e.target.value }))} /></Field>
+            <Field label="الوقت"><input type="time" className="inp" value={f.time} onChange={e => setF(x => ({ ...x, time: e.target.value }))} /></Field>
+          </div>
+          <div className="grid g3">
+            <Field label="العميل (من جهات الاتصال)"><select className="sel" value={f.customerKey} onChange={e => setF(x => ({ ...x, customerKey: e.target.value }))}>
+              <option value="">{f.type === 'standard' ? '— اختر العميل —' : 'عميل نقدي (بلا بطاقة)'}</option>{customers.map(c => <option key={c.key} value={c.key}>{c.name}{c.tax ? ' — ' + c.tax : ''}</option>)}</select></Field>
+            {!f.customerKey && f.type === 'simplified' && <Field label="اسم العميل (اختياري)"><input className="inp" value={f.buyerName} onChange={e => setF(x => ({ ...x, buyerName: e.target.value }))} /></Field>}
+            <Field label="طريقة البيع"><select className="sel" value={f.terms} onChange={e => setF(x => ({ ...x, terms: e.target.value, inClosing: e.target.value === 'credit' ? false : x.inClosing }))}><option value="cash">نقدي / شبكة</option><option value="credit">آجل على حساب العميل</option></select></Field>
+            {f.terms === 'cash' && !f.inClosing && <Field label="المتحصَّل في"><select className="sel" value={f.fund} onChange={e => setF(x => ({ ...x, fund: e.target.value }))}>{fundOpts}</select></Field>}
+          </div>
+          {fc && <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+            {fc.tax ? <span className="badge b-dim">الرقم الضريبي {fc.tax}</span> : <span className="badge b-amber">بلا رقم ضريبي</span>}
+            {f.terms === 'credit' && <span className="badge b-dim">مهلة {fc.terms || 0} يوم</span>}
+            <span className="badge b-dim">المستحق عليه {money(custOwed(fc.key))}</span>
+            {Number(fc.creditLimit) > 0 && <span className={'badge ' + (custOwed(fc.key) + (T ? T.total : 0) > Number(fc.creditLimit) ? 'b-rose' : 'b-dim')}>حد الائتمان {money(fc.creditLimit)}</span>}
+            {f.type === 'standard' && naMissing(fc.na).length > 0 && <span className="badge b-amber">العنوان الوطني ناقص: {naMissing(fc.na).join('، ')}</span>}
+          </div>}
+          {f.terms === 'cash' && <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', margin: '4px 0 8px' }}>
+            <input type="checkbox" checked={!!f.inClosing} onChange={e => setF(x => ({ ...x, inClosing: e.target.checked }))} />هذا البيع مسجّل في إغلاق الوردية (تُصدر الفاتورة وتُرقَّم فقط دون قيد ثانٍ)</label>}
+          <div className="lbl" style={{ margin: '4px 0 6px' }}>البنود — السعر قبل الضريبة</div>
+          {(f.lines || []).map((l, i) => { const k = lineCalc(l); return (
+            <div key={i} className="row" style={{ gap: 7, marginBottom: 7, flexWrap: 'wrap', alignItems: 'center' }}>
+              <input className="inp" style={{ flex: 2, minWidth: 170 }} placeholder="البيان (وجبات، تموين حفل…)" value={l.desc} onChange={e => setF(x => ({ ...x, lines: x.lines.map((z, j) => j === i ? { ...z, desc: e.target.value } : z) }))} />
+              <input className="inp n" style={{ width: 80 }} inputMode="decimal" placeholder="الكمية" value={l.qty} onChange={e => setF(x => ({ ...x, lines: x.lines.map((z, j) => j === i ? { ...z, qty: e.target.value.replace(/[^\d.]/g, '') } : z) }))} />
+              <input className="inp n" style={{ width: 100 }} inputMode="decimal" placeholder="سعر الوحدة" value={l.price} onChange={e => setF(x => ({ ...x, lines: x.lines.map((z, j) => j === i ? { ...z, price: e.target.value.replace(/[^\d.]/g, '') } : z) }))} />
+              <select className="sel" style={{ width: 90 }} value={l.vatRate} onChange={e => setF(x => ({ ...x, lines: x.lines.map((z, j) => j === i ? { ...z, vatRate: e.target.value } : z) }))}>
+                {[...new Set([String(vatRate), '15', '0'])].map(v => <option key={v} value={v}>{v}%</option>)}</select>
+              <span className="num" style={{ fontSize: 12, minWidth: 90, textAlign: 'end' }}>{money(k.net + k.vat)}</span>
+              {f.lines.length > 1 && <button className="btn sm gh" onClick={() => setF(x => ({ ...x, lines: x.lines.filter((_, j) => j !== i) }))}><X size={13} /></button>}
+            </div>); })}
+          <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+            <button className="btn sm" onClick={() => setF(x => ({ ...x, lines: [...x.lines, { desc: '', qty: '1', price: '', vatRate: String(vatRate) }] }))}><Plus size={13} />بند</button>
+            <span className="badge b-brass">قبل الضريبة {money(T.net)} · الضريبة {money(T.vat)} · الإجمالي {money(T.total)}</span>
+          </div>
+          {!tax.enabled && <div className="note" style={{ marginTop: 8 }}>ضريبة القيمة المضافة غير مفعّلة في المنصة — تُصدر الفاتورة بنسبة 0% ما لم تختر نسبة للبند.</div>}
+        </Modal>
+      )}
+
+      {rc && (() => { const x = byId(rc.id); return (
+        <Modal title={'تحصيل — ' + x.no + ' · ' + ((x.buyer || {}).name || '')} icon={Banknote} onClose={() => setRc(null)}
+          foot={<><button className="btn gh" onClick={() => setRc(null)}>إلغاء</button><button className="btn pri" onClick={saveRc}><Check size={14} />تسجيل التحصيل</button></>}>
+          <div className="mono-b" style={{ marginBottom: 10 }}><span>المتبقي</span><span className="num">{money(siRem(ops, x))}</span></div>
+          <div className="grid g3">
+            <Num label="المبلغ" value={rc.amount} onChange={v => setRc(r => ({ ...r, amount: v }))} />
+            <Field label="التاريخ"><input type="date" className="inp" value={rc.date} onChange={e => setRc(r => ({ ...r, date: e.target.value }))} /></Field>
+            <Field label="أُودِع في"><select className="sel" value={rc.fund} onChange={e => setRc(r => ({ ...r, fund: e.target.value }))}>{fundOpts}</select></Field>
+          </div>
+        </Modal>); })()}
+
+      {cn && (() => { const o = byId(cn.id); const already = all.filter(c => c.kind === 'credit' && c.refId === o.id); return (
+        <Modal title={'إشعار دائن عن ' + o.no} icon={FileText} onClose={() => setCn(null)}
+          foot={<><button className="btn gh" onClick={() => setCn(null)}>إلغاء</button><button className="btn pri" onClick={saveCn}><Check size={14} />إصدار الإشعار</button></>}>
+          <div className="grid g2">
+            <Field label="التاريخ"><input type="date" className="inp" value={cn.date} onChange={e => setCn(r => ({ ...r, date: e.target.value }))} /></Field>
+            <Field label="السبب"><input className="inp" value={cn.reason} placeholder="مرتجع، خطأ في السعر، إلغاء…" onChange={e => setCn(r => ({ ...r, reason: e.target.value }))} /></Field>
+            {o.terms === 'credit' && <Field label="التسوية"><select className="sel" value={cn.settle} onChange={e => setCn(r => ({ ...r, settle: e.target.value }))}><option value="credit">تخفيض ذمة العميل</option><option value="cash">رد نقدي للعميل</option></select></Field>}
+            {(o.terms !== 'credit' || cn.settle === 'cash') && !o.inClosing && <Field label="يُرد من"><select className="sel" value={cn.fund} onChange={e => setCn(r => ({ ...r, fund: e.target.value }))}>{fundOpts}</select></Field>}
+          </div>
+          {o.lines.map((l, i) => { const back = sum(already, c => ((c.lines || []).find(z => z.src === i) || {}).qty || 0); const can = Math.max(0, l.qty - back); return (
+            <div key={i} className="row" style={{ gap: 8, marginBottom: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ flex: 2, minWidth: 150, fontSize: 12.5 }}>{l.desc}<div style={{ fontSize: 9.5, color: 'var(--faint)' }}>الكمية {l.qty} · أُشعر سابقًا {back} · المتاح {can} · بسعر {money(l.price)}</div></div>
+              <input className="inp n" style={{ width: 110 }} inputMode="decimal" placeholder="الكمية" disabled={can <= 0} value={cn.qtys[i]} onChange={e => setCn(r => ({ ...r, qtys: r.qtys.map((z, j) => j === i ? e.target.value.replace(/[^\d.]/g, '') : z) }))} />
+              <button className="btn sm gh" disabled={can <= 0} onClick={() => setCn(r => ({ ...r, qtys: r.qtys.map((z, j) => j === i ? String(can) : z) }))}>الكل</button>
+            </div>); })}
+          <div className="note">الإشعار الدائن يعكس البيع والضريبة بالكميات المختارة، ولا يتجاوز ما لم يُشعَر به سابقًا.</div>
+        </Modal>); })()}
+    </div>
+  );
+}
+
 function Sales({ org, ops, me, myBranches, scoped, setTab, say }) {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -15655,7 +15978,7 @@ const PT_SRC = {
   inv: { t: 'فاتورة', c: 'var(--amber)' }, close: { t: 'إغلاق فرع', c: 'var(--mint)' },
   adv: { t: 'سلفة/خصم', c: 'var(--violet)' }, salary: { t: 'رواتب', c: 'var(--sky)' },
   open: { t: 'افتتاحي', c: 'var(--faint)' }, manual: { t: 'يدوي', c: 'var(--sky)' },
-  pay: { t: 'سداد', c: 'var(--mint)' }
+  pay: { t: 'سداد', c: 'var(--mint)' }, si: { t: 'فاتورة مبيعات', c: 'var(--brass)' }
 };
 
 function PartnerChip({ type }) {
