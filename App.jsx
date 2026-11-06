@@ -270,7 +270,9 @@ const BR_COLS = ['closings', 'transfers', 'partnerRequests', 'notifications', 'b
   // v27.7 — م١٩: سجلات التدريب والشهادات (البرامج المركزية في org.trainingPrograms)
   'hrTraining',
   // v27.9 — م١١: قياسات KPI الشهرية لكل موظف (تعريفات المؤشرات في org.roleKpis)
-  'hrKpiEntries'];
+  'hrKpiEntries',
+  // v29.9 — المستودعات: حركات مستودع الفرع وتحويلاته (يكتبها جهاز الفرع)
+  'whMoves', 'whTransfers'];
 const CORE_COLS = ['advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules', 'hrScoreSnapshots'];
 
 // تقسيم ops المدمجة إلى مستند مركزي + مستند لكل فرع
@@ -312,6 +314,9 @@ function dirOf(org) {
     branches: (org.branches || []).map(b => ({ id: b.id, name: b.name, defaultFloat: b.defaultFloat || 0, isActive: b.isActive !== false, logoUrl: b.logoUrl || '', city: b.city || '', bankName: b.bankName || '', bankAcc: b.bankAcc || '', geofence: b.geofence || null })),   // v24.0: الجيوفنس لازم لكشك الحضور على جهاز الفرع
     expenseCats: org.expenseCats || [],
     deliveryApps: org.deliveryApps || [],
+    // v29.9: أصناف المخزون (بلا تكلفة) والمستودعات — لشاشة «مستودع الفرع»
+    items: (org.items || []).map(it => ({ id: it.id, name: it.name, unit: it.unit || '', minQty: it.minQty || 0, isActive: it.isActive !== false })),
+    warehouses: (org.warehouses || []).map(w => ({ id: w.id, name: w.name, kind: w.kind, branchId: w.branchId || '', parentId: w.parentId || '', active: w.active !== false })),
     suppliers: (org.suppliers || []).map(x => ({ id: x.id, name: x.name, category: x.category || '', code: x.code || '', terms: x.terms || 0 })),
     employees: (org.employees || []).map(e => ({ id: e.id, name: e.name, branchId: e.branchId || '', jobTitle: e.jobTitle || '', code: e.code || '', isActive: e.isActive !== false })),
     users: (org.users || []).map(u => ({ id: u.id, name: u.name, email: u.email || '', role: u.role, branchId: u.branchId || '', allowedBranchIds: u.allowedBranchIds || [], appAllow: u.appAllow || [], appDeny: u.appDeny || [], isActive: u.isActive !== false })),
@@ -1076,6 +1081,11 @@ function buildAccounting(org, ops) {
   addAcc('1401', 'سلف الموظفين وعُهدهم', 'asset', { link: 'الرواتب والسلف' });
   addAcc('1501', 'ضريبة القيمة المضافة — مدخلات', 'asset', { link: 'تُخصم من الإقرار' });
   addAcc('1601', 'المخزون — بضاعة آخر المدة', 'asset', { link: 'رسملة المخزون — من شاشة المخزون' });
+  // v29.9: حساب مخزون لكل مستودع + بضاعة في الطريق بين المستودعات
+  if (whOn(org)) {
+    whOf(org).forEach(w => { if (w.accCode && !accIx[w.accCode]) addAcc(String(w.accCode), 'المخزون — ' + (w.name || 'مستودع'), 'asset', { link: 'رصيد المستودع — رسملة المخزون', whId: w.id }); });
+    addAcc('1609', 'بضاعة في الطريق بين المستودعات', 'asset', { link: 'تحويلات مصروفة لم تُستلم بعد' });
+  }
   addAcc('1701', 'الأصول الثابتة', 'asset', { link: 'سجل الأصول' });
   addAcc('1791', 'مجمّع الإهلاك (يُطرح من الأصول)', 'asset', { link: 'قسط ثابت شهري تلقائي' });
   // — الخصوم —
@@ -1459,14 +1469,25 @@ function buildAccounting(org, ops) {
   //     فيصير: تكلفة البضاعة المباعة = المشتريات − بضاعة آخر المدة، والمخزون يظهر أصلًا في المركز المالي
   const iv = org.invValuation;
   if (iv && iv.enabled) {
-    const bal = {};
-    (ops.stockMoves || []).forEach(m => { bal[m.itemId] = (bal[m.itemId] || 0) + (Number(m.qty) || 0); });
-    const autoVal = (org.items || []).reduce((s, it) => s + Math.max(0, bal[it.id] || 0) * (Number(it.cost) || 0), 0);
-    const val = Math.round((iv.auto !== false ? autoVal : (Number(iv.value) || 0)) * 100) / 100;
-    if (val > 0) push({
-      id: 'invval', date: (iv.asOf || today()).slice(0, 10),
-      title: 'رسملة المخزون — بضاعة آخر المدة', src: 'تسوية مخزون', ref: '', lines: [L('1601', val, 0), L('5150', 0, val)]
-    });
+    const ivDate = (iv.asOf || today()).slice(0, 10);
+    // v29.9: الأرصدة كما في تاريخ الرسملة (لا الأرصدة الحالية) — حركة اليوم لا تغيّر قيد شهر سابق
+    const SB = stockByWh(org, ops, ivDate);
+    const costOf = (id) => Number(((org.items || []).find(x => x.id === id) || {}).cost) || 0;
+    const valOf = (m) => Math.round(Object.entries(m || {}).reduce((s, [id, q]) => s + Math.max(0, q) * costOf(id), 0) * 100) / 100;
+    if (whOn(org) && iv.auto !== false) {
+      const lines = [];
+      whOf(org).forEach(w => { const v = valOf(SB.byWh[w.id]); if (v > 0) lines.push(L(String(w.accCode || '1601'), v, 0)); });
+      const tv = valOf(SB.transit); if (tv > 0) lines.push(L('1609', tv, 0));
+      const val = Math.round(lines.reduce((s, l) => s + l.debit, 0) * 100) / 100;
+      if (val > 0) push({ id: 'invval', date: ivDate, title: 'رسملة المخزون — بضاعة آخر المدة (حسب المستودع)', src: 'تسوية مخزون', ref: '', lines: [...lines, L('5150', 0, val)] });
+    } else {
+      const autoVal = valOf(SB.total);
+      const val = Math.round((iv.auto !== false ? autoVal : (Number(iv.value) || 0)) * 100) / 100;
+      if (val > 0) push({
+        id: 'invval', date: ivDate,
+        title: 'رسملة المخزون — بضاعة آخر المدة', src: 'تسوية مخزون', ref: '', lines: [L('1601', val, 0), L('5150', 0, val)]
+      });
+    }
   }
 
   // ٩مكرر) القيود اليدوية والافتتاحية — يُدخلها المحاسب من شاشة المحاسبة (التصحيح بقيد عكسي لا بالحذف)
@@ -1541,14 +1562,14 @@ const DENOMS = [
 const emptyDenoms = () => DENOMS.reduce((o, d) => ({ ...o, [d.k]: 0 }), {});
 const countDenoms = (d) => DENOMS.reduce((s, x) => s + (Number(d?.[x.k]) || 0) * x.v, 0);
 
-const ALL_TABS = ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'hrops', 'hrperf', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'perfsnap', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit', 'qrfb'];
+const ALL_TABS = ['whbranch', 'analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'hrops', 'hrperf', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'perfsnap', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit', 'qrfb'];
 const TAB_AR = {
   analytics: 'مركز التحليل والأداء', reporting: 'مركز التقارير', exec: 'اللوحة التنفيذية',
   dash: 'لوحة المؤشرات', compare: 'مقارنة الفروع', growth: 'تحليلات النمو', breakeven: 'تحليل التعادل', scorecard: 'لوحة الأهداف', scenario: 'ماذا-لو', boardpack: 'تقرير الإدارة', cashflow: 'التدفق النقدي', closing: 'الإغلاق اليومي', apps: 'التطبيقات',
   approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', people: 'شؤون الموظفين', payroll: 'الرواتب والسلف', workforce: 'تخطيط العمالة والتكلفة', hrmaster: 'البيانات الرئيسية', hrpolicy: 'السياسات والأدوار', attendance: 'الحضور الموثَّق', shiftengine: 'محرّك الورديات', tasks: 'المهام', points: 'دفتر النقاط', kpi: 'الأداء والتقييم', rewards: 'المكافآت والجزاءات', esign: 'التوقيع الإلكتروني', corrective: 'الإجراءات التصحيحية', training: 'التدريب والشهادات', rolekpi: 'مؤشرات الأداء بالدور', hrdash: 'لوحة الموارد البشرية', perfsnap: 'تجميد الأداء الشهري',
   purchasing: 'المشتريات والموردون', suppliers: 'الموردون والمشتريات', inv: 'المخزون والمنتجات', reorder: 'المشتريات الذكية', partners: 'دفتر الشركاء',
   acct: 'المحاسبة', shifts: 'مواعيد الإغلاق والتذكيرات', archive: 'أرشيف المستندات', ai: 'المركز الذكي',
-  reports: 'التقارير المالية', rbuild: 'منشئ التقارير', entities: 'مركز المنشآت', admin: 'الفروع والمستخدمون', audit: 'سجل التدقيق', qrfb: 'تقييم العملاء (QR)'
+  reports: 'التقارير المالية', rbuild: 'منشئ التقارير', entities: 'مركز المنشآت', admin: 'الفروع والمستخدمون', audit: 'سجل التدقيق', qrfb: 'تقييم العملاء (QR)', whbranch: 'مستودع الفرع'
 };
 // ═══ ثيمات المنصّة الاحترافية (١١ أسلوب تصميم كامل) × وضع ليل/نهار — v14.7 ═══
 const THEME_META = {
@@ -1580,17 +1601,17 @@ const ROLES = {
   },
   branch_manager: {
     ar: 'مدير الفرع', badge: 'b-mint', scope: 'own', create: true,
-    tabs: ['closing', 'sales', 'apps', 'archive', 'hrops', 'hrperf', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'qrfb'],
+    tabs: ['whbranch', 'closing', 'sales', 'apps', 'archive', 'hrops', 'hrperf', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'qrfb'],
     perms: ['إدخال وترحيل إغلاق فرعه', 'عرض سجل إغلاقات فرعه', 'أرشيف مستندات فرعه فقط', 'تسجيل الحضور وضبط أرقام PIN وسجل حضور فرعه', 'محرّك ورديات فرعه: قوالب، تعيين أسبوعي، مطابقة حضور، تبديل وردية، طلب نقل موظف', 'كشك التوقيع الإلكتروني وسجل إقرارات فرعه (بلا مبالغ الرواتب)']
   },
   regional_manager: {
     ar: 'مدير إقليمي — فروع مُسندة', badge: 'b-amber', scope: 'assigned',
-    tabs: ['analytics', 'reporting', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'reports', 'archive', 'hrops', 'hrperf', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'qrfb'],
+    tabs: ['whbranch', 'analytics', 'reporting', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'reports', 'archive', 'hrops', 'hrperf', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'qrfb'],
     perms: ['متابعة الفروع المسندة إليه فقط', 'مقارنة وتقارير فروعه ولوحة مؤشراتها ونموّها', 'سجل حضور فروعه المسندة ومحرّك ورديات فروعه', 'بلا وصول للمحاسبة والخزينة والإعدادات']
   },
   head_office: {
     ar: 'المكتب الرئيسي — المالية والإدارة', badge: 'b-brass', scope: 'all', approver: true,
-    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'hrops', 'hrperf', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'perfsnap', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit', 'qrfb'],
+    tabs: ['whbranch', 'analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'hrops', 'hrperf', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'perfsnap', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit', 'qrfb'],
     perms: ['كل الفروع والتقارير المجمّعة', 'التدقيق والاعتماد النهائي', 'الخزينة والرواتب والموردون والمشتريات والمخزون', 'المحاسبة الكاملة: قيود وميزان وقوائم وضريبة وأصول ومراكز تكلفة']
   },
   system_admin: {
@@ -1608,7 +1629,7 @@ const ROLES = {
     // إعادة ترتيب v8.0: المحاسب الرئيسي بطبيعته يعمل على المنشأة كلها — نطاق كامل
     // بلا صلاحيات إدارة (لا مستخدمين/فروع، لا تفعيل ضريبة، لا إدارة تطبيقات)
     ar: 'الإدارة المالية — محاسب رئيسي', badge: 'b-sky', scope: 'all', legacy: true,
-    tabs: ['analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'hrops', 'hrperf', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'perfsnap', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit', 'qrfb'],
+    tabs: ['whbranch', 'analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'hrops', 'hrperf', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'perfsnap', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit', 'qrfb'],
     perms: ['المحاسبة كاملة: قيود يدوية وافتتاحية وميزان وقوائم ومراكز تكلفة', 'الضريبة والأصول والتسوية البنكية (عرض وتسجيل — التفعيل للإدارة)', 'المشتريات والمخزون والرواتب والخزينة', 'كل الفروع — دون إدارة المستخدمين والإعدادات']
   },
   // ===== v15.9: نماذج صلاحيات المحاسب — نطاق «المحاسبة + التقارير المالية فقط» =====
@@ -1733,6 +1754,7 @@ const REG_APPS = [
   // ——— المخزون (خطة م٤) ———
   { id: 'products', ar: 'المنتجات والوصفات', en: 'Products & Recipes', cat: 'inv2', icon: Store, open: { tab: 'inv', view: 'recipes' }, kw: ['منتج', 'وصفة', 'تكلفة', 'هامش', 'مخزون'], fns: ['وصفة بمكونات من الأصناف', 'تكلفة حقيقية بآخر شراء', 'هامش لحظي (صافي الضريبة)'], d: 'وصفة وتكلفة وهامش لكل منتج — من أصناف مخزونك وأسعارها الفعلية.' },
   { id: 'stock', ar: 'المخزون والجرد', en: 'Stock & Stocktake', cat: 'inv2', icon: HardDrive, open: { tab: 'inv', view: 'items' }, kw: ['مستودع', 'جرد', 'حركة', 'رصيد', 'هدر', 'مخزون', 'حد أدنى'], fns: ['أرصدة حية بحد أدنى وتنبيه', 'توريد وصرف وهدر', 'جرد بعدّ فعلي وتسويات موثقة'], d: 'أرصدة أصنافك وحركاتها وجردها الدوري — والتوريد من أوامر الشراء تلقائي.' },
+  { id: 'whbranch', ar: 'مستودع الفرع', en: 'Branch Warehouse', cat: 'inv2', icon: Truck, open: { tab: 'whbranch' }, kw: ['مستودع', 'فرع', 'تحويل', 'استلام', 'طلب', 'صرف', 'هدر', 'جرد'], fns: ['أرصدة مستودع الفرع', 'طلب من المستودع الرئيسي', 'استلام التحويلات بالكميات الفعلية', 'صرف للمطبخ وهدر', 'جرد المستودع'] },
   // ——— الأصول والتسويات (خطة م٥) ———
   { id: 'assets', ar: 'الأصول الثابتة والإهلاك', en: 'Fixed Assets', cat: 'ast', icon: Building2, open: { tab: 'acct', view: 'ast' }, kw: ['أصل', 'إهلاك', 'معدات', 'قيمة دفترية'], fns: ['سجل أصول بمصدر تمويل صريح', 'إهلاك شهري تلقائي بأثر رجعي', 'قيمة دفترية حية'], d: 'سجل أصولك وقيود شرائها وإهلاكها الشهري تلقائياً حتى نهاية عمرها.' },
   { id: 'bankrec', ar: 'التسوية البنكية', en: 'Bank Reconciliation', cat: 'ast', icon: Landmark, open: { tab: 'acct', view: 'bank' }, kw: ['بنك', 'تسوية', 'كشف', 'مطابقة', 'شبكة', 'فرق'], fns: ['رصيد الدفتر مقابل كشف البنك', 'فرق موثق بسجل تسويات', 'حركات البنك مفصلة'], d: 'طابق حساب البنك التجميعي مع كشفك الفعلي ووثّق الفروقات — والتصحيح بقيد يدوي.' },
@@ -1773,6 +1795,8 @@ const LAUNCH_APPS = [
     sections: ['الأداء والتقييم', 'مؤشرات الأداء بالدور', 'المكافآت والجزاءات', 'الإجراءات التصحيحية', 'التدريب والشهادات', 'تجميد الأداء', 'لوحة الموارد البشرية'], kw: ['أداء', 'تقييم', 'kpi', 'مؤشر', 'مكافأة', 'جزاء', 'تأديب', 'إجراء', 'تدريب', 'شهادة', 'تجميد', 'لوحة'] },
   { id: 'qrfb', ar: 'تقييم العملاء (QR)', en: 'QR Customer Feedback', cat: 'pos', icon: QrCode, open: { tab: 'qrfb' },
     sections: ['لوحة التقييمات', 'الشكاوى', 'رموز QR للفروع'], kw: ['تقييم', 'عميل', 'عملاء', 'رضا', 'شكوى', 'شكاوى', 'QR', 'تعليق', 'نجوم', 'طاولة'] },
+  { id: 'whbranch', ar: 'مستودع الفرع', en: 'Branch Warehouse', cat: 'inv2', icon: Truck, open: { tab: 'whbranch' },
+    sections: ['الأرصدة', 'الوارد', 'طلب من الرئيسي', 'صرف وهدر', 'الجرد'], kw: ['مستودع', 'فرع', 'تحويل', 'استلام', 'طلب', 'هدر', 'جرد'] },
   { id: 'sales', ar: 'المبيعات', en: 'Sales', cat: 'pos', icon: CircleDollarSign, open: { tab: 'sales' },
     sections: ['حسب القناة', 'حسب الفرع', 'حسب التطبيق'], kw: ['مبيعات', 'نقاط البيع', 'نقطة بيع', 'قناة', 'نقد', 'شبكة', 'توصيل', 'تحليل'] },
   { id: 'approve', ar: 'التدقيق والاعتماد', en: 'Approvals', cat: 'pos', icon: ShieldCheck, open: { tab: 'approve' },
@@ -2702,6 +2726,7 @@ function PlatformApp() {
     { id: 'people', ar: 'شؤون الموظفين', icon: Wallet },
     { id: 'purchasing', ar: 'المشتريات والموردون', icon: Truck },
     { id: 'inv', ar: 'المخزون والمنتجات', icon: HardDrive },
+    { id: 'whbranch', ar: 'مستودع الفرع', icon: Truck },
     { id: 'partners', ar: 'دفتر الشركاء', icon: Users },
     { id: 'acct', ar: 'المحاسبة', icon: Scale },
     { id: 'docs', ar: 'مركز المستندات', icon: Stamp },
@@ -2804,7 +2829,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v29.8 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v29.9 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2966,6 +2991,7 @@ function PlatformApp() {
               {safeTab === 'shifts' && <Shifts {...shared} />}
               {['purchasing', 'suppliers', 'reorder'].includes(safeTab) && <Hub hubId="purchasing" {...shared} view={safeTab} />}
               {safeTab === 'inv' && <Inventory {...shared} />}
+              {safeTab === 'whbranch' && <BranchWarehouse {...shared} />}
               {safeTab === 'partners' && <Partners {...shared} />}
               {safeTab === 'acct' && <Accounting {...shared} />}
               {safeTab === 'docs' && <DocsCenter {...shared} />}
@@ -4333,10 +4359,10 @@ function SmartPurchasing({ org, ops, me, commit, commitOrg, say }) {
   const [lvl, setLvl] = useState({});
   const [supId, setSupId] = useState((org.suppliers || [])[0]?.id || '');
 
-  const bal = {}; moves.forEach(m => { bal[m.itemId] = (bal[m.itemId] || 0) + (Number(m.qty) || 0); });
+  const bal = stockByWh(org, ops).total;   // v29.9: كل المستودعات + الطريق
   const balOf = (id) => Math.round((bal[id] || 0) * 1000) / 1000;
   const cutoff = isoD(new Date(Date.now() - 30 * 86400000));
-  const usage = {}; moves.forEach(m => { if ((Number(m.qty) || 0) < 0 && (m.at || m.date || '').slice(0, 10) >= cutoff) usage[m.itemId] = (usage[m.itemId] || 0) + (-(Number(m.qty) || 0)); });
+  const usage = {}; [...moves, ...(ops.whMoves || [])].forEach(m => { if ((Number(m.qty) || 0) < 0 && (m.at || m.date || '').slice(0, 10) >= cutoff) usage[m.itemId] = (usage[m.itemId] || 0) + (-(Number(m.qty) || 0)); });
   const lastPrice = {}; (ops.purchaseOrders || []).forEach(po => (po.lines || []).forEach(l => { if (l.itemId && (Number(l.price) || 0) > 0) lastPrice[l.itemId] = Number(l.price); }));
 
   const minOf = (it) => { const v = lvl[it.id] && lvl[it.id].min; return v != null && v !== '' ? Number(v) || 0 : (it.minQty || 0); };
@@ -5885,7 +5911,7 @@ function ExecDashboard({ org, ops, me, myBranches, scoped, setTab, openAcctView,
   const workingCap = r2(curAssets - totLiab);
   const monMargin = monRev > 0.005 ? monNet / monRev * 100 : null;
 
-  const stockBal = {}; (ops.stockMoves || []).forEach(m => { stockBal[m.itemId] = (stockBal[m.itemId] || 0) + (Number(m.qty) || 0); });
+  const stockBal = stockByWh(org, ops).total;   // v29.9: كل المستودعات
   const lowStock = (org.items || []).filter(it => (Number(it.minQty) || 0) > 0 && (stockBal[it.id] || 0) < (Number(it.minQty) || 0));
   const bdT = businessDay();
   const deficitsToday = counted.filter(c => c.date === bdT && (c.variance || 0) < 0).length;
@@ -6064,7 +6090,7 @@ function AlertsCenter({ org, ops, me, myBranches, scoped, setTab, openAcctView, 
     else if (dd(last.date, td) > 30) push('mid', 'cash', 'آخر تسوية بنكية قبل ' + dd(last.date, td) + ' يومًا', 'راجع مطابقة البنك دوريًا.', { label: 'التسوية', go: () => goAcct('bank') }); }
 
   // مخزون
-  const stockBal = {}; (ops.stockMoves || []).forEach(m => { stockBal[m.itemId] = (stockBal[m.itemId] || 0) + (Number(m.qty) || 0); });
+  const stockBal = stockByWh(org, ops).total;   // v29.9: كل المستودعات
   const low = (org.items || []).filter(it => (Number(it.minQty) || 0) > 0 && (stockBal[it.id] || 0) < (Number(it.minQty) || 0));
   if (low.length) push('mid', 'inventory', low.length + ' صنف تحت حد الأمان', low.slice(0, 4).map(it => it.name).join('، ') + (low.length > 4 ? '…' : '') + ' — أعِد التزويد.', { label: 'المخزون', go: () => setTab('inv') });
   if ((org.items || []).length && (ops.stockMoves || []).length && !(org.invValuation && org.invValuation.enabled)) push('low', 'inventory', 'رسملة المخزون غير مفعّلة', 'فعّلها لتظهر تكلفة البضاعة المباعة والمخزون بدقّة.', { label: 'المخزون', go: () => setTab('inv') });
@@ -15038,6 +15064,43 @@ function BalCell({ bal }) {
 }
 
 /* ================= م٤: المخزون والمنتجات — أصناف، حركات، جرد، وصفات ================= */
+/* ============================================================
+   v29.9 — المستودعات: رئيسي + مستودع لكل فرع (org.warehouses)
+   • حركات المستودع الرئيسي: ops.stockMoves (المستند المركزي) — الحركات القديمة بلا whId تخص الرئيسي.
+   • حركات مستودع الفرع: ops.whMoves (مستند الفرع) — يسجّلها موظفو الفرع لمستودع فرعهم فقط.
+   • التحويلات: ops.whTransfers (مستند الفرع المستلم): طلب ← صرف (بضاعة في الطريق) ← استلام بالكميات الفعلية.
+   • لكل مستودع حساب مخزون في الدليل (accCode ثابت مخزّن على المستودع) + حساب «بضاعة في الطريق» 1609.
+   الأرصدة تُشتق حسابيًا من الحركات والتحويلات — لا أرصدة مخزّنة تتعارض.
+   ============================================================ */
+const MAIN_WH = 'wh-main';
+const whOf = (org) => ((org && org.warehouses) || []).filter(w => w && w.active !== false);
+const whOn = (org) => whOf(org).length > 0;
+const whForBranch = (org, bId) => whOf(org).find(w => w.kind === 'branch' && w.branchId === bId);
+const whName = (org, id) => (whOf(org).find(w => w.id === id) || {}).name || (id === MAIN_WH ? 'المستودع الرئيسي' : '—');
+const q3 = (n) => Math.round((Number(n) || 0) * 1000) / 1000;
+// الأرصدة لكل مستودع + البضاعة في الطريق + الإجمالي. asOf (اختياري): الأرصدة كما في تاريخ (لقيد رسملة المخزون)
+function stockByWh(org, ops, asOf) {
+  const byWh = {}, transit = {}, total = {};
+  const okD = (d) => !asOf || !d || String(d).slice(0, 10) <= asOf;
+  const add = (w, it, q) => { if (!it || !q) return; const m = byWh[w] || (byWh[w] = {}); m[it] = (m[it] || 0) + q; total[it] = (total[it] || 0) + q; };
+  (ops.stockMoves || []).forEach(m => { if (okD(m.date || m.at)) add(m.whId || MAIN_WH, m.itemId, Number(m.qty) || 0); });
+  (ops.whMoves || []).forEach(m => { if (okD(m.date || m.at)) add(m.whId, m.itemId, Number(m.qty) || 0); });
+  (ops.whTransfers || []).forEach(t => {
+    if (t.status !== 'sent' && t.status !== 'received') return;
+    if (!okD(t.sentDate)) return;
+    const recvd = t.status === 'received' && okD(t.receivedDate);
+    (t.lines || []).forEach(l => {
+      const sq = Number(l.qtySent) || 0; if (!sq) return;
+      add(t.fromWh || MAIN_WH, l.itemId, -sq);
+      if (recvd) add(t.toWh, l.itemId, Number(l.qtyRecv) || 0);
+      else { transit[l.itemId] = (transit[l.itemId] || 0) + sq; total[l.itemId] = (total[l.itemId] || 0) + sq; }
+    });
+  });
+  return { byWh, transit, total };
+}
+// رمز حساب مخزون جديد للمستودع: 160101، 160102… (ثابت على المستودع — لا يتغير بترتيب الفروع)
+const nextWhAcc = (list) => { let n = 1; const used = new Set((list || []).map(w => String(w.accCode || ''))); while (used.has('1601' + String(n).padStart(2, '0'))) n++; return '1601' + String(n).padStart(2, '0'); };
+
 const MOVE_KINDS = {
   purchase: { ar: 'توريد شراء', sign: 1, c: 'b-mint' },
   in: { ar: 'توريد يدوي', sign: 1, c: 'b-mint' },
@@ -15045,6 +15108,359 @@ const MOVE_KINDS = {
   waste: { ar: 'هدر/إتلاف', sign: -1, c: 'b-rose' },
   adjust: { ar: 'تسوية جرد', sign: 1, c: 'b-amber' }
 };
+/* ============ v29.9 — لوحة المستودعات (المركز): الإعداد، الأرصدة، صرف التحويلات ============ */
+const WH_ST = { requested: ['b-amber', 'مطلوب'], sent: ['b-sky', 'في الطريق'], received: ['b-mint', 'مُستلم'], cancelled: ['b-dim', 'ملغى'] };
+function WhLines({ items, lines, setLines, field, max }) {
+  return (
+    <div className="grid" style={{ gap: 6 }}>
+      {lines.map((l, i) => (
+        <div key={i} className="row" style={{ gap: 6, alignItems: 'center' }}>
+          <select className="inp sel" style={{ flex: 2 }} value={l.itemId} onChange={e => setLines(ls => ls.map((x, j) => j === i ? { ...x, itemId: e.target.value } : x))}>
+            <option value="">— الصنف —</option>
+            {items.filter(it => it.isActive !== false).map(it => <option key={it.id} value={it.id}>{it.name} ({it.unit})</option>)}
+          </select>
+          <input className="inp n" style={{ width: 110 }} inputMode="decimal" placeholder="الكمية" value={l[field] ?? ''}
+            onChange={e => setLines(ls => ls.map((x, j) => j === i ? { ...x, [field]: e.target.value } : x))} />
+          {max && l.itemId && <span style={{ fontSize: 10.5, color: 'var(--faint)', minWidth: 70 }}>المتاح {q3(max(l.itemId))}</span>}
+          <button className="btn sm gh" onClick={() => setLines(ls => ls.filter((_, j) => j !== i))}><X size={12} /></button>
+        </div>
+      ))}
+      <button className="btn sm gh" style={{ alignSelf: 'flex-start' }} onClick={() => setLines(ls => [...ls, { itemId: '', [field]: '' }])}><Plus size={12} />سطر</button>
+    </div>
+  );
+}
+
+function WarehousesPanel({ org, ops, me, commit, commitOrg, say }) {
+  const items = org.items || [];
+  const whs = whOf(org);
+  const branches = (org.branches || []).filter(b => b.isActive !== false);
+  const canW = rolePost(me?.role);
+  const SB = useMemo(() => stockByWh(org, ops), [org, ops]);
+  const [sel, setSel] = useState(MAIN_WH);
+  const [sendF, setSendF] = useState(null);     // صرف تحويل (طلب قائم أو جديد)
+  const [ren, setRen] = useState(null);
+  const costOf = (id) => Number((items.find(x => x.id === id) || {}).cost) || 0;
+  const itemOf = (id) => items.find(x => x.id === id) || { name: '—', unit: '' };
+  const qOf = (wh, id) => q3(((SB.byWh[wh] || {})[id]) || 0);
+  const valOf = (wh) => Math.round(Object.entries(SB.byWh[wh] || {}).reduce((s, [id, q]) => s + Math.max(0, q) * costOf(id), 0) * 100) / 100;
+  const transfers = (ops.whTransfers || []).slice().sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
+  const missing = branches.filter(b => !whForBranch(org, b.id));
+
+  const setup = async () => {
+    if (!canW) return say('لا تملك صلاحية الإعداد', 'no');
+    await commitOrg(d => {
+      const list = [...(d.warehouses || [])];
+      if (!list.some(w => w.id === MAIN_WH)) list.push({ id: MAIN_WH, name: 'المستودع الرئيسي', kind: 'main', branchId: '', parentId: '', accCode: nextWhAcc(list), active: true, at: nowISO() });
+      (d.branches || []).filter(b => b.isActive !== false).forEach(b => {
+        if (list.some(w => w.kind === 'branch' && w.branchId === b.id)) return;
+        list.push({ id: 'wh-' + b.id, name: 'مستودع ' + (b.name || 'فرع'), kind: 'branch', branchId: b.id, parentId: MAIN_WH, accCode: nextWhAcc(list), active: true, at: nowISO() });
+      });
+      return { ...d, warehouses: list };
+    }, { actionType: 'create', targetType: 'inventory', targetId: 'warehouses', need: 'post', title: 'إنشاء المستودعات وربطها بالفروع', details: 'رئيسي + ' + (missing.length || branches.length) + ' مستودع فرع' });
+    say('أُنشئت المستودعات ورُبطت بالفروع ✓ — لكل مستودع حساب مخزون في الدليل');
+  };
+  const rename = async () => {
+    const nm = String(ren.name || '').trim(); if (!nm) return say('أدخل الاسم', 'no');
+    await commitOrg(d => ({ ...d, warehouses: (d.warehouses || []).map(w => w.id === ren.id ? { ...w, name: nm } : w) }),
+      { actionType: 'update', targetType: 'inventory', targetId: ren.id, need: 'post', title: 'تعديل اسم مستودع', details: nm });
+    setRen(null); say('حُفظ ✓');
+  };
+
+  // صرف من الرئيسي: لطلب قائم أو تحويل جديد بمبادرة المركز
+  const openSend = (t) => setSendF(t
+    ? { id: t.id, toWh: t.toWh, lines: (t.lines || []).map(l => ({ itemId: l.itemId, qtyReq: l.qtyReq, qtySent: String(Math.max(0, Math.min(Number(l.qtyReq) || 0, qOf(MAIN_WH, l.itemId)))) })), note: '' }
+    : { id: '', toWh: (whs.find(w => w.kind === 'branch') || {}).id || '', lines: [{ itemId: '', qtySent: '' }], note: '' });
+  const send = async () => {
+    const f = sendF; const to = whs.find(w => w.id === f.toWh);
+    if (!to) return say('اختر المستودع المستلم', 'no');
+    const lines = f.lines.filter(l => l.itemId && (Number(l.qtySent) || 0) > 0).map(l => ({ itemId: l.itemId, qtyReq: l.qtyReq != null ? Number(l.qtyReq) || 0 : Number(l.qtySent) || 0, qtySent: q3(l.qtySent) }));
+    if (!lines.length) return say('أدخل كميات الصرف', 'no');
+    const short = lines.find(l => l.qtySent > qOf(MAIN_WH, l.itemId) + 0.0005);
+    if (short) return say('الكمية تتجاوز رصيد المستودع الرئيسي: ' + itemOf(short.itemId).name + ' (المتاح ' + qOf(MAIN_WH, short.itemId) + ')', 'no');
+    const stamp = { status: 'sent', sentDate: today(), sentBy: me.name, sentAt: nowISO(), sendNote: f.note || '' };
+    const ok = await commit(d => {
+      const list = d.whTransfers || [];
+      if (f.id) return { ...d, whTransfers: list.map(t => t.id === f.id && t.status === 'requested' ? { ...t, lines, ...stamp } : t) };
+      const rec = { id: uid('wtr'), no: 'TRF-' + today().replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 5).toUpperCase(), fromWh: MAIN_WH, toWh: to.id, branchId: to.branchId,
+        lines, requestedBy: me.name, at: nowISO(), ...stamp };
+      return { ...d, whTransfers: [rec, ...list] };
+    }, { actionType: 'create', targetType: 'stock_move', targetId: f.id || 'new-transfer', title: 'صرف تحويل مخزني إلى ' + to.name, details: lines.map(l => itemOf(l.itemId).name + ' ' + l.qtySent).join('، ').slice(0, 160) });
+    if (ok) { setSendF(null); say('صُرف التحويل — البضاعة «في الطريق» حتى يستلمها الفرع ✓'); }
+  };
+  const cancelT = async (t) => {
+    if (t.status !== 'requested') return;
+    await commit(d => ({ ...d, whTransfers: (d.whTransfers || []).map(x => x.id === t.id && x.status === 'requested' ? { ...x, status: 'cancelled', cancelledBy: me.name, cancelledAt: nowISO() } : x) }),
+      { actionType: 'update', targetType: 'stock_move', targetId: t.id, title: 'إلغاء طلب تحويل', details: t.no || '' });
+  };
+
+  if (!whOn(org)) return (
+    <div className="card">
+      <div className="card-t" style={{ marginBottom: 8 }}><HardDrive size={15} color="var(--brass)" />المستودعات — رئيسي + مستودع لكل فرع</div>
+      <div style={{ fontSize: 12.5, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 10 }}>
+        يُنشأ <b>مستودع رئيسي</b> (يستلم من الموردين ويصرف للفروع) و<b>مستودع لكل فرع</b> ({branches.length} فرع) مربوط بالرئيسي.
+        لكل مستودع حساب مخزون مستقل في دليل الحسابات. الأرصدة الحالية تُنسب للمستودع الرئيسي.
+        بعد الإنشاء: الفرع يطلب ← الرئيسي يصرف ← الفرع يستلم بالكميات الفعلية، ويسجّل موظفو الفرع الصرف للمطبخ والهدر والجرد لمستودعهم.
+      </div>
+      {canW ? <button className="btn pri" onClick={setup}><Plus size={14} />إنشاء المستودعات وربطها بالفروع</button> : <div className="empty">الإعداد لمن يملك صلاحية الإدخال في المركز</div>}
+    </div>
+  );
+
+  const pendingReq = transfers.filter(t => t.status === 'requested');
+  const inTransit = transfers.filter(t => t.status === 'sent');
+  return (
+    <>
+      <div className="grid g4">
+        <Kpi label="المستودعات" value={String(whs.length)} sub={'رئيسي + ' + whs.filter(w => w.kind === 'branch').length + ' فرعي'} icon={HardDrive} color="#C8A24A" />
+        <Kpi label="طلبات بانتظار الصرف" value={String(pendingReq.length)} sub="من الفروع" icon={ClipboardCheck} color="#E0A458" />
+        <Kpi label="تحويلات في الطريق" value={String(inTransit.length)} sub={money(Math.round(Object.entries(SB.transit).reduce((s, [id, q]) => s + q * costOf(id), 0) * 100) / 100) + ' ر.س'} icon={Truck} color="#5B93C4" />
+        <Kpi label="قيمة المخزون — كل المستودعات" value={money(whs.reduce((s, w) => s + valOf(w.id), 0))} sub="بالتكلفة" icon={Landmark} color="#4FB286" />
+      </div>
+
+      <div className="card">
+        <div className="row" style={{ justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+          <div className="card-t"><HardDrive size={15} color="var(--brass)" />المستودعات وربطها</div>
+          <div className="row" style={{ gap: 6 }}>
+            {canW && missing.length > 0 && <button className="btn sm" onClick={setup}><Plus size={13} />مستودع لـ {missing.length} فرع جديد</button>}
+            {canW && <button className="btn sm pri" onClick={() => openSend(null)}><Send size={13} />تحويل جديد من الرئيسي</button>}
+          </div>
+        </div>
+        <div className="tw"><table className="tb">
+          <thead><tr><th>المستودع</th><th>النوع</th><th>الفرع المرتبط</th><th>يتبع</th><th>حساب المخزون</th><th style={{ textAlign: 'end' }}>القيمة</th><th></th></tr></thead>
+          <tbody>{whs.map(w => (
+            <tr key={w.id} style={{ cursor: 'pointer', background: sel === w.id ? 'var(--soft, rgba(200,162,74,.08))' : undefined }} onClick={() => setSel(w.id)}>
+              <td style={{ fontWeight: 600 }}>{w.name}</td>
+              <td><span className={'badge ' + (w.kind === 'main' ? 'b-brass' : 'b-sky')}>{w.kind === 'main' ? 'رئيسي' : 'فرعي'}</span></td>
+              <td style={{ fontSize: 12 }}>{w.branchId ? ((org.branches || []).find(b => b.id === w.branchId) || {}).name || '—' : '—'}</td>
+              <td style={{ fontSize: 12 }}>{w.parentId ? whName(org, w.parentId) : '—'}</td>
+              <td className="num" style={{ fontSize: 11.5 }}>{w.accCode}</td>
+              <td className="num" style={{ textAlign: 'end' }}>{money(valOf(w.id))}</td>
+              <td>{canW && <button className="btn sm gh" onClick={e => { e.stopPropagation(); setRen({ id: w.id, name: w.name }); }}><PenLine size={12} /></button>}</td>
+            </tr>))}
+          </tbody>
+        </table></div>
+      </div>
+
+      <div className="card">
+        <div className="card-t" style={{ marginBottom: 8 }}><ClipboardCheck size={15} color="var(--brass)" />أرصدة {whName(org, sel)}</div>
+        <div className="tw"><table className="tb">
+          <thead><tr><th>الصنف</th><th>الوحدة</th><th style={{ textAlign: 'end' }}>الرصيد</th><th style={{ textAlign: 'end' }}>القيمة</th></tr></thead>
+          <tbody>
+            {items.filter(it => qOf(sel, it.id) !== 0).map(it => (
+              <tr key={it.id}><td>{it.name}</td><td style={{ fontSize: 11.5, color: 'var(--dim)' }}>{it.unit}</td>
+                <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: qOf(sel, it.id) < 0 ? 'var(--rose)' : undefined }}>{qOf(sel, it.id)}</td>
+                <td className="num" style={{ textAlign: 'end' }}>{money(Math.max(0, qOf(sel, it.id)) * costOf(it.id))}</td></tr>))}
+            {items.every(it => qOf(sel, it.id) === 0) && <tr><td colSpan={4}><div className="empty">لا أرصدة في هذا المستودع</div></td></tr>}
+          </tbody>
+        </table></div>
+      </div>
+
+      <div className="card">
+        <div className="card-t" style={{ marginBottom: 8 }}><Truck size={15} color="var(--brass)" />التحويلات بين المستودعات</div>
+        <div className="tw"><table className="tb">
+          <thead><tr><th>الرقم</th><th>إلى</th><th>الأصناف</th><th>الحالة</th><th>التواريخ</th><th></th></tr></thead>
+          <tbody>
+            {transfers.slice(0, 150).map(t => {
+              const [c, tx] = WH_ST[t.status] || ['b-dim', t.status];
+              const diff = t.status === 'received' && (t.lines || []).some(l => Math.abs((Number(l.qtySent) || 0) - (Number(l.qtyRecv) || 0)) > 0.0005);
+              return (
+                <tr key={t.id}>
+                  <td className="num" style={{ fontSize: 11 }}>{t.no}</td>
+                  <td style={{ fontSize: 12 }}>{whName(org, t.toWh)}</td>
+                  <td style={{ fontSize: 11.5 }}>{(t.lines || []).map(l => itemOf(l.itemId).name + ' ' + (t.status === 'requested' ? l.qtyReq : t.status === 'received' ? (l.qtyRecv + (Math.abs((Number(l.qtySent) || 0) - (Number(l.qtyRecv) || 0)) > 0.0005 ? ' من ' + l.qtySent : '')) : l.qtySent)).join('، ')}</td>
+                  <td><span className={'badge ' + c}>{tx}</span>{diff && <span className="badge b-rose" style={{ marginInlineStart: 4 }}>فرق استلام</span>}</td>
+                  <td style={{ fontSize: 10.5, color: 'var(--dim)' }}>{(t.at || '').slice(0, 10)}{t.sentDate ? ' · صُرف ' + t.sentDate : ''}{t.receivedDate ? ' · استُلم ' + t.receivedDate : ''}</td>
+                  <td style={{ whiteSpace: 'nowrap' }}>{canW && t.status === 'requested' && <><button className="btn sm pri" onClick={() => openSend(t)}><Send size={12} />صرف</button>
+                    <button className="btn sm gh" onClick={() => cancelT(t)}><X size={12} /></button></>}</td>
+                </tr>);
+            })}
+            {transfers.length === 0 && <tr><td colSpan={6}><div className="empty">لا تحويلات بعد — تطلبها الفروع من شاشة «مستودع الفرع» أو يبادر بها المركز</div></td></tr>}
+          </tbody>
+        </table></div>
+      </div>
+
+      {sendF && (
+        <Modal title={sendF.id ? 'صرف طلب تحويل' : 'تحويل جديد من المستودع الرئيسي'} icon={Send} onClose={() => setSendF(null)}
+          foot={<><button className="btn pri" onClick={send}><Send size={14} />صرف — تصبح البضاعة في الطريق</button><button className="btn gh" onClick={() => setSendF(null)}>إلغاء</button></>}>
+          <Field label="إلى المستودع">
+            <select className="inp sel" value={sendF.toWh} disabled={!!sendF.id} onChange={e => setSendF(f => ({ ...f, toWh: e.target.value }))}>
+              {whs.filter(w => w.kind === 'branch').map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+            </select>
+          </Field>
+          <Field label="الكميات المصروفة (يمكن صرف أقل من المطلوب)">
+            <WhLines items={items} lines={sendF.lines} setLines={(fn) => setSendF(f => ({ ...f, lines: typeof fn === 'function' ? fn(f.lines) : fn }))} field="qtySent" max={(id) => qOf(MAIN_WH, id)} />
+          </Field>
+          <Field label="ملاحظة"><input className="inp" value={sendF.note} onChange={e => setSendF(f => ({ ...f, note: e.target.value }))} /></Field>
+        </Modal>
+      )}
+      {ren && (
+        <Modal title="تعديل اسم المستودع" icon={PenLine} onClose={() => setRen(null)} foot={<><button className="btn pri" onClick={rename}><Check size={14} />حفظ</button><button className="btn gh" onClick={() => setRen(null)}>إلغاء</button></>}>
+          <Field label="الاسم"><input className="inp" value={ren.name} onChange={e => setRen(r => ({ ...r, name: e.target.value }))} /></Field>
+        </Modal>
+      )}
+    </>
+  );
+}
+
+/* ============ v29.9 — مستودع الفرع (موظفو الفرع): الاستلام، الطلب، الصرف للمطبخ، الهدر، الجرد ============ */
+const WH_MOVE = { out: { ar: 'صرف للمطبخ', sign: -1, c: 'b-sky' }, waste: { ar: 'هدر/إتلاف', sign: -1, c: 'b-rose' }, adjust: { ar: 'تسوية جرد', sign: 1, c: 'b-amber' } };
+function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
+  const items = (org.items || []).filter(it => it.isActive !== false);
+  const mine = (myBranches || []).map(b => whForBranch(org, b.id)).filter(Boolean);
+  const [whId, setWhId] = useState(mine[0]?.id || '');
+  const [view, setView] = useState('bal');
+  const [reqLines, setReqLines] = useState([{ itemId: '', qtyReq: '' }]);
+  const [mvF, setMvF] = useState({ kind: 'out', lines: [{ itemId: '', qty: '' }], note: '' });
+  const [recvF, setRecvF] = useState(null);
+  const [cnt, setCnt] = useState({});
+  useEffect(() => { if (!mine.some(w => w.id === whId) && mine[0]) setWhId(mine[0].id); }, [mine.map(w => w.id).join(',')]); // eslint-disable-line
+  const wh = mine.find(w => w.id === whId);
+  const SB = useMemo(() => stockByWh(org, ops), [org, ops]);
+  const qOf = (id) => q3(((SB.byWh[whId] || {})[id]) || 0);
+  const itemOf = (id) => (org.items || []).find(x => x.id === id) || { name: '—', unit: '' };
+  const myT = (ops.whTransfers || []).filter(t => t.toWh === whId).sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
+  const incoming = myT.filter(t => t.status === 'sent');
+  const myMoves = (ops.whMoves || []).filter(m => m.whId === whId).sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
+
+  if (!whOn(org)) return <div className="card"><div className="empty">لم تُفعَّل المستودعات بعد — يُنشئها المركز من «المخزون والمنتجات ← المستودعات».</div></div>;
+  if (!wh) return <div className="card"><div className="empty">لا يوجد مستودع مرتبط بفرعك — اطلب من المركز إنشاءه.</div></div>;
+
+  const request = async () => {
+    const lines = reqLines.filter(l => l.itemId && (Number(l.qtyReq) || 0) > 0).map(l => ({ itemId: l.itemId, qtyReq: q3(l.qtyReq), qtySent: 0, qtyRecv: 0 }));
+    if (!lines.length) return say('أضف صنفًا وكمية', 'no');
+    const rec = { id: uid('wtr'), no: 'REQ-' + today().replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 5).toUpperCase(), fromWh: wh.parentId || MAIN_WH, toWh: wh.id, branchId: wh.branchId,
+      lines, status: 'requested', requestedBy: me.name, at: nowISO() };
+    const ok = await commit(d => ({ ...d, whTransfers: [rec, ...(d.whTransfers || [])] }),
+      { actionType: 'create', targetType: 'stock_move', targetId: rec.id, branchName: whName(org, wh.id), title: 'طلب تحويل من المستودع الرئيسي', details: lines.map(l => itemOf(l.itemId).name + ' ' + l.qtyReq).join('، ').slice(0, 160) });
+    if (ok) { setReqLines([{ itemId: '', qtyReq: '' }]); say('أُرسل الطلب للمستودع الرئيسي ✓'); }
+  };
+  const receive = async () => {
+    const t = recvF;
+    const lines = t.lines.map(l => ({ ...l, qtyRecv: q3(l.qtyRecv) }));
+    if (lines.some(l => l.qtyRecv < 0)) return say('كمية غير صحيحة', 'no');
+    const ok = await commit(d => ({ ...d, whTransfers: (d.whTransfers || []).map(x => x.id === t.id && x.status === 'sent'
+      ? { ...x, lines, status: 'received', receivedDate: today(), receivedBy: me.name, receivedAt: nowISO(), recvNote: t.note || '' } : x) }),
+      { actionType: 'update', targetType: 'stock_move', targetId: t.id, branchName: whName(org, wh.id), title: 'استلام تحويل مخزني', details: (t.no || '') + ' · ' + lines.map(l => itemOf(l.itemId).name + ' ' + l.qtyRecv + (Math.abs(l.qtyRecv - (Number(l.qtySent) || 0)) > 0.0005 ? ' (مصروف ' + l.qtySent + ')' : '')).join('، ').slice(0, 160) });
+    if (ok) { setRecvF(null); say('سُجّل الاستلام ✓'); }
+  };
+  const saveMove = async () => {
+    const k = WH_MOVE[mvF.kind];
+    const lines = mvF.lines.filter(l => l.itemId && (Number(l.qty) || 0) > 0);
+    if (!lines.length) return say('أضف صنفًا وكمية', 'no');
+    const over = lines.find(l => k.sign < 0 && q3(l.qty) > qOf(l.itemId) + 0.0005);
+    if (over) return say('الكمية تتجاوز رصيد المستودع: ' + itemOf(over.itemId).name + ' (المتاح ' + qOf(over.itemId) + ')', 'no');
+    const recs = lines.map(l => ({ id: uid('wm'), whId: wh.id, branchId: wh.branchId, itemId: l.itemId, kind: mvF.kind, qty: k.sign * q3(l.qty), note: mvF.note || '', date: today(), by: me.name, at: nowISO() }));
+    const ok = await commit(d => ({ ...d, whMoves: [...recs, ...(d.whMoves || [])] }),
+      { actionType: 'create', targetType: 'stock_move', targetId: recs[0].id, branchName: whName(org, wh.id), title: k.ar + ' — ' + wh.name, details: lines.map(l => itemOf(l.itemId).name + ' ' + l.qty).join('، ').slice(0, 160) });
+    if (ok) { setMvF({ kind: mvF.kind, lines: [{ itemId: '', qty: '' }], note: '' }); say('سُجّلت الحركة ✓'); }
+  };
+  const approveCount = async () => {
+    const diffs = items.map(it => { const a = cnt[it.id]; if (a === undefined || a === '') return null; const d = q3(Number(a) - qOf(it.id)); return Math.abs(d) > 0.0005 ? { it, d } : null; }).filter(Boolean);
+    if (!diffs.length) return say('لا فروقات — الأرصدة مطابقة للعدّ', 'no');
+    const recs = diffs.map(x => ({ id: uid('wm'), whId: wh.id, branchId: wh.branchId, itemId: x.it.id, kind: 'adjust', qty: x.d, note: 'جرد ' + today() + (x.d < 0 ? ' — عجز' : ' — زيادة'), date: today(), by: me.name, at: nowISO() }));
+    const ok = await commit(d => ({ ...d, whMoves: [...recs, ...(d.whMoves || [])] }),
+      { actionType: 'create', targetType: 'stocktake', targetId: 'whcount-' + wh.id + '-' + today(), branchName: whName(org, wh.id), title: 'اعتماد جرد ' + wh.name, details: diffs.map(x => x.it.name + ' (' + (x.d > 0 ? '+' : '') + x.d + ')').join('، ').slice(0, 160) });
+    if (ok) { setCnt({}); say('اعتُمد الجرد ✓'); }
+  };
+
+  const Tab = ({ id, icon: I, children }) => <button className={'btn sm' + (view === id ? ' pri' : ' gh')} onClick={() => setView(id)}><I size={14} />{children}</button>;
+  return (
+    <>
+      <div className="card">
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <div className="card-t" style={{ marginInlineEnd: 'auto' }}><HardDrive size={15} color="var(--brass)" />{wh.name}<span style={{ fontSize: 11, color: 'var(--faint)', marginInlineStart: 6 }}>يتبع {whName(org, wh.parentId || MAIN_WH)}</span></div>
+          {mine.length > 1 && <select className="inp sel" style={{ maxWidth: 240 }} value={whId} onChange={e => setWhId(e.target.value)}>{mine.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select>}
+        </div>
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+          <Tab id="bal" icon={ClipboardCheck}>الأرصدة</Tab>
+          <Tab id="in" icon={Truck}>الوارد {incoming.length ? '(' + incoming.length + ')' : ''}</Tab>
+          <Tab id="req" icon={Send}>طلب من الرئيسي</Tab>
+          <Tab id="mv" icon={ArrowLeftRight}>صرف وهدر</Tab>
+          <Tab id="count" icon={Scale}>الجرد</Tab>
+        </div>
+      </div>
+
+      {view === 'bal' && (
+        <div className="card"><div className="tw"><table className="tb">
+          <thead><tr><th>الصنف</th><th>الوحدة</th><th style={{ textAlign: 'end' }}>الرصيد</th><th>الحالة</th></tr></thead>
+          <tbody>{items.map(it => { const b = qOf(it.id), mn = it.minQty || 0; return (
+            <tr key={it.id}><td>{it.name}</td><td style={{ fontSize: 11.5, color: 'var(--dim)' }}>{it.unit}</td>
+              <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: b < 0 ? 'var(--rose)' : undefined }}>{b}</td>
+              <td>{mn > 0 && b <= mn ? <span className="badge b-rose">اطلب الآن</span> : <span className="badge b-mint">جيد</span>}</td></tr>); })}
+            {!items.length && <tr><td colSpan={4}><div className="empty">لا أصناف معرّفة — يضيفها المركز</div></td></tr>}
+          </tbody></table></div>
+          <div className="card-t" style={{ margin: '14px 0 8px', fontSize: 13 }}>آخر الحركات</div>
+          <div className="tw"><table className="tb"><tbody>
+            {myMoves.slice(0, 30).map(m => (<tr key={m.id}><td className="num" style={{ fontSize: 11 }}>{m.date}</td><td>{itemOf(m.itemId).name}</td>
+              <td><span className={'badge ' + ((WH_MOVE[m.kind] || {}).c || 'b-dim')}>{(WH_MOVE[m.kind] || {}).ar || m.kind}</span></td>
+              <td className="num" style={{ fontWeight: 700, color: m.qty < 0 ? 'var(--rose)' : 'var(--mint)' }}>{m.qty > 0 ? '+' + m.qty : m.qty}</td>
+              <td style={{ fontSize: 11, color: 'var(--faint)' }}>{m.by}</td></tr>))}
+            {!myMoves.length && <tr><td><div className="empty">لا حركات بعد</div></td></tr>}
+          </tbody></table></div>
+        </div>
+      )}
+
+      {view === 'in' && (
+        <div className="card"><div className="tw"><table className="tb">
+          <thead><tr><th>الرقم</th><th>الأصناف</th><th>الحالة</th><th>التواريخ</th><th></th></tr></thead>
+          <tbody>{myT.slice(0, 80).map(t => { const [c, tx] = WH_ST[t.status] || ['b-dim', t.status]; return (
+            <tr key={t.id}><td className="num" style={{ fontSize: 11 }}>{t.no}</td>
+              <td style={{ fontSize: 11.5 }}>{(t.lines || []).map(l => itemOf(l.itemId).name + ' ' + (t.status === 'requested' ? l.qtyReq : t.status === 'received' ? l.qtyRecv : l.qtySent)).join('، ')}</td>
+              <td><span className={'badge ' + c}>{tx}</span></td>
+              <td style={{ fontSize: 10.5, color: 'var(--dim)' }}>{(t.at || '').slice(0, 10)}{t.sentDate ? ' · صُرف ' + t.sentDate : ''}{t.receivedDate ? ' · استُلم ' + t.receivedDate : ''}</td>
+              <td>{t.status === 'sent' && <button className="btn sm pri" onClick={() => setRecvF({ id: t.id, no: t.no, note: '', lines: (t.lines || []).map(l => ({ ...l, qtyRecv: l.qtySent })) })}><Check size={12} />استلام</button>}</td></tr>); })}
+            {!myT.length && <tr><td colSpan={5}><div className="empty">لا تحويلات بعد</div></td></tr>}
+          </tbody></table></div></div>
+      )}
+
+      {view === 'req' && (
+        <div className="card">
+          <div style={{ fontSize: 12.5, color: 'var(--dim)', marginBottom: 10 }}>يُرسل الطلب إلى {whName(org, wh.parentId || MAIN_WH)}، ويظهر لديك في «الوارد» بعد صرفه.</div>
+          <WhLines items={items} lines={reqLines} setLines={setReqLines} field="qtyReq" />
+          <button className="btn pri" style={{ marginTop: 10 }} onClick={request}><Send size={14} />إرسال الطلب</button>
+        </div>
+      )}
+
+      {view === 'mv' && (
+        <div className="card">
+          <div className="row" style={{ gap: 8, marginBottom: 10 }}>
+            {['out', 'waste'].map(k => <button key={k} className={'btn sm' + (mvF.kind === k ? ' pri' : ' gh')} onClick={() => setMvF(f => ({ ...f, kind: k }))}>{WH_MOVE[k].ar}</button>)}
+          </div>
+          <WhLines items={items} lines={mvF.lines} setLines={(fn) => setMvF(f => ({ ...f, lines: typeof fn === 'function' ? fn(f.lines) : fn }))} field="qty" max={qOf} />
+          <Field label="البيان"><input className="inp" value={mvF.note} onChange={e => setMvF(f => ({ ...f, note: e.target.value }))} placeholder={mvF.kind === 'waste' ? 'سبب الهدر' : 'مثال: تشغيل الوردية'} /></Field>
+          <button className="btn pri" onClick={saveMove}><Check size={14} />تسجيل {WH_MOVE[mvF.kind].ar}</button>
+        </div>
+      )}
+
+      {view === 'count' && (
+        <div className="card">
+          <div className="tw"><table className="tb">
+            <thead><tr><th>الصنف</th><th style={{ textAlign: 'end' }}>الرصيد الدفتري</th><th style={{ width: 130 }}>العدّ الفعلي</th><th style={{ textAlign: 'end' }}>الفرق</th></tr></thead>
+            <tbody>{items.map(it => { const b = qOf(it.id), a = cnt[it.id]; const d = a === undefined || a === '' ? null : q3(Number(a) - b); return (
+              <tr key={it.id}><td>{it.name} <span style={{ fontSize: 10.5, color: 'var(--faint)' }}>{it.unit}</span></td>
+                <td className="num" style={{ textAlign: 'end' }}>{b}</td>
+                <td><input className="inp n" inputMode="decimal" value={a ?? ''} onChange={e => setCnt(c => ({ ...c, [it.id]: e.target.value }))} /></td>
+                <td className="num" style={{ textAlign: 'end', color: d == null ? 'var(--faint)' : d < 0 ? 'var(--rose)' : d > 0 ? 'var(--mint)' : undefined }}>{d == null ? '—' : (d > 0 ? '+' + d : d)}</td></tr>); })}
+            </tbody></table></div>
+          <button className="btn pri" style={{ marginTop: 10 }} onClick={approveCount}><Check size={14} />اعتماد الجرد وتسجيل الفروقات</button>
+        </div>
+      )}
+
+      {recvF && (
+        <Modal title={'استلام التحويل ' + (recvF.no || '')} icon={Truck} onClose={() => setRecvF(null)}
+          foot={<><button className="btn pri" onClick={receive}><Check size={14} />تأكيد الاستلام</button><button className="btn gh" onClick={() => setRecvF(null)}>إلغاء</button></>}>
+          <div style={{ fontSize: 12, color: 'var(--dim)', marginBottom: 8 }}>أدخل الكمية المستلمة فعليًا لكل صنف — أي فرق عن المصروف يُوثَّق «فرق استلام».</div>
+          {recvF.lines.map((l, i) => (
+            <div key={i} className="row" style={{ gap: 8, alignItems: 'center', marginBottom: 6 }}>
+              <span style={{ flex: 1, fontSize: 12.5 }}>{itemOf(l.itemId).name} <span style={{ color: 'var(--faint)', fontSize: 11 }}>(مصروف {l.qtySent} {itemOf(l.itemId).unit})</span></span>
+              <input className="inp n" style={{ width: 120 }} inputMode="decimal" value={l.qtyRecv} onChange={e => setRecvF(f => ({ ...f, lines: f.lines.map((x, j) => j === i ? { ...x, qtyRecv: e.target.value } : x) }))} />
+            </div>))}
+          <Field label="ملاحظة"><input className="inp" value={recvF.note} onChange={e => setRecvF(f => ({ ...f, note: e.target.value }))} /></Field>
+        </Modal>
+      )}
+    </>
+  );
+}
+
 function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
   const [view, setView] = useState('items');        // items | moves | count | recipes
   const [repOpen, setRepOpen] = useState(false);    // v9.4 قائمة تقارير التطبيق
@@ -15063,11 +15479,12 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
   const taxCfg = org.taxCfg || {};
   const netOf = (p) => taxCfg.enabled ? Math.round(p / (1 + (Number(taxCfg.rate) || 15) / 100) * 100) / 100 : p;
 
-  const bal = useMemo(() => {
-    const m = {};
-    moves.forEach(mv => { m[mv.itemId] = (m[mv.itemId] || 0) + (mv.qty || 0); });
-    return m;
-  }, [moves]);
+  // v29.9: مع المستودعات تعرض شاشة الأصناف إجمالي المنشأة (كل المستودعات + الطريق)
+  const SBall = useMemo(() => stockByWh(org, ops), [org, ops]);
+  const bal = SBall.total;
+  // الجرد وحركات الشاشة المركزية تخص المستودع الرئيسي — تُقارن برصيده هو لا بإجمالي المنشأة
+  const mainBal = whOn(org) ? (SBall.byWh[MAIN_WH] || {}) : SBall.total;
+  const mainOf = (id) => Math.round((mainBal[id] || 0) * 1000) / 1000;
   const balOf = (id) => Math.round((bal[id] || 0) * 1000) / 1000;
   const stockValue = sum(items, it => balOf(it.id) * (it.cost || 0));
   const lowItems = items.filter(it => (it.minQty || 0) > 0 && balOf(it.id) <= it.minQty);
@@ -15119,7 +15536,7 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
     const diffs = items.map(it => {
       const actual = countRows[it.id];
       if (actual === undefined || actual === '') return null;
-      const d = Math.round((Number(actual) - balOf(it.id)) * 1000) / 1000;
+      const d = Math.round((Number(actual) - mainOf(it.id)) * 1000) / 1000;
       return Math.abs(d) > 0.0005 ? { it, d } : null;
     }).filter(Boolean);
     if (!diffs.length) return say('لا فروقات — الأرصدة مطابقة للعدّ', 'no');
@@ -15142,7 +15559,7 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
       <tr class="tot"><td colspan="4">قيمة المخزون الإجمالية</td><td class="n">${money(stockValue)}</td><td></td></tr></tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
   };
   const printCountSheet = () => {
-    const rows = items.map(it => `<tr><td>${it.name}</td><td>${it.unit}</td><td class="n">${balOf(it.id)}</td><td style="height:26px"></td><td></td><td></td></tr>`).join('');
+    const rows = items.map(it => `<tr><td>${it.name}</td><td>${it.unit}</td><td class="n">${mainOf(it.id)}</td><td style="height:26px"></td><td></td><td></td></tr>`).join('');
     printA4(org, 'قائمة جرد المخزون', arDate(today()) + ' — تُملأ يدويًا أثناء العدّ ثم تُدخل في شاشة الجرد',
       `<table><thead><tr><th>الصنف</th><th>الوحدة</th><th>الرصيد الدفتري</th><th>العدّ الفعلي</th><th>الفرق</th><th>ملاحظات</th></tr></thead><tbody>${rows}</tbody></table>
       <div class="sign"><div>قام بالعدّ</div><div>راجعه</div><div>اعتماد</div></div>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
@@ -15216,7 +15633,8 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
       <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
         <button className={'btn sm' + (view === 'items' ? ' pri' : ' gh')} onClick={() => setView('items')}><HardDrive size={14} />الأصناف والأرصدة</button>
         <button className={'btn sm' + (view === 'moves' ? ' pri' : ' gh')} onClick={() => setView('moves')}><ArrowLeftRight size={14} />الحركات</button>
-        <button className={'btn sm' + (view === 'count' ? ' pri' : ' gh')} onClick={() => setView('count')}><ClipboardCheck size={14} />الجرد</button>
+        <button className={'btn sm' + (view === 'count' ? ' pri' : ' gh')} onClick={() => setView('count')}><ClipboardCheck size={14} />الجرد{whOn(org) ? ' (الرئيسي)' : ''}</button>
+        <button className={'btn sm' + (view === 'wh' ? ' pri' : ' gh')} onClick={() => setView('wh')}><Truck size={14} />المستودعات</button>
         <button className={'btn sm' + (view === 'recipes' ? ' pri' : ' gh')} onClick={() => setView('recipes')}><Store size={14} />الوصفات والتكلفة</button>
         <button className={'btn sm' + (view === 'menu' ? ' pri' : ' gh')} onClick={() => setView('menu')}><BarChart3 size={14} />هندسة القائمة</button>
         {view === 'menu' && <button className="btn sm" style={{ marginInlineStart: 'auto' }} onClick={exportMenuXlsx}><Download size={13} />Excel</button>}
@@ -15254,8 +15672,11 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
         </div>
       )}
 
+      {view === 'wh' && <WarehousesPanel org={org} ops={ops} me={me} commit={commit} commitOrg={commitOrg} say={say} />}
+
       {view === 'moves' && (
         <div className="card">
+          {whOn(org) && <div className="note" style={{ marginBottom: 8, fontSize: 12 }}>حركات <b>المستودع الرئيسي</b> — حركات مستودعات الفروع يسجّلها كل فرع من شاشة «مستودع الفرع».</div>}
           <div className="tw">
             <table className="tb">
               <thead><tr><th>التاريخ</th><th>الصنف</th><th>النوع</th><th style={{ textAlign: 'end' }}>الكمية</th><th>البيان</th><th>بواسطة</th></tr></thead>
@@ -15320,7 +15741,7 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
               <thead><tr><th>الصنف</th><th style={{ textAlign: 'end' }}>الرصيد الدفتري</th><th style={{ width: 130 }}>العدّ الفعلي</th><th style={{ textAlign: 'end' }}>الفرق</th></tr></thead>
               <tbody>
                 {items.map(it => {
-                  const b = balOf(it.id);
+                  const b = mainOf(it.id);
                   const a = countRows[it.id];
                   const d = a === undefined || a === '' ? null : Math.round((Number(a) - b) * 1000) / 1000;
                   return (
@@ -19909,7 +20330,7 @@ function AiCenter({ org, ops, me, myBranches, scoped, say, setTab }) {
     if (perBr.length >= 2) { perBr.sort((a, b) => b.net - a.net); const top = perBr[0], bot = perBr[perBr.length - 1]; if (top.net - bot.net > 0.004) P('low', 'فروع', 'تفاوت أداء الفروع', 'الأفضل هذا الشهر: ' + top.name + ' (' + money(top.net) + ') · الأضعف: ' + bot.name + ' (' + money(bot.net) + ').', 'انقل ممارسات الفرع الأفضل إلى الأضعف.', () => setTab('compare')); }
     const defs = counted.filter(c => (c.variance || 0) < -0.004 && (c.date || '').slice(0, 7) === ym);
     if (defs.length) P('mid', 'رقابة', defs.length + ' إغلاق فيه عجز صندوق هذا الشهر', 'إجمالي العجز ' + money(r2(sum(defs, c => c.variance))) + '.', 'دقّق تسليمات الكاشير وراجع الفروقات المتكررة.', () => setTab('compare'));
-    const stockBal = {}; (ops.stockMoves || []).forEach(m => { stockBal[m.itemId] = (stockBal[m.itemId] || 0) + (Number(m.qty) || 0); });
+    const stockBal = stockByWh(org, ops).total;   // v29.9: كل المستودعات
     const low = (org.items || []).filter(it => (Number(it.minQty) || 0) > 0 && (stockBal[it.id] || 0) < (Number(it.minQty) || 0));
     if (low.length) P('low', 'مخزون', low.length + ' صنف تحت حد الطلب', 'أصناف قاربت النفاد.', 'أنشئ أمر شراء لتفادي التوقف.', () => setTab('inv'));
 
