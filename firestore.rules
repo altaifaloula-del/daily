@@ -39,6 +39,10 @@ service cloud.firestore {
       return (isMember() && ('branchIds' in memberData()) && memberData().branchIds is list)
         ? memberData().branchIds : [];
     }
+    // v29.5: الأدوار للعرض فقط (accountant_view) تقرأ كل البيانات لكنها لا تكتب — كان المنع في الواجهة وحدها
+    function readOnlyRole() {
+      return isMember() && ('role' in memberData()) && memberData().role in ['accountant_view'];
+    }
     function canBranch(bId) {
       return isAdmin() || isCentral() || myBranchId() == bId || (bId in myBranchIds());
     }
@@ -110,7 +114,9 @@ service cloud.firestore {
         && (!isLegacyDoc(docId) || isCentral() || isAdmin())
         && (!isBranchDoc(docId) || canBranch(branchIdOf(docId)))
         && (baseId(docId) != 'rms8_dir' || isAdmin())
-        && (baseId(docId) != 'rms8_pulse' || pulseAuditSafe());
+        && (baseId(docId) != 'rms8_pulse' || pulseAuditSafe())
+        // مستند النبض (الحضور وسجل التدقيق) يكتبه كل عضو نشط؛ غيره ممنوع على أدوار العرض فقط
+        && (baseId(docId) == 'rms8_pulse' || isAdmin() || !readOnlyRole());
     }
     /* ===== v28.0 — وحدة تقييم العملاء بالـ QR ===== */
     function validRating(v) { return v is int && v >= 1 && v <= 5; }
@@ -123,7 +129,7 @@ service cloud.firestore {
 
     match /qr_branches/{branchId} {
       allow read: if true;
-      allow create, update: if isMember() && (isAdmin() || isCentral())
+      allow create, update: if isMember() && (isAdmin() || (isCentral() && !readOnlyRole()))
         && request.resource.data.keys().hasOnly(['name', 'company', 'active', 'updatedAt'])
         && request.resource.data.name is string && request.resource.data.name.size() <= 80
         && request.resource.data.active is bool;
@@ -154,7 +160,7 @@ service cloud.firestore {
         && request.resource.data.source == 'qr'
         && request.resource.data.createdAt == request.time;
       allow read: if isMember() && canBranch(resource.data.branchId);
-      allow update: if isMember() && canBranch(resource.data.branchId)
+      allow update: if isMember() && canBranch(resource.data.branchId) && !readOnlyRole()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'notes', 'resolvedAt', 'updatedAt', 'ai', 'aiError'])
         && (!('status' in request.resource.data) || request.resource.data.status in ['new', 'in_progress', 'resolved']);
       allow delete: if isAdmin();
