@@ -681,6 +681,38 @@ function invPayments(i) {
 // تاريخ محلي من طابع زمني كامل (nowISO بتوقيت UTC) — أو التاريخ كما هو إن كان YYYY-MM-DD
 const dayOf = (v) => { const t = String(v || ''); if (t.length > 10 && t.includes('T')) { const x = new Date(t); if (!isNaN(x)) return isoD(x); } return t.slice(0, 10); };
 
+/* v30.8 — مخصص مكافأة نهاية الخدمة (نظام العمل م84): يُقاس على أساس الاستحقاق الكامل (إنهاء من صاحب العمل)
+   بأجر آخر شهر (الأساسي + البدلات)، ويُرحَّل شهريًا كقيد دائم: الفرق بين المخصص المطلوب ورصيده المسجّل.
+   السجلات في ledgerEntries بلا partnerKey (لا تظهر في كشف الموظف لأنها ليست مستحقة الدفع بعد). */
+const eosWageOf = (e) => Math.round(((Number(e.baseSalary) || 0) + (Number(e.housingAllowance) || 0) + (Number(e.transportAllowance) || 0) + (Number(e.otherAllowance) || 0)) * 100) / 100;
+const eosYears = (hire, end) => { if (!hire || !end) return 0; const h = Date.parse(hire + 'T00:00:00'), t = Date.parse(end + 'T00:00:00'); if (isNaN(h) || isNaN(t) || t < h) return 0; return (t - h) / (365.25 * 86400000); };
+const eosFullAmt = (wage, years) => years <= 5 ? wage * 0.5 * years : wage * (2.5 + (years - 5));
+const eosEntitledAmt = (wage, years, reason) => { const full = eosFullAmt(wage, years); if (reason === 'termination') return full; if (years < 2) return 0; if (years < 5) return full / 3; if (years < 10) return full * 2 / 3; return full; };
+const monthEnd = (m) => { const [y, mo] = m.split('-').map(Number); return isoD(new Date(y, mo, 0)); };
+// المخصص المطلوب للموظف في تاريخ D — الخدمة تتوقف عند تاريخ انتهائها
+function eosCumAt(e, D) {
+  if (!e || !e.hireDate || e.hireDate > D) return 0;
+  const end = (e.isActive === false && e.endDate && e.endDate < D) ? e.endDate : D;
+  return Math.round(eosFullAmt(eosWageOf(e), eosYears(e.hireDate, end)) * 100) / 100;
+}
+function eosState(ops) {
+  const L = (ops.ledgerEntries || []).filter(x => x.kind === 'eos_open' || x.kind === 'eos_accrual' || x.kind === 'eos_pay');
+  const open = L.find(x => x.kind === 'eos_open') || null;
+  const months = new Set(L.filter(x => x.kind === 'eos_accrual').map(x => x.month));
+  const bal = {}, paid = {};
+  L.forEach(x => { if (x.kind === 'eos_pay') { paid[x.empId] = x; return; } (x.lines || []).forEach(l => { bal[l.empId] = Math.round(((bal[l.empId] || 0) + (Number(l.amt) || 0)) * 100) / 100; }); });
+  Object.keys(paid).forEach(id => { bal[id] = 0; });
+  return { open, months, bal, paid, from: open ? open.month : '' };
+}
+// أسطر ترحيل شهر: الفرق بين المطلوب في نهاية الشهر والرصيد المسجّل لكل موظف لم تُصرف مخالصته
+function eosAccrualLines(org, ops, month) {
+  const ST = eosState(ops), D = monthEnd(month);
+  return (org.employees || []).filter(e => !ST.paid[e.id] && e.hireDate && e.hireDate <= D).map(e => {
+    const cum = eosCumAt(e, D), amt = Math.round((cum - (ST.bal[e.id] || 0)) * 100) / 100;
+    return { empId: e.id, name: e.name, branchId: e.branchId || '', cum, amt };
+  }).filter(l => Math.abs(l.amt) > 0.004);
+}
+
 // v30.7 — العنوان الوطني السعودي (سبل): رقم المبنى، الشارع، الحي، المدينة، الرمز البريدي، الرقم الإضافي، الوحدة، العنوان المختصر
 const NA_F = [['bldg', 'رقم المبنى', '4 أرقام', 4], ['street', 'اسم الشارع', '', 0], ['district', 'الحي', '', 0], ['city', 'المدينة', '', 0], ['zip', 'الرمز البريدي', '5 أرقام', 5], ['addl', 'الرقم الإضافي', '4 أرقام', 4], ['unit', 'رقم الوحدة (اختياري)', '', 0], ['short', 'العنوان المختصر (اختياري)', 'مثل RRRD2929', 0]];
 const naClean = (na) => { const o = {}; NA_F.forEach(([k]) => { const v = String((na || {})[k] || '').trim(); if (v) o[k] = k === 'short' ? v.toUpperCase().replace(/\s/g, '') : v; }); return o; };
@@ -1232,6 +1264,7 @@ function buildAccounting(org, ops) {
   // — الخصوم —
   addAcc('2101', 'ذمم الموردين', 'liab', { link: 'دفتر الشركاء' });
   addAcc('2201', 'رواتب مستحقة', 'liab', { link: 'كشف الرواتب' });
+  addAcc('2203', 'مخصص مكافأة نهاية الخدمة', 'liab', { link: 'الرواتب ← نهاية الخدمة' });
   addAcc('2202', 'تأمينات اجتماعية مستحقة (GOSI)', 'liab', { link: 'حصتا الموظف وصاحب العمل — تُحوّل للتأمينات' });
   addAcc('2301', 'ضريبة القيمة المضافة — مخرجات', 'liab', { link: 'مستحقة للهيئة' });
   // — حقوق الملكية (تُفعَّل بالقيد الافتتاحي في المرحلة التالية) —
@@ -1242,6 +1275,7 @@ function buildAccounting(org, ops) {
   addAcc('4201', 'أرباح بيع/استبعاد الأصول', 'rev', { link: 'سجل الأصول — عند البيع بأعلى من القيمة الدفترية' });
   // — المصروفات —
   addAcc('5201', 'الرواتب والأجور (كشف الرواتب)', 'exp', { link: 'ترحيل الاستحقاق الشهري' });
+  addAcc('5203', 'مصروف مكافأة نهاية الخدمة', 'exp', { link: 'ترحيل المخصص الشهري' });
   addAcc('5202', 'التأمينات الاجتماعية — حصة صاحب العمل', 'exp', { link: 'كشف الرواتب — عند تفعيل التأمينات' });
   addAcc('5301', 'عمولات تطبيقات التوصيل', 'exp', { link: 'نِسَب العمولة من إعدادات التطبيقات' });
   addAcc('5302', 'خصومات وغرامات تطبيقات التوصيل', 'exp', { link: 'تسوية كشوف التطبيقات — فروق الإيداع' });
@@ -1414,16 +1448,19 @@ function buildAccounting(org, ops) {
           : [...debit, L('2101', 0, i.amount)],
         vat: ti.vat ? { out: 0, inn: ti.vat, netSales: 0, netPurch: ti.net } : null
       });
-    } else if (i.amount < 0 && i.mizanId) {
+    } else if (i.amount < 0 && (i.mizanId || i.creditNote)) {
       // v28.2: إشعار دائن من مورد (مرتجع) مستورد من ميزان — يعكس قيد الفاتورة: يخفض الذمة والمصروف وضريبة المدخلات
       const a = Math.round(-i.amount * 100) / 100;
       const v = Math.round(Math.abs(typeof i.vatAmt === 'number' ? i.vatAmt : 0) * 100) / 100;
       const n = Math.round((a - v) * 100) / 100;
       const exC = (i.accCode && accIx[i.accCode]) ? String(i.accCode) : '5198';
+      // v30.9: مرتجع أصناف مخزنية في فترة الجرد المستمر — يُخفَّض حساب المستودع بتكلفة الشراء بدل المصروف
+      const stockCr = (perpOn(d) && Array.isArray(i.lines)) ? Math.min(n, Math.round(i.lines.filter(l => l.stock).reduce((s2, l) => s2 + Math.abs(Number(l.net) || 0), 0) * 100) / 100) : 0;
+      const restCr = Math.round((n - stockCr) * 100) / 100;
       push({
-        id: 'inv:' + i.id, date: d, branchId: i.branchId, title: 'إشعار دائن من مورد — ' + (i.supplierName || 'مورد'),
+        id: 'inv:' + i.id, date: d, branchId: i.branchId, title: (i.creditNote ? 'مرتجع مشتريات — إشعار دائن ' : 'إشعار دائن من مورد — ') + (i.supplierName || 'مورد'),
         src: 'فاتورة مورد', ref: i.invoiceNo || i.id,
-        lines: v ? [L('2101', a, 0), L(exC, 0, n), L('1501', 0, v)] : [L('2101', a, 0), L(exC, 0, a)],
+        lines: [L('2101', a, 0), ...(stockCr > 0 ? [L(whAccOf(i.whId), 0, stockCr)] : []), ...(restCr > 0.004 ? [L(exC, 0, restCr)] : []), ...(v ? [L('1501', 0, v)] : [])],
         vat: v ? { out: 0, inn: -v, netSales: 0, netPurch: -n } : null
       });
     }
@@ -1450,6 +1487,28 @@ function buildAccounting(org, ops) {
 
   // ٧) الرواتب: الاستحقاق كما رُحِّل، والصرف كما سُجِّل، وتسوية فرق السلف والخصومات
   const led = ops.ledgerEntries || [];
+  // ٧-أ) v30.8 مخصص نهاية الخدمة: افتتاحي (أرباح مبقاة) ← ترحيل شهري (مصروف) ← صرف المخالصة (استخدام المخصص)
+  const eosBal = {};
+  led.filter(x => x.kind === 'eos_open' || x.kind === 'eos_accrual').sort((a, b) => String(a.date).localeCompare(String(b.date))).forEach(x => {
+    const byBr = {};
+    (x.lines || []).forEach(l => { const v = Number(l.amt) || 0; eosBal[l.empId] = (eosBal[l.empId] || 0) + v; byBr[l.branchId || ''] = (byBr[l.branchId || ''] || 0) + v; });
+    if (x.kind === 'eos_open' && x.noPost) return;
+    Object.entries(byBr).forEach(([br, v]) => { v = Math.round(v * 100) / 100; if (Math.abs(v) < 0.005) return;
+      const dc = x.kind === 'eos_open' ? '3201' : '5203';
+      push({ id: 'eos:' + x.id + ':' + (br || 'hq'), date: x.date, ...(br ? { branchId: br } : {}), title: (x.kind === 'eos_open' ? 'مخصص نهاية الخدمة المتراكم حتى ' + (x.asOf || x.date) : x.final ? 'تسوية مخصص نهاية الخدمة حتى تاريخ انتهاء خدمة ' + (((x.lines || [])[0] || {}).name || '') : 'مخصص نهاية الخدمة — شهر ' + x.month),
+        src: 'نهاية الخدمة', ref: 'eos-' + (x.month || ''), lines: v > 0 ? [L(dc, v, 0), L('2203', 0, v)] : [L('2203', -v, 0), L(dc, 0, -v)] }); });
+  });
+  led.filter(x => x.kind === 'eos_pay').forEach(x => {
+    const rel = Math.round((eosBal[x.empId] || 0) * 100) / 100, paid = Math.round((Number(x.entitled) || 0) * 100) / 100, lv = Math.round((Number(x.leavePay) || 0) * 100) / 100;
+    const fund = (x.fund && accIx[x.fund]) ? x.fund : '1201';
+    const lines = [];
+    if (rel > 0) lines.push(L('2203', rel, 0));
+    if (paid > rel + 0.004) lines.push(L('5203', Math.round((paid - rel) * 100) / 100, 0));
+    if (rel > paid + 0.004) lines.push(L('5203', 0, Math.round((rel - paid) * 100) / 100));
+    if (lv > 0) lines.push(L('5201', lv, 0));
+    if (paid + lv > 0) lines.push(L(fund, 0, Math.round((paid + lv) * 100) / 100));
+    if (lines.length >= 2) push({ id: 'eos-pay:' + x.id, date: x.date, ...(x.branchId ? { branchId: x.branchId } : {}), title: 'صرف مخالصة نهاية الخدمة — ' + (x.name || '') + (rel > paid + 0.004 ? ' (رد الفائض من المخصص)' : ''), src: 'نهاية الخدمة', ref: 'eos-pay', lines });
+  });
   const salMonths = [...new Set(led.filter(x => x.kind === 'salary_accrual' || x.kind === 'salary_payout').map(x => x.month))].sort();
   salMonths.forEach(m => {
     const acc = sum(led.filter(x => x.kind === 'salary_accrual' && x.month === m), x => x.credit || 0);
@@ -3080,7 +3139,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v30.7 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v30.9 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -8351,6 +8410,7 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
   const [repOpen, setRepOpen] = useState(false);    // v9.5 قائمة تقارير التطبيق
   const [compF, setCompF] = useState(null);         // v11.0 تعديل راتب/بدلات موظف
   const [eosF, setEosF] = useState(null);           // v12.3 حاسبة نهاية الخدمة
+  const [eosStart, setEosStart] = useState(null);   // v30.8 بدء المخصص
   const [gosiD, setGosiD] = useState(() => {
     const g = org.gosiCfg || {};
     return {
@@ -8429,6 +8489,51 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
   const eosFull = (wage, years) => years <= 5 ? wage * 0.5 * years : wage * (2.5 + (years - 5));
   const eosEntitled = (wage, years, reason) => { const full = eosFull(wage, years); if (reason === 'termination') return full; if (years < 2) return 0; if (years < 5) return full / 3; if (years < 10) return full * 2 / 3; return full; };
   const fmtYears = (y) => { const yr = Math.floor(y + 1e-9); const mo = Math.round((y - yr) * 12); return yr + ' سنة' + (mo ? ' و' + mo + ' شهر' : ''); };
+  // ===== v30.8: مخصص نهاية الخدمة في الدفاتر =====
+  const EOS = useMemo(() => eosState(ops), [ops]);
+  const eosCentral = canPost && ROLES[me.role]?.scope === 'all';
+  const eosMonthLines = useMemo(() => (EOS.open && month >= EOS.from) ? eosAccrualLines(org, ops, month) : [], [org, ops, month, EOS]);
+  const eosTotalBal = r2(Object.values(EOS.bal).reduce((a, v) => a + v, 0));
+  const eosPending = useMemo(() => { if (!EOS.open) return []; const out = []; let m = EOS.from; const cur = today().slice(0, 7);
+    while (m < cur && out.length < 36) { if (!EOS.months.has(m)) out.push(m); const [y, mo] = m.split('-').map(Number); m = isoD(new Date(y, mo, 1)).slice(0, 7); } return out; }, [EOS]);
+  const startEos = async () => {
+    const f = eosStart; const m = f.month; if (!/^\d{4}-\d{2}$/.test(m)) return say('اختر الشهر', 'no');
+    if (periodLocked(org, m + '-01')) return say(LOCK_MSG(m + '-01'), 'no');
+    if (EOS.open) return say('المخصص مُفعّل مسبقًا من ' + EOS.from, 'no');
+    const prevD = isoD(new Date(Date.parse(m + '-01T12:00:00') - 86400000));
+    const lines = (org.employees || []).filter(e => e.hireDate && e.hireDate <= prevD).map(e => ({ empId: e.id, name: e.name, branchId: e.branchId || '', cum: eosCumAt(e, prevD), amt: eosCumAt(e, prevD) })).filter(l => l.amt > 0);
+    const rec = { id: uid('eos'), kind: 'eos_open', month: m, date: m + '-01', asOf: prevD, lines, total: r2(sum(lines, l => l.amt)), ...(f.post ? {} : { noPost: true }), by: me.name, at: nowISO() };
+    const ok = await commit(d => ({ ...d, ledgerEntries: [rec, ...(d.ledgerEntries || [])] }), { actionType: 'create', targetType: 'daily_closing', targetId: 'eos-open', need: 'post', title: 'بدء مخصص نهاية الخدمة', details: 'من ' + m + ' · المتراكم ' + money(rec.total) + (f.post ? ' (قيد على الأرباح المبقاة)' : ' (مسجّل مسبقًا في الأرصدة الافتتاحية — بلا قيد)') });
+    if (ok) { setEosStart(null); say('فُعّل مخصص نهاية الخدمة من ' + m + ' ✓'); }
+  };
+  const postEos = async () => {
+    if (!EOS.open) return; if (month < EOS.from) return say('الشهر قبل بداية المخصص (' + EOS.from + ')', 'no');
+    if (EOS.months.has(month)) return say('مخصص هذا الشهر مُرحّل مسبقًا', 'no');
+    if (month > today().slice(0, 7)) return say('لا يُرحَّل شهر مستقبلي', 'no');
+    const D = monthEnd(month); if (periodLocked(org, D)) return say(LOCK_MSG(D), 'no');
+    const miss = eosPending.filter(m => m < month); if (miss.length) return say('رحّل الأشهر السابقة أولًا بالترتيب: ' + miss.join('، '), 'no');
+    const lines = eosMonthLines;
+    const rec = { id: uid('eos'), kind: 'eos_accrual', month, date: D, lines, total: r2(sum(lines, l => l.amt)), by: me.name, at: nowISO() };
+    const ok = await commit(d => ({ ...d, ledgerEntries: [rec, ...(d.ledgerEntries || [])] }), { actionType: 'create', targetType: 'daily_closing', targetId: 'eos-' + month, need: 'post', title: 'رحّل مخصص نهاية الخدمة', details: month + ' · ' + lines.length + ' موظف · ' + money(rec.total) });
+    if (ok) say('رُحّل مخصص ' + month + ' بـ ' + money(rec.total) + ' ✓');
+  };
+  const payEos = async (emp, calc, f) => {
+    if (!EOS.open) return say('فعّل مخصص نهاية الخدمة أولًا', 'no');
+    if (EOS.paid[emp.id]) return say('صُرفت مخالصة هذا الموظف مسبقًا', 'no');
+    const D = (f.payDate || today());
+    const empEnded = { ...emp, isActive: false, endDate: calc.endDate };
+    const cumEnd = eosCumAt(empEnded, calc.endDate);
+    const topUp = r2(cumEnd - (EOS.bal[emp.id] || 0));
+    const recs = [];
+    if (Math.abs(topUp) > 0.004) recs.push({ id: uid('eos'), kind: 'eos_accrual', month: calc.endDate.slice(0, 7) + '~' + emp.id, date: calc.endDate, lines: [{ empId: emp.id, name: emp.name, branchId: emp.branchId || '', cum: cumEnd, amt: topUp }], total: topUp, final: true, by: me.name, at: nowISO() });
+    recs.push({ id: uid('eos'), kind: 'eos_pay', empId: emp.id, name: emp.name, branchId: emp.branchId || '', date: D, endDate: calc.endDate, reason: calc.reason, years: r2(calc.years), entitled: calc.entitled, leavePay: calc.leavePay, fund: f.fund || '1201', by: me.name, at: nowISO() });
+    const lockedR = recs.find(r => periodLocked(org, r.date)); if (lockedR) return say(LOCK_MSG(lockedR.date), 'no');
+    if (!window.confirm('صرف مخالصة ' + emp.name + ' بـ ' + money(calc.total) + ' وإيقاف الموظف بتاريخ ' + calc.endDate + '؟')) return;
+    const ok1 = await commitOrg(d => ({ ...d, employees: (d.employees || []).map(x => x.id === emp.id ? { ...x, isActive: false, endDate: calc.endDate } : x) }), { actionType: 'update', targetType: 'user_account', targetId: emp.id, title: 'إنهاء خدمة موظف', details: emp.name + ' · ' + calc.endDate });
+    if (!ok1) return;
+    const ok = await commit(d => ({ ...d, ledgerEntries: [...recs, ...(d.ledgerEntries || [])] }), { actionType: 'create', targetType: 'daily_closing', targetId: 'eos-pay-' + emp.id, need: 'post', title: 'صرف مخالصة نهاية الخدمة', details: emp.name + ' · ' + money(calc.total) });
+    if (ok) { setEosF(null); say('سُجّل صرف المخالصة واستُخدم المخصص ✓'); }
+  };
   const exportWPS = () => {
     const head = ['رقم الهوية/الإقامة', 'اسم الموظف', 'الآيبان IBAN', 'الأساسي', 'بدل السكن', 'بدلات أخرى', 'الاستقطاعات', 'صافي الراتب', 'أيام العمل'];
     const lines = rows.map(r => [r.e.idNumber || r.e.iqamaNo || r.e.nationalId || '', r.e.name, r.e.iban || '', r.e.baseSalary || 0, r.e.housingAllowance || 0, r2((r.e.transportAllowance || 0) + (r.e.otherAllowance || 0) + (r.bonus || 0)), r2(r.draws + r.cuts + r.gEmp), r.net, 30]);
@@ -8774,11 +8879,20 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
       <div className="card">
         <div className="card-h">
           <div className="card-t"><ShieldCheck size={15} color="var(--brass)" />الأجور والتسويات — حماية الأجور ونهاية الخدمة</div>
-          {canPay && <button className="btn sm" onClick={exportWPS}><Download size={13} />ملف حماية الأجور (WPS)</button>}
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+            {eosCentral && !EOS.open && <button className="btn sm pri" onClick={() => setEosStart({ month: today().slice(0, 7), post: true })}>تفعيل مخصص نهاية الخدمة في الدفاتر</button>}
+            {eosCentral && EOS.open && <button className="btn sm pri" disabled={EOS.months.has(month) || month < EOS.from || month > today().slice(0, 7)} onClick={postEos}>{EOS.months.has(month) ? 'مخصص ' + month + ' مُرحّل ✓' : 'ترحيل مخصص ' + month + ' (' + money(r2(sum(eosMonthLines, l => l.amt))) + ')'}</button>}
+            {canPay && <button className="btn sm" onClick={exportWPS}><Download size={13} />ملف حماية الأجور (WPS)</button>}
+          </div>
         </div>
+        {EOS.open && <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+          <span className="badge b-mint">المخصص مُفعّل من {EOS.from}</span>
+          <span className="badge b-dim">رصيد المخصص في الدفاتر: <span className="num">{money(eosTotalBal)}</span></span>
+          {eosPending.length > 0 && <span className="badge b-amber">أشهر لم تُرحَّل: {eosPending.join('، ')} — اختر الشهر من أعلى الصفحة ثم رحّله</span>}
+        </div>}
         <div className="tw">
           <table className="tb">
-            <thead><tr><th>الموظف</th><th>تاريخ التعيين</th><th>مدة الخدمة</th><th style={{ textAlign: 'end' }}>الأجر الشهري</th><th style={{ textAlign: 'end' }}>مكافأة نهاية الخدمة (لو انتهت اليوم)</th><th /></tr></thead>
+            <thead><tr><th>الموظف</th><th>تاريخ التعيين</th><th>مدة الخدمة</th><th style={{ textAlign: 'end' }}>الأجر الشهري</th>{EOS.open && <th style={{ textAlign: 'end' }}>المخصص المسجّل</th>}<th style={{ textAlign: 'end' }}>مكافأة نهاية الخدمة (لو انتهت اليوم)</th><th /></tr></thead>
             <tbody>
               {emps.map(e => { const wage = empGrossOf(e); const yrs = tenureYears(e.hireDate, today()); const full = r2(eosFull(wage, yrs)); return (
                 <tr key={e.id}>
@@ -8786,14 +8900,15 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
                   <td className="num" style={{ fontSize: 11 }}>{e.hireDate || <span style={{ color: 'var(--amber)' }}>غير محدّد</span>}</td>
                   <td className="num" style={{ fontSize: 11 }}>{e.hireDate ? fmtYears(yrs) : '—'}</td>
                   <td className="num" style={{ textAlign: 'end' }}>{money(wage)}</td>
+                  {EOS.open && <td className="num" style={{ textAlign: 'end', color: 'var(--dim)' }}>{EOS.paid[e.id] ? <span className="badge b-mint">صُرفت</span> : money(EOS.bal[e.id] || 0)}</td>}
                   <td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{e.hireDate ? money(full) : '—'}</td>
                   <td><button className="btn sm gh" onClick={() => setEosF({ id: e.id, reason: 'termination', endDate: today(), leaveDays: '' })}>تسوية</button></td>
                 </tr>
               ); })}
-              {emps.length === 0 && <tr><td colSpan={6}><div className="empty">لا موظفون في نطاقك.</div></td></tr>}
+              {emps.length === 0 && <tr><td colSpan={7}><div className="empty">لا موظفون في نطاقك.</div></td></tr>}
               {emps.length > 0 && (() => { const tot = r2(sum(emps, e => eosFull(empGrossOf(e), tenureYears(e.hireDate, today())))); return (
                 <tr style={{ fontWeight: 800, background: 'rgba(200,162,74,.05)' }}>
-                  <td colSpan={4}>مخصّص نهاية الخدمة التقديري (لو انتهت خدمة الجميع اليوم)</td>
+                  <td colSpan={EOS.open ? 5 : 4}>مخصّص نهاية الخدمة التقديري (لو انتهت خدمة الجميع اليوم)</td>
                   <td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{money(tot)}</td><td />
                 </tr>
               ); })()}
@@ -8806,6 +8921,24 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
       {add && <AdvanceForm emps={emps} org={org} me={me} commit={commit} say={say} onClose={() => setAdd(false)} />}
       {signRow && <SignDocsModal org={org} ops={ops} me={me} emp={signRow.emp} docs={[signRow.doc]} onClose={() => setSignRow(null)} commit={commit} say={say} via="central" />}
 
+      {eosStart && (() => { const m = eosStart.month || ''; const prevD = /^\d{4}-\d{2}$/.test(m) ? isoD(new Date(Date.parse(m + '-01T12:00:00') - 86400000)) : '';
+        const tot = prevD ? r2(sum(org.employees || [], e => (e.hireDate && e.hireDate <= prevD) ? eosCumAt(e, prevD) : 0)) : 0;
+        const noHire = (org.employees || []).filter(e => e.isActive !== false && !e.hireDate).length;
+        return (
+        <Modal title="تفعيل مخصص نهاية الخدمة" icon={ShieldCheck} onClose={() => setEosStart(null)}
+          foot={<><button className="btn gh" onClick={() => setEosStart(null)}>إلغاء</button><button className="btn pri" onClick={startEos}><Check size={14} />تفعيل</button></>}>
+          <Field label="بداية المخصص (شهر)"><input type="month" className="inp" value={m} onChange={e => setEosStart(f => ({ ...f, month: e.target.value }))} /></Field>
+          <div className="mono-b" style={{ margin: '6px 0' }}><span style={{ fontSize: 12 }}>المتراكم حتى {prevD || '—'}</span><span className="num">{money(tot)}</span></div>
+          <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', margin: '6px 0' }}>
+            <input type="radio" checked={!!eosStart.post} onChange={() => setEosStart(f => ({ ...f, post: true }))} />قيّد المتراكم الآن: من ح/ الأرباح المبقاة إلى ح/ مخصص نهاية الخدمة
+          </label>
+          <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', margin: '6px 0' }}>
+            <input type="radio" checked={!eosStart.post} onChange={() => setEosStart(f => ({ ...f, post: false }))} />المتراكم مسجّل مسبقًا في الأرصدة الافتتاحية (حساب 2203) — لا تُنشئ قيدًا
+          </label>
+          {noHire > 0 && <div className="note" style={{ color: 'var(--amber)' }}>⚠ {noHire} موظف بلا تاريخ تعيين — لن يُحتسب لهم مخصص حتى يُضاف من «تعديل الراتب».</div>}
+          <div className="note">بعد التفعيل: رحّل كل شهر من زر «ترحيل مخصص الشهر» (من ح/ مصروف نهاية الخدمة إلى ح/ المخصص بالفرق). عند انتهاء خدمة موظف سجّل الصرف من «تسوية» فيُستخدم مخصصه.</div>
+        </Modal>); })()}
+
       {eosF && (() => {
         const emp = emps.find(e => e.id === eosF.id); if (!emp) return null;
         const wage = empGrossOf(emp), years = tenureYears(emp.hireDate, eosF.endDate);
@@ -8815,7 +8948,8 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
         const calc = { endDate: eosF.endDate, reason: eosF.reason, years, wage, full, entitled, leaveDays, leavePay, total };
         return (
           <Modal title={'تسوية نهاية الخدمة — ' + emp.name} icon={ShieldCheck} onClose={() => setEosF(null)}
-            foot={<><button className="btn gh" onClick={() => setEosF(null)}>إغلاق</button><button className="btn pri" disabled={!emp.hireDate} onClick={() => printEOSlip(emp, calc)}><Printer size={14} />طباعة المخالصة</button></>}>
+            foot={<><button className="btn gh" onClick={() => setEosF(null)}>إغلاق</button><button className="btn" disabled={!emp.hireDate} onClick={() => printEOSlip(emp, calc)}><Printer size={14} />طباعة المخالصة</button>
+              {eosCentral && EOS.open && !EOS.paid[emp.id] && emp.hireDate && <button className="btn pri" onClick={() => payEos(emp, calc, eosF)}><Check size={14} />تسجيل الصرف وإنهاء الخدمة</button>}</>}>
             {!emp.hireDate ? <div className="note">أضف «تاريخ التعيين» لهذا الموظف من «تعديل الراتب» أولًا لحساب المدة والمكافأة.</div> : <>
               <div className="grid g2">
                 <Field label="سبب انتهاء الخدمة">
@@ -8834,6 +8968,13 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
                 ))}
                 <div className="row" style={{ justifyContent: 'space-between', fontWeight: 900, fontSize: 14, borderTop: '1px solid var(--frame-o)', marginTop: 6, paddingTop: 6 }}><span>إجمالي المخالصة</span><b className="num" style={{ color: 'var(--brass-l)' }}>{money(total)}</b></div>
               </div>
+              {eosCentral && EOS.open && !EOS.paid[emp.id] && <div className="grid g2" style={{ marginTop: 10 }}>
+                <Field label="تاريخ الصرف"><input className="inp" type="date" value={eosF.payDate || today()} onChange={e => setEosF(f => ({ ...f, payDate: e.target.value }))} /></Field>
+                <Field label="مصدر الصرف"><select className="sel" value={eosF.fund || '1201'} onChange={e => setEosF(f => ({ ...f, fund: e.target.value }))}>
+                  <option value="1201">البنك التجميعي</option>{branchBanks(org).map(bb => <option key={bb.code} value={bb.code}>{bb.name}</option>)}<option value="1101">نقدًا من الخزينة الرئيسية</option></select></Field>
+                <div className="note" style={{ gridColumn: 'span 2' }}>المسجّل في المخصص لهذا الموظف: <b className="num">{money(EOS.bal[emp.id] || 0)}</b> — يُستكمل حتى تاريخ الانتهاء ثم يُستخدم في الصرف، وأي فرق (كالاستقالة قبل سنتين) يُرد لحساب المصروف.</div>
+              </div>}
+              {EOS.paid[emp.id] && <div className="note" style={{ marginTop: 8 }}>صُرفت مخالصة هذا الموظف بتاريخ {EOS.paid[emp.id].date}.</div>}
               <div className="note" style={{ marginTop: 8 }}>وفق نظام العمل: نصف شهر لكل سنة في الخمس الأولى وشهر كامل لما بعدها. الاستقالة: لا شيء تحت سنتين، الثلث حتى ٥ سنوات، الثلثان حتى ١٠، وكامل بعدها. تقدير استرشادي.</div>
             </>}
           </Modal>
@@ -14736,6 +14877,7 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: g
   const [poF, setPoF] = useState(null);              // نموذج أمر شراء
   const [recv, setRecv] = useState(null);            // نموذج استلام أمر
   const [showPrices, setShowPrices] = useState(false);
+  const [ret, setRet] = useState(null);              // v30.9 مرتجع لمورد
   const ids = myBranches.map(b => b.id);
   // v28.2: فواتير المركز (بلا فرع، ومنها المستوردة من ميزان) تظهر للأدوار المركزية
   const invoices = (ops.invoices || []).filter(i => ids.includes(i.branchId) || (!i.branchId && ROLES[me.role]?.scope !== 'own'))
@@ -14751,7 +14893,8 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: g
   // v28.2: سدادات مركزية مخصّصة على الفاتورة (alloc) — من دمج ميزان
   const allocPaid = useMemo(() => { const m = {}; (ops.closingInvPays || []).forEach(x => (x.alloc || []).forEach(([id, v]) => { m[id] = (m[id] || 0) + (Number(v) || 0); })); return m; }, [ops.closingInvPays]);
   const invPaid = (i) => (i.paidAmount || 0) + branchPaid(i.id) + (allocPaid[i.id] || 0);
-  const invRem = (i) => (i.amount < 0 ? 0 : i.amount - invPaid(i));   // v28.2: الإشعار الدائن لا يُعد فاتورة مفتوحة
+  const cnOf = (i) => sum((ops.invoices || []).filter(x => x.creditNote && x.appliesTo === i.id), x => -(x.amount || 0));   // v30.9 مرتجعات مطبّقة على الفاتورة
+  const invRem = (i) => (i.amount < 0 ? 0 : Math.max(0, Math.round((i.amount - invPaid(i) - cnOf(i)) * 100) / 100));   // v28.2: الإشعار الدائن لا يُعد فاتورة مفتوحة
 
   // v8.1: الفواتير المشتقة من الورديات (الآجلة المربوطة بموردين) + سداداتها المركزية
   const clInvs = closingInvoices(org, ops).filter(v => ids.includes(v.branchId));
@@ -14951,6 +15094,41 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: g
       ...d, items: (d.items || []).map(it => { const u = costUp.find(c => c.id === it.id); return u ? { ...it, lastPrice: u.lastPrice, lastSupplier: u.lastSupplier, lastAt: u.lastAt } : it; })
     }), { actionType: 'update', targetType: 'stock_item', targetId: p2.id, title: 'سجّل آخر سعر شراء للأصناف', details: p2.poNo });
     setRecv(null); say('سُجّل الاستلام' + (moves.length ? ' في ' + (wid ? whName(org, wid) : 'المخزون') : '') + (invRec ? ' وأُنشئت فاتورة المورد ' + invRec.invoiceNo + ' بـ ' + money(invRec.amount) : '') + ' ✓');
+  };
+  // v30.9 — مرتجع لمورد: يُخرج الأصناف من المستودع بتكلفة شرائها ويُصدر إشعارًا دائنًا يخفض ذمة المورد وضريبة المدخلات
+  const retOpen = (p2) => { const inv0 = (ops.invoices || []).find(i => i.id === p2.invoiceId) || {};
+    setRet({ po: p2, date: today(), whId: inv0.whId || MAIN_WH, cnNo: '', reason: '', taxable: inv0.taxable !== false, qtys: p2.lines.map(() => '') }); };
+  const saveRet = async () => {
+    const f = ret, p2 = f.po, rDate = (f.date || today()).slice(0, 10);
+    if (periodLocked(org, rDate)) return say(LOCK_MSG(rDate), 'no');
+    if (!(f.reason || '').trim()) return say('اكتب سبب الإرجاع', 'no');
+    const takes = p2.lines.map((l, i) => Math.min(Number(f.qtys[i]) || 0, Math.max(0, (Number(l.received) || 0) - (Number(l.returned) || 0))));
+    if (!takes.some(q => q > 0)) return say('أدخل كمية مرتجعة', 'no');
+    const wid = whOn(org) ? (f.whId || MAIN_WH) : '';
+    const tw = wid ? whOf(org).find(w => w.id === wid) : null;
+    const SB = stockByWh(org, ops);
+    for (let i = 0; i < p2.lines.length; i++) { const l = p2.lines[i]; const it = items.find(x => x.id === l.itemId); if (!(takes[i] > 0) || !l.itemId || (it && !isStocked(it))) continue;
+      const need = takes[i] * (Number(l.factor) || 1); const have = wid ? (((SB.byWh[wid] || {})[l.itemId]) || 0) : (SB.total[l.itemId] || 0);
+      if (need > have + 0.0005) return say('الرصيد غير كافٍ لإرجاع ' + l.desc + ' من ' + (wid ? whName(org, wid) : 'المخزون') + ' (المتاح ' + q3(have) + ')', 'no'); }
+    const cnId = uid('inv'), rtn = 'RTN-' + rDate.replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 5).toUpperCase();
+    const moves = p2.lines.map((l, i) => { const it = items.find(x => x.id === l.itemId); const fac = Number(l.factor) || 1;
+      return (takes[i] > 0 && l.itemId && (!it || isStocked(it))) ? { id: uid('sm'), date: rDate, itemId: l.itemId, kind: 'purchase', qty: -Math.round(takes[i] * fac * 1000) / 1000,
+        unitCost: Math.round((Number(l.price) || 0) / fac * 10000) / 10000, note: 'مرتجع لمورد ' + p2.supplierName + ' — ' + l.desc + ' · ' + f.reason.trim(), ref: p2.poNo, rtn, invoiceId: cnId, returnOf: p2.id, by: me.name, at: nowISO(),
+        ...(wid ? { whId: wid } : {}), ...(tw && tw.kind === 'branch' ? { branchId: tw.branchId } : {}) } : null; }).filter(Boolean);
+    const cnLines = p2.lines.map((l, i) => { if (!(takes[i] > 0)) return null; const it = items.find(x => x.id === l.itemId); const fac = Number(l.factor) || 1;
+      return { itemId: l.itemId || '', desc: l.desc, qty: -Math.round(takes[i] * fac * 1000) / 1000, unitCost: Math.round((Number(l.price) || 0) / fac * 10000) / 10000, net: -Math.round(takes[i] * (Number(l.price) || 0) * 100) / 100, stock: !!(l.itemId && it && isStocked(it)) }; }).filter(Boolean);
+    const net = Math.round(-cnLines.reduce((a, l) => a + l.net, 0) * 100) / 100;
+    const taxOn = !!(org.taxCfg || {}).enabled && f.taxable !== false;
+    const vat = taxOn ? Math.round(net * ((Number((org.taxCfg || {}).rate) || 15) / 100) * 100) / 100 : 0;
+    const cn = { id: cnId, creditNote: true, invoiceNo: (f.cnNo || '').trim() || rtn, supplierId: p2.supplierId, supplierName: p2.supplierName, amount: -Math.round((net + vat) * 100) / 100, vatAmt: -vat, taxable: taxOn,
+      date: rDate, dueDate: rDate, paidAmount: 0, branchId: (tw && tw.branchId) || p2.branchId || '', poId: p2.id, poNo: p2.poNo, appliesTo: p2.invoiceId || '', whId: wid, reason: f.reason.trim(), lines: cnLines, by: me.name, createdAt: nowISO() };
+    const brMoves = moves.filter(m => m.branchId), mainMoves = moves.filter(m => !m.branchId);
+    const ok = await commit(d => ({ ...d,
+      invoices: (d.invoices || []).some(x => x.id === cn.id) ? d.invoices : [cn, ...(d.invoices || [])],
+      whMoves: [...brMoves, ...(d.whMoves || [])], stockMoves: [...mainMoves, ...(d.stockMoves || [])],
+      purchaseOrders: (d.purchaseOrders || []).map(x => x.id !== p2.id ? x : { ...x, lines: x.lines.map((l, i) => ({ ...l, returned: Math.round(((Number(l.returned) || 0) + takes[i]) * 1000) / 1000 })), returnIds: [...(x.returnIds || []), cn.id] })
+    }), { actionType: 'create', targetType: 'purchase_order', targetId: p2.id, need: 'post', title: 'مرتجع لمورد', details: p2.poNo + ' · ' + p2.supplierName + ' · ' + money(-cn.amount) + ' · ' + f.reason.trim() });
+    if (ok) { setRet(null); say('سُجّل المرتجع وأُصدر إشعار دائن ' + cn.invoiceNo + ' بـ ' + money(-cn.amount) + ' ✓'); }
   };
 
   const settle = async () => {
@@ -15190,7 +15368,7 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: g
               <tbody>
                 {pos.map(p2 => {
                   const tot = poTotal(p2);
-                  const invs = (ops.invoices || []).filter(i => i.id === p2.invoiceId || (p2.invoiceIds || []).includes(i.id) || i.poId === p2.id);
+                  const invs = (ops.invoices || []).filter(i => !i.creditNote && (i.id === p2.invoiceId || (p2.invoiceIds || []).includes(i.id) || i.poId === p2.id));
                   const inv = invs[0];
                   const locked2 = p2.status === 'pending' || p2.status === 'rejected';
                   return (
@@ -15203,11 +15381,12 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: g
                         : p2.status === 'received' ? <span className="badge b-mint">مستلم كاملاً ✓</span>
                         : p2.status === 'partial' ? <span className="badge b-amber">جزئي</span>
                         : <span className="badge b-sky">بانتظار التوريد</span>}</td>
-                      <td>{inv ? <span className="badge b-mint">مفوترة · {invs.map(x => x.invoiceNo).join('، ')}</span> : <span className="badge b-dim">لم تُفوتر</span>}{p2.priceAlert ? <div><span className="badge b-rose" style={{ marginTop: 3 }}>⚠ سعر مرتفع في {p2.priceAlert} بند</span></div> : null}</td>
+                      <td>{(p2.returnIds || []).length > 0 && <div><span className="badge b-amber" style={{ marginBottom: 3 }}>مرتجع · {money(-sum((ops.invoices || []).filter(x => (p2.returnIds || []).includes(x.id)), x => x.amount))}</span></div>}{inv ? <span className="badge b-mint">مفوترة · {invs.filter(x => !x.creditNote).map(x => x.invoiceNo).join('، ')}</span> : <span className="badge b-dim">لم تُفوتر</span>}{p2.priceAlert ? <div><span className="badge b-rose" style={{ marginTop: 3 }}>⚠ سعر مرتفع في {p2.priceAlert} بند</span></div> : null}</td>
                       <td><div className="row" style={{ gap: 5, flexWrap: 'wrap' }}>
                         <button className="btn sm gh" onClick={() => printPO(p2)}><Printer size={12} /></button>
                         {canApprovePo && p2.status === 'pending' && <><button className="btn sm pri" onClick={() => decidePo(p2, true)}>اعتماد</button><button className="btn sm gh" onClick={() => decidePo(p2, false)}>رفض</button></>}
                         {canPay && !locked2 && p2.status !== 'received' && <button className="btn sm" onClick={() => setRecv({ po: p2, qtys: p2.lines.map(l => String((l.qty || 0) - (l.received || 0))), whId: MAIN_WH, date: today(), supInvNo: '', taxable: true, batch: p2.lines.map(() => ''), expiry: p2.lines.map(() => '') })}>تسجيل استلام</button>}
+                        {canPay && (p2.lines || []).some(l => (Number(l.received) || 0) > (Number(l.returned) || 0)) && <button className="btn sm gh" onClick={() => retOpen(p2)}>مرتجع</button>}
                         {canPay && !inv && !locked2 && <button className="btn sm gh" onClick={() => setNewInv({ supplierId: p2.supplierId, invoiceNo: '', amount: String(tot), taxable: true, date: today(), dueDate: today(), branchId: p2.branchId || '', poId: p2.id })}>إنشاء فاتورة</button>}
                       </div></td>
                     </tr>
@@ -15298,6 +15477,30 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: g
             <span className="badge b-brass">قيمة الأمر: {money(sum(poF.lines || [], l => (Number(l.qty) || 0) * (Number(l.price) || 0)))}</span>
           </div>
           {apprLimit > 0 && sum(poF.lines || [], l => (Number(l.qty) || 0) * (Number(l.price) || 0)) > apprLimit && <div className="note" style={{ marginTop: 8 }}>القيمة تتجاوز حد الاعتماد {money(apprLimit)} — سيُحفظ الأمر «بانتظار الاعتماد» ولا يُستلم قبل اعتماده.</div>}
+        </Modal>
+      )}
+
+      {ret && (
+        <Modal title={'مرتجع لمورد — ' + ret.po.poNo + ' · ' + ret.po.supplierName} icon={Truck} onClose={() => setRet(null)}
+          foot={<><button className="btn gh" onClick={() => setRet(null)}>إلغاء</button><button className="btn pri" onClick={saveRet}><Check size={14} />تسجيل المرتجع</button></>}>
+          <div className="grid g2">
+            {whOn(org) && <Field label="المستودع الذي يُخرج منه"><select className="sel" value={ret.whId || MAIN_WH} onChange={e => setRet(r => ({ ...r, whId: e.target.value }))}>
+              {whOf(org).map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select></Field>}
+            <Field label="تاريخ الإرجاع"><input type="date" className="inp" value={ret.date} onChange={e => setRet(r => ({ ...r, date: e.target.value }))} /></Field>
+            <Field label="رقم الإشعار الدائن من المورد (اختياري)"><input className="inp" value={ret.cnNo} placeholder="يُولَّد رقم مرتجع إن تُرك فارغًا" onChange={e => setRet(r => ({ ...r, cnNo: e.target.value }))} /></Field>
+            <Field label="سبب الإرجاع"><input className="inp" value={ret.reason} placeholder="تالف، منتهي، مخالف للمواصفات…" onChange={e => setRet(r => ({ ...r, reason: e.target.value }))} /></Field>
+          </div>
+          {ret.po.lines.map((l, i) => { const can = Math.max(0, (Number(l.received) || 0) - (Number(l.returned) || 0)); return (
+            <div key={i} className="row" style={{ gap: 8, marginBottom: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ flex: 2, minWidth: 150, fontSize: 12.5 }}>{l.desc}
+                <div style={{ fontSize: 9.5, color: 'var(--faint)' }}>المستلم <span className="num">{l.received || 0}</span> · المرتجع سابقًا <span className="num">{l.returned || 0}</span> · يمكن إرجاع <span className="num">{can}</span>{l.uomName ? ' ' + l.uomName : ''} · بسعر <span className="num">{money(l.price)}</span></div></div>
+              <input className="inp n" style={{ width: 110 }} inputMode="decimal" placeholder="الكمية المرتجعة" disabled={can <= 0} value={ret.qtys[i]}
+                onChange={e => setRet(r => ({ ...r, qtys: r.qtys.map((q, k) => k === i ? e.target.value.replace(/[^\d.]/g, '') : q) }))} />
+            </div>); })}
+          {(() => { const net = ret.po.lines.reduce((a, l, i) => a + Math.min(Number(ret.qtys[i]) || 0, Math.max(0, (Number(l.received) || 0) - (Number(l.returned) || 0))) * (Number(l.price) || 0), 0);
+            const vat = (org.taxCfg || {}).enabled && ret.taxable !== false ? net * ((Number((org.taxCfg || {}).rate) || 15) / 100) : 0;
+            return net > 0 ? <div className="mono-b" style={{ margin: '6px 0' }}><span style={{ fontSize: 12 }}>الإشعار الدائن</span><span className="num">{money(net)}{vat ? ' + ض ' + money(vat) + ' = ' + money(net + vat) : ''}</span></div> : null; })()}
+          <div className="note">يُخرج الأصناف من المستودع بتكلفة شرائها، ويُخفّض ذمة المورد وضريبة المدخلات، ويُطبَّق على رصيد فاتورة الاستلام.</div>
         </Modal>
       )}
 
@@ -15547,6 +15750,8 @@ function stockCosting(org, ops, asOf) {
     let c = e.unitCost != null && e.unitCost !== '' && Number.isFinite(Number(e.unitCost)) ? Number(e.unitCost) : null;
     if (c == null && e.qty > 0 && (e.kind === 'purchase' || e.kind === 'in')) c = ref;   // حركات قديمة بلا تكلفة
     if (e.qty > 0 && c != null) { s.a = (s.q <= 0 || s.a == null) ? c : (s.q * s.a + e.qty * c) / (s.q + e.qty); s.q += e.qty; if (e.key) at[e.key] = c; }
+    else if (e.qty < 0 && e.kind === 'purchase' && c != null) {   // v30.9 مرتجع لمورد: يُخرج بتكلفة شرائه فيعدّل المتوسط
+      const nq = s.q + e.qty; if (nq > 0.0005 && s.a != null) s.a = Math.max(0, (s.q * s.a + e.qty * c) / nq); s.q = nq; if (e.key) at[e.key] = c; }
     else { if (e.key) at[e.key] = s.a != null ? s.a : ref; s.q += e.qty; }   // صادر/تسوية/مسبار: بالمتوسط القائم
   });
   const avg = {};
