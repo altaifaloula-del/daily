@@ -242,26 +242,38 @@ function aiClient() {
   return anthropic;
 }
 
+// معاملات الطلب المشتركة بين التحليل وفحص الإعدادات — كي يختبر الفحص الطلب نفسه تمامًا
+function messageParams({ system, user, maxTokens }) {
+  return {
+    model: AI_MODEL,
+    max_tokens: maxTokens,
+    output_config: { effort: AI_EFFORT },
+    // عند رفض الطلب لأسباب السلامة يعيد الخادم المحاولة تلقائيًا على نموذج بديل مناسب
+    betas: ['server-side-fallback-2026-07-01'],
+    fallbacks: 'default',
+    ...(system ? { system } : {}),
+    messages: [{ role: 'user', content: user }]
+  };
+}
+
+// نص سبب الخطأ من Anthropic (مثل نفاد الرصيد أو معامل غير مدعوم) — دون أي مفاتيح
+function apiErrorText(err) {
+  const m = (err && err.error && err.error.error && err.error.error.message) || (err && err.message) || '';
+  return String(m).replace(/sk-ant-[A-Za-z0-9_-]+/g, '[key]').slice(0, 300);
+}
+
 async function callClaude({ system, user, maxTokens }) {
   const client = aiClient();
   let msg;
   try {
-    msg = await client.beta.messages.create({
-      model: AI_MODEL,
-      max_tokens: maxTokens,
-      output_config: { effort: AI_EFFORT },
-      // عند رفض الطلب لأسباب السلامة يعيد الخادم المحاولة تلقائيًا على نموذج بديل مناسب
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
-      ...(system ? { system } : {}),
-      messages: [{ role: 'user', content: user }]
-    });
+    msg = await client.beta.messages.create(messageParams({ system, user, maxTokens }));
   } catch (err) {
-    if (err instanceof Anthropic.AuthenticationError) console.error('anthropic: invalid API key');
-    else if (err instanceof Anthropic.RateLimitError) { const e = new Error('مزود الذكاء الاصطناعي مشغول — أعد المحاولة بعد قليل'); e.status = 429; throw e; }
-    else if (err instanceof Anthropic.APIError) console.error('anthropic error', err.status, err.message);
-    else console.error('anthropic connection error', err);
-    const e = new Error('فشل الاتصال بمزود الذكاء الاصطناعي'); e.status = 502; throw e;
+    if (err instanceof Anthropic.RateLimitError) { const e = new Error('مزود الذكاء الاصطناعي مشغول — أعد المحاولة بعد قليل'); e.status = 429; throw e; }
+    const why = err instanceof Anthropic.AuthenticationError ? 'مفتاح Anthropic غير صالح'
+      : err instanceof Anthropic.APIError ? ('HTTP ' + err.status + ' — ' + apiErrorText(err))
+      : 'تعذّر الوصول إلى الخادم';
+    console.error('anthropic error:', why);
+    const e = new Error('فشل الاتصال بمزود الذكاء الاصطناعي: ' + why); e.status = 502; throw e;
   }
   if (msg.stop_reason === 'refusal') { const e = new Error('رفض مزود الذكاء الاصطناعي هذا الطلب'); e.status = 422; throw e; }
   if (msg.stop_reason === 'max_tokens') { const e = new Error('اقتُطع رد التحليل — أعد المحاولة'); e.status = 502; throw e; }
@@ -273,7 +285,8 @@ async function callClaude({ system, user, maxTokens }) {
 }
 
 /* ---- فحص الإعدادات: هل مفتاحا Firebase وAnthropic صالحان؟ (لا يكشف أي قيمة سرية) ---- */
-app.get('/api/health/config', rateLimit({ windowMs: 3600000, max: 20 }), async (_req, res) => {
+let deepCache = null;   // نتيجة اختبار الطلب الحقيقي تُحفظ 10 دقائق — لا تكلفة متكررة
+app.get('/api/health/config', rateLimit({ windowMs: 3600000, max: 20 }), async (req, res) => {
   const out = { ok: true, model: AI_MODEL, firebase: { configured: !!FB_API_KEY }, anthropic: { configured: !!ANTHROPIC_KEY } };
   if (FB_API_KEY) {
     try {
@@ -297,6 +310,21 @@ app.get('/api/health/config', rateLimit({ windowMs: 3600000, max: 20 }), async (
         : e instanceof Anthropic.NotFoundError ? 'model_not_available'
         : e instanceof Anthropic.APIError ? ('HTTP ' + e.status) : 'network';
     }
+  }
+  // ?deep=1: طلب تحليل حقيقي صغير بالمعاملات نفسها — يكشف نفاد الرصيد أو رفض معامل
+  if (req.query.deep === '1' && out.anthropic.valid) {
+    if (!deepCache || deepCache.exp < Date.now()) {
+      let r;
+      try {
+        const msg = await aiClient().beta.messages.create(messageParams({ user: 'Reply with the word ok.', maxTokens: 512 }));
+        r = { ok: true, stop_reason: msg.stop_reason, served_by: msg.model };
+      } catch (e) {
+        r = { ok: false, status: e && e.status, error: apiErrorText(e) };
+      }
+      deepCache = { r, exp: Date.now() + 600000 };
+    }
+    out.anthropic.message_test = deepCache.r;
+    out.anthropic.valid = out.anthropic.valid && deepCache.r.ok;
   }
   out.ok = !!(out.firebase.valid && out.anthropic.valid);
   res.json(out);
