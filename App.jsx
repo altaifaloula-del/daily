@@ -177,7 +177,7 @@ function buildNotifEvents(org, ops, me, myBranches) {
   if (central && (roleHasTab(me, 'treasury') || roleHasTab(me, 'acct'))) (ops.transfers || []).forEach(t => { if (t.status === 'pending') push('fin:tr:' + t.id, 'fin', 'توريد نقدي بانتظار الاستلام — ' + (t.branchName || ''), money(t.amount || 0) + ' ر.س · ' + (t.date || ''), roleHasTab(me, 'treasury') ? 'treasury' : 'acct'); });
   // —— الموارد البشرية ——
   if (roleHasTab(me, 'hrops') && (central || R.approver || me.role === 'branch_manager' || me.role === 'regional_manager')) {
-    [['shiftSwapRequests', 'طلب تبديل وردية'], ['branchTransferRequests', 'طلب نقل موظف بين الفروع'], ['rewardRequests', 'طلب مكافأة/جزاء']].forEach(([col, ar]) =>
+    [['leaveRequests', 'طلب إجازة'], ['shiftSwapRequests', 'طلب تبديل وردية'], ['branchTransferRequests', 'طلب نقل موظف بين الفروع'], ['rewardRequests', 'طلب مكافأة/جزاء']].forEach(([col, ar]) =>
       (ops[col] || []).forEach(r => { if (r.status === 'pending' && inScope(r.branchId)) push('hr:' + col + ':' + r.id, 'hr', ar + ' بانتظار القرار', (r.employeeName || r.empFromName || '') + (r.branchName ? ' · ' + r.branchName : ''), 'hrops'); }));
   }
   if (central && (roleHasTab(me, 'hrmaster') || roleHasTab(me, 'people'))) {
@@ -361,7 +361,9 @@ const BR_COLS = ['closings', 'transfers', 'partnerRequests', 'notifications', 'b
   // v29.9 — المستودعات: حركات مستودع الفرع وتحويلاته (يكتبها جهاز الفرع)
   'whMoves', 'whTransfers',
   // v31.1 — مبيعات المنتجات (الكميات) لكل فرع وفترة — أساس الاستهلاك النظري
-  'productSales'];
+  'productSales',
+  // v31.2 — طلبات الإجازات (يرفعها الفرع ويعتمدها المركز)
+  'leaveRequests'];
 const CORE_COLS = ['salesInvoices', 'advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules', 'hrScoreSnapshots'];
 
 // تقسيم ops المدمجة إلى مستند مركزي + مستند لكل فرع
@@ -727,6 +729,76 @@ function siVerify(list) {
 const siPaid = (x) => Math.round((x.receipts || []).reduce((a, r) => a + (Number(r.amount) || 0), 0) * 100) / 100;
 const siCredited = (ops, x) => Math.round((ops.salesInvoices || []).filter(c => c.kind === 'credit' && c.refId === x.id).reduce((a, c) => a + (Number(c.total) || 0), 0) * 100) / 100;
 const siRem = (ops, x) => x.kind === 'credit' || x.terms !== 'credit' ? 0 : Math.max(0, Math.round((x.total - siPaid(x) - siCredited(ops, x)) * 100) / 100);
+
+/* v31.2 — الإجازات وفق نظام العمل السعودي
+   السنوية: 21 يومًا وتصبح 30 بعد 5 سنوات خدمة (م109) — تُستحق يوميًا بالتناسب. المرضية (م117): أول 30 يومًا بأجر كامل، ثم 60 بثلاثة أرباع، ثم 30 بلا أجر خلال السنة.
+   بدون راتب: خصم كامل. الزواج 5، الوفاة 5، المولود 3، الحج حتى 15 مرة واحدة، الوضع 10 أسابيع — مدفوعة ولا تخصم من الرصيد.
+   الخصومات تُكتب سلفًا من نوع خصم على شهرها فتدخل المسير والقيود تلقائيًا. والأيام المعتمدة لا تُحتسب غيابًا في الحضور. */
+const LEAVE_TYPES = {
+  annual: { ar: 'سنوية', paid: true, bal: true },
+  sick: { ar: 'مرضية', paid: 'tiered' },
+  unpaid: { ar: 'بدون راتب', paid: false },
+  marriage: { ar: 'زواج', paid: true, max: 5 },
+  death: { ar: 'وفاة قريب', paid: true, max: 5 },
+  birth: { ar: 'مولود', paid: true, max: 3 },
+  hajj: { ar: 'حج', paid: true, max: 15, once: true, minYears: 2 },
+  maternity: { ar: 'وضع (أمومة)', paid: true, max: 70 },
+  exam: { ar: 'امتحان', paid: false }
+};
+const lvDays = (from, to) => { const a = Date.parse(from + 'T12:00:00'), b = Date.parse(to + 'T12:00:00'); return (isNaN(a) || isNaN(b) || b < a) ? 0 : Math.round((b - a) / 86400000) + 1; };
+const lvAddD = (ds, n) => { const d = new Date(ds + 'T12:00:00'); d.setDate(d.getDate() + n); return isoD(d); };
+const onLeave = (ops, empId, ds) => (ops.leaveRequests || []).some(r => r.employeeId === empId && r.status === 'approved' && ds >= r.from && ds <= r.to);
+const lvCfg = (org) => { const c = org.leaveCfg || {}; return { annual: Number(c.annual) || 21, after5: Number(c.after5) || 30 }; };
+// رصيد الإجازة السنوية في تاريخ D: الافتتاحي + المستحق يوميًا − المأخوذ (المعتمد) حتى D
+function leaveBalance(org, ops, e, D) {
+  const C = lvCfg(org); const op = e.leaveOpening || null;
+  const start = (op && op.date) || e.hireDate; if (!start) return { ok: false, accrued: 0, used: 0, balance: 0, rate: C.annual };
+  const end = (e.isActive === false && e.endDate && e.endDate < D) ? e.endDate : D;
+  let accrued = (op && Number(op.days)) || 0;
+  if (end >= start) {
+    const five = e.hireDate ? lvAddD(e.hireDate, Math.round(5 * 365.25)) : '9999-12-31';
+    const d1 = lvDays(start, end < five ? end : lvAddD(five, -1)), d2 = end >= five ? lvDays(five > start ? five : start, end) : 0;
+    accrued += Math.max(0, d1) * C.annual / 365 + Math.max(0, d2) * C.after5 / 365;
+  }
+  let used = 0;
+  (ops.leaveRequests || []).filter(r => r.employeeId === e.id && r.status === 'approved' && r.type === 'annual' && (!op || r.from > op.date)).forEach(r => {
+    if (r.from > D) return; used += lvDays(r.from, r.to < D ? r.to : D); });
+  const r2 = (n) => Math.round(n * 100) / 100;
+  const yrs = e.hireDate ? eosYears(e.hireDate, D) : 0;
+  return { ok: true, accrued: r2(accrued), used, balance: r2(accrued - used), rate: yrs >= 5 ? C.after5 : C.annual };
+}
+// خصم الإجازة موزعًا على الأشهر: [{month, days, pct}] — pct نسبة الخصم من أجر اليوم
+function leaveDeductPlan(ops, e, type, from, to, exceptId) {
+  const days = []; for (let d = from; d <= to; d = lvAddD(d, 1)) days.push(d);
+  let pcts;
+  if (type === 'unpaid' || type === 'exam') pcts = days.map(() => 100);
+  else if (type === 'sick') {
+    const yrAgo = lvAddD(from, -365);
+    let prior = 0; (ops.leaveRequests || []).filter(r => r.id !== exceptId && r.employeeId === e.id && r.status === 'approved' && r.type === 'sick' && r.to >= yrAgo && r.from < from)
+      .forEach(r => { prior += lvDays(r.from < yrAgo ? yrAgo : r.from, r.to < from ? r.to : lvAddD(from, -1)); });
+    pcts = days.map((_, i) => { const n = prior + i + 1; return n <= 30 ? 0 : n <= 90 ? 25 : 100; });
+  } else pcts = days.map(() => 0);
+  const by = {}; days.forEach((d, i) => { if (!pcts[i]) return; const m = d.slice(0, 7); const k = m + '|' + pcts[i]; by[k] = by[k] || { month: m, pct: pcts[i], days: 0 }; by[k].days++; });
+  return Object.values(by);
+}
+const lvDaily = (e) => Math.round(eosWageOf(e) / 30 * 100) / 100;
+// مخصص الإجازات (التزام): رصيد الأيام × أجر اليوم — يُرحَّل شهريًا بالفرق مثل مخصص نهاية الخدمة
+function lvState(ops) {
+  const L = (ops.ledgerEntries || []).filter(x => x.kind === 'lv_open' || x.kind === 'lv_accrual');
+  const open = L.find(x => x.kind === 'lv_open') || null; const months = new Set(L.filter(x => x.kind === 'lv_accrual').map(x => x.month)); const bal = {};
+  L.forEach(x => (x.lines || []).forEach(l => { bal[l.empId] = Math.round(((bal[l.empId] || 0) + (Number(l.amt) || 0)) * 100) / 100; }));
+  return { open, months, bal, from: open ? open.month : '' };
+}
+function lvRequired(org, ops, e, D) {
+  if (!e.hireDate && !e.leaveOpening) return 0;
+  if (eosState(ops).paid[e.id] && (eosState(ops).paid[e.id].date || '') <= D) return 0;
+  const b = leaveBalance(org, ops, e, D); return Math.max(0, Math.round(b.balance * lvDaily(e) * 100) / 100);
+}
+function lvAccrualLines(org, ops, D) {
+  const ST = lvState(ops);
+  return (org.employees || []).map(e => { const cum = lvRequired(org, ops, e, D); const amt = Math.round((cum - (ST.bal[e.id] || 0)) * 100) / 100;
+    return { empId: e.id, name: e.name, branchId: e.branchId || '', cum, amt }; }).filter(l => Math.abs(l.amt) > 0.004);
+}
 
 /* v30.8 — مخصص مكافأة نهاية الخدمة (نظام العمل م84): يُقاس على أساس الاستحقاق الكامل (إنهاء من صاحب العمل)
    بأجر آخر شهر (الأساسي + البدلات)، ويُرحَّل شهريًا كقيد دائم: الفرق بين المخصص المطلوب ورصيده المسجّل.
@@ -1322,6 +1394,7 @@ function buildAccounting(org, ops) {
   addAcc('2101', 'ذمم الموردين', 'liab', { link: 'دفتر الشركاء' });
   addAcc('2201', 'رواتب مستحقة', 'liab', { link: 'كشف الرواتب' });
   addAcc('2203', 'مخصص مكافأة نهاية الخدمة', 'liab', { link: 'الرواتب ← نهاية الخدمة' });
+  addAcc('2204', 'مخصص الإجازات المستحقة', 'liab', { link: 'الإجازات ← المخصص' });
   addAcc('2202', 'تأمينات اجتماعية مستحقة (GOSI)', 'liab', { link: 'حصتا الموظف وصاحب العمل — تُحوّل للتأمينات' });
   addAcc('2301', 'ضريبة القيمة المضافة — مخرجات', 'liab', { link: 'مستحقة للهيئة' });
   // — حقوق الملكية (تُفعَّل بالقيد الافتتاحي في المرحلة التالية) —
@@ -1334,6 +1407,7 @@ function buildAccounting(org, ops) {
   // — المصروفات —
   addAcc('5201', 'الرواتب والأجور (كشف الرواتب)', 'exp', { link: 'ترحيل الاستحقاق الشهري' });
   addAcc('5203', 'مصروف مكافأة نهاية الخدمة', 'exp', { link: 'ترحيل المخصص الشهري' });
+  addAcc('5204', 'مصروف الإجازات المستحقة', 'exp', { link: 'ترحيل مخصص الإجازات الشهري' });
   addAcc('5202', 'التأمينات الاجتماعية — حصة صاحب العمل', 'exp', { link: 'كشف الرواتب — عند تفعيل التأمينات' });
   addAcc('5301', 'عمولات تطبيقات التوصيل', 'exp', { link: 'نِسَب العمولة من إعدادات التطبيقات' });
   addAcc('5302', 'خصومات وغرامات تطبيقات التوصيل', 'exp', { link: 'تسوية كشوف التطبيقات — فروق الإيداع' });
@@ -1573,6 +1647,14 @@ function buildAccounting(org, ops) {
       const dc = x.kind === 'eos_open' ? '3201' : '5203';
       push({ id: 'eos:' + x.id + ':' + (br || 'hq'), date: x.date, ...(br ? { branchId: br } : {}), title: (x.kind === 'eos_open' ? 'مخصص نهاية الخدمة المتراكم حتى ' + (x.asOf || x.date) : x.final ? 'تسوية مخصص نهاية الخدمة حتى تاريخ انتهاء خدمة ' + (((x.lines || [])[0] || {}).name || '') : 'مخصص نهاية الخدمة — شهر ' + x.month),
         src: 'نهاية الخدمة', ref: 'eos-' + (x.month || ''), lines: v > 0 ? [L(dc, v, 0), L('2203', 0, v)] : [L('2203', -v, 0), L(dc, 0, -v)] }); });
+  });
+  // ٧-ب) v31.2 مخصص الإجازات: افتتاحي (أرباح مبقاة) ثم ترحيل شهري بالفرق (يرتفع بالاستحقاق وينخفض بالأخذ)
+  led.filter(x => x.kind === 'lv_open' || x.kind === 'lv_accrual').forEach(x => {
+    if (x.kind === 'lv_open' && x.noPost) return;
+    const byBr = {}; (x.lines || []).forEach(l => { byBr[l.branchId || ''] = (byBr[l.branchId || ''] || 0) + (Number(l.amt) || 0); });
+    Object.entries(byBr).forEach(([br, v]) => { v = Math.round(v * 100) / 100; if (Math.abs(v) < 0.005) return; const dc = x.kind === 'lv_open' ? '3201' : '5204';
+      push({ id: 'lv:' + x.id + ':' + (br || 'hq'), date: x.date, ...(br ? { branchId: br } : {}), title: x.kind === 'lv_open' ? 'مخصص الإجازات المتراكم حتى ' + (x.asOf || x.date) : 'مخصص الإجازات — شهر ' + x.month,
+        src: 'الإجازات', ref: 'lv-' + (x.month || ''), lines: v > 0 ? [L(dc, v, 0), L('2204', 0, v)] : [L('2204', -v, 0), L(dc, 0, -v)] }); });
   });
   led.filter(x => x.kind === 'eos_pay').forEach(x => {
     const rel = Math.round((eosBal[x.empId] || 0) * 100) / 100, paid = Math.round((Number(x.entitled) || 0) * 100) / 100, lv = Math.round((Number(x.leavePay) || 0) * 100) / 100;
@@ -1894,11 +1976,11 @@ const DENOMS = [
 const emptyDenoms = () => DENOMS.reduce((o, d) => ({ ...o, [d.k]: 0 }), {});
 const countDenoms = (d) => DENOMS.reduce((s, x) => s + (Number(d?.[x.k]) || 0) * x.v, 0);
 
-const ALL_TABS = ['whbranch', 'analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'hrops', 'hrperf', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'perfsnap', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit', 'qrfb'];
+const ALL_TABS = ['whbranch', 'analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'hrops', 'hrperf', 'attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'perfsnap', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit', 'qrfb'];
 const TAB_AR = {
   analytics: 'مركز التحليل والأداء', reporting: 'مركز التقارير', exec: 'اللوحة التنفيذية',
   dash: 'لوحة المؤشرات', compare: 'مقارنة الفروع', growth: 'تحليلات النمو', breakeven: 'تحليل التعادل', scorecard: 'لوحة الأهداف', scenario: 'ماذا-لو', boardpack: 'تقرير الإدارة', cashflow: 'التدفق النقدي', closing: 'الإغلاق اليومي', apps: 'التطبيقات',
-  approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', people: 'شؤون الموظفين', payroll: 'الرواتب والسلف', workforce: 'تخطيط العمالة والتكلفة', hrmaster: 'البيانات الرئيسية', hrpolicy: 'السياسات والأدوار', attendance: 'الحضور الموثَّق', shiftengine: 'محرّك الورديات', tasks: 'المهام', points: 'دفتر النقاط', kpi: 'الأداء والتقييم', rewards: 'المكافآت والجزاءات', esign: 'التوقيع الإلكتروني', corrective: 'الإجراءات التصحيحية', training: 'التدريب والشهادات', rolekpi: 'مؤشرات الأداء بالدور', hrdash: 'لوحة الموارد البشرية', perfsnap: 'تجميد الأداء الشهري',
+  approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', people: 'شؤون الموظفين', payroll: 'الرواتب والسلف', leaves: 'الإجازات', workforce: 'تخطيط العمالة والتكلفة', hrmaster: 'البيانات الرئيسية', hrpolicy: 'السياسات والأدوار', attendance: 'الحضور الموثَّق', shiftengine: 'محرّك الورديات', tasks: 'المهام', points: 'دفتر النقاط', kpi: 'الأداء والتقييم', rewards: 'المكافآت والجزاءات', esign: 'التوقيع الإلكتروني', corrective: 'الإجراءات التصحيحية', training: 'التدريب والشهادات', rolekpi: 'مؤشرات الأداء بالدور', hrdash: 'لوحة الموارد البشرية', perfsnap: 'تجميد الأداء الشهري',
   purchasing: 'المشتريات والموردون', suppliers: 'الموردون والمشتريات', inv: 'المخزون والمنتجات', reorder: 'المشتريات الذكية', partners: 'جهات الاتصال',
   acct: 'المحاسبة', shifts: 'مواعيد الإغلاق والتذكيرات', archive: 'أرشيف المستندات', ai: 'المركز الذكي',
   reports: 'التقارير المالية', rbuild: 'منشئ التقارير', entities: 'مركز المنشآت', admin: 'الفروع والمستخدمون', audit: 'سجل التدقيق', qrfb: 'تقييم العملاء (QR)', whbranch: 'مستودع الفرع'
@@ -1933,17 +2015,17 @@ const ROLES = {
   },
   branch_manager: {
     ar: 'مدير الفرع', badge: 'b-mint', scope: 'own', create: true,
-    tabs: ['whbranch', 'closing', 'sales', 'apps', 'archive', 'hrops', 'hrperf', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'qrfb'],
+    tabs: ['whbranch', 'closing', 'sales', 'apps', 'archive', 'hrops', 'hrperf', 'attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'qrfb'],
     perms: ['إدخال وترحيل إغلاق فرعه', 'عرض سجل إغلاقات فرعه', 'أرشيف مستندات فرعه فقط', 'تسجيل الحضور وضبط أرقام PIN وسجل حضور فرعه', 'محرّك ورديات فرعه: قوالب، تعيين أسبوعي، مطابقة حضور، تبديل وردية، طلب نقل موظف', 'كشك التوقيع الإلكتروني وسجل إقرارات فرعه (بلا مبالغ الرواتب)']
   },
   regional_manager: {
     ar: 'مدير إقليمي — فروع مُسندة', badge: 'b-amber', scope: 'assigned',
-    tabs: ['whbranch', 'analytics', 'reporting', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'reports', 'archive', 'hrops', 'hrperf', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'qrfb'],
+    tabs: ['whbranch', 'analytics', 'reporting', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'reports', 'archive', 'hrops', 'hrperf', 'attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'qrfb'],
     perms: ['متابعة الفروع المسندة إليه فقط', 'مقارنة وتقارير فروعه ولوحة مؤشراتها ونموّها', 'سجل حضور فروعه المسندة ومحرّك ورديات فروعه', 'بلا وصول للمحاسبة والخزينة والإعدادات']
   },
   head_office: {
     ar: 'المكتب الرئيسي — المالية والإدارة', badge: 'b-brass', scope: 'all', approver: true,
-    tabs: ['whbranch', 'analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'hrops', 'hrperf', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'perfsnap', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit', 'qrfb'],
+    tabs: ['whbranch', 'analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'hrops', 'hrperf', 'attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'perfsnap', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit', 'qrfb'],
     perms: ['كل الفروع والتقارير المجمّعة', 'التدقيق والاعتماد النهائي', 'الخزينة والرواتب والموردون والمشتريات والمخزون', 'المحاسبة الكاملة: قيود وميزان وقوائم وضريبة وأصول ومراكز تكلفة']
   },
   system_admin: {
@@ -1961,7 +2043,7 @@ const ROLES = {
     // إعادة ترتيب v8.0: المحاسب الرئيسي بطبيعته يعمل على المنشأة كلها — نطاق كامل
     // بلا صلاحيات إدارة (لا مستخدمين/فروع، لا تفعيل ضريبة، لا إدارة تطبيقات)
     ar: 'الإدارة المالية — محاسب رئيسي', badge: 'b-sky', scope: 'all', legacy: true,
-    tabs: ['whbranch', 'analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'hrops', 'hrperf', 'attendance', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'perfsnap', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit', 'qrfb'],
+    tabs: ['whbranch', 'analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'hrops', 'hrperf', 'attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'kpi', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'perfsnap', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit', 'qrfb'],
     perms: ['المحاسبة كاملة: قيود يدوية وافتتاحية وميزان وقوائم ومراكز تكلفة', 'الضريبة والأصول والتسوية البنكية (عرض وتسجيل — التفعيل للإدارة)', 'المشتريات والمخزون والرواتب والخزينة', 'كل الفروع — دون إدارة المستخدمين والإعدادات']
   },
   // ===== v15.9: نماذج صلاحيات المحاسب — نطاق «المحاسبة + التقارير المالية فقط» =====
@@ -2265,7 +2347,7 @@ function emptyOrg(company) {
 }
 
 function emptyOps() {
-  return { productSales: [], salesInvoices: [], closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
+  return { leaveRequests: [], productSales: [], salesInvoices: [], closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
     attendanceEvents: [], hrPins: [], shiftTemplates: [], shiftAssignments: [], shiftSwapRequests: [], branchTransferRequests: [], taskTemplates: [], taskAssignments: [], taskCompletions: [], pointsEntries: [], qualityReviews: [], rewardRequests: [], hrSignDocs: [], hrCorrective: [], hrPips: [], hrTraining: [], hrKpiEntries: [], hrScoreSnapshots: [] };
 }
 
@@ -3125,7 +3207,7 @@ function PlatformApp() {
   const shared = { org, ops, pulse, me, myBranches, scoped, commit, commitOrg, say, setTab, theme, acctIntent, openAcctView, invIntent, openInvView };
 
   // حماية: منع الوصول لتبويب غير مسموح لدور المستخدم (بلا hook — بعد returns الشرطية)
-  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : []), ...(NAV.some(n => n.id === 'people') ? ['payroll', 'workforce'] : []), ...(NAV.some(n => n.id === 'purchasing') ? ['suppliers', 'reorder'] : []), ...(NAV.some(n => n.id === 'hrops') ? ['attendance', 'shiftengine', 'tasks', 'points', 'esign'] : []), ...(NAV.some(n => n.id === 'hrperf') ? ['kpi', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'] : [])];
+  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : []), ...(NAV.some(n => n.id === 'people') ? ['payroll', 'workforce'] : []), ...(NAV.some(n => n.id === 'purchasing') ? ['suppliers', 'reorder'] : []), ...(NAV.some(n => n.id === 'hrops') ? ['attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'esign'] : []), ...(NAV.some(n => n.id === 'hrperf') ? ['kpi', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'] : [])];
   const safeTab = allowedTabs.includes(tab) ? tab : (allowedTabs[0] || 'closing');
 
   return (
@@ -3215,7 +3297,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v31.1 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v31.2 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -3375,7 +3457,7 @@ function PlatformApp() {
               {['reporting', 'reports', 'rbuild', 'boardpack', 'cashflow'].includes(safeTab) && <Hub hubId="reporting" {...shared} view={safeTab} />}
               {safeTab === 'sales' && <SalesHub {...shared} />}
               {safeTab === 'closing' && <Closing {...shared} />}
-              {['hrops', 'attendance', 'shiftengine', 'tasks', 'points', 'esign'].includes(safeTab) && <Hub hubId="hrops" {...shared} view={safeTab} />}
+              {['hrops', 'attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'esign'].includes(safeTab) && <Hub hubId="hrops" {...shared} view={safeTab} />}
               {['hrperf', 'kpi', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'].includes(safeTab) && <Hub hubId="hrperf" {...shared} view={safeTab} />}
               {safeTab === 'qrfb' && <QrFeedback {...shared} />}
               {safeTab === 'apps' && <AppsCenter {...shared} />}
@@ -6472,6 +6554,7 @@ const HUBS = {
     ar: 'الموارد البشرية — التشغيل', desc: 'الحضور والورديات والمهام والنقاط والتوقيع الإلكتروني', icon: Fingerprint,
     views: [
       { id: 'attendance', ar: 'الحضور الموثَّق', icon: Fingerprint, comp: Attendance },
+      { id: 'leaves', ar: 'الإجازات', icon: CalendarDays, comp: Leaves },
       { id: 'shiftengine', ar: 'محرّك الورديات', icon: ArrowLeftRight, comp: ShiftEngine },
       { id: 'tasks', ar: 'المهام', icon: CheckCircle2, comp: Tasks },
       { id: 'points', ar: 'دفتر النقاط', icon: Star, comp: PointsLedger },
@@ -8728,6 +8811,232 @@ function DisbursementForm({ org, me, balance, commit, say, onClose }) {
 }
 
 /* ================= الرواتب والسلف ================= */
+/* ============================================================
+   v31.2 — الإجازات: طلب ← اعتماد ← رصيد ← خصم تلقائي ← مخصص في الدفاتر
+   ============================================================ */
+function Leaves({ org, ops, me, myBranches, commit, commitOrg, say }) {
+  const R = ROLES[me.role] || {};
+  const central = R.scope === 'all';
+  const canDecide = central || !!R.approver;
+  const brIds = (myBranches || []).map(b => b.id);
+  const emps = (org.employees || []).filter(e => e.isActive !== false && (central || brIds.includes(e.branchId)));
+  const allEmps = org.employees || [];
+  const empOf = (id) => allEmps.find(e => e.id === id) || {};
+  const reqs = (ops.leaveRequests || []).filter(r => central || brIds.includes(r.branchId)).slice().sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
+  const [tab, setTab] = useState('req'); const [st, setSt] = useState('pending');
+  const [f, setF] = useState(null); const [opF, setOpF] = useState(null); const [lvStart, setLvStart] = useState(null);
+  const [month, setMonth] = useState(today().slice(0, 7));
+  const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+  const td = today();
+  const LV = useMemo(() => lvState(ops), [ops]);
+  const lvLines = useMemo(() => (LV.open && month >= LV.from) ? lvAccrualLines(org, ops, monthEnd(month)) : [], [org, ops, month, LV]);
+  const lvTotal = r2(Object.values(LV.bal).reduce((a, v) => a + v, 0));
+
+  const check = (x, exceptId) => {
+    const e = empOf(x.employeeId); const T = LEAVE_TYPES[x.type]; const n = lvDays(x.from, x.to);
+    if (!e.id) return 'اختر الموظف'; if (!n) return 'الفترة غير صحيحة';
+    const clash = (ops.leaveRequests || []).find(r => r.id !== exceptId && r.employeeId === e.id && ['pending', 'approved'].includes(r.status) && r.to >= x.from && r.from <= x.to);
+    if (clash) return 'تتداخل مع إجازة ' + (LEAVE_TYPES[clash.type] || {}).ar + ' (' + clash.from + ' ← ' + clash.to + ')';
+    if (T.max && n > T.max) return 'الحد الأعلى لإجازة ' + T.ar + ' ' + T.max + ' يومًا';
+    if (T.once && (ops.leaveRequests || []).some(r => r.id !== exceptId && r.employeeId === e.id && r.type === x.type && r.status === 'approved')) return 'إجازة ' + T.ar + ' تُمنح مرة واحدة طوال الخدمة';
+    if (T.minYears && e.hireDate && eosYears(e.hireDate, x.from) < T.minYears) return 'إجازة ' + T.ar + ' بعد ' + T.minYears + ' سنتين خدمة على الأقل';
+    if (x.type === 'annual') { const b = leaveBalance(org, ops, e, x.to); if (!b.ok) return 'أضف تاريخ تعيين الموظف أو رصيده الافتتاحي أولًا';
+      const pend = (ops.leaveRequests || []).filter(r => r.id !== exceptId && r.employeeId === e.id && r.type === 'annual' && r.status === 'approved' && r.from > x.to).reduce((a, r) => a + lvDays(r.from, r.to), 0);
+      if (n > b.balance - pend + 0.0001) return 'الرصيد غير كافٍ: المتاح ' + Math.floor(b.balance - pend) + ' يوم والمطلوب ' + n; }
+    return '';
+  };
+  const submit = async () => {
+    const x = f; const err = check(x); if (err) return say(err, 'no');
+    const e = empOf(x.employeeId); const b = (org.branches || []).find(z => z.id === e.branchId) || {};
+    const rec = { id: uid('lv'), employeeId: e.id, employeeName: e.name, branchId: e.branchId || '', branchName: b.name || '', type: x.type, from: x.from, to: x.to, days: lvDays(x.from, x.to), reason: (x.reason || '').trim(), status: 'pending', requestedBy: me.name, at: nowISO() };
+    const ok = await commit(d => ({ ...d, leaveRequests: [rec, ...(d.leaveRequests || [])] }), { actionType: 'create', targetType: 'leave', targetId: rec.id, branchName: rec.branchName, title: 'طلب إجازة', details: e.name + ' · ' + LEAVE_TYPES[x.type].ar + ' · ' + rec.days + ' يوم (' + x.from + ' ← ' + x.to + ')' });
+    if (ok) { setF(null); say('أُرسل طلب الإجازة للاعتماد ✓'); }
+  };
+  const decide = async (r, ok2) => {
+    if (!canDecide) return;
+    let note = ''; if (!ok2) { note = window.prompt('سبب الرفض:'); if (note === null) return; }
+    const e = empOf(r.employeeId);
+    let advs = [];
+    if (ok2) {
+      const err = check(r, r.id); if (err) return say(err, 'no');
+      const plan = leaveDeductPlan(ops, e, r.type, r.from, r.to, r.id); const daily = lvDaily(e);
+      advs = plan.map(p => ({ id: uid('ad'), employeeId: e.id, employeeName: e.name, branchId: e.branchId || '', branchName: r.branchName || '', type: r.type === 'sick' ? 'sick_leave_cut' : 'unpaid_leave',
+        amount: r2(p.days * daily * p.pct / 100), month: p.month, date: p.month + '-01' > r.from ? p.month + '-01' : r.from, reason: 'إجازة ' + LEAVE_TYPES[r.type].ar + ' — ' + p.days + ' يوم' + (p.pct < 100 ? ' بخصم ' + p.pct + '%' : ''), leaveId: r.id, createdByName: me.name, createdAt: nowISO() })).filter(a => a.amount > 0);
+      const lk = advs.find(a => periodLocked(org, a.month + '-28')); if (lk) return say(LOCK_MSG(lk.month + '-28'), 'no');
+      const posted = advs.find(a => (ops.ledgerEntries || []).some(x => x.kind === 'salary_payout' && x.month === a.month));
+      if (posted && !window.confirm('رواتب ' + posted.month + ' صُرفت مسبقًا — سيُسجَّل الخصم على ذلك الشهر لكنه لن يظهر إلا في التسوية. متابعة؟')) return;
+    }
+    const done = await commit(d => ({ ...d,
+      leaveRequests: (d.leaveRequests || []).map(x => x.id === r.id && x.status === 'pending' ? { ...x, status: ok2 ? 'approved' : 'rejected', decidedBy: me.name, decidedAt: nowISO(), ...(note ? { note } : {}), ...(advs.length ? { deduct: r2(sum(advs, a => a.amount)) } : {}) } : x),
+      ...(advs.length ? { advances: [...advs, ...(d.advances || [])] } : {}) }),
+      { actionType: 'update', targetType: 'leave', targetId: r.id, need: 'post', branchName: r.branchName, title: ok2 ? 'اعتمد إجازة' : 'رفض إجازة', details: r.employeeName + ' · ' + LEAVE_TYPES[r.type].ar + ' · ' + r.days + ' يوم' + (advs.length ? ' · خصم ' + money(sum(advs, a => a.amount)) : '') + (note ? ' · ' + note : '') });
+    if (done) say(ok2 ? 'اعتُمدت الإجازة' + (advs.length ? ' وسُجّل خصمها على المسير' : '') + ' ✓' : 'رُفض الطلب');
+  };
+  const cancel = async (r) => {
+    if (r.status === 'approved') {
+      if (!central) return say('إلغاء إجازة معتمدة للإدارة فقط', 'no');
+      if (r.from <= td) return say('بدأت الإجازة — لا تُلغى بعد بدئها؛ سجّل مباشرة العمل بتعديل تاريخ النهاية', 'no');
+    } else if (r.requestedBy !== me.name && !canDecide) return say('يلغي الطلب صاحبه أو المعتمد', 'no');
+    if (!window.confirm('إلغاء إجازة ' + r.employeeName + ' (' + r.from + ' ← ' + r.to + ')؟')) return;
+    await commit(d => ({ ...d, leaveRequests: (d.leaveRequests || []).map(x => x.id === r.id ? { ...x, status: 'cancelled', cancelledBy: me.name, cancelledAt: nowISO() } : x), advances: (d.advances || []).filter(a => a.leaveId !== r.id) }),
+      { actionType: 'update', targetType: 'leave', targetId: r.id, branchName: r.branchName, title: 'ألغى إجازة', details: r.employeeName + ' · ' + r.from + ' ← ' + r.to });
+    say('أُلغيت الإجازة' + (r.deduct ? ' وأُزيل خصمها' : '') + ' ✓');
+  };
+  const endEarly = async (r) => {
+    if (!central) return; const back = window.prompt('تاريخ آخر يوم إجازة فعلي (YYYY-MM-DD) — المباشرة في اليوم التالي:', td); if (!back) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(back) || back < r.from || back >= r.to) return say('التاريخ يجب أن يكون داخل الإجازة وقبل نهايتها', 'no');
+    const e = empOf(r.employeeId); const nr = { ...r, to: back, days: lvDays(r.from, back) };
+    const plan = leaveDeductPlan(ops, e, r.type, r.from, back, r.id); const daily = lvDaily(e);
+    const advs = plan.map(p => ({ id: uid('ad'), employeeId: e.id, employeeName: e.name, branchId: e.branchId || '', branchName: r.branchName || '', type: r.type === 'sick' ? 'sick_leave_cut' : 'unpaid_leave', amount: r2(p.days * daily * p.pct / 100), month: p.month, date: p.month + '-01' > r.from ? p.month + '-01' : r.from, reason: 'إجازة ' + LEAVE_TYPES[r.type].ar + ' — ' + p.days + ' يوم', leaveId: r.id, createdByName: me.name, createdAt: nowISO() })).filter(a => a.amount > 0);
+    const old = (ops.advances || []).filter(a => a.leaveId === r.id); const lk = [...old, ...advs].find(a => periodLocked(org, a.month + '-28')); if (lk) return say(LOCK_MSG(lk.month + '-28'), 'no');
+    await commit(d => ({ ...d, leaveRequests: (d.leaveRequests || []).map(x => x.id === r.id ? { ...x, to: back, days: nr.days, endedEarly: r.to, deduct: r2(sum(advs, a => a.amount)) } : x), advances: [...advs, ...(d.advances || []).filter(a => a.leaveId !== r.id)] }),
+      { actionType: 'update', targetType: 'leave', targetId: r.id, branchName: r.branchName, title: 'مباشرة مبكرة من إجازة', details: r.employeeName + ' · آخر يوم ' + back + ' بدل ' + r.to });
+    say('سُجّلت المباشرة وعُدّل الرصيد والخصم ✓');
+  };
+  const saveOpening = async () => {
+    const x = opF; if (!/^\d{4}-\d{2}-\d{2}$/.test(x.date)) return say('التاريخ غير صحيح', 'no');
+    await commitOrg(d => ({ ...d, employees: (d.employees || []).map(e => e.id === x.id ? { ...e, leaveOpening: { date: x.date, days: Number(x.days) || 0 } } : e) }),
+      { actionType: 'update', targetType: 'user_account', targetId: x.id, need: 'edit', title: 'رصيد إجازات افتتاحي', details: empOf(x.id).name + ' · ' + x.days + ' يوم في ' + x.date });
+    setOpF(null); say('حُفظ الرصيد الافتتاحي ✓');
+  };
+  const startLv = async () => {
+    const m = lvStart.month; if (!/^\d{4}-\d{2}$/.test(m)) return; if (periodLocked(org, m + '-01')) return say(LOCK_MSG(m + '-01'), 'no'); if (LV.open) return;
+    const prevD = lvAddD(m + '-01', -1);
+    const lines = allEmps.map(e => ({ empId: e.id, name: e.name, branchId: e.branchId || '', cum: lvRequired(org, ops, e, prevD), amt: lvRequired(org, ops, e, prevD) })).filter(l => l.amt > 0);
+    const rec = { id: uid('lv'), kind: 'lv_open', month: m, date: m + '-01', asOf: prevD, lines, total: r2(sum(lines, l => l.amt)), ...(lvStart.post ? {} : { noPost: true }), by: me.name, at: nowISO() };
+    const ok = await commit(d => ({ ...d, ledgerEntries: [rec, ...(d.ledgerEntries || [])] }), { actionType: 'create', targetType: 'daily_closing', targetId: 'lv-open', need: 'post', title: 'بدء مخصص الإجازات', details: 'من ' + m + ' · ' + money(rec.total) });
+    if (ok) { setLvStart(null); say('فُعّل مخصص الإجازات ✓'); }
+  };
+  const lvPending = useMemo(() => { if (!LV.open) return []; const out = []; let m = LV.from; const cur = td.slice(0, 7);
+    while (m < cur && out.length < 36) { if (!LV.months.has(m)) out.push(m); const [y, mo] = m.split('-').map(Number); m = isoD(new Date(y, mo, 1)).slice(0, 7); } return out; }, [LV]);
+  const postLv = async () => {
+    if (LV.months.has(month) || month < LV.from || month > td.slice(0, 7)) return; const D = monthEnd(month); if (periodLocked(org, D)) return say(LOCK_MSG(D), 'no');
+    const miss = lvPending.filter(m => m < month); if (miss.length) return say('رحّل الأشهر السابقة أولًا: ' + miss.join('، '), 'no');
+    const rec = { id: uid('lv'), kind: 'lv_accrual', month, date: D, lines: lvLines, total: r2(sum(lvLines, l => l.amt)), by: me.name, at: nowISO() };
+    const ok = await commit(d => ({ ...d, ledgerEntries: [rec, ...(d.ledgerEntries || [])] }), { actionType: 'create', targetType: 'daily_closing', targetId: 'lv-' + month, need: 'post', title: 'رحّل مخصص الإجازات', details: month + ' · ' + money(rec.total) });
+    if (ok) say('رُحّل مخصص ' + month + ' ✓');
+  };
+
+  const shown = reqs.filter(r => st === 'all' || r.status === st);
+  const pendN = reqs.filter(r => r.status === 'pending').length;
+  const onNow = reqs.filter(r => r.status === 'approved' && r.from <= td && r.to >= td);
+  const SB = { pending: ['بانتظار الاعتماد', 'b-amber'], approved: ['معتمدة', 'b-mint'], rejected: ['مرفوضة', 'b-rose'], cancelled: ['ملغاة', 'b-dim'] };
+  const nf = f ? lvDays(f.from, f.to) : 0; const fe = f ? empOf(f.employeeId) : null;
+  const fb = fe && fe.id ? leaveBalance(org, ops, fe, f.to || td) : null;
+  const fplan = f && fe && fe.id && nf ? leaveDeductPlan(ops, fe, f.type, f.from, f.to) : [];
+  const fded = r2(sum(fplan, p => p.days * lvDaily(fe) * p.pct / 100));
+
+  return (
+    <div className="grid" style={{ gap: 12 }}>
+      <div className="grid g4">
+        <Kpi label="طلبات بانتظار الاعتماد" value={String(pendN)} sub={canDecide ? 'قرارك مطلوب' : 'لدى الإدارة'} icon={Bell} color="#E0A458" />
+        <Kpi label="في إجازة اليوم" value={String(onNow.length)} sub={onNow.slice(0, 3).map(r => r.employeeName).join('، ') || '—'} icon={CalendarDays} color="#5B93C4" />
+        <Kpi label="أرصدة الإجازات (أيام)" value={String(Math.round(sum(emps, e => leaveBalance(org, ops, e, td).balance)))} sub={emps.length + ' موظف'} icon={Users} color="#C8A24A" />
+        <Kpi label="قيمة الأرصدة" value={money(r2(sum(emps, e => Math.max(0, leaveBalance(org, ops, e, td).balance) * lvDaily(e))))} sub={LV.open ? 'المخصص في الدفاتر ' + money(lvTotal) : 'المخصص غير مفعّل'} icon={Wallet} color="#9B7BB8" />
+      </div>
+      <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+        <button className={'btn sm' + (tab === 'req' ? ' pri' : ' gh')} onClick={() => setTab('req')}>الطلبات</button>
+        <button className={'btn sm' + (tab === 'bal' ? ' pri' : ' gh')} onClick={() => setTab('bal')}>الأرصدة</button>
+        {central && <button className={'btn sm' + (tab === 'prov' ? ' pri' : ' gh')} onClick={() => setTab('prov')}>المخصص في الدفاتر</button>}
+        <button className="btn sm pri" style={{ marginInlineStart: 'auto' }} onClick={() => setF({ employeeId: (emps[0] || {}).id || '', type: 'annual', from: td, to: td, reason: '' })}><Plus size={14} />طلب إجازة</button>
+      </div>
+
+      {tab === 'req' && <div className="card">
+        <div className="row" style={{ gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>{[['pending', 'بانتظار الاعتماد'], ['approved', 'معتمدة'], ['rejected', 'مرفوضة'], ['all', 'الكل']].map(([k, t]) => <button key={k} className={'btn sm' + (st === k ? ' pri' : ' gh')} onClick={() => setSt(k)}>{t}</button>)}</div>
+        <div className="tw"><table className="tb">
+          <thead><tr><th>الموظف</th><th>النوع</th><th>الفترة</th><th style={{ textAlign: 'end' }}>الأيام</th><th>الحالة</th><th></th></tr></thead>
+          <tbody>
+            {shown.map(r => (
+              <tr key={r.id}>
+                <td style={{ fontSize: 12.5, fontWeight: 600 }}>{r.employeeName}<div style={{ fontSize: 9.5, color: 'var(--faint)' }}>{r.branchName} · طلب {r.requestedBy}</div></td>
+                <td><span className="badge b-dim">{(LEAVE_TYPES[r.type] || {}).ar}</span>{r.deduct ? <div><span className="badge b-rose" style={{ marginTop: 3 }}>خصم {money(r.deduct)}</span></div> : null}</td>
+                <td className="num" style={{ fontSize: 11.5 }}>{r.from} ← {r.to}{r.endedEarly ? <div style={{ fontSize: 9.5, color: 'var(--faint)' }}>باشر مبكرًا (كانت حتى {r.endedEarly})</div> : null}</td>
+                <td className="num" style={{ textAlign: 'end' }}>{r.days}</td>
+                <td><span className={'badge ' + (SB[r.status] || SB.pending)[1]}>{(SB[r.status] || SB.pending)[0]}</span>{r.note ? <div style={{ fontSize: 10, color: 'var(--faint)' }}>{r.note}</div> : null}{r.reason ? <div style={{ fontSize: 10, color: 'var(--faint)' }}>{r.reason}</div> : null}</td>
+                <td><div className="row" style={{ gap: 5, flexWrap: 'wrap' }}>
+                  {canDecide && r.status === 'pending' && <><button className="btn sm pri" onClick={() => decide(r, true)}>اعتماد</button><button className="btn sm gh" onClick={() => decide(r, false)}>رفض</button></>}
+                  {(r.status === 'pending' || (r.status === 'approved' && r.from > td && central)) && <button className="btn sm gh" onClick={() => cancel(r)}>إلغاء</button>}
+                  {central && r.status === 'approved' && r.from <= td && r.to > td && <button className="btn sm gh" onClick={() => endEarly(r)}>مباشرة مبكرة</button>}
+                </div></td>
+              </tr>))}
+            {shown.length === 0 && <tr><td colSpan={6}><div className="empty">لا طلبات.</div></td></tr>}
+          </tbody>
+        </table></div>
+      </div>}
+
+      {tab === 'bal' && <div className="card">
+        <div className="tw"><table className="tb">
+          <thead><tr><th>الموظف</th><th>الاستحقاق السنوي</th><th style={{ textAlign: 'end' }}>المستحق</th><th style={{ textAlign: 'end' }}>المأخوذ</th><th style={{ textAlign: 'end' }}>الرصيد</th><th style={{ textAlign: 'end' }}>القيمة</th><th></th></tr></thead>
+          <tbody>
+            {emps.map(e => { const b = leaveBalance(org, ops, e, td); return (
+              <tr key={e.id}>
+                <td style={{ fontSize: 12.5, fontWeight: 600 }}>{e.name}<div style={{ fontSize: 9.5, color: 'var(--faint)' }}>{e.hireDate ? 'تعيين ' + e.hireDate : 'بلا تاريخ تعيين'}{e.leaveOpening ? ' · افتتاحي ' + e.leaveOpening.days + ' يوم في ' + e.leaveOpening.date : ''}</div></td>
+                <td><span className="badge b-dim">{b.rate} يوم</span></td>
+                <td className="num" style={{ textAlign: 'end' }}>{b.ok ? b.accrued : '—'}</td>
+                <td className="num" style={{ textAlign: 'end' }}>{b.used}</td>
+                <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: b.balance < 0 ? 'var(--rose)' : undefined }}>{b.ok ? b.balance : '—'}</td>
+                <td className="num" style={{ textAlign: 'end' }}>{b.ok ? money(Math.max(0, b.balance) * lvDaily(e)) : '—'}</td>
+                <td>{central && <button className="btn sm gh" onClick={() => setOpF({ id: e.id, date: (e.leaveOpening || {}).date || td, days: String((e.leaveOpening || {}).days || '') })}>رصيد افتتاحي</button>}</td>
+              </tr>); })}
+            {emps.length === 0 && <tr><td colSpan={7}><div className="empty">لا موظفون.</div></td></tr>}
+          </tbody>
+        </table></div>
+        <div className="note" style={{ marginTop: 8 }}>يُستحق الرصيد يوميًا: {lvCfg(org).annual} يومًا في السنة، وتصبح {lvCfg(org).after5} بعد خمس سنوات خدمة. إن كان للموظف رصيد قبل المنصة فأدخله «رصيدًا افتتاحيًا» بتاريخه، ويُحتسب الاستحقاق بعده.</div>
+      </div>}
+
+      {tab === 'prov' && central && <div className="card">
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'end', marginBottom: 8 }}>
+          {!LV.open ? <button className="btn sm pri" onClick={() => setLvStart({ month: td.slice(0, 7), post: true })}>تفعيل مخصص الإجازات في الدفاتر</button> : <>
+            <Field label="الشهر"><input type="month" className="inp" value={month} onChange={e => setMonth(e.target.value)} /></Field>
+            <button className="btn sm pri" disabled={LV.months.has(month) || month < LV.from || month > td.slice(0, 7)} onClick={postLv}>{LV.months.has(month) ? 'مُرحّل ✓' : 'ترحيل مخصص ' + month + ' (' + money(r2(sum(lvLines, l => l.amt))) + ')'}</button>
+            <span className="badge b-mint">مُفعّل من {LV.from}</span><span className="badge b-dim">الرصيد في الدفاتر {money(lvTotal)}</span>
+            {lvPending.length > 0 && <span className="badge b-amber">لم تُرحَّل: {lvPending.join('، ')}</span>}</>}
+        </div>
+        <div className="note">المخصص = رصيد أيام كل موظف × أجر يومه (الشامل ÷ 30). يُرحَّل شهريًا بالفرق: يرتفع بما يُستحق ويُرد بما يُؤخذ، فيُحمَّل المصروف وقت استحقاقه لا وقت أخذه.</div>
+      </div>}
+
+      {f && (
+        <Modal title="طلب إجازة" icon={CalendarDays} onClose={() => setF(null)}
+          foot={<><button className="btn gh" onClick={() => setF(null)}>إلغاء</button><button className="btn pri" onClick={submit}><Check size={14} />إرسال للاعتماد</button></>}>
+          <div className="grid g2">
+            <Field label="الموظف"><select className="sel" value={f.employeeId} onChange={e => setF(x => ({ ...x, employeeId: e.target.value }))}>{emps.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select></Field>
+            <Field label="نوع الإجازة"><select className="sel" value={f.type} onChange={e => setF(x => ({ ...x, type: e.target.value }))}>{Object.entries(LEAVE_TYPES).map(([k, t]) => <option key={k} value={k}>{t.ar}{t.max ? ' (حتى ' + t.max + ' يوم)' : ''}</option>)}</select></Field>
+            <Field label="من"><input type="date" className="inp" value={f.from} onChange={e => setF(x => ({ ...x, from: e.target.value, to: x.to < e.target.value ? e.target.value : x.to }))} /></Field>
+            <Field label="إلى"><input type="date" className="inp" value={f.to} onChange={e => setF(x => ({ ...x, to: e.target.value }))} /></Field>
+          </div>
+          <Field label="السبب / ملاحظة"><input className="inp" value={f.reason} onChange={e => setF(x => ({ ...x, reason: e.target.value }))} /></Field>
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+            <span className="badge b-brass">{nf} يوم</span>
+            {f.type === 'annual' && fb && <span className={'badge ' + (fb.ok && fb.balance >= nf ? 'b-mint' : 'b-rose')}>الرصيد المتاح {fb.ok ? Math.floor(fb.balance) : '—'} يوم</span>}
+            {fded > 0 && <span className="badge b-rose">خصم متوقع {money(fded)}</span>}
+            {f.type === 'sick' && fplan.length > 0 && <span className="badge b-amber">تجاوز الثلاثين يومًا المدفوعة هذه السنة</span>}
+          </div>
+          {(() => { const er = f.employeeId && nf ? check(f) : ''; return er ? <div className="note" style={{ color: 'var(--rose)', marginTop: 6 }}>⚠ {er}</div> : null; })()}
+        </Modal>
+      )}
+      {opF && (
+        <Modal title={'رصيد إجازات افتتاحي — ' + empOf(opF.id).name} icon={CalendarDays} onClose={() => setOpF(null)}
+          foot={<><button className="btn gh" onClick={() => setOpF(null)}>إلغاء</button><button className="btn pri" onClick={saveOpening}><Check size={14} />حفظ</button></>}>
+          <div className="grid g2">
+            <Field label="في تاريخ"><input type="date" className="inp" value={opF.date} onChange={e => setOpF(x => ({ ...x, date: e.target.value }))} /></Field>
+            <Num label="الرصيد (أيام)" value={opF.days} onChange={v => setOpF(x => ({ ...x, days: v }))} />
+          </div>
+          <div className="note">يُحتسب الاستحقاق بعد هذا التاريخ، ولا تُخصم منه إلا الإجازات التي تبدأ بعده.</div>
+        </Modal>
+      )}
+      {lvStart && (() => { const prevD = /^\d{4}-\d{2}$/.test(lvStart.month) ? lvAddD(lvStart.month + '-01', -1) : ''; const tot = prevD ? r2(sum(allEmps, e => lvRequired(org, ops, e, prevD))) : 0; return (
+        <Modal title="تفعيل مخصص الإجازات" icon={CalendarDays} onClose={() => setLvStart(null)}
+          foot={<><button className="btn gh" onClick={() => setLvStart(null)}>إلغاء</button><button className="btn pri" onClick={startLv}><Check size={14} />تفعيل</button></>}>
+          <Field label="بداية المخصص (شهر)"><input type="month" className="inp" value={lvStart.month} onChange={e => setLvStart(x => ({ ...x, month: e.target.value }))} /></Field>
+          <div className="mono-b" style={{ margin: '6px 0' }}><span>المتراكم حتى {prevD || '—'}</span><span className="num">{money(tot)}</span></div>
+          <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', margin: '6px 0' }}><input type="radio" checked={!!lvStart.post} onChange={() => setLvStart(x => ({ ...x, post: true }))} />قيّد المتراكم: من ح/ الأرباح المبقاة إلى ح/ مخصص الإجازات</label>
+          <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', margin: '6px 0' }}><input type="radio" checked={!lvStart.post} onChange={() => setLvStart(x => ({ ...x, post: false }))} />مسجّل مسبقًا في الأرصدة الافتتاحية (حساب 2204) — بلا قيد</label>
+          <div className="note">أدخل الأرصدة الافتتاحية للموظفين من «الأرصدة» قبل التفعيل ليكون المتراكم صحيحًا.</div>
+        </Modal>); })()}
+    </div>
+  );
+}
+
 function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
   const [month, setMonth] = useState(today().slice(0, 7));
   const [add, setAdd] = useState(false);
@@ -9187,7 +9496,7 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
                   <td className="num" style={{ whiteSpace: 'nowrap' }}>{arDate(a.date)}</td>
                   <td style={{ fontSize: 12 }}>{a.employeeName}</td>
                   <td><span className={'badge ' + (['advance', 'salary_draw'].includes(a.type) ? 'b-amber' : a.type === 'bonus' ? 'b-mint' : 'b-rose')}>
-                    {{ advance: 'سلفة', salary_draw: 'مسحوبة', discount: 'خصم', absence_penalty: 'غياب', lateness_penalty: 'تأخير', bonus: 'مكافأة معتمدة', discipline_penalty: 'جزاء معتمد', other: 'أخرى' }[a.type] || a.type}
+                    {{ advance: 'سلفة', salary_draw: 'مسحوبة', discount: 'خصم', absence_penalty: 'غياب', lateness_penalty: 'تأخير', bonus: 'مكافأة معتمدة', discipline_penalty: 'جزاء معتمد', unpaid_leave: 'إجازة بدون راتب', sick_leave_cut: 'خصم إجازة مرضية', other: 'أخرى' }[a.type] || a.type}
                   </span></td>
                   <td className="num">{money(a.amount)}</td>
                   <td style={{ fontSize: 11.5, color: 'var(--dim)' }}>{a.reason}</td>
@@ -9227,7 +9536,7 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
                   <td className="num" style={{ textAlign: 'end' }}>{money(wage)}</td>
                   {EOS.open && <td className="num" style={{ textAlign: 'end', color: 'var(--dim)' }}>{EOS.paid[e.id] ? <span className="badge b-mint">صُرفت</span> : money(EOS.bal[e.id] || 0)}</td>}
                   <td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{e.hireDate ? money(full) : '—'}</td>
-                  <td><button className="btn sm gh" onClick={() => setEosF({ id: e.id, reason: 'termination', endDate: today(), leaveDays: '' })}>تسوية</button></td>
+                  <td><button className="btn sm gh" onClick={() => { const lb = leaveBalance(org, ops, e, today()); setEosF({ id: e.id, reason: 'termination', endDate: today(), leaveDays: lb.ok && lb.balance > 0 ? String(Math.round(lb.balance * 100) / 100) : '' }); }}>تسوية</button></td>
                 </tr>
               ); })}
               {emps.length === 0 && <tr><td colSpan={7}><div className="empty">لا موظفون في نطاقك.</div></td></tr>}
@@ -10609,7 +10918,7 @@ function ShiftEngine({ org, ops, me, myBranches, commitOrg, commit, say }) {
       const inEv = evs.find(ev => ev.type === 'in');
       const outEvs = evs.filter(ev => ev.type === 'out');
       const outEv = outEvs[outEvs.length - 1];
-      if (!inEv) { matchRows.push({ e, ds, tpl, status: 'absent' }); return; }
+      if (!inEv) { matchRows.push({ e, ds, tpl, status: onLeave(ops, e.id, ds) ? 'leave' : 'absent' }); return; }
       const inMin = new Date(inEv.at).getHours() * 60 + new Date(inEv.at).getMinutes();
       const lateBy = tpl ? inMin - parseHM(tpl.startTime) - tolerance : 0;
       let status = lateBy > 0 ? 'late' : 'on_time';
@@ -10622,7 +10931,7 @@ function ShiftEngine({ org, ops, me, myBranches, commitOrg, commit, say }) {
       matchRows.push({ e, ds, tpl, status, extra, inEv, outEv });
     });
   });
-  const matchLabel = { upcoming: ['قادم', 'b-dim'], absent: ['غياب', 'b-rose'], on_time: ['في الوقت', 'b-mint'], late: ['تأخير', 'b-amber'], early: ['انصراف مبكر', 'b-amber'], late_early: ['تأخير + انصراف مبكر', 'b-rose'], no_checkout: ['لم يُسجَّل انصراف', 'b-amber'], late_nocheckout: ['تأخير + لم يُسجَّل انصراف', 'b-rose'] };
+  const matchLabel = { upcoming: ['قادم', 'b-dim'], absent: ['غياب', 'b-rose'], leave: ['إجازة معتمدة', 'b-sky'], on_time: ['في الوقت', 'b-mint'], late: ['تأخير', 'b-amber'], early: ['انصراف مبكر', 'b-amber'], late_early: ['تأخير + انصراف مبكر', 'b-rose'], no_checkout: ['لم يُسجَّل انصراف', 'b-amber'], late_nocheckout: ['تأخير + لم يُسجَّل انصراف', 'b-rose'] };
 
   // === ٤) طلبات تبديل الوردية ===
   const [swapF, setSwapF] = useState({ di: 0, empA: '', empB: '' });
@@ -11337,7 +11646,7 @@ function PointsLedger({ org, ops, me, myBranches, commit, commitOrg, say }) {
         const tpl = (ops.shiftTemplates || []).find(t => t.id === sid);
         const evs = (ops.attendanceEvents || []).filter(ev => ev.employeeId === emp.id && (ev.at || '').slice(0, 10) === ds).sort((x, y) => (x.at < y.at ? -1 : 1));
         const inEv = evs.find(ev => ev.type === 'in');
-        if (!inEv) { if (ds < today()) c.absent++; return; }
+        if (!inEv) { if (ds < today() && !onLeave(ops, emp.id, ds)) c.absent++; return; }
         const inMin = new Date(inEv.at).getHours() * 60 + new Date(inEv.at).getMinutes();
         const lateBy = tpl ? inMin - parseHM(tpl.startTime) - tolerance : 0;
         if (lateBy > 0) c.late++; else c.onTime++;
@@ -11599,7 +11908,7 @@ function hrEmpStats(org, ops, emp, from, to) {
       const tpl = (ops.shiftTemplates || []).find(t => t.id === sid);
       const evs = (ops.attendanceEvents || []).filter(ev => ev.employeeId === emp.id && (ev.at || '').slice(0, 10) === ds).sort((x, y) => (x.at < y.at ? -1 : 1));
       const inEv = evs.find(ev => ev.type === 'in');
-      if (!inEv) { if (ds < td) s.absent++; return; }
+      if (!inEv) { if (ds < td && !onLeave(ops, emp.id, ds)) s.absent++; return; }
       const inMin = new Date(inEv.at).getHours() * 60 + new Date(inEv.at).getMinutes();
       const lateBy = tpl ? inMin - parseHM(tpl.startTime) - tolerance : 0;
       if (lateBy > 0) s.late++; else s.onTime++;
