@@ -594,7 +594,9 @@ const parseXlsxGrid = async (buf) => {
     const ab = await new Response(new Blob([data]).stream().pipeThrough(ds)).arrayBuffer();
     return new TextDecoder().decode(ab);
   };
-  const dec = (s) => String(s || '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+  // v30.3: فك المراجع الرقمية (&#1602; و&#x642;) — بعض البرامج تحفظ النص العربي بها، فكانت تُقرأ رموزًا لا حروفًا
+  const dec = (s) => String(s || '').replace(/&#(\d+);/g, (_, c) => String.fromCodePoint(Number(c))).replace(/&#x([0-9a-f]+);/gi, (_, c) => String.fromCodePoint(parseInt(c, 16)))
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
   const sstXml = await readEntry('xl/sharedStrings.xml');
   const sst = [];
   if (sstXml) {
@@ -2963,7 +2965,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v30.2 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v30.3 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -15739,6 +15741,7 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
   const [view, setView] = useState('items');        // items | moves | count | recipes
   const [repOpen, setRepOpen] = useState(false);    // v9.4 قائمة تقارير التطبيق
   const [itemF, setItemF] = useState(null);         // نموذج صنف
+  const [impF, setImpF] = useState(null);           // v30.3 استيراد أصناف من Excel/CSV: {name, grid, map, start, update, opening}
   const [moveF, setMoveF] = useState(null);         // نموذج حركة
   const [prodF, setProdF] = useState(null);         // نموذج وصفة
   const [countRows, setCountRows] = useState({});   // العدّ الفعلي أثناء الجرد
@@ -15780,6 +15783,82 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
     return ['b-mint', 'جيد'];
   };
   const itemName = (id) => (items.find(x => x.id === id) || {}).name || '—';
+
+  // ===== v30.3 — استيراد الأصناف من Excel/CSV =====
+  const IMP_COLS = [['name', 'اسم الصنف', /اسم|الصنف|المادة|item|name|product/i], ['unit', 'الوحدة', /وحد|unit|uom/i],
+    ['cost', 'التكلفة', /تكلف|سعر|cost|price/i], ['minQty', 'الحد الأدنى', /أدنى|ادنى|الحد|min|reorder/i],
+    ['maxQty', 'الحد الأعلى', /أعلى|اعلى|max/i], ['qty', 'الرصيد الافتتاحي', /رصيد|كمي|qty|quantity|opening|stock/i]];
+  const normNum = (v) => { const t = String(v == null ? '' : v).replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[٫]/g, '.').replace(/[,٬\s]/g, '');
+    if (t === '') return null; const n = Number(t); return Number.isFinite(n) ? n : NaN; };
+  const normName = (v) => String(v || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  const detectImp = (grid) => {
+    for (let r = 0; r < Math.min(grid.length, 10); r++) {
+      const row = grid[r].map(c => String(c || '').trim()); const map = {};
+      IMP_COLS.forEach(([k, , re]) => { const i = row.findIndex((c, j) => c && re.test(c) && !Object.values(map).includes(j) && !(k === 'minQty' && /أعلى|اعلى|max/i.test(c))); if (i >= 0) map[k] = i; });
+      if (map.name != null) return { map, start: r + 1 };
+    }
+    return { map: { name: 0, unit: 1, cost: 2, minQty: 3, maxQty: -1, qty: -1 }, start: 0 };
+  };
+  const impPick = async (e) => {
+    const f = e.target.files?.[0]; e.target.value = '';
+    if (!f) return;
+    try {
+      const grid = /\.xlsx$/i.test(f.name) ? await parseXlsxGrid(await f.arrayBuffer()) : parseCsvGrid(await f.text());
+      if (!grid || !grid.length) return say('الملف فارغ أو غير مقروء', 'no');
+      const d = detectImp(grid);
+      setImpF({ name: f.name, grid, map: { maxQty: -1, qty: -1, unit: -1, cost: -1, minQty: -1, ...d.map }, start: d.start, update: true, opening: (d.map.qty ?? -1) >= 0 });
+    } catch (err) { say('تعذّرت قراءة الملف — إن كان Excel قديمًا (.xls) فاحفظه بصيغة xlsx أو CSV وأعد رفعه', 'no'); }
+  };
+  const impTemplate = () => {
+    try {
+      const blob = makeXlsx([{ name: 'الأصناف', rows: [['اسم الصنف', 'الوحدة', 'التكلفة', 'الحد الأدنى', 'الحد الأعلى', 'الرصيد الافتتاحي'],
+        ['أرز بسمتي', 'كغ', 6.5, 50, 200, 120], ['زيت طبخ', 'لتر', 9.25, 20, 80, 40], ['خبز صامولي', 'حبة', 0.35, 200, 1000, '']] }]);
+      const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'نموذج_استيراد_الأصناف.xlsx'; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(url), 1500);
+    } catch (e) { say('تعذّر توليد النموذج', 'no'); }
+  };
+  // صفوف المعاينة: جديد / تحديث / خطأ / مكرر في الملف
+  const impRows = (() => {
+    if (!impF) return [];
+    const m = impF.map; const cell = (r, k) => (m[k] != null && m[k] >= 0) ? r[m[k]] : '';
+    const seen = new Set();
+    return impF.grid.slice(impF.start).map((r, i) => {
+      const name = String(cell(r, 'name') || '').trim(); if (!name) return null;
+      const unit = String(cell(r, 'unit') || '').trim();
+      const cost = normNum(cell(r, 'cost')), minQty = normNum(cell(r, 'minQty')), maxQty = normNum(cell(r, 'maxQty')), qty = normNum(cell(r, 'qty'));
+      const key = normName(name); const ex = items.find(x => normName(x.name) === key);
+      let st = ex ? 'update' : 'new', why = '';
+      if ([cost, minQty, maxQty, qty].some(v => Number.isNaN(v) || (v != null && v < 0))) { st = 'error'; why = 'رقم غير صالح'; }
+      else if (seen.has(key)) { st = 'dup'; why = 'مكرر في الملف'; }
+      seen.add(key);
+      return { line: impF.start + i + 1, name, unit, cost, minQty, maxQty, qty, st, why, ex };
+    }).filter(Boolean);
+  })();
+  const doImport = async () => {
+    const ok = impRows.filter(r => r.st === 'new' || (r.st === 'update' && impF.update));
+    if (!ok.length) return say('لا أصناف صالحة للاستيراد', 'no');
+    const withQty = impF.opening ? ok.filter(r => (r.qty || 0) > 0) : [];
+    if (withQty.length && periodLocked(org, today())) return say(LOCK_MSG(today()), 'no');
+    const recs = ok.map(r => r.ex
+      ? { ...r.ex, ...(r.unit ? { unit: r.unit } : {}), ...(r.cost != null ? { cost: r.cost } : {}), ...(r.minQty != null ? { minQty: r.minQty } : {}), ...(r.maxQty != null ? { maxQty: r.maxQty } : {}) }
+      : { id: uid('it'), name: r.name, unit: r.unit || 'وحدة', cost: r.cost || 0, minQty: r.minQty || 0, ...(r.maxQty != null ? { maxQty: r.maxQty } : {}), isActive: true });
+    const okOrg = await commitOrg(d => {
+      const list = [...(d.items || [])];
+      recs.forEach(rec => { const i = list.findIndex(x => x.id === rec.id || normName(x.name) === normName(rec.name)); if (i >= 0) list[i] = { ...list[i], ...rec, id: list[i].id }; else list.push(rec); });
+      return { ...d, items: list };
+    }, { actionType: 'create', targetType: 'stock_item', targetId: 'import', title: 'استيراد أصناف من ' + impF.name,
+      details: recs.length + ' صنف (' + ok.filter(r => r.st === 'new').length + ' جديد · ' + ok.filter(r => r.st === 'update').length + ' تحديث)' });
+    if (!okOrg) return;
+    let movesN = 0;
+    if (withQty.length) {
+      const idOf = (r) => (r.ex && r.ex.id) || (recs.find(x => normName(x.name) === normName(r.name)) || {}).id;
+      const mv = withQty.map(r => ({ id: uid('sm'), date: today(), itemId: idOf(r), kind: 'in', qty: r.qty, note: 'رصيد افتتاحي — استيراد ' + impF.name, by: me.name, at: nowISO(), ...(whOn(org) ? { whId: MAIN_WH } : {}) })).filter(x => x.itemId);
+      const okMv = await commit(d => ({ ...d, stockMoves: [...mv, ...(d.stockMoves || [])] }),
+        { actionType: 'create', targetType: 'stock_move', targetId: 'import-opening', title: 'أرصدة افتتاحية للأصناف المستوردة' + (whOn(org) ? ' (المستودع الرئيسي)' : ''), details: mv.length + ' صنف' });
+      if (okMv) movesN = mv.length;
+    }
+    setImpF(null);
+    say('اُستورد ' + recs.length + ' صنف ✓' + (movesN ? ' وسُجّل رصيد افتتاحي لـ ' + movesN + ' صنف' + (whOn(org) ? ' في المستودع الرئيسي' : '') : ''));
+  };
 
   const saveItem = async () => {
     const f = itemF;
@@ -15914,6 +15993,8 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
         {view === 'menu' && <button className="btn sm" style={{ marginInlineStart: 'auto' }} onClick={exportMenuXlsx}><Download size={13} />Excel</button>}
         {view === 'menu' && canW && <button className="btn sm pri" onClick={saveMenuQty}><Check size={14} />حفظ الكميات</button>}
         {view === 'items' && <button className="btn sm" style={{ marginInlineStart: 'auto' }} onClick={printStock}><Printer size={13} />طباعة الأرصدة</button>}
+        {canW && view === 'items' && <><label className="btn sm" style={{ cursor: 'pointer' }}><Upload size={13} />استيراد من Excel<input type="file" accept=".xlsx,.csv,text/csv" style={{ display: 'none' }} onChange={impPick} /></label>
+          <button className="btn sm gh" onClick={impTemplate}><Download size={13} />نموذج</button></>}
         {canW && view === 'items' && <button className="btn sm pri" onClick={() => setItemF({ name: '', unit: 'كغ', cost: '', minQty: '' })}><Plus size={14} />صنف جديد</button>}
         {canW && view === 'moves' && <button className="btn sm pri" style={{ marginInlineStart: 'auto' }} onClick={() => setMoveF({ kind: 'in', itemId: items[0]?.id || '', qty: '', note: '' })}><Plus size={14} />حركة جديدة</button>}
         {canW && view === 'recipes' && <button className="btn sm pri" style={{ marginInlineStart: 'auto' }} onClick={() => setProdF({ name: '', sellPrice: '', parts: [{ itemId: items[0]?.id || '', qty: '' }] })}><Plus size={14} />منتج جديد</button>}
@@ -16130,6 +16211,45 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
         </div>
       </div>
 
+      {impF && (
+        <Modal title={'استيراد الأصناف — ' + impF.name} icon={Upload} wide onClose={() => setImpF(null)}
+          foot={<><button className="btn pri" onClick={doImport} disabled={!impRows.some(r => r.st === 'new' || (r.st === 'update' && impF.update))}><Check size={14} />استيراد {impRows.filter(r => r.st === 'new' || (r.st === 'update' && impF.update)).length} صنف</button>
+            <button className="btn gh" onClick={() => setImpF(null)}>إلغاء</button></>}>
+          <div style={{ fontSize: 12, color: 'var(--dim)', marginBottom: 8 }}>تعرّفت المنصة على الأعمدة تلقائيًا — صحّح الربط إن لزم:</div>
+          <div className="grid g3" style={{ gap: 8, marginBottom: 10 }}>
+            {IMP_COLS.map(([k, ar]) => (
+              <Field key={k} label={ar}>
+                <select className="inp sel" value={impF.map[k] ?? -1} onChange={e => setImpF(f => ({ ...f, map: { ...f.map, [k]: Number(e.target.value) }, ...(k === 'qty' ? { opening: Number(e.target.value) >= 0 } : {}) }))}>
+                  <option value={-1}>— لا يوجد —</option>
+                  {(impF.grid[Math.max(0, impF.start - 1)] || impF.grid[0] || []).map((h, i) => <option key={i} value={i}>{impF.start > 0 ? (String(h || '').trim() || ('عمود ' + (i + 1))) : ('عمود ' + (i + 1))}</option>)}
+                </select>
+              </Field>))}
+          </div>
+          <div className="row" style={{ gap: 14, flexWrap: 'wrap', fontSize: 12.5, marginBottom: 10 }}>
+            <label className="row" style={{ gap: 6 }}><input type="checkbox" checked={impF.update} onChange={e => setImpF(f => ({ ...f, update: e.target.checked }))} />تحديث الأصناف الموجودة بنفس الاسم (الوحدة والتكلفة والحدود)</label>
+            {(impF.map.qty ?? -1) >= 0 && <label className="row" style={{ gap: 6 }}><input type="checkbox" checked={impF.opening} onChange={e => setImpF(f => ({ ...f, opening: e.target.checked }))} />تسجيل الكميات رصيدًا افتتاحيًا{whOn(org) ? ' في المستودع الرئيسي' : ''}</label>}
+            <label className="row" style={{ gap: 6 }}>السطر الأول للبيانات:
+              <input className="inp n" style={{ width: 60 }} value={impF.start + 1} onChange={e => setImpF(f => ({ ...f, start: Math.max(0, (Number(e.target.value) || 1) - 1) }))} /></label>
+          </div>
+          <div className="row" style={{ gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+            <span className="badge b-mint">جديد {impRows.filter(r => r.st === 'new').length}</span>
+            <span className="badge b-sky">تحديث {impRows.filter(r => r.st === 'update').length}</span>
+            {impRows.some(r => r.st === 'error' || r.st === 'dup') && <span className="badge b-rose">يُتجاهل {impRows.filter(r => r.st === 'error' || r.st === 'dup').length}</span>}
+          </div>
+          <div className="tw" style={{ maxHeight: 340, overflow: 'auto' }}><table className="tb">
+            <thead><tr><th>#</th><th>الصنف</th><th>الوحدة</th><th style={{ textAlign: 'end' }}>التكلفة</th><th style={{ textAlign: 'end' }}>الحد الأدنى</th><th style={{ textAlign: 'end' }}>الرصيد</th><th>الحالة</th></tr></thead>
+            <tbody>{impRows.slice(0, 500).map(r => (
+              <tr key={r.line} style={{ opacity: r.st === 'error' || r.st === 'dup' ? 0.55 : 1 }}>
+                <td className="num" style={{ fontSize: 10.5, color: 'var(--faint)' }}>{r.line}</td><td>{r.name}</td><td style={{ fontSize: 11.5 }}>{r.unit || '—'}</td>
+                <td className="num" style={{ textAlign: 'end' }}>{r.cost == null || Number.isNaN(r.cost) ? '—' : money(r.cost)}</td>
+                <td className="num" style={{ textAlign: 'end' }}>{r.minQty == null || Number.isNaN(r.minQty) ? '—' : r.minQty}</td>
+                <td className="num" style={{ textAlign: 'end' }}>{r.qty == null || Number.isNaN(r.qty) ? '—' : r.qty}</td>
+                <td>{r.st === 'new' ? <span className="badge b-mint">جديد</span> : r.st === 'update' ? <span className={'badge ' + (impF.update ? 'b-sky' : 'b-dim')}>{impF.update ? 'تحديث' : 'موجود — يُتجاهل'}</span> : <span className="badge b-rose">{r.why}</span>}</td>
+              </tr>))}
+              {!impRows.length && <tr><td colSpan={7}><div className="empty">لا صفوف — تحقق من عمود «اسم الصنف» ومن السطر الأول للبيانات</div></td></tr>}
+            </tbody></table></div>
+        </Modal>
+      )}
       {itemF && (
         <Modal title={itemF.id ? 'تعديل صنف' : 'صنف مخزون جديد'} icon={HardDrive} onClose={() => setItemF(null)}
           foot={<><button className="btn gh" onClick={() => setItemF(null)}>إلغاء</button>
