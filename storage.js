@@ -119,6 +119,14 @@ async function firestore() {
 }
 
 /* ================= المصادقة الحقيقية (بريد + كلمة سر لكل مستخدم) ================= */
+// v31.3 — التحقق بخطوتين (TOTP عبر تطبيق المصادقة): يفرضه Firebase نفسه بعد التسجيل — كلمة السر وحدها لا تكفي
+let mfaResolver = null, mfaSecret = null;
+const mfaErr = (code) => { const e = new Error(code); e.code = code; return e; };
+async function reauthIf(m, u, pass) {
+  if (!pass) return;
+  const cred = m.A.EmailAuthProvider.credential(u.email, pass);
+  await m.A.reauthenticateWithCredential(u, cred);
+}
 export const authApi = {
   get enabled() { return FB_READY; },
 
@@ -131,8 +139,76 @@ export const authApi = {
   async signIn(email, pass) {
     const m = await fbAuthMod(); if (!m) throw new Error('no-firebase');
     try { await m.A.setPersistence(m.a, m.A.browserLocalPersistence); } catch { }
-    const cred = await m.A.signInWithEmailAndPassword(m.a, email.trim(), pass);
+    try {
+      const cred = await m.A.signInWithEmailAndPassword(m.a, email.trim(), pass);
+      return { email: (cred.user.email || '').toLowerCase() };
+    } catch (e) {
+      if (e && e.code === 'auth/multi-factor-auth-required') {
+        mfaResolver = m.A.getMultiFactorResolver(m.a, e);
+        if (!mfaResolver.hints.some(h => h.factorId === 'totp')) throw mfaErr('mfa-unsupported');
+        throw mfaErr('mfa-required');
+      }
+      throw e;
+    }
+  },
+
+  /** الخطوة الثانية للدخول: رمز تطبيق المصادقة (6 أرقام) */
+  async mfaVerify(code) {
+    const m = await fbAuthMod(); if (!m || !mfaResolver) throw mfaErr('mfa-expired');
+    const h = mfaResolver.hints.find(x => x.factorId === 'totp');
+    const as = m.A.TotpMultiFactorGenerator.assertionForSignIn(h.uid, String(code).replace(/\D/g, ''));
+    const cred = await mfaResolver.resolveSignIn(as);
+    mfaResolver = null;
     return { email: (cred.user.email || '').toLowerCase() };
+  },
+
+  /** حالة التحقق بخطوتين للمستخدم الحالي: مسجّل؟ وهل استُخدم في هذه الجلسة؟ */
+  async mfaInfo() {
+    const m = await fbAuthMod(); const u = await authedUser(); if (!m || !u) return null;
+    const fs2 = m.A.multiFactor(u).enrolledFactors.filter(f => f.factorId === 'totp');
+    let used = false; try { const t = await u.getIdTokenResult(); used = !!(t.claims.firebase && t.claims.firebase.sign_in_second_factor); } catch { }
+    return { enrolled: fs2.length > 0, used, factors: fs2.map(f => ({ uid: f.uid, name: f.displayName || '', at: f.enrollmentTime || '' })) };
+  },
+
+  /** بدء التسجيل: يتحقق من كلمة السر ثم يولّد السر ورابط رمز QR */
+  async mfaStart(pass) {
+    const m = await fbAuthMod(); const u = await authedUser(); if (!m || !u) throw mfaErr('no-session');
+    await reauthIf(m, u, pass);
+    const session = await m.A.multiFactor(u).getSession();
+    mfaSecret = await m.A.TotpMultiFactorGenerator.generateSecret(session);
+    return { key: mfaSecret.secretKey, url: mfaSecret.generateQrCodeUrl(u.email || 'user', 'ميزان') };
+  },
+
+  /** إتمام التسجيل برمز من التطبيق */
+  async mfaFinish(code) {
+    const m = await fbAuthMod(); const u = await authedUser(); if (!m || !u || !mfaSecret) throw mfaErr('mfa-expired');
+    const as = m.A.TotpMultiFactorGenerator.assertionForEnrollment(mfaSecret, String(code).replace(/\D/g, ''));
+    await m.A.multiFactor(u).enroll(as, 'تطبيق المصادقة');
+    mfaSecret = null;
+    return true;
+  },
+
+  /** إلغاء التحقق بخطوتين (يتطلب كلمة السر) */
+  async mfaRemove(pass) {
+    const m = await fbAuthMod(); const u = await authedUser(); if (!m || !u) throw mfaErr('no-session');
+    await reauthIf(m, u, pass);
+    const mf = m.A.multiFactor(u);
+    for (const f of mf.enrolledFactors.filter(x => x.factorId === 'totp')) await mf.unenroll(f);
+    return true;
+  },
+
+  /** التسجيل يتطلب بريدًا موثّقًا: إرسال رابط التوثيق ثم التحقق بعد فتحه */
+  async sendVerify() { const m = await fbAuthMod(); const u = await authedUser(); if (!m || !u) return false; await m.A.sendEmailVerification(u); return true; },
+  async emailVerified() { const u = await authedUser(); if (!u) return false; try { await u.reload(); } catch { } return !!u.emailVerified; },
+
+  /** سياسة الإلزام (platform/security) — تقرؤها قواعد الأمان أيضًا فتُفرض على الخادم */
+  async getPolicy() {
+    const f = await firestore(); if (!f) return null;
+    try { const sn = await f.getDoc(f.doc(f.db, 'platform', 'security')); return sn.exists() ? (sn.data() || {}) : {}; } catch { return null; }
+  },
+  async setPolicy(p) {
+    const f = await firestore(); if (!f) return false;
+    try { await f.setDoc(f.doc(f.db, 'platform', 'security'), { roles: p.roles || [], admins: !!p.admins, at: Date.now() }); return true; } catch (e) { return false; }
   },
 
   /** الإعداد الأول بعد الترقية: ينشئ حساب المالك ويدخله */

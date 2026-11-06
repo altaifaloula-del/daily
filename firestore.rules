@@ -47,6 +47,23 @@ service cloud.firestore {
       return isAdmin() || isCentral() || myBranchId() == bId || (bId in myBranchIds());
     }
 
+    // v31.3 — التحقق بخطوتين: سياسة platform/security {roles, admins} تُلزم أدوارًا محددة (والمدراء) بأن تكون الجلسة
+    // قد اجتازت الخطوة الثانية (مطالبة sign_in_second_factor في رمز Firebase) — وإلا لا قراءة ولا كتابة لبيانات المنصة.
+    function twoFactor() {
+      return request.auth != null && ('firebase' in request.auth.token)
+        && ('sign_in_second_factor' in request.auth.token.firebase);
+    }
+    function secPolicy() { return get(/databases/$(database)/documents/platform/security).data; }
+    function myRoleIn(roles) {
+      return exists(/databases/$(database)/documents/members/$(userEmail()))
+        && ('role' in memberData()) && memberData().role in roles;
+    }
+    function mfaRequired() {
+      return exists(/databases/$(database)/documents/platform/security)
+        && ((secPolicy().get('admins', false) == true && isAdmin()) || myRoleIn(secPolicy().get('roles', [])));
+    }
+    function mfaOk() { return twoFactor() || !mfaRequired(); }
+
     function baseId(id) { return id.split('__')[0]; }
 
     function isOrgDoc(id)    { return baseId(id).matches('^rms8_org.*$'); }
@@ -74,6 +91,16 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
 
+    // السياسة يقرؤها كل عضو (لتعرض الواجهة ما يلزمه)، ويكتبها المدير فقط — ولا يُفعّلها على نفسه دون جلسة بخطوتين (منع قفل نفسه)
+    match /platform/security {
+      allow read: if isMember() || isAdmin();
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasOnly(['roles', 'admins', 'at'])
+        && request.resource.data.roles is list && request.resource.data.admins is bool
+        && (twoFactor() || !(request.resource.data.admins == true || myRoleIn(request.resource.data.roles)));
+      allow delete: if isAdmin() && twoFactor();
+    }
+
     match /members/{memberEmail} {
       allow read: if isAdmin() || (realUser() && userEmail() == memberEmail);
       allow write: if isAdmin();
@@ -99,6 +126,7 @@ service cloud.firestore {
 
     match /platform/{docId} {
       allow read: if isMember()
+        && mfaOk()
         && knownDoc(docId)
         && (!isOrgDoc(docId)    || isCentral() || isAdmin())
         && (!isCoreDoc(docId)   || isCentral() || isAdmin())
@@ -106,6 +134,7 @@ service cloud.firestore {
         && (!isBranchDoc(docId) || canBranch(branchIdOf(docId)));
 
       allow write: if isMember()
+        && mfaOk()
         && docId != 'admins'
         && knownDoc(docId)
         && validShape(docId)
