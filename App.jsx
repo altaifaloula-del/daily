@@ -162,6 +162,13 @@ function buildNotifEvents(org, ops, me, myBranches) {
   if (central || roleHasTab(me, 'closing')) {
     try { computeSmartAlerts(org, ops, myBranches || []).forEach(a => { if (/^late-|deficit|def-/.test(String(a.id))) push('cl:sa:' + a.id + ':' + bd, 'closing', a.title, a.msg || '', 'closing'); }); } catch { }
   }
+  // —— v30.5: أوامر شراء بانتظار الاعتماد + دفعات قريبة الانتهاء ——
+  if ((R.approver || R.admin) && central) (ops.purchaseOrders || []).forEach(po => { if (po.status === 'pending') push('fin:po:' + po.id, 'fin', 'أمر شراء بانتظار اعتمادك — ' + (po.supplierName || ''), (po.poNo || '') + ' · ' + money((po.lines || []).reduce((s2, l) => s2 + (Number(l.qty) || 0) * (Number(l.price) || 0), 0)) + ' ر.س', 'purchasing'); });
+  if (whOn(org) && (central || roleHasTab(me, 'whbranch'))) {
+    const myWh = central ? null : (myBranches || []).map(b => whForBranch(org, b.id)).filter(Boolean).map(w => w.id);
+    const lim = isoD(new Date(Date.now() + 7 * 86400000));
+    expiryLots(org, ops).forEach(l => { if ((!myWh || myWh.includes(l.whId)) && l.expiry <= lim) push('inv:exp:' + l.id + ':' + (l.expiry <= td ? 'x' : 's'), 'inv', (l.expiry <= td ? 'دفعة منتهية الصلاحية — ' : 'دفعة تنتهي خلال 7 أيام — ') + whName(org, l.whId), itemN(l.itemId) + ' · ' + q3(l.left) + (l.batch ? ' · دفعة ' + l.batch : '') + ' · ' + l.expiry, central ? 'inv' : 'whbranch', 'wh'); });
+  }
   // —— المالية والموردون ——
   if (central && (roleHasTab(me, 'suppliers') || roleHasTab(me, 'purchasing') || roleHasTab(me, 'acct'))) {
     const due = (ops.invoices || []).filter(i => (i.amount || 0) > 0 && (i.amount - (i.paidAmount || 0)) > 0.004 && i.dueDate && i.dueDate <= td);
@@ -1163,6 +1170,15 @@ function buildAccounting(org, ops) {
   addAcc('1401', 'سلف الموظفين وعُهدهم', 'asset', { link: 'الرواتب والسلف' });
   addAcc('1501', 'ضريبة القيمة المضافة — مدخلات', 'asset', { link: 'تُخصم من الإقرار' });
   addAcc('1601', 'المخزون — بضاعة آخر المدة', 'asset', { link: 'رسملة المخزون — من شاشة المخزون' });
+  // v30.5 — الجرد المستمر (org.purchaseCfg.perpetualFrom = 'YYYY-MM'): حسابات تكلفة الاستهلاك والهدر والفروقات
+  const perpFrom = ((org.purchaseCfg || {}).perpetualFrom || '').slice(0, 7);
+  const perpOn = (d) => !!perpFrom && !!d && String(d).slice(0, 7) >= perpFrom;
+  if (perpFrom) {
+    addAcc('5501', 'تكلفة مواد مستهلكة — صرف للتشغيل', 'exp', { link: 'صرف المستودعات للمطابخ بالمتوسط المرجّح (لكل فرع)' });
+    addAcc('5502', 'هدر وتالف المخزون', 'exp', { link: 'حركات الهدر في المستودعات' });
+    addAcc('5503', 'فروقات جرد وتحويلات المخزون', 'exp', { link: 'تسويات الجرد ونقص الاستلام' });
+  }
+  const whAccOf = (whId) => { if (!whOn(org)) return '1601'; const w = whOf(org).find(x => x.id === (whId || MAIN_WH)) || whOf(org).find(x => x.id === MAIN_WH); return (w && w.accCode) ? String(w.accCode) : '1601'; };
   // v29.9: حساب مخزون لكل مستودع + بضاعة في الطريق بين المستودعات
   if (whOn(org)) {
     whOf(org).forEach(w => { if (w.accCode && !accIx[w.accCode]) addAcc(String(w.accCode), 'المخزون — ' + (w.name || 'مستودع'), 'asset', { link: 'رصيد المستودع — رسملة المخزون', whId: w.id }); });
@@ -1343,12 +1359,16 @@ function buildAccounting(org, ops) {
         ? { net: Math.round((i.amount - i.vatAmt) * 100) / 100, vat: Math.round(i.vatAmt * 100) / 100 }
         : (i.taxable === true) ? splitVat(i.amount) : { net: i.amount, vat: 0 };
       const exC = (i.accCode && accIx[i.accCode]) ? String(i.accCode) : '5198';
+      // v30.5: فاتورة استلام أمر شراء في فترة الجرد المستمر — صافي البنود المخزنية يُرسمل في حساب المستودع لا المصروف
+      const stockNet = (perpOn(d) && Array.isArray(i.lines)) ? Math.min(ti.net, Math.round(i.lines.filter(l => l.stock).reduce((s2, l) => s2 + (Number(l.net) || 0), 0) * 100) / 100) : 0;
+      const restNet = Math.round((ti.net - stockNet) * 100) / 100;
+      const debit = [...(stockNet > 0 ? [L(whAccOf(i.whId), stockNet, 0)] : []), ...(Math.abs(restNet) > 0.004 ? [L(exC, restNet, 0)] : [])];
       push({
-        id: 'inv:' + i.id, date: d, branchId: i.branchId, title: 'فاتورة توريد آجلة — ' + (i.supplierName || 'مورد'),
+        id: 'inv:' + i.id, date: d, branchId: i.branchId, title: 'فاتورة توريد آجلة — ' + (i.supplierName || 'مورد') + (stockNet > 0 ? ' (مخزون)' : ''),
         src: 'فاتورة مورد', ref: i.invoiceNo || i.id,
         lines: ti.vat
-          ? [L(exC, ti.net, 0), L('1501', ti.vat, 0), L('2101', 0, i.amount)]
-          : [L(exC, i.amount, 0), L('2101', 0, i.amount)],
+          ? [...debit, L('1501', ti.vat, 0), L('2101', 0, i.amount)]
+          : [...debit, L('2101', 0, i.amount)],
         vat: ti.vat ? { out: 0, inn: ti.vat, netSales: 0, netPurch: ti.net } : null
       });
     } else if (i.amount < 0 && i.mizanId) {
@@ -1549,7 +1569,58 @@ function buildAccounting(org, ops) {
 
   // ٩ج) رسملة المخزون (الطريقة الدورية): بضاعة آخر المدة تُرسمَل أصلًا (1601) وتُخفّض تكلفة الفترة (5150 دائن)
   //     فيصير: تكلفة البضاعة المباعة = المشتريات − بضاعة آخر المدة، والمخزون يظهر أصلًا في المركز المالي
-  const iv = org.invValuation;
+  // ٩ج-٢) v30.5 — قيود الجرد المستمر لكل حركة مخزون في الفترة (بالمتوسط المرجّح لحظة الحركة)
+  if (perpFrom) {
+    const SC = stockCosting(org, ops);
+    const brOfWh = (wid) => ((whOf(org).find(w => w.id === wid) || {}).branchId) || '';
+    const itN = (id) => ((org.items || []).find(x => x.id === id) || {}).name || 'صنف';
+    const val = (q, u) => Math.round(Math.abs(q) * (u || 0) * 100) / 100;
+    const KIND_AR = { out: 'صرف للتشغيل', waste: 'هدر/إتلاف', adjust: 'تسوية جرد', in: 'رصيد افتتاحي/توريد يدوي', purchase: 'استلام بلا فاتورة' };
+    const moveEntry = (m, key, wid) => {
+      const dd = String(m.date || '').slice(0, 10); if (!perpOn(dd)) return;
+      if (m.kind === 'purchase' && m.invoiceId) return;   // استلام أمر شراء: قيد فاتورته يرسمله
+      const u = SC.at[key]; const v = val(m.qty, u); if (!(v > 0)) return;
+      const acc = whAccOf(wid), q = Number(m.qty) || 0;
+      let lines;
+      if (m.kind === 'out') lines = [L('5501', v, 0), L(acc, 0, v)];
+      else if (m.kind === 'waste') lines = [L('5502', v, 0), L(acc, 0, v)];
+      else if (m.kind === 'adjust') lines = q < 0 ? [L('5503', v, 0), L(acc, 0, v)] : [L(acc, v, 0), L('5503', 0, v)];
+      else if (m.kind === 'in') lines = [L(acc, v, 0), L('3101', 0, v)];
+      else if (m.kind === 'purchase') lines = [L(acc, v, 0), L('5198', 0, v)];   // استلام قديم بلا فاتورة: يُعاد تبويب مصروف المشتريات إلى المخزون
+      else return;
+      push({ id: 'stk:' + key, date: dd, branchId: brOfWh(wid), title: (KIND_AR[m.kind] || m.kind) + ' — ' + itN(m.itemId) + ' (' + whName(org, wid) + ')', src: 'جرد مستمر', ref: m.ref || m.id, lines });
+    };
+    (ops.stockMoves || []).forEach(m => moveEntry(m, 'sm:' + m.id, m.whId || MAIN_WH));
+    (ops.whMoves || []).forEach(m => moveEntry(m, 'wm:' + m.id, m.whId));
+    (ops.whTransfers || []).forEach(t => {
+      if (t.status !== 'sent' && t.status !== 'received') return;
+      const lines = t.lines || [];
+      const unitOf = (i) => SC.at['tx:' + (t.kind === 'b2b-in' ? t.linkId : t.id) + ':' + i] || 0;
+      // الصرف: من مستودع المرسِل إلى «في الطريق» (النسخة الواردة لا تكرر الصرف)
+      if (t.kind !== 'b2b-in' && perpOn(t.sentDate)) {
+        const v = Math.round(lines.reduce((s2, l, i) => s2 + (Number(l.qtySent) || 0) * unitOf(i), 0) * 100) / 100;
+        if (v > 0) push({ id: 'stx:' + t.id, date: t.sentDate, branchId: brOfWh(t.fromWh), title: 'تحويل مخزني ' + (t.no || '') + ' — ' + whName(org, t.fromWh) + ' ← في الطريق', src: 'جرد مستمر', ref: t.no || t.id, lines: [L('1609', v, 0), L(whAccOf(t.fromWh), 0, v)] });
+      }
+      // الاستلام: من «في الطريق» إلى مستودع المستلم، والنقص فرق جرد (النسخة الصادرة لا تُستلم)
+      if (t.status === 'received' && t.kind !== 'b2b' && perpOn(t.receivedDate)) {
+        const sentV = Math.round(lines.reduce((s2, l, i) => s2 + (Number(l.qtySent) || 0) * unitOf(i), 0) * 100) / 100;
+        const recvV = Math.round(lines.reduce((s2, l, i) => s2 + (Number(l.qtyRecv) || 0) * unitOf(i), 0) * 100) / 100;
+        const diff = Math.round((sentV - recvV) * 100) / 100;
+        const ls = [L(whAccOf(t.toWh), recvV, 0), ...(diff > 0.004 ? [L('5503', diff, 0)] : diff < -0.004 ? [L('5503', 0, -diff)] : []), L('1609', 0, sentV)];
+        if (sentV > 0) push({ id: 'srx:' + t.id, date: t.receivedDate, branchId: brOfWh(t.toWh), title: 'استلام تحويل ' + (t.no || '') + ' — ' + whName(org, t.toWh) + (diff > 0.004 ? ' (نقص ' + money(diff) + ')' : ''), src: 'جرد مستمر', ref: t.no || t.id, lines: ls });
+      }
+    });
+    // رصيد المخزون عند بدء الجرد المستمر (ما قبل perpFrom) يُرحَّل مرة واحدة كرصيد افتتاحي للمستودعات
+    const pre = (() => { const p = perpFrom.split('-').map(Number); const d0 = new Date(p[0], p[1] - 1, 0); return isoD(d0); })();
+    const SB0 = stockByWh(org, ops, pre), AV0 = itemAvgCosts(org, ops, pre);
+    const openLines = [];
+    Object.entries(SB0.byWh).forEach(([wid, m]) => { const v = Math.round(Object.entries(m).reduce((s2, [id, q]) => s2 + Math.max(0, q) * (AV0[id] || 0), 0) * 100) / 100; if (v > 0) openLines.push(L(whAccOf(wid), v, 0)); });
+    const tv0 = Math.round(Object.entries(SB0.transit).reduce((s2, [id, q]) => s2 + q * (AV0[id] || 0), 0) * 100) / 100; if (tv0 > 0) openLines.push(L('1609', tv0, 0));
+    const openV = Math.round(openLines.reduce((s2, l) => s2 + l.debit, 0) * 100) / 100;
+    if (openV > 0) push({ id: 'stk-open', date: perpFrom + '-01', title: 'رصيد المخزون عند بدء الجرد المستمر', src: 'جرد مستمر', ref: perpFrom, opening: true, lines: [...openLines, L('3101', 0, openV)] });
+  }
+
+  const iv = perpFrom ? null : org.invValuation;   // v30.5: الرسملة الدورية تتوقف مع الجرد المستمر (لا ازدواج)
   if (iv && iv.enabled) {
     const ivDate = (iv.asOf || today()).slice(0, 10);
     // v29.9: الأرصدة كما في تاريخ الرسملة (لا الأرصدة الحالية) — حركة اليوم لا تغيّر قيد شهر سابق
@@ -2966,7 +3037,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v30.4 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v30.5 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -14617,6 +14688,7 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const [newInv, setNewInv] = useState(null);        // نموذج فاتورة توريد (م٤)
   const [poF, setPoF] = useState(null);              // نموذج أمر شراء
   const [recv, setRecv] = useState(null);            // نموذج استلام أمر
+  const [showPrices, setShowPrices] = useState(false);
   const ids = myBranches.map(b => b.id);
   // v28.2: فواتير المركز (بلا فرع، ومنها المستوردة من ميزان) تظهر للأدوار المركزية
   const invoices = (ops.invoices || []).filter(i => ids.includes(i.branchId) || (!i.branchId && ROLES[me.role]?.scope !== 'own'))
@@ -14685,6 +14757,31 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
 
   // ===== م٤: أوامر الشراء والفواتير =====
   const pos = (ops.purchaseOrders || []).sort((a, b) => (b.at || '').localeCompare(a.at || ''));
+  // v30.5 — إعدادات المشتريات + الاعتماد + أسعار الموردين
+  const pcfg = org.purchaseCfg || {};
+  const apprLimit = Number(pcfg.approvalLimit) || 0;
+  const alertPct = pcfg.priceAlertPct != null ? Number(pcfg.priceAlertPct) || 0 : 10;
+  const canApprovePo = !!(ROLES[me.role]?.approver || ROLES[me.role]?.admin);
+  const canCfg = roleEdit(me.role);
+  const [cfgF, setCfgF] = useState(null);
+  const PRICES = useMemo(() => supplierPrices(ops), [ops]);
+  const lastPriceOf = (itemId) => (PRICES[itemId] || [])[0] || null;
+  const priceWarn = (l) => { const it = items.find(x => x.id === l.itemId); const lp = lastPriceOf(l.itemId); if (!it || !lp || !(Number(l.price) > 0)) return null;
+    const u = (Number(l.price) || 0) / (l.uom === 'p' ? pFactor(it) : 1); const pct = (u - lp.unitCost) / lp.unitCost * 100;
+    return { u, lp, pct: Math.round(pct * 10) / 10, high: alertPct > 0 && pct > alertPct }; };
+  const saveCfg = async () => {
+    const f = cfgF;
+    const next = { approvalLimit: Math.max(0, Number(f.approvalLimit) || 0), priceAlertPct: Math.max(0, Number(f.priceAlertPct) || 0), perpetualFrom: f.perpetual ? (f.perpetualFrom || today().slice(0, 7)) : '' };
+    const ok = await commitOrg(d => ({ ...d, purchaseCfg: { ...(d.purchaseCfg || {}), ...next } }), { actionType: 'update', targetType: 'tax_settings', targetId: 'purchaseCfg', need: 'edit', title: 'إعدادات المشتريات والمخزون',
+      details: 'حد الاعتماد ' + money(next.approvalLimit) + ' · تنبيه السعر ' + next.priceAlertPct + '% · الجرد المستمر ' + (next.perpetualFrom || 'موقوف') });
+    if (ok) { setCfgF(null); say('حُفظت الإعدادات ✓'); }
+  };
+  const decidePo = async (p2, approve) => {
+    const note = approve ? '' : window.prompt('سبب رفض أمر الشراء ' + p2.poNo + ':'); if (!approve && note === null) return;
+    await commit(d => ({ ...d, purchaseOrders: (d.purchaseOrders || []).map(x => x.id === p2.id && x.status === 'pending' ? { ...x, status: approve ? 'open' : 'rejected', decidedBy: me.name, decidedAt: nowISO(), ...(note ? { rejectNote: note } : {}) } : x) }),
+      { actionType: 'update', targetType: 'purchase_order', targetId: p2.id, need: 'post', title: (approve ? 'اعتمد' : 'رفض') + ' أمر شراء', details: p2.poNo + ' · ' + money(poTotal(p2)) + (note ? ' · ' + note : '') });
+    say(approve ? 'اعتُمد أمر الشراء ✓' : 'رُفض أمر الشراء');
+  };
   const items = org.items || [];
   const poTotal = (p2) => sum(p2.lines || [], l => (Number(l.qty) || 0) * (Number(l.price) || 0));
   const poRecvQty = (p2) => sum(p2.lines || [], l => Number(l.received) || 0);
@@ -14726,13 +14823,16 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
       .map(l => { const it = items.find(x => x.id === l.itemId); const fac = it && l.uom === 'p' ? pFactor(it) : 1;
         return { desc: l.desc.trim(), itemId: l.itemId || '', qty: Number(l.qty), price: Number(l.price) || 0, received: 0, ...(fac > 1 ? { factor: fac, uomName: it.purchaseUnit } : {}) }; });
     if (!lines.length) return say('أضف بنداً واحداً على الأقل (وصف وكمية)', 'no');
+    const tot0 = lines.reduce((s2, l) => s2 + l.qty * l.price, 0);
+    const needAppr = apprLimit > 0 && tot0 > apprLimit;
+    const hiPrice = (f.lines || []).filter(l => (priceWarn(l) || {}).high).length;
     const rec = { id: uid('po'), poNo: nextPoNo(), supplierId: sp.id, supplierName: sp.name,
-      branchId: f.branchId || '', note: f.note || '', lines, status: 'open', by: me.name, at: nowISO(), date: today() };
+      branchId: f.branchId || '', note: f.note || '', lines, status: needAppr ? 'pending' : 'open', by: me.name, at: nowISO(), date: today(), ...(hiPrice ? { priceAlert: hiPrice } : {}) };
     await commit(d => ({ ...d, purchaseOrders: [rec, ...(d.purchaseOrders || [])] }), {
       actionType: 'create', targetType: 'purchase_order', targetId: rec.id,
       title: 'أنشأ أمر شراء', details: rec.poNo + ' · ' + sp.name + ' · ' + money(poTotal(rec))
     });
-    setPoF(null); say('أُنشئ أمر الشراء ' + rec.poNo + ' ✓');
+    setPoF(null); say('أُنشئ أمر الشراء ' + rec.poNo + (needAppr ? ' — بانتظار الاعتماد (يتجاوز ' + money(apprLimit) + ')' : '') + ' ✓');
   };
 
   // v8.2: طباعة أمر شراء كوثيقة تُرسل للمورد
@@ -14754,23 +14854,44 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
 
   const saveRecv = async () => {
     const f = recv; const p2 = f.po;
+    if (p2.status === 'pending' || p2.status === 'rejected') return say('أمر الشراء غير معتمد — لا يُستلم قبل الاعتماد', 'no');
+    const wid = whOn(org) ? (f.whId || MAIN_WH) : '';
+    const tw = wid ? whOf(org).find(w => w.id === wid) : null;
+    const rDate = (f.date || today()).slice(0, 10);
+    if (periodLocked(org, rDate)) return say(LOCK_MSG(rDate), 'no');
     const takes = p2.lines.map((l, i) => Math.min(Math.max(Number(f.qtys[i]) || 0, 0), (l.qty || 0) - (l.received || 0)));
     if (!takes.some(q => q > 0)) return say('أدخل كمية مستلمة لبند واحد على الأقل', 'no');
     // v30.4: الكمية بوحدة الشراء تُحوَّل للأساسية، وسعر البند يصبح تكلفة الوحدة الأساسية فيُحدّث المتوسط المرجّح. الخدمي لا يُخزَّن.
+    // v30.5: الاستلام يُنشئ فاتورة المورد تلقائيًا (أسعار أمر الشراء قبل الضريبة) ويُدخل الأصناف المخزنية مستودعًا مختارًا بدفعتها وصلاحيتها
+    const invId = uid('inv'), grn = 'GRN-' + rDate.replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 5).toUpperCase();
     const moves = p2.lines.map((l, i) => { const it = items.find(x => x.id === l.itemId); const fac = Number(l.factor) || 1;
       return (takes[i] > 0 && l.itemId && (!it || isStocked(it))) ? {
-        id: uid('sm'), date: today(), itemId: l.itemId, kind: 'purchase', qty: Math.round(takes[i] * fac * 1000) / 1000,
+        id: uid('sm'), date: rDate, itemId: l.itemId, kind: 'purchase', qty: Math.round(takes[i] * fac * 1000) / 1000,
         unitCost: Math.round((Number(l.price) || 0) / fac * 10000) / 10000,
         note: 'استلام ' + p2.poNo + ' — ' + l.desc + (fac > 1 ? ' (' + takes[i] + ' ' + (l.uomName || '') + ')' : ''), ref: p2.poNo, by: me.name, at: nowISO(),
-        ...(whOn(org) ? { whId: MAIN_WH } : {})
+        invoiceId: invId, grn, ...((f.batch || [])[i] ? { batch: f.batch[i] } : {}), ...((f.expiry || [])[i] ? { expiry: f.expiry[i] } : {}),
+        ...(wid ? { whId: wid } : {}), ...(tw && tw.kind === 'branch' ? { branchId: tw.branchId } : {})
       } : null; }).filter(Boolean);
+    const invLines = p2.lines.map((l, i) => { if (!(takes[i] > 0)) return null; const it = items.find(x => x.id === l.itemId); const fac = Number(l.factor) || 1;
+      return { itemId: l.itemId || '', desc: l.desc, qty: Math.round(takes[i] * fac * 1000) / 1000, unitCost: Math.round((Number(l.price) || 0) / fac * 10000) / 10000,
+        net: Math.round(takes[i] * (Number(l.price) || 0) * 100) / 100, stock: !!(l.itemId && it && isStocked(it)) }; }).filter(Boolean);
+    const invNet = Math.round(invLines.reduce((s2, l) => s2 + l.net, 0) * 100) / 100;
+    const taxOn = !!(org.taxCfg || {}).enabled && f.taxable !== false;
+    const vat = taxOn ? Math.round(invNet * ((Number((org.taxCfg || {}).rate) || 15) / 100) * 100) / 100 : 0;
+    const sp0 = suppliers.find(x => x.id === p2.supplierId) || {};
+    const due = (() => { const dd = new Date(rDate + 'T12:00:00'); dd.setDate(dd.getDate() + (Number(sp0.terms) || 0)); return isoD(dd); })();
+    const invRec = invNet > 0 ? { id: invId, invoiceNo: (f.supInvNo || '').trim() || grn, supplierId: p2.supplierId, supplierName: p2.supplierName, amount: Math.round((invNet + vat) * 100) / 100, vatAmt: vat, taxable: taxOn,
+      date: rDate, dueDate: due, paidAmount: 0, branchId: (tw && tw.branchId) || p2.branchId || '', poId: p2.id, poNo: p2.poNo, grn, whId: wid, lines: invLines, by: me.name, createdAt: nowISO() } : null;
+    const brMoves = moves.filter(m => m.branchId), mainMoves = moves.filter(m => !m.branchId);
     await commit(d => ({
       ...d,
-      stockMoves: [...moves, ...(d.stockMoves || [])],
+      invoices: invRec && !(d.invoices || []).some(x => x.id === invRec.id) ? [invRec, ...(d.invoices || [])] : (d.invoices || []),
+      whMoves: [...brMoves.filter(m => !(d.whMoves || []).some(x => x.id === m.id)), ...(d.whMoves || [])],
+      stockMoves: [...mainMoves.filter(m => !(d.stockMoves || []).some(x => x.id === m.id)), ...(d.stockMoves || [])],
       purchaseOrders: (d.purchaseOrders || []).map(x => {
         if (x.id !== p2.id) return x;
         const lines = x.lines.map((l, i) => ({ ...l, received: (l.received || 0) + takes[i] }));
-        return { ...x, lines, status: lines.every(l => l.received >= l.qty) ? 'received' : 'partial' };
+        return { ...x, lines, status: lines.every(l => l.received >= l.qty) ? 'received' : 'partial', ...(invRec ? { invoiceId: x.invoiceId || invRec.id, invoiceIds: [...(x.invoiceIds || []), invRec.id] } : {}) };
       })
     }), {
       actionType: 'update', targetType: 'purchase_order', targetId: p2.id,
@@ -14782,7 +14903,7 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
     if (costUp.length) await commitOrg(d => ({
       ...d, items: (d.items || []).map(it => { const u = costUp.find(c => c.id === it.id); return u ? { ...it, lastPrice: u.lastPrice, lastSupplier: u.lastSupplier, lastAt: u.lastAt } : it; })
     }), { actionType: 'update', targetType: 'stock_item', targetId: p2.id, title: 'سجّل آخر سعر شراء للأصناف', details: p2.poNo });
-    setRecv(null); say('سُجّل الاستلام' + (moves.length ? ' وغُذّي المخزون تلقائياً ✓' : ' ✓'));
+    setRecv(null); say('سُجّل الاستلام' + (moves.length ? ' في ' + (wid ? whName(org, wid) : 'المخزون') : '') + (invRec ? ' وأُنشئت فاتورة المورد ' + invRec.invoiceNo + ' بـ ' + money(invRec.amount) : '') + ' ✓');
   };
 
   const settle = async () => {
@@ -14987,28 +15108,60 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
         <div className="card">
           <div className="card-h">
             <div className="card-t"><ClipboardCheck size={15} color="var(--brass)" />أوامر الشراء — إنشاء ← استلام ← فاتورة ← سداد</div>
-            {canPay && <button className="btn sm pri" onClick={() => setPoF({ supplierId: suppliers[0]?.id || '', branchId: '', note: '', lines: [{ desc: '', itemId: '', qty: '', price: '' }] })}><Plus size={14} />أمر شراء جديد</button>}
+            <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+              <button className={'btn sm' + (showPrices ? ' pri' : ' gh')} onClick={() => setShowPrices(v => !v)}>أسعار الموردين</button>
+              {canCfg && <button className="btn sm gh" onClick={() => setCfgF({ approvalLimit: String(apprLimit || ''), priceAlertPct: String(alertPct), perpetual: !!pcfg.perpetualFrom, perpetualFrom: pcfg.perpetualFrom || today().slice(0, 7) })}>⚙ الإعدادات</button>}
+              {canPay && <button className="btn sm pri" onClick={() => setPoF({ supplierId: suppliers[0]?.id || '', branchId: '', note: '', lines: [{ desc: '', itemId: '', qty: '', price: '' }] })}><Plus size={14} />أمر شراء جديد</button>}
+            </div>
           </div>
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap', margin: '0 0 10px' }}>
+            <span className="badge b-dim">الاعتماد: {apprLimit > 0 ? 'الأوامر فوق ' + money(apprLimit) + ' ر.س' : 'غير مفعّل'}</span>
+            <span className="badge b-dim">تنبيه ارتفاع السعر: {alertPct > 0 ? alertPct + '%' : 'موقوف'}</span>
+            <span className={'badge ' + (pcfg.perpetualFrom ? 'b-mint' : 'b-dim')}>الجرد المستمر: {pcfg.perpetualFrom ? 'من ' + pcfg.perpetualFrom : 'موقوف (دوري)'}</span>
+          </div>
+          {showPrices && (() => { const rows = Object.entries(PRICES).map(([id, a]) => { const it = items.find(x => x.id === id); const bySup = {}; a.forEach(r => { if (!bySup[r.supplierId]) bySup[r.supplierId] = r; });
+              const sups = Object.values(bySup).sort((x, y) => x.unitCost - y.unitCost); return { id, name: it ? it.name : 'صنف', unit: it ? it.unit : '', last: a[0], prev: a.find((r, k) => k > 0 && r.supplierId === a[0].supplierId), sups }; }).sort((x, y) => x.name.localeCompare(y.name, 'ar'));
+            return (
+            <div className="tw" style={{ marginBottom: 12 }}>
+              <table className="tb">
+                <thead><tr><th>الصنف</th><th style={{ textAlign: 'end' }}>آخر سعر (للوحدة الأساسية)</th><th>التغيّر</th><th>مقارنة الموردين — آخر سعر لكل مورد</th></tr></thead>
+                <tbody>
+                  {rows.map(r => { const ch = r.prev ? Math.round((r.last.unitCost - r.prev.unitCost) / r.prev.unitCost * 1000) / 10 : null; return (
+                    <tr key={r.id}>
+                      <td style={{ fontSize: 12.5 }}>{r.name}<div style={{ fontSize: 9.5, color: 'var(--faint)' }}>{r.unit} · {r.last.supplierName} · {r.last.date}</div></td>
+                      <td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{money(r.last.unitCost)}</td>
+                      <td>{ch == null ? <span className="badge b-dim">—</span> : <span className={'badge ' + (ch > alertPct && alertPct > 0 ? 'b-rose' : ch > 0 ? 'b-amber' : 'b-mint')}>{ch > 0 ? '▲ ' : ch < 0 ? '▼ ' : ''}{Math.abs(ch)}%</span>}</td>
+                      <td><div className="row" style={{ gap: 5, flexWrap: 'wrap' }}>{r.sups.map((x, k) => <span key={x.supplierId} className={'badge ' + (k === 0 && r.sups.length > 1 ? 'b-mint' : 'b-dim')}>{x.supplierName}: <span className="num">{money(x.unitCost)}</span>{k === 0 && r.sups.length > 1 ? ' — الأرخص' : ''}</span>)}</div></td>
+                    </tr>); })}
+                  {rows.length === 0 && <tr><td colSpan={4}><div className="empty">تظهر الأسعار بعد أول استلام لأمر شراء مربوط بأصناف.</div></td></tr>}
+                </tbody>
+              </table>
+            </div>); })()}
           <div className="tw">
             <table className="tb">
               <thead><tr><th>الأمر</th><th>المورد</th><th style={{ textAlign: 'end' }}>القيمة</th><th>الاستلام</th><th>الفاتورة</th><th /></tr></thead>
               <tbody>
                 {pos.map(p2 => {
                   const tot = poTotal(p2);
-                  const inv = (ops.invoices || []).find(i => i.id === p2.invoiceId);
+                  const invs = (ops.invoices || []).filter(i => i.id === p2.invoiceId || (p2.invoiceIds || []).includes(i.id) || i.poId === p2.id);
+                  const inv = invs[0];
+                  const locked2 = p2.status === 'pending' || p2.status === 'rejected';
                   return (
                     <tr key={p2.id}>
                       <td><span className="num" style={{ fontSize: 11.5 }}>{p2.poNo}</span><div style={{ fontSize: 9.5, color: 'var(--faint)' }}>{p2.date} · {p2.by}</div></td>
                       <td style={{ fontSize: 12.5 }}>{p2.supplierName}<div style={{ fontSize: 9.5, color: 'var(--faint)' }}>{(p2.lines || []).length} بند{p2.note ? ' · ' + p2.note : ''}</div></td>
                       <td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{money(tot)}</td>
-                      <td>{p2.status === 'received' ? <span className="badge b-mint">مستلم كاملاً ✓</span>
+                      <td>{p2.status === 'pending' ? <span className="badge b-amber">بانتظار الاعتماد</span>
+                        : p2.status === 'rejected' ? <span className="badge b-rose" title={p2.rejectNote || ''}>مرفوض{p2.rejectNote ? ' — ' + p2.rejectNote : ''}</span>
+                        : p2.status === 'received' ? <span className="badge b-mint">مستلم كاملاً ✓</span>
                         : p2.status === 'partial' ? <span className="badge b-amber">جزئي</span>
                         : <span className="badge b-sky">بانتظار التوريد</span>}</td>
-                      <td>{inv ? <span className="badge b-mint">مفوترة · {inv.invoiceNo}</span> : <span className="badge b-dim">لم تُفوتر</span>}</td>
+                      <td>{inv ? <span className="badge b-mint">مفوترة · {invs.map(x => x.invoiceNo).join('، ')}</span> : <span className="badge b-dim">لم تُفوتر</span>}{p2.priceAlert ? <div><span className="badge b-rose" style={{ marginTop: 3 }}>⚠ سعر مرتفع في {p2.priceAlert} بند</span></div> : null}</td>
                       <td><div className="row" style={{ gap: 5, flexWrap: 'wrap' }}>
                         <button className="btn sm gh" onClick={() => printPO(p2)}><Printer size={12} /></button>
-                        {canPay && p2.status !== 'received' && <button className="btn sm" onClick={() => setRecv({ po: p2, qtys: p2.lines.map(l => String((l.qty || 0) - (l.received || 0))) })}>تسجيل استلام</button>}
-                        {canPay && !inv && <button className="btn sm gh" onClick={() => setNewInv({ supplierId: p2.supplierId, invoiceNo: '', amount: String(tot), taxable: true, date: today(), dueDate: today(), branchId: p2.branchId || '', poId: p2.id })}>إنشاء فاتورة</button>}
+                        {canApprovePo && p2.status === 'pending' && <><button className="btn sm pri" onClick={() => decidePo(p2, true)}>اعتماد</button><button className="btn sm gh" onClick={() => decidePo(p2, false)}>رفض</button></>}
+                        {canPay && !locked2 && p2.status !== 'received' && <button className="btn sm" onClick={() => setRecv({ po: p2, qtys: p2.lines.map(l => String((l.qty || 0) - (l.received || 0))), whId: MAIN_WH, date: today(), supInvNo: '', taxable: true, batch: p2.lines.map(() => ''), expiry: p2.lines.map(() => '') })}>تسجيل استلام</button>}
+                        {canPay && !inv && !locked2 && <button className="btn sm gh" onClick={() => setNewInv({ supplierId: p2.supplierId, invoiceNo: '', amount: String(tot), taxable: true, date: today(), dueDate: today(), branchId: p2.branchId || '', poId: p2.id })}>إنشاء فاتورة</button>}
                       </div></td>
                     </tr>
                   );
@@ -15087,12 +15240,32 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
               <input className="inp n" style={{ width: 100 }} inputMode="decimal" placeholder="سعر الوحدة" value={l.price}
                 onChange={e => setPoF(f => ({ ...f, lines: f.lines.map((x, k) => k === i ? { ...x, price: e.target.value.replace(/[^\d.]/g, '') } : x) }))} />
               {poF.lines.length > 1 && <button className="btn sm gh" onClick={() => setPoF(f => ({ ...f, lines: f.lines.filter((_, k) => k !== i) }))}><X size={13} /></button>}
+              {(() => { const lp = l.itemId && lastPriceOf(l.itemId); if (!lp) return null; const w = priceWarn(l); return (
+                <div style={{ flexBasis: '100%', fontSize: 10.5, color: w && w.high ? 'var(--rose)' : 'var(--faint)' }}>
+                  آخر سعر: <span className="num">{money(lp.unitCost)}</span> للوحدة الأساسية ({lp.supplierName} · {lp.date}){w ? ' · سعرك ' + money(w.u) + ' (' + (w.pct > 0 ? '+' : '') + w.pct + '%)' : ''}{w && w.high ? ' ⚠ يتجاوز حد التنبيه ' + alertPct + '%' : ''}
+                </div>); })()}
             </div>
           ))}
           <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
             <button className="btn sm" onClick={() => setPoF(f => ({ ...f, lines: [...f.lines, { desc: '', itemId: '', qty: '', price: '' }] }))}><Plus size={13} />بند إضافي</button>
             <span className="badge b-brass">قيمة الأمر: {money(sum(poF.lines || [], l => (Number(l.qty) || 0) * (Number(l.price) || 0)))}</span>
           </div>
+          {apprLimit > 0 && sum(poF.lines || [], l => (Number(l.qty) || 0) * (Number(l.price) || 0)) > apprLimit && <div className="note" style={{ marginTop: 8 }}>القيمة تتجاوز حد الاعتماد {money(apprLimit)} — سيُحفظ الأمر «بانتظار الاعتماد» ولا يُستلم قبل اعتماده.</div>}
+        </Modal>
+      )}
+
+      {cfgF && (
+        <Modal title="إعدادات المشتريات والمخزون" icon={ClipboardCheck} onClose={() => setCfgF(null)}
+          foot={<><button className="btn gh" onClick={() => setCfgF(null)}>إلغاء</button><button className="btn pri" onClick={saveCfg}><Check size={14} />حفظ</button></>}>
+          <div className="grid g2">
+            <Num label="حد اعتماد أمر الشراء (ر.س)" value={cfgF.approvalLimit} onChange={v => setCfgF(f => ({ ...f, approvalLimit: v }))} hint="الأوامر الأعلى منه تحتاج اعتماد المدير/المعتمِد — 0 = بلا اعتماد" />
+            <Num label="تنبيه ارتفاع السعر (%)" value={cfgF.priceAlertPct} onChange={v => setCfgF(f => ({ ...f, priceAlertPct: v }))} hint="يُنبَّه إذا زاد سعر البند عن آخر سعر شراء بأكثر من هذه النسبة" />
+          </div>
+          <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', margin: '8px 0' }}>
+            <input type="checkbox" checked={!!cfgF.perpetual} onChange={e => setCfgF(f => ({ ...f, perpetual: e.target.checked }))} />تفعيل الجرد المستمر (قيود مخزون آلية مع كل حركة)
+          </label>
+          {cfgF.perpetual && <Field label="بداية الجرد المستمر (شهر)"><input type="month" className="inp" value={cfgF.perpetualFrom} onChange={e => setCfgF(f => ({ ...f, perpetualFrom: e.target.value }))} /></Field>}
+          <div className="note">في الجرد المستمر: الاستلام يُقيَّد على حساب المستودع، والصرف والهالك والتسويات تُقيَّد بتكلفة المتوسط المرجّح لحظة الحركة، والتحويلات تمر بحساب «بضاعة في الطريق». يُنشأ قيد افتتاحي برصيد المخزون في أول يوم من الشهر المختار، ويتوقف قيد تقييم المخزون الدوري. يُفضَّل اختيار بداية شهر غير مقفل.</div>
         </Modal>
       )}
 
@@ -15100,6 +15273,18 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
         <Modal title={'تسجيل استلام — ' + recv.po.poNo} icon={Truck} onClose={() => setRecv(null)}
           foot={<><button className="btn gh" onClick={() => setRecv(null)}>إلغاء</button>
             <button className="btn pri" onClick={saveRecv}><Check size={14} />تأكيد الاستلام</button></>}>
+          <div className="grid g2">
+            {whOn(org) && <Field label="المستودع المستلِم">
+              <select className="sel" value={recv.whId || MAIN_WH} onChange={e => setRecv(r => ({ ...r, whId: e.target.value }))}>
+                {whOf(org).map(w => <option key={w.id} value={w.id}>{w.name}{w.kind === 'main' ? ' (رئيسي)' : ''}</option>)}
+              </select>
+            </Field>}
+            <Field label="تاريخ الاستلام"><input type="date" className="inp" value={recv.date || today()} onChange={e => setRecv(r => ({ ...r, date: e.target.value }))} /></Field>
+            <Field label="رقم فاتورة المورد (اختياري)"><input className="inp" value={recv.supInvNo || ''} placeholder="يُولَّد رقم استلام إن تُرك فارغًا" onChange={e => setRecv(r => ({ ...r, supInvNo: e.target.value }))} /></Field>
+            {!!(org.taxCfg || {}).enabled && <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', paddingTop: 14 }}>
+              <input type="checkbox" checked={recv.taxable !== false} onChange={e => setRecv(r => ({ ...r, taxable: e.target.checked }))} />الفاتورة خاضعة لضريبة القيمة المضافة
+            </label>}
+          </div>
           {recv.po.lines.map((l, i) => {
             const rem = (l.qty || 0) - (l.received || 0);
             return (
@@ -15110,10 +15295,16 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
                 <input className="inp n" style={{ width: 110 }} inputMode="decimal" placeholder="المستلم الآن" value={recv.qtys[i]}
                   disabled={rem <= 0}
                   onChange={e => setRecv(r => ({ ...r, qtys: r.qtys.map((q, k) => k === i ? e.target.value.replace(/[^\d.]/g, '') : q) }))} />
+                {rem > 0 && l.itemId && (() => { const it = items.find(x => x.id === l.itemId); return !it || isStocked(it); })() && <>
+                  <input className="inp" style={{ width: 100 }} placeholder="رقم الدفعة" value={(recv.batch || [])[i] || ''} onChange={e => setRecv(r => ({ ...r, batch: (r.batch || []).map((q, k) => k === i ? e.target.value : q) }))} />
+                  <input type="date" className="inp" style={{ width: 140 }} title="تاريخ الانتهاء" value={(recv.expiry || [])[i] || ''} onChange={e => setRecv(r => ({ ...r, expiry: (r.expiry || []).map((q, k) => k === i ? e.target.value : q) }))} />
+                </>}
               </div>
             );
           })}
-          <div className="note">البنود المربوطة بأصناف تُضاف كمياتها للمخزون فوراً، وتتحدّث تكلفة الصنف بآخر سعر شراء.</div>
+          {(() => { const net = recv.po.lines.reduce((s2, l, i) => s2 + (Number(recv.qtys[i]) || 0) * (Number(l.price) || 0), 0); const vat = (org.taxCfg || {}).enabled && recv.taxable !== false ? net * ((Number((org.taxCfg || {}).rate) || 15) / 100) : 0;
+            return net > 0 ? <div className="mono-b" style={{ margin: '6px 0' }}><span style={{ fontSize: 12 }}>فاتورة المورد التي ستُنشأ تلقائيًا</span><span className="num">{money(net)}{vat ? ' + ض ' + money(vat) + ' = ' + money(net + vat) : ''}</span></div> : null; })()}
+          <div className="note">الأصناف المخزنية تدخل المستودع المختار بدفعتها وتاريخ انتهائها، وتُحدَّث تكلفتها بالمتوسط المرجّح، وتُنشأ فاتورة المورد بأسعار أمر الشراء مع استحقاق حسب شروط المورد.{pcfg.perpetualFrom ? ' القيد: من ح/ المخزون إلى ح/ المورد (جرد مستمر).' : ''}</div>
         </Modal>
       )}
 
@@ -15288,27 +15479,57 @@ const ITEM_TYPES = {
 const itemType = (it) => (it && ITEM_TYPES[it.type]) ? it.type : 'stock';
 const isStocked = (it) => itemType(it) !== 'service';
 const pFactor = (it) => Math.max(1, Number(it && it.purchaseFactor) || 1);
-function itemAvgCosts(org, ops, asOf) {
+// v30.5 — دفتر التكلفة: يعيد تشغيل الحركات زمنيًا ويعطي لكل حدث متوسطه لحظة وقوعه (لقيود الجرد المستمر)
+//   المفاتيح: 'sm:'+id (حركة الرئيسي) · 'wm:'+id (حركة فرع) · 'tx:'+تحويل+':'+سطر (تكلفة الوحدة لحظة الصرف)
+function stockCosting(org, ops, asOf) {
   const items = org.items || [], byId = {}; items.forEach(it => { byId[it.id] = it; });
   const okD = (d) => !asOf || !d || String(d).slice(0, 10) <= asOf;
   const ev = [];
-  const add = (m) => { if (!m || !m.itemId || !okD(m.date || m.at)) return; ev.push({ k: String(m.date || '').slice(0, 10) + '|' + String(m.at || ''), itemId: m.itemId, qty: Number(m.qty) || 0, kind: m.kind, unitCost: m.unitCost }); };
-  (ops.stockMoves || []).forEach(add); (ops.whMoves || []).forEach(add);
-  // التحويلات الداخلية لا تغيّر متوسط المنشأة — إلا فرق الاستلام (فقدٌ يخرج بالمتوسط)
-  (ops.whTransfers || []).forEach(t => { if (t.status !== 'received' || t.kind === 'b2b') return;
-    (t.lines || []).forEach(l => { const lost = (Number(l.qtySent) || 0) - (Number(l.qtyRecv) || 0); if (Math.abs(lost) > 0.0005) add({ itemId: l.itemId, qty: -lost, date: t.receivedDate, at: t.receivedAt || '' }); }); });
+  const add = (key, m) => { if (!m || !m.itemId || !okD(m.date || m.at)) return; ev.push({ key, k: String(m.date || '').slice(0, 10) + '|' + String(m.at || ''), itemId: m.itemId, qty: Number(m.qty) || 0, kind: m.kind, unitCost: m.unitCost }); };
+  (ops.stockMoves || []).forEach(m => add('sm:' + m.id, m)); (ops.whMoves || []).forEach(m => add('wm:' + m.id, m));
+  (ops.whTransfers || []).forEach(t => {
+    if (t.status !== 'sent' && t.status !== 'received') return;
+    if (t.kind !== 'b2b-in') (t.lines || []).forEach((l, i) => add('tx:' + (t.kind === 'b2b' ? t.id : t.id) + ':' + i, { itemId: l.itemId, qty: 0, date: t.sentDate, at: t.sentAt || t.approvedAt || '' }));   // مسبار: متوسط لحظة الصرف
+    if (t.status === 'received' && t.kind !== 'b2b') (t.lines || []).forEach(l => { const lost = (Number(l.qtySent) || 0) - (Number(l.qtyRecv) || 0); if (Math.abs(lost) > 0.0005) add('', { itemId: l.itemId, qty: -lost, date: t.receivedDate, at: t.receivedAt || '' }); });
+  });
   ev.sort((a, b) => a.k < b.k ? -1 : a.k > b.k ? 1 : 0);
-  const st = {};
+  const st = {}, at = {};
   ev.forEach(e => {
     const s = st[e.itemId] || (st[e.itemId] = { q: 0, a: null });
+    const ref = Number((byId[e.itemId] || {}).cost) || 0;
     let c = e.unitCost != null && e.unitCost !== '' && Number.isFinite(Number(e.unitCost)) ? Number(e.unitCost) : null;
-    if (c == null && e.qty > 0 && (e.kind === 'purchase' || e.kind === 'in')) c = Number((byId[e.itemId] || {}).cost) || 0;   // حركات قديمة بلا تكلفة
-    if (e.qty > 0 && c != null) { s.a = (s.q <= 0 || s.a == null) ? c : (s.q * s.a + e.qty * c) / (s.q + e.qty); s.q += e.qty; }
-    else s.q += e.qty;   // صادر أو تسوية بلا تكلفة: بالمتوسط القائم
+    if (c == null && e.qty > 0 && (e.kind === 'purchase' || e.kind === 'in')) c = ref;   // حركات قديمة بلا تكلفة
+    if (e.qty > 0 && c != null) { s.a = (s.q <= 0 || s.a == null) ? c : (s.q * s.a + e.qty * c) / (s.q + e.qty); s.q += e.qty; if (e.key) at[e.key] = c; }
+    else { if (e.key) at[e.key] = s.a != null ? s.a : ref; s.q += e.qty; }   // صادر/تسوية/مسبار: بالمتوسط القائم
   });
+  const avg = {};
+  items.forEach(it => { const s = st[it.id]; avg[it.id] = (s && s.a != null) ? Math.round(s.a * 10000) / 10000 : (Number(it.cost) || 0); });
+  return { avg, at };
+}
+function itemAvgCosts(org, ops, asOf) { return stockCosting(org, ops, asOf).avg; }
+
+// v30.5 — أسعار الموردين: من بنود أوامر الشراء المستلمة (تكلفة الوحدة الأساسية) — مشتقة بلا تخزين
+function supplierPrices(ops) {
   const out = {};
-  items.forEach(it => { const s = st[it.id]; out[it.id] = (s && s.a != null) ? Math.round(s.a * 10000) / 10000 : (Number(it.cost) || 0); });
+  (ops.purchaseOrders || []).forEach(po => (po.lines || []).forEach(l => {
+    if (!l.itemId || !((Number(l.received) || 0) > 0) || !((Number(l.price) || 0) > 0)) return;
+    const u = Math.round((Number(l.price) || 0) / (Number(l.factor) || 1) * 10000) / 10000;
+    (out[l.itemId] = out[l.itemId] || []).push({ supplierId: po.supplierId, supplierName: po.supplierName, unitCost: u, date: po.date || (po.at || '').slice(0, 10), poNo: po.poNo });
+  }));
+  Object.values(out).forEach(a => a.sort((x, y) => String(y.date).localeCompare(String(x.date))));
   return out;
+}
+// v30.5 — دفعات الصلاحية: كل استلام بتاريخ انتهاء دفعة في مستودعه؛ الصادر من المستودع يستهلك الأقرب انتهاءً أولًا (FEFO)
+function expiryLots(org, ops) {
+  const lots = [], byWhItem = {};
+  const inMoves = [...(ops.stockMoves || []).map(m => ({ ...m, whId: m.whId || MAIN_WH })), ...(ops.whMoves || [])];
+  inMoves.filter(m => (Number(m.qty) || 0) > 0 && m.expiry).forEach(m => { const k = m.whId + '|' + m.itemId; const lot = { id: m.id, whId: m.whId, itemId: m.itemId, batch: m.batch || '', expiry: m.expiry, qty: Number(m.qty) || 0, left: Number(m.qty) || 0 }; lots.push(lot); (byWhItem[k] = byWhItem[k] || []).push(lot); });
+  Object.values(byWhItem).forEach(a => a.sort((x, y) => String(x.expiry).localeCompare(String(y.expiry))));
+  const SB = stockByWh(org, ops);
+  // الرصيد الحالي للمستودع يُوزَّع على الدفعات الأحدث انتهاءً أولًا؛ ما زاد عنه استُهلك من الأقدم
+  Object.entries(byWhItem).forEach(([k, a]) => { const [w, it] = k.split('|'); let have = Math.max(0, ((SB.byWh[w] || {})[it]) || 0);
+    for (let i = a.length - 1; i >= 0; i--) { const t = Math.min(a[i].qty, have); a[i].left = Math.round(t * 1000) / 1000; have -= t; } });
+  return lots.filter(l => l.left > 0.0005);
 }
 
 // رمز حساب مخزون جديد للمستودع: 160101، 160102… (ثابت على المستودع — لا يتغير بترتيب الفروع)
@@ -15351,6 +15572,7 @@ function WarehousesPanel({ org, ops, me, commit, commitOrg, say }) {
   const canW = rolePost(me?.role);
   const SB = useMemo(() => stockByWh(org, ops), [org, ops]);
   const AVG = useMemo(() => itemAvgCosts(org, ops), [org, ops]);
+  const LOTS = useMemo(() => expiryLots(org, ops).sort((a, b) => String(a.expiry).localeCompare(String(b.expiry))), [org, ops]);
   const [sel, setSel] = useState(MAIN_WH);
   const [sendF, setSendF] = useState(null);     // صرف تحويل (طلب قائم أو جديد)
   const [ren, setRen] = useState(null);
@@ -15498,6 +15720,24 @@ function WarehousesPanel({ org, ops, me, commit, commitOrg, say }) {
           </tbody>
         </table></div>
       </div>
+
+      {LOTS.length > 0 && (() => { const td2 = today(), lim30 = isoD(new Date(Date.now() + 30 * 86400000)); const near = LOTS.filter(l => l.expiry <= lim30);
+        return (
+        <div className="card">
+          <div className="card-t" style={{ marginBottom: 8 }}><ClipboardCheck size={15} color="var(--brass)" />دفعات الصلاحية — المنتهية والقريبة (30 يومًا)
+            <span className="badge b-dim" style={{ marginInlineStart: 8 }}>{LOTS.length} دفعة قائمة</span></div>
+          <div className="tw"><table className="tb">
+            <thead><tr><th>الصنف</th><th>المستودع</th><th>الدفعة</th><th>الانتهاء</th><th style={{ textAlign: 'end' }}>المتبقي التقديري</th></tr></thead>
+            <tbody>
+              {near.map(l => { const it = itemOf(l.itemId); const dl = Math.round((new Date(l.expiry + 'T12:00:00') - new Date(td2 + 'T12:00:00')) / 86400000); return (
+                <tr key={l.id}><td>{it.name}</td><td style={{ fontSize: 12 }}>{whName(org, l.whId)}</td><td className="num" style={{ fontSize: 11.5 }}>{l.batch || '—'}</td>
+                  <td><span className={'badge ' + (dl < 0 ? 'b-rose' : dl <= 7 ? 'b-amber' : 'b-sky')}>{l.expiry} · {dl < 0 ? 'منتهية منذ ' + (-dl) + ' يوم' : dl === 0 ? 'تنتهي اليوم' : 'باقٍ ' + dl + ' يوم'}</span></td>
+                  <td className="num" style={{ textAlign: 'end' }}>{l.left} {it.unit}</td></tr>); })}
+              {near.length === 0 && <tr><td colSpan={5}><div className="empty">لا دفعات تنتهي خلال 30 يومًا ✓</div></td></tr>}
+            </tbody>
+          </table></div>
+          <div className="note">المتبقي تقديري: يُفترض صرف الأقرب انتهاءً أولًا (FEFO) من رصيد المستودع الحالي.</div>
+        </div>); })()}
 
       <div className="card">
         <div className="card-t" style={{ marginBottom: 8 }}><Truck size={15} color="var(--brass)" />التحويلات بين المستودعات</div>
