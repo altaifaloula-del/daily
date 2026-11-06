@@ -3356,7 +3356,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v31.7 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v31.8 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -3584,6 +3584,8 @@ function PlatformApp() {
                 <button className="btn gh" onClick={() => { setMoreSheet(false); forceUpdate(); }}><RefreshCw size={15} />تحديث للأحدث</button>
                 <button className="btn" style={{ background: 'rgba(217,84,77,.14)', color: 'var(--rose)', borderColor: 'rgba(217,84,77,.42)' }} onClick={() => { setMoreSheet(false); setMe(null); }}><LogOut size={15} />تسجيل الخروج</button>
               </div>
+              {authApi.enabled && <button className="btn" style={{ width: '100%', marginTop: 8 }} onClick={() => { setMoreSheet(false); setMfaOpen(true); }}>
+                <ShieldCheck size={15} />التحقق بخطوتين{mfaS && mfaS.enrolled ? ' — مفعّل ✓' : ' — غير مفعّل'}</button>}
             </div>
             <div className="iconsgrid">
               {NAV_SHOW.map(n => (
