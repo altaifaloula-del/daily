@@ -88,17 +88,97 @@ async function bioVerify(credId) {
 
 /* ================= تنبيهات النشاط الحيّة (إعداد لكل جهاز) ================= */
 const NOTIFY_KEY = 'rms8:notify';
-const notifyCfg = () => { try { return { on: false, sound: true, ...(JSON.parse(localStorage.getItem(NOTIFY_KEY) || '{}')) }; } catch { return { on: false, sound: true }; } };
-const saveNotifyCfg = (c) => { try { localStorage.setItem(NOTIFY_KEY, JSON.stringify({ on: !!c.on, sound: !!c.sound })); } catch { } };
+// v30.2: الإعداد يشمل فئات الإشعارات (كلها مفعّلة افتراضيًا ضمن ما يسمح به دور المستخدم)
+const notifyCfg = () => { try { const c = JSON.parse(localStorage.getItem(NOTIFY_KEY) || '{}'); return { on: false, sound: true, ...c, cats: { inv: true, closing: true, fin: true, hr: true, act: true, ...((c && c.cats) || {}) } }; } catch { return { on: false, sound: true, cats: { inv: true, closing: true, fin: true, hr: true, act: true } }; } };
+const saveNotifyCfg = (c) => { try { localStorage.setItem(NOTIFY_KEY, JSON.stringify({ on: !!c.on, sound: !!c.sound, cats: c.cats || {} })); } catch { } };
 
-// إشعار متصفح (يعمل والمنصة مفتوحة ولو في تبويب/نافذة خلفية)
-function notifyBrowser(title, body, icon) {
+// إشعار متصفح (يعمل والمنصة مفتوحة ولو في تبويب/نافذة خلفية) — الضغط عليه يفتح الشاشة المعنية
+function notifyBrowser(title, body, icon, opt) {
   try {
     if (typeof Notification === 'undefined') return false;
     if (Notification.permission !== 'granted') return false;
-    new Notification(title, { body, icon: icon || undefined, dir: 'rtl', lang: 'ar', tag: 'rms8-act' });
+    const n = new Notification(title, { body, icon: icon || undefined, dir: 'rtl', lang: 'ar', tag: (opt && opt.tag) || 'rms8-act' });
+    if (opt && opt.onClick) n.onclick = () => { try { window.focus(); opt.onClick(); n.close(); } catch { } };
     return true;
   } catch { return false; }
+}
+
+/* ============================================================
+   v30.2 — إشعارات الجهاز حسب الدور: كل مستخدم يُشعَر بما يخصه فقط (حسب شاشات دوره وفروعه)
+   الأحداث تُشتق من البيانات الحية — لكل حدث معرّف ثابت، ويُشعَر به مرة واحدة على الجهاز.
+   ============================================================ */
+const NOTIF_CATS = {
+  inv: { ar: 'المخزون والتحويلات', tabs: ['inv', 'whbranch'] },
+  closing: { ar: 'الإغلاق اليومي', tabs: ['approve', 'closing'] },
+  fin: { ar: 'المالية والموردون', tabs: ['suppliers', 'purchasing', 'treasury', 'acct'] },
+  hr: { ar: 'الموارد البشرية', tabs: ['hrops', 'hrmaster', 'people'], who: (me) => { const R = ROLES[me?.role] || {}; return R.scope === 'all' || R.approver || me?.role === 'branch_manager' || me?.role === 'regional_manager'; } },
+  act: { ar: 'نشاط المستخدمين الآخرين', admin: true }
+};
+const roleHasTab = (me, t) => ((ROLES[me?.role] || {}).tabs || []).includes(t);
+const notifCatsFor = (me) => Object.keys(NOTIF_CATS).filter(k => NOTIF_CATS[k].admin ? !!(ROLES[me?.role] || {}).admin
+  : (NOTIF_CATS[k].tabs.some(t => roleHasTab(me, t)) && (!NOTIF_CATS[k].who || NOTIF_CATS[k].who(me))));
+function buildNotifEvents(org, ops, me, myBranches) {
+  const ev = [];
+  if (!me) return ev;
+  const R = ROLES[me.role] || {};
+  const central = R.scope === 'all';
+  const post = rolePost(me.role);
+  const brIds = (myBranches || []).map(b => b.id);
+  const inScope = (bId) => central || brIds.includes(bId);
+  const td = today(), bd = businessDay();
+  const itemN = (id) => ((org.items || []).find(x => x.id === id) || {}).name || 'صنف';
+  const linesTxt = (t) => (t.lines || []).slice(0, 3).map(l => itemN(l.itemId) + ' ' + (l.qtySent || l.qtyReq || '')).join('، ') + ((t.lines || []).length > 3 ? '…' : '');
+  const push = (id, cat, title, body, tab, view) => ev.push({ id, cat, title, body, tab, view });
+
+  // —— المخزون والتحويلات ——
+  if (whOn(org)) {
+    const T = ops.whTransfers || [];
+    if (central && post && roleHasTab(me, 'inv')) {
+      T.forEach(t => {
+        if (t.status === 'requested') push('inv:req:' + t.id, 'inv', 'طلب تحويل من ' + whName(org, t.toWh), linesTxt(t), 'inv', 'wh');
+        if (t.kind === 'b2b' && t.status === 'proposed') push('inv:b2b:' + t.id, 'inv', 'تحويل بانتظار اعتمادك: ' + whName(org, t.fromWh) + ' ← ' + whName(org, t.toWh), linesTxt(t), 'inv', 'wh');
+        if (t.kind === 'return' && t.status === 'sent') push('inv:ret:' + t.id, 'inv', 'إرجاع بانتظار الاستلام من ' + whName(org, t.fromWh), linesTxt(t), 'inv', 'wh');
+        if (t.status === 'received' && (t.lines || []).some(l => Math.abs((Number(l.qtySent) || 0) - (Number(l.qtyRecv) || 0)) > 0.0005))
+          push('inv:diff:' + t.id, 'inv', 'فرق استلام في ' + whName(org, t.toWh), (t.no || '') + ' — الكمية المستلمة أقل/أكثر من المصروفة', 'inv', 'wh');
+      });
+    }
+    if (roleHasTab(me, 'whbranch') && !central) {   // الاستلام والطلب مهمة الفرع — المركز يُشعَر بما يحتاج إجراءه هو
+      const myWh = (myBranches || []).map(b => whForBranch(org, b.id)).filter(Boolean).map(w => w.id);
+      T.forEach(t => {
+        if (myWh.includes(t.toWh) && t.status === 'sent' && t.kind !== 'b2b' && t.kind !== 'return') push('inv:in:' + t.id, 'inv', 'وارد إلى ' + whName(org, t.toWh) + ' — بانتظار استلامك', linesTxt(t), 'whbranch');
+        if (myWh.includes(t.fromWh) && t.kind === 'b2b' && (t.status === 'sent' || t.status === 'rejected'))
+          push('inv:out:' + t.id + ':' + t.status, 'inv', t.status === 'sent' ? 'اعتمد المركز تحويلك إلى ' + whName(org, t.toWh) : 'رُفض تحويلك إلى ' + whName(org, t.toWh), t.rejectNote || linesTxt(t), 'whbranch');
+      });
+      {
+        const SB = stockByWh(org, ops);
+        myWh.forEach(w => (org.items || []).forEach(it => { const mn = Number(it.minQty) || 0; const q = ((SB.byWh[w] || {})[it.id]) || 0;
+          if (mn > 0 && q <= mn) push('inv:low:' + w + ':' + it.id + ':' + td, 'inv', 'صنف عند الحد الأدنى في ' + whName(org, w), it.name + ' — الرصيد ' + q3(q), 'whbranch'); }));
+      }
+    }
+  }
+  // —— الإغلاق اليومي ——
+  if (roleHasTab(me, 'approve')) (ops.closings || []).forEach(c => { if (c.status === 'submitted' && inScope(c.branchId)) push('cl:sub:' + c.id, 'closing', 'إغلاق بانتظار التدقيق — ' + (c.branchName || ''), (c.date || '') + ' · إيراد ' + money(c.totalRevenue || 0) + (c.variance ? ' · فرق ' + money(c.variance) : ''), 'approve'); });
+  if (roleHasTab(me, 'closing') && !central) (ops.closings || []).forEach(c => { if (c.status === 'rejected' && inScope(c.branchId)) push('cl:rej:' + c.id + ':' + (c.updatedAt || ''), 'closing', 'أُعيد إغلاق للتصحيح — ' + (c.branchName || ''), (c.date || '') + (c.rejectionReason ? ' · ' + c.rejectionReason : ''), 'closing'); });
+  if (central || roleHasTab(me, 'closing')) {
+    try { computeSmartAlerts(org, ops, myBranches || []).forEach(a => { if (/^late-|deficit|def-/.test(String(a.id))) push('cl:sa:' + a.id + ':' + bd, 'closing', a.title, a.msg || '', 'closing'); }); } catch { }
+  }
+  // —— المالية والموردون ——
+  if (central && (roleHasTab(me, 'suppliers') || roleHasTab(me, 'purchasing') || roleHasTab(me, 'acct'))) {
+    const due = (ops.invoices || []).filter(i => (i.amount || 0) > 0 && (i.amount - (i.paidAmount || 0)) > 0.004 && i.dueDate && i.dueDate <= td);
+    if (due.length) push('fin:due:' + td, 'fin', due.length + ' فاتورة مورد مستحقة اليوم أو متأخرة', 'المتبقي ' + money(due.reduce((s, i) => s + (i.amount - (i.paidAmount || 0)), 0)) + ' ر.س', roleHasTab(me, 'suppliers') ? 'suppliers' : roleHasTab(me, 'purchasing') ? 'purchasing' : 'acct');
+  }
+  if (central && (roleHasTab(me, 'treasury') || roleHasTab(me, 'acct'))) (ops.transfers || []).forEach(t => { if (t.status === 'pending') push('fin:tr:' + t.id, 'fin', 'توريد نقدي بانتظار الاستلام — ' + (t.branchName || ''), money(t.amount || 0) + ' ر.س · ' + (t.date || ''), roleHasTab(me, 'treasury') ? 'treasury' : 'acct'); });
+  // —— الموارد البشرية ——
+  if (roleHasTab(me, 'hrops') && (central || R.approver || me.role === 'branch_manager' || me.role === 'regional_manager')) {
+    [['shiftSwapRequests', 'طلب تبديل وردية'], ['branchTransferRequests', 'طلب نقل موظف بين الفروع'], ['rewardRequests', 'طلب مكافأة/جزاء']].forEach(([col, ar]) =>
+      (ops[col] || []).forEach(r => { if (r.status === 'pending' && inScope(r.branchId)) push('hr:' + col + ':' + r.id, 'hr', ar + ' بانتظار القرار', (r.employeeName || r.empFromName || '') + (r.branchName ? ' · ' + r.branchName : ''), 'hrops'); }));
+  }
+  if (central && (roleHasTab(me, 'hrmaster') || roleHasTab(me, 'people'))) {
+    let exp = 0, soon = 0;
+    (org.employees || []).forEach(e => (e.docs || []).forEach(dc => { if (!dc.expiryDate) return; const dl = Math.round((Date.parse(dc.expiryDate + 'T00:00:00') - Date.parse(td + 'T00:00:00')) / 86400000); if (dl < 0) exp++; else if (dl <= 30) soon++; }));
+    if (exp || soon) push('hr:docs:' + td, 'hr', 'مستندات موظفين تحتاج تجديدًا', (exp ? exp + ' منتهية' : '') + (exp && soon ? ' · ' : '') + (soon ? soon + ' تنتهي خلال 30 يومًا' : ''), roleHasTab(me, 'hrmaster') ? 'hrmaster' : 'people');
+  }
+  return ev;
 }
 
 // نغمة تنبيه قصيرة دون أي ملفات خارجية
@@ -2399,7 +2479,7 @@ function PlatformApp() {
   useEffect(() => {
     if (!me || !ROLES[me.role]?.admin) return;
     const cfg = notifyCfg();
-    if (!cfg.on) return;
+    if (!cfg.on || cfg.cats.act === false) return;
     const fresh = (pulse.audit || []).filter(e => (e.at || 0) > actBaseRef.current && e.userName !== me.name);
     if (!fresh.length) return;
     actBaseRef.current = Math.max(...fresh.map(e => e.at || 0));
@@ -2663,6 +2743,35 @@ function PlatformApp() {
     };
   }, [ops, myBranches]);
 
+  // v30.2 — إشعارات الجهاز حسب الدور: كل حدث جديد يخص المستخدم يصله إشعارًا مرة واحدة (والمنصة مفتوحة ولو في الخلفية).
+  // أول تشغيل على الجهاز يعتبر الأحداث القائمة «مقروءة» (لا سيل إشعارات)، وما يستجد بعدها — ولو أثناء إغلاق المنصة — يصل عند فتحها.
+  const nSeenRef = useRef(null);
+  useEffect(() => {
+    if (!me || !org || !(org.branches || []).length) return;
+    const cfg = notifyCfg();
+    if (!cfg.on) { nSeenRef.current = null; return; }
+    const cats = new Set(notifCatsFor(me).filter(k => k !== 'act' && cfg.cats[k] !== false));
+    if (!cats.size) return;
+    let evs = [];
+    try { evs = buildNotifEvents(org, ops, me, myBranches).filter(e => cats.has(e.cat)); } catch (e) { console.warn('notif events', e); return; }
+    const key = 'rms8:nseen:' + me.id;
+    const persist = (set) => { try { localStorage.setItem(key, JSON.stringify([...set].slice(-800))); } catch { } };
+    let seen = nSeenRef.current;
+    if (!seen) {
+      let stored = null; try { stored = JSON.parse(localStorage.getItem(key) || 'null'); } catch { }
+      if (!Array.isArray(stored)) { seen = new Set(evs.map(e => e.id)); nSeenRef.current = seen; persist(seen); return; }
+      seen = new Set(stored); nSeenRef.current = seen;
+    }
+    const fresh = evs.filter(e => !seen.has(e.id));
+    if (!fresh.length) return;
+    fresh.forEach(e => seen.add(e.id)); persist(seen);
+    const logo = org.company?.logoUrl;
+    const go = (e) => () => { setTab(e.tab); if (e.tab === 'inv' && e.view) openInvView(e.view); };
+    if (fresh.length <= 3) fresh.forEach(e => notifyBrowser(e.title, e.body, logo, { tag: e.id, onClick: go(e) }));
+    else notifyBrowser(fresh.length + ' تنبيهات جديدة — ' + (org.company?.name || 'المنصة'), fresh.slice(0, 3).map(e => e.title).join(' · ') + ' …', logo, { tag: 'rms8-batch', onClick: go(fresh[0]) });
+    if (cfg.sound) alertBeep();
+  }, [org, ops, me, myBranches, openInvView]);
+
   if (boot === 'error') {
     return (
       <div className="rms" style={{ display: 'grid', placeItems: 'center', minHeight: '100vh', padding: 24 }}>
@@ -2854,7 +2963,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v30.1 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v30.2 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -3885,11 +3994,13 @@ function Notifications({ ops, org, me, myBranches, commit, onClose }) {
       if (perm === 'default') perm = await Notification.requestPermission();
       if (perm !== 'granted') { setNMsg('لم يُمنح الإذن — فعّل الإشعارات لهذا الموقع من إعدادات المتصفح'); return; }
     }
-    const next = { on: !ncfg.on, sound: ncfg.sound };
+    const next = { ...ncfg, on: !ncfg.on };
     saveNotifyCfg(next); setNcfg(next);
-    if (next.on) setNMsg('مفعّلة — ستصلك إشعارات أي نشاط يقوم به الآخرون أثناء فتح المنصة (ولو في تبويب خلفي)');
+    if (next.on) setNMsg('مفعّلة — ستصلك إشعارات ما يخص دورك أثناء فتح المنصة (ولو في تبويب خلفي أو مصغّرة)');
   };
-  const toggleSound = () => { const next = { on: ncfg.on, sound: !ncfg.sound }; saveNotifyCfg(next); setNcfg(next); };
+  const toggleSound = () => { const next = { ...ncfg, sound: !ncfg.sound }; saveNotifyCfg(next); setNcfg(next); };
+  const myCats = notifCatsFor(me);
+  const toggleCat = (k) => { const next = { ...ncfg, cats: { ...ncfg.cats, [k]: ncfg.cats[k] === false } }; saveNotifyCfg(next); setNcfg(next); };
   const testNow = () => {
     const ok = notifyBrowser('تجربة تنبيه — ' + (org.company?.name || 'المنصة'), 'هكذا سيصلك إشعار النشاط', org.company?.logoUrl);
     if (ncfg.sound) alertBeep();
@@ -3900,15 +4011,15 @@ function Notifications({ ops, org, me, myBranches, commit, onClose }) {
     <Modal title="مركز التنبيهات" icon={Bell} onClose={onClose}
       foot={<><button className="btn" onClick={markAll}><Check size={14} />تعليم الكل كمقروء</button>
         <button className="btn gh" onClick={onClose}>إغلاق</button></>}>
-      {isAdminRole && (
+      {myCats.length > 0 && (
         <div className="card" style={{ background: 'var(--ink)', padding: 12, marginBottom: 14, border: '1px solid ' + (ncfg.on ? 'rgba(79,178,134,.45)' : 'var(--line)') }}>
           <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
             <div>
               <div style={{ fontSize: 12.5, fontWeight: 700, display: 'flex', gap: 6, alignItems: 'center' }}>
-                <Radio size={14} color={ncfg.on ? 'var(--mint)' : 'var(--brass)'} />تنبيهات النشاط الحيّة (هذا الجهاز)
+                <Radio size={14} color={ncfg.on ? 'var(--mint)' : 'var(--brass)'} />إشعارات هذا الجهاز
               </div>
               <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 3, lineHeight: 1.6 }}>
-                إشعار وصوت لأي نشاط يقوم به الآخرون — ترحيل إغلاق، سداد، تعديل… أثناء فتح المنصة.
+                إشعار من النظام وصوت لما يخص دورك — تصلك والمنصة مفتوحة ولو في تبويب خلفي. الضغط على الإشعار يفتح الشاشة المعنية.
               </div>
             </div>
             <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
@@ -3921,6 +4032,14 @@ function Notifications({ ops, org, me, myBranches, commit, onClose }) {
               <button className="btn sm gh" onClick={testNow}>جرّب</button>
             </div>
           </div>
+          {ncfg.on && (
+            <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+              {myCats.map(k => (
+                <button key={k} className={'btn sm' + (ncfg.cats[k] !== false ? ' ok' : ' gh')} onClick={() => toggleCat(k)}>
+                  {ncfg.cats[k] !== false ? <Check size={12} /> : <X size={12} />}{NOTIF_CATS[k].ar}
+                </button>))}
+            </div>
+          )}
           {nMsg && <div style={{ fontSize: 10.5, marginTop: 8, color: nMsg.includes('✓') || nMsg.startsWith('مفعّلة') ? 'var(--mint)' : 'var(--amber)' }}>{nMsg}</div>}
         </div>
       )}
