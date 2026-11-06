@@ -43,6 +43,10 @@ const STORE_ENABLED = !FB_READY && (!IS_PROD || process.env.ENABLE_STORE_API ===
 const ALLOWED_ORIGINS = String(process.env.ALLOWED_ORIGINS || '')
   .split(',').map(s => s.trim().replace(/\/+$/, '')).filter(Boolean);
 
+// مفتاح Firebase للويب مقيّد عادةً بنطاق الموقع (HTTP referrer) — نرسل عنوان موقعنا كي تقبل Google طلبات الخادم
+const FB_REFERER = process.env.FIREBASE_REFERER || (ALLOWED_ORIGINS[0] ? ALLOWED_ORIGINS[0] + '/' : '');
+const googleHeaders = (extra) => ({ ...(FB_REFERER ? { referer: FB_REFERER } : {}), ...(extra || {}) });
+
 const app = express();
 app.disable('x-powered-by');
 app.set('query parser', 'simple');   // لا نستخدم الاستعلامات المتداخلة — يتجنب ثغرات qs المعروفة
@@ -172,10 +176,14 @@ async function verifyMember(idToken) {
   // 1) صحة الرمز وهوية صاحبه
   const r = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=' + encodeURIComponent(FB_API_KEY), {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: googleHeaders({ 'content-type': 'application/json' }),
     body: JSON.stringify({ idToken })
   });
-  if (!r.ok) return null;
+  if (!r.ok) {
+    const why = ((await r.json().catch(() => ({}))).error || {}).message || r.status;
+    if (why !== 'INVALID_ID_TOKEN') console.error('firebase lookup failed:', why);
+    return null;
+  }
   const u = ((await r.json()).users || [])[0];
   const email = String((u && u.email) || '').toLowerCase();
   if (!email || u.disabled) return null;
@@ -259,6 +267,32 @@ async function callClaude({ system, user, maxTokens }) {
   try { return JSON.parse(txt.slice(a, b + 1)); }
   catch { const e = new Error('رد غير صالح من مزود الذكاء الاصطناعي'); e.status = 502; throw e; }
 }
+
+/* ---- فحص الإعدادات: هل مفتاحا Firebase وAnthropic صالحان؟ (لا يكشف أي قيمة سرية) ---- */
+app.get('/api/health/config', rateLimit({ windowMs: 3600000, max: 20 }), async (_req, res) => {
+  const out = { ok: true, model: AI_MODEL, firebase: { configured: !!FB_API_KEY }, anthropic: { configured: !!process.env.ANTHROPIC_API_KEY } };
+  if (FB_API_KEY) {
+    try {
+      const r = await fetch('https://identitytoolkit.googleapis.com/v1/projects?key=' + encodeURIComponent(FB_API_KEY), { headers: googleHeaders() });
+      const j = await r.json().catch(() => ({}));
+      out.firebase.valid = r.ok;
+      if (!r.ok) out.firebase.error = (j.error && j.error.message) || ('HTTP ' + r.status);
+    } catch (e) { out.firebase.valid = false; out.firebase.error = 'network'; }
+  }
+  if (process.env.ANTHROPIC_API_KEY) {
+    try {
+      await aiClient().models.retrieve(AI_MODEL);
+      out.anthropic.valid = true;
+    } catch (e) {
+      out.anthropic.valid = false;
+      out.anthropic.error = e instanceof Anthropic.AuthenticationError ? 'invalid_key'
+        : e instanceof Anthropic.NotFoundError ? 'model_not_available'
+        : e instanceof Anthropic.APIError ? ('HTTP ' + e.status) : 'network';
+    }
+  }
+  out.ok = !!(out.firebase.valid && out.anthropic.valid);
+  res.json(out);
+});
 
 const aiJson = express.json({ limit: '1mb' });
 const aiLimit = rateLimit({ windowMs: 3600000, max: Number(process.env.AI_RATE_LIMIT_PER_HOUR) || 30, keyFn: req => req.user && req.user.email });
