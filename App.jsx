@@ -681,12 +681,49 @@ function invPayments(i) {
 // تاريخ محلي من طابع زمني كامل (nowISO بتوقيت UTC) — أو التاريخ كما هو إن كان YYYY-MM-DD
 const dayOf = (v) => { const t = String(v || ''); if (t.length > 10 && t.includes('T')) { const x = new Date(t); if (!isNaN(x)) return isoD(x); } return t.slice(0, 10); };
 
+// v30.7 — العنوان الوطني السعودي (سبل): رقم المبنى، الشارع، الحي، المدينة، الرمز البريدي، الرقم الإضافي، الوحدة، العنوان المختصر
+const NA_F = [['bldg', 'رقم المبنى', '4 أرقام', 4], ['street', 'اسم الشارع', '', 0], ['district', 'الحي', '', 0], ['city', 'المدينة', '', 0], ['zip', 'الرمز البريدي', '5 أرقام', 5], ['addl', 'الرقم الإضافي', '4 أرقام', 4], ['unit', 'رقم الوحدة (اختياري)', '', 0], ['short', 'العنوان المختصر (اختياري)', 'مثل RRRD2929', 0]];
+const naClean = (na) => { const o = {}; NA_F.forEach(([k]) => { const v = String((na || {})[k] || '').trim(); if (v) o[k] = k === 'short' ? v.toUpperCase().replace(/\s/g, '') : v; }); return o; };
+const naHas = (na) => Object.keys(naClean(na)).length > 0;
+const fmtNA = (na) => { const a = naClean(na); if (!naHas(a)) return '';
+  return [a.bldg && 'مبنى ' + a.bldg, a.street && 'شارع ' + a.street.replace(/^شارع\s+/, ''), a.district && 'حي ' + a.district.replace(/^حي\s+/, ''), [a.city, a.zip].filter(Boolean).join(' '), a.addl && 'الرقم الإضافي ' + a.addl, a.unit && 'وحدة ' + a.unit].filter(Boolean).join('، ') + (a.short ? ' (' + a.short + ')' : ''); };
+const naErr = (na) => { const a = naClean(na); if (!naHas(a)) return '';
+  if (a.bldg && !/^\d{4}$/.test(a.bldg)) return 'رقم المبنى 4 أرقام';
+  if (a.zip && !/^\d{5}$/.test(a.zip)) return 'الرمز البريدي 5 أرقام';
+  if (a.addl && !/^\d{4}$/.test(a.addl)) return 'الرقم الإضافي 4 أرقام';
+  if (a.short && !/^[A-Z]{4}\d{4}$/.test(a.short)) return 'العنوان المختصر 4 أحرف إنجليزية ثم 4 أرقام (مثل RRRD2929)';
+  return ''; };
+// ناقص لفاتورة ضريبية (B2B): المبنى والشارع والحي والمدينة والرمز البريدي
+const naMissing = (na) => { const a = naClean(na); return [['bldg', 'رقم المبنى'], ['street', 'الشارع'], ['district', 'الحي'], ['city', 'المدينة'], ['zip', 'الرمز البريدي']].filter(([k]) => !a[k]).map(x => x[1]); };
+function NationalAddressFields({ value, onChange, legacy }) {
+  const na = value || {};
+  const set = (k, v) => onChange({ ...na, [k]: v });
+  const err = naErr(na), miss = naHas(na) ? naMissing(na) : [];
+  return (
+    <div className="card" style={{ background: 'var(--ink)', padding: 12, margin: '6px 0' }}>
+      <div className="lbl" style={{ marginBottom: 6 }}>العنوان الوطني</div>
+      <div className="grid g4" style={{ gap: 8 }}>
+        {NA_F.map(([k, lbl, ph, dig]) => (
+          <Field key={k} label={lbl}><input className={'inp' + (dig ? ' n' : '')} inputMode={dig ? 'numeric' : undefined} maxLength={dig || (k === 'short' ? 8 : undefined)} placeholder={ph}
+            style={k === 'short' ? { direction: 'ltr', textAlign: 'right' } : undefined} value={na[k] || ''}
+            onChange={e => set(k, dig ? e.target.value.replace(/\D/g, '') : e.target.value)} /></Field>
+        ))}
+      </div>
+      {naHas(na) && <div style={{ fontSize: 11, color: 'var(--dim)', marginTop: 4 }}>📍 {fmtNA(na)}</div>}
+      {err && <div style={{ fontSize: 11, color: 'var(--rose)', marginTop: 4 }}>⚠ {err}</div>}
+      {!err && miss.length > 0 && <div style={{ fontSize: 10.5, color: 'var(--amber)', marginTop: 4 }}>للفاتورة الضريبية يلزم أيضًا: {miss.join('، ')}</div>}
+      {!naHas(na) && legacy && <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 4 }}>العنوان المحفوظ سابقًا (نص حر): {legacy} — يُستبدل عند تعبئة الحقول.</div>}
+    </div>
+  );
+}
+
 // v30.6 — حقول بطاقة جهة الاتصال (مشتركة للموردين والعملاء)
 const CONTACT_F = ['contactPerson', 'mobile2', 'email', 'city', 'crNo', 'iban', 'bankName', 'creditLimit', 'notes', 'inactive'];
 const waNum = (ph) => { let d = String(ph || '').replace(/\D/g, ''); if (d.startsWith('00')) d = d.slice(2); if (d.startsWith('05')) d = '966' + d.slice(1); else if (d.startsWith('5') && d.length === 9) d = '966' + d; return d; };
 const contactFields = (c) => { const o = {}; CONTACT_F.forEach(k => { if (k === 'inactive') return; const v = c[k]; o[k] = k === 'creditLimit' ? (Number(v) || 0) : (v == null ? '' : String(v).trim()); });
-  if (o.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(o.email)) o.email = ''; return o; };
-const contactOf = (r) => { const o = {}; CONTACT_F.forEach(k => { if (r && r[k] != null && r[k] !== '') o[k] = r[k]; }); return o; };
+  if (o.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(o.email)) o.email = '';
+  o.na = naClean(c.na); if (naHas(o.na)) o.address = fmtNA(o.na); if (o.na.city) o.city = o.na.city; return o; };
+const contactOf = (r) => { const o = {}; CONTACT_F.forEach(k => { if (r && r[k] != null && r[k] !== '') o[k] = r[k]; }); if (r && naHas(r.na)) o.na = naClean(r.na); return o; };
 function buildPartners(org, ops) {
   const parts = [];
   const led = ops.ledgerEntries || [];
@@ -3043,7 +3080,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v30.6 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v30.7 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -5587,7 +5624,7 @@ function GrowthAnalytics({ org, ops, me, myBranches, scoped, setTab, theme, say 
    ============================================================ */
 function entityList(org) {
   const co = org.company || {};
-  const primary = { id: 'primary', name: co.name || 'المنشأة الرئيسية', taxNumber: co.taxNumber || '', commercialReg: co.commercialReg || '', activity: co.activity || '', primary: true };
+  const primary = { id: 'primary', name: co.name || 'المنشأة الرئيسية', taxNumber: co.taxNumber || '', commercialReg: co.commercialReg || '', activity: co.activity || '', address: co.address || '', na: co.na || {}, primary: true };
   return [primary, ...((org.entities || []).map(e => ({ ...e, primary: false })))];
 }
 function branchEntityId(b) { return (b && b.entityId) ? b.entityId : 'primary'; }
@@ -5622,13 +5659,15 @@ function EntitiesCenter({ org, ops, me, myBranches, scoped, commitOrg, say }) {
 
   const saveEnt = async () => {
     const f = ef; if (!f.name.trim()) return say('أدخل اسم المنشأة', 'no');
+    if (naErr(f.na)) return say('العنوان الوطني: ' + naErr(f.na), 'no');
+    const na = naClean(f.na), adr = naHas(na) ? { na, address: fmtNA(na) } : { na, address: (f.address || '').trim() };
     if (f.primary) {
-      await commitOrg(d => ({ ...d, company: { ...(d.company || {}), name: f.name.trim(), taxNumber: (f.taxNumber || '').trim(), commercialReg: (f.commercialReg || '').trim(), activity: (f.activity || '').trim() } }), { actionType: 'update', targetType: 'entity', targetId: 'primary', title: 'تعديل المنشأة الرئيسية', details: f.name.trim() });
+      await commitOrg(d => ({ ...d, company: { ...(d.company || {}), name: f.name.trim(), taxNumber: (f.taxNumber || '').trim(), commercialReg: (f.commercialReg || '').trim(), activity: (f.activity || '').trim(), ...adr } }), { actionType: 'update', targetType: 'entity', targetId: 'primary', title: 'تعديل المنشأة الرئيسية', details: f.name.trim() });
     } else if (f.id) {
-      await commitOrg(d => ({ ...d, entities: (d.entities || []).map(e => e.id === f.id ? { ...e, name: f.name.trim(), taxNumber: (f.taxNumber || '').trim(), commercialReg: (f.commercialReg || '').trim(), activity: (f.activity || '').trim() } : e) }), { actionType: 'update', targetType: 'entity', targetId: f.id, title: 'تعديل منشأة', details: f.name.trim() });
+      await commitOrg(d => ({ ...d, entities: (d.entities || []).map(e => e.id === f.id ? { ...e, name: f.name.trim(), taxNumber: (f.taxNumber || '').trim(), commercialReg: (f.commercialReg || '').trim(), activity: (f.activity || '').trim(), ...adr } : e) }), { actionType: 'update', targetType: 'entity', targetId: f.id, title: 'تعديل منشأة', details: f.name.trim() });
     } else {
       const id = 'ent' + Date.now().toString(36);
-      await commitOrg(d => ({ ...d, entities: [...(d.entities || []), { id, name: f.name.trim(), taxNumber: (f.taxNumber || '').trim(), commercialReg: (f.commercialReg || '').trim(), activity: (f.activity || '').trim() }] }), { actionType: 'create', targetType: 'entity', targetId: id, title: 'إضافة منشأة', details: f.name.trim() });
+      await commitOrg(d => ({ ...d, entities: [...(d.entities || []), { id, name: f.name.trim(), taxNumber: (f.taxNumber || '').trim(), commercialReg: (f.commercialReg || '').trim(), activity: (f.activity || '').trim(), ...adr }] }), { actionType: 'create', targetType: 'entity', targetId: id, title: 'إضافة منشأة', details: f.name.trim() });
     }
     setEf(null);
   };
@@ -5733,6 +5772,8 @@ function EntitiesCenter({ org, ops, me, myBranches, scoped, commitOrg, say }) {
             <Field label="السجل التجاري"><input className="inp n" value={ef.commercialReg} onChange={e => setEf({ ...ef, commercialReg: e.target.value })} /></Field>
             <Field label="النشاط"><input className="inp" value={ef.activity} onChange={e => setEf({ ...ef, activity: e.target.value })} /></Field>
           </div>
+          <NationalAddressFields value={ef.na} legacy={ef.address} onChange={na => setEf(f => ({ ...f, na }))} />
+          {!naHas(ef.na) && !!ef.address && <Field label="العنوان القديم (نص حر) — يُستبدل بالحقول أعلاه"><input className="inp" value={ef.address || ''} onChange={e => setEf({ ...ef, address: e.target.value })} /></Field>}
           {ef.primary && <div className="note" style={{ marginTop: 10 }}>هذه بيانات منشأتك الرئيسية (تُستخدم في الفواتير والتقارير) — تعديلها هنا يعدّل «بيانات الشركة».</div>}
         </Modal>
       )}
@@ -20115,6 +20156,11 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
                   <Field label="اسم المشتري"><input className="inp" value={einvF.buyer} onChange={e => setEinvF(f => ({ ...f, buyer: e.target.value }))} placeholder="اسم المنشأة المشترية" /></Field>
                   <Field label="الرقم الضريبي للمشتري"><input className="inp n" value={einvF.buyerVat} onChange={e => setEinvF(f => ({ ...f, buyerVat: e.target.value }))} placeholder="١٥ رقمًا" /></Field>
                   <Field label="عنوان المشتري" style={{ gridColumn: 'span 2' }}><input className="inp" value={einvF.buyerAddress} onChange={e => setEinvF(f => ({ ...f, buyerAddress: e.target.value }))} placeholder="المدينة، الحي، الشارع، الرمز البريدي" /></Field>
+                  {(() => { const bc = einvCustomers.find(x => x.id === einvF.buyerId); const sm = naMissing(einvEnt.na || (einvEnt.primary ? (org.company || {}).na : null)); const bm = bc ? naMissing(bc.na) : [];
+                    return (sm.length || bm.length) ? <div style={{ gridColumn: 'span 2', fontSize: 10.5, color: 'var(--amber)', lineHeight: 1.7 }}>
+                      {sm.length ? <div>⚠ العنوان الوطني للمنشأة البائعة ناقص ({sm.join('، ')}) — يُكمَل من الإعدادات ← بيانات المنشأة.</div> : null}
+                      {bm.length ? <div>⚠ العنوان الوطني للعميل ناقص ({bm.join('، ')}) — يُكمَل من جهات الاتصال.</div> : null}
+                    </div> : null; })()}
                 </div>
               )}
             </div>
@@ -20740,6 +20786,7 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
     if (!c.name?.trim()) return say('اكتب اسم الجهة', 'no');
     if (c.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(c.email).trim())) return say('البريد الإلكتروني غير صحيح', 'no');
     if (c.iban && !/^SA\d{22}$/.test(String(c.iban).trim())) return say('الآيبان السعودي: SA متبوعًا بـ 22 رقمًا', 'no');
+    if (naErr(c.na)) return say('العنوان الوطني: ' + naErr(c.na), 'no');
     // v27.5 (إصلاح §١٢/18): «موظف» لا يُنشأ من دفتر الشركاء — كان يكتب بطاقة وهمية في org.partners
     // (مفتاح cust:) بلا فرع ولا راتب، لا تظهر في الحضور/الرواتب. الموظف الحقيقي يُنشأ في «البيانات
     // الرئيسية» (بفرع إلزامي) ويظهر هنا تلقائيًا عبر buildPartners (مفتاح emp:).
@@ -20843,6 +20890,7 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
               {cur.tax && <span className="badge b-dim">الرقم الضريبي <span className="num">{cur.tax}</span></span>}
               {cur.taxable && <span className="badge b-mint">خاضع للضريبة</span>}
               {cur.address && <span className="badge b-dim">📍 {cur.address}</span>}
+              {cur.type === 'customer' && cur.taxable && naMissing(cur.na).length > 0 && <span className="badge b-amber">العنوان الوطني ناقص للفاتورة الضريبية</span>}
               {cur.terms ? <span className="badge b-dim">مهلة <span className="num">{cur.terms}</span> يوم</span> : null}
               {cur.contactPerson && <span className="badge b-dim">👤 {cur.contactPerson}</span>}
               {cur.mobile2 && <span className="badge b-dim">جوال 2 <span className="num">{cur.mobile2}</span></span>}
@@ -21007,7 +21055,6 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
             <Field label="الشخص المسؤول"><input className="inp" value={addP.contactPerson || ''} onChange={e => setAddP({ ...addP, contactPerson: e.target.value })} placeholder="اسم المندوب أو المحاسب" /></Field>
             <Field label="جوال إضافي"><input className="inp" style={{ direction: 'ltr', textAlign: 'right' }} value={addP.mobile2 || ''} onChange={e => setAddP({ ...addP, mobile2: e.target.value })} /></Field>
             <Field label="البريد الإلكتروني"><input className="inp" style={{ direction: 'ltr', textAlign: 'right' }} type="email" value={addP.email || ''} onChange={e => setAddP({ ...addP, email: e.target.value })} /></Field>
-            <Field label="المدينة"><input className="inp" value={addP.city || ''} onChange={e => setAddP({ ...addP, city: e.target.value })} /></Field>
             <Field label="السجل التجاري"><input className="inp n" value={addP.crNo || ''} onChange={e => setAddP({ ...addP, crNo: e.target.value })} /></Field>
             {(addP.type || 'customer') === 'customer'
               ? <Field label="حد الائتمان (ر.س)"><input className="inp n" inputMode="decimal" value={addP.creditLimit || ''} onChange={e => setAddP({ ...addP, creditLimit: e.target.value.replace(/[^\d.]/g, '') })} /></Field>
@@ -21015,7 +21062,8 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
           </div>
           {addP.type === 'supplier' && <Field label="الآيبان (للسداد بالتحويل)"><input className="inp n" style={{ direction: 'ltr', textAlign: 'right' }} value={addP.iban || ''} placeholder="SA…" onChange={e => setAddP({ ...addP, iban: e.target.value.toUpperCase().replace(/\s/g, '') })} /></Field>}
           <Field label="ملاحظات"><input className="inp" value={addP.notes || ''} onChange={e => setAddP({ ...addP, notes: e.target.value })} /></Field>
-          <Field label="العنوان الوطني (للفاتورة الضريبية)"><input className="inp" value={addP.address || ''} onChange={e => setAddP({ ...addP, address: e.target.value })} placeholder="المدينة، الحي، الشارع، الرمز البريدي" /></Field>
+          <NationalAddressFields value={addP.na} legacy={addP.address} onChange={na => setAddP(a => ({ ...a, na }))} />
+          <Field label="العنوان القديم (نص حر) — يُستبدل بالحقول أعلاه" style={{ display: naHas(addP.na) || !addP.edit || !addP.address ? 'none' : undefined }}><input className="inp" value={addP.address || ''} onChange={e => setAddP({ ...addP, address: e.target.value })} placeholder="المدينة، الحي، الشارع، الرمز البريدي" /></Field>
           <label className="row" style={{ gap: 6, fontSize: 12.5, cursor: 'pointer', marginTop: 4 }}>
             <input type="checkbox" checked={!!addP.taxable} onChange={e => setAddP({ ...addP, taxable: e.target.checked })} />
             خاضع لضريبة القيمة المضافة (مسجّل ضريبيًا)
@@ -21464,7 +21512,9 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
   };
 
   const saveCompany = async () => {
-    await commitOrg(d => ({ ...d, company: c }), {
+    if (naErr(c.na)) return say('العنوان الوطني: ' + naErr(c.na), 'no');
+    const na = naClean(c.na);
+    await commitOrg(d => ({ ...d, company: { ...c, na, ...(naHas(na) ? { address: fmtNA(na) } : {}) } }), {
       actionType: 'update', targetType: 'system_settings', targetId: 'company',
       title: 'حدّث بيانات الشركة', details: c.name
     });
@@ -21589,7 +21639,8 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
           <Field label="الهاتف"><input className="inp n" value={c.phone} onChange={e => set('phone', e.target.value)} /></Field>
           <Field label="البريد الإلكتروني"><input className="inp" type="email" style={{ direction: 'ltr', textAlign: 'right' }} value={c.email || ''} onChange={e => set('email', e.target.value)} /></Field>
         </div>
-        <Field label="العنوان"><input className="inp" value={c.address} onChange={e => set('address', e.target.value)} /></Field>
+        <NationalAddressFields value={c.na} legacy={c.address} onChange={na => set('na', na)} />
+        {!naHas(c.na) && !!c.address && <Field label="العنوان القديم (نص حر) — يُستبدل بالحقول أعلاه"><input className="inp" value={c.address} onChange={e => set('address', e.target.value)} /></Field>}
         <Field label="شعار المنشأة (يظهر في الإيصالات)">
           <PhotoField value={c.logoUrl} onChange={v => set('logoUrl', v)} say={say} />
         </Field>
