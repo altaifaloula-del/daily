@@ -3356,7 +3356,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v31.6 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v31.7 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -4743,10 +4743,7 @@ function SalesHub(props) {
   const [v, setV] = useState('analysis');
   return (
     <div className="grid" style={{ gap: 12 }}>
-      <div className="row" style={{ gap: 6 }}>
-        <button className={'btn sm' + (v === 'analysis' ? ' pri' : ' gh')} onClick={() => setV('analysis')}><BarChart3 size={14} />تحليل المبيعات</button>
-        <button className={'btn sm' + (v === 'invoices' ? ' pri' : ' gh')} onClick={() => setV('invoices')}><FileText size={14} />فواتير المبيعات</button>
-      </div>
+      <div className="card" style={{ padding: '9px 13px' }}><SectionNav label="أقسام المبيعات" cur={v} onPick={setV} items={[{ id: 'analysis', ar: 'تحليل المبيعات', icon: BarChart3 }, { id: 'invoices', ar: 'فواتير المبيعات', icon: FileText }]} /></div>
       {v === 'analysis' ? <Sales {...props} /> : <SalesInvoices {...props} />}
     </div>
   );
@@ -6768,6 +6765,66 @@ const HUBS = {
     ]
   }
 };
+/* ============================================================
+   v31.7 — عرض أقسام التطبيقات: شبكة احترافية (افتراضي) أو قائمة منسدلة أو تبويبات — اختيار واحد لكل المستخدم يسري على كل التطبيقات
+   ============================================================ */
+const SECNAV_KEY = 'mizan:secNav';
+const readSecNav = () => { try { const v = localStorage.getItem(SECNAV_KEY); return ['grid', 'dd', 'tabs'].includes(v) ? v : 'grid'; } catch { return 'grid'; } };
+function useSecNav() {
+  const [m, setM] = useState(readSecNav);
+  useEffect(() => { const h = () => setM(readSecNav()); window.addEventListener('mizan-secnav', h); window.addEventListener('storage', h); return () => { window.removeEventListener('mizan-secnav', h); window.removeEventListener('storage', h); }; }, []);
+  const set = (v) => { try { localStorage.setItem(SECNAV_KEY, v); } catch { } setM(v); try { window.dispatchEvent(new Event('mizan-secnav')); } catch { } };
+  return [m, set];
+}
+// items: [{id, ar, icon, badge?}] · cur · onPick(id) · extra: أزرار إجراءات تُعرض بجانب التنقل
+function SectionNav({ items, cur, onPick, extra, label }) {
+  const [mode, setMode] = useSecNav();
+  const [open, setOpen] = useState(false);
+  const list = (items || []).filter(Boolean);
+  if (list.length < 2 && !extra) return null;
+  const curIt = list.find(x => x.id === cur) || list[0] || {};
+  const CurI = curIt.icon || Grid3x3;
+  const sw = list.length >= 2 && (
+    <div className="acct-mode" role="group" aria-label="طريقة عرض الأقسام">
+      <button className={mode === 'grid' ? 'on' : ''} onClick={() => setMode('grid')} title="شبكة"><Grid3x3 size={13} /><span>شبكة</span></button>
+      <button className={mode === 'dd' ? 'on' : ''} onClick={() => setMode('dd')} title="قائمة منسدلة"><ChevronDown size={13} /><span>قائمة</span></button>
+      <button className={mode === 'tabs' ? 'on' : ''} onClick={() => setMode('tabs')} title="تبويبات"><Menu size={13} /><span>تبويبات</span></button>
+    </div>);
+  const pick = (id) => { setOpen(false); onPick(id); };
+  const bdg = (x) => x.badge ? <span className="badge b-amber" style={{ fontSize: 9.5, padding: '1px 6px' }}>{x.badge}</span> : null;
+  if (list.length >= 2 && mode === 'grid') return (
+    <div className="secnav-grid">
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
+        <div className="acct-gtitle" style={{ marginInlineEnd: 'auto' }}><Grid3x3 size={14} />{label || 'الأقسام'}</div>{sw}{extra}
+      </div>
+      <div className="acct-grid">
+        {list.map(x => { const I = x.icon || Grid3x3; return (
+          <button key={x.id} className={'acct-tile' + (cur === x.id ? ' on' : '')} onClick={() => pick(x.id)}><I size={19} /><span>{x.ar}</span>{bdg(x)}</button>); })}
+      </div>
+    </div>);
+  if (list.length >= 2 && mode === 'dd') return (
+    <div className="row acct-nav" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+      <div className="abar-dd">
+        <button className="btn sm pri" onClick={() => setOpen(o => !o)}><CurI size={14} />{curIt.ar}{bdg(curIt)}<ChevronDown size={13} /></button>
+        {open && (<>
+          <div className="abar-back" onClick={() => setOpen(false)} />
+          <div className="abar-menu">
+            <div className="abar-hd">{label || 'الأقسام'}</div>
+            {list.map(x => { const I = x.icon || Grid3x3; return (
+              <button key={x.id} onClick={() => pick(x.id)} style={cur === x.id ? { background: 'var(--acc-soft)', fontWeight: 700 } : undefined}><I size={13} />{x.ar}{bdg(x)}{cur === x.id && <Check size={13} style={{ marginInlineStart: 'auto' }} />}</button>); })}
+          </div>
+        </>)}
+      </div>
+      {sw}<span style={{ marginInlineStart: 'auto' }} />{extra}
+    </div>);
+  return (
+    <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+      {list.length >= 2 && list.map(x => { const I = x.icon || Grid3x3; return (
+        <button key={x.id} className={'btn sm' + (cur === x.id ? ' pri' : ' gh')} onClick={() => pick(x.id)}><I size={13} />{x.ar}{bdg(x)}</button>); })}
+      {sw}<span style={{ marginInlineStart: 'auto' }} />{extra}
+    </div>);
+}
+
 function Hub({ hubId, view, ...rest }) {
   const me = rest.me;
   const cfg = HUBS[hubId] || { ar: '', desc: '', icon: Compass, views: [] };
@@ -6789,14 +6846,8 @@ function Hub({ hubId, view, ...rest }) {
             <b style={{ fontSize: 13 }}>{cfg.ar}</b>
             <span style={{ fontSize: 11, color: 'var(--dim)' }} className="hub-desc">· {cfg.desc}</span>
           </div>
-          <div className="tw"><div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-            {views.map(v => (
-              <button key={v.id} className={'btn sm' + (cur === v.id ? ' pri' : ' gh')} onClick={() => go(v.id)}>
-                <v.icon size={13} />{v.ar}
-              </button>
-            ))}
-          </div></div>
         </div>
+        {views.length > 1 && <div style={{ marginTop: 8 }}><SectionNav items={views.map(v => ({ id: v.id, ar: v.ar, icon: v.icon }))} cur={cur} onPick={go} label={'أقسام ' + cfg.ar} /></div>}
       </div>
       {Cur ? <Cur {...rest} /> : <div className="card"><div className="empty">لا توجد أقسام متاحة لصلاحيتك.</div></div>}
     </div>
@@ -9123,17 +9174,13 @@ function Leaves({ org, ops, me, myBranches, commit, commitOrg, say }) {
 
   return (
     <div className="grid" style={{ gap: 12 }}>
+      <SectionNav label="أقسام الإجازات" cur={tab} onPick={setTab} items={[{ id: 'req', ar: 'الطلبات', icon: ClipboardCheck, badge: pendN || null }, { id: 'bal', ar: 'الأرصدة', icon: CalendarDays }, central && { id: 'prov', ar: 'المخصص في الدفاتر', icon: Landmark }]}
+        extra={<button className="btn sm pri" onClick={() => setF({ employeeId: (emps[0] || {}).id || '', type: 'annual', from: td, to: td, reason: '' })}><Plus size={14} />طلب إجازة</button>} />
       <div className="grid g4">
         <Kpi label="طلبات بانتظار الاعتماد" value={String(pendN)} sub={canDecide ? 'قرارك مطلوب' : 'لدى الإدارة'} icon={Bell} color="#E0A458" />
         <Kpi label="في إجازة اليوم" value={String(onNow.length)} sub={onNow.slice(0, 3).map(r => r.employeeName).join('، ') || '—'} icon={CalendarDays} color="#5B93C4" />
         <Kpi label="أرصدة الإجازات (أيام)" value={String(Math.round(sum(emps, e => leaveBalance(org, ops, e, td).balance)))} sub={emps.length + ' موظف'} icon={Users} color="#C8A24A" />
         <Kpi label="قيمة الأرصدة" value={money(r2(sum(emps, e => Math.max(0, leaveBalance(org, ops, e, td).balance) * lvDaily(e))))} sub={LV.open ? 'المخصص في الدفاتر ' + money(lvTotal) : 'المخصص غير مفعّل'} icon={Wallet} color="#9B7BB8" />
-      </div>
-      <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-        <button className={'btn sm' + (tab === 'req' ? ' pri' : ' gh')} onClick={() => setTab('req')}>الطلبات</button>
-        <button className={'btn sm' + (tab === 'bal' ? ' pri' : ' gh')} onClick={() => setTab('bal')}>الأرصدة</button>
-        {central && <button className={'btn sm' + (tab === 'prov' ? ' pri' : ' gh')} onClick={() => setTab('prov')}>المخصص في الدفاتر</button>}
-        <button className="btn sm pri" style={{ marginInlineStart: 'auto' }} onClick={() => setF({ employeeId: (emps[0] || {}).id || '', type: 'annual', from: td, to: td, reason: '' })}><Plus size={14} />طلب إجازة</button>
       </div>
 
       {tab === 'req' && <div className="card">
@@ -16142,6 +16189,9 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: g
         </div>
       </div>
 
+      <SectionNav label="أقسام المشتريات" cur={tab} onPick={setTab} items={[{ id: 'inv', ar: 'فواتير الموردين الآجلة', icon: FileText }, { id: 'fx', ar: 'إيجارات وفواتير الفروع', icon: Building2 }, { id: 'po', ar: 'أوامر الشراء', icon: ClipboardCheck }]}
+        extra={<>{goTab && roleHasTab(me, 'partners') && <button className="btn sm gh" onClick={() => goTab('partners')}><Users size={14} />الموردون ← جهات الاتصال</button>}
+          {canPay && <button className="btn sm pri" onClick={() => setNewInv({ supplierId: suppliers[0]?.id || '', invoiceNo: '', amount: '', taxable: true, date: today(), dueDate: today(), branchId: '' })}><Plus size={14} />فاتورة توريد جديدة</button>}</>} />
       <div className="grid g4">
         <Kpi label="مستحقات الموردين" value={money(outstanding)} sub={`${allInvs.filter(i => remOf(i) > 0).length} فاتورة مفتوحة (منها ${clInvs.filter(v => cRem(v) > 0).length} من الورديات)`} icon={Truck} color="#C8A24A" />
         <Kpi label="متأخرة عن الاستحقاق" value={money(sum(overdue, remOf))} sub={`${overdue.length} فاتورة`} icon={AlertTriangle} color="#D9544D" />
@@ -16149,23 +16199,6 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: g
         <Kpi label="غير المسدد من الثابتة" value={money(sum(fixed.filter(f => !f.isPaid), fxTotal))} icon={CalendarDays} color="#E0A458" />
       </div>
 
-      <div className="row">
-        <button className={'btn sm' + (tab === 'inv' ? ' pri' : ' gh')} onClick={() => setTab('inv')}>
-          <FileText size={14} />فواتير الموردين الآجلة
-        </button>
-        <button className={'btn sm' + (tab === 'fx' ? ' pri' : ' gh')} onClick={() => setTab('fx')}>
-          <Building2 size={14} />إيجارات وفواتير الفروع
-        </button>
-        {goTab && roleHasTab(me, 'partners') && <button className="btn sm gh" onClick={() => goTab('partners')} title="بطاقات الموردين وبيانات الاتصال وكشوف الحساب">
-          <Users size={14} />الموردون ← جهات الاتصال
-        </button>}
-        <button className={'btn sm' + (tab === 'po' ? ' pri' : ' gh')} onClick={() => setTab('po')}>
-          <ClipboardCheck size={14} />أوامر الشراء
-        </button>
-        {canPay && <button className="btn sm pri" style={{ marginInlineStart: 'auto' }}
-          onClick={() => setNewInv({ supplierId: suppliers[0]?.id || '', invoiceNo: '', amount: '', taxable: true, date: today(), dueDate: today(), branchId: '' })}>
-          <Plus size={14} />فاتورة توريد جديدة</button>}
-      </div>
 
       {tab === 'inv' && (
         <div className="card">
@@ -17120,7 +17153,6 @@ function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
     if (ok) { setCnt({}); say('اعتُمد الجرد ✓'); }
   };
 
-  const Tab = ({ id, icon: I, children }) => <button className={'btn sm' + (view === id ? ' pri' : ' gh')} onClick={() => setView(id)}><I size={14} />{children}</button>;
   return (
     <>
       <div className="card">
@@ -17128,14 +17160,7 @@ function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
           <div className="card-t" style={{ marginInlineEnd: 'auto' }}><HardDrive size={15} color="var(--brass)" />{wh.name}<span style={{ fontSize: 11, color: 'var(--faint)', marginInlineStart: 6 }}>يتبع {whName(org, wh.parentId || MAIN_WH)}</span></div>
           {mine.length > 1 && <select className="inp sel" style={{ maxWidth: 240 }} value={whId} onChange={e => setWhId(e.target.value)}>{mine.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select>}
         </div>
-        <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
-          <Tab id="bal" icon={ClipboardCheck}>الأرصدة</Tab>
-          <Tab id="in" icon={Truck}>الوارد {incoming.length ? '(' + incoming.length + ')' : ''}</Tab>
-          <Tab id="req" icon={Send}>طلب من الرئيسي</Tab>
-          <Tab id="out" icon={ArrowLeftRight}>صادر (فرع / إرجاع)</Tab>
-          <Tab id="mv" icon={ArrowLeftRight}>صرف وهدر</Tab>
-          <Tab id="count" icon={Scale}>الجرد</Tab>
-        </div>
+        <div style={{ marginTop: 10 }}><SectionNav label="أقسام مستودع الفرع" cur={view} onPick={setView} items={[{ id: 'bal', ar: 'الأرصدة', icon: ClipboardCheck }, { id: 'in', ar: 'الوارد', icon: Truck, badge: incoming.length || null }, { id: 'req', ar: 'طلب من الرئيسي', icon: Send }, { id: 'out', ar: 'صادر (فرع / إرجاع)', icon: ArrowLeftRight }, { id: 'mv', ar: 'صرف وهدر', icon: Trash2 }, { id: 'count', ar: 'الجرد', icon: Scale }]} /></div>
       </div>
 
       {view === 'bal' && (
@@ -17694,6 +17719,10 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
         </div>
       </div>
 
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        <SectionNav label="أقسام المخزون" cur={view} onPick={setView} items={[{ id: 'items', ar: 'الأصناف والأرصدة', icon: HardDrive }, { id: 'moves', ar: 'الحركات', icon: ArrowLeftRight }, { id: 'count', ar: 'الجرد' + (whOn(org) ? ' (الرئيسي)' : ''), icon: ClipboardCheck }, { id: 'wh', ar: 'المستودعات', icon: Truck }, { id: 'recipes', ar: 'الوصفات والتكلفة', icon: Store }, { id: 'menu', ar: 'هندسة القائمة', icon: BarChart3 }, { id: 'usage', ar: 'الاستهلاك النظري والفعلي', icon: AlertTriangle }]} />
+      </div>
+
       <div className="grid g4">
         <Kpi label="قيمة المخزون (بآخر تكلفة)" value={money(stockValue)} sub={items.length + ' صنفاً'} icon={HardDrive} color="#C8A24A" />
         <Kpi label="أصناف تحت حد الطلب" value={String(lowItems.length)} sub={lowItems.map(i => i.name).join('، ').slice(0, 40) || 'لا شيء — ممتاز'} icon={AlertTriangle} color={lowItems.length ? '#D9544D' : '#4FB286'} />
@@ -17702,13 +17731,6 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
       </div>
 
       <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-        <button className={'btn sm' + (view === 'items' ? ' pri' : ' gh')} onClick={() => setView('items')}><HardDrive size={14} />الأصناف والأرصدة</button>
-        <button className={'btn sm' + (view === 'moves' ? ' pri' : ' gh')} onClick={() => setView('moves')}><ArrowLeftRight size={14} />الحركات</button>
-        <button className={'btn sm' + (view === 'count' ? ' pri' : ' gh')} onClick={() => setView('count')}><ClipboardCheck size={14} />الجرد{whOn(org) ? ' (الرئيسي)' : ''}</button>
-        <button className={'btn sm' + (view === 'wh' ? ' pri' : ' gh')} onClick={() => setView('wh')}><Truck size={14} />المستودعات</button>
-        <button className={'btn sm' + (view === 'recipes' ? ' pri' : ' gh')} onClick={() => setView('recipes')}><Store size={14} />الوصفات والتكلفة</button>
-        <button className={'btn sm' + (view === 'menu' ? ' pri' : ' gh')} onClick={() => setView('menu')}><BarChart3 size={14} />هندسة القائمة</button>
-        <button className={'btn sm' + (view === 'usage' ? ' pri' : ' gh')} onClick={() => setView('usage')}><AlertTriangle size={14} />الاستهلاك النظري والفعلي</button>
         {view === 'menu' && <button className="btn sm" style={{ marginInlineStart: 'auto' }} onClick={exportMenuXlsx}><Download size={13} />Excel</button>}
         {view === 'menu' && canW && <button className="btn sm pri" onClick={saveMenuQty}><Check size={14} />حفظ الكميات</button>}
         {view === 'items' && <button className="btn sm" style={{ marginInlineStart: 'auto' }} onClick={printStock}><Printer size={13} />طباعة الأرصدة</button>}
@@ -18931,9 +18953,10 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const [stgOpen, setStgOpen] = useState(false);    // v9.4 قائمة الإعدادات
   const [acctNavOpen, setAcctNavOpen] = useState(null); // v28.8 القائمة المنسدلة المفتوحة لأقسام المحاسبة
   // v28.9: طريقة عرض أقسام المحاسبة — 'dd' قوائم منسدلة (الافتراضي) أو 'grid' شبكة بطاقات؛ تُحفظ في متصفح المستخدم فقط
-  const [acctNavMode, setAcctNavMode] = useState(() => { try { return localStorage.getItem('mizan:acctNavMode') === 'grid' ? 'grid' : 'dd'; } catch (e) { return 'dd'; } });
+  const [secMode, setSecMode] = useSecNav();   // v31.7: المحاسبة تتبع اختيار عرض الأقسام الموحّد (شبكة / قائمة؛ التبويبات تُعرض قوائم مجمّعة لكثرة الأقسام)
+  const acctNavMode = secMode === 'grid' ? 'grid' : 'dd';
   const [acctGridOpen, setAcctGridOpen] = useState(true);
-  const switchAcctNav = (m) => { setAcctNavMode(m); setAcctNavOpen(null); setAcctGridOpen(true); try { localStorage.setItem('mizan:acctNavMode', m); } catch (e) {} };
+  const switchAcctNav = (m) => { setSecMode(m); setAcctNavOpen(null); setAcctGridOpen(true); };
   const [obD, setObD] = useState(() => {            // v9.7 مسودة الأرصدة الافتتاحية
     const o = org.openingBalances || {};
     const map = {};
