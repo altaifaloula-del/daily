@@ -3144,6 +3144,11 @@ function PlatformApp() {
     if (cfg.sound) alertBeep();
   }, [org, ops, me, myBranches, openInvView]);
 
+  // v31.3 — التحقق بخطوتين: حالة المستخدم وسياسة الإلزام (v31.5: قبل أي return شرطي — كان بعده فيتغيّر عدد الـhooks عند انتهاء التحميل فتظهر شاشة سوداء)
+  const [mfaS, setMfaS] = useState(null); const [mfaPol, setMfaPol] = useState(null); const [mfaOpen, setMfaOpen] = useState(false);
+  const mfaReload = useCallback(async () => { if (!authApi.enabled) return; const [i, p] = await Promise.all([authApi.mfaInfo().catch(() => null), authApi.getPolicy().catch(() => null)]); setMfaS(i); setMfaPol(p); }, []);
+  useEffect(() => { if (me && authApi.enabled) mfaReload(); }, [me && me.id, mfaReload]);
+
   if (boot === 'error') {
     return (
       <div className="rms" style={{ display: 'grid', placeItems: 'center', minHeight: '100vh', padding: 24 }}>
@@ -3170,10 +3175,6 @@ function PlatformApp() {
     );
   }
 
-  // v31.3 — التحقق بخطوتين: حالة المستخدم وسياسة الإلزام
-  const [mfaS, setMfaS] = useState(null); const [mfaPol, setMfaPol] = useState(null); const [mfaOpen, setMfaOpen] = useState(false);
-  const mfaReload = useCallback(async () => { if (!authApi.enabled) return; const [i, p] = await Promise.all([authApi.mfaInfo().catch(() => null), authApi.getPolicy().catch(() => null)]); setMfaS(i); setMfaPol(p); }, []);
-  useEffect(() => { if (me && authApi.enabled) mfaReload(); }, [me && me.id, mfaReload]);
   const mfaNeed = !!(me && mfaPol && ((mfaPol.admins && (ROLES[me.role] || {}).admin) || (mfaPol.roles || []).includes(me.role)));
 
   // مصادقة سحابية مفعّلة ولا جلسة: بوابة الدخول الحقيقية قبل تحميل أي بيانات
