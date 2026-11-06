@@ -5773,7 +5773,7 @@ function EntitiesCenter({ org, ops, me, myBranches, scoped, commitOrg, say }) {
             <Field label="النشاط"><input className="inp" value={ef.activity} onChange={e => setEf({ ...ef, activity: e.target.value })} /></Field>
           </div>
           <NationalAddressFields value={ef.na} legacy={ef.address} onChange={na => setEf(f => ({ ...f, na }))} />
-          {!naHas(ef.na) && <Field label="العنوان (نص حر)"><input className="inp" value={ef.address || ''} onChange={e => setEf({ ...ef, address: e.target.value })} /></Field>}
+          {!naHas(ef.na) && !!ef.address && <Field label="العنوان القديم (نص حر) — يُستبدل بالحقول أعلاه"><input className="inp" value={ef.address || ''} onChange={e => setEf({ ...ef, address: e.target.value })} /></Field>}
           {ef.primary && <div className="note" style={{ marginTop: 10 }}>هذه بيانات منشأتك الرئيسية (تُستخدم في الفواتير والتقارير) — تعديلها هنا يعدّل «بيانات الشركة».</div>}
         </Modal>
       )}
@@ -21063,7 +21063,7 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
           {addP.type === 'supplier' && <Field label="الآيبان (للسداد بالتحويل)"><input className="inp n" style={{ direction: 'ltr', textAlign: 'right' }} value={addP.iban || ''} placeholder="SA…" onChange={e => setAddP({ ...addP, iban: e.target.value.toUpperCase().replace(/\s/g, '') })} /></Field>}
           <Field label="ملاحظات"><input className="inp" value={addP.notes || ''} onChange={e => setAddP({ ...addP, notes: e.target.value })} /></Field>
           <NationalAddressFields value={addP.na} legacy={addP.address} onChange={na => setAddP(a => ({ ...a, na }))} />
-          <Field label="العنوان (نص حر — يُستخدم إن لم يُعبَّأ العنوان الوطني)" style={{ display: naHas(addP.na) ? 'none' : undefined }}><input className="inp" value={addP.address || ''} onChange={e => setAddP({ ...addP, address: e.target.value })} placeholder="المدينة، الحي، الشارع، الرمز البريدي" /></Field>
+          <Field label="العنوان القديم (نص حر) — يُستبدل بالحقول أعلاه" style={{ display: naHas(addP.na) || !addP.edit || !addP.address ? 'none' : undefined }}><input className="inp" value={addP.address || ''} onChange={e => setAddP({ ...addP, address: e.target.value })} placeholder="المدينة، الحي، الشارع، الرمز البريدي" /></Field>
           <label className="row" style={{ gap: 6, fontSize: 12.5, cursor: 'pointer', marginTop: 4 }}>
             <input type="checkbox" checked={!!addP.taxable} onChange={e => setAddP({ ...addP, taxable: e.target.checked })} />
             خاضع لضريبة القيمة المضافة (مسجّل ضريبيًا)
@@ -21640,7 +21640,7 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
           <Field label="البريد الإلكتروني"><input className="inp" type="email" style={{ direction: 'ltr', textAlign: 'right' }} value={c.email || ''} onChange={e => set('email', e.target.value)} /></Field>
         </div>
         <NationalAddressFields value={c.na} legacy={c.address} onChange={na => set('na', na)} />
-        {!naHas(c.na) && <Field label="العنوان (نص حر)"><input className="inp" value={c.address} onChange={e => set('address', e.target.value)} /></Field>}
+        {!naHas(c.na) && !!c.address && <Field label="العنوان القديم (نص حر) — يُستبدل بالحقول أعلاه"><input className="inp" value={c.address} onChange={e => set('address', e.target.value)} /></Field>}
         <Field label="شعار المنشأة (يظهر في الإيصالات)">
           <PhotoField value={c.logoUrl} onChange={v => set('logoUrl', v)} say={say} />
         </Field>
