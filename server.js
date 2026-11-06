@@ -23,7 +23,11 @@ const DATA_DIR = path.join(__dirname, 'data');
 const STORE = path.join(DATA_DIR, 'store.json');
 
 // إعدادات Firebase على الخادم (تُقبل أسماء VITE_ نفسها لتسهيل النشر على Render)
-const FB_API_KEY = process.env.FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY || '';
+// تنظيف المفاتيح من مسافات أو أسطر أو علامات اقتباس قد تُلصق معها بالخطأ
+const cleanKey = (v) => String(v || '').trim().replace(/^["'`]+|["'`]+$/g, '').trim();
+const RAW_FB_KEY = process.env.FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY || '';
+const FB_API_KEY = cleanKey(RAW_FB_KEY);
+const ANTHROPIC_KEY = cleanKey(process.env.ANTHROPIC_API_KEY);
 // معرّف المشروع اختياري: إن لم يُضبط يُؤخذ من رمز المستخدم بعد التحقق منه بمفتاح المشروع
 const FB_PROJECT = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || '';
 const FB_READY = !!FB_API_KEY;
@@ -233,8 +237,8 @@ const ISSUES = ['وقت الخدمة', 'جودة الطعام', 'الأسعار'
 
 let anthropic = null;
 function aiClient() {
-  if (!process.env.ANTHROPIC_API_KEY) { const e = new Error('ANTHROPIC_API_KEY غير مضبوط على الخادم'); e.status = 501; throw e; }
-  if (!anthropic) anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  if (!ANTHROPIC_KEY) { const e = new Error('ANTHROPIC_API_KEY غير مضبوط على الخادم'); e.status = 501; throw e; }
+  if (!anthropic) anthropic = new Anthropic({ apiKey: ANTHROPIC_KEY });
   return anthropic;
 }
 
@@ -270,16 +274,20 @@ async function callClaude({ system, user, maxTokens }) {
 
 /* ---- فحص الإعدادات: هل مفتاحا Firebase وAnthropic صالحان؟ (لا يكشف أي قيمة سرية) ---- */
 app.get('/api/health/config', rateLimit({ windowMs: 3600000, max: 20 }), async (_req, res) => {
-  const out = { ok: true, model: AI_MODEL, firebase: { configured: !!FB_API_KEY }, anthropic: { configured: !!process.env.ANTHROPIC_API_KEY } };
+  const out = { ok: true, model: AI_MODEL, firebase: { configured: !!FB_API_KEY }, anthropic: { configured: !!ANTHROPIC_KEY } };
   if (FB_API_KEY) {
     try {
       const r = await fetch('https://identitytoolkit.googleapis.com/v1/projects?key=' + encodeURIComponent(FB_API_KEY), { headers: googleHeaders() });
       const j = await r.json().catch(() => ({}));
       out.firebase.valid = r.ok;
-      if (!r.ok) out.firebase.error = (j.error && j.error.message) || ('HTTP ' + r.status);
+      if (!r.ok) {
+        out.firebase.error = (j.error && j.error.message) || ('HTTP ' + r.status);
+        // تشخيص شكل المفتاح فقط (دون قيمته): مفتاح الويب الصحيح 39 حرفًا ويبدأ بـ AIza
+        out.firebase.hint = { length: FB_API_KEY.length, startsWithAIza: FB_API_KEY.startsWith('AIza'), hadExtraChars: RAW_FB_KEY !== FB_API_KEY };
+      }
     } catch (e) { out.firebase.valid = false; out.firebase.error = 'network'; }
   }
-  if (process.env.ANTHROPIC_API_KEY) {
+  if (ANTHROPIC_KEY) {
     try {
       await aiClient().models.retrieve(AI_MODEL);
       out.anthropic.valid = true;
