@@ -681,6 +681,12 @@ function invPayments(i) {
 // تاريخ محلي من طابع زمني كامل (nowISO بتوقيت UTC) — أو التاريخ كما هو إن كان YYYY-MM-DD
 const dayOf = (v) => { const t = String(v || ''); if (t.length > 10 && t.includes('T')) { const x = new Date(t); if (!isNaN(x)) return isoD(x); } return t.slice(0, 10); };
 
+// v30.6 — حقول بطاقة جهة الاتصال (مشتركة للموردين والعملاء)
+const CONTACT_F = ['contactPerson', 'mobile2', 'email', 'city', 'crNo', 'iban', 'bankName', 'creditLimit', 'notes', 'inactive'];
+const waNum = (ph) => { let d = String(ph || '').replace(/\D/g, ''); if (d.startsWith('00')) d = d.slice(2); if (d.startsWith('05')) d = '966' + d.slice(1); else if (d.startsWith('5') && d.length === 9) d = '966' + d; return d; };
+const contactFields = (c) => { const o = {}; CONTACT_F.forEach(k => { if (k === 'inactive') return; const v = c[k]; o[k] = k === 'creditLimit' ? (Number(v) || 0) : (v == null ? '' : String(v).trim()); });
+  if (o.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(o.email)) o.email = ''; return o; };
+const contactOf = (r) => { const o = {}; CONTACT_F.forEach(k => { if (r && r[k] != null && r[k] !== '') o[k] = r[k]; }); return o; };
 function buildPartners(org, ops) {
   const parts = [];
   const led = ops.ledgerEntries || [];
@@ -722,7 +728,7 @@ function buildPartners(org, ops) {
 
   // الموردون — فواتير + سداداتها + مشتريات الإغلاق المرتبطة + حركات يدوية
   (org.suppliers || []).forEach(sp => {
-    const key = 'sup:' + sp.id; const txns = []; let linked = false;
+    const key = sp.key || ('sup:' + sp.id); const txns = []; let linked = false;
     (ops.invoices || []).filter(i => i.supplierId === sp.id).forEach(i => {
       const d = (i.date || i.createdAt || i.dueDate || today() || '').slice(0, 10);
       // v28.2: الإشعار الدائن (مبلغ سالب) يُعرض مدينًا يخفض الرصيد بدل دائن سالب
@@ -740,7 +746,7 @@ function buildPartners(org, ops) {
       linked = true;
     });
     txns.push(...ledFor(key));
-    parts.push({ key, id: sp.id, name: sp.name, type: 'supplier', cat: sp.category || 'مورد', phone: sp.phone || '', tax: sp.vatNo || '', address: sp.address || '', taxable: !!sp.taxable, terms: sp.terms || 0, linked, txns, storedCode: sp.code });
+    parts.push({ key, id: sp.id, ...contactOf(sp), name: sp.name, type: 'supplier', cat: sp.category || 'مورد', phone: sp.phone || '', tax: sp.vatNo || '', address: sp.address || '', taxable: !!sp.taxable, terms: sp.terms || 0, linked, txns, storedCode: sp.code });
   });
 
   // الموظفون — استحقاق وصرف الرواتب قيود دائمة تُرحَّل من شاشة الرواتب (لا سطر اصطناعي يتغيّر بالشهر)
@@ -754,14 +760,14 @@ function buildPartners(org, ops) {
     const ce = closeFor(key); txns.push(...ce); if (ce.length) linked = true;
     const pe = payFor(key); txns.push(...pe); if (pe.length) linked = true;
     txns.push(...ledFor(key));
-    parts.push({ key, id: em.id, name: em.name, type: 'employee', cat: em.jobTitle || em.title || 'موظف', phone: em.phone || '', tax: em.nationalId || em.iqamaNo || '', terms: 0, linked, txns, storedCode: em.code });
+    parts.push({ key, id: em.id, email: em.email || '', branchId: em.branchId || '', name: em.name, type: 'employee', cat: em.jobTitle || em.title || 'موظف', phone: em.phone || '', tax: em.nationalId || em.iqamaNo || '', terms: 0, linked, txns, storedCode: em.code });
   });
 
   // العملاء والشركاء اليدويون — حركات يدوية فقط
   (org.partners || []).forEach(pt => {
     const key = pt.key || ('cust:' + pt.id);
     const ce = closeFor(key), pp = payFor(key);
-    parts.push({ key, id: pt.id, name: pt.name, type: pt.type || 'customer', cat: pt.cat || 'عميل', phone: pt.phone || '', tax: pt.tax || '', address: pt.address || '', taxable: !!pt.taxable, terms: pt.terms || 0, linked: (ce.length + pp.length) > 0, custom: true, txns: [...ce, ...pp, ...ledFor(key)], storedCode: pt.code });
+    parts.push({ key, id: pt.id, ...contactOf(pt), name: pt.name, type: pt.type || 'customer', cat: pt.cat || 'عميل', phone: pt.phone || '', tax: pt.tax || '', address: pt.address || '', taxable: !!pt.taxable, terms: pt.terms || 0, linked: (ce.length + pp.length) > 0, custom: true, txns: [...ce, ...pp, ...ledFor(key)], storedCode: pt.code });
   });
 
   // v15.14 — شركاء الفرع: أُضيفوا فوريًا من فرعهم بلا اعتماد إداري (br store)؛ يُجمَّعون هنا
@@ -1721,7 +1727,7 @@ const TAB_AR = {
   analytics: 'مركز التحليل والأداء', reporting: 'مركز التقارير', exec: 'اللوحة التنفيذية',
   dash: 'لوحة المؤشرات', compare: 'مقارنة الفروع', growth: 'تحليلات النمو', breakeven: 'تحليل التعادل', scorecard: 'لوحة الأهداف', scenario: 'ماذا-لو', boardpack: 'تقرير الإدارة', cashflow: 'التدفق النقدي', closing: 'الإغلاق اليومي', apps: 'التطبيقات',
   approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', people: 'شؤون الموظفين', payroll: 'الرواتب والسلف', workforce: 'تخطيط العمالة والتكلفة', hrmaster: 'البيانات الرئيسية', hrpolicy: 'السياسات والأدوار', attendance: 'الحضور الموثَّق', shiftengine: 'محرّك الورديات', tasks: 'المهام', points: 'دفتر النقاط', kpi: 'الأداء والتقييم', rewards: 'المكافآت والجزاءات', esign: 'التوقيع الإلكتروني', corrective: 'الإجراءات التصحيحية', training: 'التدريب والشهادات', rolekpi: 'مؤشرات الأداء بالدور', hrdash: 'لوحة الموارد البشرية', perfsnap: 'تجميد الأداء الشهري',
-  purchasing: 'المشتريات والموردون', suppliers: 'الموردون والمشتريات', inv: 'المخزون والمنتجات', reorder: 'المشتريات الذكية', partners: 'دفتر الشركاء',
+  purchasing: 'المشتريات والموردون', suppliers: 'الموردون والمشتريات', inv: 'المخزون والمنتجات', reorder: 'المشتريات الذكية', partners: 'جهات الاتصال',
   acct: 'المحاسبة', shifts: 'مواعيد الإغلاق والتذكيرات', archive: 'أرشيف المستندات', ai: 'المركز الذكي',
   reports: 'التقارير المالية', rbuild: 'منشئ التقارير', entities: 'مركز المنشآت', admin: 'الفروع والمستخدمون', audit: 'سجل التدقيق', qrfb: 'تقييم العملاء (QR)', whbranch: 'مستودع الفرع'
 };
@@ -1885,7 +1891,7 @@ const REG_APPS = [
   { id: 'brmgmt', ar: 'الفروع والمستخدمون', en: 'Branches & Users', cat: 'pos', icon: UserCog, open: { tab: 'admin' }, kw: ['فرع', 'مستخدم', 'صلاحية', 'شعار', 'تصنيف', 'تطبيق توصيل'], fns: ['إدارة الفروع', 'المستخدمون والأدوار', 'تصنيفات المصروفات', 'تطبيقات التوصيل وعمولاتها', 'النظام'], d: 'إدارة الفروع والمستخدمين والصلاحيات وإعدادات النظام.' },
   // ——— المشتريات والموردون ———
   { id: 'suppliers', ar: 'الموردون والالتزامات', en: 'Suppliers & Payables', cat: 'pur', icon: Truck, open: { tab: 'suppliers' }, kw: ['مورد', 'فاتورة', 'سداد', 'التزام', 'أعمار', 'استحقاق', 'إيجار'], fns: ['فواتير التوريد الآجلة', 'السداد المركزي', 'الإيجارات والفواتير الثابتة', 'سجل الموردين'], d: 'فواتير الموردين وسداداتها والتزامات الفروع الثابتة.' },
-  { id: 'partners', ar: 'دفتر الشركاء', en: 'Partners Ledger', cat: 'pur', icon: Users, open: { tab: 'partners' }, kw: ['عميل', 'مورد', 'موظف', 'كشف حساب', 'ذمم', 'مدين', 'دائن', 'فاتورة'], fns: ['كشف حساب لكل شريك', 'ترقيم تلقائي', 'طلبات إضافة باعتماد', 'حركات يدوية'], d: 'عملاء وموردون وموظفون — مدين ودائن وكشف حساب لكل شريك.' },
+  { id: 'partners', ar: 'جهات الاتصال', en: 'Contacts', cat: 'pur', icon: Users, open: { tab: 'partners' }, kw: ['جهات الاتصال', 'اتصال', 'دفتر الشركاء', 'عميل', 'مورد', 'موظف', 'كشف حساب', 'ذمم', 'مدين', 'دائن', 'فاتورة'], fns: ['كشف حساب لكل شريك', 'ترقيم تلقائي', 'طلبات إضافة باعتماد', 'حركات يدوية'], d: 'عملاء وموردون وموظفون — مدين ودائن وكشف حساب لكل شريك.' },
   { id: 'po', ar: 'أوامر الشراء', en: 'Purchase Orders', cat: 'pur', icon: ClipboardCheck, open: { tab: 'suppliers' }, kw: ['أمر شراء', 'طلب', 'استلام', 'مورد'], fns: ['إنشاء أمر بنود وأسعار', 'استلام كلي أو جزئي يغذي المخزون', 'تحويل لفاتورة بحقل ضريبي'], d: 'أمر شراء ← استلام ← فاتورة ← سداد — من تبويب أوامر الشراء في شاشة الموردين.' },
   // ——— الموارد البشرية ———
   { id: 'payroll', ar: 'الرواتب والسلف', en: 'Payroll & Advances', cat: 'hr', icon: Wallet, open: { tab: 'payroll' }, kw: ['راتب', 'سلفة', 'خصم', 'استحقاق', 'صرف', 'موظف', 'قسيمة'], fns: ['كشف رواتب شهري', 'سلف وخصومات', 'ترحيل الاستحقاق والصرف للدفتر', 'قسائم رواتب'], d: 'كشف الرواتب والسلف والخصومات — مرحّلة محاسبياً باستحقاقها وصرفها.' },
@@ -1959,8 +1965,8 @@ const LAUNCH_APPS = [
     sections: ['الفروع', 'المستخدمون والصلاحيات', 'بنود المصروف', 'تطبيقات التوصيل', 'ظهور التطبيقات'], kw: ['فرع', 'مستخدم', 'صلاحية', 'إعداد', 'مستخدمون'] },
   { id: 'purchasing', ar: 'المشتريات والموردون', en: 'Purchasing & Suppliers', cat: 'pur', icon: Truck, open: { tab: 'purchasing' },
     sections: ['الموردون والمشتريات', 'الفواتير والالتزامات', 'سجل الموردين', 'أوامر الشراء', 'المشتريات الذكية', 'إعادة الطلب'], kw: ['مورد', 'موردون', 'فاتورة', 'التزام', 'أمر شراء', 'دفع', 'مشتريات', 'شراء', 'إعادة طلب', 'نفاد', 'حد أدنى', 'مخزون', 'reorder'] },
-  { id: 'partners', ar: 'دفتر الشركاء', en: 'Partners', cat: 'pur', icon: Users, open: { tab: 'partners' },
-    kw: ['شريك', 'شركاء', 'دفتر'] },
+  { id: 'partners', ar: 'جهات الاتصال', en: 'Contacts', cat: 'pur', icon: Users, open: { tab: 'partners' },
+    kw: ['جهات الاتصال', 'اتصال', 'شريك', 'شركاء', 'دفتر', 'موردون', 'عملاء'] },
   { id: 'people', ar: 'شؤون الموظفين', en: 'People & Payroll', cat: 'hr', icon: Wallet, open: { tab: 'people' },
     sections: ['البيانات الرئيسية', 'السياسات والأدوار', 'الرواتب والسلف', 'تخطيط العمالة والتكلفة'], kw: ['راتب', 'رواتب', 'سلفة', 'موظف', 'أجور', 'جدولة', 'حضور', 'ساعات', 'عمالة', 'دوام', 'وردية', 'تذكير', 'شؤون', 'قسم', 'أقسام', 'وظيفة', 'وظائف', 'عقد', 'مستند', 'سياسة', 'سياسات', 'جيوفنس', 'موقع', 'رمز', 'QR', 'مدير مباشر', 'رئيس قسم'] },
   { id: 'vat', ar: 'ضريبة القيمة المضافة', en: 'VAT', cat: 'tax', icon: Receipt, open: { tab: 'acct', view: 'vat' },
@@ -2932,10 +2938,10 @@ function PlatformApp() {
     { id: 'approve', ar: 'التدقيق والاعتماد', icon: ShieldCheck, cnt: pending },
     { id: 'treasury', ar: 'الخزينة والترحيل', icon: Landmark },
     { id: 'people', ar: 'شؤون الموظفين', icon: Wallet },
-    { id: 'purchasing', ar: 'المشتريات والموردون', icon: Truck },
+    { id: 'purchasing', ar: 'المشتريات', icon: Truck },
     { id: 'inv', ar: 'المخزون والمنتجات', icon: HardDrive },
     { id: 'whbranch', ar: 'مستودع الفرع', icon: Truck },
-    { id: 'partners', ar: 'دفتر الشركاء', icon: Users },
+    { id: 'partners', ar: 'جهات الاتصال', icon: Users },
     { id: 'acct', ar: 'المحاسبة', icon: Scale },
     { id: 'docs', ar: 'مركز المستندات', icon: Stamp },
     { id: 'archive', ar: 'أرشيف المستندات', icon: ImageIcon },
@@ -3037,7 +3043,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v30.5 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v30.6 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -6031,9 +6037,9 @@ const HUBS = {
     ]
   },
   purchasing: {
-    ar: 'المشتريات والموردون', desc: 'الموردون والفواتير وأوامر الشراء وإعادة الطلب', icon: Truck,
+    ar: 'المشتريات', desc: 'أوامر الشراء والاستلام وفواتير الموردين وإعادة الطلب — بطاقات الموردين في «جهات الاتصال»', icon: Truck,
     views: [
-      { id: 'suppliers', ar: 'الموردون والمشتريات', icon: Truck, comp: Suppliers },
+      { id: 'suppliers', ar: 'المشتريات والفواتير', icon: Truck, comp: Suppliers },
       { id: 'reorder', ar: 'المشتريات الذكية', icon: ClipboardCheck, comp: SmartPurchasing }
     ]
   },
@@ -14679,7 +14685,7 @@ function printReceipt(c, org, size) {
 }
 
 /* ================= الموردون والالتزامات الشهرية ================= */
-function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
+function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: goTab }) {
   const [tab, setTab] = useState('inv');
   const [repOpen, setRepOpen] = useState(false);    // v9.4 قائمة تقارير التطبيق
   const [pay, setPay] = useState(null);
@@ -14984,9 +14990,9 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
         <button className={'btn sm' + (tab === 'fx' ? ' pri' : ' gh')} onClick={() => setTab('fx')}>
           <Building2 size={14} />إيجارات وفواتير الفروع
         </button>
-        <button className={'btn sm' + (tab === 'sup' ? ' pri' : ' gh')} onClick={() => setTab('sup')}>
-          <Truck size={14} />سجل الموردين
-        </button>
+        {goTab && roleHasTab(me, 'partners') && <button className="btn sm gh" onClick={() => goTab('partners')} title="بطاقات الموردين وبيانات الاتصال وكشوف الحساب">
+          <Users size={14} />الموردون ← جهات الاتصال
+        </button>}
         <button className={'btn sm' + (tab === 'po' ? ' pri' : ' gh')} onClick={() => setTab('po')}>
           <ClipboardCheck size={14} />أوامر الشراء
         </button>
@@ -20651,6 +20657,17 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
 
   const partners = useMemo(() => buildPartners(org, ops), [org, ops]);
   const cur = partners.find(p => p.key === openKey);
+  // v30.6 — موردون سُجّلوا سابقًا كشركاء عامين (لا تراهم المشتريات): نقلهم لسجل الموردين بنفس المفتاح فتبقى حركاتهم
+  const strayS = (org.partners || []).filter(pt => pt.type === 'supplier');
+  const moveStray = async () => {
+    const ok = await commitOrg(d => {
+      const mv = (d.partners || []).filter(pt => pt.type === 'supplier');
+      const have = new Set((d.suppliers || []).map(x => x.id));
+      return { ...d, partners: (d.partners || []).filter(pt => pt.type !== 'supplier'),
+        suppliers: [...(d.suppliers || []), ...mv.filter(pt => !have.has(pt.id)).map(pt => ({ ...contactOf(pt), id: pt.id, key: pt.key || ('cust:' + pt.id), code: pt.code, name: pt.name, category: pt.cat || '', phone: pt.phone || '', vatNo: pt.vatNo || pt.tax || '', address: pt.address || '', taxable: !!pt.taxable, terms: Number(pt.terms) || 0 }))] };
+    }, { actionType: 'update', targetType: 'user_account', targetId: 'stray-suppliers', need: 'edit', title: 'نقل موردين إلى سجل الموردين', details: strayS.map(x => x.name).join('، ') });
+    if (ok) say('نُقل ' + strayS.length + ' مورد إلى سجل الموردين — يظهرون الآن في المشتريات وأرصدتهم كما هي ✓');
+  };
 
   // ترسيخ الأكواد على البطاقات القديمة مرة واحدة — حتى لا تتغير الأرقام بعد أي حذف مستقبلي
   useEffect(() => {
@@ -20673,7 +20690,8 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
     if (p.type === 'customer') cCust++; else if (p.type === 'supplier') cSupp++; else cEmp++;
   });
   const net = cr - dr;
-  const list = partners.filter(p => (filter === 'all' || p.type === filter) && (!q || (p.name || '').includes(q)));
+  const qq = (q || '').trim();
+  const list = partners.filter(p => (filter === 'all' || p.type === filter) && (!qq || [p.name, p.code, p.phone, p.mobile2, p.contactPerson, p.email, p.tax, p.cat, p.city].some(v => v && String(v).includes(qq))));
 
   // اعتماد/رفض طلبات الإضافة الواردة من الفروع
   const approveReq = async (r) => {
@@ -20719,15 +20737,17 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
 
   const saveCustomer = async () => {
     const c = addP;
-    if (!c.name?.trim()) return say('اكتب اسم الشريك', 'no');
+    if (!c.name?.trim()) return say('اكتب اسم الجهة', 'no');
+    if (c.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(c.email).trim())) return say('البريد الإلكتروني غير صحيح', 'no');
+    if (c.iban && !/^SA\d{22}$/.test(String(c.iban).trim())) return say('الآيبان السعودي: SA متبوعًا بـ 22 رقمًا', 'no');
     // v27.5 (إصلاح §١٢/18): «موظف» لا يُنشأ من دفتر الشركاء — كان يكتب بطاقة وهمية في org.partners
     // (مفتاح cust:) بلا فرع ولا راتب، لا تظهر في الحضور/الرواتب. الموظف الحقيقي يُنشأ في «البيانات
     // الرئيسية» (بفرع إلزامي) ويظهر هنا تلقائيًا عبر buildPartners (مفتاح emp:).
     if (!c.edit && c.type === 'employee') return say('الموظف يُضاف من «البيانات الرئيسية ← موظف جديد» (بفرع إلزامي)، ثم يظهر هنا تلقائيًا. دفتر الشركاء للعملاء والموردين فقط.', 'no');
     if (c.edit) {
       if (!canWriteOrgP) return say('تعديل بيانات الكرت للإدارة فقط', 'no');
-      const patch = { name: c.name.trim(), cat: c.cat || '', phone: c.phone || '', terms: Number(c.terms) || 0, address: c.address || '', taxable: !!c.taxable };
-      if (c.isSup) await commitOrg(d => ({ ...d, suppliers: (d.suppliers || []).map(s => s.id === c.id ? { ...s, ...patch, vatNo: c.tax || '' } : s) }), { actionType: 'update', targetType: 'user_account', targetId: c.id, title: 'حدّث بيانات كرت مورد', details: c.name });
+      const patch = { name: c.name.trim(), cat: c.cat || '', phone: c.phone || '', terms: Number(c.terms) || 0, address: c.address || '', taxable: !!c.taxable, ...contactFields(c) };
+      if (c.isSup) await commitOrg(d => ({ ...d, suppliers: (d.suppliers || []).map(s => s.id === c.id ? { ...s, ...patch, category: c.cat || '', vatNo: c.tax || '' } : s) }), { actionType: 'update', targetType: 'user_account', targetId: c.id, title: 'حدّث بيانات كرت مورد', details: c.name });
       else await commitOrg(d => ({ ...d, partners: (d.partners || []).map(p => p.id === c.id ? { ...p, ...patch, tax: c.tax || '', vatNo: c.tax || '' } : p) }), { actionType: 'update', targetType: 'user_account', targetId: c.id, title: 'حدّث بيانات كرت عميل', details: c.name });
       say('حُدّثت بيانات الكرت ✓'); setAddP(null); return;
     }
@@ -20745,11 +20765,17 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
       if (okReq) { say('أُرسل طلب اعتماد «' + req.name + '» لمسؤول النظام ✓'); setAddP(null); }
       return;
     }
-    const id = uid('pt'); const key = 'cust:' + id;
+    const dupe = partners.find(p => p.type === (c.type || 'customer') && (p.name || '').trim() === c.name.trim());
+    if (dupe && !window.confirm('توجد جهة بنفس الاسم (' + dupe.code + '). إضافة جهة جديدة رغم ذلك؟')) return;
+    const isSupNew = c.type === 'supplier';
+    // v30.6: المورد الجديد يُسجَّل في سجل الموردين نفسه الذي تقرأه المشتريات (كان يُحفظ كشريك عام فلا يظهر في أوامر الشراء)
+    const id = uid(isSupNew ? 'sp' : 'pt'); const key = (isSupNew ? 'sup:' : 'cust:') + id;
     const code = nextPartnerCode(partners, c.type || 'customer');
-    const rec = { id, key, code, name: c.name.trim(), type: c.type || 'customer', cat: c.cat || '', phone: c.phone || '', tax: c.tax || '', vatNo: c.tax || '', address: c.address || '', taxable: !!c.taxable, terms: Number(c.terms) || 0 };
-    await commitOrg(d => ({ ...d, partners: [...(d.partners || []), rec] }),
-      { actionType: 'create', targetType: 'user_account', targetId: id, title: 'أضاف شريكاً لدفتر الشركاء', details: rec.name + ' — ' + (PT_TYPE[rec.type]?.ar || '') });
+    const rec = isSupNew
+      ? { id, code, name: c.name.trim(), category: c.cat || '', phone: c.phone || '', vatNo: c.tax || '', address: c.address || '', taxable: !!c.taxable, terms: Number(c.terms) || 0, ...contactFields(c) }
+      : { id, key, code, name: c.name.trim(), type: c.type || 'customer', cat: c.cat || '', phone: c.phone || '', tax: c.tax || '', vatNo: c.tax || '', address: c.address || '', taxable: !!c.taxable, terms: Number(c.terms) || 0, ...contactFields(c) };
+    await commitOrg(d => (isSupNew ? { ...d, suppliers: [...(d.suppliers || []), rec] } : { ...d, partners: [...(d.partners || []), rec] }),
+      { actionType: 'create', targetType: 'user_account', targetId: id, title: 'أضاف جهة اتصال', details: rec.name + ' — ' + (PT_TYPE[c.type || 'customer']?.ar || '') });
     const openAmt = Number((c.opening || '').toString().replace(/,/g, '')) || 0;
     if (openAmt > 0) {
       const side = c.openingSide === 'debit' ? { debit: openAmt, credit: 0 } : { credit: openAmt, debit: 0 };
@@ -20801,7 +20827,7 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
     return (
       <div className="grid" style={{ gap: 14 }}>
         <button className="btn gh" style={{ alignSelf: 'flex-start' }} onClick={() => { setOpenKey(null); setTx(null); }}>
-          <ChevronRight size={15} />رجوع إلى دفتر الشركاء</button>
+          <ChevronRight size={15} />رجوع إلى جهات الاتصال</button>
 
         <div className="card" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 16, alignItems: 'center' }}>
           <div>
@@ -20818,7 +20844,19 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
               {cur.taxable && <span className="badge b-mint">خاضع للضريبة</span>}
               {cur.address && <span className="badge b-dim">📍 {cur.address}</span>}
               {cur.terms ? <span className="badge b-dim">مهلة <span className="num">{cur.terms}</span> يوم</span> : null}
+              {cur.contactPerson && <span className="badge b-dim">👤 {cur.contactPerson}</span>}
+              {cur.mobile2 && <span className="badge b-dim">جوال 2 <span className="num">{cur.mobile2}</span></span>}
+              {cur.email && <a className="badge b-dim" href={'mailto:' + cur.email}>✉ {cur.email}</a>}
+              {cur.city && <span className="badge b-dim">{cur.city}</span>}
+              {cur.crNo && <span className="badge b-dim">س.ت <span className="num">{cur.crNo}</span></span>}
+              {cur.iban && <span className="badge b-dim">{cur.bankName ? cur.bankName + ' · ' : ''}<span className="num">{cur.iban}</span></span>}
+              {cur.creditLimit ? <span className="badge b-dim">حد ائتمان <span className="num">{money(cur.creditLimit)}</span></span> : null}
             </div>
+            {cur.phone && <div className="row" style={{ gap: 6, marginTop: 8 }}>
+              <a className="btn sm" href={'tel:' + cur.phone}>📞 اتصال</a>
+              <a className="btn sm gh" target="_blank" rel="noreferrer" href={'https://wa.me/' + waNum(cur.phone)}>واتساب</a>
+            </div>}
+            {cur.notes && <div style={{ fontSize: 11.5, color: 'var(--dim)', marginTop: 8 }}>📝 {cur.notes}</div>}
           </div>
           <div style={{ textAlign: 'center', background: 'var(--ink3)', border: '1px solid var(--line)', borderRadius: 14, padding: 14 }}>
             <div style={{ fontSize: 11.5, color: 'var(--dim)' }}>الرصيد الحالي</div>
@@ -20830,7 +20868,8 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
         <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
           {canEdit && <button className="btn pri" onClick={() => setTx({ side: 'debit', date: today(), amount: '', desc: '' })}><Plus size={14} />إضافة حركة يدوية</button>}
           <button className="btn" onClick={() => printPartnerStatement(cur, org)}><Printer size={14} />طباعة كشف الحساب</button>
-          {canEdit && (cur.type === 'customer' || cur.type === 'supplier') && <button className="btn" onClick={() => setAddP({ edit: true, id: cur.id, isSup: cur.type === 'supplier' || (cur.key || '').startsWith('sup:'), type: cur.type, name: cur.name, cat: (cur.cat === 'مورد' || cur.cat === 'عميل') ? '' : (cur.cat || ''), phone: cur.phone || '', tax: cur.tax || '', address: cur.address || '', taxable: !!cur.taxable, terms: cur.terms || '' })}><Settings size={14} />تعديل بيانات الكرت</button>}
+          {canEdit && (cur.type === 'customer' || cur.type === 'supplier') && <button className="btn" onClick={() => setAddP({ edit: true, id: cur.id, isSup: (org.suppliers || []).some(x => x.id === cur.id), type: cur.type, name: cur.name, cat: (cur.cat === 'مورد' || cur.cat === 'عميل') ? '' : (cur.cat || ''), phone: cur.phone || '', tax: cur.tax || '', address: cur.address || '', taxable: !!cur.taxable, terms: cur.terms || '', ...contactOf(cur), creditLimit: cur.creditLimit || '' })}><Settings size={14} />تعديل بيانات الكرت</button>}
+          {cur.type === 'employee' && <span className="badge b-dim" style={{ alignSelf: 'center' }}>بيانات الموظف تُعدَّل من «شؤون الموظفين ← البيانات الرئيسية»</span>}
           {canWriteOrgP && cur.source === 'branch' && <button className="btn pri" onClick={() => promotePartner(cur)}><ArrowUp size={14} />ترقية للسجل المركزي</button>}
         </div>
 
@@ -20870,9 +20909,18 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
     );
   }
 
-  // ===== قائمة الشركاء =====
+  // ===== قائمة جهات الاتصال =====
   return (
     <div className="grid" style={{ gap: 14 }}>
+      {canWriteOrgP && strayS.length > 0 && (
+        <div className="card" style={{ borderColor: 'rgba(224,164,88,.5)' }}>
+          <div className="row" style={{ justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ fontSize: 12.5, lineHeight: 1.8 }}><b>{strayS.length} مورد</b> مسجّلون كشركاء عامين فلا يظهرون في أوامر الشراء والفواتير: {strayS.map(x => x.name).join('، ')}.
+              <div style={{ fontSize: 11, color: 'var(--faint)' }}>النقل يحفظ أكوادهم وكشوف حساباتهم كما هي.</div></div>
+            <button className="btn sm pri" onClick={moveStray}>نقلهم إلى سجل الموردين</button>
+          </div>
+        </div>
+      )}
       {canWriteOrgP && pendReqs.length > 0 && (
         <div className="card" style={{ borderColor: 'rgba(200,162,74,.45)' }}>
           <div className="card-t" style={{ marginBottom: 10 }}><Bell size={15} color="var(--brass)" />طلبات إضافة شركاء بانتظار اعتمادك ({pendReqs.length})</div>
@@ -20902,26 +20950,30 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
       </div>
 
       <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-        {[['all', 'الكل', partners.length], ['customer', 'العملاء', cCust], ['supplier', 'الموردون', cSupp], ['employee', 'الموظفون', cEmp]].map(([k, lbl, n]) => (
+        {[['all', 'الكل', partners.length], ['supplier', 'الموردون', cSupp], ['customer', 'العملاء', cCust], ['employee', 'الموظفون', cEmp]].map(([k, lbl, n]) => (
           <button key={k} className={'btn sm' + (filter === k ? ' pri' : ' gh')} onClick={() => setFilter(k)}>{lbl} <span className="num" style={{ opacity: .7 }}>{n}</span></button>
         ))}
         <div style={{ marginInlineStart: 'auto', position: 'relative' }}>
-          <input className="inp" style={{ width: 210, paddingInlineStart: 32 }} value={q} placeholder="ابحث باسم الشريك…" onChange={e => setQ(e.target.value)} />
+          <input className="inp" style={{ width: 210, paddingInlineStart: 32 }} value={q} placeholder="ابحث بالاسم أو الجوال أو الكود…" onChange={e => setQ(e.target.value)} />
           <Search size={14} style={{ position: 'absolute', insetInlineStart: 10, top: 11, color: 'var(--faint)' }} />
         </div>
-        {canEdit && <button className="btn sm" onClick={() => setAddP({ type: 'customer', openingSide: 'debit' })}><Plus size={14} />إضافة شريك</button>}
+        {canEdit && <button className="btn sm" onClick={() => setAddP({ type: 'customer', openingSide: 'debit' })}><Plus size={14} />إضافة جهة اتصال</button>}
       </div>
 
       <div className="card">
         <div className="tw">
           <table className="tb cards">
-            <thead><tr><th>الشريك</th><th>النوع</th><th>الجوال</th><th>الربط بالفروع</th><th>الرصيد</th><th></th></tr></thead>
+            <thead><tr><th>الجهة</th><th>النوع</th><th>الاتصال</th><th>الربط بالفروع</th><th>الرصيد</th><th></th></tr></thead>
             <tbody>
               {list.map(p => (
                 <tr key={p.key} style={{ cursor: 'pointer' }} onClick={() => setOpenKey(p.key)}>
                   <td data-label="الشريك"><div style={{ fontWeight: 700, fontSize: 13.5 }}>{p.name}{p.source === 'branch' && <span className="badge b-amber" style={{ fontSize: 9, marginInlineStart: 6 }}>فرع</span>}</div><div style={{ fontSize: 11, color: 'var(--faint)' }}><span className="num" style={{ color: 'var(--brass)' }}>{p.code}</span> · {p.cat}</div></td>
                   <td data-label="النوع"><PartnerChip type={p.type} /></td>
-                  <td data-label="الجوال" className="num" style={{ fontSize: 12, color: 'var(--dim)' }}>{p.phone || '—'}</td>
+                  <td data-label="الاتصال" style={{ fontSize: 12, color: 'var(--dim)' }} onClick={e => e.stopPropagation()}>
+                    {p.contactPerson && <div style={{ fontSize: 11.5 }}>{p.contactPerson}</div>}
+                    {p.phone ? <a className="num" href={'tel:' + p.phone} style={{ color: 'var(--sky)' }}>{p.phone}</a> : (!p.email && !p.contactPerson ? '—' : null)}
+                    {p.email && <div style={{ fontSize: 10.5 }}><a href={'mailto:' + p.email} style={{ color: 'var(--faint)' }}>{p.email}</a></div>}
+                  </td>
                   <td data-label="الربط">{p.linked ? <span className="badge b-mint" style={{ fontSize: 10 }}>◍ مرتبط</span> : <span style={{ color: 'var(--faint)' }}>—</span>}</td>
                   <td data-label="الرصيد" className="num"><BalCell bal={p.balance} /></td>
                   <td style={{ textAlign: 'end', color: 'var(--faint)', fontSize: 11.5 }}>كشف الحساب ←</td>
@@ -20934,7 +20986,7 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
       </div>
 
       {addP && (
-        <Modal title={addP.edit ? 'تعديل بيانات الكرت' : 'إضافة شريك جديد'} icon={Users} onClose={() => setAddP(null)}
+        <Modal title={addP.edit ? 'تعديل بيانات الكرت' : 'جهة اتصال جديدة'} icon={Users} onClose={() => setAddP(null)}
           foot={<><button className="btn pri" onClick={saveCustomer}><Check size={14} />{addP.edit ? 'حفظ التعديلات' : 'حفظ الشريك'}</button>
             <button className="btn gh" onClick={() => setAddP(null)}>إلغاء</button></>}>
           {!addP.edit && (<>
@@ -20952,7 +21004,17 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
             <Field label="الجوال"><input className="inp" style={{ direction: 'ltr', textAlign: 'right' }} value={addP.phone || ''} onChange={e => setAddP({ ...addP, phone: e.target.value })} /></Field>
             <Field label="الرقم الضريبي (١٥ رقمًا للمسجّل)"><input className="inp n" value={addP.tax || ''} onChange={e => setAddP({ ...addP, tax: e.target.value })} placeholder="3XXXXXXXXXXXX03" /></Field>
             <Field label="مهلة السداد (يوم)"><input className="inp" inputMode="numeric" value={addP.terms || ''} onChange={e => setAddP({ ...addP, terms: e.target.value })} /></Field>
+            <Field label="الشخص المسؤول"><input className="inp" value={addP.contactPerson || ''} onChange={e => setAddP({ ...addP, contactPerson: e.target.value })} placeholder="اسم المندوب أو المحاسب" /></Field>
+            <Field label="جوال إضافي"><input className="inp" style={{ direction: 'ltr', textAlign: 'right' }} value={addP.mobile2 || ''} onChange={e => setAddP({ ...addP, mobile2: e.target.value })} /></Field>
+            <Field label="البريد الإلكتروني"><input className="inp" style={{ direction: 'ltr', textAlign: 'right' }} type="email" value={addP.email || ''} onChange={e => setAddP({ ...addP, email: e.target.value })} /></Field>
+            <Field label="المدينة"><input className="inp" value={addP.city || ''} onChange={e => setAddP({ ...addP, city: e.target.value })} /></Field>
+            <Field label="السجل التجاري"><input className="inp n" value={addP.crNo || ''} onChange={e => setAddP({ ...addP, crNo: e.target.value })} /></Field>
+            {(addP.type || 'customer') === 'customer'
+              ? <Field label="حد الائتمان (ر.س)"><input className="inp n" inputMode="decimal" value={addP.creditLimit || ''} onChange={e => setAddP({ ...addP, creditLimit: e.target.value.replace(/[^\d.]/g, '') })} /></Field>
+              : <Field label="البنك"><input className="inp" value={addP.bankName || ''} onChange={e => setAddP({ ...addP, bankName: e.target.value })} /></Field>}
           </div>
+          {addP.type === 'supplier' && <Field label="الآيبان (للسداد بالتحويل)"><input className="inp n" style={{ direction: 'ltr', textAlign: 'right' }} value={addP.iban || ''} placeholder="SA…" onChange={e => setAddP({ ...addP, iban: e.target.value.toUpperCase().replace(/\s/g, '') })} /></Field>}
+          <Field label="ملاحظات"><input className="inp" value={addP.notes || ''} onChange={e => setAddP({ ...addP, notes: e.target.value })} /></Field>
           <Field label="العنوان الوطني (للفاتورة الضريبية)"><input className="inp" value={addP.address || ''} onChange={e => setAddP({ ...addP, address: e.target.value })} placeholder="المدينة، الحي، الشارع، الرمز البريدي" /></Field>
           <label className="row" style={{ gap: 6, fontSize: 12.5, cursor: 'pointer', marginTop: 4 }}>
             <input type="checkbox" checked={!!addP.taxable} onChange={e => setAddP({ ...addP, taxable: e.target.checked })} />
