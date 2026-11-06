@@ -395,7 +395,7 @@ function dirOf(org) {
     expenseCats: org.expenseCats || [],
     deliveryApps: org.deliveryApps || [],
     // v29.9: أصناف المخزون (بلا تكلفة) والمستودعات — لشاشة «مستودع الفرع»
-    items: (org.items || []).map(it => ({ id: it.id, name: it.name, unit: it.unit || '', minQty: it.minQty || 0, isActive: it.isActive !== false })),
+    items: (org.items || []).map(it => ({ id: it.id, name: it.name, unit: it.unit || '', minQty: it.minQty || 0, isActive: it.isActive !== false, type: it.type || 'stock', purchaseUnit: it.purchaseUnit || '', purchaseFactor: it.purchaseFactor || 1 })),
     warehouses: (org.warehouses || []).map(w => ({ id: w.id, name: w.name, kind: w.kind, branchId: w.branchId || '', parentId: w.parentId || '', active: w.active !== false })),
     suppliers: (org.suppliers || []).map(x => ({ id: x.id, name: x.name, category: x.category || '', code: x.code || '', terms: x.terms || 0 })),
     employees: (org.employees || []).map(e => ({ id: e.id, name: e.name, branchId: e.branchId || '', jobTitle: e.jobTitle || '', code: e.code || '', isActive: e.isActive !== false })),
@@ -1554,7 +1554,8 @@ function buildAccounting(org, ops) {
     const ivDate = (iv.asOf || today()).slice(0, 10);
     // v29.9: الأرصدة كما في تاريخ الرسملة (لا الأرصدة الحالية) — حركة اليوم لا تغيّر قيد شهر سابق
     const SB = stockByWh(org, ops, ivDate);
-    const costOf = (id) => Number(((org.items || []).find(x => x.id === id) || {}).cost) || 0;
+    const AVG = itemAvgCosts(org, ops, ivDate);   // v30.4: المتوسط المرجّح كما في تاريخ الرسملة
+    const costOf = (id) => AVG[id] || 0;
     const valOf = (m) => Math.round(Object.entries(m || {}).reduce((s, [id, q]) => s + Math.max(0, q) * costOf(id), 0) * 100) / 100;
     if (whOn(org) && iv.auto !== false) {
       const lines = [];
@@ -2965,7 +2966,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v30.3 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v30.4 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -14722,7 +14723,8 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
     const sp = (org.suppliers || []).find(x => x.id === f.supplierId);
     if (!sp) return say('اختر المورد', 'no');
     const lines = (f.lines || []).filter(l => (l.desc || '').trim() && Number(l.qty) > 0)
-      .map(l => ({ desc: l.desc.trim(), itemId: l.itemId || '', qty: Number(l.qty), price: Number(l.price) || 0, received: 0 }));
+      .map(l => { const it = items.find(x => x.id === l.itemId); const fac = it && l.uom === 'p' ? pFactor(it) : 1;
+        return { desc: l.desc.trim(), itemId: l.itemId || '', qty: Number(l.qty), price: Number(l.price) || 0, received: 0, ...(fac > 1 ? { factor: fac, uomName: it.purchaseUnit } : {}) }; });
     if (!lines.length) return say('أضف بنداً واحداً على الأقل (وصف وكمية)', 'no');
     const rec = { id: uid('po'), poNo: nextPoNo(), supplierId: sp.id, supplierName: sp.name,
       branchId: f.branchId || '', note: f.note || '', lines, status: 'open', by: me.name, at: nowISO(), date: today() };
@@ -14754,10 +14756,14 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
     const f = recv; const p2 = f.po;
     const takes = p2.lines.map((l, i) => Math.min(Math.max(Number(f.qtys[i]) || 0, 0), (l.qty || 0) - (l.received || 0)));
     if (!takes.some(q => q > 0)) return say('أدخل كمية مستلمة لبند واحد على الأقل', 'no');
-    const moves = p2.lines.map((l, i) => (takes[i] > 0 && l.itemId) ? {
-      id: uid('sm'), date: today(), itemId: l.itemId, kind: 'purchase', qty: takes[i],
-      note: 'استلام ' + p2.poNo + ' — ' + l.desc, ref: p2.poNo, by: me.name, at: nowISO()
-    } : null).filter(Boolean);
+    // v30.4: الكمية بوحدة الشراء تُحوَّل للأساسية، وسعر البند يصبح تكلفة الوحدة الأساسية فيُحدّث المتوسط المرجّح. الخدمي لا يُخزَّن.
+    const moves = p2.lines.map((l, i) => { const it = items.find(x => x.id === l.itemId); const fac = Number(l.factor) || 1;
+      return (takes[i] > 0 && l.itemId && (!it || isStocked(it))) ? {
+        id: uid('sm'), date: today(), itemId: l.itemId, kind: 'purchase', qty: Math.round(takes[i] * fac * 1000) / 1000,
+        unitCost: Math.round((Number(l.price) || 0) / fac * 10000) / 10000,
+        note: 'استلام ' + p2.poNo + ' — ' + l.desc + (fac > 1 ? ' (' + takes[i] + ' ' + (l.uomName || '') + ')' : ''), ref: p2.poNo, by: me.name, at: nowISO(),
+        ...(whOn(org) ? { whId: MAIN_WH } : {})
+      } : null; }).filter(Boolean);
     await commit(d => ({
       ...d,
       stockMoves: [...moves, ...(d.stockMoves || [])],
@@ -14771,10 +14777,11 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
       title: 'سجّل استلام أمر شراء', details: p2.poNo + ' · ' + takes.filter(q => q > 0).length + ' بند' + (moves.length ? ' · غُذّي المخزون' : '')
     });
     // تحديث تكلفة الأصناف المرتبطة بآخر سعر شراء
-    const costUp = p2.lines.map((l, i) => (takes[i] > 0 && l.itemId && l.price > 0) ? { id: l.itemId, cost: l.price } : null).filter(Boolean);
+    // v30.4: التكلفة تُحتسب بالمتوسط المرجّح من الحركات — يُحفظ آخر سعر شراء للمرجعية فقط (بالوحدة الأساسية)
+    const costUp = p2.lines.map((l, i) => (takes[i] > 0 && l.itemId && l.price > 0) ? { id: l.itemId, lastPrice: Math.round(l.price / (Number(l.factor) || 1) * 10000) / 10000, lastSupplier: p2.supplierName, lastAt: today() } : null).filter(Boolean);
     if (costUp.length) await commitOrg(d => ({
-      ...d, items: (d.items || []).map(it => { const u = costUp.find(c => c.id === it.id); return u ? { ...it, cost: u.cost } : it; })
-    }), { actionType: 'update', targetType: 'stock_item', targetId: p2.id, title: 'حدّث تكلفة أصناف بآخر شراء', details: p2.poNo });
+      ...d, items: (d.items || []).map(it => { const u = costUp.find(c => c.id === it.id); return u ? { ...it, lastPrice: u.lastPrice, lastSupplier: u.lastSupplier, lastAt: u.lastAt } : it; })
+    }), { actionType: 'update', targetType: 'stock_item', targetId: p2.id, title: 'سجّل آخر سعر شراء للأصناف', details: p2.poNo });
     setRecv(null); say('سُجّل الاستلام' + (moves.length ? ' وغُذّي المخزون تلقائياً ✓' : ' ✓'));
   };
 
@@ -15067,10 +15074,14 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
               <input className="inp" style={{ flex: 2, minWidth: 150 }} placeholder="الوصف (لحم غنم مبرد…)" value={l.desc}
                 onChange={e => setPoF(f => ({ ...f, lines: f.lines.map((x, k) => k === i ? { ...x, desc: e.target.value } : x) }))} />
               <select className="sel" style={{ flex: 1.4, minWidth: 130 }} value={l.itemId}
-                onChange={e => setPoF(f => ({ ...f, lines: f.lines.map((x, k) => k === i ? { ...x, itemId: e.target.value } : x) }))}>
+                onChange={e => { const it = items.find(x => x.id === e.target.value); setPoF(f => ({ ...f, lines: f.lines.map((x, k) => k === i ? { ...x, itemId: e.target.value, uom: it && it.purchaseUnit && pFactor(it) > 1 ? 'p' : 'b', desc: x.desc || (it ? it.name : '') } : x) })); }}>
                 <option value="">بلا ربط مخزون</option>
-                {items.map(it => <option key={it.id} value={it.id}>{it.name} ({it.unit})</option>)}
+                {items.map(it => <option key={it.id} value={it.id}>{it.name} ({it.unit}){itemType(it) === 'service' ? ' — خدمي' : ''}</option>)}
               </select>
+              {(() => { const it = items.find(x => x.id === l.itemId); return it && it.purchaseUnit && pFactor(it) > 1 ? (
+                <select className="sel" style={{ width: 120 }} value={l.uom || 'p'} onChange={e => setPoF(f => ({ ...f, lines: f.lines.map((x, k) => k === i ? { ...x, uom: e.target.value } : x) }))}>
+                  <option value="p">{it.purchaseUnit} ({pFactor(it)})</option><option value="b">{it.unit}</option>
+                </select>) : null; })()}
               <input className="inp n" style={{ width: 90 }} inputMode="decimal" placeholder="الكمية" value={l.qty}
                 onChange={e => setPoF(f => ({ ...f, lines: f.lines.map((x, k) => k === i ? { ...x, qty: e.target.value.replace(/[^\d.]/g, '') } : x) }))} />
               <input className="inp n" style={{ width: 100 }} inputMode="decimal" placeholder="سعر الوحدة" value={l.price}
@@ -15264,6 +15275,42 @@ function stockByWh(org, ops, asOf) {
   });
   return { byWh, transit, total };
 }
+/* v30.4 — أنواع الأصناف + المتوسط المرجّح + وحدات الشراء
+   • النوع: استهلاكي (مواد خام ومستلزمات تُستهلك) · قابل للبيع (بضاعة تُباع كما هي) · خدمي (لا يُخزَّن — لا أرصدة ولا جرد).
+   • وحدة الشراء: purchaseUnit + purchaseFactor (مثال: كرتون = 12 حبة) — الأرصدة دائمًا بالوحدة الأساسية unit.
+   • التكلفة: المتوسط المرجّح على مستوى المنشأة — كل وارد بتكلفة (unitCost) يعيد حساب المتوسط، وكل صادر يخرج به.
+     يُشتق بإعادة تشغيل الحركات زمنيًا (لا رقم مخزّن يتعارض). الحركات القديمة بلا تكلفة تُسعَّر بتكلفة الصنف المرجعية. */
+const ITEM_TYPES = {
+  stock: { ar: 'استهلاكي — مواد خام ومستلزمات تُستهلك', short: 'استهلاكي', c: 'b-sky' },
+  sale: { ar: 'قابل للبيع — بضاعة تُباع كما هي', short: 'للبيع', c: 'b-mint' },
+  service: { ar: 'خدمي — لا يُخزَّن (صيانة، نظافة، توصيل…)', short: 'خدمي', c: 'b-dim' }
+};
+const itemType = (it) => (it && ITEM_TYPES[it.type]) ? it.type : 'stock';
+const isStocked = (it) => itemType(it) !== 'service';
+const pFactor = (it) => Math.max(1, Number(it && it.purchaseFactor) || 1);
+function itemAvgCosts(org, ops, asOf) {
+  const items = org.items || [], byId = {}; items.forEach(it => { byId[it.id] = it; });
+  const okD = (d) => !asOf || !d || String(d).slice(0, 10) <= asOf;
+  const ev = [];
+  const add = (m) => { if (!m || !m.itemId || !okD(m.date || m.at)) return; ev.push({ k: String(m.date || '').slice(0, 10) + '|' + String(m.at || ''), itemId: m.itemId, qty: Number(m.qty) || 0, kind: m.kind, unitCost: m.unitCost }); };
+  (ops.stockMoves || []).forEach(add); (ops.whMoves || []).forEach(add);
+  // التحويلات الداخلية لا تغيّر متوسط المنشأة — إلا فرق الاستلام (فقدٌ يخرج بالمتوسط)
+  (ops.whTransfers || []).forEach(t => { if (t.status !== 'received' || t.kind === 'b2b') return;
+    (t.lines || []).forEach(l => { const lost = (Number(l.qtySent) || 0) - (Number(l.qtyRecv) || 0); if (Math.abs(lost) > 0.0005) add({ itemId: l.itemId, qty: -lost, date: t.receivedDate, at: t.receivedAt || '' }); }); });
+  ev.sort((a, b) => a.k < b.k ? -1 : a.k > b.k ? 1 : 0);
+  const st = {};
+  ev.forEach(e => {
+    const s = st[e.itemId] || (st[e.itemId] = { q: 0, a: null });
+    let c = e.unitCost != null && e.unitCost !== '' && Number.isFinite(Number(e.unitCost)) ? Number(e.unitCost) : null;
+    if (c == null && e.qty > 0 && (e.kind === 'purchase' || e.kind === 'in')) c = Number((byId[e.itemId] || {}).cost) || 0;   // حركات قديمة بلا تكلفة
+    if (e.qty > 0 && c != null) { s.a = (s.q <= 0 || s.a == null) ? c : (s.q * s.a + e.qty * c) / (s.q + e.qty); s.q += e.qty; }
+    else s.q += e.qty;   // صادر أو تسوية بلا تكلفة: بالمتوسط القائم
+  });
+  const out = {};
+  items.forEach(it => { const s = st[it.id]; out[it.id] = (s && s.a != null) ? Math.round(s.a * 10000) / 10000 : (Number(it.cost) || 0); });
+  return out;
+}
+
 // رمز حساب مخزون جديد للمستودع: 160101، 160102… (ثابت على المستودع — لا يتغير بترتيب الفروع)
 const nextWhAcc = (list) => { let n = 1; const used = new Set((list || []).map(w => String(w.accCode || ''))); while (used.has('1601' + String(n).padStart(2, '0'))) n++; return '1601' + String(n).padStart(2, '0'); };
 
@@ -15298,15 +15345,16 @@ function WhLines({ items, lines, setLines, field, max }) {
 }
 
 function WarehousesPanel({ org, ops, me, commit, commitOrg, say }) {
-  const items = org.items || [];
+  const items = (org.items || []).filter(isStocked);
   const whs = whOf(org);
   const branches = (org.branches || []).filter(b => b.isActive !== false);
   const canW = rolePost(me?.role);
   const SB = useMemo(() => stockByWh(org, ops), [org, ops]);
+  const AVG = useMemo(() => itemAvgCosts(org, ops), [org, ops]);
   const [sel, setSel] = useState(MAIN_WH);
   const [sendF, setSendF] = useState(null);     // صرف تحويل (طلب قائم أو جديد)
   const [ren, setRen] = useState(null);
-  const costOf = (id) => Number((items.find(x => x.id === id) || {}).cost) || 0;
+  const costOf = (id) => AVG[id] || 0;
   const itemOf = (id) => items.find(x => x.id === id) || { name: '—', unit: '' };
   const qOf = (wh, id) => q3(((SB.byWh[wh] || {})[id]) || 0);
   const valOf = (wh) => Math.round(Object.entries(SB.byWh[wh] || {}).reduce((s, [id, q]) => s + Math.max(0, q) * costOf(id), 0) * 100) / 100;
@@ -15516,7 +15564,7 @@ function WarehousesPanel({ org, ops, me, commit, commitOrg, say }) {
 /* ============ v29.9 — مستودع الفرع (موظفو الفرع): الاستلام، الطلب، الصرف للمطبخ، الهدر، الجرد ============ */
 const WH_MOVE = { out: { ar: 'صرف للمطبخ', sign: -1, c: 'b-sky' }, waste: { ar: 'هدر/إتلاف', sign: -1, c: 'b-rose' }, adjust: { ar: 'تسوية جرد', sign: 1, c: 'b-amber' } };
 function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
-  const items = (org.items || []).filter(it => it.isActive !== false);
+  const items = (org.items || []).filter(it => it.isActive !== false && isStocked(it));
   const mine = (myBranches || []).map(b => whForBranch(org, b.id)).filter(Boolean);
   const [whId, setWhId] = useState(mine[0]?.id || '');
   const [view, setView] = useState('bal');
@@ -15762,9 +15810,11 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
   // الجرد وحركات الشاشة المركزية تخص المستودع الرئيسي — تُقارن برصيده هو لا بإجمالي المنشأة
   const mainBal = whOn(org) ? (SBall.byWh[MAIN_WH] || {}) : SBall.total;
   const mainOf = (id) => Math.round((mainBal[id] || 0) * 1000) / 1000;
+  const AVG = useMemo(() => itemAvgCosts(org, ops), [org, ops]);   // v30.4 المتوسط المرجّح
+  const avgOf = (id) => AVG[id] || 0;
   const balOf = (id) => Math.round((bal[id] || 0) * 1000) / 1000;
-  const stockValue = sum(items, it => balOf(it.id) * (it.cost || 0));
-  const lowItems = items.filter(it => (it.minQty || 0) > 0 && balOf(it.id) <= it.minQty);
+  const stockValue = sum(items.filter(isStocked), it => Math.max(0, balOf(it.id)) * avgOf(it.id));
+  const lowItems = items.filter(it => isStocked(it) && (it.minQty || 0) > 0 && balOf(it.id) <= it.minQty);
 
   // v10.0 — رسملة المخزون (الطريقة الدورية): بضاعة آخر المدة تُرسمل أصلًا وتُخفّض تكلفة الفترة
   const saveIv = async () => {
@@ -15785,9 +15835,11 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
   const itemName = (id) => (items.find(x => x.id === id) || {}).name || '—';
 
   // ===== v30.3 — استيراد الأصناف من Excel/CSV =====
-  const IMP_COLS = [['name', 'اسم الصنف', /اسم|الصنف|المادة|item|name|product/i], ['unit', 'الوحدة', /وحد|unit|uom/i],
+  const IMP_COLS = [['name', 'اسم الصنف', /اسم|الصنف|المادة|item|name|product/i], ['unit', 'الوحدة', /^(?!.*(شراء|purchase)).*(وحد|unit|uom)/i],
     ['cost', 'التكلفة', /تكلف|سعر|cost|price/i], ['minQty', 'الحد الأدنى', /أدنى|ادنى|الحد|min|reorder/i],
-    ['maxQty', 'الحد الأعلى', /أعلى|اعلى|max/i], ['qty', 'الرصيد الافتتاحي', /رصيد|كمي|qty|quantity|opening|stock/i]];
+    ['maxQty', 'الحد الأعلى', /أعلى|اعلى|max/i], ['qty', 'الرصيد الافتتاحي', /رصيد|كمي|qty|quantity|opening/i],
+    ['type', 'نوع الصنف', /نوع|type/i], ['purchaseUnit', 'وحدة الشراء', /وحدة الشراء|purchase unit|pack/i], ['purchaseFactor', 'معامل التحويل', /معامل|تحويل|factor|per pack/i]];
+  const typeOf = (v) => { const t = String(v || '').trim(); return /خدم|serv/i.test(t) ? 'service' : /بيع|sale|sell/i.test(t) ? 'sale' : t ? 'stock' : ''; };
   const normNum = (v) => { const t = String(v == null ? '' : v).replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[٫]/g, '.').replace(/[,٬\s]/g, '');
     if (t === '') return null; const n = Number(t); return Number.isFinite(n) ? n : NaN; };
   const normName = (v) => String(v || '').trim().replace(/\s+/g, ' ').toLowerCase();
@@ -15811,8 +15863,9 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
   };
   const impTemplate = () => {
     try {
-      const blob = makeXlsx([{ name: 'الأصناف', rows: [['اسم الصنف', 'الوحدة', 'التكلفة', 'الحد الأدنى', 'الحد الأعلى', 'الرصيد الافتتاحي'],
-        ['أرز بسمتي', 'كغ', 6.5, 50, 200, 120], ['زيت طبخ', 'لتر', 9.25, 20, 80, 40], ['خبز صامولي', 'حبة', 0.35, 200, 1000, '']] }]);
+      const blob = makeXlsx([{ name: 'الأصناف', rows: [['اسم الصنف', 'نوع الصنف', 'الوحدة', 'التكلفة', 'الحد الأدنى', 'الحد الأعلى', 'الرصيد الافتتاحي', 'وحدة الشراء', 'معامل التحويل'],
+        ['أرز بسمتي', 'استهلاكي', 'كغ', 6.5, 50, 200, 120, 'كيس', 40], ['زيت طبخ', 'استهلاكي', 'لتر', 9.25, 20, 80, 40, 'كرتون', 12],
+        ['مياه معدنية', 'قابل للبيع', 'حبة', 0.6, 100, 600, 240, 'كرتون', 24], ['صيانة المكيفات', 'خدمي', 'زيارة', 150, '', '', '', '', '']] }]);
       const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'نموذج_استيراد_الأصناف.xlsx'; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(url), 1500);
     } catch (e) { say('تعذّر توليد النموذج', 'no'); }
   };
@@ -15825,22 +15878,24 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
       const name = String(cell(r, 'name') || '').trim(); if (!name) return null;
       const unit = String(cell(r, 'unit') || '').trim();
       const cost = normNum(cell(r, 'cost')), minQty = normNum(cell(r, 'minQty')), maxQty = normNum(cell(r, 'maxQty')), qty = normNum(cell(r, 'qty'));
+      const type = typeOf(cell(r, 'type')), purchaseUnit = String(cell(r, 'purchaseUnit') || '').trim(), purchaseFactor = normNum(cell(r, 'purchaseFactor'));
       const key = normName(name); const ex = items.find(x => normName(x.name) === key);
       let st = ex ? 'update' : 'new', why = '';
-      if ([cost, minQty, maxQty, qty].some(v => Number.isNaN(v) || (v != null && v < 0))) { st = 'error'; why = 'رقم غير صالح'; }
+      if ([cost, minQty, maxQty, qty, purchaseFactor].some(v => Number.isNaN(v) || (v != null && v < 0))) { st = 'error'; why = 'رقم غير صالح'; }
       else if (seen.has(key)) { st = 'dup'; why = 'مكرر في الملف'; }
       seen.add(key);
-      return { line: impF.start + i + 1, name, unit, cost, minQty, maxQty, qty, st, why, ex };
+      return { line: impF.start + i + 1, name, unit, cost, minQty, maxQty, qty, type, purchaseUnit, purchaseFactor, st, why, ex };
     }).filter(Boolean);
   })();
   const doImport = async () => {
     const ok = impRows.filter(r => r.st === 'new' || (r.st === 'update' && impF.update));
     if (!ok.length) return say('لا أصناف صالحة للاستيراد', 'no');
-    const withQty = impF.opening ? ok.filter(r => (r.qty || 0) > 0) : [];
+    const withQty = impF.opening ? ok.filter(r => (r.qty || 0) > 0 && r.type !== 'service' && !(r.ex && itemType(r.ex) === 'service' && !r.type)) : [];
     if (withQty.length && periodLocked(org, today())) return say(LOCK_MSG(today()), 'no');
+    const extra = (r) => ({ ...(r.type ? { type: r.type } : {}), ...(r.purchaseUnit ? { purchaseUnit: r.purchaseUnit, purchaseFactor: Math.max(1, r.purchaseFactor || 1) } : {}) });
     const recs = ok.map(r => r.ex
-      ? { ...r.ex, ...(r.unit ? { unit: r.unit } : {}), ...(r.cost != null ? { cost: r.cost } : {}), ...(r.minQty != null ? { minQty: r.minQty } : {}), ...(r.maxQty != null ? { maxQty: r.maxQty } : {}) }
-      : { id: uid('it'), name: r.name, unit: r.unit || 'وحدة', cost: r.cost || 0, minQty: r.minQty || 0, ...(r.maxQty != null ? { maxQty: r.maxQty } : {}), isActive: true });
+      ? { ...r.ex, ...(r.unit ? { unit: r.unit } : {}), ...(r.cost != null ? { cost: r.cost } : {}), ...(r.minQty != null ? { minQty: r.minQty } : {}), ...(r.maxQty != null ? { maxQty: r.maxQty } : {}), ...extra(r) }
+      : { id: uid('it'), name: r.name, unit: r.unit || 'وحدة', cost: r.cost || 0, minQty: r.minQty || 0, ...(r.maxQty != null ? { maxQty: r.maxQty } : {}), isActive: true, type: 'stock', ...extra(r) });
     const okOrg = await commitOrg(d => {
       const list = [...(d.items || [])];
       recs.forEach(rec => { const i = list.findIndex(x => x.id === rec.id || normName(x.name) === normName(rec.name)); if (i >= 0) list[i] = { ...list[i], ...rec, id: list[i].id }; else list.push(rec); });
@@ -15851,7 +15906,8 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
     let movesN = 0;
     if (withQty.length) {
       const idOf = (r) => (r.ex && r.ex.id) || (recs.find(x => normName(x.name) === normName(r.name)) || {}).id;
-      const mv = withQty.map(r => ({ id: uid('sm'), date: today(), itemId: idOf(r), kind: 'in', qty: r.qty, note: 'رصيد افتتاحي — استيراد ' + impF.name, by: me.name, at: nowISO(), ...(whOn(org) ? { whId: MAIN_WH } : {}) })).filter(x => x.itemId);
+      const mv = withQty.map(r => ({ id: uid('sm'), date: today(), itemId: idOf(r), kind: 'in', qty: r.qty, note: 'رصيد افتتاحي — استيراد ' + impF.name, by: me.name, at: nowISO(),
+        ...(r.cost != null ? { unitCost: r.cost } : {}), ...(whOn(org) ? { whId: MAIN_WH } : {}) })).filter(x => x.itemId);
       const okMv = await commit(d => ({ ...d, stockMoves: [...mv, ...(d.stockMoves || [])] }),
         { actionType: 'create', targetType: 'stock_move', targetId: 'import-opening', title: 'أرصدة افتتاحية للأصناف المستوردة' + (whOn(org) ? ' (المستودع الرئيسي)' : ''), details: mv.length + ' صنف' });
       if (okMv) movesN = mv.length;
@@ -15863,7 +15919,10 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
   const saveItem = async () => {
     const f = itemF;
     if (!f.name.trim()) return say('أدخل اسم الصنف', 'no');
-    const rec = { id: f.id || uid('it'), name: f.name.trim(), unit: f.unit.trim() || 'وحدة', cost: Number(f.cost) || 0, minQty: Number(f.minQty) || 0, isActive: true };
+    const pf = Math.max(1, Number(f.purchaseFactor) || 1);
+    const rec = { ...(f.id ? items.find(x => x.id === f.id) || {} : {}), id: f.id || uid('it'), name: f.name.trim(), unit: (f.unit || '').trim() || 'وحدة', cost: Number(f.cost) || 0, minQty: Number(f.minQty) || 0, isActive: true,
+      type: ITEM_TYPES[f.type] ? f.type : 'stock', purchaseUnit: (f.purchaseUnit || '').trim(), purchaseFactor: (f.purchaseUnit || '').trim() ? pf : 1,
+      ...(f.type === 'sale' ? { sellPrice: Number(f.sellPrice) || 0 } : {}) };
     await commitOrg(d => ({ ...d, items: f.id ? (d.items || []).map(x => x.id === f.id ? rec : x) : [...(d.items || []), rec] }), {
       actionType: f.id ? 'update' : 'create', targetType: 'stock_item', targetId: rec.id,
       title: f.id ? 'عدّل صنف مخزون' : 'أضاف صنف مخزون', details: rec.name + ' · ' + money(rec.cost) + '/' + rec.unit
@@ -15876,8 +15935,14 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
     const q = Number(f.qty) || 0;
     if (!it) return say('اختر الصنف', 'no');
     if (q <= 0) return say('أدخل كمية صحيحة', 'no');
+    if (!isStocked(it)) return say('صنف خدمي لا يُخزَّن — لا حركات مخزون له', 'no');
     const sign = MOVE_KINDS[f.kind]?.sign || 1;
-    const rec = { id: uid('sm'), date: today(), itemId: it.id, kind: f.kind, qty: sign * q, note: f.note || '', by: me.name, at: nowISO() };
+    // v30.4: الكمية بوحدة الشراء عند اختيارها تُحوَّل للوحدة الأساسية، والتوريد يحمل تكلفته فيُحدّث المتوسط
+    const fac = f.uom === 'p' ? pFactor(it) : 1;
+    const qBase = Math.round(q * fac * 1000) / 1000;
+    const uc = f.kind === 'in' && f.unitCost !== '' && f.unitCost != null ? Math.round((Number(f.unitCost) || 0) / fac * 10000) / 10000 : null;
+    const rec = { id: uid('sm'), date: today(), itemId: it.id, kind: f.kind, qty: sign * qBase, note: f.note || '', by: me.name, at: nowISO(),
+      ...(uc != null ? { unitCost: uc } : {}), ...(whOn(org) ? { whId: MAIN_WH } : {}) };
     await commit(d => ({ ...d, stockMoves: [rec, ...(d.stockMoves || [])] }), {
       actionType: 'create', targetType: 'stock_move', targetId: rec.id,
       title: 'سجّل حركة مخزون — ' + (MOVE_KINDS[f.kind]?.ar || ''), details: it.name + ' · ' + q + ' ' + it.unit + (f.note ? ' · ' + f.note : '')
@@ -15886,7 +15951,7 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
   };
 
   const approveCount = async () => {
-    const diffs = items.map(it => {
+    const diffs = items.filter(isStocked).map(it => {
       const actual = countRows[it.id];
       if (actual === undefined || actual === '') return null;
       const d = Math.round((Number(actual) - mainOf(it.id)) * 1000) / 1000;
@@ -15996,7 +16061,7 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
         {canW && view === 'items' && <><label className="btn sm" style={{ cursor: 'pointer' }}><Upload size={13} />استيراد من Excel<input type="file" accept=".xlsx,.csv,text/csv" style={{ display: 'none' }} onChange={impPick} /></label>
           <button className="btn sm gh" onClick={impTemplate}><Download size={13} />نموذج</button></>}
         {canW && view === 'items' && <button className="btn sm pri" onClick={() => setItemF({ name: '', unit: 'كغ', cost: '', minQty: '' })}><Plus size={14} />صنف جديد</button>}
-        {canW && view === 'moves' && <button className="btn sm pri" style={{ marginInlineStart: 'auto' }} onClick={() => setMoveF({ kind: 'in', itemId: items[0]?.id || '', qty: '', note: '' })}><Plus size={14} />حركة جديدة</button>}
+        {canW && view === 'moves' && <button className="btn sm pri" style={{ marginInlineStart: 'auto' }} onClick={() => setMoveF({ kind: 'in', itemId: (items.find(isStocked) || {}).id || '', qty: '', note: '', uom: 'b', unitCost: '' })}><Plus size={14} />حركة جديدة</button>}
         {canW && view === 'recipes' && <button className="btn sm pri" style={{ marginInlineStart: 'auto' }} onClick={() => setProdF({ name: '', sellPrice: '', parts: [{ itemId: items[0]?.id || '', qty: '' }] })}><Plus size={14} />منتج جديد</button>}
       </div>
 
@@ -16004,23 +16069,24 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
         <div className="card">
           <div className="tw">
             <table className="tb">
-              <thead><tr><th>الصنف</th><th>الوحدة</th><th style={{ textAlign: 'end' }}>التكلفة</th><th style={{ textAlign: 'end' }}>الرصيد</th><th style={{ textAlign: 'end' }}>القيمة</th><th>الحالة</th><th /></tr></thead>
+              <thead><tr><th>الصنف</th><th>النوع</th><th>الوحدة</th><th style={{ textAlign: 'end' }}>متوسط التكلفة</th><th style={{ textAlign: 'end' }}>الرصيد</th><th style={{ textAlign: 'end' }}>القيمة</th><th>الحالة</th><th /></tr></thead>
               <tbody>
                 {items.map(it => {
                   const [cls, txt] = stateOf(it); const b = balOf(it.id);
                   return (
                     <tr key={it.id}>
                       <td style={{ fontWeight: 600, fontSize: 12.5 }}>{it.name}</td>
-                      <td style={{ fontSize: 11.5, color: 'var(--dim)' }}>{it.unit}</td>
-                      <td className="num" style={{ textAlign: 'end' }}>{money(it.cost)}</td>
-                      <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: b < 0 ? 'var(--rose)' : 'var(--txt)' }}>{b}</td>
-                      <td className="num" style={{ textAlign: 'end' }}>{money(b * (it.cost || 0))}</td>
-                      <td><span className={'badge ' + cls}>{txt}</span>{(it.minQty || 0) > 0 && <div style={{ fontSize: 9, color: 'var(--faint)' }}>الحد: <span className="num">{it.minQty}</span></div>}</td>
+                      <td><span className={'badge ' + ITEM_TYPES[itemType(it)].c}>{ITEM_TYPES[itemType(it)].short}</span></td>
+                      <td style={{ fontSize: 11.5, color: 'var(--dim)' }}>{it.unit}{it.purchaseUnit && pFactor(it) > 1 ? <div style={{ fontSize: 10, color: 'var(--faint)' }}>{it.purchaseUnit} = {pFactor(it)} {it.unit}</div> : null}</td>
+                      <td className="num" style={{ textAlign: 'end' }}>{money(avgOf(it.id))}</td>
+                      <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: b < 0 ? 'var(--rose)' : 'var(--txt)' }}>{isStocked(it) ? b : '—'}</td>
+                      <td className="num" style={{ textAlign: 'end' }}>{isStocked(it) ? money(Math.max(0, b) * avgOf(it.id)) : '—'}</td>
+                      <td>{isStocked(it) ? <><span className={'badge ' + cls}>{txt}</span>{(it.minQty || 0) > 0 && <div style={{ fontSize: 9, color: 'var(--faint)' }}>الحد: <span className="num">{it.minQty}</span></div>}</> : <span style={{ fontSize: 11, color: 'var(--faint)' }}>لا يُخزَّن</span>}</td>
                       <td>{canW && <button className="btn sm gh" onClick={() => setItemF({ ...it })}>تعديل</button>}</td>
                     </tr>
                   );
                 })}
-                {items.length === 0 && <tr><td colSpan={7}><div className="empty">لا أصناف بعد — أضف أصناف مخزونك (أرز، لحم، زيت…) ليبدأ التتبع.</div></td></tr>}
+                {items.length === 0 && <tr><td colSpan={8}><div className="empty">لا أصناف بعد — أضف أصناف مخزونك (أرز، لحم، زيت…) ليبدأ التتبع.</div></td></tr>}
               </tbody>
             </table>
           </div>
@@ -16095,7 +16161,7 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
             <table className="tb">
               <thead><tr><th>الصنف</th><th style={{ textAlign: 'end' }}>الرصيد الدفتري</th><th style={{ width: 130 }}>العدّ الفعلي</th><th style={{ textAlign: 'end' }}>الفرق</th></tr></thead>
               <tbody>
-                {items.map(it => {
+                {items.filter(isStocked).map(it => {
                   const b = mainOf(it.id);
                   const a = countRows[it.id];
                   const d = a === undefined || a === '' ? null : Math.round((Number(a) - b) * 1000) / 1000;
@@ -16255,11 +16321,25 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
           foot={<><button className="btn gh" onClick={() => setItemF(null)}>إلغاء</button>
             <button className="btn pri" onClick={saveItem}><Check size={14} />حفظ الصنف</button></>}>
           <Field label="اسم الصنف"><input className="inp" value={itemF.name} placeholder="أرز بسمتي، لحم غنم…" onChange={e => setItemF(f => ({ ...f, name: e.target.value }))} /></Field>
+          <Field label="نوع الصنف">
+            <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+              {Object.entries(ITEM_TYPES).map(([k, t]) => <button key={k} type="button" className={'btn sm' + (itemType(itemF) === k ? ' pri' : ' gh')} onClick={() => setItemF(f => ({ ...f, type: k }))}>{t.short}</button>)}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 4 }}>{ITEM_TYPES[itemType(itemF)].ar}</div>
+          </Field>
           <div className="grid g3">
-            <Field label="الوحدة"><input className="inp" value={itemF.unit} placeholder="كغ · كيس · علبة" onChange={e => setItemF(f => ({ ...f, unit: e.target.value }))} /></Field>
-            <Field label="التكلفة/الوحدة"><input className="inp n" inputMode="decimal" value={itemF.cost} onChange={e => setItemF(f => ({ ...f, cost: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
-            <Field label="حد الطلب الأدنى"><input className="inp n" inputMode="decimal" value={itemF.minQty} onChange={e => setItemF(f => ({ ...f, minQty: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+            <Field label="الوحدة الأساسية (للأرصدة والصرف)"><input className="inp" value={itemF.unit} placeholder="كغ · حبة · لتر" onChange={e => setItemF(f => ({ ...f, unit: e.target.value }))} /></Field>
+            <Field label={'التكلفة المرجعية / ' + (itemF.unit || 'الوحدة')}><input className="inp n" inputMode="decimal" value={itemF.cost} onChange={e => setItemF(f => ({ ...f, cost: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+            {isStocked(itemF) && <Field label="حد الطلب الأدنى"><input className="inp n" inputMode="decimal" value={itemF.minQty} onChange={e => setItemF(f => ({ ...f, minQty: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>}
           </div>
+          {isStocked(itemF) && (
+            <div className="grid g3">
+              <Field label="وحدة الشراء (اختياري)"><input className="inp" value={itemF.purchaseUnit || ''} placeholder="كرتون · كيس · صندوق" onChange={e => setItemF(f => ({ ...f, purchaseUnit: e.target.value }))} /></Field>
+              <Field label={'كم ' + (itemF.unit || 'وحدة') + ' في ' + (itemF.purchaseUnit || 'وحدة الشراء')}><input className="inp n" inputMode="decimal" disabled={!(itemF.purchaseUnit || '').trim()} value={itemF.purchaseFactor ?? ''} placeholder="12" onChange={e => setItemF(f => ({ ...f, purchaseFactor: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+              {itemType(itemF) === 'sale' && <Field label="سعر البيع"><input className="inp n" inputMode="decimal" value={itemF.sellPrice ?? ''} onChange={e => setItemF(f => ({ ...f, sellPrice: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>}
+            </div>
+          )}
+          <div className="note" style={{ fontSize: 11.5 }}>التكلفة تُحتسب بـ<b>المتوسط المرجّح</b>: كل استلام بتكلفته يعيد حساب المتوسط، والصرف والهدر يخرجان به. التكلفة المرجعية تُستخدم فقط قبل أول استلام مسعّر.{itemF.id ? ' المتوسط الحالي: ' + money(avgOf(itemF.id)) + ' / ' + (itemF.unit || 'وحدة') : ''}</div>
         </Modal>
       )}
 
@@ -16276,13 +16356,21 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
               </select>
             </Field>
             <Field label="الصنف">
-              <select className="sel" value={moveF.itemId} onChange={e => setMoveF(f => ({ ...f, itemId: e.target.value }))}>
-                {items.map(it => <option key={it.id} value={it.id}>{it.name} — رصيد {balOf(it.id)} {it.unit}</option>)}
+              <select className="sel" value={moveF.itemId} onChange={e => setMoveF(f => ({ ...f, itemId: e.target.value, uom: 'b' }))}>
+                {items.filter(isStocked).map(it => <option key={it.id} value={it.id}>{it.name} — رصيد {whOn(org) ? mainOf(it.id) : balOf(it.id)} {it.unit}</option>)}
               </select>
             </Field>
           </div>
+          {(() => { const it = items.find(x => x.id === moveF.itemId); return it && it.purchaseUnit && pFactor(it) > 1 ? (
+            <Field label="الوحدة">
+              <div className="row" style={{ gap: 6 }}>
+                <button type="button" className={'btn sm' + (moveF.uom !== 'p' ? ' pri' : ' gh')} onClick={() => setMoveF(f => ({ ...f, uom: 'b' }))}>{it.unit}</button>
+                <button type="button" className={'btn sm' + (moveF.uom === 'p' ? ' pri' : ' gh')} onClick={() => setMoveF(f => ({ ...f, uom: 'p' }))}>{it.purchaseUnit} ({pFactor(it)} {it.unit})</button>
+              </div>
+            </Field>) : null; })()}
           <div className="grid g2">
             <Field label="الكمية"><input className="inp n" inputMode="decimal" value={moveF.qty} onChange={e => setMoveF(f => ({ ...f, qty: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+            {moveF.kind === 'in' && <Field label={'تكلفة ' + (() => { const it = items.find(x => x.id === moveF.itemId) || {}; return moveF.uom === 'p' ? (it.purchaseUnit || 'الوحدة') : (it.unit || 'الوحدة'); })() + ' (تُحدّث المتوسط)'}><input className="inp n" inputMode="decimal" value={moveF.unitCost ?? ''} placeholder={money(avgOf(moveF.itemId))} onChange={e => setMoveF(f => ({ ...f, unitCost: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>}
             <Field label="البيان (اختياري)"><input className="inp" value={moveF.note} placeholder="صرف للمطبخ · تالف بالتبريد…" onChange={e => setMoveF(f => ({ ...f, note: e.target.value }))} /></Field>
           </div>
         </Modal>
