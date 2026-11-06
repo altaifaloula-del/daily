@@ -2254,12 +2254,37 @@ function PlatformApp() {
         if (latest && latest !== mine && !stop) setUpdateReady(true);
       } catch (e) { /* غير متصل — تجاهل */ }
     };
-    const t = setInterval(check, 150000);        // كل ٢٫٥ دقيقة
+    const t = setInterval(check, 90000);         // v30.0: كل ٩٠ ثانية (طلب صفحة صغيرة ~2KB)
     const onFocus = () => check();
     window.addEventListener('focus', onFocus);
     const first = setTimeout(check, 9000);       // فحص أولي بعد التحميل
     return () => { stop = true; clearInterval(t); clearTimeout(first); window.removeEventListener('focus', onFocus); };
   }, []);
+
+  // v30.0 — عدّاد التحديث: عند توفر نسخة أحدث يبدأ عدّ تنازلي (60 ثانية) ثم يُحدَّث تلقائيًا.
+  // لا يُحدَّث أثناء الإدخال: يتوقف العدّ إن كُتب شيء خلال آخر دقيقة أو كانت نافذة/نموذج مفتوحًا — فلا تضيع بيانات لم تُحفظ.
+  const UPD_SECS = 60;
+  const [updLeft, setUpdLeft] = useState(UPD_SECS);
+  const [updPaused, setUpdPaused] = useState(false);
+  const [updSnooze, setUpdSnooze] = useState(0);
+  const lastInputAt = useRef(0);
+  useEffect(() => {
+    const on = () => { lastInputAt.current = Date.now(); };
+    document.addEventListener('input', on, true); document.addEventListener('change', on, true);
+    return () => { document.removeEventListener('input', on, true); document.removeEventListener('change', on, true); };
+  }, []);
+  useEffect(() => {
+    if (!updateReady) return;
+    const t = setInterval(() => {
+      if (Date.now() < updSnooze) return;
+      const busy = (Date.now() - lastInputAt.current < 60000) || !!document.querySelector('[role=dialog]');
+      setUpdPaused(busy);
+      if (busy) return;
+      setUpdLeft(n => { if (n <= 1) { forceUpdate(); return 0; } return n - 1; });
+    }, 1000);
+    return () => clearInterval(t);
+  }, [updateReady, updSnooze, forceUpdate]);
+  const updShow = updateReady && Date.now() >= updSnooze;
 
   /* --- المزامنة الدورية + الحضور --- */
   const snap = useRef({});
@@ -2829,7 +2854,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v29.9 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v30.0 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -2908,14 +2933,22 @@ function PlatformApp() {
             </div>
           </header>
 
-          {updateReady && (
+          {updShow && (
             <div style={{
+              position: 'relative', overflow: 'hidden',
               background: 'rgba(79,178,134,.16)', borderBottom: '1px solid rgba(79,178,134,.45)',
               color: 'var(--mint)', padding: '9px 20px', fontSize: 12.5, display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap'
             }}>
               <RefreshCw size={15} />
-              نسخة أحدث من المنصة متوفّرة الآن.
+              <span>نسخة أحدث من المنصة متوفّرة —{' '}
+                {updPaused
+                  ? <b>التحديث التلقائي متوقف مؤقتًا أثناء الإدخال (لن تضيع بياناتك)</b>
+                  : <>تُحدَّث تلقائيًا خلال <b className="num" style={{ fontSize: 14 }}>{updLeft}</b> ثانية</>}
+              </span>
               <button className="btn sm pri" onClick={forceUpdate}><RefreshCw size={13} />تحديث الآن</button>
+              <button className="btn sm gh" onClick={() => { setUpdSnooze(Date.now() + 10 * 60000); setUpdLeft(UPD_SECS); }}>لاحقًا (10 دقائق)</button>
+              <div style={{ position: 'absolute', insetInlineStart: 0, bottom: 0, height: 3, background: 'var(--mint)', opacity: updPaused ? 0.3 : 0.8,
+                width: (Math.max(0, updLeft) / UPD_SECS * 100) + '%', transition: 'width 1s linear' }} />
             </div>
           )}
 
