@@ -553,6 +553,22 @@ const detectStmtMap = (grid) => {
 const PT_PREFIX = { supplier: 'مورد', employee: 'موظف', customer: 'عميل' };
 const partnerCode = (type, seq) => (PT_PREFIX[type] || 'شريك') + '-' + String(seq).padStart(3, '0');
 
+/* v29.4 — دفعات فاتورة المورد كسجل مستقل لكل دفعة (تاريخها ومصدرها).
+   كان السداد يُجمَّع في paidAmount واحد بلا تاريخ، فيُقيَّد بتاريخ الفاتورة لا تاريخ الدفع،
+   ومصدر آخر دفعة (payFund) يُطبَّق بأثر رجعي على كل الدفعات السابقة. الفواتير القديمة:
+   ما سُدِّد قبل هذا الإصدار يبقى دفعة واحدة بسلوكه السابق (paidDate أو تاريخ الفاتورة، وpayFund). */
+function invPayments(i) {
+  const d = (i.date || i.createdAt || i.dueDate || '').slice(0, 10);
+  const list = Array.isArray(i.payments) ? i.payments.filter(p => (Number(p.amount) || 0) > 0) : [];
+  const listed = Math.round(list.reduce((s, p) => s + (Number(p.amount) || 0), 0) * 100) / 100;
+  const legacy = Math.round(((i.paidAmount || 0) - listed) * 100) / 100;
+  const out = list.map((p, k) => ({ id: p.id || String(k), amount: Number(p.amount) || 0, date: (p.date || d || '').slice(0, 10), fund: p.fund || '' }));
+  if (legacy > 0.004) out.unshift({ id: 'legacy', amount: legacy, date: (i.paidDate || d || '').slice(0, 10), fund: i.payFund || '' });
+  return out;
+}
+// تاريخ محلي من طابع زمني كامل (nowISO بتوقيت UTC) — أو التاريخ كما هو إن كان YYYY-MM-DD
+const dayOf = (v) => { const t = String(v || ''); if (t.length > 10 && t.includes('T')) { const x = new Date(t); if (!isNaN(x)) return isoD(x); } return t.slice(0, 10); };
+
 function buildPartners(org, ops) {
   const parts = [];
   const led = ops.ledgerEntries || [];
@@ -601,7 +617,7 @@ function buildPartners(org, ops) {
       txns.push((i.amount || 0) < 0
         ? { date: d, desc: 'إشعار دائن من المورد ' + (i.invoiceNo || ''), ref: i.invoiceNo || '', src: 'inv', debit: -i.amount, credit: 0 }
         : { date: d, desc: 'فاتورة توريد ' + (i.invoiceNo || ''), ref: i.invoiceNo || '', src: 'inv', debit: 0, credit: i.amount || 0 });
-      if ((i.paidAmount || 0) > 0) txns.push({ date: (i.paidDate || d || '').slice(0, 10), desc: 'سداد فاتورة ' + (i.invoiceNo || ''), ref: i.invoiceNo || '', src: 'inv', debit: i.paidAmount || 0, credit: 0 });
+      invPayments(i).forEach(p => txns.push({ date: p.date, desc: 'سداد فاتورة ' + (i.invoiceNo || ''), ref: i.invoiceNo || '', src: 'inv', debit: p.amount, credit: 0 }));
       linked = true;
     });
     const ct = closeFor(key, sp.id); txns.push(...ct); if (ct.length) linked = true;
@@ -1185,7 +1201,7 @@ function buildAccounting(org, ops) {
         lines: [L(clr, t.amount, 0), L(src, 0, t.amount)]
       });
       if (t.status === 'received') push({
-        id: 'trr:' + t.id, date: (t.receivedAt || t.date || '').slice(0, 10), branchId: t.branchId, title: 'استلام التوريد بالخزينة الرئيسية — ' + (t.branchName || ''),
+        id: 'trr:' + t.id, date: dayOf(t.receivedAt || t.date), branchId: t.branchId, title: 'استلام التوريد بالخزينة الرئيسية — ' + (t.branchName || ''),
         src: 'تحويل خزينة', ref: t.referenceNo || t.id,
         lines: [L('1101', t.amount, 0), L(clr, 0, t.amount)]
       });
@@ -1238,12 +1254,13 @@ function buildAccounting(org, ops) {
         vat: v ? { out: 0, inn: -v, netSales: 0, netPurch: -n } : null
       });
     }
-    if ((i.paidAmount || 0) > 0) push({
-      id: 'invp:' + i.id, date: (i.paidDate || d || '').slice(0, 10),
-      title: 'سداد مركزي لفاتورة توريد — ' + (i.supplierName || 'مورد') + (i.payFund === '1101' ? ' (نقداً من الخزينة)' : ''),
+    // v29.4: قيد لكل دفعة بتاريخها ومصدرها (الدفعة القديمة المجمّعة تبقى بمعرّفها السابق invp:)
+    invPayments(i).forEach(p => push({
+      id: p.id === 'legacy' ? 'invp:' + i.id : 'invp:' + i.id + ':' + p.id, date: p.date,
+      title: 'سداد مركزي لفاتورة توريد — ' + (i.supplierName || 'مورد') + (p.fund === '1101' ? ' (نقداً من الخزينة)' : ''),
       src: 'سداد مركزي', ref: i.invoiceNo || i.id,
-      lines: [L('2101', i.paidAmount, 0), L((i.payFund && accIx[i.payFund]) ? i.payFund : '1201', 0, i.paidAmount)]   // v15.19/v15.20: المصدر المختار (خزينة أو أي بنك — تجميعي/فرع)
-    });
+      lines: [L('2101', p.amount, 0), L((p.fund && accIx[p.fund]) ? p.fund : '1201', 0, p.amount)]   // v15.19/v15.20: المصدر المختار (خزينة أو أي بنك — تجميعي/فرع)
+    }));
   });
   // ٦مكرر) السداد المركزي لفواتير الورديات المشتقة (v8.1): مدين ذمم الموردين / دائن البنك
   //         — قيد الفاتورة نفسها هو قيد المصروف الآجل في الوردية، فلا يتكرر هنا
@@ -1472,8 +1489,15 @@ function buildAccounting(org, ops) {
   // ===== الترقيم والتجميع =====
   entries.sort((a, b) => (a.date || '').localeCompare(b.date || '') || a.id.localeCompare(b.id));
   entries.forEach((e, i) => { e.no = 'ق-' + String(i + 1).padStart(4, '0'); });
+  // v29.4: سطر برمز غير موجود في الدليل (حساب حُذف أو تغيّر رمزه، أو رمز خاطئ في قيد يدوي/افتتاحي)
+  // كان يُسقَط بصمت فيختل ميزان المراجعة دون أي تنبيه — يُجمع الآن في حساب معلّق ظاهر يحتاج تصحيحًا
+  const unknownCodes = new Set();
   entries.forEach(e => e.lines.forEach(l => {
-    const a = accIx[l.code]; if (!a) return;
+    let a = accIx[l.code];
+    if (!a) {
+      unknownCodes.add(String(l.code));
+      a = accIx['9999'] || addAcc('9999', 'حساب معلّق — رموز غير معرّفة في الدليل (يحتاج تصحيح)', 'asset', { link: 'قيود تشير لحساب محذوف أو رمز خاطئ' });
+    }
     a.debit += l.debit; a.credit += l.credit;
   }));
   accounts.forEach(a => {
@@ -1484,7 +1508,7 @@ function buildAccounting(org, ops) {
   const totalCredit = sum(entries, e => e.credit);
   return {
     accounts, entries: entries.slice().reverse(), cashCode, assetRows,
-    totalDebit, totalCredit,
+    totalDebit, totalCredit, unknownCodes: [...unknownCodes],
     balanced: Math.abs(totalDebit - totalCredit) < 0.01 && entries.every(e => e.balanced)
   };
 }
@@ -2740,7 +2764,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v29.3 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v29.4 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -6623,16 +6647,18 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   const branch = org.branches.find(b => b.id === f.branchId);
 
-  const totalDelivery = sum(f.deliverySales, d => d.amount);
-  const totalRevenue = f.cashSales + f.cardSales + (f.bankTransferSales || 0) + totalDelivery;
-  const cashExp = sum(f.expenses.filter(e => e.paymentMethod === 'cash'), e => e.amount);
-  const totalExp = sum(f.expenses, e => e.amount);
+  // v29.4: المجاميع تُقرَّب للهللة — جمع الكسور العشرية في JavaScript يترك بواقي (0.1+0.2 = 0.30000000000000004)
+  const r2c = (n) => Math.round((Number(n) || 0) * 100) / 100;
+  const totalDelivery = r2c(sum(f.deliverySales, d => d.amount));
+  const totalRevenue = r2c((Number(f.cashSales) || 0) + (Number(f.cardSales) || 0) + (Number(f.bankTransferSales) || 0) + totalDelivery);
+  const cashExp = r2c(sum(f.expenses.filter(e => e.paymentMethod === 'cash'), e => e.amount));
+  const totalExp = r2c(sum(f.expenses, e => e.amount));
   const supPays = f.supplierPayments || [];
   const totalSupplierPay = sum(supPays, payTotal);
   const cashSupplierPay = sum(supPays, payCashPart);
   // السداد النقدي للموردين يخرج من الصندوق فيقلّل النقد المتوقع (لضبط الجرد)
-  const expected = f.openingBalance + f.cashSales - cashExp - cashSupplierPay;
-  const actual = countDenoms(f.denominationDetails);
+  const expected = r2c((Number(f.openingBalance) || 0) + (Number(f.cashSales) || 0) - cashExp - cashSupplierPay);
+  const actual = r2c(countDenoms(f.denominationDetails));
   const variance = Math.round((actual - expected) * 100) / 100;
   // v16.8 — يوم بلا نقد متوقع (مبيعات شبكة/تحويل فقط، لا عهدة): الجرد صفر منطقي ولا يعيق الترحيل
   const zeroCashDay = Math.abs(expected) <= 0.004;
@@ -13512,7 +13538,7 @@ function Reports({ org, ops, me, myBranches, scoped, say, theme }) {
 
 /* ================= الفروع والمستخدمون ================= */
 /* ============ إدارة تطبيقات التوصيل ============ */
-function DeliveryAppsPanel({ org, commitOrg, say }) {
+function DeliveryAppsPanel({ org, ops = {}, commitOrg, say }) {
   const apps = org.deliveryApps || APPS;
   const [nm, setNm] = useState('');
   const [comm, setComm] = useState('');
@@ -13537,6 +13563,10 @@ function DeliveryAppsPanel({ org, commitOrg, say }) {
   };
 
   const removeApp = async (app) => {
+    // v29.4: حذف تطبيق له مبيعات أو تسويات يغيّر رموز حسابات التطبيقات التالية في الدليل وينقل ذمته للحساب العام
+    const used = (ops.closings || []).some(c => (c.deliverySales || []).some(s => s.appId === app.id && (s.amount || 0) > 0))
+      || (ops.appSettlements || []).some(s => s.appId === app.id);
+    if (used) return say('لا يُحذف تطبيق عليه مبيعات أو تسويات مسجّلة — اضبط عمولته أو اتركه دون استخدام', 'no');
     await commitOrg(d => ({ ...d, deliveryApps: (d.deliveryApps || APPS).filter(a => a.id !== app.id) }), {
       actionType: 'delete', targetType: 'delivery_app', targetId: app.id, title: 'حذف تطبيق توصيل', details: app.n
     });
@@ -13795,7 +13825,7 @@ function Admin({ org, ops, me, commit, commitOrg, say }) {
       )}
 
       {tab === 'cats' && <CategoriesPanel org={org} ops={ops} commitOrg={commitOrg} say={say} />}
-      {tab === 'delivery' && <DeliveryAppsPanel org={org} commitOrg={commitOrg} say={say} />}
+      {tab === 'delivery' && <DeliveryAppsPanel org={org} ops={ops} commitOrg={commitOrg} say={say} />}
       {tab === 'appperms' && <AppPermsPanel org={org} commitOrg={commitOrg} say={say} />}
       {tab === 'system' && <SystemPanel org={org} ops={ops} me={me} commit={commit} commitOrg={commitOrg} say={say} />}
       {tab === 'perms' && (() => {
@@ -14511,7 +14541,10 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
     if (v <= 0) return say('أدخل مبلغ سداد صحيح', 'no');
     await commit(d => ({
       ...d,
-      invoices: (d.invoices || []).map(i => i.id === inv.id ? { ...i, paidAmount: (i.paidAmount || 0) + v, payFund } : i)
+      // v29.4: الدفعة تُحفظ بتاريخها ومصدرها؛ paidAmount يبقى مجموع المسدَّد (تعتمد عليه شاشات المتبقي)
+      invoices: (d.invoices || []).map(i => i.id === inv.id ? { ...i, paidAmount: Math.round(((i.paidAmount || 0) + v) * 100) / 100,
+        payments: [...(Array.isArray(i.payments) ? i.payments : (i.paidAmount > 0 ? [{ id: 'legacy', amount: i.paidAmount, date: (i.paidDate || i.date || '').slice(0, 10), fund: i.payFund || '' }] : [])),
+          { id: uid('ipay'), amount: v, date: today(), fund: payFund, by: me.name, at: nowISO() }] } : i)
     }), {
       actionType: 'update', targetType: 'expense', targetId: inv.id, branchName: inv.branchName,
       title: 'سدّد دفعة لمورد', details: `${inv.supplierName} · فاتورة ${inv.invoiceNo} · ${money(v)} ر.س` + (payFund === '1101' ? ' · نقداً من الخزينة' : ' · من البنك')
@@ -16384,6 +16417,9 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     if (!code || !name) return say('أدخل رمز الحساب واسمه', 'no');
     if (!/^[0-9A-Za-z\-]{2,12}$/.test(code)) return say('الرمز: أرقام أو أحرف إنجليزية (٢–١٢)', 'no');
     const clash = A.accounts.find(a => a.code === code && a.code !== f.origCode);
+    // v29.4: تغيير رمز حساب عليه حركة يفصل قيوده عنه (تشير للرمز القديم) — يُمنع
+    const orig = f.origCode && A.accounts.find(a => a.code === f.origCode);
+    if (orig && code !== f.origCode && ((orig.debit || 0) !== 0 || (orig.credit || 0) !== 0)) return say('لا يُغيَّر رمز حساب عليه حركة — يمكن تعديل اسمه فقط', 'no');
     if (clash) return say(clash.custom ? 'يوجد حساب مخصّص بهذا الرمز' : 'الرمز محجوز لحساب نظامي — اختر رمزًا آخر', 'no');
     await commitOrg(d => { const list = (d.customAccounts || []).filter(x => x.code !== f.origCode); return { ...d, customAccounts: [...list, { code, name, kind: f.kind || 'exp' }] }; },
       { actionType: f.origCode ? 'update' : 'create', targetType: 'tax_settings', targetId: code, need: f.origCode ? 'edit' : 'post', title: (f.origCode ? 'تعديل' : 'إضافة') + ' حساب في الدليل', details: code + ' · ' + name });
@@ -17322,6 +17358,12 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         </div>
       </div>
 
+      {(A.unknownCodes || []).length > 0 && (
+        <div className="card" style={{ borderColor: 'var(--rose)', background: 'rgba(217,84,77,.08)' }}>
+          <b style={{ color: 'var(--rose)' }}>⚠ قيود تشير لحسابات غير موجودة في الدليل:</b> {A.unknownCodes.join('، ')}
+          <div style={{ fontSize: 12.5, marginTop: 4 }}>جُمعت مبالغها في «الحساب المعلّق 9999» حتى لا يختل ميزان المراجعة. صحّحها بقيد يدوي ينقلها للحساب الصحيح، أو أعِد إنشاء الحساب بالرمز نفسه.</div>
+        </div>
+      )}
       <div className="grid g4">
         <Kpi label="القيود المسجّلة" value={String(A.entries.length)} sub="تلقائية من عملياتك + يدوية المحاسب" icon={FileText} color="#4FB286" />
         <Kpi label={A.balanced ? 'كل القيود متوازنة ✓' : 'يوجد قيد غير متوازن!'} value={money(A.totalDebit)}
