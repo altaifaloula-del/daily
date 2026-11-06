@@ -307,3 +307,34 @@ test('v29.5: المحاسب للعرض فقط يقرأ كل شيء ولا يكت
   // المحاسب الكامل ما زال يكتب
   await assertSucceeds(setDoc(doc(central(), 'platform', 'rms8_core'), { value: '{"y":2}', parts: 1, updatedAt: 2 }));
 });
+
+/* ===== v31.3 — التحقق بخطوتين ===== */
+const tf = (uid, email) => env.authenticatedContext(uid, { email, firebase: { sign_in_provider: 'password', sign_in_second_factor: 'totp' } }).firestore();
+test('v31.3: بلا سياسة لا يتغير شيء', async () => {
+  await assertSucceeds(getDoc(doc(owner(), 'platform', 'rms8_org')));
+  await assertSucceeds(getDoc(doc(central(), 'platform', 'rms8_core')));
+});
+test('v31.3: المدير لا يفعّل السياسة على نفسه دون جلسة بخطوتين، ومعها يفعّلها', async () => {
+  await assertFails(setDoc(doc(owner(), 'platform', 'security'), { roles: ['accountant'], admins: true, at: 1 }));
+  await assertFails(setDoc(doc(central(), 'platform', 'security'), { roles: [], admins: false, at: 1 }));
+  await assertFails(setDoc(doc(tf('u-owner', OWNER), 'platform', 'security'), { roles: ['accountant'], admins: true, extra: 1 }));
+  await assertSucceeds(setDoc(doc(tf('u-owner', OWNER), 'platform', 'security'), { roles: ['accountant'], admins: true, at: 1 }));
+  await assertSucceeds(getDoc(doc(central(), 'platform', 'security')));
+});
+test('v31.3: الأدوار المُلزَمة تُمنع دون الخطوة الثانية وتصل بها، وغيرها لا يتأثر', async () => {
+  await assertFails(getDoc(doc(owner(), 'platform', 'rms8_org')));
+  await assertFails(getDoc(doc(central(), 'platform', 'rms8_core')));
+  await assertFails(setDoc(doc(central(), 'platform', 'rms8_core'), { value: '{}', parts: 1, updatedAt: 3 }));
+  await assertSucceeds(getDoc(doc(tf('u-owner', OWNER), 'platform', 'rms8_org')));
+  await assertSucceeds(getDoc(doc(tf('u-central', CENTRAL), 'platform', 'rms8_core')));
+  await assertSucceeds(setDoc(doc(tf('u-central', CENTRAL), 'platform', 'rms8_core'), { value: '{}', parts: 1, updatedAt: 3 }));
+  await assertSucceeds(getDoc(doc(brA(), 'platform', 'rms8_br_b-AAA')));
+  await assertSucceeds(getDoc(doc(viewer(), 'platform', 'rms8_core')));
+  // سجل العضوية يبقى مقروءًا لصاحبه حتى يكمل التسجيل
+  await assertSucceeds(getDoc(doc(central(), 'members', CENTRAL)));
+});
+test('v31.3: إلغاء السياسة للمدير بجلسة بخطوتين فقط', async () => {
+  await assertFails(deleteDoc(doc(owner(), 'platform', 'security')));
+  await assertSucceeds(deleteDoc(doc(tf('u-owner', OWNER), 'platform', 'security')));
+  await assertSucceeds(getDoc(doc(owner(), 'platform', 'rms8_org')));
+});

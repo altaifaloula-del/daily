@@ -2598,7 +2598,17 @@ function PlatformApp() {
 
   const fbLogin = useCallback(async (email, pass) => {
     try { const r = await authApi.signIn(email, pass); return await finishFb(r.email); }
-    catch (e) { return { ok: false, err: mapAuthErr(e) }; }
+    catch (e) {
+      if (e && e.code === 'mfa-required') return { ok: false, mfa: true };
+      if (e && e.code === 'mfa-unsupported') return { ok: false, err: 'حسابك محمي بعامل تحقق لا تدعمه المنصة — راجع مسؤول النظام' };
+      return { ok: false, err: mapAuthErr(e) };
+    }
+  }, [finishFb]);
+  // v31.3 — الخطوة الثانية: رمز تطبيق المصادقة
+  const fbMfa = useCallback(async (code) => {
+    try { const r = await authApi.mfaVerify(code); return await finishFb(r.email); }
+    catch (e) { const c = String((e && e.code) || '');
+      return { ok: false, err: c.includes('invalid-verification-code') || c.includes('invalid-credential') ? 'الرمز غير صحيح — تأكد من وقت الهاتف واستخدم الرمز الحالي' : c.includes('expired') || c.includes('mfa-expired') ? 'انتهت مهلة الخطوة الثانية — أعد إدخال كلمة السر' : 'تعذّر التحقق (' + c.replace('auth/', '') + ')' }; }
   }, [finishFb]);
 
   const fbFirstSetup = useCallback(async (email, pass) => {
@@ -3132,9 +3142,15 @@ function PlatformApp() {
     );
   }
 
+  // v31.3 — التحقق بخطوتين: حالة المستخدم وسياسة الإلزام
+  const [mfaS, setMfaS] = useState(null); const [mfaPol, setMfaPol] = useState(null); const [mfaOpen, setMfaOpen] = useState(false);
+  const mfaReload = useCallback(async () => { if (!authApi.enabled) return; const [i, p] = await Promise.all([authApi.mfaInfo().catch(() => null), authApi.getPolicy().catch(() => null)]); setMfaS(i); setMfaPol(p); }, []);
+  useEffect(() => { if (me && authApi.enabled) mfaReload(); }, [me && me.id, mfaReload]);
+  const mfaNeed = !!(me && mfaPol && ((mfaPol.admins && (ROLES[me.role] || {}).admin) || (mfaPol.roles || []).includes(me.role)));
+
   // مصادقة سحابية مفعّلة ولا جلسة: بوابة الدخول الحقيقية قبل تحميل أي بيانات
   if (needAuth && !me) {
-    return <FbGate css={CSS} theme={theme} fbLogin={fbLogin} fbFirstSetup={fbFirstSetup} notice={kickMsg} />;
+    return <FbGate css={CSS} theme={theme} fbLogin={fbLogin} fbMfa={fbMfa} fbFirstSetup={fbFirstSetup} notice={kickMsg} />;
   }
 
   // أول تشغيل: لا يوجد أي مستخدم بعد → شاشة التسجيل الأولي لإنشاء حساب المالك
@@ -3154,6 +3170,17 @@ function PlatformApp() {
     return <LockScreen me={me} theme={theme} mode={mode}
       onUnlock={() => { setLocked(false); lastActRef.current = Date.now(); }}
       onLogout={sessLogout} />;
+  }
+
+  // v31.3: دور مُلزَم بالتحقق بخطوتين ولم يسجّل بعد ← لا دخول للمنصة قبل التسجيل (والقواعد تمنع البيانات أصلًا)
+  if (authApi.enabled && mfaNeed && mfaS && (!mfaS.enrolled || !mfaS.used)) {
+    return (
+      <div className={themeCls(theme, mode)}><style dangerouslySetInnerHTML={{ __html: CSS }} />
+        <div className="gate"><div className="gate-c">
+          <BrandHead title="التحقق بخطوتين مطلوب" sub={'سياسة المنشأة تُلزم دور «' + ((ROLES[me.role] || {}).ar || me.role).split('—')[0].trim() + '» بالتحقق بخطوتين'} />
+          <MfaPanel me={me} required inline onDone={sessLogout} onLogout={sessLogout} say={say} info={mfaS} reload={mfaReload} />
+        </div></div>
+      </div>);
   }
 
   const smartAlertCount = computeSmartAlerts(org, ops, myBranches).length;
@@ -3297,7 +3324,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v31.2 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v31.3 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -3365,6 +3392,7 @@ function PlatformApp() {
                     {!installed && <button onClick={() => { setUserMenu(false); doInstall(); }}><Download size={14} />تثبيت التطبيق على الجهاز</button>}
                     <button onClick={() => { setUserMenu(false); forceUpdate(); }}><RefreshCw size={14} />تحديث للأحدث (مسح الكاش){updateReady ? ' — نسخة جديدة!' : ''}</button>
                     <button onClick={() => { setUserMenu(false); setTour(true); }}><Compass size={14} />جولة تعريفية في المنصة</button>
+                    {authApi.enabled && <button onClick={() => { setUserMenu(false); setMfaOpen(true); }}><ShieldCheck size={14} />التحقق بخطوتين{mfaS && mfaS.enrolled ? ' ✓' : ''}</button>}
                     {(me.pinHash || me.bioCredId) && (
                       <button onClick={() => { setUserMenu(false); setLocked(true); }}><Lock size={14} />قفل الشاشة — عودة بالدخول السريع</button>
                     )}
@@ -3507,6 +3535,8 @@ function PlatformApp() {
 
 
 
+      {mfaOpen && <Modal title="التحقق بخطوتين" icon={ShieldCheck} onClose={() => setMfaOpen(false)}>
+        <MfaPanel me={me} required={mfaNeed} onDone={sessLogout} onLogout={sessLogout} say={say} info={mfaS} reload={mfaReload} /></Modal>}
       {moreSheet && (
         <div className="sheet-mask" onClick={() => setMoreSheet(false)}>
           <div className="sheet" onClick={e => e.stopPropagation()}>
@@ -3667,7 +3697,98 @@ function FirstRun({ css, theme, commitOrg, say, onDone }) {
 
 /* ================= بوابة الدخول (بريد وكلمة سر) ================= */
 /* ================= بوابة الدخول — المصادقة السحابية الحقيقية ================= */
-function FbGate({ css, theme, fbLogin, fbFirstSetup, notice }) {
+/* v31.3 — سياسة إلزام التحقق بخطوتين (يُفرض على الخادم بقواعد Firestore) */
+const MFA_DEFAULT_ROLES = ['general_management', 'finance_department', 'accountant', 'head_office'];
+function MfaPolicyCard({ org, me, commitOrg, say }) {
+  const [pol, setPol] = useState(null); const [info, setInfo] = useState(null); const [f, setF] = useState(null); const [busy, setBusy] = useState(false);
+  useEffect(() => { (async () => { const [p, i] = await Promise.all([authApi.getPolicy(), authApi.mfaInfo()]); setPol(p || {}); setInfo(i);
+    setF({ admins: p && p.at ? !!p.admins : true, roles: p && p.at ? (p.roles || []) : MFA_DEFAULT_ROLES.slice() }); })(); }, []);
+  const isAdmin = !!(ROLES[me.role] || {}).admin;
+  if (!isAdmin || !f) return null;
+  const on = !!(pol && pol.at && (pol.admins || (pol.roles || []).length));
+  const save = async (enable) => {
+    const next = enable ? f : { admins: false, roles: [] };
+    const selfIn = (next.admins && isAdmin) || (next.roles || []).includes(me.role);
+    if (selfIn && !(info && info.enrolled && info.used)) return say('فعّل التحقق بخطوتين لحسابك أولًا وادخل بالرمز (من قائمة حسابي) — حتى لا تُقفل المنصة عليك', 'no');
+    setBusy(true); const ok = await authApi.setPolicy(next); setBusy(false);
+    if (!ok) return say('رفض الخادم حفظ السياسة — تأكد أن دخولك الحالي تم بالرمز', 'no');
+    await commitOrg(d => ({ ...d, securityCfg: { ...(d.securityCfg || {}), mfa: { ...next, at: nowISO(), by: me.name } } }), { actionType: 'update', targetType: 'system_settings', targetId: 'mfa-policy', need: 'edit', title: enable ? 'ألزم أدوارًا بالتحقق بخطوتين' : 'أوقف إلزام التحقق بخطوتين', details: enable ? ((next.admins ? 'المدراء، ' : '') + (next.roles || []).map(r => ((ROLES[r] || {}).ar || r).split('—')[0].trim()).join('، ')) : '—' });
+    setPol({ ...next, at: Date.now() }); say(enable ? 'فُعّل الإلزام — يُطلب من الأدوار المحددة التسجيل عند دخولها ✓' : 'أُوقف الإلزام');
+  };
+  const roleKeys = Object.keys(ROLES).filter(k => !(ROLES[k] || {}).admin);
+  return (
+    <div className="card" style={{ marginTop: 12, background: 'var(--ink)' }}>
+      <div className="card-t" style={{ marginBottom: 8 }}><ShieldCheck size={15} color="var(--brass)" />إلزام التحقق بخطوتين{on ? <span className="badge b-mint" style={{ marginInlineStart: 8 }}>مُفعّل</span> : <span className="badge b-dim" style={{ marginInlineStart: 8 }}>غير مُلزِم</span>}</div>
+      <div className="note" style={{ marginBottom: 8 }}>الأدوار المحددة لا تصل لبيانات المنصة إلا بجلسة اجتازت الخطوة الثانية — يُفرض ذلك على خادم Firebase نفسه لا في الشاشة فقط. حسابك: {info && info.enrolled ? (info.used ? 'مفعّل ودخلت بالرمز ✓' : 'مفعّل — ادخل بالرمز') : 'غير مفعّل — فعّله من قائمة حسابي أولًا'}.</div>
+      <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', marginBottom: 4 }}><input type="checkbox" checked={!!f.admins} onChange={e => setF(x => ({ ...x, admins: e.target.checked }))} />مسؤولو النظام (المدراء)</label>
+      {roleKeys.map(k => <label key={k} className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', marginBottom: 4 }}><input type="checkbox" checked={(f.roles || []).includes(k)} onChange={e => setF(x => ({ ...x, roles: e.target.checked ? [...(x.roles || []), k] : (x.roles || []).filter(r => r !== k) }))} />{(ROLES[k].ar || k)}</label>)}
+      <div className="row" style={{ gap: 8, marginTop: 8 }}>
+        <button className="btn pri" disabled={busy} onClick={() => save(true)}><Check size={14} />{on ? 'حفظ السياسة' : 'تفعيل الإلزام'}</button>
+        {on && <button className="btn gh" disabled={busy} onClick={() => save(false)}>إيقاف الإلزام</button>}
+      </div>
+      <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 8, lineHeight: 1.7 }}>للطوارئ إن فُقدت كل الهواتف: احذف المستند platform/security من لوحة Firebase ← Firestore فيتوقف الإلزام فورًا.</div>
+    </div>);
+}
+
+/* v31.3 — لوحة التحقق بخطوتين: تسجيل تطبيق المصادقة (رمز QR + مفتاح احتياطي) أو إلغاؤه */
+function MfaPanel({ me, required, inline, onDone, onLogout, say, info, reload }) {
+  const [step, setStep] = useState('idle'); const [pass, setPass] = useState(''); const [code, setCode] = useState('');
+  const [sec, setSec] = useState(null); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false);
+  const errOf = (e) => { const c = String((e && e.code) || '');
+    if (c.includes('wrong-password') || c.includes('invalid-credential') || c.includes('invalid-login')) return 'كلمة السر غير صحيحة';
+    if (c.includes('unverified-email')) return 'verify';
+    if (c.includes('operation-not-allowed') || c.includes('admin-restricted') || c.includes('not-enabled')) return 'التحقق بخطوتين غير مفعّل في مشروع Firebase بعد — يفعّله مسؤول النظام مرة واحدة (سير «تفعيل التحقق بخطوتين» في GitHub).';
+    if (c.includes('invalid-verification-code')) return 'الرمز غير صحيح — استخدم الرمز الحالي في التطبيق';
+    if (c.includes('too-many-requests')) return 'محاولات كثيرة — انتظر قليلًا';
+    if (c.includes('requires-recent-login')) return 'أعد إدخال كلمة السر';
+    return 'تعذّر الإجراء (' + c.replace('auth/', '') + ')'; };
+  const start = async () => { if (!pass || busy) return; setBusy(true); setErr('');
+    try { const r = await authApi.mfaStart(pass); setSec(r); setStep('scan'); setPass(''); } catch (e) { const m = errOf(e); if (m === 'verify') setStep('verify'); else setErr(m); } setBusy(false); };
+  const finish = async () => { if (code.length !== 6 || busy) return; setBusy(true); setErr('');
+    try { await authApi.mfaFinish(code); setStep('done'); say('فُعّل التحقق بخطوتين ✓ — سجّل الدخول من جديد بالرمز'); setTimeout(() => onDone && onDone(), 2500); } catch (e) { setErr(errOf(e)); } setBusy(false); };
+  const remove = async () => { if (!pass || busy) return; if (!window.confirm('إلغاء التحقق بخطوتين؟ يصبح حسابك محميًا بكلمة السر وحدها.')) return; setBusy(true); setErr('');
+    try { await authApi.mfaRemove(pass); say('أُلغي التحقق بخطوتين — سجّل الدخول من جديد'); setTimeout(() => onLogout && onLogout(), 1500); } catch (e) { setErr(errOf(e)); } setBusy(false); };
+  const sendV = async () => { setBusy(true); try { await authApi.sendVerify(); say('أُرسل رابط توثيق البريد إلى ' + me.email); } catch { setErr('تعذّر إرسال رابط التوثيق'); } setBusy(false); };
+  const checkV = async () => { setBusy(true); const ok = await authApi.emailVerified(); setBusy(false); if (ok) { setStep('idle'); setErr(''); say('وُثّق البريد ✓ — تابع التفعيل'); } else setErr('لم يُوثَّق البريد بعد — افتح الرابط في بريدك ثم أعد المحاولة'); };
+  const keyFmt = (k) => String(k || '').replace(/(.{4})/g, '$1 ').trim();
+  const box = { background: 'var(--ink3)', border: '1px solid var(--line)', borderRadius: 12, padding: 12 };
+  const body = (
+    <div className="grid" style={{ gap: 10 }}>
+      {info && info.enrolled && step === 'idle' && <>
+        <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}><span className="badge b-mint">مفعّل ✓</span>{(info.factors || []).map(f => <span key={f.uid} className="badge b-dim">{f.name || 'تطبيق المصادقة'}{f.at ? ' · منذ ' + String(f.at).slice(0, 16) : ''}</span>)}</div>
+        {info && !info.used && <div className="note" style={{ color: 'var(--amber)' }}>هذه الجلسة بدأت قبل التفعيل — سجّل الخروج وادخل بالرمز ليصبح دخولك محميًا.</div>}
+        {required ? <div className="note">سياسة المنشأة تُلزم دورك بالتحقق بخطوتين — لا يمكن إلغاؤه.</div> : <>
+          <Field label="كلمة السر (لإلغاء التحقق بخطوتين)"><input className="inp" type="password" value={pass} onChange={e => setPass(e.target.value)} /></Field>
+          <button className="btn gh" disabled={busy || !pass} onClick={remove}>إلغاء التحقق بخطوتين</button></>}
+      </>}
+      {(!info || !info.enrolled) && step === 'idle' && <>
+        <div style={{ fontSize: 12.5, lineHeight: 1.9 }}>بعد التفعيل يطلب الدخول <b>كلمة السر + رمزًا متغيرًا من 6 أرقام</b> من تطبيق المصادقة في هاتفك (Google Authenticator أو Microsoft Authenticator أو غيرهما). من يعرف كلمة سرك وحدها لا يستطيع الدخول.</div>
+        <Field label="أدخل كلمة السر للمتابعة"><input className="inp" type="password" value={pass} onChange={e => setPass(e.target.value)} onKeyDown={e => e.key === 'Enter' && start()} /></Field>
+        <button className="btn pri" disabled={busy || !pass} onClick={start}>{busy ? <RefreshCw size={14} className="spin" /> : <ShieldCheck size={14} />}بدء التفعيل</button>
+      </>}
+      {step === 'verify' && <>
+        <div className="note">يتطلب التحقق بخطوتين بريدًا موثّقًا. أرسل رابط التوثيق إلى <b>{me.email}</b>، افتحه من بريدك، ثم اضغط «تحققت».</div>
+        <div className="row" style={{ gap: 8 }}><button className="btn" disabled={busy} onClick={sendV}>إرسال رابط التوثيق</button><button className="btn pri" disabled={busy} onClick={checkV}>تحققت — متابعة</button></div>
+      </>}
+      {step === 'scan' && sec && <>
+        <div style={{ fontSize: 12.5 }}>١) افتح تطبيق المصادقة واختر «إضافة حساب» ثم امسح الرمز:</div>
+        <div style={{ ...box, display: 'grid', placeItems: 'center', background: '#fff' }} dangerouslySetInnerHTML={{ __html: qrSvg(sec.url, { ecl: 1, px: 190 }) }} />
+        <div style={box}><div style={{ fontSize: 11, color: 'var(--dim)' }}>أو أدخل هذا المفتاح يدويًا — <b>واحفظه في مكان آمن</b>: به تعيد إضافة الحساب لهاتف جديد إن فقدت هاتفك</div>
+          <div className="num" style={{ direction: 'ltr', fontSize: 15, fontWeight: 800, letterSpacing: 1, marginTop: 6, wordBreak: 'break-all' }}>{keyFmt(sec.key)}</div></div>
+        <div style={{ fontSize: 12.5 }}>٢) اكتب الرمز الظاهر في التطبيق:</div>
+        <input className="inp n" inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000" style={{ fontSize: 22, letterSpacing: 6, textAlign: 'center', direction: 'ltr' }}
+          value={code} onChange={e => { setCode(e.target.value.replace(/\D/g, '').slice(0, 6)); setErr(''); }} onKeyDown={e => e.key === 'Enter' && finish()} />
+        <button className="btn pri" disabled={busy || code.length !== 6} onClick={finish}>{busy ? <RefreshCw size={14} className="spin" /> : <Check size={14} />}تأكيد التفعيل</button>
+      </>}
+      {step === 'done' && <div className="note" style={{ color: 'var(--mint)' }}>✓ فُعّل التحقق بخطوتين. سيُسجَّل خروجك الآن — ادخل من جديد بكلمة السر ثم الرمز.</div>}
+      {err && <div className="gate-err">{err}</div>}
+      {inline && <button className="btn gh" onClick={onLogout}><LogOut size={14} />تسجيل الخروج</button>}
+    </div>);
+  return inline ? <div className="card">{body}</div> : body;
+}
+
+function FbGate({ css, theme, fbLogin, fbMfa, fbFirstSetup, notice }) {
+  const [mfa, setMfa] = useState(false); const [code, setCode] = useState('');
   const [email, setEmail] = useState(() => { try { return localStorage.getItem('rms8:lastEmail') || ''; } catch { return ''; } });
   const [pass, setPass] = useState('');
   const [err, setErr] = useState('');
@@ -3680,7 +3801,13 @@ function FbGate({ css, theme, fbLogin, fbFirstSetup, notice }) {
     setErr(''); setBusy(true);
     const r = setup ? await fbFirstSetup(email, pass) : await fbLogin(email, pass);
     setBusy(false);
+    if (r.mfa) { setMfa(true); setCode(''); return; }
     if (!r.ok) setErr(r.err || 'تعذّر الدخول');
+  };
+  const goMfa = async () => {
+    if (code.length !== 6 || busy) return; setErr(''); setBusy(true);
+    const r = await fbMfa(code); setBusy(false);
+    if (!r.ok) { setErr(r.err || 'تعذّر التحقق'); if (/أعد إدخال كلمة السر/.test(r.err || '')) { setMfa(false); setPass(''); } }
   };
 
   return (
@@ -3697,6 +3824,19 @@ function FbGate({ css, theme, fbLogin, fbFirstSetup, notice }) {
             {setup && <div style={{ border: '1px solid rgba(200,162,74,.4)', background: 'rgba(200,162,74,.08)', color: 'var(--brass-l)', borderRadius: 10, padding: '9px 12px', marginBottom: 12, fontSize: 11.5, lineHeight: 1.7 }}>
               الإعداد الأول (مرة واحدة بعد الترقية): أدخل بريد المالك وكلمة سر جديدة — يُنشأ حساب المصادقة وتصبح مديرًا للمنصة.
             </div>}
+            {mfa ? (<>
+              <div style={{ textAlign: 'center', marginBottom: 12 }}><ShieldCheck size={30} color="var(--brass)" />
+                <div style={{ fontWeight: 800, marginTop: 6 }}>التحقق بخطوتين</div>
+                <div style={{ fontSize: 11.5, color: 'var(--dim)', marginTop: 4, lineHeight: 1.7 }}>افتح تطبيق المصادقة في هاتفك واكتب الرمز المكوّن من 6 أرقام لحساب «ميزان»</div></div>
+              <input className="inp n" autoFocus inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000"
+                style={{ fontSize: 26, letterSpacing: 8, textAlign: 'center', direction: 'ltr' }} value={code}
+                onChange={e => { setCode(e.target.value.replace(/\D/g, '').slice(0, 6)); setErr(''); }} onKeyDown={e => e.key === 'Enter' && goMfa()} />
+              {err && <div className="gate-err" style={{ marginTop: 10 }}>{err}</div>}
+              <button className="btn pri" style={{ width: '100%', marginTop: 12 }} disabled={busy || code.length !== 6} onClick={goMfa}>
+                {busy ? <RefreshCw size={15} className="spin" /> : <Check size={15} />}تحقق ودخول</button>
+              <button className="btn gh" style={{ width: '100%', marginTop: 10 }} onClick={() => { setMfa(false); setPass(''); setErr(''); }}>رجوع</button>
+              <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 12, lineHeight: 1.7, textAlign: 'center' }}>فقدت هاتفك؟ أضف الحساب لهاتف جديد بالمفتاح الذي حفظته عند التفعيل، أو راجع مسؤول النظام.</div>
+            </>) : (<>
             <Field label="البريد الإلكتروني">
               <input className="inp" type="email" autoFocus style={{ direction: 'ltr', textAlign: 'right' }}
                 value={email} placeholder="you@company.com"
@@ -3723,6 +3863,7 @@ function FbGate({ css, theme, fbLogin, fbFirstSetup, notice }) {
             <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 14, lineHeight: 1.7, textAlign: 'center' }}>
               نسيت كلمة السر؟ اطلب من المدير «إرسال رابط تعيين كلمة السر» من إدارة المستخدمين.
             </div>
+            </>)}
           </div>
         </div>
       </div>
@@ -22659,6 +22800,8 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
           <PhotoField value={c.logoUrl} onChange={v => set('logoUrl', v)} say={say} />
         </Field>
         <button className="btn pri" onClick={saveCompany}><Check size={14} />حفظ بيانات المنشأة</button>
+
+        {authApi.enabled && <MfaPolicyCard org={org} me={me} commitOrg={commitOrg} say={say} />}
 
         {/* v15.24 — مهلة انتهاء الجلسة */}
         <div className="card" style={{ marginTop: 12, background: 'var(--ink)' }}>

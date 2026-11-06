@@ -1,0 +1,36 @@
+name: تفعيل التحقق بخطوتين (مرة واحدة)
+
+# يُشغَّل يدويًا من تبويب Actions: يفعّل TOTP في مشروع Firebase باعتماد حساب الخدمة نفسه المستخدم لنشر القواعد.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  enable:
+    name: تفعيل TOTP في مشروع Firebase
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: تثبيت الحزم
+        run: npm ci
+      - name: تجهيز اعتماد الخدمة
+        env:
+          SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$SA" ]; then echo "::error::لم يُضبط FIREBASE_SERVICE_ACCOUNT"; exit 1; fi
+          umask 077
+          printf '%s' "$SA" > "$RUNNER_TEMP/sa.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/sa.json" >> $GITHUB_ENV
+      - name: تفعيل TOTP
+        env:
+          PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+        run: node scripts/enable-totp.mjs
+      - name: حذف ملف الاعتماد
+        if: always()
+        run: rm -f "$RUNNER_TEMP/sa.json"
