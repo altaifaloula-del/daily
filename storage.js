@@ -440,3 +440,9 @@ export const cloud = {
   get mode() { return FB_READY ? 'firestore' : (useApi ? 'server' : 'local'); },
   get live() { return FB_READY; }
 };
+
+// v29.6: تحميل مكتبة قاعدة البيانات في الخلفية أثناء شاشة الدخول (وقت الخمول) — فلا ينتظرها المستخدم بعد إدخال كلمة السر
+if (FB_READY && typeof window !== 'undefined') {
+  const warm = () => { import('firebase/firestore').catch(() => { }); };
+  if ('requestIdleCallback' in window) window.requestIdleCallback(warm, { timeout: 4000 }); else setTimeout(warm, 2500);
+}
