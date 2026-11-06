@@ -2804,7 +2804,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v29.6 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v29.7 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -14467,6 +14467,41 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const outstanding = sum(invoices, invRem) + sum(clInvs, cRem);
   const overdue = allInvs.filter(i => remOf(i) > 0 && i.dueDate < today());
 
+  // v29.7: بحث في الفواتير (آلاف الفواتير المستوردة كانت تُعرض كلها دفعة واحدة بلا بحث)
+  const [invQ, setInvQ] = useState('');
+  const INV_CAP = 300;
+  const invShown = (() => {
+    const q = invQ.trim().toLowerCase();
+    const list = q ? allInvs.filter(i => (String(i.invoiceNo || '') + ' ' + (i.supplierName || '') + ' ' + (i.mizanId || '')).toLowerCase().includes(q)) : allInvs;
+    return { list: list.slice(0, INV_CAP), total: list.length };
+  })();
+
+  // v29.7: حذف فاتورة مورد مفردة (مكررة أو مستوردة خطأً) — كان الحذف متاحًا فقط لدفعة استيراد كاملة.
+  // ضوابط: صلاحية التعديل، لا سداد مسجّل عليها من المنصة، ليست في شهر مقفل، تأكيد بكتابة رقمها، وسجل تدقيق بنسخة منها.
+  // السدادات البنكية الموزّعة عليها (alloc) تنتقل لتوأمها (نفس المورد والتاريخ والمبلغ) إن وُجد، وإلا تبقى على المورد غير موزّعة.
+  const canDelInv = roleEdit(me.role);
+  const delInv = async (inv) => {
+    if (!canDelInv) return say('حذف الفواتير لمن يملك صلاحية التعديل فقط', 'no');
+    if ((inv.paidAmount || 0) > 0 || branchPaid(inv.id) > 0) return say('على الفاتورة سداد مسجّل من المنصة — لا تُحذف. صحّحها بإشعار دائن أو قيد يدوي', 'no');
+    const d0 = (inv.date || inv.createdAt || inv.dueDate || '').slice(0, 10);
+    if (periodLocked(org, d0)) return say(LOCK_MSG(d0), 'no');
+    const twin = invoices.find(x => x.id !== inv.id && x.supplierId === inv.supplierId && (x.date || '').slice(0, 10) === d0 && Math.abs((x.amount || 0) - (inv.amount || 0)) < 0.005);
+    const typed = window.prompt('حذف فاتورة ' + (inv.invoiceNo || '') + ' — ' + (inv.supplierName || '') + ' بمبلغ ' + money(inv.amount) + ' بتاريخ ' + d0
+      + (twin ? '\nتوأمها المطابق: ' + (twin.invoiceNo || '') + ' (تنتقل إليه السدادات الموزّعة على هذه)' : '\nلا توجد فاتورة مطابقة لنفس المورد والتاريخ والمبلغ')
+      + '\n\nللتأكيد اكتب رقم الفاتورة: ' + (inv.invoiceNo || ''));
+    if ((typed || '').trim() !== String(inv.invoiceNo || '').trim()) return say('أُلغي الحذف — لم يتغير شيء', 'no');
+    const snapshot = JSON.stringify({ id: inv.id, invoiceNo: inv.invoiceNo, supplierName: inv.supplierName, amount: inv.amount, vatAmt: inv.vatAmt, date: d0, mizanId: inv.mizanId || '', mizanBatch: inv.mizanBatch || '' });
+    const ok = await commit(d => ({
+      ...d,
+      invoices: (d.invoices || []).filter(x => x.id !== inv.id),
+      closingInvPays: (d.closingInvPays || []).map(p => Array.isArray(p.alloc) && p.alloc.some(([id]) => id === inv.id)
+        ? { ...p, alloc: twin ? p.alloc.map(([id, v]) => [id === inv.id ? twin.id : id, v]) : p.alloc.filter(([id]) => id !== inv.id) }
+        : p)
+    }), { actionType: 'delete', targetType: 'expense', targetId: inv.id, need: 'edit', branchName: inv.branchName || '',
+      title: 'حذف فاتورة مورد', details: snapshot });
+    if (ok) say('حُذفت الفاتورة ' + (inv.invoiceNo || '') + (twin ? ' ونُقلت سداداتها الموزّعة إلى ' + (twin.invoiceNo || '') : '') + ' ✓');
+  };
+
   // ===== م٤: أوامر الشراء والفواتير =====
   const pos = (ops.purchaseOrders || []).sort((a, b) => (b.at || '').localeCompare(a.at || ''));
   const items = org.items || [];
@@ -14654,15 +14689,17 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
 
       {tab === 'inv' && (
         <div className="card">
-          <div className="row" style={{ justifyContent: 'flex-end', marginBottom: 8 }}>
+          <div className="row" style={{ justifyContent: 'space-between', marginBottom: 8, gap: 8, flexWrap: 'wrap' }}>
+            <input className="inp" style={{ maxWidth: 320 }} placeholder="بحث برقم الفاتورة أو اسم المورد…" value={invQ} onChange={e => setInvQ(e.target.value)} />
             <button className="btn sm" onClick={printInvs}><Printer size={13} />طباعة الفواتير المفتوحة</button>
           </div>
+          {invShown.total > invShown.list.length && <div className="note" style={{ marginBottom: 8, fontSize: 12 }}>يُعرض أول {invShown.list.length} من {invShown.total} فاتورة — استخدم البحث للوصول لفاتورة محددة.</div>}
           <div className="tw">
             <table className="tb">
               <thead><tr><th>الفاتورة</th><th>المورد</th><th>الفرع</th><th>الاستحقاق</th><th>المهلة</th>
                 <th>القيمة</th><th>المسدد</th><th>المتبقي</th><th>الحالة</th><th></th></tr></thead>
               <tbody>
-                {allInvs.map(i => {
+                {invShown.list.map(i => {
                   const bp = i.source === 'closing' ? 0 : branchPaid(i.id);
                   const rem = remOf(i);
                   const late = rem > 0 && i.dueDate < today();
@@ -14688,11 +14725,13 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say }) {
                       <td className="num" style={{ color: rem > 0 ? 'var(--amber)' : 'var(--faint)', fontWeight: 600 }}>{money(rem)}</td>
                       <td><span className={'badge ' + (rem <= 0 ? 'b-mint' : late ? 'b-rose' : 'b-amber')}>
                         {rem <= 0 ? 'مسددة' : late ? 'متأخرة' : 'قيد السداد'}</span></td>
-                      <td>{rem > 0 && canPay &&
-                        <button className="btn sm" onClick={() => { setPay(i); setAmt(rem); }}>سداد</button>}</td>
+                      <td style={{ whiteSpace: 'nowrap' }}>{rem > 0 && canPay &&
+                        <button className="btn sm" onClick={() => { setPay(i); setAmt(rem); }}>سداد</button>}
+                        {i.source === 'stored' && canDelInv && <button className="btn sm gh" title="حذف فاتورة مكررة أو مستوردة خطأً" style={{ color: 'var(--rose)', marginInlineStart: 4 }} onClick={() => delInv(i)}><Trash2 size={12} /></button>}</td>
                     </tr>
                   );
                 })}
+                {invShown.total === 0 && invQ.trim() && <tr><td colSpan={10}><div className="empty">لا فاتورة تطابق «{invQ}»</div></td></tr>}
                 {allInvs.length === 0 && <tr><td colSpan={10}><div className="empty">لا فواتير آجلة — المشتريات الآجلة المربوطة بموردين في الورديات ستظهر هنا تلقائياً.</div></td></tr>}
               </tbody>
             </table>
