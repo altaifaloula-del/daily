@@ -3809,8 +3809,9 @@ function MfaPanel({ me, required, inline, onDone, onLogout, say, info, reload })
     if (c.includes('wrong-password') || c.includes('invalid-credential') || c.includes('invalid-login')) return 'كلمة السر غير صحيحة';
     if (c.includes('unverified-email')) return 'verify';
     if (c.includes('operation-not-allowed') || c.includes('admin-restricted') || c.includes('not-enabled')) return 'التحقق بخطوتين غير مفعّل في مشروع Firebase بعد — يفعّله مسؤول النظام مرة واحدة (سير «تفعيل التحقق بخطوتين» في GitHub).';
-    if (c.includes('invalid-verification-code')) return 'الرمز غير صحيح — استخدم الرمز الحالي في التطبيق';
-    if (c.includes('too-many-requests')) return 'محاولات كثيرة — انتظر قليلًا';
+    if (c.includes('invalid-verification-code')) return 'الرمز غير صحيح — تأكد أنك مسحت رمز QR الظاهر الآن (لا رمز محاولة سابقة)، وأن ساعة الهاتف تلقائية، واكتب الرمز قبل أن يتغير';
+    if (c.includes('too-many-enrollment-attempts')) return 'أوقف نظام المصادقة المحاولات مؤقتًا بعد عدة رموز غير مقبولة. انتظر قرابة ساعة، ثم احذف حسابات «ميزان» القديمة من تطبيق المصادقة، واضغط «بدء التفعيل» مرة واحدة وامسح الرمز الجديد.';
+    if (c.includes('too-many-requests')) return 'محاولات كثيرة — انتظر قليلًا ثم أعد المحاولة';
     if (c.includes('requires-recent-login')) return 'أعد إدخال كلمة السر';
     return 'تعذّر الإجراء (' + c.replace('auth/', '') + ')'; };
   const start = async () => { if (!pass || busy) return; setBusy(true); setErr('');
@@ -3846,6 +3847,7 @@ function MfaPanel({ me, required, inline, onDone, onLogout, say, info, reload })
       </>}
       {step === 'scan' && sec && <>
         <div style={{ fontSize: 12.5 }}>١) افتح تطبيق المصادقة واختر «إضافة حساب» ثم امسح الرمز:</div>
+        <div style={{ fontSize: 11, color: 'var(--amber)' }}>إن كان في التطبيق حساب «ميزان» من محاولة سابقة فاحذفه أولًا — كل محاولة تولّد رمزًا جديدًا.</div>
         <div style={{ ...box, display: 'grid', placeItems: 'center', background: '#fff' }} dangerouslySetInnerHTML={{ __html: qrSvg(sec.url, { ecl: 1, px: 190 }) }} />
         <div style={box}><div style={{ fontSize: 11, color: 'var(--dim)' }}>أو أدخل هذا المفتاح يدويًا — <b>واحفظه في مكان آمن</b>: به تعيد إضافة الحساب لهاتف جديد إن فقدت هاتفك</div>
           <div className="num" style={{ direction: 'ltr', fontSize: 15, fontWeight: 800, letterSpacing: 1, marginTop: 6, wordBreak: 'break-all' }}>{keyFmt(sec.key)}</div></div>
