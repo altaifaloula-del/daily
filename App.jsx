@@ -2382,6 +2382,46 @@ function emptyOps() {
 
 /* ================= الجذر ================= */
 // v28.0 — رابط رمز QR للعميل (?rate=<branchId>) يعرض صفحة التقييم العامة قبل أي إقلاع أو بوابة دخول
+/* v32.0 — حاجز الأخطاء: أي خطأ في شاشة يُعرض رسالة عربية مع «إعادة المحاولة» بدل شاشة سوداء،
+   ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
+const ERRLOG_KEY = 'mizan:errlog';
+function logClientError(err, where) {
+  try {
+    const a = JSON.parse(localStorage.getItem(ERRLOG_KEY) || '[]');
+    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v32.0' });
+    localStorage.setItem(ERRLOG_KEY, JSON.stringify(a.slice(0, 20)));
+  } catch { }
+}
+class ErrorBoundary extends React.Component {
+  constructor(p) { super(p); this.state = { err: null, copied: false }; }
+  static getDerivedStateFromError(err) { return { err }; }
+  componentDidCatch(err, info) { logClientError(err, (this.props.where || '') + ' ' + String((info && info.componentStack) || '').split('\n').slice(0, 3).join(' ').trim()); }
+  render() {
+    if (!this.state.err) return this.props.children;
+    const full = this.props.full;
+    const txt = 'الموقع: ' + (this.props.where || 'المنصة') + '\nالخطأ: ' + String(this.state.err && this.state.err.message) + '\nالوقت: ' + new Date().toISOString();
+    const box = (
+      <div className="card" style={{ maxWidth: 560, margin: full ? '12vh auto' : '10px auto', textAlign: 'center', borderColor: 'rgba(217,84,77,.45)' }}>
+        <div style={{ fontSize: 34 }}>⚠️</div>
+        <div style={{ fontWeight: 800, fontSize: 16, margin: '6px 0' }}>حدث خطأ في {this.props.where || 'المنصة'}</div>
+        <div style={{ fontSize: 12.5, color: 'var(--dim)', lineHeight: 1.8 }}>بياناتك سليمة ولم يُحفظ شيء خاطئ. جرّب «إعادة المحاولة»، وإن تكرر الخطأ فانسخ التفاصيل وأرسلها للدعم.</div>
+        <div className="row" style={{ gap: 8, justifyContent: 'center', marginTop: 12, flexWrap: 'wrap' }}>
+          <button className="btn pri" onClick={() => this.setState({ err: null })}>إعادة المحاولة</button>
+          {full && <button className="btn" onClick={() => location.reload()}>تحديث الصفحة</button>}
+          <button className="btn gh" onClick={() => { try { navigator.clipboard.writeText(txt); this.setState({ copied: true }); } catch { } }}>{this.state.copied ? 'نُسخت ✓' : 'نسخ تفاصيل الخطأ'}</button>
+        </div>
+        <div className="num" style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 10, direction: 'ltr' }}>{String(this.state.err && this.state.err.message).slice(0, 160)}</div>
+      </div>);
+    return full ? <div className="rms mode-dark thm-royal" style={{ minHeight: '100vh', background: '#14110f', padding: 16 }}>{box}</div> : box;
+  }
+}
+export { ErrorBoundary, logClientError };
+if (typeof window !== 'undefined' && !window.__mizanErrHook) {
+  window.__mizanErrHook = true;
+  window.addEventListener('error', (e) => logClientError(e.error || e.message, 'window'));
+  window.addEventListener('unhandledrejection', (e) => logClientError(e.reason, 'promise'));
+}
+
 export default function App() {
   const [rateId] = useState(qrRateParam);
   return rateId ? <QrRatePublic branchId={rateId} /> : <PlatformApp />;
@@ -3357,7 +3397,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v31.10 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v32.0 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -3512,7 +3552,7 @@ function PlatformApp() {
           )}
 
           <div className="page">
-            <div className="page-inner">
+            <div className="page-inner"><ErrorBoundary key={safeTab} where={(NAV.find(n => n.id === safeTab) || {}).ar || 'هذا القسم'}>
               {safeTab === 'home' && <Launcher {...shared} online={online} />}
               {['analytics', 'exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'alerts'].includes(safeTab) && <Hub hubId="analytics" {...shared} online={online} view={safeTab} />}
               {['reporting', 'reports', 'rbuild', 'boardpack', 'cashflow'].includes(safeTab) && <Hub hubId="reporting" {...shared} view={safeTab} />}
@@ -3532,7 +3572,7 @@ function PlatformApp() {
               {['docs', 'archive'].includes(safeTab) && <Hub hubId="docshub" {...shared} view={safeTab} />}
               {safeTab === 'admin' && <Admin {...shared} />}
               {safeTab === 'audit' && <AuditView {...shared} onSeen={() => setLastSeenAudit(Date.now())} />}
-            </div>
+            </ErrorBoundary></div>
           </div>
 
           <div className="tick">
