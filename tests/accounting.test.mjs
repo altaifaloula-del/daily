@@ -199,3 +199,28 @@ test('استيراد نقاط البيع: ملخص يومي بعمود لكل ط
   near(r.days[0].cash, 1200.5); near(r.days[0].card, 800); near(r.days[0].apps.jahez.amount, 300); near(r.days[0].total, 2300.5);
   near(r.days[1].total, 1000);
 });
+
+test('منع تكرار الفواتير: رقم المورد بعد التطبيع، والمبيعات المزدوجة خلال دقائق', () => {
+  assert.equal(E.invNoNorm('INV-001'), E.invNoNorm('inv 1'));
+  assert.equal(E.invNoNorm('٠٠٤٥'), '45');
+  assert.notEqual(E.invNoNorm('100'), E.invNoNorm('10'));
+  const prev = { invoices: [{ id: 'i1', supplierId: 's1', supplierName: 'المراعي', invoiceNo: 'A-0045', amount: 500, date: '2026-11-01' }], salesInvoices: [] };
+  // نفس المورد ونفس الرقم بصيغة مختلفة → مرفوض
+  let d = E.findDupInvoices(prev, { ...prev, invoices: [...prev.invoices, { id: 'i2', supplierId: 's1', supplierName: 'المراعي', invoiceNo: 'a 45', amount: 500 }] });
+  assert.equal(d.length, 1); assert.equal(d[0].kind, 'purchase');
+  // مورد آخر بنفس الرقم، أو إشعار دائن بنفس الرقم → مقبول
+  d = E.findDupInvoices(prev, { ...prev, invoices: [...prev.invoices, { id: 'i3', supplierId: 's2', invoiceNo: 'A-0045', amount: 500 }, { id: 'i4', supplierId: 's1', invoiceNo: 'A-0045', creditNote: true, amount: -50 }] });
+  assert.equal(d.length, 0);
+  // تكرار داخل الدفعة نفسها (استيراد) → مرفوض
+  d = E.findDupInvoices({ invoices: [] }, { invoices: [{ id: 'x1', supplierId: 's1', invoiceNo: '7' }, { id: 'x2', supplierId: 's1', invoiceNo: '007' }] });
+  assert.equal(d.length, 1);
+  // تعديل فاتورة قائمة لا يُعد تكرارًا
+  d = E.findDupInvoices(prev, { ...prev, invoices: [{ ...prev.invoices[0], amount: 520 }] });
+  assert.equal(d.length, 0);
+  // المبيعات: إصدار مزدوج خلال دقيقة → مرفوض؛ نفس البنود بعد ساعة → مقبول
+  const si = { id: 's1', kind: 'invoice', date: '2026-11-07', customerKey: 'c:1', total: 115, lines: [{ desc: 'وجبة', qty: 2, price: 50 }], at: '2026-11-07T10:00:00Z', no: 'فاتورة-2026-00001' };
+  d = E.findDupInvoices({ salesInvoices: [si] }, { salesInvoices: [si, { ...si, id: 's2', at: '2026-11-07T10:00:40Z' }] });
+  assert.equal(d.length, 1); assert.equal(d[0].kind, 'sales');
+  d = E.findDupInvoices({ salesInvoices: [si] }, { salesInvoices: [si, { ...si, id: 's3', at: '2026-11-07T11:30:00Z' }] });
+  assert.equal(d.length, 0);
+});
