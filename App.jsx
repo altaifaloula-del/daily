@@ -763,6 +763,32 @@ const siCanon = (x) => JSON.stringify([x.no, x.kind, x.type, x.date, x.time || '
   (x.lines || []).map(l => [l.desc, l.qty, l.price, l.vatRate, l.net, l.vat]), x.net, x.vat, x.total, x.terms, x.fund || '', x.refId || '', !!x.inClosing, x.icv, x.pih || '']);
 const siSorted = (list) => (list || []).slice().sort((a, b) => (a.icv || 0) - (b.icv || 0));
 // بناء سجل جديد داخل دالة الحفظ (على أحدث نسخة) — الرقم والعداد والبصمة تُحسب هنا فلا يتكرر رقم بين جهازين
+/* v33.2 — منع تكرار الفواتير: يُفحص كل حفظ مركزيًا مهما كانت الشاشة.
+   المشتريات: نفس المورد + نفس رقم الفاتورة (بعد التطبيع) = مكرر. المبيعات: الترقيم تسلسلي فلا يتكرر رقم،
+   والحماية من الإصدار المزدوج (نقرتان/إعادة إرسال): نفس العميل والتاريخ والبنود والإجمالي خلال 10 دقائق. */
+const invNoNorm = (x) => String(x == null ? '' : x).replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d))
+  .toLowerCase().replace(/[^0-9a-z؀-ۿ]/g, '').replace(/(^|[^0-9])0+(?=\d)/g, '$1');
+const purKey = (i) => { const n = invNoNorm(i.invoiceNo); if (!n) return ''; return (i.supplierId || ('n:' + invNoNorm(i.supplierName))) + '|' + (i.creditNote ? 'cn' : 'inv') + '|' + n; };
+const siSig = (x) => [x.kind, x.refId || '', x.date, x.customerKey || invNoNorm((x.buyer || {}).name), Math.round((Number(x.total) || 0) * 100),
+  (x.lines || []).map(l => invNoNorm(l.desc) + ':' + l.qty + ':' + l.price).join(';')].join('|');
+function findDupInvoices(prev, next) {
+  const out = [];
+  const pIds = new Set((prev.invoices || []).map(i => i.id));
+  const seen = new Map(); (prev.invoices || []).forEach(i => { const k = purKey(i); if (k && !seen.has(k)) seen.set(k, i); });
+  // سجلات ميزان المستوردة تُمنع من التكرار بمعرّفها في ميزان (mizanId) — هي دفتر محاسبي قائم فلا تُرفض الدفعة كلها
+  (next.invoices || []).filter(i => !pIds.has(i.id) && !i.mizanId).forEach(i => { const k = purKey(i); if (!k) return; const o = seen.get(k);
+    if (o) out.push({ kind: 'purchase', rec: i, dup: o, msg: 'فاتورة المورد «' + (i.supplierName || '') + '» رقم ' + i.invoiceNo + ' مسجّلة مسبقًا بتاريخ ' + (o.date || '') + ' بمبلغ ' + money(Math.abs(o.amount || 0)) });
+    else seen.set(k, i); });
+  const sIds = new Set((prev.salesInvoices || []).map(x => x.id));
+  const tms = (x) => Date.parse(x.at || '') || 0;
+  const olds = (prev.salesInvoices || []).slice();
+  (next.salesInvoices || []).filter(x => !sIds.has(x.id)).forEach(x => { const sg = siSig(x);
+    const o = olds.find(y => siSig(y) === sg && Math.abs(tms(x) - tms(y)) < 10 * 60 * 1000);
+    if (o) out.push({ kind: 'sales', rec: x, dup: o, msg: (x.kind === 'credit' ? 'إشعار دائن مطابق' : 'فاتورة مبيعات مطابقة') + ' (نفس العميل والبنود والإجمالي ' + money(x.total) + ') صدرت قبل دقائق برقم ' + (o.no || '') });
+    else olds.push(x); });
+  return out;
+}
+
 function siStamp(list, rec) {
   const yr = String(rec.date || '').slice(0, 4), pre = SI_SERIES[rec.kind] || 'فاتورة';
   const seq = 1 + (list || []).filter(x => x.kind === rec.kind && String(x.date || '').slice(0, 4) === yr).reduce((mx, x) => Math.max(mx, Number(x.seq) || 0), 0);
@@ -2440,7 +2466,7 @@ const ERRLOG_KEY = 'mizan:errlog';
 function logClientError(err, where) {
   try {
     const a = JSON.parse(localStorage.getItem(ERRLOG_KEY) || '[]');
-    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v33.1' });
+    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v33.2' });
     localStorage.setItem(ERRLOG_KEY, JSON.stringify(a.slice(0, 20)));
   } catch { }
 }
@@ -2513,6 +2539,7 @@ function PlatformApp() {
   // v27.1 — تشخيص صلاحيات الخادم على جهاز الفرع: {kind:'dir'|'branch'|'member', ids, mem, expected}
   // (سابقًا كان رفض القراءة يسقط بصمت إلى نسخة localStorage القديمة فتبدو الشاشات «تعمل» بينما كل كتابة سحابية ترفض)
   const [accessErr, setAccessErr] = useState(null);
+  const lastDupMsg = useRef('');
   const lastWriteErr = useRef('');   // 'denied' | 'net' | 'scope' | ''
   const [brSetVer, setBrSetVer] = useState(0);   // v27.3: يتغيّر عند تغيّر مجموعة الفروع المشترَك بها — يُعيد بناء الاشتراكات الحيّة
   const sid = useRef(uid('s'));
@@ -3078,6 +3105,9 @@ function PlatformApp() {
       const next = mutator(JSON.parse(JSON.stringify(latest)));
       // v29.5: الحارس المركزي — لا تعديل لقيود شهر مقفل مهما كانت الشاشة
       if (orgNow.current && lockedLedgerChanged(orgNow.current, latest, orgNow.current, next)) { lastWriteErr.current = 'locked'; return false; }
+      // v33.2: الحارس المركزي لتكرار الفواتير — يُفحص على أحدث نسخة سحابية (يمنع النقرتين والتصادم بين جهازين)
+      const dups = findDupInvoices(latest, next);
+      if (dups.length) { lastWriteErr.current = 'dup'; lastDupMsg.current = dups[0].msg + (dups.length > 1 ? ' (+' + (dups.length - 1) + ' أخرى)' : ''); return false; }
       // v27.1: على مسار الفرع لا يُكتب المستند المركزي — أي سجل جديد بلا فرع أو لفرع خارج نطاقي كان يضيع بصمت
       // (يظهر محليًا ثم يختفي بعد إعادة التحميل). نرفضه صراحةً.
       if (!ctx.central) {
@@ -3143,7 +3173,8 @@ function PlatformApp() {
     if (!ok) {
       // v27.1: رسالة تُسمّي السبب — رفض صلاحيات الخادم (عضوية الحساب لا تحمل فرعه) يختلف تمامًا عن انقطاع الشبكة
       const k = lastWriteErr.current;
-      if (k === 'locked') say('لم يُحفظ: هذا التعديل يغيّر قيودًا في شهر مقفل محاسبيًا 🔒 — الفتح الاستثنائي من المحاسبة ← الإقفال', 'no');
+      if (k === 'dup') say('لم يُحفظ — فاتورة مكررة: ' + lastDupMsg.current, 'no');
+      else if (k === 'locked') say('لم يُحفظ: هذا التعديل يغيّر قيودًا في شهر مقفل محاسبيًا 🔒 — الفتح الاستثنائي من المحاسبة ← الإقفال', 'no');
       else if (k === 'denied') say('رفض الخادم حفظ بيانات فرعك (صلاحيات، لا اتصال): عضوية حسابك على الخادم لا تحمل هذا الفرع — اطلب من مسؤول النظام «مزامنة صلاحيات الأعضاء» من الفروع والمستخدمين ثم أعد الدخول', 'no');
       else if (k === 'scope') say('لم يُحفظ: السجل يخص فرعًا خارج نطاق حسابك (أو بلا فرع) — راجع إعداد فرع حسابك', 'no');
       else if (String((cloud.lastError || {}).code) === 'read-failed') say('لم يُحفظ: تعذّرت قراءة النسخة الحالية من السحابة (قد تكون تالفة)، فلم يُكتب شيء حمايةً للبيانات — أعد تحميل الصفحة، وإن تكرر تواصل مع المطوّر', 'no');
@@ -3463,7 +3494,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v33.1 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v33.2 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -4817,7 +4848,7 @@ function DailyBranchReport({ org, scoped, myBranches, onClose }) {
       <td class="num mint">${m(c.totalRevenue - c.totalExpenses)}</td>
       <td class="num">${m(c.transferredToMainTreasury)}</td>
       <td class="num ${c.variance < 0 ? 'rose' : ''}">${m(c.variance)}</td></tr>`).join('');
-    const w = window.open('', '_blank', 'width=1000,height=800');
+    const w = openDocWin('width=1000,height=800');
     if (!w) return;
     w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
       <title>تقرير الفروع اليومي - ${date}</title><style>${A4_CSS}</style></head><body><div class="page">
@@ -4858,7 +4889,7 @@ function DailyBranchReport({ org, scoped, myBranches, onClose }) {
     if (dayClosings.length === 0) return;
     const co = org.company || {};
     const pages = dayClosings.map(c => buildClosingA4(c, org)).join('<div style="page-break-after:always"></div>');
-    const w = window.open('', '_blank', 'width=1000,height=800');
+    const w = openDocWin('width=1000,height=800');
     if (!w) return;
     w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
       <title>تقارير الفروع اليومية - ${date}</title><style>${A4_CSS}</style></head><body>${pages}</body></html>`);
@@ -10088,7 +10119,7 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
       <td>${['advance', 'salary_draw'].includes(a.type) ? 'سلفة/سحب' : 'خصم/جزاء'}</td>
       <td class="n">${m(a.amount)}</td>
       <td>${a.reason || '—'}</td></tr>`).join('') || '<tr><td colspan="4" class="ce">لا سلف أو خصومات هذا الشهر</td></tr>';
-    const w = window.open('', '_blank', 'width=850,height=1000');
+    const w = openDocWin('width=850,height=1000');
     if (!w) return;
     w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
       <title>قسيمة راتب - ${r.e.name} - ${monthName}</title>
@@ -11493,7 +11524,7 @@ function Attendance({ org, ops, me, myBranches, commit, say }) {
   // v24.1: إصدار/تجديد بطاقة QR — السرّ يُطبع مرة واحدة على البطاقة ولا يُخزَّن إلا مُجزَّأً في مستند الفرع؛ التجديد يُلغي البطاقة السابقة
   const issueBadge = async (e) => {
     if (badgeHashOf(e.id) && !window.confirm('إصدار بطاقة جديدة لـ«' + e.name + '»؟ البطاقة الحالية ستتوقف فورًا عن العمل.')) return;
-    const w = window.open('', '_blank', 'width=520,height=720');   // تُفتح قبل أي انتظار كي لا يحجبها المتصفح
+    const w = openDocWin('width=520,height=720');   // تُفتح قبل أي انتظار كي لا يحجبها المتصفح
     // v27.13: النافذة لا تبقى فارغة أبدًا — رسالة فورية، ثم البطاقة أو سبب الفشل صريحًا
     const showMsg = (msg, err) => { try { if (w) { w.document.open(); w.document.write('<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>بطاقة حضور</title></head><body style="font-family:Tahoma,sans-serif;padding:28px;text-align:center;font-size:14px;color:' + (err ? '#b00' : '#333') + '">' + escH(msg) + '</body></html>'); w.document.close(); } } catch (_) { } };
     if (w) showMsg('جارٍ إصدار البطاقة…');
@@ -15496,7 +15527,7 @@ function Reports({ org, ops, me, myBranches, scoped, say, theme }) {
       <td class="num rose">${m(b.exp)}</td><td class="num mint">${m(b.net)}</td>
       <td class="num">${b.margin.toFixed(1)}%</td>
       <td class="num">${m(b.varr)}</td></tr>`).join('');
-    const w = window.open('', '_blank', 'width=980,height=780');
+    const w = openDocWin('width=980,height=780');
     if (!w) return;
     w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
       <title>تقرير أداء الفروع</title><style>${A4_CSS}</style></head><body><div class="page">
@@ -16366,6 +16397,63 @@ function buildClosingA4(c, org) {
 }
 
 // v32.4 — خط الأرقام في نوافذ الطباعة (عنوان كامل لأن نافذة الطباعة بلا عنوان أساس)
+/* v33.2 — عارض التقارير داخل التطبيق: على الجوال والآيباد وتطبيق الشاشة الرئيسية كانت التقارير تُفتح في نافذة جديدة
+   بلا زر رجوع فلا يُخرج منها إلا بإغلاق التطبيق. الآن تُعرض فوق المنصة بشريط «إغلاق · طباعة/PDF · مشاركة»،
+   ويغلقها زر الرجوع أيضًا. على الكمبيوتر تبقى النافذة المنفصلة كما هي. */
+const isStandaloneApp = () => { try { return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true; } catch { return false; } };
+const isIOSDev = () => { try { return /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent)); } catch { return false; } };
+const docInApp = () => { try { return isStandaloneApp() || isIOSDev() || /Android|Mobile/i.test(navigator.userAgent); } catch { return false; } };
+function openDocWin(features) {
+  if (typeof document === 'undefined' || !docInApp()) return window.open('', '_blank', features);
+  let buf = '', t = null, closed = false;
+  const box = document.createElement('div');
+  box.setAttribute('dir', 'rtl'); box.className = 'mz-docv';
+  box.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:#fff;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top)';
+  const bar = document.createElement('div');
+  bar.style.cssText = 'display:flex;gap:8px;align-items:center;padding:8px 10px;background:#241F1B;color:#fff;font-family:Tahoma,sans-serif;flex:0 0 auto';
+  const mk = (txt, bg) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = txt; b.style.cssText = 'border:0;border-radius:9px;padding:9px 14px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;background:' + bg + ';color:' + (bg === '#C8A24A' ? '#1a1410' : '#fff'); bar.appendChild(b); return b; };
+  const bClose = mk('✕ إغلاق', '#a33');
+  const bPrint = mk('طباعة / PDF', '#C8A24A');
+  const bShare = (navigator.share && typeof File !== 'undefined') ? mk('مشاركة', '#3b4a5a') : null;
+  const ttl = document.createElement('div'); ttl.style.cssText = 'flex:1;text-align:start;font-size:12.5px;opacity:.85;overflow:hidden;white-space:nowrap;text-overflow:ellipsis'; bar.appendChild(ttl);
+  const ifr = document.createElement('iframe'); ifr.style.cssText = 'flex:1;width:100%;border:0;background:#fff';
+  box.appendChild(bar); box.appendChild(ifr); document.body.appendChild(box);
+  const fit = () => { try { const d = ifr.contentDocument; if (!d) return; const de = d.documentElement; de.style.zoom = ''; const dw = de.scrollWidth, cw = ifr.clientWidth;
+    if (dw > cw + 4) de.style.zoom = String(Math.max(0.35, cw / dw)); } catch { /* */ } };
+  const render = () => { t = null; ifr.srcdoc = buf; const m = /<title>([^<]*)<\/title>/i.exec(buf); ttl.textContent = m ? m[1] : ''; };
+  ifr.addEventListener('load', fit);
+  const close = () => { if (closed) return; closed = true; try { box.remove(); } catch { /* */ } window.removeEventListener('popstate', onPop); if (history.state && history.state.mzDoc) { try { history.back(); } catch { /* */ } } };
+  const onPop = () => { if (!closed) { closed = true; try { box.remove(); } catch { /* */ } window.removeEventListener('popstate', onPop); } };
+  try { history.pushState({ ...(history.state || {}), mzDoc: 1 }, ''); } catch { /* */ }
+  window.addEventListener('popstate', onPop);
+  bClose.onclick = close;
+  bPrint.onclick = () => { try { const w2 = ifr.contentWindow; const de = ifr.contentDocument.documentElement; const z = de.style.zoom; de.style.zoom = '';
+    w2.focus(); w2.print(); setTimeout(() => { de.style.zoom = z; }, 800); } catch { /* */ } };
+  if (bShare) bShare.onclick = async () => { try { const f = new File([buf], (ttl.textContent || 'تقرير').replace(/[\\/:*?"<>|]/g, '-') + '.html', { type: 'text/html' });
+    if (!navigator.canShare || navigator.canShare({ files: [f] })) await navigator.share({ files: [f], title: ttl.textContent || 'تقرير' }); } catch { /* أُلغيت المشاركة */ } };
+  const fake = {
+    get closed() { return closed; },
+    document: { open() { buf = ''; }, write(x) { buf += String(x); if (!t) t = setTimeout(render, 0); }, close() { if (t) clearTimeout(t); render(); } },
+    focus() { }, print() { /* على الجوال لا تُفتح الطباعة تلقائيًا — زر «طباعة / PDF» في الشريط */ }, close
+  };
+  return fake;
+}
+/* تنزيل الملفات (Excel/PDF) داخل تطبيق الآيفون المثبّت: الرابط المباشر يفتح الملف فوق التطبيق بلا رجوع،
+   فنحوّله إلى لوحة المشاركة (حفظ في الملفات / إرسال) ويبقى المستخدم داخل المنصة. */
+(() => { try {
+  if (typeof window === 'undefined' || !isIOSDev() || !isStandaloneApp() || !navigator.share || typeof File === 'undefined') return;
+  const blobs = new Map(); const oc = URL.createObjectURL.bind(URL);
+  URL.createObjectURL = (o) => { const u = oc(o); if (o instanceof Blob) { blobs.set(u, o); if (blobs.size > 30) blobs.delete(blobs.keys().next().value); } return u; };
+  const ac = HTMLAnchorElement.prototype.click;
+  HTMLAnchorElement.prototype.click = function () {
+    const b = blobs.get(this.href);
+    if (b) { const ext = /pdf/.test(b.type) ? '.pdf' : /csv/.test(b.type) ? '.csv' : /sheet|excel/.test(b.type) ? '.xlsx' : '';
+      const f = new File([b], this.download || ('ملف' + ext), { type: b.type || 'application/octet-stream' });
+      if (!navigator.canShare || navigator.canShare({ files: [f] })) { navigator.share({ files: [f] }).catch(() => { }); return; } }
+    return ac.call(this);
+  };
+} catch { /* */ } })();
+
 const NUM_FACE = (() => { try { const u = new URL('fonts/inter-latin.woff2', document.baseURI).href;
   return "@font-face{font-family:'MizanNum';src:url('" + u + "') format('woff2');font-weight:100 900;unicode-range:U+0030-0039,U+0025,U+0024,U+002B-002E,U+002F,U+003A,U+00D7,U+2212,U+2013}"; } catch { return ''; } })();
 const A4_CSS = `
@@ -16430,7 +16518,7 @@ const A4_CSS = `
 `;
 
 function printClosingA4(c, org) {
-  const w = window.open('', '_blank', 'width=880,height=1000');
+  const w = openDocWin('width=880,height=1000');
   if (!w) return false;
   w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
     <title>تقرير الإغلاق - ${c.branchName} - ${c.date}</title><style>${A4_CSS}</style></head>
@@ -16500,7 +16588,7 @@ function printReceipt(c, org, size) {
   <div class="c">أمين الخزينة: __________</div>
   <div class="c" style="margin-top:8px">${new Date().toLocaleString('ar-SA-u-nu-latn')}</div>
   </body></html>`;
-  const w = window.open('', '_blank', 'width=420,height=760');
+  const w = openDocWin('width=420,height=760');
   if (!w) return false;
   w.document.write(html); w.document.close();
   setTimeout(() => { w.focus(); w.print(); }, 400);
@@ -16631,10 +16719,18 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: g
     if (v <= 0) return say('أدخل مبلغ الفاتورة', 'no');
     if (periodLocked(org, f.date || today())) return say(LOCK_MSG(f.date || today()), 'no');
     const br = org.branches.find(b => b.id === f.branchId);
+    // v33.2: الرقم الآلي لا يتكرر حتى بعد حذف فواتير؛ ورقم المورد المكرر يُرفض قبل الحفظ
+    const autoNo = () => { const pre = 'INV-' + today().replace(/-/g, '').slice(2) + '-'; let k = (ops.invoices || []).length + 1;
+      while ((ops.invoices || []).some(i => i.invoiceNo === pre + String(k).padStart(3, '0'))) k++; return pre + String(k).padStart(3, '0'); };
+    const typedNo = (f.invoiceNo || '').trim();
+    if (typedNo) { const k0 = purKey({ supplierId: sp.id, invoiceNo: typedNo }); const o = (ops.invoices || []).find(i => purKey(i) === k0);
+      if (o) return say('فاتورة مكررة: رقم ' + typedNo + ' للمورد «' + sp.name + '» مسجّل بتاريخ ' + (o.date || '') + ' بمبلغ ' + money(o.amount) + ' — لم يُحفظ', 'no'); }
+    const twin = (ops.invoices || []).find(i => !i.creditNote && i.supplierId === sp.id && (i.date || '') === (f.date || today()) && Math.abs((i.amount || 0) - v) < 0.01);
+    if (twin && !window.confirm('تنبيه: يوجد فاتورة للمورد نفسه بنفس التاريخ والمبلغ (' + money(v) + ') برقم ' + (twin.invoiceNo || '') + '.\nهل هذه فاتورة مختلفة فعلًا؟')) return;
     const rec = {
       id: uid('inv'), supplierId: sp.id, supplierName: sp.name,
       branchId: f.branchId || '', branchName: br ? br.name : 'المركز الرئيسي',
-      invoiceNo: f.invoiceNo.trim() || ('INV-' + today().replace(/-/g, '').slice(2) + '-' + String((ops.invoices || []).length + 1).padStart(3, '0')),
+      invoiceNo: typedNo || autoNo(),
       amount: v, paidAmount: 0, taxable: !!f.taxable,
       date: f.date || today(), dueDate: f.dueDate || today(), poId: f.poId || undefined, createdAt: nowISO()
     };
@@ -16711,6 +16807,8 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: g
     const vat = taxOn ? Math.round(invNet * ((Number((org.taxCfg || {}).rate) || 15) / 100) * 100) / 100 : 0;
     const sp0 = suppliers.find(x => x.id === p2.supplierId) || {};
     const due = (() => { const dd = new Date(rDate + 'T12:00:00'); dd.setDate(dd.getDate() + (Number(sp0.terms) || 0)); return isoD(dd); })();
+    if ((f.supInvNo || '').trim() && invNet > 0) { const k0 = purKey({ supplierId: p2.supplierId, invoiceNo: f.supInvNo.trim() }); const o = (ops.invoices || []).find(i => purKey(i) === k0);
+      if (o) return say('فاتورة مكررة: رقم ' + f.supInvNo.trim() + ' للمورد «' + p2.supplierName + '» مسجّل بتاريخ ' + (o.date || '') + ' — صحّح رقم فاتورة المورد', 'no'); }
     const invRec = invNet > 0 ? { id: invId, invoiceNo: (f.supInvNo || '').trim() || grn, supplierId: p2.supplierId, supplierName: p2.supplierName, amount: Math.round((invNet + vat) * 100) / 100, vatAmt: vat, taxable: taxOn,
       date: rDate, dueDate: due, paidAmount: 0, branchId: (tw && tw.branchId) || p2.branchId || '', poId: p2.id, poNo: p2.poNo, grn, whId: wid, lines: invLines, by: me.name, createdAt: nowISO() } : null;
     const brMoves = moves.filter(m => m.branchId), mainMoves = moves.filter(m => !m.branchId);
@@ -17212,7 +17310,7 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: g
 
 /* ================= دفتر الشركاء: طباعة كشف حساب A4 ================= */
 function printPartnerStatement(p, org) {
-  const w = window.open('', '_blank', 'width=900,height=1000');
+  const w = openDocWin('width=900,height=1000');
   if (!w) return false;
   const co = org.company || {};
   const typeAr = { customer: 'عميل', supplier: 'مورد', employee: 'موظف' };
@@ -17252,7 +17350,7 @@ function printPartnerStatement(p, org) {
 
 /* ================= v8.2: مساعد طباعة A4 موحّد بترويسة الشركة ================= */
 function printA4(org, title, sub, bodyHtml) {
-  const w = window.open('', '_blank', 'width=900,height=1000');
+  const w = openDocWin('width=900,height=1000');
   if (!w) return false;
   const co = org.company || {};
   w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>${title}</title>
@@ -20406,7 +20504,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
 
   // ===== v8.0: طباعة القوائم المالية A4 =====
   const printFS = () => {
-    const w = window.open('', '_blank', 'width=900,height=1000');
+    const w = openDocWin('width=900,height=1000');
     if (!w) return say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
     const co = org.company || {};
     const period = (from || to) ? ('الفترة: ' + (from || 'البداية') + ' ← ' + (to || today())) : 'كامل المدة حتى ' + arDate(today());
@@ -25367,7 +25465,7 @@ function printIncomeA4(org, data, meta) {
   const row = (k, v, cls, ind) => `<tr class="${cls || ''}"><td style="${ind ? 'padding-inline-start:22px;color:#777' : ''}">${k}</td><td class="num">${m(v)}</td></tr>`;
   const expRows = d.byCat.map(x => row(x.n, -x.v, '', true)).join('');
 
-  const w = window.open('', '_blank', 'width=880,height=1000');
+  const w = openDocWin('width=880,height=1000');
   if (!w) return;
   w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
   <title>قائمة الدخل - ${meta.periodLabel}</title><style>${A4_CSS}
@@ -25496,7 +25594,7 @@ function FinancialReports({ org, ops, myBranches, scoped, say }) {
     // مبيعات خاضعة = الإيراد الإجمالي (شامل الضريبة) → الأساس بدون ضريبة
     const salesBase = data.grossRevenue - data.vatOut;
     const purchBase = sum(data.byCat.filter(x => x.taxable), x => x.v) - data.vatIn;
-    const w = window.open('', '_blank', 'width=850,height=1000');
+    const w = openDocWin('width=850,height=1000');
     if (!w) return;
     w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
       <title>إقرار ضريبة القيمة المضافة - ${range.label}</title>
@@ -26429,7 +26527,7 @@ function QrBranchesView({ org, brs, fb, pub, canPublish, canAddBranch, commitOrg
   };
 
   const printQr = (b) => {
-    const w = window.open('', '_blank');
+    const w = openDocWin();
     if (!w) return say('اسمح بالنوافذ المنبثقة لطباعة الرمز', 'no');
     const url = qrRateUrl(b.id);
     const svg = qrSvg(url, { ecl: 2, px: 300 });
@@ -26536,7 +26634,7 @@ function QrBranchesView({ org, brs, fb, pub, canPublish, canAddBranch, commitOrg
 
 /* ---------- تقرير تقييم العملاء للطباعة (A4) — للفترة والفرع المحدَّدين في الشاشة ---------- */
 function qrPrintReport({ org, fb, brs, days, sel, nb, say }) {
-  const w = window.open('', '_blank', 'width=980,height=780');
+  const w = openDocWin('width=980,height=780');
   if (!w) return say('اسمح بالنوافذ المنبثقة لطباعة التقرير', 'no');
   const co = org.company || {};
   const e = escH;
