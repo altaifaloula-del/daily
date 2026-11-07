@@ -70,8 +70,8 @@ const isDenied = (e) => !!e && (e.code === 'permission-denied' || e.code === 'PE
 async function fsReadRetry(f, key) {
   let last;
   for (let i = 0; i < 3; i++) {
-    try { const v = await fsRead(f, key); readErrs.delete(key); return v; }
-    catch (e) { last = e; if (isDenied(e) || (e && e.code === 'data-corrupt')) break; await new Promise(r => setTimeout(r, 400 * (i + 1))); }
+    try { const v = i === 0 ? await fsRead(f, key) : await fsReadTx(f, key); readErrs.delete(key); return v; }
+    catch (e) { last = e; if (isDenied(e)) break; await new Promise(r => setTimeout(r, 400 * (i + 1))); }
   }
   readErrs.set(key, { code: String((last && last.code) || 'unknown'), msg: String((last && last.message) || last || '').slice(0, 160), at: Date.now() });
   throw last;
@@ -97,7 +97,9 @@ async function fbAuthMod() {
   const app = await fbApp();
   if (!app) return null;
   const A = await import('firebase/auth');
-  return { A, a: A.getAuth(app) };
+  const a = A.getAuth(app);
+  if (E.VITE_AUTH_EMULATOR && !a.emulatorConfig) { try { A.connectAuthEmulator(a, 'http://' + E.VITE_AUTH_EMULATOR, { disableWarnings: true }); } catch { } }
+  return { A, a };
 }
 
 // المستخدم الموثّق حاليًا (بعد استقرار حالة الجلسة) — لا دخول مجهولًا بعد الآن
@@ -123,6 +125,8 @@ async function firestore() {
     } catch {
       db = sdk.getFirestore(app);   // مهيأة مسبقاً أو متصفح لا يدعم التخزين الدائم
     }
+    // للاختبارات فقط: محاكي Firestore المحلي (لا يُضبط في الإنتاج)
+    if (E.VITE_FS_EMULATOR) { try { const [h, pt] = String(E.VITE_FS_EMULATOR).split(':'); sdk.connectFirestoreEmulator(db, h, Number(pt)); } catch { } }
     fs = { db, ...sdk };
     return fs;
   } catch (e) {
@@ -345,6 +349,27 @@ async function fsRead(f, key) {
   const v = await fsAssemble(f, key, d);
   // v29.5: البصمة تُحفظ لكل مستند موجود (حتى الفارغ) — عليها تعتمد الكتابة المشروطة
   const st = stampOf(d); if (st) loadedStamp.set(key, st); else loadedStamp.delete(key);
+  return v;
+}
+
+// v34.3: قراءة ذرّية للرأس وكل الأجزاء داخل معاملة (من الخادم مباشرة، لقطة واحدة متسقة) — تمنع خلط رأس جديد
+// بأجزاء قديمة أثناء كتابة جهاز آخر، أو أجزاء من ذاكرة الجهاز المؤقتة، وهو ما كان يظهر «تالفًا» دون أن يكون كذلك
+async function fsReadTx(f, key) {
+  let out;
+  await f.runTransaction(f.db, async (tx) => {
+    const h = await tx.get(f.doc(f.db, COL, docId(key)));
+    if (!h.exists()) { out = { none: true }; return; }
+    const d = h.data() || {}; const parts = d.parts || 1;
+    if (!Number.isInteger(parts) || parts < 1 || parts > MAX_PARTS) throw corruptErr(key, 'parts=' + d.parts);
+    if (parts === 1) { out = { d, txt: d.value || '' }; return; }
+    let txt = '';
+    for (let i = 0; i < parts; i++) { const c = await tx.get(f.doc(f.db, COL, docId(key) + '__' + i)); const ch = c.exists() ? (c.data() || {}).chunk : undefined; if (typeof ch !== 'string') throw corruptErr(key, 'chunk ' + i); txt += ch; }
+    out = { d, txt };
+  });
+  if (out.none) { loadedStamp.delete(key); return undefined; }
+  if (!out.txt) return undefined;
+  let v; try { v = JSON.parse(out.txt); } catch { throw corruptErr(key, 'json'); }
+  const st = stampOf(out.d); if (st) loadedStamp.set(key, st); else loadedStamp.delete(key);
   return v;
 }
 
@@ -572,8 +597,28 @@ export const cloud = {
       }
       out.kb = Math.round(txt.length / 1024);
       if (!out.missing.length) { try { JSON.parse(txt || 'null'); out.json = true; } catch { out.json = false; } }
+      // نسخة ثانية بقراءة ذرّية: إن نجحت فالتلف كان عابرًا (كتابة متزامنة) لا في البيانات نفسها
+      if (out.missing.length || !out.json) { try { await fsReadTx(f, key); out.txOk = true; } catch { out.txOk = false; } }
+      // بحث عن نسخة سحابية سليمة بعدد أجزاء مختلف (رأس لم يُحدَّث بعد كتابة الأجزاء أو العكس)
+      if (!out.txOk && (out.missing.length || !out.json)) {
+        out.candidates = [];
+        for (let n = 1; n <= Math.min(MAX_PARTS, out.parts + 8); n++) {
+          if (n === out.parts) continue;
+          const cs = await Promise.all(Array.from({ length: n }, (_, i) => f.getDoc(f.doc(f.db, COL, docId(key) + '__' + i))));
+          if (cs.some(c => !c.exists() || typeof (c.data() || {}).chunk !== 'string')) { if (n > out.parts) break; else continue; }
+          const tt = cs.map(c => c.data().chunk).join('');
+          try { const v = JSON.parse(tt); out.candidates.push({ parts: n, kb: Math.round(tt.length / 1024), value: v }); } catch { }
+        }
+      }
     } catch (e) { out.err = String((e && e.code) || (e && e.message) || e); }
+    out.localValue = local.get(key);
     return out;
+  },
+  /** v34.3: استبدال مستند تالف بنسخة سليمة يختارها مسؤول النظام (من هذا الجهاز أو نسخة سحابية مكتشفة) */
+  async repairWith(key, val) {
+    const f = await firestore(); if (!f) return 'no-cloud';
+    try { await fsWrite(f, key, val); local.set(key, val); failedReads.delete(key); readErrs.delete(key); return 'ok'; }
+    catch (e) { return String((e && e.code) || 'fail'); }
   },
   /** v34.1: إصلاح مستند تالف بالنسخة السليمة المحفوظة على هذا الجهاز (للإدارة فقط وبتأكيد صريح من الواجهة) */
   async repairFromLocal(key) {
