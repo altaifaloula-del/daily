@@ -374,7 +374,9 @@ const BR_COLS = ['closings', 'transfers', 'partnerRequests', 'notifications', 'b
   // v31.2 — طلبات الإجازات (يرفعها الفرع ويعتمدها المركز)
   'leaveRequests',
   // v31.4 — سجل جلسات الجرد (حتى المطابقة بلا فروقات) — أساس الجرد الدوري المجدول
-  'stockCounts'];
+  'stockCounts',
+  // v33.0 — نقطة البيع: الفواتير المبسّطة والورديات (يكتبها جهاز الفرع)
+  'posOrders', 'posShifts'];
 const CORE_COLS = ['ledgerSnaps', 'salesInvoices', 'advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules', 'hrScoreSnapshots'];
 
 // تقسيم ops المدمجة إلى مستند مركزي + مستند لكل فرع
@@ -2049,10 +2051,10 @@ const DENOMS = [
 const emptyDenoms = () => DENOMS.reduce((o, d) => ({ ...o, [d.k]: 0 }), {});
 const countDenoms = (d) => DENOMS.reduce((s, x) => s + (Number(d?.[x.k]) || 0) * x.v, 0);
 
-const ALL_TABS = ['whbranch', 'analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'hrops', 'hrperf', 'attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'kpi', 'empfile', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'perfsnap', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit', 'qrfb'];
+const ALL_TABS = ['pos', 'whbranch', 'analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'hrops', 'hrperf', 'attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'kpi', 'empfile', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'perfsnap', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit', 'qrfb'];
 const TAB_AR = {
   analytics: 'مركز التحليل والأداء', reporting: 'مركز التقارير', exec: 'اللوحة التنفيذية',
-  dash: 'لوحة المؤشرات', compare: 'مقارنة الفروع', growth: 'تحليلات النمو', breakeven: 'تحليل التعادل', scorecard: 'لوحة الأهداف', scenario: 'ماذا-لو', boardpack: 'تقرير الإدارة', cashflow: 'التدفق النقدي', closing: 'الإغلاق اليومي', apps: 'التطبيقات',
+  pos: 'نقطة البيع', dash: 'لوحة المؤشرات', compare: 'مقارنة الفروع', growth: 'تحليلات النمو', breakeven: 'تحليل التعادل', scorecard: 'لوحة الأهداف', scenario: 'ماذا-لو', boardpack: 'تقرير الإدارة', cashflow: 'التدفق النقدي', closing: 'الإغلاق اليومي', apps: 'التطبيقات',
   approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', people: 'شؤون الموظفين', payroll: 'الرواتب والسلف', leaves: 'الإجازات', workforce: 'تخطيط العمالة والتكلفة', hrmaster: 'البيانات الرئيسية', hrpolicy: 'السياسات والأدوار', attendance: 'الحضور الموثَّق', shiftengine: 'محرّك الورديات', tasks: 'المهام', points: 'دفتر النقاط', kpi: 'الأداء والتقييم', rewards: 'المكافآت والجزاءات', esign: 'التوقيع الإلكتروني', corrective: 'الإجراءات التصحيحية', training: 'التدريب والشهادات', rolekpi: 'مؤشرات الأداء بالدور', hrdash: 'لوحة الموارد البشرية', perfsnap: 'تجميد الأداء الشهري',
   purchasing: 'المشتريات والموردون', suppliers: 'الموردون والمشتريات', inv: 'المخزون والمنتجات', reorder: 'المشتريات الذكية', partners: 'جهات الاتصال',
   acct: 'المحاسبة', shifts: 'مواعيد الإغلاق والتذكيرات', archive: 'أرشيف المستندات', ai: 'المركز الذكي',
@@ -2083,12 +2085,12 @@ const ROLES = {
   // ===== الأدوار الخمسة المعتمدة =====
   cashier: {
     ar: 'كاشير — إدخال إغلاق اليوم', badge: 'b-sky', scope: 'own', create: true, todayOnly: true,
-    tabs: ['closing', 'hrops', 'attendance', 'tasks', 'points', 'esign'],
+    tabs: ['pos', 'closing', 'hrops', 'attendance', 'tasks', 'points', 'esign'],
     perms: ['إنشاء وترحيل إغلاق اليوم لفرعه', 'جرد الصندوق وإدخال المبيعات والمصروفات', 'تسجيل حضور وانصراف موظفي فرعه من جهاز الفرع', 'كشك التوقيع الإلكتروني: يوقّع موظفو فرعه إقرارات الراتب والإشعارات بعد التحقق بـPIN', 'اليوم الحالي فقط دون سجلّ سابق — عدا مسوداته والمرفوضات المعادة للتصحيح فتظهر دائماً']
   },
   branch_manager: {
     ar: 'مدير الفرع', badge: 'b-mint', scope: 'own', create: true,
-    tabs: ['whbranch', 'closing', 'sales', 'apps', 'archive', 'hrops', 'hrperf', 'attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'kpi', 'empfile', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'qrfb'],
+    tabs: ['pos', 'whbranch', 'closing', 'sales', 'apps', 'archive', 'hrops', 'hrperf', 'attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'kpi', 'empfile', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'qrfb'],
     perms: ['إدخال وترحيل إغلاق فرعه', 'عرض سجل إغلاقات فرعه', 'أرشيف مستندات فرعه فقط', 'تسجيل الحضور وضبط أرقام PIN وسجل حضور فرعه', 'محرّك ورديات فرعه: قوالب، تعيين أسبوعي، مطابقة حضور، تبديل وردية، طلب نقل موظف', 'كشك التوقيع الإلكتروني وسجل إقرارات فرعه (بلا مبالغ الرواتب)']
   },
   regional_manager: {
@@ -2259,6 +2261,7 @@ const REG_IX = {}; REG_APPS.forEach(a => { REG_IX[a.id] = a; });
 // v9.3 — تطبيقات الشاشة الرئيسية مُجمّعة (كل تطبيق يضمّ أقسامه المتشابهة، بنمط أودو)
 // المحاسبة تطبيق واحد بثمانية أقسام، الموردون بثلاثة، المخزون بأربعة… (تطابق النموذج المعتمد)
 const LAUNCH_APPS = [
+  { id: 'pos', ar: 'نقطة البيع', en: 'Point of Sale', cat: 'pos', icon: Store, open: { tab: 'pos' }, kw: ['نقطة بيع', 'كاشير', 'بيع', 'فاتورة مبسطة', 'طلب', 'وردية'], sections: ['البيع', 'طلبات اليوم', 'الوردية'], d: 'بيع سريع بالأصناف وفاتورة مبسّطة برمز QR وورديات — يعمل دون إنترنت ويملأ الإغلاق اليومي.' },
   { id: 'analytics', tabs: ['analytics', 'alerts'], ar: 'التحليل والتنبيهات', en: 'Analytics & Alerts', cat: 'bi', icon: Compass, open: { tab: 'analytics' },
     sections: ['اللوحة التنفيذية', 'لوحة المؤشرات', 'مقارنة الفروع', 'تحليلات النمو', 'تحليل التعادل', 'لوحة الأهداف', 'ماذا-لو', 'المركز الذكي'], kw: ['تحليل', 'أداء', 'لوحة', 'تنفيذية', 'مؤشرات', 'مقارنة', 'فروع', 'نمو', 'تعادل', 'أهداف', 'سيناريو', 'ماذا لو', 'ذكاء', 'توقع', 'kpi'] },
   { id: 'alerts', hideOnHome: 'analytics', ar: 'مركز التنبيهات', en: 'Alerts', cat: 'bi', icon: Bell, open: { tab: 'alerts' },
@@ -2326,7 +2329,7 @@ const acctSecKey = (v) => 'acctsec:' + v;
 const ACCT_SEC_AR = {}; ACCT_SECTIONS.forEach(s => { ACCT_SEC_AR[s.v] = s.ar; });
 // v31.5 — ترتيب حسب دورة العمل: التشغيل اليومي (الإغلاق والمبيعات) ← المخزون والمشتريات وجهات الاتصال ←
 // المالية والضريبة والتقارير والتحليل ← الموارد البشرية ← المستندات والإعدادات والتدقيق. المدمجة في غيرها في الآخر (لا تظهر مستقلة)
-const LAUNCH_ORDER = ['closing', 'sales', 'qrfb', 'whbranch', 'inv', 'purchasing', 'partners', 'acct', 'vat', 'reporting', 'analytics', 'hrops', 'people', 'hrperf', 'docs', 'brmgmt', 'audit', 'approve', 'shifts', 'alerts', 'treasury', 'entities', 'archive', 'backup'];
+const LAUNCH_ORDER = ['pos', 'closing', 'sales', 'qrfb', 'whbranch', 'inv', 'purchasing', 'partners', 'acct', 'vat', 'reporting', 'analytics', 'hrops', 'people', 'hrperf', 'docs', 'brmgmt', 'audit', 'approve', 'shifts', 'alerts', 'treasury', 'entities', 'archive', 'backup'];
 const launchRank = (id) => { const i = LAUNCH_ORDER.indexOf(id); return i < 0 ? 999 : i; };
 /* v8.5 — لقطات احتياطية يومية محلية (IndexedDB) على أجهزة الإدارة:
    حماية إضافية ضد التلف أو الحذف الخاطئ — والنسخة الملفية تبقى الحماية الخارجية */
@@ -2422,7 +2425,7 @@ function emptyOrg(company) {
 }
 
 function emptyOps() {
-  return { ledgerSnaps: [], stockCounts: [], leaveRequests: [], productSales: [], salesInvoices: [], closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
+  return { posOrders: [], posShifts: [], ledgerSnaps: [], stockCounts: [], leaveRequests: [], productSales: [], salesInvoices: [], closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
     attendanceEvents: [], hrPins: [], shiftTemplates: [], shiftAssignments: [], shiftSwapRequests: [], branchTransferRequests: [], taskTemplates: [], taskAssignments: [], taskCompletions: [], pointsEntries: [], qualityReviews: [], rewardRequests: [], hrSignDocs: [], hrCorrective: [], hrPips: [], hrTraining: [], hrKpiEntries: [], hrScoreSnapshots: [] };
 }
 
@@ -2435,7 +2438,7 @@ const ERRLOG_KEY = 'mizan:errlog';
 function logClientError(err, where) {
   try {
     const a = JSON.parse(localStorage.getItem(ERRLOG_KEY) || '[]');
-    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v32.4' });
+    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v33.0' });
     localStorage.setItem(ERRLOG_KEY, JSON.stringify(a.slice(0, 20)));
   } catch { }
 }
@@ -3340,6 +3343,7 @@ function PlatformApp() {
     { id: 'alerts', ar: 'مركز التنبيهات', icon: Bell },
     { id: 'reporting', ar: 'مركز التقارير', icon: FileBarChart },
     { id: 'sales', ar: 'المبيعات', icon: CircleDollarSign },
+    { id: 'pos', ar: 'نقطة البيع', icon: Store },
     { id: 'closing', ar: 'الإغلاق اليومي والاعتماد', icon: ClipboardCheck, cnt: pending },
     { id: 'shifts', ar: 'مواعيد الإغلاق والتذكيرات', icon: Clock },
     { id: 'hrops', ar: 'الموارد البشرية — التشغيل', icon: Fingerprint },
@@ -3457,7 +3461,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v32.4 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v33.0 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -3618,6 +3622,7 @@ function PlatformApp() {
               {['analytics', 'exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'alerts'].includes(safeTab) && <Hub hubId="analytics" {...shared} online={online} view={safeTab} />}
               {['reporting', 'reports', 'rbuild', 'boardpack', 'cashflow'].includes(safeTab) && <Hub hubId="reporting" {...shared} view={safeTab} />}
               {safeTab === 'sales' && <SalesHub {...shared} />}
+              {safeTab === 'pos' && <PosApp {...shared} />}
               {['closing', 'approve', 'shifts'].includes(safeTab) && <Hub hubId="closehub" {...shared} view={safeTab} />}
               {['hrops', 'attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'esign'].includes(safeTab) && <Hub hubId="hrops" {...shared} view={safeTab} />}
               {['hrperf', 'kpi', 'empfile', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'].includes(safeTab) && <Hub hubId="hrperf" {...shared} view={safeTab} />}
@@ -6959,14 +6964,15 @@ function useSecNav() {
   return [m, set];
 }
 // items: [{id, ar, icon, badge?}] · cur · onPick(id) · extra: أزرار إجراءات تُعرض بجانب التنقل
-function SectionNav({ items, cur, onPick, extra, label }) {
-  const [mode, setMode] = useSecNav();
+function SectionNav({ items, cur, onPick, extra, label, force }) {
+  const [modeSel, setMode] = useSecNav();
+  const mode = force || modeSel;   // force: نمط ثابت لشاشات تحتاج المساحة (نقطة البيع)
   const [open, setOpen] = useState(false);
   const list = (items || []).filter(Boolean);
   if (list.length < 2 && !extra) return null;
   const curIt = list.find(x => x.id === cur) || list[0] || {};
   const CurI = curIt.icon || Grid3x3;
-  const sw = list.length >= 2 && (
+  const sw = list.length >= 2 && !force && (
     <div className="acct-mode" role="group" aria-label="طريقة عرض الأقسام">
       <button className={mode === 'grid' ? 'on' : ''} onClick={() => setMode('grid')} title="شبكة"><Grid3x3 size={13} /><span>شبكة</span></button>
       <button className={mode === 'dd' ? 'on' : ''} onClick={() => setMode('dd')} title="قائمة منسدلة"><ChevronDown size={13} /><span>قائمة</span></button>
@@ -7643,6 +7649,306 @@ function Dashboard({ org, ops, pulse, me, myBranches, scoped, online, setTab, th
 }
 
 /* ================= الإغلاق اليومي ================= */
+/* ============================================================
+   v33.0 — نقطة البيع (تجربة فرع): بيع سريع باللمس، فاتورة مبسّطة برمز QR (المرحلة الأولى)، ورديات بعدّ النقد،
+   يعمل دون إنترنت: الفاتورة تُحفظ على الجهاز فورًا وتُرسَل عند الاتصال — ترقيم وسلسلة بصمات لكل جهاز فلا تتكرر الأرقام.
+   الإيراد يُقيَّد من الإغلاق اليومي كما هو (الإغلاق يُعبّأ من نقطة البيع) فلا قيد مكرر.
+   ============================================================ */
+const POS_DEV_KEY = 'mizan:posDev', POS_Q_KEY = 'mizan:posQueue';
+const posDev = () => { try { let d = JSON.parse(localStorage.getItem(POS_DEV_KEY) || 'null'); if (!d || !d.tag) { d = { tag: Math.random().toString(36).slice(2, 4).toUpperCase(), name: 'كاشير' }; localStorage.setItem(POS_DEV_KEY, JSON.stringify(d)); } return d; } catch { return { tag: 'X1', name: 'كاشير' }; } };
+const posQueue = () => { try { return JSON.parse(localStorage.getItem(POS_Q_KEY) || '[]'); } catch { return []; } };
+const posQueueSet = (a) => { try { localStorage.setItem(POS_Q_KEY, JSON.stringify(a)); } catch { } };
+const posR2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+// إجماليات الطلب: الأسعار شاملة الضريبة؛ الخصم من الإجمالي؛ الضريبة = الإجمالي × النسبة ÷ (100 + النسبة)
+function posTotals(lines, discount, rate) {
+  const gross = posR2((lines || []).reduce((a, l) => a + (Number(l.qty) || 0) * (Number(l.price) || 0), 0));
+  const disc = Math.min(gross, posR2(discount));
+  const total = posR2(gross - disc);
+  const vat = rate ? posR2(total * rate / (100 + rate)) : 0;
+  return { gross, disc, total, vat, net: posR2(total - vat) };
+}
+// صافي النقد في الطلب = المدفوع نقدًا − الباقي
+const posCashNet = (o) => posR2((o.payments || []).filter(p => p.m === 'cash').reduce((a, p) => a + (Number(p.amount) || 0), 0) - (Number(o.change) || 0));
+// ملخص مبيعات فرع في يوم: لتعبئة الإغلاق
+function posDaySummary(orders, branchId, date) {
+  const os = (orders || []).filter(o => o.branchId === branchId && o.date === date && o.status !== 'void');
+  const out = { n: os.length, total: 0, cash: 0, card: 0, transfer: 0, apps: {}, vat: 0 };
+  os.forEach(o => { out.total += o.total; out.vat += o.vat; out.cash += posCashNet(o);
+    (o.payments || []).forEach(p => { const a = Number(p.amount) || 0; if (p.m === 'card') out.card += a; else if (p.m === 'transfer') out.transfer += a; else if (p.m === 'app') { const x = out.apps[p.appId] || (out.apps[p.appId] = { amount: 0, n: 0 }); x.amount += a; x.n += 1; } }); });
+  ['total', 'cash', 'card', 'transfer', 'vat'].forEach(k => { out[k] = posR2(out[k]); }); Object.values(out.apps).forEach(x => { x.amount = posR2(x.amount); });
+  return out;
+}
+function posReceiptHtml(org, o, br) {
+  const co = org.company || {}; const svat = co.taxNumber || '';
+  const ts = (o.at || '').slice(0, 19) + 'Z';
+  const qr = svat ? qrSvg(zatcaTLV(co.name || '', svat, ts, o.total, o.vat), { ecl: 1, px: 120 }) : '';
+  const m = (n) => money(n);
+  const L = (o.lines || []).map(l => `<tr><td>${_xe(l.name)}${l.note ? '<div class="nt">' + _xe(l.note) + '</div>' : ''}</td><td class="n">${l.qty}</td><td class="n">${m(l.qty * l.price)}</td></tr>`).join('');
+  const P = (o.payments || []).map(p => `<tr><td colspan="2">${p.m === 'cash' ? 'نقدًا' : p.m === 'card' ? 'شبكة' : p.m === 'transfer' ? 'تحويل' : _xe(p.appName || 'تطبيق')}</td><td class="n">${m(p.amount)}</td></tr>`).join('');
+  return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>${_xe(o.no)}</title><style>${NUM_FACE}
+  @page{size:80mm auto;margin:3mm} *{box-sizing:border-box} body{font-family:'MizanNum','IBM Plex Sans Arabic',Tahoma,sans-serif;width:74mm;margin:0 auto;color:#000;font-size:11.5px}
+  h1{font-size:15px;text-align:center;margin:2px 0} .c{text-align:center} .s{font-size:10px;color:#333} table{width:100%;border-collapse:collapse;margin-top:6px}
+  td{padding:3px 0;border-bottom:1px dashed #999;vertical-align:top} td.n{text-align:left;white-space:nowrap;font-variant-numeric:tabular-nums} .nt{font-size:9.5px;color:#555}
+  .tot td{font-weight:800;font-size:13px;border-bottom:2px solid #000} .qr{text-align:center;margin-top:8px} .qr svg{width:34mm;height:34mm}</style></head><body>
+  <h1>${_xe(co.name || '')}</h1><div class="c s">${_xe(br ? br.name : '')}${svat ? '<br>الرقم الضريبي: ' + _xe(svat) : ''}</div>
+  <div class="c" style="font-weight:800;margin-top:6px">فاتورة ضريبية مبسّطة</div>
+  <div class="c s">رقم: ${_xe(o.no)} · ${_xe((o.at || '').slice(0, 10))} ${_xe(new Date(o.at).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }))}${o.channel === 'takeaway' ? ' · سفري' : o.channel === 'delivery' ? ' · توصيل' : o.channel === 'dinein' ? ' · محلي' : ''}</div>
+  <table>${L}
+  ${o.disc ? `<tr><td colspan="2">خصم${o.discReason ? ' (' + _xe(o.discReason) + ')' : ''}</td><td class="n">−${m(o.disc)}</td></tr>` : ''}
+  <tr><td colspan="2">الإجمالي قبل الضريبة</td><td class="n">${m(o.net)}</td></tr><tr><td colspan="2">ضريبة القيمة المضافة</td><td class="n">${m(o.vat)}</td></tr>
+  <tr class="tot"><td colspan="2">الإجمالي شامل الضريبة</td><td class="n">${m(o.total)}</td></tr>${P}${o.change ? `<tr><td colspan="2">الباقي</td><td class="n">${m(o.change)}</td></tr>` : ''}</table>
+  ${qr ? '<div class="qr">' + qr + '</div>' : ''}${(org.posCfg || {}).footer ? '<div class="c s" style="margin-top:6px">' + _xe(org.posCfg.footer) + '</div>' : ''}<div class="c s" style="margin-top:4px">شكرًا لزيارتكم</div></body></html>`;
+}
+// طباعة عبر إطار مخفي — بلا نوافذ منبثقة (يعمل على الآيباد والكمبيوتر)
+function posPrint(html) {
+  try {
+    const f = document.createElement('iframe'); f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'; document.body.appendChild(f);
+    const d = f.contentWindow.document; d.open(); d.write(html); d.close();
+    setTimeout(() => { try { f.contentWindow.focus(); f.contentWindow.print(); } catch { } setTimeout(() => f.remove(), 3000); }, 450);
+    return true;
+  } catch { return false; }
+}
+
+function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
+  const R = ROLES[me.role] || {};
+  const isMgr = !!(R.admin || R.scope === 'all' || me.role === 'branch_manager' || me.role === 'regional_manager');
+  const cfg = org.posCfg || {}; const enabled = cfg.branches || [];
+  const brs = (myBranches || []).filter(b => b.isActive !== false && enabled.includes(b.id));
+  const [brId, setBrId] = useState(() => (brs[0] || {}).id || '');
+  const br = brs.find(b => b.id === brId) || brs[0];
+  const dev = useMemo(posDev, []);
+  const rate = (org.taxCfg || {}).enabled ? (Number((org.taxCfg || {}).rate) || 15) : 0;
+  const prods = (org.products || []).filter(p => !p.posOff && Number(p.sellPrice) > 0);
+  const cats = [...new Set(prods.map(p => p.cat || 'أخرى'))];
+  const [cat, setCat] = useState(''); const [q, setQ] = useState('');
+  const [cart, setCart] = useState([]); const [channel, setChannel] = useState('takeaway');
+  const [disc, setDisc] = useState({ amt: '', reason: '' }); const [pay, setPay] = useState(null); const [last, setLast] = useState(null);
+  const [view, setView] = useState('sell'); const [showCart, setShowCart] = useState(false);
+  const [queue, setQueue] = useState(posQueue); const [cfgF, setCfgF] = useState(null); const [shiftF, setShiftF] = useState(null);
+  const apps = org.deliveryApps || APPS;
+  const today = businessDay();
+  // الطلبات = المتزامنة + المعلّقة على الجهاز
+  const allOrders = useMemo(() => { const m = {}; (ops.posOrders || []).forEach(o => { m[o.id] = o; }); queue.forEach(o => { if (!m[o.id]) m[o.id] = { ...o, pending: true }; }); return Object.values(m); }, [ops.posOrders, queue]);
+  const shift = (ops.posShifts || []).find(x => x.branchId === (br || {}).id && x.dev === dev.tag && x.status === 'open');
+  const T = posTotals(cart, disc.amt, rate);
+  // المزامنة: إرسال المعلّق ثم إزالته من الجهاز
+  const flush = useCallback(async () => {
+    const qn = posQueue(); if (!qn.length) return;
+    const ok = await commit(d => { const have = new Set((d.posOrders || []).map(o => o.id)); return { ...d, posOrders: [...qn.filter(o => !have.has(o.id)), ...(d.posOrders || [])] }; });
+    if (ok) { const rest = posQueue().filter(o => !qn.some(x => x.id === o.id)); posQueueSet(rest); setQueue(rest); }
+  }, [commit]);
+  useEffect(() => { flush(); const t = setInterval(flush, 20000); const on = () => flush(); window.addEventListener('online', on); return () => { clearInterval(t); window.removeEventListener('online', on); }; }, [flush]);
+
+  if (!brs.length) return (
+    <div className="grid" style={{ gap: 12 }}>
+      <div className="card"><div className="card-t" style={{ marginBottom: 8 }}><Store size={16} color="var(--brass)" />نقطة البيع — تجربة</div>
+        <div className="note">نقطة البيع غير مفعّلة لفرعك بعد.{R.admin || R.scope === 'all' ? ' فعّلها لفرع التجربة من الإعدادات أدناه.' : ' يفعّلها مسؤول النظام لفرع التجربة.'}</div></div>
+      {(R.admin || R.scope === 'all') && <PosSettings org={org} commitOrg={commitOrg} say={say} />}
+    </div>);
+
+  const add = (p) => setCart(c => { const i = c.findIndex(l => l.productId === p.id && !l.note); if (i >= 0) return c.map((l, k) => k === i ? { ...l, qty: l.qty + 1 } : l); return [...c, { key: uid('l'), productId: p.id, name: p.name, price: Number(p.sellPrice), qty: 1, note: '' }]; });
+  const setQty = (key, d) => setCart(c => c.map(l => l.key === key ? { ...l, qty: Math.max(0, l.qty + d) } : l).filter(l => l.qty > 0));
+  const shown = prods.filter(p => (!cat || (p.cat || 'أخرى') === cat) && (!q.trim() || p.name.includes(q.trim())));
+
+  const openShift = async (cashStr) => {
+    const amt = posR2(String(cashStr == null ? '' : cashStr).replace(/[^\d.]/g, ''));
+    const rec = { id: uid('ps'), branchId: br.id, dev: dev.tag, devName: dev.name, openedAt: nowISO(), openedBy: me.name, openingCash: amt, status: 'open', date: today };
+    const ok = await commit(d => ({ ...d, posShifts: [rec, ...(d.posShifts || [])] }), { actionType: 'create', targetType: 'pos_shift', targetId: rec.id, branchName: br.name, title: 'فتح وردية نقطة بيع', details: dev.name + ' · افتتاحي ' + money(amt) });
+    if (ok) { setShiftF(null); say('فُتحت الوردية ✓'); } else say('تعذّر فتح الوردية — تحقق من الاتصال', 'no');
+  };
+  const shiftOrders = (sh) => allOrders.filter(o => o.shiftId === sh.id);
+  const closeShift = async () => {
+    const os = shiftOrders(shift).filter(o => o.status !== 'void');
+    const expected = posR2(shift.openingCash + os.reduce((a, o) => a + posCashNet(o), 0));
+    const counted = posR2(String(shiftF.counted).replace(/[^\d.]/g, ''));
+    if (queue.length) return say('يوجد ' + queue.length + ' فاتورة لم تُرسَل بعد — انتظر الاتصال ثم أغلق الوردية', 'no');
+    const sum2 = posDaySummary(os, br.id, null);
+    const rec = { ...shift, status: 'closed', closedAt: nowISO(), closedBy: me.name, expected, counted, diff: posR2(counted - expected), n: os.length, total: posR2(os.reduce((a, o) => a + o.total, 0)) };
+    const ok = await commit(d => ({ ...d, posShifts: (d.posShifts || []).map(x => x.id === shift.id ? rec : x) }), { actionType: 'update', targetType: 'pos_shift', targetId: shift.id, branchName: br.name, title: 'إغلاق وردية نقطة بيع', details: dev.name + ' · متوقع ' + money(expected) + ' · فعلي ' + money(counted) + ' · فرق ' + money(rec.diff) });
+    if (ok) { setShiftF(null); say('أُغلقت الوردية — الفرق ' + money(rec.diff)); posPrint(posZHtml(org, rec, os, br)); }
+  };
+  const checkout = async () => {
+    const paid = posR2((pay.parts || []).reduce((a, x) => a + (Number(x.amount) || 0), 0));
+    const cashGiven = posR2((pay.parts || []).filter(x => x.m === 'cash').reduce((a, x) => a + (Number(x.amount) || 0), 0));
+    if (paid + 0.004 < T.total) return say('المدفوع أقل من الإجمالي', 'no');
+    const change = posR2(paid - T.total); if (change > cashGiven + 0.004) return say('الباقي لا يُرد إلا من النقد', 'no');
+    if (posR2(disc.amt) > 0 && !disc.reason.trim()) return say('اكتب سبب الخصم', 'no');
+    // ترقيم الجهاز اليومي وسلسلة البصمات (تعمل دون اتصال)
+    const yy = today.replace(/-/g, '').slice(2); const sk = 'mizan:posSeq:' + br.id + ':' + today, hk = 'mizan:posHash:' + br.id;
+    let seq = 1, prev = { icv: 0, hash: '0' }; try { seq = (Number(localStorage.getItem(sk)) || 0) + 1; prev = JSON.parse(localStorage.getItem(hk) || '{"icv":0,"hash":"0"}'); } catch { }
+    const bi = (org.branches || []).findIndex(b => b.id === br.id) + 1;
+    const o = { id: uid('po'), no: 'ف' + bi + '-' + yy + '-' + dev.tag + '-' + String(seq).padStart(4, '0'), branchId: br.id, dev: dev.tag, shiftId: shift.id, date: today, at: nowISO(), by: me.name,
+      channel, lines: cart.map(l => ({ productId: l.productId, name: l.name, qty: l.qty, price: l.price, ...(l.note ? { note: l.note } : {}) })),
+      gross: T.gross, disc: T.disc, ...(T.disc ? { discReason: disc.reason.trim() } : {}), total: T.total, vat: T.vat, net: T.net, rate,
+      payments: pay.parts.filter(x => Number(x.amount) > 0).map(x => ({ m: x.m, amount: posR2(x.amount), ...(x.m === 'app' ? { appId: x.appId, appName: (apps.find(a => a.id === x.appId) || {}).n || 'تطبيق' } : {}) })),
+      change, status: 'paid', icv: (prev.icv || 0) + 1, pih: prev.hash || '0' };
+    o.hash = sha256Hex(JSON.stringify([o.no, o.at, o.lines, o.total, o.vat, o.payments, o.icv, o.pih]));
+    try { localStorage.setItem(sk, String(seq)); localStorage.setItem(hk, JSON.stringify({ icv: o.icv, hash: o.hash })); } catch { }
+    const qn = [...posQueue(), o]; posQueueSet(qn); setQueue(qn);
+    setLast(o); setCart([]); setDisc({ amt: '', reason: '' }); setPay(null); setShowCart(false);
+    if (cfg.autoPrint !== false) posPrint(posReceiptHtml(org, o, br));
+    flush();
+  };
+  const voidOrder = async (o) => {
+    if (!isMgr) return say('إلغاء الفاتورة لمدير الفرع', 'no');
+    if (o.pending) return say('انتظر إرسال الفاتورة أولًا', 'no');
+    const closed = (ops.closings || []).some(c => c.branchId === o.branchId && c.date === o.date && (c.status === 'submitted' || c.status === 'approved'));
+    if (closed) return say('إغلاق هذا اليوم مُرحّل — لا تُلغى فواتيره', 'no');
+    const reason = window.prompt('سبب إلغاء الفاتورة ' + o.no + ':'); if (!reason || !reason.trim()) return;
+    await commit(d => ({ ...d, posOrders: (d.posOrders || []).map(x => x.id === o.id ? { ...x, status: 'void', voidBy: me.name, voidAt: nowISO(), voidReason: reason.trim() } : x) }), { actionType: 'update', targetType: 'pos_order', targetId: o.id, branchName: br.name, title: 'ألغى فاتورة نقطة بيع', details: o.no + ' · ' + money(o.total) + ' · ' + reason.trim() });
+    say('أُلغيت الفاتورة ' + o.no);
+  };
+
+  const css = `.pos-wrap{display:grid;grid-template-columns:1fr 360px;gap:12px;align-items:start}
+  .pos-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:9px}
+  .pos-tile{border:1px solid var(--line-g);border-radius:14px;background:var(--ink2);padding:12px 8px;min-height:92px;display:flex;flex-direction:column;justify-content:space-between;gap:6px;cursor:pointer;text-align:center;font:inherit;color:var(--txt)}
+  .pos-tile:active{transform:scale(.97)} .pos-tile b{font-size:13.5px;line-height:1.4} .pos-tile span{font-size:14px;font-weight:800;color:var(--brass)}
+  .pos-cart{position:sticky;top:8px} .pos-line{display:flex;align-items:center;gap:6px;padding:7px 0;border-bottom:1px solid var(--line)}
+  .pos-qb{width:34px;height:34px;border-radius:9px;border:1px solid var(--line-g);background:var(--ink3);font-size:18px;cursor:pointer;color:var(--txt)}
+  .pos-pay{width:100%;padding:16px 0;font-size:17px;font-weight:800}
+  .pos-fab{display:none}
+  @media(max-width:900px){.pos-wrap{grid-template-columns:1fr}.pos-cart{display:none}.pos-cart.open{display:block;position:fixed;inset:auto 0 0 0;max-height:82vh;overflow:auto;z-index:60;border-radius:18px 18px 0 0;margin:0}
+    .pos-fab{display:flex;position:fixed;inset-inline:12px;bottom:76px;z-index:55;justify-content:space-between;padding:15px 18px;font-size:16px;font-weight:800;border-radius:14px}}`;
+  const pendingBadge = queue.length ? <span className="badge b-amber">⏳ {queue.length} فاتورة بانتظار الإرسال</span> : <span className="badge b-mint">متزامن ✓</span>;
+  const todayOrders = allOrders.filter(o => o.branchId === br.id && o.date === today).sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  const daySum = posDaySummary(todayOrders, br.id, today);
+  const cartBox = (
+    <div className={'card pos-cart' + (showCart ? ' open' : '')}>
+      <div className="row" style={{ justifyContent: 'space-between', marginBottom: 6 }}><b>الطلب الحالي</b>{showCart && <button className="btn sm gh" onClick={() => setShowCart(false)}><X size={14} /></button>}</div>
+      <div className="row" style={{ gap: 6, marginBottom: 8 }}>{[['takeaway', 'سفري'], ['dinein', 'محلي'], ['delivery', 'توصيل']].map(([k, t]) => <button key={k} className={'btn sm' + (channel === k ? ' pri' : ' gh')} onClick={() => setChannel(k)}>{t}</button>)}</div>
+      {cart.map(l => (
+        <div key={l.key} className="pos-line">
+          <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{l.name}</div>
+            <input className="inp" style={{ padding: '3px 6px', fontSize: 11, marginTop: 3 }} placeholder="ملاحظة (بدون بصل…)" value={l.note} onChange={e => setCart(c => c.map(x => x.key === l.key ? { ...x, note: e.target.value } : x))} /></div>
+          <button className="pos-qb" onClick={() => setQty(l.key, -1)}>−</button><b className="num" style={{ minWidth: 22, textAlign: 'center' }}>{l.qty}</b><button className="pos-qb" onClick={() => setQty(l.key, 1)}>+</button>
+          <span className="num" style={{ minWidth: 64, textAlign: 'end', fontWeight: 700 }}>{money(l.qty * l.price)}</span>
+        </div>))}
+      {!cart.length && <div className="empty">اضغط الأصناف لإضافتها</div>}
+      {cart.length > 0 && <>
+        <div className="grid g2" style={{ gap: 6, marginTop: 8 }}>
+          <Field label="خصم (ر.س)" style={{ marginBottom: 0 }}><input className="inp n" inputMode="decimal" value={disc.amt} onChange={e => setDisc(d => ({ ...d, amt: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+          {posR2(disc.amt) > 0 && <Field label="سبب الخصم" style={{ marginBottom: 0 }}><input className="inp" value={disc.reason} onChange={e => setDisc(d => ({ ...d, reason: e.target.value }))} /></Field>}
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--dim)', marginTop: 8 }}>{T.disc ? <div className="row" style={{ justifyContent: 'space-between' }}><span>الخصم</span><span className="num">−{money(T.disc)}</span></div> : null}
+          <div className="row" style={{ justifyContent: 'space-between' }}><span>منها ضريبة {rate}%</span><span className="num">{money(T.vat)}</span></div></div>
+        <div className="row" style={{ justifyContent: 'space-between', fontSize: 19, fontWeight: 800, margin: '6px 0 10px' }}><span>الإجمالي</span><span className="num">{money(T.total)}</span></div>
+        <div className="grid g2" style={{ gap: 6 }}>
+          <button className="btn pri pos-pay" onClick={() => setPay({ parts: [{ m: 'cash', amount: String(T.total) }] })}>نقدي</button>
+          <button className="btn pri pos-pay" onClick={() => setPay({ parts: [{ m: 'card', amount: String(T.total) }] })}>شبكة</button>
+        </div>
+        <div className="row" style={{ gap: 6, marginTop: 6 }}>
+          <button className="btn sm" style={{ flex: 1 }} onClick={() => setPay({ parts: [{ m: 'cash', amount: '' }, { m: 'card', amount: '' }] })}>تقسيم الدفع</button>
+          <button className="btn sm" style={{ flex: 1 }} onClick={() => setPay({ parts: [{ m: 'app', appId: (apps[0] || {}).id, amount: String(T.total) }] })}>تطبيق توصيل</button>
+          <button className="btn sm gh" onClick={() => { if (window.confirm('إفراغ الطلب؟')) setCart([]); }}><Trash2 size={13} color="#D9544D" /></button>
+        </div>
+      </>}
+    </div>);
+
+  return (
+    <div className="grid" style={{ gap: 10 }}>
+      <style>{css}</style>
+      <div className="card" style={{ padding: '9px 12px' }}><div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <b><Store size={15} color="var(--brass)" /> نقطة البيع</b>
+        {brs.length > 1 ? <select className="sel" style={{ width: 160 }} value={br.id} onChange={e => setBrId(e.target.value)}>{brs.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select> : <span className="badge b-dim">{br.name}</span>}
+        <span className="badge b-dim">الجهاز {dev.name} ({dev.tag})</span>{pendingBadge}
+        <span style={{ marginInlineStart: 'auto' }} />
+        <SectionNav force="tabs" cur={view} onPick={setView} label="نقطة البيع" items={[{ id: 'sell', ar: 'البيع', icon: Store }, { id: 'orders', ar: 'طلبات اليوم', icon: FileText, badge: todayOrders.length || null }, { id: 'shift', ar: 'الوردية', icon: Clock }, ...(R.admin || R.scope === 'all' ? [{ id: 'cfg', ar: 'الإعدادات', icon: Settings }] : [])]} />
+      </div></div>
+
+      {view === 'sell' && (!shift ? (
+        <div className="card" style={{ maxWidth: 420, margin: '20px auto', textAlign: 'center' }}>
+          <div className="card-t" style={{ justifyContent: 'center', marginBottom: 8 }}><Clock size={16} color="var(--brass)" />افتح الوردية للبدء</div>
+          <Num label="النقد الافتتاحي في الدرج" value={(shiftF || {}).cash ?? String(br.defaultFloat || '')} onChange={v => setShiftF({ cash: v })} />
+          <button className="btn pri" style={{ width: '100%', marginTop: 8 }} onClick={() => openShift((shiftF || {}).cash ?? String(br.defaultFloat || 0))}><Check size={14} />فتح الوردية</button>
+        </div>) : (
+        <div className="pos-wrap">
+          <div className="grid" style={{ gap: 9 }}>
+            <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+              <input className="inp" style={{ width: 170 }} placeholder="بحث عن صنف…" value={q} onChange={e => setQ(e.target.value)} />
+              <button className={'btn sm' + (!cat ? ' pri' : ' gh')} onClick={() => setCat('')}>الكل</button>
+              {cats.map(c => <button key={c} className={'btn sm' + (cat === c ? ' pri' : ' gh')} onClick={() => setCat(c)}>{c}</button>)}
+            </div>
+            <div className="pos-tiles">{shown.map(p => <button key={p.id} className="pos-tile" onClick={() => add(p)}><b>{p.name}</b><span className="num">{money(p.sellPrice)}</span></button>)}</div>
+            {!shown.length && <div className="card"><div className="empty">لا أصناف — أضف المنتجات بأسعارها من «المخزون ← الوصفات والتكلفة».</div></div>}
+            {last && <div className="note">آخر فاتورة: <b className="num">{last.no}</b> بـ <b className="num">{money(last.total)}</b>{last.change ? ' · الباقي ' + money(last.change) : ''} — <button className="btn sm gh" onClick={() => posPrint(posReceiptHtml(org, last, br))}><Printer size={12} />إعادة الطباعة</button></div>}
+          </div>
+          {cartBox}
+          {cart.length > 0 && !showCart && <button className="btn pri pos-fab" onClick={() => setShowCart(true)}><span>الطلب ({cart.reduce((a, l) => a + l.qty, 0)})</span><span className="num">{money(T.total)}</span></button>}
+        </div>))}
+
+      {view === 'orders' && <div className="card">
+        <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+          <span className="badge b-brass">اليوم {money(daySum.total)} · {daySum.n} فاتورة</span><span className="badge b-dim">نقد {money(daySum.cash)}</span><span className="badge b-dim">شبكة {money(daySum.card)}</span>
+          {Object.entries(daySum.apps).map(([id, x]) => <span key={id} className="badge b-dim">{(apps.find(a => a.id === id) || {}).n || 'تطبيق'} {money(x.amount)}</span>)}</div>
+        <div className="tw"><table className="tb"><thead><tr><th>الرقم</th><th>الوقت</th><th>الأصناف</th><th style={{ textAlign: 'end' }}>الإجمالي</th><th>الدفع</th><th></th></tr></thead><tbody>
+          {todayOrders.map(o => <tr key={o.id} style={o.status === 'void' ? { opacity: .5 } : undefined}>
+            <td className="num" style={{ fontSize: 11.5 }}>{o.no}{o.pending && <div><span className="badge b-amber" style={{ fontSize: 9.5 }}>لم يُرسَل</span></div>}</td>
+            <td className="num" style={{ fontSize: 11.5 }}>{new Date(o.at).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })}</td>
+            <td style={{ fontSize: 12 }}>{o.lines.map(l => l.name + (l.qty > 1 ? ' ×' + l.qty : '')).join('، ')}</td>
+            <td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{money(o.total)}</td>
+            <td style={{ fontSize: 11.5 }}>{o.status === 'void' ? <span className="badge b-rose">ملغاة: {o.voidReason}</span> : o.payments.map(p => p.m === 'cash' ? 'نقدي' : p.m === 'card' ? 'شبكة' : p.m === 'transfer' ? 'تحويل' : p.appName).join(' + ')}</td>
+            <td><div className="row" style={{ gap: 4 }}><button className="btn sm gh" onClick={() => posPrint(posReceiptHtml(org, o, br))}><Printer size={12} /></button>{isMgr && o.status !== 'void' && <button className="btn sm gh" onClick={() => voidOrder(o)}>إلغاء</button>}</div></td>
+          </tr>)}
+          {!todayOrders.length && <tr><td colSpan={6}><div className="empty">لا فواتير اليوم.</div></td></tr>}
+        </tbody></table></div></div>}
+
+      {view === 'shift' && <div className="card">
+        {!shift ? <div className="empty">لا وردية مفتوحة على هذا الجهاز — افتحها من «البيع».</div> : (() => { const os = shiftOrders(shift).filter(o => o.status !== 'void'); const exp = posR2(shift.openingCash + os.reduce((a, o) => a + posCashNet(o), 0)); return <>
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }}><span className="badge b-mint">مفتوحة منذ {String(shift.openedAt).slice(11, 16)} · {shift.openedBy}</span><span className="badge b-dim">افتتاحي {money(shift.openingCash)}</span><span className="badge b-dim">{os.length} فاتورة · {money(os.reduce((a, o) => a + o.total, 0))}</span><span className="badge b-brass">النقد المتوقع في الدرج {money(exp)}</span></div>
+          <div className="grid g2" style={{ alignItems: 'end' }}><Num label="النقد المعدود فعلًا" value={(shiftF || {}).counted || ''} onChange={v => setShiftF({ counted: v })} />
+            <button className="btn pri" disabled={!shiftF || shiftF.counted === undefined || shiftF.counted === ''} onClick={closeShift}><Lock size={14} />إغلاق الوردية وطباعة التقرير</button></div>
+          {shiftF && shiftF.counted !== undefined && shiftF.counted !== '' && <div className="note" style={{ marginTop: 6 }}>الفرق: <b className="num">{money(posR2(posR2(String(shiftF.counted).replace(/[^\d.]/g, '')) - exp))}</b> {posR2(String(shiftF.counted).replace(/[^\d.]/g, '')) - exp < -0.004 ? '(عجز)' : posR2(String(shiftF.counted).replace(/[^\d.]/g, '')) - exp > 0.004 ? '(زيادة)' : '(مطابق)'}</div>}
+        </>; })()}
+        <div className="note" style={{ marginTop: 8 }}>بعد إغلاق ورديات اليوم: افتح «الإغلاق اليومي» واضغط «تعبئة من نقطة البيع» فتُملأ المبيعات النقدية والشبكة والتطبيقات تلقائيًا.</div>
+      </div>}
+
+      {view === 'cfg' && <PosSettings org={org} commitOrg={commitOrg} say={say} dev={dev} />}
+
+      {pay && <Modal title={'الدفع — ' + money(T.total)} icon={Banknote} onClose={() => setPay(null)}
+        foot={<><button className="btn gh" onClick={() => setPay(null)}>رجوع</button><button className="btn pri" onClick={checkout}><Check size={14} />تأكيد وطباعة</button></>}>
+        {pay.parts.map((x, i) => <div key={i} className="row" style={{ gap: 8, marginBottom: 8, alignItems: 'end', flexWrap: 'wrap' }}>
+          <Field label="الطريقة" style={{ marginBottom: 0 }}><select className="sel" value={x.m} onChange={e => setPay(pp => ({ ...pp, parts: pp.parts.map((y, k) => k === i ? { ...y, m: e.target.value } : y) }))}><option value="cash">نقدي</option><option value="card">شبكة (مدى/بطاقة)</option><option value="transfer">تحويل بنكي</option><option value="app">تطبيق توصيل</option></select></Field>
+          {x.m === 'app' && <Field label="التطبيق" style={{ marginBottom: 0 }}><select className="sel" value={x.appId} onChange={e => setPay(pp => ({ ...pp, parts: pp.parts.map((y, k) => k === i ? { ...y, appId: e.target.value } : y) }))}>{apps.map(a => <option key={a.id} value={a.id}>{a.n}</option>)}</select></Field>}
+          <Field label="المبلغ" style={{ marginBottom: 0 }}><input className="inp n" style={{ fontSize: 18, width: 140 }} inputMode="decimal" autoFocus={i === 0} value={x.amount} onChange={e => setPay(pp => ({ ...pp, parts: pp.parts.map((y, k) => k === i ? { ...y, amount: e.target.value.replace(/[^\d.]/g, '') } : y) }))} /></Field>
+        </div>)}
+        {pay.parts.some(x => x.m === 'cash') && <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>{[...new Set([T.total, Math.ceil(T.total / 10) * 10, Math.ceil(T.total / 50) * 50, Math.ceil(T.total / 100) * 100, 500])].filter(v => v >= T.total).slice(0, 5).map(v => <button key={v} className="btn sm" onClick={() => setPay(pp => ({ ...pp, parts: pp.parts.map(y => y.m === 'cash' ? { ...y, amount: String(v) } : y) }))}>{money(v)}</button>)}</div>}
+        {(() => { const paid = posR2(pay.parts.reduce((a, x) => a + (Number(x.amount) || 0), 0)); const ch = posR2(paid - T.total); return <div className="mono-b" style={{ marginTop: 10 }}><span>{ch >= 0 ? 'الباقي للعميل' : 'المتبقي'}</span><span className="num" style={{ fontSize: 20, color: ch >= 0 ? 'var(--mint)' : 'var(--rose)' }}>{money(Math.abs(ch))}</span></div>; })()}
+      </Modal>}
+    </div>);
+}
+function posZHtml(org, sh, os, br) {
+  const s2 = posDaySummary(os.map(o => ({ ...o, date: 'x' })), br.id, 'x'); const m = (n) => money(n);
+  const row = (k, v) => `<tr><td>${k}</td><td class="n">${v}</td></tr>`;
+  return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><style>${NUM_FACE}@page{size:80mm auto;margin:3mm}body{font-family:'MizanNum',Tahoma,sans-serif;width:74mm;margin:0 auto;font-size:12px}table{width:100%;border-collapse:collapse}td{padding:4px 0;border-bottom:1px dashed #999}td.n{text-align:left}h1{font-size:15px;text-align:center}</style></head><body>
+  <h1>تقرير إغلاق وردية</h1><div style="text-align:center">${_xe(br.name)} · ${_xe(sh.devName || '')} (${_xe(sh.dev)})<br>${_xe(String(sh.openedAt).slice(0, 16).replace('T', ' '))} ← ${_xe(String(sh.closedAt).slice(11, 16))}</div>
+  <table>${row('عدد الفواتير', sh.n)}${row('إجمالي المبيعات', m(sh.total))}${row('منها ضريبة', m(s2.vat))}${row('نقدي (صافي)', m(s2.cash))}${row('شبكة', m(s2.card))}${row('تحويل', m(s2.transfer))}
+  ${Object.entries(s2.apps).map(([id, x]) => row(((org.deliveryApps || APPS).find(a => a.id === id) || {}).n || 'تطبيق', m(x.amount))).join('')}
+  ${row('النقد الافتتاحي', m(sh.openingCash))}${row('النقد المتوقع', m(sh.expected))}${row('النقد المعدود', m(sh.counted))}${row('<b>الفرق</b>', '<b>' + m(sh.diff) + '</b>')}</table>
+  <div style="margin-top:8px">أغلقها: ${_xe(sh.closedBy || '')}</div></body></html>`;
+}
+function PosSettings({ org, commitOrg, say, dev }) {
+  const c = org.posCfg || {};
+  const [f, setF] = useState({ branches: c.branches || [], footer: c.footer || '', autoPrint: c.autoPrint !== false, devName: dev ? dev.name : '' });
+  const save = async () => {
+    if (dev && f.devName.trim()) { try { localStorage.setItem(POS_DEV_KEY, JSON.stringify({ ...dev, name: f.devName.trim() })); } catch { } }
+    const ok = await commitOrg(d => ({ ...d, posCfg: { ...(d.posCfg || {}), branches: f.branches, footer: f.footer.trim(), autoPrint: !!f.autoPrint } }), { actionType: 'update', targetType: 'settings', targetId: 'posCfg', need: 'edit', title: 'إعدادات نقطة البيع', details: 'الفروع: ' + f.branches.map(id => ((org.branches || []).find(b => b.id === id) || {}).name).join('، ') });
+    if (ok) say('حُفظت إعدادات نقطة البيع ✓');
+  };
+  return (
+    <div className="card">
+      <div className="card-t" style={{ marginBottom: 8 }}><Settings size={15} color="var(--brass)" />إعدادات نقطة البيع</div>
+      <div className="lbl">الفروع المفعّلة (التجربة)</div>
+      <div className="row" style={{ gap: 10, flexWrap: 'wrap', margin: '4px 0 10px' }}>{(org.branches || []).filter(b => b.isActive !== false).map(b => <label key={b.id} className="row" style={{ gap: 6, fontSize: 12.5, cursor: 'pointer' }}><input type="checkbox" checked={f.branches.includes(b.id)} onChange={e => setF(x => ({ ...x, branches: e.target.checked ? [...x.branches, b.id] : x.branches.filter(i => i !== b.id) }))} />{b.name}</label>)}</div>
+      <div className="grid g2">
+        <Field label="عبارة أسفل الفاتورة"><input className="inp" value={f.footer} placeholder="رقم خدمة العملاء، رابط التقييم…" onChange={e => setF(x => ({ ...x, footer: e.target.value }))} /></Field>
+        {dev && <Field label={'اسم هذا الجهاز (' + dev.tag + ')'}><input className="inp" value={f.devName} placeholder="كاشير 1" onChange={e => setF(x => ({ ...x, devName: e.target.value }))} /></Field>}
+      </div>
+      <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', margin: '4px 0 10px' }}><input type="checkbox" checked={f.autoPrint} onChange={e => setF(x => ({ ...x, autoPrint: e.target.checked }))} />طباعة الفاتورة تلقائيًا بعد الدفع</label>
+      <button className="btn pri" onClick={save}><Check size={14} />حفظ</button>
+      <div className="note" style={{ marginTop: 8 }}>المنتجات وأسعارها وتصنيفاتها من «المخزون ← الوصفات والتكلفة». الرقم الضريبي واسم المنشأة من الإعدادات. الطابعة: اختر الطابعة الحرارية من نافذة الطباعة (على الآيباد عبر AirPrint).</div>
+    </div>);
+}
+
 function Closing({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
   const [open, setOpen] = useState(false);
   const [edit, setEdit] = useState(null);
@@ -7821,7 +8127,7 @@ function Closing({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
 
       {open && (
         <ClosingForm key={formKey} org={org} me={me} branches={myBranches} initial={edit} commit={commit} commitOrg={commitOrg} say={say}
-          existing={ops.closings || []} invoices={ops.invoices || []} branchPartners={ops.branchPartners || []}
+          existing={ops.closings || []} invoices={ops.invoices || []} branchPartners={ops.branchPartners || []} posOrders={ops.posOrders || []}
           onStartNew={() => { setEdit(null); setFormKey(k => k + 1); }}
           onClose={() => { setOpen(false); setEdit(null); }} />
       )}
@@ -7840,7 +8146,7 @@ function normalizeSupPays(arr) {
   });
 }
 
-export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say, onClose, onStartNew, existing = [], invoices = [], branchPartners = [] }) {
+export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say, onClose, onStartNew, existing = [], invoices = [], branchPartners = [], posOrders = [] }) {
   const [f, setF] = useState(() => initial ? { ...initial, supplierPayments: normalizeSupPays(initial.supplierPayments) } : {
     date: businessDay(), branchId: branches[0]?.id || '',
     openingBalance: branches[0]?.defaultFloat || 0,
@@ -8246,6 +8552,13 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
                 <div className="grid g2">
                   <Num label="العهدة الافتتاحية" value={f.openingBalance} onChange={v => set('openingBalance', v)} hint="رصيد بداية الوردية" />
                   <Num label="مبيعات نقدية (كاش)" value={f.cashSales} onChange={v => set('cashSales', v)} sum />
+                  {(() => { const ps = posDaySummary(posOrders, f.branchId, f.date); if (!ps.n) return null; return (
+                    <div className="note" style={{ gridColumn: '1 / -1', borderColor: 'rgba(79,178,134,.45)' }}>
+                      <b>نقطة البيع:</b> {ps.n} فاتورة بإجمالي <span className="num">{money(ps.total)}</span> — نقد <span className="num">{money(ps.cash)}</span> · شبكة <span className="num">{money(ps.card)}</span>{Object.keys(ps.apps).length ? ' · تطبيقات ' + money(Object.values(ps.apps).reduce((a, x) => a + x.amount, 0)) : ''}
+                      <button type="button" className="btn sm pri" style={{ marginInlineStart: 8 }} onClick={() => setF(p => ({ ...p, cashSales: ps.cash, cardSales: ps.card, bankTransferSales: ps.transfer,
+                        deliverySales: (p.deliverySales || []).map(d => ps.apps[d.appId] ? { ...d, amount: ps.apps[d.appId].amount, orderCount: ps.apps[d.appId].n } : { ...d, amount: 0, orderCount: 0 }), posFilled: { at: nowISO(), n: ps.n, total: ps.total } }))}>تعبئة من نقطة البيع</button>
+                      {f.posFilled && <span className="badge b-mint" style={{ marginInlineStart: 6 }}>عُبّئ ✓</span>}
+                    </div>); })()}
                 </div>
               </>
             ))}
@@ -17487,9 +17800,13 @@ function usageReport(org, ops, wid, from, to) {
   const branches = (org.branches || []).filter(b => b.isActive !== false);
   const served = !useWh ? branches.map(b => b.id) : (w && w.kind === 'branch') ? [w.branchId] : branches.filter(b => !whForBranch(org, b.id)).map(b => b.id);
   const inP = (d) => { d = String(d || '').slice(0, 10); return d >= from && d <= to; };
-  const recs = (ops.productSales || []).filter(r => served.includes(r.branchId) && r.from >= from && r.to <= to);
+  // v33.0: فروع نقطة البيع تُحتسب كمياتها الفعلية من فواتيرها (بدل الاستيراد اليدوي)
+  const posOs = (ops.posOrders || []).filter(o => served.includes(o.branchId) && o.status !== 'void' && o.date >= from && o.date <= to);
+  const posBr = new Set(posOs.map(o => o.branchId));
+  const recs = (ops.productSales || []).filter(r => served.includes(r.branchId) && !posBr.has(r.branchId) && r.from >= from && r.to <= to);
   const partial = (ops.productSales || []).filter(r => served.includes(r.branchId) && !(r.from >= from && r.to <= to) && r.to >= from && r.from <= to);
   const pQty = {}; recs.forEach(r => (r.lines || []).forEach(l => { pQty[l.productId] = (pQty[l.productId] || 0) + (Number(l.qty) || 0); }));
+  posOs.forEach(o => (o.lines || []).forEach(l => { if (l.productId) pQty[l.productId] = (pQty[l.productId] || 0) + (Number(l.qty) || 0); }));
   const theo = {}; let revenue = 0;
   const tax = org.taxCfg || {}; const netOf = (p) => tax.enabled ? p / (1 + (Number(tax.rate) || 15) / 100) : p;
   Object.entries(pQty).forEach(([pid, q]) => { const pr = products.find(x => x.id === pid); if (!pr) return; revenue += q * netOf(Number(pr.sellPrice) || 0);
@@ -17506,7 +17823,7 @@ function usageReport(org, ops, wid, from, to) {
     return { id, name: it.name, unit: it.unit, theo: t, out: r3(a.out), waste: r3(a.waste), count: r3(a.count), actual, dq, dv: r2(dq * c), pct: t > 0 ? Math.round(dq / t * 1000) / 10 : null, cost: c, theoV: r2(t * c), actV: r2(actual * c) };
   }).sort((x, y) => Math.abs(y.dv) - Math.abs(x.dv));
   const noRecipe = Object.keys(pQty).filter(pid => { const pr = products.find(x => x.id === pid); return !pr || !(pr.parts || []).length; });
-  return { rows, served, recs, partial, revenue: r2(revenue), theoV: r2(rows.reduce((a, r) => a + r.theoV, 0)), actV: r2(rows.reduce((a, r) => a + r.actV, 0)), pQty, noRecipe };
+  return { rows, served, recs: [...recs, ...(posOs.length ? [{ pos: true }] : [])], posN: posOs.length, partial, revenue: r2(revenue), theoV: r2(rows.reduce((a, r) => a + r.theoV, 0)), actV: r2(rows.reduce((a, r) => a + r.actV, 0)), pQty, noRecipe };
 }
 function UsageVariance({ org, ops, me, commit, say }) {
   const whs = whOf(org), useWh = whs.length > 0;
@@ -17878,7 +18195,7 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
     const f = prodF;
     if (!f.name.trim()) return say('أدخل اسم المنتج', 'no');
     const parts = (f.parts || []).filter(pt => pt.itemId && Number(pt.qty) > 0).map(pt => ({ itemId: pt.itemId, qty: Number(pt.qty) }));
-    const rec = { id: f.id || uid('pr'), name: f.name.trim(), sellPrice: Number(f.sellPrice) || 0, parts };
+    const rec = { id: f.id || uid('pr'), name: f.name.trim(), sellPrice: Number(f.sellPrice) || 0, parts, cat: (f.cat || '').trim(), ...(f.posOff ? { posOff: true } : {}) };
     await commitOrg(d => ({ ...d, products: f.id ? (d.products || []).map(x => x.id === f.id ? rec : x) : [...(d.products || []), rec] }), {
       actionType: f.id ? 'update' : 'create', targetType: 'product', targetId: rec.id,
       title: f.id ? 'عدّل وصفة منتج' : 'أضاف منتجًا بوصفته', details: rec.name + ' · تكلفة ' + money(prodCost(rec))
@@ -18248,6 +18565,9 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
             <Field label="اسم المنتج"><input className="inp" value={prodF.name} placeholder="مندي لحم — وجبة" onChange={e => setProdF(f => ({ ...f, name: e.target.value }))} /></Field>
             <Field label={'سعر البيع' + ((org.taxCfg || {}).enabled ? ' (شامل الضريبة)' : '')}>
               <input className="inp n" inputMode="decimal" value={prodF.sellPrice} onChange={e => setProdF(f => ({ ...f, sellPrice: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+            <Field label="تصنيف نقطة البيع"><input className="inp" list="pos-cats" value={prodF.cat || ''} placeholder="وجبات، مشروبات، حلويات…" onChange={e => setProdF(f => ({ ...f, cat: e.target.value }))} />
+              <datalist id="pos-cats">{[...new Set((org.products || []).map(p => p.cat).filter(Boolean))].map(c => <option key={c} value={c} />)}</datalist></Field>
+            <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', paddingTop: 18 }}><input type="checkbox" checked={!prodF.posOff} onChange={e => setProdF(f => ({ ...f, posOff: !e.target.checked }))} />متاح في نقطة البيع</label>
           </div>
           <div className="lbl" style={{ margin: '4px 0 6px' }}>المكوّنات (من أصناف المخزون)</div>
           {(prodF.parts || []).map((pt, i) => (

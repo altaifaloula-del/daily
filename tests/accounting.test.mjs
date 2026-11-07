@@ -143,3 +143,19 @@ test('قراءة كشف MT940: الحركات بإشاراتها، والبيا�
   near(r.lines.reduce((a, l) => a + l.amount, 0) + r.open.amount, r.close.amount, 'الافتتاحي + الحركات = الختامي');
   assert.equal(E.parseMt940('التاريخ,المبلغ\n2026-01-01,5'), null, 'ملف عادي ليس MT940');
 });
+
+test('نقطة البيع: الإجمالي والضريبة الشاملة والخصم، وملخص اليوم للإغلاق (النقد الصافي بعد الباقي، الشبكة، التطبيقات، استبعاد الملغاة)', () => {
+  const T = E.posTotals([{ qty: 2, price: 23 }, { qty: 1, price: 8 }], 4, 15);
+  near(T.gross, 54); near(T.disc, 4); near(T.total, 50); near(T.vat, 6.52); near(T.net, 43.48);
+  const orders = [
+    { branchId: 'b1', date: '2026-11-07', status: 'paid', total: 50, vat: 6.52, payments: [{ m: 'cash', amount: 100 }], change: 50 },
+    { branchId: 'b1', date: '2026-11-07', status: 'paid', total: 30, vat: 3.91, payments: [{ m: 'cash', amount: 10 }, { m: 'card', amount: 20 }], change: 0 },
+    { branchId: 'b1', date: '2026-11-07', status: 'paid', total: 45, vat: 5.87, payments: [{ m: 'app', appId: 'jahez', amount: 45 }], change: 0 },
+    { branchId: 'b1', date: '2026-11-07', status: 'void', total: 99, vat: 12.91, payments: [{ m: 'cash', amount: 99 }], change: 0 },
+    { branchId: 'b2', date: '2026-11-07', status: 'paid', total: 70, vat: 9.13, payments: [{ m: 'card', amount: 70 }], change: 0 }];
+  near(E.posCashNet(orders[0]), 50, 'النقد الصافي = المدفوع − الباقي');
+  const s = E.posDaySummary(orders, 'b1', '2026-11-07');
+  assert.equal(s.n, 3, 'الملغاة وفواتير الفرع الآخر مستبعدة');
+  near(s.total, 125); near(s.cash, 60); near(s.card, 20); near(s.apps.jahez.amount, 45); assert.equal(s.apps.jahez.n, 1);
+  near(s.cash + s.card + s.apps.jahez.amount, s.total, 'مجموع طرق الدفع = إجمالي المبيعات');
+});
