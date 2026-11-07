@@ -2435,7 +2435,7 @@ const ERRLOG_KEY = 'mizan:errlog';
 function logClientError(err, where) {
   try {
     const a = JSON.parse(localStorage.getItem(ERRLOG_KEY) || '[]');
-    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v32.3' });
+    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v32.4' });
     localStorage.setItem(ERRLOG_KEY, JSON.stringify(a.slice(0, 20)));
   } catch { }
 }
@@ -3457,7 +3457,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v32.3 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v32.4 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -9631,8 +9631,8 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
     if (!w) return;
     w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
       <title>قسيمة راتب - ${r.e.name} - ${monthName}</title>
-      <style>
-        *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',Tahoma,sans-serif}
+      <style>${NUM_FACE}
+        *{margin:0;padding:0;box-sizing:border-box;font-family:'MizanNum','Segoe UI',Tahoma,sans-serif}
         body{padding:32px;color:#222;background:#fff}
         .head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #C8A24A;padding-bottom:16px;margin-bottom:20px}
         .logo{width:64px;height:64px;object-fit:contain}
@@ -15904,10 +15904,14 @@ function buildClosingA4(c, org) {
   </div>`;
 }
 
+// v32.4 — خط الأرقام في نوافذ الطباعة (عنوان كامل لأن نافذة الطباعة بلا عنوان أساس)
+const NUM_FACE = (() => { try { const u = new URL('fonts/inter-latin.woff2', document.baseURI).href;
+  return "@font-face{font-family:'MizanNum';src:url('" + u + "') format('woff2');font-weight:100 900;unicode-range:U+0030-0039,U+0025,U+0024,U+002B-002E,U+002F,U+003A,U+00D7,U+2212,U+2013}"; } catch { return ''; } })();
 const A4_CSS = `
+  ${NUM_FACE}
   @page { size: A4; margin: 12mm }
   * { box-sizing: border-box }
-  body { font-family: 'IBM Plex Sans Arabic','Readex Pro',Tahoma,sans-serif; color: #1a1a1a; margin: 0; font-size: 11px; background: #fff }
+  body { font-family: 'MizanNum','IBM Plex Sans Arabic','Readex Pro',Tahoma,sans-serif; font-variant-numeric: tabular-nums; color: #1a1a1a; margin: 0; font-size: 11px; background: #fff }
   .page { max-width: 186mm; margin: 0 auto }
   .head { border-bottom: 2.5px solid #8C6F2C; padding-bottom: 10px; margin-bottom: 12px }
   .co { display: flex; align-items: center; gap: 10px; margin-bottom: 8px }
@@ -15956,7 +15960,7 @@ const A4_CSS = `
   .sc { text-align: center } .sc span { font-size: 8.5px; color: #777; display: block } .sc b { font-size: 12.5px; display: block; margin-top: 3px }
   .warn2 { color: #B7791F }
   .banner { display: flex; justify-content: space-between; align-items: center; gap: 12px; background: #14110F; color: #EFE7DB; border-radius: 10px; padding: 11px 15px; margin-bottom: 12px; flex-wrap: wrap }
-  .banner-id { font-family: 'IBM Plex Mono',ui-monospace,monospace; color: #E0C074; font-size: 12px; font-weight: 700; direction: ltr; text-align: left }
+  .banner-id { font-family: 'MizanNum','IBM Plex Mono',ui-monospace,monospace; color: #E0C074; font-size: 12px; font-weight: 700; direction: ltr; text-align: left }
   .banner-sub { font-size: 9px; color: #A2968A; margin-top: 3px }
   .banner-l { text-align: end; font-size: 10px; color: #D9CFC0; display: flex; flex-direction: column; gap: 3px; align-items: flex-end }
   .banner-l b { color: #fff }
@@ -15993,15 +15997,15 @@ function printReceipt(c, org, size) {
     .map(d => line(`${d.k === 'coins' ? 'هللات' : d.v + ' ريال'} × ${c.denominationDetails[d.k]}`,
       m((c.denominationDetails[d.k] || 0) * d.v))).join('');
   const html = `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
-  <title>إيصال إغلاق ${c.branchName}</title><style>
+  <title>إيصال إغلاق ${c.branchName}</title><style>${NUM_FACE}
   @page{size:${PG}mm auto;margin:3mm}
-  body{font-family:'IBM Plex Sans Arabic',Tahoma,sans-serif;width:${W}mm;margin:0 auto;color:#000;font-size:11px}
+  body{font-family:'MizanNum','IBM Plex Sans Arabic',Tahoma,sans-serif;width:${W}mm;margin:0 auto;color:#000;font-size:11px}
   h1{font-size:14px;text-align:center;margin:0 0 2px}
   .c{text-align:center;font-size:9.5px;color:#333}
   .sep{border-top:1px dashed #000;margin:6px 0}
   table{width:100%;border-collapse:collapse}
   td{padding:2px 0;vertical-align:top}
-  td.v{text-align:left;font-family:'IBM Plex Mono',monospace;white-space:nowrap}
+  td.v{text-align:left;font-family:'MizanNum','IBM Plex Mono',monospace;white-space:nowrap}
   .sec{font-weight:700;font-size:11px;margin-top:6px;background:#eee;padding:2px 4px}
   .tot{font-weight:700;font-size:12px;border-top:1px solid #000;border-bottom:2.5px double #000;padding:3px 0}
   .stamp{border:2px solid #000;padding:5px;text-align:center;font-weight:700;margin-top:8px}
@@ -16761,7 +16765,7 @@ function printPartnerStatement(p, org) {
   const bal = scr - sdr;
   const balT = Math.abs(bal) < 0.005 ? 'مسدّد' : (bal > 0 ? money(bal) + ' دائن (مستحق للطرف علينا)' : money(-bal) + ' مدين (مستحق لنا على الطرف)');
   w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>كشف حساب ${p.name}</title>
-  <style>*{font-family:'Segoe UI',Tahoma,sans-serif;box-sizing:border-box}body{margin:0;padding:28px;color:#1a1a1a}
+  <style>${NUM_FACE}*{font-family:'MizanNum','Segoe UI',Tahoma,sans-serif;box-sizing:border-box}body{margin:0;padding:28px;color:#1a1a1a}
   .h{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #8C6F2C;padding-bottom:12px;margin-bottom:16px}
   .co{font-size:20px;font-weight:800;color:#5a4a1e}.sub{font-size:12px;color:#666;margin-top:3px}
   .t{font-size:22px;font-weight:800}.who{background:#faf6ee;border:1px solid #e5dcc5;border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:13px;line-height:1.9}
@@ -16791,7 +16795,7 @@ function printA4(org, title, sub, bodyHtml) {
   if (!w) return false;
   const co = org.company || {};
   w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>${title}</title>
-  <style>*{font-family:'Segoe UI',Tahoma,sans-serif;box-sizing:border-box}body{margin:0;padding:26px;color:#1a1a1a;font-size:12px}
+  <style>${NUM_FACE}*{font-family:'MizanNum','Segoe UI',Tahoma,sans-serif;box-sizing:border-box}body{margin:0;padding:26px;color:#1a1a1a;font-size:12px}
   .h{display:flex;justify-content:space-between;border-bottom:2px solid #8C6F2C;padding-bottom:10px;margin-bottom:14px}
   .co{font-size:18px;font-weight:800;color:#5a4a1e}.sub{font-size:11px;color:#666;margin-top:2px}
   h1{font-size:16px;margin:0}table{width:100%;border-collapse:collapse;margin:8px 0}
@@ -19944,7 +19948,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     const bsRows = (kinds2) => A.accounts.filter(a => kinds2.includes(a.kind) && bsAgg[a.code] && Math.abs(balOf(a, bsAgg)) > 0.004)
       .map(a => `<tr><td>${a.name}</td><td class="n">${balOf(a, bsAgg) < 0 ? '(' + money(-balOf(a, bsAgg)) + ')' : money(balOf(a, bsAgg))}</td></tr>`).join('');
     w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>القوائم المالية — ${co.name || ''}</title>
-    <style>*{font-family:'Segoe UI',Tahoma,sans-serif;box-sizing:border-box}body{margin:0;padding:26px;color:#1a1a1a;font-size:12.5px}
+    <style>${NUM_FACE}*{font-family:'MizanNum','Segoe UI',Tahoma,sans-serif;box-sizing:border-box}body{margin:0;padding:26px;color:#1a1a1a;font-size:12.5px}
     .h{display:flex;justify-content:space-between;border-bottom:2px solid #8C6F2C;padding-bottom:10px;margin-bottom:14px}
     .co{font-size:19px;font-weight:800;color:#5a4a1e}.sub{font-size:11px;color:#666;margin-top:2px}
     h2{font-size:15px;margin:14px 0 8px;color:#5a4a1e}table{width:100%;border-collapse:collapse;margin-bottom:8px}
@@ -25028,8 +25032,8 @@ function FinancialReports({ org, ops, myBranches, scoped, say }) {
     if (!w) return;
     w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
       <title>إقرار ضريبة القيمة المضافة - ${range.label}</title>
-      <style>
-        *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',Tahoma,sans-serif}
+      <style>${NUM_FACE}
+        *{margin:0;padding:0;box-sizing:border-box;font-family:'MizanNum','Segoe UI',Tahoma,sans-serif}
         body{padding:32px;color:#222}
         .head{text-align:center;border-bottom:3px solid #C8A24A;padding-bottom:16px;margin-bottom:8px}
         .co-n{font-size:19px;font-weight:bold;color:#8C6F2C}
