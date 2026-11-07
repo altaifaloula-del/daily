@@ -2483,7 +2483,7 @@ const ERRLOG_KEY = 'mizan:errlog';
 function logClientError(err, where) {
   try {
     const a = JSON.parse(localStorage.getItem(ERRLOG_KEY) || '[]');
-    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v34.6' });
+    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v34.7' });
     localStorage.setItem(ERRLOG_KEY, JSON.stringify(a.slice(0, 20)));
   } catch { }
 }
@@ -3105,7 +3105,10 @@ function PlatformApp() {
   /* --- v9: الكتابة الآمنة الموجَّهة — التعديل يقع على ops المدمجة كما اعتاد كل الكود،
          ثم يُوزَّع على المستند المركزي ومستندات الفروع، ولا يُكتب إلا ما تغيّر فعلًا.
          محاولة كتابة خارج نطاق الجلسة يرفضها الخادم فيفشل الحفظ بصدق --- */
-  const writeOps = useCallback(async (mutator) => {
+  // v34.7: حفظ واحد في كل مرة على الجهاز — حفظان متداخلان (إرسال نقطة البيع الدوري أثناء رفع مستند كبير) كانا يتعارضان بلا نهاية
+  const writeChain = useRef(Promise.resolve());
+  const writeOps = useCallback((mutator) => { const run = writeChain.current.then(() => writeOpsRaw(mutator), () => writeOpsRaw(mutator)); writeChain.current = run.catch(() => { }); return run; }, []);   // eslint-disable-line
+  const writeOpsRaw = useCallback(async (mutator) => {
     const ctx = dataCtx.current;
     lastWriteErr.current = '';
     for (let attempt = 0; attempt < 5; attempt++) {
@@ -3522,7 +3525,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v34.6 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v34.7 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -8042,7 +8045,7 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const earnPts = phoneOk && loyCfg.enabled ? loyEarn(loyCfg, T.total) : 0;
   const custName = phoneOk && loy ? (((loy.members || {})[phoneN] || {}).name || '') : '';
   // المزامنة: إرسال المعلّق ثم إزالته من الجهاز
-  const flush = useCallback(async () => {
+  const flushRaw = useCallback(async () => {
     // الوردية المحلية أولًا (إن لم تصل السحابة بعد)
     let ls = null; try { ls = JSON.parse(localStorage.getItem(POS_SH_KEY) || 'null'); } catch { }
     if (ls) { const okS = await commit(d => (d.posShifts || []).some(x => x.id === ls.id) ? d : { ...d, posShifts: [ls, ...(d.posShifts || [])] });
@@ -8055,6 +8058,9 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     // نقاط الولاء بعد وصول الفواتير
     const lq = loyQ(); if (lq.length) { const r = await loyPost(lq); if (r) { loyQSet(loyQ().filter(t => !lq.some(x => x.id === t.id))); setLoy(r); } }
   }, [commit]);
+  // v34.7: لا إرسالان متداخلان — رفع مستند كبير قد يتجاوز فاصل الإرسال الدوري (20 ثانية)
+  const flushing = useRef(false);
+  const flush = useCallback(async () => { if (flushing.current) return; flushing.current = true; try { await flushRaw(); } finally { flushing.current = false; } }, [flushRaw]);
   useEffect(() => { flush(); const t = setInterval(flush, 20000); const on = () => flush(); window.addEventListener('online', on); return () => { clearInterval(t); window.removeEventListener('online', on); }; }, [flush]);
 
   if (!brs.length) return (
@@ -8210,7 +8216,7 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
       </div></div>
 
       {shift && shift.pending && R.admin && <div><button className="btn sm" onClick={() => setDiag(x => !x)}><ShieldCheck size={13} />{diag ? 'إخفاء التشخيص' : 'تشخيص وإصلاح مشكلة الحفظ'}</button></div>}
-      {shift && shift.pending && R.admin && diag && <CloudHealth org={org} say={say} only={[brKey(br.id), KEYS.core]} auto />}
+      {shift && shift.pending && R.admin && diag && <CloudHealth org={org} say={say} only={[brKey(br.id), KEYS.core]} auto commit={commit} me={me} />}
       {shift && shift.pending && <div className="note" style={{ borderColor: 'rgba(224,164,88,.6)' }}>⚠ الوردية مفتوحة على هذا الجهاز ولم تُحفظ في السحابة بعد — البيع مستمر والفواتير محفوظة على الجهاز، وتُرسل تلقائيًا عند نجاح الاتصال. إن استمر هذا التنبيه أرسل لي نص رسالة الخطأ التي ظهرت عند فتح الوردية.</div>}
       {view === 'sell' && (!shift ? (
         <div className="card" style={{ maxWidth: 420, margin: '20px auto', textAlign: 'center' }}>
@@ -8997,8 +9003,9 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
     // ويُغلق النموذج بينما لم يُكتب شيء للسحابة (فتختفي المسودة). الآن: عند الفشل تبقى
     // النافذة مفتوحة ببياناتها كاملة ليعيد المستخدم المحاولة (رسالة الخطأ يعرضها commit).
     const okSave = await commit(d => {
-      // سياسة الاحتفاظ: بعد 60 يومًا تُنظَّف الصور من سجل الإغلاق (تبقى نسخها في أرشيف المستندات) لكبح تضخم التخزين
-      const cutoff = isoD(new Date(Date.now() - 60 * 864e5));
+      // سياسة الاحتفاظ: بعد 14 يومًا تُنظَّف الصور من سجل الإغلاق (تبقى نسخها في أرشيف المستندات) لكبح تضخم ملف الفرع
+      // v34.7: كانت 60 يومًا — فبلغ ملف فرع ~20MB يُنزَّل ويُرفع مع كل حفظ
+      const cutoff = isoD(new Date(Date.now() - 14 * 864e5));
       const pruneImgs = (c) => {
         if (c.imagesPruned || !c.date || c.date >= cutoff || c.status === 'draft') return c;
         if (!c.sessionPhoto && !(c.sessionPhotos || []).length && !c.cardReceiptImage && !(c.expenses || []).some(e => e.receiptImage)) return c;
@@ -24097,13 +24104,42 @@ function AiCenter({ org, ops, me, myBranches, scoped, say, setTab }) {
 
 /* ================= بيانات الشركة والنسخ الاحتياطي ================= */
 /* v34.1 — فحص سلامة المستندات السحابية: يكشف المستند الذي تتعذّر قراءته (جزء مفقود/JSON تالف/رفض) ويصلحه من نسخة هذا الجهاز */
-function CloudHealth({ org, say, only, auto }) {
+// v34.7: صور الإغلاق داخل ملف الفرع ← أرشيف المستندات (bf_) ثم تُزال من الإغلاق — ملف الفرع يصغر من عشرات الميجابايت إلى كيلوبايتات
+const closingImgs = (c) => { const out = [];
+  if (c.cardReceiptImage) out.push({ u: c.cardReceiptImage, cat: 'pos_settlement', lbl: 'إثبات شبكة/تحويل', t: 'إثبات الشبكة', amount: c.cardSales || 0 });
+  ((c.sessionPhotos && c.sessionPhotos.length) ? c.sessionPhotos : (c.sessionPhoto ? [c.sessionPhoto] : [])).forEach((u, i) => out.push({ u, cat: 'signature', lbl: 'توثيق المسؤول', t: 'توثيق الإغلاق ' + (i + 1), amount: 0 }));
+  (c.expenses || []).forEach(e => { if (e.receiptImage) out.push({ u: e.receiptImage, cat: 'expense', lbl: 'فاتورة مصروف', t: (e.categoryName || 'مصروف') + (e.beneficiaryName ? ' — ' + e.beneficiaryName : ''), amount: e.amount || 0 }); });
+  return out.filter(x => typeof x.u === 'string' && x.u.length > 200); };
+async function slimBranchDoc(branch, commit, me) {
+  const doc = await cloud.get(brKey(branch.id), null); if (!doc) return { err: 'تعذّرت قراءة ملف الفرع' };
+  const withImgs = (doc.closings || []).filter(c => closingImgs(c).length);
+  if (!withImgs.length) return { n: 0, imgs: 0 };
+  const store = await cloud.get(bfKey(branch.id), { items: [] }); const items = (store && Array.isArray(store.items)) ? store.items : [];
+  const have = new Set(items.map(x => (x.closingId || '') + '|' + (x.fileUrl || '').length + '|' + (x.fileUrl || '').slice(-64)));
+  const add = []; withImgs.forEach(c => closingImgs(c).forEach((im, k) => { const sig = c.id + '|' + im.u.length + '|' + im.u.slice(-64); if (have.has(sig)) return; have.add(sig);
+    const pdfA = im.u.startsWith('data:application/pdf');
+    add.push({ id: 'arc-' + c.id + '-slim' + k, title: im.t + ' — ' + (c.branchName || branch.name) + ' ' + (c.date || ''), category: im.cat, categoryLabelAr: im.lbl, branchId: branch.id, branchName: c.branchName || branch.name,
+      fileUrl: im.u, fileType: pdfA ? 'pdf' : 'image', fileName: im.t + (pdfA ? '.pdf' : '.jpg'), fileSizeKb: Math.round(im.u.length * 0.75 / 1024), uploadDate: c.date, uploadedBy: (me || {}).name || '', amount: im.amount, closingId: c.id, source: 'closing', uploadedAt: nowISO() }); }));
+  if (add.length && !(await cloud.set(bfKey(branch.id), { ...(store || {}), items: [...add, ...items] }))) return { err: 'تعذّر حفظ الصور في أرشيف المستندات — لم يُحذف شيء' };
+  const ids = new Set(withImgs.map(c => c.id)); let imgs = 0; withImgs.forEach(c => { imgs += closingImgs(c).length; });
+  const ok = await commit(d => ({ ...d, closings: (d.closings || []).map(c => ids.has(c.id) && c.branchId === branch.id ? { ...c, sessionPhoto: '', sessionPhotos: [], cardReceiptImage: '', expenses: (c.expenses || []).map(e => e.receiptImage ? { ...e, receiptImage: '' } : e), imagesPruned: true, imagesArchived: true } : c) }),
+    { actionType: 'update', targetType: 'daily_closing', targetId: branch.id, branchName: branch.name, title: 'نقل صور الإغلاقات إلى أرشيف المستندات (تخفيف ملف الفرع)', details: withImgs.length + ' إغلاق · ' + imgs + ' صورة · منها ' + add.length + ' أُضيفت للأرشيف' });
+  return ok ? { n: withImgs.length, imgs, added: add.length } : { err: 'نُسخت الصور للأرشيف لكن تعذّر تحديث ملف الفرع — أعد المحاولة' };
+}
+
+function CloudHealth({ org, say, only, auto, commit, me }) {
   const [rows, setRows] = useState(null); const [busy, setBusy] = useState(false);
   const keys = [[KEYS.core, 'المستند المركزي (الحسابات والمشتريات)'], [KEYS.org, 'الإعدادات'], [KEYS.dir, 'الدليل العام للفروع'], [KEYS.loy, 'نقاط الولاء'],
     ...(org.branches || []).map(b => [brKey(b.id), 'فرع ' + b.name])].filter(([k]) => !only || only.includes(k));
   useEffect(() => { if (auto) run(); }, []);   // eslint-disable-line
   const run = async () => { setBusy(true); const out = []; for (const [k, l] of keys) { const r = await cloud.inspect(k); out.push({ ...r, label: l, re: cloud.readErr(k) }); setRows([...out]); } setBusy(false); };
   const bad = (r) => !r.txOk && (r.err || (r.exists && (r.missing.length || !r.json)));
+  const slim = async (r) => {
+    const b = (org.branches || []).find(x => brKey(x.id) === r.key); if (!b) return;
+    if (!window.confirm('تخفيف ملف «' + b.name + '» (' + r.kb + ' KB)؟\n\nتُنسخ صور الإغلاقات (إثبات الشبكة، توثيق المسؤول، فواتير المصروفات) إلى «المستندات والأرشيف» بعد التحقق، ثم تُزال من ملف الفرع. الصور تبقى متاحة في الأرشيف، والأرقام والقيود لا تتغير.')) return;
+    setBusy(true); const res = await slimBranchDoc(b, commit, me); setBusy(false);
+    if (res.err) say(res.err, 'no'); else say(res.n ? 'خُفّف الملف ✓ — ' + res.n + ' إغلاق، ' + res.imgs + ' صورة نُقلت للأرشيف' : 'لا صور داخل الإغلاقات — الملف خفيف أصلًا'); run();
+  };
   // ملخص محتوى نسخة: يساعد على اختيار الأحدث والأكمل قبل الاستعادة
   const sumOf = (v) => { if (!v || typeof v !== 'object') return 'فارغة'; const cl = v.closings || []; const last = cl.reduce((m, c) => (c.date || '') > m ? c.date : m, '');
     const parts = [cl.length ? cl.length + ' إغلاق (آخره ' + (last || '—') + ')' : '', (v.posOrders || []).length ? v.posOrders.length + ' فاتورة نقطة بيع' : '', (v.invoices || []).length ? v.invoices.length + ' فاتورة مورد' : '',
@@ -24125,7 +24161,7 @@ function CloudHealth({ org, say, only, auto }) {
           <td>{r.err ? <span className="badge b-rose">تعذّرت القراءة: {r.err}</span> : !r.exists ? <span className="badge b-dim">غير موجود بعد</span>
             : (r.missing.length || !r.json) && r.txOk ? <span className="badge b-amber">سليم — كان تلفًا عابرًا أثناء كتابة جهاز آخر ✓</span>
             : r.missing.length ? <span className="badge b-rose">أجزاء مفقودة: {r.missing.join('، ')}</span> : !r.json ? <span className="badge b-rose">محتوى تالف</span> : <span className="badge b-mint">سليم ✓</span>}</td>
-          <td className="num" style={{ textAlign: 'end' }}>{r.kb != null ? r.kb + ' KB' : '—'}</td><td className="num">{r.parts || '—'}</td></tr>
+          <td className="num" style={{ textAlign: 'end' }}>{r.kb != null ? r.kb + ' KB' : '—'}{commit && !bad(r) && r.kb > 2500 && String(r.key).startsWith('rms8:br_') && <div><button className="btn sm" style={{ marginTop: 4 }} disabled={busy} onClick={() => slim(r)}>تخفيف الملف</button></div>}</td><td className="num">{r.parts || '—'}</td></tr>
           {bad(r) && <tr><td colSpan={4} style={{ background: 'var(--ink)' }}>
             {r.head && <div style={{ fontSize: 10.5, color: 'var(--faint)', marginBottom: 6, direction: 'ltr', textAlign: 'left', fontFamily: 'monospace', wordBreak: 'break-all' }}>head: {r.head.keys} · value={r.head.valueType}/{String(r.head.valueLen)} · parts={r.parts}{r.ver ? ' · ver=' + r.ver : ''} · {r.head.at} · «{r.head.start}»</div>}
             <div className="lbl">خيارات الاستعادة — اختر النسخة الأحدث والأكمل:</div>
@@ -24485,7 +24521,7 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
       </div>
 
       <div className="grid" style={{ gap: 12, alignContent: 'start' }}>
-        {ROLES[me.role]?.admin && <CloudHealth org={org} say={say} />}
+        {ROLES[me.role]?.admin && <CloudHealth org={org} say={say} commit={commit} me={me} />}
         <div className="card">
           <div className="card-h">
             <div className="card-t"><HardDrive size={15} color="var(--brass)" />النسخ الاحتياطي والاستعادة</div>

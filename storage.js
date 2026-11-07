@@ -82,7 +82,10 @@ const loadedStamp = new Map();
 const stampOf = (d) => (d && d.updatedAt != null) ? (d.updatedAt + '|' + (d.parts || 1) + (d.ver ? '|' + d.ver : '')) : null;
 // v34.6: معرّف الجزء — الأجزاء المُصدَّرة (ver) تُكتب باسم جديد ثم يُحوَّل الرأس إليها ذريًا؛ القديمة بلا ver تبقى مقروءة
 const chunkRef = (f, key, ver, i) => f.doc(f.db, COL, docId(key) + '__' + (ver ? ver + '_' : '') + i);
-const CHUNK_BATCH = 8;   // 8 × 900KB ≈ 7.2MB لكل دفعة — تحت حد الطلب الواحد (10MiB)
+const CHUNK_BATCH = 4;   // 4 × 900KB ≈ 3.6MB لكل دفعة — هامش واسع تحت حد الطلب الواحد (10MiB) وأسرع على شبكة الجوال
+// v34.7: ذاكرة الجلسة للمستندات متعددة الأجزاء: إن لم يتغير الرأس (نفس البصمة) نعيد النسخة المحفوظة بدل تنزيل كل الأجزاء
+// (المستند الكبير كان يُنزَّل كاملًا مع كل حفظ — يستهلك حصة القراءة والنقل ويُبطئ الجوال). localStorage لا يتسع للكبير.
+const memDocs = new Map();   // key → { st, v }
 
 // تطبيق Firebase واحد مشترك بين المصادقة وقاعدة البيانات
 async function fbApp() {
@@ -347,9 +350,12 @@ function corruptErr(key, why) {
 
 async function fsRead(f, key) {
   const snap = await f.getDoc(f.doc(f.db, COL, docId(key)));
-  if (!snap.exists()) { loadedStamp.delete(key); return undefined; }
+  if (!snap.exists()) { loadedStamp.delete(key); memDocs.delete(key); return undefined; }
   const d = snap.data();
+  const st0 = stampOf(d); const mc = memDocs.get(key);
+  if (st0 && (d.parts || 1) > 1 && mc && mc.st === st0) { loadedStamp.set(key, st0); return JSON.parse(JSON.stringify(mc.v)); }
   const v = await fsAssemble(f, key, d);
+  if (st0 && (d.parts || 1) > 1 && v !== undefined) memDocs.set(key, { st: st0, v: JSON.parse(JSON.stringify(v)) });
   // v29.5: البصمة تُحفظ لكل مستند موجود (حتى الفارغ) — عليها تعتمد الكتابة المشروطة
   const st = stampOf(d); if (st) loadedStamp.set(key, st); else loadedStamp.delete(key);
   return v;
@@ -424,7 +430,7 @@ async function fsWrite(f, key, val) {
   await fsWriteChunks(f, key, ver, chunks);
   const head = { parts, updatedAt: Date.now(), value: '', ver };
   await f.setDoc(headRef, head);
-  loadedStamp.set(key, stampOf(head));
+  loadedStamp.set(key, stampOf(head)); memDocs.set(key, { st: stampOf(head), v: JSON.parse(s) });
   if (prev && (prev.parts || 1) > 1) fsBlankLater(f, key, prev.ver || '', prev.parts);
   return true;
 }
@@ -451,7 +457,7 @@ async function fsWriteIf(f, key, val, expected) {
       tx.set(headRef, head);
     });
   } catch (e) { if (parts > 1) fsBlankLater(f, key, ver, parts); throw e; }   // أجزاء لم تُعتمد — تُفرَّغ
-  loadedStamp.set(key, stampOf(head));
+  loadedStamp.set(key, stampOf(head)); if (parts > 1) memDocs.set(key, { st: stampOf(head), v: JSON.parse(s) }); else memDocs.delete(key);
   if (prev && (prev.parts || 1) > 1 && (prev.ver || '') !== ver) fsBlankLater(f, key, prev.ver || '', prev.parts);
   return true;
 }
@@ -600,7 +606,8 @@ export const cloud = {
 
   /** v34.1: فحص سلامة مستند سحابي دون تعديله: وجود الرأس، عدد الأجزاء، الأجزاء المفقودة، صلاحية JSON، الحجم */
   async inspect(key) {
-    const f = await firestore(); if (!f) return { key, mode: this.mode };
+    const f = await firestore();
+    if (!f) { const v = await this.get(key, undefined); return { key, mode: this.mode, exists: v !== undefined, parts: 1, missing: [], json: true, kb: Math.round(JSON.stringify(v === undefined ? '' : v).length / 1024), local: v !== undefined }; }
     const out = { key, exists: false, parts: 0, missing: [], json: false, kb: 0, local: local.get(key) !== undefined };
     try {
       const snap = await f.getDoc(f.doc(f.db, COL, docId(key)));
