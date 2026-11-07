@@ -367,7 +367,7 @@ const BR_COLS = ['closings', 'transfers', 'partnerRequests', 'notifications', 'b
   'leaveRequests',
   // v31.4 — سجل جلسات الجرد (حتى المطابقة بلا فروقات) — أساس الجرد الدوري المجدول
   'stockCounts'];
-const CORE_COLS = ['salesInvoices', 'advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules', 'hrScoreSnapshots'];
+const CORE_COLS = ['ledgerSnaps', 'salesInvoices', 'advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules', 'hrScoreSnapshots'];
 
 // تقسيم ops المدمجة إلى مستند مركزي + مستند لكل فرع
 function splitOps(ops, branchIds) {
@@ -707,6 +707,21 @@ function sha256Hex(str) {
   return H.map(x => (x >>> 0).toString(16).padStart(8, '0')).join('');
 }
 const SI_SERIES = { invoice: 'فاتورة', credit: 'إشعار' };
+/* v32.1 — الدفتر المُرحَّل المجمَّد: عند إقفال شهر يُحفظ ميزانه (مدين/دائن لكل حساب) وبصمة SHA-256 لقيوده،
+   ثم يُقارن الحي بالمجمَّد في أي وقت — أي اختلاف (بعد فتح استثنائي أو خلل) يظهر فورًا */
+function monthLedger(A, m) {
+  const es = A.entries.filter(e => String(e.date || '').slice(0, 7) === m).sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  const tb = {}; let dr = 0, cr = 0;
+  es.forEach(e => e.lines.forEach(l => { const x = tb[l.code] || (tb[l.code] = [0, 0]); x[0] += l.debit || 0; x[1] += l.credit || 0; dr += l.debit || 0; cr += l.credit || 0; }));
+  Object.keys(tb).forEach(k => { tb[k] = [Math.round(tb[k][0] * 100) / 100, Math.round(tb[k][1] * 100) / 100]; });
+  const sig = sha256Hex(es.map(e => e.id + '|' + e.date + '|' + e.lines.map(l => l.code + ':' + Math.round((l.debit || 0) * 100) + ':' + Math.round((l.credit || 0) * 100)).join(',')).join('\n'));
+  return { month: m, n: es.length, dr: Math.round(dr * 100) / 100, cr: Math.round(cr * 100) / 100, tb, sig };
+}
+function snapMonths(A, upTo, existing) {
+  const have = new Set((existing || []).map(x => x.month));
+  const months = [...new Set(A.entries.map(e => String(e.date || '').slice(0, 7)).filter(m => /^\d{4}-\d{2}$/.test(m) && m <= upTo))].sort();
+  return months.filter(m => !have.has(m));
+}
 // المحتوى المُبصَم: كل ما يغيّر أثر الفاتورة (التحصيلات خارجه لأنها تُضاف لاحقًا)
 const siCanon = (x) => JSON.stringify([x.no, x.kind, x.type, x.date, x.time || '', x.entityId || '', x.branchId || '', x.customerKey || '', (x.buyer || {}).name || '', (x.buyer || {}).vat || '',
   (x.lines || []).map(l => [l.desc, l.qty, l.price, l.vatRate, l.net, l.vat]), x.net, x.vat, x.total, x.terms, x.fund || '', x.refId || '', !!x.inClosing, x.icv, x.pih || '']);
@@ -2375,7 +2390,7 @@ function emptyOrg(company) {
 }
 
 function emptyOps() {
-  return { stockCounts: [], leaveRequests: [], productSales: [], salesInvoices: [], closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
+  return { ledgerSnaps: [], stockCounts: [], leaveRequests: [], productSales: [], salesInvoices: [], closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
     attendanceEvents: [], hrPins: [], shiftTemplates: [], shiftAssignments: [], shiftSwapRequests: [], branchTransferRequests: [], taskTemplates: [], taskAssignments: [], taskCompletions: [], pointsEntries: [], qualityReviews: [], rewardRequests: [], hrSignDocs: [], hrCorrective: [], hrPips: [], hrTraining: [], hrKpiEntries: [], hrScoreSnapshots: [] };
 }
 
@@ -2388,7 +2403,7 @@ const ERRLOG_KEY = 'mizan:errlog';
 function logClientError(err, where) {
   try {
     const a = JSON.parse(localStorage.getItem(ERRLOG_KEY) || '[]');
-    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v32.0' });
+    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v32.1' });
     localStorage.setItem(ERRLOG_KEY, JSON.stringify(a.slice(0, 20)));
   } catch { }
 }
@@ -3397,7 +3412,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v32.0 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v32.1 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -19615,13 +19630,21 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     if (plCfg.lockedThrough && m <= plCfg.lockedThrough) return say('المقفل حاليًا يغطي هذا الشهر أصلًا', 'no');
     await savePl({ lockedThrough: m, logEntry: { action: 'lock', month: m } },
       'أقفل الفترات المحاسبية حتى ' + m, 'قفل تراكمي — كل ما قبله وضمنه محمي من التعديل');
-    setLockTo(''); say('أُقفلت الفترات حتى نهاية ' + m + ' 🔒');
+    // v32.1: تجميد ميزان كل شهر مقفل لم يُجمَّد بعد (أو أُعيد قفله بعد فتح) مع بصمة قيوده
+    const AA = buildAccounting(org, ops);
+    const todo = snapMonths(AA, m, (ops.ledgerSnaps || []).filter(x => !x.reopened));
+    if (todo.length) await commit(d => ({ ...d, ledgerSnaps: [...(d.ledgerSnaps || []).filter(x => !todo.includes(x.month)), ...todo.map(mm => ({ ...monthLedger(AA, mm), id: uid('ls'), at: nowISO(), by: me.name }))] }),
+      { actionType: 'create', targetType: 'period_lock', targetId: 'ledgerSnaps', need: 'edit', title: 'جمّد الدفتر المُرحَّل', details: todo.join('، ') });
+    setLockTo(''); say('أُقفلت الفترات حتى نهاية ' + m + ' 🔒' + (todo.length ? ' — وجُمّد دفتر ' + todo.length + ' شهر' : ''));
   };
   const doUnlock = async () => {
     if (!unReason.trim()) return say('اكتب سبب الفتح الاستثنائي — إلزامي للتوثيق', 'no');
     if (unTo && plCfg.lockedThrough && unTo >= plCfg.lockedThrough) return say('اختر حدًّا أسبق من المقفل الحالي أو اتركه فارغًا لفتح الكل', 'no');
     await savePl({ lockedThrough: unTo || '', logEntry: { action: 'unlock', month: unTo || 'فتح كامل', reason: unReason.trim() } },
       'فتح استثنائي للفترات المقفلة', 'السبب: ' + unReason.trim() + (unTo ? ' · الحد الجديد ' + unTo : ' · فُتح الكل'));
+    // الأشهر المفتوحة تُعلَّم «مفتوحة للتصحيح» — تُجمَّد من جديد عند إعادة القفل، وتبقى الصورة السابقة للمقارنة
+    await commit(d => ({ ...d, ledgerSnaps: (d.ledgerSnaps || []).map(x => (!unTo || x.month > unTo) ? { ...x, reopened: nowISO(), reopenReason: unReason.trim() } : x) }),
+      { actionType: 'update', targetType: 'period_lock', targetId: 'ledgerSnaps', need: 'edit', title: 'علّم الدفاتر المجمّدة المفتوحة', details: unTo || 'الكل' });
     setUnReason(''); setUnTo(''); say('نُفّذ الفتح الاستثنائي ووُثّق السبب ✓');
   };
 
@@ -21527,6 +21550,24 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
           ) : (
             <div className="card"><div className="empty">القفل والفتح الاستثنائي صلاحية للإدارة العليا / مسؤول النظام — يمكنك الاطلاع على الحالة والسجل.</div></div>
           )}
+
+          {(ops.ledgerSnaps || []).length > 0 && (() => { const AA = A; const rows = (ops.ledgerSnaps || []).slice().sort((a, b) => b.month.localeCompare(a.month)).map(x => ({ x, live: monthLedger(AA, x.month) }));
+            const bad = rows.filter(r => r.live.sig !== r.x.sig);
+            return (
+            <div className="card" style={{ borderColor: bad.length ? 'rgba(217,84,77,.5)' : 'rgba(79,178,134,.4)' }}>
+              <div className="card-t" style={{ marginBottom: 8 }}><ShieldCheck size={15} color={bad.length ? 'var(--rose)' : 'var(--mint)'} />الدفتر المُرحَّل المجمَّد — {bad.length ? bad.length + ' شهر تغيّر بعد تجميده' : 'كل الأشهر مطابقة لما جُمِّد ✓'}</div>
+              <div className="tw"><table className="tb">
+                <thead><tr><th>الشهر</th><th style={{ textAlign: 'end' }}>القيود</th><th style={{ textAlign: 'end' }}>إجمالي المدين</th><th>جُمّد</th><th>الحالة</th></tr></thead>
+                <tbody>{rows.map(({ x, live }) => { const ok = live.sig === x.sig; const dd = Math.round((live.dr - x.dr) * 100) / 100; return (
+                  <tr key={x.id || x.month}>
+                    <td className="num">{x.month}</td><td className="num" style={{ textAlign: 'end' }}>{x.n}{live.n !== x.n ? ' → ' + live.n : ''}</td>
+                    <td className="num" style={{ textAlign: 'end' }}>{money(x.dr)}{Math.abs(dd) > 0.004 ? <div style={{ fontSize: 10, color: 'var(--rose)' }}>الحي {money(live.dr)}</div> : null}</td>
+                    <td style={{ fontSize: 11, color: 'var(--faint)' }}>{String(x.at || '').slice(0, 10)} · {x.by}</td>
+                    <td>{ok ? <span className="badge b-mint">مطابق ✓</span> : x.reopened ? <span className="badge b-amber" title={x.reopenReason || ''}>مفتوح للتصحيح — أعد القفل</span> : <span className="badge b-rose">تغيّر بعد التجميد ⚠</span>}</td>
+                  </tr>); })}</tbody>
+              </table></div>
+              <div className="note" style={{ marginTop: 8 }}>عند كل إقفال يُحفظ ميزان الشهر وبصمة قيوده. «تغيّر بعد التجميد» يعني أن أرقام شهر مقفل اختلفت عمّا اعتُمد — راجع سجل الفتح الاستثنائي والتعديلات. الشهر المفتوح للتصحيح يُجمَّد من جديد عند إعادة قفله.</div>
+            </div>); })()}
 
           {plLog.length > 0 && (
             <div className="card">

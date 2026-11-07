@@ -111,3 +111,17 @@ test('العنوان الوطني: التكوين والتحقق', () => {
   assert.match(E.naErr({ zip: '123' }), /5 أرقام/);
   assert.equal(E.naErr({ bldg: '1234', zip: '12345' }), '');
 });
+
+test('الدفتر المُرحَّل المجمَّد: البصمة ثابتة لنفس القيود وتتغير عند أي تعديل، والأشهر غير المجمَّدة تُحدد صحيحًا', () => {
+  const org = baseOrg({ suppliers: [{ id: 's1', name: 'م' }] });
+  const ops = { invoices: [{ id: 'i1', supplierId: 's1', supplierName: 'م', amount: 1150, taxable: true, date: '2026-03-05', paidAmount: 0 }],
+    journalManual: [{ id: 'j', date: '2026-04-06', title: 'رسوم', lines: [{ code: '5901', debit: 25, credit: 0 }, { code: '1201', debit: 0, credit: 25 }] }] };
+  const A = E.buildAccounting(org, ops);
+  const s1 = E.monthLedger(A, '2026-03');
+  assert.equal(s1.n, 1); near(s1.dr, 1150); near(s1.cr, 1150);
+  assert.equal(E.monthLedger(E.buildAccounting(org, ops), '2026-03').sig, s1.sig, 'نفس القيود = نفس البصمة');
+  const ops2 = { ...ops, invoices: [{ ...ops.invoices[0], amount: 1160 }] };
+  assert.notEqual(E.monthLedger(E.buildAccounting(org, ops2), '2026-03').sig, s1.sig, 'تعديل المبلغ يغيّر البصمة');
+  assert.deepEqual(E.snapMonths(A, '2026-04', [{ month: '2026-03' }]), ['2026-04'], 'يُجمَّد ما لم يُجمَّد فقط');
+  assert.deepEqual(E.snapMonths(A, '2026-03', []), ['2026-03'], 'لا يُجمَّد ما بعد حد القفل');
+});

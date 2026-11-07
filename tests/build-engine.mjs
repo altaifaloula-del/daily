@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cache = path.join(root, 'tests', '.cache');
 export const ENGINE_EXPORTS = ['buildAccounting', 'buildPartners', 'stockByWh', 'stockCosting', 'itemAvgCosts', 'siStamp', 'siVerify', 'siRem', 'sha256Hex',
-  'eosCumAt', 'eosEntitledAmt', 'eosFullAmt', 'eosYears', 'leaveBalance', 'leaveDeductPlan', 'lvDays', 'customerAging', 'fmtNA', 'naErr', 'countSchedule'];
+  'eosCumAt', 'eosEntitledAmt', 'eosFullAmt', 'eosYears', 'leaveBalance', 'leaveDeductPlan', 'lvDays', 'customerAging', 'fmtNA', 'naErr', 'countSchedule', 'monthLedger', 'snapMonths'];
 
 export async function buildEngine() {
   fs.mkdirSync(cache, { recursive: true });
