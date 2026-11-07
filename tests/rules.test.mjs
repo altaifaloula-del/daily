@@ -195,6 +195,16 @@ test('rms8_pulse: يُكتب بالشكل الحقيقي فقط ({parts, updated
   await assertFails(setDoc(doc(brB(), 'platform', 'rms8_pulse'), { presence: {}, audit: [] }));
 });
 
+test('v34.6: أجزاء المستند المُصدَّرة «__<نسخة>_<رقم>» ورأس بحقل ver — بنفس عزل الفروع', async () => {
+  await assertSucceeds(setDoc(doc(brA(), 'platform', 'rms8_br_b-AAA__mw6hcaesg2j_0'), { chunk: 'x' }));
+  await assertSucceeds(getDoc(doc(brA(), 'platform', 'rms8_br_b-AAA__mw6hcaesg2j_0')));
+  await assertSucceeds(setDoc(doc(brA(), 'platform', 'rms8_br_b-AAA'), { parts: 2, updatedAt: Date.now(), value: '', ver: 'mw6hcaesg2j' }));
+  await assertFails(setDoc(doc(brB(), 'platform', 'rms8_br_b-AAA__mw6hcaesg2j_0'), { chunk: 'x' }));
+  await assertFails(setDoc(doc(brA(), 'platform', 'rms8_br_b-AAA__mw6hcaesg2j_0'), { chunk: 'x', extra: 1 }));
+  await assertFails(setDoc(doc(brA(), 'platform', 'rms8_br_b-AAA'), { parts: 2, updatedAt: Date.now(), value: '', ver: 5 }));
+  await assertFails(setDoc(doc(brA(), 'platform', 'rms8_br_b-AAA'), { parts: 2, updatedAt: Date.now(), value: '', ver: 'x'.repeat(30) }));
+});
+
 test('rms8_loy (v34.0): نقاط الولاء مشتركة — يقرؤها ويكتبها كاشير أي فرع بالشكل الحقيقي، ولا يكتبها «عرض فقط» ولا الزائر', async () => {
   const loy = (o) => ({ value: JSON.stringify(o), parts: 1, updatedAt: Date.now() });
   await assertSucceeds(setDoc(doc(brA(), 'platform', 'rms8_loy'), loy({ members: {}, tx: [{ id: 'o1:e', phone: '551234567', pts: 5 }] })));

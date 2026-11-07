@@ -2483,7 +2483,7 @@ const ERRLOG_KEY = 'mizan:errlog';
 function logClientError(err, where) {
   try {
     const a = JSON.parse(localStorage.getItem(ERRLOG_KEY) || '[]');
-    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v34.5' });
+    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v34.6' });
     localStorage.setItem(ERRLOG_KEY, JSON.stringify(a.slice(0, 20)));
   } catch { }
 }
@@ -3522,7 +3522,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v34.5 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v34.6 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -24127,6 +24127,7 @@ function CloudHealth({ org, say, only, auto }) {
             : r.missing.length ? <span className="badge b-rose">أجزاء مفقودة: {r.missing.join('، ')}</span> : !r.json ? <span className="badge b-rose">محتوى تالف</span> : <span className="badge b-mint">سليم ✓</span>}</td>
           <td className="num" style={{ textAlign: 'end' }}>{r.kb != null ? r.kb + ' KB' : '—'}</td><td className="num">{r.parts || '—'}</td></tr>
           {bad(r) && <tr><td colSpan={4} style={{ background: 'var(--ink)' }}>
+            {r.head && <div style={{ fontSize: 10.5, color: 'var(--faint)', marginBottom: 6, direction: 'ltr', textAlign: 'left', fontFamily: 'monospace', wordBreak: 'break-all' }}>head: {r.head.keys} · value={r.head.valueType}/{String(r.head.valueLen)} · parts={r.parts}{r.ver ? ' · ver=' + r.ver : ''} · {r.head.at} · «{r.head.start}»</div>}
             <div className="lbl">خيارات الاستعادة — اختر النسخة الأحدث والأكمل:</div>
             {(r.candidates || []).map((c, i) => <div key={i} className="row" style={{ gap: 8, marginBottom: 6, flexWrap: 'wrap' }}><span className="badge b-mint">نسخة سحابية سليمة</span><span style={{ fontSize: 12 }}>{c.parts} أجزاء · {c.kb} KB — {sumOf(c.value)}</span><button className="btn sm" onClick={() => restore(r, c.value, 'نسخة سحابية سليمة')}>استعادة هذه</button></div>)}
             {r.localValue !== undefined ? <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}><span className="badge b-brass">نسخة هذا الجهاز</span><span style={{ fontSize: 12 }}>{sumOf(r.localValue)}</span><button className="btn sm" onClick={() => restore(r, r.localValue, 'نسخة هذا الجهاز')}>استعادة هذه</button></div>
