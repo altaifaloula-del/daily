@@ -789,6 +789,18 @@ function findDupInvoices(prev, next) {
   return out;
 }
 
+// v33.3 — تنبيه فوري أثناء كتابة رقم فاتورة المورد (قبل الضغط على حفظ)
+function DupInvHint({ invoices, supplierId, invoiceNo, amount, date }) {
+  const no = String(invoiceNo || '').trim();
+  const k0 = no && supplierId ? purKey({ supplierId, invoiceNo: no }) : '';
+  const o = k0 ? (invoices || []).find(i => purKey(i) === k0) : null;
+  if (o) return <div className="badge b-rose" style={{ marginTop: 5, whiteSpace: 'normal', lineHeight: 1.7 }}>⚠ رقم مكرر: الفاتورة {o.invoiceNo} لهذا المورد مسجّلة بتاريخ {o.date || '—'} بمبلغ {money(Math.abs(o.amount || 0))} — لن تُحفظ</div>;
+  const v = Number(amount) || 0;
+  const tw = v > 0 && supplierId && date ? (invoices || []).find(i => !i.creditNote && i.supplierId === supplierId && (i.date || '') === date && Math.abs((i.amount || 0) - v) < 0.01) : null;
+  if (tw) return <div className="badge b-amber" style={{ marginTop: 5, whiteSpace: 'normal', lineHeight: 1.7 }}>تنبيه: فاتورة لنفس المورد بنفس التاريخ والمبلغ برقم {tw.invoiceNo || '—'} — تأكد أنها ليست مكررة</div>;
+  return no && supplierId ? <div style={{ marginTop: 4, fontSize: 11, color: 'var(--mint)' }}>✓ الرقم غير مسجّل لهذا المورد</div> : null;
+}
+
 function siStamp(list, rec) {
   const yr = String(rec.date || '').slice(0, 4), pre = SI_SERIES[rec.kind] || 'فاتورة';
   const seq = 1 + (list || []).filter(x => x.kind === rec.kind && String(x.date || '').slice(0, 4) === yr).reduce((mx, x) => Math.max(mx, Number(x.seq) || 0), 0);
@@ -2295,8 +2307,8 @@ const LAUNCH_APPS = [
   { id: 'alerts', hideOnHome: 'analytics', ar: 'مركز التنبيهات', en: 'Alerts', cat: 'bi', icon: Bell, open: { tab: 'alerts' },
     sections: ['موردون', 'موازنة', 'نقد وسيولة', 'مخزون', 'ضريبة', 'تشغيل', 'إعداد'], kw: ['تنبيه', 'تنبيهات', 'إنذار', 'متأخر', 'تجاوز', 'عجز', 'متابعة', 'إجراء'] },
   { id: 'acct', tabs: ['acct', 'treasury', 'entities'], ar: 'المالية والمحاسبة', en: 'Finance & Accounting', cat: 'fin', icon: Scale, open: { tab: 'acct' },
-    sections: ['القيود اليومية', 'دليل الحسابات', 'ميزان المراجعة', 'القوائم المالية', 'مراكز التكلفة', 'الأصول والإهلاك', 'التسوية البنكية', 'الإقفال الشهري'],
-    kw: ['قيد', 'يومية', 'حساب', 'ميزان', 'قائمة', 'دخل', 'مركز مالي', 'مراكز تكلفة', 'أصل', 'إهلاك', 'بنك', 'تسوية', 'إقفال', 'قفل', 'محاسبة'] },
+    sections: ['القيود اليومية', 'دليل الحسابات', 'ميزان المراجعة', 'القوائم المالية', 'مراكز التكلفة', 'الضريبة والزكاة', 'الأصول والإهلاك', 'التسوية البنكية', 'الإقفال الشهري'],
+    kw: ['قيد', 'يومية', 'حساب', 'ميزان', 'قائمة', 'دخل', 'مركز مالي', 'مراكز تكلفة', 'أصل', 'إهلاك', 'بنك', 'تسوية', 'إقفال', 'قفل', 'محاسبة', 'ضريبة', 'قيمة مضافة', 'زكاة', 'زاتكا'] },
   { id: 'treasury', hideOnHome: 'acct', ar: 'الخزينة والترحيل', en: 'Treasury', cat: 'fin', icon: Landmark, open: { tab: 'treasury' },
     sections: ['التحويلات الواردة', 'حركة الخزينة'], kw: ['خزينة', 'تحويل', 'ترحيل', 'نقد', 'بنك'] },
   { id: 'reporting', ar: 'مركز التقارير', en: 'Reports Center', cat: 'fin', icon: FileBarChart, open: { tab: 'reporting' },
@@ -2327,7 +2339,8 @@ const LAUNCH_APPS = [
     kw: ['جهات الاتصال', 'اتصال', 'شريك', 'شركاء', 'دفتر', 'موردون', 'عملاء'] },
   { id: 'people', ar: 'شؤون الموظفين', en: 'People & Payroll', cat: 'hr', icon: Wallet, open: { tab: 'people' },
     sections: ['البيانات الرئيسية', 'السياسات والأدوار', 'الرواتب والسلف', 'تخطيط العمالة والتكلفة'], kw: ['راتب', 'رواتب', 'سلفة', 'موظف', 'أجور', 'جدولة', 'حضور', 'ساعات', 'عمالة', 'دوام', 'وردية', 'تذكير', 'شؤون', 'قسم', 'أقسام', 'وظيفة', 'وظائف', 'عقد', 'مستند', 'سياسة', 'سياسات', 'جيوفنس', 'موقع', 'رمز', 'QR', 'مدير مباشر', 'رئيس قسم'] },
-  { id: 'vat', ar: 'ضريبة القيمة المضافة', en: 'VAT', cat: 'tax', icon: Receipt, open: { tab: 'acct', view: 'vat' },
+  // v33.3: الضريبة جزء من «المالية والمحاسبة» (قسم الضريبة والزكاة) — لا تطبيق مستقل مكرر في الرئيسية؛ تبقى في البحث
+  { id: 'vat', hideOnHome: 'acct', ar: 'ضريبة القيمة المضافة', en: 'VAT', cat: 'tax', icon: Receipt, open: { tab: 'acct', view: 'vat' },
     sections: ['احتساب الضريبة', 'الإقرار الضريبي'], kw: ['ضريبة', 'قيمة مضافة', 'زاتكا', 'مدخلات', 'مخرجات', 'إقرار'] },
   { id: 'inv', ar: 'المخزون والمنتجات', en: 'Inventory', cat: 'inv2', icon: HardDrive, open: { tab: 'inv' },
     sections: ['الأصناف', 'الحركات', 'الجرد', 'المنتجات والوصفات'], kw: ['مخزون', 'صنف', 'جرد', 'منتج', 'وصفة', 'مستودع', 'هدر'] },
@@ -2466,7 +2479,7 @@ const ERRLOG_KEY = 'mizan:errlog';
 function logClientError(err, where) {
   try {
     const a = JSON.parse(localStorage.getItem(ERRLOG_KEY) || '[]');
-    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v33.2' });
+    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v33.3' });
     localStorage.setItem(ERRLOG_KEY, JSON.stringify(a.slice(0, 20)));
   } catch { }
 }
@@ -3494,7 +3507,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v33.2 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v33.3 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -7835,6 +7848,7 @@ function Dashboard({ org, ops, pulse, me, myBranches, scoped, online, setTab, th
    ============================================================ */
 const POS_DEV_KEY = 'mizan:posDev', POS_Q_KEY = 'mizan:posQueue';
 const posDev = () => { try { let d = JSON.parse(localStorage.getItem(POS_DEV_KEY) || 'null'); if (!d || !d.tag) { d = { tag: Math.random().toString(36).slice(2, 4).toUpperCase(), name: 'كاشير' }; localStorage.setItem(POS_DEV_KEY, JSON.stringify(d)); } return d; } catch { return { tag: 'X1', name: 'كاشير' }; } };
+const POS_SH_KEY = 'mizan:posShiftLocal';
 const posQueue = () => { try { return JSON.parse(localStorage.getItem(POS_Q_KEY) || '[]'); } catch { return []; } };
 const posQueueSet = (a) => { try { localStorage.setItem(POS_Q_KEY, JSON.stringify(a)); } catch { } };
 const posR2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
@@ -7908,10 +7922,18 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const today = businessDay();
   // الطلبات = المتزامنة + المعلّقة على الجهاز
   const allOrders = useMemo(() => { const m = {}; (ops.posOrders || []).forEach(o => { m[o.id] = o; }); queue.forEach(o => { if (!m[o.id]) m[o.id] = { ...o, pending: true }; }); return Object.values(m); }, [ops.posOrders, queue]);
-  const shift = (ops.posShifts || []).find(x => x.branchId === (br || {}).id && x.dev === dev.tag && x.status === 'open');
+  // v33.3: الوردية تُفتح على الجهاز فورًا حتى لو تعذّر الحفظ السحابي، وتُرسل مع الطلبات عند عودة الاتصال
+  const [localShift, setLocalShift] = useState(() => { try { return JSON.parse(localStorage.getItem(POS_SH_KEY) || 'null'); } catch { return null; } });
+  const cloudShift = (ops.posShifts || []).find(x => x.branchId === (br || {}).id && x.dev === dev.tag && x.status === 'open');
+  const shift = cloudShift || (localShift && localShift.branchId === (br || {}).id && localShift.dev === dev.tag && localShift.status === 'open' ? { ...localShift, pending: true } : null);
+  const setLS = (v) => { try { if (v) localStorage.setItem(POS_SH_KEY, JSON.stringify(v)); else localStorage.removeItem(POS_SH_KEY); } catch { } setLocalShift(v); };
   const T = posTotals(cart, disc.amt, rate);
   // المزامنة: إرسال المعلّق ثم إزالته من الجهاز
   const flush = useCallback(async () => {
+    // الوردية المحلية أولًا (إن لم تصل السحابة بعد)
+    let ls = null; try { ls = JSON.parse(localStorage.getItem(POS_SH_KEY) || 'null'); } catch { }
+    if (ls) { const okS = await commit(d => (d.posShifts || []).some(x => x.id === ls.id) ? d : { ...d, posShifts: [ls, ...(d.posShifts || [])] });
+      if (okS) { try { localStorage.removeItem(POS_SH_KEY); } catch { } setLocalShift(null); } else return; }
     const qn = posQueue(); if (!qn.length) return;
     const ok = await commit(d => { const have = new Set((d.posOrders || []).map(o => o.id)); return { ...d, posOrders: [...qn.filter(o => !have.has(o.id)), ...(d.posOrders || [])] }; });
     if (ok) { const rest = posQueue().filter(o => !qn.some(x => x.id === o.id)); posQueueSet(rest); setQueue(rest); }
@@ -7932,8 +7954,13 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const openShift = async (cashStr) => {
     const amt = posR2(String(cashStr == null ? '' : cashStr).replace(/[^\d.]/g, ''));
     const rec = { id: uid('ps'), branchId: br.id, dev: dev.tag, devName: dev.name, openedAt: nowISO(), openedBy: me.name, openingCash: amt, status: 'open', date: today };
-    const ok = await commit(d => ({ ...d, posShifts: [rec, ...(d.posShifts || [])] }), { actionType: 'create', targetType: 'pos_shift', targetId: rec.id, branchName: br.name, title: 'فتح وردية نقطة بيع', details: dev.name + ' · افتتاحي ' + money(amt) });
-    if (ok) { setShiftF(null); say('فُتحت الوردية ✓'); } else say('تعذّر فتح الوردية — تحقق من الاتصال', 'no');
+    let ok = false;
+    try { ok = await commit(d => ({ ...d, posShifts: [rec, ...(d.posShifts || [])] }), { actionType: 'create', targetType: 'pos_shift', targetId: rec.id, branchName: br.name, title: 'فتح وردية نقطة بيع', details: dev.name + ' · افتتاحي ' + money(amt) }); }
+    catch (e) { console.warn('openShift', e); logClientError(e, 'فتح وردية نقطة البيع'); }
+    setShiftF(null);
+    if (ok) say('فُتحت الوردية ✓');
+    // تعذّر الحفظ السحابي (سبب الرفض ظهر في الرسالة السابقة): تُفتح على الجهاز ويستمر البيع، وتُرسل تلقائيًا لاحقًا
+    else setLS(rec);   // لا رسالة هنا كي تبقى رسالة السبب الحقيقي ظاهرة؛ والشريط أعلى الشاشة يوضح حالة الوردية
   };
   const shiftOrders = (sh) => allOrders.filter(o => o.shiftId === sh.id);
   const closeShift = async () => {
@@ -7941,6 +7968,7 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     const expected = posR2(shift.openingCash + os.reduce((a, o) => a + posCashNet(o), 0));
     const counted = posR2(String(shiftF.counted).replace(/[^\d.]/g, ''));
     if (queue.length) return say('يوجد ' + queue.length + ' فاتورة لم تُرسَل بعد — انتظر الاتصال ثم أغلق الوردية', 'no');
+    if (shift.pending) { await flush(); return say('الوردية لم تصل للسحابة بعد — تحقق من الاتصال ثم أعد المحاولة', 'no'); }
     const sum2 = posDaySummary(os, br.id, null);
     const rec = { ...shift, status: 'closed', closedAt: nowISO(), closedBy: me.name, expected, counted, diff: posR2(counted - expected), n: os.length, total: posR2(os.reduce((a, o) => a + o.total, 0)) };
     const ok = await commit(d => ({ ...d, posShifts: (d.posShifts || []).map(x => x.id === shift.id ? rec : x) }), { actionType: 'update', targetType: 'pos_shift', targetId: shift.id, branchName: br.name, title: 'إغلاق وردية نقطة بيع', details: dev.name + ' · متوقع ' + money(expected) + ' · فعلي ' + money(counted) + ' · فرق ' + money(rec.diff) });
@@ -8034,6 +8062,7 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
         <SectionNav force="tabs" cur={view} onPick={setView} label="نقطة البيع" items={[{ id: 'sell', ar: 'البيع', icon: Store }, { id: 'orders', ar: 'طلبات اليوم', icon: FileText, badge: todayOrders.length || null }, { id: 'shift', ar: 'الوردية', icon: Clock }, ...(R.admin || R.scope === 'all' ? [{ id: 'cfg', ar: 'الإعدادات', icon: Settings }] : [])]} />
       </div></div>
 
+      {shift && shift.pending && <div className="note" style={{ borderColor: 'rgba(224,164,88,.6)' }}>⚠ الوردية مفتوحة على هذا الجهاز ولم تُحفظ في السحابة بعد — البيع مستمر والفواتير محفوظة على الجهاز، وتُرسل تلقائيًا عند نجاح الاتصال. إن استمر هذا التنبيه أرسل لي نص رسالة الخطأ التي ظهرت عند فتح الوردية.</div>}
       {view === 'sell' && (!shift ? (
         <div className="card" style={{ maxWidth: 420, margin: '20px auto', textAlign: 'center' }}>
           <div className="card-t" style={{ justifyContent: 'center', marginBottom: 8 }}><Clock size={16} color="var(--brass)" />افتح الوردية للبدء</div>
@@ -17136,6 +17165,7 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: g
             </Field>
             <Field label="رقم الفاتورة (اختياري — يُولَّد تلقائياً)">
               <input className="inp" value={newInv.invoiceNo} onChange={e => setNewInv(f => ({ ...f, invoiceNo: e.target.value }))} />
+              <DupInvHint invoices={ops.invoices} supplierId={newInv.supplierId} invoiceNo={newInv.invoiceNo} amount={newInv.amount} date={newInv.date} />
             </Field>
           </div>
           <div className="grid g3">
@@ -17255,7 +17285,8 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: g
               </select>
             </Field>}
             <Field label="تاريخ الاستلام"><input type="date" className="inp" value={recv.date || today()} onChange={e => setRecv(r => ({ ...r, date: e.target.value }))} /></Field>
-            <Field label="رقم فاتورة المورد (اختياري)"><input className="inp" value={recv.supInvNo || ''} placeholder="يُولَّد رقم استلام إن تُرك فارغًا" onChange={e => setRecv(r => ({ ...r, supInvNo: e.target.value }))} /></Field>
+            <Field label="رقم فاتورة المورد (اختياري)"><input className="inp" value={recv.supInvNo || ''} placeholder="يُولَّد رقم استلام إن تُرك فارغًا" onChange={e => setRecv(r => ({ ...r, supInvNo: e.target.value }))} />
+              <DupInvHint invoices={ops.invoices} supplierId={recv.po && recv.po.supplierId} invoiceNo={recv.supInvNo} /></Field>
             {!!(org.taxCfg || {}).enabled && <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', paddingTop: 14 }}>
               <input type="checkbox" checked={recv.taxable !== false} onChange={e => setRecv(r => ({ ...r, taxable: e.target.checked }))} />الفاتورة خاضعة لضريبة القيمة المضافة
             </label>}
