@@ -2483,7 +2483,7 @@ const ERRLOG_KEY = 'mizan:errlog';
 function logClientError(err, where) {
   try {
     const a = JSON.parse(localStorage.getItem(ERRLOG_KEY) || '[]');
-    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v34.3' });
+    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v34.4' });
     localStorage.setItem(ERRLOG_KEY, JSON.stringify(a.slice(0, 20)));
   } catch { }
 }
@@ -3521,7 +3521,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v34.3 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v34.4 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -7981,7 +7981,7 @@ function posReceiptHtml(org, o, br) {
   .tot td{font-weight:800;font-size:13px;border-bottom:2px solid #000} .qr{text-align:center;margin-top:8px} .qr svg{width:34mm;height:34mm}</style></head><body>
   <h1>${_xe(co.name || '')}</h1><div class="c s">${_xe(br ? br.name : '')}${svat ? '<br>الرقم الضريبي: ' + _xe(svat) : ''}</div>
   <div class="c" style="font-weight:800;margin-top:6px">فاتورة ضريبية مبسّطة</div>
-  <div class="c s">رقم: ${_xe(o.no)} · ${_xe((o.at || '').slice(0, 10))} ${_xe(new Date(o.at).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }))}${o.channel === 'takeaway' ? ' · سفري' : o.channel === 'delivery' ? ' · توصيل' : o.channel === 'dinein' ? ' · محلي' : ''}</div>
+  <div class="c s">رقم: ${_xe(o.no)} · ${_xe((o.at || '').slice(0, 10))} ${_xe(new Date(o.at).toLocaleTimeString('ar-SA-u-nu-latn', { hour: '2-digit', minute: '2-digit' }))}${o.channel === 'takeaway' ? ' · سفري' : o.channel === 'delivery' ? ' · توصيل' : o.channel === 'dinein' ? ' · محلي' : ''}</div>
   <table>${L}
   ${o.orderDisc ? `<tr><td colspan="2">${_xe((o.orderPromo || {}).name || 'خصم الفاتورة')}</td><td class="n">−${m(o.orderDisc)}</td></tr>` : ''}
   ${(o.manualDisc != null ? o.manualDisc : (o.lines || []).some(l => l.disc) ? 0 : o.disc) ? `<tr><td colspan="2">خصم${o.discReason ? ' (' + _xe(o.discReason) + ')' : ''}</td><td class="n">−${m(o.manualDisc != null ? o.manualDisc : o.disc)}</td></tr>` : ''}
@@ -8015,7 +8015,7 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const [cat, setCat] = useState(''); const [q, setQ] = useState('');
   const [cart, setCart] = useState([]); const [channel, setChannel] = useState('takeaway');
   const [disc, setDisc] = useState({ mode: 'amt', amt: '', reason: '' }); const [pay, setPay] = useState(null); const [last, setLast] = useState(null);
-  const [code, setCode] = useState(''); const [quickP, setQuickP] = useState(false); const [cust, setCust] = useState({ phone: '', name: '', redeem: false });
+  const [code, setCode] = useState(''); const [quickP, setQuickP] = useState(false); const [ordF, setOrdF] = useState(() => ({ d: businessDay(), pay: 'all', q: '' })); const [cust, setCust] = useState({ phone: '', name: '', redeem: false });
   const loyCfg = org.loyaltyCfg || {}; const [loy, setLoy] = useState(null);
   useEffect(() => { if (!loyCfg.enabled) return; let dead = false; cloud.get(KEYS.loy, { members: {}, tx: [] }).then(d => { if (!dead) setLoy(d || { members: {}, tx: [] }); }).catch(() => { }); return () => { dead = true; }; }, [loyCfg.enabled]);
   const [view, setView] = useState('sell'); const [showCart, setShowCart] = useState(false);
@@ -8203,7 +8203,7 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
         {brs.length > 1 ? <select className="sel" style={{ width: 160 }} value={br.id} onChange={e => setBrId(e.target.value)}>{brs.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select> : <span className="badge b-dim">{br.name}</span>}
         <span className="badge b-dim">الجهاز {dev.name} ({dev.tag})</span>{pendingBadge}
         <span style={{ marginInlineStart: 'auto' }} />
-        <SectionNav force="tabs" cur={view} onPick={setView} label="نقطة البيع" items={[{ id: 'sell', ar: 'البيع', icon: Store }, { id: 'orders', ar: 'طلبات اليوم', icon: FileText, badge: todayOrders.length || null }, { id: 'shift', ar: 'الوردية', icon: Clock },
+        <SectionNav force="tabs" cur={view} onPick={setView} label="نقطة البيع" items={[{ id: 'sell', ar: 'البيع', icon: Store }, { id: 'orders', ar: 'الفواتير', icon: FileText, badge: todayOrders.length || null }, { id: 'shift', ar: 'الوردية', icon: Clock },
           ...(isMgr ? [{ id: 'shifts', ar: 'الورديات والتقارير', icon: ClipboardCheck }] : []), ...(R.admin || R.scope === 'all' ? [{ id: 'promos', ar: 'العروض', icon: Sparkles }] : []),
           ...(isMgr ? [{ id: 'loyalty', ar: 'الولاء', icon: Users }] : []), ...(R.admin || R.scope === 'all' ? [{ id: 'cfg', ar: 'الإعدادات', icon: Settings }] : [])]} />
       </div></div>
@@ -8233,21 +8233,44 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
           {cart.length > 0 && !showCart && <button className="btn pri pos-fab" onClick={() => setShowCart(true)}><span>الطلب ({cart.reduce((a, l) => a + l.qty, 0)})</span><span className="num">{money(T.total)}</span></button>}
         </div>))}
 
-      {view === 'orders' && <div className="card">
-        <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-          <span className="badge b-brass">اليوم {money(daySum.total)} · {daySum.n} فاتورة</span><span className="badge b-dim">نقد {money(daySum.cash)}</span><span className="badge b-dim">شبكة {money(daySum.card)}</span>
-          {Object.entries(daySum.apps).map(([id, x]) => <span key={id} className="badge b-dim">{(apps.find(a => a.id === id) || {}).n || 'تطبيق'} {money(x.amount)}</span>)}</div>
-        <div className="tw"><table className="tb"><thead><tr><th>الرقم</th><th>الوقت</th><th>الأصناف</th><th style={{ textAlign: 'end' }}>الإجمالي</th><th>الدفع</th><th></th></tr></thead><tbody>
-          {todayOrders.map(o => <tr key={o.id} style={o.status === 'void' ? { opacity: .5 } : undefined}>
-            <td className="num" style={{ fontSize: 11.5 }}>{o.no}{o.pending && <div><span className="badge b-amber" style={{ fontSize: 9.5 }}>لم يُرسَل</span></div>}</td>
-            <td className="num" style={{ fontSize: 11.5 }}>{new Date(o.at).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })}</td>
-            <td style={{ fontSize: 12 }}>{o.lines.map(l => l.name + (l.qty > 1 ? ' ×' + l.qty : '')).join('، ')}</td>
-            <td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{money(o.total)}</td>
-            <td style={{ fontSize: 11.5 }}>{o.status === 'void' ? <span className="badge b-rose">ملغاة: {o.voidReason}</span> : o.payments.map(p => p.m === 'cash' ? 'نقدي' : p.m === 'card' ? 'شبكة' : p.m === 'transfer' ? 'تحويل' : p.appName).join(' + ')}</td>
-            <td><div className="row" style={{ gap: 4 }}><button className="btn sm gh" onClick={() => posPrint(posReceiptHtml(org, o, br))}><Printer size={12} /></button>{isMgr && o.status !== 'void' && <button className="btn sm gh" onClick={() => voidOrder(o)}>إلغاء</button>}</div></td>
-          </tr>)}
-          {!todayOrders.length && <tr><td colSpan={6}><div className="empty">لا فواتير اليوم.</div></td></tr>}
-        </tbody></table></div></div>}
+      {view === 'orders' && (() => {
+        // v34.4: سجل الفواتير — بالتاريخ ونوع السداد والبحث، مع مجموع كل نوع وتصدير Excel
+        const payAr = (p) => p.m === 'cash' ? 'نقدي' : p.m === 'card' ? 'شبكة' : p.m === 'transfer' ? 'تحويل' : (p.appName || 'تطبيق');
+        const list = allOrders.filter(o => o.branchId === br.id && o.date === ordF.d)
+          .filter(o => ordF.pay === 'all' || (ordF.pay === 'void' ? o.status === 'void' : o.status !== 'void' && (o.payments || []).some(p => p.m === ordF.pay)))
+          .filter(o => !ordF.q.trim() || String(o.no).includes(ordF.q.trim()) || (o.loyalty && String(o.loyalty.phone || '').includes(normPhone(ordF.q))) || (o.lines || []).some(l => (l.name || '').includes(ordF.q.trim())))
+          .sort((a, b) => String(b.at).localeCompare(String(a.at)));
+        const st = posOrdersStats(list);
+        const xl = () => { try { const head = ['رقم الفاتورة', 'التاريخ', 'الوقت', 'الكاشير', 'الأصناف', 'قبل الخصم', 'الخصم', 'الإجمالي', 'منها ضريبة', 'نقدي', 'شبكة', 'تحويل', 'تطبيق', 'الباقي', 'الحالة'];
+          const amt = (o, m) => posR2((o.payments || []).filter(p => p.m === m).reduce((a, p) => a + (Number(p.amount) || 0), 0));
+          const body = list.map(o => [o.no, o.date, new Date(o.at).toTimeString().slice(0, 5), o.by || '', (o.lines || []).map(l => l.name + ' ×' + l.qty).join('، '), o.gross || 0, o.disc || 0, o.total, o.vat, amt(o, 'cash'), amt(o, 'card'), amt(o, 'transfer'), amt(o, 'app'), o.change || 0, o.status === 'void' ? 'ملغاة: ' + (o.voidReason || '') : o.pending ? 'لم تُرسل بعد' : 'مدفوعة']);
+          const blob = makeXlsx([{ name: 'فواتير ' + ordF.d, rows: [head, ...body] }]); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'فواتير_' + br.name + '_' + ordF.d + '.xlsx'; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(url), 1500); say('نُزّل سجل الفواتير (Excel) ✓'); } catch { say('تعذّر التصدير', 'no'); } };
+        return <div className="card">
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'end', marginBottom: 8 }}>
+            <Field label="التاريخ" style={{ marginBottom: 0 }}><input type="date" className="inp" value={ordF.d} onChange={e => setOrdF(x => ({ ...x, d: e.target.value || today }))} /></Field>
+            <Field label="نوع السداد" style={{ marginBottom: 0 }}><select className="sel" value={ordF.pay} onChange={e => setOrdF(x => ({ ...x, pay: e.target.value }))}><option value="all">الكل</option><option value="cash">نقدي</option><option value="card">شبكة</option><option value="transfer">تحويل</option><option value="app">تطبيقات التوصيل</option><option value="void">الملغاة</option></select></Field>
+            <Field label="بحث" style={{ marginBottom: 0, flex: 1, minWidth: 150 }}><input className="inp" value={ordF.q} placeholder="رقم الفاتورة، صنف، جوال عميل" onChange={e => setOrdF(x => ({ ...x, q: e.target.value }))} /></Field>
+            <button className="btn sm" onClick={xl}><Download size={13} />Excel</button>
+          </div>
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+            <span className="badge b-brass">{st.n} فاتورة · {money(st.total)}</span><span className="badge b-dim">نقدي {money(st.cash)}</span><span className="badge b-dim">شبكة {money(st.card)}</span>
+            {st.transfer > 0 && <span className="badge b-dim">تحويل {money(st.transfer)}</span>}
+            {Object.entries(st.apps).map(([id, x]) => <span key={id} className="badge b-dim">{(apps.find(a => a.id === id) || {}).n || 'تطبيق'} {money(x.amount)}</span>)}
+            {st.ldisc + st.odisc + st.mdisc + st.loyAmt > 0 && <span className="badge b-amber">خصومات {money(st.ldisc + st.odisc + st.mdisc + st.loyAmt)}</span>}
+            {st.voidN > 0 && <span className="badge b-rose">ملغاة {st.voidN}</span>}
+          </div>
+          <div className="tw"><table className="tb"><thead><tr><th>الفاتورة</th><th>الوقت</th><th>الأصناف</th><th style={{ textAlign: 'end' }}>المبلغ</th><th>نوع السداد</th><th></th></tr></thead><tbody>
+            {list.map(o => <tr key={o.id} style={o.status === 'void' ? { opacity: .5 } : undefined}>
+              <td className="num" style={{ fontSize: 11.5 }}>{o.no}{o.pending && <div><span className="badge b-amber" style={{ fontSize: 9.5 }}>لم تُرسل بعد</span></div>}{o.by && <div style={{ fontSize: 10, color: 'var(--faint)' }}>{o.by}</div>}</td>
+              <td className="num" style={{ fontSize: 11.5 }}>{new Date(o.at).toLocaleTimeString('ar-SA-u-nu-latn', { hour: '2-digit', minute: '2-digit' })}</td>
+              <td style={{ fontSize: 12 }}>{(o.lines || []).map(l => l.name + (l.qty > 1 ? ' ×' + l.qty : '')).join('، ')}</td>
+              <td style={{ textAlign: 'end' }}><b className="num">{money(o.total)}</b>{o.disc ? <div className="num" style={{ fontSize: 10, color: 'var(--mint)' }}>خصم {money(o.disc)}</div> : null}</td>
+              <td style={{ fontSize: 11.5 }}>{o.status === 'void' ? <span className="badge b-rose">ملغاة: {o.voidReason}</span> : (o.payments || []).map((p, k) => <div key={k}><span className="badge b-dim">{payAr(p)}</span> <span className="num">{money(p.amount)}</span></div>)}{o.change ? <div className="num" style={{ fontSize: 10, color: 'var(--faint)' }}>الباقي {money(o.change)}</div> : null}</td>
+              <td><div className="row" style={{ gap: 4 }}><button className="btn sm gh" title="إعادة طباعة" onClick={() => posPrint(posReceiptHtml(org, o, br))}><Printer size={12} /></button>{isMgr && o.status !== 'void' && <button className="btn sm gh" onClick={() => voidOrder(o)}>إلغاء</button>}</div></td>
+            </tr>)}
+            {!list.length && <tr><td colSpan={6}><div className="empty">لا فواتير بهذه التصفية.</div></td></tr>}
+          </tbody></table></div></div>;
+      })()}
 
       {view === 'shift' && <div className="card">
         {!shift ? <div className="empty">لا وردية مفتوحة على هذا الجهاز — افتحها من «البيع».</div> : (() => { const os = shiftOrders(shift).filter(o => o.status !== 'void'); const exp = posR2(shift.openingCash + os.reduce((a, o) => a + posCashNet(o), 0)); return <>
@@ -12513,8 +12536,8 @@ function ShiftEngine({ org, ops, me, myBranches, commitOrg, commit, say }) {
                       <td style={{ fontWeight: 600, fontSize: 12.5 }}>{r.e.name}</td>
                       <td style={{ fontSize: 12 }}>{dNm(r.ds)} {dDay(r.ds)}</td>
                       <td style={{ fontSize: 12 }}>{r.tpl ? r.tpl.name + ' (' + r.tpl.startTime + '-' + r.tpl.endTime + ')' : 'قالب محذوف'}</td>
-                      <td className="num">{r.inEv ? new Date(r.inEv.at).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
-                      <td className="num">{r.outEv ? new Date(r.outEv.at).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                      <td className="num">{r.inEv ? new Date(r.inEv.at).toLocaleTimeString('ar-SA-u-nu-latn', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                      <td className="num">{r.outEv ? new Date(r.outEv.at).toLocaleTimeString('ar-SA-u-nu-latn', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
                       <td><span className={'badge ' + lb[1]}>{lb[0]}{r.extra ? ' (' + r.extra + 'د)' : ''}</span></td>
                     </tr>
                   );
