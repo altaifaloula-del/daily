@@ -86,6 +86,14 @@ async function bioVerify(credId) {
   return true;
 }
 
+/* v32.3 — بصمة/وجه هذا الجهاز لقفل التطبيق (على نمط تطبيقات البنوك): الاعتماد يُحفظ على الجهاز نفسه لكل مستخدم،
+   والجلسة السحابية تبقى قائمة — البصمة تفتح التطبيق عند فتحه أو العودة إليه، وكلمة السر للدخول الكامل */
+const BIO_KEY = (email) => 'mizan:bio:' + String(email || '').toLowerCase();
+const devBioId = (me) => { try { return (me && localStorage.getItem(BIO_KEY(me.email))) || ''; } catch { return ''; } };
+const setDevBio = (me, id) => { try { if (id) localStorage.setItem(BIO_KEY(me.email), id); else localStorage.removeItem(BIO_KEY(me.email)); } catch { } };
+const bioAvailable = async () => { try { return webauthnSupported() && await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable(); } catch { return false; } };
+const inAppBrowser = () => { try { return /FBAN|FBAV|Instagram|WhatsApp|Line\/|GSA\/|Snapchat|Twitter|TikTok/i.test(navigator.userAgent); } catch { return false; } };
+
 /* ================= تنبيهات النشاط الحيّة (إعداد لكل جهاز) ================= */
 const NOTIFY_KEY = 'rms8:notify';
 // v30.2: الإعداد يشمل فئات الإشعارات (كلها مفعّلة افتراضيًا ضمن ما يسمح به دور المستخدم)
@@ -2427,7 +2435,7 @@ const ERRLOG_KEY = 'mizan:errlog';
 function logClientError(err, where) {
   try {
     const a = JSON.parse(localStorage.getItem(ERRLOG_KEY) || '[]');
-    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v32.2' });
+    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v32.3' });
     localStorage.setItem(ERRLOG_KEY, JSON.stringify(a.slice(0, 20)));
   } catch { }
 }
@@ -2704,6 +2712,7 @@ function PlatformApp() {
   }, [loadAll]);
 
   const fbLogin = useCallback(async (email, pass) => {
+    interactiveLogin.current = true;
     try { const r = await authApi.signIn(email, pass); return await finishFb(r.email); }
     catch (e) {
       if (e && e.code === 'mfa-required') return { ok: false, mfa: true };
@@ -2945,6 +2954,16 @@ function PlatformApp() {
   const lastActRef = useRef(Date.now());
   const [sessWarnLeft, setSessWarnLeft] = useState(null);   // ثوانٍ متبقية في التحذير، null = لا تحذير
   const [locked, setLocked] = useState(false);              // v15.25: شاشة القفل — عودة بالدخول السريع (رقم سري/بصمة)
+  // v32.3: بصمة هذا الجهاز تقفل التطبيق عند فتحه بجلسة محفوظة، وعند العودة إليه بعد دقيقتين في الخلفية
+  useEffect(() => {
+    if (!me || !devBioId(me)) return;
+    if (!interactiveLogin.current) setLocked(true);
+    interactiveLogin.current = false;
+    let hiddenAt = 0;
+    const onVis = () => { if (document.visibilityState === 'hidden') hiddenAt = Date.now(); else if (hiddenAt && Date.now() - hiddenAt > 120000 && devBioId(me)) setLocked(true); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, [me && me.id]); // eslint-disable-line
   useEffect(() => {
     const bumpAct = () => { lastActRef.current = Date.now(); };
     const evs = ['pointerdown', 'keydown', 'touchstart', 'wheel'];
@@ -3226,6 +3245,8 @@ function PlatformApp() {
   // v31.3 — التحقق بخطوتين: حالة المستخدم وسياسة الإلزام (v31.5: قبل أي return شرطي — كان بعده فيتغيّر عدد الـhooks عند انتهاء التحميل فتظهر شاشة سوداء)
   const [mfaS, setMfaS] = useState(null); const [mfaPol, setMfaPol] = useState(null); const [mfaOpen, setMfaOpen] = useState(false);
   const [pwOpen, setPwOpen] = useState(false);   // v31.9 تغيير كلمة السر
+  const [bioOpen, setBioOpen] = useState(false);  // v32.3 البصمة لهذا الجهاز
+  const interactiveLogin = useRef(false);        // دخول بكلمة السر الآن ← لا قفل فوري
   const mfaReload = useCallback(async () => { if (!authApi.enabled) return; const [i, p] = await Promise.all([authApi.mfaInfo().catch(() => null), authApi.getPolicy().catch(() => null)]); setMfaS(i); setMfaPol(p); }, []);
   useEffect(() => { if (me && authApi.enabled) mfaReload(); }, [me && me.id, mfaReload]);
 
@@ -3436,7 +3457,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v32.2 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v32.3 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -3505,8 +3526,9 @@ function PlatformApp() {
                     <button onClick={() => { setUserMenu(false); forceUpdate(); }}><RefreshCw size={14} />تحديث للأحدث (مسح الكاش){updateReady ? ' — نسخة جديدة!' : ''}</button>
                     <button onClick={() => { setUserMenu(false); setTour(true); }}><Compass size={14} />جولة تعريفية في المنصة</button>
                     {authApi.enabled && <button onClick={() => { setUserMenu(false); setPwOpen(true); }}><Lock size={14} />تغيير كلمة السر</button>}
+                    <button onClick={() => { setUserMenu(false); setBioOpen(true); }}><Fingerprint size={14} />البصمة لهذا الجهاز{devBioId(me) ? ' ✓' : ''}</button>
                     {authApi.enabled && <button onClick={() => { setUserMenu(false); setMfaOpen(true); }}><ShieldCheck size={14} />التحقق بخطوتين{mfaS && mfaS.enrolled ? ' ✓' : ''}</button>}
-                    {(me.pinHash || me.bioCredId) && (
+                    {(me.pinHash || me.bioCredId || devBioId(me)) && (
                       <button onClick={() => { setUserMenu(false); setLocked(true); }}><Lock size={14} />قفل الشاشة — عودة بالدخول السريع</button>
                     )}
                     {(ROLES[me.role] || {}).admin && <button onClick={() => { setUserMenu(false); resetAll(); }}><Trash2 size={14} />تفريغ بيانات المنصة</button>}
@@ -3643,6 +3665,7 @@ function PlatformApp() {
 
 
 
+      {bioOpen && <Modal title="البصمة لهذا الجهاز" icon={Fingerprint} onClose={() => setBioOpen(false)}><BioPanel me={me} say={say} onLockNow={() => { setBioOpen(false); setLocked(true); }} /></Modal>}
       {pwOpen && <Modal title="تغيير كلمة السر" icon={Lock} onClose={() => setPwOpen(false)}>
         <PasswordPanel me={me} mfa={!!(mfaS && mfaS.enrolled)} say={say} onDone={() => setPwOpen(false)} /></Modal>}
       {mfaOpen && <Modal title="التحقق بخطوتين" icon={ShieldCheck} onClose={() => setMfaOpen(false)}>
@@ -3667,6 +3690,7 @@ function PlatformApp() {
                 <button className="btn gh" onClick={() => { setMoreSheet(false); forceUpdate(); }}><RefreshCw size={15} />تحديث للأحدث</button>
                 <button className="btn" style={{ background: 'rgba(217,84,77,.14)', color: 'var(--rose)', borderColor: 'rgba(217,84,77,.42)' }} onClick={() => { setMoreSheet(false); setMe(null); }}><LogOut size={15} />تسجيل الخروج</button>
               </div>
+              <button className="btn" style={{ width: '100%', marginTop: 8 }} onClick={() => { setMoreSheet(false); setBioOpen(true); }}><Fingerprint size={15} />البصمة / بصمة الوجه لهذا الجهاز{devBioId(me) ? ' — مفعّلة ✓' : ''}</button>
               {authApi.enabled && <button className="btn" style={{ width: '100%', marginTop: 8 }} onClick={() => { setMoreSheet(false); setPwOpen(true); }}><Lock size={15} />تغيير كلمة السر</button>}
               {authApi.enabled && <button className="btn" style={{ width: '100%', marginTop: 8 }} onClick={() => { setMoreSheet(false); setMfaOpen(true); }}>
                 <ShieldCheck size={15} />التحقق بخطوتين{mfaS && mfaS.enrolled ? ' — مفعّل ✓' : ' — غير مفعّل'}</button>}
@@ -3840,6 +3864,32 @@ function MfaPolicyCard({ org, me, commitOrg, say }) {
         {on && <button className="btn gh" disabled={busy} onClick={() => save(false)}>إيقاف الإلزام</button>}
       </div>
       <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 8, lineHeight: 1.7 }}>للطوارئ إن فُقدت كل الهواتف: احذف المستند platform/security من لوحة Firebase ← Firestore فيتوقف الإلزام فورًا.</div>
+    </div>);
+}
+
+/* v32.3 — تفعيل البصمة / بصمة الوجه لهذا الجهاز ذاتيًا */
+function BioPanel({ me, say, onLockNow }) {
+  const [avail, setAvail] = useState(null); const [on, setOn] = useState(!!devBioId(me)); const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
+  useEffect(() => { bioAvailable().then(setAvail); }, []);
+  const enable = async () => {
+    setBusy(true); setErr('');
+    try { const id = await bioEnroll({ id: me.id, email: me.email, name: me.name }); setDevBio(me, id); setOn(true); say('فُعّلت البصمة لهذا الجهاز ✓'); }
+    catch (e) { const n = String((e && e.name) || ''); setErr(n === 'NotAllowedError' ? 'أُلغي الطلب أو انتهت مهلته — أعد المحاولة وأكّد بالبصمة أو بصمة الوجه' : n === 'InvalidStateError' ? 'هذا الجهاز مسجّل مسبقًا — ألغِ ثم فعّل من جديد' : 'تعذّر التفعيل (' + (n || (e && e.message) || '') + ')'); }
+    setBusy(false);
+  };
+  const disable = () => { setDevBio(me, ''); setOn(false); say('أُلغيت البصمة لهذا الجهاز'); };
+  return (
+    <div className="grid" style={{ gap: 10 }}>
+      <div style={{ fontSize: 12.5, lineHeight: 1.9 }}>بعد التفعيل يُطلب <b>بصمة الوجه أو الإصبع</b> كلما فتحت المنصة على هذا الجهاز أو عدت إليها بعد دقيقتين — بدل كتابة كلمة السر. تسجيل الدخول الكامل يبقى بكلمة السر والتحقق بخطوتين.</div>
+      {inAppBrowser() && <div className="note" style={{ color: 'var(--amber)' }}>أنت تفتح المنصة من داخل تطبيق آخر (مثل واتساب أو البريد) — هذه المتصفحات الداخلية لا تدعم البصمة. افتح الرابط في <b>Safari</b> أو أضف المنصة للشاشة الرئيسية.</div>}
+      {avail === false && !inAppBrowser() && <div className="note" style={{ color: 'var(--amber)' }}>هذا الجهاز أو المتصفح لا يتيح البصمة الآن. على الآيفون: تأكد من تفعيل بصمة الوجه من الإعدادات ← Face ID ورمز الدخول، وافتح المنصة من Safari أو من أيقونتها في الشاشة الرئيسية.</div>}
+      {on ? <>
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}><span className="badge b-mint"><Check size={11} />مفعّلة على هذا الجهاز</span>
+          <button className="btn sm" onClick={onLockNow}><Lock size={13} />جرّبها الآن (قفل)</button>
+          <button className="btn sm gh" onClick={disable}><Trash2 size={13} color="#D9544D" />إلغاء</button></div>
+      </> : <button className="btn pri" disabled={busy || avail === false} onClick={enable}>{busy ? <RefreshCw size={14} className="spin" /> : <ScanFace size={15} />}تفعيل البصمة / بصمة الوجه</button>}
+      {err && <div className="gate-err">{err}</div>}
+      <div style={{ fontSize: 10.5, color: 'var(--faint)', lineHeight: 1.7 }}>تُحفظ على هذا الجهاز وحده — فعّلها على كل جهاز تستخدمه. مسح بيانات Safari يلغيها فتفعّلها من جديد.</div>
     </div>);
 }
 
@@ -4031,6 +4081,7 @@ function FbGate({ css, theme, fbLogin, fbMfa, fbFirstSetup, notice }) {
 
 /* v15.25 — شاشة القفل: عودة سريعة للجلسة برقم سري أو بصمة دون إعادة كتابة البريد وكلمة السر */
 function LockScreen({ me, theme, mode, onUnlock, onLogout }) {
+  const bioId = devBioId(me) || me.bioCredId || '';
   const [pin, setPin] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -4043,8 +4094,8 @@ function LockScreen({ me, theme, mode, onUnlock, onLogout }) {
   const key = (d) => { setErr(''); if (d === 'del') setPin(p => p.slice(0, -1)); else setPin(p => (p.length < 6 ? p + d : p)); };
   const tryBio = async () => {
     setBusy(true); setErr('');
-    try { await bioVerify(me.bioCredId); onUnlock(); }
-    catch { setErr('تعذّر التحقق بالبصمة — جرّب الرقم السري'); }
+    try { await bioVerify(bioId); onUnlock(); }
+    catch { setErr('تعذّر التحقق بالبصمة — ' + (me.pinHash ? 'جرّب الرقم السري' : 'أعد المحاولة، أو سجّل خروجًا كاملًا وادخل بكلمة السر')); }
     setBusy(false);
   };
   // v16.3 — بطلب المالك: لوحة القفل تستجيب للوحة المفاتيح مباشرة (مع بقاء الفأرة):
@@ -4075,7 +4126,7 @@ function LockScreen({ me, theme, mode, onUnlock, onLogout }) {
             </div>
             <h1 style={{ fontSize: 19 }}>الشاشة مقفلة 🔒</h1>
             <div style={{ color: 'var(--dim)', fontSize: 12.5, marginTop: 5 }}>
-              {me.name} — ادخل سريعاً برقمك السري{me.bioCredId ? ' أو بصمتك' : ''}
+              {me.name} — {bioId ? 'افتح بالبصمة أو بصمة الوجه' : 'ادخل سريعاً برقمك السري'}{bioId && me.pinHash ? ' أو برقمك السري' : ''}
             </div>
           </div>
           <div className="card">
@@ -4097,13 +4148,13 @@ function LockScreen({ me, theme, mode, onUnlock, onLogout }) {
             </>) : (
               <>
                 {err && <div className="gate-err">{err}</div>}
-                <div className="empty" style={{ padding: '10px 0' }}>
-                  لا رقم سري لحسابك — استخدم البصمة أو الخروج الكامل. (يُضبط الرقم السري من إدارة المستخدمين.)
-                </div>
+                {!bioId && <div className="empty" style={{ padding: '10px 0' }}>
+                  لا رقم سري ولا بصمة لهذا الجهاز — سجّل الخروج وادخل بكلمة السر.
+                </div>}
               </>
             )}
-            {me.bioCredId && webauthnSupported() && (
-              <button className="btn" style={{ width: '100%', marginTop: 10 }} disabled={busy} onClick={tryBio}>
+            {bioId && webauthnSupported() && (
+              <button className={'btn' + (me.pinHash ? '' : ' pri')} style={{ width: '100%', marginTop: 10, padding: me.pinHash ? undefined : '14px 0', fontSize: me.pinHash ? undefined : 15 }} disabled={busy} onClick={tryBio}>
                 {busy ? <RefreshCw size={15} className="spin" /> : <Fingerprint size={16} />}فتح بالبصمة الحيوية
               </button>
             )}
