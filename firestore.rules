@@ -108,7 +108,8 @@ service cloud.firestore {
 
     // v28.1: قائمة سماح صريحة لأسماء المستندات — أي اسم آخر مرفوض قراءةً وكتابةً
     function knownDoc(id) {
-      return baseId(id) in ['rms8_org', 'rms8_dir', 'rms8_core', 'rms8_pulse', 'rms8_ops', 'rms8_files', 'rms8_hist']
+      // v34.0: rms8_loy — نقاط ولاء العملاء، مشترك بين الفروع (يكتبه أي عضو نشط غير «عرض فقط» كي تُكسب النقاط وتُستبدل في كل فرع)
+      return baseId(id) in ['rms8_org', 'rms8_dir', 'rms8_core', 'rms8_pulse', 'rms8_ops', 'rms8_files', 'rms8_hist', 'rms8_loy']
         || isBranchDoc(id);
     }
     // المستندات القديمة (تشغيل ما قبل v9، أرشيف الملفات القديم، الإغلاقات المؤرشفة) تضم بيانات كل الفروع

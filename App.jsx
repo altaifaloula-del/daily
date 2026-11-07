@@ -6,7 +6,7 @@ import {
   CircleDollarSign, TrendingUp, TrendingDown, AlertTriangle, Wallet,
   ArrowLeftRight, UserCog, Menu, RefreshCw, Lock, Radio, Download,
   ChevronLeft, Stamp, Landmark, Receipt, CalendarDays, Store, Eye, Send,
-  Sparkles, Truck, Printer, HardDrive, Settings, FileText, Upload,
+  Sparkles, Lightbulb, Gift, Truck, Printer, HardDrive, Settings, FileText, Upload,
   Camera, Image as ImageIcon, Clock, Timer, Compass,
   Fingerprint, ScanFace, ShieldAlert, Video, Grid3x3,
   BarChart3, CheckCircle2, ArrowUp, ArrowDown,
@@ -416,7 +416,11 @@ function composeOps(core, brMap) {
 function dirOf(org) {
   return {
     dirOnly: true,
-    company: { name: (org.company || {}).name || '', logoUrl: (org.company || {}).logoUrl || '', activity: (org.company || {}).activity || '' },
+    company: { name: (org.company || {}).name || '', logoUrl: (org.company || {}).logoUrl || '', activity: (org.company || {}).activity || '', taxNumber: (org.company || {}).taxNumber || '' },
+    // v34.0: ما تحتاجه نقطة البيع على أجهزة الفروع — الأصناف بأسعار البيع فقط (بلا تكلفة ولا وصفات)، الإعدادات، العروض، الولاء، الضريبة
+    products: (org.products || []).map(p => ({ id: p.id, name: p.name, sellPrice: p.sellPrice || 0, cat: p.cat || '', ...(p.posOff ? { posOff: true } : {}), ...(p.disc ? { disc: p.disc } : {}) })),
+    posCfg: org.posCfg || {}, posPromos: org.posPromos || [], loyaltyCfg: org.loyaltyCfg || {},
+    taxCfg: { enabled: !!(org.taxCfg || {}).enabled, rate: (org.taxCfg || {}).rate || 15 },
     branches: (org.branches || []).map(b => ({ id: b.id, name: b.name, defaultFloat: b.defaultFloat || 0, isActive: b.isActive !== false, logoUrl: b.logoUrl || '', city: b.city || '', bankName: b.bankName || '', bankAcc: b.bankAcc || '', geofence: b.geofence || null })),   // v24.0: الجيوفنس لازم لكشك الحضور على جهاز الفرع
     expenseCats: org.expenseCats || [],
     deliveryApps: org.deliveryApps || [],
@@ -2479,7 +2483,7 @@ const ERRLOG_KEY = 'mizan:errlog';
 function logClientError(err, where) {
   try {
     const a = JSON.parse(localStorage.getItem(ERRLOG_KEY) || '[]');
-    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v33.3' });
+    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v34.0' });
     localStorage.setItem(ERRLOG_KEY, JSON.stringify(a.slice(0, 20)));
   } catch { }
 }
@@ -3507,7 +3511,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v33.3 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v34.0 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -7849,16 +7853,97 @@ function Dashboard({ org, ops, pulse, me, myBranches, scoped, online, setTab, th
 const POS_DEV_KEY = 'mizan:posDev', POS_Q_KEY = 'mizan:posQueue';
 const posDev = () => { try { let d = JSON.parse(localStorage.getItem(POS_DEV_KEY) || 'null'); if (!d || !d.tag) { d = { tag: Math.random().toString(36).slice(2, 4).toUpperCase(), name: 'كاشير' }; localStorage.setItem(POS_DEV_KEY, JSON.stringify(d)); } return d; } catch { return { tag: 'X1', name: 'كاشير' }; } };
 const POS_SH_KEY = 'mizan:posShiftLocal';
+const POS_LQ_KEY = 'mizan:posLoyQ';
+const loyQ = () => { try { return JSON.parse(localStorage.getItem(POS_LQ_KEY) || '[]'); } catch { return []; } };
+const loyQSet = (a) => { try { localStorage.setItem(POS_LQ_KEY, JSON.stringify(a)); } catch { } };
+// ترحيل حركات النقاط إلى المستند المشترك (كتابة مشروطة، ولا تُكرر حركة بنفس المعرّف)
+async function loyPost(txs) {
+  for (let i = 0; i < 5; i++) {
+    const cur = (await cloud.get(KEYS.loy, null)) || { members: {}, tx: [] };
+    const have = new Set((cur.tx || []).map(t => t.id)); const add = (txs || []).filter(t => !have.has(t.id));
+    if (!add.length) return cur;
+    const next = { ...cur, members: { ...(cur.members || {}) }, tx: [...(cur.tx || []), ...add] };
+    add.forEach(t => { const m = next.members[t.phone] || {}; next.members[t.phone] = { ...m, name: t.name || m.name || '', since: m.since || t.at, last: t.at }; });
+    const r = await cloud.setIfUnchanged(KEYS.loy, next);
+    if (r === 'ok') return next; if (r === 'fail') return null;
+  }
+  return null;
+}
 const posQueue = () => { try { return JSON.parse(localStorage.getItem(POS_Q_KEY) || '[]'); } catch { return []; } };
 const posQueueSet = (a) => { try { localStorage.setItem(POS_Q_KEY, JSON.stringify(a)); } catch { } };
 const posR2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 // إجماليات الطلب: الأسعار شاملة الضريبة؛ الخصم من الإجمالي؛ الضريبة = الإجمالي × النسبة ÷ (100 + النسبة)
 function posTotals(lines, discount, rate) {
   const gross = posR2((lines || []).reduce((a, l) => a + (Number(l.qty) || 0) * (Number(l.price) || 0), 0));
-  const disc = Math.min(gross, posR2(discount));
+  const ldisc = posR2((lines || []).reduce((a, l) => a + (Number(l.disc) || 0), 0));   // v34.0: خصومات الأسطر (العروض وخصم الصنف)
+  const disc = Math.min(gross, posR2(ldisc + posR2(discount)));
   const total = posR2(gross - disc);
   const vat = rate ? posR2(total * rate / (100 + rate)) : 0;
-  return { gross, disc, total, vat, net: posR2(total - vat) };
+  return { gross, ldisc, disc, total, vat, net: posR2(total - vat) };
+}
+/* ===== v34.0 — العروض والخصومات ونقاط الولاء =====
+   العرض: { id, name, type: pct|amt|price|bxgy|order, value, x, y, mode (للفاتورة: pct|amt), minTotal, scope: all|cats|items, cats[], items[],
+            code (كوبون اختياري), from, to (تاريخ), days[0..6], tFrom, tTo (ساعات — يدعم ما بعد منتصف الليل), branches[], active }
+   القاعدة: لكل سطر أفضل خصم واحد للعميل (بلا تراكب) من «خصم الصنف» في بطاقته أو العروض العامة، ثم أفضل عرض على الفاتورة. */
+const hmOf = (x) => { const m = /^(\d{1,2}):(\d{2})/.exec(String(x || '')); return m ? (+m[1]) * 60 + (+m[2]) : null; };
+function promoActive(pr, now, branchId) {
+  if (!pr || pr.active === false) return false;
+  const d = isoD(now);
+  if (pr.from && d < pr.from) return false; if (pr.to && d > pr.to) return false;
+  if ((pr.days || []).length && !pr.days.includes(now.getDay())) return false;
+  const a = hmOf(pr.tFrom), b = hmOf(pr.tTo);
+  if (a != null && b != null && a !== b) { const t = now.getHours() * 60 + now.getMinutes(); if (a < b ? (t < a || t >= b) : (t < a && t >= b)) return false; }
+  if ((pr.branches || []).length && branchId && !pr.branches.includes(branchId)) return false;
+  return true;
+}
+const promoHits = (pr, p) => !pr.scope || pr.scope === 'all' || (pr.scope === 'items' && (pr.items || []).includes(p.id)) || (pr.scope === 'cats' && (pr.cats || []).includes(p.cat || 'أخرى'));
+function promoLineDisc(pr, unit, qty) {
+  const v = Number(pr.value) || 0; unit = Number(unit) || 0; qty = Number(qty) || 0;
+  if (pr.type === 'pct') return posR2(unit * qty * Math.min(100, Math.max(0, v)) / 100);
+  if (pr.type === 'amt') return posR2(Math.min(unit, Math.max(0, v)) * qty);
+  if (pr.type === 'price') return v > 0 && v < unit ? posR2((unit - v) * qty) : 0;
+  if (pr.type === 'bxgy') { const x = Math.floor(Number(pr.x) || 0), y = Math.floor(Number(pr.y) || 0); if (x < 1 || y < 1) return 0; return posR2(Math.floor(qty / (x + y)) * y * unit); }
+  return 0;
+}
+function posPriceCart(cart, products, promos, opt) {
+  opt = opt || {}; const now = opt.now || new Date(); const code = String(opt.code || '').trim().toLowerCase();
+  const act = (promos || []).filter(pr => promoActive(pr, now, opt.branchId) && (!pr.code || String(pr.code).trim().toLowerCase() === code));
+  const lines = (cart || []).map(l => {
+    const p = (products || []).find(x => x.id === l.productId) || { id: l.productId };
+    const cands = [];
+    if (p.disc && Number(p.disc.v) > 0 && (!p.disc.to || isoD(now) <= p.disc.to)) cands.push({ id: 'card:' + p.id, name: 'خصم الصنف', type: p.disc.t === 'amt' ? 'amt' : 'pct', value: p.disc.v });
+    act.filter(pr => pr.type !== 'order' && promoHits(pr, p)).forEach(pr => cands.push(pr));
+    let best = null, bd = 0;
+    cands.forEach(pr => { const dd = promoLineDisc(pr, l.price, l.qty); if (dd > bd + 0.0001) { bd = dd; best = pr; } });
+    const { disc: _d, promoId: _p, promoName: _n, ...rest } = l;
+    return { ...rest, disc: posR2(bd), ...(best ? { promoId: best.id, promoName: best.name } : {}) };
+  });
+  const sub = posR2(lines.reduce((a, l) => a + l.qty * l.price - (l.disc || 0), 0));
+  let order = null, od = 0;
+  act.filter(pr => pr.type === 'order' && sub > 0 && sub + 0.0001 >= (Number(pr.minTotal) || 0)).forEach(pr => {
+    const v = Number(pr.value) || 0; const dd = pr.mode === 'amt' ? Math.min(sub, v) : posR2(sub * Math.min(100, v) / 100); if (dd > od + 0.0001) { od = posR2(dd); order = pr; } });
+  return { lines, sub, orderDisc: od, orderPromo: order ? { id: order.id, name: order.name } : null, codeOk: !!code && act.some(pr => pr.code) };
+}
+// نقاط الولاء: { enabled, earnPer (ريال لكل نقطة), ptValue (قيمة النقطة بالريال), minRedeem (حد أدنى للاستبدال), maxRedeemPct (سقف % من الفاتورة) }
+const normPhone = (x) => { let d = String(x || '').replace(/[٠-٩]/g, c => '٠١٢٣٤٥٦٧٨٩'.indexOf(c)).replace(/\D/g, ''); d = d.replace(/^(00966|966)/, '').replace(/^0/, ''); return d; };
+const loyEarn = (cfg, amount) => (cfg && cfg.enabled && Number(cfg.earnPer) > 0) ? Math.floor((Number(amount) || 0) / Number(cfg.earnPer) + 1e-9) : 0;
+const loyBal = (doc, phone) => posR2(((doc && doc.tx) || []).filter(t => t.phone === phone).reduce((a, t) => a + (Number(t.pts) || 0), 0));
+function loyRedeemMax(cfg, bal, payable) {
+  if (!cfg || !cfg.enabled) return 0; const pv = Number(cfg.ptValue) || 0;
+  if (pv <= 0 || bal <= 0 || bal < (Number(cfg.minRedeem) || 0)) return 0;
+  const cap = (Number(payable) || 0) * (Number(cfg.maxRedeemPct) || 100) / 100;
+  return Math.max(0, Math.floor(Math.min(bal, cap / pv) + 1e-9));
+}
+// ملخص فواتير (وردية/يوم/فرع): المبيعات وطرق الدفع والخصومات والعروض والولاء والملغاة
+function posOrdersStats(orders) {
+  const ok = (orders || []).filter(o => o.status !== 'void'), vd = (orders || []).filter(o => o.status === 'void');
+  const s = posDaySummary(ok.map(o => ({ ...o, branchId: 'x', date: 'x' })), 'x', 'x');
+  const promo = {}; let ldisc = 0, odisc = 0, mdisc = 0, lred = 0, lpts = 0, earned = 0, gross = 0;
+  ok.forEach(o => { gross += o.gross || 0; (o.lines || []).forEach(l => { if (l.disc) { ldisc += l.disc; const k = l.promoName || 'عرض'; promo[k] = posR2((promo[k] || 0) + l.disc); } });
+    if (o.orderDisc) { odisc += o.orderDisc; const k = (o.orderPromo || {}).name || 'خصم الفاتورة'; promo[k] = posR2((promo[k] || 0) + o.orderDisc); }
+    mdisc += o.manualDisc != null ? o.manualDisc : (o.orderDisc || o.loyalty ? 0 : (o.disc || 0) - (o.lines || []).reduce((a, l) => a + (l.disc || 0), 0));
+    if (o.loyalty) { lred += o.loyalty.redeemAmt || 0; lpts += o.loyalty.redeemed || 0; earned += o.loyalty.earned || 0; } });
+  return { ...s, gross: posR2(gross), ldisc: posR2(ldisc), odisc: posR2(odisc), mdisc: posR2(Math.max(0, mdisc)), promo, loyAmt: posR2(lred), loyPts: lpts, loyEarned: earned, voidN: vd.length, voidAmt: posR2(vd.reduce((a, o) => a + (o.total || 0), 0)) };
 }
 // صافي النقد في الطلب = المدفوع نقدًا − الباقي
 const posCashNet = (o) => posR2((o.payments || []).filter(p => p.m === 'cash').reduce((a, p) => a + (Number(p.amount) || 0), 0) - (Number(o.change) || 0));
@@ -7876,7 +7961,8 @@ function posReceiptHtml(org, o, br) {
   const ts = (o.at || '').slice(0, 19) + 'Z';
   const qr = svat ? qrSvg(zatcaTLV(co.name || '', svat, ts, o.total, o.vat), { ecl: 1, px: 120 }) : '';
   const m = (n) => money(n);
-  const L = (o.lines || []).map(l => `<tr><td>${_xe(l.name)}${l.note ? '<div class="nt">' + _xe(l.note) + '</div>' : ''}</td><td class="n">${l.qty}</td><td class="n">${m(l.qty * l.price)}</td></tr>`).join('');
+  const L = (o.lines || []).map(l => `<tr><td>${_xe(l.name)}${l.note ? '<div class="nt">' + _xe(l.note) + '</div>' : ''}${l.disc ? '<div class="nt">' + _xe(l.promoName || 'عرض') + ': −' + m(l.disc) + '</div>' : ''}</td><td class="n">${l.qty}</td><td class="n">${m(l.qty * l.price - (l.disc || 0))}</td></tr>`).join('');
+  const ly = o.loyalty;
   const P = (o.payments || []).map(p => `<tr><td colspan="2">${p.m === 'cash' ? 'نقدًا' : p.m === 'card' ? 'شبكة' : p.m === 'transfer' ? 'تحويل' : _xe(p.appName || 'تطبيق')}</td><td class="n">${m(p.amount)}</td></tr>`).join('');
   return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>${_xe(o.no)}</title><style>${NUM_FACE}
   @page{size:80mm auto;margin:3mm} *{box-sizing:border-box} body{font-family:'MizanNum','IBM Plex Sans Arabic',Tahoma,sans-serif;width:74mm;margin:0 auto;color:#000;font-size:11.5px}
@@ -7887,9 +7973,12 @@ function posReceiptHtml(org, o, br) {
   <div class="c" style="font-weight:800;margin-top:6px">فاتورة ضريبية مبسّطة</div>
   <div class="c s">رقم: ${_xe(o.no)} · ${_xe((o.at || '').slice(0, 10))} ${_xe(new Date(o.at).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' }))}${o.channel === 'takeaway' ? ' · سفري' : o.channel === 'delivery' ? ' · توصيل' : o.channel === 'dinein' ? ' · محلي' : ''}</div>
   <table>${L}
-  ${o.disc ? `<tr><td colspan="2">خصم${o.discReason ? ' (' + _xe(o.discReason) + ')' : ''}</td><td class="n">−${m(o.disc)}</td></tr>` : ''}
+  ${o.orderDisc ? `<tr><td colspan="2">${_xe((o.orderPromo || {}).name || 'خصم الفاتورة')}</td><td class="n">−${m(o.orderDisc)}</td></tr>` : ''}
+  ${(o.manualDisc != null ? o.manualDisc : (o.lines || []).some(l => l.disc) ? 0 : o.disc) ? `<tr><td colspan="2">خصم${o.discReason ? ' (' + _xe(o.discReason) + ')' : ''}</td><td class="n">−${m(o.manualDisc != null ? o.manualDisc : o.disc)}</td></tr>` : ''}
+  ${ly && ly.redeemAmt ? `<tr><td colspan="2">استبدال ${ly.redeemed} نقطة</td><td class="n">−${m(ly.redeemAmt)}</td></tr>` : ''}
   <tr><td colspan="2">الإجمالي قبل الضريبة</td><td class="n">${m(o.net)}</td></tr><tr><td colspan="2">ضريبة القيمة المضافة</td><td class="n">${m(o.vat)}</td></tr>
   <tr class="tot"><td colspan="2">الإجمالي شامل الضريبة</td><td class="n">${m(o.total)}</td></tr>${P}${o.change ? `<tr><td colspan="2">الباقي</td><td class="n">${m(o.change)}</td></tr>` : ''}</table>
+  ${ly ? `<div class="c s" style="margin-top:6px;border:1px dashed #999;padding:4px">نقاط الولاء${ly.name ? ' — ' + _xe(ly.name) : ''}<br>المكتسبة: ${ly.earned || 0}${ly.redeemed ? ' · المستبدلة: ' + ly.redeemed : ''} · الرصيد: ${ly.balAfter != null ? ly.balAfter : '—'}</div>` : ''}
   ${qr ? '<div class="qr">' + qr + '</div>' : ''}${(org.posCfg || {}).footer ? '<div class="c s" style="margin-top:6px">' + _xe(org.posCfg.footer) + '</div>' : ''}<div class="c s" style="margin-top:4px">شكرًا لزيارتكم</div></body></html>`;
 }
 // طباعة عبر إطار مخفي — بلا نوافذ منبثقة (يعمل على الآيباد والكمبيوتر)
@@ -7915,7 +8004,10 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const cats = [...new Set(prods.map(p => p.cat || 'أخرى'))];
   const [cat, setCat] = useState(''); const [q, setQ] = useState('');
   const [cart, setCart] = useState([]); const [channel, setChannel] = useState('takeaway');
-  const [disc, setDisc] = useState({ amt: '', reason: '' }); const [pay, setPay] = useState(null); const [last, setLast] = useState(null);
+  const [disc, setDisc] = useState({ mode: 'amt', amt: '', reason: '' }); const [pay, setPay] = useState(null); const [last, setLast] = useState(null);
+  const [code, setCode] = useState(''); const [cust, setCust] = useState({ phone: '', name: '', redeem: false });
+  const loyCfg = org.loyaltyCfg || {}; const [loy, setLoy] = useState(null);
+  useEffect(() => { if (!loyCfg.enabled) return; let dead = false; cloud.get(KEYS.loy, { members: {}, tx: [] }).then(d => { if (!dead) setLoy(d || { members: {}, tx: [] }); }).catch(() => { }); return () => { dead = true; }; }, [loyCfg.enabled]);
   const [view, setView] = useState('sell'); const [showCart, setShowCart] = useState(false);
   const [queue, setQueue] = useState(posQueue); const [cfgF, setCfgF] = useState(null); const [shiftF, setShiftF] = useState(null);
   const apps = org.deliveryApps || APPS;
@@ -7927,16 +8019,30 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const cloudShift = (ops.posShifts || []).find(x => x.branchId === (br || {}).id && x.dev === dev.tag && x.status === 'open');
   const shift = cloudShift || (localShift && localShift.branchId === (br || {}).id && localShift.dev === dev.tag && localShift.status === 'open' ? { ...localShift, pending: true } : null);
   const setLS = (v) => { try { if (v) localStorage.setItem(POS_SH_KEY, JSON.stringify(v)); else localStorage.removeItem(POS_SH_KEY); } catch { } setLocalShift(v); };
-  const T = posTotals(cart, disc.amt, rate);
+  // v34.0: التسعير = العروض وخصم الصنف (لكل سطر) ← عرض الفاتورة ← الخصم اليدوي (مبلغ أو نسبة) ← استبدال النقاط
+  const priced = posPriceCart(cart, org.products, org.posPromos, { branchId: (br || {}).id, code });
+  const base1 = posR2(priced.sub - priced.orderDisc);
+  const manual = disc.mode === 'pct' ? posR2(base1 * Math.min(100, Number(disc.amt) || 0) / 100) : Math.min(base1, posR2(disc.amt));
+  const phoneN = normPhone(cust.phone); const phoneOk = phoneN.length >= 9;
+  const loyBalance = phoneOk && loy ? loyBal(loy, phoneN) : 0;
+  const redeemPts = phoneOk && loy && cust.redeem ? loyRedeemMax(loyCfg, loyBalance, posR2(base1 - manual)) : 0;
+  const redeemAmt = posR2(redeemPts * (Number(loyCfg.ptValue) || 0));
+  const T = posTotals(priced.lines, priced.orderDisc + manual + redeemAmt, rate);
+  const earnPts = phoneOk && loyCfg.enabled ? loyEarn(loyCfg, T.total) : 0;
+  const custName = phoneOk && loy ? (((loy.members || {})[phoneN] || {}).name || '') : '';
   // المزامنة: إرسال المعلّق ثم إزالته من الجهاز
   const flush = useCallback(async () => {
     // الوردية المحلية أولًا (إن لم تصل السحابة بعد)
     let ls = null; try { ls = JSON.parse(localStorage.getItem(POS_SH_KEY) || 'null'); } catch { }
     if (ls) { const okS = await commit(d => (d.posShifts || []).some(x => x.id === ls.id) ? d : { ...d, posShifts: [ls, ...(d.posShifts || [])] });
       if (okS) { try { localStorage.removeItem(POS_SH_KEY); } catch { } setLocalShift(null); } else return; }
-    const qn = posQueue(); if (!qn.length) return;
-    const ok = await commit(d => { const have = new Set((d.posOrders || []).map(o => o.id)); return { ...d, posOrders: [...qn.filter(o => !have.has(o.id)), ...(d.posOrders || [])] }; });
-    if (ok) { const rest = posQueue().filter(o => !qn.some(x => x.id === o.id)); posQueueSet(rest); setQueue(rest); }
+    const qn = posQueue();
+    if (qn.length) {
+      const ok = await commit(d => { const have = new Set((d.posOrders || []).map(o => o.id)); return { ...d, posOrders: [...qn.filter(o => !have.has(o.id)), ...(d.posOrders || [])] }; });
+      if (ok) { const rest = posQueue().filter(o => !qn.some(x => x.id === o.id)); posQueueSet(rest); setQueue(rest); } else return;
+    }
+    // نقاط الولاء بعد وصول الفواتير
+    const lq = loyQ(); if (lq.length) { const r = await loyPost(lq); if (r) { loyQSet(loyQ().filter(t => !lq.some(x => x.id === t.id))); setLoy(r); } }
   }, [commit]);
   useEffect(() => { flush(); const t = setInterval(flush, 20000); const on = () => flush(); window.addEventListener('online', on); return () => { clearInterval(t); window.removeEventListener('online', on); }; }, [flush]);
 
@@ -7949,6 +8055,9 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
 
   const add = (p) => setCart(c => { const i = c.findIndex(l => l.productId === p.id && !l.note); if (i >= 0) return c.map((l, k) => k === i ? { ...l, qty: l.qty + 1 } : l); return [...c, { key: uid('l'), productId: p.id, name: p.name, price: Number(p.sellPrice), qty: 1, note: '' }]; });
   const setQty = (key, d) => setCart(c => c.map(l => l.key === key ? { ...l, qty: Math.max(0, l.qty + d) } : l).filter(l => l.qty > 0));
+  // شارة العرض على بطاقة الصنف (العروض الفعّالة الآن بلا كوبون، وخصم بطاقة الصنف)
+  const nowT = new Date(); const actP = (org.posPromos || []).filter(pr => pr.type !== 'order' && !pr.code && promoActive(pr, nowT, (br || {}).id));
+  const tileTag = (p) => { if (p.disc && Number(p.disc.v) > 0 && (!p.disc.to || isoD(nowT) <= p.disc.to)) return p.disc.t === 'amt' ? '−' + money(p.disc.v) : '−' + p.disc.v + '%'; const pr = actP.find(x => promoHits(x, p)); return pr ? pr.name : ''; };
   const shown = prods.filter(p => (!cat || (p.cat || 'أخرى') === cat) && (!q.trim() || p.name.includes(q.trim())));
 
   const openShift = async (cashStr) => {
@@ -7972,27 +8081,34 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     const sum2 = posDaySummary(os, br.id, null);
     const rec = { ...shift, status: 'closed', closedAt: nowISO(), closedBy: me.name, expected, counted, diff: posR2(counted - expected), n: os.length, total: posR2(os.reduce((a, o) => a + o.total, 0)) };
     const ok = await commit(d => ({ ...d, posShifts: (d.posShifts || []).map(x => x.id === shift.id ? rec : x) }), { actionType: 'update', targetType: 'pos_shift', targetId: shift.id, branchName: br.name, title: 'إغلاق وردية نقطة بيع', details: dev.name + ' · متوقع ' + money(expected) + ' · فعلي ' + money(counted) + ' · فرق ' + money(rec.diff) });
-    if (ok) { setShiftF(null); say('أُغلقت الوردية — الفرق ' + money(rec.diff)); posPrint(posZHtml(org, rec, os, br)); }
+    if (ok) { setShiftF(null); say('أُغلقت الوردية — الفرق ' + money(rec.diff)); posPrint(posZHtml(org, rec, shiftOrders(shift), br)); }
   };
   const checkout = async () => {
     const paid = posR2((pay.parts || []).reduce((a, x) => a + (Number(x.amount) || 0), 0));
     const cashGiven = posR2((pay.parts || []).filter(x => x.m === 'cash').reduce((a, x) => a + (Number(x.amount) || 0), 0));
     if (paid + 0.004 < T.total) return say('المدفوع أقل من الإجمالي', 'no');
     const change = posR2(paid - T.total); if (change > cashGiven + 0.004) return say('الباقي لا يُرد إلا من النقد', 'no');
-    if (posR2(disc.amt) > 0 && !disc.reason.trim()) return say('اكتب سبب الخصم', 'no');
+    if (manual > 0 && !disc.reason.trim()) return say('اكتب سبب الخصم', 'no');
+    const maxPct = Number(cfg.maxDiscPct) || 0;
+    if (manual > 0 && maxPct > 0 && !isMgr && base1 > 0 && manual / base1 * 100 > maxPct + 0.001) return say('الخصم اليدوي يتجاوز الحد المسموح للكاشير (' + maxPct + '%) — يلزم مدير الفرع', 'no');
+    if (cust.phone.trim() && !phoneOk) return say('رقم جوال العميل غير صحيح', 'no');
     // ترقيم الجهاز اليومي وسلسلة البصمات (تعمل دون اتصال)
     const yy = today.replace(/-/g, '').slice(2); const sk = 'mizan:posSeq:' + br.id + ':' + today, hk = 'mizan:posHash:' + br.id;
     let seq = 1, prev = { icv: 0, hash: '0' }; try { seq = (Number(localStorage.getItem(sk)) || 0) + 1; prev = JSON.parse(localStorage.getItem(hk) || '{"icv":0,"hash":"0"}'); } catch { }
     const bi = (org.branches || []).findIndex(b => b.id === br.id) + 1;
     const o = { id: uid('po'), no: 'ف' + bi + '-' + yy + '-' + dev.tag + '-' + String(seq).padStart(4, '0'), branchId: br.id, dev: dev.tag, shiftId: shift.id, date: today, at: nowISO(), by: me.name,
-      channel, lines: cart.map(l => ({ productId: l.productId, name: l.name, qty: l.qty, price: l.price, ...(l.note ? { note: l.note } : {}) })),
-      gross: T.gross, disc: T.disc, ...(T.disc ? { discReason: disc.reason.trim() } : {}), total: T.total, vat: T.vat, net: T.net, rate,
+      channel, lines: priced.lines.map(l => ({ productId: l.productId, name: l.name, qty: l.qty, price: l.price, ...(l.note ? { note: l.note } : {}), ...(l.disc ? { disc: l.disc, promoId: l.promoId, promoName: l.promoName } : {}) })),
+      gross: T.gross, disc: T.disc, ...(priced.orderDisc ? { orderDisc: priced.orderDisc, orderPromo: priced.orderPromo } : {}), manualDisc: manual, ...(manual ? { discReason: disc.reason.trim() } : {}),
+      ...(code.trim() && priced.codeOk ? { coupon: code.trim() } : {}),
+      ...(phoneOk ? { loyalty: { phone: phoneN, name: (cust.name || custName).trim(), earned: earnPts, redeemed: redeemPts, redeemAmt, balAfter: posR2(loyBalance - redeemPts + earnPts) } } : {}),
+      total: T.total, vat: T.vat, net: T.net, rate,
       payments: pay.parts.filter(x => Number(x.amount) > 0).map(x => ({ m: x.m, amount: posR2(x.amount), ...(x.m === 'app' ? { appId: x.appId, appName: (apps.find(a => a.id === x.appId) || {}).n || 'تطبيق' } : {}) })),
       change, status: 'paid', icv: (prev.icv || 0) + 1, pih: prev.hash || '0' };
     o.hash = sha256Hex(JSON.stringify([o.no, o.at, o.lines, o.total, o.vat, o.payments, o.icv, o.pih]));
     try { localStorage.setItem(sk, String(seq)); localStorage.setItem(hk, JSON.stringify({ icv: o.icv, hash: o.hash })); } catch { }
     const qn = [...posQueue(), o]; posQueueSet(qn); setQueue(qn);
-    setLast(o); setCart([]); setDisc({ amt: '', reason: '' }); setPay(null); setShowCart(false);
+    if (phoneOk && (earnPts || redeemPts)) loyQSet([...loyQ(), ...(redeemPts ? [{ id: o.id + ':r', phone: phoneN, name: (cust.name || custName).trim(), pts: -redeemPts, at: o.at, br: br.id, ord: o.no }] : []), ...(earnPts ? [{ id: o.id + ':e', phone: phoneN, name: (cust.name || custName).trim(), pts: earnPts, at: o.at, br: br.id, ord: o.no }] : [])]);
+    setLast(o); setCart([]); setDisc({ mode: 'amt', amt: '', reason: '' }); setCode(''); setCust({ phone: '', name: '', redeem: false }); setPay(null); setShowCart(false);
     if (cfg.autoPrint !== false) posPrint(posReceiptHtml(org, o, br));
     flush();
   };
@@ -8003,7 +8119,8 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     if (closed) return say('إغلاق هذا اليوم مُرحّل — لا تُلغى فواتيره', 'no');
     const reason = window.prompt('سبب إلغاء الفاتورة ' + o.no + ':'); if (!reason || !reason.trim()) return;
     await commit(d => ({ ...d, posOrders: (d.posOrders || []).map(x => x.id === o.id ? { ...x, status: 'void', voidBy: me.name, voidAt: nowISO(), voidReason: reason.trim() } : x) }), { actionType: 'update', targetType: 'pos_order', targetId: o.id, branchName: br.name, title: 'ألغى فاتورة نقطة بيع', details: o.no + ' · ' + money(o.total) + ' · ' + reason.trim() });
-    say('أُلغيت الفاتورة ' + o.no);
+    if (o.loyalty && (o.loyalty.earned || o.loyalty.redeemed)) loyQSet([...loyQ(), ...(o.loyalty.earned ? [{ id: o.id + ':ve', phone: o.loyalty.phone, pts: -o.loyalty.earned, at: nowISO(), br: o.branchId, ord: o.no + ' (إلغاء)' }] : []), ...(o.loyalty.redeemed ? [{ id: o.id + ':vr', phone: o.loyalty.phone, pts: o.loyalty.redeemed, at: nowISO(), br: o.branchId, ord: o.no + ' (إلغاء)' }] : [])]);
+    say('أُلغيت الفاتورة ' + o.no); flush();
   };
 
   const css = `.pos-wrap{display:grid;grid-template-columns:1fr 360px;gap:12px;align-items:start}
@@ -8019,6 +8136,7 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const pendingBadge = queue.length ? <span className="badge b-amber">⏳ {queue.length} فاتورة بانتظار الإرسال</span> : <span className="badge b-mint">متزامن ✓</span>;
   const todayOrders = allOrders.filter(o => o.branchId === br.id && o.date === today).sort((a, b) => String(b.at).localeCompare(String(a.at)));
   const daySum = posDaySummary(todayOrders, br.id, today);
+  const pl = (l) => priced.lines.find(x => x.key === l.key) || {};
   const cartBox = (
     <div className={'card pos-cart' + (showCart ? ' open' : '')}>
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 6 }}><b>الطلب الحالي</b>{showCart && <button className="btn sm gh" onClick={() => setShowCart(false)}><X size={14} /></button>}</div>
@@ -8028,15 +8146,31 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
           <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{l.name}</div>
             <input className="inp" style={{ padding: '3px 6px', fontSize: 11, marginTop: 3 }} placeholder="ملاحظة (بدون بصل…)" value={l.note} onChange={e => setCart(c => c.map(x => x.key === l.key ? { ...x, note: e.target.value } : x))} /></div>
           <button className="pos-qb" onClick={() => setQty(l.key, -1)}>−</button><b className="num" style={{ minWidth: 22, textAlign: 'center' }}>{l.qty}</b><button className="pos-qb" onClick={() => setQty(l.key, 1)}>+</button>
-          <span className="num" style={{ minWidth: 64, textAlign: 'end', fontWeight: 700 }}>{money(l.qty * l.price)}</span>
+          <span style={{ minWidth: 64, textAlign: 'end' }}><b className="num">{money(l.qty * l.price - (pl(l).disc || 0))}</b>{pl(l).disc ? <div style={{ fontSize: 10, color: 'var(--mint)' }}>{pl(l).promoName} −<span className="num">{money(pl(l).disc)}</span></div> : null}</span>
         </div>))}
       {!cart.length && <div className="empty">اضغط الأصناف لإضافتها</div>}
       {cart.length > 0 && <>
         <div className="grid g2" style={{ gap: 6, marginTop: 8 }}>
-          <Field label="خصم (ر.س)" style={{ marginBottom: 0 }}><input className="inp n" inputMode="decimal" value={disc.amt} onChange={e => setDisc(d => ({ ...d, amt: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
-          {posR2(disc.amt) > 0 && <Field label="سبب الخصم" style={{ marginBottom: 0 }}><input className="inp" value={disc.reason} onChange={e => setDisc(d => ({ ...d, reason: e.target.value }))} /></Field>}
+          <Field label="خصم يدوي" style={{ marginBottom: 0 }}><div className="row" style={{ gap: 4 }}>
+            <input className="inp n" inputMode="decimal" style={{ flex: 1 }} value={disc.amt} onChange={e => setDisc(d => ({ ...d, amt: e.target.value.replace(/[^\d.]/g, '') }))} />
+            <button className={'btn sm' + (disc.mode === 'amt' ? ' pri' : ' gh')} onClick={() => setDisc(d => ({ ...d, mode: 'amt' }))}>ر.س</button><button className={'btn sm' + (disc.mode === 'pct' ? ' pri' : ' gh')} onClick={() => setDisc(d => ({ ...d, mode: 'pct' }))}>%</button></div></Field>
+          {manual > 0 ? <Field label="سبب الخصم" style={{ marginBottom: 0 }}><input className="inp" value={disc.reason} onChange={e => setDisc(d => ({ ...d, reason: e.target.value }))} /></Field>
+            : <Field label="كوبون" style={{ marginBottom: 0 }}><input className="inp" value={code} placeholder="رمز العرض" onChange={e => setCode(e.target.value)} /></Field>}
         </div>
-        <div style={{ fontSize: 12, color: 'var(--dim)', marginTop: 8 }}>{T.disc ? <div className="row" style={{ justifyContent: 'space-between' }}><span>الخصم</span><span className="num">−{money(T.disc)}</span></div> : null}
+        {manual > 0 && <Field label="كوبون" style={{ marginBottom: 0, marginTop: 6 }}><input className="inp" value={code} placeholder="رمز العرض" onChange={e => setCode(e.target.value)} /></Field>}
+        {code.trim() && <div style={{ fontSize: 11, marginTop: 3, color: priced.codeOk ? 'var(--mint)' : 'var(--rose)' }}>{priced.codeOk ? '✓ الكوبون فعّال' : 'رمز غير صالح أو العرض غير متاح الآن'}</div>}
+        {loyCfg.enabled && <div style={{ marginTop: 8, padding: 8, border: '1px dashed var(--line-g)', borderRadius: 10 }}>
+          <div className="row" style={{ gap: 6 }}><input className="inp" inputMode="tel" style={{ flex: 1 }} placeholder="جوال العميل (نقاط الولاء)" value={cust.phone} onChange={e => setCust(c => ({ ...c, phone: e.target.value, redeem: false }))} />
+            {phoneOk && !custName && <input className="inp" style={{ flex: 1 }} placeholder="اسم العميل (جديد)" value={cust.name} onChange={e => setCust(c => ({ ...c, name: e.target.value }))} />}</div>
+          {phoneOk && <div style={{ fontSize: 11.5, marginTop: 5, lineHeight: 1.8 }}>{custName ? <b>{custName}</b> : <span className="badge b-mint">عميل جديد</span>} · الرصيد <b className="num">{loy ? loyBalance : '…'}</b> نقطة{earnPts ? <> · يكسب <b className="num">{earnPts}</b></> : null}
+            {loyRedeemMax(loyCfg, loyBalance, posR2(base1 - manual)) > 0 && <label className="row" style={{ gap: 6, cursor: 'pointer', marginTop: 3 }}><input type="checkbox" checked={cust.redeem} onChange={e => setCust(c => ({ ...c, redeem: e.target.checked }))} />استبدال {loyRedeemMax(loyCfg, loyBalance, posR2(base1 - manual))} نقطة = <b className="num">{money(loyRedeemMax(loyCfg, loyBalance, posR2(base1 - manual)) * (Number(loyCfg.ptValue) || 0))}</b></label>}
+            {!loy && <div style={{ color: 'var(--faint)' }}>الرصيد يتطلب اتصالًا — النقاط المكتسبة تُحفظ وتُرسل لاحقًا</div>}</div>}
+        </div>}
+        <div style={{ fontSize: 12, color: 'var(--dim)', marginTop: 8 }}>
+          {T.ldisc ? <div className="row" style={{ justifyContent: 'space-between' }}><span>العروض</span><span className="num">−{money(T.ldisc)}</span></div> : null}
+          {priced.orderDisc ? <div className="row" style={{ justifyContent: 'space-between' }}><span>{(priced.orderPromo || {}).name}</span><span className="num">−{money(priced.orderDisc)}</span></div> : null}
+          {manual ? <div className="row" style={{ justifyContent: 'space-between' }}><span>خصم يدوي{disc.mode === 'pct' ? ' ' + disc.amt + '%' : ''}</span><span className="num">−{money(manual)}</span></div> : null}
+          {redeemAmt ? <div className="row" style={{ justifyContent: 'space-between' }}><span>استبدال {redeemPts} نقطة</span><span className="num">−{money(redeemAmt)}</span></div> : null}
           <div className="row" style={{ justifyContent: 'space-between' }}><span>منها ضريبة {rate}%</span><span className="num">{money(T.vat)}</span></div></div>
         <div className="row" style={{ justifyContent: 'space-between', fontSize: 19, fontWeight: 800, margin: '6px 0 10px' }}><span>الإجمالي</span><span className="num">{money(T.total)}</span></div>
         <div className="grid g2" style={{ gap: 6 }}>
@@ -8059,7 +8193,9 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
         {brs.length > 1 ? <select className="sel" style={{ width: 160 }} value={br.id} onChange={e => setBrId(e.target.value)}>{brs.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select> : <span className="badge b-dim">{br.name}</span>}
         <span className="badge b-dim">الجهاز {dev.name} ({dev.tag})</span>{pendingBadge}
         <span style={{ marginInlineStart: 'auto' }} />
-        <SectionNav force="tabs" cur={view} onPick={setView} label="نقطة البيع" items={[{ id: 'sell', ar: 'البيع', icon: Store }, { id: 'orders', ar: 'طلبات اليوم', icon: FileText, badge: todayOrders.length || null }, { id: 'shift', ar: 'الوردية', icon: Clock }, ...(R.admin || R.scope === 'all' ? [{ id: 'cfg', ar: 'الإعدادات', icon: Settings }] : [])]} />
+        <SectionNav force="tabs" cur={view} onPick={setView} label="نقطة البيع" items={[{ id: 'sell', ar: 'البيع', icon: Store }, { id: 'orders', ar: 'طلبات اليوم', icon: FileText, badge: todayOrders.length || null }, { id: 'shift', ar: 'الوردية', icon: Clock },
+          ...(isMgr ? [{ id: 'shifts', ar: 'الورديات والتقارير', icon: ClipboardCheck }] : []), ...(R.admin || R.scope === 'all' ? [{ id: 'promos', ar: 'العروض', icon: Sparkles }] : []),
+          ...(isMgr ? [{ id: 'loyalty', ar: 'الولاء', icon: Users }] : []), ...(R.admin || R.scope === 'all' ? [{ id: 'cfg', ar: 'الإعدادات', icon: Settings }] : [])]} />
       </div></div>
 
       {shift && shift.pending && <div className="note" style={{ borderColor: 'rgba(224,164,88,.6)' }}>⚠ الوردية مفتوحة على هذا الجهاز ولم تُحفظ في السحابة بعد — البيع مستمر والفواتير محفوظة على الجهاز، وتُرسل تلقائيًا عند نجاح الاتصال. إن استمر هذا التنبيه أرسل لي نص رسالة الخطأ التي ظهرت عند فتح الوردية.</div>}
@@ -8076,7 +8212,7 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
               <button className={'btn sm' + (!cat ? ' pri' : ' gh')} onClick={() => setCat('')}>الكل</button>
               {cats.map(c => <button key={c} className={'btn sm' + (cat === c ? ' pri' : ' gh')} onClick={() => setCat(c)}>{c}</button>)}
             </div>
-            <div className="pos-tiles">{shown.map(p => <button key={p.id} className="pos-tile" onClick={() => add(p)}><b>{p.name}</b><span className="num">{money(p.sellPrice)}</span></button>)}</div>
+            <div className="pos-tiles">{shown.map(p => { const tg = tileTag(p); return <button key={p.id} className="pos-tile" onClick={() => add(p)}>{tg && <i style={{ fontStyle: 'normal', fontSize: 10, background: 'var(--mint)', color: '#fff', borderRadius: 6, padding: '1px 6px', alignSelf: 'center' }}>🏷 {tg}</i>}<b>{p.name}</b><span className="num">{money(p.sellPrice)}</span></button>; })}</div>
             {!shown.length && <div className="card"><div className="empty">لا أصناف — أضف المنتجات بأسعارها من «المخزون ← الوصفات والتكلفة».</div></div>}
             {last && <div className="note">آخر فاتورة: <b className="num">{last.no}</b> بـ <b className="num">{money(last.total)}</b>{last.change ? ' · الباقي ' + money(last.change) : ''} — <button className="btn sm gh" onClick={() => posPrint(posReceiptHtml(org, last, br))}><Printer size={12} />إعادة الطباعة</button></div>}
           </div>
@@ -8111,6 +8247,9 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
       </div>}
 
       {view === 'cfg' && <PosSettings org={org} commitOrg={commitOrg} say={say} dev={dev} />}
+      {view === 'promos' && <PosPromos org={org} commitOrg={commitOrg} say={say} />}
+      {view === 'loyalty' && <PosLoyalty org={org} commitOrg={commitOrg} say={say} canCfg={!!(R.admin || R.scope === 'all')} me={me} />}
+      {view === 'shifts' && <PosShifts org={org} ops={ops} me={me} brs={brs} commit={commit} say={say} />}
 
       {pay && <Modal title={'الدفع — ' + money(T.total)} icon={Banknote} onClose={() => setPay(null)}
         foot={<><button className="btn gh" onClick={() => setPay(null)}>رجوع</button><button className="btn pri" onClick={checkout}><Check size={14} />تأكيد وطباعة</button></>}>
@@ -8124,22 +8263,241 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
       </Modal>}
     </div>);
 }
-function posZHtml(org, sh, os, br) {
-  const s2 = posDaySummary(os.map(o => ({ ...o, date: 'x' })), br.id, 'x'); const m = (n) => money(n);
+// v34.0: تقرير الوردية — X (مؤقت لوردية مفتوحة) أو Z (إغلاق) — بالمبيعات وطرق الدفع والخصومات والعروض والولاء والملغاة
+function posShiftHtml(org, sh, allOs, br, kind) {
+  const st = posOrdersStats(allOs); const m = (n) => money(n);
+  const expected = sh.expected != null && kind === 'Z' ? sh.expected : posR2((sh.openingCash || 0) + st.cash);
   const row = (k, v) => `<tr><td>${k}</td><td class="n">${v}</td></tr>`;
-  return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><style>${NUM_FACE}@page{size:80mm auto;margin:3mm}body{font-family:'MizanNum',Tahoma,sans-serif;width:74mm;margin:0 auto;font-size:12px}table{width:100%;border-collapse:collapse}td{padding:4px 0;border-bottom:1px dashed #999}td.n{text-align:left}h1{font-size:15px;text-align:center}</style></head><body>
-  <h1>تقرير إغلاق وردية</h1><div style="text-align:center">${_xe(br.name)} · ${_xe(sh.devName || '')} (${_xe(sh.dev)})<br>${_xe(String(sh.openedAt).slice(0, 16).replace('T', ' '))} ← ${_xe(String(sh.closedAt).slice(11, 16))}</div>
-  <table>${row('عدد الفواتير', sh.n)}${row('إجمالي المبيعات', m(sh.total))}${row('منها ضريبة', m(s2.vat))}${row('نقدي (صافي)', m(s2.cash))}${row('شبكة', m(s2.card))}${row('تحويل', m(s2.transfer))}
-  ${Object.entries(s2.apps).map(([id, x]) => row(((org.deliveryApps || APPS).find(a => a.id === id) || {}).n || 'تطبيق', m(x.amount))).join('')}
-  ${row('النقد الافتتاحي', m(sh.openingCash))}${row('النقد المتوقع', m(sh.expected))}${row('النقد المعدود', m(sh.counted))}${row('<b>الفرق</b>', '<b>' + m(sh.diff) + '</b>')}</table>
-  <div style="margin-top:8px">أغلقها: ${_xe(sh.closedBy || '')}</div></body></html>`;
+  return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>تقرير ${kind} — ${_xe(br.name)}</title><style>${NUM_FACE}@page{size:80mm auto;margin:3mm}body{font-family:'MizanNum',Tahoma,sans-serif;width:74mm;margin:0 auto;font-size:12px}table{width:100%;border-collapse:collapse}td{padding:4px 0;border-bottom:1px dashed #999}td.n{text-align:left}h1{font-size:15px;text-align:center;margin:2px 0}.sec td{font-weight:800;border-bottom:1.5px solid #000;padding-top:8px}</style></head><body>
+  <h1>${kind === 'Z' ? 'تقرير إغلاق وردية (Z)' : 'تقرير وردية مؤقت (X)'}</h1><div style="text-align:center">${_xe((org.company || {}).name || '')}<br>${_xe(br.name)} · ${_xe(sh.devName || '')} (${_xe(sh.dev || '')})<br>${_xe(String(sh.openedAt).slice(0, 16).replace('T', ' '))} ← ${kind === 'Z' ? _xe(String(sh.closedAt || '').slice(11, 16)) : 'الآن ' + _xe(new Date().toTimeString().slice(0, 5))}</div>
+  <table><tr class="sec"><td colspan="2">المبيعات</td></tr>${row('عدد الفواتير', st.n)}${row('المبيعات قبل الخصومات', m(st.gross))}${row('إجمالي المبيعات', m(st.total))}${row('منها ضريبة', m(st.vat))}
+  <tr class="sec"><td colspan="2">طرق الدفع</td></tr>${row('نقدي (صافي)', m(st.cash))}${row('شبكة', m(st.card))}${row('تحويل', m(st.transfer))}
+  ${Object.entries(st.apps).map(([id, x]) => row(_xe(((org.deliveryApps || APPS).find(a => a.id === id) || {}).n || 'تطبيق'), m(x.amount))).join('')}
+  ${st.ldisc || st.odisc || st.mdisc || st.loyAmt ? `<tr class="sec"><td colspan="2">الخصومات والعروض</td></tr>${Object.entries(st.promo).map(([k, v]) => row(_xe(k), '−' + m(v))).join('')}${st.mdisc ? row('خصم يدوي', '−' + m(st.mdisc)) : ''}${st.loyAmt ? row('استبدال نقاط (' + st.loyPts + ')', '−' + m(st.loyAmt)) : ''}` : ''}
+  ${st.loyEarned ? row('نقاط مكتسبة', st.loyEarned) : ''}${st.voidN ? row('فواتير ملغاة', st.voidN + ' · ' + m(st.voidAmt)) : ''}
+  <tr class="sec"><td colspan="2">الدرج</td></tr>${row('النقد الافتتاحي', m(sh.openingCash || 0))}${row('النقد المتوقع', m(expected))}
+  ${kind === 'Z' ? row('النقد المعدود', m(sh.counted)) + row('<b>الفرق</b>', '<b>' + m(sh.diff) + '</b>') : ''}</table>
+  <div style="margin-top:8px">${kind === 'Z' ? 'أغلقها: ' + _xe(sh.closedBy || '') + (sh.closeNote ? '<br>ملاحظة: ' + _xe(sh.closeNote) : '') : 'طُبع: ' + _xe(new Date().toLocaleString('ar-SA-u-nu-latn'))}</div></body></html>`;
 }
+const posZHtml = (org, sh, os, br) => posShiftHtml(org, sh, os, br, 'Z');
+/* ===== v34.0 — إدارة العروض ===== */
+const PROMO_T = { pct: 'خصم نسبة %', amt: 'خصم مبلغ ثابت للوحدة', price: 'سعر خاص', bxgy: 'اشترِ X واحصل على Y مجانًا', order: 'خصم على الفاتورة' };
+const DAYS_AR = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+const promoDesc = (pr) => pr.type === 'pct' ? pr.value + '%' : pr.type === 'amt' ? money(pr.value) + ' للوحدة' : pr.type === 'price' ? 'بـ ' + money(pr.value) : pr.type === 'bxgy' ? 'اشترِ ' + pr.x + ' واحصل على ' + pr.y : (pr.mode === 'amt' ? money(pr.value) : pr.value + '%') + (Number(pr.minTotal) ? ' فوق ' + money(pr.minTotal) : '');
+const PROMO_IDEAS = [
+  { k: 'ساعة سعيدة', d: 'خصم على المشروبات في ساعات الهدوء', f: { name: 'الساعة السعيدة', type: 'pct', value: '20', scope: 'cats', tFrom: '15:00', tTo: '18:00' } },
+  { k: 'اشترِ 2 والثالث مجانًا', d: 'يرفع متوسط الكمية', f: { name: 'اشترِ 2 والثالث مجانًا', type: 'bxgy', x: '2', y: '1', scope: 'items' } },
+  { k: 'خصم الفاتورة الكبيرة', d: 'يرفع متوسط الفاتورة', f: { name: 'خصم الطلبات فوق 150', type: 'order', mode: 'pct', value: '10', minTotal: '150', scope: 'all' } },
+  { k: 'عرض نهاية الأسبوع', d: 'الخميس والجمعة', f: { name: 'عرض الويكند', type: 'pct', value: '15', scope: 'all', days: [4, 5] } },
+  { k: 'وجبة اليوم', d: 'سعر خاص لصنف محدد', f: { name: 'وجبة اليوم', type: 'price', value: '', scope: 'items' } },
+  { k: 'كوبون حملة', d: 'للتسويق عبر السوشال أو SMS', f: { name: 'كوبون الحملة', type: 'pct', value: '10', scope: 'all', code: 'MIZAN10' } },
+  { k: 'افتتاح فرع', d: 'لفرع محدد لفترة محددة', f: { name: 'عرض الافتتاح', type: 'pct', value: '25', scope: 'all' } }
+];
+function PosPromos({ org, commitOrg, say }) {
+  const list = org.posPromos || []; const prods = (org.products || []).filter(p => !p.posOff);
+  const cats = [...new Set(prods.map(p => p.cat || 'أخرى'))]; const brs = (org.branches || []).filter(b => b.isActive !== false);
+  const [f, setF] = useState(null);
+  const blank = { name: '', type: 'pct', value: '', x: '', y: '', mode: 'pct', minTotal: '', scope: 'all', cats: [], items: [], code: '', from: '', to: '', days: [], tFrom: '', tTo: '', branches: [], active: true };
+  const tog = (k, v) => setF(x => ({ ...x, [k]: (x[k] || []).includes(v) ? x[k].filter(y => y !== v) : [...(x[k] || []), v] }));
+  const save = async () => {
+    if (!f.name.trim()) return say('اكتب اسم العرض', 'no');
+    const v = Number(f.value) || 0;
+    if (f.type === 'bxgy' ? !(Number(f.x) >= 1 && Number(f.y) >= 1) : v <= 0) return say(f.type === 'bxgy' ? 'حدّد X و Y' : 'أدخل قيمة العرض', 'no');
+    if ((f.type === 'pct' || (f.type === 'order' && f.mode !== 'amt')) && v > 100) return say('النسبة لا تتجاوز 100%', 'no');
+    if (f.type !== 'order' && f.scope === 'items' && !(f.items || []).length) return say('اختر الأصناف المشمولة', 'no');
+    if (f.type !== 'order' && f.scope === 'cats' && !(f.cats || []).length) return say('اختر التصنيفات المشمولة', 'no');
+    if (f.from && f.to && f.to < f.from) return say('تاريخ النهاية قبل البداية', 'no');
+    if (f.code && list.some(x => x.id !== f.id && x.code && x.code.trim().toLowerCase() === f.code.trim().toLowerCase())) return say('رمز الكوبون مستخدم في عرض آخر', 'no');
+    const rec = { ...f, id: f.id || uid('pm'), name: f.name.trim(), value: v, x: Number(f.x) || 0, y: Number(f.y) || 0, minTotal: Number(f.minTotal) || 0, code: (f.code || '').trim(), scope: f.type === 'order' ? 'all' : f.scope, by: f.by || '', at: f.at || nowISO() };
+    const ok = await commitOrg(d => ({ ...d, posPromos: f.id ? (d.posPromos || []).map(x => x.id === f.id ? rec : x) : [...(d.posPromos || []), rec] }), { actionType: f.id ? 'update' : 'create', targetType: 'settings', targetId: rec.id, need: 'edit', title: f.id ? 'عدّل عرضًا ترويجيًا' : 'أضاف عرضًا ترويجيًا', details: rec.name + ' · ' + promoDesc(rec) });
+    if (ok) { setF(null); say('حُفظ العرض ✓'); }
+  };
+  const setActive = (pr, a) => commitOrg(d => ({ ...d, posPromos: (d.posPromos || []).map(x => x.id === pr.id ? { ...x, active: a } : x) }), { actionType: 'update', targetType: 'settings', targetId: pr.id, need: 'edit', title: a ? 'فعّل عرضًا' : 'أوقف عرضًا', details: pr.name });
+  const del = (pr) => { if (window.confirm('حذف العرض «' + pr.name + '»؟ الفواتير السابقة تحتفظ باسمه وقيمته.')) commitOrg(d => ({ ...d, posPromos: (d.posPromos || []).filter(x => x.id !== pr.id) }), { actionType: 'delete', targetType: 'settings', targetId: pr.id, need: 'edit', title: 'حذف عرضًا', details: pr.name }); };
+  const now = new Date();
+  const when = (pr) => [pr.from || pr.to ? (pr.from || '…') + ' ← ' + (pr.to || '…') : '', (pr.days || []).length ? pr.days.map(d => DAYS_AR[d]).join('، ') : '', pr.tFrom && pr.tTo ? pr.tFrom + '–' + pr.tTo : ''].filter(Boolean).join(' · ') || 'دائم';
+  const scopeTxt = (pr) => pr.type === 'order' ? 'الفاتورة' : pr.scope === 'items' ? (pr.items || []).map(id => (prods.find(p => p.id === id) || {}).name).filter(Boolean).join('، ') : pr.scope === 'cats' ? (pr.cats || []).join('، ') : 'كل الأصناف';
+  return (
+    <div className="grid" style={{ gap: 12 }}>
+      <div className="card">
+        <div className="row" style={{ marginBottom: 8 }}><div className="card-t"><Sparkles size={15} color="var(--brass)" />العروض والخصومات</div><button className="btn sm pri" style={{ marginInlineStart: 'auto' }} onClick={() => setF({ ...blank })}><Plus size={13} />عرض جديد</button></div>
+        <div className="note">يُطبَّق تلقائيًا في نقطة البيع <b>أفضل عرض واحد لكل صنف</b> (لا تتراكب العروض على الصنف نفسه)، ثم أفضل عرض على الفاتورة. خصم صنف بعينه يُضبط أيضًا من بطاقة الصنف (المخزون ← الوصفات والتكلفة). الخصم يُخصم من الإيراد قبل الضريبة في القيود.</div>
+        <div className="tw" style={{ marginTop: 8 }}><table className="tb"><thead><tr><th>العرض</th><th>النوع</th><th>يشمل</th><th>المدة</th><th>الحالة</th><th></th></tr></thead><tbody>
+          {list.map(pr => { const on = promoActive(pr, now, ''); return (
+            <tr key={pr.id} style={pr.active === false ? { opacity: .55 } : undefined}><td><b>{pr.name}</b>{pr.code && <div><span className="badge b-dim">كوبون: {pr.code}</span></div>}</td>
+              <td style={{ fontSize: 12 }}>{PROMO_T[pr.type]}<div className="num" style={{ color: 'var(--brass)' }}>{promoDesc(pr)}</div></td>
+              <td style={{ fontSize: 11.5 }}>{scopeTxt(pr)}{(pr.branches || []).length ? <div style={{ color: 'var(--faint)' }}>{pr.branches.map(id => (brs.find(b => b.id === id) || {}).name).join('، ')}</div> : null}</td>
+              <td style={{ fontSize: 11.5 }}>{when(pr)}</td>
+              <td>{pr.active === false ? <span className="badge b-dim">موقوف</span> : on ? <span className="badge b-mint">فعّال الآن</span> : <span className="badge b-amber">مجدول</span>}</td>
+              <td><div className="row" style={{ gap: 4 }}><button className="btn sm gh" onClick={() => setF({ ...blank, ...pr, value: String(pr.value || ''), x: String(pr.x || ''), y: String(pr.y || ''), minTotal: String(pr.minTotal || '') })}>تعديل</button>
+                <button className="btn sm gh" onClick={() => setActive(pr, pr.active === false)}>{pr.active === false ? 'تفعيل' : 'إيقاف'}</button><button className="btn sm gh" onClick={() => del(pr)}><Trash2 size={12} color="#D9544D" /></button></div></td></tr>); })}
+          {!list.length && <tr><td colSpan={6}><div className="empty">لا عروض بعد — ابدأ من الأفكار أدناه.</div></td></tr>}
+        </tbody></table></div>
+      </div>
+      <div className="card">
+        <div className="card-t" style={{ marginBottom: 8 }}><Lightbulb size={15} color="var(--brass)" />أفكار ترويجية جاهزة</div>
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>{PROMO_IDEAS.map(x => <button key={x.k} className="btn" style={{ flexDirection: 'column', alignItems: 'flex-start', minWidth: 170 }} onClick={() => setF({ ...blank, ...x.f })}><b>{x.k}</b><span style={{ fontSize: 11, color: 'var(--dim)' }}>{x.d}</span></button>)}</div>
+        <div className="note" style={{ marginTop: 8 }}>مقترحات أخرى: نقاط الولاء (من تبويب «الولاء») لتكرار الزيارة، كوبونات للحملات لقياس أثرها (تظهر في التقارير باسم العرض)، عروض الأوقات الهادئة بدل الخصم الدائم، وتقييم العرض من «الورديات والتقارير» بمقارنة المبيعات والخصم الممنوح.</div>
+      </div>
+      {f && <Modal title={f.id ? 'تعديل عرض' : 'عرض جديد'} icon={Sparkles} onClose={() => setF(null)} wide foot={<><button className="btn gh" onClick={() => setF(null)}>إلغاء</button><button className="btn pri" onClick={save}><Check size={14} />حفظ العرض</button></>}>
+        <div className="grid g2">
+          <Field label="اسم العرض (يظهر في الفاتورة والتقارير)"><input className="inp" value={f.name} onChange={e => setF(x => ({ ...x, name: e.target.value }))} /></Field>
+          <Field label="نوع العرض"><select className="sel" value={f.type} onChange={e => setF(x => ({ ...x, type: e.target.value }))}>{Object.entries(PROMO_T).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
+          {f.type === 'bxgy' ? <><Field label="اشترِ (X)"><input className="inp n" inputMode="numeric" value={f.x} onChange={e => setF(x => ({ ...x, x: e.target.value.replace(/\D/g, '') }))} /></Field>
+            <Field label="واحصل مجانًا على (Y)"><input className="inp n" inputMode="numeric" value={f.y} onChange={e => setF(x => ({ ...x, y: e.target.value.replace(/\D/g, '') }))} /></Field></>
+            : <Field label={f.type === 'pct' ? 'النسبة %' : f.type === 'amt' ? 'المبلغ المخصوم من كل وحدة' : f.type === 'price' ? 'السعر الخاص للوحدة (شامل الضريبة)' : f.mode === 'amt' ? 'المبلغ المخصوم من الفاتورة' : 'النسبة % من الفاتورة'}>
+              <div className="row" style={{ gap: 4 }}><input className="inp n" style={{ flex: 1 }} inputMode="decimal" value={f.value} onChange={e => setF(x => ({ ...x, value: e.target.value.replace(/[^\d.]/g, '') }))} />
+                {f.type === 'order' && <><button type="button" className={'btn sm' + (f.mode !== 'amt' ? ' pri' : ' gh')} onClick={() => setF(x => ({ ...x, mode: 'pct' }))}>%</button><button type="button" className={'btn sm' + (f.mode === 'amt' ? ' pri' : ' gh')} onClick={() => setF(x => ({ ...x, mode: 'amt' }))}>ر.س</button></>}</div></Field>}
+          {f.type === 'order' && <Field label="حد أدنى للفاتورة (ر.س)"><input className="inp n" inputMode="decimal" value={f.minTotal} onChange={e => setF(x => ({ ...x, minTotal: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>}
+          <Field label="رمز كوبون (اختياري — يُطبَّق فقط عند إدخاله)"><input className="inp" value={f.code} placeholder="مثال: RAMADAN" onChange={e => setF(x => ({ ...x, code: e.target.value.toUpperCase() }))} /></Field>
+        </div>
+        {f.type !== 'order' && <><div className="lbl">يشمل</div>
+          <div className="row" style={{ gap: 6, marginBottom: 6 }}>{[['all', 'كل الأصناف'], ['cats', 'تصنيفات (مجموعات)'], ['items', 'أصناف محددة']].map(([k, t]) => <button key={k} type="button" className={'btn sm' + (f.scope === k ? ' pri' : ' gh')} onClick={() => setF(x => ({ ...x, scope: k }))}>{t}</button>)}</div>
+          {f.scope === 'cats' && <div className="row" style={{ gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>{cats.map(c => <label key={c} className="row" style={{ gap: 5, fontSize: 12.5, cursor: 'pointer' }}><input type="checkbox" checked={(f.cats || []).includes(c)} onChange={() => tog('cats', c)} />{c}</label>)}</div>}
+          {f.scope === 'items' && <div className="row" style={{ gap: 10, flexWrap: 'wrap', marginBottom: 8, maxHeight: 160, overflow: 'auto' }}>{prods.map(p => <label key={p.id} className="row" style={{ gap: 5, fontSize: 12.5, cursor: 'pointer' }}><input type="checkbox" checked={(f.items || []).includes(p.id)} onChange={() => tog('items', p.id)} />{p.name} <span className="num" style={{ color: 'var(--faint)' }}>{money(p.sellPrice)}</span></label>)}</div>}</>}
+        <div className="lbl">الجدولة (اختياري)</div>
+        <div className="grid g4">
+          <Field label="من تاريخ"><input type="date" className="inp" value={f.from} onChange={e => setF(x => ({ ...x, from: e.target.value }))} /></Field>
+          <Field label="إلى تاريخ"><input type="date" className="inp" value={f.to} onChange={e => setF(x => ({ ...x, to: e.target.value }))} /></Field>
+          <Field label="من الساعة"><input type="time" className="inp" value={f.tFrom} onChange={e => setF(x => ({ ...x, tFrom: e.target.value }))} /></Field>
+          <Field label="إلى الساعة"><input type="time" className="inp" value={f.tTo} onChange={e => setF(x => ({ ...x, tTo: e.target.value }))} /></Field>
+        </div>
+        <div className="row" style={{ gap: 10, flexWrap: 'wrap', margin: '4px 0 8px' }}><span className="lbl" style={{ margin: 0 }}>الأيام:</span>{DAYS_AR.map((d, i) => <label key={i} className="row" style={{ gap: 4, fontSize: 12.5, cursor: 'pointer' }}><input type="checkbox" checked={(f.days || []).includes(i)} onChange={() => tog('days', i)} />{d}</label>)}</div>
+        <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}><span className="lbl" style={{ margin: 0 }}>الفروع (فارغ = الكل):</span>{brs.map(b => <label key={b.id} className="row" style={{ gap: 4, fontSize: 12.5, cursor: 'pointer' }}><input type="checkbox" checked={(f.branches || []).includes(b.id)} onChange={() => tog('branches', b.id)} />{b.name}</label>)}</div>
+      </Modal>}
+    </div>);
+}
+
+/* ===== v34.0 — نقاط الولاء: الإعداد والعملاء ===== */
+function PosLoyalty({ org, commitOrg, say, canCfg, me }) {
+  const c = org.loyaltyCfg || {};
+  const [f, setF] = useState({ enabled: !!c.enabled, earnPer: String(c.earnPer || 10), ptValue: String(c.ptValue || 0.5), minRedeem: String(c.minRedeem || 20), maxRedeemPct: String(c.maxRedeemPct || 50) });
+  const [doc, setDoc] = useState(null); const [q, setQ] = useState(''); const [adj, setAdj] = useState(null);
+  const load = () => cloud.get(KEYS.loy, { members: {}, tx: [] }).then(d => setDoc(d || { members: {}, tx: [] })).catch(() => setDoc({ members: {}, tx: [] }));
+  useEffect(() => { load(); }, []);
+  const saveCfg = async () => {
+    const v = { enabled: !!f.enabled, earnPer: Number(f.earnPer) || 0, ptValue: Number(f.ptValue) || 0, minRedeem: Number(f.minRedeem) || 0, maxRedeemPct: Math.min(100, Number(f.maxRedeemPct) || 100) };
+    if (v.enabled && (v.earnPer <= 0 || v.ptValue <= 0)) return say('حدّد قيمة الكسب وقيمة النقطة', 'no');
+    const ok = await commitOrg(d => ({ ...d, loyaltyCfg: v }), { actionType: 'update', targetType: 'settings', targetId: 'loyaltyCfg', need: 'edit', title: 'إعداد نقاط الولاء', details: v.enabled ? 'نقطة لكل ' + v.earnPer + ' ر.س · النقطة = ' + v.ptValue + ' ر.س' : 'موقوف' });
+    if (ok) say('حُفظ إعداد الولاء ✓');
+  };
+  const rows = useMemo(() => { if (!doc) return []; const m = {};
+    (doc.tx || []).forEach(t => { const x = m[t.phone] || (m[t.phone] = { phone: t.phone, bal: 0, earned: 0, used: 0, n: 0, last: '' }); x.bal += Number(t.pts) || 0; if (t.pts > 0) x.earned += t.pts; else x.used -= t.pts; if (/:e$/.test(t.id)) x.n++; if (String(t.at) > x.last) x.last = t.at; });
+    return Object.values(m).map(x => ({ ...x, bal: posR2(x.bal), name: ((doc.members || {})[x.phone] || {}).name || '' })).sort((a, b) => b.bal - a.bal); }, [doc]);
+  const shown = rows.filter(x => !q.trim() || x.phone.includes(normPhone(q) || q.trim()) || x.name.includes(q.trim()));
+  const liab = posR2(rows.reduce((a, x) => a + Math.max(0, x.bal), 0) * (Number(c.ptValue) || 0));
+  const doAdj = async () => {
+    const pts = Math.round(Number(adj.pts) || 0); if (!pts) return say('أدخل عدد النقاط (+ أو −)', 'no'); if (!adj.reason.trim()) return say('اكتب السبب', 'no');
+    const r = await loyPost([{ id: uid('la'), phone: adj.phone, pts, at: nowISO(), br: '', ord: 'تعديل: ' + adj.reason.trim() + ' — ' + me.name }]);
+    if (r) { setDoc(r); setAdj(null); say('عُدّل الرصيد ✓'); } else say('تعذّر الحفظ — تحقق من الاتصال', 'no');
+  };
+  return (
+    <div className="grid" style={{ gap: 12 }}>
+      {canCfg && <div className="card">
+        <div className="card-t" style={{ marginBottom: 8 }}><Gift size={15} color="var(--brass)" />إعداد نقاط الولاء</div>
+        <label className="row" style={{ gap: 7, fontSize: 13, cursor: 'pointer', marginBottom: 8 }}><input type="checkbox" checked={f.enabled} onChange={e => setF(x => ({ ...x, enabled: e.target.checked }))} />تفعيل نقاط الولاء في كل الفروع</label>
+        <div className="grid g4">
+          <Field label="نقطة واحدة لكل (ر.س)"><input className="inp n" inputMode="decimal" value={f.earnPer} onChange={e => setF(x => ({ ...x, earnPer: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+          <Field label="قيمة النقطة عند الاستبدال (ر.س)"><input className="inp n" inputMode="decimal" value={f.ptValue} onChange={e => setF(x => ({ ...x, ptValue: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+          <Field label="أقل رصيد للاستبدال (نقطة)"><input className="inp n" inputMode="numeric" value={f.minRedeem} onChange={e => setF(x => ({ ...x, minRedeem: e.target.value.replace(/\D/g, '') }))} /></Field>
+          <Field label="أقصى استبدال من الفاتورة %"><input className="inp n" inputMode="numeric" value={f.maxRedeemPct} onChange={e => setF(x => ({ ...x, maxRedeemPct: e.target.value.replace(/\D/g, '') }))} /></Field>
+        </div>
+        {Number(f.earnPer) > 0 && Number(f.ptValue) > 0 && <div className="note">مثال: فاتورة 100 ر.س تكسب <b className="num">{Math.floor(100 / Number(f.earnPer))}</b> نقطة قيمتها <b className="num">{money(Math.floor(100 / Number(f.earnPer)) * Number(f.ptValue))}</b> — أي ردّ <b className="num">{(Number(f.ptValue) / Number(f.earnPer) * 100).toFixed(1)}%</b> من قيمة المشتريات.</div>}
+        <button className="btn pri" style={{ marginTop: 8 }} onClick={saveCfg}><Check size={14} />حفظ</button>
+      </div>}
+      <div className="card">
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 8 }}><div className="card-t"><Users size={15} color="var(--brass)" />عملاء الولاء</div>
+          <span className="badge b-brass">{rows.length} عميل</span><span className="badge b-dim" title="قيمة النقاط القائمة غير المستبدلة">التزام النقاط {money(liab)}</span>
+          <input className="inp" style={{ width: 200, marginInlineStart: 'auto' }} placeholder="بحث بالجوال أو الاسم" value={q} onChange={e => setQ(e.target.value)} />
+          <button className="btn sm gh" onClick={load}><RefreshCw size={13} /></button></div>
+        {!doc ? <div className="empty">جارٍ التحميل…</div> : <div className="tw"><table className="tb"><thead><tr><th>العميل</th><th>الجوال</th><th style={{ textAlign: 'end' }}>الرصيد</th><th style={{ textAlign: 'end' }}>المكتسب</th><th style={{ textAlign: 'end' }}>المستبدل</th><th>الزيارات</th><th>آخر زيارة</th>{canCfg && <th></th>}</tr></thead><tbody>
+          {shown.slice(0, 300).map(x => <tr key={x.phone}><td>{x.name || '—'}</td><td className="num">0{x.phone}</td><td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{x.bal}</td><td className="num" style={{ textAlign: 'end' }}>{x.earned}</td><td className="num" style={{ textAlign: 'end' }}>{x.used}</td><td className="num">{x.n}</td><td className="num" style={{ fontSize: 11 }}>{String(x.last).slice(0, 10)}</td>
+            {canCfg && <td><button className="btn sm gh" onClick={() => setAdj({ phone: x.phone, name: x.name, pts: '', reason: '' })}>تعديل</button></td>}</tr>)}
+          {!shown.length && <tr><td colSpan={8}><div className="empty">لا عملاء بعد — يُسجَّل العميل تلقائيًا عند إدخال جواله في نقطة البيع.</div></td></tr>}
+        </tbody></table></div>}
+        <div className="note" style={{ marginTop: 8 }}>محاسبيًا: النقاط المستبدلة تُسجَّل خصمًا على الفاتورة (تخفض الإيراد قبل الضريبة)، و«التزام النقاط» قيمة تقديرية لما قد يُستبدل مستقبلًا.</div>
+      </div>
+      {adj && <Modal title={'تعديل رصيد ' + (adj.name || '0' + adj.phone)} icon={Gift} onClose={() => setAdj(null)} foot={<><button className="btn gh" onClick={() => setAdj(null)}>إلغاء</button><button className="btn pri" onClick={doAdj}><Check size={14} />حفظ</button></>}>
+        <div className="grid g2"><Field label="النقاط (+ إضافة / − خصم)"><input className="inp n" value={adj.pts} placeholder="مثال: 50 أو -20" onChange={e => setAdj(a => ({ ...a, pts: e.target.value.replace(/[^\d-]/g, '') }))} /></Field>
+          <Field label="السبب"><input className="inp" value={adj.reason} onChange={e => setAdj(a => ({ ...a, reason: e.target.value }))} /></Field></div>
+      </Modal>}
+    </div>);
+}
+
+/* ===== v34.0 — الورديات والتقارير (للمركز ومدير الفرع): تقرير X/Z، إنهاء وردية جهاز آخر، تقرير اليوم المجمّع ===== */
+function PosShifts({ org, ops, me, brs, commit, say }) {
+  const [bid, setBid] = useState('all'); const [d, setD] = useState(businessDay()); const [rc, setRc] = useState(null);
+  const ids = brs.map(b => b.id); const bOf = (id) => brs.find(b => b.id === id) || { id, name: id };
+  const shifts = (ops.posShifts || []).filter(x => ids.includes(x.branchId) && (bid === 'all' || x.branchId === bid) && (x.date === d || (x.status === 'open' && x.date <= d)))
+    .sort((a, b) => String(b.openedAt).localeCompare(String(a.openedAt)));
+  const ordersOf = (sh) => (ops.posOrders || []).filter(o => o.shiftId === sh.id);
+  const dayOrders = (ops.posOrders || []).filter(o => ids.includes(o.branchId) && (bid === 'all' || o.branchId === bid) && o.date === d);
+  const st = posOrdersStats(dayOrders);
+  const expOf = (sh) => posR2((sh.openingCash || 0) + posOrdersStats(ordersOf(sh)).cash);
+  const remoteClose = async () => {
+    const sh = rc.sh; const counted = posR2(String(rc.counted).replace(/[^\d.]/g, ''));
+    if (rc.counted === '' || rc.counted == null) return say('أدخل النقد المعدود', 'no'); if (!rc.note.trim()) return say('اكتب سبب الإنهاء من هنا', 'no');
+    const os = ordersOf(sh); const okOs = os.filter(o => o.status !== 'void'); const expected = expOf(sh);
+    const rec = { ...sh, status: 'closed', closedAt: nowISO(), closedBy: me.name + ' (إنهاء إداري)', remote: true, closeNote: rc.note.trim(), expected, counted, diff: posR2(counted - expected), n: okOs.length, total: posR2(okOs.reduce((a, o) => a + o.total, 0)) };
+    const ok = await commit(dd => ({ ...dd, posShifts: (dd.posShifts || []).map(x => x.id === sh.id ? rec : x) }), { actionType: 'update', targetType: 'pos_shift', targetId: sh.id, branchName: bOf(sh.branchId).name, title: 'إنهاء وردية نقطة بيع إداريًا', details: (sh.devName || '') + ' · ' + rc.note.trim() + ' · فرق ' + money(rec.diff) });
+    if (ok) { setRc(null); say('أُنهيت الوردية — الفرق ' + money(rec.diff)); posPrint(posZHtml(org, rec, os, bOf(sh.branchId))); }
+  };
+  const printDay = () => {
+    const m = (n) => money(n); const rowsB = (bid === 'all' ? brs : brs.filter(b => b.id === bid)).map(b => { const os = dayOrders.filter(o => o.branchId === b.id); const s2 = posOrdersStats(os);
+      const shs = (ops.posShifts || []).filter(x => x.branchId === b.id && x.date === d); const diff = posR2(shs.filter(x => x.status === 'closed').reduce((a, x) => a + (x.diff || 0), 0));
+      return { b, s2, shs, diff }; });
+    const tr = rowsB.map(({ b, s2, shs, diff }) => `<tr><td>${_xe(b.name)}</td><td class="n">${s2.n}</td><td class="n">${m(s2.total)}</td><td class="n">${m(s2.cash)}</td><td class="n">${m(s2.card)}</td><td class="n">${m(Object.values(s2.apps).reduce((a, x) => a + x.amount, 0) + s2.transfer)}</td><td class="n">${m(s2.ldisc + s2.odisc + s2.mdisc + s2.loyAmt)}</td><td class="n">${s2.voidN}</td><td class="n">${shs.filter(x => x.status === 'closed').length}/${shs.length}</td><td class="n ${diff < 0 ? 'neg' : ''}">${m(diff)}</td></tr>`).join('');
+    const promoRows = Object.entries(st.promo).map(([k, v]) => `<tr><td>${_xe(k)}</td><td class="n">${m(v)}</td></tr>`).join('');
+    printA4(org, 'تقرير مبيعات نقاط البيع اليومي', (bid === 'all' ? 'كل الفروع' : bOf(bid).name) + ' — ' + d,
+      `<div class="box">الفواتير: <b>${st.n}</b> · المبيعات: <b>${m(st.total)}</b> · منها ضريبة: <b>${m(st.vat)}</b> · قبل الخصومات: <b>${m(st.gross)}</b></div>
+      <table><tr><th>الفرع</th><th>الفواتير</th><th>المبيعات</th><th>نقدي</th><th>شبكة</th><th>تطبيقات/تحويل</th><th>الخصومات</th><th>ملغاة</th><th>الورديات (مغلقة/الكل)</th><th>فروقات الدرج</th></tr>${tr}
+      <tr class="tot"><td>الإجمالي</td><td class="n">${st.n}</td><td class="n">${m(st.total)}</td><td class="n">${m(st.cash)}</td><td class="n">${m(st.card)}</td><td class="n">${m(Object.values(st.apps).reduce((a, x) => a + x.amount, 0) + st.transfer)}</td><td class="n">${m(st.ldisc + st.odisc + st.mdisc + st.loyAmt)}</td><td class="n">${st.voidN}</td><td></td><td class="n">${m(rowsB.reduce((a, x) => a + x.diff, 0))}</td></tr></table>
+      ${promoRows || st.mdisc || st.loyAmt ? `<h3 style="font-size:13px">الخصومات حسب العرض</h3><table><tr><th>العرض</th><th>الخصم الممنوح</th></tr>${promoRows}${st.mdisc ? `<tr><td>خصم يدوي</td><td class="n">${m(st.mdisc)}</td></tr>` : ''}${st.loyAmt ? `<tr><td>استبدال نقاط ولاء (${st.loyPts} نقطة)</td><td class="n">${m(st.loyAmt)}</td></tr>` : ''}</table>` : ''}
+      <div class="sign"><div>أمين الصندوق</div><div>مدير الفرع</div><div>المحاسب</div></div>`);
+  };
+  return (
+    <div className="grid" style={{ gap: 12 }}>
+      <div className="card">
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'end', marginBottom: 8 }}>
+          <div className="card-t" style={{ marginInlineEnd: 'auto' }}><ClipboardCheck size={15} color="var(--brass)" />الورديات والتقارير</div>
+          {brs.length > 1 && <Field label="الفرع" style={{ marginBottom: 0 }}><select className="sel" value={bid} onChange={e => setBid(e.target.value)}><option value="all">كل الفروع</option>{brs.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></Field>}
+          <Field label="يوم العمل" style={{ marginBottom: 0 }}><input type="date" className="inp" value={d} onChange={e => setD(e.target.value)} /></Field>
+          <button className="btn pri" onClick={printDay}><Printer size={14} />تقرير اليوم المجمّع</button>
+        </div>
+        <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}><span className="badge b-brass">{st.n} فاتورة · {money(st.total)}</span><span className="badge b-dim">نقد {money(st.cash)}</span><span className="badge b-dim">شبكة {money(st.card)}</span>
+          {st.ldisc + st.odisc + st.mdisc + st.loyAmt > 0 && <span className="badge b-amber">خصومات {money(st.ldisc + st.odisc + st.mdisc + st.loyAmt)}</span>}{st.voidN > 0 && <span className="badge b-rose">ملغاة {st.voidN}</span>}
+          <span className="badge b-dim">ورديات مفتوحة {shifts.filter(x => x.status === 'open').length}</span></div>
+      </div>
+      <div className="card"><div className="tw"><table className="tb"><thead><tr><th>الفرع</th><th>الجهاز</th><th>فتحها</th><th>الحالة</th><th style={{ textAlign: 'end' }}>الفواتير</th><th style={{ textAlign: 'end' }}>المبيعات</th><th style={{ textAlign: 'end' }}>النقد المتوقع</th><th style={{ textAlign: 'end' }}>الفرق</th><th></th></tr></thead><tbody>
+        {shifts.map(sh => { const os = ordersOf(sh); const s2 = posOrdersStats(os); const b = bOf(sh.branchId); return (
+          <tr key={sh.id}><td style={{ fontSize: 12 }}>{b.name}</td><td style={{ fontSize: 12 }}>{sh.devName} <span className="num" style={{ color: 'var(--faint)' }}>({sh.dev})</span></td>
+            <td style={{ fontSize: 11.5 }}>{sh.openedBy}<div className="num" style={{ color: 'var(--faint)' }}>{String(sh.openedAt).slice(0, 16).replace('T', ' ')}</div></td>
+            <td>{sh.status === 'open' ? <span className="badge b-mint">مفتوحة</span> : <span className="badge b-dim">مغلقة {String(sh.closedAt || '').slice(11, 16)}</span>}{sh.remote && <div><span className="badge b-amber" title={sh.closeNote}>إنهاء إداري</span></div>}</td>
+            <td className="num" style={{ textAlign: 'end' }}>{s2.n}</td><td className="num" style={{ textAlign: 'end' }}>{money(s2.total)}</td>
+            <td className="num" style={{ textAlign: 'end' }}>{money(sh.status === 'closed' ? sh.expected : expOf(sh))}</td>
+            <td className="num" style={{ textAlign: 'end', color: (sh.diff || 0) < -0.004 ? 'var(--rose)' : undefined }}>{sh.status === 'closed' ? money(sh.diff) : '—'}</td>
+            <td><div className="row" style={{ gap: 4 }}>{sh.status === 'open' ? <>
+              <button className="btn sm gh" onClick={() => posPrint(posShiftHtml(org, sh, os, b, 'X'))}><Printer size={12} />X</button>
+              <button className="btn sm" onClick={() => setRc({ sh, counted: '', note: '' })}><Lock size={12} />إنهاء</button></>
+              : <button className="btn sm gh" onClick={() => posPrint(posZHtml(org, sh, os, b))}><Printer size={12} />Z</button>}</div></td></tr>); })}
+        {!shifts.length && <tr><td colSpan={9}><div className="empty">لا ورديات في هذا اليوم.</div></td></tr>}
+      </tbody></table></div>
+        <div className="note" style={{ marginTop: 8 }}>«إنهاء» يغلق وردية جهاز آخر من هنا (نسي الكاشير الإغلاق أو تعطل الجهاز) بعد عدّ النقد، ويطبع تقرير Z. فواتير لم يرسلها ذلك الجهاز بعد تُضاف عند اتصاله وتظهر في تقرير اليوم.</div></div>
+      {rc && <Modal title={'إنهاء وردية — ' + bOf(rc.sh.branchId).name + ' · ' + (rc.sh.devName || '')} icon={Lock} onClose={() => setRc(null)} foot={<><button className="btn gh" onClick={() => setRc(null)}>إلغاء</button><button className="btn pri" onClick={remoteClose}><Lock size={14} />إنهاء وطباعة Z</button></>}>
+        <div className="mono-b" style={{ marginBottom: 8 }}><span>النقد المتوقع في الدرج</span><span className="num">{money(expOf(rc.sh))}</span></div>
+        <div className="grid g2"><Num label="النقد المعدود فعلًا" value={rc.counted} onChange={v => setRc(x => ({ ...x, counted: v }))} />
+          <Field label="سبب الإنهاء من هنا"><input className="inp" value={rc.note} placeholder="نسي الكاشير الإغلاق / تعطل الجهاز…" onChange={e => setRc(x => ({ ...x, note: e.target.value }))} /></Field></div>
+        {rc.counted !== '' && <div className="note">الفرق: <b className="num">{money(posR2(posR2(String(rc.counted).replace(/[^\d.]/g, '')) - expOf(rc.sh)))}</b></div>}
+      </Modal>}
+    </div>);
+}
+
 function PosSettings({ org, commitOrg, say, dev }) {
   const c = org.posCfg || {};
-  const [f, setF] = useState({ branches: c.branches || [], footer: c.footer || '', autoPrint: c.autoPrint !== false, devName: dev ? dev.name : '' });
+  const [f, setF] = useState({ branches: c.branches || [], footer: c.footer || '', autoPrint: c.autoPrint !== false, devName: dev ? dev.name : '', maxDiscPct: c.maxDiscPct != null ? String(c.maxDiscPct) : '' });
   const save = async () => {
     if (dev && f.devName.trim()) { try { localStorage.setItem(POS_DEV_KEY, JSON.stringify({ ...dev, name: f.devName.trim() })); } catch { } }
-    const ok = await commitOrg(d => ({ ...d, posCfg: { ...(d.posCfg || {}), branches: f.branches, footer: f.footer.trim(), autoPrint: !!f.autoPrint } }), { actionType: 'update', targetType: 'settings', targetId: 'posCfg', need: 'edit', title: 'إعدادات نقطة البيع', details: 'الفروع: ' + f.branches.map(id => ((org.branches || []).find(b => b.id === id) || {}).name).join('، ') });
+    const ok = await commitOrg(d => ({ ...d, posCfg: { ...(d.posCfg || {}), branches: f.branches, footer: f.footer.trim(), autoPrint: !!f.autoPrint, maxDiscPct: Number(f.maxDiscPct) || 0 } }), { actionType: 'update', targetType: 'settings', targetId: 'posCfg', need: 'edit', title: 'إعدادات نقطة البيع', details: 'الفروع: ' + f.branches.map(id => ((org.branches || []).find(b => b.id === id) || {}).name).join('، ') });
     if (ok) say('حُفظت إعدادات نقطة البيع ✓');
   };
   return (
@@ -8149,6 +8507,7 @@ function PosSettings({ org, commitOrg, say, dev }) {
       <div className="row" style={{ gap: 10, flexWrap: 'wrap', margin: '4px 0 10px' }}>{(org.branches || []).filter(b => b.isActive !== false).map(b => <label key={b.id} className="row" style={{ gap: 6, fontSize: 12.5, cursor: 'pointer' }}><input type="checkbox" checked={f.branches.includes(b.id)} onChange={e => setF(x => ({ ...x, branches: e.target.checked ? [...x.branches, b.id] : x.branches.filter(i => i !== b.id) }))} />{b.name}</label>)}</div>
       <div className="grid g2">
         <Field label="عبارة أسفل الفاتورة"><input className="inp" value={f.footer} placeholder="رقم خدمة العملاء، رابط التقييم…" onChange={e => setF(x => ({ ...x, footer: e.target.value }))} /></Field>
+        <Field label="أقصى خصم يدوي للكاشير % (فارغ = بلا حد)"><input className="inp n" inputMode="decimal" value={f.maxDiscPct} placeholder="مثال: 10" onChange={e => setF(x => ({ ...x, maxDiscPct: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
         {dev && <Field label={'اسم هذا الجهاز (' + dev.tag + ')'}><input className="inp" value={f.devName} placeholder="كاشير 1" onChange={e => setF(x => ({ ...x, devName: e.target.value }))} /></Field>}
       </div>
       <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', margin: '4px 0 10px' }}><input type="checkbox" checked={f.autoPrint} onChange={e => setF(x => ({ ...x, autoPrint: e.target.checked }))} />طباعة الفاتورة تلقائيًا بعد الدفع</label>
@@ -18472,7 +18831,11 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
     const f = prodF;
     if (!f.name.trim()) return say('أدخل اسم المنتج', 'no');
     const parts = (f.parts || []).filter(pt => pt.itemId && Number(pt.qty) > 0).map(pt => ({ itemId: pt.itemId, qty: Number(pt.qty) }));
-    const rec = { id: f.id || uid('pr'), name: f.name.trim(), sellPrice: Number(f.sellPrice) || 0, parts, cat: (f.cat || '').trim(), ...(f.posOff ? { posOff: true } : {}) };
+    const dv = Number((f.disc || {}).v) || 0;
+    if (dv > 0 && (f.disc || {}).t !== 'amt' && dv > 100) return say('نسبة خصم الصنف لا تتجاوز 100%', 'no');
+    if (dv > 0 && (f.disc || {}).t === 'amt' && dv >= (Number(f.sellPrice) || 0)) return say('خصم الصنف يجب أن يكون أقل من سعر البيع', 'no');
+    const rec = { id: f.id || uid('pr'), name: f.name.trim(), sellPrice: Number(f.sellPrice) || 0, parts, cat: (f.cat || '').trim(), ...(f.posOff ? { posOff: true } : {}),
+      ...(dv > 0 ? { disc: { t: (f.disc || {}).t === 'amt' ? 'amt' : 'pct', v: dv, ...((f.disc || {}).to ? { to: f.disc.to } : {}) } } : {}) };
     await commitOrg(d => ({ ...d, products: f.id ? (d.products || []).map(x => x.id === f.id ? rec : x) : [...(d.products || []), rec] }), {
       actionType: f.id ? 'update' : 'create', targetType: 'product', targetId: rec.id,
       title: f.id ? 'عدّل وصفة منتج' : 'أضاف منتجًا بوصفته', details: rec.name + ' · تكلفة ' + money(prodCost(rec))
@@ -18845,6 +19208,11 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
             <Field label="تصنيف نقطة البيع"><input className="inp" list="pos-cats" value={prodF.cat || ''} placeholder="وجبات، مشروبات، حلويات…" onChange={e => setProdF(f => ({ ...f, cat: e.target.value }))} />
               <datalist id="pos-cats">{[...new Set((org.products || []).map(p => p.cat).filter(Boolean))].map(c => <option key={c} value={c} />)}</datalist></Field>
             <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', paddingTop: 18 }}><input type="checkbox" checked={!prodF.posOff} onChange={e => setProdF(f => ({ ...f, posOff: !e.target.checked }))} />متاح في نقطة البيع</label>
+            <Field label="خصم الصنف في نقطة البيع (اختياري)"><div className="row" style={{ gap: 4 }}>
+              <input className="inp n" inputMode="decimal" style={{ flex: 1 }} value={(prodF.disc || {}).v || ''} placeholder="0" onChange={e => setProdF(f => ({ ...f, disc: { ...(f.disc || {}), v: e.target.value.replace(/[^\d.]/g, '') } }))} />
+              <button type="button" className={'btn sm' + ((prodF.disc || {}).t !== 'amt' ? ' pri' : ' gh')} onClick={() => setProdF(f => ({ ...f, disc: { ...(f.disc || {}), t: 'pct' } }))}>%</button>
+              <button type="button" className={'btn sm' + ((prodF.disc || {}).t === 'amt' ? ' pri' : ' gh')} onClick={() => setProdF(f => ({ ...f, disc: { ...(f.disc || {}), t: 'amt' } }))}>ر.س</button></div></Field>
+            {Number((prodF.disc || {}).v) > 0 && <Field label="ينتهي الخصم في (اختياري)"><input type="date" className="inp" value={(prodF.disc || {}).to || ''} onChange={e => setProdF(f => ({ ...f, disc: { ...(f.disc || {}), to: e.target.value } }))} /></Field>}
           </div>
           <div className="lbl" style={{ margin: '4px 0 6px' }}>المكوّنات (من أصناف المخزون)</div>
           {(prodF.parts || []).map((pt, i) => (
