@@ -2483,7 +2483,7 @@ const ERRLOG_KEY = 'mizan:errlog';
 function logClientError(err, where) {
   try {
     const a = JSON.parse(localStorage.getItem(ERRLOG_KEY) || '[]');
-    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v34.9' });
+    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v34.11' });
     localStorage.setItem(ERRLOG_KEY, JSON.stringify(a.slice(0, 20)));
   } catch { }
 }
@@ -3525,7 +3525,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v34.9 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v34.11 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -8149,7 +8149,7 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   .pos-pay{width:100%;padding:16px 0;font-size:17px;font-weight:800}
   .pos-fab{display:none}
   @media(max-width:900px){.pos-wrap{grid-template-columns:1fr}.pos-cart{display:none}.pos-cart.open{display:block;position:fixed;inset:auto 0 0 0;max-height:82vh;overflow:auto;z-index:60;border-radius:18px 18px 0 0;margin:0}
-    .pos-fab{display:flex;position:fixed;inset-inline:12px;bottom:76px;z-index:55;justify-content:space-between;padding:15px 18px;font-size:16px;font-weight:800;border-radius:14px}}`;
+    .pos-fab{display:flex;position:sticky;bottom:10px;z-index:55;width:100%;justify-content:space-between;padding:15px 18px;font-size:16px;font-weight:800;border-radius:14px;margin-top:10px;box-shadow:0 8px 24px rgba(0,0,0,.25)}}`;
   const pendingBadge = queue.length ? <span className="badge b-amber">⏳ {queue.length} فاتورة بانتظار الإرسال</span> : <span className="badge b-mint">متزامن ✓</span>;
   const todayOrders = allOrders.filter(o => o.branchId === br.id && o.date === today).sort((a, b) => String(b.at).localeCompare(String(a.at)));
   const daySum = posDaySummary(todayOrders, br.id, today);
@@ -24110,10 +24110,15 @@ const closingImgs = (c) => { const out = [];
   ((c.sessionPhotos && c.sessionPhotos.length) ? c.sessionPhotos : (c.sessionPhoto ? [c.sessionPhoto] : [])).forEach((u, i) => out.push({ u, cat: 'signature', lbl: 'توثيق المسؤول', t: 'توثيق الإغلاق ' + (i + 1), amount: 0 }));
   (c.expenses || []).forEach(e => { if (e.receiptImage) out.push({ u: e.receiptImage, cat: 'expense', lbl: 'فاتورة مصروف', t: (e.categoryName || 'مصروف') + (e.beneficiaryName ? ' — ' + e.beneficiaryName : ''), amount: e.amount || 0 }); });
   return out.filter(x => typeof x.u === 'string' && x.u.length > 200); };
-async function slimBranchDoc(branch, commit, me) {
+async function slimBranchDoc(branch, commit, me, drop) {
   const doc = await cloud.get(brKey(branch.id), null); if (!doc) return { err: 'تعذّرت قراءة ملف الفرع' };
   const withImgs = (doc.closings || []).filter(c => closingImgs(c).length);
   if (!withImgs.length) return { n: 0, imgs: 0 };
+  // v34.10: حذف نهائي بطلب المستخدم — بلا نسخ للأرشيف
+  if (drop) { const ids0 = new Set(withImgs.map(c => c.id)); let im0 = 0; withImgs.forEach(c => { im0 += closingImgs(c).length; });
+    const ok0 = await commit(d => ({ ...d, closings: (d.closings || []).map(c => ids0.has(c.id) && c.branchId === branch.id ? { ...c, sessionPhoto: '', sessionPhotos: [], cardReceiptImage: '', expenses: (c.expenses || []).map(e => e.receiptImage ? { ...e, receiptImage: '' } : e), imagesPruned: true, imagesDeleted: true } : c) }),
+      { actionType: 'delete', targetType: 'daily_closing', targetId: branch.id, branchName: branch.name, title: 'حذف صور الإغلاقات نهائيًا (تخفيف ملف الفرع)', details: withImgs.length + ' إغلاق · ' + im0 + ' صورة' });
+    return ok0 ? { n: withImgs.length, imgs: im0 } : { err: 'تعذّر تحديث ملف الفرع — أعد المحاولة' }; }
   const store = await cloud.get(bfKey(branch.id), { items: [] }); const items = (store && Array.isArray(store.items)) ? store.items : [];
   const have = new Set(items.map(x => (x.closingId || '') + '|' + (x.fileUrl || '').length + '|' + (x.fileUrl || '').slice(-64)));
   const add = []; withImgs.forEach(c => closingImgs(c).forEach((im, k) => { const sig = c.id + '|' + im.u.length + '|' + im.u.slice(-64); if (have.has(sig)) return; have.add(sig);
@@ -24140,6 +24145,17 @@ function CloudHealth({ org, say, only, auto, commit, me }) {
     if (!window.confirm('تخفيف ملف «' + b.name + '» (' + r.kb + ' KB)؟\n\nتُنسخ صور الإغلاقات (إثبات الشبكة، توثيق المسؤول، فواتير المصروفات) إلى «المستندات والأرشيف» بعد التحقق، ثم تُزال من ملف الفرع. الصور تبقى متاحة في الأرشيف، والأرقام والقيود لا تتغير.')) return;
     setBusy(true); const res = await slimBranchDoc(b, commit, me); setBusy(false);
     if (res.err) say(res.err, 'no'); else say(res.n ? 'خُفّف الملف ✓ — ' + res.n + ' إغلاق، ' + res.imgs + ' صورة نُقلت للأرشيف' : 'لا صور داخل الإغلاقات — الملف خفيف أصلًا'); run();
+  };
+  const dropImgs = async (r) => {
+    const b = (org.branches || []).find(x => brKey(x.id) === r.key); if (!b) return;
+    if (!window.confirm('حذف صور الإغلاقات نهائيًا من «' + b.name + '» (' + r.kb + ' KB)؟\n\nتُحذف صور إثبات الشبكة وتوثيق المسؤول وفواتير المصروفات المرفقة بالإغلاقات، ولا تُنسخ لأي مكان ولا يمكن استرجاعها.\nأرقام الإغلاقات والقيود المحاسبية لا تتغير.')) return;
+    setBusy(true); const res = await slimBranchDoc(b, commit, me, true); setBusy(false);
+    if (res.err) say(res.err, 'no'); else say(res.n ? 'حُذفت ' + res.imgs + ' صورة من ' + res.n + ' إغلاق ✓ — الملف خفيف الآن' : 'لا صور داخل الإغلاقات'); run();
+  };
+  const emptyArchive = async (r) => {
+    if (!window.confirm('تفريغ «' + r.label + '» وحذف محتواه نهائيًا؟\n\nالأرشيف تالف ولا يُقرأ أصلًا منذ مدة. سيُستبدل بأرشيف فارغ سليم، ولا يمكن استرجاع ما كان فيه.')) return;
+    const res = await cloud.repairWith(r.key, { items: [] });
+    say(res === 'ok' ? 'فُرّغ الأرشيف ✓' : 'تعذّر التفريغ: ' + res, res === 'ok' ? 'ok' : 'no'); if (res === 'ok') run();
   };
   // ملخص محتوى نسخة: يساعد على اختيار الأحدث والأكمل قبل الاستعادة
   const sumOf = (v) => { if (!v || typeof v !== 'object') return 'فارغة'; const cl = v.closings || []; const last = cl.reduce((m, c) => (c.date || '') > m ? c.date : m, '');
@@ -24170,13 +24186,14 @@ function CloudHealth({ org, say, only, auto, commit, me }) {
           <td>{r.err ? <span className="badge b-rose">تعذّرت القراءة: {r.err}</span> : !r.exists ? <span className="badge b-dim">غير موجود بعد</span>
             : (r.missing.length || !r.json) && r.txOk ? <span className="badge b-amber">سليم — كان تلفًا عابرًا أثناء كتابة جهاز آخر ✓</span>
             : r.missing.length ? <span className="badge b-rose">أجزاء مفقودة: {r.missing.join('، ')}</span> : !r.json ? <span className="badge b-rose">محتوى تالف</span> : <span className="badge b-mint">سليم ✓</span>}</td>
-          <td className="num" style={{ textAlign: 'end' }}>{r.kb != null ? r.kb + ' KB' : '—'}{commit && !bad(r) && r.kb > 2500 && String(r.key).startsWith('rms8:br_') && <div><button className="btn sm" style={{ marginTop: 4 }} disabled={busy} onClick={() => slim(r)}>تخفيف الملف</button></div>}</td><td className="num">{r.parts || '—'}</td></tr>
+          <td className="num" style={{ textAlign: 'end' }}>{r.kb != null ? r.kb + ' KB' : '—'}{commit && !bad(r) && r.kb > 2500 && String(r.key).startsWith('rms8:br_') && <div className="row" style={{ gap: 4, marginTop: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}><button className="btn sm" disabled={busy} onClick={() => slim(r)}>تخفيف الملف</button><button className="btn sm gh" disabled={busy} onClick={() => dropImgs(r)}><Trash2 size={12} color="#D9544D" />حذف الصور نهائيًا</button></div>}</td><td className="num">{r.parts || '—'}</td></tr>
           {bad(r) && <tr><td colSpan={4} style={{ background: 'var(--ink)' }}>
             {r.head && <div style={{ fontSize: 10.5, color: 'var(--faint)', marginBottom: 6, direction: 'ltr', textAlign: 'left', fontFamily: 'monospace', wordBreak: 'break-all' }}>head: {r.head.keys} · value={r.head.valueType}/{String(r.head.valueLen)} · parts={r.parts}{r.ver ? ' · ver=' + r.ver : ''} · {r.head.at} · «{r.head.start}»</div>}
             <div className="lbl">خيارات الاستعادة — اختر النسخة الأحدث والأكمل:</div>
             {(r.candidates || []).map((c, i) => <div key={i} className="row" style={{ gap: 8, marginBottom: 6, flexWrap: 'wrap' }}><span className="badge b-mint">نسخة سحابية سليمة</span><span style={{ fontSize: 12 }}>{c.parts} أجزاء · {c.kb} KB — {sumOf(c.value)}</span><button className="btn sm" onClick={() => restore(r, c.value, 'نسخة سحابية سليمة')}>استعادة هذه</button></div>)}
             {r.localValue !== undefined ? <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}><span className="badge b-brass">نسخة هذا الجهاز</span><span style={{ fontSize: 12 }}>{sumOf(r.localValue)}</span><button className="btn sm" onClick={() => restore(r, r.localValue, 'نسخة هذا الجهاز')}>استعادة هذه</button></div>
               : <div style={{ fontSize: 12, color: 'var(--faint)' }}>لا توجد نسخة لهذا المستند على هذا الجهاز — افتح الفحص من جهاز كان يعمل على هذا الفرع (جهاز الكاشير أو المدير).</div>}
+            {/^rms8:bf_/.test(r.key) && <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 6 }}><span className="badge b-rose">حذف</span><span style={{ fontSize: 12 }}>لا تحتاج محتواه؟ استبدله بأرشيف فارغ سليم</span><button className="btn sm" onClick={() => emptyArchive(r)}><Trash2 size={12} color="#D9544D" />تفريغ الأرشيف</button></div>}
             {r.salvage && r.salvage.items.length > 0 && <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 6 }}><span className="badge b-amber">استعادة جزئية</span><span style={{ fontSize: 12 }}>{r.salvage.items.length} مستند سليم استُخرج من النسخة التالفة{(() => { const ds = r.salvage.items.map(x => x.uploadDate || '').filter(Boolean).sort(); return ds.length ? ' (من ' + ds[0] + ' إلى ' + ds[ds.length - 1] + ')' : ''; })()}</span>
               <button className="btn sm" onClick={() => salvageRestore(r)}>نسخ احتياطي ثم استعادة جزئية</button></div>}
             {!(r.candidates || []).length && r.localValue === undefined && !(r.salvage && r.salvage.items.length) && <div style={{ fontSize: 12, color: 'var(--rose)', marginTop: 4 }}>لم تُعثر على نسخة سليمة. تواصل مع المطوّر قبل أي إجراء.</div>}
