@@ -2483,7 +2483,7 @@ const ERRLOG_KEY = 'mizan:errlog';
 function logClientError(err, where) {
   try {
     const a = JSON.parse(localStorage.getItem(ERRLOG_KEY) || '[]');
-    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v34.4' });
+    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v34.5' });
     localStorage.setItem(ERRLOG_KEY, JSON.stringify(a.slice(0, 20)));
   } catch { }
 }
@@ -3203,7 +3203,8 @@ function PlatformApp() {
       else if (k === 'scope') say('لم يُحفظ: السجل يخص فرعًا خارج نطاق حسابك (أو بلا فرع) — راجع إعداد فرع حسابك', 'no');
       else if (String((cloud.lastError || {}).code) === 'read-failed') { const ek = (cloud.lastError || {}).key || ''; const re = cloud.readErr(ek) || {};
         const lbl = ek === KEYS.core ? 'المستند المركزي' : ek.startsWith('rms8:br_') ? 'مستند فرع «' + (((orgNow.current || {}).branches || []).find(b => 'rms8:br_' + b.id === ek) || { name: ek.slice(8) }).name + '»' : ek;
-        say('لم يُحفظ: تعذّرت قراءة ' + lbl + ' من السحابة' + (re.code ? ' (السبب: ' + re.code + ')' : '') + ' — أعد المحاولة بعد لحظات. إن تكرر: الإعدادات ← النسخ الاحتياطي ← «فحص سلامة البيانات السحابية»', 'no'); }
+        const det = (/\(([^)]+)\)\s*$/.exec(re.msg || '') || [])[1];
+        say('لم يُحفظ: تعذّرت قراءة ' + lbl + ' من السحابة' + (re.code ? ' (السبب: ' + re.code + (det ? ' — ' + det : '') + ')' : '') + ' — أعد المحاولة بعد لحظات. إن تكرر: الإعدادات ← النسخ الاحتياطي ← «فحص سلامة البيانات السحابية»', 'no'); }
       else if (false) say('لم يُحفظ: تعذّرت قراءة النسخة الحالية من السحابة (قد تكون تالفة)، فلم يُكتب شيء حمايةً للبيانات — أعد تحميل الصفحة، وإن تكرر تواصل مع المطوّر', 'no');
       else say('تعذّر الحفظ السحابي بعد عدة محاولات — تحقق من الاتصال وأعد المحاولة', 'no');
       return false;
@@ -3521,7 +3522,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v34.4 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v34.5 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -8015,7 +8016,7 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const [cat, setCat] = useState(''); const [q, setQ] = useState('');
   const [cart, setCart] = useState([]); const [channel, setChannel] = useState('takeaway');
   const [disc, setDisc] = useState({ mode: 'amt', amt: '', reason: '' }); const [pay, setPay] = useState(null); const [last, setLast] = useState(null);
-  const [code, setCode] = useState(''); const [quickP, setQuickP] = useState(false); const [ordF, setOrdF] = useState(() => ({ d: businessDay(), pay: 'all', q: '' })); const [cust, setCust] = useState({ phone: '', name: '', redeem: false });
+  const [code, setCode] = useState(''); const [quickP, setQuickP] = useState(false); const [diag, setDiag] = useState(false); const [ordF, setOrdF] = useState(() => ({ d: businessDay(), pay: 'all', q: '' })); const [cust, setCust] = useState({ phone: '', name: '', redeem: false });
   const loyCfg = org.loyaltyCfg || {}; const [loy, setLoy] = useState(null);
   useEffect(() => { if (!loyCfg.enabled) return; let dead = false; cloud.get(KEYS.loy, { members: {}, tx: [] }).then(d => { if (!dead) setLoy(d || { members: {}, tx: [] }); }).catch(() => { }); return () => { dead = true; }; }, [loyCfg.enabled]);
   const [view, setView] = useState('sell'); const [showCart, setShowCart] = useState(false);
@@ -8208,6 +8209,8 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
           ...(isMgr ? [{ id: 'loyalty', ar: 'الولاء', icon: Users }] : []), ...(R.admin || R.scope === 'all' ? [{ id: 'cfg', ar: 'الإعدادات', icon: Settings }] : [])]} />
       </div></div>
 
+      {shift && shift.pending && R.admin && <div><button className="btn sm" onClick={() => setDiag(x => !x)}><ShieldCheck size={13} />{diag ? 'إخفاء التشخيص' : 'تشخيص وإصلاح مشكلة الحفظ'}</button></div>}
+      {shift && shift.pending && R.admin && diag && <CloudHealth org={org} say={say} only={[brKey(br.id), KEYS.core]} auto />}
       {shift && shift.pending && <div className="note" style={{ borderColor: 'rgba(224,164,88,.6)' }}>⚠ الوردية مفتوحة على هذا الجهاز ولم تُحفظ في السحابة بعد — البيع مستمر والفواتير محفوظة على الجهاز، وتُرسل تلقائيًا عند نجاح الاتصال. إن استمر هذا التنبيه أرسل لي نص رسالة الخطأ التي ظهرت عند فتح الوردية.</div>}
       {view === 'sell' && (!shift ? (
         <div className="card" style={{ maxWidth: 420, margin: '20px auto', textAlign: 'center' }}>
@@ -24094,10 +24097,11 @@ function AiCenter({ org, ops, me, myBranches, scoped, say, setTab }) {
 
 /* ================= بيانات الشركة والنسخ الاحتياطي ================= */
 /* v34.1 — فحص سلامة المستندات السحابية: يكشف المستند الذي تتعذّر قراءته (جزء مفقود/JSON تالف/رفض) ويصلحه من نسخة هذا الجهاز */
-function CloudHealth({ org, say }) {
+function CloudHealth({ org, say, only, auto }) {
   const [rows, setRows] = useState(null); const [busy, setBusy] = useState(false);
   const keys = [[KEYS.core, 'المستند المركزي (الحسابات والمشتريات)'], [KEYS.org, 'الإعدادات'], [KEYS.dir, 'الدليل العام للفروع'], [KEYS.loy, 'نقاط الولاء'],
-    ...(org.branches || []).map(b => [brKey(b.id), 'فرع ' + b.name])];
+    ...(org.branches || []).map(b => [brKey(b.id), 'فرع ' + b.name])].filter(([k]) => !only || only.includes(k));
+  useEffect(() => { if (auto) run(); }, []);   // eslint-disable-line
   const run = async () => { setBusy(true); const out = []; for (const [k, l] of keys) { const r = await cloud.inspect(k); out.push({ ...r, label: l, re: cloud.readErr(k) }); setRows([...out]); } setBusy(false); };
   const bad = (r) => !r.txOk && (r.err || (r.exists && (r.missing.length || !r.json)));
   // ملخص محتوى نسخة: يساعد على اختيار الأحدث والأكمل قبل الاستعادة
