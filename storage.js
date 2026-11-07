@@ -342,6 +342,24 @@ export const authApi = {
   }
 };
 
+/* v34.9 — استخراج المستندات السليمة من نص تالف: كل عنصر يبدأ بـ {"id":" يُتتبَّع من بدايته بمحلّل يعرف السلاسل والهروب
+   حتى قوسه المغلق ثم يُفحص بـ JSON.parse. التلف (خلط أجزاء نسختين) يقع عند حدود الأجزاء فقط، فتنجو العناصر داخلها. */
+export function salvageItems(txt) {
+  const out = []; const seen = new Set(); const pat = '{"id":"'; let pos = 0;
+  while ((pos = txt.indexOf(pat, pos)) !== -1) {
+    let depth = 0, inStr = false, esc = false, end = -1;
+    for (let i = pos; i < txt.length; i++) {
+      const ch = txt[i];
+      if (inStr) { if (esc) esc = false; else if (ch === '\\') esc = true; else if (ch === '"') inStr = false; continue; }
+      if (ch === '"') inStr = true; else if (ch === '{' || ch === '[') depth++; else if (ch === '}' || ch === ']') { depth--; if (depth === 0) { end = i; break; } }
+      if (i - pos > 20000000) break;
+    }
+    if (end > 0) { try { const o = JSON.parse(txt.slice(pos, end + 1)); if (o && o.id && !seen.has(o.id)) { seen.add(o.id); out.push(o); } pos = end + 1; continue; } catch { } }
+    pos += pat.length;
+  }
+  return out;
+}
+
 function corruptErr(key, why) {
   const e = new Error('data-corrupt: ' + key + ' (' + why + ')');
   e.code = 'data-corrupt';
@@ -626,6 +644,8 @@ export const cloud = {
       if (out.missing.length || !out.json) { try { await fsReadTx(f, key); out.txOk = true; } catch { out.txOk = false; } }
       // بحث عن نسخة سحابية سليمة بعدد أجزاء مختلف (رأس لم يُحدَّث بعد كتابة الأجزاء أو العكس)
       if (!out.txOk && (out.missing.length || !out.json)) {
+        // أرشيف المستندات التالف: نستخرج المستندات السليمة ونحفظ النص الخام كاملًا للنسخ الاحتياطي قبل أي استعادة
+        if (/^rms8:bf_/.test(key) && txt) { out.raw = txt; const its = salvageItems(txt); out.salvage = { items: its.filter(x => x.fileUrl || x.title) }; }
         out.candidates = [];
         for (let n = 1; n <= Math.min(MAX_PARTS, out.parts + 8); n++) {
           if (n === out.parts) continue;

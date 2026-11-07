@@ -2483,7 +2483,7 @@ const ERRLOG_KEY = 'mizan:errlog';
 function logClientError(err, where) {
   try {
     const a = JSON.parse(localStorage.getItem(ERRLOG_KEY) || '[]');
-    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v34.8' });
+    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v34.9' });
     localStorage.setItem(ERRLOG_KEY, JSON.stringify(a.slice(0, 20)));
   } catch { }
 }
@@ -3525,7 +3525,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v34.8 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v34.9 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -24146,6 +24146,14 @@ function CloudHealth({ org, say, only, auto, commit, me }) {
     const parts = [cl.length ? cl.length + ' إغلاق (آخره ' + (last || '—') + ')' : '', (v.posOrders || []).length ? v.posOrders.length + ' فاتورة نقطة بيع' : '', (v.invoices || []).length ? v.invoices.length + ' فاتورة مورد' : '',
       (v.transfers || []).length ? v.transfers.length + ' تحويل' : '', (v.journalManual || []).length ? v.journalManual.length + ' قيد يدوي' : '', (v.tx || []).length ? v.tx.length + ' حركة نقاط' : '', v.branches ? (v.branches.length + ' فرع') : ''].filter(Boolean);
     return parts.join(' · ') || 'بلا سجلات'; };
+  // النص الخام التالف يُنزَّل كاملًا إلى الجهاز أولًا (لا يضيع شيء حتى ما لم يُستخرج)، ثم تُكتب المستندات السليمة
+  const salvageRestore = async (r) => {
+    try { const blob = new Blob([r.raw || ''], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'نسخة_تالفة_' + r.key.replace(/[^\w]/g, '_') + '_' + today() + '.json'; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(url), 5000); } catch { }
+    if (!window.confirm('نُزّلت النسخة التالفة كاملة إلى جهازك (احفظها في «الملفات»).\n\nاستعادة «' + r.label + '» بالمستندات السليمة المستخرجة (' + r.salvage.items.length + ' مستند)؟ ما لم يُستخرج يبقى في الملف المنزّل.')) return;
+    const res = await cloud.repairWith(r.key, { items: r.salvage.items });
+    say(res === 'ok' ? 'استُعيد الأرشيف بـ ' + r.salvage.items.length + ' مستند ✓ — يمكنك الآن «تخفيف الملف»' : 'تعذّرت الاستعادة: ' + res, res === 'ok' ? 'ok' : 'no');
+    if (res === 'ok') run();
+  };
   const restore = async (r, val, from) => {
     if (!window.confirm('استعادة «' + r.label + '» من ' + from + '؟\n\nالمحتوى: ' + sumOf(val) + '\n\nيُستبدل المستند التالف في السحابة بهذه النسخة. أي بيانات أحدث منها في المستند التالف لا يمكن قراءتها أصلًا. يُنصح بتنزيل نسخة احتياطية أولًا.')) return;
     const res = await cloud.repairWith(r.key, val);
@@ -24169,7 +24177,9 @@ function CloudHealth({ org, say, only, auto, commit, me }) {
             {(r.candidates || []).map((c, i) => <div key={i} className="row" style={{ gap: 8, marginBottom: 6, flexWrap: 'wrap' }}><span className="badge b-mint">نسخة سحابية سليمة</span><span style={{ fontSize: 12 }}>{c.parts} أجزاء · {c.kb} KB — {sumOf(c.value)}</span><button className="btn sm" onClick={() => restore(r, c.value, 'نسخة سحابية سليمة')}>استعادة هذه</button></div>)}
             {r.localValue !== undefined ? <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}><span className="badge b-brass">نسخة هذا الجهاز</span><span style={{ fontSize: 12 }}>{sumOf(r.localValue)}</span><button className="btn sm" onClick={() => restore(r, r.localValue, 'نسخة هذا الجهاز')}>استعادة هذه</button></div>
               : <div style={{ fontSize: 12, color: 'var(--faint)' }}>لا توجد نسخة لهذا المستند على هذا الجهاز — افتح الفحص من جهاز كان يعمل على هذا الفرع (جهاز الكاشير أو المدير).</div>}
-            {!(r.candidates || []).length && r.localValue === undefined && <div style={{ fontSize: 12, color: 'var(--rose)', marginTop: 4 }}>لم تُعثر على نسخة سليمة. تواصل مع المطوّر قبل أي إجراء.</div>}
+            {r.salvage && r.salvage.items.length > 0 && <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 6 }}><span className="badge b-amber">استعادة جزئية</span><span style={{ fontSize: 12 }}>{r.salvage.items.length} مستند سليم استُخرج من النسخة التالفة{(() => { const ds = r.salvage.items.map(x => x.uploadDate || '').filter(Boolean).sort(); return ds.length ? ' (من ' + ds[0] + ' إلى ' + ds[ds.length - 1] + ')' : ''; })()}</span>
+              <button className="btn sm" onClick={() => salvageRestore(r)}>نسخ احتياطي ثم استعادة جزئية</button></div>}
+            {!(r.candidates || []).length && r.localValue === undefined && !(r.salvage && r.salvage.items.length) && <div style={{ fontSize: 12, color: 'var(--rose)', marginTop: 4 }}>لم تُعثر على نسخة سليمة. تواصل مع المطوّر قبل أي إجراء.</div>}
           </td></tr>}</React.Fragment>)}
       </tbody></table></div>}
     </div>);
