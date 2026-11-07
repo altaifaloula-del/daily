@@ -308,6 +308,9 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 
   /* الحقول: 16px لمنع تكبير iOS التلقائي */
   .inp,.sel,textarea.inp{font-size:16px;padding:11px 12px;max-width:100%}
+  /* v34.2: حقول التاريخ والوقت في سفاري iOS لها عرض ذاتي أكبر من الشاشة فتخرج عن الحافة — نُلزمها بعرض العمود */
+  input.inp[type=date],input.inp[type=time],input.inp[type=datetime-local],input.inp[type=month]{-webkit-appearance:none;appearance:none;display:block;width:100%;min-width:0;max-width:100%;min-height:44px;text-align:right}
+  input.inp[type=date]::-webkit-date-and-time-value,input.inp[type=time]::-webkit-date-and-time-value{text-align:right}
   .note-i{font-size:16px}
   .pin input{font-size:20px}
 
