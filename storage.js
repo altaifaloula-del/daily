@@ -65,6 +65,10 @@ let _fbAppP = null;
 const failedReads = new Set();
 // v34.1: سبب آخر قراءة فاشلة لكل مستند — يُعرض للمستخدم بدل رسالة عامة
 const readErrs = new Map();
+// v34.16: نفاد حصة Firestore (resource-exhausted) — لا نكرر المحاولة 15 دقيقة (التكرار كان يستهلك الحصة أكثر)
+let quotaUntil = 0;
+const isQuota = (e) => !!e && /resource-exhausted|RESOURCE_EXHAUSTED/.test(String(e.code || '') + ' ' + String(e.message || ''));
+const quotaBlocked = (key) => { if (Date.now() < quotaUntil) { cloud.lastError = { key, op: 'set', code: 'resource-exhausted', at: Date.now(), until: quotaUntil }; return true; } return false; };
 const isDenied = (e) => !!e && (e.code === 'permission-denied' || e.code === 'PERMISSION_DENIED');
 // v34.1: إعادة القراءة عند الأخطاء العابرة (شبكة الجوال، انتهاء المهلة) قبل اعتبار المستند غير مقروء
 async function fsReadRetry(f, key) {
@@ -552,9 +556,11 @@ export const cloud = {
         console.warn('رُفضت الكتابة: آخر قراءة لهذا المستند فشلت —', key);
         return false;
       }
+      if (quotaBlocked(key)) return false;
       try { await fsWrite(f, key, val); local.set(key, val); return true; }
       catch (e) {
-        cloud.lastError = { key, op: 'set', code: String((e && e.code) || ''), at: Date.now() };   // v27.1: يقرؤه App لتمييز رفض الصلاحيات عن انقطاع الشبكة
+        if (isQuota(e)) quotaUntil = Date.now() + 15 * 60000;
+        cloud.lastError = { key, op: 'set', code: isQuota(e) ? 'resource-exhausted' : String((e && e.code) || ''), at: Date.now(), ...(isQuota(e) ? { until: quotaUntil } : {}) };   // v27.1: يقرؤه App لتمييز رفض الصلاحيات عن انقطاع الشبكة
         console.warn('كتابة Firestore فشلت:', e);
         // v15.18: أي فشل سحابي (صلاحيات أو شبكة أو غيره) = فشل صادق يعود للمنادي.
         // سابقاً كان غير-الصلاحيات يسقط للتخزين المحلي «بنجاح» زائف، فتظهر البيانات
@@ -608,10 +614,12 @@ export const cloud = {
     const f = await firestore();
     if (!f) return (await this.set(key, val)) ? 'ok' : 'fail';
     if (failedReads.has(key)) { cloud.lastError = { key, op: 'set', code: 'read-failed', at: Date.now() }; return 'fail'; }
+    if (quotaBlocked(key)) return 'fail';
     try { await fsWriteIf(f, key, val, loadedStamp.get(key) || null); local.set(key, val); return 'ok'; }
     catch (e) {
       if (e && e.code === 'conflict') return 'conflict';
-      cloud.lastError = { key, op: 'set', code: String((e && e.code) || ''), at: Date.now() };
+      if (isQuota(e)) quotaUntil = Date.now() + 15 * 60000;
+      cloud.lastError = { key, op: 'set', code: isQuota(e) ? 'resource-exhausted' : String((e && e.code) || ''), at: Date.now(), ...(isQuota(e) ? { until: quotaUntil } : {}) };
       console.warn('كتابة Firestore المشروطة فشلت:', e);
       return 'fail';
     }
@@ -621,6 +629,8 @@ export const cloud = {
   readFailed(key) { return failedReads.has(key); },
   /** v34.1: سبب آخر قراءة فاشلة {code, msg} */
   readErr(key) { return readErrs.get(key) || null; },
+  /** v34.16: موعد استئناف الكتابة بعد نفاد الحصة (0 إن لم تكن موقوفة) */
+  quotaUntil() { return Date.now() < quotaUntil ? quotaUntil : 0; },
 
   /** v34.1: فحص سلامة مستند سحابي دون تعديله: وجود الرأس، عدد الأجزاء، الأجزاء المفقودة، صلاحية JSON، الحجم */
   async inspect(key) {

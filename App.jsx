@@ -347,6 +347,8 @@ function lockedLedgerChanged(orgA, opsA, orgB, opsB) {
   const x = lockedLedgerSig(orgA, opsA, lt), y = lockedLedgerSig(orgB, opsB, lt);
   return x !== null && y !== null && x !== y;
 }
+// v34.16: نفاد حصة Firestore اليومية (الخطة المجانية): تتجدد منتصف الليل بتوقيت المحيط الهادئ (11:00 صباحًا بتوقيت السعودية شتاءً)
+const QUOTA_MSG = () => { const u = cloud.quotaUntil(); return 'لم يُحفظ: نفدت حصة الكتابة في قاعدة البيانات (Firestore) لهذا اليوم — البيانات محفوظة على الجهاز. تتجدد الحصة الساعة 11:00 صباحًا بتوقيت السعودية (أو بترقية مشروع Firebase إلى خطة Blaze)' + (u ? '؛ إعادة المحاولة تلقائيًا بعد ' + new Date(u).toTimeString().slice(0, 5) : ''); };
 const LOCK_MSG = (d) => 'شهر ' + (d || '').slice(0, 7) + ' مقفل محاسبيًا 🔒 — الفتح الاستثنائي من المحاسبة ← الإقفال';
 
 /* ============================================================
@@ -2483,7 +2485,7 @@ const ERRLOG_KEY = 'mizan:errlog';
 function logClientError(err, where) {
   try {
     const a = JSON.parse(localStorage.getItem(ERRLOG_KEY) || '[]');
-    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v34.15' });
+    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v34.16' });
     localStorage.setItem(ERRLOG_KEY, JSON.stringify(a.slice(0, 20)));
   } catch { }
 }
@@ -3168,6 +3170,7 @@ function PlatformApp() {
           else wroteBrDocs[b] = doc;
         }
       }
+      if (!allOk && String((cloud.lastError || {}).code) === 'resource-exhausted') { lastWriteErr.current = 'quota'; return false; }
       if (!allOk) { if (attempt >= 2) { lastWriteErr.current = lastWriteErr.current || 'net'; return false; } continue; }
       if (conflict) continue;   // كتب آخر بنفس اللحظة — نعيد على الأحدث
       // v15.28: نجاح — ما كتبناه (وما قرأناه للتو قبله) هو الحالة الكاملة بين أيدينا؛
@@ -3201,6 +3204,7 @@ function PlatformApp() {
       // v27.1: رسالة تُسمّي السبب — رفض صلاحيات الخادم (عضوية الحساب لا تحمل فرعه) يختلف تمامًا عن انقطاع الشبكة
       const k = lastWriteErr.current;
       if (k === 'dup') say('لم يُحفظ — فاتورة مكررة: ' + lastDupMsg.current, 'no');
+      else if (k === 'quota') say(QUOTA_MSG(), 'no');
       else if (k === 'locked') say('لم يُحفظ: هذا التعديل يغيّر قيودًا في شهر مقفل محاسبيًا 🔒 — الفتح الاستثنائي من المحاسبة ← الإقفال', 'no');
       else if (k === 'denied') say('رفض الخادم حفظ بيانات فرعك (صلاحيات، لا اتصال): عضوية حسابك على الخادم لا تحمل هذا الفرع — اطلب من مسؤول النظام «مزامنة صلاحيات الأعضاء» من الفروع والمستخدمين ثم أعد الدخول', 'no');
       else if (k === 'scope') say('لم يُحفظ: السجل يخص فرعًا خارج نطاق حسابك (أو بلا فرع) — راجع إعداد فرع حسابك', 'no');
@@ -3525,7 +3529,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v34.15 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v34.16 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -8083,7 +8087,7 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   }, [commit]);
   // v34.7: لا إرسالان متداخلان — رفع مستند كبير قد يتجاوز فاصل الإرسال الدوري (20 ثانية)
   const flushing = useRef(false);
-  const flush = useCallback(async () => { if (flushing.current) return; flushing.current = true; try { await flushRaw(); } finally { flushing.current = false; } }, [flushRaw]);
+  const flush = useCallback(async () => { if (flushing.current || cloud.quotaUntil()) return; flushing.current = true; try { await flushRaw(); } finally { flushing.current = false; } }, [flushRaw]);
   useEffect(() => { flush(); const t = setInterval(flush, 20000); const on = () => flush(); window.addEventListener('online', on); return () => { clearInterval(t); window.removeEventListener('online', on); }; }, [flush]);
 
   if (!brs.length) return (
@@ -8189,13 +8193,15 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
       const before = pendLeft(); await flush(); const left = pendLeft();
       if (!left) say('أُرسل كل شيء للسحابة ✓');
       else { const e2 = cloud.lastError || {}; const r2 = e2.key ? cloud.readErr(e2.key) : null;
+        if (e2.code === 'resource-exhausted') { say(QUOTA_MSG(), 'no'); return; }
         say('لم يكتمل الإرسال (' + (before - left > 0 ? 'أُرسل ' + (before - left) + '، ' : '') + 'بقي ' + left + ') — ' + (e2.code === 'read-failed' ? 'تعذّرت قراءة ' + (e2.key || '') + (r2 ? ' (' + r2.code + ')' : '') : (e2.code || 'تحقق من الاتصال')), 'no'); }
     } finally { setSending(false); }
   }
   // v34.14: سبب تأخر الإرسال ظاهرًا دائمًا (رسائل الخطأ المنبثقة تختفي)
   const le = cloud.lastError || null; const leRe = le && le.key ? cloud.readErr(le.key) : null;
   const leLbl = le && le.key ? (le.key === KEYS.core ? 'المستند المركزي' : le.key.startsWith('rms8:br_') ? 'ملف فرع «' + (((org.branches || []).find(b => 'rms8:br_' + b.id === le.key)) || { name: le.key.slice(8) }).name + '»' : le.key.startsWith('rms8:bf_') ? 'أرشيف مستندات فرع' : le.key) : '';
-  const pendReason = (queue.length || pendClose || localShift) && le ? (leLbl + ' — ' + (le.code === 'read-failed' ? 'تعذّرت قراءته' + (leRe ? ' (' + leRe.code + ')' : '') : le.code || 'خطأ') + ' · ' + new Date(le.at).toTimeString().slice(0, 5)) : '';;
+  const pendReason = (queue.length || pendClose || localShift) && le ? (le.code === 'resource-exhausted' ? 'نفدت حصة الكتابة اليومية في Firestore — تتجدد 11:00 صباحًا بتوقيت السعودية، والبيانات محفوظة على الجهاز' + (cloud.quotaUntil() ? ' · المحاولة التالية ' + new Date(cloud.quotaUntil()).toTimeString().slice(0, 5) : '')
+    : (leLbl + ' — ' + (le.code === 'read-failed' ? 'تعذّرت قراءته' + (leRe ? ' (' + leRe.code + ')' : '') : le.code || 'خطأ') + ' · ' + new Date(le.at).toTimeString().slice(0, 5))) : '';;
   const todayOrders = allOrders.filter(o => o.branchId === br.id && o.date === today).sort((a, b) => String(b.at).localeCompare(String(a.at)));
   const daySum = posDaySummary(todayOrders, br.id, today);
   const pl = (l) => priced.lines.find(x => x.key === l.key) || {};
