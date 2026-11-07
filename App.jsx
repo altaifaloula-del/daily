@@ -2485,7 +2485,7 @@ const ERRLOG_KEY = 'mizan:errlog';
 function logClientError(err, where) {
   try {
     const a = JSON.parse(localStorage.getItem(ERRLOG_KEY) || '[]');
-    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v34.16' });
+    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v34.17' });
     localStorage.setItem(ERRLOG_KEY, JSON.stringify(a.slice(0, 20)));
   } catch { }
 }
@@ -3529,7 +3529,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v34.16 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v34.17 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -24323,7 +24323,10 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
   //   وملف تنزيل بكل ما سيُحذف (قابل للرجوع إليه). القيود المحاسبية للإغلاقات مشتقّة حسابيًا فتزول معها.
   const isSysAdmin = !!ROLES[me.role]?.admin;
   const [wipe, setWipe] = useState({ open: false, text: '', busy: false, done: null });
-  const wClosings = ops.closings || [];
+  // v34.17: اختيار الفرع — حذف إغلاقات فرع واحد أو كل الفروع
+  const [wBr, setWBr] = useState('all');
+  const wBrName = wBr === 'all' ? 'كل الفروع' : (((org.branches || []).find(b => b.id === wBr)) || { name: wBr }).name;
+  const wClosings = (ops.closings || []).filter(c => wBr === 'all' || c.branchId === wBr);
   const wIds = new Set(wClosings.map(x => x.id));
   const wTransfers = (ops.transfers || []).filter(t => t.closingId && wIds.has(t.closingId));
   const wNotes = (ops.notifications || []).filter(n => n.closingId && wIds.has(n.closingId));
@@ -24336,16 +24339,17 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
     setWipe(w => ({ ...w, busy: true }));
     try {
       // ١) أرشيف المستندات: صور توثيق الإغلاقات في مستند كل فرع + المركز
-      const bIds = [...(org.branches || []).map(b => b.id), 'hq'];
+      const bIds = wBr === 'all' ? [...(org.branches || []).map(b => b.id), 'hq'] : [wBr];
       const arch = {};
       for (const b of bIds) {
         const doc = await cloud.get(bfKey(b), { items: [] });
         const items = (doc && Array.isArray(doc.items)) ? doc.items : [];
-        const gone = items.filter(it => it.source === 'closing' || (it.closingId && wIds.has(it.closingId)));
+        const gone = items.filter(it => (it.closingId && wIds.has(it.closingId)) || (it.source === 'closing' && (wBr === 'all' || it.branchId === wBr)));
         if (gone.length) arch[b] = { keep: items.filter(it => !gone.includes(it)), gone };
       }
       const h = await cloud.get(KEYS.hist, { closings: [] });
-      const histClosings = (h && Array.isArray(h.closings)) ? h.closings : [];
+      const histAll = (h && Array.isArray(h.closings)) ? h.closings : [];
+      const histClosings = histAll.filter(c => wBr === 'all' || c.branchId === wBr);
       // ٢) ملف بكل ما سيُحذف + لقطة أمان محلية — قبل أي كتابة
       const removed = { meta: { app: 'rms8', kind: 'deleted-closings', at: nowISO(), by: me?.name || '' },
         closings: wClosings, transfers: wTransfers, notifications: wNotes, histClosings,
@@ -24353,17 +24357,17 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
       try {
         const blob = new Blob([JSON.stringify(removed)], { type: 'application/json' });
         const url = URL.createObjectURL(blob); const a = document.createElement('a');
-        a.href = url; a.download = 'الإغلاقات-المحذوفة-' + today() + '.json'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 4000);
+        a.href = url; a.download = 'الإغلاقات-المحذوفة-' + (wBr === 'all' ? 'كل-الفروع' : wBrName.replace(/\s+/g, '-')) + '-' + today() + '.json'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 4000);
       } catch { }
       try { await snapPut('pre-wipe-closings-' + nowISO().slice(0, 19).replace(/[:T]/g, '-'), { at: nowISO(), by: me?.name || '', org, ops, preWipe: true }); } catch { }
       // ٣) الحذف من بيانات التشغيل (مستندات الفروع) — كتابة موجَّهة عبر البوابة المركزية
       const ok = await commit(d => ({
         ...d,
-        closings: [],
+        closings: wBr === 'all' ? [] : (d.closings || []).filter(c => c.branchId !== wBr),
         transfers: (d.transfers || []).filter(t => !(t.closingId && wIds.has(t.closingId))),
         notifications: (d.notifications || []).filter(n => !(n.closingId && wIds.has(n.closingId)))
       }), { actionType: 'delete', targetType: 'daily_closing', targetId: 'all', need: 'edit',
-        title: 'حذف كل بيانات الإغلاق اليومي', details: wClosings.length + ' إغلاق · ' + wTransfers.length + ' توريد · ' + wNotes.length + ' تنبيه' });
+        title: 'حذف بيانات الإغلاق اليومي — ' + wBrName, details: wBrName + ' · ' + wClosings.length + ' إغلاق · ' + wTransfers.length + ' توريد · ' + wNotes.length + ' تنبيه' });
       if (!ok) { setWipe(w => ({ ...w, busy: false })); return; }
       // ٤) الأرشيف وأرشيف الإغلاقات القديم
       let archDone = 0, archFail = 0;
@@ -24371,10 +24375,11 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
         if (await cloud.set(bfKey(b), { items: v.keep })) archDone += v.gone.length; else archFail++;
       }
       let histOk = true;
-      if (histClosings.length) histOk = !!(await cloud.set(KEYS.hist, { closings: [], updatedAt: nowISO() }));
-      if (histOk) setHist({ closings: [] });
+      const histKeep = histAll.filter(c => !histClosings.includes(c));
+      if (histClosings.length) histOk = !!(await cloud.set(KEYS.hist, { closings: histKeep, updatedAt: nowISO() }));
+      if (histOk) setHist({ closings: histKeep });
       setWipe({ open: false, text: '', busy: false, done: { closings: wClosings.length, transfers: wTransfers.length, notes: wNotes.length, archDone, archFail, hist: histOk ? histClosings.length : -1 } });
-      say(archFail || !histOk ? 'حُذفت الإغلاقات — بقيت أجزاء من الأرشيف لم تُحذف، أعد المحاولة' : 'حُذفت كل بيانات الإغلاق اليومي ✓');
+      say(archFail || !histOk ? 'حُذفت الإغلاقات — بقيت أجزاء من الأرشيف لم تُحذف، أعد المحاولة' : 'حُذفت بيانات الإغلاق اليومي — ' + wBrName + ' ✓');
     } catch (e) {
       setWipe(w => ({ ...w, busy: false }));
       say('تعذّر الحذف — لم يكتمل، تحقق من الاتصال وأعد المحاولة', 'no');
@@ -24739,10 +24744,12 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
           <div className="card" style={{ borderColor: 'rgba(217,84,77,.45)' }}>
             <div className="card-t" style={{ marginBottom: 10, color: '#D9544D' }}><Trash2 size={15} />حذف كل بيانات الإغلاق اليومي</div>
             <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 10 }}>
-              يحذف نهائيًا كل الإغلاقات لكل الفروع، مع توريداتها وتنبيهاتها وصور توثيقها في أرشيف المستندات.
+              يحذف نهائيًا إغلاقات الفرع المختار (أو كل الفروع)، مع توريداتها وتنبيهاتها وصور توثيقها في أرشيف المستندات.
               قيود الإيراد والمصروفات المشتقّة من الإغلاقات تختفي من المحاسبة والتقارير فورًا.
               قبل الحذف يُنزَّل تلقائيًا ملف بكل ما سيُحذف للرجوع إليه.
             </div>
+            <Field label="الفرع" style={{ maxWidth: 320 }}><select className="sel" value={wBr} disabled={wipe.busy} onChange={e => { setWBr(e.target.value); setWipe(w => ({ ...w, open: false, text: '', done: null })); }}>
+              <option value="all">كل الفروع</option>{(org.branches || []).map(b => <option key={b.id} value={b.id}>{b.name} ({(ops.closings || []).filter(c => c.branchId === b.id).length} إغلاق)</option>)}</select></Field>
             <div className="grid g4" style={{ gap: 9, marginBottom: 10 }}>
               {[['الإغلاقات', wClosings.length], ['التوريدات المرتبطة', wTransfers.length], ['التنبيهات المرتبطة', wNotes.length], ['في فترة مقفلة', wLocked.length]].map(([k, v]) => (
                 <div key={k} className="mono-b" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
@@ -24760,7 +24767,7 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
             )}
             {!wipe.open ? (
               <button className="btn" style={{ color: '#D9544D', borderColor: 'rgba(217,84,77,.5)' }} disabled={wipe.busy} onClick={() => setWipe(w => ({ ...w, open: true, text: '' }))}>
-                <Trash2 size={14} />{wClosings.length ? 'حذف ' + wClosings.length + ' إغلاق وكل ما يرتبط بها' : 'تنظيف صور الإغلاقات المتبقية في الأرشيف'}
+                <Trash2 size={14} />{wClosings.length ? 'حذف ' + wClosings.length + ' إغلاق — ' + wBrName + ' — وكل ما يرتبط بها' : 'تنظيف صور الإغلاقات المتبقية في الأرشيف'}
               </button>
             ) : (
               <div className="grid" style={{ gap: 9 }}>
