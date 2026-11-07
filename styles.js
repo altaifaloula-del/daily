@@ -1,6 +1,9 @@
 /* تنسيقات المنصة */
 export const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Markazi+Text:wght@500;600;700&family=Tajawal:wght@300;400;500;700;900&family=IBM+Plex+Mono:wght@400;500;600&family=Cairo:wght@400;600;700&family=Almarai:wght@400;700;800&display=swap');
+/* v32.4 — خط الأرقام: Inter للأرقام وعلاماتها فقط (unicode-range) — الحروف تبقى بخطوطها العربية في كل مكان */
+@font-face{font-family:'MizanNum';src:url('./fonts/inter-latin.woff2') format('woff2');font-weight:100 900;font-style:normal;font-display:swap;
+  unicode-range:U+0030-0039,U+0025,U+0024,U+002B-002E,U+002F,U+003A,U+00D7,U+2212,U+2013}
 
 :root{
   /* ===== نظام التصميم الموحّد — الرموز (Design Tokens) ===== */
@@ -32,7 +35,7 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 #root{width:100%;max-width:100vw;overflow-x:hidden}
 .rms{
   direction:rtl; background:var(--ink); color:var(--txt); min-height:100vh;
-  font-family:var(--font-ui,'Tajawal',system-ui,-apple-system,'Segoe UI',sans-serif);
+  font-family:'MizanNum',var(--font-ui,'Tajawal',system-ui,-apple-system,'Segoe UI',sans-serif);
   font-size:14px; line-height:1.65; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
   text-rendering:optimizeLegibility; font-feature-settings:'kern' 1;
   overflow-x:hidden; max-width:100vw;
@@ -194,8 +197,8 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 .rms.thm-carbon .lh-bg::after{content:'';position:absolute;inset:0;background:repeating-linear-gradient(45deg,color-mix(in srgb,var(--line) 40%,transparent) 0 1px,transparent 1px 9px);opacity:.5}
 .rms *{max-width:100%}
 .rms .num{max-width:none}
-.rms h1,.rms h2,.rms h3,.rms h4{font-family:var(--font-head,'Markazi Text',serif);font-weight:700;margin:0;letter-spacing:0;line-height:1.25}
-.num{font-family:'IBM Plex Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums;direction:ltr;display:inline-block}
+.rms h1,.rms h2,.rms h3,.rms h4{font-family:'MizanNum',var(--font-head,'Markazi Text',serif);font-weight:700;margin:0;letter-spacing:0;line-height:1.25}
+.num{font-family:'MizanNum','IBM Plex Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums;font-feature-settings:'tnum' 1;direction:ltr;display:inline-block;letter-spacing:.1px}
 .rms button{font-family:inherit}
 
 /* ---- تخطيط ---- */
@@ -213,10 +216,10 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
   width:36px;height:36px;border-radius:10px;flex-shrink:0;
   background:linear-gradient(140deg,var(--brass-l),var(--brass));
   display:grid;place-items:center;color:#1a1410;font-weight:700;
-  font-family:var(--font-head,'Markazi Text',serif);box-shadow:0 2px 12px rgba(200,162,74,.3)
+  font-family:'MizanNum',var(--font-head,'Markazi Text',serif);box-shadow:0 2px 12px rgba(200,162,74,.3)
 }
 .brand-logo{width:38px;height:38px;border-radius:10px;flex-shrink:0;object-fit:cover;border:1px solid var(--line);background:var(--ink3)}
-.brand-t{font-size:17px;font-weight:700;line-height:1.25;font-family:var(--font-head,'Markazi Text',serif)}
+.brand-t{font-size:17px;font-weight:700;line-height:1.25;font-family:'MizanNum',var(--font-head,'Markazi Text',serif)}
 .brand-s{font-size:10.5px;color:var(--faint);letter-spacing:.04em}
 .nav-lbl{font-size:10px;color:var(--faint);padding:14px 10px 6px;letter-spacing:.12em}
 .nav-i{
@@ -235,7 +238,7 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
   border-bottom:1px solid var(--line);background:color-mix(in srgb,var(--ink2) 88%,transparent);
   backdrop-filter:blur(10px);z-index:30;flex-wrap:wrap
 }
-.top .toptitle{font-size:21px;font-weight:800;font-family:var(--font-head,'Markazi Text',serif);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:42vw;margin:0;letter-spacing:.2px}
+.top .toptitle{font-size:21px;font-weight:800;font-family:'MizanNum',var(--font-head,'Markazi Text',serif);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:42vw;margin:0;letter-spacing:.2px}
 .topstatus{display:flex;align-items:center;gap:8px;margin-inline-start:auto;flex:0 0 auto}
 .topstatus .btn.sm.gh{width:36px;height:36px;padding:0;display:inline-grid;place-items:center;border-radius:10px}
 .topstatus .synctime{width:auto !important;padding:0 10px !important;gap:5px}
@@ -257,7 +260,7 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 
   /* ---- الرأس الثابت أعلى القشرة ---- */
   .top{flex-shrink:0;padding:10px 12px;gap:6px;width:100%;max-width:100vw;overflow:hidden;flex-wrap:nowrap;z-index:30}
-  .toptitle{font-size:19px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto;font-weight:700;font-family:var(--font-head,'Markazi Text',serif)}
+  .toptitle{font-size:19px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto;font-weight:700;font-family:'MizanNum',var(--font-head,'Markazi Text',serif)}
   .topstatus{display:flex;align-items:center;gap:4px;flex:0 1 auto;min-width:0}
   .topstatus .badge{font-size:9px;padding:2px 6px}
   .topstatus .btn.sm{padding:6px 7px}
@@ -377,7 +380,7 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 .sheet{width:100%;background:var(--ink2);border-radius:20px 20px 0 0;padding:8px 16px calc(20px + env(safe-area-inset-bottom));max-height:80vh;overflow-y:auto;animation:sheetup .25s cubic-bezier(.2,.8,.2,1)}
 @keyframes sheetup{from{transform:translateY(100%)}to{transform:translateY(0)}}
 .sheet-handle{width:40px;height:4px;border-radius:4px;background:var(--line);margin:6px auto 12px}
-.sheet-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;font-size:14px;font-weight:600;font-family:var(--font-head,'Markazi Text',serif)}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;font-size:14px;font-weight:600;font-family:'MizanNum',var(--font-head,'Markazi Text',serif)}
 .iconsgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
 .icontile{display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 6px;border-radius:14px;border:1px solid var(--line);background:var(--ink);color:var(--dim);cursor:pointer;font-family:inherit;transition:.15s}
 .icontile:active{transform:scale(.96)}
@@ -410,14 +413,14 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 
 /* رأس الصفحة الموحّد (عنوان + إجراء) */
 .pagehead{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-.pagehead-t{font-size:21px;font-weight:700;font-family:var(--font-head,'Markazi Text',serif)}
+.pagehead-t{font-size:21px;font-weight:700;font-family:'MizanNum',var(--font-head,'Markazi Text',serif)}
 .pagehead-s{font-size:12px;color:var(--dim);margin-top:2px}
 
 /* ---- عناصر ---- */
 .card{background:var(--ink2);border:1px solid var(--line-g);border-radius:var(--r-md);padding:var(--s4);box-shadow:var(--sh-1);transition:box-shadow var(--t),border-color var(--t)}
 .card:hover{box-shadow:var(--sh-2)}
 .card-h{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;flex-wrap:wrap}
-.card-t{font-size:17px;font-weight:700;display:flex;align-items:center;gap:8px;font-family:var(--font-head,'Markazi Text',serif)}
+.card-t{font-size:17px;font-weight:700;display:flex;align-items:center;gap:8px;font-family:'MizanNum',var(--font-head,'Markazi Text',serif)}
 .grid{display:grid;gap:12px}
 .grid>*{min-width:0}
 .g2{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -459,7 +462,7 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
 .inp:hover,.sel:hover{border-color:var(--brass-d)}
 .inp:focus,.sel:focus{border-color:var(--brass);box-shadow:var(--ring);background:var(--ink2)}
 .inp::placeholder{color:var(--faint)}
-.inp.n{font-family:'IBM Plex Mono',monospace;direction:ltr;text-align:end}
+.inp.n{font-family:'MizanNum','IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;direction:ltr;text-align:end}
 .lbl{display:block;font-size:11.5px;color:var(--dim);margin-bottom:5px}
 .fld{margin-bottom:12px}
 textarea.inp{resize:vertical;min-height:64px}
@@ -513,7 +516,7 @@ table.tb{width:100%;border-collapse:collapse;font-size:12.5px;min-width:520px}
   border-radius:50%;border:1px dashed rgba(255,255,255,.16)
 }
 .note:hover{transform:translateY(-2px);border-color:var(--nc)}
-.note-v{font-size:12.5px;font-weight:700;font-family:'IBM Plex Mono',monospace;color:#fff;opacity:.95}
+.note-v{font-size:12.5px;font-weight:700;font-family:'MizanNum','IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;color:#fff;opacity:.95}
 .note-u{font-size:9.5px;color:rgba(255,255,255,.6);margin-bottom:7px}
 .note-r{display:flex;align-items:center;gap:5px}
 .stp{width:24px;height:24px;border-radius:7px;border:1px solid rgba(255,255,255,.18);
@@ -521,9 +524,9 @@ table.tb{width:100%;border-collapse:collapse;font-size:12.5px;min-width:520px}
 .stp:hover{background:rgba(0,0,0,.6)}
 .note-i{
   flex:1;min-width:0;background:rgba(0,0,0,.42);border:1px solid rgba(255,255,255,.12);border-radius:7px;
-  color:#fff;text-align:center;padding:4px 2px;font-family:'IBM Plex Mono',monospace;font-size:13px;outline:none
+  color:#fff;text-align:center;padding:4px 2px;font-family:'MizanNum','IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;font-size:13px;outline:none
 }
-.note-t{font-size:10px;color:rgba(255,255,255,.55);text-align:center;margin-top:5px;font-family:'IBM Plex Mono',monospace}
+.note-t{font-size:10px;color:rgba(255,255,255,.55);text-align:center;margin-top:5px;font-family:'MizanNum','IBM Plex Mono',monospace;font-variant-numeric:tabular-nums}
 
 .seal{
   border:2px solid var(--sc);color:var(--sc);border-radius:12px;padding:12px 16px;
@@ -536,7 +539,7 @@ table.tb{width:100%;border-collapse:collapse;font-size:12.5px;min-width:520px}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--mint);box-shadow:0 0 0 0 rgba(79,178,134,.6);animation:pulse 2.2s infinite}
 @keyframes pulse{70%{box-shadow:0 0 0 7px rgba(79,178,134,0)}100%{box-shadow:0 0 0 0 rgba(79,178,134,0)}}
 .av{width:27px;height:27px;border-radius:50%;display:grid;place-items:center;font-size:10.5px;
-  font-weight:700;border:2px solid var(--ink2);margin-inline-start:-7px;color:#16120f;font-family:var(--font-head,'Markazi Text',serif)}
+  font-weight:700;border:2px solid var(--ink2);margin-inline-start:-7px;color:#16120f;font-family:'MizanNum',var(--font-head,'Markazi Text',serif)}
 .feed{display:flex;gap:10px;padding:9px 0;border-bottom:1px solid rgba(51,44,38,.5);font-size:12px}
 .feed:last-child{border:none}
 .feed-d{width:6px;height:6px;border-radius:50%;background:var(--brass);margin-top:7px;flex-shrink:0}
@@ -580,12 +583,12 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
 .gate{background:radial-gradient(1100px 560px at 80% -8%,color-mix(in srgb,var(--brass) 13%,transparent),transparent 62%),var(--ink) !important}
 /* شعار الشركة في الرأس */
 .toplogo{width:34px;height:34px;border-radius:9px;object-fit:cover;flex-shrink:0;border:1px solid var(--line);background:var(--ink2)}
-.toplogo-mark{width:34px;height:34px;border-radius:9px;flex-shrink:0;display:grid;place-items:center;font-family:var(--font-head,'Markazi Text',serif);font-weight:700;font-size:19px;background:linear-gradient(140deg,var(--brass-l),var(--brass))}
+.toplogo-mark{width:34px;height:34px;border-radius:9px;flex-shrink:0;display:grid;place-items:center;font-family:'MizanNum',var(--font-head,'Markazi Text',serif);font-weight:700;font-size:19px;background:linear-gradient(140deg,var(--brass-l),var(--brass))}
 /* خلفية الواجهة الرئيسية (تحت التطبيقات): توهّج بلون الهوية + علامة/شعار باهت */
 .lh-bg{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
 .lh-bg::before{content:'';position:absolute;inset:0;background:radial-gradient(920px 540px at 82% -8%,color-mix(in srgb,var(--brass) 13%,transparent),transparent 60%),radial-gradient(780px 540px at 4% 112%,color-mix(in srgb,var(--brass) 8%,transparent),transparent 55%)}
 .lh-wm{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(56vw,600px);height:auto;max-width:none;opacity:.04;object-fit:contain;pointer-events:none}
-.lh-wm.mark{font-family:var(--font-head,'Markazi Text',serif);font-weight:700;font-size:min(52vw,540px);line-height:1;color:var(--brass);opacity:.05;width:auto;height:auto}
+.lh-wm.mark{font-family:'MizanNum',var(--font-head,'Markazi Text',serif);font-weight:700;font-size:min(52vw,540px);line-height:1;color:var(--brass);opacity:.05;width:auto;height:auto}
 .lh{position:relative;z-index:1}
 
 /* ---- بوابة الدخول ---- */
@@ -602,7 +605,7 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
 .gate-u:hover{border-color:var(--brass-d);transform:translateX(-3px)}
 .gate-u.on{border-color:var(--brass);background:var(--ink3)}
 .pin{display:flex;gap:8px;justify-content:center;direction:ltr}
-.pin input{width:46px;height:52px;text-align:center;font-size:20px;font-family:'IBM Plex Mono',monospace;
+.pin input{width:46px;height:52px;text-align:center;font-size:20px;font-family:'MizanNum','IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;
   background:var(--ink2);border:1px solid var(--line);border-radius:11px;color:var(--txt);outline:none}
 .pin input:focus{border-color:var(--brass);box-shadow:0 0 0 3px rgba(200,162,74,.12)}
 
@@ -744,7 +747,7 @@ body.lh-dragging *{cursor:grabbing !important}
 .esec-t{flex:1;min-width:0}
 .esec-t b{font-size:14px;font-weight:700;display:block;line-height:1.3}
 .esec-t span{font-size:11px;color:var(--dim);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.esec-v{font-family:'IBM Plex Mono',monospace;font-size:13.5px;font-weight:600;color:var(--brass);white-space:nowrap;flex-shrink:0}
+.esec-v{font-family:'MizanNum','IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;font-size:13.5px;font-weight:600;color:var(--brass);white-space:nowrap;flex-shrink:0}
 .esec-chv{color:var(--faint);transition:transform .22s var(--ease-out);flex-shrink:0}
 .esec.open .esec-chv{transform:rotate(180deg)}
 .esec-b{padding:4px 14px 15px;animation:esecin .24s var(--ease-out)}
@@ -785,7 +788,7 @@ body.lh-dragging *{cursor:grabbing !important}
 /* ===== حقل عدة مبالغ (جمع تلقائي) ===== */
 .moneysum{display:flex;justify-content:space-between;gap:10px;margin-top:6px;padding:7px 11px;border-radius:9px;background:rgba(200,162,74,.09);border:1px solid rgba(200,162,74,.3);font-size:11.5px;color:var(--dim)}
 .moneysum b{color:var(--brass);font-weight:700}
-.inp-sum-ta{font-family:'IBM Plex Mono',monospace;white-space:pre}
+.inp-sum-ta{font-family:'MizanNum','IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;white-space:pre}
 .inp-sum-ta.on{border-color:var(--brass-d);background:var(--ink2)}
 .money-multi{display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap}
 .money-add{flex-shrink:0}
@@ -819,7 +822,7 @@ body.lh-dragging *{cursor:grabbing !important}
 .pin-dot{width:13px;height:13px;border-radius:50%;border:2px solid var(--faint);transition:.15s}
 .pin-dot.on{background:var(--brass);border-color:var(--brass);box-shadow:0 0 8px rgba(200,162,74,.5)}
 .pinpad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}
-.pinkey{padding:12px 0;border-radius:12px;border:1px solid var(--line);background:var(--ink3);color:var(--txt);font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:600;cursor:pointer;transition:.12s;display:flex;align-items:center;justify-content:center;min-height:50px}
+.pinkey{padding:12px 0;border-radius:12px;border:1px solid var(--line);background:var(--ink3);color:var(--txt);font-family:'MizanNum','IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;font-size:20px;font-weight:600;cursor:pointer;transition:.12s;display:flex;align-items:center;justify-content:center;min-height:50px}
 .pinkey:hover{background:var(--ink2);border-color:var(--brass-d)}
 .pinkey:active{transform:scale(.96);background:var(--brass);color:#1a1410}
 .pinkey.ghost{font-size:13px;font-family:'Tajawal',sans-serif;color:var(--dim)}
@@ -848,7 +851,7 @@ body.lh-dragging *{cursor:grabbing !important}
 .appc-star.on{color:var(--brass-l)}
 .appc-star:hover{background:var(--acc-soft);color:var(--brass-l)}
 .appcat{display:flex;align-items:center;gap:9px;margin:14px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line)}
-.appcat .t{font-family:var(--font-head,'Markazi Text',serif);font-size:18.5px;font-weight:700}
+.appcat .t{font-family:'MizanNum',var(--font-head,'Markazi Text',serif);font-size:18.5px;font-weight:700}
 .appcat .c{font-size:10px;color:var(--faint)}
 .appstrip{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-bottom:2px}
 .appchip{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;border:1px solid var(--line-g);background:var(--ink2);color:var(--txt);font-size:11.5px;cursor:pointer;font-family:inherit;transition:border-color var(--t-fast),background var(--t-fast)}
