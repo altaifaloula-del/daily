@@ -2483,7 +2483,7 @@ const ERRLOG_KEY = 'mizan:errlog';
 function logClientError(err, where) {
   try {
     const a = JSON.parse(localStorage.getItem(ERRLOG_KEY) || '[]');
-    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v34.13' });
+    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v34.14' });
     localStorage.setItem(ERRLOG_KEY, JSON.stringify(a.slice(0, 20)));
   } catch { }
 }
@@ -3525,7 +3525,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v34.13 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v34.14 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -7867,6 +7867,9 @@ function Dashboard({ org, ops, pulse, me, myBranches, scoped, online, setTab, th
 const POS_DEV_KEY = 'mizan:posDev', POS_Q_KEY = 'mizan:posQueue';
 const posDev = () => { try { let d = JSON.parse(localStorage.getItem(POS_DEV_KEY) || 'null'); if (!d || !d.tag) { d = { tag: Math.random().toString(36).slice(2, 4).toUpperCase(), name: 'كاشير' }; localStorage.setItem(POS_DEV_KEY, JSON.stringify(d)); } return d; } catch { return { tag: 'X1', name: 'كاشير' }; } };
 const POS_SH_KEY = 'mizan:posShiftLocal';
+const POS_SC_KEY = 'mizan:posShiftClose';   // v34.14: ورديات أُغلقت على الجهاز ولم تُرسل بعد (قائمة)
+const pendShiftsGet = () => { try { const v = JSON.parse(localStorage.getItem(POS_SC_KEY) || '[]'); return Array.isArray(v) ? v : (v ? [v] : []); } catch { return []; } };
+const pendShiftsSet = (a) => { try { if (a.length) localStorage.setItem(POS_SC_KEY, JSON.stringify(a)); else localStorage.removeItem(POS_SC_KEY); } catch { } };
 const POS_LQ_KEY = 'mizan:posLoyQ';
 const loyQ = () => { try { return JSON.parse(localStorage.getItem(POS_LQ_KEY) || '[]'); } catch { return []; } };
 const loyQSet = (a) => { try { localStorage.setItem(POS_LQ_KEY, JSON.stringify(a)); } catch { } };
@@ -8045,7 +8048,8 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const allOrders = useMemo(() => { const m = {}; (ops.posOrders || []).forEach(o => { m[o.id] = o; }); queue.forEach(o => { if (!m[o.id]) m[o.id] = { ...o, pending: true }; }); return Object.values(m); }, [ops.posOrders, queue]);
   // v33.3: الوردية تُفتح على الجهاز فورًا حتى لو تعذّر الحفظ السحابي، وتُرسل مع الطلبات عند عودة الاتصال
   const [localShift, setLocalShift] = useState(() => { try { return JSON.parse(localStorage.getItem(POS_SH_KEY) || 'null'); } catch { return null; } });
-  const cloudShift = (ops.posShifts || []).find(x => x.branchId === (br || {}).id && x.dev === dev.tag && x.status === 'open');
+  const [pendCloseL, setPendClose] = useState(pendShiftsGet); const pendClose = pendCloseL.length ? pendCloseL : null;
+  const cloudShift = (ops.posShifts || []).find(x => x.branchId === (br || {}).id && x.dev === dev.tag && x.status === 'open' && !pendCloseL.some(p => p.id === x.id));
   const shift = cloudShift || (localShift && localShift.branchId === (br || {}).id && localShift.dev === dev.tag && localShift.status === 'open' ? { ...localShift, pending: true } : null);
   const setLS = (v) => { try { if (v) localStorage.setItem(POS_SH_KEY, JSON.stringify(v)); else localStorage.removeItem(POS_SH_KEY); } catch { } setLocalShift(v); };
   // v34.0: التسعير = العروض وخصم الصنف (لكل سطر) ← عرض الفاتورة ← الخصم اليدوي (مبلغ أو نسبة) ← استبدال النقاط
@@ -8070,6 +8074,10 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
       const ok = await commit(d => { const have = new Set((d.posOrders || []).map(o => o.id)); return { ...d, posOrders: [...qn.filter(o => !have.has(o.id)), ...(d.posOrders || [])] }; });
       if (ok) { const rest = posQueue().filter(o => !qn.some(x => x.id === o.id)); posQueueSet(rest); setQueue(rest); } else return;
     }
+    // إغلاق الوردية المعلّق (بعد وصول فواتيرها)
+    const pcs = pendShiftsGet();
+    if (pcs.length) { const okC = await commit(d => { let list = d.posShifts || []; pcs.forEach(pc => { list = list.some(x => x.id === pc.id) ? list.map(x => x.id === pc.id ? pc : x) : [pc, ...list]; }); return { ...d, posShifts: list }; });
+      if (okC) { const rest = pendShiftsGet().filter(x => !pcs.some(p => p.id === x.id)); pendShiftsSet(rest); setPendClose(rest); } else return; }
     // نقاط الولاء بعد وصول الفواتير
     const lq = loyQ(); if (lq.length) { const r = await loyPost(lq); if (r) { loyQSet(loyQ().filter(t => !lq.some(x => x.id === t.id))); setLoy(r); } }
   }, [commit]);
@@ -8108,10 +8116,16 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     const os = shiftOrders(shift).filter(o => o.status !== 'void');
     const expected = posR2(shift.openingCash + os.reduce((a, o) => a + posCashNet(o), 0));
     const counted = posR2(String(shiftF.counted).replace(/[^\d.]/g, ''));
-    if (queue.length) return say('يوجد ' + queue.length + ' فاتورة لم تُرسَل بعد — انتظر الاتصال ثم أغلق الوردية', 'no');
-    if (shift.pending) { await flush(); return say('الوردية لم تصل للسحابة بعد — تحقق من الاتصال ثم أعد المحاولة', 'no'); }
-    const sum2 = posDaySummary(os, br.id, null);
-    const rec = { ...shift, status: 'closed', closedAt: nowISO(), closedBy: me.name, expected, counted, diff: posR2(counted - expected), n: os.length, total: posR2(os.reduce((a, o) => a + o.total, 0)) };
+    const { pending: _pd, ...shiftClean } = shift;
+    const rec = { ...shiftClean, status: 'closed', closedAt: nowISO(), closedBy: me.name, expected, counted, diff: posR2(counted - expected), n: os.length, total: posR2(os.reduce((a, o) => a + o.total, 0)) };
+    // v34.14: إغلاق على الجهاز حين لم تصل الوردية أو فواتيرها للسحابة بعد — يُطبع Z من فواتير الجهاز وتُرسل كلها لاحقًا تلقائيًا
+    if (queue.length || shift.pending) {
+      if (!window.confirm('توجد بيانات لم تصل للسحابة بعد (' + (queue.length ? queue.length + ' فاتورة' : 'الوردية نفسها') + ').\n\nإغلاق الوردية على هذا الجهاز وطباعة تقرير Z الآن؟ تُرسل الوردية المغلقة وفواتيرها تلقائيًا عند نجاح الحفظ — لا تمسح بيانات المتصفح ولا تحذف التطبيق قبل ذلك.')) return;
+      if (shift.pending) setLS(null);
+      const nx = [...pendShiftsGet().filter(x => x.id !== rec.id), rec]; pendShiftsSet(nx); setPendClose(nx);
+      setShiftF(null); say('أُغلقت الوردية على الجهاز — الفرق ' + money(rec.diff) + ' · تُرسل تلقائيًا'); posPrint(posZHtml(org, rec, shiftOrders(shift), br)); flush();
+      return;
+    }
     const ok = await commit(d => ({ ...d, posShifts: (d.posShifts || []).map(x => x.id === shift.id ? rec : x) }), { actionType: 'update', targetType: 'pos_shift', targetId: shift.id, branchName: br.name, title: 'إغلاق وردية نقطة بيع', details: dev.name + ' · متوقع ' + money(expected) + ' · فعلي ' + money(counted) + ' · فرق ' + money(rec.diff) });
     if (ok) { setShiftF(null); say('أُغلقت الوردية — الفرق ' + money(rec.diff)); posPrint(posZHtml(org, rec, shiftOrders(shift), br)); }
   };
@@ -8165,7 +8179,11 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   .pos-fab{display:none}
   @media(max-width:900px){.pos-wrap{grid-template-columns:1fr}.pos-cart{display:none}.pos-cart.open{display:block;position:fixed;inset:auto 0 calc(72px + env(safe-area-inset-bottom)) 0;max-height:calc(100dvh - 200px - env(safe-area-inset-bottom));overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;z-index:60;border-radius:18px;margin:0 6px;padding-bottom:14px;box-shadow:0 -10px 34px rgba(0,0,0,.35)}
     .pos-fab{display:flex;position:sticky;bottom:10px;z-index:55;width:100%;justify-content:space-between;padding:15px 18px;font-size:16px;font-weight:800;border-radius:14px;margin-top:10px;box-shadow:0 8px 24px rgba(0,0,0,.25)}}`;
-  const pendingBadge = queue.length ? <span className="badge b-amber">⏳ {queue.length} فاتورة بانتظار الإرسال</span> : <span className="badge b-mint">متزامن ✓</span>;
+  const pendingBadge = (queue.length || pendClose || (localShift && localShift.branchId === (br || {}).id)) ? <span className="badge b-amber">⏳ {queue.length ? queue.length + ' فاتورة' : ''}{pendClose || localShift ? (queue.length ? ' + ' : '') + 'وردية' : ''} بانتظار الإرسال</span> : <span className="badge b-mint">متزامن ✓</span>;
+  // v34.14: سبب تأخر الإرسال ظاهرًا دائمًا (رسائل الخطأ المنبثقة تختفي)
+  const le = cloud.lastError || null; const leRe = le && le.key ? cloud.readErr(le.key) : null;
+  const leLbl = le && le.key ? (le.key === KEYS.core ? 'المستند المركزي' : le.key.startsWith('rms8:br_') ? 'ملف فرع «' + (((org.branches || []).find(b => 'rms8:br_' + b.id === le.key)) || { name: le.key.slice(8) }).name + '»' : le.key.startsWith('rms8:bf_') ? 'أرشيف مستندات فرع' : le.key) : '';
+  const pendReason = (queue.length || pendClose || localShift) && le ? (leLbl + ' — ' + (le.code === 'read-failed' ? 'تعذّرت قراءته' + (leRe ? ' (' + leRe.code + ')' : '') : le.code || 'خطأ') + ' · ' + new Date(le.at).toTimeString().slice(0, 5)) : '';;
   const todayOrders = allOrders.filter(o => o.branchId === br.id && o.date === today).sort((a, b) => String(b.at).localeCompare(String(a.at)));
   const daySum = posDaySummary(todayOrders, br.id, today);
   const pl = (l) => priced.lines.find(x => x.key === l.key) || {};
@@ -8232,6 +8250,8 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
           ...(isMgr ? [{ id: 'loyalty', ar: 'الولاء', icon: Users }] : []), ...(R.admin || R.scope === 'all' ? [{ id: 'cfg', ar: 'الإعدادات', icon: Settings }] : [])]} />
       </div></div>
 
+      {pendReason && <div className="note" style={{ fontSize: 12 }}>سبب تأخر الإرسال: <b>{pendReason}</b>{R.admin && !(shift && shift.pending) && <button className="btn sm gh" style={{ marginInlineStart: 8 }} onClick={() => setDiag(x => !x)}>تشخيص</button>}</div>}
+      {!(shift && shift.pending) && R.admin && diag && <CloudHealth org={org} say={say} only={[brKey(br.id), bfKey(br.id), KEYS.core]} auto commit={commit} me={me} />}
       {shift && shift.pending && R.admin && <div><button className="btn sm" onClick={() => setDiag(x => !x)}><ShieldCheck size={13} />{diag ? 'إخفاء التشخيص' : 'تشخيص وإصلاح مشكلة الحفظ'}</button></div>}
       {shift && shift.pending && R.admin && diag && <CloudHealth org={org} say={say} only={[brKey(br.id), bfKey(br.id), KEYS.core]} auto commit={commit} me={me} />}
       {shift && shift.pending && <div className="note" style={{ borderColor: 'rgba(224,164,88,.6)' }}>⚠ الوردية مفتوحة على هذا الجهاز ولم تُحفظ في السحابة بعد — البيع مستمر والفواتير محفوظة على الجهاز، وتُرسل تلقائيًا عند نجاح الاتصال. إن استمر هذا التنبيه أرسل لي نص رسالة الخطأ التي ظهرت عند فتح الوردية.</div>}
