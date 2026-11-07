@@ -2483,7 +2483,7 @@ const ERRLOG_KEY = 'mizan:errlog';
 function logClientError(err, where) {
   try {
     const a = JSON.parse(localStorage.getItem(ERRLOG_KEY) || '[]');
-    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v34.7' });
+    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v34.8' });
     localStorage.setItem(ERRLOG_KEY, JSON.stringify(a.slice(0, 20)));
   } catch { }
 }
@@ -3525,7 +3525,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v34.7 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v34.8 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -8216,7 +8216,7 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
       </div></div>
 
       {shift && shift.pending && R.admin && <div><button className="btn sm" onClick={() => setDiag(x => !x)}><ShieldCheck size={13} />{diag ? 'إخفاء التشخيص' : 'تشخيص وإصلاح مشكلة الحفظ'}</button></div>}
-      {shift && shift.pending && R.admin && diag && <CloudHealth org={org} say={say} only={[brKey(br.id), KEYS.core]} auto commit={commit} me={me} />}
+      {shift && shift.pending && R.admin && diag && <CloudHealth org={org} say={say} only={[brKey(br.id), bfKey(br.id), KEYS.core]} auto commit={commit} me={me} />}
       {shift && shift.pending && <div className="note" style={{ borderColor: 'rgba(224,164,88,.6)' }}>⚠ الوردية مفتوحة على هذا الجهاز ولم تُحفظ في السحابة بعد — البيع مستمر والفواتير محفوظة على الجهاز، وتُرسل تلقائيًا عند نجاح الاتصال. إن استمر هذا التنبيه أرسل لي نص رسالة الخطأ التي ظهرت عند فتح الوردية.</div>}
       {view === 'sell' && (!shift ? (
         <div className="card" style={{ maxWidth: 420, margin: '20px auto', textAlign: 'center' }}>
@@ -24120,7 +24120,8 @@ async function slimBranchDoc(branch, commit, me) {
     const pdfA = im.u.startsWith('data:application/pdf');
     add.push({ id: 'arc-' + c.id + '-slim' + k, title: im.t + ' — ' + (c.branchName || branch.name) + ' ' + (c.date || ''), category: im.cat, categoryLabelAr: im.lbl, branchId: branch.id, branchName: c.branchName || branch.name,
       fileUrl: im.u, fileType: pdfA ? 'pdf' : 'image', fileName: im.t + (pdfA ? '.pdf' : '.jpg'), fileSizeKb: Math.round(im.u.length * 0.75 / 1024), uploadDate: c.date, uploadedBy: (me || {}).name || '', amount: im.amount, closingId: c.id, source: 'closing', uploadedAt: nowISO() }); }));
-  if (add.length && !(await cloud.set(bfKey(branch.id), { ...(store || {}), items: [...add, ...items] }))) return { err: 'تعذّر حفظ الصور في أرشيف المستندات — لم يُحذف شيء' };
+  if (cloud.readFailed(bfKey(branch.id))) { const re = cloud.readErr(bfKey(branch.id)) || {}; return { err: 'تعذّرت قراءة «أرشيف مستندات ' + branch.name + '» (' + (re.code || '') + ') — لم يُحذف شيء. أصلح سطر الأرشيف في الفحص أولًا ثم خفّف الملف' }; }
+  if (add.length && !(await cloud.set(bfKey(branch.id), { ...(store || {}), items: [...add, ...items] }))) return { err: 'تعذّر حفظ الصور في أرشيف المستندات (' + String((cloud.lastError || {}).code || '') + ') — لم يُحذف شيء' };
   const ids = new Set(withImgs.map(c => c.id)); let imgs = 0; withImgs.forEach(c => { imgs += closingImgs(c).length; });
   const ok = await commit(d => ({ ...d, closings: (d.closings || []).map(c => ids.has(c.id) && c.branchId === branch.id ? { ...c, sessionPhoto: '', sessionPhotos: [], cardReceiptImage: '', expenses: (c.expenses || []).map(e => e.receiptImage ? { ...e, receiptImage: '' } : e), imagesPruned: true, imagesArchived: true } : c) }),
     { actionType: 'update', targetType: 'daily_closing', targetId: branch.id, branchName: branch.name, title: 'نقل صور الإغلاقات إلى أرشيف المستندات (تخفيف ملف الفرع)', details: withImgs.length + ' إغلاق · ' + imgs + ' صورة · منها ' + add.length + ' أُضيفت للأرشيف' });
@@ -24130,7 +24131,7 @@ async function slimBranchDoc(branch, commit, me) {
 function CloudHealth({ org, say, only, auto, commit, me }) {
   const [rows, setRows] = useState(null); const [busy, setBusy] = useState(false);
   const keys = [[KEYS.core, 'المستند المركزي (الحسابات والمشتريات)'], [KEYS.org, 'الإعدادات'], [KEYS.dir, 'الدليل العام للفروع'], [KEYS.loy, 'نقاط الولاء'],
-    ...(org.branches || []).map(b => [brKey(b.id), 'فرع ' + b.name])].filter(([k]) => !only || only.includes(k));
+    ...(org.branches || []).flatMap(b => [[brKey(b.id), 'فرع ' + b.name], [bfKey(b.id), 'أرشيف مستندات ' + b.name]])].filter(([k]) => !only || only.includes(k));
   useEffect(() => { if (auto) run(); }, []);   // eslint-disable-line
   const run = async () => { setBusy(true); const out = []; for (const [k, l] of keys) { const r = await cloud.inspect(k); out.push({ ...r, label: l, re: cloud.readErr(k) }); setRows([...out]); } setBusy(false); };
   const bad = (r) => !r.txOk && (r.err || (r.exists && (r.missing.length || !r.json)));
