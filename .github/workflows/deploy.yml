@@ -36,6 +36,8 @@ jobs:
         run: npm ci
       - name: تشغيل الاختبارات
         run: npm run test:rules
+      - name: اختبارات المحرك المحاسبي (الميزان، الضريبة، المخزون، المخصصات، الفواتير)
+        run: npm run test:acct
 
   # ===== 2) بناء الواجهة =====
   build:

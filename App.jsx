@@ -367,7 +367,7 @@ const BR_COLS = ['closings', 'transfers', 'partnerRequests', 'notifications', 'b
   'leaveRequests',
   // v31.4 — سجل جلسات الجرد (حتى المطابقة بلا فروقات) — أساس الجرد الدوري المجدول
   'stockCounts'];
-const CORE_COLS = ['salesInvoices', 'advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules', 'hrScoreSnapshots'];
+const CORE_COLS = ['ledgerSnaps', 'salesInvoices', 'advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules', 'hrScoreSnapshots'];
 
 // تقسيم ops المدمجة إلى مستند مركزي + مستند لكل فرع
 function splitOps(ops, branchIds) {
@@ -536,6 +536,30 @@ const stNum = (v) => {
   if (!isFinite(n)) return 0;
   return neg ? -n : n;
 };
+/* v32.2 — قراءة كشف الحساب بالصيغة البنكية القياسية MT940 (تُنزَّل من قنوات البنوك للشركات):
+   :60F: الرصيد الافتتاحي · :61: حركة (تاريخ القيمة، مدين/دائن، المبلغ بفاصلة عشرية، النوع، المرجع) · :86: البيان · :62F: الرصيد الختامي */
+function parseMt940(text) {
+  const t = String(text || '').replace(/\r/g, '');
+  if (!/:61:/.test(t) || !/:6[02][FM]:/.test(t)) return null;
+  const tags = []; let cur = null;
+  t.split('\n').forEach(line => { const m = line.match(/^:(\d{2}[A-Z]?):(.*)$/); if (m) { cur = { tag: m[1], v: m[2] }; tags.push(cur); } else if (cur && line.trim() && !/^-}?$/.test(line.trim())) cur.v += '\n' + line; });
+  const ymd = (yy, mm, dd) => (Number(yy) < 80 ? '20' : '19') + yy + '-' + mm + '-' + dd;
+  const bal = (v) => { const m = String(v).match(/^([CD])(\d{2})(\d{2})(\d{2})([A-Z]{3})([\d,\.]+)/); return m ? { date: ymd(m[2], m[3], m[4]), cur: m[5], amount: (m[1] === 'D' ? -1 : 1) * Number(m[6].replace(',', '.')) } : null; };
+  const out = { account: '', open: null, close: null, lines: [] };
+  tags.forEach((x, i) => {
+    if (x.tag === '25') out.account = x.v.trim();
+    if (x.tag === '60F' || x.tag === '60M') out.open = out.open || bal(x.v);
+    if (x.tag === '62F' || x.tag === '62M') out.close = bal(x.v);
+    if (x.tag === '61') {
+      const m = x.v.match(/^(\d{2})(\d{2})(\d{2})(\d{4})?(R?[CD])([A-Z])?([\d,\.]+)(\w{4})?([^\n]*)/);
+      if (!m) return;
+      const sign = m[5].includes('D') !== m[5].startsWith('R') ? -1 : 1;
+      const nx = tags[i + 1] && tags[i + 1].tag === '86' ? tags[i + 1].v.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim() : '';
+      out.lines.push({ date: ymd(m[1], m[2], m[3]), amount: Math.round(sign * Number(m[7].replace(',', '.')) * 100) / 100, ref: (m[9] || '').replace(/^\/\//, '').trim(), desc: nx || (m[8] || '') });
+    }
+  });
+  return out.lines.length ? out : null;
+}
 // تواريخ الكشوف: ISO · يوم/شهر/سنة (السائد بكشوف البنوك السعودية) · رقم إكسل التسلسلي
 const stDate = (v) => {
   if (v == null) return '';
@@ -707,6 +731,21 @@ function sha256Hex(str) {
   return H.map(x => (x >>> 0).toString(16).padStart(8, '0')).join('');
 }
 const SI_SERIES = { invoice: 'فاتورة', credit: 'إشعار' };
+/* v32.1 — الدفتر المُرحَّل المجمَّد: عند إقفال شهر يُحفظ ميزانه (مدين/دائن لكل حساب) وبصمة SHA-256 لقيوده،
+   ثم يُقارن الحي بالمجمَّد في أي وقت — أي اختلاف (بعد فتح استثنائي أو خلل) يظهر فورًا */
+function monthLedger(A, m) {
+  const es = A.entries.filter(e => String(e.date || '').slice(0, 7) === m).sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  const tb = {}; let dr = 0, cr = 0;
+  es.forEach(e => e.lines.forEach(l => { const x = tb[l.code] || (tb[l.code] = [0, 0]); x[0] += l.debit || 0; x[1] += l.credit || 0; dr += l.debit || 0; cr += l.credit || 0; }));
+  Object.keys(tb).forEach(k => { tb[k] = [Math.round(tb[k][0] * 100) / 100, Math.round(tb[k][1] * 100) / 100]; });
+  const sig = sha256Hex(es.map(e => e.id + '|' + e.date + '|' + e.lines.map(l => l.code + ':' + Math.round((l.debit || 0) * 100) + ':' + Math.round((l.credit || 0) * 100)).join(',')).join('\n'));
+  return { month: m, n: es.length, dr: Math.round(dr * 100) / 100, cr: Math.round(cr * 100) / 100, tb, sig };
+}
+function snapMonths(A, upTo, existing) {
+  const have = new Set((existing || []).map(x => x.month));
+  const months = [...new Set(A.entries.map(e => String(e.date || '').slice(0, 7)).filter(m => /^\d{4}-\d{2}$/.test(m) && m <= upTo))].sort();
+  return months.filter(m => !have.has(m));
+}
 // المحتوى المُبصَم: كل ما يغيّر أثر الفاتورة (التحصيلات خارجه لأنها تُضاف لاحقًا)
 const siCanon = (x) => JSON.stringify([x.no, x.kind, x.type, x.date, x.time || '', x.entityId || '', x.branchId || '', x.customerKey || '', (x.buyer || {}).name || '', (x.buyer || {}).vat || '',
   (x.lines || []).map(l => [l.desc, l.qty, l.price, l.vatRate, l.net, l.vat]), x.net, x.vat, x.total, x.terms, x.fund || '', x.refId || '', !!x.inClosing, x.icv, x.pih || '']);
@@ -2375,13 +2414,53 @@ function emptyOrg(company) {
 }
 
 function emptyOps() {
-  return { stockCounts: [], leaveRequests: [], productSales: [], salesInvoices: [], closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
+  return { ledgerSnaps: [], stockCounts: [], leaveRequests: [], productSales: [], salesInvoices: [], closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
     attendanceEvents: [], hrPins: [], shiftTemplates: [], shiftAssignments: [], shiftSwapRequests: [], branchTransferRequests: [], taskTemplates: [], taskAssignments: [], taskCompletions: [], pointsEntries: [], qualityReviews: [], rewardRequests: [], hrSignDocs: [], hrCorrective: [], hrPips: [], hrTraining: [], hrKpiEntries: [], hrScoreSnapshots: [] };
 }
 
 
 /* ================= الجذر ================= */
 // v28.0 — رابط رمز QR للعميل (?rate=<branchId>) يعرض صفحة التقييم العامة قبل أي إقلاع أو بوابة دخول
+/* v32.0 — حاجز الأخطاء: أي خطأ في شاشة يُعرض رسالة عربية مع «إعادة المحاولة» بدل شاشة سوداء،
+   ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
+const ERRLOG_KEY = 'mizan:errlog';
+function logClientError(err, where) {
+  try {
+    const a = JSON.parse(localStorage.getItem(ERRLOG_KEY) || '[]');
+    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v32.2' });
+    localStorage.setItem(ERRLOG_KEY, JSON.stringify(a.slice(0, 20)));
+  } catch { }
+}
+class ErrorBoundary extends React.Component {
+  constructor(p) { super(p); this.state = { err: null, copied: false }; }
+  static getDerivedStateFromError(err) { return { err }; }
+  componentDidCatch(err, info) { logClientError(err, (this.props.where || '') + ' ' + String((info && info.componentStack) || '').split('\n').slice(0, 3).join(' ').trim()); }
+  render() {
+    if (!this.state.err) return this.props.children;
+    const full = this.props.full;
+    const txt = 'الموقع: ' + (this.props.where || 'المنصة') + '\nالخطأ: ' + String(this.state.err && this.state.err.message) + '\nالوقت: ' + new Date().toISOString();
+    const box = (
+      <div className="card" style={{ maxWidth: 560, margin: full ? '12vh auto' : '10px auto', textAlign: 'center', borderColor: 'rgba(217,84,77,.45)' }}>
+        <div style={{ fontSize: 34 }}>⚠️</div>
+        <div style={{ fontWeight: 800, fontSize: 16, margin: '6px 0' }}>حدث خطأ في {this.props.where || 'المنصة'}</div>
+        <div style={{ fontSize: 12.5, color: 'var(--dim)', lineHeight: 1.8 }}>بياناتك سليمة ولم يُحفظ شيء خاطئ. جرّب «إعادة المحاولة»، وإن تكرر الخطأ فانسخ التفاصيل وأرسلها للدعم.</div>
+        <div className="row" style={{ gap: 8, justifyContent: 'center', marginTop: 12, flexWrap: 'wrap' }}>
+          <button className="btn pri" onClick={() => this.setState({ err: null })}>إعادة المحاولة</button>
+          {full && <button className="btn" onClick={() => location.reload()}>تحديث الصفحة</button>}
+          <button className="btn gh" onClick={() => { try { navigator.clipboard.writeText(txt); this.setState({ copied: true }); } catch { } }}>{this.state.copied ? 'نُسخت ✓' : 'نسخ تفاصيل الخطأ'}</button>
+        </div>
+        <div className="num" style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 10, direction: 'ltr' }}>{String(this.state.err && this.state.err.message).slice(0, 160)}</div>
+      </div>);
+    return full ? <div className="rms mode-dark thm-royal" style={{ minHeight: '100vh', background: '#14110f', padding: 16 }}>{box}</div> : box;
+  }
+}
+export { ErrorBoundary, logClientError };
+if (typeof window !== 'undefined' && !window.__mizanErrHook) {
+  window.__mizanErrHook = true;
+  window.addEventListener('error', (e) => logClientError(e.error || e.message, 'window'));
+  window.addEventListener('unhandledrejection', (e) => logClientError(e.reason, 'promise'));
+}
+
 export default function App() {
   const [rateId] = useState(qrRateParam);
   return rateId ? <QrRatePublic branchId={rateId} /> : <PlatformApp />;
@@ -3357,7 +3436,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v31.10 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v32.2 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -3512,7 +3591,7 @@ function PlatformApp() {
           )}
 
           <div className="page">
-            <div className="page-inner">
+            <div className="page-inner"><ErrorBoundary key={safeTab} where={(NAV.find(n => n.id === safeTab) || {}).ar || 'هذا القسم'}>
               {safeTab === 'home' && <Launcher {...shared} online={online} />}
               {['analytics', 'exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'alerts'].includes(safeTab) && <Hub hubId="analytics" {...shared} online={online} view={safeTab} />}
               {['reporting', 'reports', 'rbuild', 'boardpack', 'cashflow'].includes(safeTab) && <Hub hubId="reporting" {...shared} view={safeTab} />}
@@ -3532,7 +3611,7 @@ function PlatformApp() {
               {['docs', 'archive'].includes(safeTab) && <Hub hubId="docshub" {...shared} view={safeTab} />}
               {safeTab === 'admin' && <Admin {...shared} />}
               {safeTab === 'audit' && <AuditView {...shared} onSeen={() => setLastSeenAudit(Date.now())} />}
-            </div>
+            </ErrorBoundary></div>
           </div>
 
           <div className="tick">
@@ -19433,8 +19512,16 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     if (!f) return;
     try {
       let grid;
-      if (/\.(xlsx)$/i.test(f.name)) grid = await parseXlsxGrid(await f.arrayBuffer());
-      else grid = parseCsvGrid(await f.text());
+      if (!/\.(xlsx)$/i.test(f.name)) {
+        const txt = await f.text(); const mt = parseMt940(txt);
+        if (mt) {   // v32.2: كشف MT940 — يُحوَّل لجدول بأعمدة معروفة مع الرصيدين الافتتاحي والختامي من البنك نفسه
+          grid = [['التاريخ', 'البيان', 'مدين', 'دائن', 'المرجع'], ...mt.lines.map(l => [l.date, l.desc, l.amount < 0 ? -l.amount : '', l.amount > 0 ? l.amount : '', l.ref])];
+          setStMatch(null); setFullM(null);
+          setStF({ name: f.name, grid, map: { date: 0, desc: 1, debit: 2, credit: 3, amount: -1, start: 1 }, auto: true, mt940: { account: mt.account, open: mt.open, close: mt.close, n: mt.lines.length } });
+          return say('قُرئ كشف MT940 ✓ — ' + mt.lines.length + ' حركة' + (mt.close ? ' · الرصيد الختامي ' + money(mt.close.amount) + ' في ' + mt.close.date : ''));
+        }
+        grid = parseCsvGrid(txt);
+      } else grid = await parseXlsxGrid(await f.arrayBuffer());
       if (!grid || grid.length < 2) return say('الملف فارغ أو غير مقروء — جرّب تصديره CSV من بنكك', 'no');
       const map = detectStmtMap(grid);
       setStMatch(null);
@@ -19575,13 +19662,21 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     if (plCfg.lockedThrough && m <= plCfg.lockedThrough) return say('المقفل حاليًا يغطي هذا الشهر أصلًا', 'no');
     await savePl({ lockedThrough: m, logEntry: { action: 'lock', month: m } },
       'أقفل الفترات المحاسبية حتى ' + m, 'قفل تراكمي — كل ما قبله وضمنه محمي من التعديل');
-    setLockTo(''); say('أُقفلت الفترات حتى نهاية ' + m + ' 🔒');
+    // v32.1: تجميد ميزان كل شهر مقفل لم يُجمَّد بعد (أو أُعيد قفله بعد فتح) مع بصمة قيوده
+    const AA = buildAccounting(org, ops);
+    const todo = snapMonths(AA, m, (ops.ledgerSnaps || []).filter(x => !x.reopened));
+    if (todo.length) await commit(d => ({ ...d, ledgerSnaps: [...(d.ledgerSnaps || []).filter(x => !todo.includes(x.month)), ...todo.map(mm => ({ ...monthLedger(AA, mm), id: uid('ls'), at: nowISO(), by: me.name }))] }),
+      { actionType: 'create', targetType: 'period_lock', targetId: 'ledgerSnaps', need: 'edit', title: 'جمّد الدفتر المُرحَّل', details: todo.join('، ') });
+    setLockTo(''); say('أُقفلت الفترات حتى نهاية ' + m + ' 🔒' + (todo.length ? ' — وجُمّد دفتر ' + todo.length + ' شهر' : ''));
   };
   const doUnlock = async () => {
     if (!unReason.trim()) return say('اكتب سبب الفتح الاستثنائي — إلزامي للتوثيق', 'no');
     if (unTo && plCfg.lockedThrough && unTo >= plCfg.lockedThrough) return say('اختر حدًّا أسبق من المقفل الحالي أو اتركه فارغًا لفتح الكل', 'no');
     await savePl({ lockedThrough: unTo || '', logEntry: { action: 'unlock', month: unTo || 'فتح كامل', reason: unReason.trim() } },
       'فتح استثنائي للفترات المقفلة', 'السبب: ' + unReason.trim() + (unTo ? ' · الحد الجديد ' + unTo : ' · فُتح الكل'));
+    // الأشهر المفتوحة تُعلَّم «مفتوحة للتصحيح» — تُجمَّد من جديد عند إعادة القفل، وتبقى الصورة السابقة للمقارنة
+    await commit(d => ({ ...d, ledgerSnaps: (d.ledgerSnaps || []).map(x => (!unTo || x.month > unTo) ? { ...x, reopened: nowISO(), reopenReason: unReason.trim() } : x) }),
+      { actionType: 'update', targetType: 'period_lock', targetId: 'ledgerSnaps', need: 'edit', title: 'علّم الدفاتر المجمّدة المفتوحة', details: unTo || 'الكل' });
     setUnReason(''); setUnTo(''); say('نُفّذ الفتح الاستثنائي ووُثّق السبب ✓');
   };
 
@@ -21488,6 +21583,24 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
             <div className="card"><div className="empty">القفل والفتح الاستثنائي صلاحية للإدارة العليا / مسؤول النظام — يمكنك الاطلاع على الحالة والسجل.</div></div>
           )}
 
+          {(ops.ledgerSnaps || []).length > 0 && (() => { const AA = A; const rows = (ops.ledgerSnaps || []).slice().sort((a, b) => b.month.localeCompare(a.month)).map(x => ({ x, live: monthLedger(AA, x.month) }));
+            const bad = rows.filter(r => r.live.sig !== r.x.sig);
+            return (
+            <div className="card" style={{ borderColor: bad.length ? 'rgba(217,84,77,.5)' : 'rgba(79,178,134,.4)' }}>
+              <div className="card-t" style={{ marginBottom: 8 }}><ShieldCheck size={15} color={bad.length ? 'var(--rose)' : 'var(--mint)'} />الدفتر المُرحَّل المجمَّد — {bad.length ? bad.length + ' شهر تغيّر بعد تجميده' : 'كل الأشهر مطابقة لما جُمِّد ✓'}</div>
+              <div className="tw"><table className="tb">
+                <thead><tr><th>الشهر</th><th style={{ textAlign: 'end' }}>القيود</th><th style={{ textAlign: 'end' }}>إجمالي المدين</th><th>جُمّد</th><th>الحالة</th></tr></thead>
+                <tbody>{rows.map(({ x, live }) => { const ok = live.sig === x.sig; const dd = Math.round((live.dr - x.dr) * 100) / 100; return (
+                  <tr key={x.id || x.month}>
+                    <td className="num">{x.month}</td><td className="num" style={{ textAlign: 'end' }}>{x.n}{live.n !== x.n ? ' → ' + live.n : ''}</td>
+                    <td className="num" style={{ textAlign: 'end' }}>{money(x.dr)}{Math.abs(dd) > 0.004 ? <div style={{ fontSize: 10, color: 'var(--rose)' }}>الحي {money(live.dr)}</div> : null}</td>
+                    <td style={{ fontSize: 11, color: 'var(--faint)' }}>{String(x.at || '').slice(0, 10)} · {x.by}</td>
+                    <td>{ok ? <span className="badge b-mint">مطابق ✓</span> : x.reopened ? <span className="badge b-amber" title={x.reopenReason || ''}>مفتوح للتصحيح — أعد القفل</span> : <span className="badge b-rose">تغيّر بعد التجميد ⚠</span>}</td>
+                  </tr>); })}</tbody>
+              </table></div>
+              <div className="note" style={{ marginTop: 8 }}>عند كل إقفال يُحفظ ميزان الشهر وبصمة قيوده. «تغيّر بعد التجميد» يعني أن أرقام شهر مقفل اختلفت عمّا اعتُمد — راجع سجل الفتح الاستثنائي والتعديلات. الشهر المفتوح للتصحيح يُجمَّد من جديد عند إعادة قفله.</div>
+            </div>); })()}
+
           {plLog.length > 0 && (
             <div className="card">
               <div className="card-t" style={{ marginBottom: 8 }}><Eye size={15} color="var(--brass)" />سجل الإقفال والفتح</div>
@@ -21898,8 +22011,8 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
                   <input type="month" className="inp" value={stMonth} onChange={e => { setStMonth(e.target.value); setStMatch(null); }} />
                 </Field>
                 <div>
-                  <input type="file" accept=".csv,.xlsx,text/csv" style={{ display: 'none' }} id="stfile" onChange={stPick} />
-                  <button className="btn" onClick={() => document.getElementById('stfile').click()}><Download size={14} />رفع كشف البنك (Excel / CSV)</button>
+                  <input type="file" accept=".csv,.xlsx,.sta,.mt940,.940,.txt,text/csv,text/plain" style={{ display: 'none' }} id="stfile" onChange={stPick} />
+                  <button className="btn" onClick={() => document.getElementById('stfile').click()}><Download size={14} />رفع كشف البنك (Excel / CSV / MT940)</button>
                 </div>
                 {stF && <span className="badge b-dim" style={{ direction: 'ltr' }}>{stF.name}</span>}
                 {stF && <button className="btn pri" onClick={stRun}><Scale size={14} />مطابقة الشبكة</button>}
@@ -21931,6 +22044,11 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
                     <div className="mono-b"><span style={{ fontSize: 11 }}>رصيد الدفتر آخر الشهر</span><span className="num">{money(fullM.bookEnd)}</span></div>
                     <div className="mono-b"><span style={{ fontSize: 11 }}>رصيد الكشف المتوقع</span><span className="num" style={{ color: 'var(--brass)' }}>{money(fullM.expStmt)}</span></div>
                   </div>
+                  {stF && stF.mt940 && stF.mt940.close && (() => { const d = Math.round((stF.mt940.close.amount - fullM.expStmt) * 100) / 100; const ok = Math.abs(d) < 0.01; return (
+                    <div className="mono-b" style={{ marginTop: 8, borderColor: ok ? 'rgba(79,178,134,.5)' : 'rgba(217,84,77,.5)' }}>
+                      <span style={{ fontSize: 11.5 }}>الرصيد الختامي من البنك ({stF.mt940.close.date}{stF.mt940.close.date.slice(0, 7) !== fullM.month ? ' — تأكد أن الكشف لشهر ' + fullM.month : ''})</span>
+                      <span className="num" style={{ color: ok ? 'var(--mint)' : 'var(--rose)' }}>{money(stF.mt940.close.amount)} {ok ? '— التسوية مكتملة ✓' : '— الفرق ' + money(d)}</span>
+                    </div>); })()}
                   <div className="note" style={{ marginTop: 6 }}>قارن «رصيد الكشف المتوقع» برصيد آخر يوم في كشفك: إن تساويا فالتسوية مكتملة. الفرق يعني سطرًا غير مقروء أو قيدًا بمبلغ مختلف.</div>
                   {fullM.bankUn.length > 0 && <>
                     <div className="lbl" style={{ marginTop: 10 }}>في الكشف وغير مقيّد في الدفاتر ({fullM.bankUn.length}) — قيّده بضغطة</div>

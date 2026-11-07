@@ -4,3 +4,4 @@ dist
 data/
 firestore-debug.log
 *.log
+tests/.cache
