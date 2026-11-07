@@ -2483,7 +2483,7 @@ const ERRLOG_KEY = 'mizan:errlog';
 function logClientError(err, where) {
   try {
     const a = JSON.parse(localStorage.getItem(ERRLOG_KEY) || '[]');
-    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v34.1' });
+    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v34.2' });
     localStorage.setItem(ERRLOG_KEY, JSON.stringify(a.slice(0, 20)));
   } catch { }
 }
@@ -3518,7 +3518,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v34.1 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v34.2 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -8354,7 +8354,8 @@ function PosPromos({ org, commitOrg, say }) {
     if (f.type !== 'order' && f.scope === 'cats' && !(f.cats || []).length) return say('اختر التصنيفات المشمولة', 'no');
     if (f.from && f.to && f.to < f.from) return say('تاريخ النهاية قبل البداية', 'no');
     if (f.code && list.some(x => x.id !== f.id && x.code && x.code.trim().toLowerCase() === f.code.trim().toLowerCase())) return say('رمز الكوبون مستخدم في عرض آخر', 'no');
-    const rec = { ...f, id: f.id || uid('pm'), name: f.name.trim(), value: v, x: Number(f.x) || 0, y: Number(f.y) || 0, minTotal: Number(f.minTotal) || 0, code: (f.code || '').trim(), scope: f.type === 'order' ? 'all' : f.scope, by: f.by || '', at: f.at || nowISO() };
+    const { q: _q, ...f0 } = f;
+    const rec = { ...f0, id: f.id || uid('pm'), name: f.name.trim(), value: v, x: Number(f.x) || 0, y: Number(f.y) || 0, minTotal: Number(f.minTotal) || 0, code: (f.code || '').trim(), scope: f.type === 'order' ? 'all' : f.scope, by: f.by || '', at: f.at || nowISO() };
     const ok = await commitOrg(d => ({ ...d, posPromos: f.id ? (d.posPromos || []).map(x => x.id === f.id ? rec : x) : [...(d.posPromos || []), rec] }), { actionType: f.id ? 'update' : 'create', targetType: 'settings', targetId: rec.id, need: 'edit', title: f.id ? 'عدّل عرضًا ترويجيًا' : 'أضاف عرضًا ترويجيًا', details: rec.name + ' · ' + promoDesc(rec) });
     if (ok) { setF(null); say('حُفظ العرض ✓'); }
   };
@@ -8399,8 +8400,11 @@ function PosPromos({ org, commitOrg, say }) {
         </div>
         {f.type !== 'order' && <><div className="lbl">يشمل</div>
           <div className="row" style={{ gap: 6, marginBottom: 6 }}>{[['all', 'كل الأصناف'], ['cats', 'تصنيفات (مجموعات)'], ['items', 'أصناف محددة']].map(([k, t]) => <button key={k} type="button" className={'btn sm' + (f.scope === k ? ' pri' : ' gh')} onClick={() => setF(x => ({ ...x, scope: k }))}>{t}</button>)}</div>
+          {f.scope !== 'all' && !prods.length && <div className="note" style={{ marginBottom: 8 }}>لا توجد منتجات بعد، فلا تظهر أصناف ولا مجموعات. أضفها من «المخزون والمنتجات ← الوصفات والتكلفة ← منتج جديد» (اكتب «تصنيف نقطة البيع» مثل وجبات/مشروبات ليصبح مجموعة)، أو من «نقطة البيع ← البيع ← إضافة/تسعير أصناف».</div>}
+          {f.scope === 'cats' && !!prods.length && cats.length === 1 && cats[0] === 'أخرى' && <div className="note" style={{ marginBottom: 8 }}>منتجاتك بلا تصنيف، فكلها في مجموعة «أخرى». لإنشاء مجموعات اكتب «تصنيف نقطة البيع» في بطاقة كل منتج (المخزون ← الوصفات والتكلفة).</div>}
           {f.scope === 'cats' && <div className="row" style={{ gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>{cats.map(c => <label key={c} className="row" style={{ gap: 5, fontSize: 12.5, cursor: 'pointer' }}><input type="checkbox" checked={(f.cats || []).includes(c)} onChange={() => tog('cats', c)} />{c}</label>)}</div>}
-          {f.scope === 'items' && <div className="row" style={{ gap: 10, flexWrap: 'wrap', marginBottom: 8, maxHeight: 160, overflow: 'auto' }}>{prods.map(p => <label key={p.id} className="row" style={{ gap: 5, fontSize: 12.5, cursor: 'pointer' }}><input type="checkbox" checked={(f.items || []).includes(p.id)} onChange={() => tog('items', p.id)} />{p.name} <span className="num" style={{ color: 'var(--faint)' }}>{money(p.sellPrice)}</span></label>)}</div>}</>}
+          {f.scope === 'items' && prods.length > 8 && <input className="inp" style={{ marginBottom: 6 }} placeholder="بحث عن صنف…" value={f.q || ''} onChange={e => setF(x => ({ ...x, q: e.target.value }))} />}
+          {f.scope === 'items' && <div className="row" style={{ gap: 10, flexWrap: 'wrap', marginBottom: 8, maxHeight: 220, overflow: 'auto' }}>{prods.filter(p => !(f.q || '').trim() || (p.name || '').includes(f.q.trim())).map(p => <label key={p.id} className="row" style={{ gap: 5, fontSize: 12.5, cursor: 'pointer' }}><input type="checkbox" checked={(f.items || []).includes(p.id)} onChange={() => tog('items', p.id)} />{p.name} <span className="num" style={{ color: 'var(--faint)' }}>{money(p.sellPrice)}</span></label>)}</div>}</>}
         <div className="lbl">الجدولة (اختياري)</div>
         <div className="grid g4">
           <Field label="من تاريخ"><input type="date" className="inp" value={f.from} onChange={e => setF(x => ({ ...x, from: e.target.value }))} /></Field>
