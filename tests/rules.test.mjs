@@ -195,6 +195,17 @@ test('rms8_pulse: يُكتب بالشكل الحقيقي فقط ({parts, updated
   await assertFails(setDoc(doc(brB(), 'platform', 'rms8_pulse'), { presence: {}, audit: [] }));
 });
 
+test('rms8_loy (v34.0): نقاط الولاء مشتركة — يقرؤها ويكتبها كاشير أي فرع بالشكل الحقيقي، ولا يكتبها «عرض فقط» ولا الزائر', async () => {
+  const loy = (o) => ({ value: JSON.stringify(o), parts: 1, updatedAt: Date.now() });
+  await assertSucceeds(setDoc(doc(brA(), 'platform', 'rms8_loy'), loy({ members: {}, tx: [{ id: 'o1:e', phone: '551234567', pts: 5 }] })));
+  await assertSucceeds(getDoc(doc(brB(), 'platform', 'rms8_loy')));
+  await assertSucceeds(setDoc(doc(brB(), 'platform', 'rms8_loy__0'), { chunk: 'x' }));
+  await assertFails(setDoc(doc(brA(), 'platform', 'rms8_loy'), { members: {}, tx: [] }));
+  await assertFails(setDoc(doc(viewer(), 'platform', 'rms8_loy'), loy({ members: {}, tx: [] })));
+  await assertFails(getDoc(doc(visitor(), 'platform', 'rms8_loy')));
+  await assertFails(getDoc(doc(ghost(), 'platform', 'rms8_loy')));
+});
+
 /* ===== v28.0 — وحدة تقييم العملاء بالـ QR (qr_branches / qr_feedback) ===== */
 const RATINGS = { quality: 5, taste: 4, temp: 4, size: 5, staff: 3, speed: 2, pro: 4, clean: 5, vibe: 4, comfort: 4 };
 const fbDoc = (over) => ({ branchId: 'b-AAA', ratings: { ...RATINGS }, comment: 'ممتاز', tableNo: '7', invoiceNo: null, source: 'qr', createdAt: serverTimestamp(), ...over });

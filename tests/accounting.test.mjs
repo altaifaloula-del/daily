@@ -224,3 +224,57 @@ test('منع تكرار الفواتير: رقم المورد بعد التطب�
   d = E.findDupInvoices({ salesInvoices: [si] }, { salesInvoices: [si, { ...si, id: 's3', at: '2026-11-07T11:30:00Z' }] });
   assert.equal(d.length, 0);
 });
+
+test('العروض: أفضل خصم واحد لكل صنف، خصم بطاقة الصنف، اشترِ X واحصل على Y، الجدولة والكوبون وعرض الفاتورة', () => {
+  const products = [{ id: 'p1', name: 'برجر', sellPrice: 20, cat: 'وجبات' }, { id: 'p2', name: 'عصير', sellPrice: 10, cat: 'مشروبات', disc: { t: 'amt', v: 2 } }, { id: 'p3', name: 'بطاطس', sellPrice: 8, cat: 'وجبات' }];
+  const cart = [{ key: 'a', productId: 'p1', price: 20, qty: 3 }, { key: 'b', productId: 'p2', price: 10, qty: 2 }, { key: 'c', productId: 'p3', price: 8, qty: 1 }];
+  const now = new Date(2026, 10, 7, 16, 30);   // السبت 16:30
+  const promos = [
+    { id: 'm1', name: 'وجبات 10%', type: 'pct', value: 10, scope: 'cats', cats: ['وجبات'] },
+    { id: 'm2', name: '2+1 برجر', type: 'bxgy', x: 2, y: 1, scope: 'items', items: ['p1'] },
+    { id: 'm3', name: 'ساعة سعيدة', type: 'pct', value: 50, scope: 'cats', cats: ['مشروبات'], tFrom: '18:00', tTo: '20:00' },
+    { id: 'm4', name: 'فوق 50', type: 'order', mode: 'pct', value: 5, minTotal: 50 },
+    { id: 'm5', name: 'كوبون', type: 'amt', value: 3, scope: 'all', code: 'VIP' }
+  ];
+  const r = E.posPriceCart(cart, products, promos, { now, branchId: 'b1' });
+  const L = Object.fromEntries(r.lines.map(l => [l.productId, l]));
+  near(L.p1.disc, 20); assert.equal(L.p1.promoId, 'm2', 'الأفضل للعميل: 2+1 (20) أكبر من 10% (6)');
+  near(L.p2.disc, 4); assert.equal(L.p2.promoName, 'خصم الصنف', 'الساعة السعيدة خارج وقتها');
+  near(L.p3.disc, 0.8);
+  near(r.sub, 60 - 20 + 20 - 4 + 8 - 0.8); near(r.orderDisc, r.sub * 0.05);
+  // الكوبون: 3 ريال للوحدة على كل الأصناف → يتفوق على 10% للبطاطس (0.8) لكن ليس على 2+1
+  const r2 = E.posPriceCart(cart, products, promos, { now, branchId: 'b1', code: 'vip' });
+  assert.ok(r2.codeOk); near(r2.lines.find(l => l.productId === 'p3').disc, 3); near(r2.lines.find(l => l.productId === 'p2').disc, 6);
+  // وقت الساعة السعيدة (يدعم ما بعد منتصف الليل أيضًا)
+  assert.ok(E.promoActive(promos[2], new Date(2026, 10, 7, 19, 0), 'b1'));
+  assert.ok(E.promoActive({ tFrom: '22:00', tTo: '02:00' }, new Date(2026, 10, 7, 1, 0)));
+  assert.ok(!E.promoActive({ tFrom: '22:00', tTo: '02:00' }, new Date(2026, 10, 7, 12, 0)));
+  assert.ok(!E.promoActive({ days: [4, 5] }, now), 'السبت ليس ضمن الخميس/الجمعة');
+  assert.ok(!E.promoActive({ branches: ['b2'] }, now, 'b1'));
+  // الإجماليات: خصومات الأسطر + الفاتورة، والضريبة من الصافي بعد الخصم
+  const T = E.posTotals(r.lines, r.orderDisc, 15);
+  near(T.gross, 88); near(T.ldisc, 24.8); near(T.total, 88 - 24.8 - r.orderDisc); near(T.vat, T.total * 15 / 115);
+});
+
+test('نقاط الولاء: الكسب والرصيد وحد الاستبدال وتوحيد رقم الجوال', () => {
+  const cfg = { enabled: true, earnPer: 10, ptValue: 0.5, minRedeem: 20, maxRedeemPct: 50 };
+  assert.equal(E.normPhone('+966 55 123 4567'), '551234567'); assert.equal(E.normPhone('٠٥٥١٢٣٤٥٦٧'), '551234567');
+  assert.equal(E.loyEarn(cfg, 99.99), 9); assert.equal(E.loyEarn({ ...cfg, enabled: false }, 500), 0);
+  const doc = { tx: [{ id: 'o1:e', phone: '551234567', pts: 30 }, { id: 'o2:e', phone: '551234567', pts: 15 }, { id: 'o2:r', phone: '551234567', pts: -20 }, { id: 'x', phone: '500000000', pts: 99 }] };
+  assert.equal(E.loyBal(doc, '551234567'), 25);
+  assert.equal(E.loyRedeemMax(cfg, 25, 100), 25, 'كل الرصيد: 12.5 ر.س أقل من سقف 50%');
+  assert.equal(E.loyRedeemMax(cfg, 25, 20), 20, 'السقف 50% من 20 = 10 ر.س = 20 نقطة');
+  assert.equal(E.loyRedeemMax(cfg, 19, 100), 0, 'تحت الحد الأدنى');
+});
+
+test('ملخص الوردية: المبيعات والخصومات حسب العرض والولاء والملغاة', () => {
+  const os = [
+    { status: 'paid', total: 50, vat: 6.52, gross: 60, payments: [{ m: 'cash', amount: 50 }], change: 0, lines: [{ disc: 10, promoName: '2+1' }], manualDisc: 0 },
+    { status: 'paid', total: 90, vat: 11.74, gross: 100, payments: [{ m: 'card', amount: 90 }], lines: [], orderDisc: 5, orderPromo: { name: 'فوق 50' }, manualDisc: 2, loyalty: { redeemAmt: 3, redeemed: 6, earned: 9 } },
+    { status: 'void', total: 30, lines: [], payments: [{ m: 'cash', amount: 30 }] }
+  ];
+  const s = E.posOrdersStats(os);
+  assert.equal(s.n, 2); near(s.total, 140); near(s.cash, 50); near(s.card, 90);
+  near(s.promo['2+1'], 10); near(s.promo['فوق 50'], 5); near(s.mdisc, 2); near(s.loyAmt, 3); assert.equal(s.loyEarned, 9);
+  assert.equal(s.voidN, 1); near(s.voidAmt, 30);
+});
