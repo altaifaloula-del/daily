@@ -159,3 +159,43 @@ test('نقطة البيع: الإجمالي والضريبة الشاملة وا
   near(s.total, 125); near(s.cash, 60); near(s.card, 20); near(s.apps.jahez.amount, 45); assert.equal(s.apps.jahez.n, 1);
   near(s.cash + s.card + s.apps.jahez.amount, s.total, 'مجموع طرق الدفع = إجمالي المبيعات');
 });
+
+test('استيراد نقاط البيع: فاتورة لكل سطر — كشف الأعمدة وتجميع يومي واستبعاد المكرر', () => {
+  const grid = [
+    ['تقرير المبيعات'],
+    ['التاريخ', 'الفرع', 'رقم الفاتورة', 'الإجمالي', 'الضريبة', 'طريقة الدفع'],
+    ['2026-11-01', 'فرع العليا', 'A1', '115', '15', 'نقدي'],
+    ['2026-11-01', 'فرع العليا', 'A2', '230', '30', 'مدى'],
+    ['2026-11-01', 'فرع العليا', 'A2', '230', '30', 'مدى'],
+    ['2026-11-01', 'فرع العليا', 'A3', '57.5', '7.5', 'جاهز'],
+    ['2026-11-02', 'فرع النسيم', 'B1', '46', '6', 'كاش'],
+    ['', '', '', '448.5', '', 'المجموع'],
+  ];
+  const d = E.piDetect(grid);
+  assert.equal(d.layout, 'invoice'); assert.equal(d.start, 2); assert.equal(d.map.pay, 5); assert.equal(d.map.no, 2);
+  const apps = [{ id: 'jahez', n: 'جاهز' }];
+  const payMap = {}; ['نقدي', 'مدى', 'جاهز', 'كاش'].forEach(v => { payMap[v] = E.PAY_GUESS(v, apps); });
+  assert.deepEqual(payMap, { 'نقدي': 'cash', 'مدى': 'card', 'جاهز': 'app:jahez', 'كاش': 'cash' });
+  const r = E.piAggregate(grid, { ...d, brMap: { 'فرع العليا': 'b1', 'فرع النسيم': 'b2' }, payMap });
+  assert.equal(r.issues.dup, 1); assert.equal(r.issues.badDate, 1);
+  assert.equal(r.days.length, 2);
+  const a = r.days.find(x => x.branchId === 'b1');
+  assert.equal(a.n, 3); near(a.total, 402.5); near(a.cash, 115); near(a.card, 230); near(a.apps.jahez.amount, 57.5); near(a.vat, 52.5);
+  const ops = { posOrders: [], posImports: [{ ...a, id: 'p1' }] };
+  const s = E.salesDaySource(ops, 'b1', '2026-11-01');
+  assert.equal(s.src, 'import'); near(s.total, 402.5);
+});
+
+test('استيراد نقاط البيع: ملخص يومي بعمود لكل طريقة دفع', () => {
+  const grid = [
+    ['Date', 'Cash', 'Mada', 'Jahez', 'Total'],
+    ['01/11/2026', '1,200.50', '800', '300', '2300.5'],
+    ['02/11/2026', '900', '0', '100', '1000'],
+  ];
+  const d = E.piDetect(grid);
+  assert.equal(d.layout, 'summary'); assert.equal(d.payCols.length, 3);
+  const r = E.piAggregate(grid, { ...d, branchId: 'b1', brMap: {}, payMap: { Cash: 'cash', Mada: 'card', Jahez: 'app:jahez' } });
+  assert.equal(r.days.length, 2);
+  near(r.days[0].cash, 1200.5); near(r.days[0].card, 800); near(r.days[0].apps.jahez.amount, 300); near(r.days[0].total, 2300.5);
+  near(r.days[1].total, 1000);
+});
