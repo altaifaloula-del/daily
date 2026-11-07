@@ -79,7 +79,10 @@ async function fsReadRetry(f, key) {
 // v29.0: بصمة رأس آخر نسخة قُرئت كاملة لكل مستند (updatedAt|parts). أول لقطة يرسلها الاستماع اللحظي
 // بعد الإقلاع تحمل نفس البصمة غالبًا — كانت تُعيد تنزيل المستند كاملًا (بكل أجزائه) بلا أي تغيير.
 const loadedStamp = new Map();
-const stampOf = (d) => (d && d.updatedAt != null) ? (d.updatedAt + '|' + (d.parts || 1)) : null;
+const stampOf = (d) => (d && d.updatedAt != null) ? (d.updatedAt + '|' + (d.parts || 1) + (d.ver ? '|' + d.ver : '')) : null;
+// v34.6: معرّف الجزء — الأجزاء المُصدَّرة (ver) تُكتب باسم جديد ثم يُحوَّل الرأس إليها ذريًا؛ القديمة بلا ver تبقى مقروءة
+const chunkRef = (f, key, ver, i) => f.doc(f.db, COL, docId(key) + '__' + (ver ? ver + '_' : '') + i);
+const CHUNK_BATCH = 8;   // 8 × 900KB ≈ 7.2MB لكل دفعة — تحت حد الطلب الواحد (10MiB)
 
 // تطبيق Firebase واحد مشترك بين المصادقة وقاعدة البيانات
 async function fbApp() {
@@ -363,7 +366,7 @@ async function fsReadTx(f, key) {
     if (!Number.isInteger(parts) || parts < 1 || parts > MAX_PARTS) throw corruptErr(key, 'parts=' + d.parts);
     if (parts === 1) { out = { d, txt: d.value || '' }; return; }
     let txt = '';
-    for (let i = 0; i < parts; i++) { const c = await tx.get(f.doc(f.db, COL, docId(key) + '__' + i)); const ch = c.exists() ? (c.data() || {}).chunk : undefined; if (typeof ch !== 'string') throw corruptErr(key, 'chunk ' + i); txt += ch; }
+    for (let i = 0; i < parts; i++) { const c = await tx.get(chunkRef(f, key, d.ver, i)); const ch = c.exists() ? (c.data() || {}).chunk : undefined; if (typeof ch !== 'string') throw corruptErr(key, 'chunk ' + i); txt += ch; }
     out = { d, txt };
   });
   if (out.none) { loadedStamp.delete(key); return undefined; }
@@ -384,7 +387,7 @@ async function fsAssemble(f, key, d) {
     try { return JSON.parse(d.value); } catch { throw corruptErr(key, 'json'); }
   }
   // v29.0: الأجزاء تُقرأ معًا بالتوازي بدل واحدٍ تلو الآخر — الترتيب محفوظ بفهرس المصفوفة
-  const snaps = await Promise.all(Array.from({ length: parts }, (_, i) => f.getDoc(f.doc(f.db, COL, docId(key) + '__' + i))));
+  const snaps = await Promise.all(Array.from({ length: parts }, (_, i) => f.getDoc(chunkRef(f, key, d.ver, i))));
   const chunks = snaps.map((c, i) => {
     const chunk = c.exists() ? (c.data() || {}).chunk : undefined;
     if (typeof chunk !== 'string') throw corruptErr(key, 'chunk ' + i);
@@ -393,49 +396,63 @@ async function fsAssemble(f, key, d) {
   try { return JSON.parse(chunks.join('')); } catch { throw corruptErr(key, 'json'); }
 }
 
+// كتابة أجزاء نسخة جديدة على دفعات (كل دفعة تحت حد الطلب) — لا تمسّ الرأس ولا الأجزاء التي يقرؤها الآخرون
+async function fsWriteChunks(f, key, ver, chunks) {
+  for (let s = 0; s < chunks.length; s += CHUNK_BATCH) {
+    const part = chunks.slice(s, s + CHUNK_BATCH);
+    if (f.writeBatch) { const b = f.writeBatch(f.db); part.forEach((chunk, k) => b.set(chunkRef(f, key, ver, s + k), { chunk })); await b.commit(); }
+    else for (let k = 0; k < part.length; k++) await f.setDoc(chunkRef(f, key, ver, s + k), { chunk: part[k] });
+  }
+}
+// تفريغ أجزاء نسخة لم تعد مستخدمة (بعد مهلة كي لا ينقطع قارئ في منتصف قراءتها) — الحذف ممنوع بالقواعد فنُفرّغها
+function fsBlankLater(f, key, ver, parts) {
+  if (!parts || parts < 2) return;
+  setTimeout(async () => { try { for (let s = 0; s < parts; s += CHUNK_BATCH) { const b = f.writeBatch(f.db); for (let i = s; i < Math.min(parts, s + CHUNK_BATCH); i++) b.set(chunkRef(f, key, ver, i), { chunk: '' }); await b.commit(); } } catch { } }, 60000);
+}
+const newVer = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+
 async function fsWrite(f, key, val) {
   const s = JSON.stringify(val);
   const chunks = splitUtf8(s);
   const parts = chunks.length;
   if (parts > MAX_PARTS) { const e = new Error('doc-too-large: ' + key); e.code = 'doc-too-large'; throw e; }
   const headRef = f.doc(f.db, COL, docId(key));
-  const head = { parts, updatedAt: Date.now(), value: parts === 1 ? s : '' };
-  if (parts === 1) { await f.setDoc(headRef, head); loadedStamp.set(key, stampOf(head)); return true; }
-  if (parts <= BATCH_MAX_PARTS && f.writeBatch) {
-    // الأجزاء والرأس معًا: إما أن تُكتب كلها أو لا يُكتب شيء — لا رأس قديم مع أجزاء جديدة
-    const batch = f.writeBatch(f.db);
-    chunks.forEach((chunk, i) => batch.set(f.doc(f.db, COL, docId(key) + '__' + i), { chunk }));
-    batch.set(headRef, head);
-    await batch.commit();
-    loadedStamp.set(key, stampOf(head));
-    return true;
-  }
-  for (let i = 0; i < parts; i++) {
-    await f.setDoc(f.doc(f.db, COL, docId(key) + '__' + i), { chunk: chunks[i] });
-  }
+  if (parts === 1) { const head = { parts, updatedAt: Date.now(), value: s }; await f.setDoc(headRef, head); loadedStamp.set(key, stampOf(head)); return true; }
+  // v34.6: أجزاء بنسخة جديدة أولًا، ثم الرأس يشير إليها — القارئ يرى القديم كاملًا أو الجديد كاملًا، ولا حد لحجم المستند
+  let prev = null; try { const h = await f.getDoc(headRef); if (h.exists()) prev = h.data(); } catch { }
+  const ver = newVer();
+  await fsWriteChunks(f, key, ver, chunks);
+  const head = { parts, updatedAt: Date.now(), value: '', ver };
   await f.setDoc(headRef, head);
   loadedStamp.set(key, stampOf(head));
+  if (prev && (prev.parts || 1) > 1) fsBlankLater(f, key, prev.ver || '', prev.parts);
   return true;
 }
 
-/* v29.5 — كتابة مشروطة (compare-and-set) داخل معاملة Firestore:
-   تُكتب القيمة فقط إن كان رأس المستند ما زال على النسخة التي قرأناها آخر مرة (updatedAt|parts).
-   وإلا تُرفض بـ conflict فيعيد المنادي القراءة والتعديل على الأحدث — لا يمحو أحدٌ تعديل غيره. */
+/* v29.5 — كتابة مشروطة (compare-and-set): تُكتب القيمة فقط إن كان رأس المستند ما زال على النسخة التي قرأناها.
+   v34.6 — المستند الكبير: كانت الأجزاء تُكتب داخل المعاملة نفسها، فيتجاوز المستند الأكبر من ~10MB حد الطلب الواحد
+   وتفشل كل كتابة عليه. الآن تُكتب الأجزاء أولًا بنسخة جديدة خارج المعاملة، والمعاملة تتحقق من الرأس وتحوّله وحده. */
 async function fsWriteIf(f, key, val, expected) {
   const s = JSON.stringify(val);
   const chunks = splitUtf8(s);
   const parts = chunks.length;
   if (parts > MAX_PARTS) { const e = new Error('doc-too-large: ' + key); e.code = 'doc-too-large'; throw e; }
   const headRef = f.doc(f.db, COL, docId(key));
-  const head = { parts, updatedAt: Date.now(), value: parts === 1 ? s : '' };
-  await f.runTransaction(f.db, async (tx) => {
-    const cur = await tx.get(headRef);
-    const curStamp = cur.exists() ? stampOf(cur.data()) : null;
-    if ((curStamp || null) !== (expected || null)) { const e = new Error('conflict: ' + key); e.code = 'conflict'; throw e; }
-    if (parts > 1) chunks.forEach((chunk, i) => tx.set(f.doc(f.db, COL, docId(key) + '__' + i), { chunk }));
-    tx.set(headRef, head);
-  });
+  const ver = parts > 1 ? newVer() : '';
+  if (parts > 1) await fsWriteChunks(f, key, ver, chunks);
+  const head = parts > 1 ? { parts, updatedAt: Date.now(), value: '', ver } : { parts, updatedAt: Date.now(), value: s };
+  let prev = null;
+  try {
+    await f.runTransaction(f.db, async (tx) => {
+      const cur = await tx.get(headRef);
+      const curStamp = cur.exists() ? stampOf(cur.data()) : null;
+      if ((curStamp || null) !== (expected || null)) { const e = new Error('conflict: ' + key); e.code = 'conflict'; throw e; }
+      prev = cur.exists() ? cur.data() : null;
+      tx.set(headRef, head);
+    });
+  } catch (e) { if (parts > 1) fsBlankLater(f, key, ver, parts); throw e; }   // أجزاء لم تُعتمد — تُفرَّغ
   loadedStamp.set(key, stampOf(head));
+  if (prev && (prev.parts || 1) > 1 && (prev.ver || '') !== ver) fsBlankLater(f, key, prev.ver || '', prev.parts);
   return true;
 }
 
@@ -588,11 +605,12 @@ export const cloud = {
     try {
       const snap = await f.getDoc(f.doc(f.db, COL, docId(key)));
       if (!snap.exists()) return out;
-      const d = snap.data() || {}; out.exists = true; out.parts = d.parts || 1; out.updatedAt = d.updatedAt || null;
+      const d = snap.data() || {}; out.exists = true; out.parts = d.parts || 1; out.updatedAt = d.updatedAt || null; out.ver = d.ver || '';
+      out.head = { valueType: Array.isArray(d.value) ? 'array' : typeof d.value, valueLen: d.value && d.value.length, keys: Object.keys(d).join(','), at: d.updatedAt ? new Date(d.updatedAt).toISOString().slice(0, 16) : '', start: typeof d.value === 'string' ? d.value.slice(0, 60) : '' };
       let txt = '';
       if (out.parts === 1) txt = d.value || '';
       else {
-        const snaps = await Promise.all(Array.from({ length: out.parts }, (_, i) => f.getDoc(f.doc(f.db, COL, docId(key) + '__' + i))));
+        const snaps = await Promise.all(Array.from({ length: out.parts }, (_, i) => f.getDoc(chunkRef(f, key, d.ver, i))));
         snaps.forEach((c, i) => { const ch = c.exists() ? (c.data() || {}).chunk : undefined; if (typeof ch !== 'string') out.missing.push(i); else txt += ch; });
       }
       out.kb = Math.round(txt.length / 1024);
@@ -604,7 +622,7 @@ export const cloud = {
         out.candidates = [];
         for (let n = 1; n <= Math.min(MAX_PARTS, out.parts + 8); n++) {
           if (n === out.parts) continue;
-          const cs = await Promise.all(Array.from({ length: n }, (_, i) => f.getDoc(f.doc(f.db, COL, docId(key) + '__' + i))));
+          const cs = await Promise.all(Array.from({ length: n }, (_, i) => f.getDoc(chunkRef(f, key, '', i))));
           if (cs.some(c => !c.exists() || typeof (c.data() || {}).chunk !== 'string')) { if (n > out.parts) break; else continue; }
           const tt = cs.map(c => c.data().chunk).join('');
           try { const v = JSON.parse(tt); out.candidates.push({ parts: n, kb: Math.round(tt.length / 1024), value: v }); } catch { }

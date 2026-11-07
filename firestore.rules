@@ -114,12 +114,14 @@ service cloud.firestore {
     }
     // المستندات القديمة (تشغيل ما قبل v9، أرشيف الملفات القديم، الإغلاقات المؤرشفة) تضم بيانات كل الفروع
     function isLegacyDoc(id) { return baseId(id) in ['rms8_ops', 'rms8_files', 'rms8_hist']; }
-    function isChunkDoc(id)  { return id.matches('^.+__[0-9]{1,3}$'); }
+    // v34.6: الجزء إما قديم «__<رقم>» أو بنسخة «__<نسخة>_<رقم>» (الكتابة على مرحلتين للمستندات الكبيرة)
+    function isChunkDoc(id)  { return id.matches('^.+__([a-z0-9]{4,20}_)?[0-9]{1,3}$'); }
     // شكل ما تكتبه طبقة التخزين فقط: رأس {parts, updatedAt, value} بسقف 500 جزء، أو جزء {chunk}
     function validShape(id) {
       return isChunkDoc(id)
         ? request.resource.data.keys().hasOnly(['chunk']) && request.resource.data.chunk is string
-        : request.resource.data.keys().hasOnly(['parts', 'updatedAt', 'value'])
+        : request.resource.data.keys().hasOnly(['parts', 'updatedAt', 'value', 'ver'])
+          && (!('ver' in request.resource.data) || (request.resource.data.ver is string && request.resource.data.ver.size() <= 20))
           && request.resource.data.parts is int
           && request.resource.data.parts >= 1 && request.resource.data.parts <= 500
           && request.resource.data.value is string;
