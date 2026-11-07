@@ -553,6 +553,8 @@ table.tb{width:100%;border-collapse:collapse;font-size:12.5px;min-width:520px}
 .empty{text-align:center;padding:22px 16px;color:var(--faint);font-size:12.5px}
 .tick{display:flex;gap:22px;overflow:hidden;white-space:nowrap;font-size:11.5px;color:var(--dim);
   border-top:1px solid var(--line);padding:8px 20px;background:var(--ink2);flex-shrink:0}
+/* v34.10: شريط معلومات الشركة يُخفى على الجوال — كانت قاعدته العامة (بعد قاعدة الجوال) تُظهره فوق الشريط السفلي فيغطي الأزرار */
+@media(max-width:900px){.tick{display:none !important}}
 
 
 /* ===== لمسات نظام التصميم الختامية ===== */
