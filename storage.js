@@ -63,6 +63,19 @@ let _fbAppP = null;
 // v28.1: مفاتيح تعذّرت قراءتها من السحابة (خطأ أو مستند تالف) — تُرفض الكتابة عليها حتى تنجح قراءة لاحقة،
 // كي لا تُكتب نسخة فارغة أو قديمة فوق بيانات لم نستطع قراءتها
 const failedReads = new Set();
+// v34.1: سبب آخر قراءة فاشلة لكل مستند — يُعرض للمستخدم بدل رسالة عامة
+const readErrs = new Map();
+const isDenied = (e) => !!e && (e.code === 'permission-denied' || e.code === 'PERMISSION_DENIED');
+// v34.1: إعادة القراءة عند الأخطاء العابرة (شبكة الجوال، انتهاء المهلة) قبل اعتبار المستند غير مقروء
+async function fsReadRetry(f, key) {
+  let last;
+  for (let i = 0; i < 3; i++) {
+    try { const v = await fsRead(f, key); readErrs.delete(key); return v; }
+    catch (e) { last = e; if (isDenied(e) || (e && e.code === 'data-corrupt')) break; await new Promise(r => setTimeout(r, 400 * (i + 1))); }
+  }
+  readErrs.set(key, { code: String((last && last.code) || 'unknown'), msg: String((last && last.message) || last || '').slice(0, 160), at: Date.now() });
+  throw last;
+}
 // v29.0: بصمة رأس آخر نسخة قُرئت كاملة لكل مستند (updatedAt|parts). أول لقطة يرسلها الاستماع اللحظي
 // بعد الإقلاع تحمل نفس البصمة غالبًا — كانت تُعيد تنزيل المستند كاملًا (بكل أجزائه) بلا أي تغيير.
 const loadedStamp = new Map();
@@ -418,7 +431,7 @@ export const cloud = {
     const f = await firestore();
     if (f) {
       try {
-        const v = await fsRead(f, key);
+        const v = await fsReadRetry(f, key);
         failedReads.delete(key);
         if (v !== undefined) { local.set(key, v); return { ok: true, value: v }; }
         return { ok: true, value: undefined };
@@ -429,6 +442,7 @@ export const cloud = {
         }
         failedReads.add(key);
         console.warn('قراءة Firestore فشلت:', e);
+        return { ok: true, value: local.get(key), failed: true };
       }
     }
     const v = await this.get(key, undefined);
@@ -439,7 +453,7 @@ export const cloud = {
     const f = await firestore();
     if (f) {
       try {
-        const v = await fsRead(f, key);
+        const v = await fsReadRetry(f, key);
         failedReads.delete(key);
         if (v !== undefined) { local.set(key, v); return v; }
         return def;
@@ -539,6 +553,35 @@ export const cloud = {
 
   /** v28.1: هل فشلت آخر قراءة سحابية لهذا المفتاح؟ (الكتابة عليه مرفوضة حتى تنجح قراءة) */
   readFailed(key) { return failedReads.has(key); },
+  /** v34.1: سبب آخر قراءة فاشلة {code, msg} */
+  readErr(key) { return readErrs.get(key) || null; },
+
+  /** v34.1: فحص سلامة مستند سحابي دون تعديله: وجود الرأس، عدد الأجزاء، الأجزاء المفقودة، صلاحية JSON، الحجم */
+  async inspect(key) {
+    const f = await firestore(); if (!f) return { key, mode: this.mode };
+    const out = { key, exists: false, parts: 0, missing: [], json: false, kb: 0, local: local.get(key) !== undefined };
+    try {
+      const snap = await f.getDoc(f.doc(f.db, COL, docId(key)));
+      if (!snap.exists()) return out;
+      const d = snap.data() || {}; out.exists = true; out.parts = d.parts || 1; out.updatedAt = d.updatedAt || null;
+      let txt = '';
+      if (out.parts === 1) txt = d.value || '';
+      else {
+        const snaps = await Promise.all(Array.from({ length: out.parts }, (_, i) => f.getDoc(f.doc(f.db, COL, docId(key) + '__' + i))));
+        snaps.forEach((c, i) => { const ch = c.exists() ? (c.data() || {}).chunk : undefined; if (typeof ch !== 'string') out.missing.push(i); else txt += ch; });
+      }
+      out.kb = Math.round(txt.length / 1024);
+      if (!out.missing.length) { try { JSON.parse(txt || 'null'); out.json = true; } catch { out.json = false; } }
+    } catch (e) { out.err = String((e && e.code) || (e && e.message) || e); }
+    return out;
+  },
+  /** v34.1: إصلاح مستند تالف بالنسخة السليمة المحفوظة على هذا الجهاز (للإدارة فقط وبتأكيد صريح من الواجهة) */
+  async repairFromLocal(key) {
+    const f = await firestore(); if (!f) return 'no-cloud';
+    const v = local.get(key); if (v === undefined) return 'no-local';
+    try { await fsWrite(f, key, v); failedReads.delete(key); readErrs.delete(key); return 'ok'; }
+    catch (e) { return String((e && e.code) || 'fail'); }
+  },
 
   lastError: null,   // v27.1: آخر خطأ سحابي {key, op, code, at}
   get mode() { return FB_READY ? 'firestore' : (useApi ? 'server' : 'local'); },

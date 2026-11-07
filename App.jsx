@@ -2483,7 +2483,7 @@ const ERRLOG_KEY = 'mizan:errlog';
 function logClientError(err, where) {
   try {
     const a = JSON.parse(localStorage.getItem(ERRLOG_KEY) || '[]');
-    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v34.0' });
+    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v34.1' });
     localStorage.setItem(ERRLOG_KEY, JSON.stringify(a.slice(0, 20)));
   } catch { }
 }
@@ -3132,11 +3132,15 @@ function PlatformApp() {
         if (lost.length) { lastWriteErr.current = 'scope'; console.warn('writeOps: سجلات خارج نطاق الفرع لن تُحفظ', lost, ctx.myBrIds); return false; }
       }
       const { core: coreOut, br: brOut } = splitOps(next, ctx.myBrIds);
+      // v34.1: تعذّرت قراءة المستند المركزي؟ إن لم يغيّر هذا الحفظ شيئًا فيه (وردية، فاتورة نقطة بيع، إغلاق فرع…)
+      // نكتب مستند الفرع وحده بدل رفض الحفظ كله. وإن غيّره، نرفض صراحةً حمايةً للبيانات.
+      const coreReadFailed = !!(ctx.central && cloud.readFailed(KEYS.core));
+      const coreTouched = coreReadFailed && !sameDoc(coreOut, splitOps(latest, ctx.myBrIds).core);
 
       let allOk = true, conflict = false;
       let wroteCoreDoc = null; const wroteBrDocs = {};
       // المستند المركزي (أدوار المركز فقط)
-      if (ctx.central) {
+      if (ctx.central && !(coreReadFailed && !coreTouched)) {
         if (!sameDoc(coreOut, core)) {
           const rv = ((core || {}).rev || 0) + 1;
           const doc = { ...coreOut, rev: rv, wtag: uid('w') };   // v27.2: وسم كاتب لكشف التصادم
@@ -3194,7 +3198,10 @@ function PlatformApp() {
       else if (k === 'locked') say('لم يُحفظ: هذا التعديل يغيّر قيودًا في شهر مقفل محاسبيًا 🔒 — الفتح الاستثنائي من المحاسبة ← الإقفال', 'no');
       else if (k === 'denied') say('رفض الخادم حفظ بيانات فرعك (صلاحيات، لا اتصال): عضوية حسابك على الخادم لا تحمل هذا الفرع — اطلب من مسؤول النظام «مزامنة صلاحيات الأعضاء» من الفروع والمستخدمين ثم أعد الدخول', 'no');
       else if (k === 'scope') say('لم يُحفظ: السجل يخص فرعًا خارج نطاق حسابك (أو بلا فرع) — راجع إعداد فرع حسابك', 'no');
-      else if (String((cloud.lastError || {}).code) === 'read-failed') say('لم يُحفظ: تعذّرت قراءة النسخة الحالية من السحابة (قد تكون تالفة)، فلم يُكتب شيء حمايةً للبيانات — أعد تحميل الصفحة، وإن تكرر تواصل مع المطوّر', 'no');
+      else if (String((cloud.lastError || {}).code) === 'read-failed') { const ek = (cloud.lastError || {}).key || ''; const re = cloud.readErr(ek) || {};
+        const lbl = ek === KEYS.core ? 'المستند المركزي' : ek.startsWith('rms8:br_') ? 'مستند فرع «' + (((orgNow.current || {}).branches || []).find(b => 'rms8:br_' + b.id === ek) || { name: ek.slice(8) }).name + '»' : ek;
+        say('لم يُحفظ: تعذّرت قراءة ' + lbl + ' من السحابة' + (re.code ? ' (السبب: ' + re.code + ')' : '') + ' — أعد المحاولة بعد لحظات. إن تكرر: الإعدادات ← النسخ الاحتياطي ← «فحص سلامة البيانات السحابية»', 'no'); }
+      else if (false) say('لم يُحفظ: تعذّرت قراءة النسخة الحالية من السحابة (قد تكون تالفة)، فلم يُكتب شيء حمايةً للبيانات — أعد تحميل الصفحة، وإن تكرر تواصل مع المطوّر', 'no');
       else say('تعذّر الحفظ السحابي بعد عدة محاولات — تحقق من الاتصال وأعد المحاولة', 'no');
       return false;
     }
@@ -3511,7 +3518,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v34.0 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v34.1 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -8005,7 +8012,7 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const [cat, setCat] = useState(''); const [q, setQ] = useState('');
   const [cart, setCart] = useState([]); const [channel, setChannel] = useState('takeaway');
   const [disc, setDisc] = useState({ mode: 'amt', amt: '', reason: '' }); const [pay, setPay] = useState(null); const [last, setLast] = useState(null);
-  const [code, setCode] = useState(''); const [cust, setCust] = useState({ phone: '', name: '', redeem: false });
+  const [code, setCode] = useState(''); const [quickP, setQuickP] = useState(false); const [cust, setCust] = useState({ phone: '', name: '', redeem: false });
   const loyCfg = org.loyaltyCfg || {}; const [loy, setLoy] = useState(null);
   useEffect(() => { if (!loyCfg.enabled) return; let dead = false; cloud.get(KEYS.loy, { members: {}, tx: [] }).then(d => { if (!dead) setLoy(d || { members: {}, tx: [] }); }).catch(() => { }); return () => { dead = true; }; }, [loyCfg.enabled]);
   const [view, setView] = useState('sell'); const [showCart, setShowCart] = useState(false);
@@ -8213,7 +8220,10 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
               {cats.map(c => <button key={c} className={'btn sm' + (cat === c ? ' pri' : ' gh')} onClick={() => setCat(c)}>{c}</button>)}
             </div>
             <div className="pos-tiles">{shown.map(p => { const tg = tileTag(p); return <button key={p.id} className="pos-tile" onClick={() => add(p)}>{tg && <i style={{ fontStyle: 'normal', fontSize: 10, background: 'var(--mint)', color: '#fff', borderRadius: 6, padding: '1px 6px', alignSelf: 'center' }}>🏷 {tg}</i>}<b>{p.name}</b><span className="num">{money(p.sellPrice)}</span></button>; })}</div>
-            {!shown.length && <div className="card"><div className="empty">لا أصناف — أضف المنتجات بأسعارها من «المخزون ← الوصفات والتكلفة».</div></div>}
+            {!shown.length && (q.trim() || cat ? <div className="card"><div className="empty">لا نتائج.</div></div>
+              : <PosQuickProducts org={org} commitOrg={commitOrg} say={say} canAdd={!!R.admin} />)}
+            {!!shown.length && R.admin && <div><button className="btn sm gh" onClick={() => setQuickP(x => !x)}><Plus size={12} />إضافة/تسعير أصناف</button></div>}
+            {quickP && !!shown.length && <PosQuickProducts org={org} commitOrg={commitOrg} say={say} canAdd={!!R.admin} />}
             {last && <div className="note">آخر فاتورة: <b className="num">{last.no}</b> بـ <b className="num">{money(last.total)}</b>{last.change ? ' · الباقي ' + money(last.change) : ''} — <button className="btn sm gh" onClick={() => posPrint(posReceiptHtml(org, last, br))}><Printer size={12} />إعادة الطباعة</button></div>}
           </div>
           {cartBox}
@@ -8280,6 +8290,42 @@ function posShiftHtml(org, sh, allOs, br, kind) {
   <div style="margin-top:8px">${kind === 'Z' ? 'أغلقها: ' + _xe(sh.closedBy || '') + (sh.closeNote ? '<br>ملاحظة: ' + _xe(sh.closeNote) : '') : 'طُبع: ' + _xe(new Date().toLocaleString('ar-SA-u-nu-latn'))}</div></body></html>`;
 }
 const posZHtml = (org, sh, os, br) => posShiftHtml(org, sh, os, br, 'Z');
+/* v34.1 — إضافة الأصناف وتسعيرها من نقطة البيع مباشرة (حين لا توجد أصناف بأسعار بيع) */
+function PosQuickProducts({ org, commitOrg, say, canAdd }) {
+  const all = org.products || []; const unpriced = all.filter(p => !(Number(p.sellPrice) > 0));
+  const cats = [...new Set(all.map(p => p.cat).filter(Boolean))];
+  const [f, setF] = useState({ name: '', price: '', cat: '' }); const [px, setPx] = useState({});
+  const add = async () => {
+    const pr = Number(f.price) || 0; if (!f.name.trim()) return say('اكتب اسم الصنف', 'no'); if (pr <= 0) return say('أدخل سعر البيع', 'no');
+    if (all.some(p => (p.name || '').trim() === f.name.trim())) return say('يوجد صنف بنفس الاسم — سعّره من القائمة', 'no');
+    const rec = { id: uid('pr'), name: f.name.trim(), sellPrice: pr, parts: [], cat: f.cat.trim() };
+    const ok = await commitOrg(d => ({ ...d, products: [...(d.products || []), rec] }), { actionType: 'create', targetType: 'product', targetId: rec.id, need: 'edit', title: 'أضاف صنفًا من نقطة البيع', details: rec.name + ' · ' + money(pr) });
+    if (ok) { setF({ name: '', price: '', cat: f.cat }); say('أُضيف «' + rec.name + '» ✓'); }
+  };
+  const price = async (p) => { const v = Number(px[p.id]) || 0; if (v <= 0) return say('أدخل السعر', 'no');
+    const ok = await commitOrg(d => ({ ...d, products: (d.products || []).map(x => x.id === p.id ? { ...x, sellPrice: v } : x) }), { actionType: 'update', targetType: 'product', targetId: p.id, need: 'edit', title: 'سعّر صنفًا من نقطة البيع', details: p.name + ' · ' + money(v) });
+    if (ok) say('سُعّر «' + p.name + '» ✓'); };
+  const tax = (org.taxCfg || {}).enabled;
+  return (
+    <div className="card">
+      <div className="card-t" style={{ marginBottom: 6 }}><Store size={15} color="var(--brass)" />أصناف نقطة البيع</div>
+      <div className="note">نقطة البيع تعرض المنتجات التي لها <b>سعر بيع</b> من «المخزون ← الوصفات والتكلفة». {all.length ? <>لديك <b className="num">{all.length}</b> منتج، منها <b className="num">{unpriced.length}</b> بلا سعر بيع.</> : 'لا توجد منتجات بعد.'}{!canAdd && ' اطلب من مسؤول النظام إضافتها.'}</div>
+      {canAdd && <>
+        <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'end', marginTop: 8 }}>
+          <Field label="اسم الصنف" style={{ marginBottom: 0, flex: 2, minWidth: 150 }}><input className="inp" value={f.name} onChange={e => setF(x => ({ ...x, name: e.target.value }))} /></Field>
+          <Field label={'السعر' + (tax ? ' (شامل الضريبة)' : '')} style={{ marginBottom: 0, width: 120 }}><input className="inp n" inputMode="decimal" value={f.price} onChange={e => setF(x => ({ ...x, price: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+          <Field label="التصنيف" style={{ marginBottom: 0, width: 140 }}><input className="inp" list="pq-cats" value={f.cat} placeholder="وجبات…" onChange={e => setF(x => ({ ...x, cat: e.target.value }))} /><datalist id="pq-cats">{cats.map(c => <option key={c} value={c} />)}</datalist></Field>
+          <button className="btn pri" onClick={add}><Plus size={14} />إضافة</button>
+        </div>
+        {unpriced.length > 0 && <><div className="lbl" style={{ marginTop: 10 }}>منتجات بلا سعر بيع</div>
+          {unpriced.slice(0, 40).map(p => <div key={p.id} className="row" style={{ gap: 6, marginBottom: 5 }}><span style={{ flex: 1, fontSize: 12.5 }}>{p.name}</span>
+            <input className="inp n" style={{ width: 110 }} inputMode="decimal" placeholder="السعر" value={px[p.id] || ''} onChange={e => setPx(x => ({ ...x, [p.id]: e.target.value.replace(/[^\d.]/g, '') }))} />
+            <button className="btn sm" onClick={() => price(p)}><Check size={12} />حفظ</button></div>)}</>}
+        <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 6 }}>الوصفة (المكوّنات) والتكلفة وخصم الصنف تُضبط لاحقًا من «المخزون ← الوصفات والتكلفة».</div>
+      </>}
+    </div>);
+}
+
 /* ===== v34.0 — إدارة العروض ===== */
 const PROMO_T = { pct: 'خصم نسبة %', amt: 'خصم مبلغ ثابت للوحدة', price: 'سعر خاص', bxgy: 'اشترِ X واحصل على Y مجانًا', order: 'خصم على الفاتورة' };
 const DAYS_AR = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
@@ -23447,7 +23493,23 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
     // v27.5 (إصلاح §١٢/18): «موظف» لا يُنشأ من دفتر الشركاء — كان يكتب بطاقة وهمية في org.partners
     // (مفتاح cust:) بلا فرع ولا راتب، لا تظهر في الحضور/الرواتب. الموظف الحقيقي يُنشأ في «البيانات
     // الرئيسية» (بفرع إلزامي) ويظهر هنا تلقائيًا عبر buildPartners (مفتاح emp:).
-    if (!c.edit && c.type === 'employee') return say('الموظف يُضاف من «البيانات الرئيسية ← موظف جديد» (بفرع إلزامي)، ثم يظهر هنا تلقائيًا. دفتر الشركاء للعملاء والموردين فقط.', 'no');
+    // v34.1: الموظف يُنشأ هنا في سجل الموظفين الحقيقي (org.employees) بفرع إلزامي — فيظهر في الحضور والرواتب ودفتر الشركاء معًا
+    if (c.type === 'employee') {
+      if (!canWriteOrgP) return say('إضافة الموظفين وتعديلهم للإدارة فقط', 'no');
+      if (!c.branchId) return say('اختر فرع الموظف', 'no');
+      const empPatch = { name: c.name.trim(), jobTitle: (c.cat || '').trim(), phone: c.phone || '', branchId: c.branchId, ...(c.email ? { email: String(c.email).trim() } : {}), ...(c.notes ? { notes: c.notes } : {}) };
+      if (c.edit) {
+        const okE = await commitOrg(d => ({ ...d, employees: (d.employees || []).map(e => e.id === c.id ? { ...e, ...empPatch } : e) }), { actionType: 'update', targetType: 'user_account', targetId: c.id, title: 'حدّث بيانات موظف من جهات الاتصال', details: c.name });
+        if (okE) { say('حُدّثت بيانات الموظف ✓'); setAddP(null); } return;
+      }
+      const dupE = (org.employees || []).find(e => (e.name || '').trim() === c.name.trim() && e.branchId === c.branchId);
+      if (dupE && !window.confirm('يوجد موظف بنفس الاسم في هذا الفرع (' + (dupE.code || '') + '). إضافة موظف جديد رغم ذلك؟')) return;
+      const idE = uid('em'); const codeE = nextPartnerCode(partners, 'employee');
+      const okN = await commitOrg(d => ({ ...d, employees: [...(d.employees || []), { id: idE, code: codeE, ...empPatch, baseSalary: 0, housingAllowance: 0, transportAllowance: 0, isActive: true }] }),
+        { actionType: 'create', targetType: 'user_account', targetId: idE, title: 'أضاف موظفًا من جهات الاتصال', details: c.name.trim() + ' · ' + ((org.branches || []).find(b => b.id === c.branchId) || {}).name });
+      if (okN) { say('أُضيف الموظف «' + c.name.trim() + '» (' + codeE + ') ✓ — أكمل راتبه وبياناته من «شؤون الموظفين ← البيانات الرئيسية»'); setAddP(null); }
+      return;
+    }
     if (c.edit) {
       if (!canWriteOrgP) return say('تعديل بيانات الكرت للإدارة فقط', 'no');
       const patch = { name: c.name.trim(), cat: c.cat || '', phone: c.phone || '', terms: Number(c.terms) || 0, address: c.address || '', taxable: !!c.taxable, ...contactFields(c) };
@@ -23573,6 +23635,7 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
         <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
           {canEdit && <button className="btn pri" onClick={() => setTx({ side: 'debit', date: today(), amount: '', desc: '' })}><Plus size={14} />إضافة حركة يدوية</button>}
           <button className="btn" onClick={() => printPartnerStatement(cur, org)}><Printer size={14} />طباعة كشف الحساب</button>
+          {canEdit && cur.type === 'employee' && (org.employees || []).some(e => e.id === cur.id) && <button className="btn" onClick={() => { const e0 = (org.employees || []).find(e => e.id === cur.id) || {}; setAddP({ edit: true, id: cur.id, type: 'employee', name: e0.name || cur.name, cat: e0.jobTitle || '', phone: e0.phone || '', email: e0.email || '', notes: e0.notes || '', branchId: e0.branchId || '' }); }}><Settings size={14} />تعديل بيانات الموظف</button>}
           {canEdit && (cur.type === 'customer' || cur.type === 'supplier') && <button className="btn" onClick={() => setAddP({ edit: true, id: cur.id, isSup: (org.suppliers || []).some(x => x.id === cur.id), type: cur.type, name: cur.name, cat: (cur.cat === 'مورد' || cur.cat === 'عميل') ? '' : (cur.cat || ''), phone: cur.phone || '', tax: cur.tax || '', address: cur.address || '', taxable: !!cur.taxable, terms: cur.terms || '', ...contactOf(cur), creditLimit: cur.creditLimit || '' })}><Settings size={14} />تعديل بيانات الكرت</button>}
           {cur.type === 'employee' && <span className="badge b-dim" style={{ alignSelf: 'center' }}>بيانات الموظف تُعدَّل من «شؤون الموظفين ← البيانات الرئيسية»</span>}
           {canWriteOrgP && cur.source === 'branch' && <button className="btn pri" onClick={() => promotePartner(cur)}><ArrowUp size={14} />ترقية للسجل المركزي</button>}
@@ -23699,11 +23762,22 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
             <select className="sel" value={addP.type} onChange={e => setAddP({ ...addP, type: e.target.value })}>
               <option value="customer">عميل (يدين لنا عادةً)</option>
               <option value="supplier">مورد</option>
+              <option value="employee">موظف</option>
             </select>
           </Field>
-          <div style={{ fontSize: 10.5, color: 'var(--faint)', marginBottom: 8, marginTop: -4 }}>الموظفون يُضافون من «البيانات الرئيسية ← موظف جديد» (بفرع إلزامي) ويظهرون هنا تلقائيًا؛ أضِف هنا العملاء أو الموردين غير المسجّلين.</div>
+          <div style={{ fontSize: 10.5, color: 'var(--faint)', marginBottom: 8, marginTop: -4 }}>العميل والمورد يُسجَّلان في دفتر الشركاء، والموظف في سجل الموظفين (بفرع إلزامي) ويظهر هنا تلقائيًا.</div>
           </>)}
-          <Field label="الاسم"><input className="inp" value={addP.name || ''} onChange={e => setAddP({ ...addP, name: e.target.value })} placeholder="اسم الشريك أو الجهة" /></Field>
+          <Field label="الاسم"><input className="inp" value={addP.name || ''} onChange={e => setAddP({ ...addP, name: e.target.value })} placeholder={addP.type === 'employee' ? 'اسم الموظف' : 'اسم الشريك أو الجهة'} /></Field>
+          {addP.type === 'employee' ? (<>
+            <div className="grid g2">
+              <Field label="الفرع (إلزامي)"><select className="sel" value={addP.branchId || ''} onChange={e => setAddP({ ...addP, branchId: e.target.value })}><option value="">— اختر —</option>{(org.branches || []).filter(b => b.isActive !== false).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></Field>
+              <Field label="المسمى الوظيفي"><input className="inp" value={addP.cat || ''} onChange={e => setAddP({ ...addP, cat: e.target.value })} placeholder="كاشير، طباخ، محاسب…" /></Field>
+              <Field label="الجوال"><input className="inp" style={{ direction: 'ltr', textAlign: 'right' }} value={addP.phone || ''} onChange={e => setAddP({ ...addP, phone: e.target.value })} /></Field>
+              <Field label="البريد الإلكتروني"><input className="inp" style={{ direction: 'ltr', textAlign: 'right' }} type="email" value={addP.email || ''} onChange={e => setAddP({ ...addP, email: e.target.value })} /></Field>
+            </div>
+            <Field label="ملاحظات"><input className="inp" value={addP.notes || ''} onChange={e => setAddP({ ...addP, notes: e.target.value })} /></Field>
+            <div className="note">يُسجَّل في سجل الموظفين نفسه (الحضور والرواتب والسلف). الراتب والهوية والعقد تُكمَّل من «شؤون الموظفين ← البيانات الرئيسية».</div>
+          </>) : (<>
           <div className="grid g2">
             <Field label="التصنيف"><input className="inp" value={addP.cat || ''} onChange={e => setAddP({ ...addP, cat: e.target.value })} placeholder="مثال: عميل جملة" /></Field>
             <Field label="الجوال"><input className="inp" style={{ direction: 'ltr', textAlign: 'right' }} value={addP.phone || ''} onChange={e => setAddP({ ...addP, phone: e.target.value })} /></Field>
@@ -23736,6 +23810,7 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
             </div>
           </div>
           )}
+          </>)}
         </Modal>
       )}
     </div>
@@ -23988,6 +24063,34 @@ function AiCenter({ org, ops, me, myBranches, scoped, say, setTab }) {
 }
 
 /* ================= بيانات الشركة والنسخ الاحتياطي ================= */
+/* v34.1 — فحص سلامة المستندات السحابية: يكشف المستند الذي تتعذّر قراءته (جزء مفقود/JSON تالف/رفض) ويصلحه من نسخة هذا الجهاز */
+function CloudHealth({ org, say }) {
+  const [rows, setRows] = useState(null); const [busy, setBusy] = useState(false);
+  const keys = [[KEYS.core, 'المستند المركزي (الحسابات والمشتريات)'], [KEYS.org, 'الإعدادات'], [KEYS.dir, 'الدليل العام للفروع'], [KEYS.loy, 'نقاط الولاء'],
+    ...(org.branches || []).map(b => [brKey(b.id), 'فرع ' + b.name])];
+  const run = async () => { setBusy(true); const out = []; for (const [k, l] of keys) { const r = await cloud.inspect(k); out.push({ ...r, label: l, re: cloud.readErr(k) }); setRows([...out]); } setBusy(false); };
+  const bad = (r) => r.err || (r.exists && (r.missing.length || !r.json));
+  const fix = async (r) => {
+    if (!window.confirm('إصلاح «' + r.label + '» بالنسخة المحفوظة على هذا الجهاز؟\nيُستبدل المستند التالف في السحابة بآخر نسخة سليمة قرأها هذا الجهاز. نزّل نسخة احتياطية أولًا إن أمكن.')) return;
+    const res = await cloud.repairFromLocal(r.key);
+    say(res === 'ok' ? 'أُصلح المستند ✓ — أعد تحميل المنصة' : res === 'no-local' ? 'لا توجد نسخة محفوظة على هذا الجهاز لهذا المستند — جرّب من جهاز آخر كان يعمل' : 'تعذّر الإصلاح: ' + res, res === 'ok' ? 'ok' : 'no');
+    run();
+  };
+  return (
+    <div className="card">
+      <div className="row" style={{ gap: 8, marginBottom: 8 }}><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />فحص سلامة البيانات السحابية</div>
+        <button className="btn sm pri" style={{ marginInlineStart: 'auto' }} disabled={busy} onClick={run}><RefreshCw size={13} />{busy ? 'جارٍ الفحص…' : 'فحص الآن'}</button></div>
+      <div className="note">إذا ظهرت رسالة «تعذّرت قراءة … من السحابة» عند الحفظ، افحص هنا لمعرفة المستند المتأثر وسببه. الفحص قراءة فقط ولا يغيّر شيئًا.</div>
+      {rows && <div className="tw" style={{ marginTop: 8 }}><table className="tb"><thead><tr><th>المستند</th><th>الحالة</th><th style={{ textAlign: 'end' }}>الحجم</th><th>الأجزاء</th><th></th></tr></thead><tbody>
+        {rows.map(r => <tr key={r.key}><td style={{ fontSize: 12 }}>{r.label}</td>
+          <td>{r.err ? <span className="badge b-rose">تعذّرت القراءة: {r.err}</span> : !r.exists ? <span className="badge b-dim">غير موجود بعد</span> : r.missing.length ? <span className="badge b-rose">أجزاء مفقودة: {r.missing.join('، ')}</span> : !r.json ? <span className="badge b-rose">محتوى تالف</span> : <span className="badge b-mint">سليم ✓</span>}
+            {r.re && !bad(r) && <div style={{ fontSize: 10.5, color: 'var(--amber)' }}>آخر قراءة فشلت على هذا الجهاز: {r.re.code} — نجح الفحص الآن، أعد المحاولة</div>}</td>
+          <td className="num" style={{ textAlign: 'end' }}>{r.kb != null ? r.kb + ' KB' : '—'}</td><td className="num">{r.parts || '—'}</td>
+          <td>{bad(r) && r.local && <button className="btn sm" onClick={() => fix(r)}>إصلاح من هذا الجهاز</button>}</td></tr>)}
+      </tbody></table></div>}
+    </div>);
+}
+
 function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
   const [hist, setHist] = useState({ closings: [] });
   const [working, setWorking] = useState(false);
@@ -24335,6 +24438,7 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
       </div>
 
       <div className="grid" style={{ gap: 12, alignContent: 'start' }}>
+        {ROLES[me.role]?.admin && <CloudHealth org={org} say={say} />}
         <div className="card">
           <div className="card-h">
             <div className="card-t"><HardDrive size={15} color="var(--brass)" />النسخ الاحتياطي والاستعادة</div>
