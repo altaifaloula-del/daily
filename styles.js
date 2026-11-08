@@ -1015,6 +1015,12 @@ td.num,th.num{display:table-cell}
 .mb-var{font-size:12px;font-weight:600;color:var(--mint)}.mb-var.neg{color:var(--rose)}.mb-var.big{background:color-mix(in srgb,var(--rose) 12%,transparent);padding:1px 8px;border-radius:999px}
 .tdy-alarm{border-color:color-mix(in srgb,var(--rose) 55%,var(--line))}.tdy-alarm .tdy-act-n{background:color-mix(in srgb,var(--rose) 14%,transparent);color:var(--rose)}
 .dcfg-r{display:grid;gap:4px;font-size:13px;color:var(--dim)}.dcfg-r b{color:var(--txt)}
+.ot-eq{display:grid;gap:6px}
+.ot-eq>div{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;padding:6px 10px;border-radius:9px;background:var(--ink2);border:1px solid var(--line);font-size:13px}
+.ot-eq>div span{min-width:140px;color:var(--dim)}.ot-eq>div b{font-weight:600}
+.ot-eq>div.hl{border-color:color-mix(in srgb,var(--brass) 55%,var(--line));background:color-mix(in srgb,var(--brass) 8%,var(--ink2))}
+.ot-tb .ot-h{width:84px;text-align:center;padding:6px 8px;min-height:36px}
+.mus-tb td,.mus-tb th{white-space:nowrap}
 .cb-list{display:grid;gap:8px}
 .cb-row{display:grid;grid-template-columns:auto minmax(0,1.6fr) repeat(3,minmax(0,1fr)) auto;gap:12px;align-items:center;width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--ink2);color:var(--txt);font:inherit;text-align:start;cursor:pointer}
 .cb-row:hover,.cb-row.on{border-color:var(--brass)}

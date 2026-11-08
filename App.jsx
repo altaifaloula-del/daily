@@ -1072,7 +1072,7 @@ function buildPartners(org, ops) {
   // الموظفون — استحقاق وصرف الرواتب قيود دائمة تُرحَّل من شاشة الرواتب (لا سطر اصطناعي يتغيّر بالشهر)
   (org.employees || []).forEach(em => {
     const key = 'emp:' + em.id; const txns = []; let linked = false;
-    (ops.advances || []).filter(a => a.employeeId === em.id && a.type !== 'bonus').forEach(a => {   // المكافأة (م٨) داخل استحقاق الراتب أصلًا — لا تُعرض كمديونية على الموظف
+    (ops.advances || []).filter(a => a.employeeId === em.id && !PAY_ADD_TYPES.includes(a.type)).forEach(a => {   // المكافأة (م٨) داخل استحقاق الراتب أصلًا — لا تُعرض كمديونية على الموظف
       const isDraw = ['advance', 'salary_draw'].includes(a.type);
       txns.push({ date: (a.date || '').slice(0, 10), desc: (isDraw ? 'سلفة/سحب على الراتب' : 'خصم/جزاء') + (a.reason ? ' — ' + a.reason : ''), ref: a.month || '', src: 'adv', debit: a.amount || 0, credit: 0 });
       linked = true;
@@ -2102,6 +2102,7 @@ const countDenoms = (d) => DENOMS.reduce((s, x) => s + (Number(d?.[x.k]) || 0) *
 
 const ALL_TABS = ['pos', 'whbranch', 'analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'hrops', 'hrperf', 'attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'kpi', 'empfile', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'perfsnap', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit', 'qrfb'];
 const TAB_AR = {
+  muster: 'مسير الرواتب', overtime: 'مسير الأجور الإضافية',
   cashiers: 'سجل الكاشير',
   analytics: 'مركز التحليل والأداء', reporting: 'مركز التقارير', exec: 'اللوحة التنفيذية',
   pos: 'نقطة البيع', dash: 'لوحة المؤشرات', compare: 'مقارنة الفروع', growth: 'تحليلات النمو', breakeven: 'تحليل التعادل', scorecard: 'لوحة الأهداف', scenario: 'ماذا-لو', boardpack: 'تقرير الإدارة', cashflow: 'التدفق النقدي', closing: 'الإغلاق اليومي', apps: 'التطبيقات',
@@ -3530,7 +3531,7 @@ function PlatformApp() {
   const shared = { org, ops, pulse, me, myBranches, scoped, commit, commitOrg, say, setTab, theme, acctIntent, openAcctView, invIntent, openInvView };
 
   // حماية: منع الوصول لتبويب غير مسموح لدور المستخدم (بلا hook — بعد returns الشرطية)
-  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'closing') && (ROLES[me.role]?.approver || ROLES[me.role]?.admin || ROLES[me.role]?.scope === 'all') ? ['cashiers'] : []), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : []), ...(NAV.some(n => n.id === 'people') ? ['payroll', 'workforce'] : []), ...(NAV.some(n => n.id === 'purchasing') ? ['suppliers', 'reorder'] : []), ...(NAV.some(n => n.id === 'hrops') ? ['attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'esign'] : []), ...(NAV.some(n => n.id === 'hrperf') ? ['kpi', 'empfile', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'] : [])];
+  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'closing') && (ROLES[me.role]?.approver || ROLES[me.role]?.admin || ROLES[me.role]?.scope === 'all') ? ['cashiers'] : []), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : []), ...(NAV.some(n => n.id === 'people') ? ['payroll', 'workforce', 'muster', 'overtime'] : []), ...(NAV.some(n => n.id === 'purchasing') ? ['suppliers', 'reorder'] : []), ...(NAV.some(n => n.id === 'hrops') ? ['attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'esign'] : []), ...(NAV.some(n => n.id === 'hrperf') ? ['kpi', 'empfile', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'] : [])];
   const safeTab = allowedTabs.includes(tab) ? tab : (allowedTabs[0] || 'closing');
 
   return (
@@ -3620,7 +3621,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark"><MizanMark size={24} /></span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : HR_TABS.includes(safeTab) ? 'الموارد البشرية' : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v36.8</span>
+            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v36.9</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -7381,7 +7382,7 @@ HUBS.hr = {
   ar: 'الموارد البشرية', desc: 'الحضور والورديات والإجازات · البيانات والرواتب والسلف · الأداء والتدريب والانضباط', icon: Users,
   views: [
     ...HUBS.hrops.views.map(v => ({ ...v, group: 'التشغيل اليومي' })),
-    ...HUBS.people.views.filter(v => !['suppliers', 'reorder'].includes(v.id)).map(v => ({ ...v, group: 'شؤون الموظفين والرواتب' })),
+    ...HUBS.people.views.filter(v => !['suppliers', 'reorder'].includes(v.id)).flatMap(v => v.id === 'payroll' ? [v, { id: 'muster', ar: 'مسير الرواتب', icon: FileText, comp: PayrollMuster, like: 'payroll' }, { id: 'overtime', ar: 'مسير الأجور الإضافية', icon: Clock, comp: OvertimeSheet, like: 'payroll' }] : [v]).map(v => ({ ...v, group: 'شؤون الموظفين والرواتب' })),
     ...HUBS.hrperf.views.map(v => ({ ...v, group: 'الأداء والانضباط' }))
   ]
 };
@@ -7470,7 +7471,7 @@ function Hub({ hubId, view, ...rest }) {
   const rt = ROLES[me.role]?.tabs || [];
   const full = ROLES[me.role]?.scope === 'all' && !ROLES[me.role]?.limitedApps;   // v31.5: الأدوار المحدودة (المحاسب) ترى أقسام دورها فقط داخل المراكز المدمجة
   const granted = (me.appAllow || []).map(id => (LAUNCH_IX[id] || {}).open).filter(Boolean).map(o => o.tab);
-  const views = cfg.views.filter(v => full || rt.includes(v.id) || granted.includes(v.id));
+  const views = cfg.views.filter(v => full || rt.includes(v.id) || granted.includes(v.id) || (v.like && (rt.includes(v.like) || granted.includes(v.like))));
   const remembered = (appUseGet(me.id).hubView || {})[hubId];
   const cur = (views.find(v => v.id === view) || views.find(v => v.id === remembered) || views[0] || {}).id;
   const go = (id) => { const u = appUseGet(me.id); u.hubView = { ...(u.hubView || {}), [hubId]: id }; appUseSet(me.id, u); rest.setTab(id); };
@@ -10892,6 +10893,278 @@ function Leaves({ org, ops, me, myBranches, commit, commitOrg, say }) {
   );
 }
 
+/* ===== v36.9 — مسير الرواتب الشهري ومسير الأجور الإضافية =====
+   payrollRowsOf: حساب كشف الرواتب الموحّد (تستخدمه شاشة الرواتب والمسير معًا — رقم واحد في كل مكان).
+   الإضافي يُخزَّن كحركة في advances بنوع 'overtime' (مثل المكافأة: إضافة للإجمالي) فيدخل الاستحقاق والقيود تلقائيًا. */
+const PAY_ADD_TYPES = ['bonus', 'overtime'];
+function payrollRowsOf(org, advances, emps, month) {
+  const gosiOn = !!(org.gosiCfg || {}).enabled;
+  const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+  return (emps || []).map(e => {
+    const ads = (advances || []).filter(a => a.employeeId === e.id && a.month === month);
+    const draws = sum(ads.filter(a => ['advance', 'salary_draw'].includes(a.type)), a => a.amount);
+    const bonus = r2(sum(ads.filter(a => a.type === 'bonus'), a => a.amount));
+    const otA = ads.filter(a => a.type === 'overtime');
+    const ot = r2(sum(otA, a => a.amount)), otHours = r2(sum(otA, a => Number(a.hours) || 0));
+    const cuts = sum(ads.filter(a => !['advance', 'salary_draw', ...PAY_ADD_TYPES].includes(a.type)), a => a.amount);
+    const allow = (e.housingAllowance || 0) + (e.transportAllowance || 0) + (e.otherAllowance || 0);
+    const gross = r2((e.baseSalary || 0) + allow + bonus + ot);
+    const gr = gosiRatesFor(e, org.gosiCfg);
+    const gEmp = (gosiOn && e.gosiSubject) ? r2(gr.base * gr.emp / 100) : 0;
+    const gEr = (gosiOn && e.gosiSubject) ? r2(gr.base * gr.er / 100) : 0;
+    return { e, ads, draws, bonus, ot, otHours, cuts, allow, gross, gEmp, gEr, net: r2(gross - draws - cuts - gEmp), flags: ads.filter(a => a.isUnjustified).length };
+  });
+}
+
+// أجر ساعة العمل الإضافي — المادة 107 من نظام العمل: أجر الساعة + 50% من أجر الساعة الأساسي
+// أجر الساعة = الأجر الشهري ÷ 30 ÷ ساعات العمل اليومية. الأساس قابل للضبط: «الأساسي» (افتراضي — = 1.5 × ساعة أساسية) أو «الفعلي» (الأساسي + البدلات).
+function otRateOf(e, hoursPerDay, basis) {
+  const r4 = (n) => Math.round((Number(n) || 0) * 10000) / 10000;
+  const H = Number(hoursPerDay) > 0 ? Number(hoursPerDay) : 8;
+  const base = Number(e.baseSalary) || 0;
+  const actual = base + (Number(e.housingAllowance) || 0) + (Number(e.transportAllowance) || 0) + (Number(e.otherAllowance) || 0);
+  const hBasic = r4(base / 30 / H), hActual = r4(actual / 30 / H);
+  const rate = r4((basis === 'actual' ? hActual : hBasic) + 0.5 * hBasic);
+  return { H, base, actual, hBasic, hActual, rate };
+}
+// ساعات الإضافي من البصمة لشهر: يوم عمل ← (آخر خروج − أول دخول) − ساعات اليوم إن كانت موجبة؛ يوم الراحة الأسبوعية ← كل الساعات
+function otFromAttendance(org, ops, emp, month) {
+  const pol = { ...defaultHrPolicies(), ...(org.hrPolicies || {}) };
+  const H = Number(pol.workHoursPerDay) > 0 ? Number(pol.workHoursPerDay) : 8;
+  const off = new Set((pol.weeklyOffDays || []).map(Number));
+  const byDay = {};
+  (ops.attendanceEvents || []).filter(ev => ev.employeeId === emp.id && (ev.at || '').slice(0, 7) === month)
+    .forEach(ev => { const ds = (ev.at || '').slice(0, 10); (byDay[ds] = byDay[ds] || []).push(ev); });
+  let regMin = 0, offMin = 0, days = 0, open = 0;
+  Object.keys(byDay).forEach(ds => {
+    const evs = byDay[ds].sort((a, b) => (a.at < b.at ? -1 : 1));
+    const fi = evs.find(x => x.type === 'in'); const outs = evs.filter(x => x.type === 'out'); const lo = outs[outs.length - 1];
+    if (!fi) return;
+    if (!lo || lo.at <= fi.at) { open++; return; }
+    const mins = Math.round((new Date(lo.at) - new Date(fi.at)) / 60000); if (!(mins > 0)) return;
+    days++;
+    if (off.has(new Date(ds + 'T00:00:00').getDay())) offMin += mins; else regMin += Math.max(0, mins - H * 60);
+  });
+  // تقريب لأقرب ربع ساعة لأسفل (لا تُحتسب كسور الدقائق لصالح أي طرف بلا اعتماد)
+  const q = (m) => Math.floor(m / 15) / 4;
+  return { hours: q(regMin + offMin), regH: q(regMin), offH: q(offMin), days, open, H };
+}
+
+function OvertimeSheet({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
+  const [month, setMonth] = useState(today().slice(0, 7));
+  const [bf, setBf] = useState('');
+  const [edit, setEdit] = useState({});            // empId → {hours, note}
+  const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+  const pol = { ...defaultHrPolicies(), ...(org.hrPolicies || {}) };
+  const H = Number(pol.workHoursPerDay) > 0 ? Number(pol.workHoursPerDay) : 8;
+  const cap = Number(pol.overtimeMaxHoursPerMonth) || 0;
+  const basis = pol.overtimeBasis === 'actual' ? 'actual' : 'basic';   // الافتراضي: الأجر الأساسي
+  const canPost = rolePost(me.role) && ROLES[me.role]?.scope !== 'own';
+  const brs = (myBranches || []).filter(b => b.isActive !== false);
+  const emps = (org.employees || []).filter(e => brs.some(b => b.id === e.branchId) && (!bf || e.branchId === bf) && e.status !== 'terminated' && e.isActive !== false);
+  const posted = (scoped.advances || []).filter(a => a.type === 'overtime' && a.month === month);
+  const accrualPosted = (ops.ledgerEntries || []).some(x => x.kind === 'salary_accrual' && x.month === month);
+  const locked = accrualPosted || periodLocked(org, month + '-28');
+  useEffect(() => { setEdit({}); }, [month, bf]);
+  const rows = emps.map(e => {
+    const R = otRateOf(e, H, basis);
+    const att = otFromAttendance(org, ops, e, month);
+    const p = posted.filter(a => a.employeeId === e.id);
+    const postedH = r2(sum(p, a => Number(a.hours) || 0)), postedAmt = r2(sum(p, a => a.amount));
+    const ed = edit[e.id];
+    const hours = ed && ed.hours !== undefined ? (Number(String(ed.hours).replace(/[^\d.]/g, '')) || 0) : (p.length ? postedH : att.hours);
+    const src = ed && ed.hours !== undefined ? 'manual' : p.length ? (p[0].source || 'manual') : 'attendance';
+    return { e, R, att, hours, amount: r2(hours * R.rate), postedH, postedAmt, isPosted: p.length > 0, src, note: (ed && ed.note) ?? ((p[0] || {}).note || ''), overCap: cap > 0 && hours > cap };
+  });
+  const totH = r2(sum(rows, r => r.hours)), totA = r2(sum(rows, r => r.amount));
+  const dirty = rows.some(r => !r.isPosted ? r.hours > 0 : (Math.abs(r.hours - r.postedH) > 0.001 || Math.abs(r.amount - r.postedAmt) > 0.005));
+  const brName = (id) => ((org.branches || []).find(b => b.id === id) || {}).name || '';
+  const setBasis = async (v) => {
+    await commitOrg(d => ({ ...d, hrPolicies: { ...defaultHrPolicies(), ...(d.hrPolicies || {}), overtimeBasis: v } }), { actionType: 'update', targetType: 'hr_policy', targetId: 'overtimeBasis', need: 'edit', title: 'عدّل أساس احتساب الإضافي', details: v === 'basic' ? 'الأساسي فقط' : 'الأجر الفعلي' });
+  };
+  const post = async () => {
+    if (!canPost) return say('اعتماد الإضافي صلاحية الإدارة/المحاسبة', 'no');
+    if (accrualPosted) return say('استحقاق رواتب ' + month + ' مُرحّل — لا يُعدّل الإضافي بعده', 'no');
+    if (periodLocked(org, month + '-28')) return say(LOCK_MSG(month + '-28'), 'no');
+    const ids = new Set(emps.map(e => e.id));
+    const recs = rows.filter(r => r.hours > 0 && r.amount > 0).map(r => ({
+      id: uid('ot'), employeeId: r.e.id, employeeName: r.e.name, branchId: r.e.branchId, branchName: brName(r.e.branchId),
+      month, date: month + '-28', type: 'overtime', amount: r.amount, hours: r.hours, rate: r.R.rate, hourlyBasic: r.R.hBasic, hourlyActual: r.R.hActual,
+      basis, hoursPerDay: H, source: r.src, note: r.note || '', reason: 'عمل إضافي ' + r.hours + ' ساعة × ' + r.R.rate.toFixed(2),
+      createdByName: me.name, createdAt: nowISO()
+    }));
+    const ok = await commit(d => ({ ...d, advances: [...recs, ...(d.advances || []).filter(a => !(a.type === 'overtime' && a.month === month && ids.has(a.employeeId)))] }), {
+      actionType: 'payroll_record', targetType: 'payroll', targetId: 'overtime-' + month, title: 'اعتمد مسير الأجور الإضافية',
+      details: month + ' · ' + recs.length + ' موظف · ' + totH + ' ساعة · ' + money(totA) + ' ر.س'
+    });
+    if (ok) { setEdit({}); say('اعتُمد الإضافي وأُضيف إلى مسير رواتب ' + month + ' ✓'); }
+  };
+  const printOT = () => {
+    const rws = rows.filter(r => r.hours > 0).map((r, i) => `<tr><td class="n">${i + 1}</td><td>${r.e.name}</td><td>${brName(r.e.branchId)}</td><td class="n">${money(r.R.base)}</td><td class="n">${money(r.R.actual)}</td><td class="n">${r.R.hBasic.toFixed(2)}</td><td class="n">${r.R.hActual.toFixed(2)}</td><td class="n">${r.R.rate.toFixed(2)}</td><td class="n">${r.hours}</td><td class="n">${money(r.amount)}</td><td style="width:70px"></td></tr>`).join('');
+    printA4(org, 'مسير الأجور الإضافية — ' + month, 'ساعات اليوم ' + H + ' · الأساس: ' + (basis === 'basic' ? 'الأساسي' : 'الأجر الفعلي') + ' · المادة 107 من نظام العمل',
+      `<style>@page{size:A4 landscape}</style><table><thead><tr><th>#</th><th>الموظف</th><th>الفرع</th><th>الأساسي</th><th>الأجر الفعلي</th><th>ساعة أساسية</th><th>ساعة فعلية</th><th>أجر ساعة الإضافي</th><th>الساعات</th><th>المبلغ</th><th>التوقيع</th></tr></thead><tbody>${rws}
+      <tr class="tot"><td colspan="8">الإجمالي</td><td class="n">${totH}</td><td class="n">${money(totA)}</td><td></td></tr></tbody></table>
+      <div class="box"><b>المعادلات:</b> أجر الساعة الأساسي = الأساسي ÷ 30 ÷ ${H} · أجر الساعة الفعلي = (الأساسي + البدلات) ÷ 30 ÷ ${H} ·
+      أجر ساعة الإضافي = ${basis === 'basic' ? 'أجر الساعة الأساسي' : 'أجر الساعة الفعلي'} + 50% × أجر الساعة الأساسي · المبلغ = الساعات × أجر ساعة الإضافي.
+      ساعات الإضافي من البصمة: ما زاد عن ${H} ساعات في يوم العمل، وكامل ساعات يوم الراحة الأسبوعية، مقرّبة لأقرب ربع ساعة لأسفل.</div>
+      <div class="sign"><div>إعداد الموارد البشرية</div><div>المدير المباشر</div><div>اعتماد الإدارة المالية</div></div>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+  };
+  const xl = () => { try {
+    const rr = [['الموظف', 'الفرع', 'الأساسي', 'الأجر الفعلي', 'أجر الساعة الأساسي', 'أجر الساعة الفعلي', 'أجر ساعة الإضافي', 'ساعات البصمة', 'منها أيام الراحة', 'الساعات المعتمدة', 'المبلغ', 'المصدر', 'ملاحظة'],
+      ...rows.map(r => [r.e.name, brName(r.e.branchId), r.R.base, r.R.actual, r.R.hBasic, r.R.hActual, r.R.rate, r.att.hours, r.att.offH, r.hours, r.amount, r.src === 'attendance' ? 'البصمة' : 'يدوي', r.note])];
+    const blob = makeXlsx([{ name: 'الإضافي ' + month, rows: rr }]); const u = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = u; a.download = 'مسير_الإضافي_' + month + '.xlsx'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 1500);
+  } catch { say('تعذّر توليد Excel', 'no'); } };
+  return (
+    <div className="grid" style={{ gap: 12 }}>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <input type="month" className="inp" style={{ width: 170 }} value={month} onChange={e => e.target.value && setMonth(e.target.value)} />
+        <select className="sel" style={{ width: 170 }} value={bf} onChange={e => setBf(e.target.value)}>
+          <option value="">كل الفروع</option>{brs.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+        </select>
+        <span className={'badge ' + (locked ? 'b-dim' : posted.length ? 'b-mint' : 'b-amber')}>{accrualPosted ? 'مقفل — استحقاق الشهر مُرحّل' : locked ? 'الشهر مقفل محاسبيًا' : posted.length ? 'معتمد ومضاف للمسير' + (dirty ? ' · توجد تعديلات غير معتمدة' : '') : 'مسودة — غير معتمد'}</span>
+      </div>
+      {!pol.overtimeEnabled && <div className="note">⚠ احتساب العمل الإضافي غير مفعّل في سياسات الموارد البشرية — المسير يعمل للمراجعة والإعداد، وفعّله من «السياسات والأدوار».</div>}
+      <div className="grid g4">
+        <Kpi label="ساعات الإضافي" value={String(totH)} sub={rows.filter(r => r.hours > 0).length + ' موظف'} icon={Clock} color="#C8A24A" />
+        <Kpi label="مبلغ الإضافي" value={money(totA)} sub={'يُضاف لمسير ' + month} icon={Wallet} color="#4FB286" />
+        <Kpi label="فوق الحد الشهري" value={String(rows.filter(r => r.overCap).length)} sub={cap ? 'الحد ' + cap + ' ساعة' : 'بلا حد'} icon={AlertTriangle} color={rows.some(r => r.overCap) ? '#D9544D' : '#4FB286'} />
+        <Kpi label="بصمات بلا انصراف" value={String(sum(rows, r => r.att.open))} sub="أيام لا تُحتسب حتى تُصحَّح" icon={Fingerprint} color={rows.some(r => r.att.open) ? '#E0A458' : '#4FB286'} />
+      </div>
+      <div className="card ot-f">
+        <div className="card-t" style={{ marginBottom: 8 }}><Scale size={15} color="var(--brass)" />المعادلات (المادة 107 من نظام العمل)</div>
+        <div className="ot-eq">
+          <div><span>أجر الساعة الأساسي</span><b>= الأساسي ÷ 30 ÷ {H}</b></div>
+          <div><span>أجر الساعة الفعلي</span><b>= (الأساسي + البدلات) ÷ 30 ÷ {H}</b></div>
+          <div className="hl"><span>أجر ساعة الإضافي</span><b>{basis === 'basic' ? '= أجر الساعة الأساسي + 50% × أجر الساعة الأساسي = 1.5 × أجر الساعة الأساسي' : '= أجر الساعة الفعلي + 50% × أجر الساعة الأساسي'}</b></div>
+          <div><span>مبلغ الإضافي</span><b>= عدد الساعات × أجر ساعة الإضافي</b></div>
+          <div><span>ساعات البصمة</span><b>= ما زاد عن {H} ساعات يوميًا + كامل ساعات يوم الراحة (لأقرب ربع ساعة لأسفل)</b></div>
+        </div>
+        {canPost && <div className="row" style={{ gap: 6, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12.5, color: 'var(--dim)' }}>أساس أجر الساعة:</span>
+          <button className={'btn sm' + (basis === 'basic' ? ' pri' : ' gh')} onClick={() => basis !== 'basic' && setBasis('basic')}>الأجر الأساسي (= 1.5 × ساعة أساسية)</button>
+          <button className={'btn sm' + (basis === 'actual' ? ' pri' : ' gh')} onClick={() => basis !== 'actual' && setBasis('actual')}>الأجر الفعلي (الأساسي + البدلات)</button>
+        </div>}
+      </div>
+      <div className="card">
+        <div className="card-h">
+          <div className="card-t"><Clock size={15} color="var(--brass)" />مسير الأجور الإضافية — {month}</div>
+          <div className="row" style={{ gap: 6 }}>
+            <button className="btn sm" onClick={printOT}><Printer size={13} />طباعة</button>
+            <button className="btn sm" onClick={xl}><Download size={13} />Excel</button>
+          </div>
+        </div>
+        <div className="tw"><table className="tb is-tb ot-tb">
+          <thead><tr><th>الموظف</th><th style={{ textAlign: 'end' }}>الأساسي</th><th style={{ textAlign: 'end' }}>الأجر الفعلي</th><th style={{ textAlign: 'end' }}>ساعة أساسية</th><th style={{ textAlign: 'end' }}>ساعة فعلية</th><th style={{ textAlign: 'end' }}>أجر ساعة الإضافي</th><th style={{ textAlign: 'end' }}>من البصمة</th><th style={{ textAlign: 'center' }}>الساعات المعتمدة</th><th style={{ textAlign: 'end' }}>المبلغ</th></tr></thead>
+          <tbody>
+            {rows.length === 0 && <tr><td colSpan={9}><div className="empty">لا موظفين نشطين في الفروع المحددة.</div></td></tr>}
+            {rows.map(r => (
+              <tr key={r.e.id} className={'is-line' + (r.overCap ? ' bad' : '')}>
+                <td><b>{r.e.name}</b><div style={{ fontSize: 11, color: 'var(--faint)' }}>{brName(r.e.branchId)}{r.e.jobTitle ? ' · ' + r.e.jobTitle : ''}</div></td>
+                <td className="is-amt"><span className="num">{money(r.R.base)}</span></td>
+                <td className="is-amt"><span className="num">{money(r.R.actual)}</span></td>
+                <td className="is-amt"><span className="num">{r.R.hBasic.toFixed(2)}</span></td>
+                <td className="is-amt"><span className="num">{r.R.hActual.toFixed(2)}</span></td>
+                <td className="is-amt"><span className="num" style={{ fontWeight: 700 }}>{r.R.rate.toFixed(2)}</span></td>
+                <td className="is-amt"><span className="num">{r.att.hours}</span>{r.att.offH > 0 && <div style={{ fontSize: 10.5, color: 'var(--faint)' }}>منها راحة {r.att.offH}</div>}{r.att.open > 0 && <div style={{ fontSize: 10.5, color: 'var(--amber)' }}>{r.att.open} بلا انصراف</div>}</td>
+                <td style={{ textAlign: 'center' }}>
+                  <input className="inp n ot-h" inputMode="decimal" disabled={locked || !canPost} value={edit[r.e.id]?.hours ?? String(r.hours)} onChange={ev => setEdit(x => ({ ...x, [r.e.id]: { ...(x[r.e.id] || {}), hours: ev.target.value } }))} aria-label={'ساعات ' + r.e.name} />
+                  {r.src === 'manual' && Math.abs(r.hours - r.att.hours) > 0.001 && <div style={{ fontSize: 10.5, color: 'var(--amber)' }}>معدّل يدويًا</div>}
+                  {r.overCap && <div style={{ fontSize: 10.5, color: 'var(--rose)' }}>فوق الحد {cap}</div>}
+                </td>
+                <td className="is-amt"><span className="num" style={{ fontWeight: 700 }}>{money(r.amount)}</span></td>
+              </tr>))}
+            {rows.length > 0 && <tr className="is-total"><td colSpan={7}>الإجمالي</td><td style={{ textAlign: 'center' }}><span className="num">{totH}</span></td><td className="is-amt"><span className="num">{money(totA)}</span></td></tr>}
+          </tbody>
+        </table></div>
+        <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <button className="btn pri" disabled={locked || !canPost || (!dirty && posted.length > 0)} onClick={post}><Check size={14} />{posted.length ? 'إعادة اعتماد الإضافي' : 'اعتماد الإضافي وإضافته للمسير'}</button>
+          {Object.keys(edit).length > 0 && !locked && <button className="btn gh" onClick={() => setEdit({})}>تراجع عن التعديلات</button>}
+          <span style={{ fontSize: 12, color: 'var(--faint)' }}>بعد الاعتماد يظهر في «الرواتب والسلف» و«مسير الرواتب» ويدخل استحقاق الشهر وقيوده تلقائيًا. يُقفل بعد ترحيل استحقاق الشهر.</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PayrollMuster({ org, ops, me, myBranches, scoped, say }) {
+  const [month, setMonth] = useState(today().slice(0, 7));
+  const [bf, setBf] = useState('');
+  const brs = (myBranches || []).filter(b => b.isActive !== false);
+  const emps = (org.employees || []).filter(e => brs.some(b => b.id === e.branchId) && (!bf || e.branchId === bf));
+  const rows = payrollRowsOf(org, scoped.advances, emps, month).filter(r => r.gross > 0 || r.net !== 0);
+  const gosiOn = !!(org.gosiCfg || {}).enabled;
+  const accrual = (ops.ledgerEntries || []).some(x => x.kind === 'salary_accrual' && x.month === month);
+  const payout = (ops.ledgerEntries || []).some(x => x.kind === 'salary_payout' && x.month === month);
+  const T = (k) => Math.round(sum(rows, r => typeof k === 'function' ? k(r) : r[k]) * 100) / 100;
+  const groups = brs.filter(b => !bf || b.id === bf).map(b => ({ b, rows: rows.filter(r => r.e.branchId === b.id) })).filter(g => g.rows.length);
+  const cols = [
+    ['الأساسي', r => r.e.baseSalary || 0], ['السكن', r => r.e.housingAllowance || 0], ['النقل', r => r.e.transportAllowance || 0], ['بدلات أخرى', r => r.e.otherAllowance || 0],
+    ['الإضافي', r => r.ot], ['مكافآت', r => r.bonus], ['الإجمالي', r => r.gross, 1],
+    ...(gosiOn ? [['تأمينات', r => r.gEmp]] : []), ['سلف', r => r.draws], ['خصومات', r => r.cuts], ['الصافي', r => r.net, 1]
+  ];
+  const monthName = (() => { try { return new Date(month + '-01T00:00:00').toLocaleDateString('ar-SA-u-ca-gregory-nu-latn', { month: 'long', year: 'numeric' }); } catch { return month; } })();
+  const print = () => {
+    let n = 0;
+    const body = groups.map(g => `<tr class="hd"><td colspan="${cols.length + 3}">${g.b.name} — ${g.rows.length} موظف</td></tr>` + g.rows.map(r => `<tr><td class="n">${++n}</td><td>${r.e.name}${r.e.jobTitle ? '<br><span style="font-size:9px;color:#888">' + r.e.jobTitle + '</span>' : ''}</td>${cols.map(c => `<td class="n"${c[2] ? ' style="font-weight:700"' : ''}>${c[1](r) ? money(c[1](r)) : '—'}</td>`).join('')}<td>${r.e.iban ? '<span style="font-size:9px">' + r.e.iban + '</span>' : ''}</td></tr>`).join('')
+      + `<tr class="grp"><td colspan="2">مجموع ${g.b.name}</td>${cols.map(c => `<td class="n">${money(Math.round(sum(g.rows, c[1]) * 100) / 100)}</td>`).join('')}<td></td></tr>`).join('');
+    printA4(org, 'مسير رواتب شهر ' + monthName, rows.length + ' موظف' + (bf ? ' · ' + (brs.find(b => b.id === bf) || {}).name : ' · كل الفروع') + (accrual ? ' · الاستحقاق مُرحّل' : ' · مسودة قبل الترحيل'),
+      `<style>@page{size:A4 landscape}table{font-size:10px}td,th{padding:4px 5px}.hd td{background:#f5f0e4;font-weight:800}.grp td{font-weight:700;background:#fbf8f1}</style>
+      <table><thead><tr><th>#</th><th>الموظف</th>${cols.map(c => `<th>${c[0]}</th>`).join('')}<th>الآيبان</th></tr></thead><tbody>${body}
+      <tr class="tot"><td colspan="2">الإجمالي العام</td>${cols.map(c => `<td class="n">${money(T(c[1]))}</td>`).join('')}<td></td></tr></tbody></table>
+      <div class="box">الإجمالي = الأساسي + البدلات + الإضافي المعتمد + المكافآت المعتمدة · الصافي = الإجمالي − السلف − الخصومات${gosiOn ? ' − حصة الموظف من التأمينات' : ''}.</div>
+      <div class="sign"><div>إعداد الموارد البشرية</div><div>مراجعة المحاسبة</div><div>اعتماد الإدارة</div></div>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+  };
+  const xl = () => { try {
+    const rr = [['الموظف', 'الفرع', 'الوظيفة', ...cols.map(c => c[0]), 'ساعات الإضافي', 'الآيبان']];
+    groups.forEach(g => g.rows.forEach(r => rr.push([r.e.name, g.b.name, r.e.jobTitle || '', ...cols.map(c => Math.round((c[1](r) || 0) * 100) / 100), r.otHours, r.e.iban || ''])));
+    rr.push(['الإجمالي', '', '', ...cols.map(c => T(c[1])), T('otHours'), '']);
+    const blob = makeXlsx([{ name: 'مسير ' + month, rows: rr }]); const u = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = u; a.download = 'مسير_الرواتب_' + month + '.xlsx'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 1500);
+  } catch { say('تعذّر توليد Excel', 'no'); } };
+  return (
+    <div className="grid" style={{ gap: 12 }}>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <input type="month" className="inp" style={{ width: 170 }} value={month} onChange={e => e.target.value && setMonth(e.target.value)} />
+        <select className="sel" style={{ width: 170 }} value={bf} onChange={e => setBf(e.target.value)}>
+          <option value="">كل الفروع</option>{brs.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+        </select>
+        <span className={'badge ' + (payout ? 'b-mint' : accrual ? 'b-brass' : 'b-amber')}>{payout ? 'مصروف ✓' : accrual ? 'الاستحقاق مُرحّل — بانتظار الصرف' : 'مسودة — قبل ترحيل الاستحقاق'}</span>
+      </div>
+      <div className="grid g4">
+        <Kpi label="الموظفون" value={String(rows.length)} sub={groups.length + ' فرع'} icon={Users} color="#C8A24A" />
+        <Kpi label="إجمالي المستحق" value={money(T('gross'))} sub={'منها إضافي ' + money(T('ot')) + ' (' + T('otHours') + ' ساعة)'} icon={Wallet} color="#5B93C4" />
+        <Kpi label="الاستقطاعات" value={money(T(r => r.draws + r.cuts + r.gEmp))} sub={'سلف ' + money(T('draws')) + ' · خصومات ' + money(T('cuts'))} icon={TrendingDown} color="#D9544D" />
+        <Kpi label="صافي المسير" value={money(T('net'))} sub="المطلوب صرفه" icon={Landmark} color="#4FB286" />
+      </div>
+      <div className="card">
+        <div className="card-h">
+          <div className="card-t"><FileText size={15} color="var(--brass)" />مسير رواتب شهر {monthName}</div>
+          <div className="row" style={{ gap: 6 }}>
+            <button className="btn sm" onClick={print}><Printer size={13} />طباعة</button>
+            <button className="btn sm" onClick={xl}><Download size={13} />Excel</button>
+          </div>
+        </div>
+        {rows.length === 0 ? <div className="empty">لا رواتب للفروع والشهر المحددين.</div> : (
+          <div className="tw"><table className="tb is-tb mus-tb">
+            <thead><tr><th>الموظف</th>{cols.map(c => <th key={c[0]} style={{ textAlign: 'end' }}>{c[0]}</th>)}</tr></thead>
+            <tbody>
+              {groups.map(g => (<React.Fragment key={g.b.id}>
+                <tr className="is-head"><td colSpan={cols.length + 1}>{g.b.name} <span style={{ fontWeight: 500, color: 'var(--faint)' }}>· {g.rows.length} موظف</span></td></tr>
+                {g.rows.map(r => (
+                  <tr key={r.e.id} className="is-line">
+                    <td><b>{r.e.name}</b>{r.e.jobTitle && <div style={{ fontSize: 11, color: 'var(--faint)' }}>{r.e.jobTitle}</div>}</td>
+                    {cols.map(c => { const v = c[1](r); return <td key={c[0]} className="is-amt"><span className="num" style={c[2] ? { fontWeight: 700 } : undefined}>{v ? money(v) : '—'}</span>{c[0] === 'الإضافي' && r.otHours > 0 && <div style={{ fontSize: 10.5, color: 'var(--faint)' }}>{r.otHours} ساعة</div>}</td>; })}
+                  </tr>))}
+                <tr className="is-sub"><td>مجموع {g.b.name}</td>{cols.map(c => <td key={c[0]} className="is-amt"><span className="num">{money(Math.round(sum(g.rows, c[1]) * 100) / 100)}</span></td>)}</tr>
+              </React.Fragment>))}
+              <tr className="is-net"><td>الإجمالي العام</td>{cols.map(c => <td key={c[0]} className="is-amt"><span className="num">{money(T(c[1]))}</span></td>)}</tr>
+            </tbody>
+          </table></div>)}
+        <div className="note" style={{ marginTop: 10 }}>المسير من نفس حساب «الرواتب والسلف» — الإجمالي = الأساسي + البدلات + الإضافي المعتمد + المكافآت · الصافي = الإجمالي − السلف − الخصومات{gosiOn ? ' − التأمينات' : ''}. ترحيل الاستحقاق والصرف من «الرواتب والسلف».</div>
+      </div>
+    </div>
+  );
+}
+
 function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
   const [month, setMonth] = useState(today().slice(0, 7));
   const [add, setAdd] = useState(false);
@@ -10924,19 +11197,7 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
   const gosiEmpRate = Number(gosi.empRate != null ? gosi.empRate : 9.75) || 0;
   const gosiErRate = Number(gosi.erRate != null ? gosi.erRate : 11.75) || 0;
   const r2 = (n) => Math.round(n * 100) / 100;
-  const rows = emps.map(e => {
-    const ads = scoped.advances.filter(a => a.employeeId === e.id && a.month === month);
-    const draws = sum(ads.filter(a => ['advance', 'salary_draw'].includes(a.type)), a => a.amount);
-    const bonus = r2(sum(ads.filter(a => a.type === 'bonus'), a => a.amount));   // م٨ (v25.0): مكافآت معتمدة تُضاف للإجمالي
-    const cuts = sum(ads.filter(a => !['advance', 'salary_draw', 'bonus'].includes(a.type)), a => a.amount);   // الجزاءات المعتمدة (discipline_penalty) خصم كسائر الخصومات
-    const allow = (e.housingAllowance || 0) + (e.transportAllowance || 0) + (e.otherAllowance || 0);
-    const gross = r2((e.baseSalary || 0) + allow + bonus);
-    const gr = gosiRatesFor(e, org.gosiCfg);
-    const gosiBase = gr.base;
-    const gEmp = (gosiOn && e.gosiSubject) ? r2(gosiBase * gr.emp / 100) : 0;
-    const gEr = (gosiOn && e.gosiSubject) ? r2(gosiBase * gr.er / 100) : 0;
-    return { e, ads, draws, bonus, cuts, allow, gross, gEmp, gEr, net: r2(gross - draws - cuts - gEmp), flags: ads.filter(a => a.isUnjustified).length };
-  });
+  const rows = payrollRowsOf(org, scoped.advances, emps, month);   // v36.9: حساب موحّد مع مسير الرواتب (يشمل الإضافي المعتمد)
 
   const totalNet = sum(rows, r => r.net);
   const totalGross = sum(rows, r => r.gross);
@@ -11055,7 +11316,7 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
     const monthName = new Date(month + '-01').toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' });
     const adRows = r.ads.map(a => `<tr>
       <td>${arDate(a.date)}</td>
-      <td>${['advance', 'salary_draw'].includes(a.type) ? 'سلفة/سحب' : 'خصم/جزاء'}</td>
+      <td>${['advance', 'salary_draw'].includes(a.type) ? 'سلفة/سحب' : a.type === 'overtime' ? 'عمل إضافي' : a.type === 'bonus' ? 'مكافأة' : 'خصم/جزاء'}</td>
       <td class="n">${m(a.amount)}</td>
       <td>${a.reason || '—'}</td></tr>`).join('') || '<tr><td colspan="4" class="ce">لا سلف أو خصومات هذا الشهر</td></tr>';
     const w = openDocWin('width=850,height=1000');
@@ -11350,8 +11611,8 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
                 <tr key={a.id}>
                   <td className="dt" style={{ whiteSpace: 'nowrap' }}>{arDate(a.date)}</td>
                   <td style={{ fontSize: 12 }}>{a.employeeName}</td>
-                  <td><span className={'badge ' + (['advance', 'salary_draw'].includes(a.type) ? 'b-amber' : a.type === 'bonus' ? 'b-mint' : 'b-rose')}>
-                    {{ advance: 'سلفة', salary_draw: 'مسحوبة', discount: 'خصم', absence_penalty: 'غياب', lateness_penalty: 'تأخير', bonus: 'مكافأة معتمدة', discipline_penalty: 'جزاء معتمد', unpaid_leave: 'إجازة بدون راتب', sick_leave_cut: 'خصم إجازة مرضية', other: 'أخرى' }[a.type] || a.type}
+                  <td><span className={'badge ' + (['advance', 'salary_draw'].includes(a.type) ? 'b-amber' : PAY_ADD_TYPES.includes(a.type) ? 'b-mint' : 'b-rose')}>
+                    {{ overtime: 'عمل إضافي', advance: 'سلفة', salary_draw: 'مسحوبة', discount: 'خصم', absence_penalty: 'غياب', lateness_penalty: 'تأخير', bonus: 'مكافأة معتمدة', discipline_penalty: 'جزاء معتمد', unpaid_leave: 'إجازة بدون راتب', sick_leave_cut: 'خصم إجازة مرضية', other: 'أخرى' }[a.type] || a.type}
                   </span></td>
                   <td className="num">{money(a.amount)}</td>
                   <td style={{ fontSize: 11.5, color: 'var(--dim)' }}>{a.reason}</td>
@@ -12011,7 +12272,7 @@ const HR_WEEK_DAYS = [
 ];
 const defaultHrPolicies = () => ({
   workHoursPerDay: 8, weeklyOffDays: [5], lateToleranceMinutes: 15,
-  overtimeEnabled: false, overtimeMaxHoursPerMonth: 30,
+  overtimeEnabled: false, overtimeMaxHoursPerMonth: 30, overtimeBasis: 'basic',   // v36.9: أساس أجر ساعة الإضافي — الأساسي (اعتماد المالك)
   scoreWeightsEnabled: false, scoreWeights: { attendance: 25, quality: 25, tasks: 25, discipline: 25 },
   disciplineBase: 50, disciplinePointValue: 5, // م٧: محور الانضباط = القاعدة + (صافي نقاط الشهر × قيمة النقطة)، محصور 0–100
   signReminderDays: 3, // م١٠ (v27.0): بعد كم يومًا من إصدار إقرار/إشعار غير موقَّع يظهر تنبيه في مركز التنبيهات
@@ -15917,7 +16178,7 @@ function buildPayslipSignDocs(rows, month, existing, branches, me) {
     return {
       id: uid('sg'), branchId: r.e.branchId || '', branchName: b.name || '', employeeId: r.e.id, employeeName: r.e.name,
       docType: 'payslip', month, refId: 'payout-' + month, title: 'إقرار استلام راتب شهر ' + month, amount: r.net,
-      lines: { base: r.e.baseSalary || 0, allow: r.allow || 0, bonus: r.bonus || 0, gross: r.gross, draws: r.draws || 0, cuts: r.cuts || 0, gEmp: r.gEmp || 0, net: r.net },
+      lines: { base: r.e.baseSalary || 0, allow: r.allow || 0, bonus: r.bonus || 0, ot: r.ot || 0, otHours: r.otHours || 0, gross: r.gross, draws: r.draws || 0, cuts: r.cuts || 0, gEmp: r.gEmp || 0, net: r.net },
       reason: '', issuedAt: nowISO(), issuedBy: me ? me.id : '', issuedByName: me ? me.name : '', status: 'pending',
       signedAt: '', signedVia: '', signedOnBy: '', signedOnByName: '', pinVerified: false, witnessName: '', sig: null, sigHash: ''
     };
@@ -15962,6 +16223,7 @@ function signDocHtml(doc, showAmounts) {
     body = showAmounts ? `<table><tbody>
       <tr><td>الراتب الأساسي</td><td class="n">${m(L.base)}</td></tr>
       <tr><td>البدلات</td><td class="n">${m(L.allow)}</td></tr>
+      ${L.ot ? `<tr><td>عمل إضافي${L.otHours ? ' (' + L.otHours + ' ساعة)' : ''}</td><td class="n">${m(L.ot)}</td></tr>` : ''}
       ${L.bonus ? `<tr><td>مكافآت معتمدة</td><td class="n">${m(L.bonus)}</td></tr>` : ''}
       <tr><td>إجمالي الاستحقاق</td><td class="n">${m(L.gross)}</td></tr>
       <tr><td>السلف والسحوبات</td><td class="n neg">- ${m(L.draws)}</td></tr>
@@ -16127,6 +16389,7 @@ function SignDocsModal({ org, ops, me, emp, docs, onClose, commit, say, via }) {
             {doc.docType === 'payslip' && (
               <div className="grid g2" style={{ gap: 4, marginTop: 8, fontSize: 12 }}>
                 <div>الأساسي: <b className="num">{money(L.base)}</b></div><div>البدلات: <b className="num">{money(L.allow)}</b></div>
+                {L.ot > 0 && <div>عمل إضافي: <b className="num">{money(L.ot)}</b></div>}
                 {L.bonus > 0 && <div>مكافآت: <b className="num">{money(L.bonus)}</b></div>}
                 <div>الإجمالي: <b className="num">{money(L.gross)}</b></div>
                 <div>سلف/سحوبات: <b className="num" style={{ color: 'var(--amber)' }}>{money(L.draws)}</b></div>
