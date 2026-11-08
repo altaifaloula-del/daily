@@ -169,7 +169,7 @@ function buildNotifEvents(org, ops, me, myBranches) {
   if (roleHasTab(me, 'approve')) (ops.closings || []).forEach(c => { if (c.status === 'submitted' && inScope(c.branchId)) push('cl:sub:' + c.id, 'closing', 'إغلاق بانتظار التدقيق — ' + (c.branchName || ''), (c.date || '') + ' · إيراد ' + money(c.totalRevenue || 0) + (c.variance ? ' · فرق ' + money(c.variance) : ''), 'approve'); });
   if (roleHasTab(me, 'closing') && !central) (ops.closings || []).forEach(c => { if (c.status === 'rejected' && inScope(c.branchId)) push('cl:rej:' + c.id + ':' + (c.updatedAt || ''), 'closing', 'أُعيد إغلاق للتصحيح — ' + (c.branchName || ''), (c.date || '') + (c.rejectionReason ? ' · ' + c.rejectionReason : ''), 'closing'); });
   if (central || roleHasTab(me, 'closing')) {
-    try { computeSmartAlerts(org, ops, myBranches || []).forEach(a => { if (/^late-|deficit|def-/.test(String(a.id))) push('cl:sa:' + a.id + ':' + bd, 'closing', a.title, a.msg || '', 'closing'); }); } catch { }
+    try { computeSmartAlerts(org, ops, myBranches || []).forEach(a => { if (/^late-|deficit|def-|defp-/.test(String(a.id))) push('cl:sa:' + a.id + ':' + bd, 'closing', a.title, a.msg || '', 'closing'); }); } catch { }
   }
   // —— v30.5: أوامر شراء بانتظار الاعتماد + دفعات قريبة الانتهاء ——
   if ((R.approver || R.admin) && central) (ops.purchaseOrders || []).forEach(po => { if (po.status === 'pending') push('fin:po:' + po.id, 'fin', 'أمر شراء بانتظار اعتمادك — ' + (po.supplierName || ''), (po.poNo || '') + ' · ' + money((po.lines || []).reduce((s2, l) => s2 + (Number(l.qty) || 0) * (Number(l.price) || 0), 0)) + ' ر.س', 'purchasing'); });
@@ -3611,7 +3611,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark"><MizanMark size={24} /></span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v36.5</span>
+            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v36.6</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -4756,7 +4756,15 @@ function Kpi({ label, value, sub, icon: Icon, color }) {
 }
 
 /* ============ الخطوة 2: محرّك التنبيهات الذكية الاستباقية ============ */
-function computeSmartAlerts(org, ops, myBranches, deficitThreshold = 50) {
+/* v36.6 — إعداد تنبيه العجز (حد واحد لكل المنصة): عجز أكبر من الحد = تنبيه فوري، وتكرار العجز (أي مبلغ) في نافذة أيام = نمط يستحق المراجعة */
+const deficitCfg = (org) => { const c = (org && org.alertCfg) || {}; return { max: Number.isFinite(Number(c.deficitMax)) ? Number(c.deficitMax) : 50, repeat: Number(c.deficitRepeat) > 0 ? Number(c.deficitRepeat) : 3, days: Number(c.deficitDays) > 0 ? Number(c.deficitDays) : 7 }; };
+const deficitPatterns = (org, closings, branchIds, refDay) => {
+  const cf = deficitCfg(org); const d0 = new Date((refDay || today()) + 'T00:00:00'); d0.setDate(d0.getDate() - (cf.days - 1)); const from = isoD(d0);
+  const by = {}; (closings || []).filter(c => countedClosing(c) && (Number(c.variance) || 0) < -0.004 && c.date >= from && c.date <= (refDay || today()) && (!branchIds || branchIds.includes(c.branchId)))
+    .forEach(c => { const x = by[c.branchId] = by[c.branchId] || { branchId: c.branchId, branchName: c.branchName || '', n: 0, total: 0 }; x.n++; x.total = Math.round((x.total + (Number(c.variance) || 0)) * 100) / 100; });
+  return Object.values(by).filter(x => x.n >= cf.repeat);
+};
+function computeSmartAlerts(org, ops, myBranches, deficitThreshold = deficitCfg(org).max) {
   const alerts = [];
   const ids = myBranches.map(b => b.id);
   const td = today();
@@ -4783,7 +4791,10 @@ function computeSmartAlerts(org, ops, myBranches, deficitThreshold = 50) {
   // 2) عجز صندوق يتجاوز الحد اليوم
   (ops.closings || []).filter(c => countedClosing(c) && c.date === businessDay() && ids.includes(c.branchId) && c.variance < -deficitThreshold)
     .forEach(c => alerts.push({ id: 'def-' + c.id, sev: 'high', icon: 'down',
-      title: 'عجز صندوق تجاوز الحد', msg: `${c.branchName}: عجز ${money(c.variance)} ر.س في إغلاق اليوم.` }));
+      title: 'عجز صندوق تجاوز الحد', msg: `${c.branchName}: عجز ${money(Math.abs(c.variance))} ر.س في إغلاق اليوم (الحد ${money(deficitThreshold)}).` }));
+  // 2ب) عجز متكرر — أي مبلغ — يتكرر في الفرع خلال النافذة (مؤشر رقابي أقوى من عجز واحد كبير)
+  deficitPatterns(org, ops.closings, ids, businessDay()).forEach(x => alerts.push({ id: 'defp-' + x.branchId, sev: 'high', icon: 'down',
+    title: 'عجز متكرر في فرع', msg: `${x.branchName}: ${x.n} حالات عجز خلال ${deficitCfg(org).days} أيام بإجمالي ${money(Math.abs(x.total))} ر.س — راجع الكاشير والإجراءات.` }));
 
   // 3) فواتير موردين تستحق اليوم أو غداً أو متأخرة
   const tomorrow = isoD(new Date(Date.now() + 864e5));
@@ -7506,7 +7517,10 @@ function ExecDashboard({ org, ops, me, myBranches, scoped, setTab, openAcctView,
 }
 
 // ===== v10.9: مركز التنبيهات الذكية — قائمة إجراءات حيّة عبر كل الوحدات، بأولويات وفئات وتصفية =====
-function AlertsCenter({ org, ops, me, myBranches, scoped, setTab, openAcctView, openInvView }) {
+function AlertsCenter({ org, ops, me, myBranches, scoped, setTab, openAcctView, openInvView, commitOrg, say }) {
+  const dcf = deficitCfg(org);
+  const canCfg = !!(ROLES[me?.role]?.admin || ROLES[me?.role]?.approver);
+  const [dEdit, setDEdit] = useState(null);
   const A = useMemo(() => buildAccounting(org, ops), [org, ops]);
   const sups = useMemo(() => buildPartners(org, ops).filter(p => p.type === 'supplier'), [org, ops]);
   const [catF, setCatF] = useState('all');
@@ -7576,7 +7590,10 @@ function AlertsCenter({ org, ops, me, myBranches, scoped, setTab, openAcctView, 
   const pendingApp = (ops.closings || []).filter(c => c.status === 'submitted').length;
   if (pendingApp > 0) push('mid', 'ops', pendingApp + ' إغلاق بانتظار الاعتماد', 'راجعها واعتمدها لتُرحَّل نهائيًا.', { label: 'الاعتماد', go: () => setTab('approve') });
   const defs = (ops.closings || []).filter(c => countedClosing(c) && (c.variance || 0) < 0 && dd(c.date, td) >= 0 && dd(c.date, td) <= 7);
-  if (defs.length) push('high', 'ops', defs.length + ' عجز صندوق خلال أسبوع', 'إجمالي ' + money(r2(sum(defs, c => c.variance))) + ' — راقب الفروع.', { label: 'المقارنة', go: () => setTab('compare') });
+  const defsBig = defs.filter(c => (c.variance || 0) < -dcf.max);
+  if (defsBig.length) push('high', 'ops', defsBig.length + ' عجز تجاوز الحد (' + money(dcf.max) + ') خلال أسبوع', defsBig.slice(0, 4).map(c => (c.branchName || '') + ' ' + money(Math.abs(c.variance))).join('، ') + (defsBig.length > 4 ? '…' : ''), { label: 'الاعتماد', go: () => setTab('approve') });
+  deficitPatterns(org, ops.closings, (myBranches || []).map(b => b.id), td).forEach(x => push('high', 'ops', 'عجز متكرر — ' + x.branchName, x.n + ' حالات خلال ' + dcf.days + ' أيام بإجمالي ' + money(Math.abs(x.total)) + ' — راجع الكاشير والإجراءات.', { label: 'الاعتماد', go: () => setTab('approve') }));
+  if (defs.length && !defsBig.length) push('low', 'ops', defs.length + ' عجز صندوق خلال أسبوع', 'إجمالي ' + money(r2(sum(defs, c => c.variance))) + ' — راقب الفروع.', { label: 'المقارنة', go: () => setTab('compare') });
   const unjust = (ops.advances || []).filter(a => a.isUnjustified).length;
   if (unjust > 0) push('mid', 'ops', unjust + ' سلفة غير مبررة', 'راجعها في شاشة الرواتب والسلف.', { label: 'الرواتب', go: () => setTab('payroll') });
 
@@ -7661,6 +7678,32 @@ function AlertsCenter({ org, ops, me, myBranches, scoped, setTab, openAcctView, 
     <div className="grid" style={{ gap: 14 }}>
       <div className="abar">
         <div className="abar-id"><span className="abar-ic"><Bell size={17} /></span>مركز التنبيهات<small>قائمة إجراءات حيّة — تختفي تلقائيًا عند حلّها · {td}</small></div>
+      </div>
+
+      <div className="card dcfg">
+        <div className="card-h">
+          <div className="card-t"><AlertTriangle size={15} color="var(--rose)" />تنبيه عجز الصناديق</div>
+          {canCfg && !dEdit && <button className="btn sm gh" onClick={() => setDEdit({ max: String(dcf.max), repeat: String(dcf.repeat), days: String(dcf.days) })}><Settings size={13} />تعديل</button>}
+        </div>
+        {!dEdit ? (
+          <div className="dcfg-r">
+            <span>تنبيه فوري عند عجز أكبر من <b className="num">{money(dcf.max)}</b> ر.س</span>
+            <span>وتنبيه «عجز متكرر» عند <b className="num">{dcf.repeat}</b> حالات عجز أو أكثر — بأي مبلغ — في الفرع خلال <b className="num">{dcf.days}</b> أيام</span>
+          </div>
+        ) : (
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <Field label="حد العجز (ر.س)" style={{ width: 140 }}><input className="inp n" inputMode="decimal" value={dEdit.max} onChange={e => setDEdit(v => ({ ...v, max: e.target.value }))} /></Field>
+            <Field label="عدد حالات التكرار" style={{ width: 140 }}><input className="inp n" inputMode="numeric" value={dEdit.repeat} onChange={e => setDEdit(v => ({ ...v, repeat: e.target.value }))} /></Field>
+            <Field label="خلال (أيام)" style={{ width: 120 }}><input className="inp n" inputMode="numeric" value={dEdit.days} onChange={e => setDEdit(v => ({ ...v, days: e.target.value }))} /></Field>
+            <button className="btn pri" onClick={async () => {
+              const mx = Number(String(dEdit.max).replace(/[^\d.]/g, '')), rp = parseInt(dEdit.repeat, 10), dy = parseInt(dEdit.days, 10);
+              if (!(mx >= 0) || !(rp >= 2 && rp <= 20) || !(dy >= 2 && dy <= 60)) return say && say('الحد ≥ 0، التكرار بين 2 و20، والأيام بين 2 و60', 'no');
+              await commitOrg(d => ({ ...d, alertCfg: { ...(d.alertCfg || {}), deficitMax: mx, deficitRepeat: rp, deficitDays: dy } }), { actionType: 'update', targetType: 'alert_settings', targetId: 'deficit', need: 'edit', title: 'عدّل إعداد تنبيه العجز', details: 'الحد ' + mx + ' · التكرار ' + rp + ' خلال ' + dy + ' أيام' });
+              setDEdit(null); say && say('حُفظ إعداد تنبيه العجز ✓');
+            }}><Check size={14} />حفظ</button>
+            <button className="btn gh" onClick={() => setDEdit(null)}>إلغاء</button>
+          </div>
+        )}
       </div>
 
       <div className="grid g4">
@@ -9244,18 +9287,27 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
         }, ...transfers];
       }
       let notifications = d.notifications || [];
+      const dcf = deficitCfg(org);
       if (status === 'submitted') {
         notifications = [{
           id: uid('n'), type: 'closing_submitted', title: 'إغلاق جديد بانتظار التدقيق',
           message: `${rec.branchName} — ${arDate(f.date)} · إيراد ${money(totalRevenue)} ر.س`,
-          severity: variance < 0 ? 'high' : 'medium', branchId: f.branchId, closingId: id,
+          severity: variance < -dcf.max ? 'high' : 'medium', branchId: f.branchId, closingId: id,
           date: f.date, createdAt: nowISO(), isRead: false
         }, ...notifications].slice(0, 60);
-        if (variance < 0) notifications = [{
-          id: uid('n'), type: 'cash_deficit', title: 'عجز نقدي في الصندوق',
-          message: `${rec.branchName}: عجز بمقدار ${money(Math.abs(variance))} ر.س بتاريخ ${arDate(f.date)}`,
-          severity: 'high', branchId: f.branchId, date: f.date, createdAt: nowISO(), isRead: false
+        // v36.6: تنبيه العجز الفوري فقط فوق الحد المعتمد (كان يُطلق لأي عجز ولو هللات فيضيع المهم بين الكثير)
+        if (variance < -dcf.max) notifications = [{
+          id: uid('n'), type: 'cash_deficit', title: 'عجز صندوق تجاوز الحد',
+          message: `${rec.branchName}: عجز ${money(Math.abs(variance))} ر.س بتاريخ ${arDate(f.date)} (الحد ${money(dcf.max)})${f.varianceReason ? ' — السبب: ' + String(f.varianceReason).slice(0, 80) : ''}`,
+          severity: 'high', branchId: f.branchId, closingId: id, date: f.date, createdAt: nowISO(), isRead: false
         }, ...notifications].slice(0, 60);
+        // نمط: تكرار العجز في الفرع نفسه خلال النافذة (يشمل هذا الإغلاق) — تنبيه واحد لكل فرع ويوم
+        if (variance < -0.004) { const pt = deficitPatterns(org, closings, [f.branchId], f.date)[0];
+          if (pt && !notifications.some(n => n.type === 'deficit_pattern' && n.branchId === f.branchId && n.date === f.date)) notifications = [{
+            id: uid('n'), type: 'deficit_pattern', title: 'عجز متكرر في فرع',
+            message: `${rec.branchName}: ${pt.n} حالات عجز خلال ${dcf.days} أيام بإجمالي ${money(Math.abs(pt.total))} ر.س — راجع الكاشير والإجراءات`,
+            severity: 'high', branchId: f.branchId, date: f.date, createdAt: nowISO(), isRead: false
+          }, ...notifications].slice(0, 60); }
       }
       // v16.9: الإدارة أعادت إغلاقاً مرحّلاً/معتمداً إلى مسودة — إشعار حتى يراجعه الكاشير ويرحّله
       if (status === 'draft' && demoteMode) {
@@ -19731,6 +19783,8 @@ function morningData(org, ops, me, myBranches, scoped, day) {
   const revT = r2(sum(rows, r => r.rev)), prevT = r2(sum(rows, r => r.prev));
   const chg = prevT > 0.004 ? Math.round((revT - prevT) / prevT * 1000) / 10 : null;
   const varRows = rows.filter(r => r.st === 'closed' && Math.abs(r.var) >= 0.01);
+  const dcf = deficitCfg(org); const bigRows = rows.filter(r => r.st === 'closed' && r.var < -dcf.max);
+  const patterns = deficitPatterns(org, cls, [...ids], day);
   const notClosed = rows.filter(r => r.st !== 'closed');
   const pendL = cls.filter(c => c.status === 'submitted');
   const oldest = pendL.length ? pendL.map(c => c.date).sort()[0] : '';
@@ -19768,7 +19822,7 @@ function morningData(org, ops, me, myBranches, scoped, day) {
     food = { tgt, all, over: per.filter(x => x.cogs > 0.004 && x.pct > tgt), from };
     if ((org.taxCfg || {}).enabled) { let d = 0, c = 0; A.entries.forEach(e => e.lines.forEach(l => { if (l.code === '2302') { d += l.debit; c += l.credit; } })); vat2302 = r2(c - d); }
   }
-  return { day, wk, rows, revT, prevT, chg, varRows, notClosed, pendL, ageDays, approver: !!R.approver, pay, food, vat2302, brs };
+  return { day, wk, rows, revT, prevT, chg, varRows, bigRows, patterns, dcf, notClosed, pendL, ageDays, approver: !!R.approver, pay, food, vat2302, brs };
 }
 const mbStAr = { closed: 'مُغلق', pos: 'غير مُغلق — مبيعات نقطة البيع', draft: 'مسودة لم تُرحَّل', none: 'لا إغلاق ولا مبيعات' };
 function morningText(org, D) {
@@ -19777,7 +19831,8 @@ function morningText(org, D) {
   L.push('ليوم ' + arDate(D.day));
   L.push('');
   L.push('💰 المبيعات: ' + money(D.revT) + (D.chg != null ? ' (' + (D.chg >= 0 ? '▲ ' : '▼ ') + Math.abs(D.chg) + '% عن ' + arDate(D.wk) + ')' : ''));
-  D.rows.forEach(r => L.push('• ' + r.b.name + ': ' + (r.st === 'none' ? '—' : money(r.rev)) + (r.st !== 'closed' ? ' ⚠️ ' + mbStAr[r.st] : '') + (Math.abs(r.var) >= 0.01 ? ' · فرق ' + (r.var < 0 ? 'عجز ' : 'زيادة ') + money(Math.abs(r.var)) : '')));
+  D.rows.forEach(r => L.push('• ' + r.b.name + ': ' + (r.st === 'none' ? '—' : money(r.rev)) + (r.st !== 'closed' ? ' ⚠️ ' + mbStAr[r.st] : '') + (Math.abs(r.var) >= 0.01 ? ' · ' + (r.var < -D.dcf.max ? '🚨 ' : '') + 'فرق ' + (r.var < 0 ? 'عجز ' : 'زيادة ') + money(Math.abs(r.var)) : '')));
+  if (D.patterns.length) { L.push(''); D.patterns.forEach(x => L.push('🚨 عجز متكرر — ' + x.branchName + ': ' + x.n + ' حالات خلال ' + D.dcf.days + ' أيام بإجمالي ' + money(Math.abs(x.total)))); }
   if (D.approver && D.pendL.length) { L.push(''); L.push('⏳ بانتظار الاعتماد: ' + D.pendL.length + (D.ageDays > 1 ? ' (أقدمها منذ ' + D.ageDays + ' أيام)' : '')); }
   if (D.pay && (D.pay.over.length || D.pay.soon.length)) { L.push(''); L.push('🧾 الموردون: متأخر ' + money(D.pay.overT) + ' (' + D.pay.over.length + ') · مستحق خلال 7 أيام ' + money(D.pay.soonT) + ' (' + D.pay.soon.length + ')'); }
   if (D.food && D.food.all.pct != null) { L.push(''); L.push('🍽️ تكلفة الطعام للشهر: ' + D.food.all.pct + '% (الهدف ' + D.food.tgt + '%)' + (D.food.over.length ? ' · فوق الهدف: ' + D.food.over.map(x => x.b.name + ' ' + x.pct + '%').join('، ') : '')); }
@@ -19808,6 +19863,9 @@ function morningHtml(org, D) {
     <div class="sec-h">الفروع</div>
     <table class="t"><thead><tr><th>الفرع</th><th>الحالة</th><th class="num">المبيعات</th><th class="num">قبل أسبوع</th><th class="num">التغيّر</th><th class="num">فرق الصندوق</th></tr></thead><tbody>${rows}</tbody>
       <tfoot><tr class="tot"><td colspan="2">الإجمالي</td><td class="num">${money(D.revT)}</td><td class="num">${money(D.prevT)}</td><td class="num">${D.chg == null ? '—' : (D.chg >= 0 ? '▲ ' : '▼ ') + Math.abs(D.chg) + '%'}</td><td class="num">${Math.abs(varT) >= 0.01 ? (varT < 0 ? '(' + money(-varT) + ')' : money(varT)) : '—'}</td></tr></tfoot></table>
+    ${D.patterns.length || D.bigRows.length ? `<div class="sec-h" style="background:#fdeeed;color:#C0392B">تنبيهات العجز (الحد ${money(D.dcf.max)})</div>
+      ${D.bigRows.map(r => `<div class="note" style="background:#fdeeed;color:#C0392B">${r.b.name}: عجز ${money(Math.abs(r.var))} تجاوز الحد</div>`).join('')}
+      ${D.patterns.map(x => `<div class="note" style="background:#fdeeed;color:#C0392B">عجز متكرر — ${x.branchName}: ${x.n} حالات خلال ${D.dcf.days} أيام بإجمالي ${money(Math.abs(x.total))}</div>`).join('')}` : ''}
     ${payT}${foodT}
     ${D.vat2302 != null && D.vat2302 > 0.004 ? `<div class="note">ضريبة القيمة المضافة المستحقة غير المسددة (2302): ${money(D.vat2302)}</div>` : ''}
     <div class="foot dim" style="margin-top:14px;text-align:center;font-size:9.5px">تقرير آلي من منصة ميزان — الأرقام من الإغلاقات والقيود الفعلية</div>
@@ -19851,11 +19909,12 @@ function MorningBrief({ org, ops, me, myBranches, scoped, setTab, onClose }) {
             <div key={r.b.id} className="tdy-bri mb-bri">
               <span className="tdy-brn">{r.b.name}</span>
               <span className={'tdy-st ' + (r.st === 'closed' ? (r.pend ? 'draft' : 'closed') : r.st === 'pos' ? 'live' : 'draft')}>{r.st === 'closed' ? (r.pend ? 'بانتظار الاعتماد' : 'مُغلق') : r.st === 'pos' ? 'غير مُغلق' : r.st === 'draft' ? 'مسودة' : 'لا إغلاق'}</span>
-              {Math.abs(r.var) >= 0.01 && <span className={'mb-var num' + (r.var < 0 ? ' neg' : '')}>{r.var < 0 ? 'عجز ' : 'زيادة '}{money(Math.abs(r.var))}</span>}
+              {Math.abs(r.var) >= 0.01 && <span className={'mb-var num' + (r.var < 0 ? ' neg' : '') + (r.var < -D.dcf.max ? ' big' : '')}>{r.var < -D.dcf.max ? '🚨 ' : ''}{r.var < 0 ? 'عجز ' : 'زيادة '}{money(Math.abs(r.var))}</span>}
               <span className={'mb-chg num' + (p == null ? '' : p >= 0 ? ' pos' : ' neg')}>{p == null ? '' : (p >= 0 ? '▲' : '▼') + Math.abs(p) + '%'}</span>
               <span className="num tdy-brv">{r.st === 'none' ? '—' : money(r.rev)}</span>
             </div>); })}
         </div>
+        {D.patterns.map(x => <div key={x.branchId} className="vck-i bad"><span>✗</span>عجز متكرر — {x.branchName}: {x.n} حالات خلال {D.dcf.days} أيام بإجمالي {money(Math.abs(x.total))} — راجع الكاشير والإجراءات</div>)}
         {D.pay && (D.pay.over.length > 0 || D.pay.soon.length > 0) && (
           <div className="tdy-br">
             <div className="tdy-brh"><b>الموردون</b><small>متأخر <span className="num">{money(D.pay.overT)}</span> · خلال 7 أيام <span className="num">{money(D.pay.soonT)}</span></small></div>
@@ -19899,6 +19958,8 @@ function TodayPanel({ org, ops, me, myBranches, scoped, setTab }) {
   const varW = counted.filter(c => c.date >= w7);
   const varSum = sum(varW, c => c.variance);
   const shortBr = new Set(varW.filter(c => (Number(c.variance) || 0) < 0).map(c => c.branchId)).size;
+  const dcfT = deficitCfg(org); const bigDef = varW.filter(c => (Number(c.variance) || 0) < -dcfT.max).length;
+  const patT = deficitPatterns(org, cls, brs.map(b => b.id), td);
   const pendL = cls.filter(c => c.status === 'submitted');
   const pendShort = pendL.filter(c => (Number(c.variance) || 0) < 0);
   const tabs = R.tabs || [];
@@ -19917,6 +19978,14 @@ function TodayPanel({ org, ops, me, myBranches, scoped, setTab }) {
     <div className="tdy">
       <button type="button" className="tdy-mb" onClick={() => setMbOpen(true)}><ClipboardCheck size={18} /><span><b>التقرير الصباحي</b><small>ملخص أمس لكل الفروع — للطباعة والمشاركة</small></span><span aria-hidden="true">←</span></button>
       {mbOpen && <MorningBrief org={org} ops={ops} me={me} myBranches={myBranches} scoped={scoped} setTab={setTab} onClose={() => setMbOpen(false)} />}
+      {patT.length > 0 && (
+        <button type="button" className="tdy-act tdy-alarm" onClick={() => setTab(can('approve') ? 'approve' : 'closing')}>
+          <span className="tdy-act-n num">{patT.length}</span>
+          <span className="tdy-act-t"><b>عجز متكرر في {patT.length === 1 ? 'فرع' : brCnt(patT.length)}</b>
+            <small className="neg">{patT.map(x => x.branchName + ' (' + x.n + ' حالات · ' + money(Math.abs(x.total)) + ')').join('، ')}</small></span>
+          <span className="tdy-act-go" aria-hidden="true">←</span>
+        </button>
+      )}
       {approver && pendL.length > 0 && (
         <button type="button" className="tdy-act" onClick={() => setTab(can('approve') ? 'approve' : 'closing')}>
           <span className="tdy-act-n num">{pendL.length}</span>
@@ -19934,7 +20003,7 @@ function TodayPanel({ org, ops, me, myBranches, scoped, setTab }) {
         <div className="tdy-k"><span className="tdy-kl">إغلاقات اليوم</span><span className="tdy-kv num">{closedN}/{brs.length}</span>
           <span className={'tdy-ks' + (closedN === brs.length ? ' pos' : '')}>{closedN === brs.length ? 'كل الفروع أُغلقت' : brCnt(brs.length - closedN) + ' لم يُرحَّل'}</span></div>
         <div className="tdy-k"><span className="tdy-kl">فروقات الصناديق</span><span className={'tdy-kv num' + (varSum < 0 ? ' neg' : '')}>{moneyP(varSum)}</span>
-          <span className={'tdy-ks' + (shortBr ? ' neg' : '')}>آخر 7 أيام{shortBr ? ' · ' + brCnt(shortBr) + ' بعجز' : ''}</span></div>
+          <span className={'tdy-ks' + (shortBr ? ' neg' : '')}>آخر 7 أيام{shortBr ? ' · ' + brCnt(shortBr) + ' بعجز' : ''}{bigDef ? ' · ' + bigDef + ' فوق الحد' : ''}</span></div>
         <div className="tdy-k"><span className="tdy-kl">بانتظار الاعتماد</span><span className="tdy-kv num">{pendL.length}</span>
           <span className="tdy-ks">{pendL.length ? 'بقيمة ' + money(sum(pendL, c => c.totalRevenue)) : 'لا شيء معلّق'}</span></div>
       </div>
