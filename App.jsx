@@ -3621,7 +3621,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark"><MizanMark size={24} /></span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : HR_TABS.includes(safeTab) ? 'الموارد البشرية' : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v36.9</span>
+            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v37.0</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -10917,7 +10917,7 @@ function payrollRowsOf(org, advances, emps, month) {
 }
 
 // أجر ساعة العمل الإضافي — المادة 107 من نظام العمل: أجر الساعة + 50% من أجر الساعة الأساسي
-// أجر الساعة = الأجر الشهري ÷ 30 ÷ ساعات العمل اليومية. الأساس قابل للضبط: «الأساسي» (افتراضي — = 1.5 × ساعة أساسية) أو «الفعلي» (الأساسي + البدلات).
+// أجر الساعة = الأجر الشهري ÷ 30 ÷ ساعات العمل اليومية. الأساس: «الفعلي» (الأساسي + البدلات، افتراضي — نص المادة 107) أو «الأساسي» (= 1.5 × ساعة أساسية).
 function otRateOf(e, hoursPerDay, basis) {
   const r4 = (n) => Math.round((Number(n) || 0) * 10000) / 10000;
   const H = Number(hoursPerDay) > 0 ? Number(hoursPerDay) : 8;
@@ -10958,7 +10958,7 @@ function OvertimeSheet({ org, ops, me, myBranches, scoped, commit, commitOrg, sa
   const pol = { ...defaultHrPolicies(), ...(org.hrPolicies || {}) };
   const H = Number(pol.workHoursPerDay) > 0 ? Number(pol.workHoursPerDay) : 8;
   const cap = Number(pol.overtimeMaxHoursPerMonth) || 0;
-  const basis = pol.overtimeBasis === 'actual' ? 'actual' : 'basic';   // الافتراضي: الأجر الأساسي
+  const basis = pol.otBasis === 'basic' ? 'basic' : 'actual';   // الافتراضي: الأجر الفعلي (نص المادة 107)
   const canPost = rolePost(me.role) && ROLES[me.role]?.scope !== 'own';
   const brs = (myBranches || []).filter(b => b.isActive !== false);
   const emps = (org.employees || []).filter(e => brs.some(b => b.id === e.branchId) && (!bf || e.branchId === bf) && e.status !== 'terminated' && e.isActive !== false);
@@ -10980,7 +10980,7 @@ function OvertimeSheet({ org, ops, me, myBranches, scoped, commit, commitOrg, sa
   const dirty = rows.some(r => !r.isPosted ? r.hours > 0 : (Math.abs(r.hours - r.postedH) > 0.001 || Math.abs(r.amount - r.postedAmt) > 0.005));
   const brName = (id) => ((org.branches || []).find(b => b.id === id) || {}).name || '';
   const setBasis = async (v) => {
-    await commitOrg(d => ({ ...d, hrPolicies: { ...defaultHrPolicies(), ...(d.hrPolicies || {}), overtimeBasis: v } }), { actionType: 'update', targetType: 'hr_policy', targetId: 'overtimeBasis', need: 'edit', title: 'عدّل أساس احتساب الإضافي', details: v === 'basic' ? 'الأساسي فقط' : 'الأجر الفعلي' });
+    await commitOrg(d => ({ ...d, hrPolicies: { ...defaultHrPolicies(), ...(d.hrPolicies || {}), otBasis: v } }), { actionType: 'update', targetType: 'hr_policy', targetId: 'overtimeBasis', need: 'edit', title: 'عدّل أساس احتساب الإضافي', details: v === 'basic' ? 'الأساسي فقط' : 'الأجر الفعلي' });
   };
   const post = async () => {
     if (!canPost) return say('اعتماد الإضافي صلاحية الإدارة/المحاسبة', 'no');
@@ -11041,8 +11041,8 @@ function OvertimeSheet({ org, ops, me, myBranches, scoped, commit, commitOrg, sa
         </div>
         {canPost && <div className="row" style={{ gap: 6, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <span style={{ fontSize: 12.5, color: 'var(--dim)' }}>أساس أجر الساعة:</span>
-          <button className={'btn sm' + (basis === 'basic' ? ' pri' : ' gh')} onClick={() => basis !== 'basic' && setBasis('basic')}>الأجر الأساسي (= 1.5 × ساعة أساسية)</button>
-          <button className={'btn sm' + (basis === 'actual' ? ' pri' : ' gh')} onClick={() => basis !== 'actual' && setBasis('actual')}>الأجر الفعلي (الأساسي + البدلات)</button>
+          <button className={'btn sm' + (basis === 'actual' ? ' pri' : ' gh')} onClick={() => basis !== 'actual' && setBasis('actual')}>الأجر الفعلي (الأساسي + البدلات) — المادة 107</button>
+          <button className={'btn sm' + (basis === 'basic' ? ' pri' : ' gh')} onClick={() => basis !== 'basic' && setBasis('basic')}>الأساسي فقط (= 1.5 × ساعة أساسية)</button>
         </div>}
       </div>
       <div className="card">
@@ -12272,7 +12272,7 @@ const HR_WEEK_DAYS = [
 ];
 const defaultHrPolicies = () => ({
   workHoursPerDay: 8, weeklyOffDays: [5], lateToleranceMinutes: 15,
-  overtimeEnabled: false, overtimeMaxHoursPerMonth: 30, overtimeBasis: 'basic',   // v36.9: أساس أجر ساعة الإضافي — الأساسي (اعتماد المالك)
+  overtimeEnabled: false, overtimeMaxHoursPerMonth: 30, otBasis: 'actual',   // v37.0: المادة 107 — أجر الساعة الفعلي (الأساسي + البدلات) + 50% من أجر الساعة الأساسي (اعتماد المالك)
   scoreWeightsEnabled: false, scoreWeights: { attendance: 25, quality: 25, tasks: 25, discipline: 25 },
   disciplineBase: 50, disciplinePointValue: 5, // م٧: محور الانضباط = القاعدة + (صافي نقاط الشهر × قيمة النقطة)، محصور 0–100
   signReminderDays: 3, // م١٠ (v27.0): بعد كم يومًا من إصدار إقرار/إشعار غير موقَّع يظهر تنبيه في مركز التنبيهات
