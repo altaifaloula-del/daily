@@ -3523,7 +3523,7 @@ function PlatformApp() {
           <div className="brand">
             {org.company.logoUrl
               ? <img className="brand-logo" src={org.company.logoUrl} alt="شعار الشركة" />
-              : <div className="brand-mark">{(org.company.name || 'مذ').trim().charAt(0) || 'م'}</div>}
+              : <div className="brand-mark"><MizanMark size={26} anim /></div>}
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="brand-t">{org.company.name}</div>
               <div className="brand-s">CLOUD CLOSING SUITE</div>
@@ -3574,9 +3574,9 @@ function PlatformApp() {
             )}
             {org.company.logoUrl
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
-              : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
+              : <span className="toplogo-mark"><MizanMark size={24} /></span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v35.4 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v35.6 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -3868,8 +3868,8 @@ function BrandHead({ title, sub, logo }) {
     <div className="bhead" style={{ textAlign: 'center', marginBottom: 24 }}>
       {logo
         ? <img src={logo} alt="شعار" className="bhead-logo" style={{ width: 64, height: 64, margin: '0 auto 14px', borderRadius: 16, objectFit: 'cover', border: '1px solid var(--line)', display: 'block' }} />
-        : <div className="brand-mark bhead-logo" style={{ width: 54, height: 54, margin: '0 auto 14px', fontSize: 19, borderRadius: 16 }}>
-          {(title || 'المنصة').trim().charAt(0) || 'م'}
+        : <div className="brand-mark bhead-logo" style={{ width: 64, height: 64, margin: '0 auto 14px', borderRadius: 18 }}>
+          <MizanMark size={44} anim />
         </div>}
       <h1 style={{ fontSize: 20 }}>{title || 'ميزان — منصة إدارة المطاعم'}</h1>
       <div style={{ color: 'var(--dim)', fontSize: 12.5, marginTop: 5 }}>{sub}</div>
@@ -19588,6 +19588,55 @@ const CAT_CLR = {
   tax: 'var(--amber)', inv2: '#C87E4A', ast: '#C4756B', gov: '#7E93B5', bi: '#5FAE9E'
 };
 
+/* ===== v35.5 — أيقونات التطبيقات المتحركة (نموذج B + حالات C) =====
+   رموز SVG مرسومة يدويًا، كل رمز يؤدي حركة قصيرة من عالمه عند المرور/اللمس (.go)، ويتحرك باستمرار
+   فقط إذا كانت هناك حالة حقيقية تستحق الانتباه (.live). تُعطّل كليًا مع «تقليل الحركة». */
+/* ===== v35.6 — شعار ميزان «الفروع التسعة» =====
+   ثماني نقاط حول مركز ذهبي، متصلة به: إدارة مالية واحدة لكل الفروع. اللون يتبع currentColor، والمركز بلون --mz-c.
+   بحجم ≤ 24 تُحذف الخطوط ليبقى الرمز مقروءًا في الأحجام الصغيرة. anim: حركة افتتاحية (تظهر النقاط ثم تُرسم الخطوط). */
+const MZ_DOTS = [[16, 16], [32, 16], [48, 16], [16, 32], [48, 32], [16, 48], [32, 48], [48, 48]];
+function MizanMark({ size = 28, anim = false, className = '' }) {
+  const small = size <= 24;
+  return (
+    <svg className={'mzm' + (anim ? ' mz-in' : '') + (className ? ' ' + className : '')} width={size} height={size} viewBox="4 4 56 56" aria-hidden="true">
+      {!small && MZ_DOTS.map(([x, y], i) => <path key={'l' + i} className="mzm-l" pathLength="1" d={'M32 32L' + x + ' ' + y} style={{ '--d': i }} />)}
+      {MZ_DOTS.map(([x, y], i) => <circle key={'d' + i} className="mzm-d" cx={x} cy={y} r={small ? 4.6 : 3.8} style={{ '--d': i }} />)}
+      <circle className="mzm-c" cx="32" cy="32" r={small ? 7.5 : 7} />
+    </svg>
+  );
+}
+const APP_GLYPH = {
+  pos: '<g class="p-rcpt"><path d="M8.5 10V3.5h7V10"/><path d="M10.5 5.6h3M10.5 7.4h2"/></g><path class="bgf" d="M4 9.5h16l1 9.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M7 13.5h.01M10.5 13.5h.01M14 13.5h.01M7 16.8h10"/>',
+  closing: '<rect x="5.5" y="4" width="13" height="17" rx="2"/><path d="M9 4V2.8h6V4"/><path class="p-draw" pathLength="1" d="M8.8 13l2.3 2.3 4.4-4.6"/>',
+  approve: '<path d="M12 3l7 3v5c0 4.6-3 8.3-7 10-4-1.7-7-5.4-7-10V6z"/><path class="p-draw" pathLength="1" d="M8.8 12l2.3 2.3 4.4-4.6"/>',
+  sales: '<g class="p-flip"><circle cx="12" cy="12" r="8.5"/><path d="M14.6 9.4c-.5-.9-1.5-1.4-2.6-1.4-1.5 0-2.6.8-2.6 2s1.1 1.6 2.6 2 2.6.8 2.6 2-1.1 2-2.6 2c-1.1 0-2.1-.5-2.6-1.4M12 6.3v11.4"/></g>',
+  analytics: '<circle cx="12" cy="12" r="9"/><g class="p-swing"><path d="M15.6 8.4l-2.1 5.1-5.1 2.1 2.1-5.1z"/></g>',
+  alerts: '<g class="p-ring"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.6 2H4.4z"/><path d="M12 3v2"/></g><path class="p-clap" d="M10 20.5a2 2 0 0 0 4 0"/>',
+  reporting: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path class="p-bar" d="M9 18v-3"/><path class="p-bar b2" d="M12 18v-5.5"/><path class="p-bar b3" d="M15 18v-2"/>',
+  acct: '<path d="M12 4.5V20M8 20h8"/><g class="p-tilt"><path d="M4.5 7h15"/><path d="M4.5 7l-2.3 5.6a2.4 2.4 0 0 0 4.6 0z"/><path d="M19.5 7l-2.3 5.6a2.4 2.4 0 0 0 4.6 0z"/></g><circle cx="12" cy="4.5" r="1.2"/>',
+  vat: '<path d="M6 3h12v18l-2-1.3-2 1.3-2-1.3-2 1.3-2-1.3-2 1.3z"/><g class="p-pop"><circle cx="9.8" cy="9" r="1.1"/><circle cx="14.2" cy="14" r="1.1"/><path d="M14.6 8.4l-5.2 6.2"/></g>',
+  purchasing: '<path class="p-speed" d="M.5 9.5h2M0 12.5h2.5"/><g class="p-drive"><path d="M3.5 6h10.5v10H3.5z"/><path d="M14 9.5h4l3 3V16h-7"/><circle class="bgf" cx="7.5" cy="17.2" r="1.9"/><circle class="bgf" cx="17" cy="17.2" r="1.9"/></g>',
+  inv: '<path d="M4.5 9.5V19a1 1 0 0 0 1 1h13a1 1 0 0 0 1-1V9.5"/><path d="M9.5 13.5h5"/><g class="p-lid"><path d="M3 5.5h18v4H3z"/></g>',
+  whbranch: '<path d="M3 20V9l9-5 9 5v11"/><path d="M7 20v-7h10v7"/><g class="p-lid"><path d="M9.5 16h5"/></g>',
+  hrops: '<path d="M12 4a8 8 0 0 1 8 8M4 12a8 8 0 0 1 4-6.9M7.4 20A12 12 0 0 1 7 12a5 5 0 0 1 10 0c0 2 0 4-.5 6M12 12c0 3 .5 6 2 8M10 7.6A4.5 4.5 0 0 1 12 7"/><path class="p-scan" d="M3 12h18"/>',
+  hrperf: '<path d="M4 4v16h16"/><path class="p-draw" pathLength="1" d="M7.5 15.5l4-4 3 3 4.8-6"/><path class="p-pop" d="M15.5 8.5h3.8v3.8"/>',
+  qrfb: '<path d="M4 4h5v5H4zM15 4h5v5h-5zM4 15h5v5H4z"/><path d="M15 15h2v2h-2zM19.5 19.5h.5M18 15h2M15 19.5h1.5"/><path class="p-scan" d="M2.5 12h19"/>',
+  partners: '<circle cx="9" cy="8" r="3.2"/><path d="M3.5 19.5a5.5 5.5 0 0 1 11 0"/><g class="p-peek"><circle cx="17" cy="9" r="2.6"/><path d="M15.6 14.2a4.5 4.5 0 0 1 5.4 4.4"/></g>',
+  docs: '<g class="p-stamp"><path d="M9.5 3h5v4l-1.3 3h-2.4L9.5 7z"/><path d="M5 12.5h14v3H5z"/></g><path class="p-mark" d="M7 20h10" stroke-width="2.6"/>',
+  people: '<g class="p-card"><rect x="6.5" y="3.5" width="11" height="6" rx="1"/></g><path class="bgf" d="M3 7.5h16a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M16.5 13.8h.01"/>',
+  brmgmt: '<g class="p-spin"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="6.6"/><path d="M12 2.5v2.9M12 18.6v2.9M2.5 12h2.9M18.6 12h2.9M5.3 5.3l2 2M16.7 16.7l2 2M5.3 18.7l2-2M16.7 7.3l2-2"/></g>',
+  shifts: '<circle cx="12" cy="12" r="9"/><g class="p-spin"><path d="M12 7v5l3 2"/></g>',
+  audit: '<g class="p-blink"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></g>',
+  backup: '<path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/><g class="p-drop"><path d="M12 3.5v11M7.5 10l4.5 4.5 4.5-4.5"/></g>'
+};
+// v35.6: نمط «الرسم» — كل خط في الرمز يُعاد رسمه بالقلم عند المرور/اللمس (pathLength موحّد = 1)
+const agDraw = (g) => g.replace(/<(path|rect|circle)(?![^>]*pathLength)/g, '<$1 pathLength="1"');
+const glyphGo = (el) => { const b = el && el.querySelector && el.querySelector('.lh-box'); if (!b) return; b.classList.remove('go'); void b.offsetWidth; b.classList.add('go'); clearTimeout(b._gt); b._gt = setTimeout(() => b.classList.remove('go'), 2900); };
+function AppGlyph({ a, size = 36 }) {
+  const g = APP_GLYPH[a.id];
+  if (!g) return <a.icon size={size} />;
+  return <svg className="ag" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" dangerouslySetInnerHTML={{ __html: agDraw(g) }} />;
+}
 // واجهة البداية بنمط شبكة التطبيقات (Odoo-style) — الشاشة الرئيسية v9.1
 /* ===== v35.3 — لوحة «اليوم» أعلى الرئيسية =====
    أرقام حقيقية فقط من الإغلاقات المرحّلة/المعتمدة ونقطة البيع — بلا تقديرات.
@@ -19687,6 +19736,15 @@ function Launcher({ org, ops, me, myBranches, scoped, setTab, openAcctView, open
     appUseSet(me.id, v); setBump(b => b + 1);
   };
   const pend = (ops?.closings || []).filter(c => c.status === 'submitted').length;
+  // v35.5 — حالات حيّة حقيقية فقط: وردية نقطة بيع مفتوحة على هذا الجهاز، إغلاقات معلّقة للمعتمد، أوامر شراء معتمدة لم تُستلم
+  const myBrIds = new Set((myBranches || []).map(b => b.id));
+  const shiftsOpenN = (ops?.posShifts || []).filter(x => x.status === 'open' && myBrIds.has(x.branchId)).length;
+  const shiftOpen = shiftsOpenN > 0 || (() => { try { const v = JSON.parse(localStorage.getItem(POS_SH_KEY) || 'null'); return !!(v && v.id); } catch { return false; } })();
+  const poOpen = (ops?.purchaseOrders || []).filter(po => po.status === 'open' && !po.invoiceId).length;
+  const canApr = !!(ROLES[me.role] || {}).approver;
+  const liveOf = (id) => id === 'pos' ? (shiftOpen ? { dot: 1, t: shiftsOpenN > 1 ? shiftsOpenN + ' ورديات مفتوحة الآن' : 'وردية مفتوحة الآن' } : null)
+    : (id === 'closing' || id === 'approve') ? (canApr && pend > 0 ? { t: pend + ' بانتظار الاعتماد' } : null)
+      : id === 'purchasing' ? (poOpen > 0 ? { t: poOpen + ' أمر شراء بانتظار الاستلام' } : null) : null;
 
   /* ===== v15.16 — إعادة ترتيب التطبيقات بالسحب والإفلات =====
      الترتيب المخصّص يُحفَظ لكل مستخدم على جهازه (rms8:appuse — نفس مخزن المفضلة).
@@ -19826,13 +19884,15 @@ function Launcher({ org, ops, me, myBranches, scoped, setTab, openAcctView, open
   const Tile = (a, draggable) => (
     <div key={a.id} className={'lh-tile' + (dragId === a.id ? ' lh-drag-src' : '')}
       style={{ '--c': CAT_CLR[a.cat] || 'var(--brass)' }}
-      {...(draggable ? { 'data-appid': a.id, onPointerDown: tilePointerDown(a) } : {})}
+      {...(draggable ? { 'data-appid': a.id, onPointerDown: (e) => { glyphGo(e.currentTarget); tilePointerDown(a)(e); } } : { onPointerDown: (e) => glyphGo(e.currentTarget) })}
+      onPointerEnter={(e) => { if (e.pointerType === 'mouse') glyphGo(e.currentTarget); }}
       onClick={() => { if (suppressClick.current) return; appOpenNow(a, me, setTab, openAcctView, openInvView); }}
       title={(a.sections?.length ? a.sections.join(' · ') : a.ar) + (draggable ? ' — اسحبه لتغيير ترتيبه' : '')}>
       <button className={'lh-star' + (isFav(a.id) ? ' on' : '')} title={isFav(a.id) ? 'إزالة من المفضلة' : 'تثبيت في المفضلة'}
         onClick={(e) => toggleFav(a.id, e)}><Star size={12} fill={isFav(a.id) ? 'currentColor' : 'none'} /></button>
-      {a.id === 'approve' && pend > 0 && <span className="lh-bdg">{pend}</span>}
-      <div className="lh-box"><a.icon size={36} />{a.sections?.length > 1 && <span className="lh-cnt" title={a.sections.length + ' أقسام'}>{a.sections.length}</span>}</div>
+      {(a.id === 'approve' || (a.id === 'closing' && canApr)) && pend > 0 && <span className="lh-bdg">{pend}</span>}
+      {(() => { const lv = liveOf(a.id); return (
+      <div className={'lh-box' + (lv ? ' live' : '')} title={lv ? lv.t : undefined}><AppGlyph a={a} />{lv && lv.dot && <span className="lh-dot" />}{a.sections?.length > 1 && <span className="lh-cnt" title={a.sections.length + ' أقسام'}>{a.sections.length}</span>}</div>); })()}
       <div className="lh-nm">{a.ar}</div>
     </div>
   );
@@ -19853,7 +19913,7 @@ function Launcher({ org, ops, me, myBranches, scoped, setTab, openAcctView, open
     <div className="lh-bg" aria-hidden="true">
       {org.company?.logoUrl
         ? <img className="lh-wm" src={org.company.logoUrl} alt="" />
-        : <div className="lh-wm mark">{(org.company?.name || 'م').trim().charAt(0) || 'م'}</div>}
+        : <div className="lh-wm mark"><MizanMark size={420} /></div>}
     </div>
     <div className="lh">
       <p className="lh-hi">{greet} يا <b>{(me.name || '').split(' ')[0]}</b> · <span>{new Date().toLocaleDateString('ar-SA-u-ca-gregory-nu-latn', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span></p>
