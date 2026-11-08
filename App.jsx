@@ -2419,10 +2419,10 @@ const appUseSet = (uid, v) => { try { localStorage.setItem('rms8:appuse:' + uid,
    صافي المبيعات ← تكلفة المبيعات ← مجمل الربح ← مصروفات التشغيل (مجمّعة) ← الربح التشغيلي ← بنود أخرى ← صافي الربح.
    amt بإشارة الأثر على الربح: الإيراد موجب والمصروف سالب (يظهر بين قوسين). لا يغيّر أي قيد — عرض فقط، والمجموع = revP − expP. */
 const IS_COGS_RX = /مواد|مشتريات|بضاعة|خامات|طعام|لحوم|خضار|دواجن|أسماك|مخبوزات|ألبان/;
-const isLayout = (accounts, balFn) => {
+const isLayout = (accounts, balFn, keep) => {
   const r2 = (n) => Math.round(n * 100) / 100;
   const L = (a, sg) => ({ code: a.code, name: a.name, amt: r2(sg * balFn(a)) });
-  const nz = (l) => Math.abs(l.amt) > 0.004;
+  const nz = (l) => Math.abs(l.amt) > 0.004 || !!(keep && keep.has(l.code));
   const rev = accounts.filter(a => a.kind === 'rev'), exp = accounts.filter(a => a.kind === 'exp');
   const otherRev = (a) => /^42/.test(a.code);
   const otherExp = (a) => /^58/.test(a.code);
@@ -2438,22 +2438,54 @@ const isLayout = (accounts, balFn) => {
     .map(([k, t]) => ({ k, t, lines: opex.filter(l => l.g === k).sort((x, y) => x.amt - y.amt) })).filter(g => g.lines.length);
   return { sales, cogs, opexG: G, other, netSales, cogsT, gross, opexT, oper, otherT, net };
 };
+// v35.7 — المركز المالي بالتبويب المحاسبي: متداول/غير متداول للأصول والخصوم، ثم حقوق الملكية (عرض فقط — المجاميع = bsAssets و bsLiab+bsEquity+bsProfit)
+const bsLayout = (accounts, balFn, profit) => {
+  const r2 = (n) => Math.round(n * 100) / 100;
+  const L = (a) => ({ code: a.code, name: a.name, amt: r2(balFn(a)) });
+  const nz = (l) => Math.abs(l.amt) > 0.004;
+  const S = (ls) => r2(ls.reduce((t, l) => t + l.amt, 0));
+  const ncA = (a) => /^17/.test(a.code), ncL = (a) => a.code === '2203';
+  const ca = accounts.filter(a => a.kind === 'asset' && !ncA(a)).map(L).filter(nz);
+  const nca = accounts.filter(a => a.kind === 'asset' && ncA(a)).map(L).filter(nz);
+  const cl = accounts.filter(a => a.kind === 'liab' && !ncL(a)).map(L).filter(nz);
+  const ncl = accounts.filter(a => a.kind === 'liab' && ncL(a)).map(L).filter(nz);
+  const eq = [...accounts.filter(a => a.kind === 'equity').map(L).filter(nz), ...(Math.abs(profit) > 0.004 ? [{ code: 'P', name: 'أرباح الفترة غير المقفلة', amt: r2(profit) }] : [])];
+  const Y = { ca, nca, cl, ncl, eq, caT: S(ca), ncaT: S(nca), clT: S(cl), nclT: S(ncl), eqT: S(eq) };
+  Y.assets = r2(Y.caT + Y.ncaT); Y.liab = r2(Y.clT + Y.nclT); Y.le = r2(Y.liab + Y.eqT);
+  Y.wc = r2(Y.caT - Y.clT); Y.cr = Y.clT > 0.004 ? Math.round(Y.caT / Y.clT * 100) / 100 : null;
+  return Y;
+};
+const bsRowsOf = (Y, ok) => {
+  const out = [];
+  const grp = (t, ls, subL, subV) => { if (!ls.length) return; out.push({ t: 'grp', label: t }); ls.forEach(l => out.push({ t: 'line', label: l.name, amt: l.amt })); out.push({ t: 'sub', label: subL, amt: subV }); };
+  out.push({ t: 'head', label: 'الأصول' });
+  grp('الأصول المتداولة', Y.ca, 'إجمالي الأصول المتداولة', Y.caT);
+  grp('الأصول غير المتداولة', Y.nca, 'إجمالي الأصول غير المتداولة', Y.ncaT);
+  out.push({ t: 'total', label: 'إجمالي الأصول', amt: Y.assets });
+  out.push({ t: 'head', label: 'الخصوم وحقوق الملكية' });
+  grp('الخصوم المتداولة', Y.cl, 'إجمالي الخصوم المتداولة', Y.clT);
+  grp('الخصوم غير المتداولة', Y.ncl, 'إجمالي الخصوم غير المتداولة', Y.nclT);
+  out.push({ t: 'total', label: 'إجمالي الخصوم', amt: Y.liab });
+  grp('حقوق الملكية', Y.eq, 'إجمالي حقوق الملكية', Y.eqT);
+  out.push({ t: 'net', label: 'إجمالي الخصوم وحقوق الملكية' + (ok ? ' ✓' : ' — لا يطابق!'), amt: Y.le });
+  return out;
+};
 // صفوف موحّدة للعرض والطباعة والتصدير: t = head|line|sub|grp|total
 const isRowsOf = (Y) => {
   const out = [];
   out.push({ t: 'head', label: 'الإيرادات' });
-  Y.sales.forEach(l => out.push({ t: 'line', label: l.name, amt: l.amt }));
-  out.push({ t: 'sub', label: 'صافي المبيعات', amt: Y.netSales });
-  if (Y.cogs.length) { out.push({ t: 'head', label: 'تكلفة المبيعات' }); Y.cogs.forEach(l => out.push({ t: 'line', label: l.name, amt: l.amt })); out.push({ t: 'sub', label: 'إجمالي تكلفة المبيعات', amt: Y.cogsT }); }
-  out.push({ t: 'total', label: Y.gross >= 0 ? 'مجمل الربح' : 'مجمل الخسارة', amt: Y.gross });
+  Y.sales.forEach(l => out.push({ t: 'line', k: l.code, label: l.name, amt: l.amt }));
+  out.push({ t: 'sub', k: 'NS', label: 'صافي المبيعات', amt: Y.netSales });
+  if (Y.cogs.length) { out.push({ t: 'head', label: 'تكلفة المبيعات' }); Y.cogs.forEach(l => out.push({ t: 'line', k: l.code, label: l.name, amt: l.amt })); out.push({ t: 'sub', k: 'CG', label: 'إجمالي تكلفة المبيعات', amt: Y.cogsT }); }
+  out.push({ t: 'total', k: 'GP', label: Y.gross >= 0 ? 'مجمل الربح' : 'مجمل الخسارة', amt: Y.gross });
   if (Y.opexG.length) {
     out.push({ t: 'head', label: 'مصروفات التشغيل' });
-    Y.opexG.forEach(g => { out.push({ t: 'grp', label: g.t, amt: Math.round(g.lines.reduce((x, l) => x + l.amt, 0) * 100) / 100 }); g.lines.forEach(l => out.push({ t: 'line', label: l.name, amt: l.amt, ind: 2 })); });
-    out.push({ t: 'sub', label: 'إجمالي مصروفات التشغيل', amt: Y.opexT });
+    Y.opexG.forEach(g => { out.push({ t: 'grp', k: 'G' + g.k, label: g.t, amt: Math.round(g.lines.reduce((x, l) => x + l.amt, 0) * 100) / 100 }); g.lines.forEach(l => out.push({ t: 'line', k: l.code, label: l.name, amt: l.amt, ind: 2 })); });
+    out.push({ t: 'sub', k: 'OX', label: 'إجمالي مصروفات التشغيل', amt: Y.opexT });
   }
-  out.push({ t: 'total', label: Y.oper >= 0 ? 'الربح التشغيلي' : 'الخسارة التشغيلية', amt: Y.oper });
-  if (Y.other.length) { out.push({ t: 'head', label: 'إيرادات ومصروفات أخرى' }); Y.other.forEach(l => out.push({ t: 'line', label: l.name, amt: l.amt })); out.push({ t: 'sub', label: 'صافي البنود الأخرى', amt: Y.otherT }); }
-  out.push({ t: 'net', label: Y.net >= 0 ? 'صافي الربح' : 'صافي الخسارة', amt: Y.net });
+  out.push({ t: 'total', k: 'OP', label: Y.oper >= 0 ? 'الربح التشغيلي' : 'الخسارة التشغيلية', amt: Y.oper });
+  if (Y.other.length) { out.push({ t: 'head', label: 'إيرادات ومصروفات أخرى' }); Y.other.forEach(l => out.push({ t: 'line', k: l.code, label: l.name, amt: l.amt })); out.push({ t: 'sub', k: 'OT', label: 'صافي البنود الأخرى', amt: Y.otherT }); }
+  out.push({ t: 'net', k: 'NP', label: Y.net >= 0 ? 'صافي الربح' : 'صافي الخسارة', amt: Y.net });
   return out;
 };
 const appCanSee = (meOrRole, a) => {
@@ -3576,7 +3608,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark"><MizanMark size={24} /></span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v35.6 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v35.7 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -4935,7 +4967,7 @@ function DailyBranchReport({ org, scoped, myBranches, onClose }) {
     w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
       <title>تقرير الفروع اليومي - ${date}</title><style>${A4_CSS}</style></head><body><div class="page">
       <div class="head">
-        <div class="co">${co.logoUrl ? `<img class="logo" src="${co.logoUrl}">` : ''}
+        <div class="co">${co.logoUrl ? `<img class="logo" src="${co.logoUrl}">` :MZ_LOGO_HTML}
           <div><div class="co-n">${co.name || 'المنشأة'}</div>
           <div class="co-m">الرقم الضريبي: ${co.taxNumber || '—'} · السجل التجاري: ${co.commercialReg || '—'}</div></div></div>
         <div class="doc-title">تقرير الإغلاق اليومي المجمّع للفروع</div>
@@ -8055,6 +8087,7 @@ function posReceiptHtml(org, o, br) {
    نضع المستند في حاوية #mz-print بأنماط طباعة فقط، ونخفي بقية المنصة عند الطباعة، ثم window.print() — يعمل على كل المتصفحات. */
 function printHtmlInPage(html) {
   try {
+    html = mzBrandDoc(html);
     const doc = new DOMParser().parseFromString(String(html), 'text/html');
     let css = [...doc.querySelectorAll('style')].map(x => x.textContent).join('\n');
     const faces = (css.match(/@font-face\s*{[^}]*}/g) || []).join('\n'); css = css.replace(/@font-face\s*{[^}]*}/g, '');
@@ -10856,7 +10889,7 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
       </style></head><body>
       <div class="head">
         <div style="display:flex;gap:14px;align-items:center">
-          ${co.logoUrl ? `<img class="logo" src="${co.logoUrl}">` : ''}
+          ${co.logoUrl ? `<img class="logo" src="${co.logoUrl}">` :MZ_LOGO_HTML}
           <div><div class="co-n">${co.name || 'المنشأة'}</div>
           <div class="co-m">الرقم الضريبي: ${co.taxNumber || '—'} · س.تجاري: ${co.commercialReg || '—'}</div></div>
         </div>
@@ -16239,7 +16272,7 @@ function Reports({ org, ops, me, myBranches, scoped, say, theme }) {
     w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
       <title>تقرير أداء الفروع</title><style>${A4_CSS}</style></head><body><div class="page">
       <div class="head">
-        <div class="co">${co.logoUrl ? `<img class="logo" src="${co.logoUrl}">` : ''}
+        <div class="co">${co.logoUrl ? `<img class="logo" src="${co.logoUrl}">` :MZ_LOGO_HTML}
           <div><div class="co-n">${co.name || 'المنشأة'}</div>
           <div class="co-m">الرقم الضريبي: ${co.taxNumber || '—'}</div></div></div>
         <div class="doc-title">تقرير الأداء التشغيلي للفروع</div>
@@ -16993,7 +17026,7 @@ function buildClosingA4(c, org) {
   return `<div class="page">
     <div class="head">
       <div class="co">
-        ${headLogo ? `<img class="logo" src="${headLogo}">` : ''}
+        ${headLogo ? `<img class="logo" src="${headLogo}">` :MZ_LOGO_HTML}
         <div>
           <div class="co-n">${co.name || 'المنشأة'}</div>
           <div class="co-m">الرقم الضريبي: ${co.taxNumber || '—'} · السجل التجاري: ${co.commercialReg || '—'}</div>
@@ -17110,8 +17143,35 @@ function buildClosingA4(c, org) {
 const isStandaloneApp = () => { try { return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true; } catch { return false; } };
 const isIOSDev = () => { try { return /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent)); } catch { return false; } };
 const docInApp = () => { try { return isStandaloneApp() || isIOSDev() || /Android|Mobile/i.test(navigator.userAgent); } catch { return false; } };
+/* ===== v35.7 — شعار ميزان في المطبوعات =====
+   mzSvg: الشعار كنص SVG للمستندات المطبوعة (بلا اعتماد على CSS الصفحة).
+   mzBrandDoc: يضيف توقيع «منصة ميزان» بالشعار في تذييل كل مستند (أو سطرًا صغيرًا إن لم يوجد تذييل) — مرة واحدة فقط. */
+const mzSvg = (size, ink = '#1D1B18', gold = '#C9A24D', lines = true) => {
+  const D = [[16, 16], [32, 16], [48, 16], [16, 32], [48, 32], [16, 48], [32, 48], [48, 48]];
+  return '<svg xmlns="http://www.w3.org/2000/svg" width="' + size + '" height="' + size + '" viewBox="4 4 56 56" style="vertical-align:middle;flex-shrink:0">' +
+    (lines ? '<g stroke="' + ink + '" stroke-width="1.7" stroke-linecap="round" opacity=".45">' + D.map(([x, y]) => '<path d="M32 32L' + x + ' ' + y + '"/>').join('') + '</g>' : '') +
+    '<g fill="' + ink + '">' + D.map(([x, y]) => '<circle cx="' + x + '" cy="' + y + '" r="' + (lines ? 3.8 : 4.6) + '"/>').join('') + '</g><circle cx="32" cy="32" r="7" fill="' + gold + '"/></svg>';
+};
+const MZ_LOGO_HTML = '<span class="logo" style="display:inline-grid;place-items:center;background:#1F1C18;border-radius:8px">' + mzSvg(30, '#EFEAE1') + '</span>';
+const mzBrandDoc = (html) => {
+  html = String(html || '');
+  if (html.includes('data-mzb')) return html;
+  const sig = '<span data-mzb style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap">' + mzSvg(12, '#555', '#C9A24D', false) + 'منصة ميزان</span>';
+  const bi = html.search(/<body[^>]*>/i);
+  if (bi < 0) return html;
+  const head = html.slice(0, bi), body = html.slice(bi);
+  if (body.includes('منصة ميزان')) return head + body.replace(/منصة ميزان/g, sig);
+  const foot = '<div data-mzb style="text-align:center;font-size:9px;color:#888;margin-top:10px;display:flex;align-items:center;justify-content:center;gap:4px">' + mzSvg(11, '#888', '#C9A24D', false) + 'منصة ميزان</div>';
+  return /<\/body>/i.test(body) ? head + body.replace(/<\/body>/i, foot + '</body>') : head + body + foot;
+};
 function openDocWin(features) {
-  if (typeof document === 'undefined' || !docInApp()) return window.open('', '_blank', features);
+  if (typeof document === 'undefined' || !docInApp()) {
+    const rw = window.open('', '_blank', features); if (!rw) return null;
+    let b = '';
+    return { get closed() { return rw.closed; },
+      document: { open() { b = ''; }, write(x) { b += String(x); }, close() { rw.document.open(); rw.document.write(mzBrandDoc(b)); rw.document.close(); } },
+      focus() { rw.focus(); }, print() { rw.print(); }, close() { rw.close(); } };
+  }
   let buf = '', t = null, closed = false;
   const box = document.createElement('div');
   box.setAttribute('dir', 'rtl'); box.className = 'mz-docv';
@@ -17127,7 +17187,7 @@ function openDocWin(features) {
   box.appendChild(bar); box.appendChild(ifr); document.body.appendChild(box);
   const fit = () => { try { const d = ifr.contentDocument; if (!d) return; const de = d.documentElement; de.style.zoom = ''; const dw = de.scrollWidth, cw = ifr.clientWidth;
     if (dw > cw + 4) de.style.zoom = String(Math.max(0.35, cw / dw)); } catch { /* */ } };
-  const render = () => { t = null; ifr.srcdoc = buf; const m = /<title>([^<]*)<\/title>/i.exec(buf); ttl.textContent = m ? m[1] : ''; };
+  const render = () => { t = null; buf = mzBrandDoc(buf); ifr.srcdoc = buf; const m = /<title>([^<]*)<\/title>/i.exec(buf); ttl.textContent = m ? m[1] : ''; };
   ifr.addEventListener('load', fit);
   const close = () => { if (closed) return; closed = true; try { box.remove(); } catch { /* */ } window.removeEventListener('popstate', onPop); if (history.state && history.state.mzDoc) { try { history.back(); } catch { /* */ } } };
   const onPop = () => { if (!closed) { closed = true; try { box.remove(); } catch { /* */ } window.removeEventListener('popstate', onPop); } };
@@ -20678,13 +20738,29 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const revP = sum(A.accounts.filter(a => a.kind === 'rev'), a => balOf(a, isAgg));
   const expP = sum(A.accounts.filter(a => a.kind === 'exp'), a => balOf(a, isAgg));
   const netP = Math.round((revP - expP) * 100) / 100;
-  const isY = isLayout(A.accounts, (a) => balOf(a, isAgg));   // v35.4: نفس الأرقام بترتيب محاسبي (isY.net = netP)
+  // v35.7 — الفترة السابقة بنفس الطول مباشرةً قبل الفترة المحددة (تُحسب فقط إذا حُدِّد «من»)
+  const prevRange = (() => {
+    if (!from) return null;
+    const t = to || today(); const d0 = new Date(from + 'T00:00:00'), d1 = new Date(t + 'T00:00:00');
+    const days = Math.round((d1 - d0) / 86400000) + 1; if (!(days > 0)) return null;
+    const pt = new Date(d0); pt.setDate(pt.getDate() - 1); const pf = new Date(pt); pf.setDate(pf.getDate() - days + 1);
+    // شهر كامل ← الشهر السابق كاملًا (لا 30 يومًا)
+    const fullMonth = from.slice(8) === '01' && (() => { const e = new Date(d0.getFullYear(), d0.getMonth() + 1, 0); return isoD(e) === t; })();
+    if (fullMonth) { const ps = new Date(d0.getFullYear(), d0.getMonth() - 1, 1), pe = new Date(d0.getFullYear(), d0.getMonth(), 0); return { f: isoD(ps), t: isoD(pe) }; }
+    return { f: isoD(pf), t: isoD(pt) };
+  })();
+  const prevAgg = prevRange ? aggOf(A.entries.filter(e => inPeriod(e, prevRange.f, prevRange.t) && !e.closing && (!bf || byBranch(e)))) : null;
+  const isKeep = (() => { if (!prevAgg) return null; const k = new Set(); A.accounts.filter(a => a.kind === 'rev' || a.kind === 'exp').forEach(a => { if (Math.abs(balOf(a, isAgg)) > 0.004 || Math.abs(balOf(a, prevAgg)) > 0.004) k.add(a.code); }); return k; })();
+  const isY = isLayout(A.accounts, (a) => balOf(a, isAgg), isKeep);   // v35.4: نفس الأرقام بترتيب محاسبي (isY.net = netP)
+  const isP = prevAgg ? isLayout(A.accounts, (a) => balOf(a, prevAgg), isKeep) : null;
+  const isPmap = isP ? Object.fromEntries(isRowsOf(isP).filter(r => r.k).map(r => [r.k, r.amt])) : null;
   const bsAssets = sum(A.accounts.filter(a => a.kind === 'asset'), a => balOf(a, bsAgg));
   const bsLiab = sum(A.accounts.filter(a => a.kind === 'liab'), a => balOf(a, bsAgg));
   const bsEquity = sum(A.accounts.filter(a => a.kind === 'equity'), a => balOf(a, bsAgg));
   const bsProfit = Math.round((sum(A.accounts.filter(a => a.kind === 'rev'), a => balOf(a, bsAgg))
     - sum(A.accounts.filter(a => a.kind === 'exp'), a => balOf(a, bsAgg))) * 100) / 100;
   const bsOk = Math.abs(bsAssets - (bsLiab + bsEquity + bsProfit)) < 0.01;
+  const bsY = bsLayout(A.accounts, (a) => balOf(a, bsAgg), bsProfit);   // v35.7: bsY.assets = bsAssets و bsY.le = الخصوم+الملكية+الربح
 
   // ===== v10.4: قائمة التدفقات النقدية (الطريقة المباشرة على حسابات النقد) =====
   // النقد وما في حكمه = الحسابات المُعلَّمة cash:true (الخزائن + البنك). صافي أثر أي قيد على النقد = Σ(مدين−دائن) لأسطر النقد.
@@ -21375,8 +21451,6 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     const co = org.company || {};
     const period = (from || to) ? ('الفترة: ' + (from || 'البداية') + ' ← ' + (to || today())) : 'كامل المدة حتى ' + arDate(today());
     const isTitle = bfLabel ? ' — ' + bfLabel : ' (موحدة)';
-    const bsRows = (kinds2) => A.accounts.filter(a => kinds2.includes(a.kind) && bsAgg[a.code] && Math.abs(balOf(a, bsAgg)) > 0.004)
-      .map(a => `<tr><td>${a.name}</td><td class="n">${balOf(a, bsAgg) < 0 ? '(' + money(-balOf(a, bsAgg)) + ')' : money(balOf(a, bsAgg))}</td></tr>`).join('');
     w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>القوائم المالية — ${co.name || ''}</title>
     <style>${NUM_FACE}*{font-family:'MizanNum','Segoe UI',Tahoma,sans-serif;box-sizing:border-box}body{margin:0;padding:26px;color:#1a1a1a;font-size:12.5px}
     .h{display:flex;justify-content:space-between;border-bottom:2px solid #8C6F2C;padding-bottom:10px;margin-bottom:14px}
@@ -21394,11 +21468,8 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
       : `<tr class="${r.t === 'line' ? '' : r.t === 'grp' ? 'grp' : 'tot'}${r.t === 'net' ? ' net' : ''}"><td${r.ind ? ' style="padding-right:22px"' : ''}>${r.label}</td><td class="n">${fmtBal(r.amt)}</td></tr>`).join('')}</table>
     </div><div>
     <h2>قائمة المركز المالي (موحدة — البنك والخزينة ورأس المال مركزية)</h2><table>
-    <tr class="tot"><td colspan="2">الأصول</td></tr>${bsRows(['asset'])}
-    <tr class="tot"><td>إجمالي الأصول</td><td class="n">${money(bsAssets)}</td></tr>
-    <tr class="tot"><td colspan="2">الخصوم وحقوق الملكية</td></tr>${bsRows(['liab', 'equity'])}
-    <tr><td>أرباح الفترة المتراكمة</td><td class="n">${money(bsProfit)}</td></tr>
-    <tr class="tot"><td>الإجمالي ${bsOk ? '(يطابق الأصول ✓)' : ''}</td><td class="n">${money(bsLiab + bsEquity + bsProfit)}</td></tr></table>
+    ${bsRowsOf(bsY, bsOk).map(r => r.t === 'head' ? `<tr class="hd"><td colspan="2">${r.label}</td></tr>` : r.t === 'grp' ? `<tr class="grp"><td colspan="2">${r.label}</td></tr>`
+      : `<tr class="${r.t === 'line' ? '' : 'tot'}${r.t === 'net' ? ' net' : ''}"><td${r.t === 'line' ? ' style="padding-right:18px"' : ''}>${r.label}</td><td class="n">${fmtBal(r.amt)}</td></tr>`).join('')}</table>
     </div></div>
     ${taxOn ? '<div class="sub">الأرقام صافية — ضريبة القيمة المضافة مفصولة في حسابَي المدخلات والمخرجات.</div>' : '<div class="sub">الأرقام إجمالية شاملة الضريبة.</div>'}
     <div class="ft">صادر من منصة ميزان — ${arDate(today())} · القيود مشتقة تلقائيًا ومتوازنة (مدين = دائن)</div></body></html>`);
@@ -21540,11 +21611,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     isRowsOf(isY).forEach(r => rows.push(r.t === 'head' ? [r.label, ''] : [(r.ind ? '    ' : '') + r.label, R(r.amt)]));
     rows.push(['', '']);
     rows.push(['قائمة المركز المالي', ''], ['الحساب', 'المبلغ']);
-    A.accounts.filter(a => a.kind === 'asset' && bsAgg[a.code] && Math.abs(balOf(a, bsAgg)) > 0.004).forEach(a => rows.push([a.name, R(balOf(a, bsAgg))]));
-    rows.push(['إجمالي الأصول', R(bsAssets)]);
-    A.accounts.filter(a => (a.kind === 'liab' || a.kind === 'equity') && bsAgg[a.code] && Math.abs(balOf(a, bsAgg)) > 0.004).forEach(a => rows.push([a.name, R(balOf(a, bsAgg))]));
-    rows.push(['أرباح الفترة المتراكمة', R(bsProfit)]);
-    rows.push(['إجمالي الخصوم وحقوق الملكية', R(bsLiab + bsEquity + bsProfit)]);
+    bsRowsOf(bsY, bsOk).forEach(r => rows.push(r.t === 'head' || r.t === 'grp' ? [r.label, ''] : [(r.t === 'line' ? '    ' : '') + r.label, R(r.amt)]));
     return rows;
   };
   const coaRows = () => { const rows = [['رمز الحساب', 'اسم الحساب', 'النوع']]; A.accounts.forEach(a => rows.push([a.code, a.name, kindAr[a.kind] || a.kind])); return rows; };
@@ -21555,10 +21622,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   };
   const bsRows = () => {
     const R = (n) => Math.round(n * 100) / 100; const rows = [['الحساب', 'المبلغ']];
-    A.accounts.filter(a => a.kind === 'asset' && bsAgg[a.code] && Math.abs(balOf(a, bsAgg)) > 0.004).forEach(a => rows.push([a.name, R(balOf(a, bsAgg))]));
-    rows.push(['إجمالي الأصول', R(bsAssets)]);
-    A.accounts.filter(a => (a.kind === 'liab' || a.kind === 'equity') && bsAgg[a.code] && Math.abs(balOf(a, bsAgg)) > 0.004).forEach(a => rows.push([a.name, R(balOf(a, bsAgg))]));
-    rows.push(['أرباح الفترة المتراكمة', R(bsProfit)], ['إجمالي الخصوم وحقوق الملكية', R(bsLiab + bsEquity + bsProfit)]);
+    bsRowsOf(bsY, bsOk).forEach(r => rows.push(r.t === 'head' || r.t === 'grp' ? [r.label, ''] : [(r.t === 'line' ? '    ' : '') + r.label, R(r.amt)]));
     return rows;
   };
   const dlBlob = (name, blob) => { const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(url), 1500); };
@@ -21652,6 +21716,9 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
           {(org.branches || []).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
         </select>
       )}
+      {(() => { const n = new Date(); const ms = (y, m) => isoD(new Date(y, m, 1)), me2 = (y, m) => isoD(new Date(y, m + 1, 0));
+        const P = [['هذا الشهر', ms(n.getFullYear(), n.getMonth()), me2(n.getFullYear(), n.getMonth())], ['الشهر السابق', ms(n.getFullYear(), n.getMonth() - 1), me2(n.getFullYear(), n.getMonth() - 1)], ['هذه السنة', n.getFullYear() + '-01-01', n.getFullYear() + '-12-31']];
+        return P.map(([l, f2, t2]) => <button key={l} className={'btn sm' + (from === f2 && to === t2 ? ' pri' : ' gh')} onClick={() => { setFrom(f2); setTo(t2); }}>{l}</button>); })()}
       {(from || to || bf) && <button className="btn sm gh" onClick={() => { setFrom(''); setTo(''); setBf(''); }}>إظهار الكل</button>}
     </div>
   );
@@ -22044,17 +22111,24 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
               <div><span>مجمل الربح</span><b className={'num' + (isY.gross < 0 ? ' neg' : '')}>{fmtBal(isY.gross)}</b><small>{isY.netSales ? (Math.round(isY.gross / isY.netSales * 1000) / 10) + '%' : '—'}</small></div>
               <div><span>{isY.net >= 0 ? 'صافي الربح' : 'صافي الخسارة'}</span><b className={'num' + (isY.net < 0 ? ' neg' : '')}>{fmtBal(isY.net)}</b><small>{isY.netSales ? 'هامش ' + (Math.round(isY.net / isY.netSales * 1000) / 10) + '%' : '—'}</small></div>
             </div>
+            {isPmap ? <div className="note" style={{ marginTop: 8 }}>المقارنة مع الفترة السابقة: <b className="num">{prevRange.f}</b> ← <b className="num">{prevRange.t}</b>. السهم الأخضر يعني أثرًا أفضل على الربح (إيراد أعلى أو مصروف أقل).</div>
+              : <div className="note" style={{ marginTop: 8 }}>اختر فترة (أو «هذا الشهر») لتظهر المقارنة مع الفترة السابقة.</div>}
             {isY.netSales > 0 && !isY.cogs.length && <div className="note" style={{ marginTop: 8 }}>⚠ لا توجد تكلفة مواد مسجّلة في الفترة — مجمل الربح يساوي المبيعات. سجّل مشتريات المواد أو صرف المستودعات لتظهر تكلفة الطعام الحقيقية.</div>}
             <div className="tw" style={{ marginTop: 10 }}>
               <table className="tb is-tb">
-                <thead><tr><th>البند</th><th style={{ textAlign: 'end' }}>المبلغ (ر.س)</th><th style={{ textAlign: 'end' }}>% من المبيعات</th></tr></thead>
+                <thead><tr><th>البند</th><th style={{ textAlign: 'end' }}>المبلغ (ر.س)</th><th className="c-pct" style={{ textAlign: 'end' }}>% من المبيعات</th>
+                  {isPmap && <><th style={{ textAlign: 'end' }}>الفترة السابقة</th><th style={{ textAlign: 'end' }}>التغيّر</th></>}</tr></thead>
                 <tbody>
                   {isRowsOf(isY).map((r, i) => r.t === 'head'
-                    ? <tr key={i} className="is-head"><td colSpan={3}>{r.label}</td></tr>
+                    ? <tr key={i} className="is-head"><td colSpan={isPmap ? 5 : 3}>{r.label}</td></tr>
                     : <tr key={i} className={'is-' + r.t}>
                       <td style={r.ind ? { paddingInlineStart: 26 } : undefined}>{r.label}</td>
                       <td className={'is-amt' + (r.amt < 0 ? ' neg' : '')}><span className="num">{fmtBal(r.amt)}</span></td>
                       <td className="is-pct"><span className="num">{isY.netSales && r.t !== 'line' ? (() => { const v = Math.round(r.amt / isY.netSales * 1000) / 10; return v < 0 ? '(' + (-v).toFixed(1) + '%)' : v.toFixed(1) + '%'; })() : ''}</span></td>
+                      {isPmap && (() => { const pv = isPmap[r.k] || 0; const d = Math.round((r.amt - pv) * 100) / 100;
+                        const pc = Math.abs(pv) > 0.004 ? Math.round(d / Math.abs(pv) * 1000) / 10 : null;
+                        return <><td className={'is-amt is-prev' + (pv < 0 ? ' neg' : '')}><span className="num">{fmtBal(pv)}</span></td>
+                          <td className={'is-pct is-chg' + (Math.abs(d) < 0.005 ? '' : d > 0 ? ' up' : ' dn')}><span className="num">{Math.abs(d) < 0.005 ? '—' : (d > 0 ? '▲ ' : '▼ ') + (pc == null ? 'جديد' : Math.abs(pc).toFixed(1) + '%')}</span></td></>; })()}
                     </tr>)}
                 </tbody>
               </table>
@@ -22063,23 +22137,22 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
           </div>
           <div className="card">
             <div className="card-t" style={{ marginBottom: 10 }}><Landmark size={15} color="var(--brass)" />قائمة المركز المالي {to ? 'حتى ' + to : '(حتى اليوم)'}</div>
-            <div className="tw">
-              <table className="tb">
+            <div className="is-kpis">
+              <div><span>إجمالي الأصول</span><b className="num">{money(bsY.assets)}</b></div>
+              <div><span>رأس المال العامل</span><b className={'num' + (bsY.wc < 0 ? ' neg' : '')}>{fmtBal(bsY.wc)}</b><small>المتداولة − الخصوم المتداولة</small></div>
+              <div><span>نسبة التداول</span><b className="num">{bsY.cr == null ? '—' : bsY.cr.toFixed(2) + '×'}</b><small>{bsY.cr == null ? 'لا خصوم متداولة' : bsY.cr >= 1 ? 'تغطي الالتزامات القصيرة' : 'أقل من 1 — راقب السيولة'}</small></div>
+            </div>
+            <div className="tw" style={{ marginTop: 10 }}>
+              <table className="tb is-tb">
+                <thead><tr><th>البند</th><th style={{ textAlign: 'end' }}>المبلغ (ر.س)</th></tr></thead>
                 <tbody>
-                  <tr><td colSpan={2} style={{ fontWeight: 800, color: 'var(--brass-l)' }}>الأصول</td></tr>
-                  {A.accounts.filter(a => a.kind === 'asset' && bsAgg[a.code] && Math.abs(balOf(a, bsAgg)) > 0.004).map(a => (
-                    <tr key={a.code}><td style={{ color: 'var(--dim)' }}>{a.name}</td><td className="num" style={{ textAlign: 'end' }}>{fmtBal(balOf(a, bsAgg))}</td></tr>
-                  ))}
-                  <tr style={{ fontWeight: 700 }}><td>إجمالي الأصول</td><td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{money(bsAssets)}</td></tr>
-                  <tr><td colSpan={2} style={{ fontWeight: 800, color: 'var(--brass-l)', paddingTop: 12 }}>الخصوم وحقوق الملكية</td></tr>
-                  {A.accounts.filter(a => (a.kind === 'liab' || a.kind === 'equity') && bsAgg[a.code] && Math.abs(balOf(a, bsAgg)) > 0.004).map(a => (
-                    <tr key={a.code}><td style={{ color: 'var(--dim)' }}>{a.name}</td><td className="num" style={{ textAlign: 'end' }}>{fmtBal(balOf(a, bsAgg))}</td></tr>
-                  ))}
-                  <tr><td style={{ color: 'var(--dim)' }}>أرباح الفترة المتراكمة (تلقائي)</td><td className="num" style={{ textAlign: 'end', color: bsProfit >= 0 ? 'var(--mint)' : 'var(--rose)' }}>{fmtBal(bsProfit)}</td></tr>
-                  <tr style={{ fontWeight: 800, background: 'rgba(200,162,74,.05)' }}>
-                    <td>الإجمالي {bsOk ? '— يطابق الأصول ✓' : '— لا يطابق!'}</td>
-                    <td className="num" style={{ textAlign: 'end', color: bsOk ? 'var(--brass-l)' : 'var(--rose)' }}>{money(bsLiab + bsEquity + bsProfit)}</td>
-                  </tr>
+                  {bsRowsOf(bsY, bsOk).map((r, i) => r.t === 'head'
+                    ? <tr key={i} className="is-head"><td colSpan={2}>{r.label}</td></tr>
+                    : r.t === 'grp' ? <tr key={i} className="is-grp"><td colSpan={2}>{r.label}</td></tr>
+                      : <tr key={i} className={'is-' + r.t + (r.t === 'net' && !bsOk ? ' bad' : '')}>
+                        <td>{r.label}</td>
+                        <td className={'is-amt' + (r.amt < 0 ? ' neg' : '')}><span className="num">{fmtBal(r.amt)}</span></td>
+                      </tr>)}
                 </tbody>
               </table>
             </div>
@@ -22091,14 +22164,14 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
       {view === 'cf' && (() => {
         const Section = (cls, title, sub) => (
           <React.Fragment>
-            <tr><td colSpan={2} style={{ fontWeight: 800, color: 'var(--brass-l)', paddingTop: 12 }}>{title}</td></tr>
+            <tr className="is-head"><td colSpan={2}>{title}</td></tr>
             {cfRows(cls).map(r => (
-              <tr key={cls + r.label}><td style={{ color: 'var(--dim)' }}>{r.label}</td>
-                <td className="num" style={{ textAlign: 'end', color: r.amt >= 0 ? 'var(--mint)' : 'var(--rose)' }}>{fmtBal(r.amt)}</td></tr>
+              <tr key={cls + r.label} className="is-line"><td>{r.label}</td>
+                <td className={'is-amt' + (r.amt < 0 ? ' neg' : '')}><span className="num">{fmtBal(r.amt)}</span></td></tr>
             ))}
-            {cfRows(cls).length === 0 && <tr><td style={{ color: 'var(--faint)', fontSize: 11 }}>لا حركة في الفترة</td><td className="num" style={{ textAlign: 'end', color: 'var(--faint)' }}>0.00</td></tr>}
-            <tr style={{ fontWeight: 700, borderTop: '1px solid var(--line)' }}><td>{sub}</td>
-              <td className="num" style={{ textAlign: 'end', color: cfNet(cls) >= 0 ? 'var(--mint)' : 'var(--rose)' }}>{fmtBal(cfNet(cls))}</td></tr>
+            {cfRows(cls).length === 0 && <tr className="is-line"><td style={{ color: 'var(--faint)' }}>لا حركة في الفترة</td><td className="is-amt"><span className="num" style={{ color: 'var(--faint)' }}>0.00</span></td></tr>}
+            <tr className="is-sub"><td>{sub}</td>
+              <td className={'is-amt' + (cfNet(cls) < 0 ? ' neg' : '')}><span className="num">{fmtBal(cfNet(cls))}</span></td></tr>
           </React.Fragment>
         );
         return (
@@ -22122,18 +22195,19 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
             <div className="card">
               <div className="card-t" style={{ marginBottom: 10 }}><ArrowLeftRight size={15} color="var(--brass)" />قائمة التدفقات النقدية {from || to ? '· الفترة المحددة' : '(حتى اليوم)'} {bfLabel ? '— ' + bfLabel : ''}</div>
               <div className="tw">
-                <table className="tb">
+                <table className="tb is-tb">
+                  <thead><tr><th>البند</th><th style={{ textAlign: 'end' }}>المبلغ (ر.س)</th></tr></thead>
                   <tbody>
-                    <tr style={{ fontWeight: 700, background: 'rgba(91,147,196,.05)' }}><td>النقد في بداية الفترة</td><td className="num" style={{ textAlign: 'end' }}>{money(cfBegin)}</td></tr>
+                    <tr className="is-total"><td>النقد في بداية الفترة</td><td className="is-amt"><span className="num">{money(cfBegin)}</span></td></tr>
                     {Section('op', 'الأنشطة التشغيلية', 'صافي النقد من الأنشطة التشغيلية')}
                     {Section('inv', 'الأنشطة الاستثمارية', 'صافي النقد من الأنشطة الاستثمارية')}
                     {Section('fin', 'الأنشطة التمويلية', 'صافي النقد من الأنشطة التمويلية')}
-                    <tr style={{ fontWeight: 900, background: 'rgba(200,162,74,.06)', borderTop: '2px solid var(--brass)' }}><td>صافي التغيّر في النقد</td>
-                      <td className="num" style={{ textAlign: 'end', color: cfChange >= 0 ? 'var(--mint)' : 'var(--rose)', fontSize: 14 }}>{fmtBal(cfChange)}</td></tr>
-                    <tr style={{ fontWeight: 800 }}><td>النقد في نهاية الفترة (محسوب)</td><td className="num" style={{ textAlign: 'end' }}>{money(cfEndComputed)}</td></tr>
-                    <tr style={{ fontWeight: 800, background: 'rgba(200,162,74,.05)' }}>
+                    <tr className="is-total"><td>صافي التغيّر في النقد</td>
+                      <td className={'is-amt' + (cfChange < 0 ? ' neg' : '')}><span className="num">{fmtBal(cfChange)}</span></td></tr>
+                    <tr className="is-net"><td>النقد في نهاية الفترة</td><td className="is-amt"><span className="num">{money(cfEndComputed)}</span></td></tr>
+                    <tr className={'is-sub' + (cfOk ? '' : ' bad')}>
                       <td>مطابقة رصيد النقد الدفتري {cfOk ? '— مطابق ✓' : '— لا يطابق!'}</td>
-                      <td className="num" style={{ textAlign: 'end', color: cfOk ? 'var(--brass-l)' : 'var(--rose)' }}>{money(cfEndBook)}</td></tr>
+                      <td className={'is-amt' + (cfOk ? '' : ' neg')}><span className="num">{money(cfEndBook)}</span></td></tr>
                   </tbody>
                 </table>
               </div>
@@ -26474,7 +26548,7 @@ function printIncomeA4(org, data, meta) {
     .is-t tr.rev td { color:#8C6F2C }
   </style></head><body><div class="page">
     <div class="head">
-      <div class="co">${logo ? `<img class="logo" src="${logo}">` : ''}
+      <div class="co">${logo ? `<img class="logo" src="${logo}">` :MZ_LOGO_HTML}
         <div><div class="co-n">${co.name || 'المنشأة'}</div>
         <div class="co-m">الرقم الضريبي: ${co.taxNumber || '—'} · السجل التجاري: ${co.commercialReg || '—'}</div></div>
       </div>
@@ -27666,7 +27740,7 @@ function qrPrintReport({ org, fb, brs, days, sel, nb, say }) {
   w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
     <title>تقرير تقييم العملاء</title><style>${A4_CSS}</style></head><body><div class="page">
     <div class="head">
-      <div class="co">${co.logoUrl ? `<img class="logo" src="${e(co.logoUrl)}">` : ''}
+      <div class="co">${co.logoUrl ? `<img class="logo" src="${e(co.logoUrl)}">` :MZ_LOGO_HTML}
         <div><div class="co-n">${e(co.name || 'المنشأة')}</div><div class="co-m">الرقم الضريبي: ${e(co.taxNumber || '—')}</div></div></div>
       <div class="doc-title">تقرير تقييم العملاء (QR)</div>
       <div class="doc-sub">${scope} · من ${arDate(iso(from))} إلى ${arDate(iso(to))} (آخر ${days} يومًا)</div>
