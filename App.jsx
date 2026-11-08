@@ -2330,9 +2330,9 @@ const LAUNCH_APPS = [
     sections: ['تسجيل إغلاق اليوم', 'سجل الإغلاقات'], kw: ['اغلاق', 'إغلاق', 'وردية', 'مبيعات', 'صندوق', 'كاشير', 'نقطة بيع', 'نقاط البيع'] },
   { id: 'shifts', hideOnHome: 'closing', ar: 'مواعيد الإغلاق والتذكيرات', en: 'Closing Deadlines', cat: 'pos', icon: Clock, open: { tab: 'shifts' },
     sections: ['مواعيد الإغلاق', 'التذكيرات', 'المتأخرون'], kw: ['إغلاق', 'موعد', 'تذكير', 'تأخر', 'مراقبة'] },
-  { id: 'hrops', ar: 'الموارد البشرية — التشغيل', en: 'HR Operations', cat: 'hr', icon: Fingerprint, open: { tab: 'hrops' },
+  { id: 'hrops', hideOnHome: 'people', homeAr: 'الموارد البشرية', ar: 'الموارد البشرية — التشغيل', en: 'HR Operations', cat: 'hr', icon: Fingerprint, open: { tab: 'hrops' },
     sections: ['الحضور الموثَّق', 'محرّك الورديات', 'المهام', 'دفتر النقاط', 'التوقيع الإلكتروني'], kw: ['حضور', 'انصراف', 'وردية', 'مهام', 'نقاط', 'توقيع', 'pin', 'كيوسك', 'موظف'] },
-  { id: 'hrperf', ar: 'الأداء والانضباط', en: 'Performance & Discipline', cat: 'hr', icon: TrendingUp, open: { tab: 'hrperf' },
+  { id: 'hrperf', hideOnHome: 'hrops', homeAr: 'الموارد البشرية', ar: 'الأداء والانضباط', en: 'Performance & Discipline', cat: 'hr', icon: TrendingUp, open: { tab: 'hrperf' },
     sections: ['الأداء والتقييم', 'مؤشرات الأداء بالدور', 'المكافآت والجزاءات', 'الإجراءات التصحيحية', 'التدريب والشهادات', 'تجميد الأداء', 'لوحة الموارد البشرية'], kw: ['أداء', 'تقييم', 'kpi', 'مؤشر', 'مكافأة', 'جزاء', 'تأديب', 'إجراء', 'تدريب', 'شهادة', 'تجميد', 'لوحة'] },
   { id: 'qrfb', ar: 'تقييم العملاء (QR)', en: 'QR Customer Feedback', cat: 'pos', icon: QrCode, open: { tab: 'qrfb' },
     sections: ['لوحة التقييمات', 'الشكاوى', 'رموز QR للفروع'], kw: ['تقييم', 'عميل', 'عملاء', 'رضا', 'شكوى', 'شكاوى', 'QR', 'تعليق', 'نجوم', 'طاولة'] },
@@ -2348,7 +2348,7 @@ const LAUNCH_APPS = [
     sections: ['الموردون والمشتريات', 'الفواتير والالتزامات', 'سجل الموردين', 'أوامر الشراء', 'المشتريات الذكية', 'إعادة الطلب'], kw: ['مورد', 'موردون', 'فاتورة', 'التزام', 'أمر شراء', 'دفع', 'مشتريات', 'شراء', 'إعادة طلب', 'نفاد', 'حد أدنى', 'مخزون', 'reorder'] },
   { id: 'partners', ar: 'جهات الاتصال', en: 'Contacts', cat: 'pur', icon: Users, open: { tab: 'partners' },
     kw: ['جهات الاتصال', 'اتصال', 'شريك', 'شركاء', 'دفتر', 'موردون', 'عملاء'] },
-  { id: 'people', ar: 'شؤون الموظفين', en: 'People & Payroll', cat: 'hr', icon: Wallet, open: { tab: 'people' },
+  { id: 'people', homeAr: 'الموارد البشرية', ar: 'شؤون الموظفين', en: 'People & Payroll', cat: 'hr', icon: Wallet, open: { tab: 'people' },
     sections: ['البيانات الرئيسية', 'السياسات والأدوار', 'الرواتب والسلف', 'تخطيط العمالة والتكلفة'], kw: ['راتب', 'رواتب', 'سلفة', 'موظف', 'أجور', 'جدولة', 'حضور', 'ساعات', 'عمالة', 'دوام', 'وردية', 'تذكير', 'شؤون', 'قسم', 'أقسام', 'وظيفة', 'وظائف', 'عقد', 'مستند', 'سياسة', 'سياسات', 'جيوفنس', 'موقع', 'رمز', 'QR', 'مدير مباشر', 'رئيس قسم'] },
   // v33.3: الضريبة جزء من «المالية والمحاسبة» (قسم الضريبة والزكاة) — لا تطبيق مستقل مكرر في الرئيسية؛ تبقى في البحث
   { id: 'vat', hideOnHome: 'acct', ar: 'ضريبة القيمة المضافة', en: 'VAT', cat: 'tax', icon: Receipt, open: { tab: 'acct', view: 'vat' },
@@ -2381,6 +2381,10 @@ const acctSecKey = (v) => 'acctsec:' + v;
 const ACCT_SEC_AR = {}; ACCT_SECTIONS.forEach(s => { ACCT_SEC_AR[s.v] = s.ar; });
 // v31.5 — ترتيب حسب دورة العمل: التشغيل اليومي (الإغلاق والمبيعات) ← المخزون والمشتريات وجهات الاتصال ←
 // المالية والضريبة والتقارير والتحليل ← الموارد البشرية ← المستندات والإعدادات والتدقيق. المدمجة في غيرها في الآخر (لا تظهر مستقلة)
+// v36.8: التطبيق الموحّد — أي من البطاقات الثلاث يظهر يحمل أقسام وكلمات بحث الثلاثة
+(() => { const ids = ['hrops', 'people', 'hrperf']; const as = ids.map(id => LAUNCH_APPS.find(a => a.id === id)).filter(Boolean);
+  const secs = [...new Set(as.flatMap(a => a.sections || []))], kw = [...new Set(as.flatMap(a => a.kw || []))];
+  as.forEach(a => { a.sections = secs; a.kw = kw; }); })();
 const LAUNCH_ORDER = ['pos', 'closing', 'sales', 'qrfb', 'whbranch', 'inv', 'purchasing', 'partners', 'acct', 'vat', 'reporting', 'analytics', 'hrops', 'people', 'hrperf', 'docs', 'brmgmt', 'audit', 'approve', 'shifts', 'alerts', 'treasury', 'entities', 'archive', 'backup'];
 const launchRank = (id) => { const i = LAUNCH_ORDER.indexOf(id); return i < 0 ? 999 : i; };
 /* v8.5 — لقطات احتياطية يومية محلية (IndexedDB) على أجهزة الإدارة:
@@ -3512,7 +3516,11 @@ function PlatformApp() {
   ].filter(n => n.id === 'home' || ((roleTabsMe.includes(n.id) || grantTabsMe.includes(n.id)) && !denyDedMe.has(n.id)));
   // v31.5: الأقسام المدمجة لا تتكرر في القائمة الجانبية ما دام قسمها الأم ظاهرًا (تبقى مسموحة ويُوصل إليها من داخله)
   const NAV_PARENT = { alerts: 'analytics', approve: 'closing', shifts: 'closing', treasury: 'acct', entities: 'acct', archive: 'docs' };
-  const NAV_SHOW = NAV.filter(n => !(NAV_PARENT[n.id] && NAV.some(m => m.id === NAV_PARENT[n.id])));
+  // v36.8: تطبيقات الموارد البشرية الثلاثة تظهر عنصرًا واحدًا «الموارد البشرية» (أول ما يتاح للدور منها)
+  const HR_IDS = ['people', 'hrops', 'hrperf'];
+  const hrRep = NAV.find(n => HR_IDS.includes(n.id));
+  const NAV_SHOW = NAV.filter(n => !(NAV_PARENT[n.id] && NAV.some(m => m.id === NAV_PARENT[n.id])))
+    .filter(n => !HR_IDS.includes(n.id) || n === hrRep).map(n => n === hrRep ? { ...n, ar: 'الموارد البشرية', icon: Users } : n);
   // v35.3: الشريط السفلي بأولوية العمل اليومي — الرئيسية، البيع، الإغلاق، التقارير — والباقي في «المزيد»
   const BOT_PRI = ['home', 'pos', 'closing', 'reporting', 'acct', 'sales', 'purchasing', 'analytics'];
   const BOT_AR = { home: 'الرئيسية', pos: 'البيع', closing: 'الإغلاق', reporting: 'التقارير', acct: 'المحاسبة', sales: 'المبيعات', purchasing: 'المشتريات', analytics: 'التحليل' };
@@ -3611,8 +3619,8 @@ function PlatformApp() {
             {org.company.logoUrl
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark"><MizanMark size={24} /></span>}
-            <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v36.7</span>
+            <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : HR_TABS.includes(safeTab) ? 'الموارد البشرية' : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
+            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v36.8</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -3775,12 +3783,10 @@ function PlatformApp() {
               {safeTab === 'sales' && <SalesHub {...shared} />}
               {safeTab === 'pos' && <PosApp {...shared} />}
               {['closing', 'approve', 'shifts', 'cashiers'].includes(safeTab) && <Hub hubId="closehub" {...shared} view={safeTab} />}
-              {['hrops', 'attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'esign'].includes(safeTab) && <Hub hubId="hrops" {...shared} view={safeTab} />}
-              {['hrperf', 'kpi', 'empfile', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'].includes(safeTab) && <Hub hubId="hrperf" {...shared} view={safeTab} />}
+              {HR_TABS.includes(safeTab) && <Hub hubId="hr" {...shared} view={safeTab} />}
               {safeTab === 'qrfb' && <QrFeedback {...shared} />}
               {safeTab === 'apps' && <AppsCenter {...shared} />}
 
-              {['people', 'hrmaster', 'hrpolicy', 'payroll', 'workforce'].includes(safeTab) && <Hub hubId="people" {...shared} view={safeTab} />}
               {['purchasing', 'suppliers', 'reorder'].includes(safeTab) && <Hub hubId="purchasing" {...shared} view={safeTab} />}
               {safeTab === 'inv' && <Inventory {...shared} />}
               {safeTab === 'whbranch' && <BranchWarehouse {...shared} />}
@@ -7369,6 +7375,18 @@ const HUBS = {
     ]
   }
 };
+/* v36.8 — تطبيق واحد «الموارد البشرية» يجمع: التشغيل اليومي + شؤون الموظفين والرواتب + الأداء والانضباط.
+   صلاحية كل قسم كما هي (حسب معرّف القسم في الدور)، فلا يكسب أحد ولا يخسر وصولًا. معرّفات الأقسام لم تتغير. */
+HUBS.hr = {
+  ar: 'الموارد البشرية', desc: 'الحضور والورديات والإجازات · البيانات والرواتب والسلف · الأداء والتدريب والانضباط', icon: Users,
+  views: [
+    ...HUBS.hrops.views.map(v => ({ ...v, group: 'التشغيل اليومي' })),
+    ...HUBS.people.views.filter(v => !['suppliers', 'reorder'].includes(v.id)).map(v => ({ ...v, group: 'شؤون الموظفين والرواتب' })),
+    ...HUBS.hrperf.views.map(v => ({ ...v, group: 'الأداء والانضباط' }))
+  ]
+};
+delete HUBS.hrops; delete HUBS.people; delete HUBS.hrperf;
+const HR_TABS = ['hr', 'hrops', 'hrperf', 'people', ...HUBS.hr.views.map(v => v.id)];
 /* ============================================================
    v31.7 — عرض أقسام التطبيقات: شبكة احترافية (افتراضي) أو قائمة منسدلة أو تبويبات — اختيار واحد لكل المستخدم يسري على كل التطبيقات
    ============================================================ */
@@ -7385,6 +7403,10 @@ function SectionNav({ items, cur, onPick, extra, label, force }) {
   const [modeSel, setMode] = useSecNav();
   const mode = force || modeSel;   // force: نمط ثابت لشاشات تحتاج المساحة (نقطة البيع)
   const [open, setOpen] = useState(false);
+  // v36.8: إظهار القسم النشط داخل الشريط الأفقي (على الجوال قد يكون خارج الشاشة)
+  const navRef = useRef(null);
+  useEffect(() => { try { const el = navRef.current && navRef.current.querySelector('.acct-tile.on'); const sc = el && el.closest('.acct-grid');
+    if (el && sc && sc.scrollWidth > sc.clientWidth + 2) { const r = el.getBoundingClientRect(), rs = sc.getBoundingClientRect(); sc.scrollLeft += (r.left + r.width / 2) - (rs.left + rs.width / 2); } } catch { } }, [cur, mode]);
   const list = (items || []).filter(Boolean);
   if (list.length < 2 && !extra) return null;
   const curIt = list.find(x => x.id === cur) || list[0] || {};
@@ -7398,14 +7420,26 @@ function SectionNav({ items, cur, onPick, extra, label, force }) {
   const pick = (id) => { setOpen(false); onPick(id); };
   const bdg = (x) => x.badge ? <span className="badge b-amber" style={{ fontSize: 9.5, padding: '1px 6px' }}>{x.badge}</span> : null;
   if (list.length >= 2 && mode === 'grid') return (
-    <div className="secnav-grid">
+    <div className="secnav-grid" ref={navRef}>
       <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
         <div className="acct-gtitle" style={{ marginInlineEnd: 'auto' }}><Grid3x3 size={14} />{label || 'الأقسام'}</div>{sw}{extra}
       </div>
+      {list.some(x => x.group) ? (
+        <div className="acct-gridnav">
+          {[...new Set(list.map(x => x.group || ''))].map(g => (
+            <div key={g} className="acct-gsec">
+              {g && <div className="acct-ghd">{g}</div>}
+              <div className="acct-grid">
+                {list.filter(x => (x.group || '') === g).map(x => { const I = x.icon || Grid3x3; return (
+                  <button key={x.id} className={'acct-tile' + (cur === x.id ? ' on' : '')} onClick={() => pick(x.id)}><I size={19} /><span>{x.ar}</span>{bdg(x)}</button>); })}
+              </div>
+            </div>))}
+        </div>
+      ) : (
       <div className="acct-grid">
         {list.map(x => { const I = x.icon || Grid3x3; return (
           <button key={x.id} className={'acct-tile' + (cur === x.id ? ' on' : '')} onClick={() => pick(x.id)}><I size={19} /><span>{x.ar}</span>{bdg(x)}</button>); })}
-      </div>
+      </div>)}
     </div>);
   if (list.length >= 2 && mode === 'dd') return (
     <div className="row acct-nav" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -7452,7 +7486,7 @@ function Hub({ hubId, view, ...rest }) {
             <span style={{ fontSize: 11, color: 'var(--dim)' }} className="hub-desc">· {cfg.desc}</span>
           </div>
         </div>
-        {views.length > 1 && <div style={{ marginTop: 8 }}><SectionNav items={views.map(v => ({ id: v.id, ar: v.ar, icon: v.icon }))} cur={cur} onPick={go} label={'أقسام ' + cfg.ar} /></div>}
+        {views.length > 1 && <div style={{ marginTop: 8 }}><SectionNav items={views.map(v => ({ id: v.id, ar: v.ar, icon: v.icon, group: v.group }))} cur={cur} onPick={go} label={'أقسام ' + cfg.ar} /></div>}
       </div>
       {Cur ? <Cur {...rest} /> : <div className="card"><div className="empty">لا توجد أقسام متاحة لصلاحيتك.</div></div>}
     </div>
@@ -19854,6 +19888,8 @@ const APP_GLYPH = {
   audit: '<g class="p-blink"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></g>',
   backup: '<path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/><g class="p-drop"><path d="M12 3.5v11M7.5 10l4.5 4.5 4.5-4.5"/></g>'
 };
+// v36.8: بطاقة «الموارد البشرية» الموحّدة — بطاقة هوية موظف
+APP_GLYPH.hrops = APP_GLYPH.people = APP_GLYPH.hrperf = '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M9.5 3v3.5h5V3"/><circle cx="12" cy="11.3" r="2.4"/><path class="p-draw" pathLength="1" d="M8 17.3a4 4 0 0 1 8 0"/>';
 // v35.6: نمط «الرسم» — كل خط في الرمز يُعاد رسمه بالقلم عند المرور/اللمس (pathLength موحّد = 1)
 const agDraw = (g) => g.replace(/<(path|rect|circle)(?![^>]*pathLength)/g, '<$1 pathLength="1"');
 const glyphGo = (el) => { const b = el && el.querySelector && el.querySelector('.lh-box'); if (!b) return; b.classList.remove('go'); void b.offsetWidth; b.classList.add('go'); clearTimeout(b._gt); b._gt = setTimeout(() => b.classList.remove('go'), 2900); };
@@ -20306,7 +20342,7 @@ function Launcher({ org, ops, me, myBranches, scoped, setTab, openAcctView, open
       {(a.id === 'approve' || (a.id === 'closing' && canApr)) && pend > 0 && <span className="lh-bdg">{pend}</span>}
       {(() => { const lv = liveOf(a.id); return (
       <div className={'lh-box' + (lv ? ' live' : '')} title={lv ? lv.t : undefined}><AppGlyph a={a} />{lv && lv.dot && <span className="lh-dot" />}{a.sections?.length > 1 && <span className="lh-cnt" title={a.sections.length + ' أقسام'}>{a.sections.length}</span>}</div>); })()}
-      <div className="lh-nm">{a.ar}</div>
+      <div className="lh-nm">{a.homeAr || a.ar}</div>
     </div>
   );
 
