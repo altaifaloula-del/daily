@@ -2666,7 +2666,8 @@ function PlatformApp() {
   const say = useCallback((msg, kind) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast({ msg, kind: kind || 'ok' });
-    toastTimer.current = setTimeout(() => setToast(null), 3200);
+    // v37.1: رسائل التنبيه/الخطأ تبقى أطول (تحتاج قراءة)، والنجاح قصيرة؛ والضغط يُغلقها
+    toastTimer.current = setTimeout(() => setToast(null), kind === 'no' ? 6500 : 3200);
   }, []);
 
   /* --- الإقلاع: مع المصادقة السحابية لا تُحمَّل أي بيانات قبل دخول حقيقي --- */
@@ -3621,7 +3622,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark"><MizanMark size={24} /></span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : HR_TABS.includes(safeTab) ? 'الموارد البشرية' : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v37.0</span>
+            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v37.1</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -3892,14 +3893,9 @@ function PlatformApp() {
         </Modal>
       )}
       {toast && (
-        <div style={{
-          position: 'fixed', bottom: 20, insetInlineStart: 20, zIndex: 99,
-          background: toast.kind === 'no' ? 'rgba(217,84,77,.15)' : 'rgba(79,178,134,.14)',
-          border: '1px solid ' + (toast.kind === 'no' ? 'rgba(217,84,77,.45)' : 'rgba(79,178,134,.45)'),
-          color: toast.kind === 'no' ? '#D9544D' : '#4FB286',
-          padding: '11px 16px', borderRadius: 11, fontSize: 12.5, maxWidth: 340,
-          backdropFilter: 'blur(8px)'
-        }}>{toast.msg}</div>
+        <div className={'mz-toast ' + (toast.kind === 'no' ? 'no' : 'ok')} role="status" aria-live="polite" onClick={() => setToast(null)}>
+          <span className="mz-toast-i" aria-hidden="true">{toast.kind === 'no' ? '!' : '✓'}</span><span>{toast.msg}</span>
+        </div>
       )}
     </div>
   );
@@ -11647,8 +11643,8 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
               {emps.map(e => { const wage = empGrossOf(e); const yrs = tenureYears(e.hireDate, today()); const full = r2(eosFull(wage, yrs)); return (
                 <tr key={e.id}>
                   <td style={{ fontWeight: 600, fontSize: 12.5 }}>{e.name}</td>
-                  <td className="num" style={{ fontSize: 11 }}>{e.hireDate || <span style={{ color: 'var(--amber)' }}>غير محدّد</span>}</td>
-                  <td className="num" style={{ fontSize: 11 }}>{e.hireDate ? fmtYears(yrs) : '—'}</td>
+                  <td className="dt" style={{ fontSize: 12 }}>{e.hireDate ? arDate(e.hireDate) : <span style={{ color: 'var(--amber)' }}>غير محدّد</span>}</td>
+                  <td style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{e.hireDate ? fmtYears(yrs) : '—'}</td>
                   <td className="num" style={{ textAlign: 'end' }}>{money(wage)}</td>
                   {EOS.open && <td className="num" style={{ textAlign: 'end', color: 'var(--dim)' }}>{EOS.paid[e.id] ? <span className="badge b-mint">صُرفت</span> : money(EOS.bal[e.id] || 0)}</td>}
                   <td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{e.hireDate ? money(full) : '—'}</td>

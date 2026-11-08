@@ -1319,4 +1319,18 @@ td.num,th.num{display:table-cell}
 }
 html,body{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 @media(max-width:900px){input,select,textarea{font-size:16px}}
+/* v37.1 — الأرقام في الجداول لا تنقسم على سطرين (كان «2,200.00» يظهر «2,20 / .0» على الجوال) */
+.tb .num,.tb td.num{white-space:nowrap}
+/* الكلمات داخل الجداول لا تُقسم من منتصفها (قاعدة البطاقات overflow-wrap:anywhere كانت تقسم «النسيم» إلى «النسي/م») — الجدول يتمرّر أفقيًا بدلًا من ذلك */
+.card .tb td,.card .tb th,.tb td,.tb th{overflow-wrap:normal;word-break:normal}
+@media(max-width:640px){.tb td:first-child{min-width:110px}.tb th{white-space:nowrap}}
+/* رسالة التنبيه: فوق شريط التنقل السفلي، بخلفية مقروءة، وتُغلق بالضغط */
+.mz-toast{position:fixed;bottom:calc(20px + env(safe-area-inset-bottom,0px));inset-inline-start:20px;z-index:200;max-width:380px;display:flex;gap:10px;align-items:flex-start;
+  padding:12px 14px;border-radius:12px;font-size:13px;line-height:1.6;background:var(--ink2);color:var(--txt);border:1px solid var(--line);box-shadow:0 10px 30px -10px rgba(0,0,0,.35);cursor:pointer;animation:mzt .22s ease-out}
+.mz-toast.no{border-color:color-mix(in srgb,var(--rose) 55%,var(--line))}.mz-toast.ok{border-color:color-mix(in srgb,var(--mint) 55%,var(--line))}
+.mz-toast-i{width:22px;height:22px;border-radius:50%;flex-shrink:0;display:grid;place-items:center;font-weight:800;font-size:13px;color:#fff}
+.mz-toast.no .mz-toast-i{background:var(--rose)}.mz-toast.ok .mz-toast-i{background:var(--mint)}
+@keyframes mzt{from{transform:translateY(8px);opacity:0}to{transform:none;opacity:1}}
+@media(max-width:900px){.mz-toast{inset-inline:12px;max-width:none;bottom:calc(84px + env(safe-area-inset-bottom,0px))}}
+@media (prefers-reduced-motion: reduce){.mz-toast{animation:none}}
 `;
