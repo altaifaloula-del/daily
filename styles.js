@@ -886,10 +886,23 @@ body.lh-dragging *{cursor:grabbing !important}
 .lh{max-width:1080px;margin:0 auto}
 .lh-hi{text-align:center;font-size:13px;color:var(--dim);margin-bottom:4px}
 .lh-hi b{color:var(--txt)}
+/* v35.6 — شعار «الفروع التسعة» */
+.mzm{display:block;overflow:visible;--mz-c:currentColor}
+.mzm-l{fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;opacity:.5;stroke-dasharray:1 0}
+.mzm-d{fill:currentColor}
+.mzm-c{fill:var(--mz-c)}
+.brand-mark .mzm,.toplogo-mark .mzm{color:var(--brand-ink,#1a1410)}
+.lh-wm.mark .mzm{width:min(52vw,520px);height:auto;color:var(--brass)}
+@keyframes mz-pop{0%{transform:scale(0)}70%{transform:scale(1.25)}100%{transform:scale(1)}}
+@keyframes mz-line{from{stroke-dashoffset:1}to{stroke-dashoffset:0}}
+.mzm *{transform-box:fill-box;transform-origin:center}
+.mz-in .mzm-d{animation:mz-pop .38s calc(var(--d) * .07s) ease-out both}
+.mz-in .mzm-c{animation:mz-pop .55s .35s ease-out both}
+.mz-in .mzm-l{stroke-dasharray:1;animation:mz-line .45s calc(.55s + var(--d) * .05s) ease-out both}
+@media (prefers-reduced-motion: reduce){.mzm *{animation:none!important}}
 /* v35.5 — حركات أيقونات التطبيقات */
 .ag *{transform-box:fill-box}
 .ag .bgf{fill:var(--ink2)}.rms.thm-mizan .ag .bgf{fill:var(--g,var(--c))}
-.ag .p-draw{stroke-dasharray:1;stroke-dashoffset:0}
 .ag .p-speed{opacity:0}
 .ag .p-scan{opacity:0;stroke:var(--brand-fill,var(--brass))}.rms.thm-mizan .ag .p-scan{stroke:#fff}
 .ag .p-card{transform:translateY(3px)}
@@ -914,29 +927,16 @@ body.lh-dragging *{cursor:grabbing !important}
 @keyframes ag-blink{0%,100%{transform:scaleY(1)}10%{transform:scaleY(.1)}20%,100%{transform:scaleY(1)}}
 @keyframes ag-drop{0%{transform:translateY(-3px);opacity:.3}25%,100%{transform:translateY(0);opacity:1}}
 @keyframes ag-pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--mint) 65%,transparent)}70%,100%{box-shadow:0 0 0 8px transparent}}
-.lh-box.go .p-rcpt{animation:ag-rcpt 2.8s ease}
-.lh-box.go .p-draw{animation:ag-draw 2.8s ease}
-.lh-box.go .p-flip{animation:ag-flip 2.8s ease;transform-origin:center}
-.lh-box.go .p-swing{animation:ag-swing 2.8s ease;transform-origin:center}
-.lh-box.go .p-ring{animation:ag-ring 2.8s ease;transform-origin:50% 0}
-.lh-box.go .p-clap{animation:ag-clap 2.8s ease}
-.lh-box.go .p-bar{animation:ag-bar 2.8s ease;transform-origin:50% 100%}
-.lh-box.go .b2{animation-delay:.08s}.lh-box.go .b3{animation-delay:.16s}
-.lh-box.go .p-tilt{animation:ag-tilt 2.8s ease;transform-origin:50% 0}
-.lh-box.go .p-pop{animation:ag-pop 2.8s ease;transform-origin:center}
-.lh-box.go .p-drive,.lh-box.live .p-drive{animation:ag-drive 2.8s ease;}
-.lh-box.go .p-speed,.lh-box.live .p-speed{animation:ag-speed 2.8s ease}
-.lh-box.live .p-drive,.lh-box.live .p-speed{animation-duration:1.4s;animation-iteration-count:infinite}
-.lh-box.go .p-lid{animation:ag-lid 2.8s ease;transform-origin:0 100%}
-.lh-box.go .p-scan{animation:ag-scan 2.8s ease}
-.lh-box.go .p-peek{animation:ag-peek 2.8s ease}
-.lh-box.go .p-stamp{animation:ag-stamp 2.8s ease}
-.lh-box.go .p-mark{animation:ag-mark 2.8s ease}
-.lh-box.go .p-spin{animation:ag-spin 2.8s ease;transform-origin:center}
-.lh-box.go .p-card{animation:ag-card 2.8s ease}
-.lh-box.go .p-blink{animation:ag-blink 2.8s ease;transform-origin:center}
-.lh-box.go .p-drop{animation:ag-drop 2.8s ease}
-.lh-box.live .p-draw{animation:ag-draw 2.8s ease infinite}
+.ag :is(path,rect,circle){stroke-dasharray:1 0}
+.lh-box.go .ag :is(path,rect,circle){stroke-dasharray:1;animation:ag-pen .95s cubic-bezier(.45,.05,.3,1) both}
+.lh-box.go .ag :is(path,rect,circle):nth-child(2){animation-delay:.08s}.lh-box.go .ag :is(path,rect,circle):nth-child(3){animation-delay:.16s}
+.lh-box.go .ag :is(path,rect,circle):nth-child(n+4){animation-delay:.24s}
+.lh-box.go .ag g>:is(path,rect,circle){animation-delay:.12s}
+.lh-box.go .ag .p-scan,.lh-box.go .ag .p-speed{animation:none}
+@keyframes ag-pen{0%{stroke-dashoffset:1}100%{stroke-dashoffset:0}}
+.lh-box.live .p-drive,.lh-box.live .p-speed{animation:ag-drive 1.4s ease infinite}
+.lh-box.live .p-speed{animation-name:ag-speed}
+.lh-box.live .p-draw{stroke-dasharray:1;animation:ag-draw 2.8s ease infinite}
 .lh-dot{position:absolute;bottom:7px;inset-inline-start:7px;width:11px;height:11px;border-radius:50%;background:var(--mint);border:2px solid #fff;animation:ag-pulse 1.8s ease-out infinite}
 @media (prefers-reduced-motion: reduce){.lh-box *,.lh-dot{animation:none!important}}
 .is-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px}

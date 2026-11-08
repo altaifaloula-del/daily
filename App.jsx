@@ -3523,7 +3523,7 @@ function PlatformApp() {
           <div className="brand">
             {org.company.logoUrl
               ? <img className="brand-logo" src={org.company.logoUrl} alt="شعار الشركة" />
-              : <div className="brand-mark">{(org.company.name || 'مذ').trim().charAt(0) || 'م'}</div>}
+              : <div className="brand-mark"><MizanMark size={26} anim /></div>}
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="brand-t">{org.company.name}</div>
               <div className="brand-s">CLOUD CLOSING SUITE</div>
@@ -3574,9 +3574,9 @@ function PlatformApp() {
             )}
             {org.company.logoUrl
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
-              : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
+              : <span className="toplogo-mark"><MizanMark size={24} /></span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v35.5 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v35.6 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -3868,8 +3868,8 @@ function BrandHead({ title, sub, logo }) {
     <div className="bhead" style={{ textAlign: 'center', marginBottom: 24 }}>
       {logo
         ? <img src={logo} alt="شعار" className="bhead-logo" style={{ width: 64, height: 64, margin: '0 auto 14px', borderRadius: 16, objectFit: 'cover', border: '1px solid var(--line)', display: 'block' }} />
-        : <div className="brand-mark bhead-logo" style={{ width: 54, height: 54, margin: '0 auto 14px', fontSize: 19, borderRadius: 16 }}>
-          {(title || 'المنصة').trim().charAt(0) || 'م'}
+        : <div className="brand-mark bhead-logo" style={{ width: 64, height: 64, margin: '0 auto 14px', borderRadius: 18 }}>
+          <MizanMark size={44} anim />
         </div>}
       <h1 style={{ fontSize: 20 }}>{title || 'ميزان — منصة إدارة المطاعم'}</h1>
       <div style={{ color: 'var(--dim)', fontSize: 12.5, marginTop: 5 }}>{sub}</div>
@@ -19591,6 +19591,20 @@ const CAT_CLR = {
 /* ===== v35.5 — أيقونات التطبيقات المتحركة (نموذج B + حالات C) =====
    رموز SVG مرسومة يدويًا، كل رمز يؤدي حركة قصيرة من عالمه عند المرور/اللمس (.go)، ويتحرك باستمرار
    فقط إذا كانت هناك حالة حقيقية تستحق الانتباه (.live). تُعطّل كليًا مع «تقليل الحركة». */
+/* ===== v35.6 — شعار ميزان «الفروع التسعة» =====
+   ثماني نقاط حول مركز ذهبي، متصلة به: إدارة مالية واحدة لكل الفروع. اللون يتبع currentColor، والمركز بلون --mz-c.
+   بحجم ≤ 24 تُحذف الخطوط ليبقى الرمز مقروءًا في الأحجام الصغيرة. anim: حركة افتتاحية (تظهر النقاط ثم تُرسم الخطوط). */
+const MZ_DOTS = [[16, 16], [32, 16], [48, 16], [16, 32], [48, 32], [16, 48], [32, 48], [48, 48]];
+function MizanMark({ size = 28, anim = false, className = '' }) {
+  const small = size <= 24;
+  return (
+    <svg className={'mzm' + (anim ? ' mz-in' : '') + (className ? ' ' + className : '')} width={size} height={size} viewBox="4 4 56 56" aria-hidden="true">
+      {!small && MZ_DOTS.map(([x, y], i) => <path key={'l' + i} className="mzm-l" pathLength="1" d={'M32 32L' + x + ' ' + y} style={{ '--d': i }} />)}
+      {MZ_DOTS.map(([x, y], i) => <circle key={'d' + i} className="mzm-d" cx={x} cy={y} r={small ? 4.6 : 3.8} style={{ '--d': i }} />)}
+      <circle className="mzm-c" cx="32" cy="32" r={small ? 7.5 : 7} />
+    </svg>
+  );
+}
 const APP_GLYPH = {
   pos: '<g class="p-rcpt"><path d="M8.5 10V3.5h7V10"/><path d="M10.5 5.6h3M10.5 7.4h2"/></g><path class="bgf" d="M4 9.5h16l1 9.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M7 13.5h.01M10.5 13.5h.01M14 13.5h.01M7 16.8h10"/>',
   closing: '<rect x="5.5" y="4" width="13" height="17" rx="2"/><path d="M9 4V2.8h6V4"/><path class="p-draw" pathLength="1" d="M8.8 13l2.3 2.3 4.4-4.6"/>',
@@ -19615,11 +19629,13 @@ const APP_GLYPH = {
   audit: '<g class="p-blink"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></g>',
   backup: '<path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/><g class="p-drop"><path d="M12 3.5v11M7.5 10l4.5 4.5 4.5-4.5"/></g>'
 };
+// v35.6: نمط «الرسم» — كل خط في الرمز يُعاد رسمه بالقلم عند المرور/اللمس (pathLength موحّد = 1)
+const agDraw = (g) => g.replace(/<(path|rect|circle)(?![^>]*pathLength)/g, '<$1 pathLength="1"');
 const glyphGo = (el) => { const b = el && el.querySelector && el.querySelector('.lh-box'); if (!b) return; b.classList.remove('go'); void b.offsetWidth; b.classList.add('go'); clearTimeout(b._gt); b._gt = setTimeout(() => b.classList.remove('go'), 2900); };
 function AppGlyph({ a, size = 36 }) {
   const g = APP_GLYPH[a.id];
   if (!g) return <a.icon size={size} />;
-  return <svg className="ag" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" dangerouslySetInnerHTML={{ __html: g }} />;
+  return <svg className="ag" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" dangerouslySetInnerHTML={{ __html: agDraw(g) }} />;
 }
 // واجهة البداية بنمط شبكة التطبيقات (Odoo-style) — الشاشة الرئيسية v9.1
 /* ===== v35.3 — لوحة «اليوم» أعلى الرئيسية =====
@@ -19897,7 +19913,7 @@ function Launcher({ org, ops, me, myBranches, scoped, setTab, openAcctView, open
     <div className="lh-bg" aria-hidden="true">
       {org.company?.logoUrl
         ? <img className="lh-wm" src={org.company.logoUrl} alt="" />
-        : <div className="lh-wm mark">{(org.company?.name || 'م').trim().charAt(0) || 'م'}</div>}
+        : <div className="lh-wm mark"><MizanMark size={420} /></div>}
     </div>
     <div className="lh">
       <p className="lh-hi">{greet} يا <b>{(me.name || '').split(' ')[0]}</b> · <span>{new Date().toLocaleDateString('ar-SA-u-ca-gregory-nu-latn', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span></p>
