@@ -886,6 +886,25 @@ body.lh-dragging *{cursor:grabbing !important}
 .lh{max-width:1080px;margin:0 auto}
 .lh-hi{text-align:center;font-size:13px;color:var(--dim);margin-bottom:4px}
 .lh-hi b{color:var(--txt)}
+.is-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px}
+.is-kpis>div{display:flex;flex-direction:column;gap:3px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--ink2);min-width:0}
+.is-kpis>div:last-child{background:var(--side-bg,#1F1C18);border-color:transparent;color:#EFEAE1}
+.is-kpis span{font-size:11.5px;color:var(--dim)}.is-kpis>div:last-child span,.is-kpis>div:last-child small{color:#B5AC9F}
+.is-kpis b{font-size:17px;direction:ltr;text-align:right;unicode-bidi:isolate;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.is-kpis small{font-size:11px;color:var(--faint)}
+.is-kpis .neg,.is-tb .neg{color:var(--rose)}
+.is-tb td{padding-top:8px;padding-bottom:8px}
+.is-tb .is-amt,.is-tb .is-pct{text-align:end;white-space:nowrap}.is-tb .is-amt .num,.is-tb .is-pct .num{direction:ltr;unicode-bidi:isolate;font-variant-numeric:tabular-nums}.is-tb .is-amt .num{min-width:118px;text-align:right}.is-tb .is-pct .num{min-width:58px;text-align:right}
+td.num,th.num{display:table-cell}
+
+.is-tb .is-pct{color:var(--faint);font-size:11.5px;width:70px}
+.is-tb tr.is-line td:first-child{color:var(--dim);padding-inline-start:14px}
+.is-tb tr.is-head td{font-weight:800;color:var(--brass-l,var(--brass));padding-top:14px;border-bottom:0}
+.is-tb tr.is-grp td{font-weight:600}
+.is-tb tr.is-sub td{font-weight:700;border-top:1px solid var(--line)}
+.is-tb tr.is-total td{font-weight:800;background:rgba(201,162,77,.07);border-top:1px solid var(--line2,var(--line))}
+.is-tb tr.is-net td{font-weight:900;font-size:15px;border-top:3px double var(--txt)}
+@media(max-width:640px){.is-kpis{grid-template-columns:1fr 1fr}.is-kpis>div:last-child{grid-column:1/-1}.is-tb .is-pct{width:54px}}
 .tdy{display:flex;flex-direction:column;gap:12px;margin:14px auto 18px;max-width:1100px;text-align:start}
 .tdy-act{display:flex;align-items:center;gap:12px;width:100%;padding:12px 14px;border-radius:14px;border:1px solid rgba(201,162,77,.45);background:var(--ink2);color:var(--txt);font:inherit;cursor:pointer;text-align:start;min-height:56px}
 .tdy-act:hover{border-color:var(--brass)}

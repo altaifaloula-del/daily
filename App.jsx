@@ -2415,6 +2415,47 @@ function verifyBackup(data) {
 const appUseGet = (uid) => { try { return JSON.parse(localStorage.getItem('rms8:appuse:' + uid) || '{}') || {}; } catch { return {}; } };
 const appUseSet = (uid, v) => { try { localStorage.setItem('rms8:appuse:' + uid, JSON.stringify(v)); } catch { } };
 // يقبل كائن المستخدم (لتخصيص الظهور لكل مستخدم) أو نص الدور (توافق قديم)
+/* ===== v35.4 — قائمة الدخل بالشكل المحاسبي للمطاعم =====
+   صافي المبيعات ← تكلفة المبيعات ← مجمل الربح ← مصروفات التشغيل (مجمّعة) ← الربح التشغيلي ← بنود أخرى ← صافي الربح.
+   amt بإشارة الأثر على الربح: الإيراد موجب والمصروف سالب (يظهر بين قوسين). لا يغيّر أي قيد — عرض فقط، والمجموع = revP − expP. */
+const IS_COGS_RX = /مواد|مشتريات|بضاعة|خامات|طعام|لحوم|خضار|دواجن|أسماك|مخبوزات|ألبان/;
+const isLayout = (accounts, balFn) => {
+  const r2 = (n) => Math.round(n * 100) / 100;
+  const L = (a, sg) => ({ code: a.code, name: a.name, amt: r2(sg * balFn(a)) });
+  const nz = (l) => Math.abs(l.amt) > 0.004;
+  const rev = accounts.filter(a => a.kind === 'rev'), exp = accounts.filter(a => a.kind === 'exp');
+  const otherRev = (a) => /^42/.test(a.code);
+  const otherExp = (a) => /^58/.test(a.code);
+  const cogsOf = (a) => ['5501', '5502', '5503', '5198', '5150'].includes(a.code) || (/^51/.test(a.code) && IS_COGS_RX.test(a.name || ''));
+  const grpOf = (a) => /^52/.test(a.code) ? 'pay' : /^53/.test(a.code) ? 'apps' : a.code === '5701' ? 'dep' : 'oth';
+  const sales = rev.filter(a => !otherRev(a)).map(a => L(a, 1)).filter(nz);
+  const cogs = exp.filter(cogsOf).map(a => L(a, -1)).filter(nz);
+  const opex = exp.filter(a => !cogsOf(a) && !otherExp(a)).map(a => ({ ...L(a, -1), g: grpOf(a) })).filter(nz);
+  const other = [...rev.filter(otherRev).map(a => L(a, 1)), ...exp.filter(otherExp).map(a => L(a, -1))].filter(nz);
+  const S = (ls) => r2(ls.reduce((t, l) => t + l.amt, 0));
+  const netSales = S(sales), cogsT = S(cogs), gross = r2(netSales + cogsT), opexT = S(opex), oper = r2(gross + opexT), otherT = S(other), net = r2(oper + otherT);
+  const G = [['pay', 'الرواتب والمزايا'], ['apps', 'عمولات وخصومات التطبيقات'], ['dep', 'الإهلاك'], ['oth', 'مصروفات تشغيل أخرى']]
+    .map(([k, t]) => ({ k, t, lines: opex.filter(l => l.g === k).sort((x, y) => x.amt - y.amt) })).filter(g => g.lines.length);
+  return { sales, cogs, opexG: G, other, netSales, cogsT, gross, opexT, oper, otherT, net };
+};
+// صفوف موحّدة للعرض والطباعة والتصدير: t = head|line|sub|grp|total
+const isRowsOf = (Y) => {
+  const out = [];
+  out.push({ t: 'head', label: 'الإيرادات' });
+  Y.sales.forEach(l => out.push({ t: 'line', label: l.name, amt: l.amt }));
+  out.push({ t: 'sub', label: 'صافي المبيعات', amt: Y.netSales });
+  if (Y.cogs.length) { out.push({ t: 'head', label: 'تكلفة المبيعات' }); Y.cogs.forEach(l => out.push({ t: 'line', label: l.name, amt: l.amt })); out.push({ t: 'sub', label: 'إجمالي تكلفة المبيعات', amt: Y.cogsT }); }
+  out.push({ t: 'total', label: Y.gross >= 0 ? 'مجمل الربح' : 'مجمل الخسارة', amt: Y.gross });
+  if (Y.opexG.length) {
+    out.push({ t: 'head', label: 'مصروفات التشغيل' });
+    Y.opexG.forEach(g => { out.push({ t: 'grp', label: g.t, amt: Math.round(g.lines.reduce((x, l) => x + l.amt, 0) * 100) / 100 }); g.lines.forEach(l => out.push({ t: 'line', label: l.name, amt: l.amt, ind: 2 })); });
+    out.push({ t: 'sub', label: 'إجمالي مصروفات التشغيل', amt: Y.opexT });
+  }
+  out.push({ t: 'total', label: Y.oper >= 0 ? 'الربح التشغيلي' : 'الخسارة التشغيلية', amt: Y.oper });
+  if (Y.other.length) { out.push({ t: 'head', label: 'إيرادات ومصروفات أخرى' }); Y.other.forEach(l => out.push({ t: 'line', label: l.name, amt: l.amt })); out.push({ t: 'sub', label: 'صافي البنود الأخرى', amt: Y.otherT }); }
+  out.push({ t: 'net', label: Y.net >= 0 ? 'صافي الربح' : 'صافي الخسارة', amt: Y.net });
+  return out;
+};
 const appCanSee = (meOrRole, a) => {
   const role = typeof meOrRole === 'string' ? meOrRole : meOrRole?.role;
   const R = ROLES[role] || {};
@@ -3535,7 +3576,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v35.3 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v35.4 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -20577,6 +20618,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const revP = sum(A.accounts.filter(a => a.kind === 'rev'), a => balOf(a, isAgg));
   const expP = sum(A.accounts.filter(a => a.kind === 'exp'), a => balOf(a, isAgg));
   const netP = Math.round((revP - expP) * 100) / 100;
+  const isY = isLayout(A.accounts, (a) => balOf(a, isAgg));   // v35.4: نفس الأرقام بترتيب محاسبي (isY.net = netP)
   const bsAssets = sum(A.accounts.filter(a => a.kind === 'asset'), a => balOf(a, bsAgg));
   const bsLiab = sum(A.accounts.filter(a => a.kind === 'liab'), a => balOf(a, bsAgg));
   const bsEquity = sum(A.accounts.filter(a => a.kind === 'equity'), a => balOf(a, bsAgg));
@@ -21273,8 +21315,6 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     const co = org.company || {};
     const period = (from || to) ? ('الفترة: ' + (from || 'البداية') + ' ← ' + (to || today())) : 'كامل المدة حتى ' + arDate(today());
     const isTitle = bfLabel ? ' — ' + bfLabel : ' (موحدة)';
-    const rowsOf = (kind, agg) => A.accounts.filter(a => a.kind === kind && agg[a.code])
-      .map(a => `<tr><td>${a.name}</td><td class="n">${money(balOf(a, agg))}</td></tr>`).join('');
     const bsRows = (kinds2) => A.accounts.filter(a => kinds2.includes(a.kind) && bsAgg[a.code] && Math.abs(balOf(a, bsAgg)) > 0.004)
       .map(a => `<tr><td>${a.name}</td><td class="n">${balOf(a, bsAgg) < 0 ? '(' + money(-balOf(a, bsAgg)) + ')' : money(balOf(a, bsAgg))}</td></tr>`).join('');
     w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>القوائم المالية — ${co.name || ''}</title>
@@ -21284,14 +21324,14 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     h2{font-size:15px;margin:14px 0 8px;color:#5a4a1e}table{width:100%;border-collapse:collapse;margin-bottom:8px}
     td{padding:6px 8px;border:1px solid #e6ddc8}.n{text-align:left;direction:ltr;font-variant-numeric:tabular-nums;white-space:nowrap}
     .tot td{background:#f5f0e4;font-weight:800;border-top:2px solid #8C6F2C}
+    .hd td{font-weight:800;color:#5a4a1e;border:0;padding-top:10px}.grp td{font-weight:700;background:#fbf8f1}.net td{border-top:3px double #1a1a1a;font-size:13.5px}
     .ft{margin-top:14px;font-size:10px;color:#888;text-align:center}.grid2{display:flex;gap:16px}.grid2>div{flex:1}</style></head><body>
     <div class="h"><div><div class="co">${co.name || 'الشركة'}</div><div class="sub">${co.taxNumber ? 'الرقم الضريبي: ' + co.taxNumber : ''}</div></div>
     <div style="text-align:left"><div style="font-size:17px;font-weight:800">القوائم المالية</div><div class="sub">${period}</div></div></div>
     <div class="grid2"><div>
     <h2>قائمة الدخل${isTitle}</h2><table>
-    ${rowsOf('rev', isAgg)}<tr class="tot"><td>إجمالي الإيرادات</td><td class="n">${money(revP)}</td></tr>
-    ${rowsOf('exp', isAgg)}<tr class="tot"><td>إجمالي المصروفات</td><td class="n">(${money(expP)})</td></tr>
-    <tr class="tot"><td>${netP >= 0 ? 'صافي الربح' : 'صافي الخسارة'}</td><td class="n">${money(netP)}</td></tr></table>
+    ${isRowsOf(isY).map(r => r.t === 'head' ? `<tr class="hd"><td colspan="2">${r.label}</td></tr>`
+      : `<tr class="${r.t === 'line' ? '' : r.t === 'grp' ? 'grp' : 'tot'}${r.t === 'net' ? ' net' : ''}"><td${r.ind ? ' style="padding-right:22px"' : ''}>${r.label}</td><td class="n">${fmtBal(r.amt)}</td></tr>`).join('')}</table>
     </div><div>
     <h2>قائمة المركز المالي (موحدة — البنك والخزينة ورأس المال مركزية)</h2><table>
     <tr class="tot"><td colspan="2">الأصول</td></tr>${bsRows(['asset'])}
@@ -21437,11 +21477,8 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const fsRows = () => {
     const R = (n) => Math.round(n * 100) / 100;
     const rows = [['قائمة الدخل', ''], ['الحساب', 'المبلغ']];
-    A.accounts.filter(a => a.kind === 'rev' && isAgg[a.code]).forEach(a => rows.push([a.name, R(balOf(a, isAgg))]));
-    rows.push(['إجمالي الإيرادات', R(revP)]);
-    A.accounts.filter(a => a.kind === 'exp' && isAgg[a.code]).forEach(a => rows.push([a.name, R(balOf(a, isAgg))]));
-    rows.push(['إجمالي المصروفات', R(expP)]);
-    rows.push([netP >= 0 ? 'صافي الربح' : 'صافي الخسارة', R(netP)], ['', '']);
+    isRowsOf(isY).forEach(r => rows.push(r.t === 'head' ? [r.label, ''] : [(r.ind ? '    ' : '') + r.label, R(r.amt)]));
+    rows.push(['', '']);
     rows.push(['قائمة المركز المالي', ''], ['الحساب', 'المبلغ']);
     A.accounts.filter(a => a.kind === 'asset' && bsAgg[a.code] && Math.abs(balOf(a, bsAgg)) > 0.004).forEach(a => rows.push([a.name, R(balOf(a, bsAgg))]));
     rows.push(['إجمالي الأصول', R(bsAssets)]);
@@ -21453,10 +21490,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const coaRows = () => { const rows = [['رمز الحساب', 'اسم الحساب', 'النوع']]; A.accounts.forEach(a => rows.push([a.code, a.name, kindAr[a.kind] || a.kind])); return rows; };
   const isRows = () => {
     const R = (n) => Math.round(n * 100) / 100; const rows = [['الحساب', 'المبلغ']];
-    A.accounts.filter(a => a.kind === 'rev' && isAgg[a.code]).forEach(a => rows.push([a.name, R(balOf(a, isAgg))]));
-    rows.push(['إجمالي الإيرادات', R(revP)]);
-    A.accounts.filter(a => a.kind === 'exp' && isAgg[a.code]).forEach(a => rows.push([a.name, R(balOf(a, isAgg))]));
-    rows.push(['إجمالي المصروفات', R(expP)], [netP >= 0 ? 'صافي الربح' : 'صافي الخسارة', R(netP)]);
+    isRowsOf(isY).forEach(r => rows.push(r.t === 'head' ? [r.label, ''] : [(r.ind ? '    ' : '') + r.label, R(r.amt)]));
     return rows;
   };
   const bsRows = () => {
@@ -21945,21 +21979,23 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
               </select>
               {bf && <span className="badge b-brass">عرض دخل: {bfLabel}</span>}
             </div>
+            <div className="is-kpis">
+              <div><span>صافي المبيعات</span><b className="num">{money(isY.netSales)}</b></div>
+              <div><span>مجمل الربح</span><b className={'num' + (isY.gross < 0 ? ' neg' : '')}>{fmtBal(isY.gross)}</b><small>{isY.netSales ? (Math.round(isY.gross / isY.netSales * 1000) / 10) + '%' : '—'}</small></div>
+              <div><span>{isY.net >= 0 ? 'صافي الربح' : 'صافي الخسارة'}</span><b className={'num' + (isY.net < 0 ? ' neg' : '')}>{fmtBal(isY.net)}</b><small>{isY.netSales ? 'هامش ' + (Math.round(isY.net / isY.netSales * 1000) / 10) + '%' : '—'}</small></div>
+            </div>
+            {isY.netSales > 0 && !isY.cogs.length && <div className="note" style={{ marginTop: 8 }}>⚠ لا توجد تكلفة مواد مسجّلة في الفترة — مجمل الربح يساوي المبيعات. سجّل مشتريات المواد أو صرف المستودعات لتظهر تكلفة الطعام الحقيقية.</div>}
             <div className="tw" style={{ marginTop: 10 }}>
-              <table className="tb">
+              <table className="tb is-tb">
+                <thead><tr><th>البند</th><th style={{ textAlign: 'end' }}>المبلغ (ر.س)</th><th style={{ textAlign: 'end' }}>% من المبيعات</th></tr></thead>
                 <tbody>
-                  {A.accounts.filter(a => a.kind === 'rev' && isAgg[a.code]).map(a => (
-                    <tr key={a.code}><td>{a.name}</td><td className="num" style={{ textAlign: 'end', color: 'var(--mint)' }}>{money(balOf(a, isAgg))}</td></tr>
-                  ))}
-                  <tr style={{ fontWeight: 700 }}><td>إجمالي الإيرادات</td><td className="num" style={{ textAlign: 'end', color: 'var(--mint)' }}>{money(revP)}</td></tr>
-                  {A.accounts.filter(a => a.kind === 'exp' && isAgg[a.code]).map(a => (
-                    <tr key={a.code}><td style={{ color: 'var(--dim)' }}>{a.name}</td><td className="num" style={{ textAlign: 'end', color: 'var(--rose)' }}>({money(balOf(a, isAgg))})</td></tr>
-                  ))}
-                  <tr style={{ fontWeight: 700 }}><td>إجمالي المصروفات</td><td className="num" style={{ textAlign: 'end', color: 'var(--rose)' }}>({money(expP)})</td></tr>
-                  <tr style={{ fontWeight: 900, background: 'rgba(200,162,74,.05)' }}>
-                    <td>{netP >= 0 ? 'صافي الربح' : 'صافي الخسارة'}{revP > 0 && <span className="badge b-dim" style={{ marginInlineStart: 8 }}>هامش {Math.round(netP / revP * 1000) / 10}%</span>}</td>
-                    <td className="num" style={{ textAlign: 'end', color: netP >= 0 ? 'var(--mint)' : 'var(--rose)', fontSize: 15 }}>{money(netP)}</td>
-                  </tr>
+                  {isRowsOf(isY).map((r, i) => r.t === 'head'
+                    ? <tr key={i} className="is-head"><td colSpan={3}>{r.label}</td></tr>
+                    : <tr key={i} className={'is-' + r.t}>
+                      <td style={r.ind ? { paddingInlineStart: 26 } : undefined}>{r.label}</td>
+                      <td className={'is-amt' + (r.amt < 0 ? ' neg' : '')}><span className="num">{fmtBal(r.amt)}</span></td>
+                      <td className="is-pct"><span className="num">{isY.netSales && r.t !== 'line' ? (() => { const v = Math.round(r.amt / isY.netSales * 1000) / 10; return v < 0 ? '(' + (-v).toFixed(1) + '%)' : v.toFixed(1) + '%'; })() : ''}</span></td>
+                    </tr>)}
                 </tbody>
               </table>
             </div>
