@@ -10917,14 +10917,14 @@ function payrollRowsOf(org, advances, emps, month) {
 }
 
 // أجر ساعة العمل الإضافي — المادة 107 من نظام العمل: أجر الساعة + 50% من أجر الساعة الأساسي
-// أجر الساعة = الأجر الشهري ÷ 30 ÷ ساعات العمل اليومية. الأساس قابل للضبط: «الفعلي» (الأساسي + البدلات، افتراضي) أو «الأساسي فقط».
+// أجر الساعة = الأجر الشهري ÷ 30 ÷ ساعات العمل اليومية. الأساس قابل للضبط: «الأساسي» (افتراضي — = 1.5 × ساعة أساسية) أو «الفعلي» (الأساسي + البدلات).
 function otRateOf(e, hoursPerDay, basis) {
   const r4 = (n) => Math.round((Number(n) || 0) * 10000) / 10000;
   const H = Number(hoursPerDay) > 0 ? Number(hoursPerDay) : 8;
   const base = Number(e.baseSalary) || 0;
   const actual = base + (Number(e.housingAllowance) || 0) + (Number(e.transportAllowance) || 0) + (Number(e.otherAllowance) || 0);
   const hBasic = r4(base / 30 / H), hActual = r4(actual / 30 / H);
-  const rate = r4((basis === 'basic' ? hBasic : hActual) + 0.5 * hBasic);
+  const rate = r4((basis === 'actual' ? hActual : hBasic) + 0.5 * hBasic);
   return { H, base, actual, hBasic, hActual, rate };
 }
 // ساعات الإضافي من البصمة لشهر: يوم عمل ← (آخر خروج − أول دخول) − ساعات اليوم إن كانت موجبة؛ يوم الراحة الأسبوعية ← كل الساعات
@@ -10958,7 +10958,7 @@ function OvertimeSheet({ org, ops, me, myBranches, scoped, commit, commitOrg, sa
   const pol = { ...defaultHrPolicies(), ...(org.hrPolicies || {}) };
   const H = Number(pol.workHoursPerDay) > 0 ? Number(pol.workHoursPerDay) : 8;
   const cap = Number(pol.overtimeMaxHoursPerMonth) || 0;
-  const basis = pol.overtimeBasis === 'basic' ? 'basic' : 'actual';
+  const basis = pol.overtimeBasis === 'actual' ? 'actual' : 'basic';   // الافتراضي: الأجر الأساسي
   const canPost = rolePost(me.role) && ROLES[me.role]?.scope !== 'own';
   const brs = (myBranches || []).filter(b => b.isActive !== false);
   const emps = (org.employees || []).filter(e => brs.some(b => b.id === e.branchId) && (!bf || e.branchId === bf) && e.status !== 'terminated' && e.isActive !== false);
@@ -11035,14 +11035,14 @@ function OvertimeSheet({ org, ops, me, myBranches, scoped, commit, commitOrg, sa
         <div className="ot-eq">
           <div><span>أجر الساعة الأساسي</span><b>= الأساسي ÷ 30 ÷ {H}</b></div>
           <div><span>أجر الساعة الفعلي</span><b>= (الأساسي + البدلات) ÷ 30 ÷ {H}</b></div>
-          <div className="hl"><span>أجر ساعة الإضافي</span><b>= {basis === 'basic' ? 'أجر الساعة الأساسي' : 'أجر الساعة الفعلي'} + 50% × أجر الساعة الأساسي</b></div>
+          <div className="hl"><span>أجر ساعة الإضافي</span><b>{basis === 'basic' ? '= أجر الساعة الأساسي + 50% × أجر الساعة الأساسي = 1.5 × أجر الساعة الأساسي' : '= أجر الساعة الفعلي + 50% × أجر الساعة الأساسي'}</b></div>
           <div><span>مبلغ الإضافي</span><b>= عدد الساعات × أجر ساعة الإضافي</b></div>
           <div><span>ساعات البصمة</span><b>= ما زاد عن {H} ساعات يوميًا + كامل ساعات يوم الراحة (لأقرب ربع ساعة لأسفل)</b></div>
         </div>
         {canPost && <div className="row" style={{ gap: 6, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <span style={{ fontSize: 12.5, color: 'var(--dim)' }}>أساس أجر الساعة:</span>
+          <button className={'btn sm' + (basis === 'basic' ? ' pri' : ' gh')} onClick={() => basis !== 'basic' && setBasis('basic')}>الأجر الأساسي (= 1.5 × ساعة أساسية)</button>
           <button className={'btn sm' + (basis === 'actual' ? ' pri' : ' gh')} onClick={() => basis !== 'actual' && setBasis('actual')}>الأجر الفعلي (الأساسي + البدلات)</button>
-          <button className={'btn sm' + (basis === 'basic' ? ' pri' : ' gh')} onClick={() => basis !== 'basic' && setBasis('basic')}>الأساسي فقط (= 1.5 × ساعة أساسية)</button>
         </div>}
       </div>
       <div className="card">
@@ -12272,7 +12272,7 @@ const HR_WEEK_DAYS = [
 ];
 const defaultHrPolicies = () => ({
   workHoursPerDay: 8, weeklyOffDays: [5], lateToleranceMinutes: 15,
-  overtimeEnabled: false, overtimeMaxHoursPerMonth: 30,
+  overtimeEnabled: false, overtimeMaxHoursPerMonth: 30, overtimeBasis: 'basic',   // v36.9: أساس أجر ساعة الإضافي — الأساسي (اعتماد المالك)
   scoreWeightsEnabled: false, scoreWeights: { attendance: 25, quality: 25, tasks: 25, discipline: 25 },
   disciplineBase: 50, disciplinePointValue: 5, // م٧: محور الانضباط = القاعدة + (صافي نقاط الشهر × قيمة النقطة)، محصور 0–100
   signReminderDays: 3, // م١٠ (v27.0): بعد كم يومًا من إصدار إقرار/إشعار غير موقَّع يظهر تنبيه في مركز التنبيهات
