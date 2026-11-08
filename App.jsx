@@ -3436,6 +3436,11 @@ function PlatformApp() {
   // v31.5: الأقسام المدمجة لا تتكرر في القائمة الجانبية ما دام قسمها الأم ظاهرًا (تبقى مسموحة ويُوصل إليها من داخله)
   const NAV_PARENT = { alerts: 'analytics', approve: 'closing', shifts: 'closing', treasury: 'acct', entities: 'acct', archive: 'docs' };
   const NAV_SHOW = NAV.filter(n => !(NAV_PARENT[n.id] && NAV.some(m => m.id === NAV_PARENT[n.id])));
+  // v35.3: الشريط السفلي بأولوية العمل اليومي — الرئيسية، البيع، الإغلاق، التقارير — والباقي في «المزيد»
+  const BOT_PRI = ['home', 'pos', 'closing', 'reporting', 'acct', 'sales', 'purchasing', 'analytics'];
+  const BOT_AR = { home: 'الرئيسية', pos: 'البيع', closing: 'الإغلاق', reporting: 'التقارير', acct: 'المحاسبة', sales: 'المبيعات', purchasing: 'المشتريات', analytics: 'التحليل' };
+  const BOT_SUB = { closing: ['approve', 'shifts'], reporting: ['reports', 'rbuild', 'boardpack', 'cashflow'], acct: ['treasury', 'entities'], analytics: ['alerts', 'exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai'] };
+  const botNav = (() => { const pick = BOT_PRI.map(id => NAV_SHOW.find(n => n.id === id)).filter(Boolean); const rest = NAV_SHOW.filter(n => !BOT_PRI.includes(n.id)); const all = [...pick, ...rest]; return all.length <= 5 ? all : all.slice(0, 4); })();
 
   const shared = { org, ops, pulse, me, myBranches, scoped, commit, commitOrg, say, setTab, theme, acctIntent, openAcctView, invIntent, openInvView };
 
@@ -3530,7 +3535,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v35.2 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v35.3 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -3720,17 +3725,17 @@ function PlatformApp() {
         </div>
       {/* شريط تنقّل سفلي — يظهر على الجوال فقط */}
       <nav className="botnav">
-        {(NAV.length <= 5 ? NAV : NAV.slice(0, 4)).map(n => (
-          <button key={n.id} className={'botnav-i' + (tab === n.id ? ' on' : '')} onClick={() => { setTab(n.id); setMoreSheet(false); }}>
+        {botNav.map(n => (
+          <button key={n.id} className={'botnav-i' + (tab === n.id || (BOT_SUB[n.id] || []).includes(tab) ? ' on' : '')} onClick={() => { setTab(n.id); setMoreSheet(false); }}>
             <n.icon size={20} />
-            <span>{n.ar.split(' ')[0]}</span>
+            <span>{BOT_AR[n.id] || n.ar.split(' ')[0]}</span>
             {n.cnt > 0 && <span className="bdg">{n.cnt}</span>}
           </button>
         ))}
-        {NAV.length > 5 && (
+        {NAV.length > botNav.length && (
           <button className={'botnav-i botnav-more' + (moreSheet ? ' on' : '')} onClick={() => setMoreSheet(v => !v)}>
             <Grid3x3 size={20} />
-            <span>الأقسام</span>
+            <span>المزيد</span>
             {(pending + unread) > 0 && !moreSheet && <span className="bdg">{pending + unread}</span>}
           </button>
         )}
@@ -19543,7 +19548,93 @@ const CAT_CLR = {
 };
 
 // واجهة البداية بنمط شبكة التطبيقات (Odoo-style) — الشاشة الرئيسية v9.1
-function Launcher({ org, ops, me, setTab, openAcctView, openInvView }) {
+/* ===== v35.3 — لوحة «اليوم» أعلى الرئيسية =====
+   أرقام حقيقية فقط من الإغلاقات المرحّلة/المعتمدة ونقطة البيع — بلا تقديرات.
+   مبيعات الفرع اليوم: إغلاقه إن رُحّل، وإلا مبيعات نقطة البيع الحيّة (موسومة «مباشر»). */
+const brCnt = (n) => n === 1 ? 'فرع واحد' : n === 2 ? 'فرعان' : n + (n >= 3 && n <= 10 ? ' فروع' : ' فرعًا');
+const moneyP = (n) => (Number(n) || 0) < 0 ? '(' + money(-n) + ')' : money(n);
+function TodayPanel({ ops, me, myBranches, scoped, setTab }) {
+  const [allBr, setAllBr] = useState(false);
+  const R = ROLES[me.role] || {};
+  const td = today();
+  const yd = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return isoD(d); })();
+  const w7 = (() => { const d = new Date(); d.setDate(d.getDate() - 6); return isoD(d); })();
+  const brs = (myBranches || []).filter(b => b.isActive !== false);
+  if (!brs.length) return null;
+  const cls = (scoped?.closings || []);
+  const counted = cls.filter(countedClosing);
+  const rows = brs.map(b => {
+    const bc = counted.filter(c => c.branchId === b.id && c.date === td);
+    if (bc.length) return { b, v: sum(bc, c => c.totalRevenue), st: 'closed', var: sum(bc, c => c.variance) };
+    const ps = salesDaySource(ops || {}, b.id, td);
+    if (ps.n || ps.total) return { b, v: Number(ps.total) || 0, st: 'live', n: ps.n };
+    const dr = cls.some(c => c.branchId === b.id && c.date === td && c.status === 'draft');
+    return { b, v: 0, st: dr ? 'draft' : 'none' };
+  }).sort((a, b) => b.v - a.v);
+  const salesT = sum(rows, r => r.v);
+  const salesY = sum(counted.filter(c => c.date === yd), c => c.totalRevenue);
+  const closedN = rows.filter(r => r.st === 'closed').length;
+  const varW = counted.filter(c => c.date >= w7);
+  const varSum = sum(varW, c => c.variance);
+  const shortBr = new Set(varW.filter(c => (Number(c.variance) || 0) < 0).map(c => c.branchId)).size;
+  const pendL = cls.filter(c => c.status === 'submitted');
+  const pendShort = pendL.filter(c => (Number(c.variance) || 0) < 0);
+  const tabs = R.tabs || [];
+  const can = (t) => tabs.includes(t) || (me.appAllow || []).some(id => (LAUNCH_IX[id]?.open?.tab) === t);
+  const approver = !!R.approver && (can('approve') || can('closing'));
+  const qa = [
+    { t: 'pos', ar: 'نقطة البيع', ic: Store, pri: true },
+    { t: 'closing', ar: 'إغلاق اليوم', ic: ClipboardCheck },
+    { t: 'purchasing', ar: 'المشتريات', ic: Truck },
+    { t: 'reporting', ar: 'التقارير', ic: FileBarChart },
+    { t: 'acct', ar: 'المحاسبة', ic: Scale }
+  ].filter(x => can(x.t)).slice(0, 4);
+  const stAr = { closed: 'مُغلق', live: 'مباشر', draft: 'مسودة', none: 'لم يُغلق' };
+  const shown = allBr ? rows : rows.slice(0, 5);
+  return (
+    <div className="tdy">
+      {approver && pendL.length > 0 && (
+        <button type="button" className="tdy-act" onClick={() => setTab(can('approve') ? 'approve' : 'closing')}>
+          <span className="tdy-act-n num">{pendL.length}</span>
+          <span className="tdy-act-t"><b>إغلاقات بانتظار اعتمادك</b>
+            {pendShort.length > 0
+              ? <small className="neg">{pendShort.length === 1 ? 'أحدها بعجز' : pendShort.length + ' منها بعجز'} <span className="num">{moneyP(sum(pendShort, c => c.variance))}</span></small>
+              : <small>بلا عجز — راجعها واعتمدها</small>}
+          </span>
+          <span className="tdy-act-go" aria-hidden="true">←</span>
+        </button>
+      )}
+      <div className="tdy-kpis">
+        <div className="tdy-k"><span className="tdy-kl">مبيعات اليوم</span><span className="tdy-kv num">{money(salesT)}</span>
+          <span className="tdy-ks">أمس <span className="num">{money(salesY)}</span></span></div>
+        <div className="tdy-k"><span className="tdy-kl">إغلاقات اليوم</span><span className="tdy-kv num">{closedN}/{brs.length}</span>
+          <span className={'tdy-ks' + (closedN === brs.length ? ' pos' : '')}>{closedN === brs.length ? 'كل الفروع أُغلقت' : brCnt(brs.length - closedN) + ' لم يُرحَّل'}</span></div>
+        <div className="tdy-k"><span className="tdy-kl">فروقات الصناديق</span><span className={'tdy-kv num' + (varSum < 0 ? ' neg' : '')}>{moneyP(varSum)}</span>
+          <span className={'tdy-ks' + (shortBr ? ' neg' : '')}>آخر 7 أيام{shortBr ? ' · ' + brCnt(shortBr) + ' بعجز' : ''}</span></div>
+        <div className="tdy-k"><span className="tdy-kl">بانتظار الاعتماد</span><span className="tdy-kv num">{pendL.length}</span>
+          <span className="tdy-ks">{pendL.length ? 'بقيمة ' + money(sum(pendL, c => c.totalRevenue)) : 'لا شيء معلّق'}</span></div>
+      </div>
+      {qa.length > 0 && (
+        <div className="tdy-qa">
+          {qa.map(x => <button key={x.t} type="button" className={'tdy-q' + (x.pri ? ' pri' : '')} onClick={() => setTab(x.t)}><x.ic size={18} />{x.ar}</button>)}
+        </div>
+      )}
+      <div className="tdy-br">
+        <div className="tdy-brh"><b>الفروع اليوم</b><small>الإغلاق المرحّل أولًا، وإلا مبيعات نقطة البيع الحيّة</small></div>
+        {shown.map(r => (
+          <div key={r.b.id} className="tdy-bri">
+            <span className="tdy-brn">{r.b.name}</span>
+            <span className={'tdy-st ' + r.st}>{stAr[r.st]}</span>
+            <span className="num tdy-brv">{r.st === 'none' || r.st === 'draft' ? '—' : money(r.v)}</span>
+          </div>
+        ))}
+        {rows.length > 5 && <button type="button" className="tdy-more" onClick={() => setAllBr(v => !v)}>{allBr ? 'عرض أقل' : 'كل الفروع (' + rows.length + ')'}</button>}
+      </div>
+    </div>
+  );
+}
+
+function Launcher({ org, ops, me, myBranches, scoped, setTab, openAcctView, openInvView }) {
   const [q, setQ] = useState('');
   const [bump, setBump] = useState(0);
   const u = appUseGet(me.id);
@@ -19724,12 +19815,14 @@ function Launcher({ org, ops, me, setTab, openAcctView, openInvView }) {
         : <div className="lh-wm mark">{(org.company?.name || 'م').trim().charAt(0) || 'م'}</div>}
     </div>
     <div className="lh">
-      <p className="lh-hi">{greet} يا <b>{(me.name || '').split(' ')[0]}</b> — كل تطبيقاتك أمامك. اضغط أي تطبيق لفتحه، والنجمة لتثبيته في المفضلة، واسحبه (أو اضغط عليه مطوّلًا بالجوال) لنقله حيث تشاء.</p>
+      <p className="lh-hi">{greet} يا <b>{(me.name || '').split(' ')[0]}</b> · <span>{new Date().toLocaleDateString('ar-SA-u-ca-gregory-nu-latn', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span></p>
       <div className="lh-role"><span className="pill">{(ROLES[me.role]?.ar || me.role).split('—')[0].trim()} · {shown.length} تطبيقاً</span></div>
       <div className="lh-search">
         <Search size={15} className="lh-si" />
         <input className="inp" placeholder="ابحث عن تطبيق أو قسم… (جرّب: تعادل، رواتب، تدفق نقدي)" value={q} onChange={e => setQ(e.target.value)} />
       </div>
+
+      {!qq && <TodayPanel ops={ops} me={me} myBranches={myBranches} scoped={scoped} setTab={setTab} />}
 
       {qq && matchedSecs.length > 0 && (
         <div className="lh-sec">
