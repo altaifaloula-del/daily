@@ -2108,6 +2108,7 @@ const TAB_AR = {
 };
 // ═══ ثيمات المنصّة الاحترافية (١١ أسلوب تصميم كامل) × وضع ليل/نهار — v14.7 ═══
 const THEME_META = {
+  mizan: { name: 'ميزان 2 (الافتراضي)', desc: 'واضح احترافي', color: '#C9A24D' },
   royal: { name: 'الملكي الذهبي', desc: 'فخم دافئ', color: '#A87D28' },
   glass: { name: 'الزجاجي الشفّاف', desc: 'بطاقات ضبابية', color: '#2E7CC4' },
   minimal: { name: 'النقي المسطّح', desc: 'بسيط بلا ظلال', color: '#46525E' },
@@ -2120,9 +2121,9 @@ const THEME_META = {
   paper: { name: 'الورقي الكلاسيكي', desc: 'دفتر أستاذ', color: '#A6321F' },
   carbon: { name: 'الصناعي الفحمي', desc: 'لوحة تقنية', color: '#F59E0B' }
 };
-const THEME_ORDER = ['royal', 'glass', 'minimal', 'elevated', 'corporate', 'saudi', 'neon', 'desert', 'pastel', 'paper', 'carbon'];
+const THEME_ORDER = ['mizan', 'royal', 'glass', 'minimal', 'elevated', 'corporate', 'saudi', 'neon', 'desert', 'pastel', 'paper', 'carbon'];
 const THEME_LEGACY = { gold: 'royal', charcoal: 'royal', bronze: 'royal', terra: 'royal', lite: 'royal', dark: 'royal', blue: 'glass', teal: 'glass', midnight: 'glass', slate: 'minimal', navy: 'corporate', purple: 'elevated', wine: 'elevated', emerald: 'saudi' };
-const normTheme = (t) => THEME_META[t] ? t : (THEME_LEGACY[t] || 'royal');
+const normTheme = (t) => THEME_META[t] ? t : (THEME_LEGACY[t] || 'mizan');
 // v15.6: قراءة وضع النهار/الليل المحفوظ — تُستخدم في شاشات ما قبل الدخول التي لا تملك حالة mode
 const readMode = () => { try { return localStorage.getItem('rms8:mode') === 'dark' ? 'dark' : 'light'; } catch { return 'light'; } };
 const themeCls = (t, mode) => 'rms mode-' + (mode === 'dark' ? 'dark' : 'light') + ' thm-' + normTheme(t);
@@ -2485,7 +2486,7 @@ const ERRLOG_KEY = 'mizan:errlog';
 function logClientError(err, where) {
   try {
     const a = JSON.parse(localStorage.getItem(ERRLOG_KEY) || '[]');
-    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v34.17' });
+    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v35.0' });
     localStorage.setItem(ERRLOG_KEY, JSON.stringify(a.slice(0, 20)));
   } catch { }
 }
@@ -2509,7 +2510,7 @@ class ErrorBoundary extends React.Component {
         </div>
         <div className="num" style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 10, direction: 'ltr' }}>{String(this.state.err && this.state.err.message).slice(0, 160)}</div>
       </div>);
-    return full ? <div className="rms mode-dark thm-royal" style={{ minHeight: '100vh', background: '#14110f', padding: 16 }}>{box}</div> : box;
+    return full ? <div className="rms mode-dark thm-mizan" style={{ minHeight: '100vh', background: '#141210', padding: 16 }}>{box}</div> : box;
   }
 }
 export { ErrorBoundary, logClientError };
@@ -2547,7 +2548,7 @@ function PlatformApp() {
   const [toast, setToast] = useState(null);
   const [bell, setBell] = useState(false);
   const [lastSeenAudit, setLastSeenAudit] = useState(() => Date.now());
-  const [theme, setTheme] = useState(() => { try { return normTheme(localStorage.getItem('rms8:theme') || 'gold'); } catch { return 'gold'; } });
+  const [theme, setTheme] = useState(() => { try { if (localStorage.getItem('rms8:themeV35') !== '1') { localStorage.setItem('rms8:themeV35', '1'); localStorage.setItem('rms8:theme', 'mizan'); return 'mizan'; } return normTheme(localStorage.getItem('rms8:theme') || 'mizan'); } catch { return 'mizan'; } });
   const [mode, setMode] = useState(() => { try { return localStorage.getItem('rms8:mode') === 'dark' ? 'dark' : 'light'; } catch { return 'light'; } });
   const [tour, setTour] = useState(false);
   const [live, setLive] = useState(false);
@@ -3529,7 +3530,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v34.17 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v35.0 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -8176,7 +8177,11 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const css = `.pos-wrap{display:grid;grid-template-columns:1fr 360px;gap:12px;align-items:start}
   .pos-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:9px}
   .pos-tile{border:1px solid var(--line-g);border-radius:14px;background:var(--ink2);padding:12px 8px;min-height:92px;display:flex;flex-direction:column;justify-content:space-between;gap:6px;cursor:pointer;text-align:center;font:inherit;color:var(--txt)}
-  .pos-tile:active{transform:scale(.97)} .pos-tile b{font-size:13.5px;line-height:1.4} .pos-tile span{font-size:14px;font-weight:800;color:var(--brass)}
+  .pos-tile:active{transform:scale(.97)} .pos-tile b{font-size:14.5px;line-height:1.4} .pos-tile .num{font-size:15px;font-weight:700;color:var(--txt)}
+  .pos-tile.on{border:2px solid var(--brand-fill,var(--brass));padding:11px 7px}
+  .pos-tile-f{display:flex;align-items:center;justify-content:center;gap:8px}
+  .pos-qty{font-size:12px !important;font-weight:800 !important;background:var(--brand-fill,var(--brass));color:var(--brand-ink,#1a1410) !important;border-radius:999px;padding:1px 9px}
+  .pos-pay-card{background:var(--txt) !important;background-image:none !important;color:var(--ink2) !important;border-color:transparent !important}
   .pos-cart{position:sticky;top:8px} .pos-line{display:flex;align-items:center;gap:6px;padding:7px 0;border-bottom:1px solid var(--line)}
   .pos-qb{width:34px;height:34px;border-radius:9px;border:1px solid var(--line-g);background:var(--ink3);font-size:18px;cursor:pointer;color:var(--txt)}
   .pos-pay{width:100%;padding:16px 0;font-size:17px;font-weight:800}
@@ -8244,7 +8249,7 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
         <div className="row" style={{ justifyContent: 'space-between', fontSize: 19, fontWeight: 800, margin: '6px 0 10px' }}><span>الإجمالي</span><span className="num">{money(T.total)}</span></div>
         <div className="grid g2" style={{ gap: 6 }}>
           <button className="btn pri pos-pay" onClick={() => setPay({ parts: [{ m: 'cash', amount: String(T.total) }] })}>نقدي</button>
-          <button className="btn pri pos-pay" onClick={() => setPay({ parts: [{ m: 'card', amount: String(T.total) }] })}>شبكة</button>
+          <button className="btn pri pos-pay pos-pay-card" onClick={() => setPay({ parts: [{ m: 'card', amount: String(T.total) }] })}>شبكة</button>
         </div>
         <div className="row" style={{ gap: 6, marginTop: 6 }}>
           <button className="btn sm" style={{ flex: 1 }} onClick={() => setPay({ parts: [{ m: 'cash', amount: '' }, { m: 'card', amount: '' }] })}>تقسيم الدفع</button>
@@ -8287,7 +8292,7 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
               <button className={'btn sm' + (!cat ? ' pri' : ' gh')} onClick={() => setCat('')}>الكل</button>
               {cats.map(c => <button key={c} className={'btn sm' + (cat === c ? ' pri' : ' gh')} onClick={() => setCat(c)}>{c}</button>)}
             </div>
-            <div className="pos-tiles">{shown.map(p => { const tg = tileTag(p); return <button key={p.id} className="pos-tile" onClick={() => add(p)}>{tg && <i style={{ fontStyle: 'normal', fontSize: 10, background: 'var(--mint)', color: '#fff', borderRadius: 6, padding: '1px 6px', alignSelf: 'center' }}>🏷 {tg}</i>}<b>{p.name}</b><span className="num">{money(p.sellPrice)}</span></button>; })}</div>
+            <div className="pos-tiles">{shown.map(p => { const tg = tileTag(p); const inCart = cart.filter(l => l.productId === p.id).reduce((a, l) => a + l.qty, 0); return <button key={p.id} className={'pos-tile' + (inCart ? ' on' : '')} onClick={() => add(p)}>{tg && <i style={{ fontStyle: 'normal', fontSize: 10, background: 'var(--mint)', color: '#fff', borderRadius: 6, padding: '1px 6px', alignSelf: 'center' }}>🏷 {tg}</i>}<b>{p.name}</b><span className="pos-tile-f"><span className="num">{money(p.sellPrice)}</span>{inCart > 0 && <span className="num pos-qty" dir="ltr" style={{ unicodeBidi: 'isolate' }}>×{inCart}</span>}</span></button>; })}</div>
             {!shown.length && (q.trim() || cat ? <div className="card"><div className="empty">لا نتائج.</div></div>
               : <PosQuickProducts org={org} commitOrg={commitOrg} say={say} canAdd={!!R.admin} />)}
             {!!shown.length && R.admin && <div><button className="btn sm gh" onClick={() => setQuickP(x => !x)}><Plus size={12} />إضافة/تسعير أصناف</button></div>}
@@ -26761,7 +26766,7 @@ function QrRatePublic({ branchId }) {
   };
 
   const shell = (children) => (
-    <div className={themeCls('royal', readMode())} style={{ minHeight: '100vh', background: 'var(--ink)', color: 'var(--txt)' }}>
+    <div className={themeCls('mizan', readMode())} style={{ minHeight: '100vh', background: 'var(--ink)', color: 'var(--txt)' }}>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
       <main style={{ maxWidth: 560, margin: '0 auto', padding: '16px 14px 40px' }}>{children}</main>
     </div>
