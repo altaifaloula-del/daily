@@ -958,6 +958,24 @@ td.num,th.num{display:table-cell}
 .is-tb tr.is-total td{font-weight:800;background:rgba(201,162,77,.07);border-top:1px solid var(--line2,var(--line))}
 .is-tb tr.is-net td{font-weight:900;font-size:15px;border-top:3px double var(--txt)}
 .is-tb tr.bad td{color:var(--rose)}
+.fc-list{display:grid;gap:10px}
+.fc-row{padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--ink2);display:grid;gap:7px}
+.fc-row.bad{border-color:color-mix(in srgb,var(--rose) 45%,var(--line))}
+.fc-h{display:flex;align-items:center;gap:8px;min-width:0}
+.fc-h b{font-size:14px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fc-p{font-size:17px;font-weight:800;min-width:64px;text-align:left}
+.fc-st{font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--dim);white-space:nowrap}
+.fc-st.ok{color:var(--mint);border-color:color-mix(in srgb,var(--mint) 45%,transparent)}
+.fc-st.warn{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 45%,transparent)}
+.fc-st.bad{color:var(--rose);border-color:color-mix(in srgb,var(--rose) 45%,transparent)}
+.fc-row.bad .fc-p{color:var(--rose)}.fc-row.warn .fc-p{color:var(--amber)}.fc-row.ok .fc-p{color:var(--mint)}
+.fc-bar{position:relative;height:8px;border-radius:999px;background:color-mix(in srgb,var(--txt) 8%,transparent);overflow:visible}
+.fc-bar span{position:absolute;inset-block:0;inset-inline-start:0;border-radius:999px;background:var(--mint)}
+.fc-row.warn .fc-bar span{background:var(--amber)}.fc-row.bad .fc-bar span{background:var(--rose)}
+.fc-bar i{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--txt);opacity:.7;border-radius:1px}
+.fc-s{font-size:11.5px;color:var(--faint)}
+.fc-tr .fc-c{text-align:center;font-weight:600}
+.fc-tr .fc-c.ok{color:var(--mint)}.fc-tr .fc-c.warn{color:var(--amber)}.fc-tr .fc-c.bad{color:var(--rose)}.fc-tr .fc-c.gap,.fc-tr .fc-c.na{color:var(--faint)}
 .vck{display:grid;gap:6px}
 .vck-i{display:flex;gap:8px;align-items:flex-start;font-size:13px;line-height:1.7;padding:7px 10px;border-radius:10px;background:var(--ink2);border:1px solid var(--line)}
 .vck-i span{font-weight:800;flex-shrink:0;width:16px;text-align:center}
