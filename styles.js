@@ -886,6 +886,59 @@ body.lh-dragging *{cursor:grabbing !important}
 .lh{max-width:1080px;margin:0 auto}
 .lh-hi{text-align:center;font-size:13px;color:var(--dim);margin-bottom:4px}
 .lh-hi b{color:var(--txt)}
+/* v35.5 — حركات أيقونات التطبيقات */
+.ag *{transform-box:fill-box}
+.ag .bgf{fill:var(--ink2)}.rms.thm-mizan .ag .bgf{fill:var(--g,var(--c))}
+.ag .p-draw{stroke-dasharray:1;stroke-dashoffset:0}
+.ag .p-speed{opacity:0}
+.ag .p-scan{opacity:0;stroke:var(--brand-fill,var(--brass))}.rms.thm-mizan .ag .p-scan{stroke:#fff}
+.ag .p-card{transform:translateY(3px)}
+@keyframes ag-rcpt{0%,100%{transform:translateY(0)}18%,40%{transform:translateY(-4px)}55%{transform:translateY(0)}}
+@keyframes ag-draw{0%{stroke-dashoffset:1}35%,100%{stroke-dashoffset:0}}
+@keyframes ag-flip{0%{transform:scaleX(1)}15%{transform:scaleX(-1)}30%,100%{transform:scaleX(1)}}
+@keyframes ag-swing{0%{transform:rotate(0)}10%{transform:rotate(55deg)}20%{transform:rotate(-30deg)}30%{transform:rotate(15deg)}40%,100%{transform:rotate(0)}}
+@keyframes ag-ring{0%{transform:rotate(0)}6%{transform:rotate(16deg)}12%{transform:rotate(-14deg)}18%{transform:rotate(10deg)}24%{transform:rotate(-6deg)}30%,100%{transform:rotate(0)}}
+@keyframes ag-clap{0%{transform:translateX(0)}6%{transform:translateX(1.5px)}12%{transform:translateX(-1.5px)}18%{transform:translateX(1px)}24%,100%{transform:translateX(0)}}
+@keyframes ag-bar{0%{transform:scaleY(.2)}30%,100%{transform:scaleY(1)}}
+@keyframes ag-tilt{0%{transform:rotate(0)}10%{transform:rotate(-10deg)}22%{transform:rotate(7deg)}32%{transform:rotate(-3deg)}40%,100%{transform:rotate(0)}}
+@keyframes ag-pop{0%{transform:scale(1)}12%{transform:scale(1.35)}26%,100%{transform:scale(1)}}
+@keyframes ag-drive{0%{transform:translateX(0)}8%{transform:translate(-1px,-1px)}16%{transform:translate(-2px,0)}24%{transform:translate(-1px,-1px)}34%,100%{transform:translateX(0)}}
+@keyframes ag-speed{0%{opacity:0;transform:translateX(0)}10%{opacity:1}34%{opacity:0;transform:translateX(5px)}100%{opacity:0}}
+@keyframes ag-lid{0%{transform:rotate(0)}14%,30%{transform:rotate(-24deg) translateY(-1px)}42%,100%{transform:rotate(0)}}
+@keyframes ag-scan{0%{transform:translateY(-9px);opacity:0}6%{opacity:1}36%{transform:translateY(9px);opacity:1}42%,100%{transform:translateY(9px);opacity:0}}
+@keyframes ag-peek{0%{transform:translateX(-5px);opacity:0}25%,100%{transform:translateX(0);opacity:1}}
+@keyframes ag-stamp{0%{transform:translateY(0)}12%{transform:translateY(-4px)}20%{transform:translateY(2px)}30%,100%{transform:translateY(0)}}
+@keyframes ag-mark{0%,18%{opacity:0}24%,100%{opacity:1}}
+@keyframes ag-spin{0%{transform:rotate(0)}40%,100%{transform:rotate(90deg)}}
+@keyframes ag-card{0%{transform:translateY(3px)}20%{transform:translateY(-3px)}38%,100%{transform:translateY(3px)}}
+@keyframes ag-blink{0%,100%{transform:scaleY(1)}10%{transform:scaleY(.1)}20%,100%{transform:scaleY(1)}}
+@keyframes ag-drop{0%{transform:translateY(-3px);opacity:.3}25%,100%{transform:translateY(0);opacity:1}}
+@keyframes ag-pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--mint) 65%,transparent)}70%,100%{box-shadow:0 0 0 8px transparent}}
+.lh-box.go .p-rcpt{animation:ag-rcpt 2.8s ease}
+.lh-box.go .p-draw{animation:ag-draw 2.8s ease}
+.lh-box.go .p-flip{animation:ag-flip 2.8s ease;transform-origin:center}
+.lh-box.go .p-swing{animation:ag-swing 2.8s ease;transform-origin:center}
+.lh-box.go .p-ring{animation:ag-ring 2.8s ease;transform-origin:50% 0}
+.lh-box.go .p-clap{animation:ag-clap 2.8s ease}
+.lh-box.go .p-bar{animation:ag-bar 2.8s ease;transform-origin:50% 100%}
+.lh-box.go .b2{animation-delay:.08s}.lh-box.go .b3{animation-delay:.16s}
+.lh-box.go .p-tilt{animation:ag-tilt 2.8s ease;transform-origin:50% 0}
+.lh-box.go .p-pop{animation:ag-pop 2.8s ease;transform-origin:center}
+.lh-box.go .p-drive,.lh-box.live .p-drive{animation:ag-drive 2.8s ease;}
+.lh-box.go .p-speed,.lh-box.live .p-speed{animation:ag-speed 2.8s ease}
+.lh-box.live .p-drive,.lh-box.live .p-speed{animation-duration:1.4s;animation-iteration-count:infinite}
+.lh-box.go .p-lid{animation:ag-lid 2.8s ease;transform-origin:0 100%}
+.lh-box.go .p-scan{animation:ag-scan 2.8s ease}
+.lh-box.go .p-peek{animation:ag-peek 2.8s ease}
+.lh-box.go .p-stamp{animation:ag-stamp 2.8s ease}
+.lh-box.go .p-mark{animation:ag-mark 2.8s ease}
+.lh-box.go .p-spin{animation:ag-spin 2.8s ease;transform-origin:center}
+.lh-box.go .p-card{animation:ag-card 2.8s ease}
+.lh-box.go .p-blink{animation:ag-blink 2.8s ease;transform-origin:center}
+.lh-box.go .p-drop{animation:ag-drop 2.8s ease}
+.lh-box.live .p-draw{animation:ag-draw 2.8s ease infinite}
+.lh-dot{position:absolute;bottom:7px;inset-inline-start:7px;width:11px;height:11px;border-radius:50%;background:var(--mint);border:2px solid #fff;animation:ag-pulse 1.8s ease-out infinite}
+@media (prefers-reduced-motion: reduce){.lh-box *,.lh-dot{animation:none!important}}
 .is-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px}
 .is-kpis>div{display:flex;flex-direction:column;gap:3px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--ink2);min-width:0}
 .is-kpis>div:last-child{background:var(--side-bg,#1F1C18);border-color:transparent;color:#EFEAE1}
@@ -1133,8 +1186,9 @@ td.num,th.num{display:table-cell}
 .rms.thm-mizan .note{background:var(--ink3);border:1px solid var(--line);border-radius:12px;color:var(--txt)}
 .rms.thm-mizan .note::before{display:none}
 /* شاشة التطبيقات (الرئيسية) */
-.rms.thm-mizan .lh-box{background:var(--ink2);border:1px solid var(--line);box-shadow:none}
-.rms.thm-mizan .lh-tile:hover .lh-box{border-color:color-mix(in srgb,var(--brand-fill) 60%,var(--line))}
+.rms.thm-mizan .lh-box{--g:color-mix(in srgb,var(--c) 88%,#000);background:linear-gradient(150deg,color-mix(in srgb,var(--c) 78%,#fff),var(--g));color:#fff;border:0;box-shadow:0 8px 16px -8px color-mix(in srgb,var(--c) 75%,transparent)}
+.rms.thm-mizan .lh-tile:hover .lh-box{box-shadow:0 12px 22px -10px color-mix(in srgb,var(--c) 85%,transparent)}
+.rms.thm-mizan .lh-box svg{stroke-width:1.8}
 .rms.thm-mizan .lh-bg::before,.rms.thm-mizan .lh-bg::after{background:none;content:none}
 /* لمس مريح على الجوال والآيباد */
 @media(max-width:900px){
