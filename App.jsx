@@ -3609,7 +3609,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark"><MizanMark size={24} /></span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v36.2</span>
+            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v36.3</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -20727,6 +20727,13 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const tbEntries = A.entries.filter(e => inPeriod(e, from, to) && byBranch(e));
   const tbAgg = aggOf(tbEntries);
   const tbD = sum(tbEntries, e => e.debit), tbC = sum(tbEntries, e => e.credit);
+  // v36.3: رصيد أول المدة (ما قبل «من») وآخرها — بنفس تصفية الفرع
+  const tbOpAgg = from ? aggOf(A.entries.filter(e => (e.date || '') < from && byBranch(e))) : {};
+  const TB_VAT = ['1501', '2301', '2302'];
+  const tbShow = (a) => !!(tbAgg[a.code] || tbOpAgg[a.code] || ((org.taxCfg || {}).enabled && TB_VAT.includes(a.code)));
+  const tbOpen = (a) => tbOpAgg[a.code] ? balOf(a, tbOpAgg) : 0;
+  const tbMov = (a) => tbAgg[a.code] || { debit: 0, credit: 0 };
+  const tbClose = (a) => { const m = tbMov(a); return Math.round((tbOpen(a) + ((a.kind === 'asset' || a.kind === 'exp') ? m.debit - m.credit : m.credit - m.debit)) * 100) / 100; };
   const fsEntries = A.entries.filter(e => inPeriod(e, from, to) && !e.closing);  // قائمة الدخل بالفترة (تستثني قيد الإقفال السنوي)
   const fsAgg = aggOf(fsEntries);
   const bsEntries = A.entries.filter(e => inPeriod(e, '', to));        // المركز المالي تراكمي حتى تاريخ
@@ -20949,13 +20956,46 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
       rateOk: effRate == null || Math.abs(effRate - taxRate) < 0.15
     };
   })();
+  // ===== v36.3 — مطابقة حسابات الضريبة في ميزان المراجعة مع الإقرار =====
+  // للفترة نفسها: حركة 2301 (دائن − مدين) و1501 (مدين − دائن) من القيود التشغيلية (بلا قيود الإقفال/السداد الضريبي)
+  // يجب أن تساوي ضريبة المخرجات/المدخلات في الإقرار. أي فرق يُردّ إلى قيود محددة تُعرض بالاسم.
+  const vatRec = (() => {
+    if (!taxOn) return null;
+    const pe = A.entries.filter(e => inPeriod(e, from, to) && !e.closing);
+    const isTaxSettle = (e) => e.src === 'إقفال ضريبي' || e.src === 'سداد ضريبة';
+    const opE = pe.filter(e => !isTaxSettle(e));
+    const mv = (code, es) => { let d = 0, c = 0; es.forEach(e => e.lines.forEach(l => { if (l.code === code) { d += l.debit; c += l.credit; } })); return { d: r2x(d), c: r2x(c) }; };
+    const o = mv('2301', opE), i = mv('1501', opE);
+    const tbOut = r2x(o.c - o.d), tbIn = r2x(i.d - i.c);
+    const dOut = r2x(tbOut - vsum.out), dIn = r2x(tbIn - vsum.inn);
+    // أسباب الفرق: (أ) قيود تمسّ الحسابين بلا أثر ضريبي مسجّل (قيد يدوي، سداد قديم، استيراد) — (ب) قيود أثرها الضريبي لا يطابق سطرها
+    const causes = [];
+    opE.forEach(e => {
+      const a = mv('2301', [e]), b = mv('1501', [e]); const lo = r2x(a.c - a.d), li = r2x(b.d - b.c);
+      if (!lo && !li) return;
+      const vo = e.vat ? r2x(e.vat.out) : 0, vi = e.vat ? r2x(e.vat.inn) : 0;
+      if (Math.abs(lo - vo) > 0.009 || Math.abs(li - vi) > 0.009)
+        causes.push({ date: e.date, title: e.title, src: e.src, ref: e.ref || '', out: r2x(lo - vo), inn: r2x(li - vi), why: e.vat ? 'مبلغ السطر لا يطابق الأثر الضريبي للقيد' : 'قيد على حساب الضريبة بلا أثر في الإقرار' });
+    });
+    // فحص الوعاء: ضريبة المخرجات مقابل الإيراد المسجّل في 4101/4102 × النسبة (يكشف مبيعات سُجّلت بلا ضريبة)
+    const r1 = mv('4101', pe), r2 = mv('4102', pe);
+    const revNet = r2x(r1.c - r1.d + r2.c - r2.d);
+    const expOut = r2x(revNet * taxRate / 100);
+    const dBase = r2x(vsum.out - expOut);
+    const untaxed = pe.filter(e => !isTaxSettle(e) && !e.vat && e.lines.some(l => (l.code === '4101' || l.code === '4102') && l.credit > 0.004))
+      .map(e => ({ date: e.date, title: e.title, src: e.src, amt: r2x(sum(e.lines.filter(l => l.code === '4101' || l.code === '4102'), l => l.credit - l.debit)) }));
+    const s2 = mv('2302', pe);
+    return { tbOut, tbIn, dOut, dIn, causes, revNet, expOut, dBase, untaxed, o, i, closeCr: r2x(s2.c), payDr: r2x(s2.d),
+      ok: Math.abs(dOut) < 0.01 && Math.abs(dIn) < 0.01 };
+  })();
   const vatChecks = [
+    vatRec && (vatRec.ok ? { s: 'ok', t: 'ميزان المراجعة يطابق الإقرار: حركة 2301 = ' + money(vatRec.tbOut) + ' وحركة 1501 = ' + money(vatRec.tbIn) } : { s: 'bad', t: 'ميزان المراجعة لا يطابق الإقرار — فرق المخرجات ' + fmtBal(vatRec.dOut) + ' وفرق المدخلات ' + fmtBal(vatRec.dIn) + ' (التفاصيل في ميزان المراجعة)' }),
     !(from && to) ? { s: 'warn', t: 'لم تُحدَّد فترة الإقرار — الأرقام لكامل المدة. اضغط «الربع الحالي» أو حدّد الفترة.' } : { s: 'ok', t: 'فترة الإقرار: ' + from + ' ← ' + to },
     vatX.rateOk ? { s: 'ok', t: 'النسبة الفعلية للمخرجات ' + (vatX.effRate == null ? '—' : vatX.effRate + '%') + ' تطابق النسبة المعتمدة ' + taxRate + '%' } : { s: 'bad', t: 'النسبة الفعلية للمخرجات ' + vatX.effRate + '% لا تطابق ' + taxRate + '% — راجع مبيعات مسجّلة بنسبة مختلفة أو بلا ضريبة' },
     vatX.noVatSup.n ? { s: 'bad', t: vatX.noVatSup.n + ' فاتورة مورد بضريبة مدخلات ' + money(vatX.noVatSup.vat) + ' من موردين بلا رقم ضريبي في جهات الاتصال — قد لا تُقبل للخصم' } : { s: 'ok', t: 'كل فواتير الموردين ذات الضريبة لموردين لهم رقم ضريبي' },
     vatX.noRcpt.n ? { s: 'warn', t: vatX.noRcpt.n + ' مصروف وردية بضريبة ' + money(vatX.noRcpt.vat) + ' بلا صورة أو رقم إيصال — احتفظ بالفاتورة الضريبية لإثبات الخصم' } : { s: 'ok', t: 'مصروفات الورديات ذات الضريبة موثّقة بإيصال' },
     vatX.credits ? { s: 'warn', t: vatX.credits + ' إشعار دائن/مرتجع في الفترة — يظهر في عمود «التعديلات»' } : { s: 'ok', t: 'لا إشعارات دائنة أو مرتجعات في الفترة' }
-  ];
+  ].filter(Boolean);
   const vatFormRows = () => {
     const F = vatX.F, Z = { a: 0, adj: 0, v: 0 };
     return [
@@ -21458,13 +21498,19 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   // ===== v8.2: طباعة موحّدة لكل تقارير المحاسبة =====
   const periodSub = (from || to) ? ('الفترة: ' + (from || 'البداية') + ' ← ' + (to || today())) : 'كامل المدة حتى ' + arDate(today());
   const printTB = () => {
-    const rows = A.accounts.filter(a => tbAgg[a.code]).map(a => {
-      const x = tbAgg[a.code]; const bl = (a.kind === 'asset' || a.kind === 'exp') ? x.debit - x.credit : x.credit - x.debit;
-      return `<tr><td>${a.code} · ${a.name}</td><td class="n">${x.debit ? money(x.debit) : '—'}</td><td class="n">${x.credit ? money(x.credit) : '—'}</td><td class="n ${bl < 0 ? 'neg' : ''}">${bl < 0 ? '(' + money(-bl) + ')' : money(bl)}</td></tr>`;
+    const rows = A.accounts.filter(tbShow).map(a => {
+      const x = tbMov(a); const bl = tbClose(a); const op = tbOpen(a);
+      return `<tr${TB_VAT.includes(a.code) ? ' style="background:#fbf6ea"' : ''}><td>${a.code} · ${a.name}</td>${from ? `<td class="n">${op ? fmtBal(op) : '—'}</td>` : ''}<td class="n">${x.debit ? money(x.debit) : '—'}</td><td class="n">${x.credit ? money(x.credit) : '—'}</td><td class="n ${bl < 0 ? 'neg' : ''}">${fmtBal(bl)}</td></tr>`;
     }).join('');
+    const rec = vatRec ? `<h3 style="margin:14px 0 4px;font-size:13px">مطابقة حسابات الضريبة مع الإقرار — ${vatRec.ok ? 'مطابق ✓' : 'يوجد فرق'}</h3>
+      <table><thead><tr><th>البند</th><th>ميزان المراجعة</th><th>الإقرار</th><th>الفرق</th></tr></thead><tbody>
+      <tr><td>ضريبة المخرجات (2301)</td><td class="n">${money(vatRec.tbOut)}</td><td class="n">${money(vsum.out)}</td><td class="n">${fmtBal(vatRec.dOut)}</td></tr>
+      <tr><td>ضريبة المدخلات (1501)</td><td class="n">${money(vatRec.tbIn)}</td><td class="n">${money(vsum.inn)}</td><td class="n">${fmtBal(vatRec.dIn)}</td></tr>
+      <tr class="tot"><td>الصافي</td><td class="n">${fmtBal(r2x(vatRec.tbOut - vatRec.tbIn))}</td><td class="n">${fmtBal(vatDue)}</td><td class="n">${fmtBal(r2x(vatRec.dOut - vatRec.dIn))}</td></tr></tbody></table>
+      ${vatRec.causes.length ? '<div class="box">القيود المسببة للفرق: ' + vatRec.causes.map(c => c.date + ' · ' + c.title + ' (' + c.why + ')').join(' — ') + '</div>' : ''}` : '';
     printA4(org, 'ميزان المراجعة', periodSub + (bf ? ' · ' + (bf === 'central' ? 'القيود المركزية' : (((org.branches || []).find(b => b.id === bf) || {}).name || '')) : ' · كل الفروع'),
-      `<table><thead><tr><th>الحساب</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead><tbody>${rows}
-      <tr class="tot"><td>الإجمالي ${Math.abs(tbD - tbC) < 0.01 ? '— متوازن ✓' : ''}</td><td class="n">${money(tbD)}</td><td class="n">${money(tbC)}</td><td></td></tr></tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+      `<table><thead><tr><th>الحساب</th>${from ? '<th>أول المدة</th>' : ''}<th>مدين</th><th>دائن</th><th>${from ? 'آخر المدة' : 'الرصيد'}</th></tr></thead><tbody>${rows}
+      <tr class="tot"><td${from ? ' colspan="2"' : ''}>الإجمالي ${Math.abs(tbD - tbC) < 0.01 ? '— متوازن ✓' : ''}</td><td class="n">${money(tbD)}</td><td class="n">${money(tbC)}</td><td></td></tr></tbody></table>${rec}`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
   };
   const printCC = () => {
     const head = centers.map(c => `<th>${c.ar}</th>`).join('');
@@ -21759,9 +21805,11 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     return rows;
   };
   const tbRows = () => {
-    const rows = [['رمز الحساب', 'اسم الحساب', 'النوع', 'مدين', 'دائن', 'الرصيد']];
-    A.accounts.filter(a => tbAgg[a.code]).forEach(a => { const x = tbAgg[a.code]; rows.push([a.code, a.name, kindAr[a.kind] || a.kind, Math.round(x.debit * 100) / 100, Math.round(x.credit * 100) / 100, Math.round(balOf(a, tbAgg) * 100) / 100]); });
-    rows.push(['', 'الإجمالي', '', Math.round(tbD * 100) / 100, Math.round(tbC * 100) / 100, '']);
+    const rows = [['رمز الحساب', 'اسم الحساب', 'النوع', 'رصيد أول المدة', 'مدين', 'دائن', 'رصيد آخر المدة']];
+    A.accounts.filter(tbShow).forEach(a => { const x = tbMov(a); rows.push([a.code, a.name, kindAr[a.kind] || a.kind, Math.round(tbOpen(a) * 100) / 100, Math.round(x.debit * 100) / 100, Math.round(x.credit * 100) / 100, tbClose(a)]); });
+    rows.push(['', 'الإجمالي', '', '', Math.round(tbD * 100) / 100, Math.round(tbC * 100) / 100, '']);
+    if (vatRec) { rows.push(['', '', '', '', '', '', ''], ['', 'مطابقة الضريبة مع الإقرار', '', 'ميزان المراجعة', 'الإقرار', 'الفرق', ''],
+      ['2301', 'ضريبة المخرجات', '', vatRec.tbOut, r2x(vsum.out), vatRec.dOut, ''], ['1501', 'ضريبة المدخلات', '', vatRec.tbIn, r2x(vsum.inn), vatRec.dIn, '']); }
     return rows;
   };
   const fsRows = () => {
@@ -22220,15 +22268,15 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
           </div>
           <div className="tw">
             <table className="tb">
-              <thead><tr><th>الرمز</th><th>الحساب</th><th style={{ textAlign: 'end' }}>مدين الفترة</th><th style={{ textAlign: 'end' }}>دائن الفترة</th><th style={{ textAlign: 'end' }}>الرصيد</th></tr></thead>
+              <thead><tr><th>الرمز</th><th>الحساب</th>{from && <th style={{ textAlign: 'end' }}>رصيد أول المدة</th>}<th style={{ textAlign: 'end' }}>مدين الفترة</th><th style={{ textAlign: 'end' }}>دائن الفترة</th><th style={{ textAlign: 'end' }}>{from ? 'رصيد آخر المدة' : 'الرصيد'}</th></tr></thead>
               <tbody>
-                {A.accounts.filter(a => tbAgg[a.code]).map(a => {
-                  const x = tbAgg[a.code];
-                  const b = (a.kind === 'asset' || a.kind === 'exp') ? x.debit - x.credit : x.credit - x.debit;
+                {A.accounts.filter(tbShow).map(a => {
+                  const x = tbMov(a); const op = tbOpen(a); const b = tbClose(a); const isV = TB_VAT.includes(a.code);
                   return (
-                    <tr key={a.code}>
+                    <tr key={a.code} className={isV ? 'tb-vat' : undefined}>
                       <td>{codeChip(a.code)}</td>
-                      <td style={{ fontSize: 12.5 }}>{a.name}</td>
+                      <td style={{ fontSize: 12.5 }}>{a.name}{isV && <span className="badge b-brass" style={{ marginInlineStart: 6, fontSize: 10 }}>ضريبة</span>}</td>
+                      {from && <td className="num" style={{ textAlign: 'end', color: op < 0 ? 'var(--rose)' : 'var(--dim)' }}>{op ? fmtBal(op) : '—'}</td>}
                       <td className="num" style={{ textAlign: 'end' }}>{x.debit ? money(x.debit) : '—'}</td>
                       <td className="num" style={{ textAlign: 'end' }}>{x.credit ? money(x.credit) : '—'}</td>
                       <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: b < 0 ? 'var(--rose)' : 'var(--txt)' }}>{fmtBal(b)}</td>
@@ -22237,7 +22285,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
                 })}
                 {tbEntries.length === 0 && <tr><td colSpan={5}><div className="empty">لا حركة في هذه الفترة/الفرع.</div></td></tr>}
                 <tr style={{ fontWeight: 800, background: 'rgba(200,162,74,.05)' }}>
-                  <td colSpan={2}>إجمالي الفترة {Math.abs(tbD - tbC) < 0.01 ? '— متوازن ✓' : '— غير متوازن!'}</td>
+                  <td colSpan={from ? 3 : 2}>إجمالي الفترة {Math.abs(tbD - tbC) < 0.01 ? '— متوازن ✓' : '— غير متوازن!'}</td>
                   <td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{money(tbD)}</td>
                   <td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{money(tbC)}</td>
                   <td />
@@ -22246,6 +22294,44 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
             </table>
           </div>
           <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 8 }}>كل قيد وحدة كاملة لا تتجزأ — لذلك يبقى الميزان متوازنًا مع أي تصفية بالفترة أو الفرع. القيود المركزية (رواتب، خزينة، فواتير المركز) تظهر ضمن خيار «القيود المركزية».</div>
+        </div>
+      )}
+
+      {view === 'tb' && vatRec && (
+        <div className={'card vrec' + (vatRec.ok ? '' : ' bad')}>
+          <div className="card-h">
+            <div className="card-t"><Receipt size={15} color="var(--brass)" />مطابقة حسابات الضريبة مع الإقرار {from || to ? <span className="badge b-dim">من <span className="num">{from || 'البداية'}</span> إلى <span className="num">{to || today()}</span></span> : <span className="badge b-dim">كامل المدة</span>}</div>
+            <span className={'badge ' + (vatRec.ok ? 'b-mint' : 'b-rose')}>{vatRec.ok ? 'مطابق ✓' : 'يوجد فرق'}</span>
+          </div>
+          <div className="tw">
+            <table className="tb is-tb">
+              <thead><tr><th>البند</th><th style={{ textAlign: 'end' }}>ميزان المراجعة</th><th style={{ textAlign: 'end' }}>الإقرار</th><th style={{ textAlign: 'end' }}>الفرق</th></tr></thead>
+              <tbody>
+                <tr className={'is-line' + (Math.abs(vatRec.dOut) >= 0.01 ? ' bad' : '')}><td>ضريبة المخرجات — حركة 2301 (دائن {money(vatRec.o.c)} − مدين {money(vatRec.o.d)})</td><td className="is-amt"><span className="num">{money(vatRec.tbOut)}</span></td><td className="is-amt"><span className="num">{money(vsum.out)}</span></td><td className={'is-amt' + (Math.abs(vatRec.dOut) >= 0.01 ? ' neg' : '')}><span className="num">{Math.abs(vatRec.dOut) < 0.01 ? '✓ 0.00' : fmtBal(vatRec.dOut)}</span></td></tr>
+                <tr className={'is-line' + (Math.abs(vatRec.dIn) >= 0.01 ? ' bad' : '')}><td>ضريبة المدخلات — حركة 1501 (مدين {money(vatRec.i.d)} − دائن {money(vatRec.i.c)})</td><td className="is-amt"><span className="num">{money(vatRec.tbIn)}</span></td><td className="is-amt"><span className="num">{money(vsum.inn)}</span></td><td className={'is-amt' + (Math.abs(vatRec.dIn) >= 0.01 ? ' neg' : '')}><span className="num">{Math.abs(vatRec.dIn) < 0.01 ? '✓ 0.00' : fmtBal(vatRec.dIn)}</span></td></tr>
+                <tr className="is-total"><td>صافي الضريبة للفترة</td><td className="is-amt"><span className="num">{fmtBal(r2x(vatRec.tbOut - vatRec.tbIn))}</span></td><td className="is-amt"><span className="num">{fmtBal(vatDue)}</span></td><td className={'is-amt' + (vatRec.ok ? '' : ' neg')}><span className="num">{fmtBal(r2x(vatRec.dOut - vatRec.dIn))}</span></td></tr>
+                <tr className={'is-line' + (Math.abs(vatRec.dBase) >= 1 ? ' warnr' : '')}><td>فحص الوعاء: إيراد المبيعات 4101+4102 ({money(vatRec.revNet)}) × {taxRate}%</td><td className="is-amt"><span className="num">{money(vatRec.expOut)}</span></td><td className="is-amt"><span className="num">{money(vsum.out)}</span></td><td className={'is-amt' + (Math.abs(vatRec.dBase) >= 1 ? ' neg' : '')}><span className="num">{Math.abs(vatRec.dBase) < 1 ? '✓' : fmtBal(vatRec.dBase)}</span></td></tr>
+                {(vatRec.closeCr > 0 || vatRec.payDr > 0) && <tr className="is-line"><td>الحساب الوسيط 2302 في الفترة: إقفالات (دائن) / سداد (مدين)</td><td className="is-amt"><span className="num">{money(vatRec.closeCr)}</span></td><td className="is-amt"><span className="num">{money(vatRec.payDr)}</span></td><td className="is-amt"><span className="num">{fmtBal(r2x(vatRec.closeCr - vatRec.payDr))}</span></td></tr>}
+              </tbody>
+            </table>
+          </div>
+          {vatRec.causes.length > 0 && (<>
+            <div className="vrec-h">✗ القيود المسببة لفرق الحسابين ({vatRec.causes.length})</div>
+            <div className="tw"><table className="tb is-tb">
+              <thead><tr><th>التاريخ</th><th>القيد</th><th>المصدر</th><th style={{ textAlign: 'end' }}>أثر على 2301</th><th style={{ textAlign: 'end' }}>أثر على 1501</th><th>السبب</th></tr></thead>
+              <tbody>{vatRec.causes.map((c, i) => <tr key={i} className="is-line bad"><td><span className="num">{c.date}</span></td><td>{c.title}</td><td>{c.src}</td><td className="is-amt"><span className="num">{c.out ? fmtBal(c.out) : '—'}</span></td><td className="is-amt"><span className="num">{c.inn ? fmtBal(c.inn) : '—'}</span></td><td style={{ fontSize: 12 }}>{c.why}</td></tr>)}</tbody>
+            </table></div>
+            <div className="note" style={{ marginTop: 8 }}>التصحيح: قيد يدوي ينقل المبلغ إلى الحساب الصحيح (سداد الهيئة ← 2302، مصروف بلا ضريبة ← حساب المصروف). لا تُحذف القيود الأصلية.</div>
+          </>)}
+          {vatRec.untaxed.length > 0 && Math.abs(vatRec.dBase) >= 1 && (<>
+            <div className="vrec-h warn">! إيرادات مبيعات سُجّلت بلا ضريبة مخرجات ({vatRec.untaxed.length}) — تفسّر فرق الوعاء</div>
+            <div className="tw"><table className="tb is-tb">
+              <thead><tr><th>التاريخ</th><th>القيد</th><th>المصدر</th><th style={{ textAlign: 'end' }}>الإيراد</th><th style={{ textAlign: 'end' }}>الضريبة المفترضة</th></tr></thead>
+              <tbody>{vatRec.untaxed.slice(0, 50).map((c, i) => <tr key={i} className="is-line"><td><span className="num">{c.date}</span></td><td>{c.title}</td><td>{c.src}</td><td className="is-amt"><span className="num">{money(c.amt)}</span></td><td className="is-amt"><span className="num">{money(r2x(c.amt * taxRate / 100))}</span></td></tr>)}</tbody>
+            </table></div>
+          </>)}
+          {vatRec.ok && !vatRec.causes.length && <div className="vck-i ok" style={{ marginTop: 10 }}><span>✓</span>كل قيد على 2301 و1501 في الفترة له أثر ضريبي مطابق في الإقرار — لا خلل.</div>}
+          <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 8 }}>المطابقة موحّدة لكل الفروع (الإقرار على مستوى المنشأة)، وتستبعد قيود إقفال الفترة الضريبية وسدادها لأنها تسوية لا حركة.</div>
         </div>
       )}
 
