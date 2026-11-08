@@ -720,6 +720,22 @@ body.lh-dragging *{cursor:grabbing !important}
 .cflow-sum .mono-b{background:var(--ink2)}
 .cflow-alert{border-radius:10px;padding:10px 12px;font-size:12px;display:flex;gap:8px;align-items:flex-start;margin-top:8px;line-height:1.5}
 .cflow-msum{display:none}
+/* v35.2 — شريط خطوات الإغلاق وفحوص المدقق */
+.esteps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:12px}
+.estep{display:flex;align-items:center;gap:8px;min-height:46px;padding:8px 10px;border-radius:12px;border:1px solid var(--line);background:var(--ink2);color:var(--txt);font:inherit;cursor:pointer;text-align:start}
+.estep-n{width:26px;height:26px;border-radius:50%;flex-shrink:0;display:grid;place-items:center;font-size:13px;font-weight:700;border:1px solid color-mix(in srgb,var(--txt) 22%,var(--line));color:var(--dim)}
+.estep-t{font-size:13px;font-weight:600;line-height:1.3;display:flex;flex-direction:column}
+.estep-t small{font-size:10.5px;font-weight:500;color:var(--faint)}
+.estep.ok .estep-n{background:var(--mint);border-color:transparent;color:#fff}
+.estep:hover{border-color:color-mix(in srgb,var(--brass) 55%,var(--line))}
+.eaudit{margin-top:14px;border:1px solid var(--line);border-radius:12px;background:var(--ink2);padding:10px}
+.eaudit-h{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;font-weight:700;margin-bottom:6px}
+.eaudit-i{display:flex;gap:8px;align-items:flex-start;width:100%;text-align:start;border:0;background:none;font:inherit;font-size:12.5px;color:var(--txt);padding:6px 4px;border-radius:8px;cursor:pointer;line-height:1.5}
+.eaudit-i:hover{background:color-mix(in srgb,var(--txt) 5%,transparent)}
+.eaudit-m{width:18px;flex-shrink:0;font-weight:800;text-align:center}
+.eaudit-i.ok .eaudit-m{color:var(--mint)} .eaudit-i.warn .eaudit-m{color:var(--amber)} .eaudit-i.block .eaudit-m{color:var(--rose)}
+.eaudit-i.block{background:color-mix(in srgb,var(--rose) 7%,transparent)}
+@media(max-width:640px){.esteps{grid-template-columns:repeat(2,minmax(0,1fr))}.estep{min-height:44px}}
 /* لوحي: يُخفى الملخّص الجانبي ويظهر شريط ملخّص لاصق قابل للطي — عمود واحد وتمرير واحد */
 @media(max-width:1040px){
   .cflow{grid-template-columns:1fr}

@@ -2486,7 +2486,7 @@ const ERRLOG_KEY = 'mizan:errlog';
 function logClientError(err, where) {
   try {
     const a = JSON.parse(localStorage.getItem(ERRLOG_KEY) || '[]');
-    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v35.1' });
+    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v35.2' });
     localStorage.setItem(ERRLOG_KEY, JSON.stringify(a.slice(0, 20)));
   } catch { }
 }
@@ -3530,7 +3530,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v35.1 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v35.2 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -9261,6 +9261,41 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
       : variance < 0
         ? { c: 'var(--rose)', bg: 'rgba(217,84,77,.12)', bd: 'rgba(217,84,77,.45)', ic: '⚠', t: `عجز ${money(Math.abs(variance))} ر.س — التوثيق إلزامي قبل الترحيل` }
         : { c: 'var(--amber)', bg: 'rgba(224,164,88,.12)', bd: 'rgba(224,164,88,.45)', ic: '▲', t: `فائض ${money(variance)} ر.س — راجع إدخالات المبيعات والمصروفات` };
+  // v35.2 — فحوص المدقق قبل الترحيل: «يمنع» = يرفضه الترحيل نفسه، «تنبيه» = يُراجع ولا يمنع، «سليم» = مطابق
+  const goSec = (keys) => { setSecs(p => { const n = { ...p }; keys.forEach(k => { n[k] = true; }); return n; });
+    setTimeout(() => { try { document.getElementById('esec-' + keys[0])?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch { } }, 60); };
+  const auditChecks = (() => {
+    const L = []; const add = (lvl, t, keys) => L.push({ lvl, t, keys });
+    if (totalRevenue <= 0) add('block', 'لا مبيعات مُدخلة لهذه الوردية', ['sales']);
+    const ps = f.branchId ? salesDaySource({ posOrders, posImports }, f.branchId, f.date) : { n: 0 };
+    if (ps.n || ps.total) {
+      const dCash = posR2((f.cashSales || 0) - (ps.cash || 0)), dCard = posR2((f.cardSales || 0) + (f.bankTransferSales || 0) - (ps.card || 0) - (ps.transfer || 0)),
+        dApps = posR2(totalDelivery - Object.values(ps.apps || {}).reduce((a, x) => a + x.amount, 0));
+      if (Math.abs(dCash) < 0.01 && Math.abs(dCard) < 0.01 && Math.abs(dApps) < 0.01) add('ok', 'المبيعات مطابقة لنقطة البيع' + (ps.n ? ' (' + ps.n + ' فاتورة)' : ''), ['sales']);
+      else add('warn', 'فرق عن نقطة البيع —' + (Math.abs(dCash) >= 0.01 ? ' نقدي ' + money(dCash) : '') + (Math.abs(dCard) >= 0.01 ? ' شبكة ' + money(dCard) : '') + (Math.abs(dApps) >= 0.01 ? ' تطبيقات ' + money(dApps) : ''), ['sales', 'network', 'delivery']);
+    }
+    if ((f.cardSales || 0) > 0) { if (f.cardReceiptImage) add('ok', 'إثبات تسوية الشبكة مرفق', ['network']); else add('warn', 'إثبات تسوية الشبكة غير مرفق', ['network']); }
+    const exNoRcpt = f.expenses.filter(e => (e.amount || 0) > 0 && !e.receiptImage).length, exNoParty = f.expenses.filter(e => (e.amount || 0) > 0 && !(e.beneficiaryName || e.partnerKey || e.supplierId)).length;
+    if (f.expenses.length) {
+      if (!exNoRcpt && !exNoParty) add('ok', 'كل مصروف له جهة وإيصال', ['expenses']);
+      if (exNoParty) add('warn', exNoParty + ' مصروف بلا جهة (مورد/مستفيد)', ['expenses']);
+      if (exNoRcpt) add('warn', exNoRcpt + ' مصروف بلا صورة إيصال', ['expenses']);
+    }
+    if (!counted) add('block', 'جرد الصندوق لم يكتمل', ['inventory']);
+    else if (variance !== 0 && !String(f.varianceReason || '').trim()) add('block', (variance < 0 ? 'عجز ' : 'فائض ') + money(Math.abs(variance)) + ' بلا سبب مكتوب', ['inventory']);
+    else if (variance !== 0) add('warn', (variance < 0 ? 'عجز ' : 'فائض ') + money(Math.abs(variance)) + ' — موثّق السبب', ['inventory']);
+    else add('ok', 'الصندوق مطابق للمتوقع', ['inventory']);
+    if (f.transferredToMainTreasury > actual) add('block', 'المرحّل للخزينة يتجاوز النقد المعدود', ['transfer']);
+    if (me.role !== 'cashier' && sPhotos.length === 0) add('block', 'صورة توثيق المسؤول مطلوبة', ['notes']);
+    return L;
+  })();
+  const auditBlocks = auditChecks.filter(x => x.lvl === 'block').length, auditWarns = auditChecks.filter(x => x.lvl === 'warn').length;
+  const auditBox = (
+    <div className="eaudit">
+      <div className="eaudit-h"><span>فحوص المدقق قبل الترحيل</span>{auditBlocks ? <span className="badge b-rose">{auditBlocks} يمنع</span> : auditWarns ? <span className="badge b-amber">{auditWarns} تنبيه</span> : <span className="badge b-mint">جاهز</span>}</div>
+      {auditChecks.map((x, i) => <button key={i} type="button" className={'eaudit-i ' + x.lvl} onClick={() => goSec(x.keys)}><span className="eaudit-m">{x.lvl === 'ok' ? '✓' : x.lvl === 'warn' ? '!' : '✗'}</span><span>{x.t}</span></button>)}
+    </div>
+  );
   const summaryRows = (
     <>
       <div className="esum-h">ملخّص النظام · حيّ</div>
@@ -9281,11 +9316,12 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
       <div className="esum-row"><span className="k">ض.ق.م القابلة للخصم</span><span className="v num" style={{ color: 'var(--mint)' }}>{money(vatDeduct)}</span></div>
       <div className="esum-net"><span className="k">صافي اليوم</span><span className="v num">{money(totalRevenue - totalExp)}</span></div>
       <div className="cflow-alert" style={{ border: `1px solid ${vStat.bd}`, background: vStat.bg, color: vStat.c, marginTop: 12 }}><span>{vStat.ic}</span><span>{vStat.t}</span></div>
+      {auditBox}
     </>
   );
 
   const sec = (k, Ic, title, subt, valNode, done, body) => (
-    <div className={'esec' + (secs[k] ? ' open' : '') + (done ? ' done' : '')}>
+    <div id={'esec-' + k} className={'esec' + (secs[k] ? ' open' : '') + (done ? ' done' : '')}>
       <button type="button" className="esec-h" onClick={() => toggleSec(k)} aria-expanded={secs[k]}>
         <span className="esec-ic">{done ? <Check size={16} /> : <Ic size={16} />}</span>
         <span className="esec-t"><b>{title}</b><span>{subt}</span></span>
@@ -9304,7 +9340,7 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
         <button className="btn pri" onClick={() => save('draft')}><FileText size={14} />حفظ كمسودة ليراجعها الكاشير</button>
         <button className="btn gh" onClick={onClose}>إلغاء</button>
       </> : <>
-        <button className="btn pri" onClick={() => save('submitted')}><Send size={14} />ترحيل للإدارة المالية</button>
+        <button className="btn pri" onClick={() => save('submitted')} title={auditBlocks ? auditChecks.filter(x => x.lvl === 'block').map(x => x.t).join(' · ') : ''}><Send size={14} />ترحيل للإدارة المالية{auditBlocks ? <span className="num" style={{ marginInlineStart: 6, background: 'var(--rose)', color: '#fff', borderRadius: 999, padding: '0 7px', fontSize: 11 }}>{auditBlocks}</span> : null}</button>
         <button className="btn" onClick={() => save('draft')}>حفظ كمسودة</button>
         <button className="btn gh" onClick={onClose}>إلغاء</button>
       </>}>
@@ -9320,8 +9356,17 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
             <div className="cflow-msum-full">{summaryRows}</div>
           </div>
           <div className="cflow-form">
+            {/* v35.2: شريط الخطوات — أربع مراحل الإغلاق، كل خطوة تفتح أقسامها وتنتقل إليها */}
+            <nav className="esteps" aria-label="خطوات الإغلاق">
+              {[['sales', 'المبيعات', ['sales', 'network', 'delivery'], totalRevenue > 0],
+                ['exp', 'المصروفات والموردون', ['expenses', 'supplierPay'], f.expenses.length > 0 || supPays.length > 0, true],
+                ['cash', 'النقد والترحيل', ['inventory', 'transfer'], counted && (variance === 0 || !!String(f.varianceReason || '').trim())],
+                ['doc', 'التوثيق والترحيل', ['notes'], me.role === 'cashier' || sPhotos.length > 0]].map(([id, t, keys, ok, optional], i) =>
+                <button key={id} type="button" className={'estep' + (ok ? ' ok' : '')} onClick={() => goSec(keys)}>
+                  <span className="estep-n">{ok ? '✓' : <span className="num">{i + 1}</span>}</span><span className="estep-t">{t}{optional && !ok ? <small>اختياري</small> : null}</span></button>)}
+            </nav>
             <div className="eclose-tools">
-              <span className="hint">أقسام قابلة للطي — املأ ما يلزم، والملخّص يتحدّث فورًا</span>
+              <span className="hint">الملخّص وفحوص المدقق تتحدّث فورًا مع كل إدخال</span>
               <button type="button" className="btn sm gh" onClick={() => setAllSecs(!allSecsOpen)}>{allSecsOpen ? 'طيّ الكل' : 'توسيع الكل'}</button>
             </div>
 
