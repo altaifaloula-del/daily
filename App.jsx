@@ -1493,7 +1493,7 @@ function buildAccounting(org, ops) {
   addAcc('1399', 'ذمم تطبيقات أخرى (غير معرّفة)', 'asset');
   addAcc('1380', 'ذمم العملاء — مبيعات آجلة', 'asset', { link: 'سجل فواتير المبيعات' });
   addAcc('1401', 'سلف الموظفين وعُهدهم', 'asset', { link: 'الرواتب والسلف' });
-  addAcc('1501', 'ضريبة القيمة المضافة — مدخلات', 'asset', { link: 'تُخصم من الإقرار' });
+  addAcc('1501', 'ضريبة القيمة المضافة — مدخلات', 'asset', { link: 'مدخلات الفترة الجارية — تُقفل في 2302 مع الإقرار' });
   addAcc('1601', 'المخزون — بضاعة آخر المدة', 'asset', { link: 'رسملة المخزون — من شاشة المخزون' });
   // v30.5 — الجرد المستمر (org.purchaseCfg.perpetualFrom = 'YYYY-MM'): حسابات تكلفة الاستهلاك والهدر والفروقات
   const perpFrom = ((org.purchaseCfg || {}).perpetualFrom || '').slice(0, 7);
@@ -1517,7 +1517,8 @@ function buildAccounting(org, ops) {
   addAcc('2203', 'مخصص مكافأة نهاية الخدمة', 'liab', { link: 'الرواتب ← نهاية الخدمة' });
   addAcc('2204', 'مخصص الإجازات المستحقة', 'liab', { link: 'الإجازات ← المخصص' });
   addAcc('2202', 'تأمينات اجتماعية مستحقة (GOSI)', 'liab', { link: 'حصتا الموظف وصاحب العمل — تُحوّل للتأمينات' });
-  addAcc('2301', 'ضريبة القيمة المضافة — مخرجات', 'liab', { link: 'مستحقة للهيئة' });
+  addAcc('2301', 'ضريبة القيمة المضافة — مخرجات', 'liab', { link: 'مخرجات الفترة الجارية — تُقفل في 2302 مع الإقرار' });
+  addAcc('2302', 'ضريبة القيمة المضافة المستحقة — صافي الإقرار', 'liab', { link: 'قيد إقفال الفترة الضريبية ← السداد للهيئة' });
   // — حقوق الملكية (تُفعَّل بالقيد الافتتاحي في المرحلة التالية) —
   addAcc('3101', 'رأس المال والأرصدة الافتتاحية', 'equity', { link: 'الأرصدة الافتتاحية — من شاشة المحاسبة' });
   addAcc('3201', 'الأرباح المبقاة (المدوّرة)', 'equity', { link: 'قيد إقفال السنة المالية — من شاشة المحاسبة' });
@@ -2029,7 +2030,7 @@ function buildAccounting(org, ops) {
   (ops.journalManual || []).forEach(j => {
     push({
       id: 'man:' + j.id, date: (j.date || '').slice(0, 10),
-      title: j.title || 'قيد يدوي', src: j.opening ? 'قيد افتتاحي' : (j.mizanSales ? 'مبيعات مستوردة' : 'قيد يدوي'),
+      title: j.title || 'قيد يدوي', src: j.opening ? 'قيد افتتاحي' : j.vatClose ? 'إقفال ضريبي' : j.vatPay ? 'سداد ضريبة' : (j.mizanSales ? 'مبيعات مستوردة' : 'قيد يدوي'),
       ref: j.by || '', manual: true, ...(j.vat ? { vat: j.vat } : {}),   // v28.5: قيد مبيعات مستورد يحمل أثره الضريبي لشاشة الضريبة
       lines: (j.lines || []).map(l => L(l.code, l.debit || 0, l.credit || 0))
     });
@@ -3608,7 +3609,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark"><MizanMark size={24} /></span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v36.0</span>
+            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v36.1</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -20627,6 +20628,7 @@ function MizanMerge({ org, ops, me, commit, commitOrg, say, A }) {
 function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }) {
   const [view, setView] = useState('jr');           // jr قيود · coa دليل · tb ميزان · fs قوائم
   const [vatTab, setVatTab] = useState('form');      // v35.8: أقسام تفاصيل الإقرار
+  const [vpay, setVpay] = useState(null);            // v36.1: نموذج سداد الضريبة
   const [vatQ, setVatQ] = useState('');
   const [repOpen, setRepOpen] = useState(false);    // v9.4 قائمة التقارير
   const [stgOpen, setStgOpen] = useState(false);    // v9.4 قائمة الإعدادات
@@ -20975,6 +20977,59 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
       { n: '', t: vatDue >= 0 ? 'صافي الضريبة المستحقة للسداد' : 'صافي رصيد دائن لصالح المنشأة', v: vatDue, net: 1, only: 1 }
     ];
   };
+  // ===== v36.1 — إقفال الفترة الضريبية في الحساب الوسيط 2302 وسدادها =====
+  // قيد الإقفال: من 2301 (مخرجات الفترة) إلى 1501 (مدخلات الفترة) والفرق إلى 2302 (المستحق للهيئة) — بمبالغ الإقرار نفسها.
+  // قيد السداد: من 2302 إلى حساب نقدي. القيود تُخزَّن في journalManual بوسم vatClose/vatPay ولا تحمل أثرًا ضريبيًا فلا تغيّر الإقرار.
+  const vatCloses = (ops.journalManual || []).filter(j => j.vatClose).sort((a, b) => (b.vatClose.to || '').localeCompare(a.vatClose.to || ''));
+  const vatPays = (ops.journalManual || []).filter(j => j.vatPay);
+  const vcPaid = (id) => r2x(sum(vatPays.filter(p => p.vatPay.closeId === id), p => p.vatPay.amount));
+  const vcOverlap = (f, t) => vatCloses.find(c => !(t < c.vatClose.from || f > c.vatClose.to));
+  const vcNextFrom = vatCloses.length ? (() => { const d = new Date(vatCloses[0].vatClose.to + 'T00:00:00'); d.setDate(d.getDate() + 1); return isoD(d); })() : '';
+  const vcBlock = !taxOn ? 'الضريبة غير مفعّلة' : !(from && to) ? 'حدّد فترة الإقرار (من/إلى) أولًا — مثل «الربع الحالي»'
+    : !canPost ? 'الإقفال صلاحية المحاسب/الإدارة المالية' : periodLocked(org, to) ? LOCK_MSG(to)
+      : vcOverlap(from, to) ? 'الفترة تتداخل مع إقفال سابق (' + vcOverlap(from, to).vatClose.from + ' ← ' + vcOverlap(from, to).vatClose.to + ')'
+        : (Math.abs(vsum.out) < 0.005 && Math.abs(vsum.inn) < 0.005) ? 'لا حركة ضريبية في الفترة' : '';
+  // أرصدة الحسابين حتى نهاية الفترة — بعد الإقفال يجب أن تساوي صفرًا لكل الفترات المقفلة (أي باقٍ = قيد مباشر على الحسابين خارج الإقرار)
+  const balTo = (code, kind, t) => { let d = 0, c = 0; A.entries.forEach(e => { if (t && (e.date || '') > t) return; e.lines.forEach(l => { if (l.code === code) { d += l.debit; c += l.credit; } }); }); return r2x(kind === 'asset' ? d - c : c - d); };
+  const vat2302 = balTo('2302', 'liab', '');
+  const lastCloseTo = vatCloses.length ? vatCloses[0].vatClose.to : '';
+  const vcResid = lastCloseTo ? { out: balTo('2301', 'liab', lastCloseTo), inn: balTo('1501', 'asset', lastCloseTo) } : null;
+  const postVatClose = async () => {
+    if (vcBlock) return say(vcBlock, 'no');
+    const out = r2x(vsum.out), inn = r2x(vsum.inn), net = r2x(out - inn);
+    const lines = [
+      ...(out ? [{ code: '2301', debit: out > 0 ? out : 0, credit: out < 0 ? -out : 0 }] : []),
+      ...(inn ? [{ code: '1501', debit: inn < 0 ? -inn : 0, credit: inn > 0 ? inn : 0 }] : []),
+      ...(net ? [{ code: '2302', debit: net < 0 ? -net : 0, credit: net > 0 ? net : 0 }] : [])
+    ];
+    const rec = { id: uid('jm'), date: to, title: 'إقفال الفترة الضريبية ' + from + ' ← ' + to + (net >= 0 ? ' — مستحق للهيئة' : ' — رصيد دائن مرحّل'),
+      opening: false, by: me?.name || '', createdAt: nowISO(), src: 'vat-close', vatClose: { from, to, out, inn, net, rate: taxRate }, lines };
+    const ok = await commit(d => ({ ...d, journalManual: [rec, ...(d.journalManual || [])] }), { actionType: 'create', targetType: 'journal_entry', targetId: rec.id, need: 'post', title: 'إقفال فترة ضريبية', details: from + ' ← ' + to + ' · مخرجات ' + money(out) + ' · مدخلات ' + money(inn) + ' · صافي ' + money(net) });
+    if (ok) say('أُقفلت الفترة الضريبية ✓ — الصافي ' + money(Math.abs(net)) + (net >= 0 ? ' مستحق للهيئة في 2302' : ' رصيد دائن لصالحك'));
+  };
+  const cashAccts = A.accounts.filter(a => a.cash);
+  const postVatPay = async () => {
+    const f = vpay; if (!f) return;
+    const c = vatCloses.find(x => x.id === f.closeId); if (!c) return say('اختر الفترة', 'no');
+    const amt = r2x(Number(String(f.amount).replace(/[^\d.]/g, '')) || 0);
+    const rem = r2x(c.vatClose.net - vcPaid(c.id));
+    if (!(amt > 0)) return say('أدخل مبلغ السداد', 'no');
+    if (amt > rem + 0.01) return say('المبلغ أكبر من المتبقي لهذه الفترة (' + money(rem) + ')', 'no');
+    if (!f.acc) return say('اختر حساب السداد', 'no');
+    if (periodLocked(org, f.date)) return say(LOCK_MSG(f.date), 'no');
+    const rec = { id: uid('jm'), date: f.date, title: 'سداد ضريبة القيمة المضافة — فترة ' + c.vatClose.from + ' ← ' + c.vatClose.to + (f.ref ? ' · ' + f.ref : ''),
+      opening: false, by: me?.name || '', createdAt: nowISO(), src: 'vat-pay', vatPay: { closeId: c.id, amount: amt, ref: f.ref || '' },
+      lines: [{ code: '2302', debit: amt, credit: 0 }, { code: f.acc, debit: 0, credit: amt }] };
+    const ok = await commit(d => ({ ...d, journalManual: [rec, ...(d.journalManual || [])] }), { actionType: 'create', targetType: 'journal_entry', targetId: rec.id, need: 'post', title: 'سداد ضريبة القيمة المضافة', details: money(amt) + ' · ' + c.vatClose.from + ' ← ' + c.vatClose.to });
+    if (ok) { setVpay(null); say('سُجّل السداد ✓'); }
+  };
+  const undoVatClose = async (c) => {
+    if (vatCloses[0]?.id !== c.id) return say('يُلغى آخر إقفال فقط — ألغِ الأحدث أولًا', 'no');
+    if (vcPaid(c.id) > 0) return say('على هذه الفترة سداد مسجّل — اعكس السداد بقيد يدوي قبل الإلغاء', 'no');
+    if (periodLocked(org, c.date)) return say(LOCK_MSG(c.date), 'no');
+    const ok = await commit(d => ({ ...d, journalManual: (d.journalManual || []).filter(j => j.id !== c.id) }), { actionType: 'delete', targetType: 'journal_entry', targetId: c.id, need: 'post', title: 'ألغى إقفال فترة ضريبية', details: c.vatClose.from + ' ← ' + c.vatClose.to + ' · صافي ' + money(c.vatClose.net) });
+    if (ok) say('أُلغي الإقفال — يمكنك إعادة إقفال الفترة بعد التصحيح');
+  };
   const vatTxRows = () => [['التاريخ', 'المصدر', 'المرجع', 'البيان', 'الفرع', 'الطرف', 'الرقم الضريبي للطرف', 'مبيعات صافية', 'ضريبة مخرجات', 'مشتريات صافية', 'ضريبة مدخلات', 'ملاحظة المدقق'],
     ...vatX.tx.map(t => [t.date, t.src, t.ref, t.title, t.br, t.party, t.pVat, t.ns, t.out, t.np, t.inn, t.flag])];
   const xlVAT = () => { try {
@@ -21261,7 +21316,8 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const suggestAcc = (x) => { const t = String(x.desc || ''); const find = (re) => (A.accounts.find(a => re.test(a.name || '')) || {}).code;
     if (/رسوم|عمولة|عمولات|fee|charge|commission/i.test(t)) return find(/رسوم بنك|عمولات بنك|مصاريف بنك/) || '5901';
     if (/رواتب|salary|payroll|wps/i.test(t)) return '2201';
-    if (/زكاة|ضريبة|zatca|vat/i.test(t)) return x.amount < 0 ? '2301' : '';
+    if (/زكاة/i.test(t)) return '';
+    if (/ضريبة|zatca|vat/i.test(t)) return x.amount < 0 ? '2302' : '';   // v36.1: سداد الإقرار من الحساب الوسيط
     return ''; };
   const postFix = async (x) => {
     const code = fixAcc[x.i]; if (!code) return say('اختر الحساب المقابل', 'no');
@@ -23395,6 +23451,61 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
               <Kpi label="ضريبة المخرجات (على مبيعاتك)" value={money(vsum.out)} sub={'من مبيعات صافية ' + money(vsum.netSales)} icon={TrendingUp} color="#4FB286" />
               <Kpi label="ضريبة المدخلات (على مشترياتك)" value={money(vsum.inn)} sub={'من مشتريات خاضعة صافية ' + money(vsum.netPurch)} icon={TrendingDown} color="#5B93C4" />
               <Kpi label={vatDue >= 0 ? 'صافي المستحق للهيئة' : 'صافي رصيد لصالحك'} value={money(Math.abs(vatDue))} sub={from || to ? 'للفترة المحددة' : 'كامل المدة'} icon={Receipt} color="#E0A458" />
+            </div>
+            <div className="card vcl">
+              <div className="card-h">
+                <div className="card-t"><Lock size={15} color="var(--brass)" />إقفال الفترة الضريبية والسداد</div>
+                <span className={'badge ' + (vat2302 > 0.004 ? 'b-amber' : vat2302 < -0.004 ? 'b-mint' : 'b-dim')}>رصيد 2302: {vat2302 > 0.004 ? money(vat2302) + ' مستحق للهيئة' : vat2302 < -0.004 ? money(-vat2302) + ' دائن لصالحك' : 'صفر'}</span>
+              </div>
+              <div className="vcl-je">
+                <div className="vcl-jh">قيد الإقفال للفترة {from && to ? <b className="num">{from} ← {to}</b> : <i>— حدّد الفترة</i>}</div>
+                <div className="vcl-ln"><span>من ح/ 2301 ضريبة المخرجات</span><b className="num">{money(vsum.out)}</b><b /></div>
+                <div className="vcl-ln cr"><span>إلى ح/ 1501 ضريبة المدخلات</span><b /><b className="num">{money(vsum.inn)}</b></div>
+                <div className="vcl-ln cr"><span>إلى ح/ 2302 الضريبة المستحقة {vatDue < 0 ? '(مدين — رصيد مرحّل)' : ''}</span>{vatDue < 0 ? <b className="num">{money(-vatDue)}</b> : <b />}{vatDue >= 0 ? <b className="num">{money(vatDue)}</b> : <b />}</div>
+              </div>
+              <div className="row" style={{ gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                <button className="btn pri" disabled={!!vcBlock} onClick={postVatClose}><Lock size={14} />إقفال الفترة وترحيل الصافي</button>
+                {vcBlock ? <span className="hint" style={{ fontSize: 12, color: 'var(--faint)' }}>{vcBlock}</span> : <span style={{ fontSize: 12, color: 'var(--dim)' }}>المبالغ هي أرقام الإقرار أدناه حرفيًا</span>}
+                {vcNextFrom && !from && <button className="btn sm gh" onClick={() => { setFrom(vcNextFrom); }}>ابدأ من {vcNextFrom}</button>}
+              </div>
+              {vatCloses.length > 0 && (
+                <div className="tw" style={{ marginTop: 12 }}>
+                  <table className="tb is-tb">
+                    <thead><tr><th>الفترة</th><th style={{ textAlign: 'end' }}>مخرجات</th><th style={{ textAlign: 'end' }}>مدخلات</th><th style={{ textAlign: 'end' }}>الصافي</th><th style={{ textAlign: 'end' }}>المسدد</th><th>الحالة</th><th /></tr></thead>
+                    <tbody>
+                      {vatCloses.map((c, i) => { const v = c.vatClose; const paid = vcPaid(c.id); const rem = r2x(v.net - paid);
+                        const st = v.net < 0 ? ['b-mint', 'رصيد دائن مرحّل'] : rem <= 0.004 ? ['b-mint', 'مسددة ✓'] : paid > 0 ? ['b-amber', 'مسددة جزئيًا'] : ['b-amber', 'بانتظار السداد'];
+                        return (<tr key={c.id} className="is-line">
+                          <td><span className="num">{v.from} ← {v.to}</span><div style={{ fontSize: 11, color: 'var(--faint)' }}>{c.by}</div></td>
+                          <td className="is-amt"><span className="num">{fmtBal(v.out)}</span></td>
+                          <td className="is-amt"><span className="num">{fmtBal(v.inn)}</span></td>
+                          <td className={'is-amt' + (v.net < 0 ? ' neg' : '')}><span className="num">{fmtBal(v.net)}</span></td>
+                          <td className="is-amt"><span className="num">{money(paid)}</span></td>
+                          <td><span className={'badge ' + st[0]}>{st[1]}</span></td>
+                          <td style={{ whiteSpace: 'nowrap' }}>
+                            {canPost && v.net > 0 && rem > 0.004 && <button className="btn sm" onClick={() => setVpay({ closeId: c.id, amount: String(rem), date: today(), acc: (cashAccts.find(a => a.code === '1201') || cashAccts[0] || {}).code || '', ref: '' })}>تسجيل السداد</button>}
+                            {canPost && i === 0 && paid <= 0 && <button className="btn sm gh" onClick={() => undoVatClose(c)}>إلغاء الإقفال</button>}
+                          </td>
+                        </tr>); })}
+                    </tbody>
+                  </table>
+                </div>)}
+              {vpay && (() => { const c = vatCloses.find(x => x.id === vpay.closeId) || { vatClose: {} }; return (
+                <div className="vcl-pay">
+                  <b>سداد فترة <span className="num">{c.vatClose.from} ← {c.vatClose.to}</span></b>
+                  <div className="grid g4" style={{ gap: 8 }}>
+                    <Field label="المبلغ"><input className="inp n" inputMode="decimal" value={vpay.amount} onChange={e => setVpay(v => ({ ...v, amount: e.target.value }))} /></Field>
+                    <Field label="التاريخ"><input className="inp" type="date" value={vpay.date} onChange={e => setVpay(v => ({ ...v, date: e.target.value }))} /></Field>
+                    <Field label="من حساب"><select className="inp" value={vpay.acc} onChange={e => setVpay(v => ({ ...v, acc: e.target.value }))}>{cashAccts.map(a => <option key={a.code} value={a.code}>{a.code} — {a.name}</option>)}</select></Field>
+                    <Field label="رقم السداد/الفاتورة (اختياري)"><input className="inp" value={vpay.ref} onChange={e => setVpay(v => ({ ...v, ref: e.target.value }))} /></Field>
+                  </div>
+                  <div className="row" style={{ gap: 8 }}><button className="btn pri" onClick={postVatPay}><Check size={14} />ترحيل قيد السداد</button><button className="btn gh" onClick={() => setVpay(null)}>إلغاء</button></div>
+                  <div style={{ fontSize: 11.5, color: 'var(--faint)' }}>القيد: من ح/ 2302 الضريبة المستحقة — إلى ح/ {vpay.acc || '…'}</div>
+                </div>); })()}
+              {vcResid && (Math.abs(vcResid.out) > 0.009 || Math.abs(vcResid.inn) > 0.009) && (
+                <div className="vck-i bad" style={{ marginTop: 10 }}><span>✗</span>بعد آخر إقفال ({lastCloseTo}) بقي في 2301 رصيد {fmtBal(vcResid.out)} وفي 1501 رصيد {fmtBal(vcResid.inn)} حتى ذلك التاريخ — يعني وجود قيود مباشرة على الحسابين خارج الإقرار (مثل سداد قديم قُيّد على 2301). صحّحها بقيد يدوي إلى 2302.</div>)}
+              {vcResid && Math.abs(vcResid.out) <= 0.009 && Math.abs(vcResid.inn) <= 0.009 && (
+                <div className="vck-i ok" style={{ marginTop: 10 }}><span>✓</span>حسابا المخرجات والمدخلات صفريان حتى آخر فترة مقفلة ({lastCloseTo}) — رصيدهما الحالي يخص الفترة الجارية فقط.</div>)}
             </div>
             <div className="card">
               <div className="card-h">

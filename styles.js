@@ -982,6 +982,13 @@ td.num,th.num{display:table-cell}
 .vck-i.ok span{color:var(--mint)}.vck-i.warn{border-color:color-mix(in srgb,var(--amber) 45%,var(--line))}.vck-i.warn span{color:var(--amber)}
 .vck-i.bad{border-color:color-mix(in srgb,var(--rose) 50%,var(--line));background:color-mix(in srgb,var(--rose) 7%,var(--ink2))}.vck-i.bad span{color:var(--rose)}
 .vtabs{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+.vcl-je{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--ink2);display:grid;gap:4px}
+.vcl-jh{font-size:12.5px;color:var(--dim);margin-bottom:4px}.vcl-jh i{font-style:normal;color:var(--faint)}
+.vcl-ln{display:grid;grid-template-columns:minmax(0,1fr) 110px 110px;gap:8px;font-size:13px;align-items:center}
+.vcl-ln b{text-align:left;direction:ltr;font-variant-numeric:tabular-nums}
+.vcl-ln.cr span{padding-inline-start:22px;color:var(--dim)}
+.vcl-pay{margin-top:12px;padding:12px;border:1px dashed color-mix(in srgb,var(--brass) 55%,var(--line));border-radius:12px;display:grid;gap:10px}
+@media(max-width:640px){.vcl-ln{grid-template-columns:minmax(0,1fr) 84px 84px;font-size:12px}.vcl-ln.cr span{padding-inline-start:12px}}
 .vtab{min-height:38px;padding:0 12px;border-radius:10px;border:1px solid var(--line);background:var(--ink2);color:var(--dim);font:600 12.5px inherit;font-family:inherit;cursor:pointer}
 .vtab.on{background:var(--side-bg,#1F1C18);color:#EFEAE1;border-color:transparent}
 .vat-tb .vat-n{color:var(--faint);width:34px}
