@@ -1117,6 +1117,12 @@ td.num,th.num{display:table-cell}
 .acct-tile svg{color:var(--brass)}
 .acct-tile:hover{background:var(--acc-soft)}
 .acct-tile.on{background:var(--acc-soft);border-color:var(--brass);font-weight:700}
+.dt{font-variant-numeric:tabular-nums;white-space:nowrap}
+@media(min-width:701px){
+  .acct-grid{display:flex !important;flex-wrap:wrap;gap:8px}
+  .acct-tile{flex:0 0 auto;flex-direction:row;min-height:42px;padding:8px 16px;border-radius:999px;gap:8px;font-size:13px;white-space:nowrap}
+  .acct-tile svg{width:16px;height:16px}
+}
 @media(max-width:700px){.acct-grid{grid-template-columns:repeat(3,1fr)}.acct-tile{min-height:76px;font-size:11.5px;padding:10px 4px}}
 @media(max-width:380px){.acct-grid{grid-template-columns:repeat(2,1fr)}}
 /* v35.9 — ترتيب اللوحات: بطاقات المؤشرات بطاقتان في الصف على الجوال، مدمجة وأنيقة؛ وأقسام التطبيق شريط أفقي */
@@ -1143,9 +1149,12 @@ td.num,th.num{display:table-cell}
   .abar .abar-dd>.btn{padding:8px 10px;white-space:nowrap}
   .abar-sp{display:none}
   /* صفوف أزرار الأقسام (تبديل) — سطر واحد قابل للتمرير بدل التفاف غير مرتب */
-  .row:has(> .btn.sm.pri):has(> .btn.sm.gh):not(:has(> :not(.btn))){flex-wrap:nowrap !important;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding-bottom:2px}
-  .row:has(> .btn.sm.pri):has(> .btn.sm.gh):not(:has(> :not(.btn)))::-webkit-scrollbar{display:none}
-  .row:has(> .btn.sm.pri):has(> .btn.sm.gh):not(:has(> :not(.btn))) > .btn{flex:0 0 auto;white-space:nowrap;min-height:40px}
+  .row:has(> .btn.sm.pri):has(> .btn.sm.gh):not(:has(> :not(.btn))):not(:has(> .btn:not(.pri):not(.gh))):not(:has(> .btn.pri:not(.sm))){flex-wrap:nowrap !important;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding-bottom:2px}
+  .row:has(> .btn.sm.pri):has(> .btn.sm.gh):not(:has(> :not(.btn))):not(:has(> .btn:not(.pri):not(.gh))):not(:has(> .btn.pri:not(.sm)))::-webkit-scrollbar{display:none}
+  .row:has(> .btn.sm.pri):has(> .btn.sm.gh):not(:has(> :not(.btn))):not(:has(> .btn:not(.pri):not(.gh))):not(:has(> .btn.pri:not(.sm))) > .btn{flex:0 0 auto;white-space:nowrap;min-height:40px}
+  /* صفوف الإجراءات (طباعة/استيراد/جديد): تلتف بانتظام، والإجراء الأساسي بعرض كامل في سطره */
+  .row:has(> .btn:not(.pri):not(.gh)):has(> .btn.pri){flex-wrap:wrap}
+  .row:has(> .btn:not(.pri):not(.gh)):has(> .btn.pri) > .btn.pri{flex:1 1 100%;order:-1}
   .toptitle{font-size:16px}
 }
 /* الحاسوب: بطاقات المؤشرات بارتفاع متساوٍ ومحاذاة ثابتة */

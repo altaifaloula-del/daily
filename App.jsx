@@ -242,10 +242,12 @@ const short = (n) => {
   return v.toFixed(0);
 };
 const arDate = (d) => {
+  // v36.4: تاريخ فارغ أو غير صالح يظهر «—» بدل «Invalid Date»، والتقويم ميلادي صراحةً
+  if (!d) return '—';
   try {
-    return new Date(d + 'T00:00:00').toLocaleDateString('ar-SA-u-nu-latn', {
-      day: '2-digit', month: 'short', year: 'numeric'
-    });
+    const x = new Date(String(d).slice(0, 10) + 'T00:00:00');
+    if (isNaN(x.getTime())) return String(d);
+    return x.toLocaleDateString('ar-SA-u-ca-gregory-nu-latn', { day: '2-digit', month: 'short', year: 'numeric' });
   } catch { return d; }
 };
 const monthLabel = (ym) => { try { return new Date(ym + '-01T00:00:00').toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' }); } catch { return ym; } };
@@ -3609,7 +3611,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark"><MizanMark size={24} /></span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v36.3</span>
+            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v36.4</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -10169,7 +10171,7 @@ function Approvals({ org, me, scoped, commit, say }) {
           <div key={c.id} className="card" style={{ borderColor: c.variance < 0 ? 'rgba(217,84,77,.3)' : 'var(--line)' }}>
             <div className="card-h">
               <div>
-                <div className="card-t">{c.branchName}<span className="num" style={{ color: 'var(--faint)', fontSize: 12 }}>{arDate(c.date)}</span></div>
+                <div className="card-t">{c.branchName}<span className="dt" style={{ color: 'var(--faint)', fontSize: 12 }}>{arDate(c.date)}</span></div>
                 <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 3 }}>سجّله {c.managerName} · {arTime(c.createdAt)}</div>
               </div>
               <div className="row">
@@ -10319,7 +10321,7 @@ function Treasury({ org, ops, me, myBranches, scoped, commit, say }) {
               <tbody>
                 {list.slice(0, 60).map(t => (
                   <tr key={t.id}>
-                    <td className="num" style={{ whiteSpace: 'nowrap' }}>{arDate(t.date)}</td>
+                    <td className="dt" style={{ whiteSpace: 'nowrap' }}>{arDate(t.date)}</td>
                     <td style={{ fontSize: 12 }}>{t.branchName}</td>
                     <td className="num" style={{ fontSize: 11, color: 'var(--dim)' }}>{t.referenceNo}</td>
                     <td className="num" style={{ color: 'var(--brass)', fontWeight: 600 }}>{money(t.amount)}</td>
@@ -10351,7 +10353,7 @@ function Treasury({ org, ops, me, myBranches, scoped, commit, say }) {
               <tbody>
                 {disb.map(x => (
                   <tr key={x.id}>
-                    <td className="num" style={{ whiteSpace: 'nowrap' }}>{arDate(x.date)}</td>
+                    <td className="dt" style={{ whiteSpace: 'nowrap' }}>{arDate(x.date)}</td>
                     <td style={{ fontSize: 12 }}>{x.category}</td>
                     <td style={{ fontSize: 11.5, color: 'var(--dim)' }}>{x.beneficiary}</td>
                     <td className="num" style={{ fontSize: 11, color: 'var(--faint)' }}>{x.reference}</td>
@@ -10388,7 +10390,7 @@ function Treasury({ org, ops, me, myBranches, scoped, commit, say }) {
               <tbody>
                 {fLedger.slice(0, 200).map(i => (
                   <tr key={i.kind + i.id}>
-                    <td className="num" style={{ whiteSpace: 'nowrap' }}>{arDate(i.date)}</td>
+                    <td className="dt" style={{ whiteSpace: 'nowrap' }}>{arDate(i.date)}</td>
                     <td style={{ fontSize: 12 }}>{i.label}</td>
                     <td className="num" style={{ fontSize: 10.5, color: 'var(--faint)' }}>{i.ref}</td>
                     <td className="num" style={{ color: 'var(--mint)' }}>{i.kind === 'in' ? money(i.amount) : '—'}</td>
@@ -11150,7 +11152,7 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
             <tbody>
               {scoped.advances.filter(a => a.month === month).sort((a, b) => b.date.localeCompare(a.date)).map(a => (
                 <tr key={a.id}>
-                  <td className="num" style={{ whiteSpace: 'nowrap' }}>{arDate(a.date)}</td>
+                  <td className="dt" style={{ whiteSpace: 'nowrap' }}>{arDate(a.date)}</td>
                   <td style={{ fontSize: 12 }}>{a.employeeName}</td>
                   <td><span className={'badge ' + (['advance', 'salary_draw'].includes(a.type) ? 'b-amber' : a.type === 'bonus' ? 'b-mint' : 'b-rose')}>
                     {{ advance: 'سلفة', salary_draw: 'مسحوبة', discount: 'خصم', absence_penalty: 'غياب', lateness_penalty: 'تأخير', bonus: 'مكافأة معتمدة', discipline_penalty: 'جزاء معتمد', unpaid_leave: 'إجازة بدون راتب', sick_leave_cut: 'خصم إجازة مرضية', other: 'أخرى' }[a.type] || a.type}
@@ -17701,7 +17703,7 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: g
         </div>
       </div>
 
-      <SectionNav label="أقسام المشتريات" cur={tab} onPick={setTab} items={[{ id: 'inv', ar: 'فواتير الموردين الآجلة', icon: FileText }, { id: 'fx', ar: 'إيجارات وفواتير الفروع', icon: Building2 }, { id: 'po', ar: 'أوامر الشراء', icon: ClipboardCheck }]}
+      <SectionNav label="الفواتير والأوامر" cur={tab} onPick={setTab} items={[{ id: 'inv', ar: 'فواتير الموردين الآجلة', icon: FileText }, { id: 'fx', ar: 'إيجارات وفواتير الفروع', icon: Building2 }, { id: 'po', ar: 'أوامر الشراء', icon: ClipboardCheck }]}
         extra={<>{goTab && roleHasTab(me, 'partners') && <button className="btn sm gh" onClick={() => goTab('partners')}><Users size={14} />الموردون ← جهات الاتصال</button>}
           {canPay && <button className="btn sm pri" onClick={() => setNewInv({ supplierId: suppliers[0]?.id || '', invoiceNo: '', amount: '', taxable: true, date: today(), dueDate: today(), branchId: '' })}><Plus size={14} />فاتورة توريد جديدة</button>}</>} />
       <div className="grid g4">
@@ -17742,7 +17744,7 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: g
                         {i.source === 'closing' && <div><span className="badge b-mint" style={{ fontSize: 8.5, marginTop: 2 }}>من وردية · {i.categoryName}</span></div>}</td>
                       <td style={{ fontSize: 12 }}>{i.supplierName}</td>
                       <td style={{ fontSize: 11.5, color: 'var(--dim)' }}>{i.branchName}</td>
-                      <td className="num" style={{ whiteSpace: 'nowrap', color: late ? 'var(--rose)' : 'inherit' }}>{arDate(i.dueDate)}</td>
+                      <td className="dt" style={{ whiteSpace: 'nowrap', color: late ? 'var(--rose)' : 'inherit' }}>{arDate(i.dueDate)}</td>
                       <td style={{ whiteSpace: 'nowrap', color: mahla.c, fontSize: 11.5, fontWeight: 600 }}>{mahla.t}</td>
                       <td className="num">{money(i.amount)}</td>
                       <td className="num" style={{ color: 'var(--mint)' }}>{money(paidOf(i))}
