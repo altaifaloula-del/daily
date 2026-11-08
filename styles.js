@@ -1090,6 +1090,41 @@ td.num,th.num{display:table-cell}
 .acct-tile.on{background:var(--acc-soft);border-color:var(--brass);font-weight:700}
 @media(max-width:700px){.acct-grid{grid-template-columns:repeat(3,1fr)}.acct-tile{min-height:76px;font-size:11.5px;padding:10px 4px}}
 @media(max-width:380px){.acct-grid{grid-template-columns:repeat(2,1fr)}}
+/* v35.9 — ترتيب اللوحات: بطاقات المؤشرات بطاقتان في الصف على الجوال، مدمجة وأنيقة؛ وأقسام التطبيق شريط أفقي */
+@media(max-width:640px){
+  .g2:has(>.kpi),.g3:has(>.kpi),.g4:has(>.kpi){grid-template-columns:repeat(2,minmax(0,1fr)) !important;gap:8px !important}
+  :is(.g2,.g3,.g4):has(>.kpi)>.kpi:last-child:nth-child(odd){grid-column:1/-1}
+  .kpi{padding:11px 12px;border-radius:12px;min-width:0}
+  .kpi:hover{transform:none}
+  .kpi::after{display:none}
+  .kpi-l{font-size:11.5px;line-height:1.35}
+  .kpi-l svg{flex-shrink:0}
+  .kpi-v{font-size:19px;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .kpi-s{font-size:10.5px;line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .acct-grid{display:flex !important;overflow-x:auto;gap:8px;padding:2px 1px 4px;scrollbar-width:none;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity}
+  .acct-grid::-webkit-scrollbar{display:none}
+  .acct-tile{flex:0 0 auto;flex-direction:row;min-height:44px;padding:8px 14px;border-radius:999px;font-size:13px;gap:7px;white-space:nowrap;scroll-snap-align:start}
+  .acct-tile svg{width:16px;height:16px}
+  .secnav-grid .row{margin-bottom:6px !important}
+  .verbadge{display:none}
+  .abar{flex-wrap:nowrap;padding:8px 10px;gap:8px}
+  .abar-id{min-width:0;flex:1;font-size:14px}
+  .abar-id>span:last-child,.abar-id>div:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .abar-id small{display:none}
+  .abar .abar-dd>.btn{padding:8px 10px;white-space:nowrap}
+  .abar-sp{display:none}
+  /* صفوف أزرار الأقسام (تبديل) — سطر واحد قابل للتمرير بدل التفاف غير مرتب */
+  .row:has(> .btn.sm.pri):has(> .btn.sm.gh):not(:has(> :not(.btn))){flex-wrap:nowrap !important;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding-bottom:2px}
+  .row:has(> .btn.sm.pri):has(> .btn.sm.gh):not(:has(> :not(.btn)))::-webkit-scrollbar{display:none}
+  .row:has(> .btn.sm.pri):has(> .btn.sm.gh):not(:has(> :not(.btn))) > .btn{flex:0 0 auto;white-space:nowrap;min-height:40px}
+  .toptitle{font-size:16px}
+}
+/* الحاسوب: بطاقات المؤشرات بارتفاع متساوٍ ومحاذاة ثابتة */
+@media(min-width:641px){
+  :is(.g2,.g3,.g4)>.kpi{display:flex;flex-direction:column;min-width:0}
+  .kpi-s{margin-top:auto;padding-top:4px}
+  .kpi-v{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+}
 
 /* إخفاء القائمة الجانبية على الحاسوب — شبكة تطبيقات صرفة + قائمة حساب بالرأس — v9.6 */
 @media(min-width:901px){
