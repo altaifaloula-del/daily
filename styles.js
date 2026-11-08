@@ -1333,4 +1333,17 @@ html,body{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 @keyframes mzt{from{transform:translateY(8px);opacity:0}to{transform:none;opacity:1}}
 @media(max-width:900px){.mz-toast{inset-inline:12px;max-width:none;bottom:calc(84px + env(safe-area-inset-bottom,0px))}}
 @media (prefers-reduced-motion: reduce){.mz-toast{animation:none}}
+
+/* v37.2 — تباين النص في الوضع النهاري: ألوان قديمة مكتوبة مباشرة في الشاشات (فاتحة صُممت للخلفية الداكنة) تُستبدل كلون نص بنظيرها الداكن المقروء على الأبيض */
+.rms.thm-mizan.mode-light [style^="color: rgb(224, 164, 88)"],.rms.thm-mizan.mode-light [style*="; color: rgb(224, 164, 88)"]{color:#8F5E0E !important}
+.rms.thm-mizan.mode-light [style^="color: rgb(79, 178, 134)"],.rms.thm-mizan.mode-light [style*="; color: rgb(79, 178, 134)"]{color:#1E7A52 !important}
+.rms.thm-mizan.mode-light [style^="color: rgb(217, 84, 77)"],.rms.thm-mizan.mode-light [style*="; color: rgb(217, 84, 77)"]{color:#B3372E !important}
+.rms.thm-mizan.mode-light [style^="color: rgb(91, 147, 196)"],.rms.thm-mizan.mode-light [style*="; color: rgb(91, 147, 196)"]{color:#2D6394 !important}
+.rms.thm-mizan.mode-light [style^="color: rgb(200, 162, 74)"],.rms.thm-mizan.mode-light [style*="; color: rgb(200, 162, 74)"]{color:#8A6620 !important}
+.rms.thm-mizan.mode-light [style^="color: rgb(155, 123, 184)"],.rms.thm-mizan.mode-light [style*="; color: rgb(155, 123, 184)"]{color:#6B4FA0 !important}
+/* أزرار بلا لون محدد كانت تأخذ الأسود الافتراضي من المتصفح فتختفي في الوضع الليلي — ترث لون النص (أدنى أولوية، فتبقى ألوان الأصناف كما هي) */
+:where(.rms) button{color:inherit}
+/* شارات عدد الأقسام والتنبيهات في الرئيسية: نص داكن على الذهبي، وأحمر أغمق للتنبيه */
+.rms.thm-mizan .lh-cnt{color:#1D1B18}
+.rms.thm-mizan .lh-bdg{background:#B3372E;color:#fff}
 `;
