@@ -1,5 +1,6 @@
 /* تنسيقات المنصة */
 export const CSS = `
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Markazi+Text:wght@500;600;700&family=Tajawal:wght@300;400;500;700;900&family=IBM+Plex+Mono:wght@400;500;600&family=Cairo:wght@400;600;700&family=Almarai:wght@400;700;800&display=swap');
 /* v32.4 — خط الأرقام: Inter للأرقام وعلاماتها فقط (unicode-range) — الحروف تبقى بخطوطها العربية في كل مكان */
 @font-face{font-family:'MizanNum';src:url('./fonts/inter-latin.woff2') format('woff2');font-weight:100 900;font-style:normal;font-display:swap;
@@ -991,6 +992,91 @@ body.lh-dragging *{cursor:grabbing !important}
 @media(max-width:900px){.top{padding-top:calc(10px + env(safe-area-inset-top))}}
 .gate{padding-top:calc(20px + env(safe-area-inset-top));padding-bottom:calc(20px + env(safe-area-inset-bottom))}
 @media(max-width:640px){.gate{padding-top:calc(8vh + env(safe-area-inset-top));padding-bottom:calc(14px + env(safe-area-inset-bottom))}}
+
+/* ══════════════ v35.0 — «ميزان 2»: لغة التصميم الثانية (الافتراضية) ══════════════
+   الهوية الذهبية نفسها بتباين أعلى وتسلسل أوضح: سطوح بحدود لا ظلال، زر رئيسي واحد بلون العلامة،
+   حقول وأزرار بارتفاع لمس 44 على الجوال، خط IBM Plex Sans Arabic للحروف وInter ثابت العرض للأرقام. */
+.rms.thm-mizan{--acc:#9C7427;--r-sm:8px;--r:10px;--r-md:14px;--r-lg:18px;--r-xl:20px;--ico-r:14px;--ico-sw:1.9;--tk-r:6px;
+  --font-head:'IBM Plex Sans Arabic',sans-serif;--font-ui:'IBM Plex Sans Arabic',sans-serif;
+  --brand-fill:#C9A24D;--brand-ink:#1D1B18;--side-bg:#1F1C18;--side-txt:#E9E2D4;--side-dim:#8F8676;--side-on:#F3D98F;--side-hl:#2F2A23}
+.rms.thm-mizan.mode-light{--ink:#F6F4EF;--ink2:#FFFFFF;--ink3:#FBFAF7;--line:#E6E1D6;--txt:#1D1B18;--dim:#5B544A;--faint:#7A7266;
+  --mint:#1E7A52;--rose:#B3372E;--amber:#8F5E0E;--sky:#2D6394;--violet:#6E4F9A;--line-g:#E3D9C2;
+  --sh-1:none;--sh-2:0 2px 10px rgba(31,28,24,.06);--sh-3:0 10px 30px rgba(31,28,24,.10);--sh-4:0 22px 60px rgba(31,28,24,.18)}
+.rms.thm-mizan.mode-dark{--acc:#D9B866;--ink:#141210;--ink2:#1C1916;--ink3:#24201C;--line:#36312A;--txt:#EFEAE1;--dim:#B5AC9F;--faint:#8F8676;
+  --mint:#5CC497;--rose:#F08A80;--amber:#E8B35E;--sky:#7AAEDB;--violet:#B497D6;--line-g:#463E31;--brand-fill:#D9B866;--side-bg:#100E0C;--side-hl:#26221C;
+  --sh-1:none;--sh-2:0 2px 10px rgba(0,0,0,.35);--sh-3:0 10px 30px rgba(0,0,0,.45);--sh-4:0 22px 60px rgba(0,0,0,.6)}
+.rms.thm-mizan{font-size:14.5px;line-height:1.6}
+.rms.thm-mizan h1,.rms.thm-mizan h2,.rms.thm-mizan h3,.rms.thm-mizan .card-t,.rms.thm-mizan .brand-t{font-family:'MizanNum','IBM Plex Sans Arabic',sans-serif;letter-spacing:0}
+.rms.thm-mizan .card-t{font-size:16px;font-weight:700}
+/* السطوح: حدود واضحة بلا ظلال */
+.rms.thm-mizan .card{background:var(--ink2);border:1px solid var(--line);box-shadow:none;border-radius:var(--r-md)}
+.rms.thm-mizan .card:hover{box-shadow:none}
+.rms.thm-mizan .kpi{background:var(--ink2);border:1px solid var(--line);box-shadow:none}
+.rms.thm-mizan .kpi::after{display:none}
+.rms.thm-mizan .kpi:hover{transform:none;box-shadow:none;border-color:var(--line-g)}
+/* الأزرار: رئيسي واحد بلون العلامة ونص داكن، والثانوي أبيض بحد */
+.rms.thm-mizan .btn{background:var(--ink2);border:1px solid color-mix(in srgb,var(--txt) 16%,var(--line));box-shadow:none;font-weight:600;font-size:13.5px;border-radius:var(--r);min-height:40px}
+.rms.thm-mizan .btn:hover:not(:disabled){background:var(--ink3);border-color:color-mix(in srgb,var(--txt) 28%,var(--line));box-shadow:none}
+.rms.thm-mizan .btn.pri{background:var(--brand-fill);background-image:none;color:var(--brand-ink);border-color:transparent;box-shadow:none;font-weight:700}
+.rms.thm-mizan .btn.pri:hover:not(:disabled){filter:none;background:color-mix(in srgb,var(--brand-fill) 88%,#000);box-shadow:none}
+.rms.thm-mizan .btn.gh{background:transparent;border-color:transparent}
+.rms.thm-mizan .btn.gh:hover:not(:disabled){background:color-mix(in srgb,var(--txt) 6%,transparent)}
+.rms.thm-mizan .btn.sm{min-height:34px;padding:6px 12px;font-size:12.5px;border-radius:9px}
+.rms.thm-mizan .btn.ok{background:color-mix(in srgb,var(--mint) 12%,var(--ink2));border-color:color-mix(in srgb,var(--mint) 40%,transparent);color:var(--mint)}
+.rms.thm-mizan .btn.no{background:color-mix(in srgb,var(--rose) 10%,var(--ink2));border-color:color-mix(in srgb,var(--rose) 40%,transparent);color:var(--rose)}
+.rms.thm-mizan .btn:focus-visible,.rms.thm-mizan .inp:focus,.rms.thm-mizan .sel:focus{box-shadow:0 0 0 3px color-mix(in srgb,var(--brand-fill) 40%,transparent)}
+/* الحقول */
+.rms.thm-mizan .inp,.rms.thm-mizan .sel{background:var(--ink3);border:1px solid color-mix(in srgb,var(--txt) 16%,var(--line));border-radius:var(--r);min-height:42px;font-size:14px}
+.rms.thm-mizan .inp:focus,.rms.thm-mizan .sel:focus{background:var(--ink2);border-color:var(--brand-fill)}
+.rms.thm-mizan .inp.n{font-weight:600}
+.rms.thm-mizan .lbl{font-size:12.5px;font-weight:500;color:var(--dim)}
+/* الحالات: تعبئة هادئة بنص داكن من نفس اللون — مقروءة في الوضعين */
+.rms.thm-mizan .badge{font-size:11.5px;padding:3px 10px;border:0;font-weight:600}
+.rms.thm-mizan .b-mint{background:color-mix(in srgb,var(--mint) 13%,transparent);color:var(--mint)}
+.rms.thm-mizan .b-rose{background:color-mix(in srgb,var(--rose) 12%,transparent);color:var(--rose)}
+.rms.thm-mizan .b-amber{background:color-mix(in srgb,var(--amber) 14%,transparent);color:var(--amber)}
+.rms.thm-mizan .b-sky{background:color-mix(in srgb,var(--sky) 12%,transparent);color:var(--sky)}
+.rms.thm-mizan .b-brass{background:color-mix(in srgb,var(--brand-fill) 20%,transparent);color:color-mix(in srgb,var(--acc) 85%,var(--txt))}
+.rms.thm-mizan .b-dim{background:color-mix(in srgb,var(--txt) 7%,transparent);color:var(--dim)}
+/* الجداول: رأس هادئ، أرقام بعرض ثابت، صف إجمالي واضح */
+.rms.thm-mizan table.tb{font-size:13.5px}
+.rms.thm-mizan .tb th{background:var(--ink3);color:var(--dim);font-size:12px;font-weight:600;letter-spacing:0;padding:10px 12px;border-bottom:1px solid var(--line)}
+.rms.thm-mizan .tb td{padding:11px 12px;border-bottom:1px solid color-mix(in srgb,var(--line) 70%,transparent)}
+.rms.thm-mizan .tb tbody tr:hover{background:color-mix(in srgb,var(--brand-fill) 6%,transparent)}
+.rms.thm-mizan .tb td.num,.rms.thm-mizan .tb td .num{font-weight:500}
+.rms.thm-mizan .num{font-variant-numeric:tabular-nums;font-feature-settings:'tnum' 1}
+/* القائمة الجانبية الداكنة (الحبر) في الوضعين — هوية ثابتة وتباين عالٍ */
+.rms.thm-mizan .side{background:var(--side-bg);border-color:transparent;color:var(--side-txt)}
+.rms.thm-mizan .side .brand-t{color:#FFFFFF}
+.rms.thm-mizan .side .brand-s,.rms.thm-mizan .side .nav-lbl{color:var(--side-dim)}
+.rms.thm-mizan .nav-lbl{letter-spacing:0;font-size:11px;font-weight:600}
+.rms.thm-mizan .nav-i{color:var(--side-txt);font-size:13.5px;border-radius:9px;min-height:40px}
+.rms.thm-mizan .nav-i:hover{background:var(--side-hl);color:#FFFFFF}
+.rms.thm-mizan .nav-i.on{background:var(--side-hl);color:var(--side-on);box-shadow:none;font-weight:700}
+.rms.thm-mizan .nav-i .cnt{background:var(--brand-fill);color:var(--brand-ink)}
+.rms.thm-mizan .brand-mark{background:var(--brand-fill);color:var(--brand-ink);box-shadow:none;font-family:'IBM Plex Sans Arabic',sans-serif}
+/* الشريط العلوي والسفلي */
+.rms.thm-mizan .top{background:var(--ink2);backdrop-filter:none;border-bottom:1px solid var(--line)}
+.rms.thm-mizan .botnav{background:var(--ink2);box-shadow:0 -1px 0 var(--line)}
+.rms.thm-mizan .botnav-i.on{color:color-mix(in srgb,var(--acc) 80%,var(--txt))}
+/* النوافذ */
+.rms.thm-mizan .modal{border-radius:var(--r-xl);border-color:var(--line);box-shadow:var(--sh-4)}
+.rms.thm-mizan .modal-h,.rms.thm-mizan .modal-f{background:var(--ink2)}
+.rms.thm-mizan .mask{background:rgba(20,18,16,.55);backdrop-filter:blur(3px)}
+/* الملاحظات والتنبيهات المضمّنة */
+.rms.thm-mizan .note{background:var(--ink3);border:1px solid var(--line);border-radius:12px;color:var(--txt)}
+.rms.thm-mizan .note::before{display:none}
+/* شاشة التطبيقات (الرئيسية) */
+.rms.thm-mizan .lh-box{background:var(--ink2);border:1px solid var(--line);box-shadow:none}
+.rms.thm-mizan .lh-tile:hover .lh-box{border-color:color-mix(in srgb,var(--brand-fill) 60%,var(--line))}
+.rms.thm-mizan .lh-bg::before,.rms.thm-mizan .lh-bg::after{background:none;content:none}
+/* لمس مريح على الجوال والآيباد */
+@media(max-width:900px){
+  .rms.thm-mizan .btn{min-height:44px}
+  .rms.thm-mizan .btn.sm{min-height:38px}
+  .rms.thm-mizan .inp,.rms.thm-mizan .sel{min-height:46px}
+  .rms.thm-mizan .tb td{padding:12px 10px}
+}
 html,body{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 @media(max-width:900px){input,select,textarea{font-size:16px}}
 `;
