@@ -5,7 +5,7 @@ import {
   ShieldCheck, Bell, LogOut, Plus, Minus, Trash2, Check, X, Search,
   CircleDollarSign, TrendingUp, TrendingDown, AlertTriangle, Wallet,
   ArrowLeftRight, UserCog, Menu, RefreshCw, Lock, Radio, Download,
-  ChevronLeft, Stamp, Landmark, Receipt, CalendarDays, Store, Eye, Send,
+  ChevronLeft, Stamp, Landmark, Receipt, CalendarDays, Store, Eye, Send, Copy,
   Sparkles, Lightbulb, Gift, Truck, Printer, HardDrive, Settings, FileText, Upload,
   Camera, Image as ImageIcon, Clock, Timer, Compass,
   Fingerprint, ScanFace, ShieldAlert, Video, Grid3x3,
@@ -3611,7 +3611,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark"><MizanMark size={24} /></span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v36.4</span>
+            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v36.5</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -4508,7 +4508,7 @@ function Modal({ title, sub, icon: Icon, children, foot, onClose, wide, flow }) 
         {foot && <div className="modal-f">{foot}</div>}
       </div>
     </div>
-  ), document.body);
+  ), (typeof document !== 'undefined' && document.querySelector('.rms')) || document.body);   // v36.5: داخل غلاف الثيم ليرث ألوانه (كانت النوافذ تخرج عن الثيم)
 }
 
 function Field({ label, children, style }) {
@@ -19706,7 +19706,176 @@ function AppGlyph({ a, size = 36 }) {
    مبيعات الفرع اليوم: إغلاقه إن رُحّل، وإلا مبيعات نقطة البيع الحيّة (موسومة «مباشر»). */
 const brCnt = (n) => n === 1 ? 'فرع واحد' : n === 2 ? 'فرعان' : n + (n >= 3 && n <= 10 ? ' فروع' : ' فرعًا');
 const moneyP = (n) => (Number(n) || 0) < 0 ? '(' + money(-n) + ')' : money(n);
-function TodayPanel({ ops, me, myBranches, scoped, setTab }) {
+/* ===== v36.5 — التقرير الصباحي =====
+   صفحة واحدة تلخّص يوم أمس (أو أي يوم) لفروع المستخدم: الإغلاقات والمبيعات مقابل نفس اليوم من الأسبوع السابق،
+   فروقات الصناديق، ما ينتظر الاعتماد، فواتير الموردين المتأخرة والمستحقة خلال 7 أيام، تكلفة الطعام للشهر، وضريبة غير مسددة.
+   أرقام حقيقية فقط بنفس منطق شاشاتها (المشتريات، تكلفة الطعام، الإقرار). طباعة/PDF ومشاركة نصية عبر واتساب. */
+function morningData(org, ops, me, myBranches, scoped, day) {
+  const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+  const R = ROLES[me.role] || {};
+  const tabs = R.tabs || [];
+  const can = (t) => tabs.includes(t) || (me.appAllow || []).some(id => (LAUNCH_IX[id]?.open?.tab) === t);
+  const brs = (myBranches || []).filter(b => b.isActive !== false);
+  const ids = new Set(brs.map(b => b.id));
+  const cls = (scoped?.closings || []);
+  const counted = cls.filter(countedClosing);
+  const wk = (() => { const d = new Date(day + 'T00:00:00'); d.setDate(d.getDate() - 7); return isoD(d); })();
+  const rows = brs.map(b => {
+    const bc = counted.filter(c => c.branchId === b.id && c.date === day);
+    const prev = r2(sum(counted.filter(c => c.branchId === b.id && c.date === wk), c => c.totalRevenue));
+    if (bc.length) return { b, st: 'closed', rev: r2(sum(bc, c => c.totalRevenue)), var: r2(sum(bc, c => c.variance)), exp: r2(sum(bc, c => c.totalExpenses)), prev, pend: bc.some(c => c.status === 'submitted') };
+    const ps = salesDaySource(ops || {}, b.id, day);
+    const dr = cls.some(c => c.branchId === b.id && c.date === day && c.status === 'draft');
+    return { b, st: ps.n || ps.total ? 'pos' : dr ? 'draft' : 'none', rev: r2(ps.total || 0), var: 0, exp: 0, prev, pend: false };
+  }).sort((x, y) => y.rev - x.rev);
+  const revT = r2(sum(rows, r => r.rev)), prevT = r2(sum(rows, r => r.prev));
+  const chg = prevT > 0.004 ? Math.round((revT - prevT) / prevT * 1000) / 10 : null;
+  const varRows = rows.filter(r => r.st === 'closed' && Math.abs(r.var) >= 0.01);
+  const notClosed = rows.filter(r => r.st !== 'closed');
+  const pendL = cls.filter(c => c.status === 'submitted');
+  const oldest = pendL.length ? pendL.map(c => c.date).sort()[0] : '';
+  const ageDays = oldest ? Math.round((new Date(day + 'T00:00:00') - new Date(oldest + 'T00:00:00')) / 864e5) : 0;
+  // الموردون — نفس منطق شاشة المشتريات (فواتير مخزّنة + فواتير الورديات الآجلة، ناقص كل السدادات والمرتجعات)
+  let pay = null;
+  if (can('purchasing')) {
+    const central = R.scope !== 'own';
+    const branchPaid = (invId) => sum(counted.flatMap(c => (c.supplierPayments || []).filter(pm => pm.invoiceId === invId)), payTotal);
+    const alloc = {}; (ops.closingInvPays || []).forEach(x => (x.alloc || []).forEach(([id, v]) => { alloc[id] = (alloc[id] || 0) + (Number(v) || 0); }));
+    const cnOf = (i) => sum((ops.invoices || []).filter(x => x.creditNote && x.appliesTo === i.id), x => -(x.amount || 0));
+    const invRem = (i) => i.amount < 0 ? 0 : Math.max(0, r2(i.amount - ((i.paidAmount || 0) + branchPaid(i.id) + (alloc[i.id] || 0)) - cnOf(i)));
+    const cPaid = (refId) => sum((ops.closingInvPays || []).filter(x => x.refId === refId), x => x.amount);
+    const all = [
+      ...(ops.invoices || []).filter(i => ids.has(i.branchId) || (!i.branchId && central)).map(i => ({ no: i.invoiceNo || '', sup: i.supplierName || '', due: i.dueDate || '', rem: invRem(i) })),
+      ...closingInvoices(org, ops).filter(v => ids.has(v.branchId)).map(v => ({ no: v.invoiceNo || '', sup: v.supplierName || '', due: v.dueDate || '', rem: Math.max(0, r2(v.amount - cPaid(v.id))) }))
+    ].filter(x => x.rem > 0.004);
+    const in7 = (() => { const d = new Date(day + 'T00:00:00'); d.setDate(d.getDate() + 7); return isoD(d); })();
+    const over = all.filter(x => x.due && x.due < day).sort((a, b) => a.due.localeCompare(b.due));
+    const soon = all.filter(x => x.due && x.due >= day && x.due <= in7).sort((a, b) => a.due.localeCompare(b.due));
+    pay = { over, soon, overT: r2(sum(over, x => x.rem)), soonT: r2(sum(soon, x => x.rem)), openT: r2(sum(all, x => x.rem)) };
+  }
+  // تكلفة الطعام من أول الشهر حتى اليوم — نفس تصنيف قائمة الدخل، والهدف من لوحة المؤشرات
+  let food = null, vat2302 = null;
+  if (can('acct')) {
+    const A = buildAccounting(org, ops);
+    const from = day.slice(0, 8) + '01';
+    const es = A.entries.filter(e => (e.date || '') >= from && (e.date || '') <= day && !e.closing);
+    const agg = (list) => { const m = {}; list.forEach(e => e.lines.forEach(l => { const x = m[l.code] || (m[l.code] = { debit: 0, credit: 0 }); x.debit += l.debit; x.credit += l.credit; })); return m; };
+    const bal = (a, m) => { const x = m[a.code]; if (!x) return 0; return (a.kind === 'asset' || a.kind === 'exp') ? x.debit - x.credit : x.credit - x.debit; };
+    const fc = (list) => { const m = agg(list); const Y = isLayout(A.accounts, (a) => bal(a, m)); return { ns: Y.netSales, cogs: -Y.cogsT, pct: Y.netSales > 0.004 ? Math.round(-Y.cogsT / Y.netSales * 1000) / 10 : null }; };
+    const tgt = Number(((org.scorecard || {}).targets || {}).food) || 30;
+    const all = fc(es);
+    const per = brs.map(b => ({ b, ...fc(es.filter(e => e.branchId === b.id)) })).filter(x => x.pct != null).sort((x, y) => y.pct - x.pct);
+    food = { tgt, all, over: per.filter(x => x.cogs > 0.004 && x.pct > tgt), from };
+    if ((org.taxCfg || {}).enabled) { let d = 0, c = 0; A.entries.forEach(e => e.lines.forEach(l => { if (l.code === '2302') { d += l.debit; c += l.credit; } })); vat2302 = r2(c - d); }
+  }
+  return { day, wk, rows, revT, prevT, chg, varRows, notClosed, pendL, ageDays, approver: !!R.approver, pay, food, vat2302, brs };
+}
+const mbStAr = { closed: 'مُغلق', pos: 'غير مُغلق — مبيعات نقطة البيع', draft: 'مسودة لم تُرحَّل', none: 'لا إغلاق ولا مبيعات' };
+function morningText(org, D) {
+  const L = [];
+  L.push('📋 التقرير الصباحي — ' + (org.company?.name || ''));
+  L.push('ليوم ' + arDate(D.day));
+  L.push('');
+  L.push('💰 المبيعات: ' + money(D.revT) + (D.chg != null ? ' (' + (D.chg >= 0 ? '▲ ' : '▼ ') + Math.abs(D.chg) + '% عن ' + arDate(D.wk) + ')' : ''));
+  D.rows.forEach(r => L.push('• ' + r.b.name + ': ' + (r.st === 'none' ? '—' : money(r.rev)) + (r.st !== 'closed' ? ' ⚠️ ' + mbStAr[r.st] : '') + (Math.abs(r.var) >= 0.01 ? ' · فرق ' + (r.var < 0 ? 'عجز ' : 'زيادة ') + money(Math.abs(r.var)) : '')));
+  if (D.approver && D.pendL.length) { L.push(''); L.push('⏳ بانتظار الاعتماد: ' + D.pendL.length + (D.ageDays > 1 ? ' (أقدمها منذ ' + D.ageDays + ' أيام)' : '')); }
+  if (D.pay && (D.pay.over.length || D.pay.soon.length)) { L.push(''); L.push('🧾 الموردون: متأخر ' + money(D.pay.overT) + ' (' + D.pay.over.length + ') · مستحق خلال 7 أيام ' + money(D.pay.soonT) + ' (' + D.pay.soon.length + ')'); }
+  if (D.food && D.food.all.pct != null) { L.push(''); L.push('🍽️ تكلفة الطعام للشهر: ' + D.food.all.pct + '% (الهدف ' + D.food.tgt + '%)' + (D.food.over.length ? ' · فوق الهدف: ' + D.food.over.map(x => x.b.name + ' ' + x.pct + '%').join('، ') : '')); }
+  if (D.vat2302 != null && D.vat2302 > 0.004) { L.push(''); L.push('🏛️ ضريبة مستحقة غير مسددة: ' + money(D.vat2302)); }
+  L.push(''); L.push('— منصة ميزان');
+  return L.join('\n');
+}
+function morningHtml(org, D) {
+  const co = org.company || {};
+  const st = (r) => r.st === 'closed' ? (r.pend ? '<span class="chip" style="background:#fdf6e9;color:#B7791F">بانتظار الاعتماد</span>' : '<span class="chip">مُغلق</span>') : '<span class="chip" style="background:#fdeeed;color:#C0392B">' + mbStAr[r.st] + '</span>';
+  const pct = (r) => r.prev > 0.004 ? ((r.rev - r.prev) / r.prev * 100) : null;
+  const rows = D.rows.map(r => { const p = pct(r); return `<tr><td>${r.b.name}</td><td>${st(r)}</td><td class="num">${r.st === 'none' ? '—' : money(r.rev)}</td><td class="num">${r.prev ? money(r.prev) : '—'}</td><td class="num ${p == null ? '' : p >= 0 ? 'mint' : 'rose'}">${p == null ? '—' : (p >= 0 ? '▲ ' : '▼ ') + Math.abs(p).toFixed(1) + '%'}</td><td class="num ${r.var < 0 ? 'rose' : ''}">${Math.abs(r.var) >= 0.01 ? (r.var < 0 ? '(' + money(-r.var) + ')' : money(r.var)) : '—'}</td></tr>`; }).join('');
+  const k = (l, v, cls, s) => `<div class="kpi ${cls || ''}"><span>${l}</span><b>${v}</b>${s ? '<span>' + s + '</span>' : ''}</div>`;
+  const varT = sum(D.varRows, r => r.var);
+  const payT = D.pay ? `<div class="sec-h">الموردون</div><table class="t"><thead><tr><th>المورد</th><th>الفاتورة</th><th>الاستحقاق</th><th class="num">المتبقي</th></tr></thead><tbody>
+    ${[...D.pay.over.map(x => ({ ...x, late: 1 })), ...D.pay.soon].slice(0, 15).map(x => `<tr><td>${x.sup}</td><td>${x.no}</td><td class="${x.late ? 'rose' : ''}">${arDate(x.due)}${x.late ? ' — متأخرة' : ''}</td><td class="num">${money(x.rem)}</td></tr>`).join('') || '<tr><td colspan="4" class="dim">لا فواتير متأخرة أو مستحقة خلال 7 أيام</td></tr>'}
+    </tbody></table>` : '';
+  const foodT = D.food && D.food.all.pct != null ? `<div class="sec-h">تكلفة الطعام — من ${arDate(D.food.from)} حتى ${arDate(D.day)}</div>
+    <div class="note" style="background:${D.food.all.pct > D.food.tgt ? '#fdeeed' : '#eef8f2'};color:${D.food.all.pct > D.food.tgt ? '#C0392B' : '#2E8B62'}">الشركة ${D.food.all.pct}% مقابل هدف ${D.food.tgt}%${D.food.over.length ? ' — فوق الهدف: ' + D.food.over.map(x => x.b.name + ' ' + x.pct + '%').join('، ') : ' — كل الفروع ضمن الهدف'}</div>` : '';
+  return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>التقرير الصباحي — ${D.day}</title><style>${A4_CSS}</style></head><body><div class="page">
+    <div class="head"><div class="co">${co.logoUrl ? `<img class="logo" src="${co.logoUrl}">` : MZ_LOGO_HTML}<div><div class="co-n">${co.name || ''}</div><div class="co-m">${D.brs.length} فرع</div></div></div>
+    <div class="doc-title">التقرير الصباحي</div><div class="doc-sub">ليوم ${arDate(D.day)} · مقارنة بـ ${arDate(D.wk)}</div></div>
+    <div class="kpis">${k('مبيعات اليوم', money(D.revT), '', D.chg != null ? (D.chg >= 0 ? '▲ ' : '▼ ') + Math.abs(D.chg) + '% عن الأسبوع السابق' : '')}
+      ${k('فروع لم تُغلق', D.notClosed.length + ' / ' + D.rows.length, D.notClosed.length ? 'warn' : 'ok', D.notClosed.map(r => r.b.name).join('، '))}
+      ${k('فروقات الصناديق', Math.abs(varT) >= 0.01 ? (varT < 0 ? '(' + money(-varT) + ')' : money(varT)) : '0.00', varT < -0.004 ? 'bad' : 'ok', D.varRows.length + ' فرع')}</div>
+    ${D.approver ? `<div class="kpis">${k('بانتظار اعتمادك', String(D.pendL.length), D.pendL.length ? 'warn' : 'ok', D.ageDays > 1 ? 'أقدمها منذ ' + D.ageDays + ' أيام' : '')}
+      ${D.pay ? k('موردون متأخرون', money(D.pay.overT), D.pay.over.length ? 'bad' : 'ok', D.pay.over.length + ' فاتورة') + k('مستحق خلال 7 أيام', money(D.pay.soonT), '', D.pay.soon.length + ' فاتورة') : ''}</div>` : ''}
+    <div class="sec-h">الفروع</div>
+    <table class="t"><thead><tr><th>الفرع</th><th>الحالة</th><th class="num">المبيعات</th><th class="num">قبل أسبوع</th><th class="num">التغيّر</th><th class="num">فرق الصندوق</th></tr></thead><tbody>${rows}</tbody>
+      <tfoot><tr class="tot"><td colspan="2">الإجمالي</td><td class="num">${money(D.revT)}</td><td class="num">${money(D.prevT)}</td><td class="num">${D.chg == null ? '—' : (D.chg >= 0 ? '▲ ' : '▼ ') + Math.abs(D.chg) + '%'}</td><td class="num">${Math.abs(varT) >= 0.01 ? (varT < 0 ? '(' + money(-varT) + ')' : money(varT)) : '—'}</td></tr></tfoot></table>
+    ${payT}${foodT}
+    ${D.vat2302 != null && D.vat2302 > 0.004 ? `<div class="note">ضريبة القيمة المضافة المستحقة غير المسددة (2302): ${money(D.vat2302)}</div>` : ''}
+    <div class="foot dim" style="margin-top:14px;text-align:center;font-size:9.5px">تقرير آلي من منصة ميزان — الأرقام من الإغلاقات والقيود الفعلية</div>
+  </div></body></html>`;
+}
+function MorningBrief({ org, ops, me, myBranches, scoped, setTab, onClose }) {
+  const yd = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return isoD(d); })();
+  const [day, setDay] = useState(yd);
+  const D = useMemo(() => morningData(org, ops, me, myBranches, scoped, day), [org, ops, me, myBranches, scoped, day]);
+  const print = () => { const w = openDocWin('width=900,height=1000'); if (!w) return; w.document.write(morningHtml(org, D)); w.document.close(); setTimeout(() => { try { w.focus(); w.print(); } catch { } }, 400); };
+  const wa = () => { const t = morningText(org, D); try { window.open('https://wa.me/?text=' + encodeURIComponent(t), '_blank'); } catch { } };
+  const copy = async () => { try { await navigator.clipboard.writeText(morningText(org, D)); } catch { } };
+  const varT = sum(D.varRows, r => r.var);
+  const go = (t) => { onClose(); setTab(t); };
+  return (
+    <Modal title="التقرير الصباحي" sub={'ليوم ' + arDate(day) + ' · مقارنة بـ ' + arDate(D.wk)} icon={ClipboardCheck} onClose={onClose} wide
+      foot={<div className="row" style={{ gap: 8, flexWrap: 'wrap', width: '100%' }}>
+        <button className="btn pri" onClick={print}><Printer size={14} />طباعة / PDF</button>
+        <button className="btn" onClick={wa}><Send size={14} />مشاركة واتساب</button>
+        <button className="btn gh" onClick={copy}><Copy size={14} />نسخ النص</button>
+      </div>}>
+      <div className="mb">
+        <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12.5, color: 'var(--dim)' }}>اليوم</span>
+          <input type="date" className="inp" style={{ width: 170 }} value={day} max={today()} onChange={e => e.target.value && setDay(e.target.value)} />
+          {day !== yd && <button className="btn sm gh" onClick={() => setDay(yd)}>أمس</button>}
+        </div>
+        <div className="tdy-kpis">
+          <div className="tdy-k"><span className="tdy-kl">المبيعات</span><span className="tdy-kv num">{money(D.revT)}</span>
+            <span className={'tdy-ks' + (D.chg == null ? '' : D.chg >= 0 ? ' pos' : ' neg')}>{D.chg == null ? 'لا مقارنة' : (D.chg >= 0 ? '▲ ' : '▼ ') + Math.abs(D.chg) + '% عن الأسبوع السابق'}</span></div>
+          <div className="tdy-k"><span className="tdy-kl">فروع لم تُغلق</span><span className={'tdy-kv num' + (D.notClosed.length ? ' neg' : '')}>{D.notClosed.length}/{D.rows.length}</span>
+            <span className="tdy-ks">{D.notClosed.length ? D.notClosed.map(r => r.b.name).slice(0, 3).join('، ') : 'كل الفروع أُغلقت ✓'}</span></div>
+          <div className="tdy-k"><span className="tdy-kl">فروقات الصناديق</span><span className={'tdy-kv num' + (varT < -0.004 ? ' neg' : '')}>{Math.abs(varT) >= 0.01 ? moneyP(varT) : '0.00'}</span>
+            <span className="tdy-ks">{D.varRows.length ? brCnt(D.varRows.length) + ' بفرق' : 'بلا فروقات'}</span></div>
+          {D.approver && <div className="tdy-k" role="button" tabIndex={0} style={{ cursor: 'pointer' }} onClick={() => go('approve')}><span className="tdy-kl">بانتظار اعتمادك</span><span className="tdy-kv num">{D.pendL.length}</span>
+            <span className={'tdy-ks' + (D.ageDays > 2 ? ' neg' : '')}>{D.pendL.length ? (D.ageDays > 1 ? 'أقدمها منذ ' + D.ageDays + ' أيام' : 'حديثة') : 'لا شيء معلّق'}</span></div>}
+        </div>
+        <div className="tdy-br">
+          <div className="tdy-brh"><b>الفروع</b><small>مقارنة بنفس اليوم من الأسبوع السابق</small></div>
+          {D.rows.map(r => { const p = r.prev > 0.004 ? Math.round((r.rev - r.prev) / r.prev * 1000) / 10 : null; return (
+            <div key={r.b.id} className="tdy-bri mb-bri">
+              <span className="tdy-brn">{r.b.name}</span>
+              <span className={'tdy-st ' + (r.st === 'closed' ? (r.pend ? 'draft' : 'closed') : r.st === 'pos' ? 'live' : 'draft')}>{r.st === 'closed' ? (r.pend ? 'بانتظار الاعتماد' : 'مُغلق') : r.st === 'pos' ? 'غير مُغلق' : r.st === 'draft' ? 'مسودة' : 'لا إغلاق'}</span>
+              {Math.abs(r.var) >= 0.01 && <span className={'mb-var num' + (r.var < 0 ? ' neg' : '')}>{r.var < 0 ? 'عجز ' : 'زيادة '}{money(Math.abs(r.var))}</span>}
+              <span className={'mb-chg num' + (p == null ? '' : p >= 0 ? ' pos' : ' neg')}>{p == null ? '' : (p >= 0 ? '▲' : '▼') + Math.abs(p) + '%'}</span>
+              <span className="num tdy-brv">{r.st === 'none' ? '—' : money(r.rev)}</span>
+            </div>); })}
+        </div>
+        {D.pay && (D.pay.over.length > 0 || D.pay.soon.length > 0) && (
+          <div className="tdy-br">
+            <div className="tdy-brh"><b>الموردون</b><small>متأخر <span className="num">{money(D.pay.overT)}</span> · خلال 7 أيام <span className="num">{money(D.pay.soonT)}</span></small></div>
+            {[...D.pay.over.map(x => ({ ...x, late: 1 })), ...D.pay.soon].slice(0, 8).map((x, i) => (
+              <div key={i} className="tdy-bri"><span className="tdy-brn">{x.sup}<small style={{ color: 'var(--faint)', fontWeight: 400 }}> · {x.no}</small></span>
+                <span className={'tdy-st ' + (x.late ? 'draft' : '')} style={x.late ? { color: 'var(--rose)', borderColor: 'color-mix(in srgb,var(--rose) 45%,transparent)' } : undefined}>{x.late ? 'متأخرة · ' : ''}{arDate(x.due)}</span>
+                <span className="num tdy-brv">{money(x.rem)}</span></div>))}
+            <button type="button" className="tdy-more" onClick={() => go('suppliers')}>فتح المشتريات</button>
+          </div>)}
+        {D.food && D.food.all.pct != null && (
+          <div className={'vck-i ' + (D.food.all.pct > D.food.tgt ? 'bad' : 'ok')}><span>{D.food.all.pct > D.food.tgt ? '✗' : '✓'}</span>
+            تكلفة الطعام للشهر حتى اليوم {D.food.all.pct}% مقابل هدف {D.food.tgt}%{D.food.over.length ? ' — فوق الهدف: ' + D.food.over.map(x => x.b.name + ' ' + x.pct + '%').join('، ') : ' — كل الفروع ضمن الهدف'}</div>)}
+        {D.vat2302 != null && D.vat2302 > 0.004 && <div className="vck-i warn"><span>!</span>ضريبة القيمة المضافة المستحقة غير المسددة: {money(D.vat2302)}</div>}
+      </div>
+    </Modal>
+  );
+}
+
+function TodayPanel({ org, ops, me, myBranches, scoped, setTab }) {
+  const [mbOpen, setMbOpen] = useState(false);
   const [allBr, setAllBr] = useState(false);
   const R = ROLES[me.role] || {};
   const td = today();
@@ -19746,6 +19915,8 @@ function TodayPanel({ ops, me, myBranches, scoped, setTab }) {
   const shown = allBr ? rows : rows.slice(0, 5);
   return (
     <div className="tdy">
+      <button type="button" className="tdy-mb" onClick={() => setMbOpen(true)}><ClipboardCheck size={18} /><span><b>التقرير الصباحي</b><small>ملخص أمس لكل الفروع — للطباعة والمشاركة</small></span><span aria-hidden="true">←</span></button>
+      {mbOpen && <MorningBrief org={org} ops={ops} me={me} myBranches={myBranches} scoped={scoped} setTab={setTab} onClose={() => setMbOpen(false)} />}
       {approver && pendL.length > 0 && (
         <button type="button" className="tdy-act" onClick={() => setTab(can('approve') ? 'approve' : 'closing')}>
           <span className="tdy-act-n num">{pendL.length}</span>
@@ -19986,7 +20157,7 @@ function Launcher({ org, ops, me, myBranches, scoped, setTab, openAcctView, open
         <input className="inp" placeholder="ابحث عن تطبيق أو قسم… (جرّب: تعادل، رواتب، تدفق نقدي)" value={q} onChange={e => setQ(e.target.value)} />
       </div>
 
-      {!qq && <TodayPanel ops={ops} me={me} myBranches={myBranches} scoped={scoped} setTab={setTab} />}
+      {!qq && <TodayPanel org={org} ops={ops} me={me} myBranches={myBranches} scoped={scoped} setTab={setTab} />}
 
       {qq && matchedSecs.length > 0 && (
         <div className="lh-sec">
