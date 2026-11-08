@@ -2364,7 +2364,7 @@ const LAUNCH_IX = {}; LAUNCH_APPS.forEach(a => { LAUNCH_IX[a.id] = a; });
 // v15.10: أقسام شاشة المحاسبة القابلة للتخصيص لكل مستخدم — تُخفى عبر appDeny بالمفتاح acctsec:<view>
 const ACCT_SECTIONS = [
   { v: 'jr', ar: 'القيود اليومية' }, { v: 'coa', ar: 'دليل الحسابات' }, { v: 'tb', ar: 'ميزان المراجعة' },
-  { v: 'fs', ar: 'القوائم المالية' }, { v: 'cf', ar: 'التدفقات النقدية' }, { v: 'fcast', ar: 'التوقّع النقدي' },
+  { v: 'fs', ar: 'القوائم المالية' }, { v: 'food', ar: 'تكلفة الطعام بالفروع' }, { v: 'cf', ar: 'التدفقات النقدية' }, { v: 'fcast', ar: 'التوقّع النقدي' },
   { v: 'bud', ar: 'الموازنة' }, { v: 'anl', ar: 'التحليل والنِسَب' }, { v: 'apage', ar: 'أعمار الموردين' },
   { v: 'arage', ar: 'أعمار العملاء' }, { v: 'export', ar: 'تصدير للمحاسب' }, { v: 'cc', ar: 'مراكز التكلفة' },
   { v: 'vat', ar: 'الضريبة (ق.م)' }, { v: 'einv', ar: 'الفوترة (زاتكا)' }, { v: 'zakat', ar: 'الزكاة وضريبة الدخل' },
@@ -3608,7 +3608,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark"><MizanMark size={24} /></span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v35.9</span>
+            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v36.0</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -21883,7 +21883,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         const IT = {
           jr: ['القيود اليومية', FileText], coa: ['دليل الحسابات', Landmark], tb: ['ميزان المراجعة', Scale], ob: ['الأرصدة الافتتاحية', Landmark],
           fs: ['القوائم المالية', FileBarChart], cf: ['التدفقات النقدية', ArrowLeftRight], fcast: ['التوقّع النقدي', TrendingUp], bud: ['الموازنة', BarChart3], anl: ['التحليل والنِسَب', TrendingUp], cc: ['مراكز التكلفة', BarChart3],
-          apage: ['أعمار الموردين', Users], arage: ['أعمار العملاء', Users],
+          food: ['تكلفة الطعام بالفروع', Store], apage: ['أعمار الموردين', Users], arage: ['أعمار العملاء', Users],
           vat: ['الضريبة (ق.م)', Receipt], einv: ['الفوترة (زاتكا)', QrCode], zakat: ['الزكاة وضريبة الدخل', Landmark],
           bank: ['التسوية البنكية', Landmark], ast: ['الأصول والإهلاك', Building2], astl: ['تسوية التطبيقات', Truck],
           mclose: ['حزمة الإقفال', ClipboardCheck], ctrl: ['الضوابط والتدقيق', ShieldCheck], lock: ['الإقفال الشهري', Lock], yend: ['إقفال السنة', CalendarDays],
@@ -21891,7 +21891,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         };
         const GROUPS = [
           { id: 'books', ar: 'الدفاتر', icon: FileText, items: ['jr', 'coa', 'tb', 'ob'] },
-          { id: 'stmts', ar: 'القوائم والتحليل', icon: FileBarChart, items: ['fs', 'cf', 'fcast', 'bud', 'anl', 'cc'] },
+          { id: 'stmts', ar: 'القوائم والتحليل', icon: FileBarChart, items: ['fs', 'food', 'cf', 'fcast', 'bud', 'anl', 'cc'] },
           { id: 'ages', ar: 'الذمم والأعمار', icon: Users, items: ['apage', 'arage'] },
           { id: 'tax', ar: 'الضريبة والزكاة', icon: Receipt, items: ['vat', 'einv', 'zakat'] },
           { id: 'bank', ar: 'البنوك والأصول', icon: Building2, items: ['bank', 'ast', 'astl'] },
@@ -22467,6 +22467,87 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
             ) : (
               <div className="note">فعّل الموازنة أعلاه وأدخل بنودها الشهرية لتظهر مقارنة الفعلي بالمخطّط والانحرافات.</div>
             )}
+          </div>
+        );
+      })()}
+
+      {view === 'food' && (() => {
+        // v36.0 — لوحة تكلفة الطعام بالفروع: تكلفة المبيعات ÷ صافي المبيعات لكل فرع مقابل الهدف — بنفس تصنيف قائمة الدخل
+        const fTo = to || today();
+        const fFrom = from || (fTo.slice(0, 8) + '01');
+        const tgt = Number(((org.scorecard || {}).targets || {}).food) || 30;
+        const ents = A.entries.filter(e => inPeriod(e, fFrom, fTo) && !e.closing);
+        const fcOf = (es) => { const Y = isLayout(A.accounts, (a) => balOf(a, aggOf(es))); const cogs = -Y.cogsT; return { ns: Y.netSales, cogs, pct: Y.netSales > 0.004 ? Math.round(cogs / Y.netSales * 1000) / 10 : null }; };
+        const brs = (org.branches || []).filter(b => b.isActive !== false);
+        const rows = brs.map(b => ({ b, ...fcOf(ents.filter(e => e.branchId === b.id)) })).sort((x, y) => (y.pct ?? -1) - (x.pct ?? -1));
+        const central = fcOf(ents.filter(e => !e.branchId));
+        const all = fcOf(ents);
+        const stOf = (r) => r.pct == null ? 'na' : r.cogs < 0.005 ? 'gap' : r.pct > tgt + 2 ? 'bad' : r.pct > tgt ? 'warn' : 'ok';
+        const stAr = { ok: 'ضمن الهدف', warn: 'قريب من الحد', bad: 'فوق الهدف', gap: 'لا تكلفة مسجّلة', na: 'لا مبيعات' };
+        const over = rows.filter(r => ['bad', 'warn'].includes(stOf(r)));
+        const saving = Math.round(sum(over, r => (r.pct - tgt) / 100 * r.ns) * 100) / 100;
+        const gaps = rows.filter(r => stOf(r) === 'gap');
+        const maxPct = Math.max(tgt * 1.6, ...rows.map(r => r.pct || 0), 1);
+        // الاتجاه: آخر 6 أشهر حتى نهاية الفترة
+        const mons = (() => { const out = []; const d = new Date(fTo.slice(0, 7) + '-01T00:00:00'); for (let i = 5; i >= 0; i--) { const x = new Date(d.getFullYear(), d.getMonth() - i, 1); out.push(isoD(x).slice(0, 7)); } return out; })();
+        const monE = {}; mons.forEach(m => { monE[m] = A.entries.filter(e => (e.date || '').slice(0, 7) === m && !e.closing); });
+        const cell = (es) => fcOf(es);
+        const saveTgt = async (v) => {
+          const n = Number(String(v).replace(/[^\d.]/g, '')); if (!(n > 0 && n < 100)) return say('أدخل نسبة بين 1 و99', 'no');
+          await commitOrg(d => ({ ...d, scorecard: { ...(d.scorecard || {}), targets: { ...((d.scorecard || {}).targets || {}), food: n } } }), { actionType: 'update', targetType: 'scorecard', targetId: 'food', need: 'edit', title: 'عدّل هدف تكلفة الطعام', details: n + '%' });
+          say('هدف تكلفة الطعام الآن ' + n + '%');
+        };
+        const pctTxt = (p) => p == null ? '—' : p.toFixed(1) + '%';
+        return (
+          <div className="grid" style={{ gap: 12 }}>
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>{periodBar}</div>
+            <div className="grid g4">
+              <Kpi label="تكلفة الطعام — الشركة" value={pctTxt(all.pct)} sub={money(all.cogs) + ' من مبيعات ' + money(all.ns)} icon={Store} color={all.pct != null && all.pct > tgt ? '#D9544D' : '#4FB286'} />
+              <Kpi label="الهدف" value={tgt + '%'} sub={canPost ? 'قابل للتعديل أدناه' : 'تحدده الإدارة المالية'} icon={Scale} color="#C8A24A" />
+              <Kpi label="فروع فوق الهدف" value={String(over.length) + ' / ' + rows.length} sub={over.length ? over.map(r => r.b.name).slice(0, 2).join('، ') + (over.length > 2 ? '…' : '') : 'كل الفروع ضمن الهدف'} icon={AlertTriangle} color={over.length ? '#D9544D' : '#4FB286'} />
+              <Kpi label="وفر ممكن عند بلوغ الهدف" value={money(saving)} sub="للفترة المعروضة" icon={TrendingDown} color="#5B93C4" />
+            </div>
+            <div className="card">
+              <div className="card-h">
+                <div className="card-t"><Store size={15} color="var(--brass)" />تكلفة الطعام حسب الفرع <span className="badge b-dim num">{fFrom} ← {fTo}</span></div>
+                {canPost && <div className="row" style={{ gap: 6, alignItems: 'center' }}>
+                  <span style={{ fontSize: 12, color: 'var(--dim)' }}>الهدف %</span>
+                  <input className="inp n" style={{ width: 80 }} inputMode="decimal" defaultValue={tgt} key={tgt} onBlur={e => { if (Number(e.target.value) !== tgt) saveTgt(e.target.value); }} onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }} />
+                </div>}
+              </div>
+              <div className="fc-list">
+                {rows.map(r => { const st = stOf(r); return (
+                  <div key={r.b.id} className={'fc-row ' + st}>
+                    <div className="fc-h"><b>{r.b.name}</b><span className={'fc-st ' + st}>{stAr[st]}</span><span className="fc-p num">{pctTxt(r.pct)}</span></div>
+                    <div className="fc-bar"><span style={{ width: Math.min(100, (r.pct || 0) / maxPct * 100) + '%' }} /><i style={{ insetInlineStart: (tgt / maxPct * 100) + '%' }} title={'الهدف ' + tgt + '%'} /></div>
+                    <div className="fc-s">تكلفة <span className="num">{money(r.cogs)}</span> · مبيعات صافية <span className="num">{money(r.ns)}</span>
+                      {st === 'bad' || st === 'warn' ? <> · زيادة <span className="num">{money(Math.round((r.pct - tgt) / 100 * r.ns * 100) / 100)}</span> عن الهدف</> : null}</div>
+                  </div>); })}
+                {central.cogs > 0.004 && <div className="fc-row gap"><div className="fc-h"><b>تكلفة غير موزّعة على الفروع</b><span className="fc-st gap">مركزية</span><span className="fc-p num">{money(central.cogs)}</span></div>
+                  <div className="fc-s">مشتريات أو صرف مواد سُجّل بلا فرع — تدخل في نسبة الشركة فقط. حدّد الفرع في الفاتورة أو أمر الصرف لتظهر في نسبة الفرع الصحيح.</div></div>}
+              </div>
+              {gaps.length > 0 && <div className="note" style={{ marginTop: 10 }}>⚠ {gaps.map(r => r.b.name).join('، ')}: مبيعات بلا أي تكلفة مواد مسجّلة — النسبة 0% مضللة. سجّل مشتريات المواد أو صرف المستودع لهذه الفروع.</div>}
+            </div>
+            <div className="card">
+              <div className="card-t" style={{ marginBottom: 10 }}><TrendingUp size={15} color="var(--brass)" />الاتجاه — آخر 6 أشهر</div>
+              <div className="tw">
+                <table className="tb is-tb fc-tr">
+                  <thead><tr><th>الفرع</th>{mons.map(m => <th key={m} style={{ textAlign: 'center' }}><span className="num">{m}</span></th>)}</tr></thead>
+                  <tbody>
+                    {[{ id: '*', name: 'الشركة' }, ...brs].map(b => (
+                      <tr key={b.id} className={b.id === '*' ? 'is-total' : 'is-line'}>
+                        <td>{b.name}</td>
+                        {mons.map(m => { const c = cell(b.id === '*' ? monE[m] : monE[m].filter(e => e.branchId === b.id)); const st = c.pct == null ? 'na' : c.cogs < 0.005 ? 'gap' : c.pct > tgt + 2 ? 'bad' : c.pct > tgt ? 'warn' : 'ok';
+                          return <td key={m} className={'fc-c ' + st}><span className="num">{pctTxt(c.pct)}</span></td>; })}
+                      </tr>))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="note" style={{ marginTop: 10 }}>
+                تكلفة الطعام = تكلفة المبيعات (صرف المواد، الهدر، فروقات الجرد، مشتريات المواد) ÷ صافي المبيعات — بنفس تصنيف قائمة الدخل.
+                الأخضر ضمن الهدف، والكهرماني حتى نقطتين فوقه، والأحمر أكثر من ذلك. الأرقام من القيود مباشرة وتتحدث تلقائيًا.
+              </div>
+            </div>
           </div>
         );
       })()}
