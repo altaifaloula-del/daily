@@ -2486,7 +2486,7 @@ const ERRLOG_KEY = 'mizan:errlog';
 function logClientError(err, where) {
   try {
     const a = JSON.parse(localStorage.getItem(ERRLOG_KEY) || '[]');
-    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v35.0' });
+    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v35.1' });
     localStorage.setItem(ERRLOG_KEY, JSON.stringify(a.slice(0, 20)));
   } catch { }
 }
@@ -3530,7 +3530,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark">{(org.company.name || 'م').trim().charAt(0) || 'م'}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v35.0 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v35.1 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -8042,7 +8042,7 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const [cat, setCat] = useState(''); const [q, setQ] = useState('');
   const [cart, setCart] = useState([]); const [channel, setChannel] = useState('takeaway');
   const [disc, setDisc] = useState({ mode: 'amt', amt: '', reason: '' }); const [pay, setPay] = useState(null); const [last, setLast] = useState(null);
-  const [code, setCode] = useState(''); const [quickP, setQuickP] = useState(false); const [diag, setDiag] = useState(false); const [sending, setSending] = useState(false); const [ordF, setOrdF] = useState(() => ({ d: businessDay(), pay: 'all', q: '' })); const [cust, setCust] = useState({ phone: '', name: '', redeem: false });
+  const [code, setCode] = useState(''); const [quickP, setQuickP] = useState(false); const [diag, setDiag] = useState(false); const [sending, setSending] = useState(false); const [ext, setExt] = useState({ disc: false, code: false, loy: false }); const [ordF, setOrdF] = useState(() => ({ d: businessDay(), pay: 'all', q: '' })); const [cust, setCust] = useState({ phone: '', name: '', redeem: false });
   const loyCfg = org.loyaltyCfg || {}; const [loy, setLoy] = useState(null);
   useEffect(() => { if (!loyCfg.enabled) return; let dead = false; cloud.get(KEYS.loy, { members: {}, tx: [] }).then(d => { if (!dead) setLoy(d || { members: {}, tx: [] }); }).catch(() => { }); return () => { dead = true; }; }, [loyCfg.enabled]);
   const [view, setView] = useState('sell'); const [showCart, setShowCart] = useState(false);
@@ -8134,7 +8134,7 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     const ok = await commit(d => ({ ...d, posShifts: (d.posShifts || []).map(x => x.id === shift.id ? rec : x) }), { actionType: 'update', targetType: 'pos_shift', targetId: shift.id, branchName: br.name, title: 'إغلاق وردية نقطة بيع', details: dev.name + ' · متوقع ' + money(expected) + ' · فعلي ' + money(counted) + ' · فرق ' + money(rec.diff) });
     if (ok) { setShiftF(null); say('أُغلقت الوردية — الفرق ' + money(rec.diff)); posPrint(posZHtml(org, rec, shiftOrders(shift), br)); }
   };
-  const checkout = async () => {
+  const checkout = async (printNow) => {
     const paid = posR2((pay.parts || []).reduce((a, x) => a + (Number(x.amount) || 0), 0));
     const cashGiven = posR2((pay.parts || []).filter(x => x.m === 'cash').reduce((a, x) => a + (Number(x.amount) || 0), 0));
     if (paid + 0.004 < T.total) return say('المدفوع أقل من الإجمالي', 'no');
@@ -8160,7 +8160,7 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     const qn = [...posQueue(), o]; posQueueSet(qn); setQueue(qn);
     if (phoneOk && (earnPts || redeemPts)) loyQSet([...loyQ(), ...(redeemPts ? [{ id: o.id + ':r', phone: phoneN, name: (cust.name || custName).trim(), pts: -redeemPts, at: o.at, br: br.id, ord: o.no }] : []), ...(earnPts ? [{ id: o.id + ':e', phone: phoneN, name: (cust.name || custName).trim(), pts: earnPts, at: o.at, br: br.id, ord: o.no }] : [])]);
     setLast(o); setCart([]); setDisc({ mode: 'amt', amt: '', reason: '' }); setCode(''); setCust({ phone: '', name: '', redeem: false }); setPay(null); setShowCart(false);
-    if (cfg.autoPrint !== false) posPrint(posReceiptHtml(org, o, br));
+    if (printNow === true || (printNow !== false && cfg.autoPrint !== false)) posPrint(posReceiptHtml(org, o, br));
     flush();
   };
   const voidOrder = async (o) => {
@@ -8176,18 +8176,54 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
 
   const css = `.pos-wrap{display:grid;grid-template-columns:1fr 360px;gap:12px;align-items:start}
   .pos-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:9px}
-  .pos-tile{border:1px solid var(--line-g);border-radius:14px;background:var(--ink2);padding:12px 8px;min-height:92px;display:flex;flex-direction:column;justify-content:space-between;gap:6px;cursor:pointer;text-align:center;font:inherit;color:var(--txt)}
+  .pos-tile{border:1px solid var(--line);border-radius:14px;background:var(--ink2);padding:12px;min-height:104px;display:flex;flex-direction:column;justify-content:space-between;gap:6px;cursor:pointer;text-align:start;font:inherit;color:var(--txt)}
   .pos-tile:active{transform:scale(.97)} .pos-tile b{font-size:14.5px;line-height:1.4} .pos-tile .num{font-size:15px;font-weight:700;color:var(--txt)}
   .pos-tile.on{border:2px solid var(--brand-fill,var(--brass));padding:11px 7px}
-  .pos-tile-f{display:flex;align-items:center;justify-content:center;gap:8px}
+  .pos-tile-f{display:flex;align-items:center;justify-content:space-between;gap:8px}
   .pos-qty{font-size:12px !important;font-weight:800 !important;background:var(--brand-fill,var(--brass));color:var(--brand-ink,#1a1410) !important;border-radius:999px;padding:1px 9px}
+  .pos-head{background:var(--side-bg,#1F1C18);color:var(--side-txt,#EFEAE1);border-radius:var(--r-md);padding:10px 12px;display:flex;flex-direction:column;gap:10px}
+  .pos-head-r{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .pos-mark{width:36px;height:36px;border-radius:10px;background:var(--brand-fill,var(--brass));color:var(--brand-ink,#1a1410);display:grid;place-items:center;flex-shrink:0}
+  .pos-sub{font-size:12px;color:var(--side-dim,#B5AC9F);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .pos-chip{font-size:12.5px;font-weight:600;padding:5px 11px;border-radius:999px;background:var(--side-hl,#2F2A23);color:var(--side-txt,#EFEAE1)}
+  .pos-head .sel.pos-br{width:auto;min-width:150px;background:var(--side-hl,#2F2A23);color:var(--side-txt,#EFEAE1);border-color:transparent}
+  .pos-tabs{display:flex;gap:6px;flex-wrap:wrap}
+  .pos-tabs button{display:inline-flex;align-items:center;gap:7px;min-height:40px;padding:0 14px;border-radius:10px;border:1px solid var(--side-hl,#3A342C);background:transparent;color:var(--side-txt,#EFEAE1);font:600 14px inherit;font-family:inherit;cursor:pointer}
+  .pos-tabs button.on{background:var(--brand-fill,var(--brass));color:var(--brand-ink,#1a1410);border-color:transparent}
+  .pos-tabs .sel.pos-moresel{width:auto;min-height:40px;background:transparent;color:var(--side-txt,#EFEAE1);border:1px solid var(--side-hl,#3A342C);font-weight:600}
+  .pos-tabs .sel.pos-moresel.on{background:var(--brand-fill,var(--brass));color:var(--brand-ink,#1a1410)}
+  .pos-tabs .sel option{color:#1D1B18;background:#fff}
+  .pos-cnt{font-size:11.5px;font-weight:700;background:var(--brand-fill,var(--brass));color:var(--brand-ink,#1a1410);border-radius:999px;padding:0 8px;margin-inline-start:6px}
+  .pos-seg{display:flex;background:color-mix(in srgb,var(--txt) 7%,transparent);border-radius:10px;padding:4px;gap:4px;margin-bottom:6px}
+  .pos-seg button{flex:1;min-height:36px;border:0;border-radius:8px;background:transparent;font:500 13.5px inherit;font-family:inherit;color:var(--dim);cursor:pointer}
+  .pos-seg button.on{background:var(--ink2);color:var(--txt);font-weight:700;box-shadow:0 1px 3px rgba(0,0,0,.1)}
+  .pos-link{border:0;background:none;color:color-mix(in srgb,var(--acc,var(--brass)) 85%,var(--txt));font:600 12px inherit;font-family:inherit;cursor:pointer;padding:0 6px}
+  .pos-ext{display:flex;gap:6px;margin-top:10px}
+  .pos-ext button{flex:1;min-height:38px;border-radius:9px;border:1px dashed color-mix(in srgb,var(--txt) 25%,var(--line));background:transparent;font:500 13px inherit;font-family:inherit;color:var(--dim);cursor:pointer}
+  .pos-ext button.on{border-style:solid;border-color:var(--brand-fill,var(--brass));color:var(--txt);font-weight:600}
+  .pos-sum{margin:12px 0 10px;padding:10px 12px 6px;border-radius:12px;background:var(--ink3);border:1px solid var(--line);font-size:13px;color:var(--dim)}
+  .pos-sum>div{display:flex;justify-content:space-between;padding:2px 0}
+  .pos-sum .pos-total{color:var(--txt);font-size:18px;font-weight:700;align-items:baseline;padding-top:6px}
+  .pos-sum .pos-total .num{font-size:28px;font-weight:700}
+  .pos-more-pay{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:6px;margin-top:8px}
+  .pos-more-pay .btn{min-height:42px}
+  .pos-fab-n{background:var(--brand-fill,var(--brass));color:var(--brand-ink,#1a1410);border-radius:999px;padding:1px 10px;font-size:14px}
+  .pos-addpay{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:13px;color:var(--dim)}
+  .pos-addpay button{min-height:38px;padding:0 12px;border-radius:999px;border:1px dashed color-mix(in srgb,var(--txt) 25%,var(--line));background:transparent;font:500 13px inherit;font-family:inherit;color:var(--txt);cursor:pointer}
+  .pos-paystat{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border-radius:12px;font-weight:700;margin-top:6px}
+  .pos-paystat .num{font-size:20px}
+  .pos-paystat.ok{background:color-mix(in srgb,var(--mint) 14%,transparent);color:var(--mint)}
+  .pos-paystat.chg{background:color-mix(in srgb,var(--sky) 12%,transparent);color:var(--sky)}
+  .pos-paystat.rem{background:color-mix(in srgb,var(--rose) 12%,transparent);color:var(--rose)}
   .pos-pay-card{background:var(--txt) !important;background-image:none !important;color:var(--ink2) !important;border-color:transparent !important}
   .pos-cart{position:sticky;top:8px} .pos-line{display:flex;align-items:center;gap:6px;padding:7px 0;border-bottom:1px solid var(--line)}
   .pos-qb{width:34px;height:34px;border-radius:9px;border:1px solid var(--line-g);background:var(--ink3);font-size:18px;cursor:pointer;color:var(--txt)}
-  .pos-pay{width:100%;padding:16px 0;font-size:17px;font-weight:800}
+  .pos-pay{width:100%;min-height:56px;padding:0;font-size:18px;font-weight:800;border-radius:12px}
   .pos-fab{display:none}
   @media(max-width:900px){.pos-wrap{grid-template-columns:1fr}.pos-cart{display:none}.pos-cart.open{display:block;position:fixed;inset:auto 0 calc(72px + env(safe-area-inset-bottom)) 0;max-height:calc(100dvh - 200px - env(safe-area-inset-bottom));overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;z-index:60;border-radius:18px;margin:0 6px;padding-bottom:14px;box-shadow:0 -10px 34px rgba(0,0,0,.35)}
-    .pos-fab{display:flex;position:sticky;bottom:10px;z-index:55;width:100%;justify-content:space-between;padding:15px 18px;font-size:16px;font-weight:800;border-radius:14px;margin-top:10px;box-shadow:0 8px 24px rgba(0,0,0,.25)}}`;
+    .pos-fab{display:flex;position:sticky;bottom:10px;z-index:55;width:100%;justify-content:space-between;align-items:center;min-height:58px;padding:0 18px;font-size:16px;font-weight:700;border-radius:14px;margin-top:10px;box-shadow:0 8px 24px rgba(0,0,0,.25);background:var(--txt) !important;color:var(--ink2) !important;background-image:none !important}
+    .pos-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .pos-head .pos-sub{max-width:180px}}`;
   const pendingBadge = (queue.length || pendClose || (localShift && localShift.branchId === (br || {}).id)) ? <span className="badge b-amber">⏳ {queue.length ? queue.length + ' فاتورة' : ''}{pendClose || localShift ? (queue.length ? ' + ' : '') + 'وردية' : ''} بانتظار الإرسال</span> : <span className="badge b-mint">متزامن ✓</span>;
   // v34.15: «إرسال الآن» — ينتظر أي إرسال جارٍ ثم يرسل فورًا ويعرض النتيجة
   function pendLeft() { let ls = null; try { ls = localStorage.getItem(POS_SH_KEY); } catch { } return posQueue().length + pendShiftsGet().length + loyQ().length + (ls ? 1 : 0); }
@@ -8211,68 +8247,93 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const daySum = posDaySummary(todayOrders, br.id, today);
   const pl = (l) => priced.lines.find(x => x.key === l.key) || {};
   const payMs = (cfg.payMethods || []).filter(x => x.active !== false && x.n);
+  const cartCount = cart.reduce((a, l) => a + l.qty, 0);
+  const extOpen = { disc: ext.disc || !!disc.amt, code: ext.code || !!code.trim(), loy: ext.loy || !!cust.phone };
   const cartBox = (
     <div className={'card pos-cart' + (showCart ? ' open' : '')}>
-      <div className="row" style={{ justifyContent: 'space-between', marginBottom: 6 }}><b>الطلب الحالي</b>{showCart && <button className="btn sm gh" onClick={() => setShowCart(false)}><X size={14} /></button>}</div>
-      <div className="row" style={{ gap: 6, marginBottom: 8 }}>{[['takeaway', 'سفري'], ['dinein', 'محلي'], ['delivery', 'توصيل']].map(([k, t]) => <button key={k} className={'btn sm' + (channel === k ? ' pri' : ' gh')} onClick={() => setChannel(k)}>{t}</button>)}</div>
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <b style={{ fontSize: 17 }}>الطلب الحالي{cartCount ? <span className="num pos-cnt">{cartCount}</span> : null}</b>
+        <div className="row" style={{ gap: 4 }}>
+          {cart.length > 0 && <button className="btn sm gh" style={{ color: 'var(--rose)' }} onClick={() => { if (window.confirm('إفراغ الطلب؟')) setCart([]); }}>إفراغ</button>}
+          {showCart && <button className="btn sm gh" aria-label="إغلاق" onClick={() => setShowCart(false)}><X size={16} /></button>}
+        </div>
+      </div>
+      <div className="pos-seg" role="group" aria-label="نوع الطلب">{[['takeaway', 'سفري'], ['dinein', 'محلي'], ['delivery', 'توصيل']].map(([k, t]) => <button key={k} className={channel === k ? 'on' : ''} onClick={() => setChannel(k)}>{t}</button>)}</div>
       {cart.map(l => (
         <div key={l.key} className="pos-line">
-          <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{l.name}</div>
-            <input className="inp" style={{ padding: '3px 6px', fontSize: 11, marginTop: 3 }} placeholder="ملاحظة (بدون بصل…)" value={l.note} onChange={e => setCart(c => c.map(x => x.key === l.key ? { ...x, note: e.target.value } : x))} /></div>
-          <button className="pos-qb" onClick={() => setQty(l.key, -1)}>−</button><b className="num" style={{ minWidth: 22, textAlign: 'center' }}>{l.qty}</b><button className="pos-qb" onClick={() => setQty(l.key, 1)}>+</button>
-          <span style={{ minWidth: 64, textAlign: 'end' }}><b className="num">{money(l.qty * l.price - (pl(l).disc || 0))}</b>{pl(l).disc ? <div style={{ fontSize: 10, color: 'var(--mint)' }}>{pl(l).promoName} −<span className="num">{money(pl(l).disc)}</span></div> : null}</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 14.5, fontWeight: 600 }}>{l.name}</div>
+            <div style={{ fontSize: 12, color: 'var(--dim)' }}><span className="num">{money(l.price)} × {l.qty}</span>{pl(l).disc ? <span style={{ color: 'var(--mint)', fontWeight: 600 }}> · {pl(l).promoName} −<span className="num">{money(pl(l).disc)}</span></span> : null}
+              {!(l.showNote || l.note) && <button className="pos-link" onClick={() => setCart(c => c.map(x => x.key === l.key ? { ...x, showNote: true } : x))}>+ ملاحظة</button>}</div>
+            {(l.showNote || l.note) && <input className="inp" style={{ minHeight: 34, padding: '4px 8px', fontSize: 12.5, marginTop: 4 }} autoFocus={!l.note} placeholder="بدون بصل، حار…" value={l.note} onChange={e => setCart(c => c.map(x => x.key === l.key ? { ...x, note: e.target.value } : x))} />}
+          </div>
+          <button className="pos-qb" aria-label="إنقاص" onClick={() => setQty(l.key, -1)}>−</button><b className="num" style={{ minWidth: 22, textAlign: 'center' }}>{l.qty}</b><button className="pos-qb" aria-label="زيادة" onClick={() => setQty(l.key, 1)}>+</button>
+          <b className="num" style={{ minWidth: 60, textAlign: 'end' }}>{money(l.qty * l.price - (pl(l).disc || 0))}</b>
         </div>))}
       {!cart.length && <div className="empty">اضغط الأصناف لإضافتها</div>}
       {cart.length > 0 && <>
-        <div className="grid g2" style={{ gap: 6, marginTop: 8 }}>
+        <div className="pos-ext">
+          <button className={extOpen.disc ? 'on' : ''} onClick={() => setExt(x => ({ ...x, disc: !extOpen.disc }))}>{manual ? 'خصم ' + money(manual) : '+ خصم'}</button>
+          <button className={extOpen.code ? 'on' : ''} onClick={() => setExt(x => ({ ...x, code: !extOpen.code }))}>{priced.codeOk ? 'كوبون ✓' : '+ كوبون'}</button>
+          {loyCfg.enabled && <button className={extOpen.loy ? 'on' : ''} onClick={() => setExt(x => ({ ...x, loy: !extOpen.loy }))}>{phoneOk ? (custName || 'عميل') + ' ✓' : '+ عميل ولاء'}</button>}
+        </div>
+        {extOpen.disc && <div className="grid g2" style={{ gap: 6, marginTop: 8 }}>
           <Field label="خصم يدوي" style={{ marginBottom: 0 }}><div className="row" style={{ gap: 4 }}>
             <input className="inp n" inputMode="decimal" style={{ flex: 1 }} value={disc.amt} onChange={e => setDisc(d => ({ ...d, amt: e.target.value.replace(/[^\d.]/g, '') }))} />
             <button className={'btn sm' + (disc.mode === 'amt' ? ' pri' : ' gh')} onClick={() => setDisc(d => ({ ...d, mode: 'amt' }))}>ر.س</button><button className={'btn sm' + (disc.mode === 'pct' ? ' pri' : ' gh')} onClick={() => setDisc(d => ({ ...d, mode: 'pct' }))}>%</button></div></Field>
-          {manual > 0 ? <Field label="سبب الخصم" style={{ marginBottom: 0 }}><input className="inp" value={disc.reason} onChange={e => setDisc(d => ({ ...d, reason: e.target.value }))} /></Field>
-            : <Field label="كوبون" style={{ marginBottom: 0 }}><input className="inp" value={code} placeholder="رمز العرض" onChange={e => setCode(e.target.value)} /></Field>}
-        </div>
-        {manual > 0 && <Field label="كوبون" style={{ marginBottom: 0, marginTop: 6 }}><input className="inp" value={code} placeholder="رمز العرض" onChange={e => setCode(e.target.value)} /></Field>}
-        {code.trim() && <div style={{ fontSize: 11, marginTop: 3, color: priced.codeOk ? 'var(--mint)' : 'var(--rose)' }}>{priced.codeOk ? '✓ الكوبون فعّال' : 'رمز غير صالح أو العرض غير متاح الآن'}</div>}
-        {loyCfg.enabled && <div style={{ marginTop: 8, padding: 8, border: '1px dashed var(--line-g)', borderRadius: 10 }}>
-          <div className="row" style={{ gap: 6 }}><input className="inp" inputMode="tel" style={{ flex: 1 }} placeholder="جوال العميل (نقاط الولاء)" value={cust.phone} onChange={e => setCust(c => ({ ...c, phone: e.target.value, redeem: false }))} />
+          <Field label="سبب الخصم" style={{ marginBottom: 0 }}><input className="inp" value={disc.reason} placeholder={manual ? 'إلزامي' : ''} onChange={e => setDisc(d => ({ ...d, reason: e.target.value }))} /></Field>
+        </div>}
+        {extOpen.code && <div style={{ marginTop: 8 }}><input className="inp" value={code} placeholder="رمز الكوبون" aria-label="رمز الكوبون" onChange={e => setCode(e.target.value)} />
+          {code.trim() && <div style={{ fontSize: 12, marginTop: 3, color: priced.codeOk ? 'var(--mint)' : 'var(--rose)', fontWeight: 600 }}>{priced.codeOk ? '✓ الكوبون فعّال' : 'رمز غير صالح أو العرض غير متاح الآن'}</div>}</div>}
+        {loyCfg.enabled && extOpen.loy && <div style={{ marginTop: 8 }}>
+          <div className="row" style={{ gap: 6 }}><input className="inp" inputMode="tel" style={{ flex: 1 }} placeholder="جوال العميل" aria-label="جوال العميل" value={cust.phone} onChange={e => setCust(c => ({ ...c, phone: e.target.value, redeem: false }))} />
             {phoneOk && !custName && <input className="inp" style={{ flex: 1 }} placeholder="اسم العميل (جديد)" value={cust.name} onChange={e => setCust(c => ({ ...c, name: e.target.value }))} />}</div>
-          {phoneOk && <div style={{ fontSize: 11.5, marginTop: 5, lineHeight: 1.8 }}>{custName ? <b>{custName}</b> : <span className="badge b-mint">عميل جديد</span>} · الرصيد <b className="num">{loy ? loyBalance : '…'}</b> نقطة{earnPts ? <> · يكسب <b className="num">{earnPts}</b></> : null}
+          {phoneOk && <div style={{ fontSize: 12, marginTop: 5, lineHeight: 1.8 }}>{custName ? <b>{custName}</b> : <span className="badge b-mint">عميل جديد</span>} · الرصيد <b className="num">{loy ? loyBalance : '…'}</b> نقطة{earnPts ? <> · يكسب <b className="num">{earnPts}</b></> : null}
             {loyRedeemMax(loyCfg, loyBalance, posR2(base1 - manual)) > 0 && <label className="row" style={{ gap: 6, cursor: 'pointer', marginTop: 3 }}><input type="checkbox" checked={cust.redeem} onChange={e => setCust(c => ({ ...c, redeem: e.target.checked }))} />استبدال {loyRedeemMax(loyCfg, loyBalance, posR2(base1 - manual))} نقطة = <b className="num">{money(loyRedeemMax(loyCfg, loyBalance, posR2(base1 - manual)) * (Number(loyCfg.ptValue) || 0))}</b></label>}
             {!loy && <div style={{ color: 'var(--faint)' }}>الرصيد يتطلب اتصالًا — النقاط المكتسبة تُحفظ وتُرسل لاحقًا</div>}</div>}
         </div>}
-        <div style={{ fontSize: 12, color: 'var(--dim)', marginTop: 8 }}>
-          {T.ldisc ? <div className="row" style={{ justifyContent: 'space-between' }}><span>العروض</span><span className="num">−{money(T.ldisc)}</span></div> : null}
-          {priced.orderDisc ? <div className="row" style={{ justifyContent: 'space-between' }}><span>{(priced.orderPromo || {}).name}</span><span className="num">−{money(priced.orderDisc)}</span></div> : null}
-          {manual ? <div className="row" style={{ justifyContent: 'space-between' }}><span>خصم يدوي{disc.mode === 'pct' ? ' ' + disc.amt + '%' : ''}</span><span className="num">−{money(manual)}</span></div> : null}
-          {redeemAmt ? <div className="row" style={{ justifyContent: 'space-between' }}><span>استبدال {redeemPts} نقطة</span><span className="num">−{money(redeemAmt)}</span></div> : null}
-          <div className="row" style={{ justifyContent: 'space-between' }}><span>منها ضريبة {rate}%</span><span className="num">{money(T.vat)}</span></div></div>
-        <div className="row" style={{ justifyContent: 'space-between', fontSize: 19, fontWeight: 800, margin: '6px 0 10px' }}><span>الإجمالي</span><span className="num">{money(T.total)}</span></div>
-        <div className="grid g2" style={{ gap: 6 }}>
+        <div className="pos-sum">
+          {T.ldisc ? <div><span>العروض</span><span className="num">−{money(T.ldisc)}</span></div> : null}
+          {priced.orderDisc ? <div><span>{(priced.orderPromo || {}).name}</span><span className="num">−{money(priced.orderDisc)}</span></div> : null}
+          {manual ? <div><span>خصم يدوي{disc.mode === 'pct' ? ' ' + disc.amt + '%' : ''}</span><span className="num">−{money(manual)}</span></div> : null}
+          {redeemAmt ? <div><span>استبدال {redeemPts} نقطة</span><span className="num">−{money(redeemAmt)}</span></div> : null}
+          <div><span>منها ضريبة القيمة المضافة {rate}%</span><span className="num">{money(T.vat)}</span></div>
+          <div className="pos-total"><span>الإجمالي</span><span className="num">{money(T.total)}</span></div>
+        </div>
+        <div className="grid g2" style={{ gap: 8 }}>
           <button className="btn pri pos-pay" onClick={() => setPay({ parts: [{ m: 'cash', amount: String(T.total) }] })}>نقدي</button>
           <button className="btn pri pos-pay pos-pay-card" onClick={() => setPay({ parts: [{ m: 'card', amount: String(T.total) }] })}>شبكة</button>
         </div>
-        <div className="row" style={{ gap: 6, marginTop: 6 }}>
-          <button className="btn sm" style={{ flex: 1 }} onClick={() => setPay({ parts: [{ m: 'cash', amount: '' }, { m: 'card', amount: '' }] })}>تقسيم الدفع</button>
-          {payMs.slice(0, 3).map(pm => <button key={pm.id} className="btn sm" style={{ flex: 1 }} onClick={() => setPay({ parts: [{ m: pm.kind || 'card', pm: pm.id, pmName: pm.n, amount: String(T.total) }] })}>{pm.n}</button>)}
-          <button className="btn sm" style={{ flex: 1 }} onClick={() => setPay({ parts: [{ m: 'app', appId: (apps[0] || {}).id, amount: String(T.total) }] })}>تطبيق توصيل</button>
-          <button className="btn sm gh" onClick={() => { if (window.confirm('إفراغ الطلب؟')) setCart([]); }}><Trash2 size={13} color="#D9544D" /></button>
+        <div className="pos-more-pay">
+          <button className="btn" onClick={() => setPay({ parts: [{ m: 'cash', amount: '' }, { m: 'card', amount: '' }] })}>تقسيم</button>
+          {payMs.slice(0, 3).map(pm => <button key={pm.id} className="btn" onClick={() => setPay({ parts: [{ m: pm.kind || 'card', pm: pm.id, pmName: pm.n, amount: String(T.total) }] })}>{pm.n}</button>)}
+          <button className="btn" onClick={() => setPay({ parts: [{ m: 'app', appId: (apps[0] || {}).id, amount: String(T.total) }] })}>تطبيق توصيل</button>
         </div>
       </>}
     </div>);
-
   return (
     <div className="grid" style={{ gap: 10 }}>
       <style>{css}</style>
-      <div className="card" style={{ padding: '9px 12px' }}><div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-        <b><Store size={15} color="var(--brass)" /> نقطة البيع</b>
-        {brs.length > 1 ? <select className="sel" style={{ width: 160 }} value={br.id} onChange={e => setBrId(e.target.value)}>{brs.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select> : <span className="badge b-dim">{br.name}</span>}
-        <span className="badge b-dim">الجهاز {dev.name} ({dev.tag})</span>{pendingBadge}
-        {pendLeft() > 0 && <button className="btn sm pri" disabled={sending} onClick={sendNow}><RefreshCw size={13} />{sending ? 'جارٍ الإرسال…' : 'إرسال الآن'}</button>}
-        <span style={{ marginInlineStart: 'auto' }} />
-        <SectionNav force="tabs" cur={view} onPick={setView} label="نقطة البيع" items={[{ id: 'sell', ar: 'البيع', icon: Store }, { id: 'orders', ar: 'الفواتير', icon: FileText, badge: todayOrders.length || null }, { id: 'shift', ar: 'الوردية', icon: Clock },
-          ...(isMgr ? [{ id: 'shifts', ar: 'الورديات والتقارير', icon: ClipboardCheck }] : []), ...(R.admin || R.scope === 'all' ? [{ id: 'promos', ar: 'العروض', icon: Sparkles }] : []),
-          ...(isMgr ? [{ id: 'loyalty', ar: 'الولاء', icon: Users }] : []), ...(R.admin || R.scope === 'all' ? [{ id: 'cfg', ar: 'الإعدادات', icon: Settings }] : [])]} />
-      </div></div>
+      {/* v35.1: رأس نقطة البيع — الحبر الداكن، ثلاثة تبويبات أساسية، والإدارة في «المزيد» */}
+      <div className="pos-head">
+        <div className="pos-head-r">
+          <span className="pos-mark"><Store size={17} /></span>
+          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+            <b style={{ fontSize: 16 }}>نقطة البيع</b>
+            <span className="pos-sub">{dev.name} ({dev.tag}){shift ? ' · الوردية منذ ' + String(shift.openedAt || '').slice(11, 16) : ' · لا وردية مفتوحة'}</span>
+          </div>
+          {brs.length > 1 ? <select className="sel pos-br" aria-label="الفرع" value={br.id} onChange={e => setBrId(e.target.value)}>{brs.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select> : <span className="pos-chip">{br.name}</span>}
+          <span style={{ marginInlineStart: 'auto' }} />
+          {pendingBadge}
+          {pendLeft() > 0 && <button className="btn sm pri" disabled={sending} onClick={sendNow}><RefreshCw size={13} />{sending ? 'جارٍ الإرسال…' : 'إرسال الآن'}</button>}
+        </div>
+        <div className="pos-tabs" role="tablist" aria-label="أقسام نقطة البيع">
+          {[['sell', 'البيع', Store], ['orders', 'الفواتير', FileText], ['shift', 'الوردية', Clock]].map(([id, t, Ic]) => <button key={id} role="tab" aria-selected={view === id} className={view === id ? 'on' : ''} onClick={() => setView(id)}><Ic size={15} />{t}{id === 'orders' && todayOrders.length ? <span className="num pos-cnt">{todayOrders.length}</span> : null}</button>)}
+          {(() => { const more = [...(isMgr ? [['shifts', 'الورديات والتقارير']] : []), ...(R.admin || R.scope === 'all' ? [['promos', 'العروض']] : []), ...(isMgr ? [['loyalty', 'الولاء']] : []), ...(R.admin || R.scope === 'all' ? [['cfg', 'الإعدادات']] : [])];
+            if (!more.length) return null; const curM = more.find(x => x[0] === view);
+            return <select className={'sel pos-moresel' + (curM ? ' on' : '')} aria-label="المزيد" value={curM ? view : ''} onChange={e => e.target.value && setView(e.target.value)}><option value="">المزيد…</option>{more.map(([id, t]) => <option key={id} value={id}>{t}</option>)}</select>; })()}
+        </div>
+      </div>
 
       {pendReason && <div className="note" style={{ fontSize: 12 }}>سبب تأخر الإرسال: <b>{pendReason}</b>{R.admin && !(shift && shift.pending) && <button className="btn sm gh" style={{ marginInlineStart: 8 }} onClick={() => setDiag(x => !x)}>تشخيص</button>}</div>}
       {!(shift && shift.pending) && R.admin && diag && <CloudHealth org={org} say={say} only={[brKey(br.id), bfKey(br.id), KEYS.core]} auto commit={commit} me={me} />}
@@ -8300,7 +8361,7 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
             {last && <div className="note">آخر فاتورة: <b className="num">{last.no}</b> بـ <b className="num">{money(last.total)}</b>{last.change ? ' · الباقي ' + money(last.change) : ''} — <button className="btn sm gh" onClick={() => posPrint(posReceiptHtml(org, last, br))}><Printer size={12} />إعادة الطباعة</button></div>}
           </div>
           {cartBox}
-          {cart.length > 0 && !showCart && <button className="btn pri pos-fab" onClick={() => setShowCart(true)}><span>الطلب ({cart.reduce((a, l) => a + l.qty, 0)})</span><span className="num">{money(T.total)}</span></button>}
+          {cart.length > 0 && !showCart && <button className="btn pri pos-fab" onClick={() => setShowCart(true)}><span style={{ display: 'flex', alignItems: 'center', gap: 10 }}><span className="num pos-fab-n">{cartCount}</span>عرض الطلب والدفع</span><span className="num" style={{ fontSize: 19 }}>{money(T.total)}</span></button>}
         </div>))}
 
       {view === 'orders' && (() => {
@@ -8359,7 +8420,8 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
       {view === 'shifts' && <PosShifts org={org} ops={ops} me={me} brs={brs} commit={commit} say={say} />}
 
       {pay && <Modal title={'الدفع — ' + money(T.total)} icon={Banknote} onClose={() => setPay(null)}
-        foot={<><button className="btn gh" onClick={() => setPay(null)}>رجوع</button><button className="btn pri" onClick={checkout}><Check size={14} />تأكيد وطباعة</button></>}>
+        foot={<><button className="btn pri" style={{ flex: 1, minHeight: 50, fontSize: 16 }} onClick={() => checkout(cfg.autoPrint !== false)}><Check size={16} />{cfg.autoPrint !== false ? 'تأكيد وطباعة' : 'تأكيد'}</button>
+          <button className="btn" style={{ minHeight: 50 }} onClick={() => checkout(cfg.autoPrint === false)}>{cfg.autoPrint !== false ? 'بلا طباعة' : 'تأكيد وطباعة'}</button></>}>
         {pay.parts.map((x, i) => <div key={i} className="row" style={{ gap: 8, marginBottom: 8, alignItems: 'end', flexWrap: 'wrap' }}>
           <Field label="الطريقة" style={{ marginBottom: 0 }}><select className="sel" value={x.pm ? 'pm:' + x.pm : x.m} onChange={e => { const v = e.target.value; const pm = v.startsWith('pm:') ? payMs.find(z => 'pm:' + z.id === v) : null; setPay(pp => ({ ...pp, parts: pp.parts.map((y, k) => k === i ? (pm ? { ...y, m: pm.kind || 'card', pm: pm.id, pmName: pm.n } : { ...y, m: v, pm: undefined, pmName: undefined, ...(v === 'app' && !y.appId ? { appId: (apps[0] || {}).id } : {}) }) : y) })); }}>{payMs.map(pm => <option key={pm.id} value={'pm:' + pm.id}>{pm.n}</option>)}<option value="cash">نقدي</option><option value="card">شبكة (مدى/بطاقة)</option><option value="transfer">تحويل بنكي</option><option value="app">تطبيق توصيل</option></select></Field>
           {x.m === 'app' && <Field label="التطبيق" style={{ marginBottom: 0 }}><select className="sel" value={x.appId} onChange={e => setPay(pp => ({ ...pp, parts: pp.parts.map((y, k) => k === i ? { ...y, appId: e.target.value } : y) }))}>{apps.map(a => <option key={a.id} value={a.id}>{a.n}</option>)}</select></Field>}
@@ -8367,9 +8429,11 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
           {pay.parts.length > 1 && <button className="btn sm gh" title="حذف هذه الدفعة" onClick={() => setPay(pp => ({ ...pp, parts: pp.parts.filter((_, k) => k !== i) }))}><X size={14} /></button>}
         </div>)}
         {/* v34.13: دفعات متعددة بلا حد — المتبقي يُقترح تلقائيًا للدفعة الجديدة */}
-        <button className="btn sm" style={{ marginBottom: 8 }} onClick={() => setPay(pp => { const rem = posR2(T.total - pp.parts.reduce((a, y) => a + (Number(y.amount) || 0), 0)); return { ...pp, parts: [...pp.parts, { m: 'card', amount: rem > 0 ? String(rem) : '' }] }; })}><Plus size={13} />إضافة دفعة</button>
+        <div className="pos-addpay"><span>إضافة دفعة:</span>{[['cash', 'نقدي'], ['card', 'شبكة'], ['transfer', 'تحويل'], ...payMs.map(pm => ['pm:' + pm.id, pm.n]), ['app', 'تطبيق توصيل']].map(([k, t]) => <button key={k} onClick={() => setPay(pp => { const rem = posR2(T.total - pp.parts.reduce((a, y) => a + (Number(y.amount) || 0), 0)); const pm = k.startsWith('pm:') ? payMs.find(z => 'pm:' + z.id === k) : null;
+          return { ...pp, parts: [...pp.parts, { ...(pm ? { m: pm.kind || 'card', pm: pm.id, pmName: pm.n } : { m: k, ...(k === 'app' ? { appId: (apps[0] || {}).id } : {}) }), amount: rem > 0 ? String(rem) : '' }] }; })}>+ {t}</button>)}</div>
         {pay.parts.some(x => x.m === 'cash') && <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>{[...new Set([T.total, Math.ceil(T.total / 10) * 10, Math.ceil(T.total / 50) * 50, Math.ceil(T.total / 100) * 100, 500])].filter(v => v >= T.total).slice(0, 5).map(v => <button key={v} className="btn sm" onClick={() => setPay(pp => ({ ...pp, parts: pp.parts.map(y => y.m === 'cash' ? { ...y, amount: String(v) } : y) }))}>{money(v)}</button>)}</div>}
-        {(() => { const paid = posR2(pay.parts.reduce((a, x) => a + (Number(x.amount) || 0), 0)); const ch = posR2(paid - T.total); return <div className="mono-b" style={{ marginTop: 10 }}><span>{ch >= 0 ? 'الباقي للعميل' : 'المتبقي'}</span><span className="num" style={{ fontSize: 20, color: ch >= 0 ? 'var(--mint)' : 'var(--rose)' }}>{money(Math.abs(ch))}</span></div>; })()}
+        {(() => { const paid = posR2(pay.parts.reduce((a, x) => a + (Number(x.amount) || 0), 0)); const ch = posR2(paid - T.total); const st = ch < -0.004 ? 'rem' : ch > 0.004 ? 'chg' : 'ok';
+          return <div className={'pos-paystat ' + st}><span>{st === 'rem' ? 'المتبقي' : st === 'chg' ? 'الباقي للعميل' : 'مكتمل — لا باقٍ'}</span><span className="num">{money(Math.abs(ch))}</span></div>; })()}
       </Modal>}
     </div>);
 }
