@@ -3609,7 +3609,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark"><MizanMark size={24} /></span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v36.1</span>
+            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v36.2</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -20987,7 +20987,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const vcNextFrom = vatCloses.length ? (() => { const d = new Date(vatCloses[0].vatClose.to + 'T00:00:00'); d.setDate(d.getDate() + 1); return isoD(d); })() : '';
   const vcBlock = !taxOn ? 'الضريبة غير مفعّلة' : !(from && to) ? 'حدّد فترة الإقرار (من/إلى) أولًا — مثل «الربع الحالي»'
     : !canPost ? 'الإقفال صلاحية المحاسب/الإدارة المالية' : periodLocked(org, to) ? LOCK_MSG(to)
-      : vcOverlap(from, to) ? 'الفترة تتداخل مع إقفال سابق (' + vcOverlap(from, to).vatClose.from + ' ← ' + vcOverlap(from, to).vatClose.to + ')'
+      : vcOverlap(from, to) ? 'الفترة تتداخل مع إقفال سابق: من ' + vcOverlap(from, to).vatClose.from + ' إلى ' + vcOverlap(from, to).vatClose.to
         : (Math.abs(vsum.out) < 0.005 && Math.abs(vsum.inn) < 0.005) ? 'لا حركة ضريبية في الفترة' : '';
   // أرصدة الحسابين حتى نهاية الفترة — بعد الإقفال يجب أن تساوي صفرًا لكل الفترات المقفلة (أي باقٍ = قيد مباشر على الحسابين خارج الإقرار)
   const balTo = (code, kind, t) => { let d = 0, c = 0; A.entries.forEach(e => { if (t && (e.date || '') > t) return; e.lines.forEach(l => { if (l.code === code) { d += l.debit; c += l.credit; } }); }); return r2x(kind === 'asset' ? d - c : c - d); };
@@ -22565,7 +22565,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
             </div>
             <div className="card">
               <div className="card-h">
-                <div className="card-t"><Store size={15} color="var(--brass)" />تكلفة الطعام حسب الفرع <span className="badge b-dim num">{fFrom} ← {fTo}</span></div>
+                <div className="card-t"><Store size={15} color="var(--brass)" />تكلفة الطعام حسب الفرع <span className="badge b-dim">من <span className="num">{fFrom}</span> إلى <span className="num">{fTo}</span></span></div>
                 {canPost && <div className="row" style={{ gap: 6, alignItems: 'center' }}>
                   <span style={{ fontSize: 12, color: 'var(--dim)' }}>الهدف %</span>
                   <input className="inp n" style={{ width: 80 }} inputMode="decimal" defaultValue={tgt} key={tgt} onBlur={e => { if (Number(e.target.value) !== tgt) saveTgt(e.target.value); }} onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }} />
@@ -23458,7 +23458,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
                 <span className={'badge ' + (vat2302 > 0.004 ? 'b-amber' : vat2302 < -0.004 ? 'b-mint' : 'b-dim')}>رصيد 2302: {vat2302 > 0.004 ? money(vat2302) + ' مستحق للهيئة' : vat2302 < -0.004 ? money(-vat2302) + ' دائن لصالحك' : 'صفر'}</span>
               </div>
               <div className="vcl-je">
-                <div className="vcl-jh">قيد الإقفال للفترة {from && to ? <b className="num">{from} ← {to}</b> : <i>— حدّد الفترة</i>}</div>
+                <div className="vcl-jh">قيد الإقفال للفترة {from && to ? <b>من <span className="num">{from}</span> إلى <span className="num">{to}</span></b> : <i>— حدّد الفترة</i>}</div>
                 <div className="vcl-ln"><span>من ح/ 2301 ضريبة المخرجات</span><b className="num">{money(vsum.out)}</b><b /></div>
                 <div className="vcl-ln cr"><span>إلى ح/ 1501 ضريبة المدخلات</span><b /><b className="num">{money(vsum.inn)}</b></div>
                 <div className="vcl-ln cr"><span>إلى ح/ 2302 الضريبة المستحقة {vatDue < 0 ? '(مدين — رصيد مرحّل)' : ''}</span>{vatDue < 0 ? <b className="num">{money(-vatDue)}</b> : <b />}{vatDue >= 0 ? <b className="num">{money(vatDue)}</b> : <b />}</div>
@@ -23476,7 +23476,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
                       {vatCloses.map((c, i) => { const v = c.vatClose; const paid = vcPaid(c.id); const rem = r2x(v.net - paid);
                         const st = v.net < 0 ? ['b-mint', 'رصيد دائن مرحّل'] : rem <= 0.004 ? ['b-mint', 'مسددة ✓'] : paid > 0 ? ['b-amber', 'مسددة جزئيًا'] : ['b-amber', 'بانتظار السداد'];
                         return (<tr key={c.id} className="is-line">
-                          <td><span className="num">{v.from} ← {v.to}</span><div style={{ fontSize: 11, color: 'var(--faint)' }}>{c.by}</div></td>
+                          <td>من <span className="num">{v.from}</span> إلى <span className="num">{v.to}</span><div style={{ fontSize: 11, color: 'var(--faint)' }}>{c.by}</div></td>
                           <td className="is-amt"><span className="num">{fmtBal(v.out)}</span></td>
                           <td className="is-amt"><span className="num">{fmtBal(v.inn)}</span></td>
                           <td className={'is-amt' + (v.net < 0 ? ' neg' : '')}><span className="num">{fmtBal(v.net)}</span></td>
@@ -23492,7 +23492,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
                 </div>)}
               {vpay && (() => { const c = vatCloses.find(x => x.id === vpay.closeId) || { vatClose: {} }; return (
                 <div className="vcl-pay">
-                  <b>سداد فترة <span className="num">{c.vatClose.from} ← {c.vatClose.to}</span></b>
+                  <b>سداد فترة من <span className="num">{c.vatClose.from}</span> إلى <span className="num">{c.vatClose.to}</span></b>
                   <div className="grid g4" style={{ gap: 8 }}>
                     <Field label="المبلغ"><input className="inp n" inputMode="decimal" value={vpay.amount} onChange={e => setVpay(v => ({ ...v, amount: e.target.value }))} /></Field>
                     <Field label="التاريخ"><input className="inp" type="date" value={vpay.date} onChange={e => setVpay(v => ({ ...v, date: e.target.value }))} /></Field>
