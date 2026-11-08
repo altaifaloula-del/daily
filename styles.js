@@ -957,6 +957,8 @@ td.num,th.num{display:table-cell}
 .is-tb tr.is-sub td{font-weight:700;border-top:1px solid var(--line)}
 .is-tb tr.is-total td{font-weight:800;background:rgba(201,162,77,.07);border-top:1px solid var(--line2,var(--line))}
 .is-tb tr.is-net td{font-weight:900;font-size:15px;border-top:3px double var(--txt)}
+.is-tb tr.bad td{color:var(--rose)}
+@media(max-width:640px){.is-tb .c-pct,.is-tb td.is-pct:not(.is-chg){display:none}.is-tb td:first-child{min-width:150px}.is-tb .is-amt .num{min-width:0}.is-tb td,.is-tb th{padding-inline:8px}}.is-tb .is-prev{color:var(--dim)}.is-tb .is-chg.up{color:var(--mint)}.is-tb .is-chg.dn{color:var(--rose)}.is-tb tr.is-grp td{padding-top:10px}
 @media(max-width:640px){.is-kpis{grid-template-columns:1fr 1fr}.is-kpis>div:last-child{grid-column:1/-1}.is-tb .is-pct{width:54px}}
 .tdy{display:flex;flex-direction:column;gap:12px;margin:14px auto 18px;max-width:1100px;text-align:start}
 .tdy-act{display:flex;align-items:center;gap:12px;width:100%;padding:12px 14px;border-radius:14px;border:1px solid rgba(201,162,77,.45);background:var(--ink2);color:var(--txt);font:inherit;cursor:pointer;text-align:start;min-height:56px}
