@@ -1015,6 +1015,16 @@ td.num,th.num{display:table-cell}
 .mb-var{font-size:12px;font-weight:600;color:var(--mint)}.mb-var.neg{color:var(--rose)}.mb-var.big{background:color-mix(in srgb,var(--rose) 12%,transparent);padding:1px 8px;border-radius:999px}
 .tdy-alarm{border-color:color-mix(in srgb,var(--rose) 55%,var(--line))}.tdy-alarm .tdy-act-n{background:color-mix(in srgb,var(--rose) 14%,transparent);color:var(--rose)}
 .dcfg-r{display:grid;gap:4px;font-size:13px;color:var(--dim)}.dcfg-r b{color:var(--txt)}
+.cb-list{display:grid;gap:8px}
+.cb-row{display:grid;grid-template-columns:auto minmax(0,1.6fr) repeat(3,minmax(0,1fr)) auto;gap:12px;align-items:center;width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--ink2);color:var(--txt);font:inherit;text-align:start;cursor:pointer}
+.cb-row:hover,.cb-row.on{border-color:var(--brass)}
+.cb-row.high{border-inline-start:3px solid var(--rose)}.cb-row.mid{border-inline-start:3px solid var(--amber)}
+.cb-av{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;background:color-mix(in srgb,var(--brass) 16%,transparent);color:var(--brass);font-weight:800}
+.cb-id{display:flex;flex-direction:column;min-width:0}.cb-id b{font-size:14px}.cb-id small{font-size:11.5px;color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cb-m{display:flex;flex-direction:column;gap:1px;min-width:0}.cb-m small{font-size:11px;color:var(--faint)}.cb-m b{font-size:13.5px;white-space:nowrap}.cb-m b.neg{color:var(--rose)}
+.cb-st{font-size:11.5px;font-weight:600;padding:3px 10px;border-radius:999px;border:1px solid var(--line);white-space:nowrap;color:var(--mint)}
+.cb-st.high{color:var(--rose);border-color:color-mix(in srgb,var(--rose) 45%,transparent)}.cb-st.mid{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 45%,transparent)}
+@media(max-width:700px){.cb-row{grid-template-columns:auto minmax(0,1fr) auto;row-gap:8px}.cb-row .cb-m{grid-row:2}.cb-row .cb-m:nth-of-type(3){grid-column:1/2}.cb-row .cb-st{grid-column:3;grid-row:1}}
 .mb-chg{font-size:12px;font-weight:600;min-width:52px;text-align:left;color:var(--faint)}.mb-chg.pos{color:var(--mint)}.mb-chg.neg{color:var(--rose)}
 .tdy-act-n{width:40px;height:40px;border-radius:10px;display:grid;place-items:center;font-weight:700;background:rgba(201,162,77,.16);color:var(--brass);flex-shrink:0}
 .tdy-act-t{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
@@ -1155,6 +1165,11 @@ td.num,th.num{display:table-cell}
   .acct-tile svg{width:16px;height:16px}
   .secnav-grid .row{margin-bottom:6px !important}
   .verbadge{display:none}
+  /* v36.7: رأس التطبيق على الجوال — العنوان وشريط الأقسام فقط (الوصف الطويل وعنوان «أقسام …» المكرر يخفيان) */
+  .hub-desc{display:none}
+  .secnav-grid .acct-gtitle{display:none}
+  .secnav-grid > .row{justify-content:flex-start;margin-bottom:6px !important}
+  .secnav-grid .acct-mode{transform:scale(.92);transform-origin:right center}
   .abar{flex-wrap:nowrap;padding:8px 10px;gap:8px}
   .abar-id{min-width:0;flex:1;font-size:14px}
   .abar-id>span:last-child,.abar-id>div:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
