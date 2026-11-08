@@ -3622,7 +3622,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark"><MizanMark size={24} /></span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : HR_TABS.includes(safeTab) ? 'الموارد البشرية' : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v37.2</span>
+            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v37.3</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -25706,6 +25706,15 @@ function CloudHealth({ org, say, only, auto, commit, me }) {
     const res = await cloud.repairWith(r.key, { items: [] });
     say(res === 'ok' ? 'فُرّغ الأرشيف ✓' : 'تعذّر التفريغ: ' + res, res === 'ok' ? 'ok' : 'no'); if (res === 'ok') run();
   };
+  // v37.3 — مستند فرع تالف بلا أي نسخة سليمة وبياناته ملغاة: يُستبدل بمستند فرع فارغ سليم (بعد تنزيل النص التالف كاملًا للجهاز)
+  const emptyBranch = async (r) => {
+    try { const blob = new Blob([r.raw || JSON.stringify(r.head || {})], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'فرع_تالف_' + r.key.replace(/[^\w]/g, '_') + '_' + today() + '.json'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000); } catch { }
+    if (!window.confirm('تفريغ «' + r.label + '» نهائيًا؟\n\nنُزّل النص التالف إلى جهازك (احفظه في «الملفات»).\nسيُستبدل المستند التالف بمستند فرع فارغ سليم: تُحذف إغلاقات وتحويلات وفواتير هذا الفرع المحفوظة فيه، ويبقى الفرع نفسه وموظفوه وإعداداته.\n\nاستخدمه فقط إذا كانت بيانات الفرع القديمة ملغاة.')) return;
+    setBusy(true);
+    const res = await cloud.repairWith(r.key, Object.fromEntries(BR_COLS.map(c => [c, []])));
+    setBusy(false);
+    say(res === 'ok' ? 'فُرّغ مستند الفرع ✓ — الفرع يعمل الآن من جديد؛ أعد تحميل المنصة على أجهزته' : 'تعذّر التفريغ: ' + res, res === 'ok' ? 'ok' : 'no'); if (res === 'ok') run();
+  };
   // ملخص محتوى نسخة: يساعد على اختيار الأحدث والأكمل قبل الاستعادة
   const sumOf = (v) => { if (!v || typeof v !== 'object') return 'فارغة'; const cl = v.closings || []; const last = cl.reduce((m, c) => (c.date || '') > m ? c.date : m, '');
     const parts = [cl.length ? cl.length + ' إغلاق (آخره ' + (last || '—') + ')' : '', (v.posOrders || []).length ? v.posOrders.length + ' فاتورة نقطة بيع' : '', (v.invoices || []).length ? v.invoices.length + ' فاتورة مورد' : '',
@@ -25745,7 +25754,8 @@ function CloudHealth({ org, say, only, auto, commit, me }) {
             {/^rms8:bf_/.test(r.key) && <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 6 }}><span className="badge b-rose">حذف</span><span style={{ fontSize: 12 }}>لا تحتاج محتواه؟ استبدله بأرشيف فارغ سليم</span><button className="btn sm" onClick={() => emptyArchive(r)}><Trash2 size={12} color="#D9544D" />تفريغ الأرشيف</button></div>}
             {r.salvage && r.salvage.items.length > 0 && <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 6 }}><span className="badge b-amber">استعادة جزئية</span><span style={{ fontSize: 12 }}>{r.salvage.items.length} مستند سليم استُخرج من النسخة التالفة{(() => { const ds = r.salvage.items.map(x => x.uploadDate || '').filter(Boolean).sort(); return ds.length ? ' (من ' + ds[0] + ' إلى ' + ds[ds.length - 1] + ')' : ''; })()}</span>
               <button className="btn sm" onClick={() => salvageRestore(r)}>نسخ احتياطي ثم استعادة جزئية</button></div>}
-            {!(r.candidates || []).length && r.localValue === undefined && !(r.salvage && r.salvage.items.length) && <div style={{ fontSize: 12, color: 'var(--rose)', marginTop: 4 }}>لم تُعثر على نسخة سليمة. تواصل مع المطوّر قبل أي إجراء.</div>}
+            {/^rms8:br_/.test(r.key) && commit && <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 6, marginTop: 4 }}><span className="badge b-rose">تفريغ</span><span style={{ fontSize: 12 }}>بيانات هذا الفرع القديمة ملغاة؟ استبدل المستند التالف بمستند فرع فارغ سليم (يُنزَّل النص التالف لجهازك أولًا).</span><button className="btn sm" disabled={busy} style={{ color: 'var(--rose)', borderColor: 'color-mix(in srgb,var(--rose) 45%,var(--line))' }} onClick={() => emptyBranch(r)}>نسخ ثم تفريغ مستند الفرع</button></div>}
+            {!(r.candidates || []).length && r.localValue === undefined && !(r.salvage && r.salvage.items.length) && <div style={{ fontSize: 12, color: 'var(--rose)', marginTop: 4 }}>لم تُعثر على نسخة سليمة.{/^rms8:br_/.test(r.key) ? ' إن كانت بيانات الفرع القديمة ملغاة فاستخدم «نسخ ثم تفريغ مستند الفرع» أعلاه، وإلا تواصل مع المطوّر قبل أي إجراء.' : ' تواصل مع المطوّر قبل أي إجراء.'}</div>}
           </td></tr>}</React.Fragment>)}
       </tbody></table></div>}
     </div>);
