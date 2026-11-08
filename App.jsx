@@ -3608,7 +3608,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark"><MizanMark size={24} /></span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v35.7 🚀</span>
+            <span style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v35.8 🚀</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -20626,6 +20626,8 @@ function MizanMerge({ org, ops, me, commit, commitOrg, say, A }) {
 
 function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }) {
   const [view, setView] = useState('jr');           // jr قيود · coa دليل · tb ميزان · fs قوائم
+  const [vatTab, setVatTab] = useState('form');      // v35.8: أقسام تفاصيل الإقرار
+  const [vatQ, setVatQ] = useState('');
   const [repOpen, setRepOpen] = useState(false);    // v9.4 قائمة التقارير
   const [stgOpen, setStgOpen] = useState(false);    // v9.4 قائمة الإعدادات
   const [acctNavOpen, setAcctNavOpen] = useState(null); // v28.8 القائمة المنسدلة المفتوحة لأقسام المحاسبة
@@ -20893,6 +20895,95 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const vsum = { out: 0, inn: 0, netSales: 0, netPurch: 0 };
   fsEntries.forEach(e => { if (e.vat) { vsum.out += e.vat.out; vsum.inn += e.vat.inn; vsum.netSales += e.vat.netSales; vsum.netPurch += e.vat.netPurch; } });
   const vatDue = Math.round((vsum.out - vsum.inn) * 100) / 100;
+  // ===== v35.8 — تفاصيل الإقرار الضريبي: نموذج الهيئة، التحليل حسب المصدر/الفرع/الشهر/المورد، وفحوص المدقق =====
+  // كل الأرقام من نفس القيود التي تبني vsum (مجموع التفاصيل = الإجماليات دائمًا)
+  const r2x = (n) => Math.round((Number(n) || 0) * 100) / 100;
+  const vatX = (() => {
+    const ents = fsEntries.filter(e => e.vat && (Math.abs(e.vat.out) > 0.004 || Math.abs(e.vat.inn) > 0.004));
+    const brName = (id) => !id ? 'المركز الرئيسي' : (((org.branches || []).find(b => b.id === id) || {}).name || id);
+    const invById = {}; (ops.invoices || []).forEach(i => { invById[i.id] = i; });
+    const parById = {}; (org.partners || []).forEach(x => { parById[x.id] = x; });
+    const clById = {}; (ops.closings || []).forEach(c => { clById[c.id] = c; });
+    const F = { s: 0, sAdj: 0, sV: 0, sVAdj: 0, p: 0, pAdj: 0, pV: 0, pVAdj: 0 };
+    const bySrc = {}, byBr = {}, byMon = {}, bySup = {};
+    const tx = [];
+    const noVatSup = { n: 0, vat: 0 }, noRcpt = { n: 0, vat: 0 }; let credits = 0;
+    ents.forEach(e => {
+      const v = e.vat;
+      // التعديلات (إشعارات دائنة/مرتجعات) تُفصل في عمودها كما في نموذج الهيئة
+      if (v.out > 0 || v.netSales > 0) { F.s += v.netSales; F.sV += v.out; } else if (v.out < 0 || v.netSales < 0) { F.sAdj += v.netSales; F.sVAdj += v.out; credits++; }
+      if (v.inn > 0 || v.netPurch > 0) { F.p += v.netPurch; F.pV += v.inn; } else if (v.inn < 0 || v.netPurch < 0) { F.pAdj += v.netPurch; F.pVAdj += v.inn; credits++; }
+      const sk = e.src || 'أخرى'; const S = bySrc[sk] = bySrc[sk] || { n: 0, net: 0, out: 0, inn: 0 };
+      S.n++; S.net += (v.netSales || 0) + (v.netPurch || 0); S.out += v.out || 0; S.inn += v.inn || 0;
+      const B = byBr[e.branchId || ''] = byBr[e.branchId || ''] || { name: brName(e.branchId), ns: 0, out: 0, np: 0, inn: 0 };
+      B.ns += v.netSales || 0; B.out += v.out || 0; B.np += v.netPurch || 0; B.inn += v.inn || 0;
+      const mk = (e.date || '').slice(0, 7); const M = byMon[mk] = byMon[mk] || { out: 0, inn: 0, ns: 0, np: 0 };
+      M.out += v.out || 0; M.inn += v.inn || 0; M.ns += v.netSales || 0; M.np += v.netPurch || 0;
+      let party = '', pVat = '', flag = '';
+      if (/^inv:/.test(e.id || '')) {
+        const inv = invById[e.id.slice(4)] || {}; const sup = parById[inv.supplierId] || {};
+        party = inv.supplierName || sup.name || 'مورد'; pVat = String(sup.vatNo || sup.tax || inv.supplierVat || '').trim();
+        const U = bySup[party] = bySup[party] || { name: party, vatNo: pVat, n: 0, net: 0, vat: 0 };
+        U.n++; U.net += v.netPurch || 0; U.vat += v.inn || 0;
+        if (!pVat && v.inn > 0) { noVatSup.n++; noVatSup.vat += v.inn; flag = 'مورد بلا رقم ضريبي'; }
+      } else if (/^exp:/.test(e.id || '')) {
+        const parts = e.id.split(':'); const c = clById[parts[1]] || {};
+        const x = (c.expenses || []).find((y, ix) => String(y.id || ix) === parts[2]) || {};
+        party = x.categoryName || x.party || x.partyName || '';
+        if (v.inn > 0 && !x.receiptImage && !x.receiptNumber) { noRcpt.n++; noRcpt.vat += v.inn; flag = 'بلا إيصال'; }
+      }
+      tx.push({ date: e.date, src: sk, ref: e.ref || '', title: e.title || '', br: brName(e.branchId), party, pVat, ns: r2x(v.netSales), out: r2x(v.out), np: r2x(v.netPurch), inn: r2x(v.inn), flag });
+    });
+    Object.keys(F).forEach(k => { F[k] = r2x(F[k]); });
+    const rnd = (o) => { Object.keys(o).forEach(k => { if (typeof o[k] === 'number' && k !== 'n') o[k] = r2x(o[k]); }); return o; };
+    const effRate = vsum.netSales > 0.004 ? Math.round(vsum.out / vsum.netSales * 10000) / 100 : null;
+    return {
+      F, tx: tx.sort((a, b) => (a.date || '').localeCompare(b.date || '')),
+      src: Object.entries(bySrc).map(([k, o]) => ({ k, ...rnd(o) })).sort((a, b) => (b.out + b.inn) - (a.out + a.inn)),
+      br: Object.values(byBr).map(rnd).sort((a, b) => b.out - a.out),
+      mon: Object.entries(byMon).map(([k, o]) => ({ k, ...rnd(o) })).sort((a, b) => a.k.localeCompare(b.k)),
+      sup: Object.values(bySup).map(rnd).sort((a, b) => b.vat - a.vat),
+      noVatSup: rnd(noVatSup), noRcpt: rnd(noRcpt), credits, effRate,
+      rateOk: effRate == null || Math.abs(effRate - taxRate) < 0.15
+    };
+  })();
+  const vatChecks = [
+    !(from && to) ? { s: 'warn', t: 'لم تُحدَّد فترة الإقرار — الأرقام لكامل المدة. اضغط «الربع الحالي» أو حدّد الفترة.' } : { s: 'ok', t: 'فترة الإقرار: ' + from + ' ← ' + to },
+    vatX.rateOk ? { s: 'ok', t: 'النسبة الفعلية للمخرجات ' + (vatX.effRate == null ? '—' : vatX.effRate + '%') + ' تطابق النسبة المعتمدة ' + taxRate + '%' } : { s: 'bad', t: 'النسبة الفعلية للمخرجات ' + vatX.effRate + '% لا تطابق ' + taxRate + '% — راجع مبيعات مسجّلة بنسبة مختلفة أو بلا ضريبة' },
+    vatX.noVatSup.n ? { s: 'bad', t: vatX.noVatSup.n + ' فاتورة مورد بضريبة مدخلات ' + money(vatX.noVatSup.vat) + ' من موردين بلا رقم ضريبي في جهات الاتصال — قد لا تُقبل للخصم' } : { s: 'ok', t: 'كل فواتير الموردين ذات الضريبة لموردين لهم رقم ضريبي' },
+    vatX.noRcpt.n ? { s: 'warn', t: vatX.noRcpt.n + ' مصروف وردية بضريبة ' + money(vatX.noRcpt.vat) + ' بلا صورة أو رقم إيصال — احتفظ بالفاتورة الضريبية لإثبات الخصم' } : { s: 'ok', t: 'مصروفات الورديات ذات الضريبة موثّقة بإيصال' },
+    vatX.credits ? { s: 'warn', t: vatX.credits + ' إشعار دائن/مرتجع في الفترة — يظهر في عمود «التعديلات»' } : { s: 'ok', t: 'لا إشعارات دائنة أو مرتجعات في الفترة' }
+  ];
+  const vatFormRows = () => {
+    const F = vatX.F, Z = { a: 0, adj: 0, v: 0 };
+    return [
+      { n: '1', t: 'المبيعات الخاضعة للنسبة الأساسية', a: F.s, adj: F.sAdj, v: r2x(F.sV + F.sVAdj) },
+      { n: '2', t: 'المبيعات للمواطنين (خدمات صحية وتعليمية خاصة)', ...Z, na: 1 },
+      { n: '3', t: 'المبيعات المحلية الخاضعة للنسبة الصفرية', ...Z, na: 1 },
+      { n: '4', t: 'الصادرات', ...Z, na: 1 },
+      { n: '5', t: 'المبيعات المعفاة', ...Z, na: 1 },
+      { n: '6', t: 'إجمالي المبيعات', a: F.s, adj: F.sAdj, v: r2x(F.sV + F.sVAdj), tot: 1 },
+      { n: '7', t: 'المشتريات الخاضعة للنسبة الأساسية', a: F.p, adj: F.pAdj, v: r2x(F.pV + F.pVAdj) },
+      { n: '8', t: 'الاستيرادات الخاضعة للضريبة المدفوعة في الجمارك', ...Z, na: 1 },
+      { n: '9', t: 'الاستيرادات الخاضعة لآلية الاحتساب العكسي', ...Z, na: 1 },
+      { n: '10', t: 'المشتريات الخاضعة للنسبة الصفرية', ...Z, na: 1 },
+      { n: '11', t: 'المشتريات المعفاة', ...Z, na: 1 },
+      { n: '12', t: 'إجمالي المشتريات', a: F.p, adj: F.pAdj, v: r2x(F.pV + F.pVAdj), tot: 1 },
+      { n: '13', t: 'إجمالي ضريبة القيمة المضافة المستحقة عن الفترة', v: vatDue, tot: 1, only: 1 },
+      { n: '14', t: 'تصحيحات من الفترات السابقة (بحد ±5,000 ر.س)', v: 0, only: 1, na: 1 },
+      { n: '15', t: 'رصيد الضريبة المرحّل من الفترة/الفترات السابقة', v: 0, only: 1, na: 1 },
+      { n: '', t: vatDue >= 0 ? 'صافي الضريبة المستحقة للسداد' : 'صافي رصيد دائن لصالح المنشأة', v: vatDue, net: 1, only: 1 }
+    ];
+  };
+  const vatTxRows = () => [['التاريخ', 'المصدر', 'المرجع', 'البيان', 'الفرع', 'الطرف', 'الرقم الضريبي للطرف', 'مبيعات صافية', 'ضريبة مخرجات', 'مشتريات صافية', 'ضريبة مدخلات', 'ملاحظة المدقق'],
+    ...vatX.tx.map(t => [t.date, t.src, t.ref, t.title, t.br, t.party, t.pVat, t.ns, t.out, t.np, t.inn, t.flag])];
+  const xlVAT = () => { try {
+    const form = [['البند', 'الوصف', 'المبلغ', 'التعديلات', 'ضريبة القيمة المضافة'], ...vatFormRows().map(r => [r.n, r.t, r.only ? '' : r.a, r.only ? '' : r.adj, r.v])];
+    const br = [['الفرع', 'مبيعات صافية', 'ضريبة مخرجات', 'مشتريات صافية', 'ضريبة مدخلات', 'الصافي'], ...vatX.br.map(b => [b.name, b.ns, b.out, b.np, b.inn, r2x(b.out - b.inn)])];
+    const mon = [['الشهر', 'مبيعات صافية', 'ضريبة مخرجات', 'مشتريات صافية', 'ضريبة مدخلات', 'الصافي'], ...vatX.mon.map(m => [m.k, m.ns, m.out, m.np, m.inn, r2x(m.out - m.inn)])];
+    const sup = [['المورد', 'الرقم الضريبي', 'عدد الفواتير', 'مشتريات صافية', 'ضريبة مدخلات'], ...vatX.sup.map(u => [u.name, u.vatNo || '— غير مسجّل —', u.n, u.net, u.vat])];
+    dlBlob('الإقرار_الضريبي_' + expTag + '.xlsx', makeXlsx([{ name: 'نموذج الإقرار', rows: form }, { name: 'حسب الفرع', rows: br }, { name: 'حسب الشهر', rows: mon }, { name: 'الموردون', rows: sup }, { name: 'الحركات', rows: vatTxRows() }]));
+  } catch (e) { say('تعذّر توليد Excel', 'no'); } };
   const setQuarter = () => {
     const d = new Date(); const qs = Math.floor(d.getMonth() / 3) * 3;
     const f = new Date(d.getFullYear(), qs, 1), t = new Date(d.getFullYear(), qs + 3, 0);
@@ -21344,12 +21435,24 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
       <div class="box">تفاصيل أطراف كل قيد (مدين/دائن) متاحة داخل النظام بفتح القيد — وكلها متوازنة.</div>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
   };
   const printVAT = () => {
+    const tr = (cells, cls) => '<tr' + (cls ? ' class="' + cls + '"' : '') + '>' + cells.join('') + '</tr>';
+    const td = (x, n) => '<td' + (n ? ' class="n"' : '') + '>' + x + '</td>';
+    const form = vatFormRows().map(r => tr([td(r.n), td(r.t + (r.na ? ' <span style="color:#999;font-size:10px">(غير مسجّل)</span>' : '')), td(r.only ? '' : fmtBal(r.a), 1), td(r.only ? '' : fmtBal(r.adj), 1), td(fmtBal(r.v), 1)], r.net || r.tot ? 'tot' : '')).join('');
+    const br = vatX.br.map(b2 => tr([td(b2.name), td(fmtBal(b2.ns), 1), td(fmtBal(b2.out), 1), td(fmtBal(b2.np), 1), td(fmtBal(b2.inn), 1), td(fmtBal(r2x(b2.out - b2.inn)), 1)])).join('');
+    const mon = vatX.mon.map(m => tr([td(m.k), td(fmtBal(m.ns), 1), td(fmtBal(m.out), 1), td(fmtBal(m.inn), 1), td(fmtBal(r2x(m.out - m.inn)), 1)])).join('');
+    const sup = vatX.sup.slice(0, 15).map(u => tr([td(u.name), td(u.vatNo || '<span class="neg">غير مسجّل</span>'), td(u.n, 1), td(fmtBal(u.net), 1), td(fmtBal(u.vat), 1)])).join('');
+    const ck = vatChecks.map(c => '<div style="margin:3px 0;color:' + (c.s === 'bad' ? '#C0392B' : c.s === 'warn' ? '#B7791F' : '#2E8B62') + '">' + (c.s === 'ok' ? '✓ ' : c.s === 'bad' ? '✗ ' : '! ') + c.t + '</div>').join('');
     printA4(org, 'مسودة الإقرار الضريبي', periodSub + ' · النسبة ' + taxRate + '%',
-      `<table><thead><tr><th>البند</th><th>المبلغ الصافي</th><th>الضريبة ${taxRate}%</th></tr></thead><tbody>
-      <tr><td>المبيعات الخاضعة للنسبة الأساسية</td><td class="n">${money(vsum.netSales)}</td><td class="n">${money(vsum.out)}</td></tr>
-      <tr><td>المشتريات الخاضعة للنسبة الأساسية</td><td class="n">${money(vsum.netPurch)}</td><td class="n">${money(vsum.inn)}</td></tr>
-      <tr class="tot"><td>صافي الضريبة ${vatDue >= 0 ? 'المستحقة' : '(رصيد دائن)'}</td><td></td><td class="n">${money(vatDue)}</td></tr></tbody></table>
-      <div class="box">مسودة داخلية تساعد على تعبئة الإقرار في بوابة الهيئة — وليست تقديمًا رسميًا.</div>
+      `<div class="box">${ck}</div>
+      <h3 style="margin:10px 0 4px;font-size:13px">نموذج الإقرار</h3>
+      <table><thead><tr><th>#</th><th>البند</th><th>المبلغ</th><th>التعديلات</th><th>الضريبة ${taxRate}%</th></tr></thead><tbody>${form}</tbody></table>
+      <h3 style="margin:12px 0 4px;font-size:13px">حسب الفرع</h3>
+      <table><thead><tr><th>الفرع</th><th>مبيعات صافية</th><th>مخرجات</th><th>مشتريات صافية</th><th>مدخلات</th><th>الصافي</th></tr></thead><tbody>${br}
+      <tr class="tot"><td>الإجمالي</td><td class="n">${money(vsum.netSales)}</td><td class="n">${money(vsum.out)}</td><td class="n">${money(vsum.netPurch)}</td><td class="n">${money(vsum.inn)}</td><td class="n">${fmtBal(vatDue)}</td></tr></tbody></table>
+      <h3 style="margin:12px 0 4px;font-size:13px">حسب الشهر</h3>
+      <table><thead><tr><th>الشهر</th><th>مبيعات صافية</th><th>مخرجات</th><th>مدخلات</th><th>الصافي</th></tr></thead><tbody>${mon}</tbody></table>
+      ${sup ? `<h3 style="margin:12px 0 4px;font-size:13px">أكبر الموردين بضريبة المدخلات</h3><table><thead><tr><th>المورد</th><th>الرقم الضريبي</th><th>الفواتير</th><th>مشتريات صافية</th><th>مدخلات</th></tr></thead><tbody>${sup}</tbody></table>` : ''}
+      <div class="box">مسودة داخلية تساعد على تعبئة الإقرار في بوابة الهيئة — وليست تقديمًا رسميًا. البنود غير المسجّلة في المنصة تظهر صفرًا.</div>
       <div class="sign"><div>المحاسب</div><div>الإدارة المالية</div><div>اعتماد الإدارة</div></div>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
   };
   const printAST = () => {
@@ -23214,26 +23317,98 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
             </div>
             <div className="card">
               <div className="card-h">
-                <div className="card-t"><FileText size={15} color="var(--brass)" />مسودة الإقرار — بصيغة نموذج الهيئة</div>
-                <button className="btn sm" onClick={printVAT}><Printer size={13} />طباعة الإقرار</button>
+                <div className="card-t"><ShieldCheck size={15} color="var(--brass)" />فحوص المدقق قبل تقديم الإقرار</div>
+                <span className={'badge ' + (vatChecks.some(c => c.s === 'bad') ? 'b-rose' : vatChecks.some(c => c.s === 'warn') ? 'b-amber' : 'b-mint')}>
+                  {vatChecks.filter(c => c.s === 'bad').length ? vatChecks.filter(c => c.s === 'bad').length + ' ملاحظة جوهرية' : vatChecks.filter(c => c.s === 'warn').length ? vatChecks.filter(c => c.s === 'warn').length + ' تنبيه' : 'جاهز'}</span>
               </div>
-              <div className="tw">
-                <table className="tb">
-                  <thead><tr><th>البند</th><th style={{ textAlign: 'end' }}>المبلغ الصافي</th><th style={{ textAlign: 'end' }}>الضريبة {taxRate}%</th></tr></thead>
-                  <tbody>
-                    <tr><td>المبيعات الخاضعة للنسبة الأساسية</td><td className="num" style={{ textAlign: 'end' }}>{money(vsum.netSales)}</td><td className="num" style={{ textAlign: 'end' }}>{money(vsum.out)}</td></tr>
-                    <tr><td>المشتريات الخاضعة للنسبة الأساسية</td><td className="num" style={{ textAlign: 'end' }}>{money(vsum.netPurch)}</td><td className="num" style={{ textAlign: 'end' }}>{money(vsum.inn)}</td></tr>
-                    <tr style={{ fontWeight: 900, background: 'rgba(200,162,74,.05)' }}>
-                      <td>صافي الضريبة {vatDue >= 0 ? 'المستحقة' : '(رصيد دائن لصالحك)'}</td><td />
-                      <td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)', fontSize: 14 }}>{money(vatDue)}</td>
-                    </tr>
-                  </tbody>
-                </table>
+              <div className="vck">{vatChecks.map((c, i) => <div key={i} className={'vck-i ' + c.s}><span>{c.s === 'ok' ? '✓' : c.s === 'bad' ? '✗' : '!'}</span>{c.t}</div>)}</div>
+            </div>
+            <div className="card">
+              <div className="card-h">
+                <div className="card-t"><FileText size={15} color="var(--brass)" />تفاصيل الإقرار الضريبي</div>
+                <div className="row" style={{ gap: 6 }}>
+                  <button className="btn sm" onClick={xlVAT}><Download size={13} />Excel كامل</button>
+                  <button className="btn sm" onClick={printVAT}><Printer size={13} />طباعة الإقرار</button>
+                </div>
+              </div>
+              <div className="vtabs" role="tablist">
+                {[['form', 'نموذج الهيئة'], ['src', 'حسب المصدر'], ['br', 'حسب الفرع'], ['mon', 'حسب الشهر'], ['sup', 'الموردون'], ['tx', 'الحركات (' + vatX.tx.length + ')']].map(([k, l]) =>
+                  <button key={k} type="button" role="tab" aria-selected={vatTab === k} className={'vtab' + (vatTab === k ? ' on' : '')} onClick={() => setVatTab(k)}>{l}</button>)}
+              </div>
+              <div className="tw" style={{ marginTop: 10 }}>
+                {vatTab === 'form' && (
+                  <table className="tb is-tb vat-tb">
+                    <thead><tr><th style={{ width: 34 }}>#</th><th>البند</th><th style={{ textAlign: 'end' }}>المبلغ (ر.س)</th><th style={{ textAlign: 'end' }}>التعديلات</th><th style={{ textAlign: 'end' }}>الضريبة {taxRate}%</th></tr></thead>
+                    <tbody>
+                      {vatFormRows().map((r, i) => (
+                        <tr key={i} className={r.net ? 'is-net' : r.tot ? 'is-total' : r.na ? 'vat-na' : 'is-line'}>
+                          <td className="vat-n"><span className="num">{r.n}</span></td>
+                          <td>{r.t}{r.na && <small className="vat-nat"> — غير مسجّل في المنصة</small>}</td>
+                          <td className="is-amt">{!r.only && <span className="num">{fmtBal(r.a)}</span>}</td>
+                          <td className={'is-amt' + (r.adj < 0 ? ' neg' : '')}>{!r.only && <span className="num">{fmtBal(r.adj)}</span>}</td>
+                          <td className={'is-amt' + (r.v < 0 ? ' neg' : '')}><span className="num">{fmtBal(r.v)}</span></td>
+                        </tr>))}
+                    </tbody>
+                  </table>)}
+                {vatTab === 'src' && (
+                  <table className="tb is-tb">
+                    <thead><tr><th>المصدر</th><th style={{ textAlign: 'end' }}>عدد القيود</th><th style={{ textAlign: 'end' }}>الصافي</th><th style={{ textAlign: 'end' }}>ضريبة مخرجات</th><th style={{ textAlign: 'end' }}>ضريبة مدخلات</th></tr></thead>
+                    <tbody>
+                      {vatX.src.map(r => <tr key={r.k} className="is-line"><td>{r.k}</td><td className="is-amt"><span className="num">{r.n}</span></td><td className="is-amt"><span className="num">{fmtBal(r.net)}</span></td><td className="is-amt"><span className="num">{fmtBal(r.out)}</span></td><td className="is-amt"><span className="num">{fmtBal(r.inn)}</span></td></tr>)}
+                      <tr className="is-total"><td>الإجمالي</td><td className="is-amt"><span className="num">{sum(vatX.src, r => r.n)}</span></td><td /><td className="is-amt"><span className="num">{money(vsum.out)}</span></td><td className="is-amt"><span className="num">{money(vsum.inn)}</span></td></tr>
+                    </tbody>
+                  </table>)}
+                {vatTab === 'br' && (
+                  <table className="tb is-tb">
+                    <thead><tr><th>الفرع</th><th style={{ textAlign: 'end' }}>مبيعات صافية</th><th style={{ textAlign: 'end' }}>ضريبة مخرجات</th><th style={{ textAlign: 'end' }}>مشتريات صافية</th><th style={{ textAlign: 'end' }}>ضريبة مدخلات</th><th style={{ textAlign: 'end' }}>الصافي</th></tr></thead>
+                    <tbody>
+                      {vatX.br.map(b => <tr key={b.name} className="is-line"><td>{b.name}</td><td className="is-amt"><span className="num">{fmtBal(b.ns)}</span></td><td className="is-amt"><span className="num">{fmtBal(b.out)}</span></td><td className="is-amt"><span className="num">{fmtBal(b.np)}</span></td><td className="is-amt"><span className="num">{fmtBal(b.inn)}</span></td><td className={'is-amt' + (b.out - b.inn < 0 ? ' neg' : '')}><span className="num">{fmtBal(r2x(b.out - b.inn))}</span></td></tr>)}
+                      <tr className="is-total"><td>الإجمالي</td><td className="is-amt"><span className="num">{money(vsum.netSales)}</span></td><td className="is-amt"><span className="num">{money(vsum.out)}</span></td><td className="is-amt"><span className="num">{money(vsum.netPurch)}</span></td><td className="is-amt"><span className="num">{money(vsum.inn)}</span></td><td className={'is-amt' + (vatDue < 0 ? ' neg' : '')}><span className="num">{fmtBal(vatDue)}</span></td></tr>
+                    </tbody>
+                  </table>)}
+                {vatTab === 'mon' && (
+                  <table className="tb is-tb">
+                    <thead><tr><th>الشهر</th><th style={{ textAlign: 'end' }}>مبيعات صافية</th><th style={{ textAlign: 'end' }}>ضريبة مخرجات</th><th style={{ textAlign: 'end' }}>ضريبة مدخلات</th><th style={{ textAlign: 'end' }}>الصافي</th><th style={{ textAlign: 'end' }}>النسبة الفعلية</th></tr></thead>
+                    <tbody>
+                      {vatX.mon.map(m => <tr key={m.k} className="is-line"><td><span className="num">{m.k}</span></td><td className="is-amt"><span className="num">{fmtBal(m.ns)}</span></td><td className="is-amt"><span className="num">{fmtBal(m.out)}</span></td><td className="is-amt"><span className="num">{fmtBal(m.inn)}</span></td><td className={'is-amt' + (m.out - m.inn < 0 ? ' neg' : '')}><span className="num">{fmtBal(r2x(m.out - m.inn))}</span></td><td className={'is-amt' + (m.ns > 0 && Math.abs(m.out / m.ns * 100 - taxRate) >= 0.15 ? ' neg' : '')}><span className="num">{m.ns > 0 ? (Math.round(m.out / m.ns * 10000) / 100) + '%' : '—'}</span></td></tr>)}
+                      <tr className="is-total"><td>الإجمالي</td><td className="is-amt"><span className="num">{money(vsum.netSales)}</span></td><td className="is-amt"><span className="num">{money(vsum.out)}</span></td><td className="is-amt"><span className="num">{money(vsum.inn)}</span></td><td className={'is-amt' + (vatDue < 0 ? ' neg' : '')}><span className="num">{fmtBal(vatDue)}</span></td><td className="is-amt"><span className="num">{vatX.effRate == null ? '—' : vatX.effRate + '%'}</span></td></tr>
+                    </tbody>
+                  </table>)}
+                {vatTab === 'sup' && (vatX.sup.length ? (
+                  <table className="tb is-tb">
+                    <thead><tr><th>المورد</th><th>الرقم الضريبي</th><th style={{ textAlign: 'end' }}>الفواتير</th><th style={{ textAlign: 'end' }}>مشتريات صافية</th><th style={{ textAlign: 'end' }}>ضريبة مدخلات</th></tr></thead>
+                    <tbody>
+                      {vatX.sup.map(u => <tr key={u.name} className={'is-line' + (u.vatNo ? '' : ' bad')}><td>{u.name}</td><td>{u.vatNo ? <span className="num">{u.vatNo}</span> : 'غير مسجّل ✗'}</td><td className="is-amt"><span className="num">{u.n}</span></td><td className="is-amt"><span className="num">{fmtBal(u.net)}</span></td><td className="is-amt"><span className="num">{fmtBal(u.vat)}</span></td></tr>)}
+                    </tbody>
+                  </table>) : <div className="empty">لا فواتير موردين بضريبة في الفترة.</div>)}
+                {vatTab === 'tx' && (() => {
+                  const qn = vatQ.trim(); const rows = vatX.tx.filter(t => !qn || (t.title + ' ' + t.party + ' ' + t.ref + ' ' + t.br + ' ' + t.src + ' ' + t.flag).includes(qn));
+                  return (<>
+                    <div className="row" style={{ gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                      <input className="inp" style={{ maxWidth: 280 }} placeholder="بحث: مورد، فرع، مرجع، «بلا إيصال»…" value={vatQ} onChange={e => setVatQ(e.target.value)} />
+                      <span className="badge b-dim">{rows.length} حركة · مخرجات {money(sum(rows, t => t.out))} · مدخلات {money(sum(rows, t => t.inn))}</span>
+                    </div>
+                    <table className="tb is-tb">
+                      <thead><tr><th>التاريخ</th><th>البيان</th><th>الفرع</th><th style={{ textAlign: 'end' }}>الصافي</th><th style={{ textAlign: 'end' }}>مخرجات</th><th style={{ textAlign: 'end' }}>مدخلات</th></tr></thead>
+                      <tbody>
+                        {rows.slice(0, 300).map((t, i) => <tr key={i} className={'is-line' + (t.flag ? ' flag' : '')}>
+                          <td><span className="num">{t.date}</span></td>
+                          <td>{t.title}{t.flag && <small className="vat-flag"> · {t.flag}</small>}</td>
+                          <td>{t.br}</td>
+                          <td className={'is-amt' + (t.ns + t.np < 0 ? ' neg' : '')}><span className="num">{fmtBal(r2x(t.ns + t.np))}</span></td>
+                          <td className={'is-amt' + (t.out < 0 ? ' neg' : '')}><span className="num">{t.out ? fmtBal(t.out) : '—'}</span></td>
+                          <td className={'is-amt' + (t.inn < 0 ? ' neg' : '')}><span className="num">{t.inn ? fmtBal(t.inn) : '—'}</span></td>
+                        </tr>)}
+                      </tbody>
+                    </table>
+                    {rows.length > 300 && <div className="note" style={{ marginTop: 8 }}>تُعرض أول 300 حركة — كل الحركات في ملف Excel.</div>}
+                  </>);
+                })()}
               </div>
               <div className="note" style={{ marginTop: 10 }}>
                 ⚠️ <b>بشفافية:</b> هذه مسودة تساعدك أنت ومحاسبك على تعبئة الإقرار في بوابة الهيئة — وليست تقديمًا رسميًا.
-                الفوترة الإلكترونية المعتمدة (منصة فاتورة) تتطلب ربطًا رسميًا منفصلًا.
-                فواتير التوريد الجديدة تُفصل ضريبتها عبر حقل «خاضعة للضريبة» عند إدخالها؛ الفواتير القديمة المسجلة قبل الحقل تبقى إجمالية.
+                البنود 2–5 و8–11 و14–15 لا تُسجَّل في المنصة حاليًا فتظهر صفرًا؛ أدخلها يدويًا في البوابة إن وُجدت لديك.
+                مجموع كل التفاصيل (المصدر، الفرع، الشهر، الحركات) يساوي إجماليات الإقرار دائمًا لأنها من نفس القيود.
               </div>
             </div>
           </>}
