@@ -161,7 +161,7 @@ function buildNotifEvents(org, ops, me, myBranches) {
       {
         const SB = stockByWh(org, ops);
         myWh.forEach(w => (org.items || []).forEach(it => { const mn = Number(it.minQty) || 0; const q = ((SB.byWh[w] || {})[it.id]) || 0;
-          if (mn > 0 && q <= mn) push('inv:low:' + w + ':' + it.id + ':' + td, 'inv', 'صنف عند الحد الأدنى في ' + whName(org, w), it.name + ' — الرصيد ' + q3(q), 'whbranch'); }));
+          if (mn > 0 && q <= mn) push('inv:low:' + w + ':' + it.id + ':' + td, 'inv', 'صنف عند الحد الأدنى في ' + whName(org, w), it.name + (bookHidden(org, me) ? ' — عند حد الطلب' : ' — الرصيد ' + q3(q)), 'whbranch'); }));
       }
     }
   }
@@ -3718,7 +3718,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark"><MizanMark size={24} /></span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : HR_TABS.includes(safeTab) ? 'الموارد البشرية' : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v38.1</span>
+            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v38.2</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -18916,7 +18916,7 @@ function CountScheduleCard({ org, ops, me, commitOrg, say }) {
   const save = async () => {
     const nn = (v, d) => { const x = Number(String(v ?? '').replace(/[^\d.]/g, '')); return String(v ?? '').trim() === '' || !Number.isFinite(x) ? d : x; };
     const next = { ...c, freq: f.freq || '', scope: f.scope || 'all', top: Math.max(5, Number(f.top) || 15), since: today(),
-      tolPct: nn(f.tolPct, 3), tolVal: nn(f.tolVal, 25), dailyA: !!f.dailyA, aTop: Math.max(1, Math.round(nn(f.aTop, 5))) };
+      tolPct: nn(f.tolPct, 3), tolVal: nn(f.tolVal, 25), dailyA: !!f.dailyA, aTop: Math.max(1, Math.round(nn(f.aTop, 5))), hideBook: f.hideBook !== false };
     const ok = await commitOrg(d => ({ ...d, countCfg: next }), { actionType: 'update', targetType: 'settings', targetId: 'countCfg', need: 'edit', title: next.freq ? 'جدولة الجرد الدوري' : 'إيقاف الجرد الدوري', details: next.freq ? COUNT_FREQ[next.freq].ar + ' · ' + (next.scope === 'top' ? 'أعلى ' + next.top + ' صنف قيمة' : 'كل الأصناف') : '' });
     if (ok) { setF(null); say(next.freq ? 'جُدول الجرد الدوري ✓ — تصل الفروع تنبيهات بموعدها' : 'أُوقف الجرد الدوري'); }
   };
@@ -18924,19 +18924,21 @@ function CountScheduleCard({ org, ops, me, commitOrg, say }) {
   return (
     <div className="card">
       <div className="card-h"><div className="card-t"><ClipboardCheck size={15} color="var(--brass)" />الجرد الدوري المجدول {sch ? <span className="badge b-mint" style={{ marginInlineStart: 8 }}>{COUNT_FREQ[c.freq].ar} · {c.scope === 'top' ? 'أعلى ' + (c.top || 15) + ' صنف قيمة' : 'كل الأصناف'}</span> : <span className="badge b-dim" style={{ marginInlineStart: 8 }}>غير مجدول</span>}</div>
-        {canSet && !f && <button className="btn sm" onClick={() => { const k = countCfgOf(org); setF({ freq: c.freq || 'weekly', scope: c.scope || 'top', top: String(c.top || 15), tolPct: String(k.tolPct), tolVal: String(k.tolVal), dailyA: k.dailyA, aTop: String(k.aTop) }); }}>{sch ? 'تعديل' : 'جدولة'}</button>}</div>
+        {canSet && !f && <button className="btn sm" onClick={() => { const k = countCfgOf(org); setF({ freq: c.freq || 'weekly', scope: c.scope || 'top', top: String(c.top || 15), tolPct: String(k.tolPct), tolVal: String(k.tolVal), dailyA: k.dailyA, aTop: String(k.aTop), hideBook: k.hideBook }); }}>{sch ? 'تعديل' : 'جدولة'}</button>}</div>
       {f && <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'end', marginBottom: 10 }}>
         <Field label="التكرار" style={{ marginBottom: 0 }}><select className="sel" value={f.freq} onChange={e => setF(x => ({ ...x, freq: e.target.value }))}><option value="">موقوف</option>{Object.entries(COUNT_FREQ).map(([k, v]) => <option key={k} value={k}>{v.ar}</option>)}</select></Field>
         <Field label="النطاق" style={{ marginBottom: 0 }}><select className="sel" value={f.scope} onChange={e => setF(x => ({ ...x, scope: e.target.value }))}><option value="top">الأصناف الأعلى قيمة</option><option value="all">كل الأصناف</option></select></Field>
         {f.scope === 'top' && <Field label="عددها" style={{ width: 90, marginBottom: 0 }}><input className="inp n" inputMode="numeric" value={f.top} onChange={e => setF(x => ({ ...x, top: e.target.value.replace(/\D/g, '') }))} /></Field>}
         <Field label="تسامح الفرق (ر.س)" style={{ width: 130, marginBottom: 0 }}><input className="inp n" inputMode="decimal" value={f.tolVal} onChange={e => setF(x => ({ ...x, tolVal: e.target.value }))} /></Field>
         <Field label="تسامح الفرق (%)" style={{ width: 120, marginBottom: 0 }}><input className="inp n" inputMode="decimal" value={f.tolPct} onChange={e => setF(x => ({ ...x, tolPct: e.target.value }))} /></Field>
+        <label className="row" style={{ gap: 6, fontSize: 12.5, alignSelf: 'center' }}><input type="checkbox" checked={f.hideBook !== false} onChange={e => setF(x => ({ ...x, hideBook: e.target.checked }))} />إخفاء الكميات الدفترية عن موظفي الفروع</label>
         <label className="row" style={{ gap: 6, fontSize: 12.5, alignSelf: 'center' }}><input type="checkbox" checked={!!f.dailyA} onChange={e => setF(x => ({ ...x, dailyA: e.target.checked }))} />جرد يومي لأصناف A</label>
         {f.dailyA && <Field label="عدد أصناف A" style={{ width: 100, marginBottom: 0 }}><input className="inp n" inputMode="numeric" value={f.aTop} onChange={e => setF(x => ({ ...x, aTop: e.target.value.replace(/\D/g, '') }))} /></Field>}
         <button className="btn pri" onClick={save}><Check size={14} />حفظ</button><button className="btn gh" onClick={() => setF(null)}>إلغاء</button>
       </div>}
       {!f && (() => { const k = countCfgOf(org); return <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
         <span className="badge b-dim">جرد أعمى · اعتماد شخص آخر</span>
+        <span className={'badge ' + (k.hideBook ? 'b-mint' : 'b-amber')}>{k.hideBook ? 'الكميات الدفترية مخفية عن موظفي الفروع' : 'الكميات الدفترية ظاهرة للفروع'}</span>
         <span className="badge b-dim">إعادة عدّ عند فرق {money(k.tolVal)} فأكثر و{k.tolPct}% فأكثر</span>
         <span className={'badge ' + (k.dailyA ? 'b-mint' : 'b-dim')}>{k.dailyA ? 'جرد يومي لأعلى ' + k.aTop + ' أصناف قيمة (A)' : 'الجرد اليومي لأصناف A موقوف'}</span></div>; })()}
       {sch ? <div className="tw"><table className="tb">
@@ -19192,7 +19194,9 @@ const WH_MOVE = { out: { ar: 'صرف للمطبخ', sign: -1, c: 'b-sky' }, wast
    3) لا يُرحَّل أي فرق حتى يعتمده شخص آخر غير العادّ/المعيد — عندها فقط تُسجَّل «تسوية جرد» بتاريخ العدّ.
    4) جرد يومي اختياري لأصناف الفئة A (الأعلى قيمة في المستودع). */
 const countCfgOf = (org) => { const c = (org && org.countCfg) || {}; const n = (v, d) => (v === '' || v == null || !Number.isFinite(Number(v))) ? d : Math.max(0, Number(v));
-  return { tolPct: n(c.tolPct, 3), tolVal: n(c.tolVal, 25), dailyA: !!c.dailyA, aTop: Math.max(1, n(c.aTop, 5)) }; };
+  return { tolPct: n(c.tolPct, 3), tolVal: n(c.tolVal, 25), dailyA: !!c.dailyA, aTop: Math.max(1, n(c.aTop, 5)), hideBook: c.hideBook !== false }; };
+// v38.2 — الرصيد الدفتري لا يظهر لموظفي الفرع (من يعدّون) في أي شاشة — يرون حالة الصنف (يكفي/اطلب) لا الكمية
+const bookHidden = (org, me) => countCfgOf(org).hideBook && (ROLES[me?.role] || {}).scope === 'own';
 const canApproveCount = (me) => { const R = ROLES[me?.role] || {}; return !!(rolePost(me?.role) || R.approver || R.admin || me?.role === 'regional_manager' || me?.role === 'branch_manager'); };
 // أصناف الفئة A في المستودع: الأعلى قيمة رصيدًا (بالمتوسط المرجّح)
 function aItemsOf(org, ops, whId, SB, AVG) {
@@ -19624,6 +19628,7 @@ function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
   const [outF, setOutF] = useState({ kind: 'b2b', toWh: '', lines: [{ itemId: '', qtySent: '' }], note: '' });   // v30.1 صادر
   useEffect(() => { if (!mine.some(w => w.id === whId) && mine[0]) setWhId(mine[0].id); }, [mine.map(w => w.id).join(',')]); // eslint-disable-line
   const wh = mine.find(w => w.id === whId);
+  const blind = bookHidden(org, me);   // v38.2 جرد أعمى على مستوى الشاشات
   const ctl = isCostCtl(me);   // v37.8 مراقب التكاليف: الأرصدة + اعتماد الهدر + اعتماد الجرد فقط
   useEffect(() => { if (ctl && !['bal', 'mv', 'count'].includes(view)) setView('bal'); }, [ctl, view]);
   const SB = useMemo(() => stockByWh(org, ops), [org, ops]);
@@ -19656,7 +19661,7 @@ function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
     if (!lines.length) return say('أضف صنفًا وكمية', 'no');
     if (f.kind === 'b2b' && !otherWhs.some(w => w.id === f.toWh)) return say('اختر الفرع المستلم', 'no');
     const over = lines.find(l => l.qtySent > qOf(l.itemId) + 0.0005);
-    if (over) return say('الكمية تتجاوز رصيد مستودعك: ' + itemOf(over.itemId).name + ' (المتاح ' + qOf(over.itemId) + ')', 'no');
+    if (over) return say('الكمية تتجاوز رصيد مستودعك: ' + itemOf(over.itemId).name + (blind ? '' : ' (المتاح ' + qOf(over.itemId) + ')'), 'no');
     const ret = f.kind === 'return';
     const rec = { id: uid('wtr'), kind: f.kind, no: (ret ? 'RET-' : 'B2B-') + today().replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 5).toUpperCase(),
       fromWh: wh.id, toWh: ret ? (wh.parentId || MAIN_WH) : f.toWh, branchId: wh.branchId, lines, note: f.note || '', requestedBy: me.name, at: nowISO(),
@@ -19685,7 +19690,7 @@ function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
     const lines = mvF.lines.filter(l => l.itemId && (Number(l.qty) || 0) > 0);
     if (!lines.length) return say('أضف صنفًا وكمية', 'no');
     const over = lines.find(l => k.sign < 0 && q3(l.qty) > qOf(l.itemId) + 0.0005);
-    if (over) return say('الكمية تتجاوز رصيد المستودع: ' + itemOf(over.itemId).name + ' (المتاح ' + qOf(over.itemId) + ')', 'no');
+    if (over) return say('الكمية تتجاوز رصيد المستودع: ' + itemOf(over.itemId).name + (blind ? '' : ' (المتاح ' + qOf(over.itemId) + ')'), 'no');
     if (mvF.kind === 'waste') {   // v37.4 — سبب منظّم + صورة + اعتماد فوق الحد
       const ok = await submitWaste({ org, me, commit, say, col: 'whMoves', whId: wh.id, branchId: wh.branchId, lines, f: mvF, avg: AVG, title: wh.name });
       if (ok) setMvF({ kind: 'waste', lines: [{ itemId: '', qty: '' }], note: '', reason: '', photo: '' });
@@ -19709,13 +19714,14 @@ function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
 
       {view === 'bal' && (
         <div className="card"><div className="tw"><table className="tb">
-          <thead><tr><th>الصنف</th><th>الوحدة</th><th style={{ textAlign: 'end' }}>الرصيد</th><th>الحالة</th></tr></thead>
+          <thead><tr><th>الصنف</th><th>الوحدة</th>{!blind && <th style={{ textAlign: 'end' }}>الرصيد</th>}<th>الحالة</th></tr></thead>
           <tbody>{items.map(it => { const b = qOf(it.id), mn = it.minQty || 0; return (
             <tr key={it.id}><td>{it.name}</td><td style={{ fontSize: 11.5, color: 'var(--dim)' }}>{it.unit}</td>
-              <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: b < 0 ? 'var(--rose)' : undefined }}>{b}</td>
+              {!blind && <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: b < 0 ? 'var(--rose)' : undefined }}>{b}</td>}
               <td>{mn > 0 && b <= mn ? <span className="badge b-rose">اطلب الآن</span> : <span className="badge b-mint">جيد</span>}</td></tr>); })}
             {!items.length && <tr><td colSpan={4}><div className="empty">لا أصناف معرّفة — يضيفها المركز</div></td></tr>}
           </tbody></table></div>
+          {blind && <div className="note" style={{ marginTop: 8 }}>الكميات الدفترية لا تظهر لموظفي الفرع (جرد أعمى) — «اطلب الآن» يعني أن الصنف عند حد الطلب أو دونه.</div>}
           <div className="card-t" style={{ margin: '14px 0 8px', fontSize: 13 }}>آخر الحركات</div>
           <div className="tw"><table className="tb"><tbody>
             {myMoves.slice(0, 30).map(m => (<tr key={m.id}><td className="num" style={{ fontSize: 11 }}>{m.date}</td><td>{itemOf(m.itemId).name}</td>
@@ -19767,7 +19773,7 @@ function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
               </select>
             </Field>
           )}
-          <WhLines items={items} lines={outF.lines} setLines={(fn) => setOutF(f => ({ ...f, lines: typeof fn === 'function' ? fn(f.lines) : fn }))} field="qtySent" max={qOf} />
+          <WhLines items={items} lines={outF.lines} setLines={(fn) => setOutF(f => ({ ...f, lines: typeof fn === 'function' ? fn(f.lines) : fn }))} field="qtySent" max={blind ? null : qOf} />
           <Field label="البيان"><input className="inp" value={outF.note} onChange={e => setOutF(f => ({ ...f, note: e.target.value }))} placeholder={outF.kind === 'return' ? 'سبب الإرجاع (فائض، قرب انتهاء…)' : 'سبب التحويل'} /></Field>
           <button className="btn pri" onClick={sendOut}><Send size={14} />{outF.kind === 'b2b' ? 'إرسال للاعتماد' : 'إرسال الإرجاع'}</button>
 
@@ -19792,7 +19798,7 @@ function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
           <div className="row" style={{ gap: 8, marginBottom: 10 }}>
             {['out', 'waste'].map(k => <button key={k} className={'btn sm' + (mvF.kind === k ? ' pri' : ' gh')} onClick={() => setMvF(f => ({ ...f, kind: k }))}>{WH_MOVE[k].ar}</button>)}
           </div>
-          <WhLines items={items} lines={mvF.lines} setLines={(fn) => setMvF(f => ({ ...f, lines: typeof fn === 'function' ? fn(f.lines) : fn }))} field="qty" max={qOf} />
+          <WhLines items={items} lines={mvF.lines} setLines={(fn) => setMvF(f => ({ ...f, lines: typeof fn === 'function' ? fn(f.lines) : fn }))} field="qty" max={blind ? null : qOf} />
           {mvF.kind === 'waste'
             ? <WasteFields f={mvF} setF={setMvF} cfg={wasteCfg(org)} me={me} say={say} value={Math.round(sum(mvF.lines.filter(l => l.itemId), l => (Number(l.qty) || 0) * (AVG[l.itemId] || 0)) * 100) / 100} />
             : <Field label="البيان"><input className="inp" value={mvF.note} onChange={e => setMvF(f => ({ ...f, note: e.target.value }))} placeholder="مثال: تشغيل الوردية" /></Field>}
