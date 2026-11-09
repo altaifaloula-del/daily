@@ -1375,4 +1375,9 @@ html,body{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .yld-in .inp{width:70px}
 .yld-in span{font-size:11.5px;color:var(--dim);white-space:nowrap}
 .yld-g{font-size:11.5px;color:var(--dim);align-self:center;white-space:nowrap}
+
+/* v38.0 — التفقيط الحي تحت حقل المبلغ */
+.num-tip{position:fixed;z-index:9999;display:none;flex-direction:column;gap:2px;max-width:min(360px,calc(100vw - 16px));padding:7px 11px;border-radius:10px;background:var(--ink2,#fff);color:var(--txt,#1D1B18);border:1px solid var(--brass,#C8A24A);box-shadow:0 8px 24px rgba(0,0,0,.18);pointer-events:none;font-size:12px;line-height:1.5}
+.num-tip b{font-size:15px;font-family:'MizanNum',monospace;color:var(--txt,#1D1B18);text-align:start}
+.num-tip span{color:var(--dim,#6b6458)}
 `;
