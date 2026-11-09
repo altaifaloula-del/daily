@@ -1346,4 +1346,23 @@ html,body{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 /* شارات عدد الأقسام والتنبيهات في الرئيسية: نص داكن على الذهبي، وأحمر أغمق للتنبيه */
 .rms.thm-mizan .lh-cnt{color:#1D1B18}
 .rms.thm-mizan .lh-bdg{background:#B3372E;color:#fff}
+
+/* v37.4 — ضبط الهدر */
+.wst-box{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--panel2,rgba(127,127,127,.06))}
+.wst-box>span:first-child{font-size:13px;margin-inline-end:auto}
+.wst-thumb{width:44px;height:44px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
+.wst-rules{display:flex;flex-wrap:wrap;gap:8px 18px;font-size:13px}
+.wst-rules span{display:inline-flex;align-items:center;gap:6px}
+.wst-req{display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--line);border-radius:12px;flex-wrap:wrap}
+.wst-ph{width:52px;height:52px;border-radius:10px;overflow:hidden;border:1px solid var(--line);padding:0;background:none;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;color:var(--faint);flex:none}
+.wst-ph img{width:100%;height:100%;object-fit:cover}
+.wst-ph.none{cursor:default}
+.wst-ph.sm{width:34px;height:34px;border-radius:7px}
+.wst-info{display:flex;flex-direction:column;gap:2px;flex:1;min-width:180px}
+.wst-info b{font-size:13.5px}
+.wst-info small{font-size:11.5px;color:var(--dim)}
+.wst-val{font-size:15px;color:var(--rose)}
+.wst-bar{display:inline-block;width:60px;height:6px;border-radius:4px;background:rgba(127,127,127,.18);overflow:hidden;vertical-align:middle;margin-inline-end:6px}
+.wst-bar i{display:block;height:100%;background:var(--rose)}
+@media (max-width:640px){.wst-req .row{width:100%}.wst-req .row .btn{flex:1}.wst-bar{display:none}}
 `;
