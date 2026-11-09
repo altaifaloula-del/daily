@@ -248,6 +248,74 @@ const parseAmounts = (s) => {
   const total = Math.round(nums.reduce((a, b) => a + b, 0) * 100) / 100;
   return { nums, total };
 };
+/* ===== v38.0 — رقابة إدخال الأرقام (على كل حقول الأرقام في المنصّة) =====
+   ١) لوحة المفاتيح العربية تكتب ٠١٢٣…٩ (وبعض الأجهزة ۰۱۲۳ الفارسية) والفاصلة العشرية «٫» — كانت الحقول تحذفها بصمت
+      فيُحفظ رقم ناقص. الآن تُحوَّل لحظة الكتابة/اللصق إلى 0-9 و«.»، وفاصل الآلاف «٬/,» يُزال.
+   ٢) نقطة عشرية واحدة فقط في الحقل، ولا نقاط في الحقول الصحيحة (numeric).
+   ٣) التفقيط الحي: تحت حقل المبلغ المركّز يظهر الرقم منسّقًا ومكتوبًا بالحروف — يكشف الصفر الزائد/الناقص فورًا. */
+const tafqeet = (n0) => {
+  let n = Math.floor(Math.abs(Number(n0) || 0)); if (!n) return 'صفر';
+  const ones = ['', 'واحد', 'اثنان', 'ثلاثة', 'أربعة', 'خمسة', 'ستة', 'سبعة', 'ثمانية', 'تسعة', 'عشرة', 'أحد عشر', 'اثنا عشر', 'ثلاثة عشر', 'أربعة عشر', 'خمسة عشر', 'ستة عشر', 'سبعة عشر', 'ثمانية عشر', 'تسعة عشر'];
+  const tens = ['', '', 'عشرون', 'ثلاثون', 'أربعون', 'خمسون', 'ستون', 'سبعون', 'ثمانون', 'تسعون'];
+  const hund = ['', 'مائة', 'مائتان', 'ثلاثمائة', 'أربعمائة', 'خمسمائة', 'ستمائة', 'سبعمائة', 'ثمانمائة', 'تسعمائة'];
+  const g = (x) => { const h = Math.floor(x / 100), r = x % 100, w = [];
+    if (h) w.push(hund[h]);
+    if (r) w.push(r < 20 ? ones[r] : (r % 10 ? ones[r % 10] + ' و' + tens[Math.floor(r / 10)] : tens[r / 10]));
+    return w.join(' و'); };
+  const scales = [[1e9, 'مليار', 'ملياران', 'مليارات', 'مليارًا'], [1e6, 'مليون', 'مليونان', 'ملايين', 'مليونًا'], [1e3, 'ألف', 'ألفان', 'آلاف', 'ألفًا']];
+  const parts = [];
+  scales.forEach(([v, one, two, few, acc]) => { const k = Math.floor(n / v); n %= v; if (!k) return;
+    const r = k % 100;
+    parts.push(k === 1 ? one : k === 2 ? two : k <= 10 ? g(k) + ' ' + few : g(k) + ' ' + (r >= 11 && r <= 99 ? acc : one)); });
+  if (n) parts.push(g(n));
+  return parts.join(' و');
+};
+const NUM_SEL = 'input.n, textarea.n, input[inputmode="decimal"], input[inputmode="numeric"]';
+const normNumText = (s, el) => {
+  const multi = el.tagName === 'TEXTAREA' || /[+\n]/.test(s);
+  let t = String(s).replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d))
+    .replace(/[٫]/g, '.').replace(/[٬،]/g, ',');
+  if (el.getAttribute('inputmode') === 'numeric') return t.replace(/[.,]/g, '');
+  if (!multi) { const i = t.indexOf('.'); if (i >= 0) t = t.slice(0, i + 1) + t.slice(i + 1).replace(/\./g, ''); }
+  return t;
+};
+let numGuardOn = false;
+function installNumGuard() {
+  if (numGuardOn || typeof document === 'undefined') return; numGuardOn = true;
+  const setNative = (el, v) => { const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype; Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, v); };
+  // تُنفَّذ قبل React (التقاط على window) فيستلم onChange القيمة المصحّحة — بالمُعيِّن الأصلي كي يبقى React يرى التغيير
+  window.addEventListener('input', (e) => {
+    const el = e.target; if (!el || !el.matches || !el.matches(NUM_SEL) || el.type === 'password') return;
+    const v = el.value, nv = normNumText(v, el); if (nv === v) return;
+    let pos = null; try { pos = el.selectionStart; } catch { }
+    setNative(el, nv);
+    if (pos != null) { const p = Math.max(0, pos - (v.length - nv.length)); try { el.setSelectionRange(p, p); } catch { } }
+  }, true);
+  // التفقيط الحي تحت حقل المبلغ المركّز
+  let tip = null, cur = null;
+  const hide = () => { if (tip) tip.style.display = 'none'; cur = null; };
+  const show = () => {
+    const el = cur; if (!el || !document.contains(el)) return hide();
+    const raw = String(el.value || ''); const multi = /[+\n]/.test(raw.trim().replace(/[+\s]+$/, ''));
+    const num = multi ? parseAmounts(raw).total : Number(raw.replace(/[^\d.]/g, ''));
+    if (!raw.trim() || !Number.isFinite(num) || num < 1 || el.getAttribute('inputmode') !== 'decimal') { if (tip) tip.style.display = 'none'; return; }
+    const host = el.closest('.rms') || document.body;
+    if (!tip || tip.parentNode !== host) { if (tip) tip.remove(); tip = document.createElement('div'); tip.className = 'num-tip'; tip.setAttribute('aria-live', 'polite'); host.appendChild(tip); }
+    const fr = Math.round((num - Math.floor(num)) * 100);
+    tip.innerHTML = '<b dir="ltr">' + num.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 3 }) + '</b><span>' + tafqeet(num) + (fr ? ' و' + fr + ' من 100' : '') + '</span>';
+    const r = el.getBoundingClientRect(); tip.style.display = 'flex';
+    const w = tip.offsetWidth, vw = document.documentElement.clientWidth;
+    let left = r.right - w; if (left < 8) left = 8; if (left + w > vw - 8) left = Math.max(8, vw - 8 - w);
+    let top = r.bottom + 6; if (top + tip.offsetHeight > window.innerHeight - 6) top = r.top - tip.offsetHeight - 6;
+    tip.style.left = left + 'px'; tip.style.top = top + 'px';
+  };
+  document.addEventListener('focusin', (e) => { const el = e.target; if (el && el.matches && el.matches(NUM_SEL)) { cur = el; requestAnimationFrame(show); } else hide(); });
+  document.addEventListener('focusout', (e) => { if (e.target === cur) setTimeout(() => { if (document.activeElement !== cur) hide(); }, 0); });
+  document.addEventListener('input', (e) => { if (e.target === cur) requestAnimationFrame(show); });
+  window.addEventListener('scroll', () => { if (cur) show(); }, true);
+  window.addEventListener('resize', () => { if (cur) show(); });
+}
+installNumGuard();
 const short = (n) => {
   const v = Number(n) || 0;
   if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(2) + 'M';
@@ -3646,7 +3714,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark"><MizanMark size={24} /></span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : HR_TABS.includes(safeTab) ? 'الموارد البشرية' : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v37.9</span>
+            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v38.0</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -9561,6 +9629,7 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
   const save = (status) => {
     const built = buildRecord(status);
     if (!built) return;
+    if (status === 'submitted' && numAnoms.length && !window.confirm('أرقام غير معتادة في هذا الإغلاق:\n\n• ' + numAnoms.map(x => x.t).join('\n• ') + '\n\nهل راجعتها وهي صحيحة؟')) return;
     if (status === 'submitted') { setPend(built); setOutPrompt(true); }
     else finalize(status, built.rec, built.id, built.ref, null);
   };
@@ -9579,9 +9648,25 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
   // v35.2 — فحوص المدقق قبل الترحيل: «يمنع» = يرفضه الترحيل نفسه، «تنبيه» = يُراجع ولا يمنع، «سليم» = مطابق
   const goSec = (keys) => { setSecs(p => { const n = { ...p }; keys.forEach(k => { n[k] = true; }); return n; });
     setTimeout(() => { try { document.getElementById('esec-' + keys[0])?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch { } }, 60); };
+  // v38.0 — أرقام غير معتادة مقابل تاريخ الفرع (آخر 30 إغلاقًا مرحّلًا): تكشف الصفر الزائد/الناقص قبل الترحيل
+  const numAnoms = (() => {
+    const H = (existing || []).filter(c => c.branchId === f.branchId && c.date !== f.date && countedClosing(c)).sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, 30);
+    if (H.length < 5) return [];
+    const med = (arr) => { const a = arr.filter(x => x > 0).sort((x, y) => x - y); if (a.length < 5) return 0; const m = Math.floor(a.length / 2); return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
+    const out = [];
+    const mRev = med(H.map(c => Number(c.totalRevenue) || 0));
+    if (mRev > 0 && totalRevenue > 0 && (totalRevenue > mRev * 3 || totalRevenue < mRev / 3))
+      out.push({ t: 'المبيعات ' + money(totalRevenue) + ' ' + (totalRevenue > mRev ? 'أعلى' : 'أقل') + ' بكثير من المعتاد لهذا الفرع (الوسيط ' + money(mRev) + ') — تأكد من عدد الأصفار', keys: ['sales'] });
+    const mExp = med(H.flatMap(c => (c.expenses || []).map(e => Number(e.amount) || 0)));
+    f.expenses.forEach(e => { const a = Number(e.amount) || 0;
+      if (a > 0 && ((mExp > 0 && a > mExp * 10) || (totalRevenue > 0 && a > totalRevenue * 0.5)))
+        out.push({ t: 'مصروف «' + (e.beneficiaryName || e.categoryName || 'بلا وصف') + '» ' + money(a) + ' غير معتاد' + (mExp > 0 ? ' (المعتاد ' + money(mExp) + ')' : '') + ' — تأكد من الرقم', keys: ['expenses'] }); });
+    return out;
+  })();
   const auditChecks = (() => {
     const L = []; const add = (lvl, t, keys) => L.push({ lvl, t, keys });
     if (totalRevenue <= 0) add('block', 'لا مبيعات مُدخلة لهذه الوردية', ['sales']);
+    numAnoms.forEach(x => add('warn', x.t, x.keys));
     const ps = f.branchId ? salesDaySource({ posOrders, posImports }, f.branchId, f.date) : { n: 0 };
     if (ps.n || ps.total) {
       const dCash = posR2((f.cashSales || 0) - (ps.cash || 0)), dCard = posR2((f.cardSales || 0) + (f.bankTransferSales || 0) - (ps.card || 0) - (ps.transfer || 0)),
