@@ -10,30 +10,24 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { build } from 'esbuild';
+import { build as viteBuild } from 'vite';
 import { chromium, devices } from 'playwright';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const cache = path.join(root, 'tests', '.cache');
-const UI_EXPORTS = ['Hub', 'Launcher', 'PosApp', 'Inventory', 'Partners', 'SalesHub', 'QrFeedback', 'AppsCenter', 'BranchWarehouse', 'Admin', 'AuditView', 'Accounting',
-  'emptyOrg', 'emptyOps', 'ACCT_SECTIONS', 'HUBS', 'buildAccounting', 'tafqeet'];
 const AR_DIGITS = /[٠-٩۰-۹٪-٬]/;
 
 let server, browser, base;
 before(async () => {
   fs.mkdirSync(cache, { recursive: true });
-  let src = fs.readFileSync(path.join(root, 'App.jsx'), 'utf8')
-    .replace("from './styles';", "from '../../styles.js';")
-    .replace("from './storage';", "from '../../storage.js';");
-  src += '\nexport { ' + UI_EXPORTS.join(', ') + ' };\n';
-  fs.writeFileSync(path.join(cache, 'AppUI.jsx'), src);
-  await build({ entryPoints: [path.join(root, 'tests', 'ui', 'fixture.jsx')], bundle: true, outfile: path.join(cache, 'ui.js'), logLevel: 'error',
-    loader: { '.js': 'jsx' }, define: { 'process.env.NODE_ENV': '"production"', 'import.meta.env': '{}' }, jsx: 'transform' });
-  fs.writeFileSync(path.join(cache, 'ui.html'), '<!doctype html><html dir=rtl lang=ar><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"></head><body><script src="ui.js"></script></body></html>');
-  server = http.createServer((q, r) => { const f = path.join(cache, q.url.split('?')[0].split('#')[0].replace(/^\//, '') || 'ui.html');
+  // v38.3: يُبنى بـ Vite وبإعدادات المنصة نفسها (تقسيم الحزم والتحميل الكسول) — يختبر الشكل المنشور فعلًا
+  const out = path.join(cache, 'ui');
+  await viteBuild({ configFile: path.join(root, 'vite.config.js'), root, base: './', logLevel: 'error',
+    build: { outDir: out, emptyOutDir: true, chunkSizeWarningLimit: 5000, rollupOptions: { input: path.join(root, 'tests', 'ui', 'fixture.html') } } });
+  server = http.createServer((q, r) => { const f = path.join(cache, 'ui', decodeURIComponent(q.url.split('?')[0].split('#')[0]).replace(/^\//, ''));
     fs.readFile(f, (e, d) => { if (e) { r.writeHead(404); r.end(); return; } r.writeHead(200, { 'content-type': f.endsWith('.js') ? 'text/javascript' : 'text/html; charset=utf-8' }); r.end(d); }); });
   await new Promise(ok => server.listen(0, '127.0.0.1', ok));
-  base = 'http://127.0.0.1:' + server.address().port + '/ui.html#';
+  base = 'http://127.0.0.1:' + server.address().port + '/tests/ui/fixture.html#';
   browser = await chromium.launch();
 });
 after(async () => { await browser?.close(); server?.close(); });
@@ -41,9 +35,11 @@ after(async () => { await browser?.close(); server?.close(); });
 const open = async (ctxOpt, hash) => {
   const ctx = await browser.newContext(ctxOpt); const p = await ctx.newPage(); const errs = [];
   p.on('pageerror', e => errs.push(e.message)); p.on('dialog', d => d.accept().catch(() => {}));
-  await p.goto(base + hash); await p.waitForTimeout(700);
+  await p.goto(base + hash); await p.waitForTimeout(400); await settle(p);
   return { p, errs, ctx };
 };
+// انتظار انتهاء تحميل التطبيقات الكسولة (مؤشر «جارٍ تحميل التطبيق…»)
+const settle = async (p) => { await p.waitForFunction(() => !document.querySelector('.mod-loading'), null, { timeout: 15000 }).catch(() => {}); await p.waitForTimeout(150); };
 const say = (p) => p.evaluate(() => window.lastSay);
 const cur = (p, fn) => p.evaluate(fn);
 
@@ -56,7 +52,7 @@ test('كل الشاشات: بلا انهيار ولا أخطاء ولا تجاو
     const ctx = await browser.newContext(opt);
     for (const r of routes) {
       const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message.slice(0, 120))); p.on('dialog', d => d.dismiss().catch(() => {}));
-      await p.goto(base + r); await p.waitForTimeout(500);
+      await p.goto(base + r); await p.waitForTimeout(300); await settle(p);
       const m = await p.evaluate(() => ({ crash: document.getElementById('crash')?.innerText || '', over: document.documentElement.scrollWidth - window.innerWidth,
         ar: (document.body.innerText.match(/.{0,20}[٠-٩۰-۹٪-٬].{0,10}/) || [''])[0] }));
       if (m.crash) bad.push(dev + ' ' + r + ' — ' + m.crash.slice(0, 120));

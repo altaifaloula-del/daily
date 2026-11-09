@@ -1380,4 +1380,9 @@ html,body{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .num-tip{position:fixed;z-index:9999;display:none;flex-direction:column;gap:2px;max-width:min(360px,calc(100vw - 16px));padding:7px 11px;border-radius:10px;background:var(--ink2,#fff);color:var(--txt,#1D1B18);border:1px solid var(--brass,#C8A24A);box-shadow:0 8px 24px rgba(0,0,0,.18);pointer-events:none;font-size:12px;line-height:1.5}
 .num-tip b{font-size:15px;font-family:'MizanNum',monospace;color:var(--txt,#1D1B18);text-align:start}
 .num-tip span{color:var(--dim,#6b6458)}
+
+/* v38.3 — تحميل التطبيق عند الطلب */
+.mod-loading{display:flex;align-items:center;justify-content:center;gap:10px;min-height:160px;color:var(--dim,#6b6458);font-size:13px}
+.mod-spin{width:18px;height:18px;border-radius:50%;border:2px solid var(--line,#ddd);border-top-color:var(--brass,#C8A24A);animation:modspin .8s linear infinite}
+@keyframes modspin{to{transform:rotate(360deg)}}
 `;
