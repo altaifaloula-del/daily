@@ -15,6 +15,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { onboardEgs } from './zatca/onboard.js';
+import { vaultReady } from './zatca/vault.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 8787;
@@ -204,7 +206,7 @@ async function verifyMember(idToken) {
   const fields = ((await m.json()) || {}).fields || {};
   if (!(fields.active && fields.active.booleanValue === true)) return null;
 
-  const user = { email };
+  const user = { email, role: (fields.role && fields.role.stringValue) || '' };
   authCache.set(idToken, { user, exp: Date.now() + 120000 });
   if (authCache.size > 1000) authCache.delete(authCache.keys().next().value);
   return user;
@@ -229,6 +231,32 @@ async function requireMember(req, res, next) {
     res.status(502).json({ error: 'تعذّر التحقق من الهوية' });
   }
 }
+
+/* ================= الفوترة الإلكترونية — تسجيل أجهزة الإصدار لدى منصة «فاتورة» =================
+   • للمفوَّضين فقط (مسؤول النظام، الإدارة العليا، المكتب الرئيسي) — الدور من سجل العضوية نفسه.
+   • الرمز المؤقت لا يُسجَّل ولا يُخزَّن؛ المفتاح الخاص وكلمات سر الشهادات تعود مشفّرة بمفتاح الخادم (ZATCA_ENC_KEY).
+   • الإنتاج (core) مقفل في هذه المرحلة: بيئة المطورين للتجربة، والمحاكاة لفحص الامتثال ببيانات المنشأة. */
+const ZATCA_ROLES = new Set(['system_admin', 'general_management', 'head_office']);
+const zJson = express.json({ limit: '64kb' });
+const zatcaAllowed = (req, res) => {
+  if (FB_READY && !ZATCA_ROLES.has(req.user.role)) { res.status(403).json({ error: 'تسجيل أجهزة الفوترة للمفوَّضين فقط (مسؤول النظام أو المكتب الرئيسي)' }); return false; }
+  return true;
+};
+app.get('/api/zatca/config', requireMember, (req, res) => res.json({ vault: vaultReady(), envs: ['sandbox', 'simulation'], canOnboard: !FB_READY || ZATCA_ROLES.has(req.user.role) }));
+app.post('/api/zatca/onboard', zJson, requireMember, rateLimit({ windowMs: 3600000, max: 12, keyFn: (r) => 'z:' + ((r.user && r.user.email) || r.ip) }), async (req, res) => {
+  if (!zatcaAllowed(req, res)) return;
+  if (!vaultReady()) return res.status(503).json({ error: 'مفتاح تشفير الفوترة غير مضبوط على الخادم (ZATCA_ENC_KEY) — أضفه من إعدادات الخادم ثم أعد المحاولة' });
+  const { env, otp, seller, branch, industry } = req.body || {};
+  if (!['sandbox', 'simulation'].includes(env)) return res.status(400).json({ error: 'التشغيل الفعلي (الإنتاج) يُفعَّل في المرحلة الثالثة — اختر المحاكاة أو بيئة المطورين' });
+  try {
+    const r = await onboardEgs({ env, otp: String(otp || '').trim(), seller, branch, industry });
+    console.log('zatca onboard', env, (branch && branch.id) || '', r.ok ? 'ok' : 'failed', (req.user && req.user.email) || '');
+    res.json(r);
+  } catch (e) {
+    console.error('zatca onboard error', e && e.message);
+    res.status(502).json({ error: 'تعذّر الاتصال بمنصة «فاتورة» — أعد المحاولة بعد قليل' });
+  }
+});
 
 /* ================= الذكاء الاصطناعي ================= */
 const AI_MODEL = process.env.AI_MODEL || 'claude-opus-5-5';

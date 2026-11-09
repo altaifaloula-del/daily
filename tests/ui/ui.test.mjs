@@ -22,7 +22,7 @@ before(async () => {
   fs.mkdirSync(cache, { recursive: true });
   // v38.3: يُبنى بـ Vite وبإعدادات المنصة نفسها (تقسيم الحزم والتحميل الكسول) — يختبر الشكل المنشور فعلًا
   const out = path.join(cache, 'ui');
-  await viteBuild({ configFile: path.join(root, 'vite.config.js'), root, base: './', logLevel: 'error',
+  await viteBuild({ configFile: path.join(root, 'vite.config.js'), root, base: './', logLevel: 'error', define: { 'import.meta.env.VITE_ZATCA_ENDPOINT': JSON.stringify('http://zatca.test') },
     build: { outDir: out, emptyOutDir: true, chunkSizeWarningLimit: 5000, rollupOptions: { input: path.join(root, 'tests', 'ui', 'fixture.html') } } });
   server = http.createServer((q, r) => { const f = path.join(cache, 'ui', decodeURIComponent(q.url.split('?')[0].split('#')[0]).replace(/^\//, ''));
     fs.readFile(f, (e, d) => { if (e) { r.writeHead(404); r.end(); return; } r.writeHead(200, { 'content-type': f.endsWith('.js') ? 'text/javascript' : 'text/html; charset=utf-8' }); r.end(d); }); });
@@ -154,4 +154,30 @@ test('مراقب التكاليف: يعتمد ويراقب بلا إضافة أ�
   errs.push(...w.errs); await w.ctx.close();
   assert.ok(!nav.includes('طلب من الرئيسي') && nav.includes('الجرد'), 'أقسام المستودع للمراقب: الأرصدة والهدر والجرد فقط');
   assert.deepEqual(errs, []);
+});
+
+test('الفوترة الإلكترونية: بيانات المنشأة ثم تسجيل جهاز فرع بالرمز المؤقت — والرمز لا يُخزَّن', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1300, height: 1300 } }); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  let sent = null;
+  await p.route('http://zatca.test/api/zatca/config', r => r.fulfill({ json: { vault: true, envs: ['sandbox', 'simulation'], canOnboard: true } }));
+  await p.route('http://zatca.test/api/zatca/onboard', r => { sent = JSON.parse(r.request().postData()); r.fulfill({ json: { ok: true,
+    steps: ['المفاتيح وطلب الشهادة', 'شهادة الامتثال', 'امتثال: فاتورة ضريبية', 'امتثال: إشعار دائن ضريبي', 'امتثال: إشعار مدين ضريبي', 'امتثال: فاتورة مبسّطة', 'امتثال: إشعار دائن مبسّط', 'امتثال: إشعار مدين مبسّط', 'شهادة الإنتاج'].map(k => ({ k, ok: true, detail: 'PASS' })),
+    egs: { env: 'simulation', egsId: 'b1', vault: 'v1.aaa.bbb.ccc', cert: { serial: '123456789012', issuer: 'CN=TEST', validTo: 'Jan  9 09:19:30 2029 GMT' }, icv: 0, pih: 'X' } } }); });
+  await p.goto(base + 'live/Accounting/admin/einv'); await p.waitForTimeout(400); await settle(p);
+  assert.match(await p.locator('.card:has-text("بيانات المنشأة في الفاتورة")').innerText(), /ناقص قبل التسجيل/);
+  assert.equal(await p.locator('button:has-text("تسجيل الجهاز")').first().isDisabled(), true, 'لا تسجيل قبل اكتمال البيانات');
+  await p.click('.card:has-text("بيانات المنشأة في الفاتورة") button:has-text("تعديل")');
+  const fl = async (lbl, v) => p.locator(`.fld:has(.lbl:text-is("${lbl}")) input`).fill(v);
+  await fl('السجل التجاري', '1010010000'); await fl('رقم المبنى', '1234'); await fl('الشارع', 'طريق الملك فهد'); await fl('الحي', 'العليا'); await fl('المدينة', 'الرياض'); await fl('الرمز البريدي', '12345');
+  await p.click('button:has-text("حفظ")'); await p.waitForTimeout(200);
+  assert.deepEqual(await p.evaluate(() => window.curOrg.einvCfg.address), { building: '1234', street: 'طريق الملك فهد', district: 'العليا', city: 'الرياض', postal: '12345' });
+  await p.locator('button:has-text("تسجيل الجهاز")').first().click();
+  await p.locator('.einv-otp').focus(); await p.keyboard.type('١٢٣٤٥٦');   // أرقام عربية من لوحة الجوال
+  await p.click('.modal button:has-text("تسجيل")'); await p.waitForTimeout(400);
+  assert.equal(sent.otp, '123456'); assert.equal(sent.env, 'simulation'); assert.equal(sent.seller.crn, '1010010000'); assert.equal(sent.branch.id, 'b1');
+  assert.equal(await p.locator('.einv-step.ok').count(), 9);
+  const saved = await p.evaluate(() => window.curOrg.zatcaEgs.b1.simulation);
+  assert.equal(saved.vault, 'v1.aaa.bbb.ccc'); assert.equal(saved.cert.serial, '123456789012');
+  assert.ok(!JSON.stringify(await p.evaluate(() => window.curOrg)).includes('123456"'), 'الرمز المؤقت لا يُحفظ في بيانات المنشأة');
+  assert.deepEqual(errs, []); await ctx.close();
 });

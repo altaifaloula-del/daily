@@ -1,4 +1,4 @@
-# خادم وسيط الذكاء الاصطناعي فقط — الواجهة تُنشر على GitHub Pages
+# خادم المنصة: وسيط الذكاء الاصطناعي وتسجيل أجهزة الفوترة الإلكترونية — الواجهة تُنشر على GitHub Pages
 services:
   - type: web
     name: mizan-ai
@@ -16,5 +16,7 @@ services:
         sync: false
       - key: FIREBASE_API_KEY
         sync: false
+      - key: ZATCA_ENC_KEY       # مفتاح تشفير أسرار أجهزة الفوترة — يولّده Render عشوائيًا ولا يغادر الخادم
+        generateValue: true
       - key: ALLOWED_ORIGINS
         value: https://altaifaloula-del.github.io

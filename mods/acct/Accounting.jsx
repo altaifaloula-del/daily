@@ -1,5 +1,6 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useEffect, useMemo } from 'react';
+import { EInvoiceOnboard } from './EInvoiceOnboard.jsx';
 import { Scale, FileBarChart, ChevronDown, Printer, Settings, Receipt, BarChart3, Lock, Landmark, FileText, TrendingUp, ArrowLeftRight, Store, Users, QrCode, Building2, Truck, ClipboardCheck, ShieldCheck, CalendarDays, Download, Upload, Plus, Grid3x3, Check, Trash2, RefreshCw, Wallet, TrendingDown, AlertTriangle, ChevronRight, ShieldAlert, Eye, ChevronLeft, CircleDollarSign, X } from 'lucide-react';
 import { ACCT_SECTIONS, ACC_KIND, Field, Kpi, LOCK_MSG, MizanMerge, Modal, NUM_FACE, Num, ROLES, _xe, acctSecKey, arDate, bankOfBranch, branchBanks, bsLayout, bsRowsOf, buildAccounting, buildPartners, capOK, countedClosing, customerAging, detectStmtMap, entityById, entityList, gosiRatesFor, isLayout, isRowsOf, isoD, lockedThru, makeXlsx, money, monthEnd, monthLedger, multiEntityOn, naMissing, nowISO, openDocWin, parseCsvGrid, parseMt940, parseXlsxGrid, payTotal, periodLocked, posClrOf, printA4, qrSvg, roleEdit, rolePost, snapMonths, stAddDays, stDate, stNum, sum, supplierAging, today, uid, useSecNav, zatcaTLV } from '../../App.jsx';
 
@@ -3072,8 +3073,9 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
         </div>
       )}
 
+      {view === 'einv' && <EInvoiceOnboard org={org} me={me} commitOrg={commitOrg} say={say} />}
       {view === 'einv' && (
-        <div className="grid" style={{ gap: 12 }}>
+        <div className="grid" style={{ gap: 12, marginTop: 12 }}>
           <div className="card" style={{ borderColor: einvSellerVat ? 'rgba(79,178,134,.4)' : 'rgba(224,164,88,.5)' }}>
             <div className="card-h">
               <div className="card-t"><QrCode size={15} color="var(--brass)" />الفوترة الإلكترونية — رمز زاتكا (QR)</div>
