@@ -167,6 +167,8 @@ function buildNotifEvents(org, ops, me, myBranches) {
   }
   // —— v37.4: هدر بانتظار الاعتماد (لمن يملك الاعتماد، عدا مقدّم الطلب) ——
   if (canApproveWaste(me)) (ops.wasteRequests || []).forEach(r => { if (r.status === 'pending' && r.by !== me.name && (!r.branchId || inScope(r.branchId))) push('inv:wr:' + r.id, 'inv', 'هدر بانتظار اعتمادك — ' + whName(org, r.whId || MAIN_WH), money(r.value) + ' ر.س · ' + wasteReasonAr(r.reason) + ' · ' + (r.by || ''), central && roleHasTab(me, 'inv') ? 'inv' : 'whbranch', central && roleHasTab(me, 'inv') ? 'waste' : 'mv'); });
+  // —— v37.8: تجاوز سقف الهدر اليومي — لمتابعي الهدر في المركز (شاشة ضبط الهدر) ——
+  if (central && roleHasTab(me, 'inv')) { try { computeSmartAlerts(org, ops, myBranches || []).forEach(a => { if (/^wcap-/.test(String(a.id))) push('inv:' + a.id, 'inv', a.title, a.msg || '', 'inv', 'waste'); }); } catch { } }
   // —— v37.5: الجرد الأعمى — اعتماد لشخص آخر، إعادة عدّ، وجرد A اليومي ——
   {
     const myWhs = central ? null : (myBranches || []).map(b => whForBranch(org, b.id)).filter(Boolean).map(w => w.id);
@@ -2175,6 +2177,12 @@ const ROLES = {
     tabs: ALL_TABS.slice(),
     perms: ['وصول كامل غير مقيّد', 'إدارة الفروع والمستخدمين والأدوار', 'إعدادات النظام والنسخ الاحتياطي']
   },
+  // v37.8 — مراقب التكاليف والمخزون: يتابع الهدر والجرد والأسعار لكل الفروع ويعتمد، دون مالية أو إعدادات أو حركات مخزون
+  cost_controller: {
+    ar: 'مراقب التكاليف والمخزون', badge: 'b-amber', scope: 'all', postOnly: true, limitedApps: true, costCtl: true,
+    tabs: ['inv', 'whbranch'],
+    perms: ['تقرير ضبط الهدر لكل الفروع وتنبيه تجاوز السقف اليومي', 'اعتماد أو رفض طلبات الهدر فوق الحد', 'اعتماد الجرد الأعمى أو رفضه (لا يعتمد جردًا عدّه بنفسه)', 'الاستهلاك النظري مقابل الفعلي وتنبيهات أسعار الشراء', 'اطّلاع على الأصناف والوصفات والأرصدة — دون تعديلها', 'لا خزينة ولا رواتب ولا قيود ولا تعديل لحدود الضوابط']
+  },
   // ===== توافق مع الحسابات القائمة (لا تظهر عند إنشاء مستخدم جديد) =====
   general_management: {
     ar: 'الإدارة العليا — مدير عام', badge: 'b-brass', scope: 'all', create: true, admin: true, approver: true, legacy: true,
@@ -2205,6 +2213,7 @@ const ROLES = {
 // v15.9: اشتقاق صلاحيات الكتابة من الدور — canPost=إدخال/ترحيل، canEdit=تعديل/حذف/تغيير إعدادات.
 // (للأدوار القائمة: readOnly/postOnly غير معرّفين ⇒ canPost=canEdit=النطاق الكامل، بلا أي تغيير سلوك.)
 const rolePost = (role) => ROLES[role]?.scope === 'all' && !ROLES[role]?.readOnly;
+const isCostCtl = (me) => !!(ROLES[me?.role] || {}).costCtl;   // v37.8 مراقب التكاليف: يعتمد ويراقب ولا يُدخل حركات
 // v27.1 — نطاق فروع المستخدم كما تعرضه الواجهة (myBranches): null = كل الفروع (المركز)، وإلا قائمة معرّفات.
 // نطاق الكتابة (dataCtx.myBrIds) يجب أن يطابقه حرفيًا — أي سجل بفرع خارج هذا النطاق لا يُحفظ من جهاز الفرع.
 const branchIdsOfUser = (u) => {
@@ -3637,7 +3646,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark"><MizanMark size={24} /></span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : HR_TABS.includes(safeTab) ? 'الموارد البشرية' : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v37.7</span>
+            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v37.8</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -17206,7 +17215,7 @@ function Admin({ org, ops, me, commit, commitOrg, say }) {
       {tab === 'appperms' && <AppPermsPanel org={org} commitOrg={commitOrg} say={say} />}
       {tab === 'system' && <SystemPanel org={org} ops={ops} me={me} commit={commit} commitOrg={commitOrg} say={say} />}
       {tab === 'perms' && (() => {
-        const roleIds = ['system_admin', 'general_management', 'head_office', 'finance_department', 'regional_manager', 'branch_manager', 'cashier'];
+        const roleIds = ['system_admin', 'general_management', 'head_office', 'finance_department', 'cost_controller', 'regional_manager', 'branch_manager', 'cashier'];
         return (
           <div className="grid" style={{ gap: 12 }}>
             <div className="card">
@@ -18812,7 +18821,7 @@ function WhLines({ items, lines, setLines, field, max }) {
 
 /* v31.4 — بطاقة الجرد الدوري المجدول: التكرار والنطاق + حالة كل مستودع */
 function CountScheduleCard({ org, ops, me, commitOrg, say }) {
-  const c = org.countCfg || {}; const canSet = !!(ROLES[me?.role] || {}).scope && ROLES[me.role].scope === 'all' && rolePost(me.role);
+  const c = org.countCfg || {}; const canSet = roleEdit(me?.role);
   const [f, setF] = useState(null);
   const sch = countSchedule(org, ops);
   const save = async () => {
@@ -18852,7 +18861,7 @@ function WarehousesPanel({ org, ops, me, commit, commitOrg, say }) {
   const items = (org.items || []).filter(isStocked);
   const whs = whOf(org);
   const branches = (org.branches || []).filter(b => b.isActive !== false);
-  const canW = rolePost(me?.role);
+  const canW = rolePost(me?.role) && !isCostCtl(me);
   const SB = useMemo(() => stockByWh(org, ops), [org, ops]);
   const AVG = useMemo(() => itemAvgCosts(org, ops), [org, ops]);
   const LOTS = useMemo(() => expiryLots(org, ops).sort((a, b) => String(a.expiry).localeCompare(String(b.expiry))), [org, ops]);
@@ -19217,6 +19226,9 @@ function BlindCount({ org, ops, me, commit, say, whId, branchId, col, items, tit
   }
   // —— إدخال عدّ جديد (أعمى) ——
   const last = mine.find(s => s.status === 'approved' || s.status === 'rejected');
+  if (!canCount) return (<div className="card">{head}<div className="empty">لا جرد بانتظار الاعتماد في هذا المستودع.</div>
+    {mine.length > 0 && <div className="tw"><table className="tb"><thead><tr><th>التاريخ</th><th>النطاق</th><th>العادّ</th><th>المعتمد</th><th>الحالة</th></tr></thead>
+      <tbody>{mine.slice(0, 30).map(s => <tr key={s.id}><td><span className="dt">{arDate(s.date)}</span></td><td>{s.scope === 'a' ? 'أصناف A' : 'كامل'} · {s.lines.length}</td><td style={{ fontSize: 12 }}>{s.countedBy}{s.recountBy ? ' / ' + s.recountBy : ''}</td><td style={{ fontSize: 12 }}>{s.decidedBy || '—'}</td><td><span className={'badge ' + (COUNT_ST[s.status] || [])[0]}>{(COUNT_ST[s.status] || [])[1]}</span></td></tr>)}</tbody></table></div>}</div>);
   return (<div className="card">{head}
     <div className="card-h">
       <div className="row" style={{ gap: 6 }}>
@@ -19247,7 +19259,7 @@ function BlindCount({ org, ops, me, commit, say, whId, branchId, col, items, tit
 const WASTE_REASONS = { expired: 'منتهي الصلاحية', recv: 'تالف عند الاستلام', storage: 'تلف بالتخزين/التبريد', prep: 'خطأ تحضير', returned: 'مرتجع عميل', dropped: 'كسر أو سقوط', other: 'سبب آخر' };
 const wasteCfg = (org) => { const c = (org && org.wasteCfg) || {}; const n = (v, d) => (v === '' || v == null || !Number.isFinite(Number(v))) ? d : Math.max(0, Number(v));
   return { photoOver: n(c.photoOver, 50), approveOver: n(c.approveOver, 300), capPct: n(c.capPct, 2) }; };
-const canApproveWaste = (me) => { const R = ROLES[me?.role] || {}; return !!(R.approver || R.admin || me?.role === 'regional_manager'); };
+const canApproveWaste = (me) => { const R = ROLES[me?.role] || {}; return !!(R.approver || R.admin || R.costCtl || me?.role === 'regional_manager'); };
 const wasteReasonAr = (k) => WASTE_REASONS[k] || '—';
 // قيمة هدر حركة مرحّلة: المسجّلة لحظتها، وإلا الكمية × المتوسط الحالي (حركات قبل v37.4)
 const wasteValOf = (m, avg) => m.wasteVal != null ? Number(m.wasteVal) || 0 : Math.round(Math.abs(Number(m.qty) || 0) * ((avg || {})[m.itemId] || 0) * 100) / 100;
@@ -19374,10 +19386,47 @@ function WastePending({ org, ops, me, commit, say, whIds }) {
       {img && <Modal title="صورة التالف" icon={Camera} onClose={() => setImg(null)}><img src={img} alt="" style={{ width: '100%', borderRadius: 10 }} /></Modal>}
     </div>);
 }
+// v37.8 — تنبيهات أسعار الشراء (اطّلاع): بنود أوامر شراء تجاوزت متوسط آخر 3 مشتريات، وأصناف ارتفع آخر سعر لها
+function PriceAlerts({ org, ops }) {
+  const pcfg = org.purchaseCfg || {}; const pct = pcfg.priceAlertPct != null ? Number(pcfg.priceAlertPct) || 0 : 5;
+  const itN = (id) => ((org.items || []).find(x => x.id === id) || {}).name || '';
+  const flagged = [];
+  (ops.purchaseOrders || []).forEach(po => (po.lines || []).forEach(l => { if (l.pAlert) flagged.push({ po, l }); }));
+  flagged.sort((a, b) => String(b.po.at || b.po.date || '').localeCompare(String(a.po.at || a.po.date || '')));
+  const P = supplierPrices(ops);
+  const rising = Object.entries(P).map(([id, a]) => { const p3 = a.slice(1, 4); if (!p3.length) return null; const av = sum(p3, r => r.unitCost) / p3.length; const ch = av > 0 ? Math.round((a[0].unitCost - av) / av * 1000) / 10 : 0;
+    return { id, name: itN(id) || 'صنف', last: a[0], av: Math.round(av * 100) / 100, n: p3.length, ch }; }).filter(x => x && pct > 0 && x.ch > pct).sort((a, b) => b.ch - a.ch);
+  const ST = { pending: ['b-amber', 'بانتظار الاعتماد'], open: ['b-sky', 'معتمد'], partial: ['b-sky', 'استلام جزئي'], received: ['b-mint', 'مستلم'], rejected: ['b-rose', 'مرفوض'] };
+  return (
+    <div className="grid" style={{ gap: 12 }}>
+      <div className="note">{pct > 0 ? 'يُنبَّه عند سعر أعلى من متوسط آخر 3 مشتريات للصنف بأكثر من ' + pct + '% — ويحتاج أمر الشراء اعتماد شخص غير منشئه.' : 'تنبيه الأسعار موقوف من إعدادات المشتريات.'}</div>
+      <div className="card">
+        <div className="card-h"><div className="card-t"><AlertTriangle size={15} color="var(--rose)" />بنود أوامر شراء بسعر مرتفع<span className="badge b-rose" style={{ marginInlineStart: 6 }}>{flagged.length}</span></div></div>
+        {!flagged.length ? <div className="empty">لا بنود متجاوزة.</div> : <div className="tw"><table className="tb">
+          <thead><tr><th>الأمر</th><th>المورد</th><th>البند</th><th style={{ textAlign: 'end' }}>السعر</th><th style={{ textAlign: 'end' }}>متوسط آخر 3</th><th style={{ textAlign: 'end' }}>الزيادة</th><th>الحالة</th></tr></thead>
+          <tbody>{flagged.slice(0, 100).map(({ po, l }, i) => { const st = ST[po.status] || ['b-dim', po.status]; return <tr key={po.id + i}>
+            <td><span className="num" style={{ fontSize: 11.5 }}>{po.poNo}</span><div style={{ fontSize: 10, color: 'var(--faint)' }}>{po.date} · {po.by}</div></td>
+            <td style={{ fontSize: 12.5 }}>{po.supplierName}</td><td>{l.desc}</td>
+            <td className="num" style={{ textAlign: 'end' }}>{money(l.pAlert.unit)}</td><td className="num" style={{ textAlign: 'end' }}>{money(l.pAlert.avg3)}</td>
+            <td style={{ textAlign: 'end' }}><span className="badge b-rose num" dir="ltr">+{l.pAlert.pct}%</span></td>
+            <td><span className={'badge ' + st[0]}>{st[1]}</span>{po.decidedBy ? <div style={{ fontSize: 10, color: 'var(--faint)' }}>{po.decidedBy}</div> : null}</td></tr>; })}</tbody>
+        </table></div>}
+      </div>
+      <div className="card">
+        <div className="card-h"><div className="card-t"><TrendingUp size={15} color="var(--brass)" />أصناف ارتفع آخر سعر شرائها</div></div>
+        {!rising.length ? <div className="empty">لا ارتفاعات فوق الحد في آخر المشتريات المستلمة.</div> : <div className="tw"><table className="tb">
+          <thead><tr><th>الصنف</th><th>آخر شراء</th><th style={{ textAlign: 'end' }}>آخر سعر</th><th style={{ textAlign: 'end' }}>متوسط ما قبله</th><th style={{ textAlign: 'end' }}>الزيادة</th></tr></thead>
+          <tbody>{rising.map(r => <tr key={r.id}><td>{r.name}</td><td style={{ fontSize: 12 }}>{r.last.supplierName} · {r.last.date}</td>
+            <td className="num" style={{ textAlign: 'end' }}>{money(r.last.unitCost)}</td><td className="num" style={{ textAlign: 'end' }}>{money(r.av)}<div style={{ fontSize: 10, color: 'var(--faint)' }}>{r.n} شراء</div></td>
+            <td style={{ textAlign: 'end' }}><span className="badge b-rose num" dir="ltr">+{r.ch}%</span></td></tr>)}</tbody>
+        </table></div>}
+      </div>
+    </div>);
+}
 // شاشة «ضبط الهدر» (المركز): الإعداد، الطلبات المعلّقة، الهدر حسب السبب والموظف والفرع، وأيام تجاوز السقف
 function WasteControl({ org, ops, me, commit, commitOrg, say }) {
   const cfg = wasteCfg(org);
-  const canSet = ROLES[me?.role]?.scope === 'all' && rolePost(me?.role);
+  const canSet = roleEdit(me?.role);   // v37.8: حدود الهدر للمكتب الرئيسي/الإدارة — لا لمن يعتمد عليها
   const [f, setF] = useState(null);
   const [days, setDays] = useState(30);
   const [by, setBy] = useState('emp');
@@ -19426,7 +19475,7 @@ function WasteControl({ org, ops, me, commit, commitOrg, say }) {
           <span><Lock size={13} />اعتماد شخص آخر من <b className="num">{money(cfg.approveOver)}</b></span>
           <span><AlertTriangle size={13} />سقف الهدر اليومي <b className="num">{cfg.capPct}%</b> من مبيعات الفرع</span>
         </div>}
-        <div className="note" style={{ marginTop: 8 }}>وضع 0 يعطّل الضابط. الهدر المعلّق لا يُخصم من الرصيد ولا يُقيَّد حتى يُعتمد، ومقدّم الطلب لا يعتمد طلبه.</div>
+        <div className="note" style={{ marginTop: 8 }}>{!canSet ? 'تعديل الحدود للمكتب الرئيسي. ' : ''}وضع 0 يعطّل الضابط. الهدر المعلّق لا يُخصم من الرصيد ولا يُقيَّد حتى يُعتمد، ومقدّم الطلب لا يعتمد طلبه.</div>
       </div>
       <WastePending org={org} ops={ops} me={me} commit={commit} say={say} />
       <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
@@ -19486,6 +19535,8 @@ function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
   const [outF, setOutF] = useState({ kind: 'b2b', toWh: '', lines: [{ itemId: '', qtySent: '' }], note: '' });   // v30.1 صادر
   useEffect(() => { if (!mine.some(w => w.id === whId) && mine[0]) setWhId(mine[0].id); }, [mine.map(w => w.id).join(',')]); // eslint-disable-line
   const wh = mine.find(w => w.id === whId);
+  const ctl = isCostCtl(me);   // v37.8 مراقب التكاليف: الأرصدة + اعتماد الهدر + اعتماد الجرد فقط
+  useEffect(() => { if (ctl && !['bal', 'mv', 'count'].includes(view)) setView('bal'); }, [ctl, view]);
   const SB = useMemo(() => stockByWh(org, ops), [org, ops]);
   const AVG = useMemo(() => itemAvgCosts(org, ops), [org, ops]);   // v37.4 قيمة الهدر
   const qOf = (id) => q3(((SB.byWh[whId] || {})[id]) || 0);
@@ -19564,7 +19615,7 @@ function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
           <div className="card-t" style={{ marginInlineEnd: 'auto' }}><HardDrive size={15} color="var(--brass)" />{wh.name}<span style={{ fontSize: 11, color: 'var(--faint)', marginInlineStart: 6 }}>يتبع {whName(org, wh.parentId || MAIN_WH)}</span></div>
           {mine.length > 1 && <select className="inp sel" style={{ maxWidth: 240 }} value={whId} onChange={e => setWhId(e.target.value)}>{mine.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select>}
         </div>
-        <div style={{ marginTop: 10 }}><SectionNav label="أقسام مستودع الفرع" cur={view} onPick={setView} items={[{ id: 'bal', ar: 'الأرصدة', icon: ClipboardCheck }, { id: 'in', ar: 'الوارد', icon: Truck, badge: incoming.length || null }, { id: 'req', ar: 'طلب من الرئيسي', icon: Send }, { id: 'out', ar: 'صادر (فرع / إرجاع)', icon: ArrowLeftRight }, { id: 'mv', ar: 'صرف وهدر', icon: Trash2, badge: (ops.wasteRequests || []).filter(r => r.status === 'pending' && r.whId === wh.id).length || null }, { id: 'count', ar: 'الجرد', icon: Scale }]} /></div>
+        <div style={{ marginTop: 10 }}><SectionNav label="أقسام مستودع الفرع" cur={view} onPick={setView} items={([{ id: 'bal', ar: 'الأرصدة', icon: ClipboardCheck }, { id: 'in', ar: 'الوارد', icon: Truck, badge: incoming.length || null }, { id: 'req', ar: 'طلب من الرئيسي', icon: Send }, { id: 'out', ar: 'صادر (فرع / إرجاع)', icon: ArrowLeftRight }, { id: 'mv', ar: 'صرف وهدر', icon: Trash2, badge: (ops.wasteRequests || []).filter(r => r.status === 'pending' && r.whId === wh.id).length || null }, { id: 'count', ar: 'الجرد', icon: Scale }]).filter(x => !ctl || ['bal', 'mv', 'count'].includes(x.id))} /></div>
       </div>
 
       {view === 'bal' && (
@@ -19646,7 +19697,8 @@ function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
       )}
 
       {view === 'mv' && <WastePending org={org} ops={ops} me={me} commit={commit} say={say} whIds={[wh.id]} />}
-      {view === 'mv' && (
+      {view === 'mv' && ctl && !(ops.wasteRequests || []).some(r => r.status === 'pending' && r.whId === wh.id) && <div className="card"><div className="empty">لا هدر بانتظار الاعتماد في هذا المستودع.</div></div>}
+      {view === 'mv' && !ctl && (
         <div className="card">
           <div className="row" style={{ gap: 8, marginBottom: 10 }}>
             {['out', 'waste'].map(k => <button key={k} className={'btn sm' + (mvF.kind === k ? ' pri' : ' gh')} onClick={() => setMvF(f => ({ ...f, kind: k }))}>{WH_MOVE[k].ar}</button>)}
@@ -19667,7 +19719,7 @@ function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
               <span className="badge b-dim">آخر جرد: {sc.last || '—'}</span>
               {fc && <span className="badge b-brass">المطلوب: الأصناف المميّزة بـ ★ (الأعلى قيمة)</span>}
             </div>) : null; })()}
-          <BlindCount org={org} ops={ops} me={me} commit={commit} say={say} whId={wh.id} branchId={wh.branchId} col="whMoves" items={items} title={wh.name} />
+          <BlindCount org={org} ops={ops} me={me} commit={commit} say={say} whId={wh.id} branchId={wh.branchId} col="whMoves" items={items} title={wh.name} canCount={!ctl} />
         </div>
       )}
 
@@ -19729,7 +19781,7 @@ function UsageVariance({ org, ops, me, commit, say }) {
   const whs = whOf(org), useWh = whs.length > 0;
   const branches = (org.branches || []).filter(b => b.isActive !== false);
   const products = org.products || [];
-  const canW = rolePost(me.role);
+  const canW = rolePost(me.role) && !isCostCtl(me);
   const m0 = today().slice(0, 7) + '-01';
   const [wid, setWid] = useState(useWh ? ((whs.find(w => w.kind === 'branch') || whs[0]).id) : '');
   const [from, setFrom] = useState(m0); const [to, setTo] = useState(today());
@@ -19874,7 +19926,7 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
   const [ivD, setIvD] = useState(() => { const v = org.invValuation || {}; return { enabled: !!v.enabled, auto: v.auto !== false, asOf: v.asOf || today(), value: v.value != null ? String(v.value) : '' }; });
   useEffect(() => { if (invIntent && invIntent.v) setView(invIntent.v); }, [invIntent && invIntent.ts]);
 
-  const canW = ROLES[me?.role]?.scope === 'all';
+  const canW = ROLES[me?.role]?.scope === 'all' && !isCostCtl(me);   // v37.8: مراقب التكاليف اطّلاع فقط على الأصناف والوصفات
   const items = org.items || [];
   const products = org.products || [];
   const moves = ops.stockMoves || [];
@@ -20115,7 +20167,7 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
       </div>
 
       <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-        <SectionNav label="أقسام المخزون" cur={view} onPick={setView} items={[{ id: 'items', ar: 'الأصناف والأرصدة', icon: HardDrive }, { id: 'moves', ar: 'الحركات', icon: ArrowLeftRight }, { id: 'count', ar: 'الجرد' + (whOn(org) ? ' (الرئيسي)' : ''), icon: ClipboardCheck }, { id: 'wh', ar: 'المستودعات', icon: Truck }, { id: 'recipes', ar: 'الوصفات والتكلفة', icon: Store }, { id: 'menu', ar: 'هندسة القائمة', icon: BarChart3 }, { id: 'usage', ar: 'الاستهلاك النظري والفعلي', icon: AlertTriangle }, { id: 'waste', ar: 'ضبط الهدر', icon: Trash2, badge: (ops.wasteRequests || []).filter(r => r.status === 'pending').length || null }]} />
+        <SectionNav label="أقسام المخزون" cur={view} onPick={setView} items={[{ id: 'items', ar: 'الأصناف والأرصدة', icon: HardDrive }, { id: 'moves', ar: 'الحركات', icon: ArrowLeftRight }, { id: 'count', ar: 'الجرد' + (whOn(org) ? ' (الرئيسي)' : ''), icon: ClipboardCheck }, { id: 'wh', ar: 'المستودعات', icon: Truck }, { id: 'recipes', ar: 'الوصفات والتكلفة', icon: Store }, { id: 'menu', ar: 'هندسة القائمة', icon: BarChart3 }, { id: 'usage', ar: 'الاستهلاك النظري والفعلي', icon: AlertTriangle }, { id: 'waste', ar: 'ضبط الهدر', icon: Trash2, badge: (ops.wasteRequests || []).filter(r => r.status === 'pending').length || null }, { id: 'prices', ar: 'تنبيهات الأسعار', icon: TrendingUp, badge: (ops.purchaseOrders || []).filter(po => po.status === 'pending' && po.priceAlert).length || null }]} />
       </div>
 
       <div className="grid g4">
@@ -20222,6 +20274,7 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
       {view === 'count' && <BlindCount org={org} ops={ops} me={me} commit={commit} say={say} whId={MAIN_WH} branchId="" col="stockMoves" items={items.filter(isStocked)} title={whOn(org) ? whName(org, MAIN_WH) : 'المخزون'} canCount={canW} />}
 
       {view === 'usage' && <UsageVariance org={org} ops={ops} me={me} commit={commit} say={say} />}
+      {view === 'prices' && <PriceAlerts org={org} ops={ops} />}
       {view === 'waste' && <WasteControl org={org} ops={ops} me={me} commit={commit} commitOrg={commitOrg} say={say} />}
 
       {view === 'recipes' && (
