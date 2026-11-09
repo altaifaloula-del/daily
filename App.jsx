@@ -36,7 +36,7 @@ async function sha(text) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text + '::rms8'));
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
-/* المسافة بالأمتار بين نقطتين (Haversine) — للتحقّق من نطاق جيوفنس الفرع عند تسجيل الحضور (م٣) */
+/* المسافة بالأمتار بين نقطتين (Haversine) — للتحقّق من نطاق جيوفنس الفرع عند تسجيل الحضور (م3) */
 function haversineMeters(lat1, lng1, lat2, lng2) {
   const R = 6371000, rad = Math.PI / 180;
   const dLat = (lat2 - lat1) * rad, dLng = (lng2 - lng1) * rad;
@@ -249,10 +249,10 @@ const parseAmounts = (s) => {
   return { nums, total };
 };
 /* ===== v38.0 — رقابة إدخال الأرقام (على كل حقول الأرقام في المنصّة) =====
-   ١) لوحة المفاتيح العربية تكتب ٠١٢٣…٩ (وبعض الأجهزة ۰۱۲۳ الفارسية) والفاصلة العشرية «٫» — كانت الحقول تحذفها بصمت
-      فيُحفظ رقم ناقص. الآن تُحوَّل لحظة الكتابة/اللصق إلى 0-9 و«.»، وفاصل الآلاف «٬/,» يُزال.
-   ٢) نقطة عشرية واحدة فقط في الحقل، ولا نقاط في الحقول الصحيحة (numeric).
-   ٣) التفقيط الحي: تحت حقل المبلغ المركّز يظهر الرقم منسّقًا ومكتوبًا بالحروف — يكشف الصفر الزائد/الناقص فورًا. */
+   1) لوحة المفاتيح العربية تكتب 0123…9 (وبعض الأجهزة 0123 الفارسية) والفاصلة العشرية «.» — كانت الحقول تحذفها بصمت
+      فيُحفظ رقم ناقص. الآن تُحوَّل لحظة الكتابة/اللصق إلى 0-9 و«.»، وفاصل الآلاف «,/,» يُزال.
+   2) نقطة عشرية واحدة فقط في الحقل، ولا نقاط في الحقول الصحيحة (numeric).
+   3) التفقيط الحي: تحت حقل المبلغ المركّز يظهر الرقم منسّقًا ومكتوبًا بالحروف — يكشف الصفر الزائد/الناقص فورًا. */
 const tafqeet = (n0) => {
   let n = Math.floor(Math.abs(Number(n0) || 0)); if (!n) return 'صفر';
   const ones = ['', 'واحد', 'اثنان', 'ثلاثة', 'أربعة', 'خمسة', 'ستة', 'سبعة', 'ثمانية', 'تسعة', 'عشرة', 'أحد عشر', 'اثنا عشر', 'ثلاثة عشر', 'أربعة عشر', 'خمسة عشر', 'ستة عشر', 'سبعة عشر', 'ثمانية عشر', 'تسعة عشر'];
@@ -322,6 +322,10 @@ const short = (n) => {
   if (Math.abs(v) >= 1e3) return (v / 1e3).toFixed(1) + 'K';
   return v.toFixed(0);
 };
+// v38.1 — صيغة موحّدة للتاريخ والوقت في كل المنصّة: «09 نوف 2026 · 02:05 م» — ميلادي وأرقام 0-9 دائمًا
+const NUM_LOCALE = 'ar-SA-u-ca-gregory-nu-latn';
+const arClock = (x) => { try { const d = x instanceof Date ? x : new Date(x); return isNaN(d.getTime()) ? '' : d.toLocaleTimeString(NUM_LOCALE, { hour: '2-digit', minute: '2-digit' }); } catch { return ''; } };
+const arDT = (x) => { if (!x) return '—'; try { const d = x instanceof Date ? x : new Date(x); if (isNaN(d.getTime())) return String(x); return arDate(isoD(d)) + ' · ' + arClock(d); } catch { return String(x); } };
 const arDate = (d) => {
   // v36.4: تاريخ فارغ أو غير صالح يظهر «—» بدل «Invalid Date»، والتقويم ميلادي صراحةً
   if (!d) return '—';
@@ -331,14 +335,14 @@ const arDate = (d) => {
     return x.toLocaleDateString('ar-SA-u-ca-gregory-nu-latn', { day: '2-digit', month: 'short', year: 'numeric' });
   } catch { return d; }
 };
-const monthLabel = (ym) => { try { return new Date(ym + '-01T00:00:00').toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' }); } catch { return ym; } };
+const monthLabel = (ym) => { try { return new Date(ym + '-01T00:00:00').toLocaleDateString('ar-SA-u-ca-gregory-nu-latn', { month: 'long', year: 'numeric' }); } catch { return ym; } };
 const arTime = (iso) => {
   try {
     const t = new Date(iso), diff = (Date.now() - t.getTime()) / 1000;
     if (diff < 60) return 'الآن';
     if (diff < 3600) return `قبل ${Math.floor(diff / 60)} د`;
     if (diff < 86400) return `قبل ${Math.floor(diff / 3600)} س`;
-    return t.toLocaleDateString('ar-SA-u-nu-latn', { day: '2-digit', month: 'short' });
+    return t.toLocaleDateString('ar-SA-u-ca-gregory-nu-latn', { day: '2-digit', month: 'short' });
   } catch { return ''; }
 };
 const sum = (a, f) => a.reduce((s, x) => s + (Number(f ? f(x) : x) || 0), 0);
@@ -442,15 +446,15 @@ const LOCK_MSG = (d) => 'شهر ' + (d || '').slice(0, 7) + ' مقفل محاس�
    كما هو (org + ops مدمجة) — الترجمة تتم عند حواف التخزين فقط.
    ============================================================ */
 const BR_COLS = ['closings', 'transfers', 'partnerRequests', 'notifications', 'branchPartners',
-  // v24.0 — بيانات HR التشغيلية لكل فرع (م٣–م٧): تُخزَّن في مستند الفرع كي تقرأها وتكتبها أجهزة الفروع (لا تصل لـ org)
+  // v24.0 — بيانات HR التشغيلية لكل فرع (م3–م7): تُخزَّن في مستند الفرع كي تقرأها وتكتبها أجهزة الفروع (لا تصل لـ org)
   'attendanceEvents', 'hrPins', 'shiftTemplates', 'shiftAssignments', 'shiftSwapRequests', 'branchTransferRequests', 'taskTemplates', 'taskAssignments', 'taskCompletions', 'pointsEntries', 'qualityReviews', 'rewardRequests',
-  // v27.0 — م١٠: مستندات التوقيع الإلكتروني (إقرارات استلام الراتب وإشعارات المكافآت/الجزاءات) — يوقّعها الموظف من جهاز الفرع
+  // v27.0 — م10: مستندات التوقيع الإلكتروني (إقرارات استلام الراتب وإشعارات المكافآت/الجزاءات) — يوقّعها الموظف من جهاز الفرع
   'hrSignDocs',
-  // v27.6 — م٢٠: الإجراءات التأديبية التصحيحية وخطط تحسين الأداء (PIP) — بفرعها كي يقرأها/يكتبها جهاز الفرع
+  // v27.6 — م20: الإجراءات التأديبية التصحيحية وخطط تحسين الأداء (PIP) — بفرعها كي يقرأها/يكتبها جهاز الفرع
   'hrCorrective', 'hrPips',
-  // v27.7 — م١٩: سجلات التدريب والشهادات (البرامج المركزية في org.trainingPrograms)
+  // v27.7 — م19: سجلات التدريب والشهادات (البرامج المركزية في org.trainingPrograms)
   'hrTraining',
-  // v27.9 — م١١: قياسات KPI الشهرية لكل موظف (تعريفات المؤشرات في org.roleKpis)
+  // v27.9 — م11: قياسات KPI الشهرية لكل موظف (تعريفات المؤشرات في org.roleKpis)
   'hrKpiEntries',
   // v29.9 — المستودعات: حركات مستودع الفرع وتحويلاته (يكتبها جهاز الفرع)
   'whMoves', 'whTransfers',
@@ -546,7 +550,7 @@ async function migrateV9(org, ops) {
   return org2;
 }
 
-// v24.0 — هجرة لمرة واحدة (على جهاز المركز): بيانات HR التشغيلية (م٣–م٧) التي حُفظت في org
+// v24.0 — هجرة لمرة واحدة (على جهاز المركز): بيانات HR التشغيلية (م3–م7) التي حُفظت في org
 // تنتقل إلى مستندات الفروع (rms8_br_*) كي تقرأها وتكتبها أجهزة الفروع؛ org لا يقرؤه إلا المركز.
 const HR_MIGRATE_COLS = ['attendanceEvents', 'shiftTemplates', 'shiftAssignments', 'shiftSwapRequests', 'branchTransferRequests', 'taskTemplates', 'taskAssignments', 'taskCompletions', 'pointsEntries', 'qualityReviews'];
 async function migrateHrToOps(o) {
@@ -1157,7 +1161,7 @@ function buildPartners(org, ops) {
   // الموظفون — استحقاق وصرف الرواتب قيود دائمة تُرحَّل من شاشة الرواتب (لا سطر اصطناعي يتغيّر بالشهر)
   (org.employees || []).forEach(em => {
     const key = 'emp:' + em.id; const txns = []; let linked = false;
-    (ops.advances || []).filter(a => a.employeeId === em.id && !PAY_ADD_TYPES.includes(a.type)).forEach(a => {   // المكافأة (م٨) داخل استحقاق الراتب أصلًا — لا تُعرض كمديونية على الموظف
+    (ops.advances || []).filter(a => a.employeeId === em.id && !PAY_ADD_TYPES.includes(a.type)).forEach(a => {   // المكافأة (م8) داخل استحقاق الراتب أصلًا — لا تُعرض كمديونية على الموظف
       const isDraw = ['advance', 'salary_draw'].includes(a.type);
       txns.push({ date: (a.date || '').slice(0, 10), desc: (isDraw ? 'سلفة/سحب على الراتب' : 'خصم/جزاء') + (a.reason ? ' — ' + a.reason : ''), ref: a.month || '', src: 'adv', debit: a.amount || 0, credit: 0 });
       linked = true;
@@ -1481,7 +1485,7 @@ function nextPartnerCode(parts, type) {
 }
 
 /* ============================================================
-   م١ — المحاسبة الداخلية: دليل الحسابات ومحرك القيود التلقائية
+   م1 — المحاسبة الداخلية: دليل الحسابات ومحرك القيود التلقائية
    القيود تُشتق حسابيًا من العمليات المعتمدة نفسها (لا تُخزَّن نسخة
    ثانية) — أي تصحيح في المصدر ينعكس هنا فورًا وبأثر رجعي.
    المبالغ في هذه المرحلة إجمالية كما سُجّلت؛ فصل ضريبة القيمة
@@ -1513,7 +1517,7 @@ function gosiRatesFor(e, gcfg) {
 }
 
 function buildAccounting(org, ops) {
-  // م٣: الضريبة — تُفعّل صراحةً من شاشة الضريبة (org.taxCfg)، والمبالغ المسجلة تُعامل شاملةً للضريبة
+  // م3: الضريبة — تُفعّل صراحةً من شاشة الضريبة (org.taxCfg)، والمبالغ المسجلة تُعامل شاملةً للضريبة
   const tax = org.taxCfg || {};
   const taxOn = !!tax.enabled;
   const trate = taxOn ? (Number(tax.rate) || 15) / 100 : 0;
@@ -1662,7 +1666,7 @@ function buildAccounting(org, ops) {
   counted.forEach(c => {
     const bCode = cashCode[c.branchId] || '1101';
     const bkCode = bankCode[c.branchId] || '1201'; // v15.4: بنك الفرع (إن وُجد) وإلا البنك التجميعي
-    // ١) إيراد الوردية: نقدي/شبكة ← ثم سطر لكل تطبيق بذمّته وعمولته المسجّلة على الوردية نفسها
+    // 1) إيراد الوردية: نقدي/شبكة ← ثم سطر لكل تطبيق بذمّته وعمولته المسجّلة على الوردية نفسها
     const cash = c.cashSales || 0, card = c.cardSales || 0, bankT = c.bankTransferSales || 0;
     const appRows = (c.deliverySales || []).filter(s => (s.amount || 0) > 0);
     const appsGross = sum(appRows, s => s.amount);
@@ -1696,7 +1700,7 @@ function buildAccounting(org, ops) {
         title: (varc < 0 ? 'عجز صندوق — ' : 'فائض صندوق — ') + (c.branchName || ''), src: 'فرق جرد الصندوق', ref: c.id,
         lines: varc < 0 ? [L('5401', -varc, 0), L(bCode, 0, -varc)] : [L(bCode, varc, 0), L('5401', 0, varc)] });
     }
-    // ٢) مصروفات الوردية: نقدًا من الصندوق، بنكيًا من البنك، وآجلًا على ذمم الموردين
+    // 2) مصروفات الوردية: نقدًا من الصندوق، بنكيًا من البنك، وآجلًا على ذمم الموردين
     (c.expenses || []).forEach((e, ix) => {
       const amt = e.amount || 0; if (!amt) return;
       const expCode = catAcc[e.categoryId] || '5199';
@@ -1713,7 +1717,7 @@ function buildAccounting(org, ops) {
         vat: tx.vat ? { out: 0, inn: tx.vat, netSales: 0, netPurch: tx.net } : null
       });
     });
-    // ٣) سدادات الموردين داخل الوردية — قد تتوزع على أكثر من طريقة دفع
+    // 3) سدادات الموردين داخل الوردية — قد تتوزع على أكثر من طريقة دفع
     (c.supplierPayments || []).forEach((pm, ix) => {
       const s = paySplits(pm); const t2 = s.cash + s.card + s.transfer + s.other;
       if (t2 <= 0) return;
@@ -1730,7 +1734,7 @@ function buildAccounting(org, ops) {
     });
   });
 
-  // ٤) توريد النقد من الفرع للخزينة الرئيسية
+  // 4) توريد النقد من الفرع للخزينة الرئيسية
   //    فرعٌ بحساب بنكي مُدخَل (v15.4): يمرّ عبر حساب وسيط — «تحت التحويل» عند الإرسال ← «الخزينة الرئيسية» عند الاستلام،
   //    فيظهر النقد في الطريق. وفرعٌ بلا حساب بنكي: سلوك سابق تمامًا (يُرحَّل عند الاستلام مباشرةً).
   (ops.transfers || []).forEach(t => {
@@ -1757,7 +1761,7 @@ function buildAccounting(org, ops) {
       });
     }
   });
-  // ٥) أوامر الصرف من الخزينة الرئيسية
+  // 5) أوامر الصرف من الخزينة الرئيسية
   (ops.disbursements || []).forEach(x => {
     if (!(x.amount > 0)) return;
     push({
@@ -1767,11 +1771,11 @@ function buildAccounting(org, ops) {
       lines: [L('5901', x.amount, 0), L('1101', 0, x.amount)]
     });
   });
-  // ٦) فواتير التوريد الآجلة وسداداتها المركزية (سدادات الفروع تدخل من قيود الورديات)
+  // 6) فواتير التوريد الآجلة وسداداتها المركزية (سدادات الفروع تدخل من قيود الورديات)
   (ops.invoices || []).forEach(i => {
     const d = (i.date || i.createdAt || i.dueDate || '').slice(0, 10);
     if (i.amount > 0) {
-      // فصل ضريبة المدخلات للفواتير الموسومة «خاضعة» فقط (الحقل الجديد في م٤) — القديمة بلا وسم تبقى إجمالية
+      // فصل ضريبة المدخلات للفواتير الموسومة «خاضعة» فقط (الحقل الجديد في م4) — القديمة بلا وسم تبقى إجمالية
       // v28.2: فواتير مستوردة تحمل ضريبتها الفعلية (vatAmt) وحساب مصروفها (accCode) — القديمة بلا الحقلين كما هي
       const ti = (typeof i.vatAmt === 'number')
         ? { net: Math.round((i.amount - i.vatAmt) * 100) / 100, vat: Math.round(i.vatAmt * 100) / 100 }
@@ -1813,7 +1817,7 @@ function buildAccounting(org, ops) {
       lines: [L('2101', p.amount, 0), L((p.fund && accIx[p.fund]) ? p.fund : '1201', 0, p.amount)]   // v15.19/v15.20: المصدر المختار (خزينة أو أي بنك — تجميعي/فرع)
     }));
   });
-  // ٦مكرر) السداد المركزي لفواتير الورديات المشتقة (v8.1): مدين ذمم الموردين / دائن البنك
+  // 6مكرر) السداد المركزي لفواتير الورديات المشتقة (v8.1): مدين ذمم الموردين / دائن البنك
   //         — قيد الفاتورة نفسها هو قيد المصروف الآجل في الوردية، فلا يتكرر هنا
   (ops.closingInvPays || []).forEach(pmt => {
     if (!(pmt.amount > 0)) return;
@@ -1826,7 +1830,7 @@ function buildAccounting(org, ops) {
     });
   });
 
-  // ٦-ب) v31.0 فواتير المبيعات: الآجلة على ذمم العملاء، والنقدية على الصندوق/البنك. المسجّلة في إغلاق وردية لا تُقيَّد مرة ثانية.
+  // 6-ب) v31.0 فواتير المبيعات: الآجلة على ذمم العملاء، والنقدية على الصندوق/البنك. المسجّلة في إغلاق وردية لا تُقيَّد مرة ثانية.
   const siById = {}; (ops.salesInvoices || []).forEach(x => { siById[x.id] = x; });
   (ops.salesInvoices || []).forEach(x => {
     const fundOf = (f) => (f && accIx[f]) ? f : '1201';
@@ -1844,9 +1848,9 @@ function buildAccounting(org, ops) {
       push({ id: 'sir:' + r.id, date: r.date, ...(x.branchId ? { branchId: x.branchId } : {}), title: 'تحصيل من عميل — ' + ((x.buyer || {}).name || '') + ' عن ' + x.no, src: 'فواتير المبيعات', ref: x.no, lines: [L(fundOf(r.fund), a, 0), L('1380', 0, a)] }); });
   });
 
-  // ٧) الرواتب: الاستحقاق كما رُحِّل، والصرف كما سُجِّل، وتسوية فرق السلف والخصومات
+  // 7) الرواتب: الاستحقاق كما رُحِّل، والصرف كما سُجِّل، وتسوية فرق السلف والخصومات
   const led = ops.ledgerEntries || [];
-  // ٧-أ) v30.8 مخصص نهاية الخدمة: افتتاحي (أرباح مبقاة) ← ترحيل شهري (مصروف) ← صرف المخالصة (استخدام المخصص)
+  // 7-أ) v30.8 مخصص نهاية الخدمة: افتتاحي (أرباح مبقاة) ← ترحيل شهري (مصروف) ← صرف المخالصة (استخدام المخصص)
   const eosBal = {};
   led.filter(x => x.kind === 'eos_open' || x.kind === 'eos_accrual').sort((a, b) => String(a.date).localeCompare(String(b.date))).forEach(x => {
     const byBr = {};
@@ -1857,7 +1861,7 @@ function buildAccounting(org, ops) {
       push({ id: 'eos:' + x.id + ':' + (br || 'hq'), date: x.date, ...(br ? { branchId: br } : {}), title: (x.kind === 'eos_open' ? 'مخصص نهاية الخدمة المتراكم حتى ' + (x.asOf || x.date) : x.final ? 'تسوية مخصص نهاية الخدمة حتى تاريخ انتهاء خدمة ' + (((x.lines || [])[0] || {}).name || '') : 'مخصص نهاية الخدمة — شهر ' + x.month),
         src: 'نهاية الخدمة', ref: 'eos-' + (x.month || ''), lines: v > 0 ? [L(dc, v, 0), L('2203', 0, v)] : [L('2203', -v, 0), L(dc, 0, -v)] }); });
   });
-  // ٧-ب) v31.2 مخصص الإجازات: افتتاحي (أرباح مبقاة) ثم ترحيل شهري بالفرق (يرتفع بالاستحقاق وينخفض بالأخذ)
+  // 7-ب) v31.2 مخصص الإجازات: افتتاحي (أرباح مبقاة) ثم ترحيل شهري بالفرق (يرتفع بالاستحقاق وينخفض بالأخذ)
   led.filter(x => x.kind === 'lv_open' || x.kind === 'lv_accrual').forEach(x => {
     if (x.kind === 'lv_open' && x.noPost) return;
     const byBr = {}; (x.lines || []).forEach(l => { byBr[l.branchId || ''] = (byBr[l.branchId || ''] || 0) + (Number(l.amt) || 0); });
@@ -1926,7 +1930,7 @@ function buildAccounting(org, ops) {
       });
     }
   });
-  // ٨) صرف السلف والمسحوبات (عهدة على الموظف حتى استقطاعها من الراتب)
+  // 8) صرف السلف والمسحوبات (عهدة على الموظف حتى استقطاعها من الراتب)
   // v15.19: نحترم «طريقة الصرف» المسجّلة على السلفة نفسها — كانت كل السلف تُخصم من البنك
   // خطأً مهما كانت الطريقة المختارة (أحد أسباب ظهور رصيد البنك سالبًا):
   // «نقداً من صندوق الفرع» ← صندوق فرع الموظف · «عهدة نثرية» ← الخزينة الرئيسية ·
@@ -1944,7 +1948,7 @@ function buildAccounting(org, ops) {
     });
   });
 
-  // ٩) الأصول الثابتة: قيد شراء بمصدر تمويل صريح + إهلاك قسط ثابت شهري (يُشتق كاملًا — تعديل الأصل يعيد الاشتقاق)
+  // 9) الأصول الثابتة: قيد شراء بمصدر تمويل صريح + إهلاك قسط ثابت شهري (يُشتق كاملًا — تعديل الأصل يعيد الاشتقاق)
   const ymAdd = (ym, k) => { const pr = ym.split('-').map(Number); const t = pr[0] * 12 + (pr[1] - 1) + k; return String(Math.floor(t / 12)).padStart(4, '0') + '-' + String((t % 12) + 1).padStart(2, '0'); };
   const nowYm = today().slice(0, 7);
   const FUND_AR = { '1101': 'من الخزينة الرئيسية', '1201': 'من البنك', '3101': 'قيد افتتاحي (رصيد سابق)', none: '' };
@@ -2005,7 +2009,7 @@ function buildAccounting(org, ops) {
     });
   });
 
-  // ٩) الأرصدة الافتتاحية (رصيد ما قبل المنصة) — قيد افتتاحي واحد، وحساب رأس المال (3101) يوازنه تلقائيًا
+  // 9) الأرصدة الافتتاحية (رصيد ما قبل المنصة) — قيد افتتاحي واحد، وحساب رأس المال (3101) يوازنه تلقائيًا
   //     رأس المال المحسوب = مجموع الموجودات − مجموع المطلوبات (معادلة الميزانية)
   const ob = org.openingBalances;
   if (ob && ob.enabled !== false && (ob.lines || []).some(l => (l.debit || 0) || (l.credit || 0))) {
@@ -2019,7 +2023,7 @@ function buildAccounting(org, ops) {
     });
   }
 
-  // ٩ب) تسوية كشوف تطبيقات التوصيل: إيداع للبنك + خصومات موثّقة ← يُقفلان ذمة التطبيق
+  // 9ب) تسوية كشوف تطبيقات التوصيل: إيداع للبنك + خصومات موثّقة ← يُقفلان ذمة التطبيق
   //     مدين البنك (المودع) + مدين خصومات (الفروق الموثّقة) = دائن ذمة التطبيق (المُقفَل)
   (ops.appSettlements || []).forEach(s => {
     const dep = Math.round((Number(s.deposit) || 0) * 100) / 100;
@@ -2036,9 +2040,9 @@ function buildAccounting(org, ops) {
     push({ id: 'astl:' + s.id, date: (s.date || '').slice(0, 10), title: 'تسوية كشف ' + appNm + ' — إيداع ' + money(dep), src: 'تسوية تطبيقات', ref: s.by || '', lines });
   });
 
-  // ٩ج) رسملة المخزون (الطريقة الدورية): بضاعة آخر المدة تُرسمَل أصلًا (1601) وتُخفّض تكلفة الفترة (5150 دائن)
+  // 9ج) رسملة المخزون (الطريقة الدورية): بضاعة آخر المدة تُرسمَل أصلًا (1601) وتُخفّض تكلفة الفترة (5150 دائن)
   //     فيصير: تكلفة البضاعة المباعة = المشتريات − بضاعة آخر المدة، والمخزون يظهر أصلًا في المركز المالي
-  // ٩ج-٢) v30.5 — قيود الجرد المستمر لكل حركة مخزون في الفترة (بالمتوسط المرجّح لحظة الحركة)
+  // 9ج-2) v30.5 — قيود الجرد المستمر لكل حركة مخزون في الفترة (بالمتوسط المرجّح لحظة الحركة)
   if (perpFrom) {
     const SC = stockCosting(org, ops);
     const brOfWh = (wid) => ((whOf(org).find(w => w.id === wid) || {}).branchId) || '';
@@ -2113,7 +2117,7 @@ function buildAccounting(org, ops) {
     }
   }
 
-  // ٩مكرر) القيود اليدوية والافتتاحية — يُدخلها المحاسب من شاشة المحاسبة (التصحيح بقيد عكسي لا بالحذف)
+  // 9مكرر) القيود اليدوية والافتتاحية — يُدخلها المحاسب من شاشة المحاسبة (التصحيح بقيد عكسي لا بالحذف)
   (ops.journalManual || []).forEach(j => {
     push({
       id: 'man:' + j.id, date: (j.date || '').slice(0, 10),
@@ -2123,7 +2127,7 @@ function buildAccounting(org, ops) {
     });
   });
 
-  // ٩د) قيد إقفال السنة المالية: يُصفّر الإيرادات والمصروفات حتى تاريخ الإقفال ويحوّل صافيها إلى «الأرباح المبقاة» (3201)
+  // 9د) قيد إقفال السنة المالية: يُصفّر الإيرادات والمصروفات حتى تاريخ الإقفال ويحوّل صافيها إلى «الأرباح المبقاة» (3201)
   //     يُستثنى من قائمة الدخل (closing:true) فتبقى قائمة الدخل تعرض الأداء التشغيلي، ويُدرَج في الميزان والمركز المالي
   //     التوازن مضمون: مدين (الإيرادات + صافي الخسارة) = دائن (المصروفات + صافي الربح)
   const ye = org.yearEnd;
@@ -2196,7 +2200,7 @@ const TAB_AR = {
   acct: 'المحاسبة', shifts: 'مواعيد الإغلاق والتذكيرات', archive: 'أرشيف المستندات', ai: 'المركز الذكي',
   reports: 'التقارير المالية', rbuild: 'منشئ التقارير', entities: 'مركز المنشآت', admin: 'الفروع والمستخدمون', audit: 'سجل التدقيق', qrfb: 'تقييم العملاء (QR)', whbranch: 'مستودع الفرع'
 };
-// ═══ ثيمات المنصّة الاحترافية (١١ أسلوب تصميم كامل) × وضع ليل/نهار — v14.7 ═══
+// ═══ ثيمات المنصّة الاحترافية (11 أسلوب تصميم كامل) × وضع ليل/نهار — v14.7 ═══
 const THEME_META = {
   mizan: { name: 'ميزان 2 (الافتراضي)', desc: 'واضح احترافي', color: '#C9A24D' },
   royal: { name: 'الملكي الذهبي', desc: 'فخم دافئ', color: '#A87D28' },
@@ -2373,32 +2377,32 @@ const REG_APPS = [
   { id: 'shiftengine', ar: 'محرّك الورديات', en: 'Shift Engine', cat: 'hr', icon: ArrowLeftRight, open: { tab: 'shiftengine' }, kw: ['وردية', 'ورديات', 'تعيين', 'تبديل', 'نقل موظف', 'قالب وردية', 'جدول'], fns: ['قوالب ورديات لكل فرع', 'تقويم تعيين أسبوعي', 'مطابقة تلقائية مع الحضور الفعلي', 'طلبات تبديل وردية', 'طلبات نقل موظف بين الفروع'], d: 'قوالب ورديات جاهزة، تقويم تعيين أسبوعي، مطابقة تلقائية مع الحضور الفعلي، وطلبات تبديل وردية أو نقل موظف بين الفروع.' },
   { id: 'tasks', ar: 'المهام', en: 'Tasks', cat: 'hr', icon: CheckCircle2, open: { tab: 'tasks' }, kw: ['مهام', 'مهمة', 'تشيك ليست', 'تكليف', 'التزام', 'قائمة مهام'], fns: ['قوائم مهام يومية/أسبوعية متكررة لكل فرع', 'تكليف مهام فردية لموظف معيّن', 'قائمة مهام مرتبطة بالوردية', 'تقرير الالتزام بالمهام لكل موظف/فرع'], d: 'قوائم مهام متكررة لكل فرع، تكليف مهام فردية، إنجاز من جهاز الفرع، وتقرير التزام لكل موظف وفرع.' },
   { id: 'points', ar: 'دفتر النقاط', en: 'Points Ledger', cat: 'hr', icon: Star, open: { tab: 'points' }, kw: ['نقاط', 'دفتر نقاط', 'ترتيب', 'تحفيز', 'مكافأة', 'رصيد'], fns: ['دفتر نقاط لكل موظف مع حركات يدوية بسبب موثَّق', 'قواعد نقاط تلقائية من الحضور والورديات والمهام (قابلة للضبط)', 'لوحة ترتيب شهرية للفرع والشركة', 'عرض رصيد الموظف من كشك الفرع بـPIN'], d: 'رصيد نقاط لكل موظف يجمع الحركات اليدوية والنقاط التلقائية من الحضور والمهام، مع لوحة ترتيب شهرية وعرض للموظف من جهاز الفرع.' },
-  { id: 'kpi', ar: 'الأداء والتقييم', en: 'Performance & KPI', cat: 'hr', icon: TrendingUp, open: { tab: 'kpi' }, kw: ['تقييم', 'أداء', 'kpi', 'درجة', 'مؤشرات', 'أهداف', 'بطاقة أداء'], fns: ['درجة أداء شهرية مركّبة لكل موظف بأوزان قابلة للضبط', 'تقييم المدير الشهري للجودة', 'أهداف KPI لكل فرع مقابل الفعلي', 'بطاقة أداء الموظف (سجل ٦ أشهر + اتجاه) قابلة للطباعة'], d: 'درجة أداء شهرية من 100 تجمع الحضور والمهام والانضباط وتقييم المدير بأوزان قابلة للضبط، مع أهداف KPI للفرع وبطاقة أداء لكل موظف.' },
+  { id: 'kpi', ar: 'الأداء والتقييم', en: 'Performance & KPI', cat: 'hr', icon: TrendingUp, open: { tab: 'kpi' }, kw: ['تقييم', 'أداء', 'kpi', 'درجة', 'مؤشرات', 'أهداف', 'بطاقة أداء'], fns: ['درجة أداء شهرية مركّبة لكل موظف بأوزان قابلة للضبط', 'تقييم المدير الشهري للجودة', 'أهداف KPI لكل فرع مقابل الفعلي', 'بطاقة أداء الموظف (سجل 6 أشهر + اتجاه) قابلة للطباعة'], d: 'درجة أداء شهرية من 100 تجمع الحضور والمهام والانضباط وتقييم المدير بأوزان قابلة للضبط، مع أهداف KPI للفرع وبطاقة أداء لكل موظف.' },
   { id: 'rewards', ar: 'المكافآت والجزاءات', en: 'Rewards & Penalties', cat: 'hr', icon: Coins, open: { tab: 'rewards' }, kw: ['مكافأة', 'مكافآت', 'جزاء', 'جزاءات', 'اعتماد', 'حافز', 'خصم', 'راتب'], fns: ['طلب مكافأة أو جزاء لموظف بمبلغ وسبب', 'سلسلة اعتماد مركزية بسجل كامل', 'ترحيل تلقائي لمسيّر الرواتب بعد الاعتماد', 'شرائح مكافآت تلقائية حسب درجة الأداء (قابلة للضبط، مُعطَّلة افتراضيًا)'], d: 'طلبات مكافآت وجزاءات من الفروع، اعتماد مركزي، وترحيل تلقائي لمسيّر الرواتب بعد الاعتماد — مع شرائح مكافآت اختيارية مبنية على درجة الأداء.' },
   { id: 'esign', ar: 'التوقيع الإلكتروني', en: 'E-Signature', cat: 'hr', icon: Signature, open: { tab: 'esign' }, kw: ['توقيع', 'إقرار', 'استلام', 'راتب', 'قسيمة', 'إشعار', 'جزاء', 'مكافأة', 'كشك', 'PIN'], fns: ['إقرار استلام الراتب الشهري يوقّعه الموظف بإصبعه بعد التحقق بـPIN', 'إشعارات المكافآت والجزاءات المعتمدة توقَّع بالعلم', 'التوقيع من كشك الفرع أو من شاشة الرواتب بالمكتب', 'التوقيع يظهر على قسيمة الراتب ومسير الرواتب المطبوعين', 'سجل إقرارات وتقرير حالة التوقيعات وتنبيه بغير الموقَّع'], d: 'توقيع إلكتروني للموظف على إقرارات استلام الراتب وإشعارات المكافآت والجزاءات — من جهاز الفرع بعد التحقق بـPIN، ويُطبع على القسائم والمسير.' },
   { id: 'corrective', ar: 'الإجراءات التصحيحية', en: 'Corrective Actions', cat: 'hr', icon: ShieldAlert, open: { tab: 'corrective' }, kw: ['جزاء', 'تأديب', 'إنذار', 'مخالفة', 'لائحة', 'تظلّم', 'خطة تحسين', 'pip', 'محضر'], fns: ['فتح إجراء تأديبي متدرّج حسب لائحة الجزاءات', 'اعتماد مركزي وترحيل الغرامة للرواتب بسقف نظامي', 'محضر بالعلم يوقّعه الموظف من كشك الفرع', 'خطط تحسين الأداء (PIP) بأهداف ومراجعات', 'محو الجزاء تلقائيًا بعد المدة النظامية'], d: 'إجراءات تأديبية متدرّجة وفق نظام العمل ولائحة المنشأة، باعتماد مركزي ومحضر توقيع، وخطط تحسين أداء بديلة تطويرية.' },
   { id: 'training', ar: 'التدريب والشهادات', en: 'Training & Certifications', cat: 'hr', icon: Stamp, open: { tab: 'training' }, kw: ['تدريب', 'شهادة', 'صحية', 'سلامة الغذاء', 'انتهاء', 'امتثال', 'برنامج', 'هاسب'], fns: ['برامج تدريب وشهادات بمدد صلاحية', 'تسجيل اجتياز الموظفين وحساب تاريخ الانتهاء', 'مصفوفة امتثال للتدريب الإلزامي لكل موظف', 'تنبيهات انتهاء الشهادات والنقص الإلزامي'], d: 'برامج التدريب والشهادات الإلزامية (الشهادة الصحية، سلامة الغذاء) بمدد صلاحية، مع مصفوفة امتثال وتنبيهات انتهاء ونقص.' },
-  { id: 'rolekpi', ar: 'مؤشرات الأداء بالدور', en: 'Role KPIs', cat: 'hr', icon: TrendingUp, open: { tab: 'rolekpi' }, kw: ['مؤشر', 'kpi', 'أداء', 'دور', 'هدف', 'قياس', 'تحقّق', 'كاشير', 'شيف'], fns: ['مكتبة مؤشرات لكل مسمى وظيفي بهدف ووزن واتجاه', 'إدخال قياسات شهرية لكل موظف وحساب نسبة التحقّق', 'محور خامس اختياري في درجة الأداء المركّبة (م٧)', 'مُعطَّل افتراضيًا حتى يفعّله المركز'], d: 'مكتبة مؤشرات أداء خاصة بكل دور (فروق النقد للكاشير، الجودة والهدر للمطبخ…)، قياس شهري، ومحور اختياري في الدرجة المركّبة.' },
+  { id: 'rolekpi', ar: 'مؤشرات الأداء بالدور', en: 'Role KPIs', cat: 'hr', icon: TrendingUp, open: { tab: 'rolekpi' }, kw: ['مؤشر', 'kpi', 'أداء', 'دور', 'هدف', 'قياس', 'تحقّق', 'كاشير', 'شيف'], fns: ['مكتبة مؤشرات لكل مسمى وظيفي بهدف ووزن واتجاه', 'إدخال قياسات شهرية لكل موظف وحساب نسبة التحقّق', 'محور خامس اختياري في درجة الأداء المركّبة (م7)', 'مُعطَّل افتراضيًا حتى يفعّله المركز'], d: 'مكتبة مؤشرات أداء خاصة بكل دور (فروق النقد للكاشير، الجودة والهدر للمطبخ…)، قياس شهري، ومحور اختياري في الدرجة المركّبة.' },
   { id: 'hrdash', ar: 'لوحة الموارد البشرية', en: 'HR Dashboard', cat: 'hr', icon: LayoutDashboard, open: { tab: 'hrdash' }, kw: ['لوحة', 'تقارير', 'حضور', 'مكافآت', 'نقاط', 'موارد بشرية', 'hr', 'excel'], fns: ['لوحة HR تنفيذية لكل الفروع بمقارنة شهرية', 'تقرير الحضور الشهري التفصيلي (طباعة وExcel)', 'تقرير المكافآت والجزاءات والنقاط', 'تنبيهات HR في مركز التنبيهات'], d: 'لوحة تنفيذية لمؤشرات الموارد البشرية لكل الفروع، وتقارير الحضور والمكافآت والنقاط قابلة للطباعة وExcel.' },
   { id: 'perfsnap', ar: 'تجميد الأداء الشهري', en: 'Performance Snapshot', cat: 'hr', icon: Lock, open: { tab: 'perfsnap' }, kw: ['تجميد', 'لقطة', 'أداء', 'اعتماد', 'ثبات', 'تلاعب', 'انحراف'], fns: ['تجميد درجات الأداء ومكوّناتها شهريًا سجلًّا ثابتًا', 'كشف تغيّر بيانات شهر معتمد (مقارنة الحيّ بالمجمّد)', 'فكّ التجميد لمسؤول النظام بتدقيق', 'تصدير Excel'], d: 'تثبيت أداء الشهر المعتمد لقطةً لا تُعاد حسابها، مع كشف أي تعديل رجعي على بياناته.' },
-  // ——— الزكاة والضريبة (خطة م٣) ———
+  // ——— الزكاة والضريبة (خطة م3) ———
   { id: 'vat', ar: 'ضريبة القيمة المضافة', en: 'VAT', cat: 'tax', icon: Receipt, open: { tab: 'acct', view: 'vat' }, kw: ['ضريبة', 'زاتكا', 'مدخلات', 'مخرجات', 'فاتورة', 'إقرار'], fns: ['تفعيل بنسبة قابلة للضبط', 'فصل المخرجات في قيد الإيراد', 'فصل مدخلات المصروفات الخاضعة', 'مؤشرات بالفترة'], d: 'فصل تلقائي لضريبة المخرجات والمدخلات في القيود — بأثر رجعي فور التفعيل.' },
   { id: 'vatret', ar: 'الإقرار الضريبي', en: 'VAT Return', cat: 'tax', icon: FileText, open: { tab: 'acct', view: 'vat' }, kw: ['إقرار', 'ضريبة', 'ربع', 'زاتكا'], fns: ['مسودة إقرار بالفترة', 'زر الربع الحالي', 'صافي المستحق'], d: 'مسودة إقرار جاهزة من قيودك لأي فترة تحددها.' },
-  // ——— المخزون (خطة م٤) ———
+  // ——— المخزون (خطة م4) ———
   { id: 'products', ar: 'المنتجات والوصفات', en: 'Products & Recipes', cat: 'inv2', icon: Store, open: { tab: 'inv', view: 'recipes' }, kw: ['منتج', 'وصفة', 'تكلفة', 'هامش', 'مخزون'], fns: ['وصفة بمكونات من الأصناف', 'تكلفة حقيقية بآخر شراء', 'هامش لحظي (صافي الضريبة)'], d: 'وصفة وتكلفة وهامش لكل منتج — من أصناف مخزونك وأسعارها الفعلية.' },
   { id: 'stock', ar: 'المخزون والجرد', en: 'Stock & Stocktake', cat: 'inv2', icon: HardDrive, open: { tab: 'inv', view: 'items' }, kw: ['مستودع', 'جرد', 'حركة', 'رصيد', 'هدر', 'مخزون', 'حد أدنى'], fns: ['أرصدة حية بحد أدنى وتنبيه', 'توريد وصرف وهدر', 'جرد بعدّ فعلي وتسويات موثقة'], d: 'أرصدة أصنافك وحركاتها وجردها الدوري — والتوريد من أوامر الشراء تلقائي.' },
   { id: 'whbranch', ar: 'مستودع الفرع', en: 'Branch Warehouse', cat: 'inv2', icon: Truck, open: { tab: 'whbranch' }, kw: ['مستودع', 'فرع', 'تحويل', 'استلام', 'طلب', 'صرف', 'هدر', 'جرد'], fns: ['أرصدة مستودع الفرع', 'طلب من المستودع الرئيسي', 'استلام التحويلات بالكميات الفعلية', 'صرف للمطبخ وهدر', 'جرد المستودع'] },
-  // ——— الأصول والتسويات (خطة م٥) ———
+  // ——— الأصول والتسويات (خطة م5) ———
   { id: 'assets', ar: 'الأصول الثابتة والإهلاك', en: 'Fixed Assets', cat: 'ast', icon: Building2, open: { tab: 'acct', view: 'ast' }, kw: ['أصل', 'إهلاك', 'معدات', 'قيمة دفترية'], fns: ['سجل أصول بمصدر تمويل صريح', 'إهلاك شهري تلقائي بأثر رجعي', 'قيمة دفترية حية'], d: 'سجل أصولك وقيود شرائها وإهلاكها الشهري تلقائياً حتى نهاية عمرها.' },
   { id: 'bankrec', ar: 'التسوية البنكية', en: 'Bank Reconciliation', cat: 'ast', icon: Landmark, open: { tab: 'acct', view: 'bank' }, kw: ['بنك', 'تسوية', 'كشف', 'مطابقة', 'شبكة', 'فرق'], fns: ['رصيد الدفتر مقابل كشف البنك', 'فرق موثق بسجل تسويات', 'حركات البنك مفصلة'], d: 'طابق حساب البنك التجميعي مع كشفك الفعلي ووثّق الفروقات — والتصحيح بقيد يدوي.' },
   // ——— التدقيق والحوكمة ———
-  { id: 'backup', ar: 'النسخ الاحتياطي والاستعادة', en: 'Backup & Restore', cat: 'gov', icon: HardDrive, open: { tab: 'admin' }, kw: ['نسخة', 'احتياطي', 'استعادة', 'لقطة', 'حماية', 'تصدير'], fns: ['نسخة كاملة موقّعة', 'فحص نسخة (تجربة استعادة)', 'استعادة بتأكيد ولقطة أمان', 'لقطات يومية محلية ٧ أيام'], d: 'نزّل نسختك، افحصها قبل الحاجة، واستعدها بأمان موثق — من الفروع والمستخدمون ← بيانات الشركة.' },
+  { id: 'backup', ar: 'النسخ الاحتياطي والاستعادة', en: 'Backup & Restore', cat: 'gov', icon: HardDrive, open: { tab: 'admin' }, kw: ['نسخة', 'احتياطي', 'استعادة', 'لقطة', 'حماية', 'تصدير'], fns: ['نسخة كاملة موقّعة', 'فحص نسخة (تجربة استعادة)', 'استعادة بتأكيد ولقطة أمان', 'لقطات يومية محلية 7 أيام'], d: 'نزّل نسختك، افحصها قبل الحاجة، واستعدها بأمان موثق — من الفروع والمستخدمون ← بيانات الشركة.' },
   { id: 'lock', ar: 'الإقفال الشهري', en: 'Period Locking', cat: 'gov', icon: Lock, open: { tab: 'acct', view: 'lock' }, kw: ['إقفال', 'قفل', 'فترة', 'شهر', 'حماية', 'مراجع'], fns: ['قفل تراكمي حتى شهر', 'فحوصات ما قبل القفل', 'فتح استثنائي بسبب موثق', 'سجل كامل'], d: 'اقفل الشهور المعتمدة ضد أي تعديل — والفتح استثنائي موثق بسبب أمام المراجع.' },
   { id: 'audit', ar: 'سجل التدقيق', en: 'Audit Trail', cat: 'gov', icon: Eye, open: { tab: 'audit' }, kw: ['تدقيق', 'سجل', 'عملية', 'حوكمة', 'من فعل'], fns: ['كل عملية باسم صاحبها ووقتها', 'تنبيهات حية لمدير النظام'], d: 'من فعل ماذا ومتى — سجل كامل لا يُمحى لكل حركة في النظام.' },
   { id: 'archive', ar: 'أرشيف المستندات', en: 'Documents Archive', cat: 'gov', icon: ImageIcon, open: { tab: 'archive' }, kw: ['مستند', 'صورة', 'أرشيف', 'وثيقة', 'إيصال'], fns: ['صور الإغلاقات والإيصالات', 'تصفح بالفرع والتاريخ'], d: 'كل صور التوثيق والإيصالات مؤرشفة بالفرع والتاريخ.' },
   // ——— التحليل والذكاء المالي ———
   { id: 'ai', ar: 'المركز المالي الذكي', en: 'Financial Intelligence', cat: 'bi', icon: Sparkles, open: { tab: 'ai' }, kw: ['تحليل', 'ذكاء', 'توقع', 'انحراف', 'نسبة', 'اتجاه'], fns: ['مؤشرات وتحليلات', 'كشف الانحرافات', 'توصيات'], d: 'قراءة ذكية لأرقامك: اتجاهات وانحرافات وتوصيات.' },
-  { id: 'qrfb', ar: 'تقييم العملاء بالـ QR', en: 'QR Customer Feedback', cat: 'pos', icon: QrCode, open: { tab: 'qrfb' }, kw: ['تقييم', 'عميل', 'عملاء', 'رضا', 'شكوى', 'شكاوى', 'QR', 'تعليق', 'نجوم'], fns: ['رمز QR لكل فرع يفتح صفحة تقييم بلا تسجيل دخول', 'تقييم ١٠ عناصر (الطعام والخدمة والمكان) + تعليق', 'شكوى تلقائية عند تقييم أقل من ٣ مع مهلة ٢٤ ساعة', 'مقارنة الفروع والاتجاه الأسبوعي وأكثر المشاكل', 'تحليل التعليقات بالذكاء الاصطناعي'], d: 'العميل يمسح رمز الطاولة ويقيّم تجربته، والمدير يتابع الشكاوى والاتجاهات والتوصيات لحظيًا.' }
+  { id: 'qrfb', ar: 'تقييم العملاء بالـ QR', en: 'QR Customer Feedback', cat: 'pos', icon: QrCode, open: { tab: 'qrfb' }, kw: ['تقييم', 'عميل', 'عملاء', 'رضا', 'شكوى', 'شكاوى', 'QR', 'تعليق', 'نجوم'], fns: ['رمز QR لكل فرع يفتح صفحة تقييم بلا تسجيل دخول', 'تقييم 10 عناصر (الطعام والخدمة والمكان) + تعليق', 'شكوى تلقائية عند تقييم أقل من 3 مع مهلة 24 ساعة', 'مقارنة الفروع والاتجاه الأسبوعي وأكثر المشاكل', 'تحليل التعليقات بالذكاء الاصطناعي'], d: 'العميل يمسح رمز الطاولة ويقيّم تجربته، والمدير يتابع الشكاوى والاتجاهات والتوصيات لحظيًا.' }
 ];
 const REG_IX = {}; REG_APPS.forEach(a => { REG_IX[a.id] = a; });
 
@@ -2853,7 +2857,7 @@ function PlatformApp() {
     const brMap = {};
     branchIds.forEach((b, i) => { brMap[b] = brVals[i] || {}; });
     // v27.1: تهيئة المخبأ الحيّ منذ الإقلاع — كان يبقى فارغًا حتى تصل لقطة كل مستند فرع (ومستند فرع غير موجود
-    // لا يرسل لقطة أبدًا) فتتعطّل إعادة التجميع اللحظية حتى أول استطلاع دوري (٥ دقائق) — أي أن حضورًا يُسجَّل
+    // لا يرسل لقطة أبدًا) فتتعطّل إعادة التجميع اللحظية حتى أول استطلاع دوري (5 دقائق) — أي أن حضورًا يُسجَّل
     // من جهاز فرع قد لا يظهر في المركز إلا بعد دقائق أو بعد «مزامنة الآن».
     docsCache.current = { core, br: brMap };
     setOps(composeOps(core, brMap));
@@ -3021,7 +3025,7 @@ function PlatformApp() {
         if (latest && latest !== mine && !stop) setUpdateReady(true);
       } catch (e) { /* غير متصل — تجاهل */ }
     };
-    const t = setInterval(check, 90000);         // v30.0: كل ٩٠ ثانية (طلب صفحة صغيرة ~2KB)
+    const t = setInterval(check, 90000);         // v30.0: كل 90 ثانية (طلب صفحة صغيرة ~2KB)
     const onFocus = () => check();
     window.addEventListener('focus', onFocus);
     const first = setTimeout(check, 9000);       // فحص أولي بعد التحميل
@@ -3118,7 +3122,7 @@ function PlatformApp() {
   useEffect(() => {
     if (boot !== 'ready') return;
     // v15.28: مع الاستماع اللحظي (الذي يوصل كل تغيير فور وقوعه) يكفي استطلاع احتياطي كل
-    // ٥ دقائق بدل ٤٥ ثانية — خفض قراءات الاستطلاع نحو ٧ أضعاف دون أي تأثير على الفورية.
+    // 5 دقائق بدل 45 ثانية — خفض قراءات الاستطلاع نحو 7 أضعاف دون أي تأثير على الفورية.
     const t = setInterval(() => refresh(true), live ? 300000 : 8000);
     // v27.1: العودة إلى التبويب = مزامنة فورية (الاستطلاع الدوري يتوقف والتبويب مخفي، فقد يتأخر ما سجّلته الفروع)
     const onVis = () => { if (typeof document !== 'undefined' && !document.hidden) refresh(true); };
@@ -3714,7 +3718,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark"><MizanMark size={24} /></span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : HR_TABS.includes(safeTab) ? 'الموارد البشرية' : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v38.0</span>
+            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v38.1</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -3731,7 +3735,7 @@ function PlatformApp() {
               <button className="btn sm gh synctime" onClick={() => refresh(false)} title="مزامنة الآن">
                 <RefreshCw size={14} className={syncing ? 'spin' : ''} />
                 <span className="num tt" style={{ fontSize: 10, color: 'var(--faint)' }}>
-                  {lastSync ? lastSync.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '--:--'}
+                  {lastSync ? lastSync.toLocaleTimeString(NUM_LOCALE, { hour: '2-digit', minute: '2-digit' }) : '--:--'}
                 </span>
               </button>
               <button className="btn sm gh" title={mode === 'dark' ? 'التبديل إلى الوضع النهاري' : 'التبديل إلى الوضع الليلي'} onClick={() => setMode(m => { const n = m === 'dark' ? 'light' : 'dark'; try { localStorage.setItem('rms8:mode', n); } catch { } return n; })} style={{ fontSize: 15 }}>{mode === 'dark' ? '🌞' : '🌙'}</button>
@@ -4226,12 +4230,12 @@ function MfaPanel({ me, required, inline, onDone, onLogout, say, info, reload })
         <div className="row" style={{ gap: 8 }}><button className="btn" disabled={busy} onClick={sendV}>إرسال رابط التوثيق</button><button className="btn pri" disabled={busy} onClick={checkV}>تحققت — متابعة</button></div>
       </>}
       {step === 'scan' && sec && <>
-        <div style={{ fontSize: 12.5 }}>١) افتح تطبيق المصادقة واختر «إضافة حساب» ثم امسح الرمز:</div>
+        <div style={{ fontSize: 12.5 }}>1) افتح تطبيق المصادقة واختر «إضافة حساب» ثم امسح الرمز:</div>
         <div style={{ fontSize: 11, color: 'var(--amber)' }}>إن كان في التطبيق حساب «ميزان» من محاولة سابقة فاحذفه أولًا — كل محاولة تولّد رمزًا جديدًا.</div>
         <div style={{ ...box, display: 'grid', placeItems: 'center', background: '#fff' }} dangerouslySetInnerHTML={{ __html: qrSvg(sec.url, { ecl: 1, px: 190 }) }} />
         <div style={box}><div style={{ fontSize: 11, color: 'var(--dim)' }}>أو أدخل هذا المفتاح يدويًا — <b>واحفظه في مكان آمن</b>: به تعيد إضافة الحساب لهاتف جديد إن فقدت هاتفك</div>
           <div className="num" style={{ direction: 'ltr', fontSize: 15, fontWeight: 800, letterSpacing: 1, marginTop: 6, wordBreak: 'break-all' }}>{keyFmt(sec.key)}</div></div>
-        <div style={{ fontSize: 12.5 }}>٢) اكتب الرمز الظاهر في التطبيق:</div>
+        <div style={{ fontSize: 12.5 }}>2) اكتب الرمز الظاهر في التطبيق:</div>
         <input className="inp n" inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000" style={{ fontSize: 22, letterSpacing: 6, textAlign: 'center', direction: 'ltr' }}
           value={code} onChange={e => { setCode(e.target.value.replace(/\D/g, '').slice(0, 6)); setErr(''); }} onKeyDown={e => e.key === 'Enter' && finish()} />
         <button className="btn pri" disabled={busy || code.length !== 6} onClick={finish}>{busy ? <RefreshCw size={14} className="spin" /> : <Check size={14} />}تأكيد التفعيل</button>
@@ -4350,7 +4354,7 @@ function LockScreen({ me, theme, mode, onUnlock, onLogout }) {
     setBusy(false);
   };
   // v16.3 — بطلب المالك: لوحة القفل تستجيب للوحة المفاتيح مباشرة (مع بقاء الفأرة):
-  // أرقام 0-9 (ومكافئاتها العربية ٠-٩ ولوحة الأرقام الجانبية) + Backspace للمسح + Enter للفتح.
+  // أرقام 0-9 (ومكافئاتها العربية 0-9 ولوحة الأرقام الجانبية) + Backspace للمسح + Enter للفتح.
   useEffect(() => {
     const AR = '٠١٢٣٤٥٦٧٨٩';
     const onKey = (e) => {
@@ -4474,7 +4478,7 @@ function Gate({ css, org, onLogin, online, theme, notice }) {
   const pinKey = (d) => { setErr(''); if (d === 'del') setPin(p => p.slice(0, -1)); else setPin(p => (p.length < 6 ? p + d : p)); };
 
   // v16.3 — بوابة «الدخول السريع برقم سري» تستجيب للوحة المفاتيح مباشرة (والفأرة متاحة كما هي):
-  // أرقام 0-9/٠-٩/لوحة الأرقام + Backspace للمسح + Enter للدخول. الكتابة داخل حقل البريد لا تُلتقط.
+  // أرقام 0-9/0-9/لوحة الأرقام + Backspace للمسح + Enter للدخول. الكتابة داخل حقل البريد لا تُلتقط.
   useEffect(() => {
     if (mode !== 'pin') return;
     const AR = '٠١٢٣٤٥٦٧٨٩';
@@ -4611,7 +4615,7 @@ function Field({ label, children, style }) {
   return <div className="fld" style={style}><label className="lbl">{label}</label>{children}</div>;
 }
 
-// حقل مالي ذكي: تنسيق حيّ (١٬٢٥٠٫٠٠) + دعم عدة مبالغ في حقل واحد عند sum
+// حقل مالي ذكي: تنسيق حيّ (1,250.00) + دعم عدة مبالغ في حقل واحد عند sum
 function MoneyField({ value, onChange, sum, placeholder, autoFocus, style }) {
   const [raw, setRaw] = useState(() => (value ? money(value) : ''));
   const [focused, setFocused] = useState(false);
@@ -5206,7 +5210,7 @@ function DailyBranchReport({ org, scoped, myBranches, onClose }) {
           <div class="co-m">الرقم الضريبي: ${co.taxNumber || '—'} · السجل التجاري: ${co.commercialReg || '—'}</div></div></div>
         <div class="doc-title">تقرير الإغلاق اليومي المجمّع للفروع</div>
         <div class="doc-sub">${arDate(date)} · عدد الفروع: ${dayClosings.length}</div>
-        <div class="doc-sub dim">تاريخ التصدير: ${new Date().toLocaleString('ar-SA-u-nu-latn')}</div>
+        <div class="doc-sub dim">تاريخ التصدير: ${arDT(new Date())}</div>
       </div>
       <div class="kpis">
         <div class="kpi"><span>إجمالي الإيرادات</span><b class="brass">${m(T.rev)} ر.س</b></div>
@@ -6069,7 +6073,7 @@ function SmartPurchasing({ org, ops, me, commit, commitOrg, say }) {
           </div>
         </div>
 
-        <div className="note">💡 <b>حد الطلب</b> (نقطة إعادة الطلب): عند وصول المخزون إليه أو دونه يُقترَح الطلب. <b>الكمية المقترحة</b> = الحد الأعلى − المخزون (أو ضعف حد الطلب إن لم تحدّد أعلى). <b>الاستهلاك/اليوم</b> وأيام التغطية من حركات الصرف آخر ٣٠ يومًا. آخر سعر من أوامر الشراء السابقة. عدّل الحدود واحفظها لتُحسب تلقائيًا.</div>
+        <div className="note">💡 <b>حد الطلب</b> (نقطة إعادة الطلب): عند وصول المخزون إليه أو دونه يُقترَح الطلب. <b>الكمية المقترحة</b> = الحد الأعلى − المخزون (أو ضعف حد الطلب إن لم تحدّد أعلى). <b>الاستهلاك/اليوم</b> وأيام التغطية من حركات الصرف آخر 30 يومًا. آخر سعر من أوامر الشراء السابقة. عدّل الحدود واحفظها لتُحسب تلقائيًا.</div>
       </>}
     </div>
   );
@@ -6136,7 +6140,7 @@ function CashFlow13({ org, ops, me, scoped, theme, commitOrg, say }) {
     <div className="grid" style={{ gap: 14 }}>
       <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
         <div>
-          <h2 style={{ fontSize: 17 }}>التدفق النقدي المتدحرج — ١٣ أسبوعًا</h2>
+          <h2 style={{ fontSize: 17 }}>التدفق النقدي المتدحرج — 13 أسبوعًا</h2>
           <div style={{ fontSize: 12, color: 'var(--dim)' }}>توقّع النقد أسبوعًا بأسبوع لتكتشف فجوات السيولة قبل وقوعها</div>
         </div>
         <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
@@ -6149,8 +6153,8 @@ function CashFlow13({ org, ops, me, scoped, theme, commitOrg, say }) {
         <div className="card-t" style={{ marginBottom: 10 }}><Settings size={15} color="var(--brass)" />الافتراضات (اتركها فارغة لاستخدام المبدئي من بياناتك)</div>
         <div className="grid g3" style={{ gap: 10 }}>
           {F('النقد الابتدائي', 'startCash', money(cash0), 'رصيدك النقدي الحالي')}
-          {F('مبيعات أسبوعية متوقعة', 'wkSales', money(wkRevDef), 'متوسط آخر ٨ أسابيع')}
-          {F('مصروفات تشغيلية أسبوعية', 'wkOpex', money(wkExpDef), 'متوسط آخر ٨ أسابيع')}
+          {F('مبيعات أسبوعية متوقعة', 'wkSales', money(wkRevDef), 'متوسط آخر 8 أسابيع')}
+          {F('مصروفات تشغيلية أسبوعية', 'wkOpex', money(wkExpDef), 'متوسط آخر 8 أسابيع')}
           {F('رواتب شهرية', 'payroll', money(payrollDef), 'مرّة كل شهر')}
           {F('التزامات ثابتة شهرية', 'fixed', '0', 'إيجار ونحوه — مرّة كل شهر')}
           {F('أسابيع تحصيل/سداد الذمم', 'colWeeks', '4', 'توزيع الذمم المدينة/الدائنة')}
@@ -6160,8 +6164,8 @@ function CashFlow13({ org, ops, me, scoped, theme, commitOrg, say }) {
 
       <div className="grid g3">
         <Kpi label="أدنى رصيد نقدي متوقّع" value={money(minBal)} sub={minBal < 0 ? 'عجز متوقّع!' : 'يبقى موجبًا'} icon={AlertTriangle} color={minBal < 0 ? '#D9544D' : minBal < startCash * 0.25 ? '#E0A458' : '#4FB286'} />
-        <Kpi label="أسابيع العجز (رصيد سالب)" value={String(gapCount)} sub={gapCount ? 'تحتاج تدبير سيولة' : 'لا فجوات خلال ١٣ أسبوعًا'} icon={CalendarDays} color={gapCount ? '#D9544D' : '#4FB286'} />
-        <Kpi label="الرصيد بعد ١٣ أسبوعًا" value={money(endBal)} sub={(endBal >= startCash ? 'أعلى من البداية' : 'أقل من البداية') + ' (' + money(startCash) + ')'} icon={Banknote} color={endBal >= 0 ? '#4FB286' : '#D9544D'} />
+        <Kpi label="أسابيع العجز (رصيد سالب)" value={String(gapCount)} sub={gapCount ? 'تحتاج تدبير سيولة' : 'لا فجوات خلال 13 أسبوعًا'} icon={CalendarDays} color={gapCount ? '#D9544D' : '#4FB286'} />
+        <Kpi label="الرصيد بعد 13 أسبوعًا" value={money(endBal)} sub={(endBal >= startCash ? 'أعلى من البداية' : 'أقل من البداية') + ' (' + money(startCash) + ')'} icon={Banknote} color={endBal >= 0 ? '#4FB286' : '#D9544D'} />
       </div>
 
       <div className="card">
@@ -6200,7 +6204,7 @@ function CashFlow13({ org, ops, me, scoped, theme, commitOrg, say }) {
         </div>
       </div>
 
-      <div className="note">💡 تنبؤ استرشادي متدحرج من اليوم. المبيعات والمصروفات الأسبوعية مبدئيًا من متوسط آخر ٨ أسابيع، والذمم من أعمارها، والرواتب والثابتة عند بداية كل شهر — عدّل أيّ افتراض ليعكس واقعك. راقب <b>أدنى رصيد</b> و<b>أسابيع العجز</b> لتدبّر السيولة مبكرًا.</div>
+      <div className="note">💡 تنبؤ استرشادي متدحرج من اليوم. المبيعات والمصروفات الأسبوعية مبدئيًا من متوسط آخر 8 أسابيع، والذمم من أعمارها، والرواتب والثابتة عند بداية كل شهر — عدّل أيّ افتراض ليعكس واقعك. راقب <b>أدنى رصيد</b> و<b>أسابيع العجز</b> لتدبّر السيولة مبكرًا.</div>
     </div>
   );
 }
@@ -6426,9 +6430,9 @@ function Scenario({ org, ops, me, scoped, theme, say }) {
         <div className="card">
           <div className="card-t" style={{ marginBottom: 10 }}><Compass size={15} color="var(--brass)" />روافع القرار</div>
           <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
-            <button className="btn sm gh" onClick={() => preset({ revD: '5' })}>رفع الأسعار ٥٪</button>
-            <button className="btn sm gh" onClick={() => preset({ varD: '-10' })}>خفض المواد ١٠٪</button>
-            <button className="btn sm gh" onClick={() => preset({ fixD: '5000' })}>توظيف (+٥٬٠٠٠ ثابت)</button>
+            <button className="btn sm gh" onClick={() => preset({ revD: '5' })}>رفع الأسعار 5%</button>
+            <button className="btn sm gh" onClick={() => preset({ varD: '-10' })}>خفض المواد 10%</button>
+            <button className="btn sm gh" onClick={() => preset({ fixD: '5000' })}>توظيف (+5,000 ثابت)</button>
             <button className="btn sm gh" onClick={() => preset({ brRev: String(r2(rev0)), brFix: '10000' })}>فرع مماثل جديد</button>
           </div>
           <div className="grid g3" style={{ gap: 10 }}>
@@ -6593,7 +6597,7 @@ function Scorecard({ org, ops, me, scoped, commitOrg, say, setTab }) {
         </div>
       </div>
 
-      <div className="note">🎯 القيمة الحالية تُحتسب من قيود الشهر المختار؛ الهدف تحدّده أنت. الإشارة: <b style={{ color: '#4FB286' }}>أخضر</b> محقّق · <b style={{ color: '#E0A458' }}>أصفر</b> قريب (ضمن ١٥٪) · <b style={{ color: '#D9544D' }}>أحمر</b> بعيد. نِسَب الطعام والعمالة تتبع تصنيف التكاليف في «تحليل التعادل».</div>
+      <div className="note">🎯 القيمة الحالية تُحتسب من قيود الشهر المختار؛ الهدف تحدّده أنت. الإشارة: <b style={{ color: '#4FB286' }}>أخضر</b> محقّق · <b style={{ color: '#E0A458' }}>أصفر</b> قريب (ضمن 15%) · <b style={{ color: '#D9544D' }}>أحمر</b> بعيد. نِسَب الطعام والعمالة تتبع تصنيف التكاليف في «تحليل التعادل».</div>
     </div>
   );
 }
@@ -6635,7 +6639,7 @@ function BreakEven({ org, ops, me, scoped, setTab, theme, commitOrg, say }) {
   const foodPct = revenue > 0.004 ? r2(food / revenue * 100) : 0;
   const laborPct = revenue > 0.004 ? r2(labor / revenue * 100) : 0;
   const primePct = r2(foodPct + laborPct);
-  const monName = (() => { try { return new Date(month + '-01').toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' }); } catch { return month; } })();
+  const monName = (() => { try { return new Date(month + '-01').toLocaleDateString('ar-SA-u-ca-gregory-nu-latn', { month: 'long', year: 'numeric' }); } catch { return month; } })();
 
   const hi = Math.max(revenue, breakEven, 1000) * 1.5;
   const varRatio = revenue > 0 ? variableTotal / revenue : 0;
@@ -6670,7 +6674,7 @@ function BreakEven({ org, ops, me, scoped, setTab, theme, commitOrg, say }) {
         <div className="grid g3">
           <Kpi label="تكلفة الطعام / المواد" value={foodPct.toFixed(1) + '%'} sub={money(food) + ' من الإيراد' + (foodPct > 35 ? ' · مرتفعة' : '')} icon={Store} color={foodPct <= 35 ? '#4FB286' : '#E0A458'} />
           <Kpi label="تكلفة العمالة" value={laborPct.toFixed(1) + '%'} sub={money(labor) + ' رواتب وتأمينات'} icon={Users} color={laborPct <= 30 ? '#4FB286' : '#E0A458'} />
-          <Kpi label="التكلفة الأولية (طعام + عمالة)" value={primePct.toFixed(1) + '%'} sub={primePct <= 60 ? 'ضمن المستهدف (≤60٪)' : 'أعلى من المستهدف'} icon={Landmark} color={primePct <= 60 ? '#4FB286' : primePct <= 65 ? '#E0A458' : '#D9544D'} />
+          <Kpi label="التكلفة الأولية (طعام + عمالة)" value={primePct.toFixed(1) + '%'} sub={primePct <= 60 ? 'ضمن المستهدف (≤60%)' : 'أعلى من المستهدف'} icon={Landmark} color={primePct <= 60 ? '#4FB286' : primePct <= 65 ? '#E0A458' : '#D9544D'} />
         </div>
 
         <div className="card">
@@ -6725,8 +6729,8 @@ function BreakEven({ org, ops, me, scoped, setTab, theme, commitOrg, say }) {
         </div>
 
         <div className="note">
-          <b>كيف تُقرأ؟</b> نقطة التعادل = التكاليف الثابتة ÷ نسبة هامش المساهمة (١ − نسبة التكاليف المتغيّرة). فوقها تربح، وتحتها تخسر.
-          <b> التكلفة الأولية</b> (طعام + عمالة) أهم مؤشر مطاعم — استهدِفها ≤ ٦٠٪. المبدئيات: العمولات والمواد <b>متغيّرة</b>، والرواتب والإيجار والإهلاك <b>ثابتة</b> — بدّل أيّها بضغطة واحفظ. الأرقام من قيود الشهر المختار.
+          <b>كيف تُقرأ؟</b> نقطة التعادل = التكاليف الثابتة ÷ نسبة هامش المساهمة (1 − نسبة التكاليف المتغيّرة). فوقها تربح، وتحتها تخسر.
+          <b> التكلفة الأولية</b> (طعام + عمالة) أهم مؤشر مطاعم — استهدِفها ≤ 60%. المبدئيات: العمولات والمواد <b>متغيّرة</b>، والرواتب والإيجار والإهلاك <b>ثابتة</b> — بدّل أيّها بضغطة واحفظ. الأرقام من قيود الشهر المختار.
         </div>
       </>}
     </div>
@@ -7374,7 +7378,7 @@ function ReportBuilder({ org, ops, me, myBranches, scoped, commitOrg, say, theme
                     </tr>
                   </tbody>
                 </table>
-                {rows.length > 500 && <div className="note" style={{ marginTop: 8 }}>عُرض أول ٥٠٠ سطر — صدّر إلى Excel/CSV لكامل البيانات (الإجمالي أعلاه يشمل كل الأسطر).</div>}
+                {rows.length > 500 && <div className="note" style={{ marginTop: 8 }}>عُرض أول 500 سطر — صدّر إلى Excel/CSV لكامل البيانات (الإجمالي أعلاه يشمل كل الأسطر).</div>}
               </div>
             )}
       </div>
@@ -7859,26 +7863,26 @@ function AlertsCenter({ org, ops, me, myBranches, scoped, setTab, openAcctView, 
     else if (dl <= docRemind) push('mid', 'setup', 'وثيقة تنتهي قريبًا: ' + DOC_LABEL(dc.type), (dc.number ? dc.number + ' · ' : '') + 'تنتهي في ' + dc.expiryDate + ' (' + dl + ' يومًا).', { label: 'الوثائق', go: () => setTab('docs') });
   });
 
-  // م٩ (v26.0) — تنبيهات الموارد البشرية (م١–م٨) ضمن فروعي
+  // م9 (v26.0) — تنبيهات الموارد البشرية (م1–م8) ضمن فروعي
   try {
     const hrBranches = (myBranches || []).filter(b => b.isActive !== false);
     const hrIds = hrBranches.map(b => b.id);
     const hrEmps = (org.employees || []).filter(e => e.isActive !== false && hrIds.includes(e.branchId));
-    // مستندات الموظفين (م١)
+    // مستندات الموظفين (م1)
     let expDocs = 0, soonDocs = 0;
     hrEmps.forEach(e => (e.docs || []).forEach(dc => { if (!dc.expiryDate) return; const dl = dd(td, dc.expiryDate); if (dl < 0) expDocs++; else if (dl <= 30) soonDocs++; }));
     if (expDocs) push('high', 'hr', expDocs + ' مستند موظف منتهي الصلاحية', 'هوية/إقامة/عقد/شهادة انتهت — جدّدها من البيانات الرئيسية.', { label: 'البيانات الرئيسية', go: () => setTab('people') });
     if (soonDocs) push('mid', 'hr', soonDocs + ' مستند موظف ينتهي خلال 30 يومًا', 'راجع مستندات الموظفين قبل انتهائها.', { label: 'البيانات الرئيسية', go: () => setTab('people') });
-    // غياب متكرر هذا الشهر (م٣/م٤)
+    // غياب متكرر هذا الشهر (م3/م4)
     const repeatAbs = hrEmps.map(e => ({ e, st: hrEmpStats(org, ops, e, ym + '-01', ym + '-31') })).filter(x => x.st.absent >= 3);
     if (repeatAbs.length) push('high', 'hr', repeatAbs.length + ' موظف بغياب متكرر هذا الشهر (3 ورديات فأكثر)', repeatAbs.slice(0, 4).map(x => x.e.name + ' (' + x.st.absent + ')').join('، ') + (repeatAbs.length > 4 ? '…' : ''), { label: 'الأداء والتقييم', go: () => setTab('kpi') });
-    // طلبات معلّقة (م٤/م٨)
+    // طلبات معلّقة (م4/م8)
     const pendRw = (ops.rewardRequests || []).filter(r => hrIds.includes(r.branchId) && r.status === 'pending').length;
     if (pendRw) push('mid', 'hr', pendRw + ' طلب مكافأة/جزاء بانتظار الاعتماد', 'لا أثر على الرواتب حتى يُعتمد.', { label: 'المكافآت', go: () => setTab('rewards') });
     const pendSw = (ops.shiftSwapRequests || []).filter(r => hrIds.includes(r.branchId) && r.status === 'pending').length;
     const pendTr = (ops.branchTransferRequests || []).filter(r => hrIds.includes(r.branchId) && r.status === 'pending').length;
     if (pendSw + pendTr) push('mid', 'hr', (pendSw ? pendSw + ' طلب تبديل وردية' : '') + (pendSw && pendTr ? ' و' : '') + (pendTr ? pendTr + ' طلب نقل موظف' : '') + ' بانتظار البتّ', 'راجعها في محرّك الورديات.', { label: 'محرّك الورديات', go: () => setTab('shiftengine') });
-    // ورديات بلا تغطية غدًا (م٤)
+    // ورديات بلا تغطية غدًا (م4)
     const tmr = new Date(td + 'T00:00:00'); tmr.setDate(tmr.getDate() + 1); const tds = isoD(tmr); const twd = tmr.getDay();
     const addD = (ds, n) => { const d = new Date(ds + 'T00:00:00'); d.setDate(d.getDate() + n); return isoD(d); };
     const uncovered = [];
@@ -7889,23 +7893,23 @@ function AlertsCenter({ org, ops, me, myBranches, scoped, setTab, openAcctView, 
       });
     });
     if (uncovered.length) push('mid', 'hr', uncovered.length + ' وردية بلا تغطية غدًا', uncovered.slice(0, 3).join('، ') + (uncovered.length > 3 ? '…' : ''), { label: 'التعيين الأسبوعي', go: () => setTab('shiftengine') });
-    // موظفون بلا PIN ولا بطاقة (م٣)
+    // موظفون بلا PIN ولا بطاقة (م3)
     const noPin = hrEmps.filter(e => !(ops.hrPins || []).some(p => p.employeeId === e.id && (p.pinHash || p.badgeHash))).length;
     if (noPin) push('low', 'hr', noPin + ' موظف بلا رقم PIN ولا بطاقة QR', 'لن يستطيعوا تسجيل الحضور من جهاز الفرع.', { label: 'أرقام PIN', go: () => setTab('attendance') });
-    // م١٠ (v27.0) — إقرارات/إشعارات بانتظار توقيع الموظف تجاوزت مهلة التذكير (hrPolicies.signReminderDays)
+    // م10 (v27.0) — إقرارات/إشعارات بانتظار توقيع الموظف تجاوزت مهلة التذكير (hrPolicies.signReminderDays)
     const overdueSign = overdueSignDocs(org, ops, hrIds, td);
     if (overdueSign.length) {
       const sd = Number((org.hrPolicies || {}).signReminderDays != null ? org.hrPolicies.signReminderDays : defaultHrPolicies().signReminderDays) || 0;
       push('mid', 'hr', overdueSign.length + ' إقرار/إشعار بانتظار توقيع الموظف منذ أكثر من ' + sd + ' أيام', [...new Set(overdueSign.map(x => x.employeeName))].slice(0, 4).join('، ') + (overdueSign.length > 4 ? '…' : '') + ' — يوقّعون من كشك الفرع بعد التحقق بـPIN.', { label: 'التوقيع الإلكتروني', go: () => setTab('esign') });
     }
-    // م٢٠ (v27.6) — إجراءات تأديبية بانتظار الاعتماد + مقترحات خطط تحسين الأداء
+    // م20 (v27.6) — إجراءات تأديبية بانتظار الاعتماد + مقترحات خطط تحسين الأداء
     const pendCorr = (ops.hrCorrective || []).filter(c => hrIds.includes(c.branchId) && c.status === 'pending').length;
     if (pendCorr) push('mid', 'hr', pendCorr + ' إجراء تأديبي بانتظار الاعتماد المركزي', 'راجعها في الإجراءات التصحيحية.', { label: 'الإجراءات التصحيحية', go: () => setTab('corrective') });
     const _polC = { ...defaultHrPolicies(), ...(org.hrPolicies || {}) }; const _pipTh = Number(_polC.pipTriggerScore) || 60;
     const _actPip = new Set((ops.hrPips || []).filter(p => p.status === 'active').map(p => p.employeeId));
     const _lowN = hrEmps.filter(e => { const sc = hrScoreFor(org, ops, e, td.slice(0, 7)).score; return sc != null && sc < _pipTh && !_actPip.has(e.id); }).length;
     if (_lowN) push('low', 'hr', _lowN + ' موظف بدرجة أداء دون العتبة (' + _pipTh + ') بلا خطة تحسين نشطة', 'افتح خطة تحسين أداء أو راجع إجراءاتهم.', { label: 'خطط تحسين الأداء', go: () => setTab('corrective') });
-    // م١٩ (v27.7) — شهادات منتهية/قريبة + نقص تدريب إلزامي
+    // م19 (v27.7) — شهادات منتهية/قريبة + نقص تدريب إلزامي
     const _progs = (org.trainingPrograms && org.trainingPrograms.length) ? org.trainingPrograms : defaultTrainingPrograms();
     const _trAlertDays = Number((org.hrPolicies || {}).trainingExpiryAlertDays) || 30;
     const _trRecs = (ops.hrTraining || []).filter(r => hrIds.includes(r.branchId));
@@ -7998,7 +8002,7 @@ function AlertsCenter({ org, ops, me, myBranches, scoped, setTab, openAcctView, 
         )}
       </div>
 
-      <div className="note">التنبيهات مشتقّة حيًّا من بياناتك وتختفي تلقائيًا عند معالجة سببها — لا حاجة لإغلاقها يدويًا. العتبات المعتمدة: تأخّر الموردين ٩٠ يومًا، أي عجز صندوق خلال أسبوع، المخزون تحت حد الأمان المعرّف لكل صنف، وتقادم التسوية البنكية بعد ٣٠ يومًا.</div>
+      <div className="note">التنبيهات مشتقّة حيًّا من بياناتك وتختفي تلقائيًا عند معالجة سببها — لا حاجة لإغلاقها يدويًا. العتبات المعتمدة: تأخّر الموردين 90 يومًا، أي عجز صندوق خلال أسبوع، المخزون تحت حد الأمان المعرّف لكل صنف، وتقادم التسوية البنكية بعد 30 يومًا.</div>
     </div>
   );
 }
@@ -8367,7 +8371,7 @@ function posReceiptHtml(org, o, br) {
   .tot td{font-weight:800;font-size:13px;border-bottom:2px solid #000} .qr{text-align:center;margin-top:8px} .qr svg{width:34mm;height:34mm}</style></head><body>
   <h1>${_xe(co.name || '')}</h1><div class="c s">${_xe(br ? br.name : '')}${svat ? '<br>الرقم الضريبي: ' + _xe(svat) : ''}</div>
   <div class="c" style="font-weight:800;margin-top:6px">فاتورة ضريبية مبسّطة</div>
-  <div class="c s">رقم: ${_xe(o.no)} · ${_xe((o.at || '').slice(0, 10))} ${_xe(new Date(o.at).toLocaleTimeString('ar-SA-u-nu-latn', { hour: '2-digit', minute: '2-digit' }))}${o.channel === 'takeaway' ? ' · سفري' : o.channel === 'delivery' ? ' · توصيل' : o.channel === 'dinein' ? ' · محلي' : ''}</div>
+  <div class="c s">رقم: ${_xe(o.no)} · ${_xe((o.at || '').slice(0, 10))} ${_xe(new Date(o.at).toLocaleTimeString('ar-SA-u-ca-gregory-nu-latn', { hour: '2-digit', minute: '2-digit' }))}${o.channel === 'takeaway' ? ' · سفري' : o.channel === 'delivery' ? ' · توصيل' : o.channel === 'dinein' ? ' · محلي' : ''}</div>
   <table>${L}
   ${o.orderDisc ? `<tr><td colspan="2">${_xe((o.orderPromo || {}).name || 'خصم الفاتورة')}</td><td class="n">−${m(o.orderDisc)}</td></tr>` : ''}
   ${(o.manualDisc != null ? o.manualDisc : (o.lines || []).some(l => l.disc) ? 0 : o.disc) ? `<tr><td colspan="2">خصم${o.discReason ? ' (' + _xe(o.discReason) + ')' : ''}</td><td class="n">−${m(o.manualDisc != null ? o.manualDisc : o.disc)}</td></tr>` : ''}
@@ -8768,7 +8772,7 @@ function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
           <div className="tw"><table className="tb"><thead><tr><th>الفاتورة</th><th>الوقت</th><th>الأصناف</th><th style={{ textAlign: 'end' }}>المبلغ</th><th>نوع السداد</th><th></th></tr></thead><tbody>
             {list.map(o => <tr key={o.id} style={o.status === 'void' ? { opacity: .5 } : undefined}>
               <td className="num" style={{ fontSize: 11.5 }}>{o.no}{o.pending && <div><span className="badge b-amber" style={{ fontSize: 9.5 }}>لم تُرسل بعد</span></div>}{o.by && <div style={{ fontSize: 10, color: 'var(--faint)' }}>{o.by}</div>}</td>
-              <td className="num" style={{ fontSize: 11.5 }}>{new Date(o.at).toLocaleTimeString('ar-SA-u-nu-latn', { hour: '2-digit', minute: '2-digit' })}</td>
+              <td className="num" style={{ fontSize: 11.5 }}>{new Date(o.at).toLocaleTimeString('ar-SA-u-ca-gregory-nu-latn', { hour: '2-digit', minute: '2-digit' })}</td>
               <td style={{ fontSize: 12 }}>{(o.lines || []).map(l => l.name + (l.qty > 1 ? ' ×' + l.qty : '')).join('، ')}</td>
               <td style={{ textAlign: 'end' }}><b className="num">{money(o.total)}</b>{o.disc ? <div className="num" style={{ fontSize: 10, color: 'var(--mint)' }}>خصم {money(o.disc)}</div> : null}</td>
               <td style={{ fontSize: 11.5 }}>{o.status === 'void' ? <span className="badge b-rose">ملغاة: {o.voidReason}</span> : (o.payments || []).map((p, k) => <div key={k}><span className="badge b-dim">{payAr(p)}</span> <span className="num">{money(p.amount)}</span></div>)}{o.change ? <div className="num" style={{ fontSize: 10, color: 'var(--faint)' }}>الباقي {money(o.change)}</div> : null}</td>
@@ -8826,7 +8830,7 @@ function posShiftHtml(org, sh, allOs, br, kind) {
   ${st.loyEarned ? row('نقاط مكتسبة', st.loyEarned) : ''}${st.voidN ? row('فواتير ملغاة', st.voidN + ' · ' + m(st.voidAmt)) : ''}
   <tr class="sec"><td colspan="2">الدرج</td></tr>${row('النقد الافتتاحي', m(sh.openingCash || 0))}${row('النقد المتوقع', m(expected))}
   ${kind === 'Z' ? row('النقد المعدود', m(sh.counted)) + row('<b>الفرق</b>', '<b>' + m(sh.diff) + '</b>') : ''}</table>
-  <div style="margin-top:8px">${kind === 'Z' ? 'أغلقها: ' + _xe(sh.closedBy || '') + (sh.closeNote ? '<br>ملاحظة: ' + _xe(sh.closeNote) : '') : 'طُبع: ' + _xe(new Date().toLocaleString('ar-SA-u-nu-latn'))}</div></body></html>`;
+  <div style="margin-top:8px">${kind === 'Z' ? 'أغلقها: ' + _xe(sh.closedBy || '') + (sh.closeNote ? '<br>ملاحظة: ' + _xe(sh.closeNote) : '') : 'طُبع: ' + _xe(arDT(new Date()))}</div></body></html>`;
 }
 const posZHtml = (org, sh, os, br) => posShiftHtml(org, sh, os, br, 'Z');
 /* v34.1 — إضافة الأصناف وتسعيرها من نقطة البيع مباشرة (حين لا توجد أصناف بأسعار بيع) */
@@ -9639,7 +9643,7 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
   const counted = actual > 0 || zeroCashDay || !!f.zeroCashConfirmed; // لم يُجرد الصندوق بعد؟ لا نُظهر عجزاً وهمياً
   const vColor = !counted ? 'var(--faint)' : variance < 0 ? 'var(--rose)' : variance > 0 ? 'var(--mint)' : 'var(--faint)';
   const vStat = !counted
-    ? { c: 'var(--sky)', bg: 'rgba(91,147,196,.10)', bd: 'rgba(91,147,196,.40)', ic: '◔', t: 'أكمل جرد الصندوق (الخطوة ٣) لحساب الفرق' }
+    ? { c: 'var(--sky)', bg: 'rgba(91,147,196,.10)', bd: 'rgba(91,147,196,.40)', ic: '◔', t: 'أكمل جرد الصندوق (الخطوة 3) لحساب الفرق' }
     : variance === 0
       ? { c: 'var(--mint)', bg: 'rgba(79,178,134,.12)', bd: 'rgba(79,178,134,.45)', ic: '✔', t: 'الصندوق مطابق — لا يوجد ما يمنع الترحيل' }
       : variance < 0
@@ -11326,7 +11330,7 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
   const totalGEr = r2(sum(rows, r => r.gEr));
   const totalGosi = r2(totalGEmp + totalGEr);
 
-  // م١٠ (v27.0) — إقرارات استلام الراتب الموقَّعة إلكترونيًا (ops.hrSignDocs): تُصدر تلقائيًا مع تسجيل الصرف، ويوقّعها الموظف من كشك الفرع أو من هنا
+  // م10 (v27.0) — إقرارات استلام الراتب الموقَّعة إلكترونيًا (ops.hrSignDocs): تُصدر تلقائيًا مع تسجيل الصرف، ويوقّعها الموظف من كشك الفرع أو من هنا
   const slipDocOf = (empId) => (ops.hrSignDocs || []).find(d => d.docType === 'payslip' && d.month === month && d.employeeId === empId && d.status !== 'voided') || null;
   const slipDocs = rows.map(r => slipDocOf(r.e.id)).filter(Boolean);
   const slipSigned = slipDocs.filter(d => d.status === 'signed').length;
@@ -11344,7 +11348,7 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
   const musterSigCell = (r) => { const sd = slipDocOf(r.e.id); return sd && sd.status === 'signed' ? sigSvg(sd.sig, { width: 90 }) : (sd ? '<span style="font-size:9px;color:#999">بانتظار التوقيع</span>' : ''); };
 
   const printMuster = () => {
-    const monthName = new Date(month + '-01').toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' });
+    const monthName = new Date(month + '-01').toLocaleDateString('ar-SA-u-ca-gregory-nu-latn', { month: 'long', year: 'numeric' });
     const gc = gosiOn ? '<th>تأمينات</th>' : '';
     const rws = rows.map(r => `<tr><td>${r.e.name}</td><td>${(org.branches.find(b => b.id === r.e.branchId) || {}).name || ''}</td><td class="n">${money(r.e.baseSalary || 0)}</td><td class="n">${r.allow ? money(r.allow) : '—'}</td><td class="n">${r.bonus ? money(r.bonus) : '—'}</td><td class="n">${money(r.gross)}</td><td class="n">${r.draws ? money(r.draws) : '—'}</td><td class="n">${r.cuts ? money(r.cuts) : '—'}</td>${gosiOn ? `<td class="n">${r.gEmp ? money(r.gEmp) : '—'}</td>` : ''}<td class="n">${money(r.net)}</td><td style="width:100px;height:36px;text-align:center">${musterSigCell(r)}</td></tr>`).join('');
     const span = gosiOn ? 9 : 8;
@@ -11434,7 +11438,7 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
     const co = org.company || {};
     const b = org.branches.find(x => x.id === r.e.branchId);
     const m = (n) => money(n);
-    const monthName = new Date(month + '-01').toLocaleDateString('ar-EG', { month: 'long', year: 'numeric' });
+    const monthName = new Date(month + '-01').toLocaleDateString('ar-SA-u-ca-gregory-nu-latn', { month: 'long', year: 'numeric' });
     const adRows = r.ads.map(a => `<tr>
       <td>${arDate(a.date)}</td>
       <td>${['advance', 'salary_draw'].includes(a.type) ? 'سلفة/سحب' : a.type === 'overtime' ? 'عمل إضافي' : a.type === 'bonus' ? 'مكافأة' : 'خصم/جزاء'}</td>
@@ -11474,7 +11478,7 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
           <div><div class="co-n">${co.name || 'المنشأة'}</div>
           <div class="co-m">الرقم الضريبي: ${co.taxNumber || '—'} · س.تجاري: ${co.commercialReg || '—'}</div></div>
         </div>
-        <div style="text-align:left;font-size:11px;color:#888">تاريخ الإصدار<br><b>${new Date().toLocaleDateString('ar-EG')}</b></div>
+        <div style="text-align:left;font-size:11px;color:#888">تاريخ الإصدار<br><b>${arDate(today())}</b></div>
       </div>
       <div class="title">قسيمة راتب</div>
       <div class="sub">عن شهر ${monthName}</div>
@@ -11536,7 +11540,7 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
       fund: payFund   // v15.19: مصدر صرف الرواتب المختار (بنك 1201 أو خزينة رئيسية 1101)
     }));
     if (!entries.length) return say('لا صافي مستحق للصرف', 'no');
-    // م١٠ (v27.0): مع قيد الصرف تُصدر قسيمة إقرار استلام لكل موظف (تُكتب في مستند فرعه كي يوقّعها من كشك الفرع)
+    // م10 (v27.0): مع قيد الصرف تُصدر قسيمة إقرار استلام لكل موظف (تُكتب في مستند فرعه كي يوقّعها من كشك الفرع)
     const ok = await commit(d => ({ ...d, ledgerEntries: [...entries, ...(d.ledgerEntries || [])], hrSignDocs: [...buildPayslipSignDocs(rows, month, d.hrSignDocs || [], org.branches || [], me), ...(d.hrSignDocs || [])] }), {
       actionType: 'create', targetType: 'daily_closing', targetId: 'payout-' + month,
       title: 'سجّل صرف رواتب الشهر', details: month + ' · صافي ' + money(sum(rows.filter(r => r.net > 0), r => r.net)) + (payFund === '1101' ? ' · نقداً من الخزينة' : ' · من البنك') + (totalGosi > 0.004 ? ' · تأمينات ' + money(totalGosi) : '') + ' · صدرت ' + entries.length + ' قسيمة للتوقيع الإلكتروني'
@@ -11638,14 +11642,14 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
               <Field label="سعودي (قديم) — موظف %"><input className="inp n" inputMode="decimal" value={gosiD.saudiOldEmp} onChange={e => setGosiD(s => ({ ...s, saudiOldEmp: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
               <Field label="سعودي (قديم) — صاحب العمل %"><input className="inp n" inputMode="decimal" value={gosiD.saudiOldEr} onChange={e => setGosiD(s => ({ ...s, saudiOldEr: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
               <Field label="سقف الأجر الخاضع (ر.س)"><input className="inp n" inputMode="decimal" value={gosiD.ceiling} onChange={e => setGosiD(s => ({ ...s, ceiling: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
-              <Field label="سعودي (جديد ٢٠٢٤+) — موظف %"><input className="inp n" inputMode="decimal" value={gosiD.saudiNewEmp} onChange={e => setGosiD(s => ({ ...s, saudiNewEmp: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
-              <Field label="سعودي (جديد ٢٠٢٤+) — صاحب العمل %"><input className="inp n" inputMode="decimal" value={gosiD.saudiNewEr} onChange={e => setGosiD(s => ({ ...s, saudiNewEr: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+              <Field label="سعودي (جديد 2024+) — موظف %"><input className="inp n" inputMode="decimal" value={gosiD.saudiNewEmp} onChange={e => setGosiD(s => ({ ...s, saudiNewEmp: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+              <Field label="سعودي (جديد 2024+) — صاحب العمل %"><input className="inp n" inputMode="decimal" value={gosiD.saudiNewEr} onChange={e => setGosiD(s => ({ ...s, saudiNewEr: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
               <div />
               <Field label="غير سعودي — موظف %"><input className="inp n" inputMode="decimal" value={gosiD.nonSaudiEmp} onChange={e => setGosiD(s => ({ ...s, nonSaudiEmp: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
               <Field label="غير سعودي — صاحب العمل % (أخطار مهنية)"><input className="inp n" inputMode="decimal" value={gosiD.nonSaudiEr} onChange={e => setGosiD(s => ({ ...s, nonSaudiEr: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
             </div>
           )}
-          <div className="note" style={{ marginTop: 8 }}>تُحتسب على وعاء (الأساسي + السكن) بحدّ أقصى السقف، للموظفين المشمولين فقط. تُطبَّق النسبة حسب «جنسية» الموظف (تُحدَّد من «تعديل الراتب»): سعودي قديم/جديد بحسب تاريخ التعيين قبل/بعد ٣ يوليو ٢٠٢٤، أو غير سعودي (٢٪ أخطار مهنية على صاحب العمل فقط). عند عدم تحديد الجنسية تُستخدم نِسَب «سعودي (قديم)». القيم افتراضات نظامية حالية — راجِعها مع GOSI/مُدد. يظهر القيد في المحاسبة (5202/2202) عند تسجيل الصرف.</div>
+          <div className="note" style={{ marginTop: 8 }}>تُحتسب على وعاء (الأساسي + السكن) بحدّ أقصى السقف، للموظفين المشمولين فقط. تُطبَّق النسبة حسب «جنسية» الموظف (تُحدَّد من «تعديل الراتب»): سعودي قديم/جديد بحسب تاريخ التعيين قبل/بعد 3 يوليو 2024، أو غير سعودي (2% أخطار مهنية على صاحب العمل فقط). عند عدم تحديد الجنسية تُستخدم نِسَب «سعودي (قديم)». القيم افتراضات نظامية حالية — راجِعها مع GOSI/مُدد. يظهر القيد في المحاسبة (5202/2202) عند تسجيل الصرف.</div>
         </div>
       )}
 
@@ -11677,7 +11681,7 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
                   <td className="num" style={{ textAlign: 'end', color: 'var(--mint)', fontWeight: 700 }}>{money(r.net)}</td>
                   <td>
                     {!sd && (payoutPosted && r.net > 0 ? <span className="badge b-dim" title="أصدرها من زر «إصدار قسائم الشهر للتوقيع»">لم تُصدر</span> : <span style={{ color: 'var(--faint)' }}>—</span>)}
-                    {sd && sd.status === 'signed' && <span className="badge b-mint" title={'وُقِّع ' + new Date(sd.signedAt).toLocaleString('ar-SA') + (sd.pinVerified ? ' · PIN' : ' · بحضور ' + sd.witnessName)}><Check size={11} />موقَّع</span>}
+                    {sd && sd.status === 'signed' && <span className="badge b-mint" title={'وُقِّع ' + arDT(sd.signedAt) + (sd.pinVerified ? ' · PIN' : ' · بحضور ' + sd.witnessName)}><Check size={11} />موقَّع</span>}
                     {sd && sd.status === 'pending' && <span className="badge b-amber">بانتظار التوقيع</span>}
                   </td>
                   <td>
@@ -11846,7 +11850,7 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
                 <div className="note" style={{ gridColumn: 'span 2' }}>المسجّل في المخصص لهذا الموظف: <b className="num">{money(EOS.bal[emp.id] || 0)}</b> — يُستكمل حتى تاريخ الانتهاء ثم يُستخدم في الصرف، وأي فرق (كالاستقالة قبل سنتين) يُرد لحساب المصروف.</div>
               </div>}
               {EOS.paid[emp.id] && <div className="note" style={{ marginTop: 8 }}>صُرفت مخالصة هذا الموظف بتاريخ {EOS.paid[emp.id].date}.</div>}
-              <div className="note" style={{ marginTop: 8 }}>وفق نظام العمل: نصف شهر لكل سنة في الخمس الأولى وشهر كامل لما بعدها. الاستقالة: لا شيء تحت سنتين، الثلث حتى ٥ سنوات، الثلثان حتى ١٠، وكامل بعدها. تقدير استرشادي.</div>
+              <div className="note" style={{ marginTop: 8 }}>وفق نظام العمل: نصف شهر لكل سنة في الخمس الأولى وشهر كامل لما بعدها. الاستقالة: لا شيء تحت سنتين، الثلث حتى 5 سنوات، الثلثان حتى 10، وكامل بعدها. تقدير استرشادي.</div>
             </>}
           </Modal>
         );
@@ -11885,7 +11889,7 @@ function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
   );
 }
 
-// م٣ (v27.8) — بناء وصف وظيفي كامل قابل للطباعة من حقول الوظيفة
+// م3 (v27.8) — بناء وصف وظيفي كامل قابل للطباعة من حقول الوظيفة
 function positionJdHtml(pos, org) {
   const progs = (org.trainingPrograms && org.trainingPrograms.length) ? org.trainingPrograms : defaultTrainingPrograms();
   const posName = (id) => ((org.positions || []).find(p => p.id === id) || {}).title || '—';
@@ -12255,7 +12259,7 @@ function HrMaster({ org, ops, me, commitOrg, commit, say }) {
             <Field label="الصلاحيات (سطر لكل بند)"><textarea className="inp" rows={4} value={posF.authorities || ''} onChange={e => setPosF(f => ({ ...f, authorities: e.target.value }))} placeholder={'صرف مصروف نثري حتى حد\nاعتماد خصم للعميل حتى نسبة'} /></Field>
           </div>
           <Field label="القيود والمحظورات (سطر لكل بند)"><textarea className="inp" rows={3} value={posF.restrictions || ''} onChange={e => setPosF(f => ({ ...f, restrictions: e.target.value }))} placeholder={'لا يفتح الخزنة دون المدير\nلا يمنح خصمًا فوق الحد'} /></Field>
-          <Field label="التدريب والشهادات المطلوبة (ربط م١٩)">
+          <Field label="التدريب والشهادات المطلوبة (ربط م19)">
             <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
               {((org.trainingPrograms && org.trainingPrograms.length) ? org.trainingPrograms : defaultTrainingPrograms()).map(pr => (
                 <label key={pr.id} className="row" style={{ gap: 5, fontSize: 12.5, cursor: 'pointer' }}>
@@ -12386,7 +12390,7 @@ function HrMaster({ org, ops, me, commitOrg, commit, say }) {
   );
 }
 
-/* ================= م٢ — سياسات الموارد البشرية وأدوار الإشراف التنظيمي ================= */
+/* ================= م2 — سياسات الموارد البشرية وأدوار الإشراف التنظيمي ================= */
 const HR_WEEK_DAYS = [
   { v: 0, ar: 'الأحد' }, { v: 1, ar: 'الاثنين' }, { v: 2, ar: 'الثلاثاء' }, { v: 3, ar: 'الأربعاء' },
   { v: 4, ar: 'الخميس' }, { v: 5, ar: 'الجمعة' }, { v: 6, ar: 'السبت' },
@@ -12395,20 +12399,20 @@ const defaultHrPolicies = () => ({
   workHoursPerDay: 8, weeklyOffDays: [5], lateToleranceMinutes: 15,
   overtimeEnabled: false, overtimeMaxHoursPerMonth: 30, otBasis: 'actual',   // v37.0: المادة 107 — أجر الساعة الفعلي (الأساسي + البدلات) + 50% من أجر الساعة الأساسي (اعتماد المالك)
   scoreWeightsEnabled: false, scoreWeights: { attendance: 25, quality: 25, tasks: 25, discipline: 25 },
-  disciplineBase: 50, disciplinePointValue: 5, // م٧: محور الانضباط = القاعدة + (صافي نقاط الشهر × قيمة النقطة)، محصور 0–100
-  signReminderDays: 3, // م١٠ (v27.0): بعد كم يومًا من إصدار إقرار/إشعار غير موقَّع يظهر تنبيه في مركز التنبيهات
-  // م٢٠ (v27.6) — الإجراءات التأديبية (نظام العمل — افتراضات قابلة للضبط؛ لائحة المنشأة المسجّلة هي المرجع الملزم)
+  disciplineBase: 50, disciplinePointValue: 5, // م7: محور الانضباط = القاعدة + (صافي نقاط الشهر × قيمة النقطة)، محصور 0–100
+  signReminderDays: 3, // م10 (v27.0): بعد كم يومًا من إصدار إقرار/إشعار غير موقَّع يظهر تنبيه في مركز التنبيهات
+  // م20 (v27.6) — الإجراءات التأديبية (نظام العمل — افتراضات قابلة للضبط؛ لائحة المنشأة المسجّلة هي المرجع الملزم)
   penaltyEraseDays: 180, fineCapDaysPerMonth: 5, chargeWindowDays: 30, objectionDays: 15, pipTriggerScore: 60,
   penaltySchedule: defaultPenaltySchedule(),
-  trainingExpiryAlertDays: 30, // م١٩ (v27.7): تنبيه قبل انتهاء الشهادة بعدد الأيام
-  roleKpiEnabled: false, roleKpiWeight: 20, // م١١ (v27.9): محور مؤشرات الدور — مُعطَّل افتراضيًا
+  trainingExpiryAlertDays: 30, // م19 (v27.7): تنبيه قبل انتهاء الشهادة بعدد الأيام
+  roleKpiEnabled: false, roleKpiWeight: 20, // م11 (v27.9): محور مؤشرات الدور — مُعطَّل افتراضيًا
 });
-// م٦ — قواعد النقاط التلقائية (مُعطَّلة افتراضيًا حتى يراجعها المالك ويفعّلها — قرار H/3 في hr-audit-m0)
+// م6 — قواعد النقاط التلقائية (مُعطَّلة افتراضيًا حتى يراجعها المالك ويفعّلها — قرار H/3 في hr-audit-m0)
 const defaultPointsRules = () => ({ enabled: false, onTime: 1, late: -1, absent: -3, taskDone: 1 });
-// م٨ — شرائح مكافآت تلقائية حسب درجة الأداء (م٧): مُعطَّلة افتراضيًا (قرار H/3)؛ تُولِّد طلبات مقترحة تمرّ بالاعتماد نفسه
+// م8 — شرائح مكافآت تلقائية حسب درجة الأداء (م7): مُعطَّلة افتراضيًا (قرار H/3)؛ تُولِّد طلبات مقترحة تمرّ بالاعتماد نفسه
 const defaultRewardTiers = () => ({ enabled: false, tiers: [{ minScore: 90, amount: 500 }, { minScore: 80, amount: 250 }] });
 // كود نافذة زمنية للمعاينة فقط — دالة تجزئة خفيفة متزامنة (ليست تشفيرًا فعليًا).
-// التحقّق الأمني الحقيقي عند تسجيل الحضور بمسح الرمز يُبنى في م٣ فوق نفس السرّ المخزَّن هنا.
+// التحقّق الأمني الحقيقي عند تسجيل الحضور بمسح الرمز يُبنى في م3 فوق نفس السرّ المخزَّن هنا.
 function hrHashStr(s) {
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = (h * 16777619) >>> 0; }
@@ -12506,7 +12510,7 @@ function HrPolicy({ org, me, commitOrg, say }) {
           <div className="grid g2">
             <Num label="ساعات الدوام القياسية يوميًا" value={pf.workHoursPerDay} onChange={v => setPf(f => ({ ...f, workHoursPerDay: v }))} />
             <Num label="سماحية التأخير (دقائق) قبل احتساب تأخير" value={pf.lateToleranceMinutes} onChange={v => setPf(f => ({ ...f, lateToleranceMinutes: v }))} />
-            <Num label="تنبيه بالإقرارات غير الموقَّعة بعد (أيام) من إصدارها" value={pf.signReminderDays} onChange={v => setPf(f => ({ ...f, signReminderDays: v }))} hint="م١٠ — إقرارات استلام الراتب وإشعارات المكافآت/الجزاءات التي لم يوقّعها الموظف من كشك الفرع" />
+            <Num label="تنبيه بالإقرارات غير الموقَّعة بعد (أيام) من إصدارها" value={pf.signReminderDays} onChange={v => setPf(f => ({ ...f, signReminderDays: v }))} hint="م10 — إقرارات استلام الراتب وإشعارات المكافآت/الجزاءات التي لم يوقّعها الموظف من كشك الفرع" />
           </div>
           <Field label="أيام الإجازة الأسبوعية الافتراضية">
             <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
@@ -12533,7 +12537,7 @@ function HrPolicy({ org, me, commitOrg, say }) {
               <input type="checkbox" checked={pf.scoreWeightsEnabled} onChange={e => setPf(f => ({ ...f, scoreWeightsEnabled: e.target.checked }))} />
               تفعيل أوزان الدرجة النهائية المقترحة (لمراحل التقييم والمكافآت القادمة — لا تُستخدم في أي احتساب حاليًا)
             </label>
-            <div className="note" style={{ margin: '6px 0 10px' }}>هذه الأوزان تمهيدية فقط لمراحل م٦-م٨ (دفتر النقاط، التقييم، المكافآت)، وتبقى معطّلة افتراضيًا حتى تراجعها وتفعّلها بنفسك. يجب أن يساوي مجموعها 100.</div>
+            <div className="note" style={{ margin: '6px 0 10px' }}>هذه الأوزان تمهيدية فقط لمراحل م6-م8 (دفتر النقاط، التقييم، المكافآت)، وتبقى معطّلة افتراضيًا حتى تراجعها وتفعّلها بنفسك. يجب أن يساوي مجموعها 100.</div>
             <div className="grid g2">
               <Num label="الحضور والانضباط" value={pf.scoreWeights?.attendance} onChange={v => setPf(f => ({ ...f, scoreWeights: { ...f.scoreWeights, attendance: v } }))} />
               <Num label="جودة الأداء" value={pf.scoreWeights?.quality} onChange={v => setPf(f => ({ ...f, scoreWeights: { ...f.scoreWeights, quality: v } }))} />
@@ -12550,7 +12554,7 @@ function HrPolicy({ org, me, commitOrg, say }) {
       {view === 'geo' && (
         <div className="card">
           <div className="card-t" style={{ marginBottom: 6 }}><Compass size={15} color="var(--brass)" />جيوفنس الحضور لكل فرع</div>
-          <div className="note" style={{ marginBottom: 10 }}>يحدّد هذا نطاق الموقع الجغرافي المسموح به لتسجيل الحضور من الفرع في مرحلة م٣ القادمة. اضبط إحداثيات مركز كل فرع ونصف قطر السماح بالأمتار.</div>
+          <div className="note" style={{ marginBottom: 10 }}>يحدّد هذا نطاق الموقع الجغرافي المسموح به لتسجيل الحضور من الفرع في مرحلة م3 القادمة. اضبط إحداثيات مركز كل فرع ونصف قطر السماح بالأمتار.</div>
           <div className="tw">
             <table className="tb">
               <thead><tr><th>الفرع</th><th>خط العرض</th><th>خط الطول</th><th>نصف القطر (م)</th><th /></tr></thead>
@@ -12582,7 +12586,7 @@ function HrPolicy({ org, me, commitOrg, say }) {
       {view === 'qr' && (
         <div className="card">
           <div className="card-t" style={{ marginBottom: 6 }}><QrCode size={15} color="var(--brass)" />رمز حضور الفرع (QR مدوَّر)</div>
-          <div className="note" style={{ marginBottom: 10 }}>كل فرع يحصل على سرّ خاص به يُولَّد منه رمز QR يتغيّر تلقائيًا كل عدة دقائق. هذه الشاشة تُجهِّز السرّ وتعرضه للمعاينة فقط — التحقّق الفعلي عند مسح الرمز لتسجيل حضور موظف يُبنى في مرحلة م٣ القادمة.</div>
+          <div className="note" style={{ marginBottom: 10 }}>كل فرع يحصل على سرّ خاص به يُولَّد منه رمز QR يتغيّر تلقائيًا كل عدة دقائق. هذه الشاشة تُجهِّز السرّ وتعرضه للمعاينة فقط — التحقّق الفعلي عند مسح الرمز لتسجيل حضور موظف يُبنى في مرحلة م3 القادمة.</div>
           <div className="tw">
             <table className="tb">
               <thead><tr><th>الفرع</th><th>الحالة</th><th>يتجدّد كل</th><th /></tr></thead>
@@ -12656,7 +12660,7 @@ function HrPolicy({ org, me, commitOrg, say }) {
                 </tbody>
               </table>
             </div>
-            <div className="note" style={{ marginTop: 8 }}>تسلسل الاعتماد هذا اختياري ولا يُستخدم في أي منطق حاليًا — يُستثمَر لاحقًا في مراحل التقييم واعتماد المكافآت/الجزاءات (م٧-م٨).</div>
+            <div className="note" style={{ marginTop: 8 }}>تسلسل الاعتماد هذا اختياري ولا يُستخدم في أي منطق حاليًا — يُستثمَر لاحقًا في مراحل التقييم واعتماد المكافآت/الجزاءات (م7-م8).</div>
           </div>
         </div>
       )}
@@ -12684,12 +12688,12 @@ function HrPolicy({ org, me, commitOrg, say }) {
 }
 
 /* ============================================================
-   م٣ — الحضور الموثَّق (Verified Attendance)
+   م3 — الحضور الموثَّق (Verified Attendance)
    بلا حساب دخول شخصي للموظف وبلا دخول مجهول (Anonymous Auth) وبلا أي
    تعديل على قواعد Firestore: التسجيل يتم فقط عبر جهاز الفرع المشترك
    (جلسة الكاشير/مدير الفرع المُصادَق عليها أصلاً)، برقم PIN خاص بكل
    موظف (مُجزَّأ SHA-256 عبر sha()) + تحقّق موقعي اختياري (جيوفنس الفرع
-   من م٢، عبر haversineMeters) يُسجَّل كعلَم امتثال بلا حجب العملية.
+   من م2، عبر haversineMeters) يُسجَّل كعلَم امتثال بلا حجب العملية.
    ============================================================ */
 function Attendance({ org, ops, me, myBranches, commit, say }) {
   const isCashier = me.role === 'cashier';
@@ -12753,7 +12757,7 @@ function Attendance({ org, ops, me, myBranches, commit, say }) {
   };
   const doCheck = async () => {
     if (!pinFor || !branch || busy) return;
-    if (!/^\d{4,6}$/.test(pinVal)) return say('أدخل رقم PIN المكوّن من ٤ إلى ٦ أرقام', 'no');
+    if (!/^\d{4,6}$/.test(pinVal)) return say('أدخل رقم PIN المكوّن من 4 إلى 6 أرقام', 'no');
     setBusy(true);
     const hash = await sha(pinVal);
     if (!pinHashOf(pinFor.id) || pinHashOf(pinFor.id) !== hash) {
@@ -12828,7 +12832,7 @@ function Attendance({ org, ops, me, myBranches, commit, say }) {
   const [np2, setNp2] = useState('');
   const savePin = async () => {
     if (!pinSetFor) return;
-    if (!/^\d{4,6}$/.test(np1)) return say('رقم PIN يجب أن يكون ٤ إلى ٦ أرقام', 'no');
+    if (!/^\d{4,6}$/.test(np1)) return say('رقم PIN يجب أن يكون 4 إلى 6 أرقام', 'no');
     if (np1 !== np2) return say('رقما PIN غير متطابقين', 'no');
     const hash = await sha(np1);
     await commit(d => { const prev = (d.hrPins || []).find(p => p.employeeId === pinSetFor.id) || {}; return { ...d, hrPins: [...(d.hrPins || []).filter(p => p.employeeId !== pinSetFor.id), { id: prev.id || uid('pin'), branchId: pinSetFor.branchId, employeeId: pinSetFor.id, badgeHash: prev.badgeHash || '', pinHash: hash, updatedAt: nowISO() }] }; },
@@ -12875,11 +12879,11 @@ function Attendance({ org, ops, me, myBranches, commit, say }) {
   // --- v26.1: حذف حدث حضور خاطئ (مدير الفرع/المركز) — بسبب موثَّق في سجل التدقيق ---
   const canFixLog = me.role === 'branch_manager' || (ROLES[me.role] || {}).scope === 'all';
   const delEvent = async (ev) => {
-    const reason = window.prompt('سبب حذف حدث «' + (ev.type === 'in' ? 'حضور' : 'انصراف') + '» لـ' + ev.employeeName + ' (' + new Date(ev.at).toLocaleString('ar-SA') + ')؟');
+    const reason = window.prompt('سبب حذف حدث «' + (ev.type === 'in' ? 'حضور' : 'انصراف') + '» لـ' + ev.employeeName + ' (' + arDT(ev.at) + ')؟');
     if (reason == null) return;
     if (!String(reason).trim()) return say('السبب إلزامي لحذف حدث حضور', 'no');
     const ok = await commit(d => ({ ...d, attendanceEvents: (d.attendanceEvents || []).filter(x => x.id !== ev.id) }),
-      { actionType: 'delete', targetType: 'attendance', targetId: ev.id, branchName: ev.branchName, title: 'حذف حدث حضور', details: ev.employeeName + ' · ' + (ev.type === 'in' ? 'حضور' : 'انصراف') + ' · ' + new Date(ev.at).toLocaleString('ar-SA') + ' — السبب: ' + String(reason).trim() });
+      { actionType: 'delete', targetType: 'attendance', targetId: ev.id, branchName: ev.branchName, title: 'حذف حدث حضور', details: ev.employeeName + ' · ' + (ev.type === 'in' ? 'حضور' : 'انصراف') + ' · ' + arDT(ev.at) + ' — السبب: ' + String(reason).trim() });
     if (ok) say('حُذف الحدث وسُجِّل السبب في التدقيق');
   };
   // --- سجل الحضور ---
@@ -12952,7 +12956,7 @@ function Attendance({ org, ops, me, myBranches, commit, say }) {
       {view === 'pin' && !isCashier && (
         <div className="card">
           <div className="card-t" style={{ marginBottom: 6 }}><ShieldCheck size={15} color="var(--brass)" />أرقام PIN للحضور</div>
-          <div className="note" style={{ marginBottom: 10 }}>رقم PIN من ٤ إلى ٦ أرقام، أو بطاقة QR شخصية تُطبع ويمسحها جهاز الفرع — كلاهما لتسجيل الحضور من جهاز الفرع فقط، لا لتسجيل الدخول للنظام. إعادة إصدار البطاقة تُلغي السابقة فورًا.</div>
+          <div className="note" style={{ marginBottom: 10 }}>رقم PIN من 4 إلى 6 أرقام، أو بطاقة QR شخصية تُطبع ويمسحها جهاز الفرع — كلاهما لتسجيل الحضور من جهاز الفرع فقط، لا لتسجيل الدخول للنظام. إعادة إصدار البطاقة تُلغي السابقة فورًا.</div>
           <div className="tw">
             <table className="tb">
               <thead><tr><th>الموظف</th><th>PIN</th><th>بطاقة QR</th><th /></tr></thead>
@@ -13001,7 +13005,7 @@ function Attendance({ org, ops, me, myBranches, commit, say }) {
               <tbody>
                 {logRows.map(ev => (
                   <tr key={ev.id}>
-                    <td style={{ fontSize: 12 }}>{new Date(ev.at).toLocaleString('ar-SA')}</td>
+                    <td style={{ fontSize: 12 }}>{arDT(ev.at)}</td>
                     <td style={{ fontWeight: 600, fontSize: 12.5 }}>{ev.employeeName}</td>
                     <td style={{ fontSize: 12 }}>{ev.branchName}</td>
                     <td><span className={'badge ' + (ev.type === 'in' ? 'b-mint' : 'b-amber')}>{ev.type === 'in' ? 'حضور' : 'انصراف'}</span></td>
@@ -13050,7 +13054,7 @@ function Attendance({ org, ops, me, myBranches, commit, say }) {
             <button className="btn pri" onClick={savePin}><Check size={14} />حفظ</button>
           </>}>
           <div className="grid" style={{ gap: 10 }}>
-            <Field label="رقم PIN الجديد (٤-٦ أرقام)">
+            <Field label="رقم PIN الجديد (4-6 أرقام)">
               <input className="inp" type="password" inputMode="numeric" maxLength={6} autoFocus value={np1} onChange={e => setNp1(e.target.value.replace(/\D/g, ''))} placeholder="••••" />
             </Field>
             <Field label="تأكيد رقم PIN">
@@ -13064,9 +13068,9 @@ function Attendance({ org, ops, me, myBranches, commit, say }) {
 }
 
 /* ============================================================
-   م٤ — محرّك الورديات (Shift Engine)
+   م4 — محرّك الورديات (Shift Engine)
    قوالب ورديات لكل فرع + تقويم تعيين أسبوعي + مطابقة تلقائية مع
-   الحضور الفعلي (ops.attendanceEvents من م٣) + طلبات تبديل وردية بين
+   الحضور الفعلي (ops.attendanceEvents من م3) + طلبات تبديل وردية بين
    موظفين + طلبات نقل موظف بين الفروع. تبويب مستقل (وليس متداخلًا داخل
    people) — مضاف صراحةً في ثلاثة مواضع معًا: ROLES.tabs، بلاطة
    LAUNCH_APPS/REG_APPS، ومصفوفة NAV (درس v19.0→v19.1، راجع الدليل).
@@ -13093,7 +13097,7 @@ function ShiftEngine({ org, ops, me, myBranches, commitOrg, commit, say }) {
 
   const addDays = (ds, n) => { const d = new Date(ds + 'T00:00:00'); d.setDate(d.getDate() + n); return isoD(d); };
   const weekdayOf = (ds) => new Date(ds + 'T00:00:00').getDay();
-  const dNm = (ds) => new Date(ds + 'T00:00:00').toLocaleDateString('ar', { weekday: 'short' });
+  const dNm = (ds) => new Date(ds + 'T00:00:00').toLocaleDateString('ar-SA-u-ca-gregory-nu-latn', { weekday: 'short' });
   const dDay = (ds) => new Date(ds + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' });
   const parseHM = (t) => { const [h, m] = String(t || '00:00').split(':').map(Number); return (h || 0) * 60 + (m || 0); };
 
@@ -13101,7 +13105,7 @@ function ShiftEngine({ org, ops, me, myBranches, commitOrg, commit, say }) {
   const D7 = [0, 1, 2, 3, 4, 5, 6];
   const days = D7.map(i => addDays(weekStart, i));
 
-  // === ١) قوالب الورديات ===
+  // === 1) قوالب الورديات ===
   const [tplF, setTplF] = useState(null); // {id?, name, startTime, endTime, breakMinutes, days:[]}
   const saveTpl = async () => {
     if (!branch) return;
@@ -13119,7 +13123,7 @@ function ShiftEngine({ org, ops, me, myBranches, commitOrg, commit, say }) {
     say('حُذف القالب ✓');
   };
 
-  // === ٢) تقويم التعيين الأسبوعي (ops.shiftAssignments — تُبقيها بجانب ops.attendanceEvents وطلبات التبديل/النقل
+  // === 2) تقويم التعيين الأسبوعي (ops.shiftAssignments — تُبقيها بجانب ops.attendanceEvents وطلبات التبديل/النقل
   // في نفس المستند كي يُعتمَد التبديل بكتابة ذرّية واحدة تُحدِّث التعيين وحالة الطلب معًا) ===
   const assignRecs = (ops.shiftAssignments || []).filter(a => a.weekStart === weekStart && branch && a.branchId === branch.id);
   const [draftAssign, setDraftAssign] = useState({}); // {empId: [7]}
@@ -13142,7 +13146,7 @@ function ShiftEngine({ org, ops, me, myBranches, commitOrg, commit, say }) {
     return templates.filter(t => (t.days || []).includes(wd)).map(t => ({ t, n: emps.filter(e => shiftIdsOf(e.id)[di] === t.id).length }));
   };
 
-  // === ٣) مطابقة الحضور الفعلي بالجدول ===
+  // === 3) مطابقة الحضور الفعلي بالجدول ===
   const matchRows = [];
   emps.forEach(e => {
     D7.forEach(di => {
@@ -13170,7 +13174,7 @@ function ShiftEngine({ org, ops, me, myBranches, commitOrg, commit, say }) {
   });
   const matchLabel = { upcoming: ['قادم', 'b-dim'], absent: ['غياب', 'b-rose'], leave: ['إجازة معتمدة', 'b-sky'], on_time: ['في الوقت', 'b-mint'], late: ['تأخير', 'b-amber'], early: ['انصراف مبكر', 'b-amber'], late_early: ['تأخير + انصراف مبكر', 'b-rose'], no_checkout: ['لم يُسجَّل انصراف', 'b-amber'], late_nocheckout: ['تأخير + لم يُسجَّل انصراف', 'b-rose'] };
 
-  // === ٤) طلبات تبديل الوردية ===
+  // === 4) طلبات تبديل الوردية ===
   const [swapF, setSwapF] = useState({ di: 0, empA: '', empB: '' });
   const swapReqs = (ops.shiftSwapRequests || []).filter(r => branchIds.includes(r.branchId)).sort((a, b) => (a.requestedAt < b.requestedAt ? 1 : -1));
   const requestSwap = async () => {
@@ -13219,7 +13223,7 @@ function ShiftEngine({ org, ops, me, myBranches, commitOrg, commit, say }) {
     }
   };
 
-  // === ٥) طلبات نقل موظف بين الفروع ===
+  // === 5) طلبات نقل موظف بين الفروع ===
   const [trF, setTrF] = useState({ empId: '', toBranchId: '', note: '' });
   const transferReqs = (ops.branchTransferRequests || []).filter(r => branchIds.includes(r.fromBranchId) || isAll).sort((a, b) => (a.requestedAt < b.requestedAt ? 1 : -1));
   const requestTransfer = async () => {
@@ -13393,8 +13397,8 @@ function ShiftEngine({ org, ops, me, myBranches, commitOrg, commit, say }) {
                       <td style={{ fontWeight: 600, fontSize: 12.5 }}>{r.e.name}</td>
                       <td style={{ fontSize: 12 }}>{dNm(r.ds)} {dDay(r.ds)}</td>
                       <td style={{ fontSize: 12 }}>{r.tpl ? r.tpl.name + ' (' + r.tpl.startTime + '-' + r.tpl.endTime + ')' : 'قالب محذوف'}</td>
-                      <td className="num">{r.inEv ? new Date(r.inEv.at).toLocaleTimeString('ar-SA-u-nu-latn', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
-                      <td className="num">{r.outEv ? new Date(r.outEv.at).toLocaleTimeString('ar-SA-u-nu-latn', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                      <td className="num">{r.inEv ? new Date(r.inEv.at).toLocaleTimeString('ar-SA-u-ca-gregory-nu-latn', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                      <td className="num">{r.outEv ? new Date(r.outEv.at).toLocaleTimeString('ar-SA-u-ca-gregory-nu-latn', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
                       <td><span className={'badge ' + lb[1]}>{lb[0]}{r.extra ? ' (' + r.extra + 'د)' : ''}</span></td>
                     </tr>
                   );
@@ -13516,7 +13520,7 @@ function Tasks({ org, ops, me, myBranches, commit, say }) {
   const emps = (org.employees || []).filter(e => e.isActive !== false && branch && e.branchId === branch.id);
   const weekdayOf = (ds) => new Date(ds + 'T00:00:00').getDay();
 
-  // === ١) قوالب مهام متكررة (يومية/أسبوعية) لكل فرع ===
+  // === 1) قوالب مهام متكررة (يومية/أسبوعية) لكل فرع ===
   const templates = (ops.taskTemplates || []).filter(t => branch && t.branchId === branch.id);
   const [tplF, setTplF] = useState(null); // {id?, title, freq:'daily'|'weekly', weekdays:[], note}
   const saveTpl = async () => {
@@ -13535,7 +13539,7 @@ function Tasks({ org, ops, me, myBranches, commit, say }) {
     say('حُذف القالب ✓');
   };
 
-  // === ٢) تكليف مهمة فردية لموظف معيّن ===
+  // === 2) تكليف مهمة فردية لموظف معيّن ===
   const assigns = (ops.taskAssignments || []).filter(a => branch && a.branchId === branch.id).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
   const [assignF, setAssignF] = useState({ empId: '', title: '', dueDate: today(), priority: 'normal', note: '' });
   const saveAssign = async () => {
@@ -13563,7 +13567,7 @@ function Tasks({ org, ops, me, myBranches, commit, say }) {
     say('أُلغيت المهمة');
   };
 
-  // === ٣) قائمة المهام من كشك الفرع (جهاز مشترك) — اختيار موظف ثم إنجاز مهامه ===
+  // === 3) قائمة المهام من كشك الفرع (جهاز مشترك) — اختيار موظف ثم إنجاز مهامه ===
   const [empId, setEmpId] = useState('');
   useEffect(() => { if (!emps.find(e => e.id === empId)) setEmpId(''); }, [emps, empId]); // eslint-disable-line
   const chkEmp = emps.find(e => e.id === empId) || null;
@@ -13589,7 +13593,7 @@ function Tasks({ org, ops, me, myBranches, commit, say }) {
     say('أُنجزت المهمة ✓');
   };
 
-  // === ٤) تقرير الالتزام بالمهام لكل موظف/فرع ===
+  // === 4) تقرير الالتزام بالمهام لكل موظف/فرع ===
   const [repFrom, setRepFrom] = useState(today());
   const [repTo, setRepTo] = useState(today());
   const dateRange = () => {
@@ -13872,7 +13876,7 @@ function PointsLedger({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const monthFrom = ym + '-01';
   const monthTo = ym + '-31';
 
-  // === النقاط التلقائية (مُشتقّة، لا تُخزَّن — نفس فلسفة buildAccounting) من م٣/م٤/م٥ ===
+  // === النقاط التلقائية (مُشتقّة، لا تُخزَّن — نفس فلسفة buildAccounting) من م3/م4/م5 ===
   const autoFor = (emp, from, to) => {
     const c = { onTime: 0, late: 0, absent: 0, tasks: 0 };
     (ops.shiftAssignments || []).filter(a => a.empId === emp.id).forEach(a => {
@@ -13898,7 +13902,7 @@ function PointsLedger({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const ALL_FROM = '0000-00-00', ALL_TO = '9999-99-99';
   const balanceOf = (emp) => manualFor(emp, ALL_FROM, ALL_TO) + autoFor(emp, ALL_FROM, ALL_TO).pts;
 
-  // === ١) حركات يدوية ===
+  // === 1) حركات يدوية ===
   const [entF, setEntF] = useState({ empId: '', points: '', reason: '', date: today() });
   const entries = (ops.pointsEntries || []).filter(x => branchIds.includes(x.branchId)).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
   const saveEntry = async () => {
@@ -13918,7 +13922,7 @@ function PointsLedger({ org, ops, me, myBranches, commit, commitOrg, say }) {
     say('حُذفت الحركة');
   };
 
-  // === ٢) قواعد النقاط التلقائية ===
+  // === 2) قواعد النقاط التلقائية ===
   const [rulesF, setRulesF] = useState(rules);
   const saveRules = async () => {
     const rec = { enabled: !!rulesF.enabled, onTime: Number(rulesF.onTime) || 0, late: Number(rulesF.late) || 0, absent: Number(rulesF.absent) || 0, taskDone: Number(rulesF.taskDone) || 0 };
@@ -13927,7 +13931,7 @@ function PointsLedger({ org, ops, me, myBranches, commit, commitOrg, say }) {
     say('حُفظت قواعد النقاط ✓');
   };
 
-  // === ٣) لوحة الترتيب الشهرية ===
+  // === 3) لوحة الترتيب الشهرية ===
   const [boardScope, setBoardScope] = useState('branch');
   const boardEmps = boardScope === 'all' ? (org.employees || []).filter(e => e.isActive !== false && branchIds.includes(e.branchId)) : emps;
   const boardRows = boardEmps.map(e => {
@@ -13936,14 +13940,14 @@ function PointsLedger({ org, ops, me, myBranches, commit, commitOrg, say }) {
     return { e, auto, manual, total: manual + auto.pts, branchName: ((org.branches || []).find(b => b.id === e.branchId) || {}).name || '' };
   }).sort((a, b) => b.total - a.total);
 
-  // === ٤) كشك الفرع: رصيدي بعد PIN ===
+  // === 4) كشك الفرع: رصيدي بعد PIN ===
   const [kEmpId, setKEmpId] = useState('');
   const [kPin, setKPin] = useState('');
   const [kShown, setKShown] = useState(null); // employee object after verified PIN
   const kioskCheck = async () => {
     const emp = emps.find(e => e.id === kEmpId);
     if (!emp) return say('اختر الموظف', 'no');
-    if (!/^\d{4,6}$/.test(kPin)) return say('أدخل رقم PIN المكوّن من ٤ إلى ٦ أرقام', 'no');
+    if (!/^\d{4,6}$/.test(kPin)) return say('أدخل رقم PIN المكوّن من 4 إلى 6 أرقام', 'no');
     const hash = await sha(kPin);
     const ph = (((ops.hrPins || []).find(p => p.employeeId === emp.id)) || {}).pinHash || '';
     if (!ph || ph !== hash) { setKPin(''); return say('رقم PIN غير صحيح', 'no'); }
@@ -14038,7 +14042,7 @@ function PointsLedger({ org, ops, me, myBranches, commit, commitOrg, say }) {
       {view === 'rules' && canRules && (
         <div className="card">
           <div className="card-t" style={{ marginBottom: 8 }}><Settings size={15} color="var(--brass)" />قواعد النقاط التلقائية (على مستوى الشركة)</div>
-          <div className="note" style={{ marginBottom: 10 }}>تُحسب تلقائيًا من الحضور الموثَّق (م٣) مقابل الوردية المجدولة (م٤) ومن إنجاز المهام (م٥) — بلا تخزين مزدوج، أي تعديل هنا يعيد الاحتساب فورًا لكل الفترات. تبقى مُعطَّلة حتى تفعّلها صراحةً.</div>
+          <div className="note" style={{ marginBottom: 10 }}>تُحسب تلقائيًا من الحضور الموثَّق (م3) مقابل الوردية المجدولة (م4) ومن إنجاز المهام (م5) — بلا تخزين مزدوج، أي تعديل هنا يعيد الاحتساب فورًا لكل الفترات. تبقى مُعطَّلة حتى تفعّلها صراحةً.</div>
           <label className="row" style={{ gap: 8, marginBottom: 10, cursor: 'pointer' }}>
             <input type="checkbox" checked={!!rulesF.enabled} onChange={e => setRulesF(f => ({ ...f, enabled: e.target.checked }))} />
             <b>تفعيل النقاط التلقائية</b>
@@ -14127,7 +14131,7 @@ function PointsLedger({ org, ops, me, myBranches, commit, commitOrg, say }) {
   );
 }
 
-// ===== م٧ — دوال نقيّة مشتركة لإحصاءات الموظف والدرجة المركّبة (مُشتقّة، لا تُخزَّن) =====
+// ===== م7 — دوال نقيّة مشتركة لإحصاءات الموظف والدرجة المركّبة (مُشتقّة، لا تُخزَّن) =====
 function hrEmpStats(org, ops, emp, from, to) {
   const policies = { ...defaultHrPolicies(), ...(org.hrPolicies || {}) };
   const tolerance = Number(policies.lateToleranceMinutes) || 0;
@@ -14178,7 +14182,7 @@ function hrScoreFor(org, ops, emp, ym) {
   const base = Number(policies.disciplineBase); const pv = Number(policies.disciplinePointValue);
   const attTotal = st.onTime + st.late + st.absent;
   const rv = (ops.qualityReviews || []).find(r => r.employeeId === emp.id && r.ym === ym) || null;
-  // م١١ (v27.9): محور مؤشرات الدور — مُعطَّل افتراضيًا (roleKpiEnabled=false) فلا يغيّر أي درجة قائمة
+  // م11 (v27.9): محور مؤشرات الدور — مُعطَّل افتراضيًا (roleKpiEnabled=false) فلا يغيّر أي درجة قائمة
   const rkOn = !!policies.roleKpiEnabled;
   const rkW = rkOn ? (Number(policies.roleKpiWeight) || 0) : 0;
   const axes = {
@@ -14206,7 +14210,7 @@ function EmployeeFile({ org, ops, me, myBranches, say }) {
   const [q, setQ] = useState('');
   const e = emps.find(x => x.id === eid);
   const ymAdd = (y, n) => { const [Y, M] = y.split('-').map(Number); const d = new Date(Y, M - 1 + n, 1); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); };
-  const ymAr = (y) => { const [Y, M] = y.split('-').map(Number); return new Date(Y, M - 1, 1).toLocaleDateString('ar', { month: 'short', year: 'numeric' }); };
+  const ymAr = (y) => { const [Y, M] = y.split('-').map(Number); return new Date(Y, M - 1, 1).toLocaleDateString('ar-SA-u-ca-gregory-nu-latn', { month: 'short', year: 'numeric' }); };
   const D = useMemo(() => {
     if (!e) return null;
     const months = [5, 4, 3, 2, 1, 0].map(k => ymAdd(ym, -k));
@@ -14326,11 +14330,11 @@ function Performance({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const emps = (org.employees || []).filter(e => e.isActive !== false && branch && e.branchId === branch.id);
   const [ym, setYm] = useState(() => today().slice(0, 7));
   const ymAdd = (y, n) => { const [Y, M] = y.split('-').map(Number); const d = new Date(Y, M - 1 + n, 1); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); };
-  const ymLabel = (y) => { const [Y, M] = y.split('-').map(Number); return new Date(Y, M - 1, 1).toLocaleDateString('ar', { month: 'long', year: 'numeric' }); };
+  const ymLabel = (y) => { const [Y, M] = y.split('-').map(Number); return new Date(Y, M - 1, 1).toLocaleDateString('ar-SA-u-ca-gregory-nu-latn', { month: 'long', year: 'numeric' }); };
   const scoreBadge = (v) => v == null ? 'b-dim' : v >= 85 ? 'b-mint' : v >= 70 ? 'b-amber' : 'b-rose';
   const fmt = (v) => v == null ? '—' : v;
 
-  // === ١) الدرجات الشهرية ===
+  // === 1) الدرجات الشهرية ===
   const rows = emps.map(e => ({ e, ...hrScoreFor(org, ops, e, ym) }));
   const [wf, setWf] = useState({ scoreWeightsEnabled: !!policies.scoreWeightsEnabled, scoreWeights: { ...(policies.scoreWeights || {}) }, disciplineBase: policies.disciplineBase, disciplinePointValue: policies.disciplinePointValue });
   const saveWeights = async () => {
@@ -14344,7 +14348,7 @@ function Performance({ org, ops, me, myBranches, commit, commitOrg, say }) {
   };
   const [showW, setShowW] = useState(false);
 
-  // === ٢) تقييم المدير الشهري ===
+  // === 2) تقييم المدير الشهري ===
   const [rvEmp, setRvEmp] = useState('');
   const existing = (ops.qualityReviews || []).find(r => r.employeeId === rvEmp && r.ym === ym) || null;
   const [rvF, setRvF] = useState({ workQuality: 3, customerService: 3, teamwork: 3, note: '' });
@@ -14374,7 +14378,7 @@ function Performance({ org, ops, me, myBranches, commit, commitOrg, say }) {
     </Field>
   );
 
-  // === ٣) أهداف KPI للفرع مقابل الفعلي ===
+  // === 3) أهداف KPI للفرع مقابل الفعلي ===
   const targetsOf = (bid) => ({ onTimePct: '', taskPct: '', avgScore: '', ...(((org.kpiTargets || {})[bid]) || {}) });
   const [tgF, setTgF] = useState(() => targetsOf(branchId));
   useEffect(() => { setTgF(targetsOf(branchId)); }, [branchId, org.kpiTargets]); // eslint-disable-line
@@ -14397,7 +14401,7 @@ function Performance({ org, ops, me, myBranches, commit, commitOrg, say }) {
     { k: 'avgScore', ar: 'متوسط درجة الأداء', unit: '' },
   ];
 
-  // === ٤) بطاقة أداء الموظف (٦ أشهر + اتجاه) ===
+  // === 4) بطاقة أداء الموظف (6 أشهر + اتجاه) ===
   const [cardEmp, setCardEmp] = useState('');
   const cEmp = emps.find(e => e.id === cardEmp) || null;
   const months6 = [5, 4, 3, 2, 1, 0].map(n => ymAdd(ym, -n));
@@ -14618,12 +14622,12 @@ function Rewards({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const branchIds = branches.map(b => b.id);
   const emps = (org.employees || []).filter(e => e.isActive !== false && branch && e.branchId === branch.id);
   const [ym, setYm] = useState(() => today().slice(0, 7));
-  const ymLabel = (y) => { const [Y, M] = String(y).split('-').map(Number); return isNaN(Y) ? y : new Date(Y, M - 1, 1).toLocaleDateString('ar', { month: 'long', year: 'numeric' }); };
+  const ymLabel = (y) => { const [Y, M] = String(y).split('-').map(Number); return isNaN(Y) ? y : new Date(Y, M - 1, 1).toLocaleDateString('ar-SA-u-ca-gregory-nu-latn', { month: 'long', year: 'numeric' }); };
   const kindAr = (k) => k === 'reward' ? 'مكافأة' : 'جزاء';
   const statusBadge = (st) => <span className={'badge ' + (st === 'approved' ? 'b-mint' : st === 'rejected' ? 'b-rose' : 'b-amber')}>{st === 'approved' ? 'معتمد ومُرحَّل' : st === 'rejected' ? 'مرفوض' : 'قيد الاعتماد'}</span>;
   const allReqs = (ops.rewardRequests || []).filter(r => branchIds.includes(r.branchId)).sort((a, b) => (a.requestedAt < b.requestedAt ? 1 : -1));
 
-  // === ١) طلب مكافأة/جزاء ===
+  // === 1) طلب مكافأة/جزاء ===
   const [f, setF] = useState({ empId: '', kind: 'reward', amount: '', reason: '', month: today().slice(0, 7) });
   const submit = async () => {
     if (!branch) return;
@@ -14649,7 +14653,7 @@ function Rewards({ org, ops, me, myBranches, commit, commitOrg, say }) {
     say('أُلغي الطلب');
   };
 
-  // === ٢) الاعتماد المركزي + ٣) الترحيل التلقائي لمسيّر الرواتب ===
+  // === 2) الاعتماد المركزي + 3) الترحيل التلقائي لمسيّر الرواتب ===
   const [notes, setNotes] = useState({});
   const pending = allReqs.filter(r => r.status === 'pending');
   const decided = allReqs.filter(r => r.status !== 'pending');
@@ -14670,7 +14674,7 @@ function Rewards({ org, ops, me, myBranches, commit, commitOrg, say }) {
         ...d,
         advances: existing ? (d.advances || []) : [adv, ...(d.advances || [])],
         rewardRequests: (d.rewardRequests || []).map(x => x.id === r.id ? { ...x, status: 'approved', decidedBy: me.id, decidedByName: me.name, decidedAt: nowISO(), decisionNote: note, advanceId: adv.id } : x),
-        // م١٠ (v27.0): إشعار بالعلم يوقّعه الموظف من كشك الفرع (idempotent على refId)
+        // م10 (v27.0): إشعار بالعلم يوقّعه الموظف من كشك الفرع (idempotent على refId)
         hrSignDocs: (d.hrSignDocs || []).some(x => x.refId === r.id) ? (d.hrSignDocs || []) : [rewardSignDoc(r, me), ...(d.hrSignDocs || [])]
       }), { actionType: 'approve', targetType: 'reward_request', targetId: r.id, branchName: r.branchName, title: 'اعتماد ' + kindAr(r.kind) + ' وترحيلها لمسيّر الرواتب', details: r.employeeName + ' · ' + money(r.amount) + ' ر.س · شهر ' + r.month + (note ? ' · ' + note : '') + ' · صدر إشعار للتوقيع الإلكتروني' });
       if (ok) say('اعتُمدت ' + kindAr(r.kind) + ' ورُحِّلت لمسيّر رواتب ' + r.month + ' وصدر إشعار بالعلم للتوقيع ✓');
@@ -14690,13 +14694,13 @@ function Rewards({ org, ops, me, myBranches, commit, commitOrg, say }) {
     if (lockedThru(org) && r.month <= lockedThru(org)) return say(LOCK_MSG(r.month + '-01'), 'no');
     if (!window.confirm('التراجع عن اعتماد ' + kindAr(r.kind) + ' «' + r.employeeName + '» (' + money(r.amount) + ')؟ ستُحذف حركة الراتب ويعود الطلب قيد الاعتماد.')) return;
     const ok = await commit(d => ({ ...d, advances: (d.advances || []).filter(a => a.rewardId !== r.id), rewardRequests: (d.rewardRequests || []).map(x => x.id === r.id ? { ...x, status: 'pending', decidedBy: '', decidedByName: '', decidedAt: '', decisionNote: '', advanceId: '', revertedAt: nowISO(), revertedByName: me.name } : x),
-      // م١٠: إشعار التوقيع المعلّق يُحذف، والموقَّع يُعلَّم «مُلغى» (يبقى أثرًا)
+      // م10: إشعار التوقيع المعلّق يُحذف، والموقَّع يُعلَّم «مُلغى» (يبقى أثرًا)
       hrSignDocs: (d.hrSignDocs || []).filter(x => !(x.refId === r.id && x.status === 'pending')).map(x => (x.refId === r.id && x.status === 'signed') ? { ...x, status: 'voided', voidedAt: nowISO(), voidedByName: me.name } : x) }),
       { actionType: 'update', targetType: 'reward_request', targetId: r.id, branchName: r.branchName, title: 'التراجع عن اعتماد ' + kindAr(r.kind), details: r.employeeName + ' · ' + money(r.amount) + ' · شهر ' + r.month });
     if (ok) say('تراجعتَ عن الاعتماد — الطلب قيد الاعتماد مجددًا');
   };
 
-  // === ٤) شرائح مكافآت تلقائية حسب درجة الأداء (م٧) ===
+  // === 4) شرائح مكافآت تلقائية حسب درجة الأداء (م7) ===
   const [tf, setTf] = useState({ enabled: !!tiersCfg.enabled, tiers: (tiersCfg.tiers || []).map(t => ({ minScore: String(t.minScore), amount: String(t.amount) })) });
   const saveTiers = async () => {
     const tiers = tf.tiers.map(t => ({ minScore: Number(t.minScore), amount: Number(t.amount) })).filter(t => t.minScore > 0 && t.minScore <= 100 && t.amount > 0).sort((a, b) => b.minScore - a.minScore);
@@ -14819,7 +14823,7 @@ function Rewards({ org, ops, me, myBranches, commit, commitOrg, say }) {
       {view === 'tiers' && canTiers && (
         <div className="card">
           <div className="card-t" style={{ marginBottom: 6 }}><TrendingUp size={15} color="var(--brass)" />شرائح المكافآت التلقائية حسب درجة الأداء {tiersCfg.enabled ? <span className="badge b-mint">مفعَّلة</span> : <span className="badge b-dim">مُعطَّلة</span>}</div>
-          <div className="note" style={{ marginBottom: 10 }}>تُولِّد شهريًا — بضغطة زر — طلبات مكافأة مقترحة لكل موظف بلغت درجته (م٧) إحدى الشرائح، مع تثبيت لقطة الدرجة وقت الاقتراح. المقترحات تمرّ بقائمة الاعتماد نفسها ولا تُرحَّل إلا بعد اعتمادها. مُعطَّلة افتراضيًا حتى تراجعوها.</div>
+          <div className="note" style={{ marginBottom: 10 }}>تُولِّد شهريًا — بضغطة زر — طلبات مكافأة مقترحة لكل موظف بلغت درجته (م7) إحدى الشرائح، مع تثبيت لقطة الدرجة وقت الاقتراح. المقترحات تمرّ بقائمة الاعتماد نفسها ولا تُرحَّل إلا بعد اعتمادها. مُعطَّلة افتراضيًا حتى تراجعوها.</div>
           <label className="row" style={{ gap: 8, marginBottom: 8, cursor: 'pointer' }}>
             <input type="checkbox" checked={!!tf.enabled} onChange={e => setTf(x => ({ ...x, enabled: e.target.checked }))} /><b>تفعيل الشرائح</b>
           </label>
@@ -14846,7 +14850,7 @@ function Rewards({ org, ops, me, myBranches, commit, commitOrg, say }) {
   );
 }
 
-/* ================= م٢٠ (v27.6) — الإجراءات التأديبية التصحيحية + خطط تحسين الأداء (PIP) =================
+/* ================= م20 (v27.6) — الإجراءات التأديبية التصحيحية + خطط تحسين الأداء (PIP) =================
    نموذج البيانات (BR_COLS — بفرعها كي يقرأه/يكتبه جهاز الفرع ويقرأه المركز):
    ops.hrCorrective[] = { id, branchId, branchName, employeeId, employeeName, month(YYYY-MM), date,
      category, code, title, level, penaltyType, fineDays, fineAmount, description, discoveredAt, investigation, witnessName,
@@ -14856,8 +14860,8 @@ function Rewards({ org, ops, me, myBranches, commit, commitOrg, say }) {
      objectives:[{text,metric,target}], mentorName, startAt, endAt, reviews:[{at,byName,note,progress}],
      status:'active'|'passed'|'failed'|'closed', outcome, closedByName, closedAt }
    نظام العمل السعودي (افتراضات قابلة للضبط في اللائحة — المرجع الملزم هو لائحة المنشأة المسجّلة بوزارة الموارد البشرية):
-   أنواع الجزاءات وتدرّجها؛ محو الجزاء بعد ١٨٠ يومًا من الإبلاغ؛ سقف الغرامة أجر ٥ أيام شهريًا؛
-   مهلة المؤاخذة ٣٠ يومًا من اكتشاف المخالفة؛ ومهلة تظلّم الموظف ١٥ يومًا من إبلاغه بالجزاء.
+   أنواع الجزاءات وتدرّجها؛ محو الجزاء بعد 180 يومًا من الإبلاغ؛ سقف الغرامة أجر 5 أيام شهريًا؛
+   مهلة المؤاخذة 30 يومًا من اكتشاف المخالفة؛ ومهلة تظلّم الموظف 15 يومًا من إبلاغه بالجزاء.
    ====================================================================================================== */
 const PEN_TYPES = [
   { k: 'verbal', ar: 'تنبيه شفهي', rank: 1 },
@@ -14895,7 +14899,7 @@ function suggestNextLevel(schedule, code, priorCount) {
   return { ...item.ladder[idx], overflow: (Number(priorCount) || 0) >= item.ladder.length, title: item.title, category: item.category };
 }
 const correctiveExpiry = (dateStr, eraseDays) => { const d = new Date((dateStr || today()) + 'T00:00:00'); d.setDate(d.getDate() + (Number(eraseDays) || 180)); return isoD(d); };
-const dailyWageOf = (base) => (Number(base) || 0) / 30;   // أجر اليوم = الأساسي ÷ ٣٠ (نظام العمل)
+const dailyWageOf = (base) => (Number(base) || 0) / 30;   // أجر اليوم = الأساسي ÷ 30 (نظام العمل)
 // الغرامة المقترحة بحدّ نظام العمل: fineDays أيام أجر، بحيث لا يتجاوز مجموع غرامات الشهر السقف
 function fineSuggest(base, fineDays, capDays, priorFineDaysThisMonth) {
   const dw = dailyWageOf(base);
@@ -14906,7 +14910,7 @@ function fineSuggest(base, fineDays, capDays, priorFineDaysThisMonth) {
 const pipTriggered = (score, threshold) => score != null && score < (Number(threshold) || 0);
 const daysBetween = (aStr, bStr) => Math.round((new Date((bStr || today()) + 'T00:00:00') - new Date((aStr || today()) + 'T00:00:00')) / 86400000);
 
-// محضر إجراء تأديبي يوقّعه الموظف بالعلم من كشك الفرع (م١٠) — إثبات المؤاخذة في محضر وفق نظام العمل
+// محضر إجراء تأديبي يوقّعه الموظف بالعلم من كشك الفرع (م10) — إثبات المؤاخذة في محضر وفق نظام العمل
 function correctiveSignDoc(rec, me) {
   return {
     id: uid('sg'), branchId: rec.branchId || '', branchName: rec.branchName || '', employeeId: rec.employeeId, employeeName: rec.employeeName,
@@ -14943,11 +14947,11 @@ function Corrective({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const allRecs = (ops.hrCorrective || []).filter(r => branchIds.includes(r.branchId)).sort((a, b) => (a.requestedAt < b.requestedAt ? 1 : -1));
   const allPips = (ops.hrPips || []).filter(p => branchIds.includes(p.branchId)).sort((a, b) => (a.openedAt < b.openedAt ? 1 : -1));
   const td = today();
-  const ymLabel = (y) => { const [Y, M] = String(y).split('-').map(Number); return isNaN(Y) ? y : new Date(Y, M - 1, 1).toLocaleDateString('ar', { month: 'long', year: 'numeric' }); };
+  const ymLabel = (y) => { const [Y, M] = String(y).split('-').map(Number); return isNaN(Y) ? y : new Date(Y, M - 1, 1).toLocaleDateString('ar-SA-u-ca-gregory-nu-latn', { month: 'long', year: 'numeric' }); };
   const penBadge = (k) => { const rank = (PEN_TYPES.find(t => t.k === k) || {}).rank || 0; return <span className={'badge ' + (rank >= 6 ? 'b-rose' : rank >= 3 ? 'b-amber' : 'b-sky')}>{penTypeAr(k)}</span>; };
   const statusBadge = (st) => <span className={'badge ' + (st === 'approved' ? 'b-mint' : st === 'rejected' ? 'b-rose' : 'b-amber')}>{st === 'approved' ? 'معتمد' : st === 'rejected' ? 'مرفوض' : 'قيد الاعتماد'}</span>;
 
-  // ===== ١) فتح إجراء تأديبي =====
+  // ===== 1) فتح إجراء تأديبي =====
   const emptyF = { empId: '', code: '', penaltyType: 'warning', fineDays: '0', description: '', discoveredAt: td, date: td, investigation: '', witnessName: '' };
   const [f, setF] = useState(emptyF);
   const selItem = schedule.find(s => s.code === f.code) || null;
@@ -14991,7 +14995,7 @@ function Corrective({ org, ops, me, myBranches, commit, commitOrg, say }) {
     say('أُلغي الإجراء');
   };
 
-  // ===== ٢) الاعتماد المركزي (+ ترحيل الغرامة لمسيّر الرواتب + إصدار محضر التوقيع) =====
+  // ===== 2) الاعتماد المركزي (+ ترحيل الغرامة لمسيّر الرواتب + إصدار محضر التوقيع) =====
   const [notes, setNotes] = useState({});
   const pending = allRecs.filter(r => r.status === 'pending');
   const decided = allRecs.filter(r => r.status !== 'pending');
@@ -15062,7 +15066,7 @@ function Corrective({ org, ops, me, myBranches, commit, commitOrg, say }) {
     if (ok) say('سُجِّل قرار التظلّم');
   };
 
-  // ===== ٣) خطط تحسين الأداء (PIP) =====
+  // ===== 3) خطط تحسين الأداء (PIP) =====
   const curYm = td.slice(0, 7);
   const activePipEmpIds = new Set(allPips.filter(p => p.status === 'active').map(p => p.employeeId));
   const belowThreshold = branch ? emps.map(e => ({ e, sc: hrScoreFor(org, ops, e, curYm).score })).filter(x => pipTriggered(x.sc, pipThreshold) && !activePipEmpIds.has(x.e.id)) : [];
@@ -15097,7 +15101,7 @@ function Corrective({ org, ops, me, myBranches, commit, commitOrg, say }) {
     if (ok) say('أُغلقت الخطة (' + outAr + ')');
   };
 
-  // ===== ٤) اللائحة والنوافذ الزمنية (المركز) =====
+  // ===== 4) اللائحة والنوافذ الزمنية (المركز) =====
   const [cf, setCf] = useState(() => ({
     penaltyEraseDays: String(eraseDays), fineCapDaysPerMonth: String(capDays), chargeWindowDays: String(chargeWindow), objectionDays: String(objectionDays), pipTriggerScore: String(pipThreshold),
     penaltySchedule: schedule.map(s => ({ ...s, ladder: (s.ladder || []).map(l => ({ ...l })) }))
@@ -15180,7 +15184,7 @@ function Corrective({ org, ops, me, myBranches, commit, commitOrg, say }) {
                   {priorActives.length === 0 && <div>لا جزاء ساري سابق لهذه المخالفة ⇒ المستوى <b>الأول</b>.</div>}
                   {suggestion && <div>اقتراح اللائحة: <b>{penTypeAr(suggestion.penaltyType)}</b>{suggestion.overflow ? ' (تجاوز أعلى درجات السلّم — راجع اللائحة)' : ''}.</div>}
                   {fineCalc && <div>الغرامة: {fineCalc.days} يوم أجر × {money(fineCalc.dw)} = <b>{money(fineCalc.amount)} ر.س</b>{fineCalc.capped ? <span style={{ color: 'var(--rose)' }}> — محدودة بسقف {capDays} أيام أجر شهريًا (المتبقي هذا الشهر {fineCalc.remaining} يوم)</span> : ''}.</div>}
-                  {chargeLate && <div style={{ color: 'var(--rose)' }}>⚠ مضى أكثر من {chargeWindow} يومًا بين اكتشاف المخالفة وتاريخها — قد تسقط المؤاخذة نظامًا (المادة ٦٩).</div>}
+                  {chargeLate && <div style={{ color: 'var(--rose)' }}>⚠ مضى أكثر من {chargeWindow} يومًا بين اكتشاف المخالفة وتاريخها — قد تسقط المؤاخذة نظامًا (المادة 69).</div>}
                 </div>
               )}
               <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}><button className="btn pri" onClick={submit}><Send size={14} />إرسال للاعتماد</button></div>
@@ -15229,7 +15233,7 @@ function Corrective({ org, ops, me, myBranches, commit, commitOrg, say }) {
         <div className="grid" style={{ gap: 12 }}>
           <div className="card">
             <div className="card-t" style={{ marginBottom: 8 }}><ClipboardCheck size={15} color="var(--brass)" />خطط تحسين الأداء — {branch.name}</div>
-            <div className="note" style={{ marginBottom: 8 }}>خطة تحسين الأداء بديل تطويري عن الجزاء: أهداف قابلة للقياس ومدة ومراجعات دورية. تُقترح تلقائيًا لمن درجته (م٧) لشهر {ymLabel(curYm)} دون العتبة {pipThreshold} وليست لديه خطة نشطة.</div>
+            <div className="note" style={{ marginBottom: 8 }}>خطة تحسين الأداء بديل تطويري عن الجزاء: أهداف قابلة للقياس ومدة ومراجعات دورية. تُقترح تلقائيًا لمن درجته (م7) لشهر {ymLabel(curYm)} دون العتبة {pipThreshold} وليست لديه خطة نشطة.</div>
             {belowThreshold.length > 0 ? (
               <div className="grid g3">
                 {belowThreshold.map(({ e, sc }) => (
@@ -15330,7 +15334,7 @@ function Corrective({ org, ops, me, myBranches, commit, commitOrg, say }) {
                     <Field label="المخالفة" style={{ flex: 2, minWidth: 180 }}><input className="inp" value={s.title} onChange={e => setCf(x => ({ ...x, penaltySchedule: x.penaltySchedule.map((y, j) => j === si ? { ...y, title: e.target.value } : y) }))} /></Field>
                     <button className="btn sm gh" onClick={() => setCf(x => ({ ...x, penaltySchedule: x.penaltySchedule.filter((_, j) => j !== si) }))}><Trash2 size={13} /></button>
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--dim)', margin: '6px 0 4px' }}>سلّم الجزاء بالتكرار (المستوى ١ = أول مرة):</div>
+                  <div style={{ fontSize: 11, color: 'var(--dim)', margin: '6px 0 4px' }}>سلّم الجزاء بالتكرار (المستوى 1 = أول مرة):</div>
                   <div className="grid" style={{ gap: 4 }}>
                     {(s.ladder || []).map((l, li) => (
                       <div key={li} className="row" style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -15355,7 +15359,7 @@ function Corrective({ org, ops, me, myBranches, commit, commitOrg, say }) {
 }
 
 
-/* ================= م١٩ (v27.7) — التدريب والشهادات الإلزامية =================
+/* ================= م19 (v27.7) — التدريب والشهادات الإلزامية =================
    نموذج البيانات:
    - org.trainingPrograms[] (إعداد مركزي، يصل الفروع عبر dirOf): { id, title, category, validityMonths(0=بلا انتهاء), mandatory, requiredJobTitles[], provider }
    - ops.hrTraining[] (BR_COLS — بفرعها؛ يقرأه/يكتبه جهاز الفرع ويقرأه المركز):
@@ -15434,7 +15438,7 @@ function Training({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const progById = (id) => programs.find(p => p.id === id) || null;
   const statusBadge = (st) => { const cls = st === 'completed' ? 'b-mint' : st === 'expired' ? 'b-rose' : st === 'in_progress' ? 'b-sky' : 'b-amber'; return <span className={'badge ' + cls}>{TRAIN_STATUS_AR[st] || st}</span>; };
 
-  // ===== ١) تسجيل/تحديث سجل تدريب =====
+  // ===== 1) تسجيل/تحديث سجل تدريب =====
   const emptyF = { id: '', empId: '', programId: '', status: 'completed', plannedDate: td, completedDate: td, score: '', result: 'pass', certNo: '', note: '' };
   const [f, setF] = useState(emptyF);
   const selProg = progById(f.programId);
@@ -15464,7 +15468,7 @@ function Training({ org, ops, me, myBranches, commit, commitOrg, say }) {
     say('حُذف السجل');
   };
 
-  // ===== ٢) البرامج (المركز) =====
+  // ===== 2) البرامج (المركز) =====
   const [cf, setCf] = useState(() => programs.map(p => ({ ...p, requiredJobTitles: (p.requiredJobTitles || []).join('، ') })));
   const saveProgs = async () => {
     const list = (cf || []).filter(p => String(p.title || '').trim()).map(p => ({
@@ -15612,11 +15616,11 @@ function Training({ org, ops, me, myBranches, commit, commitOrg, say }) {
 }
 
 
-/* ================= م١١ (v27.9) — مكتبة مؤشرات الأداء لكل دور (Role KPIs) =================
+/* ================= م11 (v27.9) — مكتبة مؤشرات الأداء لكل دور (Role KPIs) =================
    نموذج البيانات:
    - org.roleKpis[] (إعداد مركزي، يصل الفروع عبر dirOf): { id, jobTitles[], title, unit, direction:'higher'|'lower', target, weight }
    - ops.hrKpiEntries[] (BR_COLS — بفرعها): { id, branchId, employeeId, employeeName, ym, values:{kpiId:number}, recordedBy/Name, recordedAt }
-   - org.hrPolicies.roleKpiEnabled (افتراضي false) + roleKpiWeight (وزن المحور في الدرجة المركّبة م٧ عند التفعيل).
+   - org.hrPolicies.roleKpiEnabled (افتراضي false) + roleKpiWeight (وزن المحور في الدرجة المركّبة م7 عند التفعيل).
    التكامل: عند التفعيل فقط يُضاف محور roleKpi إلى hrScoreFor؛ وهو مُعطَّل افتراضيًا فلا يغيّر أي درجة قائمة.
    ========================================================================================= */
 function defaultRoleKpis() {
@@ -15676,9 +15680,9 @@ function RoleKpi({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const branch = branches.find(b => b.id === branchId) || null;
   const emps = (org.employees || []).filter(e => e.isActive !== false && branch && e.branchId === branch.id);
   const [ym, setYm] = useState(() => today().slice(0, 7));
-  const ymLabel = (y) => { const [Y, M] = String(y).split('-').map(Number); return isNaN(Y) ? y : new Date(Y, M - 1, 1).toLocaleDateString('ar', { month: 'long', year: 'numeric' }); };
+  const ymLabel = (y) => { const [Y, M] = String(y).split('-').map(Number); return isNaN(Y) ? y : new Date(Y, M - 1, 1).toLocaleDateString('ar-SA-u-ca-gregory-nu-latn', { month: 'long', year: 'numeric' }); };
 
-  // ===== ١) إدخال القياسات الشهرية =====
+  // ===== 1) إدخال القياسات الشهرية =====
   const [empId, setEmpId] = useState('');
   useEffect(() => { if (!emps.find(e => e.id === empId)) setEmpId((emps[0] || {}).id || ''); }, [branchId, emps.length]); // eslint-disable-line
   const selEmp = emps.find(e => e.id === empId) || null;
@@ -15699,7 +15703,7 @@ function RoleKpi({ org, ops, me, myBranches, commit, commitOrg, say }) {
     if (ok) say('حُفظت القياسات ✓');
   };
 
-  // ===== ٢) المكتبة + التفعيل (المركز) =====
+  // ===== 2) المكتبة + التفعيل (المركز) =====
   const [cf, setCf] = useState(() => ({
     roleKpiEnabled: !!pol.roleKpiEnabled, roleKpiWeight: String(Number(pol.roleKpiWeight) || 20),
     kpis: kpisAll.map(k => ({ ...k, jobTitles: (k.jobTitles || []).join('، '), target: String(k.target), weight: String(k.weight) }))
@@ -15740,7 +15744,7 @@ function RoleKpi({ org, ops, me, myBranches, commit, commitOrg, say }) {
 
       {view === 'entry' && branch && (
         <div className="grid" style={{ gap: 12 }}>
-          {!pol.roleKpiEnabled && <div className="note" style={{ color: 'var(--amber)' }}>محور مؤشرات الدور غير مفعّل في درجة الأداء المركّبة (م٧) — يمكنك إدخال القياسات الآن، لكنها لن تؤثّر في الدرجة حتى يفعّلها المركز من «المكتبة والتفعيل». هذا مقصود كي لا تتغيّر الدرجات القائمة قبل مراجعتك.</div>}
+          {!pol.roleKpiEnabled && <div className="note" style={{ color: 'var(--amber)' }}>محور مؤشرات الدور غير مفعّل في درجة الأداء المركّبة (م7) — يمكنك إدخال القياسات الآن، لكنها لن تؤثّر في الدرجة حتى يفعّلها المركز من «المكتبة والتفعيل». هذا مقصود كي لا تتغيّر الدرجات القائمة قبل مراجعتك.</div>}
           <div className="card">
             <div className="card-t" style={{ marginBottom: 8 }}><TrendingUp size={15} color="var(--brass)" />قياسات مؤشرات الأداء — {branch.name} · {ymLabel(ym)}</div>
             <div className="grid g3" style={{ marginBottom: 8 }}>
@@ -15777,7 +15781,7 @@ function RoleKpi({ org, ops, me, myBranches, commit, commitOrg, say }) {
         <div className="grid" style={{ gap: 12 }}>
           <div className="card">
             <div className="card-t" style={{ marginBottom: 6 }}><TrendingUp size={15} color="var(--brass)" />تفعيل المحور في درجة الأداء</div>
-            <div className="note" style={{ marginBottom: 8 }}>عند التفعيل يُضاف «مؤشرات الدور» محورًا خامسًا في درجة الأداء المركّبة (م٧) بالوزن المحدَّد — تُطبَّع الدرجة تلقائيًا مع بقية المحاور المتوفّرة. مُعطَّل افتراضيًا كي لا يغيّر أي درجة قائمة قبل مراجعتك.</div>
+            <div className="note" style={{ marginBottom: 8 }}>عند التفعيل يُضاف «مؤشرات الدور» محورًا خامسًا في درجة الأداء المركّبة (م7) بالوزن المحدَّد — تُطبَّع الدرجة تلقائيًا مع بقية المحاور المتوفّرة. مُعطَّل افتراضيًا كي لا يغيّر أي درجة قائمة قبل مراجعتك.</div>
             <div className="row" style={{ gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
               <label className="row" style={{ gap: 6, cursor: 'pointer' }}><input type="checkbox" checked={!!cf.roleKpiEnabled} onChange={e => setCf(x => ({ ...x, roleKpiEnabled: e.target.checked }))} /><b>تفعيل محور مؤشرات الدور في الدرجة</b></label>
               <Field label="وزن المحور"><input className="inp n" style={{ width: 100 }} inputMode="numeric" value={cf.roleKpiWeight} onChange={e => setCf(x => ({ ...x, roleKpiWeight: e.target.value.replace(/\D/g, '') }))} /></Field>
@@ -15811,7 +15815,7 @@ function RoleKpi({ org, ops, me, myBranches, commit, commitOrg, say }) {
 }
 
 
-/* ================= م٦/§٣٢ (v27.10) — تجميد الأداء الشهري + كشف التلاعب =================
+/* ================= م6/§32 (v27.10) — تجميد الأداء الشهري + كشف التلاعب =================
    نموذج البيانات: ops.hrScoreSnapshots[] (CORE_COLS — مركزي فقط، لا تكتبه/تقرؤه أجهزة الفروع):
    { id, ym, createdAt, createdBy, createdByName, locked:true,
      meta:{ weightsEnabled, roleKpiEnabled, roleKpiWeight, weights },
@@ -15830,7 +15834,7 @@ function PerfSnap({ org, ops, me, myBranches, commit, say }) {
   const canUnlock = !!role.admin;          // فكّ التجميد: مسؤول النظام/الإدارة العليا فقط
   const td = today();
   const [ym, setYm] = useState(() => today().slice(0, 7));
-  const ymLabel = (y) => { const [Y, M] = String(y).split('-').map(Number); return isNaN(Y) ? y : new Date(Y, M - 1, 1).toLocaleDateString('ar', { month: 'long', year: 'numeric' }); };
+  const ymLabel = (y) => { const [Y, M] = String(y).split('-').map(Number); return isNaN(Y) ? y : new Date(Y, M - 1, 1).toLocaleDateString('ar-SA-u-ca-gregory-nu-latn', { month: 'long', year: 'numeric' }); };
   const bName = (id) => ((org.branches || []).find(b => b.id === id) || {}).name || '';
   const snaps = ((ops.hrScoreSnapshots || [])).slice().sort((a, b) => (a.ym < b.ym ? 1 : -1));
   const frozen = frozenSnapshotFor(ops, ym);
@@ -15961,7 +15965,7 @@ function PerfSnap({ org, ops, me, myBranches, commit, say }) {
 }
 
 
-// ===== م٩ — تفصيل حضور موظف لفترة (مُشتقّ، لا يُخزَّن): أيام مجدولة، حضور، تأخير بالدقائق، غياب، انصراف مبكر =====
+// ===== م9 — تفصيل حضور موظف لفترة (مُشتقّ، لا يُخزَّن): أيام مجدولة، حضور، تأخير بالدقائق، غياب، انصراف مبكر =====
 function hrAttendanceDetail(org, ops, emp, from, to) {
   const policies = { ...defaultHrPolicies(), ...(org.hrPolicies || {}) };
   const tolerance = Number(policies.lateToleranceMinutes) || 0;
@@ -16018,14 +16022,14 @@ function HrDashboard({ org, ops, me, myBranches, say, setTab }) {
   const [ym, setYm] = useState(() => today().slice(0, 7));
   const [branchId, setBranchId] = useState('');
   const ymAdd = (y, n) => { const [Y, M] = y.split('-').map(Number); const d = new Date(Y, M - 1 + n, 1); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); };
-  const ymLabel = (y) => { const [Y, M] = String(y).split('-').map(Number); return isNaN(Y) ? y : new Date(Y, M - 1, 1).toLocaleDateString('ar', { month: 'long', year: 'numeric' }); };
+  const ymLabel = (y) => { const [Y, M] = String(y).split('-').map(Number); return isNaN(Y) ? y : new Date(Y, M - 1, 1).toLocaleDateString('ar-SA-u-ca-gregory-nu-latn', { month: 'long', year: 'numeric' }); };
   const from = ym + '-01', to = ym + '-31';
   const pct = (a, b) => b ? Math.round(a / b * 100) : null;
   const fmtP = (v) => v == null ? '—' : v + '%';
   const empsOf = (bId) => (org.employees || []).filter(e => e.isActive !== false && e.branchId === bId);
   const bName = (id) => ((org.branches || []).find(b => b.id === id) || {}).name || '';
 
-  // === ١) اللوحة التنفيذية — تجميع لكل فرع (والشركة) لشهر، مع الشهر السابق ===
+  // === 1) اللوحة التنفيذية — تجميع لكل فرع (والشركة) لشهر، مع الشهر السابق ===
   const aggBranch = (bId, y) => {
     const f = y + '-01', t = y + '-31';
     const emps = empsOf(bId);
@@ -16053,14 +16057,14 @@ function HrDashboard({ org, ops, me, myBranches, say, setTab }) {
   const tone = chartTone();
   const chartData = rowsNow.map(r => ({ name: r.b.name, 'حضور في الوقت %': r.onTimePct || 0, 'إنجاز المهام %': r.taskPct || 0, 'متوسط الدرجة': r.avgScore || 0 }));
 
-  // === ٢) تقرير الحضور الشهري التفصيلي ===
+  // === 2) تقرير الحضور الشهري التفصيلي ===
   const repBranches = branchId ? branches.filter(b => b.id === branchId) : branches;
   const attRows = repBranches.flatMap(b => empsOf(b.id).map(e => ({ e, b, ...hrAttendanceDetail(org, ops, e, from, to) })));
   // v27.4 — أعمدة «الحضور الفعلي» (بلا اعتماد على الجدولة) أولًا، ثم أعمدة الالتزام بالوردية المجدولة
   const hoursOf = (m) => m > 0 ? Math.round(m / 6) / 10 : 0;   // دقائق ⇒ ساعات بمنزلة عشرية
   const attHead = ['الموظف', 'الفرع', 'أيام حضور فعلي', 'ساعات فعلية', 'دخول بلا انصراف', 'أيام مجدولة', 'حضور مقابل الوردية', 'في الوقت', 'تأخير (مرات)', 'دقائق التأخير', 'غياب', 'انصراف مبكر (مرات)', 'دقائق مبكرة', 'بلا انصراف (مجدول)', 'نسبة الحضور في الوقت %'];
   const attLine = (r) => [r.e.name, r.b.name, r.actualDays, hoursOf(r.workedMinutes), r.openDays, r.scheduled, r.present, r.onTime, r.late, r.lateMinutes, r.absent, r.early, r.earlyMinutes, r.noCheckout, pct(r.onTime, r.scheduled) == null ? '' : pct(r.onTime, r.scheduled)];
-  // === ٣) تقرير المكافآت والجزاءات والنقاط ===
+  // === 3) تقرير المكافآت والجزاءات والنقاط ===
   const rwRows = repBranches.flatMap(b => empsOf(b.id).map(e => {
     const reqs = (ops.rewardRequests || []).filter(r => r.employeeId === e.id && r.month === ym);
     const st = hrEmpStats(org, ops, e, from, to);
@@ -16200,7 +16204,7 @@ function HrDashboard({ org, ops, me, myBranches, say, setTab }) {
   );
 }
 
-/* ================= م١٠ (v27.0) — التوقيع الإلكتروني: إقرارات استلام الراتب وإشعارات المكافآت/الجزاءات =================
+/* ================= م10 (v27.0) — التوقيع الإلكتروني: إقرارات استلام الراتب وإشعارات المكافآت/الجزاءات =================
    نموذج البيانات: ops.hrSignDocs[] — ضمن BR_COLS (مستند الفرع) كي يقرأه ويكتبه جهاز الفرع، ويقرأه المركز:
    { id, branchId, branchName, employeeId, employeeName, docType:'payslip'|'reward'|'penalty', month, refId, title, amount,
      lines:{base,allow,bonus,gross,draws,cuts,gEmp,net} (القسيمة فقط), reason, issuedAt, issuedBy, issuedByName,
@@ -16305,7 +16309,7 @@ function buildPayslipSignDocs(rows, month, existing, branches, me) {
     };
   });
 }
-// إشعار بالعلم عند الاعتماد النهائي لمكافأة/جزاء (م٨)
+// إشعار بالعلم عند الاعتماد النهائي لمكافأة/جزاء (م8)
 function rewardSignDoc(r, me) {
   return {
     id: uid('sg'), branchId: r.branchId || '', branchName: r.branchName || '', employeeId: r.employeeId, employeeName: r.employeeName,
@@ -16333,7 +16337,7 @@ function overdueSignDocs(org, ops, branchIds, todayStr) {
 // كتلة التوقيع للطباعة (قسيمة الراتب، المسير، الإقرار)
 function sigBlockHtml(doc, width) {
   if (!doc || doc.status !== 'signed' || !sigPoints(doc.sig)) return '';
-  let when = ''; try { when = new Date(doc.signedAt).toLocaleString('ar-SA'); } catch { when = doc.signedAt || ''; }
+  let when = ''; try { when = arDT(doc.signedAt); } catch { when = doc.signedAt || ''; }
   return '<div style="text-align:center">' + sigSvg(doc.sig, { width: width || 150 }) + '<div style="font-size:9.5px;color:#555;margin-top:2px">وُقِّع إلكترونيًا ' + escH(when) + (doc.pinVerified ? ' · تحقّق PIN' : (doc.witnessName ? ' · بحضور ' + escH(doc.witnessName) : '')) + (doc.sigHash ? ' · #' + escH(String(doc.sigHash).slice(0, 10)) : '') + '</div></div>';
 }
 // صفحة الإقرار A4 (للطباعة من السجل أو من شاشة الرواتب)
@@ -16445,7 +16449,7 @@ function SignDocsModal({ org, ops, me, emp, docs, onClose, commit, say, via }) {
   const verify = async () => {
     if (busy) return;
     if (!hasPin) return say('لا يوجد رقم PIN لهذا الموظف', 'no');
-    if (!/^\d{4,6}$/.test(pin)) return say('أدخل رقم PIN المكوّن من ٤ إلى ٦ أرقام', 'no');
+    if (!/^\d{4,6}$/.test(pin)) return say('أدخل رقم PIN المكوّن من 4 إلى 6 أرقام', 'no');
     setBusy(true); const h = await sha(pin); setBusy(false);
     if (h !== pinRec.pinHash) { setPin(''); return say('رقم PIN غير صحيح', 'no'); }
     setPin(''); setStep('sign');
@@ -16556,7 +16560,7 @@ function ESign({ org, ops, me, myBranches, commit, say }) {
   const docsAll = (ops.hrSignDocs || []).filter(d => branchIds.includes(d.branchId));
   const pendingOf = (empId) => docsAll.filter(d => d.employeeId === empId && d.status === 'pending' && branch && d.branchId === branch.id).sort((a, b) => (a.issuedAt < b.issuedAt ? -1 : 1));
   const [signFor, setSignFor] = useState(null);
-  const ymLabel = (y) => { const [Y, M] = String(y).split('-').map(Number); return isNaN(Y) ? y : new Date(Y, M - 1, 1).toLocaleDateString('ar', { month: 'long', year: 'numeric' }); };
+  const ymLabel = (y) => { const [Y, M] = String(y).split('-').map(Number); return isNaN(Y) ? y : new Date(Y, M - 1, 1).toLocaleDateString('ar-SA-u-ca-gregory-nu-latn', { month: 'long', year: 'numeric' }); };
   const statusBadge = (d) => d.status === 'signed' ? <span className="badge b-mint"><Check size={11} />موقَّع</span> : d.status === 'voided' ? <span className="badge b-dim">مُلغى</span> : <span className="badge b-amber">بانتظار التوقيع</span>;
   const viaAr = (d) => d.status !== 'signed' ? '—' : (d.pinVerified ? 'PIN' : 'بحضور ' + (d.witnessName || '')) + (d.signedVia === 'central' ? ' · المكتب' : ' · جهاز الفرع');
 
@@ -16585,7 +16589,7 @@ function ESign({ org, ops, me, myBranches, commit, say }) {
     printA4(org, (SIGN_DOC_AR[d.docType] || 'إقرار') + ' — ' + d.employeeName, 'شهر ' + d.month + ' · ' + (d.branchName || ''), signDocHtml(d, showAmounts)) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
   };
   const printReport = () => {
-    const rws = logRows.map(d => `<tr><td>${escH(d.employeeName)}</td><td>${escH(d.branchName)}</td><td>${SIGN_DOC_AR[d.docType] || ''}</td><td class="n">${escH(d.month)}</td>${showAmounts ? `<td class="n">${money(d.amount)}</td>` : ''}<td>${d.status === 'signed' ? 'موقَّع' : d.status === 'voided' ? 'مُلغى' : 'بانتظار التوقيع'}</td><td class="n">${d.signedAt ? escH(new Date(d.signedAt).toLocaleString('ar-SA')) : '—'}</td><td>${escH(viaAr(d))}</td><td style="width:110px">${d.status === 'signed' ? sigSvg(d.sig, { width: 100 }) : ''}</td></tr>`).join('');
+    const rws = logRows.map(d => `<tr><td>${escH(d.employeeName)}</td><td>${escH(d.branchName)}</td><td>${SIGN_DOC_AR[d.docType] || ''}</td><td class="n">${escH(d.month)}</td>${showAmounts ? `<td class="n">${money(d.amount)}</td>` : ''}<td>${d.status === 'signed' ? 'موقَّع' : d.status === 'voided' ? 'مُلغى' : 'بانتظار التوقيع'}</td><td class="n">${d.signedAt ? escH(arDT(d.signedAt)) : '—'}</td><td>${escH(viaAr(d))}</td><td style="width:110px">${d.status === 'signed' ? sigSvg(d.sig, { width: 100 }) : ''}</td></tr>`).join('');
     printA4(org, 'تقرير حالة التوقيعات — ' + ymLabel(ym), (logBranch ? (branches.find(b => b.id === logBranch) || {}).name + ' · ' : '') + 'موقَّع ' + nSigned + ' · بانتظار ' + nPending,
       `<table><thead><tr><th>الموظف</th><th>الفرع</th><th>المستند</th><th>الشهر</th>${showAmounts ? '<th>المبلغ</th>' : ''}<th>الحالة</th><th>وقت التوقيع</th><th>الطريقة</th><th>التوقيع</th></tr></thead><tbody>${rws || '<tr><td colspan="9" style="text-align:center;color:#888">لا مستندات ضمن هذه الفلاتر</td></tr>'}</tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
   };
@@ -16679,7 +16683,7 @@ function ESign({ org, ops, me, myBranches, commit, say }) {
                     <td className="num">{d.month}</td>
                     {showAmounts && <td className="num" style={{ textAlign: 'end' }}>{money(d.amount)}</td>}
                     <td>{statusBadge(d)}</td>
-                    <td style={{ fontSize: 11.5 }}>{d.signedAt ? new Date(d.signedAt).toLocaleString('ar-SA') : '—'}</td>
+                    <td style={{ fontSize: 11.5 }}>{d.signedAt ? arDT(d.signedAt) : '—'}</td>
                     <td style={{ fontSize: 11.5 }}>{viaAr(d)}</td>
                     <td>{d.status === 'signed' ? <button className="btn sm gh" onClick={() => setViewDoc(d)} title="عرض التوقيع"><SigView sig={d.sig} width={70} /></button> : <span style={{ color: 'var(--faint)' }}>—</span>}</td>
                     <td>
@@ -16704,7 +16708,7 @@ function ESign({ org, ops, me, myBranches, commit, say }) {
         <Modal title={SIGN_DOC_AR[viewDoc.docType] + ' — ' + viewDoc.employeeName} icon={Signature} onClose={() => setViewDoc(null)} foot={<button className="btn gh" onClick={() => setViewDoc(null)}>إغلاق</button>}>
           <div className="grid" style={{ gap: 8, textAlign: 'center' }}>
             <SigView sig={viewDoc.sig} width={320} style={{ margin: '0 auto', border: '1px solid var(--frame-o)' }} />
-            <div style={{ fontSize: 11.5, color: 'var(--dim)' }}>وُقِّع {viewDoc.signedAt ? new Date(viewDoc.signedAt).toLocaleString('ar-SA') : ''} · {viaAr(viewDoc)}{viewDoc.sigHash ? ' · #' + String(viewDoc.sigHash).slice(0, 10) : ''}</div>
+            <div style={{ fontSize: 11.5, color: 'var(--dim)' }}>وُقِّع {viewDoc.signedAt ? arDT(viewDoc.signedAt) : ''} · {viaAr(viewDoc)}{viewDoc.sigHash ? ' · #' + String(viewDoc.sigHash).slice(0, 10) : ''}</div>
             <div style={{ fontSize: 12, lineHeight: 1.8 }}>{signDeclaration(viewDoc)}</div>
           </div>
         </Modal>
@@ -16871,7 +16875,7 @@ function Reports({ org, ops, me, myBranches, scoped, say, theme }) {
         <td class="num">${m(sum(byBranch, b => b.card))}</td><td class="num">${m(sum(byBranch, b => b.del))}</td>
         <td class="num rose">${m(T.exp)}</td><td class="num mint">${m(T.net)}</td><td>—</td>
         <td class="num">${m(T.varr)}</td></tr></tfoot></table>
-      <div class="foot dim">تم التصدير آلياً من منصة ميزان · ${new Date().toLocaleString('ar-SA-u-nu-latn')}</div>
+      <div class="foot dim">تم التصدير آلياً من منصة ميزان · ${arDT(new Date())}</div>
       </div></body></html>`);
     w.document.close();
     setTimeout(() => { w.focus(); w.print(); }, 500);
@@ -17429,7 +17433,7 @@ function UserForm({ u, org, onSave, onClose }) {
       )}
       <Field label={u.name ? 'كلمة سر جديدة (اتركها فارغة للإبقاء على الحالية)' : 'كلمة السر'}>
         <div style={{ position: 'relative' }}>
-          <input className="inp" type={showPw ? 'text' : 'password'} value={f.newPass || ''} placeholder={u.name ? 'بدون تغيير' : '٦ أحرف على الأقل'}
+          <input className="inp" type={showPw ? 'text' : 'password'} value={f.newPass || ''} placeholder={u.name ? 'بدون تغيير' : '6 أحرف على الأقل'}
             style={showPw ? { direction: 'ltr', textAlign: 'right', letterSpacing: 1 } : undefined}
             onChange={e => set('newPass', e.target.value)} />
           <button type="button" className="btn sm gh pw-eye" style={{ position: 'absolute', insetInlineEnd: 4, top: 4, padding: '4px 8px' }}
@@ -17617,7 +17621,7 @@ function buildClosingA4(c, org) {
       </div>
       <div class="doc-title">تقرير الإغلاق اليومي الرسمي</div>
       <div class="doc-sub">فرع ${c.branchName} · ${arDate(c.date)}</div>
-      <div class="doc-sub dim">تاريخ التصدير: ${new Date().toLocaleString('ar-SA-u-nu-latn')}</div>
+      <div class="doc-sub dim">تاريخ التصدير: ${arDT(new Date())}</div>
     </div>
 
     <div class="summary-card">
@@ -17935,7 +17939,7 @@ function printReceipt(c, org, size) {
   ${c.managerSignature ? `<div class="c"><img src="${c.managerSignature}" style="max-width:52mm"></div>` : ''}
   <div class="c">توقيع المسؤول: __________</div>
   <div class="c">أمين الخزينة: __________</div>
-  <div class="c" style="margin-top:8px">${new Date().toLocaleString('ar-SA-u-nu-latn')}</div>
+  <div class="c" style="margin-top:8px">${arDT(new Date())}</div>
   </body></html>`;
   const w = openDocWin('width=420,height=760');
   if (!w) return false;
@@ -17951,7 +17955,7 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: g
   const [pay, setPay] = useState(null);
   const [amt, setAmt] = useState(0);
   const [payFund, setPayFund] = useState('1201');   // v15.19: مصدر السداد — بنك (افتراضي) أو خزينة رئيسية
-  const [newInv, setNewInv] = useState(null);        // نموذج فاتورة توريد (م٤)
+  const [newInv, setNewInv] = useState(null);        // نموذج فاتورة توريد (م4)
   const [poF, setPoF] = useState(null);              // نموذج أمر شراء
   const [recv, setRecv] = useState(null);            // نموذج استلام أمر
   const [showPrices, setShowPrices] = useState(false);
@@ -18023,7 +18027,7 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: g
     if (ok) say('حُذفت الفاتورة ' + (inv.invoiceNo || '') + (twin ? ' ونُقلت سداداتها الموزّعة إلى ' + (twin.invoiceNo || '') : '') + ' ✓');
   };
 
-  // ===== م٤: أوامر الشراء والفواتير =====
+  // ===== م4: أوامر الشراء والفواتير =====
   const pos = (ops.purchaseOrders || []).sort((a, b) => (b.at || '').localeCompare(a.at || ''));
   // v30.5 — إعدادات المشتريات + الاعتماد + أسعار الموردين
   const pcfg = org.purchaseCfg || {};
@@ -18752,7 +18756,7 @@ function BalCell({ bal }) {
     <span style={{ fontSize: 10, color: 'var(--faint)', marginInlineStart: 5 }}>{cr ? 'دائن · علينا' : 'مدين · لنا'}</span></span>;
 }
 
-/* ================= م٤: المخزون والمنتجات — أصناف، حركات، جرد، وصفات ================= */
+/* ================= م4: المخزون والمنتجات — أصناف، حركات، جرد، وصفات ================= */
 /* ============================================================
    v29.9 — المستودعات: رئيسي + مستودع لكل فرع (org.warehouses)
    • حركات المستودع الرئيسي: ops.stockMoves (المستند المركزي) — الحركات القديمة بلا whId تخص الرئيسي.
@@ -19183,10 +19187,10 @@ function WarehousesPanel({ org, ops, me, commit, commitOrg, say }) {
 /* ============ v29.9 — مستودع الفرع (موظفو الفرع): الاستلام، الطلب، الصرف للمطبخ، الهدر، الجرد ============ */
 const WH_MOVE = { out: { ar: 'صرف للمطبخ', sign: -1, c: 'b-sky' }, waste: { ar: 'هدر/إتلاف', sign: -1, c: 'b-rose' }, adjust: { ar: 'تسوية جرد', sign: 1, c: 'b-amber' } };
 /* ===== v37.5 — الجرد الأعمى بالاعتماد المزدوج =====
-   ١) العادّ يُدخل الكميات دون أن يرى الرصيد الدفتري ولا الفرق (عدّ أعمى).
-   ٢) عند التسليم يُلتقط الرصيد الدفتري لحظتها؛ كل صنف فرقه فوق التسامح (قيمة ≥ الحد ونسبة ≥ الحد) يعود «لإعادة العدّ» أعمى أيضًا.
-   ٣) لا يُرحَّل أي فرق حتى يعتمده شخص آخر غير العادّ/المعيد — عندها فقط تُسجَّل «تسوية جرد» بتاريخ العدّ.
-   ٤) جرد يومي اختياري لأصناف الفئة A (الأعلى قيمة في المستودع). */
+   1) العادّ يُدخل الكميات دون أن يرى الرصيد الدفتري ولا الفرق (عدّ أعمى).
+   2) عند التسليم يُلتقط الرصيد الدفتري لحظتها؛ كل صنف فرقه فوق التسامح (قيمة ≥ الحد ونسبة ≥ الحد) يعود «لإعادة العدّ» أعمى أيضًا.
+   3) لا يُرحَّل أي فرق حتى يعتمده شخص آخر غير العادّ/المعيد — عندها فقط تُسجَّل «تسوية جرد» بتاريخ العدّ.
+   4) جرد يومي اختياري لأصناف الفئة A (الأعلى قيمة في المستودع). */
 const countCfgOf = (org) => { const c = (org && org.countCfg) || {}; const n = (v, d) => (v === '' || v == null || !Number.isFinite(Number(v))) ? d : Math.max(0, Number(v));
   return { tolPct: n(c.tolPct, 3), tolVal: n(c.tolVal, 25), dailyA: !!c.dailyA, aTop: Math.max(1, n(c.aTop, 5)) }; };
 const canApproveCount = (me) => { const R = ROLES[me?.role] || {}; return !!(rolePost(me?.role) || R.approver || R.admin || me?.role === 'regional_manager' || me?.role === 'branch_manager'); };
@@ -20438,7 +20442,7 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
               </div>
               <div className="note">
                 <b>كيف تُقرأ؟</b> يقارن النظام كل منتج بمتوسط القائمة في بُعدين: <b>الرواج</b> (كمية البيع) و<b>الربحية</b> (هامش الوحدة).
-                <b> ⭐ نجم</b>: رائج وربحي — أبرِزه. <b>❓ لغز</b>: ربحي لكن قليل الطلب — روّج له. <b>🐎 حصان</b>: رائج ضعيف الهامش — راجع تكلفته أو سعره. <b>🐕 كلب</b>: ضعيف الطلب والهامش — طوّره أو أزِله. القواطع: متوسط الهامش المرجّح، و٧٠٪ من متوسط الكمية.
+                <b> ⭐ نجم</b>: رائج وربحي — أبرِزه. <b>❓ لغز</b>: ربحي لكن قليل الطلب — روّج له. <b>🐎 حصان</b>: رائج ضعيف الهامش — راجع تكلفته أو سعره. <b>🐕 كلب</b>: ضعيف الطلب والهامش — طوّره أو أزِله. القواطع: متوسط الهامش المرجّح، و70% من متوسط الكمية.
               </div>
             </>}
           </div>
@@ -21448,14 +21452,14 @@ function AppsCenter({ org, me, commitOrg, say, setTab, openAcctView, openInvView
           <b style={{ color: 'var(--brass-l)' }}>معمارية المركز:</b> كل بطاقة تفتح وحدة فعلية تعمل الآن — لا صفحات وهمية.
           التطبيقات كلها تتشارك نفس المستخدمين والفروع ودليل الحسابات والشركاء (طبقة تكامل واحدة)،
           وكل عملية مالية فيها تصب تلقائيًا في المحرك المحاسبي المركزي: عملية ← قيد ← أستاذ ← ميزان ← قوائم.
-          بطاقات «قريباً» هي خطة التطوير المعتمدة (م٣ الضريبة، م٤ المشتريات والمخزون، م٥ الأصول والتسوية) وتظهر لأدوار المركز فقط.
+          بطاقات «قريباً» هي خطة التطوير المعتمدة (م3 الضريبة، م4 المشتريات والمخزون، م5 الأصول والتسوية) وتظهر لأدوار المركز فقط.
         </div>
       </div>
     </div>
   );
 }
 
-/* ================= شاشة المحاسبة — م١+م٢: دليل، قيود، ميزان، قوائم ================= */
+/* ================= شاشة المحاسبة — م1+م2: دليل، قيود، ميزان، قوائم ================= */
 /* ═══════════════════════════════════════════════════════════════════════════════════════
    v28.2 — دمج بيانات «ميزان المحاسبي» (حزمة mizan-export)
    ───────────────────────────────────────────────────────────────────────────────────────
@@ -21955,7 +21959,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
   const saveAcct = async () => {
     const f = coaF; const code = String(f.code || '').trim(); const name = String(f.name || '').trim();
     if (!code || !name) return say('أدخل رمز الحساب واسمه', 'no');
-    if (!/^[0-9A-Za-z\-]{2,12}$/.test(code)) return say('الرمز: أرقام أو أحرف إنجليزية (٢–١٢)', 'no');
+    if (!/^[0-9A-Za-z\-]{2,12}$/.test(code)) return say('الرمز: أرقام أو أحرف إنجليزية (2–12)', 'no');
     const clash = A.accounts.find(a => a.code === code && a.code !== f.origCode);
     // v29.4: تغيير رمز حساب عليه حركة يفصل قيوده عنه (تشير للرمز القديم) — يُمنع
     const orig = f.origCode && A.accounts.find(a => a.code === f.origCode);
@@ -22069,7 +22073,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     setArLimitF(null);
   };
 
-  // ===== م٣: الضريبة =====
+  // ===== م3: الضريبة =====
   const taxCfg = org.taxCfg || {};
   const taxOn = !!taxCfg.enabled;
   const taxRate = Number(taxCfg.rate) || 15;
@@ -22318,7 +22322,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     if (!einvF.invNo.trim() && canPost) commitOrg(d => ({ ...d, einvSeq: (d.einvSeq || 0) + 1 }), { actionType: 'create', targetType: 'tax_settings', targetId: 'einvSeq', need: 'post', title: 'إصدار ' + (einvIsStd ? 'فاتورة ضريبية' : 'فاتورة مبسّطة'), details: einvNo }).catch(() => { });  // v15.11: لا يزيد التسلسل لدور «عرض فقط»
   };
 
-  // ===== م٥: الأصول الثابتة =====
+  // ===== م5: الأصول الثابتة =====
   const saveAst = async () => {
     const f = astF;
     if (!f.name.trim()) return say('أدخل اسم الأصل', 'no');
@@ -22384,7 +22388,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     say('أُلغي الاستبعاد — عاد الأصل نشطاً وأُعيد احتساب إهلاكه ✓');
   };
 
-  // ===== م٥: التسوية البنكية — v15.20: لكل بنك (التجميعي أو بنك فرع) تسويته المستقلة =====
+  // ===== م5: التسوية البنكية — v15.20: لكل بنك (التجميعي أو بنك فرع) تسويته المستقلة =====
   const brBanks = branchBanks(org);
   const bankLabel = (code) => code === '1201' || !code ? 'البنك التجميعي' : ((brBanks.find(x => x.code === code) || {}).name || ('حساب ' + code));
   const bankBookAt = (d) => {
@@ -22468,7 +22472,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
     }
     const mStart = stMonth + '-01';
     const nm = new Date(mStart + 'T12:00:00Z'); nm.setUTCMonth(nm.getUTCMonth() + 1);
-    const mEnd = stAddDays(nm.toISOString().slice(0, 10), 6);   // حتى نهاية الشهر + ٦ أيام (تسوية آخر الشهر تصل أول التالي)
+    const mEnd = stAddDays(nm.toISOString().slice(0, 10), 6);   // حتى نهاية الشهر + 6 أيام (تسوية آخر الشهر تصل أول التالي)
     const dep = deposits.filter(x => x.date >= mStart && x.date <= mEnd).sort((a, b) => a.date.localeCompare(b.date));
     const sysMap = {};
     (ops.closings || []).forEach(c => {
@@ -23647,14 +23651,14 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
             <div className="card">
               <div className="card-h"><div className="card-t"><TrendingUp size={15} color="var(--brass)" />افتراضات التوقّع</div>
                 <button className="btn sm" onClick={printForecast}><Printer size={13} />طباعة A4</button></div>
-              <div className="note" style={{ margin: '6px 0 10px' }}>القيم فارغةً تُحسب تلقائيًا من متوسط آخر ٦ أشهر. الرواتب ومستحقات الموردين تُؤخذ من بياناتك الفعلية (بتواريخ الاستحقاق). عدّل التقديرات كما تتوقّع.</div>
+              <div className="note" style={{ margin: '6px 0 10px' }}>القيم فارغةً تُحسب تلقائيًا من متوسط آخر 6 أشهر. الرواتب ومستحقات الموردين تُؤخذ من بياناتك الفعلية (بتواريخ الاستحقاق). عدّل التقديرات كما تتوقّع.</div>
               <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
                 <Field label="مبيعات شهرية متوقّعة" style={{ width: 160 }}><input className="inp n" inputMode="decimal" value={fcD.monthlySales} placeholder={'تلقائي: ' + money(f.avgSales)} onChange={e => setFcD(s => ({ ...s, monthlySales: e.target.value.replace(/[^\d.]/g, '') }))} disabled={!canPost} /></Field>
                 <Field label="مصروفات تشغيل شهرية" style={{ width: 160 }}><input className="inp n" inputMode="decimal" value={fcD.monthlyOpex} placeholder={'تلقائي: ' + money(f.avgOpex)} onChange={e => setFcD(s => ({ ...s, monthlyOpex: e.target.value.replace(/[^\d.]/g, '') }))} disabled={!canPost} /></Field>
                 <Field label="حد الأمان النقدي" style={{ width: 140 }}><input className="inp n" inputMode="decimal" value={fcD.buffer} placeholder="0.00" onChange={e => setFcD(s => ({ ...s, buffer: e.target.value.replace(/[^\d.]/g, '') }))} disabled={!canPost} /></Field>
                 <Field label="الأفق" style={{ width: 110 }}>
                   <select className="sel" value={fcD.horizon} onChange={e => setFcD(s => ({ ...s, horizon: Number(e.target.value) }))} disabled={!canPost}>
-                    <option value={3}>٣ أشهر</option><option value={6}>٦ أشهر</option><option value={12}>١٢ شهرًا</option>
+                    <option value={3}>3 أشهر</option><option value={6}>6 أشهر</option><option value={12}>12 شهرًا</option>
                   </select>
                 </Field>
                 {canPost && <button className="btn pri" onClick={saveForecast}><Check size={14} />حفظ الافتراضات</button>}
@@ -23938,7 +23942,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
                   </tbody>
                 </table>
               </div>
-              <div className="note" style={{ marginTop: 10 }}>النِسَب مشتقّة من قوائمك مباشرةً: الربحية من قائمة الدخل للفترة المحددة، والسيولة والرفع من المركز المالي حتى نهايتها. الاتجاه يعرض آخر ٦ أشهر منتهيةً بالفترة (أو الشهر الحالي). «×» تعني «مرّة»، والقيم بلا بسط/مقام صالح تظهر «—».</div>
+              <div className="note" style={{ marginTop: 10 }}>النِسَب مشتقّة من قوائمك مباشرةً: الربحية من قائمة الدخل للفترة المحددة، والسيولة والرفع من المركز المالي حتى نهايتها. الاتجاه يعرض آخر 6 أشهر منتهيةً بالفترة (أو الشهر الحالي). «×» تعني «مرّة»، والقيم بلا بسط/مقام صالح تظهر «—».</div>
             </div>
           </div>
         );
@@ -24518,31 +24522,31 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
         const cc = (ops.closings || []).filter(countedClosing);
         const F = [];
         const add = (sev, cat, title, detail) => F.push({ sev, cat, title, detail });
-        // ١) فصل المهام: نفس الشخص أنشأ واعتمد
+        // 1) فصل المهام: نفس الشخص أنشأ واعتمد
         (ops.closings || []).forEach(c => { if (c.auditedBy && c.managerName && c.auditedBy === c.managerName) add('high', 'فصل المهام', 'نفس الشخص أنشأ الإغلاق واعتمده', (c.branchName || '') + ' · ' + c.date + ' · ' + c.managerName + ' — يجب فصل الإنشاء عن الاعتماد.'); });
-        // ٢) قيود يدوية كبيرة
+        // 2) قيود يدوية كبيرة
         (ops.journalManual || []).forEach(j => { const t = sum(j.lines || [], l => l.debit || 0); if (t >= largeAmt) add('mid', 'قيود يدوية', 'قيد يدوي كبير', (j.title || 'قيد يدوي') + ' · ' + (j.date || '').slice(0, 10) + ' · ' + money(t) + ' — القيود اليدوية تتجاوز الأتمتة؛ راجع سندها.'); });
-        // ٣) مبالغ شاذة (إيراد إغلاق مرتفع إحصائيًا)
+        // 3) مبالغ شاذة (إيراد إغلاق مرتفع إحصائيًا)
         if (cc.length >= 4) {
           const revs = cc.map(c => c.totalRevenue || 0); const mean = sum(revs, x => x) / revs.length;
           const sd = Math.sqrt(sum(revs, x => (x - mean) * (x - mean)) / revs.length);
           cc.forEach(c => { if (sd > 0 && (c.totalRevenue || 0) > mean + 3 * sd) add('mid', 'مبالغ شاذة', 'إيراد إغلاق شاذّ (مرتفع بشكل غير معتاد)', (c.branchName || '') + ' · ' + c.date + ' · ' + money(c.totalRevenue) + ' مقابل متوسط ' + money(Math.round(mean)) + ' — تحقّق من الإدخال.'); });
         }
-        // ٤) ازدواج محتمل: مصروف بنفس اليوم والبند والمبلغ
+        // 4) ازدواج محتمل: مصروف بنفس اليوم والبند والمبلغ
         const em = {};
         cc.forEach(c => (c.expenses || []).forEach(e => { if (!(e.amount > 0)) return; const k = c.date + '|' + (e.categoryName || '') + '|' + e.amount; (em[k] = em[k] || []).push(1); }));
         Object.entries(em).forEach(([k, arr]) => { if (arr.length >= 2) { const pr = k.split('|'); add('high', 'ازدواج محتمل', 'مصروف مكرّر بنفس اليوم والمبلغ', pr[1] + ' · ' + pr[0] + ' · ' + money(Number(pr[2])) + ' — تكرّر ' + arr.length + ' مرات، قد يكون مزدوجًا.'); } });
-        // ٥) فروقات صندوق متكررة
+        // 5) فروقات صندوق متكررة
         const db = {};
         cc.forEach(c => { if ((c.variance || 0) < 0) db[c.branchName || '—'] = (db[c.branchName || '—'] || 0) + 1; });
         Object.entries(db).forEach(([br, n]) => { if (n >= 2) add('high', 'فروقات متكررة', 'عجز صندوق متكرّر', br + ' · ' + n + ' حالات عجز — نمط يستحق التحقيق لا حادثة منفردة.'); });
-        // ٦) سلف متكررة لموظف
+        // 6) سلف متكررة لموظف
         const ab = {};
         (ops.advances || []).filter(a => ['advance', 'salary_draw'].includes(a.type)).forEach(a => { const key = a.employeeName || a.employeeId || '—'; ab[key] = (ab[key] || 0) + 1; });
         Object.entries(ab).forEach(([e2, n]) => { if (n >= 3) add('mid', 'سلف متكررة', 'سلف متكرّرة لموظف', e2 + ' · ' + n + ' سلف — راجع سبب التكرار.'); });
-        // ٧) مدفوعات موردين بلا فاتورة مرتبطة
+        // 7) مدفوعات موردين بلا فاتورة مرتبطة
         cc.forEach(c => (c.supplierPayments || []).forEach(pm => { const t = payTotal(pm); if (t > 0 && !pm.invoiceId) add('high', 'مدفوعات غير مدعّمة', 'سداد مورد بلا فاتورة مرتبطة', (pm.supplierName || 'مورد') + ' · ' + c.date + ' · ' + money(t) + ' — لا فاتورة مرجعية؛ وثّق السند.'); }));
-        // ٨) مبالغ مستديرة كبيرة
+        // 8) مبالغ مستديرة كبيرة
         cc.forEach(c => (c.expenses || []).forEach(e => { const a = e.amount || 0; if (a >= largeAmt && a % 1000 === 0) add('low', 'مبالغ مستديرة', 'مبلغ مستدير كبير', (e.categoryName || 'مصروف') + ' · ' + c.date + ' · ' + money(a) + ' — المبالغ المستديرة الكبيرة قد تكون تقديرات؛ تحقّق.'); }));
 
         const rank = { high: 0, mid: 1, low: 2 }; F.sort((a, b) => rank[a.sev] - rank[b.sev]);
@@ -24562,7 +24566,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
             </div>
 
             <div className="grid g3">
-              <Kpi label="إجمالي الملاحظات" value={String(F.length)} sub="عبر ٨ ضوابط" icon={ShieldCheck} color={F.length ? '#C8A24A' : '#4FB286'} />
+              <Kpi label="إجمالي الملاحظات" value={String(F.length)} sub="عبر 8 ضوابط" icon={ShieldCheck} color={F.length ? '#C8A24A' : '#4FB286'} />
               <Kpi label="مرتفعة المخاطر" value={String(nHi)} sub="تتطلب تحقيقًا" icon={AlertTriangle} color={nHi ? '#D9544D' : '#4FB286'} />
               <Kpi label="متوسطة/منخفضة" value={nMd + ' / ' + nLo} sub="مراجعة" icon={Eye} color="#5B93C4" />
             </div>
@@ -24579,7 +24583,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
                 </div>
               ))}
               {F.length === 0 && <div className="card"><div className="empty">لا ملاحظات رقابية — ضوابطك سليمة ✓</div></div>}
-              {F.length > 60 && <div className="note">عُرضت أول ٦٠ ملاحظة من {F.length}. عالِج المرتفعة أولًا.</div>}
+              {F.length > 60 && <div className="note">عُرضت أول 60 ملاحظة من {F.length}. عالِج المرتفعة أولًا.</div>}
             </div>
 
             <div className="note">الضوابط المفحوصة: فصل المهام (منشئ الإغلاق ≠ معتمِده) · القيود اليدوية الكبيرة · المبالغ الشاذة إحصائيًا · الازدواج المحتمل · فروقات الصندوق المتكررة · السلف المتكررة · مدفوعات الموردين بلا فاتورة · المبالغ المستديرة الكبيرة. عدّل «حد المبلغ الكبير» أعلاه حسب حجم نشاطك.</div>
@@ -24622,7 +24626,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
               <div className="card" style={{ borderColor: 'rgba(224,164,88,.4)' }}>
                 <div className="card-t" style={{ marginBottom: 8 }}><ShieldAlert size={15} color="var(--amber)" />فتح استثنائي (بسبب موثق)</div>
                 <Field label="سبب الفتح — إلزامي ويُسجل باسمك">
-                  <input className="inp" placeholder="مثال: تصحيح وردية ٥ أغسطس بطلب المراجع…" value={unReason} onChange={e => setUnReason(e.target.value)} />
+                  <input className="inp" placeholder="مثال: تصحيح وردية 5 أغسطس بطلب المراجع…" value={unReason} onChange={e => setUnReason(e.target.value)} />
                 </Field>
                 <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
                   <Field label="الحد الجديد (اختياري — فارغ = فتح الكل)" style={{ width: 190 }}>
@@ -24939,7 +24943,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
               {einvIsStd && (
                 <div className="grid g2" style={{ gap: 9, marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--line)' }}>
                   <Field label="اسم المشتري"><input className="inp" value={einvF.buyer} onChange={e => setEinvF(f => ({ ...f, buyer: e.target.value }))} placeholder="اسم المنشأة المشترية" /></Field>
-                  <Field label="الرقم الضريبي للمشتري"><input className="inp n" value={einvF.buyerVat} onChange={e => setEinvF(f => ({ ...f, buyerVat: e.target.value }))} placeholder="١٥ رقمًا" /></Field>
+                  <Field label="الرقم الضريبي للمشتري"><input className="inp n" value={einvF.buyerVat} onChange={e => setEinvF(f => ({ ...f, buyerVat: e.target.value }))} placeholder="15 رقمًا" /></Field>
                   <Field label="عنوان المشتري" style={{ gridColumn: 'span 2' }}><input className="inp" value={einvF.buyerAddress} onChange={e => setEinvF(f => ({ ...f, buyerAddress: e.target.value }))} placeholder="المدينة، الحي، الشارع، الرمز البريدي" /></Field>
                   {(() => { const bc = einvCustomers.find(x => x.id === einvF.buyerId); const sm = naMissing(einvEnt.na || (einvEnt.primary ? (org.company || {}).na : null)); const bm = bc ? naMissing(bc.na) : [];
                     return (sm.length || bm.length) ? <div style={{ gridColumn: 'span 2', fontSize: 10.5, color: 'var(--amber)', lineHeight: 1.7 }}>
@@ -25034,7 +25038,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
             ${saudiShare > 0 ? `<tr class="tot"><td>الزكاة المستحقة${saudiShare < 100 ? ` — حصة سعودية (${saudiShare}%)` : ''}</td><td class="n">${money(zakatDue)}</td></tr>` : ''}
             ${foreignShare > 0 ? `<tr class="tot"><td>ضريبة الدخل — حصة أجنبية (${foreignShare}% × ${incTaxRate}%)</td><td class="n">${money(incomeTax)}</td></tr>` : ''}
             <tr class="tot"><td>الإجمالي المستحق (زكاة + ضريبة دخل)</td><td class="n">${money(dueTotal)}</td></tr></tbody></table>
-            <div class="box" style="margin-top:12px;font-size:10px;color:#777">تقدير استرشادي: الزكاة (٢.٥٪ على الحصة السعودية/الخليجية) وضريبة الدخل (على الحصة الأجنبية) بطريقة «مصادر الأموال». الإقرار الرسمي للهيئة يخضع لضوابط تفصيلية. راجع محاسبك.</div>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+            <div class="box" style="margin-top:12px;font-size:10px;color:#777">تقدير استرشادي: الزكاة (2.5% على الحصة السعودية/الخليجية) وضريبة الدخل (على الحصة الأجنبية) بطريقة «مصادر الأموال». الإقرار الرسمي للهيئة يخضع لضوابط تفصيلية. راجع محاسبك.</div>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
         };
         return (
           <div className="grid" style={{ gap: 12 }}>
@@ -25088,7 +25092,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
                 <div className="note" style={{ marginTop: 10 }}>البنود المشتقة (رأس المال، الأرباح المبقاة، الأصول الثابتة، صافي الربح) تأتي من قيودك تلقائيًا. أضِف يدويًا ما لا يظهر في الحسابات (قروض/استثمارات/مخصصات).</div>
               </div>
             </div>
-            <div className="note">⚠️ <b>بشفافية:</b> حاسبة <b>استرشادية</b> بطريقة «مصادر الأموال». تُطبَّق حسب <b>نوع الملكية</b>: الزكاة (٢.٥٪) على الحصة السعودية/الخليجية، و<b>ضريبة الدخل</b> (٢٠٪ افتراضيًا) على الحصة الأجنبية من صافي الربح. المنشأة الأجنبية بالكامل تخضع لضريبة الدخل فقط، والسعودية للزكاة فقط. ليست إقرارًا رسميًا — الوعاء الرسمي يخضع لضوابط الهيئة، والوعاء لا يقل عن صافي الربح المعدّل (طُبّق تلقائيًا). راجِع محاسبك.</div>
+            <div className="note">⚠️ <b>بشفافية:</b> حاسبة <b>استرشادية</b> بطريقة «مصادر الأموال». تُطبَّق حسب <b>نوع الملكية</b>: الزكاة (2.5%) على الحصة السعودية/الخليجية، و<b>ضريبة الدخل</b> (20% افتراضيًا) على الحصة الأجنبية من صافي الربح. المنشأة الأجنبية بالكامل تخضع لضريبة الدخل فقط، والسعودية للزكاة فقط. ليست إقرارًا رسميًا — الوعاء الرسمي يخضع لضوابط الهيئة، والوعاء لا يقل عن صافي الربح المعدّل (طُبّق تلقائيًا). راجِع محاسبك.</div>
           </div>
         );
       })()}
@@ -25201,7 +25205,7 @@ function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }
               </div>
               {stF && !stF.auto && (
                 <div style={{ marginTop: 10, padding: 10, borderRadius: 10, border: '1px dashed var(--line-g)' }}>
-                  <div className="lbl">لم أتعرّف على أعمدة الكشف تلقائيًا — حدّدها يدويًا (رقم العمود يبدأ من ١ يمينًا في الملف):</div>
+                  <div className="lbl">لم أتعرّف على أعمدة الكشف تلقائيًا — حدّدها يدويًا (رقم العمود يبدأ من 1 يمينًا في الملف):</div>
                   <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
                     {[['date', 'عمود التاريخ'], ['credit', 'عمود الإيداع (دائن)'], ['debit', 'عمود السحب (مدين)'], ['amount', 'أو عمود المبلغ'], ['desc', 'عمود الوصف (اختياري)']].map(([k, lb]) => (
                       <Field key={k} label={lb} style={{ width: 140, marginBottom: 0 }}>
@@ -25605,7 +25609,7 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
     if (c.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(c.email).trim())) return say('البريد الإلكتروني غير صحيح', 'no');
     if (c.iban && !/^SA\d{22}$/.test(String(c.iban).trim())) return say('الآيبان السعودي: SA متبوعًا بـ 22 رقمًا', 'no');
     if (naErr(c.na)) return say('العنوان الوطني: ' + naErr(c.na), 'no');
-    // v27.5 (إصلاح §١٢/18): «موظف» لا يُنشأ من دفتر الشركاء — كان يكتب بطاقة وهمية في org.partners
+    // v27.5 (إصلاح §12/18): «موظف» لا يُنشأ من دفتر الشركاء — كان يكتب بطاقة وهمية في org.partners
     // (مفتاح cust:) بلا فرع ولا راتب، لا تظهر في الحضور/الرواتب. الموظف الحقيقي يُنشأ في «البيانات
     // الرئيسية» (بفرع إلزامي) ويظهر هنا تلقائيًا عبر buildPartners (مفتاح emp:).
     // v34.1: الموظف يُنشأ هنا في سجل الموظفين الحقيقي (org.employees) بفرع إلزامي — فيظهر في الحضور والرواتب ودفتر الشركاء معًا
@@ -25896,7 +25900,7 @@ function Partners({ org, ops, me, commit, commitOrg, say }) {
           <div className="grid g2">
             <Field label="التصنيف"><input className="inp" value={addP.cat || ''} onChange={e => setAddP({ ...addP, cat: e.target.value })} placeholder="مثال: عميل جملة" /></Field>
             <Field label="الجوال"><input className="inp" style={{ direction: 'ltr', textAlign: 'right' }} value={addP.phone || ''} onChange={e => setAddP({ ...addP, phone: e.target.value })} /></Field>
-            <Field label="الرقم الضريبي (١٥ رقمًا للمسجّل)"><input className="inp n" value={addP.tax || ''} onChange={e => setAddP({ ...addP, tax: e.target.value })} placeholder="3XXXXXXXXXXXX03" /></Field>
+            <Field label="الرقم الضريبي (15 رقمًا للمسجّل)"><input className="inp n" value={addP.tax || ''} onChange={e => setAddP({ ...addP, tax: e.target.value })} placeholder="3XXXXXXXXXXXX03" /></Field>
             <Field label="مهلة السداد (يوم)"><input className="inp" inputMode="numeric" value={addP.terms || ''} onChange={e => setAddP({ ...addP, terms: e.target.value })} /></Field>
             <Field label="الشخص المسؤول"><input className="inp" value={addP.contactPerson || ''} onChange={e => setAddP({ ...addP, contactPerson: e.target.value })} placeholder="اسم المندوب أو المحاسب" /></Field>
             <Field label="جوال إضافي"><input className="inp" style={{ direction: 'ltr', textAlign: 'right' }} value={addP.mobile2 || ''} onChange={e => setAddP({ ...addP, mobile2: e.target.value })} /></Field>
@@ -26004,7 +26008,7 @@ function AiCenter({ org, ops, me, myBranches, scoped, say, setTab }) {
     if (apOver > 0.004) P('mid', 'موردون', 'ذمم موردين متأخرة', money(apOver) + ' متأخرة عليك لموردين.', 'سدّد أو فاوض جدولة لتجنّب توقف التوريد.', () => setTab('acct'));
     const totRev = r2(sum(A.accounts.filter(a => a.kind === 'rev'), a => a.balance));
     const totLabor = r2((accByCode['5201'] ? accByCode['5201'].balance : 0) + (accByCode['5202'] ? accByCode['5202'].balance : 0));
-    if (totRev > 0.004 && totLabor > 0.004) { const lp = r2(totLabor / totRev * 100); if (lp > 30) P('mid', 'تكلفة', 'تكلفة العمالة مرتفعة (' + lp + '%)', 'الرواتب والتأمينات كنسبة من الإيراد.', 'راجع الجدولة وساعات الذروة؛ المستهدف ≤ 30٪.', () => setTab('breakeven')); }
+    if (totRev > 0.004 && totLabor > 0.004) { const lp = r2(totLabor / totRev * 100); if (lp > 30) P('mid', 'تكلفة', 'تكلفة العمالة مرتفعة (' + lp + '%)', 'الرواتب والتأمينات كنسبة من الإيراد.', 'راجع الجدولة وساعات الذروة؛ المستهدف ≤ 30%.', () => setTab('breakeven')); }
     const perBr = myBranches.map(b => { const bc = counted.filter(c => c.branchId === b.id && (c.date || '').slice(0, 7) === ym); return { name: b.name, net: r2(sum(bc, c => (c.totalRevenue || 0) - (c.totalExpenses || 0))), n: bc.length }; }).filter(x => x.n > 0);
     if (perBr.length >= 2) { perBr.sort((a, b) => b.net - a.net); const top = perBr[0], bot = perBr[perBr.length - 1]; if (top.net - bot.net > 0.004) P('low', 'فروع', 'تفاوت أداء الفروع', 'الأفضل هذا الشهر: ' + top.name + ' (' + money(top.net) + ') · الأضعف: ' + bot.name + ' (' + money(bot.net) + ').', 'انقل ممارسات الفرع الأفضل إلى الأضعف.', () => setTab('compare')); }
     const defs = counted.filter(c => (c.variance || 0) < -0.004 && (c.date || '').slice(0, 7) === ym);
@@ -26351,7 +26355,7 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
     if (wLocked.length) return say('يوجد ' + wLocked.length + ' إغلاق في فترة مقفلة — افتح الفترة أولًا من «الإقفال الشهري»', 'no');
     setWipe(w => ({ ...w, busy: true }));
     try {
-      // ١) أرشيف المستندات: صور توثيق الإغلاقات في مستند كل فرع + المركز
+      // 1) أرشيف المستندات: صور توثيق الإغلاقات في مستند كل فرع + المركز
       const bIds = wBr === 'all' ? [...(org.branches || []).map(b => b.id), 'hq'] : [wBr];
       const arch = {};
       for (const b of bIds) {
@@ -26363,7 +26367,7 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
       const h = await cloud.get(KEYS.hist, { closings: [] });
       const histAll = (h && Array.isArray(h.closings)) ? h.closings : [];
       const histClosings = histAll.filter(c => wBr === 'all' || c.branchId === wBr);
-      // ٢) ملف بكل ما سيُحذف + لقطة أمان محلية — قبل أي كتابة
+      // 2) ملف بكل ما سيُحذف + لقطة أمان محلية — قبل أي كتابة
       const removed = { meta: { app: 'rms8', kind: 'deleted-closings', at: nowISO(), by: me?.name || '' },
         closings: wClosings, transfers: wTransfers, notifications: wNotes, histClosings,
         archive: Object.fromEntries(Object.entries(arch).map(([b, v]) => [b, v.gone])) };
@@ -26373,7 +26377,7 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
         a.href = url; a.download = 'الإغلاقات-المحذوفة-' + (wBr === 'all' ? 'كل-الفروع' : wBrName.replace(/\s+/g, '-')) + '-' + today() + '.json'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 4000);
       } catch { }
       try { await snapPut('pre-wipe-closings-' + nowISO().slice(0, 19).replace(/[:T]/g, '-'), { at: nowISO(), by: me?.name || '', org, ops, preWipe: true }); } catch { }
-      // ٣) الحذف من بيانات التشغيل (مستندات الفروع) — كتابة موجَّهة عبر البوابة المركزية
+      // 3) الحذف من بيانات التشغيل (مستندات الفروع) — كتابة موجَّهة عبر البوابة المركزية
       const ok = await commit(d => ({
         ...d,
         closings: wBr === 'all' ? [] : (d.closings || []).filter(c => c.branchId !== wBr),
@@ -26382,7 +26386,7 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
       }), { actionType: 'delete', targetType: 'daily_closing', targetId: 'all', need: 'edit',
         title: 'حذف بيانات الإغلاق اليومي — ' + wBrName, details: wBrName + ' · ' + wClosings.length + ' إغلاق · ' + wTransfers.length + ' توريد · ' + wNotes.length + ' تنبيه' });
       if (!ok) { setWipe(w => ({ ...w, busy: false })); return; }
-      // ٤) الأرشيف وأرشيف الإغلاقات القديم
+      // 4) الأرشيف وأرشيف الإغلاقات القديم
       let archDone = 0, archFail = 0;
       for (const [b, v] of Object.entries(arch)) {
         if (await cloud.set(bfKey(b), { items: v.keep })) archDone += v.gone.length; else archFail++;
@@ -26418,7 +26422,7 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
     setAcWipe(w => ({ ...w, busy: true }));
     try {
       const cols = [...acCols, ...(acWipe.payroll ? acPayCols : [])];
-      // ١) صور توثيق الإغلاقات في الأرشيف + أرشيف الإغلاقات القديم (كما في أداة حذف الإغلاقات)
+      // 1) صور توثيق الإغلاقات في الأرشيف + أرشيف الإغلاقات القديم (كما في أداة حذف الإغلاقات)
       const bIds = [...(org.branches || []).map(b => b.id), 'hq'];
       const arch = {};
       for (const b of bIds) {
@@ -26429,7 +26433,7 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
       }
       const h = await cloud.get(KEYS.hist, { closings: [] });
       const histClosings = (h && Array.isArray(h.closings)) ? h.closings : [];
-      // ٢) ملف بكل ما سيُحذف + لقطة أمان محلية — قبل أي كتابة
+      // 2) ملف بكل ما سيُحذف + لقطة أمان محلية — قبل أي كتابة
       const removed = { meta: { app: 'rms8', kind: 'deleted-accounting', at: nowISO(), by: me?.name || '', payroll: !!acWipe.payroll },
         closings: wClosings, transfers: acAllTransfers, notifications: wNotes, histClosings,
         ...Object.fromEntries(cols.map(k => [k, ops[k] || []])),
@@ -26441,7 +26445,7 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
         a.href = url; a.download = 'البيانات-المحاسبية-المحذوفة-' + today() + '.json'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 4000);
       } catch { }
       try { await snapPut('pre-wipe-accounting-' + nowISO().slice(0, 19).replace(/[:T]/g, '-'), { at: nowISO(), by: me?.name || '', org, ops, preWipe: true }); } catch { }
-      // ٣) بيانات التشغيل (المركز + الفروع)
+      // 3) بيانات التشغيل (المركز + الفروع)
       const ok = await commit(d => ({
         ...d,
         closings: [], transfers: [],
@@ -26451,14 +26455,14 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
         title: 'حذف كل البيانات المحاسبية (تمهيدًا لإعادة الرفع)',
         details: [wClosings.length + ' إغلاق', acAllTransfers.length + ' توريد', ...cols.map(k => acCount(k) + ' ' + k), acObLines + ' سطر افتتاحي'].join(' · ') });
       if (!ok) { setAcWipe(w => ({ ...w, busy: false })); return; }
-      // ٤) إعدادات المنشأة: الأرصدة الافتتاحية وقيد إقفال السنة ودفعات ميزان (تبقى خريطة الربط لإعادة الاستيراد)
+      // 4) إعدادات المنشأة: الأرصدة الافتتاحية وقيد إقفال السنة ودفعات ميزان (تبقى خريطة الربط لإعادة الاستيراد)
       const okOrg = await commitOrg(d => ({
         ...d,
         openingBalances: { ...(d.openingBalances || {}), enabled: false, lines: [] },
         yearEnd: d.yearEnd ? { ...d.yearEnd, enabled: false } : d.yearEnd,
         mizanCfg: d.mizanCfg ? { ...d.mizanCfg, batches: (d.mizanCfg.batches || []).map(b => b.undoneAt ? b : { ...b, undoneAt: nowISO(), undoneBy: (me?.name || '') + ' — حذف شامل' }) } : d.mizanCfg
       }), { actionType: 'delete', targetType: 'tax_settings', targetId: 'accounting-all', need: 'edit', title: 'مسح الأرصدة الافتتاحية وإقفال السنة ودفعات ميزان', details: acObLines + ' سطر افتتاحي' });
-      // ٥) الأرشيف
+      // 5) الأرشيف
       let archDone = 0, archFail = 0;
       for (const [b, v] of Object.entries(arch)) { if (await cloud.set(bfKey(b), { items: v.keep })) archDone += v.gone.length; else archFail++; }
       let histOk = true;
@@ -26686,7 +26690,7 @@ function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
               {snaps.some(x => x.key === 'day-' + today()) ? 'لقطة اليوم محفوظة ✓' : 'ستُحفظ تلقائيًا عند فتح المنصة'}</span>
           </div>
           <div style={{ fontSize: 11.5, color: 'var(--dim)', marginBottom: 10, lineHeight: 1.8 }}>
-            تُحفظ لقطة كاملة تلقائيًا أول دخول كل يوم على أجهزة أدوار الإدارة (يُحتفظ بآخر ٧ أيام) —
+            تُحفظ لقطة كاملة تلقائيًا أول دخول كل يوم على أجهزة أدوار الإدارة (يُحتفظ بآخر 7 أيام) —
             ولقطة أمان إضافية قبل كل استعادة. محلية على هذا الجهاز فقط.
           </div>
           {snaps.length === 0 ? <div className="empty">لا لقطات محفوظة على هذا الجهاز بعد.</div> : (
@@ -27304,7 +27308,7 @@ function CategoriesPanel({ org, ops, commitOrg, say }) {
    v13.3 — تخطيط العمالة والتكلفة (الفعلي من الحضور الموثَّق منذ v27.12)
    جدول ساعات أسبوعي لكل موظف + تسجيل الحضور الفعلي + قياس نسبة العمالة
    من المبيعات (من الإغلاقات المعتمدة) بهدف قابل للضبط. كل الإعدادات صريحة — بلا افتراض خفيّ.
-   الأجر/الساعة = (الأساسي + البدلات) ÷ الساعات الشهرية المعيارية (افتراضي ٢٠٨ = ٢٦×٨، قابل للتعديل).
+   الأجر/الساعة = (الأساسي + البدلات) ÷ الساعات الشهرية المعيارية (افتراضي 208 = 26×8، قابل للتعديل).
    يُخزَّن الجدول في مجموعة schedules المركزية؛ لا يراه الكاشير.
    ============================================================ */
 function Workforce({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
@@ -27316,20 +27320,20 @@ function Workforce({ org, ops, me, myBranches, scoped, commit, commitOrg, say })
   const D7 = [0, 1, 2, 3, 4, 5, 6];
 
   const cfg = org.laborCfg || {};
-  const targetPct = Number(cfg.targetPct != null ? cfg.targetPct : 25) || 0;              // هدف نسبة العمالة (افتراضي ٢٥٪)
-  const stdH = Number(cfg.stdMonthlyHours != null ? cfg.stdMonthlyHours : 208) || 208;    // ساعات شهرية معيارية (٢٦×٨)
+  const targetPct = Number(cfg.targetPct != null ? cfg.targetPct : 25) || 0;              // هدف نسبة العمالة (افتراضي 25%)
+  const stdH = Number(cfg.stdMonthlyHours != null ? cfg.stdMonthlyHours : 208) || 208;    // ساعات شهرية معيارية (26×8)
   const grossOf = (e) => r2((e.baseSalary || 0) + (e.housingAllowance || 0) + (e.transportAllowance || 0) + (e.otherAllowance || 0));
   const rateOf = (e) => stdH > 0 ? grossOf(e) / stdH : 0;
 
   const addDays = (ds, n) => { const d = new Date(ds + 'T00:00:00'); d.setDate(d.getDate() + n); return isoD(d); };
-  const [weekStart, setWeekStart] = useState(() => addDays(today(), -6));   // آخر ٧ أيام حتى اليوم (بيانات مبيعات حقيقية)
+  const [weekStart, setWeekStart] = useState(() => addDays(today(), -6));   // آخر 7 أيام حتى اليوم (بيانات مبيعات حقيقية)
   const [mode, setMode] = useState('plan');     // plan | actual
   const [draft, setDraft] = useState({});        // { empId: { plan:[7], actual:[7] } }
   const [setOpen, setSetOpen] = useState(false);
   const [cfgD, setCfgD] = useState({ targetPct: String(targetPct), stdMonthlyHours: String(stdH) });
 
   const days = D7.map(i => addDays(weekStart, i));
-  const dNm = (ds) => new Date(ds + 'T00:00:00').toLocaleDateString('ar', { weekday: 'short' });
+  const dNm = (ds) => new Date(ds + 'T00:00:00').toLocaleDateString('ar-SA-u-ca-gregory-nu-latn', { weekday: 'short' });
   const dDay = (ds) => new Date(ds + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' });
 
   const weekRecs = (ops.schedules || []).filter(s => s.weekStart === weekStart && ids.includes(s.branchId));
@@ -27526,7 +27530,7 @@ function Workforce({ org, ops, me, myBranches, scoped, commit, commitOrg, say })
             <Field label="هدف نسبة العمالة من المبيعات (%)"><input className="inp n" inputMode="decimal" value={cfgD.targetPct} onChange={e => setCfgD(s => ({ ...s, targetPct: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
             <Field label="ساعات العمل الشهرية المعيارية"><input className="inp n" inputMode="decimal" value={cfgD.stdMonthlyHours} onChange={e => setCfgD(s => ({ ...s, stdMonthlyHours: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
           </div>
-          <div className="note" style={{ marginTop: 10 }}>تُستخدم <b>الساعات الشهرية المعيارية</b> لتحويل راتب كل موظف إلى أجرٍ بالساعة (الأساسي + البدلات ÷ الساعات). الافتراضات الحالية: هدف <b>٢٥٪</b> وساعات <b>٢٠٨</b> (٢٦ يوم × ٨ ساعات) — عدّلهما بما يناسب نشاطك ونظام دوامك.</div>
+          <div className="note" style={{ marginTop: 10 }}>تُستخدم <b>الساعات الشهرية المعيارية</b> لتحويل راتب كل موظف إلى أجرٍ بالساعة (الأساسي + البدلات ÷ الساعات). الافتراضات الحالية: هدف <b>25%</b> وساعات <b>208</b> (26 يوم × 8 ساعات) — عدّلهما بما يناسب نشاطك ونظام دوامك.</div>
         </Modal>
       )}
     </div>
@@ -27573,7 +27577,7 @@ function Shifts({ org, ops, me, myBranches, commitOrg, say }) {
       <div className="grid g3">
         <Kpi label="فروع أغلقت وردية اليوم" value={rows.filter(r => r.st.done).length + ' / ' + rows.length} icon={Check} color="#4FB286" />
         <Kpi label="فروع متأخرة عن الإغلاق" value={late} sub={late ? 'تتطلب متابعة فورية' : 'لا تأخير'} icon={AlertTriangle} color={late ? '#D9544D' : '#5B93C4'} />
-        <Kpi label="الوقت الآن" value={now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })} sub={arDate(today())} icon={Clock} color="#C8A24A" />
+        <Kpi label="الوقت الآن" value={now.toLocaleTimeString(NUM_LOCALE, { hour: '2-digit', minute: '2-digit' })} sub={arDate(today())} icon={Clock} color="#C8A24A" />
       </div>
 
       <div className="grid g2">
@@ -28190,7 +28194,7 @@ function printIncomeA4(org, data, meta) {
       </div>
       <div class="doc-title">قائمة الدخل (${meta.periodType})</div>
       <div class="doc-sub">${meta.scopeLabel} · ${meta.periodLabel}</div>
-      <div class="doc-sub dim">عدد الإغلاقات: ${d.n} · تاريخ التصدير: ${new Date().toLocaleString('ar-SA-u-nu-latn')}</div>
+      <div class="doc-sub dim">عدد الإغلاقات: ${d.n} · تاريخ التصدير: ${arDT(new Date())}</div>
     </div>
     <div class="kpis">
       <div class="kpi"><span>صافي الإيراد</span><b class="brass">${m(d.netRevenue)} ر.س</b></div>
@@ -28348,7 +28352,7 @@ function FinancialReports({ org, ops, myBranches, scoped, say }) {
       <div class="note">
         • هذا الإقرار استرشادي أُنشئ آلياً من بيانات المنصة، ولا يُغني عن الإقرار الرسمي المعتمد من محاسب قانوني عبر بوابة هيئة الزكاة والضريبة والجمارك.<br>
         • النسبة المطبّقة 15% وفق الطريقة الحسابية 15/115 على المبالغ الشاملة للضريبة.<br>
-        • تاريخ الإصدار: ${new Date().toLocaleDateString('ar-EG')}
+        • تاريخ الإصدار: ${arDate(today())}
       </div>
       <div class="sign"><div>المحاسب</div><div>المدير المالي</div><div>اعتماد الإدارة</div></div>
       </body></html>`);
@@ -28630,7 +28634,7 @@ function IncomeStatement({ org, ops, myBranches, scoped, say }) {
    • صفحة العميل العامة بلا تسجيل دخول: <رابط المنصة>?rate=<branchId>
      تكتب في مجموعة qr_feedback فقط، والقواعد تتحقق من الشكل والقيم ووقت الخادم.
    • qr_branches/{id}: اسم الفرع وحالة الاستقبال — قراءة عامة، والكتابة للمركز.
-   • بلا Cloud Functions: المتوسط والشكوى التلقائية (< 3) ومهلة ٢٤ ساعة والاتجاه الأسبوعي
+   • بلا Cloud Functions: المتوسط والشكوى التلقائية (< 3) ومهلة 24 ساعة والاتجاه الأسبوعي
      والتوصيات تُحسب في الواجهة، وتحليل التعليقات بـ Claude يُطلق من اللوحة.
    ============================================================ */
 const QR_CATEGORIES = [
@@ -29402,7 +29406,7 @@ function qrPrintReport({ org, fb, brs, days, sel, nb, say }) {
     <div class="sec-h">آخر التعليقات${withComment.length > 40 ? ' (أحدث 40 من ' + withComment.length + ')' : ''}</div>
     <table class="t"><thead><tr><th>الفرع</th><th>التاريخ</th><th class="num">التقييم</th><th>التعليق</th><th>الانطباع</th></tr></thead>
       <tbody>${commentRows || empty(5, 'لا توجد تعليقات مكتوبة')}</tbody></table>
-    <div class="foot dim">تم التصدير آليًا من وحدة تقييم العملاء · ${new Date().toLocaleString('ar-SA-u-nu-latn')}</div>
+    <div class="foot dim">تم التصدير آليًا من وحدة تقييم العملاء · ${arDT(new Date())}</div>
     </div></body></html>`);
   w.document.close();
   setTimeout(() => { w.focus(); w.print(); }, 500);
