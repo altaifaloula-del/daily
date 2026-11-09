@@ -4,7 +4,7 @@
  *   #live/<comp>/<who>/<view> — عرض حيّ بحالة قابلة للتغيير: window.cur (البيانات) · window.as(who) · window.lastSay
  */
 import React from 'react'; import { createRoot } from 'react-dom/client';
-import * as M from '../.cache/AppUI.jsx'; import { CSS } from '../../styles.js';
+import * as M from '../../App.jsx'; import { CSS } from '../../styles.js';
 const iso = (d) => d.toISOString().slice(0, 10); const dA = (k) => { const x = new Date(); x.setDate(x.getDate() - k); return iso(x); };
 const m = iso(new Date()).slice(0, 7);
 const B = [{ id: 'b1', name: 'عم قاسم طيبة', isActive: true, defaultFloat: 300, shiftEndTime: '23:30' }, { id: 'b2', name: 'عم قاسم النسيم', isActive: true, defaultFloat: 300 }, { id: 'b3', name: 'العليا', isActive: true }];

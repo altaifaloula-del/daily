@@ -13,10 +13,8 @@ export const ENGINE_EXPORTS = ['buildAccounting', 'buildPartners', 'stockByWh', 
 
 export async function buildEngine() {
   fs.mkdirSync(cache, { recursive: true });
-  let src = fs.readFileSync(path.join(root, 'App.jsx'), 'utf8')
-    .replace("from './styles';", "from '../../styles.js';")
-    .replace("from './storage';", "from '../../storage.js';");
-  src += '\nexport { ' + ENGINE_EXPORTS.join(', ') + ' };\n';
+  // v38.3: النواة تصدّر دوال المحرك نفسها (والتطبيقات في mods/ تستورد منها) — نبني من الملف الأصلي مباشرة
+  const src = "export { " + ENGINE_EXPORTS.join(', ') + " } from '../../App.jsx';\n";
   const entry = path.join(cache, 'AppEngine.jsx');
   fs.writeFileSync(entry, src);
   const out = path.join(cache, 'engine.mjs');
