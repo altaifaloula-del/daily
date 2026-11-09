@@ -73,3 +73,16 @@ test('البنية: ترتيب العناصر، ورموز الأنواع، وا
   assert.match(x, /<cbc:ID schemeAgencyID="6" schemeID="UN\/ECE 5305">S<\/cbc:ID>/, 'السمات بالترتيب القانوني');
   assert.ok(x.includes('مطاعم عم قاسم &amp; شركاه'), 'ترميز الرموز الخاصة');
 });
+
+test('خزنة الأسرار: AES-256-GCM يُفك بمفتاح الخادم فقط ولحزمة الجهاز نفسه فقط', async () => {
+  process.env.ZATCA_ENC_KEY = crypto.randomBytes(32).toString('base64');
+  const { seal, open, vaultReady } = await import('../zatca/vault.js');
+  assert.equal(vaultReady(), true);
+  const s = seal({ privateKeyPem: 'SECRET-PEM', production: { token: 't', secret: 's' } }, 'egs|simulation|b1');
+  assert.ok(!s.includes('SECRET'), 'لا نص مكشوف');
+  assert.deepEqual(open(s, 'egs|simulation|b1').privateKeyPem, 'SECRET-PEM');
+  assert.throws(() => open(s, 'egs|simulation|b2'), 'حزمة فرع لا تُفك باسم فرع آخر');
+  const k0 = process.env.ZATCA_ENC_KEY; process.env.ZATCA_ENC_KEY = crypto.randomBytes(32).toString('base64');
+  assert.throws(() => open(s, 'egs|simulation|b1'), 'مفتاح خادم مختلف لا يفك');
+  process.env.ZATCA_ENC_KEY = k0;
+});

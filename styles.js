@@ -1385,4 +1385,26 @@ html,body{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .mod-loading{display:flex;align-items:center;justify-content:center;gap:10px;min-height:160px;color:var(--dim,#6b6458);font-size:13px}
 .mod-spin{width:18px;height:18px;border-radius:50%;border:2px solid var(--line,#ddd);border-top-color:var(--brass,#C8A24A);animation:modspin .8s linear infinite}
 @keyframes modspin{to{transform:rotate(360deg)}}
+
+/* v38.4 — الفوترة الإلكترونية: بيانات المنشأة وتسجيل الأجهزة */
+.einv-seller{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.einv-seller small{display:block;font-size:11px;color:var(--dim)}
+.einv-seller b{font-size:13.5px}
+.einv-otp{font-size:24px !important;letter-spacing:8px;text-align:center !important;max-width:240px}
+.einv-steps{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+.einv-step{display:flex;gap:8px;align-items:flex-start;font-size:13px;padding:6px 8px;border-radius:8px;border:1px solid var(--line)}
+.einv-step small{color:var(--dim)}
+.einv-step.ok .einv-ic{background:var(--mint);color:#fff}
+.einv-step.bad{border-color:rgba(217,84,77,.5)}
+.einv-step.bad .einv-ic{background:var(--rose);color:#fff}
+.einv-step.skip{opacity:.55}
+.einv-ic{flex:none;width:20px;height:20px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:rgba(127,127,127,.15)}
+.einv-ic .mod-spin{width:12px;height:12px}
+.einv-msg{font-size:11.5px;color:var(--rose);margin-top:2px}
+
+.einv-devs{display:flex;flex-direction:column;gap:8px}
+.einv-dev{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;border:1px solid var(--line);border-radius:12px}
+.einv-dev.on{border-color:rgba(79,178,134,.45)}
+.einv-dev-n{flex:1;min-width:160px;display:flex;flex-direction:column;gap:2px}
+.einv-dev-n small{font-size:11.5px;color:var(--dim)}
 `;

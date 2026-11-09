@@ -47,8 +47,10 @@ const base = { org, myBranches: B, branches: B, commitOrg: async () => true, say
 class EB extends React.Component { constructor(p) { super(p); this.state = { e: null }; } componentDidCatch(e) { window.__crash = String(e && e.message); this.setState({ e }); } render() { return this.state.e ? React.createElement('div', { id: 'crash' }, 'CRASH: ' + this.state.e.message) : this.props.children; } }
 function Live() {
   const [o, setO] = React.useState(ops); window.cur = o; const [who, setWho] = React.useState(b || 'admin'); window.as = setWho;
+  const [g, setG] = React.useState(org); window.curOrg = g;
   const commit = async (fn) => { try { const nx = fn(JSON.parse(JSON.stringify(o))); setO(nx); return true; } catch (e) { window.lastErr = e.message; return false; } };
-  const P = { ...base, ops: o, scoped: o, me: ME[who], commit, invIntent: c ? { v: c, ts: 1 } : null, acctIntent: null };
+  const commitOrg = async (fn) => { try { const nx = fn(JSON.parse(JSON.stringify(g))); setG(nx); return true; } catch (e) { window.lastErr = e.message; return false; } };
+  const P = { ...base, org: g, ops: o, scoped: o, me: ME[who], commit, commitOrg, invIntent: c ? { v: c, ts: 1 } : null, acctIntent: a === 'Accounting' && c ? { v: c, ts: 1 } : null };
   return React.createElement(M[a], { key: who, ...P, ...(a === 'Hub' ? { hubId: c.split(':')[0], view: c.split(':')[1] } : {}) });
 }
 let el;
