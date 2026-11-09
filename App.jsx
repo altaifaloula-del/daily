@@ -183,7 +183,7 @@ function buildNotifEvents(org, ops, me, myBranches) {
     try { computeSmartAlerts(org, ops, myBranches || []).forEach(a => { if (/^late-|deficit|def-|defp-/.test(String(a.id))) push('cl:sa:' + a.id + ':' + bd, 'closing', a.title, a.msg || '', 'closing'); }); } catch { }
   }
   // —— v30.5: أوامر شراء بانتظار الاعتماد + دفعات قريبة الانتهاء ——
-  if ((R.approver || R.admin) && central) (ops.purchaseOrders || []).forEach(po => { if (po.status === 'pending') push('fin:po:' + po.id, 'fin', 'أمر شراء بانتظار اعتمادك — ' + (po.supplierName || ''), (po.poNo || '') + ' · ' + money((po.lines || []).reduce((s2, l) => s2 + (Number(l.qty) || 0) * (Number(l.price) || 0), 0)) + ' ر.س', 'purchasing'); });
+  if ((R.approver || R.admin) && central) (ops.purchaseOrders || []).forEach(po => { if (po.status === 'pending') push('fin:po:' + po.id, 'fin', 'أمر شراء بانتظار اعتمادك — ' + (po.supplierName || ''), (po.poNo || '') + ' · ' + money((po.lines || []).reduce((s2, l) => s2 + (Number(l.qty) || 0) * (Number(l.price) || 0), 0)) + ' ر.س' + (po.priceAlert ? ' · ⚠ ' + po.priceAlert + ' بند بسعر أعلى من متوسط آخر 3 مشتريات' : ''), 'purchasing'); });
   if (whOn(org) && (central || roleHasTab(me, 'whbranch'))) {
     const myWh = central ? null : (myBranches || []).map(b => whForBranch(org, b.id)).filter(Boolean).map(w => w.id);
     const lim = isoD(new Date(Date.now() + 7 * 86400000));
@@ -3637,7 +3637,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark"><MizanMark size={24} /></span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : HR_TABS.includes(safeTab) ? 'الموارد البشرية' : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v37.6</span>
+            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v37.7</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -17934,15 +17934,17 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: g
   // v30.5 — إعدادات المشتريات + الاعتماد + أسعار الموردين
   const pcfg = org.purchaseCfg || {};
   const apprLimit = Number(pcfg.approvalLimit) || 0;
-  const alertPct = pcfg.priceAlertPct != null ? Number(pcfg.priceAlertPct) || 0 : 10;
+  const alertPct = pcfg.priceAlertPct != null ? Number(pcfg.priceAlertPct) || 0 : 5;   // v37.6: الافتراضي 5% عن متوسط آخر 3 مشتريات
   const canApprovePo = !!(ROLES[me.role]?.approver || ROLES[me.role]?.admin);
   const canCfg = roleEdit(me.role);
   const [cfgF, setCfgF] = useState(null);
   const PRICES = useMemo(() => supplierPrices(ops), [ops]);
   const lastPriceOf = (itemId) => (PRICES[itemId] || [])[0] || null;
-  const priceWarn = (l) => { const it = items.find(x => x.id === l.itemId); const lp = lastPriceOf(l.itemId); if (!it || !lp || !(Number(l.price) > 0)) return null;
-    const u = (Number(l.price) || 0) / (l.uom === 'p' ? pFactor(it) : 1); const pct = (u - lp.unitCost) / lp.unitCost * 100;
-    return { u, lp, pct: Math.round(pct * 10) / 10, high: alertPct > 0 && pct > alertPct }; };
+  // v37.7 — مرجع التنبيه: متوسط تكلفة الوحدة في آخر 3 مشتريات للصنف (أي مورد) — لا آخر سعر وحده
+  const avg3Of = (itemId) => { const a = (PRICES[itemId] || []).slice(0, 3); return a.length ? { avg: Math.round(sum(a, r => r.unitCost) / a.length * 10000) / 10000, n: a.length } : null; };
+  const priceWarn = (l) => { const it = items.find(x => x.id === l.itemId); const lp = lastPriceOf(l.itemId); const a3 = avg3Of(l.itemId); if (!it || !lp || !a3 || !(a3.avg > 0) || !(Number(l.price) > 0)) return null;
+    const u = (Number(l.price) || 0) / (l.uom === 'p' ? pFactor(it) : 1); const pct = (u - a3.avg) / a3.avg * 100;
+    return { u, lp, avg: a3.avg, n: a3.n, pct: Math.round(pct * 10) / 10, high: alertPct > 0 && pct > alertPct }; };
   const saveCfg = async () => {
     const f = cfgF;
     const next = { approvalLimit: Math.max(0, Number(f.approvalLimit) || 0), priceAlertPct: Math.max(0, Number(f.priceAlertPct) || 0), perpetualFrom: f.perpetual ? (f.perpetualFrom || today().slice(0, 7)) : '' };
@@ -17951,6 +17953,7 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: g
     if (ok) { setCfgF(null); say('حُفظت الإعدادات ✓'); }
   };
   const decidePo = async (p2, approve) => {
+    if (approve && p2.priceAlert && p2.by === me.name && !ROLES[me.role]?.admin) return say('أمر بتنبيه سعر — يعتمده شخص غير منشئه', 'no');
     const note = approve ? '' : window.prompt('سبب رفض أمر الشراء ' + p2.poNo + ':'); if (!approve && note === null) return;
     await commit(d => ({ ...d, purchaseOrders: (d.purchaseOrders || []).map(x => x.id === p2.id && x.status === 'pending' ? { ...x, status: approve ? 'open' : 'rejected', decidedBy: me.name, decidedAt: nowISO(), ...(note ? { rejectNote: note } : {}) } : x) }),
       { actionType: 'update', targetType: 'purchase_order', targetId: p2.id, need: 'post', title: (approve ? 'اعتمد' : 'رفض') + ' أمر شراء', details: p2.poNo + ' · ' + money(poTotal(p2)) + (note ? ' · ' + note : '') });
@@ -18003,18 +18006,21 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: g
     if (!sp) return say('اختر المورد', 'no');
     const lines = (f.lines || []).filter(l => (l.desc || '').trim() && Number(l.qty) > 0)
       .map(l => { const it = items.find(x => x.id === l.itemId); const fac = it && l.uom === 'p' ? pFactor(it) : 1;
-        return { desc: l.desc.trim(), itemId: l.itemId || '', qty: Number(l.qty), price: Number(l.price) || 0, received: 0, ...(fac > 1 ? { factor: fac, uomName: it.purchaseUnit } : {}) }; });
+        const w = priceWarn(l);
+        return { desc: l.desc.trim(), itemId: l.itemId || '', qty: Number(l.qty), price: Number(l.price) || 0, received: 0, ...(fac > 1 ? { factor: fac, uomName: it.purchaseUnit } : {}),
+          ...(w && w.high ? { pAlert: { avg3: w.avg, n: w.n, unit: Math.round(w.u * 10000) / 10000, pct: w.pct } } : {}) }; });
     if (!lines.length) return say('أضف بنداً واحداً على الأقل (وصف وكمية)', 'no');
     const tot0 = lines.reduce((s2, l) => s2 + l.qty * l.price, 0);
-    const needAppr = apprLimit > 0 && tot0 > apprLimit;
-    const hiPrice = (f.lines || []).filter(l => (priceWarn(l) || {}).high).length;
+    const hiPrice = lines.filter(l => l.pAlert).length;
+    // v37.7: بند بسعر أعلى من متوسط آخر 3 مشتريات بأكثر من الحد ⇒ الأمر يحتاج اعتمادًا ولو كان تحت حد القيمة
+    const needAppr = (apprLimit > 0 && tot0 > apprLimit) || hiPrice > 0;
     const rec = { id: uid('po'), poNo: nextPoNo(), supplierId: sp.id, supplierName: sp.name,
       branchId: f.branchId || '', note: f.note || '', lines, status: needAppr ? 'pending' : 'open', by: me.name, at: nowISO(), date: today(), ...(hiPrice ? { priceAlert: hiPrice } : {}) };
     await commit(d => ({ ...d, purchaseOrders: [rec, ...(d.purchaseOrders || [])] }), {
       actionType: 'create', targetType: 'purchase_order', targetId: rec.id,
       title: 'أنشأ أمر شراء', details: rec.poNo + ' · ' + sp.name + ' · ' + money(poTotal(rec))
     });
-    setPoF(null); say('أُنشئ أمر الشراء ' + rec.poNo + (needAppr ? ' — بانتظار الاعتماد (يتجاوز ' + money(apprLimit) + ')' : '') + ' ✓');
+    setPoF(null); say('أُنشئ أمر الشراء ' + rec.poNo + (needAppr ? ' — بانتظار الاعتماد (' + (hiPrice ? hiPrice + ' بند بسعر أعلى من متوسط آخر 3 مشتريات بأكثر من ' + alertPct + '%' : 'يتجاوز ' + money(apprLimit)) + ')' : '') + ' ✓');
   };
 
   // v8.2: طباعة أمر شراء كوثيقة تُرسل للمورد
@@ -18321,21 +18327,21 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: g
           </div>
           <div className="row" style={{ gap: 6, flexWrap: 'wrap', margin: '0 0 10px' }}>
             <span className="badge b-dim">الاعتماد: {apprLimit > 0 ? 'الأوامر فوق ' + money(apprLimit) + ' ر.س' : 'غير مفعّل'}</span>
-            <span className="badge b-dim">تنبيه ارتفاع السعر: {alertPct > 0 ? alertPct + '%' : 'موقوف'}</span>
+            <span className="badge b-dim">تنبيه السعر: {alertPct > 0 ? 'أعلى من متوسط آخر 3 مشتريات بأكثر من ' + alertPct + '% ⇐ اعتماد' : 'موقوف'}</span>
             <span className={'badge ' + (pcfg.perpetualFrom ? 'b-mint' : 'b-dim')}>الجرد المستمر: {pcfg.perpetualFrom ? 'من ' + pcfg.perpetualFrom : 'موقوف (دوري)'}</span>
           </div>
           {showPrices && (() => { const rows = Object.entries(PRICES).map(([id, a]) => { const it = items.find(x => x.id === id); const bySup = {}; a.forEach(r => { if (!bySup[r.supplierId]) bySup[r.supplierId] = r; });
-              const sups = Object.values(bySup).sort((x, y) => x.unitCost - y.unitCost); return { id, name: it ? it.name : 'صنف', unit: it ? it.unit : '', last: a[0], prev: a.find((r, k) => k > 0 && r.supplierId === a[0].supplierId), sups }; }).sort((x, y) => x.name.localeCompare(y.name, 'ar'));
+              const sups = Object.values(bySup).sort((x, y) => x.unitCost - y.unitCost); const p3 = a.slice(1, 4); return { id, name: it ? it.name : 'صنف', unit: it ? it.unit : '', last: a[0], prev: p3.length ? { unitCost: sum(p3, r => r.unitCost) / p3.length, n: p3.length } : null, sups }; }).sort((x, y) => x.name.localeCompare(y.name, 'ar'));
             return (
             <div className="tw" style={{ marginBottom: 12 }}>
               <table className="tb">
-                <thead><tr><th>الصنف</th><th style={{ textAlign: 'end' }}>آخر سعر (للوحدة الأساسية)</th><th>التغيّر</th><th>مقارنة الموردين — آخر سعر لكل مورد</th></tr></thead>
+                <thead><tr><th>الصنف</th><th style={{ textAlign: 'end' }}>آخر سعر (للوحدة الأساسية)</th><th>مقابل متوسط آخر 3</th><th>مقارنة الموردين — آخر سعر لكل مورد</th></tr></thead>
                 <tbody>
                   {rows.map(r => { const ch = r.prev ? Math.round((r.last.unitCost - r.prev.unitCost) / r.prev.unitCost * 1000) / 10 : null; return (
                     <tr key={r.id}>
                       <td style={{ fontSize: 12.5 }}>{r.name}<div style={{ fontSize: 9.5, color: 'var(--faint)' }}>{r.unit} · {r.last.supplierName} · {r.last.date}</div></td>
                       <td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{money(r.last.unitCost)}</td>
-                      <td>{ch == null ? <span className="badge b-dim">—</span> : <span className={'badge ' + (ch > alertPct && alertPct > 0 ? 'b-rose' : ch > 0 ? 'b-amber' : 'b-mint')}>{ch > 0 ? '▲ ' : ch < 0 ? '▼ ' : ''}{Math.abs(ch)}%</span>}</td>
+                      <td>{ch == null ? <span className="badge b-dim">—</span> : <span className={'badge ' + (ch > alertPct && alertPct > 0 ? 'b-rose' : ch > 0 ? 'b-amber' : 'b-mint')}>{ch > 0 ? '▲ ' : ch < 0 ? '▼ ' : ''}{Math.abs(ch)}%</span>}{r.prev && <div style={{ fontSize: 9.5, color: 'var(--faint)' }}>متوسط {r.prev.n}: <span className="num">{money(r.prev.unitCost)}</span></div>}</td>
                       <td><div className="row" style={{ gap: 5, flexWrap: 'wrap' }}>{r.sups.map((x, k) => <span key={x.supplierId} className={'badge ' + (k === 0 && r.sups.length > 1 ? 'b-mint' : 'b-dim')}>{x.supplierName}: <span className="num">{money(x.unitCost)}</span>{k === 0 && r.sups.length > 1 ? ' — الأرخص' : ''}</span>)}</div></td>
                     </tr>); })}
                   {rows.length === 0 && <tr><td colSpan={4}><div className="empty">تظهر الأسعار بعد أول استلام لأمر شراء مربوط بأصناف.</div></td></tr>}
@@ -18354,7 +18360,8 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: g
                   return (
                     <tr key={p2.id}>
                       <td><span className="num" style={{ fontSize: 11.5 }}>{p2.poNo}</span><div style={{ fontSize: 9.5, color: 'var(--faint)' }}>{p2.date} · {p2.by}</div></td>
-                      <td style={{ fontSize: 12.5 }}>{p2.supplierName}<div style={{ fontSize: 9.5, color: 'var(--faint)' }}>{(p2.lines || []).length} بند{p2.note ? ' · ' + p2.note : ''}</div></td>
+                      <td style={{ fontSize: 12.5 }}>{p2.supplierName}<div style={{ fontSize: 9.5, color: 'var(--faint)' }}>{(p2.lines || []).length} بند{p2.note ? ' · ' + p2.note : ''}</div>
+                        {p2.priceAlert ? <span className="badge b-rose" style={{ marginTop: 3 }} title={(p2.lines || []).filter(l => l.pAlert).map(l => l.desc + ': ' + money(l.pAlert.unit) + ' مقابل متوسط ' + money(l.pAlert.avg3) + ' (+' + l.pAlert.pct + '%)').join('\n')}>⚠ سعر أعلى من متوسط آخر 3 · {(p2.lines || []).filter(l => l.pAlert).map(l => l.desc + ' +' + l.pAlert.pct + '%').join('، ') || p2.priceAlert + ' بند'}</span> : null}</td>
                       <td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{money(tot)}</td>
                       <td>{p2.status === 'pending' ? <span className="badge b-amber">بانتظار الاعتماد</span>
                         : p2.status === 'rejected' ? <span className="badge b-rose" title={p2.rejectNote || ''}>مرفوض{p2.rejectNote ? ' — ' + p2.rejectNote : ''}</span>
@@ -18449,7 +18456,7 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: g
               {poF.lines.length > 1 && <button className="btn sm gh" onClick={() => setPoF(f => ({ ...f, lines: f.lines.filter((_, k) => k !== i) }))}><X size={13} /></button>}
               {(() => { const lp = l.itemId && lastPriceOf(l.itemId); if (!lp) return null; const w = priceWarn(l); return (
                 <div style={{ flexBasis: '100%', fontSize: 10.5, color: w && w.high ? 'var(--rose)' : 'var(--faint)' }}>
-                  آخر سعر: <span className="num">{money(lp.unitCost)}</span> للوحدة الأساسية ({lp.supplierName} · {lp.date}){w ? ' · سعرك ' + money(w.u) + ' (' + (w.pct > 0 ? '+' : '') + w.pct + '%)' : ''}{w && w.high ? ' ⚠ يتجاوز حد التنبيه ' + alertPct + '%' : ''}
+                  آخر سعر: <span className="num">{money(lp.unitCost)}</span> ({lp.supplierName} · {lp.date}){w ? <> · متوسط آخر {w.n}: <span className="num">{money(w.avg)}</span> · سعرك <span className="num">{money(w.u)}</span> (<span dir="ltr">{(w.pct > 0 ? '+' : '') + w.pct}%</span>)</> : ''}{w && w.high ? ' ⚠ يتجاوز حد التنبيه ' + alertPct + '% — سيحتاج الأمر اعتمادًا' : ''}
                 </div>); })()}
             </div>
           ))}
@@ -18490,7 +18497,7 @@ function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: g
           foot={<><button className="btn gh" onClick={() => setCfgF(null)}>إلغاء</button><button className="btn pri" onClick={saveCfg}><Check size={14} />حفظ</button></>}>
           <div className="grid g2">
             <Num label="حد اعتماد أمر الشراء (ر.س)" value={cfgF.approvalLimit} onChange={v => setCfgF(f => ({ ...f, approvalLimit: v }))} hint="الأوامر الأعلى منه تحتاج اعتماد المدير/المعتمِد — 0 = بلا اعتماد" />
-            <Num label="تنبيه ارتفاع السعر (%)" value={cfgF.priceAlertPct} onChange={v => setCfgF(f => ({ ...f, priceAlertPct: v }))} hint="يُنبَّه إذا زاد سعر البند عن آخر سعر شراء بأكثر من هذه النسبة" />
+            <Num label="تنبيه ارتفاع السعر (%)" value={cfgF.priceAlertPct} onChange={v => setCfgF(f => ({ ...f, priceAlertPct: v }))} hint="يُنبَّه إذا زاد سعر البند عن متوسط آخر 3 مشتريات للصنف بأكثر من هذه النسبة، ويحتاج الأمر اعتمادًا — 0 = موقوف" />
           </div>
           <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', margin: '8px 0' }}>
             <input type="checkbox" checked={!!cfgF.perpetual} onChange={e => setCfgF(f => ({ ...f, perpetual: e.target.checked }))} />تفعيل الجرد المستمر (قيود مخزون آلية مع كل حركة)
