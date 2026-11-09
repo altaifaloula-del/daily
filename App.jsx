@@ -165,6 +165,8 @@ function buildNotifEvents(org, ops, me, myBranches) {
       }
     }
   }
+  // —— v37.4: هدر بانتظار الاعتماد (لمن يملك الاعتماد، عدا مقدّم الطلب) ——
+  if (canApproveWaste(me)) (ops.wasteRequests || []).forEach(r => { if (r.status === 'pending' && r.by !== me.name && (!r.branchId || inScope(r.branchId))) push('inv:wr:' + r.id, 'inv', 'هدر بانتظار اعتمادك — ' + whName(org, r.whId || MAIN_WH), money(r.value) + ' ر.س · ' + wasteReasonAr(r.reason) + ' · ' + (r.by || ''), central && roleHasTab(me, 'inv') ? 'inv' : 'whbranch', central && roleHasTab(me, 'inv') ? 'waste' : 'mv'); });
   // —— الإغلاق اليومي ——
   if (roleHasTab(me, 'approve')) (ops.closings || []).forEach(c => { if (c.status === 'submitted' && inScope(c.branchId)) push('cl:sub:' + c.id, 'closing', 'إغلاق بانتظار التدقيق — ' + (c.branchName || ''), (c.date || '') + ' · إيراد ' + money(c.totalRevenue || 0) + (c.variance ? ' · فرق ' + money(c.variance) : ''), 'approve'); });
   if (roleHasTab(me, 'closing') && !central) (ops.closings || []).forEach(c => { if (c.status === 'rejected' && inScope(c.branchId)) push('cl:rej:' + c.id + ':' + (c.updatedAt || ''), 'closing', 'أُعيد إغلاق للتصحيح — ' + (c.branchName || ''), (c.date || '') + (c.rejectionReason ? ' · ' + c.rejectionReason : ''), 'closing'); });
@@ -373,6 +375,8 @@ const BR_COLS = ['closings', 'transfers', 'partnerRequests', 'notifications', 'b
   'hrKpiEntries',
   // v29.9 — المستودعات: حركات مستودع الفرع وتحويلاته (يكتبها جهاز الفرع)
   'whMoves', 'whTransfers',
+  // v37.4 — طلبات هدر فوق حد الاعتماد (معلّقة لا تمسّ الرصيد حتى تُعتمد)
+  'wasteRequests',
   // v31.1 — مبيعات المنتجات (الكميات) لكل فرع وفترة — أساس الاستهلاك النظري
   'productSales',
   // v31.2 — طلبات الإجازات (يرفعها الفرع ويعتمدها المركز)
@@ -2555,7 +2559,7 @@ function emptyOrg(company) {
 }
 
 function emptyOps() {
-  return { posImports: [], posOrders: [], posShifts: [], ledgerSnaps: [], stockCounts: [], leaveRequests: [], productSales: [], salesInvoices: [], closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
+  return { wasteRequests: [], posImports: [], posOrders: [], posShifts: [], ledgerSnaps: [], stockCounts: [], leaveRequests: [], productSales: [], salesInvoices: [], closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
     attendanceEvents: [], hrPins: [], shiftTemplates: [], shiftAssignments: [], shiftSwapRequests: [], branchTransferRequests: [], taskTemplates: [], taskAssignments: [], taskCompletions: [], pointsEntries: [], qualityReviews: [], rewardRequests: [], hrSignDocs: [], hrCorrective: [], hrPips: [], hrTraining: [], hrKpiEntries: [], hrScoreSnapshots: [] };
 }
 
@@ -3622,7 +3626,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark"><MizanMark size={24} /></span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : HR_TABS.includes(safeTab) ? 'الموارد البشرية' : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v37.3</span>
+            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v37.4</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -4933,11 +4937,27 @@ function computeSmartAlerts(org, ops, myBranches, deficitThreshold = deficitCfg(
       title: 'سلف تجاوزت الراتب', msg: `${e.name}: مجموع السلف ${money(adv)} ر.س يتجاوز صافي الراتب ${money(gross)} ر.س.` });
   });
 
+  // 5) v37.4 — هدر اليوم/أمس فوق السقف اليومي (% من مبيعات الفرع)، وهدر بلا مبيعات مسجّلة
+  try {
+    const wc = wasteCfg(org);
+    const yd = (() => { const d = new Date(td + 'T00:00:00'); d.setDate(d.getDate() - 1); return isoD(d); })();
+    const hasW = [...(ops.stockMoves || []), ...(ops.whMoves || [])].some(m => m.kind === 'waste' && String(m.date || '') >= yd);
+    if (wc.capPct > 0 && hasW) {
+      wasteDaily(org, ops, itemAvgCosts(org, ops), yd, td).filter(x => ids.includes(x.branchId) && x.pct != null && x.pct > wc.capPct).forEach(x => {
+        const bn = ((org.branches || []).find(b => b.id === x.branchId) || {}).name || '';
+        alerts.push({ id: 'wcap-' + x.branchId + '-' + x.date, sev: x.pct > wc.capPct * 2 ? 'high' : 'medium', icon: 'trash',
+          title: 'هدر فوق السقف اليومي', msg: `${bn} · ${x.date === td ? 'اليوم' : 'أمس'}: هدر ${money(x.waste)} ر.س = ${x.pct}% من المبيعات (السقف ${wc.capPct}%).` });
+      });
+    }
+    const pw = (ops.wasteRequests || []).filter(r => r.status === 'pending' && (!r.branchId || ids.includes(r.branchId)));
+    if (pw.length) alerts.push({ id: 'wpend-' + pw.length, sev: 'medium', icon: 'trash', title: 'هدر بانتظار الاعتماد', msg: `${pw.length} طلب بقيمة ${money(sum(pw, r => r.value))} ر.س — لا يُخصم من المخزون قبل الاعتماد.` });
+  } catch { }
+
   const order = { high: 0, medium: 1, low: 2 };
   return alerts.sort((a, b) => order[a.sev] - order[b.sev]);
 }
 
-const ALERT_ICON = { clock: Clock, down: TrendingDown, truck: Truck, wallet: Wallet, bell: Bell };
+const ALERT_ICON = { clock: Clock, down: TrendingDown, truck: Truck, wallet: Wallet, bell: Bell, trash: Trash2 };
 
 function Notifications({ ops, org, me, myBranches, commit, onClose }) {
   const list = [...(ops.notifications || [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -19036,6 +19056,243 @@ function WarehousesPanel({ org, ops, me, commit, commitOrg, say }) {
 
 /* ============ v29.9 — مستودع الفرع (موظفو الفرع): الاستلام، الطلب، الصرف للمطبخ، الهدر، الجرد ============ */
 const WH_MOVE = { out: { ar: 'صرف للمطبخ', sign: -1, c: 'b-sky' }, waste: { ar: 'هدر/إتلاف', sign: -1, c: 'b-rose' }, adjust: { ar: 'تسوية جرد', sign: 1, c: 'b-amber' } };
+/* ===== v37.4 — ضبط الهدر =====
+   • سبب منظّم إلزامي لكل هدر (لا نص حر فقط) — أساس تقرير الهدر حسب السبب والموظف.
+   • قيمة الهدر = الكمية × المتوسط المرجّح لحظة التسجيل. فوق «حد الصورة» تُلزم صورة للتالف.
+   • فوق «حد الاعتماد» لا يُرحَّل الهدر: يُحفظ طلبًا معلّقًا (wasteRequests) لا يمسّ الرصيد ولا القيود
+     حتى يعتمده شخص آخر بصلاحية اعتماد (المركز/مدير إقليمي). مسؤول النظام وحده يعتمد طلبه ويُوسم «اعتماد ذاتي».
+   • سقف يومي للهدر كنسبة من مبيعات الفرع — تجاوزه تنبيه في مركز التنبيهات. */
+const WASTE_REASONS = { expired: 'منتهي الصلاحية', recv: 'تالف عند الاستلام', storage: 'تلف بالتخزين/التبريد', prep: 'خطأ تحضير', returned: 'مرتجع عميل', dropped: 'كسر أو سقوط', other: 'سبب آخر' };
+const wasteCfg = (org) => { const c = (org && org.wasteCfg) || {}; const n = (v, d) => (v === '' || v == null || !Number.isFinite(Number(v))) ? d : Math.max(0, Number(v));
+  return { photoOver: n(c.photoOver, 50), approveOver: n(c.approveOver, 300), capPct: n(c.capPct, 2) }; };
+const canApproveWaste = (me) => { const R = ROLES[me?.role] || {}; return !!(R.approver || R.admin || me?.role === 'regional_manager'); };
+const wasteReasonAr = (k) => WASTE_REASONS[k] || '—';
+// قيمة هدر حركة مرحّلة: المسجّلة لحظتها، وإلا الكمية × المتوسط الحالي (حركات قبل v37.4)
+const wasteValOf = (m, avg) => m.wasteVal != null ? Number(m.wasteVal) || 0 : Math.round(Math.abs(Number(m.qty) || 0) * ((avg || {})[m.itemId] || 0) * 100) / 100;
+// كل الهدر المرحّل (رئيسي + فروع) بصيغة موحّدة
+function wasteRows(org, ops, avg) {
+  const brOfWh = (wid) => ((whOf(org).find(w => w.id === wid) || {}).branchId) || '';
+  return [...(ops.stockMoves || []).map(m => ({ ...m, whId: m.whId || MAIN_WH, branchId: m.branchId || brOfWh(m.whId || MAIN_WH) })), ...(ops.whMoves || []).map(m => ({ ...m, branchId: m.branchId || brOfWh(m.whId) }))]
+    .filter(m => m.kind === 'waste').map(m => ({ ...m, val: wasteValOf(m, avg) }));
+}
+// الهدر اليومي لكل فرع مقابل مبيعاته: [{branchId, date, waste, sales, pct}]
+function wasteDaily(org, ops, avg, from, to) {
+  const W = {};
+  wasteRows(org, ops, avg).forEach(m => { const d = String(m.date || '').slice(0, 10); if (!m.branchId || d < from || d > to) return; const k = m.branchId + '|' + d; W[k] = Math.round(((W[k] || 0) + m.val) * 100) / 100; });
+  return Object.entries(W).map(([k, w]) => { const [b, d] = k.split('|');
+    const cl = (ops.closings || []).find(c => c.branchId === b && c.date === d && countedClosing(c));
+    const sales = cl ? Number(cl.totalRevenue) || 0 : Number(salesDaySource(ops, b, d).total) || 0;
+    return { branchId: b, date: d, waste: w, sales, pct: sales > 0 ? Math.round(w / sales * 10000) / 100 : null }; });
+}
+// حقول الهدر: السبب + البيان + صورة التالف (إلزامية فوق الحد) + قيمة الهدر وأثرها
+function WasteFields({ f, setF, value, cfg, me, say }) {
+  const pick = async (e) => { const fl = e.target.files && e.target.files[0]; e.target.value = ''; if (!fl) return;
+    try { setF(x => ({ ...x, photo: '' })); const u = await compressImage(fl, 640, 0.5); setF(x => ({ ...x, photo: u })); } catch { say && say('تعذّر قراءة الصورة', 'no'); } };
+  const needPhoto = value >= cfg.photoOver && cfg.photoOver > 0;
+  const needAppr = value >= cfg.approveOver && cfg.approveOver > 0;
+  return (
+    <div className="grid" style={{ gap: 8 }}>
+      <Field label="سبب الهدر (إلزامي)">
+        <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>{Object.entries(WASTE_REASONS).map(([k, v]) => <button key={k} type="button" className={'btn sm' + (f.reason === k ? ' pri' : ' gh')} onClick={() => setF(x => ({ ...x, reason: k }))}>{v}</button>)}</div>
+      </Field>
+      <Field label={f.reason === 'other' ? 'وصف السبب (إلزامي)' : 'تفاصيل (اختياري)'}><input className="inp" value={f.note || ''} onChange={e => setF(x => ({ ...x, note: e.target.value }))} placeholder="مثال: تعطل ثلاجة التبريد ليلًا" /></Field>
+      <div className="wst-box">
+        <span>قيمة الهدر <b className="num">{money(value)}</b></span>
+        {needAppr ? <span className="badge b-amber">فوق {money(cfg.approveOver)} — يُرسل للاعتماد ولا يُخصم قبله</span> : <span className="badge b-dim">يُرحّل مباشرة</span>}
+        <label className={'btn sm' + (needPhoto && !f.photo ? ' pri' : ' gh')} style={{ cursor: 'pointer' }}><Camera size={13} />{f.photo ? 'تغيير الصورة' : needPhoto ? 'صورة التالف (إلزامية)' : 'صورة (اختياري)'}
+          <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={pick} /></label>
+        {f.photo && <img src={f.photo} alt="" className="wst-thumb" />}
+        {f.photo && <button type="button" className="btn sm gh" onClick={() => setF(x => ({ ...x, photo: '' }))}><X size={12} /></button>}
+      </div>
+    </div>);
+}
+// تسجيل الهدر: يتحقق من السبب والصورة، ثم يرحّل الحركات أو يرفع طلب اعتماد
+async function submitWaste({ org, me, commit, say, col, whId, branchId, lines, f, avg, title }) {
+  const cfg = wasteCfg(org);
+  const itN = (id) => ((org.items || []).find(x => x.id === id) || {}).name || 'صنف';
+  if (!f.reason || !WASTE_REASONS[f.reason]) { say('اختر سبب الهدر', 'no'); return false; }
+  if (f.reason === 'other' && !String(f.note || '').trim()) { say('اكتب وصف السبب', 'no'); return false; }
+  const L = lines.map(l => ({ itemId: l.itemId, qty: q3(l.qty), val: Math.round(q3(l.qty) * ((avg || {})[l.itemId] || 0) * 100) / 100 }));
+  const value = Math.round(sum(L, l => l.val) * 100) / 100;
+  if (cfg.photoOver > 0 && value >= cfg.photoOver && !f.photo) { say('قيمة الهدر ' + money(value) + ' — أرفق صورة التالف', 'no'); return false; }
+  const base = { ...(whId ? { whId } : {}), ...(branchId ? { branchId } : {}), reason: f.reason, note: String(f.note || '').trim(), by: me.name, at: nowISO(), date: today() };
+  const det = L.map(l => itN(l.itemId) + ' ' + l.qty).join('، ').slice(0, 140) + ' · ' + wasteReasonAr(f.reason) + ' · ' + money(value);
+  if (cfg.approveOver > 0 && value >= cfg.approveOver) {
+    const rec = { id: uid('wr'), col, ...base, lines: L, value, photo: f.photo || '', status: 'pending' };
+    const ok = await commit(d => ({ ...d, wasteRequests: [rec, ...(d.wasteRequests || [])] }),
+      { actionType: 'create', targetType: 'stock_move', targetId: rec.id, branchName: whName(org, whId), title: 'طلب اعتماد هدر — ' + title, details: det });
+    if (ok) say('أُرسل الهدر للاعتماد (' + money(value) + ') — لا يُخصم من الرصيد قبل الاعتماد');
+    return !!ok;
+  }
+  const grp = uid('wg');
+  const recs = L.map((l, i) => ({ id: uid(col === 'whMoves' ? 'wm' : 'sm'), ...base, itemId: l.itemId, kind: 'waste', qty: -l.qty, wasteVal: l.val, grp, ...(i === 0 && f.photo ? { photo: f.photo } : {}) }));
+  const ok = await commit(d => ({ ...d, [col]: [...recs, ...(d[col] || [])] }),
+    { actionType: 'create', targetType: 'stock_move', targetId: recs[0].id, branchName: whName(org, whId), title: 'هدر/إتلاف — ' + title, details: det });
+  if (ok) say('سُجّل الهدر ✓');
+  return !!ok;
+}
+// قائمة طلبات الهدر المعلّقة + الاعتماد/الرفض (شخص غير مقدّم الطلب)
+function WastePending({ org, ops, me, commit, say, whIds }) {
+  const [rej, setRej] = useState(null);
+  const [img, setImg] = useState(null);
+  const itN = (id) => ((org.items || []).find(x => x.id === id) || {}).name || 'صنف';
+  const list = (ops.wasteRequests || []).filter(r => r.status === 'pending' && (!whIds || whIds.includes(r.whId))).sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
+  const R = ROLES[me?.role] || {};
+  const can = canApproveWaste(me);
+  const decide = async (r, approve, note) => {
+    if (!can) return say('الاعتماد لصلاحية المركز أو المدير الإقليمي', 'no');
+    if (r.by === me.name && !R.admin) return say('لا يعتمد مقدّم الطلب هدره — يعتمده شخص آخر', 'no');
+    if (approve) {
+      const SB = stockByWh(org, ops);
+      const bal = whOn(org) ? (SB.byWh[r.whId || MAIN_WH] || {}) : SB.total;
+      const short = (r.lines || []).find(l => l.qty > q3(bal[l.itemId] || 0) + 0.0005);
+      if (short) return say('الرصيد الحالي لا يكفي: ' + itN(short.itemId) + ' (المتاح ' + q3(bal[short.itemId] || 0) + ')', 'no');
+    }
+    const date = periodLocked(org, r.date) ? today() : r.date;
+    const self = r.by === me.name;
+    const ok = await commit(d => {
+      const cur = (d.wasteRequests || []).find(x => x.id === r.id);
+      if (!cur || cur.status !== 'pending') throw new Error('already-decided');
+      const upd = { ...cur, status: approve ? 'approved' : 'rejected', decidedBy: me.name, decidedAt: nowISO(), ...(note ? { decideNote: note } : {}), ...(self ? { selfApproved: true } : {}) };
+      const out = { ...d, wasteRequests: (d.wasteRequests || []).map(x => x.id === r.id ? upd : x) };
+      if (approve) {
+        const grp = uid('wg');
+        const recs = (r.lines || []).map((l, i) => ({ id: uid(r.col === 'whMoves' ? 'wm' : 'sm'), ...(r.whId ? { whId: r.whId } : {}), ...(r.branchId ? { branchId: r.branchId } : {}), itemId: l.itemId, kind: 'waste', qty: -q3(l.qty), wasteVal: l.val,
+          reason: r.reason, note: r.note || '', date, by: r.by, at: nowISO(), approvedBy: me.name, reqId: r.id, grp, ...(self ? { selfApproved: true } : {}), ...(i === 0 && r.photo ? { photo: r.photo } : {}) }));
+        out[r.col] = [...recs, ...(d[r.col] || [])];
+      }
+      return out;
+    }, { actionType: 'update', targetType: 'stock_move', targetId: r.id, branchName: whName(org, r.whId), title: (approve ? 'اعتماد هدر' : 'رفض هدر') + (self ? ' (اعتماد ذاتي)' : ''), details: (r.lines || []).map(l => itN(l.itemId) + ' ' + l.qty).join('، ').slice(0, 120) + ' · ' + money(r.value) + ' · طلب ' + r.by + (note ? ' · ' + note : '') });
+    if (ok) { setRej(null); say(approve ? 'اعتُمد الهدر ورُحّل ✓' : 'رُفض الطلب — لم يُخصم شيء'); }
+  };
+  if (!list.length) return null;
+  return (
+    <div className="card wst-pend">
+      <div className="card-h"><div className="card-t"><AlertTriangle size={15} color="var(--amber)" />هدر بانتظار الاعتماد<span className="badge b-amber" style={{ marginInlineStart: 6 }}>{list.length}</span></div></div>
+      <div className="grid" style={{ gap: 8 }}>
+        {list.map(r => (
+          <div key={r.id} className="wst-req">
+            {r.photo ? <button type="button" className="wst-ph" onClick={() => setImg(r.photo)}><img src={r.photo} alt="" /></button> : <span className="wst-ph none"><Camera size={16} /></span>}
+            <div className="wst-info">
+              <b>{(r.lines || []).map(l => itN(l.itemId) + ' × ' + l.qty).join('، ')}</b>
+              <small>{whName(org, r.whId)} · {wasteReasonAr(r.reason)}{r.note ? ' — ' + r.note : ''}</small>
+              <small>طلبه {r.by} · <span className="dt">{arDate(r.date)}</span></small>
+            </div>
+            <b className="num wst-val">{money(r.value)}</b>
+            {can && <div className="row" style={{ gap: 6 }}>
+              <button className="btn sm pri" disabled={r.by === me.name && !R.admin} title={r.by === me.name && !R.admin ? 'يعتمده شخص آخر' : ''} onClick={() => decide(r, true)}><Check size={13} />اعتماد</button>
+              <button className="btn sm gh" onClick={() => setRej({ r, note: '' })}><X size={13} />رفض</button>
+            </div>}
+          </div>))}
+      </div>
+      {!can && <div className="note" style={{ marginTop: 8 }}>يعتمد هذه الطلبات المركز أو المدير الإقليمي — لا تُخصم من الرصيد قبل الاعتماد.</div>}
+      {rej && <Modal title="رفض طلب الهدر" icon={X} onClose={() => setRej(null)} foot={<><button className="btn gh" onClick={() => setRej(null)}>إلغاء</button><button className="btn pri" onClick={() => { if (!rej.note.trim()) return say('اكتب سبب الرفض', 'no'); decide(rej.r, false, rej.note.trim()); }}>رفض</button></>}>
+        <Field label="سبب الرفض"><input className="inp" value={rej.note} onChange={e => setRej(x => ({ ...x, note: e.target.value }))} placeholder="مثال: الصنف موجود بالمستودع — أعد العدّ" /></Field>
+      </Modal>}
+      {img && <Modal title="صورة التالف" icon={Camera} onClose={() => setImg(null)}><img src={img} alt="" style={{ width: '100%', borderRadius: 10 }} /></Modal>}
+    </div>);
+}
+// شاشة «ضبط الهدر» (المركز): الإعداد، الطلبات المعلّقة، الهدر حسب السبب والموظف والفرع، وأيام تجاوز السقف
+function WasteControl({ org, ops, me, commit, commitOrg, say }) {
+  const cfg = wasteCfg(org);
+  const canSet = ROLES[me?.role]?.scope === 'all' && rolePost(me?.role);
+  const [f, setF] = useState(null);
+  const [days, setDays] = useState(30);
+  const [by, setBy] = useState('emp');
+  const [img, setImg] = useState(null);
+  const AVG = useMemo(() => itemAvgCosts(org, ops), [org, ops]);
+  const to = today(); const from = (() => { const d = new Date(); d.setDate(d.getDate() - (days - 1)); return isoD(d); })();
+  const rows = useMemo(() => wasteRows(org, ops, AVG).filter(m => { const d = String(m.date || '').slice(0, 10); return d >= from && d <= to; }), [org, ops, AVG, from]);
+  const daily = useMemo(() => wasteDaily(org, ops, AVG, from, to), [org, ops, AVG, from]);
+  const brName = (id) => ((org.branches || []).find(b => b.id === id) || {}).name || (id ? '' : 'المستودع الرئيسي');
+  const itN = (id) => ((org.items || []).find(x => x.id === id) || {}).name || 'صنف';
+  const total = Math.round(sum(rows, m => m.val) * 100) / 100;
+  const salesT = sum((ops.closings || []).filter(c => countedClosing(c) && c.date >= from && c.date <= to), c => Number(c.totalRevenue) || 0);
+  const over = daily.filter(x => x.pct != null && cfg.capPct > 0 && x.pct > cfg.capPct).sort((a, b) => b.date.localeCompare(a.date));
+  const noSale = daily.filter(x => x.pct == null);
+  const pend = (ops.wasteRequests || []).filter(r => r.status === 'pending');
+  const rejected = (ops.wasteRequests || []).filter(r => r.status === 'rejected' && String(r.date || '') >= from);
+  const noReason = rows.filter(m => !m.reason).length;
+  const grp = (keyOf, nameOf) => { const G = {}; rows.forEach(m => { const k = keyOf(m); const g = G[k] = G[k] || { k, name: nameOf(m), n: 0, val: 0, reasons: {} }; g.n++; g.val += m.val; const rk = m.reason || '—'; g.reasons[rk] = (g.reasons[rk] || 0) + m.val; });
+    return Object.values(G).map(g => ({ ...g, val: Math.round(g.val * 100) / 100, share: total ? Math.round(g.val / total * 1000) / 10 : 0, top: Object.entries(g.reasons).sort((a, b) => b[1] - a[1])[0] })).sort((a, b) => b.val - a.val); };
+  const T = by === 'emp' ? grp(m => m.by || '—', m => m.by || '—') : by === 'reason' ? grp(m => m.reason || '—', m => m.reason ? wasteReasonAr(m.reason) : 'بلا سبب (قبل v37.4)') : by === 'item' ? grp(m => m.itemId, m => itN(m.itemId)) : grp(m => m.branchId || '', m => brName(m.branchId));
+  const save = async () => {
+    const n = (v) => Math.max(0, Number(String(v).replace(/[^\d.]/g, '')) || 0);
+    const next = { photoOver: n(f.photoOver), approveOver: n(f.approveOver), capPct: n(f.capPct) };
+    if (next.approveOver && next.photoOver && next.approveOver < next.photoOver) return say('حد الاعتماد يجب أن يكون ≥ حد الصورة', 'no');
+    const ok = await commitOrg(d => ({ ...d, wasteCfg: next }), { actionType: 'update', targetType: 'settings', targetId: 'wasteCfg', need: 'edit', title: 'ضوابط الهدر', details: 'صورة فوق ' + money(next.photoOver) + ' · اعتماد فوق ' + money(next.approveOver) + ' · سقف يومي ' + next.capPct + '%' });
+    if (ok) { setF(null); say('حُفظت ضوابط الهدر ✓'); }
+  };
+  const printRep = () => {
+    const tr = T.map(g => `<tr><td>${g.name}</td><td class="n">${g.n}</td><td class="n">${money(g.val)}</td><td class="n">${g.share}%</td><td>${by === 'reason' ? '' : (g.top ? (g.top[0] === '—' ? 'بلا سبب' : wasteReasonAr(g.top[0])) : '')}</td></tr>`).join('');
+    printA4(org, 'تقرير الهدر', 'آخر ' + days + ' يومًا · الإجمالي ' + money(total),
+      `<table><thead><tr><th>${{ emp: 'الموظف', reason: 'السبب', item: 'الصنف', br: 'الفرع' }[by]}</th><th>حالات</th><th>القيمة</th><th>النسبة</th><th>${by === 'reason' ? '' : 'أكثر سبب'}</th></tr></thead><tbody>${tr}</tbody></table>
+      <div class="box">القيمة بالمتوسط المرجّح لحظة التسجيل. سقف الهدر اليومي ${cfg.capPct}% من مبيعات الفرع — أيام التجاوز في الفترة: ${over.length}.</div>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+  };
+  return (
+    <div className="grid" style={{ gap: 12 }}>
+      <div className="card">
+        <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />ضوابط الهدر</div>
+          {canSet && !f && <button className="btn sm" onClick={() => setF({ photoOver: String(cfg.photoOver), approveOver: String(cfg.approveOver), capPct: String(cfg.capPct) })}>تعديل</button>}</div>
+        {f ? <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'end' }}>
+          <Field label="صورة إلزامية فوق (ر.س)" style={{ width: 170, marginBottom: 0 }}><input className="inp n" inputMode="decimal" value={f.photoOver} onChange={e => setF(x => ({ ...x, photoOver: e.target.value }))} /></Field>
+          <Field label="اعتماد مدير فوق (ر.س)" style={{ width: 170, marginBottom: 0 }}><input className="inp n" inputMode="decimal" value={f.approveOver} onChange={e => setF(x => ({ ...x, approveOver: e.target.value }))} /></Field>
+          <Field label="سقف يومي % من المبيعات" style={{ width: 170, marginBottom: 0 }}><input className="inp n" inputMode="decimal" value={f.capPct} onChange={e => setF(x => ({ ...x, capPct: e.target.value }))} /></Field>
+          <button className="btn pri" onClick={save}><Check size={14} />حفظ</button><button className="btn gh" onClick={() => setF(null)}>إلغاء</button>
+        </div> : <div className="wst-rules">
+          <span><Camera size={13} />صورة التالف إلزامية من <b className="num">{money(cfg.photoOver)}</b></span>
+          <span><Lock size={13} />اعتماد شخص آخر من <b className="num">{money(cfg.approveOver)}</b></span>
+          <span><AlertTriangle size={13} />سقف الهدر اليومي <b className="num">{cfg.capPct}%</b> من مبيعات الفرع</span>
+        </div>}
+        <div className="note" style={{ marginTop: 8 }}>وضع 0 يعطّل الضابط. الهدر المعلّق لا يُخصم من الرصيد ولا يُقيَّد حتى يُعتمد، ومقدّم الطلب لا يعتمد طلبه.</div>
+      </div>
+      <WastePending org={org} ops={ops} me={me} commit={commit} say={say} />
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        {[[7, 'أسبوع'], [30, '30 يومًا'], [90, '90 يومًا']].map(([d, l]) => <button key={d} className={'btn sm' + (days === d ? ' pri' : ' gh')} onClick={() => setDays(d)}>{l}</button>)}
+      </div>
+      <div className="grid g4">
+        <Kpi label="قيمة الهدر" value={money(total)} sub={rows.length + ' حركة' + (salesT ? ' · ' + (Math.round(total / salesT * 1000) / 10) + '% من المبيعات' : '')} icon={Trash2} color="#D9544D" />
+        <Kpi label="أيام تجاوز السقف" value={String(over.length)} sub={cfg.capPct ? 'فوق ' + cfg.capPct + '% من مبيعات اليوم' : 'السقف معطّل'} icon={AlertTriangle} color={over.length ? '#D9544D' : '#4FB286'} />
+        <Kpi label="بانتظار الاعتماد" value={String(pend.length)} sub={money(sum(pend, r => r.value))} icon={Lock} color={pend.length ? '#E0A458' : '#4FB286'} />
+        <Kpi label="طلبات مرفوضة" value={String(rejected.length)} sub={money(sum(rejected, r => r.value)) + (noReason ? ' · ' + noReason + ' حركة بلا سبب' : '')} icon={X} color="#5B93C4" />
+      </div>
+      <div className="card">
+        <div className="card-h"><div className="card-t"><BarChart3 size={15} color="var(--brass)" />تقرير الهدر — آخر {days} يومًا</div>
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+            {[['emp', 'حسب الموظف'], ['reason', 'حسب السبب'], ['item', 'حسب الصنف'], ['br', 'حسب الفرع']].map(([k, l]) => <button key={k} className={'btn sm' + (by === k ? ' pri' : ' gh')} onClick={() => setBy(k)}>{l}</button>)}
+            <button className="btn sm" onClick={printRep}><Printer size={13} />طباعة</button>
+          </div></div>
+        {!T.length ? <div className="empty">لا هدر مسجّل في الفترة.</div> : <div className="tw"><table className="tb">
+          <thead><tr><th>{{ emp: 'الموظف', reason: 'السبب', item: 'الصنف', br: 'الفرع' }[by]}</th><th style={{ textAlign: 'end' }}>حالات</th><th style={{ textAlign: 'end' }}>القيمة</th><th style={{ textAlign: 'end' }}>النسبة</th>{by !== 'reason' && <th>أكثر سبب</th>}</tr></thead>
+          <tbody>{T.map(g => <tr key={g.k}><td>{g.name}</td><td className="num" style={{ textAlign: 'end' }}>{g.n}</td><td className="num" style={{ textAlign: 'end' }}>{money(g.val)}</td>
+            <td style={{ textAlign: 'end' }}><span className="wst-bar"><i style={{ width: Math.min(100, g.share) + '%' }} /></span><span className="num">{g.share}%</span></td>
+            {by !== 'reason' && <td style={{ fontSize: 12 }}>{g.top ? (g.top[0] === '—' ? 'بلا سبب' : wasteReasonAr(g.top[0])) : '—'}</td>}</tr>)}</tbody>
+        </table></div>}
+      </div>
+      {(over.length > 0 || noSale.length > 0) && <div className="card">
+        <div className="card-h"><div className="card-t"><AlertTriangle size={15} color="var(--rose)" />أيام تجاوز سقف الهدر ({cfg.capPct}%)</div></div>
+        <div className="tw"><table className="tb">
+          <thead><tr><th>التاريخ</th><th>الفرع</th><th style={{ textAlign: 'end' }}>الهدر</th><th style={{ textAlign: 'end' }}>المبيعات</th><th style={{ textAlign: 'end' }}>النسبة</th></tr></thead>
+          <tbody>{[...over, ...noSale.filter(x => x.waste > 0)].slice(0, 60).map(x => <tr key={x.branchId + x.date}><td><span className="dt">{arDate(x.date)}</span></td><td>{brName(x.branchId)}</td>
+            <td className="num neg" style={{ textAlign: 'end' }}>{money(x.waste)}</td><td className="num" style={{ textAlign: 'end' }}>{x.sales ? money(x.sales) : '—'}</td>
+            <td style={{ textAlign: 'end' }}>{x.pct == null ? <span className="badge b-amber">هدر بلا مبيعات مسجّلة</span> : <span className="badge b-rose num">{x.pct}%</span>}</td></tr>)}</tbody>
+        </table></div>
+      </div>}
+      <div className="card">
+        <div className="card-h"><div className="card-t"><Camera size={15} color="var(--brass)" />آخر حركات الهدر</div></div>
+        {!rows.length ? <div className="empty">لا حركات.</div> : <div className="tw"><table className="tb">
+          <thead><tr><th>التاريخ</th><th>المستودع</th><th>الصنف</th><th style={{ textAlign: 'end' }}>الكمية</th><th style={{ textAlign: 'end' }}>القيمة</th><th>السبب</th><th>سجّله / اعتمده</th><th>صورة</th></tr></thead>
+          <tbody>{rows.slice().sort((a, b) => String(b.at || b.date || '').localeCompare(String(a.at || a.date || ''))).slice(0, 80).map(m => <tr key={m.id}>
+            <td><span className="dt">{arDate(m.date)}</span></td><td style={{ fontSize: 12 }}>{whName(org, m.whId)}</td><td>{itN(m.itemId)}</td>
+            <td className="num" style={{ textAlign: 'end' }}>{q3(-m.qty)}</td><td className="num" style={{ textAlign: 'end' }}>{money(m.val)}</td>
+            <td style={{ fontSize: 12 }}>{m.reason ? wasteReasonAr(m.reason) : <span style={{ color: 'var(--faint)' }}>—</span>}{m.note ? <div style={{ color: 'var(--dim)', fontSize: 11 }}>{m.note}</div> : null}</td>
+            <td style={{ fontSize: 12 }}>{m.by || '—'}{m.approvedBy ? <div style={{ color: 'var(--dim)', fontSize: 11 }}>اعتمده {m.approvedBy}{m.selfApproved ? ' (ذاتي)' : ''}</div> : null}</td>
+            <td>{m.photo ? <button type="button" className="wst-ph sm" onClick={() => setImg(m.photo)}><img src={m.photo} alt="" /></button> : ''}</td></tr>)}</tbody>
+        </table></div>}
+      </div>
+      {img && <Modal title="صورة التالف" icon={Camera} onClose={() => setImg(null)}><img src={img} alt="" style={{ width: '100%', borderRadius: 10 }} /></Modal>}
+    </div>);
+}
 function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
   const items = (org.items || []).filter(it => it.isActive !== false && isStocked(it));
   const mine = (myBranches || []).map(b => whForBranch(org, b.id)).filter(Boolean);
@@ -19049,6 +19306,7 @@ function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
   useEffect(() => { if (!mine.some(w => w.id === whId) && mine[0]) setWhId(mine[0].id); }, [mine.map(w => w.id).join(',')]); // eslint-disable-line
   const wh = mine.find(w => w.id === whId);
   const SB = useMemo(() => stockByWh(org, ops), [org, ops]);
+  const AVG = useMemo(() => itemAvgCosts(org, ops), [org, ops]);   // v37.4 قيمة الهدر
   const qOf = (id) => q3(((SB.byWh[whId] || {})[id]) || 0);
   const itemOf = (id) => (org.items || []).find(x => x.id === id) || { name: '—', unit: '' };
   // الوارد: من الرئيسي، أو نسخة «واردة» لتحويل فرع←فرع اعتمده المركز (لا النسخة الصادرة لفرع آخر)
@@ -19107,6 +19365,11 @@ function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
     if (!lines.length) return say('أضف صنفًا وكمية', 'no');
     const over = lines.find(l => k.sign < 0 && q3(l.qty) > qOf(l.itemId) + 0.0005);
     if (over) return say('الكمية تتجاوز رصيد المستودع: ' + itemOf(over.itemId).name + ' (المتاح ' + qOf(over.itemId) + ')', 'no');
+    if (mvF.kind === 'waste') {   // v37.4 — سبب منظّم + صورة + اعتماد فوق الحد
+      const ok = await submitWaste({ org, me, commit, say, col: 'whMoves', whId: wh.id, branchId: wh.branchId, lines, f: mvF, avg: AVG, title: wh.name });
+      if (ok) setMvF({ kind: 'waste', lines: [{ itemId: '', qty: '' }], note: '', reason: '', photo: '' });
+      return;
+    }
     const recs = lines.map(l => ({ id: uid('wm'), whId: wh.id, branchId: wh.branchId, itemId: l.itemId, kind: mvF.kind, qty: k.sign * q3(l.qty), note: mvF.note || '', date: today(), by: me.name, at: nowISO() }));
     const ok = await commit(d => ({ ...d, whMoves: [...recs, ...(d.whMoves || [])] }),
       { actionType: 'create', targetType: 'stock_move', targetId: recs[0].id, branchName: whName(org, wh.id), title: k.ar + ' — ' + wh.name, details: lines.map(l => itemOf(l.itemId).name + ' ' + l.qty).join('، ').slice(0, 160) });
@@ -19131,7 +19394,7 @@ function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
           <div className="card-t" style={{ marginInlineEnd: 'auto' }}><HardDrive size={15} color="var(--brass)" />{wh.name}<span style={{ fontSize: 11, color: 'var(--faint)', marginInlineStart: 6 }}>يتبع {whName(org, wh.parentId || MAIN_WH)}</span></div>
           {mine.length > 1 && <select className="inp sel" style={{ maxWidth: 240 }} value={whId} onChange={e => setWhId(e.target.value)}>{mine.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select>}
         </div>
-        <div style={{ marginTop: 10 }}><SectionNav label="أقسام مستودع الفرع" cur={view} onPick={setView} items={[{ id: 'bal', ar: 'الأرصدة', icon: ClipboardCheck }, { id: 'in', ar: 'الوارد', icon: Truck, badge: incoming.length || null }, { id: 'req', ar: 'طلب من الرئيسي', icon: Send }, { id: 'out', ar: 'صادر (فرع / إرجاع)', icon: ArrowLeftRight }, { id: 'mv', ar: 'صرف وهدر', icon: Trash2 }, { id: 'count', ar: 'الجرد', icon: Scale }]} /></div>
+        <div style={{ marginTop: 10 }}><SectionNav label="أقسام مستودع الفرع" cur={view} onPick={setView} items={[{ id: 'bal', ar: 'الأرصدة', icon: ClipboardCheck }, { id: 'in', ar: 'الوارد', icon: Truck, badge: incoming.length || null }, { id: 'req', ar: 'طلب من الرئيسي', icon: Send }, { id: 'out', ar: 'صادر (فرع / إرجاع)', icon: ArrowLeftRight }, { id: 'mv', ar: 'صرف وهدر', icon: Trash2, badge: (ops.wasteRequests || []).filter(r => r.status === 'pending' && r.whId === wh.id).length || null }, { id: 'count', ar: 'الجرد', icon: Scale }]} /></div>
       </div>
 
       {view === 'bal' && (
@@ -19146,7 +19409,7 @@ function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
           <div className="card-t" style={{ margin: '14px 0 8px', fontSize: 13 }}>آخر الحركات</div>
           <div className="tw"><table className="tb"><tbody>
             {myMoves.slice(0, 30).map(m => (<tr key={m.id}><td className="num" style={{ fontSize: 11 }}>{m.date}</td><td>{itemOf(m.itemId).name}</td>
-              <td><span className={'badge ' + ((WH_MOVE[m.kind] || {}).c || 'b-dim')}>{(WH_MOVE[m.kind] || {}).ar || m.kind}</span></td>
+              <td><span className={'badge ' + ((WH_MOVE[m.kind] || {}).c || 'b-dim')}>{(WH_MOVE[m.kind] || {}).ar || m.kind}</span>{m.kind === 'waste' && m.reason ? <div style={{ fontSize: 10.5, color: 'var(--dim)' }}>{wasteReasonAr(m.reason)}{m.approvedBy ? ' · اعتمده ' + m.approvedBy : ''}</div> : null}</td>
               <td className="num" style={{ fontWeight: 700, color: m.qty < 0 ? 'var(--rose)' : 'var(--mint)' }}>{m.qty > 0 ? '+' + m.qty : m.qty}</td>
               <td style={{ fontSize: 11, color: 'var(--faint)' }}>{m.by}</td></tr>))}
             {!myMoves.length && <tr><td><div className="empty">لا حركات بعد</div></td></tr>}
@@ -19212,14 +19475,17 @@ function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
         </div>
       )}
 
+      {view === 'mv' && <WastePending org={org} ops={ops} me={me} commit={commit} say={say} whIds={[wh.id]} />}
       {view === 'mv' && (
         <div className="card">
           <div className="row" style={{ gap: 8, marginBottom: 10 }}>
             {['out', 'waste'].map(k => <button key={k} className={'btn sm' + (mvF.kind === k ? ' pri' : ' gh')} onClick={() => setMvF(f => ({ ...f, kind: k }))}>{WH_MOVE[k].ar}</button>)}
           </div>
           <WhLines items={items} lines={mvF.lines} setLines={(fn) => setMvF(f => ({ ...f, lines: typeof fn === 'function' ? fn(f.lines) : fn }))} field="qty" max={qOf} />
-          <Field label="البيان"><input className="inp" value={mvF.note} onChange={e => setMvF(f => ({ ...f, note: e.target.value }))} placeholder={mvF.kind === 'waste' ? 'سبب الهدر' : 'مثال: تشغيل الوردية'} /></Field>
-          <button className="btn pri" onClick={saveMove}><Check size={14} />تسجيل {WH_MOVE[mvF.kind].ar}</button>
+          {mvF.kind === 'waste'
+            ? <WasteFields f={mvF} setF={setMvF} cfg={wasteCfg(org)} me={me} say={say} value={Math.round(sum(mvF.lines.filter(l => l.itemId), l => (Number(l.qty) || 0) * (AVG[l.itemId] || 0)) * 100) / 100} />
+            : <Field label="البيان"><input className="inp" value={mvF.note} onChange={e => setMvF(f => ({ ...f, note: e.target.value }))} placeholder="مثال: تشغيل الوردية" /></Field>}
+          <button className="btn pri" style={{ marginTop: 10 }} onClick={saveMove}><Check size={14} />تسجيل {WH_MOVE[mvF.kind].ar}</button>
         </div>
       )}
 
@@ -19591,6 +19857,13 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
     const fac = f.uom === 'p' ? pFactor(it) : 1;
     const qBase = Math.round(q * fac * 1000) / 1000;
     const uc = f.kind === 'in' && f.unitCost !== '' && f.unitCost != null ? Math.round((Number(f.unitCost) || 0) / fac * 10000) / 10000 : null;
+    if (f.kind === 'waste') {   // v37.4 — سبب منظّم + صورة + اعتماد فوق الحد
+      const have = whOn(org) ? mainOf(it.id) : balOf(it.id);
+      if (qBase > have + 0.0005) return say('الكمية تتجاوز الرصيد: ' + it.name + ' (المتاح ' + have + ')', 'no');
+      const ok = await submitWaste({ org, me, commit, say, col: 'stockMoves', whId: whOn(org) ? MAIN_WH : '', branchId: '', lines: [{ itemId: it.id, qty: qBase }], f, avg: AVG, title: whOn(org) ? whName(org, MAIN_WH) : 'المخزون' });
+      if (ok) setMoveF(null);
+      return;
+    }
     const rec = { id: uid('sm'), date: today(), itemId: it.id, kind: f.kind, qty: sign * qBase, note: f.note || '', by: me.name, at: nowISO(),
       ...(uc != null ? { unitCost: uc } : {}), ...(whOn(org) ? { whId: MAIN_WH } : {}) };
     await commit(d => ({ ...d, stockMoves: [rec, ...(d.stockMoves || [])] }), {
@@ -19699,7 +19972,7 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
       </div>
 
       <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-        <SectionNav label="أقسام المخزون" cur={view} onPick={setView} items={[{ id: 'items', ar: 'الأصناف والأرصدة', icon: HardDrive }, { id: 'moves', ar: 'الحركات', icon: ArrowLeftRight }, { id: 'count', ar: 'الجرد' + (whOn(org) ? ' (الرئيسي)' : ''), icon: ClipboardCheck }, { id: 'wh', ar: 'المستودعات', icon: Truck }, { id: 'recipes', ar: 'الوصفات والتكلفة', icon: Store }, { id: 'menu', ar: 'هندسة القائمة', icon: BarChart3 }, { id: 'usage', ar: 'الاستهلاك النظري والفعلي', icon: AlertTriangle }]} />
+        <SectionNav label="أقسام المخزون" cur={view} onPick={setView} items={[{ id: 'items', ar: 'الأصناف والأرصدة', icon: HardDrive }, { id: 'moves', ar: 'الحركات', icon: ArrowLeftRight }, { id: 'count', ar: 'الجرد' + (whOn(org) ? ' (الرئيسي)' : ''), icon: ClipboardCheck }, { id: 'wh', ar: 'المستودعات', icon: Truck }, { id: 'recipes', ar: 'الوصفات والتكلفة', icon: Store }, { id: 'menu', ar: 'هندسة القائمة', icon: BarChart3 }, { id: 'usage', ar: 'الاستهلاك النظري والفعلي', icon: AlertTriangle }, { id: 'waste', ar: 'ضبط الهدر', icon: Trash2, badge: (ops.wasteRequests || []).filter(r => r.status === 'pending').length || null }]} />
       </div>
 
       <div className="grid g4">
@@ -19763,7 +20036,7 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
                     <td style={{ fontSize: 12.5 }}>{itemName(mv.itemId)}</td>
                     <td><span className={'badge ' + (MOVE_KINDS[mv.kind]?.c || 'b-dim')}>{MOVE_KINDS[mv.kind]?.ar || mv.kind}</span></td>
                     <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: mv.qty < 0 ? 'var(--rose)' : 'var(--mint)' }}>{mv.qty > 0 ? '+' + mv.qty : mv.qty}</td>
-                    <td style={{ fontSize: 11, color: 'var(--dim)' }}>{mv.note || mv.ref || '—'}</td>
+                    <td style={{ fontSize: 11, color: 'var(--dim)' }}>{mv.kind === 'waste' && mv.reason ? wasteReasonAr(mv.reason) + (mv.note ? ' — ' + mv.note : '') + (mv.approvedBy ? ' · اعتمده ' + mv.approvedBy : '') : (mv.note || mv.ref || '—')}</td>
                     <td style={{ fontSize: 11, color: 'var(--faint)' }}>{mv.by || '—'}</td>
                   </tr>
                 ))}
@@ -19841,6 +20114,7 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
       )}
 
       {view === 'usage' && <UsageVariance org={org} ops={ops} me={me} commit={commit} say={say} />}
+      {view === 'waste' && <WasteControl org={org} ops={ops} me={me} commit={commit} commitOrg={commitOrg} say={say} />}
 
       {view === 'recipes' && (
         <div className="grid g2">
@@ -20028,8 +20302,9 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
           <div className="grid g2">
             <Field label="الكمية"><input className="inp n" inputMode="decimal" value={moveF.qty} onChange={e => setMoveF(f => ({ ...f, qty: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
             {moveF.kind === 'in' && <Field label={'تكلفة ' + (() => { const it = items.find(x => x.id === moveF.itemId) || {}; return moveF.uom === 'p' ? (it.purchaseUnit || 'الوحدة') : (it.unit || 'الوحدة'); })() + ' (تُحدّث المتوسط)'}><input className="inp n" inputMode="decimal" value={moveF.unitCost ?? ''} placeholder={money(avgOf(moveF.itemId))} onChange={e => setMoveF(f => ({ ...f, unitCost: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>}
-            <Field label="البيان (اختياري)"><input className="inp" value={moveF.note} placeholder="صرف للمطبخ · تالف بالتبريد…" onChange={e => setMoveF(f => ({ ...f, note: e.target.value }))} /></Field>
+            {moveF.kind !== 'waste' && <Field label="البيان (اختياري)"><input className="inp" value={moveF.note} placeholder="صرف للمطبخ · توريد يدوي…" onChange={e => setMoveF(f => ({ ...f, note: e.target.value }))} /></Field>}
           </div>
+          {moveF.kind === 'waste' && <WasteFields f={moveF} setF={setMoveF} cfg={wasteCfg(org)} me={me} say={say} value={Math.round((Number(moveF.qty) || 0) * (moveF.uom === 'p' ? pFactor(items.find(x => x.id === moveF.itemId)) : 1) * avgOf(moveF.itemId) * 100) / 100} />}
         </Modal>
       )}
 
