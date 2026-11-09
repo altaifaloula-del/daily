@@ -12,7 +12,9 @@
     "preview": "vite preview",
     "test:rules": "firebase emulators:exec --only firestore \"node --test tests/rules.test.mjs\"",
     "test:acct": "node --test tests/accounting.test.mjs",
-    "test:ui": "node --test tests/ui/ui.test.mjs"
+    "test:ui": "node --test tests/ui/ui.test.mjs",
+    "test:zatca": "node --test tests/zatca.test.mjs",
+    "zatca:sandbox": "node scripts/zatca-sandbox.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.6.0",
