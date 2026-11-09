@@ -1170,7 +1170,7 @@ td.num,th.num{display:table-cell}
   .acct-tile{flex:0 0 auto;flex-direction:row;min-height:44px;padding:8px 14px;border-radius:999px;font-size:13px;gap:7px;white-space:nowrap;scroll-snap-align:start}
   .acct-tile svg{width:16px;height:16px}
   .secnav-grid .row{margin-bottom:6px !important}
-  .verbadge{display:none}
+  .verbadge{font-size:9.5px !important;padding:2px 5px !important;border-radius:5px !important;letter-spacing:-.2px}
   /* v36.7: رأس التطبيق على الجوال — العنوان وشريط الأقسام فقط (الوصف الطويل وعنوان «أقسام …» المكرر يخفيان) */
   .hub-desc{display:none}
   .secnav-grid .acct-gtitle{display:none}
