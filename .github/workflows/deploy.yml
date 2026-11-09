@@ -39,10 +39,27 @@ jobs:
       - name: اختبارات المحرك المحاسبي (الميزان، الضريبة، المخزون، المخصصات، الفواتير)
         run: npm run test:acct
 
+  # ===== 1ب) اختبارات الواجهة: كل الشاشات على الجوال والحاسوب + تدفقات الرقابة (هدر، جرد أعمى، أرقام) =====
+  ui-tests:
+    name: اختبارات الواجهة (Chromium)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: تثبيت الحزم
+        run: npm ci
+      - name: تثبيت متصفح الاختبار
+        run: npx playwright install --with-deps chromium
+      - name: تشغيل اختبارات الواجهة
+        run: npm run test:ui
+
   # ===== 2) بناء الواجهة =====
   build:
     name: بناء الواجهة
-    needs: rules-tests
+    needs: [rules-tests, ui-tests]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

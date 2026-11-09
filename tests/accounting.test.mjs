@@ -278,3 +278,37 @@ test('ملخص الوردية: المبيعات والخصومات حسب الع
   near(s.promo['2+1'], 10); near(s.promo['فوق 50'], 5); near(s.mdisc, 2); near(s.loyAmt, 3); assert.equal(s.loyEarned, 9);
   assert.equal(s.voidN, 1); near(s.voidAmt, 30);
 });
+
+// ===== v38.2 — ضوابط المخزون وإدخال الأرقام =====
+test('التفقيط: صيغ عربية صحيحة للأعداد', () => {
+  const T = E.tafqeet;
+  assert.equal(T(1), 'واحد'); assert.equal(T(11), 'أحد عشر'); assert.equal(T(21), 'واحد وعشرون'); assert.equal(T(215), 'مائتان وخمسة عشر');
+  assert.equal(T(1000), 'ألف'); assert.equal(T(2000), 'ألفان'); assert.equal(T(3500), 'ثلاثة آلاف وخمسمائة'); assert.equal(T(15000), 'خمسة عشر ألفًا');
+  assert.equal(T(250750), 'مائتان وخمسون ألفًا وسبعمائة وخمسون'); assert.equal(T(2300000), 'مليونان وثلاثمائة ألف');
+});
+
+test('معامل الناتج: المصروف الخام = الصافي ÷ الناتج، وخارج 1–99 يُعامل 100%', () => {
+  assert.equal(E.partGross({ qty: 0.41, yield: 82 }), 0.5);
+  assert.equal(E.partGross({ qty: 0.3 }), 0.3);
+  assert.equal(E.partYield({ qty: 1, yield: 150 }), 100);
+  assert.equal(E.partYield({ qty: 1, yield: 0 }), 100);
+});
+
+test('الهدر: الحدود الافتراضية، وقيمة الهدر اليومي ونسبتها من مبيعات الإغلاق', () => {
+  assert.deepEqual(E.wasteCfg({}), { photoOver: 50, approveOver: 300, capPct: 2 });
+  assert.deepEqual(E.wasteCfg({ wasteCfg: { photoOver: 0, approveOver: '', capPct: 5 } }), { photoOver: 0, approveOver: 300, capPct: 5 });
+  const org = baseOrg({ items: [{ id: 'i1', name: 'لحم', unit: 'كجم' }], warehouses: [{ id: 'wh-b1', kind: 'branch', branchId: 'b1', active: true }] });
+  const ops = { whMoves: [{ id: 'w1', whId: 'wh-b1', branchId: 'b1', itemId: 'i1', kind: 'waste', qty: -3, wasteVal: 120, date: '2026-05-02' }, { id: 'w2', whId: 'wh-b1', branchId: 'b1', itemId: 'i1', kind: 'waste', qty: -1, wasteVal: 40, date: '2026-05-02' }],
+    closings: [{ id: 'c1', branchId: 'b1', date: '2026-05-02', status: 'approved', totalRevenue: 4000 }] };
+  const d = E.wasteDaily(org, ops, {}, '2026-05-01', '2026-05-31');
+  assert.deepEqual(d, [{ branchId: 'b1', date: '2026-05-02', waste: 160, sales: 4000, pct: 4 }]);
+});
+
+test('الهدر المعتمد: قيد 5502 مدين مقابل حساب مخزون المستودع (الجرد المستمر)', () => {
+  const org = baseOrg({ items: [{ id: 'i1', name: 'لحم', unit: 'كجم' }], purchaseCfg: { perpetualFrom: '2026-01' },
+    warehouses: [{ id: 'wh-b1', name: 'مستودع', kind: 'branch', branchId: 'b1', accCode: '160102', active: true }] });
+  const ops = { whMoves: [{ id: 'in1', whId: 'wh-b1', branchId: 'b1', itemId: 'i1', kind: 'in', qty: 50, unitCost: 40, date: '2026-05-01', at: '2026-05-01T08:00:00' },
+    { id: 'w1', whId: 'wh-b1', branchId: 'b1', itemId: 'i1', kind: 'waste', qty: -10, wasteVal: 400, reason: 'expired', approvedBy: 'سارة', date: '2026-05-02', at: '2026-05-02T09:00:00' }] };
+  const A = E.buildAccounting(org, ops); const t = tb(A);
+  assert.equal(A.balanced, true); near(t['5502'], 400, 'مصروف الهدر'); near(t['160102'], 1600, 'مخزون المستودع بعد الهدر');
+});
