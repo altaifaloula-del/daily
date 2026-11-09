@@ -3637,7 +3637,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark"><MizanMark size={24} /></span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : HR_TABS.includes(safeTab) ? 'الموارد البشرية' : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v37.5</span>
+            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v37.6</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -18769,6 +18769,10 @@ function expiryLots(org, ops) {
 // رمز حساب مخزون جديد للمستودع: 160101، 160102… (ثابت على المستودع — لا يتغير بترتيب الفروع)
 const nextWhAcc = (list) => { let n = 1; const used = new Set((list || []).map(w => String(w.accCode || ''))); while (used.has('1601' + String(n).padStart(2, '0'))) n++; return '1601' + String(n).padStart(2, '0'); };
 
+/* v37.6 — معامل الناتج (Yield) لكل مكوّن: الكمية في الوصفة صافية (بعد التنظيف/الطهي)،
+   والمستهلك من المخزون = الكمية ÷ الناتج. مثال: 0.25 كجم لحم مطبوخ بناتج 82% ⇒ 0.305 كجم نيء. */
+const partYield = (pt) => { const y = Number(pt && pt.yield); return y > 0 && y < 100 ? y : 100; };
+const partGross = (pt) => Math.round((Number(pt && pt.qty) || 0) / (partYield(pt) / 100) * 10000) / 10000;
 const MOVE_KINDS = {
   purchase: { ar: 'توريد شراء', sign: 1, c: 'b-mint' },
   in: { ar: 'توريد يدوي', sign: 1, c: 'b-mint' },
@@ -19699,7 +19703,7 @@ function usageReport(org, ops, wid, from, to) {
   const theo = {}; let revenue = 0;
   const tax = org.taxCfg || {}; const netOf = (p) => tax.enabled ? p / (1 + (Number(tax.rate) || 15) / 100) : p;
   Object.entries(pQty).forEach(([pid, q]) => { const pr = products.find(x => x.id === pid); if (!pr) return; revenue += q * netOf(Number(pr.sellPrice) || 0);
-    (pr.parts || []).forEach(pt => { theo[pt.itemId] = (theo[pt.itemId] || 0) + q * (Number(pt.qty) || 0); }); });
+    (pr.parts || []).forEach(pt => { theo[pt.itemId] = (theo[pt.itemId] || 0) + q * partGross(pt); }); });   // v37.6 بالناتج
   const mv = useWh ? (w && w.kind === 'branch' ? (ops.whMoves || []).filter(m => m.whId === wid) : (ops.stockMoves || []).filter(m => (m.whId || MAIN_WH) === wid)) : (ops.stockMoves || []);
   const act = {}; const add = (id, k, v) => { const a = act[id] || (act[id] = { out: 0, waste: 0, count: 0 }); a[k] += v; };
   mv.filter(m => inP(m.date)).forEach(m => { const q = Number(m.qty) || 0;
@@ -20039,7 +20043,7 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
       <div class="sign"><div>قام بالعدّ</div><div>أعاد العدّ</div><div>اعتماد (شخص آخر)</div></div>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
   };
 
-  const prodCost = (p) => sum(p.parts || [], pt => (Number(pt.qty) || 0) * ((items.find(x => x.id === pt.itemId) || {}).cost || 0));
+  const prodCost = (p) => sum(p.parts || [], pt => partGross(pt) * avgOf(pt.itemId));   // v37.6: الكمية الإجمالية (بالناتج) × المتوسط المرجّح
   // v12.4 — هندسة القائمة: كمية البيع الشهرية (يدخلها المستخدم) × هامش الوصفة
   const menuQtyOf = (p) => { const raw = menuQty[p.id]; return Number(String(raw != null ? raw : (p.salesQty || 0)).replace(/[^\d.]/g, '')) || 0; };
   const saveMenuQty = async () => {
@@ -20069,7 +20073,9 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
   const saveProd = async () => {
     const f = prodF;
     if (!f.name.trim()) return say('أدخل اسم المنتج', 'no');
-    const parts = (f.parts || []).filter(pt => pt.itemId && Number(pt.qty) > 0).map(pt => ({ itemId: pt.itemId, qty: Number(pt.qty) }));
+    const badY = (f.parts || []).find(pt => pt.itemId && pt.yield !== '' && pt.yield != null && !(Number(pt.yield) > 0 && Number(pt.yield) <= 100));
+    if (badY) return say('معامل الناتج بين 1 و100% — ' + ((items.find(x => x.id === badY.itemId) || {}).name || ''), 'no');
+    const parts = (f.parts || []).filter(pt => pt.itemId && Number(pt.qty) > 0).map(pt => ({ itemId: pt.itemId, qty: Number(pt.qty), ...(partYield(pt) < 100 ? { yield: Math.round(partYield(pt) * 10) / 10 } : {}) }));
     const dv = Number((f.disc || {}).v) || 0;
     if (dv > 0 && (f.disc || {}).t !== 'amt' && dv > 100) return say('نسبة خصم الصنف لا تتجاوز 100%', 'no');
     if (dv > 0 && (f.disc || {}).t === 'amt' && dv >= (Number(f.sellPrice) || 0)) return say('خصم الصنف يجب أن يكون أقل من سعر البيع', 'no');
@@ -20226,7 +20232,8 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
                   <tbody>
                     {(p.parts || []).map((pt, i) => {
                       const it = items.find(x => x.id === pt.itemId) || {};
-                      return <tr key={i}><td>{it.name || '؟'}</td><td className="num" style={{ textAlign: 'end' }}>{pt.qty} {it.unit || ''}</td><td className="num" style={{ textAlign: 'end' }}>{money(pt.qty * (it.cost || 0))}</td></tr>;
+                      const y = partYield(pt);
+                      return <tr key={i}><td>{it.name || '؟'}{y < 100 && <div style={{ fontSize: 10.5, color: 'var(--dim)' }}>ناتج {y}% · يُصرف <span className="num">{q3(partGross(pt))}</span> {it.unit || ''}</div>}</td><td className="num" style={{ textAlign: 'end' }}>{pt.qty} {it.unit || ''}</td><td className="num" style={{ textAlign: 'end' }}>{money(partGross(pt) * avgOf(pt.itemId))}</td></tr>;
                     })}
                     <tr style={{ fontWeight: 800 }}><td>تكلفة المنتج</td><td /><td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{money(cost)}</td></tr>
                   </tbody>
@@ -20421,6 +20428,7 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
             {Number((prodF.disc || {}).v) > 0 && <Field label="ينتهي الخصم في (اختياري)"><input type="date" className="inp" value={(prodF.disc || {}).to || ''} onChange={e => setProdF(f => ({ ...f, disc: { ...(f.disc || {}), to: e.target.value } }))} /></Field>}
           </div>
           <div className="lbl" style={{ margin: '4px 0 6px' }}>المكوّنات (من أصناف المخزون)</div>
+          <div className="note" style={{ marginBottom: 8 }}>اكتب الكمية <b>الصافية</b> في الطبق، ومعامل الناتج لكل مكوّن يفقد وزنًا (لحم 1 كجم ← 0.82 كجم مطبوخ = 82%). التكلفة والاستهلاك النظري يُحسبان على الكمية الخام. اتركه فارغًا = 100%.</div>
           {(prodF.parts || []).map((pt, i) => (
             <div key={i} className="row" style={{ gap: 8, marginBottom: 7, flexWrap: 'wrap' }}>
               <select className="sel" style={{ flex: 2, minWidth: 170 }} value={pt.itemId}
@@ -20428,8 +20436,11 @@ function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
                 <option value="">— اختر الصنف —</option>
                 {items.map(it => <option key={it.id} value={it.id}>{it.name} ({money(it.cost)}/{it.unit})</option>)}
               </select>
-              <input className="inp n" style={{ flex: 1, minWidth: 100 }} inputMode="decimal" placeholder="الكمية" value={pt.qty}
+              <input className="inp n" style={{ flex: 1, minWidth: 90 }} inputMode="decimal" placeholder="الكمية الصافية" value={pt.qty}
                 onChange={e => setProdF(f => ({ ...f, parts: f.parts.map((x, k) => k === i ? { ...x, qty: e.target.value.replace(/[^\d.]/g, '') } : x) }))} />
+              <div className="yld-in" title="معامل الناتج: نسبة الصافي من الخام بعد التنظيف/الطهي"><input className="inp n" inputMode="decimal" placeholder="100" value={pt.yield ?? ''}
+                onChange={e => setProdF(f => ({ ...f, parts: f.parts.map((x, k) => k === i ? { ...x, yield: e.target.value.replace(/[^\d.]/g, '') } : x) }))} /><span>% ناتج</span></div>
+              {pt.itemId && Number(pt.qty) > 0 && partYield(pt) < 100 && <span className="yld-g">يُصرف <b className="num">{q3(partGross(pt))}</b> {(items.find(x => x.id === pt.itemId) || {}).unit || ''} خام</span>}
               {prodF.parts.length > 1 && <button className="btn sm gh" onClick={() => setProdF(f => ({ ...f, parts: f.parts.filter((_, k) => k !== i) }))}><X size={13} /></button>}
             </div>
           ))}

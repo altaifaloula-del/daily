@@ -1369,4 +1369,10 @@ html,body{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 /* v37.5 — الجرد الأعمى */
 .tb tr.cnt-bad td{background:rgba(217,84,77,.07)}
 .tb tr.cnt-bad td:first-child{box-shadow:inset -3px 0 0 var(--rose)}
+
+/* v37.6 — معامل الناتج */
+.yld-in{display:inline-flex;align-items:center;gap:4px;flex:0 0 auto}
+.yld-in .inp{width:70px}
+.yld-in span{font-size:11.5px;color:var(--dim);white-space:nowrap}
+.yld-g{font-size:11.5px;color:var(--dim);align-self:center;white-space:nowrap}
 `;
