@@ -1365,4 +1365,8 @@ html,body{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .wst-bar{display:inline-block;width:60px;height:6px;border-radius:4px;background:rgba(127,127,127,.18);overflow:hidden;vertical-align:middle;margin-inline-end:6px}
 .wst-bar i{display:block;height:100%;background:var(--rose)}
 @media (max-width:640px){.wst-req .row{width:100%}.wst-req .row .btn{flex:1}.wst-bar{display:none}}
+
+/* v37.5 — الجرد الأعمى */
+.tb tr.cnt-bad td{background:rgba(217,84,77,.07)}
+.tb tr.cnt-bad td:first-child{box-shadow:inset -3px 0 0 var(--rose)}
 `;
