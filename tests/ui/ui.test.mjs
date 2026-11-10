@@ -357,5 +357,12 @@ test('رفع مبيعات نقاط البيع: ربط الفرع رغم «فرغ
   assert.match(await p.locator('#r').innerText(), /حُفظ الاستيراد: 2 يوم\/فرع/, 'تأكيد ظاهر بعد الحفظ');
   const pi = await p.evaluate(() => window.cur.posImports.filter(x => x.file === 'pos-invoices.csv').map(x => [x.date, x.n, x.total, x.cash, x.card]).sort());
   assert.deepEqual(pi, [['2026-03-01', 3, 350, 100, 250], ['2026-03-02', 2, 75, 75, 0]], 'اليوم الأول كامل مع فاتورة 00:30، والثالث جزئي لم يُحفظ');
+  // v39.5: مسودات إغلاق للأيام المستوردة بلا إغلاق، وظهورها في تحليل المبيعات
+  await p.click('button:has-text("إغلاق مسودة")'); await p.waitForTimeout(400);
+  const dr = await p.evaluate(() => window.cur.closings.filter(c => c.posImportId && c.status === 'draft').map(c => [c.date, c.totalRevenue, c.cashSales, c.cardSales]).sort());
+  assert.deepEqual(dr, [['2026-03-01', 350, 100, 250], ['2026-03-02', 75, 75, 0]]);
+  assert.equal(await p.locator('button:has-text("إغلاق مسودة")').count(), 0, 'لا يتكرر الإنشاء');
+  await p.click('button:has-text("تحليل المبيعات")'); await p.waitForTimeout(300);
+  assert.match(await p.locator('#r').innerText(), /2 يوم من استيراد نقاط البيع/);
   assert.deepEqual(errs, []); await ctx.close();
 });

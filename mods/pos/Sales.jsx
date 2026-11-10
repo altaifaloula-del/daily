@@ -1,22 +1,24 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState } from 'react';
 import { CircleDollarSign, FileBarChart, ChevronDown, Printer, ClipboardCheck, Coins, CreditCard, Truck, BarChart3, Store } from 'lucide-react';
-import { Kpi, countedClosing, money, printA4, sum } from '../../App.jsx';
+import { Kpi, money, printA4, salesDays, sum } from '../../App.jsx';
 
 export function Sales({ org, ops, me, myBranches, scoped, setTab, say }) {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [repOpen, setRepOpen] = useState(false);
   const inRange = (d) => (!from || d >= from) && (!to || d <= to);
-  const cls = (scoped.closings || []).filter(c => countedClosing(c) && inRange(c.date));
+  // v39.5: الإغلاقات المرحّلة + الأيام المستوردة من نقطة البيع بلا إغلاق (للتحليل فقط)
+  const cls = salesDays(scoped, { branchIds: myBranches.map(b => b.id) }).filter(c => inRange(c.date));
+  const nImp = cls.filter(c => c.fromImport).length;
   const delOf = (c) => sum(c.deliverySales || [], s => s.amount || 0);
-  const totOf = (c) => (c.cashSales || 0) + (c.cardSales || 0) + delOf(c);
-  const cash = sum(cls, c => c.cashSales || 0), card = sum(cls, c => c.cardSales || 0), del = sum(cls, delOf);
+  const totOf = (c) => (c.cashSales || 0) + (c.cardSales || 0) + (c.bankTransferSales || 0) + delOf(c);
+  const cash = sum(cls, c => c.cashSales || 0), card = sum(cls, c => (c.cardSales || 0) + (c.bankTransferSales || 0)), del = sum(cls, delOf);
   const total = cash + card + del;
   const pct = (x) => total > 0 ? Math.round(x / total * 1000) / 10 : 0;
   const byBranch = myBranches.map(b => {
     const cs = cls.filter(c => c.branchId === b.id);
-    return { id: b.id, name: b.name, n: cs.length, cash: sum(cs, c => c.cashSales || 0), card: sum(cs, c => c.cardSales || 0), del: sum(cs, delOf), total: sum(cs, totOf) };
+    return { id: b.id, name: b.name, n: cs.length, cash: sum(cs, c => c.cashSales || 0), card: sum(cs, c => (c.cardSales || 0) + (c.bankTransferSales || 0)), del: sum(cs, delOf), total: sum(cs, totOf) };
   }).filter(x => x.n > 0).sort((a, b) => b.total - a.total);
   const byApp = (org.deliveryApps || []).map(a => ({ n: a.n, total: sum(cls, c => sum((c.deliverySales || []).filter(s => s.appId === a.id), s => s.amount || 0)) })).filter(x => x.total > 0).sort((a, b) => b.total - a.total);
   const days = [...new Set(cls.map(c => c.date))].length;
@@ -38,7 +40,7 @@ export function Sales({ org, ops, me, myBranches, scoped, setTab, say }) {
   return (
     <div className="grid" style={{ gap: 14 }}>
       <div className="abar">
-        <div className="abar-id"><span className="abar-ic"><CircleDollarSign size={17} /></span>المبيعات<small>مصدرها: نقاط البيع — الإغلاق اليومي</small></div>
+        <div className="abar-id"><span className="abar-ic"><CircleDollarSign size={17} /></span>المبيعات<small>مصدرها: الإغلاق اليومي، والأيام المستوردة من نقطة البيع بلا إغلاق</small></div>
         <div className="abar-sp" />
         <div className="abar-dd">
           <button className="btn sm" onClick={() => setRepOpen(o => !o)}><FileBarChart size={14} />التقارير<ChevronDown size={13} /></button>
@@ -56,7 +58,7 @@ export function Sales({ org, ops, me, myBranches, scoped, setTab, say }) {
         <span style={{ fontSize: 11.5, color: 'var(--dim)' }}>من</span><input type="date" className="inp" style={{ width: 150 }} value={from} onChange={e => setFrom(e.target.value)} />
         <span style={{ fontSize: 11.5, color: 'var(--dim)' }}>إلى</span><input type="date" className="inp" style={{ width: 150 }} value={to} onChange={e => setTo(e.target.value)} />
         {(from || to) && <button className="btn sm gh" onClick={() => { setFrom(''); setTo(''); }}>كل الفترات</button>}
-        <span className="badge b-dim" style={{ marginInlineStart: 'auto' }}>{cls.length} إغلاقًا معتمَدًا/مرحّلًا</span>
+        <span className="badge b-dim" style={{ marginInlineStart: 'auto' }}>{cls.length - nImp} إغلاقًا معتمَدًا/مرحّلًا{nImp ? ' + ' + nImp + ' يوم من استيراد نقاط البيع' : ''}</span>
       </div></div>
 
       <div className="grid g4">

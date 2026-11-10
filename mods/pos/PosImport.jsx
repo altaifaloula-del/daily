@@ -2,8 +2,8 @@
    v33.1 الاستيراد · v39.4: «طريقة الدفع» بدقة، يوم العمل لفواتير ما بعد منتصف الليل، استبعاد الملغاة،
    الأيام الجزئية عند حدود التصدير، ومطابقة كل يوم/فرع مع الإغلاق بالإجمالي وكل طريقة دفع. */
 import React, { useMemo, useState } from 'react';
-import { Upload, Scale, Check, FileText, Download, Clock, ChevronDown } from 'lucide-react';
-import { APPS, Field, Kpi, PAY_GUESS, arDate, makeXlsx, money, nowISO, parseCsvGrid, parseXlsxGrid, periodLocked, piAggregate, piCutoff, piDetect, piNorm, posR2, posRecon, sha256Hex, uid } from '../../App.jsx';
+import { Upload, Scale, Check, FileText, Download, Clock, ChevronDown, Plus } from 'lucide-react';
+import { APPS, Field, Kpi, importDraftClosing, PAY_GUESS, arDate, makeXlsx, money, nowISO, parseCsvGrid, parseXlsxGrid, periodLocked, piAggregate, piCutoff, piDetect, piNorm, posR2, posRecon, sha256Hex, uid } from '../../App.jsx';
 
 const ST = { match: ['b-mint', 'مطابق'], mix: ['b-amber', 'الإجمالي مطابق وتوزيع الدفع مختلف'], diff: ['b-rose', 'فرق'], noclose: ['b-dim', 'لا إغلاق'] };
 const bare = (s) => piNorm(s).replace(/^(فرع|فرغ|فرح|branch)\s*/, '').trim();   // «فرغ النسيم» ← «النسيم»
@@ -67,6 +67,16 @@ export function PosImport({ org, ops, me, myBranches, commit, commitOrg, say }) 
   const payOpts = (<><option value="">— تجاهل —</option><option value="cash">نقدي</option><option value="card">شبكة / مدى</option><option value="transfer">تحويل</option>{apps.map(a => <option key={a.id} value={'app:' + a.id}>{a.n}</option>)}</>);
   const colSel = (k, lbl) => (<Field label={lbl} style={{ marginBottom: 0, minWidth: 130 }}><select className="sel" value={st.cfg.map[k] ?? -1} onChange={e => setSt(x => ({ ...x, cfg: { ...x.cfg, map: { ...x.cfg.map, [k]: Number(e.target.value) } } }))}>
     <option value={-1}>—</option>{(st.cfg.headers || []).map((h, i) => <option key={i} value={i}>{String(h || 'عمود ' + (i + 1)).slice(0, 24)}</option>)}</select></Field>);
+  // v39.5: أيام مستوردة كاملة بلا أي إغلاق (غير مرفوض) وخارج الأشهر المقفلة ← مسودات إغلاق
+  const noClose = (ops.posImports || []).filter(x => !x.partial && brs.some(b => b.id === x.branchId) && !periodLocked(org, x.date)
+    && !(ops.closings || []).some(c => c.branchId === x.branchId && c.date === x.date && c.status !== 'rejected'));
+  const makeDrafts = async () => {
+    const recs = noClose.map(x => importDraftClosing(org, x, me.name));
+    const ok = await commit(d => { const have = new Set((d.closings || []).filter(c => c.status !== 'rejected').map(c => c.branchId + '|' + c.date));
+      return { ...d, closings: [...recs.filter(r => !have.has(r.branchId + '|' + r.date)), ...(d.closings || [])] }; },
+      { actionType: 'create', targetType: 'closing', targetId: recs.map(r => r.id).slice(0, 5).join(','), title: 'أنشأ إغلاقات مسودة من استيراد نقاط البيع', details: recs.length + ' يوم · ' + money(recs.reduce((a, r) => a + r.totalRevenue, 0)) });
+    if (ok !== false) say('أُنشئ ' + recs.length + ' إغلاق مسودة ✓ — أكملها من «الإغلاق اليومي» (العدّ والمصروفات) ثم رحّلها');
+  };
   const recentRaw = (ops.posImports || []).filter(x => brs.some(b => b.id === x.branchId)).slice().sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, 40);
   const recent = posRecon(org, ops, recentRaw);
   const ReconRow = ({ x, k }) => (
@@ -145,6 +155,8 @@ export function PosImport({ org, ops, me, myBranches, commit, commitOrg, say }) 
       </div>}
       <div className="card">
         <div className="card-h"><div className="card-t"><FileText size={15} color="var(--brass)" />آخر الأيام المستوردة ومطابقتها</div>{recent.length > 0 && <button className="btn sm" onClick={() => exportRecon(recent)}><Download size={13} />Excel</button>}</div>
+        {noClose.length > 0 && <div className="pi-drafts"><span><b>{noClose.length} يوم مستورد بلا إغلاق</b> — يظهر في تحليل المبيعات والتوقع الآن، ويدخل الدفاتر بعد إغلاقه. أنشئ له إغلاقات مسودة معبأة بالمبيعات وطرق الدفع، يكملها الفرع (العدّ والمصروفات) ثم يرحّلها.</span>
+          <button className="btn sm pri" onClick={makeDrafts}><Plus size={13} />إنشاء {noClose.length} إغلاق مسودة</button></div>}
         {!recent.length ? <div className="empty">لا استيراد بعد.</div> : <div className="pr-list">{recent.map(x => <ReconRow key={x.id} x={x} k={'r|' + x.id} />)}</div>}
       </div>
     </div>);
