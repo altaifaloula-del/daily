@@ -1,7 +1,7 @@
 /* v38.6 — شاشة «الأنماط الشاذة» في مركز التحليل: ما خرج عن النمط المعتاد للفروع والموردين والكاشيرية
    المحرك في النواة (detectAnomalies) — إحصاء مقاوم للقيم المتطرفة، يعمل داخل المتصفح بلا تكلفة. */
 import React, { useMemo, useState } from 'react';
-import { Activity, TrendingDown, TrendingUp, Receipt, Trash2, Truck, CreditCard, Info } from 'lucide-react';
+import { Activity, TrendingDown, TrendingUp, Receipt, Trash2, Truck, CreditCard, Info, Scale } from 'lucide-react';
 import { Kpi, actionFromAnomaly, anomKey, detectAnomalies, money } from '../../App.jsx';
 import { ListChecks } from 'lucide-react';
 
@@ -10,7 +10,8 @@ const AREA = {
   expense: { ar: 'المصروفات', icon: Receipt, c: '#E0A458' },
   waste: { ar: 'الهدر', icon: Trash2, c: '#C8A24A' },
   price: { ar: 'أسعار الموردين', icon: Truck, c: '#5B93C4' },
-  pos: { ar: 'نقطة البيع', icon: CreditCard, c: '#9A7CC4' }
+  pos: { ar: 'نقطة البيع', icon: CreditCard, c: '#9A7CC4' },
+  usage: { ar: 'الاستهلاك مقابل النظري', icon: Scale, c: '#C8A24A' }   // v39.3
 };
 
 // منحنى صغير: الأسابيع السابقة رمادية والقيمة الحالية ملوّنة، وخط الوسيط المعتاد متقطع
@@ -46,7 +47,7 @@ export function Anomalies({ org, ops, me, myBranches, commit, say }) {
       <div className="grid g4">
         <Kpi label="أنماط شاذة" value={String(list.length)} sub={list.filter(a => a.sev === 'high').length + ' حادة'} icon={Activity} color={list.length ? '#D9544D' : '#4FB286'} />
         <Kpi label="المبيعات" value={String(by('sales'))} sub="مقابل اليوم نفسه من الأسبوع" icon={TrendingDown} color="#D9544D" />
-        <Kpi label="المصروفات والهدر" value={String(by('expense') + by('waste'))} sub="مقابل الأسابيع الثمانية السابقة" icon={Receipt} color="#E0A458" />
+        <Kpi label="المصروفات والهدر والاستهلاك" value={String(by('expense') + by('waste') + by('usage'))} sub="مقابل المعتاد والوصفات" icon={Receipt} color="#E0A458" />
         <Kpi label="الموردون والكاشيرية" value={String(by('price') + by('pos'))} sub="أسعار، إلغاءات، خصومات يدوية" icon={Truck} color="#5B93C4" />
       </div>
       <div className="card">
@@ -75,6 +76,6 @@ export function Anomalies({ org, ops, me, myBranches, commit, say }) {
       <div className="note"><Info size={13} style={{ verticalAlign: -2 }} /> <b>كيف يُحسب؟</b> كل رقم يُقارن بنمطه المعتاد بالوسيط (لا المتوسط) فلا يشوّه يوم استثنائي واحد الحكم:
         المبيعات بكل يوم من آخر 7 أيام مقابل اليوم نفسه من الأسبوع في الأسابيع الثمانية السابقة (يلزم 4 أسابيع على الأقل) — هبوط 30% فأكثر أو ارتفاع 60% فأكثر وخارج التذبذب المعتاد؛
         المصروفات (لكل تصنيف) والهدر بمجموع الأسبوع مقابل وسيط الأسابيع الثمانية — ضعفه فأكثر؛ أسعار الموردين بآخر شراء مقابل وسيط ما قبله — 10% فأكثر أو ثلاث زيادات متتالية؛
-        الكاشيرية بنسبة الإلغاء والخصم اليدوي مقابل الزملاء في 14 يومًا. الأنماط الحادة تصل أيضًا في التنبيهات والإشعارات. هذه مؤشرات للمراجعة لا أحكام.</div>
+        الكاشيرية بنسبة الإلغاء والخصم اليدوي مقابل الزملاء في 14 يومًا. والاستهلاك لكل مستودع في 14 يومًا: ما خرج فعلًا (صرف للمطبخ + هدر) مقابل ما تقتضيه الوصفات للمبيعات — يُنبَّه حين تزيد الأصناف 10% فأكثر وبقيمة 150 ريالًا فأكثر (فاقد غير مسجّل أو وصفة غير دقيقة). الأنماط الحادة تصل أيضًا في التنبيهات والإشعارات. هذه مؤشرات للمراجعة لا أحكام.</div>
     </div>);
 }
