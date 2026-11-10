@@ -58,6 +58,7 @@ const GrowthAnalytics = lazyComp(() => import('./mods/acct/GrowthAnalytics.jsx')
 const EntitiesCenter = lazyComp(() => import('./mods/acct/EntitiesCenter.jsx'), 'EntitiesCenter');
 const ReportBuilder = lazyComp(() => import('./mods/acct/ReportBuilder.jsx'), 'ReportBuilder');
 const ExecDashboard = lazyComp(() => import('./mods/acct/ExecDashboard.jsx'), 'ExecDashboard');
+const SalesForecast = lazyComp(() => import('./mods/acct/SalesForecast.jsx'), 'SalesForecast');   // v38.8
 const ActionsBoard = lazyComp(() => import('./mods/acct/ActionsBoard.jsx'), 'ActionsBoard');   // v38.7
 const Anomalies = lazyComp(() => import('./mods/acct/Anomalies.jsx'), 'Anomalies');   // v38.6
 const AlertsCenter = lazyComp(() => import('./mods/acct/AlertsCenter.jsx'), 'AlertsCenter');
@@ -2779,7 +2780,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v38.7';
+const APP_VER = 'v38.8';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3772,7 +3773,7 @@ function PlatformApp() {
   const shared = { org, ops, pulse, me, myBranches, scoped, commit, commitOrg, say, setTab, theme, acctIntent, openAcctView, invIntent, openInvView };
 
   // حماية: منع الوصول لتبويب غير مسموح لدور المستخدم (بلا hook — بعد returns الشرطية)
-  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'closing') ? ['myactions'] : []), ...(NAV.some(n => n.id === 'closing') && (ROLES[me.role]?.approver || ROLES[me.role]?.admin || ROLES[me.role]?.scope === 'all') ? ['cashiers'] : []), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'anomaly', 'actions'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : []), ...(NAV.some(n => n.id === 'people') ? ['payroll', 'workforce', 'muster', 'overtime'] : []), ...(NAV.some(n => n.id === 'purchasing') ? ['suppliers', 'reorder'] : []), ...(NAV.some(n => n.id === 'hrops') ? ['attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'esign'] : []), ...(NAV.some(n => n.id === 'hrperf') ? ['kpi', 'empfile', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'] : [])];
+  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'closing') ? ['myactions', 'myforecast'] : []), ...(NAV.some(n => n.id === 'closing') && (ROLES[me.role]?.approver || ROLES[me.role]?.admin || ROLES[me.role]?.scope === 'all') ? ['cashiers'] : []), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'anomaly', 'actions', 'forecast'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : []), ...(NAV.some(n => n.id === 'people') ? ['payroll', 'workforce', 'muster', 'overtime'] : []), ...(NAV.some(n => n.id === 'purchasing') ? ['suppliers', 'reorder'] : []), ...(NAV.some(n => n.id === 'hrops') ? ['attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'esign'] : []), ...(NAV.some(n => n.id === 'hrperf') ? ['kpi', 'empfile', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'] : [])];
   const safeTab = allowedTabs.includes(tab) ? tab : (allowedTabs[0] || 'closing');
 
   return (
@@ -4020,11 +4021,11 @@ function PlatformApp() {
           <div className="page">
             <div className="page-inner"><ErrorBoundary key={safeTab} where={(NAV.find(n => n.id === safeTab) || {}).ar || 'هذا القسم'}>
               {safeTab === 'home' && <Launcher {...shared} online={online} />}
-              {['analytics', 'exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'alerts', 'anomaly', 'actions'].includes(safeTab) && <Hub hubId="analytics" {...shared} online={online} view={safeTab} />}
+              {['analytics', 'exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'alerts', 'anomaly', 'actions', 'forecast'].includes(safeTab) && <Hub hubId="analytics" {...shared} online={online} view={safeTab} />}
               {['reporting', 'reports', 'rbuild', 'boardpack', 'cashflow'].includes(safeTab) && <Hub hubId="reporting" {...shared} view={safeTab} />}
               {safeTab === 'sales' && <SalesHub {...shared} />}
               {safeTab === 'pos' && <PosApp {...shared} />}
-              {['closing', 'approve', 'shifts', 'cashiers', 'myactions'].includes(safeTab) && <Hub hubId="closehub" {...shared} view={safeTab} />}
+              {['closing', 'approve', 'shifts', 'cashiers', 'myactions', 'myforecast'].includes(safeTab) && <Hub hubId="closehub" {...shared} view={safeTab} />}
               {HR_TABS.includes(safeTab) && <Hub hubId="hr" {...shared} view={safeTab} />}
               {safeTab === 'qrfb' && <QrFeedback {...shared} />}
               {safeTab === 'apps' && <AppsCenter {...shared} />}
@@ -4985,6 +4986,58 @@ function actionFromAnomaly(org, ops, me, a, extra = {}, td) {
   return newAction(me, { src: 'anomaly', srcKey: anomKey(a), title: a.title, detail: a.msg, branchId: a.branchId || '', area: a.area,
     metric: m && before != null ? { ...m, before } : null, due: anDay(td || today(), 7), ...extra });
 }
+/* ===== v38.8 — توقع المبيعات لكل فرع حسب يوم الأسبوع =====
+   المستوى: لكل يوم من الأسبوع متوسط مرجّح لآخر 8 أسابيع (الأحدث أثقل: 8،7،…،1) بعد استبعاد الشاذ (|z| > 3 بالوسيط وMAD).
+   الاتجاه: وسيط آخر 4 أسابيع ÷ وسيط الأربعة قبلها، مخفّف للنصف ومحصور بين −15% و+15%.
+   المدى: ±1.28 × الانحراف المقاوم لبواقي اليوم (≈ 80% من الأيام تقع داخله).
+   الدقة: اختبار رجعي — توقع كل يوم من آخر 28 يومًا بالبيانات السابقة له فقط، ثم متوسط الخطأ النسبي المطلق (MAPE). */
+const FC_DOW = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+const fcDow = (iso) => new Date(iso + 'T12:00:00').getDay();
+/** المبيعات اليومية لكل فرع من الإغلاقات المرحّلة: { [branchId]: { [date]: revenue } } */
+function dailySales(ops, branchIds) {
+  const S = {}; const ok = branchIds ? new Set(branchIds) : null;
+  (ops.closings || []).forEach(c => { if (!countedClosing(c) || (ok && !ok.has(c.branchId))) return; const b = S[c.branchId] = S[c.branchId] || {}; b[c.date] = (b[c.date] || 0) + (Number(c.totalRevenue) || 0); });
+  return S;
+}
+/** توقع يوم واحد من سلسلة فرع، باستخدام البيانات قبل التاريخ asOf فقط */
+function fcDay(series, date, asOf) {
+  const dow = fcDow(date); const vals = [];
+  for (let w = 1; w <= 12 && vals.length < 8; w++) { const d = anDay(date, -7 * w); if (d >= asOf) continue; const v = series[d]; if (v != null && v > 0) vals.push(v); }
+  if (vals.length < 3) return null;
+  const m = anMed(vals), mad = anMad(vals, m), sc = Math.max(1.4826 * mad, m * 0.05);
+  const clean = vals.filter(v => Math.abs(v - m) / sc <= 3);
+  const ws = clean.map((_, i) => clean.length - i);   // الأحدث أولًا ← وزن أكبر
+  const level = clean.reduce((s, v, i) => s + v * ws[i], 0) / ws.reduce((s, x) => s + x, 0);
+  // الاتجاه: آخر 28 يومًا قبل asOf مقابل الـ28 قبلها (أيام مشتركة البيانات فقط)
+  // بالوسيط لا بالمجموع — يوم شاذ واحد لا يصنع اتجاهًا
+  const A = [], Bv = [];
+  for (let k = 1; k <= 28; k++) { const x = series[anDay(asOf, -k)], y = series[anDay(asOf, -k - 28)]; if (x != null) A.push(x); if (y != null) Bv.push(y); }
+  const ma = anMed(A), mb = anMed(Bv);
+  const tr = (A.length >= 14 && Bv.length >= 14 && mb > 0) ? Math.min(1.15, Math.max(0.85, 1 + (ma / mb - 1) / 2)) : 1;
+  const resid = clean.map(v => v - m); const spread = 1.4826 * anMad(resid, 0) || m * 0.1;
+  const f = level * tr;
+  return { f: anR(f), lo: anR(Math.max(0, f - 1.28 * spread)), hi: anR(f + 1.28 * spread), n: clean.length, trend: Math.round((tr - 1) * 1000) / 10, dow };
+}
+/**
+ * توقع المبيعات: { branches: [{ id, name, days: [{date, dow, f, lo, hi}], total, mape, tested, history }], total }
+ * opts: { today, days (افتراضي 14), branchIds }
+ */
+function forecastSales(org, ops, opts = {}) {
+  const td = opts.today || today(), H = opts.days || 14;
+  const brs = (org.branches || []).filter(b => b.isActive !== false && (!opts.branchIds || opts.branchIds.includes(b.id)));
+  const S = dailySales(ops, brs.map(b => b.id));
+  const out = brs.map(b => {
+    const s = S[b.id] || {}; const start = anDay(td, 1);
+    const days = []; for (let k = 0; k < H; k++) { const d = anDay(start, k); const r = fcDay(s, d, start); if (r) days.push({ date: d, ...r, dowAr: FC_DOW[r.dow] }); }
+    // اختبار رجعي لآخر 28 يومًا
+    let err = 0, n = 0; const past = [];
+    for (let k = 28; k >= 1; k--) { const d = anDay(td, -k + 1); const act = s[d]; if (act == null || !(act > 0)) continue; const r = fcDay(s, d, d); if (!r) continue;
+      err += Math.abs(act - r.f) / act; n++; past.push({ date: d, actual: anR(act), f: r.f, lo: r.lo, hi: r.hi }); }
+    const histDays = Object.keys(s).length;
+    return { id: b.id, name: b.name, days, total: anR(sum(days, x => x.f)), mape: n >= 7 ? Math.round(err / n * 1000) / 10 : null, tested: n, past, history: histDays };
+  });
+  return { branches: out, total: anR(sum(out, b => b.total)), from: anDay(td, 1), to: anDay(td, H) };
+}
 function computeSmartAlerts(org, ops, myBranches, deficitThreshold = deficitCfg(org).max) {
   const alerts = [];
   const ids = myBranches.map(b => b.id);
@@ -5438,7 +5491,8 @@ const HUBS = {
       { id: 'ai', ar: 'المركز الذكي', icon: Sparkles, comp: AiCenter },
       { id: 'alerts', ar: 'التنبيهات', icon: Bell, comp: AlertsCenter },
       { id: 'anomaly', ar: 'الأنماط الشاذة', icon: TrendingDown, comp: Anomalies, like: 'alerts' },   // v38.6
-      { id: 'actions', ar: 'الإجراءات والتوصيات', icon: CheckCircle2, comp: ActionsBoard, like: 'alerts' }   // v38.7
+      { id: 'actions', ar: 'الإجراءات والتوصيات', icon: CheckCircle2, comp: ActionsBoard, like: 'alerts' },   // v38.7
+      { id: 'forecast', ar: 'توقع المبيعات', icon: TrendingUp, comp: SalesForecast, like: 'alerts' }   // v38.8
     ]
   },
   reporting: {
@@ -5485,7 +5539,8 @@ const HUBS = {
       { id: 'approve', ar: 'التدقيق والاعتماد', icon: ShieldCheck, comp: Approvals },
       { id: 'shifts', ar: 'المواعيد والتذكيرات', icon: Clock, comp: Shifts },
       { id: 'cashiers', ar: 'سجل الكاشير', icon: Users, comp: CashierBook },
-      { id: 'myactions', ar: 'إجراءات الفرع', icon: CheckCircle2, comp: ActionsBoard, like: 'closing' }   // v38.7
+      { id: 'myactions', ar: 'إجراءات الفرع', icon: CheckCircle2, comp: ActionsBoard, like: 'closing' },   // v38.7
+      { id: 'myforecast', ar: 'توقع مبيعات الفرع', icon: TrendingUp, comp: SalesForecast, like: 'closing' }   // v38.8
     ]
   },
   finhub: {
@@ -9122,3 +9177,5 @@ export { APP_VER, ERRLOG_KEY };
 export { detectAnomalies };
 // v38.7 — سجل الإجراءات
 export { ACT_ST, ACT_SRC, ACT_KIND, anomKey, actionMetric, anomMetric, actionEffect, newAction, actionFromAnomaly };
+// v38.8 — توقع المبيعات
+export { forecastSales, FC_DOW };

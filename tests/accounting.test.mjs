@@ -407,3 +407,24 @@ test('الإجراءات: مقياس المبيعات أعلى أفضل، ونس
   const up = E.actionEffect(anOrg(), ops, { status: 'done', doneAt: '2026-11-01', metric: { kind: 'sales_day', key: 'b1', normal: 5300, before: 2100 } }, TD);
   assert.equal(up.better, true, 'من 2100 إلى 5000 نحو المعتاد 5300');
 });
+
+// ===== v38.8 — توقع المبيعات =====
+test('التوقع: نمط أسبوعي ثابت ← توقع كل يوم من الأسبوع بدقة، والمدى يحيط بالقيمة', () => {
+  const pat = [6000, 4200, 4400, 4600, 7000, 9000, 6500];   // الأحد..السبت
+  const dw = (iso) => new Date(iso + 'T12:00:00').getDay();
+  const cl = Array.from({ length: 63 }, (_, k) => { const d = dAgo(k); return { id: 'c' + k, branchId: 'b1', date: d, status: 'approved', totalRevenue: pat[dw(d)] * (1 + (((k * 37) % 11) - 5) / 200) }; });
+  const F = E.forecastSales(anOrg(), { closings: cl }, { today: TD, days: 7 });
+  const b = F.branches.find(x => x.id === 'b1');
+  assert.equal(b.days.length, 7);
+  b.days.forEach(x => { const exp = pat[dw(x.date)]; assert.ok(Math.abs(x.f - exp) / exp < 0.04, x.date + ' ' + x.f + ' vs ' + exp); assert.ok(x.lo <= x.f && x.f <= x.hi); });
+  assert.ok(b.mape != null && b.mape < 4, 'دقة الاختبار الرجعي ' + b.mape);
+  assert.equal(F.branches.find(x => x.id === 'b2').days.length, 0, 'فرع بلا تاريخ ← لا توقع');
+});
+test('التوقع: يوم شاذ في التاريخ لا يشوّه التوقع، والاتجاه الصاعد يرفعه بأثر مخفّف', () => {
+  const cl = Array.from({ length: 63 }, (_, k) => ({ id: 'c' + k, branchId: 'b1', date: dAgo(k), status: 'approved', totalRevenue: k === 7 ? 50000 : 5000 }));
+  const F = E.forecastSales(anOrg(), { closings: cl }, { today: TD, days: 7 });
+  F.branches[0].days.forEach(x => assert.ok(Math.abs(x.f - 5000) < 1, 'الشاذ (50,000) مستبعد: ' + x.f));
+  const up = Array.from({ length: 63 }, (_, k) => ({ id: 'u' + k, branchId: 'b1', date: dAgo(k), status: 'approved', totalRevenue: k < 28 ? 6000 : 5000 }));
+  const G = E.forecastSales(anOrg(), { closings: up }, { today: TD, days: 7 }).branches[0];
+  assert.ok(G.days[0].trend > 0 && G.days[0].trend <= 15, 'اتجاه صاعد محصور: ' + G.days[0].trend);
+});

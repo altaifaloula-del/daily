@@ -13,7 +13,9 @@ export const ENGINE_EXPORTS = ['buildAccounting', 'buildPartners', 'stockByWh', 
   // v38.6 — الأنماط الشاذة
   'detectAnomalies',
   // v38.7 — سجل الإجراءات
-  'actionMetric', 'actionEffect', 'actionFromAnomaly', 'anomKey'];
+  'actionMetric', 'actionEffect', 'actionFromAnomaly', 'anomKey',
+  // v38.8 — توقع المبيعات
+  'forecastSales'];
 
 export async function buildEngine() {
   fs.mkdirSync(cache, { recursive: true });
