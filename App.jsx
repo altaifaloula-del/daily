@@ -2793,7 +2793,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v39.3';
+const APP_VER = 'v39.4';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -5582,7 +5582,8 @@ const PI_KW = {
   date: ['تاريخ', 'التاريخ', 'date', 'يوم', 'business date'], branch: ['فرع', 'الفرع', 'branch', 'store', 'location', 'المتجر'],
   count: ['عدد', 'count', 'orders', 'الطلبات', 'transactions'],
   no: ['رقم الفاتورة', 'فاتورة', 'invoice', 'receipt', 'order', 'رقم الطلب', 'reference'], total: ['الإجمالي', 'اجمالي', 'إجمالي', 'المجموع', 'total', 'net sales', 'المبلغ', 'amount', 'grand'],
-  vat: ['ضريبة', 'الضريبة', 'vat', 'tax'], pay: ['طريقة الدفع', 'الدفع', 'payment', 'pay method', 'tender', 'نوع الدفع']
+  vat: ['ضريبة', 'الضريبة', 'vat', 'tax'], pay: ['طريقة الدفع', 'نوع الدفع', 'وسيلة الدفع', 'payment method', 'pay method', 'tender', 'الدفع', 'payment'],
+  status: ['حالة الدفع', 'حالة الفاتورة', 'الحالة', 'status']   // v39.4
 };
 // أسماء التطبيقات بالإنجليزية كما تظهر في تقارير أنظمة نقاط البيع
 const PI_APP_EN = { jahez: 'جاهز', hunger: 'هنقرستيشن', hungerstation: 'هنقرستيشن', mrsool: 'مرسول', toyou: 'تويو', keeta: 'كيتا', chefz: 'ذا شيفز', thechefz: 'ذا شيفز', ninja: 'نينجا', careem: 'كريم', noon: 'نون' };
@@ -5594,21 +5595,31 @@ const PAY_GUESS = (v, apps) => { const t = piNorm(v); if (!t) return '';
 function piDetect(grid) {
   for (let r = 0; r < Math.min(grid.length, 15); r++) {
     const row = (grid[r] || []).map(piNorm); const m = {};
-    Object.entries(PI_KW).forEach(([k, kw]) => { const i = row.findIndex((c, ci) => c && kw.some(w => c.includes(piNorm(w))) && !Object.values(m).includes(ci)); if (i >= 0) m[k] = i; });
+    // v39.4: الكلمة الأدق أولًا — «طريقة الدفع» قبل «الدفع» فلا يُلتقط عمود «حالة الدفع» بدل طريقة الدفع
+    Object.entries(PI_KW).forEach(([k, kw]) => { for (const w of kw) { const nw = piNorm(w); let i = row.findIndex((c, ci) => c === nw && !Object.values(m).includes(ci));
+      if (i < 0) i = row.findIndex((c, ci) => c && c.includes(nw) && !Object.values(m).includes(ci)); if (i >= 0) { m[k] = i; break; } } });
     if (m.date != null && (m.total != null || m.pay != null)) {
       // شكل الملخص: أعمدة رقمية بعناوين طرق دفع
       const payCols = row.map((c, ci) => ({ ci, c })).filter(x => x.c && !Object.values(m).includes(x.ci) && /نقد|كاش|cash|مدي|شبكه|card|visa|mada|تحويل|transfer|جاهز|هنقر|مرسول|تويو|كيتا|شيفز|نينجا|كريم|نون|jahez|hunger|mrsool|toyou|keeta|chefz|ninja|careem|noon/.test(x.c));
-      return { start: r + 1, map: { date: m.date, branch: m.branch ?? -1, no: m.no ?? -1, total: m.total ?? -1, vat: m.vat ?? -1, pay: m.pay ?? -1, count: m.count ?? -1 }, layout: (m.pay == null && payCols.length >= 2) ? 'summary' : 'invoice', payCols: payCols.map(x => x.ci), headers: grid[r] };
+      return { start: r + 1, map: { date: m.date, branch: m.branch ?? -1, no: m.no ?? -1, total: m.total ?? -1, vat: m.vat ?? -1, pay: m.pay ?? -1, count: m.count ?? -1, status: m.status ?? -1 }, layout: (m.pay == null && payCols.length >= 2) ? 'summary' : 'invoice', payCols: payCols.map(x => x.ci), headers: grid[r] };
     }
   }
   return null;
 }
 // تجميع الملف إلى ملخص يومي لكل فرع: { 'branchId|date': {n,total,vat,cash,card,transfer,apps:{id:{amount,n}}, nos:Set} }
 function piAggregate(grid, cfg) {
-  const out = {}; const issues = { noBranch: 0, noPay: 0, badDate: 0, dup: 0 }; const seen = new Set();
+  const out = {}; const issues = { noBranch: 0, noPay: 0, badDate: 0, dup: 0, voided: 0, voidAmt: 0, shifted: 0, other: {} }; const seen = new Set();
+  const cut = Number(cfg.cutoff) || 0, stCol = cfg.map.status != null ? cfg.map.status : -1; const rng = { min: '', max: '' };
   for (let r = cfg.start; r < grid.length; r++) {
     const g = grid[r] || []; if (!g.some(x => String(x || '').trim())) continue;
-    const d = stDate(g[cfg.map.date]); if (!d) { issues.badDate++; continue; }
+    let d = stDate(g[cfg.map.date]); if (!d) { issues.badDate++; continue; }
+    // v39.4: حالة الفاتورة — الملغاة والمرتجعة لا تُحتسب مبيعًا، وغير «مدفوع» تُعدّ للتنبيه
+    if (stCol >= 0) { const sv = String(g[stCol] || '').trim(); const ns = piNorm(sv);
+      if (/ملغ|مرتجع|مسترد|استرجاع|void|cancel|refund|return/.test(ns)) { issues.voided++; issues.voidAmt = posR2(issues.voidAmt + stNum(g[cfg.map.total])); continue; }
+      if (sv && !/^مدفوع|^paid|^مسدد|^complete/.test(ns)) issues.other[sv] = (issues.other[sv] || 0) + 1; }
+    // v39.4: يوم العمل — فواتير ما بعد منتصف الليل قبل ساعة البداية تخص وردية اليوم السابق
+    if (cut > 0) { const h = piHour(g[cfg.map.date]); if (h != null && h < cut) { d = anDay(d, -1); issues.shifted++; } }
+    { const t = piDT(g[cfg.map.date]); if (t) { if (!rng.min || t < rng.min) rng.min = t; if (!rng.max || t > rng.max) rng.max = t; } }
     const bName = cfg.map.branch >= 0 ? String(g[cfg.map.branch] || '').trim() : '';
     const bId = cfg.map.branch >= 0 ? (cfg.brMap[bName] || '') : cfg.branchId; if (!bId) { issues.noBranch++; continue; }
     const k = bId + '|' + d; const x = out[k] || (out[k] = { branchId: bId, date: d, n: 0, total: 0, vat: 0, cash: 0, card: 0, transfer: 0, apps: {}, nos: [] });
@@ -5623,8 +5634,45 @@ function piAggregate(grid, cfg) {
       addPay(dest, amt, 1); x.total += amt; x.vat += cfg.map.vat >= 0 ? stNum(g[cfg.map.vat]) : 0; x.n += 1;
     }
   }
-  Object.values(out).forEach(x => { ['total', 'vat', 'cash', 'card', 'transfer'].forEach(k => { x[k] = posR2(x[k]); }); Object.values(x.apps).forEach(a => { a.amount = posR2(a.amount); }); });
-  return { days: Object.values(out).sort((a, b) => (a.date + a.branchId).localeCompare(b.date + b.branchId)), issues };
+  Object.values(out).forEach(x => { ['total', 'vat', 'cash', 'card', 'transfer'].forEach(k => { x[k] = posR2(x[k]); }); Object.values(x.apps).forEach(a => { a.amount = posR2(a.amount); });
+    // v39.4: يوم عمل لا تغطيه فترة التصدير كاملة (أول/آخر يوم في الملف) = جزئي — لا يُحفظ يومًا كاملًا ولا يُعدّ فرقًا
+    //   البداية: يوم لم يصله من الملف إلا فواتير ما بعد منتصف الليل (التصدير بدأ من منتصف ليلة لاحقة)
+    //   النهاية: يوم العمل الأخير إن كانت له وردية ليلية تمتد بعد منتصف الليل لم يشملها الملف، أو كان اليوم الجاري
+    if (rng.min) { const firstCal = rng.min.slice(0, 10), lastCal = rng.max.slice(0, 10), lastH = Number(rng.max.slice(11, 13));
+      const lastBiz = cut > 0 && lastH < cut ? anDay(lastCal, -1) : lastCal;
+      if (x.date < firstCal) x.partial = 'start';
+      else if (x.date === lastBiz && (cut > 0 || lastCal >= today())) x.partial = 'end'; } });
+  return { days: Object.values(out).sort((a, b) => (a.date + a.branchId).localeCompare(b.date + b.branchId)), issues, range: rng };
+}
+/* v39.4 — ساعة الفاتورة من خلية التاريخ (نص «YYYY-MM-DD HH:MM» أو تاريخ إكسل بكسر) */
+function piHour(v) { if (v == null) return null; const s = String(v).trim(); const m = s.match(/[ T](\d{1,2}):(\d{2})/); if (m) return Number(m[1]);
+  const n = parseFloat(s); if (isFinite(n) && n > 25569 && n < 80000 && n % 1) return Math.floor((n % 1) * 24 + 1e-6); return null; }
+function piDT(v) { if (v == null) return null; const s = String(v).trim(); const m = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})[ T](\d{1,2}):(\d{2})/);
+  if (m) return m[1] + '-' + m[2].padStart(2, '0') + '-' + m[3].padStart(2, '0') + ' ' + m[4].padStart(2, '0') + ':' + m[5];
+  const n = parseFloat(s); if (isFinite(n) && n > 25569 && n < 80000) return new Date(Math.round((n - 25569) * 86400000)).toISOString().slice(0, 16).replace('T', ' '); return null; }
+/* ساعة بداية يوم العمل مستنتجة من الملف: إن وُجدت فواتير بعد منتصف الليل ثم فجوة بلا فواتير، فبداية اليوم أول ساعة بعد الفجوة */
+function piCutoff(grid, cfg) {
+  const H = Array(24).fill(0); for (let r = cfg.start; r < grid.length; r++) { const h = piHour((grid[r] || [])[cfg.map.date]); if (h != null) H[h]++; }
+  if (!H.some(x => x)) return { cutoff: 0, hours: H, why: 'لا أوقات في عمود التاريخ' };
+  if (!H[0] && !H[1] && !H[2]) return { cutoff: 0, hours: H, why: 'لا فواتير بعد منتصف الليل — اليوم التقويمي' };
+  let z = -1; for (let h = 1; h <= 8; h++) if (!H[h]) { z = h; break; }
+  if (z < 0) return { cutoff: 0, hours: H, why: 'لا فجوة واضحة بعد منتصف الليل — حدّد ساعة بداية اليوم يدويًا', unsure: true };
+  let c = z; while (c < 12 && !H[c]) c++;
+  return { cutoff: c, hours: H, why: 'فواتير بعد منتصف الليل حتى ' + String(z).padStart(2, '0') + ':00 ثم تبدأ وردية الصباح ' + String(c).padStart(2, '0') + ':00' };
+}
+/* v39.4 — مطابقة أيام الاستيراد مع الإغلاق اليومي لكل فرع: الإجمالي وكل طريقة دفع */
+function posRecon(org, ops, days) {
+  const r2 = posR2;
+  return (days || []).map(x => {
+    const c = (ops.closings || []).find(c2 => c2.branchId === x.branchId && c2.date === x.date && c2.status !== 'rejected');
+    const appsI = r2(Object.values(x.apps || {}).reduce((a, y) => a + (y.amount || 0), 0));
+    if (!c) return { ...x, appsI, st: 'noclose' };
+    const cl = { cash: r2(c.cashSales || 0), card: r2(c.cardSales || 0), transfer: r2(c.bankTransferSales || 0), apps: r2((c.deliverySales || []).reduce((a, d) => a + (Number(d.amount) || 0), 0)) };
+    const clT = r2(cl.cash + cl.card + cl.transfer + cl.apps);
+    const d = { total: r2(clT - x.total), cash: r2(cl.cash - x.cash), card: r2(cl.card - x.card), transfer: r2(cl.transfer - (x.transfer || 0)), apps: r2(cl.apps - appsI) };
+    const ok = Object.values(d).every(v => Math.abs(v) < 0.01);
+    return { ...x, appsI, closing: { ...cl, total: clT, status: c.status, id: c.id }, d, st: ok ? 'match' : Math.abs(d.total) < 0.01 ? 'mix' : 'diff' };
+  });
 }
 // ملخص اليوم من نقطة البيع الداخلية أو من الاستيراد (الداخلية أولًا)
 function salesDaySource(ops, branchId, date) {
@@ -9731,3 +9779,5 @@ export { purchasePlan, PO_LIVE };
 export { complianceItems, leaseSchedule, LEASE_EVERY, CMP_CAT, vatRegister, supplierPurchReport, PM_KEYS, PM_AR };
 // v39.2 — تخطيط العمالة من التوقع
 export { staffingPlan };
+// v39.4 — استيراد مبيعات نقاط البيع ومطابقتها
+export { piHour, piCutoff, posRecon };

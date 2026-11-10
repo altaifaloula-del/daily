@@ -336,3 +336,24 @@ test('تخطيط العمالة من التوقع: الشاشة على الجو�
   assert.ok((await p.locator('#r').innerText()).includes('الهدف 22%'));
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('رفع مبيعات نقاط البيع: ربط الفرع رغم «فرغ»، يوم العمل بعد منتصف الليل، الملغاة، المطابقة مع الإغلاق، والحفظ', async () => {
+  const ctx = await browser.newContext(devices['iPhone 13']); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'live/SalesHub/admin'); await p.waitForTimeout(500); await settle(p);
+  await p.click('button:has-text("استيراد نقاط البيع")'); await p.waitForTimeout(400);
+  const csv = ['تاريخ,رقم الفاتورة,اسم العميل,الفرع,حالة الدفع,طريقة الدفع,الإجمالي الكلي,المدفوع',
+    '2026-03-01 06:10:00,1,عميل نقدي,فرغ النسيم,مدفوع,نقدا,100,100', '2026-03-01 21:00:00,2,عميل نقدي,فرغ النسيم,مدفوع,شبكة,200,200',
+    '2026-03-02 00:30:00,3,عميل نقدي,فرغ النسيم,مدفوع,شبكة,50,50', '2026-03-02 07:00:00,4,عميل نقدي,فرغ النسيم,ملغاة,نقدا,999,999',
+    '2026-03-02 09:00:00,5,عميل نقدي,فرغ النسيم,مدفوع,نقدا,70,70', '2026-03-03 00:20:00,6,عميل نقدي,فرغ النسيم,مدفوع,نقدا,5,5', '2026-03-03 06:30:00,7,عميل نقدي,فرغ النسيم,مدفوع,نقدا,9,9'].join('\n');
+  await p.setInputFiles('input[type="file"]', { name: 'pos-invoices.csv', mimeType: 'text/csv', buffer: Buffer.from('﻿' + csv) }); await p.waitForTimeout(400);
+  assert.equal(await p.evaluate(() => { const l = [...document.querySelectorAll('select')].find(s => s.closest('div') && s.closest('div').textContent.includes('فرغ النسيم') && [...s.options].some(o => o.textContent.includes('النسيم'))); return l ? l.selectedOptions[0].textContent : ''; }), 'عم قاسم النسيم', 'الفرع رُبط رغم «فرغ»');
+  assert.match(await p.locator('#r').innerText(), /تبدأ وردية الصباح 06:00/);
+  await p.click('button:has-text("التجميع والمطابقة")'); await p.waitForTimeout(300);
+  const t = await p.locator('#r').innerText();
+  assert.match(t, /فاتورة بعد منتصف الليل نُسبت ليومها/); assert.match(t, /1 ملغاة\/مرتجعة استُبعدت/);
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true, 'لا تجاوز للجوال');
+  await p.click('button:has-text("حفظ الاستيراد")'); await p.waitForTimeout(400);
+  const pi = await p.evaluate(() => window.cur.posImports.filter(x => x.file === 'pos-invoices.csv').map(x => [x.date, x.n, x.total, x.cash, x.card]).sort());
+  assert.deepEqual(pi, [['2026-03-01', 3, 350, 100, 250], ['2026-03-02', 2, 75, 75, 0]], 'اليوم الأول كامل مع فاتورة 00:30، والثالث جزئي لم يُحفظ');
+  assert.deepEqual(errs, []); await ctx.close();
+});
