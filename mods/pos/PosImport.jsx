@@ -1,14 +1,21 @@
-/* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
-import React, { useState } from 'react';
-import { Upload, Scale, Check, FileText } from 'lucide-react';
-import { APPS, Field, LOCK_MSG, PAY_GUESS, money, nowISO, parseCsvGrid, parseXlsxGrid, periodLocked, piAggregate, piDetect, piNorm, posR2, sha256Hex, sum, uid } from '../../App.jsx';
+/* استيراد مبيعات نقاط البيع من Excel/CSV ومطابقتها مع الإغلاق اليومي
+   v33.1 الاستيراد · v39.4: «طريقة الدفع» بدقة، يوم العمل لفواتير ما بعد منتصف الليل، استبعاد الملغاة،
+   الأيام الجزئية عند حدود التصدير، ومطابقة كل يوم/فرع مع الإغلاق بالإجمالي وكل طريقة دفع. */
+import React, { useMemo, useState } from 'react';
+import { Upload, Scale, Check, FileText, Download, Clock, ChevronDown } from 'lucide-react';
+import { APPS, Field, Kpi, LOCK_MSG, PAY_GUESS, arDate, makeXlsx, money, nowISO, parseCsvGrid, parseXlsxGrid, periodLocked, piAggregate, piCutoff, piDetect, piNorm, posR2, posRecon, sha256Hex, uid } from '../../App.jsx';
+
+const ST = { match: ['b-mint', 'مطابق'], mix: ['b-amber', 'الإجمالي مطابق وتوزيع الدفع مختلف'], diff: ['b-rose', 'فرق'], noclose: ['b-dim', 'لا إغلاق'] };
+const bare = (s) => piNorm(s).replace(/^(فرع|فرغ|فرح|branch)\s*/, '').trim();   // «فرغ النسيم» ← «النسيم»
 
 export function PosImport({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const brs = (myBranches || []).filter(b => b.isActive !== false);
   const apps = org.deliveryApps || APPS;
   const saved = org.posImportMap || {};
-  const [st, setSt] = useState(null);   // {name, grid, cfg}
+  const [st, setSt] = useState(null);   // {name, grid, cfg, brVals, payVals, cut}
   const [res, setRes] = useState(null);
+  const [inclPartial, setInclPartial] = useState(false);
+  const [open, setOpen] = useState(null);
   const pick = async (e) => {
     const f = e.target.files?.[0]; e.target.value = ''; if (!f) return;
     try {
@@ -17,77 +24,115 @@ export function PosImport({ org, ops, me, myBranches, commit, commitOrg, say }) 
       const d = piDetect(grid);
       if (!d) return say('لم أجد عمود التاريخ وعمود الإجمالي أو طريقة الدفع في أول 15 سطرًا — تأكد من صف العناوين', 'no');
       const brVals = d.map.branch >= 0 ? [...new Set(grid.slice(d.start).map(r => String((r || [])[d.map.branch] || '').trim()).filter(Boolean))] : [];
-      const brMap = {}; brVals.forEach(v => { const b = brs.find(x => piNorm(x.name) === piNorm(v) || piNorm(v).includes(piNorm(x.name)) || piNorm(x.name).includes(piNorm(v))); brMap[v] = (saved.br || {})[v] || (b ? b.id : ''); });
+      const brMap = {}; brVals.forEach(v => { const k = bare(v); const b = brs.find(x => piNorm(x.name) === piNorm(v) || (k && (piNorm(x.name).includes(k) || k.includes(bare(x.name))))); brMap[v] = (saved.br || {})[v] || (b ? b.id : ''); });
       const payVals = d.layout === 'summary' ? d.payCols.map(ci => String(d.headers[ci] || '').trim()) : (d.map.pay >= 0 ? [...new Set(grid.slice(d.start).map(r => String((r || [])[d.map.pay] || '').trim()).filter(Boolean))] : []);
       const payMap = {}; payVals.forEach(v => { payMap[v] = (saved.pay || {})[v] || PAY_GUESS(v, apps); });
-      setRes(null); setSt({ name: f.name, grid, cfg: { ...d, brMap, payMap, branchId: (brs[0] || {}).id || '' }, brVals, payVals });
+      const cut = piCutoff(grid, d);
+      const cutoff = saved.cutoff != null && !cut.cutoff ? saved.cutoff : cut.cutoff;
+      setRes(null); setSt({ name: f.name, grid, cfg: { ...d, brMap, payMap, cutoff, branchId: (brs[0] || {}).id || '' }, brVals, payVals, cut });
     } catch { say('تعذّرت قراءة الملف — احفظه بصيغة xlsx أو CSV', 'no'); }
   };
-  const run = () => setRes(piAggregate(st.grid, st.cfg));
+  const run = () => { setOpen(null); setRes(piAggregate(st.grid, st.cfg)); };
+  const recon = useMemo(() => res ? posRecon(org, ops, res.days) : [], [res, org, ops]);
+  const brName = (id) => (brs.find(b => b.id === id) || (org.branches || []).find(b => b.id === id) || {}).name || id;
+  const appName = (id) => (apps.find(a => a.id === id) || {}).n || id;
+  const full = recon.filter(x => !x.partial);
+  const kp = { match: full.filter(x => x.st === 'match').length, mix: full.filter(x => x.st === 'mix').length, diff: full.filter(x => x.st === 'diff').length, noclose: full.filter(x => x.st === 'noclose').length,
+    diffSum: posR2(full.filter(x => x.d).reduce((a, x) => a + x.d.total, 0)) };
   const save = async () => {
-    const days = res.days.filter(x => x.n || x.total);
+    const days = res.days.filter(x => (x.n || x.total) && (inclPartial || !x.partial));
+    if (!days.length) return say('لا أيام كاملة للحفظ', 'no');
     const lk = days.find(x => periodLocked(org, x.date)); if (lk) return say(LOCK_MSG(lk.date), 'no');
     const closed = days.filter(x => (ops.closings || []).some(c => c.branchId === x.branchId && c.date === x.date && (c.status === 'submitted' || c.status === 'approved')));
     const exist = days.filter(x => (ops.posImports || []).some(y => y.branchId === x.branchId && y.date === x.date));
-    if ((exist.length || closed.length) && !window.confirm((exist.length ? exist.length + ' يوم مستورد سابقًا وسيُستبدل. ' : '') + (closed.length ? closed.length + ' يوم له إغلاق مُرحّل (لن يتغير الإغلاق — راجعه يدويًا). ' : '') + 'متابعة؟')) return;
-    const recs = days.map(x => ({ id: uid('pi'), branchId: x.branchId, date: x.date, n: x.n, total: x.total, vat: x.vat, cash: x.cash, card: x.card, transfer: x.transfer, apps: x.apps, nosCount: x.nos.length, nosSig: x.nos.length ? sha256Hex(x.nos.slice().sort().join('|')) : '', file: st.name, by: me.name, at: nowISO() }));
+    if ((exist.length || closed.length) && !window.confirm((exist.length ? exist.length + ' يوم مستورد سابقًا وسيُستبدل. ' : '') + (closed.length ? closed.length + ' يوم له إغلاق مُرحّل (لن يتغير الإغلاق — الفروق تظهر في المطابقة). ' : '') + 'متابعة؟')) return;
+    const recs = days.map(x => ({ id: uid('pi'), branchId: x.branchId, date: x.date, n: x.n, total: x.total, vat: x.vat, cash: x.cash, card: x.card, transfer: x.transfer, apps: x.apps, nosCount: x.nos.length, nosSig: x.nos.length ? sha256Hex(x.nos.slice().sort().join('|')) : '', ...(x.partial ? { partial: x.partial } : {}), cutoff: st.cfg.cutoff || 0, file: st.name, by: me.name, at: nowISO() }));
     const ok = await commit(d => ({ ...d, posImports: [...(d.posImports || []).filter(y => !recs.some(r => r.branchId === y.branchId && r.date === y.date)), ...recs] }),
       { actionType: 'create', targetType: 'pos_import', targetId: recs[0] && recs[0].id, title: 'استيراد مبيعات نقاط البيع', details: st.name + ' · ' + recs.length + ' يوم/فرع · ' + money(recs.reduce((a, r) => a + r.total, 0)) });
     if (!ok) return;
-    // حفظ الربط لتصبح الرفعات القادمة تلقائية
-    await commitOrg(d => ({ ...d, posImportMap: { br: { ...((d.posImportMap || {}).br || {}), ...st.cfg.brMap }, pay: { ...((d.posImportMap || {}).pay || {}), ...st.cfg.payMap } } }), { actionType: 'update', targetType: 'settings', targetId: 'posImportMap', title: 'حفظ ربط استيراد نقاط البيع', details: st.name });
-    say('استُورد ' + recs.length + ' يوم ✓ — افتح الإغلاق اليومي واضغط «تعبئة من نقطة البيع»'); setSt(null); setRes(null);
+    // حفظ الربط وساعة بداية اليوم لتصبح الرفعات القادمة تلقائية
+    await commitOrg(d => ({ ...d, posImportMap: { br: { ...((d.posImportMap || {}).br || {}), ...st.cfg.brMap }, pay: { ...((d.posImportMap || {}).pay || {}), ...st.cfg.payMap }, cutoff: st.cfg.cutoff || 0 } }), { actionType: 'update', targetType: 'settings', targetId: 'posImportMap', title: 'حفظ ربط استيراد نقاط البيع', details: st.name });
+    say('استُورد ' + recs.length + ' يوم ✓ — الإغلاقات غير المسجّلة: افتح الإغلاق اليومي واضغط «تعبئة من نقطة البيع»'); setSt(null); setRes(null);
   };
-  const brName = (id) => (brs.find(b => b.id === id) || {}).name || id;
-  const appName = (id) => (apps.find(a => a.id === id) || {}).n || id;
+  const exportRecon = (rows) => { try {
+    const head = ['التاريخ', 'الفرع', 'الحالة', 'الفواتير', 'نقطة البيع', 'الإغلاق', 'الفرق', 'نقدي (ن.ب)', 'نقدي (إغلاق)', 'فرق النقدي', 'شبكة (ن.ب)', 'شبكة (إغلاق)', 'فرق الشبكة', 'تطبيقات (ن.ب)', 'تطبيقات (إغلاق)', 'فرق التطبيقات'];
+    const body = rows.map(x => [x.date, brName(x.branchId), x.partial ? 'يوم جزئي' : ST[x.st][1], x.n, x.total, x.closing ? x.closing.total : '', x.d ? x.d.total : '', x.cash, x.closing ? x.closing.cash : '', x.d ? x.d.cash : '', x.card, x.closing ? x.closing.card : '', x.d ? x.d.card : '', x.appsI, x.closing ? x.closing.apps : '', x.d ? x.d.apps : '']);
+    const blob = makeXlsx([{ name: 'مطابقة نقاط البيع', rows: [head, ...body] }]); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'مطابقة_نقاط_البيع.xlsx'; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(url), 1500); say('نُزّل (Excel) ✓');
+  } catch { say('تعذّر توليد Excel', 'no'); } };
   const payOpts = (<><option value="">— تجاهل —</option><option value="cash">نقدي</option><option value="card">شبكة / مدى</option><option value="transfer">تحويل</option>{apps.map(a => <option key={a.id} value={'app:' + a.id}>{a.n}</option>)}</>);
-  const colSel = (k, lbl) => (<Field label={lbl} style={{ marginBottom: 0, minWidth: 130 }}><select className="sel" value={st.cfg.map[k]} onChange={e => setSt(x => ({ ...x, cfg: { ...x.cfg, map: { ...x.cfg.map, [k]: Number(e.target.value) } } }))}>
+  const colSel = (k, lbl) => (<Field label={lbl} style={{ marginBottom: 0, minWidth: 130 }}><select className="sel" value={st.cfg.map[k] ?? -1} onChange={e => setSt(x => ({ ...x, cfg: { ...x.cfg, map: { ...x.cfg.map, [k]: Number(e.target.value) } } }))}>
     <option value={-1}>—</option>{(st.cfg.headers || []).map((h, i) => <option key={i} value={i}>{String(h || 'عمود ' + (i + 1)).slice(0, 24)}</option>)}</select></Field>);
-  const recent = (ops.posImports || []).filter(x => brs.some(b => b.id === x.branchId)).slice().sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, 30);
+  const recentRaw = (ops.posImports || []).filter(x => brs.some(b => b.id === x.branchId)).slice().sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, 40);
+  const recent = posRecon(org, ops, recentRaw);
+  const ReconRow = ({ x, k }) => (
+    <div className={'pr-row ' + (x.partial ? 'part' : x.st)}>
+      <button type="button" className="cf-wh" onClick={() => setOpen(open === k ? null : k)} aria-expanded={open === k}>
+        <span className="pr-a"><b>{brName(x.branchId)}</b><small><span className="dt">{arDate(x.date)}</span>{x.n ? ' · ' + x.n + ' فاتورة' : ''}</small></span>
+        <span className="pr-v"><b className="num" dir="ltr">{money(x.total)}</b>{x.closing && <small className="num" dir="ltr">الإغلاق {money(x.closing.total)}</small>}</span>
+        <span className="pr-s">{x.partial ? <span className="badge b-dim">يوم جزئي</span> : x.st === 'diff' ? <span className="badge b-rose">{money(x.d.total)}</span> : <span className={'badge ' + ST[x.st][0]}>{x.st === 'mix' ? 'توزيع مختلف' : ST[x.st][1]}</span>}</span>
+        <ChevronDown size={14} className="cf-chev" />
+      </button>
+      {open === k && <div className="pr-d">
+        {[['نقدي', x.cash, x.closing && x.closing.cash, x.d && x.d.cash], ['شبكة', x.card, x.closing && x.closing.card, x.d && x.d.card], ['تحويل', x.transfer || 0, x.closing && x.closing.transfer, x.d && x.d.transfer], ['تطبيقات', x.appsI, x.closing && x.closing.apps, x.d && x.d.apps]].filter(r => r[1] || r[2]).map(r => (
+          <div key={r[0]} className="pr-m"><span>{r[0]}</span><span className="num" dir="ltr">{money(r[1])}</span><span className="num" dir="ltr">{r[2] == null ? '—' : money(r[2])}</span><b className="num" dir="ltr" style={{ color: r[3] == null || Math.abs(r[3]) < 0.01 ? 'var(--mint)' : 'var(--rose)' }}>{r[3] == null ? '' : Math.abs(r[3]) < 0.01 ? '✓' : (r[3] > 0 ? '+' : '') + money(r[3])}</b></div>))}
+        <div className="pr-m pr-h"><span /><span>نقطة البيع</span><span>الإغلاق</span><span>الإغلاق − ن.ب</span></div>
+        {Object.keys(x.apps || {}).length > 0 && <small style={{ color: 'var(--dim)' }}>{Object.entries(x.apps).map(([id, y]) => appName(id) + ' ' + money(y.amount)).join(' · ')}</small>}
+        {x.partial && <small style={{ color: 'var(--dim)' }}>فترة التصدير لا تغطي يوم العمل كاملًا ({x.partial === 'start' ? 'بدأت بعد بدايته' : 'انتهت قبل نهايته'}) — لا يُقارن ولا يُحفظ إلا بقرارك.</small>}
+      </div>}
+    </div>);
   return (
     <div className="grid" style={{ gap: 12 }}>
       <div className="card">
-        <div className="card-t" style={{ marginBottom: 6 }}><Upload size={15} color="var(--brass)" />استيراد مبيعات نقاط البيع (Excel / CSV)</div>
-        <div className="note">صدّر من نظام نقاط البيع تقرير المبيعات بالفواتير (فاتورة في كل سطر: التاريخ، الفرع، رقم الفاتورة، الإجمالي، الضريبة، طريقة الدفع) أو تقريرًا يوميًا بعمود لكل طريقة دفع، ثم ارفعه هنا. تتعرّف المنصة على الأعمدة، وتحفظ ربط الفروع وطرق الدفع للمرات القادمة.</div>
+        <div className="card-t" style={{ marginBottom: 6 }}><Upload size={15} color="var(--brass)" />رفع مبيعات نقاط البيع ومطابقتها (Excel / CSV)</div>
+        <div className="note">صدّر من نظام نقاط البيع تقرير الفواتير (فاتورة في كل سطر: التاريخ والوقت، الفرع، رقم الفاتورة، الإجمالي، طريقة الدفع، حالة الدفع) أو تقريرًا يوميًا بعمود لكل طريقة دفع، ثم ارفعه هنا.
+          تتعرّف المنصة على الأعمدة، وتنسب فواتير ما بعد منتصف الليل لوردية يومها، وتستبعد الملغاة والمكررة، ثم تطابق كل يوم وفرع مع الإغلاق اليومي بالإجمالي وكل طريقة دفع.</div>
         <label className="btn pri" style={{ cursor: 'pointer', marginTop: 8 }}><Upload size={14} />رفع الملف<input type="file" accept=".xlsx,.csv,text/csv" style={{ display: 'none' }} onChange={pick} /></label>
         {st && <span className="badge b-dim" style={{ marginInlineStart: 8 }}>{st.name} · {st.cfg.layout === 'summary' ? 'ملخص يومي' : 'فاتورة لكل سطر'}</span>}
       </div>
       {st && <div className="card">
         <div className="lbl">الأعمدة (تعرّفت عليها تلقائيًا — صحّح إن لزم)</div>
         <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'end', marginBottom: 10 }}>
-          {colSel('date', 'التاريخ')}{colSel('branch', 'الفرع')}{st.cfg.layout !== 'summary' && colSel('no', 'رقم الفاتورة')}{colSel('total', 'الإجمالي')}{colSel('vat', 'الضريبة')}{st.cfg.layout !== 'summary' ? colSel('pay', 'طريقة الدفع') : colSel('count', 'عدد الفواتير')}
+          {colSel('date', 'التاريخ')}{colSel('branch', 'الفرع')}{st.cfg.layout !== 'summary' && colSel('no', 'رقم الفاتورة')}{colSel('total', 'الإجمالي')}{colSel('vat', 'الضريبة')}{st.cfg.layout !== 'summary' ? colSel('pay', 'طريقة الدفع') : colSel('count', 'عدد الفواتير')}{st.cfg.layout !== 'summary' && colSel('status', 'حالة الفاتورة')}
           {st.cfg.map.branch < 0 && <Field label="الفرع (للملف كله)" style={{ marginBottom: 0 }}><select className="sel" value={st.cfg.branchId} onChange={e => setSt(x => ({ ...x, cfg: { ...x.cfg, branchId: e.target.value } }))}>{brs.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></Field>}
+        </div>
+        <div className="lbl"><Clock size={12} style={{ verticalAlign: -2 }} /> بداية يوم العمل</div>
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
+          <select className="sel" style={{ width: 'auto' }} value={st.cfg.cutoff || 0} onChange={e => setSt(x => ({ ...x, cfg: { ...x.cfg, cutoff: Number(e.target.value) } }))}>
+            <option value={0}>منتصف الليل (اليوم التقويمي)</option>{[1, 2, 3, 4, 5, 6, 7, 8].map(h => <option key={h} value={h}>{String(h).padStart(2, '0')}:00 — ما قبلها لليوم السابق</option>)}</select>
+          <small style={{ color: st.cut.unsure ? 'var(--amber)' : 'var(--dim)' }}>{st.cut.why}</small>
         </div>
         {st.brVals.length > 0 && <><div className="lbl">ربط الفروع</div><div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>{st.brVals.map(v => <Field key={v} label={v} style={{ marginBottom: 0 }}><select className="sel" value={st.cfg.brMap[v] || ''} onChange={e => setSt(x => ({ ...x, cfg: { ...x.cfg, brMap: { ...x.cfg.brMap, [v]: e.target.value } } }))}><option value="">— تجاهل —</option>{brs.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></Field>)}</div></>}
         {st.payVals.length > 0 && <><div className="lbl">ربط طرق الدفع</div><div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>{st.payVals.map(v => <Field key={v} label={v} style={{ marginBottom: 0 }}><select className="sel" value={st.cfg.payMap[v] || ''} onChange={e => setSt(x => ({ ...x, cfg: { ...x.cfg, payMap: { ...x.cfg.payMap, [v]: e.target.value } } }))}>{payOpts}</select></Field>)}</div></>}
-        <button className="btn pri" onClick={run}><Scale size={14} />معاينة التجميع</button>
+        <button className="btn pri" onClick={run}><Scale size={14} />التجميع والمطابقة</button>
       </div>}
       {res && <div className="card">
+        <div className="card-h"><div className="card-t"><Scale size={15} color="var(--brass)" />المطابقة مع الإغلاق اليومي</div><button className="btn sm" onClick={() => exportRecon(recon)}><Download size={13} />Excel</button></div>
         <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
           <span className="badge b-brass">{res.days.length} يوم/فرع · {money(res.days.reduce((a, x) => a + x.total, 0))}</span>
+          {res.issues.shifted > 0 && <span className="badge b-sky">{res.issues.shifted} فاتورة بعد منتصف الليل نُسبت ليومها</span>}
+          {res.issues.voided > 0 && <span className="badge b-amber">{res.issues.voided} ملغاة/مرتجعة استُبعدت ({money(res.issues.voidAmt)})</span>}
+          {Object.entries(res.issues.other || {}).map(([k, n]) => <span key={k} className="badge b-amber">{n} بحالة «{k}» — مُحتسبة، راجعها</span>)}
           {res.issues.noBranch > 0 && <span className="badge b-amber">{res.issues.noBranch} سطر بلا فرع مربوط</span>}
           {res.issues.noPay > 0 && <span className="badge b-amber">{res.issues.noPay} مبلغ بطريقة دفع غير مربوطة</span>}
-          {res.issues.badDate > 0 && <span className="badge b-dim">{res.issues.badDate} سطر بلا تاريخ (عناوين/مجاميع)</span>}
           {res.issues.dup > 0 && <span className="badge b-rose">{res.issues.dup} فاتورة مكررة استُبعدت</span>}
+          {res.issues.badDate > 0 && <span className="badge b-dim">{res.issues.badDate} سطر بلا تاريخ (عناوين/مجاميع)</span>}
         </div>
-        <div className="tw"><table className="tb"><thead><tr><th>التاريخ</th><th>الفرع</th><th style={{ textAlign: 'end' }}>الفواتير</th><th style={{ textAlign: 'end' }}>الإجمالي</th><th style={{ textAlign: 'end' }}>نقدي</th><th style={{ textAlign: 'end' }}>شبكة</th><th>التطبيقات</th><th style={{ textAlign: 'end' }}>الضريبة</th><th>الفرق</th></tr></thead><tbody>
-          {res.days.map(x => { const sumP = posR2(x.cash + x.card + x.transfer + Object.values(x.apps).reduce((a, y) => a + y.amount, 0)); const df = posR2(x.total - sumP); return (
-            <tr key={x.branchId + x.date}><td className="num">{x.date}</td><td style={{ fontSize: 12 }}>{brName(x.branchId)}</td><td className="num" style={{ textAlign: 'end' }}>{x.n || '—'}</td><td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{money(x.total)}</td>
-              <td className="num" style={{ textAlign: 'end' }}>{money(x.cash)}</td><td className="num" style={{ textAlign: 'end' }}>{money(x.card)}</td>
-              <td style={{ fontSize: 11 }}>{Object.entries(x.apps).map(([id, y]) => appName(id) + ' ' + money(y.amount)).join(' · ') || '—'}</td><td className="num" style={{ textAlign: 'end' }}>{money(x.vat)}</td>
-              <td>{Math.abs(df) < 0.01 ? <span className="badge b-mint">مطابق</span> : <span className="badge b-amber" title="الإجمالي لا يساوي مجموع طرق الدفع">{money(df)}</span>}</td></tr>); })}
-        </tbody></table></div>
-        <button className="btn pri" style={{ marginTop: 10 }} onClick={save}><Check size={14} />حفظ الاستيراد</button>
+        <div className="grid g4">
+          <Kpi label="أيام مطابقة" value={String(kp.match)} sub={'من ' + full.length + ' يوم كامل'} icon={Check} color="#4FB286" />
+          <Kpi label="أيام بفرق" value={String(kp.diff)} sub={kp.diff ? 'صافي الفرق ' + money(kp.diffSum) : 'لا فروق في الإجمالي'} icon={Scale} color={kp.diff ? '#D9544D' : '#4FB286'} />
+          <Kpi label="توزيع دفع مختلف" value={String(kp.mix)} sub="الإجمالي مطابق — نقدي/شبكة مختلفان" icon={Scale} color={kp.mix ? '#E0A458' : '#4FB286'} />
+          <Kpi label="بلا إغلاق" value={String(kp.noclose)} sub="يُعبّأ الإغلاق منها بعد الحفظ" icon={FileText} color={kp.noclose ? '#5B93C4' : '#4FB286'} />
+        </div>
+        <div className="pr-list">{recon.map(x => <ReconRow key={x.branchId + x.date} x={x} k={'n|' + x.branchId + x.date} />)}</div>
+        <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center', marginTop: 10 }}>
+          {res.days.some(x => x.partial) && <label className="row" style={{ gap: 6, fontSize: 12 }}><input type="checkbox" checked={inclPartial} onChange={e => setInclPartial(e.target.checked)} />احفظ الأيام الجزئية أيضًا ({res.days.filter(x => x.partial).length})</label>}
+          <button className="btn pri" onClick={save}><Check size={14} />حفظ الاستيراد</button>
+        </div>
+        <div className="note" style={{ marginTop: 8 }}>الفرق = الإغلاق − نقطة البيع. «توزيع مختلف» يعني أن الإجمالي مطابق لكن الكاشير سجّل جزءًا من الشبكة نقدًا أو العكس — راجع عدّ الصندوق وتقرير جهاز الشبكة. الحفظ لا يغيّر أي إغلاق مسجّل؛ الإغلاقات غير المسجّلة تُعبّأ من الاستيراد.</div>
       </div>}
       <div className="card">
-        <div className="card-t" style={{ marginBottom: 8 }}><FileText size={15} color="var(--brass)" />آخر الأيام المستوردة</div>
-        <div className="tw"><table className="tb"><thead><tr><th>التاريخ</th><th>الفرع</th><th style={{ textAlign: 'end' }}>الإجمالي</th><th>الإغلاق</th><th>الملف</th></tr></thead><tbody>
-          {recent.map(x => { const c = (ops.closings || []).find(c2 => c2.branchId === x.branchId && c2.date === x.date); const ct = c ? posR2((c.cashSales || 0) + (c.cardSales || 0) + (c.bankTransferSales || 0) + sum(c.deliverySales || [], d => d.amount || 0)) : null; return (
-            <tr key={x.id}><td className="num">{x.date}</td><td style={{ fontSize: 12 }}>{brName(x.branchId)}</td><td className="num" style={{ textAlign: 'end' }}>{money(x.total)}</td>
-              <td>{!c ? <span className="badge b-dim">لم يُسجَّل</span> : Math.abs(ct - x.total) < 0.01 ? <span className="badge b-mint">مطابق ✓</span> : <span className="badge b-rose">الإغلاق {money(ct)} · الفرق {money(ct - x.total)}</span>}</td>
-              <td style={{ fontSize: 10.5, color: 'var(--faint)' }}>{x.file}</td></tr>); })}
-          {!recent.length && <tr><td colSpan={5}><div className="empty">لا استيراد بعد.</div></td></tr>}
-        </tbody></table></div>
+        <div className="card-h"><div className="card-t"><FileText size={15} color="var(--brass)" />آخر الأيام المستوردة ومطابقتها</div>{recent.length > 0 && <button className="btn sm" onClick={() => exportRecon(recent)}><Download size={13} />Excel</button>}</div>
+        {!recent.length ? <div className="empty">لا استيراد بعد.</div> : <div className="pr-list">{recent.map(x => <ReconRow key={x.id} x={x} k={'r|' + x.id} />)}</div>}
       </div>
     </div>);
 }

@@ -617,3 +617,41 @@ test('الأنماط الشاذة: استهلاك فعلي أعلى من الن�
   assert.ok(!ok.some(x => x.area === 'usage'), 'ضمن التسامح (+5%) لا تنبيه');
   assert.ok(!E.detectAnomalies(org, { stockMoves: out(3) }, { today: TD }).some(x => x.area === 'usage'), 'بلا كميات مبيعات لا يُحكم');
 });
+
+// ===== v39.4 — استيراد فواتير نقاط البيع ومطابقتها مع الإغلاق =====
+test('استيراد فواتير نقاط البيع: «طريقة الدفع» لا «حالة الدفع»، يوم العمل لفواتير ما بعد منتصف الليل، واستبعاد الملغاة', () => {
+  const H = ['تاريخ', 'رقم الفاتورة', 'اسم العميل', 'الفرع', 'حالة الدفع', 'طريقة الدفع', 'الإجمالي الكلي', 'المدفوع', 'عدد الاصناف', 'رقم المرجع', 'تم الإنشاء بواسطة'];
+  const row = (dt, no, br, st, pm, t) => [dt, no, 'عميل نقدي', br, st, pm, t, t, 1, 'r' + no, 'كاشير'];
+  const grid = [H,
+    row('2026-11-09 05:10:00', '1', 'فرغ النسيم', 'مدفوع', 'نقدا', 10), row('2026-11-09 21:00:00', '2', 'فرغ النسيم', 'مدفوع', 'شبكة', 20),
+    row('2026-11-10 00:30:00', '3', 'فرغ النسيم', 'مدفوع', 'شبكة', 5),   // وردية ليلة 9
+    row('2026-11-10 07:00:00', '4', 'فرغ النسيم', 'مدفوع', 'نقدا', 7), row('2026-11-10 08:00:00', '5', 'فرغ النسيم', 'ملغاة', 'نقدا', 99),
+    row('2026-11-10 09:00:00', '4', 'فرغ النسيم', 'مدفوع', 'نقدا', 7),   // مكرر
+    [null, null, null, null, null, null, '148', '148', null, null, null]];
+  const d = E.piDetect(grid);
+  assert.equal(d.layout, 'invoice');
+  assert.deepEqual([d.map.date, d.map.no, d.map.branch, d.map.pay, d.map.total, d.map.status], [0, 1, 3, 5, 6, 4], 'طريقة الدفع = العمود 5 لا حالة الدفع 4');
+  const C = E.piCutoff(grid, d); assert.equal(C.cutoff, 5, 'فواتير حتى 00:59 ثم فجوة ثم تبدأ 05:00');
+  const cfg = { ...d, cutoff: C.cutoff, brMap: { 'فرغ النسيم': 'b1' }, payMap: { 'نقدا': 'cash', 'شبكة': 'card' } };
+  const A = E.piAggregate(grid, cfg);
+  const by = Object.fromEntries(A.days.map(x => [x.date, [x.n, x.total, x.cash, x.card]]));
+  assert.deepEqual(by, { '2026-11-09': [3, 35, 10, 25], '2026-11-10': [1, 7, 7, 0] });
+  assert.equal(A.issues.voided, 1); assert.equal(A.issues.voidAmt, 99); assert.equal(A.issues.dup, 1); assert.equal(A.issues.shifted, 1);
+  // المطابقة مع الإغلاق
+  const ops = { closings: [{ id: 'c9', branchId: 'b1', date: '2026-11-09', status: 'approved', cashSales: 10, cardSales: 25 }, { id: 'c10', branchId: 'b1', date: '2026-11-10', status: 'submitted', cashSales: 2, cardSales: 5 }] };
+  const R = E.posRecon(baseOrg(), ops, A.days);
+  assert.deepEqual(R.map(x => [x.date, x.st]), [['2026-11-09', 'match'], ['2026-11-10', 'mix']], 'نفس الإجمالي وتوزيع مختلف بين النقد والشبكة');
+  assert.deepEqual(R[1].d, { total: 0, cash: -5, card: 5, transfer: 0, apps: 0 });
+  assert.equal(E.posRecon(baseOrg(), { closings: [] }, A.days)[0].st, 'noclose');
+});
+test('استيراد نقاط البيع: أول وآخر يوم عمل خارج فترة التصدير كاملة يُعلَّمان «جزئي»', () => {
+  const H = ['تاريخ', 'رقم الفاتورة', 'الفرع', 'حالة الدفع', 'طريقة الدفع', 'الإجمالي الكلي'];
+  const g = [H, ['2026-11-08 00:10:00', '1', 'ف', 'مدفوع', 'نقدا', 5], ['2026-11-08 06:00:00', '2', 'ف', 'مدفوع', 'نقدا', 5], ['2026-11-09 00:20:00', '3', 'ف', 'مدفوع', 'نقدا', 5],
+    ['2026-11-09 06:00:00', '4', 'ف', 'مدفوع', 'نقدا', 5], ['2026-11-10 00:30:00', '5', 'ف', 'مدفوع', 'نقدا', 5], ['2026-11-10 11:00:00', '6', 'ف', 'مدفوع', 'نقدا', 5]];
+  const d = E.piDetect(g); const c = E.piCutoff(g, d).cutoff; assert.equal(c, 6);
+  const A = E.piAggregate(g, { ...d, cutoff: c, brMap: { 'ف': 'b1' }, payMap: { 'نقدا': 'cash' } });
+  assert.deepEqual(A.days.map(x => [x.date, x.partial || 'full']), [['2026-11-07', 'start'], ['2026-11-08', 'full'], ['2026-11-09', 'full'], ['2026-11-10', 'end']]);
+  const g2 = [H, ['2026-11-08 06:10:00', '1', 'ف', 'مدفوع', 'نقدا', 5], ['2026-11-09 00:20:00', '2', 'ف', 'مدفوع', 'نقدا', 5], ['2026-11-09 07:00:00', '3', 'ف', 'مدفوع', 'نقدا', 5]];
+  const B = E.piAggregate(g2, { ...E.piDetect(g2), cutoff: 6, brMap: { 'ف': 'b1' }, payMap: { 'نقدا': 'cash' } });
+  assert.deepEqual(B.days.map(x => [x.date, x.partial || 'full']), [['2026-11-08', 'full'], ['2026-11-09', 'end']], 'أول فاتورة صباحية لا تجعل اليوم جزئيًا');
+});
