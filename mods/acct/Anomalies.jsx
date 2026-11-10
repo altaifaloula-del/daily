@@ -2,7 +2,8 @@
    المحرك في النواة (detectAnomalies) — إحصاء مقاوم للقيم المتطرفة، يعمل داخل المتصفح بلا تكلفة. */
 import React, { useMemo, useState } from 'react';
 import { Activity, TrendingDown, TrendingUp, Receipt, Trash2, Truck, CreditCard, Info } from 'lucide-react';
-import { Kpi, detectAnomalies, money } from '../../App.jsx';
+import { Kpi, actionFromAnomaly, anomKey, detectAnomalies, money } from '../../App.jsx';
+import { ListChecks } from 'lucide-react';
 
 const AREA = {
   sales: { ar: 'المبيعات', icon: TrendingDown, c: '#D9544D' },
@@ -26,7 +27,13 @@ function Spark({ s, expected, up }) {
     </svg>);
 }
 
-export function Anomalies({ org, ops, myBranches }) {
+export function Anomalies({ org, ops, me, myBranches, commit, say }) {
+  // v38.7 — تحويل النمط إلى إجراء (مرة واحدة لكل نمط ما دام إجراؤه قائمًا)
+  const openActs = new Map((ops.actions || []).filter(x => x.srcKey && x.status !== 'dismissed').map(x => [x.srcKey, x]));
+  const toAction = async (a) => { const rec = actionFromAnomaly(org, ops, me, a);
+    const ok = await commit(d => ((d.actions || []).some(x => x.srcKey === rec.srcKey && x.status !== 'dismissed') ? d : { ...d, actions: [rec, ...(d.actions || [])] }),
+      { actionType: 'create', targetType: 'settings', targetId: rec.id, title: 'حوّل نمطًا شاذًا إلى إجراء', details: rec.title });
+    if (ok) say('أُنشئ إجراء ✓ — حدّد مسؤوله وموعده من «الإجراءات والتوصيات»'); };
   const [area, setArea] = useState('');
   const [br, setBr] = useState('');
   const list = useMemo(() => detectAnomalies(org, ops, { branchIds: (myBranches || []).map(b => b.id) }), [org, ops, myBranches]);
@@ -59,6 +66,8 @@ export function Anomalies({ org, ops, myBranches }) {
                 <div className="an-meta"><span className="badge b-dim">{A.ar}</span>{a.branchId ? <span className="badge b-dim">{brName(a.branchId)}</span> : null}
                   {a.area !== 'pos' && <span className="num an-pct" dir="ltr" style={{ color: a.pct < 0 ? 'var(--rose)' : 'var(--amber)' }}>{a.pct > 0 ? '+' : ''}{a.pct}%</span>}
                   <span className="an-sp"><Spark s={a.series} expected={a.expected} up={a.pct > 0} /></span></div>
+                <div>{openActs.get(anomKey(a)) ? <span className="badge b-sky">له إجراء — {({ open: 'مفتوح', doing: 'قيد التنفيذ', done: 'منجز' })[openActs.get(anomKey(a)).status] || ''}{openActs.get(anomKey(a)).assignee ? ' · ' + openActs.get(anomKey(a)).assignee : ''}</span>
+                  : commit ? <button className="btn sm gh" onClick={() => toAction(a)}><ListChecks size={12} />حوّل إلى إجراء</button> : null}</div>
               </div>
             </div>); })}
         </div>}

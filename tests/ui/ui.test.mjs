@@ -202,3 +202,33 @@ test('الأنماط الشاذة: الشاشة تظهر في مركز التح�
   assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('الإجراءات والتوصيات: إنشاء ← بدء ← إنجاز بملاحظة إلزامية، وفريق الفرع يرى إجراءات فرعه فقط', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1300, height: 1300 } }); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'live/Hub/admin/analytics:actions'); await p.waitForTimeout(400); await settle(p);
+  const mk = async (title, branchLabel) => { await p.click('button:has-text("إجراء جديد")'); await p.waitForTimeout(200);
+    await p.locator('.fld:has(.lbl:text-is("العنوان")) input').fill(title);
+    await p.locator('.fld:has(.lbl:text-is("الفرع")) select').selectOption({ label: branchLabel });
+    await p.locator('.fld:has(.lbl:text-is("المسؤول")) select').selectOption({ label: 'أحمد علي' });
+    await p.locator('.fld:has(.lbl:text-is("الموعد")) input').fill('2020-01-01');
+    await p.click('.modal button:has-text("إنشاء")'); await p.waitForTimeout(250); };
+  await mk('مراجعة جدول المطبخ', 'عم قاسم طيبة'); await mk('صيانة ثلاجة', 'العليا');
+  assert.equal(await p.locator('.act-item').count(), 2);
+  assert.equal(await p.locator('.act-item.late').count(), 2, 'الموعد الماضي ← متأخر');
+  const first = p.locator('.act-item:has-text("مراجعة جدول المطبخ")');
+  await first.locator('button:has-text("بدء التنفيذ")').click(); await p.click('.modal button:has-text("تأكيد")'); await p.waitForTimeout(200);
+  await first.locator('button:has-text("إنجاز")').click(); await p.click('.modal button:has-text("تأكيد")'); await p.waitForTimeout(150);
+  assert.match(await p.evaluate(() => window.lastSay), /اكتب ما الذي نُفّذ/);
+  await p.locator('.modal textarea').fill('أُعيد توزيع الورديات'); await p.click('.modal button:has-text("تأكيد")'); await p.waitForTimeout(250);
+  const s = await p.evaluate(() => window.cur.actions.map(a => [a.title, a.status, a.assignee, a.branchId, (a.notes || []).map(n => n.text).join('|'), !!a.doneAt]));
+  assert.deepEqual(s.find(x => x[0] === 'مراجعة جدول المطبخ'), ['مراجعة جدول المطبخ', 'done', 'أحمد علي', 'b1', 'أُعيد توزيع الورديات', true]);
+  assert.equal(await p.locator('.act-item').count(), 1, 'المنجز يخرج من «الجارية»');
+  // فريق فرع طيبة: يرى إجراء فرعه فقط في «الإغلاق اليومي ← إجراءات الفرع»
+  await p.evaluate(() => { window.as('bm'); window.hub('closehub:myactions'); }); await p.waitForTimeout(400); await settle(p);
+  assert.ok((await p.locator('#r').innerText()).includes('إجراءات الفرع'), 'القسم في مركز الإغلاق');
+  assert.equal(await p.locator('.act-item').count(), 0, 'إجراء العليا ليس لفرعه، وإجراء فرعه منجز');
+  await p.click('button:has-text("الكل")'); await p.waitForTimeout(150);
+  assert.deepEqual(await p.locator('.act-item b').first().innerText(), 'مراجعة جدول المطبخ');
+  assert.equal(await p.locator('.act-item').count(), 1, 'يرى إجراء فرعه فقط');
+  assert.deepEqual(errs, []); await ctx.close();
+});

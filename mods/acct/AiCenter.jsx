@@ -1,9 +1,15 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useMemo } from 'react';
 import { Sparkles, ChevronLeft, RefreshCw, FileText, TrendingDown, AlertTriangle, Store } from 'lucide-react';
-import { aiHeaders, buildAccounting, buildPartners, countedClosing, customerAging, isoD, money, stockByWh, sum, supplierAging, today } from '../../App.jsx';
+import { newAction, aiHeaders, buildAccounting, buildPartners, countedClosing, customerAging, isoD, money, stockByWh, sum, supplierAging, today } from '../../App.jsx';
 
-export function AiCenter({ org, ops, me, myBranches, scoped, say, setTab }) {
+export function AiCenter({ org, ops, me, myBranches, scoped, say, setTab, commit }) {
+  // v38.7 — تحويل التوصية الذكية إلى إجراء
+  const recKey = (t) => 'ai|' + String(t).slice(0, 80);
+  const aiActs = new Set((ops.actions || []).filter(x => x.srcKey && x.status !== 'dismissed').map(x => x.srcKey));
+  const recToAction = async (t) => { const rec = newAction(me, { src: 'ai', srcKey: recKey(t), title: String(t).slice(0, 200), detail: 'من تحليل المركز الذكي', due: isoD(new Date(Date.now() + 14 * 86400000)) });
+    const ok = await commit(d => ({ ...d, actions: [rec, ...(d.actions || [])] }), { actionType: 'create', targetType: 'settings', targetId: rec.id, title: 'حوّل توصية ذكية إلى إجراء', details: rec.title.slice(0, 160) });
+    if (ok) say('أُنشئ إجراء ✓ — حدّد مسؤوله من «الإجراءات والتوصيات»'); };
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState(null);
   const [err, setErr] = useState('');
@@ -203,7 +209,8 @@ export function AiCenter({ org, ops, me, myBranches, scoped, say, setTab }) {
               {(res.توصيات_خفض_التكلفة || []).map((t, i) => (
                 <div key={i} className="feed">
                   <div className="feed-d" style={{ background: 'var(--mint)' }} />
-                  <div style={{ fontSize: 12.5, lineHeight: 1.9 }}>{t}</div>
+                  <div style={{ fontSize: 12.5, lineHeight: 1.9, flex: 1 }}>{t}
+                    <div style={{ marginTop: 4 }}>{aiActs.has(recKey(t)) ? <span className="badge b-sky">له إجراء</span> : commit ? <button className="btn sm gh" onClick={() => recToAction(t)}>حوّل إلى إجراء</button> : null}</div></div>
                 </div>
               ))}
             </div>
