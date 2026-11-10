@@ -14,7 +14,8 @@ export const ENGINE_EXPORTS = ['buildAccounting', 'buildPartners', 'stockByWh', 
 export async function buildEngine() {
   fs.mkdirSync(cache, { recursive: true });
   // v38.3: النواة تصدّر دوال المحرك نفسها (والتطبيقات في mods/ تستورد منها) — نبني من الملف الأصلي مباشرة
-  const src = "export { " + ENGINE_EXPORTS.join(', ') + " } from '../../App.jsx';\n";
+  const src = "export { " + ENGINE_EXPORTS.join(', ') + " } from '../../App.jsx';\n"
+    + "export { integrityChecks, groupErrors } from '../../mods/admin/SystemMaintenance.jsx';\n";   // v38.5 صيانة النظام
   const entry = path.join(cache, 'AppEngine.jsx');
   fs.writeFileSync(entry, src);
   const out = path.join(cache, 'engine.mjs');

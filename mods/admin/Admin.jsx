@@ -1,7 +1,8 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState } from 'react';
 import { authApi } from '../../storage';
-import { Building2, Users, Receipt, Truck, ShieldCheck, Grid3x3, Settings, Plus, Store, Lock, Check, Trash2 } from 'lucide-react';
+import { SystemMaintenance } from './SystemMaintenance.jsx';
+import { Building2, Users, Receipt, Truck, ShieldCheck, Grid3x3, Settings, Plus, Store, Lock, Check, Trash2, Activity } from 'lucide-react';
 import { ALL_TABS, AppPermsPanel, BranchForm, CategoriesPanel, DeliveryAppsPanel, ROLES, SystemPanel, TAB_AR, UserForm, clr, money, newBranchDraft, sha, today, uid } from '../../App.jsx';
 
 export function Admin({ org, ops, me, commit, commitOrg, say }) {
@@ -131,6 +132,9 @@ export function Admin({ org, ops, me, commit, commitOrg, say }) {
         <button className={'btn sm' + (tab === 'system' ? ' pri' : ' gh')} onClick={() => setTab('system')}>
           <Settings size={14} />بيانات الشركة والنسخ الاحتياطي
         </button>
+        <button className={'btn sm' + (tab === 'maint' ? ' pri' : ' gh')} onClick={() => setTab('maint')}>
+          <Activity size={14} />صيانة النظام
+        </button>
         {(tab === 'branches' || tab === 'users') && <button className="btn pri" style={{ marginInlineStart: 'auto' }}
           onClick={() => tab === 'branches'
             ? setBEdit(newBranchDraft())
@@ -213,6 +217,7 @@ export function Admin({ org, ops, me, commit, commitOrg, say }) {
       {tab === 'cats' && <CategoriesPanel org={org} ops={ops} commitOrg={commitOrg} say={say} />}
       {tab === 'delivery' && <DeliveryAppsPanel org={org} ops={ops} commitOrg={commitOrg} say={say} />}
       {tab === 'appperms' && <AppPermsPanel org={org} commitOrg={commitOrg} say={say} />}
+      {tab === 'maint' && <SystemMaintenance org={org} ops={ops} me={me} commit={commit} say={say} />}
       {tab === 'system' && <SystemPanel org={org} ops={ops} me={me} commit={commit} commitOrg={commitOrg} say={say} />}
       {tab === 'perms' && (() => {
         const roleIds = ['system_admin', 'general_management', 'head_office', 'finance_department', 'cost_controller', 'regional_manager', 'branch_manager', 'cashier'];

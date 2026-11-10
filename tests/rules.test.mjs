@@ -331,6 +331,22 @@ test('v29.5: المحاسب للعرض فقط يقرأ كل شيء ولا يكت
 
 /* ===== v31.3 — التحقق بخطوتين ===== */
 const tf = (uid, email) => env.authenticatedContext(uid, { email, firebase: { sign_in_provider: 'password', sign_in_second_factor: 'totp' } }).firestore();
+/* ===== v38.5 — سجل أخطاء الأجهزة المركزي ===== */
+const errDoc = (email, x = {}) => ({ at: serverTimestamp(), msg: 'TypeError: x is undefined', stack: 'at f (core.js:1:2)', where: 'المخزون', v: 'v38.5', role: 'cashier', branchId: 'b-AAA', device: 'جوال', email, sig: 'abc123', n: 1, ...x });
+test('v38.5: العضو يسجّل خطأ جهازه باسمه فقط وبحقول محدودة؛ والمسؤول وحده يقرأ ويحذف', async () => {
+  await assertSucceeds(setDoc(doc(brA(), 'client_errors', 'e1'), errDoc(BR_A)));
+  await assertFails(setDoc(doc(brA(), 'client_errors', 'e2'), errDoc(BR_B)), 'لا يكتب باسم غيره');
+  await assertFails(setDoc(doc(brA(), 'client_errors', 'e3'), errDoc(BR_A, { msg: 'x'.repeat(401) })), 'الرسالة محدودة');
+  await assertFails(setDoc(doc(brA(), 'client_errors', 'e4'), errDoc(BR_A, { closings: [] })), 'لا حقول أخرى');
+  await assertFails(setDoc(doc(brA(), 'client_errors', 'e5'), errDoc(BR_A, { at: new Date(0) })), 'الوقت وقت الخادم');
+  await assertFails(setDoc(doc(ghost(), 'client_errors', 'e6'), errDoc(GHOST)), 'غير العضو لا يكتب');
+  await assertFails(setDoc(doc(visitor(), 'client_errors', 'e7'), errDoc('x@y.z')));
+  await assertFails(getDoc(doc(brA(), 'client_errors', 'e1')), 'العضو لا يقرأ السجل');
+  await assertFails(getDoc(doc(central(), 'client_errors', 'e1')), 'المركزي غير المسؤول لا يقرأ');
+  await assertFails(updateDoc(doc(brA(), 'client_errors', 'e1'), { msg: 'y' }), 'لا تعديل');
+  await assertSucceeds(getDoc(doc(owner(), 'client_errors', 'e1')));
+  await assertSucceeds(deleteDoc(doc(owner(), 'client_errors', 'e1')));
+});
 test('v31.3: بلا سياسة لا يتغير شيء', async () => {
   await assertSucceeds(getDoc(doc(owner(), 'platform', 'rms8_org')));
   await assertSucceeds(getDoc(doc(central(), 'platform', 'rms8_core')));

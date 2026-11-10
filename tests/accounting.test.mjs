@@ -312,3 +312,33 @@ test('الهدر المعتمد: قيد 5502 مدين مقابل حساب مخز
   const A = E.buildAccounting(org, ops); const t = tb(A);
   assert.equal(A.balanced, true); near(t['5502'], 400, 'مصروف الهدر'); near(t['160102'], 1600, 'مخزون المستودع بعد الهدر');
 });
+
+// ===== v38.5 — صيانة النظام: فحوص سلامة البيانات =====
+test('فحوص السلامة: بيانات سليمة ← كل الفحوص سليمة', () => {
+  const org = baseOrg({ items: [{ id: 'i1', name: 'لحم', unit: 'كجم' }], products: [{ id: 'p1', name: 'وجبة', parts: [{ itemId: 'i1', qty: 1 }] }] });
+  const ops = { closings: [{ id: 'c1', branchId: 'b1', date: '2099-01-01', status: 'approved', totalRevenue: 100 }], invoices: [] };
+  const C = E.integrityChecks(org, ops);
+  assert.deepEqual(C.filter(c => c.st !== 'ok').map(c => c.id), []);
+});
+test('فحوص السلامة: تكشف الرصيد السالب والفاتورة المكررة والسجل اليتيم والوصفة المكسورة والإغلاق العالق', () => {
+  const org = baseOrg({ items: [{ id: 'i1', name: 'لحم', unit: 'كجم' }], products: [{ id: 'p1', name: 'وجبة', parts: [{ itemId: 'gone', qty: 1 }] }],
+    warehouses: [{ id: 'wh-b1', name: 'مستودع', kind: 'branch', branchId: 'b1', active: true }] });
+  const ops = {
+    whMoves: [{ id: 'm1', whId: 'wh-b1', branchId: 'b1', itemId: 'i1', kind: 'out', qty: -5, date: '2026-05-01' }],
+    invoices: [{ id: 'v1', supplierId: 's1', supplierName: 'م', invoiceNo: '77', amount: 10, date: '2026-05-01' }, { id: 'v2', supplierId: 's1', supplierName: 'م', invoiceNo: '077', amount: 10, date: '2026-05-02' }],
+    closings: [{ id: 'c1', branchId: 'b1', branchName: 'العليا', date: '2020-01-01', status: 'submitted', totalRevenue: 100 }, { id: 'c2', branchId: 'deleted-branch', date: '2026-01-01', status: 'approved' }]
+  };
+  const C = Object.fromEntries(E.integrityChecks(org, ops).map(c => [c.id, c]));
+  assert.equal(C.stock.st, 'bad'); assert.match(C.stock.items[0], /لحم \(-5\)/);
+  assert.equal(C.dupinv.st, 'bad', 'رقم 77 و077 نفس الفاتورة');
+  assert.equal(C.orphans.st, 'warn'); assert.match(C.orphans.detail, /1 إغلاق/);
+  assert.equal(C.recipes.st, 'warn');
+  assert.equal(C.closings.st, 'warn');
+  assert.equal(C.tb.st, 'ok');
+});
+test('سجل الأخطاء: التجميع حسب النوع مع العدد وآخر ظهور والمستخدمين', () => {
+  const G = E.groupErrors([{ id: 'a', sig: 's1', msg: 'x', at: '2026-11-01T10:00', email: 'a@x', branchId: 'b1', v: 'v38.5' },
+    { id: 'b', sig: 's1', msg: 'x', at: '2026-11-03T10:00', email: 'b@x', branchId: 'b1', v: 'v38.5' }, { id: 'c', sig: 's2', msg: 'y', at: '2026-11-02T10:00', email: 'a@x' }]);
+  assert.equal(G.length, 2); assert.equal(G[0].sig, 's1'); assert.equal(G[0].n, 2); assert.equal(G[0].last, '2026-11-03T10:00');
+  assert.deepEqual(G[0].users.sort(), ['a@x', 'b@x']); assert.deepEqual(G[0].ids, ['a', 'b']);
+});

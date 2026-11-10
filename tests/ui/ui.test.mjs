@@ -181,3 +181,14 @@ test('الفوترة الإلكترونية: بيانات المنشأة ثم ت
   assert.ok(!JSON.stringify(await p.evaluate(() => window.curOrg)).includes('123456"'), 'الرمز المؤقت لا يُحفظ في بيانات المنشأة');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('صيانة النظام: حالة الخدمات وفحوص السلامة وسجل الأخطاء تظهر بلا أعطال', async () => {
+  const ctx = await browser.newContext(devices['iPhone 13']); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'live/Admin/admin'); await p.waitForTimeout(400); await settle(p);
+  await p.click('button:has-text("صيانة النظام")'); await p.waitForTimeout(300); await settle(p);
+  const txt = await p.locator('#r').innerText();
+  for (const s of ['حالة الخدمات', 'فحوص سلامة البيانات', 'توازن القيود وميزان المراجعة', 'أرصدة مخزون سالبة', 'سجل أخطاء الأجهزة']) assert.ok(txt.includes(s), 'يظهر: ' + s);
+  assert.ok(await p.locator('.mt-check').count() >= 7);
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true, 'بلا تجاوز عرض على الجوال');
+  assert.deepEqual(errs, []); await ctx.close();
+});

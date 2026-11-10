@@ -2770,11 +2770,36 @@ function emptyOps() {
 /* v32.0 — حاجز الأخطاء: أي خطأ في شاشة يُعرض رسالة عربية مع «إعادة المحاولة» بدل شاشة سوداء،
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
+// v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
+const APP_VER = 'v38.5';
+// سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
+const ERR_CTX = { role: '', branchId: '' };
+const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
+const ERR_SENT = new Map(); let errSentN = 0;
+// يرسل الخطأ لسجل الأجهزة المركزي (client_errors) — مرة لكل خطأ متكرر كل 10 دقائق، و15 خطأ كحد أقصى لكل جلسة
+async function sendClientError(rec) {
+  try {
+    const sig = errSig(rec.msg + '|' + String(rec.where || '').slice(0, 60));
+    const last = ERR_SENT.get(sig); if ((last && Date.now() - last < 600000) || errSentN >= 15) return;
+    const F = await qrFs(); if (!F) return;
+    const { getAuth } = await import('firebase/auth');
+    const u = getAuth().currentUser; if (!u || !u.email) return;
+    ERR_SENT.set(sig, Date.now()); errSentN++;
+    const doc = { at: F.serverTimestamp(), msg: String(rec.msg || '').slice(0, 400), v: APP_VER, email: String(u.email).toLowerCase(), sig, n: 1,
+      ...(rec.stack ? { stack: String(rec.stack).slice(0, 1500) } : {}), ...(rec.where ? { where: String(rec.where).slice(0, 300) } : {}),
+      ...(ERR_CTX.role ? { role: ERR_CTX.role.slice(0, 40) } : {}), ...(ERR_CTX.branchId ? { branchId: ERR_CTX.branchId.slice(0, 80) } : {}),
+      device: (deviceType() + ' · ' + ((navigator.userAgent || '').match(/(Chrome|Safari|Firefox|Edg)\/[\d.]+/) || [''])[0]).slice(0, 120) };
+    await F.addDoc(F.collection(F.db, 'client_errors'), doc);
+  } catch { /* السجل المركزي اختياري — لا نكسر شيئًا إن فشل */ }
+}
 function logClientError(err, where) {
   try {
+    const rec = { at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: APP_VER };
     const a = JSON.parse(localStorage.getItem(ERRLOG_KEY) || '[]');
-    a.unshift({ at: new Date().toISOString(), where: where || '', msg: String((err && err.message) || err).slice(0, 300), stack: String((err && err.stack) || '').slice(0, 900), v: 'v35.2' });
+    a.unshift(rec);
     localStorage.setItem(ERRLOG_KEY, JSON.stringify(a.slice(0, 20)));
+    // أخطاء الشبكة المؤقتة وإلغاء الطلبات ليست أعطالًا في المنصة
+    if (!/Failed to fetch|NetworkError|Load failed|AbortError|ResizeObserver loop/i.test(rec.msg)) sendClientError(rec);
   } catch { }
 }
 class ErrorBoundary extends React.Component {
@@ -2820,6 +2845,7 @@ function PlatformApp() {
   const opsNow = useRef(null); opsNow.current = ops;   // v29.5: للحارس المركزي للإقفال داخل commitOrg
   const [pulse, setPulse] = useState({ presence: {}, audit: [] });
   const [me, setMe] = useState(null);
+  useEffect(() => { ERR_CTX.role = (me && me.role) || ''; ERR_CTX.branchId = (me && me.branchId) || ''; }, [me]);   // v38.5 سياق سجل الأخطاء
   const [tab, setTab] = useState('home');
   const [acctIntent, setAcctIntent] = useState(null);          // فتح المحاسبة على شاشة محددة من مركز التطبيقات
   const openAcctView = useCallback((v) => setAcctIntent({ v, ts: Date.now() }), []);
@@ -3828,7 +3854,7 @@ function PlatformApp() {
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark"><MizanMark size={24} /></span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : HR_TABS.includes(safeTab) ? 'الموارد البشرية' : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
-            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>v38.4</span>
+            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>{APP_VER}</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -8928,3 +8954,5 @@ export { A4_CSS, ACCT_SECTIONS, ACCT_SEC_AR, ACC_KIND, ALL_TABS, APPS, AdvanceFo
 export { ClosingForm };
 // v38.3 — للاختبارات الآلية (tests/): دوال المحرك والشاشات تُستورد من النواة مباشرة
 export { stockCosting, eosEntitledAmt, eosFullAmt, findDupInvoices, invNoNorm, promoLineDisc, tafqeet, Hub, Launcher, PosApp, Inventory, Partners, SalesHub, QrFeedback, AppsCenter, BranchWarehouse, Admin, AuditView, Accounting, emptyOrg, emptyOps, HUBS };
+// v38.5 — لصيانة النظام (mods/admin/SystemMaintenance.jsx)
+export { APP_VER, ERRLOG_KEY };
