@@ -352,7 +352,9 @@ test('رفع مبيعات نقاط البيع: ربط الفرع رغم «فرغ
   const t = await p.locator('#r').innerText();
   assert.match(t, /فاتورة بعد منتصف الليل نُسبت ليومها/); assert.match(t, /1 ملغاة\/مرتجعة استُبعدت/);
   assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true, 'لا تجاوز للجوال');
+  assert.match(await p.locator('#r').innerText(), /سيُحفظ 2 يوم\/فرع/); assert.match(await p.locator('#r').innerText(), /1 يوم جزئي لن يُحفظ/);
   await p.click('button:has-text("حفظ الاستيراد")'); await p.waitForTimeout(400);
+  assert.match(await p.locator('#r').innerText(), /حُفظ الاستيراد: 2 يوم\/فرع/, 'تأكيد ظاهر بعد الحفظ');
   const pi = await p.evaluate(() => window.cur.posImports.filter(x => x.file === 'pos-invoices.csv').map(x => [x.date, x.n, x.total, x.cash, x.card]).sort());
   assert.deepEqual(pi, [['2026-03-01', 3, 350, 100, 250], ['2026-03-02', 2, 75, 75, 0]], 'اليوم الأول كامل مع فاتورة 00:30، والثالث جزئي لم يُحفظ');
   assert.deepEqual(errs, []); await ctx.close();

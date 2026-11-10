@@ -3,7 +3,7 @@
    الأيام الجزئية عند حدود التصدير، ومطابقة كل يوم/فرع مع الإغلاق بالإجمالي وكل طريقة دفع. */
 import React, { useMemo, useState } from 'react';
 import { Upload, Scale, Check, FileText, Download, Clock, ChevronDown } from 'lucide-react';
-import { APPS, Field, Kpi, LOCK_MSG, PAY_GUESS, arDate, makeXlsx, money, nowISO, parseCsvGrid, parseXlsxGrid, periodLocked, piAggregate, piCutoff, piDetect, piNorm, posR2, posRecon, sha256Hex, uid } from '../../App.jsx';
+import { APPS, Field, Kpi, PAY_GUESS, arDate, makeXlsx, money, nowISO, parseCsvGrid, parseXlsxGrid, periodLocked, piAggregate, piCutoff, piDetect, piNorm, posR2, posRecon, sha256Hex, uid } from '../../App.jsx';
 
 const ST = { match: ['b-mint', 'مطابق'], mix: ['b-amber', 'الإجمالي مطابق وتوزيع الدفع مختلف'], diff: ['b-rose', 'فرق'], noclose: ['b-dim', 'لا إغلاق'] };
 const bare = (s) => piNorm(s).replace(/^(فرع|فرغ|فرح|branch)\s*/, '').trim();   // «فرغ النسيم» ← «النسيم»
@@ -32,27 +32,32 @@ export function PosImport({ org, ops, me, myBranches, commit, commitOrg, say }) 
       setRes(null); setSt({ name: f.name, grid, cfg: { ...d, brMap, payMap, cutoff, branchId: (brs[0] || {}).id || '' }, brVals, payVals, cut });
     } catch { say('تعذّرت قراءة الملف — احفظه بصيغة xlsx أو CSV', 'no'); }
   };
-  const run = () => { setOpen(null); setRes(piAggregate(st.grid, st.cfg)); };
+  const run = () => { setOpen(null); setDone(null); setRes(piAggregate(st.grid, st.cfg)); };
   const recon = useMemo(() => res ? posRecon(org, ops, res.days) : [], [res, org, ops]);
   const brName = (id) => (brs.find(b => b.id === id) || (org.branches || []).find(b => b.id === id) || {}).name || id;
   const appName = (id) => (apps.find(a => a.id === id) || {}).n || id;
   const full = recon.filter(x => !x.partial);
   const kp = { match: full.filter(x => x.st === 'match').length, mix: full.filter(x => x.st === 'mix').length, diff: full.filter(x => x.st === 'diff').length, noclose: full.filter(x => x.st === 'noclose').length,
     diffSum: posR2(full.filter(x => x.d).reduce((a, x) => a + x.d.total, 0)) };
+  // v39.4.1: خطة الحفظ معروضة قبل الضغط — بلا نافذة تأكيد من المتصفح (قد يكتمها بعض المتصفحات فيتوقف الحفظ صامتًا)،
+  // والأيام في شهر مقفل أو الجزئية تُستثنى وحدها بدل إيقاف الحفظ كله
+  const plan = useMemo(() => { if (!res) return null;
+    const all = res.days.filter(x => x.n || x.total); const part = all.filter(x => x.partial && !inclPartial); const rest = all.filter(x => inclPartial || !x.partial);
+    const locked = rest.filter(x => periodLocked(org, x.date)); const days = rest.filter(x => !periodLocked(org, x.date));
+    return { days, part, locked, exist: days.filter(x => (ops.posImports || []).some(y => y.branchId === x.branchId && y.date === x.date)), unmapped: res.issues.noBranch };
+  }, [res, inclPartial, org, ops]);
+  const [done, setDone] = useState(null);
   const save = async () => {
-    const days = res.days.filter(x => (x.n || x.total) && (inclPartial || !x.partial));
-    if (!days.length) return say('لا أيام كاملة للحفظ', 'no');
-    const lk = days.find(x => periodLocked(org, x.date)); if (lk) return say(LOCK_MSG(lk.date), 'no');
-    const closed = days.filter(x => (ops.closings || []).some(c => c.branchId === x.branchId && c.date === x.date && (c.status === 'submitted' || c.status === 'approved')));
-    const exist = days.filter(x => (ops.posImports || []).some(y => y.branchId === x.branchId && y.date === x.date));
-    if ((exist.length || closed.length) && !window.confirm((exist.length ? exist.length + ' يوم مستورد سابقًا وسيُستبدل. ' : '') + (closed.length ? closed.length + ' يوم له إغلاق مُرحّل (لن يتغير الإغلاق — الفروق تظهر في المطابقة). ' : '') + 'متابعة؟')) return;
+    const days = plan.days;
+    if (!days.length) return say(plan.locked.length ? 'كل الأيام في أشهر مقفلة محاسبيًا 🔒 — لا شيء للحفظ' : res.issues.noBranch ? 'لا أيام للحفظ — اربط فروع الملف بفروع ميزان أولًا' : 'لا أيام كاملة للحفظ — فعّل «احفظ الأيام الجزئية» إن أردت', 'no');
     const recs = days.map(x => ({ id: uid('pi'), branchId: x.branchId, date: x.date, n: x.n, total: x.total, vat: x.vat, cash: x.cash, card: x.card, transfer: x.transfer, apps: x.apps, nosCount: x.nos.length, nosSig: x.nos.length ? sha256Hex(x.nos.slice().sort().join('|')) : '', ...(x.partial ? { partial: x.partial } : {}), cutoff: st.cfg.cutoff || 0, file: st.name, by: me.name, at: nowISO() }));
     const ok = await commit(d => ({ ...d, posImports: [...(d.posImports || []).filter(y => !recs.some(r => r.branchId === y.branchId && r.date === y.date)), ...recs] }),
       { actionType: 'create', targetType: 'pos_import', targetId: recs[0] && recs[0].id, title: 'استيراد مبيعات نقاط البيع', details: st.name + ' · ' + recs.length + ' يوم/فرع · ' + money(recs.reduce((a, r) => a + r.total, 0)) });
     if (!ok) return;
     // حفظ الربط وساعة بداية اليوم لتصبح الرفعات القادمة تلقائية
     await commitOrg(d => ({ ...d, posImportMap: { br: { ...((d.posImportMap || {}).br || {}), ...st.cfg.brMap }, pay: { ...((d.posImportMap || {}).pay || {}), ...st.cfg.payMap }, cutoff: st.cfg.cutoff || 0 } }), { actionType: 'update', targetType: 'settings', targetId: 'posImportMap', title: 'حفظ ربط استيراد نقاط البيع', details: st.name });
-    say('استُورد ' + recs.length + ' يوم ✓ — الإغلاقات غير المسجّلة: افتح الإغلاق اليومي واضغط «تعبئة من نقطة البيع»'); setSt(null); setRes(null);
+    setDone({ n: recs.length, total: recs.reduce((a, r) => a + r.total, 0), file: st.name, skipped: plan.locked.length + plan.part.length });
+    say('حُفظ ' + recs.length + ' يوم ✓'); setSt(null); setRes(null);
   };
   const exportRecon = (rows) => { try {
     const head = ['التاريخ', 'الفرع', 'الحالة', 'الفواتير', 'نقطة البيع', 'الإغلاق', 'الفرق', 'نقدي (ن.ب)', 'نقدي (إغلاق)', 'فرق النقدي', 'شبكة (ن.ب)', 'شبكة (إغلاق)', 'فرق الشبكة', 'تطبيقات (ن.ب)', 'تطبيقات (إغلاق)', 'فرق التطبيقات'];
@@ -105,6 +110,7 @@ export function PosImport({ org, ops, me, myBranches, commit, commitOrg, say }) 
         {st.payVals.length > 0 && <><div className="lbl">ربط طرق الدفع</div><div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>{st.payVals.map(v => <Field key={v} label={v} style={{ marginBottom: 0 }}><select className="sel" value={st.cfg.payMap[v] || ''} onChange={e => setSt(x => ({ ...x, cfg: { ...x.cfg, payMap: { ...x.cfg.payMap, [v]: e.target.value } } }))}>{payOpts}</select></Field>)}</div></>}
         <button className="btn pri" onClick={run}><Scale size={14} />التجميع والمطابقة</button>
       </div>}
+      {done && !res && <div className="card pi-done"><Check size={18} color="var(--mint)" /><div><b>حُفظ الاستيراد: {done.n} يوم/فرع بإجمالي {money(done.total)}</b><small>{done.file}{done.skipped ? ' · استُثني ' + done.skipped + ' يوم (جزئي أو شهر مقفل)' : ''} — تجدها مع مطابقتها في «آخر الأيام المستوردة» أدناه، والإغلاقات غير المسجّلة تُعبّأ منها بـ«تعبئة من نقطة البيع».</small></div></div>}
       {res && <div className="card">
         <div className="card-h"><div className="card-t"><Scale size={15} color="var(--brass)" />المطابقة مع الإغلاق اليومي</div><button className="btn sm" onClick={() => exportRecon(recon)}><Download size={13} />Excel</button></div>
         <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
@@ -126,8 +132,15 @@ export function PosImport({ org, ops, me, myBranches, commit, commitOrg, say }) 
         <div className="pr-list">{recon.map(x => <ReconRow key={x.branchId + x.date} x={x} k={'n|' + x.branchId + x.date} />)}</div>
         <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center', marginTop: 10 }}>
           {res.days.some(x => x.partial) && <label className="row" style={{ gap: 6, fontSize: 12 }}><input type="checkbox" checked={inclPartial} onChange={e => setInclPartial(e.target.checked)} />احفظ الأيام الجزئية أيضًا ({res.days.filter(x => x.partial).length})</label>}
-          <button className="btn pri" onClick={save}><Check size={14} />حفظ الاستيراد</button>
+          <button className="btn pri" onClick={save} disabled={!plan || !plan.days.length}><Check size={14} />حفظ الاستيراد ({plan ? plan.days.length : 0} يوم)</button>
         </div>
+        {plan && <div className="pi-plan">
+          <span className="badge b-mint">سيُحفظ {plan.days.length} يوم/فرع · {money(plan.days.reduce((a, x) => a + x.total, 0))}</span>
+          {plan.exist.length > 0 && <span className="badge b-sky">{plan.exist.length} مستورد سابقًا سيُستبدل</span>}
+          {plan.part.length > 0 && <span className="badge b-dim">{plan.part.length} يوم جزئي لن يُحفظ</span>}
+          {plan.locked.length > 0 && <span className="badge b-amber">{plan.locked.length} يوم في شهر مقفل لن يُحفظ ({[...new Set(plan.locked.map(x => x.date.slice(0, 7)))].join('، ')})</span>}
+          {plan.unmapped > 0 && <span className="badge b-rose">{plan.unmapped} فاتورة لفرع غير مربوط لن تُحفظ — اربطه من «ربط الفروع» أعلاه</span>}
+        </div>}
         <div className="note" style={{ marginTop: 8 }}>الفرق = الإغلاق − نقطة البيع. «توزيع مختلف» يعني أن الإجمالي مطابق لكن الكاشير سجّل جزءًا من الشبكة نقدًا أو العكس — راجع عدّ الصندوق وتقرير جهاز الشبكة. الحفظ لا يغيّر أي إغلاق مسجّل؛ الإغلاقات غير المسجّلة تُعبّأ من الاستيراد.</div>
       </div>}
       <div className="card">
