@@ -324,3 +324,15 @@ test('التنبيهات المهمة: عقد إيجار بدفعاته يظهر
   await p.click('button:has-text("هذه السنة")'); await p.waitForTimeout(150); await noOverflow('تقرير المشتريات');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('تخطيط العمالة من التوقع: الشاشة على الجوال والإعداد يُحفظ', async () => {
+  const ctx = await browser.newContext(devices['iPhone 13']); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'live/Hub/admin/hr:staffplan'); await p.waitForTimeout(500); await settle(p);
+  const t = await p.locator('#r').innerText(); assert.ok(t.includes('ساعات مقترحة') && t.includes('كيف يُحسب؟'), 'الشاشة');
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true, 'لا تجاوز للجوال');
+  await p.click('button:has-text("الإعداد")'); await p.waitForTimeout(100);
+  await p.locator('.card input').first().fill('22'); await p.click('.card button:has-text("حفظ")'); await p.waitForTimeout(300);
+  assert.equal(await p.evaluate(() => window.curOrg.laborCfg.targetPct), 22);
+  assert.ok((await p.locator('#r').innerText()).includes('الهدف 22%'));
+  assert.deepEqual(errs, []); await ctx.close();
+});
