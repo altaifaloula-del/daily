@@ -39,6 +39,7 @@ export function SalesForecast({ org, ops, myBranches }) {
   const [open, setOpen] = useState(null);
   const F = useMemo(() => forecastSales(org, ops, { days: h, branchIds: (myBranches || []).map(b => b.id) }), [org, ops, myBranches, h]);
   const ready = F.branches.filter(b => b.days.length);
+  const tax = org.taxCfg || {}, vr = (Number(tax.rate) || 15) / 100;   // v38.9: الإيراد بعد الضريبة
   const lastN = ready.reduce((s, b) => s + b.past.slice(-h).reduce((a, p) => a + p.actual, 0), 0);
   const chg = lastN > 0 ? Math.round((F.total - lastN) / lastN * 1000) / 10 : null;
   const mapes = ready.map(b => b.mape).filter(m => m != null).sort((a, b) => a - b);
@@ -47,11 +48,13 @@ export function SalesForecast({ org, ops, myBranches }) {
     <div className="grid" style={{ gap: 12 }}>
       <div className="row" style={{ gap: 6 }}>{[[7, 'الأسبوع القادم'], [14, 'أسبوعان']].map(([d, l]) => <button key={d} className={'btn sm' + (h === d ? ' pri' : ' gh')} onClick={() => setH(d)}>{l}</button>)}</div>
       <div className="grid g4">
-        <Kpi label={'المبيعات المتوقعة (' + h + ' أيام)'} value={money(F.total)} sub={arDate(F.from) + ' ← ' + arDate(F.to)} icon={LineChart} color="#C8A24A" />
+        <Kpi label={'المبيعات المتوقعة (' + h + ' أيام)' + (tax.enabled ? ' — شاملة الضريبة' : '')} value={money(F.total)} sub={arDate(F.from) + ' ← ' + arDate(F.to)} icon={LineChart} color="#C8A24A" />
         <Kpi label={'مقابل آخر ' + h + ' أيام فعلية'} value={chg == null ? '—' : (chg > 0 ? '+' : '') + chg + '%'} sub={lastN ? money(lastN) + ' فعليًا' : 'لا بيانات'} icon={chg != null && chg < 0 ? TrendingDown : TrendingUp} color={chg != null && chg < 0 ? '#D9544D' : '#4FB286'} />
         <Kpi label="دقة التوقع (وسيط الفروع)" value={medMape == null ? '—' : (100 - medMape).toFixed(1) + '%'} sub={medMape == null ? 'تُقاس بعد 3 أسابيع من الإغلاقات' : 'متوسط الخطأ ' + medMape + '% على آخر 28 يومًا'} icon={Target} color="#5B93C4" />
         <Kpi label="فروع بتوقع" value={ready.length + '/' + F.branches.length} sub={F.branches.length - ready.length ? (F.branches.length - ready.length) + ' تحتاج تاريخًا أطول' : 'كل الفروع'} icon={CalendarDays} color="#9A7CC4" />
       </div>
+      {tax.enabled && F.total > 0 && <div className="note">الأرقام <b>شاملة ضريبة القيمة المضافة ({Math.round(vr * 100)}%)</b> كما تُحصَّل من العملاء — الإيراد المتوقع وفق IFRS 15 (بعد استبعاد الضريبة) <b className="num">{money(F.total / (1 + vr))}</b>،
+        والضريبة <b className="num">{money(F.total - F.total / (1 + vr))}</b> أمانة تُسدَّد للهيئة — يظهر أثرها النقدي في «التقارير ← التدفق النقدي».</div>}
       {!F.branches.length ? <div className="card"><div className="empty">لا فروع.</div></div> : F.branches.map(b => { const [ac, al] = accLbl(b.mape); const tr = b.days[0] ? b.days[0].trend : 0; return (
         <div key={b.id} className="card">
           <div className="card-h"><div className="card-t"><LineChart size={15} color="var(--brass)" />{b.name}</div>

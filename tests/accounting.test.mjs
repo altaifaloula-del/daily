@@ -315,7 +315,8 @@ test('الهدر المعتمد: قيد 5502 مدين مقابل حساب مخز
 
 // ===== v38.5 — صيانة النظام: فحوص سلامة البيانات =====
 test('فحوص السلامة: بيانات سليمة ← كل الفحوص سليمة', () => {
-  const org = baseOrg({ items: [{ id: 'i1', name: 'لحم', unit: 'كجم' }], products: [{ id: 'p1', name: 'وجبة', parts: [{ itemId: 'i1', qty: 1 }] }] });
+  const org = baseOrg({ items: [{ id: 'i1', name: 'لحم', unit: 'كجم' }], products: [{ id: 'p1', name: 'وجبة', parts: [{ itemId: 'i1', qty: 1 }] }],
+    cashflowCfg: { vatFreq: 'monthly', fyEnd: '12-31', sched: [{ id: 'z', kind: 'zakat', amount: 1, date: '2099-01-01', every: 'once' }] } });
   const ops = { closings: [{ id: 'c1', branchId: 'b1', date: '2099-01-01', status: 'approved', totalRevenue: 100 }], invoices: [] };
   const C = E.integrityChecks(org, ops);
   assert.deepEqual(C.filter(c => c.st !== 'ok').map(c => c.id), []);
@@ -427,4 +428,91 @@ test('التوقع: يوم شاذ في التاريخ لا يشوّه التوق
   const up = Array.from({ length: 63 }, (_, k) => ({ id: 'u' + k, branchId: 'b1', date: dAgo(k), status: 'approved', totalRevenue: k < 28 ? 6000 : 5000 }));
   const G = E.forecastSales(anOrg(), { closings: up }, { today: TD, days: 7 }).branches[0];
   assert.ok(G.days[0].trend > 0 && G.days[0].trend <= 15, 'اتجاه صاعد محصور: ' + G.days[0].trend);
+});
+
+// ===== v38.9 — التدفق النقدي المرتبط بالتوقع =====
+const cfCl = (k, x = {}) => ({ id: 'cf' + k, branchId: 'b1', branchName: 'العليا', date: dAgo(k), status: 'approved', cashSales: 5000, cardSales: 1000, bankTransferSales: 0,
+  deliverySales: [{ appId: 'hs', amount: 1000 }], totalRevenue: 7000, expenses: [{ id: 'e' + k, amount: 700, paymentMethod: 'cash', categoryName: 'تشغيل' }], ...x });
+const cfOrg = (x = {}) => baseOrg({ taxCfg: { enabled: false }, deliveryApps: [{ id: 'hs', n: 'هنقرستيشن', c: 20 }], ...x });
+const cfSum = (F, kind) => Math.round(F.items.filter(i => i.kind === kind).reduce((s, i) => s + i.amount, 0) * 100) / 100;
+
+test('التدفق النقدي: الافتتاحي من النقد في الدفاتر، والمبيعات المتوقعة بمزيج التحصيل الفعلي، والتطبيق بعد العمولة والتسوية', () => {
+  const cl = Array.from({ length: 63 }, (_, k) => cfCl(k));
+  const F = E.cashForecast(cfOrg(), { closings: cl }, { today: TD, cfg: { appLag: { hs: 7 } } });
+  assert.equal(F.opening, 63 * (6000 - 700), 'نقد + شبكة − مصروفات نقدية');
+  assert.equal(F.weeks.length, 13);
+  assert.equal(cfSum(F, 'sales'), 90 * 6000, '90 يومًا × (نقد وشبكة 6000)');
+  assert.equal(cfSum(F, 'opex'), 90 * 700, 'المصروفات 10% من المبيعات');
+  const appFuture = F.items.filter(i => i.kind === 'apps' && !i.label.includes('القائم'));
+  assert.ok(appFuture.every(i => Math.abs(i.amount - 800) < 0.01), 'صافي التطبيق بعد عمولة 20%');
+  assert.equal(appFuture[0].date, '2026-11-18', 'أول تحصيل = أول يوم متوقع + 7 أيام');
+  assert.equal(cfSum({ items: F.items.filter(i => i.label.includes('القائم')) }, 'apps'), 63 * 800, 'رصيد الذمة القائم يُحصَّل كاملًا');
+  const last = F.weeks[12]; assert.equal(last.bal, Math.round((F.opening + F.weeks.reduce((s, w) => s + w.net, 0)) * 100) / 100);
+  assert.ok(F.minLo.v <= F.min.v, 'الحالة المتحفظة لا تتجاوز الأساسية');
+});
+
+test('التدفق النقدي: مدة تسوية التطبيق تُستنتج من رصيد الذمة ÷ الصافي اليومي، والتأخر الطويل يُنبَّه عليه', () => {
+  const cl = Array.from({ length: 63 }, (_, k) => cfCl(k));
+  const F = E.cashForecast(cfOrg(), { closings: cl }, { today: TD });
+  assert.equal(F.basis.apps.hs.lag, 60, 'محصورة بـ60 يومًا');
+  assert.ok(F.notes.some(n => n.msg.includes('تسويات متأخرة')));
+});
+
+test('التدفق النقدي: ض.ق.م — إقرار مقفل غير مسدد يُسدَّد بنهاية الشهر التالي، والفترة المفتوحة = الدفاتر + المتوقع', () => {
+  const cl = Array.from({ length: 63 }, (_, k) => cfCl(k, { cashSales: 5900, deliverySales: [], totalRevenue: 6900, expenses: [] }));
+  const org = baseOrg({ taxCfg: { enabled: true, rate: 15 } });
+  const jm = [{ id: 'vc1', date: '2026-10-31', title: 'إقفال', lines: [], vatClose: { from: '2026-10-01', to: '2026-10-31', out: 9000, inn: 0, net: 9000, rate: 15 } }];
+  const F = E.cashForecast(org, { closings: cl, journalManual: jm }, { today: TD });
+  const v = F.items.filter(i => i.kind === 'vat');
+  assert.deepEqual(v.map(i => [i.date, i.amount]), [['2026-11-30', 9000], ['2026-12-31', 30 * 900], ['2027-01-31', 31 * 900]]);
+  assert.equal(F.basis.vat.src, 'مستنتجة من آخر إقرار مقفل');
+  const paid = [...jm, { id: 'vp1', date: '2026-11-05', lines: [], vatPay: { closeId: 'vc1', amount: 9000 } }];
+  assert.equal(E.cashForecast(org, { closings: cl, journalManual: paid }, { today: TD }).items.filter(i => i.kind === 'vat').length, 2, 'المسدَّد لا يتكرر');
+  const late = E.cashForecast(org, { closings: cl, journalManual: jm }, { today: '2026-12-05' });
+  assert.ok(late.notes.some(n => n.sev === 'bad' && n.msg.includes('تجاوزت موعد السداد')));
+});
+
+test('التدفق النقدي: الضريبة بلا دورية معروفة لا تُفترض، ورقم ضريبي مع ضريبة غير مفعّلة خلل', () => {
+  const cl = Array.from({ length: 30 }, (_, k) => cfCl(k, { deliverySales: [], totalRevenue: 6000 }));
+  const F = E.cashForecast(baseOrg(), { closings: cl }, { today: TD });
+  assert.equal(F.items.filter(i => i.kind === 'vat').length, 0);
+  assert.ok(F.notes.some(n => n.msg.includes('دورية إقرار')));
+  const G = E.cashForecast(baseOrg(), { closings: cl }, { today: TD, cfg: { vatFreq: 'quarterly' } });
+  assert.deepEqual(G.items.filter(i => i.kind === 'vat').map(i => i.date), ['2027-01-31'], 'الربع أكتوبر–ديسمبر يُسدَّد بنهاية يناير');
+  const H = E.cashForecast(baseOrg({ taxCfg: { enabled: false }, company: { name: 'x', taxNumber: '300000000000003' } }), { closings: cl }, { today: TD });
+  assert.ok(H.notes.some(n => n.sev === 'bad' && n.msg.includes('رقم ضريبي')));
+});
+
+test('التدفق النقدي: الذمم بتواريخ استحقاقها — الدائنة المتأخرة فورًا، والمدينة المتأخرة لا تُدرج (IFRS 9)', () => {
+  const org = cfOrg({ suppliers: [{ id: 's1', name: 'مورد', terms: 30 }], partners: [{ id: 'c1', name: 'عميل', type: 'customer' }] });
+  const ops = { closings: [], invoices: [{ id: 'i1', supplierId: 's1', supplierName: 'مورد', invoiceNo: '1', amount: 5000, date: dAgo(40), dueDate: dAgo(10) }, { id: 'i2', supplierId: 's1', supplierName: 'مورد', invoiceNo: '2', amount: 3000, date: dAgo(1), dueDate: '2026-11-30' }],
+    salesInvoices: [{ id: 'si1', no: 'S1', customerKey: 'cust:c1', terms: 'credit', total: 2000, date: dAgo(50), dueDate: dAgo(20) }, { id: 'si2', no: 'S2', customerKey: 'cust:c1', terms: 'credit', total: 1500, date: dAgo(2), dueDate: '2026-11-25' }] };
+  const F = E.cashForecast(org, ops, { today: TD });
+  assert.deepEqual(F.items.filter(i => i.kind === 'ap').map(i => [i.date, i.amount]), [[TD, 5000], ['2026-11-30', 3000]]);
+  assert.deepEqual(F.items.filter(i => i.kind === 'ar').map(i => [i.date, i.amount]), [['2026-11-25', 1500]]);
+  assert.equal(F.basis.ar.over, 2000);
+  const G = E.cashForecast(org, ops, { today: TD, cfg: { includeOverdueAR: true } });
+  assert.equal(cfSum(G, 'ar'), 3500, 'إدراج المتأخر بقرار صريح');
+});
+
+test('التدفق النقدي: الرواتب من البطاقات والتأمينات في 15 الشهر التالي، والزكاة تُذكَّر بها قبل 120 يومًا', () => {
+  const org = cfOrg({ gosiCfg: { enabled: true }, employees: [{ id: 'e1', name: 'سعد', baseSalary: 6000, housingAllowance: 1500, nationality: 'saudi', gosiSubject: true, hireDate: '2020-01-01' }] });
+  const F = E.cashForecast(org, { closings: [] }, { today: TD });
+  assert.deepEqual(F.items.filter(i => i.kind === 'payroll').map(i => [i.date, i.amount]), [['2026-11-30', 6768.75], ['2026-12-31', 6768.75], ['2027-01-31', 6768.75]]);
+  assert.deepEqual(F.items.filter(i => i.kind === 'gosi').map(i => [i.date, i.amount]), [['2026-12-15', 1612.5], ['2027-01-15', 1612.5]]);
+  const z = E.cashForecast(org, { closings: [] }, { today: '2027-02-01', cfg: { fyEnd: '12-31' } });
+  assert.ok(z.notes.some(n => n.msg.includes('الزكاة') && n.msg.includes('2027-04-30')));
+  const z2 = E.cashForecast(org, { closings: [] }, { today: '2027-02-01', cfg: { fyEnd: '12-31', sched: [{ id: 'z', kind: 'zakat', amount: 40000, date: '2027-04-20', every: 'once' }, { id: 'r', kind: 'rent', label: 'إيجار العليا', amount: 10000, date: '2027-02-05', every: 'monthly' }] } });
+  assert.ok(!z2.notes.some(n => n.msg.includes('إقرار الزكاة')));
+  assert.deepEqual(z2.items.filter(i => i.kind === 'sched').map(i => [i.date, i.amount]), [['2027-02-05', 10000], ['2027-03-05', 10000], ['2027-04-05', 10000], ['2027-04-20', 40000]]);
+});
+
+test('فحوص السلامة (v38.9): إقرار ضريبي متأخر، ورقم ضريبي بلا احتساب، والزكاة بلا نهاية سنة مالية', () => {
+  const jm = [{ id: 'vc1', date: '2020-01-31', lines: [], vatClose: { from: '2020-01-01', to: '2020-01-31', out: 500, inn: 0, net: 500 } }];
+  const C = Object.fromEntries(E.integrityChecks(baseOrg(), { closings: [], journalManual: jm }).map(c => [c.id, c]));
+  assert.equal(C.vat.st, 'bad'); assert.match(C.vat.items[0], /2020-01-01 ← 2020-01-31/);
+  assert.equal(C.zakat.st, 'warn');
+  const D = Object.fromEntries(E.integrityChecks(baseOrg({ taxCfg: { enabled: false }, company: { name: 'x', taxNumber: '300000000000003' } }), { closings: [] }).map(c => [c.id, c]));
+  assert.equal(D.vat.st, 'bad');
+  assert.equal(D.cash.st, 'ok');
 });

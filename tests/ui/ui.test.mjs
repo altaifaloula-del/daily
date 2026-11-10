@@ -243,3 +243,25 @@ test('توقع المبيعات: الشاشة في مركز التحليل وف�
     assert.deepEqual(errs, [], h); await ctx.close();
   }
 });
+
+test('التدفق النقدي المتوقع: يُعرض على الجوال، تتفتح الأسابيع، والالتزام المجدول يغيّر المعاينة ويُحفظ', async () => {
+  const ctx = await browser.newContext(devices['iPhone 13']); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'live/Hub/admin/reporting:cashflow'); await p.waitForTimeout(500); await settle(p);
+  const txt = await p.locator('#r').innerText();
+  assert.ok(txt.includes('التدفق النقدي المتوقع') && txt.includes('النقد الآن') && txt.includes('المنهج'), 'الشاشة');
+  assert.equal(await p.locator('.cf-wk').count(), 13);
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true, 'لا تجاوز للجوال');
+  await p.locator('.cf-wh').first().click(); await p.waitForTimeout(150);
+  assert.ok(await p.locator('.cf-wb').count() === 1, 'تفاصيل الأسبوع');
+  const before = await p.locator('#r').innerText();
+  await p.click('button:has-text("الإعداد")'); await p.waitForTimeout(150);
+  await p.click('button:has-text("إضافة التزام")'); await p.waitForTimeout(100);
+  const row = p.locator('.cf-srow').first();
+  await row.locator('input').nth(0).fill('إيجار العليا'); await row.locator('input').nth(1).fill('25000'); await p.waitForTimeout(200);
+  assert.notEqual(await p.locator('#r').innerText(), before, 'المعاينة تتغير قبل الحفظ');
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true, 'نموذج الالتزام على الجوال');
+  await p.click('.card button:has-text("حفظ")'); await p.waitForTimeout(300);
+  const s = await p.evaluate(() => (window.curOrg.cashflowCfg || {}).sched || []);
+  assert.deepEqual(s.map(x => [x.label, x.amount, x.every]), [['إيجار العليا', 25000, 'monthly']]);
+  assert.deepEqual(errs, []); await ctx.close();
+});
