@@ -47,7 +47,9 @@ export function Workforce({ org, ops, me, myBranches, scoped, commit, commitOrg,
 
   const rowHours = (empId) => r2(sum(D7, di => effOf(empId, di)));
   const rowCost = (e) => r2(rowHours(e.id) * rateOf(e));
-  const daySales = (di) => r2(sum((scoped.closings || []).filter(c => countedClosing(c) && c.date === days[di] && ids.includes(c.branchId)), c => (c.cashSales || 0) + (c.cardSales || 0) + sum(c.deliverySales || [], s => s.amount || 0)));
+  // v39.2: نسبة العمالة على صافي المبيعات بعد استبعاد ضريبة القيمة المضافة (الإيراد وفق IFRS 15) — كانت على الإجمالي فتظهر أقل بنحو 13%
+  const vatF = (org.taxCfg || {}).enabled ? 1 + (Number((org.taxCfg || {}).rate) || 15) / 100 : 1;
+  const daySales = (di) => r2(sum((scoped.closings || []).filter(c => countedClosing(c) && c.date === days[di] && ids.includes(c.branchId)), c => (c.cashSales || 0) + (c.cardSales || 0) + (c.bankTransferSales || 0) + sum(c.deliverySales || [], s => s.amount || 0)) / vatF);
   const dayHours = (di) => r2(sum(emps, e => effOf(e.id, di)));
   const dayCost = (di) => r2(sum(emps, e => effOf(e.id, di) * rateOf(e)));
   const allAvgRate = emps.length ? r2(sum(emps, rateOf) / emps.length) : 0;
@@ -212,7 +214,7 @@ export function Workforce({ org, ops, me, myBranches, scoped, commit, commitOrg,
           </div>
         </div>
 
-        <div className="note">💡 <b>نسبة العمالة</b> = تكلفة ساعات العمل ÷ المبيعات (هدفك <b>{targetPct}%</b> — اضبطه من «الإعدادات»). <b>الأجر/الساعة</b> لكل موظف = (الأساسي + البدلات) ÷ الساعات الشهرية المعيارية ({stdH}). <b>الساعات المقترحة</b> = مبيعات اليوم × الهدف ÷ متوسط الأجر/الساعة. {weekPct == null ? 'سجّل مبيعات الأيام (من الإغلاق) لاحتساب النسبة.' : weekPct > targetPct ? <>نسبة أسبوعك <b>{weekPct}%</b> أعلى من هدفك — يمكن خفض نحو <b>{cutHours}</b> ساعة أسبوعياً للوصول للهدف.</> : <>نسبة أسبوعك <b>{weekPct}%</b> ضمن هدفك — توزيع عمالة جيّد 👍</>}{gapDays > 0 ? ' وهناك أيام فيها مبيعات دون تسجيل ساعات — راجعها.' : ''} كل الأرقام من ساعاتك المُدخلة ومن مبيعات إغلاقاتك المعتمدة — بلا افتراض.</div>
+        <div className="note">💡 <b>نسبة العمالة</b> = تكلفة ساعات العمل ÷ صافي المبيعات بعد الضريبة (هدفك <b>{targetPct}%</b> — اضبطه من «الإعدادات»). <b>الأجر/الساعة</b> لكل موظف = (الأساسي + البدلات) ÷ الساعات الشهرية المعيارية ({stdH}). <b>الساعات المقترحة</b> = مبيعات اليوم × الهدف ÷ متوسط الأجر/الساعة. {weekPct == null ? 'سجّل مبيعات الأيام (من الإغلاق) لاحتساب النسبة.' : weekPct > targetPct ? <>نسبة أسبوعك <b>{weekPct}%</b> أعلى من هدفك — يمكن خفض نحو <b>{cutHours}</b> ساعة أسبوعياً للوصول للهدف.</> : <>نسبة أسبوعك <b>{weekPct}%</b> ضمن هدفك — توزيع عمالة جيّد 👍</>}{gapDays > 0 ? ' وهناك أيام فيها مبيعات دون تسجيل ساعات — راجعها.' : ''} كل الأرقام من ساعاتك المُدخلة ومن مبيعات إغلاقاتك المعتمدة — بلا افتراض.</div>
       </>}
 
       {setOpen && (

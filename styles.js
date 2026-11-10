@@ -1551,4 +1551,15 @@ html,body{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .rp-pm{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px;margin-bottom:10px}
 .rp-pmc{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;font-size:11.5px;color:var(--dim)}.rp-pmc b{color:var(--txt);font-size:13px}
 .rp-sup{border-bottom:1px solid var(--line)}
+
+/* v39.2 — تخطيط العمالة */
+.sp-day{padding:10px 12px}
+.sp-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:6px}.sp-h small{color:var(--dim)}
+.sp-m{font-size:11.5px;color:var(--dim)}.sp-m b{color:var(--txt)}
+.sp-rows{display:flex;flex-direction:column}
+.sp-row{display:flex;align-items:center;gap:10px;padding:7px 4px;border-top:1px solid var(--line)}
+.sp-row.short{background:rgba(217,84,77,.05)}.sp-row.over{background:rgba(224,164,88,.05)}
+.sp-a{display:flex;flex-direction:column;flex:1 1 auto;min-width:0;font-size:12.5px}.sp-a small{font-size:10.5px;color:var(--dim)}
+.sp-n{display:flex;flex-direction:column;align-items:center;flex:0 0 48px}.sp-n small{font-size:9.5px;color:var(--dim)}.sp-n b{font-size:15px}
+.sp-g{flex:0 0 72px;display:flex;justify-content:flex-end}
 `;

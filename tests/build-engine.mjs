@@ -21,7 +21,9 @@ export const ENGINE_EXPORTS = ['buildAccounting', 'buildPartners', 'stockByWh', 
   // v39.0 — الشراء من التوقع
   'purchasePlan',
   // v39.1 — التنبيهات المهمة والتقارير
-  'complianceItems', 'leaseSchedule', 'vatRegister', 'supplierPurchReport'];
+  'complianceItems', 'leaseSchedule', 'vatRegister', 'supplierPurchReport',
+  // v39.2 — تخطيط العمالة
+  'staffingPlan'];
 
 export async function buildEngine() {
   fs.mkdirSync(cache, { recursive: true });

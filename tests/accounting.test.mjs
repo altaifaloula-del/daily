@@ -582,3 +582,23 @@ test('مشتريات الموردين حسب طريقة الدفع وسدادا�
   assert.equal(r.buyTot, 1950);
   assert.deepEqual(r.pay, { cash: 200, card: 0, transfer: 850, cheque: 0, deferred: 0, other: 0 });
 });
+
+// ===== v39.2 — تخطيط العمالة من التوقع =====
+test('تخطيط العمالة: ميزانية الساعات من صافي المبيعات المتوقعة (بعد الضريبة) × النسبة المستهدفة ÷ تكلفة الساعة، موزعة على الورديات ومقارنة بالتعيين', () => {
+  const org = baseOrg({ taxCfg: { enabled: true, rate: 15 }, employees: [{ id: 'e1', name: 'أ', branchId: 'b1', baseSalary: 4160 }, { id: 'e2', name: 'ب', branchId: 'b1', baseSalary: 4160 }] });
+  const closings = Array.from({ length: 63 }, (_, k) => ({ id: 'c' + k, branchId: 'b1', date: dAgo(k), status: 'approved', totalRevenue: 6900 }));
+  const shiftTemplates = [{ id: 'm', branchId: 'b1', name: 'صباحية', startTime: '08:00', endTime: '16:00', breakMinutes: 0, days: [0, 1, 2, 3, 4, 5, 6] }, { id: 'n', branchId: 'b1', name: 'مسائية', startTime: '16:00', endTime: '00:00', breakMinutes: 0, days: [0, 1, 2, 3, 4, 5, 6] }];
+  const d1 = '2026-11-11';
+  const shiftAssignments = ['a', 'b', 'c'].map(x => ({ id: x, branchId: 'b1', weekStart: d1, empId: x, shiftIds: ['m', '', '', '', '', '', ''] }));
+  const S = E.staffingPlan(org, { closings, shiftTemplates, shiftAssignments }, { today: TD, days: 7 });
+  const b = S.branches[0], d = b.days[0];
+  assert.equal(b.rate, 20, '4160 ÷ 208');
+  assert.equal(d.net, 6000, 'الإيراد بعد استبعاد الضريبة'); assert.equal(d.budget, 1500); assert.equal(d.needH, 75);
+  assert.deepEqual(d.shifts.map(s => [s.name, s.paid, s.exact, s.staff, s.assigned, s.gap]), [['صباحية', 8, 4.7, 5, 3, -2], ['مسائية', 8, 4.7, 5, 0, -5]]);
+  assert.equal(d.asgPct, Math.round(3 * 8 * 20 / 6000 * 1000) / 10, 'نسبة العمالة بالتعيين الحالي');
+  // مبيعات نقطة البيع كلها مسائية ← الاحتياج ينتقل للمسائية والصباحية بالحد الأدنى
+  const day = new Date(TD + 'T12:00:00').getDay();   // يوم فواتير نقطة البيع
+  const posOrders = Array.from({ length: 60 }, (_, k) => { const dt = dAgo(7 * (1 + (k % 3))); return { id: 'p' + k, branchId: 'b1', date: dt, at: dt + 'T19:00:00', total: 100, status: 'paid' }; });
+  const P = E.staffingPlan(org, { closings, shiftTemplates, posOrders }, { today: TD, days: 7 }).branches[0].days.find(x => x.dow === day);
+  assert.deepEqual(P.shifts.map(s => s.staff), [1, 9], 'المسائية 75 ÷ 8 ≈ 9، الصباحية بالحد الأدنى');
+});

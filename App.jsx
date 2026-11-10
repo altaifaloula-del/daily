@@ -58,6 +58,7 @@ const GrowthAnalytics = lazyComp(() => import('./mods/acct/GrowthAnalytics.jsx')
 const EntitiesCenter = lazyComp(() => import('./mods/acct/EntitiesCenter.jsx'), 'EntitiesCenter');
 const ReportBuilder = lazyComp(() => import('./mods/acct/ReportBuilder.jsx'), 'ReportBuilder');
 const ExecDashboard = lazyComp(() => import('./mods/acct/ExecDashboard.jsx'), 'ExecDashboard');
+const StaffingPlan = lazyComp(() => import('./mods/hr/StaffingPlan.jsx'), 'StaffingPlan');   // v39.2
 const SupplierPurchReport = lazyComp(() => import('./mods/acct/TaxPurchReports.jsx'), 'SupplierPurchReport');   // v39.1
 const SalesForecast = lazyComp(() => import('./mods/acct/SalesForecast.jsx'), 'SalesForecast');   // v38.8
 const ActionsBoard = lazyComp(() => import('./mods/acct/ActionsBoard.jsx'), 'ActionsBoard');   // v38.7
@@ -2792,7 +2793,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v39.1';
+const APP_VER = 'v39.2';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3785,7 +3786,7 @@ function PlatformApp() {
   const shared = { org, ops, pulse, me, myBranches, scoped, commit, commitOrg, say, setTab, theme, acctIntent, openAcctView, invIntent, openInvView };
 
   // حماية: منع الوصول لتبويب غير مسموح لدور المستخدم (بلا hook — بعد returns الشرطية)
-  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'closing') ? ['myactions', 'myforecast'] : []), ...(NAV.some(n => n.id === 'closing') && (ROLES[me.role]?.approver || ROLES[me.role]?.admin || ROLES[me.role]?.scope === 'all') ? ['cashiers'] : []), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'anomaly', 'actions', 'forecast'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : []), ...(NAV.some(n => n.id === 'people') ? ['payroll', 'workforce', 'muster', 'overtime'] : []), ...(NAV.some(n => n.id === 'purchasing') ? ['suppliers', 'reorder', 'suprep'] : []), ...(NAV.some(n => n.id === 'hrops') ? ['attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'esign'] : []), ...(NAV.some(n => n.id === 'hrperf') ? ['kpi', 'empfile', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'] : [])];
+  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'closing') ? ['myactions', 'myforecast'] : []), ...(NAV.some(n => n.id === 'closing') && (ROLES[me.role]?.approver || ROLES[me.role]?.admin || ROLES[me.role]?.scope === 'all') ? ['cashiers'] : []), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'anomaly', 'actions', 'forecast'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : []), ...(NAV.some(n => n.id === 'people') ? ['payroll', 'workforce', 'muster', 'overtime'] : []), ...(NAV.some(n => n.id === 'purchasing') ? ['suppliers', 'reorder', 'suprep'] : []), ...(NAV.some(n => n.id === 'hrops') ? ['attendance', 'leaves', 'shiftengine', 'staffplan', 'tasks', 'points', 'esign'] : []), ...(NAV.some(n => n.id === 'hrperf') ? ['kpi', 'empfile', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'] : [])];
   const safeTab = allowedTabs.includes(tab) ? tab : (allowedTabs[0] || 'closing');
 
   return (
@@ -5285,6 +5286,66 @@ function cashForecast(org, ops, opts = {}) {
   const mn = (key) => weeks.reduce((m, w) => (w[key] < m.v ? { v: w[key], k: w.k } : m), { v: opening, k: -1 });
   return { today: td, end, opening, weeks, items, notes, basis, min: mn('bal'), minLo: mn('balLo'), gaps: weeks.filter(w => w.bal < -0.004).length, gapsLo: weeks.filter(w => w.balLo < -0.004).length };
 }
+/* ============================================================
+   v39.2 — تخطيط العمالة من التوقع: كم موظفًا في كل وردية
+   ميزانية الساعات اليومية = صافي المبيعات المتوقعة (بعد الضريبة) × نسبة العمالة المستهدفة ÷ تكلفة الساعة
+   (الأجر + بدلات + حصة صاحب العمل في التأمينات ÷ الساعات الشهرية المعيارية).
+   تُوزَّع على الورديات بحسب مبيعات كل ساعة من نقطة البيع (آخر 28 يومًا لنفس يوم الأسبوع)، أو بطول الوردية إن لم تتوفر،
+   وتُقارن بالتعيين الفعلي في «محرّك الورديات».
+   ============================================================ */
+const stHM = (t) => { const [h, m] = String(t || '00:00').split(':').map(Number); return (h || 0) * 60 + (m || 0); };
+const stSpan = (t) => { const s = stHM(t.startTime), e0 = stHM(t.endTime), e = e0 <= s ? e0 + 1440 : e0; return { s, e, paid: Math.max(0, (e - s - (Number(t.breakMinutes) || 0)) / 60) }; };
+function staffingPlan(org, ops, opts = {}) {
+  const td = opts.today || today(), H = opts.days || 7;
+  const lc = org.laborCfg || {};
+  const target = Number(lc.targetPct != null ? lc.targetPct : 25) || 25, stdH = Number(lc.stdMonthlyHours) || 208, minPer = lc.minPerShift != null ? Math.max(0, Number(lc.minPerShift) || 0) : 1;
+  const tax = org.taxCfg || {}, vr = tax.enabled ? (Number(tax.rate) || 15) / 100 : 0;
+  const gosiOn = !!(org.gosiCfg || {}).enabled;
+  const F = forecastSales(org, ops, { today: td, days: H, branchIds: opts.branchIds });
+  const from28 = anDay(td, -27);
+  const out = F.branches.map(b => {
+    const notes = [];
+    const emps = (org.employees || []).filter(e => e.isActive !== false && e.status !== 'terminated' && e.branchId === b.id);
+    const costOf = (e) => { const g = (e.baseSalary || 0) + (e.housingAllowance || 0) + (e.transportAllowance || 0) + (e.otherAllowance || 0); const gr = gosiRatesFor(e, org.gosiCfg); return g + (gosiOn && e.gosiSubject ? gr.base * gr.er / 100 : 0); };
+    const paidEmps = emps.filter(e => costOf(e) > 0);
+    const rate = paidEmps.length ? sum(paidEmps, e => costOf(e) / stdH) / paidEmps.length : null;
+    if (rate == null) notes.push({ sev: 'warn', msg: 'لا رواتب مسجّلة لموظفي الفرع — لا يمكن حساب تكلفة الساعة وميزانية الساعات' });
+    const tpls = (ops.shiftTemplates || []).filter(t => t.branchId === b.id).map(t => ({ ...t, ...stSpan(t) })).filter(t => t.paid > 0);
+    if (!tpls.length) notes.push({ sev: 'warn', msg: 'لا قوالب ورديات للفرع — يظهر الاحتياج اليومي فقط؛ أضف القوالب من «محرّك الورديات»' });
+    // مبيعات كل ساعة لكل يوم أسبوع من نقطة البيع
+    const os = (ops.posOrders || []).filter(o => o.branchId === b.id && o.status !== 'void' && (o.date || '') >= from28 && (o.date || '') <= td && o.at);
+    const hw = Array.from({ length: 7 }, () => Array(24).fill(0));
+    os.forEach(o => { const d = new Date(o.at); if (isNaN(d)) return; hw[new Date((o.date || td) + 'T12:00:00').getDay()][d.getHours()] += Number(o.total) || 0; });
+    const posOk = os.length >= 50;
+    if (!posOk && tpls.length > 1) notes.push({ sev: 'info', msg: 'لا تكفي فواتير نقطة البيع (' + os.length + ' في 28 يومًا) لمعرفة مبيعات كل ساعة — تُوزَّع الساعات على الورديات بحسب طولها' });
+    // الإنتاجية الفعلية: صافي المبيعات لكل ساعة عمل من الحضور الموثّق (آخر 28 يومًا)
+    let attH = 0; const attD = new Set();
+    emps.forEach(e => { const evs = (ops.attendanceEvents || []).filter(x => x.employeeId === e.id && (x.at || '').slice(0, 10) >= from28 && (x.at || '').slice(0, 10) <= td);
+      const byD = {}; evs.forEach(x => { (byD[x.at.slice(0, 10)] = byD[x.at.slice(0, 10)] || []).push(x); });
+      Object.entries(byD).forEach(([d, l]) => { l.sort((a, c) => (a.at < c.at ? -1 : 1)); const fi = l.find(x => x.type === 'in'), lo = l.filter(x => x.type === 'out').pop(); if (fi && lo && lo.at > fi.at) { attH += (new Date(lo.at) - new Date(fi.at)) / 36e5; attD.add(d); } }); });
+    const sales28 = sum((ops.closings || []).filter(c => countedClosing(c) && c.branchId === b.id && c.date >= from28 && c.date <= td), c => Number(c.totalRevenue) || 0) / (1 + vr);
+    const splh = attD.size >= 7 && attH > 0 ? anR(sales28 / attH) : null;
+    const asgOf = (date) => { const r = (ops.shiftAssignments || []).filter(a => a.branchId === b.id && a.weekStart <= date && anDay(a.weekStart, 6) >= date); const out2 = {};
+      r.forEach(a => { const id = (a.shiftIds || [])[cfDiff(a.weekStart, date)]; if (id) out2[id] = (out2[id] || 0) + 1; }); return out2; };
+    const days = b.days.map(d => {
+      const net = d.f / (1 + vr), budget = net * target / 100, needH = rate ? budget / rate : null;
+      const act = tpls.filter(t => (t.days || [0, 1, 2, 3, 4, 5, 6]).map(Number).includes(d.dow));
+      let w = act.map(t => { if (!posOk) return t.paid; let s = 0; for (let m = t.s; m < t.e; m += 60) { const h = Math.floor(m / 60) % 24; const cover = act.filter(u => { for (let k = u.s; k < u.e; k += 60) if (Math.floor(k / 60) % 24 === h) return true; return false; }).length || 1; s += hw[d.dow][h] / cover; } return s; });
+      if (!(sum(w, x => x) > 0)) w = act.map(t => t.paid);
+      const W = sum(w, x => x) || 1; const asg = asgOf(d.date);
+      const shifts = act.map((t, i) => { const share = w[i] / W, nh = needH != null ? needH * share : null, exact = nh != null ? nh / t.paid : null;
+        const staff = exact != null ? Math.max(minPer, Math.round(exact)) : null, assigned = asg[t.id] || 0;
+        return { id: t.id, name: t.name, startTime: t.startTime, endTime: t.endTime, paid: anR(t.paid), share: Math.round(share * 1000) / 10, needH: nh != null ? anR(nh) : null, exact: exact != null ? Math.round(exact * 10) / 10 : null, staff, assigned, gap: staff != null ? assigned - staff : null }; });
+      const asgH = sum(shifts, s => s.assigned * s.paid), sugH = sum(shifts, s => (s.staff || 0) * s.paid);
+      return { date: d.date, dow: d.dow, dowAr: d.dowAr, f: d.f, net: anR(net), budget: anR(budget), needH: needH != null ? anR(needH) : null, shifts, asgH: anR(asgH), sugH: anR(sugH),
+        asgPct: net > 0 && rate ? Math.round(asgH * rate / net * 1000) / 10 : null, sugPct: net > 0 && rate ? Math.round(sugH * rate / net * 1000) / 10 : null };
+    });
+    if (!b.days.length) notes.push({ sev: 'warn', msg: 'لا يكفي التاريخ لتوقع المبيعات (يلزم 3 أسابيع من الإغلاقات)' });
+    return { id: b.id, name: b.name, emps: emps.length, rate: rate != null ? anR(rate) : null, splh, posOk, tpls: tpls.length, days, notes,
+      short: sum(days, d => sum(d.shifts, s => s.gap != null && s.gap < 0 ? 1 : 0)), over: sum(days, d => sum(d.shifts, s => s.gap != null && s.gap > 0 ? 1 : 0)) };
+  });
+  return { today: td, days: H, target, targetSrc: lc.targetPct != null ? 'من الإعداد' : 'الافتراضي', stdH, minPer, vat: vr > 0, branches: out };
+}
 function computeSmartAlerts(org, ops, myBranches, deficitThreshold = deficitCfg(org).max) {
   const alerts = [];
   const ids = myBranches.map(b => b.id);
@@ -5774,6 +5835,7 @@ const HUBS = {
       { id: 'attendance', ar: 'الحضور الموثَّق', icon: Fingerprint, comp: Attendance },
       { id: 'leaves', ar: 'الإجازات', icon: CalendarDays, comp: Leaves },
       { id: 'shiftengine', ar: 'محرّك الورديات', icon: ArrowLeftRight, comp: ShiftEngine },
+      { id: 'staffplan', ar: 'تخطيط العمالة من التوقع', icon: Users, comp: StaffingPlan, like: 'shiftengine' },   // v39.2
       { id: 'tasks', ar: 'المهام', icon: CheckCircle2, comp: Tasks },
       { id: 'points', ar: 'دفتر النقاط', icon: Star, comp: PointsLedger },
       { id: 'esign', ar: 'التوقيع الإلكتروني', icon: Signature, comp: ESign }
@@ -9638,3 +9700,5 @@ export { cashForecast, vatStatus, CF_KIND, CF_IN, CF_OUT, CF_SCHED };
 export { purchasePlan, PO_LIVE };
 // v39.1 — التنبيهات المهمة والتقارير الضريبية والمشتريات
 export { complianceItems, leaseSchedule, LEASE_EVERY, CMP_CAT, vatRegister, supplierPurchReport, PM_KEYS, PM_AR };
+// v39.2 — تخطيط العمالة من التوقع
+export { staffingPlan };
