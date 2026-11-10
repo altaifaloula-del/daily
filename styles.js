@@ -1407,4 +1407,24 @@ html,body{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .einv-dev.on{border-color:rgba(79,178,134,.45)}
 .einv-dev-n{flex:1;min-width:160px;display:flex;flex-direction:column;gap:2px}
 .einv-dev-n small{font-size:11.5px;color:var(--dim)}
+
+/* v38.5 — صيانة النظام */
+.mt-list{display:flex;flex-direction:column;gap:6px}
+.mt-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;flex-wrap:wrap}
+.mt-k{font-weight:600;font-size:13px;min-width:180px}
+.mt-t{font-size:12.5px;color:var(--dim);flex:1;min-width:140px}
+.mt-dot{width:10px;height:10px;border-radius:50%;flex:none;background:var(--faint)}
+.mt-dot.ok{background:var(--mint)}.mt-dot.warn{background:var(--amber)}.mt-dot.bad{background:var(--rose)}
+.mt-dot.run{background:var(--sky);animation:modspin 1s linear infinite;border-radius:2px}
+.mt-check{border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.mt-check.bad{border-color:rgba(217,84,77,.5)}.mt-check.warn{border-color:rgba(224,164,88,.5)}
+.mt-ch{display:flex;align-items:center;gap:10px;width:100%;padding:9px 10px;background:none;border:0;text-align:start;cursor:pointer;flex-wrap:wrap;font:inherit}
+.mt-ch b{font-size:13px}
+.mt-det{padding:0 12px 10px;font-size:12.5px}
+.mt-det ul{margin:4px 0 8px;padding-inline-start:18px;color:var(--dim)}
+.mt-err{border:1px solid var(--line);border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:3px}
+.mt-err-h{display:flex;gap:8px;align-items:flex-start;justify-content:space-between}
+.mt-msg{font-family:ui-monospace,monospace;font-size:12px;word-break:break-word;text-align:start}
+.mt-err small{font-size:11.5px;color:var(--dim)}
+.mt-err pre{font-size:10.5px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow:auto;background:rgba(127,127,127,.08);padding:6px;border-radius:6px;text-align:left}
 `;

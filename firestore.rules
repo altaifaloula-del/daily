@@ -197,6 +197,27 @@ service cloud.firestore {
         && (!('status' in request.resource.data) || request.resource.data.status in ['new', 'in_progress', 'resolved']);
       allow delete: if isAdmin();
     }
+    /* ===== v38.5 — سجل أخطاء الأجهزة المركزي (صيانة النظام) =====
+       يكتبه كل عضو نشط باسمه فقط وبحقول محدودة الحجم (لا بيانات تشغيل)، ويقرؤه ويحذفه المسؤول وحده. لا تعديل. */
+    function shortStr(v, n) { return v is string && v.size() <= n; }
+    match /client_errors/{id} {
+      allow create: if isMember()
+        && request.resource.data.keys().hasOnly(['at', 'msg', 'stack', 'where', 'v', 'role', 'branchId', 'device', 'email', 'sig', 'n'])
+        && request.resource.data.keys().hasAll(['at', 'msg', 'v', 'email', 'sig'])
+        && request.resource.data.email == userEmail()
+        && request.resource.data.at == request.time
+        && shortStr(request.resource.data.msg, 400)
+        && shortStr(request.resource.data.v, 20)
+        && shortStr(request.resource.data.sig, 64)
+        && (!('stack' in request.resource.data) || shortStr(request.resource.data.stack, 1500))
+        && (!('where' in request.resource.data) || shortStr(request.resource.data.where, 300))
+        && (!('role' in request.resource.data) || shortStr(request.resource.data.role, 40))
+        && (!('branchId' in request.resource.data) || shortStr(request.resource.data.branchId, 80))
+        && (!('device' in request.resource.data) || shortStr(request.resource.data.device, 120))
+        && (!('n' in request.resource.data) || (request.resource.data.n is int && request.resource.data.n >= 1 && request.resource.data.n <= 1000));
+      allow read, delete: if isAdmin() && mfaOk();
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

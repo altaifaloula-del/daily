@@ -1,0 +1,39 @@
+name: مراقبة توفّر المنصّة
+
+# v38.5 — صيانة النظام: فحص كل ساعة للموقع وخادم المنصّة.
+# عند الفشل يفشل التشغيل فيرسل GitHub تنبيهًا بالبريد لمالك المستودع تلقائيًا.
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  uptime:
+    name: فحص الموقع والخادم
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: الموقع (GitHub Pages)
+        run: |
+          code=$(curl -s -o page.html -w "%{http_code}" --max-time 30 https://altaifaloula-del.github.io/daily/)
+          echo "HTTP $code"
+          test "$code" = "200" || { echo "::error::الموقع لا يستجيب (HTTP $code)"; exit 1; }
+          grep -qE 'assets/index-[A-Za-z0-9_-]+\.js' page.html || { echo "::error::صفحة الموقع لا تحمل ملفات المنصّة"; exit 1; }
+          js=$(grep -oE 'assets/index-[A-Za-z0-9_-]+\.js' page.html | head -1)
+          jcode=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "https://altaifaloula-del.github.io/daily/$js")
+          test "$jcode" = "200" || { echo "::error::ملف المنصّة الرئيسي مفقود (HTTP $jcode)"; exit 1; }
+          echo "✅ الموقع يعمل"
+      - name: خادم المنصّة (Render)
+        run: |
+          # الخطة المجانية تنام بعد الخمول — نمهله حتى 90 ثانية للاستيقاظ
+          for i in 1 2 3; do
+            code=$(curl -s -o health.json -w "%{http_code}" --max-time 90 https://mizan-ai-fls4.onrender.com/api/health) && [ "$code" = "200" ] && break
+            sleep 10
+          done
+          echo "HTTP $code"; cat health.json || true
+          test "$code" = "200" || { echo "::error::خادم المنصّة لا يستجيب (HTTP $code)"; exit 1; }
+          grep -q '"ok":true' health.json || { echo "::error::خادم المنصّة يرد بحالة غير سليمة"; exit 1; }
+          echo "✅ الخادم يعمل"
