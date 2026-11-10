@@ -58,6 +58,7 @@ const GrowthAnalytics = lazyComp(() => import('./mods/acct/GrowthAnalytics.jsx')
 const EntitiesCenter = lazyComp(() => import('./mods/acct/EntitiesCenter.jsx'), 'EntitiesCenter');
 const ReportBuilder = lazyComp(() => import('./mods/acct/ReportBuilder.jsx'), 'ReportBuilder');
 const ExecDashboard = lazyComp(() => import('./mods/acct/ExecDashboard.jsx'), 'ExecDashboard');
+const SupplierPurchReport = lazyComp(() => import('./mods/acct/TaxPurchReports.jsx'), 'SupplierPurchReport');   // v39.1
 const SalesForecast = lazyComp(() => import('./mods/acct/SalesForecast.jsx'), 'SalesForecast');   // v38.8
 const ActionsBoard = lazyComp(() => import('./mods/acct/ActionsBoard.jsx'), 'ActionsBoard');   // v38.7
 const Anomalies = lazyComp(() => import('./mods/acct/Anomalies.jsx'), 'Anomalies');   // v38.6
@@ -322,6 +323,11 @@ function buildNotifEvents(org, ops, me, myBranches) {
     let exp = 0, soon = 0;
     (org.employees || []).forEach(e => (e.docs || []).forEach(dc => { if (!dc.expiryDate) return; const dl = Math.round((Date.parse(dc.expiryDate + 'T00:00:00') - Date.parse(td + 'T00:00:00')) / 86400000); if (dl < 0) exp++; else if (dl <= 30) soon++; }));
     if (exp || soon) push('hr:docs:' + td, 'hr', 'مستندات موظفين تحتاج تجديدًا', (exp ? exp + ' منتهية' : '') + (exp && soon ? ' · ' : '') + (soon ? soon + ' تنتهي خلال 30 يومًا' : ''), roleHasTab(me, 'hrmaster') ? 'hrmaster' : 'people');
+  }
+  // —— v39.1: الوثائق الرسمية وعقود الإيجار والمواعيد النظامية (عاجل وتنبيه) ——
+  if (central && (roleHasTab(me, 'docs') || roleHasTab(me, 'acct') || R.admin)) {
+    try { complianceItems(org, ops, { today: td }).items.filter(x => x.sev !== 'info' && x.cat !== 'emp').forEach(x =>
+      push('cmp:' + x.id + ':' + x.sev, 'fin', x.title, x.sub + (x.amount ? ' · ' + money(x.amount) : ''), x.cat === 'tax' ? 'acct' : 'docs', x.cat === 'tax' ? 'vat' : undefined)); } catch { }
   }
   return ev;
 }
@@ -1809,7 +1815,8 @@ function buildAccounting(org, ops) {
       lines.push(L('4101', 0, sv.net));
       if (sv.vat) lines.push(L('2301', 0, sv.vat));
       push({ id: 'rev:' + c.id, date: c.date, branchId: c.branchId, title: 'إيراد وردية — ' + (c.branchName || ''), src: 'إغلاق وردية', ref: c.id, lines,
-        vat: sv.vat ? { out: sv.vat, inn: 0, netSales: sv.net, netPurch: 0 } : null });
+        vat: sv.vat ? { out: sv.vat, inn: 0, netSales: sv.net, netPurch: 0 } : null,
+        reg: { k: 's', doc: 'مبيعات الوردية (مبسطة)', party: 'عملاء أفراد — ' + (c.branchName || ''), net: sv.net, vat: sv.vat, gross: tot } });   // v39.1 سجل المبيعات
     }
     // v15) ترحيل فرق جرد الصندوق (عجز/فائض) — يجعل رصيد الخزينة الدفتري يطابق النقد المعدود فعلًا
     const varc = Math.round((c.variance || 0) * 100) / 100;
@@ -1832,7 +1839,9 @@ function buildAccounting(org, ops) {
         lines: tx.vat
           ? [L(expCode, tx.net, 0), L('1501', tx.vat, 0), L(credCode, 0, amt)]
           : [L(expCode, amt, 0), L(credCode, 0, amt)],
-        vat: tx.vat ? { out: 0, inn: tx.vat, netSales: 0, netPurch: tx.net } : null
+        vat: tx.vat ? { out: 0, inn: tx.vat, netSales: 0, netPurch: tx.net } : null,
+        ...(expCode !== '1401' ? { reg: (() => { const sp = (org.suppliers || []).find(x => x.id === e.supplierId || (x.key || 'sup:' + x.id) === e.partnerKey);   // v39.1 سجل المشتريات
+          return { k: 'p', doc: 'مصروف وردية', party: (sp && sp.name) || e.supplierName || e.partnerName || '', pvat: (sp && sp.vatNo) || '', supplierId: sp ? sp.id : '', cat: e.categoryName || '', pm: e.paymentMethod || 'cash', net: tx.net, vat: tx.vat, gross: amt }; })() } : {})
       });
     });
     // 3) سدادات الموردين داخل الوردية — قد تتوزع على أكثر من طريقة دفع
@@ -1909,7 +1918,8 @@ function buildAccounting(org, ops) {
         lines: ti.vat
           ? [...debit, L('1501', ti.vat, 0), L('2101', 0, i.amount)]
           : [...debit, L('2101', 0, i.amount)],
-        vat: ti.vat ? { out: 0, inn: ti.vat, netSales: 0, netPurch: ti.net } : null
+        vat: ti.vat ? { out: 0, inn: ti.vat, netSales: 0, netPurch: ti.net } : null,
+        reg: { k: 'p', doc: 'فاتورة مورد', party: i.supplierName || '', pvat: ((org.suppliers || []).find(x => x.id === i.supplierId) || {}).vatNo || '', supplierId: i.supplierId || '', no: i.invoiceNo || '', pm: 'deferred', net: ti.net, vat: ti.vat, gross: i.amount }
       });
     } else if (i.amount < 0 && (i.mizanId || i.creditNote)) {
       // v28.2: إشعار دائن من مورد (مرتجع) مستورد من ميزان — يعكس قيد الفاتورة: يخفض الذمة والمصروف وضريبة المدخلات
@@ -1924,7 +1934,8 @@ function buildAccounting(org, ops) {
         id: 'inv:' + i.id, date: d, branchId: i.branchId, title: (i.creditNote ? 'مرتجع مشتريات — إشعار دائن ' : 'إشعار دائن من مورد — ') + (i.supplierName || 'مورد'),
         src: 'فاتورة مورد', ref: i.invoiceNo || i.id,
         lines: [L('2101', a, 0), ...(stockCr > 0 ? [L(whAccOf(i.whId), 0, stockCr)] : []), ...(restCr > 0.004 ? [L(exC, 0, restCr)] : []), ...(v ? [L('1501', 0, v)] : [])],
-        vat: v ? { out: 0, inn: -v, netSales: 0, netPurch: -n } : null
+        vat: v ? { out: 0, inn: -v, netSales: 0, netPurch: -n } : null,
+        reg: { k: 'p', doc: 'إشعار دائن من مورد', party: i.supplierName || '', pvat: ((org.suppliers || []).find(x => x.id === i.supplierId) || {}).vatNo || '', supplierId: i.supplierId || '', no: i.invoiceNo || '', pm: 'deferred', net: -n, vat: -v, gross: -a }
       });
     }
     // v29.4: قيد لكل دفعة بتاريخها ومصدرها (الدفعة القديمة المجمّعة تبقى بمعرّفها السابق invp:)
@@ -1960,7 +1971,8 @@ function buildAccounting(org, ops) {
         ? [L('4102', net, 0), ...(vt ? [L('2301', vt, 0)] : []), L(side, 0, x.total)]
         : [L(side, x.total, 0), L('4102', 0, net), ...(vt ? [L('2301', 0, vt)] : [])];
       push({ id: 'si:' + x.id, date: x.date, ...(x.branchId ? { branchId: x.branchId } : {}), title: (x.kind === 'credit' ? 'إشعار دائن مبيعات ' + x.no + ' (عن ' + (orig.no || '') + ')' : (x.terms === 'credit' ? 'فاتورة مبيعات آجلة ' : 'فاتورة مبيعات نقدية ') + x.no) + ' — ' + ((x.buyer || {}).name || 'عميل'),
-        src: 'فواتير المبيعات', ref: x.no, lines, vat: vt ? (x.kind === 'credit' ? { out: -vt, inn: 0, netSales: -net, netPurch: 0 } : { out: vt, inn: 0, netSales: net, netPurch: 0 }) : null });
+        src: 'فواتير المبيعات', ref: x.no, lines, vat: vt ? (x.kind === 'credit' ? { out: -vt, inn: 0, netSales: -net, netPurch: 0 } : { out: vt, inn: 0, netSales: net, netPurch: 0 }) : null,
+        reg: (() => { const sg = x.kind === 'credit' ? -1 : 1; const b = x.buyer || orig.buyer || {}; return { k: 's', doc: x.kind === 'credit' ? 'إشعار دائن مبيعات' : (x.type === 'standard' || b.vat ? 'فاتورة ضريبية' : 'فاتورة مبسطة'), no: x.no, party: b.name || '', pvat: b.vat || b.vatNo || '', net: sg * net, vat: sg * vt, gross: sg * x.total }; })() });
     }
     (x.receipts || []).forEach(r => { const a = Math.round((Number(r.amount) || 0) * 100) / 100; if (!(a > 0)) return;
       push({ id: 'sir:' + r.id, date: r.date, ...(x.branchId ? { branchId: x.branchId } : {}), title: 'تحصيل من عميل — ' + ((x.buyer || {}).name || '') + ' عن ' + x.no, src: 'فواتير المبيعات', ref: x.no, lines: [L(fundOf(r.fund), a, 0), L('1380', 0, a)] }); });
@@ -2240,7 +2252,7 @@ function buildAccounting(org, ops) {
     push({
       id: 'man:' + j.id, date: (j.date || '').slice(0, 10),
       title: j.title || 'قيد يدوي', src: j.opening ? 'قيد افتتاحي' : j.vatClose ? 'إقفال ضريبي' : j.vatPay ? 'سداد ضريبة' : (j.mizanSales ? 'مبيعات مستوردة' : 'قيد يدوي'),
-      ref: j.by || '', manual: true, ...(j.vat ? { vat: j.vat } : {}),   // v28.5: قيد مبيعات مستورد يحمل أثره الضريبي لشاشة الضريبة
+      ref: j.by || '', manual: true, ...(j.vat ? { vat: j.vat, reg: { k: j.vat.out || j.vat.netSales ? 's' : 'p', doc: 'مستورد من نظام سابق', party: j.title || '', net: (j.vat.netSales || 0) + (j.vat.netPurch || 0), vat: (j.vat.out || 0) + (j.vat.inn || 0), gross: (j.vat.netSales || 0) + (j.vat.netPurch || 0) + (j.vat.out || 0) + (j.vat.inn || 0) } } : {}),   // v28.5: قيد مبيعات مستورد يحمل أثره الضريبي لشاشة الضريبة
       lines: (j.lines || []).map(l => L(l.code, l.debit || 0, l.credit || 0))
     });
   });
@@ -2586,7 +2598,7 @@ const ACCT_SECTIONS = [
   { v: 'fs', ar: 'القوائم المالية' }, { v: 'food', ar: 'تكلفة الطعام بالفروع' }, { v: 'cf', ar: 'التدفقات النقدية' }, { v: 'fcast', ar: 'التوقّع النقدي' },
   { v: 'bud', ar: 'الموازنة' }, { v: 'anl', ar: 'التحليل والنِسَب' }, { v: 'apage', ar: 'أعمار الموردين' },
   { v: 'arage', ar: 'أعمار العملاء' }, { v: 'export', ar: 'تصدير للمحاسب' }, { v: 'cc', ar: 'مراكز التكلفة' },
-  { v: 'vat', ar: 'الضريبة (ق.م)' }, { v: 'einv', ar: 'الفوترة (زاتكا)' }, { v: 'zakat', ar: 'الزكاة وضريبة الدخل' },
+  { v: 'vat', ar: 'الضريبة (ق.م)' }, { v: 'vatreg', ar: 'سجلات الضريبة المفصلة' }, { v: 'einv', ar: 'الفوترة (زاتكا)' }, { v: 'zakat', ar: 'الزكاة وضريبة الدخل' }, { v: 'suprep', ar: 'مشتريات الموردين بطرق الدفع' },
   { v: 'ast', ar: 'الأصول والإهلاك' }, { v: 'bank', ar: 'التسوية البنكية' }, { v: 'mclose', ar: 'حزمة الإقفال' },
   { v: 'ctrl', ar: 'الضوابط والتدقيق' }, { v: 'lock', ar: 'الإقفال الشهري' }, { v: 'astl', ar: 'تسوية التطبيقات' },
   { v: 'ob', ar: 'الأرصدة الافتتاحية' }, { v: 'yend', ar: 'إقفال السنة' },
@@ -2780,7 +2792,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v39.0';
+const APP_VER = 'v39.1';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3773,7 +3785,7 @@ function PlatformApp() {
   const shared = { org, ops, pulse, me, myBranches, scoped, commit, commitOrg, say, setTab, theme, acctIntent, openAcctView, invIntent, openInvView };
 
   // حماية: منع الوصول لتبويب غير مسموح لدور المستخدم (بلا hook — بعد returns الشرطية)
-  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'closing') ? ['myactions', 'myforecast'] : []), ...(NAV.some(n => n.id === 'closing') && (ROLES[me.role]?.approver || ROLES[me.role]?.admin || ROLES[me.role]?.scope === 'all') ? ['cashiers'] : []), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'anomaly', 'actions', 'forecast'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : []), ...(NAV.some(n => n.id === 'people') ? ['payroll', 'workforce', 'muster', 'overtime'] : []), ...(NAV.some(n => n.id === 'purchasing') ? ['suppliers', 'reorder'] : []), ...(NAV.some(n => n.id === 'hrops') ? ['attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'esign'] : []), ...(NAV.some(n => n.id === 'hrperf') ? ['kpi', 'empfile', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'] : [])];
+  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'closing') ? ['myactions', 'myforecast'] : []), ...(NAV.some(n => n.id === 'closing') && (ROLES[me.role]?.approver || ROLES[me.role]?.admin || ROLES[me.role]?.scope === 'all') ? ['cashiers'] : []), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'anomaly', 'actions', 'forecast'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : []), ...(NAV.some(n => n.id === 'people') ? ['payroll', 'workforce', 'muster', 'overtime'] : []), ...(NAV.some(n => n.id === 'purchasing') ? ['suppliers', 'reorder', 'suprep'] : []), ...(NAV.some(n => n.id === 'hrops') ? ['attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'esign'] : []), ...(NAV.some(n => n.id === 'hrperf') ? ['kpi', 'empfile', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'] : [])];
   const safeTab = allowedTabs.includes(tab) ? tab : (allowedTabs[0] || 'closing');
 
   return (
@@ -4030,7 +4042,7 @@ function PlatformApp() {
               {safeTab === 'qrfb' && <QrFeedback {...shared} />}
               {safeTab === 'apps' && <AppsCenter {...shared} />}
 
-              {['purchasing', 'suppliers', 'reorder'].includes(safeTab) && <Hub hubId="purchasing" {...shared} view={safeTab} />}
+              {['purchasing', 'suppliers', 'reorder', 'suprep'].includes(safeTab) && <Hub hubId="purchasing" {...shared} view={safeTab} />}
               {safeTab === 'inv' && <Inventory {...shared} />}
               {safeTab === 'whbranch' && <BranchWarehouse {...shared} />}
               {safeTab === 'partners' && <Partners {...shared} />}
@@ -5247,6 +5259,8 @@ function cashForecast(org, ops, opts = {}) {
       const [y, m, dd] = s.date.split('-').map(Number); const n = new Date(Date.UTC(y, m - 1 + step[s.every] * (g + 1), 1)); const last = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth() + 1, 0)).getUTCDate();
       d = n.toISOString().slice(0, 8) + String(Math.min(dd, last)).padStart(2, '0'); } });
   if (!sched.length && legacyFixed > 0) for (let k = 0; k < 4; k++) add({ date: anDay(cfMEnd(td, k), 1), kind: 'sched', label: 'التزامات ثابتة شهرية (الإعداد السابق)', amount: legacyFixed, basis: 'من الإعداد السابق — حوّلها إلى التزامات مجدولة بتواريخها' });
+  // v39.1: دفعات عقود الإيجار المسجلة في مركز المستندات (بقيمتها ودوريتها حتى انتهاء العقد)
+  (org.documents || []).filter(dc => dc.type === 'lease').forEach(dc => leaseSchedule(dc, td, end).forEach(p => add({ date: p.date, kind: 'sched', label: 'إيجار' + (dc.landlord ? ' — ' + dc.landlord : '') + (dc.branchId ? ' (' + (((org.branches || []).find(b => b.id === dc.branchId) || {}).name || '') + ')' : ''), amount: p.amount, basis: 'عقد الإيجار في مركز المستندات · ' + (LEASE_EVERY[dc.payEvery] || [''])[0] })));
   // الزكاة: تُقدَّم وتُسدَّد خلال 120 يومًا من نهاية السنة المالية
   const fy = cfg.fyEnd || ((org.yearEnd || {}).closeDate ? String(org.yearEnd.closeDate).slice(5, 10) : '');
   basis.fyEnd = fy;
@@ -5750,7 +5764,8 @@ const HUBS = {
     ar: 'المشتريات', desc: 'أوامر الشراء والاستلام وفواتير الموردين وإعادة الطلب — بطاقات الموردين في «جهات الاتصال»', icon: Truck,
     views: [
       { id: 'suppliers', ar: 'المشتريات والفواتير', icon: Truck, comp: Suppliers },
-      { id: 'reorder', ar: 'المشتريات الذكية', icon: ClipboardCheck, comp: SmartPurchasing }
+      { id: 'reorder', ar: 'المشتريات الذكية', icon: ClipboardCheck, comp: SmartPurchasing },
+      { id: 'suprep', ar: 'تقرير مشتريات الموردين', icon: FileBarChart, comp: SupplierPurchReport, like: 'suppliers' }   // v39.1
     ]
   },
   hrops: {
@@ -5811,7 +5826,7 @@ HUBS.hr = {
   ar: 'الموارد البشرية', desc: 'الحضور والورديات والإجازات · البيانات والرواتب والسلف · الأداء والتدريب والانضباط', icon: Users,
   views: [
     ...HUBS.hrops.views.map(v => ({ ...v, group: 'التشغيل اليومي' })),
-    ...HUBS.people.views.filter(v => !['suppliers', 'reorder'].includes(v.id)).flatMap(v => v.id === 'payroll' ? [v, { id: 'muster', ar: 'مسير الرواتب', icon: FileText, comp: PayrollMuster, like: 'payroll' }, { id: 'overtime', ar: 'مسير الأجور الإضافية', icon: Clock, comp: OvertimeSheet, like: 'payroll' }] : [v]).map(v => ({ ...v, group: 'شؤون الموظفين والرواتب' })),
+    ...HUBS.people.views.filter(v => !['suppliers', 'reorder', 'suprep'].includes(v.id)).flatMap(v => v.id === 'payroll' ? [v, { id: 'muster', ar: 'مسير الرواتب', icon: FileText, comp: PayrollMuster, like: 'payroll' }, { id: 'overtime', ar: 'مسير الأجور الإضافية', icon: Clock, comp: OvertimeSheet, like: 'payroll' }] : [v]).map(v => ({ ...v, group: 'شؤون الموظفين والرواتب' })),
     ...HUBS.hrperf.views.map(v => ({ ...v, group: 'الأداء والانضباط' }))
   ]
 };
@@ -8950,9 +8965,147 @@ const DOC_TYPES = [
   { id: 'cr', ar: 'السجل التجاري' }, { id: 'vat', ar: 'شهادة ضريبة القيمة المضافة' }, { id: 'zakat', ar: 'شهادة الزكاة' },
   { id: 'municipal', ar: 'رخصة البلدية' }, { id: 'civil', ar: 'رخصة الدفاع المدني' }, { id: 'lease', ar: 'عقد إيجار' },
   { id: 'insurance', ar: 'شهادة تأمين' }, { id: 'saudization', ar: 'شهادة السعودة (نطاقات)' }, { id: 'chamber', ar: 'اشتراك الغرفة التجارية' },
-  { id: 'work_permit', ar: 'رخصة/تصريح عمل' }, { id: 'other', ar: 'أخرى' }
+  { id: 'work_permit', ar: 'رخصة/تصريح عمل' }, { id: 'sfda', ar: 'ترخيص هيئة الغذاء والدواء' }, { id: 'signboard', ar: 'رخصة اللوحة التجارية' },
+  { id: 'gosi_cert', ar: 'شهادة التأمينات الاجتماعية' }, { id: 'vehicle', ar: 'استمارة/تأمين مركبة' }, { id: 'trademark', ar: 'العلامة التجارية' }, { id: 'other', ar: 'أخرى' }
 ];
 const DOC_LABEL = (t) => (DOC_TYPES.find(x => x.id === t) || {}).ar || 'وثيقة';
+/* v39.1 — عقود الإيجار: جدول الدفعات من (قيمة الدفعة، الدورية، أول دفعة) حتى انتهاء العقد */
+const LEASE_EVERY = { monthly: ['شهري', 1], quarterly: ['ربع سنوي', 3], semi: ['نصف سنوي', 6], yearly: ['سنوي', 12] };
+function leaseSchedule(doc, from, to) {
+  const amt = Number(doc && doc.rent) || 0, st = LEASE_EVERY[doc && doc.payEvery]; if (!(amt > 0) || !st || !doc.firstPay) return [];
+  const out = []; const [y, m, d] = doc.firstPay.split('-').map(Number);
+  for (let k = 0; k < 600; k++) {
+    const n = new Date(Date.UTC(y, m - 1 + st[1] * k, 1)); const last = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth() + 1, 0)).getUTCDate();
+    const dt = n.toISOString().slice(0, 8) + String(Math.min(d, last)).padStart(2, '0');
+    if ((doc.expiryDate && dt > doc.expiryDate) || dt > to) break;
+    if (dt >= from) out.push({ date: dt, amount: amt });
+  }
+  return out;
+}
+/**
+ * v39.1 — المواعيد والتنبيهات المهمة في مكان واحد: الوثائق الرسمية، عقود الإيجار (الدفعات وإشعار التجديد)،
+ * مستندات الموظفين، والمواعيد النظامية (ض.ق.م، التأمينات، الزكاة). { items: [{id, cat, sev, date, days, title, sub, branchId, amount}] }
+ */
+function complianceItems(org, ops, opts = {}) {
+  const td = opts.today || today(), H = opts.days || 90, end = anDay(td, H);
+  const dl = (d) => cfDiff(td, d);
+  const remind = Number((org.docCfg || {}).remindDays) || 45;
+  const items = []; const add = (x) => items.push({ ...x, days: dl(x.date) });
+  const brN = (id) => ((org.branches || []).find(b => b.id === id) || {}).name || '';
+  // 1) الوثائق الرسمية
+  (org.documents || []).forEach(dc => {
+    const nm = DOC_LABEL(dc.type) + (dc.number ? ' ' + dc.number : '') + (dc.branchId ? ' — ' + brN(dc.branchId) : '');
+    if (dc.expiryDate) { const n = dl(dc.expiryDate);
+      if (n < 0) add({ id: 'doc:' + dc.id, cat: 'doc', sev: 'bad', date: dc.expiryDate, title: 'منتهية: ' + nm, sub: 'انتهت منذ ' + (-n) + ' يومًا — جدّدها فورًا', branchId: dc.branchId || '' });
+      else if (n <= remind) add({ id: 'doc:' + dc.id, cat: 'doc', sev: n <= 15 ? 'bad' : 'warn', date: dc.expiryDate, title: 'تنتهي قريبًا: ' + nm, sub: 'متبقٍّ ' + n + ' يومًا', branchId: dc.branchId || '' });
+      else if (dc.expiryDate <= end) add({ id: 'doc:' + dc.id, cat: 'doc', sev: 'info', date: dc.expiryDate, title: 'انتهاء ' + nm, sub: 'بعد ' + n + ' يومًا', branchId: dc.branchId || '' }); }
+    // عقود الإيجار: الدفعات القادمة وآخر موعد لإشعار المؤجر
+    if (dc.type === 'lease') {
+      leaseSchedule(dc, td, end).forEach(p => { const n = dl(p.date);
+        add({ id: 'lease:' + dc.id + ':' + p.date, cat: 'lease', sev: n <= 7 ? 'warn' : 'info', date: p.date, title: 'دفعة إيجار' + (dc.landlord ? ' — ' + dc.landlord : '') + (dc.branchId ? ' (' + brN(dc.branchId) + ')' : ''), sub: (LEASE_EVERY[dc.payEvery] || [''])[0], branchId: dc.branchId || '', amount: p.amount }); });
+      const nd = Number(dc.noticeDays) || 0;
+      if (nd > 0 && dc.expiryDate && dc.expiryDate >= td) { const by = anDay(dc.expiryDate, -nd);
+        if (by <= end) add({ id: 'lnotice:' + dc.id, cat: 'lease', sev: by < td ? 'bad' : dl(by) <= 14 ? 'warn' : 'info', date: by, title: 'آخر موعد لإشعار المؤجر بالتجديد أو الإخلاء' + (dc.branchId ? ' — ' + brN(dc.branchId) : ''), sub: (by < td ? 'فات الموعد — ' : '') + 'قبل ' + nd + ' يومًا من انتهاء العقد ' + dc.expiryDate, branchId: dc.branchId || '' }); }
+    }
+  });
+  // 2) مستندات الموظفين (هوية/إقامة/عقد/رخصة)
+  (org.employees || []).filter(e => e.status !== 'terminated' && e.isActive !== false).forEach(e => (e.docs || []).forEach(x => { if (!x.expiryDate) return; const n = dl(x.expiryDate);
+    if (n > 30) return;
+    add({ id: 'edoc:' + e.id + ':' + (x.id || x.expiryDate), cat: 'emp', sev: n < 0 ? 'bad' : 'warn', date: x.expiryDate, title: (x.title || 'مستند') + ' — ' + e.name, sub: n < 0 ? 'منتهٍ منذ ' + (-n) + ' يومًا' : 'ينتهي خلال ' + n + ' يومًا', branchId: e.branchId || '' }); }));
+  // 3) المواعيد النظامية
+  try {
+    const A = opts.A || buildAccounting(org, ops); const cfg = org.cashflowCfg || {};
+    const V = vatStatus(org, ops, A, td, cfg);
+    if (V.on) {
+      V.unpaid.forEach(u => add({ id: 'vat:' + u.id, cat: 'tax', sev: u.due < td ? 'bad' : dl(u.due) <= 10 ? 'warn' : 'info', date: u.due, title: 'سداد ضريبة القيمة المضافة ' + u.from + ' ← ' + u.to, sub: u.due < td ? 'متأخرة — غرامة 5% عن كل شهر أو جزء منه' : 'آخر موعد للسداد', amount: u.rem }));
+      if (V.end && V.due && V.due <= end) add({ id: 'vatret:' + V.start, cat: 'tax', sev: V.due < td ? 'bad' : dl(V.due) <= 10 ? 'warn' : 'info', date: V.due, title: 'تقديم إقرار ضريبة القيمة المضافة ' + V.start + ' ← ' + V.end, sub: (V.end < td ? 'الفترة انتهت — ' : '') + 'التقديم والسداد قبل ' + V.due });
+    }
+    if ((org.gosiCfg || {}).enabled && (org.employees || []).length) { const g = cfMEnd(td, 0).slice(0, 8) + '15'; const due = td <= g ? g : cfMEnd(td, 1).slice(0, 8) + '15';
+      add({ id: 'gosi:' + due, cat: 'tax', sev: dl(due) <= 5 ? 'warn' : 'info', date: due, title: 'سداد اشتراكات التأمينات الاجتماعية', sub: 'عن الشهر السابق' }); }
+    const fy = cfg.fyEnd || ((org.yearEnd || {}).closeDate ? String(org.yearEnd.closeDate).slice(5, 10) : '');
+    if (/^\d\d-\d\d$/.test(fy)) { const y = Number(td.slice(0, 4)); const cand = [y - 1, y].map(x => x + '-' + fy).filter(x => x < td).sort().pop();
+      if (cand) { const due = anDay(cand, 120); if (due >= td && due <= end) add({ id: 'zakat:' + cand, cat: 'tax', sev: dl(due) <= 30 ? 'warn' : 'info', date: due, title: 'إقرار الزكاة وسدادها عن السنة المنتهية ' + cand, sub: 'خلال 120 يومًا من نهاية السنة المالية' }); } }
+  } catch { }
+  const rank = { bad: 0, warn: 1, info: 2 };
+  items.sort((a, b) => rank[a.sev] - rank[b.sev] || a.date.localeCompare(b.date));
+  return { today: td, end, items, bad: items.filter(i => i.sev === 'bad').length, warn: items.filter(i => i.sev === 'warn').length };
+}
+const CMP_CAT = { doc: 'الوثائق الرسمية', lease: 'عقود الإيجار', emp: 'مستندات الموظفين', tax: 'الضريبة والزكاة والتأمينات' };
+/* ============================================================
+   v39.1 — سجلات ضريبة القيمة المضافة المفصلة (مبيعات/مشتريات) من القيود نفسها، مع ملخص بنود الإقرار
+   ومطابقتها لحركة حسابي 2301/1501 — وضوابط: مدخلات بلا رقم ضريبي للمورد، وفاتورة ضريبية بلا رقم المشتري.
+   ============================================================ */
+function vatRegister(org, ops, opts = {}) {
+  const A = opts.A || buildAccounting(org, ops), from = opts.from || '0000-00-00', to = opts.to || '9999-12-31', bf = opts.branchId || '';
+  const inBr = (e) => !bf || (bf === 'central' ? !e.branchId : e.branchId === bf);
+  const inP = (e) => (e.date || '') >= from && (e.date || '') <= to && inBr(e);
+  const rows = A.entries.filter(e => e.reg && inP(e)).map(e => ({ id: e.id, date: e.date, k: e.reg.k, doc: e.reg.doc, no: e.reg.no || '', party: e.reg.party || '', pvat: e.reg.pvat || '',
+    branchId: e.branchId || '', cat: e.reg.cat || '', pm: e.reg.pm || '', supplierId: e.reg.supplierId || '', net: anR(e.reg.net), vat: anR(e.reg.vat), gross: anR(e.reg.gross) }))
+    .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+  const sales = rows.filter(r => r.k === 's'), purch = rows.filter(r => r.k === 'p');
+  const t = (arr, f) => anR(sum(arr, f));
+  const std = (arr) => arr.filter(r => Math.abs(r.vat) > 0.004), non = (arr) => arr.filter(r => !(Math.abs(r.vat) > 0.004));
+  // مطابقة الدفاتر: حركة 2301/1501 في الفترة عدا قيود إقفال الفترات وسدادها (تنقل الرصيد إلى 2302 فقط)
+  let led2301 = 0, led1501 = 0;
+  A.entries.filter(e => inP(e) && e.src !== 'إقفال ضريبي' && e.src !== 'سداد ضريبة').forEach(e => e.lines.forEach(l => { if (l.code === '2301') led2301 += (l.credit || 0) - (l.debit || 0); if (l.code === '1501') led1501 += (l.debit || 0) - (l.credit || 0); }));
+  const sOut = t(sales, r => r.vat), pIn = t(purch, r => r.vat);
+  const boxes = [
+    { n: '1', ar: 'المبيعات الخاضعة للنسبة الأساسية', net: t(std(sales), r => r.net), vat: t(std(sales), r => r.vat) },
+    { n: '3–5', ar: 'مبيعات بلا ضريبة (صفرية/معفاة/صادرات)', net: t(non(sales), r => r.net), vat: 0, note: 'غير مصنفة في المنصة — صنّفها عند تعبئة الإقرار' },
+    { n: '6', ar: 'إجمالي المبيعات', net: t(sales, r => r.net), vat: sOut, tot: true },
+    { n: '7', ar: 'المشتريات الخاضعة للنسبة الأساسية', net: t(std(purch), r => r.net), vat: t(std(purch), r => r.vat) },
+    { n: '10–11', ar: 'مشتريات بلا ضريبة مدخلات (صفرية/معفاة/من غير مسجّل)', net: t(non(purch), r => r.net), vat: 0, note: 'غير مصنفة في المنصة' },
+    { n: '12', ar: 'إجمالي المشتريات', net: t(purch, r => r.net), vat: pIn, tot: true },
+    { n: '13', ar: 'صافي الضريبة المستحقة للفترة', net: null, vat: anR(sOut - pIn), tot: true }
+  ];
+  const checks = [];
+  const noVatNo = std(purch).filter(r => r.vat > 0 && !String(r.pvat).trim());
+  if (noVatNo.length) checks.push({ sev: 'warn', msg: noVatNo.length + ' مشتريات بضريبة مدخلات ' + money(t(noVatNo, r => r.vat)) + ' والمورد بلا رقم ضريبي مسجّل — خصم المدخلات يتطلب فاتورة ضريبية صحيحة باسم المنشأة ورقم المورد الضريبي؛ أكمل بطاقات الموردين', ids: noVatNo.map(r => r.id) });
+  const b2b = sales.filter(r => r.doc === 'فاتورة ضريبية' && !String(r.pvat).trim());
+  if (b2b.length) checks.push({ sev: 'warn', msg: b2b.length + ' فاتورة ضريبية (منشآت) بلا رقم ضريبي للمشتري', ids: b2b.map(r => r.id) });
+  const dS = anR(led2301 - sOut), dP = anR(led1501 - pIn);
+  checks.push(Math.abs(dS) < 0.01 && Math.abs(dP) < 0.01 ? { sev: 'ok', msg: 'السجلان مطابقان لحركة حسابي ضريبة المخرجات (2301) والمدخلات (1501) في الدفاتر' }
+    : { sev: 'bad', msg: 'فرق بين السجل والدفاتر — مخرجات ' + money(dS) + ' · مدخلات ' + money(dP) + ' (قيود يدوية على 2301/1501 بلا مستند؟)' });
+  return { from, to, sales, purch, boxes, checks, ledger: { out: anR(led2301), inn: anR(led1501) } };
+}
+
+/* v39.1 — مشتريات الموردين حسب طريقة الدفع (وقت الشراء) وسداداتهم حسب الطريقة — للفترة والفرع */
+const PM_KEYS = ['cash', 'card', 'transfer', 'cheque', 'deferred', 'other'];
+const PM_AR = { cash: 'نقدي', card: 'شبكة', transfer: 'تحويل بنكي', cheque: 'شيك', deferred: 'آجل', other: 'أخرى' };
+const pmKey = (m) => ({ cash: 'cash', card: 'card', bank_transfer: 'transfer', transfer: 'transfer', cheque: 'cheque', deferred: 'deferred' })[m] || 'other';
+function supplierPurchReport(org, ops, opts = {}) {
+  const A = opts.A || buildAccounting(org, ops), from = opts.from || '0000-00-00', to = opts.to || '9999-12-31', bf = opts.branchId || '';
+  const inP = (d, b) => (d || '') >= from && (d || '') <= to && (!bf || (bf === 'central' ? !b : b === bf));
+  const sups = org.suppliers || [];
+  const keyOf = (sid, name) => sid ? 'sup:' + sid : (name ? 'n:' + _normName(name) : 'none');
+  const G = {}; const g = (k, name, sid) => G[k] || (G[k] = { key: k, supplierId: sid || '', name: name || 'بلا مورد محدد', buy: Object.fromEntries(PM_KEYS.map(x => [x, 0])), vat: 0, net: 0, pay: Object.fromEntries(PM_KEYS.map(x => [x, 0])), lines: [] });
+  // المشتريات: من سجل المشتريات (مصروفات الإغلاق بطريقتها، وفواتير الموردين آجلة)
+  A.entries.filter(e => e.reg && e.reg.k === 'p' && inP(e.date, e.branchId) && e.reg.doc !== 'مستورد من نظام سابق').forEach(e => {
+    const r = e.reg; const sid = r.supplierId || (sups.find(x => x.name === r.party) || {}).id || '';
+    const x = g(keyOf(sid, r.party), sid ? ((sups.find(s => s.id === sid) || {}).name || r.party) : r.party, sid); const pk = pmKey(r.pm);
+    x.buy[pk] += r.gross; x.vat += r.vat; x.net += r.net;
+    x.lines.push({ date: e.date, kind: 'buy', pm: pk, doc: r.doc + (r.no ? ' ' + r.no : '') + (r.cat ? ' · ' + r.cat : ''), branchId: e.branchId || '', amount: anR(r.gross), vat: anR(r.vat) });
+  });
+  // السداد: دفعات فواتير الموردين، وسدادات الإغلاق (موزعة على طرقها)، والسدادات المركزية لمشتريات الورديات
+  const cashFunds = new Set(['1101', ...(org.branches || []).map((b, i) => '11' + String(11 + i))]);
+  (ops.invoices || []).filter(i => (i.amount || 0) > 0).forEach(i => invPayments(i).forEach(p => { if (!inP(p.date, i.branchId)) return;
+    const x = g(keyOf(i.supplierId, i.supplierName), i.supplierName, i.supplierId); const pk = cashFunds.has(String(p.fund)) ? 'cash' : 'transfer';
+    x.pay[pk] += p.amount; x.lines.push({ date: p.date, kind: 'pay', pm: pk, doc: 'سداد فاتورة ' + (i.invoiceNo || ''), branchId: i.branchId || '', amount: anR(p.amount) }); }));
+  (ops.closings || []).filter(c => countedClosing(c) && inP(c.date, c.branchId)).forEach(c => (c.supplierPayments || []).forEach(pm => {
+    const sp = sups.find(s => s.id === pm.supplierId || (s.key || 'sup:' + s.id) === pm.partnerKey); const nm = (sp && sp.name) || pm.supplierName || '';
+    const x = g(keyOf(sp ? sp.id : '', nm), nm, sp ? sp.id : ''); const s2 = paySplits(pm);
+    [['cash', s2.cash], ['card', s2.card], ['transfer', s2.transfer], ['other', s2.other]].forEach(([k, v]) => { if (v > 0) { x.pay[k] += v; x.lines.push({ date: c.date, kind: 'pay', pm: k, doc: 'سداد في إغلاق ' + (c.branchName || ''), branchId: c.branchId, amount: anR(v) }); } });
+  }));
+  (ops.closingInvPays || []).filter(p => inP((p.date || '').slice(0, 10), '')).forEach(p => { const sp = sups.find(s => s.id === p.supplierId); const nm = (sp && sp.name) || '';
+    const t = String(p.payType || ''); const pk = /شيك/.test(t) ? 'cheque' : /نقد/.test(t) ? 'cash' : 'transfer';
+    const x = g(keyOf(p.supplierId, nm), nm, p.supplierId); x.pay[pk] += Number(p.amount) || 0; x.lines.push({ date: (p.date || '').slice(0, 10), kind: 'pay', pm: pk, doc: 'سداد مركزي' + (p.bankRef ? ' · ' + p.bankRef : ''), branchId: '', amount: anR(p.amount) }); });
+  const rows = Object.values(G).map(x => ({ ...x, buy: Object.fromEntries(PM_KEYS.map(k => [k, anR(x.buy[k])])), pay: Object.fromEntries(PM_KEYS.map(k => [k, anR(x.pay[k])])), vat: anR(x.vat), net: anR(x.net),
+    buyTot: anR(sum(PM_KEYS, k => x.buy[k])), payTot: anR(sum(PM_KEYS, k => x.pay[k])), lines: x.lines.sort((a, b) => a.date.localeCompare(b.date)) }))
+    .filter(x => x.buyTot || x.payTot).sort((a, b) => b.buyTot - a.buyTot);
+  const tot = { buy: Object.fromEntries(PM_KEYS.map(k => [k, anR(sum(rows, r => r.buy[k]))])), pay: Object.fromEntries(PM_KEYS.map(k => [k, anR(sum(rows, r => r.pay[k]))])),
+    buyTot: anR(sum(rows, r => r.buyTot)), payTot: anR(sum(rows, r => r.payTot)), vat: anR(sum(rows, r => r.vat)), net: anR(sum(rows, r => r.net)) };
+  return { from, to, rows, tot };
+}
 /* DocsCenter: نُقل إلى mods/acct/DocsCenter.jsx (تحميل كسول) */
 
 /* Archive: نُقل إلى mods/acct/Archive.jsx (تحميل كسول) */
@@ -9483,3 +9636,5 @@ export { forecastSales, FC_DOW };
 export { cashForecast, vatStatus, CF_KIND, CF_IN, CF_OUT, CF_SCHED };
 // v39.0 — الشراء من التوقع
 export { purchasePlan, PO_LIVE };
+// v39.1 — التنبيهات المهمة والتقارير الضريبية والمشتريات
+export { complianceItems, leaseSchedule, LEASE_EVERY, CMP_CAT, vatRegister, supplierPurchReport, PM_KEYS, PM_AR };

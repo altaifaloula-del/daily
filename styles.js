@@ -1523,4 +1523,32 @@ html,body{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .pp-q{display:flex;align-items:center;gap:6px;flex:0 0 auto}.pp-q .inp{width:70px;text-align:center;font-weight:800}.pp-q small{font-size:11px;color:var(--dim)}
 .pp-go{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;align-items:center;margin-top:10px}
 .pp-go .btn{flex:0 0 auto}
+
+/* v39.1 — المواعيد والتنبيهات المهمة */
+.cmp-list{display:flex;flex-direction:column;gap:6px}
+.cmp-it{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line);border-radius:12px}
+.cmp-it.bad{border-color:rgba(217,84,77,.5);background:rgba(217,84,77,.05)}.cmp-it.warn{border-color:rgba(224,164,88,.45)}
+.cmp-it .badge{flex:0 0 auto}
+.cmp-d{display:flex;flex-direction:column;align-items:center;min-width:46px;flex:0 0 auto;line-height:1.1}.cmp-d small{font-size:9.5px;color:var(--dim)}
+.cmp-it.bad .cmp-d b{color:var(--rose)}.cmp-it.warn .cmp-d b{color:var(--amber)}
+.cmp-b{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1 1 auto;font-size:12.5px}.cmp-b small{font-size:11px;color:var(--dim)}
+
+/* v39.1 — التقارير الضريبية ومشتريات الموردين */
+.rp-bar{display:flex;flex-direction:column;gap:8px}
+.rp-seg{display:flex;flex-wrap:wrap;gap:6px}.rp-seg .btn{flex:0 0 auto}
+.rp-dates{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.rp-dates .inp{width:auto;min-width:0;flex:1 1 130px}.rp-dates .sel{flex:1 1 150px}
+.rp-boxes{display:flex;flex-direction:column}
+.rp-box{display:flex;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid var(--line)}
+.rp-box.tot{background:var(--ink2);font-weight:700}
+.rp-n{min-width:42px;flex:0 0 auto;color:var(--brass);font-weight:800;text-align:center}
+.rp-l{flex:1 1 auto;display:flex;flex-direction:column;font-size:12.5px}.rp-l small{font-size:10px;color:var(--faint)}
+.rp-v{display:flex;flex-direction:column;align-items:flex-end;flex:0 0 auto;font-size:12px}.rp-v span{color:var(--dim);font-size:11px}
+.rp-rows{display:flex;flex-direction:column}
+.rp-row{display:flex;justify-content:space-between;gap:10px;padding:8px 2px;border-bottom:1px solid var(--line)}
+.rp-row.flag{background:rgba(224,164,88,.06)}
+.rp-a{display:flex;flex-direction:column;gap:1px;min-width:0;font-size:12.5px}.rp-a small{font-size:10.5px;color:var(--dim)}
+.rp-b{display:flex;flex-direction:column;align-items:flex-end;flex:0 0 auto}.rp-b small{font-size:10px;color:var(--dim)}
+.rp-pm{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px;margin-bottom:10px}
+.rp-pmc{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;font-size:11.5px;color:var(--dim)}.rp-pmc b{color:var(--txt);font-size:13px}
+.rp-sup{border-bottom:1px solid var(--line)}
 `;

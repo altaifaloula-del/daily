@@ -1,7 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useMemo } from 'react';
 import { Bell, AlertTriangle, Settings, Check, Clock, Sparkles, ChevronLeft } from 'lucide-react';
-import { DOC_LABEL, Field, Kpi, ROLES, buildAccounting, buildPartners, countedClosing, customerAging, defaultHrPolicies, defaultTrainingPrograms, deficitCfg, deficitPatterns, expiringTraining, hrEmpStats, hrScoreFor, isoD, missingRequiredTraining, money, overdueSignDocs, stockByWh, sum, supplierAging, today } from '../../App.jsx';
+import { DOC_LABEL, complianceItems, Field, Kpi, ROLES, buildAccounting, buildPartners, countedClosing, customerAging, defaultHrPolicies, defaultTrainingPrograms, deficitCfg, deficitPatterns, expiringTraining, hrEmpStats, hrScoreFor, isoD, missingRequiredTraining, money, overdueSignDocs, stockByWh, sum, supplierAging, today } from '../../App.jsx';
 
 export function AlertsCenter({ org, ops, me, myBranches, scoped, setTab, openAcctView, openInvView, commitOrg, say }) {
   const dcf = deficitCfg(org);
@@ -96,6 +96,9 @@ export function AlertsCenter({ org, ops, me, myBranches, scoped, setTab, openAcc
     else if (dl <= docRemind) push('mid', 'setup', 'وثيقة تنتهي قريبًا: ' + DOC_LABEL(dc.type), (dc.number ? dc.number + ' · ' : '') + 'تنتهي في ' + dc.expiryDate + ' (' + dl + ' يومًا).', { label: 'الوثائق', go: () => setTab('docs') });
   });
 
+  // v39.1 — عقود الإيجار (الدفعات وإشعار المؤجر) والمواعيد النظامية (ض.ق.م، التأمينات، الزكاة)
+  try { complianceItems(org, ops, { A }).items.filter(x => (x.cat === 'lease' || x.cat === 'tax') && x.sev !== 'info').forEach(x =>
+    push(x.sev === 'bad' ? 'high' : 'mid', 'setup', x.title, x.sub + (x.amount ? ' · ' + money(x.amount) : ''), x.cat === 'tax' ? { label: 'الضريبة', go: () => goAcct('vat') } : { label: 'المستندات', go: () => setTab('docs') })); } catch { }
   // م9 (v26.0) — تنبيهات الموارد البشرية (م1–م8) ضمن فروعي
   try {
     const hrBranches = (myBranches || []).filter(b => b.isActive !== false);
