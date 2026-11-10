@@ -1,130 +1,181 @@
-/* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
+/* v38.9 — التدفق النقدي المتوقع (13 أسبوعًا) مربوطًا بتوقع المبيعات لكل فرع
+   المحرك في النواة (cashForecast): أساس نقدي (IAS 7) — كل بند من بيانات المنصّة، وما لا تعرفه البيانات يُعلَن ولا يُفترض.
+   الشاشة: مؤشرات، ما يحتاج انتباهك، مسار الرصيد (أساسي ومتحفظ)، الأسابيع بتفاصيلها، أساس الحساب للمراجعة، والإعداد. */
 import React, { useMemo, useState } from 'react';
-import { Download, Check, Settings, AlertTriangle, CalendarDays, Banknote, TrendingUp, FileText } from 'lucide-react';
-import { ResponsiveContainer, LineChart, CartesianGrid, XAxis, YAxis, Tooltip, Line } from 'recharts';
-import { Field, Kpi, buildAccounting, buildPartners, chartTone, countedClosing, customerAging, isoD, makeXlsx, money, rolePost, short, sum, supplierAging, today } from '../../App.jsx';
+import { Download, Check, Settings, AlertTriangle, CalendarDays, Banknote, TrendingUp, FileText, Info, Plus, Trash2, ShieldCheck, ChevronDown } from 'lucide-react';
+import { ResponsiveContainer, LineChart, CartesianGrid, XAxis, YAxis, Tooltip, Line, ReferenceLine } from 'recharts';
+import { CF_IN, CF_KIND, CF_OUT, CF_SCHED, Field, Kpi, arDate, buildAccounting, cashForecast, chartTone, makeXlsx, money, rolePost, short, uid } from '../../App.jsx';
 
-export function CashFlow13({ org, ops, me, scoped, theme, commitOrg, say }) {
+const SEV = { bad: ['b-rose', 'عاجل'], warn: ['b-amber', 'تنبيه'], info: ['b-dim', 'معلومة'] };
+const EVERY = { once: 'مرة واحدة', monthly: 'شهري', quarterly: 'ربع سنوي', yearly: 'سنوي' };
+// بنود الأسبوع مجمّعة حسب الوصف (المبيعات اليومية لفرع = بند واحد بمجموعه وأيامه)
+const groupWeek = (items, w) => { const G = new Map();
+  items.filter(i => i.date >= w.from && i.date <= w.to).forEach(i => { const k = i.kind + '|' + i.label; const g = G.get(k);
+    if (g) { g.amount += i.amount; g.n++; if (i.date > g.to) g.to = i.date; } else G.set(k, { ...i, to: i.date, n: 1 }); });
+  return [...G.values()].sort((a, b) => a.date.localeCompare(b.date) || b.amount - a.amount); };
+const draftOf = (c = {}) => ({ vatFreq: c.vatFreq || '', fyEnd: c.fyEnd || '', includeOverdueAR: !!c.includeOverdueAR, appLag: { ...(c.appLag || {}) }, sched: (c.sched || []).map(s => ({ ...s })) });
+
+export function CashFlow13({ org, ops, me, theme, commitOrg, say }) {
   const tn = chartTone(theme);
-  const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
-  const A = useMemo(() => buildAccounting(org, ops), [org, ops]);
-  const num = (s) => Number(String(s).replace(/[^\d.-]/g, '')) || 0;
-  const [cfg, setCfg] = useState(() => { const c = org.cashflowCfg || {}; return { wkSales: c.wkSales != null ? String(c.wkSales) : '', wkOpex: c.wkOpex != null ? String(c.wkOpex) : '', payroll: c.payroll != null ? String(c.payroll) : '', fixed: c.fixed != null ? String(c.fixed) : '', colWeeks: c.colWeeks != null ? String(c.colWeeks) : '4', startCash: c.startCash != null ? String(c.startCash) : '' }; });
   const canPost = rolePost(me?.role);
+  const A = useMemo(() => buildAccounting(org, ops), [org, ops]);
+  const [cfg, setCfg] = useState(() => draftOf(org.cashflowCfg));
+  const [setOpen, setSetOpen] = useState(false);
+  const [wk, setWk] = useState(null);
+  const [showBasis, setShowBasis] = useState(false);
+  const C = useMemo(() => cashForecast(org, ops, { A, cfg: { ...(org.cashflowCfg || {}), ...cfg } }), [org, ops, A, cfg]);
+  const dirty = JSON.stringify(draftOf(org.cashflowCfg)) !== JSON.stringify(cfg);
+  const wkLbl = (k) => k < 0 ? 'الآن' : 'الأسبوع ' + (k + 1);
+  const tot = (kind) => C.items.filter(i => i.kind === kind).reduce((s, i) => s + i.amount, 0);
+  const chart = [{ label: 'الآن', base: C.opening, lo: C.opening }, ...C.weeks.map(w => ({ label: w.from.slice(5), base: w.bal, lo: w.balLo }))];
+  const B = C.basis;
 
-  const cash0 = r2(sum(A.accounts.filter(a => a.cash), a => a.balance));
-  const counted = scoped.closings.filter(countedClosing);
-  const cutoff = isoD(new Date(Date.now() - 56 * 86400000));
-  const recent = counted.filter(c => (c.date || '') >= cutoff);
-  const wkRevDef = recent.length ? r2(sum(recent, c => c.totalRevenue || 0) / 8) : 0;
-  const wkExpDef = recent.length ? r2(sum(recent, c => c.totalExpenses || 0) / 8) : 0;
-  const payrollDef = r2(sum(org.employees || [], e => (e.baseSalary || 0) + (e.housingAllowance || 0) + (e.transportAllowance || 0) + (e.otherAllowance || 0)));
-  const arTot = r2(sum(buildPartners(org, ops).filter(p => p.type === 'customer'), p => customerAging(p, today()).total));
-  const apTot = r2(sum(buildPartners(org, ops).filter(p => p.type === 'supplier'), p => supplierAging(p, today()).total));
-
-  const startCash = cfg.startCash !== '' ? num(cfg.startCash) : cash0;
-  const wkSales = cfg.wkSales !== '' ? num(cfg.wkSales) : wkRevDef;
-  const wkOpex = cfg.wkOpex !== '' ? num(cfg.wkOpex) : wkExpDef;
-  const payroll = cfg.payroll !== '' ? num(cfg.payroll) : payrollDef;
-  const fixed = num(cfg.fixed);
-  const colWeeks = Math.min(13, Math.max(1, Math.round(num(cfg.colWeeks) || 4)));
-
-  const weeks = useMemo(() => {
-    const out = []; let bal = startCash; let lastMonth = null; const start = new Date();
-    for (let w = 0; w < 13; w++) {
-      const ws = new Date(start.getTime() + w * 7 * 86400000);
-      const ym = ws.getFullYear() + '-' + ws.getMonth(); const newMonth = ym !== lastMonth; lastMonth = ym;
-      const inAR = w < colWeeks ? r2(arTot / colWeeks) : 0, outAP = w < colWeeks ? r2(apTot / colWeeks) : 0;
-      const outPay = newMonth ? payroll : 0, outFix = newMonth ? fixed : 0;
-      const inflow = r2(wkSales + inAR), outflow = r2(wkOpex + outAP + outPay + outFix);
-      const net = r2(inflow - outflow); bal = r2(bal + net);
-      out.push({ label: ws.toISOString().slice(5, 10), inflow, outflow, net, bal, gap: bal < -0.004, pay: outPay > 0 });
-    }
-    return out;
-  }, [startCash, wkSales, wkOpex, payroll, fixed, colWeeks, arTot, apTot]);
-
-  const minBal = weeks.reduce((m, w) => Math.min(m, w.bal), startCash);
-  const gapCount = weeks.filter(w => w.gap).length;
-  const endBal = weeks.length ? weeks[12].bal : startCash;
-  const chartData = [{ label: 'الآن', الرصيد: startCash }, ...weeks.map(w => ({ label: w.label, الرصيد: w.bal }))];
-
-  const save = async () => { await commitOrg(d => ({ ...d, cashflowCfg: { wkSales: num(wkSales), wkOpex: num(wkOpex), payroll: num(payroll), fixed: num(fixed), colWeeks, startCash: num(startCash) } }), { actionType: 'update', targetType: 'tax_settings', targetId: 'cashflowCfg', need: 'post', title: 'حفظ إعداد التدفق النقدي', details: '13 أسبوعًا' }); say('حُفظ الإعداد ✓'); };
-  const exportCF = () => { try { const head = ['الأسبوع', 'النقد الداخل', 'النقد الخارج', 'صافي الأسبوع', 'الرصيد النهائي']; const body = weeks.map(w => [w.label, w.inflow, w.outflow, w.net, w.bal]); const blob = makeXlsx([{ name: 'تدفق 13 أسبوعًا', rows: [head, ...body] }]); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'التدفق_النقدي_13أسبوع.xlsx'; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(url), 1500); say('نُزّل التدفق (Excel) ✓'); } catch (e) { say('تعذّر توليد Excel', 'no'); } };
-
-  const F = (label, key, ph, hint) => (
-    <Field label={label}><input className="inp n" inputMode="decimal" value={cfg[key]} placeholder={ph} disabled={!canPost} onChange={e => setCfg(s => ({ ...s, [key]: e.target.value.replace(/[^\d.-]/g, '') }))} />
-      {hint && <div style={{ fontSize: 9.5, color: 'var(--faint)', marginTop: 2 }}>{hint}</div>}</Field>
-  );
+  const save = async () => {
+    const clean = { ...cfg, sched: cfg.sched.filter(s => (Number(s.amount) || 0) > 0 && s.date).map(s => ({ ...s, amount: Number(s.amount) })),
+      appLag: Object.fromEntries(Object.entries(cfg.appLag).filter(([, v]) => v !== '' && v != null).map(([k, v]) => [k, Number(v)])) };
+    const ok = await commitOrg(d => ({ ...d, cashflowCfg: clean }), { actionType: 'update', targetType: 'tax_settings', targetId: 'cashflowCfg', need: 'post', title: 'حفظ إعداد التدفق النقدي', details: (clean.vatFreq ? 'ض.ق.م ' + (clean.vatFreq === 'monthly' ? 'شهرية' : 'ربع سنوية') + ' · ' : '') + clean.sched.length + ' التزام مجدول' });
+    if (ok !== false) { setCfg(draftOf(clean)); say('حُفظ الإعداد ✓'); }
+  };
+  const exportCF = () => {
+    try {
+      const kinds = [...CF_IN, ...CF_OUT];
+      const s1 = [['الأسبوع', 'من', 'إلى', ...kinds.map(k => CF_KIND[k]), 'الداخل', 'الخارج', 'الصافي', 'الرصيد', 'الرصيد (متحفظ)'],
+        ['الرصيد الافتتاحي', C.today, '', ...kinds.map(() => ''), '', '', '', C.opening, C.opening],
+        ...C.weeks.map(w => [w.k + 1, w.from, w.to, ...kinds.map(k => (CF_IN.includes(k) ? 1 : -1) * (w.by[k] || 0)), w.inflow, -w.outflow, w.net, w.bal, w.balLo])];
+      const s2 = [['التاريخ', 'البند', 'الوصف', 'داخل', 'خارج', 'الأساس'], ...C.items.map(i => [i.date, CF_KIND[i.kind], i.label, i.dir === 'in' ? i.amount : '', i.dir === 'out' ? i.amount : '', i.basis || ''])];
+      const s3 = [['الأهمية', 'الملاحظة'], ...C.notes.map(n => [SEV[n.sev][1], n.msg])];
+      const blob = makeXlsx([{ name: 'التدفق الأسبوعي', rows: s1 }, { name: 'البنود', rows: s2 }, { name: 'الملاحظات', rows: s3 }]);
+      const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'التدفق_النقدي_13أسبوع_' + C.today + '.xlsx'; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(url), 1500); say('نُزّل التدفق (Excel) ✓');
+    } catch (e) { say('تعذّر توليد Excel', 'no'); }
+  };
+  const setS = (i, k, v) => setCfg(c => ({ ...c, sched: c.sched.map((s, j) => j === i ? { ...s, [k]: v } : s) }));
+  const bad = C.notes.filter(n => n.sev === 'bad').length;
 
   return (
-    <div className="grid" style={{ gap: 14 }}>
+    <div className="grid" style={{ gap: 12 }}>
       <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
         <div>
-          <h2 style={{ fontSize: 17 }}>التدفق النقدي المتدحرج — 13 أسبوعًا</h2>
-          <div style={{ fontSize: 12, color: 'var(--dim)' }}>توقّع النقد أسبوعًا بأسبوع لتكتشف فجوات السيولة قبل وقوعها</div>
+          <h2 style={{ fontSize: 17 }}>التدفق النقدي المتوقع — 13 أسبوعًا</h2>
+          <div style={{ fontSize: 12, color: 'var(--dim)' }}>من توقع مبيعات كل فرع، والذمم بتواريخ استحقاقها، والرواتب والتأمينات، والضريبة — على أساس نقدي</div>
         </div>
         <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
           <button className="btn sm" onClick={exportCF}><Download size={13} />Excel</button>
-          {canPost && <button className="btn sm pri" onClick={save}><Check size={14} />حفظ الإعداد</button>}
+          {canPost && <button className={'btn sm' + (setOpen ? ' pri' : '')} onClick={() => setSetOpen(v => !v)}><Settings size={13} />الإعداد</button>}
         </div>
       </div>
 
-      <div className="card">
-        <div className="card-t" style={{ marginBottom: 10 }}><Settings size={15} color="var(--brass)" />الافتراضات (اتركها فارغة لاستخدام المبدئي من بياناتك)</div>
+      <div className="grid g4">
+        <Kpi label="النقد الآن (الدفاتر)" value={money(C.opening)} sub="الخزائن والبنوك والوسطاء" icon={Banknote} color="#C8A24A" />
+        <Kpi label="أدنى رصيد متوقع" value={money(C.min.v)} sub={C.min.k < 0 ? 'الرصيد الحالي هو الأدنى' : wkLbl(C.min.k) + ' · ' + arDate(C.weeks[C.min.k].from)} icon={AlertTriangle} color={C.min.v < 0 ? '#D9544D' : '#4FB286'} />
+        <Kpi label="أدنى رصيد — حالة متحفظة" value={money(C.minLo.v)} sub={'مبيعات عند الحد الأدنى المتوقع' + (C.gapsLo ? ' · ' + C.gapsLo + ' أسابيع عجز' : '')} icon={ShieldCheck} color={C.minLo.v < 0 ? '#D9544D' : C.minLo.v < C.opening * 0.25 ? '#E0A458' : '#4FB286'} />
+        <Kpi label="الرصيد بعد 13 أسبوعًا" value={money(C.weeks[12].bal)} sub={arDate(C.end)} icon={CalendarDays} color={C.weeks[12].bal >= 0 ? '#4FB286' : '#D9544D'} />
+      </div>
+
+      {setOpen && canPost && <div className="card">
+        <div className="card-h"><div className="card-t"><Settings size={15} color="var(--brass)" />الإعداد — ما لا تعرفه البيانات</div>
+          {dirty && <button className="btn sm pri" onClick={save}><Check size={13} />حفظ</button>}</div>
         <div className="grid g3" style={{ gap: 10 }}>
-          {F('النقد الابتدائي', 'startCash', money(cash0), 'رصيدك النقدي الحالي')}
-          {F('مبيعات أسبوعية متوقعة', 'wkSales', money(wkRevDef), 'متوسط آخر 8 أسابيع')}
-          {F('مصروفات تشغيلية أسبوعية', 'wkOpex', money(wkExpDef), 'متوسط آخر 8 أسابيع')}
-          {F('رواتب شهرية', 'payroll', money(payrollDef), 'مرّة كل شهر')}
-          {F('التزامات ثابتة شهرية', 'fixed', '0', 'إيجار ونحوه — مرّة كل شهر')}
-          {F('أسابيع تحصيل/سداد الذمم', 'colWeeks', '4', 'توزيع الذمم المدينة/الدائنة')}
+          <Field label="دورية إقرار ضريبة القيمة المضافة"><select className="inp sel" value={cfg.vatFreq} onChange={e => setCfg(c => ({ ...c, vatFreq: e.target.value }))}>
+            <option value="">{B.vat && B.vat.on && B.vat.src.startsWith('مستنتجة') ? 'تلقائي — ' + (B.vat.months === 3 ? 'ربع سنوية' : 'شهرية') + ' (من آخر إقرار)' : 'غير محددة'}</option>
+            <option value="monthly">شهرية</option><option value="quarterly">ربع سنوية</option></select>
+            <div className="cf-hint">كما في شهادة التسجيل الضريبي</div></Field>
+          <Field label="نهاية السنة المالية (شهر-يوم)"><input className="inp n" dir="ltr" placeholder={B.fyEnd || '12-31'} value={cfg.fyEnd} onChange={e => setCfg(c => ({ ...c, fyEnd: e.target.value.replace(/[^\d-]/g, '').slice(0, 5) }))} />
+            <div className="cf-hint">للتذكير بموعد الزكاة (120 يومًا بعدها)</div></Field>
+          <Field label="ذمم العملاء المتأخرة"><label className="row" style={{ gap: 6, fontSize: 12.5 }}><input type="checkbox" checked={cfg.includeOverdueAR} onChange={e => setCfg(c => ({ ...c, includeOverdueAR: e.target.checked }))} />أدرج المتأخر حتى 90 يومًا في الأسبوع الأول</label>
+            <div className="cf-hint">الافتراضي: لا تُدرج (مبدأ الحيطة)</div></Field>
         </div>
-        <div className="note" style={{ marginTop: 8 }}>الذمم المدينة ({money(arTot)}) تُوزَّع تحصيلًا على أول {colWeeks} أسابيع، والدائنة ({money(apTot)}) سدادًا كذلك. الرواتب والثابتة مرّة عند بداية كل شهر.</div>
-      </div>
+        {(org.deliveryApps || []).length > 0 && <><div className="lbl" style={{ marginTop: 10 }}>مدة تسوية التطبيقات بالأيام (فارغ = تُستنتج من بياناتك)</div>
+          <div className="grid g4" style={{ gap: 8 }}>{(org.deliveryApps || []).map(a => <Field key={a.id} label={a.n}><input className="inp n" inputMode="numeric" placeholder={B.apps[a.id] && B.apps[a.id].lag != null ? String(B.apps[a.id].lag) : '—'} value={cfg.appLag[a.id] != null ? String(cfg.appLag[a.id]) : ''} onChange={e => setCfg(c => ({ ...c, appLag: { ...c.appLag, [a.id]: e.target.value.replace(/\D/g, '').slice(0, 3) } }))} /></Field>)}</div></>}
+        <div className="lbl" style={{ marginTop: 12 }}>التزامات مجدولة (زكاة، ضريبة دخل، إيجار، أقساط تمويل…)</div>
+        <div className="cf-sched">{cfg.sched.map((s, i) => <div key={s.id} className="cf-srow">
+          <select className="inp sel" value={s.kind} onChange={e => setS(i, 'kind', e.target.value)}>{Object.entries(CF_SCHED).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
+          <input className="inp" placeholder="الوصف" value={s.label || ''} onChange={e => setS(i, 'label', e.target.value)} />
+          <input className="inp n" inputMode="decimal" placeholder="المبلغ" value={s.amount} onChange={e => setS(i, 'amount', e.target.value)} />
+          <input className="inp" type="date" value={s.date} onChange={e => setS(i, 'date', e.target.value)} />
+          <select className="inp sel" value={s.every} onChange={e => setS(i, 'every', e.target.value)}>{Object.entries(EVERY).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
+          <button className="btn sm gh" aria-label="حذف" onClick={() => setCfg(c => ({ ...c, sched: c.sched.filter((_, j) => j !== i) }))}><Trash2 size={13} /></button>
+        </div>)}</div>
+        <button className="btn sm gh" style={{ marginTop: 6 }} onClick={() => setCfg(c => ({ ...c, sched: [...c.sched, { id: uid('cs'), kind: 'rent', label: '', amount: '', date: C.today, every: 'monthly' }] }))}><Plus size={13} />إضافة التزام</button>
+        {dirty && <div className="note" style={{ marginTop: 8 }}>المعاينة أعلاه تعكس التعديلات — اضغط «حفظ» لاعتمادها.</div>}
+      </div>}
 
-      <div className="grid g3">
-        <Kpi label="أدنى رصيد نقدي متوقّع" value={money(minBal)} sub={minBal < 0 ? 'عجز متوقّع!' : 'يبقى موجبًا'} icon={AlertTriangle} color={minBal < 0 ? '#D9544D' : minBal < startCash * 0.25 ? '#E0A458' : '#4FB286'} />
-        <Kpi label="أسابيع العجز (رصيد سالب)" value={String(gapCount)} sub={gapCount ? 'تحتاج تدبير سيولة' : 'لا فجوات خلال 13 أسبوعًا'} icon={CalendarDays} color={gapCount ? '#D9544D' : '#4FB286'} />
-        <Kpi label="الرصيد بعد 13 أسبوعًا" value={money(endBal)} sub={(endBal >= startCash ? 'أعلى من البداية' : 'أقل من البداية') + ' (' + money(startCash) + ')'} icon={Banknote} color={endBal >= 0 ? '#4FB286' : '#D9544D'} />
-      </div>
+      {C.notes.length > 0 && <div className="card">
+        <div className="card-t" style={{ marginBottom: 8 }}><AlertTriangle size={15} color={bad ? 'var(--rose)' : 'var(--amber)'} />ما يحتاج انتباهك ({C.notes.length})</div>
+        <div className="cf-notes">{C.notes.map((n, i) => <div key={i} className={'cf-note ' + n.sev}><span className={'badge ' + SEV[n.sev][0]}>{SEV[n.sev][1]}</span><span>{n.msg}</span></div>)}</div>
+      </div>}
 
       <div className="card">
-        <div className="card-t" style={{ marginBottom: 14 }}><TrendingUp size={15} color="var(--brass)" />مسار الرصيد النقدي — إن هبط تحت الصفر فهناك فجوة</div>
-        <div style={{ height: 240, direction: 'ltr' }}>
+        <div className="card-t" style={{ marginBottom: 10 }}><TrendingUp size={15} color="var(--brass)" />مسار الرصيد النقدي — الخط المتقطع: المبيعات عند حدها الأدنى المتوقع</div>
+        <div style={{ height: 230, direction: 'ltr' }}>
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={chartData} margin={{ top: 6, right: 10, left: -8, bottom: 0 }}>
+            <LineChart data={chart} margin={{ top: 6, right: 10, left: -8, bottom: 0 }}>
               <CartesianGrid stroke={tn.grid} vertical={false} />
-              <XAxis dataKey="label" tick={{ fill: tn.tick, fontSize: 9 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: tn.tick, fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={short} />
-              <Tooltip contentStyle={{ background: tn.tip, border: '1px solid ' + tn.grid, borderRadius: 10, fontSize: 12, direction: 'rtl', color: tn.tipTxt }} formatter={(v) => [money(v), 'الرصيد']} />
-              <Line type="monotone" dataKey="الرصيد" stroke={minBal < 0 ? '#D9544D' : '#4FB286'} strokeWidth={2.4} dot={{ r: 2 }} />
+              <XAxis dataKey="label" reversed tick={{ fill: tn.tick, fontSize: 9 }} axisLine={false} tickLine={false} />
+              <YAxis orientation="right" tick={{ fill: tn.tick, fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={short} />
+              <ReferenceLine y={0} stroke="#D9544D" strokeOpacity={0.6} />
+              <Tooltip contentStyle={{ background: tn.tip, border: '1px solid ' + tn.grid, borderRadius: 10, fontSize: 12, direction: 'rtl', color: tn.tipTxt }} formatter={(v, k) => [money(v), k === 'base' ? 'الرصيد المتوقع' : 'الحالة المتحفظة']} />
+              <Line type="monotone" dataKey="base" stroke={C.min.v < 0 ? '#D9544D' : '#4FB286'} strokeWidth={2.4} dot={{ r: 2 }} />
+              <Line type="monotone" dataKey="lo" stroke="#E0A458" strokeWidth={1.6} strokeDasharray="5 4" dot={false} />
             </LineChart>
           </ResponsiveContainer>
         </div>
       </div>
 
       <div className="card">
-        <div className="card-t" style={{ marginBottom: 8 }}><FileText size={15} color="var(--brass)" />الجدول الأسبوعي</div>
-        <div className="tw">
-          <table className="tb">
-            <thead><tr><th>الأسبوع (يبدأ)</th><th style={{ textAlign: 'end' }}>الداخل</th><th style={{ textAlign: 'end' }}>الخارج</th><th style={{ textAlign: 'end' }}>الصافي</th><th style={{ textAlign: 'end' }}>الرصيد</th><th style={{ textAlign: 'center' }}>الحالة</th></tr></thead>
-            <tbody>
-              {weeks.map((w, i) => (
-                <tr key={i} style={w.gap ? { background: 'rgba(217,84,77,.07)' } : null}>
-                  <td className="num" style={{ fontSize: 11 }}>{w.label}{w.pay && <span className="badge b-sky" style={{ marginInlineStart: 6, fontSize: 9 }}>رواتب</span>}</td>
-                  <td className="num" style={{ textAlign: 'end', color: 'var(--mint)' }}>{money(w.inflow)}</td>
-                  <td className="num" style={{ textAlign: 'end', color: '#D9544D' }}>{money(w.outflow)}</td>
-                  <td className="num" style={{ textAlign: 'end', color: w.net >= 0 ? 'var(--mint)' : '#D9544D' }}>{w.net >= 0 ? '+' : ''}{money(w.net)}</td>
-                  <td className="num" style={{ textAlign: 'end', fontWeight: 800, color: w.gap ? '#D9544D' : 'inherit' }}>{money(w.bal)}</td>
-                  <td style={{ textAlign: 'center' }}>{w.gap ? <span className="badge b-rose">عجز</span> : <span className="badge b-mint">سليم</span>}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="card-t" style={{ marginBottom: 6 }}><FileText size={15} color="var(--brass)" />الأسابيع — اضغط الأسبوع لتفاصيله</div>
+        <div className="cf-wks">{C.weeks.map(w => (
+          <div key={w.k} className={'cf-wk' + (w.bal < -0.004 ? ' gap' : w.balLo < -0.004 ? ' risk' : '')}>
+            <button type="button" className="cf-wh" onClick={() => setWk(wk === w.k ? null : w.k)} aria-expanded={wk === w.k}>
+              <span className="cf-wd"><b>{wkLbl(w.k)}</b><small className="dt">{arDate(w.from)} – {arDate(w.to)}</small></span>
+              <span className="cf-io"><small className="num" style={{ color: 'var(--mint)' }} dir="ltr">+{money(w.inflow)}</small><small className="num" style={{ color: 'var(--rose)' }} dir="ltr">−{money(w.outflow)}</small></span>
+              <span className="cf-bal"><b className="num" dir="ltr">{money(w.bal)}</b>{w.bal < -0.004 ? <span className="badge b-rose">عجز</span> : w.balLo < -0.004 ? <span className="badge b-amber">خطر</span> : null}</span>
+              <ChevronDown size={14} className="cf-chev" />
+            </button>
+            {wk === w.k && <div className="cf-wb">
+              <div className="cf-kinds">{[...CF_IN, ...CF_OUT].filter(k => w.by[k]).map(k => <span key={k} className={'cf-k ' + (CF_IN.includes(k) ? 'in' : 'out')}>{CF_KIND[k]} <b className="num" dir="ltr">{CF_IN.includes(k) ? '+' : '−'}{money(w.by[k])}</b></span>)}</div>
+              <div className="cf-items">{groupWeek(C.items, w).slice(0, 60).map((i, ix) => <div key={ix} className="cf-it">
+                <span className="cf-id"><small className="dt">{arDate(i.date)}{i.to !== i.date ? ' – ' + arDate(i.to) : ''}{i.n > 1 ? ' · ' + i.n + ' أيام' : ''}</small><span>{i.label}</span>{i.basis ? <small className="cf-b">{i.basis}</small> : null}</span>
+                <b className="num" dir="ltr" style={{ color: i.dir === 'in' ? 'var(--mint)' : 'var(--rose)' }}>{i.dir === 'in' ? '+' : '−'}{money(i.amount)}</b></div>)}</div>
+            </div>}
+          </div>))}</div>
+      </div>
+
+      <div className="card">
+        <div className="card-t" style={{ marginBottom: 8 }}><Banknote size={15} color="var(--brass)" />مكوّنات التدفق خلال 13 أسبوعًا</div>
+        <div className="cf-comp">
+          {CF_IN.map(k => tot(k) > 0 && <div key={k} className="cf-c in"><span>{CF_KIND[k]}</span><b className="num" dir="ltr">+{money(tot(k))}</b></div>)}
+          {CF_OUT.map(k => tot(k) > 0 && <div key={k} className="cf-c out"><span>{CF_KIND[k]}</span><b className="num" dir="ltr">−{money(tot(k))}</b></div>)}
         </div>
       </div>
 
-      <div className="note">💡 تنبؤ استرشادي متدحرج من اليوم. المبيعات والمصروفات الأسبوعية مبدئيًا من متوسط آخر 8 أسابيع، والذمم من أعمارها، والرواتب والثابتة عند بداية كل شهر — عدّل أيّ افتراض ليعكس واقعك. راقب <b>أدنى رصيد</b> و<b>أسابيع العجز</b> لتدبّر السيولة مبكرًا.</div>
+      <div className="card">
+        <button type="button" className="cf-wh" style={{ padding: 0 }} onClick={() => setShowBasis(v => !v)} aria-expanded={showBasis}>
+          <span className="card-t"><ShieldCheck size={15} color="var(--brass)" />أساس الحساب — للمراجعة والتدقيق</span><ChevronDown size={14} className="cf-chev" /></button>
+        {showBasis && <div className="cf-basis">
+          <div className="lbl">الفروع (من آخر 8 أسابيع من الإغلاقات المرحّلة)</div>
+          {B.branches.length ? B.branches.map(b => <div key={b.id} className="cf-br"><b>{b.name}</b>
+            <span>توقع 13 أسبوعًا <b className="num">{money(b.total)}</b>{b.mape != null ? ' · دقة ' + (100 - b.mape).toFixed(0) + '%' : ''}</span>
+            <span>نقد وشبكة <b className="num">{b.immPct}%</b>{Object.entries(b.apps).map(([id, p]) => ' · ' + ((B.apps[id] || {}).name || 'تطبيق') + ' ' + p + '%').join('')}</span>
+            <span>مصروفات الإغلاق: فورية <b className="num">{b.expImmPct}%</b> · آجلة <b className="num">{b.expDefPct}%</b> من المبيعات</span></div>) : <div className="empty">لا فروع بتوقع بعد.</div>}
+          {Object.values(B.apps).some(a => a.bal > 0.004 || a.netPct != null) && <><div className="lbl">تطبيقات التوصيل</div>{Object.entries(B.apps).filter(([, a]) => a.bal > 0.004 || a.netPct != null).map(([id, a]) => <div key={id} className="cf-br"><b>{a.name}</b>
+            <span>الصافي بعد العمولة <b className="num">{a.netPct != null ? a.netPct + '%' : '—'}</b> · رصيد الذمة <b className="num">{money(a.bal)}</b> · التسوية <b className="num">{a.lag != null ? a.lag + ' يومًا' : 'غير معروفة'}</b>{a.src ? ' (' + a.src + ')' : ''}</span></div>)}</>}
+          <div className="lbl">المشتريات والمصروفات المركزية</div>
+          <div className="cf-br"><span>فواتير التوريد: <b className="num">{money(B.invWk)}</b> أسبوعيًا · سداد بعد <b className="num">{B.invLag || 0}</b> يومًا · مصروفات الخزينة: <b className="num">{money(B.cenWk)}</b> أسبوعيًا · مدة الموردين للآجل: <b className="num">{B.defLag != null ? B.defLag + ' يومًا' : 'غير محددة'}</b></span></div>
+          <div className="lbl">الرواتب والتأمينات</div>
+          <div className="cf-br"><span>{B.payroll.emps} موظف · صافي شهري <b className="num">{money(B.payroll.net)}</b> · تأمينات <b className="num">{money(B.payroll.gosi)}</b>{B.payroll.gosiOn ? '' : ' (غير مفعّلة)'} · موعد الصرف: {B.payroll.paySrc}</span></div>
+          <div className="lbl">ضريبة القيمة المضافة والزكاة</div>
+          <div className="cf-br">{B.vat.on ? <span>النسبة <b className="num">{Math.round(B.vat.rate * 100)}%</b> · الدورية: <b>{B.vat.months ? (B.vat.months === 3 ? 'ربع سنوية' : 'شهرية') + ' (' + B.vat.src + ')' : 'غير محددة'}</b>
+            {B.vat.start ? <> · الفترة المفتوحة من <span className="dt">{arDate(B.vat.start)}</span>{B.vat.end ? <> إلى <span className="dt">{arDate(B.vat.end)}</span> · السداد قبل <span className="dt">{arDate(B.vat.due)}</span></> : null} · المستحق في الدفاتر <b className="num">{money(B.vat.accrued)}</b></> : null}
+            · مدخلات الإنفاق <b className="num">{B.vatInRatio}%</b> منه</span> : <span>الضريبة غير مفعّلة في المحاسبة</span>}
+            <span>نهاية السنة المالية: <b className="num" dir="ltr">{B.fyEnd || '—'}</b>{B.zakatDue ? <> · موعد الزكاة <span className="dt">{arDate(B.zakatDue)}</span></> : null}</span></div>
+        </div>}
+      </div>
+
+      <div className="note"><Info size={13} style={{ verticalAlign: -2 }} /> <b>المنهج:</b> أساس نقدي وفق معيار IAS 7 — ما يدخل الخزائن والبنوك ويخرج منها فعلًا.
+        المبيعات شاملة الضريبة كما تُحصَّل، وضريبة القيمة المضافة تخرج كاملة بنهاية الشهر التالي لفترتها (الإقرارات المقفلة من الدفاتر، والجارية = المستحق في الدفاتر + المتوقع).
+        التأمينات الاجتماعية خلال أول 15 يومًا من الشهر التالي، والزكاة خلال 120 يومًا من نهاية السنة المالية.
+        ذمم العملاء المتأخرة لا تُدرج إلا بقرارك (حيطة — IFRS 9)، وذمم الموردين المتأخرة تُسدَّد في الأسبوع الأول (تحفّظ).
+        لا يدخل الإهلاك والمخصصات (ليست نقدًا)، ولا مكافأة نهاية الخدمة (تُصرف عند انتهاء العلاقة)، ولا المناسبات التي لا يعرفها التوقع — أضف ما يلزم كالتزام مجدول.</div>
     </div>
   );
 }

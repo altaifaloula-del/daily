@@ -1252,7 +1252,7 @@ function buildPartners(org, ops) {
       // v28.2: الإشعار الدائن (مبلغ سالب) يُعرض مدينًا يخفض الرصيد بدل دائن سالب
       txns.push((i.amount || 0) < 0
         ? { date: d, desc: 'إشعار دائن من المورد ' + (i.invoiceNo || ''), ref: i.invoiceNo || '', src: 'inv', debit: -i.amount, credit: 0 }
-        : { date: d, desc: 'فاتورة توريد ' + (i.invoiceNo || ''), ref: i.invoiceNo || '', src: 'inv', debit: 0, credit: i.amount || 0 });
+        : { date: d, desc: 'فاتورة توريد ' + (i.invoiceNo || ''), ref: i.invoiceNo || '', src: 'inv', debit: 0, credit: i.amount || 0, due: (i.dueDate || '').slice(0, 10) });
       invPayments(i).forEach(p => txns.push({ date: p.date, desc: 'سداد فاتورة ' + (i.invoiceNo || ''), ref: i.invoiceNo || '', src: 'inv', debit: p.amount, credit: 0 }));
       linked = true;
     });
@@ -2780,7 +2780,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v38.8';
+const APP_VER = 'v38.9';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -5002,7 +5002,9 @@ function dailySales(ops, branchIds) {
 /** توقع يوم واحد من سلسلة فرع، باستخدام البيانات قبل التاريخ asOf فقط */
 function fcDay(series, date, asOf) {
   const dow = fcDow(date); const vals = [];
-  for (let w = 1; w <= 12 && vals.length < 8; w++) { const d = anDay(date, -7 * w); if (d >= asOf) continue; const v = series[d]; if (v != null && v > 0) vals.push(v); }
+  // v38.9: نافذة الـ12 أسبوعًا تُعدّ من آخر يوم معروف (asOf) لا من يوم التوقع — فيصلح التوقع لأفق 13 أسبوعًا
+  let w0 = 1; while (anDay(date, -7 * w0) >= asOf) w0++;
+  for (let w = w0; w < w0 + 12 && vals.length < 8; w++) { const d = anDay(date, -7 * w); const v = series[d]; if (v != null && v > 0) vals.push(v); }
   if (vals.length < 3) return null;
   const m = anMed(vals), mad = anMad(vals, m), sc = Math.max(1.4826 * mad, m * 0.05);
   const clean = vals.filter(v => Math.abs(v - m) / sc <= 3);
@@ -5037,6 +5039,237 @@ function forecastSales(org, ops, opts = {}) {
     return { id: b.id, name: b.name, days, total: anR(sum(days, x => x.f)), mape: n >= 7 ? Math.round(err / n * 1000) / 10 : null, tested: n, past, history: histDays };
   });
   return { branches: out, total: anR(sum(out, b => b.total)), from: anDay(td, 1), to: anDay(td, H) };
+}
+/* ============================================================
+   v38.9 — التدفق النقدي المرتبط بالتوقع (13 أسبوعًا)
+   أساس نقدي (معيار IAS 7): يُعرض ما يدخل الخزائن والبنوك ويخرج منها فعلًا، لا الإيراد ولا المصروف المحاسبي.
+   كل بند من بيانات المنصّة نفسها — توقع المبيعات لكل فرع، ومزيج التحصيل الفعلي، والذمم بتواريخ استحقاقها،
+   والرواتب والتأمينات من الكشف، وضريبة القيمة المضافة من الدفاتر والإقرارات المقفلة —
+   وما لا تعرفه البيانات يُعلَن في الملاحظات ولا يُفترض.
+   ============================================================ */
+const CF_IN = ['sales', 'apps', 'ar'];
+const CF_OUT = ['opex', 'purch', 'central', 'ap', 'payroll', 'gosi', 'vat', 'sched'];
+const CF_KIND = {
+  sales: 'مبيعات نقد وشبكة', apps: 'تحصيل تطبيقات التوصيل', ar: 'تحصيل ذمم العملاء',
+  opex: 'مصروفات الفروع', purch: 'مشتريات بفواتير توريد', central: 'مصروفات مركزية', ap: 'سداد ذمم الموردين',
+  payroll: 'صافي الرواتب', gosi: 'التأمينات الاجتماعية', vat: 'ضريبة القيمة المضافة', sched: 'التزامات مجدولة'
+};
+const CF_SCHED = { zakat: 'الزكاة', incometax: 'ضريبة الدخل', rent: 'إيجار', loan: 'قسط تمويل', other: 'أخرى' };
+const cfDiff = (a, b) => Math.round((Date.parse(b + 'T12:00:00') - Date.parse(a + 'T12:00:00')) / 864e5);
+const cfMEnd = (iso, add = 0) => { const [y, m] = iso.split('-').map(Number); return new Date(Date.UTC(y, m + add, 0)).toISOString().slice(0, 10); };
+const cfPEnd = (start, months) => { const [y, m, d] = start.split('-').map(Number); return new Date(Date.UTC(y, m - 1 + months, d) - 864e5).toISOString().slice(0, 10); };
+const cfMed = (a) => { const s = a.filter(Number.isFinite).sort((x, y) => x - y); return s.length ? s[Math.floor((s.length - 1) / 2)] : null; };
+/** الرسوم المفتوحة لشريك بالأقدم أولًا (نفس منطق أعمار الذمم) مع تاريخ الاستحقاق: الفاتورة بتاريخها، وإلا التاريخ + مدة السداد */
+function cfOpenCharges(p, side, td) {
+  const isCh = (t) => side === 'debit' ? (t.debit || 0) > 0 && !((t.credit || 0) > 0) : (t.credit || 0) > 0 && !((t.debit || 0) > 0);
+  const isPay = (t) => side === 'debit' ? (t.credit || 0) > 0 && !((t.debit || 0) > 0) : (t.debit || 0) > 0 && !((t.credit || 0) > 0);
+  const tx = (p.txns || []).filter(t => !t.date || t.date <= td);
+  const ch = tx.filter(isCh).map(t => ({ date: t.date || td, due: (t.due && /^\d{4}-\d\d-\d\d/.test(t.due)) ? t.due.slice(0, 10) : anDay(t.date || td, Number(p.terms) || 0), open: side === 'debit' ? t.debit : t.credit, desc: t.desc || '' }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  let pay = tx.filter(isPay).reduce((s, t) => s + (side === 'debit' ? t.credit : t.debit), 0);
+  for (const c of ch) { if (pay <= 0.004) break; const ap = Math.min(pay, c.open); c.open -= ap; pay -= ap; }
+  return ch.filter(c => c.open > 0.004).map(c => ({ ...c, open: anR(c.open) }));
+}
+/** حالة ضريبة القيمة المضافة: الإقرارات المقفلة غير المسددة + الفترة المفتوحة ودوريتها ومصدرها */
+function vatStatus(org, ops, A, td, cfg = {}) {
+  const tax = org.taxCfg || {};
+  if (!tax.enabled) return { on: false };
+  const rate = (Number(tax.rate) || 15) / 100;
+  const closes = (ops.journalManual || []).filter(j => j.vatClose && j.vatClose.to).sort((a, b) => a.vatClose.to.localeCompare(b.vatClose.to));
+  const pays = (ops.journalManual || []).filter(j => j.vatPay);
+  const unpaid = closes.map(c => { const paid = sum(pays.filter(p => p.vatPay.closeId === c.id), p => Number(p.vatPay.amount) || 0);
+    return { id: c.id, from: c.vatClose.from, to: c.vatClose.to, net: anR(c.vatClose.net), rem: anR((Number(c.vatClose.net) || 0) - paid), due: cfMEnd(c.vatClose.to, 1) }; })
+    .filter(x => x.rem > 0.004);
+  const last = closes[closes.length - 1];
+  let months = null, src = '';
+  if (cfg.vatFreq === 'monthly' || cfg.vatFreq === 'quarterly') { months = cfg.vatFreq === 'monthly' ? 1 : 3; src = 'من الإعداد'; }
+  else if (last && last.vatClose.from) { months = cfDiff(last.vatClose.from, last.vatClose.to) >= 80 ? 3 : 1; src = 'مستنتجة من آخر إقرار مقفل'; }
+  let start = last ? anDay(last.vatClose.to, 1) : null;
+  if (!start && months) { const [y, m] = td.split('-').map(Number); const m0 = months === 3 ? Math.floor((m - 1) / 3) * 3 + 1 : m; start = y + '-' + String(m0).padStart(2, '0') + '-01'; }
+  let accrued = 0;
+  if (start) A.entries.forEach(e => { if (e.vat && e.date >= start && e.date <= td) accrued += (Number(e.vat.out) || 0) - (Number(e.vat.inn) || 0); });
+  const end = (start && months) ? cfPEnd(start, months) : null;
+  return { on: true, rate, unpaid, months, src, start, end, due: end ? cfMEnd(end, 1) : null, accrued: anR(accrued), noClose: !last };
+}
+/**
+ * التدفق النقدي المتوقع: { today, end, opening, weeks:[{from,to,by,inflow,outflow,net,bal,balLo}], items, notes, basis, min, minLo, gaps }
+ * opts: { today, weeks (13), cfg (افتراضي org.cashflowCfg), A (قيود جاهزة) }
+ */
+function cashForecast(org, ops, opts = {}) {
+  const td = opts.today || today(), W = opts.weeks || 13, H = W * 7, end = anDay(td, H - 1);
+  const cfg = opts.cfg || org.cashflowCfg || {};
+  const A = opts.A || buildAccounting(org, ops);
+  const items = [], notes = [], basis = {};
+  const note = (sev, msg) => notes.push({ sev, msg });
+  const add = (it) => { const amt = anR(it.amount); if (!(amt > 0.004)) return; if (it.date > end) return;
+    items.push({ ...it, date: it.date < td ? td : it.date, amount: amt, lo: anR(it.lo != null ? it.lo : amt), dir: CF_IN.includes(it.kind) ? 'in' : 'out' }); };
+  const opening = anR(sum(A.accounts.filter(a => a.cash), a => a.balance));
+  const from56 = anDay(td, -56);
+  const cl = (ops.closings || []).filter(c => countedClosing(c) && c.date > from56 && c.date <= td);
+  const grossBy = {}, spendBy = {};     // للضريبة: إجمالي المبيعات المتوقعة والإنفاق المتوقع بتاريخ الاستحقاق الضريبي (لا السداد)
+  const apps = org.deliveryApps || [];
+
+  // ——— 1) تطبيقات التوصيل: نسبة الصافي بعد العمولة الفعلية، ومدة التسوية من رصيد الذمة ÷ متوسط الصافي اليومي ———
+  const appG = {}, appN = {};
+  cl.forEach(c => (c.deliverySales || []).forEach(s => { const g = Number(s.amount) || 0; if (!(g > 0)) return; const id = s.appId || '?';
+    const app = apps.find(a => a.id === s.appId); const rate = s.commissionPercentage != null ? Number(s.commissionPercentage) || 0 : (app ? Number(app.c) || 0 : 0);
+    appG[id] = (appG[id] || 0) + g; appN[id] = (appN[id] || 0) + g * (1 - rate / 100); }));
+  const appInfo = {};
+  apps.forEach(a => {
+    const acc = A.accounts.find(x => x.appId === a.id); const bal = anR(acc ? acc.balance : 0);
+    const daily = (appN[a.id] || 0) / 56; const ov = cfg.appLag && cfg.appLag[a.id] !== '' && cfg.appLag[a.id] != null ? Number(cfg.appLag[a.id]) : null;
+    let lag = null, src = '';
+    if (ov != null && Number.isFinite(ov) && ov >= 0) { lag = Math.round(ov); src = 'من الإعداد'; }
+    else if (daily > 0) { lag = Math.min(60, Math.max(1, Math.round(Math.max(0, bal) / daily))); src = 'رصيد الذمة ÷ متوسط الصافي اليومي'; if (bal / daily > 60) note('warn', 'ذمة ' + a.n + ' تعادل ' + Math.round(bal / daily) + ' يومًا من مبيعاته — تسويات متأخرة أو كشوف غير مطابقة؛ راجع «تسوية كشوف التطبيقات»'); }
+    appInfo[a.id] = { name: a.n || 'تطبيق', bal, lag, src, netPct: appG[a.id] ? anR(appN[a.id] / appG[a.id] * 100) : null };
+    if (bal > 0.004) {
+      if (lag == null) note('warn', 'ذمة ' + (a.n || 'تطبيق') + ' (' + money(bal) + ') بلا مبيعات حديثة تُستنتج منها مدة التسوية — لم تُدرج؛ حدّد مدة التسوية في الإعداد');
+      else { const n = Math.max(1, lag); for (let k = 1; k <= n; k++) add({ date: anDay(td, k), kind: 'apps', label: 'تحصيل رصيد ' + (a.n || 'تطبيق') + ' القائم', amount: bal / n, basis: 'رصيد الذمة يُحصَّل على ' + n + ' يومًا' }); }
+    }
+  });
+  basis.apps = appInfo;
+
+  // ——— 2) المبيعات المتوقعة لكل فرع × مزيج التحصيل الفعلي لآخر 8 أسابيع ———
+  const F = forecastSales(org, ops, { today: td, days: H });
+  basis.branches = [];
+  const termsOf = (c) => { const sp = (org.suppliers || []).find(s => s.id === c.supplierId || (s.key || 'sup:' + s.id) === c.partnerKey); return sp ? Number(sp.terms) || 0 : null; };
+  const defTerms = [];
+  F.branches.forEach(b => {
+    const bc = cl.filter(c => c.branchId === b.id);
+    const imm = sum(bc, c => (Number(c.cashSales) || 0) + (Number(c.cardSales) || 0) + (Number(c.bankTransferSales) || 0));
+    const bApp = {}; bc.forEach(c => (c.deliverySales || []).forEach(s => { if ((Number(s.amount) || 0) > 0) bApp[s.appId || '?'] = (bApp[s.appId || '?'] || 0) + Number(s.amount); }));
+    const tot = imm + sum(Object.values(bApp), x => x);
+    const expImm = sum(bc, c => sum((c.expenses || []).filter(e => e.paymentMethod !== 'deferred'), e => Number(e.amount) || 0));
+    const expDef = sum(bc, c => sum((c.expenses || []).filter(e => e.paymentMethod === 'deferred'), e => Number(e.amount) || 0));
+    bc.forEach(c => (c.expenses || []).filter(e => e.paymentMethod === 'deferred').forEach(e => { const t = termsOf(e); if (t != null) defTerms.push(t); }));
+    if (!b.days.length) { if (bc.length || b.history) note('warn', b.name + ': لا يكفي التاريخ لتوقع مبيعاته (يلزم 3 أسابيع من الإغلاقات) — لم تُدرج مبيعاته ولا مصروفاته المستقبلية'); return; }
+    if (!(tot > 0)) { note('warn', b.name + ': لا إغلاقات مرحّلة في آخر 8 أسابيع يُستخرج منها مزيج التحصيل — لم تُدرج مبيعاته'); return; }
+    const sI = imm / tot, rI = expImm / tot, rD = expDef / tot;
+    basis.branches.push({ id: b.id, name: b.name, total: b.total, immPct: anR(sI * 100), apps: Object.fromEntries(Object.entries(bApp).map(([k, v]) => [k, anR(v / tot * 100)])), expImmPct: anR(rI * 100), expDefPct: anR(rD * 100), mape: b.mape });
+    b.days.forEach(d => {
+      grossBy[d.date] = (grossBy[d.date] || 0) + d.f;
+      add({ date: d.date, kind: 'sales', label: 'مبيعات ' + b.name + ' (نقد وشبكة وتحويل)', amount: d.f * sI, lo: d.lo * sI, basis: 'التوقع × ' + anR(sI * 100) + '% نقد وشبكة' });
+      Object.entries(bApp).forEach(([id, g]) => { const inf = appInfo[id]; const sh = g / tot; const np = inf && inf.netPct != null ? inf.netPct / 100 : 1;
+        if (!inf || inf.lag == null) return;
+        add({ date: anDay(d.date, inf.lag), kind: 'apps', label: 'تحصيل ' + inf.name + ' — ' + b.name, amount: d.f * sh * np, lo: d.lo * sh * np, basis: 'بعد العمولة (' + anR(np * 100) + '%) وتسوية ' + inf.lag + ' يومًا' }); });
+      if (rI > 0) { add({ date: d.date, kind: 'opex', label: 'مصروفات ' + b.name + ' المدفوعة فورًا', amount: d.f * rI, basis: anR(rI * 100) + '% من المبيعات (فعلي 8 أسابيع)' }); spendBy[d.date] = (spendBy[d.date] || 0) + d.f * rI; }
+      if (rD > 0) { spendBy[d.date] = (spendBy[d.date] || 0) + d.f * rD; }
+    });
+    if (rD > 0) b.days.forEach(d => { const lag = cfMed(defTerms); add({ date: anDay(d.date, lag == null ? 0 : lag), kind: 'opex', label: 'مصروفات ' + b.name + ' الآجلة', amount: d.f * rD, basis: anR(rD * 100) + '% من المبيعات · سداد بعد ' + (lag == null ? '0 (مدة الموردين غير محددة)' : lag) + ' يومًا' }); });
+  });
+  basis.defLag = cfMed(defTerms);
+
+  // ——— 3) مشتريات بفواتير توريد (خارج الإغلاقات) ومصروفات الخزينة المركزية: متوسط آخر 8 أسابيع ———
+  const inv56 = (ops.invoices || []).filter(i => (Number(i.amount) || 0) > 0 && (i.date || '') > from56 && (i.date || '') <= td);
+  const invWk = sum(inv56, i => Number(i.amount) || 0) / 8;
+  const invLag = cfMed(inv56.filter(i => i.dueDate).map(i => Math.max(0, cfDiff(i.date, i.dueDate))));
+  let cen56 = 0; A.entries.forEach(e => { if (e.date > from56 && e.date <= td) e.lines.forEach(l => { if (l.code === '5901') cen56 += (l.debit || 0) - (l.credit || 0); }); });
+  const cenWk = Math.max(0, cen56) / 8;
+  for (let k = 0; k < W; k++) {
+    const d = anDay(td, k * 7 + 3);
+    if (invWk > 0) { add({ date: anDay(d, invLag || 0), kind: 'purch', label: 'مشتريات بفواتير توريد متوقعة', amount: invWk, basis: 'متوسط آخر 8 أسابيع · سداد بعد ' + (invLag || 0) + ' يومًا (وسيط الفواتير)' }); spendBy[d] = (spendBy[d] || 0) + invWk; }
+    if (cenWk > 0) { add({ date: d, kind: 'central', label: 'مصروفات الخزينة المركزية', amount: cenWk, basis: 'متوسط آخر 8 أسابيع (حساب 5901)' }); spendBy[d] = (spendBy[d] || 0) + cenWk; }
+  }
+  basis.invWk = anR(invWk); basis.invLag = invLag; basis.cenWk = anR(cenWk);
+
+  // ——— 4) الذمم القائمة بتواريخ استحقاقها: الدائنة كلها (المتأخر يُسدَّد فورًا — تحفّظ)، والمدينة غير المتأخرة فقط (IFRS 9) ———
+  const P = buildPartners(org, ops);
+  let arOver = 0, arOverN = 0, arLater = 0, apOver = 0, apLater = 0;
+  P.filter(p => p.type === 'supplier').forEach(p => cfOpenCharges(p, 'credit', td).forEach(c => {
+    if (c.due > end) { apLater += c.open; return; }
+    if (c.due < td) apOver += c.open;
+    add({ date: c.due, kind: 'ap', label: 'سداد ' + p.name + (c.due < td ? ' (متأخر منذ ' + c.due + ')' : ''), amount: c.open, basis: c.desc + ' · استحقاق ' + c.due });
+  }));
+  P.filter(p => p.type === 'customer').forEach(p => cfOpenCharges(p, 'debit', td).forEach(c => {
+    if (c.due > end) { arLater += c.open; return; }
+    if (c.due < td) { if (cfg.includeOverdueAR && cfDiff(c.due, td) <= 90) add({ date: td, kind: 'ar', label: 'تحصيل ' + p.name + ' (متأخر منذ ' + c.due + ')', amount: c.open, basis: 'مدرج بقرار من الإعداد' }); else { arOver += c.open; arOverN++; } return; }
+    add({ date: c.due, kind: 'ar', label: 'تحصيل ' + p.name, amount: c.open, basis: c.desc + ' · استحقاق ' + c.due });
+  }));
+  if (arOver > 0.004) note('warn', 'ذمم عملاء متأخرة ' + money(arOver) + ' (' + arOverN + ' مستحق) لم تُدرج تحصيلًا — مبدأ الحيطة ومعيار IFRS 9 للخسائر الائتمانية المتوقعة؛ أدرج ما تأكدت من تحصيله من الإعداد (حتى 90 يومًا تأخيرًا)');
+  if (apOver > 0.004) note('bad', 'ذمم موردين متأخرة ' + money(apOver) + ' أُدرجت سدادًا في الأسبوع الأول');
+  basis.ap = { over: anR(apOver), later: anR(apLater) }; basis.ar = { over: anR(arOver), later: anR(arLater) };
+
+  // ——— 5) الرواتب والتأمينات: من بطاقات الموظفين وكشف الرواتب، والتأمينات تُسدَّد خلال أول 15 يومًا من الشهر التالي ———
+  const emps = (org.employees || []).filter(e => e.status !== 'terminated' && e.isActive !== false);
+  const rows = payrollRowsOf(org, [], emps, td.slice(0, 7));
+  const netPay = anR(sum(rows, r => r.gross - r.gEmp)), gosiM = anR(sum(rows, r => r.gEmp + r.gEr));
+  const led = ops.ledgerEntries || [];
+  const paidM = new Set(led.filter(x => x.kind === 'salary_payout').map(x => x.month));
+  const lastPay = led.filter(x => x.kind === 'salary_payout' && x.month && x.date).sort((a, b) => (a.month + a.date).localeCompare(b.month + b.date)).pop();
+  const payOff = lastPay ? cfDiff(cfMEnd(lastPay.month + '-01'), lastPay.date.slice(0, 10)) : 0;
+  basis.payroll = { emps: emps.length, net: netPay, gosi: gosiM, gosiOn: !!(org.gosiCfg || {}).enabled, paySrc: lastPay ? 'آخر صرف فعلي (' + lastPay.date.slice(0, 10) + ')' : 'لا سجل صرف سابق — آخر يوم في الشهر', payOff };
+  if (netPay > 0) for (let k = 0; k < 5; k++) {
+    const m = cfMEnd(td, k).slice(0, 7); if (paidM.has(m)) continue;
+    const pd = anDay(cfMEnd(m + '-01'), payOff); if (pd > end) break;
+    add({ date: pd, kind: 'payroll', label: 'صافي رواتب شهر ' + m, amount: netPay, basis: emps.length + ' موظف · الإجمالي ناقص حصة الموظف في التأمينات (قبل السلف)' });
+    if (gosiM > 0) add({ date: cfMEnd(m + '-01', 1).slice(0, 8) + '15', kind: 'gosi', label: 'التأمينات الاجتماعية عن ' + m, amount: gosiM, basis: 'حصتا الموظف وصاحب العمل · تُسدَّد خلال أول 15 يومًا من الشهر التالي' });
+  }
+  const gosiBal = anR(-((A.accounts.find(a => a.code === '2202') || {}).balance || 0));
+  if (gosiBal > 0.004) { const lm = [...paidM].sort().pop(); const due = lm ? cfMEnd(lm + '-01', 1).slice(0, 8) + '15' : td;
+    add({ date: due, kind: 'gosi', label: 'تأمينات مستحقة غير محوّلة (2202)' + (due < td ? ' — متأخرة' : ''), amount: gosiBal, basis: 'رصيد الحساب في الدفاتر' });
+    if (due < td) note('bad', 'تأمينات اجتماعية مستحقة ' + money(gosiBal) + ' تجاوزت موعد السداد (' + due + ') — تترتب عليها غرامة تأخير'); }
+  if (!emps.length) note('info', 'لا موظفين في بطاقات الموارد البشرية — لم تُدرج رواتب');
+
+  // ——— 6) ضريبة القيمة المضافة: المقفلة غير المسددة + الفترة المفتوحة (الفعلي حتى اليوم + المتوقع) — تُسدَّد بنهاية الشهر التالي للفترة ———
+  const V = vatStatus(org, ops, A, td, cfg);
+  basis.vat = V;
+  if (!V.on) { const hasNo = entityList(org).some(e => String(e.taxNumber || '').trim()); if (hasNo) note('bad', 'للمنشأة رقم ضريبي لكن ضريبة القيمة المضافة غير مفعّلة في المحاسبة — المبيعات تُسجَّل بلا ضريبة مخرجات والتدفق لا يتضمن سداد الضريبة'); }
+  else {
+    V.unpaid.forEach(u => { if (u.due > end) return; add({ date: u.due, kind: 'vat', label: 'ض.ق.م فترة ' + u.from + ' ← ' + u.to + (u.due < td ? ' (متأخرة)' : ''), amount: u.rem, basis: 'إقرار مقفل · المتبقي بعد السداد' });
+      if (u.due < td) note('bad', 'ضريبة فترة ' + u.from + ' ← ' + u.to + ' (' + money(u.rem) + ') تجاوزت موعد السداد ' + u.due + ' — غرامة تأخير 5% عن كل شهر أو جزء منه'); });
+    const inRatio = (() => { let inn = 0; A.entries.forEach(e => { if (e.vat && e.date > from56 && e.date <= td) inn += Number(e.vat.inn) || 0; });
+      const sp = sum(cl, c => sum(c.expenses || [], e => Number(e.amount) || 0)) + sum(inv56, i => Number(i.amount) || 0) + Math.max(0, cen56); return sp > 0 ? inn / sp : 0; })();
+    basis.vatInRatio = anR(inRatio * 100);
+    if (!V.months) note('warn', 'دورية إقرار ضريبة القيمة المضافة غير محددة ولا إقرار مقفل يُستنتج منه — حدّدها (شهرية/ربع سنوية حسب شهادة التسجيل) ليُجدول السداد. المستحق حتى اليوم: ' + money(V.accrued));
+    else {
+      let s = V.start, acc = V.accrued, first = true;
+      for (let g = 0; g < 8; g++) {
+        const e = cfPEnd(s, V.months), due = cfMEnd(e, 1); if (due > end) break;
+        let liab = first ? acc : 0;
+        Object.keys(grossBy).forEach(d => { if (d >= s && d <= e && d > td) liab += grossBy[d] * V.rate / (1 + V.rate); });
+        Object.keys(spendBy).forEach(d => { if (d >= s && d <= e && d > td) liab -= spendBy[d] * inRatio; });
+        if (liab > 0.004) add({ date: due, kind: 'vat', label: 'ض.ق.م فترة ' + s + ' ← ' + e + (first ? ' (الجارية)' : ' (متوقعة)'), amount: liab, basis: first ? 'المستحق في الدفاتر ' + money(acc) + ' + المتوقع حتى نهاية الفترة' : 'مخرجات المبيعات المتوقعة − مدخلات الإنفاق المتوقع (' + anR(inRatio * 100) + '%)' });
+        else if (liab < -0.004) note('info', 'الفترة ' + s + ' ← ' + e + ' متوقع أن تكون دائنة (استرداد ' + money(-liab) + ') — لم يُدرج الاسترداد لعدم معرفة موعده');
+        if (first && e < td) note('warn', 'الفترة الضريبية ' + s + ' ← ' + e + ' انتهت ولم تُقفل — أقفلها من «المحاسبة ← الضريبة» قبل ' + due);
+        first = false; s = anDay(e, 1);
+      }
+    }
+  }
+
+  // ——— 7) التزامات مجدولة يدخلها المستخدم (زكاة، ضريبة دخل، إيجار، أقساط) ———
+  const sched = Array.isArray(cfg.sched) ? cfg.sched : [];
+  const legacyFixed = Number(cfg.fixed) || 0;
+  const step = { monthly: 1, quarterly: 3, yearly: 12 };
+  sched.forEach(s => { const amt = Number(s.amount) || 0; if (!(amt > 0) || !s.date) return;
+    const lbl = (s.label || CF_SCHED[s.kind] || 'التزام');
+    if (!step[s.every]) { if (s.date >= td || cfg.includePastSched) add({ date: s.date, kind: 'sched', label: lbl, amount: amt, basis: CF_SCHED[s.kind] || 'مجدول' }); return; }
+    let d = s.date; for (let g = 0; g < 60 && d <= end; g++) { if (d >= td) add({ date: d, kind: 'sched', label: lbl, amount: amt, basis: (CF_SCHED[s.kind] || 'مجدول') + ' · ' + ({ monthly: 'شهري', quarterly: 'ربع سنوي', yearly: 'سنوي' })[s.every] });
+      const [y, m, dd] = s.date.split('-').map(Number); const n = new Date(Date.UTC(y, m - 1 + step[s.every] * (g + 1), 1)); const last = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth() + 1, 0)).getUTCDate();
+      d = n.toISOString().slice(0, 8) + String(Math.min(dd, last)).padStart(2, '0'); } });
+  if (!sched.length && legacyFixed > 0) for (let k = 0; k < 4; k++) add({ date: anDay(cfMEnd(td, k), 1), kind: 'sched', label: 'التزامات ثابتة شهرية (الإعداد السابق)', amount: legacyFixed, basis: 'من الإعداد السابق — حوّلها إلى التزامات مجدولة بتواريخها' });
+  // الزكاة: تُقدَّم وتُسدَّد خلال 120 يومًا من نهاية السنة المالية
+  const fy = cfg.fyEnd || ((org.yearEnd || {}).closeDate ? String(org.yearEnd.closeDate).slice(5, 10) : '');
+  basis.fyEnd = fy;
+  if (/^\d\d-\d\d$/.test(fy)) {
+    const y = Number(td.slice(0, 4)); const cand = [y - 1, y].map(x => x + '-' + fy).filter(x => x < td).sort().pop();
+    if (cand) { const due = anDay(cand, 120); basis.zakatDue = due;
+      const has = sched.some(s => s.kind === 'zakat' && s.date >= cand && s.date <= anDay(due, 30));
+      if (due >= td && !has) note(cfDiff(td, due) <= 30 ? 'bad' : 'warn', 'إقرار الزكاة وسدادها عن السنة المنتهية ' + cand + ' مستحقان قبل ' + due + ' (120 يومًا) — احسب المبلغ من «المحاسبة ← الزكاة» وأضفه التزامًا مجدولًا'); }
+  } else note('info', 'نهاية السنة المالية غير محددة — حدّدها في الإعداد ليُذكَّر بموعد الزكاة (120 يومًا بعدها)');
+
+  // ——— التجميع الأسبوعي ———
+  items.sort((a, b) => a.date.localeCompare(b.date) || (a.dir === b.dir ? 0 : a.dir === 'in' ? -1 : 1));
+  const weeks = []; let bal = opening, balLo = opening;
+  for (let k = 0; k < W; k++) {
+    const f = anDay(td, k * 7), t = anDay(td, k * 7 + 6); const its = items.filter(x => x.date >= f && x.date <= t);
+    const by = {}; its.forEach(x => { by[x.kind] = anR((by[x.kind] || 0) + x.amount); });
+    const inflow = anR(sum(its.filter(x => x.dir === 'in'), x => x.amount)), outflow = anR(sum(its.filter(x => x.dir === 'out'), x => x.amount));
+    const inLo = anR(sum(its.filter(x => x.dir === 'in'), x => x.lo));
+    bal = anR(bal + inflow - outflow); balLo = anR(balLo + inLo - outflow);
+    weeks.push({ k, from: f, to: t, by, inflow, outflow, net: anR(inflow - outflow), bal, balLo, n: its.length });
+  }
+  const mn = (key) => weeks.reduce((m, w) => (w[key] < m.v ? { v: w[key], k: w.k } : m), { v: opening, k: -1 });
+  return { today: td, end, opening, weeks, items, notes, basis, min: mn('bal'), minLo: mn('balLo'), gaps: weeks.filter(w => w.bal < -0.004).length, gapsLo: weeks.filter(w => w.balLo < -0.004).length };
 }
 function computeSmartAlerts(org, ops, myBranches, deficitThreshold = deficitCfg(org).max) {
   const alerts = [];
@@ -9179,3 +9412,5 @@ export { detectAnomalies };
 export { ACT_ST, ACT_SRC, ACT_KIND, anomKey, actionMetric, anomMetric, actionEffect, newAction, actionFromAnomaly };
 // v38.8 — توقع المبيعات
 export { forecastSales, FC_DOW };
+// v38.9 — التدفق النقدي المرتبط بالتوقع
+export { cashForecast, vatStatus, CF_KIND, CF_IN, CF_OUT, CF_SCHED };

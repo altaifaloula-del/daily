@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { cloud, KEYS, brKey } from '../../storage';
 import { ShieldCheck, RefreshCw, Trash2, AlertTriangle, Check, Server, Bug, Activity, HardDrive } from 'lucide-react';
-import { APP_VER, CloudHealth, ERRLOG_KEY, MAIN_WH, buildAccounting, countedClosing, isoD, money, purKey, q3, qrFs, snapAll, stockByWh, today, whName, whOf } from '../../App.jsx';
+import { APP_VER, CloudHealth, ERRLOG_KEY, MAIN_WH, buildAccounting, cashForecast, entityList, vatStatus, countedClosing, isoD, money, purKey, q3, qrFs, snapAll, stockByWh, today, whName, whOf } from '../../App.jsx';
 
 const ST = { ok: ['b-mint', 'سليم'], warn: ['b-amber', 'تنبيه'], bad: ['b-rose', 'خلل'] };
 const daysAgo = (d) => { const x = new Date(); x.setDate(x.getDate() - d); return isoD(x); };
@@ -16,8 +16,9 @@ export function integrityChecks(org, ops) {
   const brIds = new Set((org.branches || []).map(b => b.id));
   const brName = (id) => ((org.branches || []).find(b => b.id === id) || {}).name || id;
   // 1) توازن القيود
+  let A = null;
   try {
-    const A = buildAccounting(org, ops);
+    A = buildAccounting(org, ops);
     const diff = Math.round((A.totalDebit - A.totalCredit) * 100) / 100;
     const bad = A.entries.filter(e => !e.balanced);
     add('tb', A.balanced ? 'ok' : 'bad', 'توازن القيود وميزان المراجعة', A.balanced ? 'المدين = الدائن في ' + A.entries.length + ' قيدًا' : 'فرق ' + money(diff) + ' · ' + bad.length + ' قيد غير متوازن',
@@ -59,6 +60,50 @@ export function integrityChecks(org, ops) {
   const lastBy = {}; (ops.closings || []).filter(countedClosing).forEach(c => { if (!lastBy[c.branchId] || c.date > lastBy[c.branchId]) lastBy[c.branchId] = c.date; });
   const silent = (org.branches || []).filter(b => b.isActive !== false && lastBy[b.id] && lastBy[b.id] < daysAgo(3)).map(b => b.name + ' (آخر إغلاق ' + lastBy[b.id] + ')');
   add('silent', silent.length ? 'warn' : 'ok', 'فروع توقفت إغلاقاتها أكثر من 3 أيام', silent.length ? silent.length + ' فرع' : 'كل الفروع تُغلق بانتظام', silent.slice(0, 6), 'تأكد من تشغيل الفرع أو إدخال إغلاقاته المتأخرة');
+  // 9–12) v38.9 — الالتزامات النظامية والسيولة (ضمن المراجعة والرقابة)
+  if (A) {
+    const td = today(), cfg = org.cashflowCfg || {};
+    // 9) ضريبة القيمة المضافة: التسجيل، والإقرارات المتأخرة، والفترة المنتهية غير المقفلة
+    try {
+      const V = vatStatus(org, ops, A, td, cfg);
+      const taxNo = entityList(org).some(e => String(e.taxNumber || '').trim());
+      if (!V.on) add('vat', taxNo ? 'bad' : 'ok', 'ضريبة القيمة المضافة', taxNo ? 'للمنشأة رقم ضريبي والضريبة غير مفعّلة — المبيعات تُسجَّل بلا ضريبة مخرجات' : 'المنشأة غير مسجلة ضريبيًا', [], taxNo ? 'فعّلها من «المحاسبة ← الضريبة» بتاريخ التسجيل الفعلي' : '');
+      else {
+        const late = V.unpaid.filter(u => u.due < td), soon = V.unpaid.filter(u => u.due >= td);
+        const ended = V.end && V.end < td;
+        const st = late.length ? 'bad' : (ended || !V.months) ? 'warn' : 'ok';
+        const det = late.length ? late.length + ' إقرار تجاوز موعد السداد' : ended ? 'فترة انتهت ولم تُقفل' : !V.months ? 'دورية الإقرار غير محددة' : 'الإقرارات منتظمة' + (soon.length ? ' · ' + soon.length + ' بانتظار السداد' : '');
+        add('vat', st, 'ضريبة القيمة المضافة — الإقرار والسداد', det,
+          [...late.map(u => u.from + ' ← ' + u.to + ': ' + money(u.rem) + ' (استحق ' + u.due + ')'), ...soon.map(u => u.from + ' ← ' + u.to + ': ' + money(u.rem) + ' يستحق ' + u.due), ...(ended ? ['الفترة ' + V.start + ' ← ' + V.end + ' — تُقدَّم وتُسدَّد قبل ' + V.due] : [])],
+          late.length ? 'سدّد من «المحاسبة ← الضريبة» — غرامة التأخير 5% عن كل شهر أو جزء منه' : ended ? 'أقفل الفترة من «المحاسبة ← الضريبة»' : !V.months ? 'حدّد الدورية من «التدفق النقدي ← الإعداد» أو أقفل أول فترة' : '');
+      }
+    } catch { }
+    // 10) التأمينات الاجتماعية: رصيد 2202 بعد موعد التحويل (15 من الشهر التالي)
+    try {
+      const bal = Math.round(-((A.accounts.find(a => a.code === '2202') || {}).balance || 0) * 100) / 100;
+      const lm = [...new Set((ops.ledgerEntries || []).filter(x => x.kind === 'salary_payout').map(x => x.month))].sort().pop();
+      const due = lm ? (() => { const [y, m] = lm.split('-').map(Number); return new Date(Date.UTC(y, m, 15)).toISOString().slice(0, 10); })() : '';
+      if ((org.gosiCfg || {}).enabled || bal > 0.004) add('gosi', bal > 0.004 && due && due < td ? 'bad' : 'ok', 'التأمينات الاجتماعية المستحقة', bal > 0.004 ? money(bal) + (due ? (due < td ? ' — تجاوزت موعد ' + due : ' — تُحوَّل قبل ' + due) : '') : 'لا رصيد مستحق', [], bal > 0.004 && due < td ? 'حوّلها للتأمينات وسجّل السداد بقيد من 2202' : '');
+    } catch { }
+    // 11) الزكاة: موعد الإقرار والسداد (120 يومًا من نهاية السنة المالية)
+    try {
+      const fy = cfg.fyEnd || ((org.yearEnd || {}).closeDate ? String(org.yearEnd.closeDate).slice(5, 10) : '');
+      if (/^\d\d-\d\d$/.test(fy)) {
+        const y = Number(td.slice(0, 4)); const cand = [y - 1, y].map(x => x + '-' + fy).filter(x => x < td).sort().pop();
+        if (cand) { const d = new Date(cand + 'T12:00:00'); d.setDate(d.getDate() + 120); const due = isoD(d);
+          const has = (cfg.sched || []).some(s => s.kind === 'zakat' && s.date >= cand);
+          const left = Math.round((Date.parse(due) - Date.parse(td)) / 864e5);
+          add('zakat', has || left < 0 ? 'ok' : left <= 30 ? 'bad' : 'warn', 'الزكاة — السنة المنتهية ' + cand, has ? 'مجدولة في التدفق النقدي' : left < 0 ? 'انقضى موعد ' + due + ' — تحقق من تقديم الإقرار' : 'الإقرار والسداد قبل ' + due + ' (متبقٍّ ' + left + ' يومًا)', [], has ? '' : 'احسبها من «المحاسبة ← الزكاة» وأضفها التزامًا مجدولًا في «التدفق النقدي ← الإعداد»'); }
+      } else add('zakat', 'warn', 'الزكاة — نهاية السنة المالية', 'غير محددة — لا يمكن تتبّع موعد الإقرار', [], 'حدّدها من «التدفق النقدي ← الإعداد» أو بإقفال السنة من المحاسبة');
+    } catch { }
+    // 12) السيولة: عجز متوقع خلال 13 أسبوعًا
+    try {
+      const C = cashForecast(org, ops, { A, today: td });
+      const w = C.weeks.find(x => x.bal < -0.004), wl = C.weeks.find(x => x.balLo < -0.004);
+      add('cash', w && w.k < 4 ? 'bad' : (w || wl) ? 'warn' : 'ok', 'السيولة — التدفق النقدي المتوقع', w ? 'عجز متوقع في الأسبوع ' + (w.k + 1) + ' (' + money(w.bal) + ')' : wl ? 'عجز في الحالة المتحفظة بالأسبوع ' + (wl.k + 1) : 'لا عجز متوقع خلال 13 أسبوعًا · أدنى رصيد ' + money(C.min.v),
+        C.notes.filter(n => n.sev === 'bad').map(n => n.msg).slice(0, 4), (w || wl) ? 'راجع «التقارير ← التدفق النقدي» ودبّر السيولة مبكرًا' : '');
+    } catch { }
+  }
   return out;
 }
 
