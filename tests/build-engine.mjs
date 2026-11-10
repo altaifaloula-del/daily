@@ -11,7 +11,9 @@ export const ENGINE_EXPORTS = ['buildAccounting', 'buildPartners', 'stockByWh', 
   // v38.2 — ضوابط المخزون وإدخال الأرقام
   'tafqeet', 'partGross', 'partYield', 'wasteCfg', 'wasteDaily', 'wasteRows', 'countCfgOf', 'aItemsOf',
   // v38.6 — الأنماط الشاذة
-  'detectAnomalies'];
+  'detectAnomalies',
+  // v38.7 — سجل الإجراءات
+  'actionMetric', 'actionEffect', 'actionFromAnomaly', 'anomKey'];
 
 export async function buildEngine() {
   fs.mkdirSync(cache, { recursive: true });

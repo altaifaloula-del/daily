@@ -58,6 +58,7 @@ const GrowthAnalytics = lazyComp(() => import('./mods/acct/GrowthAnalytics.jsx')
 const EntitiesCenter = lazyComp(() => import('./mods/acct/EntitiesCenter.jsx'), 'EntitiesCenter');
 const ReportBuilder = lazyComp(() => import('./mods/acct/ReportBuilder.jsx'), 'ReportBuilder');
 const ExecDashboard = lazyComp(() => import('./mods/acct/ExecDashboard.jsx'), 'ExecDashboard');
+const ActionsBoard = lazyComp(() => import('./mods/acct/ActionsBoard.jsx'), 'ActionsBoard');   // v38.7
 const Anomalies = lazyComp(() => import('./mods/acct/Anomalies.jsx'), 'Anomalies');   // v38.6
 const AlertsCenter = lazyComp(() => import('./mods/acct/AlertsCenter.jsx'), 'AlertsCenter');
 const Dashboard = lazyComp(() => import('./mods/acct/Dashboard.jsx'), 'Dashboard');
@@ -288,6 +289,10 @@ function buildNotifEvents(org, ops, me, myBranches) {
       if (s.status === 'recount') push('inv:rc:' + s.id, 'inv', 'إعادة عدّ مطلوبة — ' + whName(org, w), (s.lines || []).filter(l => l.flag).length + ' صنف خارج التسامح', tv[0], tv[1]); });
     if (countCfgOf(org).dailyA && myWhs) myWhs.forEach(w => { if (!aCountDone(ops, w, td) && roleHasTab(me, 'whbranch')) push('inv:acnt:' + w + ':' + td, 'inv', 'جرد أصناف A اليومي — ' + whName(org, w), 'لم يُسلَّم جرد اليوم للأصناف الأعلى قيمة', 'whbranch', 'count'); });
   }
+  // —— v38.7: إجراءات مسندة إليّ (جديدة أو متأخرة) ——
+  (ops.actions || []).forEach(a => { if (a.assignee !== me.name || !(a.status === 'open' || a.status === 'doing')) return;
+    const late = a.due && a.due < td; const tv = roleHasTab(me, 'closing') && !central ? ['closing', 'myactions'] : ['analytics', 'actions'];
+    push('act:' + a.id + ':' + (late ? 'late' : 'new'), 'closing', (late ? 'إجراء متأخر عن موعده — ' : 'إجراء مسند إليك — ') + a.title, (a.due ? 'الموعد ' + a.due : '') + (a.branchId ? '' : ''), tv[0], tv[1]); });
   // —— الإغلاق اليومي ——
   if (roleHasTab(me, 'approve')) (ops.closings || []).forEach(c => { if (c.status === 'submitted' && inScope(c.branchId)) push('cl:sub:' + c.id, 'closing', 'إغلاق بانتظار التدقيق — ' + (c.branchName || ''), (c.date || '') + ' · إيراد ' + money(c.totalRevenue || 0) + (c.variance ? ' · فرق ' + money(c.variance) : ''), 'approve'); });
   if (roleHasTab(me, 'closing') && !central) (ops.closings || []).forEach(c => { if (c.status === 'rejected' && inScope(c.branchId)) push('cl:rej:' + c.id + ':' + (c.updatedAt || ''), 'closing', 'أُعيد إغلاق للتصحيح — ' + (c.branchName || ''), (c.date || '') + (c.rejectionReason ? ' · ' + c.rejectionReason : ''), 'closing'); });
@@ -570,6 +575,8 @@ const BR_COLS = ['closings', 'transfers', 'partnerRequests', 'notifications', 'b
   'whMoves', 'whTransfers',
   // v37.4 — طلبات هدر فوق حد الاعتماد (معلّقة لا تمسّ الرصيد حتى تُعتمد)
   'wasteRequests',
+  // v38.7 — سجل التوصيات والإجراءات (بفرعه، أو مركزي بلا فرع)
+  'actions',
   // v37.5 — جلسات الجرد الأعمى (عدّ ← إعادة عدّ ← اعتماد شخص آخر)
   'countSessions',
   // v31.1 — مبيعات المنتجات (الكميات) لكل فرع وفترة — أساس الاستهلاك النظري
@@ -2761,7 +2768,7 @@ function emptyOrg(company) {
 }
 
 function emptyOps() {
-  return { countSessions: [], wasteRequests: [], posImports: [], posOrders: [], posShifts: [], ledgerSnaps: [], stockCounts: [], leaveRequests: [], productSales: [], salesInvoices: [], closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
+  return { actions: [], countSessions: [], wasteRequests: [], posImports: [], posOrders: [], posShifts: [], ledgerSnaps: [], stockCounts: [], leaveRequests: [], productSales: [], salesInvoices: [], closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
     attendanceEvents: [], hrPins: [], shiftTemplates: [], shiftAssignments: [], shiftSwapRequests: [], branchTransferRequests: [], taskTemplates: [], taskAssignments: [], taskCompletions: [], pointsEntries: [], qualityReviews: [], rewardRequests: [], hrSignDocs: [], hrCorrective: [], hrPips: [], hrTraining: [], hrKpiEntries: [], hrScoreSnapshots: [] };
 }
 
@@ -2772,7 +2779,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v38.6';
+const APP_VER = 'v38.7';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3765,7 +3772,7 @@ function PlatformApp() {
   const shared = { org, ops, pulse, me, myBranches, scoped, commit, commitOrg, say, setTab, theme, acctIntent, openAcctView, invIntent, openInvView };
 
   // حماية: منع الوصول لتبويب غير مسموح لدور المستخدم (بلا hook — بعد returns الشرطية)
-  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'closing') && (ROLES[me.role]?.approver || ROLES[me.role]?.admin || ROLES[me.role]?.scope === 'all') ? ['cashiers'] : []), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'anomaly'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : []), ...(NAV.some(n => n.id === 'people') ? ['payroll', 'workforce', 'muster', 'overtime'] : []), ...(NAV.some(n => n.id === 'purchasing') ? ['suppliers', 'reorder'] : []), ...(NAV.some(n => n.id === 'hrops') ? ['attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'esign'] : []), ...(NAV.some(n => n.id === 'hrperf') ? ['kpi', 'empfile', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'] : [])];
+  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'closing') ? ['myactions'] : []), ...(NAV.some(n => n.id === 'closing') && (ROLES[me.role]?.approver || ROLES[me.role]?.admin || ROLES[me.role]?.scope === 'all') ? ['cashiers'] : []), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'anomaly', 'actions'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : []), ...(NAV.some(n => n.id === 'people') ? ['payroll', 'workforce', 'muster', 'overtime'] : []), ...(NAV.some(n => n.id === 'purchasing') ? ['suppliers', 'reorder'] : []), ...(NAV.some(n => n.id === 'hrops') ? ['attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'esign'] : []), ...(NAV.some(n => n.id === 'hrperf') ? ['kpi', 'empfile', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'] : [])];
   const safeTab = allowedTabs.includes(tab) ? tab : (allowedTabs[0] || 'closing');
 
   return (
@@ -4013,11 +4020,11 @@ function PlatformApp() {
           <div className="page">
             <div className="page-inner"><ErrorBoundary key={safeTab} where={(NAV.find(n => n.id === safeTab) || {}).ar || 'هذا القسم'}>
               {safeTab === 'home' && <Launcher {...shared} online={online} />}
-              {['analytics', 'exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'alerts', 'anomaly'].includes(safeTab) && <Hub hubId="analytics" {...shared} online={online} view={safeTab} />}
+              {['analytics', 'exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'alerts', 'anomaly', 'actions'].includes(safeTab) && <Hub hubId="analytics" {...shared} online={online} view={safeTab} />}
               {['reporting', 'reports', 'rbuild', 'boardpack', 'cashflow'].includes(safeTab) && <Hub hubId="reporting" {...shared} view={safeTab} />}
               {safeTab === 'sales' && <SalesHub {...shared} />}
               {safeTab === 'pos' && <PosApp {...shared} />}
-              {['closing', 'approve', 'shifts', 'cashiers'].includes(safeTab) && <Hub hubId="closehub" {...shared} view={safeTab} />}
+              {['closing', 'approve', 'shifts', 'cashiers', 'myactions'].includes(safeTab) && <Hub hubId="closehub" {...shared} view={safeTab} />}
               {HR_TABS.includes(safeTab) && <Hub hubId="hr" {...shared} view={safeTab} />}
               {safeTab === 'qrfb' && <QrFeedback {...shared} />}
               {safeTab === 'apps' && <AppsCenter {...shared} />}
@@ -4918,6 +4925,66 @@ function detectAnomalies(org, ops, opts = {}) {
   const rank = { high: 0, medium: 1 };
   return out.sort((a, b) => rank[a.sev] - rank[b.sev] || String(b.date).localeCompare(String(a.date)) || Math.abs(b.pct) - Math.abs(a.pct));
 }
+/* ===== v38.7 — سجل التوصيات والإجراءات =====
+   كل نمط شاذ أو توصية ذكية أو ملاحظة يدوية يصير إجراءً: مسؤول، موعد، حالة (مفتوح ← قيد التنفيذ ← منجز/مستبعد) وملاحظات.
+   الإجراء الناتج عن نمط شاذ يحمل «مقياسه»: قيمته عند الإنشاء والمعتاد، وبعد الإنجاز بأسبوع يُقاس من جديد —
+   فيظهر هل عاد الرقم نحو المعتاد (تحسّن) أم لا. */
+const ACT_ST = { open: ['b-amber', 'مفتوح'], doing: ['b-sky', 'قيد التنفيذ'], done: ['b-mint', 'منجز'], dismissed: ['b-dim', 'مستبعد'] };
+const ACT_SRC = { anomaly: 'نمط شاذ', ai: 'توصية ذكية', manual: 'يدوي', check: 'فحص سلامة' };
+const ACT_KIND = {
+  sales_day: { ar: 'متوسط المبيعات اليومية (7 أيام)', dir: 'up' }, expense_week: { ar: 'مصروف التصنيف (7 أيام)', dir: 'down' },
+  waste_week: { ar: 'الهدر (7 أيام)', dir: 'down' }, price: { ar: 'سعر الشراء للوحدة', dir: 'down' },
+  void_rate: { ar: 'نسبة الإلغاء % (14 يومًا)', dir: 'down' }, mdisc_rate: { ar: 'نسبة الخصم اليدوي % (14 يومًا)', dir: 'down' }
+};
+// مفتاح ثابت للنمط (بلا تاريخ اليوم) — لئلا يتكرر الإجراء نفسه كل يوم
+const anomKey = (a) => { const p = String(a.id).split('|'); return /^sales-/.test(p[0]) ? a.id : p.slice(0, -1).join('|'); };
+/** القيمة الحالية لمقياس الإجراء في تاريخ td */
+function actionMetric(org, ops, m, td) {
+  if (!m || !m.kind) return null; td = td || today();
+  const from7 = anDay(td, -6), from14 = anDay(td, -13);
+  if (m.kind === 'sales_day') { const cl = (ops.closings || []).filter(c => countedClosing(c) && c.branchId === m.key && c.date >= from7 && c.date <= td);
+    const days = new Set(cl.map(c => c.date)).size; return days ? anR(sum(cl, c => c.totalRevenue) / days) : null; }
+  if (m.kind === 'expense_week') { const [b, cat] = String(m.key).split('|'); return anR(sum((ops.closings || []).filter(c => countedClosing(c) && c.branchId === b && c.date >= from7 && c.date <= td).flatMap(c => c.expenses || []).filter(e => (e.categoryName || e.categoryId || 'أخرى') === cat), e => e.amount)); }
+  if (m.kind === 'waste_week') return anR(sum(wasteRows(org, ops, itemAvgCosts(org, ops)).filter(x => x.branchId === m.key && String(x.date || '').slice(0, 10) >= from7 && String(x.date || '').slice(0, 10) <= td), x => x.val));
+  if (m.kind === 'price') { const a = (supplierPrices(ops)[m.key] || []).filter(r => String(r.date || '') <= td); return a.length ? a[0].unitCost : null; }
+  if (m.kind === 'void_rate' || m.kind === 'mdisc_rate') { const o = (ops.posOrders || []).filter(x => (x.by || '—') === m.key && String(x.date || '') >= from14 && String(x.date || '') <= td); if (!o.length) return null;
+    return Math.round((m.kind === 'void_rate' ? o.filter(x => x.status === 'void').length : o.filter(x => x.manualDisc).length) / o.length * 1000) / 10; }
+  return null;
+}
+/** مقياس الإجراء من النمط الشاذ */
+function anomMetric(a) {
+  const p = String(a.id).split('|');
+  if (p[0] === 'sales-drop') return { kind: 'sales_day', key: p[1], normal: a.expected };
+  if (p[0] === 'exp') return { kind: 'expense_week', key: p[1] + '|' + p[2], normal: a.expected };
+  if (p[0] === 'waste') return { kind: 'waste_week', key: p[1], normal: a.expected };
+  if (p[0] === 'price') return { kind: 'price', key: p[1], normal: a.expected };
+  if (p[0] === 'void') return { kind: 'void_rate', key: p[1], normal: a.expected };
+  if (p[0] === 'mdisc') return { kind: 'mdisc_rate', key: p[1], normal: a.expected };
+  return null;   // ارتفاع المبيعات: إجراؤه مراجعة الإدخال لا مقياس
+}
+/** أثر الإجراء المنجز: يُقاس بعد 7 أيام من إنجازه — تحسّن إن عاد نصف المسافة على الأقل نحو المعتاد */
+function actionEffect(org, ops, act, td) {
+  const m = act.metric; if (!m || act.status !== 'done' || !act.doneAt) return null;
+  td = td || today(); const ready = anDay(String(act.doneAt).slice(0, 10), 7);
+  if (td < ready) return { pending: true, ready };
+  const now = actionMetric(org, ops, m, td); if (now == null || m.before == null) return { now, nodata: true };
+  const dir = (ACT_KIND[m.kind] || {}).dir || 'down', gap = m.before - m.normal;
+  const moved = dir === 'down' ? m.before - now : now - m.before;
+  const need = Math.abs(gap) / 2;
+  return { now, before: m.before, normal: m.normal, better: Math.abs(gap) < 0.005 ? moved >= 0 : moved >= need - 0.005, worse: moved < 0 };
+}
+/** ينشئ سجل إجراء (بلا حفظ) */
+function newAction(me, x) {
+  return { id: uid('act'), status: 'open', at: nowISO(), createdBy: me.name, notes: [], src: x.src || 'manual', title: String(x.title || '').slice(0, 200), detail: String(x.detail || '').slice(0, 1000),
+    ...(x.branchId ? { branchId: x.branchId } : {}), ...(x.srcKey ? { srcKey: x.srcKey } : {}), ...(x.area ? { area: x.area } : {}),
+    ...(x.assignee ? { assignee: x.assignee } : {}), ...(x.due ? { due: x.due } : {}), ...(x.metric ? { metric: x.metric } : {}) };
+}
+/** إجراء من نمط شاذ — المقياس يحمل قيمته الحالية (قبل) والمعتاد */
+function actionFromAnomaly(org, ops, me, a, extra = {}, td) {
+  const m = anomMetric(a); const before = m ? actionMetric(org, ops, m, td) : null;
+  return newAction(me, { src: 'anomaly', srcKey: anomKey(a), title: a.title, detail: a.msg, branchId: a.branchId || '', area: a.area,
+    metric: m && before != null ? { ...m, before } : null, due: anDay(td || today(), 7), ...extra });
+}
 function computeSmartAlerts(org, ops, myBranches, deficitThreshold = deficitCfg(org).max) {
   const alerts = [];
   const ids = myBranches.map(b => b.id);
@@ -5370,7 +5437,8 @@ const HUBS = {
       { id: 'scenario', ar: 'ماذا-لو', icon: Compass, comp: Scenario },
       { id: 'ai', ar: 'المركز الذكي', icon: Sparkles, comp: AiCenter },
       { id: 'alerts', ar: 'التنبيهات', icon: Bell, comp: AlertsCenter },
-      { id: 'anomaly', ar: 'الأنماط الشاذة', icon: TrendingDown, comp: Anomalies, like: 'alerts' }   // v38.6
+      { id: 'anomaly', ar: 'الأنماط الشاذة', icon: TrendingDown, comp: Anomalies, like: 'alerts' },   // v38.6
+      { id: 'actions', ar: 'الإجراءات والتوصيات', icon: CheckCircle2, comp: ActionsBoard, like: 'alerts' }   // v38.7
     ]
   },
   reporting: {
@@ -5416,7 +5484,8 @@ const HUBS = {
       { id: 'closing', ar: 'الإغلاق اليومي', icon: ClipboardCheck, comp: Closing },
       { id: 'approve', ar: 'التدقيق والاعتماد', icon: ShieldCheck, comp: Approvals },
       { id: 'shifts', ar: 'المواعيد والتذكيرات', icon: Clock, comp: Shifts },
-      { id: 'cashiers', ar: 'سجل الكاشير', icon: Users, comp: CashierBook }
+      { id: 'cashiers', ar: 'سجل الكاشير', icon: Users, comp: CashierBook },
+      { id: 'myactions', ar: 'إجراءات الفرع', icon: CheckCircle2, comp: ActionsBoard, like: 'closing' }   // v38.7
     ]
   },
   finhub: {
@@ -9051,3 +9120,5 @@ export { stockCosting, eosEntitledAmt, eosFullAmt, findDupInvoices, invNoNorm, p
 export { APP_VER, ERRLOG_KEY };
 // v38.6 — كشف الأنماط الشاذة (الشاشة والاختبارات)
 export { detectAnomalies };
+// v38.7 — سجل الإجراءات
+export { ACT_ST, ACT_SRC, ACT_KIND, anomKey, actionMetric, anomMetric, actionEffect, newAction, actionFromAnomaly };

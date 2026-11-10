@@ -378,3 +378,32 @@ test('الأنماط الشاذة: مصروف تضاعف هذا الأسبوع،
   const pr = A.find(a => a.area === 'price'); assert.ok(pr && pr.pct >= 19 && pr.title.includes('لحم'), JSON.stringify(pr));
   const vd = A.filter(a => a.area === 'pos'); assert.equal(vd.length, 1); assert.ok(vd[0].title.includes('سعد'));
 });
+
+// ===== v38.7 — سجل الإجراءات وقياس الأثر =====
+test('الإجراءات: إجراء من نمط شاذ يحمل مقياسه ومفتاحًا ثابتًا لا يتكرر يوميًا', () => {
+  const cl = closingsFor('b1', normal).map((c, k) => ({ ...c, expenses: k % 7 === 0 ? [{ categoryName: 'صيانة', amount: k < 7 ? 1500 : 400 }] : [] }));
+  const ops = { closings: cl };
+  const a = E.detectAnomalies(anOrg(), ops, { today: TD }).find(x => x.area === 'expense');
+  const act = E.actionFromAnomaly(anOrg(), ops, { name: 'مجاهد' }, a, { assignee: 'خالد' }, TD);
+  assert.equal(act.status, 'open'); assert.equal(act.src, 'anomaly'); assert.equal(act.assignee, 'خالد'); assert.equal(act.branchId, 'b1');
+  assert.deepEqual(act.metric, { kind: 'expense_week', key: 'b1|صيانة', normal: 400, before: 1500 });
+  assert.equal(act.srcKey, 'exp|b1|صيانة', 'بلا تاريخ اليوم');
+  assert.equal(act.due, '2026-11-17');
+});
+test('الإجراءات: قياس الأثر بعد أسبوع من الإنجاز — تحسّن، لم يتحسّن، قيد القياس', () => {
+  const act = { status: 'done', doneAt: '2026-11-10T09:00:00Z', metric: { kind: 'expense_week', key: 'b1|صيانة', normal: 400, before: 1500 } };
+  const opsWith = (amt) => ({ closings: [{ id: 'x', branchId: 'b1', date: '2026-11-16', status: 'approved', totalRevenue: 1, expenses: [{ categoryName: 'صيانة', amount: amt }] }] });
+  assert.equal(E.actionEffect(anOrg(), opsWith(500), act, '2026-11-15').pending, true, 'قبل مرور أسبوع');
+  const good = E.actionEffect(anOrg(), opsWith(500), act, '2026-11-17'); assert.equal(good.better, true); assert.equal(good.now, 500);
+  const bad = E.actionEffect(anOrg(), opsWith(1300), act, '2026-11-17'); assert.equal(bad.better, false, 'تحرّك أقل من نصف المسافة');
+  const worse = E.actionEffect(anOrg(), opsWith(1800), act, '2026-11-17'); assert.equal(worse.worse, true);
+  assert.equal(E.actionEffect(anOrg(), opsWith(500), { ...act, status: 'doing' }, '2026-11-17'), null, 'غير المنجز لا يُقاس');
+});
+test('الإجراءات: مقياس المبيعات أعلى أفضل، ونسبة إلغاء الكاشير', () => {
+  const ops = { closings: [{ id: 'a', branchId: 'b1', date: '2026-11-09', status: 'approved', totalRevenue: 4000 }, { id: 'b', branchId: 'b1', date: '2026-11-10', status: 'approved', totalRevenue: 6000 }],
+    posOrders: Array.from({ length: 20 }, (_, i) => ({ id: 'o' + i, by: 'سعد', date: '2026-11-08', status: i < 2 ? 'void' : 'paid' })) };
+  assert.equal(E.actionMetric(anOrg(), ops, { kind: 'sales_day', key: 'b1' }, TD), 5000);
+  assert.equal(E.actionMetric(anOrg(), ops, { kind: 'void_rate', key: 'سعد' }, TD), 10);
+  const up = E.actionEffect(anOrg(), ops, { status: 'done', doneAt: '2026-11-01', metric: { kind: 'sales_day', key: 'b1', normal: 5300, before: 2100 } }, TD);
+  assert.equal(up.better, true, 'من 2100 إلى 5000 نحو المعتاد 5300');
+});

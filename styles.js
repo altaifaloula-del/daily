@@ -1441,4 +1441,20 @@ html,body{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .an-pct{font-weight:700;font-size:12.5px}
 .an-spark{display:block}
 .an-sp{margin-inline-start:auto;color:var(--dim)}
+
+/* v38.7 — الإجراءات والتوصيات */
+.act-list{display:flex;flex-direction:column;gap:8px}
+.act-item{border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:5px}
+.act-item.late{border-color:rgba(217,84,77,.55)}
+.act-item.done,.act-item.dismissed{opacity:.85}
+.act-h{display:flex;gap:8px;align-items:flex-start;justify-content:space-between}
+.act-h b{font-size:13.5px}
+.act-d{font-size:12.5px;color:var(--dim);line-height:1.7}
+.act-meta{display:flex;gap:8px 12px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--dim)}
+.act-sel{font:inherit;font-size:12px;padding:3px 6px;border:1px solid var(--line);border-radius:7px;background:transparent;color:var(--txt);max-width:160px}
+.act-late{color:var(--rose);font-weight:600}
+.act-m{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px;padding:6px 8px;border-radius:8px;background:rgba(127,127,127,.07)}
+.act-btns{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.act-btns .btn{flex:0 0 auto;min-width:auto;max-width:none}
+.act-notes{font-size:11.5px;color:var(--dim);display:flex;flex-direction:column;gap:2px;border-inline-start:2px solid var(--line);padding-inline-start:8px}
 `;

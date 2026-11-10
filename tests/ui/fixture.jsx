@@ -48,10 +48,12 @@ class EB extends React.Component { constructor(p) { super(p); this.state = { e: 
 function Live() {
   const [o, setO] = React.useState(ops); window.cur = o; const [who, setWho] = React.useState(b || 'admin'); window.as = setWho;
   const [g, setG] = React.useState(org); window.curOrg = g;
+  const [hv, setHv] = React.useState(c); window.hub = setHv;   // تنقّل بين المراكز مع بقاء البيانات
   const commit = async (fn) => { try { const nx = fn(JSON.parse(JSON.stringify(o))); setO(nx); return true; } catch (e) { window.lastErr = e.message; return false; } };
   const commitOrg = async (fn) => { try { const nx = fn(JSON.parse(JSON.stringify(g))); setG(nx); return true; } catch (e) { window.lastErr = e.message; return false; } };
-  const P = { ...base, org: g, ops: o, scoped: o, me: ME[who], commit, commitOrg, invIntent: c ? { v: c, ts: 1 } : null, acctIntent: a === 'Accounting' && c ? { v: c, ts: 1 } : null };
-  return React.createElement(M[a], { key: who, ...P, ...(a === 'Hub' ? { hubId: c.split(':')[0], view: c.split(':')[1] } : {}) });
+  const myB = ME[who].branchId ? B.filter(x => x.id === ME[who].branchId) : B;   // فريق الفرع يرى فرعه فقط
+  const P = { ...base, myBranches: myB, branches: myB, org: g, ops: o, scoped: o, me: ME[who], commit, commitOrg, invIntent: hv ? { v: hv, ts: 1 } : null, acctIntent: a === 'Accounting' && hv ? { v: hv, ts: 1 } : null };
+  return React.createElement(M[a], { key: who, ...P, ...(a === 'Hub' ? { hubId: hv.split(':')[0], view: hv.split(':')[1] } : {}) });
 }
 let el;
 if (kind === 'live') el = React.createElement(Live);
