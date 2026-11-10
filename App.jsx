@@ -2793,7 +2793,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v39.4.1';
+const APP_VER = 'v39.5';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -4884,7 +4884,7 @@ function detectAnomalies(org, ops, opts = {}) {
   const counted = (ops.closings || []).filter(c => countedClosing(c) && (c.date || '') >= baseFrom && (c.date || '') <= td && inScope(c.branchId));
 
   // 1) المبيعات اليومية لكل فرع مقابل اليوم نفسه من الأسبوع
-  const salesBy = {}; counted.forEach(c => { const k = c.branchId + '|' + c.date; salesBy[k] = (salesBy[k] || 0) + (Number(c.totalRevenue) || 0); });
+  const salesBy = {}; salesDays(ops).filter(c => (c.date || '') >= baseFrom && (c.date || '') <= td && inScope(c.branchId)).forEach(c => { const k = c.branchId + '|' + c.date; salesBy[k] = (salesBy[k] || 0) + (Number(c.totalRevenue) || 0); });   // v39.5: + أيام الاستيراد
   brs.forEach(b => {
     for (let k = 0; k < 7; k++) {
       const d = anDay(td, -k); const v = salesBy[b.id + '|' + d]; if (v == null) continue;
@@ -5035,10 +5035,21 @@ function actionFromAnomaly(org, ops, me, a, extra = {}, td) {
    الدقة: اختبار رجعي — توقع كل يوم من آخر 28 يومًا بالبيانات السابقة له فقط، ثم متوسط الخطأ النسبي المطلق (MAPE). */
 const FC_DOW = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
 const fcDow = (iso) => new Date(iso + 'T12:00:00').getDay();
-/** المبيعات اليومية لكل فرع من الإغلاقات المرحّلة: { [branchId]: { [date]: revenue } } */
+/* v39.5 — أيام المبيعات للتحليل: الإغلاقات المرحّلة/المعتمدة + أيام مستوردة من نقطة البيع بلا إغلاق مرحّل (موسومة fromImport).
+   للتحليل والتوقع فقط — القيود المحاسبية تبقى من الإغلاق وحده. الأيام الجزئية (حدود التصدير) لا تدخل. */
+function salesDays(ops, opts = {}) {
+  const ok = opts.branchIds ? new Set(opts.branchIds) : null;
+  const cl = (ops.closings || []).filter(c => countedClosing(c) && (!ok || ok.has(c.branchId)));
+  const have = new Set(cl.map(c => c.branchId + '|' + c.date));
+  const im = (ops.posImports || []).filter(x => !x.partial && (!ok || ok.has(x.branchId)) && !have.has(x.branchId + '|' + x.date)).map(x => ({
+    id: 'pi:' + x.id, branchId: x.branchId, date: x.date, cashSales: Number(x.cash) || 0, cardSales: Number(x.card) || 0, bankTransferSales: Number(x.transfer) || 0,
+    deliverySales: Object.entries(x.apps || {}).map(([appId, a]) => ({ appId, amount: Number(a.amount) || 0, orderCount: a.n || 0 })), totalRevenue: Number(x.total) || 0, fromImport: true, status: 'import', file: x.file }));
+  return [...cl, ...im];
+}
+/** المبيعات اليومية لكل فرع من الإغلاقات المرحّلة (ومن الاستيراد لأيام بلا إغلاق — v39.5): { [branchId]: { [date]: revenue } } */
 function dailySales(ops, branchIds) {
-  const S = {}; const ok = branchIds ? new Set(branchIds) : null;
-  (ops.closings || []).forEach(c => { if (!countedClosing(c) || (ok && !ok.has(c.branchId))) return; const b = S[c.branchId] = S[c.branchId] || {}; b[c.date] = (b[c.date] || 0) + (Number(c.totalRevenue) || 0); });
+  const S = {};
+  salesDays(ops, { branchIds }).forEach(c => { const b = S[c.branchId] = S[c.branchId] || {}; b[c.date] = (b[c.date] || 0) + (Number(c.totalRevenue) || 0); });
   return S;
 }
 /** توقع يوم واحد من سلسلة فرع، باستخدام البيانات قبل التاريخ asOf فقط */
@@ -5673,6 +5684,21 @@ function posRecon(org, ops, days) {
     const ok = Object.values(d).every(v => Math.abs(v) < 0.01);
     return { ...x, appsI, closing: { ...cl, total: clT, status: c.status, id: c.id }, d, st: ok ? 'match' : Math.abs(d.total) < 0.01 ? 'mix' : 'diff' };
   });
+}
+/* v39.5 — إغلاق «مسودة» من يوم مستورد: المبيعات وطرق الدفع معبأة، والعدّ والمصروفات يكملها الفرع ثم يرحّلها */
+function importDraftClosing(org, x, by) {
+  const b = (org.branches || []).find(y => y.id === x.branchId) || {}; const apps = org.deliveryApps || APPS;
+  const r2 = posR2; const del = apps.map(a => ({ appId: a.id, appName: a.n, amount: r2(((x.apps || {})[a.id] || {}).amount || 0), orderCount: ((x.apps || {})[a.id] || {}).n || 0, commissionPercentage: a.c }));
+  const totalDelivery = r2(sum(del, d => d.amount)); const opening = Number(b.defaultFloat) || 0; const ref = 'TR-' + x.date.replace(/-/g, '') + '-' + x.branchId.slice(-2);
+  return { id: 'cl-' + x.branchId + '-' + x.date + '-' + Math.random().toString(36).slice(2, 5), date: x.date, branchId: x.branchId, branchName: b.name || '', openingBalance: opening,
+    cashSales: r2(x.cash || 0), cardSales: r2(x.card || 0), bankTransferSales: r2(x.transfer || 0),
+    deliverySales: del.map(d => ({ ...d, commissionAmount: Math.round(d.amount * (d.commissionPercentage || 0)) / 100 })), totalDeliverySales: totalDelivery, otherRevenues: [], totalOtherRevenues: 0,
+    expenses: [], supplierPayments: [], denominationDetails: emptyDenoms(), transferredToMainTreasury: 0, varianceReason: '',
+    notes: 'مسودة من استيراد نقاط البيع (' + (x.file || '') + ') — أكمل العدّ والمصروفات ثم رحّل', posImportId: x.id,
+    totalRevenue: r2((x.cash || 0) + (x.card || 0) + (x.transfer || 0) + totalDelivery), totalExpenses: 0, totalCashExpenses: 0, totalCardExpenses: 0,
+    expectedCashInSafe: r2(opening + (x.cash || 0)), actualCashCount: 0, variance: 0, retainedFloatForTomorrow: 0, transferReferenceNo: ref, closingNo: ref,
+    transferStatus: 'pending', status: 'draft', gmApprovalStatus: 'pending', rejectionReason: '', auditedBy: '', auditNote: '',
+    sessionPhotos: [], sessionPhoto: '', managerName: by || '', createdBy: by || '', createdAt: nowISO(), updatedAt: nowISO() };
 }
 // ملخص اليوم من نقطة البيع الداخلية أو من الاستيراد (الداخلية أولًا)
 function salesDaySource(ops, branchId, date) {
@@ -9780,4 +9806,4 @@ export { complianceItems, leaseSchedule, LEASE_EVERY, CMP_CAT, vatRegister, supp
 // v39.2 — تخطيط العمالة من التوقع
 export { staffingPlan };
 // v39.4 — استيراد مبيعات نقاط البيع ومطابقتها
-export { piHour, piCutoff, posRecon };
+export { piHour, piCutoff, posRecon, salesDays, importDraftClosing };

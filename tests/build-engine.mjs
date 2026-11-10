@@ -25,7 +25,7 @@ export const ENGINE_EXPORTS = ['buildAccounting', 'buildPartners', 'stockByWh', 
   // v39.2 — تخطيط العمالة
   'staffingPlan',
   // v39.4 — استيراد نقاط البيع ومطابقتها
-  'piHour', 'piCutoff', 'posRecon'];
+  'piHour', 'piCutoff', 'posRecon', 'salesDays', 'importDraftClosing'];
 
 export async function buildEngine() {
   fs.mkdirSync(cache, { recursive: true });

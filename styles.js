@@ -1576,4 +1576,6 @@ html,body{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 
 .pi-plan{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
 .pi-done{display:flex;gap:10px;align-items:flex-start;border-color:rgba(79,178,134,.5);background:rgba(79,178,134,.06)}.pi-done div{display:flex;flex-direction:column;gap:3px}.pi-done small{color:var(--dim);font-size:11.5px}
+
+.pi-drafts{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;padding:9px 11px;border:1px solid rgba(91,147,196,.45);border-radius:12px;background:rgba(91,147,196,.06);font-size:12px;line-height:1.7;margin-bottom:8px}.pi-drafts .btn{flex:0 0 auto}
 `;

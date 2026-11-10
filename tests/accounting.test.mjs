@@ -655,3 +655,22 @@ test('استيراد نقاط البيع: أول وآخر يوم عمل خارج
   const B = E.piAggregate(g2, { ...E.piDetect(g2), cutoff: 6, brMap: { 'ف': 'b1' }, payMap: { 'نقدا': 'cash' } });
   assert.deepEqual(B.days.map(x => [x.date, x.partial || 'full']), [['2026-11-08', 'full'], ['2026-11-09', 'end']], 'أول فاتورة صباحية لا تجعل اليوم جزئيًا');
 });
+
+// ===== v39.5 — الأيام المستوردة في التحليل، ومسودات الإغلاق منها =====
+test('الأيام المستوردة بلا إغلاق تدخل التحليل والتوقع لا الدفاتر، والإغلاق المرحّل يتقدّم عليها، ومسودة الإغلاق معبأة', () => {
+  const org = baseOrg({ taxCfg: { enabled: false }, deliveryApps: [{ id: 'hs', n: 'هنقرستيشن', c: 20 }] });
+  const imp = Array.from({ length: 35 }, (_, k) => ({ id: 'i' + k, branchId: 'b1', date: dAgo(k), n: 100, total: 5000, cash: 2000, card: 2500, transfer: 0, apps: { hs: { amount: 500, n: 5 } }, file: 'f.xlsx' }));
+  const ops = { posImports: [...imp, { id: 'p', branchId: 'b1', date: dAgo(40), total: 10, cash: 10, card: 0, partial: 'start' }],
+    closings: [{ id: 'c0', branchId: 'b1', date: dAgo(0), status: 'approved', cashSales: 3000, cardSales: 3000, totalRevenue: 6000 }] };
+  const S = E.salesDays(ops);
+  assert.equal(S.length, 35, 'الجزئي لا يدخل');
+  assert.equal(S.find(x => x.date === dAgo(0)).totalRevenue, 6000, 'الإغلاق المرحّل يتقدّم على الاستيراد');
+  assert.equal(S.filter(x => x.fromImport).length, 34);
+  const F = E.forecastSales(org, ops, { today: TD, days: 7 });
+  assert.ok(F.branches[0].days.length === 7, 'التوقع يعمل من الاستيراد وحده');
+  const A = E.buildAccounting(org, ops); assert.equal(A.entries.filter(e => e.src === 'إغلاق وردية').length, 1, 'الدفاتر من الإغلاق المرحّل فقط');
+  const d = E.importDraftClosing(org, imp[3], 'مجاهد');
+  assert.equal(d.status, 'draft'); assert.equal(d.totalRevenue, 5000); assert.equal(d.cashSales, 2000);
+  assert.deepEqual(d.deliverySales.map(x => [x.appId, x.amount, x.commissionAmount]), [['hs', 500, 100]]);
+  assert.equal(E.buildAccounting(org, { closings: [d] }).entries.length, 0, 'المسودة لا تُقيَّد حتى تُرحَّل');
+});
