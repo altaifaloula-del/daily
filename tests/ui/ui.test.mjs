@@ -265,3 +265,30 @@ test('التدفق النقدي المتوقع: يُعرض على الجوال،
   assert.deepEqual(s.map(x => [x.label, x.amount, x.every]), [['إيجار العليا', 25000, 'monthly']]);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('الشراء من التوقع: الاقتراح بوحدة الشراء، التعديل اليدوي، والأمر فوق حد الاعتماد ينتظر الاعتماد', async () => {
+  const ctx = await browser.newContext(devices['iPhone 13']); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'live/Hub/admin/purchasing:reorder'); await p.waitForTimeout(500); await settle(p);
+  await p.evaluate(() => {
+    const d0 = new Date(); const day = (k) => { const d = new Date(d0); d.setDate(d.getDate() - k); return d.toISOString().slice(0, 10); };
+    window.setOrg(g => ({ ...g, warehouses: [], purchaseCfg: { approvalLimit: 100 }, suppliers: [...(g.suppliers || []), { id: 'spx', name: 'مورد الدواجن' }],
+      items: [...(g.items || []), { id: 'ix', name: 'دجاج اختبار', unit: 'كجم', purchaseUnit: 'كرتون', purchaseFactor: 10, minQty: 5 }] }));
+    window.setOps(o => ({ ...o, closings: [...(o.closings || []), ...Array.from({ length: 35 }, (_, k) => ({ id: 'tx' + k, branchId: 'b1', branchName: 'العليا', date: day(k), status: 'approved', totalRevenue: 5000 }))],
+      stockMoves: [...(o.stockMoves || []), { id: 'tin', itemId: 'ix', qty: 60, kind: 'in', date: day(40) }, ...Array.from({ length: 28 }, (_, k) => ({ id: 'tout' + k, itemId: 'ix', qty: -2, kind: 'out', date: day(k) }))],
+      purchaseOrders: [...(o.purchaseOrders || []), { id: 'pox', poNo: 'PO-0900', status: 'received', supplierId: 'spx', supplierName: 'مورد الدواجن', date: day(40), lines: [{ itemId: 'ix', qty: 6, factor: 10, received: 6, price: 150 }] }] }));
+  });
+  await p.waitForTimeout(400);
+  const row = p.locator('.pp-row:has-text("دجاج اختبار")');
+  assert.equal(await row.count(), 1, 'الصنف يظهر في الاقتراح');
+  assert.ok((await row.innerText()).includes('مورد الدواجن'), 'المورد من آخر شراء مستلم');
+  const inp = row.locator('.pp-q input'); assert.ok(Number(await inp.inputValue()) >= 1, 'كمية مقترحة بالكرتون');
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true, 'لا تجاوز للجوال');
+  await inp.fill('3'); await p.waitForTimeout(100);
+  await p.click('.pp-go button:has-text("إنشاء")'); await p.waitForTimeout(300);
+  const po = await p.evaluate(() => window.cur.purchaseOrders.find(x => x.fromPlan));
+  assert.equal(po.supplierName, 'مورد الدواجن');
+  assert.deepEqual(po.lines.map(l => [l.itemId, l.qty, l.factor, l.price]), [['ix', 3, 10, 150]]);
+  assert.equal(po.status, 'pending', '450 > حد الاعتماد 100');
+  assert.match(await p.evaluate(() => window.lastSay), /بانتظار الاعتماد/);
+  assert.deepEqual(errs, []); await ctx.close();
+});

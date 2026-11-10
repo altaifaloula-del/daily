@@ -1505,4 +1505,22 @@ html,body{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .cf-srow{display:grid;grid-template-columns:120px 1fr 110px 140px 110px auto;gap:6px;align-items:center}
 .cf-srow .btn{flex:0 0 auto}
 @media (max-width:720px){.cf-srow{grid-template-columns:1fr 1fr;padding:8px;border:1px solid var(--line);border-radius:10px}.cf-srow input:nth-child(2){grid-column:1/-1}}
+
+/* v39.0 — الشراء من التوقع */
+.pp-ctl{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.pp-ctl .sel{max-width:220px}
+.pp-seg{display:flex;gap:6px;flex-wrap:wrap}.pp-seg .btn{flex:0 0 auto}
+.pp-lead{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--dim)}
+.pp-lead .inp{width:56px;text-align:center}.pp-lead .sel{width:auto;min-width:140px}
+.pp-list{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.pp-row{border:1px solid var(--line);border-radius:12px;padding:9px 11px;display:grid;gap:6px}
+.pp-row.go{border-color:rgba(224,164,88,.5)}
+.pp-h{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.pp-h b{margin-inline-end:auto}
+.pp-m{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11.5px;color:var(--dim)}.pp-m b{color:var(--txt)}
+.pp-u{color:var(--faint)}
+.pp-o{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.pp-sup{font-size:11.5px;color:var(--dim);min-width:0}
+.pp-q{display:flex;align-items:center;gap:6px;flex:0 0 auto}.pp-q .inp{width:70px;text-align:center;font-weight:800}.pp-q small{font-size:11px;color:var(--dim)}
+.pp-go{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;align-items:center;margin-top:10px}
+.pp-go .btn{flex:0 0 auto}
 `;

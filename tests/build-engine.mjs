@@ -17,7 +17,9 @@ export const ENGINE_EXPORTS = ['buildAccounting', 'buildPartners', 'stockByWh', 
   // v38.8 — توقع المبيعات
   'forecastSales',
   // v38.9 — التدفق النقدي المرتبط بالتوقع
-  'cashForecast', 'vatStatus'];
+  'cashForecast', 'vatStatus',
+  // v39.0 — الشراء من التوقع
+  'purchasePlan'];
 
 export async function buildEngine() {
   fs.mkdirSync(cache, { recursive: true });

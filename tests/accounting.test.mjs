@@ -516,3 +516,21 @@ test('فحوص السلامة (v38.9): إقرار ضريبي متأخر، ورق
   assert.equal(D.vat.st, 'bad');
   assert.equal(D.cash.st, 'ok');
 });
+
+// ===== v39.0 — الشراء من التوقع =====
+test('الشراء من التوقع: الاحتياج = معدل الاستهلاك لكل ريال × المبيعات المتوقعة + حد الأمان − الرصيد والمطلوب، مقرّبًا لوحدة الشراء', () => {
+  const org = baseOrg({ taxCfg: { enabled: false }, items: [{ id: 'i1', name: 'دجاج', unit: 'كجم', purchaseUnit: 'كرتون', purchaseFactor: 10, minQty: 5 }, { id: 'i2', name: 'ملح', unit: 'كجم' }] });
+  const closings = Array.from({ length: 63 }, (_, k) => ({ id: 'c' + k, branchId: 'b1', date: dAgo(k), status: 'approved', totalRevenue: 5000 }));
+  const stockMoves = [{ id: 'in', itemId: 'i1', qty: 60, kind: 'in', date: dAgo(40) }, ...Array.from({ length: 28 }, (_, k) => ({ id: 'o' + k, itemId: 'i1', qty: -2, kind: 'out', date: dAgo(k) }))];
+  const P = E.purchasePlan(org, { closings, stockMoves }, { today: TD, cover: 7 });
+  const r = P.pools[0].rows.find(x => x.id === 'i1');
+  assert.equal(r.src, 'actual'); assert.equal(r.use28, 56); assert.equal(r.stock, 4);
+  assert.equal(r.need, 14, '0.0004 كجم لكل ريال × 35,000');
+  assert.equal(r.suggestPU, 2); assert.equal(r.suggest, 20, '14 + 5 − 4 = 15 ← كرتونان');
+  assert.ok(!P.pools[0].rows.some(x => x.id === 'i2'), 'صنف بلا استهلاك ولا حد أمان لا يظهر');
+  const po = [{ id: 'po1', status: 'open', supplierId: 's', lines: [{ itemId: 'i1', qty: 1, factor: 10, received: 0, price: 100 }] }];
+  const Q = E.purchasePlan(org, { closings, stockMoves, purchaseOrders: po }, { today: TD, cover: 7 }).pools[0].rows.find(x => x.id === 'i1');
+  assert.equal(Q.onOrder, 10); assert.equal(Q.suggest, 10, 'المطلوب ولم يُستلم يُخصم');
+  const L = E.purchasePlan(org, { closings, stockMoves }, { today: TD, cover: 7, lead: 3 }).pools[0].rows.find(x => x.id === 'i1');
+  assert.equal(L.need, 20, 'مدة التوريد تُضاف للأفق: 10 أيام');
+});

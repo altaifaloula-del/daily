@@ -2780,7 +2780,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v38.9';
+const APP_VER = 'v39.0';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -7775,6 +7775,73 @@ function usageReport(org, ops, wid, from, to) {
   const noRecipe = Object.keys(pQty).filter(pid => { const pr = products.find(x => x.id === pid); return !pr || !(pr.parts || []).length; });
   return { rows, served, recs: [...recs, ...(posOs.length ? [{ pos: true }] : [])], posN: posOs.length, partial, revenue: r2(revenue), theoV: r2(rows.reduce((a, r) => a + r.theoV, 0)), actV: r2(rows.reduce((a, r) => a + r.actV, 0)), pQty, noRecipe };
 }
+/* ============================================================
+   v39.0 — الشراء من التوقع: كم أطلب من كل صنف لكل مستودع
+   الاحتياج = معدل استهلاك الصنف لكل ريال مبيعات (فعلي آخر 28 يومًا، أو من الوصفات إن لم تُسجَّل حركات صرف)
+            × المبيعات المتوقعة للفروع التي يخدمها المستودع خلال (مدة التوريد + أيام التغطية)
+   المقترح = الاحتياج + حد الأمان (الحد الأدنى للصنف) − (الرصيد + الكميات المطلوبة ولم تُستلم) — مقرّبًا لوحدة الشراء.
+   ============================================================ */
+const PO_LIVE = ['pending', 'open', 'partial'];
+function purchasePlan(org, ops, opts = {}) {
+  const td = opts.today || today(), cover = Math.max(1, Math.round(Number(opts.cover) || 7)), lead = Math.max(0, Math.round(Number(opts.lead) || 0));
+  const N = lead + cover, from = anDay(td, -27);
+  const r3 = (n) => Math.round((Number(n) || 0) * 1000) / 1000;
+  const brs = (org.branches || []).filter(b => b.isActive !== false);
+  const whs = whOf(org), useWh = whs.length > 0;
+  const pools = useWh
+    ? whs.filter(w => w.active !== false).map(w => ({ id: w.id, name: w.name, served: w.kind === 'branch' ? [w.branchId] : brs.filter(b => !whForBranch(org, b.id)).map(b => b.id) }))
+    : [{ id: '', name: 'المخزون', served: brs.map(b => b.id) }];
+  const SB = stockByWh(org, ops);
+  const F = forecastSales(org, ops, { today: td, days: N });
+  const PR = supplierPrices(ops);
+  const AVG = itemAvgCosts(org, ops, td);
+  const poolOfPo = (po) => { if (!useWh) return ''; const w = po.branchId ? whForBranch(org, po.branchId) : null; return w ? w.id : (po.whId || MAIN_WH); };
+  const onOrder = {};   // [pool|item] بالوحدة الأساسية
+  (ops.purchaseOrders || []).filter(po => PO_LIVE.includes(po.status)).forEach(po => (po.lines || []).forEach(l => { if (!l.itemId) return;
+    const left = Math.max(0, (Number(l.qty) || 0) - (Number(l.received) || 0)) * (Number(l.factor) || 1); if (left > 0) { const k = poolOfPo(po) + '|' + l.itemId; onOrder[k] = (onOrder[k] || 0) + left; } }));
+  const out = pools.map(p => {
+    const notes = [];
+    const cl = (ops.closings || []).filter(c => countedClosing(c) && p.served.includes(c.branchId) && c.date >= from && c.date <= td);
+    const rev28 = anR(sum(cl, c => Number(c.totalRevenue) || 0));
+    let revN = 0, revLo = 0, revHi = 0;
+    p.served.forEach(bid => { const b = F.branches.find(x => x.id === bid); if (!b) return;
+      if (b.days.length) { const d = b.days.slice(0, N); revN += sum(d, x => x.f); revLo += sum(d, x => x.lo); revHi += sum(d, x => x.hi); }
+      else { const bc = cl.filter(c => c.branchId === bid); if (bc.length) { const avg = sum(bc, c => Number(c.totalRevenue) || 0) / 28; revN += avg * N; revLo += avg * N; revHi += avg * N;
+        notes.push({ sev: 'warn', msg: b.name + ': تاريخه أقل من 3 أسابيع — احتياجه بمتوسط مبيعاته اليومية في آخر 28 يومًا' }); } } });
+    const U = usageReport(org, ops, p.id || undefined, from, td);
+    const stock = useWh ? ((SB.byWh || {})[p.id] || {}) : (SB.total || {});
+    const ids = new Set([...U.rows.map(r => r.id), ...(org.items || []).filter(it => (Number(it.minQty) || 0) > 0).map(it => it.id)]);
+    const rows = [];
+    ids.forEach(id => {
+      const it = (org.items || []).find(x => x.id === id); if (!it || it.isActive === false || !isStocked(it)) return;
+      const u = U.rows.find(r => r.id === id) || { out: 0, waste: 0, theo: 0 };
+      const act = r3(u.out + u.waste), src = act > 0 ? 'actual' : u.theo > 0 ? 'recipe' : 'none';
+      const use28 = src === 'actual' ? act : src === 'recipe' ? u.theo : 0;
+      const rate = rev28 > 0 ? use28 / rev28 : 0;
+      const need = r3(rate * revN), needHi = r3(rate * revHi);
+      const safety = Number(it.minQty) || 0;
+      const bal = r3(stock[id] || 0), ord = r3(onOrder[p.id + '|' + id] || 0);
+      const raw = Math.max(0, need + safety - bal - ord);
+      const fac = pFactor(it);
+      const pu = raw > 0.0005 ? Math.ceil(r3(raw / fac)) : 0;
+      const sug = r3(pu * fac);
+      const lp = (PR[id] || [])[0];
+      const cost = lp ? lp.unitCost : (AVG[id] || Number(it.cost) || 0);
+      const daily = N > 0 ? rate * revN / N : 0;
+      if (use28 === 0 && safety === 0) return;
+      rows.push({ id, name: it.name, unit: it.unit || '', purchaseUnit: it.purchaseUnit || '', factor: fac, src, use28: r3(use28), need, needHi, safety, stock: bal, onOrder: ord,
+        suggest: sug, suggestPU: pu, cost, value: anR(sug * cost), cover: daily > 0 ? Math.floor((bal + ord) / daily) : null,
+        supplierId: lp ? lp.supplierId : '', supplierName: lp ? lp.supplierName : '' });
+    });
+    rows.sort((a, b) => (b.suggest > 0) - (a.suggest > 0) || (a.cover ?? 1e9) - (b.cover ?? 1e9) || b.value - a.value);
+    if (!(rev28 > 0)) notes.push({ sev: 'warn', msg: 'لا مبيعات مرحّلة في آخر 28 يومًا للفروع التي يخدمها — لا يمكن حساب معدل الاستهلاك؛ يُقترح الطلب لحد الأمان فقط' });
+    if (U.noRecipe.length) notes.push({ sev: 'info', msg: U.noRecipe.length + ' منتج مباع بلا وصفة — استهلاكه لا يظهر من الوصفات (يظهر من حركات الصرف إن سُجّلت)' });
+    const noSup = rows.filter(r => r.suggest > 0 && !r.supplierId).length;
+    if (noSup) notes.push({ sev: 'info', msg: noSup + ' صنف بلا مشتريات سابقة مستلمة — بلا مورد مقترح وسعره من متوسط التكلفة' });
+    return { ...p, rev28, revN: anR(revN), revLo: anR(revLo), revHi: anR(revHi), rows, notes, value: anR(sum(rows, r => r.value)), toOrder: rows.filter(r => r.suggest > 0).length };
+  });
+  return { today: td, cover, lead, days: N, pools: out };
+}
 /* UsageVariance: نُقل إلى mods/inv/UsageVariance.jsx (تحميل كسول) */
 
 /* Inventory: نُقل إلى mods/inv/Inventory.jsx (تحميل كسول) */
@@ -9414,3 +9481,5 @@ export { ACT_ST, ACT_SRC, ACT_KIND, anomKey, actionMetric, anomMetric, actionEff
 export { forecastSales, FC_DOW };
 // v38.9 — التدفق النقدي المرتبط بالتوقع
 export { cashForecast, vatStatus, CF_KIND, CF_IN, CF_OUT, CF_SCHED };
+// v39.0 — الشراء من التوقع
+export { purchasePlan, PO_LIVE };
