@@ -602,3 +602,18 @@ test('تخطيط العمالة: ميزانية الساعات من صافي ا�
   const P = E.staffingPlan(org, { closings, shiftTemplates, posOrders }, { today: TD, days: 7 }).branches[0].days.find(x => x.dow === day);
   assert.deepEqual(P.shifts.map(s => s.staff), [1, 9], 'المسائية 75 ÷ 8 ≈ 9، الصباحية بالحد الأدنى');
 });
+
+// ===== v39.3 — الاستهلاك الفعلي مقابل النظري في الأنماط الشاذة =====
+test('الأنماط الشاذة: استهلاك فعلي أعلى من النظري (المبيع × الوصفة) يُنبَّه عليه بالقيمة والنسبة ويُقاس أثر إجرائه', () => {
+  const org = baseOrg({ taxCfg: { enabled: false }, items: [{ id: 'i1', name: 'دجاج', unit: 'كجم', cost: 30 }], products: [{ id: 'p1', name: 'وجبة', sellPrice: 25, parts: [{ itemId: 'i1', qty: 0.2 }] }] });
+  const posOrders = Array.from({ length: 14 }, (_, k) => ({ id: 'o' + k, branchId: 'b1', date: dAgo(k), at: dAgo(k) + 'T13:00:00', status: 'paid', total: 250, lines: [{ productId: 'p1', qty: 10 }] }));
+  const out = (kg) => Array.from({ length: 14 }, (_, k) => ({ id: 'm' + k, itemId: 'i1', qty: -kg, kind: 'out', date: dAgo(k) }));
+  const A = E.detectAnomalies(org, { posOrders, stockMoves: [{ id: 'in', itemId: 'i1', qty: 500, kind: 'in', date: dAgo(60) }, ...out(3)] }, { today: TD });
+  const a = A.find(x => x.area === 'usage');
+  assert.ok(a, 'نمط الاستهلاك'); assert.equal(a.value, 50, '42 كجم فعلي مقابل 28 نظري = +50%');
+  assert.match(a.msg, /دجاج \+14 كجم \(\+50%\)/); assert.equal(a.sev, 'high');
+  assert.equal(E.actionMetric(org, { posOrders, stockMoves: out(3) }, { kind: 'usage_gap', key: '' }, TD), 50);
+  const ok = E.detectAnomalies(org, { posOrders, stockMoves: out(2.1) }, { today: TD });
+  assert.ok(!ok.some(x => x.area === 'usage'), 'ضمن التسامح (+5%) لا تنبيه');
+  assert.ok(!E.detectAnomalies(org, { stockMoves: out(3) }, { today: TD }).some(x => x.area === 'usage'), 'بلا كميات مبيعات لا يُحكم');
+});

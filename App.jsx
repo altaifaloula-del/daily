@@ -2793,7 +2793,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v39.2';
+const APP_VER = 'v39.3';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -4861,6 +4861,17 @@ const anMed = (a) => { const s = a.filter(x => Number.isFinite(x)).sort((x, y) =
 const anMad = (a, m) => anMed(a.map(x => Math.abs(x - m)));
 const anR = (n) => Math.round((Number(n) || 0) * 100) / 100;
 const anDay = (iso, k) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + k); return isoD(d); };
+/* v39.3 — فجوة الاستهلاك: ما خرج فعلًا (صرف + هدر) فوق النظري (المبيع × الوصفة) لمستودع في فترة — بالقيمة والنسبة.
+   تُحسب فقط حين تتوفر كميات المبيعات (نقطة البيع أو استيراد المبيعات) وللأصناف ذات استهلاك نظري. */
+const USAGE_MIN_PCT = 10, USAGE_MIN_VAL = 50;
+function usageGap(org, ops, wid, from, to) {
+  const U = usageReport(org, ops, wid || undefined, from, to);
+  if (!(U.posN > 0 || U.recs.length > 0)) return null;
+  const rows = U.rows.filter(r => r.theo > 0); const theoV = sum(rows, r => r.theoV); if (!(theoV > 0)) return null;
+  const flag = rows.filter(r => r.dq > 0 && (r.pct || 0) >= USAGE_MIN_PCT && r.dv >= USAGE_MIN_VAL).sort((a, b) => b.dv - a.dv);
+  const excess = sum(rows.filter(r => r.dv > 0), r => r.dv);
+  return { theoV: anR(theoV), excess: anR(excess), pct: Math.round(excess / theoV * 1000) / 10, flag, flagV: anR(sum(flag, r => r.dv)), served: U.served };
+}
 /** يعيد قائمة الأنماط الشاذة: {id, sev, area, branchId, date, title, msg, value, expected, pct, series} */
 function detectAnomalies(org, ops, opts = {}) {
   const td = opts.today || today();
@@ -4936,6 +4947,21 @@ function detectAnomalies(org, ops, opts = {}) {
         title: 'خصومات يدوية أعلى من الزملاء — ' + who, msg: c.mdisc + ' خصمًا يدويًا من ' + c.n + ' فاتورة (' + Math.round(q * 100) + '%، الزملاء ' + Math.round(md * 100) + '%) بقيمة ' + money(c.mdiscAmt) + ' — راجع أسبابها', value: Math.round(q * 1000) / 10, expected: Math.round(md * 1000) / 10, pct: md > 0 ? Math.round((q - md) / md * 100) : 100, series: [] });
     });
   }
+  // 6) v39.3 — الاستهلاك الفعلي مقابل النظري لكل مستودع (آخر 14 يومًا): فاقد غير مسجّل أو وصفات غير دقيقة
+  try {
+    const pools = whOf(org).length ? whOf(org).filter(w => w.active !== false).map(w => ({ id: w.id, name: w.name })) : [{ id: '', name: 'المخزون' }];
+    pools.forEach(pl => {
+      const G = usageGap(org, ops, pl.id, anDay(td, -13), td); if (!G || !G.served.some(inScope)) return;
+      if (!(G.flag.length && G.flagV >= 150)) return;
+      const series = [3, 2, 1].map(k => { const g = usageGap(org, ops, pl.id, anDay(td, -13 - 14 * k), anDay(td, -14 * k)); return g ? g.pct : 0; }).concat(G.pct);
+      const unitOf = (r) => r.unit || '';
+      out.push({ id: 'usage|' + pl.id + '|' + td, sev: G.pct >= 25 || G.flagV >= 1000 ? 'high' : 'medium', area: 'usage', branchId: G.served.length === 1 ? G.served[0] : '', date: td,
+        title: 'استهلاك فعلي أعلى من النظري — ' + pl.name,
+        msg: 'آخر 14 يومًا: خرج من المستودع ' + money(G.excess) + ' فوق ما تقتضيه الوصفات للمبيعات (' + G.pct + '% من ' + money(G.theoV) + ') — أعلاها: ' +
+          G.flag.slice(0, 3).map(r => r.name + ' +' + (Math.round(r.dq * 100) / 100) + ' ' + unitOf(r) + ' (+' + r.pct + '%)').join('، ') + ' — راجع الوصفات والهدر غير المسجّل والجرد',
+        value: G.pct, expected: 5, pct: Math.round(G.pct), series });
+    });
+  } catch { }
   const rank = { high: 0, medium: 1 };
   return out.sort((a, b) => rank[a.sev] - rank[b.sev] || String(b.date).localeCompare(String(a.date)) || Math.abs(b.pct) - Math.abs(a.pct));
 }
@@ -4948,7 +4974,8 @@ const ACT_SRC = { anomaly: 'نمط شاذ', ai: 'توصية ذكية', manual: '
 const ACT_KIND = {
   sales_day: { ar: 'متوسط المبيعات اليومية (7 أيام)', dir: 'up' }, expense_week: { ar: 'مصروف التصنيف (7 أيام)', dir: 'down' },
   waste_week: { ar: 'الهدر (7 أيام)', dir: 'down' }, price: { ar: 'سعر الشراء للوحدة', dir: 'down' },
-  void_rate: { ar: 'نسبة الإلغاء % (14 يومًا)', dir: 'down' }, mdisc_rate: { ar: 'نسبة الخصم اليدوي % (14 يومًا)', dir: 'down' }
+  void_rate: { ar: 'نسبة الإلغاء % (14 يومًا)', dir: 'down' }, mdisc_rate: { ar: 'نسبة الخصم اليدوي % (14 يومًا)', dir: 'down' },
+  usage_gap: { ar: 'الاستهلاك فوق النظري % (14 يومًا)', dir: 'down' }   // v39.3
 };
 // مفتاح ثابت للنمط (بلا تاريخ اليوم) — لئلا يتكرر الإجراء نفسه كل يوم
 const anomKey = (a) => { const p = String(a.id).split('|'); return /^sales-/.test(p[0]) ? a.id : p.slice(0, -1).join('|'); };
@@ -4963,6 +4990,7 @@ function actionMetric(org, ops, m, td) {
   if (m.kind === 'price') { const a = (supplierPrices(ops)[m.key] || []).filter(r => String(r.date || '') <= td); return a.length ? a[0].unitCost : null; }
   if (m.kind === 'void_rate' || m.kind === 'mdisc_rate') { const o = (ops.posOrders || []).filter(x => (x.by || '—') === m.key && String(x.date || '') >= from14 && String(x.date || '') <= td); if (!o.length) return null;
     return Math.round((m.kind === 'void_rate' ? o.filter(x => x.status === 'void').length : o.filter(x => x.manualDisc).length) / o.length * 1000) / 10; }
+  if (m.kind === 'usage_gap') { const g = usageGap(org, ops, m.key, from14, td); return g ? g.pct : null; }
   return null;
 }
 /** مقياس الإجراء من النمط الشاذ */
@@ -4974,6 +5002,7 @@ function anomMetric(a) {
   if (p[0] === 'price') return { kind: 'price', key: p[1], normal: a.expected };
   if (p[0] === 'void') return { kind: 'void_rate', key: p[1], normal: a.expected };
   if (p[0] === 'mdisc') return { kind: 'mdisc_rate', key: p[1], normal: a.expected };
+  if (p[0] === 'usage') return { kind: 'usage_gap', key: p[1], normal: a.expected };
   return null;   // ارتفاع المبيعات: إجراؤه مراجعة الإدخال لا مقياس
 }
 /** أثر الإجراء المنجز: يُقاس بعد 7 أيام من إنجازه — تحسّن إن عاد نصف المسافة على الأقل نحو المعتاد */
