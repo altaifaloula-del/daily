@@ -232,3 +232,14 @@ test('الإجراءات والتوصيات: إنشاء ← بدء ← إنجا�
   assert.equal(await p.locator('.act-item').count(), 1, 'يرى إجراء فرعه فقط');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('توقع المبيعات: الشاشة في مركز التحليل وفي «الإغلاق اليومي» لفريق الفرع، بلا أعطال ولا تجاوز للجوال', async () => {
+  for (const h of ['hub/analytics/forecast', 'live/Hub/bm/closehub:myforecast']) {
+    const ctx = await browser.newContext(devices['iPhone 13']); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+    await p.goto(base + h); await p.waitForTimeout(400); await settle(p);
+    const txt = await p.locator('#r').innerText();
+    assert.ok(txt.includes('المبيعات المتوقعة') && txt.includes('كيف يُحسب؟'), h);
+    assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true, h);
+    assert.deepEqual(errs, [], h); await ctx.close();
+  }
+});

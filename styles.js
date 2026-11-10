@@ -1457,4 +1457,15 @@ html,body{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .act-btns{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
 .act-btns .btn{flex:0 0 auto;min-width:auto;max-width:none}
 .act-notes{font-size:11.5px;color:var(--dim);display:flex;flex-direction:column;gap:2px;border-inline-start:2px solid var(--line);padding-inline-start:8px}
+
+/* v38.8 — توقع المبيعات */
+.fc-bars{color:var(--dim);margin:4px 0 8px;overflow-x:auto}
+.fc-bars svg{display:block;min-width:260px;height:130px}
+.fc-fit{display:block;height:64px;color:var(--txt)}
+.fc-rows{display:flex;flex-direction:column;margin-top:8px;border-top:1px solid var(--line)}
+.fc-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 2px;border-bottom:1px solid var(--line)}
+.fc-row.wk{background:rgba(200,162,74,.07)}
+.fc-d,.fc-v{display:flex;flex-direction:column;gap:1px}
+.fc-v{align-items:flex-end}
+.fc-d small,.fc-v small{font-size:11.5px;color:var(--dim)}
 `;
