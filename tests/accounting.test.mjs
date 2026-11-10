@@ -316,7 +316,8 @@ test('الهدر المعتمد: قيد 5502 مدين مقابل حساب مخز
 // ===== v38.5 — صيانة النظام: فحوص سلامة البيانات =====
 test('فحوص السلامة: بيانات سليمة ← كل الفحوص سليمة', () => {
   const org = baseOrg({ items: [{ id: 'i1', name: 'لحم', unit: 'كجم' }], products: [{ id: 'p1', name: 'وجبة', parts: [{ itemId: 'i1', qty: 1 }] }],
-    cashflowCfg: { vatFreq: 'monthly', fyEnd: '12-31', sched: [{ id: 'z', kind: 'zakat', amount: 1, date: '2099-01-01', every: 'once' }] } });
+    cashflowCfg: { vatFreq: 'monthly', fyEnd: '12-31', sched: [{ id: 'z', kind: 'zakat', amount: 1, date: '2099-01-01', every: 'once' }] },
+    documents: [{ id: 'cr', type: 'cr', number: '1010', expiryDate: '2099-01-01' }] });
   const ops = { closings: [{ id: 'c1', branchId: 'b1', date: '2099-01-01', status: 'approved', totalRevenue: 100 }], invoices: [] };
   const C = E.integrityChecks(org, ops);
   assert.deepEqual(C.filter(c => c.st !== 'ok').map(c => c.id), []);
@@ -533,4 +534,51 @@ test('الشراء من التوقع: الاحتياج = معدل الاستهل
   assert.equal(Q.onOrder, 10); assert.equal(Q.suggest, 10, 'المطلوب ولم يُستلم يُخصم');
   const L = E.purchasePlan(org, { closings, stockMoves }, { today: TD, cover: 7, lead: 3 }).pools[0].rows.find(x => x.id === 'i1');
   assert.equal(L.need, 20, 'مدة التوريد تُضاف للأفق: 10 أيام');
+});
+
+// ===== v39.1 — التنبيهات المهمة والتقارير الضريبية والمشتريات =====
+test('عقود الإيجار: جدول الدفعات حتى انتهاء العقد، والتنبيهات بالأهمية، والدفعات تدخل التدفق النقدي', () => {
+  const lease = { id: 'L1', type: 'lease', branchId: 'b1', landlord: 'مؤسسة العقار', rent: 30000, payEvery: 'quarterly', firstPay: '2026-01-31', expiryDate: '2027-01-15', noticeDays: 90 };
+  assert.deepEqual(E.leaseSchedule(lease, '2026-01-01', '2030-01-01').map(p => p.date), ['2026-01-31', '2026-04-30', '2026-07-31', '2026-10-31'], 'نهاية الشهر تُحترم والعقد ينتهي يناير');
+  const org = baseOrg({ taxCfg: { enabled: false }, documents: [lease, { id: 'cr', type: 'cr', number: '1010', expiryDate: '2026-11-01' }, { id: 'mun', type: 'municipal', expiryDate: '2026-12-01' }],
+    employees: [{ id: 'e1', name: 'سعد', docs: [{ id: 'd1', title: 'إقامة', expiryDate: '2026-11-20' }] }] });
+  const C = E.complianceItems(org, { closings: [] }, { today: TD });
+  const by = Object.fromEntries(C.items.map(x => [x.id, x]));
+  assert.equal(by['doc:cr'].sev, 'bad', 'سجل منتهٍ');
+  assert.equal(by['doc:mun'].sev, 'warn', 'رخصة خلال المهلة (45 يومًا)');
+  assert.equal(by['lnotice:L1'].sev, 'bad', 'فات موعد إشعار المؤجر (90 يومًا قبل 2027-01-15)');
+  assert.equal(by['edoc:e1:d1'].sev, 'warn');
+  assert.equal(C.items[0].sev, 'bad', 'العاجل أولًا');
+  const F = E.cashForecast(org, { closings: [] }, { today: TD });
+  assert.deepEqual(F.items.filter(i => i.kind === 'sched').map(i => i.date), [], 'لا دفعة بين اليوم وانتهاء العقد (التالية 2027-01-31 بعده)');
+  const org2 = baseOrg({ taxCfg: { enabled: false }, documents: [{ ...lease, expiryDate: '2028-01-01' }] });
+  assert.deepEqual(E.cashForecast(org2, { closings: [] }, { today: TD }).items.filter(i => i.kind === 'sched').map(i => [i.date, i.amount]), [['2027-01-31', 30000]]);
+});
+
+test('سجلات ض.ق.م: المبيعات والمشتريات من القيود، بنود الإقرار، المطابقة مع 2301/1501، وضابط الرقم الضريبي للمورد', () => {
+  const org = baseOrg({ suppliers: [{ id: 's1', name: 'مورد مسجل', vatNo: '300000000000003' }, { id: 's2', name: 'مورد بلا رقم' }] });
+  const ops = { closings: [{ id: 'c1', branchId: 'b1', branchName: 'العليا', date: '2026-10-05', status: 'approved', cashSales: 1150, totalRevenue: 1150,
+      expenses: [{ id: 'x1', amount: 230, paymentMethod: 'cash', isTaxable: true, supplierId: 's2', categoryName: 'خضار' }, { id: 'x2', amount: 100, paymentMethod: 'card', categoryName: 'نظافة' }] }],
+    invoices: [{ id: 'i1', supplierId: 's1', supplierName: 'مورد مسجل', invoiceNo: 'A1', amount: 575, taxable: true, date: '2026-10-07', dueDate: '2026-11-07' }] };
+  const R = E.vatRegister(org, ops, { from: '2026-10-01', to: '2026-10-31' });
+  assert.deepEqual(R.sales.map(r => [r.net, r.vat, r.gross]), [[1000, 150, 1150]]);
+  assert.deepEqual(R.purch.map(r => [r.party, r.pm, r.net, r.vat]), [['مورد بلا رقم', 'cash', 200, 30], ['', 'card', 100, 0], ['مورد مسجل', 'deferred', 500, 75]]);
+  const B = Object.fromEntries(R.boxes.map(b => [b.n, b]));
+  assert.equal(B['1'].vat, 150); assert.equal(B['7'].net, 700); assert.equal(B['7'].vat, 105); assert.equal(B['10–11'].net, 100); assert.equal(B['13'].vat, 45);
+  assert.ok(R.checks.some(c => c.sev === 'ok' && c.msg.includes('مطابقان')), 'مطابقة الدفاتر');
+  assert.ok(R.checks.some(c => c.sev === 'warn' && c.msg.includes('بلا رقم ضريبي')), 'مدخلات من مورد بلا رقم ضريبي');
+  assert.equal(E.vatRegister(org, ops, { from: '2026-11-01', to: '2026-11-30' }).sales.length, 0, 'الفترة تُحترم');
+});
+
+test('مشتريات الموردين حسب طريقة الدفع وسداداتهم', () => {
+  const org = baseOrg({ taxCfg: { enabled: false }, suppliers: [{ id: 's1', name: 'مورد اللحوم' }] });
+  const ops = { closings: [{ id: 'c1', branchId: 'b1', branchName: 'العليا', date: '2026-10-05', status: 'approved', totalRevenue: 0,
+      expenses: [{ id: 'x1', amount: 300, paymentMethod: 'cash', supplierId: 's1' }, { id: 'x2', amount: 200, paymentMethod: 'card', supplierId: 's1' }, { id: 'x3', amount: 400, paymentMethod: 'deferred', supplierId: 's1' }, { id: 'x4', amount: 50, paymentMethod: 'bank_transfer', supplierId: 's1' }],
+      supplierPayments: [{ supplierId: 's1', cash: 100, transfer: 250 }] }],
+    invoices: [{ id: 'i1', supplierId: 's1', supplierName: 'مورد اللحوم', invoiceNo: '9', amount: 1000, date: '2026-10-08', payments: [{ id: 'p1', amount: 600, date: '2026-10-20', fund: '1201' }, { id: 'p2', amount: 100, date: '2026-10-21', fund: '1101' }] }] };
+  const R = E.supplierPurchReport(org, ops, { from: '2026-10-01', to: '2026-10-31' });
+  const r = R.rows.find(x => x.supplierId === 's1');
+  assert.deepEqual(r.buy, { cash: 300, card: 200, transfer: 50, cheque: 0, deferred: 1400, other: 0 });
+  assert.equal(r.buyTot, 1950);
+  assert.deepEqual(r.pay, { cash: 200, card: 0, transfer: 850, cheque: 0, deferred: 0, other: 0 });
 });

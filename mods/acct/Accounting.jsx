@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { EInvoiceOnboard } from './EInvoiceOnboard.jsx';
 import { Scale, FileBarChart, ChevronDown, Printer, Settings, Receipt, BarChart3, Lock, Landmark, FileText, TrendingUp, ArrowLeftRight, Store, Users, QrCode, Building2, Truck, ClipboardCheck, ShieldCheck, CalendarDays, Download, Upload, Plus, Grid3x3, Check, Trash2, RefreshCw, Wallet, TrendingDown, AlertTriangle, ChevronRight, ShieldAlert, Eye, ChevronLeft, CircleDollarSign, X } from 'lucide-react';
+import { VatRegisters, SupplierPurchReport } from './TaxPurchReports.jsx';   // v39.1
 import { ACCT_SECTIONS, ACC_KIND, Field, Kpi, LOCK_MSG, MizanMerge, Modal, NUM_FACE, Num, ROLES, _xe, acctSecKey, arDate, bankOfBranch, branchBanks, bsLayout, bsRowsOf, buildAccounting, buildPartners, capOK, countedClosing, customerAging, detectStmtMap, entityById, entityList, gosiRatesFor, isLayout, isRowsOf, isoD, lockedThru, makeXlsx, money, monthEnd, monthLedger, multiEntityOn, naMissing, nowISO, openDocWin, parseCsvGrid, parseMt940, parseXlsxGrid, payTotal, periodLocked, posClrOf, printA4, qrSvg, roleEdit, rolePost, snapMonths, stAddDays, stDate, stNum, sum, supplierAging, today, uid, useSecNav, zatcaTLV } from '../../App.jsx';
 
 export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }) {
@@ -702,6 +703,27 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
   };
   // v31.4 — مطابقة شاملة: كل سطر في الكشف (إيداع/سحب) مقابل قيود هذا البنك بالمبلغ والتاريخ (±5 أيام)
   const [fullM, setFullM] = useState(null);
+  const [stmtEnd, setStmtEnd] = useState('');   // v39.1 رصيد الكشف آخر الشهر (يُملأ تلقائيًا من MT940)
+  // v39.1 — مذكرة التسوية البنكية بالصيغة المعيارية: الكشف ± البنود المعلقة = الدفتر ± غير المقيد
+  const recStmt = (M) => { if (!M) return null; const r2x = (n) => Math.round(n * 100) / 100;
+    const mt = stF && stF.mt940 && stF.mt940.close && stF.mt940.close.date.slice(0, 7) === M.month ? stF.mt940.close.amount : null;
+    const bank = stmtEnd !== '' ? Number(stmtEnd) || 0 : mt;
+    const dit = r2x(sum(M.bookUn.filter(b => b.amount > 0), b => b.amount)), oc = r2x(-sum(M.bookUn.filter(b => b.amount < 0), b => b.amount));
+    const bin = r2x(sum(M.bankUn.filter(x => x.amount > 0), x => x.amount)), bout = r2x(-sum(M.bankUn.filter(x => x.amount < 0), x => x.amount));
+    const adjBank = bank == null ? null : r2x(bank + dit - oc), adjBook = r2x(M.bookEnd + bin - bout);
+    return { bank, src: stmtEnd !== '' ? 'مُدخل' : mt != null ? 'MT940' : '', dit, oc, bin, bout, adjBank, adjBook, diff: adjBank == null ? null : r2x(adjBank - adjBook) }; };
+  const printRec = () => { const R = recStmt(fullM); if (!R) return; const tr = (a, b, c) => `<tr${c ? ' class="tot"' : ''}><td>${a}</td><td class="n">${b == null ? '—' : money(b)}</td></tr>`;
+    printA4(org, 'مذكرة التسوية البنكية — ' + bankLabel(brAcc), 'شهر ' + fullM.month + ' · حتى ' + monthEnd(fullM.month),
+      `<table><thead><tr><th>البيان</th><th>المبلغ</th></tr></thead><tbody>${tr('الرصيد حسب كشف البنك', R.bank)}${tr('يضاف: إيداعات مقيدة لم تظهر في الكشف (في الطريق)', R.dit)}${tr('يطرح: مدفوعات/شيكات مقيدة لم تُصرف بعد', R.oc)}${tr('الرصيد المعدّل حسب البنك', R.adjBank, 1)}
+      ${tr('الرصيد حسب الدفاتر', fullM.bookEnd)}${tr('يضاف: إيداعات في الكشف غير مقيدة', R.bin)}${tr('يطرح: سحوبات ورسوم في الكشف غير مقيدة', R.bout)}${tr('الرصيد المعدّل حسب الدفاتر', R.adjBook, 1)}${tr('الفرق', R.diff, 1)}</tbody></table>
+      ${fullM.bookUn.length ? `<h3 style="font-size:13px;margin:12px 0 4px">بنود مقيدة لم تظهر في الكشف</h3><table><tbody>${fullM.bookUn.map(b => `<tr><td>${b.date}</td><td>${_xe(b.title)}</td><td class="n">${money(b.amount)}</td></tr>`).join('')}</tbody></table>` : ''}
+      ${fullM.bankUn.length ? `<h3 style="font-size:13px;margin:12px 0 4px">حركات في الكشف غير مقيدة</h3><table><tbody>${fullM.bankUn.map(x => `<tr><td>${x.date}</td><td>${_xe(x.desc || '')}</td><td class="n">${money(x.amount)}</td></tr>`).join('')}</tbody></table>` : ''}
+      <div style="margin-top:30px;display:flex;justify-content:space-between"><span>أعدّه: ${_xe(me?.name || '')}</span><span>راجعه: ................</span><span>اعتمده: ................</span></div>`); };
+  const saveRec = async () => { const R = recStmt(fullM); if (!R || R.bank == null) return say('أدخل رصيد الكشف في آخر الشهر أولًا', 'no');
+    const rec = { id: uid('br'), date: monthEnd(fullM.month), acc: brAcc, stmtBalance: R.bank, bookBalance: fullM.bookEnd, diff: R.diff, adjBank: R.adjBank, adjBook: R.adjBook, method: 'full', month: fullM.month,
+      outstanding: { book: fullM.bookUn.map(b => ({ date: b.date, title: b.title, amount: b.amount })), bank: fullM.bankUn.map(x => ({ date: x.date, desc: x.desc, amount: x.amount })) }, note: Math.abs(R.diff) < 0.01 ? 'تسوية مكتملة' : 'فرق غير مفسَّر', by: me?.name || '', at: nowISO() };
+    const ok = await commit(d => ({ ...d, bankRecs: [rec, ...(d.bankRecs || [])] }), { actionType: 'create', targetType: 'bank_rec', targetId: rec.id, need: 'post', title: 'اعتمد مذكرة تسوية بنكية', details: bankLabel(brAcc) + ' · ' + fullM.month + ' · فرق ' + money(R.diff) });
+    if (ok !== false) say('حُفظت مذكرة التسوية لشهر ' + fullM.month + ' ✓'); };
   const [fixAcc, setFixAcc] = useState({});
   const stLines = () => {
     const { grid, map } = stF; const out = [];
@@ -1367,7 +1389,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
           jr: ['القيود اليومية', FileText], coa: ['دليل الحسابات', Landmark], tb: ['ميزان المراجعة', Scale], ob: ['الأرصدة الافتتاحية', Landmark],
           fs: ['القوائم المالية', FileBarChart], cf: ['التدفقات النقدية', ArrowLeftRight], fcast: ['التوقّع النقدي', TrendingUp], bud: ['الموازنة', BarChart3], anl: ['التحليل والنِسَب', TrendingUp], cc: ['مراكز التكلفة', BarChart3],
           food: ['تكلفة الطعام بالفروع', Store], apage: ['أعمار الموردين', Users], arage: ['أعمار العملاء', Users],
-          vat: ['الضريبة (ق.م)', Receipt], einv: ['الفوترة (زاتكا)', QrCode], zakat: ['الزكاة وضريبة الدخل', Landmark],
+          vat: ['الضريبة (ق.م)', Receipt], vatreg: ['سجلات الضريبة المفصلة', FileText], suprep: ['مشتريات الموردين بطرق الدفع', Truck], einv: ['الفوترة (زاتكا)', QrCode], zakat: ['الزكاة وضريبة الدخل', Landmark],
           bank: ['التسوية البنكية', Landmark], ast: ['الأصول والإهلاك', Building2], astl: ['تسوية التطبيقات', Truck],
           mclose: ['حزمة الإقفال', ClipboardCheck], ctrl: ['الضوابط والتدقيق', ShieldCheck], lock: ['الإقفال الشهري', Lock], yend: ['إقفال السنة', CalendarDays],
           export: ['تصدير للمحاسب', Download], mizan: ['استيراد البيانات التاريخية', Upload]
@@ -1375,8 +1397,8 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
         const GROUPS = [
           { id: 'books', ar: 'الدفاتر', icon: FileText, items: ['jr', 'coa', 'tb', 'ob'] },
           { id: 'stmts', ar: 'القوائم والتحليل', icon: FileBarChart, items: ['fs', 'food', 'cf', 'fcast', 'bud', 'anl', 'cc'] },
-          { id: 'ages', ar: 'الذمم والأعمار', icon: Users, items: ['apage', 'arage'] },
-          { id: 'tax', ar: 'الضريبة والزكاة', icon: Receipt, items: ['vat', 'einv', 'zakat'] },
+          { id: 'ages', ar: 'الذمم والأعمار', icon: Users, items: ['apage', 'arage', 'suprep'] },
+          { id: 'tax', ar: 'الضريبة والزكاة', icon: Receipt, items: ['vat', 'vatreg', 'einv', 'zakat'] },
           { id: 'bank', ar: 'البنوك والأصول', icon: Building2, items: ['bank', 'ast', 'astl'] },
           { id: 'close', ar: 'الإقفال والرقابة', icon: Lock, items: ['mclose', 'ctrl', 'lock', 'yend'] },
           { id: 'tools', ar: 'أدوات', icon: Download, items: ['export', 'mizan'] }
@@ -3200,6 +3222,8 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
         </div>
       )}
 
+      {view === 'vatreg' && <VatRegisters org={org} ops={ops} say={say} />}
+      {view === 'suprep' && <SupplierPurchReport org={org} ops={ops} say={say} />}
       {view === 'zakat' && (() => {
         const num = (s) => Number(String(s).replace(/[^\d.-]/g, '')) || 0;
         const capital = r2(accByCode['3101'] ? accByCode['3101'].balance : 0);
@@ -3438,6 +3462,15 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                       <span className="num" style={{ color: ok ? 'var(--mint)' : 'var(--rose)' }}>{money(stF.mt940.close.amount)} {ok ? '— التسوية مكتملة ✓' : '— الفرق ' + money(d)}</span>
                     </div>); })()}
                   <div className="note" style={{ marginTop: 6 }}>قارن «رصيد الكشف المتوقع» برصيد آخر يوم في كشفك: إن تساويا فالتسوية مكتملة. الفرق يعني سطرًا غير مقروء أو قيدًا بمبلغ مختلف.</div>
+                  {(() => { const R = recStmt(fullM); const ln = (a, v, b) => <div className={'rp-box' + (b ? ' tot' : '')}><span className="rp-l">{a}</span><span className="rp-v"><b className="num" dir="ltr">{v == null ? '—' : money(v)}</b></span></div>; return (
+                    <div className="card" style={{ marginTop: 10 }}>
+                      <div className="card-h"><div className="card-t"><FileText size={15} color="var(--brass)" />مذكرة التسوية البنكية — {fullM.month}</div>
+                        <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}><button className="btn sm" onClick={printRec}><Printer size={13} />طباعة</button>{canPost && <button className="btn sm pri" onClick={saveRec}>حفظ واعتماد</button>}</div></div>
+                      <Field label={'رصيد كشف البنك في ' + monthEnd(fullM.month) + (R.src === 'MT940' ? ' (من MT940)' : '')}><input className="inp n" inputMode="decimal" value={stmtEnd !== '' ? stmtEnd : (R.bank != null ? String(R.bank) : '')} placeholder="من آخر سطر في الكشف" onChange={e => setStmtEnd(e.target.value)} /></Field>
+                      <div className="rp-boxes">{ln('الرصيد حسب كشف البنك', R.bank)}{ln('يضاف: إيداعات مقيدة لم تظهر في الكشف', R.dit)}{ln('يطرح: مدفوعات/شيكات مقيدة لم تُصرف', R.oc)}{ln('الرصيد المعدّل حسب البنك', R.adjBank, 1)}
+                        {ln('الرصيد حسب الدفاتر', fullM.bookEnd)}{ln('يضاف: إيداعات في الكشف غير مقيدة', R.bin)}{ln('يطرح: سحوبات ورسوم في الكشف غير مقيدة', R.bout)}{ln('الرصيد المعدّل حسب الدفاتر', R.adjBook, 1)}
+                        <div className={'rp-box tot'} style={{ color: R.diff == null ? 'inherit' : Math.abs(R.diff) < 0.01 ? 'var(--mint)' : 'var(--rose)' }}><span className="rp-l">الفرق</span><span className="rp-v"><b className="num" dir="ltr">{R.diff == null ? 'أدخل رصيد الكشف' : Math.abs(R.diff) < 0.01 ? 'صفر — التسوية مكتملة ✓' : money(R.diff)}</b></span></div></div>
+                    </div>); })()}
                   {fullM.bankUn.length > 0 && <>
                     <div className="lbl" style={{ marginTop: 10 }}>في الكشف وغير مقيّد في الدفاتر ({fullM.bankUn.length}) — قيّده بضغطة</div>
                     <div className="tw"><table className="tb"><tbody>

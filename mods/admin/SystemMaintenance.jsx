@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { cloud, KEYS, brKey } from '../../storage';
 import { ShieldCheck, RefreshCw, Trash2, AlertTriangle, Check, Server, Bug, Activity, HardDrive } from 'lucide-react';
-import { APP_VER, CloudHealth, ERRLOG_KEY, MAIN_WH, buildAccounting, cashForecast, entityList, vatStatus, countedClosing, isoD, money, purKey, q3, qrFs, snapAll, stockByWh, today, whName, whOf } from '../../App.jsx';
+import { APP_VER, CloudHealth, ERRLOG_KEY, MAIN_WH, buildAccounting, branchBanks, cashForecast, complianceItems, entityList, vatStatus, countedClosing, isoD, money, purKey, q3, qrFs, snapAll, stockByWh, today, whName, whOf } from '../../App.jsx';
 
 const ST = { ok: ['b-mint', 'سليم'], warn: ['b-amber', 'تنبيه'], bad: ['b-rose', 'خلل'] };
 const daysAgo = (d) => { const x = new Date(); x.setDate(x.getDate() - d); return isoD(x); };
@@ -95,6 +95,23 @@ export function integrityChecks(org, ops) {
           const left = Math.round((Date.parse(due) - Date.parse(td)) / 864e5);
           add('zakat', has || left < 0 ? 'ok' : left <= 30 ? 'bad' : 'warn', 'الزكاة — السنة المنتهية ' + cand, has ? 'مجدولة في التدفق النقدي' : left < 0 ? 'انقضى موعد ' + due + ' — تحقق من تقديم الإقرار' : 'الإقرار والسداد قبل ' + due + ' (متبقٍّ ' + left + ' يومًا)', [], has ? '' : 'احسبها من «المحاسبة ← الزكاة» وأضفها التزامًا مجدولًا في «التدفق النقدي ← الإعداد»'); }
       } else add('zakat', 'warn', 'الزكاة — نهاية السنة المالية', 'غير محددة — لا يمكن تتبّع موعد الإقرار', [], 'حدّدها من «التدفق النقدي ← الإعداد» أو بإقفال السنة من المحاسبة');
+    } catch { }
+    // 13) v39.1 — الوثائق الرسمية وعقود الإيجار: منتهية أو فات موعد إشعار المؤجر
+    try {
+      const C = complianceItems(org, ops, { A, today: td }).items.filter(x => x.cat === 'doc' || x.cat === 'lease');
+      const bad = C.filter(x => x.sev === 'bad'), warn = C.filter(x => x.sev === 'warn' && x.cat === 'doc');
+      if ((org.documents || []).length) add('docs', bad.length ? 'bad' : warn.length ? 'warn' : 'ok', 'الوثائق الرسمية وعقود الإيجار', bad.length ? bad.length + ' بند عاجل' : warn.length ? warn.length + ' وثيقة تنتهي قريبًا' : 'كل الوثائق سارية',
+        [...bad, ...warn].slice(0, 6).map(x => x.title + ' — ' + x.sub), bad.length || warn.length ? 'جدّدها وحدّث تاريخها في «المستندات والأرشيف ← مركز المستندات»' : '');
+      else add('docs', 'warn', 'الوثائق الرسمية', 'لا وثائق مسجّلة — السجل التجاري والرخص وعقود الإيجار بلا تتبّع لانتهائها', [], 'سجّلها في «مركز المستندات» بتواريخ انتهائها');
+    } catch { }
+    // 14) v39.1 — التسوية البنكية: كل بنك بحركة يحتاج مذكرة تسوية عن الشهر المنتهي
+    try {
+      const pm = (() => { const d = new Date(td + 'T12:00:00'); d.setDate(0); return isoD(d); })();
+      const accs = ['1201', ...branchBanks(org).map(b => b.code)];
+      const late = accs.filter(code => A.entries.some(e => (e.date || '') <= pm && (e.date || '') > daysAgo(120) && e.lines.some(l => l.code === code)))
+        .filter(code => !(ops.bankRecs || []).some(r => (r.acc || '1201') === code && (r.date || '') >= pm));
+      add('bankrec', late.length ? 'warn' : 'ok', 'التسوية البنكية الشهرية', late.length ? late.length + ' بنك بلا تسوية حتى ' + pm : 'البنوك مسوّاة حتى ' + pm,
+        late.map(c => c === '1201' ? 'البنك التجميعي (1201)' : ((branchBanks(org).find(b => b.code === c) || {}).name || c)), late.length ? 'ارفع كشف الشهر في «المحاسبة ← التسوية البنكية» واحفظ مذكرة التسوية' : '');
     } catch { }
     // 12) السيولة: عجز متوقع خلال 13 أسبوعًا
     try {

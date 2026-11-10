@@ -292,3 +292,35 @@ test('الشراء من التوقع: الاقتراح بوحدة الشراء،
   assert.match(await p.evaluate(() => window.lastSay), /بانتظار الاعتماد/);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('التنبيهات المهمة: عقد إيجار بدفعاته يظهر في المواعيد، والتقارير الضريبية والمشتريات تعمل على الجوال', async () => {
+  const ctx = await browser.newContext(devices['iPhone 13']); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  const noOverflow = async (h) => assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true, h);
+  await p.goto(base + 'live/Hub/admin/docshub:docs'); await p.waitForTimeout(500); await settle(p);
+  assert.ok((await p.locator('#r').innerText()).includes('المواعيد والتنبيهات المهمة'));
+  await p.click('button:has-text("وثيقة جديدة")'); await p.waitForTimeout(150);
+  const m = p.locator('.modal'); await m.locator('select').first().selectOption('lease');
+  const d = new Date(); d.setDate(d.getDate() + 5); const soon = d.toISOString().slice(0, 10); d.setFullYear(d.getFullYear() + 2); const end = d.toISOString().slice(0, 10);
+  await m.locator('input[type="date"]').nth(1).fill(end);
+  await m.locator('.lbl:has-text("بيانات العقد") + .grid input').nth(0).fill('مؤسسة العقار');
+  await m.locator('.lbl:has-text("بيانات العقد") + .grid input').nth(1).fill('25000');
+  await m.locator('.lbl:has-text("بيانات العقد") + .grid select').selectOption('quarterly');
+  await m.locator('.lbl:has-text("بيانات العقد") + .grid input[type="date"]').fill(soon);
+  await p.waitForTimeout(100); assert.match(await m.innerText(), /دفعة بإجمالي/);
+  await noOverflow('نموذج العقد');
+  await m.locator('button:has-text("حفظ")').click(); await p.waitForTimeout(300);
+  const L = await p.evaluate(() => window.curOrg.documents.find(x => x.type === 'lease'));
+  assert.deepEqual([L.landlord, L.rent, L.payEvery, L.firstPay], ['مؤسسة العقار', 25000, 'quarterly', soon]);
+  const it = p.locator('.cmp-it:has-text("دفعة إيجار")'); assert.ok(await it.count() >= 1, 'الدفعة في المواعيد');
+  assert.match(await it.first().innerText(), /تنبيه/, 'خلال 7 أيام = تنبيه');
+  await noOverflow('المواعيد');
+  // سجلات الضريبة
+  await p.goto(base + 'live/Accounting/admin/vatreg'); await p.reload(); await p.waitForTimeout(500); await settle(p);
+  assert.ok((await p.locator('#r').innerText()).includes('ملخص الإقرار'), 'سجلات الضريبة');
+  await p.click('button:has-text("سجل المشتريات")'); await p.waitForTimeout(150); await noOverflow('سجل المشتريات');
+  // مشتريات الموردين
+  await p.goto(base + 'live/Hub/admin/purchasing:suprep'); await p.reload(); await p.waitForTimeout(500); await settle(p);
+  const t = await p.locator('#r').innerText(); assert.ok(t.includes('المشتريات بطرق الدفع') && t.includes('آجل'), 'تقرير المشتريات');
+  await p.click('button:has-text("هذه السنة")'); await p.waitForTimeout(150); await noOverflow('تقرير المشتريات');
+  assert.deepEqual(errs, []); await ctx.close();
+});
