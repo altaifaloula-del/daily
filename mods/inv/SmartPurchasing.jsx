@@ -1,6 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState } from 'react';
 import { Printer, Download, Check, AlertTriangle, Truck, HardDrive, Plus, ClipboardCheck } from 'lucide-react';
+import { ForecastPurchase } from './ForecastPurchase.jsx';
 import { Kpi, ROLES, _xe, arDate, isoD, makeXlsx, money, nowISO, printA4, stockByWh, sum, today, uid } from '../../App.jsx';
 
 export function SmartPurchasing({ org, ops, me, commit, commitOrg, say }) {
@@ -42,9 +43,10 @@ export function SmartPurchasing({ org, ops, me, commit, commitOrg, say }) {
     let mx = 0; (ops.purchaseOrders || []).forEach(x => { const m = /(\d+)$/.exec(x.poNo || ''); if (m) mx = Math.max(mx, +m[1]); });
     const poNo = 'PO-' + String(mx + 1).padStart(4, '0');
     const lines = toOrder.map(r => ({ desc: r.it.name, itemId: r.it.id, qty: r.suggested, price: r.price, received: 0 }));
-    const rec = { id: uid('po'), poNo, supplierId: sp.id, supplierName: sp.name, branchId: '', note: 'إعادة طلب تلقائي', lines, status: 'open', by: me.name, at: nowISO(), date: today() };
+    const lim = Number((org.purchaseCfg || {}).approvalLimit) || 0, tot = sum(lines, l => l.qty * l.price);   // v39.0: يمر بحد الاعتماد كأي أمر شراء
+    const rec = { id: uid('po'), poNo, supplierId: sp.id, supplierName: sp.name, branchId: '', note: 'إعادة طلب تلقائي', lines, status: lim > 0 && tot > lim ? 'pending' : 'open', by: me.name, at: nowISO(), date: today() };
     await commit(d => ({ ...d, purchaseOrders: [rec, ...(d.purchaseOrders || [])] }), { actionType: 'create', targetType: 'purchase_order', targetId: rec.id, title: 'أنشأ أمر شراء (إعادة طلب)', details: poNo + ' · ' + sp.name + ' · ' + lines.length + ' صنف' });
-    say('أُنشئ أمر الشراء ' + poNo + ' ✓ — تابعه من «الموردون ← أوامر الشراء»');
+    say('أُنشئ أمر الشراء ' + poNo + ' ✓' + (rec.status === 'pending' ? ' — بانتظار الاعتماد (فوق حد ' + money(lim) + ')' : ' — تابعه من «الموردون ← أوامر الشراء»'));
   };
   const exportReq = () => { try { const head = ['الصنف', 'الوحدة', 'المخزون', 'حد الطلب', 'الكمية المقترحة', 'آخر سعر', 'القيمة']; const body = toOrder.map(r => [r.it.name, r.it.unit || '', r.stock, r.min, r.suggested, r.price, r2(r.suggested * r.price)]); const blob = makeXlsx([{ name: 'طلب شراء مقترح', rows: [head, ...body] }]); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'طلب_شراء_مقترح.xlsx'; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(url), 1500); say('نُزّل الطلب (Excel) ✓'); } catch (e) { say('تعذّر توليد Excel', 'no'); } };
   const printReq = () => { const rws = toOrder.map(r => `<tr><td>${_xe(r.it.name)}</td><td>${_xe(r.it.unit || '')}</td><td class="n">${r.stock}</td><td class="n">${r.min}</td><td class="n">${r.suggested}</td><td class="n">${money(r.price)}</td><td class="n">${money(r2(r.suggested * r.price))}</td></tr>`).join('') || '<tr><td colspan="7" style="text-align:center;color:#999">لا أصناف تحتاج طلبًا</td></tr>'; printA4(org, 'طلب شراء مقترح (إعادة طلب)', arDate(today()) + ' · ' + toOrder.length + ' صنف · قيمة ' + money(orderValue), `<table><thead><tr><th>الصنف</th><th>الوحدة</th><th>المخزون</th><th>حد الطلب</th><th>المقترحة</th><th>آخر سعر</th><th>القيمة</th></tr></thead><tbody>${rws}<tr class="tot"><td colspan="6">إجمالي القيمة المقترحة</td><td class="n">${money(orderValue)}</td></tr></tbody></table>`) || say('اسمح بالنوافذ المنبثقة', 'no'); };
@@ -65,6 +67,7 @@ export function SmartPurchasing({ org, ops, me, commit, commitOrg, say }) {
         </div>
       </div>
 
+      {items.length > 0 && <ForecastPurchase org={org} ops={ops} me={me} commit={commit} say={say} />}
       {items.length === 0 ? <div className="card"><div className="empty">أضف أصناف مخزونك من «المخزون ← الأصناف والأرصدة» أولًا، ثم حدّد حد الطلب لكلٍّ منها هنا.</div></div> : <>
         <div className="grid g3">
           <Kpi label="أصناف تحت حد الطلب" value={String(toOrder.length)} sub={toOrder.length ? 'تحتاج إعادة طلب' : 'كل الأصناف كافية 👍'} icon={AlertTriangle} color={toOrder.length ? '#D9544D' : '#4FB286'} />

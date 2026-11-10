@@ -47,7 +47,7 @@ const base = { org, myBranches: B, branches: B, commitOrg: async () => true, say
 class EB extends React.Component { constructor(p) { super(p); this.state = { e: null }; } componentDidCatch(e) { window.__crash = String(e && e.message); this.setState({ e }); } render() { return this.state.e ? React.createElement('div', { id: 'crash' }, 'CRASH: ' + this.state.e.message) : this.props.children; } }
 function Live() {
   const [o, setO] = React.useState(ops); window.cur = o; const [who, setWho] = React.useState(b || 'admin'); window.as = setWho;
-  const [g, setG] = React.useState(org); window.curOrg = g;
+  const [g, setG] = React.useState(org); window.curOrg = g; window.setOps = setO; window.setOrg = setG;   // v39.0: حقن بيانات للاختبار
   const [hv, setHv] = React.useState(c); window.hub = setHv;   // تنقّل بين المراكز مع بقاء البيانات
   const commit = async (fn) => { try { const nx = fn(JSON.parse(JSON.stringify(o))); setO(nx); return true; } catch (e) { window.lastErr = e.message; return false; } };
   const commitOrg = async (fn) => { try { const nx = fn(JSON.parse(JSON.stringify(g))); setG(nx); return true; } catch (e) { window.lastErr = e.message; return false; } };
