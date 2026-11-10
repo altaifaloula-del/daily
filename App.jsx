@@ -58,6 +58,7 @@ const GrowthAnalytics = lazyComp(() => import('./mods/acct/GrowthAnalytics.jsx')
 const EntitiesCenter = lazyComp(() => import('./mods/acct/EntitiesCenter.jsx'), 'EntitiesCenter');
 const ReportBuilder = lazyComp(() => import('./mods/acct/ReportBuilder.jsx'), 'ReportBuilder');
 const ExecDashboard = lazyComp(() => import('./mods/acct/ExecDashboard.jsx'), 'ExecDashboard');
+const Anomalies = lazyComp(() => import('./mods/acct/Anomalies.jsx'), 'Anomalies');   // v38.6
 const AlertsCenter = lazyComp(() => import('./mods/acct/AlertsCenter.jsx'), 'AlertsCenter');
 const Dashboard = lazyComp(() => import('./mods/acct/Dashboard.jsx'), 'Dashboard');
 const PosApp = lazyComp(() => import('./mods/pos/PosApp.jsx'), 'PosApp');
@@ -291,7 +292,7 @@ function buildNotifEvents(org, ops, me, myBranches) {
   if (roleHasTab(me, 'approve')) (ops.closings || []).forEach(c => { if (c.status === 'submitted' && inScope(c.branchId)) push('cl:sub:' + c.id, 'closing', 'إغلاق بانتظار التدقيق — ' + (c.branchName || ''), (c.date || '') + ' · إيراد ' + money(c.totalRevenue || 0) + (c.variance ? ' · فرق ' + money(c.variance) : ''), 'approve'); });
   if (roleHasTab(me, 'closing') && !central) (ops.closings || []).forEach(c => { if (c.status === 'rejected' && inScope(c.branchId)) push('cl:rej:' + c.id + ':' + (c.updatedAt || ''), 'closing', 'أُعيد إغلاق للتصحيح — ' + (c.branchName || ''), (c.date || '') + (c.rejectionReason ? ' · ' + c.rejectionReason : ''), 'closing'); });
   if (central || roleHasTab(me, 'closing')) {
-    try { computeSmartAlerts(org, ops, myBranches || []).forEach(a => { if (/^late-|deficit|def-|defp-/.test(String(a.id))) push('cl:sa:' + a.id + ':' + bd, 'closing', a.title, a.msg || '', 'closing'); }); } catch { }
+    try { computeSmartAlerts(org, ops, myBranches || []).forEach(a => { if (/^late-|deficit|def-|defp-|^anom-/.test(String(a.id))) push('cl:sa:' + a.id + ':' + bd, 'closing', a.title, a.msg || '', 'closing'); }); } catch { }
   }
   // —— v30.5: أوامر شراء بانتظار الاعتماد + دفعات قريبة الانتهاء ——
   if ((R.approver || R.admin) && central) (ops.purchaseOrders || []).forEach(po => { if (po.status === 'pending') push('fin:po:' + po.id, 'fin', 'أمر شراء بانتظار اعتمادك — ' + (po.supplierName || ''), (po.poNo || '') + ' · ' + money((po.lines || []).reduce((s2, l) => s2 + (Number(l.qty) || 0) * (Number(l.price) || 0), 0)) + ' ر.س' + (po.priceAlert ? ' · ⚠ ' + po.priceAlert + ' بند بسعر أعلى من متوسط آخر 3 مشتريات' : ''), 'purchasing'); });
@@ -2771,7 +2772,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v38.5';
+const APP_VER = 'v38.6';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3764,7 +3765,7 @@ function PlatformApp() {
   const shared = { org, ops, pulse, me, myBranches, scoped, commit, commitOrg, say, setTab, theme, acctIntent, openAcctView, invIntent, openInvView };
 
   // حماية: منع الوصول لتبويب غير مسموح لدور المستخدم (بلا hook — بعد returns الشرطية)
-  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'closing') && (ROLES[me.role]?.approver || ROLES[me.role]?.admin || ROLES[me.role]?.scope === 'all') ? ['cashiers'] : []), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : []), ...(NAV.some(n => n.id === 'people') ? ['payroll', 'workforce', 'muster', 'overtime'] : []), ...(NAV.some(n => n.id === 'purchasing') ? ['suppliers', 'reorder'] : []), ...(NAV.some(n => n.id === 'hrops') ? ['attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'esign'] : []), ...(NAV.some(n => n.id === 'hrperf') ? ['kpi', 'empfile', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'] : [])];
+  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'closing') && (ROLES[me.role]?.approver || ROLES[me.role]?.admin || ROLES[me.role]?.scope === 'all') ? ['cashiers'] : []), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'anomaly'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : []), ...(NAV.some(n => n.id === 'people') ? ['payroll', 'workforce', 'muster', 'overtime'] : []), ...(NAV.some(n => n.id === 'purchasing') ? ['suppliers', 'reorder'] : []), ...(NAV.some(n => n.id === 'hrops') ? ['attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'esign'] : []), ...(NAV.some(n => n.id === 'hrperf') ? ['kpi', 'empfile', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'] : [])];
   const safeTab = allowedTabs.includes(tab) ? tab : (allowedTabs[0] || 'closing');
 
   return (
@@ -4012,7 +4013,7 @@ function PlatformApp() {
           <div className="page">
             <div className="page-inner"><ErrorBoundary key={safeTab} where={(NAV.find(n => n.id === safeTab) || {}).ar || 'هذا القسم'}>
               {safeTab === 'home' && <Launcher {...shared} online={online} />}
-              {['analytics', 'exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'alerts'].includes(safeTab) && <Hub hubId="analytics" {...shared} online={online} view={safeTab} />}
+              {['analytics', 'exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'alerts', 'anomaly'].includes(safeTab) && <Hub hubId="analytics" {...shared} online={online} view={safeTab} />}
               {['reporting', 'reports', 'rbuild', 'boardpack', 'cashflow'].includes(safeTab) && <Hub hubId="reporting" {...shared} view={safeTab} />}
               {safeTab === 'sales' && <SalesHub {...shared} />}
               {safeTab === 'pos' && <PosApp {...shared} />}
@@ -4829,6 +4830,94 @@ const deficitPatterns = (org, closings, branchIds, refDay) => {
    الهدف رقابي: هل الفروقات مرتبطة بفرع أم بشخص؟ مؤشر الخطر = تكرار العجز (لا حجمه فقط). أرقام من السجلات كما هي. */
 /* CashierBook: نُقل إلى mods/pos/CashierBook.jsx (تحميل كسول) */
 const fmtBalP = (n) => n < 0 ? '(' + money(-n) + ')' : money(n);
+/* ===== v38.6 — كشف الأنماط الشاذة (إحصاء مقاوم للقيم المتطرفة، داخل المتصفح بلا تكلفة) =====
+   كل رقم يُقارن بنمطه المعتاد: الوسيط والانحراف المطلق الوسيط (MAD) — لا المتوسط، فلا يشوّه يوم استثنائي واحد المقارنة.
+   المبيعات: كل يوم من آخر 7 أيام مقابل اليوم نفسه من الأسبوع في الأسابيع الثمانية السابقة (رمضان والمواسم تُفهم من سياقها).
+   المصروفات والهدر: مجموع آخر 7 أيام مقابل وسيط المجاميع الأسبوعية للأسابيع الثمانية السابقة.
+   أسعار الموردين: آخر سعر شراء مقابل وسيط المشتريات السابقة للصنف.
+   نقطة البيع: نسبة الإلغاء والخصم اليدوي لكل كاشير مقابل زملائه في آخر 14 يومًا. */
+const anMed = (a) => { const s = a.filter(x => Number.isFinite(x)).sort((x, y) => x - y); if (!s.length) return 0; const m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+const anMad = (a, m) => anMed(a.map(x => Math.abs(x - m)));
+const anR = (n) => Math.round((Number(n) || 0) * 100) / 100;
+const anDay = (iso, k) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + k); return isoD(d); };
+/** يعيد قائمة الأنماط الشاذة: {id, sev, area, branchId, date, title, msg, value, expected, pct, series} */
+function detectAnomalies(org, ops, opts = {}) {
+  const td = opts.today || today();
+  const ids = opts.branchIds ? new Set(opts.branchIds) : null;
+  const inScope = (b) => !ids || ids.has(b);
+  const brs = (org.branches || []).filter(b => b.isActive !== false && inScope(b.id));
+  const brName = (id) => ((org.branches || []).find(b => b.id === id) || {}).name || '';
+  const out = [];
+  const evalFrom = anDay(td, -6), baseFrom = anDay(td, -62);
+  const counted = (ops.closings || []).filter(c => countedClosing(c) && (c.date || '') >= baseFrom && (c.date || '') <= td && inScope(c.branchId));
+
+  // 1) المبيعات اليومية لكل فرع مقابل اليوم نفسه من الأسبوع
+  const salesBy = {}; counted.forEach(c => { const k = c.branchId + '|' + c.date; salesBy[k] = (salesBy[k] || 0) + (Number(c.totalRevenue) || 0); });
+  brs.forEach(b => {
+    for (let k = 0; k < 7; k++) {
+      const d = anDay(td, -k); const v = salesBy[b.id + '|' + d]; if (v == null) continue;
+      const base = []; for (let w = 1; w <= 8; w++) { const x = salesBy[b.id + '|' + anDay(d, -7 * w)]; if (x != null) base.push(x); }
+      if (base.length < 4) continue;
+      const m = anMed(base); if (!(m > 0)) continue;
+      const sc = Math.max(1.4826 * anMad(base, m), m * 0.08); const z = (v - m) / sc; const pct = Math.round((v - m) / m * 100);
+      if (z <= -3 && pct <= -30) out.push({ id: 'sales-drop|' + b.id + '|' + d, sev: pct <= -50 ? 'high' : 'medium', area: 'sales', branchId: b.id, date: d,
+        title: 'هبوط مبيعات غير معتاد — ' + b.name, msg: 'مبيعات ' + arDate(d) + ': ' + money(v) + ' مقابل ' + money(m) + ' المعتاد لهذا اليوم من الأسبوع (' + pct + '%) — تحقق من الإغلاق والتشغيل', value: anR(v), expected: anR(m), pct, series: [...base.slice().reverse(), v] });
+      else if (z >= 3 && pct >= 60) out.push({ id: 'sales-spike|' + b.id + '|' + d, sev: 'medium', area: 'sales', branchId: b.id, date: d,
+        title: 'ارتفاع مبيعات غير معتاد — ' + b.name, msg: 'مبيعات ' + arDate(d) + ': ' + money(v) + ' مقابل ' + money(m) + ' المعتاد (+' + pct + '%) — إن لم يكن بسبب مناسبة فراجع الإدخال (صفر زائد؟)', value: anR(v), expected: anR(m), pct, series: [...base.slice().reverse(), v] });
+    }
+  });
+
+  // أداة: مجموع أسبوعي (الأسبوع 0 = آخر 7 أيام، 1..8 = الأسابيع السابقة)
+  const weekOf = (d) => { const diff = Math.round((Date.parse(td + 'T12:00:00') - Date.parse(d + 'T12:00:00')) / 86400000); return diff < 0 ? -1 : Math.floor(diff / 7); };
+  const weekly = (rows) => { const W = {}; rows.forEach(([key, d, v]) => { const w = weekOf(d); if (w < 0 || w > 8) return; const o = W[key] = W[key] || Array(9).fill(0); o[w] += v; }); return W; };
+  const spikes = (W, minBase, minDiff, mk) => Object.entries(W).forEach(([key, arr]) => {
+    const cur = arr[0], base = arr.slice(1); const active = base.filter(x => x > 0).length; if (active < 3) return;
+    const m = anMed(base); if (!(cur > 0)) return;
+    if (m >= minBase && cur >= 2 * m && cur - m >= minDiff) mk(key, cur, m, Math.round((cur - m) / m * 100), [...base.slice().reverse(), cur]);
+  });
+  // 2) المصروفات حسب التصنيف لكل فرع
+  const expRows = []; counted.forEach(c => (c.expenses || []).forEach(e => expRows.push([c.branchId + '|' + (e.categoryName || e.categoryId || 'أخرى'), c.date, Number(e.amount) || 0])));
+  spikes(weekly(expRows), 50, 300, (key, cur, m, pct, series) => { const [b, cat] = key.split('|');
+    out.push({ id: 'exp|' + key + '|' + td, sev: pct >= 200 ? 'high' : 'medium', area: 'expense', branchId: b, date: td, title: 'ارتفاع مصروف «' + cat + '» — ' + brName(b),
+      msg: 'آخر 7 أيام: ' + money(cur) + ' مقابل ' + money(m) + ' أسبوعيًا عادةً (+' + pct + '%) — راجع الفواتير والإيصالات', value: anR(cur), expected: anR(m), pct, series }); });
+  // 3) الهدر لكل فرع
+  const wMoves = [...(ops.stockMoves || []), ...(ops.whMoves || [])].filter(m => m.kind === 'waste' && String(m.date || '') >= baseFrom);
+  if (wMoves.length) {
+    const avg = itemAvgCosts(org, ops);
+    const wr = wasteRows(org, ops, avg).filter(m => String(m.date || '') >= baseFrom && m.branchId && inScope(m.branchId)).map(m => [m.branchId, String(m.date).slice(0, 10), m.val]);
+    spikes(weekly(wr), 20, 100, (b, cur, m, pct, series) => out.push({ id: 'waste|' + b + '|' + td, sev: pct >= 200 ? 'high' : 'medium', area: 'waste', branchId: b, date: td,
+      title: 'ارتفاع الهدر — ' + brName(b), msg: 'آخر 7 أيام: ' + money(cur) + ' مقابل ' + money(m) + ' أسبوعيًا عادةً (+' + pct + '%) — راجع أسباب الهدر ومن سجّله', value: anR(cur), expected: anR(m), pct, series }));
+  }
+  // 4) أسعار الموردين: آخر شراء خلال 30 يومًا مقابل وسيط ما قبله
+  const P = supplierPrices(ops); const itN = (id) => ((org.items || []).find(x => x.id === id) || {}).name || 'صنف';
+  Object.entries(P).forEach(([id, a]) => {
+    const last = a[0]; if (!last || String(last.date || '') < anDay(td, -30)) return;
+    const prev = a.slice(1, 7).map(r => r.unitCost); if (prev.length < 3) return;
+    const m = anMed(prev); if (!(m > 0)) return; const pct = Math.round((last.unitCost - m) / m * 100);
+    const rising = a.length >= 4 && a[0].unitCost > a[1].unitCost && a[1].unitCost > a[2].unitCost && a[2].unitCost > a[3].unitCost;
+    if (pct >= 10 || (rising && pct >= 5)) out.push({ id: 'price|' + id + '|' + last.date, sev: pct >= 20 ? 'high' : 'medium', area: 'price', branchId: '', date: last.date,
+      title: (rising ? 'ارتفاع متتالٍ في سعر ' : 'سعر شراء أعلى من المعتاد — ') + itN(id), msg: (last.supplierName || '') + ': ' + money(last.unitCost) + ' للوحدة مقابل ' + money(m) + ' عادةً (+' + pct + '%)' + (rising ? ' — ثلاث زيادات متتالية' : '') + ' — فاوض المورد أو قارن بغيره',
+      value: anR(last.unitCost), expected: anR(m), pct, series: [...prev.slice().reverse(), last.unitCost] });
+  });
+  // 5) نقطة البيع: الإلغاء والخصم اليدوي لكل كاشير مقابل زملائه (آخر 14 يومًا)
+  const f14 = anDay(td, -13); const C = {};
+  (ops.posOrders || []).filter(o => String(o.date || '') >= f14 && inScope(o.branchId)).forEach(o => { const k = o.by || '—'; const c = C[k] = C[k] || { n: 0, voids: 0, voidAmt: 0, mdisc: 0, mdiscAmt: 0, sales: 0, br: o.branchId };
+    c.n++; if (o.status === 'void') { c.voids++; c.voidAmt += Number(o.total) || 0; } else c.sales += Number(o.total) || 0;
+    if (o.manualDisc) { c.mdisc++; c.mdiscAmt += Number(o.manualDisc) || 0; } });
+  const elig = Object.entries(C).filter(([, c]) => c.n >= 30);
+  if (elig.length >= 2) {
+    const vr = elig.map(([, c]) => c.voids / c.n), dr = elig.map(([, c]) => c.mdisc / c.n);
+    const mv = anMed(vr), md = anMed(dr);
+    elig.forEach(([who, c]) => { const r = c.voids / c.n, q = c.mdisc / c.n;
+      if (c.voids >= 3 && r >= Math.max(2.5 * mv, 0.03)) out.push({ id: 'void|' + who + '|' + td, sev: r >= Math.max(4 * mv, 0.06) ? 'high' : 'medium', area: 'pos', branchId: c.br, date: td,
+        title: 'إلغاء فواتير أعلى من الزملاء — ' + who, msg: c.voids + ' فاتورة ملغاة من ' + c.n + ' (' + Math.round(r * 100) + '%، الزملاء ' + Math.round(mv * 100) + '%) بقيمة ' + money(c.voidAmt) + ' في 14 يومًا — راجع أسباب الإلغاء', value: Math.round(r * 1000) / 10, expected: Math.round(mv * 1000) / 10, pct: mv > 0 ? Math.round((r - mv) / mv * 100) : 100, series: [] });
+      if (c.mdisc >= 3 && q >= Math.max(2.5 * md, 0.02)) out.push({ id: 'mdisc|' + who + '|' + td, sev: 'medium', area: 'pos', branchId: c.br, date: td,
+        title: 'خصومات يدوية أعلى من الزملاء — ' + who, msg: c.mdisc + ' خصمًا يدويًا من ' + c.n + ' فاتورة (' + Math.round(q * 100) + '%، الزملاء ' + Math.round(md * 100) + '%) بقيمة ' + money(c.mdiscAmt) + ' — راجع أسبابها', value: Math.round(q * 1000) / 10, expected: Math.round(md * 1000) / 10, pct: md > 0 ? Math.round((q - md) / md * 100) : 100, series: [] });
+    });
+  }
+  const rank = { high: 0, medium: 1 };
+  return out.sort((a, b) => rank[a.sev] - rank[b.sev] || String(b.date).localeCompare(String(a.date)) || Math.abs(b.pct) - Math.abs(a.pct));
+}
 function computeSmartAlerts(org, ops, myBranches, deficitThreshold = deficitCfg(org).max) {
   const alerts = [];
   const ids = myBranches.map(b => b.id);
@@ -4901,6 +4990,9 @@ function computeSmartAlerts(org, ops, myBranches, deficitThreshold = deficitCfg(
     const pw = (ops.wasteRequests || []).filter(r => r.status === 'pending' && (!r.branchId || ids.includes(r.branchId)));
     if (pw.length) alerts.push({ id: 'wpend-' + pw.length, sev: 'medium', icon: 'trash', title: 'هدر بانتظار الاعتماد', msg: `${pw.length} طلب بقيمة ${money(sum(pw, r => r.value))} ر.س — لا يُخصم من المخزون قبل الاعتماد.` });
   } catch { }
+
+  // 6) v38.6 — الأنماط الشاذة الحادة (هبوط مبيعات كبير، هدر/مصروف مضاعف، سعر قفز، إلغاءات كاشير)
+  try { detectAnomalies(org, ops, { branchIds: ids }).filter(x => x.sev === 'high').slice(0, 6).forEach(x => alerts.push({ id: 'anom-' + x.id, sev: 'medium', icon: 'down', title: x.title, msg: x.msg })); } catch { }
 
   const order = { high: 0, medium: 1, low: 2 };
   return alerts.sort((a, b) => order[a.sev] - order[b.sev]);
@@ -5277,7 +5369,8 @@ const HUBS = {
       { id: 'scorecard', ar: 'لوحة الأهداف', icon: CheckCircle2, comp: Scorecard },
       { id: 'scenario', ar: 'ماذا-لو', icon: Compass, comp: Scenario },
       { id: 'ai', ar: 'المركز الذكي', icon: Sparkles, comp: AiCenter },
-      { id: 'alerts', ar: 'التنبيهات', icon: Bell, comp: AlertsCenter }
+      { id: 'alerts', ar: 'التنبيهات', icon: Bell, comp: AlertsCenter },
+      { id: 'anomaly', ar: 'الأنماط الشاذة', icon: TrendingDown, comp: Anomalies, like: 'alerts' }   // v38.6
     ]
   },
   reporting: {
@@ -8956,3 +9049,5 @@ export { ClosingForm };
 export { stockCosting, eosEntitledAmt, eosFullAmt, findDupInvoices, invNoNorm, promoLineDisc, tafqeet, Hub, Launcher, PosApp, Inventory, Partners, SalesHub, QrFeedback, AppsCenter, BranchWarehouse, Admin, AuditView, Accounting, emptyOrg, emptyOps, HUBS };
 // v38.5 — لصيانة النظام (mods/admin/SystemMaintenance.jsx)
 export { APP_VER, ERRLOG_KEY };
+// v38.6 — كشف الأنماط الشاذة (الشاشة والاختبارات)
+export { detectAnomalies };

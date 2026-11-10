@@ -1427,4 +1427,18 @@ html,body{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .mt-msg{font-family:ui-monospace,monospace;font-size:12px;word-break:break-word;text-align:start}
 .mt-err small{font-size:11.5px;color:var(--dim)}
 .mt-err pre{font-size:10.5px;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow:auto;background:rgba(127,127,127,.08);padding:6px;border-radius:6px;text-align:left}
+
+/* v38.6 — الأنماط الشاذة */
+.an-list{display:flex;flex-direction:column;gap:8px}
+.an-item{display:flex;gap:10px;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:12px;flex-wrap:wrap}
+.an-item.high{border-color:rgba(217,84,77,.5)}
+.an-ic{flex:none;width:30px;height:30px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;background:rgba(127,127,127,.1)}
+.an-body{flex:1;min-width:200px;display:flex;flex-direction:column;gap:4px}
+.an-h{display:flex;gap:8px;align-items:center;justify-content:space-between}
+.an-h b{font-size:13.5px}
+.an-msg{font-size:12.5px;color:var(--dim);line-height:1.7}
+.an-meta{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.an-pct{font-weight:700;font-size:12.5px}
+.an-spark{display:block}
+.an-sp{margin-inline-start:auto;color:var(--dim)}
 `;

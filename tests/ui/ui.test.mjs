@@ -192,3 +192,13 @@ test('صيانة النظام: حالة الخدمات وفحوص السلامة
   assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true, 'بلا تجاوز عرض على الجوال');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('الأنماط الشاذة: الشاشة تظهر في مركز التحليل وتعرض النتائج أو «لا أنماط» بلا أعطال', async () => {
+  const ctx = await browser.newContext(devices['iPhone 13']); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'hub/analytics/anomaly'); await p.waitForTimeout(400); await settle(p);
+  const txt = await p.locator('#r').innerText();
+  assert.ok(txt.includes('ما خرج عن النمط المعتاد'), 'عنوان الشاشة'); assert.ok(txt.includes('كيف يُحسب؟'));
+  assert.ok(txt.includes('لا أنماط شاذة') || (await p.locator('.an-item').count()) > 0);
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true);
+  assert.deepEqual(errs, []); await ctx.close();
+});

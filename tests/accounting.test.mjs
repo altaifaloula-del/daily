@@ -342,3 +342,39 @@ test('سجل الأخطاء: التجميع حسب النوع مع العدد و
   assert.equal(G.length, 2); assert.equal(G[0].sig, 's1'); assert.equal(G[0].n, 2); assert.equal(G[0].last, '2026-11-03T10:00');
   assert.deepEqual(G[0].users.sort(), ['a@x', 'b@x']); assert.deepEqual(G[0].ids, ['a', 'b']);
 });
+
+// ===== v38.6 — كشف الأنماط الشاذة =====
+const TD = '2026-11-10';
+const dAgo = (k) => { const d = new Date(TD + 'T12:00:00'); d.setDate(d.getDate() - k); return d.toISOString().slice(0, 10); };
+// تسعة أسابيع من الإغلاقات اليومية بمبيعات ثابتة حسب اليوم مع تذبذب طبيعي ±5%
+const closingsFor = (b, f) => Array.from({ length: 63 }, (_, k) => ({ id: b + k, branchId: b, date: dAgo(k), status: 'approved', totalRevenue: f(k), expenses: [] }));
+const normal = (k) => 5000 + (k % 7) * 300 + ((k * 37) % 11 - 5) * 50;
+const anOrg = () => baseOrg({ branches: [{ id: 'b1', name: 'العليا', isActive: true }, { id: 'b2', name: 'النسيم', isActive: true }] });
+
+test('الأنماط الشاذة: نشاط طبيعي متذبذب ← لا تنبيهات', () => {
+  const A = E.detectAnomalies(anOrg(), { closings: [...closingsFor('b1', normal), ...closingsFor('b2', normal)] }, { today: TD });
+  assert.deepEqual(A.map(a => a.id), []);
+});
+test('الأنماط الشاذة: هبوط مبيعات 60% أمس ← حاد، وارتفاع ×3 (صفر زائد) ← تنبيه', () => {
+  const cl = [...closingsFor('b1', (k) => k === 1 ? normal(k) * 0.4 : normal(k)), ...closingsFor('b2', (k) => k === 2 ? normal(k) * 3 : normal(k))];
+  const A = E.detectAnomalies(anOrg(), { closings: cl }, { today: TD });
+  const drop = A.find(a => a.id.startsWith('sales-drop|b1|')), spike = A.find(a => a.id.startsWith('sales-spike|b2|'));
+  assert.ok(drop && drop.sev === 'high' && drop.date === dAgo(1) && drop.pct <= -55, JSON.stringify(drop));
+  assert.ok(spike && spike.pct >= 190, JSON.stringify(spike));
+  assert.equal(A.length, 2);
+});
+test('الأنماط الشاذة: تاريخ قصير (أقل من 4 أسابيع) ← لا حكم', () => {
+  const cl = closingsFor('b1', normal).filter(c => c.date >= dAgo(20)).map(c => c.date === dAgo(1) ? { ...c, totalRevenue: 100 } : c);
+  assert.deepEqual(E.detectAnomalies(anOrg(), { closings: cl }, { today: TD }), []);
+});
+test('الأنماط الشاذة: مصروف تضاعف هذا الأسبوع، ومورد رفع سعره، وكاشير يلغي أكثر من زملائه', () => {
+  const cl = closingsFor('b1', normal).map((c, k) => ({ ...c, expenses: k % 7 === 0 ? [{ categoryName: 'صيانة', amount: k < 7 ? 1500 : 400 }] : [] }));
+  const po = (id, d, price) => ({ id, supplierName: 'مؤسسة اللحوم', date: d, lines: [{ itemId: 'i1', qty: 10, price, received: 10 }] });
+  const purchaseOrders = [po('p1', dAgo(120), 40), po('p2', dAgo(90), 41), po('p3', dAgo(60), 40), po('p4', dAgo(30), 40.5), po('p5', dAgo(3), 48)];
+  const orders = []; ['سعد', 'خالد', 'ريم'].forEach(who => { for (let i = 0; i < 40; i++) orders.push({ id: who + i, by: who, branchId: 'b1', date: dAgo(i % 10), total: 50, status: (who === 'سعد' ? i < 6 : i < 1) ? 'void' : 'paid' }); });
+  const org = { ...anOrg(), items: [{ id: 'i1', name: 'لحم', unit: 'كجم' }] };
+  const A = E.detectAnomalies(org, { closings: cl, purchaseOrders, posOrders: orders }, { today: TD });
+  const exp = A.find(a => a.area === 'expense'); assert.ok(exp && exp.title.includes('صيانة') && exp.value === 1500 && exp.expected === 400, JSON.stringify(exp));
+  const pr = A.find(a => a.area === 'price'); assert.ok(pr && pr.pct >= 19 && pr.title.includes('لحم'), JSON.stringify(pr));
+  const vd = A.filter(a => a.area === 'pos'); assert.equal(vd.length, 1); assert.ok(vd[0].title.includes('سعد'));
+});
