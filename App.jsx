@@ -58,6 +58,7 @@ const GrowthAnalytics = lazyComp(() => import('./mods/acct/GrowthAnalytics.jsx')
 const EntitiesCenter = lazyComp(() => import('./mods/acct/EntitiesCenter.jsx'), 'EntitiesCenter');
 const ReportBuilder = lazyComp(() => import('./mods/acct/ReportBuilder.jsx'), 'ReportBuilder');
 const ExecDashboard = lazyComp(() => import('./mods/acct/ExecDashboard.jsx'), 'ExecDashboard');
+const ProfitBoard = lazyComp(() => import('./mods/acct/ProfitBoard.jsx'), 'ProfitBoard');   // v40.1
 const StaffingPlan = lazyComp(() => import('./mods/hr/StaffingPlan.jsx'), 'StaffingPlan');   // v39.2
 const SupplierPurchReport = lazyComp(() => import('./mods/acct/TaxPurchReports.jsx'), 'SupplierPurchReport');   // v39.1
 const SalesForecast = lazyComp(() => import('./mods/acct/SalesForecast.jsx'), 'SalesForecast');   // v38.8
@@ -2793,7 +2794,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v40.0';
+const APP_VER = 'v40.1';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3818,7 +3819,7 @@ function PlatformApp() {
   const shared = { org, ops, pulse: pulseA, me, myBranches, scoped, commit, commitOrg, say, setTab, theme, acctIntent, openAcctView, invIntent, openInvView };
 
   // حماية: منع الوصول لتبويب غير مسموح لدور المستخدم (بلا hook — بعد returns الشرطية)
-  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'closing') ? ['myactions', 'myforecast'] : []), ...(NAV.some(n => n.id === 'closing') && (ROLES[me.role]?.approver || ROLES[me.role]?.admin || ROLES[me.role]?.scope === 'all') ? ['cashiers'] : []), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'anomaly', 'actions', 'forecast'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : []), ...(NAV.some(n => n.id === 'people') ? ['payroll', 'workforce', 'muster', 'overtime'] : []), ...(NAV.some(n => n.id === 'purchasing') ? ['suppliers', 'reorder', 'suprep'] : []), ...(NAV.some(n => n.id === 'hrops') ? ['attendance', 'leaves', 'shiftengine', 'staffplan', 'tasks', 'points', 'esign'] : []), ...(NAV.some(n => n.id === 'hrperf') ? ['kpi', 'empfile', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'] : [])];
+  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'closing') ? ['myactions', 'myforecast'] : []), ...(NAV.some(n => n.id === 'closing') && (ROLES[me.role]?.approver || ROLES[me.role]?.admin || ROLES[me.role]?.scope === 'all') ? ['cashiers'] : []), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'anomaly', 'actions', 'forecast', 'profit'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : []), ...(NAV.some(n => n.id === 'people') ? ['payroll', 'workforce', 'muster', 'overtime'] : []), ...(NAV.some(n => n.id === 'purchasing') ? ['suppliers', 'reorder', 'suprep'] : []), ...(NAV.some(n => n.id === 'hrops') ? ['attendance', 'leaves', 'shiftengine', 'staffplan', 'tasks', 'points', 'esign'] : []), ...(NAV.some(n => n.id === 'hrperf') ? ['kpi', 'empfile', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'] : [])];
   const safeTab = allowedTabs.includes(tab) ? tab : (allowedTabs[0] || 'closing');
 
   return (
@@ -4067,7 +4068,7 @@ function PlatformApp() {
           <div className="page">
             <div className="page-inner"><ErrorBoundary key={safeTab} where={(NAV.find(n => n.id === safeTab) || {}).ar || 'هذا القسم'}>
               {safeTab === 'home' && <Launcher {...shared} online={online} />}
-              {['analytics', 'exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'alerts', 'anomaly', 'actions', 'forecast'].includes(safeTab) && <Hub hubId="analytics" {...shared} online={online} view={safeTab} />}
+              {['analytics', 'exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'alerts', 'anomaly', 'actions', 'forecast', 'profit'].includes(safeTab) && <Hub hubId="analytics" {...shared} online={online} view={safeTab} />}
               {['reporting', 'reports', 'rbuild', 'boardpack', 'cashflow'].includes(safeTab) && <Hub hubId="reporting" {...shared} view={safeTab} />}
               {safeTab === 'sales' && <SalesHub {...shared} />}
               {safeTab === 'pos' && <PosApp {...shared} />}
@@ -5936,7 +5937,8 @@ const HUBS = {
       { id: 'alerts', ar: 'التنبيهات', icon: Bell, comp: AlertsCenter },
       { id: 'anomaly', ar: 'الأنماط الشاذة', icon: TrendingDown, comp: Anomalies, like: 'alerts' },   // v38.6
       { id: 'actions', ar: 'الإجراءات والتوصيات', icon: CheckCircle2, comp: ActionsBoard, like: 'alerts' },   // v38.7
-      { id: 'forecast', ar: 'توقع المبيعات', icon: TrendingUp, comp: SalesForecast, like: 'alerts' }   // v38.8
+      { id: 'forecast', ar: 'توقع المبيعات', icon: TrendingUp, comp: SalesForecast, like: 'alerts' },   // v38.8
+      { id: 'profit', ar: 'ربحية الفروع اليومية', icon: TrendingUp, comp: ProfitBoard, like: 'dash' },   // v40.1
     ]
   },
   reporting: {
@@ -8058,6 +8060,114 @@ function purchasePlan(org, ops, opts = {}) {
   });
   return { today: td, cover, lead, days: N, pools: out };
 }
+/* ============================================================
+   v40.1 — المرحلة 1: ربحية الفرع اليومية والتكلفة الأساسية (Prime Cost)
+   كل طريقة حساب خيار يحدده المالك في «إعدادات الربحية» — لا قيمة افتراضية، والميزة موقوفة حتى تكتمل.
+   المكوّن الذي تنقصه بياناته يُعرض «غير متاح» بسببه، ولا يُحسب الهامش بدونه (لا صفر ولا تقدير).
+   الإيراد بعد استبعاد ضريبة القيمة المضافة (IFRS 15).
+   ============================================================ */
+const PROFIT_OPTS = {
+  foodBasis: { purchases: 'مشتريات المواد (تصنيفات المصروف والموردون المختارون)', actual: 'الاستهلاك الفعلي (صرف المطبخ + الهدر + فروق الجرد)', theoretical: 'النظري (الكميات المباعة × تكلفة الوصفة)', both: 'الفعلي في الهامش، والنظري للمقارنة' },
+  laborBasis: { attendance: 'ساعات الحضور الموثّق × تكلفة الساعة', payroll: 'تكلفة الرواتب الشهرية موزّعة على الأيام' },
+  alloc: { calendar: 'بالتساوي على أيام الشهر', operating: 'على أيام تشغيل الفرع في الشهر', sales: 'بنسبة مبيعات اليوم من مبيعات الشهر' },
+  cardFee: { none: 'لا تُحسب', flat: 'نسبة موحّدة من مبيعات الشبكة' }
+};
+function profitMissing(cfg) {
+  cfg = cfg || {}; const m = [];
+  if (!PROFIT_OPTS.foodBasis[cfg.foodBasis]) m.push('أساس تكلفة الطعام');
+  if (cfg.foodBasis === 'purchases' && !(cfg.foodCats || []).length && !(cfg.foodSuppliers || []).length) m.push('تصنيفات أو موردو المواد');
+  if (!PROFIT_OPTS.laborBasis[cfg.laborBasis]) m.push('أساس تكلفة العمالة');
+  if (!PROFIT_OPTS.alloc[cfg.alloc]) m.push('توزيع التكاليف الشهرية على الأيام');
+  if (!PROFIT_OPTS.cardFee[cfg.cardFee]) m.push('رسوم الشبكة');
+  if (cfg.cardFee === 'flat' && !(Number(cfg.cardRate) > 0)) m.push('نسبة رسوم الشبكة');
+  return m;
+}
+/** ربحية كل فرع لكل يوم في الفترة: { branches:[{id,name,days:[…],tot}], missing } */
+function profitDays(org, ops, opts = {}) {
+  const cfg = opts.cfg || org.profitCfg || {};
+  const missing = profitMissing(cfg);
+  const from = opts.from, to = opts.to;
+  const tax = org.taxCfg || {}, vr = tax.enabled ? (Number(tax.rate) || 15) / 100 : 0;
+  const netOf = (g, taxable) => (vr && taxable) ? g / (1 + vr) : g;
+  const r2 = anR;
+  const brs = (org.branches || []).filter(b => b.isActive !== false && (!opts.branchIds || opts.branchIds.includes(b.id)));
+  const SD = salesDays(ops, { branchIds: brs.map(b => b.id) });
+  const apps = org.deliveryApps || [];
+  const cats = org.expenseCats && org.expenseCats.length ? org.expenseCats : EXP_CATS;
+  const catTax = Object.fromEntries(cats.map(c => [c.id, !!c.taxable]));
+  const gosiOn = !!(org.gosiCfg || {}).enabled, stdH = Number((org.laborCfg || {}).stdMonthlyHours) || 208;
+  const dates = []; for (let d = from; d <= to; d = anDay(d, 1)) dates.push(d);
+  const dim = (d) => Number(cfMEnd(d).slice(8, 10));
+  const out = brs.map(b => {
+    const notes = [];
+    const emps = (org.employees || []).filter(e => e.isActive !== false && e.status !== 'terminated' && e.branchId === b.id);
+    const empCost = (e) => { const g = (e.baseSalary || 0) + (e.housingAllowance || 0) + (e.transportAllowance || 0) + (e.otherAllowance || 0); const gr = gosiRatesFor(e, org.gosiCfg); return g + (gosiOn && e.gosiSubject ? gr.base * gr.er / 100 : 0); };
+    const payM = sum(emps, empCost);
+    // التكاليف الثابتة الشهرية: المُدخلة في الإعداد + عقود إيجار الفرع (ما يعادل الشهر) السارية في اليوم
+    const fixedItems = (cfg.fixed || []).filter(x => x.branchId === b.id && Number(x.amount) > 0);
+    const leases = (org.documents || []).filter(dc => dc.type === 'lease' && dc.branchId === b.id && Number(dc.rent) > 0 && LEASE_EVERY[dc.payEvery]);
+    const fixedM = (d) => sum(fixedItems, x => Number(x.amount)) + sum(leases.filter(dc => (!dc.firstPay || dc.firstPay <= d) && (!dc.expiryDate || dc.expiryDate >= d)), dc => Number(dc.rent) / LEASE_EVERY[dc.payEvery][1]);
+    const sOf = (d) => SD.filter(c => c.branchId === b.id && c.date === d);
+    const netDay = (d) => sum(sOf(d), c => netOf(Number(c.totalRevenue) || 0, true));
+    const monthDays = (d) => { const m = d.slice(0, 7), last = d <= (opts.today || today()) ? d : cfMEnd(d); const ds = []; for (let x = m + '-01'; x <= last; x = anDay(x, 1)) ds.push(x); return ds; };
+    // توزيع مبلغ شهري على اليوم حسب الطريقة المختارة (للشهر الجاري: حتى اليوم)
+    const alloc = (d, amt) => { if (!(amt > 0)) return 0;
+      if (cfg.alloc === 'calendar') return amt / dim(d);
+      const md = monthDays(d);
+      if (cfg.alloc === 'operating') { const op = md.filter(x => sOf(x).length).length; return sOf(d).length && op ? amt / op : 0; }
+      if (cfg.alloc === 'sales') { const tot = sum(md, netDay); return tot > 0 ? amt * netDay(d) / tot : 0; }
+      return 0; };
+    const wh = whForBranch(org, b.id);
+    const att = (ops.attendanceEvents || []).filter(x => emps.some(e => e.id === x.employeeId));
+    const hrsOf = (eid, d) => { const l = att.filter(x => x.employeeId === eid && (x.at || '').slice(0, 10) === d).sort((a, c) => (a.at < c.at ? -1 : 1)); const fi = l.find(x => x.type === 'in'), lo = l.filter(x => x.type === 'out').pop(); return fi && lo && lo.at > fi.at ? (new Date(lo.at) - new Date(fi.at)) / 36e5 : 0; };
+    const days = dates.map(d => {
+      const S = sOf(d); const na = {};
+      const gross = sum(S, c => Number(c.totalRevenue) || 0), net = r2(netOf(gross, true));
+      const closed = S.some(c => !c.fromImport);
+      const comm = r2(sum(S, c => sum(c.deliverySales || [], s => s.commissionAmount != null ? Number(s.commissionAmount) || 0 : (Number(s.amount) || 0) * (s.commissionPercentage != null ? Number(s.commissionPercentage) : Number((apps.find(a => a.id === s.appId) || {}).c) || 0) / 100)));
+      const card = cfg.cardFee === 'flat' ? r2(sum(S, c => Number(c.cardSales) || 0) * Number(cfg.cardRate) / 100) : 0;
+      // تكلفة الطعام
+      let food = null, theo = null;
+      const U = (cfg.foodBasis === 'actual' || cfg.foodBasis === 'theoretical' || cfg.foodBasis === 'both') ? (wh ? usageReport(org, ops, wh.id, d, d) : null) : null;
+      if (cfg.foodBasis === 'purchases') {
+        if (!closed && gross > 0) na.food = 'يوم بلا إغلاق مرحّل — مصروفاته غير مسجلة';
+        else { const ex = sum(S.filter(c => !c.fromImport), c => sum((c.expenses || []).filter(e => (cfg.foodCats || []).includes(e.categoryId)), e => netOf(Number(e.amount) || 0, e.isTaxable && catTax[e.categoryId] !== false)));
+          const inv = sum((ops.invoices || []).filter(i => (Number(i.amount) || 0) > 0 && i.branchId === b.id && String(i.date || '').slice(0, 10) === d && (cfg.foodSuppliers || []).includes(i.supplierId)), i => typeof i.vatAmt === 'number' ? i.amount - i.vatAmt : netOf(i.amount, i.taxable === true));
+          food = r2(ex + inv); }
+      }
+      if (cfg.foodBasis === 'actual' || cfg.foodBasis === 'both') { if (!wh) na.food = 'لا مستودع للفرع — الاستهلاك الفعلي غير مسجل'; else food = r2(U.actV); }
+      if (cfg.foodBasis === 'theoretical' || cfg.foodBasis === 'both') {
+        const has = U && (U.posN > 0 || (U.recs || []).length > 0);
+        if (!has) { if (cfg.foodBasis === 'theoretical') na.food = 'لا كميات مبيعات بالأصناف لهذا اليوم (نقطة البيع أو استيراد مبيعات الأصناف)'; }
+        else theo = r2(U.theoV);
+        if (cfg.foodBasis === 'theoretical' && has) food = theo;
+      }
+      // العمالة
+      let labor = null;
+      if (cfg.laborBasis === 'attendance') { if (!att.length) na.labor = 'لا حضور موثّق لموظفي الفرع'; else labor = r2(sum(emps, e => hrsOf(e.id, d) * empCost(e) / stdH)); }
+      if (cfg.laborBasis === 'payroll') { if (!emps.length) na.labor = 'لا موظفين مسجلين للفرع'; else labor = r2(alloc(d, payM)); }
+      const fixed = r2(alloc(d, fixedM(d)));
+      if (missing.length) { na.cfg = 'أكمل إعدادات الربحية'; }
+      const ok = !Object.keys(na).length && gross > 0;
+      const margin = ok ? r2(net - food - labor - comm - card - fixed) : null;
+      return { date: d, gross: r2(gross), net, src: !S.length ? 'none' : closed ? 'closing' : 'import', comm, card, food, theo, labor, fixed, margin,
+        foodPct: net > 0 && food != null ? r2(food / net * 100) : null, laborPct: net > 0 && labor != null ? r2(labor / net * 100) : null,
+        primePct: net > 0 && food != null && labor != null ? r2((food + labor) / net * 100) : null, marginPct: margin != null && net > 0 ? r2(margin / net * 100) : null, na };
+    });
+    if (!leases.length && !fixedItems.length) notes.push('لا تكاليف ثابتة لهذا الفرع (لا عقد إيجار بقيمة في مركز المستندات ولا بنود ثابتة في الإعداد)');
+    const sd = days.filter(x => x.gross > 0);
+    const S = (k) => r2(sum(sd, x => x[k] || 0));
+    const allOk = sd.length && sd.every(x => x.margin != null);
+    const tot = { days: sd.length, gross: S('gross'), net: S('net'), comm: S('comm'), card: S('card'), fixed: S('fixed'),
+      food: sd.every(x => x.food != null) ? S('food') : null, theo: sd.length && sd.every(x => x.theo != null) ? S('theo') : null, labor: sd.every(x => x.labor != null) ? S('labor') : null,
+      margin: allOk ? S('margin') : null, naDays: sd.filter(x => x.margin == null).length };
+    tot.foodPct = tot.net > 0 && tot.food != null ? r2(tot.food / tot.net * 100) : null; tot.laborPct = tot.net > 0 && tot.labor != null ? r2(tot.labor / tot.net * 100) : null;
+    tot.primePct = tot.foodPct != null && tot.laborPct != null ? r2(tot.foodPct + tot.laborPct) : null; tot.marginPct = tot.margin != null && tot.net > 0 ? r2(tot.margin / tot.net * 100) : null;
+    tot.usageGapPct = tot.food != null && tot.theo > 0 && cfg.foodBasis === 'both' ? r2((tot.food - tot.theo) / tot.theo * 100) : null;
+    return { id: b.id, name: b.name, days, tot, notes, payM: r2(payM), fixedM: r2(fixedM(to)) };
+  });
+  return { from, to, missing, enabled: !!cfg.enabled && !missing.length, branches: out, vat: vr > 0 };
+}
 /* UsageVariance: نُقل إلى mods/inv/UsageVariance.jsx (تحميل كسول) */
 
 /* Inventory: نُقل إلى mods/inv/Inventory.jsx (تحميل كسول) */
@@ -9974,4 +10084,5 @@ export { staffingPlan };
 // v39.4 — استيراد مبيعات نقاط البيع ومطابقتها
 export { piHour, piCutoff, posRecon, salesDays, importDraftClosing };
 // v40.0 — أساس الرقابة
+export { PROFIT_OPTS, profitMissing, profitDays };
 export { UpdateGate, APP_CV, auditWrite, logAudit, auditFetch, sigDigest, signoff, signDecision, sigFailMsg, loadSignoffs, loadRelease, raiseRelease, sigVerify, SIG_BADGE, SIG_NAME };

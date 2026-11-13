@@ -366,3 +366,24 @@ test('رفع مبيعات نقاط البيع: ربط الفرع رغم «فرغ
   assert.match(await p.locator('#r').innerText(), /2 يوم من استيراد نقاط البيع/);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('ربحية الفروع اليومية: موقوفة حتى يُكمل المالك كل الخيارات، ثم تعمل؛ والفرع لا يراها', async () => {
+  const ctx = await browser.newContext(devices['iPhone 13']); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'live/Hub/admin/analytics:profit'); await p.reload(); await p.waitForTimeout(600); await settle(p);
+  assert.match(await p.locator('#r').innerText(), /اللوحة موقوفة — أكمل/);
+  assert.equal(await p.locator('input[type="checkbox"]:near(:text("تفعيل لوحة الربحية"))').first().isDisabled(), true, 'لا تفعيل قبل الاكتمال');
+  const sels = p.locator('.card select.sel');
+  await sels.nth(0).selectOption('purchases'); await sels.nth(1).selectOption('payroll'); await sels.nth(2).selectOption('calendar'); await sels.nth(3).selectOption('none');
+  await p.locator('.pf-chip:has-text("مشتريات مواد خام") input').check();
+  await p.locator('label:has-text("تفعيل لوحة الربحية") input').check();
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true, 'الإعداد على الجوال');
+  await p.click('.card button:has-text("حفظ")'); await p.waitForTimeout(300);
+  const c = await p.evaluate(() => window.curOrg.profitCfg);
+  assert.deepEqual([c.enabled, c.foodBasis, c.laborBasis, c.alloc, c.cardFee, c.foodCats], [true, 'purchases', 'payroll', 'calendar', 'none', ['ec1']]);
+  await p.click('button:has-text("هذا الشهر")'); await p.waitForTimeout(300);
+  assert.ok(await p.locator('.pf-br').count() >= 1, 'بطاقات الفروع');
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true, 'اللوحة على الجوال');
+  await p.evaluate(() => { window.as('bm'); }); await p.waitForTimeout(300);
+  assert.match(await p.locator('#r').innerText(), /للإدارة المركزية فقط|لا توجد أقسام متاحة لصلاحيتك/, 'الفرع لا يصل للربحية');
+  assert.deepEqual(errs, []); await ctx.close();
+});

@@ -706,3 +706,28 @@ test('الدستور ث19: التحقق من الاعتماد — موقّع و�
   const C = Object.fromEntries(E.integrityChecks(baseOrg(), { closings: [{ ...c, cashSales: 1 }] }, { sigs: [sig], cutover: '2026-11-13' }).map(x => [x.id, x]));
   assert.equal(C.signoffs.st, 'bad'); assert.match(C.signoffs.items[0], /عُدّل بعد اعتماده/);
 });
+
+// ===== v40.1 — المرحلة 1: ربحية الفرع اليومية =====
+test('الربحية اليومية: لا تعمل قبل اكتمال الإعداد، ثم تحسب كل مكوّن بالطريقة المختارة (يدويًا: هامش 1148.5)', () => {
+  const org = baseOrg({ taxCfg: { enabled: true, rate: 15 },
+    employees: [{ id: 'e1', name: 'سعد', branchId: 'b1', baseSalary: 6240 }],
+    documents: [{ id: 'L', type: 'lease', branchId: 'b1', rent: 9000, payEvery: 'quarterly', firstPay: '2026-01-01', expiryDate: '2027-12-31' }] });
+  const ops = { closings: [{ id: 'c1', branchId: 'b1', date: '2026-11-05', status: 'approved', cashSales: 1150, cardSales: 1150, totalRevenue: 2300,
+      expenses: [{ id: 'x1', amount: 460, categoryId: 'ec1', isTaxable: true, paymentMethod: 'cash' }, { id: 'x2', amount: 300, categoryId: 'ec5', isTaxable: true, paymentMethod: 'cash' }] }],
+    attendanceEvents: [{ id: 'a1', employeeId: 'e1', type: 'in', at: '2026-11-05T08:00:00' }, { id: 'a2', employeeId: 'e1', type: 'out', at: '2026-11-05T16:00:00' }] };
+  const P0 = E.profitDays(org, ops, { from: '2026-11-05', to: '2026-11-05', cfg: {} });
+  assert.deepEqual(P0.missing, ['أساس تكلفة الطعام', 'أساس تكلفة العمالة', 'توزيع التكاليف الشهرية على الأيام', 'رسوم الشبكة'], 'لا افتراض');
+  assert.equal(P0.branches[0].days[0].margin, null);
+  const cfg = { enabled: true, foodBasis: 'purchases', foodCats: ['ec1'], laborBasis: 'attendance', alloc: 'calendar', cardFee: 'flat', cardRate: 1, fixed: [{ id: 'f', branchId: 'b1', label: 'كهرباء', amount: 3000 }] };
+  const d = E.profitDays(org, ops, { from: '2026-11-05', to: '2026-11-05', cfg }).branches[0].days[0];
+  assert.equal(d.net, 2000, 'صافي بعد الضريبة'); assert.equal(d.food, 400, 'مشتريات المواد بعد الضريبة فقط من التصنيف المختار');
+  assert.equal(d.labor, 240, '8 ساعات × (6240 ÷ 208)'); assert.equal(d.card, 11.5); assert.equal(d.fixed, 200, '(3000 + إيجار 9000/3) ÷ 30 يومًا');
+  assert.equal(d.margin, 1148.5); assert.equal(d.foodPct, 20); assert.equal(d.laborPct, 12); assert.equal(d.primePct, 32);
+  // يوم مستورد بلا إغلاق: مشتريات المواد غير معروفة ← غير متاح لا صفر
+  const imp = { ...ops, closings: [], posImports: [{ id: 'p', branchId: 'b1', date: '2026-11-05', total: 2300, cash: 1150, card: 1150 }] };
+  const di = E.profitDays(org, imp, { from: '2026-11-05', to: '2026-11-05', cfg }).branches[0].days[0];
+  assert.equal(di.margin, null); assert.match(di.na.food, /بلا إغلاق/);
+  // الرواتب الشهرية موزعة على أيام التشغيل
+  const dp = E.profitDays(org, ops, { from: '2026-11-05', to: '2026-11-05', today: '2026-11-05', cfg: { ...cfg, laborBasis: 'payroll', alloc: 'operating' } }).branches[0].days[0];
+  assert.equal(dp.labor, 6240, 'يوم التشغيل الوحيد في الشهر حتى اليوم يحمل الشهر كاملًا — معلن في الشاشة');
+});
