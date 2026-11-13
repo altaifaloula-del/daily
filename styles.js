@@ -1585,4 +1585,17 @@ html,body{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .upd-card b{font-size:17px}.upd-card p{font-size:13px;line-height:1.8;color:var(--dim);margin:0}.upd-card small{font-size:11px;color:var(--faint)}
 .upd-ic{font-size:34px;color:var(--brass)}
 .sig-b{font-size:10px;margin-inline-start:6px;vertical-align:middle}
+
+/* v40.1 — ربحية الفروع اليومية */
+.pf-chips{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 8px}
+.pf-chip{display:flex;gap:5px;align-items:center;padding:5px 10px;border:1px solid var(--line);border-radius:999px;font-size:12px;cursor:pointer}.pf-chip.on{border-color:var(--brass);background:var(--acc-soft)}
+.pf-fixed{display:flex;flex-direction:column;gap:6px}
+.pf-frow{display:grid;grid-template-columns:150px 1fr 110px auto;gap:6px;align-items:center}.pf-frow .btn{flex:0 0 auto}
+@media (max-width:720px){.pf-frow{grid-template-columns:1fr 1fr;padding:8px;border:1px solid var(--line);border-radius:10px}.pf-frow input:nth-of-type(1){grid-column:1/-1}}
+.pf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px;margin-bottom:8px}
+.pf-c{display:flex;flex-direction:column;gap:2px;padding:9px 10px;border:1px solid var(--line);border-radius:12px}.pf-c small{font-size:10.5px;color:var(--dim)}.pf-c b{font-size:15px}.pf-c span{font-size:10.5px;color:var(--dim)}
+.pf-c.over{border-color:rgba(217,84,77,.55);background:rgba(217,84,77,.05)}.pf-c.over span{color:var(--rose)}.pf-c.under span{color:var(--mint)}
+.pf-days{display:flex;flex-direction:column}
+.pf-day{display:flex;justify-content:space-between;gap:10px;padding:7px 2px;border-top:1px dashed var(--line)}.pf-day.na{opacity:.85}.pf-day.neg .pf-b b{color:var(--rose)}
+.pf-a,.pf-b{display:flex;flex-direction:column;gap:1px;font-size:12px}.pf-a{min-width:0}.pf-b{align-items:flex-end;flex:0 0 auto}.pf-a small,.pf-b small{font-size:10.5px;color:var(--dim)}
 `;
