@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { authApi, cloud, bfKey } from '../../storage';
 import { Check, ChevronDown, ClipboardCheck, FileText, Send, Banknote, CreditCard, Truck, Plus, Trash2, Receipt, Coins, Minus, Stamp, Landmark, ArrowLeftRight, Wallet, Lock, X, ScanFace, Users, CheckCircle2 } from 'lucide-react';
-import { APPS, CameraModal, DENOMS, EXP_CATS, Field, LOCK_MSG, Modal, MoneyField, Num, OutputDialog, PT_TYPE, PhotoField, ROLES, SignaturePad, arDate, buildPartners, businessDay, countDenoms, countedClosing, deficitCfg, deficitPatterns, emptyDenoms, isoD, money, nextPartnerCode, normalizeSupPays, nowISO, payCashPart, paySplits, payTotal, periodLocked, posR2, salesDaySource, sum, uid } from '../../App.jsx';
+import { APPS, CameraModal, DENOMS, EXP_CATS, Field, LOCK_MSG, Modal, MoneyField, Num, OutputDialog, PT_TYPE, PhotoField, ROLES, SignaturePad, arDate, buildPartners, businessDay, countDenoms, countedClosing, deficitCfg, deficitPatterns, emptyDenoms, isoD, money, nextPartnerCode, normalizeSupPays, nowISO, payCashPart, paySplits, payTotal, periodLocked, posR2, salesDaySource, sum, uid, signoff, sigFailMsg } from '../../App.jsx';
 
 export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say, onClose, onStartNew, existing = [], invoices = [], branchPartners = [], posOrders = [], posImports = [] }) {
   const [f, setF] = useState(() => initial ? { ...initial, supplierPayments: normalizeSupPays(initial.supplierPayments) } : {
@@ -204,7 +204,11 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
   // إتمام الحفظ فعلياً + قيد التدقيق (out = بيانات الإخراج عند الإتمام)
   const finalize = async (status, recIn, id, ref, out) => {
     if (periodLocked(org, f.date)) return say(LOCK_MSG(f.date), 'no');
-    const rec = { ...recIn, completion: out ? { ...out, at: nowISO(), by: me.name } : (recIn.completion || null) };
+    let rec = { ...recIn, completion: out ? { ...out, at: nowISO(), by: me.name } : (recIn.completion || null) };
+    // v40.0: الترحيل يُوقَّع (هوية الحساب + بصمة الأرقام) — المدقق لاحقًا لا يكون المقدّم نفسه، والقواعد تفرض ذلك
+    if (status === 'submitted') { const sg = await signoff('closing', 'submit', rec);
+      if (!sg.ok) return say(sigFailMsg(sg, 'ترحيل الإغلاق'), 'no');
+      if (sg.id) rec = { ...rec, sigSubmit: sg.id }; }
     // v15.18: نتحقق من نجاح الحفظ فعلياً — فشل الحفظ سابقاً كان يُتجاهَل فيظهر «تم الحفظ»
     // ويُغلق النموذج بينما لم يُكتب شيء للسحابة (فتختفي المسودة). الآن: عند الفشل تبقى
     // النافذة مفتوحة ببياناتها كاملة ليعيد المستخدم المحاولة (رسالة الخطأ يعرضها commit).

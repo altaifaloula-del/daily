@@ -2793,7 +2793,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v39.5';
+const APP_VER = 'v40.0';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -2859,6 +2859,17 @@ export default function App() {
   return rateId ? <QrRatePublic branchId={rateId} /> : <PlatformApp />;
 }
 
+/* v40.0 — التحديث الإجباري: جهاز بإصدار أقدم من الحد الأدنى لا يكتب (القواعد ترفض) — تُعرض هذه الشاشة بدل العمل */
+function UpdateGate({ rel }) {
+  const go = async () => { try { if ('caches' in window) { const ks = await caches.keys(); await Promise.all(ks.map(k => caches.delete(k))); } } catch { }
+    try { const rs = navigator.serviceWorker ? await navigator.serviceWorker.getRegistrations() : []; await Promise.all(rs.map(r => r.update().catch(() => { }))); } catch { }
+    location.href = location.pathname + '?u=' + Date.now() + location.hash; };
+  return (<div className="upd-gate" role="alertdialog" aria-live="assertive"><div className="upd-card">
+    <div className="upd-ic">⟳</div><b>تحديث إلزامي مطلوب</b>
+    <p>نسخة جديدة من المنصة متاحة، ولا يُسمح بالحفظ من النسخة الحالية ({APP_VER}) حمايةً لسلامة البيانات والرقابة. اضغط «تحديث الآن» — لن تُفقد بياناتك المحفوظة.</p>
+    <button className="btn pri" onClick={go}>تحديث الآن</button><small>إن تكررت هذه الرسالة بعد التحديث، أغلق التطبيق كليًا وافتحه من جديد.</small>
+  </div></div>);
+}
 function PlatformApp() {
   useEffect(() => { const h = setTimeout(prefetchMods, 2500); return () => clearTimeout(h); }, []);   // v38.3 جلب التطبيقات في الخلفية بعد ظهور الواجهة
   const [org, setOrg] = useState(null);
@@ -2884,6 +2895,24 @@ function PlatformApp() {
   const [toast, setToast] = useState(null);
   const [bell, setBell] = useState(false);
   const [lastSeenAudit, setLastSeenAudit] = useState(() => Date.now());
+  // v40.0 — أساس الرقابة: السجل المحصّن لقرّائه فقط، والتحديث الإجباري
+  const [auditTick, setAuditTick] = useState(0);
+  const [auditFeed, setAuditFeed] = useState(null);
+  const [needUpdate, setNeedUpdate] = useState(null);
+  const auditReader = !!me && (!!(ROLES[me.role] || {}).admin || roleHasTab(me, 'audit'));
+  useEffect(() => { if (!me) return; let dead = false;
+    const chk = async () => { const rel = (ROLES[me.role] || {}).admin ? ((await raiseRelease(me)) || (await loadRelease())) : await loadRelease();
+      if (!dead && rel && (rel.minCv || 0) > APP_CV) setNeedUpdate(rel); };
+    chk(); const h = setInterval(chk, 10 * 60000); return () => { dead = true; clearInterval(h); }; }, [me]);
+  useEffect(() => { if (!me || !auditReader) { setAuditFeed(null); return; } let dead = false;
+    const go = async () => { const r = await auditFetch(300); if (!dead && Array.isArray(r)) setAuditFeed(r); };
+    go(); const h = setInterval(go, 60000); return () => { dead = true; clearInterval(h); }; }, [me, auditReader, auditTick]);
+  // السجل كما يُعرض: المحصّن (لقرّائه) + ما بقي في النبض قبل الترحيل؛ وفي وضع Firestore لا يُعرض لغير قرّائه
+  const pulseA = useMemo(() => {
+    if (auditFeed) return { ...pulse, audit: [...auditFeed, ...(pulse.audit || []).map(x => ({ ...x, legacy: true }))].sort((a, b) => (b.at || Date.parse(b.timestamp) || 0) - (a.at || Date.parse(a.timestamp) || 0)) };
+    if (cloud.mode === 'firestore' && !auditReader) return { ...pulse, audit: [] };
+    return pulse;
+  }, [pulse, auditFeed, auditReader]);
   const [theme, setTheme] = useState(() => { try { if (localStorage.getItem('rms8:themeV35') !== '1') { localStorage.setItem('rms8:themeV35', '1'); localStorage.setItem('rms8:theme', 'mizan'); return 'mizan'; } return normTheme(localStorage.getItem('rms8:theme') || 'mizan'); } catch { return 'mizan'; } });
   const [mode, setMode] = useState(() => { try { return localStorage.getItem('rms8:mode') === 'dark' ? 'dark' : 'light'; } catch { return 'light'; } });
   const [tour, setTour] = useState(false);
@@ -3329,7 +3358,7 @@ function PlatformApp() {
     if (!me || !ROLES[me.role]?.admin) return;
     const cfg = notifyCfg();
     if (!cfg.on || cfg.cats.act === false) return;
-    const fresh = (pulse.audit || []).filter(e => (e.at || 0) > actBaseRef.current && e.userName !== me.name);
+    const fresh = (pulseA.audit || []).filter(e => (e.at || 0) > actBaseRef.current && e.userName !== me.name);
     if (!fresh.length) return;
     actBaseRef.current = Math.max(...fresh.map(e => e.at || 0));
     const e = fresh[0];
@@ -3337,7 +3366,7 @@ function PlatformApp() {
     const body = `${e.userName}: ${e.title}${e.details ? ' — ' + String(e.details).slice(0, 90) : ''}${more}`;
     notifyBrowser('نشاط جديد — ' + (org.company?.name || 'المنصة'), body, org.company?.logoUrl);
     if (cfg.sound) alertBeep();
-  }, [pulse, me, org]);
+  }, [pulseA, me, org]);
 
   /* --- v15.24: مهلة انتهاء الجلسة (خمول) — معطّلة افتراضياً، تُفعَّل من إعدادات النظام --- */
   const lastActRef = useRef(Date.now());
@@ -3524,6 +3553,9 @@ function PlatformApp() {
   // v29.5: إضافة قيد لسجل التدقيق بكتابة مشروطة — كانت نبضات الحضور (كل دقيقة من كل جهاز) تكتب مستند النبض كاملًا
   // فتمحو أي قيد تدقيق أُضيف بين قراءتها وكتابتها
   const appendAudit = useCallback(async (entry) => {
+    // v40.0: السجل المحصّن في Firestore (هوية الحساب ووقت الخادم، لا يُعدَّل ولا يُحذف) — النبض للوضع المحلي فقط
+    const fsr = await auditWrite(entry);
+    if (fsr !== null) { if (fsr) setAuditTick(t => t + 1); return fsr; }
     for (let i = 0; i < 4; i++) {
       const pu = (await cloud.get(KEYS.pulse, { presence: {}, audit: [] })) || { presence: {}, audit: [] };
       const nx = { ...pu, audit: [entry, ...(pu.audit || [])].slice(0, 150) };
@@ -3728,7 +3760,7 @@ function PlatformApp() {
   const online = Object.values(pulse.presence || {}).filter(p => Date.now() - p.at < 150000);
 
   // النشاط الجديد منذ آخر مشاهدة للسجل (تنبيه مستمر)
-  const auditLog = pulse.audit || [];
+  const auditLog = pulseA.audit || [];
   const newActivity = auditLog.filter(a => (a.at || Date.parse(a.timestamp) || 0) > lastSeenAudit && a.userName !== me.name);
   const latestActivity = auditLog[0];
 
@@ -3783,7 +3815,7 @@ function PlatformApp() {
   const BOT_SUB = { closing: ['approve', 'shifts', 'cashiers'], reporting: ['reports', 'rbuild', 'boardpack', 'cashflow'], acct: ['treasury', 'entities'], analytics: ['alerts', 'exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai'] };
   const botNav = (() => { const pick = BOT_PRI.map(id => NAV_SHOW.find(n => n.id === id)).filter(Boolean); const rest = NAV_SHOW.filter(n => !BOT_PRI.includes(n.id)); const all = [...pick, ...rest]; return all.length <= 5 ? all : all.slice(0, 4); })();
 
-  const shared = { org, ops, pulse, me, myBranches, scoped, commit, commitOrg, say, setTab, theme, acctIntent, openAcctView, invIntent, openInvView };
+  const shared = { org, ops, pulse: pulseA, me, myBranches, scoped, commit, commitOrg, say, setTab, theme, acctIntent, openAcctView, invIntent, openInvView };
 
   // حماية: منع الوصول لتبويب غير مسموح لدور المستخدم (بلا hook — بعد returns الشرطية)
   const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'closing') ? ['myactions', 'myforecast'] : []), ...(NAV.some(n => n.id === 'closing') && (ROLES[me.role]?.approver || ROLES[me.role]?.admin || ROLES[me.role]?.scope === 'all') ? ['cashiers'] : []), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'anomaly', 'actions', 'forecast'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : []), ...(NAV.some(n => n.id === 'people') ? ['payroll', 'workforce', 'muster', 'overtime'] : []), ...(NAV.some(n => n.id === 'purchasing') ? ['suppliers', 'reorder', 'suprep'] : []), ...(NAV.some(n => n.id === 'hrops') ? ['attendance', 'leaves', 'shiftengine', 'staffplan', 'tasks', 'points', 'esign'] : []), ...(NAV.some(n => n.id === 'hrperf') ? ['kpi', 'empfile', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'] : [])];
@@ -3792,6 +3824,7 @@ function PlatformApp() {
   return (
     <div className={themeCls(theme, mode)}>
       <style dangerouslySetInnerHTML={{ __html: CSS + '.spin{animation:sp 1s linear infinite}@keyframes sp{to{transform:rotate(360deg)}}' }} />
+      {needUpdate && <UpdateGate rel={needUpdate} />}
       <div className="shell"
         onTouchStart={(e) => {
           if (window.innerWidth > 900) return;
@@ -7896,7 +7929,10 @@ async function submitWaste({ org, me, commit, say, col, whId, branchId, lines, f
   const base = { ...(whId ? { whId } : {}), ...(branchId ? { branchId } : {}), reason: f.reason, note: String(f.note || '').trim(), by: me.name, at: nowISO(), date: today() };
   const det = L.map(l => itN(l.itemId) + ' ' + l.qty).join('، ').slice(0, 140) + ' · ' + wasteReasonAr(f.reason) + ' · ' + money(value);
   if (cfg.approveOver > 0 && value >= cfg.approveOver) {
-    const rec = { id: uid('wr'), col, ...base, lines: L, value, photo: f.photo || '', status: 'pending' };
+    let rec = { id: uid('wr'), col, ...base, lines: L, value, photo: f.photo || '', status: 'pending' };
+    // v40.0: طلب الهدر يُوقَّع — المعتمد لاحقًا لا يكون مقدّم الطلب (إلا المدير كما في المنصة)، والقواعد تفرض ذلك
+    const sg = await signoff('waste', 'submit', rec); if (!sg.ok) { say(sigFailMsg(sg, 'طلب الهدر'), 'no'); return false; }
+    if (sg.id) rec = { ...rec, sigSubmit: sg.id };
     const ok = await commit(d => ({ ...d, wasteRequests: [rec, ...(d.wasteRequests || [])] }),
       { actionType: 'create', targetType: 'stock_move', targetId: rec.id, branchName: whName(org, whId), title: 'طلب اعتماد هدر — ' + title, details: det });
     if (ok) say('أُرسل الهدر للاعتماد (' + money(value) + ') — لا يُخصم من الرصيد قبل الاعتماد');
@@ -9523,6 +9559,136 @@ const qrRateUrl = (branchId) => {
 
 // Firestore مباشرة (خارج طبقة cloud): صفحة العميل تعمل بلا جلسة، واللوحة تستعلم مجموعات مستقلة
 let _qrFsP = null;
+/* ============================================================
+   v40.0 — أساس الرقابة (الدستور: tests/security/CONSTITUTION.md)
+   • سجل تدقيق محصّن (audit_log): إدخال مستقل لكل عملية، بهوية الحساب ووقت الخادم، لا يُعدَّل ولا يُحذف.
+   • اعتمادات موقّعة (signoffs): توقيع لكل تقديم/اعتماد/رفض ببصمة أرقام السجل — التزوير يُكشف.
+   • تحديث إجباري: رقم الإصدار في كل كتابة، والقواعد ترفض ما دون الحد الأدنى (platform/release).
+   خارج وضع Firestore (محلي/خادم) تعود الدوال null فيبقى السلوك السابق كما هو.
+   ============================================================ */
+const APP_CV = (() => { const m = APP_VER.match(/^v(\d+)\.(\d+)(?:\.(\d+))?/); return m ? (+m[1]) * 10000 + (+m[2]) * 100 + (+(m[3] || 0)) : 0; })();
+cloud.setClientCv(APP_CV);
+const CTL_TIMEOUT = 10000;
+const ctlTimeout = (p, ms = CTL_TIMEOUT) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(Object.assign(new Error('timeout'), { code: 'timeout' })), ms))]);
+let _ctlId = null;
+/** هوية الكتابة كما تراها القواعد: البريد الموثّق + الدور من العضوية (لا من الواجهة) */
+async function ctlIdentity() {
+  let f = null; try { f = await qrFs(); } catch { f = null; }
+  if (!f) return null;
+  let email = '';
+  try { const { getAuth } = await import('firebase/auth'); const { getApp } = await import('firebase/app'); const u = getAuth(getApp()).currentUser; email = u && u.email ? u.email.toLowerCase() : ''; } catch { email = ''; }
+  if (!email) return null;
+  if (!_ctlId || _ctlId.email !== email) {
+    let role = ''; try { const m = await f.getDoc(f.doc(f.db, 'members', email)); role = (m.exists() && (m.data() || {}).role) || ''; } catch { role = ''; }
+    _ctlId = { email, role };
+  }
+  return { f, ..._ctlId };
+}
+const ctlStr = (v, n) => String(v == null ? '' : v).slice(0, n);
+/** إدخال في سجل التدقيق المحصّن — null خارج Firestore (يبقى المسار القديم) */
+async function auditWrite(entry) {
+  const c = await ctlIdentity(); if (!c) return null;
+  const d = { at: c.f.serverTimestamp(), email: c.email, role: c.role, title: ctlStr(entry.title || entry.actionType || 'عملية', 200), cv: APP_CV,
+    ...(entry.userName ? { userName: ctlStr(entry.userName, 120) } : {}), ...(entry.branchId ? { branchId: ctlStr(entry.branchId, 80) } : {}),
+    ...(entry.actionType ? { actionType: ctlStr(entry.actionType, 40) } : {}), ...(entry.targetType ? { targetType: ctlStr(entry.targetType, 40) } : {}),
+    ...(entry.targetId ? { targetId: ctlStr(entry.targetId, 300) } : {}),
+    ...((entry.details || entry.branchName) ? { details: ctlStr((entry.branchName && !String(entry.details || '').includes(entry.branchName) ? entry.branchName + ' · ' : '') + (entry.details || ''), 1000) } : {}) };
+  try { await ctlTimeout(c.f.addDoc(c.f.collection(c.f.db, 'audit_log'), d)); return true; } catch (e) { return false; }
+}
+/** للشاشات الكسولة (الأرشيف، الاستعادة): السجل المحصّن، أو النبض خارج Firestore */
+async function logAudit(entry) {
+  const r = await auditWrite(entry); if (r !== null) return r;
+  try { const pu = (await cloud.get(KEYS.pulse, { presence: {}, audit: [] })) || { presence: {}, audit: [] }; await cloud.set(KEYS.pulse, { ...pu, audit: [entry, ...(pu.audit || [])].slice(0, 150) }); return true; } catch { return false; }
+}
+/** آخر إدخالات السجل المحصّن بشكل السجل القديم (لقرّائه فقط — القواعد تمنع غيرهم) */
+async function auditFetch(max = 300) {
+  const c = await ctlIdentity(); if (!c) return null;
+  try {
+    const s = await ctlTimeout(c.f.getDocs(c.f.query(c.f.collection(c.f.db, 'audit_log'), c.f.orderBy('at', 'desc'), c.f.limit(max))));
+    return s.docs.map(x => { const d = x.data() || {}; const ms = d.at && d.at.toMillis ? d.at.toMillis() : 0; const t = d.legacy && d.origAt ? d.origAt : new Date(ms || Date.now()).toISOString();
+      return { id: x.id, at: d.legacy && d.origAt ? Date.parse(d.origAt) || ms : ms, timestamp: t, userName: d.userName || d.email, userRole: d.role, email: d.email, branchId: d.branchId || '',
+        actionType: d.actionType || '', targetType: d.targetType || '', targetId: d.targetId || '', title: d.title, details: d.details || '', legacy: !!d.legacy, verified: !d.legacy }; });
+  } catch (e) { return { denied: true }; }
+}
+/** بصمة أرقام السجل لحظة التوقيع — أي تعديل لاحق على الأرقام يغيّرها */
+function sigDigest(kind, x) {
+  const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100, q = (n) => Math.round((Number(n) || 0) * 1000) / 1000;
+  const a = kind === 'closing' ? [x.id, x.branchId, x.date, r2(x.cashSales), r2(x.cardSales), r2(x.bankTransferSales), (x.deliverySales || []).map(d => [d.appId || '', r2(d.amount)]),
+    r2(x.totalRevenue), (x.expenses || []).map(e => [r2(e.amount), e.paymentMethod || '', e.categoryId || e.categoryName || '']), r2(x.totalExpenses), r2(x.actualCashCount), r2(x.variance), r2(x.transferredToMainTreasury)]
+    : kind === 'waste' ? [x.id, x.branchId || '', x.whId || '', (x.lines || []).map(l => [l.itemId, q(l.qty)]), r2(x.value), x.reason || '']
+    : kind === 'count' ? [x.id, x.whId || '', (x.lines || []).map(l => [l.itemId, q(l.final != null ? l.final : l.c1)])]
+    : [x.id, x.supplierId || '', (x.lines || []).map(l => [l.itemId || l.desc || '', q(l.qty), r2(l.price)])];
+  return sha256Hex(JSON.stringify(a));
+}
+const SIG_NAME = { submit: 'تقديم', recount: 'إعادة عدّ', audit: 'تدقيق', gm: 'اعتماد نهائي', approve: 'اعتماد', reject: 'رفض' };
+/** توقيع موثّق: { ok, id } — خارج Firestore { ok:true, id:null, local:true }. القواعد ترفض غير المؤهل أو المقدّم نفسه */
+async function signoff(kind, stage, x, opts = {}) {
+  const c = await ctlIdentity(); if (!c) return { ok: true, id: null, local: true };
+  const id = kind + '_' + String(x.id).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80) + '_' + stage + '_' + Math.random().toString(36).slice(2, 8);
+  const d = { kind, stage, entityId: String(x.id).slice(0, 120), branchId: String(opts.branchId != null ? opts.branchId : (x.branchId || '')), digest: sigDigest(kind, x),
+    email: c.email, role: c.role, at: c.f.serverTimestamp(), cv: APP_CV,
+    ...(opts.subRef ? { subRef: opts.subRef } : {}), ...(opts.recountRef ? { recountRef: opts.recountRef } : {}),
+    ...(opts.nosub ? { nosub: true, edate: String(opts.edate || '').slice(0, 10) } : {}), ...(opts.alert != null ? { alert: !!opts.alert } : {}) };
+  try { await ctlTimeout(c.f.setDoc(c.f.doc(c.f.db, 'signoffs', id), d)); return { ok: true, id }; } catch (e) { return { ok: false, code: e && e.code }; }
+}
+/** توقيع اعتماد/رفض لسجل له توقيع تقديم (subRef)؛ وسجلات ما قبل بدء التوقيع بلا تقديم (nosub) */
+async function signDecision(kind, stage, x, extra = {}) {
+  const sub = x.sigSubmit || '';
+  const edate = String(x.date || x.at || '').slice(0, 10);
+  const r = await signoff(kind, stage, x, { ...extra, ...(sub ? { subRef: sub } : { nosub: true, edate }), ...(x.sigRecount ? { recountRef: x.sigRecount } : {}) });
+  return r;
+}
+const sigFailMsg = (r, what) => r && r.code === 'permission-denied'
+  ? 'رفض الخادم توقيع ' + what + ': لا تملك الصلاحية، أو أنت من قدّم السجل (يعتمده شخص آخر)، أو السجل بلا توقيع تقديم موثّق'
+  : 'تعذّر توقيع ' + what + ' — تحقق من الاتصال وأعد المحاولة (لم يُحفظ شيء)';
+let _sigCache = { t: 0, key: '', list: null };
+/** التوقيعات الحديثة (200 يوم) — المركز كلها، والفرع توقيعات فروعه فقط (كما تسمح القواعد) */
+async function loadSignoffs(me, branchIds, force) {
+  const c = await ctlIdentity(); if (!c) return null;
+  const central = (ROLES[me && me.role] || {}).scope === 'all';
+  const key = (central ? '*' : (branchIds || []).slice().sort().join(','));
+  if (!force && _sigCache.list && _sigCache.key === key && Date.now() - _sigCache.t < 60000) return _sigCache.list;
+  const since = c.f.Timestamp.fromMillis(Date.now() - 200 * 864e5);
+  try {
+    const qs = central ? [c.f.query(c.f.collection(c.f.db, 'signoffs'), c.f.where('at', '>=', since))]
+      : (branchIds || []).filter(Boolean).slice(0, 30).map(b => c.f.query(c.f.collection(c.f.db, 'signoffs'), c.f.where('branchId', '==', b)));
+    const snaps = await ctlTimeout(Promise.all(qs.map(q => c.f.getDocs(q))));
+    const list = snaps.flatMap(s => s.docs.map(x => ({ id: x.id, ...(x.data() || {}), atMs: (x.data() || {}).at && (x.data() || {}).at.toMillis ? x.data().at.toMillis() : 0 })));
+    _sigCache = { t: Date.now(), key, list }; return list;
+  } catch { return null; }
+}
+let _release = null;
+async function loadRelease() { const c = await ctlIdentity(); if (!c) return null;
+  try { const s = await c.f.getDoc(c.f.doc(c.f.db, 'platform', 'release')); _release = s.exists() ? s.data() : { minCv: 0, cutover: '' }; return _release; } catch { return null; } }
+/** المدير بإصدار أحدث يرفع الحد الأدنى تلقائيًا (التحديث الإجباري)، ويُثبَّت تاريخ بدء التوقيع أول مرة */
+async function raiseRelease(me) {
+  const c = await ctlIdentity(); if (!c || !(ROLES[me && me.role] || {}).admin) return null;
+  const cur = _release || (await loadRelease()) || { minCv: 0, cutover: '' };
+  if ((cur.minCv || 0) >= APP_CV && cur.cutover) return cur;
+  const nx = { minCv: Math.max(cur.minCv || 0, APP_CV), cutover: cur.cutover || today(), at: Date.now(), by: c.email };
+  try { await ctlTimeout(c.f.setDoc(c.f.doc(c.f.db, 'platform', 'release'), nx)); _release = nx; return nx; } catch { return null; }
+}
+/**
+ * تحقق توقيع سجل معتمد: ok (موقّع ومطابق) · tampered (عُدّل بعد اعتماده) · unsigned (معتمد بلا توقيع بعد بدء التوقيع) ·
+ * legacy (اعتُمد قبل بدء التوقيع) · na (غير معتمد، أو خارج Firestore)
+ */
+function sigVerify(kind, x, sigs, cutover) {
+  if (!sigs || !x) return { st: 'na' };
+  const need = kind === 'closing' ? (x.status === 'approved' ? [['audit', x.auditedAt], ...(x.gmApprovalStatus === 'approved' ? [['gm', x.gmApprovedAt]] : [])] : [])
+    : kind === 'waste' || kind === 'count' ? (x.status === 'approved' ? [['approve', x.decidedAt]] : [])
+    : (x.decidedBy && ['open', 'partial', 'received'].includes(x.status) ? [['approve', x.decidedAt]] : []);
+  if (!need.length) return { st: 'na' };
+  const dg = sigDigest(kind, x); let worst = 'ok', at = null;
+  const rank = { ok: 0, legacy: 1, unsigned: 2, tampered: 3 };
+  need.forEach(([stage, when]) => {
+    const s = sigs.filter(y => y.kind === kind && y.entityId === String(x.id) && y.stage === stage).sort((a, b) => (b.atMs || 0) - (a.atMs || 0))[0];
+    const st = s ? (s.digest === dg ? 'ok' : 'tampered') : (cutover && String(when || '').slice(0, 10) < cutover ? 'legacy' : 'unsigned');
+    if (rank[st] > rank[worst]) { worst = st; at = stage; }
+  });
+  return { st: worst, stage: at };
+}
+const SIG_BADGE = { ok: ['b-mint', 'موثّق ✓'], tampered: ['b-rose', 'عُدّل بعد اعتماده'], unsigned: ['b-rose', 'اعتماد غير موثّق'], legacy: ['b-dim', 'قبل التوثيق'] };
+
 function qrFs() {
   const E = import.meta.env || {};
   if (!(E.VITE_FIREBASE_API_KEY && E.VITE_FIREBASE_PROJECT_ID)) return Promise.resolve(null);
@@ -9807,3 +9973,5 @@ export { complianceItems, leaseSchedule, LEASE_EVERY, CMP_CAT, vatRegister, supp
 export { staffingPlan };
 // v39.4 — استيراد مبيعات نقاط البيع ومطابقتها
 export { piHour, piCutoff, posRecon, salesDays, importDraftClosing };
+// v40.0 — أساس الرقابة
+export { UpdateGate, APP_CV, auditWrite, logAudit, auditFetch, sigDigest, signoff, signDecision, sigFailMsg, loadSignoffs, loadRelease, raiseRelease, sigVerify, SIG_BADGE, SIG_NAME };

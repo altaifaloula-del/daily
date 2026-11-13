@@ -4,14 +4,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { cloud, KEYS, brKey } from '../../storage';
 import { ShieldCheck, RefreshCw, Trash2, AlertTriangle, Check, Server, Bug, Activity, HardDrive } from 'lucide-react';
-import { APP_VER, CloudHealth, ERRLOG_KEY, MAIN_WH, buildAccounting, branchBanks, cashForecast, complianceItems, entityList, vatStatus, countedClosing, isoD, money, purKey, q3, qrFs, snapAll, stockByWh, today, whName, whOf } from '../../App.jsx';
+import { APP_CV, APP_VER, CloudHealth, ERRLOG_KEY, MAIN_WH, ROLES, SIG_BADGE, SIG_NAME, buildAccounting, loadRelease, loadSignoffs, sigVerify, branchBanks, cashForecast, complianceItems, entityList, vatStatus, countedClosing, isoD, money, purKey, q3, qrFs, snapAll, stockByWh, today, whName, whOf } from '../../App.jsx';
 
 const ST = { ok: ['b-mint', 'سليم'], warn: ['b-amber', 'تنبيه'], bad: ['b-rose', 'خلل'] };
 const daysAgo = (d) => { const x = new Date(); x.setDate(x.getDate() - d); return isoD(x); };
 const serverBase = () => { const E = import.meta.env || {}; try { return E.VITE_AI_ENDPOINT ? new URL(E.VITE_AI_ENDPOINT).origin : ''; } catch { return ''; } };
 
 /** فحوص سلامة البيانات — دالة نقية على org/ops (تُختبر آليًا) */
-export function integrityChecks(org, ops) {
+export function integrityChecks(org, ops, ctl) {
   const out = []; const add = (id, st, title, detail, items, fix) => out.push({ id, st, title, detail, items: items || [], fix: fix || '' });
   const brIds = new Set((org.branches || []).map(b => b.id));
   const brName = (id) => ((org.branches || []).find(b => b.id === id) || {}).name || id;
@@ -60,6 +60,20 @@ export function integrityChecks(org, ops) {
   const lastBy = {}; (ops.closings || []).filter(countedClosing).forEach(c => { if (!lastBy[c.branchId] || c.date > lastBy[c.branchId]) lastBy[c.branchId] = c.date; });
   const silent = (org.branches || []).filter(b => b.isActive !== false && lastBy[b.id] && lastBy[b.id] < daysAgo(3)).map(b => b.name + ' (آخر إغلاق ' + lastBy[b.id] + ')');
   add('silent', silent.length ? 'warn' : 'ok', 'فروع توقفت إغلاقاتها أكثر من 3 أيام', silent.length ? silent.length + ' فرع' : 'كل الفروع تُغلق بانتظام', silent.slice(0, 6), 'تأكد من تشغيل الفرع أو إدخال إغلاقاته المتأخرة');
+  // 15) v40.0 — الاعتمادات الموقّعة: معتمد بلا توقيع موثّق (بعد بدء التوقيع) أو عُدّلت أرقامه بعد اعتماده
+  if (ctl && ctl.sigs) {
+    const bad = [], legacy = [];
+    const scan = (kind, list, label) => (list || []).forEach(x => { const v = sigVerify(kind, x, ctl.sigs, ctl.cutover);
+      if (v.st === 'tampered' || v.st === 'unsigned') bad.push(label(x) + ' — ' + SIG_BADGE[v.st][1] + (v.stage ? ' (' + (SIG_NAME[v.stage] || v.stage) + ')' : ''));
+      else if (v.st === 'legacy') legacy.push(x.id); });
+    const brN = (id) => ((org.branches || []).find(b => b.id === id) || {}).name || '';
+    scan('closing', ops.closings, x => 'إغلاق ' + brN(x.branchId) + ' ' + x.date);
+    scan('waste', ops.wasteRequests, x => 'هدر ' + (x.date || '') + ' ' + money(x.value || 0));
+    scan('count', ops.countSessions, x => 'جرد ' + (x.date || ''));
+    scan('po', ops.purchaseOrders, x => 'أمر شراء ' + (x.poNo || x.id));
+    add('signoffs', bad.length ? 'bad' : 'ok', 'الاعتمادات الموقّعة (هوية + بصمة الأرقام)', bad.length ? bad.length + ' اعتماد بلا توقيع موثّق أو عُدّل بعد اعتماده' : 'كل الاعتمادات منذ ' + (ctl.cutover || 'بدء التوقيع') + ' موقّعة ومطابقة' + (legacy.length ? ' · ' + legacy.length + ' اعتماد أقدم من بدء التوقيع' : ''),
+      bad.slice(0, 8), bad.length ? 'اعتماد غير موثّق يعني تعديلًا خارج الواجهة أو من نسخة قديمة، وتغيّر البصمة يعني تعديل أرقام بعد الاعتماد — راجع السجل وأعد التدقيق' : '');
+  }
   // 9–12) v38.9 — الالتزامات النظامية والسيولة (ضمن المراجعة والرقابة)
   if (A) {
     const td = today(), cfg = org.cashflowCfg || {};
@@ -134,7 +148,31 @@ export function groupErrors(rows) {
 }
 
 export function SystemMaintenance({ org, ops, me, commit, say }) {
-  const checks = useMemo(() => integrityChecks(org, ops), [org, ops]);
+  // v40.0: التوقيعات وتاريخ بدء التوقيع من Firestore (القواعد تحدد ما يُقرأ)
+  const [ctl, setCtl] = useState(null);
+  const [rel, setRel] = useState(null);
+  const [legacyN, setLegacyN] = useState(null);
+  useEffect(() => { let dead = false; (async () => { const r = await loadRelease(); const sg = await loadSignoffs(me, (org.branches || []).map(b => b.id), true);
+    if (!dead) { setRel(r); if (sg) setCtl({ sigs: sg, cutover: (r && r.cutover) || '' }); }
+    try { const pu = await cloud.get(KEYS.pulse, { presence: {}, audit: [] }); if (!dead) setLegacyN(((pu || {}).audit || []).length); } catch { } })(); return () => { dead = true; }; }, [me, org.branches]);
+  const checks = useMemo(() => integrityChecks(org, ops, ctl), [org, ops, ctl]);
+  const isAdm = !!(ROLES[me && me.role] || {}).admin;
+  const migrate = async () => {
+    if (!window.confirm('ترحيل سجل التدقيق القديم (' + legacyN + ' إدخال) إلى السجل المحصّن موسومًا «قديم — هوية غير موثّقة»، ثم تفريغه من مستند النبض. متابعة؟')) return;
+    setBusy(true);
+    try {
+      const F = await qrFs(); if (!F) { setBusy(false); return say('قاعدة البيانات السحابية غير مفعّلة', 'no'); }
+      const pu = (await cloud.get(KEYS.pulse, { presence: {}, audit: [] })) || { presence: {}, audit: [] };
+      const list = pu.audit || []; const s2 = (v, n) => String(v == null ? '' : v).slice(0, n);
+      for (let i = 0; i < list.length; i += 400) { const b = F.writeBatch(F.db);
+        list.slice(i, i + 400).forEach(e => b.set(F.doc(F.collection(F.db, 'audit_log')), { at: F.serverTimestamp(), email: 'legacy', role: s2(e.userRole, 40), userName: s2(e.userName, 120), title: s2(e.title || e.actionType || 'عملية', 200),
+          details: s2((e.branchName ? e.branchName + ' · ' : '') + (e.details || ''), 1000), actionType: s2(e.actionType, 40), targetType: s2(e.targetType, 40), targetId: s2(e.targetId, 300), cv: APP_CV, legacy: true, origAt: s2(e.timestamp || (e.at ? new Date(e.at).toISOString() : ''), 40) }));
+        await b.commit(); }
+      for (let i = 0; i < 4; i++) { const cur = (await cloud.get(KEYS.pulse, { presence: {}, audit: [] })) || {}; if ((await cloud.setIfUnchanged(KEYS.pulse, { ...cur, audit: [] })) === 'ok') break; }
+      setLegacyN(0); say('رُحّل ' + list.length + ' إدخال إلى السجل المحصّن وفُرّغ النبض ✓');
+    } catch (e) { say('تعذّر الترحيل: ' + (/permission/i.test(String(e && e.message)) ? 'للمدير فقط' : 'تحقق من الاتصال'), 'no'); }
+    setBusy(false);
+  };
   const [srv, setSrv] = useState(null);
   const [errs, setErrs] = useState(null);
   const [open, setOpen] = useState(null);
@@ -185,6 +223,20 @@ export function SystemMaintenance({ org, ops, me, commit, say }) {
       <div className="grid g4">
         {[['خلل', bad, '#D9544D'], ['تنبيه', warn, '#E0A458'], ['فحص سليم', checks.length - bad - warn, '#4FB286'], ['أنواع أخطاء الأجهزة (7 أيام)', errN == null ? '…' : errN, '#5B93C4']].map(([l, v, c]) => (
           <div key={l} className="kpi" style={{ borderInlineStartColor: c }}><div className="kpi-l">{l}</div><div className="kpi-v num">{v}</div></div>))}
+      </div>
+
+      {/* v40.0 — أساس الرقابة: الإصدار الإلزامي وسجل التدقيق */}
+      <div className="card">
+        <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />أساس الرقابة</div></div>
+        <div className="mt-list">
+          <div className={'mt-row ' + (rel && rel.minCv ? 'ok' : 'warn')}><span className={'mt-dot ' + (rel && rel.minCv ? 'ok' : 'warn')} /><span className="mt-k">التحديث الإجباري</span>
+            <span className="mt-t">{rel == null ? 'غير متاح (ليس وضع Firestore)' : rel.minCv ? 'الحد الأدنى v' + Math.floor(rel.minCv / 10000) + '.' + Math.floor(rel.minCv % 10000 / 100) + (rel.minCv % 100 ? '.' + (rel.minCv % 100) : '') + ' · هذا الجهاز ' + APP_VER + ' — الأجهزة الأقدم لا تحفظ' : 'لم يُفعَّل بعد — يُفعَّل تلقائيًا عند دخول المدير بهذا الإصدار'}</span></div>
+          <div className={'mt-row ' + (rel && rel.cutover ? 'ok' : 'warn')}><span className={'mt-dot ' + (rel && rel.cutover ? 'ok' : 'warn')} /><span className="mt-k">بدء التوقيع الموثّق</span>
+            <span className="mt-t">{rel && rel.cutover ? 'منذ ' + rel.cutover + ' — كل اعتماد بعده يحمل توقيعًا ببصمة الأرقام' : '—'}</span></div>
+          <div className={'mt-row ' + (rel == null || legacyN ? 'warn' : 'ok')}><span className={'mt-dot ' + (rel == null || legacyN ? 'warn' : 'ok')} /><span className="mt-k">سجل التدقيق</span>
+            <span className="mt-t">{rel == null ? 'غير متاح (ليس وضع Firestore) — السجل محلي غير محصّن' : legacyN ? legacyN + ' إدخال في السجل القديم (قابل للعبث ومقروء للفروع) — رحّله' : 'محصّن: لا يُعدَّل ولا يُحذف، ولا يقرؤه موظفو الفروع'}</span>
+            {legacyN > 0 && isAdm && <button className="btn sm pri" disabled={busy} onClick={migrate}>ترحيل وتفريغ</button>}</div>
+        </div>
       </div>
 
       <div className="card">

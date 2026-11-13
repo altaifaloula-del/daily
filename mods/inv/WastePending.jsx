@@ -1,7 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState } from 'react';
 import { AlertTriangle, Camera, Check, X } from 'lucide-react';
-import { Field, MAIN_WH, Modal, ROLES, arDate, canApproveWaste, money, nowISO, periodLocked, q3, stockByWh, today, uid, wasteReasonAr, whName, whOn } from '../../App.jsx';
+import { Field, MAIN_WH, Modal, ROLES, arDate, canApproveWaste, money, nowISO, periodLocked, q3, stockByWh, today, uid, wasteReasonAr, whName, whOn, signDecision, sigFailMsg } from '../../App.jsx';
 
 export function WastePending({ org, ops, me, commit, say, whIds }) {
   const [rej, setRej] = useState(null);
@@ -21,10 +21,12 @@ export function WastePending({ org, ops, me, commit, say, whIds }) {
     }
     const date = periodLocked(org, r.date) ? today() : r.date;
     const self = r.by === me.name;
+    const sg = await signDecision('waste', approve ? 'approve' : 'reject', r);   // v40.0 توقيع موثّق
+    if (!sg.ok) return say(sigFailMsg(sg, approve ? 'اعتماد الهدر' : 'رفض الهدر'), 'no');
     const ok = await commit(d => {
       const cur = (d.wasteRequests || []).find(x => x.id === r.id);
       if (!cur || cur.status !== 'pending') throw new Error('already-decided');
-      const upd = { ...cur, status: approve ? 'approved' : 'rejected', decidedBy: me.name, decidedAt: nowISO(), ...(note ? { decideNote: note } : {}), ...(self ? { selfApproved: true } : {}) };
+      const upd = { ...cur, ...(sg.id ? { sigDecide: sg.id } : {}), status: approve ? 'approved' : 'rejected', decidedBy: me.name, decidedAt: nowISO(), ...(note ? { decideNote: note } : {}), ...(self ? { selfApproved: true } : {}) };
       const out = { ...d, wasteRequests: (d.wasteRequests || []).map(x => x.id === r.id ? upd : x) };
       if (approve) {
         const grp = uid('wg');

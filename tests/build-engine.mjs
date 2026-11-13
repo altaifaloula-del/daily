@@ -23,7 +23,7 @@ export const ENGINE_EXPORTS = ['buildAccounting', 'buildPartners', 'stockByWh', 
   // v39.1 — التنبيهات المهمة والتقارير
   'complianceItems', 'leaseSchedule', 'vatRegister', 'supplierPurchReport',
   // v39.2 — تخطيط العمالة
-  'staffingPlan',
+  'staffingPlan', 'ROLES', 'rolePost', 'sigDigest', 'sigVerify',
   // v39.4 — استيراد نقاط البيع ومطابقتها
   'piHour', 'piCutoff', 'posRecon', 'salesDays', 'importDraftClosing'];
 

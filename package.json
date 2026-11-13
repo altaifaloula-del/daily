@@ -10,7 +10,7 @@
     "build": "vite build",
     "start": "NODE_ENV=production node server.js",
     "preview": "vite preview",
-    "test:rules": "firebase emulators:exec --only firestore \"node --test tests/rules.test.mjs\"",
+    "test:rules": "firebase emulators:exec --only firestore \"node --test tests/rules.test.mjs tests/security.rules.test.mjs\"",
     "test:acct": "node --test tests/accounting.test.mjs",
     "test:ui": "node --test tests/ui/ui.test.mjs",
     "test:zatca": "node --test tests/zatca.test.mjs",

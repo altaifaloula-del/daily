@@ -76,12 +76,8 @@ service cloud.firestore {
       return isBrDoc(id) ? baseId(id).split('rms8_br_')[1] : baseId(id).split('rms8_bf_')[1];
     }
 
-    function pulseAuditSafe() {
-      return isAdmin()
-        || !('audit' in resource.data)
-        || !('audit' in request.resource.data)
-        || request.resource.data.audit.size() >= resource.data.audit.size();
-    }
+    // v40.0: أُزيلت pulseAuditSafe — كانت تفحص حقل «audit» في مستند محفوظ نصًا مضغوطًا فلا تراه أبدًا (تمر دائمًا).
+    //        السجل انتقل إلى audit_log المحصّن أدناه، ومستند النبض للحضور فقط.
 
     match /platform/admins {
       // قائمة بريد المدراء لا تُكشف لأي حساب مسجّل: تُقرأ للأعضاء/المدراء فقط،
@@ -120,11 +116,160 @@ service cloud.firestore {
     function validShape(id) {
       return isChunkDoc(id)
         ? request.resource.data.keys().hasOnly(['chunk']) && request.resource.data.chunk is string
-        : request.resource.data.keys().hasOnly(['parts', 'updatedAt', 'value', 'ver'])
+        : request.resource.data.keys().hasOnly(['parts', 'updatedAt', 'value', 'ver', 'cv'])
           && (!('ver' in request.resource.data) || (request.resource.data.ver is string && request.resource.data.ver.size() <= 20))
+          && (!('cv' in request.resource.data) || request.resource.data.cv is int)
           && request.resource.data.parts is int
           && request.resource.data.parts >= 1 && request.resource.data.parts <= 500
           && request.resource.data.value is string;
+    }
+
+    /* ===================== v40.0 — أساس الرقابة =====================
+       الدستور: tests/security/CONSTITUTION.md — كل ثابت هنا له اختبار قبول ورفض في tests/security.rules.test.mjs.
+       قوائم الأدوار أدناه منسوخة حرفيًا من ROLES في App.jsx، ويكسر اختبار الانجراف البناء إن اختلفت. */
+    // [ROLES:AUDIT_READ]
+    function auditReaders()   { return ['head_office', 'system_admin', 'general_management', 'finance_department']; }
+    // [ROLES:CLOSING_AUDIT]
+    function closingAuditors() { return ['head_office', 'system_admin', 'general_management', 'finance_department']; }
+    // [ROLES:CLOSING_GM]
+    function closingGms()     { return ['head_office', 'system_admin', 'general_management']; }
+    // [ROLES:WASTE]
+    function wasteApprovers() { return ['regional_manager', 'head_office', 'system_admin', 'cost_controller', 'general_management']; }
+    // [ROLES:COUNT]
+    function countApprovers() { return ['branch_manager', 'regional_manager', 'head_office', 'system_admin', 'cost_controller', 'general_management', 'finance_department', 'accountant']; }
+    // [ROLES:PO]
+    function poApprovers()    { return ['head_office', 'system_admin', 'general_management']; }
+
+    // نسخ «خفيفة» للقواعد الجديدة: العضوية وقائمة المدراء والسياسة تُقرأ مرة واحدة وتُمرَّر (حد 1000 عملية تقييم)
+    function memOf() {
+      let p = /databases/$(database)/documents/members/$(userEmail());
+      return exists(p) ? get(p).data : null;
+    }
+    // قائمة المدراء موجودة دائمًا بعد التمهيد — قراءة مباشرة بلا exists (حد 10 قراءات للطلب)؛ غيابها يعني رفضًا وهو الصحيح
+    function admOf(m) {
+      return userEmail() in get(/databases/$(database)/documents/platform/admins).data.emails && (m == null || m.get('active', false) == true);
+    }
+    function mfaOf(m, adm) {
+      let sp = /databases/$(database)/documents/platform/security;
+      let sec = exists(sp) ? get(sp).data : null;
+      return sec == null || twoFactor()
+        || !((sec.get('admins', false) == true && adm) || (m != null && m.get('role', '') in sec.get('roles', [])));
+    }
+    function okUser(m, adm) { return realUser() && ((m != null && m.get('active', false) == true) || adm) && mfaOf(m, adm); }
+    function roleOf(m) { return m == null ? '' : m.get('role', ''); }
+    function centralOf(m) { return m != null && m.get('active', false) == true && m.get('scope', '') == 'all'; }
+    function branchOf(m, adm, bId) {
+      return adm || (m != null && m.get('active', false) == true
+        && (m.get('scope', '') == 'all' || m.get('branchId', '') == bId || bId in m.get('branchIds', [])));
+    }
+    function roleIn(list, role, adm) { return role in list || (adm && 'system_admin' in list); }
+
+    // التحديث الإجباري: لا يكتب أي جهاز بإصدار أقدم من الحد الأدنى المعلَن في platform/release
+    function releasePath() { return /databases/$(database)/documents/platform/release; }
+    function relOf() { return exists(releasePath()) ? get(releasePath()).data : null; }
+    function cvOkRel(d, rel) { return rel == null || (('cv' in d) && d.cv is int && d.cv >= rel.minCv); }
+    function cvOk(d) { return cvOkRel(d, relOf()); }
+    match /platform/release {
+      allow read: if isMember() || isAdmin();
+      allow create, update: if isAdmin() && mfaOk()
+        && request.resource.data.keys().hasOnly(['minCv', 'cutover', 'at', 'by'])
+        && request.resource.data.minCv is int && request.resource.data.minCv >= 0
+        && request.resource.data.cutover is string && request.resource.data.cutover.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+      allow delete: if false;
+    }
+
+    // ثابت 1–6: سجل التدقيق — إدخال لكل عملية، بهوية الحساب ووقت الخادم، لا يُعدَّل ولا يُحذف، ولا يقرؤه موظفو الفروع
+    function auditFields(d) {
+      return d.keys().hasOnly(['at', 'email', 'role', 'userName', 'branchId', 'actionType', 'targetType', 'targetId', 'title', 'details', 'cv', 'legacy', 'origAt'])
+        && d.keys().hasAll(['at', 'email', 'role', 'title', 'cv'])
+        && d.at == request.time
+        && shortStr(d.title, 200) && shortStr(d.role, 40)
+        && (!('details' in d) || shortStr(d.details, 1000))
+        && (!('userName' in d) || shortStr(d.userName, 120))
+        && (!('actionType' in d) || shortStr(d.actionType, 40))
+        && (!('targetType' in d) || shortStr(d.targetType, 40))
+        && (!('targetId' in d) || shortStr(d.targetId, 300))
+        && (!('origAt' in d) || shortStr(d.origAt, 40))
+        && (!('branchId' in d) || shortStr(d.branchId, 80));
+    }
+    function auditCreate(d) {
+      let m = memOf();
+      let adm = admOf(m);
+      return okUser(m, adm) && auditFields(d) && cvOkRel(d, relOf())
+        && ((d.get('legacy', false) == false && d.email == userEmail() && d.role == roleOf(m)
+             && (d.get('branchId', '') == '' || branchOf(m, adm, d.get('branchId', ''))))
+          || (d.get('legacy', false) == true && adm && shortStr(d.email, 120)));
+    }
+    function auditRead() {
+      let m = memOf();
+      let adm = admOf(m);
+      return okUser(m, adm) && (adm || roleOf(m) in auditReaders());
+    }
+    match /audit_log/{id} {
+      allow create: if auditCreate(request.resource.data);
+      allow read: if auditRead();
+      allow update, delete: if false;
+    }
+
+    // ثابت 7–15: الاعتمادات الموقّعة — توقيع لكل تقديم/اعتماد/رفض، ببصمة أرقام السجل، لا يُعدَّل ولا يُحذف
+    function sigPath(id) { return /databases/$(database)/documents/signoffs/$(id); }
+    // التوقيع المرجعي (تقديم/إعادة عدّ) لنفس السجل — يعيد بياناته أو null
+    // قراءة مباشرة بلا exists: مرجع لمستند غير موجود = خطأ = رفض (وهو الصحيح)
+    function refOf(d, field, stages) {
+      let r = (field in d && d[field] is string) ? get(sigPath(d[field])).data : null;
+      return (r != null && r.kind == d.kind && r.entityId == d.entityId && r.stage in stages) ? r : null;
+    }
+    // سجل سابق لبدء التوقيع (قبل cutover): بلا توقيع تقديم، ويُكشف لاحقًا في فحوص السلامة
+    function preCutover(d, rel) { return d.get('nosub', false) == true && rel != null && d.get('edate', '9999-99-99') < rel.cutover; }
+    function sigShape(d, role, rel) {
+      return d.keys().hasOnly(['kind', 'stage', 'entityId', 'branchId', 'digest', 'email', 'role', 'at', 'cv', 'subRef', 'recountRef', 'nosub', 'edate', 'alert'])
+        && d.keys().hasAll(['kind', 'stage', 'entityId', 'branchId', 'digest', 'email', 'role', 'at', 'cv'])
+        && d.kind in ['closing', 'waste', 'count', 'po']
+        && d.stage in ['submit', 'recount', 'audit', 'gm', 'approve', 'reject']
+        && shortStr(d.entityId, 120) && d.entityId.size() > 0
+        && d.branchId is string && d.branchId.size() <= 80
+        && d.digest is string && d.digest.matches('^[0-9a-f]{64}$')
+        && d.email == userEmail() && d.role == role
+        && d.at == request.time && cvOkRel(d, rel)
+        && (!('edate' in d) || (d.edate is string && d.edate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')))
+        && (!('alert' in d) || d.alert is bool);
+    }
+    // «شخص آخر غير المقدّم» (adminExempt: حيث تستثني المنصة المدير اليوم)
+    function other(r, adm, adminExempt) { return r.email != userEmail() || (adminExempt && adm); }
+    function approveOk(d, role, adm, rel) {
+      let sub = refOf(d, 'subRef', ['submit']);
+      let rc = ('recountRef' in d) ? refOf(d, 'recountRef', ['recount']) : null;
+      return d.kind == 'closing'
+        ? (d.stage == 'audit' ? roleIn(closingAuditors(), role, adm) && ((sub != null && other(sub, adm, false)) || preCutover(d, rel))
+          : d.stage == 'gm' ? roleIn(closingGms(), role, adm)
+          : d.stage == 'reject' && (roleIn(closingAuditors(), role, adm) || roleIn(closingGms(), role, adm)))
+        : d.kind == 'waste'
+        ? d.stage in ['approve', 'reject'] && roleIn(wasteApprovers(), role, adm) && ((sub != null && other(sub, adm, true)) || preCutover(d, rel))
+        : d.kind == 'count'
+        ? d.stage in ['approve', 'reject'] && roleIn(countApprovers(), role, adm)
+          && ((sub != null && other(sub, adm, false) && (!('recountRef' in d) || (rc != null && other(rc, adm, false)))) || preCutover(d, rel))
+        : d.stage in ['approve', 'reject'] && roleIn(poApprovers(), role, adm)
+          && ((sub != null && (sub.get('alert', false) == false || other(sub, adm, true))) || preCutover(d, rel));
+    }
+    function sigCreate(d) {
+      let m = memOf();
+      let adm = admOf(m);
+      let rel = relOf();
+      let bId = d.get('branchId', '');
+      let scope = bId == '' ? (centralOf(m) || adm) : branchOf(m, adm, bId);
+      let ro = m != null && m.get('role', '') in ['accountant_view'];
+      return okUser(m, adm) && scope && sigShape(d, roleOf(m), rel)
+        && (d.stage in ['submit', 'recount'] ? (adm || !ro) : approveOk(d, roleOf(m), adm, rel));
+    }
+    function sigRead(bId) {
+      let m = memOf();
+      let adm = admOf(m);
+      return okUser(m, adm) && (adm || centralOf(m) || branchOf(m, adm, bId));
+    }
+    match /signoffs/{id} {
+      allow create: if sigCreate(request.resource.data);
+      allow read: if sigRead(resource.data.branchId);
+      allow update, delete: if false;
     }
 
     match /platform/{docId} {
@@ -141,12 +286,12 @@ service cloud.firestore {
         && docId != 'admins'
         && knownDoc(docId)
         && validShape(docId)
+        && (isChunkDoc(docId) || cvOk(request.resource.data))
         && (!isOrgDoc(docId)    || isAdmin())
         && (!isCoreDoc(docId)   || isCentral() || isAdmin())
         && (!isLegacyDoc(docId) || isCentral() || isAdmin())
         && (!isBranchDoc(docId) || canBranch(branchIdOf(docId)))
         && (baseId(docId) != 'rms8_dir' || isAdmin())
-        && (baseId(docId) != 'rms8_pulse' || pulseAuditSafe())
         // مستند النبض (الحضور وسجل التدقيق) يكتبه كل عضو نشط؛ غيره ممنوع على أدوار العرض فقط
         && (baseId(docId) == 'rms8_pulse' || isAdmin() || !readOnlyRole());
     }

@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { cloud, KEYS, bfKey, kb, authApi } from '../../storage';
 import { Settings, Check, Clock, HardDrive, Download, ShieldCheck, Upload, X, ShieldAlert, RefreshCw, Trash2, FileBarChart } from 'lucide-react';
-import { CloudHealth, Field, MfaPolicyCard, Modal, NationalAddressFields, PhotoField, ROLES, fmtNA, isoD, lockedThru, money, naClean, naErr, naHas, nowISO, periodLocked, snapAll, snapPut, today, uid, verifyBackup } from '../../App.jsx';
+import { CloudHealth, Field, MfaPolicyCard, Modal, NationalAddressFields, PhotoField, ROLES, fmtNA, isoD, lockedThru, money, naClean, naErr, naHas, nowISO, periodLocked, snapAll, snapPut, today, uid, verifyBackup, logAudit } from '../../App.jsx';
 
 export function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
   const [hist, setHist] = useState({ closings: [] });
@@ -277,10 +277,8 @@ export function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
     if (ra.data.ops) await cloud.set(KEYS.ops, ra.data.ops);
     if (ra.data.hist) await cloud.set(KEYS.hist, ra.data.hist);
     try {
-      const pu = await cloud.get(KEYS.pulse, { presence: {}, audit: [] });
-      pu.audit = [{ id: uid('lg'), at: Date.now(), timestamp: nowISO(), userName: me?.name || '', userRole: me?.role || '',
-        title: 'استعاد نسخة احتياطية كاملة', details: ra.name + ' · ' + (ra.report.exportedAt || '').slice(0, 10) + ' · ' + ra.report.counts.closings + ' إغلاق' }, ...(pu.audit || [])].slice(0, 400);
-      await cloud.set(KEYS.pulse, pu);
+      await logAudit({ id: uid('lg'), at: Date.now(), timestamp: nowISO(), userName: me?.name || '', userRole: me?.role || '',
+        title: 'استعاد نسخة احتياطية كاملة', details: ra.name + ' · ' + (ra.report.exportedAt || '').slice(0, 10) + ' · ' + ra.report.counts.closings + ' إغلاق' });   // v40.0: السجل المحصّن
     } catch { }
     setRestoreArm(null); reloadSnaps();
     say('تمت الاستعادة ووُثّقت — حدّث الصفحة لعرض البيانات المستعادة');

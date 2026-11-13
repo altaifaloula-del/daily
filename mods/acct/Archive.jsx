@@ -2,7 +2,7 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { cloud, bfKey, KEYS } from '../../storage';
 import { Image as ImageIcon, Camera, Upload, Store, CalendarDays, FileText, ClipboardCheck, Eye, Trash2, Check } from 'lucide-react';
-import { FILE_CATS, Field, Modal, Num, ROLES, arDate, isPdfData, money, nowISO, openPdfData, sum, today, uid } from '../../App.jsx';
+import { FILE_CATS, Field, Modal, Num, ROLES, arDate, isPdfData, money, nowISO, openPdfData, sum, today, uid, logAudit } from '../../App.jsx';
 
 export function Archive({ org, me, myBranches, say }) {
   const [items, setItems] = useState(null);
@@ -99,14 +99,13 @@ export function Archive({ org, me, myBranches, say }) {
     if (items === null) return;
     if (!(await persist(items.filter(x => x.id !== it.id), [homeOf(it)]))) return;
     try {
-      const pu = await cloud.get(KEYS.pulse, { presence: {}, audit: [] });
       const entry = {
         id: uid('lg'), timestamp: nowISO(), at: Date.now(), userName: me.name, userRole: me.role,
         userRoleLabel: (ROLES[me.role] || {}).ar || me.role, actionType: 'delete', targetType: 'archive_doc',
         targetId: it.id, branchId: it.branchId, branchName: it.branchName,
         title: 'حذف مستند من الأرشيف', details: (it.title || '') + (closingDoc ? ' · مستند توثيق إغلاق' : '')
       };
-      await cloud.set(KEYS.pulse, { ...pu, audit: [entry, ...(pu.audit || [])].slice(0, 150) });
+      await logAudit(entry);   // v40.0: السجل المحصّن (أو النبض خارج Firestore)
     } catch (e) { /* السجل تكميلي */ }
     say('تم حذف المستند من الأرشيف');
   };
