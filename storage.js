@@ -445,12 +445,12 @@ async function fsWrite(f, key, val) {
   const parts = chunks.length;
   if (parts > MAX_PARTS) { const e = new Error('doc-too-large: ' + key); e.code = 'doc-too-large'; throw e; }
   const headRef = f.doc(f.db, COL, docId(key));
-  if (parts === 1) { const head = { parts, updatedAt: Date.now(), value: s }; await f.setDoc(headRef, head); loadedStamp.set(key, stampOf(head)); return true; }
+  if (parts === 1) { const head = { parts, updatedAt: Date.now(), value: s, ...cvField() }; await f.setDoc(headRef, head); loadedStamp.set(key, stampOf(head)); return true; }
   // v34.6: أجزاء بنسخة جديدة أولًا، ثم الرأس يشير إليها — القارئ يرى القديم كاملًا أو الجديد كاملًا، ولا حد لحجم المستند
   let prev = null; try { const h = await f.getDoc(headRef); if (h.exists()) prev = h.data(); } catch { }
   const ver = newVer();
   await fsWriteChunks(f, key, ver, chunks);
-  const head = { parts, updatedAt: Date.now(), value: '', ver };
+  const head = { parts, updatedAt: Date.now(), value: '', ver, ...cvField() };
   await f.setDoc(headRef, head);
   loadedStamp.set(key, stampOf(head)); memDocs.set(key, { st: stampOf(head), v: JSON.parse(s) });
   if (prev && (prev.parts || 1) > 1) fsBlankLater(f, key, prev.ver || '', prev.parts);
@@ -468,7 +468,7 @@ async function fsWriteIf(f, key, val, expected) {
   const headRef = f.doc(f.db, COL, docId(key));
   const ver = parts > 1 ? newVer() : '';
   if (parts > 1) await fsWriteChunks(f, key, ver, chunks);
-  const head = parts > 1 ? { parts, updatedAt: Date.now(), value: '', ver } : { parts, updatedAt: Date.now(), value: s };
+  const head = parts > 1 ? { parts, updatedAt: Date.now(), value: '', ver, ...cvField() } : { parts, updatedAt: Date.now(), value: s, ...cvField() };
   let prev = null;
   try {
     await f.runTransaction(f.db, async (tx) => {
@@ -494,8 +494,13 @@ const local = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } }
 };
 
+/* v40.0 — رقم إصدار التطبيق في رأس كل مستند يُكتب: القواعد ترفض الكتابة من إصدار أقدم من الحد الأدنى (التحديث الإجباري) */
+let CLIENT_CV = 0;
+function cvField() { return CLIENT_CV ? { cv: CLIENT_CV } : {}; }
+
 /* ================= الواجهة الموحّدة ================= */
 export const cloud = {
+  setClientCv(n) { CLIENT_CV = Number(n) || 0; },
   /** v9: قراءة تُفرّق بين «غير موجود» و«مرفوض بالصلاحيات» — أساس مسار إقلاع الفروع */
   async tryGet(key) {
     const f = await firestore();

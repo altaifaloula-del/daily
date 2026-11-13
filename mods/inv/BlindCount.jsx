@@ -1,7 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useMemo, useState } from 'react';
 import { EyeOff, RotateCcw, Check, ClipboardCheck, X, Printer } from 'lucide-react';
-import { COUNT_ST, Field, MAIN_WH, Modal, aCountDone, aItemsOf, arDate, canApproveCount, countCfgOf, countFocus, fmtBalP, itemAvgCosts, money, nowISO, periodLocked, printA4, q3, stockByWh, sum, today, uid, whOn } from '../../App.jsx';
+import { COUNT_ST, Field, MAIN_WH, Modal, aCountDone, aItemsOf, arDate, canApproveCount, countCfgOf, countFocus, fmtBalP, itemAvgCosts, money, nowISO, periodLocked, printA4, q3, stockByWh, sum, today, uid, whOn, signoff, signDecision, sigFailMsg } from '../../App.jsx';
 
 export function BlindCount({ org, ops, me, commit, say, whId, branchId, col, items, title, canCount = true }) {
   const cc = countCfgOf(org);
@@ -29,7 +29,10 @@ export function BlindCount({ org, ops, me, commit, say, whId, branchId, col, ite
     const lines = ent.map(it => { const c1 = q3(Number(cnt[it.id]) || 0); return { itemId: it.id, c1, final: c1, book: bookOf(it.id), cost: Math.round((AVG[it.id] || 0) * 10000) / 10000 }; });
     lines.forEach(l => { l.flag = outTol(l); });
     const rc = lines.filter(l => l.flag).length;
-    const rec = { id: uid('cs'), whId, ...(branchId ? { branchId } : {}), col, scope: mode, date: today(), countedBy: me.name, at: nowISO(), lines, status: rc ? 'recount' : 'submitted' };
+    let rec = { id: uid('cs'), whId, ...(branchId ? { branchId } : {}), col, scope: mode, date: today(), countedBy: me.name, at: nowISO(), lines, status: rc ? 'recount' : 'submitted' };
+    // v40.0: تسليم العدّ يُوقَّع — لا يعتمده العادّ ولا مُعيد العدّ، والقواعد تفرض ذلك
+    const sg = await signoff('count', 'submit', rec); if (!sg.ok) return say(sigFailMsg(sg, 'تسليم الجرد'), 'no');
+    if (sg.id) rec = { ...rec, sigSubmit: sg.id };
     const ok = await commit(d => {
       if ((d.countSessions || []).some(s => (s.whId || MAIN_WH) === whId && (s.status === 'recount' || s.status === 'submitted'))) throw new Error('count-open');
       return { ...d, countSessions: [rec, ...(d.countSessions || [])] };
@@ -41,7 +44,8 @@ export function BlindCount({ org, ops, me, commit, say, whId, branchId, col, ite
     if (fl.some(l => cnt[l.itemId] === undefined || cnt[l.itemId] === '')) return say('أعد عدّ كل الأصناف المطلوبة', 'no');
     const lines = act.lines.map(l => { if (!l.flag) return l; const c2 = q3(Number(cnt[l.itemId]) || 0); return { ...l, c2, final: c2, book: bookOf(l.itemId) }; });
     const still = lines.filter(l => l.flag && outTol(l)).length;
-    const ok = await commit(d => ({ ...d, countSessions: (d.countSessions || []).map(s => s.id === act.id && s.status === 'recount' ? { ...s, lines, status: 'submitted', recountBy: me.name, recountAt: nowISO() } : s) }),
+    const sg = await signoff('count', 'recount', { ...act, lines }); if (!sg.ok) return say(sigFailMsg(sg, 'إعادة العدّ'), 'no');
+    const ok = await commit(d => ({ ...d, countSessions: (d.countSessions || []).map(s => s.id === act.id && s.status === 'recount' ? { ...s, lines, status: 'submitted', recountBy: me.name, recountAt: nowISO(), ...(sg.id ? { sigRecount: sg.id } : {}) } : s) }),
       { ...meta, targetId: act.id, title: 'إعادة عدّ — ' + title, details: fl.map(l => itN(l.itemId) + ' ' + l.c1 + '←' + q3(Number(cnt[l.itemId]) || 0)).join('، ').slice(0, 150) });
     if (ok) { setCnt({}); say('سُلّمت إعادة العدّ ✓' + (still ? ' — ' + still + ' صنف ما زال بفرق، يقرّره المعتمد' : '') + ' — بانتظار الاعتماد'); }
   };
@@ -49,6 +53,8 @@ export function BlindCount({ org, ops, me, commit, say, whId, branchId, col, ite
     const s = act; if (!s || s.status !== 'submitted') return;
     if (!canAppr) return say('لا تملك صلاحية اعتماد الجرد', 'no');
     if (s.countedBy === me.name || s.recountBy === me.name) return say('لا يعتمد العادّ جرده — يعتمده شخص آخر', 'no');
+    const sg = await signDecision('count', approve ? 'approve' : 'reject', s);   // v40.0 توقيع موثّق
+    if (!sg.ok) return say(sigFailMsg(sg, approve ? 'اعتماد الجرد' : 'رفض الجرد'), 'no');
     const diffs = s.lines.map(l => ({ ...l, d: q3(l.final - l.book) })).filter(l => Math.abs(l.d) > 0.0005);
     const date = periodLocked(org, s.date) ? today() : s.date;
     const recs = approve ? diffs.map(l => ({ id: uid(s.col === 'whMoves' ? 'wm' : 'sm'), ...(s.col === 'whMoves' || whOn(org) ? { whId } : {}), ...(branchId ? { branchId } : {}), itemId: l.itemId, kind: 'adjust', qty: l.d,
@@ -56,7 +62,7 @@ export function BlindCount({ org, ops, me, commit, say, whId, branchId, col, ite
     const logRec = { id: uid('sc'), whId, ...(branchId ? { branchId } : {}), date: s.date, counted: s.lines.length, diffs: diffs.length, by: s.countedBy, approvedBy: me.name, scope: s.scope, at: nowISO() };
     const ok = await commit(d => {
       const cur = (d.countSessions || []).find(x => x.id === s.id); if (!cur || cur.status !== 'submitted') throw new Error('count-decided');
-      const out = { ...d, countSessions: (d.countSessions || []).map(x => x.id === s.id ? { ...x, status: approve ? 'approved' : 'rejected', decidedBy: me.name, decidedAt: nowISO(), ...(note ? { decideNote: note } : {}) } : x) };
+      const out = { ...d, countSessions: (d.countSessions || []).map(x => x.id === s.id ? { ...x, ...(sg.id ? { sigDecide: sg.id } : {}), status: approve ? 'approved' : 'rejected', decidedBy: me.name, decidedAt: nowISO(), ...(note ? { decideNote: note } : {}) } : x) };
       if (approve) { out[s.col] = [...recs, ...(d[s.col] || [])]; out.stockCounts = [logRec, ...(d.stockCounts || [])]; }
       return out;
     }, { ...meta, targetId: s.id, title: (approve ? 'اعتماد جرد' : 'رفض جرد') + ' — ' + title, details: approve ? (diffs.length ? diffs.map(l => itN(l.itemId) + ' (' + (l.d > 0 ? '+' : '') + l.d + ')').join('، ').slice(0, 150) : 'مطابق بلا فروقات') : note || '' });

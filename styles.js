@@ -1578,4 +1578,11 @@ html,body{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .pi-done{display:flex;gap:10px;align-items:flex-start;border-color:rgba(79,178,134,.5);background:rgba(79,178,134,.06)}.pi-done div{display:flex;flex-direction:column;gap:3px}.pi-done small{color:var(--dim);font-size:11.5px}
 
 .pi-drafts{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;padding:9px 11px;border:1px solid rgba(91,147,196,.45);border-radius:12px;background:rgba(91,147,196,.06);font-size:12px;line-height:1.7;margin-bottom:8px}.pi-drafts .btn{flex:0 0 auto}
+
+/* v40.0 — التحديث الإجباري وشارات التوقيع */
+.upd-gate{position:fixed;inset:0;z-index:9999;background:rgba(10,9,7,.72);display:grid;place-items:center;padding:16px;backdrop-filter:blur(3px)}
+.upd-card{max-width:420px;width:100%;background:var(--ink2);border:1px solid var(--frame);border-radius:16px;padding:22px 20px;display:flex;flex-direction:column;gap:10px;align-items:center;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,.4)}
+.upd-card b{font-size:17px}.upd-card p{font-size:13px;line-height:1.8;color:var(--dim);margin:0}.upd-card small{font-size:11px;color:var(--faint)}
+.upd-ic{font-size:34px;color:var(--brass)}
+.sig-b{font-size:10px;margin-inline-start:6px;vertical-align:middle}
 `;

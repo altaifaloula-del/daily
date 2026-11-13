@@ -674,3 +674,35 @@ test('الأيام المستوردة بلا إغلاق تدخل التحليل 
   assert.deepEqual(d.deliverySales.map(x => [x.appId, x.amount, x.commissionAmount]), [['hs', 500, 100]]);
   assert.equal(E.buildAccounting(org, { closings: [d] }).entries.length, 0, 'المسودة لا تُقيَّد حتى تُرحَّل');
 });
+
+// ===== v40.0 — اختبار الانجراف: قوائم الأدوار في firestore.rules = أدوار المنصة في الكود =====
+test('الدستور: قوائم الأدوار في قواعد Firestore تطابق صلاحيات المنصة حرفيًا', async () => {
+  const fs = await import('node:fs');
+  const rules = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
+  const listOf = (tag) => { const m = rules.match(new RegExp('\\[ROLES:' + tag + '\\][^\\n]*\\n[^\\[]*\\[([^\\]]*)\\]')); assert.ok(m, 'لا قائمة ' + tag); return m[1].split(',').map(x => x.trim().replace(/'/g, '')).filter(Boolean).sort(); };
+  const R = E.ROLES, K = Object.keys(R), f = (p) => K.filter(k => p(R[k], k)).sort();
+  assert.deepEqual(listOf('AUDIT_READ'), f(r => (r.tabs || []).includes('audit')), 'قرّاء السجل = من يملك شاشة التدقيق');
+  assert.deepEqual(listOf('CLOSING_AUDIT'), f(r => r.scope !== 'own' && (r.tabs || []).includes('approve')), 'مدققو الإغلاق');
+  assert.deepEqual(listOf('CLOSING_GM'), f(r => !!r.approver), 'الاعتماد النهائي');
+  assert.deepEqual(listOf('WASTE'), f((r, k) => !!(r.approver || r.admin || r.costCtl || k === 'regional_manager')), 'معتمدو الهدر = canApproveWaste');
+  assert.deepEqual(listOf('COUNT'), f((r, k) => !!(E.rolePost(k) || r.approver || r.admin || k === 'regional_manager' || k === 'branch_manager')), 'معتمدو الجرد = canApproveCount');
+  assert.deepEqual(listOf('PO'), f(r => !!(r.approver || r.admin)), 'معتمدو أوامر الشراء');
+});
+
+test('الدستور ث19: التحقق من الاعتماد — موقّع ومطابق، أو عُدّل بعد اعتماده، أو بلا توقيع بعد بدء التوقيع، أو أقدم منه', () => {
+  const c = { id: 'c1', branchId: 'b1', date: '2026-11-20', cashSales: 1000, cardSales: 500, totalRevenue: 1500, expenses: [{ amount: 50, paymentMethod: 'cash', categoryName: 'غاز' }], totalExpenses: 50, actualCashCount: 950, variance: 0, status: 'approved', auditedAt: '2026-11-21T10:00:00Z', gmApprovalStatus: 'pending' };
+  const sig = { kind: 'closing', entityId: 'c1', stage: 'audit', digest: E.sigDigest('closing', c), atMs: 2 };
+  assert.equal(E.sigVerify('closing', c, [sig], '2026-11-13').st, 'ok');
+  assert.equal(E.sigVerify('closing', { ...c, cashSales: 900 }, [sig], '2026-11-13').st, 'tampered', 'تعديل رقم بعد الاعتماد');
+  assert.equal(E.sigVerify('closing', { ...c, expenses: [{ amount: 500, paymentMethod: 'cash', categoryName: 'غاز' }] }, [sig], '2026-11-13').st, 'tampered', 'تعديل مصروف');
+  assert.equal(E.sigVerify('closing', { ...c, auditedBy: 'آخر', updatedAt: 'x' }, [sig], '2026-11-13').st, 'ok', 'حقول غير مالية لا تغيّر البصمة');
+  assert.equal(E.sigVerify('closing', c, [], '2026-11-13').st, 'unsigned', 'معتمد بعد بدء التوقيع بلا توقيع');
+  assert.equal(E.sigVerify('closing', { ...c, auditedAt: '2026-11-01T10:00:00Z' }, [], '2026-11-13').st, 'legacy');
+  assert.equal(E.sigVerify('closing', { ...c, status: 'submitted' }, [], '2026-11-13').st, 'na');
+  assert.equal(E.sigVerify('closing', c, null, '2026-11-13').st, 'na', 'خارج Firestore');
+  const gm = { ...c, gmApprovalStatus: 'approved', gmApprovedAt: '2026-11-22T10:00:00Z' };
+  assert.equal(E.sigVerify('closing', gm, [sig], '2026-11-13').st, 'unsigned', 'الاعتماد النهائي يحتاج توقيعه');
+  assert.equal(E.sigVerify('closing', gm, [sig, { ...sig, stage: 'gm' }], '2026-11-13').st, 'ok');
+  const C = Object.fromEntries(E.integrityChecks(baseOrg(), { closings: [{ ...c, cashSales: 1 }] }, { sigs: [sig], cutover: '2026-11-13' }).map(x => [x.id, x]));
+  assert.equal(C.signoffs.st, 'bad'); assert.match(C.signoffs.items[0], /عُدّل بعد اعتماده/);
+});

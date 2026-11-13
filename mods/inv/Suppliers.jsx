@@ -1,7 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useMemo } from 'react';
 import { Truck, FileBarChart, ChevronDown, Printer, FileText, Building2, ClipboardCheck, Users, Plus, AlertTriangle, CalendarDays, Trash2, Check, X, Banknote } from 'lucide-react';
-import { DupInvHint, Field, Kpi, LOCK_MSG, MAIN_WH, Modal, Num, ROLES, SectionNav, arDate, branchBanks, closingInvoices, isStocked, isoD, itemType, money, nowISO, pFactor, payTotal, periodLocked, printA4, purKey, q3, roleEdit, roleHasTab, stockByWh, sum, supplierPrices, today, uid, whName, whOf, whOn } from '../../App.jsx';
+import { DupInvHint, Field, Kpi, LOCK_MSG, MAIN_WH, Modal, Num, ROLES, SectionNav, arDate, branchBanks, closingInvoices, isStocked, isoD, itemType, money, nowISO, pFactor, payTotal, periodLocked, printA4, purKey, q3, roleEdit, roleHasTab, stockByWh, sum, supplierPrices, today, uid, whName, whOf, whOn, signoff, signDecision, sigFailMsg } from '../../App.jsx';
 
 export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: goTab }) {
   const [tab, setTab] = useState('inv');
@@ -107,7 +107,9 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
   const decidePo = async (p2, approve) => {
     if (approve && p2.priceAlert && p2.by === me.name && !ROLES[me.role]?.admin) return say('أمر بتنبيه سعر — يعتمده شخص غير منشئه', 'no');
     const note = approve ? '' : window.prompt('سبب رفض أمر الشراء ' + p2.poNo + ':'); if (!approve && note === null) return;
-    await commit(d => ({ ...d, purchaseOrders: (d.purchaseOrders || []).map(x => x.id === p2.id && x.status === 'pending' ? { ...x, status: approve ? 'open' : 'rejected', decidedBy: me.name, decidedAt: nowISO(), ...(note ? { rejectNote: note } : {}) } : x) }),
+    const sg = await signDecision('po', approve ? 'approve' : 'reject', p2, { branchId: '' });   // v40.0 توقيع موثّق
+    if (!sg.ok) return say(sigFailMsg(sg, approve ? 'اعتماد أمر الشراء' : 'رفض أمر الشراء'), 'no');
+    await commit(d => ({ ...d, purchaseOrders: (d.purchaseOrders || []).map(x => x.id === p2.id && x.status === 'pending' ? { ...x, ...(sg.id ? { sigDecide: sg.id } : {}), status: approve ? 'open' : 'rejected', decidedBy: me.name, decidedAt: nowISO(), ...(note ? { rejectNote: note } : {}) } : x) }),
       { actionType: 'update', targetType: 'purchase_order', targetId: p2.id, need: 'post', title: (approve ? 'اعتمد' : 'رفض') + ' أمر شراء', details: p2.poNo + ' · ' + money(poTotal(p2)) + (note ? ' · ' + note : '') });
     say(approve ? 'اعتُمد أمر الشراء ✓' : 'رُفض أمر الشراء');
   };
@@ -166,8 +168,10 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     const hiPrice = lines.filter(l => l.pAlert).length;
     // v37.7: بند بسعر أعلى من متوسط آخر 3 مشتريات بأكثر من الحد ⇒ الأمر يحتاج اعتمادًا ولو كان تحت حد القيمة
     const needAppr = (apprLimit > 0 && tot0 > apprLimit) || hiPrice > 0;
-    const rec = { id: uid('po'), poNo: nextPoNo(), supplierId: sp.id, supplierName: sp.name,
+    let rec = { id: uid('po'), poNo: nextPoNo(), supplierId: sp.id, supplierName: sp.name,
       branchId: f.branchId || '', note: f.note || '', lines, status: needAppr ? 'pending' : 'open', by: me.name, at: nowISO(), date: today(), ...(hiPrice ? { priceAlert: hiPrice } : {}) };
+    // v40.0: أمر بانتظار الاعتماد يُوقَّع تقديمه — مع تنبيه السعر لا يعتمده منشئه (إلا المدير)، والقواعد تفرض ذلك
+    if (needAppr) { const sg = await signoff('po', 'submit', rec, { branchId: '', alert: hiPrice > 0 }); if (!sg.ok) return say(sigFailMsg(sg, 'أمر الشراء'), 'no'); if (sg.id) rec = { ...rec, sigSubmit: sg.id }; }
     await commit(d => ({ ...d, purchaseOrders: [rec, ...(d.purchaseOrders || [])] }), {
       actionType: 'create', targetType: 'purchase_order', targetId: rec.id,
       title: 'أنشأ أمر شراء', details: rec.poNo + ' · ' + sp.name + ' · ' + money(poTotal(rec))

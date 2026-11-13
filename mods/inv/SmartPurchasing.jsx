@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { Printer, Download, Check, AlertTriangle, Truck, HardDrive, Plus, ClipboardCheck } from 'lucide-react';
 import { ForecastPurchase } from './ForecastPurchase.jsx';
-import { Kpi, ROLES, _xe, arDate, isoD, makeXlsx, money, nowISO, printA4, stockByWh, sum, today, uid } from '../../App.jsx';
+import { Kpi, ROLES, _xe, arDate, isoD, makeXlsx, money, nowISO, printA4, stockByWh, sum, today, uid, signoff, sigFailMsg } from '../../App.jsx';
 
 export function SmartPurchasing({ org, ops, me, commit, commitOrg, say }) {
   const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
@@ -45,6 +45,7 @@ export function SmartPurchasing({ org, ops, me, commit, commitOrg, say }) {
     const lines = toOrder.map(r => ({ desc: r.it.name, itemId: r.it.id, qty: r.suggested, price: r.price, received: 0 }));
     const lim = Number((org.purchaseCfg || {}).approvalLimit) || 0, tot = sum(lines, l => l.qty * l.price);   // v39.0: يمر بحد الاعتماد كأي أمر شراء
     const rec = { id: uid('po'), poNo, supplierId: sp.id, supplierName: sp.name, branchId: '', note: 'إعادة طلب تلقائي', lines, status: lim > 0 && tot > lim ? 'pending' : 'open', by: me.name, at: nowISO(), date: today() };
+    if (rec.status === 'pending') { const sg = await signoff('po', 'submit', rec, { branchId: '', alert: false }); if (!sg.ok) return say(sigFailMsg(sg, 'أمر الشراء'), 'no'); if (sg.id) rec.sigSubmit = sg.id; }   // v40.0
     await commit(d => ({ ...d, purchaseOrders: [rec, ...(d.purchaseOrders || [])] }), { actionType: 'create', targetType: 'purchase_order', targetId: rec.id, title: 'أنشأ أمر شراء (إعادة طلب)', details: poNo + ' · ' + sp.name + ' · ' + lines.length + ' صنف' });
     say('أُنشئ أمر الشراء ' + poNo + ' ✓' + (rec.status === 'pending' ? ' — بانتظار الاعتماد (فوق حد ' + money(lim) + ')' : ' — تابعه من «الموردون ← أوامر الشراء»'));
   };

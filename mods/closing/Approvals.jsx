@@ -1,12 +1,15 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ClipboardCheck, ShieldCheck, AlertTriangle, Eye, Check, X, Lock } from 'lucide-react';
-import { Badge, ClosingView, Kpi, LOCK_MSG, ROLES, arDate, arTime, money, nowISO, periodLocked, uid } from '../../App.jsx';
+import { Badge, ClosingView, Kpi, LOCK_MSG, ROLES, arDate, arTime, money, nowISO, periodLocked, uid, signDecision, sigFailMsg, loadRelease, loadSignoffs, sigVerify, SIG_BADGE } from '../../App.jsx';
 
 export function Approvals({ org, me, scoped, commit, say }) {
   const [note, setNote] = useState({});
   const [view, setView] = useState(null);
   const isGM = !!ROLES[me.role]?.approver;
+  // v40.0: حالة التوقيع الموثّق لكل إغلاق في القائمة
+  const [sigs, setSigs] = useState(null); const [cut, setCut] = useState('');
+  useEffect(() => { let dead = false; (async () => { const r = await loadRelease(); const l = await loadSignoffs(me, [...new Set(scoped.closings.map(c => c.branchId))]); if (!dead) { setCut((r && r.cutover) || ''); setSigs(l); } })(); return () => { dead = true; }; }, [me, scoped.closings.length]);
   const queue = scoped.closings.filter(c => c.status === 'submitted' || (c.status === 'approved' && c.gmApprovalStatus === 'pending'))
     .sort((a, b) => b.date.localeCompare(a.date));
 
@@ -14,15 +17,19 @@ export function Approvals({ org, me, scoped, commit, say }) {
     const reason = note[c.id] || '';
     if ((kind === 'audit' || kind === 'reject') && periodLocked(org, c.date)) return say(LOCK_MSG(c.date), 'no');
     if (kind === 'reject' && !reason) return say('اكتب سبب الرفض قبل الإرجاع', 'no');
+    // v40.0: توقيع موثّق قبل الحفظ — القواعد ترفض غير المؤهل، ومن قدّم الإغلاق لا يدققه (قرار المالك)
+    const sg = await signDecision('closing', kind, c);
+    if (!sg.ok) return say(sigFailMsg(sg, kind === 'audit' ? 'التدقيق' : kind === 'gm' ? 'الاعتماد النهائي' : 'الرفض'), 'no');
+    const sigF = sg.id ? { [kind === 'audit' ? 'sigAudit' : kind === 'gm' ? 'sigGm' : 'sigReject']: sg.id } : {};
     await commit(d => ({
       ...d,
       // v15.12: رفض الإغلاق يُبطِل توريده أيضًا (الحالة → rejected) فلا يبقى قيدٌ «تحت التحويل» وهمي في الحساب الوسيط ولا نقصٌ في نقد الفرع. (مطابق لسلوك حذف الإغلاق.)
       transfers: kind === 'reject' ? (d.transfers || []).map(t => t.closingId === c.id ? { ...t, status: 'rejected' } : t) : d.transfers,
       closings: d.closings.map(x => {
         if (x.id !== c.id) return x;
-        if (kind === 'audit') return { ...x, status: 'approved', auditedBy: me.name, auditedAt: nowISO(), updatedAt: nowISO() };
-        if (kind === 'gm') return { ...x, gmApprovalStatus: 'approved', gmApprovedBy: me.name, gmApprovedAt: nowISO(), gmNotes: reason, updatedAt: nowISO() };
-        return { ...x, status: 'rejected', rejectionReason: reason, updatedAt: nowISO() };
+        if (kind === 'audit') return { ...x, ...sigF, status: 'approved', auditedBy: me.name, auditedAt: nowISO(), updatedAt: nowISO() };
+        if (kind === 'gm') return { ...x, ...sigF, gmApprovalStatus: 'approved', gmApprovedBy: me.name, gmApprovedAt: nowISO(), gmNotes: reason, updatedAt: nowISO() };
+        return { ...x, ...sigF, status: 'rejected', rejectionReason: reason, updatedAt: nowISO() };
       }),
       notifications: [{
         id: uid('n'), type: kind === 'reject' ? 'closing_rejected' : 'gm_approval',
@@ -63,6 +70,9 @@ export function Approvals({ org, me, scoped, commit, say }) {
               </div>
               <div className="row">
                 <Badge s={c.status} />
+                {sigs && (needAudit
+                  ? (c.sigSubmit ? <span className="badge b-mint sig-b">ترحيل موقّع</span> : (cut && c.date >= cut ? <span className="badge b-rose sig-b" title="رُحّل بلا توقيع موثّق — يتعذّر تدقيقه حتى يُعاد ترحيله">ترحيل بلا توقيع</span> : null))
+                  : (() => { const v = sigVerify('closing', c, sigs, cut); return SIG_BADGE[v.st] ? <span className={'badge sig-b ' + SIG_BADGE[v.st][0]}>{SIG_BADGE[v.st][1]}</span> : null; })())}
                 {needAudit ? <span className="badge b-dim">المرحلة 1: تدقيق مالي</span> : <span className="badge b-sky">المرحلة 2: اعتماد نهائي</span>}
               </div>
             </div>
