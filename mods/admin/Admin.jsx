@@ -217,7 +217,7 @@ export function Admin({ org, ops, me, commit, commitOrg, say }) {
       {tab === 'cats' && <CategoriesPanel org={org} ops={ops} commitOrg={commitOrg} say={say} />}
       {tab === 'delivery' && <DeliveryAppsPanel org={org} ops={ops} commitOrg={commitOrg} say={say} />}
       {tab === 'appperms' && <AppPermsPanel org={org} commitOrg={commitOrg} say={say} />}
-      {tab === 'maint' && <SystemMaintenance org={org} ops={ops} me={me} commit={commit} say={say} />}
+      {tab === 'maint' && <SystemMaintenance org={org} ops={ops} me={me} commit={commit} commitOrg={commitOrg} say={say} />}
       {tab === 'system' && <SystemPanel org={org} ops={ops} me={me} commit={commit} commitOrg={commitOrg} say={say} />}
       {tab === 'perms' && (() => {
         const roleIds = ['system_admin', 'general_management', 'head_office', 'finance_department', 'cost_controller', 'regional_manager', 'branch_manager', 'cashier'];

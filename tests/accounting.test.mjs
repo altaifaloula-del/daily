@@ -1026,3 +1026,30 @@ test('الأرشفة: فواتير الأشهر المقفلة الأقدم من
   const tb = (x) => JSON.stringify(E.buildAccounting(org, x).accounts.map(a => [a.code, Math.round(a.balance * 100)]));
   assert.equal(tb({ ...ops, posOrders: ops.posOrders.filter(x => !ids.has(x.id)) }), tb(ops), 'ميزان المراجعة متطابق قبل الأرشفة وبعدها');
 });
+
+test('v41.9 سجلات الإغلاق المستقلة: الفرق، مرجع التوقيع لكل انتقال، والمطابقة تكشف الناقص والمختلف والزائد', () => {
+  const c = (x) => ({ id: 'c1', branchId: 'b1', date: '2026-11-14', status: 'draft', gmApprovalStatus: 'pending', cashSales: 100, cardSales: 50, totalRevenue: 150, expenses: [], ...x });
+  const sub = c({ status: 'submitted', sigSubmit: 's1' });
+  const aud = { ...sub, status: 'approved', sigAudit: 'a1' }, gm = { ...aud, gmApprovalStatus: 'approved', sigGm: 'g1' }, rej = { ...sub, status: 'rejected', sigReject: 'r1' };
+  assert.equal(E.clrSigRef(c(), sub), '', 'الترحيل كتابة تشغيلية بلا قرار');
+  assert.equal(E.clrSigRef(sub, aud), 'a1'); assert.equal(E.clrSigRef(aud, gm), 'g1'); assert.equal(E.clrSigRef(sub, rej), 'r1');
+  assert.equal(E.clrSigRef(gm, { ...gm, transferStatus: 'received' }), '', 'تحديث تشغيلي لمعتمد بلا قرار جديد');
+  const R = E.clrRecord(aud, sub);
+  assert.deepEqual([R.branchId, R.date, R.status, R.gm, R.sigRef], ['b1', '2026-11-14', 'approved', 'pending', 'a1']);
+  assert.match(R.digest, /^[0-9a-f]{64}$/);
+  assert.equal(R.digest, E.clrRecord({ ...aud, transferStatus: 'received' }).digest, 'البصمة لا تتأثر بالبيانات التشغيلية');
+  assert.notEqual(R.digest, E.clrRecord({ ...aud, cashSales: 101 }).digest, 'وتتأثر بالأرقام');
+  const img = 'data:image/jpeg;base64,' + 'A'.repeat(9000);
+  assert.ok(E.clrRecord({ ...aud, cardReceiptImage: img }).data.length < 2000, 'الصور الكبيرة لا تُنسخ إلى السجل');
+  const D = E.clrDiff([sub, c({ id: 'c2' }), c({ id: 'bad id!' })], [aud, c({ id: 'c3' }), c({ id: 'c4', branchId: '' })]);
+  assert.deepEqual(D.put.map(p => p.x.id), ['c1', 'c3']); assert.equal(D.put[0].prev.status, 'submitted');
+  assert.deepEqual(D.del.map(d => d.id), ['c2'], 'المعرّف غير الصالح لا يُحذف'); assert.deepEqual(D.skip.map(s => s.x.id), ['c4'], 'بلا فرع لا يُنسخ');
+  assert.deepEqual(E.clrDiff([sub], [JSON.parse(JSON.stringify(sub))]).put, [], 'لا كتابة بلا تغيير');
+  const recOf = (x) => ({ id: x.id, ...E.clrRecord(x) });
+  assert.equal(E.clrCompare([aud], [recOf(aud)]).ok, true);
+  const K = E.clrCompare([aud, c({ id: 'c5' })], [{ ...recOf(aud), status: 'submitted' }, recOf(c({ id: 'c9' }))]);
+  assert.deepEqual([K.ok, K.missing.map(x => x.id), K.differ.map(x => x.id), K.extra.map(x => x.id)], [false, ['c5'], ['c1'], ['c9']]);
+  assert.equal(E.clrCompare([{ ...aud, cashSales: 999 }], [recOf(aud)]).differ.length, 1, 'تعديل الأرقام في مستند الفرع يُكشف');
+  assert.equal(E.clrOn({ closingRecords: { on: true } }), true); assert.equal(E.clrOn({}), false, 'مُطفأة افتراضيًا');
+  assert.equal(E.clrOn(E.dirOf({ company: {}, closingRecords: { on: true } })), true, 'الإشارة تصل لأجهزة الفروع عبر الدليل');
+});

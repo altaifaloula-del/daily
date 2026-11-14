@@ -732,3 +732,23 @@ test('v41.8 فحص النسخة الليلية المشفّرة: يُطلب ال
   assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v41.9 الإغلاقات سجلات مستقلة: مُطفأة افتراضيًا، يفعّلها المدير بتأكيد، وتصل الإشارة لأجهزة الفروع عبر الدليل', async () => {
+  const ctx = await browser.newContext(devices['iPad (gen 7)']); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  p.on('dialog', d => d.accept());
+  await p.goto(base + 'live/Admin/admin'); await p.reload(); await p.waitForTimeout(500); await settle(p);
+  await p.locator('button:has-text("صيانة")').first().click(); await p.waitForTimeout(500);
+  const card = p.locator('[data-clr]');
+  assert.match(await card.innerText(), /غير مفعّل/);
+  assert.equal(await card.locator('button:has-text("ترحيل الإغلاقات الحالية")').count(), 0, 'لا ترحيل قبل التفعيل');
+  await card.locator('button:has-text("تفعيل النسخ")').click(); await p.waitForTimeout(400);
+  assert.equal(await p.evaluate(() => !!(window.curOrg.closingRecords || {}).on), true);
+  assert.match(await card.innerText(), /النسخ مفعّل/);
+  assert.equal(await card.locator('button:has-text("ترحيل الإغلاقات الحالية")').count(), 1);
+  await card.locator('button:has-text("مطابقة")').click(); await p.waitForTimeout(400);
+  assert.match(await p.evaluate(() => window.lastSay || ''), /Firestore فقط/, 'خارج Firestore رسالة واضحة لا انهيار');
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true);
+  await card.locator('button:has-text("إيقاف النسخ")').click(); await p.waitForTimeout(400);
+  assert.equal(await p.evaluate(() => !!(window.curOrg.closingRecords || {}).on), false, 'الإيقاف متاح للتراجع');
+  assert.deepEqual(errs, []); await ctx.close();
+});

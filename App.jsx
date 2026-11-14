@@ -667,7 +667,7 @@ function dirOf(org) {
     users: (org.users || []).map(u => ({ id: u.id, name: u.name, email: u.email || '', role: u.role, branchId: u.branchId || '', allowedBranchIds: u.allowedBranchIds || [], appAllow: u.appAllow || [], appDeny: u.appDeny || [], isActive: u.isActive !== false })),
     partners: (org.partners || []).map(p => ({ id: p.id, key: p.key, name: p.name, type: p.type, cat: p.cat || '', code: p.code || '' })),
     customAccounts: org.customAccounts || [],   // v15.21: لازمة لتطابق أكواد بنوك الفروع المربوطة بالدليل على أجهزة الفروع
-    periodLocks: org.periodLocks || {},
+    periodLocks: org.periodLocks || {}, closingRecords: org.closingRecords || null,   // v41.9
     appsCfg: org.appsCfg || {},
     // v24.0: إعدادات HR غير الحساسة التي تحتاجها شاشات الفروع (سماحية التأخير، أوزان الدرجة، قواعد النقاط، أهداف KPI)
     hrPolicies: org.hrPolicies || {}, pointsRules: org.pointsRules || {}, kpiTargets: org.kpiTargets || {}, rewardTiers: org.rewardTiers || {}, trainingPrograms: org.trainingPrograms || [], roleKpis: org.roleKpis || [],
@@ -2839,7 +2839,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v41.8';
+const APP_VER = 'v41.9';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3615,7 +3615,10 @@ function PlatformApp() {
   const commit = useCallback(async (mutator, log) => {
     // v15.12: البوابة المركزية — ترفض أي حفظ حسّاس (log.need) لا يملك المستخدم صلاحيته، مهما كان مصدر النداء.
     if (log?.need && !capOK(me?.role, log.need)) { say('لا تملك صلاحية هذا الإجراء — تواصل مع مدير النظام', 'no'); return false; }
-    const ok = await writeOps(mutator);
+    // v41.9: نلتقط قائمة الإغلاقات قبل/بعد آخر تطبيق للتعديل لنسخ الفرق إلى السجلات المستقلة (إن فُعّلت)
+    let clBefore = null, clAfter = null;
+    const ok = await writeOps(d => { const r = mutator(d); clBefore = d.closings; clAfter = r && r.closings; return r; });
+    if (ok && clAfter && clAfter !== clBefore && clrOn(orgNow.current)) clrQueue(clBefore, clAfter);   // بالخلفية وبالترتيب — لا يؤخر الحفظ
     if (!ok) {
       // v27.1: رسالة تُسمّي السبب — رفض صلاحيات الخادم (عضوية الحساب لا تحمل فرعه) يختلف تمامًا عن انقطاع الشبكة
       const k = lastWriteErr.current;
@@ -10321,6 +10324,81 @@ function sigDigest(kind, x) {
     : [x.id, x.supplierId || '', (x.lines || []).map(l => [l.itemId || l.desc || '', q(l.qty), r2(l.price)])];
   return sha256Hex(JSON.stringify(a));
 }
+/* ===== v41.9 — الإغلاقات سجلات مستقلة (closings/{id}) — المرحلة الأولى: نسخ مطابق (mirror) =====
+   مستند الفرع يبقى مصدر الحقيقة في هذه المرحلة؛ كل كتابة إغلاق تُنسخ إلى سجل مستقل تحرسه القواعد حقلًا حقلًا
+   (الفرع: مسودة/مرحّل فقط؛ «معتمد/مرفوض/نهائي» بتوقيع موثّق للكاتب نفسه). المطابقة تكشف أي فرق بين الاثنين.
+   مُطفأة افتراضيًا: org.closingRecords = { on: true } يفعّلها المدير. */
+const CLR_BIG = 4000;   // الحقول النصية الكبيرة (صور base64) لا تُنسخ — الصور في أرشيف المستندات
+const clrData = (x) => JSON.stringify(x, (k, v) => (typeof v === 'string' && v.length > CLR_BIG) ? '[ملف]' : v);
+const clrGm = (v) => ['pending', 'approved', 'rejected'].includes(v) ? v : '';
+/** مرجع التوقيع المطلوب لانتقال الحالة (كما تشترطه القواعد) — '' لكتابة تشغيلية */
+function clrSigRef(prev, x) {
+  if (x.status === 'rejected' && (!prev || prev.status !== 'rejected')) return x.sigReject || '';
+  if (x.gmApprovalStatus === 'approved' && (!prev || prev.gmApprovalStatus !== 'approved')) return x.sigGm || '';
+  if (x.status === 'approved' && (!prev || prev.status !== 'approved')) return x.sigAudit || '';
+  return '';
+}
+/** حقول السجل كما تراها القواعد (بلا by/at/cv التي تضيفها طبقة الكتابة) */
+function clrRecord(x, prev) {
+  const ref = clrSigRef(prev, x);
+  return { branchId: String(x.branchId || ''), date: String(x.date || '').slice(0, 10), status: ['draft', 'submitted', 'approved', 'rejected'].includes(x.status) ? x.status : 'draft',
+    gm: clrGm(x.gmApprovalStatus), digest: sigDigest('closing', x), data: clrData(x), ...(ref ? { sigRef: String(ref) } : {}) };
+}
+const clrOkId = (id) => /^[A-Za-z0-9_-]{1,120}$/.test(String(id || ''));
+/** الفرق بين قائمتي إغلاقات: ما يُكتب وما يُحذف */
+function clrDiff(before, after) {
+  const B = new Map((before || []).map(c => [c.id, c])), A = new Map((after || []).map(c => [c.id, c]));
+  const put = [], del = [], skip = [];
+  A.forEach((x, id) => { const p = B.get(id); if (p && JSON.stringify(p) === JSON.stringify(x)) return; (clrOkId(id) && x.branchId ? put : skip).push({ x, prev: p || null }); });
+  B.forEach((p, id) => { if (!A.has(id) && clrOkId(id)) del.push({ id, prev: p }); });
+  return { put, del, skip };
+}
+/** مطابقة مستند الفرع مع السجلات المستقلة: ناقص · مختلف · زائد */
+function clrCompare(closings, recs) {
+  const R = new Map((recs || []).map(r => [r.id, r])), missing = [], differ = [], seen = new Set();
+  (closings || []).forEach(c => { if (!clrOkId(c.id) || !c.branchId) return; const r = R.get(c.id); seen.add(c.id);
+    if (!r) missing.push(c); else if (r.data !== clrData(c) || r.status !== clrRecord(c).status || r.gm !== clrGm(c.gmApprovalStatus) || r.digest !== sigDigest('closing', c)) differ.push(c); });
+  const extra = (recs || []).filter(r => !seen.has(r.id));
+  return { ok: !missing.length && !differ.length && !extra.length, missing, differ, extra, total: (closings || []).length, recs: (recs || []).length };
+}
+const clrOn = (org) => !!(org && org.closingRecords && org.closingRecords.on);
+let _clrState = { at: 0, ok: 0, fail: 0, lastErr: '' };
+const clrState = () => _clrState;
+/** نسخ الفرق إلى السجلات المستقلة — لا يُفشل الحفظ (المستند ما زال المصدر)، ويُسجَّل الإخفاق للمطابقة */
+async function clrMirror(before, after) {
+  const c = await ctlIdentity(); if (!c) return null;
+  const { put, del } = clrDiff(before, after); if (!put.length && !del.length) return { ok: 0, fail: 0 };
+  let ok = 0, fail = 0, lastErr = '';
+  for (const { x, prev } of put) {
+    try { await ctlTimeout(c.f.setDoc(c.f.doc(c.f.db, 'closings', String(x.id)), { ...clrRecord(x, prev), by: c.email, at: c.f.serverTimestamp(), cv: APP_CV })); ok++; }
+    catch (e) { fail++; lastErr = (e && e.code) || 'error'; }
+  }
+  for (const { id } of del) { try { await ctlTimeout(c.f.deleteDoc(c.f.doc(c.f.db, 'closings', String(id)))); ok++; } catch (e) { fail++; lastErr = (e && e.code) || 'error'; } }
+  _clrState = { at: Date.now(), ok: _clrState.ok + ok, fail: _clrState.fail + fail, lastErr: lastErr || _clrState.lastErr };
+  return { ok, fail, lastErr };
+}
+let _clrChain = Promise.resolve();
+const clrQueue = (before, after) => { _clrChain = _clrChain.then(() => clrMirror(before, after)).catch(() => null); return _clrChain; };
+/** قراءة السجلات المستقلة (للمطابقة والترحيل): المركز كلها، والفرع فروعه */
+async function clrLoad(branchIds, central) {
+  const c = await ctlIdentity(); if (!c) return null;
+  try {
+    const qs = central ? [c.f.collection(c.f.db, 'closings')] : (branchIds || []).filter(Boolean).slice(0, 30).map(b => c.f.query(c.f.collection(c.f.db, 'closings'), c.f.where('branchId', '==', b)));
+    const snaps = await ctlTimeout(Promise.all(qs.map(q => c.f.getDocs(q))), 30000);
+    return snaps.flatMap(s => s.docs.map(d => ({ id: d.id, ...(d.data() || {}) })));
+  } catch (e) { return { err: (e && e.code) || 'error' }; }
+}
+/** الترحيل الأول (المدير): كتابة كل الإغلاقات الحالية سجلاتٍ مستقلة ثم التحقق بالمطابقة */
+async function clrSeed(closings, onProgress) {
+  const c = await ctlIdentity(); if (!c) return { err: 'خارج Firestore' };
+  let ok = 0, fail = 0, lastErr = '', i = 0; const list = (closings || []).filter(x => clrOkId(x.id) && x.branchId);
+  for (const x of list) {
+    try { await ctlTimeout(c.f.setDoc(c.f.doc(c.f.db, 'closings', String(x.id)), { ...clrRecord(x, x), by: c.email, at: c.f.serverTimestamp(), cv: APP_CV })); ok++; }
+    catch (e) { fail++; lastErr = (e && e.code) || 'error'; }
+    if (onProgress && (++i % 20 === 0)) onProgress(i, list.length);
+  }
+  return { ok, fail, lastErr, total: list.length };
+}
 const SIG_NAME = { submit: 'تقديم', recount: 'إعادة عدّ', audit: 'تدقيق', gm: 'اعتماد نهائي', approve: 'اعتماد', reject: 'رفض' };
 /** توقيع موثّق: { ok, id } — خارج Firestore { ok:true, id:null, local:true }. القواعد ترفض غير المؤهل أو المقدّم نفسه */
 async function signoff(kind, stage, x, opts = {}) {
@@ -10652,7 +10730,7 @@ async function qrAnalyzeComments(items) {
 
 
 // v38.3 — ما تحتاجه ملفات التطبيقات المنفصلة (mods/) من النواة
-export { A4_CSS, isMzbk, mzbkDecrypt, OdooBar, ACCT_SECTIONS, ACCT_SEC_AR, ACC_KIND, ALL_TABS, APPS, AdvanceForm, AppPermsPanel, AppsStrip, BR_COLS, Badge, BalCell, BlindCount, BranchForm, COUNT_FREQ, COUNT_ST, CameraModal, CategoriesPanel, ClosingView, CloudHealth, CountScheduleCard, DAYS_AR, DENOMS, DOC_LABEL, DOC_TYPES, DailyBranchReport, DeliveryAppsPanel, DisbursementForm, DupInvHint, EXP_CATS, FILE_CATS, Field, FinancialReports, GROWTH_MONTHS, HR_WEEK_DAYS, HrSignPad, ITEM_TYPES, Kpi, LAUNCH_APPS, LEAVE_TYPES, LOCK_MSG, MAIN_WH, MFA_DEFAULT_ROLES, MOVE_KINDS, MZ_FIXED, MZ_KIND_AR, MZ_LOGO_HTML, MZ_SUGGEST, MfaPolicyCard, MizanMerge, Modal, MoneyField, NUM_FACE, NUM_LOCALE, NationalAddressFields, Num, OutputDialog, PAY_ADD_TYPES, PAY_GUESS, PEN_TYPES, POS_DEV_KEY, POS_SH_KEY, PROMO_IDEAS, PROMO_T, PT_SRC, PT_TYPE, PartnerChip, PdfTile, PhotoField, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, PriceAlerts, QR_ITEMS, QR_STATUS, QUOTA_MSG, QrBranchesView, QrComplaints, QrDashboard, RB_KIND_AR, RB_PM_AR, RB_SOURCES, REG_APPS, REG_CATS, REG_IX, ROLES, SC_KPIS, SIGN_DOC_AR, SIG_H, SIG_W, SectionNav, SigView, SignDocsModal, SignaturePad, SystemPanel, TAB_AR, TRAIN_STATUS_AR, UsageVariance, UserForm, WASTE_REASONS, WH_KIND, WH_MOVE, WH_ST, WarehousesPanel, WasteControl, WasteFields, WastePending, WhLines, _normName, _xe, aCountDone, aItemsOf, acctSecKey, activePriorCorrectives, activeTrainingRecord, aiHeaders, appCanSee, appOpenNow, appUseGet, appUseSet, arDT, arDate, arTime, bankOfBranch, bioEnroll, bookHidden, branchBanks, branchEntityId, browserName, bsLayout, bsRowsOf, buildAccounting, buildClosingA4, buildPartners, buildPayslipSignDocs, businessDay, canApproveCount, canApproveWaste, capOK, chartTone, closingInvoices, clr, compressImage, computeIncome, contactFields, contactOf, correctiveExpiry, correctiveSignDoc, countCfgOf, countDenoms, countFocus, countSchedule, countedClosing, customerAging, daysBetween, defaultHrPolicies, defaultPenaltySchedule, defaultPointsRules, defaultRewardTiers, defaultRoleKpis, defaultTrainingPrograms, deficitCfg, deficitPatterns, detectStmtMap, deviceType, emptyDenoms, entityById, entityList, eosAccrualLines, eosCumAt, eosState, eosYears, escH, expiringTraining, expiryLots, exportExcel, fineSuggest, fmtBalP, fmtNA, frozenSnapshotFor, gosiRatesFor, haversineMeters, hrAttendanceDetail, hrEmpStats, hrQrWindowCode, hrScoreFor, isCostCtl, isLayout, isPdfData, isRowsOf, isStocked, isoD, itemAvgCosts, itemType, kpiAchievement, leaveBalance, leaveDeductPlan, lockedThru, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, makeXlsx, missingRequiredTraining, mizanPlan, money, moneyP, monthEnd, monthLabel, monthLedger, multiEntityOn, mzNewCode, mzR2, naClean, naErr, naHas, naMissing, newBranchDraft, nextPartnerCode, nextWhAcc, normPhone, normalizeSupPays, nowISO, onLeave, openDocWin, openPdfData, otFromAttendance, otRateOf, overdueSignDocs, pFactor, parseCsvGrid, parseMt940, parseXlsxGrid, partGross, partYield, payCashPart, payLabel, paySplits, payTotal, payrollRowsOf, penTypeAr, pendShiftsGet, pendShiftsSet, periodLocked, piAggregate, piDetect, piNorm, pipTriggered, posCashNet, posClrOf, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posShiftHtml, posTotals, posZHtml, positionJdHtml, printA4, printClosingA4, printIncomeA4, printPartnerStatement, printReceipt, printSalesInvoice, programRequiredFor, promoActive, promoDesc, promoHits, purKey, pwStrength, q3, qrAnalyzeComments, qrAvg, qrBranchStats, qrDate, qrF1, qrFs, qrIsComplaint, qrMs, qrOverall, qrOverdue, qrPrintReport, qrRateUrl, qrSentBadge, qrStatusOf, qrSvg, rewardSignDoc, roleEdit, roleHasTab, roleKpisFor, rolePost, salesDaySource, sha, sha256Hex, short, siCredited, siRem, siSorted, siStamp, siVerify, sigBlockHtml, sigPoints, sigSvg, signDeclaration, signDocHtml, simplifySig, slimBranchDoc, snapAll, snapMonths, snapPut, stAddDays, stDate, stNum, stockByWh, submitWaste, suggestNextLevel, sum, supplierAging, supplierPrices, today, trainingExpiryOf, trainingStatusNow, uid, usageReport, useSecNav, verifyBackup, waNum, wasteCfg, wasteDaily, wasteReasonAr, wasteRows, webauthnSupported, whForBranch, whName, whOf, whOn, zatcaTLV };
+export { A4_CSS, dirOf, isMzbk, mzbkDecrypt, clrData, clrRecord, clrSigRef, clrDiff, clrCompare, clrOn, clrState, clrMirror, clrLoad, clrSeed, OdooBar, ACCT_SECTIONS, ACCT_SEC_AR, ACC_KIND, ALL_TABS, APPS, AdvanceForm, AppPermsPanel, AppsStrip, BR_COLS, Badge, BalCell, BlindCount, BranchForm, COUNT_FREQ, COUNT_ST, CameraModal, CategoriesPanel, ClosingView, CloudHealth, CountScheduleCard, DAYS_AR, DENOMS, DOC_LABEL, DOC_TYPES, DailyBranchReport, DeliveryAppsPanel, DisbursementForm, DupInvHint, EXP_CATS, FILE_CATS, Field, FinancialReports, GROWTH_MONTHS, HR_WEEK_DAYS, HrSignPad, ITEM_TYPES, Kpi, LAUNCH_APPS, LEAVE_TYPES, LOCK_MSG, MAIN_WH, MFA_DEFAULT_ROLES, MOVE_KINDS, MZ_FIXED, MZ_KIND_AR, MZ_LOGO_HTML, MZ_SUGGEST, MfaPolicyCard, MizanMerge, Modal, MoneyField, NUM_FACE, NUM_LOCALE, NationalAddressFields, Num, OutputDialog, PAY_ADD_TYPES, PAY_GUESS, PEN_TYPES, POS_DEV_KEY, POS_SH_KEY, PROMO_IDEAS, PROMO_T, PT_SRC, PT_TYPE, PartnerChip, PdfTile, PhotoField, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, PriceAlerts, QR_ITEMS, QR_STATUS, QUOTA_MSG, QrBranchesView, QrComplaints, QrDashboard, RB_KIND_AR, RB_PM_AR, RB_SOURCES, REG_APPS, REG_CATS, REG_IX, ROLES, SC_KPIS, SIGN_DOC_AR, SIG_H, SIG_W, SectionNav, SigView, SignDocsModal, SignaturePad, SystemPanel, TAB_AR, TRAIN_STATUS_AR, UsageVariance, UserForm, WASTE_REASONS, WH_KIND, WH_MOVE, WH_ST, WarehousesPanel, WasteControl, WasteFields, WastePending, WhLines, _normName, _xe, aCountDone, aItemsOf, acctSecKey, activePriorCorrectives, activeTrainingRecord, aiHeaders, appCanSee, appOpenNow, appUseGet, appUseSet, arDT, arDate, arTime, bankOfBranch, bioEnroll, bookHidden, branchBanks, branchEntityId, browserName, bsLayout, bsRowsOf, buildAccounting, buildClosingA4, buildPartners, buildPayslipSignDocs, businessDay, canApproveCount, canApproveWaste, capOK, chartTone, closingInvoices, clr, compressImage, computeIncome, contactFields, contactOf, correctiveExpiry, correctiveSignDoc, countCfgOf, countDenoms, countFocus, countSchedule, countedClosing, customerAging, daysBetween, defaultHrPolicies, defaultPenaltySchedule, defaultPointsRules, defaultRewardTiers, defaultRoleKpis, defaultTrainingPrograms, deficitCfg, deficitPatterns, detectStmtMap, deviceType, emptyDenoms, entityById, entityList, eosAccrualLines, eosCumAt, eosState, eosYears, escH, expiringTraining, expiryLots, exportExcel, fineSuggest, fmtBalP, fmtNA, frozenSnapshotFor, gosiRatesFor, haversineMeters, hrAttendanceDetail, hrEmpStats, hrQrWindowCode, hrScoreFor, isCostCtl, isLayout, isPdfData, isRowsOf, isStocked, isoD, itemAvgCosts, itemType, kpiAchievement, leaveBalance, leaveDeductPlan, lockedThru, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, makeXlsx, missingRequiredTraining, mizanPlan, money, moneyP, monthEnd, monthLabel, monthLedger, multiEntityOn, mzNewCode, mzR2, naClean, naErr, naHas, naMissing, newBranchDraft, nextPartnerCode, nextWhAcc, normPhone, normalizeSupPays, nowISO, onLeave, openDocWin, openPdfData, otFromAttendance, otRateOf, overdueSignDocs, pFactor, parseCsvGrid, parseMt940, parseXlsxGrid, partGross, partYield, payCashPart, payLabel, paySplits, payTotal, payrollRowsOf, penTypeAr, pendShiftsGet, pendShiftsSet, periodLocked, piAggregate, piDetect, piNorm, pipTriggered, posCashNet, posClrOf, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posShiftHtml, posTotals, posZHtml, positionJdHtml, printA4, printClosingA4, printIncomeA4, printPartnerStatement, printReceipt, printSalesInvoice, programRequiredFor, promoActive, promoDesc, promoHits, purKey, pwStrength, q3, qrAnalyzeComments, qrAvg, qrBranchStats, qrDate, qrF1, qrFs, qrIsComplaint, qrMs, qrOverall, qrOverdue, qrPrintReport, qrRateUrl, qrSentBadge, qrStatusOf, qrSvg, rewardSignDoc, roleEdit, roleHasTab, roleKpisFor, rolePost, salesDaySource, sha, sha256Hex, short, siCredited, siRem, siSorted, siStamp, siVerify, sigBlockHtml, sigPoints, sigSvg, signDeclaration, signDocHtml, simplifySig, slimBranchDoc, snapAll, snapMonths, snapPut, stAddDays, stDate, stNum, stockByWh, submitWaste, suggestNextLevel, sum, supplierAging, supplierPrices, today, trainingExpiryOf, trainingStatusNow, uid, usageReport, useSecNav, verifyBackup, waNum, wasteCfg, wasteDaily, wasteReasonAr, wasteRows, webauthnSupported, whForBranch, whName, whOf, whOn, zatcaTLV };
 export { ClosingForm };
 // v38.3 — للاختبارات الآلية (tests/): دوال المحرك والشاشات تُستورد من النواة مباشرة
 export { stockCosting, eosEntitledAmt, eosFullAmt, findDupInvoices, invNoNorm, promoLineDisc, tafqeet, Hub, Launcher, PosApp, Inventory, Partners, SalesHub, QrFeedback, AppsCenter, BranchWarehouse, Admin, AuditView, Accounting, emptyOrg, emptyOps, HUBS };

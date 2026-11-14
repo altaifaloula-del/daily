@@ -5,6 +5,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { cloud, KEYS, brKey } from '../../storage';
 import { ShieldCheck, RefreshCw, Trash2, AlertTriangle, Check, Server, Bug, Activity, HardDrive } from 'lucide-react';
 import { archKey, archivePlan, nowISO, printA4, uid } from '../../App.jsx';   // v41.7
+import { clrCompare, clrLoad, clrOn, clrSeed, clrState, logAudit } from '../../App.jsx';   // v41.9
 import { dataFootprint, recipeRaw, APP_CV, APP_VER, CloudHealth, ERRLOG_KEY, MAIN_WH, ROLES, SIG_BADGE, SIG_NAME, buildAccounting, loadRelease, loadSignoffs, sigVerify, branchBanks, cashForecast, complianceItems, entityList, vatStatus, countedClosing, isoD, money, purKey, q3, qrFs, snapAll, stockByWh, today, whName, whOf } from '../../App.jsx';
 
 const ST = { ok: ['b-mint', 'سليم'], warn: ['b-amber', 'تنبيه'], bad: ['b-rose', 'خلل'] };
@@ -149,7 +150,7 @@ export function groupErrors(rows) {
   return Object.values(G).map(g => ({ ...g, users: [...g.users], branches: [...g.branches], vers: [...g.vers], devices: [...g.devices] })).sort((a, b) => b.last.localeCompare(a.last));
 }
 
-export function SystemMaintenance({ org, ops, me, commit, say }) {
+export function SystemMaintenance({ org, ops, me, commit, commitOrg, say }) {
   // v40.0: التوقيعات وتاريخ بدء التوقيع من Firestore (القواعد تحدد ما يُقرأ)
   const [ctl, setCtl] = useState(null);
   const [rel, setRel] = useState(null);
@@ -288,6 +289,7 @@ export function SystemMaintenance({ org, ops, me, commit, say }) {
         </div>
       </div>
       {showDocs && <CloudHealth org={org} say={say} commit={commit} me={me} auto />}
+      <ClosingRecordsCard org={org} ops={ops} me={me} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <div className="card">
         <div className="card-h"><div className="card-t"><HardDrive size={15} color="var(--brass)" />أرشفة فواتير نقطة البيع القديمة</div>{isAdm && AP.n > 0 && <button className="btn sm pri" disabled={arcBusy} onClick={doArchive}>{arcBusy ? 'جارٍ الأرشفة…' : 'أرشفة ' + AP.n + ' فاتورة'}</button>}</div>
         <div style={{ fontSize: 12, color: 'var(--dim)', marginBottom: 6 }}>قرارك: الفواتير التفصيلية الأقدم من 12 شهرًا (قبل {AP.cutoff}) وفي أشهر مقفلة محاسبيًا فقط. الإغلاقات والقيود لا تُمس.{AP.unlocked ? ' · ' + AP.unlocked + ' فاتورة قديمة في أشهر غير مقفلة لا تُؤرشَف حتى تُقفل.' : ''}</div>
@@ -321,4 +323,62 @@ export function SystemMaintenance({ org, ops, me, commit, say }) {
           <div className="mt-list" style={{ marginTop: 6 }}>{local.slice(0, 10).map((x, i) => <div key={i} className="mt-err"><b dir="ltr" className="mt-msg">{x.msg}</b><small>{(x.at || '').slice(0, 16).replace('T', ' ')} · {x.where} · {x.v}</small></div>)}</div></details>}
       </div>
     </div>);
+}
+
+/* v41.9 — الإغلاقات سجلات مستقلة (المرحلة الأولى: نسخ مطابق) — تفعيل، ترحيل أول، ومطابقة */
+function ClosingRecordsCard({ org, ops, me, commitOrg, say, isAdm }) {
+  const on = clrOn(org);
+  const [busy, setBusy] = useState(''); const [rep, setRep] = useState(null);
+  const brName = (id) => ((org.branches || []).find(b => b.id === id) || { name: id }).name;
+  const check = async () => {
+    setBusy('check'); const recs = await clrLoad([], true); setBusy('');
+    if (!recs) return say('السجلات المستقلة تعمل على قاعدة Firestore فقط', 'no');
+    if (recs.err) return say('تعذّرت قراءة السجلات (' + recs.err + ') — قد تكون القواعد لم تُنشر بعد', 'no');
+    setRep(clrCompare(ops.closings || [], recs));
+  };
+  const toggle = async () => {
+    if (!isAdm) return;
+    if (!on && !window.confirm('تفعيل نسخ كل إغلاق إلى سجل مستقل تحرسه القواعد؟\nمستند الفرع يبقى المصدر في هذه المرحلة، ولا يتغير شيء في العمل اليومي.')) return;
+    const ok = await commitOrg(o => ({ ...o, closingRecords: on ? { ...(o.closingRecords || {}), on: false, offAt: nowISO() } : { ...(o.closingRecords || {}), on: true, since: (o.closingRecords || {}).since || nowISO() } }),
+      { actionType: 'settings', targetType: 'system_settings', targetId: 'closingRecords', title: on ? 'أوقف نسخ الإغلاقات إلى السجلات المستقلة' : 'فعّل نسخ الإغلاقات إلى السجلات المستقلة' });
+    if (ok) say(on ? 'أُوقف النسخ' : 'فُعّل النسخ — اضغط «ترحيل الإغلاقات الحالية» ثم «مطابقة»');
+  };
+  const seed = async () => {
+    if (!isAdm || !on) return;
+    const n = (ops.closings || []).length;
+    if (!window.confirm('نسخ ' + n + ' إغلاقًا إلى السجلات المستقلة؟ (لا يُحذف ولا يتغير شيء في مستندات الفروع)')) return;
+    setBusy('seed'); const r = await clrSeed(ops.closings || [], (i, t) => setBusy('seed ' + i + '/' + t)); setBusy('');
+    if (r.err) return say(r.err, 'no');
+    await logAudit({ actionType: 'migrate', targetType: 'system_settings', targetId: 'closingRecords', title: 'رحّل الإغلاقات إلى السجلات المستقلة', details: r.ok + ' من ' + r.total + (r.fail ? ' · تعذّر ' + r.fail + ' (' + r.lastErr + ')' : '') });
+    say(r.fail ? 'نُسخ ' + r.ok + ' وتعذّر ' + r.fail + ' (' + r.lastErr + ')' : 'نُسخت ' + r.ok + ' إغلاقًا ✓', r.fail ? 'no' : 'ok');
+    check();
+  };
+  const st = clrState();
+  const row = (c, why) => <div key={c.id} className="me-row"><span className="me-a"><b>{brName(c.branchId)} — {c.date || ''}</b><small>{why}</small></span></div>;
+  return (
+    <div className="card" data-clr>
+      <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />الإغلاقات سجلات مستقلة (حماية على مستوى الخادم)</div>
+        <span className={'badge ' + (on ? 'b-mint' : 'b-dim')}>{on ? 'النسخ مفعّل' : 'غير مفعّل'}</span></div>
+      <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>
+        كل إغلاق يُنسخ إلى سجل مستقل يرى الخادم حالته: <b>الفرع لا يكتب «معتمد» ولا يعدّل إغلاقًا معتمدًا</b>، والاعتماد والرفض لا يُقبلان إلا بتوقيع موثّق
+        للمدقق نفسه وبالأرقام نفسها. في هذه المرحلة يبقى مستند الفرع هو المصدر، والمطابقة تكشف أي فرق؛ وبعد ثبات المطابقة تتحول القراءة إلى السجلات.
+      </div>
+      {isAdm && <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        <button className={'btn sm' + (on ? ' gh' : ' pri')} disabled={!!busy} onClick={toggle}>{on ? 'إيقاف النسخ' : 'تفعيل النسخ'}</button>
+        {on && <button className="btn sm" disabled={!!busy} onClick={seed}>{busy.startsWith('seed') ? 'جارٍ الترحيل… ' + busy.slice(5) : 'ترحيل الإغلاقات الحالية'}</button>}
+        <button className="btn sm" disabled={!!busy} onClick={check}><RefreshCw size={13} />{busy === 'check' ? 'جارٍ المطابقة…' : 'مطابقة'}</button>
+      </div>}
+      {st.at > 0 && <div style={{ fontSize: 11.5, color: st.fail ? 'var(--rose)' : 'var(--dim)', marginTop: 8 }}>هذا الجهاز: نُسخ {st.ok}{st.fail ? ' · تعذّر ' + st.fail + ' (' + st.lastErr + ')' : ''}</div>}
+      {rep && <div style={{ marginTop: 10 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: rep.ok ? 'var(--mint)' : 'var(--rose)' }}>
+          {rep.ok ? '✓ متطابقة: ' + rep.total + ' إغلاقًا في مستندات الفروع = ' + rep.recs + ' سجلًا مستقلًا' : 'غير متطابقة: ناقص ' + rep.missing.length + ' · مختلف ' + rep.differ.length + ' · زائد ' + rep.extra.length}
+        </div>
+        {!rep.ok && <div className="me-list" style={{ marginTop: 6 }}>
+          {rep.differ.slice(0, 15).map(c => row(c, 'مختلف عن سجله المستقل — عُدّل في مستند الفرع دون المرور بالسجل'))}
+          {rep.missing.slice(0, 15).map(c => row(c, 'لا سجل مستقل له — شغّل «ترحيل الإغلاقات الحالية»'))}
+          {rep.extra.slice(0, 15).map(c => row(c, 'سجل مستقل بلا إغلاق في مستند الفرع (حُذف أو أُرشف)'))}
+        </div>}
+      </div>}
+    </div>
+  );
 }
