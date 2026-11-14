@@ -12,7 +12,7 @@ import {
   BarChart3, CheckCircle2, ArrowUp, ArrowDown,
   CreditCard, Coins, ChevronDown, ChevronRight,
   Crop, RotateCw, RotateCcw, EyeOff, Sun, Wand2, Delete, Scale, Home, Star, QrCode, Signature, PenLine,
-  UtensilsCrossed,
+  UtensilsCrossed, PiggyBank,
 } from 'lucide-react';
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis,
@@ -59,6 +59,7 @@ const GrowthAnalytics = lazyComp(() => import('./mods/acct/GrowthAnalytics.jsx')
 const EntitiesCenter = lazyComp(() => import('./mods/acct/EntitiesCenter.jsx'), 'EntitiesCenter');
 const ReportBuilder = lazyComp(() => import('./mods/acct/ReportBuilder.jsx'), 'ReportBuilder');
 const ExecDashboard = lazyComp(() => import('./mods/acct/ExecDashboard.jsx'), 'ExecDashboard');
+const SavingsPlan = lazyComp(() => import('./mods/acct/SavingsPlan.jsx'), 'SavingsPlan');   // v40.4
 const MenuEngineering = lazyComp(() => import('./mods/acct/MenuEngineering.jsx'), 'MenuEngineering');   // v40.3
 const ProfitBoard = lazyComp(() => import('./mods/acct/ProfitBoard.jsx'), 'ProfitBoard');   // v40.1
 const StaffingPlan = lazyComp(() => import('./mods/hr/StaffingPlan.jsx'), 'StaffingPlan');   // v39.2
@@ -2796,7 +2797,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v40.3';
+const APP_VER = 'v40.4';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3821,7 +3822,7 @@ function PlatformApp() {
   const shared = { org, ops, pulse: pulseA, me, myBranches, scoped, commit, commitOrg, say, setTab, theme, acctIntent, openAcctView, invIntent, openInvView };
 
   // حماية: منع الوصول لتبويب غير مسموح لدور المستخدم (بلا hook — بعد returns الشرطية)
-  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'closing') ? ['myactions', 'myforecast'] : []), ...(NAV.some(n => n.id === 'closing') && (ROLES[me.role]?.approver || ROLES[me.role]?.admin || ROLES[me.role]?.scope === 'all') ? ['cashiers'] : []), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'anomaly', 'actions', 'forecast', 'profit', 'menu'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : []), ...(NAV.some(n => n.id === 'people') ? ['payroll', 'workforce', 'muster', 'overtime'] : []), ...(NAV.some(n => n.id === 'purchasing') ? ['suppliers', 'reorder', 'suprep'] : []), ...(NAV.some(n => n.id === 'hrops') ? ['attendance', 'leaves', 'shiftengine', 'staffplan', 'tasks', 'points', 'esign'] : []), ...(NAV.some(n => n.id === 'hrperf') ? ['kpi', 'empfile', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'] : [])];
+  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'closing') ? ['myactions', 'myforecast'] : []), ...(NAV.some(n => n.id === 'closing') && (ROLES[me.role]?.approver || ROLES[me.role]?.admin || ROLES[me.role]?.scope === 'all') ? ['cashiers'] : []), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'anomaly', 'actions', 'forecast', 'profit', 'menu', 'savings'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : []), ...(NAV.some(n => n.id === 'people') ? ['payroll', 'workforce', 'muster', 'overtime'] : []), ...(NAV.some(n => n.id === 'purchasing') ? ['suppliers', 'reorder', 'suprep'] : []), ...(NAV.some(n => n.id === 'hrops') ? ['attendance', 'leaves', 'shiftengine', 'staffplan', 'tasks', 'points', 'esign'] : []), ...(NAV.some(n => n.id === 'hrperf') ? ['kpi', 'empfile', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'] : [])];
   const safeTab = allowedTabs.includes(tab) ? tab : (allowedTabs[0] || 'closing');
 
   return (
@@ -4070,7 +4071,7 @@ function PlatformApp() {
           <div className="page">
             <div className="page-inner"><ErrorBoundary key={safeTab} where={(NAV.find(n => n.id === safeTab) || {}).ar || 'هذا القسم'}>
               {safeTab === 'home' && <Launcher {...shared} online={online} />}
-              {['analytics', 'exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'alerts', 'anomaly', 'actions', 'forecast', 'profit', 'menu'].includes(safeTab) && <Hub hubId="analytics" {...shared} online={online} view={safeTab} />}
+              {['analytics', 'exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'alerts', 'anomaly', 'actions', 'forecast', 'profit', 'menu', 'savings'].includes(safeTab) && <Hub hubId="analytics" {...shared} online={online} view={safeTab} />}
               {['reporting', 'reports', 'rbuild', 'boardpack', 'cashflow'].includes(safeTab) && <Hub hubId="reporting" {...shared} view={safeTab} />}
               {safeTab === 'sales' && <SalesHub {...shared} />}
               {safeTab === 'pos' && <PosApp {...shared} />}
@@ -5006,7 +5007,7 @@ function detectAnomalies(org, ops, opts = {}) {
    الإجراء الناتج عن نمط شاذ يحمل «مقياسه»: قيمته عند الإنشاء والمعتاد، وبعد الإنجاز بأسبوع يُقاس من جديد —
    فيظهر هل عاد الرقم نحو المعتاد (تحسّن) أم لا. */
 const ACT_ST = { open: ['b-amber', 'مفتوح'], doing: ['b-sky', 'قيد التنفيذ'], done: ['b-mint', 'منجز'], dismissed: ['b-dim', 'مستبعد'] };
-const ACT_SRC = { anomaly: 'نمط شاذ', ai: 'توصية ذكية', manual: 'يدوي', check: 'فحص سلامة', menu: 'هندسة القائمة' };
+const ACT_SRC = { anomaly: 'نمط شاذ', ai: 'توصية ذكية', manual: 'يدوي', check: 'فحص سلامة', menu: 'هندسة القائمة', saving: 'خطة التوفير' };
 const ACT_KIND = {
   sales_day: { ar: 'متوسط المبيعات اليومية (7 أيام)', dir: 'up' }, expense_week: { ar: 'مصروف التصنيف (7 أيام)', dir: 'down' },
   waste_week: { ar: 'الهدر (7 أيام)', dir: 'down' }, price: { ar: 'سعر الشراء للوحدة', dir: 'down' },
@@ -5056,7 +5057,7 @@ function actionEffect(org, ops, act, td) {
 function newAction(me, x) {
   return { id: uid('act'), status: 'open', at: nowISO(), createdBy: me.name, notes: [], src: x.src || 'manual', title: String(x.title || '').slice(0, 200), detail: String(x.detail || '').slice(0, 1000),
     ...(x.branchId ? { branchId: x.branchId } : {}), ...(x.srcKey ? { srcKey: x.srcKey } : {}), ...(x.area ? { area: x.area } : {}),
-    ...(x.assignee ? { assignee: x.assignee } : {}), ...(x.due ? { due: x.due } : {}), ...(x.metric ? { metric: x.metric } : {}) };
+    ...(x.assignee ? { assignee: x.assignee } : {}), ...(x.due ? { due: x.due } : {}), ...(x.metric ? { metric: x.metric } : {}), ...(x.saving ? { saving: x.saving } : {}) };
 }
 /** إجراء من نمط شاذ — المقياس يحمل قيمته الحالية (قبل) والمعتاد */
 function actionFromAnomaly(org, ops, me, a, extra = {}, td) {
@@ -5942,6 +5943,7 @@ const HUBS = {
       { id: 'forecast', ar: 'توقع المبيعات', icon: TrendingUp, comp: SalesForecast, like: 'alerts' },   // v38.8
       { id: 'profit', ar: 'ربحية الفروع اليومية', icon: TrendingUp, comp: ProfitBoard, like: 'dash' },   // v40.1
       { id: 'menu', ar: 'هندسة القائمة', icon: UtensilsCrossed, comp: MenuEngineering, like: 'dash' },   // v40.3
+      { id: 'savings', ar: 'خطة التوفير', icon: PiggyBank, comp: SavingsPlan, like: 'dash' },   // v40.4
     ]
   },
   reporting: {
@@ -8225,6 +8227,66 @@ function menuEngineering(org, ops, opts = {}) {
     tot: { qty: Q, rev: S(rows, 'totRev'), cost: S(rows, 'totCost'), cm: S(rows, 'totCm'), foodPct: S(rows, 'totRev') > 0 ? anR(S(rows, 'totCost') / S(rows, 'totRev') * 100) : null },
     cls: Object.fromEntries(Object.keys(MENU_CLS).map(k => [k, { n: by(k).length, cm: S(by(k), 'totCm'), qty: anR(sum(by(k), r => r.qty)) }])) };
 }
+/* ===== v40.4 — المرحلة 3: خطة التوفير =====
+   فرص مقاسة من البيانات الفعلية فقط (لا نسب مفترضة): الهدر المسجّل، الاستهلاك فوق النظري، فرق سعر الشراء عن أفضل سعر دُفع فعلًا،
+   الخصومات اليدوية في نقطة البيع. كل فرصة: قيمتها في الفترة ومعدلها لكل 30 يومًا. النسبة المستهدفة يُدخلها المستخدم.
+   المتحقق: يُقاس المعيار نفسه بعد بدء الخطة (7 أيام على الأقل) ويُعاد لكل 30 يومًا: الأساس − الحالي. */
+const SAV_KIND = { waste: { ar: 'الهدر المسجّل', hint: 'قيمة ما سُجّل هدرًا بمتوسط التكلفة' }, usage: { ar: 'الاستهلاك فوق النظري', hint: 'ما خرج من المستودع فوق ما تقتضيه الوصفات للمبيعات' },
+  price: { ar: 'فرق سعر الشراء', hint: 'ما دُفع فوق أقل سعر دفعته فعلًا للصنف نفسه خلال الفترة و90 يومًا قبلها' }, mdisc: { ar: 'الخصومات اليدوية', hint: 'خصومات أدخلها الكاشير يدويًا في نقطة البيع' } };
+const savDays = (from, to) => Math.round((new Date(to + 'T12:00:00') - new Date(from + 'T12:00:00')) / 864e5) + 1;
+const savInW = (d, from, to) => { d = String(d || '').slice(0, 10); return d >= from && d <= to; };
+function savPriceLines(ops, itemId, from, to) {
+  const out = []; (ops.purchaseOrders || []).forEach(po => { const d = po.date || String(po.at || '').slice(0, 10); if (!savInW(d, from, to)) return;
+    (po.lines || []).forEach(l => { if (l.itemId !== itemId) return; const rq = Number(l.received) || 0, pr = Number(l.price) || 0, f = Number(l.factor) || 1; if (!(rq > 0 && pr > 0)) return;
+      out.push({ unit: Math.round(pr / f * 10000) / 10000, qty: rq * f, supplierName: po.supplierName || '', date: d, poNo: po.poNo || '' }); }); });
+  return out;
+}
+/** قيمة المعيار في نافذة [from,to] — null إذا لا بيانات تكفي للقياس */
+function savingsMeasure(org, ops, kind, id, from, to, ref, avg) {
+  if (kind === 'waste') return anR(sum(wasteRows(org, ops, avg || itemAvgCosts(org, ops)).filter(m => m.branchId === id && savInW(m.date, from, to)), m => m.val));
+  if (kind === 'usage') { const g = usageGap(org, ops, id, from, to); return g ? g.excess : null; }
+  if (kind === 'price') { const L = savPriceLines(ops, id, from, to); return L.length ? anR(sum(L, l => Math.max(0, l.unit - ref) * l.qty)) : null; }
+  if (kind === 'mdisc') { const o = (ops.posOrders || []).filter(x => x.branchId === id && x.status !== 'void' && savInW(x.date, from, to)); return o.length ? anR(sum(o, x => Number(x.manualDisc) || 0)) : null; }
+  return null;
+}
+/** الفرص في الفترة: [{key, kind, id, name, branchId, value, per30, ref?, detail, top[]}] */
+function savingsOpps(org, ops, opts = {}) {
+  const from = opts.from, to = opts.to, days = savDays(from, to), ids = opts.branchIds ? new Set(opts.branchIds) : null, inS = (b) => !ids || ids.has(b);
+  const avg = itemAvgCosts(org, ops), brN = (b) => ((org.branches || []).find(x => x.id === b) || {}).name || b || '—', itN = (i) => ((org.items || []).find(x => x.id === i) || {}).name || i;
+  const p30 = (v) => anR(v / days * 30), out = [];
+  // 1) الهدر لكل فرع
+  const W = {}; wasteRows(org, ops, avg).filter(m => m.branchId && inS(m.branchId) && savInW(m.date, from, to)).forEach(m => { const w = W[m.branchId] = W[m.branchId] || { v: 0, it: {} }; w.v += m.val; const n = itN(m.itemId); w.it[n] = (w.it[n] || 0) + m.val; });
+  Object.entries(W).forEach(([b, w]) => { if (!(w.v > 0)) return; out.push({ key: 'waste|' + b, kind: 'waste', id: b, name: brN(b), branchId: b, value: anR(w.v), per30: p30(w.v),
+    top: Object.entries(w.it).sort((a, c) => c[1] - a[1]).slice(0, 3).map(([n, v]) => n + ' ' + money(anR(v))) }); });
+  // 2) الاستهلاك فوق النظري لكل مستودع
+  const pools = whOf(org).length ? whOf(org).map(w => ({ id: w.id, name: w.name })) : [{ id: '', name: 'المخزون' }];
+  pools.forEach(pl => { const G = usageGap(org, ops, pl.id, from, to); if (!G || !(G.excess > 0) || (ids && !G.served.some(inS))) return;
+    out.push({ key: 'usage|' + pl.id, kind: 'usage', id: pl.id, name: pl.name, branchId: G.served.length === 1 ? G.served[0] : '', value: G.excess, per30: p30(G.excess), pct: G.pct,
+      top: G.flag.slice(0, 3).map(r => r.name + ' ' + money(r.dv)) }); });
+  // 3) فرق السعر لكل صنف (مشتريات مركزية — لا تُقيَّد بالفرع)
+  if (!ids) { const P = supplierPrices(ops), back = anDay(from, -90);
+    Object.keys(P).forEach(it => { const hist = P[it].filter(r => savInW(r.date, back, to)); if (!hist.length) return; const best = hist.reduce((a, r) => (r.unitCost < a.unitCost ? r : a));
+      const L = savPriceLines(ops, it, from, to); const v = sum(L, l => Math.max(0, l.unit - best.unitCost) * l.qty); if (!(v >= 0.01)) return;
+      out.push({ key: 'price|' + it, kind: 'price', id: it, name: itN(it), branchId: '', value: anR(v), per30: p30(v), ref: best.unitCost,
+        top: ['أفضل سعر ' + money(best.unitCost) + (best.supplierName ? ' من ' + best.supplierName : '') + ' (' + best.date + ')'].concat(L.filter(l => l.unit > best.unitCost).sort((a, c) => (c.unit - best.unitCost) * c.qty - (a.unit - best.unitCost) * a.qty).slice(0, 2).map(l => l.supplierName + ' ' + money(l.unit) + ' × ' + anR(l.qty))) }); }); }
+  // 4) الخصومات اليدوية لكل فرع
+  const D = {}; (ops.posOrders || []).filter(o => o.status !== 'void' && inS(o.branchId) && savInW(o.date, from, to) && Number(o.manualDisc) > 0).forEach(o => { const d = D[o.branchId] = D[o.branchId] || { v: 0, n: 0, by: {} }; const a = Number(o.manualDisc) || 0; d.v += a; d.n++; const k = o.by || '—'; d.by[k] = (d.by[k] || 0) + a; });
+  Object.entries(D).forEach(([b, d]) => out.push({ key: 'mdisc|' + b, kind: 'mdisc', id: b, name: brN(b), branchId: b, value: anR(d.v), per30: p30(d.v), n: d.n,
+    top: Object.entries(d.by).sort((a, c) => c[1] - a[1]).slice(0, 3).map(([n, v]) => n + ' ' + money(anR(v))) }));
+  out.sort((a, b) => b.per30 - a.per30);
+  return { from, to, days, opps: out, tot30: anR(sum(out, o => o.per30)) };
+}
+/** متابعة بند الخطة: الحالي لكل 30 يومًا منذ البدء مقابل الأساس */
+function savingsTrack(org, ops, sv, td) {
+  if (!sv || !sv.kind || !sv.start) return null; td = td || today();
+  const end = [td, anDay(sv.start, 89)].sort()[0], days = savDays(sv.start, end);
+  const target30 = anR(sv.base30 * (Number(sv.pct) || 0) / 100);
+  if (days < 7) return { pending: true, ready: anDay(sv.start, 6), target30 };
+  const v = savingsMeasure(org, ops, sv.kind, sv.id, sv.start, end, sv.ref);
+  if (v == null) return { nodata: true, days, target30 };
+  const now30 = anR(v / days * 30), real30 = anR(sv.base30 - now30);
+  return { days, now30, real30, target30, hit: real30 >= target30 - 0.005 };
+}
 /* UsageVariance: نُقل إلى mods/inv/UsageVariance.jsx (تحميل كسول) */
 
 /* Inventory: نُقل إلى mods/inv/Inventory.jsx (تحميل كسول) */
@@ -10142,5 +10204,5 @@ export { staffingPlan };
 // v39.4 — استيراد مبيعات نقاط البيع ومطابقتها
 export { piHour, piCutoff, posRecon, salesDays, importDraftClosing };
 // v40.0 — أساس الرقابة
-export { PROFIT_OPTS, profitMissing, profitDays, menuEngineering, MENU_CLS };
+export { PROFIT_OPTS, profitMissing, profitDays, menuEngineering, MENU_CLS, SAV_KIND, savingsMeasure, savingsOpps, savingsTrack };
 export { UpdateGate, APP_CV, auditWrite, logAudit, auditFetch, sigDigest, signoff, signDecision, sigFailMsg, loadSignoffs, loadRelease, raiseRelease, sigVerify, SIG_BADGE, SIG_NAME };

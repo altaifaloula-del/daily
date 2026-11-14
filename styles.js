@@ -1612,4 +1612,13 @@ html,body{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .me-row{display:flex;justify-content:space-between;gap:10px;padding:8px 2px;border-top:1px solid var(--line)}
 .me-a{display:flex;flex-direction:column;gap:2px;min-width:0;font-size:12.5px}.me-a small{font-size:10.5px;color:var(--dim)}
 .me-b{display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex:0 0 auto}.me-b small{font-size:10px;color:var(--dim)}.me-b .btn{flex:0 0 auto}
+
+/* v40.4 — خطة التوفير */
+.sv-list{display:flex;flex-direction:column}
+.sv-row{display:flex;justify-content:space-between;gap:10px;padding:9px 2px;border-top:1px solid var(--line)}.sv-row:first-child{border-top:0}
+.sv-a{display:flex;flex-direction:column;gap:3px;min-width:0;font-size:12.5px}.sv-a small{font-size:10.5px;color:var(--dim);line-height:1.6}.sv-hint{opacity:.8}
+.sv-h{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.sv-b{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:0 0 auto;max-width:46%}.sv-b small{font-size:10px;color:var(--dim);text-align:end}
+.sv-go{display:flex;gap:4px;align-items:center}.sv-go .inp{width:58px;padding:5px 6px;min-height:0}.sv-go .btn{flex:0 0 auto}
+.sv-ok{color:var(--mint,#4FB286)}.sv-bad{color:var(--rose,#D9544D)}
 `;

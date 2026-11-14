@@ -762,3 +762,31 @@ test('هندسة القائمة (كاسافانا-سميث): نجم/حصان ع�
   assert.equal(M.tot.cm, 2820);
   assert.deepEqual(Object.fromEntries(E.menuEngineering(org, ops, { from: '2026-11-01', to: '2026-11-30', cfg: { popPct: 200 } }).rows.map(r => [r.id, r.cls])), { A: 'puzzle', B: 'dog', C: 'puzzle', D: 'dog' }, 'العتبة قابلة للتعديل: 200% ⇒ الشعبية تتطلب 50% فيصير A وB منخفضي الشعبية');
 });
+
+// ===== v40.4 — المرحلة 3: خطة التوفير =====
+test('خطة التوفير: فرص مقاسة فقط (هدر، فرق سعر عن أفضل سعر دُفع، خصومات يدوية) بمعدل 30 يومًا، والمتحقق = الأساس − الحالي', () => {
+  const org = baseOrg({ items: [{ id: 'i1', name: 'دجاج', unit: 'كجم', cost: 10 }], branches: [{ id: 'b1', name: 'العليا', isActive: true }, { id: 'b2', name: 'النسيم', isActive: true }] });
+  const po = (id, date, price, rq, sup, factor) => ({ id, poNo: id, date, supplierId: sup, supplierName: sup, status: 'received', lines: [{ itemId: 'i1', desc: 'دجاج', qty: rq, received: rq, price, ...(factor ? { factor } : {}) }] });
+  const ops = {
+    stockMoves: [{ id: 'w1', kind: 'waste', branchId: 'b1', itemId: 'i1', qty: -3, wasteVal: 30, date: '2026-11-03' }, { id: 'w2', kind: 'waste', branchId: 'b1', itemId: 'i1', qty: -1, wasteVal: 15, date: '2026-11-08' },
+      { id: 'w3', kind: 'waste', branchId: 'b1', itemId: 'i1', qty: -9, wasteVal: 99, date: '2026-10-20' }],
+    purchaseOrders: [po('P0', '2026-09-15', 9, 10, 'أ'), po('P1', '2026-11-02', 11, 100, 'ب'), po('P2', '2026-11-06', 120, 5, 'ب', 10)],
+    posOrders: [{ id: 'o1', branchId: 'b2', date: '2026-11-04', total: 100, manualDisc: 12, by: 'سالم' }, { id: 'o2', branchId: 'b2', date: '2026-11-05', total: 50, manualDisc: 8, by: 'سالم', status: 'void' }, { id: 'o3', branchId: 'b2', date: '2026-11-09', total: 70, manualDisc: 3, by: 'فهد' }]
+  };
+  const S = E.savingsOpps(org, ops, { from: '2026-11-01', to: '2026-11-10' });
+  const by = Object.fromEntries(S.opps.map(o => [o.key, [o.value, o.per30]]));
+  assert.deepEqual(by['waste|b1'], [45, 135], 'هدر الفترة فقط (30+15) — 10 أيام ⇒ ×3');
+  assert.deepEqual(by['price|i1'], [350, 1050], 'أفضل سعر دُفع 9 (خلال 90 يومًا قبل الفترة): (11−9)×100 + (12−9)×50 = 350 (الوحدة الكبيرة 120÷10)');
+  assert.deepEqual(by['mdisc|b2'], [15, 45], 'الملغاة لا تُحتسب: 12+3');
+  assert.equal(S.opps[0].key, 'price|i1', 'مرتبة بالأعلى أثرًا');
+  assert.equal(S.tot30, 1230);
+  assert.equal(E.savingsOpps(org, ops, { from: '2026-11-01', to: '2026-11-10', branchIds: ['b1'] }).opps.some(o => o.kind === 'price'), false, 'فرق السعر مركزي — لا يظهر بفلتر الفرع');
+  // المتابعة: بدأت الخطة 11/11 بهدف 50% من 135
+  const sv = { kind: 'waste', id: 'b1', base30: 135, pct: 50, start: '2026-11-11' };
+  assert.equal(E.savingsTrack(org, ops, sv, '2026-11-14').pending, true, 'أقل من 7 أيام: لا حكم');
+  const ops2 = { ...ops, stockMoves: [...ops.stockMoves, { id: 'w4', kind: 'waste', branchId: 'b1', itemId: 'i1', qty: -1, wasteVal: 20, date: '2026-11-15' }] };
+  const T = E.savingsTrack(org, ops2, sv, '2026-11-20');
+  assert.deepEqual([T.days, T.now30, T.real30, T.target30, T.hit], [10, 60, 75, 67.5, true]);
+  const Tp = E.savingsTrack(org, ops, { kind: 'price', id: 'i1', ref: 9, base30: 900, pct: 20, start: '2026-11-11' }, '2026-11-20');
+  assert.equal(Tp.nodata, true, 'لا مشتريات بعد البدء: لا يُدّعى توفير');
+});

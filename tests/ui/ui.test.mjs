@@ -416,6 +416,32 @@ test('v40.3 هندسة القائمة: التصنيف الرباعي، التح�
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+test('v40.4 خطة التوفير: فرص مقاسة، النسبة إلزامية بلا افتراض، الإضافة للخطة دون تكرار، والفرع لا يراها', async () => {
+  const ctx = await browser.newContext(devices['iPhone 13']); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'live/Hub/admin/analytics:savings'); await p.reload(); await p.waitForTimeout(600); await settle(p);
+  await p.evaluate(() => {
+    const d = (k) => { const x = new Date(); x.setDate(x.getDate() - k); return x.toISOString().slice(0, 10); };
+    window.setOps(o => ({ ...o, stockMoves: [...(o.stockMoves || []), { id: 'sw1', kind: 'waste', branchId: 'b1', itemId: 'svI', qty: -2, wasteVal: 300, date: d(5) }],
+      purchaseOrders: [...(o.purchaseOrders || []), ...[[40, 9], [8, 11]].map(([k, pr], i) => ({ id: 'spo' + i, poNo: 'SP' + i, date: d(k), supplierId: 's' + i, supplierName: i ? 'مورد ب' : 'مورد أ', status: 'received', lines: [{ itemId: 'svI', desc: 'دجاج', qty: 100, received: 100, price: pr }] }))] }));
+  }); await p.waitForTimeout(400);
+  const txt = await p.locator('#r').innerText();
+  assert.match(txt, /الهدر المسجّل/); assert.match(txt, /فرق سعر الشراء/);
+  const row = p.locator('.sv-row', { hasText: 'فرق سعر الشراء' });
+  assert.match(await row.innerText(), /200\.00/, '(11−9)×100 في الفترة');
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true, 'على الجوال بلا تمرير أفقي');
+  await row.locator('button:has-text("للخطة")').click(); await p.waitForTimeout(200);
+  assert.equal(await p.evaluate(() => (window.cur.actions || []).filter(a => a.src === 'saving').length), 0, 'بلا نسبة لا يُضاف');
+  await row.locator('input').fill('50'); await row.locator('button:has-text("للخطة")').click(); await p.waitForTimeout(300);
+  const a = await p.evaluate(() => window.cur.actions.filter(x => x.src === 'saving').map(x => [x.srcKey, x.saving.pct, x.saving.ref]));
+  assert.deepEqual(a, [['saving|price|svI', 50, 9]]);
+  assert.match(await row.innerText(), /في الخطة/); assert.equal(await row.locator('button').count(), 0, 'لا يتكرر');
+  await p.click('button:has-text("الخطة (1)")'); await p.waitForTimeout(200);
+  assert.match(await p.locator('#r').innerText(), /يُقاس من/, 'أقل من 7 أيام: لا ادعاء توفير');
+  await p.evaluate(() => { window.as('bm'); }); await p.waitForTimeout(300);
+  assert.match(await p.locator('#r').innerText(), /للإدارة المركزية|لا توجد أقسام متاحة لصلاحيتك/, 'الفرع لا يصل لخطة التوفير');
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
 test('v40.2 الإغلاق: تقسيم الشبكة إلى مدى/فيزا/ماستركارد — الاختلاف عن إجمالي الجهاز يمنع الترحيل، والمطابق يُحفظ', async () => {
   const ctx = await browser.newContext(devices['iPad (gen 7)']); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
   await p.goto(base + 'live/ClosingForm/bm'); await p.reload(); await p.waitForTimeout(800); await settle(p);
