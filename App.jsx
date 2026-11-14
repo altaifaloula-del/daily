@@ -2797,7 +2797,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v40.4';
+const APP_VER = 'v40.5';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -8131,10 +8131,13 @@ function profitDays(org, ops, opts = {}) {
       const gross = sum(S, c => Number(c.totalRevenue) || 0), net = r2(netOf(gross, true));
       const closed = S.some(c => !c.fromImport);
       const comm = r2(sum(S, c => sum(c.deliverySales || [], s => s.commissionAmount != null ? Number(s.commissionAmount) || 0 : (Number(s.amount) || 0) * (s.commissionPercentage != null ? Number(s.commissionPercentage) : Number((apps.find(a => a.id === s.appId) || {}).c) || 0) / 100)));
+      let cardEst = 0;
       let card = cfg.cardFee === 'flat' ? r2(sum(S, c => Number(c.cardSales) || 0) * Number(cfg.cardRate) / 100) : 0;
       if (cfg.cardFee === 'bytype') { const R = cfg.cardRates || {}; const withCard = S.filter(c => (Number(c.cardSales) || 0) > 0);
-        if (withCard.some(c => !c.cardSplit)) na.card = 'الشبكة غير مقسّمة إلى مدى/فيزا/ماستركارد في الإغلاق';
-        else card = r2(sum(withCard, c => ['mada', 'visa', 'mc'].reduce((a, k) => a + (Number(c.cardSplit[k]) || 0) * (Number(R[k]) || 0) / 100, 0))); }
+        const fb = Number(cfg.cardRateFallback) || 0;   // v40.5: نسبة احتياطية اختيارية للإغلاقات غير المقسّمة
+        if (!fb && withCard.some(c => !c.cardSplit)) na.card = 'الشبكة غير مقسّمة إلى مدى/فيزا/ماستركارد في الإغلاق';
+        else { card = r2(sum(withCard, c => c.cardSplit ? ['mada', 'visa', 'mc'].reduce((a, k) => a + (Number(c.cardSplit[k]) || 0) * (Number(R[k]) || 0) / 100, 0) : (Number(c.cardSales) || 0) * fb / 100));
+          const est = withCard.filter(c => !c.cardSplit).length; if (est) cardEst = est; } }
       // تكلفة الطعام
       let food = null, theo = null;
       const U = (cfg.foodBasis === 'actual' || cfg.foodBasis === 'theoretical' || cfg.foodBasis === 'both') ? (wh ? usageReport(org, ops, wh.id, d, d) : null) : null;
@@ -8159,7 +8162,7 @@ function profitDays(org, ops, opts = {}) {
       if (missing.length) { na.cfg = 'أكمل إعدادات الربحية'; }
       const ok = !Object.keys(na).length && gross > 0;
       const margin = ok ? r2(net - food - labor - comm - card - fixed) : null;
-      return { date: d, gross: r2(gross), net, src: !S.length ? 'none' : closed ? 'closing' : 'import', comm, card, food, theo, labor, fixed, margin,
+      return { date: d, gross: r2(gross), net, src: !S.length ? 'none' : closed ? 'closing' : 'import', comm, card, ...(cardEst ? { cardEst } : {}), food, theo, labor, fixed, margin,
         foodPct: net > 0 && food != null ? r2(food / net * 100) : null, laborPct: net > 0 && labor != null ? r2(labor / net * 100) : null,
         primePct: net > 0 && food != null && labor != null ? r2((food + labor) / net * 100) : null, marginPct: margin != null && net > 0 ? r2(margin / net * 100) : null, na };
     });

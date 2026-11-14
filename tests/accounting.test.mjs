@@ -742,6 +742,11 @@ test('v40.2 رسوم الشبكة حسب نوع البطاقة: من التقس�
   const { cardSplit, ...noSplit } = c;
   const d2 = E.profitDays(org, { closings: [noSplit] }, { from: '2026-11-05', to: '2026-11-05', cfg }).branches[0].days[0];
   assert.equal(d2.margin, null); assert.match(d2.na.card, /غير مقسّمة/);
+  // v40.5: النسبة الموحّدة الاحتياطية للإغلاقات غير المقسّمة (اختيارية)
+  const d3 = E.profitDays(org, { closings: [noSplit] }, { from: '2026-11-05', to: '2026-11-05', cfg: { ...cfg, cardRateFallback: 0.99 } }).branches[0].days[0];
+  assert.equal(d3.card, Math.round(noSplit.cardSales * 0.99) / 100); assert.equal(d3.cardEst, 1); assert.equal(d3.na.card, undefined); assert.notEqual(d3.margin, null);
+  const d4 = E.profitDays(org, { closings: [c] }, { from: '2026-11-05', to: '2026-11-05', cfg: { ...cfg, cardRateFallback: 0.99 } }).branches[0].days[0];
+  assert.deepEqual([d4.card, d4.cardEst], [14.9, undefined], 'المقسّم يبقى بنسب كل نوع');
   const legacy = E.sigDigest('closing', noSplit);
   assert.equal(E.sigDigest('closing', { ...noSplit }), legacy, 'إغلاق بلا تقسيم: البصمة كما كانت (لا إنذار كاذب على الموقّع سابقًا)');
   assert.notEqual(E.sigDigest('closing', c), E.sigDigest('closing', { ...c, cardSplit: { mada: 800, visa: 200, mc: 150 } }), 'تعديل التقسيم بعد الاعتماد يُكشف');

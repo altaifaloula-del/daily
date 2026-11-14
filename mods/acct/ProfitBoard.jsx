@@ -29,7 +29,7 @@ export function ProfitBoard({ org, ops, me, myBranches, commitOrg, say }) {
   const tgt = saved.targets || {};
   const save = async () => {
     const miss = profitMissing(d); if (d.enabled && miss.length) return say('أكمل قبل التفعيل: ' + miss.join('، '), 'no');
-    const rec = { enabled: !!d.enabled, foodBasis: d.foodBasis, laborBasis: d.laborBasis, alloc: d.alloc, cardFee: d.cardFee, cardRate: Number(d.cardRate) || 0, cardRates: Object.fromEntries(['mada', 'visa', 'mc'].map(k => [k, Number((d.cardRates || {})[k]) || 0])),
+    const rec = { enabled: !!d.enabled, foodBasis: d.foodBasis, laborBasis: d.laborBasis, alloc: d.alloc, cardFee: d.cardFee, cardRate: Number(d.cardRate) || 0, cardRates: Object.fromEntries(['mada', 'visa', 'mc'].map(k => [k, Number((d.cardRates || {})[k]) || 0])), ...(Number(d.cardRateFallback) > 0 ? { cardRateFallback: Number(d.cardRateFallback) } : {}),
       foodCats: d.foodCats || [], foodSuppliers: d.foodSuppliers || [], fixed: (d.fixed || []).filter(x => x.branchId && Number(x.amount) > 0).map(x => ({ ...x, amount: Number(x.amount) })),
       targets: Object.fromEntries(Object.entries(d.targets || {}).filter(([, v]) => Number(v) > 0).map(([k, v]) => [k, Number(v)])) };
     const ok = await commitOrg(o => ({ ...o, profitCfg: rec }), { actionType: 'update', targetType: 'settings', targetId: 'profitCfg', need: 'edit', title: 'إعدادات الربحية', details: (rec.enabled ? 'مفعّلة' : 'موقوفة') + ' · الطعام: ' + (PROFIT_OPTS.foodBasis[rec.foodBasis] || '—') + ' · العمالة: ' + (PROFIT_OPTS.laborBasis[rec.laborBasis] || '—') });
@@ -58,7 +58,8 @@ export function ProfitBoard({ org, ops, me, myBranches, commitOrg, say }) {
           {sel('foodBasis', '1. أساس تكلفة الطعام')}{sel('laborBasis', '2. أساس تكلفة العمالة')}
           {sel('alloc', '3. توزيع التكاليف الشهرية (الثابتة، والرواتب إن اخترتها) على الأيام')}
           <div className="grid g2" style={{ gap: 8 }}>{sel('cardFee', '4. رسوم الشبكة')}{d.cardFee === 'flat' && <Field label="النسبة % (كما في عقد البنك)"><input className="inp n" inputMode="decimal" value={d.cardRate} onChange={e => setK('cardRate', e.target.value.replace(/[^\d.]/g, ''))} /></Field>}</div>
-          {d.cardFee === 'bytype' && <div className="grid g3" style={{ gap: 8 }}>{[['mada', 'مدى %'], ['visa', 'فيزا %'], ['mc', 'ماستركارد %']].map(([k, l]) => <Field key={k} label={l + ' (عقد البنك)'}><input className="inp n" inputMode="decimal" value={(d.cardRates || {})[k] || ''} onChange={e => setD(x => ({ ...x, cardRates: { ...(x.cardRates || {}), [k]: e.target.value.replace(/[^\d.]/g, '') } }))} /></Field>)}</div>}
+          {d.cardFee === 'bytype' && <div className="grid g3" style={{ gap: 8 }}>{[['mada', 'مدى %'], ['visa', 'فيزا %'], ['mc', 'ماستركارد %']].map(([k, l]) => <Field key={k} label={l + ' (عقد البنك)'}><input className="inp n" inputMode="decimal" value={(d.cardRates || {})[k] || ''} onChange={e => setD(x => ({ ...x, cardRates: { ...(x.cardRates || {}), [k]: e.target.value.replace(/[^\d.]/g, '') } }))} /></Field>)}
+            <Field label="نسبة موحّدة للإغلاقات غير المقسّمة % (اختياري — فارغ: لا يُحسب هامشها)"><input className="inp n" inputMode="decimal" value={d.cardRateFallback || ''} onChange={e => setK('cardRateFallback', e.target.value.replace(/[^\d.]/g, ''))} /></Field></div>}
         </div>
         {d.foodBasis === 'purchases' && <><div className="lbl" style={{ marginTop: 8 }}>تصنيفات مصروفات الإغلاق التي تُعدّ مواد طعام</div>
           <div className="pf-chips">{cats.map(c => <label key={c.id} className={'pf-chip' + ((d.foodCats || []).includes(c.id) ? ' on' : '')}><input type="checkbox" checked={(d.foodCats || []).includes(c.id)} onChange={() => tog('foodCats', c.id)} />{c.n}</label>)}</div>
@@ -88,14 +89,14 @@ export function ProfitBoard({ org, ops, me, myBranches, commitOrg, say }) {
                 <div className={'pf-c' + flag(t.foodPct, 'food')}><small>{TG.food}</small><b className="num">{t.food == null ? 'غير متاح' : money(t.food)}</b><span>{pct(t.foodPct)}{tgt.food ? ' / هدف ' + tgt.food + '%' : ''}</span></div>
                 <div className={'pf-c' + flag(t.laborPct, 'labor')}><small>{TG.labor}</small><b className="num">{t.labor == null ? 'غير متاح' : money(t.labor)}</b><span>{pct(t.laborPct)}{tgt.labor ? ' / هدف ' + tgt.labor + '%' : ''}</span></div>
                 <div className={'pf-c' + flag(t.primePct, 'prime')}><small>التكلفة الأساسية</small><b className="num">{pct(t.primePct)}</b><span>{tgt.prime ? 'هدف ' + tgt.prime + '%' : 'طعام + عمالة'}</span></div>
-                <div className="pf-c"><small>عمولات ورسوم</small><b className="num">{money(t.comm + t.card)}</b><span>تطبيقات {money(t.comm)} · شبكة {money(t.card)}</span></div>
+                <div className="pf-c"><small>عمولات ورسوم</small><b className="num">{money(t.comm + t.card)}</b><span>تطبيقات {money(t.comm)} · شبكة {money(t.card)}{b.days.some(x => x.cardEst) ? ' (جزء بالنسبة الموحّدة)' : ''}</span></div>
                 <div className="pf-c"><small>الثابتة الموزّعة</small><b className="num">{money(t.fixed)}</b><span>{PROFIT_OPTS.alloc[saved.alloc]}</span></div>
               </div>
               {t.usageGapPct != null && <div className={'cf-note ' + (t.usageGapPct > 5 ? 'warn' : 'info')}><span className="badge b-amber">رقابة</span><span>الاستهلاك الفعلي أعلى من النظري بـ {t.usageGapPct}% ({money(t.food - t.theo)}) — فاقد غير مسجّل أو وصفة غير دقيقة</span></div>}
               {b.notes.map((n, i) => <div key={i} className="cf-note info"><span className="badge b-dim">معلومة</span><span>{n}</span></div>)}
               <button type="button" className="cf-wh" onClick={() => setOpen(open === b.id ? null : b.id)} aria-expanded={open === b.id}><span className="card-t" style={{ fontSize: 12.5 }}>يومًا بيوم</span><ChevronDown size={14} className="cf-chev" /></button>
               {open === b.id && <div className="pf-days">{b.days.filter(x => x.gross > 0).map(x => <div key={x.date} className={'pf-day' + (x.margin == null ? ' na' : x.margin < 0 ? ' neg' : '')}>
-                <span className="pf-a"><b className="dt">{arDate(x.date)}</b><small>{x.src === 'import' ? 'من الاستيراد' : 'إغلاق'} · صافي {money(x.net)}</small>{Object.values(x.na).filter((v, i, a) => a.indexOf(v) === i).map(v => <small key={v} style={{ color: 'var(--amber)' }}>{v}</small>)}</span>
+                <span className="pf-a"><b className="dt">{arDate(x.date)}</b><small>{x.src === 'import' ? 'من الاستيراد' : 'إغلاق'} · صافي {money(x.net)}</small>{Object.values(x.na).filter((v, i, a) => a.indexOf(v) === i).map(v => <small key={v} style={{ color: 'var(--amber)' }}>{v}</small>)}{x.cardEst ? <small style={{ color: 'var(--dim)' }}>رسوم الشبكة بالنسبة الموحّدة {saved.cardRateFallback}% ({x.cardEst} إغلاق غير مقسّم)</small> : null}</span>
                 <span className="pf-b"><small>طعام {pct(x.foodPct)} · عمالة {pct(x.laborPct)}</small><b className="num" dir="ltr">{x.margin == null ? '—' : money(x.margin)}</b></span></div>)}</div>}
             </>}
           </div>); })}
