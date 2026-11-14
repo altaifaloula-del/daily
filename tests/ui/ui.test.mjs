@@ -285,6 +285,23 @@ test('v41.3 تصدير أي تقرير مطبوع: Excel وCSV من جداول �
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+test('v41.4 سجل سلامة الغذاء: الفرع يسجّل الحرارة، وخارج المدى يتطلب إجراءً تصحيحيًا، والالتزام يظهر', async () => {
+  const ctx = await browser.newContext(devices['iPhone 13']); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'live/Hub/bm/closehub:fsafety'); await p.reload(); await p.waitForTimeout(500); await settle(p);
+  await p.evaluate(() => window.setOrg(g => ({ ...g, fsCfg: { perDay: 2 }, fsUnits: [{ id: 'u1', branchId: 'b1', name: 'ثلاجة الخضار', kind: 'fridge', min: 0, max: 5 }, { id: 'u2', branchId: 'b1', name: 'فريزر اللحوم', kind: 'freezer', min: -40, max: -18 }] }))); await p.waitForTimeout(300);
+  await p.fill('input[aria-label="حرارة ثلاجة الخضار"]', '3'); await p.locator('.fs-row:has-text("ثلاجة الخضار") button:has-text("تسجيل")').click(); await p.waitForTimeout(250);
+  await p.fill('input[aria-label="حرارة فريزر اللحوم"]', '-9'); await p.locator('.fs-row:has-text("فريزر اللحوم") button:has-text("تسجيل")').click(); await p.waitForTimeout(250);
+  assert.equal(await p.evaluate(() => (window.cur.fsLogs || []).length), 1, 'خارج المدى بلا إجراء لا يُسجَّل');
+  await p.fill('input[aria-label="إجراء فريزر اللحوم"]', 'نُقلت اللحوم لفريزر الاحتياط وطُلب فني'); await p.locator('.fs-row:has-text("فريزر اللحوم") button:has-text("تسجيل")').click(); await p.waitForTimeout(250);
+  assert.deepEqual(await p.evaluate(() => window.cur.fsLogs.map(l => [l.unitId, l.temp, l.ok, l.by, !!l.action]).sort()), [['u1', 3, true, 'خالد', false], ['u2', -9, false, 'خالد', true]]);
+  assert.match(await p.locator('#r').innerText(), /قراءات خارج المدى[\s\S]*فريزر اللحوم/);
+  assert.match(await p.locator('#r').innerText(), /2 من 28 قراءة/, 'الالتزام: 2 من 2×2×7');
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true);
+  await p.click('button:has-text("السجل للتفتيش")'); await p.waitForTimeout(500);
+  assert.equal(await p.locator('.mz-docv button:has-text("Excel")').count(), 1, 'السجل يُصدَّر');
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
 test('مراقب التكاليف: يعتمد ويراقب بلا إضافة أو تعديل', async () => {
   const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Inventory/ctl/waste');
   assert.equal(await p.locator('.card:has-text("ضوابط الهدر") button:has-text("تعديل")').count(), 0, 'لا يعدّل الحدود');
