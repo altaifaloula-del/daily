@@ -1,6 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useMemo } from 'react';
 import { Wallet, FileBarChart, ChevronDown, Printer, Check, Landmark, Banknote, Signature, Plus, TrendingDown, ShieldCheck, AlertTriangle, Users, PenLine, Receipt, Download } from 'lucide-react';
+import { ibanNorm, ibanStatus, loadIbanSigs, requestIban } from '../../App.jsx';   // v40.9
 import { AdvanceForm, Field, Kpi, LOCK_MSG, MZ_LOGO_HTML, Modal, NUM_FACE, PAY_ADD_TYPES, ROLES, SignDocsModal, arDT, arDate, branchBanks, buildPayslipSignDocs, eosAccrualLines, eosCumAt, eosState, isoD, leaveBalance, lockedThru, makeXlsx, money, monthEnd, nowISO, openDocWin, payrollRowsOf, periodLocked, printA4, rolePost, sigBlockHtml, sigSvg, sum, today, uid } from '../../App.jsx';
 
 export function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
@@ -122,9 +123,15 @@ export function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, s
     const ok = await commit(d => ({ ...d, ledgerEntries: [...recs, ...(d.ledgerEntries || [])] }), { actionType: 'create', targetType: 'daily_closing', targetId: 'eos-pay-' + emp.id, need: 'post', title: 'صرف مخالصة نهاية الخدمة', details: emp.name + ' · ' + money(calc.total) });
     if (ok) { setEosF(null); say('سُجّل صرف المخالصة واستُخدم المخصص ✓'); }
   };
-  const exportWPS = () => {
+  const exportWPS = async () => {
+    // v40.9: الملف يحمل الآيبان الموثّق فقط (آخر اعتماد موقّع أو المعتمد غير المطبَّق) — وإلا يُمنع
+    const sigs = await loadIbanSigs();
+    if (sigs === 'err') return say('تعذّر التحقق من توثيق الآيبانات — تحقق من الاتصال وأعد المحاولة (لم يُصدَر الملف)', 'no');
+    const IS = ibanStatus(org, sigs); const effOf = (e) => { const p = IS.payees.find(x => x.ent === 'emp:' + e.id); return sigs === null ? ibanNorm(e.iban) : (p && p.effective) || ''; };
+    const blocked = sigs === null ? [] : rows.filter(r => r.e.iban && !effOf(r.e));
+    if (blocked.length) return say('لا يُصدَر ملف حماية الأجور: ' + blocked.length + ' موظف بآيبان غير موثّق (' + blocked.slice(0, 4).map(r => r.e.name).join('، ') + (blocked.length > 4 ? '…' : '') + ') — وثّقه من «المالية والمحاسبة ← ضبط حسابات الدفع»', 'no');
     const head = ['رقم الهوية/الإقامة', 'اسم الموظف', 'الآيبان IBAN', 'الأساسي', 'بدل السكن', 'بدلات أخرى', 'الاستقطاعات', 'صافي الراتب', 'أيام العمل'];
-    const lines = rows.map(r => [r.e.idNumber || r.e.iqamaNo || r.e.nationalId || '', r.e.name, r.e.iban || '', r.e.baseSalary || 0, r.e.housingAllowance || 0, r2((r.e.transportAllowance || 0) + (r.e.otherAllowance || 0) + (r.bonus || 0)), r2(r.draws + r.cuts + r.gEmp), r.net, 30]);
+    const lines = rows.map(r => [r.e.idNumber || r.e.iqamaNo || r.e.nationalId || '', r.e.name, effOf(r.e), r.e.baseSalary || 0, r.e.housingAllowance || 0, r2((r.e.transportAllowance || 0) + (r.e.otherAllowance || 0) + (r.bonus || 0)), r2(r.draws + r.cuts + r.gEmp), r.net, 30]);
     try {
       const blob = makeXlsx([{ name: ('حماية الأجور ' + month).slice(0, 28), rows: [head, ...lines] }]);
       const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'حماية_الأجور_WPS_' + month + '.xlsx'; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(url), 1500);
@@ -281,10 +288,14 @@ export function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, s
   const saveComp = async () => {
     const f = compF;
     const patch = { baseSalary: Number(f.baseSalary) || 0, housingAllowance: Number(f.housingAllowance) || 0, transportAllowance: Number(f.transportAllowance) || 0, otherAllowance: Number(f.otherAllowance) || 0, gosiSubject: !!f.gosiSubject, nationality: f.nationality || '', hireDate: (f.hireDate || '').trim(), iban: (f.iban || '').trim().replace(/\s/g, ''), idNumber: (f.idNumber || '').trim() };
+    // v40.9: آيبان الموظف لا يتغيّر مباشرة — طلب يعتمده شخص آخر (الإزالة مباشرة)
+    const empOld = ibanNorm(((org.employees || []).find(x => x.id === f.id) || {}).iban), empNew = ibanNorm(patch.iban);
+    const empReq = empNew && empNew !== empOld; if (empReq) patch.iban = empOld;
     await commitOrg(d => ({ ...d, employees: (d.employees || []).map(x => x.id === f.id ? { ...x, ...patch } : x) }), {
       actionType: 'update', targetType: 'user_account', targetId: f.id,
       title: 'حدّث راتب/بدلات موظف', details: f.name + ' · أساسي ' + money(patch.baseSalary)
     });
+    if (empReq) { const r = await requestIban(me, commitOrg, { ent: 'emp:' + f.id, name: f.name, iban: empOld }, empNew); setCompF(null); return say(r.ok ? 'حُفظ راتب ' + f.name + ' ✓ — وتغيير الآيبان أُرسل للاعتماد (يعتمده شخص آخر من المالية/الإدارة)' : (r.msg || 'تعذّر طلب الآيبان'), r.ok ? undefined : 'no'); }
     setCompF(null); say('حُفظ راتب ' + f.name + ' ✓');
   };
 

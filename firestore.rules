@@ -139,6 +139,8 @@ service cloud.firestore {
     function countApprovers() { return ['branch_manager', 'regional_manager', 'head_office', 'system_admin', 'cost_controller', 'general_management', 'finance_department', 'accountant']; }
     // [ROLES:PO]
     function poApprovers()    { return ['head_office', 'system_admin', 'general_management']; }
+    // [ROLES:IBAN] — v40.9: معتمدو تغيير حسابات الدفع (آيبان الموظف والمورد)
+    function ibanApprovers()  { return ['head_office', 'system_admin', 'general_management', 'finance_department']; }
 
     // نسخ «خفيفة» للقواعد الجديدة: العضوية وقائمة المدراء والسياسة تُقرأ مرة واحدة وتُمرَّر (حد 1000 عملية تقييم)
     function memOf() {
@@ -224,7 +226,7 @@ service cloud.firestore {
     function sigShape(d, role, rel) {
       return d.keys().hasOnly(['kind', 'stage', 'entityId', 'branchId', 'digest', 'email', 'role', 'at', 'cv', 'subRef', 'recountRef', 'nosub', 'edate', 'alert'])
         && d.keys().hasAll(['kind', 'stage', 'entityId', 'branchId', 'digest', 'email', 'role', 'at', 'cv'])
-        && d.kind in ['closing', 'waste', 'count', 'po']
+        && d.kind in ['closing', 'waste', 'count', 'po', 'iban']
         && d.stage in ['submit', 'recount', 'audit', 'gm', 'approve', 'reject']
         && shortStr(d.entityId, 120) && d.entityId.size() > 0
         && d.branchId is string && d.branchId.size() <= 80
@@ -248,6 +250,9 @@ service cloud.firestore {
         : d.kind == 'count'
         ? d.stage in ['approve', 'reject'] && roleIn(countApprovers(), role, adm)
           && ((sub != null && other(sub, adm, false) && (!('recountRef' in d) || (rc != null && other(rc, adm, false)))) || preCutover(d, rel))
+        : d.kind == 'iban'
+        // ثابت 21: تغيير حساب الدفع يعتمده شخص آخر غير طالبه (بلا استثناء للمدير) وبالآيبان نفسه المقدَّم (البصمة ذاتها)، ولا مسار «قبل البدء»
+        ? d.stage in ['approve', 'reject'] && roleIn(ibanApprovers(), role, adm) && sub != null && other(sub, adm, false) && d.digest == sub.digest && d.branchId == ''
         : d.stage in ['approve', 'reject'] && roleIn(poApprovers(), role, adm)
           && ((sub != null && (sub.get('alert', false) == false || other(sub, adm, true))) || preCutover(d, rel));
     }

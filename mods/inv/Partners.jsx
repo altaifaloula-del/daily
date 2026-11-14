@@ -2,6 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { authApi } from '../../storage';
 import { Trash2, ChevronRight, Plus, Printer, Settings, ArrowUp, Check, Bell, X, TrendingUp, TrendingDown, ArrowLeftRight, Users, Search } from 'lucide-react';
+import { ibanNorm, requestIban } from '../../App.jsx';   // v40.9
 import { BalCell, Field, Kpi, LOCK_MSG, Modal, MoneyField, NationalAddressFields, PT_SRC, PT_TYPE, PartnerChip, ROLES, buildPartners, contactFields, contactOf, money, naErr, naHas, naMissing, nextPartnerCode, nowISO, periodLocked, printPartnerStatement, today, uid, waNum } from '../../App.jsx';
 
 export function Partners({ org, ops, me, commit, commitOrg, say }) {
@@ -124,8 +125,13 @@ export function Partners({ org, ops, me, commit, commitOrg, say }) {
     if (c.edit) {
       if (!canWriteOrgP) return say('تعديل بيانات الكرت للإدارة فقط', 'no');
       const patch = { name: c.name.trim(), cat: c.cat || '', phone: c.phone || '', terms: Number(c.terms) || 0, address: c.address || '', taxable: !!c.taxable, ...contactFields(c) };
+      // v40.9: آيبان المورد لا يتغيّر مباشرة — طلب يعتمده شخص آخر (الإزالة مباشرة)
+      const supOld = c.isSup ? ibanNorm(((org.suppliers || []).find(s => s.id === c.id) || {}).iban) : '';
+      const supNew = c.isSup ? ibanNorm(c.iban) : '';
+      const supReq = c.isSup && supNew && supNew !== supOld; if (supReq) patch.iban = supOld;
       if (c.isSup) await commitOrg(d => ({ ...d, suppliers: (d.suppliers || []).map(s => s.id === c.id ? { ...s, ...patch, category: c.cat || '', vatNo: c.tax || '' } : s) }), { actionType: 'update', targetType: 'user_account', targetId: c.id, title: 'حدّث بيانات كرت مورد', details: c.name });
       else await commitOrg(d => ({ ...d, partners: (d.partners || []).map(p => p.id === c.id ? { ...p, ...patch, tax: c.tax || '', vatNo: c.tax || '' } : p) }), { actionType: 'update', targetType: 'user_account', targetId: c.id, title: 'حدّث بيانات كرت عميل', details: c.name });
+      if (supReq) { const r = await requestIban(me, commitOrg, { ent: 'sup:' + c.id, name: c.name.trim(), iban: supOld }, supNew); say(r.ok ? 'حُدّثت بيانات الكرت ✓ — وتغيير الآيبان أُرسل للاعتماد (يعتمده شخص آخر من المالية/الإدارة)' : (r.msg || 'تعذّر طلب الآيبان'), r.ok ? undefined : 'no'); setAddP(null); return; }
       say('حُدّثت بيانات الكرت ✓'); setAddP(null); return;
     }
     if (!canWriteOrgP) {
@@ -149,10 +155,11 @@ export function Partners({ org, ops, me, commit, commitOrg, say }) {
     const id = uid(isSupNew ? 'sp' : 'pt'); const key = (isSupNew ? 'sup:' : 'cust:') + id;
     const code = nextPartnerCode(partners, c.type || 'customer');
     const rec = isSupNew
-      ? { id, code, name: c.name.trim(), category: c.cat || '', phone: c.phone || '', vatNo: c.tax || '', address: c.address || '', taxable: !!c.taxable, terms: Number(c.terms) || 0, ...contactFields(c) }
+      ? { id, code, name: c.name.trim(), category: c.cat || '', phone: c.phone || '', vatNo: c.tax || '', address: c.address || '', taxable: !!c.taxable, terms: Number(c.terms) || 0, ...contactFields(c), iban: '' }   // v40.9: الآيبان بطلب اعتماد
       : { id, key, code, name: c.name.trim(), type: c.type || 'customer', cat: c.cat || '', phone: c.phone || '', tax: c.tax || '', vatNo: c.tax || '', address: c.address || '', taxable: !!c.taxable, terms: Number(c.terms) || 0, ...contactFields(c) };
     await commitOrg(d => (isSupNew ? { ...d, suppliers: [...(d.suppliers || []), rec] } : { ...d, partners: [...(d.partners || []), rec] }),
       { actionType: 'create', targetType: 'user_account', targetId: id, title: 'أضاف جهة اتصال', details: rec.name + ' — ' + (PT_TYPE[c.type || 'customer']?.ar || '') });
+    if (isSupNew && ibanNorm(c.iban)) { const r = await requestIban(me, commitOrg, { ent: 'sup:' + id, name: rec.name, iban: '' }, c.iban); if (!r.ok) say(r.msg || 'تعذّر طلب الآيبان', 'no'); }
     const openAmt = Number((c.opening || '').toString().replace(/,/g, '')) || 0;
     if (openAmt > 0) {
       const side = c.openingSide === 'debit' ? { debit: openAmt, credit: 0 } : { credit: openAmt, debit: 0 };

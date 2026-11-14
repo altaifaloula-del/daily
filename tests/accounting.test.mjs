@@ -687,6 +687,7 @@ test('الدستور: قوائم الأدوار في قواعد Firestore تطا
   assert.deepEqual(listOf('WASTE'), f((r, k) => !!(r.approver || r.admin || r.costCtl || k === 'regional_manager')), 'معتمدو الهدر = canApproveWaste');
   assert.deepEqual(listOf('COUNT'), f((r, k) => !!(E.rolePost(k) || r.approver || r.admin || k === 'regional_manager' || k === 'branch_manager')), 'معتمدو الجرد = canApproveCount');
   assert.deepEqual(listOf('PO'), f(r => !!(r.approver || r.admin)), 'معتمدو أوامر الشراء');
+  assert.deepEqual(listOf('IBAN'), f(r => (r.tabs || []).includes('audit')), 'معتمدو تغيير حسابات الدفع = أصحاب شاشة التدقيق');
 });
 
 test('الدستور ث19: التحقق من الاعتماد — موقّع ومطابق، أو عُدّل بعد اعتماده، أو بلا توقيع بعد بدء التوقيع، أو أقدم منه', () => {
@@ -875,4 +876,33 @@ test('قائمة التحضير: توقع الفرع × مزيج الأصناف 
   assert.deepEqual(mar.parts.map(x => [x.name, x.qty, !!x.prep]), [['ثومية', 1.2, true], ['بهارات', 0.3, false]]);
   const P2 = E.prepPlan(org, { closings }, { branchId: 'b1', today: '2026-11-14', date: '2026-11-15' });
   assert.equal(P2.preps.length, 0); assert.match(P2.notes.join(' '), /لا مبيعات بالأصناف/, 'بلا مزيج أصناف لا يُخمَّن');
+});
+
+// ===== v40.9 — ضبط تغيير حسابات الدفع =====
+test('الآيبان: موثّق بآخر اعتماد موقّع، والمعتمد غير المطبَّق يُستخدم، والمعدّل خارج المسار «مخالف»، والطلب بانتظار القرار', () => {
+  const A = 'SA' + '1'.repeat(22), B = 'SA' + '2'.repeat(22), C = 'SA' + '3'.repeat(22);
+  const dg = (ent, iban) => E.sigDigest('iban', { id: ent, iban });
+  const org = baseOrg({ employees: [{ id: 'e1', name: 'سالم', iban: A }, { id: 'e2', name: 'فهد', iban: B }, { id: 'e3', name: 'ماجد', iban: C }, { id: 'e4', name: 'خالد', iban: '' }, { id: 'e5', name: 'سعد', iban: A }],
+    suppliers: [{ id: 's1', name: 'مورد الدواجن', iban: B }],
+    ibanReqs: [{ id: 'r1', ent: 'emp:e2', iban: C, sigSubmit: 'sub1' }, { id: 'r2', ent: 'emp:e4', iban: A, sigSubmit: 'sub2' }, { id: 'r3', ent: 'sup:s1', iban: A, sigSubmit: 'sub3' }] });
+  const sigs = [
+    { kind: 'iban', entityId: 'emp:e1', stage: 'approve', digest: dg('emp:e1', A), atMs: 1 },                                   // e1 موثّق
+    { kind: 'iban', entityId: 'emp:e2', stage: 'approve', digest: dg('emp:e2', B), atMs: 1 },
+    { kind: 'iban', entityId: 'emp:e2', stage: 'approve', subRef: 'sub1', digest: dg('emp:e2', C), atMs: 5 },                  // e2: اعتُمد C ولم يُطبَّق
+    { kind: 'iban', entityId: 'emp:e3', stage: 'approve', digest: dg('emp:e3', A), atMs: 1 },                                  // e3: السجل C يخالف آخر اعتماد A
+    { kind: 'iban', entityId: 'sup:s1', stage: 'approve', subRef: 'sub3', digest: dg('sup:s1', C), atMs: 2 }];                // s1: اعتماد ببصمة غير الطلب ولا السجل
+  const S = E.ibanStatus(org, sigs); const st = Object.fromEntries(S.payees.map(p => [p.ent, [p.st, p.effective]]));
+  assert.deepEqual(st['emp:e1'], ['ok', A]);
+  assert.deepEqual(st['emp:e2'], ['approved', C], 'المعتمد يُستخدم قبل تطبيقه');
+  assert.deepEqual(st['emp:e3'], ['changed', null], 'عُدّل خارج المسار');
+  assert.deepEqual(st['emp:e4'], ['pending', null]);
+  assert.deepEqual(st['emp:e5'], ['unverified', null], 'قديم بلا اعتماد موقّع');
+  assert.deepEqual(st['sup:s1'], ['changed', null], 'اعتماد ببصمة آيبان آخر لا يوثّق السجل ولا يُطبَّق');
+  assert.equal(S.reqs.find(r => r.id === 'r3').valid, false);
+  const d2 = E.ibanApply(org, S.reqs.filter(r => r.decision));
+  assert.equal(d2.employees.find(e => e.id === 'e2').iban, C, 'التطبيق يضع المعتمد');
+  assert.equal(d2.suppliers[0].iban, B, 'غير الصالح لا يُطبَّق');
+  assert.deepEqual(d2.ibanReqs.map(r => r.id), ['r2'], 'المقرَّر يُزال والمعلّق يبقى');
+  assert.deepEqual(E.ibanStatus(org, 'err').payees.find(p => p.ent === 'emp:e1').st, 'na', 'تعذّر القراءة ⇒ لا ادعاء توثيق');
+  assert.deepEqual([...E.IBAN_APPROVERS].sort(), ['finance_department', 'general_management', 'head_office', 'system_admin']);
 });
