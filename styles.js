@@ -1660,4 +1660,8 @@ table.tb.tb-fp{min-width:520px}
 /* v41.4 — سجل سلامة الغذاء */
 .fs-row .me-a .inp{margin-top:4px;max-width:320px}.inp.fs-bad{border-color:var(--rose,#D9544D);color:var(--rose,#D9544D)}
 .fs-row .sv-go .inp{width:72px}
+
+/* v41.5 — الجرد النقدي المفاجئ */
+.cc-den{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:6px}
+.cc-d{display:flex;flex-direction:column;gap:3px;border:1px solid var(--line);border-inline-start-width:4px;border-radius:10px;padding:6px 8px;font-weight:700;font-size:13px}.cc-d .inp{min-height:0;padding:5px 6px}
 `;

@@ -23,7 +23,7 @@ export const ENGINE_EXPORTS = ['buildAccounting', 'buildPartners', 'stockByWh', 
   // v39.1 — التنبيهات المهمة والتقارير
   'complianceItems', 'leaseSchedule', 'vatRegister', 'supplierPurchReport',
   // v39.2 — تخطيط العمالة
-  'staffingPlan', 'ROLES', 'rolePost', 'sigDigest', 'sigVerify', 'profitDays', 'profitMissing', 'menuEngineering', 'savingsOpps', 'savingsTrack', 'savingsMeasure', 'cardStmtLines', 'cardRecon', 'cardSettlePlan', 'fsStatus', 'fsInRange', 'detectStmtMap', 'parseXlsxGrid', 'recipeRaw', 'recipeCost', 'prepUnitCost', 'usageReport', 'prepMix', 'prepPlan', 'recipeKcal', 'productKcal', 'dataFootprint', 'kcalPerUnit', 'ibanStatus', 'ibanApply', 'ibanNorm', 'IBAN_APPROVERS',
+  'staffingPlan', 'ROLES', 'rolePost', 'sigDigest', 'sigVerify', 'profitDays', 'profitMissing', 'menuEngineering', 'savingsOpps', 'savingsTrack', 'savingsMeasure', 'cardStmtLines', 'cardRecon', 'cardSettlePlan', 'fsStatus', 'fsInRange', 'cashCountStatus', 'ccOpenShifts', 'detectStmtMap', 'parseXlsxGrid', 'recipeRaw', 'recipeCost', 'prepUnitCost', 'usageReport', 'prepMix', 'prepPlan', 'recipeKcal', 'productKcal', 'dataFootprint', 'kcalPerUnit', 'ibanStatus', 'ibanApply', 'ibanNorm', 'IBAN_APPROVERS',
   // v39.4 — استيراد نقاط البيع ومطابقتها
   'piHour', 'piCutoff', 'posRecon', 'salesDays', 'importDraftClosing'];
 

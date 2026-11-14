@@ -984,3 +984,14 @@ test('سجل سلامة الغذاء: الالتزام = القراءات الم
   assert.deepEqual(S.missed.map(m => [m.unit, m.date, m.n]), [['ثلاجة 1', '2026-11-02', 1], ['فريزر', '2026-11-01', 1], ['فريزر', '2026-11-02', 0]]);
   assert.equal(E.fsInRange({ min: -40, max: -18 }, -10), false); assert.equal(E.fsInRange({ min: 0, max: 5 }, 5), true); assert.equal(E.fsInRange({ min: 0, max: 5 }, 'x'), false);
 });
+
+// ===== v41.5 — الجرد النقدي المفاجئ =====
+test('الجرد المفاجئ: المتوقع من الوردية المفتوحة = الافتتاحي + صافي النقدي، والحالة لكل فرع مرتبة بالأطول بلا جرد', () => {
+  const ops = { posShifts: [{ id: 's1', branchId: 'b1', status: 'open', openingCash: 300, openedBy: 'سالم' }, { id: 's0', branchId: 'b1', status: 'closed', openingCash: 300 }],
+    posOrders: [{ id: 'o1', shiftId: 's1', status: 'paid', total: 100, payments: [{ m: 'cash', amount: 150 }], change: 50 }, { id: 'o2', shiftId: 's1', status: 'void', payments: [{ m: 'cash', amount: 999 }] }, { id: 'o3', shiftId: 's1', total: 80, payments: [{ m: 'card', amount: 80 }] }],
+    cashCounts: [{ id: 'c1', branchId: 'b1', date: '2026-11-10', at: '2026-11-10T13:00', variance: -20 }, { id: 'c2', branchId: 'b1', date: '2026-11-01', at: '2026-11-01T13:00', variance: 5 }] };
+  assert.deepEqual(E.ccOpenShifts(ops, 'b1').map(s => [s.id, s.expected, s.openedBy]), [['s1', 400, 'سالم']], '300 + (150 − 50) — الملغاة والشبكة لا تدخل');
+  const org = baseOrg({ branches: [{ id: 'b1', name: 'العليا', isActive: true }, { id: 'b2', name: 'النسيم', isActive: true }] });
+  const S = E.cashCountStatus(org, ops, { today: '2026-11-14' });
+  assert.deepEqual(S.map(b => [b.id, b.days, b.n90, b.short90, b.over90, b.withVar]), [['b2', null, 0, 0, 0, 0], ['b1', 4, 2, 20, 5, 2]], 'من لم يُجرد قط أولًا');
+});
