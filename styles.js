@@ -1602,4 +1602,14 @@ html,body{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 /* v40.2 — تقسيم الشبكة حسب نوع البطاقة */
 .card-split{margin-top:6px;padding:10px;border:1px dashed var(--line);border-radius:12px}
 .cs-chk{font-size:12px;margin-top:6px;padding:6px 10px;border-radius:8px}.cs-chk.ok{color:var(--mint);background:rgba(79,178,134,.08)}.cs-chk.bad{color:var(--rose);background:rgba(217,84,77,.08);font-weight:700}.cs-chk.none{color:var(--dim)}
+
+/* v40.3 — هندسة القائمة */
+.me-q{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px}
+.me-qc{all:unset;box-sizing:border-box;cursor:pointer;display:flex;flex-direction:column;gap:3px;padding:10px 12px;border:1px solid var(--line);border-inline-start-width:4px;border-radius:12px;background:var(--ink2)}
+.me-qc.on{box-shadow:0 0 0 2px var(--brass) inset}.me-qh{font-size:13px;font-weight:700}.me-qh b{float:inline-end}.me-qc small{font-size:11px;color:var(--dim)}.me-tip{line-height:1.6}
+.me-mx{width:100%;max-width:520px;display:block;margin:auto;color:var(--txt)}
+.me-list{display:flex;flex-direction:column}
+.me-row{display:flex;justify-content:space-between;gap:10px;padding:8px 2px;border-top:1px solid var(--line)}
+.me-a{display:flex;flex-direction:column;gap:2px;min-width:0;font-size:12.5px}.me-a small{font-size:10.5px;color:var(--dim)}
+.me-b{display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex:0 0 auto}.me-b small{font-size:10px;color:var(--dim)}.me-b .btn{flex:0 0 auto}
 `;

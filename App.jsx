@@ -11,7 +11,8 @@ import {
   Fingerprint, ScanFace, ShieldAlert, Video, Grid3x3,
   BarChart3, CheckCircle2, ArrowUp, ArrowDown,
   CreditCard, Coins, ChevronDown, ChevronRight,
-  Crop, RotateCw, RotateCcw, EyeOff, Sun, Wand2, Delete, Scale, Home, Star, QrCode, Signature, PenLine
+  Crop, RotateCw, RotateCcw, EyeOff, Sun, Wand2, Delete, Scale, Home, Star, QrCode, Signature, PenLine,
+  UtensilsCrossed,
 } from 'lucide-react';
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis,
@@ -58,6 +59,7 @@ const GrowthAnalytics = lazyComp(() => import('./mods/acct/GrowthAnalytics.jsx')
 const EntitiesCenter = lazyComp(() => import('./mods/acct/EntitiesCenter.jsx'), 'EntitiesCenter');
 const ReportBuilder = lazyComp(() => import('./mods/acct/ReportBuilder.jsx'), 'ReportBuilder');
 const ExecDashboard = lazyComp(() => import('./mods/acct/ExecDashboard.jsx'), 'ExecDashboard');
+const MenuEngineering = lazyComp(() => import('./mods/acct/MenuEngineering.jsx'), 'MenuEngineering');   // v40.3
 const ProfitBoard = lazyComp(() => import('./mods/acct/ProfitBoard.jsx'), 'ProfitBoard');   // v40.1
 const StaffingPlan = lazyComp(() => import('./mods/hr/StaffingPlan.jsx'), 'StaffingPlan');   // v39.2
 const SupplierPurchReport = lazyComp(() => import('./mods/acct/TaxPurchReports.jsx'), 'SupplierPurchReport');   // v39.1
@@ -2794,7 +2796,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v40.2';
+const APP_VER = 'v40.3';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3819,7 +3821,7 @@ function PlatformApp() {
   const shared = { org, ops, pulse: pulseA, me, myBranches, scoped, commit, commitOrg, say, setTab, theme, acctIntent, openAcctView, invIntent, openInvView };
 
   // حماية: منع الوصول لتبويب غير مسموح لدور المستخدم (بلا hook — بعد returns الشرطية)
-  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'closing') ? ['myactions', 'myforecast'] : []), ...(NAV.some(n => n.id === 'closing') && (ROLES[me.role]?.approver || ROLES[me.role]?.admin || ROLES[me.role]?.scope === 'all') ? ['cashiers'] : []), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'anomaly', 'actions', 'forecast', 'profit'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : []), ...(NAV.some(n => n.id === 'people') ? ['payroll', 'workforce', 'muster', 'overtime'] : []), ...(NAV.some(n => n.id === 'purchasing') ? ['suppliers', 'reorder', 'suprep'] : []), ...(NAV.some(n => n.id === 'hrops') ? ['attendance', 'leaves', 'shiftengine', 'staffplan', 'tasks', 'points', 'esign'] : []), ...(NAV.some(n => n.id === 'hrperf') ? ['kpi', 'empfile', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'] : [])];
+  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'closing') ? ['myactions', 'myforecast'] : []), ...(NAV.some(n => n.id === 'closing') && (ROLES[me.role]?.approver || ROLES[me.role]?.admin || ROLES[me.role]?.scope === 'all') ? ['cashiers'] : []), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'anomaly', 'actions', 'forecast', 'profit', 'menu'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : []), ...(NAV.some(n => n.id === 'people') ? ['payroll', 'workforce', 'muster', 'overtime'] : []), ...(NAV.some(n => n.id === 'purchasing') ? ['suppliers', 'reorder', 'suprep'] : []), ...(NAV.some(n => n.id === 'hrops') ? ['attendance', 'leaves', 'shiftengine', 'staffplan', 'tasks', 'points', 'esign'] : []), ...(NAV.some(n => n.id === 'hrperf') ? ['kpi', 'empfile', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'] : [])];
   const safeTab = allowedTabs.includes(tab) ? tab : (allowedTabs[0] || 'closing');
 
   return (
@@ -4068,7 +4070,7 @@ function PlatformApp() {
           <div className="page">
             <div className="page-inner"><ErrorBoundary key={safeTab} where={(NAV.find(n => n.id === safeTab) || {}).ar || 'هذا القسم'}>
               {safeTab === 'home' && <Launcher {...shared} online={online} />}
-              {['analytics', 'exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'alerts', 'anomaly', 'actions', 'forecast', 'profit'].includes(safeTab) && <Hub hubId="analytics" {...shared} online={online} view={safeTab} />}
+              {['analytics', 'exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'alerts', 'anomaly', 'actions', 'forecast', 'profit', 'menu'].includes(safeTab) && <Hub hubId="analytics" {...shared} online={online} view={safeTab} />}
               {['reporting', 'reports', 'rbuild', 'boardpack', 'cashflow'].includes(safeTab) && <Hub hubId="reporting" {...shared} view={safeTab} />}
               {safeTab === 'sales' && <SalesHub {...shared} />}
               {safeTab === 'pos' && <PosApp {...shared} />}
@@ -5004,7 +5006,7 @@ function detectAnomalies(org, ops, opts = {}) {
    الإجراء الناتج عن نمط شاذ يحمل «مقياسه»: قيمته عند الإنشاء والمعتاد، وبعد الإنجاز بأسبوع يُقاس من جديد —
    فيظهر هل عاد الرقم نحو المعتاد (تحسّن) أم لا. */
 const ACT_ST = { open: ['b-amber', 'مفتوح'], doing: ['b-sky', 'قيد التنفيذ'], done: ['b-mint', 'منجز'], dismissed: ['b-dim', 'مستبعد'] };
-const ACT_SRC = { anomaly: 'نمط شاذ', ai: 'توصية ذكية', manual: 'يدوي', check: 'فحص سلامة' };
+const ACT_SRC = { anomaly: 'نمط شاذ', ai: 'توصية ذكية', manual: 'يدوي', check: 'فحص سلامة', menu: 'هندسة القائمة' };
 const ACT_KIND = {
   sales_day: { ar: 'متوسط المبيعات اليومية (7 أيام)', dir: 'up' }, expense_week: { ar: 'مصروف التصنيف (7 أيام)', dir: 'down' },
   waste_week: { ar: 'الهدر (7 أيام)', dir: 'down' }, price: { ar: 'سعر الشراء للوحدة', dir: 'down' },
@@ -5939,6 +5941,7 @@ const HUBS = {
       { id: 'actions', ar: 'الإجراءات والتوصيات', icon: CheckCircle2, comp: ActionsBoard, like: 'alerts' },   // v38.7
       { id: 'forecast', ar: 'توقع المبيعات', icon: TrendingUp, comp: SalesForecast, like: 'alerts' },   // v38.8
       { id: 'profit', ar: 'ربحية الفروع اليومية', icon: TrendingUp, comp: ProfitBoard, like: 'dash' },   // v40.1
+      { id: 'menu', ar: 'هندسة القائمة', icon: UtensilsCrossed, comp: MenuEngineering, like: 'dash' },   // v40.3
     ]
   },
   reporting: {
@@ -8172,6 +8175,56 @@ function profitDays(org, ops, opts = {}) {
   });
   return { from, to, missing, enabled: !!cfg.enabled && !missing.length, branches: out, vat: vr > 0 };
 }
+/* ============================================================
+   v40.3 — المرحلة 2: هندسة القائمة (منهج كاسافانا وسميث)
+   لكل منتج: حصته من الكميات المباعة (الشعبية) وهامش مساهمته للوحدة (سعر البيع بعد الضريبة − تكلفة الوصفة).
+   الشعبية عالية إذا بلغت الحصة ≥ (1 ÷ عدد الأصناف) × عتبة المنهج (70% افتراض المنهج، قابلة للتعديل)،
+   والهامش عالٍ إذا بلغ ≥ متوسط الهامش المرجّح بالكميات. الصنف بلا وصفة أو بتكلفة مكوّن مجهولة يُستثنى ويُذكر.
+   ============================================================ */
+const MENU_CLS = {
+  star: { ar: 'نجم', ic: '⭐', tip: 'شعبي ومربح — حافظ على جودته وموضعه في القائمة' },
+  plow: { ar: 'حصان عمل', ic: '🐎', tip: 'شعبي لكن هامشه منخفض — راجع السعر أو تكلفة الوصفة/الحصة' },
+  puzzle: { ar: 'لغز', ic: '❓', tip: 'مربح لكن مبيعه قليل — روّج له: موضعه في القائمة، وصفه، واقتراح الكاشير' },
+  dog: { ar: 'ضعيف', ic: '🐕', tip: 'قليل المبيع والهامش — أعد صياغته أو احذفه' }
+};
+function menuEngineering(org, ops, opts = {}) {
+  const from = opts.from, to = opts.to, cfg = opts.cfg || org.menuCfg || {};
+  const popPct = Number(cfg.popPct) > 0 ? Number(cfg.popPct) : 70;
+  const tax = org.taxCfg || {}, vr = tax.enabled ? (Number(tax.rate) || 15) / 100 : 0;
+  const ok = opts.branchIds ? new Set(opts.branchIds) : null; const inB = (b) => !ok || ok.has(b);
+  const products = org.products || [], items = org.items || [];
+  const qty = {}; const src = { pos: 0, imp: 0, partial: 0 };
+  (ops.posOrders || []).filter(o => inB(o.branchId) && o.status !== 'void' && (o.date || '') >= from && (o.date || '') <= to)
+    .forEach(o => { src.pos++; (o.lines || []).forEach(l => { if (l.productId) qty[l.productId] = (qty[l.productId] || 0) + (Number(l.qty) || 0); }); });
+  (ops.productSales || []).filter(r => inB(r.branchId)).forEach(r => {
+    if (r.from >= from && r.to <= to) { src.imp++; (r.lines || []).forEach(l => { qty[l.productId] = (qty[l.productId] || 0) + (Number(l.qty) || 0); }); }
+    else if (r.to >= from && r.from <= to) src.partial++; });
+  const AVG = itemAvgCosts(org, ops, to);
+  const excluded = [], rows = [];
+  Object.entries(qty).forEach(([pid, q]) => {
+    if (!(q > 0)) return; const p = products.find(x => x.id === pid);
+    if (!p) { excluded.push({ name: 'منتج محذوف (' + pid + ')', qty: q, why: 'غير موجود في المنتجات' }); return; }
+    const price = Number(p.sellPrice) || 0; if (!(price > 0)) { excluded.push({ name: p.name, qty: q, why: 'بلا سعر بيع' }); return; }
+    if (!(p.parts || []).length) { excluded.push({ name: p.name, qty: q, why: 'بلا وصفة — التكلفة غير معروفة' }); return; }
+    let cost = 0, miss = '';
+    (p.parts || []).forEach(pt => { const it = items.find(x => x.id === pt.itemId); const c = AVG[pt.itemId] || (it && Number(it.cost)) || 0;
+      if (!(c > 0)) miss = miss || ((it && it.name) || 'مكوّن محذوف'); cost += partGross(pt) * c; });
+    if (miss) { excluded.push({ name: p.name, qty: q, why: 'تكلفة مكوّن غير معروفة: ' + miss }); return; }
+    const net = price / (1 + vr);
+    rows.push({ id: pid, name: p.name, qty: q, price: anR(price), net: anR(net), cost: anR(cost), cm: anR(net - cost), foodPct: net > 0 ? anR(cost / net * 100) : null });
+  });
+  const N = rows.length, Q = sum(rows, r => r.qty);
+  const cmAvg = Q > 0 ? sum(rows, r => r.cm * r.qty) / Q : 0;
+  const popTh = N ? (1 / N) * (popPct / 100) * 100 : 0;
+  rows.forEach(r => { r.mm = Q > 0 ? anR(r.qty / Q * 100) : 0; r.totCm = anR(r.cm * r.qty); r.totRev = anR(r.net * r.qty); r.totCost = anR(r.cost * r.qty);
+    const hp = r.mm >= popTh, hc = r.cm >= cmAvg; r.cls = hp && hc ? 'star' : hp ? 'plow' : hc ? 'puzzle' : 'dog'; });
+  rows.sort((a, b) => b.totCm - a.totCm);
+  const by = (k) => rows.filter(r => r.cls === k);
+  const S = (arr, k) => anR(sum(arr, r => r[k]));
+  return { from, to, popPct, popTh: anR(popTh), cmAvg: anR(cmAvg), rows, excluded, src, vat: vr > 0,
+    tot: { qty: Q, rev: S(rows, 'totRev'), cost: S(rows, 'totCost'), cm: S(rows, 'totCm'), foodPct: S(rows, 'totRev') > 0 ? anR(S(rows, 'totCost') / S(rows, 'totRev') * 100) : null },
+    cls: Object.fromEntries(Object.keys(MENU_CLS).map(k => [k, { n: by(k).length, cm: S(by(k), 'totCm'), qty: anR(sum(by(k), r => r.qty)) }])) };
+}
 /* UsageVariance: نُقل إلى mods/inv/UsageVariance.jsx (تحميل كسول) */
 
 /* Inventory: نُقل إلى mods/inv/Inventory.jsx (تحميل كسول) */
@@ -10089,5 +10142,5 @@ export { staffingPlan };
 // v39.4 — استيراد مبيعات نقاط البيع ومطابقتها
 export { piHour, piCutoff, posRecon, salesDays, importDraftClosing };
 // v40.0 — أساس الرقابة
-export { PROFIT_OPTS, profitMissing, profitDays };
+export { PROFIT_OPTS, profitMissing, profitDays, menuEngineering, MENU_CLS };
 export { UpdateGate, APP_CV, auditWrite, logAudit, auditFetch, sigDigest, signoff, signDecision, sigFailMsg, loadSignoffs, loadRelease, raiseRelease, sigVerify, SIG_BADGE, SIG_NAME };

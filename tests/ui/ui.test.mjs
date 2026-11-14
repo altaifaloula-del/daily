@@ -388,6 +388,34 @@ test('ربحية الفروع اليومية: موقوفة حتى يُكمل ا�
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+test('v40.3 هندسة القائمة: التصنيف الرباعي، التحويل لإجراء دون تكرار، تعديل العتبة، والفرع لا يراها', async () => {
+  const ctx = await browser.newContext(devices['iPhone 13']); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'live/Hub/admin/analytics:menu'); await p.reload(); await p.waitForTimeout(600); await settle(p);
+  await p.evaluate(() => {
+    const d = (k) => { const x = new Date(); x.setDate(x.getDate() - k); return x.toISOString().slice(0, 10); };
+    window.setOrg(g => ({ ...g, taxCfg: { enabled: false }, items: [...(g.items || []), { id: 'mi1', name: 'دجاج', unit: 'كجم', cost: 10 }],
+      products: [['mA', 30], ['mB', 15], ['mC', 40], ['mD', 12]].map(([id, price]) => ({ id, name: 'صنف ' + id, sellPrice: price, parts: [{ itemId: 'mi1', qty: 1 }] })).concat([{ id: 'mE', name: 'بلا وصفة', sellPrice: 20, parts: [] }]) }));
+    window.setOps(o => ({ ...o, productSales: [{ id: 'mps', branchId: 'b1', from: d(20), to: d(10), lines: [{ productId: 'mA', qty: 100 }, { productId: 'mB', qty: 100 }, { productId: 'mC', qty: 10 }, { productId: 'mD', qty: 10 }, { productId: 'mE', qty: 50 }] }] }));
+  }); await p.waitForTimeout(400);
+  const txt = await p.locator('#r').innerText();
+  assert.match(txt, /أصناف محلّلة/); assert.match(txt, /بلا وصفة — التكلفة غير معروفة/);
+  assert.match(await p.locator('.me-qc').nth(0).innerText(), /نجم\s*1/);
+  assert.equal(await p.locator('.me-mx circle').count(), 4, 'نقطة لكل صنف محلّل');
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true, 'على الجوال بلا تمرير أفقي');
+  await p.locator('.me-qc').nth(3).click(); await p.waitForTimeout(150);   // ضعيف
+  assert.equal(await p.locator('.me-list').first().locator('.me-row').count(), 1);
+  await p.locator('.me-row button:has-text("إجراء")').click(); await p.waitForTimeout(300);
+  const a = await p.evaluate(() => window.cur.actions.filter(x => x.src === 'menu').map(x => [x.srcKey, x.title]));
+  assert.deepEqual(a, [['menu|mD|dog', 'هندسة القائمة: ضعيف — صنف mD']]);
+  assert.equal(await p.locator('.me-row button:has-text("إجراء")').count(), 0, 'لا يتكرر الإجراء'); assert.match(await p.locator('.me-row').first().innerText(), /له إجراء/);
+  await p.click('button:has-text("المنهج")'); await p.locator('.card input.inp.n').first().fill('200'); await p.click('.card button:has-text("حفظ")'); await p.waitForTimeout(300);
+  assert.equal(await p.evaluate(() => window.curOrg.menuCfg.popPct), 200);
+  assert.match(await p.locator('.me-qc').nth(0).innerText(), /نجم\s*0/, 'العتبة 200% تُسقط A من النجوم');
+  await p.evaluate(() => { window.as('bm'); }); await p.waitForTimeout(300);
+  assert.match(await p.locator('#r').innerText(), /للإدارة المركزية|لا توجد أقسام متاحة لصلاحيتك/, 'الفرع لا يصل لهندسة القائمة');
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
 test('v40.2 الإغلاق: تقسيم الشبكة إلى مدى/فيزا/ماستركارد — الاختلاف عن إجمالي الجهاز يمنع الترحيل، والمطابق يُحفظ', async () => {
   const ctx = await browser.newContext(devices['iPad (gen 7)']); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
   await p.goto(base + 'live/ClosingForm/bm'); await p.reload(); await p.waitForTimeout(800); await settle(p);

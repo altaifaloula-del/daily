@@ -746,3 +746,19 @@ test('v40.2 رسوم الشبكة حسب نوع البطاقة: من التقس�
   assert.equal(E.sigDigest('closing', { ...noSplit }), legacy, 'إغلاق بلا تقسيم: البصمة كما كانت (لا إنذار كاذب على الموقّع سابقًا)');
   assert.notEqual(E.sigDigest('closing', c), E.sigDigest('closing', { ...c, cardSplit: { mada: 800, visa: 200, mc: 150 } }), 'تعديل التقسيم بعد الاعتماد يُكشف');
 });
+
+// ===== v40.3 — المرحلة 2: هندسة القائمة =====
+test('هندسة القائمة (كاسافانا-سميث): نجم/حصان عمل/لغز/ضعيف بعتبتي الشعبية والهامش المرجّح، والصنف بلا وصفة يُستثنى ويُذكر', () => {
+  const org = baseOrg({ taxCfg: { enabled: false }, items: [{ id: 'i1', name: 'دجاج', unit: 'كجم', cost: 10 }],
+    products: [['A', 30], ['B', 15], ['C', 40], ['D', 12]].map(([id, price]) => ({ id, name: 'منتج ' + id, sellPrice: price, parts: [{ itemId: 'i1', qty: 1 }] })).concat([{ id: 'E', name: 'بلا وصفة', sellPrice: 20, parts: [] }]) });
+  const ops = { productSales: [{ id: 'ps', branchId: 'b1', from: '2026-11-01', to: '2026-11-10', lines: [{ productId: 'A', qty: 100 }, { productId: 'B', qty: 100 }, { productId: 'C', qty: 10 }, { productId: 'D', qty: 10 }, { productId: 'E', qty: 50 }] },
+    { id: 'ps2', branchId: 'b1', from: '2026-10-25', to: '2026-11-05', lines: [{ productId: 'A', qty: 999 }] }] };
+  const M = E.menuEngineering(org, ops, { from: '2026-11-01', to: '2026-11-30' });
+  const by = Object.fromEntries(M.rows.map(r => [r.id, r.cls]));
+  assert.deepEqual(by, { A: 'star', B: 'plow', C: 'puzzle', D: 'dog' });
+  assert.equal(M.popTh, 17.5, '(1 ÷ 4) × 70%'); assert.equal(M.cmAvg, 12.82, 'متوسط الهامش المرجّح بالكميات');
+  assert.deepEqual(M.excluded.map(x => [x.name, x.why]), [['بلا وصفة', 'بلا وصفة — التكلفة غير معروفة']]);
+  assert.equal(M.src.partial, 1, 'سجل يتداخل جزئيًا مع الفترة لا يُحتسب ويُذكر');
+  assert.equal(M.tot.cm, 2820);
+  assert.deepEqual(Object.fromEntries(E.menuEngineering(org, ops, { from: '2026-11-01', to: '2026-11-30', cfg: { popPct: 200 } }).rows.map(r => [r.id, r.cls])), { A: 'puzzle', B: 'dog', C: 'puzzle', D: 'dog' }, 'العتبة قابلة للتعديل: 200% ⇒ الشعبية تتطلب 50% فيصير A وB منخفضي الشعبية');
+});
