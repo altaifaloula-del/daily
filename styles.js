@@ -1652,4 +1652,8 @@ table.tb.rc-tb{min-width:0}
 .ob-bd{background:var(--amber,#E0A458);color:#fff;border-radius:9px;font-size:10px;padding:0 6px;font-weight:700}
 .ob-sp{flex:1 1 auto}.ob .acct-mode{margin-inline-start:4px}
 @media (max-width:640px){.ob-it{padding:8px 9px;font-size:13px}}
+
+/* v41.2 — جدول حجم البيانات */
+.tbl-wrap{overflow-x:auto;max-width:100%}
+table.tb.tb-fp{min-width:520px}
 `;

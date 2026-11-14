@@ -921,3 +921,41 @@ test('السعرات: لكل 100 غ/مل تُحوَّل بوحدة الصنف، 
   assert.deepEqual(E.productKcal(org, { ...P, kcalDeclared: '610' }), { kcal: 610, src: 'declared', miss: [] }, 'المعتمدة من مختبر تتقدم');
   assert.equal(E.productKcal(org, { id: 'x', parts: [] }).kcal, null);
 });
+
+// ===== v41.2 — حجم البيانات ونموها =====
+test('حجم البيانات: الحجم الفعلي لكل مجموعة، والنمو الشهري متوسط آخر 3 أشهر مكتملة، والإسقاط بالمعدل الحالي', () => {
+  const o = (id, date, b) => ({ id, date, branchId: b, note: 'x'.repeat(50) });
+  const ops = { posOrders: [o('a', '2026-08-03', 'b1'), o('b', '2026-09-03', 'b1'), o('c', '2026-10-03', 'b2'), o('d', '2026-10-09', 'b1'), o('e', '2026-11-02', 'b1'), o('f', '2026-05-01', 'b1')], closings: [], misc: { a: 1 } };
+  const F = E.dataFootprint(ops, { today: '2026-11-14' });
+  assert.deepEqual(F.months, ['2026-10', '2026-09', '2026-08'], 'الشهر الجاري غير مكتمل فلا يدخل');
+  const r = F.rows[0]; const one = new TextEncoder().encode(JSON.stringify(ops.posOrders[0])).length;
+  assert.deepEqual([r.key, r.n, r.oldest, r.branches], ['posOrders', 6, '2026-05-01', { b1: 5, b2: 1 }]);
+  assert.equal(r.bytes, new TextEncoder().encode(JSON.stringify(ops.posOrders)).length);
+  assert.equal(r.growth, Math.round(4 * one / 3), '4 سجلات في الأشهر الثلاثة');
+  assert.equal(r.proj12, r.bytes + r.growth * 12);
+  assert.equal(F.rows.length, 1, 'المجموعات الفارغة وغير المصفوفات لا تُعدّ');
+});
+
+// ===== v41.3 — التسوية التلقائية لوسيط الشبكة =====
+test('تسوية الوسيط: قيد متوازن لليوم المعتمد إغلاقه فقط (بنك + عمولة بلا ضريبة + ضريبة مدخلات ⇐ الوسيط)، ولا يتكرر، والوسيط يُقفل', () => {
+  const row = (d, op, tid, card, cr, db) => [d, '00:57:05', op, '', '', '', 'جهاز ...' + tid + ' (' + card + ')', '', '155216470216' + tid, card, '', 'نقاط البيع', cr, db];
+  const grid = [['التاريخ', 'الوقت', 'البيان', 'x', 'x', 'x', 'التفاصيل', 'x', 'رقم الجهاز', 'نوع البطاقة', 'المرجع', 'طريقة', 'دائن', 'مدين'],
+    row('2026-11-02', 'نقاط بيع - دائنة التاجر', '4274', 'مدى', 1708, 0), row('2026-11-02', 'نقاط بيع - مدين التاجر عمولة', '4274', 'مدى', 0, 15.76),
+    row('2026-11-02', 'عمليات التجار مبيعات شبكة', '4274', 'فيزا', 333.08, 0), row('2026-11-02', 'عمليات التجار مبيعات شبكة', '4274', 'ماستركارد', 162.67, 0),
+    row('2026-11-03', 'نقاط بيع - دائنة التاجر', '4274', 'مدى', 1000, 0), row('2026-11-03', 'نقاط بيع - مدين التاجر عمولة', '4274', 'مدى', 0, 9.22)];
+  const L = E.cardStmtLines(grid, E.detectStmtMap(grid));
+  const org = baseOrg({ taxCfg: { enabled: true, rate: 15 }, cardTerminals: [{ tid: '4274', branchId: 'b1' }], profitCfg: { cardRates: { mada: 0.8, visa: 2.5, mc: 2.5 } }, posClearing: { enabled: true, from: '2026-10' } });
+  const ops = { closings: [{ id: 'c1', branchId: 'b1', date: '2026-11-01', status: 'approved', cardSales: 2218.42, cashSales: 0, totalRevenue: 2218.42, expenses: [] }, { id: 'c2', branchId: 'b1', date: '2026-11-02', status: 'submitted', cardSales: 1000, totalRevenue: 1000, expenses: [] }] };
+  const P = E.cardSettlePlan(org, ops, L, { lags: { b1: 1 } });
+  assert.deepEqual(P.rows.map(r => [r.date, r.biz, r.status]), [['2026-11-02', '2026-11-01', 'ready'], ['2026-11-03', '2026-11-02', 'pending']], 'الإغلاق غير المعتمد يُنتظر');
+  const r = P.rows[0];
+  assert.deepEqual([r.gross, r.net, r.fee, r.feeEx, r.vat], [2218.42, 2187.99, 30.43, 26.46, 3.97]);
+  assert.deepEqual(r.lines, [{ code: '1201', debit: 2187.99, credit: 0 }, { code: '5303', debit: 26.46, credit: 0 }, { code: '1501', debit: 3.97, credit: 0 }, { code: '1801', debit: 0, credit: 2218.42 }]);
+  const jm = { id: 'j1', date: r.date, title: 'تسوية', ref: r.ref, lines: r.lines };
+  const A = E.buildAccounting(org, { ...ops, journalManual: [jm] });
+  const bal = (c) => Math.round(((A.accounts.find(a => a.code === c) || {}).balance || 0) * 100) / 100;
+  assert.equal(bal('1801'), 1000, 'يوم 1 نوفمبر أُقفل بالكامل، ويبقى في الوسيط يوم 2 نوفمبر (إغلاقه غير معتمد فلم يُسوَّ)');
+  assert.equal(E.cardSettlePlan(org, { ...ops, journalManual: [jm] }, L, { lags: { b1: 1 } }).rows[0].status, 'done', 'لا يتكرر');
+  const off = E.cardSettlePlan({ ...org, posClearing: {} }, ops, L, { lags: { b1: 1 } }).rows[0];
+  assert.deepEqual(off.lines, [{ code: '5303', debit: 26.46, credit: 0 }, { code: '1501', debit: 3.97, credit: 0 }, { code: '1201', debit: 0, credit: 30.43 }], 'بلا وسيط: العمولة فقط من البنك');
+});

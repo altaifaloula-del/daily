@@ -238,6 +238,53 @@ test('v41.1 السعرات: تُدخل للصنف لكل 100 غ، والطبق �
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+test('v41.2 حجم البيانات ونموها في صيانة النظام: جدول المجموعات بالحجم والنمو، بلا تمرير أفقي للصفحة على الجوال', async () => {
+  const ctx = await browser.newContext(devices['iPhone 13']); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'live/Admin/admin'); await p.reload(); await p.waitForTimeout(500); await settle(p);
+  await p.evaluate(() => { const d = (k) => { const x = new Date(); x.setDate(x.getDate() - k); return x.toISOString().slice(0, 10); };
+    window.setOps(o => ({ ...o, posOrders: Array.from({ length: 120 }, (_, k) => ({ id: 'fo' + k, branchId: 'b1', date: d(k), total: 50, lines: [{ productId: 'p1', qty: 1 }] })) })); }); await p.waitForTimeout(300);
+  await p.locator('button:has-text("صيانة")').first().click(); await p.waitForTimeout(500);
+  const card = p.locator('.card:has-text("حجم البيانات ونموها")');
+  assert.match(await card.innerText(), /فواتير نقطة البيع[\s\S]*120/);
+  assert.match(await card.innerText(), /ينمو .* شهريًا/);
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true, 'الجدول يتمرر داخل بطاقته لا الصفحة');
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v41.3 التسوية التلقائية للوسيط: تُرحَّل قيود الأيام المعتمد إغلاقها فقط، ولا تتكرر', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1300, height: 1300 } }); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'live/Hub/admin/finhub:cardrec'); await p.reload(); await p.waitForTimeout(600); await settle(p);
+  await p.evaluate(() => {
+    window.setOrg(g => ({ ...g, taxCfg: { enabled: true, rate: 15 }, cardTerminals: [{ tid: '4274', branchId: 'b1' }], profitCfg: { cardRates: { mada: 0.8, visa: 2.5, mc: 2.5 } }, posClearing: { enabled: true, from: '2026-09' } }));
+    window.setOps(o => ({ ...o, journalManual: [], closings: [...(o.closings || []).filter(c => !String(c.date || '').startsWith('2026-10')), { id: 'cr1', branchId: 'b1', branchName: 'طيبة', date: '2026-10-01', status: 'approved', cardSales: 2218.43, totalRevenue: 3000 }, { id: 'cr2', branchId: 'b1', branchName: 'طيبة', date: '2026-10-02', status: 'submitted', cardSales: 1000, totalRevenue: 1500 }] }));
+  }); await p.waitForTimeout(300);
+  const csv = ['التاريخ,الوقت,البيان,الجهاز,نوع البطاقة,دائن,مدين',
+    '2026-10-02,00:57:05,نقاط بيع - دائنة التاجر,1552164702164274,مدى,1708,0', '2026-10-02,00:57:05,نقاط بيع - مدين التاجر عمولة,1552164702164274,مدى,0,15.76',
+    '2026-10-02,22:10:34,عمليات التجار مبيعات شبكة,1552164702164274,فيزا,333.08,0', '2026-10-02,22:10:34,عمليات التجار مبيعات شبكة,1552164702164274,ماستركارد,162.67,0',
+    '2026-10-03,01:00:00,نقاط بيع - دائنة التاجر,1552164702164274,مدى,1000,0', '2026-10-03,01:00:00,نقاط بيع - مدين التاجر عمولة,1552164702164274,مدى,0,9.22'].join('\n');
+  await p.locator('input[type="month"]').fill('2026-10');
+  await p.setInputFiles('input[type="file"]', { name: 'stmt.csv', mimeType: 'text/csv', buffer: Buffer.from('﻿' + csv) }); await p.waitForTimeout(500);
+  const card = p.locator('.card:has-text("التسوية التلقائية للوسيط")');
+  assert.match(await card.innerText(), /جاهز للترحيل[\s\S]*بانتظار اعتماد الإغلاق/);
+  await card.locator('button:has-text("ترحيل القيود الجاهزة (1)")').click(); await p.waitForTimeout(400);
+  const j = await p.evaluate(() => window.cur.journalManual.map(x => [x.ref, x.lines.map(l => [l.code, l.debit, l.credit])]));
+  assert.deepEqual(j, [['crs|b1|2026-10-02', [['1201', 2187.99, 0], ['5303', 26.46, 0], ['1501', 3.97, 0], ['1801', 0, 2218.42]]]]);
+  assert.match(await card.innerText(), /مُرحّل/); assert.equal(await card.locator('button:has-text("ترحيل القيود الجاهزة")').count(), 0, 'لا يتكرر');
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v41.3 تصدير أي تقرير مطبوع: Excel وCSV من جداول التقرير نفسه في العارض', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Inventory/admin/recipes');
+  await p.click('button:has-text("بطاقة السعرات")'); await p.waitForTimeout(600);
+  const [dc] = await Promise.all([p.waitForEvent('download'), p.click('.mz-docv button:has-text("CSV")')]);
+  const txt = fs.readFileSync(await dc.path(), 'utf8');
+  // اسم الملف عربي (عنوان التقرير) — Chromium بلا واجهة في بيئة الاختبار يستبدل الأسماء العربية بـ«download»، فنتحقق من المحتوى
+  assert.ok(txt.startsWith('﻿'), 'BOM ليقرأ Excel العربية'); assert.match(txt, /الصنف,السعر,السعرات الحرارية,المصدر/); assert.match(txt, /مندي لحم,60,/);
+  const [dx] = await Promise.all([p.waitForEvent('download'), p.click('.mz-docv button:has-text("Excel")')]);
+  const xb = fs.readFileSync(await dx.path()); assert.equal(xb.slice(0, 2).toString(), 'PK', 'ملف xlsx (zip)'); assert.ok(xb.length > 1000);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
 test('مراقب التكاليف: يعتمد ويراقب بلا إضافة أو تعديل', async () => {
   const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Inventory/ctl/waste');
   assert.equal(await p.locator('.card:has-text("ضوابط الهدر") button:has-text("تعديل")').count(), 0, 'لا يعدّل الحدود');

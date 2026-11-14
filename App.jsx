@@ -1765,6 +1765,8 @@ function buildAccounting(org, ops) {
   addAcc('5202', 'التأمينات الاجتماعية — حصة صاحب العمل', 'exp', { link: 'كشف الرواتب — عند تفعيل التأمينات' });
   addAcc('5301', 'عمولات تطبيقات التوصيل', 'exp', { link: 'نِسَب العمولة من إعدادات التطبيقات' });
   addAcc('5302', 'خصومات وغرامات تطبيقات التوصيل', 'exp', { link: 'تسوية كشوف التطبيقات — فروق الإيداع' });
+  addAcc('5303', 'عمولات الشبكة (مدى والبطاقات)', 'exp', { link: 'التسوية التلقائية لوسيط الشبكة — من كشف البنك' });   // v41.3
+  addAcc('5304', 'رسوم أجهزة نقاط البيع البنكية', 'exp', { link: 'التسوية التلقائية لوسيط الشبكة — رسوم الأجهزة الشهرية' });
   addAcc('5401', 'عجز/فائض الصندوق', 'exp', { link: 'فرق الجرد النقدي في الإغلاق اليومي (المعدود − المتوقّع)' });
   addAcc('5701', 'مصروف الإهلاك', 'exp', { link: 'سجل الأصول — تلقائي' });
   addAcc('5801', 'خسائر بيع/استبعاد الأصول', 'exp', { link: 'سجل الأصول — عند البيع بأقل من القيمة الدفترية' });
@@ -2809,7 +2811,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v41.1';
+const APP_VER = 'v41.3';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -7489,7 +7491,7 @@ const mzBrandDoc = (html) => {
   return /<\/body>/i.test(body) ? head + body.replace(/<\/body>/i, foot + '</body>') : head + body + foot;
 };
 function openDocWin(features) {
-  if (typeof document === 'undefined' || !docInApp()) {
+  if (typeof document === 'undefined') {   // v41.2: العارض داخل المنصة على كل الأجهزة (أزرار PDF وExcel وCSV، ولا يحجبه مانع النوافذ)
     const rw = window.open('', '_blank', features); if (!rw) return null;
     let b = '';
     return { get closed() { return rw.closed; },
@@ -7501,10 +7503,11 @@ function openDocWin(features) {
   box.setAttribute('dir', 'rtl'); box.className = 'mz-docv';
   box.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:#fff;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top)';
   const bar = document.createElement('div');
-  bar.style.cssText = 'display:flex;gap:8px;align-items:center;padding:8px 10px;background:#241F1B;color:#fff;font-family:Tahoma,sans-serif;flex:0 0 auto';
-  const mk = (txt, bg) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = txt; b.style.cssText = 'border:0;border-radius:9px;padding:9px 14px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;background:' + bg + ';color:' + (bg === '#C8A24A' ? '#1a1410' : '#fff'); bar.appendChild(b); return b; };
+  bar.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 10px;background:#241F1B;color:#fff;font-family:Tahoma,sans-serif;flex:0 0 auto';
+  const mk = (txt, bg) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = txt; b.style.cssText = 'border:0;border-radius:9px;padding:8px 12px;font-size:13.5px;font-weight:700;cursor:pointer;font-family:inherit;background:' + bg + ';color:' + (bg === '#C8A24A' ? '#1a1410' : '#fff'); bar.appendChild(b); return b; };
   const bClose = mk('✕ إغلاق', '#a33');
   const bPrint = mk('طباعة / PDF', '#C8A24A');
+  const bXls = mk('Excel', '#2f6b45'), bCsv = mk('CSV', '#3b4a5a');   // v41.2: تصدير جداول التقرير نفسه
   const bShare = (navigator.share && typeof File !== 'undefined') ? mk('مشاركة', '#3b4a5a') : null;
   const ttl = document.createElement('div'); ttl.style.cssText = 'flex:1;text-align:start;font-size:12.5px;opacity:.85;overflow:hidden;white-space:nowrap;text-overflow:ellipsis'; bar.appendChild(ttl);
   const ifr = document.createElement('iframe'); ifr.style.cssText = 'flex:1;width:100%;border:0;background:#fff';
@@ -7518,7 +7521,11 @@ function openDocWin(features) {
   try { history.pushState({ ...(history.state || {}), mzDoc: 1 }, ''); } catch { /* */ }
   window.addEventListener('popstate', onPop);
   bClose.onclick = close;
-  bPrint.onclick = () => { printHtmlInPage(buf); };   // v34.13: طباعة داخل الصفحة — تعمل على الآيفون
+  bPrint.onclick = () => { printHtmlInPage(buf); };
+  const fname = () => (ttl.textContent || 'تقرير').replace(/[\\/:*?"<>|]/g, '-').slice(0, 80);
+  const dl = (blob, ext) => { const u = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = u; a.download = fname() + '.' + ext; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 1500); };
+  bXls.onclick = () => { const T = docTables(buf); if (!T.length) return alert('لا جداول في هذا التقرير لتصديرها'); try { dl(makeXlsx(T.map((t, i) => ({ name: (t.name || ('جدول ' + (i + 1))).replace(/[\\/?*[\]:]/g, ' ').slice(0, 28), rows: t.rows }))), 'xlsx'); } catch { alert('تعذّر توليد Excel'); } };
+  bCsv.onclick = () => { const T = docTables(buf); if (!T.length) return alert('لا جداول في هذا التقرير لتصديرها'); dl(new Blob(['\ufeff' + docCsv(T)], { type: 'text/csv;charset=utf-8' }), 'csv'); };   // v34.13: طباعة داخل الصفحة — تعمل على الآيفون
   if (bShare) bShare.onclick = async () => { try { const f = new File([buf], (ttl.textContent || 'تقرير').replace(/[\\/:*?"<>|]/g, '-') + '.html', { type: 'text/html' });
     if (!navigator.canShare || navigator.canShare({ files: [f] })) await navigator.share({ files: [f], title: ttl.textContent || 'تقرير' }); } catch { /* أُلغيت المشاركة */ } };
   const fake = {
@@ -7528,6 +7535,17 @@ function openDocWin(features) {
   };
   return fake;
 }
+/* v41.2 — جداول تقرير HTML ⇒ صفوف (للتصدير Excel/CSV): الخلية الرقمية تُحوَّل رقمًا (بلا فواصل الآلاف)، واسم الجدول من أقرب عنوان قبله */
+function docTables(html) {
+  try { const d = new DOMParser().parseFromString(String(html || ''), 'text/html'); const out = [];
+    d.querySelectorAll('table').forEach(tb => { const rows = [...tb.querySelectorAll('tr')].map(tr => [...tr.children].flatMap(td => { const t = (td.innerText != null ? td.innerText : td.textContent || '').replace(/\s+/g, ' ').trim();
+        const num = /^[-−]?[\d٠-٩,.]+$/.test(t) && /\d/.test(t) ? Number(t.replace(/−/g, '-').replace(/,/g, '')) : null; const cell = num != null && isFinite(num) ? num : t;
+        const span = Math.min(20, Number(td.getAttribute('colspan')) || 1); return [cell, ...Array(span - 1).fill('')]; })).filter(r => r.some(c => c !== ''));
+      if (!rows.length) return; let h = tb.previousElementSibling; while (h && !/^H[1-6]$/.test(h.tagName) && h.previousElementSibling) h = h.previousElementSibling;
+      out.push({ name: h && /^H[1-6]$/.test(h.tagName) ? h.textContent.trim() : '', rows }); });
+    return out; } catch { return []; }
+}
+const docCsv = (T) => T.map(t => [...(t.name ? [[t.name]] : []), ...t.rows].map(r => r.map(c => { const v = String(c ?? ''); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(',')).join('\r\n')).join('\r\n\r\n');
 /* تنزيل الملفات (Excel/PDF) داخل تطبيق الآيفون المثبّت: الرابط المباشر يفتح الملف فوق التطبيق بلا رجوع،
    فنحوّله إلى لوحة المشاركة (حفظ في الملفات / إرسال) ويبقى المستخدم داخل المنصة. */
 (() => { try {
@@ -8334,6 +8352,24 @@ function menuEngineering(org, ops, opts = {}) {
     tot: { qty: Q, rev: S(rows, 'totRev'), cost: S(rows, 'totCost'), cm: S(rows, 'totCm'), foodPct: S(rows, 'totRev') > 0 ? anR(S(rows, 'totCost') / S(rows, 'totRev') * 100) : null },
     cls: Object.fromEntries(Object.keys(MENU_CLS).map(k => [k, { n: by(k).length, cm: S(by(k), 'totCm'), qty: anR(sum(by(k), r => r.qty)) }])) };
 }
+/* ===== v41.2 — حجم البيانات ونموها (قياس قبل أي أرشفة) =====
+   لكل مجموعة: عدد السجلات، الحجم الفعلي (بايت UTF-8 لتمثيلها المحفوظ)، النمو الشهري (متوسط آخر 3 أشهر مكتملة من تاريخ السجل)،
+   وإسقاط 12 شهرًا بالمعدل الحالي — بلا عتبات مفترضة. التاريخ من date/at/createdAt/from (أول الموجود). */
+const fpBytes = (x) => { try { return new TextEncoder().encode(JSON.stringify(x)).length; } catch { return 0; } };
+const fpDate = (r) => String((r && (r.date || r.at || r.createdAt || r.from || r.submittedAt)) || '').slice(0, 10);
+function dataFootprint(ops, opts = {}) {
+  const td = opts.today || today(), m0 = td.slice(0, 7);
+  const months = []; { let [y, m] = m0.split('-').map(Number); for (let k = 1; k <= 3; k++) { m--; if (m < 1) { m = 12; y--; } months.push(y + '-' + String(m).padStart(2, '0')); } }
+  const rows = Object.entries(ops || {}).filter(([, v]) => Array.isArray(v) && v.length).map(([k, arr]) => {
+    const bytes = fpBytes(arr); const by = {}; let dated = 0, oldest = '';
+    arr.forEach(r => { const d = fpDate(r); if (!/^\d{4}-\d\d/.test(d)) return; dated++; if (!oldest || d < oldest) oldest = d; const mk = d.slice(0, 7); by[mk] = (by[mk] || 0) + fpBytes(r); });
+    const growth = Math.round(sum(months, mk => by[mk] || 0) / 3);
+    const brs = {}; arr.forEach(r => { const b = (r && r.branchId) || ''; brs[b] = (brs[b] || 0) + 1; });
+    return { key: k, n: arr.length, bytes, growth, proj12: bytes + growth * 12, oldest, dated, branches: brs };
+  }).sort((a, b) => b.bytes - a.bytes);
+  const tot = { bytes: sum(rows, r => r.bytes), growth: sum(rows, r => r.growth) };
+  return { rows, tot: { ...tot, proj12: tot.bytes + tot.growth * 12 }, months };
+}
 /* ===== v40.9 — ضبط تغيير حسابات الدفع (آيبان الموظف والمورد) =====
    تغيير الآيبان طلب يوقّعه طالبه (signoffs: iban/submit) ويعتمده شخص آخر من المالية/الإدارة (iban/approve) بالآيبان نفسه — تفرضه قواعد Firestore (ثابت 21).
    الحالة: ok = آيبان السجل يطابق آخر اعتماد موقّع · approved = اعتُمد ولم يُطبَّق بعد على السجل (يُستخدم المعتمد) · unverified = بلا اعتماد موقّع (قديم أو جديد)
@@ -8524,6 +8560,35 @@ function cardRecon(org, ops, lines, opts = {}) {
   return { from, to, vat, tol, branches, terminals, unmapped, notes, lines: lines.length, maxDate,
     tot: { exp: anR(sum(branches, b => b.exp)), bank: anR(sum(branches, b => b.bank)), diff: anR(sum(branches, b => b.diff)), madaFee, vmFee, devFee, feeVat: anR((madaFee + vmFee + devFee) * vat / (100 + vat)) } };
 }
+/* v41.3 — التسوية التلقائية لوسيط الشبكة بعد اعتماد الإغلاق: قيد لكل فرع ويوم إيداع من حركات كشف البنك
+   مع الوسيط: من حـ/البنك (المودَع فعلًا) + حـ/عمولات الشبكة (بلا ضريبة) + حـ/رسوم الأجهزة + حـ/ضريبة المدخلات ⇐ إلى حـ/وسيط الشبكة (الإجمالي المُسوّى)
+   بلا وسيط (الشبكة قُيّدت في البنك بإجماليها): من حـ/العمولات والرسوم والضريبة ⇐ إلى حـ/البنك.
+   لا يُرحَّل يوم: إغلاقه غير معتمد أو غير موجود، أو فترته مقفلة، أو رُحّل سابقًا (المرجع crs|فرع|تاريخ). عمولة البنك وضريبتها من الكشف (شاملة الضريبة). */
+function cardSettlePlan(org, ops, lines, opts = {}) {
+  const tax = org.taxCfg || {}, vat = Number(tax.rate) || 15, vatOn = !!tax.enabled, R = ((org.profitCfg || {}).cardRates) || {};
+  const tidBr = {}; (org.cardTerminals || []).forEach(x => { if (x && x.tid) tidBr[String(x.tid)] = x.branchId; });
+  const pc = org.posClearing || {}, pcFrom = pc.enabled && pc.from ? String(pc.from) : null;
+  const done = new Set((ops.journalManual || []).map(j => j.ref).filter(Boolean)), lags = opts.lags || {};
+  const r2 = (n) => Math.round(n * 100) / 100, G = {};
+  lines.forEach(l => { const b = tidBr[l.tid]; if (!b) return; const k = b + '|' + l.date; const g = G[k] = G[k] || { b, date: l.date, mg: 0, mf: 0, vn: 0, vg: 0, dev: 0, noRate: new Set() };
+    if (l.kind === 'fee') g.mf += l.debit; else if (l.kind === 'devfee') g.dev += l.debit; else if (l.type === 'mada') g.mg += l.credit;
+    else { const r = Number(R[l.type]) || 0; g.vn += l.credit; if (r > 0) g.vg += l.credit / (1 - r / 100 * (1 + vat / 100)); else { g.vg += l.credit; g.noRate.add(l.type); } } });
+  const rows = Object.values(G).sort((a, c) => (a.date + a.b).localeCompare(c.date + c.b)).map(g => {
+    const biz = anDay(g.date, -(lags[g.b] || 0)), ref = 'crs|' + g.b + '|' + g.date, bank = bankOfBranch(org, g.b);
+    const cl = (ops.closings || []).filter(c => c.branchId === g.b && c.date === biz);
+    const status = done.has(ref) ? 'done' : periodLocked(org, g.date) ? 'locked' : !cl.length ? 'noclose' : cl.some(c => c.status !== 'approved') ? 'pending' : 'ready';
+    const fee = r2(g.mf + (g.vg - g.vn)), feeEx = r2(vatOn ? fee / (1 + vat / 100) : fee), devEx = r2(vatOn ? g.dev / (1 + vat / 100) : g.dev), vatAmt = r2(fee - feeEx + g.dev - devEx);
+    const gross = r2(g.mg + g.vg), net = r2(g.mg + g.vn - g.mf - g.dev), clrOn = !!(pcFrom && biz.slice(0, 7) >= pcFrom);
+    const L = [];
+    if (clrOn) { L.push({ code: bank, debit: net, credit: 0 }); if (feeEx) L.push({ code: '5303', debit: feeEx, credit: 0 }); if (devEx) L.push({ code: '5304', debit: devEx, credit: 0 }); if (vatAmt) L.push({ code: '1501', debit: vatAmt, credit: 0 }); L.push({ code: posClrOf(bank), debit: 0, credit: gross }); }
+    else { if (feeEx) L.push({ code: '5303', debit: feeEx, credit: 0 }); if (devEx) L.push({ code: '5304', debit: devEx, credit: 0 }); if (vatAmt) L.push({ code: '1501', debit: vatAmt, credit: 0 }); if (fee + g.dev > 0) L.push({ code: bank, debit: 0, credit: r2(fee + g.dev) }); }
+    const dr = r2(sum(L, x => x.debit)), cr = r2(sum(L, x => x.credit)); if (L.length && Math.abs(dr - cr) >= 0.005) L[0] = { ...L[0], debit: r2(L[0].debit + (cr - dr)) };   // فرق التقريب على السطر الأول
+    const nm = ((org.branches || []).find(x => x.id === g.b) || {}).name || g.b;
+    return { ref, branchId: g.b, branch: nm, date: g.date, biz, status, clrOn, gross, net, fee, feeEx, dev: r2(g.dev), devEx, vat: vatAmt, noRate: [...g.noRate], lines: L.filter(x => x.debit || x.credit) };
+  }).filter(r => r.lines.length);
+  return { rows, ready: rows.filter(r => r.status === 'ready'), vatOn };
+}
+const CRS_ST = { ready: ['b-mint', 'جاهز للترحيل'], done: ['b-dim', 'مُرحّل'], pending: ['b-amber', 'بانتظار اعتماد الإغلاق'], noclose: ['b-rose', 'لا إغلاق لهذا اليوم'], locked: ['b-dim', 'فترة مقفلة'] };
 /* ===== v40.4 — المرحلة 3: خطة التوفير =====
    فرص مقاسة من البيانات الفعلية فقط (لا نسب مفترضة): الهدر المسجّل، الاستهلاك فوق النظري، فرق سعر الشراء عن أفضل سعر دُفع فعلًا،
    الخصومات اليدوية في نقطة البيع. كل فرصة: قيمتها في الفترة ومعدلها لكل 30 يومًا. النسبة المستهدفة يُدخلها المستخدم.
@@ -10502,5 +10567,5 @@ export { staffingPlan };
 // v39.4 — استيراد مبيعات نقاط البيع ومطابقتها
 export { piHour, piCutoff, posRecon, salesDays, importDraftClosing };
 // v40.0 — أساس الرقابة
-export { PROFIT_OPTS, profitMissing, profitDays, menuEngineering, MENU_CLS, SAV_KIND, savingsMeasure, savingsOpps, savingsTrack, CR_TYPE, cardStmtLines, cardRecon, recipeRaw, recipeCost, prepUnitCost, kcalUnitFactor, kcalPerUnit, recipeKcal, productKcal, prepMix, prepPlan, ibanNorm, ibanMask, IBAN_APPROVERS, IBAN_ST, loadIbanSigs, ibanPayees, ibanStatus, requestIban, ibanApply };
+export { PROFIT_OPTS, profitMissing, profitDays, menuEngineering, MENU_CLS, SAV_KIND, savingsMeasure, savingsOpps, savingsTrack, CR_TYPE, cardStmtLines, cardRecon, cardSettlePlan, CRS_ST, recipeRaw, recipeCost, prepUnitCost, dataFootprint, kcalUnitFactor, kcalPerUnit, recipeKcal, productKcal, prepMix, prepPlan, ibanNorm, ibanMask, IBAN_APPROVERS, IBAN_ST, loadIbanSigs, ibanPayees, ibanStatus, requestIban, ibanApply };
 export { UpdateGate, APP_CV, auditWrite, logAudit, auditFetch, sigDigest, signoff, signDecision, sigFailMsg, loadSignoffs, loadRelease, raiseRelease, sigVerify, SIG_BADGE, SIG_NAME };

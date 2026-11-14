@@ -2,6 +2,7 @@
    المحرك في النواة (cardStmtLines/cardRecon). الكشف يُقرأ في الجهاز ولا يُحفظ؛ يُحفظ ملخص المطابقة المعتمد فقط. */
 import React, { useMemo, useState } from 'react';
 import { CreditCard, Upload, Info, Download, Check, Lock, ChevronDown, AlertTriangle } from 'lucide-react';
+import { CRS_ST, capOK, cardSettlePlan } from '../../App.jsx';   // v41.3
 import { Kpi, ROLES, CR_TYPE, cardRecon, cardStmtLines, detectStmtMap, makeXlsx, money, nowISO, parseCsvGrid, parseMt940, parseXlsxGrid, roleEdit, today, uid } from '../../App.jsx';
 
 const addD = (d, k) => { const x = new Date(d + 'T12:00:00'); x.setDate(x.getDate() + k); return x.toISOString().slice(0, 10); };
@@ -51,6 +52,14 @@ export function CardRecon({ org, ops, me, commit, commitOrg, say }) {
     const s3 = [['الجهاز', 'الفرع', 'إجمالي مدى', 'عمولة مدى', 'النسبة %', 'صافي فيزا/ماستر/أمكس', 'رسوم الجهاز', 'عدد الحركات'], ...M.terminals.map(t => [t.tid, ((org.branches || []).find(b => b.id === t.branchId) || {}).name || 'غير مسند', t.madaGross, t.madaFee, t.eff ?? '', t.vmNet, t.devFee, t.n])];
     const blob = makeXlsx([{ name: 'المطابقة', rows: s1 }, { name: 'يوميًا', rows: s2 }, { name: 'الأجهزة', rows: s3 }]); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'مطابقة_الشبكة_' + month + '.xlsx'; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(url), 1500); } catch { say('تعذّر توليد Excel', 'no'); } };
   const brOpts = (org.branches || []);
+  // v41.3 — التسوية التلقائية لوسيط الشبكة (الأيام المعتمد إغلاقها فقط)
+  const SP = M ? cardSettlePlan(org, ops, lines, { lags: Object.fromEntries(M.branches.map(b => [b.id, b.lag])) }) : null;
+  const canPost = capOK(me?.role, 'post') && !!commit;
+  const postSettle = async () => { if (!SP || !SP.ready.length) return; const now = nowISO();
+    const recs = SP.ready.map(r => ({ id: uid('jm'), date: r.date, ref: r.ref, src: 'cardSettle', title: 'تسوية وسيط الشبكة آليًا — ' + r.branch + ' — إيداع ' + r.date + ' (مبيعات ' + r.biz + ')', opening: false, by: me?.name || '', createdAt: now, lines: r.lines }));
+    const ok = await commit(d => { const have = new Set((d.journalManual || []).map(j => j.ref).filter(Boolean)); const add = recs.filter(x => !have.has(x.ref)); return add.length ? { ...d, journalManual: [...add, ...(d.journalManual || [])] } : d; },
+      { actionType: 'create', targetType: 'journal_entry', targetId: 'cardSettle', need: 'post', title: 'رحّل التسوية التلقائية لوسيط الشبكة', details: recs.length + ' قيد · ' + money(recs.reduce((a, r) => a + r.lines.reduce((x, l) => x + l.debit, 0), 0)) });
+    if (ok !== false) say('رُحّل ' + recs.length + ' قيد تسوية ✓ — الوسيط يُقفل بما أودعه البنك، والعمولات وضريبتها في حساباتها'); };
   const saved = (ops.cardRecons || []).slice(0, 6);
   return (
     <div className="grid" style={{ gap: 12 }}>
@@ -87,6 +96,16 @@ export function CardRecon({ org, ops, me, commit, commitOrg, say }) {
               <span className="pf-a"><b className="dt">{x.date}</b><small>الإغلاقات {money(x.exp)} · المودَع {money(x.bank)}</small></span>
               <span className="pf-b"><small>التراكمي {money(x.cum)}</small><b className="num" dir="ltr">{money(x.diff)}</b></span></div>)}</div>}</>}
         </div>)}
+        {SP && SP.rows.length > 0 && <div className="card">
+          <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
+            <div className="card-t">التسوية التلقائية للوسيط ({SP.ready.length} جاهز من {SP.rows.length})</div>
+            {canPost && SP.ready.length > 0 && <button className="btn sm pri" onClick={postSettle}><Check size={13} />ترحيل القيود الجاهزة ({SP.ready.length})</button>}</div>
+          <div className="tbl-wrap"><table className="tb tb-fp"><thead><tr><th>الفرع</th><th>الإيداع</th><th>المبيعات</th><th>الإجمالي المُسوّى</th><th>العمولة</th><th>الضريبة</th><th>للبنك</th><th>الحالة</th></tr></thead>
+            <tbody>{SP.rows.map(r => <tr key={r.ref}><td>{r.branch}</td><td className="num">{r.date}</td><td className="num">{r.biz}</td><td className="num">{r.clrOn ? money(r.gross) : '—'}</td><td className="num">{money(r.feeEx + r.devEx)}</td><td className="num">{money(r.vat)}</td><td className="num">{r.clrOn ? money(r.net) : '−' + money(r.fee + r.dev)}</td>
+              <td><span className={'badge ' + CRS_ST[r.status][0]}>{CRS_ST[r.status][1]}</span>{r.noRate.length ? <small style={{ display: 'block', color: 'var(--amber)' }}>بلا نسبة: {r.noRate.map(k => CR_TYPE[k]).join('، ')}</small> : null}</td></tr>)}</tbody></table></div>
+          <div className="note" style={{ marginTop: 8 }}>لكل فرع ويوم إيداع قيد واحد: {(org.posClearing || {}).enabled ? <>من حـ/البنك (ما أُودع فعلًا) + حـ/عمولات الشبكة (بلا ضريبة) + حـ/رسوم الأجهزة + حـ/ضريبة المدخلات ⇐ إلى حـ/وسيط الشبكة (الإجمالي المُسوّى)</> : <>«وسيط الشبكة» غير مفعّل — الشبكة قُيّدت في البنك بإجماليها، فيُقيَّد من حـ/العمولات وضريبتها ⇐ إلى حـ/البنك</>}.
+            لا يُرحَّل يوم إغلاقه غير معتمد أو غير موجود أو فترته مقفلة، ولا يتكرر المُرحّل. ضريبة العمولة مدخلات قابلة للاسترداد بفاتورة البنك الضريبية. ما يبقى في الوسيط بعدها = مبيعات شبكة لم يُودعها البنك بعد أو فرق يستحق المراجعة.</div>
+        </div>}
         <div className="card"><div className="card-t" style={{ marginBottom: 6 }}>الأجهزة في الكشف ({M.terminals.length}) — أسند كل جهاز لفرعه مرة واحدة</div>
           <div className="me-list">{M.terminals.map(t => <div key={t.tid} className="me-row">
             <span className="me-a"><b className="num">…{t.tid}</b><small>مدى {money(t.madaGross)} · عمولة {money(t.madaFee)} ({pc(t.eff)}) · بطاقات صافي {money(t.vmNet)}{t.devFee ? ' · رسوم جهاز ' + money(t.devFee) : ''}</small><small>{t.n} حركة · {t.first} — {t.last}</small></span>
