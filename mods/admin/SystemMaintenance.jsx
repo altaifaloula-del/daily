@@ -4,6 +4,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { cloud, KEYS, brKey } from '../../storage';
 import { ShieldCheck, RefreshCw, Trash2, AlertTriangle, Check, Server, Bug, Activity, HardDrive } from 'lucide-react';
+import { archKey, archivePlan, nowISO, printA4, uid } from '../../App.jsx';   // v41.7
 import { dataFootprint, recipeRaw, APP_CV, APP_VER, CloudHealth, ERRLOG_KEY, MAIN_WH, ROLES, SIG_BADGE, SIG_NAME, buildAccounting, loadRelease, loadSignoffs, sigVerify, branchBanks, cashForecast, complianceItems, entityList, vatStatus, countedClosing, isoD, money, purKey, q3, qrFs, snapAll, stockByWh, today, whName, whOf } from '../../App.jsx';
 
 const ST = { ok: ['b-mint', 'سليم'], warn: ['b-amber', 'تنبيه'], bad: ['b-rose', 'خلل'] };
@@ -179,6 +180,30 @@ export function SystemMaintenance({ org, ops, me, commit, say }) {
   const [open, setOpen] = useState(null);
   const [snapOk, setSnapOk] = useState(null);
   const [showDocs, setShowDocs] = useState(false);
+  // v41.7 — أرشفة فواتير نقطة البيع القديمة: كتابة الأرشيف ← التحقق قراءةً ← الحذف من التشغيل
+  const AP = useMemo(() => archivePlan(org, ops), [org, ops]);
+  const [arcBusy, setArcBusy] = useState(false);
+  const doArchive = async () => {
+    if (!AP.n || !window.confirm('أرشفة ' + AP.n + ' فاتورة نقطة بيع (أشهر مقفلة أقدم من ' + AP.cutoff + ')؟\n\nتُنسخ إلى أرشيف سحابي لكل فرع وسنة وتُتحقق ثم تُزال من بيانات التشغيل اليومية. الإغلاقات والقيود لا تتغير.')) return;
+    setArcBusy(true); let done = 0;
+    try {
+      for (const g of AP.groups) {
+        const set = new Set(g.ids), recs = (ops.posOrders || []).filter(o => set.has(o.id));
+        const cur = (await cloud.get(g.key, { orders: [] })) || { orders: [] }; const have = new Set((cur.orders || []).map(o => o.id));
+        const merged = [...(cur.orders || []), ...recs.filter(o => !have.has(o.id))];
+        if (!(await cloud.set(g.key, { orders: merged, branchId: g.branchId, year: g.year, updatedAt: nowISO() }))) throw new Error('تعذّر حفظ أرشيف ' + g.branch + ' ' + g.year);
+        const back = (await cloud.get(g.key, null)) || {}; const bh = new Set((back.orders || []).map(o => o.id));
+        if (!g.ids.every(id => bh.has(id))) throw new Error('التحقق من أرشيف ' + g.branch + ' ' + g.year + ' لم يكتمل — لم يُحذف شيء منه');
+        const log = { id: uid('ar'), at: nowISO(), by: me?.name || '', branchId: g.branchId, branch: g.branch, year: g.year, n: g.n, from: g.from, to: g.to, total: g.total, key: g.key };
+        const ok = await commit(d => ({ ...d, posOrders: (d.posOrders || []).filter(o => !set.has(o.id)), archLog: [log, ...(d.archLog || [])] }),
+          { actionType: 'update', targetType: 'system_settings', targetId: g.key, title: 'أرشف فواتير نقطة البيع', details: g.branch + ' · ' + g.year + ' · ' + g.n + ' فاتورة · ' + money(g.total) });
+        if (ok === false) throw new Error('تعذّر تحديث بيانات التشغيل — الأرشيف محفوظ ولم يُحذف شيء'); done += g.n;
+      }
+      say('أُرشفت ' + done + ' فاتورة ✓ — تبقى للاطلاع من «الأرشيف»');
+    } catch (e) { say((e && e.message) || 'توقفت الأرشفة', 'no'); } finally { setArcBusy(false); }
+  };
+  const viewArch = async (l) => { const a = (await cloud.get(l.key, null)) || {}; const os = (a.orders || []).slice().sort((x, y) => String(x.at || x.date).localeCompare(String(y.at || y.date)));
+    printA4(org, 'أرشيف فواتير نقطة البيع — ' + (l.branch || l.branchId) + ' ' + l.year, os.length + ' فاتورة', `<table><thead><tr><th>الرقم</th><th>التاريخ</th><th>الإجمالي</th><th>الضريبة</th><th>الحالة</th><th>الكاشير</th></tr></thead><tbody>${os.map(o => `<tr><td>${o.no || o.id}</td><td class="n">${String(o.at || o.date).slice(0, 16).replace('T', ' ')}</td><td class="n">${money(o.total || 0)}</td><td class="n">${money(o.vat || 0)}</td><td>${o.status === 'void' ? 'ملغاة' : 'مدفوعة'}</td><td>${o.by || ''}</td></tr>`).join('')}</tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no'); };
   const [busy, setBusy] = useState(false);
   const local = (() => { try { return JSON.parse(localStorage.getItem(ERRLOG_KEY) || '[]'); } catch { return []; } })();
   const brName = (id) => ((org.branches || []).find(b => b.id === id) || {}).name || id;
@@ -263,6 +288,12 @@ export function SystemMaintenance({ org, ops, me, commit, say }) {
         </div>
       </div>
       {showDocs && <CloudHealth org={org} say={say} commit={commit} me={me} auto />}
+      <div className="card">
+        <div className="card-h"><div className="card-t"><HardDrive size={15} color="var(--brass)" />أرشفة فواتير نقطة البيع القديمة</div>{isAdm && AP.n > 0 && <button className="btn sm pri" disabled={arcBusy} onClick={doArchive}>{arcBusy ? 'جارٍ الأرشفة…' : 'أرشفة ' + AP.n + ' فاتورة'}</button>}</div>
+        <div style={{ fontSize: 12, color: 'var(--dim)', marginBottom: 6 }}>قرارك: الفواتير التفصيلية الأقدم من 12 شهرًا (قبل {AP.cutoff}) وفي أشهر مقفلة محاسبيًا فقط. الإغلاقات والقيود لا تُمس.{AP.unlocked ? ' · ' + AP.unlocked + ' فاتورة قديمة في أشهر غير مقفلة لا تُؤرشَف حتى تُقفل.' : ''}</div>
+        {AP.groups.length ? <div className="me-list">{AP.groups.map(g => <div key={g.key} className="me-row"><span className="me-a"><b>{g.branch} — {g.year}</b><small>{g.from} إلى {g.to} · {money(g.total)}</small></span><span className="me-b"><b className="num">{g.n}</b><small>فاتورة</small></span></div>)}</div> : <div className="empty">لا فواتير مستحقة للأرشفة الآن.</div>}
+        {(ops.archLog || []).length > 0 && <><div className="lbl" style={{ margin: '8px 0 4px' }}>الأرشيف</div><div className="me-list">{(ops.archLog || []).slice(0, 12).map(l => <div key={l.id} className="me-row"><span className="me-a"><b>{l.branch || l.branchId} — {l.year}</b><small>{l.n} فاتورة · {l.from} إلى {l.to} · {l.by} · {String(l.at).slice(0, 10)}</small></span><span className="me-b"><button className="btn sm gh" onClick={() => viewArch(l)}>عرض</button></span></div>)}</div></>}
+      </div>
       {(() => { const F = dataFootprint(ops); const kb = (b) => (b >= 1048576 ? (Math.round(b / 104857.6) / 10) + ' MB' : Math.round(b / 1024) + ' KB');
         const AR = { closings: 'الإغلاقات اليومية', posOrders: 'فواتير نقطة البيع', stockMoves: 'حركات المخزون (الرئيسي)', whMoves: 'حركات مستودعات الفروع', ledgerEntries: 'قيود الحسابات الجارية', invoices: 'فواتير الموردين',
           purchaseOrders: 'أوامر الشراء', attendanceEvents: 'سجل الحضور', productSales: 'مبيعات المنتجات المستوردة', posImports: 'أيام نقطة البيع المستوردة', transfers: 'التحويلات', actions: 'الإجراءات', posShifts: 'ورديات نقطة البيع', salesInvoices: 'فواتير المبيعات', journalEntries: 'القيود اليدوية' };

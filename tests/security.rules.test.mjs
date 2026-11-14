@@ -200,3 +200,13 @@ test('ث21 تغيير حساب الدفع (آيبان): يعتمده شخص آخ
   await assertSucceeds(setDoc(doc(as('gm'), 'signoffs', id('r')), sig('gm', { kind: 'iban', stage: 'reject', entityId: 'emp:e1', branchId: '', subRef: sub })), 'أو ترفض');
   await assertFails(setDoc(doc(as('bm'), 'signoffs', id('x')), sig('bm', { kind: 'iban', stage: 'submit', entityId: 'emp:e9', branchId: '' })), 'الفرع لا يطلب تغيير حسابات الدفع المركزية');
 });
+
+test('ث23 أرشيف فواتير نقطة البيع: يكتبه مسؤول النظام وحده، ويقرؤه المركز، ولا يصل إليه الفرع', async () => {
+  const doc0 = { value: '[]', parts: 1, cv: 400000 };
+  await assertSucceeds(setDoc(doc(as('owner'), 'platform', 'rms8_arch_A_2025'), doc0), 'مسؤول النظام يكتب');
+  await assertFails(setDoc(doc(as('fin'), 'platform', 'rms8_arch_A_2025'), doc0), 'المالية لا تكتب الأرشيف');
+  await assertFails(setDoc(doc(as('bm'), 'platform', 'rms8_arch_A_2025'), doc0), 'الفرع لا يكتب');
+  await assertSucceeds(getDoc(doc(as('fin'), 'platform', 'rms8_arch_A_2025')), 'المركز يقرأ');
+  await assertFails(getDoc(doc(as('bm'), 'platform', 'rms8_arch_A_2025')), 'الفرع لا يقرأ');
+  await assertFails(setDoc(doc(as('owner'), 'platform', 'rms8_arch_A_x'), doc0), 'اسم بلا سنة مرفوض');
+});

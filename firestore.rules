@@ -71,6 +71,8 @@ service cloud.firestore {
     function isBrDoc(id)     { return baseId(id).matches('^rms8_br_.+$'); }
     function isBfDoc(id)     { return baseId(id).matches('^rms8_bf_.+$'); }
     function isBranchDoc(id) { return isBrDoc(id) || isBfDoc(id); }
+    // v41.7: أرشيف فواتير نقطة البيع القديمة لكل فرع وسنة — يقرؤه المركز ويكتبه مسؤول النظام وحده
+    function isArchDoc(id)   { return baseId(id).matches('^rms8_arch_[A-Za-z0-9_-]{1,80}_[0-9]{4}$'); }
 
     function branchIdOf(id) {
       return isBrDoc(id) ? baseId(id).split('rms8_br_')[1] : baseId(id).split('rms8_bf_')[1];
@@ -106,7 +108,7 @@ service cloud.firestore {
     function knownDoc(id) {
       // v34.0: rms8_loy — نقاط ولاء العملاء، مشترك بين الفروع (يكتبه أي عضو نشط غير «عرض فقط» كي تُكسب النقاط وتُستبدل في كل فرع)
       return baseId(id) in ['rms8_org', 'rms8_dir', 'rms8_core', 'rms8_pulse', 'rms8_ops', 'rms8_files', 'rms8_hist', 'rms8_loy']
-        || isBranchDoc(id);
+        || isBranchDoc(id) || isArchDoc(id);
     }
     // المستندات القديمة (تشغيل ما قبل v9، أرشيف الملفات القديم، الإغلاقات المؤرشفة) تضم بيانات كل الفروع
     function isLegacyDoc(id) { return baseId(id) in ['rms8_ops', 'rms8_files', 'rms8_hist']; }
@@ -284,6 +286,7 @@ service cloud.firestore {
         && (!isOrgDoc(docId)    || isCentral() || isAdmin())
         && (!isCoreDoc(docId)   || isCentral() || isAdmin())
         && (!isLegacyDoc(docId) || isCentral() || isAdmin())
+        && (!isArchDoc(docId)   || isCentral() || isAdmin())
         && (!isBranchDoc(docId) || canBranch(branchIdOf(docId)));
 
       allow write: if isMember()
@@ -295,6 +298,7 @@ service cloud.firestore {
         && (!isOrgDoc(docId)    || isAdmin())
         && (!isCoreDoc(docId)   || isCentral() || isAdmin())
         && (!isLegacyDoc(docId) || isCentral() || isAdmin())
+        && (!isArchDoc(docId)   || isAdmin())
         && (!isBranchDoc(docId) || canBranch(branchIdOf(docId)))
         && (baseId(docId) != 'rms8_dir' || isAdmin())
         // مستند النبض (الحضور وسجل التدقيق) يكتبه كل عضو نشط؛ غيره ممنوع على أدوار العرض فقط
