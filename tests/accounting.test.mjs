@@ -959,3 +959,28 @@ test('تسوية الوسيط: قيد متوازن لليوم المعتمد إ�
   const off = E.cardSettlePlan({ ...org, posClearing: {} }, ops, L, { lags: { b1: 1 } }).rows[0];
   assert.deepEqual(off.lines, [{ code: '5303', debit: 26.46, credit: 0 }, { code: '1501', debit: 3.97, credit: 0 }, { code: '1201', debit: 0, credit: 30.43 }], 'بلا وسيط: العمولة فقط من البنك');
 });
+
+// ===== v41.4 — انجراف التخزين: كل مجموعة يكتبها commit موجودة في قوائم التقسيم (وإلا لا تُحفظ في السحابة) =====
+test('التخزين: كل مجموعة تُكتب عبر commit مُدرجة في BR_COLS أو CORE_COLS — (اكتُشف: cardRecons كانت خارجها)', async () => {
+  const fs = await import('node:fs'); const path = await import('node:path');
+  const root = new URL('..', import.meta.url).pathname; const app = fs.readFileSync(path.join(root, 'App.jsx'), 'utf8');
+  const lst = (n) => { const i = app.indexOf('const ' + n + ' = ['); const j = app.indexOf('];', i); return [...app.slice(i, j).matchAll(/'([A-Za-z]+)'/g)].map(m => m[1]); };
+  const known = new Set([...lst('BR_COLS'), ...lst('CORE_COLS')]);
+  const files = [path.join(root, 'App.jsx'), ...fs.readdirSync(path.join(root, 'mods')).flatMap(d => fs.readdirSync(path.join(root, 'mods', d)).filter(f => f.endsWith('.jsx')).map(f => path.join(root, 'mods', d, f)))];
+  const miss = {};
+  files.forEach(f => { const t = fs.readFileSync(f, 'utf8');
+    for (const m of t.matchAll(/\bcommit\(\s*(?:async\s*)?\(?d\)?\s*=>([\s\S]{0,600}?)(?:\}\)\s*,|\)\s*,\s*\{)/g)) {
+      [...m[1].matchAll(/\.\.\.d,\s*(\w+)\s*:/g), ...m[1].matchAll(/\bd\.(\w+)\s*\|\|\s*\[\]/g)].forEach(x => { if (!known.has(x[1])) (miss[x[1]] = miss[x[1]] || new Set()).add(path.basename(f)); }); } });
+  assert.deepEqual(Object.fromEntries(Object.entries(miss).map(([k, v]) => [k, [...v]])), {}, 'مجموعات تُكتب ولا تُحفظ');
+  assert.ok(known.has('cardRecons') && known.has('fsLogs'));
+});
+
+test('سجل سلامة الغذاء: الالتزام = القراءات المنجزة ÷ المطلوبة (بحد القراءات اليومية)، وخارج المدى يُرصد', () => {
+  const org = baseOrg({ fsCfg: { perDay: 2 }, fsUnits: [{ id: 'u1', branchId: 'b1', name: 'ثلاجة 1', kind: 'fridge', min: 0, max: 5 }, { id: 'u2', branchId: 'b1', name: 'فريزر', kind: 'freezer', min: -40, max: -18 }] });
+  const lg = (id, unitId, date, temp, ok) => ({ id, branchId: 'b1', unitId, date, at: date + 'T08:00', temp, ok });
+  const ops = { fsLogs: [lg('a', 'u1', '2026-11-01', 3, true), lg('b', 'u1', '2026-11-01', 4, true), lg('c', 'u1', '2026-11-01', 4, true), lg('d', 'u2', '2026-11-01', -10, false), lg('e', 'u1', '2026-11-02', 2, true)] };
+  const S = E.fsStatus(org, ops, { from: '2026-11-01', to: '2026-11-02' }).branches[0];
+  assert.deepEqual([S.req, S.done, S.pct, S.out.length], [8, 4, 50, 1], 'u1: 2(حد)+1، u2: 1 — من 2×2×2');
+  assert.deepEqual(S.missed.map(m => [m.unit, m.date, m.n]), [['ثلاجة 1', '2026-11-02', 1], ['فريزر', '2026-11-01', 1], ['فريزر', '2026-11-02', 0]]);
+  assert.equal(E.fsInRange({ min: -40, max: -18 }, -10), false); assert.equal(E.fsInRange({ min: 0, max: 5 }, 5), true); assert.equal(E.fsInRange({ min: 0, max: 5 }, 'x'), false);
+});

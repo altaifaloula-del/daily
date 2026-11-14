@@ -1656,4 +1656,8 @@ table.tb.rc-tb{min-width:0}
 /* v41.2 — جدول حجم البيانات */
 .tbl-wrap{overflow-x:auto;max-width:100%}
 table.tb.tb-fp{min-width:520px}
+
+/* v41.4 — سجل سلامة الغذاء */
+.fs-row .me-a .inp{margin-top:4px;max-width:320px}.inp.fs-bad{border-color:var(--rose,#D9544D);color:var(--rose,#D9544D)}
+.fs-row .sv-go .inp{width:72px}
 `;
