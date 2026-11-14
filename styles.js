@@ -1621,4 +1621,9 @@ html,body{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .sv-b{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:0 0 auto;max-width:46%}.sv-b small{font-size:10px;color:var(--dim);text-align:end}
 .sv-go{display:flex;gap:4px;align-items:center}.sv-go .inp{width:58px;padding:5px 6px;min-height:0}.sv-go .btn{flex:0 0 auto}
 .sv-ok{color:var(--mint,#4FB286)}.sv-bad{color:var(--rose,#D9544D)}
+
+/* v40.6 — مطابقة تسويات الشبكة */
+.cr-h{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px}.cr-h b{font-size:14px;margin-inline-end:auto}
+.cr-x{all:unset;cursor:pointer;margin-inline-start:4px;font-weight:700;padding:0 2px}
+.me-b .inp.sel{min-width:130px;max-width:46vw}
 `;

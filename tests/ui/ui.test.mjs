@@ -442,6 +442,36 @@ test('v40.4 خطة التوفير: فرص مقاسة، النسبة إلزامي
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+test('v40.6 مطابقة الشبكة: رفع الكشف، إسناد الجهاز لفرعه، ثم التطابق بعد إعادة إجمالي فيزا/ماستركارد', async () => {
+  const ctx = await browser.newContext(devices['iPhone 13']); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'live/Hub/admin/finhub:cardrec'); await p.reload(); await p.waitForTimeout(600); await settle(p);
+  await p.evaluate(() => {
+    window.setOrg(g => ({ ...g, taxCfg: { enabled: true, rate: 15 }, cardTerminals: [], profitCfg: { cardRates: { mada: 0.8, visa: 2.5, mc: 2.5 } } }));
+    window.setOps(o => ({ ...o, closings: [...(o.closings || []).filter(c => !String(c.date || '').startsWith('2026-10')), { id: 'cr1', branchId: 'b1', branchName: 'طيبة', date: '2026-10-01', status: 'approved', cardSales: 2218.43, totalRevenue: 3000 }, { id: 'cr2', branchId: 'b1', branchName: 'طيبة', date: '2026-10-02', status: 'approved', cardSales: 1000, totalRevenue: 1500 }] }));
+  }); await p.waitForTimeout(300);
+  const csv = ['التاريخ,الوقت,البيان,الجهاز,نوع البطاقة,دائن,مدين',
+    '2026-10-02,00:57:05,نقاط بيع - دائنة التاجر,1552164702164274,مدى,1708,0', '2026-10-02,00:57:05,نقاط بيع - مدين التاجر عمولة,1552164702164274,مدى,0,15.76',
+    '2026-10-02,22:10:34,عمليات التجار مبيعات شبكة,1552164702164274,فيزا,333.08,0', '2026-10-02,22:10:34,عمليات التجار مبيعات شبكة,1552164702164274,ماستركارد,162.67,0',
+    '2026-10-03,01:00:00,نقاط بيع - دائنة التاجر,1552164702164274,مدى,1000,0', '2026-10-03,01:00:00,نقاط بيع - مدين التاجر عمولة,1552164702164274,مدى,0,9.22',
+    '2026-10-02,10:00:00,سداد فاتورة كهرباء,,,0,800'].join('\n');
+  await p.locator('input[type="month"]').fill('2026-10');
+  await p.setInputFiles('input[type="file"]', { name: 'stmt.csv', mimeType: 'text/csv', buffer: Buffer.from('﻿' + csv) }); await p.waitForTimeout(500);
+  let txt = await p.locator('#r').innerText();
+  assert.match(txt, /أجهزة غير مسندة لفرع \(4274\)/); assert.match(txt, /لا جهاز مسند/);
+  await p.locator('select[aria-label="فرع الجهاز 4274"]').selectOption('b1'); await p.waitForTimeout(400);
+  assert.deepEqual(await p.evaluate(() => window.curOrg.cardTerminals), [{ tid: '4274', branchId: 'b1' }]);
+  txt = await p.locator('#r').innerText();
+  assert.match(txt, /متطابق/); assert.match(txt, /الإيداع بعد يوم/); assert.match(txt, /0\.922%/);
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true, 'على الجوال بلا تمرير أفقي');
+  await p.click('button:has-text("اعتماد المطابقة")'); await p.waitForTimeout(300);
+  const r = await p.evaluate(() => (window.cur.cardRecons || []).map(x => [x.from, x.to, x.tot.diff, x.branches[0].ok]));
+  assert.deepEqual(r, [['2026-10-01', '2026-10-31', 0, true]]);
+  assert.equal(await p.evaluate(() => JSON.stringify(window.cur.cardRecons).includes('1552164702164274')), false, 'الكشف نفسه لا يُحفظ');
+  await p.evaluate(() => { window.as('bm'); }); await p.waitForTimeout(300);
+  assert.doesNotMatch(await p.locator('#r').innerText(), /اعتماد المطابقة/, 'الفرع لا يصل');
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
 test('v40.2 الإغلاق: تقسيم الشبكة إلى مدى/فيزا/ماستركارد — الاختلاف عن إجمالي الجهاز يمنع الترحيل، والمطابق يُحفظ', async () => {
   const ctx = await browser.newContext(devices['iPad (gen 7)']); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
   await p.goto(base + 'live/ClosingForm/bm'); await p.reload(); await p.waitForTimeout(800); await settle(p);
