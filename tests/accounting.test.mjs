@@ -731,3 +731,18 @@ test('الربحية اليومية: لا تعمل قبل اكتمال الإع�
   const dp = E.profitDays(org, ops, { from: '2026-11-05', to: '2026-11-05', today: '2026-11-05', cfg: { ...cfg, laborBasis: 'payroll', alloc: 'operating' } }).branches[0].days[0];
   assert.equal(dp.labor, 6240, 'يوم التشغيل الوحيد في الشهر حتى اليوم يحمل الشهر كاملًا — معلن في الشاشة');
 });
+
+test('v40.2 رسوم الشبكة حسب نوع البطاقة: من التقسيم في الإغلاق بنسبة كل نوع؛ ويوم بلا تقسيم «غير متاح»؛ والبصمة القديمة لا تتغير', () => {
+  const org = baseOrg({ taxCfg: { enabled: false }, employees: [{ id: 'e1', name: 'س', branchId: 'b1', baseSalary: 3000 }] });
+  const cfg = { enabled: true, foodBasis: 'purchases', foodCats: ['ec1'], laborBasis: 'payroll', alloc: 'calendar', cardFee: 'bytype', cardRates: { mada: 0.8, visa: 2, mc: 2.2 } };
+  assert.deepEqual(E.profitMissing({ ...cfg, cardRates: { mada: 0.8 } }), ['نسب رسوم مدى وفيزا وماستركارد'], 'لا افتراض لنسبة ناقصة');
+  const c = { id: 'c1', branchId: 'b1', date: '2026-11-05', status: 'approved', cashSales: 0, cardSales: 1150, totalRevenue: 1150, expenses: [], cardSplit: { mada: 700, visa: 300, mc: 150 } };
+  const d = E.profitDays(org, { closings: [c] }, { from: '2026-11-05', to: '2026-11-05', cfg }).branches[0].days[0];
+  assert.equal(d.card, 14.9, '700×0.8% + 300×2% + 150×2.2%');
+  const { cardSplit, ...noSplit } = c;
+  const d2 = E.profitDays(org, { closings: [noSplit] }, { from: '2026-11-05', to: '2026-11-05', cfg }).branches[0].days[0];
+  assert.equal(d2.margin, null); assert.match(d2.na.card, /غير مقسّمة/);
+  const legacy = E.sigDigest('closing', noSplit);
+  assert.equal(E.sigDigest('closing', { ...noSplit }), legacy, 'إغلاق بلا تقسيم: البصمة كما كانت (لا إنذار كاذب على الموقّع سابقًا)');
+  assert.notEqual(E.sigDigest('closing', c), E.sigDigest('closing', { ...c, cardSplit: { mada: 800, visa: 200, mc: 150 } }), 'تعديل التقسيم بعد الاعتماد يُكشف');
+});

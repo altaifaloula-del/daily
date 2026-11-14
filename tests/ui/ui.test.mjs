@@ -387,3 +387,22 @@ test('ربحية الفروع اليومية: موقوفة حتى يُكمل ا�
   assert.match(await p.locator('#r').innerText(), /للإدارة المركزية فقط|لا توجد أقسام متاحة لصلاحيتك/, 'الفرع لا يصل للربحية');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v40.2 الإغلاق: تقسيم الشبكة إلى مدى/فيزا/ماستركارد — الاختلاف عن إجمالي الجهاز يمنع الترحيل، والمطابق يُحفظ', async () => {
+  const ctx = await browser.newContext(devices['iPad (gen 7)']); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'live/ClosingForm/bm'); await p.reload(); await p.waitForTimeout(800); await settle(p);
+  const fld = (lbl) => lbl === 'مبيعات الشبكة — إجمالي الجهاز' ? p.locator('.fld:has(label:has-text("إجمالي الجهاز")) textarea, .fld:has(label:has-text("إجمالي الجهاز")) input').first()
+    : p.locator('.card-split .fld').nth({ 'مدى': 0, 'فيزا': 1, 'ماستركارد': 2 }[lbl]).locator('input');
+  await p.locator('text=الشبكة والتحويل').first().click(); await p.waitForTimeout(150);
+  await fld('مبيعات الشبكة — إجمالي الجهاز').fill('1000'); await fld('مبيعات الشبكة — إجمالي الجهاز').blur();
+  await fld('مدى').fill('600'); await fld('مدى').blur(); await fld('فيزا').fill('300'); await fld('فيزا').blur(); await fld('ماستركارد').fill('50'); await fld('ماستركارد').blur();
+  await p.waitForTimeout(150);
+  assert.match(await p.locator('.cs-chk').innerText(), /≠ إجمالي الجهاز/);
+  assert.ok(await p.locator('.eaudit-i.block:has-text("تقسيم الشبكة")').count() >= 1, 'مانع في فحص الإغلاق');
+  await fld('ماستركارد').fill('100'); await fld('ماستركارد').blur(); await p.waitForTimeout(150);
+  assert.match(await p.locator('.cs-chk').innerText(), /✓ المجموع/);
+  await p.click('button:has-text("حفظ كمسودة")'); await p.waitForTimeout(400);
+  const c = await p.evaluate(() => (window.cur.closings || []).find(x => x.cardSplit));
+  assert.deepEqual(c && c.cardSplit, { mada: 600, visa: 300, mc: 100 });
+  assert.deepEqual(errs, []); await ctx.close();
+});

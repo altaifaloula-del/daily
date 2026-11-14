@@ -2794,7 +2794,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v40.1';
+const APP_VER = 'v40.2';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -8070,7 +8070,7 @@ const PROFIT_OPTS = {
   foodBasis: { purchases: 'مشتريات المواد (تصنيفات المصروف والموردون المختارون)', actual: 'الاستهلاك الفعلي (صرف المطبخ + الهدر + فروق الجرد)', theoretical: 'النظري (الكميات المباعة × تكلفة الوصفة)', both: 'الفعلي في الهامش، والنظري للمقارنة' },
   laborBasis: { attendance: 'ساعات الحضور الموثّق × تكلفة الساعة', payroll: 'تكلفة الرواتب الشهرية موزّعة على الأيام' },
   alloc: { calendar: 'بالتساوي على أيام الشهر', operating: 'على أيام تشغيل الفرع في الشهر', sales: 'بنسبة مبيعات اليوم من مبيعات الشهر' },
-  cardFee: { none: 'لا تُحسب', flat: 'نسبة موحّدة من مبيعات الشبكة' }
+  cardFee: { none: 'لا تُحسب', flat: 'نسبة موحّدة من مبيعات الشبكة', bytype: 'حسب نوع البطاقة — مدى/فيزا/ماستركارد (من تقسيم الشبكة في الإغلاق)' }
 };
 function profitMissing(cfg) {
   cfg = cfg || {}; const m = [];
@@ -8080,6 +8080,7 @@ function profitMissing(cfg) {
   if (!PROFIT_OPTS.alloc[cfg.alloc]) m.push('توزيع التكاليف الشهرية على الأيام');
   if (!PROFIT_OPTS.cardFee[cfg.cardFee]) m.push('رسوم الشبكة');
   if (cfg.cardFee === 'flat' && !(Number(cfg.cardRate) > 0)) m.push('نسبة رسوم الشبكة');
+  if (cfg.cardFee === 'bytype' && !['mada', 'visa', 'mc'].every(k => Number((cfg.cardRates || {})[k]) > 0)) m.push('نسب رسوم مدى وفيزا وماستركارد');
   return m;
 }
 /** ربحية كل فرع لكل يوم في الفترة: { branches:[{id,name,days:[…],tot}], missing } */
@@ -8125,7 +8126,10 @@ function profitDays(org, ops, opts = {}) {
       const gross = sum(S, c => Number(c.totalRevenue) || 0), net = r2(netOf(gross, true));
       const closed = S.some(c => !c.fromImport);
       const comm = r2(sum(S, c => sum(c.deliverySales || [], s => s.commissionAmount != null ? Number(s.commissionAmount) || 0 : (Number(s.amount) || 0) * (s.commissionPercentage != null ? Number(s.commissionPercentage) : Number((apps.find(a => a.id === s.appId) || {}).c) || 0) / 100)));
-      const card = cfg.cardFee === 'flat' ? r2(sum(S, c => Number(c.cardSales) || 0) * Number(cfg.cardRate) / 100) : 0;
+      let card = cfg.cardFee === 'flat' ? r2(sum(S, c => Number(c.cardSales) || 0) * Number(cfg.cardRate) / 100) : 0;
+      if (cfg.cardFee === 'bytype') { const R = cfg.cardRates || {}; const withCard = S.filter(c => (Number(c.cardSales) || 0) > 0);
+        if (withCard.some(c => !c.cardSplit)) na.card = 'الشبكة غير مقسّمة إلى مدى/فيزا/ماستركارد في الإغلاق';
+        else card = r2(sum(withCard, c => ['mada', 'visa', 'mc'].reduce((a, k) => a + (Number(c.cardSplit[k]) || 0) * (Number(R[k]) || 0) / 100, 0))); }
       // تكلفة الطعام
       let food = null, theo = null;
       const U = (cfg.foodBasis === 'actual' || cfg.foodBasis === 'theoretical' || cfg.foodBasis === 'both') ? (wh ? usageReport(org, ops, wh.id, d, d) : null) : null;
@@ -9724,7 +9728,8 @@ async function auditFetch(max = 300) {
 function sigDigest(kind, x) {
   const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100, q = (n) => Math.round((Number(n) || 0) * 1000) / 1000;
   const a = kind === 'closing' ? [x.id, x.branchId, x.date, r2(x.cashSales), r2(x.cardSales), r2(x.bankTransferSales), (x.deliverySales || []).map(d => [d.appId || '', r2(d.amount)]),
-    r2(x.totalRevenue), (x.expenses || []).map(e => [r2(e.amount), e.paymentMethod || '', e.categoryId || e.categoryName || '']), r2(x.totalExpenses), r2(x.actualCashCount), r2(x.variance), r2(x.transferredToMainTreasury)]
+    r2(x.totalRevenue), (x.expenses || []).map(e => [r2(e.amount), e.paymentMethod || '', e.categoryId || e.categoryName || '']), r2(x.totalExpenses), r2(x.actualCashCount), r2(x.variance), r2(x.transferredToMainTreasury),
+    ...(x.cardSplit ? [[r2(x.cardSplit.mada), r2(x.cardSplit.visa), r2(x.cardSplit.mc)]] : [])]   // v40.2: التقسيم ضمن البصمة متى وُجد
     : kind === 'waste' ? [x.id, x.branchId || '', x.whId || '', (x.lines || []).map(l => [l.itemId, q(l.qty)]), r2(x.value), x.reason || '']
     : kind === 'count' ? [x.id, x.whId || '', (x.lines || []).map(l => [l.itemId, q(l.final != null ? l.final : l.c1)])]
     : [x.id, x.supplierId || '', (x.lines || []).map(l => [l.itemId || l.desc || '', q(l.qty), r2(l.price)])];

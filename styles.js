@@ -1598,4 +1598,8 @@ html,body{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .pf-days{display:flex;flex-direction:column}
 .pf-day{display:flex;justify-content:space-between;gap:10px;padding:7px 2px;border-top:1px dashed var(--line)}.pf-day.na{opacity:.85}.pf-day.neg .pf-b b{color:var(--rose)}
 .pf-a,.pf-b{display:flex;flex-direction:column;gap:1px;font-size:12px}.pf-a{min-width:0}.pf-b{align-items:flex-end;flex:0 0 auto}.pf-a small,.pf-b small{font-size:10.5px;color:var(--dim)}
+
+/* v40.2 — تقسيم الشبكة حسب نوع البطاقة */
+.card-split{margin-top:6px;padding:10px;border:1px dashed var(--line);border-radius:12px}
+.cs-chk{font-size:12px;margin-top:6px;padding:6px 10px;border-radius:8px}.cs-chk.ok{color:var(--mint);background:rgba(79,178,134,.08)}.cs-chk.bad{color:var(--rose);background:rgba(217,84,77,.08);font-weight:700}.cs-chk.none{color:var(--dim)}
 `;

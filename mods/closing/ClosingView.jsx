@@ -42,6 +42,7 @@ export function ClosingView({ c, org, onClose }) {
           <div className="card-t" style={{ marginBottom: 8, fontSize: 12.5 }}>الإيرادات</div>
           <Row k="مبيعات نقدية" v={money(c.cashSales)} />
           <Row k="مبيعات الشبكة" v={money(c.cardSales)} />
+          {c.cardSplit && <Row k="— مدى / فيزا / ماستركارد" v={money(c.cardSplit.mada) + ' / ' + money(c.cardSplit.visa) + ' / ' + money(c.cardSplit.mc)} />}
           <Row k="تحويل بنكي" v={money(c.bankTransferSales || 0)} />
           {(c.deliverySales || []).filter(d => d.amount > 0).map(d => (
             <Row key={d.appId} k={`${d.appName} (${d.orderCount} طلب)`} v={money(d.amount)} />

@@ -43,7 +43,7 @@ document.body.innerHTML = '<div class="rms mode-' + (dark ? 'dark' : 'light') + 
 const ME = { admin: { id: 'u1', name: 'مجاهد', role: 'system_admin' }, ho: { id: 'u5', name: 'سارة', role: 'head_office' }, bm: { id: 'u3', name: 'خالد', role: 'branch_manager', branchId: 'b1' },
   bm2: { id: 'u4', name: 'سعد', role: 'branch_manager', branchId: 'b1' }, ctl: { id: 'u9', name: 'ريم', role: 'cost_controller' } };
 const [kind, a, b, c] = decodeURIComponent(location.hash.slice(1)).replace('&dark', '').split('/');
-const base = { org, myBranches: B, branches: B, commitOrg: async () => true, say: (x) => { window.lastSay = x; }, setTab: () => {}, theme: 'mizan', online: [], pulse: {}, openAcctView: () => {}, openInvView: () => {} };
+const base = { org, myBranches: B, branches: B, commitOrg: async () => true, say: (x) => { window.lastSay = x; }, setTab: () => {}, onClose: () => {}, onStartNew: () => {}, theme: 'mizan', online: [], pulse: {}, openAcctView: () => {}, openInvView: () => {} };
 class EB extends React.Component { constructor(p) { super(p); this.state = { e: null }; } componentDidCatch(e) { window.__crash = String(e && e.message); this.setState({ e }); } render() { return this.state.e ? React.createElement('div', { id: 'crash' }, 'CRASH: ' + this.state.e.message) : this.props.children; } }
 function Live() {
   const [o, setO] = React.useState(ops); window.cur = o; const [who, setWho] = React.useState(b || 'admin'); window.as = setWho;

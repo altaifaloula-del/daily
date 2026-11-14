@@ -169,6 +169,9 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
     // المرفوض لا يمنع إعادة إغلاق اليوم — حتى لا يُقفل اليوم نهائيًا بعد الرفض
     const dup = existing.find(c => c.branchId === f.branchId && c.date === f.date && c.id !== initial?.id && c.status !== 'rejected');
     if (dup) { say('يوجد إغلاق مسجّل لهذا الفرع بنفس التاريخ — عدّل الإغلاق القائم بدل إنشاء نسخة ثانية', 'no'); return null; }
+    // v40.2: تقسيم الشبكة حسب نوع البطاقة — إن أُدخل فمجموعه = إجمالي الجهاز (يُمنع الترحيل عند الاختلاف)
+    const spl = f.cardSplit || {}; const splSum = r2c((Number(spl.mada) || 0) + (Number(spl.visa) || 0) + (Number(spl.mc) || 0));
+    if (status === 'submitted' && splSum > 0 && Math.abs(splSum - (Number(f.cardSales) || 0)) > 0.009) { say('تقسيم الشبكة (' + money(splSum) + ') لا يساوي إجمالي جهاز الشبكة (' + money(Number(f.cardSales) || 0) + ') — صحّح قبل الترحيل', 'no'); return null; }
     if (status === 'submitted') {
       // v16.8: كان يُشترط عدّ موجب دائمًا — فيوم كل مبيعاته شبكة (صندوق صفر) يستحيل إغلاقه.
       // الآن: لا نقد متوقع ← يمر مباشرة؛ نقد متوقع وصندوق فارغ فعلًا ← إقرار صريح + توثيق سبب العجز.
@@ -183,8 +186,9 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
     }
     const id = initial?.id || 'cl-' + f.branchId + '-' + f.date + '-' + Math.random().toString(36).slice(2, 5);
     const ref = 'TR-' + f.date.replace(/-/g, '') + '-' + f.branchId.slice(-2);
+    const { cardSplit: _spl, ...fNoSplit } = f;
     const rec = {
-      ...f, id, branchName: branch?.name || '', managerName: me.name,
+      ...fNoSplit, ...(splSum > 0 ? { cardSplit: { mada: r2c(Number(spl.mada) || 0), visa: r2c(Number(spl.visa) || 0), mc: r2c(Number(spl.mc) || 0) } } : {}), id, branchName: branch?.name || '', managerName: me.name,
       sessionPhotos: sPhotos, sessionPhoto: sPhotos[0] || '',
       deliverySales: f.deliverySales.map(d => ({ ...d, commissionAmount: Math.round(d.amount * (d.commissionPercentage || 0)) / 100 })),
       totalDeliverySales: totalDelivery, otherRevenues: [], totalOtherRevenues: 0,
@@ -368,6 +372,9 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
       if (Math.abs(dCash) < 0.01 && Math.abs(dCard) < 0.01 && Math.abs(dApps) < 0.01) add('ok', 'المبيعات مطابقة لنقطة البيع' + (ps.n ? ' (' + ps.n + ' فاتورة)' : ''), ['sales']);
       else add('warn', 'فرق عن نقطة البيع —' + (Math.abs(dCash) >= 0.01 ? ' نقدي ' + money(dCash) : '') + (Math.abs(dCard) >= 0.01 ? ' شبكة ' + money(dCard) : '') + (Math.abs(dApps) >= 0.01 ? ' تطبيقات ' + money(dApps) : ''), ['sales', 'network', 'delivery']);
     }
+    { const sp = f.cardSplit || {}; const sm = r2c((Number(sp.mada) || 0) + (Number(sp.visa) || 0) + (Number(sp.mc) || 0));
+      if ((f.cardSales || 0) > 0 && sm > 0 && Math.abs(sm - (f.cardSales || 0)) > 0.009) add('block', 'تقسيم الشبكة لا يساوي إجمالي الجهاز', ['network']);
+      else if ((f.cardSales || 0) > 0 && sm === 0) add('warn', 'الشبكة غير مقسّمة إلى مدى/فيزا/ماستركارد', ['network']); }
     if ((f.cardSales || 0) > 0) { if (f.cardReceiptImage) add('ok', 'إثبات تسوية الشبكة مرفق', ['network']); else add('warn', 'إثبات تسوية الشبكة غير مرفق', ['network']); }
     const exNoRcpt = f.expenses.filter(e => (e.amount || 0) > 0 && !e.receiptImage).length, exNoParty = f.expenses.filter(e => (e.amount || 0) > 0 && !(e.beneficiaryName || e.partnerKey || e.supplierId)).length;
     if (f.expenses.length) {
@@ -500,9 +507,17 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
             {sec('network', CreditCard, 'الشبكة والتحويل', 'مدى/فيزا + تحويل بنكي مباشر', <span className="num">{money(f.cardSales + (f.bankTransferSales || 0))}</span>, (f.cardSales > 0 || f.bankTransferSales > 0), (
               <>
                 <div className="grid g2">
-                  <Num label="مبيعات الشبكة (مدى/فيزا)" value={f.cardSales} onChange={v => set('cardSales', v)} sum />
+                  <Num label="مبيعات الشبكة — إجمالي الجهاز" value={f.cardSales} onChange={v => set('cardSales', v)} sum />
                   <Num label="مبيعات تحويل بنكي مباشر" value={f.bankTransferSales} onChange={v => set('bankTransferSales', v)} />
                 </div>
+                {/* v40.2 — تقسيم الشبكة حسب نوع البطاقة (من تقرير الجهاز): المجموع = إجمالي الجهاز */}
+                {(() => { const sp = f.cardSplit || {}; const sm = r2c((Number(sp.mada) || 0) + (Number(sp.visa) || 0) + (Number(sp.mc) || 0)); const dif = r2c((Number(f.cardSales) || 0) - sm);
+                  const setS = (k, v) => setF(p => ({ ...p, cardSplit: { ...(p.cardSplit || {}), [k]: v } }));
+                  return (<div className="card-split">
+                    <div className="lbl">تقسيم الشبكة حسب نوع البطاقة (من تقرير الجهاز)</div>
+                    <div className="grid g3"><Num label="مدى" value={sp.mada || 0} onChange={v => setS('mada', v)} /><Num label="فيزا" value={sp.visa || 0} onChange={v => setS('visa', v)} /><Num label="ماستركارد" value={sp.mc || 0} onChange={v => setS('mc', v)} /></div>
+                    {(sm > 0 || (Number(f.cardSales) || 0) > 0) && <div className={'cs-chk ' + (sm === 0 ? 'none' : Math.abs(dif) < 0.01 ? 'ok' : 'bad')}>{sm === 0 ? 'لم تُقسَّم بعد — رسوم البطاقات في الربحية لا تُحسب ليوم غير مقسّم' : Math.abs(dif) < 0.01 ? '✓ المجموع ' + money(sm) + ' = إجمالي الجهاز' : 'المجموع ' + money(sm) + ' ≠ إجمالي الجهاز ' + money(Number(f.cardSales) || 0) + ' (الفرق ' + money(dif) + ') — يُمنع الترحيل'}</div>}
+                  </div>); })()}
                 {(f.cardSales > 0 || f.bankTransferSales > 0) && (
                   <div className="card" style={{ background: 'var(--ink)', padding: 12, marginTop: 4 }}>
                     <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
