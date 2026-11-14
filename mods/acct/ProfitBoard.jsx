@@ -29,7 +29,7 @@ export function ProfitBoard({ org, ops, me, myBranches, commitOrg, say }) {
   const tgt = saved.targets || {};
   const save = async () => {
     const miss = profitMissing(d); if (d.enabled && miss.length) return say('أكمل قبل التفعيل: ' + miss.join('، '), 'no');
-    const rec = { enabled: !!d.enabled, foodBasis: d.foodBasis, laborBasis: d.laborBasis, alloc: d.alloc, cardFee: d.cardFee, cardRate: Number(d.cardRate) || 0,
+    const rec = { enabled: !!d.enabled, foodBasis: d.foodBasis, laborBasis: d.laborBasis, alloc: d.alloc, cardFee: d.cardFee, cardRate: Number(d.cardRate) || 0, cardRates: Object.fromEntries(['mada', 'visa', 'mc'].map(k => [k, Number((d.cardRates || {})[k]) || 0])),
       foodCats: d.foodCats || [], foodSuppliers: d.foodSuppliers || [], fixed: (d.fixed || []).filter(x => x.branchId && Number(x.amount) > 0).map(x => ({ ...x, amount: Number(x.amount) })),
       targets: Object.fromEntries(Object.entries(d.targets || {}).filter(([, v]) => Number(v) > 0).map(([k, v]) => [k, Number(v)])) };
     const ok = await commitOrg(o => ({ ...o, profitCfg: rec }), { actionType: 'update', targetType: 'settings', targetId: 'profitCfg', need: 'edit', title: 'إعدادات الربحية', details: (rec.enabled ? 'مفعّلة' : 'موقوفة') + ' · الطعام: ' + (PROFIT_OPTS.foodBasis[rec.foodBasis] || '—') + ' · العمالة: ' + (PROFIT_OPTS.laborBasis[rec.laborBasis] || '—') });
@@ -58,6 +58,7 @@ export function ProfitBoard({ org, ops, me, myBranches, commitOrg, say }) {
           {sel('foodBasis', '1. أساس تكلفة الطعام')}{sel('laborBasis', '2. أساس تكلفة العمالة')}
           {sel('alloc', '3. توزيع التكاليف الشهرية (الثابتة، والرواتب إن اخترتها) على الأيام')}
           <div className="grid g2" style={{ gap: 8 }}>{sel('cardFee', '4. رسوم الشبكة')}{d.cardFee === 'flat' && <Field label="النسبة % (كما في عقد البنك)"><input className="inp n" inputMode="decimal" value={d.cardRate} onChange={e => setK('cardRate', e.target.value.replace(/[^\d.]/g, ''))} /></Field>}</div>
+          {d.cardFee === 'bytype' && <div className="grid g3" style={{ gap: 8 }}>{[['mada', 'مدى %'], ['visa', 'فيزا %'], ['mc', 'ماستركارد %']].map(([k, l]) => <Field key={k} label={l + ' (عقد البنك)'}><input className="inp n" inputMode="decimal" value={(d.cardRates || {})[k] || ''} onChange={e => setD(x => ({ ...x, cardRates: { ...(x.cardRates || {}), [k]: e.target.value.replace(/[^\d.]/g, '') } }))} /></Field>)}</div>}
         </div>
         {d.foodBasis === 'purchases' && <><div className="lbl" style={{ marginTop: 8 }}>تصنيفات مصروفات الإغلاق التي تُعدّ مواد طعام</div>
           <div className="pf-chips">{cats.map(c => <label key={c.id} className={'pf-chip' + ((d.foodCats || []).includes(c.id) ? ' on' : '')}><input type="checkbox" checked={(d.foodCats || []).includes(c.id)} onChange={() => tog('foodCats', c.id)} />{c.n}</label>)}</div>
@@ -98,7 +99,7 @@ export function ProfitBoard({ org, ops, me, myBranches, commitOrg, say }) {
                 <span className="pf-b"><small>طعام {pct(x.foodPct)} · عمالة {pct(x.laborPct)}</small><b className="num" dir="ltr">{x.margin == null ? '—' : money(x.margin)}</b></span></div>)}</div>}
             </>}
           </div>); })}
-        <div className="note"><Info size={13} style={{ verticalAlign: -2 }} /> <b>المنهج (إعداداتك):</b> الطعام: {PROFIT_OPTS.foodBasis[saved.foodBasis]} · العمالة: {PROFIT_OPTS.laborBasis[saved.laborBasis]} (الأجر والبدلات وحصة صاحب العمل في التأمينات) · التوزيع: {PROFIT_OPTS.alloc[saved.alloc]} · الشبكة: {PROFIT_OPTS.cardFee[saved.cardFee]}{saved.cardFee === 'flat' ? ' ' + saved.cardRate + '%' : ''}.
+        <div className="note"><Info size={13} style={{ verticalAlign: -2 }} /> <b>المنهج (إعداداتك):</b> الطعام: {PROFIT_OPTS.foodBasis[saved.foodBasis]} · العمالة: {PROFIT_OPTS.laborBasis[saved.laborBasis]} (الأجر والبدلات وحصة صاحب العمل في التأمينات) · التوزيع: {PROFIT_OPTS.alloc[saved.alloc]} · الشبكة: {PROFIT_OPTS.cardFee[saved.cardFee]}{saved.cardFee === 'flat' ? ' ' + saved.cardRate + '%' : saved.cardFee === 'bytype' ? ' (مدى ' + (saved.cardRates || {}).mada + '% · فيزا ' + (saved.cardRates || {}).visa + '% · ماستركارد ' + (saved.cardRates || {}).mc + '%)' : ''}.
           الإيراد بعد استبعاد ضريبة القيمة المضافة، ومشتريات المواد بعد استبعاد ضريبتها القابلة للخصم. الأيام المستوردة بلا إغلاق تظهر، لكن ما لا تعرفه بياناتها يبقى «غير متاح».
           {saved.alloc === 'operating' || saved.alloc === 'sales' ? ' في الشهر الجاري يُوزَّع المبلغ الشهري على ما مضى منه، فتظهر الأيام الأولى أثقل حتى يكتمل الشهر.' : ''} الإهلاك ومكافأة نهاية الخدمة خارج الهامش اليومي.</div>
       </>}
