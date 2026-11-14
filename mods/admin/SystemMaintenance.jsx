@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { cloud, KEYS, brKey } from '../../storage';
 import { ShieldCheck, RefreshCw, Trash2, AlertTriangle, Check, Server, Bug, Activity, HardDrive } from 'lucide-react';
-import { recipeRaw, APP_CV, APP_VER, CloudHealth, ERRLOG_KEY, MAIN_WH, ROLES, SIG_BADGE, SIG_NAME, buildAccounting, loadRelease, loadSignoffs, sigVerify, branchBanks, cashForecast, complianceItems, entityList, vatStatus, countedClosing, isoD, money, purKey, q3, qrFs, snapAll, stockByWh, today, whName, whOf } from '../../App.jsx';
+import { dataFootprint, recipeRaw, APP_CV, APP_VER, CloudHealth, ERRLOG_KEY, MAIN_WH, ROLES, SIG_BADGE, SIG_NAME, buildAccounting, loadRelease, loadSignoffs, sigVerify, branchBanks, cashForecast, complianceItems, entityList, vatStatus, countedClosing, isoD, money, purKey, q3, qrFs, snapAll, stockByWh, today, whName, whOf } from '../../App.jsx';
 
 const ST = { ok: ['b-mint', 'سليم'], warn: ['b-amber', 'تنبيه'], bad: ['b-rose', 'خلل'] };
 const daysAgo = (d) => { const x = new Date(); x.setDate(x.getDate() - d); return isoD(x); };
@@ -263,6 +263,16 @@ export function SystemMaintenance({ org, ops, me, commit, say }) {
         </div>
       </div>
       {showDocs && <CloudHealth org={org} say={say} commit={commit} me={me} auto />}
+      {(() => { const F = dataFootprint(ops); const kb = (b) => (b >= 1048576 ? (Math.round(b / 104857.6) / 10) + ' MB' : Math.round(b / 1024) + ' KB');
+        const AR = { closings: 'الإغلاقات اليومية', posOrders: 'فواتير نقطة البيع', stockMoves: 'حركات المخزون (الرئيسي)', whMoves: 'حركات مستودعات الفروع', ledgerEntries: 'قيود الحسابات الجارية', invoices: 'فواتير الموردين',
+          purchaseOrders: 'أوامر الشراء', attendanceEvents: 'سجل الحضور', productSales: 'مبيعات المنتجات المستوردة', posImports: 'أيام نقطة البيع المستوردة', transfers: 'التحويلات', actions: 'الإجراءات', posShifts: 'ورديات نقطة البيع', salesInvoices: 'فواتير المبيعات', journalEntries: 'القيود اليدوية' };
+        return <div className="card">
+          <div className="card-h"><div className="card-t"><HardDrive size={15} color="var(--brass)" />حجم البيانات ونموها</div></div>
+          <div style={{ fontSize: 12, color: 'var(--dim)', marginBottom: 6 }}>الإجمالي المحمَّل على الأجهزة <b className="num">{kb(F.tot.bytes)}</b> · ينمو <b className="num">{kb(F.tot.growth)}</b> شهريًا (متوسط {F.months.slice().reverse().join('، ')}) · بعد 12 شهرًا بالمعدل الحالي ≈ <b className="num">{kb(F.tot.proj12)}</b></div>
+          <div className="tbl-wrap"><table className="tb tb-fp"><thead><tr><th>المجموعة</th><th>السجلات</th><th>الحجم</th><th>نمو شهري</th><th>بعد 12 شهرًا</th><th>أقدم سجل</th></tr></thead>
+            <tbody>{F.rows.slice(0, 12).map(r => <tr key={r.key}><td>{AR[r.key] || r.key}</td><td className="num">{r.n.toLocaleString('en-US')}</td><td className="num">{kb(r.bytes)}</td><td className="num">{r.growth ? kb(r.growth) : '—'}</td><td className="num">{kb(r.proj12)}</td><td className="num">{r.oldest || '—'}</td></tr>)}</tbody></table></div>
+          <div className="note" style={{ marginTop: 8 }}>قياس فعلي لما تحمله الأجهزة من بيانات التشغيل؛ النمو من تواريخ السجلات نفسها. الأرشفة (نقل القديم إلى أرشيف لا يُحمَّل يوميًا) قرارٌ يحدّد: ما يُؤرشَف، ومن أي عمر، ومدة الاحتفاظ النظامية — ولا تُنفَّذ قبل اعتماده.</div>
+        </div>; })()}
 
       <div className="card">
         <div className="card-h"><div className="card-t"><Bug size={15} color="var(--brass)" />سجل أخطاء الأجهزة</div>
