@@ -2808,7 +2808,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v40.7';
+const APP_VER = 'v40.8';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -8267,6 +8267,49 @@ function menuEngineering(org, ops, opts = {}) {
     tot: { qty: Q, rev: S(rows, 'totRev'), cost: S(rows, 'totCost'), cm: S(rows, 'totCm'), foodPct: S(rows, 'totRev') > 0 ? anR(S(rows, 'totCost') / S(rows, 'totRev') * 100) : null },
     cls: Object.fromEntries(Object.keys(MENU_CLS).map(k => [k, { n: by(k).length, cm: S(by(k), 'totCm'), qty: anR(sum(by(k), r => r.qty)) }])) };
 }
+/* ===== v40.8 — قائمة التحضير اليومية للمطبخ =====
+   كم يُحضَّر من كل تحضيرة ليوم معيّن في فرع: توقع مبيعات الفرع لذلك اليوم (forecastSales) × مزيج الأصناف (الكمية لكل ريال مبيعات)
+   في آخر 28 يومًا — محسوبًا على الأيام التي فيها مبيعات بالأصناف فقط — × وصفات المنتجات. المتبقي من أمس يُطرح (يدخله المطبخ).
+   التحضيرة داخل تحضيرة: احتياج الداخلية = ما سيُحضَّر من الخارجية ÷ دفعتها × كميتها فيها. */
+function prepMix(org, ops, branchId, td) {
+  const from = anDay(td, -27), days = new Set(), Q = {};
+  (ops.posOrders || []).filter(o => o.branchId === branchId && o.status !== 'void' && o.date >= from && o.date <= td).forEach(o => { days.add(o.date); (o.lines || []).forEach(l => { if (l.productId) Q[l.productId] = (Q[l.productId] || 0) + (Number(l.qty) || 0); }); });
+  (ops.productSales || []).filter(r => r.branchId === branchId && r.from >= from && r.to <= td).forEach(r => { for (let d = r.from; d <= r.to; d = anDay(d, 1)) days.add(d); (r.lines || []).forEach(l => { Q[l.productId] = (Q[l.productId] || 0) + (Number(l.qty) || 0); }); });
+  const S = dailySales(ops, [branchId])[branchId] || {}; const rev = sum([...days], d => S[d] || 0);
+  const qps = {}; if (rev > 0) Object.entries(Q).forEach(([k, v]) => { if (v > 0) qps[k] = v / rev; });
+  return { qps, days: days.size, rev: anR(rev), from, to: td };
+}
+function prepPlan(org, ops, opts = {}) {
+  const td = opts.today || today(), b = opts.branchId, date = opts.date || anDay(td, 1), onHand = opts.onHand || {};
+  const preps = org.preps || [], products = org.products || [], notes = [];
+  const F = forecastSales(org, ops, { today: td, days: 14, branchIds: [b] }); const fb = (F.branches || [])[0];
+  const day = fb && fb.days.find(x => x.date === date);
+  const mix = prepMix(org, ops, b, td);
+  if (!day) notes.push('لا توقع لهذا اليوم — يلزم 3 أسابيع على الأقل من مبيعات اليوم نفسه من الأسبوع في الفرع');
+  if (!mix.days) notes.push('لا مبيعات بالأصناف للفرع في آخر 28 يومًا (فواتير نقطة البيع أو استيراد مبيعات المنتجات) — لا يُعرف مزيج الأصناف');
+  const base = { date, branchId: b, f: day ? day.f : null, lo: day ? day.lo : null, hi: day ? day.hi : null, mix, notes, products: [], preps: [] };
+  if (!day || !mix.days) return base;
+  const prodQ = Object.entries(mix.qps).map(([id, r]) => { const p = products.find(x => x.id === id); return p ? { id, name: p.name, qty: Math.round(day.f * r * 10) / 10, lo: Math.round(day.lo * r * 10) / 10, hi: Math.round(day.hi * r * 10) / 10, usesPrep: (p.parts || []).some(pt => pt.prepId) } : null; })
+    .filter(Boolean).sort((a, c) => c.qty - a.qty);
+  // الاحتياج المباشر من المنتجات
+  const direct = {}; prodQ.forEach(pq => { const p = products.find(x => x.id === pq.id); (p.parts || []).forEach(pt => { if (pt.prepId) direct[pt.prepId] = (direct[pt.prepId] || 0) + pq.qty * partGross(pt); }); });
+  // من يستخدم كل تحضيرة من التحضيرات (لاحتياج الداخلية)
+  const users = {}; preps.forEach(o => (o.parts || []).forEach(pt => { if (pt.prepId) (users[pt.prepId] = users[pt.prepId] || []).push({ outer: o, pt }); }));
+  const memo = {};
+  const total = (id, seen = []) => { if (memo[id]) return memo[id]; if (seen.includes(id)) return { need: 0, make: 0 };
+    const need = (direct[id] || 0) + sum(users[id] || [], u => { const ob = Number(u.outer.batch) || 0; return ob > 0 ? total(u.outer.id, [...seen, id]).make / ob * partGross(u.pt) : 0; });
+    const make = Math.max(0, need - (Number(onHand[id]) || 0)); return (memo[id] = { need, make }); };
+  const r3 = (n) => Math.round(n * 1000) / 1000;
+  const rows = preps.map(pr => { const T = total(pr.id); if (!(T.need > 0)) return null; const bt = Number(pr.batch) || 0, k = bt > 0 ? T.make / bt : 0;
+    return { id: pr.id, name: pr.name, unit: pr.unit, batch: bt, need: r3(T.need), needLo: r3(T.need * day.lo / day.f), needHi: r3(T.need * day.hi / day.f), onHand: Number(onHand[pr.id]) || 0, make: r3(T.make), batches: Math.round(k * 100) / 100,
+      parts: (pr.parts || []).map(pt => { const q = r3(partGross(pt) * k); if (pt.prepId) { const ip = preps.find(x => x.id === pt.prepId) || {}; return { name: ip.name || 'تحضيرة محذوفة', unit: ip.unit || '', qty: q, prep: true }; }
+        const it = (org.items || []).find(x => x.id === pt.itemId) || {}; return { name: it.name || '؟', unit: it.unit || '', qty: q }; }) }; }).filter(Boolean);
+  if (!preps.length) notes.push('لا تحضيرات معرّفة — أنشئها من «الوصفات والتكلفة» ثم استخدمها في وصفات المنتجات');
+  else if (!rows.length) notes.push('لا منتج متوقع بيعه يستخدم تحضيرة');
+  const noMix = products.filter(p => (p.parts || []).some(pt => pt.prepId) && !mix.qps[p.id]).map(p => p.name);
+  if (noMix.length) notes.push('منتجات بتحضيرات بلا مبيعات في آخر 28 يومًا فلا تدخل: ' + noMix.slice(0, 5).join('، ') + (noMix.length > 5 ? '…' : ''));
+  return { ...base, products: prodQ, preps: rows };
+}
 /* ===== v40.6 — مطابقة تسويات الشبكة بالأجهزة =====
    الواقع في كشف البنك (الراجحي): دفعة مدى تُقيَّد بإجماليها وعمولتها قيد مدين مستقل؛ فيزا وماستركارد تُقيَّدان صافيتين بلا قيد عمولة؛ لكل جهاز قيوده.
    لذا: يُقرأ رقم الجهاز (آخر 4 أرقام) ونوع البطاقة وقيد العمولة من نص السطر، ويُنسب الجهاز لفرعه بإسناد يحدده المستخدم (لا تخمين)،
@@ -10333,5 +10376,5 @@ export { staffingPlan };
 // v39.4 — استيراد مبيعات نقاط البيع ومطابقتها
 export { piHour, piCutoff, posRecon, salesDays, importDraftClosing };
 // v40.0 — أساس الرقابة
-export { PROFIT_OPTS, profitMissing, profitDays, menuEngineering, MENU_CLS, SAV_KIND, savingsMeasure, savingsOpps, savingsTrack, CR_TYPE, cardStmtLines, cardRecon, recipeRaw, recipeCost, prepUnitCost };
+export { PROFIT_OPTS, profitMissing, profitDays, menuEngineering, MENU_CLS, SAV_KIND, savingsMeasure, savingsOpps, savingsTrack, CR_TYPE, cardStmtLines, cardRecon, recipeRaw, recipeCost, prepUnitCost, prepMix, prepPlan };
 export { UpdateGate, APP_CV, auditWrite, logAudit, auditFetch, sigDigest, signoff, signDecision, sigFailMsg, loadSignoffs, loadRelease, raiseRelease, sigVerify, SIG_BADGE, SIG_NAME };

@@ -1,6 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useEffect, useMemo } from 'react';
 import { HardDrive, FileBarChart, ChevronDown, Printer, ArrowLeftRight, ClipboardCheck, Truck, Store, BarChart3, AlertTriangle, Trash2, TrendingUp, Download, Check, Upload, Plus, Landmark, X } from 'lucide-react';
+import { PrepList } from './PrepList.jsx';   // v40.8
 import { BlindCount, Field, ITEM_TYPES, Kpi, LOCK_MSG, MAIN_WH, MOVE_KINDS, Modal, PriceAlerts, ROLES, SectionNav, UsageVariance, WarehousesPanel, WasteControl, WasteFields, arDate, isCostCtl, isStocked, itemAvgCosts, itemType, makeXlsx, money, nowISO, pFactor, parseCsvGrid, parseXlsxGrid, partGross, partYield, periodLocked, prepUnitCost, printA4, q3, recipeCost, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whName, whOn } from '../../App.jsx';
 
 export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
@@ -294,7 +295,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
       </div>
 
       <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-        <SectionNav label="أقسام المخزون" cur={view} onPick={setView} items={[{ id: 'items', ar: 'الأصناف والأرصدة', icon: HardDrive }, { id: 'moves', ar: 'الحركات', icon: ArrowLeftRight }, { id: 'count', ar: 'الجرد' + (whOn(org) ? ' (الرئيسي)' : ''), icon: ClipboardCheck }, { id: 'wh', ar: 'المستودعات', icon: Truck }, { id: 'recipes', ar: 'الوصفات والتكلفة', icon: Store }, { id: 'menu', ar: 'هندسة القائمة', icon: BarChart3 }, { id: 'usage', ar: 'الاستهلاك النظري والفعلي', icon: AlertTriangle }, { id: 'waste', ar: 'ضبط الهدر', icon: Trash2, badge: (ops.wasteRequests || []).filter(r => r.status === 'pending').length || null }, { id: 'prices', ar: 'تنبيهات الأسعار', icon: TrendingUp, badge: (ops.purchaseOrders || []).filter(po => po.status === 'pending' && po.priceAlert).length || null }]} />
+        <SectionNav label="أقسام المخزون" cur={view} onPick={setView} items={[{ id: 'items', ar: 'الأصناف والأرصدة', icon: HardDrive }, { id: 'moves', ar: 'الحركات', icon: ArrowLeftRight }, { id: 'count', ar: 'الجرد' + (whOn(org) ? ' (الرئيسي)' : ''), icon: ClipboardCheck }, { id: 'wh', ar: 'المستودعات', icon: Truck }, { id: 'recipes', ar: 'الوصفات والتكلفة', icon: Store }, { id: 'prep', ar: 'قائمة التحضير اليومية', icon: Store }, { id: 'menu', ar: 'هندسة القائمة', icon: BarChart3 }, { id: 'usage', ar: 'الاستهلاك النظري والفعلي', icon: AlertTriangle }, { id: 'waste', ar: 'ضبط الهدر', icon: Trash2, badge: (ops.wasteRequests || []).filter(r => r.status === 'pending').length || null }, { id: 'prices', ar: 'تنبيهات الأسعار', icon: TrendingUp, badge: (ops.purchaseOrders || []).filter(po => po.status === 'pending' && po.priceAlert).length || null }]} />
       </div>
 
       <div className="grid g4">
@@ -401,6 +402,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
 
       {view === 'count' && <BlindCount org={org} ops={ops} me={me} commit={commit} say={say} whId={MAIN_WH} branchId="" col="stockMoves" items={items.filter(isStocked)} title={whOn(org) ? whName(org, MAIN_WH) : 'المخزون'} canCount={canW} />}
 
+      {view === 'prep' && <PrepList org={org} ops={ops} me={me} say={say} />}
       {view === 'usage' && <UsageVariance org={org} ops={ops} me={me} commit={commit} say={say} />}
       {view === 'prices' && <PriceAlerts org={org} ops={ops} />}
       {view === 'waste' && <WasteControl org={org} ops={ops} me={me} commit={commit} commitOrg={commitOrg} say={say} />}
