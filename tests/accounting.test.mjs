@@ -995,3 +995,18 @@ test('الجرد المفاجئ: المتوقع من الوردية المفتو
   const S = E.cashCountStatus(org, ops, { today: '2026-11-14' });
   assert.deepEqual(S.map(b => [b.id, b.days, b.n90, b.short90, b.over90, b.withVar]), [['b2', null, 0, 0, 0, 0], ['b1', 4, 2, 20, 5, 2]], 'من لم يُجرد قط أولًا');
 });
+
+// ===== v41.6 — صيانة المعدات =====
+test('صيانة المعدات: البلاغ المفتوح، التكلفة والتوقف في 12 شهرًا، الوقائية المستحقة، والدفع أثناء الضمان ونسبته من الأصل', () => {
+  const org = baseOrg({ assets: [{ id: 'a1', name: 'قلاية', cost: 10000 }], equipment: [{ id: 'e1', branchId: 'b1', name: 'قلاية 1', assetId: 'a1', warrantyTo: '2026-12-31', pmDays: 90 }, { id: 'e2', branchId: 'b1', name: 'فرن' }] });
+  const ops = { maintLogs: [
+    { id: 'm1', equipId: 'e1', type: 'breakdown', at: '2026-10-01T10:00', status: 'done', doneAt: '2026-10-01T16:00', cost: 800 },
+    { id: 'm2', equipId: 'e1', type: 'preventive', at: '2026-07-01T09:00', status: 'done', doneAt: '2026-07-01T09:00', cost: 200 },
+    { id: 'm3', equipId: 'e1', type: 'breakdown', at: '2026-11-13T12:00', status: 'open' },
+    { id: 'm4', equipId: 'e1', type: 'breakdown', at: '2025-01-01T10:00', status: 'done', doneAt: '2025-01-01T12:00', cost: 5000 }] };
+  const S = E.maintStatus(org, ops, { today: '2026-11-14' }); const x = S[0];
+  assert.equal(x.id, 'e1', 'صاحب البلاغ المفتوح أولًا');
+  assert.deepEqual([x.open.length, x.breakdowns12, x.cost12, x.downHrs12, x.lastPM, x.nextPM, x.pmDue, x.warranty, x.paidInWarranty, x.costPct],
+    [1, 2, 1000, 6, '2026-07-01', '2026-09-29', true, true, 1000, 10], 'خارج 12 شهرًا لا يدخل؛ 800+200 دُفعا والجهاز تحت الضمان');
+  assert.deepEqual([S[1].pmDue, S[1].costPct, S[1].warranty], [false, null, false], 'بلا دورة وقائية ولا أصل ولا ضمان');
+});
