@@ -2809,7 +2809,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v40.9';
+const APP_VER = 'v41.0';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -6051,11 +6051,19 @@ HUBS.hr = {
 };
 delete HUBS.hrops; delete HUBS.people; delete HUBS.hrperf;
 const HR_TABS = ['hr', 'hrops', 'hrperf', 'people', ...HUBS.hr.views.map(v => v.id)];
+// v41.0 — عناوين شريط القوائم لكل مركز (ما لم يُذكر يصير رابطًا مباشرًا)
+const MENU_GROUPS = {
+  analytics: { exec: 'اللوحات', dash: 'اللوحات', scorecard: 'اللوحات', compare: 'التحليل', growth: 'التحليل', breakeven: 'التحليل', scenario: 'التحليل', forecast: 'التحليل',
+    profit: 'الربحية والتكلفة', menu: 'الربحية والتكلفة', savings: 'الربحية والتكلفة', alerts: 'الرقابة والإجراءات', anomaly: 'الرقابة والإجراءات', actions: 'الرقابة والإجراءات' },
+  closehub: { closing: 'الإغلاق', approve: 'الإغلاق', shifts: 'المتابعة', cashiers: 'المتابعة', myactions: 'الفرع', myforecast: 'الفرع' },
+  finhub: { acct: 'المحاسبة', treasury: 'المحاسبة', entities: 'المحاسبة', cardrec: 'الرقابة المالية', ibanctl: 'الرقابة المالية' },
+  reporting: { reports: 'التقارير', boardpack: 'التقارير', cashflow: 'التقارير', rbuild: 'منشئ التقارير' }
+};
 /* ============================================================
    v31.7 — عرض أقسام التطبيقات: شبكة احترافية (افتراضي) أو قائمة منسدلة أو تبويبات — اختيار واحد لكل المستخدم يسري على كل التطبيقات
    ============================================================ */
 const SECNAV_KEY = 'mizan:secNav';
-const readSecNav = () => { try { const v = localStorage.getItem(SECNAV_KEY); return ['grid', 'dd', 'tabs'].includes(v) ? v : 'grid'; } catch { return 'grid'; } };
+const readSecNav = () => { try { const v = localStorage.getItem(SECNAV_KEY); return ['menu', 'grid', 'dd', 'tabs'].includes(v) ? v : 'menu'; } catch { return 'menu'; } };   // v41.0: الافتراضي شريط القوائم (نمط أودو)
 function useSecNav() {
   const [m, setM] = useState(readSecNav);
   useEffect(() => { const h = () => setM(readSecNav()); window.addEventListener('mizan-secnav', h); window.addEventListener('storage', h); return () => { window.removeEventListener('mizan-secnav', h); window.removeEventListener('storage', h); }; }, []);
@@ -6063,6 +6071,42 @@ function useSecNav() {
   return [m, set];
 }
 // items: [{id, ar, icon, badge?}] · cur · onPick(id) · extra: أزرار إجراءات تُعرض بجانب التنقل
+/* v41.0 — شريط القوائم بنمط أودو: عناوين رئيسية نصية؛ العنوان ذو القسم الواحد رابط مباشر، وذو الأقسام قائمة منسدلة بعناوين فرعية.
+   groups: [{ id, ar, items: [{ id, ar, icon, badge, sub }] }] — sub: عنوان فرعي داخل القائمة (اختياري) */
+function OdooBar({ groups, cur, onPick, extra, sw }) {
+  const [open, setOpen] = useState(null);
+  const [vars, setVars] = useState({});
+  const [pos, setPos] = useState(null);   // القائمة تُرسم في جذر الصفحة (portal) لتعلو كل البطاقات، بموضع الزر
+  const place = (el) => { if (!el) return; const r = el.getBoundingClientRect(), W = window.innerWidth;
+    // ألوان الثيم من الشريط نفسه (القائمة خارج غلاف الثيم في جذر الصفحة)
+    try { const cs = getComputedStyle(el); setVars(Object.fromEntries(['--ink2', '--txt', '--line', '--acc-soft', '--brass', '--dim'].map(k => [k, cs.getPropertyValue(k).trim()]).filter(([, v]) => v))); } catch { }
+    setPos(W <= 640 ? { top: r.bottom + 2, left: 16, right: 16 } : { top: r.bottom + 2, right: Math.max(16, W - r.right), minWidth: Math.max(230, r.width) }); };
+  useEffect(() => { if (!open) return; const close = () => setOpen(null); window.addEventListener('resize', close); window.addEventListener('scroll', close, true); return () => { window.removeEventListener('resize', close); window.removeEventListener('scroll', close, true); }; }, [open]);
+  const gs = (groups || []).map(g => ({ ...g, items: (g.items || []).filter(Boolean) })).filter(g => g.items.length);
+  const pick = (id) => { setOpen(null); onPick(id); };
+  return (
+    <div className="ob" role="navigation" aria-label="أقسام التطبيق">
+      {gs.map(g => { const act = g.items.some(x => x.id === cur);
+        if (g.items.length === 1) { const x = g.items[0]; return <button key={g.id} className={'ob-it' + (act ? ' on' : '')} onClick={() => pick(x.id)}>{x.ar}{x.badge ? <span className="ob-bd">{x.badge}</span> : null}</button>; }
+        const subs = [...new Set(g.items.map(x => x.sub || ''))];
+        return (
+          <div key={g.id} className="ob-wrap">
+            <button aria-haspopup="true" aria-expanded={open === g.id} className={'ob-it' + (act ? ' on' : '') + (open === g.id ? ' open' : '')} onClick={(e) => { place(e.currentTarget); setOpen(o => o === g.id ? null : g.id); }}>
+              {g.ar}<ChevronDown size={12} className="ob-car" /></button>
+            {open === g.id && pos && createPortal(<div className="ob-layer" dir="rtl" style={vars}>
+              <div className="ob-back" onClick={() => setOpen(null)} />
+              <div className="ob-menu" style={pos}>
+                {subs.map(sb => (<React.Fragment key={sb || '_'}>
+                  {sb && <div className="ob-hd">{sb}</div>}
+                  {g.items.filter(x => (x.sub || '') === sb).map(x => <button key={x.id} className={'ob-mi' + (x.id === cur ? ' on' : '') + (sb ? ' ind' : '')} onClick={() => pick(x.id)}>{x.ar}{x.badge ? <span className="ob-bd">{x.badge}</span> : null}</button>)}
+                </React.Fragment>))}
+              </div></div>, document.body)}
+          </div>); })}
+      <span className="ob-sp" />{sw}{extra}
+    </div>);
+}
+/** تجميع عناصر مسطّحة في قوائم: بحسب x.group؛ وما لا مجموعة له يصير رابطًا مباشرًا */
+const obGroups = (list) => { const out = []; list.forEach(x => { const k = x.group || ('_' + x.id); let g = out.find(y => y.id === k); if (!g) { g = { id: k, ar: x.group || x.ar, items: [] }; out.push(g); } g.items.push(x); }); return out; };
 function SectionNav({ items, cur, onPick, extra, label, force }) {
   const [modeSel, setMode] = useSecNav();
   const mode = force || modeSel;   // force: نمط ثابت لشاشات تحتاج المساحة (نقطة البيع)
@@ -6077,12 +6121,14 @@ function SectionNav({ items, cur, onPick, extra, label, force }) {
   const CurI = curIt.icon || Grid3x3;
   const sw = list.length >= 2 && !force && (
     <div className="acct-mode" role="group" aria-label="طريقة عرض الأقسام">
+      <button className={mode === 'menu' ? 'on' : ''} onClick={() => setMode('menu')} title="شريط قوائم"><Menu size={13} /><span>قوائم</span></button>
       <button className={mode === 'grid' ? 'on' : ''} onClick={() => setMode('grid')} title="شبكة"><Grid3x3 size={13} /><span>شبكة</span></button>
-      <button className={mode === 'dd' ? 'on' : ''} onClick={() => setMode('dd')} title="قائمة منسدلة"><ChevronDown size={13} /><span>قائمة</span></button>
+      <button className={mode === 'dd' ? 'on' : ''} onClick={() => setMode('dd')} title="قائمة منسدلة"><ChevronDown size={13} /><span>منسدلة</span></button>
       <button className={mode === 'tabs' ? 'on' : ''} onClick={() => setMode('tabs')} title="تبويبات"><Menu size={13} /><span>تبويبات</span></button>
     </div>);
   const pick = (id) => { setOpen(false); onPick(id); };
   const bdg = (x) => x.badge ? <span className="badge b-amber" style={{ fontSize: 9.5, padding: '1px 6px' }}>{x.badge}</span> : null;
+  if (list.length >= 2 && mode === 'menu') return <OdooBar groups={obGroups(list)} cur={cur} onPick={pick} extra={extra} sw={sw} />;
   if (list.length >= 2 && mode === 'grid') return (
     <div className="secnav-grid" ref={navRef}>
       <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
@@ -6150,7 +6196,7 @@ function Hub({ hubId, view, ...rest }) {
             <span style={{ fontSize: 11, color: 'var(--dim)' }} className="hub-desc">· {cfg.desc}</span>
           </div>
         </div>
-        {views.length > 1 && <div style={{ marginTop: 8 }}><SectionNav items={views.map(v => ({ id: v.id, ar: v.ar, icon: v.icon, group: v.group }))} cur={cur} onPick={go} label={'أقسام ' + cfg.ar} /></div>}
+        {views.length > 1 && <div style={{ marginTop: 8 }}><SectionNav items={views.map(v => ({ id: v.id, ar: v.ar, icon: v.icon, group: v.group || (MENU_GROUPS[hubId] || {})[v.id] }))} cur={cur} onPick={go} label={'أقسام ' + cfg.ar} /></div>}
       </div>
       {Cur ? <Cur {...rest} /> : <div className="card"><div className="empty">لا توجد أقسام متاحة لصلاحيتك.</div></div>}
     </div>
@@ -10414,7 +10460,7 @@ async function qrAnalyzeComments(items) {
 
 
 // v38.3 — ما تحتاجه ملفات التطبيقات المنفصلة (mods/) من النواة
-export { A4_CSS, ACCT_SECTIONS, ACCT_SEC_AR, ACC_KIND, ALL_TABS, APPS, AdvanceForm, AppPermsPanel, AppsStrip, BR_COLS, Badge, BalCell, BlindCount, BranchForm, COUNT_FREQ, COUNT_ST, CameraModal, CategoriesPanel, ClosingView, CloudHealth, CountScheduleCard, DAYS_AR, DENOMS, DOC_LABEL, DOC_TYPES, DailyBranchReport, DeliveryAppsPanel, DisbursementForm, DupInvHint, EXP_CATS, FILE_CATS, Field, FinancialReports, GROWTH_MONTHS, HR_WEEK_DAYS, HrSignPad, ITEM_TYPES, Kpi, LAUNCH_APPS, LEAVE_TYPES, LOCK_MSG, MAIN_WH, MFA_DEFAULT_ROLES, MOVE_KINDS, MZ_FIXED, MZ_KIND_AR, MZ_LOGO_HTML, MZ_SUGGEST, MfaPolicyCard, MizanMerge, Modal, MoneyField, NUM_FACE, NUM_LOCALE, NationalAddressFields, Num, OutputDialog, PAY_ADD_TYPES, PAY_GUESS, PEN_TYPES, POS_DEV_KEY, POS_SH_KEY, PROMO_IDEAS, PROMO_T, PT_SRC, PT_TYPE, PartnerChip, PdfTile, PhotoField, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, PriceAlerts, QR_ITEMS, QR_STATUS, QUOTA_MSG, QrBranchesView, QrComplaints, QrDashboard, RB_KIND_AR, RB_PM_AR, RB_SOURCES, REG_APPS, REG_CATS, REG_IX, ROLES, SC_KPIS, SIGN_DOC_AR, SIG_H, SIG_W, SectionNav, SigView, SignDocsModal, SignaturePad, SystemPanel, TAB_AR, TRAIN_STATUS_AR, UsageVariance, UserForm, WASTE_REASONS, WH_KIND, WH_MOVE, WH_ST, WarehousesPanel, WasteControl, WasteFields, WastePending, WhLines, _normName, _xe, aCountDone, aItemsOf, acctSecKey, activePriorCorrectives, activeTrainingRecord, aiHeaders, appCanSee, appOpenNow, appUseGet, appUseSet, arDT, arDate, arTime, bankOfBranch, bioEnroll, bookHidden, branchBanks, branchEntityId, browserName, bsLayout, bsRowsOf, buildAccounting, buildClosingA4, buildPartners, buildPayslipSignDocs, businessDay, canApproveCount, canApproveWaste, capOK, chartTone, closingInvoices, clr, compressImage, computeIncome, contactFields, contactOf, correctiveExpiry, correctiveSignDoc, countCfgOf, countDenoms, countFocus, countSchedule, countedClosing, customerAging, daysBetween, defaultHrPolicies, defaultPenaltySchedule, defaultPointsRules, defaultRewardTiers, defaultRoleKpis, defaultTrainingPrograms, deficitCfg, deficitPatterns, detectStmtMap, deviceType, emptyDenoms, entityById, entityList, eosAccrualLines, eosCumAt, eosState, eosYears, escH, expiringTraining, expiryLots, exportExcel, fineSuggest, fmtBalP, fmtNA, frozenSnapshotFor, gosiRatesFor, haversineMeters, hrAttendanceDetail, hrEmpStats, hrQrWindowCode, hrScoreFor, isCostCtl, isLayout, isPdfData, isRowsOf, isStocked, isoD, itemAvgCosts, itemType, kpiAchievement, leaveBalance, leaveDeductPlan, lockedThru, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, makeXlsx, missingRequiredTraining, mizanPlan, money, moneyP, monthEnd, monthLabel, monthLedger, multiEntityOn, mzNewCode, mzR2, naClean, naErr, naHas, naMissing, newBranchDraft, nextPartnerCode, nextWhAcc, normPhone, normalizeSupPays, nowISO, onLeave, openDocWin, openPdfData, otFromAttendance, otRateOf, overdueSignDocs, pFactor, parseCsvGrid, parseMt940, parseXlsxGrid, partGross, partYield, payCashPart, payLabel, paySplits, payTotal, payrollRowsOf, penTypeAr, pendShiftsGet, pendShiftsSet, periodLocked, piAggregate, piDetect, piNorm, pipTriggered, posCashNet, posClrOf, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posShiftHtml, posTotals, posZHtml, positionJdHtml, printA4, printClosingA4, printIncomeA4, printPartnerStatement, printReceipt, printSalesInvoice, programRequiredFor, promoActive, promoDesc, promoHits, purKey, pwStrength, q3, qrAnalyzeComments, qrAvg, qrBranchStats, qrDate, qrF1, qrFs, qrIsComplaint, qrMs, qrOverall, qrOverdue, qrPrintReport, qrRateUrl, qrSentBadge, qrStatusOf, qrSvg, rewardSignDoc, roleEdit, roleHasTab, roleKpisFor, rolePost, salesDaySource, sha, sha256Hex, short, siCredited, siRem, siSorted, siStamp, siVerify, sigBlockHtml, sigPoints, sigSvg, signDeclaration, signDocHtml, simplifySig, slimBranchDoc, snapAll, snapMonths, snapPut, stAddDays, stDate, stNum, stockByWh, submitWaste, suggestNextLevel, sum, supplierAging, supplierPrices, today, trainingExpiryOf, trainingStatusNow, uid, usageReport, useSecNav, verifyBackup, waNum, wasteCfg, wasteDaily, wasteReasonAr, wasteRows, webauthnSupported, whForBranch, whName, whOf, whOn, zatcaTLV };
+export { A4_CSS, OdooBar, ACCT_SECTIONS, ACCT_SEC_AR, ACC_KIND, ALL_TABS, APPS, AdvanceForm, AppPermsPanel, AppsStrip, BR_COLS, Badge, BalCell, BlindCount, BranchForm, COUNT_FREQ, COUNT_ST, CameraModal, CategoriesPanel, ClosingView, CloudHealth, CountScheduleCard, DAYS_AR, DENOMS, DOC_LABEL, DOC_TYPES, DailyBranchReport, DeliveryAppsPanel, DisbursementForm, DupInvHint, EXP_CATS, FILE_CATS, Field, FinancialReports, GROWTH_MONTHS, HR_WEEK_DAYS, HrSignPad, ITEM_TYPES, Kpi, LAUNCH_APPS, LEAVE_TYPES, LOCK_MSG, MAIN_WH, MFA_DEFAULT_ROLES, MOVE_KINDS, MZ_FIXED, MZ_KIND_AR, MZ_LOGO_HTML, MZ_SUGGEST, MfaPolicyCard, MizanMerge, Modal, MoneyField, NUM_FACE, NUM_LOCALE, NationalAddressFields, Num, OutputDialog, PAY_ADD_TYPES, PAY_GUESS, PEN_TYPES, POS_DEV_KEY, POS_SH_KEY, PROMO_IDEAS, PROMO_T, PT_SRC, PT_TYPE, PartnerChip, PdfTile, PhotoField, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, PriceAlerts, QR_ITEMS, QR_STATUS, QUOTA_MSG, QrBranchesView, QrComplaints, QrDashboard, RB_KIND_AR, RB_PM_AR, RB_SOURCES, REG_APPS, REG_CATS, REG_IX, ROLES, SC_KPIS, SIGN_DOC_AR, SIG_H, SIG_W, SectionNav, SigView, SignDocsModal, SignaturePad, SystemPanel, TAB_AR, TRAIN_STATUS_AR, UsageVariance, UserForm, WASTE_REASONS, WH_KIND, WH_MOVE, WH_ST, WarehousesPanel, WasteControl, WasteFields, WastePending, WhLines, _normName, _xe, aCountDone, aItemsOf, acctSecKey, activePriorCorrectives, activeTrainingRecord, aiHeaders, appCanSee, appOpenNow, appUseGet, appUseSet, arDT, arDate, arTime, bankOfBranch, bioEnroll, bookHidden, branchBanks, branchEntityId, browserName, bsLayout, bsRowsOf, buildAccounting, buildClosingA4, buildPartners, buildPayslipSignDocs, businessDay, canApproveCount, canApproveWaste, capOK, chartTone, closingInvoices, clr, compressImage, computeIncome, contactFields, contactOf, correctiveExpiry, correctiveSignDoc, countCfgOf, countDenoms, countFocus, countSchedule, countedClosing, customerAging, daysBetween, defaultHrPolicies, defaultPenaltySchedule, defaultPointsRules, defaultRewardTiers, defaultRoleKpis, defaultTrainingPrograms, deficitCfg, deficitPatterns, detectStmtMap, deviceType, emptyDenoms, entityById, entityList, eosAccrualLines, eosCumAt, eosState, eosYears, escH, expiringTraining, expiryLots, exportExcel, fineSuggest, fmtBalP, fmtNA, frozenSnapshotFor, gosiRatesFor, haversineMeters, hrAttendanceDetail, hrEmpStats, hrQrWindowCode, hrScoreFor, isCostCtl, isLayout, isPdfData, isRowsOf, isStocked, isoD, itemAvgCosts, itemType, kpiAchievement, leaveBalance, leaveDeductPlan, lockedThru, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, makeXlsx, missingRequiredTraining, mizanPlan, money, moneyP, monthEnd, monthLabel, monthLedger, multiEntityOn, mzNewCode, mzR2, naClean, naErr, naHas, naMissing, newBranchDraft, nextPartnerCode, nextWhAcc, normPhone, normalizeSupPays, nowISO, onLeave, openDocWin, openPdfData, otFromAttendance, otRateOf, overdueSignDocs, pFactor, parseCsvGrid, parseMt940, parseXlsxGrid, partGross, partYield, payCashPart, payLabel, paySplits, payTotal, payrollRowsOf, penTypeAr, pendShiftsGet, pendShiftsSet, periodLocked, piAggregate, piDetect, piNorm, pipTriggered, posCashNet, posClrOf, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posShiftHtml, posTotals, posZHtml, positionJdHtml, printA4, printClosingA4, printIncomeA4, printPartnerStatement, printReceipt, printSalesInvoice, programRequiredFor, promoActive, promoDesc, promoHits, purKey, pwStrength, q3, qrAnalyzeComments, qrAvg, qrBranchStats, qrDate, qrF1, qrFs, qrIsComplaint, qrMs, qrOverall, qrOverdue, qrPrintReport, qrRateUrl, qrSentBadge, qrStatusOf, qrSvg, rewardSignDoc, roleEdit, roleHasTab, roleKpisFor, rolePost, salesDaySource, sha, sha256Hex, short, siCredited, siRem, siSorted, siStamp, siVerify, sigBlockHtml, sigPoints, sigSvg, signDeclaration, signDocHtml, simplifySig, slimBranchDoc, snapAll, snapMonths, snapPut, stAddDays, stDate, stNum, stockByWh, submitWaste, suggestNextLevel, sum, supplierAging, supplierPrices, today, trainingExpiryOf, trainingStatusNow, uid, usageReport, useSecNav, verifyBackup, waNum, wasteCfg, wasteDaily, wasteReasonAr, wasteRows, webauthnSupported, whForBranch, whName, whOf, whOn, zatcaTLV };
 export { ClosingForm };
 // v38.3 — للاختبارات الآلية (tests/): دوال المحرك والشاشات تُستورد من النواة مباشرة
 export { stockCosting, eosEntitledAmt, eosFullAmt, findDupInvoices, invNoNorm, promoLineDisc, tafqeet, Hub, Launcher, PosApp, Inventory, Partners, SalesHub, QrFeedback, AppsCenter, BranchWarehouse, Admin, AuditView, Accounting, emptyOrg, emptyOps, HUBS };

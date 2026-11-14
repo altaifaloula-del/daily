@@ -1636,4 +1636,20 @@ table.tb.rc-tb{min-width:0}
 .pl-a{display:flex;flex-direction:column;gap:3px;min-width:0;font-size:13px}.pl-a small{font-size:11px;color:var(--dim);line-height:1.7}
 .pl-b{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:0 0 auto}.pl-b b{font-size:15px}.pl-b small{font-size:10.5px;color:var(--dim)}
 .pl-oh{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--dim)}.pl-oh .inp{width:64px;padding:5px 6px;min-height:0}
+
+/* v41.0 — شريط القوائم بنمط أودو */
+.ob{position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:2px;border-bottom:1px solid var(--line);padding-bottom:2px}
+.ob-wrap{position:relative}
+.ob-it{all:unset;box-sizing:border-box;cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:8px 11px;font-size:13.5px;font-weight:600;color:var(--txt);border-radius:8px 8px 0 0;border-bottom:2px solid transparent;white-space:nowrap}
+.ob-it:hover,.ob-it.open{background:var(--acc-soft)}.ob-it.on{color:var(--brass);border-bottom-color:var(--brass)}
+.ob-it:focus-visible,.ob-mi:focus-visible{outline:2px solid var(--brass);outline-offset:-2px}
+.ob-car{opacity:.6;transition:transform .15s}.ob-it.open .ob-car{transform:rotate(180deg)}
+.ob-back{position:fixed;inset:0;z-index:900}
+.ob-menu{position:fixed;z-index:901;max-width:calc(100vw - 32px);background:var(--ink2);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.18);padding:6px 0;margin-top:2px}
+.ob-hd{font-size:12px;font-weight:800;color:var(--txt);padding:8px 16px 4px}
+.ob-mi{all:unset;box-sizing:border-box;cursor:pointer;display:flex;align-items:center;gap:6px;width:100%;padding:8px 16px;font-size:13px;color:var(--txt)}.ob-mi.ind{padding-inline-start:26px}
+.ob-mi:hover{background:var(--acc-soft)}.ob-mi.on{background:var(--acc-soft);font-weight:700;color:var(--brass)}
+.ob-bd{background:var(--amber,#E0A458);color:#fff;border-radius:9px;font-size:10px;padding:0 6px;font-weight:700}
+.ob-sp{flex:1 1 auto}.ob .acct-mode{margin-inline-start:4px}
+@media (max-width:640px){.ob-it{padding:8px 9px;font-size:13px}}
 `;
