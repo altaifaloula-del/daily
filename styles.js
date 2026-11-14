@@ -1629,4 +1629,11 @@ html,body{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 
 /* v40.7 — بطاقات الوصفات: الجدول بعرض البطاقة (كان min-width:520 يقصّ عمود التكلفة على التابلت والجوال) */
 table.tb.rc-tb{min-width:0}
+
+/* v40.8 — قائمة التحضير */
+.pl-list{display:flex;flex-direction:column}
+.pl-row{display:flex;justify-content:space-between;gap:10px;padding:10px 2px;border-top:1px solid var(--line)}.pl-row:first-child{border-top:0}.pl-row.done{opacity:.6}
+.pl-a{display:flex;flex-direction:column;gap:3px;min-width:0;font-size:13px}.pl-a small{font-size:11px;color:var(--dim);line-height:1.7}
+.pl-b{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:0 0 auto}.pl-b b{font-size:15px}.pl-b small{font-size:10.5px;color:var(--dim)}
+.pl-oh{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--dim)}.pl-oh .inp{width:64px;padding:5px 6px;min-height:0}
 `;

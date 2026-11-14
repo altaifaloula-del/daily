@@ -163,6 +163,27 @@ test('v40.7 الوصفات الفرعية: تحضيرة تُنشأ ثم تُست
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+test('v40.8 قائمة التحضير: احتياج التحضيرات من التوقع والمزيج، والمتبقي المُدخل يُطرح ويُحدّث الداخلية', async () => {
+  const { p, errs, ctx } = await open({ ...devices['iPhone 13'] }, 'live/Inventory/admin/prep');
+  await p.evaluate(() => {
+    const d = (k) => { const x = new Date(); x.setDate(x.getDate() - k); return x.toISOString().slice(0, 10); };
+    window.setOrg(g => ({ ...g, taxCfg: { enabled: false }, items: [...g.items, { id: 'ga', name: 'ثوم', unit: 'كجم', cost: 10 }, { id: 'oi', name: 'زيت', unit: 'لتر', cost: 8 }, { id: 'sp', name: 'بهارات', unit: 'كجم', cost: 30 }],
+      preps: [{ id: 'sauce', name: 'ثومية', unit: 'كجم', batch: 5, parts: [{ itemId: 'ga', qty: 1, yield: 80 }, { itemId: 'oi', qty: 4 }] }, { id: 'mar', name: 'تتبيلة', unit: 'كجم', batch: 2.5, parts: [{ prepId: 'sauce', qty: 2 }, { itemId: 'sp', qty: 0.5 }] }],
+      products: [{ id: 'P', name: 'شاورما', sellPrice: 20, parts: [{ prepId: 'mar', qty: 0.2 }] }, { id: 'Q', name: 'بروستد', sellPrice: 25, parts: [{ prepId: 'sauce', qty: 0.05 }] }] }));
+    window.setOps(o => ({ ...o, closings: [...(o.closings || []).filter(c => c.branchId !== 'b1'), ...Array.from({ length: 63 }, (_, k) => ({ id: 'pc' + k, branchId: 'b1', branchName: 'طيبة', date: d(k), status: 'approved', totalRevenue: 1000 }))],
+      productSales: [{ id: 'ps', branchId: 'b1', from: d(6), to: d(0), lines: [{ productId: 'P', qty: 70 }, { productId: 'Q', qty: 140 }] }] }));
+  }); await p.waitForTimeout(500);
+  await p.selectOption('select[aria-label="الفرع"]', 'b1'); await p.waitForTimeout(300);
+  const row = (n) => p.locator('.pl-row', { has: p.locator('b', { hasText: new RegExp('^' + n + '$') }) });
+  assert.match(await row('تتبيلة').innerText(), /الاحتياج 2 كجم[\s\S]*2 كجم/);
+  await p.fill('input[aria-label="المتبقي من تتبيلة"]', '0.5'); await p.waitForTimeout(300);
+  assert.match(await row('تتبيلة').innerText(), /1\.5 كجم[\s\S]*0\.6 دفعة/);
+  assert.match(await row('ثومية').innerText(), /الاحتياج 2\.2 كجم[\s\S]*ثوم 0\.55 كجم · زيت 1\.76 لتر/);
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true, 'على الجوال بلا تمرير أفقي');
+  assert.equal(await p.locator('button:has-text("طباعة للمطبخ")').isEnabled(), true);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
 test('مراقب التكاليف: يعتمد ويراقب بلا إضافة أو تعديل', async () => {
   const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Inventory/ctl/waste');
   assert.equal(await p.locator('.card:has-text("ضوابط الهدر") button:has-text("تعديل")').count(), 0, 'لا يعدّل الحدود');

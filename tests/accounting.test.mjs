@@ -856,3 +856,23 @@ test('الوصفات الفرعية: تحضيرة داخل تحضيرة تُفك
   assert.match(E.recipeCost(cyc, [{ prepId: 'a', qty: 1 }], {}).miss, /دائرية/);
   assert.match(E.recipeCost({ ...org, preps: [] }, org.products[0].parts, {}).miss, /تحضيرة محذوفة/, 'مرجع محذوف لا يُحتسب صفرًا بصمت');
 });
+
+// ===== v40.8 — قائمة التحضير اليومية =====
+test('قائمة التحضير: توقع الفرع × مزيج الأصناف × الوصفات، والمتبقي يُطرح، والتحضيرة الداخلية تتبع ما سيُحضَّر من الخارجية', () => {
+  const org = baseOrg({ taxCfg: { enabled: false },
+    items: [{ id: 'ch', name: 'دجاج', unit: 'كجم', cost: 20 }, { id: 'sp', name: 'بهارات', unit: 'كجم', cost: 30 }, { id: 'ga', name: 'ثوم', unit: 'كجم', cost: 10 }, { id: 'oi', name: 'زيت', unit: 'لتر', cost: 8 }],
+    preps: [{ id: 'sauce', name: 'ثومية', unit: 'كجم', batch: 5, parts: [{ itemId: 'ga', qty: 1, yield: 80 }, { itemId: 'oi', qty: 4 }] },
+      { id: 'mar', name: 'تتبيلة', unit: 'كجم', batch: 2.5, parts: [{ prepId: 'sauce', qty: 2 }, { itemId: 'sp', qty: 0.5 }] }, { id: 'unused', name: 'غير مستخدمة', unit: 'كجم', batch: 1, parts: [{ itemId: 'oi', qty: 1 }] }],
+    products: [{ id: 'P', name: 'شاورما', sellPrice: 20, parts: [{ itemId: 'ch', qty: 0.2 }, { prepId: 'mar', qty: 0.2 }] }, { id: 'Q', name: 'بروستد', sellPrice: 25, parts: [{ prepId: 'sauce', qty: 0.05 }] }] });
+  const closings = []; for (let k = 0; k < 63; k++) { const d = new Date(Date.UTC(2026, 10, 14) - k * 864e5).toISOString().slice(0, 10); closings.push({ id: 'c' + k, branchId: 'b1', date: d, status: 'approved', totalRevenue: 1000 }); }
+  const ops = { closings, productSales: [{ id: 's', branchId: 'b1', from: '2026-11-08', to: '2026-11-14', lines: [{ productId: 'P', qty: 70 }, { productId: 'Q', qty: 140 }] }] };
+  const P = E.prepPlan(org, ops, { branchId: 'b1', today: '2026-11-14', date: '2026-11-15', onHand: { mar: 0.5 } });
+  assert.equal(P.f, 1000); assert.deepEqual(P.products.map(x => [x.id, x.qty]), [['Q', 20], ['P', 10]], 'مزيج 7 أيام: 70 و140 من 7000 ريال');
+  const by = Object.fromEntries(P.preps.map(r => [r.id, [r.need, r.make, r.batches]]));
+  assert.deepEqual(by, { mar: [2, 1.5, 0.6], sauce: [2.2, 2.2, 0.44] }, 'تتبيلة 10×0.2=2 −0.5 متبقٍ؛ ثومية 20×0.05 + 0.6 دفعة × 2 = 2.2؛ وغير المستخدمة لا تظهر');
+  const sauce = P.preps.find(r => r.id === 'sauce'), mar = P.preps.find(r => r.id === 'mar');
+  assert.deepEqual(sauce.parts.map(x => [x.name, x.qty]), [['ثوم', 0.55], ['زيت', 1.76]], 'بالناتج: 1÷0.8×0.44');
+  assert.deepEqual(mar.parts.map(x => [x.name, x.qty, !!x.prep]), [['ثومية', 1.2, true], ['بهارات', 0.3, false]]);
+  const P2 = E.prepPlan(org, { closings }, { branchId: 'b1', today: '2026-11-14', date: '2026-11-15' });
+  assert.equal(P2.preps.length, 0); assert.match(P2.notes.join(' '), /لا مبيعات بالأصناف/, 'بلا مزيج أصناف لا يُخمَّن');
+});
