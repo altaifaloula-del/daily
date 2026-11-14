@@ -323,6 +323,25 @@ test('v41.5 الجرد النقدي المفاجئ: بالفئات مقابل ا
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+test('v41.6 صيانة المعدات: بلاغ عطل من الفرع، وإغلاقه بتكلفة أثناء الضمان يتطلب سببًا', async () => {
+  const ctx = await browser.newContext(devices['iPhone 13']); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'live/Hub/bm/closehub:maint'); await p.reload(); await p.waitForTimeout(500); await settle(p);
+  const wt = new Date(Date.now() + 90 * 864e5).toISOString().slice(0, 10);
+  await p.evaluate((wt) => { window.setOrg(g => ({ ...g, equipment: [{ id: 'q1', branchId: 'b1', name: 'قلاية البروستد', warrantyTo: wt, pmDays: 90 }] })); window.setOps(o => ({ ...o, maintLogs: [] })); }, wt); await p.waitForTimeout(300);
+  await p.click('button:has-text("بلاغ عطل")'); await p.fill('input[aria-label="الوصف"]', 'الحرارة لا ترتفع فوق 120'); await p.click('.card button:has-text("حفظ")'); await p.waitForTimeout(300);
+  assert.deepEqual(await p.evaluate(() => window.cur.maintLogs.map(l => [l.equipId, l.type, l.status, l.by])), [['q1', 'breakdown', 'open', 'خالد']]);
+  assert.match(await p.locator('#r').innerText(), /عطل مفتوح منذ/);
+  await p.locator('.me-row button:has-text("إغلاق")').first().click(); await p.waitForTimeout(150);
+  await p.fill('input[aria-label="ما أُصلح"]', 'تغيير الثرموستات'); await p.fill('input[aria-label="تكلفة الإصلاح"]', '450');
+  await p.click('button:has-text("إغلاق البلاغ")'); await p.waitForTimeout(200);
+  assert.match(await p.evaluate(() => window.lastSay), /تحت الضمان/, 'الدفع أثناء الضمان يتطلب سببًا');
+  await p.fill('input[aria-label="سبب الدفع"]', 'سوء استخدام — لا يغطيه الضمان'); await p.click('button:has-text("إغلاق البلاغ")'); await p.waitForTimeout(300);
+  assert.deepEqual(await p.evaluate(() => window.cur.maintLogs.map(l => [l.status, l.cost, !!l.wnote])), [['done', 450, true]]);
+  assert.match(await p.locator('#r').innerText(), /دُفع أثناء الضمان[\s\S]*450/);
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
 test('مراقب التكاليف: يعتمد ويراقب بلا إضافة أو تعديل', async () => {
   const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Inventory/ctl/waste');
   assert.equal(await p.locator('.card:has-text("ضوابط الهدر") button:has-text("تعديل")').count(), 0, 'لا يعدّل الحدود');
