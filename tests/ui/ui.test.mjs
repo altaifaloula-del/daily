@@ -342,6 +342,22 @@ test('v41.6 صيانة المعدات: بلاغ عطل من الفرع، وإغ�
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+test('v41.7 أرشفة فواتير نقطة البيع: الأشهر المقفلة الأقدم من 12 شهرًا فقط، تُكتب للأرشيف وتُتحقق ثم تُزال، وتبقى للعرض', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1300, height: 1300 } }); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message)); p.on('dialog', d => d.accept());
+  await p.goto(base + 'live/Admin/admin'); await p.reload(); await p.waitForTimeout(500); await settle(p);
+  await p.evaluate(() => { const y = new Date().getFullYear() - 2; window.setOrg(g => ({ ...g, periodLocks: { ...(g.periodLocks || {}), lockedThrough: (y + 1) + '-06' } }));
+    window.setOps(o => ({ ...o, archLog: [], posOrders: [{ id: 'old1', no: 'ف1-01', branchId: 'b1', date: y + '-03-04', at: y + '-03-04T12:00', total: 55, vat: 7.17, status: 'paid' }, { id: 'old2', branchId: 'b1', date: y + '-09-09', total: 20, status: 'paid' },
+      { id: 'new1', branchId: 'b1', date: new Date().toISOString().slice(0, 10), total: 9, status: 'paid' }] })); }); await p.waitForTimeout(300);
+  await p.locator('button:has-text("صيانة")').first().click(); await p.waitForTimeout(500);
+  const card = p.locator('.card:has-text("أرشفة فواتير نقطة البيع القديمة")');
+  await card.locator('button:has-text("أرشفة 2 فاتورة")').click(); await p.waitForTimeout(800);
+  assert.deepEqual(await p.evaluate(() => window.cur.posOrders.map(o => o.id)), ['new1'], 'أُزيلت القديمة المقفلة فقط');
+  assert.deepEqual(await p.evaluate(() => window.cur.archLog.map(l => [l.branchId, l.n])), [['b1', 2]]);
+  await card.locator('button:has-text("عرض")').first().click(); await p.waitForTimeout(600);
+  assert.match(await p.locator('.mz-docv').innerText(), /أرشيف فواتير نقطة البيع/);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
 test('مراقب التكاليف: يعتمد ويراقب بلا إضافة أو تعديل', async () => {
   const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Inventory/ctl/waste');
   assert.equal(await p.locator('.card:has-text("ضوابط الهدر") button:has-text("تعديل")').count(), 0, 'لا يعدّل الحدود');

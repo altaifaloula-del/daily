@@ -612,7 +612,7 @@ const BR_COLS = ['closings', 'transfers', 'partnerRequests', 'notifications', 'b
   'cashCounts',
   // v41.6 — سجل صيانة المعدات (بلاغات الأعطال والصيانة الوقائية)
   'maintLogs'];
-const CORE_COLS = ['cardRecons', 'ledgerSnaps', 'salesInvoices', 'advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules', 'hrScoreSnapshots'];
+const CORE_COLS = ['archLog', 'cardRecons', 'ledgerSnaps', 'salesInvoices', 'advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules', 'hrScoreSnapshots'];
 
 // تقسيم ops المدمجة إلى مستند مركزي + مستند لكل فرع
 function splitOps(ops, branchIds) {
@@ -2822,7 +2822,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v41.6';
+const APP_VER = 'v41.7';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -8574,6 +8574,22 @@ function cardRecon(org, ops, lines, opts = {}) {
   return { from, to, vat, tol, branches, terminals, unmapped, notes, lines: lines.length, maxDate,
     tot: { exp: anR(sum(branches, b => b.exp)), bank: anR(sum(branches, b => b.bank)), diff: anR(sum(branches, b => b.diff)), madaFee, vmFee, devFee, feeVat: anR((madaFee + vmFee + devFee) * vat / (100 + vat)) } };
 }
+/* ===== v41.7 — أرشفة فواتير نقطة البيع القديمة (قرار المالك: الفواتير التفصيلية الأقدم من 12 شهرًا) =====
+   لا يُؤرشَف إلا شهر مقفل محاسبيًا وأقدم من 12 شهرًا تقويميًا؛ الإغلاقات والقيود لا تُمس (الدفاتر لا تقرأ الفواتير التفصيلية).
+   تُكتب في مستند أرشيف لكل فرع وسنة (rms8_arch_<فرع>_<سنة>) وتُتحقق قراءةً قبل حذفها من بيانات التشغيل؛ يبقى الأرشيف للاطلاع 6 سنوات فأكثر (زاتكا). */
+const archKey = (branchId, year) => 'rms8:arch_' + String(branchId).replace(/[^A-Za-z0-9_-]/g, '') + '_' + year;
+function archivePlan(org, ops, opts = {}) {
+  const td = opts.today || today(); const [y, m] = td.slice(0, 7).split('-').map(Number);
+  const cutoff = new Date(Date.UTC(y - 1, m - 1, 1)).toISOString().slice(0, 10);   // أول الشهر نفسه قبل سنة: ما قبله أقدم من 12 شهرًا
+  const G = {}; let unlocked = 0;
+  (ops.posOrders || []).forEach(o => { const d = String(o.date || ''); if (!/^\d{4}-\d\d-\d\d/.test(d) || d >= cutoff) return;
+    if (!periodLocked(org, d)) { unlocked++; return; }
+    const k = o.branchId + '|' + d.slice(0, 4); const g = G[k] = G[k] || { branchId: o.branchId, year: d.slice(0, 4), ids: [], from: d, to: d, total: 0 };
+    g.ids.push(o.id); if (d < g.from) g.from = d; if (d > g.to) g.to = d; g.total += Number(o.total) || 0; });
+  const groups = Object.values(G).map(g => ({ ...g, n: g.ids.length, total: anR(g.total), key: archKey(g.branchId, g.year), branch: ((org.branches || []).find(b => b.id === g.branchId) || {}).name || g.branchId }))
+    .sort((a, c) => (a.year + a.branch).localeCompare(c.year + c.branch));
+  return { cutoff, groups, n: sum(groups, g => g.n), unlocked };
+}
 /* ===== v41.6 — سجل صيانة المعدات =====
    سجل المعدات org.equipment [{id, branchId, name, cat, assetId?, vendor, warrantyTo, pmDays?}] (يصل للفروع عبر الدليل)؛
    البلاغات والصيانة في مستند الفرع ops.maintLogs [{id, branchId, equipId, type: breakdown|preventive, at, by, issue, status: open|done, doneAt, doneBy, cost, vendor, ref}].
@@ -10642,5 +10658,5 @@ export { staffingPlan };
 // v39.4 — استيراد مبيعات نقاط البيع ومطابقتها
 export { piHour, piCutoff, posRecon, salesDays, importDraftClosing };
 // v40.0 — أساس الرقابة
-export { PROFIT_OPTS, profitMissing, profitDays, menuEngineering, MENU_CLS, SAV_KIND, savingsMeasure, savingsOpps, savingsTrack, CR_TYPE, cardStmtLines, cardRecon, cardSettlePlan, CRS_ST, FS_KIND, fsInRange, fsStatus, CC_KIND, CC_SRC, ccOpenShifts, cashCountStatus, MT_TYPE, maintStatus, recipeRaw, recipeCost, prepUnitCost, dataFootprint, kcalUnitFactor, kcalPerUnit, recipeKcal, productKcal, prepMix, prepPlan, ibanNorm, ibanMask, IBAN_APPROVERS, IBAN_ST, loadIbanSigs, ibanPayees, ibanStatus, requestIban, ibanApply };
+export { PROFIT_OPTS, profitMissing, profitDays, menuEngineering, MENU_CLS, SAV_KIND, savingsMeasure, savingsOpps, savingsTrack, CR_TYPE, cardStmtLines, cardRecon, cardSettlePlan, CRS_ST, FS_KIND, fsInRange, fsStatus, CC_KIND, CC_SRC, ccOpenShifts, cashCountStatus, MT_TYPE, maintStatus, archKey, archivePlan, recipeRaw, recipeCost, prepUnitCost, dataFootprint, kcalUnitFactor, kcalPerUnit, recipeKcal, productKcal, prepMix, prepPlan, ibanNorm, ibanMask, IBAN_APPROVERS, IBAN_ST, loadIbanSigs, ibanPayees, ibanStatus, requestIban, ibanApply };
 export { UpdateGate, APP_CV, auditWrite, logAudit, auditFetch, sigDigest, signoff, signDecision, sigFailMsg, loadSignoffs, loadRelease, raiseRelease, sigVerify, SIG_BADGE, SIG_NAME };

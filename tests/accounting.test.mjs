@@ -1010,3 +1010,19 @@ test('صيانة المعدات: البلاغ المفتوح، التكلفة و
     [1, 2, 1000, 6, '2026-07-01', '2026-09-29', true, true, 1000, 10], 'خارج 12 شهرًا لا يدخل؛ 800+200 دُفعا والجهاز تحت الضمان');
   assert.deepEqual([S[1].pmDue, S[1].costPct, S[1].warranty], [false, null, false], 'بلا دورة وقائية ولا أصل ولا ضمان');
 });
+
+// ===== v41.7 — أرشفة فواتير نقطة البيع =====
+test('الأرشفة: فواتير الأشهر المقفلة الأقدم من 12 شهرًا فقط، مجمّعة لكل فرع وسنة، والدفاتر لا تتغير بإزالتها', () => {
+  const org = baseOrg({ branches: [{ id: 'b1', name: 'العليا', isActive: true }], periodLocks: { lockedThrough: '2025-10' } });
+  const o = (id, date, total) => ({ id, branchId: 'b1', date, total, status: 'paid', lines: [{ productId: 'p', qty: 1 }], payments: [{ m: 'cash', amount: total }] });
+  const ops = { posOrders: [o('a', '2024-12-30', 50), o('b', '2025-03-05', 20), o('c', '2025-10-31', 30), o('d', '2025-11-02', 40), o('e', '2026-11-01', 10)],
+    closings: [{ id: 'c1', branchId: 'b1', date: '2025-03-05', status: 'approved', cashSales: 20, totalRevenue: 20, expenses: [] }] };
+  const P = E.archivePlan(org, ops, { today: '2026-11-14' });
+  assert.equal(P.cutoff, '2025-11-01');
+  assert.deepEqual(P.groups.map(g => [g.year, g.ids, g.from, g.to, g.total, g.key]), [['2024', ['a'], '2024-12-30', '2024-12-30', 50, 'rms8:arch_b1_2024'], ['2025', ['b', 'c'], '2025-03-05', '2025-10-31', 50, 'rms8:arch_b1_2025']], 'نوفمبر 2025 خارج (غير مقفل وضمن الـ12 شهرًا)');
+  const P2 = E.archivePlan({ ...org, periodLocks: { lockedThrough: '2025-01' } }, ops, { today: '2026-11-14' });
+  assert.deepEqual([P2.n, P2.unlocked], [1, 2], 'شهر غير مقفل لا يُؤرشَف ولو كان قديمًا');
+  const ids = new Set(P.groups.flatMap(g => g.ids));
+  const tb = (x) => JSON.stringify(E.buildAccounting(org, x).accounts.map(a => [a.code, Math.round(a.balance * 100)]));
+  assert.equal(tb({ ...ops, posOrders: ops.posOrders.filter(x => !ids.has(x.id)) }), tb(ops), 'ميزان المراجعة متطابق قبل الأرشفة وبعدها');
+});
