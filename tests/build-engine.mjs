@@ -23,7 +23,7 @@ export const ENGINE_EXPORTS = ['buildAccounting', 'buildPartners', 'stockByWh', 
   // v39.1 — التنبيهات المهمة والتقارير
   'complianceItems', 'leaseSchedule', 'vatRegister', 'supplierPurchReport',
   // v39.2 — تخطيط العمالة
-  'staffingPlan', 'ROLES', 'rolePost', 'sigDigest', 'sigVerify', 'profitDays', 'profitMissing', 'menuEngineering', 'savingsOpps', 'savingsTrack', 'savingsMeasure',
+  'staffingPlan', 'ROLES', 'rolePost', 'sigDigest', 'sigVerify', 'profitDays', 'profitMissing', 'menuEngineering', 'savingsOpps', 'savingsTrack', 'savingsMeasure', 'cardStmtLines', 'cardRecon', 'detectStmtMap', 'parseXlsxGrid',
   // v39.4 — استيراد نقاط البيع ومطابقتها
   'piHour', 'piCutoff', 'posRecon', 'salesDays', 'importDraftClosing'];
 

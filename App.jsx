@@ -59,6 +59,7 @@ const GrowthAnalytics = lazyComp(() => import('./mods/acct/GrowthAnalytics.jsx')
 const EntitiesCenter = lazyComp(() => import('./mods/acct/EntitiesCenter.jsx'), 'EntitiesCenter');
 const ReportBuilder = lazyComp(() => import('./mods/acct/ReportBuilder.jsx'), 'ReportBuilder');
 const ExecDashboard = lazyComp(() => import('./mods/acct/ExecDashboard.jsx'), 'ExecDashboard');
+const CardRecon = lazyComp(() => import('./mods/acct/CardRecon.jsx'), 'CardRecon');   // v40.6
 const SavingsPlan = lazyComp(() => import('./mods/acct/SavingsPlan.jsx'), 'SavingsPlan');   // v40.4
 const MenuEngineering = lazyComp(() => import('./mods/acct/MenuEngineering.jsx'), 'MenuEngineering');   // v40.3
 const ProfitBoard = lazyComp(() => import('./mods/acct/ProfitBoard.jsx'), 'ProfitBoard');   // v40.1
@@ -838,7 +839,7 @@ const parseCsvGrid = (text) => {
   return grid;
 };
 // XLSX: قارئ مصغّر — سجل الدليل المركزي للـzip + فك deflate عبر DecompressionStream + XML للورقة الأولى
-const parseXlsxGrid = async (buf) => {
+const parseXlsxGrid = async (buf, opts = {}) => {   // v40.6: opts.all ⇒ [{name, grid}] لكل الأوراق
   const u8 = new Uint8Array(buf);
   const dv = new DataView(buf);
   let eocd = -1;
@@ -884,9 +885,7 @@ const parseXlsxGrid = async (buf) => {
       sst.push(txt);
     });
   }
-  const sheetName = Object.keys(entries).find(n => /^xl\/worksheets\/sheet1\.xml$/.test(n)) || Object.keys(entries).find(n => /^xl\/worksheets\/sheet\d+\.xml$/.test(n));
-  const shXml = await readEntry(sheetName);
-  if (!shXml) throw new Error('sheet');
+  const gridOf = (shXml) => { if (!shXml) return [];
   const grid = [];
   const rowRe = /<row[^>]*>([\s\S]*?)<\/row>/g; let rm;
   while ((rm = rowRe.exec(shXml))) {
@@ -908,6 +907,18 @@ const parseXlsxGrid = async (buf) => {
     grid.push(Array.from(cells, x => x ?? ''));
   }
   return grid.filter(r => r.some(c => String(c).trim() !== ''));
+  };
+  if (opts.all) {
+    const wbXml = (await readEntry('xl/workbook.xml')) || '';
+    const names = [...wbXml.matchAll(/<sheet [^>]*name="([^"]*)"/g)].map(m => dec(m[1]));
+    const files = Object.keys(entries).filter(n => /^xl\/worksheets\/sheet\d+\.xml$/.test(n)).sort((a, b) => Number(a.match(/(\d+)\.xml$/)[1]) - Number(b.match(/(\d+)\.xml$/)[1]));
+    const out = []; for (let i = 0; i < files.length; i++) out.push({ name: names[i] || ('ورقة ' + (i + 1)), grid: gridOf(await readEntry(files[i])) });
+    return out;
+  }
+  const sheetName = Object.keys(entries).find(n => /^xl\/worksheets\/sheet1\.xml$/.test(n)) || Object.keys(entries).find(n => /^xl\/worksheets\/sheet\d+\.xml$/.test(n));
+  const shXml = await readEntry(sheetName);
+  if (!shXml) throw new Error('sheet');
+  return gridOf(shXml);
 };
 // اكتشاف أعمدة الكشف تلقائياً بكلمات مفاتيح شائعة (عربي/إنجليزي)
 const detectStmtMap = (grid) => {
@@ -2549,7 +2560,7 @@ const LAUNCH_APPS = [
     sections: ['اللوحة التنفيذية', 'لوحة المؤشرات', 'مقارنة الفروع', 'تحليلات النمو', 'تحليل التعادل', 'لوحة الأهداف', 'ماذا-لو', 'المركز الذكي'], kw: ['تحليل', 'أداء', 'لوحة', 'تنفيذية', 'مؤشرات', 'مقارنة', 'فروع', 'نمو', 'تعادل', 'أهداف', 'سيناريو', 'ماذا لو', 'ذكاء', 'توقع', 'kpi'] },
   { id: 'alerts', hideOnHome: 'analytics', ar: 'مركز التنبيهات', en: 'Alerts', cat: 'bi', icon: Bell, open: { tab: 'alerts' },
     sections: ['موردون', 'موازنة', 'نقد وسيولة', 'مخزون', 'ضريبة', 'تشغيل', 'إعداد'], kw: ['تنبيه', 'تنبيهات', 'إنذار', 'متأخر', 'تجاوز', 'عجز', 'متابعة', 'إجراء'] },
-  { id: 'acct', tabs: ['acct', 'treasury', 'entities'], ar: 'المالية والمحاسبة', en: 'Finance & Accounting', cat: 'fin', icon: Scale, open: { tab: 'acct' },
+  { id: 'acct', tabs: ['acct', 'treasury', 'entities', 'cardrec'], ar: 'المالية والمحاسبة', en: 'Finance & Accounting', cat: 'fin', icon: Scale, open: { tab: 'acct' },
     sections: ['القيود اليومية', 'دليل الحسابات', 'ميزان المراجعة', 'القوائم المالية', 'مراكز التكلفة', 'الضريبة والزكاة', 'الأصول والإهلاك', 'التسوية البنكية', 'الإقفال الشهري'],
     kw: ['قيد', 'يومية', 'حساب', 'ميزان', 'قائمة', 'دخل', 'مركز مالي', 'مراكز تكلفة', 'أصل', 'إهلاك', 'بنك', 'تسوية', 'إقفال', 'قفل', 'محاسبة', 'ضريبة', 'قيمة مضافة', 'زكاة', 'زاتكا'] },
   { id: 'treasury', hideOnHome: 'acct', ar: 'الخزينة والترحيل', en: 'Treasury', cat: 'fin', icon: Landmark, open: { tab: 'treasury' },
@@ -2797,7 +2808,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v40.5';
+const APP_VER = 'v40.6';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3822,7 +3833,7 @@ function PlatformApp() {
   const shared = { org, ops, pulse: pulseA, me, myBranches, scoped, commit, commitOrg, say, setTab, theme, acctIntent, openAcctView, invIntent, openInvView };
 
   // حماية: منع الوصول لتبويب غير مسموح لدور المستخدم (بلا hook — بعد returns الشرطية)
-  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'closing') ? ['myactions', 'myforecast'] : []), ...(NAV.some(n => n.id === 'closing') && (ROLES[me.role]?.approver || ROLES[me.role]?.admin || ROLES[me.role]?.scope === 'all') ? ['cashiers'] : []), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'anomaly', 'actions', 'forecast', 'profit', 'menu', 'savings'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : []), ...(NAV.some(n => n.id === 'people') ? ['payroll', 'workforce', 'muster', 'overtime'] : []), ...(NAV.some(n => n.id === 'purchasing') ? ['suppliers', 'reorder', 'suprep'] : []), ...(NAV.some(n => n.id === 'hrops') ? ['attendance', 'leaves', 'shiftengine', 'staffplan', 'tasks', 'points', 'esign'] : []), ...(NAV.some(n => n.id === 'hrperf') ? ['kpi', 'empfile', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'] : [])];
+  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'closing') ? ['myactions', 'myforecast'] : []), ...(NAV.some(n => n.id === 'closing') && (ROLES[me.role]?.approver || ROLES[me.role]?.admin || ROLES[me.role]?.scope === 'all') ? ['cashiers'] : []), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'anomaly', 'actions', 'forecast', 'profit', 'menu', 'savings'] : []), ...(NAV.some(n => n.id === 'acct') ? ['cardrec'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : []), ...(NAV.some(n => n.id === 'people') ? ['payroll', 'workforce', 'muster', 'overtime'] : []), ...(NAV.some(n => n.id === 'purchasing') ? ['suppliers', 'reorder', 'suprep'] : []), ...(NAV.some(n => n.id === 'hrops') ? ['attendance', 'leaves', 'shiftengine', 'staffplan', 'tasks', 'points', 'esign'] : []), ...(NAV.some(n => n.id === 'hrperf') ? ['kpi', 'empfile', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'] : [])];
   const safeTab = allowedTabs.includes(tab) ? tab : (allowedTabs[0] || 'closing');
 
   return (
@@ -4084,7 +4095,7 @@ function PlatformApp() {
               {safeTab === 'inv' && <Inventory {...shared} />}
               {safeTab === 'whbranch' && <BranchWarehouse {...shared} />}
               {safeTab === 'partners' && <Partners {...shared} />}
-              {['acct', 'treasury', 'entities'].includes(safeTab) && <Hub hubId="finhub" {...shared} view={safeTab} />}
+              {['acct', 'treasury', 'entities', 'cardrec'].includes(safeTab) && <Hub hubId="finhub" {...shared} view={safeTab} />}
               {['docs', 'archive'].includes(safeTab) && <Hub hubId="docshub" {...shared} view={safeTab} />}
               {safeTab === 'admin' && <Admin {...shared} />}
               {safeTab === 'audit' && <AuditView {...shared} onSeen={() => setLastSeenAudit(Date.now())} />}
@@ -6001,7 +6012,8 @@ const HUBS = {
     views: [
       { id: 'acct', ar: 'المحاسبة', icon: Scale, comp: Accounting },
       { id: 'treasury', ar: 'الخزينة والترحيل', icon: Landmark, comp: Treasury },
-      { id: 'entities', ar: 'المنشآت', icon: Building2, comp: EntitiesCenter }
+      { id: 'entities', ar: 'المنشآت', icon: Building2, comp: EntitiesCenter },
+      { id: 'cardrec', ar: 'مطابقة تسويات الشبكة', icon: CreditCard, comp: CardRecon, like: 'acct' }   // v40.6
     ]
   },
   docshub: {
@@ -8230,6 +8242,95 @@ function menuEngineering(org, ops, opts = {}) {
     tot: { qty: Q, rev: S(rows, 'totRev'), cost: S(rows, 'totCost'), cm: S(rows, 'totCm'), foodPct: S(rows, 'totRev') > 0 ? anR(S(rows, 'totCost') / S(rows, 'totRev') * 100) : null },
     cls: Object.fromEntries(Object.keys(MENU_CLS).map(k => [k, { n: by(k).length, cm: S(by(k), 'totCm'), qty: anR(sum(by(k), r => r.qty)) }])) };
 }
+/* ===== v40.6 — مطابقة تسويات الشبكة بالأجهزة =====
+   الواقع في كشف البنك (الراجحي): دفعة مدى تُقيَّد بإجماليها وعمولتها قيد مدين مستقل؛ فيزا وماستركارد تُقيَّدان صافيتين بلا قيد عمولة؛ لكل جهاز قيوده.
+   لذا: يُقرأ رقم الجهاز (آخر 4 أرقام) ونوع البطاقة وقيد العمولة من نص السطر، ويُنسب الجهاز لفرعه بإسناد يحدده المستخدم (لا تخمين)،
+   ويُعاد صافي فيزا/ماستركارد إلى إجماليه بنسب العقد المُدخلة (العمولة + ضريبتها)، ثم يُطابَق إجمالي الشبكة في الإغلاقات مع المودَع.
+   فارق توقيت الإيداع (0–2 يوم) يُستنتج من البيانات: الأقل فرقًا يوميًا. */
+const CR_TYPE = { mada: 'مدى', visa: 'فيزا', mc: 'ماستركارد', amex: 'أمريكان إكسبريس' };
+const CR_TIME = /^\d{1,2}:\d{2}(:\d{2})?$/;
+/** أسطر الشبكة من جدول كشف: [{date,time,credit,debit,tid,type,kind:'settle'|'fee',text}] */
+function cardStmtLines(grid, map) {
+  const out = []; if (!grid || !map) return out;
+  for (let r = map.start || 0; r < grid.length; r++) {
+    const g = grid[r] || []; const date = stDate(g[map.date]); if (!date) continue;
+    let credit = 0, debit = 0;
+    if (map.credit >= 0 || map.debit >= 0) { credit = map.credit >= 0 ? stNum(g[map.credit]) : 0; debit = map.debit >= 0 ? stNum(g[map.debit]) : 0; }
+    else if (map.amount >= 0) { const a = stNum(g[map.amount]); credit = a > 0 ? a : 0; debit = a < 0 ? -a : 0; }
+    credit = Math.abs(credit); debit = Math.abs(debit);
+    if (!(credit > 0) && !(debit > 0)) continue;
+    const cells = g.map(c => String(c ?? '').trim());
+    const text = cells.filter(c => c && !/^-?[\d.,]+$/.test(c)).join(' ');
+    const t = text.replace(/فيزا\s*\/\s*ماستر(كارد)?|visa\s*\/\s*master(card)?/gi, ' ');
+    const hits = [['mada', /مدى|mada/i], ['visa', /فيزا|visa/i], ['mc', /ماستر|master/i], ['amex', /أمريكان|امريكان|amex|american\s*express/i]].filter(([, re]) => re.test(t)).map(([k]) => k);
+    const type = hits.length === 1 ? hits[0] : null;
+    const isFee = debit > 0 && /عمولة|رسوم|fee|commission|مدين التاجر/i.test(text);
+    const posHint = /نقاط|شبكة|تاجر|\bpos\b|merchant/i.test(text);
+    const m = text.match(/جهاز\s*[.…]+\s*(\d{4})\b/) || cells.join(' ').match(/\b\d{8,19}?(\d{4})\b/);
+    const tid = m ? m[1] : '';
+    let kind = null;
+    if (credit > 0 && type && (posHint || tid)) kind = 'settle';
+    else if (isFee && (posHint || type) ) kind = 'fee';
+    if (!kind) continue;
+    out.push({ date, time: cells.find(c => CR_TIME.test(c)) || '', credit: anR(credit), debit: anR(debit), tid, type, kind, text: text.slice(0, 120) });
+  }
+  // عمولة بلا «مدى» في نصها: عمولة مدى إن قابلتها دفعة مدى للجهاز نفسه في التاريخ والوقت نفسيهما؛ وإلا فرسوم جهاز (شهرية/ضعف استخدام) لا عمولة مبيعات
+  out.forEach(l => { if (l.kind !== 'fee' || l.type === 'mada') return;
+    if (out.some(x => x.kind === 'settle' && x.type === 'mada' && x.tid === l.tid && x.date === l.date && x.time && x.time === l.time)) l.type = 'mada'; else l.kind = 'devfee'; });
+  return out;
+}
+/** المطابقة: { from,to,vat,lag, branches:[{id,name,exp,bank,diff,pct,ok,lag,days:[{date,exp,bank,diff,cum}],mada:{gross,fee,eff,expEff},vm:{net,gross,fee,grossOk}}],
+    terminals:[{tid,branchId,madaGross,madaFee,eff,vmNet,n}], unmapped:[tid], notes:[] } */
+function cardRecon(org, ops, lines, opts = {}) {
+  const from = opts.from, to = opts.to, tol = Number(opts.tol) >= 0 ? Number(opts.tol) : 0.5;
+  const vat = Number((org.taxCfg || {}).rate) || 15, R = ((org.profitCfg || {}).cardRates) || {};
+  const tidBr = {}; (org.cardTerminals || []).forEach(x => { if (x && x.tid) tidBr[String(x.tid)] = x.branchId; });
+  const notes = [];
+  const grossOf = (l) => { if (l.type === 'mada') return l.credit; const r = Number(R[l.type]) || 0; return r > 0 ? anR(l.credit / (1 - r / 100 * (1 + vat / 100))) : null; };
+  const noRate = [...new Set(lines.filter(l => l.kind === 'settle' && l.type !== 'mada' && !(Number(R[l.type]) > 0)).map(l => l.type))];
+  const maxDate = lines.reduce((a, l) => (l.date > a ? l.date : a), '');
+  // الأجهزة
+  const T = {};
+  lines.forEach(l => { const k = l.tid || '—'; const t = T[k] = T[k] || { tid: k, branchId: tidBr[k] || '', madaGross: 0, madaFee: 0, vmNet: 0, n: 0, first: l.date, last: l.date };
+    t.n++; if (l.date < t.first) t.first = l.date; if (l.date > t.last) t.last = l.date;
+    if (l.kind === 'fee') t.madaFee += l.debit; else if (l.kind === 'devfee') t.devFee = (t.devFee || 0) + l.debit; else if (l.type === 'mada') t.madaGross += l.credit; else t.vmNet += l.credit; });
+  const terminals = Object.values(T).map(t => ({ ...t, madaGross: anR(t.madaGross), madaFee: anR(t.madaFee), vmNet: anR(t.vmNet), devFee: anR(t.devFee || 0), eff: t.madaGross > 0 ? Math.round(t.madaFee / t.madaGross * 100000) / 1000 : null })).sort((a, b) => a.tid.localeCompare(b.tid));
+  const unmapped = terminals.filter(t => !t.branchId).map(t => t.tid);
+  if (unmapped.length) notes.push('أجهزة غير مسندة لفرع (' + unmapped.join('، ') + ') — أسندها ليدخل ما أودعته في المطابقة');
+  if (noRate.length) notes.push('لا نسبة عمولة لـ ' + noRate.map(k => CR_TYPE[k]).join(' و') + ' — يُطابَق صافيها كما أودِع، فيظهر فرق بقدر عمولتها' + (noRate.some(k => k !== 'amex') ? ' (أدخل النسب في «ربحية الفروع اليومية» ← الإعدادات ← رسوم الشبكة)' : ''));
+  // لكل فرع
+  const dates = []; for (let d = from; d <= to; d = anDay(d, 1)) dates.push(d);
+  const SD = salesDays(ops, {});
+  const brIds = [...new Set([...SD.filter(c => c.date >= from && c.date <= to && (Number(c.cardSales) || 0) > 0).map(c => c.branchId), ...Object.values(tidBr)])].filter(Boolean);
+  const branches = brIds.map(b => {
+    const exp = {}; SD.filter(c => c.branchId === b && c.date >= from && c.date <= to).forEach(c => { exp[c.date] = (exp[c.date] || 0) + (Number(c.cardSales) || 0); });
+    const BL = lines.filter(l => l.tid && tidBr[l.tid] === b);
+    const gOf = (l) => { const g = grossOf(l); return g == null ? l.credit : g; };
+    const bank = {}; BL.filter(l => l.kind === 'settle').forEach(l => { bank[l.date] = (bank[l.date] || 0) + gOf(l); });
+    const err = (L) => sum(dates, d => Math.abs((exp[d] || 0) - (bank[anDay(d, L)] || 0)));
+    const lag = [0, 1, 2].reduce((a, L) => (err(L) < err(a) - 0.005 ? L : a), 0);
+    const inW = (l) => { const d = anDay(l.date, -lag); return d >= from && d <= to; };
+    let cum = 0; const days = dates.map(d => { const e = anR(exp[d] || 0), k = anR(bank[anDay(d, lag)] || 0); cum = anR(cum + e - k); return { date: d, exp: e, bank: k, diff: anR(e - k), cum }; }).filter(x => x.exp || x.bank);
+    const W = BL.filter(inW);
+    const mg = sum(W.filter(l => l.kind === 'settle' && l.type === 'mada'), l => l.credit), mf = sum(W.filter(l => l.kind === 'fee'), l => l.debit);
+    const VW = W.filter(l => l.kind === 'settle' && l.type !== 'mada');
+    const vn = sum(VW, l => l.credit), vg = sum(VW, gOf), miss = [...new Set(VW.filter(l => grossOf(l) == null).map(l => l.type))];
+    const dev = anR(sum(W.filter(l => l.kind === 'devfee'), l => l.debit));
+    const E = anR(sum(Object.values(exp), v => v)), K = anR(sum(dates, d => bank[anDay(d, lag)] || 0)), diff = anR(E - K);
+    const pct = E > 0 ? Math.round(diff / E * 10000) / 100 : null;
+    const nm = ((org.branches || []).find(x => x.id === b) || {}).name || b;
+    const noTid = !Object.values(tidBr).includes(b);
+    return { id: b, name: nm, exp: E, bank: K, diff, pct, ok: !noTid && pct != null && Math.abs(pct) <= tol, lag, days, noTid,
+      mada: { gross: anR(mg), fee: anR(mf), eff: mg > 0 ? Math.round(mf / mg * 100000) / 1000 : null, expEff: Number(R.mada) > 0 ? Math.round(Number(R.mada) * (1 + vat / 100) * 1000) / 1000 : null },
+      vm: { net: anR(vn), gross: anR(vg), fee: anR(vg - vn), miss, byType: Object.fromEntries(['visa', 'mc', 'amex'].map(k => [k, anR(sum(VW.filter(l => l.type === k), l => l.credit))]).filter(([, v]) => v > 0)) }, devFee: dev };
+  }).sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
+  const lagMax = branches.reduce((a, b) => Math.max(a, b.lag), 0);
+  if (maxDate && maxDate < anDay(to, lagMax)) notes.push('الكشف ينتهي في ' + maxDate + ' — تسويات آخر أيام الفترة لم تصل بعد فتظهر فرقًا مؤقتًا');
+  branches.filter(b => b.noTid && b.exp > 0).forEach(b => notes.push(b.name + ': لا جهاز مسند لهذا الفرع — مبيعات شبكته لا تقابلها إيداعات في المطابقة'));
+  const madaFee = anR(sum(branches, b => b.mada.fee)), vmFee = anR(sum(branches, b => b.vm.fee)), devFee = anR(sum(branches, b => b.devFee));
+  return { from, to, vat, tol, branches, terminals, unmapped, notes, lines: lines.length, maxDate,
+    tot: { exp: anR(sum(branches, b => b.exp)), bank: anR(sum(branches, b => b.bank)), diff: anR(sum(branches, b => b.diff)), madaFee, vmFee, devFee, feeVat: anR((madaFee + vmFee + devFee) * vat / (100 + vat)) } };
+}
 /* ===== v40.4 — المرحلة 3: خطة التوفير =====
    فرص مقاسة من البيانات الفعلية فقط (لا نسب مفترضة): الهدر المسجّل، الاستهلاك فوق النظري، فرق سعر الشراء عن أفضل سعر دُفع فعلًا،
    الخصومات اليدوية في نقطة البيع. كل فرصة: قيمتها في الفترة ومعدلها لكل 30 يومًا. النسبة المستهدفة يُدخلها المستخدم.
@@ -10207,5 +10308,5 @@ export { staffingPlan };
 // v39.4 — استيراد مبيعات نقاط البيع ومطابقتها
 export { piHour, piCutoff, posRecon, salesDays, importDraftClosing };
 // v40.0 — أساس الرقابة
-export { PROFIT_OPTS, profitMissing, profitDays, menuEngineering, MENU_CLS, SAV_KIND, savingsMeasure, savingsOpps, savingsTrack };
+export { PROFIT_OPTS, profitMissing, profitDays, menuEngineering, MENU_CLS, SAV_KIND, savingsMeasure, savingsOpps, savingsTrack, CR_TYPE, cardStmtLines, cardRecon };
 export { UpdateGate, APP_CV, auditWrite, logAudit, auditFetch, sigDigest, signoff, signDecision, sigFailMsg, loadSignoffs, loadRelease, raiseRelease, sigVerify, SIG_BADGE, SIG_NAME };
