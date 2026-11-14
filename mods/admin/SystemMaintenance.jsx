@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { cloud, KEYS, brKey } from '../../storage';
 import { ShieldCheck, RefreshCw, Trash2, AlertTriangle, Check, Server, Bug, Activity, HardDrive } from 'lucide-react';
-import { APP_CV, APP_VER, CloudHealth, ERRLOG_KEY, MAIN_WH, ROLES, SIG_BADGE, SIG_NAME, buildAccounting, loadRelease, loadSignoffs, sigVerify, branchBanks, cashForecast, complianceItems, entityList, vatStatus, countedClosing, isoD, money, purKey, q3, qrFs, snapAll, stockByWh, today, whName, whOf } from '../../App.jsx';
+import { recipeRaw, APP_CV, APP_VER, CloudHealth, ERRLOG_KEY, MAIN_WH, ROLES, SIG_BADGE, SIG_NAME, buildAccounting, loadRelease, loadSignoffs, sigVerify, branchBanks, cashForecast, complianceItems, entityList, vatStatus, countedClosing, isoD, money, purKey, q3, qrFs, snapAll, stockByWh, today, whName, whOf } from '../../App.jsx';
 
 const ST = { ok: ['b-mint', 'سليم'], warn: ['b-amber', 'تنبيه'], bad: ['b-rose', 'خلل'] };
 const daysAgo = (d) => { const x = new Date(); x.setDate(x.getDate() - d); return isoD(x); };
@@ -47,8 +47,9 @@ export function integrityChecks(org, ops, ctl) {
   add('orphans', orph.length ? 'warn' : 'ok', 'سجلات مرتبطة بفرع غير موجود', orph.length ? orph.join('، ') : 'لا شيء', [], 'أعد تفعيل الفرع أو انقل السجلات لفرع قائم');
   // 6) وصفات بمكوّنات محذوفة
   const itemIds = new Set((org.items || []).map(i => i.id));
-  const brokenRec = (org.products || []).filter(p => (p.parts || []).some(pt => pt.itemId && !itemIds.has(pt.itemId)));
-  add('recipes', brokenRec.length ? 'warn' : 'ok', 'وصفات بمكوّن محذوف من الأصناف', brokenRec.length ? brokenRec.length + ' منتج' : 'كل المكوّنات موجودة', brokenRec.slice(0, 5).map(p => p.name), 'عدّل الوصفة من «المخزون ← الوصفات والتكلفة» — التكلفة النظرية ناقصة حتى تصحيحها');
+  // v40.7: يشمل التحضيرات — مرجع لصنف أو تحضيرة محذوفة، أو وصفة دائرية، في المنتجات والتحضيرات
+  const brokenRec = [...(org.products || []), ...(org.preps || [])].filter(p => { const R = recipeRaw(org, p.parts); return (p.parts || []).some(pt => pt.itemId && !itemIds.has(pt.itemId)) || R.cycle || R.missing.length > 0 || Object.keys(R.raw).some(id => !itemIds.has(id)); });
+  add('recipes', brokenRec.length ? 'warn' : 'ok', 'وصفات بمكوّن محذوف (صنف أو تحضيرة) أو دائرية', brokenRec.length ? brokenRec.length + ' منتج' : 'كل المكوّنات موجودة', brokenRec.slice(0, 5).map(p => p.name), 'عدّل الوصفة من «المخزون ← الوصفات والتكلفة» — التكلفة النظرية ناقصة حتى تصحيحها');
   // 7) طلبات معلّقة قديمة
   const old = daysAgo(3), pend = [];
   const w = (ops.wasteRequests || []).filter(r => r.status === 'pending' && (r.date || '') < old).length; if (w) pend.push(w + ' هدر');

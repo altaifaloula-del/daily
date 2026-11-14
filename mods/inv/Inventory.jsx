@@ -1,7 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useEffect, useMemo } from 'react';
 import { HardDrive, FileBarChart, ChevronDown, Printer, ArrowLeftRight, ClipboardCheck, Truck, Store, BarChart3, AlertTriangle, Trash2, TrendingUp, Download, Check, Upload, Plus, Landmark, X } from 'lucide-react';
-import { BlindCount, Field, ITEM_TYPES, Kpi, LOCK_MSG, MAIN_WH, MOVE_KINDS, Modal, PriceAlerts, ROLES, SectionNav, UsageVariance, WarehousesPanel, WasteControl, WasteFields, arDate, isCostCtl, isStocked, itemAvgCosts, itemType, makeXlsx, money, nowISO, pFactor, parseCsvGrid, parseXlsxGrid, partGross, partYield, periodLocked, printA4, q3, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whName, whOn } from '../../App.jsx';
+import { BlindCount, Field, ITEM_TYPES, Kpi, LOCK_MSG, MAIN_WH, MOVE_KINDS, Modal, PriceAlerts, ROLES, SectionNav, UsageVariance, WarehousesPanel, WasteControl, WasteFields, arDate, isCostCtl, isStocked, itemAvgCosts, itemType, makeXlsx, money, nowISO, pFactor, parseCsvGrid, parseXlsxGrid, partGross, partYield, periodLocked, prepUnitCost, printA4, q3, recipeCost, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whName, whOn } from '../../App.jsx';
 
 export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
   const [view, setView] = useState('items');        // items | moves | count | recipes
@@ -10,6 +10,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
   const [impF, setImpF] = useState(null);           // v30.3 استيراد أصناف من Excel/CSV: {name, grid, map, start, update, opening}
   const [moveF, setMoveF] = useState(null);         // نموذج حركة
   const [prodF, setProdF] = useState(null);         // نموذج وصفة
+  const [prepF, setPrepF] = useState(null);         // v40.7 نموذج تحضيرة (وصفة فرعية)
   const [menuQty, setMenuQty] = useState({});        // v12.4 مسودة كميات البيع الشهرية لهندسة القائمة
   const [ivD, setIvD] = useState(() => { const v = org.invValuation || {}; return { enabled: !!v.enabled, auto: v.auto !== false, asOf: v.asOf || today(), value: v.value != null ? String(v.value) : '' }; });
   useEffect(() => { if (invIntent && invIntent.v) setView(invIntent.v); }, [invIntent && invIntent.ts]);
@@ -17,6 +18,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
   const canW = ROLES[me?.role]?.scope === 'all' && !isCostCtl(me);   // v37.8: مراقب التكاليف اطّلاع فقط على الأصناف والوصفات
   const items = org.items || [];
   const products = org.products || [];
+  const preps = org.preps || [];   // v40.7
   const moves = ops.stockMoves || [];
   const taxCfg = org.taxCfg || {};
   const netOf = (p) => taxCfg.enabled ? Math.round(p / (1 + (Number(taxCfg.rate) || 15) / 100) * 100) / 100 : p;
@@ -190,7 +192,44 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
       <div class="sign"><div>قام بالعدّ</div><div>أعاد العدّ</div><div>اعتماد (شخص آخر)</div></div>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
   };
 
-  const prodCost = (p) => sum(p.parts || [], pt => partGross(pt) * avgOf(pt.itemId));   // v37.6: الكمية الإجمالية (بالناتج) × المتوسط المرجّح
+  const prodCost = (p) => recipeCost(org, p.parts, AVG).cost;   // v37.6 بالناتج · v40.7 التحضيرات تُفكّ لخاماتها
+  // v40.7 — مكوّن الوصفة: خامة {itemId} أو تحضيرة {prepId}
+  const partInfo = (pt) => { if (pt.prepId) { const pr = preps.find(x => x.id === pt.prepId) || {}; return { name: (pr.name || 'تحضيرة محذوفة'), unit: pr.unit || '', unitCost: pr.id ? prepUnitCost(org, pr, AVG).cost : 0, prep: true }; }
+    const it = items.find(x => x.id === pt.itemId) || {}; return { name: it.name || '؟', unit: it.unit || '', unitCost: AVG[pt.itemId] || Number(it.cost) || 0 }; };
+  const partVal = (pt) => (pt.prepId ? 'p:' + pt.prepId : pt.itemId || '');
+  const setPartVal = (x, v) => { const { itemId, prepId, ...rest } = x; return v.startsWith('p:') ? { ...rest, prepId: v.slice(2) } : { ...rest, itemId: v }; };
+  const cleanParts = (ps) => (ps || []).filter(pt => (pt.itemId || pt.prepId) && Number(pt.qty) > 0).map(pt => ({ ...(pt.prepId ? { prepId: pt.prepId } : { itemId: pt.itemId }), qty: Number(pt.qty), ...(partYield(pt) < 100 ? { yield: Math.round(partYield(pt) * 10) / 10 } : {}) }));
+  // محرّر المكوّنات المشترك (للمنتج وللتحضيرة) — exclude: التحضيرة الجاري تعديلها لا تختار نفسها
+  const partsEditor = (parts, onChange, exclude) => (<>
+    {(parts || []).map((pt, i) => { const inf = partInfo(pt); return (
+      <div key={i} className="row" style={{ gap: 8, marginBottom: 7, flexWrap: 'wrap' }}>
+        <select className="sel" style={{ flex: 2, minWidth: 170 }} value={partVal(pt)} aria-label={'المكوّن ' + (i + 1)} onChange={e => onChange(parts.map((x, k) => k === i ? setPartVal(x, e.target.value) : x))}>
+          <option value="">— اختر الصنف أو التحضيرة —</option>
+          {preps.filter(pr => pr.id !== exclude).length > 0 && <optgroup label="التحضيرات (وصفات فرعية)">{preps.filter(pr => pr.id !== exclude).map(pr => <option key={pr.id} value={'p:' + pr.id}>🥣 {pr.name} ({money(prepUnitCost(org, pr, AVG).cost)}/{pr.unit})</option>)}</optgroup>}
+          <optgroup label="أصناف المخزون">{items.map(it => <option key={it.id} value={it.id}>{it.name} ({money(AVG[it.id] || it.cost)}/{it.unit})</option>)}</optgroup>
+        </select>
+        <input className="inp n" style={{ flex: 1, minWidth: 90 }} inputMode="decimal" placeholder="الكمية الصافية" value={pt.qty} aria-label={'كمية المكوّن ' + (i + 1)} onChange={e => onChange(parts.map((x, k) => k === i ? { ...x, qty: e.target.value.replace(/[^\d.]/g, '') } : x))} />
+        <div className="yld-in" title="معامل الناتج: نسبة الصافي من الخام بعد التنظيف/الطهي"><input className="inp n" inputMode="decimal" placeholder="100" value={pt.yield ?? ''} onChange={e => onChange(parts.map((x, k) => k === i ? { ...x, yield: e.target.value.replace(/[^\d.]/g, '') } : x))} /><span>% ناتج</span></div>
+        {(pt.itemId || pt.prepId) && Number(pt.qty) > 0 && partYield(pt) < 100 && <span className="yld-g">يُصرف <b className="num">{q3(partGross(pt))}</b> {inf.unit} {inf.prep ? '' : 'خام'}</span>}
+        {parts.length > 1 && <button className="btn sm gh" aria-label="حذف المكوّن" onClick={() => onChange(parts.filter((_, k) => k !== i))}><X size={13} /></button>}
+      </div>); })}
+  </>);
+  const prepUses = (id) => [...products.filter(p => (p.parts || []).some(pt => pt.prepId === id)).map(p => p.name), ...preps.filter(x => x.id !== id && (x.parts || []).some(pt => pt.prepId === id)).map(x => x.name)];
+  const savePrep = async () => { const f = prepF;
+    if (!String(f.name || '').trim()) return say('أدخل اسم التحضيرة', 'no');
+    if (!(Number(f.batch) > 0)) return say('أدخل كمية الناتج للدفعة (مثل 5 كجم)', 'no');
+    const badY = (f.parts || []).find(pt => (pt.itemId || pt.prepId) && pt.yield !== '' && pt.yield != null && !(Number(pt.yield) > 0 && Number(pt.yield) <= 100));
+    if (badY) return say('معامل الناتج بين 1 و100%', 'no');
+    const parts = cleanParts(f.parts); if (!parts.length) return say('أضف مكوّنات التحضيرة', 'no');
+    const rec = { id: f.id || uid('prep'), name: f.name.trim(), unit: String(f.unit || '').trim() || 'كجم', batch: Number(f.batch), parts };
+    const trial = { ...org, preps: [...preps.filter(x => x.id !== rec.id), rec] };
+    const C = recipeCost(trial, [{ prepId: rec.id, qty: 1 }], AVG); if (/دائرية/.test(C.miss)) return say('لا يمكن: التحضيرة تحتوي نفسها عبر تحضيرة أخرى (وصفة دائرية)', 'no');
+    await commitOrg(d => ({ ...d, preps: f.id ? (d.preps || []).map(x => x.id === f.id ? rec : x) : [...(d.preps || []), rec] }), { actionType: f.id ? 'update' : 'create', targetType: 'product', targetId: rec.id,
+      title: f.id ? 'عدّل تحضيرة (وصفة فرعية)' : 'أضاف تحضيرة (وصفة فرعية)', details: rec.name + ' · ' + rec.batch + ' ' + rec.unit + ' · ' + money(prepUnitCost(trial, rec, AVG).cost) + '/' + rec.unit });
+    setPrepF(null); say('حُفظت التحضيرة ✓'); };
+  const delPrep = async (pr) => { const u = prepUses(pr.id); if (u.length) return say('مستخدمة في: ' + u.join('، ') + ' — أزلها منها أولًا', 'no');
+    await commitOrg(d => ({ ...d, preps: (d.preps || []).filter(x => x.id !== pr.id) }), { actionType: 'delete', targetType: 'product', targetId: pr.id, title: 'حذف تحضيرة', details: pr.name });
+    setPrepF(null); say('حُذفت التحضيرة'); };
   // v12.4 — هندسة القائمة: كمية البيع الشهرية (يدخلها المستخدم) × هامش الوصفة
   const menuQtyOf = (p) => { const raw = menuQty[p.id]; return Number(String(raw != null ? raw : (p.salesQty || 0)).replace(/[^\d.]/g, '')) || 0; };
   const saveMenuQty = async () => {
@@ -220,9 +259,9 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
   const saveProd = async () => {
     const f = prodF;
     if (!f.name.trim()) return say('أدخل اسم المنتج', 'no');
-    const badY = (f.parts || []).find(pt => pt.itemId && pt.yield !== '' && pt.yield != null && !(Number(pt.yield) > 0 && Number(pt.yield) <= 100));
-    if (badY) return say('معامل الناتج بين 1 و100% — ' + ((items.find(x => x.id === badY.itemId) || {}).name || ''), 'no');
-    const parts = (f.parts || []).filter(pt => pt.itemId && Number(pt.qty) > 0).map(pt => ({ itemId: pt.itemId, qty: Number(pt.qty), ...(partYield(pt) < 100 ? { yield: Math.round(partYield(pt) * 10) / 10 } : {}) }));
+    const badY = (f.parts || []).find(pt => (pt.itemId || pt.prepId) && pt.yield !== '' && pt.yield != null && !(Number(pt.yield) > 0 && Number(pt.yield) <= 100));
+    if (badY) return say('معامل الناتج بين 1 و100% — ' + partInfo(badY).name, 'no');
+    const parts = cleanParts(f.parts);
     const dv = Number((f.disc || {}).v) || 0;
     if (dv > 0 && (f.disc || {}).t !== 'amt' && dv > 100) return say('نسبة خصم الصنف لا تتجاوز 100%', 'no');
     if (dv > 0 && (f.disc || {}).t === 'amt' && dv >= (Number(f.sellPrice) || 0)) return say('خصم الصنف يجب أن يكون أقل من سعر البيع', 'no');
@@ -273,7 +312,8 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
           <button className="btn sm gh" onClick={impTemplate}><Download size={13} />نموذج</button></>}
         {canW && view === 'items' && <button className="btn sm pri" onClick={() => setItemF({ name: '', unit: 'كغ', cost: '', minQty: '' })}><Plus size={14} />صنف جديد</button>}
         {canW && view === 'moves' && <button className="btn sm pri" style={{ marginInlineStart: 'auto' }} onClick={() => setMoveF({ kind: 'in', itemId: (items.find(isStocked) || {}).id || '', qty: '', note: '', uom: 'b', unitCost: '' })}><Plus size={14} />حركة جديدة</button>}
-        {canW && view === 'recipes' && <button className="btn sm pri" style={{ marginInlineStart: 'auto' }} onClick={() => setProdF({ name: '', sellPrice: '', parts: [{ itemId: items[0]?.id || '', qty: '' }] })}><Plus size={14} />منتج جديد</button>}
+        {canW && view === 'recipes' && <button className="btn sm" style={{ marginInlineStart: 'auto' }} onClick={() => setPrepF({ name: '', unit: 'كجم', batch: '', parts: [{ itemId: '', qty: '' }] })}><Plus size={14} />تحضيرة جديدة</button>}
+        {canW && view === 'recipes' && <button className="btn sm pri" onClick={() => setProdF({ name: '', sellPrice: '', parts: [{ itemId: items[0]?.id || '', qty: '' }] })}><Plus size={14} />منتج جديد</button>}
       </div>
 
       {view === 'items' && (
@@ -365,6 +405,13 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
       {view === 'prices' && <PriceAlerts org={org} ops={ops} />}
       {view === 'waste' && <WasteControl org={org} ops={ops} me={me} commit={commit} commitOrg={commitOrg} say={say} />}
 
+      {view === 'recipes' && (preps.length > 0 ? <div className="card">
+        <div className="card-t" style={{ marginBottom: 6 }}>🥣 التحضيرات — وصفات فرعية ({preps.length})</div>
+        <div className="me-list">{preps.map(pr => { const C = prepUnitCost(org, pr, AVG), u = prepUses(pr.id); return <div key={pr.id} className="me-row">
+          <span className="me-a"><b>{pr.name}</b><small>دفعة {pr.batch} {pr.unit} من: {(pr.parts || []).map(pt => partInfo(pt).name + ' ' + pt.qty + ' ' + partInfo(pt).unit).join('، ')}</small>
+            <small>{u.length ? 'تُستخدم في: ' + u.join('، ') : 'غير مستخدمة بعد في أي وصفة'}</small></span>
+          <span className="me-b"><b className="num" dir="ltr">{money(C.cost)}</b><small>لكل {pr.unit}{C.miss ? ' · ناقص: ' + C.miss : ''}</small>{canW && <button className="btn sm gh" onClick={() => setPrepF({ ...pr, parts: (pr.parts || []).map(x => ({ ...x })) })}>تعديل</button>}</span></div>; })}</div>
+      </div> : <div className="note">🥣 <b>التحضيرات (وصفات فرعية):</b> للصلصات والتتبيلات والعجين التي تُحضَّر بدفعات — أنشئ التحضيرة بكمية ناتجها ومكوّناتها، ثم استخدمها مكوّنًا في وصفات المنتجات؛ تكلفتها واستهلاكها النظري يُحسبان من خاماتها.</div>)}
       {view === 'recipes' && (
         <div className="grid g2">
           {products.map(p => {
@@ -376,12 +423,12 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
                   <div className="card-t"><Store size={15} color="var(--brass)" />{p.name}</div>
                   {canW && <button className="btn sm gh" onClick={() => setProdF({ ...p, parts: (p.parts || []).map(x => ({ ...x })) })}>تعديل</button>}
                 </div>
-                <table className="tb" style={{ fontSize: 12 }}>
+                <table className="tb rc-tb" style={{ fontSize: 12 }}>
                   <tbody>
                     {(p.parts || []).map((pt, i) => {
-                      const it = items.find(x => x.id === pt.itemId) || {};
+                      const it = partInfo(pt);
                       const y = partYield(pt);
-                      return <tr key={i}><td>{it.name || '؟'}{y < 100 && <div style={{ fontSize: 10.5, color: 'var(--dim)' }}>ناتج {y}% · يُصرف <span className="num">{q3(partGross(pt))}</span> {it.unit || ''}</div>}</td><td className="num" style={{ textAlign: 'end' }}>{pt.qty} {it.unit || ''}</td><td className="num" style={{ textAlign: 'end' }}>{money(partGross(pt) * avgOf(pt.itemId))}</td></tr>;
+                      return <tr key={i}><td>{it.prep && <span className="badge b-sky" style={{ fontSize: 9.5, marginInlineEnd: 4 }}>تحضيرة</span>}{it.name}{y < 100 && <div style={{ fontSize: 10.5, color: 'var(--dim)' }}>ناتج {y}% · يُصرف <span className="num">{q3(partGross(pt))}</span> {it.unit || ''}</div>}</td><td className="num" style={{ textAlign: 'end' }}>{pt.qty} {it.unit || ''}</td><td className="num" style={{ textAlign: 'end' }}>{money(partGross(pt) * it.unitCost)}</td></tr>;
                     })}
                     <tr style={{ fontWeight: 800 }}><td>تكلفة المنتج</td><td /><td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{money(cost)}</td></tr>
                   </tbody>
@@ -575,26 +622,29 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
               <button type="button" className={'btn sm' + ((prodF.disc || {}).t === 'amt' ? ' pri' : ' gh')} onClick={() => setProdF(f => ({ ...f, disc: { ...(f.disc || {}), t: 'amt' } }))}>ر.س</button></div></Field>
             {Number((prodF.disc || {}).v) > 0 && <Field label="ينتهي الخصم في (اختياري)"><input type="date" className="inp" value={(prodF.disc || {}).to || ''} onChange={e => setProdF(f => ({ ...f, disc: { ...(f.disc || {}), to: e.target.value } }))} /></Field>}
           </div>
-          <div className="lbl" style={{ margin: '4px 0 6px' }}>المكوّنات (من أصناف المخزون)</div>
+          <div className="lbl" style={{ margin: '4px 0 6px' }}>المكوّنات (أصناف المخزون أو التحضيرات)</div>
           <div className="note" style={{ marginBottom: 8 }}>اكتب الكمية <b>الصافية</b> في الطبق، ومعامل الناتج لكل مكوّن يفقد وزنًا (لحم 1 كجم ← 0.82 كجم مطبوخ = 82%). التكلفة والاستهلاك النظري يُحسبان على الكمية الخام. اتركه فارغًا = 100%.</div>
-          {(prodF.parts || []).map((pt, i) => (
-            <div key={i} className="row" style={{ gap: 8, marginBottom: 7, flexWrap: 'wrap' }}>
-              <select className="sel" style={{ flex: 2, minWidth: 170 }} value={pt.itemId}
-                onChange={e => setProdF(f => ({ ...f, parts: f.parts.map((x, k) => k === i ? { ...x, itemId: e.target.value } : x) }))}>
-                <option value="">— اختر الصنف —</option>
-                {items.map(it => <option key={it.id} value={it.id}>{it.name} ({money(it.cost)}/{it.unit})</option>)}
-              </select>
-              <input className="inp n" style={{ flex: 1, minWidth: 90 }} inputMode="decimal" placeholder="الكمية الصافية" value={pt.qty}
-                onChange={e => setProdF(f => ({ ...f, parts: f.parts.map((x, k) => k === i ? { ...x, qty: e.target.value.replace(/[^\d.]/g, '') } : x) }))} />
-              <div className="yld-in" title="معامل الناتج: نسبة الصافي من الخام بعد التنظيف/الطهي"><input className="inp n" inputMode="decimal" placeholder="100" value={pt.yield ?? ''}
-                onChange={e => setProdF(f => ({ ...f, parts: f.parts.map((x, k) => k === i ? { ...x, yield: e.target.value.replace(/[^\d.]/g, '') } : x) }))} /><span>% ناتج</span></div>
-              {pt.itemId && Number(pt.qty) > 0 && partYield(pt) < 100 && <span className="yld-g">يُصرف <b className="num">{q3(partGross(pt))}</b> {(items.find(x => x.id === pt.itemId) || {}).unit || ''} خام</span>}
-              {prodF.parts.length > 1 && <button className="btn sm gh" onClick={() => setProdF(f => ({ ...f, parts: f.parts.filter((_, k) => k !== i) }))}><X size={13} /></button>}
-            </div>
-          ))}
+          {partsEditor(prodF.parts || [], (ps) => setProdF(f => ({ ...f, parts: ps })))}
           <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
             <button className="btn sm" onClick={() => setProdF(f => ({ ...f, parts: [...(f.parts || []), { itemId: '', qty: '' }] }))}><Plus size={13} />مكوّن إضافي</button>
-            <span className="badge b-brass">التكلفة الحالية: {money(prodCost({ parts: (prodF.parts || []).filter(x => x.itemId) }))}</span>
+            <span className="badge b-brass">التكلفة الحالية: {money(prodCost({ parts: (prodF.parts || []).filter(x => x.itemId || x.prepId) }))}</span>
+          </div>
+        </Modal>
+      )}
+      {prepF && (
+        <Modal title={prepF.id ? 'تعديل تحضيرة' : 'تحضيرة جديدة (وصفة فرعية)'} icon={Store} onClose={() => setPrepF(null)} wide
+          foot={<><button className="btn gh" onClick={() => setPrepF(null)}>إلغاء</button><button className="btn pri" onClick={savePrep}><Check size={14} />حفظ التحضيرة</button></>}>
+          <div className="grid g3" style={{ gap: 8 }}>
+            <Field label="الاسم"><input className="inp" value={prepF.name} placeholder="صلصة ثوم، تتبيلة شاورما، عجينة…" onChange={e => setPrepF(f => ({ ...f, name: e.target.value }))} /></Field>
+            <Field label="كمية الناتج للدفعة"><input className="inp n" inputMode="decimal" value={prepF.batch} placeholder="5" onChange={e => setPrepF(f => ({ ...f, batch: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+            <Field label="الوحدة"><input className="inp" value={prepF.unit} placeholder="كجم" onChange={e => setPrepF(f => ({ ...f, unit: e.target.value }))} /></Field>
+          </div>
+          <div className="note" style={{ margin: '6px 0 8px' }}>اكتب ما يدخل في <b>دفعة واحدة</b> وكمية ما تُنتجه بعد الطهي/التصفية. تكلفة الوحدة = تكلفة المكوّنات ÷ الناتج.</div>
+          {partsEditor(prepF.parts || [], (ps) => setPrepF(f => ({ ...f, parts: ps })), prepF.id)}
+          <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+            <button className="btn sm" onClick={() => setPrepF(f => ({ ...f, parts: [...(f.parts || []), { itemId: '', qty: '' }] }))}><Plus size={13} />مكوّن إضافي</button>
+            {(() => { const b = Number(prepF.batch) || 0; const c = recipeCost(org, cleanParts(prepF.parts), AVG).cost; return <span className="badge b-brass">تكلفة الدفعة {money(c)}{b > 0 ? ' · ' + money(c / b) + '/' + (prepF.unit || '') : ''}</span>; })()}
+            {prepF.id && <button className="btn sm gh" style={{ color: 'var(--rose)' }} onClick={() => delPrep(prepF)}>حذف</button>}
           </div>
         </Modal>
       )}

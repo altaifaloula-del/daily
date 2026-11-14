@@ -834,3 +834,25 @@ test('مطابقة الشبكة: مدى بإجماليه وعمولته المن
   const b4 = E.cardRecon(org, ops, L2, { from: '2026-11-01', to: '2026-11-02' }).branches[0];
   assert.deepEqual([b4.mada.fee, b4.devFee, b4.vm.byType.amex, b4.vm.miss], [24.98, 115, 41.76, ['amex']], 'عمولة مدى لا تتضخم برسوم الجهاز');
 });
+
+// ===== v40.7 — الوصفات الفرعية (التحضيرات) =====
+test('الوصفات الفرعية: تحضيرة داخل تحضيرة تُفكّ لخاماتها بالناتج، والتكلفة والاستهلاك النظري يتبعانها، والدوران يُمنع', () => {
+  const org = baseOrg({ taxCfg: { enabled: false },
+    items: [{ id: 'ch', name: 'دجاج', unit: 'كجم', cost: 20 }, { id: 'sp', name: 'بهارات', unit: 'كجم', cost: 30 }, { id: 'ga', name: 'ثوم', unit: 'كجم', cost: 10 }, { id: 'oi', name: 'زيت', unit: 'لتر', cost: 8 }],
+    preps: [{ id: 'sauce', name: 'صلصة ثوم', unit: 'كجم', batch: 5, parts: [{ itemId: 'ga', qty: 1, yield: 80 }, { itemId: 'oi', qty: 4 }] },
+      { id: 'mar', name: 'تتبيلة', unit: 'كجم', batch: 2.5, parts: [{ prepId: 'sauce', qty: 2 }, { itemId: 'sp', qty: 0.5 }] }],
+    products: [{ id: 'P', name: 'شاورما', sellPrice: 25, parts: [{ itemId: 'ch', qty: 0.25, yield: 50 }, { prepId: 'mar', qty: 0.2 }] }] });
+  const R = E.recipeRaw(org, org.products[0].parts);
+  assert.deepEqual(R.raw, { ch: 0.5, ga: 0.04, oi: 0.128, sp: 0.04 }, 'تتبيلة 0.2 من 2.5 ⇒ صلصة 0.16 من 5 ⇒ ثوم 1÷0.8×0.032 وزيت 4×0.032');
+  assert.equal(E.recipeCost(org, org.products[0].parts, {}).cost, 12.624);
+  assert.deepEqual(E.prepUnitCost(org, org.preps[0], {}), { cost: 8.9, miss: '' }, '(12.5 + 32) ÷ 5');
+  const ops = { productSales: [{ id: 's', branchId: 'b1', from: '2026-11-01', to: '2026-11-07', lines: [{ productId: 'P', qty: 10 }] }] };
+  const U = E.usageReport(org, ops, undefined, '2026-11-01', '2026-11-07');
+  assert.deepEqual(Object.fromEntries(U.rows.map(r => [r.id, r.theo])), { ch: 5, ga: 0.4, oi: 1.28, sp: 0.4 }, 'الاستهلاك النظري بالخامات لا بالتحضيرة');
+  const M = E.menuEngineering(org, ops, { from: '2026-11-01', to: '2026-11-07' });
+  assert.equal(M.rows[0].cost, 12.62, 'هندسة القائمة تحسب تكلفة التحضيرات');
+  const cyc = { ...org, preps: [{ id: 'a', name: 'أ', batch: 1, parts: [{ prepId: 'b', qty: 1 }] }, { id: 'b', name: 'ب', batch: 1, parts: [{ prepId: 'a', qty: 1 }] }] };
+  assert.equal(E.recipeRaw(cyc, [{ prepId: 'a', qty: 1 }]).cycle, true);
+  assert.match(E.recipeCost(cyc, [{ prepId: 'a', qty: 1 }], {}).miss, /دائرية/);
+  assert.match(E.recipeCost({ ...org, preps: [] }, org.products[0].parts, {}).miss, /تحضيرة محذوفة/, 'مرجع محذوف لا يُحتسب صفرًا بصمت');
+});

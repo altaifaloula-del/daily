@@ -1626,4 +1626,7 @@ html,body{-webkit-text-size-adjust:100%;text-size-adjust:100%}
 .cr-h{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px}.cr-h b{font-size:14px;margin-inline-end:auto}
 .cr-x{all:unset;cursor:pointer;margin-inline-start:4px;font-weight:700;padding:0 2px}
 .me-b .inp.sel{min-width:130px;max-width:46vw}
+
+/* v40.7 — بطاقات الوصفات: الجدول بعرض البطاقة (كان min-width:520 يقصّ عمود التكلفة على التابلت والجوال) */
+table.tb.rc-tb{min-width:0}
 `;

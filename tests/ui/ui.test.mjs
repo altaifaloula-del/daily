@@ -141,6 +141,28 @@ test('معامل الناتج: تكلفة الوصفة على الكمية ال�
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+test('v40.7 الوصفات الفرعية: تحضيرة تُنشأ ثم تُستخدم مكوّنًا في منتج فتدخل تكلفتها، ولا تُحذف وهي مستخدمة', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Inventory/admin/recipes');
+  await p.click('button:has-text("تحضيرة جديدة")'); await p.waitForTimeout(150);
+  await p.fill('input[placeholder^="صلصة ثوم"]', 'صلصة طماطم'); await p.fill('.modal input[placeholder="5"]', '2');
+  await p.selectOption('select[aria-label="المكوّن 1"]', 'i2'); await p.fill('input[aria-label="كمية المكوّن 1"]', '3');
+  assert.match(await p.locator('.modal').innerText(), /تكلفة الدفعة 12\.00 · 6\.00\/كجم/);
+  await p.click('button:has-text("حفظ التحضيرة")'); await p.waitForTimeout(300);
+  const pr = await p.evaluate(() => window.curOrg.preps);
+  assert.deepEqual(pr.map(x => [x.name, x.batch, x.unit, x.parts]), [['صلصة طماطم', 2, 'كجم', [{ itemId: 'i2', qty: 3 }]]]);
+  await p.locator('.card:has-text("مندي لحم")').last().locator('button:has-text("تعديل")').click(); await p.waitForTimeout(150);
+  await p.click('.modal button:has-text("مكوّن إضافي")');
+  await p.selectOption('select[aria-label="المكوّن 3"]', 'p:' + pr[0].id); await p.fill('input[aria-label="كمية المكوّن 3"]', '0.05');
+  await p.click('button:has-text("حفظ المنتج")'); await p.waitForTimeout(300);
+  const card = (await p.locator('.card:has-text("مندي لحم")').last().innerText()).replace(/\s+/g, ' ');
+  assert.match(card, /تحضيرة ?صلصة طماطم/); assert.match(card, /تكلفة المنتج 20.70/, '20.40 + 0.05 كجم × 6');
+  assert.match(await p.locator('#r').innerText(), /تُستخدم في: مندي لحم/);
+  await p.locator('.me-row:has-text("صلصة طماطم") button:has-text("تعديل")').click(); await p.waitForTimeout(150);
+  await p.click('.modal button:has-text("حذف")'); await p.waitForTimeout(200);
+  assert.equal(await p.evaluate(() => window.curOrg.preps.length), 1, 'لا تُحذف وهي مستخدمة');
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
 test('مراقب التكاليف: يعتمد ويراقب بلا إضافة أو تعديل', async () => {
   const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Inventory/ctl/waste');
   assert.equal(await p.locator('.card:has-text("ضوابط الهدر") button:has-text("تعديل")').count(), 0, 'لا يعدّل الحدود');

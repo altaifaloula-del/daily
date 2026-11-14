@@ -2808,7 +2808,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v40.6';
+const APP_VER = 'v40.7';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -7848,6 +7848,33 @@ const nextWhAcc = (list) => { let n = 1; const used = new Set((list || []).map(w
    والمستهلك من المخزون = الكمية ÷ الناتج. مثال: 0.25 كجم لحم مطبوخ بناتج 82% ⇒ 0.305 كجم نيء. */
 const partYield = (pt) => { const y = Number(pt && pt.yield); return y > 0 && y < 100 ? y : 100; };
 const partGross = (pt) => Math.round((Number(pt && pt.qty) || 0) / (partYield(pt) / 100) * 10000) / 10000;
+/* v40.7 — الوصفات الفرعية (التحضيرات): org.preps [{id, name, unit, batch, parts}] — كمية الناتج للدفعة ومكوّناتها.
+   مكوّن الوصفة: {itemId} خامة، أو {prepId} تحضيرة. recipeRaw يفكّ أي وصفة إلى خاماتها (حتى 5 مستويات، ويمنع الدوران). */
+function recipeRaw(org, parts, mult = 1, seen = []) {
+  const preps = (org && org.preps) || []; const raw = {}; const missing = []; let cycle = false;
+  (parts || []).forEach(pt => {
+    const g = partGross(pt) * mult; if (!(g > 0)) return;
+    if (pt.prepId) {
+      const pr = preps.find(x => x.id === pt.prepId);
+      if (!pr) { missing.push('تحضيرة محذوفة'); return; }
+      if (seen.includes(pr.id) || seen.length >= 5) { cycle = true; return; }
+      const b = Number(pr.batch) || 0; if (!(b > 0)) { missing.push(pr.name + ' — بلا كمية ناتج'); return; }
+      if (!(pr.parts || []).length) { missing.push(pr.name + ' — بلا مكوّنات'); return; }
+      const R = recipeRaw(org, pr.parts, g / b, [...seen, pr.id]);
+      Object.entries(R.raw).forEach(([k, v]) => { raw[k] = (raw[k] || 0) + v; }); missing.push(...R.missing); cycle = cycle || R.cycle;
+    } else if (pt.itemId) raw[pt.itemId] = (raw[pt.itemId] || 0) + g;
+  });
+  if (!seen.length) Object.keys(raw).forEach(k => { raw[k] = Math.round(raw[k] * 10000) / 10000; });
+  return { raw, missing, cycle };
+}
+/** تكلفة وصفة بالمتوسط المرجّح: { cost, miss } — miss اسم أول مكوّن بلا تكلفة معروفة */
+function recipeCost(org, parts, avg) {
+  const R = recipeRaw(org, parts); const items = (org && org.items) || []; let cost = 0, miss = R.missing[0] || (R.cycle ? 'وصفة دائرية' : '');
+  Object.entries(R.raw).forEach(([id, q]) => { const it = items.find(x => x.id === id); const c = (avg || {})[id] || (it && Number(it.cost)) || 0; if (!(c > 0)) miss = miss || ((it && it.name) || 'مكوّن محذوف'); cost += q * c; });
+  return { cost: Math.round(cost * 10000) / 10000, miss };
+}
+/** تكلفة وحدة الناتج من التحضيرة */
+const prepUnitCost = (org, pr, avg) => { const b = Number(pr && pr.batch) || 0; if (!(b > 0)) return { cost: 0, miss: 'بلا كمية ناتج' }; const C = recipeCost(org, pr.parts, avg); return { cost: Math.round(C.cost / b * 10000) / 10000, miss: C.miss }; };
 const MOVE_KINDS = {
   purchase: { ar: 'توريد شراء', sign: 1, c: 'b-mint' },
   in: { ar: 'توريد يدوي', sign: 1, c: 'b-mint' },
@@ -7995,7 +8022,7 @@ function usageReport(org, ops, wid, from, to) {
   const theo = {}; let revenue = 0;
   const tax = org.taxCfg || {}; const netOf = (p) => tax.enabled ? p / (1 + (Number(tax.rate) || 15) / 100) : p;
   Object.entries(pQty).forEach(([pid, q]) => { const pr = products.find(x => x.id === pid); if (!pr) return; revenue += q * netOf(Number(pr.sellPrice) || 0);
-    (pr.parts || []).forEach(pt => { theo[pt.itemId] = (theo[pt.itemId] || 0) + q * partGross(pt); }); });   // v37.6 بالناتج
+    Object.entries(recipeRaw(org, pr.parts, q).raw).forEach(([id, v]) => { theo[id] = (theo[id] || 0) + v; }); });   // v37.6 بالناتج · v40.7 التحضيرات تُفكّ لخاماتها
   const mv = useWh ? (w && w.kind === 'branch' ? (ops.whMoves || []).filter(m => m.whId === wid) : (ops.stockMoves || []).filter(m => (m.whId || MAIN_WH) === wid)) : (ops.stockMoves || []);
   const act = {}; const add = (id, k, v) => { const a = act[id] || (act[id] = { out: 0, waste: 0, count: 0 }); a[k] += v; };
   mv.filter(m => inP(m.date)).forEach(m => { const q = Number(m.qty) || 0;
@@ -8223,9 +8250,7 @@ function menuEngineering(org, ops, opts = {}) {
     if (!p) { excluded.push({ name: 'منتج محذوف (' + pid + ')', qty: q, why: 'غير موجود في المنتجات' }); return; }
     const price = Number(p.sellPrice) || 0; if (!(price > 0)) { excluded.push({ name: p.name, qty: q, why: 'بلا سعر بيع' }); return; }
     if (!(p.parts || []).length) { excluded.push({ name: p.name, qty: q, why: 'بلا وصفة — التكلفة غير معروفة' }); return; }
-    let cost = 0, miss = '';
-    (p.parts || []).forEach(pt => { const it = items.find(x => x.id === pt.itemId); const c = AVG[pt.itemId] || (it && Number(it.cost)) || 0;
-      if (!(c > 0)) miss = miss || ((it && it.name) || 'مكوّن محذوف'); cost += partGross(pt) * c; });
+    const { cost, miss } = recipeCost(org, p.parts, AVG);   // v40.7: التحضيرات تُفكّ لخاماتها
     if (miss) { excluded.push({ name: p.name, qty: q, why: 'تكلفة مكوّن غير معروفة: ' + miss }); return; }
     const net = price / (1 + vr);
     rows.push({ id: pid, name: p.name, qty: q, price: anR(price), net: anR(net), cost: anR(cost), cm: anR(net - cost), foodPct: net > 0 ? anR(cost / net * 100) : null });
@@ -10308,5 +10333,5 @@ export { staffingPlan };
 // v39.4 — استيراد مبيعات نقاط البيع ومطابقتها
 export { piHour, piCutoff, posRecon, salesDays, importDraftClosing };
 // v40.0 — أساس الرقابة
-export { PROFIT_OPTS, profitMissing, profitDays, menuEngineering, MENU_CLS, SAV_KIND, savingsMeasure, savingsOpps, savingsTrack, CR_TYPE, cardStmtLines, cardRecon };
+export { PROFIT_OPTS, profitMissing, profitDays, menuEngineering, MENU_CLS, SAV_KIND, savingsMeasure, savingsOpps, savingsTrack, CR_TYPE, cardStmtLines, cardRecon, recipeRaw, recipeCost, prepUnitCost };
 export { UpdateGate, APP_CV, auditWrite, logAudit, auditFetch, sigDigest, signoff, signDecision, sigFailMsg, loadSignoffs, loadRelease, raiseRelease, sigVerify, SIG_BADGE, SIG_NAME };
