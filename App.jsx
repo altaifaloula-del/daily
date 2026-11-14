@@ -60,6 +60,7 @@ const EntitiesCenter = lazyComp(() => import('./mods/acct/EntitiesCenter.jsx'), 
 const ReportBuilder = lazyComp(() => import('./mods/acct/ReportBuilder.jsx'), 'ReportBuilder');
 const ExecDashboard = lazyComp(() => import('./mods/acct/ExecDashboard.jsx'), 'ExecDashboard');
 const IbanControl = lazyComp(() => import('./mods/acct/IbanControl.jsx'), 'IbanControl');   // v40.9
+const CashCount = lazyComp(() => import('./mods/closing/CashCount.jsx'), 'CashCount');   // v41.5
 const FoodSafety = lazyComp(() => import('./mods/closing/FoodSafety.jsx'), 'FoodSafety');   // v41.4
 const CardRecon = lazyComp(() => import('./mods/acct/CardRecon.jsx'), 'CardRecon');   // v40.6
 const SavingsPlan = lazyComp(() => import('./mods/acct/SavingsPlan.jsx'), 'SavingsPlan');   // v40.4
@@ -605,7 +606,9 @@ const BR_COLS = ['closings', 'transfers', 'partnerRequests', 'notifications', 'b
   // v33.1 — مبيعات نقاط البيع المستوردة من Excel (ملخص يومي لكل فرع)
   'posImports',
   // v41.4 — سجل سلامة الغذاء (قراءات درجات الحرارة يكتبها الفرع)
-  'fsLogs'];
+  'fsLogs',
+  // v41.5 — الجرد النقدي المفاجئ
+  'cashCounts'];
 const CORE_COLS = ['cardRecons', 'ledgerSnaps', 'salesInvoices', 'advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules', 'hrScoreSnapshots'];
 
 // تقسيم ops المدمجة إلى مستند مركزي + مستند لكل فرع
@@ -2815,7 +2818,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v41.4';
+const APP_VER = 'v41.5';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3840,7 +3843,7 @@ function PlatformApp() {
   const shared = { org, ops, pulse: pulseA, me, myBranches, scoped, commit, commitOrg, say, setTab, theme, acctIntent, openAcctView, invIntent, openInvView };
 
   // حماية: منع الوصول لتبويب غير مسموح لدور المستخدم (بلا hook — بعد returns الشرطية)
-  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'closing') ? ['myactions', 'myforecast', 'fsafety'] : []), ...(NAV.some(n => n.id === 'closing') && (ROLES[me.role]?.approver || ROLES[me.role]?.admin || ROLES[me.role]?.scope === 'all') ? ['cashiers'] : []), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'anomaly', 'actions', 'forecast', 'profit', 'menu', 'savings'] : []), ...(NAV.some(n => n.id === 'acct') ? ['cardrec', 'ibanctl'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : []), ...(NAV.some(n => n.id === 'people') ? ['payroll', 'workforce', 'muster', 'overtime'] : []), ...(NAV.some(n => n.id === 'purchasing') ? ['suppliers', 'reorder', 'suprep'] : []), ...(NAV.some(n => n.id === 'hrops') ? ['attendance', 'leaves', 'shiftengine', 'staffplan', 'tasks', 'points', 'esign'] : []), ...(NAV.some(n => n.id === 'hrperf') ? ['kpi', 'empfile', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'] : [])];
+  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'closing') ? ['myactions', 'myforecast', 'fsafety', 'cashcount'] : []), ...(NAV.some(n => n.id === 'closing') && (ROLES[me.role]?.approver || ROLES[me.role]?.admin || ROLES[me.role]?.scope === 'all') ? ['cashiers'] : []), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'anomaly', 'actions', 'forecast', 'profit', 'menu', 'savings'] : []), ...(NAV.some(n => n.id === 'acct') ? ['cardrec', 'ibanctl'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : []), ...(NAV.some(n => n.id === 'people') ? ['payroll', 'workforce', 'muster', 'overtime'] : []), ...(NAV.some(n => n.id === 'purchasing') ? ['suppliers', 'reorder', 'suprep'] : []), ...(NAV.some(n => n.id === 'hrops') ? ['attendance', 'leaves', 'shiftengine', 'staffplan', 'tasks', 'points', 'esign'] : []), ...(NAV.some(n => n.id === 'hrperf') ? ['kpi', 'empfile', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'] : [])];
   const safeTab = allowedTabs.includes(tab) ? tab : (allowedTabs[0] || 'closing');
 
   return (
@@ -4093,7 +4096,7 @@ function PlatformApp() {
               {['reporting', 'reports', 'rbuild', 'boardpack', 'cashflow'].includes(safeTab) && <Hub hubId="reporting" {...shared} view={safeTab} />}
               {safeTab === 'sales' && <SalesHub {...shared} />}
               {safeTab === 'pos' && <PosApp {...shared} />}
-              {['closing', 'approve', 'shifts', 'cashiers', 'myactions', 'myforecast', 'fsafety'].includes(safeTab) && <Hub hubId="closehub" {...shared} view={safeTab} />}
+              {['closing', 'approve', 'shifts', 'cashiers', 'myactions', 'myforecast', 'fsafety', 'cashcount'].includes(safeTab) && <Hub hubId="closehub" {...shared} view={safeTab} />}
               {HR_TABS.includes(safeTab) && <Hub hubId="hr" {...shared} view={safeTab} />}
               {safeTab === 'qrfb' && <QrFeedback {...shared} />}
               {safeTab === 'apps' && <AppsCenter {...shared} />}
@@ -6012,7 +6015,8 @@ const HUBS = {
       { id: 'cashiers', ar: 'سجل الكاشير', icon: Users, comp: CashierBook },
       { id: 'myactions', ar: 'إجراءات الفرع', icon: CheckCircle2, comp: ActionsBoard, like: 'closing' },   // v38.7
       { id: 'myforecast', ar: 'توقع مبيعات الفرع', icon: TrendingUp, comp: SalesForecast, like: 'closing' },   // v38.8
-      { id: 'fsafety', ar: 'سجل سلامة الغذاء', icon: ShieldCheck, comp: FoodSafety, like: 'closing' }   // v41.4
+      { id: 'fsafety', ar: 'سجل سلامة الغذاء', icon: ShieldCheck, comp: FoodSafety, like: 'closing' },   // v41.4
+      { id: 'cashcount', ar: 'الجرد النقدي المفاجئ', icon: Banknote, comp: CashCount, like: 'approve' }   // v41.5
     ]
   },
   finhub: {
@@ -6062,7 +6066,7 @@ const HR_TABS = ['hr', 'hrops', 'hrperf', 'people', ...HUBS.hr.views.map(v => v.
 const MENU_GROUPS = {
   analytics: { exec: 'اللوحات', dash: 'اللوحات', scorecard: 'اللوحات', compare: 'التحليل', growth: 'التحليل', breakeven: 'التحليل', scenario: 'التحليل', forecast: 'التحليل',
     profit: 'الربحية والتكلفة', menu: 'الربحية والتكلفة', savings: 'الربحية والتكلفة', alerts: 'الرقابة والإجراءات', anomaly: 'الرقابة والإجراءات', actions: 'الرقابة والإجراءات' },
-  closehub: { closing: 'الإغلاق', approve: 'الإغلاق', shifts: 'المتابعة', cashiers: 'المتابعة', fsafety: 'المتابعة', myactions: 'الفرع', myforecast: 'الفرع' },
+  closehub: { closing: 'الإغلاق', approve: 'الإغلاق', shifts: 'المتابعة', cashiers: 'المتابعة', fsafety: 'المتابعة', cashcount: 'الإغلاق', myactions: 'الفرع', myforecast: 'الفرع' },
   finhub: { acct: 'المحاسبة', treasury: 'المحاسبة', entities: 'المحاسبة', cardrec: 'الرقابة المالية', ibanctl: 'الرقابة المالية' },
   reporting: { reports: 'التقارير', boardpack: 'التقارير', cashflow: 'التقارير', rbuild: 'منشئ التقارير' }
 };
@@ -8565,6 +8569,24 @@ function cardRecon(org, ops, lines, opts = {}) {
   return { from, to, vat, tol, branches, terminals, unmapped, notes, lines: lines.length, maxDate,
     tot: { exp: anR(sum(branches, b => b.exp)), bank: anR(sum(branches, b => b.bank)), diff: anR(sum(branches, b => b.diff)), madaFee, vmFee, devFee, feeVat: anR((madaFee + vmFee + devFee) * vat / (100 + vat)) } };
 }
+/* ===== v41.5 — الجرد النقدي المفاجئ (صندوق الكاشير والعهد) =====
+   يعدّه شخص غير حافظ النقد بالفئات، مقابل «المتوقع»: من وردية نقطة بيع ميزان المفتوحة تلقائيًا (الافتتاحي + صافي النقدي)، أو يُدخله العادّ
+   من قراءة X لنظام الكاشير أو كشف العهدة مع مرجعه. الفرق ≠ 0 ⇒ تفسير إلزامي وإجراء متابعة. السجل في مستند الفرع ops.cashCounts. */
+const CC_KIND = { drawer: 'صندوق الكاشير', custody: 'عهدة نثرية', safe: 'خزنة الفرع' };
+const CC_SRC = { pos: 'وردية نقطة البيع في ميزان', xreport: 'قراءة X من نظام الكاشير', statement: 'كشف العهدة', manual: 'إدخال يدوي' };
+function ccOpenShifts(ops, branchId) {
+  return (ops.posShifts || []).filter(sh => sh.branchId === branchId && sh.status === 'open').map(sh => {
+    const os = (ops.posOrders || []).filter(o => o.shiftId === sh.id && o.status !== 'void');
+    return { id: sh.id, devName: sh.devName || sh.dev || '', openedBy: sh.openedBy || '', openedAt: sh.openedAt, expected: posR2((Number(sh.openingCash) || 0) + posOrdersStats(os).cash) }; });
+}
+function cashCountStatus(org, ops, opts = {}) {
+  const td = opts.today || today(), from = anDay(td, -89), brs = (org.branches || []).filter(b => b.isActive !== false);
+  return brs.map(b => { const cs = (ops.cashCounts || []).filter(c => c.branchId === b.id).sort((a, c) => String(c.at).localeCompare(String(a.at)));
+    const last = cs[0], recent = cs.filter(c => c.date >= from);
+    const days = last ? Math.round((new Date(td + 'T12:00:00') - new Date(last.date + 'T12:00:00')) / 864e5) : null;
+    return { id: b.id, name: b.name, last, days, n90: recent.length, short90: anR(sum(recent.filter(c => c.variance < 0), c => -c.variance)), over90: anR(sum(recent.filter(c => c.variance > 0), c => c.variance)), withVar: recent.filter(c => Math.abs(c.variance) >= 0.01).length };
+  }).sort((a, c) => (a.days == null ? -1 : 0) - (c.days == null ? -1 : 0) || (c.days ?? 0) - (a.days ?? 0));
+}
 /* ===== v41.4 — سجل سلامة الغذاء (درجات حرارة التبريد والتجميد والحفظ الساخن) =====
    المعدات لكل فرع org.fsUnits [{id, branchId, name, kind, min, max}] وعدد القراءات اليومية org.fsCfg.perDay.
    القراءة في مستند الفرع ops.fsLogs [{id, branchId, unitId, date, at, temp, ok, action, by}] — خارج المدى ⇒ إجراء تصحيحي إلزامي.
@@ -10592,5 +10614,5 @@ export { staffingPlan };
 // v39.4 — استيراد مبيعات نقاط البيع ومطابقتها
 export { piHour, piCutoff, posRecon, salesDays, importDraftClosing };
 // v40.0 — أساس الرقابة
-export { PROFIT_OPTS, profitMissing, profitDays, menuEngineering, MENU_CLS, SAV_KIND, savingsMeasure, savingsOpps, savingsTrack, CR_TYPE, cardStmtLines, cardRecon, cardSettlePlan, CRS_ST, FS_KIND, fsInRange, fsStatus, recipeRaw, recipeCost, prepUnitCost, dataFootprint, kcalUnitFactor, kcalPerUnit, recipeKcal, productKcal, prepMix, prepPlan, ibanNorm, ibanMask, IBAN_APPROVERS, IBAN_ST, loadIbanSigs, ibanPayees, ibanStatus, requestIban, ibanApply };
+export { PROFIT_OPTS, profitMissing, profitDays, menuEngineering, MENU_CLS, SAV_KIND, savingsMeasure, savingsOpps, savingsTrack, CR_TYPE, cardStmtLines, cardRecon, cardSettlePlan, CRS_ST, FS_KIND, fsInRange, fsStatus, CC_KIND, CC_SRC, ccOpenShifts, cashCountStatus, recipeRaw, recipeCost, prepUnitCost, dataFootprint, kcalUnitFactor, kcalPerUnit, recipeKcal, productKcal, prepMix, prepPlan, ibanNorm, ibanMask, IBAN_APPROVERS, IBAN_ST, loadIbanSigs, ibanPayees, ibanStatus, requestIban, ibanApply };
 export { UpdateGate, APP_CV, auditWrite, logAudit, auditFetch, sigDigest, signoff, signDecision, sigFailMsg, loadSignoffs, loadRelease, raiseRelease, sigVerify, SIG_BADGE, SIG_NAME };

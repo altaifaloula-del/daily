@@ -302,6 +302,27 @@ test('v41.4 سجل سلامة الغذاء: الفرع يسجّل الحرارة
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+test('v41.5 الجرد النقدي المفاجئ: بالفئات مقابل المتوقع، الفرق يتطلب تفسيرًا ويُنشئ إجراءً، ولا يجرد حافظ النقد نفسه', async () => {
+  const ctx = await browser.newContext(devices['iPhone 13']); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'live/Hub/admin/closehub:cashcount'); await p.reload(); await p.waitForTimeout(500); await settle(p);
+  await p.evaluate(() => window.setOps(o => ({ ...o, posShifts: [], cashCounts: [] }))); await p.waitForTimeout(200);
+  await p.locator('.me-row:has-text("عم قاسم طيبة") button:has-text("جرد الآن")').click(); await p.waitForTimeout(200);
+  await p.fill('input[aria-label="حافظ النقد"]', 'مجاهد'); await p.fill('input[aria-label="المتوقع"]', '1000'); await p.fill('input[aria-label="مرجع المتوقع"]', 'X-77'); await p.fill('input[aria-label="فئة 500"]', '2');
+  await p.click('button:has-text("حفظ المحضر")'); await p.waitForTimeout(200);
+  assert.match(await p.evaluate(() => window.lastSay), /لا يجرد حافظ النقد نفسه/);
+  await p.fill('input[aria-label="حافظ النقد"]', 'أحمد علي'); await p.click('button:has-text("حفظ المحضر")'); await p.waitForTimeout(300);
+  assert.deepEqual(await p.evaluate(() => window.cur.cashCounts.map(c => [c.holder, c.expected, c.counted, c.variance, c.ref, c.by])), [['أحمد علي', 1000, 1000, 0, 'X-77', 'مجاهد']]);
+  await p.locator('.me-row:has-text("عم قاسم طيبة") button:has-text("جرد الآن")').click(); await p.waitForTimeout(200);
+  await p.fill('input[aria-label="حافظ النقد"]', 'أحمد علي'); await p.fill('input[aria-label="المتوقع"]', '1000'); await p.fill('input[aria-label="مرجع المتوقع"]', 'X-78'); await p.fill('input[aria-label="فئة 500"]', '1'); await p.fill('input[aria-label="فئة 200"]', '2');
+  assert.match(await p.locator('#r').innerText(), /عجز[\s\S]*-100\.00|−100\.00|-100/);
+  await p.click('button:has-text("حفظ المحضر")'); await p.waitForTimeout(200);
+  assert.equal(await p.evaluate(() => window.cur.cashCounts.length), 1, 'الفرق بلا تفسير لا يُحفظ');
+  await p.fill('input[aria-label="التفسير"]', 'سُلّمت 100 لمندوب التوصيل دون سند'); await p.click('button:has-text("حفظ المحضر")'); await p.waitForTimeout(300);
+  assert.deepEqual(await p.evaluate(() => [window.cur.cashCounts[0].variance, (window.cur.actions || []).filter(a => (a.srcKey || '').startsWith('cc|')).length]), [-100, 1], 'إجراء متابعة للفرق');
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
 test('مراقب التكاليف: يعتمد ويراقب بلا إضافة أو تعديل', async () => {
   const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Inventory/ctl/waste');
   assert.equal(await p.locator('.card:has-text("ضوابط الهدر") button:has-text("تعديل")').count(), 0, 'لا يعدّل الحدود');
