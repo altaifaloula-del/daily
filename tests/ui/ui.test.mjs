@@ -224,6 +224,20 @@ test('v41.0 شريط القوائم بنمط أودو: عناوين رئيسية
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+test('v41.1 السعرات: تُدخل للصنف لكل 100 غ، والطبق «ناقص» حتى تكتمل مكوّناته، ثم يُحسب بالكمية الخام', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Inventory/admin/items');
+  await p.locator('tr:has-text("لحم غنم") button:has-text("تعديل")').first().click(); await p.waitForTimeout(150);
+  await p.fill('input[aria-label="السعرات الحرارية"]', '250'); await p.click('.modal button:has-text("حفظ")'); await p.waitForTimeout(300);
+  assert.deepEqual(await p.evaluate(() => window.curOrg.items.find(i => i.id === 'i1').kcal), { basis: '100', v: 250 });
+  await p.click('.ob-it:has-text("المطبخ والوصفات")'); await p.click('.ob-mi:has-text("الوصفات والتكلفة")'); await p.waitForTimeout(300);
+  const card = () => p.locator('.card:has-text("مندي لحم")').last().innerText();
+  assert.match(await card(), /السعرات ناقصة: طماطم/, 'لا رقم جزئي');
+  await p.evaluate(() => window.setOrg(g => ({ ...g, items: g.items.map(i => i.id === 'i2' ? { ...i, kcal: { basis: '100', v: 18 } } : i) }))); await p.waitForTimeout(300);
+  assert.match(await card(), /1268 سعرة/, 'لحم 0.5 كجم خام × 2500 + طماطم 0.1 × 180');
+  assert.equal(await p.locator('button:has-text("بطاقة السعرات")').count(), 1);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
 test('مراقب التكاليف: يعتمد ويراقب بلا إضافة أو تعديل', async () => {
   const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Inventory/ctl/waste');
   assert.equal(await p.locator('.card:has-text("ضوابط الهدر") button:has-text("تعديل")').count(), 0, 'لا يعدّل الحدود');

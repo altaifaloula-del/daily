@@ -906,3 +906,18 @@ test('الآيبان: موثّق بآخر اعتماد موقّع، والمعت
   assert.deepEqual(E.ibanStatus(org, 'err').payees.find(p => p.ent === 'emp:e1').st, 'na', 'تعذّر القراءة ⇒ لا ادعاء توثيق');
   assert.deepEqual([...E.IBAN_APPROVERS].sort(), ['finance_department', 'general_management', 'head_office', 'system_admin']);
 });
+
+// ===== v41.1 — السعرات الحرارية =====
+test('السعرات: لكل 100 غ/مل تُحوَّل بوحدة الصنف، ولكل وحدة للمعدود، والتحضيرات تُفكّ، والناقص لا يُعطى رقمًا جزئيًا، والمعتمدة تتقدم', () => {
+  const org = baseOrg({ items: [{ id: 'ch', name: 'دجاج', unit: 'كجم', kcal: { basis: '100', v: 165 } }, { id: 'oi', name: 'زيت', unit: 'لتر', kcal: { basis: '100', v: 884 } },
+      { id: 'br', name: 'خبز', unit: 'حبة', kcal: { basis: 'unit', v: 160 } }, { id: 'ga', name: 'ثوم', unit: 'كجم' }, { id: 'sp', name: 'بهارات', unit: 'جم', kcal: { basis: '100', v: 300 } }],
+    preps: [{ id: 'sauce', name: 'صلصة', unit: 'كجم', batch: 1, parts: [{ itemId: 'oi', qty: 0.5 }, { itemId: 'sp', qty: 100 }] }] });
+  assert.equal(E.kcalPerUnit(org.items[0]), 1650, '165 لكل 100 غ ⇒ 1650 لكل كجم');
+  assert.equal(E.kcalPerUnit(org.items[4]), 3, '300 لكل 100 غ ⇒ 3 لكل غرام');
+  assert.equal(E.kcalPerUnit(org.items[3]), null);
+  const P = { id: 'P', name: 'شاورما', parts: [{ itemId: 'ch', qty: 0.15, yield: 75 }, { itemId: 'br', qty: 1 }, { prepId: 'sauce', qty: 0.03 }] };
+  assert.deepEqual(E.productKcal(org, P), { kcal: 632, miss: [], src: 'recipe' }, 'دجاج 0.2 كجم خام ×1650=330 + خبز 160 + صلصة (0.015 لتر×8840=132.6 + 3 غ×3=9) = 631.6');
+  assert.deepEqual(E.productKcal(org, { ...P, parts: [...P.parts, { itemId: 'ga', qty: 0.01 }] }), { kcal: null, miss: ['ثوم'], src: 'recipe' }, 'مكوّن بلا سعرات ⇒ ناقصة لا رقم جزئي');
+  assert.deepEqual(E.productKcal(org, { ...P, kcalDeclared: '610' }), { kcal: 610, src: 'declared', miss: [] }, 'المعتمدة من مختبر تتقدم');
+  assert.equal(E.productKcal(org, { id: 'x', parts: [] }).kcal, null);
+});

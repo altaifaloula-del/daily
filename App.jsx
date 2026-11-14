@@ -2809,7 +2809,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v41.0';
+const APP_VER = 'v41.1';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -7915,6 +7915,25 @@ function recipeRaw(org, parts, mult = 1, seen = []) {
   if (!seen.length) Object.keys(raw).forEach(k => { raw[k] = Math.round(raw[k] * 10000) / 10000; });
   return { raw, missing, cycle };
 }
+/* v41.1 — السعرات الحرارية (إلزام هيئة الغذاء والدواء بعرضها في قوائم المطاعم)
+   الصنف: kcal = { basis: '100' (لكل 100 غ/مل — للأوزان والأحجام) | 'unit' (لكل وحدة الصنف), v } من بطاقة القيمة الغذائية.
+   سعرات الطبق = Σ الكمية الخام (بالناتج) × سعرات وحدتها، والتحضيرات تُفكّ لخاماتها. أي مكوّن بلا سعرات ⇒ «ناقصة» لا رقم جزئي.
+   القيمة المعتمدة من مختبر للطبق (kcalDeclared) تتقدم على المحسوبة. */
+const kcalUnitFactor = (unit) => { const u = String(unit || '').trim().toLowerCase();
+  if (/^(كجم|كغ|كيلو|كيلوجرام|كيلوغرام|kg)$/.test(u)) return 10; if (/^(جم|غ|غم|جرام|غرام|g)$/.test(u)) return 0.01;
+  if (/^(لتر|ل|l|ltr)$/.test(u)) return 10; if (/^(مل|ml)$/.test(u)) return 0.01; return null; };
+const kcalPerUnit = (it) => { const k = it && it.kcal; if (!k || k.v === '' || k.v == null || !(Number(k.v) >= 0)) return null;
+  if (k.basis === 'unit') return Number(k.v); const f = kcalUnitFactor(it.unit); return f == null ? null : Number(k.v) * f; };
+function recipeKcal(org, parts) {
+  const R = recipeRaw(org, parts); const items = (org && org.items) || []; let kcal = 0; const miss = [...R.missing, ...(R.cycle ? ['وصفة دائرية'] : [])];
+  Object.entries(R.raw).forEach(([id, q]) => { const it = items.find(x => x.id === id); const k = kcalPerUnit(it); if (k == null) miss.push((it && it.name) || 'مكوّن محذوف'); else kcal += q * k; });
+  return { kcal: miss.length ? null : Math.round(kcal), miss: [...new Set(miss)] };
+}
+function productKcal(org, p) {
+  if (p && p.kcalDeclared != null && p.kcalDeclared !== '' && Number(p.kcalDeclared) >= 0) return { kcal: Math.round(Number(p.kcalDeclared)), src: 'declared', miss: [] };
+  if (!p || !(p.parts || []).length) return { kcal: null, src: 'none', miss: ['بلا وصفة'] };
+  return { ...recipeKcal(org, p.parts), src: 'recipe' };
+}
 /** تكلفة وصفة بالمتوسط المرجّح: { cost, miss } — miss اسم أول مكوّن بلا تكلفة معروفة */
 function recipeCost(org, parts, avg) {
   const R = recipeRaw(org, parts); const items = (org && org.items) || []; let cost = 0, miss = R.missing[0] || (R.cycle ? 'وصفة دائرية' : '');
@@ -10483,5 +10502,5 @@ export { staffingPlan };
 // v39.4 — استيراد مبيعات نقاط البيع ومطابقتها
 export { piHour, piCutoff, posRecon, salesDays, importDraftClosing };
 // v40.0 — أساس الرقابة
-export { PROFIT_OPTS, profitMissing, profitDays, menuEngineering, MENU_CLS, SAV_KIND, savingsMeasure, savingsOpps, savingsTrack, CR_TYPE, cardStmtLines, cardRecon, recipeRaw, recipeCost, prepUnitCost, prepMix, prepPlan, ibanNorm, ibanMask, IBAN_APPROVERS, IBAN_ST, loadIbanSigs, ibanPayees, ibanStatus, requestIban, ibanApply };
+export { PROFIT_OPTS, profitMissing, profitDays, menuEngineering, MENU_CLS, SAV_KIND, savingsMeasure, savingsOpps, savingsTrack, CR_TYPE, cardStmtLines, cardRecon, recipeRaw, recipeCost, prepUnitCost, kcalUnitFactor, kcalPerUnit, recipeKcal, productKcal, prepMix, prepPlan, ibanNorm, ibanMask, IBAN_APPROVERS, IBAN_ST, loadIbanSigs, ibanPayees, ibanStatus, requestIban, ibanApply };
 export { UpdateGate, APP_CV, auditWrite, logAudit, auditFetch, sigDigest, signoff, signDecision, sigFailMsg, loadSignoffs, loadRelease, raiseRelease, sigVerify, SIG_BADGE, SIG_NAME };
