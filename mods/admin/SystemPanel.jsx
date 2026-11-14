@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { cloud, KEYS, bfKey, kb, authApi } from '../../storage';
 import { Settings, Check, Clock, HardDrive, Download, ShieldCheck, Upload, X, ShieldAlert, RefreshCw, Trash2, FileBarChart } from 'lucide-react';
-import { CloudHealth, Field, MfaPolicyCard, Modal, NationalAddressFields, PhotoField, ROLES, fmtNA, isoD, lockedThru, money, naClean, naErr, naHas, nowISO, periodLocked, snapAll, snapPut, today, uid, verifyBackup, logAudit } from '../../App.jsx';
+import { CloudHealth, Field, MfaPolicyCard, Modal, NationalAddressFields, PhotoField, ROLES, fmtNA, isoD, lockedThru, money, naClean, naErr, naHas, nowISO, periodLocked, snapAll, snapPut, today, uid, verifyBackup, logAudit, isMzbk, mzbkDecrypt } from '../../App.jsx';
 
 export function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
   const [hist, setHist] = useState({ closings: [] });
@@ -217,6 +217,7 @@ export function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
 
   // v8.5: حالات النسخ والاستعادة المحصّنة
   const [vReport, setVReport] = useState(null);       // تقرير فحص نسخة
+  const [encArm, setEncArm] = useState(null);         // v41.8 نسخة ليلية مشفّرة بانتظار المفتاح
   const [restoreArm, setRestoreArm] = useState(null); // {data, report, text} تأكيد الاستعادة
   const [snaps, setSnaps] = useState([]);
   const verifyRef = useRef();
@@ -251,8 +252,28 @@ export function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
   // فحص نسخة دون أي تغيير — «تجربة الاستعادة» قبل الحاجة إليها
   const verifyFile = async (e) => {
     const f = e.target.files?.[0]; e.target.value = ''; if (!f) return;
+    setEncArm(null);
+    // v41.8: النسخة الليلية المشفّرة (.enc) ⇒ يُطلب مفتاح النسخ هنا داخل المنصة ثم تُفك محليًا
+    const buf = await f.arrayBuffer().catch(() => null);
+    if (buf && isMzbk(buf)) { setVReport(null); setEncArm({ name: f.name, buf, pass: '', busy: false, err: '' }); return; }
     const data = await readJson(f);
     setVReport({ name: f.name, ...(data ? verifyBackup(data) : { ok: false, err: 'الملف ليس JSON صالحًا' }) });
+  };
+  const decryptArm = async () => {
+    if (!encArm || encArm.busy) return;
+    setEncArm({ ...encArm, busy: true, err: '' });
+    try {
+      const d = await mzbkDecrypt(encArm.buf, encArm.pass);
+      setVReport({ name: encArm.name, enc: true, plain: d, ...verifyBackup(d.logical) });
+      setEncArm(null);
+    } catch (er) { setEncArm(a => a && { ...a, busy: false, pass: '', err: er.message || 'تعذّر فك النسخة' }); }
+  };
+  const dlPlain = () => {
+    if (!vReport?.plain) return;
+    const blob = new Blob([JSON.stringify(vReport.plain.logical)], { type: 'application/json' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = String(vReport.name || 'mizan-backup').replace(/\.enc$/, '') + '.json'; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   };
   // الاستعادة: فحص ← عرض ← تأكيد كتابي ← لقطة أمان ← استبدال موثق
   // v28.1: الاستعادة موقوفة من الواجهة — غير ذرّية وتُطلق هجرة قديمة قد تكتب بيانات مجمّدة فوق الحالية
@@ -365,8 +386,8 @@ export function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
                 : <span className="badge b-mint">آخر تنزيل قبل {dlAgeDays} يومًا ✓ {((org.backupMeta || {}).by) ? '· ' + org.backupMeta.by : ''}</span>}
           </div>
           <div style={{ fontSize: 12, color: 'var(--dim)', marginBottom: 12, lineHeight: 1.9 }}>
-            المنصة مستضافة استضافة ثابتة بلا خادم مجدول — لذا الحماية «التلقائية» هي <b>لقطات يومية محلية</b> على
-            أجهزة الإدارة (أدناه)، والحماية الخارجية هي <b>النسخة الملفية</b>: نزّلها أسبوعيًا واحفظها خارج الجهاز.
+            الحماية ثلاث طبقات: <b>نسخة ليلية مشفّرة على الخادم</b> (تلقائية)، و<b>لقطات يومية محلية</b> على
+            أجهزة الإدارة (أدناه)، و<b>النسخة الملفية</b>: نزّلها أسبوعيًا واحفظها خارج الجهاز.
             وزر «فحص نسخة» يجري تجربة استعادة حقيقية دون أي تغيير: يقرأ الملف ويشغّل المحرك المحاسبي عليه ويثبت توازنه.
           </div>
           <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
@@ -374,8 +395,25 @@ export function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
             <button className="btn" onClick={() => verifyRef.current?.click()}><ShieldCheck size={14} />فحص نسخة (تجربة استعادة)</button>
             <button className="btn" onClick={() => fileRef.current?.click()}><Upload size={14} />استعادة من ملف</button>
             <input ref={fileRef} type="file" accept="application/json" style={{ display: 'none' }} onChange={restore} />
-            <input ref={verifyRef} type="file" accept="application/json" style={{ display: 'none' }} onChange={verifyFile} />
+            <input ref={verifyRef} type="file" accept="application/json,.json,.enc" style={{ display: 'none' }} onChange={verifyFile} />
           </div>
+          <div style={{ fontSize: 11.5, color: 'var(--dim)', marginTop: 8, lineHeight: 1.8 }}>
+            🌙 <b>النسخة الليلية على الخادم</b>: تُؤخذ كل ليلة 03:17 من GitHub Actions، تُفحص بالمحرك نفسه وتُشفَّر، وتُحفظ 30 يومًا.
+            لفحص إحداها نزّل الملف المشفّر (امتداده <span className="num">enc</span>) واختره من «فحص نسخة» وأدخل مفتاح النسخ هنا.
+          </div>
+          {encArm && (
+            <div className="card" data-enc-arm style={{ marginTop: 12, background: 'var(--ink)' }}>
+              <div className="card-t" style={{ fontSize: 14 }}>🔒 نسخة مشفّرة: <span className="num">{encArm.name}</span></div>
+              <div style={{ fontSize: 12, color: 'var(--dim)', margin: '6px 0 10px' }}>أدخل مفتاح النسخ (BACKUP_KEY). يُفك الملف على هذا الجهاز فقط ولا يُرسل المفتاح لأي جهة.</div>
+              <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                <input className="inp" type="password" autoComplete="off" aria-label="مفتاح النسخ" style={{ flex: '1 1 220px' }} value={encArm.pass}
+                  onChange={e => setEncArm({ ...encArm, pass: e.target.value })} onKeyDown={e => e.key === 'Enter' && decryptArm()} />
+                <button className="btn pri" disabled={!encArm.pass || encArm.busy} onClick={decryptArm}>{encArm.busy ? 'جارٍ الفك…' : 'فك وفحص'}</button>
+                <button className="btn gh" onClick={() => setEncArm(null)}>إلغاء</button>
+              </div>
+              {encArm.err && <div style={{ color: 'var(--rose)', fontSize: 12, marginTop: 8 }}>{encArm.err}</div>}
+            </div>
+          )}
           {vReport && (
             <div className="card" style={{ marginTop: 12, background: 'var(--ink)', borderColor: vReport.ok ? 'rgba(79,178,134,.45)' : 'rgba(217,84,77,.45)' }}>
               <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
@@ -390,6 +428,10 @@ export function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
                   <br />المحاسبة: <b>{vReport.counts.entries}</b> قيدًا — {vReport.balanced ? <b style={{ color: 'var(--mint)' }}>متوازنة ✓ (إجمالي {money(vReport.totalDebit)})</b> : <b style={{ color: 'var(--rose)' }}>غير متوازنة!</b>}
                 </> : <><br /><span style={{ color: 'var(--rose)' }}>{vReport.err}</span></>}
               </div>
+              {vReport.ok && vReport.plain && <div className="row" style={{ marginTop: 8 }}>
+                <button className="btn sm" onClick={dlPlain}><Download size={13} />تنزيل النسخة مفكوكة (JSON)</button>
+                <span style={{ fontSize: 11, color: 'var(--dim)' }}>احفظها في مكان آمن — الملف المفكوك غير مشفّر.</span>
+              </div>}
             </div>
           )}
         </div>

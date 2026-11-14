@@ -1,0 +1,49 @@
+name: النسخ الاحتياطي الليلي (مشفّر)
+
+# v41.8 — كل ليلة 03:17 بتوقيت الرياض (00:17 UTC)، ويدويًا من تبويب Actions.
+# يقرأ Firestore بحساب الخدمة الموجود (قراءة فقط)، يفحص توازن الدفاتر، يشفّر بـ BACKUP_KEY، ويحفظ النسخة 30 يومًا.
+# فشل أي خطوة ⇒ يفشل التشغيل ⇒ يصل مالك المستودع بريد تنبيه من GitHub.
+on:
+  schedule:
+    - cron: '17 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    name: نسخة ليلية مشفّرة ومفحوصة
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: تثبيت الحزم
+        run: npm ci
+      - name: تجهيز اعتماد الخدمة
+        env:
+          SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$SA" ]; then echo "::error::لم يُضبط FIREBASE_SERVICE_ACCOUNT"; exit 1; fi
+          umask 077
+          printf '%s' "$SA" > "$RUNNER_TEMP/sa.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/sa.json" >> $GITHUB_ENV
+      - name: قراءة وفحص وتشفير
+        env:
+          PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          BACKUP_KEY: ${{ secrets.BACKUP_KEY }}
+          OUT_DIR: ${{ runner.temp }}/backup
+        run: node scripts/nightly-backup.mjs
+      - name: حفظ النسخة (30 يومًا)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mizan-backup-${{ github.run_id }}
+          path: ${{ runner.temp }}/backup/
+          retention-days: 30
+          if-no-files-found: error
+      - name: حذف ملف الاعتماد
+        if: always()
+        run: rm -f "$RUNNER_TEMP/sa.json"
