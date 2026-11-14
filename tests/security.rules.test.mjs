@@ -187,3 +187,16 @@ test('ث18 سقف القراءات: مع سياسة الخطوتين والحد 
     await env.withSecurityRulesDisabled(async (ctx) => { await deleteDoc(doc(ctx.firestore(), 'platform', 'security')); });
   }
 });
+
+test('ث21 تغيير حساب الدفع (آيبان): يعتمده شخص آخر مؤهل غير طالبه — بلا استثناء للمدير — وبالآيبان المقدَّم نفسه', async () => {
+  const sub = id('ib');
+  await assertSucceeds(setDoc(doc(as('owner'), 'signoffs', sub), sig('owner', { kind: 'iban', stage: 'submit', entityId: 'emp:e1', branchId: '' })), 'المدير يطلب التغيير');
+  await assertFails(setDoc(doc(as('owner'), 'signoffs', id('x')), sig('owner', { kind: 'iban', stage: 'approve', entityId: 'emp:e1', branchId: '', subRef: sub })), 'الطالب يعتمد نفسه — حتى المدير');
+  for (const k of ['acct', 'ctl', 'bm', 'cash', 'view']) await assertFails(setDoc(doc(as(k), 'signoffs', id('x')), sig(k, { kind: 'iban', stage: 'approve', entityId: 'emp:e1', branchId: '', subRef: sub })), k + ' غير مؤهل');
+  await assertFails(setDoc(doc(as('fin'), 'signoffs', id('x')), sig('fin', { kind: 'iban', stage: 'approve', entityId: 'emp:e1', branchId: '', subRef: sub, digest: HEX2 })), 'آيبان غير المقدَّم');
+  await assertFails(setDoc(doc(as('fin'), 'signoffs', id('x')), sig('fin', { kind: 'iban', stage: 'approve', entityId: 'emp:e2', branchId: '', subRef: sub })), 'مرجع طلب لجهة أخرى');
+  await assertFails(setDoc(doc(as('fin'), 'signoffs', id('x')), sig('fin', { kind: 'iban', stage: 'approve', entityId: 'emp:e1', branchId: '', nosub: true, edate: '2020-01-01' })), 'لا مسار «قبل البدء»');
+  await assertSucceeds(setDoc(doc(as('fin'), 'signoffs', id('a')), sig('fin', { kind: 'iban', stage: 'approve', entityId: 'emp:e1', branchId: '', subRef: sub })), 'المالية تعتمد');
+  await assertSucceeds(setDoc(doc(as('gm'), 'signoffs', id('r')), sig('gm', { kind: 'iban', stage: 'reject', entityId: 'emp:e1', branchId: '', subRef: sub })), 'أو ترفض');
+  await assertFails(setDoc(doc(as('bm'), 'signoffs', id('x')), sig('bm', { kind: 'iban', stage: 'submit', entityId: 'emp:e9', branchId: '' })), 'الفرع لا يطلب تغيير حسابات الدفع المركزية');
+});

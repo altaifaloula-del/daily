@@ -59,6 +59,7 @@ const GrowthAnalytics = lazyComp(() => import('./mods/acct/GrowthAnalytics.jsx')
 const EntitiesCenter = lazyComp(() => import('./mods/acct/EntitiesCenter.jsx'), 'EntitiesCenter');
 const ReportBuilder = lazyComp(() => import('./mods/acct/ReportBuilder.jsx'), 'ReportBuilder');
 const ExecDashboard = lazyComp(() => import('./mods/acct/ExecDashboard.jsx'), 'ExecDashboard');
+const IbanControl = lazyComp(() => import('./mods/acct/IbanControl.jsx'), 'IbanControl');   // v40.9
 const CardRecon = lazyComp(() => import('./mods/acct/CardRecon.jsx'), 'CardRecon');   // v40.6
 const SavingsPlan = lazyComp(() => import('./mods/acct/SavingsPlan.jsx'), 'SavingsPlan');   // v40.4
 const MenuEngineering = lazyComp(() => import('./mods/acct/MenuEngineering.jsx'), 'MenuEngineering');   // v40.3
@@ -2560,7 +2561,7 @@ const LAUNCH_APPS = [
     sections: ['اللوحة التنفيذية', 'لوحة المؤشرات', 'مقارنة الفروع', 'تحليلات النمو', 'تحليل التعادل', 'لوحة الأهداف', 'ماذا-لو', 'المركز الذكي'], kw: ['تحليل', 'أداء', 'لوحة', 'تنفيذية', 'مؤشرات', 'مقارنة', 'فروع', 'نمو', 'تعادل', 'أهداف', 'سيناريو', 'ماذا لو', 'ذكاء', 'توقع', 'kpi'] },
   { id: 'alerts', hideOnHome: 'analytics', ar: 'مركز التنبيهات', en: 'Alerts', cat: 'bi', icon: Bell, open: { tab: 'alerts' },
     sections: ['موردون', 'موازنة', 'نقد وسيولة', 'مخزون', 'ضريبة', 'تشغيل', 'إعداد'], kw: ['تنبيه', 'تنبيهات', 'إنذار', 'متأخر', 'تجاوز', 'عجز', 'متابعة', 'إجراء'] },
-  { id: 'acct', tabs: ['acct', 'treasury', 'entities', 'cardrec'], ar: 'المالية والمحاسبة', en: 'Finance & Accounting', cat: 'fin', icon: Scale, open: { tab: 'acct' },
+  { id: 'acct', tabs: ['acct', 'treasury', 'entities', 'cardrec', 'ibanctl'], ar: 'المالية والمحاسبة', en: 'Finance & Accounting', cat: 'fin', icon: Scale, open: { tab: 'acct' },
     sections: ['القيود اليومية', 'دليل الحسابات', 'ميزان المراجعة', 'القوائم المالية', 'مراكز التكلفة', 'الضريبة والزكاة', 'الأصول والإهلاك', 'التسوية البنكية', 'الإقفال الشهري'],
     kw: ['قيد', 'يومية', 'حساب', 'ميزان', 'قائمة', 'دخل', 'مركز مالي', 'مراكز تكلفة', 'أصل', 'إهلاك', 'بنك', 'تسوية', 'إقفال', 'قفل', 'محاسبة', 'ضريبة', 'قيمة مضافة', 'زكاة', 'زاتكا'] },
   { id: 'treasury', hideOnHome: 'acct', ar: 'الخزينة والترحيل', en: 'Treasury', cat: 'fin', icon: Landmark, open: { tab: 'treasury' },
@@ -2808,7 +2809,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v40.8';
+const APP_VER = 'v40.9';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3833,7 +3834,7 @@ function PlatformApp() {
   const shared = { org, ops, pulse: pulseA, me, myBranches, scoped, commit, commitOrg, say, setTab, theme, acctIntent, openAcctView, invIntent, openInvView };
 
   // حماية: منع الوصول لتبويب غير مسموح لدور المستخدم (بلا hook — بعد returns الشرطية)
-  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'closing') ? ['myactions', 'myforecast'] : []), ...(NAV.some(n => n.id === 'closing') && (ROLES[me.role]?.approver || ROLES[me.role]?.admin || ROLES[me.role]?.scope === 'all') ? ['cashiers'] : []), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'anomaly', 'actions', 'forecast', 'profit', 'menu', 'savings'] : []), ...(NAV.some(n => n.id === 'acct') ? ['cardrec'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : []), ...(NAV.some(n => n.id === 'people') ? ['payroll', 'workforce', 'muster', 'overtime'] : []), ...(NAV.some(n => n.id === 'purchasing') ? ['suppliers', 'reorder', 'suprep'] : []), ...(NAV.some(n => n.id === 'hrops') ? ['attendance', 'leaves', 'shiftengine', 'staffplan', 'tasks', 'points', 'esign'] : []), ...(NAV.some(n => n.id === 'hrperf') ? ['kpi', 'empfile', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'] : [])];
+  const allowedTabs = [...NAV.map(n => n.id), ...(NAV.some(n => n.id === 'closing') ? ['myactions', 'myforecast'] : []), ...(NAV.some(n => n.id === 'closing') && (ROLES[me.role]?.approver || ROLES[me.role]?.admin || ROLES[me.role]?.scope === 'all') ? ['cashiers'] : []), ...(NAV.some(n => n.id === 'analytics') ? ['exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai', 'anomaly', 'actions', 'forecast', 'profit', 'menu', 'savings'] : []), ...(NAV.some(n => n.id === 'acct') ? ['cardrec', 'ibanctl'] : []), ...(NAV.some(n => n.id === 'reporting') ? ['reports', 'rbuild', 'boardpack', 'cashflow'] : []), ...(NAV.some(n => n.id === 'people') ? ['payroll', 'workforce', 'muster', 'overtime'] : []), ...(NAV.some(n => n.id === 'purchasing') ? ['suppliers', 'reorder', 'suprep'] : []), ...(NAV.some(n => n.id === 'hrops') ? ['attendance', 'leaves', 'shiftengine', 'staffplan', 'tasks', 'points', 'esign'] : []), ...(NAV.some(n => n.id === 'hrperf') ? ['kpi', 'empfile', 'rolekpi', 'rewards', 'corrective', 'training', 'perfsnap', 'hrdash'] : [])];
   const safeTab = allowedTabs.includes(tab) ? tab : (allowedTabs[0] || 'closing');
 
   return (
@@ -4095,7 +4096,7 @@ function PlatformApp() {
               {safeTab === 'inv' && <Inventory {...shared} />}
               {safeTab === 'whbranch' && <BranchWarehouse {...shared} />}
               {safeTab === 'partners' && <Partners {...shared} />}
-              {['acct', 'treasury', 'entities', 'cardrec'].includes(safeTab) && <Hub hubId="finhub" {...shared} view={safeTab} />}
+              {['acct', 'treasury', 'entities', 'cardrec', 'ibanctl'].includes(safeTab) && <Hub hubId="finhub" {...shared} view={safeTab} />}
               {['docs', 'archive'].includes(safeTab) && <Hub hubId="docshub" {...shared} view={safeTab} />}
               {safeTab === 'admin' && <Admin {...shared} />}
               {safeTab === 'audit' && <AuditView {...shared} onSeen={() => setLastSeenAudit(Date.now())} />}
@@ -6013,7 +6014,8 @@ const HUBS = {
       { id: 'acct', ar: 'المحاسبة', icon: Scale, comp: Accounting },
       { id: 'treasury', ar: 'الخزينة والترحيل', icon: Landmark, comp: Treasury },
       { id: 'entities', ar: 'المنشآت', icon: Building2, comp: EntitiesCenter },
-      { id: 'cardrec', ar: 'مطابقة تسويات الشبكة', icon: CreditCard, comp: CardRecon, like: 'acct' }   // v40.6
+      { id: 'cardrec', ar: 'مطابقة تسويات الشبكة', icon: CreditCard, comp: CardRecon, like: 'acct' },   // v40.6
+      { id: 'ibanctl', ar: 'ضبط حسابات الدفع', icon: ShieldCheck, comp: IbanControl, like: 'acct' }   // v40.9
     ]
   },
   docshub: {
@@ -8267,6 +8269,64 @@ function menuEngineering(org, ops, opts = {}) {
     tot: { qty: Q, rev: S(rows, 'totRev'), cost: S(rows, 'totCost'), cm: S(rows, 'totCm'), foodPct: S(rows, 'totRev') > 0 ? anR(S(rows, 'totCost') / S(rows, 'totRev') * 100) : null },
     cls: Object.fromEntries(Object.keys(MENU_CLS).map(k => [k, { n: by(k).length, cm: S(by(k), 'totCm'), qty: anR(sum(by(k), r => r.qty)) }])) };
 }
+/* ===== v40.9 — ضبط تغيير حسابات الدفع (آيبان الموظف والمورد) =====
+   تغيير الآيبان طلب يوقّعه طالبه (signoffs: iban/submit) ويعتمده شخص آخر من المالية/الإدارة (iban/approve) بالآيبان نفسه — تفرضه قواعد Firestore (ثابت 21).
+   الحالة: ok = آيبان السجل يطابق آخر اعتماد موقّع · approved = اعتُمد ولم يُطبَّق بعد على السجل (يُستخدم المعتمد) · unverified = بلا اعتماد موقّع (قديم أو جديد)
+   · changed = يخالف آخر اعتماد (عُدّل خارج المسار) · pending = طلب بانتظار القرار. ملف حماية الأجور لا يُصدَر إلا بآيبانات ok/approved. */
+const ibanNorm = (s) => String(s || '').replace(/\s/g, '').toUpperCase();
+const ibanMask = (s) => { const n = ibanNorm(s); return n ? n.slice(0, 4) + '…' + n.slice(-4) : '—'; };
+const IBAN_APPROVERS = ['head_office', 'system_admin', 'general_management', 'finance_department'];   // = [ROLES:IBAN] في القواعد
+const IBAN_ST = { ok: ['b-mint', 'موثّق'], approved: ['b-sky', 'معتمد — بانتظار التطبيق'], pending: ['b-amber', 'طلب بانتظار الاعتماد'], unverified: ['b-amber', 'غير موثّق'], changed: ['b-rose', 'مخالف لآخر اعتماد'], none: ['b-dim', 'بلا آيبان'], na: ['b-dim', 'بلا تحقق موقّع'] };
+/** توقيعات الآيبان كلها (بلا حد زمني — الاعتماد القديم يبقى مرجعًا): null خارج Firestore، 'err' عند تعذّر القراءة */
+async function loadIbanSigs() {
+  const c = await ctlIdentity(); if (!c) return null;
+  try { const s = await ctlTimeout(c.f.getDocs(c.f.query(c.f.collection(c.f.db, 'signoffs'), c.f.where('kind', '==', 'iban'))));
+    return s.docs.map(x => { const d = x.data() || {}; return { id: x.id, ...d, atMs: d.at && d.at.toMillis ? d.at.toMillis() : 0 }; }); } catch { return 'err'; }
+}
+const ibanPayees = (org) => [
+  ...(org.employees || []).map(e => ({ ent: 'emp:' + e.id, type: 'emp', id: e.id, name: e.name, iban: ibanNorm(e.iban), branchId: e.branchId || '', active: e.isActive !== false })),
+  ...(org.suppliers || []).map(x => ({ ent: 'sup:' + x.id, type: 'sup', id: x.id, name: x.name, iban: ibanNorm(x.iban), branchId: '', active: !x.inactive }))];
+/** الحالات: { payees:[{…, st, effective, pending, approved}], reqs:[{…, decision, decidedBy, valid}] } — sigs=null: وضع محلي (قرارات الطلب نفسه) */
+function ibanStatus(org, sigs) {
+  const S = Array.isArray(sigs) ? sigs : [], cloud = Array.isArray(sigs);
+  const dg = (ent, iban) => sigDigest('iban', { id: ent, iban });
+  const reqs = (org.ibanReqs || []).map(r => {
+    const d = cloud ? (r.sigSubmit ? S.filter(x => x.subRef === r.sigSubmit && (x.stage === 'approve' || x.stage === 'reject')).sort((a, b) => (b.atMs || 0) - (a.atMs || 0))[0] : null)
+      : (r.localDecision ? { stage: r.localDecision, email: r.localBy, digest: dg(r.ent, r.iban) } : null);
+    return { ...r, decision: d ? d.stage : null, decidedBy: d ? d.email : '', valid: d && d.stage === 'approve' ? d.digest === dg(r.ent, r.iban) : null };
+  });
+  const payees = ibanPayees(org).map(p => {
+    const pending = reqs.find(r => r.ent === p.ent && !r.decision) || null;
+    const approved = reqs.filter(r => r.ent === p.ent && r.decision === 'approve' && r.valid).slice(-1)[0] || null;
+    let st;
+    if (approved && approved.iban !== p.iban) st = 'approved';
+    else if (!p.iban) st = pending ? 'pending' : 'none';
+    else if (!cloud) st = approved ? 'ok' : 'na';   // خارج السحابة أو تعذّرت القراءة: لا تحقق موقّع
+    else { const last = S.filter(x => x.entityId === p.ent && x.stage === 'approve').sort((a, b) => (b.atMs || 0) - (a.atMs || 0))[0];
+      st = last ? (last.digest === dg(p.ent, p.iban) ? 'ok' : 'changed') : 'unverified'; }
+    if (st === 'unverified' && pending) st = 'pending';
+    return { ...p, st, effective: st === 'ok' ? p.iban : st === 'approved' ? approved.iban : null, pending, approved };
+  });
+  return { payees, reqs, cloud };
+}
+/** طلب تغيير/توثيق آيبان: توقيع تقديم + سجل الطلب في المستند المركزي */
+async function requestIban(me, commitOrg, p, iban) {
+  const n = ibanNorm(iban); if (!/^SA\d{22}$/.test(n)) return { ok: false, msg: 'الآيبان السعودي: SA متبوعًا بـ 22 رقمًا' };
+  const sg = await signoff('iban', 'submit', { id: p.ent, iban: n }, { branchId: '' });
+  if (!sg.ok) return { ok: false, msg: sigFailMsg(sg, 'طلب الآيبان') };
+  const req = { id: uid('ibr'), ent: p.ent, name: p.name, iban: n, oldIban: ibanNorm(p.iban), sigSubmit: sg.id || '', by: me.name, byEmail: me.email || '', at: nowISO() };
+  const ok = await commitOrg(d => ({ ...d, ibanReqs: [...(d.ibanReqs || []).filter(r => !(r.ent === p.ent && !r.localDecision && !r.decided)), req] }),
+    { actionType: 'create', targetType: 'user_account', targetId: p.ent, title: p.iban && p.iban !== n ? 'طلب تغيير آيبان' : 'طلب توثيق آيبان', details: p.name + ' · ' + ibanMask(p.iban) + ' ← ' + ibanMask(n) });
+  return { ok: ok !== false, req };
+}
+/** تطبيق القرارات على السجلات (لمن يكتب المستند المركزي): المعتمد يحلّ محل الآيبان، والمرفوض يُزال من الطلبات */
+function ibanApply(d, decided) {
+  const ap = decided.filter(r => r.decision === 'approve' && r.valid), done = new Set(decided.map(r => r.id));
+  const val = (ent) => (ap.filter(r => r.ent === ent).slice(-1)[0] || {}).iban;
+  return { ...d, employees: (d.employees || []).map(e => { const v = val('emp:' + e.id); return v ? { ...e, iban: v } : e; }),
+    suppliers: (d.suppliers || []).map(x => { const v = val('sup:' + x.id); return v ? { ...x, iban: v } : x; }),
+    ibanReqs: (d.ibanReqs || []).filter(r => !done.has(r.id)) };
+}
 /* ===== v40.8 — قائمة التحضير اليومية للمطبخ =====
    كم يُحضَّر من كل تحضيرة ليوم معيّن في فرع: توقع مبيعات الفرع لذلك اليوم (forecastSales) × مزيج الأصناف (الكمية لكل ريال مبيعات)
    في آخر 28 يومًا — محسوبًا على الأيام التي فيها مبيعات بالأصناف فقط — × وصفات المنتجات. المتبقي من أمس يُطرح (يدخله المطبخ).
@@ -10019,6 +10079,7 @@ function sigDigest(kind, x) {
     ...(x.cardSplit ? [[r2(x.cardSplit.mada), r2(x.cardSplit.visa), r2(x.cardSplit.mc)]] : [])]   // v40.2: التقسيم ضمن البصمة متى وُجد
     : kind === 'waste' ? [x.id, x.branchId || '', x.whId || '', (x.lines || []).map(l => [l.itemId, q(l.qty)]), r2(x.value), x.reason || '']
     : kind === 'count' ? [x.id, x.whId || '', (x.lines || []).map(l => [l.itemId, q(l.final != null ? l.final : l.c1)])]
+    : kind === 'iban' ? ['iban', String(x.id), ibanNorm(x.iban)]   // v40.9: الجهة + الآيبان
     : [x.id, x.supplierId || '', (x.lines || []).map(l => [l.itemId || l.desc || '', q(l.qty), r2(l.price)])];
   return sha256Hex(JSON.stringify(a));
 }
@@ -10376,5 +10437,5 @@ export { staffingPlan };
 // v39.4 — استيراد مبيعات نقاط البيع ومطابقتها
 export { piHour, piCutoff, posRecon, salesDays, importDraftClosing };
 // v40.0 — أساس الرقابة
-export { PROFIT_OPTS, profitMissing, profitDays, menuEngineering, MENU_CLS, SAV_KIND, savingsMeasure, savingsOpps, savingsTrack, CR_TYPE, cardStmtLines, cardRecon, recipeRaw, recipeCost, prepUnitCost, prepMix, prepPlan };
+export { PROFIT_OPTS, profitMissing, profitDays, menuEngineering, MENU_CLS, SAV_KIND, savingsMeasure, savingsOpps, savingsTrack, CR_TYPE, cardStmtLines, cardRecon, recipeRaw, recipeCost, prepUnitCost, prepMix, prepPlan, ibanNorm, ibanMask, IBAN_APPROVERS, IBAN_ST, loadIbanSigs, ibanPayees, ibanStatus, requestIban, ibanApply };
 export { UpdateGate, APP_CV, auditWrite, logAudit, auditFetch, sigDigest, signoff, signDecision, sigFailMsg, loadSignoffs, loadRelease, raiseRelease, sigVerify, SIG_BADGE, SIG_NAME };

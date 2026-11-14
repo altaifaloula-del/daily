@@ -184,6 +184,30 @@ test('v40.8 قائمة التحضير: احتياج التحضيرات من ال
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+test('v40.9 الآيبان: تغيير آيبان الموظف لا يُكتب مباشرة بل يصير طلبًا، والطالب لا يعتمده، وشخص آخر يعتمد ثم يُطبَّق', async () => {
+  const NEW = 'SA' + '4'.repeat(22);
+  let { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Hub/admin/hr:payroll');
+  await p.locator('tr:has-text("أحمد علي") button:has-text("تعديل الراتب")').first().click(); await p.waitForTimeout(150);
+  await p.fill('input[placeholder^="SA00"]', NEW); await p.click('.modal button:has-text("حفظ")'); await p.waitForTimeout(400);
+  assert.equal(await p.evaluate(() => window.curOrg.employees.find(e => e.id === 'e1').iban), 'SA0380000000608010167519', 'لا يُكتب مباشرة');
+  assert.deepEqual(await p.evaluate(() => (window.curOrg.ibanReqs || []).map(r => [r.ent, r.iban, r.oldIban, r.by])), [['emp:e1', 'SA' + '4'.repeat(22), 'SA0380000000608010167519', 'مجاهد']]);
+  assert.match(await p.evaluate(() => window.lastSay && (window.lastSay.msg || window.lastSay)), /أُرسل للاعتماد/);
+  await ctx.close();
+  ({ p, errs, ctx } = await open({ ...devices['iPhone 13'] }, 'live/Hub/admin/finhub:ibanctl'));
+  await p.evaluate((NEW) => { window.setOrg(g => ({ ...g, ibanReqs: [{ id: 'r1', ent: 'emp:e1', name: 'أحمد علي', iban: NEW, oldIban: g.employees[0].iban, sigSubmit: '', by: 'مجاهد', at: '2026-11-14T10:00:00' }] })); }, NEW); await p.waitForTimeout(400);
+  assert.match(await p.locator('#r').innerText(), /بانتظار شخص آخر/, 'الطالب لا يرى زر الاعتماد');
+  assert.equal(await p.locator('.me-row button:has-text("اعتماد")').count(), 0);
+  await p.evaluate(() => window.as('ho')); await p.waitForTimeout(300);
+  await p.locator('.me-row button:has-text("اعتماد")').click(); await p.waitForTimeout(300);
+  assert.deepEqual(await p.evaluate(() => window.curOrg.ibanReqs.map(r => [r.localDecision, r.localBy])), [['approve', 'سارة']]);
+  assert.match(await p.locator('#r').innerText(), /معتمد — بانتظار التطبيق/);
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true, 'على الجوال بلا تمرير أفقي');
+  await p.evaluate(() => window.as('admin')); await p.waitForTimeout(300);
+  await p.click('button:has-text("تطبيق القرارات")'); await p.waitForTimeout(300);
+  assert.deepEqual(await p.evaluate(() => [window.curOrg.employees.find(e => e.id === 'e1').iban, (window.curOrg.ibanReqs || []).length]), [NEW, 0]);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
 test('مراقب التكاليف: يعتمد ويراقب بلا إضافة أو تعديل', async () => {
   const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Inventory/ctl/waste');
   assert.equal(await p.locator('.card:has-text("ضوابط الهدر") button:has-text("تعديل")').count(), 0, 'لا يعدّل الحدود');
