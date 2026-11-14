@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { EInvoiceOnboard } from './EInvoiceOnboard.jsx';
 import { Scale, FileBarChart, ChevronDown, Printer, Settings, Receipt, BarChart3, Lock, Landmark, FileText, TrendingUp, ArrowLeftRight, Store, Users, QrCode, Building2, Truck, ClipboardCheck, ShieldCheck, CalendarDays, Download, Upload, Plus, Grid3x3, Check, Trash2, RefreshCw, Wallet, TrendingDown, AlertTriangle, ChevronRight, ShieldAlert, Eye, ChevronLeft, CircleDollarSign, X } from 'lucide-react';
 import { VatRegisters, SupplierPurchReport } from './TaxPurchReports.jsx';   // v39.1
+import { OdooBar } from '../../App.jsx';   // v41.0
 import { ACCT_SECTIONS, ACC_KIND, Field, Kpi, LOCK_MSG, MizanMerge, Modal, NUM_FACE, Num, ROLES, _xe, acctSecKey, arDate, bankOfBranch, branchBanks, bsLayout, bsRowsOf, buildAccounting, buildPartners, capOK, countedClosing, customerAging, detectStmtMap, entityById, entityList, gosiRatesFor, isLayout, isRowsOf, isoD, lockedThru, makeXlsx, money, monthEnd, monthLedger, multiEntityOn, naMissing, nowISO, openDocWin, parseCsvGrid, parseMt940, parseXlsxGrid, payTotal, periodLocked, posClrOf, printA4, qrSvg, roleEdit, rolePost, snapMonths, stAddDays, stDate, stNum, sum, supplierAging, today, uid, useSecNav, zatcaTLV } from '../../App.jsx';
 
 export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }) {
@@ -1407,7 +1408,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
         const manualBtn = canPost && ACCT_SECTIONS.some(s => viewOK(s.v)) && <button className="btn sm" style={{ marginInlineStart: 'auto' }} onClick={newJm}><Plus size={14} />قيد يدوي / افتتاحي</button>;
         const modeSw = (
           <div className="acct-mode" role="group" aria-label="طريقة عرض الأقسام">
-            <button className={acctNavMode === 'dd' ? 'on' : ''} onClick={() => switchAcctNav('dd')} title="قوائم منسدلة"><ChevronDown size={14} /><span>قوائم</span></button>
+            <button className={acctNavMode === 'dd' ? 'on' : ''} onClick={() => switchAcctNav('menu')} title="شريط قوائم"><ChevronDown size={14} /><span>قوائم</span></button>
             <button className={acctNavMode === 'grid' ? 'on' : ''} onClick={() => switchAcctNav('grid')} title="شبكة"><Grid3x3 size={14} /><span>شبكة</span></button>
           </div>
         );
@@ -1442,34 +1443,8 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
             </div>
           );
         }
-        return (
-          <div className="row acct-nav" style={{ gap: 8, flexWrap: 'wrap' }}>
-            {GROUPS.map(g => {
-              const its = g.items.filter(ok);
-              if (!its.length) return null;
-              const act = its.includes(view);
-              const Ic = act ? IT[view][1] : g.icon;
-              return (
-                <div className="abar-dd" key={g.id}>
-                  <button className={'btn sm' + (act ? ' pri' : ' gh')} onClick={() => { setAcctNavOpen(o => o === g.id ? null : g.id); setRepOpen(false); setStgOpen(false); }}>
-                    <Ic size={14} />{act ? g.ar + ': ' + IT[view][0] : g.ar}<ChevronDown size={13} />
-                  </button>
-                  {acctNavOpen === g.id && (<>
-                    <div className="abar-back" onClick={() => setAcctNavOpen(null)} />
-                    <div className="abar-menu">
-                      <div className="abar-hd">{g.ar}</div>
-                      {its.map(v => { const [n, I] = IT[v]; return (
-                        <button key={v} onClick={() => go(v)} style={view === v ? { background: 'var(--acc-soft)', fontWeight: 700 } : undefined}><I size={13} />{n}{view === v && <Check size={13} style={{ marginInlineStart: 'auto' }} />}</button>
-                      ); })}
-                    </div>
-                  </>)}
-                </div>
-              );
-            })}
-            {modeSw}
-            {manualBtn}
-          </div>
-        );
+        // v41.0: شريط القوائم بنمط أودو (موحّد مع بقية التطبيقات)
+        return <OdooBar groups={GROUPS.map(g => ({ id: g.id, ar: g.ar, items: g.items.filter(ok).map(v => ({ id: v, ar: IT[v][0] })) }))} cur={view} onPick={go} extra={manualBtn} sw={modeSw} />;
       })()}
 
       {/* v15.11: لا قسم متاح (أُخفيت كل الأقسام لهذا المستخدم) — رسالة بدل تسريب اليومية */}

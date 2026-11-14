@@ -208,6 +208,22 @@ test('v40.9 الآيبان: تغيير آيبان الموظف لا يُكتب �
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+test('v41.0 شريط القوائم بنمط أودو: عناوين رئيسية، القائمة تفتح بأقسامها، الاختيار ينقل ويغلق، ولا تخرج عن الشاشة على الجوال', async () => {
+  const { p, errs, ctx } = await open({ ...devices['iPhone 13'] }, 'live/Inventory/admin/items');
+  assert.deepEqual(await p.locator('.ob > .ob-wrap > .ob-it, .ob > .ob-it').allInnerTexts(), ['المخزون', 'المطبخ والوصفات', 'الرقابة']);
+  assert.equal((await p.locator('.ob-it.on').innerText()).trim(), 'المخزون', 'العنوان النشط');
+  await p.click('.ob-it:has-text("المطبخ والوصفات")'); await p.waitForTimeout(150);
+  assert.deepEqual(await p.locator('.ob-menu .ob-mi').allInnerTexts(), ['الوصفات والتكلفة', 'قائمة التحضير اليومية', 'هندسة القائمة']);
+  const box = await p.locator('.ob-menu').boundingBox(); assert.ok(box.x >= 0 && box.x + box.width <= 390 + 1, 'القائمة داخل الشاشة'); assert.equal(await p.evaluate(() => { const m = document.querySelector('.ob-menu'), r = m.getBoundingClientRect(); return document.elementFromPoint(r.left + r.width / 2, r.top + 30).closest('.ob-menu') === m; }), true, 'القائمة فوق المحتوى لا تحته');
+  await p.click('.ob-mi:has-text("قائمة التحضير اليومية")'); await p.waitForTimeout(250);
+  assert.equal(await p.locator('.ob-menu').count(), 0, 'تُغلق بعد الاختيار');
+  assert.match(await p.locator('#r').innerText(), /قائمة التحضير اليومية/); assert.equal((await p.locator('.ob-it.on').innerText()).trim(), 'المطبخ والوصفات');
+  await p.click('.ob-it:has-text("الرقابة")'); await p.waitForTimeout(100); await p.mouse.click(5, 600); await p.waitForTimeout(100);
+  assert.equal(await p.locator('.ob-menu').count(), 0, 'النقر خارجها يغلقها');
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true, 'بلا تمرير أفقي');
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
 test('مراقب التكاليف: يعتمد ويراقب بلا إضافة أو تعديل', async () => {
   const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Inventory/ctl/waste');
   assert.equal(await p.locator('.card:has-text("ضوابط الهدر") button:has-text("تعديل")').count(), 0, 'لا يعدّل الحدود');
@@ -292,7 +308,9 @@ test('الإجراءات والتوصيات: إنشاء ← بدء ← إنجا�
   assert.equal(await p.locator('.act-item').count(), 1, 'المنجز يخرج من «الجارية»');
   // فريق فرع طيبة: يرى إجراء فرعه فقط في «الإغلاق اليومي ← إجراءات الفرع»
   await p.evaluate(() => { window.as('bm'); window.hub('closehub:myactions'); }); await p.waitForTimeout(400); await settle(p);
-  assert.ok((await p.locator('#r').innerText()).includes('إجراءات الفرع'), 'القسم في مركز الإغلاق');
+  await p.locator('.ob-it.on').click(); await p.waitForTimeout(150);   // v41.0: القسم داخل قائمة «الفرع» في شريط القوائم
+  assert.equal((await p.locator('.ob-mi.on').innerText()).trim(), 'إجراءات الفرع', 'القسم في مركز الإغلاق');
+  await p.locator('.ob-mi.on').click(); await p.waitForTimeout(150);
   assert.equal(await p.locator('.act-item').count(), 0, 'إجراء العليا ليس لفرعه، وإجراء فرعه منجز');
   await p.click('button:has-text("الكل")'); await p.waitForTimeout(150);
   assert.deepEqual(await p.locator('.act-item b').first().innerText(), 'مراجعة جدول المطبخ');
