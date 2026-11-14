@@ -279,6 +279,58 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    /* ===== v41.9 — الإغلاقات سجلات مستقلة بقواعد على مستوى الحقل (ث27–ث30) =====
+       الحالة والاعتماد حقول يراها الخادم: الفرع يكتب المسودة/المرحّل فقط، ولا يلمس إغلاقًا معتمدًا؛
+       «معتمد/مرفوض/اعتماد نهائي» لا يُكتب إلا مربوطًا بتوقيع موثّق للكاتب نفسه على السجل نفسه وبالبصمة ذاتها
+       (والتوقيع نفسه تحرسه approveOk: المدقق المؤهل وغير المقدّم). المدير وحده يعيد المعتمد مسودة أو يحذفه. */
+    function clShape(d, id) {
+      return d.keys().hasOnly(['branchId', 'date', 'status', 'gm', 'digest', 'data', 'sigRef', 'by', 'at', 'cv'])
+        && d.keys().hasAll(['branchId', 'date', 'status', 'gm', 'digest', 'data', 'by', 'at', 'cv'])
+        && d.branchId is string && d.branchId.matches('^[A-Za-z0-9_-]{1,80}$')
+        && d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && d.status in ['draft', 'submitted', 'approved', 'rejected']
+        && d.gm in ['', 'pending', 'approved', 'rejected']
+        && d.digest is string && d.digest.matches('^[0-9a-f]{64}$')
+        && d.data is string && d.data.size() <= 400000
+        && (!('sigRef' in d) || shortStr(d.sigRef, 200))
+        && d.by == userEmail() && d.at == request.time && cvOk(d)
+        && id.matches('^[A-Za-z0-9_-]{1,120}$');
+    }
+    // توقيع موثّق للكاتب نفسه على هذا الإغلاق، بالمرحلة المطلوبة والبصمة نفسها
+    function clSigned(d, id, stage) {
+      let r = ('sigRef' in d) ? get(sigPath(d.sigRef)).data : null;
+      return r != null && r.kind == 'closing' && r.entityId == id && r.stage == stage
+        && r.email == userEmail() && r.digest == d.digest && r.branchId == d.branchId;
+    }
+    // كتابة تشغيلية (بلا قرار): مسودة أو ترحيل، ولا اعتماد نهائي
+    function clWorking(d) { return d.status in ['draft', 'submitted'] && d.gm in ['', 'pending']; }
+    function clWrite(id, d, old) {
+      let m = memOf();
+      let adm = admOf(m);
+      let ro = m != null && m.get('role', '') in ['accountant_view'];
+      let base = okUser(m, adm) && clShape(d, id) && branchOf(m, adm, d.branchId) && (adm || !ro);
+      let mine = old == null || old.branchId == d.branchId;
+      return base && mine && (adm
+        // تشغيل: لا يلمس سجلًا معتمدًا، ولا يكتب حالة قرار
+        || (clWorking(d) && (old == null || old.status in ['draft', 'submitted', 'rejected']))
+        // تدقيق: مرحّل ← معتمد (بانتظار النهائي)
+        || (old != null && old.status == 'submitted' && d.status == 'approved' && d.gm in ['', 'pending'] && clSigned(d, id, 'audit'))
+        // اعتماد نهائي: معتمد ← معتمد نهائيًا (البصمة لا تتغير)
+        || (old != null && old.status == 'approved' && d.status == 'approved' && d.gm == 'approved' && d.digest == old.digest && clSigned(d, id, 'gm'))
+        // رفض: مرحّل أو معتمد ← مرفوض
+        || (old != null && old.status in ['submitted', 'approved'] && d.status == 'rejected' && clSigned(d, id, 'reject'))
+        // المركز (الخزينة): بيانات تشغيلية كحالة التوريد — دون تغيير الحالة ولا القرار ولا بصمة الأرقام
+        || (old != null && centralOf(m) && d.status == old.status && d.gm == old.gm && d.digest == old.digest));
+    }
+    match /closings/{id} {
+      allow read: if sigRead(resource.data.branchId);
+      allow create: if clWrite(id, request.resource.data, null);
+      allow update: if clWrite(id, request.resource.data, resource.data);
+      // الحذف: المدير، أو الفرع لمسودته فقط
+      allow delete: if (isAdmin() && mfaOk())
+        || (resource.data.status == 'draft' && sigRead(resource.data.branchId) && !readOnlyRole());
+    }
+
     match /platform/{docId} {
       allow read: if isMember()
         && mfaOk()

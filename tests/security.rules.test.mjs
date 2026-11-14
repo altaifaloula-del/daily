@@ -210,3 +210,60 @@ test('ث23 أرشيف فواتير نقطة البيع: يكتبه مسؤول ا
   await assertFails(getDoc(doc(as('bm'), 'platform', 'rms8_arch_A_2025')), 'الفرع لا يقرأ');
   await assertFails(setDoc(doc(as('owner'), 'platform', 'rms8_arch_A_x'), doc0), 'اسم بلا سنة مرفوض');
 });
+
+/* ===== v41.9 — الإغلاقات سجلات مستقلة (ث27–ث30) ===== */
+const cl = (k, x = {}) => ({ branchId: 'A', date: '2026-11-14', status: 'submitted', gm: 'pending', digest: HEX, data: '{}', by: U[k], at: serverTimestamp(), cv: 400000, ...x });
+const clOld = async (cid, x) => env.withSecurityRulesDisabled(async (ctx) => setDoc(doc(ctx.firestore(), 'closings', cid), { ...cl('bm', x), at: Timestamp.now() }));
+
+test('ث27 الفرع يكتب إغلاقه مسودةً أو مرحّلًا فقط — ولا «معتمد» بلا توقيع، ولا لفرع آخر', async () => {
+  const c = id('cl');
+  await assertSucceeds(setDoc(doc(as('cash'), 'closings', c), cl('cash', { status: 'draft' })), 'مسودة');
+  await assertSucceeds(setDoc(doc(as('cash'), 'closings', c), cl('cash')), 'ترحيل');
+  await assertFails(setDoc(doc(as('bm'), 'closings', id('x')), cl('bm', { status: 'approved' })), 'الفرع يكتب «معتمد» مباشرة');
+  await assertFails(setDoc(doc(as('bm'), 'closings', id('x')), cl('bm', { gm: 'approved' })), 'الفرع يكتب «اعتماد نهائي»');
+  await assertFails(setDoc(doc(as('bmB'), 'closings', id('x')), cl('bmB')), 'فرع آخر');
+  await assertFails(setDoc(doc(as('view'), 'closings', id('x')), cl('view')), 'العرض فقط');
+  await assertFails(setDoc(doc(as('cash'), 'closings', id('x')), cl('cash', { by: U.bm })), 'باسم غيره');
+  await assertFails(setDoc(doc(as('cash'), 'closings', id('x')), cl('cash', { extra: 1 })), 'حقل خارج الشكل');
+  await assertSucceeds(getDoc(doc(as('bm'), 'closings', c)), 'الفرع يقرأ إغلاقه');
+  await assertFails(getDoc(doc(as('bmB'), 'closings', c)), 'ولا يقرأ غيره');
+});
+
+test('ث28 التدقيق يُربط بتوقيع موثّق للمدقق نفسه على السجل نفسه وبالبصمة ذاتها', async () => {
+  const c = id('cl'); await clOld(c, {});
+  const sub = id('s'); await assertSucceeds(setDoc(doc(as('bm'), 'signoffs', sub), sig('bm', { kind: 'closing', stage: 'submit', entityId: c })));
+  const au = id('s'); await assertSucceeds(setDoc(doc(as('fin'), 'signoffs', au), sig('fin', { kind: 'closing', stage: 'audit', entityId: c, subRef: sub })));
+  await assertFails(setDoc(doc(as('fin'), 'closings', c), cl('fin', { status: 'approved' })), 'بلا مرجع توقيع');
+  await assertFails(setDoc(doc(as('fin'), 'closings', c), cl('fin', { status: 'approved', sigRef: au, digest: HEX2 })), 'بصمة غير الموقّعة');
+  await assertFails(setDoc(doc(as('gm'), 'closings', c), cl('gm', { status: 'approved', sigRef: au })), 'توقيع شخص آخر');
+  await assertFails(setDoc(doc(as('fin'), 'closings', c), cl('fin', { status: 'approved', sigRef: sub })), 'توقيع تقديم لا تدقيق');
+  const c2 = id('cl'); await clOld(c2, {});
+  await assertFails(setDoc(doc(as('fin'), 'closings', c2), cl('fin', { status: 'approved', sigRef: au })), 'توقيع سجل آخر');
+  await assertSucceeds(setDoc(doc(as('fin'), 'closings', c), cl('fin', { status: 'approved', sigRef: au })), 'المدقق بتوقيعه');
+  const g = id('s'); await assertSucceeds(setDoc(doc(as('gm'), 'signoffs', g), sig('gm', { kind: 'closing', stage: 'gm', entityId: c })));
+  await assertFails(setDoc(doc(as('gm'), 'closings', c), cl('gm', { status: 'approved', gm: 'approved', sigRef: g, digest: HEX2 })), 'الاعتماد النهائي لا يغيّر الأرقام');
+  await assertSucceeds(setDoc(doc(as('gm'), 'closings', c), cl('gm', { status: 'approved', gm: 'approved', sigRef: g })), 'اعتماد نهائي بتوقيعه');
+});
+
+test('ث29 الفرع لا يلمس إغلاقًا معتمدًا — والمدير وحده يعيده مسودة أو يحذفه', async () => {
+  const c = id('cl'); await clOld(c, { status: 'approved' });
+  await assertFails(setDoc(doc(as('bm'), 'closings', c), cl('bm')), 'الفرع يعيده مرحّلًا');
+  await assertFails(setDoc(doc(as('bm'), 'closings', c), cl('bm', { status: 'approved', digest: HEX2 })), 'الفرع يعدّل أرقامه');
+  await assertFails(setDoc(doc(as('fin'), 'closings', c), cl('fin', { status: 'approved', digest: HEX2 })), 'ولا المدقق بلا قرار موقّع');
+  await assertFails(deleteDoc(doc(as('bm'), 'closings', c)), 'الفرع يحذفه');
+  await assertFails(deleteDoc(doc(as('fin'), 'closings', c)), 'المالية تحذفه');
+  await assertSucceeds(setDoc(doc(as('fin'), 'closings', c), cl('fin', { status: 'approved', data: '{"transferStatus":"received"}' })), 'الخزينة تحدّث حالة التوريد بلا تغيير البصمة');
+  await assertFails(setDoc(doc(as('fin'), 'closings', c), cl('fin', { status: 'submitted' })), 'ولا تغيّر الحالة');
+  await assertFails(setDoc(doc(as('bm'), 'closings', c), cl('bm', { status: 'approved', data: '{"x":1}' })), 'الفرع لا يحدّث حتى البيانات التشغيلية للمعتمد');
+  await assertSucceeds(setDoc(doc(as('owner'), 'closings', c), cl('owner', { status: 'draft' })), 'المدير يعيده مسودة');
+  await assertSucceeds(deleteDoc(doc(as('bm'), 'closings', c)), 'المسودة يحذفها الفرع');
+});
+
+test('ث30 الرفض موقّع، والمرفوض يصححه الفرع ويرحّله من جديد', async () => {
+  const c = id('cl'); await clOld(c, {});
+  const sub = id('s'); await assertSucceeds(setDoc(doc(as('bm'), 'signoffs', sub), sig('bm', { kind: 'closing', stage: 'submit', entityId: c })));
+  await assertFails(setDoc(doc(as('fin'), 'closings', c), cl('fin', { status: 'rejected' })), 'رفض بلا توقيع');
+  const rj = id('s'); await assertSucceeds(setDoc(doc(as('fin'), 'signoffs', rj), sig('fin', { kind: 'closing', stage: 'reject', entityId: c, subRef: sub })));
+  await assertSucceeds(setDoc(doc(as('fin'), 'closings', c), cl('fin', { status: 'rejected', sigRef: rj })), 'رفض موقّع');
+  await assertSucceeds(setDoc(doc(as('bm'), 'closings', c), cl('bm', { status: 'submitted', digest: HEX2 })), 'الفرع يصحح ويرحّل');
+});
