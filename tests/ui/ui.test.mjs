@@ -709,3 +709,26 @@ test('v40.2 الإغلاق: تقسيم الشبكة إلى مدى/فيزا/ما�
   assert.deepEqual(c && c.cardSplit, { mada: 600, visa: 300, mc: 100 });
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v41.8 فحص النسخة الليلية المشفّرة: يُطلب المفتاح داخل المنصة، الخاطئ يُرفض، والصحيح يفك ويثبت التوازن', async () => {
+  const { encrypt, composeLogical } = await import('../../scripts/backup-lib.mjs');
+  const ctx = await browser.newContext(devices['iPhone 13']); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'live/Admin/admin'); await p.reload(); await p.waitForTimeout(500); await settle(p);
+  const org = await p.evaluate(() => window.curOrg);
+  const L = composeLogical({ rms8_org: org, rms8_br_b1: { closings: [] } });
+  const enc = encrypt(Buffer.from(JSON.stringify({ logical: L, platform: {}, raw: {} })), 'night-key-for-test');
+  await p.locator('button:has-text("بيانات الشركة والنسخ الاحتياطي")').first().click(); await p.waitForTimeout(500);
+  const inp = p.locator('input[type=file][accept*=".enc"]');
+  await inp.setInputFiles({ name: 'mizan-backup-2026-11-14.enc', mimeType: 'application/octet-stream', buffer: enc }); await p.waitForTimeout(300);
+  const arm = p.locator('[data-enc-arm]');
+  assert.match(await arm.innerText(), /نسخة مشفّرة/);
+  await p.locator('input[aria-label="مفتاح النسخ"]').fill('wrong-key-0000'); await p.click('button:has-text("فك وفحص")'); await p.waitForTimeout(1500);
+  assert.match(await arm.innerText(), /غير صحيح/);
+  assert.equal(await p.locator('input[aria-label="مفتاح النسخ"]').inputValue(), '', 'يُمسح المفتاح الخاطئ');
+  await p.locator('input[aria-label="مفتاح النسخ"]').fill('night-key-for-test'); await p.click('button:has-text("فك وفحص")'); await p.waitForTimeout(1500);
+  const txt = await p.locator('#r').innerText();
+  assert.match(txt, /النسخة سليمة وقابلة للاستعادة/); assert.match(txt, /متوازنة/); assert.match(txt, /تنزيل النسخة مفكوكة/);
+  assert.equal(await p.locator('[data-enc-arm]').count(), 0);
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true);
+  assert.deepEqual(errs, []); await ctx.close();
+});
