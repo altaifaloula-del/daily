@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { HardDrive, FileBarChart, ChevronDown, Printer, ArrowLeftRight, ClipboardCheck, Truck, Store, BarChart3, AlertTriangle, Trash2, TrendingUp, Download, Check, Upload, Plus, Landmark, X } from 'lucide-react';
 import { PrepList } from './PrepList.jsx';   // v40.8
-import { BlindCount, Field, ITEM_TYPES, Kpi, LOCK_MSG, MAIN_WH, MOVE_KINDS, Modal, PriceAlerts, ROLES, SectionNav, UsageVariance, WarehousesPanel, WasteControl, WasteFields, arDate, isCostCtl, isStocked, itemAvgCosts, itemType, makeXlsx, money, nowISO, pFactor, parseCsvGrid, parseXlsxGrid, partGross, partYield, periodLocked, prepUnitCost, printA4, q3, recipeCost, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whName, whOn } from '../../App.jsx';
+import { BlindCount, Field, ITEM_TYPES, Kpi, LOCK_MSG, MAIN_WH, MOVE_KINDS, Modal, PriceAlerts, ROLES, SectionNav, UsageVariance, WarehousesPanel, WasteControl, WasteFields, arDate, isCostCtl, isStocked, itemAvgCosts, itemType, makeXlsx, money, nowISO, pFactor, parseCsvGrid, parseXlsxGrid, partGross, partYield, periodLocked, prepUnitCost, kcalUnitFactor, productKcal, printA4, q3, recipeCost, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whName, whOn } from '../../App.jsx';
 
 export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
   const [view, setView] = useState('items');        // items | moves | count | recipes
@@ -143,6 +143,8 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
     const rec = { ...(f.id ? items.find(x => x.id === f.id) || {} : {}), id: f.id || uid('it'), name: f.name.trim(), unit: (f.unit || '').trim() || 'وحدة', cost: Number(f.cost) || 0, minQty: Number(f.minQty) || 0, isActive: true,
       type: ITEM_TYPES[f.type] ? f.type : 'stock', purchaseUnit: (f.purchaseUnit || '').trim(), purchaseFactor: (f.purchaseUnit || '').trim() ? pf : 1,
       ...(f.type === 'sale' ? { sellPrice: Number(f.sellPrice) || 0 } : {}) };
+    // v41.1: السعرات — تُحفظ إن أُدخلت، وتُزال إن مُسحت
+    if (f.kcal && f.kcal.v !== '' && f.kcal.v != null && Number(f.kcal.v) >= 0) rec.kcal = { basis: f.kcal.basis === 'unit' || kcalUnitFactor(rec.unit) == null ? 'unit' : '100', v: Number(f.kcal.v) }; else delete rec.kcal;
     await commitOrg(d => ({ ...d, items: f.id ? (d.items || []).map(x => x.id === f.id ? rec : x) : [...(d.items || []), rec] }), {
       actionType: f.id ? 'update' : 'create', targetType: 'stock_item', targetId: rec.id,
       title: f.id ? 'عدّل صنف مخزون' : 'أضاف صنف مخزون', details: rec.name + ' · ' + money(rec.cost) + '/' + rec.unit
@@ -215,6 +217,13 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
         {parts.length > 1 && <button className="btn sm gh" aria-label="حذف المكوّن" onClick={() => onChange(parts.filter((_, k) => k !== i))}><X size={13} /></button>}
       </div>); })}
   </>);
+  // v41.1 — بطاقة السعرات للمنيو: الأصناف المتاحة للبيع بسعرها وسعراتها؛ الناقص يُذكر ولا يُطبع رقمًا
+  const printKcal = () => { const ps = products.filter(p => !p.posOff); const rows = ps.map(p => { const K = productKcal(org, p);
+      return `<tr><td>${p.name}</td><td class="n">${money(p.sellPrice)}</td><td class="n"><b>${K.kcal != null ? K.kcal + ' سعرة' : '—'}</b></td><td style="font-size:10px">${K.kcal != null ? (K.src === 'declared' ? 'معتمدة من مختبر' : 'محسوبة من الوصفة') : 'ناقصة: ' + K.miss.join('، ')}</td></tr>`; }).join('');
+    const miss = ps.filter(p => productKcal(org, p).kcal == null).length;
+    printA4(org, 'السعرات الحرارية للأصناف', ps.length + ' صنف' + (miss ? ' · ' + miss + ' بسعرات ناقصة — أكملها قبل عرضها في القائمة' : ' · مكتملة'),
+      `<table><thead><tr><th>الصنف</th><th>السعر</th><th>السعرات الحرارية</th><th>المصدر</th></tr></thead><tbody>${rows}</tbody></table>
+      <div style="font-size:10.5px;margin-top:8px">المحسوبة: مجموع الكمية الخام لكل مكوّن (شاملة التحضيرات) × سعراته من بطاقة القيمة الغذائية. يحتاج البالغ في المتوسط 2000 سعرة حرارية يوميًا، وقد تختلف الاحتياجات من شخص لآخر.</div>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no'); };
   const prepUses = (id) => [...products.filter(p => (p.parts || []).some(pt => pt.prepId === id)).map(p => p.name), ...preps.filter(x => x.id !== id && (x.parts || []).some(pt => pt.prepId === id)).map(x => x.name)];
   const savePrep = async () => { const f = prepF;
     if (!String(f.name || '').trim()) return say('أدخل اسم التحضيرة', 'no');
@@ -267,6 +276,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
     if (dv > 0 && (f.disc || {}).t !== 'amt' && dv > 100) return say('نسبة خصم الصنف لا تتجاوز 100%', 'no');
     if (dv > 0 && (f.disc || {}).t === 'amt' && dv >= (Number(f.sellPrice) || 0)) return say('خصم الصنف يجب أن يكون أقل من سعر البيع', 'no');
     const rec = { id: f.id || uid('pr'), name: f.name.trim(), sellPrice: Number(f.sellPrice) || 0, parts, cat: (f.cat || '').trim(), ...(f.posOff ? { posOff: true } : {}),
+      ...(f.kcalDeclared !== '' && f.kcalDeclared != null && Number(f.kcalDeclared) >= 0 ? { kcalDeclared: Number(f.kcalDeclared) } : {}),   // v41.1
       ...(dv > 0 ? { disc: { t: (f.disc || {}).t === 'amt' ? 'amt' : 'pct', v: dv, ...((f.disc || {}).to ? { to: f.disc.to } : {}) } } : {}) };
     await commitOrg(d => ({ ...d, products: f.id ? (d.products || []).map(x => x.id === f.id ? rec : x) : [...(d.products || []), rec] }), {
       actionType: f.id ? 'update' : 'create', targetType: 'product', targetId: rec.id,
@@ -313,7 +323,8 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
           <button className="btn sm gh" onClick={impTemplate}><Download size={13} />نموذج</button></>}
         {canW && view === 'items' && <button className="btn sm pri" onClick={() => setItemF({ name: '', unit: 'كغ', cost: '', minQty: '' })}><Plus size={14} />صنف جديد</button>}
         {canW && view === 'moves' && <button className="btn sm pri" style={{ marginInlineStart: 'auto' }} onClick={() => setMoveF({ kind: 'in', itemId: (items.find(isStocked) || {}).id || '', qty: '', note: '', uom: 'b', unitCost: '' })}><Plus size={14} />حركة جديدة</button>}
-        {canW && view === 'recipes' && <button className="btn sm" style={{ marginInlineStart: 'auto' }} onClick={() => setPrepF({ name: '', unit: 'كجم', batch: '', parts: [{ itemId: '', qty: '' }] })}><Plus size={14} />تحضيرة جديدة</button>}
+        {view === 'recipes' && <button className="btn sm" style={{ marginInlineStart: 'auto' }} onClick={printKcal}><Printer size={13} />بطاقة السعرات</button>}
+        {canW && view === 'recipes' && <button className="btn sm" onClick={() => setPrepF({ name: '', unit: 'كجم', batch: '', parts: [{ itemId: '', qty: '' }] })}><Plus size={14} />تحضيرة جديدة</button>}
         {canW && view === 'recipes' && <button className="btn sm pri" onClick={() => setProdF({ name: '', sellPrice: '', parts: [{ itemId: items[0]?.id || '', qty: '' }] })}><Plus size={14} />منتج جديد</button>}
       </div>
 
@@ -436,6 +447,8 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
                   </tbody>
                 </table>
                 <div className="row" style={{ gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+                  {(() => { const K = productKcal(org, p); return K.kcal != null ? <span className="badge b-sky" title={K.src === 'declared' ? 'قيمة معتمدة من مختبر' : 'محسوبة من الوصفة'}>{K.kcal} سعرة{K.src === 'declared' ? ' (معتمدة)' : ''}</span>
+                    : <span className="badge b-amber" title={'بلا سعرات: ' + K.miss.join('، ')}>السعرات ناقصة: {K.miss.slice(0, 2).join('، ')}{K.miss.length > 2 ? '…' : ''}</span>; })()}
                   <span className="badge b-brass">البيع {money(p.sellPrice)}{taxCfg.enabled ? ' شامل' : ''}</span>
                   {taxCfg.enabled && <span className="badge b-dim">الصافي {money(net)}</span>}
                   <span className={'badge ' + (margin >= 50 ? 'b-mint' : margin >= 30 ? 'b-amber' : 'b-rose')}>هامش {margin}%</span>
@@ -569,6 +582,10 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
               {itemType(itemF) === 'sale' && <Field label="سعر البيع"><input className="inp n" inputMode="decimal" value={itemF.sellPrice ?? ''} onChange={e => setItemF(f => ({ ...f, sellPrice: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>}
             </div>
           )}
+          {itemType(itemF) !== 'service' && (() => { const per = kcalUnitFactor(itemF.unit) != null; const k = itemF.kcal || {}; const basis = per ? (k.basis || '100') : 'unit';
+            return <div className="grid g2"><Field label={'السعرات الحرارية — ' + (basis === '100' ? 'لكل 100 ' + (/لتر|^ل$|مل/.test(itemF.unit || '') ? 'مل' : 'غ') : 'لكل ' + (itemF.unit || 'وحدة')) + ' (من بطاقة القيمة الغذائية)'}>
+              <input className="inp n" inputMode="decimal" aria-label="السعرات الحرارية" value={k.v ?? ''} placeholder="—" onChange={e => setItemF(f => ({ ...f, kcal: { basis, v: e.target.value.replace(/[^\d.]/g, '') } }))} /></Field>
+              {per && <Field label="أساس السعرات"><div className="row" style={{ gap: 6 }}>{[['100', 'لكل 100 غ/مل'], ['unit', 'لكل ' + (itemF.unit || 'وحدة')]].map(([b, l]) => <button key={b} type="button" className={'btn sm' + (basis === b ? ' pri' : ' gh')} onClick={() => setItemF(f => ({ ...f, kcal: { ...(f.kcal || {}), basis: b } }))}>{l}</button>)}</div></Field>}</div>; })()}
           <div className="note" style={{ fontSize: 11.5 }}>التكلفة تُحتسب بـ<b>المتوسط المرجّح</b>: كل استلام بتكلفته يعيد حساب المتوسط، والصرف والهدر يخرجان به. التكلفة المرجعية تُستخدم فقط قبل أول استلام مسعّر.{itemF.id ? ' المتوسط الحالي: ' + money(avgOf(itemF.id)) + ' / ' + (itemF.unit || 'وحدة') : ''}</div>
         </Modal>
       )}
@@ -622,6 +639,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
               <input className="inp n" inputMode="decimal" style={{ flex: 1 }} value={(prodF.disc || {}).v || ''} placeholder="0" onChange={e => setProdF(f => ({ ...f, disc: { ...(f.disc || {}), v: e.target.value.replace(/[^\d.]/g, '') } }))} />
               <button type="button" className={'btn sm' + ((prodF.disc || {}).t !== 'amt' ? ' pri' : ' gh')} onClick={() => setProdF(f => ({ ...f, disc: { ...(f.disc || {}), t: 'pct' } }))}>%</button>
               <button type="button" className={'btn sm' + ((prodF.disc || {}).t === 'amt' ? ' pri' : ' gh')} onClick={() => setProdF(f => ({ ...f, disc: { ...(f.disc || {}), t: 'amt' } }))}>ر.س</button></div></Field>
+            <Field label="سعرات معتمدة من مختبر (اختياري — تتقدم على المحسوبة)"><input className="inp n" inputMode="numeric" aria-label="سعرات معتمدة" value={prodF.kcalDeclared ?? ''} placeholder={(() => { const K = productKcal(org, { parts: (prodF.parts || []).filter(x => x.itemId || x.prepId) }); return K.kcal != null ? 'المحسوبة: ' + K.kcal : 'المحسوبة: ناقصة'; })()} onChange={e => setProdF(f => ({ ...f, kcalDeclared: e.target.value.replace(/\D/g, '').slice(0, 5) }))} /></Field>
             {Number((prodF.disc || {}).v) > 0 && <Field label="ينتهي الخصم في (اختياري)"><input type="date" className="inp" value={(prodF.disc || {}).to || ''} onChange={e => setProdF(f => ({ ...f, disc: { ...(f.disc || {}), to: e.target.value } }))} /></Field>}
           </div>
           <div className="lbl" style={{ margin: '4px 0 6px' }}>المكوّنات (أصناف المخزون أو التحضيرات)</div>
