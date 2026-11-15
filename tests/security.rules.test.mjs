@@ -281,12 +281,17 @@ test('ث31 فحص الاستلام: فاحص مؤهل غير المستلم — 
 });
 test('ث32 فاتورة بفرق سعر فوق التسامح: يعتمدها معتمد أوامر الشراء غير مسجّلها', async () => {
   const s0 = id('pinv_i1_submit'), s1 = id('pinv_i2_submit');
-  await assertSucceeds(setDoc(doc(as('gm'), 'signoffs', s0), sig('gm', { kind: 'pinv', stage: 'submit', entityId: 'i1', branchId: '', alert: true })));
-  await assertFails(setDoc(doc(as('gm'), 'signoffs', id('x')), sig('gm', { kind: 'pinv', stage: 'approve', entityId: 'i1', branchId: '', subRef: s0 })), 'مسجّلها يعتمدها');
+  await assertSucceeds(setDoc(doc(as('acct'), 'signoffs', s0), sig('acct', { kind: 'pinv', stage: 'submit', entityId: 'i1', branchId: '', alert: true })));
+  await assertFails(setDoc(doc(as('acct'), 'signoffs', id('x')), sig('acct', { kind: 'pinv', stage: 'approve', entityId: 'i1', branchId: '', subRef: s0 })), 'مسجّلها غير مؤهل للاعتماد');
   await assertFails(setDoc(doc(as('fin'), 'signoffs', id('x')), sig('fin', { kind: 'pinv', stage: 'approve', entityId: 'i1', branchId: '', subRef: s0 })), 'المالية ليست معتمِدة أوامر شراء');
-  await assertSucceeds(setDoc(doc(as('owner'), 'signoffs', id('a')), sig('owner', { kind: 'pinv', stage: 'approve', entityId: 'i1', branchId: '', subRef: s0 })), 'شخص آخر مؤهل');
+  await assertSucceeds(setDoc(doc(as('gm'), 'signoffs', id('a')), sig('gm', { kind: 'pinv', stage: 'approve', entityId: 'i1', branchId: '', subRef: s0 })), 'شخص آخر مؤهل');
   await assertSucceeds(setDoc(doc(as('acct'), 'signoffs', s1), sig('acct', { kind: 'pinv', stage: 'submit', entityId: 'i2', branchId: '', alert: false })));
   await assertFails(setDoc(doc(as('gm'), 'signoffs', id('x')), sig('gm', { kind: 'pinv', stage: 'approve', entityId: 'i2', branchId: '', subRef: s1 })), 'لا اعتماد لتقديم بلا تنبيه');
-  await assertFails(setDoc(doc(as('gm'), 'signoffs', id('x')), sig('gm', { kind: 'pinv', stage: 'reject', entityId: 'i1', branchId: '', subRef: s0 })), 'مسجّلها لا يرفضها أيضًا');
+
   await assertSucceeds(setDoc(doc(as('owner'), 'signoffs', id('a')), sig('owner', { kind: 'pinv', stage: 'reject', entityId: 'i1', branchId: '', subRef: s0 })), 'الرفض من معتمد آخر');
+});
+test('ث33 تحويل الاستلام غير المطابق إلى فاتورة: المحاسب ومدير النظام فقط', async () => {
+  await assertSucceeds(setDoc(doc(as('acct'), 'signoffs', id('pinv_x_submit')), sig('acct', { kind: 'pinv', stage: 'submit', entityId: 'i9', branchId: '', alert: false })), 'المحاسب');
+  await assertSucceeds(setDoc(doc(as('owner'), 'signoffs', id('pinv_y_submit')), sig('owner', { kind: 'pinv', stage: 'submit', entityId: 'i9', branchId: '', alert: false })), 'مدير النظام');
+  for (const k of ['gm', 'fin', 'ctl', 'view']) await assertFails(setDoc(doc(as(k), 'signoffs', id('x')), sig(k, { kind: 'pinv', stage: 'submit', entityId: 'i9', branchId: '', alert: false })), k + ' لا يحوّل');
 });

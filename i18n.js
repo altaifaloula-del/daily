@@ -2146,6 +2146,20 @@ Object.assign(EN, {
 "عملة الفاتورة": "Invoice currency",
 "سعر الصرف": "Exchange rate"
 });
+
+// ===== v44.0 المطابقة الثلاثية =====
+Object.assign(EN, {
+"مستلم لم يُفوتر": "Received, not invoiced",
+"التحويل لفاتورة: المحاسب ومدير النظام فقط": "Converting to invoice: accountant and system admin only",
+"الاستلامات": "Receipts",
+"القيمة بسعر الأمر": "Value at PO price",
+"لا استلامات غير مفوترة ✓": "No uninvoiced receipts ✓",
+"استلامات لم تتحوّل لفاتورة تلقائيًا لأنها غير مطابقة (استلام جزئي، أو رفض في الفحص، أو بلا رقم فاتورة المورد، أو رقم مكرر). حوّلها برقم فاتورة المورد وأسعارها؛ فرق السعر فوق التسامح ينتظر اعتماد معتمد أوامر الشراء.": "Receipts that did not become invoices automatically because they did not match (partial receipt, rejection at inspection, no supplier invoice number, or a duplicate number). Convert them with the supplier invoice number and prices; a price variance above tolerance awaits approval by a PO approver.",
+"رقم فاتورة المورد (من ورقة المورد — تُنشأ الفاتورة تلقائيًا عند المطابقة)": "Supplier invoice No. (from the supplier's document — the invoice is created automatically on match)",
+"فارغ = يبقى بلا فاتورة حتى يحوّله المحاسب": "Empty = stays uninvoiced until the accountant converts it",
+"رقم فاتورة المورد": "Supplier invoice No.",
+"الفاتورة خاضعة لضريبة القيمة المضافة": "Invoice subject to VAT"
+});
 export const TX = (ar) => (LANG === 'en' && ar && EN[ar]) || ar;
 
 /* v43.1 مترجم الشاشة: في الوضع الإنجليزي يترجم نصوص الواجهة (عُقد النص + placeholder/title/aria-label) بمطابقة القاموس حرفيًا،
@@ -2198,6 +2212,7 @@ export const EN_RX = [
   [/^بانتظار الفحص · (.+)$/, 'Awaiting inspection · $1'], [/^فحص (GRN-.+)$/, 'Inspect $1'], [/^مفوترة · (.+)$/, 'Invoiced · $1'], [/^فحص الاستلام — (.+)$/, 'Receipt inspection — $1'], [/^تحويل لفاتورة — (.+)$/, 'Convert to invoice — $1'], [/^المقبول (\d+)$/, 'Accepted $1'], [/^سعر الفاتورة (\d+)$/, 'Invoice price $1'],
   [/^حساب البند (\d+)$/, 'Line $1 account'], [/^مبلغ البند (\d+)$/, 'Line $1 amount'], [/^مرفوض ([\d.]+)$/, 'Rejected $1'], [/^أُقفل المتبقي(.*)$/, 'Remaining closed$1'],
   [/^سعر الصرف \(ر\.س لكل (\w+)\)$/, 'Exchange rate (SAR per $1)'], [/^سعر صرف يوم السداد \(ر\.س لكل (\w+)\)$/, 'Payment-date rate (SAR per $1)'], [/^مبلغ السداد \((\w+)\)$/, 'Payment amount ($1)'], [/^المبلغ \(شامل الضريبة إن كانت خاضعة\) — (\w+)$/, 'Amount (VAT incl. if taxable) — $1'], [/^— فرق صرف$/, '— FX difference'],
+  [/^فاتورة (.+) بانتظار اعتماد الفرق \((.+)\)$/, 'Invoice $1 awaiting variance approval ($2)'],
   [/^أقصى مبلغ متاح (.+) ر\.س — يمكنك تعديله يدوياً$/, 'Max available $1 SAR — you can edit it manually'],
   [/^(\d{1,2}) (يناير|فبراير|مارس|أبريل|مايو|يونيو|يوليو|أغسطس|سبتمبر|أكتوبر|نوفمبر|ديسمبر) (\d{4})$/, (_, d, m, y) => d + ' ' + MONTHS[m] + ' ' + y]
 ];
