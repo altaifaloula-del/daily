@@ -856,3 +856,28 @@ test('v42.9 الطاولات والحساب المفتوح وشاشة المطب
   assert.deepEqual(r, { tab: 'paid', orderNo: true, kN: 2 }, 'الدفع يغلق الحساب ولا يكرر تذكرة المطبخ');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v43.0 الواجهة الإنجليزية: الاتجاه LTR وترجمة الإطار (التطبيقات، رأس المركز، شريط الأقسام) والعربية افتراضيًا', async () => {
+  // افتراضيًا: عربي RTL
+  { const { p, errs, ctx } = await open({ viewport: { width: 1280, height: 900 } }, 'comp/Launcher');
+    assert.equal(await p.evaluate(() => getComputedStyle(document.querySelector('.rms')).direction), 'rtl');
+    assert.match(await p.locator('.lh').innerText(), /كل التطبيقات/); assert.deepEqual(errs, []); await ctx.close(); }
+  const ctxOpt = { viewport: { width: 1280, height: 900 } };
+  const ctx = await browser.newContext(ctxOpt); await ctx.addInitScript(() => { try { localStorage.setItem('rms8:lang', 'en'); } catch { } });
+  let p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'comp/Launcher'); await p.waitForTimeout(400); await settle(p);
+  assert.equal(await p.evaluate(() => getComputedStyle(document.querySelector('.rms')).direction), 'ltr');
+  const lh = await p.locator('.lh').innerText();
+  assert.match(lh, /All apps/); assert.match(lh, /Good (morning|evening)/);
+  assert.ok(await p.locator('.lh-nm', { hasText: 'Point of Sale' }).count() > 0 || await p.locator('.lh-nm', { hasText: /POS|Sales/ }).count() > 0, 'أسماء التطبيقات بالإنجليزية');
+  assert.equal(await p.getAttribute('.lh-search input', 'placeholder'), 'Search apps or sections… (try: break-even, payroll, cash flow)');
+  await p.close(); p = await ctx.newPage(); p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'hub/analytics/exec'); await p.waitForTimeout(400); await settle(p);
+  const hd = await p.locator('.card').first().innerText();
+  assert.match(hd, /Analytics & Performance/); assert.match(hd, /Dashboards/);
+  // القائمة المنسدلة تُفتح باتجاه LTR وبعناوين إنجليزية
+  await p.locator('.ob-it', { hasText: 'Dashboards' }).first().click(); await p.waitForTimeout(150);
+  assert.equal(await p.getAttribute('.ob-layer', 'dir'), 'ltr');
+  assert.match(await p.locator('.ob-menu').innerText(), /Executive Dashboard/);
+  assert.deepEqual(errs, []); await ctx.close();
+});

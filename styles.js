@@ -1854,4 +1854,12 @@ table.tb.tb-fp{min-width:520px}
 .rms.thm-restpro .acct-mode button:hover{color:var(--txt)}
 .rms.thm-restpro .acct-mode button.on{background:var(--ink2);color:var(--txt);box-shadow:0 1px 2px rgba(16,29,53,.08)}
 .rms.thm-restpro.mode-dark .acct-mode button.on{background:var(--line)}
+
+/* ===== v43.0 الواجهة الإنجليزية (LTR) — المرحلة الأولى ===== */
+.rms.lang-en{direction:ltr}
+.rms.lang-en .nav-i.on{box-shadow:inset -3px 0 0 -1px var(--brass)}
+.rms.thm-restpro.lang-en .side .nav-i.on{box-shadow:inset 3px 0 0 var(--gold)}
+.rms.lang-en .is-tb tr.flag td:first-child{box-shadow:inset 3px 0 0 var(--amber)}
+.rms.lang-en .tb tr.cnt-bad td:first-child{box-shadow:inset 3px 0 0 var(--rose)}
+.rms.lang-en .langbtn{font-family:inherit}
 `;
