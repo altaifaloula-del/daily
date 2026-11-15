@@ -1204,3 +1204,17 @@ test('v43.5 فاتورة خدمات ومصروفات: كل بند على حسا�
   const t2 = tb(E.buildAccounting(org, { invoices: [{ ...inv, amount: 1190, vatAmt: 90, expLines: [inv.expLines[0], { desc: 'رسوم حكومية', accCode: '5102', net: 500, vat: 0 }] }] }));
   near(t2['5102'], 500); near(t2['1501'], 90); near(t2['2101'], -1190);
 });
+
+// ===== v43.9 — تعدد العملات: فاتورة بالدولار، سداد على دفعتين بسعرين، فرق الصرف محقّق في 5803 =====
+test('v43.9 فاتورة 1000 USD @3.75 تُسدَّد 400 @3.80 ثم 600 @3.70: الذمة تُقفل، والبنك بالفعلي، والفرق 5803', () => {
+  const org = baseOrg({ taxCfg: { enabled: false }, suppliers: [{ id: 's1', name: 'Global Foods' }] });
+  const inv = { id: 'f1', supplierId: 's1', supplierName: 'Global Foods', amount: 3750, cur: 'USD', fxRate: 3.75, fcAmount: 1000, date: '2026-03-01', paidAmount: 3750,
+    payments: [{ id: 'p1', amount: 1500, fc: 400, rate: 3.8, paid: 1520, date: '2026-03-10', fund: '1201' }, { id: 'p2', amount: 2250, fc: 600, rate: 3.7, paid: 2220, date: '2026-04-10', fund: '1201' }] };
+  const A = E.buildAccounting(org, { invoices: [inv] }); const t = tb(A);
+  assert.equal(A.balanced, true);
+  near(t['5198'], 3750, 'المشتريات بسعر الفاتورة'); assert.ok(Math.abs(t['2101'] || 0) < 0.01, 'ذمة المورد أُقفلت'); near(t['1201'], -3740, 'البنك = 1520 + 2220');
+  near(t['5803'], -10, 'صافي فرق الصرف: خسارة 20 − ربح 30 = ربح 10');
+  const e1 = A.entries.find(x => x.id === 'invp:f1:p1'); assert.ok(e1.lines.some(l => l.code === '5803' && l.debit === 20), 'الدفعة الأولى خسارة 20');
+  const e2 = A.entries.find(x => x.id === 'invp:f1:p2'); assert.ok(e2.lines.some(l => l.code === '5803' && l.credit === 30), 'الثانية ربح 30');
+  assert.equal(E.buildAccounting(org, { invoices: [{ ...inv, cur: undefined, payments: [] , paidAmount: 0 }] }).accounts.some(a => a.code === '5803'), false, 'الحساب لا يظهر بلا فواتير عملة');
+});
