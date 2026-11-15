@@ -1,7 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useMemo } from 'react';
 import { Truck, FileBarChart, ChevronDown, Printer, FileText, Building2, ClipboardCheck, Users, Plus, AlertTriangle, CalendarDays, Trash2, Check, X, Banknote } from 'lucide-react';
-import { DupInvHint, Field, Kpi, LOCK_MSG, MAIN_WH, Modal, Num, ROLES, SectionNav, arDate, branchBanks, closingInvoices, isStocked, isoD, itemType, money, nowISO, pFactor, payTotal, periodLocked, printA4, purKey, q3, roleEdit, roleHasTab, stockByWh, sum, supplierPrices, today, uid, whName, whOf, whOn, signoff, signDecision, sigFailMsg } from '../../App.jsx';
+import { DupInvHint, Field, Kpi, LOCK_MSG, MAIN_WH, Modal, Num, ROLES, SectionNav, arDate, branchBanks, closingInvoices, isStocked, isoD, itemType, money, nowISO, pFactor, payTotal, periodLocked, printA4, purKey, q3, roleEdit, rolePost, buildAccounting, roleHasTab, stockByWh, sum, supplierPrices, today, uid, whName, whOf, whOn, signoff, signDecision, sigFailMsg } from '../../App.jsx';
 
 export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: goTab }) {
   const [tab, setTab] = useState('inv');
@@ -14,6 +14,9 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
   const [recv, setRecv] = useState(null);            // نموذج استلام أمر
   const [showPrices, setShowPrices] = useState(false);
   const [ret, setRet] = useState(null);              // v30.9 مرتجع لمورد
+  const [qc, setQc] = useState(null);                // v43.5 فحص استلام
+  const [cv, setCv] = useState(null);                // v43.5 تحويل الاستلامات المفحوصة إلى فاتورة
+  const [svc, setSvc] = useState(null);              // v43.5 فاتورة خدمات ومصروفات
   const ids = myBranches.map(b => b.id);
   // v28.2: فواتير المركز (بلا فرع، ومنها المستوردة من ميزان) تظهر للأدوار المركزية
   const invoices = (ops.invoices || []).filter(i => ids.includes(i.branchId) || (!i.branchId && ROLES[me.role]?.scope !== 'own'))
@@ -99,9 +102,9 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     return { u, lp, avg: a3.avg, n: a3.n, pct: Math.round(pct * 10) / 10, high: alertPct > 0 && pct > alertPct }; };
   const saveCfg = async () => {
     const f = cfgF;
-    const next = { approvalLimit: Math.max(0, Number(f.approvalLimit) || 0), priceAlertPct: Math.max(0, Number(f.priceAlertPct) || 0), perpetualFrom: f.perpetual ? (f.perpetualFrom || today().slice(0, 7)) : '' };
+    const next = { approvalLimit: Math.max(0, Number(f.approvalLimit) || 0), priceAlertPct: Math.max(0, Number(f.priceAlertPct) || 0), perpetualFrom: f.perpetual ? (f.perpetualFrom || today().slice(0, 7)) : '', inspect: !!f.inspect, invVarPct: Math.max(0, Number(f.invVarPct) || 0) };
     const ok = await commitOrg(d => ({ ...d, purchaseCfg: { ...(d.purchaseCfg || {}), ...next } }), { actionType: 'update', targetType: 'tax_settings', targetId: 'purchaseCfg', need: 'edit', title: 'إعدادات المشتريات والمخزون',
-      details: 'حد الاعتماد ' + money(next.approvalLimit) + ' · تنبيه السعر ' + next.priceAlertPct + '% · الجرد المستمر ' + (next.perpetualFrom || 'موقوف') });
+      details: 'حد الاعتماد ' + money(next.approvalLimit) + ' · تنبيه السعر ' + next.priceAlertPct + '% · الجرد المستمر ' + (next.perpetualFrom || 'موقوف') + ' · مسار الفحص ' + (next.inspect ? 'مفعّل (تسامح ' + next.invVarPct + '%)' : 'موقوف') });
     if (ok) { setCfgF(null); say('حُفظت الإعدادات ✓'); }
   };
   const decidePo = async (p2, approve) => {
@@ -116,6 +119,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
   const items = org.items || [];
   const poTotal = (p2) => sum(p2.lines || [], l => (Number(l.qty) || 0) * (Number(l.price) || 0));
   const poRecvQty = (p2) => sum(p2.lines || [], l => Number(l.received) || 0);
+  const remOfLine = (l) => Math.max(0, (Number(l.qty) || 0) - (Number(l.received) || 0) - (Number(l.inQc) || 0));   // v43.5: المتبقي = المطلوب − المقبول − قيد الفحص
   const poAllRecv = (p2) => (p2.lines || []).every(l => (Number(l.received) || 0) >= (Number(l.qty) || 0));
   const nextPoNo = () => {
     let mx = 0;
@@ -203,8 +207,9 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     const tw = wid ? whOf(org).find(w => w.id === wid) : null;
     const rDate = (f.date || today()).slice(0, 10);
     if (periodLocked(org, rDate)) return say(LOCK_MSG(rDate), 'no');
-    const takes = p2.lines.map((l, i) => Math.min(Math.max(Number(f.qtys[i]) || 0, 0), (l.qty || 0) - (l.received || 0)));
+    const takes = p2.lines.map((l, i) => Math.min(Math.max(Number(f.qtys[i]) || 0, 0), remOfLine(l)));
     if (!takes.some(q => q > 0)) return say('أدخل كمية مستلمة لبند واحد على الأقل', 'no');
+    if (inspectOn) return saveGrn(p2, takes, wid, tw, rDate, f);   // v43.5: الاستلام بانتظار الفحص — لا مخزون ولا فاتورة بعد
     // v30.4: الكمية بوحدة الشراء تُحوَّل للأساسية، وسعر البند يصبح تكلفة الوحدة الأساسية فيُحدّث المتوسط المرجّح. الخدمي لا يُخزَّن.
     // v30.5: الاستلام يُنشئ فاتورة المورد تلقائيًا (أسعار أمر الشراء قبل الضريبة) ويُدخل الأصناف المخزنية مستودعًا مختارًا بدفعتها وصلاحيتها
     const invId = uid('inv'), grn = 'GRN-' + rDate.replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 5).toUpperCase();
@@ -251,8 +256,154 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     }), { actionType: 'update', targetType: 'stock_item', targetId: p2.id, title: 'سجّل آخر سعر شراء للأصناف', details: p2.poNo });
     setRecv(null); say('سُجّل الاستلام' + (moves.length ? ' في ' + (wid ? whName(org, wid) : 'المخزون') : '') + (invRec ? ' وأُنشئت فاتورة المورد ' + invRec.invoiceNo + ' بـ ' + money(invRec.amount) : '') + ' ✓');
   };
+
+  // ===== v43.5 — مسار الفحص (org.purchaseCfg.inspect، مُطفأ افتراضيًا): استلام ← فحص بشخص غير المستلم ← مخزون ← تحويل لفاتورة =====
+  // قرارات المالك: المقبول وحده يدخل المستودع (بسعر الأمر مقابل «بضاعة مستلمة لم تُفوتر» في الجرد المستمر)، والمرفوض يبقى مطلوبًا من المورد،
+  // والفاتورة بسعر المورد: ضمن التسامح (الافتراضي 2% على الإجمالي) تُقيَّد مباشرة، وفوقه تنتظر اعتماد شخص آخر؛ والفرق إلى «فروق أسعار الشراء».
+  const inspectOn = !!pcfg.inspect;
+  const varTol = pcfg.invVarPct != null && pcfg.invVarPct !== '' ? Math.max(0, Number(pcfg.invVarPct) || 0) : 2;
+  const canInspect = rolePost(me.role);
+  const saveGrn = async (p2, takes, wid, tw, rDate, f) => {
+    const no = 'GRN-' + rDate.replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 5).toUpperCase();
+    const lines = p2.lines.map((l, i) => takes[i] > 0 ? { li: i, itemId: l.itemId || '', desc: l.desc, qty: takes[i], factor: Number(l.factor) || 1, uomName: l.uomName || '', price: Number(l.price) || 0,
+      ...((f.batch || [])[i] ? { batch: f.batch[i] } : {}), ...((f.expiry || [])[i] ? { expiry: f.expiry[i] } : {}) } : null).filter(Boolean);
+    let g = { id: uid('grn'), grn: no, date: rDate, whId: wid, branchId: (tw && tw.branchId) || '', supplierId: p2.supplierId, lines, status: 'qc', by: me.name, byEmail: me.email || '', at: nowISO() };
+    const sg = await signoff('grn', 'submit', g, { branchId: '' }); if (!sg.ok) return say(sigFailMsg(sg, 'الاستلام'), 'no'); if (sg.id) g = { ...g, sigSubmit: sg.id };
+    const ok = await commit(d => ({ ...d, purchaseOrders: (d.purchaseOrders || []).map(x => (x.id !== p2.id || (x.grns || []).some(y => y.id === g.id)) ? x
+      : { ...x, grns: [...(x.grns || []), g], status: x.status === 'open' ? 'partial' : x.status, lines: x.lines.map((l, i) => ({ ...l, inQc: Math.round(((Number(l.inQc) || 0) + (takes[i] || 0)) * 1000) / 1000 })) }) }),
+      { actionType: 'update', targetType: 'purchase_order', targetId: p2.id, title: 'سجّل استلامًا بانتظار الفحص', details: p2.poNo + ' · ' + g.grn + ' · ' + lines.length + ' بند' });
+    if (ok === false) return;
+    setRecv(null); say('سُجّل الاستلام ' + g.grn + ' بانتظار الفحص — لا يدخل المخزون قبل أن يفحصه شخص غير المستلم ✓');
+  };
+  const saveQc = async () => {
+    const g = qc.g; const p2 = (ops.purchaseOrders || []).find(x => x.id === qc.po.id) || qc.po;
+    if (!canInspect) return say('الفحص للأدوار المركزية المخوّلة بالترحيل', 'no');
+    if (((g.byEmail && me.email) ? g.byEmail === me.email : g.by === me.name) && !ROLES[me.role]?.admin) return say('الفحص يجريه شخص غير من سجّل الاستلام', 'no');
+    const qDate = today(); if (periodLocked(org, qDate)) return say(LOCK_MSG(qDate), 'no');
+    const acc = g.lines.map((l, k) => Math.min(Math.max(Number(qc.acc[k]) || 0, 0), l.qty));
+    const rej = g.lines.map((l, k) => Math.round((l.qty - acc[k]) * 1000) / 1000);
+    if (rej.some((r, k) => r > 0 && !String(qc.why[k] || '').trim())) return say('اكتب سبب الرفض لكل كمية مرفوضة', 'no');
+    const sg = await signDecision('grn', 'approve', g, { branchId: '' }); if (!sg.ok) return say(sigFailMsg(sg, 'الفحص'), 'no');
+    const wid = g.whId || ''; const tw = wid ? whOf(org).find(w => w.id === wid) : null;
+    const moves = g.lines.map((l, k) => { const it = items.find(x => x.id === l.itemId); const fac = Number(l.factor) || 1;
+      return (acc[k] > 0 && l.itemId && (!it || isStocked(it))) ? { id: uid('sm'), date: qDate, itemId: l.itemId, kind: 'purchase', qty: Math.round(acc[k] * fac * 1000) / 1000,
+        unitCost: Math.round((Number(l.price) || 0) / fac * 10000) / 10000, note: 'فحص ' + g.grn + ' — ' + l.desc + (fac > 1 ? ' (' + acc[k] + ' ' + (l.uomName || '') + ')' : ''), ref: p2.poNo, by: me.name, at: nowISO(),
+        grnRef: g.id, grn: g.grn, ...(l.batch ? { batch: l.batch } : {}), ...(l.expiry ? { expiry: l.expiry } : {}), ...(wid ? { whId: wid } : {}), ...(tw && tw.kind === 'branch' ? { branchId: tw.branchId } : {}) } : null; }).filter(Boolean);
+    const brMoves = moves.filter(m => m.branchId), mainMoves = moves.filter(m => !m.branchId);
+    const qcRec = { by: me.name, byEmail: me.email || '', at: nowISO(), date: qDate, ...(sg.id ? { sig: sg.id } : {}), lines: g.lines.map((l, k) => ({ acc: acc[k], rej: rej[k], why: String(qc.why[k] || '').trim() })) };
+    const ok = await commit(d => ({ ...d,
+      whMoves: [...brMoves.filter(m => !(d.whMoves || []).some(x => x.id === m.id)), ...(d.whMoves || [])],
+      stockMoves: [...mainMoves.filter(m => !(d.stockMoves || []).some(x => x.id === m.id)), ...(d.stockMoves || [])],
+      purchaseOrders: (d.purchaseOrders || []).map(x => {
+        if (x.id !== p2.id) return x; const cur = (x.grns || []).find(y => y.id === g.id); if (!cur || cur.status !== 'qc') return x;
+        const lines = x.lines.map((l, i) => { const gl = g.lines.map((q, k) => [q, k]).filter(([q]) => q.li === i);
+          return gl.length ? { ...l, inQc: Math.max(0, Math.round(((Number(l.inQc) || 0) - sum(gl, ([q]) => q.qty)) * 1000) / 1000), received: Math.round(((Number(l.received) || 0) + sum(gl, ([, k]) => acc[k])) * 1000) / 1000 } : l; });
+        return { ...x, lines, status: lines.every(l => (Number(l.received) || 0) >= (Number(l.qty) || 0)) ? 'received' : 'partial', grns: (x.grns || []).map(y => y.id === g.id ? { ...y, status: 'done', qc: qcRec } : y) };
+      }) }), { actionType: 'update', targetType: 'purchase_order', targetId: p2.id, title: 'فحص استلام أمر شراء',
+      details: p2.poNo + ' · ' + g.grn + ' · مقبول ' + sum(acc, x => x) + ' · مرفوض ' + sum(rej, x => x) + (moves.length ? ' · دخل المخزون' : '') });
+    if (ok === false) return;
+    const costUp = g.lines.map((l, k) => (acc[k] > 0 && l.itemId && l.price > 0) ? { id: l.itemId, lastPrice: Math.round(l.price / (Number(l.factor) || 1) * 10000) / 10000 } : null).filter(Boolean);
+    if (costUp.length) await commitOrg(d => ({ ...d, items: (d.items || []).map(it => { const u = costUp.find(c => c.id === it.id); return u ? { ...it, lastPrice: u.lastPrice, lastSupplier: p2.supplierName, lastAt: qDate } : it; }) }),
+      { actionType: 'update', targetType: 'stock_item', targetId: p2.id, title: 'سجّل آخر سعر شراء للأصناف', details: p2.poNo });
+    setQc(null); say('اعتُمد الفحص ' + g.grn + (moves.length ? ' — دخل المقبول ' + (wid ? whName(org, wid) : 'المخزون') : '') + (sum(rej, x => x) > 0 ? ' · المرفوض يبقى مطلوبًا من المورد' : '') + ' ✓');
+  };
+  const closeRest = async (p2) => {
+    if (!canInspect) return say('للأدوار المركزية المخوّلة', 'no');
+    if ((p2.lines || []).some(l => (Number(l.inQc) || 0) > 0)) return say('افحص الاستلامات المعلّقة أولًا', 'no');
+    const why = window.prompt('إقفال المتبقي من ' + p2.poNo + ' (لن يُورَّد) — السبب:'); if (why === null) return; if (!why.trim()) return say('اكتب السبب', 'no');
+    await commit(d => ({ ...d, purchaseOrders: (d.purchaseOrders || []).map(x => x.id === p2.id ? { ...x, status: 'closed', closeNote: why.trim(), closedBy: me.name, closedAt: nowISO() } : x) }),
+      { actionType: 'update', targetType: 'purchase_order', targetId: p2.id, title: 'أقفل المتبقي من أمر شراء', details: p2.poNo + ' · ' + why.trim() });
+    say('أُقفل المتبقي من ' + p2.poNo + ' ✓');
+  };
+  // التحويل لفاتورة: الاستلامات المفحوصة غير المفوترة — بأسعار فاتورة المورد
+  const grnsToBill = (p2) => (p2.grns || []).filter(g => g.status === 'done' && !g.invoiceId && !(p2.pinv && (p2.pinv.grnRefs || []).includes(g.id)) && g.lines.some((l, k) => ((g.qc.lines[k] || {}).acc || 0) > 0));
+  const openCv = (p2) => { const gs = grnsToBill(p2); const sp0 = suppliers.find(x => x.id === p2.supplierId) || {};
+    const rows = gs.flatMap(g => g.lines.map((l, k) => ({ g: g.id, grn: g.grn, k, itemId: l.itemId, desc: l.desc, qty: (g.qc.lines[k] || {}).acc || 0, factor: Number(l.factor) || 1, poPrice: Number(l.price) || 0, price: String(Number(l.price) || 0), whId: g.whId, branchId: g.branchId })).filter(r => r.qty > 0));
+    const due = (() => { const dd = new Date(today() + 'T12:00:00'); dd.setDate(dd.getDate() + (Number(sp0.terms) || 0)); return isoD(dd); })();
+    setCv({ po: p2, rows, supInvNo: '', date: today(), dueDate: due, taxable: !!(org.taxCfg || {}).enabled }); };
+  const cvCalc = (c) => { const r2 = (n) => Math.round(n * 100) / 100;
+    const poNet = r2(sum(c.rows, r => r.qty * r.poPrice)), net = r2(sum(c.rows, r => r.qty * (Number(r.price) || 0)));
+    const vat = (org.taxCfg || {}).enabled && c.taxable ? r2(net * ((Number((org.taxCfg || {}).rate) || 15) / 100)) : 0;
+    const pct = poNet > 0 ? Math.round((net - poNet) / poNet * 10000) / 100 : 0;
+    return { poNet, net, vat, gross: r2(net + vat), pct, over: Math.abs(pct) > varTol + 1e-9 }; };
+  const invFromCv = (c, p2) => { const k = cvCalc(c);
+    const lines = c.rows.map(r => { const it = items.find(x => x.id === r.itemId); const fac = r.factor || 1; const pr = Number(r.price) || 0;
+      return { itemId: r.itemId || '', desc: r.desc, qty: Math.round(r.qty * fac * 1000) / 1000, unitCost: Math.round(pr / fac * 10000) / 10000, price: pr, poPrice: r.poPrice,
+        net: Math.round(r.qty * pr * 100) / 100, poNet: Math.round(r.qty * r.poPrice * 100) / 100, stock: !!(r.itemId && (!it || isStocked(it))), grnRef: r.g }; });
+    return { id: uid('inv'), invoiceNo: c.supInvNo.trim(), supplierId: p2.supplierId, supplierName: p2.supplierName, amount: k.gross, vatAmt: k.vat, taxable: k.vat > 0,
+      date: c.date, dueDate: c.dueDate || c.date, paidAmount: 0, branchId: c.rows[0].branchId || p2.branchId || '', poId: p2.id, poNo: p2.poNo, whId: c.rows[0].whId || '',
+      grnRefs: [...new Set(c.rows.map(r => r.g))], grn: [...new Set(c.rows.map(r => r.grn))].join('، '), lines, poNet: k.poNet, varPct: k.pct, by: me.name, createdAt: nowISO() }; };
+  const postInv = async (p2, inv, extra) => commit(d => ({ ...d,
+    invoices: (d.invoices || []).some(x => x.id === inv.id) ? (d.invoices || []) : [inv, ...(d.invoices || [])],
+    purchaseOrders: (d.purchaseOrders || []).map(x => x.id !== p2.id ? x : { ...x, pinv: undefined, invoiceId: x.invoiceId || inv.id, invoiceIds: [...new Set([...(x.invoiceIds || []), inv.id])],
+      grns: (x.grns || []).map(g => inv.grnRefs.includes(g.id) ? { ...g, invoiceId: inv.id } : g) }) }), extra);
+  const saveCv = async () => {
+    const c = cv; const p2 = (ops.purchaseOrders || []).find(x => x.id === c.po.id) || c.po;
+    if (!c.supInvNo.trim()) return say('أدخل رقم فاتورة المورد كما هو مطبوع', 'no');
+    if (c.rows.some(r => !((Number(r.price) || 0) >= 0))) return say('سعر غير صالح', 'no');
+    if (periodLocked(org, c.date)) return say(LOCK_MSG(c.date), 'no');
+    const k0 = purKey({ supplierId: p2.supplierId, invoiceNo: c.supInvNo.trim() }); const o = (ops.invoices || []).find(i => purKey(i) === k0);
+    if (o) return say('فاتورة مكررة: رقم ' + c.supInvNo.trim() + ' للمورد مسجّل بتاريخ ' + (o.date || '') + ' — لم يُحفظ', 'no');
+    const k = cvCalc(c); const inv = invFromCv(c, p2);
+    if (k.over) {
+      // فوق التسامح: تنتظر اعتماد شخص آخر (توقيع تقديم موسوم بالتنبيه — القواعد تمنع مقدّمها من اعتمادها)
+      let pv = { ...inv, varHold: true };
+      const sg = await signoff('pinv', 'submit', pv, { branchId: '', alert: true }); if (!sg.ok) return say(sigFailMsg(sg, 'الفاتورة'), 'no'); if (sg.id) pv = { ...pv, sigSubmit: sg.id };
+      const ok = await commit(d => ({ ...d, purchaseOrders: (d.purchaseOrders || []).map(x => x.id === p2.id && !x.pinv ? { ...x, pinv: pv } : x) }),
+        { actionType: 'update', targetType: 'purchase_order', targetId: p2.id, need: 'post', title: 'فاتورة مورد بفرق سعر يتجاوز التسامح — بانتظار الاعتماد', details: p2.poNo + ' · ' + inv.invoiceNo + ' · فرق ' + k.pct + '% (التسامح ' + varTol + '%)' });
+      if (ok === false) return;
+      setCv(null); return say('فرق السعر ' + k.pct + '% يتجاوز التسامح ' + varTol + '% — الفاتورة بانتظار اعتماد شخص آخر قبل قيدها', 'no');
+    }
+    const ok = await postInv(p2, inv, { actionType: 'create', targetType: 'expense', targetId: inv.id, title: 'حوّل استلامات مفحوصة إلى فاتورة مورد',
+      details: p2.poNo + ' · ' + inv.invoiceNo + ' · ' + money(inv.amount) + (k.pct ? ' · فرق ' + k.pct + '% ضمن التسامح' : '') });
+    if (ok === false) return;
+    setCv(null); say('سُجّلت الفاتورة ' + inv.invoiceNo + ' بـ ' + money(inv.amount) + ' وأُنشئ قيدها ✓');
+  };
+  const decidePinv = async (p2, approve) => {
+    const pv = p2.pinv; if (!pv) return;
+    if (!canApprovePo) return say('اعتماد فرق السعر لمعتمدي أوامر الشراء', 'no');
+    if (approve && pv.by === me.name && !ROLES[me.role]?.admin) return say('يعتمد الفرقَ شخصٌ غير من سجّل الفاتورة', 'no');
+    const note = approve ? '' : window.prompt('سبب رفض فاتورة ' + pv.invoiceNo + ':'); if (!approve && note === null) return;
+    const sg = await signDecision('pinv', approve ? 'approve' : 'reject', pv, { branchId: '' }); if (!sg.ok) return say(sigFailMsg(sg, approve ? 'اعتماد الفرق' : 'رفض الفاتورة'), 'no');
+    if (approve) {
+      if (periodLocked(org, pv.date)) return say(LOCK_MSG(pv.date), 'no');
+      const { varHold, ...inv } = pv; const rec = { ...inv, varApprovedBy: me.name, varApprovedAt: nowISO(), ...(sg.id ? { sigVar: sg.id } : {}) };
+      const ok = await postInv(p2, rec, { actionType: 'create', targetType: 'expense', targetId: rec.id, need: 'post', title: 'اعتمد فرق سعر فاتورة مورد', details: p2.poNo + ' · ' + rec.invoiceNo + ' · فرق ' + rec.varPct + '%' });
+      if (ok !== false) say('اعتُمد الفرق وسُجّلت الفاتورة ' + rec.invoiceNo + ' ✓');
+    } else {
+      const ok = await commit(d => ({ ...d, purchaseOrders: (d.purchaseOrders || []).map(x => x.id === p2.id ? { ...x, pinv: undefined, pinvRejected: [...(x.pinvRejected || []), { no: pv.invoiceNo, note, by: me.name, at: nowISO() }] } : x) }),
+        { actionType: 'update', targetType: 'purchase_order', targetId: p2.id, need: 'post', title: 'رفض فاتورة مورد بفرق سعر', details: p2.poNo + ' · ' + pv.invoiceNo + ' · ' + note });
+      if (ok !== false) say('رُفضت الفاتورة — تعود الاستلامات بانتظار فاتورة صحيحة');
+    }
+  };
+  // فاتورة خدمات ومصروفات: بنود متعددة لكل منها حساب مصروف من دليل الحسابات (قرار المالك)
+  const SVC_SKIP = ['5150', '5198', '5201', '5202', '5203', '5204', '5301', '5302', '5401', '5501', '5502', '5503', '5504', '5701', '5801', '5901'];
+  const svcAccs = useMemo(() => svc ? buildAccounting(org, {}).accounts.filter(a => a.kind === 'exp' && !SVC_SKIP.includes(String(a.code))).map(a => ({ code: String(a.code), name: a.name })).sort((x, y) => x.code.localeCompare(y.code)) : [], [svc, org]);
+  const svcLine = () => ({ desc: '', accCode: '', net: '', taxable: !!(org.taxCfg || {}).enabled });
+  const svcCalc = (f) => { const r2 = (n) => Math.round(n * 100) / 100; const rate = (Number((org.taxCfg || {}).rate) || 15) / 100;
+    const ls = f.lines.map(l => { const n = r2(Number(l.net) || 0); return { ...l, n, v: (org.taxCfg || {}).enabled && l.taxable ? r2(n * rate) : 0 }; });
+    return { ls, net: r2(sum(ls, l => l.n)), vat: r2(sum(ls, l => l.v)), gross: r2(sum(ls, l => l.n + l.v)) }; };
+  const saveSvc = async () => {
+    const f = svc; const sp = suppliers.find(x => x.id === f.supplierId); if (!sp) return say('اختر المورد', 'no');
+    const k = svcCalc(f); const ls = k.ls.filter(l => l.n !== 0);
+    if (!ls.length) return say('أدخل بندًا واحدًا على الأقل بمبلغه', 'no');
+    if (ls.some(l => !l.accCode)) return say('اختر حساب المصروف لكل بند', 'no');
+    if (ls.some(l => !String(l.desc || '').trim())) return say('اكتب وصف كل بند', 'no');
+    if (periodLocked(org, f.date)) return say(LOCK_MSG(f.date), 'no');
+    const typedNo = (f.invoiceNo || '').trim();
+    if (typedNo) { const k0 = purKey({ supplierId: sp.id, invoiceNo: typedNo }); const o = (ops.invoices || []).find(i => purKey(i) === k0); if (o) return say('فاتورة مكررة: رقم ' + typedNo + ' للمورد «' + sp.name + '» مسجّل بتاريخ ' + (o.date || ''), 'no'); }
+    const autoNo = () => { const pre = 'SVC-' + today().replace(/-/g, '').slice(2) + '-'; let n = 1; while ((ops.invoices || []).some(i => i.invoiceNo === pre + String(n).padStart(3, '0'))) n++; return pre + String(n).padStart(3, '0'); };
+    const br = org.branches.find(b => b.id === f.branchId);
+    const rec = { id: uid('inv'), kind: 'svc', supplierId: sp.id, supplierName: sp.name, branchId: f.branchId || '', branchName: br ? br.name : 'المركز الرئيسي', invoiceNo: typedNo || autoNo(),
+      amount: k.gross, vatAmt: k.vat, taxable: k.vat > 0, paidAmount: 0, date: f.date, dueDate: f.dueDate || f.date,
+      expLines: ls.map(l => ({ desc: String(l.desc).trim(), accCode: l.accCode, net: l.n, vat: l.v })), by: me.name, createdAt: nowISO() };
+    const ok = await commit(d => ({ ...d, invoices: [rec, ...(d.invoices || [])] }), { actionType: 'create', targetType: 'expense', targetId: rec.id, title: 'سجّل فاتورة خدمات ومصروفات',
+      details: sp.name + ' · ' + rec.invoiceNo + ' · ' + ls.length + ' بند · ' + money(rec.amount) });
+    if (ok === false) return;
+    setSvc(null); say('سُجّلت فاتورة الخدمات ' + rec.invoiceNo + ' وقُيّد كل بند على حسابه ✓');
+  };
   // v30.9 — مرتجع لمورد: يُخرج الأصناف من المستودع بتكلفة شرائها ويُصدر إشعارًا دائنًا يخفض ذمة المورد وضريبة المدخلات
-  const retOpen = (p2) => { const inv0 = (ops.invoices || []).find(i => i.id === p2.invoiceId) || {};
+  const retOpen = (p2) => { if (inspectOn && grnsToBill(p2).length) return say('حوّل الاستلامات المفحوصة إلى فاتورة قبل المرتجع — والمرفوض في الفحص لا يحتاج مرتجعًا', 'no'); const inv0 = (ops.invoices || []).find(i => i.id === p2.invoiceId) || {};
     setRet({ po: p2, date: today(), whId: inv0.whId || MAIN_WH, cnNo: '', reason: '', taxable: inv0.taxable !== false, qtys: p2.lines.map(() => '') }); };
   const saveRet = async () => {
     const f = ret, p2 = f.po, rDate = (f.date || today()).slice(0, 10);
@@ -353,7 +504,8 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
 
       <SectionNav label="الفواتير والأوامر" cur={tab} onPick={setTab} items={[{ id: 'inv', ar: 'فواتير الموردين الآجلة', icon: FileText }, { id: 'fx', ar: 'إيجارات وفواتير الفروع', icon: Building2 }, { id: 'po', ar: 'أوامر الشراء', icon: ClipboardCheck }]}
         extra={<>{goTab && roleHasTab(me, 'partners') && <button className="btn sm gh" onClick={() => goTab('partners')}><Users size={14} />الموردون ← جهات الاتصال</button>}
-          {canPay && <button className="btn sm pri" onClick={() => setNewInv({ supplierId: suppliers[0]?.id || '', invoiceNo: '', amount: '', taxable: true, date: today(), dueDate: today(), branchId: '' })}><Plus size={14} />فاتورة توريد جديدة</button>}</>} />
+          {canPay && <button className="btn sm pri" onClick={() => setNewInv({ supplierId: suppliers[0]?.id || '', invoiceNo: '', amount: '', taxable: true, date: today(), dueDate: today(), branchId: '' })}><Plus size={14} />فاتورة توريد جديدة</button>}
+          {canPay && <button className="btn sm" data-svc onClick={() => setSvc({ supplierId: suppliers[0]?.id || '', invoiceNo: '', date: today(), dueDate: today(), branchId: '', lines: [svcLine()] })}><Plus size={14} />فاتورة خدمات ومصروفات</button>}</>} />
       <div className="grid g4">
         <Kpi label="مستحقات الموردين" value={money(outstanding)} sub={`${allInvs.filter(i => remOf(i) > 0).length} فاتورة مفتوحة (منها ${clInvs.filter(v => cRem(v) > 0).length} من الورديات)`} icon={Truck} color="#C8A24A" />
         <Kpi label="متأخرة عن الاستحقاق" value={money(sum(overdue, remOf))} sub={`${overdue.length} فاتورة`} icon={AlertTriangle} color="#D9544D" />
@@ -477,7 +629,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
             <div className="card-t"><ClipboardCheck size={15} color="var(--brass)" />أوامر الشراء — إنشاء ← استلام ← فاتورة ← سداد</div>
             <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
               <button className={'btn sm' + (showPrices ? ' pri' : ' gh')} onClick={() => setShowPrices(v => !v)}>أسعار الموردين</button>
-              {canCfg && <button className="btn sm gh" onClick={() => setCfgF({ approvalLimit: String(apprLimit || ''), priceAlertPct: String(alertPct), perpetual: !!pcfg.perpetualFrom, perpetualFrom: pcfg.perpetualFrom || today().slice(0, 7) })}>⚙ الإعدادات</button>}
+              {canCfg && <button className="btn sm gh" onClick={() => setCfgF({ approvalLimit: String(apprLimit || ''), priceAlertPct: String(alertPct), perpetual: !!pcfg.perpetualFrom, perpetualFrom: pcfg.perpetualFrom || today().slice(0, 7), inspect: inspectOn, invVarPct: String(varTol) })}>⚙ الإعدادات</button>}
               {canPay && <button className="btn sm pri" onClick={() => setPoF({ supplierId: suppliers[0]?.id || '', branchId: '', note: '', lines: [{ desc: '', itemId: '', qty: '', price: '' }] })}><Plus size={14} />أمر شراء جديد</button>}
             </div>
           </div>
@@ -522,15 +674,23 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
                       <td>{p2.status === 'pending' ? <span className="badge b-amber">بانتظار الاعتماد</span>
                         : p2.status === 'rejected' ? <span className="badge b-rose" title={p2.rejectNote || ''}>مرفوض{p2.rejectNote ? ' — ' + p2.rejectNote : ''}</span>
                         : p2.status === 'received' ? <span className="badge b-mint">مستلم كاملاً ✓</span>
+                        : p2.status === 'closed' ? <span className="badge b-dim" title={p2.closeNote || ''}>أُقفل المتبقي{p2.closeNote ? ' — ' + p2.closeNote : ''}</span>
                         : p2.status === 'partial' ? <span className="badge b-amber">جزئي</span>
                         : <span className="badge b-sky">بانتظار التوريد</span>}</td>
-                      <td>{(p2.returnIds || []).length > 0 && <div><span className="badge b-amber" style={{ marginBottom: 3 }}>مرتجع · {money(-sum((ops.invoices || []).filter(x => (p2.returnIds || []).includes(x.id)), x => x.amount))}</span></div>}{inv ? <span className="badge b-mint">مفوترة · {invs.filter(x => !x.creditNote).map(x => x.invoiceNo).join('، ')}</span> : <span className="badge b-dim">لم تُفوتر</span>}{p2.priceAlert ? <div><span className="badge b-rose" style={{ marginTop: 3 }}>⚠ سعر مرتفع في {p2.priceAlert} بند</span></div> : null}</td>
+                      <td>{(p2.grns || []).filter(g => g.status === 'qc').map(g => <div key={g.id}><span className="badge b-amber" style={{ marginBottom: 3 }} data-qcbadge>بانتظار الفحص · {g.grn}</span></div>)}
+                        {p2.pinv && <div><span className="badge b-rose" style={{ marginBottom: 3 }} title={'فرق ' + p2.pinv.varPct + '% عن سعر الأمر'}>فاتورة {p2.pinv.invoiceNo} بانتظار اعتماد الفرق ({p2.pinv.varPct}%)</span></div>}
+                        {grnsToBill(p2).length > 0 && <div><span className="badge b-sky" style={{ marginBottom: 3 }}>مفحوص لم يُفوتر · {grnsToBill(p2).length}</span></div>}
+                        {(p2.returnIds || []).length > 0 && <div><span className="badge b-amber" style={{ marginBottom: 3 }}>مرتجع · {money(-sum((ops.invoices || []).filter(x => (p2.returnIds || []).includes(x.id)), x => x.amount))}</span></div>}{inv ? <span className="badge b-mint">مفوترة · {invs.filter(x => !x.creditNote).map(x => x.invoiceNo).join('، ')}</span> : <span className="badge b-dim">لم تُفوتر</span>}{p2.priceAlert ? <div><span className="badge b-rose" style={{ marginTop: 3 }}>⚠ سعر مرتفع في {p2.priceAlert} بند</span></div> : null}</td>
                       <td><div className="row" style={{ gap: 5, flexWrap: 'wrap' }}>
                         <button className="btn sm gh" onClick={() => printPO(p2)}><Printer size={12} /></button>
                         {canApprovePo && p2.status === 'pending' && <><button className="btn sm pri" onClick={() => decidePo(p2, true)}>اعتماد</button><button className="btn sm gh" onClick={() => decidePo(p2, false)}>رفض</button></>}
-                        {canPay && !locked2 && p2.status !== 'received' && <button className="btn sm" onClick={() => setRecv({ po: p2, qtys: p2.lines.map(l => String((l.qty || 0) - (l.received || 0))), whId: MAIN_WH, date: today(), supInvNo: '', taxable: true, batch: p2.lines.map(() => ''), expiry: p2.lines.map(() => '') })}>تسجيل استلام</button>}
+                        {canInspect && (p2.grns || []).filter(g => g.status === 'qc').map(g => <button key={g.id} className="btn sm pri" data-qc onClick={() => setQc({ po: p2, g, acc: g.lines.map(l => String(l.qty)), why: g.lines.map(() => '') })}>فحص {g.grn}</button>)}
+                        {canPay && grnsToBill(p2).length > 0 && !p2.pinv && <button className="btn sm pri" data-cv onClick={() => openCv(p2)}>تحويل لفاتورة</button>}
+                        {canApprovePo && p2.pinv && <><button className="btn sm pri" onClick={() => decidePinv(p2, true)}>اعتماد الفرق</button><button className="btn sm gh" onClick={() => decidePinv(p2, false)}>رفض الفاتورة</button></>}
+                        {canInspect && inspectOn && p2.status === 'partial' && (p2.lines || []).some(l => remOfLine(l) > 0) && !(p2.lines || []).some(l => (Number(l.inQc) || 0) > 0) && <button className="btn sm gh" onClick={() => closeRest(p2)}>إقفال المتبقي</button>}
+                        {canPay && !locked2 && p2.status !== 'received' && p2.status !== 'closed' && (p2.lines || []).some(l => remOfLine(l) > 0) && <button className="btn sm" onClick={() => setRecv({ po: p2, qtys: p2.lines.map(l => String(remOfLine(l))), whId: MAIN_WH, date: today(), supInvNo: '', taxable: true, batch: p2.lines.map(() => ''), expiry: p2.lines.map(() => '') })}>تسجيل استلام</button>}
                         {canPay && (p2.lines || []).some(l => (Number(l.received) || 0) > (Number(l.returned) || 0)) && <button className="btn sm gh" onClick={() => retOpen(p2)}>مرتجع</button>}
-                        {canPay && !inv && !locked2 && <button className="btn sm gh" onClick={() => setNewInv({ supplierId: p2.supplierId, invoiceNo: '', amount: String(tot), taxable: true, date: today(), dueDate: today(), branchId: p2.branchId || '', poId: p2.id })}>إنشاء فاتورة</button>}
+                        {canPay && !inv && !locked2 && !inspectOn && !(p2.grns || []).length && <button className="btn sm gh" onClick={() => setNewInv({ supplierId: p2.supplierId, invoiceNo: '', amount: String(tot), taxable: true, date: today(), dueDate: today(), branchId: p2.branchId || '', poId: p2.id })}>إنشاء فاتورة</button>}
                       </div></td>
                     </tr>
                   );
@@ -658,10 +818,73 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
           <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', margin: '8px 0' }}>
             <input type="checkbox" checked={!!cfgF.perpetual} onChange={e => setCfgF(f => ({ ...f, perpetual: e.target.checked }))} />تفعيل الجرد المستمر (قيود مخزون آلية مع كل حركة)
           </label>
+          <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', margin: '8px 0' }} data-inspect>
+            <input type="checkbox" checked={!!cfgF.inspect} onChange={e => setCfgF(f => ({ ...f, inspect: e.target.checked }))} />مسار الفحص: استلام ← فحص بشخص غير المستلم ← مخزون ← تحويل لفاتورة
+          </label>
+          {cfgF.inspect && <Num label="تسامح فرق سعر الفاتورة عن أمر الشراء (% من الإجمالي)" value={cfgF.invVarPct} onChange={v => setCfgF(f => ({ ...f, invVarPct: v }))} hint="فاتورة المورد ضمن هذه النسبة تُقيَّد مباشرة، وفوقها تنتظر اعتماد شخص آخر. الفرق يُقيَّد في «فروق أسعار الشراء»" />}
           {cfgF.perpetual && <Field label="بداية الجرد المستمر (شهر)"><input type="month" className="inp" value={cfgF.perpetualFrom} onChange={e => setCfgF(f => ({ ...f, perpetualFrom: e.target.value }))} /></Field>}
           <div className="note">في الجرد المستمر: الاستلام يُقيَّد على حساب المستودع، والصرف والهالك والتسويات تُقيَّد بتكلفة المتوسط المرجّح لحظة الحركة، والتحويلات تمر بحساب «بضاعة في الطريق». يُنشأ قيد افتتاحي برصيد المخزون في أول يوم من الشهر المختار، ويتوقف قيد تقييم المخزون الدوري. يُفضَّل اختيار بداية شهر غير مقفل.</div>
         </Modal>
       )}
+
+      {qc && (
+        <Modal title={'فحص الاستلام — ' + qc.g.grn + ' · ' + qc.po.poNo} icon={ClipboardCheck} onClose={() => setQc(null)} wide
+          foot={<><button className="btn gh" onClick={() => setQc(null)}>إلغاء</button><button className="btn pri" data-qcsave onClick={saveQc}><Check size={14} />اعتماد الفحص</button></>}>
+          <div className="note" style={{ marginBottom: 8 }}>سجّل الاستلامَ <b>{qc.g.by}</b> بتاريخ <span className="num">{qc.g.date}</span>{qc.g.whId ? ' · ' + whName(org, qc.g.whId) : ''}. أدخل المقبول لكل بند؛ الباقي مرفوض ويبقى مطلوبًا من المورد، ولا يدخل المخزون ولا يُفوتر.</div>
+          {qc.g.lines.map((l, k) => { const rj = Math.round((l.qty - Math.min(Math.max(Number(qc.acc[k]) || 0, 0), l.qty)) * 1000) / 1000; return (
+            <div key={k} className="row" style={{ gap: 8, marginBottom: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ flex: 2, minWidth: 150, fontSize: 12.5 }}>{l.desc}<div style={{ fontSize: 9.5, color: 'var(--faint)' }}>المستلم <span className="num">{l.qty}</span>{l.uomName ? ' ' + l.uomName : ''}{l.batch ? ' · دفعة ' + l.batch : ''}{l.expiry ? ' · ينتهي ' + l.expiry : ''}</div></div>
+              <input className="inp n" style={{ width: 110 }} inputMode="decimal" aria-label={'المقبول ' + (k + 1)} value={qc.acc[k]} onChange={e => setQc(q => ({ ...q, acc: q.acc.map((v, i) => i === k ? e.target.value.replace(/[^\d.]/g, '') : v) }))} />
+              <span className="badge b-dim">مرفوض <span className="num">{rj}</span></span>
+              {rj > 0 && <input className="inp" style={{ flex: 2, minWidth: 160 }} placeholder="سبب الرفض (إلزامي)" value={qc.why[k]} onChange={e => setQc(q => ({ ...q, why: q.why.map((v, i) => i === k ? e.target.value : v) }))} />}
+            </div>); })}
+        </Modal>
+      )}
+
+      {cv && (() => { const k = cvCalc(cv); return (
+        <Modal title={'تحويل لفاتورة — ' + cv.po.poNo + ' · ' + cv.po.supplierName} icon={FileText} onClose={() => setCv(null)} wide
+          foot={<><button className="btn gh" onClick={() => setCv(null)}>إلغاء</button><button className="btn pri" data-cvsave onClick={saveCv}><Check size={14} />{k.over ? 'إرسال للاعتماد' : 'تسجيل الفاتورة'}</button></>}>
+          <div className="grid g3">
+            <Field label="رقم فاتورة المورد (كما هو مطبوع)"><input className="inp" value={cv.supInvNo} onChange={e => setCv(c => ({ ...c, supInvNo: e.target.value }))} />
+              <DupInvHint invoices={ops.invoices} supplierId={cv.po.supplierId} invoiceNo={cv.supInvNo} /></Field>
+            <Field label="تاريخ الفاتورة"><input type="date" className="inp" value={cv.date} onChange={e => setCv(c => ({ ...c, date: e.target.value }))} /></Field>
+            <Field label="تاريخ الاستحقاق"><input type="date" className="inp" value={cv.dueDate} onChange={e => setCv(c => ({ ...c, dueDate: e.target.value }))} /></Field>
+          </div>
+          {!!(org.taxCfg || {}).enabled && <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', margin: '4px 0 8px' }}><input type="checkbox" checked={!!cv.taxable} onChange={e => setCv(c => ({ ...c, taxable: e.target.checked }))} />خاضعة لضريبة القيمة المضافة</label>}
+          <div className="tw"><table className="tb">
+            <thead><tr><th>الاستلام</th><th>البند</th><th style={{ textAlign: 'end' }}>المقبول</th><th style={{ textAlign: 'end' }}>سعر الأمر</th><th style={{ textAlign: 'end' }}>سعر فاتورة المورد</th><th style={{ textAlign: 'end' }}>الصافي</th></tr></thead>
+            <tbody>{cv.rows.map((r, i) => <tr key={i}><td className="num" style={{ fontSize: 10.5 }}>{r.grn}</td><td>{r.desc}</td><td className="num" style={{ textAlign: 'end' }}>{r.qty}</td><td className="num" style={{ textAlign: 'end' }}>{money(r.poPrice)}</td>
+              <td style={{ textAlign: 'end' }}><input className="inp n" style={{ width: 100 }} inputMode="decimal" aria-label={'سعر الفاتورة ' + (i + 1)} value={r.price} onChange={e => setCv(c => ({ ...c, rows: c.rows.map((x, j) => j === i ? { ...x, price: e.target.value.replace(/[^\d.]/g, '') } : x) }))} /></td>
+              <td className="num" style={{ textAlign: 'end' }}>{money(r.qty * (Number(r.price) || 0))}</td></tr>)}</tbody>
+          </table></div>
+          <div className="mono-b" style={{ margin: '8px 0' }}><span style={{ fontSize: 12 }}>قيمة الأمر للمقبول <span className="num">{money(k.poNet)}</span> · الفاتورة <span className="num">{money(k.net)}</span>{k.vat ? <> + ض <span className="num">{money(k.vat)}</span></> : null}</span><span className="num" style={{ fontWeight: 700 }}>{money(k.gross)}</span></div>
+          <div className={k.over ? 'note warn' : 'note'} data-var={k.pct}>فرق السعر <b className="num">{k.pct}%</b> — التسامح <span className="num">{varTol}%</span>. {k.over ? 'يتجاوز التسامح: تُرسل الفاتورة لاعتماد شخص آخر ولا تُقيَّد قبله.' : 'ضمن التسامح: تُقيَّد مباشرة.'} {pcfg.perpetualFrom ? 'القيد: من ح/ بضاعة مستلمة لم تُفوتر (بسعر الأمر) ± فروق أسعار الشراء، وضريبة المدخلات، إلى ح/ المورد.' : 'القيد: من ح/ المشتريات وضريبة المدخلات إلى ح/ المورد.'}</div>
+        </Modal>); })()}
+
+      {svc && (() => { const k = svcCalc(svc); return (
+        <Modal title="فاتورة خدمات ومصروفات" icon={FileText} onClose={() => setSvc(null)} wide
+          foot={<><button className="btn gh" onClick={() => setSvc(null)}>إلغاء</button><button className="btn pri" data-svcsave onClick={saveSvc}><Check size={14} />تسجيل الفاتورة</button></>}>
+          <div className="grid g3">
+            <Field label="المورد"><select className="sel" value={svc.supplierId} onChange={e => setSvc(f => ({ ...f, supplierId: e.target.value }))}>{suppliers.map(sp => <option key={sp.id} value={sp.id}>{sp.name}</option>)}</select></Field>
+            <Field label="رقم فاتورة المورد (اختياري — يُولَّد تلقائيًا)"><input className="inp" value={svc.invoiceNo} onChange={e => setSvc(f => ({ ...f, invoiceNo: e.target.value }))} />
+              <DupInvHint invoices={ops.invoices} supplierId={svc.supplierId} invoiceNo={svc.invoiceNo} /></Field>
+            <Field label="الفرع / مركز التكلفة"><select className="sel" value={svc.branchId} onChange={e => setSvc(f => ({ ...f, branchId: e.target.value }))}><option value="">المركز الرئيسي</option>{myBranches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></Field>
+            <Field label="تاريخ الفاتورة"><input type="date" className="inp" value={svc.date} onChange={e => setSvc(f => ({ ...f, date: e.target.value }))} /></Field>
+            <Field label="تاريخ الاستحقاق"><input type="date" className="inp" value={svc.dueDate} onChange={e => setSvc(f => ({ ...f, dueDate: e.target.value }))} /></Field>
+          </div>
+          {svc.lines.map((l, i) => (
+            <div key={i} className="row" style={{ gap: 6, marginBottom: 6, alignItems: 'center', flexWrap: 'wrap' }} data-svcline>
+              <input className="inp" style={{ flex: 2, minWidth: 150 }} placeholder="وصف البند (صيانة مكيف، كهرباء نوفمبر…)" value={l.desc} onChange={e => setSvc(f => ({ ...f, lines: f.lines.map((x, j) => j === i ? { ...x, desc: e.target.value } : x) }))} />
+              <select className="sel" style={{ flex: 2, minWidth: 170 }} aria-label={'حساب البند ' + (i + 1)} value={l.accCode} onChange={e => setSvc(f => ({ ...f, lines: f.lines.map((x, j) => j === i ? { ...x, accCode: e.target.value } : x) }))}>
+                <option value="">— حساب المصروف —</option>{svcAccs.map(a => <option key={a.code} value={a.code}>{a.code} · {a.name}</option>)}</select>
+              <input className="inp n" style={{ width: 110 }} inputMode="decimal" placeholder="قبل الضريبة" aria-label={'مبلغ البند ' + (i + 1)} value={l.net} onChange={e => setSvc(f => ({ ...f, lines: f.lines.map((x, j) => j === i ? { ...x, net: e.target.value.replace(/[^\d.]/g, '') } : x) }))} />
+              {!!(org.taxCfg || {}).enabled && <label className="row" style={{ gap: 4, fontSize: 11.5 }}><input type="checkbox" checked={!!l.taxable} onChange={e => setSvc(f => ({ ...f, lines: f.lines.map((x, j) => j === i ? { ...x, taxable: e.target.checked } : x) }))} />خاضع</label>}
+              {svc.lines.length > 1 && <button className="btn sm gh" title="حذف البند" onClick={() => setSvc(f => ({ ...f, lines: f.lines.filter((_, j) => j !== i) }))}><X size={13} /></button>}
+            </div>))}
+          <button className="btn sm gh" onClick={() => setSvc(f => ({ ...f, lines: [...f.lines, svcLine()] }))}><Plus size={13} />بند آخر</button>
+          <div className="mono-b" style={{ margin: '8px 0' }}><span style={{ fontSize: 12 }}>الصافي <span className="num">{money(k.net)}</span>{k.vat ? <> + ض <span className="num">{money(k.vat)}</span></> : null}</span><span className="num" style={{ fontWeight: 700 }}>{money(k.gross)}</span></div>
+          <div className="note">كل بند يُقيَّد على حسابه المختار، وضريبة المدخلات للبنود الخاضعة، والإجمالي إلى ح/ المورد (آجل) ويظهر في كشفه وأعمار ديونه ويُسدَّد من «سداد».</div>
+        </Modal>); })()}
 
       {recv && (
         <Modal title={'تسجيل استلام — ' + recv.po.poNo} icon={Truck} onClose={() => setRecv(null)}
@@ -674,14 +897,14 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
               </select>
             </Field>}
             <Field label="تاريخ الاستلام"><input type="date" className="inp" value={recv.date || today()} onChange={e => setRecv(r => ({ ...r, date: e.target.value }))} /></Field>
-            <Field label="رقم فاتورة المورد (اختياري)"><input className="inp" value={recv.supInvNo || ''} placeholder="يُولَّد رقم استلام إن تُرك فارغًا" onChange={e => setRecv(r => ({ ...r, supInvNo: e.target.value }))} />
+            {!inspectOn && <><Field label="رقم فاتورة المورد (اختياري)"><input className="inp" value={recv.supInvNo || ''} placeholder="يُولَّد رقم استلام إن تُرك فارغًا" onChange={e => setRecv(r => ({ ...r, supInvNo: e.target.value }))} />
               <DupInvHint invoices={ops.invoices} supplierId={recv.po && recv.po.supplierId} invoiceNo={recv.supInvNo} /></Field>
             {!!(org.taxCfg || {}).enabled && <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', paddingTop: 14 }}>
               <input type="checkbox" checked={recv.taxable !== false} onChange={e => setRecv(r => ({ ...r, taxable: e.target.checked }))} />الفاتورة خاضعة لضريبة القيمة المضافة
-            </label>}
+            </label>}</>}
           </div>
           {recv.po.lines.map((l, i) => {
-            const rem = (l.qty || 0) - (l.received || 0);
+            const rem = remOfLine(l);
             return (
               <div key={i} className="row" style={{ gap: 8, marginBottom: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 <div style={{ flex: 2, minWidth: 150, fontSize: 12.5 }}>{l.desc}
@@ -698,8 +921,9 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
             );
           })}
           {(() => { const net = recv.po.lines.reduce((s2, l, i) => s2 + (Number(recv.qtys[i]) || 0) * (Number(l.price) || 0), 0); const vat = (org.taxCfg || {}).enabled && recv.taxable !== false ? net * ((Number((org.taxCfg || {}).rate) || 15) / 100) : 0;
-            return net > 0 ? <div className="mono-b" style={{ margin: '6px 0' }}><span style={{ fontSize: 12 }}>فاتورة المورد التي ستُنشأ تلقائيًا</span><span className="num">{money(net)}{vat ? ' + ض ' + money(vat) + ' = ' + money(net + vat) : ''}</span></div> : null; })()}
-          <div className="note">الأصناف المخزنية تدخل المستودع المختار بدفعتها وتاريخ انتهائها، وتُحدَّث تكلفتها بالمتوسط المرجّح، وتُنشأ فاتورة المورد بأسعار أمر الشراء مع استحقاق حسب شروط المورد.{pcfg.perpetualFrom ? ' القيد: من ح/ المخزون إلى ح/ المورد (جرد مستمر).' : ''}</div>
+            return net > 0 && !inspectOn ? <div className="mono-b" style={{ margin: '6px 0' }}><span style={{ fontSize: 12 }}>فاتورة المورد التي ستُنشأ تلقائيًا</span><span className="num">{money(net)}{vat ? ' + ض ' + money(vat) + ' = ' + money(net + vat) : ''}</span></div> : null; })()}
+          {inspectOn ? <div className="note" data-grnnote>مسار الفحص مفعّل: يُسجَّل الاستلام بانتظار الفحص — لا يدخل المخزون ولا تُنشأ فاتورة حتى يفحصه شخص غير المستلم، ثم تُحوَّل الكميات المقبولة إلى فاتورة برقم فاتورة المورد.</div> :
+          <div className="note">الأصناف المخزنية تدخل المستودع المختار بدفعتها وتاريخ انتهائها، وتُحدَّث تكلفتها بالمتوسط المرجّح، وتُنشأ فاتورة المورد بأسعار أمر الشراء مع استحقاق حسب شروط المورد.{pcfg.perpetualFrom ? ' القيد: من ح/ المخزون إلى ح/ المورد (جرد مستمر).' : ''}</div>}
         </Modal>
       )}
 

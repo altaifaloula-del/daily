@@ -944,3 +944,67 @@ test('v43.4 المحاسبة والمالية بالإنجليزية: القوا
   assert.match(t, /JV-\d{4}/); assert.match(t, /Shift revenue — /); assert.match(t, /عم قاسم/, 'اسم الفرع بيانات');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v43.5 مسار الفحص: استلام ← فحص بشخص آخر ← مخزون ← تحويل لفاتورة (ضمن التسامح وفوقه) + فاتورة خدمات ببنود', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/Hub/ho/purchasing:suppliers');
+  await p.evaluate(() => {
+    window.setOrg(g => ({ ...g, purchaseCfg: { ...(g.purchaseCfg || {}), inspect: true, invVarPct: 2 }, expenseCats: [{ id: 'c1', n: 'صيانة وتشغيل' }] }));
+    window.setOps(o => ({ ...o, invoices: [], stockMoves: [], purchaseOrders: [{ id: 'po1', poNo: 'PO-0001', supplierId: 's1', supplierName: 'مؤسسة اللحوم الطازجة للتجارة', status: 'open', date: '2026-11-10', at: '2026-11-10T08:00:00Z', by: 'مجاهد', lines: [{ itemId: 'i1', desc: 'لحم غنم', qty: 10, price: 40, factor: 1 }] }] }));
+  }); await p.waitForTimeout(300);
+  const toPo = async () => { await p.locator('button', { hasText: 'أوامر الشراء' }).first().click(); await p.waitForTimeout(200); };
+  await toPo();
+  // 1) الاستلام: بانتظار الفحص — لا مخزون ولا فاتورة
+  await p.locator('button', { hasText: 'تسجيل استلام' }).first().click(); await p.waitForTimeout(200);
+  assert.equal(await p.locator('[data-grnnote]').count(), 1, 'تنبيه مسار الفحص في نافذة الاستلام');
+  await p.locator('button', { hasText: 'تأكيد الاستلام' }).click(); await p.waitForTimeout(300);
+  let r = await p.evaluate(() => { const po = window.cur.purchaseOrders[0]; return { g: (po.grns || []).map(g => [g.status, g.by]), inQc: po.lines[0].inQc, mv: (window.cur.stockMoves || []).length + (window.cur.whMoves || []).filter(m => m.grnRef).length, inv: window.cur.invoices.length }; });
+  assert.deepEqual(r, { g: [['qc', 'سارة']], inQc: 10, mv: 0, inv: 0 });
+  // 2) المستلم نفسه لا يفحص
+  await p.locator('[data-qc]').first().click(); await p.locator('[data-qcsave]').click(); await p.waitForTimeout(200);
+  assert.match(await say(p), /غير من سجّل الاستلام/);
+  assert.equal(await p.evaluate(() => window.cur.purchaseOrders[0].grns[0].status), 'qc');
+  // 3) شخص آخر يفحص: 8 مقبول و2 مرفوض بسبب
+  await p.evaluate(() => window.as('admin')); await p.waitForTimeout(300); await toPo();
+  await p.locator('[data-qc]').first().click(); await p.fill('input[aria-label="المقبول 1"]', '8');
+  await p.locator('[data-qcsave]').click(); await p.waitForTimeout(150); assert.match(await say(p), /سبب الرفض/, 'المرفوض بلا سبب يُرفض');
+  await p.fill('input[placeholder="سبب الرفض (إلزامي)"]', 'تالف'); await p.locator('[data-qcsave]').click(); await p.waitForTimeout(300);
+  r = await p.evaluate(() => { const po = window.cur.purchaseOrders[0]; const m = [...(window.cur.stockMoves || []), ...(window.cur.whMoves || [])].filter(x => x.grnRef); return { st: po.status, rec: po.lines[0].received, inQc: po.lines[0].inQc, g: po.grns[0].status, rej: po.grns[0].qc.lines[0].rej, mv: m.map(x => [x.qty, x.unitCost]) }; });
+  assert.deepEqual(r, { st: 'partial', rec: 8, inQc: 0, g: 'done', rej: 2, mv: [[8, 40]] }, 'المقبول وحده دخل المخزون بسعر الأمر، والمرفوض يبقى مطلوبًا');
+  // 4) تحويل لفاتورة ضمن التسامح (40.5 = +1.25%)
+  await p.locator('[data-cv]').click(); await p.waitForTimeout(150);
+  await p.locator('[data-cvsave]').click(); await p.waitForTimeout(150); assert.match(await say(p), /رقم فاتورة المورد/, 'رقم فاتورة المورد إلزامي');
+  await p.fill('.modal input.inp >> nth=0', 'F-100'); await p.fill('input[aria-label="سعر الفاتورة 1"]', '40.5');
+  assert.equal(await p.getAttribute('[data-var]', 'data-var'), '1.25');
+  await p.locator('[data-cvsave]').click(); await p.waitForTimeout(300);
+  r = await p.evaluate(() => window.cur.invoices.map(i => [i.invoiceNo, i.amount, i.vatAmt, (i.grnRefs || []).length, i.lines[0].net]));
+  assert.deepEqual(r, [['F-100', 372.6, 48.6, 1, 324]]);
+  // 5) استلام المتبقي وفحصه، ثم فاتورة فوق التسامح (45 = +12.5%) تنتظر اعتماد شخص آخر
+  await p.evaluate(() => window.as('ho')); await p.waitForTimeout(300); await toPo();
+  await p.locator('button', { hasText: 'تسجيل استلام' }).first().click(); await p.locator('button', { hasText: 'تأكيد الاستلام' }).click(); await p.waitForTimeout(300);
+  await p.evaluate(() => window.as('admin')); await p.waitForTimeout(300); await toPo();
+  await p.locator('[data-qc]').first().click(); await p.locator('[data-qcsave]').click(); await p.waitForTimeout(300);
+  assert.equal(await p.evaluate(() => window.cur.purchaseOrders[0].status), 'received');
+  await p.evaluate(() => window.as('ho')); await p.waitForTimeout(300); await toPo();
+  await p.locator('[data-cv]').click(); await p.fill('.modal input.inp >> nth=0', 'F-101'); await p.fill('input[aria-label="سعر الفاتورة 1"]', '45');
+  await p.locator('[data-cvsave]').click(); await p.waitForTimeout(300);
+  r = await p.evaluate(() => ({ inv: window.cur.invoices.length, pv: window.cur.purchaseOrders[0].pinv && [window.cur.purchaseOrders[0].pinv.invoiceNo, window.cur.purchaseOrders[0].pinv.varPct] }));
+  assert.deepEqual(r, { inv: 1, pv: ['F-101', 12.5] }, 'فوق التسامح لا تُقيَّد قبل الاعتماد');
+  await p.locator('button', { hasText: 'اعتماد الفرق' }).click(); await p.waitForTimeout(200); assert.match(await say(p), /غير من سجّل الفاتورة/);
+  await p.evaluate(() => window.as('admin')); await p.waitForTimeout(300); await toPo();
+  await p.locator('button', { hasText: 'اعتماد الفرق' }).click(); await p.waitForTimeout(300);
+  r = await p.evaluate(() => ({ nos: window.cur.invoices.map(i => i.invoiceNo).sort(), held: !!window.cur.purchaseOrders[0].pinv, bill: window.cur.purchaseOrders[0].grns.every(g => !!g.invoiceId) }));
+  assert.deepEqual(r, { nos: ['F-100', 'F-101'], held: false, bill: true });
+  // 6) فاتورة خدمات ومصروفات ببندين على حسابين
+  await p.locator('button', { hasText: 'فواتير الموردين الآجلة' }).first().click(); await p.waitForTimeout(200);
+  await p.locator('[data-svc]').click(); await p.waitForTimeout(200);
+  await p.fill('[data-svcline] >> nth=0 >> input >> nth=0', 'صيانة مكيف');
+  const opt = await p.locator('select[aria-label="حساب البند 1"] option').nth(1).getAttribute('value');
+  await p.selectOption('select[aria-label="حساب البند 1"]', opt); await p.fill('input[aria-label="مبلغ البند 1"]', '600');
+  await p.locator('button', { hasText: 'بند آخر' }).click();
+  await p.fill('[data-svcline] >> nth=1 >> input >> nth=0', 'رسوم'); await p.selectOption('select[aria-label="حساب البند 2"]', opt); await p.fill('input[aria-label="مبلغ البند 2"]', '100');
+  await p.locator('[data-svcline] >> nth=1 >> input[type=checkbox]').uncheck();
+  await p.locator('[data-svcsave]').click(); await p.waitForTimeout(300);
+  r = await p.evaluate(() => { const i = window.cur.invoices.find(x => x.kind === 'svc'); return i && [i.amount, i.vatAmt, i.expLines.map(l => [l.net, l.vat])]; });
+  assert.deepEqual(r, [790, 90, [[600, 90], [100, 0]]]);
+  assert.deepEqual(errs, []); await ctx.close();
+});

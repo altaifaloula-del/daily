@@ -1747,6 +1747,12 @@ function buildAccounting(org, ops) {
     addAcc('5502', 'هدر وتالف المخزون', 'exp', { link: 'حركات الهدر في المستودعات' });
     addAcc('5503', 'فروقات جرد وتحويلات المخزون', 'exp', { link: 'تسويات الجرد ونقص الاستلام' });
   }
+  // v43.5 — مسار الفحص: بضاعة فُحصت ودخلت المستودع ولم تُفوتر (قرار المالك: حساب وسيط بسعر الأمر) + فروق أسعار الشراء عند الفوترة
+  const grnOn = perpFrom && (!!(org.purchaseCfg || {}).inspect || [...(ops.stockMoves || []), ...(ops.whMoves || [])].some(m => m.grnRef));
+  if (grnOn) {
+    addAcc('2105', 'بضاعة مستلمة لم تُفوتر', 'liab', { link: 'استلام مفحوص بانتظار فاتورة المورد — يُقفل بالفاتورة' });
+    addAcc('5504', 'فروق أسعار الشراء', 'exp', { link: 'فرق سعر فاتورة المورد عن سعر أمر الشراء للبضاعة المفحوصة' });
+  }
   const whAccOf = (whId) => { if (!whOn(org)) return '1601'; const w = whOf(org).find(x => x.id === (whId || MAIN_WH)) || whOf(org).find(x => x.id === MAIN_WH); return (w && w.accCode) ? String(w.accCode) : '1601'; };
   // v29.9: حساب مخزون لكل مستودع + بضاعة في الطريق بين المستودعات
   if (whOn(org)) {
@@ -1939,16 +1945,27 @@ function buildAccounting(org, ops) {
         ? { net: Math.round((i.amount - i.vatAmt) * 100) / 100, vat: Math.round(i.vatAmt * 100) / 100 }
         : (i.taxable === true) ? splitVat(i.amount) : { net: i.amount, vat: 0 };
       const exC = (i.accCode && accIx[i.accCode]) ? String(i.accCode) : '5198';
+      // v43.5: فاتورة فحوص (مسار الفحص) — ما رُسمل عند الفحص في «بضاعة مستلمة لم تُفوتر» يُقفل بسعر الأمر، والفرق إلى «فروق أسعار الشراء»
+      const grnAcc = (grnOn && Array.isArray(i.grnRefs) && i.grnRefs.length) ? Math.round([...(ops.stockMoves || []), ...(ops.whMoves || [])]
+        .filter(m => m.kind === 'purchase' && m.grnRef && i.grnRefs.includes(m.grnRef) && perpOn(String(m.date || '').slice(0, 10)))
+        .reduce((s2, m) => s2 + Math.abs(Number(m.qty) || 0) * (Number(m.unitCost) || 0), 0) * 100) / 100 : 0;
       // v30.5: فاتورة استلام أمر شراء في فترة الجرد المستمر — صافي البنود المخزنية يُرسمل في حساب المستودع لا المصروف
-      const stockNet = (perpOn(d) && Array.isArray(i.lines)) ? Math.min(ti.net, Math.round(i.lines.filter(l => l.stock).reduce((s2, l) => s2 + (Number(l.net) || 0), 0) * 100) / 100) : 0;
-      const restNet = Math.round((ti.net - stockNet) * 100) / 100;
-      const debit = [...(stockNet > 0 ? [L(whAccOf(i.whId), stockNet, 0)] : []), ...(Math.abs(restNet) > 0.004 ? [L(exC, restNet, 0)] : [])];
+      const stockNet = ((perpOn(d) || grnAcc > 0) && Array.isArray(i.lines)) ? Math.min(ti.net, Math.round(i.lines.filter(l => l.stock).reduce((s2, l) => s2 + (Number(l.net) || 0), 0) * 100) / 100) : 0;
+      const ppv = grnAcc > 0 ? Math.round((stockNet - grnAcc) * 100) / 100 : 0;
+      // v43.5: فاتورة خدمات ومصروفات ببنود — كل بند على حسابه (الضريبة من بنودها)
+      const xl = Array.isArray(i.expLines) ? i.expLines.filter(l => Math.abs(Number(l.net) || 0) > 0.004) : [];
+      const xlNet = Math.round(xl.reduce((s2, l) => s2 + (Number(l.net) || 0), 0) * 100) / 100;
+      const restNet = Math.round((ti.net - stockNet - xlNet) * 100) / 100;
+      const debit = [...(grnAcc > 0 ? [L('2105', grnAcc, 0), ...(ppv > 0.004 ? [L('5504', ppv, 0)] : [])] : stockNet > 0 ? [L(whAccOf(i.whId), stockNet, 0)] : []),
+        ...xl.map(l => L((l.accCode && accIx[l.accCode]) ? String(l.accCode) : '5199', Math.round((Number(l.net) || 0) * 100) / 100, 0)),
+        ...(Math.abs(restNet) > 0.004 ? [L(exC, restNet, 0)] : [])];
+      const credPpv = ppv < -0.004 ? [L('5504', 0, -ppv)] : [];
       push({
         id: 'inv:' + i.id, date: d, branchId: i.branchId, title: 'فاتورة توريد آجلة — ' + (i.supplierName || 'مورد') + (stockNet > 0 ? ' (مخزون)' : ''),
         src: 'فاتورة مورد', ref: i.invoiceNo || i.id,
         lines: ti.vat
-          ? [...debit, L('1501', ti.vat, 0), L('2101', 0, i.amount)]
-          : [...debit, L('2101', 0, i.amount)],
+          ? [...debit, L('1501', ti.vat, 0), ...credPpv, L('2101', 0, i.amount)]
+          : [...debit, ...credPpv, L('2101', 0, i.amount)],
         vat: ti.vat ? { out: 0, inn: ti.vat, netSales: 0, netPurch: ti.net } : null,
         reg: { k: 'p', doc: 'فاتورة مورد', party: i.supplierName || '', pvat: ((org.suppliers || []).find(x => x.id === i.supplierId) || {}).vatNo || '', supplierId: i.supplierId || '', no: i.invoiceNo || '', pm: 'deferred', net: ti.net, vat: ti.vat, gross: i.amount }
       });
@@ -2213,6 +2230,8 @@ function buildAccounting(org, ops) {
     const moveEntry = (m, key, wid) => {
       const dd = String(m.date || '').slice(0, 10); if (!perpOn(dd)) return;
       if (m.kind === 'purchase' && m.invoiceId) return;   // استلام أمر شراء: قيد فاتورته يرسمله
+      // v43.5: المقبول في الفحص يدخل المستودع بسعر الأمر مقابل «بضاعة مستلمة لم تُفوتر» — وتُقفله الفاتورة لاحقًا
+      if (m.kind === 'purchase' && m.grnRef) { const v = val(m.qty, m.unitCost); if (v > 0) push({ id: 'stk:' + key, date: dd, branchId: brOfWh(wid), title: 'استلام مفحوص — ' + itN(m.itemId) + ' (' + whName(org, wid) + ')', src: 'جرد مستمر', ref: m.ref || m.id, lines: [L(whAccOf(wid), v, 0), L('2105', 0, v)] }); return; }
       const u = SC.at[key]; const v = val(m.qty, u); if (!(v > 0)) return;
       const acc = whAccOf(wid), q = Number(m.qty) || 0;
       let lines;
@@ -2712,7 +2731,7 @@ const isLayout = (accounts, balFn, keep) => {
   const rev = accounts.filter(a => a.kind === 'rev'), exp = accounts.filter(a => a.kind === 'exp');
   const otherRev = (a) => /^42/.test(a.code);
   const otherExp = (a) => /^58/.test(a.code);
-  const cogsOf = (a) => ['5501', '5502', '5503', '5198', '5150'].includes(a.code) || (/^51/.test(a.code) && IS_COGS_RX.test(a.name || ''));
+  const cogsOf = (a) => ['5501', '5502', '5503', '5504', '5198', '5150'].includes(a.code) || (/^51/.test(a.code) && IS_COGS_RX.test(a.name || ''));
   const grpOf = (a) => /^52/.test(a.code) ? 'pay' : /^53/.test(a.code) ? 'apps' : a.code === '5701' ? 'dep' : 'oth';
   const sales = rev.filter(a => !otherRev(a)).map(a => L(a, 1)).filter(nz);
   const cogs = exp.filter(cogsOf).map(a => L(a, -1)).filter(nz);
@@ -2843,7 +2862,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v43.4';
+const APP_VER = 'v43.5';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
