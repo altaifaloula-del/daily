@@ -784,3 +784,41 @@ test('v42.0 المخزون: «صرف للتشغيل» لا يتجاوز الرص
   assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true, 'بلا تمرير أفقي');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v42.8 أوامر الإنتاج: إنشاء الأمر، منع الإكمال عند النقص، ثم الإكمال يصرف الخامات ويُدخل الناتج', async () => {
+  const { p, errs, ctx } = await open({ ...devices['iPhone 13'] }, 'live/Inventory/admin/production');
+  await p.evaluate(() => {
+    window.setOrg(g => ({ ...g, warehouses: [], items: [{ id: 'ga', name: 'ثوم', unit: 'كجم', cost: 10 }, { id: 'oi', name: 'زيت', unit: 'لتر', cost: 8 }, { id: 'pp_sauce', name: 'ثومية', unit: 'كجم', type: 'stock', prepId: 'sauce' }],
+      preps: [{ id: 'sauce', name: 'ثومية', unit: 'كجم', batch: 5, stocked: true, parts: [{ itemId: 'ga', qty: 1, yield: 80 }, { itemId: 'oi', qty: 4 }] }] }));
+    window.setOps(o => ({ ...o, prodOrders: [], whMoves: [], whTransfers: [], stockMoves: [{ id: 'a', date: '2026-11-01', at: '2026-11-01T08:00', itemId: 'ga', kind: 'purchase', qty: 3, unitCost: 10 }, { id: 'b', date: '2026-11-01', at: '2026-11-01T08:00', itemId: 'oi', kind: 'purchase', qty: 10, unitCost: 8 }] }));
+  }); await p.waitForTimeout(400);
+  await p.click('button:has-text("أمر إنتاج جديد")'); await p.waitForTimeout(200);
+  await p.fill('input[aria-label="الكمية المخططة"]', '20'); await p.waitForTimeout(200);
+  assert.match(await p.locator('.modal').innerText(), /ينقص[\s\S]*الرصيد الحالي لا يكفي/, 'النقص ظاهر قبل الإنشاء');
+  await p.click('.modal button:has-text("إنشاء الأمر")'); await p.waitForTimeout(250);
+  assert.equal(await p.evaluate(() => window.cur.prodOrders.length), 1);
+  await p.click('button:has-text("تسجيل الإنتاج")'); await p.waitForTimeout(200);
+  assert.equal(await p.locator('.modal button:has-text("تأكيد الإنتاج")').isDisabled(), true, 'الإكمال ممنوع مع النقص');
+  await p.fill('input[aria-label="الكمية المنتجة فعلًا"]', '10'); await p.waitForTimeout(200);
+  assert.match(await p.locator('.modal').innerText(), /تكلفة الدفعة[\s\S]*89\.00/);
+  await p.click('.modal button:has-text("تأكيد الإنتاج")'); await p.waitForTimeout(300);
+  const r = await p.evaluate(() => ({ st: window.cur.prodOrders[0].status, made: window.cur.prodOrders[0].made, kinds: window.cur.stockMoves.filter(m => m.prodId).map(m => m.kind + ':' + m.itemId + ':' + m.qty).sort() }));
+  assert.deepEqual(r, { st: 'done', made: 10, kinds: ['prod_in:pp_sauce:10', 'prod_out:ga:-2.5', 'prod_out:oi:-8'] });
+  assert.match(await p.locator('[data-prod]').innerText(), /منجز[\s\S]*50%|50%[\s\S]*منجز/, 'الإنجاز = الفعلي ÷ المخطط');
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v42.8 بطاقة التحضيرة: «تُخزَّن صنفًا» تُنشئ صنفًا مخزنيًا مرتبطًا مرة واحدة', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Inventory/admin/recipes');
+  await p.evaluate(() => window.setOrg(g => ({ ...g, items: [{ id: 'ga', name: 'ثوم', unit: 'كجم', cost: 10 }], preps: [{ id: 'sauce', name: 'ثومية', unit: 'كجم', batch: 5, parts: [{ itemId: 'ga', qty: 1 }] }] }))); await p.waitForTimeout(300);
+  await p.locator('.me-row:has-text("ثومية") button:has-text("تعديل")').click(); await p.waitForTimeout(150);
+  await p.locator('.modal label:has-text("تُخزَّن صنفًا") input').check();
+  await p.click('.modal button:has-text("حفظ")'); await p.waitForTimeout(300);
+  let it = await p.evaluate(() => window.curOrg.items.filter(i => i.prepId === 'sauce'));
+  assert.deepEqual(it.map(i => [i.id, i.name, i.unit, i.type, i.cost]), [['pp_sauce', 'ثومية', 'كجم', 'stock', 2]]);
+  await p.locator('.me-row:has-text("ثومية") button:has-text("تعديل")').click(); await p.waitForTimeout(150);
+  await p.click('.modal button:has-text("حفظ")'); await p.waitForTimeout(300);
+  assert.equal(await p.evaluate(() => window.curOrg.items.filter(i => i.prepId === 'sauce').length), 1, 'لا تكرار عند الحفظ مرة أخرى');
+  assert.deepEqual(errs, []); await ctx.close();
+});
