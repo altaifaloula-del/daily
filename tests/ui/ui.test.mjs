@@ -913,3 +913,17 @@ test('v43.2 الإغلاق والاعتماد بالإنجليزية: النمو
   assert.match(t, /\d{2} Nov 2026|\d{2} [A-Z][a-z]{2} \d{4}/, 'التواريخ بالإنجليزية'); assert.match(t, /عم قاسم/, 'اسم الفرع بيانات لا يُترجم');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v43.3 المخزون بالإنجليزية: الشاشات ونافذة الصنف الجديد مترجمة، وأسماء الأصناف كما هي', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1300, height: 1000 } }); await ctx.addInitScript(() => { try { localStorage.setItem('rms8:lang', 'en'); } catch { } });
+  const errs = []; const p = await ctx.newPage(); p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'live/Inventory/admin/items'); await p.waitForTimeout(800); await settle(p);
+  let t = await p.locator('body').innerText();
+  for (const w of ['Stock value (last cost)', 'Items below reorder level', 'New item', 'Average cost']) assert.ok(t.includes(w), w);
+  assert.match(t, /لحم غنم/, 'اسم الصنف بيانات');
+  await p.locator('button', { hasText: 'New item' }).first().click(); await p.waitForTimeout(400);
+  t = await p.locator('body').innerText();
+  for (const w of ['New stock item', 'Item name', 'Minimum reorder level', 'Save item']) assert.ok(t.includes(w), w);
+  assert.doesNotMatch(t, /اسم الصنف|حفظ الصنف|حد الطلب الأدنى/);
+  assert.deepEqual(errs, []); await ctx.close();
+});
