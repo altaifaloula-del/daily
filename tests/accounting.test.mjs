@@ -1079,3 +1079,31 @@ test('v42.0 فرق سعر الشراء (مقابل آخر سعر) ودوران �
   assert.equal(T.rows.some(x => x.itemId === 's'), false, 'الخدمي لا يدخل');
   assert.ok(T.idleValue > 0 && T.turn > 0);
 });
+
+test('v42.2 القراءة من السجلات: السجل يغلب مستند الفرع، والاعتماد بلا سجل يُعرض مرحّلًا، والصور تُستعاد', () => {
+  const c = (x) => ({ id: 'c1', branchId: 'b1', date: '2026-11-14', status: 'submitted', gmApprovalStatus: 'pending', cashSales: 100, cardSales: 50, totalRevenue: 150, expenses: [], ...x });
+  const img = 'data:image/jpeg;base64,' + 'A'.repeat(9000);
+  const ok = c({ status: 'approved', cardReceiptImage: img });
+  const rec = (x) => ({ id: x.id, ...E.clrRecord(x) });
+  // 1) الفرع زوّر الأرقام في مستنده بعد الاعتماد ⇒ يُعرض ما في السجل
+  const tampered = { ...ok, cashSales: 999, totalRevenue: 1049 };
+  let M = E.clrMerge([tampered], [rec(ok)]);
+  assert.equal(M.list[0].cashSales, 100); assert.equal(M.list[0].totalRevenue, 150); assert.equal(M.stats.fixed, 1);
+  assert.equal(M.list[0].cardReceiptImage, img, 'الصورة المختصرة في السجل تُستعاد من مستند الفرع');
+  // 2) الحالة من حقل السجل (المحروس) لا من داخل البيانات
+  const r2 = rec(c({ id: 'c2' })); r2.data = JSON.stringify({ ...JSON.parse(r2.data), status: 'approved' });
+  assert.equal(E.clrMerge([], [r2]).list[0].status, 'submitted', 'كتابة «معتمد» داخل البيانات لا تجعل الإغلاق معتمدًا');
+  // 3) «معتمد» في مستند الفرع بلا سجل ⇒ مرحّل ومعلَّم
+  M = E.clrMerge([c({ id: 'c3', status: 'approved' })], []);
+  assert.deepEqual([M.list[0].status, M.list[0]._clrDemoted, M.stats.demoted], ['submitted', true, 1]);
+  // 4) مسودة بلا سجل تبقى كما هي معلَّمة
+  M = E.clrMerge([c({ id: 'c4', status: 'draft' })], []);
+  assert.deepEqual([M.list[0].status, M.list[0]._clrUnrec, M.list[0]._clrDemoted], ['draft', true, undefined]);
+  // 5) بصمة لا تطابق أرقام سجل معتمد ⇒ تُكشف
+  const r5 = rec(ok); r5.data = JSON.stringify({ ...JSON.parse(r5.data), cashSales: 500 });
+  assert.equal(E.clrMerge([], [r5]).list[0]._clrDigestBad, true);
+  // 6) الإشارة تتطلب النسخ والقراءة معًا
+  assert.equal(E.clrRead({ closingRecords: { on: true, read: true } }), true);
+  assert.equal(E.clrRead({ closingRecords: { on: false, read: true } }), false);
+  assert.equal(E.clrRead({}), false, 'مُطفأة افتراضيًا');
+});

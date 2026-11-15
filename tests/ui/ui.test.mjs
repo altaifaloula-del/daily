@@ -745,6 +745,7 @@ test('v41.9 الإغلاقات سجلات مستقلة: مُطفأة افترا�
   assert.equal(await p.evaluate(() => !!(window.curOrg.closingRecords || {}).on), true);
   assert.match(await card.innerText(), /النسخ مفعّل/);
   assert.equal(await card.locator('button:has-text("ترحيل الإغلاقات الحالية")').count(), 1);
+  assert.equal(await card.locator('button:has-text("القراءة من السجلات المحمية")').isDisabled(), true, 'v42.2: لا قراءة من السجلات قبل مطابقة كاملة');
   await card.locator('button:has-text("مطابقة")').click(); await p.waitForTimeout(400);
   assert.match(await p.evaluate(() => window.lastSay || ''), /Firestore فقط/, 'خارج Firestore رسالة واضحة لا انهيار');
   assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true);
