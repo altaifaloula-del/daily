@@ -1,7 +1,8 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { cloud, KEYS, brKey, bfKey } from '../../storage';
-import { Store, X, RefreshCw, FileText, Clock, ShieldCheck, Check, Plus, Printer, Download, Lock, Banknote } from 'lucide-react';
+import { Store, X, RefreshCw, FileText, Clock, ShieldCheck, Check, Plus, Printer, Download, Lock, Banknote, ChefHat, LayoutGrid, Send } from 'lucide-react';
+import { posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim } from '../../App.jsx';   // v42.9
 import { APPS, CloudHealth, Field, Modal, Num, POS_SH_KEY, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, QUOTA_MSG, ROLES, businessDay, isoD, logClientError, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, makeXlsx, money, normPhone, nowISO, pendShiftsGet, pendShiftsSet, posCashNet, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posTotals, posZHtml, promoActive, promoHits, sha256Hex, uid } from '../../App.jsx';
 
 export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
@@ -22,6 +23,9 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const loyCfg = org.loyaltyCfg || {}; const [loy, setLoy] = useState(null);
   useEffect(() => { if (!loyCfg.enabled) return; let dead = false; cloud.get(KEYS.loy, { members: {}, tx: [] }).then(d => { if (!dead) setLoy(d || { members: {}, tx: [] }); }).catch(() => { }); return () => { dead = true; }; }, [loyCfg.enabled]);
   const [view, setView] = useState('sell'); const [showCart, setShowCart] = useState(false);
+  const [tbl, setTbl] = useState(''); const [payTab, setPayTab] = useState(null); const [tblSel, setTblSel] = useState(null); const [, setTick] = useState(0);   // v42.9
+  const tables = br ? posTables(org, br.id) : []; const useTabs = tables.length > 0; const kds = kdsOn(org);
+  useEffect(() => { if (!useTabs && !kds) return; const t = setInterval(() => setTick(x => x + 1), 30000); return () => clearInterval(t); }, [useTabs, kds]);   // تحديث الدقائق المنقضية (قبل أي عودة مبكرة — قاعدة الخطافات)
   const [queue, setQueue] = useState(posQueue); const [cfgF, setCfgF] = useState(null); const [shiftF, setShiftF] = useState(null);
   const apps = org.deliveryApps || APPS;
   const today = businessDay();
@@ -76,6 +80,30 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
 
   const add = (p) => setCart(c => { const i = c.findIndex(l => l.productId === p.id && !l.note); if (i >= 0) return c.map((l, k) => k === i ? { ...l, qty: l.qty + 1 } : l); return [...c, { key: uid('l'), productId: p.id, name: p.name, price: Number(p.sellPrice), qty: 1, note: '' }]; });
   const setQty = (key, d) => setCart(c => c.map(l => l.key === key ? { ...l, qty: Math.max(0, l.qty + d) } : l).filter(l => l.qty > 0));
+  /* v42.9 — الطاولات والحساب المفتوح وشاشة المطبخ (مُطفأة افتراضيًا) */
+  const sendRound = async () => {
+    if (!cart.length) return; if (!tbl) return say('اختر الطاولة أولًا', 'no');
+    if (payTab) return say('أنت في دفع حساب طاولة — أكمل الدفع أو ألغه', 'no');
+    const lines = cart.map(l => ({ productId: l.productId, name: l.name, qty: l.qty, price: l.price, ...((l.note || '').trim() ? { note: l.note.trim() } : {}) }));
+    const at = nowISO(), no = tbl;
+    const ok = await commit(d => { const t0 = openTab(d, br.id, no);
+      const tabs = t0 ? (d.posTabs || []).map(t => t.id === t0.id ? { ...t, billAt: '', rounds: [...(t.rounds || []), { at, by: me.name, lines }] } : t)
+        : [{ id: uid('tab'), branchId: br.id, table: no, status: 'open', openedAt: at, openedBy: me.name, rounds: [{ at, by: me.name, lines }] }, ...(d.posTabs || [])];
+      return posTrim({ ...d, posTabs: tabs, kdsTickets: kds ? [...(d.kdsTickets || []), kdsTicket({ branchId: br.id, src: 'tab', table: no, channel: 'dinein', lines, at, by: me.name })] : (d.kdsTickets || []) }, today);
+    }, { actionType: 'create', targetType: 'pos_tab', targetId: br.id + ':' + no, branchName: br.name, title: 'أرسل طلب الطاولة ' + no + (kds ? ' للمطبخ' : ''), details: lines.map(l => l.name + ' ×' + l.qty).join('، ').slice(0, 160) });
+    if (ok) { setCart([]); setShowCart(false); say('أُرسل طلب الطاولة ' + no + (kds ? ' للمطبخ' : '') + ' ✓'); }
+  };
+  const startPayTab = (t) => { const S = tabSum(t); setCart(S.lines.map(l => ({ key: uid('l'), productId: l.productId, name: l.name, price: l.price, qty: l.qty, note: l.note || '' }))); setChannel('dinein'); setTbl(String(t.table)); setPayTab(t.id); setTblSel(null); setView('sell'); };
+  const cancelPayTab = () => { setPayTab(null); setCart([]); };
+  const printBill = async (t) => { const S = tabSum(t);
+    posPrint('<div style="font-family:sans-serif;direction:rtl;width:280px;font-size:13px"><h3 style="text-align:center;margin:4px 0">' + (org.company || {}).name + '</h3><div style="text-align:center">' + br.name + ' · طاولة ' + t.table + '</div><div style="text-align:center;font-size:11px;margin:4px 0">فاتورة مبدئية — ليست فاتورة ضريبية</div><hr>' +
+      S.lines.map(l => '<div style="display:flex;justify-content:space-between"><span>' + l.name + ' ×' + l.qty + '</span><span>' + (l.qty * l.price).toFixed(2) + '</span></div>').join('') + '<hr><div style="display:flex;justify-content:space-between;font-weight:700"><span>الإجمالي (شامل الضريبة)</span><span>' + S.total.toFixed(2) + '</span></div></div>');
+    await commit(d => ({ ...d, posTabs: (d.posTabs || []).map(x => x.id === t.id ? { ...x, billAt: nowISO() } : x) })); setTblSel(null); };
+  const moveTab = async (t, to) => { if (openTab(ops, br.id, to)) return say('الطاولة ' + to + ' مشغولة', 'no');
+    const ok = await commit(d => ({ ...d, posTabs: (d.posTabs || []).map(x => x.id === t.id ? { ...x, table: String(to), movedFrom: t.table } : x) }), { actionType: 'update', targetType: 'pos_tab', targetId: t.id, branchName: br.name, title: 'نقل الطاولة ' + t.table + ' إلى ' + to });
+    if (ok) { setTblSel(null); say('نُقل الحساب إلى الطاولة ' + to); } };
+  const kdsMove = async (k) => { const nx = KDS_NEXT[k.status]; if (!nx) return;
+    await commit(d => posTrim({ ...d, kdsTickets: (d.kdsTickets || []).map(x => x.id === k.id ? { ...x, status: nx, [nx + 'At']: nowISO() } : x) }, today)); };
   // شارة العرض على بطاقة الصنف (العروض الفعّالة الآن بلا كوبون، وخصم بطاقة الصنف)
   const nowT = new Date(); const actP = (org.posPromos || []).filter(pr => pr.type !== 'order' && !pr.code && promoActive(pr, nowT, (br || {}).id));
   const tileTag = (p) => { if (p.disc && Number(p.disc.v) > 0 && (!p.disc.to || isoD(nowT) <= p.disc.to)) return p.disc.t === 'amt' ? '−' + money(p.disc.v) : '−' + p.disc.v + '%'; const pr = actP.find(x => promoHits(x, p)); return pr ? pr.name : ''; };
@@ -130,7 +158,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
       ...(phoneOk ? { loyalty: { phone: phoneN, name: (cust.name || custName).trim(), earned: earnPts, redeemed: redeemPts, redeemAmt, balAfter: posR2(loyBalance - redeemPts + earnPts) } } : {}),
       total: T.total, vat: T.vat, net: T.net, rate,
       payments: pay.parts.filter(x => Number(x.amount) > 0).map(x => ({ m: x.m, amount: posR2(x.amount), ...(x.m === 'app' ? { appId: x.appId, appName: (apps.find(a => a.id === x.appId) || {}).n || 'تطبيق' } : {}), ...(x.pm ? { pm: x.pm, pmName: x.pmName } : {}) })),
-      change, status: 'paid', icv: (prev.icv || 0) + 1, pih: prev.hash || '0' };
+      change, status: 'paid', icv: (prev.icv || 0) + 1, pih: prev.hash || '0', ...(channel === 'dinein' && tbl ? { table: tbl } : {}), ...(payTab ? { tabId: payTab } : {}) };
     o.hash = sha256Hex(JSON.stringify([o.no, o.at, o.lines, o.total, o.vat, o.payments, o.icv, o.pih]));
     try { localStorage.setItem(sk, String(seq)); localStorage.setItem(hk, JSON.stringify({ icv: o.icv, hash: o.hash })); } catch { }
     const qn = [...posQueue(), o]; posQueueSet(qn); setQueue(qn);
@@ -138,6 +166,10 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     setLast(o); setCart([]); setDisc({ mode: 'amt', amt: '', reason: '' }); setCode(''); setCust({ phone: '', name: '', redeem: false }); setPay(null); setShowCart(false);
     if (printNow === true || (printNow !== false && cfg.autoPrint !== false)) posPrint(posReceiptHtml(org, o, br));
     flush();
+    // v42.9: إغلاق حساب الطاولة بعد دفعه، أو تذكرة مطبخ للطلب المدفوع مباشرة (بالخلفية — الفاتورة نفسها محفوظة على الجهاز)
+    if (payTab) { const tid = payTab; setPayTab(null); setTbl('');
+      commit(d => posTrim({ ...d, posTabs: (d.posTabs || []).map(t => t.id === tid ? { ...t, status: 'paid', orderId: o.id, orderNo: o.no, closedAt: o.at, closedBy: me.name } : t) }, today)).then(ok => { if (!ok) say('دُفعت الفاتورة، لكن تعذّر إغلاق حساب الطاولة الآن — أغلقه من «الطاولات» عند عودة الاتصال', 'no'); }); }
+    else if (kds) commit(d => posTrim({ ...d, kdsTickets: [...(d.kdsTickets || []), kdsTicket({ branchId: br.id, src: 'order', ref: o.no, table: o.table || '', channel: o.channel, lines: o.lines, at: o.at, by: me.name })] }, today)).then(ok => { if (!ok) say('دُفعت الفاتورة، لكن لم تصل لشاشة المطبخ (لا اتصال) — أبلغ المطبخ يدويًا', 'no'); });
   };
   const voidOrder = async (o) => {
     if (!isMgr) return say('إلغاء الفاتورة لمدير الفرع', 'no');
@@ -151,6 +183,15 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   };
 
   const css = `.pos-wrap{display:grid;grid-template-columns:1fr 360px;gap:12px;align-items:start}
+  .pos-tables{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:10px}
+  .pos-tbl{border:1.5px solid var(--line);border-radius:14px;background:var(--ink2);min-height:96px;padding:10px;display:flex;flex-direction:column;align-items:flex-start;gap:3px;cursor:pointer;font:inherit;color:var(--txt);text-align:start}
+  .pos-tbl b{font-size:20px} .pos-tbl small{font-size:11.5px;color:var(--dim)}
+  .pos-tbl.free{border-color:color-mix(in srgb,var(--mint) 50%,var(--line))} .pos-tbl.busy{border-color:var(--brass);background:color-mix(in srgb,var(--brass) 8%,var(--ink2))} .pos-tbl.bill{border-color:var(--rose);background:color-mix(in srgb,var(--rose) 7%,var(--ink2))}
+  .pos-kds{display:grid;grid-template-columns:repeat(3,minmax(240px,1fr));gap:12px;overflow-x:auto}
+  .pos-kcol{background:var(--ink3);border:1px solid var(--line);border-radius:14px;padding:10px;display:flex;flex-direction:column;gap:9px;min-height:200px}
+  .pos-ticket{background:var(--ink2);border:1px solid var(--line);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:7px;font-size:13.5px}
+  .pos-ticket.late{border-color:var(--rose);box-shadow:inset 3px 0 0 var(--rose)} .pos-ticket ul{margin:0;padding-inline-start:18px} .pos-ticket li small{color:var(--dim)}
+  @media(max-width:700px){.pos-kds{grid-template-columns:repeat(3,minmax(230px,82vw))}}
   .pos-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:9px}
   .pos-tile{border:1px solid var(--line);border-radius:14px;background:var(--ink2);padding:12px;min-height:104px;display:flex;flex-direction:column;justify-content:space-between;gap:6px;cursor:pointer;text-align:start;font:inherit;color:var(--txt)}
   .pos-tile:active{transform:scale(.97)} .pos-tile b{font-size:14.5px;line-height:1.4} .pos-tile .num{font-size:15px;font-weight:700;color:var(--txt)}
@@ -235,6 +276,11 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
         </div>
       </div>
       <div className="pos-seg" role="group" aria-label="نوع الطلب">{[['takeaway', 'سفري'], ['dinein', 'محلي'], ['delivery', 'توصيل']].map(([k, t]) => <button key={k} className={channel === k ? 'on' : ''} onClick={() => setChannel(k)}>{t}</button>)}</div>
+      {channel === 'dinein' && useTabs && <div className="row" style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap', margin: '0 0 8px' }}>
+        {payTab ? <div className="note" style={{ flex: 1, margin: 0 }}>دفع حساب الطاولة <b className="num">{tbl}</b> <button className="btn sm gh" onClick={cancelPayTab}>إلغاء الدفع</button></div>
+          : <><span style={{ fontSize: 13, fontWeight: 600 }}>الطاولة</span><select className="sel" style={{ width: 'auto', minWidth: 110 }} aria-label="الطاولة" value={tbl} onChange={e => setTbl(e.target.value)}><option value="">— اختر —</option>
+            {tables.map(no => { const t = openTab(ops, br.id, no); return <option key={no} value={no}>{no}{t ? ' (مفتوحة · ' + money(tabSum(t).total) + ')' : ''}</option>; })}</select></>}
+      </div>}
       {cart.map(l => (
         <div key={l.key} className="pos-line">
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -276,6 +322,8 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
           <div><span>منها ضريبة القيمة المضافة {rate}%</span><span className="num">{money(T.vat)}</span></div>
           <div className="pos-total"><span>الإجمالي</span><span className="num">{money(T.total)}</span></div>
         </div>
+        {channel === 'dinein' && useTabs && !payTab && <button className="btn pos-pay" style={{ width: '100%', marginBottom: 8, background: 'var(--sky)', color: '#fff', borderColor: 'transparent' }} disabled={!tbl} onClick={sendRound}>
+          <Send size={16} />{tbl ? 'إرسال للمطبخ — الطاولة ' + tbl + ' (الدفع لاحقًا)' : 'اختر الطاولة للإرسال للمطبخ'}</button>}
         <div className="grid g2" style={{ gap: 8 }}>
           <button className="btn pri pos-pay" onClick={() => setPay({ parts: [{ m: 'cash', amount: String(T.total) }] })}>نقدي</button>
           <button className="btn pri pos-pay pos-pay-card" onClick={() => setPay({ parts: [{ m: 'card', amount: String(T.total) }] })}>شبكة</button>
@@ -304,7 +352,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
           {pendLeft() > 0 && <button className="btn sm pri" disabled={sending} onClick={sendNow}><RefreshCw size={13} />{sending ? 'جارٍ الإرسال…' : 'إرسال الآن'}</button>}
         </div>
         <div className="pos-tabs" role="tablist" aria-label="أقسام نقطة البيع">
-          {[['sell', 'البيع', Store], ['orders', 'الفواتير', FileText], ['shift', 'الوردية', Clock]].map(([id, t, Ic]) => <button key={id} role="tab" aria-selected={view === id} className={view === id ? 'on' : ''} onClick={() => setView(id)}><Ic size={15} />{t}{id === 'orders' && todayOrders.length ? <span className="num pos-cnt">{todayOrders.length}</span> : null}</button>)}
+          {[['sell', 'البيع', Store], ...(useTabs ? [['tables', 'الطاولات', LayoutGrid]] : []), ...(kds ? [['kds', 'المطبخ', ChefHat]] : []), ['orders', 'الفواتير', FileText], ['shift', 'الوردية', Clock]].map(([id, t, Ic]) => <button key={id} role="tab" aria-selected={view === id} className={view === id ? 'on' : ''} onClick={() => setView(id)}><Ic size={15} />{t}{id === 'orders' && todayOrders.length ? <span className="num pos-cnt">{todayOrders.length}</span> : null}</button>)}
           {(() => { const more = [...(isMgr ? [['shifts', 'الورديات والتقارير']] : []), ...(R.admin || R.scope === 'all' ? [['promos', 'العروض']] : []), ...(isMgr ? [['loyalty', 'الولاء']] : []), ...(R.admin || R.scope === 'all' ? [['cfg', 'الإعدادات']] : [])];
             if (!more.length) return null; const curM = more.find(x => x[0] === view);
             return <select className={'sel pos-moresel' + (curM ? ' on' : '')} aria-label="المزيد" value={curM ? view : ''} onChange={e => e.target.value && setView(e.target.value)}><option value="">المزيد…</option>{more.map(([id, t]) => <option key={id} value={id}>{t}</option>)}</select>; })()}
@@ -379,6 +427,35 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
             {!list.length && <tr><td colSpan={6}><div className="empty">لا فواتير بهذه التصفية.</div></td></tr>}
           </tbody></table></div></div>;
       })()}
+
+      {view === 'tables' && useTabs && (() => { const TS = tableStates(org, ops, br.id); const C2 = { free: ['var(--mint)', 'متاحة'], busy: ['var(--brass)', 'مشغولة'], bill: ['var(--rose)', 'الحساب مطبوع'] };
+        return <div className="card" data-tables>
+          <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}><b style={{ fontSize: 16 }}>الطاولات — {br.name}</b>
+            <div className="row" style={{ gap: 12, fontSize: 12 }}>{Object.entries(C2).map(([k, [c, t]]) => <span key={k} className="row" style={{ gap: 5, alignItems: 'center' }}><i style={{ width: 9, height: 9, borderRadius: 3, background: c, display: 'inline-block' }} />{t} <b className="num">{TS.filter(x => x.st === k).length}</b></span>)}</div></div>
+          <div className="pos-tables">{TS.map(x => <button key={x.no} className={'pos-tbl ' + x.st} aria-label={'طاولة ' + x.no} onClick={() => { if (x.st === 'free') { setTbl(x.no); setChannel('dinein'); setPayTab(null); setView('sell'); } else setTblSel(x); }}>
+            <b className="num">{x.no}</b>{x.st === 'free' ? <small>متاحة</small> : <><small className="num">{money(x.total)}</small><small>{x.rounds} جولة · <span className="num">{x.mins}</span> د</small></>}</button>)}</div>
+          {tblSel && <Modal title={'الطاولة ' + tblSel.no} onClose={() => setTblSel(null)}>
+            <div className="note" style={{ marginBottom: 10 }}>مفتوحة منذ <b className="num">{tblSel.mins}</b> دقيقة · {tblSel.rounds} جولة · الإجمالي <b className="num">{money(tblSel.total)}</b></div>
+            {tabSum(tblSel.tab).lines.map((l, i) => <div key={i} className="row" style={{ justifyContent: 'space-between', fontSize: 13, padding: '4px 0', borderBottom: '1px dashed var(--line)' }}><span>{l.name} ×<b className="num">{l.qty}</b>{l.note ? <small style={{ color: 'var(--faint)' }}> · {l.note}</small> : null}</span><span className="num">{money(l.qty * l.price)}</span></div>)}
+            <div className="grid g2" style={{ gap: 8, marginTop: 12 }}>
+              <button className="btn" onClick={() => { setTbl(tblSel.no); setChannel('dinein'); setPayTab(null); setTblSel(null); setView('sell'); }}><Plus size={14} />إضافة طلب</button>
+              <button className="btn" onClick={() => printBill(tblSel.tab)}><Printer size={14} />طباعة الحساب</button>
+              <select className="sel" aria-label="نقل إلى طاولة" value="" onChange={e => e.target.value && moveTab(tblSel.tab, e.target.value)}><option value="">نقل إلى طاولة…</option>{TS.filter(y => y.st === 'free').map(y => <option key={y.no} value={y.no}>{y.no}</option>)}</select>
+              <button className="btn pri" onClick={() => startPayTab(tblSel.tab)}><Banknote size={14} />الدفع</button>
+            </div>
+          </Modal>}
+        </div>; })()}
+
+      {view === 'kds' && kds && (() => { const L = kdsLive(ops, br.id), now = Date.now(); const cols = ['new', 'prep', 'ready'];
+        return <div className="pos-kds" data-kds>{cols.map(c => { const list = L.filter(k => k.status === c); return <div key={c} className="pos-kcol">
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}><b>{KDS_ST[c][1]}</b><span className={'badge ' + KDS_ST[c][0]}>{list.length}</span></div>
+          {list.map(k => { const m = Math.max(0, Math.round((now - Date.parse(k.at)) / 60000)) || 0; return <div key={k.id} className={'pos-ticket' + (m >= 20 ? ' late' : '')}>
+            <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}><b>{k.table ? 'طاولة ' + k.table : k.channel === 'delivery' ? 'توصيل' : 'سفري'}{k.ref ? <small className="num" style={{ color: 'var(--faint)' }}> {k.ref}</small> : null}</b><span className="num" style={{ fontSize: 12, fontWeight: 700, color: m >= 20 ? 'var(--rose)' : 'var(--dim)' }}>{m} د</span></div>
+            <ul>{k.lines.map((l, i) => <li key={i}><b className="num">{l.qty}×</b> {l.name}{l.note ? <small> — {l.note}</small> : null}</li>)}</ul>
+            <button className={'btn sm' + (c === 'ready' ? ' pri' : '')} onClick={() => kdsMove(k)}>{c === 'new' ? 'ابدأ التحضير' : c === 'prep' ? 'جاهز' : 'تم التسليم'}</button>
+          </div>; })}
+          {!list.length && <div className="empty" style={{ padding: 14 }}>لا شيء</div>}
+        </div>; })}</div>; })()}
 
       {view === 'shift' && <div className="card">
         {!shift ? <div className="empty">لا وردية مفتوحة على هذا الجهاز — افتحها من «البيع».</div> : (() => { const os = shiftOrders(shift).filter(o => o.status !== 'void'); const exp = posR2(shift.openingCash + os.reduce((a, o) => a + posCashNet(o), 0)); return <>
