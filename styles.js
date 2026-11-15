@@ -1691,7 +1691,7 @@ table.tb.tb-fp{min-width:520px}
 .rms.thm-restpro .side{background:var(--side-bg);border:0;color:var(--side-txt);width:var(--side-w);padding:0;gap:0;transition:width .22s ease}
 .rms.thm-restpro .side .brand{padding:22px 18px 18px;border-bottom:1px solid rgba(255,255,255,.09);margin-bottom:6px}
 .rms.thm-restpro .rp-brand{display:flex;flex-direction:column;min-width:0;flex:1}
-.rms.thm-restpro .rp-brand b{overflow:hidden;text-overflow:ellipsis;font-size:17px;letter-spacing:1px;color:#FFFFFF;font-family:'Inter','IBM Plex Sans Arabic',sans-serif;font-weight:800;white-space:nowrap}
+.rms.thm-restpro .rp-brand b{overflow:hidden;text-overflow:ellipsis;font-size:17px;letter-spacing:1px;color:#FFFFFF;font-family:'MizanNum','IBM Plex Sans Arabic',sans-serif;font-weight:800;white-space:nowrap}
 .rms.thm-restpro .rp-brand span{color:var(--gold-l);font-size:10.5px;margin-top:5px;letter-spacing:.06em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .rms.thm-restpro .side .rp-nav{padding:6px 12px 12px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:2px}
 .rms.thm-restpro .side .nav-lbl{color:var(--side-dim);font-size:10.5px;padding:14px 12px 6px;letter-spacing:0;white-space:nowrap}
@@ -1727,5 +1727,106 @@ table.tb.tb-fp{min-width:520px}
   .rms.thm-restpro .side.open .brand{padding:18px 14px 14px;gap:9px}
   .rms.thm-restpro .topmenu{display:inline-grid !important}
 }
-.rp-mark{width:36px;height:36px;border-radius:10px;flex-shrink:0;display:grid;place-items:center;background:linear-gradient(140deg,#E2C987,#C7A45B);color:#101D35;font:800 13px/1 'Inter',sans-serif;letter-spacing:.5px}
+.rp-mark{width:36px;height:36px;border-radius:10px;flex-shrink:0;display:grid;place-items:center;background:linear-gradient(140deg,#E2C987,#C7A45B);color:#101D35;font:800 13px/1 'MizanNum','IBM Plex Sans Arabic',sans-serif;letter-spacing:.5px}
+
+/* ══════════════ v42.3 — المرحلة الأولى: أساس التصميم الموحّد لـ RESTAURANT PRO ══════════════
+   مقياس واحد للزوايا والظلال والحركة والتركيز — يطال كل الشاشات لأنها تشترك في المكوّنات نفسها، دون تغيير أي وظيفة.
+   الحركة: 140–240ms بمنحنى تباطؤ ناعم؛ تُلغى مع «تقليل الحركة». */
+.rms.thm-restpro{--r-sm:9px;--r:10px;--r-md:14px;--r-lg:16px;--r-xl:20px;--t-fast:.14s;--t:.18s;--t-slow:.24s;--ease-out:cubic-bezier(.2,.7,.2,1);
+  --font-head:'IBM Plex Sans Arabic',sans-serif;--font-ui:'IBM Plex Sans Arabic',sans-serif;font-size:14.5px;line-height:1.65}
+.rms.thm-restpro .page{padding:28px 28px 56px;scroll-behavior:smooth}
+.rms.thm-restpro .page-inner{max-width:1560px}
+.rms.thm-restpro .card{border:1px solid var(--line);border-radius:var(--r-md);box-shadow:var(--sh-2);transition:box-shadow var(--t) var(--ease-out),border-color var(--t) var(--ease-out)}
+.rms.thm-restpro .card:hover{box-shadow:var(--sh-3)}
+.rms.thm-restpro .btn{border-radius:var(--r);transition:background var(--t-fast) var(--ease-out),border-color var(--t-fast),box-shadow var(--t-fast),color var(--t-fast),transform var(--t-fast)}
+.rms.thm-restpro .btn:active:not(:disabled){transform:translateY(1px)}
+.rms.thm-restpro .btn:disabled{opacity:.5}
+.rms.thm-restpro .inp,.rms.thm-restpro .sel{border-radius:var(--r);background:var(--ink3);border-color:var(--line);transition:border-color var(--t-fast),box-shadow var(--t-fast),background var(--t-fast)}
+.rms.thm-restpro .inp:hover,.rms.thm-restpro .sel:hover{border-color:color-mix(in srgb,var(--txt) 22%,var(--line))}
+.rms.thm-restpro .inp:focus,.rms.thm-restpro .sel:focus{background:var(--ink2);border-color:var(--gold);box-shadow:0 0 0 3px color-mix(in srgb,var(--gold) 24%,transparent)}
+.rms.thm-restpro :focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.rms.thm-restpro .btn:focus-visible{outline:none;box-shadow:0 0 0 3px color-mix(in srgb,var(--gold) 40%,transparent)}
+.rms.thm-restpro ::selection{background:color-mix(in srgb,var(--gold) 32%,transparent);color:var(--txt)}
+/* النوافذ: خلفية كحلية شفافة وظهور ناعم */
+.rms.thm-restpro .mask{background:rgba(7,19,38,.52);backdrop-filter:blur(4px);animation:fadein var(--t) var(--ease-out) both}
+.rms.thm-restpro .modal{border-radius:var(--r-lg);border-color:var(--line);box-shadow:0 24px 64px rgba(7,19,38,.28);animation:rpModalIn var(--t-slow) var(--ease-out) both}
+.rms.thm-restpro .modal-h{background:var(--ink2);border-bottom-color:var(--line);padding:16px 20px}
+.rms.thm-restpro .modal-b{padding:20px}
+.rms.thm-restpro .modal-f{border-top-color:var(--line);padding-inline:20px}
+@keyframes rpModalIn{from{opacity:0;transform:translateY(8px) scale(.985)}to{opacity:1;transform:none}}
+/* أشرطة تمرير رفيعة هادئة */
+.rms.thm-restpro *{scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--txt) 18%,transparent) transparent}
+.rms.thm-restpro ::-webkit-scrollbar{width:10px;height:10px}
+.rms.thm-restpro ::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--txt) 16%,transparent);border-radius:10px;border:2px solid transparent;background-clip:padding-box}
+.rms.thm-restpro ::-webkit-scrollbar-thumb:hover{background-color:color-mix(in srgb,var(--txt) 28%,transparent)}
+.rms.thm-restpro ::-webkit-scrollbar-track{background:transparent}
+.rms.thm-restpro .side ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14)}
+.rms.thm-restpro .side *{scrollbar-color:rgba(255,255,255,.16) transparent}
+/* عناوين البطاقات والفواصل */
+.rms.thm-restpro .card-t{font-size:15.5px;font-weight:700;letter-spacing:0}
+.rms.thm-restpro hr,.rms.thm-restpro .divider{border-color:var(--line)}
+@media(max-width:900px){.rms.thm-restpro .page{padding:14px 14px 20px}}
+@media (prefers-reduced-motion:reduce){.rms.thm-restpro *,.rms.thm-restpro *::before,.rms.thm-restpro *::after{animation-duration:.01ms !important;transition-duration:.01ms !important;scroll-behavior:auto !important}}
+
+/* ══════════════ v42.4 — المرحلة الثانية: المكوّنات المشتركة بلغة النموذج ══════════════ */
+/* بطاقات المؤشرات: سطح أبيض نظيف، أيقونة في شارة مربعة بلون المؤشر أعلى الطرف، رقم كبير بخط الأرقام */
+.rms.thm-restpro .kpi{background:var(--ink2);border:1px solid var(--line);border-inline-start:1px solid var(--line);border-radius:var(--r-md);padding:18px 18px 16px;box-shadow:var(--sh-2);position:relative;min-height:112px;transition:box-shadow var(--t) var(--ease-out)}
+.rms.thm-restpro .kpi::before{width:3px;inset-block:16px;height:auto;border-radius:0 3px 3px 0;background:var(--acc,var(--gold))}
+.rms.thm-restpro .kpi::after{display:none}
+.rms.thm-restpro .kpi:hover{transform:none;box-shadow:var(--sh-3)}
+.rms.thm-restpro .kpi-l{font-size:12.5px;color:var(--dim);font-weight:500;padding-inline-end:46px;min-height:20px}
+.rms.thm-restpro .kpi-l svg{position:absolute;top:16px;inset-inline-end:16px;width:36px;height:36px;padding:9px;border-radius:10px;
+  background:color-mix(in srgb,var(--acc,var(--gold)) 14%,transparent);box-sizing:border-box}
+.rms.thm-restpro .kpi-v{font-size:25px;font-weight:700;margin-top:12px;letter-spacing:-.3px;color:var(--txt)}
+.rms.thm-restpro .kpi-s{font-size:11.5px;color:var(--faint);margin-top:6px}
+/* الجداول: رأس هادئ، صفوف بهواء كافٍ، تمييز ذهبي خفيف عند المرور */
+.rms.thm-restpro table.tb{font-size:13.5px;border-collapse:separate;border-spacing:0}
+.rms.thm-restpro .tb th{background:color-mix(in srgb,var(--ink3) 70%,var(--ink2));color:var(--faint);font-size:12px;font-weight:600;padding:12px 14px;border-bottom:1px solid var(--line)}
+.rms.thm-restpro .tb td{padding:12px 14px;border-bottom:1px solid var(--line)}
+.rms.thm-restpro .tb tbody tr{transition:background var(--t-fast)}
+.rms.thm-restpro .tb tbody tr:hover{background:color-mix(in srgb,var(--gold) 6%,transparent)}
+.rms.thm-restpro .tb tfoot td,.rms.thm-restpro .tb tr.tot td{background:color-mix(in srgb,var(--ink3) 70%,var(--ink2));font-weight:700}
+/* شريط أقسام التطبيق: تبويبات بخط سفلي ذهبي */
+.rms.thm-restpro .ob{gap:4px;border-bottom-color:var(--line)}
+.rms.thm-restpro .ob-it{padding:10px 14px;font-size:13.5px;color:var(--dim);border-radius:10px 10px 0 0;transition:color var(--t-fast),background var(--t-fast),border-color var(--t-fast)}
+.rms.thm-restpro .ob-it:hover,.rms.thm-restpro .ob-it.open{background:color-mix(in srgb,var(--gold) 8%,transparent);color:var(--txt)}
+.rms.thm-restpro .ob-it.on{color:var(--txt);border-bottom-color:var(--gold)}
+.rms.thm-restpro .ob-menu{border-radius:12px;border-color:var(--line);box-shadow:0 18px 48px rgba(7,19,38,.18);padding:6px;animation:rpModalIn var(--t) var(--ease-out) both}
+/* الشارات: تعبئة هادئة بلا حدود */
+.rms.thm-restpro .badge{border:0;font-size:11.5px;padding:3px 10px;font-weight:600}
+/* التنبيه المنبثق: كحلي بنص أبيض */
+.rms.thm-restpro .mz-toast{background:#101D35;color:#FFFFFF;border:0;border-radius:12px;box-shadow:0 18px 48px rgba(7,19,38,.32);padding:12px 16px}
+.rms.thm-restpro.mode-dark .mz-toast{background:#1B2B47}
+/* الحقول الرقمية: الحروف العربية بخط الواجهة لا الخط الثابت العرض (كان يباعد حروف «مدين/دائن») */
+.rms.thm-restpro .inp.n,.rms.thm-restpro .inp-sum-ta{font-family:'MizanNum','IBM Plex Sans Arabic',sans-serif}
+.rms.thm-restpro .inp.n::placeholder{font-family:'IBM Plex Sans Arabic',sans-serif;letter-spacing:0}
+/* الأزرار: رئيسي كحلي، ثانوي أبيض بحد، شبحي شفاف */
+.rms.thm-restpro .btn{font-weight:600;min-height:40px}
+.rms.thm-restpro .btn.sm{min-height:34px;border-radius:9px}
+.rms.thm-restpro .btn.gh:hover:not(:disabled){background:color-mix(in srgb,var(--txt) 6%,transparent)}
+
+/* ══════════════ v42.5 — المرحلة الثالثة (1): الشاشة الرئيسية — شبكة التطبيقات ══════════════
+   مربعات بيضاء بحد وظل ناعم، والأيقونة على خلفية بلون التطبيق بتشبّع خافت بدل التدرجات الصاخبة؛
+   حركة هادئة (ارتفاع بكسل واحد) بلا دوران ولا رسم متكرر؛ بلا زخرفة خلفية ولا علامة مائية. */
+.rms.thm-restpro .lh-bg::before,.rms.thm-restpro .lh-bg::after{content:none;background:none}
+.rms.thm-restpro .lh-wm{display:none}
+.rms.thm-restpro .lh-box{--g:color-mix(in srgb,var(--c) 15%,var(--ink2));background:var(--ink2);color:color-mix(in srgb,var(--c) 82%,var(--txt));
+  border:1px solid var(--line);box-shadow:var(--sh-2);border-radius:18px}
+.rms.thm-restpro .ag .bgf{fill:color-mix(in srgb,var(--c) 15%,transparent)}
+.rms.thm-restpro .ag .p-scan{stroke:var(--gold)}
+.rms.thm-restpro .lh-box svg,.rms.thm-restpro .lh-grid .lh-tile .lh-box svg *{animation:none}
+.rms.thm-restpro .lh-tile:hover .lh-box{transform:translateY(-2px);border-color:color-mix(in srgb,var(--gold) 55%,var(--line));box-shadow:var(--sh-3)}
+.rms.thm-restpro .lh-tile:hover .lh-box svg,.rms.thm-restpro .lh-tile:hover .lh-box svg *{animation:none;filter:none;stroke-width:inherit}
+.rms.thm-restpro .lh-grid .lh-tile{animation:fadein var(--t-slow) var(--ease-out) both}
+.rms.thm-restpro .lh-cnt{background:var(--gold);color:#101D35;font-weight:700}
+.rms.thm-restpro .lh-bdg{background:var(--rose);color:#fff}
+.rms.thm-restpro .lh-hi{color:var(--dim)}
+
+/* v42.5 — الشريط العلوي: أزرار مربعة موحّدة بحد خفيف، وشارة الإصدار هادئة */
+.rms.thm-restpro .topstatus{gap:8px}
+.rms.thm-restpro .topstatus .btn.sm.gh{width:38px;height:38px;border:1px solid var(--line);background:var(--ink2);border-radius:10px}
+.rms.thm-restpro .topstatus .btn.sm.gh:hover{background:var(--ink3)}
+.rms.thm-restpro .topstatus .synctime{width:auto !important;padding:0 10px !important}
+.rms.thm-restpro .verbadge{background:color-mix(in srgb,var(--gold) 16%,transparent) !important;color:var(--acc) !important;border:0 !important;font-weight:700}
+.rms.thm-restpro .usermenu-btn{border-color:var(--line);background:var(--ink2);height:42px;border-radius:12px}
 `;
