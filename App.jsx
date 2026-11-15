@@ -967,8 +967,9 @@ function invPayments(i) {
   const list = Array.isArray(i.payments) ? i.payments.filter(p => (Number(p.amount) || 0) > 0) : [];
   const listed = Math.round(list.reduce((s, p) => s + (Number(p.amount) || 0), 0) * 100) / 100;
   const legacy = Math.round(((i.paidAmount || 0) - listed) * 100) / 100;
-  const out = list.map((p, k) => ({ id: p.id || String(k), amount: Number(p.amount) || 0, date: (p.date || d || '').slice(0, 10), fund: p.fund || '' }));
-  if (legacy > 0.004) out.unshift({ id: 'legacy', amount: legacy, date: (i.paidDate || d || '').slice(0, 10), fund: i.payFund || '' });
+  // v43.9: دفعة بعملة أجنبية — amount = ما خفّض ذمة المورد بسعر الفاتورة (ر.س)، وpaid = ما خرج من البنك بسعر يوم السداد (ر.س)
+  const out = list.map((p, k) => ({ id: p.id || String(k), amount: Number(p.amount) || 0, paid: p.paid != null ? Number(p.paid) || 0 : Number(p.amount) || 0, date: (p.date || d || '').slice(0, 10), fund: p.fund || '', ...(p.fc ? { fc: Number(p.fc) || 0, rate: Number(p.rate) || 0 } : {}) }));
+  if (legacy > 0.004) out.unshift({ id: 'legacy', amount: legacy, paid: legacy, date: (i.paidDate || d || '').slice(0, 10), fund: i.payFund || '' });
   return out;
 }
 // تاريخ محلي من طابع زمني كامل (nowISO بتوقيت UTC) — أو التاريخ كما هو إن كان YYYY-MM-DD
@@ -1788,6 +1789,8 @@ function buildAccounting(org, ops) {
   addAcc('5401', 'عجز/فائض الصندوق', 'exp', { link: 'فرق الجرد النقدي في الإغلاق اليومي (المعدود − المتوقّع)' });
   addAcc('5701', 'مصروف الإهلاك', 'exp', { link: 'سجل الأصول — تلقائي' });
   addAcc('5801', 'خسائر بيع/استبعاد الأصول', 'exp', { link: 'سجل الأصول — عند البيع بأقل من القيمة الدفترية' });
+  // v43.9 — تعدد العملات (قرار المالك): فرق سعر الصرف بين الفاتورة والسداد ربح/خسارة محقّقة في حساب مستقل (مدين = خسارة، دائن = ربح)
+  if ((ops.invoices || []).some(i => i.cur && i.cur !== 'SAR')) addAcc('5803', 'أرباح/خسائر فروق العملة (محقّقة)', 'exp', { link: 'سداد فواتير الموردين بالعملات الأجنبية بسعر يوم السداد' });
   addAcc('5901', 'مصروفات الخزينة الرئيسية (أوامر الصرف)', 'exp', { link: 'شاشة الخزينة' });
   const catAcc = {};
   (org.expenseCats || []).forEach((c, i) => {
@@ -1987,12 +1990,13 @@ function buildAccounting(org, ops) {
       });
     }
     // v29.4: قيد لكل دفعة بتاريخها ومصدرها (الدفعة القديمة المجمّعة تبقى بمعرّفها السابق invp:)
-    invPayments(i).forEach(p => push({
+    invPayments(i).forEach(p => { const fx = Math.round((p.paid - p.amount) * 100) / 100; push({
       id: p.id === 'legacy' ? 'invp:' + i.id : 'invp:' + i.id + ':' + p.id, date: p.date,
-      title: 'سداد مركزي لفاتورة توريد — ' + (i.supplierName || 'مورد') + (p.fund === '1101' ? ' (نقداً من الخزينة)' : ''),
+      title: 'سداد مركزي لفاتورة توريد — ' + (i.supplierName || 'مورد') + (p.fund === '1101' ? ' (نقداً من الخزينة)' : '') + (p.fc ? ' — ' + p.fc + ' ' + (i.cur || '') + ' @ ' + p.rate : ''),
       src: 'سداد مركزي', ref: i.invoiceNo || i.id,
-      lines: [L('2101', p.amount, 0), L((p.fund && accIx[p.fund]) ? p.fund : '1201', 0, p.amount)]   // v15.19/v15.20: المصدر المختار (خزينة أو أي بنك — تجميعي/فرع)
-    }));
+      // v15.19/v15.20: المصدر المختار (خزينة أو أي بنك — تجميعي/فرع) · v43.9: فرق الصرف إلى 5803
+      lines: [L('2101', p.amount, 0), ...(fx > 0.004 ? [L('5803', fx, 0)] : []), L((p.fund && accIx[p.fund]) ? p.fund : '1201', 0, p.paid), ...(fx < -0.004 ? [L('5803', 0, -fx)] : [])]
+    }); });
   });
   // 6مكرر) السداد المركزي لفواتير الورديات المشتقة (v8.1): مدين ذمم الموردين / دائن البنك
   //         — قيد الفاتورة نفسها هو قيد المصروف الآجل في الوردية، فلا يتكرر هنا
@@ -2862,7 +2866,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v43.8';
+const APP_VER = 'v43.9';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };

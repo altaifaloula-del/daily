@@ -2126,6 +2126,26 @@ Object.assign(EN, {
 "رفض": "Reject",
 "اعتماد": "Approve"
 });
+
+// ===== v43.9 تعدد العملات =====
+Object.assign(EN, {
+"العملة": "Currency",
+"المتبقي بعملة الفاتورة": "Remaining in invoice currency",
+"تعدد العملات لفواتير الموردين (عملة وسعر صرف لكل فاتورة وسداد — فرق الصرف ربح/خسارة محقّقة)": "Multi-currency supplier invoices (currency and rate per invoice and payment — FX difference is a realized gain/loss)",
+"يخرج من المصدر": "Paid out from the source",
+"ر.س، وتُخفَّض ذمة المورد": "SAR, and the supplier payable is reduced by",
+"ر.س (بسعر الفاتورة)": "SAR (at the invoice rate)",
+"ر.س يُقيَّد في «أرباح/خسائر فروق العملة»": "SAR posted to \"FX gains/losses\"",
+"بالريال:": "In SAR:",
+"خسارة": "loss",
+"ربح": "gain",
+"أرباح/خسائر فروق العملة (محقّقة)": "FX gains/losses (realized)",
+"سداد فواتير الموردين بالعملات الأجنبية بسعر يوم السداد": "Foreign-currency supplier payments at the payment-date rate",
+"مبلغ السداد بالعملة": "Payment amount in currency",
+"سعر صرف السداد": "Payment rate",
+"عملة الفاتورة": "Invoice currency",
+"سعر الصرف": "Exchange rate"
+});
 export const TX = (ar) => (LANG === 'en' && ar && EN[ar]) || ar;
 
 /* v43.1 مترجم الشاشة: في الوضع الإنجليزي يترجم نصوص الواجهة (عُقد النص + placeholder/title/aria-label) بمطابقة القاموس حرفيًا،
@@ -2177,6 +2197,7 @@ export const EN_RX = [
   [/^(\d+) وردية · (\d+) (.+)$/, '$1 shifts · $2 $3'], [/^(\d+) حالة$/, '$1 cases'], [/^(\d+) حالة — الزيادة المتكررة خلل أيضًا$/, '$1 cases — recurring surplus is also a fault'], [/^\((\d+) حالات\)$/, '($1 cases)'], [/^جرد · (.+)$/, (_, x) => 'Count · ' + (EN[x] || x)], [/^· (\d+) فوق الحد$/, '· $1 over the limit'], [/^بقيمة (.+)$/, 'worth $1'],
   [/^بانتظار الفحص · (.+)$/, 'Awaiting inspection · $1'], [/^فحص (GRN-.+)$/, 'Inspect $1'], [/^مفوترة · (.+)$/, 'Invoiced · $1'], [/^فحص الاستلام — (.+)$/, 'Receipt inspection — $1'], [/^تحويل لفاتورة — (.+)$/, 'Convert to invoice — $1'], [/^المقبول (\d+)$/, 'Accepted $1'], [/^سعر الفاتورة (\d+)$/, 'Invoice price $1'],
   [/^حساب البند (\d+)$/, 'Line $1 account'], [/^مبلغ البند (\d+)$/, 'Line $1 amount'], [/^مرفوض ([\d.]+)$/, 'Rejected $1'], [/^أُقفل المتبقي(.*)$/, 'Remaining closed$1'],
+  [/^سعر الصرف \(ر\.س لكل (\w+)\)$/, 'Exchange rate (SAR per $1)'], [/^سعر صرف يوم السداد \(ر\.س لكل (\w+)\)$/, 'Payment-date rate (SAR per $1)'], [/^مبلغ السداد \((\w+)\)$/, 'Payment amount ($1)'], [/^المبلغ \(شامل الضريبة إن كانت خاضعة\) — (\w+)$/, 'Amount (VAT incl. if taxable) — $1'], [/^— فرق صرف$/, '— FX difference'],
   [/^أقصى مبلغ متاح (.+) ر\.س — يمكنك تعديله يدوياً$/, 'Max available $1 SAR — you can edit it manually'],
   [/^(\d{1,2}) (يناير|فبراير|مارس|أبريل|مايو|يونيو|يوليو|أغسطس|سبتمبر|أكتوبر|نوفمبر|ديسمبر) (\d{4})$/, (_, d, m, y) => d + ' ' + MONTHS[m] + ' ' + y]
 ];

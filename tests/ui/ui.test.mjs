@@ -1053,3 +1053,23 @@ test('v43.8 الإدارة والتطبيقات وبقية الشاشات بال
   assert.deepEqual(titles, [], 'تلميحات التطبيقات مترجمة');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v43.9 تعدد العملات: فاتورة توريد بالدولار تُحفظ بالريال وعملتها، وسدادها بسعر آخر يُظهر فرق الصرف', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/Hub/admin/purchasing:suppliers');
+  await p.evaluate(() => { window.setOrg(g => ({ ...g, purchaseCfg: { ...(g.purchaseCfg || {}), fx: true } })); window.setOps(o => ({ ...o, invoices: [] })); }); await p.waitForTimeout(300);
+  await p.locator('button', { hasText: 'فاتورة توريد جديدة' }).click(); await p.waitForTimeout(200);
+  await p.selectOption('select[aria-label="عملة الفاتورة"]', 'USD');
+  await p.locator('.modal input.inp.n').first().fill('1000'); await p.fill('input[aria-label="سعر الصرف"]', '3.75');
+  assert.match(await p.locator('[data-fxsar]').innerText(), /3,750\.00/);
+  await p.locator('button', { hasText: 'تسجيل الفاتورة' }).click(); await p.waitForTimeout(300);
+  let r = await p.evaluate(() => window.cur.invoices.map(i => [i.amount, i.cur, i.fxRate, i.fcAmount]));
+  assert.deepEqual(r, [[3750, 'USD', 3.75, 1000]]);
+  assert.match(await p.locator('[data-fxamt]').first().innerText(), /1,000\.00 USD @ 3\.75/);
+  await p.locator('button', { hasText: 'سداد' }).first().click(); await p.waitForTimeout(200);
+  await p.fill('input[aria-label="مبلغ السداد بالعملة"]', '400'); await p.fill('input[aria-label="سعر صرف السداد"]', '3.8');
+  assert.equal(await p.getAttribute('[data-fxdiff]', 'data-fxdiff'), '20');
+  await p.locator('button', { hasText: 'تسجيل السداد' }).click(); await p.waitForTimeout(300);
+  r = await p.evaluate(() => { const i = window.cur.invoices[0]; return [i.paidAmount, i.payments.map(x => [x.amount, x.fc, x.rate, x.paid])]; });
+  assert.deepEqual(r, [1500, [[1500, 400, 3.8, 1520]]]);
+  assert.deepEqual(errs, []); await ctx.close();
+});
