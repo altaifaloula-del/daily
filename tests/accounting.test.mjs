@@ -1219,3 +1219,11 @@ test('v43.9 فاتورة 1000 USD @3.75 تُسدَّد 400 @3.80 ثم 600 @3.70:
   const e2 = A.entries.find(x => x.id === 'invp:f1:p2'); assert.ok(e2.lines.some(l => l.code === '5803' && l.credit === 30), 'الثانية ربح 30');
   assert.equal(E.buildAccounting(org, { invoices: [{ ...inv, cur: undefined, payments: [] , paidAmount: 0 }] }).accounts.some(a => a.code === '5803'), false, 'الحساب لا يظهر بلا فواتير عملة');
 });
+
+test('v44.2 فاتورة مدفوعة جزئيًا عند تسجيلها: قيد الفاتورة للمورد ثم دفعة من البنك، والباقي ذمة', () => {
+  const org = baseOrg({ suppliers: [{ id: 's1', name: 'مورد', vatNo: '300000000000003' }] });
+  const inv = { id: 'x1', supplierId: 's1', supplierName: 'مورد', amount: 460, vatAmt: 60, taxable: true, date: '2026-03-01', paidAmount: 300, pm: 'bank', lines: [{ itemId: 'i1', qty: 10, unitCost: 40, net: 400, stock: false }],
+    payments: [{ id: 'p1', amount: 300, date: '2026-03-01', fund: '1201', pm: 'bank', ref: 'TRX-77' }] };
+  const A = E.buildAccounting(org, { invoices: [inv] }); const t = tb(A);
+  assert.equal(A.balanced, true); near(t['2101'], -160, 'الباقي آجل'); near(t['1201'], -300, 'المدفوع من البنك'); near(t['1501'], 60); near(t['5198'], 400);
+});

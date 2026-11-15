@@ -2195,6 +2195,26 @@ Object.assign(EN, {
 "الرقم الضريبي للمورد": "Supplier VAT No.",
 "مبلغ فاتورة المورد": "Supplier invoice amount"
 });
+
+// ===== v44.2 الدفع والملاحظات =====
+Object.assign(EN, {
+"طريقة الدفع (إلزامي)": "Payment method (required)",
+"آجل": "Credit",
+"نقدًا من الخزينة": "Cash from treasury",
+"تحويل بنكي": "Bank transfer",
+"شيك": "Cheque",
+"المبلغ المدفوع الآن": "Amount paid now",
+"فارغ = كامل الفاتورة": "Empty = full invoice",
+"· الأقل منه يبقى باقيه آجلًا": "· any less leaves the rest on credit",
+"من حساب": "From account",
+"البنك التجميعي": "Pooled bank",
+"رقم الشيك (إلزامي)": "Cheque No. (required)",
+"مرجع التحويل (اختياري)": "Transfer reference (optional)",
+"ملاحظة على البند (اختياري)": "Line note (optional)",
+"المبلغ المدفوع": "Amount paid",
+"حساب الدفع": "Payment account",
+"مرجع الدفع": "Payment reference"
+});
 export const TX = (ar) => (LANG === 'en' && ar && EN[ar]) || ar;
 
 /* v43.1 مترجم الشاشة: في الوضع الإنجليزي يترجم نصوص الواجهة (عُقد النص + placeholder/title/aria-label) بمطابقة القاموس حرفيًا،
@@ -2249,6 +2269,7 @@ export const EN_RX = [
   [/^سعر الصرف \(ر\.س لكل (\w+)\)$/, 'Exchange rate (SAR per $1)'], [/^سعر صرف يوم السداد \(ر\.س لكل (\w+)\)$/, 'Payment-date rate (SAR per $1)'], [/^مبلغ السداد \((\w+)\)$/, 'Payment amount ($1)'], [/^المبلغ \(شامل الضريبة إن كانت خاضعة\) — (\w+)$/, 'Amount (VAT incl. if taxable) — $1'], [/^— فرق صرف$/, '— FX difference'],
   [/^فاتورة (.+) بانتظار اعتماد الفرق \((.+)\)$/, 'Invoice $1 awaiting variance approval ($2)'],
   [/^البنود — من الأصناف المضافة(.*)$/, (_, x) => 'Lines — from added items' + x.replace(/\(الأسعار بـ (\w+)\)/, '(prices in $1)')], [/^صنف البند (\d+)( — بحث)?$/, (_, n, b) => 'Line ' + n + ' item' + (b ? ' — search' : '')], [/^كمية البند (\d+)$/, 'Line $1 quantity'], [/^سعر البند (\d+)$/, 'Line $1 price'], [/^الكمية \((.+)\)$/, 'Quantity ($1)'],
+  [/^المبلغ المدفوع الآن \((\w+)\)$/, 'Amount paid now ($1)'], [/^ملاحظة البند (\d+)$/, 'Line $1 note'], [/^ملاحظة بند الأمر (\d+)$/, 'PO line $1 note'], [/^📝 (.+)$/, (m, x) => m],
   [/^أقصى مبلغ متاح (.+) ر\.س — يمكنك تعديله يدوياً$/, 'Max available $1 SAR — you can edit it manually'],
   [/^(\d{1,2}) (يناير|فبراير|مارس|أبريل|مايو|يونيو|يوليو|أغسطس|سبتمبر|أكتوبر|نوفمبر|ديسمبر) (\d{4})$/, (_, d, m, y) => d + ' ' + MONTHS[m] + ' ' + y]
 ];
