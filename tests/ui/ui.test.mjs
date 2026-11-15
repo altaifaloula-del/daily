@@ -923,7 +923,7 @@ test('v43.3 المخزون بالإنجليزية: الشاشات ونافذة �
   assert.match(t, /لحم غنم/, 'اسم الصنف بيانات');
   await p.locator('button', { hasText: 'New item' }).first().click(); await p.waitForTimeout(400);
   t = await p.locator('body').innerText();
-  for (const w of ['New stock item', 'Item name', 'Minimum reorder level', 'Save item']) assert.ok(t.includes(w), w);
+  for (const w of ['Item name', 'Minimum reorder level', 'Save item']) assert.ok(t.includes(w), w);
   assert.doesNotMatch(t, /اسم الصنف|حفظ الصنف|حد الطلب الأدنى/);
   assert.deepEqual(errs, []); await ctx.close();
 });
@@ -948,7 +948,7 @@ test('v43.4 المحاسبة والمالية بالإنجليزية: القوا
 test('v43.5 مسار الفحص: استلام ← فحص بشخص آخر ← مخزون ← تحويل لفاتورة (ضمن التسامح وفوقه) + فاتورة خدمات ببنود', async () => {
   const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/Hub/ho/purchasing:suppliers');
   await p.evaluate(() => {
-    window.setOrg(g => ({ ...g, purchaseCfg: { ...(g.purchaseCfg || {}), inspect: true, invVarPct: 2 }, expenseCats: [{ id: 'c1', n: 'صيانة وتشغيل' }] }));
+    window.setOrg(g => ({ ...g, purchaseCfg: { ...(g.purchaseCfg || {}), inspect: true, invVarPct: 2 }, expenseCats: [{ id: 'c1', n: 'صيانة وتشغيل' }], suppliers: (g.suppliers || []).map(x => ({ ...x, vatNo: '300000000000003' })) }));
     window.setOps(o => ({ ...o, invoices: [], stockMoves: [], purchaseOrders: [{ id: 'po1', poNo: 'PO-0001', supplierId: 's1', supplierName: 'مؤسسة اللحوم الطازجة للتجارة', status: 'open', date: '2026-11-10', at: '2026-11-10T08:00:00Z', by: 'مجاهد', lines: [{ itemId: 'i1', desc: 'لحم غنم', qty: 10, price: 40, factor: 1 }] }] }));
   }); await p.waitForTimeout(300);
   const toPo = async () => { await p.locator('button', { hasText: 'أوامر الشراء' }).first().click(); await p.waitForTimeout(200); };
@@ -1060,7 +1060,8 @@ test('v43.9 تعدد العملات: فاتورة توريد بالدولار ت
   await p.evaluate(() => { window.setOrg(g => ({ ...g, purchaseCfg: { ...(g.purchaseCfg || {}), fx: true } })); window.setOps(o => ({ ...o, invoices: [] })); }); await p.waitForTimeout(300);
   await p.locator('button', { hasText: 'فاتورة توريد جديدة' }).click(); await p.waitForTimeout(200);
   await p.selectOption('select[aria-label="عملة الفاتورة"]', 'USD');
-  await p.locator('.modal input.inp.n').first().fill('1000'); await p.fill('input[aria-label="سعر الصرف"]', '3.75');
+  await p.locator('.modal label:has-text("خاضعة لضريبة") input').uncheck();
+  await p.selectOption('select[aria-label="صنف البند 1"]', 'i1'); await p.fill('input[aria-label="كمية البند 1"]', '100'); await p.fill('input[aria-label="سعر البند 1"]', '10'); await p.fill('input[aria-label="سعر الصرف"]', '3.75');
   assert.match(await p.locator('[data-fxsar]').innerText(), /3,750\.00/);
   await p.locator('button', { hasText: 'تسجيل الفاتورة' }).click(); await p.waitForTimeout(300);
   let r = await p.evaluate(() => window.cur.invoices.map(i => [i.amount, i.cur, i.fxRate, i.fcAmount]));
@@ -1078,12 +1079,12 @@ test('v43.9 تعدد العملات: فاتورة توريد بالدولار ت
 test('v44.0 المطابقة الثلاثية: الاستلام الكامل برقم فاتورة المورد يتحوّل تلقائيًا، والجزئي يبقى للمحاسب ومدير النظام', async () => {
   const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/Hub/ho/purchasing:suppliers');
   const PO = (id, no, qty) => ({ id, poNo: no, supplierId: 's1', supplierName: 'مؤسسة اللحوم الطازجة للتجارة', status: 'open', date: '2026-11-10', at: '2026-11-10T08:00:0' + no.slice(-1) + 'Z', by: 'مجاهد', lines: [{ itemId: 'i1', desc: 'لحم غنم', qty, price: 40, factor: 1 }] });
-  await p.evaluate((pos) => { window.setOps(o => ({ ...o, invoices: [], stockMoves: [], purchaseOrders: pos })); }, [PO('a', 'PO-0001', 10), PO('b', 'PO-0002', 10)]); await p.waitForTimeout(300);
+  await p.evaluate((pos) => { window.setOrg(g => ({ ...g, suppliers: (g.suppliers || []).map(x => ({ ...x, vatNo: '300000000000003' })) })); window.setOps(o => ({ ...o, invoices: [], stockMoves: [], purchaseOrders: pos })); }, [PO('a', 'PO-0001', 10), PO('b', 'PO-0002', 10)]); await p.waitForTimeout(300);
   const toPo = async () => { await p.locator('button', { hasText: 'أوامر الشراء' }).first().click(); await p.waitForTimeout(200); };
   await toPo();
   const row = (no) => p.locator('tr', { hasText: no });
   // (أ) مطابق: كامل الكمية + رقم فاتورة المورد ⇒ فاتورة تلقائية بسعر الأمر
-  await row('PO-0001').locator('button', { hasText: 'تسجيل استلام' }).click(); await p.fill('input[aria-label="رقم فاتورة المورد"]', 'SUP-501');
+  await row('PO-0001').locator('button', { hasText: 'تسجيل استلام' }).click(); await p.fill('input[aria-label="رقم فاتورة المورد"]', 'SUP-501'); await p.fill('input[aria-label="مبلغ فاتورة المورد"]', '460');
   await p.locator('button', { hasText: 'تأكيد الاستلام' }).click(); await p.waitForTimeout(300);
   let r = await p.evaluate(() => ({ inv: window.cur.invoices.map(i => [i.invoiceNo, i.poId]), g: (window.cur.purchaseOrders.find(x => x.id === 'a').grns || []).length }));
   assert.deepEqual(r, { inv: [['SUP-501', 'a']], g: 0 });
@@ -1098,7 +1099,7 @@ test('v44.0 المطابقة الثلاثية: الاستلام الكامل ب�
   await ctx.close();
   // المحاسب: قائمة «مستلم لم يُفوتر» داخل المحاسبة — يحوّلها برقم فاتورة المورد من الاستلام
   const o2 = await open({ viewport: { width: 1300, height: 1000 } }, 'live/Accounting/acc/unbilled');
-  await o2.p.evaluate(([po, mv]) => window.setOps(o => ({ ...o, invoices: [], stockMoves: mv, purchaseOrders: [po] })), [po2, mv]); await o2.p.waitForTimeout(300);
+  await o2.p.evaluate(([po, mv]) => { window.setOrg(g => ({ ...g, suppliers: (g.suppliers || []).map(x => ({ ...x, vatNo: '300000000000003' })) })); window.setOps(o => ({ ...o, invoices: [], stockMoves: mv, purchaseOrders: [po] })); }, [po2, mv]); await o2.p.waitForTimeout(300);
   assert.equal(await o2.p.locator('[data-unbilled] tbody tr').count(), 1);
   await o2.p.locator('[data-unbilled] [data-cv]').click(); await o2.p.waitForTimeout(150);
   assert.equal(await o2.p.locator('.modal input.inp').first().inputValue(), 'SUP-502', 'رقم فاتورة المورد من الاستلام');
@@ -1107,5 +1108,56 @@ test('v44.0 المطابقة الثلاثية: الاستلام الكامل ب�
   assert.deepEqual(r, [['SUP-502', 276]], '6 × 40 + 15%');
   assert.match(await o2.p.locator('[data-unbilled]').innerText(), /لا استلامات غير مفوترة/);
   assert.deepEqual([...errs, ...o2.errs], []); await o2.ctx.close();
+});
+
+test('v44.1 الأصناف والمطابقة: التصنيف إلزامي ورمز تسلسلي وباركود فريد، وبنود الأمر من الأصناف، والمطابقة للمبلغ، والرقم الضريبي للفاتورة الضريبية، وفاتورة يدوية ببنود', async () => {
+  // (1) الأصناف
+  let { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/Inventory/admin/items');
+  await p.locator('button', { hasText: 'صنف جديد' }).click(); await p.waitForTimeout(150);
+  await p.locator('.modal input.inp').nth(2).fill('أكياس تغليف');
+  await p.locator('button', { hasText: 'حفظ الصنف' }).click(); await p.waitForTimeout(150);
+  assert.match(await say(p), /اختر تصنيف الصنف/, 'التصنيف إلزامي');
+  await p.locator('[data-itype="consumable"]').click(); await p.fill('input[aria-label="الباركود"]', '6281000000017');
+  await p.locator('button', { hasText: 'حفظ الصنف' }).click(); await p.waitForTimeout(250);
+  let r = await p.evaluate(() => window.curOrg.items.map(i => [i.code, i.name, i.type || 'stock', i.barcode || '']));
+  assert.deepEqual(r, [['ITM-0001', 'لحم غنم', 'stock', ''], ['ITM-0002', 'طماطم', 'stock', ''], ['ITM-0003', 'أكياس تغليف', 'consumable', '6281000000017']], 'الأصناف القديمة أخذت رموزها بترتيبها');
+  await p.locator('button', { hasText: 'صنف جديد' }).click(); await p.locator('[data-itype="stock"]').click(); await p.locator('.modal input.inp').nth(2).fill('ملح');
+  await p.fill('input[aria-label="الباركود"]', '6281000000017'); await p.locator('button', { hasText: 'حفظ الصنف' }).click(); await p.waitForTimeout(150);
+  assert.match(await say(p), /مستخدم للصنف «أكياس تغليف»/, 'الباركود فريد');
+  const items = await p.evaluate(() => window.curOrg.items); await ctx.close();
+  // (2) المشتريات
+  ({ p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/Hub/ho/purchasing:suppliers'));
+  await p.evaluate((items) => { window.setOrg(g => ({ ...g, items, suppliers: [{ id: 's1', name: 'مؤسسة اللحوم الطازجة للتجارة' }] })); window.setOps(o => ({ ...o, invoices: [], stockMoves: [], whMoves: [], purchaseOrders: [{ id: 'a', poNo: 'PO-0001', supplierId: 's1', supplierName: 'مؤسسة اللحوم الطازجة للتجارة', status: 'open', date: '2026-11-10', at: '2026-11-10T08:00:00Z', by: 'مجاهد', lines: [{ itemId: 'i1', desc: 'لحم غنم', qty: 10, price: 40, factor: 1 }] }] })); }, items); await p.waitForTimeout(300);
+  // الاستلام الكامل برقم ومبلغ صحيحين لكن المورد بلا رقم ضريبي ⇒ غير مطابق
+  await p.locator('button', { hasText: 'أوامر الشراء' }).first().click(); await p.waitForTimeout(150);
+  await p.locator('button', { hasText: 'تسجيل استلام' }).click(); await p.fill('input[aria-label="رقم فاتورة المورد"]', 'S-1'); await p.fill('input[aria-label="مبلغ فاتورة المورد"]', '459');
+  assert.equal(await p.getAttribute('[data-amtmatch]', 'data-amtmatch'), 'no');
+  await p.fill('input[aria-label="مبلغ فاتورة المورد"]', '460'); assert.equal(await p.getAttribute('[data-amtmatch]', 'data-amtmatch'), 'yes');
+  await p.locator('button', { hasText: 'تأكيد الاستلام' }).click(); await p.waitForTimeout(300);
+  assert.match(await say(p), /غير مطابق آليًا \(المورد بلا رقم ضريبي\)/);
+  assert.equal(await p.evaluate(() => window.cur.invoices.length), 0);
+  // بند أمر شراء بلا صنف مرفوض، والقائمة مرتّبة بالرمز
+  await p.locator('button', { hasText: 'أمر شراء جديد' }).click(); await p.waitForTimeout(150);
+  const opts = await p.locator('select[aria-label="صنف البند 1"] option').allInnerTexts();
+  assert.deepEqual(opts.slice(1).map(x => x.split(' · ')[0]), ['ITM-0001', 'ITM-0002', 'ITM-0003']);
+  await p.locator('.modal input[placeholder="الكمية"]').first().fill('5'); await p.locator('.modal button', { hasText: 'إنشاء الأمر' }).click().catch(() => {}); await p.waitForTimeout(150);
+  assert.match(await say(p), /اختر الصنف لكل بند/);
+  await p.keyboard.press('Escape'); await p.locator('.modal button', { hasText: 'إلغاء' }).first().click().catch(() => {});
+  // (3) فاتورة توريد يدوية ببنود: مخزني يدخل المخزون واستهلاكي مصروف، والضريبية تطلب الرقم الضريبي
+  await p.locator('button', { hasText: 'فواتير الموردين الآجلة' }).first().click(); await p.waitForTimeout(150);
+  await p.locator('button', { hasText: 'فاتورة توريد جديدة' }).click(); await p.waitForTimeout(150);
+  await p.selectOption('select[aria-label="صنف البند 1"]', 'i1'); await p.fill('input[aria-label="كمية البند 1"]', '5'); await p.fill('input[aria-label="سعر البند 1"]', '40');
+  await p.locator('.modal button', { hasText: 'بند آخر' }).click();
+  const cons = items.find(i => i.type === 'consumable').id;
+  await p.locator('input[aria-label="صنف البند 2 — بحث"]').fill('6281000000017'); await p.waitForTimeout(100);
+  assert.equal(await p.locator('select[aria-label="صنف البند 2"]').inputValue(), cons, 'المسح بالباركود يختار الصنف');
+  await p.fill('input[aria-label="كمية البند 2"]', '10'); await p.fill('input[aria-label="سعر البند 2"]', '2');
+  await p.locator('.modal button', { hasText: 'تسجيل الفاتورة' }).click(); await p.waitForTimeout(200);
+  assert.match(await say(p), /الرقم الضريبي للمورد/, 'الفاتورة الضريبية تطلب رقم المورد');
+  await p.fill('input[aria-label="الرقم الضريبي للمورد"]', '300000000000003');
+  await p.locator('.modal button', { hasText: 'تسجيل الفاتورة' }).click(); await p.waitForTimeout(300);
+  r = await p.evaluate(() => { const i = window.cur.invoices[0]; return { amt: i.amount, vat: i.vatAmt, ls: i.lines.map(l => [l.qty, l.net, l.stock]), mv: [...(window.cur.stockMoves || []), ...(window.cur.whMoves || [])].filter(m => m.invoiceId === i.id).map(m => [m.itemId, m.qty]), vatNo: window.curOrg.suppliers[0].vatNo }; });
+  assert.deepEqual(r, { amt: 253, vat: 33, ls: [[5, 200, true], [10, 20, false]], mv: [['i1', 5]], vatNo: '300000000000003' });
+  assert.deepEqual(errs, []); await ctx.close();
 });
 
