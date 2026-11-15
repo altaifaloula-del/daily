@@ -1,5 +1,6 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useEffect, useMemo } from 'react';
+import { isEn } from '../../i18n';
 import { EInvoiceOnboard } from './EInvoiceOnboard.jsx';
 import { Scale, FileBarChart, ChevronDown, Printer, Settings, Receipt, BarChart3, Lock, Landmark, FileText, TrendingUp, ArrowLeftRight, Store, Users, QrCode, Building2, Truck, ClipboardCheck, ShieldCheck, CalendarDays, Download, Upload, Plus, Grid3x3, Check, Trash2, RefreshCw, Wallet, TrendingDown, AlertTriangle, ChevronRight, ShieldAlert, Eye, ChevronLeft, CircleDollarSign, X } from 'lucide-react';
 import { VatRegisters, SupplierPurchReport } from './TaxPurchReports.jsx';   // v39.1
@@ -1409,7 +1410,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
         const modeSw = (
           <div className="acct-mode" role="group" aria-label="طريقة عرض الأقسام">
             <button className={acctNavMode === 'dd' ? 'on' : ''} onClick={() => switchAcctNav('menu')} title="شريط قوائم"><ChevronDown size={14} /><span>قوائم</span></button>
-            <button className={acctNavMode === 'grid' ? 'on' : ''} onClick={() => switchAcctNav('grid')} title="شبكة"><Grid3x3 size={14} /><span>شبكة</span></button>
+            <button className={acctNavMode === 'grid' ? 'on' : ''} onClick={() => switchAcctNav('grid')} title={isEn() ? 'Grid' : 'شبكة'}><Grid3x3 size={14} /><span>{isEn() ? 'Grid' : 'شبكة'}</span></button>
           </div>
         );
         if (acctNavMode === 'grid') {
