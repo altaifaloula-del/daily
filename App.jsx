@@ -2843,7 +2843,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v43.1';
+const APP_VER = 'v43.2';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -6199,7 +6199,7 @@ function SectionNav({ items, cur, onPick, extra, label, force }) {
   const sw = list.length >= 2 && !force && (
     <div className="acct-mode" role="group" aria-label="طريقة عرض الأقسام">
       <button className={mode === 'menu' ? 'on' : ''} onClick={() => setMode('menu')} title="شريط قوائم"><Menu size={13} /><span>{TX('قوائم')}</span></button>
-      <button className={mode === 'grid' ? 'on' : ''} onClick={() => setMode('grid')} title="شبكة"><Grid3x3 size={13} /><span>{TX('شبكة')}</span></button>
+      <button className={mode === 'grid' ? 'on' : ''} onClick={() => setMode('grid')} title={isEn() ? 'Grid' : 'شبكة'}><Grid3x3 size={13} /><span>{isEn() ? 'Grid' : 'شبكة'}</span></button>
       <button className={mode === 'dd' ? 'on' : ''} onClick={() => setMode('dd')} title="قائمة منسدلة"><ChevronDown size={13} /><span>{TX('منسدلة')}</span></button>
       <button className={mode === 'tabs' ? 'on' : ''} onClick={() => setMode('tabs')} title="تبويبات"><Menu size={13} /><span>{TX('تبويبات')}</span></button>
     </div>);

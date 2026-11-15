@@ -896,3 +896,20 @@ test('v43.1 نقطة البيع بالإنجليزية: الواجهة مترج�
   await p.locator('.pos-tile:has-text("كبسة")').click(); await p.waitForTimeout(200);   // تحديث عُقد مترجمة لا يكسر React
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v43.2 الإغلاق والاعتماد بالإنجليزية: النموذج وقائمة الاعتماد مترجمان، واسم الفرع (بيانات) كما هو', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1300, height: 900 } }); await ctx.addInitScript(() => { try { localStorage.setItem('rms8:lang', 'en'); } catch { } });
+  const errs = [];
+  let p = await ctx.newPage(); p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'live/ClosingForm/bm'); await p.waitForTimeout(800); await settle(p);
+  let t = await p.locator('body').innerText();
+  for (const w of ['New shift closing', 'Cash & sales', 'Opening float', 'Pre-posting audit checks', 'Post to finance', 'Save as draft']) assert.ok(t.includes(w), w);
+  assert.doesNotMatch(t, /العهدة الافتتاحية|حفظ كمسودة|فحوص المدقق/);
+  assert.equal(await p.locator('textarea[placeholder^="One amount"], input[placeholder^="One amount"]').count() > 0, true, 'placeholder مترجم');
+  await p.close(); p = await ctx.newPage(); p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'live/Hub/admin/closehub:approve'); await p.waitForTimeout(800); await settle(p);
+  t = await p.locator('body').innerText();
+  for (const w of ['Awaiting financial audit', 'Approve audit', 'Return', 'Recorded by']) assert.ok(t.includes(w), w);
+  assert.match(t, /\d{2} Nov 2026|\d{2} [A-Z][a-z]{2} \d{4}/, 'التواريخ بالإنجليزية'); assert.match(t, /عم قاسم/, 'اسم الفرع بيانات لا يُترجم');
+  assert.deepEqual(errs, []); await ctx.close();
+});
