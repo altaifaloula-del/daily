@@ -1134,3 +1134,26 @@ test('v42.8 أوامر الإنتاج: الاحتياج من الوصفة بال
   const A0 = E.buildAccounting(org, ops), A1 = E.buildAccounting(org, ops2);
   assert.equal(A1.balanced, true); assert.equal(A1.entries.length, A0.entries.length, 'نقل داخل المخزون — لا قيد');
 });
+
+test('v42.9 الطاولات والحساب المفتوح وشاشة المطبخ: الجولات تُجمع، الحالة لكل طاولة، والتذاكر بلا أسعار، والتقليم', () => {
+  const org = { posCfg: { tables: { b1: 4 }, kds: true } };
+  assert.deepEqual(E.posTables(org, 'b1'), ['1', '2', '3', '4']); assert.deepEqual(E.posTables(org, 'b2'), [], 'مُطفأة افتراضيًا');
+  assert.equal(E.kdsOn(org), true); assert.equal(E.kdsOn({}), false);
+  const tab = { id: 't1', branchId: 'b1', table: '2', status: 'open', openedAt: '2026-11-15T12:00:00Z', rounds: [
+    { at: '2026-11-15T12:00:00Z', lines: [{ productId: 'k', name: 'كبسة', price: 58, qty: 2 }, { productId: 'h', name: 'حمص', price: 18, qty: 1, note: 'بدون ثوم' }] },
+    { at: '2026-11-15T12:20:00Z', lines: [{ productId: 'k', name: 'كبسة', price: 58, qty: 1 }, { productId: 'h', name: 'حمص', price: 18, qty: 1 }] }] };
+  const S = E.tabSum(tab);
+  assert.deepEqual(S.lines.map(l => [l.productId, l.qty, l.note || '']), [['k', 3, ''], ['h', 1, 'بدون ثوم'], ['h', 1, '']], 'تُجمع بالصنف والسعر والملاحظة');
+  assert.equal(S.total, 3 * 58 + 18 + 18); assert.equal(S.rounds, 2);
+  const ops = { posTabs: [tab, { ...tab, id: 't0', table: '3', status: 'paid' }, { ...tab, id: 't9', table: '4', billAt: '2026-11-15T12:40:00Z' }] };
+  assert.equal(E.openTab(ops, 'b1', '3'), null, 'المدفوع ليس مفتوحًا');
+  const T = E.tableStates(org, ops, 'b1', Date.parse('2026-11-15T12:45:00Z'));
+  assert.deepEqual(T.map(x => [x.no, x.st, x.mins || 0]), [['1', 'free', 0], ['2', 'busy', 45], ['3', 'free', 0], ['4', 'bill', 45]]);
+  const k = E.kdsTicket({ branchId: 'b1', src: 'tab', table: '2', lines: tab.rounds[0].lines, at: '2026-11-15T12:00:00Z' });
+  assert.equal(k.status, 'new'); assert.equal(JSON.stringify(k.lines).includes('price'), false, 'المطبخ لا يرى الأسعار');
+  const live = E.kdsLive({ kdsTickets: [{ ...k, id: 'a', at: '2026-11-15T12:05:00Z' }, { ...k, id: 'b', at: '2026-11-15T12:01:00Z' }, { ...k, id: 'c', status: 'served' }] }, 'b1');
+  assert.deepEqual(live.map(x => x.id), ['b', 'a'], 'غير المُسلّمة فقط والأقدم أولًا');
+  const d = E.posTrim({ kdsTickets: [{ id: 'old', status: 'served', at: '2026-11-10T10:00:00Z' }, { id: 'new', status: 'served', at: '2026-11-14T10:00:00Z' }, { id: 'live', status: 'new', at: '2026-11-01T10:00:00Z' }],
+    posTabs: [{ id: 'p1', status: 'paid', closedAt: '2026-11-01T10:00:00Z' }, { id: 'p2', status: 'open', openedAt: '2026-11-01T10:00:00Z' }] }, '2026-11-15');
+  assert.deepEqual([d.kdsTickets.map(x => x.id), d.posTabs.map(x => x.id)], [['new', 'live'], ['p2']]);
+});

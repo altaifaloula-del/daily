@@ -822,3 +822,37 @@ test('v42.8 بطاقة التحضيرة: «تُخزَّن صنفًا» تُنش�
   assert.equal(await p.evaluate(() => window.curOrg.items.filter(i => i.prepId === 'sauce').length), 1, 'لا تكرار عند الحفظ مرة أخرى');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v42.9 الطاولات والحساب المفتوح وشاشة المطبخ: جولتان للطاولة، تذاكر المطبخ، ثم الدفع يغلق الحساب', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosApp/bm');
+  await p.evaluate(() => {
+    window.setOrg(g => ({ ...g, taxCfg: { enabled: true, rate: 15 }, posCfg: { branches: ['b1'], tables: { b1: 4 }, kds: true, autoPrint: false },
+      products: [{ id: 'k', name: 'كبسة', sellPrice: 58, cat: 'رئيسي' }, { id: 'h', name: 'حمص', sellPrice: 18, cat: 'مقبلات' }] }));
+    window.setOps(o => ({ ...o, posTabs: [], kdsTickets: [], posOrders: [] }));
+  }); await p.waitForTimeout(400);
+  const ob = p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await p.waitForTimeout(400); }
+  await p.click('.pos-seg button:has-text("محلي")');
+  await p.selectOption('select[aria-label="الطاولة"]', '2');
+  await p.locator('.pos-tile:has-text("كبسة")').click(); await p.locator('.pos-tile:has-text("كبسة")').click(); await p.locator('.pos-tile:has-text("حمص")').click();
+  await p.click('button:has-text("إرسال للمطبخ")'); await p.waitForTimeout(300);
+  await p.selectOption('select[aria-label="الطاولة"]', '2');
+  await p.locator('.pos-tile:has-text("حمص")').click(); await p.click('button:has-text("إرسال للمطبخ")'); await p.waitForTimeout(300);
+  let r = await p.evaluate(() => ({ tabs: window.cur.posTabs.map(t => [t.table, t.status, t.rounds.length]), k: window.cur.kdsTickets.map(k => [k.table, k.status, k.lines.map(l => l.name + l.qty).join()]) }));
+  assert.deepEqual(r, { tabs: [['2', 'open', 2]], k: [['2', 'new', 'كبسة2,حمص1'], ['2', 'new', 'حمص1']] });
+  assert.equal(await p.evaluate(() => JSON.stringify(window.cur.kdsTickets).includes('price')), false, 'المطبخ لا يرى الأسعار');
+  // شاشة المطبخ
+  await p.click('.pos-tabs button:has-text("المطبخ")'); await p.waitForTimeout(200);
+  await p.locator('[data-kds] .pos-ticket').first().locator('button').click(); await p.waitForTimeout(250);
+  assert.deepEqual(await p.evaluate(() => window.cur.kdsTickets.map(k => k.status)), ['prep', 'new']);
+  // الطاولات ← الدفع
+  await p.click('.pos-tabs button:has-text("الطاولات")'); await p.waitForTimeout(200);
+  assert.match(await p.locator('[data-tables] .pos-tbl.busy').innerText(), /2[\s\S]*152\.00/, '2×58 + 2×18 = 152');
+  await p.click('[data-tables] .pos-tbl.busy'); await p.waitForTimeout(150);
+  await p.click('.modal button:has-text("الدفع")'); await p.waitForTimeout(250);
+  assert.match(await p.locator('.pos-cart').innerText(), /دفع حساب الطاولة/);
+  await p.click('.pos-cart button:has-text("نقدي")'); await p.waitForTimeout(200);
+  await p.click('.modal button:has-text("تأكيد")'); await p.waitForTimeout(500);
+  r = await p.evaluate(() => ({ tab: window.cur.posTabs[0].status, orderNo: !!window.cur.posTabs[0].orderNo, kN: window.cur.kdsTickets.length }));
+  assert.deepEqual(r, { tab: 'paid', orderNo: true, kN: 2 }, 'الدفع يغلق الحساب ولا يكرر تذكرة المطبخ');
+  assert.deepEqual(errs, []); await ctx.close();
+});
