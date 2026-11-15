@@ -267,3 +267,26 @@ test('ث30 الرفض موقّع، والمرفوض يصححه الفرع وير
   await assertSucceeds(setDoc(doc(as('fin'), 'closings', c), cl('fin', { status: 'rejected', sigRef: rj })), 'رفض موقّع');
   await assertSucceeds(setDoc(doc(as('bm'), 'closings', c), cl('bm', { status: 'submitted', digest: HEX2 })), 'الفرع يصحح ويرحّل');
 });
+
+/* ===== v43.5 — مسار الفحص وفرق سعر فاتورة المورد ===== */
+test('ث31 فحص الاستلام: فاحص مؤهل غير المستلم — المستلم نفسه وغير المؤهل والمرجع المفقود مرفوض', async () => {
+  const s0 = id('grn_g1_submit');
+  await assertSucceeds(setDoc(doc(as('acct'), 'signoffs', s0), sig('acct', { kind: 'grn', stage: 'submit', entityId: 'g1', branchId: '' })));
+  await assertFails(setDoc(doc(as('acct'), 'signoffs', id('x')), sig('acct', { kind: 'grn', stage: 'approve', entityId: 'g1', branchId: '', subRef: s0 })), 'المستلم يفحص استلامه');
+  await assertFails(setDoc(doc(as('view'), 'signoffs', id('x')), sig('view', { kind: 'grn', stage: 'approve', entityId: 'g1', branchId: '', subRef: s0 })), 'للعرض فقط غير مؤهل');
+  await assertFails(setDoc(doc(as('fin'), 'signoffs', id('x')), sig('fin', { kind: 'grn', stage: 'approve', entityId: 'g1', branchId: '', nosub: true, edate: '2026-11-01' })), 'لا مسار «قبل البدء»');
+  await assertFails(setDoc(doc(as('fin'), 'signoffs', id('x')), sig('fin', { kind: 'grn', stage: 'reject', entityId: 'g1', branchId: '', subRef: s0 })), 'الفحص اعتماد واحد بكميات مقبولة/مرفوضة');
+  await assertSucceeds(setDoc(doc(as('ctl'), 'signoffs', id('a')), sig('ctl', { kind: 'grn', stage: 'approve', entityId: 'g1', branchId: '', subRef: s0 })), 'مراقب التكاليف يفحص');
+  await assertSucceeds(setDoc(doc(as('fin'), 'signoffs', id('a')), sig('fin', { kind: 'grn', stage: 'approve', entityId: 'g1', branchId: '', subRef: s0 })), 'المالية تفحص');
+});
+test('ث32 فاتورة بفرق سعر فوق التسامح: يعتمدها معتمد أوامر الشراء غير مسجّلها', async () => {
+  const s0 = id('pinv_i1_submit'), s1 = id('pinv_i2_submit');
+  await assertSucceeds(setDoc(doc(as('gm'), 'signoffs', s0), sig('gm', { kind: 'pinv', stage: 'submit', entityId: 'i1', branchId: '', alert: true })));
+  await assertFails(setDoc(doc(as('gm'), 'signoffs', id('x')), sig('gm', { kind: 'pinv', stage: 'approve', entityId: 'i1', branchId: '', subRef: s0 })), 'مسجّلها يعتمدها');
+  await assertFails(setDoc(doc(as('fin'), 'signoffs', id('x')), sig('fin', { kind: 'pinv', stage: 'approve', entityId: 'i1', branchId: '', subRef: s0 })), 'المالية ليست معتمِدة أوامر شراء');
+  await assertSucceeds(setDoc(doc(as('owner'), 'signoffs', id('a')), sig('owner', { kind: 'pinv', stage: 'approve', entityId: 'i1', branchId: '', subRef: s0 })), 'شخص آخر مؤهل');
+  await assertSucceeds(setDoc(doc(as('acct'), 'signoffs', s1), sig('acct', { kind: 'pinv', stage: 'submit', entityId: 'i2', branchId: '', alert: false })));
+  await assertFails(setDoc(doc(as('gm'), 'signoffs', id('x')), sig('gm', { kind: 'pinv', stage: 'approve', entityId: 'i2', branchId: '', subRef: s1 })), 'لا اعتماد لتقديم بلا تنبيه');
+  await assertFails(setDoc(doc(as('gm'), 'signoffs', id('x')), sig('gm', { kind: 'pinv', stage: 'reject', entityId: 'i1', branchId: '', subRef: s0 })), 'مسجّلها لا يرفضها أيضًا');
+  await assertSucceeds(setDoc(doc(as('owner'), 'signoffs', id('a')), sig('owner', { kind: 'pinv', stage: 'reject', entityId: 'i1', branchId: '', subRef: s0 })), 'الرفض من معتمد آخر');
+});

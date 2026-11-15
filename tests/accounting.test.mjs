@@ -688,6 +688,7 @@ test('الدستور: قوائم الأدوار في قواعد Firestore تطا
   assert.deepEqual(listOf('COUNT'), f((r, k) => !!(E.rolePost(k) || r.approver || r.admin || k === 'regional_manager' || k === 'branch_manager')), 'معتمدو الجرد = canApproveCount');
   assert.deepEqual(listOf('PO'), f(r => !!(r.approver || r.admin)), 'معتمدو أوامر الشراء');
   assert.deepEqual(listOf('IBAN'), f(r => (r.tabs || []).includes('audit')), 'معتمدو تغيير حسابات الدفع = أصحاب شاشة التدقيق');
+  assert.deepEqual(listOf('GRN'), f((r, k) => !!E.rolePost(k)), 'فاحصو الاستلام = canInspect (rolePost)');
 });
 
 test('الدستور ث19: التحقق من الاعتماد — موقّع ومطابق، أو عُدّل بعد اعتماده، أو بلا توقيع بعد بدء التوقيع، أو أقدم منه', () => {
@@ -1156,4 +1157,50 @@ test('v42.9 الطاولات والحساب المفتوح وشاشة المطب
   const d = E.posTrim({ kdsTickets: [{ id: 'old', status: 'served', at: '2026-11-10T10:00:00Z' }, { id: 'new', status: 'served', at: '2026-11-14T10:00:00Z' }, { id: 'live', status: 'new', at: '2026-11-01T10:00:00Z' }],
     posTabs: [{ id: 'p1', status: 'paid', closedAt: '2026-11-01T10:00:00Z' }, { id: 'p2', status: 'open', openedAt: '2026-11-01T10:00:00Z' }] }, '2026-11-15');
   assert.deepEqual([d.kdsTickets.map(x => x.id), d.posTabs.map(x => x.id)], [['new', 'live'], ['p2']]);
+});
+
+// ===== v43.5 — مسار الفحص: GRNI عند الفحص، والفاتورة تُقفله وفرق السعر إلى 5504؛ وفاتورة الخدمات ببنودها =====
+test('v43.5 الفحص ثم الفاتورة بسعر أعلى: المستودع بسعر الأمر، و2105 يُقفل، والفرق 5504، والمورد بالسعر الفعلي', () => {
+  const org = baseOrg({ items: [{ id: 'i1', name: 'زيت', unit: 'لتر', type: 'stock' }], suppliers: [{ id: 's1', name: 'مورد' }], purchaseCfg: { perpetualFrom: '2026-01', inspect: true },
+    warehouses: [{ id: 'wh-main', name: 'الرئيسي', kind: 'main', accCode: '160101' }] });
+  const mv = { id: 'm1', whId: 'wh-main', itemId: 'i1', kind: 'purchase', qty: 50, unitCost: 10, grnRef: 'g1', grn: 'GRN-1', date: '2026-03-02', at: '2026-03-02T08:00:00Z' };
+  // قبل الفاتورة: بضاعة مستلمة لم تُفوتر
+  let A = E.buildAccounting(org, { stockMoves: [mv], whMoves: [], whTransfers: [] }); let t = tb(A);
+  assert.equal(A.balanced, true); near(t['160101'], 500, 'المقبول دخل المستودع بسعر الأمر'); near(t['2105'], -500, 'بضاعة مستلمة لم تُفوتر'); assert.equal(t['2101'] || 0, 0, 'لا ذمة مورد قبل الفاتورة');
+  // الفاتورة: 50 × 10.2 = 510 + ضريبة 76.5
+  const inv = { id: 'inv1', supplierId: 's1', supplierName: 'مورد', amount: 586.5, vatAmt: 76.5, taxable: true, date: '2026-03-05', paidAmount: 0, whId: 'wh-main', grnRefs: ['g1'], poNet: 500,
+    lines: [{ itemId: 'i1', qty: 50, unitCost: 10.2, net: 510, poNet: 500, stock: true, grnRef: 'g1' }] };
+  A = E.buildAccounting(org, { stockMoves: [mv], whMoves: [], whTransfers: [], invoices: [inv] }); t = tb(A);
+  assert.equal(A.balanced, true);
+  near(t['160101'], 500, 'المستودع لا يتغير بالفاتورة'); assert.ok(Math.abs(t['2105'] || 0) < 0.01, '2105 أُقفل'); near(t['5504'], 10, 'فرق سعر الشراء');
+  near(t['1501'], 76.5, 'ضريبة المدخلات'); near(t['2101'], -586.5, 'ذمة المورد بالسعر الفعلي');
+  // سعر أقل: الفرق دائن
+  const inv2 = { ...inv, amount: 563.5, vatAmt: 73.5, lines: [{ ...inv.lines[0], unitCost: 9.8, net: 490 }] };
+  t = tb(E.buildAccounting(org, { stockMoves: [mv], whMoves: [], whTransfers: [], invoices: [inv2] }));
+  near(t['5504'], -10, 'فرق سعر لصالحنا'); assert.ok(Math.abs(t['2105'] || 0) < 0.01);
+  // 5504 ضمن تكلفة المبيعات
+  const acc = E.buildAccounting(org, { stockMoves: [mv], whMoves: [], whTransfers: [], invoices: [inv] }).accounts.find(a => a.code === '5504');
+  assert.ok(acc && acc.kind === 'exp', 'حساب فروق أسعار الشراء موجود');
+});
+
+test('v43.5 بلا جرد مستمر: الفحص لا يولّد قيدًا والفاتورة تُقيَّد مشتريات كما كانت', () => {
+  const org = baseOrg({ items: [{ id: 'i1', name: 'زيت', unit: 'لتر', type: 'stock' }], suppliers: [{ id: 's1', name: 'مورد' }], purchaseCfg: { inspect: true } });
+  const mv = { id: 'm1', itemId: 'i1', kind: 'purchase', qty: 50, unitCost: 10, grnRef: 'g1', date: '2026-03-02', at: '2026-03-02T08:00:00Z' };
+  let A = E.buildAccounting(org, { stockMoves: [mv] }); assert.equal(A.entries.length, 0, 'لا قيد عند الفحص في الطريقة الدورية');
+  const inv = { id: 'inv1', supplierId: 's1', supplierName: 'مورد', amount: 586.5, vatAmt: 76.5, taxable: true, date: '2026-03-05', paidAmount: 0, grnRefs: ['g1'], lines: [{ itemId: 'i1', qty: 50, unitCost: 10.2, net: 510, stock: true }] };
+  const t = tb(E.buildAccounting(org, { stockMoves: [mv], invoices: [inv] }));
+  near(t['5198'], 510, 'مشتريات'); near(t['2101'], -586.5); assert.equal(t['2105'] || 0, 0); assert.equal(t['5504'] || 0, 0);
+});
+
+test('v43.5 فاتورة خدمات ومصروفات: كل بند على حسابه، والضريبة للخاضع فقط، والإجمالي للمورد', () => {
+  const org = baseOrg({ suppliers: [{ id: 's1', name: 'شركة صيانة', vatNo: '300000000000003' }], expenseCats: [{ id: 'c1', n: 'صيانة وتشغيل' }, { id: 'c2', n: 'كهرباء ومياه' }] });
+  const inv = { id: 'sv1', kind: 'svc', supplierId: 's1', supplierName: 'شركة صيانة', branchId: 'b1', amount: 1265, vatAmt: 165, taxable: true, date: '2026-03-10', paidAmount: 0,
+    expLines: [{ desc: 'صيانة مكيف', accCode: '5101', net: 600, vat: 90 }, { desc: 'كهرباء', accCode: '5102', net: 500, vat: 75 }] };
+  const A = E.buildAccounting(org, { invoices: [inv] }); const t = tb(A);
+  assert.equal(A.balanced, true);
+  near(t['5101'], 600, 'الصيانة'); near(t['5102'], 500, 'الكهرباء'); near(t['1501'], 165, 'ضريبة المدخلات'); near(t['2101'], -1265, 'ذمة المورد'); assert.equal(t['5198'] || 0, 0, 'لا شيء على المشتريات العامة');
+  const e = A.entries.find(x => x.id === 'inv:sv1'); assert.equal(e.branchId, 'b1', 'مركز التكلفة الفرع');
+  // بند غير خاضع: صافيه كامل بلا ضريبة
+  const t2 = tb(E.buildAccounting(org, { invoices: [{ ...inv, amount: 1190, vatAmt: 90, expLines: [inv.expLines[0], { desc: 'رسوم حكومية', accCode: '5102', net: 500, vat: 0 }] }] }));
+  near(t2['5102'], 500); near(t2['1501'], 90); near(t2['2101'], -1190);
 });
