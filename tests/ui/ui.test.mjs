@@ -1022,3 +1022,17 @@ test('v43.6 التحليل والتقارير بالإنجليزية: اللوح
   }
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v43.7 الموارد البشرية بالإنجليزية: الرواتب والإضافي والسياسات والتدريب مترجمة، وأسماء الموظفين كما هي', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1300, height: 1000 } }); await ctx.addInitScript(() => { try { localStorage.setItem('rms8:lang', 'en'); } catch { } });
+  const errs = [];
+  for (const [r, words] of [['hub/hr/payroll', ['Total earnings (basic + allowances)', 'Net payable', 'WPS file']], ['hub/hr/overtime', ['Overtime hours', 'Formulas (Labor Law article 107)']], ['hub/hr/hrpolicy', ['General work policies', 'Sunday', 'Save policies']], ['hub/hr/training', ['Record training/certificate', 'Health certificate (food handler)']]]) {
+    const p = await ctx.newPage(); p.on('pageerror', e => errs.push(e.message));
+    await p.goto(base + r); await p.waitForTimeout(800); await settle(p);
+    const t = await p.locator('body').innerText();
+    for (const w of words) assert.ok(t.includes(w), r + ': ' + w);
+    assert.doesNotMatch(t, /Net [؀-ۿ]+ \d|Payroll Run · [؀-ۿ]/, 'لا ترجمة جزئية');
+    await p.close();
+  }
+  assert.deepEqual(errs, []); await ctx.close();
+});
