@@ -927,3 +927,20 @@ test('v43.3 المخزون بالإنجليزية: الشاشات ونافذة �
   assert.doesNotMatch(t, /اسم الصنف|حفظ الصنف|حد الطلب الأدنى/);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v43.4 المحاسبة والمالية بالإنجليزية: القوائم والإقرار مترجمة، وأرقام القيود بصيغة JV، وأسماء الفروع كما هي', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1300, height: 1000 } }); await ctx.addInitScript(() => { try { localStorage.setItem('rms8:lang', 'en'); } catch { } });
+  const errs = [];
+  for (const [r, words] of [['acct/fs', ['Income statement', 'Net sales', 'Balance sheet', 'Total current assets']], ['acct/vat', ['VAT setup', 'Output VAT (on your sales)', 'Net VAT payable']], ['acct/tb', ['Trial balance', 'Period debit']]]) {
+    const p = await ctx.newPage(); p.on('pageerror', e => errs.push(e.message));
+    await p.goto(base + r); await p.waitForTimeout(800); await settle(p);
+    const t = await p.locator('body').innerText();
+    for (const w of words) assert.ok(t.includes(w), r + ': ' + w);
+    await p.close();
+  }
+  const p = await ctx.newPage(); p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'hub/finhub/acct'); await p.waitForTimeout(800); await settle(p);
+  const t = await p.locator('body').innerText();
+  assert.match(t, /JV-\d{4}/); assert.match(t, /Shift revenue — /); assert.match(t, /عم قاسم/, 'اسم الفرع بيانات');
+  assert.deepEqual(errs, []); await ctx.close();
+});
