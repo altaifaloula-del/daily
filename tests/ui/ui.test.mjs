@@ -213,7 +213,7 @@ test('v41.0 شريط القوائم بنمط أودو: عناوين رئيسية
   assert.deepEqual(await p.locator('.ob > .ob-wrap > .ob-it, .ob > .ob-it').allInnerTexts(), ['المخزون', 'المطبخ والوصفات', 'الرقابة']);
   assert.equal((await p.locator('.ob-it.on').innerText()).trim(), 'المخزون', 'العنوان النشط');
   await p.click('.ob-it:has-text("المطبخ والوصفات")'); await p.waitForTimeout(150);
-  assert.deepEqual(await p.locator('.ob-menu .ob-mi').allInnerTexts(), ['الوصفات والتكلفة', 'قائمة التحضير اليومية', 'هندسة القائمة']);
+  assert.deepEqual(await p.locator('.ob-menu .ob-mi').allInnerTexts(), ['الوصفات والتكلفة', 'قائمة التحضير اليومية', 'أوامر الإنتاج', 'هندسة القائمة']);
   const box = await p.locator('.ob-menu').boundingBox(); assert.ok(box.x >= 0 && box.x + box.width <= 390 + 1, 'القائمة داخل الشاشة'); assert.equal(await p.evaluate(() => { const m = document.querySelector('.ob-menu'), r = m.getBoundingClientRect(); return document.elementFromPoint(r.left + r.width / 2, r.top + 30).closest('.ob-menu') === m; }), true, 'القائمة فوق المحتوى لا تحته');
   await p.click('.ob-mi:has-text("قائمة التحضير اليومية")'); await p.waitForTimeout(250);
   assert.equal(await p.locator('.ob-menu').count(), 0, 'تُغلق بعد الاختيار');
