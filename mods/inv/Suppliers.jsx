@@ -1,7 +1,8 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useMemo } from 'react';
 import { Truck, FileBarChart, ChevronDown, Printer, FileText, Building2, ClipboardCheck, Users, Plus, AlertTriangle, CalendarDays, Trash2, Check, X, Banknote } from 'lucide-react';
-import { DupInvHint, Field, Kpi, LOCK_MSG, MAIN_WH, Modal, Num, ROLES, SectionNav, arDate, branchBanks, closingInvoices, isStocked, isoD, itemType, money, nowISO, pFactor, payTotal, periodLocked, printA4, purKey, q3, roleEdit, rolePost, buildAccounting, INV_BILLERS, roleHasTab, stockByWh, sum, supplierPrices, today, uid, whName, whOf, whOn, signoff, signDecision, sigFailMsg } from '../../App.jsx';
+import { DupInvHint, Field, Kpi, LOCK_MSG, MAIN_WH, Modal, Num, ROLES, SectionNav, arDate, branchBanks, closingInvoices, isStocked, isoD, itemType, money, nowISO, pFactor, payTotal, periodLocked, printA4, purKey, q3, roleEdit, rolePost, buildAccounting, INV_BILLERS, itemsSeq, vatNoOk, supVatOf, ItemPick, roleHasTab, stockByWh, sum, supplierPrices, today, uid, whName, whOf, whOn, signoff, signDecision, sigFailMsg } from '../../App.jsx';
+import { cloud, bfKey } from '../../storage';
 
 export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: goTab, billOnly }) {
   const [tab, setTab] = useState('inv');
@@ -128,46 +129,56 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     return 'PO-' + String(mx + 1).padStart(4, '0');
   };
 
+  // v44.1 — فاتورة توريد يدوية ببنود أصناف (قرار المالك): المخزني يدخل المستودع ويُحدّث تكلفته، والاستهلاكي والخدمي مصروف
+  const invLine = () => ({ itemId: '', qty: '', price: '' });
+  const invCalc = (f) => { const r2 = (n) => Math.round(n * 100) / 100; const fxR = isFx(f.cur) ? Number(f.rate) || 0 : 1;
+    const ls = (f.lines || []).map(l => { const it = items.find(x => x.id === l.itemId); const q = Number(l.qty) || 0, pr = Number(l.price) || 0; return { l, it, q, pr, fcNet: r2(q * pr), net: r2(q * pr * fxR) }; }).filter(x => x.it && x.q > 0);
+    const fcNet = r2(sum(ls, x => x.fcNet)), net = r2(sum(ls, x => x.net)); const on = !!(org.taxCfg || {}).enabled && !!f.taxable; const rate = (Number((org.taxCfg || {}).rate) || 15) / 100;
+    return { ls, fxR, fcNet, net, fcVat: on ? r2(fcNet * rate) : 0, vat: on ? r2(net * rate) : 0 }; };
   const saveInv = async () => {
     const f = newInv;
     const sp = (org.suppliers || []).find(x => x.id === f.supplierId);
     if (!sp) return say('اختر المورد', 'no');
-    const fv = Number(f.amount) || 0;
-    if (fv <= 0) return say('أدخل مبلغ الفاتورة', 'no');
-    const fxR = isFx(f.cur) ? Number(f.rate) || 0 : 1;
-    if (isFx(f.cur) && !(fxR > 0)) return say('أدخل سعر صرف ' + f.cur + ' بالريال', 'no');
-    const v = Math.round(fv * fxR * 100) / 100;
+    if ((f.lines || []).some(l => (Number(l.qty) > 0 || Number(l.price) > 0) && !l.itemId)) return say('اختر الصنف لكل بند من الأصناف المضافة', 'no');
+    const k = invCalc(f);
+    if (!k.ls.length || !(k.net > 0)) return say('أضف بندًا واحدًا على الأقل: صنف وكمية وسعر', 'no');
+    if (isFx(f.cur) && !(k.fxR > 0)) return say('أدخل سعر صرف ' + f.cur + ' بالريال', 'no');
     if (periodLocked(org, f.date || today())) return say(LOCK_MSG(f.date || today()), 'no');
+    const v = Math.round((k.net + k.vat) * 100) / 100;
     const br = org.branches.find(b => b.id === f.branchId);
     // v33.2: الرقم الآلي لا يتكرر حتى بعد حذف فواتير؛ ورقم المورد المكرر يُرفض قبل الحفظ
-    const autoNo = () => { const pre = 'INV-' + today().replace(/-/g, '').slice(2) + '-'; let k = (ops.invoices || []).length + 1;
-      while ((ops.invoices || []).some(i => i.invoiceNo === pre + String(k).padStart(3, '0'))) k++; return pre + String(k).padStart(3, '0'); };
+    const autoNo = () => { const pre = 'INV-' + today().replace(/-/g, '').slice(2) + '-'; let n = (ops.invoices || []).length + 1;
+      while ((ops.invoices || []).some(i => i.invoiceNo === pre + String(n).padStart(3, '0'))) n++; return pre + String(n).padStart(3, '0'); };
     const typedNo = (f.invoiceNo || '').trim();
-    if (typedNo) { const k0 = purKey({ supplierId: sp.id, invoiceNo: typedNo }); const o = (ops.invoices || []).find(i => purKey(i) === k0);
-      if (o) return say('فاتورة مكررة: رقم ' + typedNo + ' للمورد «' + sp.name + '» مسجّل بتاريخ ' + (o.date || '') + ' بمبلغ ' + money(o.amount) + ' — لم يُحفظ', 'no'); }
+    if (typedNo) { const o = invNoTaken(sp.id, typedNo); if (o) return say('فاتورة مكررة: رقم ' + typedNo + ' للمورد «' + sp.name + '» مسجّل بتاريخ ' + (o.date || '') + ' بمبلغ ' + money(o.amount) + ' — لم يُحفظ', 'no'); }
     const twin = (ops.invoices || []).find(i => !i.creditNote && i.supplierId === sp.id && (i.date || '') === (f.date || today()) && Math.abs((i.amount || 0) - v) < 0.01);
     if (twin && !window.confirm('تنبيه: يوجد فاتورة للمورد نفسه بنفس التاريخ والمبلغ (' + money(v) + ') برقم ' + (twin.invoiceNo || '') + '.\nهل هذه فاتورة مختلفة فعلًا؟')) return;
-    const rec = {
-      id: uid('inv'), supplierId: sp.id, supplierName: sp.name,
-      branchId: f.branchId || '', branchName: br ? br.name : 'المركز الرئيسي',
-      invoiceNo: typedNo || autoNo(),
-      amount: v, paidAmount: 0, taxable: !!f.taxable,
-      date: f.date || today(), dueDate: f.dueDate || today(), poId: f.poId || undefined, createdAt: nowISO(),
-      ...(isFx(f.cur) ? { cur: f.cur, fxRate: fxR, fcAmount: fv } : {})
-    };
-    await commit(d => ({ ...d, invoices: [rec, ...(d.invoices || [])],
-      purchaseOrders: f.poId ? (d.purchaseOrders || []).map(x => x.id === f.poId ? { ...x, invoiceId: rec.id } : x) : (d.purchaseOrders || []) }), {
+    if (!(await ensureVat(sp.id, k.vat, f.vatNo))) return;
+    const rDate = f.date || today(); const wid = whOn(org) ? (f.whId || MAIN_WH) : ''; const tw = wid ? whOf(org).find(w => w.id === wid) : null;
+    const invId = uid('inv'), no = typedNo || autoNo();
+    const lines = k.ls.map(x => ({ itemId: x.it.id, desc: x.it.name, qty: x.q, unitCost: Math.round(x.pr * k.fxR * 10000) / 10000, net: x.net, stock: isStocked(x.it), ...(isFx(f.cur) ? { fcNet: x.fcNet } : {}) }));
+    const moves = lines.filter(l => l.stock).map(l => ({ id: uid('sm'), date: rDate, itemId: l.itemId, kind: 'purchase', qty: l.qty, unitCost: l.unitCost, note: 'فاتورة ' + no + ' — ' + l.desc, ref: no, by: me.name, at: nowISO(), invoiceId: invId,
+      ...(wid ? { whId: wid } : {}), ...(tw && tw.kind === 'branch' ? { branchId: tw.branchId } : {}) }));
+    const docId = await archiveImg(f.img, { branchId: f.branchId, title: 'فاتورة مورد ' + no + ' — ' + sp.name, amount: v, ref: no });
+    const rec = { id: invId, supplierId: sp.id, supplierName: sp.name, branchId: f.branchId || (tw && tw.branchId) || '', branchName: br ? br.name : 'المركز الرئيسي', invoiceNo: no,
+      amount: v, vatAmt: k.vat, taxable: k.vat > 0, paidAmount: 0, date: rDate, dueDate: f.dueDate || rDate, createdAt: nowISO(), lines, ...(wid ? { whId: wid } : {}), ...(docId ? { docId } : {}),
+      ...(isFx(f.cur) ? { cur: f.cur, fxRate: k.fxR, fcAmount: Math.round((k.fcNet + k.fcVat) * 100) / 100 } : {}) };
+    const brMoves = moves.filter(m => m.branchId), mainMoves = moves.filter(m => !m.branchId);
+    const ok = await commit(d => ({ ...d, invoices: [rec, ...(d.invoices || [])], whMoves: [...brMoves, ...(d.whMoves || [])], stockMoves: [...mainMoves, ...(d.stockMoves || [])] }), {
       actionType: 'create', targetType: 'expense', targetId: rec.id, branchName: rec.branchName,
-      title: 'سجّل فاتورة توريد آجلة', details: sp.name + ' · ' + rec.invoiceNo + ' · ' + money(v) + (rec.cur ? ' (' + fv + ' ' + rec.cur + ' @ ' + fxR + ')' : '') + (rec.taxable ? ' · خاضعة للضريبة' : '')
+      title: 'سجّل فاتورة توريد آجلة', details: sp.name + ' · ' + rec.invoiceNo + ' · ' + lines.length + ' بند · ' + money(v) + (rec.cur ? ' (' + rec.fcAmount + ' ' + rec.cur + ' @ ' + k.fxR + ')' : '') + (rec.taxable ? ' · خاضعة للضريبة' : '') + (moves.length ? ' · دخل المخزون' : '')
     });
-    setNewInv(null); say('سُجّلت الفاتورة وأنشئ قيدها المحاسبي تلقائياً ✓');
+    if (ok === false) return;
+    setNewInv(null); say('سُجّلت الفاتورة ' + rec.invoiceNo + (moves.length ? ' ودخلت أصنافها المخزنية ' + (wid ? whName(org, wid) : 'المخزون') : '') + ' وأُنشئ قيدها ✓');
   };
 
   const savePo = async () => {
     const f = poF;
     const sp = (org.suppliers || []).find(x => x.id === f.supplierId);
     if (!sp) return say('اختر المورد', 'no');
-    const lines = (f.lines || []).filter(l => (l.desc || '').trim() && Number(l.qty) > 0)
+    // v44.1: كل بند يُختار من الأصناف المضافة (قرار المالك) — لا بنود حرة
+    if ((f.lines || []).some(l => Number(l.qty) > 0 && !l.itemId)) return say('اختر الصنف لكل بند من الأصناف المضافة', 'no');
+    const lines = (f.lines || []).filter(l => l.itemId && Number(l.qty) > 0).map(l => ({ ...l, desc: (l.desc || '').trim() || ((items.find(x => x.id === l.itemId) || {}).name || '') }))
       .map(l => { const it = items.find(x => x.id === l.itemId); const fac = it && l.uom === 'p' ? pFactor(it) : 1;
         const w = priceWarn(l);
         return { desc: l.desc.trim(), itemId: l.itemId || '', qty: Number(l.qty), price: Number(l.price) || 0, received: 0, ...(fac > 1 ? { factor: fac, uomName: it.purchaseUnit } : {}),
@@ -217,7 +228,14 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     if (inspectOn) return saveGrn(p2, takes, wid, tw, rDate, f);   // v43.5: الاستلام بانتظار الفحص — لا مخزون ولا فاتورة بعد
     // v44.0: الاستلام العادي يُنشئ الفاتورة تلقائيًا فقط عند المطابقة الكاملة ومعه رقم فاتورة المورد؛ وإلا «مستلم لم يُفوتر» بقيد وسيط
     const supNo0 = String(f.supInvNo || '').trim();
-    const matched = fullMatch(p2, (i) => takes[i]) && !!supNo0 && !invNoTaken(p2.supplierId, supNo0);
+    // v44.1: المطابقة للكميات والمبلغ — مبلغ فاتورة المورد (شامل الضريبة) = قيمة الأمر للمستلم + ضريبته، وللفاتورة الضريبية مورد برقم ضريبي
+    const expAmt = rcvExpected(p2, (i) => takes[i], f.taxable !== false);
+    const supAmt0 = Number(f.supInvAmt) || 0;
+    const amtOk = supAmt0 > 0 && Math.abs(supAmt0 - expAmt.gross) <= 0.01;
+    const vatOk = !needVat(p2.supplierId, expAmt.vat);
+    const matched = fullMatch(p2, (i) => takes[i]) && !!supNo0 && !invNoTaken(p2.supplierId, supNo0) && amtOk && vatOk;
+    const whyNot = !supNo0 ? 'بلا رقم فاتورة المورد' : !fullMatch(p2, (i) => takes[i]) ? 'استلام جزئي' : invNoTaken(p2.supplierId, supNo0) ? 'رقم فاتورة مكرر' : !amtOk ? 'مبلغ الفاتورة ' + money(supAmt0) + ' لا يطابق ' + money(expAmt.gross) : 'المورد بلا رقم ضريبي';
+    const docId0 = await archiveImg(f.img, { branchId: (tw && tw.branchId) || p2.branchId || '', title: 'فاتورة مورد ' + (supNo0 || p2.poNo) + ' — ' + p2.supplierName, amount: supAmt0, ref: supNo0 || p2.poNo });
     // v30.4: الكمية بوحدة الشراء تُحوَّل للأساسية، وسعر البند يصبح تكلفة الوحدة الأساسية فيُحدّث المتوسط المرجّح. الخدمي لا يُخزَّن.
     // v30.5: الاستلام يُنشئ فاتورة المورد تلقائيًا (أسعار أمر الشراء قبل الضريبة) ويُدخل الأصناف المخزنية مستودعًا مختارًا بدفعتها وصلاحيتها
     const invId = uid('inv'), grn = 'GRN-' + rDate.replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 5).toUpperCase();
@@ -240,11 +258,11 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     if ((f.supInvNo || '').trim() && invNet > 0) { const k0 = purKey({ supplierId: p2.supplierId, invoiceNo: f.supInvNo.trim() }); const o = (ops.invoices || []).find(i => purKey(i) === k0);
       if (o) return say('فاتورة مكررة: رقم ' + f.supInvNo.trim() + ' للمورد «' + p2.supplierName + '» مسجّل بتاريخ ' + (o.date || '') + ' — صحّح رقم فاتورة المورد', 'no'); }
     const invRec = invNet > 0 && matched ? { id: invId, invoiceNo: (f.supInvNo || '').trim() || grn, supplierId: p2.supplierId, supplierName: p2.supplierName, amount: Math.round((invNet + vat) * 100) / 100, vatAmt: vat, taxable: taxOn,
-      date: rDate, dueDate: due, paidAmount: 0, branchId: (tw && tw.branchId) || p2.branchId || '', poId: p2.id, poNo: p2.poNo, grn, whId: wid, lines: invLines, by: me.name, createdAt: nowISO() } : null;
+      date: rDate, dueDate: due, paidAmount: 0, branchId: (tw && tw.branchId) || p2.branchId || '', poId: p2.id, poNo: p2.poNo, grn, whId: wid, lines: invLines, by: me.name, createdAt: nowISO(), auto: 'match', ...(docId0 ? { docId: docId0 } : {}) } : null;
     // غير مطابق: الحركات تُربط بسجل استلام (GRN) بلا فاتورة — تظهر «مستلم لم يُفوتر» ويحوّلها المحاسب أو مدير النظام
     const gid = uid('grn');
     const gRec = matched ? null : { id: gid, grn, date: rDate, whId: wid, branchId: (tw && tw.branchId) || '', supplierId: p2.supplierId, status: 'done', direct: true, by: me.name, byEmail: me.email || '', at: nowISO(),
-      supInvNo: supNo0, taxable: f.taxable !== false,
+      supInvNo: supNo0, supInvAmt: supAmt0, whyNot, taxable: f.taxable !== false, ...(docId0 ? { docId: docId0 } : {}),
       lines: p2.lines.map((l, i) => takes[i] > 0 ? { li: i, itemId: l.itemId || '', desc: l.desc, qty: takes[i], factor: Number(l.factor) || 1, uomName: l.uomName || '', price: Number(l.price) || 0 } : null).filter(Boolean) };
     if (gRec) gRec.qc = { by: me.name, at: nowISO(), date: rDate, direct: true, lines: gRec.lines.map(l => ({ acc: l.qty, rej: 0, why: '' })) };
     const moves2 = matched ? moves : moves.map(({ invoiceId, ...m }) => ({ ...m, grnRef: gid }));
@@ -269,7 +287,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     if (costUp.length) await commitOrg(d => ({
       ...d, items: (d.items || []).map(it => { const u = costUp.find(c => c.id === it.id); return u ? { ...it, lastPrice: u.lastPrice, lastSupplier: u.lastSupplier, lastAt: u.lastAt } : it; })
     }), { actionType: 'update', targetType: 'stock_item', targetId: p2.id, title: 'سجّل آخر سعر شراء للأصناف', details: p2.poNo });
-    setRecv(null); say('سُجّل الاستلام' + (moves.length ? ' في ' + (wid ? whName(org, wid) : 'المخزون') : '') + (invRec ? ' — مطابق: أُنشئت فاتورة المورد ' + invRec.invoiceNo + ' بـ ' + money(invRec.amount) : ' — غير مطابق آليًا (' + (!supNo0 ? 'بلا رقم فاتورة المورد' : !fullMatch(p2, (i) => takes[i]) ? 'استلام جزئي' : 'رقم فاتورة مكرر') + '): يحوّله المحاسب أو مدير النظام لفاتورة') + ' ✓');
+    setRecv(null); say('سُجّل الاستلام' + (moves.length ? ' في ' + (wid ? whName(org, wid) : 'المخزون') : '') + (invRec ? ' — مطابق: أُنشئت فاتورة المورد ' + invRec.invoiceNo + ' بـ ' + money(invRec.amount) : ' — غير مطابق آليًا (' + whyNot + '): يحوّله المحاسب أو مدير النظام لفاتورة') + ' ✓');
   };
 
   // ===== v43.5 — مسار الفحص (org.purchaseCfg.inspect، مُطفأ افتراضيًا): استلام ← فحص بشخص غير المستلم ← مخزون ← تحويل لفاتورة =====
@@ -289,14 +307,40 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
   // بسعر الأمر وبلا رفض، ومعه رقم فاتورة المورد غير مكرر؛ وإلا يبقى «مستلمًا لم يُفوتر» يحوّله المحاسب أو مدير النظام فقط
   const canBill = INV_BILLERS.includes(me.role);
   const invNoTaken = (supplierId, no) => { const k0 = purKey({ supplierId, invoiceNo: no }); return (ops.invoices || []).find(i => purKey(i) === k0) || null; };
+  const rcvExpected = (p2, qtyOf, taxable) => { const r2 = (n) => Math.round(n * 100) / 100; const net = r2(sum((p2.lines || []).map((l, i) => (qtyOf(i) || 0) * (Number(l.price) || 0)), x => x));
+    const vat = (org.taxCfg || {}).enabled && taxable ? r2(net * ((Number((org.taxCfg || {}).rate) || 15) / 100)) : 0; return { net, vat, gross: r2(net + vat) }; };
   const fullMatch = (p2, accOf) => (p2.lines || []).length > 0 && p2.lines.every((l, i) => !(Number(l.received) || 0) && Math.abs((accOf(i) || 0) - (Number(l.qty) || 0)) < 0.0005);
+  // v44.1 — الرقم الضريبي للمورد إلزامي للفاتورة الضريبية (قرار المالك): يُدخل في النافذة نفسها إن نقص ويُحفظ في بطاقة المورد
+  const needVat = (supplierId, vat) => vat > 0.004 && !vatNoOk(supVatOf(org, supplierId));
+  const ensureVat = async (supplierId, vat, typed) => {
+    if (!needVat(supplierId, vat)) return true;
+    const v = String(typed || '').replace(/\s/g, '');
+    if (!vatNoOk(v)) { say('فاتورة ضريبية: أدخل الرقم الضريبي للمورد (15 رقمًا يبدأ وينتهي بـ 3) — أو اجعلها غير خاضعة', 'no'); return false; }
+    const ok = await commitOrg(d => ({ ...d, suppliers: (d.suppliers || []).map(x => x.id === supplierId ? { ...x, vatNo: v } : x) }), { actionType: 'update', targetType: 'partner', targetId: supplierId, title: 'أضاف الرقم الضريبي لمورد', details: v });
+    return ok !== false;
+  };
+  const VatNoField = ({ supplierId, vat, value, onChange }) => needVat(supplierId, vat) ? (
+    <Field label="الرقم الضريبي للمورد (إلزامي للفاتورة الضريبية)"><input className="inp num" aria-label="الرقم الضريبي للمورد" value={value || ''} placeholder="3XXXXXXXXXXXXX3" onChange={e => onChange(e.target.value.replace(/[^\d]/g, '').slice(0, 15))} />
+      <div className="hint" style={{ color: vatNoOk(value) ? 'var(--mint)' : 'var(--rose)' }}>{vatNoOk(value) ? '✓ يُحفظ في بطاقة المورد' : 'المورد بلا رقم ضريبي مسجّل — 15 رقمًا يبدأ وينتهي بـ 3'}</div></Field>) : null;
+  // v44.1 — صورة فاتورة المورد (اختيارية): تُضغط وتُحفظ في «أرشيف المستندات» وتُربط بالفاتورة
+  const compressImg = (file) => new Promise((resolve, reject) => { const rd = new FileReader(); rd.onload = () => { const img = new Image(); img.onload = () => { const mx = 1100; const sc = Math.min(1, mx / Math.max(img.width, img.height)); const c = document.createElement('canvas'); c.width = Math.round(img.width * sc); c.height = Math.round(img.height * sc); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); resolve(c.toDataURL('image/jpeg', 0.66)); }; img.onerror = reject; img.src = String(rd.result); }; rd.onerror = reject; rd.readAsDataURL(file); });
+  const archiveImg = async (img, meta) => { if (!img) return null; const key = bfKey(meta.branchId || 'hq'); const d = (await cloud.get(key, { items: [] })) || { items: [] };
+    const rec = { id: uid('fl'), title: meta.title, category: 'receipt', branchId: meta.branchId || '', fileUrl: img.url, fileType: 'image', fileName: img.name || 'invoice.jpg', fileSizeKb: Math.round(img.url.length * 0.75 / 1024), uploadDate: today(), uploadedBy: me.name, amount: meta.amount || 0, referenceNo: meta.ref || '', notes: 'فاتورة مورد', source: 'supplier-invoice', uploadedAt: nowISO() };
+    const ok = await cloud.set(key, { ...d, items: [rec, ...(d.items || [])] }); if (!ok) { say('تعذّر حفظ صورة الفاتورة في الأرشيف — حُفظت الفاتورة بدونها', 'no'); return null; } return rec.id; };
+  const ImgField = ({ img, onImg }) => (
+    <div className="row" style={{ gap: 8, alignItems: 'center', margin: '6px 0' }} data-imgfield>
+      <label className="btn sm gh" style={{ cursor: 'pointer' }}>📎 صورة فاتورة المورد (اختياري)<input type="file" accept="image/*" style={{ display: 'none' }} aria-label="صورة فاتورة المورد"
+        onChange={async e => { const fl = e.target.files && e.target.files[0]; e.target.value = ''; if (!fl) return; if (!fl.type.startsWith('image/')) return say('صورة فقط', 'no'); try { onImg({ url: await compressImg(fl), name: fl.name }); } catch { say('تعذّرت معالجة الصورة', 'no'); } }} /></label>
+      {img && <><img src={img.url} alt="" style={{ height: 40, borderRadius: 6, border: '1px solid var(--line)' }} /><button className="btn sm gh" onClick={() => onImg(null)} title="إزالة الصورة"><X size={12} /></button></>}
+    </div>);
   const dueOf = (supplierId, from) => { const sp0 = suppliers.find(x => x.id === supplierId) || {}; const dd = new Date(from + 'T12:00:00'); dd.setDate(dd.getDate() + (Number(sp0.terms) || 0)); return isoD(dd); };
   const saveGrn = async (p2, takes, wid, tw, rDate, f) => {
     const no = 'GRN-' + rDate.replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 5).toUpperCase();
     const lines = p2.lines.map((l, i) => takes[i] > 0 ? { li: i, itemId: l.itemId || '', desc: l.desc, qty: takes[i], factor: Number(l.factor) || 1, uomName: l.uomName || '', price: Number(l.price) || 0,
       ...((f.batch || [])[i] ? { batch: f.batch[i] } : {}), ...((f.expiry || [])[i] ? { expiry: f.expiry[i] } : {}) } : null).filter(Boolean);
     let g = { id: uid('grn'), grn: no, date: rDate, whId: wid, branchId: (tw && tw.branchId) || '', supplierId: p2.supplierId, lines, status: 'qc', by: me.name, byEmail: me.email || '', at: nowISO(),
-      supInvNo: String(f.supInvNo || '').trim(), taxable: f.taxable !== false };
+      supInvNo: String(f.supInvNo || '').trim(), supInvAmt: Number(f.supInvAmt) || 0, taxable: f.taxable !== false };
+    const dId = await archiveImg(f.img, { branchId: g.branchId, title: 'فاتورة مورد ' + (g.supInvNo || p2.poNo) + ' — ' + p2.supplierName, amount: g.supInvAmt, ref: g.supInvNo || p2.poNo }); if (dId) g.docId = dId;
     const sg = await signoff('grn', 'submit', g, { branchId: '' }); if (!sg.ok) return say(sigFailMsg(sg, 'الاستلام'), 'no'); if (sg.id) g = { ...g, sigSubmit: sg.id };
     const ok = await commit(d => ({ ...d, purchaseOrders: (d.purchaseOrders || []).map(x => (x.id !== p2.id || (x.grns || []).some(y => y.id === g.id)) ? x
       : { ...x, grns: [...(x.grns || []), g], status: x.status === 'open' ? 'partial' : x.status, lines: x.lines.map((l, i) => ({ ...l, inQc: Math.round(((Number(l.inQc) || 0) + (takes[i] || 0)) * 1000) / 1000 })) }) }),
@@ -322,10 +366,11 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     const qcRec = { by: me.name, byEmail: me.email || '', at: nowISO(), date: qDate, ...(sg.id ? { sig: sg.id } : {}), lines: g.lines.map((l, k) => ({ acc: acc[k], rej: rej[k], why: String(qc.why[k] || '').trim() })) };
     // v44.0: مطابق كليًا (كل البنود كاملة بلا رفض) ومعه رقم فاتورة المورد ⇒ فاتورة تلقائية بسعر الأمر
     const accOfLi = (i) => sum(g.lines.map((l, k) => [l, k]).filter(([l]) => l.li === i), ([, k]) => acc[k]);
-    const autoInv = (fullMatch(p2, accOfLi) && rej.every(r => !(r > 0)) && g.supInvNo && !invNoTaken(p2.supplierId, g.supInvNo))
+    const expQ = rcvExpected(p2, accOfLi, g.taxable !== false);
+    const autoInv = (fullMatch(p2, accOfLi) && rej.every(r => !(r > 0)) && g.supInvNo && !invNoTaken(p2.supplierId, g.supInvNo) && Math.abs((Number(g.supInvAmt) || 0) - expQ.gross) <= 0.01 && !needVat(p2.supplierId, expQ.vat))
       ? invFromCv({ rows: g.lines.map((l, k) => ({ g: g.id, grn: g.grn, k, itemId: l.itemId, desc: l.desc, qty: acc[k], factor: Number(l.factor) || 1, poPrice: Number(l.price) || 0, price: String(Number(l.price) || 0), whId: g.whId, branchId: g.branchId })),
           supInvNo: g.supInvNo, date: qDate, dueDate: dueOf(p2.supplierId, qDate), taxable: !!(org.taxCfg || {}).enabled && g.taxable !== false }, p2) : null;
-    if (autoInv) autoInv.auto = 'match';
+    if (autoInv) { autoInv.auto = 'match'; if (g.docId) autoInv.docId = g.docId; }
     const ok = await commit(d => ({ ...d,
       whMoves: [...brMoves.filter(m => !(d.whMoves || []).some(x => x.id === m.id)), ...(d.whMoves || [])],
       stockMoves: [...mainMoves.filter(m => !(d.stockMoves || []).some(x => x.id === m.id)), ...(d.stockMoves || [])],
@@ -357,7 +402,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
   const openCv = (p2) => { const gs = grnsToBill(p2); const sp0 = suppliers.find(x => x.id === p2.supplierId) || {};
     const rows = gs.flatMap(g => g.lines.map((l, k) => ({ g: g.id, grn: g.grn, k, itemId: l.itemId, desc: l.desc, qty: (g.qc.lines[k] || {}).acc || 0, factor: Number(l.factor) || 1, poPrice: Number(l.price) || 0, price: String(Number(l.price) || 0), whId: g.whId, branchId: g.branchId })).filter(r => r.qty > 0));
     const due = (() => { const dd = new Date(today() + 'T12:00:00'); dd.setDate(dd.getDate() + (Number(sp0.terms) || 0)); return isoD(dd); })();
-    setCv({ po: p2, rows, supInvNo: (gs.find(g => g.supInvNo) || {}).supInvNo || '', date: today(), dueDate: due, taxable: !!(org.taxCfg || {}).enabled }); };
+    setCv({ po: p2, rows, supInvNo: (gs.find(g => g.supInvNo) || {}).supInvNo || '', docId: (gs.find(g => g.docId) || {}).docId || '', date: today(), dueDate: due, taxable: !!(org.taxCfg || {}).enabled }); };
   const cvCalc = (c) => { const r2 = (n) => Math.round(n * 100) / 100;
     const poNet = r2(sum(c.rows, r => r.qty * r.poPrice)), net = r2(sum(c.rows, r => r.qty * (Number(r.price) || 0)));
     const vat = (org.taxCfg || {}).enabled && c.taxable ? r2(net * ((Number((org.taxCfg || {}).rate) || 15) / 100)) : 0;
@@ -382,7 +427,10 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     if (periodLocked(org, c.date)) return say(LOCK_MSG(c.date), 'no');
     const k0 = purKey({ supplierId: p2.supplierId, invoiceNo: c.supInvNo.trim() }); const o = (ops.invoices || []).find(i => purKey(i) === k0);
     if (o) return say('فاتورة مكررة: رقم ' + c.supInvNo.trim() + ' للمورد مسجّل بتاريخ ' + (o.date || '') + ' — لم يُحفظ', 'no');
-    const k = cvCalc(c); const inv = invFromCv(c, p2);
+    const k = cvCalc(c);
+    if (!(await ensureVat(p2.supplierId, k.vat, c.vatNo))) return;
+    const inv = invFromCv(c, p2);
+    const cDoc = c.img ? await archiveImg(c.img, { branchId: inv.branchId, title: 'فاتورة مورد ' + inv.invoiceNo + ' — ' + p2.supplierName, amount: inv.amount, ref: inv.invoiceNo }) : (c.docId || null); if (cDoc) inv.docId = cDoc;
     if (k.over) {
       // فوق التسامح: تنتظر اعتماد شخص آخر (توقيع تقديم موسوم بالتنبيه — القواعد تمنع مقدّمها من اعتمادها)
       let pv = { ...inv, varHold: true };
@@ -435,12 +483,14 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     if (periodLocked(org, f.date)) return say(LOCK_MSG(f.date), 'no');
     const typedNo = (f.invoiceNo || '').trim();
     if (typedNo) { const k0 = purKey({ supplierId: sp.id, invoiceNo: typedNo }); const o = (ops.invoices || []).find(i => purKey(i) === k0); if (o) return say('فاتورة مكررة: رقم ' + typedNo + ' للمورد «' + sp.name + '» مسجّل بتاريخ ' + (o.date || ''), 'no'); }
+    if (!(await ensureVat(sp.id, k.vat, f.vatNo))) return;
     const autoNo = () => { const pre = 'SVC-' + today().replace(/-/g, '').slice(2) + '-'; let n = 1; while ((ops.invoices || []).some(i => i.invoiceNo === pre + String(n).padStart(3, '0'))) n++; return pre + String(n).padStart(3, '0'); };
     const br = org.branches.find(b => b.id === f.branchId);
     const rec = { id: uid('inv'), kind: 'svc', supplierId: sp.id, supplierName: sp.name, branchId: f.branchId || '', branchName: br ? br.name : 'المركز الرئيسي', invoiceNo: typedNo || autoNo(),
       amount: toS(k.gross), vatAmt: toS(k.vat), taxable: k.vat > 0, paidAmount: 0, date: f.date, dueDate: f.dueDate || f.date,
       expLines: ls.map(l => ({ desc: String(l.desc).trim(), accCode: l.accCode, net: toS(l.n), vat: toS(l.v), ...(isFx(f.cur) ? { fcNet: l.n } : {}) })), by: me.name, createdAt: nowISO(),
       ...(isFx(f.cur) ? { cur: f.cur, fxRate: fxR, fcAmount: k.gross } : {}) };
+    const sDoc = await archiveImg(f.img, { branchId: f.branchId, title: 'فاتورة خدمات ' + rec.invoiceNo + ' — ' + sp.name, amount: rec.amount, ref: rec.invoiceNo }); if (sDoc) rec.docId = sDoc;
     // تقريب التحويل: الإجمالي بالريال = مجموع البنود + الضريبة (لا فرق تقريب في القيد)
     rec.amount = Math.round((sum(rec.expLines, l => l.net) + rec.vatAmt) * 100) / 100;
     const ok = await commit(d => ({ ...d, invoices: [rec, ...(d.invoices || [])] }), { actionType: 'create', targetType: 'expense', targetId: rec.id, title: 'سجّل فاتورة خدمات ومصروفات',
@@ -555,6 +605,8 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
               <td className="num" style={{ textAlign: 'end' }}>{money(r.qty * (Number(r.price) || 0))}</td></tr>)}</tbody>
           </table></div>
           <div className="mono-b" style={{ margin: '8px 0' }}><span style={{ fontSize: 12 }}>قيمة الأمر للمقبول <span className="num">{money(k.poNet)}</span> · الفاتورة <span className="num">{money(k.net)}</span>{k.vat ? <> + ض <span className="num">{money(k.vat)}</span></> : null}</span><span className="num" style={{ fontWeight: 700 }}>{money(k.gross)}</span></div>
+          {VatNoField({ supplierId: cv.po.supplierId, vat: k.vat, value: cv.vatNo, onChange: v => setCv(c => ({ ...c, vatNo: v })) })}
+          {cv.docId ? <div className="hint">📎 صورة فاتورة المورد مرفقة من الاستلام</div> : ImgField({ img: cv.img, onImg: (img) => setCv(c => ({ ...c, img })) })}
           <div className={k.over ? 'note warn' : 'note'} data-var={k.pct}>فرق السعر <b className="num">{k.pct}%</b> — التسامح <span className="num">{varTol}%</span>. {k.over ? 'يتجاوز التسامح: تُرسل الفاتورة لاعتماد شخص آخر ولا تُقيَّد قبله.' : 'ضمن التسامح: تُقيَّد مباشرة.'} {pcfg.perpetualFrom ? 'القيد: من ح/ بضاعة مستلمة لم تُفوتر (بسعر الأمر) ± فروق أسعار الشراء، وضريبة المدخلات، إلى ح/ المورد.' : 'القيد: من ح/ المشتريات وضريبة المدخلات إلى ح/ المورد.'}</div>
         </Modal>); })();
   if (billOnly) {
@@ -601,7 +653,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
 
       <SectionNav label="الفواتير والأوامر" cur={tab} onPick={setTab} items={[{ id: 'inv', ar: 'فواتير الموردين الآجلة', icon: FileText }, { id: 'fx', ar: 'إيجارات وفواتير الفروع', icon: Building2 }, { id: 'po', ar: 'أوامر الشراء', icon: ClipboardCheck }]}
         extra={<>{goTab && roleHasTab(me, 'partners') && <button className="btn sm gh" onClick={() => goTab('partners')}><Users size={14} />الموردون ← جهات الاتصال</button>}
-          {canPay && <button className="btn sm pri" onClick={() => setNewInv({ supplierId: suppliers[0]?.id || '', invoiceNo: '', amount: '', taxable: true, date: today(), dueDate: today(), branchId: '' })}><Plus size={14} />فاتورة توريد جديدة</button>}
+          {canPay && <button className="btn sm pri" onClick={() => setNewInv({ supplierId: suppliers[0]?.id || '', invoiceNo: '', taxable: !!(org.taxCfg || {}).enabled, date: today(), dueDate: today(), branchId: '', lines: [invLine()] })}><Plus size={14} />فاتورة توريد جديدة</button>}
           {canPay && <button className="btn sm" data-svc onClick={() => setSvc({ supplierId: suppliers[0]?.id || '', invoiceNo: '', date: today(), dueDate: today(), branchId: '', lines: [svcLine()] })}><Plus size={14} />فاتورة خدمات ومصروفات</button>}</>} />
       <div className="grid g4">
         <Kpi label="مستحقات الموردين" value={money(outstanding)} sub={`${allInvs.filter(i => remOf(i) > 0).length} فاتورة مفتوحة (منها ${clInvs.filter(v => cRem(v) > 0).length} من الورديات)`} icon={Truck} color="#C8A24A" />
@@ -787,7 +839,6 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
                         {canInspect && inspectOn && p2.status === 'partial' && (p2.lines || []).some(l => remOfLine(l) > 0) && !(p2.lines || []).some(l => (Number(l.inQc) || 0) > 0) && <button className="btn sm gh" onClick={() => closeRest(p2)}>إقفال المتبقي</button>}
                         {canPay && !locked2 && p2.status !== 'received' && p2.status !== 'closed' && (p2.lines || []).some(l => remOfLine(l) > 0) && <button className="btn sm" onClick={() => setRecv({ po: p2, qtys: p2.lines.map(l => String(remOfLine(l))), whId: MAIN_WH, date: today(), supInvNo: '', taxable: true, batch: p2.lines.map(() => ''), expiry: p2.lines.map(() => '') })}>تسجيل استلام</button>}
                         {canPay && (p2.lines || []).some(l => (Number(l.received) || 0) > (Number(l.returned) || 0)) && <button className="btn sm gh" onClick={() => retOpen(p2)}>مرتجع</button>}
-                        {canBill && !inv && !locked2 && !inspectOn && !(p2.grns || []).length && <button className="btn sm gh" onClick={() => setNewInv({ supplierId: p2.supplierId, invoiceNo: '', amount: String(tot), taxable: true, date: today(), dueDate: today(), branchId: p2.branchId || '', poId: p2.id })}>إنشاء فاتورة</button>}
                       </div></td>
                     </tr>
                   );
@@ -815,10 +866,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
             </Field>
           </div>
           <div className="grid g3">
-            <Field label={'المبلغ (شامل الضريبة إن كانت خاضعة)' + (isFx(newInv.cur) ? ' — ' + newInv.cur : '')}>
-              <input className="inp n" inputMode="decimal" value={newInv.amount} onChange={e => setNewInv(f => ({ ...f, amount: e.target.value.replace(/[^\d.]/g, '') }))} />
-              {isFx(newInv.cur) && (Number(newInv.amount) > 0) && (Number(newInv.rate) > 0) && <div className="hint num" data-fxsar>= {money(Number(newInv.amount) * Number(newInv.rate))} ر.س</div>}
-            </Field>
+            {whOn(org) && <Field label="المستودع المستلِم (للأصناف المخزنية)"><select className="sel" value={newInv.whId || MAIN_WH} onChange={e => setNewInv(f => ({ ...f, whId: e.target.value }))}>{whOf(org).map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select></Field>}
             {fxOn && <Field label="العملة"><select className="sel" aria-label="عملة الفاتورة" value={newInv.cur || 'SAR'} onChange={e => { const c = e.target.value; setNewInv(f => ({ ...f, cur: c, rate: isFx(c) ? (f.rate || lastRate(c)) : '' })); }}>{CURS.map(c => <option key={c} value={c}>{c}</option>)}</select></Field>}
             {fxOn && isFx(newInv.cur) && <Field label={'سعر الصرف (ر.س لكل ' + newInv.cur + ')'}><input className="inp n" inputMode="decimal" aria-label="سعر الصرف" value={newInv.rate || ''} onChange={e => setNewInv(f => ({ ...f, rate: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>}
             <Field label="تاريخ الفاتورة"><input type="date" className="inp" value={newInv.date} onChange={e => setNewInv(f => ({ ...f, date: e.target.value }))} /></Field>
@@ -833,9 +881,25 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
             </Field>
             <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', paddingTop: 14 }}>
               <input type="checkbox" checked={!!newInv.taxable} onChange={e => setNewInv(f => ({ ...f, taxable: e.target.checked }))} />
-              خاضعة لضريبة القيمة المضافة — يفصل المحرك ضريبة المدخلات تلقائياً عند تفعيل الضريبة
+              خاضعة لضريبة القيمة المضافة — الأسعار قبل الضريبة
             </label>
           </div>
+          {(() => { const k = invCalc(newInv); return (<>
+            <div className="lbl" style={{ margin: '4px 0 6px' }}>البنود — من الأصناف المضافة{isFx(newInv.cur) ? ' (الأسعار بـ ' + newInv.cur + ')' : ''}</div>
+            {(newInv.lines || []).map((l, i) => { const it = items.find(x => x.id === l.itemId); return (
+              <div key={i} className="row" style={{ gap: 6, marginBottom: 6, flexWrap: 'wrap', alignItems: 'center' }} data-invline>
+                <ItemPick items={items} label={'صنف البند ' + (i + 1)} value={l.itemId} onChange={(id) => setNewInv(f => ({ ...f, lines: f.lines.map((x, k2) => k2 === i ? { ...x, itemId: id, price: x.price || String(((items.find(y => y.id === id) || {}).lastPrice) || '') } : x) }))} />
+                <input className="inp n" style={{ width: 90 }} inputMode="decimal" placeholder={'الكمية' + (it ? ' (' + it.unit + ')' : '')} aria-label={'كمية البند ' + (i + 1)} value={l.qty} onChange={e => setNewInv(f => ({ ...f, lines: f.lines.map((x, k2) => k2 === i ? { ...x, qty: e.target.value.replace(/[^\d.]/g, '') } : x) }))} />
+                <input className="inp n" style={{ width: 100 }} inputMode="decimal" placeholder="سعر الوحدة" aria-label={'سعر البند ' + (i + 1)} value={l.price} onChange={e => setNewInv(f => ({ ...f, lines: f.lines.map((x, k2) => k2 === i ? { ...x, price: e.target.value.replace(/[^\d.]/g, '') } : x) }))} />
+                {it && <span className={'badge ' + (isStocked(it) ? 'b-sky' : 'b-dim')}>{isStocked(it) ? 'يدخل المخزون' : 'مصروف'}</span>}
+                {(newInv.lines || []).length > 1 && <button className="btn sm gh" title="حذف البند" onClick={() => setNewInv(f => ({ ...f, lines: f.lines.filter((_, k2) => k2 !== i) }))}><X size={13} /></button>}
+              </div>); })}
+            <button className="btn sm gh" onClick={() => setNewInv(f => ({ ...f, lines: [...(f.lines || []), invLine()] }))}><Plus size={13} />بند آخر</button>
+            <div className="mono-b" style={{ margin: '8px 0' }}><span style={{ fontSize: 12 }}>الصافي <span className="num">{money(k.fcNet)}</span>{k.fcVat ? <> + ض <span className="num">{money(k.fcVat)}</span></> : null}</span><span className="num" style={{ fontWeight: 700 }} data-invtotal>{money(k.fcNet + k.fcVat)}{isFx(newInv.cur) ? ' ' + newInv.cur : ''}</span></div>
+            {isFx(newInv.cur) && k.fxR > 0 && <div className="note" data-fxsar>بالريال: <b className="num">{money(k.net + k.vat)}</b> ر.س بسعر {newInv.rate}</div>}
+            {VatNoField({ supplierId: (newInv.supplierId), vat: (k.vat), value: (newInv.vatNo), onChange: (v => setNewInv(f => ({ ...f, vatNo: v }))) })}
+          </>); })()}
+          {ImgField({ img: (newInv.img), onImg: ((img) => setNewInv(f => ({ ...f, img }))) })}
         </Modal>
       )}
 
@@ -851,16 +915,11 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
             </Field>
             <Field label="ملاحظة (اختياري)"><input className="inp" value={poF.note} placeholder="توريد أسبوعي…" onChange={e => setPoF(f => ({ ...f, note: e.target.value }))} /></Field>
           </div>
-          <div className="lbl" style={{ margin: '4px 0 6px' }}>البنود — اربط البند بصنف مخزون ليُغذّى رصيده تلقائياً عند الاستلام</div>
+          <div className="lbl" style={{ margin: '4px 0 6px' }}>البنود — اختر كل بند من الأصناف المضافة (بالرمز أو الاسم أو الباركود)</div>
           {(poF.lines || []).map((l, i) => (
             <div key={i} className="row" style={{ gap: 7, marginBottom: 7, flexWrap: 'wrap' }}>
-              <input className="inp" style={{ flex: 2, minWidth: 150 }} placeholder="الوصف (لحم غنم مبرد…)" value={l.desc}
-                onChange={e => setPoF(f => ({ ...f, lines: f.lines.map((x, k) => k === i ? { ...x, desc: e.target.value } : x) }))} />
-              <select className="sel" style={{ flex: 1.4, minWidth: 130 }} value={l.itemId}
-                onChange={e => { const it = items.find(x => x.id === e.target.value); setPoF(f => ({ ...f, lines: f.lines.map((x, k) => k === i ? { ...x, itemId: e.target.value, uom: it && it.purchaseUnit && pFactor(it) > 1 ? 'p' : 'b', desc: x.desc || (it ? it.name : '') } : x) })); }}>
-                <option value="">بلا ربط مخزون</option>
-                {items.map(it => <option key={it.id} value={it.id}>{it.name} ({it.unit}){itemType(it) === 'service' ? ' — خدمي' : ''}</option>)}
-              </select>
+              <ItemPick items={items} label={'صنف البند ' + (i + 1)} value={l.itemId}
+                onChange={(id) => { const it = items.find(x => x.id === id); setPoF(f => ({ ...f, lines: f.lines.map((x, k) => k === i ? { ...x, itemId: id, uom: it && it.purchaseUnit && pFactor(it) > 1 ? 'p' : 'b', desc: it ? it.name : '' } : x) })); }} />
               {(() => { const it = items.find(x => x.id === l.itemId); return it && it.purchaseUnit && pFactor(it) > 1 ? (
                 <select className="sel" style={{ width: 120 }} value={l.uom || 'p'} onChange={e => setPoF(f => ({ ...f, lines: f.lines.map((x, k) => k === i ? { ...x, uom: e.target.value } : x) }))}>
                   <option value="p">{it.purchaseUnit} ({pFactor(it)})</option><option value="b">{it.unit}</option>
@@ -971,6 +1030,8 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
           <button className="btn sm gh" onClick={() => setSvc(f => ({ ...f, lines: [...f.lines, svcLine()] }))}><Plus size={13} />بند آخر</button>
           <div className="mono-b" style={{ margin: '8px 0' }}><span style={{ fontSize: 12 }}>الصافي <span className="num">{money(k.net)}</span>{k.vat ? <> + ض <span className="num">{money(k.vat)}</span></> : null}</span><span className="num" style={{ fontWeight: 700 }}>{money(k.gross)}{isFx(svc.cur) ? ' ' + svc.cur : ''}</span></div>
           {isFx(svc.cur) && Number(svc.rate) > 0 && <div className="note" data-fxsar>بالريال: <b className="num">{money(k.gross * Number(svc.rate))}</b> ر.س بسعر {svc.rate}</div>}
+          {VatNoField({ supplierId: svc.supplierId, vat: k.vat, value: svc.vatNo, onChange: v => setSvc(f => ({ ...f, vatNo: v })) })}
+          {ImgField({ img: svc.img, onImg: (img) => setSvc(f => ({ ...f, img })) })}
           <div className="note">كل بند يُقيَّد على حسابه المختار، وضريبة المدخلات للبنود الخاضعة، والإجمالي إلى ح/ المورد (آجل) ويظهر في كشفه وأعمار ديونه ويُسدَّد من «سداد».</div>
         </Modal>); })()}
 
@@ -987,10 +1048,14 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
             <Field label="تاريخ الاستلام"><input type="date" className="inp" value={recv.date || today()} onChange={e => setRecv(r => ({ ...r, date: e.target.value }))} /></Field>
             {<><Field label="رقم فاتورة المورد (من ورقة المورد — تُنشأ الفاتورة تلقائيًا عند المطابقة)"><input className="inp" aria-label="رقم فاتورة المورد" value={recv.supInvNo || ''} placeholder="فارغ = يبقى بلا فاتورة حتى يحوّله المحاسب" onChange={e => setRecv(r => ({ ...r, supInvNo: e.target.value }))} />
               <DupInvHint invoices={ops.invoices} supplierId={recv.po && recv.po.supplierId} invoiceNo={recv.supInvNo} /></Field>
+            <Field label="مبلغ فاتورة المورد (شامل الضريبة)"><input className="inp n" inputMode="decimal" aria-label="مبلغ فاتورة المورد" value={recv.supInvAmt || ''} onChange={e => setRecv(r => ({ ...r, supInvAmt: e.target.value.replace(/[^\d.]/g, '') }))} />
+              {(() => { const ex = rcvExpected(recv.po, (i) => Math.min(Math.max(Number(recv.qtys[i]) || 0, 0), remOfLine(recv.po.lines[i])), recv.taxable !== false); const a = Number(recv.supInvAmt) || 0;
+                return <div className="hint" data-amtmatch={a > 0 && Math.abs(a - ex.gross) <= 0.01 ? 'yes' : 'no'} style={{ color: a > 0 && Math.abs(a - ex.gross) <= 0.01 ? 'var(--mint)' : 'var(--faint)' }}>بسعر الأمر: <span className="num">{money(ex.gross)}</span>{a > 0 ? (Math.abs(a - ex.gross) <= 0.01 ? ' — مطابق ✓' : ' — غير مطابق: يذهب للمحاسب') : ''}</div>; })()}</Field>
             {!!(org.taxCfg || {}).enabled && <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', paddingTop: 14 }}>
               <input type="checkbox" checked={recv.taxable !== false} onChange={e => setRecv(r => ({ ...r, taxable: e.target.checked }))} />الفاتورة خاضعة لضريبة القيمة المضافة
             </label>}</>}
           </div>
+          {ImgField({ img: recv.img, onImg: (img) => setRecv(r => ({ ...r, img })) })}
           {recv.po.lines.map((l, i) => {
             const rem = remOfLine(l);
             return (

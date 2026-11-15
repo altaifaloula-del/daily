@@ -4,7 +4,7 @@ import { HardDrive, FileBarChart, ChevronDown, Printer, ArrowLeftRight, Clipboar
 import { PrepList } from './PrepList.jsx';   // v40.8
 import { TurnoverPpv } from './TurnoverPpv.jsx';   // v42.0
 import { Production } from './Production.jsx';   // v42.8
-import { BlindCount, Field, ITEM_TYPES, Kpi, LOCK_MSG, MAIN_WH, MOVE_KINDS, Modal, PriceAlerts, ROLES, SectionNav, UsageVariance, WarehousesPanel, WasteControl, WasteFields, arDate, isCostCtl, isStocked, itemAvgCosts, itemType, makeXlsx, money, nowISO, pFactor, parseCsvGrid, parseXlsxGrid, partGross, partYield, periodLocked, prepUnitCost, kcalUnitFactor, productKcal, printA4, q3, recipeCost, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whName, whOn, prepItemId } from '../../App.jsx';
+import { BlindCount, Field, ITEM_TYPES, ITEM_NEW_TYPES, itemsSeq, nextItemCode, Kpi, LOCK_MSG, MAIN_WH, MOVE_KINDS, Modal, PriceAlerts, ROLES, SectionNav, UsageVariance, WarehousesPanel, WasteControl, WasteFields, arDate, isCostCtl, isStocked, itemAvgCosts, itemType, makeXlsx, money, nowISO, pFactor, parseCsvGrid, parseXlsxGrid, partGross, partYield, periodLocked, prepUnitCost, kcalUnitFactor, productKcal, printA4, q3, recipeCost, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whName, whOn, prepItemId } from '../../App.jsx';
 
 export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
   const [view, setView] = useState('items');        // items | moves | count | recipes
@@ -61,7 +61,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
     ['cost', 'التكلفة', /تكلف|سعر|cost|price/i], ['minQty', 'الحد الأدنى', /أدنى|ادنى|الحد|min|reorder/i],
     ['maxQty', 'الحد الأعلى', /أعلى|اعلى|max/i], ['qty', 'الرصيد الافتتاحي', /رصيد|كمي|qty|quantity|opening/i],
     ['type', 'نوع الصنف', /نوع|type/i], ['purchaseUnit', 'وحدة الشراء', /وحدة الشراء|purchase unit|pack/i], ['purchaseFactor', 'معامل التحويل', /معامل|تحويل|factor|per pack/i]];
-  const typeOf = (v) => { const t = String(v || '').trim(); return /خدم|serv/i.test(t) ? 'service' : /بيع|sale|sell/i.test(t) ? 'sale' : t ? 'stock' : ''; };
+  const typeOf = (v) => { const t = String(v || '').trim(); return /خدم|serv/i.test(t) ? 'service' : /استهلاك|consum/i.test(t) ? 'consumable' : /بيع|sale|sell/i.test(t) ? 'sale' : t ? 'stock' : ''; };
   const normNum = (v) => { const t = String(v == null ? '' : v).replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[٫]/g, '.').replace(/[,٬\s]/g, '');
     if (t === '') return null; const n = Number(t); return Number.isFinite(n) ? n : NaN; };
   const normName = (v) => String(v || '').trim().replace(/\s+/g, ' ').toLowerCase();
@@ -141,15 +141,21 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
   const saveItem = async () => {
     const f = itemF;
     if (!f.name.trim()) return say('أدخل اسم الصنف', 'no');
+    // v44.1: التصنيف إلزامي عند الإنشاء (مخزني/استهلاكي/خدمي)، والباركود لا يتكرر، والرمز التسلسلي يُمنح تلقائيًا
+    if (!ITEM_TYPES[f.type]) return say('اختر تصنيف الصنف: مخزني أو استهلاكي أو خدمي', 'no');
+    const bc = String(f.barcode || '').trim();
+    if (bc) { const dup = items.find(x => x.id !== f.id && String(x.barcode || '').trim() === bc); if (dup) return say('الباركود ' + bc + ' مستخدم للصنف «' + dup.name + '»', 'no'); }
     const pf = Math.max(1, Number(f.purchaseFactor) || 1);
     const rec = { ...(f.id ? items.find(x => x.id === f.id) || {} : {}), id: f.id || uid('it'), name: f.name.trim(), unit: (f.unit || '').trim() || 'وحدة', cost: Number(f.cost) || 0, minQty: Number(f.minQty) || 0, isActive: true,
-      type: ITEM_TYPES[f.type] ? f.type : 'stock', purchaseUnit: (f.purchaseUnit || '').trim(), purchaseFactor: (f.purchaseUnit || '').trim() ? pf : 1,
+      type: ITEM_TYPES[f.type] ? f.type : 'stock', barcode: bc, code: f.code || nextItemCode(items), purchaseUnit: (f.purchaseUnit || '').trim(), purchaseFactor: (f.purchaseUnit || '').trim() ? pf : 1,
       ...(f.type === 'sale' ? { sellPrice: Number(f.sellPrice) || 0 } : {}) };
     // v41.1: السعرات — تُحفظ إن أُدخلت، وتُزال إن مُسحت
     if (f.kcal && f.kcal.v !== '' && f.kcal.v != null && Number(f.kcal.v) >= 0) rec.kcal = { basis: f.kcal.basis === 'unit' || kcalUnitFactor(rec.unit) == null ? 'unit' : '100', v: Number(f.kcal.v) }; else delete rec.kcal;
-    await commitOrg(d => ({ ...d, items: f.id ? (d.items || []).map(x => x.id === f.id ? rec : x) : [...(d.items || []), rec] }), {
+    // الأصناف القديمة بلا رمز تأخذ رموزها التسلسلية الآن بترتيب إضافتها (ثابتة بعد ذلك)
+    const withCodes = (list) => { const seq = itemsSeq(list.filter(x => x.id !== rec.id)); return list.map(x => x.code ? x : { ...x, code: (seq.find(y => y.id === x.id) || {}).code }); };
+    await commitOrg(d => ({ ...d, items: withCodes(f.id ? (d.items || []).map(x => x.id === f.id ? rec : x) : [...(d.items || []), rec]) }), {
       actionType: f.id ? 'update' : 'create', targetType: 'stock_item', targetId: rec.id,
-      title: f.id ? 'عدّل صنف مخزون' : 'أضاف صنف مخزون', details: rec.name + ' · ' + money(rec.cost) + '/' + rec.unit
+      title: f.id ? 'عدّل صنف مخزون' : 'أضاف صنف مخزون', details: rec.code + ' · ' + rec.name + ' · ' + ITEM_TYPES[rec.type].short + ' · ' + money(rec.cost) + '/' + rec.unit
     });
     setItemF(null); say('حُفظ الصنف ✓');
   };
@@ -327,7 +333,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
         {view === 'items' && <button className="btn sm" style={{ marginInlineStart: 'auto' }} onClick={printStock}><Printer size={13} />طباعة الأرصدة</button>}
         {canW && view === 'items' && <><label className="btn sm" style={{ cursor: 'pointer' }}><Upload size={13} />استيراد من Excel<input type="file" accept=".xlsx,.csv,text/csv" style={{ display: 'none' }} onChange={impPick} /></label>
           <button className="btn sm gh" onClick={impTemplate}><Download size={13} />نموذج</button></>}
-        {canW && view === 'items' && <button className="btn sm pri" onClick={() => setItemF({ name: '', unit: 'كغ', cost: '', minQty: '' })}><Plus size={14} />صنف جديد</button>}
+        {canW && view === 'items' && <button className="btn sm pri" onClick={() => setItemF({ name: '', unit: 'كغ', cost: '', minQty: '', type: '', barcode: '' })}><Plus size={14} />صنف جديد</button>}
         {canW && view === 'moves' && <button className="btn sm pri" style={{ marginInlineStart: 'auto' }} onClick={() => setMoveF({ kind: 'in', itemId: (items.find(isStocked) || {}).id || '', qty: '', note: '', uom: 'b', unitCost: '' })}><Plus size={14} />حركة جديدة</button>}
         {view === 'recipes' && <button className="btn sm" style={{ marginInlineStart: 'auto' }} onClick={printKcal}><Printer size={13} />بطاقة السعرات</button>}
         {canW && view === 'recipes' && <button className="btn sm" onClick={() => setPrepF({ name: '', unit: 'كجم', batch: '', parts: [{ itemId: '', qty: '' }] })}><Plus size={14} />تحضيرة جديدة</button>}
@@ -338,20 +344,21 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
         <div className="card">
           <div className="tw">
             <table className="tb">
-              <thead><tr><th>الصنف</th><th>النوع</th><th>الوحدة</th><th style={{ textAlign: 'end' }}>متوسط التكلفة</th><th style={{ textAlign: 'end' }}>الرصيد</th><th style={{ textAlign: 'end' }}>القيمة</th><th>الحالة</th><th /></tr></thead>
+              <thead><tr><th>الرمز</th><th>الصنف</th><th>النوع</th><th>الوحدة</th><th style={{ textAlign: 'end' }}>متوسط التكلفة</th><th style={{ textAlign: 'end' }}>الرصيد</th><th style={{ textAlign: 'end' }}>القيمة</th><th>الحالة</th><th /></tr></thead>
               <tbody>
-                {items.map(it => {
+                {itemsSeq(items).map(it => {
                   const [cls, txt] = stateOf(it); const b = balOf(it.id);
                   return (
                     <tr key={it.id}>
-                      <td style={{ fontWeight: 600, fontSize: 12.5 }}>{it.name}</td>
+                      <td className="num" style={{ fontSize: 11 }}>{it.code}</td>
+                      <td style={{ fontWeight: 600, fontSize: 12.5 }}>{it.name}{it.barcode ? <div className="num" style={{ fontSize: 9.5, color: 'var(--faint)' }}>{it.barcode}</div> : null}</td>
                       <td><span className={'badge ' + ITEM_TYPES[itemType(it)].c}>{ITEM_TYPES[itemType(it)].short}</span></td>
                       <td style={{ fontSize: 11.5, color: 'var(--dim)' }}>{it.unit}{it.purchaseUnit && pFactor(it) > 1 ? <div style={{ fontSize: 10, color: 'var(--faint)' }}>{it.purchaseUnit} = {pFactor(it)} {it.unit}</div> : null}</td>
                       <td className="num" style={{ textAlign: 'end' }}>{money(avgOf(it.id))}</td>
                       <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: b < 0 ? 'var(--rose)' : 'var(--txt)' }}>{isStocked(it) ? b : '—'}</td>
                       <td className="num" style={{ textAlign: 'end' }}>{isStocked(it) ? money(Math.max(0, b) * avgOf(it.id)) : '—'}</td>
                       <td>{isStocked(it) ? <><span className={'badge ' + cls}>{txt}</span>{(it.minQty || 0) > 0 && <div style={{ fontSize: 9, color: 'var(--faint)' }}>الحد: <span className="num">{it.minQty}</span></div>}</> : <span style={{ fontSize: 11, color: 'var(--faint)' }}>لا يُخزَّن</span>}</td>
-                      <td>{canW && <button className="btn sm gh" onClick={() => setItemF({ ...it })}>تعديل</button>}</td>
+                      <td>{canW && <button className="btn sm gh" onClick={() => setItemF({ ...it, type: itemType(it) })}>تعديل</button>}</td>
                     </tr>
                   );
                 })}
@@ -568,15 +575,19 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
         </Modal>
       )}
       {itemF && (
-        <Modal title={itemF.id ? 'تعديل صنف' : 'صنف مخزون جديد'} icon={HardDrive} onClose={() => setItemF(null)}
+        <Modal title={itemF.id ? 'تعديل صنف' : 'صنف جديد'} icon={HardDrive} onClose={() => setItemF(null)}
           foot={<><button className="btn gh" onClick={() => setItemF(null)}>إلغاء</button>
             <button className="btn pri" onClick={saveItem}><Check size={14} />حفظ الصنف</button></>}>
+          <div className="grid g2">
+            <Field label="رمز الصنف (تسلسلي تلقائي)"><input className="inp num" disabled value={itemF.code || nextItemCode(items)} /></Field>
+            <Field label="الباركود (اختياري)"><input className="inp num" aria-label="الباركود" value={itemF.barcode || ''} placeholder="امسحه بالماسح أو اكتبه" onChange={e => setItemF(f => ({ ...f, barcode: e.target.value.replace(/\s/g, '') }))} /></Field>
+          </div>
           <Field label="اسم الصنف"><input className="inp" value={itemF.name} placeholder="أرز بسمتي، لحم غنم…" onChange={e => setItemF(f => ({ ...f, name: e.target.value }))} /></Field>
           <Field label="نوع الصنف">
             <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-              {Object.entries(ITEM_TYPES).map(([k, t]) => <button key={k} type="button" className={'btn sm' + (itemType(itemF) === k ? ' pri' : ' gh')} onClick={() => setItemF(f => ({ ...f, type: k }))}>{t.short}</button>)}
+              {ITEM_NEW_TYPES.map(k => <button key={k} type="button" data-itype={k} className={'btn sm' + (itemF.type === k || (k === 'stock' && itemF.type === 'sale') ? ' pri' : ' gh')} onClick={() => setItemF(f => ({ ...f, type: k }))}>{ITEM_TYPES[k].short}</button>)}
             </div>
-            <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 4 }}>{ITEM_TYPES[itemType(itemF)].ar}</div>
+            <div style={{ fontSize: 11, color: ITEM_TYPES[itemF.type] ? 'var(--faint)' : 'var(--rose)', marginTop: 4 }}>{ITEM_TYPES[itemF.type] ? ITEM_TYPES[itemF.type].ar : 'اختر التصنيف — إلزامي'}</div>
           </Field>
           <div className="grid g3">
             <Field label="الوحدة الأساسية (للأرصدة والصرف)"><input className="inp" value={itemF.unit} placeholder="كغ · حبة · لتر" onChange={e => setItemF(f => ({ ...f, unit: e.target.value }))} /></Field>

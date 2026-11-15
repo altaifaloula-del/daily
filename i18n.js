@@ -2160,6 +2160,41 @@ Object.assign(EN, {
 "رقم فاتورة المورد": "Supplier invoice No.",
 "الفاتورة خاضعة لضريبة القيمة المضافة": "Invoice subject to VAT"
 });
+
+// ===== v44.1 الأصناف والمطابقة =====
+Object.assign(EN, {
+"مخزني": "Stock",
+"استهلاكي": "Consumable",
+"خدمي": "Service",
+"مخزني — يُتتبّع رصيده ومتوسط تكلفته ويُصرف ويُجرد (مواد خام وبضاعة)": "Stock — balance and average cost tracked, issued and counted (raw materials & goods)",
+"استهلاكي — يُقيَّد مصروفًا عند الشراء بلا رصيد (مستلزمات نظافة، أكياس، أدوات…)": "Consumable — expensed on purchase, no balance (cleaning supplies, bags, tools…)",
+"اختر التصنيف — إلزامي": "Choose the category — required",
+"رمز الصنف (تسلسلي تلقائي)": "Item code (auto sequence)",
+"الباركود (اختياري)": "Barcode (optional)",
+"امسحه بالماسح أو اكتبه": "Scan or type it",
+"الباركود": "Barcode",
+"الرمز": "Code",
+"— اختر الصنف —": "— Choose item —",
+"بحث/باركود": "Search/barcode",
+"البنود — اختر كل بند من الأصناف المضافة (بالرمز أو الاسم أو الباركود)": "Lines — choose each line from added items (by code, name or barcode)",
+"المستودع المستلِم (للأصناف المخزنية)": "Receiving warehouse (for stock items)",
+"خاضعة لضريبة القيمة المضافة — الأسعار قبل الضريبة": "Subject to VAT — prices before VAT",
+"سعر الوحدة": "Unit price",
+"يدخل المخزون": "Enters stock",
+"مصروف": "Expense",
+"الرقم الضريبي للمورد (إلزامي للفاتورة الضريبية)": "Supplier VAT No. (required for a tax invoice)",
+"✓ يُحفظ في بطاقة المورد": "✓ saved to the supplier's card",
+"المورد بلا رقم ضريبي مسجّل — 15 رقمًا يبدأ وينتهي بـ 3": "Supplier has no VAT number — 15 digits starting and ending with 3",
+"📎 صورة فاتورة المورد (اختياري)": "📎 Supplier invoice photo (optional)",
+"إزالة الصورة": "Remove photo",
+"مبلغ فاتورة المورد (شامل الضريبة)": "Supplier invoice amount (VAT incl.)",
+"بسعر الأمر:": "At PO price:",
+" — مطابق ✓": " — matched ✓",
+" — غير مطابق: يذهب للمحاسب": " — not matched: goes to the accountant",
+"📎 صورة فاتورة المورد مرفقة من الاستلام": "📎 Supplier invoice photo attached at receipt",
+"الرقم الضريبي للمورد": "Supplier VAT No.",
+"مبلغ فاتورة المورد": "Supplier invoice amount"
+});
 export const TX = (ar) => (LANG === 'en' && ar && EN[ar]) || ar;
 
 /* v43.1 مترجم الشاشة: في الوضع الإنجليزي يترجم نصوص الواجهة (عُقد النص + placeholder/title/aria-label) بمطابقة القاموس حرفيًا،
@@ -2213,6 +2248,7 @@ export const EN_RX = [
   [/^حساب البند (\d+)$/, 'Line $1 account'], [/^مبلغ البند (\d+)$/, 'Line $1 amount'], [/^مرفوض ([\d.]+)$/, 'Rejected $1'], [/^أُقفل المتبقي(.*)$/, 'Remaining closed$1'],
   [/^سعر الصرف \(ر\.س لكل (\w+)\)$/, 'Exchange rate (SAR per $1)'], [/^سعر صرف يوم السداد \(ر\.س لكل (\w+)\)$/, 'Payment-date rate (SAR per $1)'], [/^مبلغ السداد \((\w+)\)$/, 'Payment amount ($1)'], [/^المبلغ \(شامل الضريبة إن كانت خاضعة\) — (\w+)$/, 'Amount (VAT incl. if taxable) — $1'], [/^— فرق صرف$/, '— FX difference'],
   [/^فاتورة (.+) بانتظار اعتماد الفرق \((.+)\)$/, 'Invoice $1 awaiting variance approval ($2)'],
+  [/^البنود — من الأصناف المضافة(.*)$/, (_, x) => 'Lines — from added items' + x.replace(/\(الأسعار بـ (\w+)\)/, '(prices in $1)')], [/^صنف البند (\d+)( — بحث)?$/, (_, n, b) => 'Line ' + n + ' item' + (b ? ' — search' : '')], [/^كمية البند (\d+)$/, 'Line $1 quantity'], [/^سعر البند (\d+)$/, 'Line $1 price'], [/^الكمية \((.+)\)$/, 'Quantity ($1)'],
   [/^أقصى مبلغ متاح (.+) ر\.س — يمكنك تعديله يدوياً$/, 'Max available $1 SAR — you can edit it manually'],
   [/^(\d{1,2}) (يناير|فبراير|مارس|أبريل|مايو|يونيو|يوليو|أغسطس|سبتمبر|أكتوبر|نوفمبر|ديسمبر) (\d{4})$/, (_, d, m, y) => d + ' ' + MONTHS[m] + ' ' + y]
 ];
