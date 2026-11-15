@@ -1053,3 +1053,29 @@ test('v41.9 سجلات الإغلاق المستقلة: الفرق، مرجع ا
   assert.equal(E.clrOn({ closingRecords: { on: true } }), true); assert.equal(E.clrOn({}), false, 'مُطفأة افتراضيًا');
   assert.equal(E.clrOn(E.dirOf({ company: {}, closingRecords: { on: true } })), true, 'الإشارة تصل لأجهزة الفروع عبر الدليل');
 });
+
+test('v42.0 فرق سعر الشراء (مقابل آخر سعر) ودوران المخزون', () => {
+  const org = { items: [{ id: 'm', name: 'لحم', unit: 'كجم', cost: 40 }, { id: 'r', name: 'أرز', unit: 'كجم', cost: 5 }, { id: 's', name: 'صيانة', type: 'service' }], branches: [] };
+  const P = (id, d, it, q, u) => ({ id, date: d, at: d + 'T10:00', itemId: it, kind: 'purchase', qty: q, unitCost: u });
+  const ops = { stockMoves: [
+    P('p1', '2026-09-01', 'm', 100, 40), P('p2', '2026-10-05', 'm', 50, 44), P('p3', '2026-10-20', 'm', 20, 42),
+    P('p4', '2026-10-02', 'r', 200, 5),
+    { id: 'rt', date: '2026-10-21', itemId: 'm', kind: 'purchase', qty: -5, unitCost: 42 },
+    { id: 'o1', date: '2026-10-10', itemId: 'm', kind: 'out', qty: -60 }, { id: 'w1', date: '2026-10-11', itemId: 'm', kind: 'waste', qty: -5 },
+    { id: 'a1', date: '2026-10-30', itemId: 'm', kind: 'adjust', qty: -2 }, { id: 'a2', date: '2026-10-30', itemId: 'm', kind: 'adjust', qty: 1 }
+  ], whMoves: [], whTransfers: [] };
+  const R = E.ppvReport(org, ops, { from: '2026-10-01', to: '2026-10-31' });
+  assert.deepEqual(R.lines.map(l => [l.id, l.prevUnit, l.unit, l.value]).sort(), [['p2', 40, 44, 200], ['p3', 44, 42, -40]].sort(), 'كل استلام مقابل السابق له، والمرتجع لا يُحتسب');
+  assert.deepEqual([R.up, R.down, R.net], [200, 40, 160]);
+  assert.equal(R.lines.some(l => l.itemId === 'r'), false, 'أول شراء للصنف بلا مقارنة');
+  assert.equal(E.ppvReport(org, ops, { from: '2026-10-06', to: '2026-10-31' }).lines.length, 1, 'السعر السابق يُؤخذ ولو كان قبل الفترة');
+  const T = E.invTurnover(org, ops, { from: '2026-10-01', to: '2026-10-31' });
+  const m = T.rows.find(r => r.itemId === 'm'), r = T.rows.find(x => x.itemId === 'r');
+  assert.equal(m.openQ, 100); assert.equal(m.closeQ, 100 + 50 + 20 - 5 - 60 - 5 - 2 + 1);
+  assert.equal(m.useQ, 67, 'صرف 60 + هدر 5 + عجز جرد 2 — الزيادة والمرتجع لا يُحتسبان');
+  assert.ok(Math.abs(m.turn - (m.use / m.avgInv)) < 0.01);
+  assert.equal(m.days, Math.round(31 / m.turn));
+  assert.equal(r.idle, true, 'صنف بلا استهلاك = راكد'); assert.equal(r.turn, 0);
+  assert.equal(T.rows.some(x => x.itemId === 's'), false, 'الخدمي لا يدخل');
+  assert.ok(T.idleValue > 0 && T.turn > 0);
+});
