@@ -4,7 +4,7 @@
  *   #live/<comp>/<who>/<view> — عرض حيّ بحالة قابلة للتغيير: window.cur (البيانات) · window.as(who) · window.lastSay
  */
 import React from 'react'; import { createRoot } from 'react-dom/client';
-import * as M from '../../App.jsx'; import { CSS } from '../../styles.js';
+import * as M from '../../App.jsx'; import { CSS } from '../../styles.js'; import { domI18n } from '../../i18n.js';
 const iso = (d) => d.toISOString().slice(0, 10); const dA = (k) => { const x = new Date(); x.setDate(x.getDate() - k); return iso(x); };
 const m = iso(new Date()).slice(0, 7);
 const B = [{ id: 'b1', name: 'عم قاسم طيبة', isActive: true, defaultFloat: 300, shiftEndTime: '23:30' }, { id: 'b2', name: 'عم قاسم النسيم', isActive: true, defaultFloat: 300 }, { id: 'b3', name: 'العليا', isActive: true }];
@@ -40,6 +40,7 @@ window.routes = [...Object.entries(M.HUBS).flatMap(([h, c]) => c.views.map(v => 
 const css = document.createElement('style'); css.textContent = CSS; document.head.appendChild(css);
 const dark = location.hash.includes('dark');
 document.body.innerHTML = '<div class="rms mode-' + (dark ? 'dark' : 'light') + ' thm-mizan' + (localStorage.getItem('rms8:lang') === 'en' ? ' lang-en" dir="ltr' : '') + '"><div class="page"><div class="page-inner" id=r></div></div></div>';
+if (localStorage.getItem('rms8:lang') === 'en') domI18n(true);
 const ME = { admin: { id: 'u1', name: 'مجاهد', role: 'system_admin' }, ho: { id: 'u5', name: 'سارة', role: 'head_office' }, bm: { id: 'u3', name: 'خالد', role: 'branch_manager', branchId: 'b1' },
   bm2: { id: 'u4', name: 'سعد', role: 'branch_manager', branchId: 'b1' }, ctl: { id: 'u9', name: 'ريم', role: 'cost_controller' } };
 const [kind, a, b, c] = decodeURIComponent(location.hash.slice(1)).replace('&dark', '').split('/');

@@ -881,3 +881,18 @@ test('v43.0 الواجهة الإنجليزية: الاتجاه LTR وترجمة
   assert.match(await p.locator('.ob-menu').innerText(), /Executive Dashboard/);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v43.1 نقطة البيع بالإنجليزية: الواجهة مترجمة، أسماء الأصناف (بيانات) كما هي، والبيع يعمل دون أخطاء', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1300, height: 1000 } }); await ctx.addInitScript(() => { try { localStorage.setItem('rms8:lang', 'en'); } catch { } });
+  const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message)); p.on('dialog', d => d.accept().catch(() => {}));
+  await p.goto(base + 'live/PosApp/bm'); await p.waitForTimeout(400); await settle(p);
+  await p.evaluate(() => { window.setOrg(g => ({ ...g, taxCfg: { enabled: true, rate: 15 }, posCfg: { branches: ['b1'], autoPrint: false }, products: [{ id: 'k', name: 'كبسة', sellPrice: 58, cat: 'رئيسي' }] }));
+    window.setOps(o => ({ ...o, posOrders: [] })); }); await p.waitForTimeout(400);
+  const ob = p.locator('button:has-text("Open shift")'); if (await ob.count()) { await ob.first().click(); await p.waitForTimeout(400); }
+  await p.locator('.pos-tile:has-text("كبسة")').click(); await p.waitForTimeout(200);
+  const txt = await p.locator('#r').innerText();
+  assert.match(txt, /Sell/); assert.match(txt, /Invoices/); assert.match(txt, /Total/); assert.match(txt, /كبسة/, 'اسم الصنف بيانات لا يُترجم');
+  assert.doesNotMatch(txt, /الإجمالي|الفواتير|الورديات والتقارير/, 'لا نصوص واجهة عربية متبقية في الأساسيات');
+  await p.locator('.pos-tile:has-text("كبسة")').click(); await p.waitForTimeout(200);   // تحديث عُقد مترجمة لا يكسر React
+  assert.deepEqual(errs, []); await ctx.close();
+});
