@@ -1,8 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" fill="#1F1C18"/>
-  <g transform="translate(256 256) scale(6.6) translate(-32 -32)">
-    <g fill="none" stroke="#EFEAE1" stroke-width="1.7" stroke-linecap="round" opacity=".5"><path d="M32 32L16 16"/><path d="M32 32L32 16"/><path d="M32 32L48 16"/><path d="M32 32L16 32"/><path d="M32 32L48 32"/><path d="M32 32L16 48"/><path d="M32 32L32 48"/><path d="M32 32L48 48"/></g>
-    <g fill="#EFEAE1"><circle cx="16" cy="16" r="3.8"/><circle cx="32" cy="16" r="3.8"/><circle cx="48" cy="16" r="3.8"/><circle cx="16" cy="32" r="3.8"/><circle cx="48" cy="32" r="3.8"/><circle cx="16" cy="48" r="3.8"/><circle cx="32" cy="48" r="3.8"/><circle cx="48" cy="48" r="3.8"/></g>
-    <circle cx="32" cy="32" r="7" fill="#C9A24D"/>
-  </g>
+  <rect width="512" height="512" fill="#101D35"/>
+  <rect x="56" y="56" width="400" height="400" rx="88" fill="none" stroke="#C7A45B" stroke-width="10" opacity=".55"/>
+  <text x="256" y="318" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="800" font-size="190" fill="#E2C987" letter-spacing="4">RP</text>
 </svg>

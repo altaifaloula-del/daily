@@ -1,6 +1,6 @@
 {
-  "name": "ميزان — منصة إدارة المطاعم",
-  "short_name": "ميزان",
+  "name": "RESTAURANT PRO — نظام إدارة المطاعم",
+  "short_name": "RESTAURANT PRO",
   "description": "الإغلاق اليومي والمحاسبة والمشتريات والمخزون والموارد البشرية لفروع المطاعم",
   "lang": "ar",
   "dir": "rtl",
@@ -8,8 +8,8 @@
   "scope": ".",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#14110F",
-  "theme_color": "#14110F",
+  "background_color": "#101D35",
+  "theme_color": "#101D35",
   "icons": [
     {
       "src": "icon-192.png",
