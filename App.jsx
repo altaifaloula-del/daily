@@ -19,7 +19,7 @@ import {
   CartesianGrid, Tooltip, LineChart, Line
 } from 'recharts';
 import { CSS } from './styles';
-import { TX, getLang, setLangGlobal, isEn } from './i18n';
+import { TX, getLang, setLangGlobal, isEn, domI18n } from './i18n';
 import { cloud, KEYS, kb, authApi, brKey, bfKey } from './storage';
 
 /* ===== v38.3 — تحميل التطبيقات عند الطلب =====
@@ -2843,7 +2843,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v43.0';
+const APP_VER = 'v43.1';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -2976,7 +2976,7 @@ function PlatformApp() {
   const [sideCol, setSideCol] = useState(() => { try { return localStorage.getItem('rms8:sideCol') === '1'; } catch { return false; } });
   // v43.0: لغة الواجهة (عربي/إنجليزي) — تفضيل محلي لكل جهاز؛ التبديل يعيد رسم المحتوى
   const [lang, setLang] = useState(getLang);
-  useEffect(() => { setLangGlobal(lang); }, [lang]);
+  useEffect(() => { setLangGlobal(lang); domI18n(lang === 'en'); return () => domI18n(false); }, [lang]);
   const toggleLang = () => setLang(l => { const n = l === 'en' ? 'ar' : 'en'; setLangGlobal(n); return n; });
   const toggleSide = () => setSideCol(v => { const n = !v; try { localStorage.setItem('rms8:sideCol', n ? '1' : '0'); } catch { } return n; });
   const [mode, setMode] = useState(() => { try { return localStorage.getItem('rms8:mode') === 'dark' ? 'dark' : 'light'; } catch { return 'light'; } });
