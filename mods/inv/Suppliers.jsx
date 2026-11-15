@@ -1,9 +1,9 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useMemo } from 'react';
 import { Truck, FileBarChart, ChevronDown, Printer, FileText, Building2, ClipboardCheck, Users, Plus, AlertTriangle, CalendarDays, Trash2, Check, X, Banknote } from 'lucide-react';
-import { DupInvHint, Field, Kpi, LOCK_MSG, MAIN_WH, Modal, Num, ROLES, SectionNav, arDate, branchBanks, closingInvoices, isStocked, isoD, itemType, money, nowISO, pFactor, payTotal, periodLocked, printA4, purKey, q3, roleEdit, rolePost, buildAccounting, roleHasTab, stockByWh, sum, supplierPrices, today, uid, whName, whOf, whOn, signoff, signDecision, sigFailMsg } from '../../App.jsx';
+import { DupInvHint, Field, Kpi, LOCK_MSG, MAIN_WH, Modal, Num, ROLES, SectionNav, arDate, branchBanks, closingInvoices, isStocked, isoD, itemType, money, nowISO, pFactor, payTotal, periodLocked, printA4, purKey, q3, roleEdit, rolePost, buildAccounting, INV_BILLERS, roleHasTab, stockByWh, sum, supplierPrices, today, uid, whName, whOf, whOn, signoff, signDecision, sigFailMsg } from '../../App.jsx';
 
-export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: goTab }) {
+export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: goTab, billOnly }) {
   const [tab, setTab] = useState('inv');
   const [repOpen, setRepOpen] = useState(false);    // v9.4 قائمة تقارير التطبيق
   const [pay, setPay] = useState(null);
@@ -215,6 +215,9 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     const takes = p2.lines.map((l, i) => Math.min(Math.max(Number(f.qtys[i]) || 0, 0), remOfLine(l)));
     if (!takes.some(q => q > 0)) return say('أدخل كمية مستلمة لبند واحد على الأقل', 'no');
     if (inspectOn) return saveGrn(p2, takes, wid, tw, rDate, f);   // v43.5: الاستلام بانتظار الفحص — لا مخزون ولا فاتورة بعد
+    // v44.0: الاستلام العادي يُنشئ الفاتورة تلقائيًا فقط عند المطابقة الكاملة ومعه رقم فاتورة المورد؛ وإلا «مستلم لم يُفوتر» بقيد وسيط
+    const supNo0 = String(f.supInvNo || '').trim();
+    const matched = fullMatch(p2, (i) => takes[i]) && !!supNo0 && !invNoTaken(p2.supplierId, supNo0);
     // v30.4: الكمية بوحدة الشراء تُحوَّل للأساسية، وسعر البند يصبح تكلفة الوحدة الأساسية فيُحدّث المتوسط المرجّح. الخدمي لا يُخزَّن.
     // v30.5: الاستلام يُنشئ فاتورة المورد تلقائيًا (أسعار أمر الشراء قبل الضريبة) ويُدخل الأصناف المخزنية مستودعًا مختارًا بدفعتها وصلاحيتها
     const invId = uid('inv'), grn = 'GRN-' + rDate.replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 5).toUpperCase();
@@ -236,9 +239,16 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     const due = (() => { const dd = new Date(rDate + 'T12:00:00'); dd.setDate(dd.getDate() + (Number(sp0.terms) || 0)); return isoD(dd); })();
     if ((f.supInvNo || '').trim() && invNet > 0) { const k0 = purKey({ supplierId: p2.supplierId, invoiceNo: f.supInvNo.trim() }); const o = (ops.invoices || []).find(i => purKey(i) === k0);
       if (o) return say('فاتورة مكررة: رقم ' + f.supInvNo.trim() + ' للمورد «' + p2.supplierName + '» مسجّل بتاريخ ' + (o.date || '') + ' — صحّح رقم فاتورة المورد', 'no'); }
-    const invRec = invNet > 0 ? { id: invId, invoiceNo: (f.supInvNo || '').trim() || grn, supplierId: p2.supplierId, supplierName: p2.supplierName, amount: Math.round((invNet + vat) * 100) / 100, vatAmt: vat, taxable: taxOn,
+    const invRec = invNet > 0 && matched ? { id: invId, invoiceNo: (f.supInvNo || '').trim() || grn, supplierId: p2.supplierId, supplierName: p2.supplierName, amount: Math.round((invNet + vat) * 100) / 100, vatAmt: vat, taxable: taxOn,
       date: rDate, dueDate: due, paidAmount: 0, branchId: (tw && tw.branchId) || p2.branchId || '', poId: p2.id, poNo: p2.poNo, grn, whId: wid, lines: invLines, by: me.name, createdAt: nowISO() } : null;
-    const brMoves = moves.filter(m => m.branchId), mainMoves = moves.filter(m => !m.branchId);
+    // غير مطابق: الحركات تُربط بسجل استلام (GRN) بلا فاتورة — تظهر «مستلم لم يُفوتر» ويحوّلها المحاسب أو مدير النظام
+    const gid = uid('grn');
+    const gRec = matched ? null : { id: gid, grn, date: rDate, whId: wid, branchId: (tw && tw.branchId) || '', supplierId: p2.supplierId, status: 'done', direct: true, by: me.name, byEmail: me.email || '', at: nowISO(),
+      supInvNo: supNo0, taxable: f.taxable !== false,
+      lines: p2.lines.map((l, i) => takes[i] > 0 ? { li: i, itemId: l.itemId || '', desc: l.desc, qty: takes[i], factor: Number(l.factor) || 1, uomName: l.uomName || '', price: Number(l.price) || 0 } : null).filter(Boolean) };
+    if (gRec) gRec.qc = { by: me.name, at: nowISO(), date: rDate, direct: true, lines: gRec.lines.map(l => ({ acc: l.qty, rej: 0, why: '' })) };
+    const moves2 = matched ? moves : moves.map(({ invoiceId, ...m }) => ({ ...m, grnRef: gid }));
+    const brMoves = moves2.filter(m => m.branchId), mainMoves = moves2.filter(m => !m.branchId);
     await commit(d => ({
       ...d,
       invoices: invRec && !(d.invoices || []).some(x => x.id === invRec.id) ? [invRec, ...(d.invoices || [])] : (d.invoices || []),
@@ -247,7 +257,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
       purchaseOrders: (d.purchaseOrders || []).map(x => {
         if (x.id !== p2.id) return x;
         const lines = x.lines.map((l, i) => ({ ...l, received: (l.received || 0) + takes[i] }));
-        return { ...x, lines, status: lines.every(l => l.received >= l.qty) ? 'received' : 'partial', ...(invRec ? { invoiceId: x.invoiceId || invRec.id, invoiceIds: [...(x.invoiceIds || []), invRec.id] } : {}) };
+        return { ...x, lines, status: lines.every(l => l.received >= l.qty) ? 'received' : 'partial', ...(invRec ? { invoiceId: x.invoiceId || invRec.id, invoiceIds: [...(x.invoiceIds || []), invRec.id] } : {}), ...(gRec ? { grns: [...(x.grns || []), gRec] } : {}) };
       })
     }), {
       actionType: 'update', targetType: 'purchase_order', targetId: p2.id,
@@ -259,7 +269,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     if (costUp.length) await commitOrg(d => ({
       ...d, items: (d.items || []).map(it => { const u = costUp.find(c => c.id === it.id); return u ? { ...it, lastPrice: u.lastPrice, lastSupplier: u.lastSupplier, lastAt: u.lastAt } : it; })
     }), { actionType: 'update', targetType: 'stock_item', targetId: p2.id, title: 'سجّل آخر سعر شراء للأصناف', details: p2.poNo });
-    setRecv(null); say('سُجّل الاستلام' + (moves.length ? ' في ' + (wid ? whName(org, wid) : 'المخزون') : '') + (invRec ? ' وأُنشئت فاتورة المورد ' + invRec.invoiceNo + ' بـ ' + money(invRec.amount) : '') + ' ✓');
+    setRecv(null); say('سُجّل الاستلام' + (moves.length ? ' في ' + (wid ? whName(org, wid) : 'المخزون') : '') + (invRec ? ' — مطابق: أُنشئت فاتورة المورد ' + invRec.invoiceNo + ' بـ ' + money(invRec.amount) : ' — غير مطابق آليًا (' + (!supNo0 ? 'بلا رقم فاتورة المورد' : !fullMatch(p2, (i) => takes[i]) ? 'استلام جزئي' : 'رقم فاتورة مكرر') + '): يحوّله المحاسب أو مدير النظام لفاتورة') + ' ✓');
   };
 
   // ===== v43.5 — مسار الفحص (org.purchaseCfg.inspect، مُطفأ افتراضيًا): استلام ← فحص بشخص غير المستلم ← مخزون ← تحويل لفاتورة =====
@@ -275,11 +285,18 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
   const lastRate = (cur) => { const r = (ops.invoices || []).filter(i => i.cur === cur && i.fxRate > 0).sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))[0]; return r ? String(r.fxRate) : ''; };
   const varTol = pcfg.invVarPct != null && pcfg.invVarPct !== '' ? Math.max(0, Number(pcfg.invVarPct) || 0) : 2;
   const canInspect = rolePost(me.role);
+  // v44.0 — المطابقة الثلاثية (قرار المالك): الاستلام يتحوّل لفاتورة تلقائيًا فقط إذا استُلمت كل بنود الأمر بكمياتها كاملة دفعةً واحدة
+  // بسعر الأمر وبلا رفض، ومعه رقم فاتورة المورد غير مكرر؛ وإلا يبقى «مستلمًا لم يُفوتر» يحوّله المحاسب أو مدير النظام فقط
+  const canBill = INV_BILLERS.includes(me.role);
+  const invNoTaken = (supplierId, no) => { const k0 = purKey({ supplierId, invoiceNo: no }); return (ops.invoices || []).find(i => purKey(i) === k0) || null; };
+  const fullMatch = (p2, accOf) => (p2.lines || []).length > 0 && p2.lines.every((l, i) => !(Number(l.received) || 0) && Math.abs((accOf(i) || 0) - (Number(l.qty) || 0)) < 0.0005);
+  const dueOf = (supplierId, from) => { const sp0 = suppliers.find(x => x.id === supplierId) || {}; const dd = new Date(from + 'T12:00:00'); dd.setDate(dd.getDate() + (Number(sp0.terms) || 0)); return isoD(dd); };
   const saveGrn = async (p2, takes, wid, tw, rDate, f) => {
     const no = 'GRN-' + rDate.replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 5).toUpperCase();
     const lines = p2.lines.map((l, i) => takes[i] > 0 ? { li: i, itemId: l.itemId || '', desc: l.desc, qty: takes[i], factor: Number(l.factor) || 1, uomName: l.uomName || '', price: Number(l.price) || 0,
       ...((f.batch || [])[i] ? { batch: f.batch[i] } : {}), ...((f.expiry || [])[i] ? { expiry: f.expiry[i] } : {}) } : null).filter(Boolean);
-    let g = { id: uid('grn'), grn: no, date: rDate, whId: wid, branchId: (tw && tw.branchId) || '', supplierId: p2.supplierId, lines, status: 'qc', by: me.name, byEmail: me.email || '', at: nowISO() };
+    let g = { id: uid('grn'), grn: no, date: rDate, whId: wid, branchId: (tw && tw.branchId) || '', supplierId: p2.supplierId, lines, status: 'qc', by: me.name, byEmail: me.email || '', at: nowISO(),
+      supInvNo: String(f.supInvNo || '').trim(), taxable: f.taxable !== false };
     const sg = await signoff('grn', 'submit', g, { branchId: '' }); if (!sg.ok) return say(sigFailMsg(sg, 'الاستلام'), 'no'); if (sg.id) g = { ...g, sigSubmit: sg.id };
     const ok = await commit(d => ({ ...d, purchaseOrders: (d.purchaseOrders || []).map(x => (x.id !== p2.id || (x.grns || []).some(y => y.id === g.id)) ? x
       : { ...x, grns: [...(x.grns || []), g], status: x.status === 'open' ? 'partial' : x.status, lines: x.lines.map((l, i) => ({ ...l, inQc: Math.round(((Number(l.inQc) || 0) + (takes[i] || 0)) * 1000) / 1000 })) }) }),
@@ -303,21 +320,29 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
         grnRef: g.id, grn: g.grn, ...(l.batch ? { batch: l.batch } : {}), ...(l.expiry ? { expiry: l.expiry } : {}), ...(wid ? { whId: wid } : {}), ...(tw && tw.kind === 'branch' ? { branchId: tw.branchId } : {}) } : null; }).filter(Boolean);
     const brMoves = moves.filter(m => m.branchId), mainMoves = moves.filter(m => !m.branchId);
     const qcRec = { by: me.name, byEmail: me.email || '', at: nowISO(), date: qDate, ...(sg.id ? { sig: sg.id } : {}), lines: g.lines.map((l, k) => ({ acc: acc[k], rej: rej[k], why: String(qc.why[k] || '').trim() })) };
+    // v44.0: مطابق كليًا (كل البنود كاملة بلا رفض) ومعه رقم فاتورة المورد ⇒ فاتورة تلقائية بسعر الأمر
+    const accOfLi = (i) => sum(g.lines.map((l, k) => [l, k]).filter(([l]) => l.li === i), ([, k]) => acc[k]);
+    const autoInv = (fullMatch(p2, accOfLi) && rej.every(r => !(r > 0)) && g.supInvNo && !invNoTaken(p2.supplierId, g.supInvNo))
+      ? invFromCv({ rows: g.lines.map((l, k) => ({ g: g.id, grn: g.grn, k, itemId: l.itemId, desc: l.desc, qty: acc[k], factor: Number(l.factor) || 1, poPrice: Number(l.price) || 0, price: String(Number(l.price) || 0), whId: g.whId, branchId: g.branchId })),
+          supInvNo: g.supInvNo, date: qDate, dueDate: dueOf(p2.supplierId, qDate), taxable: !!(org.taxCfg || {}).enabled && g.taxable !== false }, p2) : null;
+    if (autoInv) autoInv.auto = 'match';
     const ok = await commit(d => ({ ...d,
       whMoves: [...brMoves.filter(m => !(d.whMoves || []).some(x => x.id === m.id)), ...(d.whMoves || [])],
       stockMoves: [...mainMoves.filter(m => !(d.stockMoves || []).some(x => x.id === m.id)), ...(d.stockMoves || [])],
+      ...(autoInv ? { invoices: (d.invoices || []).some(x => x.id === autoInv.id) ? (d.invoices || []) : [autoInv, ...(d.invoices || [])] } : {}),
       purchaseOrders: (d.purchaseOrders || []).map(x => {
         if (x.id !== p2.id) return x; const cur = (x.grns || []).find(y => y.id === g.id); if (!cur || cur.status !== 'qc') return x;
         const lines = x.lines.map((l, i) => { const gl = g.lines.map((q, k) => [q, k]).filter(([q]) => q.li === i);
           return gl.length ? { ...l, inQc: Math.max(0, Math.round(((Number(l.inQc) || 0) - sum(gl, ([q]) => q.qty)) * 1000) / 1000), received: Math.round(((Number(l.received) || 0) + sum(gl, ([, k]) => acc[k])) * 1000) / 1000 } : l; });
-        return { ...x, lines, status: lines.every(l => (Number(l.received) || 0) >= (Number(l.qty) || 0)) ? 'received' : 'partial', grns: (x.grns || []).map(y => y.id === g.id ? { ...y, status: 'done', qc: qcRec } : y) };
+        return { ...x, lines, status: lines.every(l => (Number(l.received) || 0) >= (Number(l.qty) || 0)) ? 'received' : 'partial', grns: (x.grns || []).map(y => y.id === g.id ? { ...y, status: 'done', qc: qcRec, ...(autoInv ? { invoiceId: autoInv.id } : {}) } : y),
+          ...(autoInv ? { invoiceId: x.invoiceId || autoInv.id, invoiceIds: [...new Set([...(x.invoiceIds || []), autoInv.id])] } : {}) };
       }) }), { actionType: 'update', targetType: 'purchase_order', targetId: p2.id, title: 'فحص استلام أمر شراء',
       details: p2.poNo + ' · ' + g.grn + ' · مقبول ' + sum(acc, x => x) + ' · مرفوض ' + sum(rej, x => x) + (moves.length ? ' · دخل المخزون' : '') });
     if (ok === false) return;
     const costUp = g.lines.map((l, k) => (acc[k] > 0 && l.itemId && l.price > 0) ? { id: l.itemId, lastPrice: Math.round(l.price / (Number(l.factor) || 1) * 10000) / 10000 } : null).filter(Boolean);
     if (costUp.length) await commitOrg(d => ({ ...d, items: (d.items || []).map(it => { const u = costUp.find(c => c.id === it.id); return u ? { ...it, lastPrice: u.lastPrice, lastSupplier: p2.supplierName, lastAt: qDate } : it; }) }),
       { actionType: 'update', targetType: 'stock_item', targetId: p2.id, title: 'سجّل آخر سعر شراء للأصناف', details: p2.poNo });
-    setQc(null); say('اعتُمد الفحص ' + g.grn + (moves.length ? ' — دخل المقبول ' + (wid ? whName(org, wid) : 'المخزون') : '') + (sum(rej, x => x) > 0 ? ' · المرفوض يبقى مطلوبًا من المورد' : '') + ' ✓');
+    setQc(null); say('اعتُمد الفحص ' + g.grn + (moves.length ? ' — دخل المقبول ' + (wid ? whName(org, wid) : 'المخزون') : '') + (sum(rej, x => x) > 0 ? ' · المرفوض يبقى مطلوبًا من المورد' : '') + (autoInv ? ' · مطابق: أُنشئت الفاتورة ' + autoInv.invoiceNo + ' تلقائيًا' : ' · غير مطابق آليًا: يحوّله المحاسب أو مدير النظام لفاتورة') + ' ✓');
   };
   const closeRest = async (p2) => {
     if (!canInspect) return say('للأدوار المركزية المخوّلة', 'no');
@@ -332,7 +357,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
   const openCv = (p2) => { const gs = grnsToBill(p2); const sp0 = suppliers.find(x => x.id === p2.supplierId) || {};
     const rows = gs.flatMap(g => g.lines.map((l, k) => ({ g: g.id, grn: g.grn, k, itemId: l.itemId, desc: l.desc, qty: (g.qc.lines[k] || {}).acc || 0, factor: Number(l.factor) || 1, poPrice: Number(l.price) || 0, price: String(Number(l.price) || 0), whId: g.whId, branchId: g.branchId })).filter(r => r.qty > 0));
     const due = (() => { const dd = new Date(today() + 'T12:00:00'); dd.setDate(dd.getDate() + (Number(sp0.terms) || 0)); return isoD(dd); })();
-    setCv({ po: p2, rows, supInvNo: '', date: today(), dueDate: due, taxable: !!(org.taxCfg || {}).enabled }); };
+    setCv({ po: p2, rows, supInvNo: (gs.find(g => g.supInvNo) || {}).supInvNo || '', date: today(), dueDate: due, taxable: !!(org.taxCfg || {}).enabled }); };
   const cvCalc = (c) => { const r2 = (n) => Math.round(n * 100) / 100;
     const poNet = r2(sum(c.rows, r => r.qty * r.poPrice)), net = r2(sum(c.rows, r => r.qty * (Number(r.price) || 0)));
     const vat = (org.taxCfg || {}).enabled && c.taxable ? r2(net * ((Number((org.taxCfg || {}).rate) || 15) / 100)) : 0;
@@ -351,6 +376,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
       grns: (x.grns || []).map(g => inv.grnRefs.includes(g.id) ? { ...g, invoiceId: inv.id } : g) }) }), extra);
   const saveCv = async () => {
     const c = cv; const p2 = (ops.purchaseOrders || []).find(x => x.id === c.po.id) || c.po;
+    if (!canBill) return say('تحويل الاستلام غير المطابق إلى فاتورة للمحاسب ومدير النظام فقط', 'no');
     if (!c.supInvNo.trim()) return say('أدخل رقم فاتورة المورد كما هو مطبوع', 'no');
     if (c.rows.some(r => !((Number(r.price) || 0) >= 0))) return say('سعر غير صالح', 'no');
     if (periodLocked(org, c.date)) return say(LOCK_MSG(c.date), 'no');
@@ -366,6 +392,8 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
       if (ok === false) return;
       setCv(null); return say('فرق السعر ' + k.pct + '% يتجاوز التسامح ' + varTol + '% — الفاتورة بانتظار اعتماد شخص آخر قبل قيدها', 'no');
     }
+    // توقيع موثّق للتحويل — القواعد تقبله من المحاسب ومدير النظام فقط
+    const sgc = await signoff('pinv', 'submit', inv, { branchId: '', alert: false }); if (!sgc.ok) return say(sigFailMsg(sgc, 'تحويل الفاتورة'), 'no'); if (sgc.id) inv.sigSubmit = sgc.id;
     const ok = await postInv(p2, inv, { actionType: 'create', targetType: 'expense', targetId: inv.id, title: 'حوّل استلامات مفحوصة إلى فاتورة مورد',
       details: p2.poNo + ' · ' + inv.invoiceNo + ' · ' + money(inv.amount) + (k.pct ? ' · فرق ' + k.pct + '% ضمن التسامح' : '') });
     if (ok === false) return;
@@ -508,6 +536,49 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
   };
 
   const fxTotal = (f) => f.rentAmount + f.electricityBill + f.waterBill + f.internetBill + f.otherBills;
+
+  // v44.0 — قائمة «مستلم لم يُفوتر» للمحاسب داخل المحاسبة (قرار المالك): الاستلامات غير المطابقة وفواتير فرق السعر فقط
+  const cvModalEl = cv && (() => { const k = cvCalc(cv); return (
+        <Modal title={'تحويل لفاتورة — ' + cv.po.poNo + ' · ' + cv.po.supplierName} icon={FileText} onClose={() => setCv(null)} wide
+          foot={<><button className="btn gh" onClick={() => setCv(null)}>إلغاء</button><button className="btn pri" data-cvsave onClick={saveCv}><Check size={14} />{k.over ? 'إرسال للاعتماد' : 'تسجيل الفاتورة'}</button></>}>
+          <div className="grid g3">
+            <Field label="رقم فاتورة المورد (كما هو مطبوع)"><input className="inp" value={cv.supInvNo} onChange={e => setCv(c => ({ ...c, supInvNo: e.target.value }))} />
+              <DupInvHint invoices={ops.invoices} supplierId={cv.po.supplierId} invoiceNo={cv.supInvNo} /></Field>
+            <Field label="تاريخ الفاتورة"><input type="date" className="inp" value={cv.date} onChange={e => setCv(c => ({ ...c, date: e.target.value }))} /></Field>
+            <Field label="تاريخ الاستحقاق"><input type="date" className="inp" value={cv.dueDate} onChange={e => setCv(c => ({ ...c, dueDate: e.target.value }))} /></Field>
+          </div>
+          {!!(org.taxCfg || {}).enabled && <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', margin: '4px 0 8px' }}><input type="checkbox" checked={!!cv.taxable} onChange={e => setCv(c => ({ ...c, taxable: e.target.checked }))} />خاضعة لضريبة القيمة المضافة</label>}
+          <div className="tw"><table className="tb">
+            <thead><tr><th>الاستلام</th><th>البند</th><th style={{ textAlign: 'end' }}>المقبول</th><th style={{ textAlign: 'end' }}>سعر الأمر</th><th style={{ textAlign: 'end' }}>سعر فاتورة المورد</th><th style={{ textAlign: 'end' }}>الصافي</th></tr></thead>
+            <tbody>{cv.rows.map((r, i) => <tr key={i}><td className="num" style={{ fontSize: 10.5 }}>{r.grn}</td><td>{r.desc}</td><td className="num" style={{ textAlign: 'end' }}>{r.qty}</td><td className="num" style={{ textAlign: 'end' }}>{money(r.poPrice)}</td>
+              <td style={{ textAlign: 'end' }}><input className="inp n" style={{ width: 100 }} inputMode="decimal" aria-label={'سعر الفاتورة ' + (i + 1)} value={r.price} onChange={e => setCv(c => ({ ...c, rows: c.rows.map((x, j) => j === i ? { ...x, price: e.target.value.replace(/[^\d.]/g, '') } : x) }))} /></td>
+              <td className="num" style={{ textAlign: 'end' }}>{money(r.qty * (Number(r.price) || 0))}</td></tr>)}</tbody>
+          </table></div>
+          <div className="mono-b" style={{ margin: '8px 0' }}><span style={{ fontSize: 12 }}>قيمة الأمر للمقبول <span className="num">{money(k.poNet)}</span> · الفاتورة <span className="num">{money(k.net)}</span>{k.vat ? <> + ض <span className="num">{money(k.vat)}</span></> : null}</span><span className="num" style={{ fontWeight: 700 }}>{money(k.gross)}</span></div>
+          <div className={k.over ? 'note warn' : 'note'} data-var={k.pct}>فرق السعر <b className="num">{k.pct}%</b> — التسامح <span className="num">{varTol}%</span>. {k.over ? 'يتجاوز التسامح: تُرسل الفاتورة لاعتماد شخص آخر ولا تُقيَّد قبله.' : 'ضمن التسامح: تُقيَّد مباشرة.'} {pcfg.perpetualFrom ? 'القيد: من ح/ بضاعة مستلمة لم تُفوتر (بسعر الأمر) ± فروق أسعار الشراء، وضريبة المدخلات، إلى ح/ المورد.' : 'القيد: من ح/ المشتريات وضريبة المدخلات إلى ح/ المورد.'}</div>
+        </Modal>); })();
+  if (billOnly) {
+    const rowsB = pos.filter(p2 => grnsToBill(p2).length > 0 || p2.pinv);
+    return (
+      <div className="card" data-unbilled>
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
+          <b style={{ fontSize: 14 }}>مستلم لم يُفوتر</b>
+          <span className="badge b-dim">التحويل لفاتورة: المحاسب ومدير النظام فقط</span>
+        </div>
+        <div className="note" style={{ marginBottom: 8 }}>استلامات لم تتحوّل لفاتورة تلقائيًا لأنها غير مطابقة (استلام جزئي، أو رفض في الفحص، أو بلا رقم فاتورة المورد، أو رقم مكرر). حوّلها برقم فاتورة المورد وأسعارها؛ فرق السعر فوق التسامح ينتظر اعتماد معتمد أوامر الشراء.</div>
+        <div className="tw"><table className="tb">
+          <thead><tr><th>الأمر</th><th>المورد</th><th>الاستلامات</th><th style={{ textAlign: 'end' }}>القيمة بسعر الأمر</th><th /></tr></thead>
+          <tbody>{rowsB.map(p2 => { const gs = grnsToBill(p2); const v = sum(gs, g => sum(g.lines, (l, k) => ((g.qc.lines[k] || {}).acc || 0) * (Number(l.price) || 0))); return (
+            <tr key={p2.id}><td className="num" style={{ fontSize: 11.5 }}>{p2.poNo}</td><td style={{ fontSize: 12.5 }}>{p2.supplierName}</td>
+              <td style={{ fontSize: 11 }}>{gs.map(g => g.grn + (g.supInvNo ? ' · ' + g.supInvNo : '')).join('، ')}{p2.pinv && <div><span className="badge b-rose">فاتورة {p2.pinv.invoiceNo} بانتظار اعتماد الفرق ({p2.pinv.varPct}%)</span></div>}</td>
+              <td className="num" style={{ textAlign: 'end' }}>{money(v)}</td>
+              <td><div className="row" style={{ gap: 5 }}>{canBill && gs.length > 0 && !p2.pinv && <button className="btn sm pri" data-cv onClick={() => openCv(p2)}>تحويل لفاتورة</button>}
+                {canApprovePo && p2.pinv && <><button className="btn sm pri" onClick={() => decidePinv(p2, true)}>اعتماد الفرق</button><button className="btn sm gh" onClick={() => decidePinv(p2, false)}>رفض الفاتورة</button></>}</div></td></tr>); })}
+            {rowsB.length === 0 && <tr><td colSpan={5}><div className="empty">لا استلامات غير مفوترة ✓</div></td></tr>}</tbody>
+        </table></div>
+        {cvModalEl}
+      </div>);
+  }
 
   return (
     <div className="grid" style={{ gap: 14 }}>
@@ -711,12 +782,12 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
                         <button className="btn sm gh" onClick={() => printPO(p2)}><Printer size={12} /></button>
                         {canApprovePo && p2.status === 'pending' && <><button className="btn sm pri" onClick={() => decidePo(p2, true)}>اعتماد</button><button className="btn sm gh" onClick={() => decidePo(p2, false)}>رفض</button></>}
                         {canInspect && (p2.grns || []).filter(g => g.status === 'qc').map(g => <button key={g.id} className="btn sm pri" data-qc onClick={() => setQc({ po: p2, g, acc: g.lines.map(l => String(l.qty)), why: g.lines.map(() => '') })}>فحص {g.grn}</button>)}
-                        {canPay && grnsToBill(p2).length > 0 && !p2.pinv && <button className="btn sm pri" data-cv onClick={() => openCv(p2)}>تحويل لفاتورة</button>}
+                        {canBill && grnsToBill(p2).length > 0 && !p2.pinv && <button className="btn sm pri" data-cv onClick={() => openCv(p2)}>تحويل لفاتورة</button>}
                         {canApprovePo && p2.pinv && <><button className="btn sm pri" onClick={() => decidePinv(p2, true)}>اعتماد الفرق</button><button className="btn sm gh" onClick={() => decidePinv(p2, false)}>رفض الفاتورة</button></>}
                         {canInspect && inspectOn && p2.status === 'partial' && (p2.lines || []).some(l => remOfLine(l) > 0) && !(p2.lines || []).some(l => (Number(l.inQc) || 0) > 0) && <button className="btn sm gh" onClick={() => closeRest(p2)}>إقفال المتبقي</button>}
                         {canPay && !locked2 && p2.status !== 'received' && p2.status !== 'closed' && (p2.lines || []).some(l => remOfLine(l) > 0) && <button className="btn sm" onClick={() => setRecv({ po: p2, qtys: p2.lines.map(l => String(remOfLine(l))), whId: MAIN_WH, date: today(), supInvNo: '', taxable: true, batch: p2.lines.map(() => ''), expiry: p2.lines.map(() => '') })}>تسجيل استلام</button>}
                         {canPay && (p2.lines || []).some(l => (Number(l.received) || 0) > (Number(l.returned) || 0)) && <button className="btn sm gh" onClick={() => retOpen(p2)}>مرتجع</button>}
-                        {canPay && !inv && !locked2 && !inspectOn && !(p2.grns || []).length && <button className="btn sm gh" onClick={() => setNewInv({ supplierId: p2.supplierId, invoiceNo: '', amount: String(tot), taxable: true, date: today(), dueDate: today(), branchId: p2.branchId || '', poId: p2.id })}>إنشاء فاتورة</button>}
+                        {canBill && !inv && !locked2 && !inspectOn && !(p2.grns || []).length && <button className="btn sm gh" onClick={() => setNewInv({ supplierId: p2.supplierId, invoiceNo: '', amount: String(tot), taxable: true, date: today(), dueDate: today(), branchId: p2.branchId || '', poId: p2.id })}>إنشاء فاتورة</button>}
                       </div></td>
                     </tr>
                   );
@@ -873,25 +944,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
         </Modal>
       )}
 
-      {cv && (() => { const k = cvCalc(cv); return (
-        <Modal title={'تحويل لفاتورة — ' + cv.po.poNo + ' · ' + cv.po.supplierName} icon={FileText} onClose={() => setCv(null)} wide
-          foot={<><button className="btn gh" onClick={() => setCv(null)}>إلغاء</button><button className="btn pri" data-cvsave onClick={saveCv}><Check size={14} />{k.over ? 'إرسال للاعتماد' : 'تسجيل الفاتورة'}</button></>}>
-          <div className="grid g3">
-            <Field label="رقم فاتورة المورد (كما هو مطبوع)"><input className="inp" value={cv.supInvNo} onChange={e => setCv(c => ({ ...c, supInvNo: e.target.value }))} />
-              <DupInvHint invoices={ops.invoices} supplierId={cv.po.supplierId} invoiceNo={cv.supInvNo} /></Field>
-            <Field label="تاريخ الفاتورة"><input type="date" className="inp" value={cv.date} onChange={e => setCv(c => ({ ...c, date: e.target.value }))} /></Field>
-            <Field label="تاريخ الاستحقاق"><input type="date" className="inp" value={cv.dueDate} onChange={e => setCv(c => ({ ...c, dueDate: e.target.value }))} /></Field>
-          </div>
-          {!!(org.taxCfg || {}).enabled && <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', margin: '4px 0 8px' }}><input type="checkbox" checked={!!cv.taxable} onChange={e => setCv(c => ({ ...c, taxable: e.target.checked }))} />خاضعة لضريبة القيمة المضافة</label>}
-          <div className="tw"><table className="tb">
-            <thead><tr><th>الاستلام</th><th>البند</th><th style={{ textAlign: 'end' }}>المقبول</th><th style={{ textAlign: 'end' }}>سعر الأمر</th><th style={{ textAlign: 'end' }}>سعر فاتورة المورد</th><th style={{ textAlign: 'end' }}>الصافي</th></tr></thead>
-            <tbody>{cv.rows.map((r, i) => <tr key={i}><td className="num" style={{ fontSize: 10.5 }}>{r.grn}</td><td>{r.desc}</td><td className="num" style={{ textAlign: 'end' }}>{r.qty}</td><td className="num" style={{ textAlign: 'end' }}>{money(r.poPrice)}</td>
-              <td style={{ textAlign: 'end' }}><input className="inp n" style={{ width: 100 }} inputMode="decimal" aria-label={'سعر الفاتورة ' + (i + 1)} value={r.price} onChange={e => setCv(c => ({ ...c, rows: c.rows.map((x, j) => j === i ? { ...x, price: e.target.value.replace(/[^\d.]/g, '') } : x) }))} /></td>
-              <td className="num" style={{ textAlign: 'end' }}>{money(r.qty * (Number(r.price) || 0))}</td></tr>)}</tbody>
-          </table></div>
-          <div className="mono-b" style={{ margin: '8px 0' }}><span style={{ fontSize: 12 }}>قيمة الأمر للمقبول <span className="num">{money(k.poNet)}</span> · الفاتورة <span className="num">{money(k.net)}</span>{k.vat ? <> + ض <span className="num">{money(k.vat)}</span></> : null}</span><span className="num" style={{ fontWeight: 700 }}>{money(k.gross)}</span></div>
-          <div className={k.over ? 'note warn' : 'note'} data-var={k.pct}>فرق السعر <b className="num">{k.pct}%</b> — التسامح <span className="num">{varTol}%</span>. {k.over ? 'يتجاوز التسامح: تُرسل الفاتورة لاعتماد شخص آخر ولا تُقيَّد قبله.' : 'ضمن التسامح: تُقيَّد مباشرة.'} {pcfg.perpetualFrom ? 'القيد: من ح/ بضاعة مستلمة لم تُفوتر (بسعر الأمر) ± فروق أسعار الشراء، وضريبة المدخلات، إلى ح/ المورد.' : 'القيد: من ح/ المشتريات وضريبة المدخلات إلى ح/ المورد.'}</div>
-        </Modal>); })()}
+      {cvModalEl}
 
       {svc && (() => { const k = svcCalc(svc); return (
         <Modal title="فاتورة خدمات ومصروفات" icon={FileText} onClose={() => setSvc(null)} wide
@@ -932,7 +985,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
               </select>
             </Field>}
             <Field label="تاريخ الاستلام"><input type="date" className="inp" value={recv.date || today()} onChange={e => setRecv(r => ({ ...r, date: e.target.value }))} /></Field>
-            {!inspectOn && <><Field label="رقم فاتورة المورد (اختياري)"><input className="inp" value={recv.supInvNo || ''} placeholder="يُولَّد رقم استلام إن تُرك فارغًا" onChange={e => setRecv(r => ({ ...r, supInvNo: e.target.value }))} />
+            {<><Field label="رقم فاتورة المورد (من ورقة المورد — تُنشأ الفاتورة تلقائيًا عند المطابقة)"><input className="inp" aria-label="رقم فاتورة المورد" value={recv.supInvNo || ''} placeholder="فارغ = يبقى بلا فاتورة حتى يحوّله المحاسب" onChange={e => setRecv(r => ({ ...r, supInvNo: e.target.value }))} />
               <DupInvHint invoices={ops.invoices} supplierId={recv.po && recv.po.supplierId} invoiceNo={recv.supInvNo} /></Field>
             {!!(org.taxCfg || {}).enabled && <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', paddingTop: 14 }}>
               <input type="checkbox" checked={recv.taxable !== false} onChange={e => setRecv(r => ({ ...r, taxable: e.target.checked }))} />الفاتورة خاضعة لضريبة القيمة المضافة

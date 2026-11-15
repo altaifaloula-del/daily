@@ -145,6 +145,8 @@ service cloud.firestore {
     function ibanApprovers()  { return ['head_office', 'system_admin', 'general_management', 'finance_department']; }
     // [ROLES:GRN] — v43.5: فاحصو الاستلام (الأدوار المركزية المخوّلة بالترحيل)
     function grnInspectors()  { return ['accountant', 'cost_controller', 'finance_department', 'general_management', 'head_office', 'system_admin']; }
+    // [ROLES:PINV] — v44.0: محوّلو الاستلام غير المطابق إلى فاتورة مورد (قرار المالك: المحاسب ومدير النظام فقط)
+    function invBillers()     { return ['accountant', 'system_admin']; }
 
     // نسخ «خفيفة» للقواعد الجديدة: العضوية وقائمة المدراء والسياسة تُقرأ مرة واحدة وتُمرَّر (حد 1000 عملية تقييم)
     function memOf() {
@@ -274,7 +276,8 @@ service cloud.firestore {
       let scope = bId == '' ? (centralOf(m) || adm) : branchOf(m, adm, bId);
       let ro = m != null && m.get('role', '') in ['accountant_view'];
       return okUser(m, adm) && scope && sigShape(d, roleOf(m), rel)
-        && (d.stage in ['submit', 'recount'] ? (adm || !ro) : approveOk(d, roleOf(m), adm, rel));
+        && (d.kind == 'pinv' && d.stage == 'submit' ? roleIn(invBillers(), roleOf(m), adm)   // ث33 (v44.0)
+          : d.stage in ['submit', 'recount'] ? (adm || !ro) : approveOk(d, roleOf(m), adm, rel));
     }
     function sigRead(bId) {
       let m = memOf();

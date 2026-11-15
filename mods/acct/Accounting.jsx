@@ -4,6 +4,7 @@ import { isEn } from '../../i18n';
 import { EInvoiceOnboard } from './EInvoiceOnboard.jsx';
 import { Scale, FileBarChart, ChevronDown, Printer, Settings, Receipt, BarChart3, Lock, Landmark, FileText, TrendingUp, ArrowLeftRight, Store, Users, QrCode, Building2, Truck, ClipboardCheck, ShieldCheck, CalendarDays, Download, Upload, Plus, Grid3x3, Check, Trash2, RefreshCw, Wallet, TrendingDown, AlertTriangle, ChevronRight, ShieldAlert, Eye, ChevronLeft, CircleDollarSign, X } from 'lucide-react';
 import { VatRegisters, SupplierPurchReport } from './TaxPurchReports.jsx';   // v39.1
+import { Suppliers } from '../inv/Suppliers.jsx';   // v44.0 «مستلم لم يُفوتر»
 import { OdooBar } from '../../App.jsx';   // v41.0
 import { ACCT_SECTIONS, ACC_KIND, Field, Kpi, LOCK_MSG, MizanMerge, Modal, NUM_FACE, Num, ROLES, _xe, acctSecKey, arDate, bankOfBranch, branchBanks, bsLayout, bsRowsOf, buildAccounting, buildPartners, capOK, countedClosing, customerAging, detectStmtMap, entityById, entityList, gosiRatesFor, isLayout, isRowsOf, isoD, lockedThru, makeXlsx, money, monthEnd, monthLedger, multiEntityOn, naMissing, nowISO, openDocWin, parseCsvGrid, parseMt940, parseXlsxGrid, payTotal, periodLocked, posClrOf, printA4, qrSvg, roleEdit, rolePost, snapMonths, stAddDays, stDate, stNum, sum, supplierAging, today, uid, useSecNav, zatcaTLV } from '../../App.jsx';
 
@@ -1390,7 +1391,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
         const IT = {
           jr: ['القيود اليومية', FileText], coa: ['دليل الحسابات', Landmark], tb: ['ميزان المراجعة', Scale], ob: ['الأرصدة الافتتاحية', Landmark],
           fs: ['القوائم المالية', FileBarChart], cf: ['التدفقات النقدية', ArrowLeftRight], fcast: ['التوقّع النقدي', TrendingUp], bud: ['الموازنة', BarChart3], anl: ['التحليل والنِسَب', TrendingUp], cc: ['مراكز التكلفة', BarChart3],
-          food: ['تكلفة الطعام بالفروع', Store], apage: ['أعمار الموردين', Users], arage: ['أعمار العملاء', Users],
+          food: ['تكلفة الطعام بالفروع', Store], apage: ['أعمار الموردين', Users], arage: ['أعمار العملاء', Users], unbilled: ['مستلم لم يُفوتر', Truck],
           vat: ['الضريبة (ق.م)', Receipt], vatreg: ['سجلات الضريبة المفصلة', FileText], suprep: ['مشتريات الموردين بطرق الدفع', Truck], einv: ['الفوترة (زاتكا)', QrCode], zakat: ['الزكاة وضريبة الدخل', Landmark],
           bank: ['التسوية البنكية', Landmark], ast: ['الأصول والإهلاك', Building2], astl: ['تسوية التطبيقات', Truck],
           mclose: ['حزمة الإقفال', ClipboardCheck], ctrl: ['الضوابط والتدقيق', ShieldCheck], lock: ['الإقفال الشهري', Lock], yend: ['إقفال السنة', CalendarDays],
@@ -1399,7 +1400,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
         const GROUPS = [
           { id: 'books', ar: 'الدفاتر', icon: FileText, items: ['jr', 'coa', 'tb', 'ob'] },
           { id: 'stmts', ar: 'القوائم والتحليل', icon: FileBarChart, items: ['fs', 'food', 'cf', 'fcast', 'bud', 'anl', 'cc'] },
-          { id: 'ages', ar: 'الذمم والأعمار', icon: Users, items: ['apage', 'arage', 'suprep'] },
+          { id: 'ages', ar: 'الذمم والأعمار', icon: Users, items: ['unbilled', 'apage', 'arage', 'suprep'] },
           { id: 'tax', ar: 'الضريبة والزكاة', icon: Receipt, items: ['vat', 'vatreg', 'einv', 'zakat'] },
           { id: 'bank', ar: 'البنوك والأصول', icon: Building2, items: ['bank', 'ast', 'astl'] },
           { id: 'close', ar: 'الإقفال والرقابة', icon: Lock, items: ['mclose', 'ctrl', 'lock', 'yend'] },
@@ -3200,6 +3201,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
 
       {view === 'vatreg' && <VatRegisters org={org} ops={ops} say={say} />}
       {view === 'suprep' && <SupplierPurchReport org={org} ops={ops} say={say} />}
+      {view === 'unbilled' && <Suppliers org={org} ops={ops} me={me} myBranches={org.branches || []} commit={commit} commitOrg={commitOrg} say={say} billOnly />}
       {view === 'zakat' && (() => {
         const num = (s) => Number(String(s).replace(/[^\d.-]/g, '')) || 0;
         const capital = r2(accByCode['3101'] ? accByCode['3101'].balance : 0);

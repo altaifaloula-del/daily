@@ -985,12 +985,13 @@ test('v43.5 مسار الفحص: استلام ← فحص بشخص آخر ← م�
   await p.locator('[data-qc]').first().click(); await p.locator('[data-qcsave]').click(); await p.waitForTimeout(300);
   assert.equal(await p.evaluate(() => window.cur.purchaseOrders[0].status), 'received');
   await p.evaluate(() => window.as('ho')); await p.waitForTimeout(300); await toPo();
+  assert.equal(await p.locator('[data-cv]').count(), 0, 'v44.0: المكتب الرئيسي لا يحوّل لفاتورة — المحاسب ومدير النظام فقط');
+  await p.evaluate(() => window.as('admin')); await p.waitForTimeout(300); await toPo();
   await p.locator('[data-cv]').click(); await p.fill('.modal input.inp >> nth=0', 'F-101'); await p.fill('input[aria-label="سعر الفاتورة 1"]', '45');
   await p.locator('[data-cvsave]').click(); await p.waitForTimeout(300);
   r = await p.evaluate(() => ({ inv: window.cur.invoices.length, pv: window.cur.purchaseOrders[0].pinv && [window.cur.purchaseOrders[0].pinv.invoiceNo, window.cur.purchaseOrders[0].pinv.varPct] }));
   assert.deepEqual(r, { inv: 1, pv: ['F-101', 12.5] }, 'فوق التسامح لا تُقيَّد قبل الاعتماد');
-  await p.locator('button', { hasText: 'اعتماد الفرق' }).click(); await p.waitForTimeout(200); assert.match(await say(p), /غير من سجّل الفاتورة/);
-  await p.evaluate(() => window.as('admin')); await p.waitForTimeout(300); await toPo();
+  await p.evaluate(() => window.as('ho')); await p.waitForTimeout(300); await toPo();
   await p.locator('button', { hasText: 'اعتماد الفرق' }).click(); await p.waitForTimeout(300);
   r = await p.evaluate(() => ({ nos: window.cur.invoices.map(i => i.invoiceNo).sort(), held: !!window.cur.purchaseOrders[0].pinv, bill: window.cur.purchaseOrders[0].grns.every(g => !!g.invoiceId) }));
   assert.deepEqual(r, { nos: ['F-100', 'F-101'], held: false, bill: true });
@@ -1073,3 +1074,38 @@ test('v43.9 تعدد العملات: فاتورة توريد بالدولار ت
   assert.deepEqual(r, [1500, [[1500, 400, 3.8, 1520]]]);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v44.0 المطابقة الثلاثية: الاستلام الكامل برقم فاتورة المورد يتحوّل تلقائيًا، والجزئي يبقى للمحاسب ومدير النظام', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/Hub/ho/purchasing:suppliers');
+  const PO = (id, no, qty) => ({ id, poNo: no, supplierId: 's1', supplierName: 'مؤسسة اللحوم الطازجة للتجارة', status: 'open', date: '2026-11-10', at: '2026-11-10T08:00:0' + no.slice(-1) + 'Z', by: 'مجاهد', lines: [{ itemId: 'i1', desc: 'لحم غنم', qty, price: 40, factor: 1 }] });
+  await p.evaluate((pos) => { window.setOps(o => ({ ...o, invoices: [], stockMoves: [], purchaseOrders: pos })); }, [PO('a', 'PO-0001', 10), PO('b', 'PO-0002', 10)]); await p.waitForTimeout(300);
+  const toPo = async () => { await p.locator('button', { hasText: 'أوامر الشراء' }).first().click(); await p.waitForTimeout(200); };
+  await toPo();
+  const row = (no) => p.locator('tr', { hasText: no });
+  // (أ) مطابق: كامل الكمية + رقم فاتورة المورد ⇒ فاتورة تلقائية بسعر الأمر
+  await row('PO-0001').locator('button', { hasText: 'تسجيل استلام' }).click(); await p.fill('input[aria-label="رقم فاتورة المورد"]', 'SUP-501');
+  await p.locator('button', { hasText: 'تأكيد الاستلام' }).click(); await p.waitForTimeout(300);
+  let r = await p.evaluate(() => ({ inv: window.cur.invoices.map(i => [i.invoiceNo, i.poId]), g: (window.cur.purchaseOrders.find(x => x.id === 'a').grns || []).length }));
+  assert.deepEqual(r, { inv: [['SUP-501', 'a']], g: 0 });
+  // (ب) جزئي ⇒ لا فاتورة؛ «مستلم لم يُفوتر» بقيد وسيط، والتحويل لا يظهر للمكتب الرئيسي
+  await row('PO-0002').locator('button', { hasText: 'تسجيل استلام' }).click(); await p.fill('.modal input[placeholder="المستلم الآن"]', '6'); await p.fill('input[aria-label="رقم فاتورة المورد"]', 'SUP-502');
+  await p.locator('button', { hasText: 'تأكيد الاستلام' }).click(); await p.waitForTimeout(300);
+  assert.match(await say(p), /غير مطابق آليًا \(استلام جزئي\)/);
+  r = await p.evaluate(() => { const po = window.cur.purchaseOrders.find(x => x.id === 'b'); return { inv: window.cur.invoices.length, g: po.grns.map(g => [g.status, g.direct, g.supInvNo]), mv: (window.cur.stockMoves || []).filter(m => m.grnRef).map(m => m.qty) }; });
+  assert.deepEqual(r, { inv: 1, g: [['done', true, 'SUP-502']], mv: [6] });
+  assert.equal(await row('PO-0002').locator('[data-cv]').count(), 0, 'المكتب الرئيسي لا يحوّل');
+  const po2 = await p.evaluate(() => window.cur.purchaseOrders.find(x => x.id === 'b')); const mv = await p.evaluate(() => window.cur.stockMoves);
+  await ctx.close();
+  // المحاسب: قائمة «مستلم لم يُفوتر» داخل المحاسبة — يحوّلها برقم فاتورة المورد من الاستلام
+  const o2 = await open({ viewport: { width: 1300, height: 1000 } }, 'live/Accounting/acc/unbilled');
+  await o2.p.evaluate(([po, mv]) => window.setOps(o => ({ ...o, invoices: [], stockMoves: mv, purchaseOrders: [po] })), [po2, mv]); await o2.p.waitForTimeout(300);
+  assert.equal(await o2.p.locator('[data-unbilled] tbody tr').count(), 1);
+  await o2.p.locator('[data-unbilled] [data-cv]').click(); await o2.p.waitForTimeout(150);
+  assert.equal(await o2.p.locator('.modal input.inp').first().inputValue(), 'SUP-502', 'رقم فاتورة المورد من الاستلام');
+  await o2.p.locator('[data-cvsave]').click(); await o2.p.waitForTimeout(300);
+  r = await o2.p.evaluate(() => window.cur.invoices.map(i => [i.invoiceNo, i.amount]));
+  assert.deepEqual(r, [['SUP-502', 276]], '6 × 40 + 15%');
+  assert.match(await o2.p.locator('[data-unbilled]').innerText(), /لا استلامات غير مفوترة/);
+  assert.deepEqual([...errs, ...o2.errs], []); await o2.ctx.close();
+});
+
