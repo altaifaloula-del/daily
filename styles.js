@@ -1846,4 +1846,12 @@ table.tb.tb-fp{min-width:520px}
 .rms.thm-restpro .pos-qty{background:var(--gold);color:#101D35 !important}
 .rms.thm-restpro .pos-cart{border-radius:16px}
 .rms.thm-restpro.mode-light .pos-pay-card{background:var(--gold) !important;color:#101D35 !important}
+
+/* ══════════════ v42.7 — المرحلة الثالثة (3): المحاسبة والتقارير والتحليل والموارد البشرية ══════════════
+   راجعتها بلقطات: المكوّنات المشتركة كفتها؛ بقي مبدّل طريقة العرض الظاهر في رأس كل تطبيق بحد ذهبي لافت — صار هادئًا. */
+.rms.thm-restpro .acct-mode{border-color:var(--line);background:color-mix(in srgb,var(--ink3) 60%,var(--ink2));border-radius:10px;padding:3px}
+.rms.thm-restpro .acct-mode button{color:var(--faint);border-radius:8px;transition:color var(--t-fast),background var(--t-fast)}
+.rms.thm-restpro .acct-mode button:hover{color:var(--txt)}
+.rms.thm-restpro .acct-mode button.on{background:var(--ink2);color:var(--txt);box-shadow:0 1px 2px rgba(16,29,53,.08)}
+.rms.thm-restpro.mode-dark .acct-mode button.on{background:var(--line)}
 `;
