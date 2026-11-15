@@ -1036,3 +1036,20 @@ test('v43.7 الموارد البشرية بالإنجليزية: الرواتب
   }
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v43.8 الإدارة والتطبيقات وبقية الشاشات بالإنجليزية: شاشة التطبيقات وتلميحاتها ومركز التطبيقات والإدارة والمستندات', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1300, height: 1000 } }); await ctx.addInitScript(() => { try { localStorage.setItem('rms8:lang', 'en'); } catch { } });
+  const errs = [];
+  for (const [r, words] of [['comp/AppsCenter', ['Open app', 'Center architecture:']], ['comp/Admin', ['Users & permissions', 'System maintenance']], ['hub/docshub/docs', ['New document', 'Total documents']], ['hub/closehub/maint', ['Fault report', 'Equipment register']], ['comp/AuditView', ['Platform action log']]]) {
+    const p = await ctx.newPage(); p.on('pageerror', e => errs.push(e.message));
+    await p.goto(base + r); await p.waitForTimeout(800); await settle(p);
+    const t = await p.locator('body').innerText();
+    for (const w of words) assert.ok(t.includes(w), r + ': ' + w);
+    await p.close();
+  }
+  const p = await ctx.newPage(); p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'comp/Launcher'); await p.waitForTimeout(800); await settle(p);
+  const titles = await p.evaluate(() => [...document.querySelectorAll('[title]')].map(e => e.getAttribute('title')).filter(t => /اسحبه|أقسام/.test(t)));
+  assert.deepEqual(titles, [], 'تلميحات التطبيقات مترجمة');
+  assert.deepEqual(errs, []); await ctx.close();
+});
