@@ -5,7 +5,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { cloud, KEYS, brKey } from '../../storage';
 import { ShieldCheck, RefreshCw, Trash2, AlertTriangle, Check, Server, Bug, Activity, HardDrive } from 'lucide-react';
 import { archKey, archivePlan, nowISO, printA4, uid } from '../../App.jsx';   // v41.7
-import { clrCompare, clrLoad, clrOn, clrSeed, clrState, logAudit } from '../../App.jsx';   // v41.9
+import { clrCompare, clrLoad, clrOn, clrSeed, clrState, logAudit, clrRead, clrViewStats } from '../../App.jsx';   // v41.9 + v42.2
 import { dataFootprint, recipeRaw, APP_CV, APP_VER, CloudHealth, ERRLOG_KEY, MAIN_WH, ROLES, SIG_BADGE, SIG_NAME, buildAccounting, loadRelease, loadSignoffs, sigVerify, branchBanks, cashForecast, complianceItems, entityList, vatStatus, countedClosing, isoD, money, purKey, q3, qrFs, snapAll, stockByWh, today, whName, whOf } from '../../App.jsx';
 
 const ST = { ok: ['b-mint', 'سليم'], warn: ['b-amber', 'تنبيه'], bad: ['b-rose', 'خلل'] };
@@ -327,8 +327,18 @@ export function SystemMaintenance({ org, ops, me, commit, commitOrg, say }) {
 
 /* v41.9 — الإغلاقات سجلات مستقلة (المرحلة الأولى: نسخ مطابق) — تفعيل، ترحيل أول، ومطابقة */
 function ClosingRecordsCard({ org, ops, me, commitOrg, say, isAdm }) {
-  const on = clrOn(org);
+  const on = clrOn(org), reading = clrRead(org);
   const [busy, setBusy] = useState(''); const [rep, setRep] = useState(null);
+  // v42.2: القراءة من السجلات — لا تُفعَّل إلا بعد مطابقة نظيفة في هذه الجلسة، والإيقاف متاح دائمًا للتراجع
+  const toggleRead = async () => {
+    if (!isAdm || !on) return;
+    if (!reading && !(rep && rep.ok)) return say('اضغط «مطابقة» أولًا — القراءة من السجلات لا تُفعَّل إلا بعد مطابقة كاملة بلا فروق', 'no');
+    if (!reading && !window.confirm('تحويل قراءة الإغلاقات إلى السجلات المستقلة المحمية؟\nالسجل يصبح المصدر لأرقام الإغلاق وحالته واعتماده؛ أي تعديل في مستند الفرع لا يظهر. يبقى مستند الفرع نسخة احتياطية، والإيقاف متاح في أي وقت.')) return;
+    const ok = await commitOrg(o => ({ ...o, closingRecords: { ...(o.closingRecords || {}), read: !reading, ...(reading ? { readOffAt: nowISO() } : { readSince: nowISO() }) } }),
+      { actionType: 'settings', targetType: 'system_settings', targetId: 'closingRecords', title: reading ? 'أعاد قراءة الإغلاقات إلى مستندات الفروع' : 'حوّل قراءة الإغلاقات إلى السجلات المستقلة المحمية' });
+    if (ok) say(reading ? 'عادت القراءة إلى مستندات الفروع' : 'أصبحت السجلات المستقلة مصدر الإغلاقات ✓');
+  };
+  const vs = clrViewStats();
   const brName = (id) => ((org.branches || []).find(b => b.id === id) || { name: id }).name;
   const check = async () => {
     setBusy('check'); const recs = await clrLoad([], true); setBusy('');
@@ -358,7 +368,7 @@ function ClosingRecordsCard({ org, ops, me, commitOrg, say, isAdm }) {
   return (
     <div className="card" data-clr>
       <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />الإغلاقات سجلات مستقلة (حماية على مستوى الخادم)</div>
-        <span className={'badge ' + (on ? 'b-mint' : 'b-dim')}>{on ? 'النسخ مفعّل' : 'غير مفعّل'}</span></div>
+        <span className={'badge ' + (reading ? 'b-mint' : on ? 'b-sky' : 'b-dim')}>{reading ? 'المصدر: السجلات المحمية' : on ? 'النسخ مفعّل' : 'غير مفعّل'}</span></div>
       <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>
         كل إغلاق يُنسخ إلى سجل مستقل يرى الخادم حالته: <b>الفرع لا يكتب «معتمد» ولا يعدّل إغلاقًا معتمدًا</b>، والاعتماد والرفض لا يُقبلان إلا بتوقيع موثّق
         للمدقق نفسه وبالأرقام نفسها. في هذه المرحلة يبقى مستند الفرع هو المصدر، والمطابقة تكشف أي فرق؛ وبعد ثبات المطابقة تتحول القراءة إلى السجلات.
@@ -367,6 +377,14 @@ function ClosingRecordsCard({ org, ops, me, commitOrg, say, isAdm }) {
         <button className={'btn sm' + (on ? ' gh' : ' pri')} disabled={!!busy} onClick={toggle}>{on ? 'إيقاف النسخ' : 'تفعيل النسخ'}</button>
         {on && <button className="btn sm" disabled={!!busy} onClick={seed}>{busy.startsWith('seed') ? 'جارٍ الترحيل… ' + busy.slice(5) : 'ترحيل الإغلاقات الحالية'}</button>}
         <button className="btn sm" disabled={!!busy} onClick={check}><RefreshCw size={13} />{busy === 'check' ? 'جارٍ المطابقة…' : 'مطابقة'}</button>
+        {on && <button className={'btn sm' + (reading ? ' gh' : ' pri')} disabled={!!busy || (!reading && !(rep && rep.ok))} onClick={toggleRead}
+          title={!reading && !(rep && rep.ok) ? 'يتاح بعد مطابقة كاملة بلا فروق' : ''}>{reading ? 'إعادة القراءة إلى مستندات الفروع' : 'القراءة من السجلات المحمية'}</button>}
+      </div>}
+      {reading && vs.at > 0 && <div style={{ fontSize: 12, marginTop: 8, lineHeight: 1.9 }}>
+        يُعرض الآن <b>{vs.fromRec}</b> إغلاقًا من السجلات المحمية
+        {vs.fixed > 0 && <> · <span style={{ color: 'var(--rose)' }}><b>{vs.fixed}</b> مختلف في مستند الفرع (المعروض قيمة السجل)</span></>}
+        {vs.unrec > 0 && <> · <span style={{ color: 'var(--amber)' }}><b>{vs.unrec}</b> بلا سجل{vs.demoted > 0 ? ' (منها ' + vs.demoted + ' «معتمد» عُرض مرحّلًا)' : ''}</span></>}
+        {vs.badDigest > 0 && <> · <span style={{ color: 'var(--rose)' }}><b>{vs.badDigest}</b> أرقامه لا تطابق بصمة اعتماده</span></>}
       </div>}
       {st.at > 0 && <div style={{ fontSize: 11.5, color: st.fail ? 'var(--rose)' : 'var(--dim)', marginTop: 8 }}>هذا الجهاز: نُسخ {st.ok}{st.fail ? ' · تعذّر ' + st.fail + ' (' + st.lastErr + ')' : ''}</div>}
       {rep && <div style={{ marginTop: 10 }}>

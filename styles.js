@@ -1664,4 +1664,68 @@ table.tb.tb-fp{min-width:520px}
 /* v41.5 — الجرد النقدي المفاجئ */
 .cc-den{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:6px}
 .cc-d{display:flex;flex-direction:column;gap:3px;border:1px solid var(--line);border-inline-start-width:4px;border-radius:10px;padding:6px 8px;font-weight:700;font-size:13px}.cc-d .inp{min-height:0;padding:5px 6px}
+
+/* ══════════════ v42.1 — هوية RESTAURANT PRO (كحلي وذهبي) — الثيم الافتراضي المعتمد ══════════════
+   يرث مكوّنات «ميزان 2» النظيفة (themeCls يضيف thm-mizan) ويبدّل الألوان والقائمة الجانبية والعلامة.
+   رموز التصميم: الكحلي #101D35/#172844 · الذهبي #C7A45B/#E2C987 · الخلفية #F4F6FA · النص #1C2940 · الحدود #E8EBF1. */
+.rms.thm-restpro{--acc:#9B7934;--brand-fill:#101D35;--brand-ink:#FFFFFF;--gold:#C7A45B;--gold-l:#E2C987;--navy:#101D35;--navy2:#172844;
+  --side-bg:linear-gradient(180deg,#101D35,#0C172A);--side-txt:#CBD3DF;--side-dim:#8491A7;--side-on:#FFFFFF;--side-hl:rgba(255,255,255,.08);--side-w:258px}
+.rms.thm-restpro.mode-light{--ink:#F4F6FA;--ink2:#FFFFFF;--ink3:#F8F9FC;--line:#E8EBF1;--txt:#1C2940;--dim:#5D6779;--faint:#7D8798;
+  --mint:#16865D;--rose:#C44D55;--amber:#9B7022;--sky:#2F5F9E;--violet:#6A5698;--line-g:#E3D3AE;
+  --sh-1:none;--sh-2:0 8px 24px rgba(20,35,60,.06);--sh-3:0 12px 32px rgba(20,35,60,.10);--sh-4:0 20px 60px rgba(7,19,38,.20)}
+.rms.thm-restpro.mode-dark{--acc:#E2C987;--brand-fill:#C7A45B;--brand-ink:#101D35;--ink:#0A1322;--ink2:#111D33;--ink3:#16243D;--line:#24334F;--txt:#E8EDF5;--dim:#A9B4C6;--faint:#7D8798;
+  --mint:#4FC293;--rose:#EE8A90;--amber:#E6BE6A;--sky:#7FA9DB;--violet:#B39DDC;--line-g:#4A4128;--side-bg:linear-gradient(180deg,#0A1322,#070E1A);
+  --sh-1:none;--sh-2:0 8px 24px rgba(0,0,0,.35);--sh-3:0 12px 32px rgba(0,0,0,.45);--sh-4:0 20px 60px rgba(0,0,0,.6)}
+.rms.thm-restpro .card,.rms.thm-restpro .kpi{border-radius:14px;box-shadow:var(--sh-2)}
+.rms.thm-restpro .kpi{border-inline-start:3px solid var(--gold)}
+.rms.thm-restpro .btn.pri{background:var(--brand-fill);color:var(--brand-ink)}
+.rms.thm-restpro .btn.pri:hover:not(:disabled){background:color-mix(in srgb,var(--brand-fill) 86%,#fff)}
+.rms.thm-restpro .btn.gold{background:var(--gold);border-color:var(--gold);color:#1B2433}
+.rms.thm-restpro .btn:focus-visible,.rms.thm-restpro .inp:focus,.rms.thm-restpro .sel:focus{box-shadow:0 0 0 3px color-mix(in srgb,var(--gold) 40%,transparent);border-color:var(--gold)}
+.rms.thm-restpro .tb th{background:#FBFCFD;color:var(--faint);font-weight:500}
+.rms.thm-restpro.mode-dark .tb th{background:var(--ink3)}
+.rms.thm-restpro .tb tbody tr:hover{background:color-mix(in srgb,var(--gold) 7%,transparent)}
+.rms.thm-restpro .b-brass{background:color-mix(in srgb,var(--gold) 20%,transparent);color:color-mix(in srgb,var(--acc) 85%,var(--txt))}
+.rms.thm-restpro .botnav-i.on{color:var(--acc)}
+/* القائمة الجانبية: كحلية ثابتة بتدرّج، مؤشر ذهبي للعنصر النشط، قابلة للطي إلى أيقونات */
+.rms.thm-restpro .side{background:var(--side-bg);border:0;color:var(--side-txt);width:var(--side-w);padding:0;gap:0;transition:width .22s ease}
+.rms.thm-restpro .side .brand{padding:22px 18px 18px;border-bottom:1px solid rgba(255,255,255,.09);margin-bottom:6px}
+.rms.thm-restpro .rp-brand{display:flex;flex-direction:column;min-width:0;flex:1}
+.rms.thm-restpro .rp-brand b{overflow:hidden;text-overflow:ellipsis;font-size:17px;letter-spacing:1px;color:#FFFFFF;font-family:'Inter','IBM Plex Sans Arabic',sans-serif;font-weight:800;white-space:nowrap}
+.rms.thm-restpro .rp-brand span{color:var(--gold-l);font-size:10.5px;margin-top:5px;letter-spacing:.06em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rms.thm-restpro .side .rp-nav{padding:6px 12px 12px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:2px}
+.rms.thm-restpro .side .nav-lbl{color:var(--side-dim);font-size:10.5px;padding:14px 12px 6px;letter-spacing:0;white-space:nowrap}
+.rms.thm-restpro .side .nav-i{color:var(--side-txt);border-radius:10px;min-height:42px;padding:11px 12px;font-size:13px;white-space:nowrap}
+.rms.thm-restpro .side .nav-i svg{color:var(--gold-l);flex-shrink:0}
+.rms.thm-restpro .side .nav-i:hover{background:var(--side-hl);color:#FFFFFF}
+.rms.thm-restpro .side .nav-i.on{background:rgba(255,255,255,.08);color:#FFFFFF;font-weight:700;box-shadow:inset -3px 0 0 var(--gold)}
+.rms.thm-restpro .side .nav-i .cnt{background:var(--gold);color:#101D35}
+.rms.thm-restpro .side .rp-foot{padding:12px 14px 14px;border-top:1px solid rgba(255,255,255,.09);font-size:11px;color:#9EABC0}
+.rms.thm-restpro .side .mono-b{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.1);color:#E8EDF5}
+.rms.thm-restpro .side .mono-b .btn{color:#CBD3DF}
+.rms.thm-restpro .rp-col{display:none}
+.rms.thm-restpro .top{background:var(--ink2);border-bottom:1px solid var(--line);min-height:68px}
+.rms.thm-restpro .toptitle{color:var(--txt)}
+@media(min-width:901px){
+  .rms.thm-restpro .side{display:flex !important;position:relative}
+  .rms.thm-restpro .rp-col{display:inline-grid;place-items:center;width:38px;height:38px;border-radius:10px;border:0;background:var(--ink3);color:var(--txt);cursor:pointer;flex-shrink:0}
+  .rms.thm-restpro .rp-col:hover{background:var(--acc-soft)}
+  .rms.thm-restpro .homebtn2{display:none}
+  .rms.thm-restpro .topmenu,.rms.thm-restpro .side .sideclose,.rms.thm-restpro .toplogo-mark,.rms.thm-restpro .toplogo{display:none !important}
+  .rms.thm-restpro.rp-collapsed .side{--side-w:78px}
+  .rms.thm-restpro.rp-collapsed .side .rp-brand,.rms.thm-restpro.rp-collapsed .side .nav-lbl,.rms.thm-restpro.rp-collapsed .side .rp-txt,
+  .rms.thm-restpro.rp-collapsed .side .rp-foot,.rms.thm-restpro.rp-collapsed .side .nav-i .cnt,.rms.thm-restpro.rp-collapsed .side .mono-b{display:none}
+  .rms.thm-restpro.rp-collapsed .side .brand{justify-content:center;padding:20px 8px}
+  .rms.thm-restpro.rp-collapsed .side .nav-i{justify-content:center;padding:11px 0}
+  .rms.thm-restpro.rp-collapsed .side .rp-nav{padding:6px 10px}
+}
+/* الجوال واللوحي: القائمة درج منزلق من الجانب فوق المحتوى */
+@media(max-width:900px){
+  .rms.thm-restpro .side.open{display:flex !important;position:fixed;inset-block:0;inset-inline-start:0;z-index:60;width:270px;max-width:86vw;height:100dvh;box-shadow:var(--sh-4)}
+  .rms.thm-restpro .side.open .sideclose{display:inline-grid !important;position:static;color:#CBD3DF;margin-inline-start:auto;flex-shrink:0;background:transparent;border:0}
+  .rms.thm-restpro .side.open .rp-brand b{font-size:13.5px;letter-spacing:.3px}
+  .rms.thm-restpro .side.open .brand{padding:18px 14px 14px;gap:9px}
+  .rms.thm-restpro .topmenu{display:inline-grid !important}
+}
+.rp-mark{width:36px;height:36px;border-radius:10px;flex-shrink:0;display:grid;place-items:center;background:linear-gradient(140deg,#E2C987,#C7A45B);color:#101D35;font:800 13px/1 'Inter',sans-serif;letter-spacing:.5px}
 `;

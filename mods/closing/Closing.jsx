@@ -140,7 +140,11 @@ export function Closing({ org, ops, me, myBranches, scoped, commit, commitOrg, s
                   <td className="num" data-label="الفرق" style={{ color: c.variance < 0 ? 'var(--rose)' : c.variance > 0 ? 'var(--mint)' : 'var(--faint)' }}>
                     {c.variance > 0 ? '+' : ''}{money(c.variance)}
                   </td>
-                  <td data-label="الحالة"><Badge s={c.status} /></td>
+                  <td data-label="الحالة"><Badge s={c.status} />
+                    {/* v42.2: علامات القراءة من السجلات المحمية */}
+                    {c._clrDemoted ? <span className="badge b-rose" style={{ marginInlineStart: 4 }} title="«معتمد» في مستند الفرع بلا سجل محمي — يُعرض مرحّلًا حتى يُعتمد بتوقيع">اعتماد غير محمي</span>
+                      : c._clrUnrec ? <span className="badge b-amber" style={{ marginInlineStart: 4 }} title="لا سجل محمي لهذا الإغلاق بعد — شغّل «ترحيل الإغلاقات الحالية» من صيانة النظام">بلا سجل محمي</span> : null}
+                    {c._clrDigestBad && <span className="badge b-rose" style={{ marginInlineStart: 4 }} title="أرقام السجل لا تطابق بصمة توقيع اعتماده">لا يطابق التوقيع</span>}</td>
                   <td className="acts">
                     <div className="row" style={{ gap: 5, flexWrap: 'nowrap' }}>
                       <button className="btn sm gh" onClick={() => setView(c)}><Eye size={13} /></button>

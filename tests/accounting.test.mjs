@@ -1053,3 +1053,57 @@ test('v41.9 سجلات الإغلاق المستقلة: الفرق، مرجع ا
   assert.equal(E.clrOn({ closingRecords: { on: true } }), true); assert.equal(E.clrOn({}), false, 'مُطفأة افتراضيًا');
   assert.equal(E.clrOn(E.dirOf({ company: {}, closingRecords: { on: true } })), true, 'الإشارة تصل لأجهزة الفروع عبر الدليل');
 });
+
+test('v42.0 فرق سعر الشراء (مقابل آخر سعر) ودوران المخزون', () => {
+  const org = { items: [{ id: 'm', name: 'لحم', unit: 'كجم', cost: 40 }, { id: 'r', name: 'أرز', unit: 'كجم', cost: 5 }, { id: 's', name: 'صيانة', type: 'service' }], branches: [] };
+  const P = (id, d, it, q, u) => ({ id, date: d, at: d + 'T10:00', itemId: it, kind: 'purchase', qty: q, unitCost: u });
+  const ops = { stockMoves: [
+    P('p1', '2026-09-01', 'm', 100, 40), P('p2', '2026-10-05', 'm', 50, 44), P('p3', '2026-10-20', 'm', 20, 42),
+    P('p4', '2026-10-02', 'r', 200, 5),
+    { id: 'rt', date: '2026-10-21', itemId: 'm', kind: 'purchase', qty: -5, unitCost: 42 },
+    { id: 'o1', date: '2026-10-10', itemId: 'm', kind: 'out', qty: -60 }, { id: 'w1', date: '2026-10-11', itemId: 'm', kind: 'waste', qty: -5 },
+    { id: 'a1', date: '2026-10-30', itemId: 'm', kind: 'adjust', qty: -2 }, { id: 'a2', date: '2026-10-30', itemId: 'm', kind: 'adjust', qty: 1 }
+  ], whMoves: [], whTransfers: [] };
+  const R = E.ppvReport(org, ops, { from: '2026-10-01', to: '2026-10-31' });
+  assert.deepEqual(R.lines.map(l => [l.id, l.prevUnit, l.unit, l.value]).sort(), [['p2', 40, 44, 200], ['p3', 44, 42, -40]].sort(), 'كل استلام مقابل السابق له، والمرتجع لا يُحتسب');
+  assert.deepEqual([R.up, R.down, R.net], [200, 40, 160]);
+  assert.equal(R.lines.some(l => l.itemId === 'r'), false, 'أول شراء للصنف بلا مقارنة');
+  assert.equal(E.ppvReport(org, ops, { from: '2026-10-06', to: '2026-10-31' }).lines.length, 1, 'السعر السابق يُؤخذ ولو كان قبل الفترة');
+  const T = E.invTurnover(org, ops, { from: '2026-10-01', to: '2026-10-31' });
+  const m = T.rows.find(r => r.itemId === 'm'), r = T.rows.find(x => x.itemId === 'r');
+  assert.equal(m.openQ, 100); assert.equal(m.closeQ, 100 + 50 + 20 - 5 - 60 - 5 - 2 + 1);
+  assert.equal(m.useQ, 67, 'صرف 60 + هدر 5 + عجز جرد 2 — الزيادة والمرتجع لا يُحتسبان');
+  assert.ok(Math.abs(m.turn - (m.use / m.avgInv)) < 0.01);
+  assert.equal(m.days, Math.round(31 / m.turn));
+  assert.equal(r.idle, true, 'صنف بلا استهلاك = راكد'); assert.equal(r.turn, 0);
+  assert.equal(T.rows.some(x => x.itemId === 's'), false, 'الخدمي لا يدخل');
+  assert.ok(T.idleValue > 0 && T.turn > 0);
+});
+
+test('v42.2 القراءة من السجلات: السجل يغلب مستند الفرع، والاعتماد بلا سجل يُعرض مرحّلًا، والصور تُستعاد', () => {
+  const c = (x) => ({ id: 'c1', branchId: 'b1', date: '2026-11-14', status: 'submitted', gmApprovalStatus: 'pending', cashSales: 100, cardSales: 50, totalRevenue: 150, expenses: [], ...x });
+  const img = 'data:image/jpeg;base64,' + 'A'.repeat(9000);
+  const ok = c({ status: 'approved', cardReceiptImage: img });
+  const rec = (x) => ({ id: x.id, ...E.clrRecord(x) });
+  // 1) الفرع زوّر الأرقام في مستنده بعد الاعتماد ⇒ يُعرض ما في السجل
+  const tampered = { ...ok, cashSales: 999, totalRevenue: 1049 };
+  let M = E.clrMerge([tampered], [rec(ok)]);
+  assert.equal(M.list[0].cashSales, 100); assert.equal(M.list[0].totalRevenue, 150); assert.equal(M.stats.fixed, 1);
+  assert.equal(M.list[0].cardReceiptImage, img, 'الصورة المختصرة في السجل تُستعاد من مستند الفرع');
+  // 2) الحالة من حقل السجل (المحروس) لا من داخل البيانات
+  const r2 = rec(c({ id: 'c2' })); r2.data = JSON.stringify({ ...JSON.parse(r2.data), status: 'approved' });
+  assert.equal(E.clrMerge([], [r2]).list[0].status, 'submitted', 'كتابة «معتمد» داخل البيانات لا تجعل الإغلاق معتمدًا');
+  // 3) «معتمد» في مستند الفرع بلا سجل ⇒ مرحّل ومعلَّم
+  M = E.clrMerge([c({ id: 'c3', status: 'approved' })], []);
+  assert.deepEqual([M.list[0].status, M.list[0]._clrDemoted, M.stats.demoted], ['submitted', true, 1]);
+  // 4) مسودة بلا سجل تبقى كما هي معلَّمة
+  M = E.clrMerge([c({ id: 'c4', status: 'draft' })], []);
+  assert.deepEqual([M.list[0].status, M.list[0]._clrUnrec, M.list[0]._clrDemoted], ['draft', true, undefined]);
+  // 5) بصمة لا تطابق أرقام سجل معتمد ⇒ تُكشف
+  const r5 = rec(ok); r5.data = JSON.stringify({ ...JSON.parse(r5.data), cashSales: 500 });
+  assert.equal(E.clrMerge([], [r5]).list[0]._clrDigestBad, true);
+  // 6) الإشارة تتطلب النسخ والقراءة معًا
+  assert.equal(E.clrRead({ closingRecords: { on: true, read: true } }), true);
+  assert.equal(E.clrRead({ closingRecords: { on: false, read: true } }), false);
+  assert.equal(E.clrRead({}), false, 'مُطفأة افتراضيًا');
+});

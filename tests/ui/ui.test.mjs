@@ -745,10 +745,42 @@ test('v41.9 الإغلاقات سجلات مستقلة: مُطفأة افترا�
   assert.equal(await p.evaluate(() => !!(window.curOrg.closingRecords || {}).on), true);
   assert.match(await card.innerText(), /النسخ مفعّل/);
   assert.equal(await card.locator('button:has-text("ترحيل الإغلاقات الحالية")').count(), 1);
+  assert.equal(await card.locator('button:has-text("القراءة من السجلات المحمية")').isDisabled(), true, 'v42.2: لا قراءة من السجلات قبل مطابقة كاملة');
   await card.locator('button:has-text("مطابقة")').click(); await p.waitForTimeout(400);
   assert.match(await p.evaluate(() => window.lastSay || ''), /Firestore فقط/, 'خارج Firestore رسالة واضحة لا انهيار');
   assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true);
   await card.locator('button:has-text("إيقاف النسخ")').click(); await p.waitForTimeout(400);
   assert.equal(await p.evaluate(() => !!(window.curOrg.closingRecords || {}).on), false, 'الإيقاف متاح للتراجع');
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v42.0 المخزون: «صرف للتشغيل» لا يتجاوز الرصيد (بلا استثناء)، وشاشة الدوران وفروق الأسعار على الجوال', async () => {
+  const { p, errs, ctx } = await open({ ...devices['iPhone 13'] }, 'live/Inventory/admin/moves');
+  await p.evaluate(() => {
+    window.setOrg(g => ({ ...g, warehouses: [], items: [{ id: 'mt', name: 'لحم', unit: 'كجم', cost: 40 }] }));
+    window.setOps(o => ({ ...o, whMoves: [], whTransfers: [], stockMoves: [
+      { id: 'p1', date: '2026-09-01', at: '2026-09-01T10:00', itemId: 'mt', kind: 'purchase', qty: 10, unitCost: 40 },
+      { id: 'p2', date: new Date().toISOString().slice(0, 10), at: new Date().toISOString(), itemId: 'mt', kind: 'purchase', qty: 5, unitCost: 46 }] }));
+  }); await p.waitForTimeout(300);
+  await p.locator('button:has-text("حركة جديدة")').click(); await p.waitForTimeout(200);
+  await p.selectOption('.modal select >> nth=0', 'out');
+  await p.fill('.modal input.inp.n', '16'); await p.click('.modal button:has-text("تسجيل الحركة")'); await p.waitForTimeout(250);
+  assert.match(await p.evaluate(() => window.lastSay || ''), /تتجاوز الرصيد[\s\S]*المتاح 15/);
+  assert.equal(await p.evaluate(() => window.cur.stockMoves.length), 2, 'لم تُسجَّل الحركة');
+  await p.fill('.modal input.inp.n', '6'); await p.click('.modal button:has-text("تسجيل الحركة")'); await p.waitForTimeout(250);
+  assert.equal(await p.evaluate(() => window.cur.stockMoves.filter(m => m.kind === 'out').map(m => m.qty).join()), '-6', 'ضمن الرصيد تُسجَّل');
+  await p.goto(base + 'live/Inventory/admin/turnover'); await p.reload(); await p.waitForTimeout(600); await settle(p);
+  await p.evaluate(() => {
+    window.setOrg(g => ({ ...g, warehouses: [], items: [{ id: 'mt', name: 'لحم', unit: 'كجم', cost: 40 }] }));
+    const t = new Date().toISOString().slice(0, 10);
+    window.setOps(o => ({ ...o, whMoves: [], whTransfers: [], stockMoves: [
+      { id: 'p1', date: '2026-09-01', at: '2026-09-01T10:00', itemId: 'mt', kind: 'purchase', qty: 10, unitCost: 40 },
+      { id: 'p2', date: t, at: t + 'T10:00', itemId: 'mt', kind: 'purchase', qty: 5, unitCost: 46 }, { id: 'o1', date: t, itemId: 'mt', kind: 'out', qty: -6 }] }));
+  }); await p.waitForTimeout(400);
+  const card = p.locator('[data-turnppv]');
+  assert.match(await card.innerText(), /معدل الدوران[\s\S]*لحم/);
+  await card.locator('button:has-text("فروق أسعار الشراء")').click(); await p.waitForTimeout(200);
+  assert.match(await card.innerText(), /لحم[\s\S]*\+15%[\s\S]*\+30\.00|\+15%[\s\S]*30/);
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true, 'بلا تمرير أفقي');
   assert.deepEqual(errs, []); await ctx.close();
 });

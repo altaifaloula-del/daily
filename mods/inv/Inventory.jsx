@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { HardDrive, FileBarChart, ChevronDown, Printer, ArrowLeftRight, ClipboardCheck, Truck, Store, BarChart3, AlertTriangle, Trash2, TrendingUp, Download, Check, Upload, Plus, Landmark, X } from 'lucide-react';
 import { PrepList } from './PrepList.jsx';   // v40.8
+import { TurnoverPpv } from './TurnoverPpv.jsx';   // v42.0
 import { BlindCount, Field, ITEM_TYPES, Kpi, LOCK_MSG, MAIN_WH, MOVE_KINDS, Modal, PriceAlerts, ROLES, SectionNav, UsageVariance, WarehousesPanel, WasteControl, WasteFields, arDate, isCostCtl, isStocked, itemAvgCosts, itemType, makeXlsx, money, nowISO, pFactor, parseCsvGrid, parseXlsxGrid, partGross, partYield, periodLocked, prepUnitCost, kcalUnitFactor, productKcal, printA4, q3, recipeCost, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whName, whOn } from '../../App.jsx';
 
 export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
@@ -163,9 +164,10 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
     const fac = f.uom === 'p' ? pFactor(it) : 1;
     const qBase = Math.round(q * fac * 1000) / 1000;
     const uc = f.kind === 'in' && f.unitCost !== '' && f.unitCost != null ? Math.round((Number(f.unitCost) || 0) / fac * 10000) / 10000 : null;
+    // v42.0: منع المخزون السالب (قرار المالك: بلا استثناء) — الصرف والهدر لا يتجاوزان الرصيد؛ النقص يُعالج بتوريد أو جرد
+    if (sign < 0) { const have = whOn(org) ? mainOf(it.id) : balOf(it.id);
+      if (qBase > have + 0.0005) return say('الكمية تتجاوز الرصيد: ' + it.name + ' (المتاح ' + have + ') — سجّل التوريد أو الجرد أولًا', 'no'); }
     if (f.kind === 'waste') {   // v37.4 — سبب منظّم + صورة + اعتماد فوق الحد
-      const have = whOn(org) ? mainOf(it.id) : balOf(it.id);
-      if (qBase > have + 0.0005) return say('الكمية تتجاوز الرصيد: ' + it.name + ' (المتاح ' + have + ')', 'no');
       const ok = await submitWaste({ org, me, commit, say, col: 'stockMoves', whId: whOn(org) ? MAIN_WH : '', branchId: '', lines: [{ itemId: it.id, qty: qBase }], f, avg: AVG, title: whOn(org) ? whName(org, MAIN_WH) : 'المخزون' });
       if (ok) setMoveF(null);
       return;
@@ -305,7 +307,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
       </div>
 
       <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-        <SectionNav label="أقسام المخزون" cur={view} onPick={setView} items={[{ id: 'items', ar: 'الأصناف والأرصدة', group: 'المخزون', icon: HardDrive }, { id: 'moves', ar: 'الحركات', group: 'المخزون', icon: ArrowLeftRight }, { id: 'count', ar: 'الجرد' + (whOn(org) ? ' (الرئيسي)' : ''), group: 'المخزون', icon: ClipboardCheck }, { id: 'wh', ar: 'المستودعات', group: 'المخزون', icon: Truck }, { id: 'recipes', ar: 'الوصفات والتكلفة', group: 'المطبخ والوصفات', icon: Store }, { id: 'prep', ar: 'قائمة التحضير اليومية', group: 'المطبخ والوصفات', icon: Store }, { id: 'menu', ar: 'هندسة القائمة', group: 'المطبخ والوصفات', icon: BarChart3 }, { id: 'usage', ar: 'الاستهلاك النظري والفعلي', group: 'الرقابة', icon: AlertTriangle }, { id: 'waste', ar: 'ضبط الهدر', group: 'الرقابة', icon: Trash2, badge: (ops.wasteRequests || []).filter(r => r.status === 'pending').length || null }, { id: 'prices', ar: 'تنبيهات الأسعار', group: 'الرقابة', icon: TrendingUp, badge: (ops.purchaseOrders || []).filter(po => po.status === 'pending' && po.priceAlert).length || null }]} />
+        <SectionNav label="أقسام المخزون" cur={view} onPick={setView} items={[{ id: 'items', ar: 'الأصناف والأرصدة', group: 'المخزون', icon: HardDrive }, { id: 'moves', ar: 'الحركات', group: 'المخزون', icon: ArrowLeftRight }, { id: 'count', ar: 'الجرد' + (whOn(org) ? ' (الرئيسي)' : ''), group: 'المخزون', icon: ClipboardCheck }, { id: 'wh', ar: 'المستودعات', group: 'المخزون', icon: Truck }, { id: 'recipes', ar: 'الوصفات والتكلفة', group: 'المطبخ والوصفات', icon: Store }, { id: 'prep', ar: 'قائمة التحضير اليومية', group: 'المطبخ والوصفات', icon: Store }, { id: 'menu', ar: 'هندسة القائمة', group: 'المطبخ والوصفات', icon: BarChart3 }, { id: 'usage', ar: 'الاستهلاك النظري والفعلي', group: 'الرقابة', icon: AlertTriangle }, { id: 'turnover', ar: 'الدوران وفروق أسعار الشراء', group: 'الرقابة', icon: TrendingUp }, { id: 'waste', ar: 'ضبط الهدر', group: 'الرقابة', icon: Trash2, badge: (ops.wasteRequests || []).filter(r => r.status === 'pending').length || null }, { id: 'prices', ar: 'تنبيهات الأسعار', group: 'الرقابة', icon: TrendingUp, badge: (ops.purchaseOrders || []).filter(po => po.status === 'pending' && po.priceAlert).length || null }]} />
       </div>
 
       <div className="grid g4">
@@ -415,6 +417,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
 
       {view === 'prep' && <PrepList org={org} ops={ops} me={me} say={say} />}
       {view === 'usage' && <UsageVariance org={org} ops={ops} me={me} commit={commit} say={say} />}
+      {view === 'turnover' && <TurnoverPpv org={org} ops={ops} />}
       {view === 'prices' && <PriceAlerts org={org} ops={ops} />}
       {view === 'waste' && <WasteControl org={org} ops={ops} me={me} commit={commit} commitOrg={commitOrg} say={say} />}
 
