@@ -1804,4 +1804,29 @@ table.tb.tb-fp{min-width:520px}
 .rms.thm-restpro .btn{font-weight:600;min-height:40px}
 .rms.thm-restpro .btn.sm{min-height:34px;border-radius:9px}
 .rms.thm-restpro .btn.gh:hover:not(:disabled){background:color-mix(in srgb,var(--txt) 6%,transparent)}
+
+/* ══════════════ v42.5 — المرحلة الثالثة (1): الشاشة الرئيسية — شبكة التطبيقات ══════════════
+   مربعات بيضاء بحد وظل ناعم، والأيقونة على خلفية بلون التطبيق بتشبّع خافت بدل التدرجات الصاخبة؛
+   حركة هادئة (ارتفاع بكسل واحد) بلا دوران ولا رسم متكرر؛ بلا زخرفة خلفية ولا علامة مائية. */
+.rms.thm-restpro .lh-bg::before,.rms.thm-restpro .lh-bg::after{content:none;background:none}
+.rms.thm-restpro .lh-wm{display:none}
+.rms.thm-restpro .lh-box{--g:color-mix(in srgb,var(--c) 15%,var(--ink2));background:var(--ink2);color:color-mix(in srgb,var(--c) 82%,var(--txt));
+  border:1px solid var(--line);box-shadow:var(--sh-2);border-radius:18px}
+.rms.thm-restpro .ag .bgf{fill:color-mix(in srgb,var(--c) 15%,transparent)}
+.rms.thm-restpro .ag .p-scan{stroke:var(--gold)}
+.rms.thm-restpro .lh-box svg,.rms.thm-restpro .lh-grid .lh-tile .lh-box svg *{animation:none}
+.rms.thm-restpro .lh-tile:hover .lh-box{transform:translateY(-2px);border-color:color-mix(in srgb,var(--gold) 55%,var(--line));box-shadow:var(--sh-3)}
+.rms.thm-restpro .lh-tile:hover .lh-box svg,.rms.thm-restpro .lh-tile:hover .lh-box svg *{animation:none;filter:none;stroke-width:inherit}
+.rms.thm-restpro .lh-grid .lh-tile{animation:fadein var(--t-slow) var(--ease-out) both}
+.rms.thm-restpro .lh-cnt{background:var(--gold);color:#101D35;font-weight:700}
+.rms.thm-restpro .lh-bdg{background:var(--rose);color:#fff}
+.rms.thm-restpro .lh-hi{color:var(--dim)}
+
+/* v42.5 — الشريط العلوي: أزرار مربعة موحّدة بحد خفيف، وشارة الإصدار هادئة */
+.rms.thm-restpro .topstatus{gap:8px}
+.rms.thm-restpro .topstatus .btn.sm.gh{width:38px;height:38px;border:1px solid var(--line);background:var(--ink2);border-radius:10px}
+.rms.thm-restpro .topstatus .btn.sm.gh:hover{background:var(--ink3)}
+.rms.thm-restpro .topstatus .synctime{width:auto !important;padding:0 10px !important}
+.rms.thm-restpro .verbadge{background:color-mix(in srgb,var(--gold) 16%,transparent) !important;color:var(--acc) !important;border:0 !important;font-weight:700}
+.rms.thm-restpro .usermenu-btn{border-color:var(--line);background:var(--ink2);height:42px;border-radius:12px}
 `;
