@@ -3,7 +3,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { HardDrive, FileBarChart, ChevronDown, Printer, ArrowLeftRight, ClipboardCheck, Truck, Store, BarChart3, AlertTriangle, Trash2, TrendingUp, Download, Check, Upload, Plus, Landmark, X } from 'lucide-react';
 import { PrepList } from './PrepList.jsx';   // v40.8
 import { TurnoverPpv } from './TurnoverPpv.jsx';   // v42.0
-import { BlindCount, Field, ITEM_TYPES, Kpi, LOCK_MSG, MAIN_WH, MOVE_KINDS, Modal, PriceAlerts, ROLES, SectionNav, UsageVariance, WarehousesPanel, WasteControl, WasteFields, arDate, isCostCtl, isStocked, itemAvgCosts, itemType, makeXlsx, money, nowISO, pFactor, parseCsvGrid, parseXlsxGrid, partGross, partYield, periodLocked, prepUnitCost, kcalUnitFactor, productKcal, printA4, q3, recipeCost, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whName, whOn } from '../../App.jsx';
+import { Production } from './Production.jsx';   // v42.8
+import { BlindCount, Field, ITEM_TYPES, Kpi, LOCK_MSG, MAIN_WH, MOVE_KINDS, Modal, PriceAlerts, ROLES, SectionNav, UsageVariance, WarehousesPanel, WasteControl, WasteFields, arDate, isCostCtl, isStocked, itemAvgCosts, itemType, makeXlsx, money, nowISO, pFactor, parseCsvGrid, parseXlsxGrid, partGross, partYield, periodLocked, prepUnitCost, kcalUnitFactor, productKcal, printA4, q3, recipeCost, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whName, whOn, prepItemId } from '../../App.jsx';
 
 export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
   const [view, setView] = useState('items');        // items | moves | count | recipes
@@ -233,10 +234,13 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
     const badY = (f.parts || []).find(pt => (pt.itemId || pt.prepId) && pt.yield !== '' && pt.yield != null && !(Number(pt.yield) > 0 && Number(pt.yield) <= 100));
     if (badY) return say('معامل الناتج بين 1 و100%', 'no');
     const parts = cleanParts(f.parts); if (!parts.length) return say('أضف مكوّنات التحضيرة', 'no');
-    const rec = { id: f.id || uid('prep'), name: f.name.trim(), unit: String(f.unit || '').trim() || 'كجم', batch: Number(f.batch), parts };
+    const rec = { id: f.id || uid('prep'), name: f.name.trim(), unit: String(f.unit || '').trim() || 'كجم', batch: Number(f.batch), parts, ...(f.stocked ? { stocked: true } : {}) };
     const trial = { ...org, preps: [...preps.filter(x => x.id !== rec.id), rec] };
     const C = recipeCost(trial, [{ prepId: rec.id, qty: 1 }], AVG); if (/دائرية/.test(C.miss)) return say('لا يمكن: التحضيرة تحتوي نفسها عبر تحضيرة أخرى (وصفة دائرية)', 'no');
-    await commitOrg(d => ({ ...d, preps: f.id ? (d.preps || []).map(x => x.id === f.id ? rec : x) : [...(d.preps || []), rec] }), { actionType: f.id ? 'update' : 'create', targetType: 'product', targetId: rec.id,
+    // v42.8: «تُخزَّن صنفًا» ⇒ صنف مخزني مرتبط بالتحضيرة (prepId) يستقبل ناتج أوامر الإنتاج؛ لا يُحذف عند الإلغاء (قد تكون عليه حركات)
+    const withItem = (d) => { if (!rec.stocked) return d.items; const its = d.items || []; const cur = its.find(x => x.prepId === rec.id);
+      return cur ? its.map(x => x.prepId === rec.id ? { ...x, name: rec.name, unit: rec.unit, isActive: true } : x) : [...its, { id: prepItemId(rec.id), name: rec.name, unit: rec.unit, type: 'stock', prepId: rec.id, cost: prepUnitCost({ ...d, preps: [...(d.preps || []).filter(x => x.id !== rec.id), rec] }, rec, AVG).cost || 0, minQty: 0, isActive: true }]; };
+    await commitOrg(d => ({ ...d, items: withItem(d), preps: f.id ? (d.preps || []).map(x => x.id === f.id ? rec : x) : [...(d.preps || []), rec] }), { actionType: f.id ? 'update' : 'create', targetType: 'product', targetId: rec.id,
       title: f.id ? 'عدّل تحضيرة (وصفة فرعية)' : 'أضاف تحضيرة (وصفة فرعية)', details: rec.name + ' · ' + rec.batch + ' ' + rec.unit + ' · ' + money(prepUnitCost(trial, rec, AVG).cost) + '/' + rec.unit });
     setPrepF(null); say('حُفظت التحضيرة ✓'); };
   const delPrep = async (pr) => { const u = prepUses(pr.id); if (u.length) return say('مستخدمة في: ' + u.join('، ') + ' — أزلها منها أولًا', 'no');
@@ -307,7 +311,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
       </div>
 
       <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-        <SectionNav label="أقسام المخزون" cur={view} onPick={setView} items={[{ id: 'items', ar: 'الأصناف والأرصدة', group: 'المخزون', icon: HardDrive }, { id: 'moves', ar: 'الحركات', group: 'المخزون', icon: ArrowLeftRight }, { id: 'count', ar: 'الجرد' + (whOn(org) ? ' (الرئيسي)' : ''), group: 'المخزون', icon: ClipboardCheck }, { id: 'wh', ar: 'المستودعات', group: 'المخزون', icon: Truck }, { id: 'recipes', ar: 'الوصفات والتكلفة', group: 'المطبخ والوصفات', icon: Store }, { id: 'prep', ar: 'قائمة التحضير اليومية', group: 'المطبخ والوصفات', icon: Store }, { id: 'menu', ar: 'هندسة القائمة', group: 'المطبخ والوصفات', icon: BarChart3 }, { id: 'usage', ar: 'الاستهلاك النظري والفعلي', group: 'الرقابة', icon: AlertTriangle }, { id: 'turnover', ar: 'الدوران وفروق أسعار الشراء', group: 'الرقابة', icon: TrendingUp }, { id: 'waste', ar: 'ضبط الهدر', group: 'الرقابة', icon: Trash2, badge: (ops.wasteRequests || []).filter(r => r.status === 'pending').length || null }, { id: 'prices', ar: 'تنبيهات الأسعار', group: 'الرقابة', icon: TrendingUp, badge: (ops.purchaseOrders || []).filter(po => po.status === 'pending' && po.priceAlert).length || null }]} />
+        <SectionNav label="أقسام المخزون" cur={view} onPick={setView} items={[{ id: 'items', ar: 'الأصناف والأرصدة', group: 'المخزون', icon: HardDrive }, { id: 'moves', ar: 'الحركات', group: 'المخزون', icon: ArrowLeftRight }, { id: 'count', ar: 'الجرد' + (whOn(org) ? ' (الرئيسي)' : ''), group: 'المخزون', icon: ClipboardCheck }, { id: 'wh', ar: 'المستودعات', group: 'المخزون', icon: Truck }, { id: 'recipes', ar: 'الوصفات والتكلفة', group: 'المطبخ والوصفات', icon: Store }, { id: 'prep', ar: 'قائمة التحضير اليومية', group: 'المطبخ والوصفات', icon: Store }, { id: 'production', ar: 'أوامر الإنتاج', group: 'المطبخ والوصفات', icon: Store }, { id: 'menu', ar: 'هندسة القائمة', group: 'المطبخ والوصفات', icon: BarChart3 }, { id: 'usage', ar: 'الاستهلاك النظري والفعلي', group: 'الرقابة', icon: AlertTriangle }, { id: 'turnover', ar: 'الدوران وفروق أسعار الشراء', group: 'الرقابة', icon: TrendingUp }, { id: 'waste', ar: 'ضبط الهدر', group: 'الرقابة', icon: Trash2, badge: (ops.wasteRequests || []).filter(r => r.status === 'pending').length || null }, { id: 'prices', ar: 'تنبيهات الأسعار', group: 'الرقابة', icon: TrendingUp, badge: (ops.purchaseOrders || []).filter(po => po.status === 'pending' && po.priceAlert).length || null }]} />
       </div>
 
       <div className="grid g4">
@@ -418,6 +422,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
       {view === 'prep' && <PrepList org={org} ops={ops} me={me} say={say} />}
       {view === 'usage' && <UsageVariance org={org} ops={ops} me={me} commit={commit} say={say} />}
       {view === 'turnover' && <TurnoverPpv org={org} ops={ops} />}
+      {view === 'production' && <Production org={org} ops={ops} me={me} commit={commit} say={say} />}
       {view === 'prices' && <PriceAlerts org={org} ops={ops} />}
       {view === 'waste' && <WasteControl org={org} ops={ops} me={me} commit={commit} commitOrg={commitOrg} say={say} />}
 
@@ -661,6 +666,10 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
             <Field label="الاسم"><input className="inp" value={prepF.name} placeholder="صلصة ثوم، تتبيلة شاورما، عجينة…" onChange={e => setPrepF(f => ({ ...f, name: e.target.value }))} /></Field>
             <Field label="كمية الناتج للدفعة"><input className="inp n" inputMode="decimal" value={prepF.batch} placeholder="5" onChange={e => setPrepF(f => ({ ...f, batch: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
             <Field label="الوحدة"><input className="inp" value={prepF.unit} placeholder="كجم" onChange={e => setPrepF(f => ({ ...f, unit: e.target.value }))} /></Field>
+            <label className="row" style={{ gap: 8, alignItems: 'center', fontSize: 13, cursor: 'pointer', gridColumn: '1/-1' }}>
+              <input type="checkbox" checked={!!prepF.stocked} onChange={e => setPrepF(f => ({ ...f, stocked: e.target.checked }))} />
+              تُخزَّن صنفًا (أوامر الإنتاج) — الناتج يدخل المخزون ويُصرف للفروع ويُجرد
+            </label>
           </div>
           <div className="note" style={{ margin: '6px 0 8px' }}>اكتب ما يدخل في <b>دفعة واحدة</b> وكمية ما تُنتجه بعد الطهي/التصفية. تكلفة الوحدة = تكلفة المكوّنات ÷ الناتج.</div>
           {partsEditor(prepF.parts || [], (ps) => setPrepF(f => ({ ...f, parts: ps })), prepF.id)}

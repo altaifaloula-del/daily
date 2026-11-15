@@ -612,7 +612,7 @@ const BR_COLS = ['closings', 'transfers', 'partnerRequests', 'notifications', 'b
   'cashCounts',
   // v41.6 — سجل صيانة المعدات (بلاغات الأعطال والصيانة الوقائية)
   'maintLogs'];
-const CORE_COLS = ['archLog', 'cardRecons', 'ledgerSnaps', 'salesInvoices', 'advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules', 'hrScoreSnapshots'];
+const CORE_COLS = ['prodOrders', 'archLog', 'cardRecons', 'ledgerSnaps', 'salesInvoices', 'advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules', 'hrScoreSnapshots'];
 
 // تقسيم ops المدمجة إلى مستند مركزي + مستند لكل فرع
 function splitOps(ops, branchIds) {
@@ -2842,7 +2842,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v42.7';
+const APP_VER = 'v42.8';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -8023,12 +8023,64 @@ function recipeCost(org, parts, avg) {
 }
 /** تكلفة وحدة الناتج من التحضيرة */
 const prepUnitCost = (org, pr, avg) => { const b = Number(pr && pr.batch) || 0; if (!(b > 0)) return { cost: 0, miss: 'بلا كمية ناتج' }; const C = recipeCost(org, pr.parts, avg); return { cost: Math.round(C.cost / b * 10000) / 10000, miss: C.miss }; };
+/* ===== v42.8 — أوامر الإنتاج (قرارات المالك) =====
+   • الإكمال يصرف الخامات ويُدخل المنتج نصف المصنّع صنفًا مخزنيًا مكلَّفًا بما استُهلك.
+   • الاستهلاك = الوصفة × الكمية المنتجة فعلًا (الزيادة تظهر في الجرد وتقرير الاستهلاك).
+   • المستودع يُختار لكل أمر (الافتراضي الرئيسي).
+   • التحضيرة الفرعية المخزّنة تُصرف من مخزونها؛ غير المخزّنة تُفكّ إلى خاماتها.
+   الحركات: prod_out (سالب) و prod_in (موجب بتكلفة) في المستودع نفسه — لا قيد محاسبي لأنها نقل داخل المخزون. */
+const prepItemId = (prepId) => 'pp_' + prepId;
+const prepItemOf = (org, prepId) => ((org && org.items) || []).find(it => it.prepId === prepId) || null;
+function prodNeeds(org, prep, qty, seen = []) {
+  const need = {}, missing = []; const b = Number(prep && prep.batch) || 0;
+  if (!prep || !(b > 0)) return { need, missing: ['بلا كمية ناتج'] };
+  const mult = (Number(qty) || 0) / b;
+  (prep.parts || []).forEach(pt => {
+    const g = partGross(pt) * mult; if (!(g > 0)) return;
+    if (pt.itemId) { need[pt.itemId] = (need[pt.itemId] || 0) + g; return; }
+    if (!pt.prepId) return;
+    const sub = ((org && org.preps) || []).find(x => x.id === pt.prepId);
+    if (!sub) { missing.push('تحضيرة محذوفة'); return; }
+    const si = prepItemOf(org, sub.id);
+    if (si) { need[si.id] = (need[si.id] || 0) + g; return; }   // مخزّنة ⇒ تُصرف من مخزونها
+    if (seen.includes(sub.id) || seen.length >= 5) { missing.push('وصفة دائرية'); return; }
+    const R = prodNeeds(org, sub, g, [...seen, prep.id]); Object.entries(R.need).forEach(([k, v]) => { need[k] = (need[k] || 0) + v; }); missing.push(...R.missing);
+  });
+  Object.keys(need).forEach(k => { need[k] = Math.round(need[k] * 1000) / 1000; });
+  return { need, missing };
+}
+/** فحص أمر الإنتاج: الاحتياج مقابل رصيد المستودع والتكلفة المتوقعة */
+function prodCheck(org, ops, prepId, qty, whId) {
+  const prep = ((org && org.preps) || []).find(x => x.id === prepId); const item = prepItemOf(org, prepId);
+  if (!prep) return { err: 'التحضيرة غير موجودة' };
+  if (!item) return { err: 'التحضيرة غير مفعّل تخزينها — فعّل «تُخزَّن صنفًا (أوامر الإنتاج)» من بطاقتها' };
+  if (!(Number(qty) > 0)) return { err: 'أدخل الكمية' };
+  const R = prodNeeds(org, prep, qty); if (R.missing.length) return { err: 'الوصفة غير مكتملة: ' + R.missing[0] };
+  const wid = whId || MAIN_WH, bal = (stockByWh(org, ops).byWh[wid] || {}), avg = itemAvgCosts(org, ops);
+  const itN = (id) => ((org.items || []).find(x => x.id === id) || {}).name || id;
+  const lines = Object.entries(R.need).map(([itemId, q]) => { const have = Math.round((bal[itemId] || 0) * 1000) / 1000, c = Number(avg[itemId]) || 0;
+    return { itemId, name: itN(itemId), qty: q, have, short: Math.max(0, Math.round((q - have) * 1000) / 1000), cost: Math.round(q * c * 100) / 100 }; });
+  const cost = Math.round(lines.reduce((a, l) => a + l.cost, 0) * 100) / 100;
+  return { prep, item, wid, lines, cost, unitCost: Math.round(cost / Number(qty) * 10000) / 10000, short: lines.filter(l => l.short > 0) };
+}
+/** حركات إكمال أمر الإنتاج — col: stockMoves (رئيسي/مركزي) أو whMoves (مستودع فرع) */
+function prodMoves(org, ops, o, made, meta = {}) {
+  const C = prodCheck(org, ops, o.prepId, made, o.whId); if (C.err) return C; if (C.short.length) return { err: 'رصيد غير كافٍ: ' + C.short.map(l => l.name + ' (ينقص ' + l.short + ')').join('، '), short: C.short };
+  const w = whOf(org).find(x => x.id === C.wid); const branch = w && w.kind === 'branch';
+  const base = { date: meta.date || today(), at: meta.at || nowISO(), by: meta.by || '', ref: o.no, prodId: o.id, ...(whOn(org) ? { whId: C.wid } : {}), ...(branch ? { branchId: w.branchId } : {}) };
+  const pre = branch ? 'wm' : 'sm';
+  const moves = [...C.lines.map(l => ({ id: uid(pre), ...base, itemId: l.itemId, kind: 'prod_out', qty: -l.qty, note: 'إنتاج ' + o.no + ' — ' + C.prep.name })),
+    { id: uid(pre), ...base, at: (meta.at || nowISO()) + '~', itemId: C.item.id, kind: 'prod_in', qty: Math.round(Number(made) * 1000) / 1000, unitCost: C.unitCost, note: 'ناتج ' + o.no }];
+  return { col: branch ? 'whMoves' : 'stockMoves', moves, cost: C.cost, unitCost: C.unitCost };
+}
 const MOVE_KINDS = {
   purchase: { ar: 'توريد شراء', sign: 1, c: 'b-mint' },
   in: { ar: 'توريد يدوي', sign: 1, c: 'b-mint' },
   out: { ar: 'صرف للتشغيل', sign: -1, c: 'b-sky' },
   waste: { ar: 'هدر/إتلاف', sign: -1, c: 'b-rose' },
-  adjust: { ar: 'تسوية جرد', sign: 1, c: 'b-amber' }
+  adjust: { ar: 'تسوية جرد', sign: 1, c: 'b-amber' },
+  prod_out: { ar: 'صرف للإنتاج', sign: -1, c: 'b-violet' },   // v42.8
+  prod_in: { ar: 'ناتج إنتاج', sign: 1, c: 'b-mint' }
 };
 /* ============ v29.9 — لوحة المستودعات (المركز): الإعداد، الأرصدة، صرف التحويلات ============ */
 const WH_ST = { requested: ['b-amber', 'مطلوب'], proposed: ['b-amber', 'بانتظار اعتماد المركز'], sent: ['b-sky', 'في الطريق'], received: ['b-mint', 'مُستلم'], cancelled: ['b-dim', 'ملغى'], rejected: ['b-rose', 'مرفوض'] };
@@ -8174,7 +8226,8 @@ function usageReport(org, ops, wid, from, to) {
   const mv = useWh ? (w && w.kind === 'branch' ? (ops.whMoves || []).filter(m => m.whId === wid) : (ops.stockMoves || []).filter(m => (m.whId || MAIN_WH) === wid)) : (ops.stockMoves || []);
   const act = {}; const add = (id, k, v) => { const a = act[id] || (act[id] = { out: 0, waste: 0, count: 0 }); a[k] += v; };
   mv.filter(m => inP(m.date)).forEach(m => { const q = Number(m.qty) || 0;
-    if (m.kind === 'out') add(m.itemId, 'out', -q); else if (m.kind === 'waste') add(m.itemId, 'waste', -q); else if (m.kind === 'adjust') add(m.itemId, 'count', -q); });
+    if (items.some(x => x.id === m.itemId && x.prepId)) return;   // v42.8: أصناف التحضيرات ليست خامات — النظري يفكّها إلى خاماتها
+    if (m.kind === 'out' || m.kind === 'prod_out') add(m.itemId, 'out', -q); else if (m.kind === 'waste') add(m.itemId, 'waste', -q); else if (m.kind === 'adjust') add(m.itemId, 'count', -q); });
   const AVG = itemAvgCosts(org, ops, to);
   const ids = [...new Set([...Object.keys(theo), ...Object.keys(act)])];
   const r3 = (n) => Math.round(n * 1000) / 1000, r2 = (n) => Math.round(n * 100) / 100;
@@ -8810,7 +8863,7 @@ function ppvReport(org, ops, opts = {}) {
   const items = Object.values(by).sort((a, b) => b.value - a.value);
   return { from, to, lines: lines.sort((a, b) => b.value - a.value), items, up: PPV_R(sum(items, g => g.up)), down: PPV_R(sum(items, g => g.down)), net: PPV_R(sum(items, g => g.value)) };
 }
-const TURN_OUT = ['out', 'waste', 'adjust'];
+const TURN_OUT = ['out', 'waste', 'adjust', 'prod_out'];
 function invTurnover(org, ops, opts = {}) {
   const to = opts.to || today(), from = opts.from || anDay(to, -89), days = Math.max(1, savDays(from, to));
   const C = stockCosting(org, ops, to), avg = C.avg || {};
@@ -10840,7 +10893,7 @@ async function qrAnalyzeComments(items) {
 
 
 // v38.3 — ما تحتاجه ملفات التطبيقات المنفصلة (mods/) من النواة
-export { A4_CSS, clrMerge, clrRead, clrViewStats, ppvReport, invTurnover, dirOf, isMzbk, mzbkDecrypt, clrData, clrRecord, clrSigRef, clrDiff, clrCompare, clrOn, clrState, clrMirror, clrLoad, clrSeed, OdooBar, ACCT_SECTIONS, ACCT_SEC_AR, ACC_KIND, ALL_TABS, APPS, AdvanceForm, AppPermsPanel, AppsStrip, BR_COLS, Badge, BalCell, BlindCount, BranchForm, COUNT_FREQ, COUNT_ST, CameraModal, CategoriesPanel, ClosingView, CloudHealth, CountScheduleCard, DAYS_AR, DENOMS, DOC_LABEL, DOC_TYPES, DailyBranchReport, DeliveryAppsPanel, DisbursementForm, DupInvHint, EXP_CATS, FILE_CATS, Field, FinancialReports, GROWTH_MONTHS, HR_WEEK_DAYS, HrSignPad, ITEM_TYPES, Kpi, LAUNCH_APPS, LEAVE_TYPES, LOCK_MSG, MAIN_WH, MFA_DEFAULT_ROLES, MOVE_KINDS, MZ_FIXED, MZ_KIND_AR, MZ_LOGO_HTML, MZ_SUGGEST, MfaPolicyCard, MizanMerge, Modal, MoneyField, NUM_FACE, NUM_LOCALE, NationalAddressFields, Num, OutputDialog, PAY_ADD_TYPES, PAY_GUESS, PEN_TYPES, POS_DEV_KEY, POS_SH_KEY, PROMO_IDEAS, PROMO_T, PT_SRC, PT_TYPE, PartnerChip, PdfTile, PhotoField, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, PriceAlerts, QR_ITEMS, QR_STATUS, QUOTA_MSG, QrBranchesView, QrComplaints, QrDashboard, RB_KIND_AR, RB_PM_AR, RB_SOURCES, REG_APPS, REG_CATS, REG_IX, ROLES, SC_KPIS, SIGN_DOC_AR, SIG_H, SIG_W, SectionNav, SigView, SignDocsModal, SignaturePad, SystemPanel, TAB_AR, TRAIN_STATUS_AR, UsageVariance, UserForm, WASTE_REASONS, WH_KIND, WH_MOVE, WH_ST, WarehousesPanel, WasteControl, WasteFields, WastePending, WhLines, _normName, _xe, aCountDone, aItemsOf, acctSecKey, activePriorCorrectives, activeTrainingRecord, aiHeaders, appCanSee, appOpenNow, appUseGet, appUseSet, arDT, arDate, arTime, bankOfBranch, bioEnroll, bookHidden, branchBanks, branchEntityId, browserName, bsLayout, bsRowsOf, buildAccounting, buildClosingA4, buildPartners, buildPayslipSignDocs, businessDay, canApproveCount, canApproveWaste, capOK, chartTone, closingInvoices, clr, compressImage, computeIncome, contactFields, contactOf, correctiveExpiry, correctiveSignDoc, countCfgOf, countDenoms, countFocus, countSchedule, countedClosing, customerAging, daysBetween, defaultHrPolicies, defaultPenaltySchedule, defaultPointsRules, defaultRewardTiers, defaultRoleKpis, defaultTrainingPrograms, deficitCfg, deficitPatterns, detectStmtMap, deviceType, emptyDenoms, entityById, entityList, eosAccrualLines, eosCumAt, eosState, eosYears, escH, expiringTraining, expiryLots, exportExcel, fineSuggest, fmtBalP, fmtNA, frozenSnapshotFor, gosiRatesFor, haversineMeters, hrAttendanceDetail, hrEmpStats, hrQrWindowCode, hrScoreFor, isCostCtl, isLayout, isPdfData, isRowsOf, isStocked, isoD, itemAvgCosts, itemType, kpiAchievement, leaveBalance, leaveDeductPlan, lockedThru, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, makeXlsx, missingRequiredTraining, mizanPlan, money, moneyP, monthEnd, monthLabel, monthLedger, multiEntityOn, mzNewCode, mzR2, naClean, naErr, naHas, naMissing, newBranchDraft, nextPartnerCode, nextWhAcc, normPhone, normalizeSupPays, nowISO, onLeave, openDocWin, openPdfData, otFromAttendance, otRateOf, overdueSignDocs, pFactor, parseCsvGrid, parseMt940, parseXlsxGrid, partGross, partYield, payCashPart, payLabel, paySplits, payTotal, payrollRowsOf, penTypeAr, pendShiftsGet, pendShiftsSet, periodLocked, piAggregate, piDetect, piNorm, pipTriggered, posCashNet, posClrOf, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posShiftHtml, posTotals, posZHtml, positionJdHtml, printA4, printClosingA4, printIncomeA4, printPartnerStatement, printReceipt, printSalesInvoice, programRequiredFor, promoActive, promoDesc, promoHits, purKey, pwStrength, q3, qrAnalyzeComments, qrAvg, qrBranchStats, qrDate, qrF1, qrFs, qrIsComplaint, qrMs, qrOverall, qrOverdue, qrPrintReport, qrRateUrl, qrSentBadge, qrStatusOf, qrSvg, rewardSignDoc, roleEdit, roleHasTab, roleKpisFor, rolePost, salesDaySource, sha, sha256Hex, short, siCredited, siRem, siSorted, siStamp, siVerify, sigBlockHtml, sigPoints, sigSvg, signDeclaration, signDocHtml, simplifySig, slimBranchDoc, snapAll, snapMonths, snapPut, stAddDays, stDate, stNum, stockByWh, submitWaste, suggestNextLevel, sum, supplierAging, supplierPrices, today, trainingExpiryOf, trainingStatusNow, uid, usageReport, useSecNav, verifyBackup, waNum, wasteCfg, wasteDaily, wasteReasonAr, wasteRows, webauthnSupported, whForBranch, whName, whOf, whOn, zatcaTLV };
+export { A4_CSS, prepItemId, prepItemOf, prodNeeds, prodCheck, prodMoves, clrMerge, clrRead, clrViewStats, ppvReport, invTurnover, dirOf, isMzbk, mzbkDecrypt, clrData, clrRecord, clrSigRef, clrDiff, clrCompare, clrOn, clrState, clrMirror, clrLoad, clrSeed, OdooBar, ACCT_SECTIONS, ACCT_SEC_AR, ACC_KIND, ALL_TABS, APPS, AdvanceForm, AppPermsPanel, AppsStrip, BR_COLS, Badge, BalCell, BlindCount, BranchForm, COUNT_FREQ, COUNT_ST, CameraModal, CategoriesPanel, ClosingView, CloudHealth, CountScheduleCard, DAYS_AR, DENOMS, DOC_LABEL, DOC_TYPES, DailyBranchReport, DeliveryAppsPanel, DisbursementForm, DupInvHint, EXP_CATS, FILE_CATS, Field, FinancialReports, GROWTH_MONTHS, HR_WEEK_DAYS, HrSignPad, ITEM_TYPES, Kpi, LAUNCH_APPS, LEAVE_TYPES, LOCK_MSG, MAIN_WH, MFA_DEFAULT_ROLES, MOVE_KINDS, MZ_FIXED, MZ_KIND_AR, MZ_LOGO_HTML, MZ_SUGGEST, MfaPolicyCard, MizanMerge, Modal, MoneyField, NUM_FACE, NUM_LOCALE, NationalAddressFields, Num, OutputDialog, PAY_ADD_TYPES, PAY_GUESS, PEN_TYPES, POS_DEV_KEY, POS_SH_KEY, PROMO_IDEAS, PROMO_T, PT_SRC, PT_TYPE, PartnerChip, PdfTile, PhotoField, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, PriceAlerts, QR_ITEMS, QR_STATUS, QUOTA_MSG, QrBranchesView, QrComplaints, QrDashboard, RB_KIND_AR, RB_PM_AR, RB_SOURCES, REG_APPS, REG_CATS, REG_IX, ROLES, SC_KPIS, SIGN_DOC_AR, SIG_H, SIG_W, SectionNav, SigView, SignDocsModal, SignaturePad, SystemPanel, TAB_AR, TRAIN_STATUS_AR, UsageVariance, UserForm, WASTE_REASONS, WH_KIND, WH_MOVE, WH_ST, WarehousesPanel, WasteControl, WasteFields, WastePending, WhLines, _normName, _xe, aCountDone, aItemsOf, acctSecKey, activePriorCorrectives, activeTrainingRecord, aiHeaders, appCanSee, appOpenNow, appUseGet, appUseSet, arDT, arDate, arTime, bankOfBranch, bioEnroll, bookHidden, branchBanks, branchEntityId, browserName, bsLayout, bsRowsOf, buildAccounting, buildClosingA4, buildPartners, buildPayslipSignDocs, businessDay, canApproveCount, canApproveWaste, capOK, chartTone, closingInvoices, clr, compressImage, computeIncome, contactFields, contactOf, correctiveExpiry, correctiveSignDoc, countCfgOf, countDenoms, countFocus, countSchedule, countedClosing, customerAging, daysBetween, defaultHrPolicies, defaultPenaltySchedule, defaultPointsRules, defaultRewardTiers, defaultRoleKpis, defaultTrainingPrograms, deficitCfg, deficitPatterns, detectStmtMap, deviceType, emptyDenoms, entityById, entityList, eosAccrualLines, eosCumAt, eosState, eosYears, escH, expiringTraining, expiryLots, exportExcel, fineSuggest, fmtBalP, fmtNA, frozenSnapshotFor, gosiRatesFor, haversineMeters, hrAttendanceDetail, hrEmpStats, hrQrWindowCode, hrScoreFor, isCostCtl, isLayout, isPdfData, isRowsOf, isStocked, isoD, itemAvgCosts, itemType, kpiAchievement, leaveBalance, leaveDeductPlan, lockedThru, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, makeXlsx, missingRequiredTraining, mizanPlan, money, moneyP, monthEnd, monthLabel, monthLedger, multiEntityOn, mzNewCode, mzR2, naClean, naErr, naHas, naMissing, newBranchDraft, nextPartnerCode, nextWhAcc, normPhone, normalizeSupPays, nowISO, onLeave, openDocWin, openPdfData, otFromAttendance, otRateOf, overdueSignDocs, pFactor, parseCsvGrid, parseMt940, parseXlsxGrid, partGross, partYield, payCashPart, payLabel, paySplits, payTotal, payrollRowsOf, penTypeAr, pendShiftsGet, pendShiftsSet, periodLocked, piAggregate, piDetect, piNorm, pipTriggered, posCashNet, posClrOf, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posShiftHtml, posTotals, posZHtml, positionJdHtml, printA4, printClosingA4, printIncomeA4, printPartnerStatement, printReceipt, printSalesInvoice, programRequiredFor, promoActive, promoDesc, promoHits, purKey, pwStrength, q3, qrAnalyzeComments, qrAvg, qrBranchStats, qrDate, qrF1, qrFs, qrIsComplaint, qrMs, qrOverall, qrOverdue, qrPrintReport, qrRateUrl, qrSentBadge, qrStatusOf, qrSvg, rewardSignDoc, roleEdit, roleHasTab, roleKpisFor, rolePost, salesDaySource, sha, sha256Hex, short, siCredited, siRem, siSorted, siStamp, siVerify, sigBlockHtml, sigPoints, sigSvg, signDeclaration, signDocHtml, simplifySig, slimBranchDoc, snapAll, snapMonths, snapPut, stAddDays, stDate, stNum, stockByWh, submitWaste, suggestNextLevel, sum, supplierAging, supplierPrices, today, trainingExpiryOf, trainingStatusNow, uid, usageReport, useSecNav, verifyBackup, waNum, wasteCfg, wasteDaily, wasteReasonAr, wasteRows, webauthnSupported, whForBranch, whName, whOf, whOn, zatcaTLV };
 export { ClosingForm };
 // v38.3 — للاختبارات الآلية (tests/): دوال المحرك والشاشات تُستورد من النواة مباشرة
 export { stockCosting, eosEntitledAmt, eosFullAmt, findDupInvoices, invNoNorm, promoLineDisc, tafqeet, Hub, Launcher, PosApp, Inventory, Partners, SalesHub, QrFeedback, AppsCenter, BranchWarehouse, Admin, AuditView, Accounting, emptyOrg, emptyOps, HUBS };

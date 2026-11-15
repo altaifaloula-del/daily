@@ -1107,3 +1107,30 @@ test('v42.2 القراءة من السجلات: السجل يغلب مستند �
   assert.equal(E.clrRead({ closingRecords: { on: false, read: true } }), false);
   assert.equal(E.clrRead({}), false, 'مُطفأة افتراضيًا');
 });
+
+test('v42.8 أوامر الإنتاج: الاحتياج من الوصفة بالناتج، التحضيرة المخزّنة تُصرف من مخزونها، المنع عند النقص، والتكلفة تنتقل للناتج', () => {
+  const org = { branches: [], warehouses: [],
+    items: [{ id: 'ga', name: 'ثوم', unit: 'كجم', cost: 10 }, { id: 'oi', name: 'زيت', unit: 'لتر', cost: 8 }, { id: 'pp_sauce', name: 'ثومية', unit: 'كجم', type: 'stock', prepId: 'sauce' }],
+    preps: [{ id: 'sauce', name: 'ثومية', unit: 'كجم', batch: 5, parts: [{ itemId: 'ga', qty: 1, yield: 80 }, { itemId: 'oi', qty: 4 }] },
+      { id: 'mar', name: 'تتبيلة', unit: 'كجم', batch: 2, parts: [{ prepId: 'sauce', qty: 1 }, { itemId: 'oi', qty: 1 }] },
+      { id: 'mar2', name: 'تتبيلة2', unit: 'كجم', batch: 2, parts: [{ prepId: 'raw', qty: 1 }] }, { id: 'raw', name: 'خليط غير مخزّن', unit: 'كجم', batch: 1, parts: [{ itemId: 'ga', qty: 0.5 }] }] };
+  // 10 كجم ثومية = دفعتان: ثوم 1÷0.8×2 = 2.5 · زيت 8
+  assert.deepEqual(E.prodNeeds(org, org.preps[0], 10).need, { ga: 2.5, oi: 8 });
+  // التحضيرة الفرعية المخزّنة تُصرف كصنف، وغير المخزّنة تُفكّ إلى خاماتها
+  assert.deepEqual(E.prodNeeds(org, org.preps[1], 4).need, { pp_sauce: 2, oi: 2 });
+  assert.deepEqual(E.prodNeeds(org, org.preps[2], 2).need, { ga: 0.5 });
+  const ops = { stockMoves: [{ id: 'a', date: '2026-11-01', at: '2026-11-01T08:00', itemId: 'ga', kind: 'purchase', qty: 3, unitCost: 10 }, { id: 'b', date: '2026-11-01', at: '2026-11-01T08:00', itemId: 'oi', kind: 'purchase', qty: 10, unitCost: 8 }], whMoves: [], whTransfers: [] };
+  const C = E.prodCheck(org, ops, 'sauce', 10);
+  assert.equal(C.cost, 2.5 * 10 + 8 * 8); assert.equal(C.unitCost, 8.9); assert.equal(C.short.length, 0);
+  assert.equal(E.prodCheck(org, ops, 'sauce', 20).short.length, 2, 'ضعف الكمية ⇒ نقص في الثوم والزيت');
+  assert.match(E.prodMoves(org, ops, { id: 'm1', no: 'MO-1', prepId: 'sauce' }, 20).err, /رصيد غير كافٍ/, 'المخزون السالب ممنوع');
+  assert.match(E.prodCheck({ ...org, items: org.items.filter(i => !i.prepId) }, ops, 'sauce', 10).err, /غير مفعّل تخزينها/);
+  const P = E.prodMoves(org, ops, { id: 'm1', no: 'MO-1', prepId: 'sauce' }, 10, { date: '2026-11-02', at: '2026-11-02T09:00', by: 'شيف' });
+  assert.equal(P.col, 'stockMoves');
+  const ops2 = { ...ops, stockMoves: [...P.moves, ...ops.stockMoves] };
+  const T = E.stockByWh(org, ops2).total;
+  assert.deepEqual([Math.round(T.ga * 1000) / 1000, T.oi, T.pp_sauce], [0.5, 2, 10], 'صُرفت الخامات ودخل الناتج');
+  assert.equal(E.itemAvgCosts(org, ops2).pp_sauce, 8.9, 'الناتج مكلَّف بما استُهلك');
+  const A0 = E.buildAccounting(org, ops), A1 = E.buildAccounting(org, ops2);
+  assert.equal(A1.balanced, true); assert.equal(A1.entries.length, A0.entries.length, 'نقل داخل المخزون — لا قيد');
+});
