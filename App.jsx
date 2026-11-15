@@ -19,6 +19,7 @@ import {
   CartesianGrid, Tooltip, LineChart, Line
 } from 'recharts';
 import { CSS } from './styles';
+import { TX, getLang, setLangGlobal, isEn } from './i18n';
 import { cloud, KEYS, kb, authApi, brKey, bfKey } from './storage';
 
 /* ===== v38.3 — تحميل التطبيقات عند الطلب =====
@@ -2842,7 +2843,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v42.9';
+const APP_VER = 'v43.0';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -2973,6 +2974,10 @@ function PlatformApp() {
   const [theme, setTheme] = useState(() => { try { localStorage.setItem('rms8:themeV35', '1'); if (localStorage.getItem('rms8:themeRP') !== '1') { localStorage.setItem('rms8:themeRP', '1'); localStorage.setItem('rms8:theme', 'restpro'); return 'restpro'; } return normTheme(localStorage.getItem('rms8:theme') || 'restpro'); } catch { return 'restpro'; } });
   // v42.1: طيّ القائمة الجانبية (هوية RESTAURANT PRO) — تفضيل محلي لكل جهاز
   const [sideCol, setSideCol] = useState(() => { try { return localStorage.getItem('rms8:sideCol') === '1'; } catch { return false; } });
+  // v43.0: لغة الواجهة (عربي/إنجليزي) — تفضيل محلي لكل جهاز؛ التبديل يعيد رسم المحتوى
+  const [lang, setLang] = useState(getLang);
+  useEffect(() => { setLangGlobal(lang); }, [lang]);
+  const toggleLang = () => setLang(l => { const n = l === 'en' ? 'ar' : 'en'; setLangGlobal(n); return n; });
   const toggleSide = () => setSideCol(v => { const n = !v; try { localStorage.setItem('rms8:sideCol', n ? '1' : '0'); } catch { } return n; });
   const [mode, setMode] = useState(() => { try { return localStorage.getItem('rms8:mode') === 'dark' ? 'dark' : 'light'; } catch { return 'light'; } });
   const [tour, setTour] = useState(false);
@@ -3887,6 +3892,7 @@ function PlatformApp() {
   // v35.3: الشريط السفلي بأولوية العمل اليومي — الرئيسية، البيع، الإغلاق، التقارير — والباقي في «المزيد»
   const BOT_PRI = ['home', 'pos', 'closing', 'reporting', 'acct', 'sales', 'purchasing', 'analytics'];
   const BOT_AR = { home: 'الرئيسية', pos: 'البيع', closing: 'الإغلاق', reporting: 'التقارير', acct: 'المحاسبة', sales: 'المبيعات', purchasing: 'المشتريات', analytics: 'التحليل' };
+  const BOT_EN = { home: 'Home', pos: 'POS', closing: 'Closing', reporting: 'Reports', acct: 'Accounting', sales: 'Sales', purchasing: 'Purchasing', analytics: 'Analytics' };
   const BOT_SUB = { closing: ['approve', 'shifts', 'cashiers'], reporting: ['reports', 'rbuild', 'boardpack', 'cashflow'], acct: ['treasury', 'entities'], analytics: ['alerts', 'exec', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'ai'] };
   const botNav = (() => { const pick = BOT_PRI.map(id => NAV_SHOW.find(n => n.id === id)).filter(Boolean); const rest = NAV_SHOW.filter(n => !BOT_PRI.includes(n.id)); const all = [...pick, ...rest]; return all.length <= 5 ? all : all.slice(0, 4); })();
 
@@ -3897,17 +3903,17 @@ function PlatformApp() {
   const safeTab = allowedTabs.includes(tab) ? tab : (allowedTabs[0] || 'closing');
 
   return (
-    <div className={themeCls(theme, mode) + (sideCol ? ' rp-collapsed' : '')}>
+    <div className={themeCls(theme, mode) + (sideCol ? ' rp-collapsed' : '') + (lang === 'en' ? ' lang-en' : '')} dir={lang === 'en' ? 'ltr' : 'rtl'} lang={lang}>
       <style dangerouslySetInnerHTML={{ __html: CSS + '.spin{animation:sp 1s linear infinite}@keyframes sp{to{transform:rotate(360deg)}}' }} />
       {needUpdate && <UpdateGate rel={needUpdate} />}
-      <div className="shell"
+      <div className="shell" key={'lang-' + lang}
         onTouchStart={(e) => {
           if (window.innerWidth > 900) return;
           const t = e.touches[0];
           const startX = t.clientX;
           // فتح: يبدأ اللمس من الحافة اليمنى (بداية RTL) والقائمة مغلقة
           // إغلاق: اللمس والقائمة مفتوحة
-          const nearStartEdge = startX > window.innerWidth - 28;
+          const nearStartEdge = isEn() ? startX < 28 : startX > window.innerWidth - 28;
           touchRef.current = {
             x0: startX, y0: t.clientY, active: true,
             mode: drawer ? 'close' : (nearStartEdge ? 'open' : null)
@@ -3921,8 +3927,9 @@ function PlatformApp() {
           const dy = t.clientY - r.y0;
           if (Math.abs(dy) > Math.abs(dx)) return; // تمرير عمودي، تجاهل
           // في RTL: السحب لليسار (dx سالب) يفتح، السحب لليمين (dx موجب) يغلق
-          if (r.mode === 'open' && dx < -55) { setDrawer(true); r.mode = null; }
-          if (r.mode === 'close' && dx > 55) { setDrawer(false); r.mode = null; }
+          const sx = isEn() ? -dx : dx;
+          if (r.mode === 'open' && sx < -55) { setDrawer(true); r.mode = null; }
+          if (r.mode === 'close' && sx > 55) { setDrawer(false); r.mode = null; }
         }}
         onTouchEnd={() => { touchRef.current.active = false; touchRef.current.mode = null; }}>
         {!drawer && <div className="edgehint" />}
@@ -3936,7 +3943,7 @@ function PlatformApp() {
               <b>{BRAND}</b>
               <span>{org.company.name || BRAND_SUB}</span>
             </div>
-            <button className="btn sm gh sideclose" onClick={() => setDrawer(false)} title="إخفاء القائمة">
+            <button className="btn sm gh sideclose" onClick={() => setDrawer(false)} title={TX('إخفاء القائمة')}>
               <X size={18} />
             </button>
           </div>
@@ -3944,11 +3951,11 @@ function PlatformApp() {
           {/* v42.1: مجموعات القائمة كما في هوية RESTAURANT PRO — العناصر نفسها حسب صلاحية المستخدم */}
           {NAV_GROUPS.map(g => { const list = NAV_SHOW.filter(n => (NAV_GRP_OF[n.id] || 'ops') === g.id); return list.length ? (
             <React.Fragment key={g.id}>
-              <div className="nav-lbl">{g.ar}</div>
+              <div className="nav-lbl">{TX(g.ar)}</div>
               {list.map(n => (
-                <button key={n.id} className={'nav-i' + (tab === n.id ? ' on' : '')} title={n.ar}
+                <button key={n.id} className={'nav-i' + (tab === n.id ? ' on' : '')} title={TX(n.ar)}
                   onClick={() => { setTab(n.id); setDrawer(false); }}>
-                  <n.icon size={16} /><span className="rp-txt">{n.ar}</span>
+                  <n.icon size={16} /><span className="rp-txt">{TX(n.ar)}</span>
                   {n.cnt > 0 && <span className="cnt num">{n.cnt}</span>}
                 </button>
               ))}
@@ -3959,18 +3966,18 @@ function PlatformApp() {
                 <div style={{ fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis' }}>{me.name}</div>
                 <div style={{ fontSize: 10, color: 'var(--faint)' }}>{((ROLES[me.role] || {}).ar || me.role).split('—')[0]}</div>
               </div>
-              <button className="btn sm gh" onClick={() => setMe(null)} title="خروج"><LogOut size={13} /></button>
+              <button className="btn sm gh" onClick={() => setMe(null)} title={TX('خروج')}><LogOut size={13} /></button>
             </div>
             {!installed && (
               <button className="nav-i" onClick={doInstall} style={{ fontSize: 11.5, color: 'var(--brass)' }}>
-                <Download size={14} />تثبيت التطبيق على الجهاز
+                <Download size={14} />{TX('تثبيت التطبيق على الجهاز')}
               </button>
             )}
             <button className="nav-i" onClick={() => setTour(true)} style={{ fontSize: 11.5 }}>
-              <Compass size={14} />جولة تعريفية في المنصة
+              <Compass size={14} />{TX('جولة تعريفية في المنصة')}
             </button>
             <button className="nav-i" onClick={resetAll} style={{ fontSize: 11.5 }}>
-              <Trash2 size={14} /><span className="rp-txt">تفريغ بيانات المنصة</span>
+              <Trash2 size={14} /><span className="rp-txt">{TX('تفريغ بيانات المنصة')}</span>
             </button>
           </div>
           </div>
@@ -3979,10 +3986,10 @@ function PlatformApp() {
 
         <div className="main">
           <header className="top">
-            <button className="btn sm gh hidden-desk topmenu" onClick={() => setDrawer(d => !d)} title={drawer ? 'إخفاء القائمة' : 'إظهار القائمة'}>
+            <button className="btn sm gh hidden-desk topmenu" onClick={() => setDrawer(d => !d)} title={TX(drawer ? 'إخفاء القائمة' : 'إظهار القائمة')}>
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
-            <button className="rp-col" onClick={toggleSide} title={sideCol ? 'توسيع القائمة' : 'طيّ القائمة'} aria-label="طيّ القائمة الجانبية"><Menu size={18} /></button>
+            <button className="rp-col" onClick={toggleSide} title={TX(sideCol ? 'توسيع القائمة' : 'طيّ القائمة')} aria-label="طيّ القائمة الجانبية"><Menu size={18} /></button>
             {safeTab !== 'home' && (
               <button className="homebtn2" onClick={() => setTab('home')} title="الرئيسية — كل التطبيقات">
                 <Home size={17} />
@@ -3991,7 +3998,7 @@ function PlatformApp() {
             {org.company.logoUrl
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
               : <span className="toplogo-mark rp-mark" style={{ width: 30, height: 30, fontSize: 11 }}>RP</span>}
-            <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || 'الرئيسية') : HR_TABS.includes(safeTab) ? 'الموارد البشرية' : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || '')}</h1>
+            <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || TX('الرئيسية')) : TX(HR_TABS.includes(safeTab) ? 'الموارد البشرية' : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || ''))}</h1>
             <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>{APP_VER}</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
@@ -4009,20 +4016,21 @@ function PlatformApp() {
               <button className="btn sm gh synctime" onClick={() => refresh(false)} title="مزامنة الآن">
                 <RefreshCw size={14} className={syncing ? 'spin' : ''} />
                 <span className="num tt" style={{ fontSize: 10, color: 'var(--faint)' }}>
-                  {lastSync ? lastSync.toLocaleTimeString(NUM_LOCALE, { hour: '2-digit', minute: '2-digit' }) : '--:--'}
+                  {lastSync ? lastSync.toLocaleTimeString(isEn() ? 'en-GB' : NUM_LOCALE, { hour: '2-digit', minute: '2-digit' }) : '--:--'}
                 </span>
               </button>
               <button className="btn sm gh" title={mode === 'dark' ? 'التبديل إلى الوضع النهاري' : 'التبديل إلى الوضع الليلي'} onClick={() => setMode(m => { const n = m === 'dark' ? 'light' : 'dark'; try { localStorage.setItem('rms8:mode', n); } catch { } return n; })} style={{ fontSize: 15 }}>{mode === 'dark' ? '🌞' : '🌙'}</button>
+              <button className="btn sm gh langbtn" data-lang={lang} onClick={toggleLang} title={lang === 'en' ? 'التبديل إلى العربية' : 'Switch to English'} style={{ fontSize: 11.5, fontWeight: 700, minWidth: 34 }}>{lang === 'en' ? 'ع' : 'EN'}</button>
               <div style={{ position: 'relative', flexShrink: 0 }}>
-                <button className="btn sm gh themebtn" title="ثيم المنصّة" onClick={() => setThemePick(v => !v)} style={{ fontSize: 15 }}>🎨</button>
+                <button className="btn sm gh themebtn" title={TX('ثيم المنصّة')} onClick={() => setThemePick(v => !v)} style={{ fontSize: 15 }}>🎨</button>
                 {themePick && (<>
                   <div className="usermenu-back" onClick={() => setThemePick(false)} />
                   <div className="usermenu-menu" style={{ minWidth: 252, padding: 8, zIndex: 70 }}>
-                    <div className="umhd" style={{ padding: '4px 6px 8px' }}><b>ثيم المنصّة</b><small>أسلوب التصميم والوضع — فوريّ ومحفوظ</small></div>
+                    <div className="umhd" style={{ padding: '4px 6px 8px' }}><b>{TX('ثيم المنصّة')}</b><small>{TX('أسلوب التصميم والوضع — فوريّ ومحفوظ')}</small></div>
                     <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
                       {[['light', '🌞 نهار'], ['dark', '🌙 ليل']].map(([mv, lbl]) => (
                         <button key={mv} onClick={() => { setMode(mv); try { localStorage.setItem('rms8:mode', mv); } catch { } }}
-                          style={{ flex: 1, padding: '7px 6px', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit', fontSize: 11.5, fontWeight: 600, color: 'var(--txt)', border: '1px solid ' + (mode === mv ? 'var(--brass)' : 'var(--line)'), background: mode === mv ? 'var(--acc-soft)' : 'transparent' }}>{lbl}</button>
+                          style={{ flex: 1, padding: '7px 6px', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit', fontSize: 11.5, fontWeight: 600, color: 'var(--txt)', border: '1px solid ' + (mode === mv ? 'var(--brass)' : 'var(--line)'), background: mode === mv ? 'var(--acc-soft)' : 'transparent' }}>{TX(lbl)}</button>
                       ))}
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
@@ -4047,7 +4055,7 @@ function PlatformApp() {
               </button>
               {/* قائمة الحساب — v9.6 (بديل ذيل القائمة الجانبية المخفية) · v15.8: على الجوال تفتح لوحة «الأقسام» السفلية بدل القائمة المنسدلة التي يقصّها رأس الجوال */}
               <div className="usermenu">
-                <button className="usermenu-btn" onClick={() => { if (typeof window !== 'undefined' && window.innerWidth <= 900) { setUserMenu(false); setMoreSheet(true); } else { setUserMenu(v => !v); } }} title="حسابي">
+                <button className="usermenu-btn" onClick={() => { if (typeof window !== 'undefined' && window.innerWidth <= 900) { setUserMenu(false); setMoreSheet(true); } else { setUserMenu(v => !v); } }} title={TX('حسابي')}>
                   <span className="uav">{(me.name || 'م').trim().charAt(0)}</span>
                   <span className="un">{(me.name || '').split(' ')[0]}<small>{((ROLES[me.role] || {}).ar || me.role).split('—')[0].trim()}</small></span>
                   <ChevronDown size={13} />
@@ -4059,7 +4067,7 @@ function PlatformApp() {
                     <button onClick={() => { setUserMenu(false); setTab('home'); }}><Home size={14} />الرئيسية — كل التطبيقات</button>
                     {!installed && <button onClick={() => { setUserMenu(false); doInstall(); }}><Download size={14} />تثبيت التطبيق على الجهاز</button>}
                     <button onClick={() => { setUserMenu(false); forceUpdate(); }}><RefreshCw size={14} />تحديث للأحدث (مسح الكاش){updateReady ? ' — نسخة جديدة!' : ''}</button>
-                    <button onClick={() => { setUserMenu(false); setTour(true); }}><Compass size={14} />جولة تعريفية في المنصة</button>
+                    <button onClick={() => { setUserMenu(false); setTour(true); }}><Compass size={14} />{TX('جولة تعريفية في المنصة')}</button>
                     {authApi.enabled && <button onClick={() => { setUserMenu(false); setPwOpen(true); }}><Lock size={14} />تغيير كلمة السر</button>}
                     <button onClick={() => { setUserMenu(false); setBioOpen(true); }}><Fingerprint size={14} />البصمة لهذا الجهاز{devBioId(me) ? ' ✓' : ''}</button>
                     {authApi.enabled && <button onClick={() => { setUserMenu(false); setMfaOpen(true); }}><ShieldCheck size={14} />التحقق بخطوتين{mfaS && mfaS.enrolled ? ' ✓' : ''}</button>}
@@ -4171,11 +4179,11 @@ function PlatformApp() {
           </div>
 
           <div className="tick">
-            <span>الشركة: {org.company.name || '—'}</span>
-            {org.company.taxNumber && <span>الرقم الضريبي: <span className="num">{org.company.taxNumber}</span></span>}
-            <span>{myBranches.length === 1 ? 'فرعك' : 'فروعك'}: <span className="num">{myBranches.filter(b => b.isActive).length}</span></span>
-            <span>إغلاقاتك المسجلة: <span className="num">{scoped.closings.length}</span></span>
-            <span style={{ color: live ? 'var(--mint)' : 'var(--dim)' }}>{live ? 'مزامنة لحظية' : 'مزامنة دورية'}</span>
+            <span>{TX('الشركة:')} {org.company.name || '—'}</span>
+            {org.company.taxNumber && <span>{TX('الرقم الضريبي:')} <span className="num">{org.company.taxNumber}</span></span>}
+            <span>{isEn() ? 'Branches:' : (myBranches.length === 1 ? 'فرعك:' : 'فروعك:')} <span className="num">{myBranches.filter(b => b.isActive).length}</span></span>
+            <span>{TX('إغلاقاتك المسجلة:')} <span className="num">{scoped.closings.length}</span></span>
+            <span style={{ color: live ? 'var(--mint)' : 'var(--dim)' }}>{TX(live ? 'مزامنة لحظية' : 'مزامنة دورية')}</span>
           </div>
         </div>
       {/* شريط تنقّل سفلي — يظهر على الجوال فقط */}
@@ -4183,14 +4191,14 @@ function PlatformApp() {
         {botNav.map(n => (
           <button key={n.id} className={'botnav-i' + (tab === n.id || (BOT_SUB[n.id] || []).includes(tab) ? ' on' : '')} onClick={() => { setTab(n.id); setMoreSheet(false); }}>
             <n.icon size={20} />
-            <span>{BOT_AR[n.id] || n.ar.split(' ')[0]}</span>
+            <span>{isEn() ? (BOT_EN[n.id] || TX(n.ar)) : (BOT_AR[n.id] || n.ar.split(' ')[0])}</span>
             {n.cnt > 0 && <span className="bdg">{n.cnt}</span>}
           </button>
         ))}
         {NAV.length > botNav.length && (
           <button className={'botnav-i botnav-more' + (moreSheet ? ' on' : '')} onClick={() => setMoreSheet(v => !v)}>
             <Grid3x3 size={20} />
-            <span>المزيد</span>
+            <span>{isEn() ? 'More' : 'المزيد'}</span>
             {(pending + unread) > 0 && !moreSheet && <span className="bdg">{pending + unread}</span>}
           </button>
         )}
@@ -4209,7 +4217,8 @@ function PlatformApp() {
           <div className="sheet" onClick={e => e.stopPropagation()}>
             <div className="sheet-handle" />
             <div className="sheet-head">
-              <span>كل الأقسام</span>
+              <span>{TX('كل الأقسام')}</span>
+              <button className="btn sm gh langbtn" data-lang={lang} onClick={toggleLang} style={{ marginInlineStart: 'auto', fontWeight: 700 }}>{lang === 'en' ? 'العربية' : 'English'}</button>
               <button className="btn sm gh" onClick={() => setMoreSheet(false)}><X size={16} /></button>
             </div>
             <div style={{ marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid var(--line)' }}>
@@ -4221,10 +4230,10 @@ function PlatformApp() {
                 </div>
               </div>
               <div className="grid g2" style={{ gap: 8 }}>
-                <button className="btn gh" onClick={() => { setMoreSheet(false); forceUpdate(); }}><RefreshCw size={15} />تحديث للأحدث</button>
-                <button className="btn" style={{ background: 'rgba(217,84,77,.14)', color: 'var(--rose)', borderColor: 'rgba(217,84,77,.42)' }} onClick={() => { setMoreSheet(false); setMe(null); }}><LogOut size={15} />تسجيل الخروج</button>
+                <button className="btn gh" onClick={() => { setMoreSheet(false); forceUpdate(); }}><RefreshCw size={15} />{TX('تحديث للأحدث')}</button>
+                <button className="btn" style={{ background: 'rgba(217,84,77,.14)', color: 'var(--rose)', borderColor: 'rgba(217,84,77,.42)' }} onClick={() => { setMoreSheet(false); setMe(null); }}><LogOut size={15} />{TX('تسجيل الخروج')}</button>
               </div>
-              <button className="btn" style={{ width: '100%', marginTop: 8 }} onClick={() => { setMoreSheet(false); setBioOpen(true); }}><Fingerprint size={15} />البصمة / بصمة الوجه لهذا الجهاز{devBioId(me) ? ' — مفعّلة ✓' : ''}</button>
+              <button className="btn" style={{ width: '100%', marginTop: 8 }} onClick={() => { setMoreSheet(false); setBioOpen(true); }}><Fingerprint size={15} />{TX('البصمة / بصمة الوجه لهذا الجهاز')}{devBioId(me) ? ' — مفعّلة ✓' : ''}</button>
               {authApi.enabled && <button className="btn" style={{ width: '100%', marginTop: 8 }} onClick={() => { setMoreSheet(false); setPwOpen(true); }}><Lock size={15} />تغيير كلمة السر</button>}
               {authApi.enabled && <button className="btn" style={{ width: '100%', marginTop: 8 }} onClick={() => { setMoreSheet(false); setMfaOpen(true); }}>
                 <ShieldCheck size={15} />التحقق بخطوتين{mfaS && mfaS.enrolled ? ' — مفعّل ✓' : ' — غير مفعّل'}</button>}
@@ -4236,7 +4245,7 @@ function PlatformApp() {
                   <div className="icontile-i"><n.icon size={22} />
                     {n.cnt > 0 && <span className="icontile-b">{n.cnt}</span>}
                   </div>
-                  <span>{n.ar}</span>
+                  <span>{TX(n.ar)}</span>
                 </button>
               ))}
             </div>
@@ -6148,25 +6157,25 @@ function OdooBar({ groups, cur, onPick, extra, sw }) {
   const place = (el) => { if (!el) return; const r = el.getBoundingClientRect(), W = window.innerWidth;
     // ألوان الثيم من الشريط نفسه (القائمة خارج غلاف الثيم في جذر الصفحة)
     try { const cs = getComputedStyle(el); setVars(Object.fromEntries(['--ink2', '--txt', '--line', '--acc-soft', '--brass', '--dim'].map(k => [k, cs.getPropertyValue(k).trim()]).filter(([, v]) => v))); } catch { }
-    setPos(W <= 640 ? { top: r.bottom + 2, left: 16, right: 16 } : { top: r.bottom + 2, right: Math.max(16, W - r.right), minWidth: Math.max(230, r.width) }); };
+    setPos(W <= 640 ? { top: r.bottom + 2, left: 16, right: 16 } : isEn() ? { top: r.bottom + 2, left: Math.max(16, r.left), minWidth: Math.max(230, r.width) } : { top: r.bottom + 2, right: Math.max(16, W - r.right), minWidth: Math.max(230, r.width) }); };
   useEffect(() => { if (!open) return; const close = () => setOpen(null); window.addEventListener('resize', close); window.addEventListener('scroll', close, true); return () => { window.removeEventListener('resize', close); window.removeEventListener('scroll', close, true); }; }, [open]);
   const gs = (groups || []).map(g => ({ ...g, items: (g.items || []).filter(Boolean) })).filter(g => g.items.length);
   const pick = (id) => { setOpen(null); onPick(id); };
   return (
     <div className="ob" role="navigation" aria-label="أقسام التطبيق">
       {gs.map(g => { const act = g.items.some(x => x.id === cur);
-        if (g.items.length === 1) { const x = g.items[0]; return <button key={g.id} className={'ob-it' + (act ? ' on' : '')} onClick={() => pick(x.id)}>{x.ar}{x.badge ? <span className="ob-bd">{x.badge}</span> : null}</button>; }
+        if (g.items.length === 1) { const x = g.items[0]; return <button key={g.id} className={'ob-it' + (act ? ' on' : '')} onClick={() => pick(x.id)}>{TX(x.ar)}{x.badge ? <span className="ob-bd">{x.badge}</span> : null}</button>; }
         const subs = [...new Set(g.items.map(x => x.sub || ''))];
         return (
           <div key={g.id} className="ob-wrap">
             <button aria-haspopup="true" aria-expanded={open === g.id} className={'ob-it' + (act ? ' on' : '') + (open === g.id ? ' open' : '')} onClick={(e) => { place(e.currentTarget); setOpen(o => o === g.id ? null : g.id); }}>
-              {g.ar}<ChevronDown size={12} className="ob-car" /></button>
-            {open === g.id && pos && createPortal(<div className="ob-layer" dir="rtl" style={vars}>
+              {TX(g.ar)}<ChevronDown size={12} className="ob-car" /></button>
+            {open === g.id && pos && createPortal(<div className="ob-layer" dir={isEn() ? 'ltr' : 'rtl'} style={vars}>
               <div className="ob-back" onClick={() => setOpen(null)} />
               <div className="ob-menu" style={pos}>
                 {subs.map(sb => (<React.Fragment key={sb || '_'}>
-                  {sb && <div className="ob-hd">{sb}</div>}
-                  {g.items.filter(x => (x.sub || '') === sb).map(x => <button key={x.id} className={'ob-mi' + (x.id === cur ? ' on' : '') + (sb ? ' ind' : '')} onClick={() => pick(x.id)}>{x.ar}{x.badge ? <span className="ob-bd">{x.badge}</span> : null}</button>)}
+                  {sb && <div className="ob-hd">{TX(sb)}</div>}
+                  {g.items.filter(x => (x.sub || '') === sb).map(x => <button key={x.id} className={'ob-mi' + (x.id === cur ? ' on' : '') + (sb ? ' ind' : '')} onClick={() => pick(x.id)}>{TX(x.ar)}{x.badge ? <span className="ob-bd">{x.badge}</span> : null}</button>)}
                 </React.Fragment>))}
               </div></div>, document.body)}
           </div>); })}
@@ -6189,10 +6198,10 @@ function SectionNav({ items, cur, onPick, extra, label, force }) {
   const CurI = curIt.icon || Grid3x3;
   const sw = list.length >= 2 && !force && (
     <div className="acct-mode" role="group" aria-label="طريقة عرض الأقسام">
-      <button className={mode === 'menu' ? 'on' : ''} onClick={() => setMode('menu')} title="شريط قوائم"><Menu size={13} /><span>قوائم</span></button>
-      <button className={mode === 'grid' ? 'on' : ''} onClick={() => setMode('grid')} title="شبكة"><Grid3x3 size={13} /><span>شبكة</span></button>
-      <button className={mode === 'dd' ? 'on' : ''} onClick={() => setMode('dd')} title="قائمة منسدلة"><ChevronDown size={13} /><span>منسدلة</span></button>
-      <button className={mode === 'tabs' ? 'on' : ''} onClick={() => setMode('tabs')} title="تبويبات"><Menu size={13} /><span>تبويبات</span></button>
+      <button className={mode === 'menu' ? 'on' : ''} onClick={() => setMode('menu')} title="شريط قوائم"><Menu size={13} /><span>{TX('قوائم')}</span></button>
+      <button className={mode === 'grid' ? 'on' : ''} onClick={() => setMode('grid')} title="شبكة"><Grid3x3 size={13} /><span>{TX('شبكة')}</span></button>
+      <button className={mode === 'dd' ? 'on' : ''} onClick={() => setMode('dd')} title="قائمة منسدلة"><ChevronDown size={13} /><span>{TX('منسدلة')}</span></button>
+      <button className={mode === 'tabs' ? 'on' : ''} onClick={() => setMode('tabs')} title="تبويبات"><Menu size={13} /><span>{TX('تبويبات')}</span></button>
     </div>);
   const pick = (id) => { setOpen(false); onPick(id); };
   const bdg = (x) => x.badge ? <span className="badge b-amber" style={{ fontSize: 9.5, padding: '1px 6px' }}>{x.badge}</span> : null;
@@ -6206,29 +6215,29 @@ function SectionNav({ items, cur, onPick, extra, label, force }) {
         <div className="acct-gridnav">
           {[...new Set(list.map(x => x.group || ''))].map(g => (
             <div key={g} className="acct-gsec">
-              {g && <div className="acct-ghd">{g}</div>}
+              {g && <div className="acct-ghd">{TX(g)}</div>}
               <div className="acct-grid">
                 {list.filter(x => (x.group || '') === g).map(x => { const I = x.icon || Grid3x3; return (
-                  <button key={x.id} className={'acct-tile' + (cur === x.id ? ' on' : '')} onClick={() => pick(x.id)}><I size={19} /><span>{x.ar}</span>{bdg(x)}</button>); })}
+                  <button key={x.id} className={'acct-tile' + (cur === x.id ? ' on' : '')} onClick={() => pick(x.id)}><I size={19} /><span>{TX(x.ar)}</span>{bdg(x)}</button>); })}
               </div>
             </div>))}
         </div>
       ) : (
       <div className="acct-grid">
         {list.map(x => { const I = x.icon || Grid3x3; return (
-          <button key={x.id} className={'acct-tile' + (cur === x.id ? ' on' : '')} onClick={() => pick(x.id)}><I size={19} /><span>{x.ar}</span>{bdg(x)}</button>); })}
+          <button key={x.id} className={'acct-tile' + (cur === x.id ? ' on' : '')} onClick={() => pick(x.id)}><I size={19} /><span>{TX(x.ar)}</span>{bdg(x)}</button>); })}
       </div>)}
     </div>);
   if (list.length >= 2 && mode === 'dd') return (
     <div className="row acct-nav" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
       <div className="abar-dd">
-        <button className="btn sm pri" onClick={() => setOpen(o => !o)}><CurI size={14} />{curIt.ar}{bdg(curIt)}<ChevronDown size={13} /></button>
+        <button className="btn sm pri" onClick={() => setOpen(o => !o)}><CurI size={14} />{TX(curIt.ar)}{bdg(curIt)}<ChevronDown size={13} /></button>
         {open && (<>
           <div className="abar-back" onClick={() => setOpen(false)} />
           <div className="abar-menu">
             <div className="abar-hd">{label || 'الأقسام'}</div>
             {list.map(x => { const I = x.icon || Grid3x3; return (
-              <button key={x.id} onClick={() => pick(x.id)} style={cur === x.id ? { background: 'var(--acc-soft)', fontWeight: 700 } : undefined}><I size={13} />{x.ar}{bdg(x)}{cur === x.id && <Check size={13} style={{ marginInlineStart: 'auto' }} />}</button>); })}
+              <button key={x.id} onClick={() => pick(x.id)} style={cur === x.id ? { background: 'var(--acc-soft)', fontWeight: 700 } : undefined}><I size={13} />{TX(x.ar)}{bdg(x)}{cur === x.id && <Check size={13} style={{ marginInlineStart: 'auto' }} />}</button>); })}
           </div>
         </>)}
       </div>
@@ -6237,7 +6246,7 @@ function SectionNav({ items, cur, onPick, extra, label, force }) {
   return (
     <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
       {list.length >= 2 && list.map(x => { const I = x.icon || Grid3x3; return (
-        <button key={x.id} className={'btn sm' + (cur === x.id ? ' pri' : ' gh')} onClick={() => pick(x.id)}><I size={13} />{x.ar}{bdg(x)}</button>); })}
+        <button key={x.id} className={'btn sm' + (cur === x.id ? ' pri' : ' gh')} onClick={() => pick(x.id)}><I size={13} />{TX(x.ar)}{bdg(x)}</button>); })}
       {sw}<span style={{ marginInlineStart: 'auto' }} />{extra}
     </div>);
 }
@@ -6260,8 +6269,8 @@ function Hub({ hubId, view, ...rest }) {
         <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
           <div className="row" style={{ gap: 8, alignItems: 'center', minWidth: 0 }}>
             <HubIcon size={16} color="var(--brass)" />
-            <b style={{ fontSize: 13 }}>{cfg.ar}</b>
-            <span style={{ fontSize: 11, color: 'var(--dim)' }} className="hub-desc">· {cfg.desc}</span>
+            <b style={{ fontSize: 13 }}>{TX(cfg.ar)}</b>
+            <span style={{ fontSize: 11, color: 'var(--dim)' }} className="hub-desc">· {TX(cfg.desc)}</span>
           </div>
         </div>
         {views.length > 1 && <div style={{ marginTop: 8 }}><SectionNav items={views.map(v => ({ id: v.id, ar: v.ar, icon: v.icon, group: v.group || (MENU_GROUPS[hubId] || {})[v.id] }))} cur={cur} onPick={go} label={'أقسام ' + cfg.ar} /></div>}
@@ -9434,6 +9443,7 @@ function Launcher({ org, ops, me, myBranches, scoped, setTab, openAcctView, open
   const favSecs = secIndex.filter(v => isFav(v.id));   // v14.0 — أقسام مثبّتة في المفضلة
   const hour = new Date().getHours();
   const greet = hour < 12 ? 'صباح الخير' : 'مساء الخير';
+  const aNm = (a) => (isEn() && a.en) || a.homeAr || a.ar;
 
   const Tile = (a, draggable) => (
     <div key={a.id} className={'lh-tile' + (dragId === a.id ? ' lh-drag-src' : '')}
@@ -9447,7 +9457,7 @@ function Launcher({ org, ops, me, myBranches, scoped, setTab, openAcctView, open
       {(a.id === 'approve' || (a.id === 'closing' && canApr)) && pend > 0 && <span className="lh-bdg">{pend}</span>}
       {(() => { const lv = liveOf(a.id); return (
       <div className={'lh-box' + (lv ? ' live' : '')} title={lv ? lv.t : undefined}><AppGlyph a={a} />{lv && lv.dot && <span className="lh-dot" />}{a.sections?.length > 1 && <span className="lh-cnt" title={a.sections.length + ' أقسام'}>{a.sections.length}</span>}</div>); })()}
-      <div className="lh-nm">{a.homeAr || a.ar}</div>
+      <div className="lh-nm">{aNm(a)}</div>
     </div>
   );
 
@@ -9457,8 +9467,8 @@ function Launcher({ org, ops, me, myBranches, scoped, setTab, openAcctView, open
       <button className={'lh-star' + (isFav(v.id) ? ' on' : '')} title={isFav(v.id) ? 'إزالة من المفضلة' : 'تثبيت في المفضلة'}
         onClick={(e) => toggleFav(v.id, e)}><Star size={12} fill={isFav(v.id) ? 'currentColor' : 'none'} /></button>
       <div className="lh-box"><v.icon size={32} /></div>
-      <div className="lh-nm">{v.ar}</div>
-      <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 1, textAlign: 'center' }}>{v.hubAr}</div>
+      <div className="lh-nm">{TX(v.ar)}</div>
+      <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 1, textAlign: 'center' }}>{TX(v.hubAr)}</div>
     </div>
   );
 
@@ -9470,11 +9480,11 @@ function Launcher({ org, ops, me, myBranches, scoped, setTab, openAcctView, open
         : <div className="lh-wm mark"><MizanMark size={420} /></div>}
     </div>
     <div className="lh">
-      <p className="lh-hi">{greet} يا <b>{(me.name || '').split(' ')[0]}</b> · <span>{new Date().toLocaleDateString('ar-SA-u-ca-gregory-nu-latn', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span></p>
-      <div className="lh-role"><span className="pill">{(ROLES[me.role]?.ar || me.role).split('—')[0].trim()} · {shown.length} تطبيقاً</span></div>
+      <p className="lh-hi">{TX(greet + ' يا')} <b>{(me.name || '').split(' ')[0]}</b> · <span>{new Date().toLocaleDateString(isEn() ? 'en-GB' : 'ar-SA-u-ca-gregory-nu-latn', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span></p>
+      <div className="lh-role"><span className="pill">{(ROLES[me.role]?.ar || me.role).split('—')[0].trim()} · {shown.length} {isEn() ? 'apps' : 'تطبيقاً'}</span></div>
       <div className="lh-search">
         <Search size={15} className="lh-si" />
-        <input className="inp" placeholder="ابحث عن تطبيق أو قسم… (جرّب: تعادل، رواتب، تدفق نقدي)" value={q} onChange={e => setQ(e.target.value)} />
+        <input className="inp" placeholder={TX('ابحث عن تطبيق أو قسم… (جرّب: تعادل، رواتب، تدفق نقدي)')} value={q} onChange={e => setQ(e.target.value)} />
       </div>
 
       {!qq && <TodayPanel org={org} ops={ops} me={me} myBranches={myBranches} scoped={scoped} setTab={setTab} />}
@@ -9488,14 +9498,14 @@ function Launcher({ org, ops, me, myBranches, scoped, setTab, openAcctView, open
 
       {(favApps.length + favSecs.length) > 0 && !qq && (
         <div className="lh-sec">
-          <div className="lh-sect"><Star size={14} className="ic" fill="currentColor" />المفضلة</div>
+          <div className="lh-sect"><Star size={14} className="ic" fill="currentColor" />{TX('المفضلة')}</div>
           <div className="lh-grid">{favApps.map(a => Tile(a, false))}{favSecs.map(SecTile)}</div>
         </div>
       )}
 
       {/* شبكة موحّدة مرتّبة بتدفّق منطقي — نمط أودو (بلا صفوف مبعثرة) */}
       <div className="lh-sec">
-        <div className="lh-sect">{qq ? `نتائج «${q.trim()}»` : 'كل التطبيقات'}</div>
+        <div className="lh-sect">{qq ? (isEn() ? `Results for “${q.trim()}”` : `نتائج «${q.trim()}»`) : TX('كل التطبيقات')}</div>
         <div className="lh-grid" ref={gridRef}>{shown.map(a => Tile(a, !qq))}</div>
       </div>
       {shown.length === 0 && <div className="lh-empty">لا يوجد تطبيق بهذا الاسم — جرّب كلمة أخرى</div>}

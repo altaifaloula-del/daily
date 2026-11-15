@@ -39,7 +39,7 @@ window.routes = [...Object.entries(M.HUBS).flatMap(([h, c]) => c.views.map(v => 
   ...['Launcher', 'PosApp', 'Inventory', 'Partners', 'SalesHub', 'QrFeedback', 'AppsCenter', 'BranchWarehouse', 'Admin', 'AuditView'].map(c => 'comp/' + c)];
 const css = document.createElement('style'); css.textContent = CSS; document.head.appendChild(css);
 const dark = location.hash.includes('dark');
-document.body.innerHTML = '<div class="rms mode-' + (dark ? 'dark' : 'light') + ' thm-mizan"><div class="page"><div class="page-inner" id=r></div></div></div>';
+document.body.innerHTML = '<div class="rms mode-' + (dark ? 'dark' : 'light') + ' thm-mizan' + (localStorage.getItem('rms8:lang') === 'en' ? ' lang-en" dir="ltr' : '') + '"><div class="page"><div class="page-inner" id=r></div></div></div>';
 const ME = { admin: { id: 'u1', name: 'مجاهد', role: 'system_admin' }, ho: { id: 'u5', name: 'سارة', role: 'head_office' }, bm: { id: 'u3', name: 'خالد', role: 'branch_manager', branchId: 'b1' },
   bm2: { id: 'u4', name: 'سعد', role: 'branch_manager', branchId: 'b1' }, ctl: { id: 'u9', name: 'ريم', role: 'cost_controller' } };
 const [kind, a, b, c] = decodeURIComponent(location.hash.slice(1)).replace('&dark', '').split('/');
