@@ -1728,4 +1728,43 @@ table.tb.tb-fp{min-width:520px}
   .rms.thm-restpro .topmenu{display:inline-grid !important}
 }
 .rp-mark{width:36px;height:36px;border-radius:10px;flex-shrink:0;display:grid;place-items:center;background:linear-gradient(140deg,#E2C987,#C7A45B);color:#101D35;font:800 13px/1 'Inter',sans-serif;letter-spacing:.5px}
+
+/* ══════════════ v42.3 — المرحلة الأولى: أساس التصميم الموحّد لـ RESTAURANT PRO ══════════════
+   مقياس واحد للزوايا والظلال والحركة والتركيز — يطال كل الشاشات لأنها تشترك في المكوّنات نفسها، دون تغيير أي وظيفة.
+   الحركة: 140–240ms بمنحنى تباطؤ ناعم؛ تُلغى مع «تقليل الحركة». */
+.rms.thm-restpro{--r-sm:9px;--r:10px;--r-md:14px;--r-lg:16px;--r-xl:20px;--t-fast:.14s;--t:.18s;--t-slow:.24s;--ease-out:cubic-bezier(.2,.7,.2,1);
+  --font-head:'IBM Plex Sans Arabic',sans-serif;--font-ui:'IBM Plex Sans Arabic',sans-serif;font-size:14.5px;line-height:1.65}
+.rms.thm-restpro .page{padding:28px 28px 56px;scroll-behavior:smooth}
+.rms.thm-restpro .page-inner{max-width:1560px}
+.rms.thm-restpro .card{border:1px solid var(--line);border-radius:var(--r-md);box-shadow:var(--sh-2);transition:box-shadow var(--t) var(--ease-out),border-color var(--t) var(--ease-out)}
+.rms.thm-restpro .card:hover{box-shadow:var(--sh-3)}
+.rms.thm-restpro .btn{border-radius:var(--r);transition:background var(--t-fast) var(--ease-out),border-color var(--t-fast),box-shadow var(--t-fast),color var(--t-fast),transform var(--t-fast)}
+.rms.thm-restpro .btn:active:not(:disabled){transform:translateY(1px)}
+.rms.thm-restpro .btn:disabled{opacity:.5}
+.rms.thm-restpro .inp,.rms.thm-restpro .sel{border-radius:var(--r);background:var(--ink3);border-color:var(--line);transition:border-color var(--t-fast),box-shadow var(--t-fast),background var(--t-fast)}
+.rms.thm-restpro .inp:hover,.rms.thm-restpro .sel:hover{border-color:color-mix(in srgb,var(--txt) 22%,var(--line))}
+.rms.thm-restpro .inp:focus,.rms.thm-restpro .sel:focus{background:var(--ink2);border-color:var(--gold);box-shadow:0 0 0 3px color-mix(in srgb,var(--gold) 24%,transparent)}
+.rms.thm-restpro :focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.rms.thm-restpro .btn:focus-visible{outline:none;box-shadow:0 0 0 3px color-mix(in srgb,var(--gold) 40%,transparent)}
+.rms.thm-restpro ::selection{background:color-mix(in srgb,var(--gold) 32%,transparent);color:var(--txt)}
+/* النوافذ: خلفية كحلية شفافة وظهور ناعم */
+.rms.thm-restpro .mask{background:rgba(7,19,38,.52);backdrop-filter:blur(4px);animation:fadein var(--t) var(--ease-out) both}
+.rms.thm-restpro .modal{border-radius:var(--r-lg);border-color:var(--line);box-shadow:0 24px 64px rgba(7,19,38,.28);animation:rpModalIn var(--t-slow) var(--ease-out) both}
+.rms.thm-restpro .modal-h{background:var(--ink2);border-bottom-color:var(--line);padding:16px 20px}
+.rms.thm-restpro .modal-b{padding:20px}
+.rms.thm-restpro .modal-f{border-top-color:var(--line);padding-inline:20px}
+@keyframes rpModalIn{from{opacity:0;transform:translateY(8px) scale(.985)}to{opacity:1;transform:none}}
+/* أشرطة تمرير رفيعة هادئة */
+.rms.thm-restpro *{scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--txt) 18%,transparent) transparent}
+.rms.thm-restpro ::-webkit-scrollbar{width:10px;height:10px}
+.rms.thm-restpro ::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--txt) 16%,transparent);border-radius:10px;border:2px solid transparent;background-clip:padding-box}
+.rms.thm-restpro ::-webkit-scrollbar-thumb:hover{background-color:color-mix(in srgb,var(--txt) 28%,transparent)}
+.rms.thm-restpro ::-webkit-scrollbar-track{background:transparent}
+.rms.thm-restpro .side ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14)}
+.rms.thm-restpro .side *{scrollbar-color:rgba(255,255,255,.16) transparent}
+/* عناوين البطاقات والفواصل */
+.rms.thm-restpro .card-t{font-size:15.5px;font-weight:700;letter-spacing:0}
+.rms.thm-restpro hr,.rms.thm-restpro .divider{border-color:var(--line)}
+@media(max-width:900px){.rms.thm-restpro .page{padding:14px 14px 20px}}
+@media (prefers-reduced-motion:reduce){.rms.thm-restpro *,.rms.thm-restpro *::before,.rms.thm-restpro *::after{animation-duration:.01ms !important;transition-duration:.01ms !important;scroll-behavior:auto !important}}
 `;
