@@ -1829,4 +1829,21 @@ table.tb.tb-fp{min-width:520px}
 .rms.thm-restpro .topstatus .synctime{width:auto !important;padding:0 10px !important}
 .rms.thm-restpro .verbadge{background:color-mix(in srgb,var(--gold) 16%,transparent) !important;color:var(--acc) !important;border:0 !important;font-weight:700}
 .rms.thm-restpro .usermenu-btn{border-color:var(--line);background:var(--ink2);height:42px;border-radius:12px}
+
+/* ══════════════ v42.6 — المرحلة الثالثة (2): نقطة البيع ══════════════
+   رأس كحلي بعناصر ذهبية (كانت كحلية على كحلي فتختفي)، ومربعات أصناف بيضاء بحد ناعم وتمييز ذهبي للمختار. */
+.rms.thm-restpro .pos-head{--brand-fill:var(--gold);--brand-ink:#101D35;background:linear-gradient(180deg,#101D35,#0C172A);border-radius:16px;padding:12px 14px}
+.rms.thm-restpro.mode-dark .pos-head{background:linear-gradient(180deg,#0E1A30,#091323)}
+.rms.thm-restpro .pos-head .sel{background:rgba(255,255,255,.06);color:#E8EDF5;border-color:rgba(255,255,255,.14)}
+.rms.thm-restpro .pos-head .sel.on{background:var(--gold);color:#101D35}
+.rms.thm-restpro .pos-tabs button{border-color:rgba(255,255,255,.14);transition:background var(--t-fast),color var(--t-fast)}
+.rms.thm-restpro .pos-tabs button:hover:not(.on){background:rgba(255,255,255,.07)}
+.rms.thm-restpro .pos-chip{background:rgba(255,255,255,.08)}
+.rms.thm-restpro .pos-tile{border-radius:16px;box-shadow:var(--sh-2);transition:border-color var(--t-fast),box-shadow var(--t-fast),transform var(--t-fast)}
+.rms.thm-restpro .pos-tile:hover{border-color:color-mix(in srgb,var(--gold) 60%,var(--line));box-shadow:var(--sh-3)}
+.rms.thm-restpro .pos-tile.on{border:2px solid var(--gold);background:color-mix(in srgb,var(--gold) 6%,var(--ink2))}
+.rms.thm-restpro .pos-tile .num{color:var(--acc)}
+.rms.thm-restpro .pos-qty{background:var(--gold);color:#101D35 !important}
+.rms.thm-restpro .pos-cart{border-radius:16px}
+.rms.thm-restpro.mode-light .pos-pay-card{background:var(--gold) !important;color:#101D35 !important}
 `;
