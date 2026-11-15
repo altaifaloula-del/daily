@@ -1008,3 +1008,17 @@ test('v43.5 مسار الفحص: استلام ← فحص بشخص آخر ← م�
   assert.deepEqual(r, [790, 90, [[600, 90], [100, 0]]]);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v43.6 التحليل والتقارير بالإنجليزية: اللوحات والتعادل والتوقع والتدفق النقدي مترجمة', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1300, height: 1000 } }); await ctx.addInitScript(() => { try { localStorage.setItem('rms8:lang', 'en'); } catch { } });
+  const errs = [];
+  for (const [r, words] of [['hub/analytics/exec', ["Today's sales", 'Quick alerts']], ['hub/analytics/breakeven', ['Break-even (monthly)', 'Prime cost']], ['hub/analytics/forecast', ['Next week']], ['hub/reporting/cashflow', ['Forecast cash flow — 13 weeks', 'Week 1']]]) {
+    const p = await ctx.newPage(); p.on('pageerror', e => errs.push(e.message));
+    await p.goto(base + r); await p.waitForTimeout(800); await settle(p);
+    const t = await p.locator('body').innerText();
+    for (const w of words) assert.ok(t.includes(w), r + ': ' + w);
+    assert.doesNotMatch(t, /Net ربح|Margin ربح/, 'لا ترجمة جزئية');
+    await p.close();
+  }
+  assert.deepEqual(errs, []); await ctx.close();
+});
