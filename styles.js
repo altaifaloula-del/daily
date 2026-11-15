@@ -1691,7 +1691,7 @@ table.tb.tb-fp{min-width:520px}
 .rms.thm-restpro .side{background:var(--side-bg);border:0;color:var(--side-txt);width:var(--side-w);padding:0;gap:0;transition:width .22s ease}
 .rms.thm-restpro .side .brand{padding:22px 18px 18px;border-bottom:1px solid rgba(255,255,255,.09);margin-bottom:6px}
 .rms.thm-restpro .rp-brand{display:flex;flex-direction:column;min-width:0;flex:1}
-.rms.thm-restpro .rp-brand b{overflow:hidden;text-overflow:ellipsis;font-size:17px;letter-spacing:1px;color:#FFFFFF;font-family:'Inter','IBM Plex Sans Arabic',sans-serif;font-weight:800;white-space:nowrap}
+.rms.thm-restpro .rp-brand b{overflow:hidden;text-overflow:ellipsis;font-size:17px;letter-spacing:1px;color:#FFFFFF;font-family:'MizanNum','IBM Plex Sans Arabic',sans-serif;font-weight:800;white-space:nowrap}
 .rms.thm-restpro .rp-brand span{color:var(--gold-l);font-size:10.5px;margin-top:5px;letter-spacing:.06em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .rms.thm-restpro .side .rp-nav{padding:6px 12px 12px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:2px}
 .rms.thm-restpro .side .nav-lbl{color:var(--side-dim);font-size:10.5px;padding:14px 12px 6px;letter-spacing:0;white-space:nowrap}
@@ -1727,7 +1727,7 @@ table.tb.tb-fp{min-width:520px}
   .rms.thm-restpro .side.open .brand{padding:18px 14px 14px;gap:9px}
   .rms.thm-restpro .topmenu{display:inline-grid !important}
 }
-.rp-mark{width:36px;height:36px;border-radius:10px;flex-shrink:0;display:grid;place-items:center;background:linear-gradient(140deg,#E2C987,#C7A45B);color:#101D35;font:800 13px/1 'Inter',sans-serif;letter-spacing:.5px}
+.rp-mark{width:36px;height:36px;border-radius:10px;flex-shrink:0;display:grid;place-items:center;background:linear-gradient(140deg,#E2C987,#C7A45B);color:#101D35;font:800 13px/1 'MizanNum','IBM Plex Sans Arabic',sans-serif;letter-spacing:.5px}
 
 /* ══════════════ v42.3 — المرحلة الأولى: أساس التصميم الموحّد لـ RESTAURANT PRO ══════════════
    مقياس واحد للزوايا والظلال والحركة والتركيز — يطال كل الشاشات لأنها تشترك في المكوّنات نفسها، دون تغيير أي وظيفة.
@@ -1767,4 +1767,41 @@ table.tb.tb-fp{min-width:520px}
 .rms.thm-restpro hr,.rms.thm-restpro .divider{border-color:var(--line)}
 @media(max-width:900px){.rms.thm-restpro .page{padding:14px 14px 20px}}
 @media (prefers-reduced-motion:reduce){.rms.thm-restpro *,.rms.thm-restpro *::before,.rms.thm-restpro *::after{animation-duration:.01ms !important;transition-duration:.01ms !important;scroll-behavior:auto !important}}
+
+/* ══════════════ v42.4 — المرحلة الثانية: المكوّنات المشتركة بلغة النموذج ══════════════ */
+/* بطاقات المؤشرات: سطح أبيض نظيف، أيقونة في شارة مربعة بلون المؤشر أعلى الطرف، رقم كبير بخط الأرقام */
+.rms.thm-restpro .kpi{background:var(--ink2);border:1px solid var(--line);border-inline-start:1px solid var(--line);border-radius:var(--r-md);padding:18px 18px 16px;box-shadow:var(--sh-2);position:relative;min-height:112px;transition:box-shadow var(--t) var(--ease-out)}
+.rms.thm-restpro .kpi::before{width:3px;inset-block:16px;height:auto;border-radius:0 3px 3px 0;background:var(--acc,var(--gold))}
+.rms.thm-restpro .kpi::after{display:none}
+.rms.thm-restpro .kpi:hover{transform:none;box-shadow:var(--sh-3)}
+.rms.thm-restpro .kpi-l{font-size:12.5px;color:var(--dim);font-weight:500;padding-inline-end:46px;min-height:20px}
+.rms.thm-restpro .kpi-l svg{position:absolute;top:16px;inset-inline-end:16px;width:36px;height:36px;padding:9px;border-radius:10px;
+  background:color-mix(in srgb,var(--acc,var(--gold)) 14%,transparent);box-sizing:border-box}
+.rms.thm-restpro .kpi-v{font-size:25px;font-weight:700;margin-top:12px;letter-spacing:-.3px;color:var(--txt)}
+.rms.thm-restpro .kpi-s{font-size:11.5px;color:var(--faint);margin-top:6px}
+/* الجداول: رأس هادئ، صفوف بهواء كافٍ، تمييز ذهبي خفيف عند المرور */
+.rms.thm-restpro table.tb{font-size:13.5px;border-collapse:separate;border-spacing:0}
+.rms.thm-restpro .tb th{background:color-mix(in srgb,var(--ink3) 70%,var(--ink2));color:var(--faint);font-size:12px;font-weight:600;padding:12px 14px;border-bottom:1px solid var(--line)}
+.rms.thm-restpro .tb td{padding:12px 14px;border-bottom:1px solid var(--line)}
+.rms.thm-restpro .tb tbody tr{transition:background var(--t-fast)}
+.rms.thm-restpro .tb tbody tr:hover{background:color-mix(in srgb,var(--gold) 6%,transparent)}
+.rms.thm-restpro .tb tfoot td,.rms.thm-restpro .tb tr.tot td{background:color-mix(in srgb,var(--ink3) 70%,var(--ink2));font-weight:700}
+/* شريط أقسام التطبيق: تبويبات بخط سفلي ذهبي */
+.rms.thm-restpro .ob{gap:4px;border-bottom-color:var(--line)}
+.rms.thm-restpro .ob-it{padding:10px 14px;font-size:13.5px;color:var(--dim);border-radius:10px 10px 0 0;transition:color var(--t-fast),background var(--t-fast),border-color var(--t-fast)}
+.rms.thm-restpro .ob-it:hover,.rms.thm-restpro .ob-it.open{background:color-mix(in srgb,var(--gold) 8%,transparent);color:var(--txt)}
+.rms.thm-restpro .ob-it.on{color:var(--txt);border-bottom-color:var(--gold)}
+.rms.thm-restpro .ob-menu{border-radius:12px;border-color:var(--line);box-shadow:0 18px 48px rgba(7,19,38,.18);padding:6px;animation:rpModalIn var(--t) var(--ease-out) both}
+/* الشارات: تعبئة هادئة بلا حدود */
+.rms.thm-restpro .badge{border:0;font-size:11.5px;padding:3px 10px;font-weight:600}
+/* التنبيه المنبثق: كحلي بنص أبيض */
+.rms.thm-restpro .mz-toast{background:#101D35;color:#FFFFFF;border:0;border-radius:12px;box-shadow:0 18px 48px rgba(7,19,38,.32);padding:12px 16px}
+.rms.thm-restpro.mode-dark .mz-toast{background:#1B2B47}
+/* الحقول الرقمية: الحروف العربية بخط الواجهة لا الخط الثابت العرض (كان يباعد حروف «مدين/دائن») */
+.rms.thm-restpro .inp.n,.rms.thm-restpro .inp-sum-ta{font-family:'MizanNum','IBM Plex Sans Arabic',sans-serif}
+.rms.thm-restpro .inp.n::placeholder{font-family:'IBM Plex Sans Arabic',sans-serif;letter-spacing:0}
+/* الأزرار: رئيسي كحلي، ثانوي أبيض بحد، شبحي شفاف */
+.rms.thm-restpro .btn{font-weight:600;min-height:40px}
+.rms.thm-restpro .btn.sm{min-height:34px;border-radius:9px}
+.rms.thm-restpro .btn.gh:hover:not(:disabled){background:color-mix(in srgb,var(--txt) 6%,transparent)}
 `;
