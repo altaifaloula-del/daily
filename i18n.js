@@ -2399,8 +2399,8 @@ Object.assign(EN, {
 
 // ===== v44.8 طريقة الإدخال =====
 Object.assign(EN, {
-"📷 قارئ باركود": "📷 Barcode reader",
-"⌨ إدخال يدوي": "⌨ Manual entry",
+"قارئ باركود": "Barcode reader",
+"إدخال يدوي": "Manual entry",
 "من القائمة": "From list"
 });
 export const TX = (ar) => (LANG === 'en' && ar && EN[ar]) || ar;

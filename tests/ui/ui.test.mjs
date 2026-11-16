@@ -1327,9 +1327,11 @@ test('v44.5 التحضير اليومي بالباركود: تسجيل دفعة 
   // المسح بالقارئ (الرمز ثم Enter) ⇒ الحالة ثم الاستخدام
   // v44.8: الكتابة البطيئة ⇒ «إدخال يدوي»، وكتابة القارئ السريعة ثم Enter ⇒ «قارئ باركود» — ويُسجَّل مع الاستخدام
   await p.locator('input[aria-label="مسح ملصق التحضير"]').pressSequentially(b.code, { delay: 120 }); await p.press('input[aria-label="مسح ملصق التحضير"]', 'Enter'); await p.waitForTimeout(150);
-  assert.equal(await p.locator('[data-pbvia="hit"]').innerText(), '⌨ إدخال يدوي');
+  assert.equal(await p.locator('[data-pbvia="hit"]').innerText(), 'إدخال يدوي');
+  assert.equal(await p.locator('[data-pbvia="hit"] svg.lucide-pen-line').count(), 1, 'أيقونة القلم لليدوي');
   await p.locator('input[aria-label="مسح ملصق التحضير"]').pressSequentially(b.code.toLowerCase(), { delay: 4 }); await p.press('input[aria-label="مسح ملصق التحضير"]', 'Enter'); await p.waitForTimeout(150);
-  assert.equal(await p.locator('[data-pbvia="hit"]').innerText(), '📷 قارئ باركود');
+  assert.equal(await p.locator('[data-pbvia="hit"]').innerText(), 'قارئ باركود');
+  assert.equal(await p.locator('[data-pbvia="hit"] svg.lucide-qr-code').count(), 1, 'أيقونة QR للقارئ');
   assert.equal(await p.locator('[data-pbhit="ok"] [data-pbst]').getAttribute('data-pbst'), 'ok');
   assert.equal(await p.evaluate(() => document.activeElement && document.activeElement.getAttribute('aria-label')), 'مسح ملصق التحضير', 'التركيز يبقى على حقل المسح');
   await p.locator('[data-pbhit="ok"] [data-pbuse]').click(); await p.waitForTimeout(200);

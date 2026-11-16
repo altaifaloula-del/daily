@@ -3,7 +3,7 @@
    قرارات المالك: يسجّلها مطبخ الفرع · الانتهاء آليًا من مدة صلاحية التحضيرة (يحددها المركز) · ملصق 50×30 مم.
    الإتلاف: التحضيرة المخزّنة صنفًا تُخصم هدرًا من مستودع الفرع بمسار الهدر الحالي (واعتماده)، وغيرها يُوثَّق على الدفعة. */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ScanLine, Printer, Check, Trash2, Plus, ChefHat } from 'lucide-react';
+import { ScanLine, Printer, Check, Trash2, Plus, ChefHat, QrCode, PenLine, List } from 'lucide-react';
 import { Field, Kpi, Modal, PREP_ST, WASTE_REASONS, nowISO, prepBatchState, prepItemOf, prepShelfH, q3, submitWaste, today, uid, whName } from '../../App.jsx';
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -20,8 +20,10 @@ export function scanVia(times, pasted) {
   const gaps = times.slice(1).map((t, i) => t - times[i]).sort((a, b) => a - b);
   return gaps[Math.floor(gaps.length / 2)] <= 35 ? 'scan' : 'manual';
 }
-export const VIA = { scan: ['b-mint', '📷 قارئ باركود'], manual: ['b-amber', '⌨ إدخال يدوي'], list: ['b-dim', 'من القائمة'] };
-const viaBadge = (v, attr) => v && VIA[v] ? <span className={'badge ' + VIA[v][0]} data-pbvia={attr || v} style={{ marginInlineStart: 4 }}>{VIA[v][1]}</span> : null;
+// v44.8 — أيقونة لكل طريقة: رمز QR للقارئ، وقلم للإدخال اليدوي، وقائمة للإجراء من جدول الرف
+export const VIA = { scan: ['b-mint', 'قارئ باركود', QrCode], manual: ['b-amber', 'إدخال يدوي', PenLine], list: ['b-dim', 'من القائمة', List] };
+const viaBadge = (v, attr) => { if (!v || !VIA[v]) return null; const [c, t, Ic] = VIA[v];
+  return <span className={'badge ' + c} data-pbvia={attr || v} title={t} style={{ marginInlineStart: 4, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Ic size={13} aria-hidden="true" />{t}</span>; };
 
 /** v44.5 — مقاسات الملصق: ورق حراري بمقاسات شائعة، أو ورقة A4 بـ 24 ملصقًا (3×8). الخطوط والباركود تتناسب مع المقاس */
 export const LABEL_SIZES = [
