@@ -240,7 +240,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
     const badY = (f.parts || []).find(pt => (pt.itemId || pt.prepId) && pt.yield !== '' && pt.yield != null && !(Number(pt.yield) > 0 && Number(pt.yield) <= 100));
     if (badY) return say('معامل الناتج بين 1 و100%', 'no');
     const parts = cleanParts(f.parts); if (!parts.length) return say('أضف مكوّنات التحضيرة', 'no');
-    const rec = { id: f.id || uid('prep'), name: f.name.trim(), unit: String(f.unit || '').trim() || 'كجم', batch: Number(f.batch), parts, ...(f.stocked ? { stocked: true } : {}) };
+    const rec = { id: f.id || uid('prep'), name: f.name.trim(), unit: String(f.unit || '').trim() || 'كجم', batch: Number(f.batch), parts, ...(f.stocked ? { stocked: true } : {}), ...(Number(f.shelfH) > 0 ? { shelfH: Math.round(Number(f.shelfH) * 100) / 100 } : {}) };
     const trial = { ...org, preps: [...preps.filter(x => x.id !== rec.id), rec] };
     const C = recipeCost(trial, [{ prepId: rec.id, qty: 1 }], AVG); if (/دائرية/.test(C.miss)) return say('لا يمكن: التحضيرة تحتوي نفسها عبر تحضيرة أخرى (وصفة دائرية)', 'no');
     // v42.8: «تُخزَّن صنفًا» ⇒ صنف مخزني مرتبط بالتحضيرة (prepId) يستقبل ناتج أوامر الإنتاج؛ لا يُحذف عند الإلغاء (قد تكون عليه حركات)
@@ -677,6 +677,8 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
             <Field label="الاسم"><input className="inp" value={prepF.name} placeholder="صلصة ثوم، تتبيلة شاورما، عجينة…" onChange={e => setPrepF(f => ({ ...f, name: e.target.value }))} /></Field>
             <Field label="كمية الناتج للدفعة"><input className="inp n" inputMode="decimal" value={prepF.batch} placeholder="5" onChange={e => setPrepF(f => ({ ...f, batch: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
             <Field label="الوحدة"><input className="inp" value={prepF.unit} placeholder="كجم" onChange={e => setPrepF(f => ({ ...f, unit: e.target.value }))} /></Field>
+            <Field label="مدة الصلاحية بعد التحضير (ساعات)"><input className="inp n" inputMode="decimal" aria-label="مدة الصلاحية بالساعات" value={prepF.shelfH ?? ''} placeholder="مثال: 24 أو 72" onChange={e => setPrepF(f => ({ ...f, shelfH: e.target.value.replace(/[^\d.]/g, '') }))} />
+              <div className="hint">لملصق «التحضير اليومي»: الانتهاء = وقت التحضير + هذه المدة</div></Field>
             <label className="row" style={{ gap: 8, alignItems: 'center', fontSize: 13, cursor: 'pointer', gridColumn: '1/-1' }}>
               <input type="checkbox" checked={!!prepF.stocked} onChange={e => setPrepF(f => ({ ...f, stocked: e.target.checked }))} />
               تُخزَّن صنفًا (أوامر الإنتاج) — الناتج يدخل المخزون ويُصرف للفروع ويُجرد

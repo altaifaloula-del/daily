@@ -1277,3 +1277,45 @@ test('v44.3 (ث34) طلب الشراء واستلام أوامر الشراء ل
   assert.equal(await p.locator('button', { hasText: 'استلام أوامر الشراء' }).count(), 1, 'مدير الفرع');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v44.5 التحضير اليومي بالباركود: تسجيل دفعة وطباعة ملصق 50×30 بتاريخي الإنتاج والانتهاء، ومسح القارئ للحالة والاستخدام والإتلاف', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/Hub/bm/closehub:prepdaily');
+  await p.evaluate(() => {
+    window.__labels = []; window.open = () => ({ document: { write: (h) => window.__labels.push(h), close() {} } });
+    window.setOrg(g => ({ ...g, preps: [{ id: 'pr1', name: 'صلصة ثوم', unit: 'كجم', shelfH: 24 }, { id: 'pr2', name: 'تتبيلة شاورما', unit: 'كجم' }] }));
+    window.setOps(o => ({ ...o, prepBatches: [
+      { id: 'old', code: 'PEXPIRED1', branchId: 'b1', prepId: 'pr1', name: 'صلصة ثوم', unit: 'كجم', qty: 2, madeAt: '2026-01-01T08:00:00Z', expAt: '2026-01-02T08:00:00Z', status: 'shelf', by: 'خالد' },
+      { id: 'oth', code: 'POTHERBR1', branchId: 'b2', prepId: 'pr1', name: 'صلصة ثوم', unit: 'كجم', qty: 1, madeAt: '2026-01-01T08:00:00Z', expAt: '2026-01-02T08:00:00Z', status: 'shelf', by: 'س' }] }));
+  });
+  await p.waitForTimeout(300);
+  // بلا مدة صلاحية ⇒ مرفوض
+  await p.selectOption('select[aria-label="التحضيرة"]', 'pr2'); await p.fill('input[aria-label="الكمية المحضّرة"]', '3'); await p.locator('[data-pbsave]').click(); await p.waitForTimeout(150);
+  assert.match(await say(p), /مدة صلاحية «تتبيلة شاورما» غير محددة/);
+  // تسجيل وطباعة ملصقين
+  await p.selectOption('select[aria-label="التحضيرة"]', 'pr1'); await p.fill('input[aria-label="الكمية المحضّرة"]', '5'); await p.fill('input[aria-label="عدد الملصقات"]', '2');
+  await p.locator('[data-pbsave]').click(); await p.waitForTimeout(600);
+  const b = await p.evaluate(() => window.cur.prepBatches.find(x => x.id !== 'old' && x.id !== 'oth'));
+  assert.equal(b.qty, 5); assert.equal(b.branchId, 'b1'); assert.equal(Date.parse(b.expAt) - Date.parse(b.madeAt), 24 * 3600000, 'الانتهاء = الإنتاج + 24 ساعة');
+  const lab = await p.evaluate(() => window.__labels[0] || '');
+  assert.equal((lab.match(/class="lb"/g) || []).length, 2, 'ملصقان'); assert.match(lab, /size:50mm 30mm/); assert.match(lab, /<svg/); assert.ok(lab.includes(b.code)); assert.match(lab, /إنتاج:[\s\S]*انتهاء:/);
+  // المسح بالقارئ (الرمز ثم Enter) ⇒ الحالة ثم الاستخدام
+  await p.fill('input[aria-label="مسح ملصق التحضير"]', b.code.toLowerCase()); await p.press('input[aria-label="مسح ملصق التحضير"]', 'Enter'); await p.waitForTimeout(150);
+  assert.equal(await p.locator('[data-pbhit="ok"] [data-pbst]').getAttribute('data-pbst'), 'ok');
+  assert.equal(await p.evaluate(() => document.activeElement && document.activeElement.getAttribute('aria-label')), 'مسح ملصق التحضير', 'التركيز يبقى على حقل المسح');
+  await p.locator('[data-pbhit="ok"] [data-pbuse]').click(); await p.waitForTimeout(200);
+  assert.equal(await p.evaluate((id) => window.cur.prepBatches.find(x => x.id === id).status, b.id), 'used');
+  // المنتهي: لا استخدام، والإتلاف بسببه
+  await p.fill('input[aria-label="مسح ملصق التحضير"]', 'PEXPIRED1'); await p.press('input[aria-label="مسح ملصق التحضير"]', 'Enter'); await p.waitForTimeout(150);
+  assert.equal(await p.locator('[data-pbhit="ok"] [data-pbst]').getAttribute('data-pbst'), 'expired');
+  assert.equal(await p.locator('[data-pbhit="ok"] [data-pbuse]').count(), 0, 'المنتهي لا يُستخدم');
+  await p.locator('[data-pbhit="ok"] [data-pbdisc]').click(); await p.waitForTimeout(150);
+  assert.equal(await p.locator('select[aria-label="سبب الإتلاف"]').inputValue(), 'expired');
+  await p.locator('[data-pbdiscsave]').click(); await p.waitForTimeout(200);
+  assert.deepEqual(await p.evaluate(() => { const x = window.cur.prepBatches.find(y => y.id === 'old'); return [x.status, x.reason]; }), ['discarded', 'expired']);
+  // ملصق فرع آخر وملصق مجهول
+  await p.fill('input[aria-label="مسح ملصق التحضير"]', 'POTHERBR1'); await p.press('input[aria-label="مسح ملصق التحضير"]', 'Enter'); await p.waitForTimeout(100);
+  assert.equal(await p.locator('[data-pbhit="other"]').count(), 1);
+  await p.fill('input[aria-label="مسح ملصق التحضير"]', 'XYZ'); await p.press('input[aria-label="مسح ملصق التحضير"]', 'Enter'); await p.waitForTimeout(100);
+  assert.equal(await p.locator('[data-pbhit="miss"]').count(), 1);
+  assert.deepEqual(errs, []); await ctx.close();
+});
