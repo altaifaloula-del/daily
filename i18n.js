@@ -2411,6 +2411,28 @@ Object.assign(EN, {
 "آخر مسح": "Last scan",
 "أعدّه": "Prepared by"
 });
+
+// ===== v45.0 جرد رف التحضير =====
+Object.assign(EN, {
+"جرد الرف": "Shelf count",
+"جرد الرف — امسح كل ملصق موجود": "Shelf count — scan every label present",
+"إنهاء وحفظ الجرد": "Finish and save count",
+"لم يُمسح:": "Not scanned:",
+"منتهٍ موجود — أتلفه:": "Expired present — discard it:",
+"غير متوقع:": "Unexpected:",
+"آخر ما مُسح:": "Last scanned:",
+"سجل جرد الرف": "Shelf count log",
+"بواسطة": "By",
+"موجود": "Present",
+"مفقود": "Missing",
+"منتهٍ": "Expired",
+"غير متوقع": "Unexpected",
+"ملصق غير معروف": "Unknown label",
+"من فرع آخر": "From another branch",
+"مسجّل «استُخدم» وما زال على الرف": "Recorded as used yet still on the shelf",
+"مسجّل «أُتلف» وما زال على الرف": "Recorded as discarded yet still on the shelf",
+"امسح ملصقات الرف أولًا": "Scan the shelf labels first"
+});
 export const TX = (ar) => (LANG === 'en' && ar && EN[ar]) || ar;
 
 /* v43.1 مترجم الشاشة: في الوضع الإنجليزي يترجم نصوص الواجهة (عُقد النص + placeholder/title/aria-label) بمطابقة القاموس حرفيًا،
@@ -2482,6 +2504,8 @@ export const EN_RX = [
 
 
   [/^طباعة «أعدّه: (.+)» على الملصق$/, 'Print «Prepared by: $1» on the label'], [/^سجل المسح \((\d+)\)$/, 'Scan log ($1)'],
+  [/^موجود (\d+) من (\d+)$/, '$1 of $2 present'], [/^لم يُمسح بعد (\d+)$/, 'Not yet scanned $1'], [/^منتهٍ على الرف (\d+)$/, 'Expired on shelf $1'], [/^غير متوقع (\d+)$/, 'Unexpected $1'], [/^مُسح من قبل في هذا الجرد: (\S+)$/, 'Already scanned in this count: $1'],
+  [/^حُفظ جرد الرف — توجد فروقات تحتاج إجراء$/, 'Shelf count saved — there are differences that need action'], [/^حُفظ جرد الرف — مطابق ✓$/, 'Shelf count saved — matches ✓'],
   [/^أقصى مبلغ متاح (.+) ر\.س — يمكنك تعديله يدوياً$/, 'Max available $1 SAR — you can edit it manually'],
   [/^(\d{1,2}) (يناير|فبراير|مارس|أبريل|مايو|يونيو|يوليو|أغسطس|سبتمبر|أكتوبر|نوفمبر|ديسمبر) (\d{4})$/, (_, d, m, y) => d + ' ' + MONTHS[m] + ' ' + y]
 ];
