@@ -13,6 +13,16 @@ const fmtLeft = (ms) => { if (ms <= 0) return 'منتهٍ'; const h = Math.floor
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const newCode = () => 'P' + Date.now().toString(36).toUpperCase().slice(-5) + Math.random().toString(36).slice(2, 6).toUpperCase();
 
+/** v44.8 — طريقة الإدخال عند المسح: قارئ الباركود يكتب الرمز كاملًا خلال أجزاء من الثانية ثم Enter، والكتابة اليدوية أبطأ.
+ *  الحكم: 4 أحرف فأكثر بوسيط فاصل بين المفاتيح ≤ 35 مللي ثانية ⇒ قارئ؛ اللصق أو الأبطأ ⇒ يدوي. */
+export function scanVia(times, pasted) {
+  if (pasted || !Array.isArray(times) || times.length < 4) return 'manual';
+  const gaps = times.slice(1).map((t, i) => t - times[i]).sort((a, b) => a - b);
+  return gaps[Math.floor(gaps.length / 2)] <= 35 ? 'scan' : 'manual';
+}
+export const VIA = { scan: ['b-mint', '📷 قارئ باركود'], manual: ['b-amber', '⌨ إدخال يدوي'], list: ['b-dim', 'من القائمة'] };
+const viaBadge = (v, attr) => v && VIA[v] ? <span className={'badge ' + VIA[v][0]} data-pbvia={attr || v} style={{ marginInlineStart: 4 }}>{VIA[v][1]}</span> : null;
+
 /** v44.5 — مقاسات الملصق: ورق حراري بمقاسات شائعة، أو ورقة A4 بـ 24 ملصقًا (3×8). الخطوط والباركود تتناسب مع المقاس */
 export const LABEL_SIZES = [
   { id: '50x30', ar: '50×30 مم (الافتراضي)', w: 50, h: 30 },
@@ -109,20 +119,23 @@ export function PrepBatches({ org, ops, me, commit, say, whId, branchId, canAct 
     say('سُجّلت الدفعة ' + rec.code + ' — تنتهي ' + fmtDT(rec.expAt) + ' ✓');
     printPrepLabels([rec], v.copies, say, { made: v.showMade, exp: v.showExp }, v.size);
   };
+  const keyT = useRef([]), pasted = useRef(false);
+  const onScanKey = (e) => { if (e.key && e.key.length === 1) keyT.current.push(performance.now()); };
   const scan = (e) => {
-    e.preventDefault(); const c = code.trim().toUpperCase(); setCode(''); if (!c) return;
+    e.preventDefault(); const c = code.trim().toUpperCase(); setCode('');
+    const via = scanVia(keyT.current, pasted.current); keyT.current = []; pasted.current = false; if (!c) return;
     const b = (ops.prepBatches || []).find(x => String(x.code).toUpperCase() === c);
-    if (!b) { setHit({ miss: c }); return focusScan(); }
-    if (b.branchId !== branchId) { setHit({ other: b }); return focusScan(); }
-    setHit({ b }); focusScan();
+    if (!b) { setHit({ miss: c, via }); return focusScan(); }
+    if (b.branchId !== branchId) { setHit({ other: b, via }); return focusScan(); }
+    setHit({ b, via }); focusScan();
   };
-  const markUsed = async (b) => {
+  const markUsed = async (b, via) => {
     if (!canAct) return say('للعرض فقط', 'no');
     const S = prepBatchState(b, Date.now()); if (S.st === 'expired') return say('الدفعة منتهية الصلاحية — لا تُستخدم، سجّل إتلافها', 'no');
     if (S.st !== 'ok' && S.st !== 'near') return say('الدفعة ' + (PREP_ST[S.st] || ['', ''])[1], 'no');
-    const ok = await commit(d => ({ ...d, prepBatches: (d.prepBatches || []).map(x => x.id === b.id && x.status === 'shelf' ? { ...x, status: 'used', usedAt: nowISO(), usedBy: me.name } : x) }),
-      { actionType: 'update', targetType: 'stock_move', targetId: b.id, branchName: whName(org, whId), title: 'استخدام دفعة تحضير', details: b.code + ' · ' + b.name });
-    if (ok) { setHit(h => h && h.b && h.b.id === b.id ? { b: { ...b, status: 'used', usedAt: nowISO(), usedBy: me.name } } : h); say('سُجّل استخدام ' + b.code + ' ✓'); focusScan(); }
+    const ok = await commit(d => ({ ...d, prepBatches: (d.prepBatches || []).map(x => x.id === b.id && x.status === 'shelf' ? { ...x, status: 'used', usedAt: nowISO(), usedBy: me.name, usedVia: via || 'list' } : x) }),
+      { actionType: 'update', targetType: 'stock_move', targetId: b.id, branchName: whName(org, whId), title: 'استخدام دفعة تحضير', details: b.code + ' · ' + b.name + ' · ' + VIA[via || 'list'][1] });
+    if (ok) { setHit(h => h && h.b && h.b.id === b.id ? { ...h, b: { ...b, status: 'used', usedAt: nowISO(), usedBy: me.name, usedVia: via || 'list' } } : h); say('سُجّل استخدام ' + b.code + ' ✓'); focusScan(); }
   };
   const doDiscard = async () => {
     const b = disc.b; if (!canAct) return say('للعرض فقط', 'no');
@@ -131,15 +144,15 @@ export function PrepBatches({ org, ops, me, commit, say, whId, branchId, canAct 
     const it = prepItemOf(org, b.prepId);
     // التحضيرة المخزّنة صنفًا: هدر من مستودع الفرع بمساره المعتاد (واعتماده فوق الحد)
     if (it && whId) { const okW = await submitWaste({ org, me, commit, say, col: 'whMoves', whId, branchId, lines: [{ itemId: it.id, qty: b.qty }], f: { reason: disc.reason, note: (disc.note ? disc.note + ' · ' : '') + 'دفعة ' + b.code }, avg: {}, title: b.name }); if (!okW) return; }
-    const ok = await commit(d => ({ ...d, prepBatches: (d.prepBatches || []).map(x => x.id === b.id && x.status === 'shelf' ? { ...x, status: 'discarded', discardAt: nowISO(), discardBy: me.name, reason: disc.reason, discardNote: String(disc.note || '').trim(), ...(it && whId ? { wasteItem: it.id } : {}) } : x) }),
+    const ok = await commit(d => ({ ...d, prepBatches: (d.prepBatches || []).map(x => x.id === b.id && x.status === 'shelf' ? { ...x, status: 'discarded', discardAt: nowISO(), discardBy: me.name, reason: disc.reason, discardNote: String(disc.note || '').trim(), discardVia: disc.via || 'list', ...(it && whId ? { wasteItem: it.id } : {}) } : x) }),
       { actionType: 'update', targetType: 'stock_move', targetId: b.id, branchName: whName(org, whId), title: 'إتلاف دفعة تحضير', details: b.code + ' · ' + b.name + ' · ' + WASTE_REASONS[disc.reason] });
     if (ok) { setDisc(null); setHit(h => h && h.b && h.b.id === b.id ? null : h); say('أُتلفت الدفعة ' + b.code + ' ✓'); focusScan(); }
   };
-  const actBtns = (b) => { const st = prepBatchState(b, now).st; return (
+  const actBtns = (b, via) => { const st = prepBatchState(b, now).st; return (
     <div className="row" style={{ gap: 5, flexWrap: 'wrap' }}>
       <button className="btn sm gh" title="طباعة الملصق" data-pbprint onClick={() => setPv({ isNew: false, b, name: b.name, unit: b.unit, qty: b.qty, copies: '1', made: toLocalInp(Date.parse(b.madeAt)), exp: toLocalInp(Date.parse(b.expAt)), showMade: true, showExp: true, size: savedLabelSize() })}><Printer size={12} /></button>
-      {canAct && (st === 'ok' || st === 'near') && <button className="btn sm pri" data-pbuse onClick={() => markUsed(b)}><Check size={12} />استخدام</button>}
-      {canAct && ['ok', 'near', 'expired'].includes(st) && <button className={'btn sm' + (st === 'expired' ? ' pri' : ' gh')} data-pbdisc onClick={() => setDisc({ b, reason: st === 'expired' ? 'expired' : '', note: '' })}><Trash2 size={12} />إتلاف</button>}
+      {canAct && (st === 'ok' || st === 'near') && <button className="btn sm pri" data-pbuse onClick={() => markUsed(b, via)}><Check size={12} />استخدام</button>}
+      {canAct && ['ok', 'near', 'expired'].includes(st) && <button className={'btn sm' + (st === 'expired' ? ' pri' : ' gh')} data-pbdisc onClick={() => setDisc({ b, via, reason: st === 'expired' ? 'expired' : '', note: '' })}><Trash2 size={12} />إتلاف</button>}
     </div>); };
   const badge = (b) => { const S = prepBatchState(b, now); const [c, t] = PREP_ST[S.st] || ['b-dim', S.st]; return <span className={'badge ' + c} data-pbst={S.st}>{t}{(S.st === 'ok' || S.st === 'near') ? ' · ' + fmtLeft(S.left) : ''}</span>; };
   const cnt = (st) => shelf.filter(b => b.S.st === st).length;
@@ -156,24 +169,24 @@ export function PrepBatches({ org, ops, me, commit, say, whId, branchId, canAct 
       <div className="card">
         <div className="card-t" style={{ marginBottom: 8 }}><ScanLine size={15} color="var(--brass)" />مسح الملصق</div>
         <form onSubmit={scan} className="row" style={{ gap: 8 }}>
-          <input ref={scanRef} autoFocus className="inp" style={{ flex: 1, fontSize: 16 }} aria-label="مسح ملصق التحضير" placeholder="امسح الباركود بالقارئ أو اكتب الرمز ثم Enter" value={code} onChange={e => setCode(e.target.value)} />
+          <input ref={scanRef} autoFocus className="inp" style={{ flex: 1, fontSize: 16 }} aria-label="مسح ملصق التحضير" placeholder="امسح الباركود بالقارئ أو اكتب الرمز ثم Enter" value={code} onKeyDown={onScanKey} onPaste={() => { pasted.current = true; }} onChange={e => { if (!e.target.value) { keyT.current = []; pasted.current = false; } setCode(e.target.value); }} />
           <button className="btn pri" type="submit"><ScanLine size={14} />بحث</button>
         </form>
-        {hit && (hit.miss ? <div className="note" style={{ marginTop: 10, color: 'var(--rose)' }} data-pbhit="miss">ملصق غير معروف: <b dir="ltr">{hit.miss}</b></div>
-          : hit.other ? <div className="note" style={{ marginTop: 10, color: 'var(--rose)' }} data-pbhit="other">الدفعة <b dir="ltr">{hit.other.code}</b> تخص {whName(org, hit.other.whId) || 'فرعًا آخر'} — ليست من هذا المطبخ</div>
+        {hit && (hit.miss ? <div className="note" style={{ marginTop: 10, color: 'var(--rose)' }} data-pbhit="miss">ملصق غير معروف: <b dir="ltr">{hit.miss}</b>{viaBadge(hit.via, 'hit')}</div>
+          : hit.other ? <div className="note" style={{ marginTop: 10, color: 'var(--rose)' }} data-pbhit="other">الدفعة <b dir="ltr">{hit.other.code}</b> تخص {whName(org, hit.other.whId) || 'فرعًا آخر'} — ليست من هذا المطبخ{viaBadge(hit.via, 'hit')}</div>
           : <div className="card" style={{ marginTop: 10, padding: 12, background: 'var(--ink2)' }} data-pbhit="ok">
               <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
                 <div style={{ fontSize: 15, fontWeight: 700 }}>{hit.b.name} <span style={{ fontWeight: 400, color: 'var(--dim)', fontSize: 12.5 }}>{q3(hit.b.qty)} {hit.b.unit}</span></div>
-                {badge(hit.b)}
+                <div className="row" style={{ gap: 4, flexWrap: 'wrap' }}>{viaBadge(hit.via, 'hit')}{badge(hit.b)}</div>
               </div>
               <div style={{ fontSize: 12.5, marginTop: 6, lineHeight: 1.9 }}>
                 <div>الرمز: <b dir="ltr" className="num">{hit.b.code}</b></div>
                 <div>الإنتاج: <b dir="ltr" className="num">{fmtDT(hit.b.madeAt)}</b> · {hit.b.by}</div>
                 <div>الانتهاء: <b dir="ltr" className="num">{fmtDT(hit.b.expAt)}</b></div>
-                {hit.b.status === 'used' && <div>استُخدم: <b dir="ltr" className="num">{fmtDT(hit.b.usedAt)}</b> · {hit.b.usedBy}</div>}
-                {hit.b.status === 'discarded' && <div>أُتلف: <b dir="ltr" className="num">{fmtDT(hit.b.discardAt)}</b> · {hit.b.discardBy} · {WASTE_REASONS[hit.b.reason] || ''}</div>}
+                {hit.b.status === 'used' && <div>استُخدم: <b dir="ltr" className="num">{fmtDT(hit.b.usedAt)}</b> · {hit.b.usedBy}{viaBadge(hit.b.usedVia)}</div>}
+                {hit.b.status === 'discarded' && <div>أُتلف: <b dir="ltr" className="num">{fmtDT(hit.b.discardAt)}</b> · {hit.b.discardBy} · {WASTE_REASONS[hit.b.reason] || ''}{viaBadge(hit.b.discardVia)}</div>}
               </div>
-              <div style={{ marginTop: 8 }}>{actBtns(hit.b)}</div>
+              <div style={{ marginTop: 8 }}>{actBtns(hit.b, hit.via)}</div>
             </div>)}
       </div>
 
@@ -210,7 +223,7 @@ export function PrepBatches({ org, ops, me, commit, say, whId, branchId, canAct 
           <div className="tw"><table className="tb"><tbody>
             {doneToday.map(b => (<tr key={b.id}><td>{b.name}<div style={{ fontSize: 10.5, color: 'var(--dim)' }}>{q3(b.qty)} {b.unit}</div></td><td className="num" dir="ltr" style={{ fontSize: 11 }}>{b.code}</td>
               <td>{badge(b)}{b.status === 'discarded' && b.reason ? <div style={{ fontSize: 10.5, color: 'var(--dim)' }}>{WASTE_REASONS[b.reason]}</div> : null}</td>
-              <td className="num" dir="ltr" style={{ fontSize: 11 }}>{fmtDT(b.status === 'used' ? b.usedAt : b.discardAt)}</td><td style={{ fontSize: 11, color: 'var(--faint)' }}>{b.status === 'used' ? b.usedBy : b.discardBy}</td></tr>))}
+              <td className="num" dir="ltr" style={{ fontSize: 11 }}>{fmtDT(b.status === 'used' ? b.usedAt : b.discardAt)}</td><td style={{ fontSize: 11, color: 'var(--faint)' }}>{b.status === 'used' ? b.usedBy : b.discardBy}{viaBadge(b.status === 'used' ? b.usedVia : b.discardVia)}</td></tr>))}
           </tbody></table></div></>}
       </div>
 

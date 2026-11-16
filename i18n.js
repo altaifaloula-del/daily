@@ -2396,6 +2396,13 @@ Object.assign(EN, {
 "مثل الإعداد العام": "Same as general setting",
 "لكاشير طابعته بعرض مختلف عن باقي الفروع — يُحفظ على هذا الجهاز فقط": "For a cashier whose printer width differs from other branches — saved on this device only"
 });
+
+// ===== v44.8 طريقة الإدخال =====
+Object.assign(EN, {
+"📷 قارئ باركود": "📷 Barcode reader",
+"⌨ إدخال يدوي": "⌨ Manual entry",
+"من القائمة": "From list"
+});
 export const TX = (ar) => (LANG === 'en' && ar && EN[ar]) || ar;
 
 /* v43.1 مترجم الشاشة: في الوضع الإنجليزي يترجم نصوص الواجهة (عُقد النص + placeholder/title/aria-label) بمطابقة القاموس حرفيًا،
@@ -2463,6 +2470,7 @@ export const EN_RX = [
   [/^(.+) — صلاحية (\d+) (ساعة|يوم)$/, (_, n, k, u) => (EN[n] || n) + ' — shelf life ' + k + (u === 'يوم' ? ' days' : ' h')], [/^(.+) — بلا مدة صلاحية$/, (_, n) => (EN[n] || n) + ' — no shelf life'],
   [/^مدة صلاحية «(.+)» غير محددة — يحددها المركز من بطاقة التحضيرة$/, (_, n) => 'Shelf life of «' + n + '» is not set — central sets it on the prep card'],
   [/^إعادة طباعة ملصق (\S+)$/, 'Reprint label $1'], [/^· صلاحية (\d+(?:\.\d+)?) ساعة$/, '· shelf life $1 h'], [/^الانتهاء يتجاوز مدة صلاحية التحضيرة \((\d+(?:\.\d+)?) ساعة من الإنتاج\) — لا يُمدَّد$/, 'Expiry exceeds the prep shelf life ($1 h from production) — cannot be extended'],
+
 
 
   [/^أقصى مبلغ متاح (.+) ر\.س — يمكنك تعديله يدوياً$/, 'Max available $1 SAR — you can edit it manually'],
