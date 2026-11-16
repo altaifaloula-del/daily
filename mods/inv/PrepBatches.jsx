@@ -13,23 +13,57 @@ const fmtLeft = (ms) => { if (ms <= 0) return 'منتهٍ'; const h = Math.floor
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const newCode = () => 'P' + Date.now().toString(36).toUpperCase().slice(-5) + Math.random().toString(36).slice(2, 6).toUpperCase();
 
-/** ملصقات 50×30 مم — نسخة لكل حاوية */
-export async function printPrepLabels(batches, copies, say, show) {
+/** v44.5 — مقاسات الملصق: ورق حراري بمقاسات شائعة، أو ورقة A4 بـ 24 ملصقًا (3×8). الخطوط والباركود تتناسب مع المقاس */
+export const LABEL_SIZES = [
+  { id: '50x30', ar: '50×30 مم (الافتراضي)', w: 50, h: 30 },
+  { id: '40x25', ar: '40×25 مم (صغير)', w: 40, h: 25 },
+  { id: '58x40', ar: '58×40 مم', w: 58, h: 40 },
+  { id: '60x40', ar: '60×40 مم', w: 60, h: 40 },
+  { id: '70x50', ar: '70×50 مم', w: 70, h: 50 },
+  { id: '100x50', ar: '100×50 مم (كبير)', w: 100, h: 50 },
+  { id: 'a4', ar: 'ورقة A4 — 24 ملصقًا (70×37 مم)', w: 70, h: 37.125, sheet: true }
+];
+const SIZE_KEY = 'rms8:prepLabelSize';
+export const savedLabelSize = () => { try { const v = localStorage.getItem(SIZE_KEY); return LABEL_SIZES.some(z => z.id === v) ? v : '50x30'; } catch { return '50x30'; } };
+const keepLabelSize = (id) => { try { localStorage.setItem(SIZE_KEY, id); } catch { } };
+export const labelCss = (z) => {
+  const k = Math.min(z.w / 50, z.h / 30), f = (n) => Math.round(n * k * 10) / 10;
+  return `@page{size:${z.sheet ? 'A4' : z.w + 'mm ' + z.h + 'mm'};margin:0} *{box-sizing:border-box} body{margin:0;font-family:Tahoma,Arial,sans-serif;color:#000}
+    ${z.sheet ? '.sheet{display:grid;grid-template-columns:repeat(3,70mm);grid-auto-rows:37.125mm;width:210mm}.sheet .lb{page-break-after:auto;break-inside:avoid}' : ''}
+    .lb{width:${z.w}mm;height:${z.h}mm;padding:${f(1.4)}mm ${f(2)}mm;page-break-after:always;overflow:hidden;display:flex;flex-direction:column;gap:${f(.6)}mm}
+    .t{display:flex;justify-content:space-between;gap:2mm;font-size:${f(9)}pt}.t b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .d{display:flex;flex-direction:column;font-size:${f(7)}pt;line-height:1.25}.bc{flex:1;min-height:0;display:flex;align-items:center;justify-content:center}.bc svg{max-width:100%;height:${f(13)}mm}`;
+};
+
+/** ملصقات التحضير بالمقاس المختار — نسخة لكل حاوية */
+export async function labelDoc(batches, copies, show, sizeId) {
   const sh = { made: true, exp: true, ...(show || {}) };
+  const z = (sizeId && typeof sizeId === 'object') ? sizeId : (LABEL_SIZES.find(x => x.id === sizeId) || LABEL_SIZES[0]);
   const { default: JsBarcode } = await import('jsbarcode');
   const svgOf = (code) => { const el = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     JsBarcode(el, code, { format: 'CODE128', width: 1.5, height: 34, displayValue: true, fontSize: 11, margin: 0, textMargin: 1 }); return el.outerHTML; };
   const one = (b) => `<div class="lb"><div class="t"><b>${esc(b.name)}</b><span>${esc(q3(b.qty))} ${esc(b.unit)}</span></div>
     <div class="d">${sh.made ? `<span>إنتاج: <b dir="ltr">${esc(fmtDT(b.madeAt))}</b></span>` : ''}${sh.exp ? `<span>انتهاء: <b dir="ltr">${esc(fmtDT(b.expAt))}</b></span>` : ''}</div><div class="bc">${svgOf(b.code)}</div></div>`;
   const html = batches.flatMap(b => Array.from({ length: Math.max(1, Math.min(50, Number(copies) || 1)) }, () => one(b))).join('');
-  const w = window.open('', '_blank', 'width=420,height=360'); if (!w) { say && say('اسمح بالنوافذ المنبثقة للطباعة', 'no'); return false; }
-  w.document.write(`<!doctype html><html dir="rtl"><head><meta charset="utf-8"><title>ملصقات التحضير</title><style>
-    @page{size:50mm 30mm;margin:0} *{box-sizing:border-box} body{margin:0;font-family:Tahoma,Arial,sans-serif;color:#000}
-    .lb{width:50mm;height:30mm;padding:1.4mm 2mm;page-break-after:always;overflow:hidden;display:flex;flex-direction:column;gap:.6mm}
-    .t{display:flex;justify-content:space-between;gap:2mm;font-size:9pt}.t b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .d{display:flex;flex-direction:column;font-size:7pt;line-height:1.25}.bc{flex:1;display:flex;align-items:center;justify-content:center}.bc svg{max-width:100%;height:13mm}
-  </style></head><body>${html}<script>window.onload=function(){window.print();}</script></body></html>`);
+  return { z, doc: `<!doctype html><html dir="rtl"><head><meta charset="utf-8"><title>ملصقات التحضير</title><style>${labelCss(z)}</style></head><body data-size="${z.id}">${z.sheet ? '<div class="sheet">' + html + '</div>' : html}` };
+}
+export async function printPrepLabels(batches, copies, say, show, sizeId) {
+  const { z, doc } = await labelDoc(batches, copies, show, sizeId); keepLabelSize(z.id);
+  const w = window.open('', '_blank', 'width=' + (z.sheet ? 820 : 420) + ',height=' + (z.sheet ? 900 : 360)); if (!w) { say && say('اسمح بالنوافذ المنبثقة للطباعة', 'no'); return false; }
+  w.document.write(doc + '<script>window.onload=function(){window.print();}</script></body></html>');
   w.document.close(); return true;
+}
+
+/** معاينة حيّة للملصق بالمقاس المختار (ملصق واحد) */
+function LabelPreview({ b, show, size }) {
+  const [doc, setDoc] = useState(''); const z = LABEL_SIZES.find(x => x.id === size) || LABEL_SIZES[0];
+  useEffect(() => { let on = true; labelDoc([b], 1, show, z.sheet ? { ...z, sheet: false } : z).then(r => { if (on) setDoc(r.doc + '</body></html>'); }); return () => { on = false; }; }, [b.code, b.madeAt, b.expAt, show.made, show.exp, size]); // eslint-disable-line
+  const wPx = Math.round(z.w * 3.78), hPx = Math.round(z.h * 3.78), sc = Math.min(1.6, 300 / wPx);
+  return (<div style={{ margin: '4px 0 10px' }} data-lbpreview={z.id}>
+    <div className="lbl" style={{ marginBottom: 4 }}>معاينة الملصق{z.sheet ? ' (ملصق واحد من الورقة)' : ''}</div>
+    <div style={{ width: wPx * sc, height: hPx * sc, border: '1px dashed var(--line)', borderRadius: 4, background: '#fff', overflow: 'hidden', direction: 'ltr' }}>
+      {doc && <iframe title="معاينة الملصق" srcDoc={doc} style={{ width: wPx, height: hPx, maxWidth: 'none', border: 0, transform: 'scale(' + sc + ')', transformOrigin: '0 0', pointerEvents: 'none' }} />}
+    </div></div>);
 }
 
 export function PrepBatches({ org, ops, me, commit, say, whId, branchId, canAct }) {
@@ -56,14 +90,14 @@ export function PrepBatches({ org, ops, me, commit, say, whId, branchId, canAct 
     const qty = q3(f.qty); if (!(qty > 0)) return say('أدخل الكمية المحضّرة', 'no');
     const h = prepShelfH(org, p.id); if (!(h > 0)) return say('مدة صلاحية «' + p.name + '» غير محددة — يحددها المركز من بطاقة التحضيرة', 'no');
     const t0 = Date.now();
-    setPv({ isNew: true, prepId: p.id, name: p.name, unit: p.unit || '', qty, h, copies: f.copies, made: toLocalInp(t0), exp: toLocalInp(t0 + h * 3600000), showMade: true, showExp: true });
+    setPv({ isNew: true, prepId: p.id, name: p.name, unit: p.unit || '', qty, h, copies: f.copies, made: toLocalInp(t0), exp: toLocalInp(t0 + h * 3600000), showMade: true, showExp: true, size: savedLabelSize() });
   };
   // v44.5 — قبل الطباعة: معاينة بتاريخي الإنتاج والانتهاء — تعديلهما وخيار إظهار كل منهما على الملصق
   const savePv = async () => {
     const v = pv; const mk = new Date(v.made), ex = new Date(v.exp);
     if (isNaN(mk) || isNaN(ex)) return say('أدخل تاريخ ووقت الإنتاج والانتهاء', 'no');
     if (!(ex > mk)) return say('الانتهاء يجب أن يكون بعد الإنتاج', 'no');
-    if (!v.isNew) { setPv(null); return printPrepLabels([v.b], v.copies, say, { made: v.showMade, exp: v.showExp }); }
+    if (!v.isNew) { setPv(null); return printPrepLabels([v.b], v.copies, say, { made: v.showMade, exp: v.showExp }, v.size); }
     if (mk.getTime() > Date.now() + 5 * 60000) return say('وقت الإنتاج في المستقبل', 'no');
     if (ex.getTime() - mk.getTime() > v.h * 3600000 + 60000) return say('الانتهاء يتجاوز مدة صلاحية التحضيرة (' + v.h + ' ساعة من الإنتاج) — لا يُمدَّد', 'no');
     const p = { id: v.prepId, name: v.name, unit: v.unit }; const qty = v.qty, h = v.h;
@@ -73,7 +107,7 @@ export function PrepBatches({ org, ops, me, commit, say, whId, branchId, canAct 
     if (!ok) return;
     setF({ prepId: f.prepId, qty: '', copies: f.copies }); setPv(null);
     say('سُجّلت الدفعة ' + rec.code + ' — تنتهي ' + fmtDT(rec.expAt) + ' ✓');
-    printPrepLabels([rec], v.copies, say, { made: v.showMade, exp: v.showExp });
+    printPrepLabels([rec], v.copies, say, { made: v.showMade, exp: v.showExp }, v.size);
   };
   const scan = (e) => {
     e.preventDefault(); const c = code.trim().toUpperCase(); setCode(''); if (!c) return;
@@ -103,7 +137,7 @@ export function PrepBatches({ org, ops, me, commit, say, whId, branchId, canAct 
   };
   const actBtns = (b) => { const st = prepBatchState(b, now).st; return (
     <div className="row" style={{ gap: 5, flexWrap: 'wrap' }}>
-      <button className="btn sm gh" title="طباعة الملصق" data-pbprint onClick={() => setPv({ isNew: false, b, name: b.name, unit: b.unit, qty: b.qty, copies: '1', made: toLocalInp(Date.parse(b.madeAt)), exp: toLocalInp(Date.parse(b.expAt)), showMade: true, showExp: true })}><Printer size={12} /></button>
+      <button className="btn sm gh" title="طباعة الملصق" data-pbprint onClick={() => setPv({ isNew: false, b, name: b.name, unit: b.unit, qty: b.qty, copies: '1', made: toLocalInp(Date.parse(b.madeAt)), exp: toLocalInp(Date.parse(b.expAt)), showMade: true, showExp: true, size: savedLabelSize() })}><Printer size={12} /></button>
       {canAct && (st === 'ok' || st === 'near') && <button className="btn sm pri" data-pbuse onClick={() => markUsed(b)}><Check size={12} />استخدام</button>}
       {canAct && ['ok', 'near', 'expired'].includes(st) && <button className={'btn sm' + (st === 'expired' ? ' pri' : ' gh')} data-pbdisc onClick={() => setDisc({ b, reason: st === 'expired' ? 'expired' : '', note: '' })}><Trash2 size={12} />إتلاف</button>}
     </div>); };
@@ -145,7 +179,7 @@ export function PrepBatches({ org, ops, me, commit, say, whId, branchId, canAct 
 
       {canAct && (
         <div className="card" data-pbnew>
-          <div className="card-t" style={{ marginBottom: 8 }}><Plus size={15} color="var(--brass)" />تسجيل تحضير وطباعة ملصقه (50×30 مم)</div>
+          <div className="card-t" style={{ marginBottom: 8 }}><Plus size={15} color="var(--brass)" />تسجيل تحضير وطباعة ملصقه</div>
           <div className="grid g3">
             <Field label="التحضيرة">
               <select className="sel" aria-label="التحضيرة" value={f.prepId} onChange={e => setF(x => ({ ...x, prepId: e.target.value }))}>
@@ -190,8 +224,11 @@ export function PrepBatches({ org, ops, me, commit, say, whId, branchId, canAct 
               <label className="row" style={{ gap: 6, alignItems: 'center', fontSize: 12.5, marginTop: 6 }}><input type="checkbox" aria-label="طباعة تاريخ الإنتاج" checked={pv.showMade} onChange={e => setPv(x => ({ ...x, showMade: e.target.checked }))} />طباعته على الملصق</label></Field>
             <Field label="تاريخ ووقت الانتهاء"><input type="datetime-local" className="inp" aria-label="تاريخ الانتهاء" value={pv.exp} disabled={!pv.isNew} onChange={e => setPv(x => ({ ...x, exp: e.target.value }))} />
               <label className="row" style={{ gap: 6, alignItems: 'center', fontSize: 12.5, marginTop: 6 }}><input type="checkbox" aria-label="طباعة تاريخ الانتهاء" checked={pv.showExp} onChange={e => setPv(x => ({ ...x, showExp: e.target.checked }))} />طباعته على الملصق</label></Field>
+            <Field label="مقاس الملصق"><select className="sel" aria-label="مقاس الملصق" value={pv.size} onChange={e => setPv(x => ({ ...x, size: e.target.value }))}>{LABEL_SIZES.map(z => <option key={z.id} value={z.id}>{z.ar}</option>)}</select></Field>
             <Field label="عدد الملصقات"><input className="inp n" inputMode="numeric" aria-label="عدد ملصقات المعاينة" value={pv.copies} onChange={e => setPv(x => ({ ...x, copies: e.target.value.replace(/[^\d]/g, '').slice(0, 2) }))} /></Field>
           </div>
+          {(() => { const mk = new Date(pv.made), ex = new Date(pv.exp); const ok = !isNaN(mk) && !isNaN(ex);
+            return ok ? <LabelPreview b={pv.isNew ? { code: 'P0000000000', name: pv.name, unit: pv.unit, qty: pv.qty, madeAt: mk.toISOString(), expAt: ex.toISOString() } : pv.b} show={{ made: pv.showMade, exp: pv.showExp }} size={pv.size} /> : null; })()}
           {pv.isNew && <div className="hint">الانتهاء يُحسب آليًا من وقت الإنتاج + مدة الصلاحية، ويمكن تقديمه فقط (لا يُمدَّد بعد المدة).</div>}
         </Modal>
       )}
