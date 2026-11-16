@@ -1449,3 +1449,50 @@ test('v45.2 المسح بالأرقام العربية أو بلوحة مفات�
   assert.equal(await c.p.inputValue('input[aria-label="صنف البند 1 — بحث"]'), '', 'مُسح الحقل بعد الاختيار');
   assert.deepEqual(c.errs, []); await c.ctx.close();
 });
+
+test('v45.3 تقرير هدر التحضير: الفرع يرى الكميات والنسب بلا قيمة، والمركز يرى كل الفروع والقيمة', async () => {
+  const seed = () => { const now = Date.now(), H = 3600000, iso = (t) => new Date(t).toISOString();
+    const B = (id, br, qty, ex) => ({ id, code: id, branchId: br, prepId: 'pr1', name: 'صلصة ثوم', unit: 'كجم', qty, madeAt: iso(now - 2 * H), expAt: iso(now + 20 * H), status: 'shelf', by: 'سعد', ...(ex || {}) });
+    window.setOps(o => ({ ...o, prepBatches: [B('a', 'b1', 4), B('b', 'b1', 1, { status: 'discarded', discardAt: iso(now - H), reason: 'expired' }), B('c', 'b2', 2, { status: 'discarded', discardAt: iso(now - H), reason: 'storage' })] })); };
+  const b = await open({ viewport: { width: 1300, height: 1000 } }, 'live/Hub/bm/closehub:prepdaily');
+  await b.p.evaluate(() => window.setOrg(g => ({ ...g, preps: [{ id: 'pr1', name: 'صلصة ثوم', unit: 'كجم', shelfH: 24 }] }))); await b.p.evaluate(seed); await b.p.waitForTimeout(200);
+  await b.p.locator('[data-ptab="waste"]').click(); await b.p.waitForTimeout(200);
+  assert.match(await b.p.locator('[data-pwr-row="صلصة ثوم"]').innerText(), /5[\s\S]*1[\s\S]*20%[\s\S]*منتهي الصلاحية/);
+  assert.equal(await b.p.locator('[data-pwrbr]').count(), 0, 'الفرع لا يرى جدول الفروع');
+  assert.doesNotMatch(await b.p.locator('[data-pwrrows] thead').innerText(), /القيمة/);
+  assert.deepEqual(b.errs, []); await b.ctx.close();
+  const c = await open({ viewport: { width: 1300, height: 1000 } }, 'live/Hub/ho/closehub:prepdaily');
+  await c.p.evaluate(() => window.setOrg(g => ({ ...g, preps: [{ id: 'pr1', name: 'صلصة ثوم', unit: 'كجم', shelfH: 24, batch: 2, parts: [{ itemId: (g.items || [])[0].id, qty: 1 }] }] }))); await c.p.evaluate(seed); await c.p.waitForTimeout(200);
+  await c.p.locator('[data-ptab="waste"]').click(); await c.p.waitForTimeout(250);
+  assert.equal(await c.p.locator('[data-pwrbr] tbody tr').count(), 2, 'كل الفروع');
+  assert.match(await c.p.locator('[data-pwrrows] thead').innerText(), /القيمة/);
+  assert.match(await c.p.locator('[data-pwr-row="صلصة ثوم"]').innerText(), /3[\s\S]*2[\s\S]*%/);
+  assert.deepEqual(c.errs, []); await c.ctx.close();
+});
+
+test('v45.4 صورة المنتج: تُرفع في نموذج المنتج (مصغّرة) وتظهر على زر نقطة البيع، ويمكن إخفاؤها من الإعدادات', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Inventory/admin/recipes');
+  // صورة اختبار 600×400 تُولَّد في المتصفح
+  const png = await p.evaluate(() => { const c = document.createElement('canvas'); c.width = 600; c.height = 400; const g = c.getContext('2d'); g.fillStyle = '#c33'; g.fillRect(0, 0, 600, 400); g.fillStyle = '#fff'; g.fillRect(250, 150, 100, 100); return c.toDataURL('image/png').split(',')[1]; });
+  await p.locator('.card:has-text("مندي لحم") button', { hasText: 'تعديل' }).first().click(); await p.waitForTimeout(200);
+  await p.setInputFiles('input[aria-label="صورة المنتج"]', { name: 'm.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') }); await p.waitForTimeout(400);
+  assert.equal(await p.locator('[data-prodimg] img').count(), 1, 'معاينة');
+  await p.locator('button', { hasText: 'حفظ المنتج' }).click(); await p.waitForTimeout(300);
+  const img = await p.evaluate(() => (window.curOrg.products.find(x => x.name.includes('مندي لحم')) || {}).img || '');
+  assert.match(img, /^data:image\/jpeg;base64,/); assert.ok(img.length < 41000, 'خفيفة: ' + img.length);
+  const dims = await p.evaluate((u) => new Promise(r => { const i = new Image(); i.onload = () => r([i.width, i.height]); i.src = u; }), img);
+  assert.deepEqual(dims, [240, 240], 'مربّعة ومصغّرة');
+  assert.deepEqual(errs, []); await ctx.close();
+  // نقطة البيع: الصورة على الزر، وتختفي عند إيقافها
+  const o = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosApp/bm');
+  await o.p.evaluate((img) => { window.setOrg(g => ({ ...g, posCfg: { branches: ['b1'], autoPrint: false }, products: [{ id: 'k', name: 'كبسة', sellPrice: 58, cat: 'رئيسي', img }, { id: 'h', name: 'حمص', sellPrice: 18, cat: 'مقبلات' }] })); window.setOps(x => ({ ...x, posOrders: [] })); }, img);
+  await o.p.waitForTimeout(400);
+  const ob = o.p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await o.p.waitForTimeout(400); }
+  assert.equal(await o.p.locator('.pos-tile:has-text("كبسة") img.pos-tile-img').count(), 1);
+  assert.equal(await o.p.locator('.pos-tile:has-text("حمص") img').count(), 0, 'بلا صورة ⇒ كما هو');
+  await o.p.locator('.pos-tile:has-text("كبسة")').click(); await o.p.waitForTimeout(150);
+  assert.equal(await o.p.locator('.pos-tile.on:has-text("كبسة")').count(), 1, 'الإضافة للسلة تعمل');
+  await o.p.evaluate(() => window.setOrg(g => ({ ...g, posCfg: { ...g.posCfg, noImg: true } }))); await o.p.waitForTimeout(200);
+  assert.equal(await o.p.locator('.pos-tile img').count(), 0, 'مخفية من الإعدادات');
+  assert.deepEqual(o.errs, []); await o.ctx.close();
+});

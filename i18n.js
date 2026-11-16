@@ -2448,6 +2448,49 @@ Object.assign(EN, {
 "كجم، حبة، لتر…": "kg, piece, litre…",
 "يُمنح رمزًا تسلسليًا تلقائيًا. التكلفة وحد الطلب ووحدة الشراء تُكمَّل لاحقًا من «المخزون ← الأصناف».": "A sequential code is assigned automatically. Cost, reorder level and purchase unit are completed later from «Inventory ← Items»."
 });
+
+// ===== v45.3 تقرير هدر التحضير =====
+Object.assign(EN, {
+"رف التحضير": "Prep shelf",
+"تقرير الهدر": "Waste report",
+"تقرير هدر التحضير": "Prep waste report",
+"هذا الشهر": "This month",
+"الشهر الماضي": "Last month",
+"من تاريخ": "From date",
+"إلى تاريخ": "To date",
+"فرع التقرير": "Report branch",
+"كل الفروع": "All branches",
+"دفعات محضّرة": "Batches prepared",
+"في الفترة": "In the period",
+"دفعات متلَفة": "Batches discarded",
+"قيمة الهدر": "Waste value",
+"بتكلفة الوصفة": "At recipe cost",
+"الوصفات بلا تكلفة": "Recipes without cost",
+"تظهر للمركز": "Shown to central",
+"أكثر سبب": "Top reason",
+"لا هدر ✓": "No waste ✓",
+"حسب التحضيرة": "By prep",
+"المحضَّر": "Prepared",
+"المتلَف": "Discarded",
+"نسبة الهدر": "Waste ratio",
+"لا تحضير ولا هدر في الفترة": "No prep or waste in the period",
+"حسب الفرع": "By branch",
+"نسبة الهدر (كمية)": "Waste ratio (qty)",
+"حسب السبب": "By reason",
+"إجمالي قيمة الهدر": "Total waste value"
+});
+
+// ===== v45.4 صورة المنتج =====
+Object.assign(EN, {
+"صورة المنتج (تظهر في نقطة البيع)": "Product image (shown in POS)",
+"تغيير الصورة": "Change image",
+"اختيار صورة": "Choose image",
+"إزالة": "Remove",
+"صورة المنتج": "Product image",
+"تُقص مربّعًا وتُصغَّر تلقائيًا لتبقى خفيفة على أجهزة الفروع": "Cropped square and shrunk automatically to stay light on branch devices",
+"إظهار صور المنتجات": "Show product images",
+"إظهار صور المنتجات على أزرار نقطة البيع (لمن أُضيفت له صورة)": "Show product images on POS buttons (for products with an image)"
+});
 export const TX = (ar) => (LANG === 'en' && ar && EN[ar]) || ar;
 
 /* v43.1 مترجم الشاشة: في الوضع الإنجليزي يترجم نصوص الواجهة (عُقد النص + placeholder/title/aria-label) بمطابقة القاموس حرفيًا،
@@ -2522,6 +2565,8 @@ export const EN_RX = [
   [/^موجود (\d+) من (\d+)$/, '$1 of $2 present'], [/^لم يُمسح بعد (\d+)$/, 'Not yet scanned $1'], [/^منتهٍ على الرف (\d+)$/, 'Expired on shelf $1'], [/^غير متوقع (\d+)$/, 'Unexpected $1'], [/^مُسح من قبل في هذا الجرد: (\S+)$/, 'Already scanned in this count: $1'],
   [/^حُفظ جرد الرف — توجد فروقات تحتاج إجراء$/, 'Shelf count saved — there are differences that need action'], [/^حُفظ جرد الرف — مطابق ✓$/, 'Shelf count saved — matches ✓'],
   [/^أُضيف الصنف «(.+)» ✓$/, 'Item «$1» added ✓'],
+  [/^(\d+(?:\.\d+)?)% من الدفعات$/, '$1% of batches'], [/^(\d+) دفعة$/, '$1 batches'],
+
   [/^أقصى مبلغ متاح (.+) ر\.س — يمكنك تعديله يدوياً$/, 'Max available $1 SAR — you can edit it manually'],
   [/^(\d{1,2}) (يناير|فبراير|مارس|أبريل|مايو|يونيو|يوليو|أغسطس|سبتمبر|أكتوبر|نوفمبر|ديسمبر) (\d{4})$/, (_, d, m, y) => d + ' ' + MONTHS[m] + ' ' + y]
 ];

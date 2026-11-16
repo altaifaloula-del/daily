@@ -1311,3 +1311,31 @@ test('v45.2 تطبيع المسح: الأرقام العربية والفارس�
   assert.equal(E.normScan(' pmb7q2k4xz '), 'PMB7Q2K4XZ');
   assert.equal(E.normScan('PMB7Q2K4XZ'), 'PMB7Q2K4XZ');
 });
+
+// ===== v45.3 — تقرير هدر التحضير =====
+test('v45.3 هدر التحضير: المحضَّر بتاريخ الإنتاج والمتلَف بتاريخ الإتلاف، النسبة والسبب والقيمة بتكلفة الوصفة، وتصفية الفروع', () => {
+  const org = baseOrg({ items: [{ id: 'i1', name: 'ثوم', unit: 'كجم', type: 'stock', cost: 10 }],
+    preps: [{ id: 'p1', name: 'صلصة ثوم', unit: 'كجم', batch: 2, parts: [{ itemId: 'i1', qty: 1 }], shelfH: 24 }, { id: 'p2', name: 'تتبيلة', unit: 'كجم', shelfH: 48 }] });
+  const B = (id, br, prep, qty, made, extra) => ({ id, code: id, branchId: br, prepId: prep, name: prep === 'p1' ? 'صلصة ثوم' : 'تتبيلة', unit: 'كجم', qty, madeAt: made, expAt: made, status: 'shelf', ...(extra || {}) });
+  const ops = { prepBatches: [
+    B('a', 'b1', 'p1', 4, '2026-11-10T09:00:00Z'), B('b', 'b1', 'p1', 2, '2026-11-11T09:00:00Z', { status: 'discarded', discardAt: '2026-11-12T09:00:00Z', reason: 'expired' }),
+    B('c', 'b2', 'p1', 4, '2026-11-11T09:00:00Z', { status: 'discarded', discardAt: '2026-11-12T10:00:00Z', reason: 'storage' }),
+    B('d', 'b1', 'p2', 5, '2026-11-11T09:00:00Z', { status: 'discarded', discardAt: '2026-11-12T11:00:00Z', reason: 'expired' }),
+    B('e', 'b1', 'p1', 9, '2026-10-30T09:00:00Z', { status: 'discarded', discardAt: '2026-11-01T09:00:00Z', reason: 'prep' })] };
+  const avg = { i1: 10 };   // تكلفة صلصة الثوم = 10 ÷ 2 = 5 للكيلو
+  const S = E.prepWasteStats(org, ops, { from: '2026-11-05', to: '2026-11-30', avg });
+  const r1 = S.rows.find(r => r.prepId === 'p1'), r2 = S.rows.find(r => r.prepId === 'p2');
+  assert.deepEqual([r1.made, r1.waste, r1.wasteN, r1.pct, r1.value, r1.topReason], [10, 6, 2, 60, 30, 'storage']);
+  assert.deepEqual([r2.made, r2.waste, r2.pct, r2.value], [5, 5, 100, 0], 'بلا وصفة ⇒ بلا قيمة');
+  assert.equal(S.hasValue, true); assert.equal(S.totals.value, 30); assert.equal(S.totals.wasteN, 3, 'إتلاف 1/11 خارج الفترة');
+  assert.deepEqual(S.byReason.map(z => [z.reason, z.n]), [['expired', 2], ['storage', 1]]);
+  const b1 = E.prepWasteStats(org, ops, { from: '2026-11-05', to: '2026-11-30', avg, branchIds: ['b1'] });
+  assert.deepEqual(b1.byBranch.map(b => [b.branchId, b.wasteN]), [['b1', 2]]);
+  assert.equal(E.prepWasteStats({ preps: [{ id: 'p1', name: 'صلصة ثوم', unit: 'كجم', shelfH: 24 }] }, ops, { from: '2026-11-05', to: '2026-11-30' }).hasValue, false, 'الفرع بلا تكاليف');
+});
+
+test('v45.4 صورة المنتج تصل أجهزة الفروع مع المنتج في الدليل (بلا الوصفة)', async () => {
+  const src = Buffer.from((await import('node:fs')).readFileSync(new URL('../App.jsx', import.meta.url))).toString('utf8');
+  const line = /function dirOf\(org\) \{[\s\S]*?\n\}/.exec(src)[0].split('\n').find(l => l.includes('products: (org.products'));
+  assert.ok(line.includes('img: p.img') && !line.includes('parts'), line);
+});
