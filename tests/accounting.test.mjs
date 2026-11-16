@@ -1297,3 +1297,17 @@ test('v44.7 عرض ورق الإيصال: 80 مم افتراضيًا، و58 مم
   const z = E.posShiftHtml({ company: { name: 'م' }, posCfg: { paper: '58' } }, { openingCash: 0 }, [o], br, 'X');
   assert.match(z, /size:58mm auto/); assert.doesNotMatch(z, /80mm/);
 });
+
+// ===== v45.2 — قراءة المسح بأي صيغة =====
+test('v45.2 تطبيع المسح: الأرقام العربية والفارسية ⇒ إنجليزية، وحروف تخطيط لوحة المفاتيح العربية ⇒ الرمز الأصلي، والكتابة الإنجليزية كما هي', () => {
+  assert.equal(E.normDigits('٦٢٨١٠٠٠١٢٣٤٥٦'), '6281000123456');
+  assert.equal(E.normDigits('۶۲۸۱'), '6281');
+  assert.equal(E.normDigits('١٢٫٥'), '12.5');
+  assert.equal(E.normScan('٦٢٨١٠٠٠١٢٣٤٥٦'), '6281000123456');
+  // «PMB7Q2K4XZ» مكتوبًا على لوحة مفاتيح عربية (Shift للأحرف الكبيرة) وبدونها
+  assert.equal(E.normScan('؛\'لآ7َ2،4ْ~'), 'PMB7Q2K4XZ');
+  assert.equal(E.normScan('حةلا7ض2ن4ءئ'), 'PMB7Q2K4XZ');
+  assert.equal(E.normScan('حةلا٧ض٢ن٤ءئ'), 'PMB7Q2K4XZ', 'حروف وأرقام عربية معًا');
+  assert.equal(E.normScan(' pmb7q2k4xz '), 'PMB7Q2K4XZ');
+  assert.equal(E.normScan('PMB7Q2K4XZ'), 'PMB7Q2K4XZ');
+});

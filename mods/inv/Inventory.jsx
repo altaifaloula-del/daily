@@ -4,7 +4,7 @@ import { HardDrive, FileBarChart, ChevronDown, Printer, ArrowLeftRight, Clipboar
 import { PrepList } from './PrepList.jsx';   // v40.8
 import { TurnoverPpv } from './TurnoverPpv.jsx';   // v42.0
 import { Production } from './Production.jsx';   // v42.8
-import { BlindCount, Field, ITEM_TYPES, ITEM_NEW_TYPES, itemsSeq, nextItemCode, Kpi, LOCK_MSG, MAIN_WH, MOVE_KINDS, Modal, PriceAlerts, ROLES, SectionNav, UsageVariance, WarehousesPanel, WasteControl, WasteFields, arDate, isCostCtl, isStocked, itemAvgCosts, itemType, makeXlsx, money, nowISO, pFactor, parseCsvGrid, parseXlsxGrid, partGross, partYield, periodLocked, prepUnitCost, kcalUnitFactor, productKcal, printA4, q3, recipeCost, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whName, whOn, prepItemId } from '../../App.jsx';
+import { normDigits, BlindCount, Field, ITEM_TYPES, ITEM_NEW_TYPES, itemsSeq, nextItemCode, Kpi, LOCK_MSG, MAIN_WH, MOVE_KINDS, Modal, PriceAlerts, ROLES, SectionNav, UsageVariance, WarehousesPanel, WasteControl, WasteFields, arDate, isCostCtl, isStocked, itemAvgCosts, itemType, makeXlsx, money, nowISO, pFactor, parseCsvGrid, parseXlsxGrid, partGross, partYield, periodLocked, prepUnitCost, kcalUnitFactor, productKcal, printA4, q3, recipeCost, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whName, whOn, prepItemId } from '../../App.jsx';
 
 export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
   const [view, setView] = useState('items');        // items | moves | count | recipes
@@ -143,7 +143,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
     if (!f.name.trim()) return say('أدخل اسم الصنف', 'no');
     // v44.1: التصنيف إلزامي عند الإنشاء (مخزني/استهلاكي/خدمي)، والباركود لا يتكرر، والرمز التسلسلي يُمنح تلقائيًا
     if (!ITEM_TYPES[f.type]) return say('اختر تصنيف الصنف: مخزني أو استهلاكي أو خدمي', 'no');
-    const bc = String(f.barcode || '').trim();
+    const bc = normDigits(f.barcode).trim();   // v45.2: الأرقام العربية ⇒ الإنجليزية
     if (bc) { const dup = items.find(x => x.id !== f.id && String(x.barcode || '').trim() === bc); if (dup) return say('الباركود ' + bc + ' مستخدم للصنف «' + dup.name + '»', 'no'); }
     const pf = Math.max(1, Number(f.purchaseFactor) || 1);
     const rec = { ...(f.id ? items.find(x => x.id === f.id) || {} : {}), id: f.id || uid('it'), name: f.name.trim(), unit: (f.unit || '').trim() || 'وحدة', cost: Number(f.cost) || 0, minQty: Number(f.minQty) || 0, isActive: true,

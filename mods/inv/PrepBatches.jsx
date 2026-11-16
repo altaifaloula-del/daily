@@ -4,7 +4,7 @@
    الإتلاف: التحضيرة المخزّنة صنفًا تُخصم هدرًا من مستودع الفرع بمسار الهدر الحالي (واعتماده)، وغيرها يُوثَّق على الدفعة. */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ScanLine, Printer, Check, Trash2, Plus, ChefHat, QrCode, PenLine, List, ClipboardList, X } from 'lucide-react';
-import { Field, Kpi, Modal, PREP_ST, WASTE_REASONS, nowISO, prepBatchState, prepItemOf, prepShelfH, q3, submitWaste, today, uid, whName } from '../../App.jsx';
+import { normScan, Field, Kpi, Modal, PREP_ST, WASTE_REASONS, nowISO, prepBatchState, prepItemOf, prepShelfH, q3, submitWaste, today, uid, whName } from '../../App.jsx';
 
 const pad = (n) => String(n).padStart(2, '0');
 export const fmtDT = (iso) => { const d = new Date(iso); if (isNaN(d)) return '—'; return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()); };
@@ -143,7 +143,7 @@ export function PrepBatches({ org, ops, me, commit, say, whId, branchId, canAct 
   };
   const counts = (ops.prepCounts || []).filter(r => r.branchId === branchId).sort((a, b) => String(b.at).localeCompare(String(a.at)));
   const scan = (e) => {
-    e.preventDefault(); const c = code.trim().toUpperCase(); setCode('');
+    e.preventDefault(); const c = normScan(code); setCode('');   // v45.2: أرقام عربية/حروف من لوحة مفاتيح عربية ⇒ الرمز الأصلي
     const via = scanVia(keyT.current, pasted.current); keyT.current = []; pasted.current = false; if (!c) return;
     if (cnt) {   // وضع الجرد: يُضاف الملصق لقائمة الموجود (مرة واحدة) دون إجراء على الدفعة
       if (cnt.seen.some(x => x.code === c)) { say('مُسح من قبل في هذا الجرد: ' + c, 'no'); return focusScan(); }
