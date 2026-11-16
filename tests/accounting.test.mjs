@@ -1339,3 +1339,19 @@ test('v45.4 صورة المنتج تصل أجهزة الفروع مع المنت
   const line = /function dirOf\(org\) \{[\s\S]*?\n\}/.exec(src)[0].split('\n').find(l => l.includes('products: (org.products'));
   assert.ok(line.includes('img: p.img') && !line.includes('parts'), line);
 });
+
+// ===== v45.5 — صورة المنتج بلا خلفية ولا ضوضاء =====
+test('v45.5 إزالة الخلفية: لون الإطار يُزال بالتعبئة من الحواف، والبقع الصغيرة تُحذف، والمنتج يبقى بإطاره', () => {
+  const w = 60, h = 40, px = new Uint8ClampedArray(w * h * 4);
+  const set = (x, y, c) => { const i = (y * w + x) * 4; px[i] = c[0]; px[i + 1] = c[1]; px[i + 2] = c[2]; px[i + 3] = 255; };
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) set(x, y, [235 + ((x * 7 + y * 3) % 9), 233, 230]);   // خلفية فاتحة مع ضوضاء خفيفة
+  for (let y = 10; y < 30; y++) for (let x = 20; x < 45; x++) set(x, y, [150, 60, 20]);   // المنتج
+  set(5, 5, [20, 20, 20]); set(6, 5, [20, 20, 20]);   // بقعة ضوضاء صغيرة
+  const R = E.cutoutPixels(px, w, h);
+  const a = (x, y) => R.data[(y * w + x) * 4 + 3];
+  assert.equal(a(0, 0), 0); assert.equal(a(59, 39), 0); assert.equal(a(10, 20), 0, 'الخلفية شفافة');
+  assert.equal(a(5, 5), 0, 'البقعة الصغيرة أُزيلت');
+  assert.equal(a(30, 20), 255, 'المنتج باقٍ');
+  assert.deepEqual(R.box, { x: 20, y: 10, w: 25, h: 20 });
+  assert.ok(Math.abs(R.fgRatio - 500 / 2400) < 0.001);
+});

@@ -2878,7 +2878,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v45.4';
+const APP_VER = 'v45.5';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -8459,14 +8459,80 @@ function prepWasteStats(org, ops, opts = {}) {
   return { rows: out, byBranch: brs, byReason: Object.values(byReason).map(Z => ({ ...Z, value: r2(Z.value) })).sort((a, b) => b.n - a.n), hasValue,
     totals: { wasteN: out.reduce((s2, R) => s2 + R.wasteN, 0), madeN: out.reduce((s2, R) => s2 + R.madeN, 0), value: r2(out.reduce((s2, R) => s2 + R.value, 0)) } };
 }
-// v45.4 — صورة المنتج لنقطة البيع: تُقص مربّعًا وتُصغَّر إلى 240×240 بجودة JPEG متوسطة (عادةً 8–20 ك.ب) لأنها تُحمَّل على كل أجهزة الفروع
-function productThumb(file, size = 240) {
+// v45.4 — صورة المنتج لنقطة البيع: تُصغَّر إلى 240×240 لأنها تُحمَّل على كل أجهزة الفروع
+// v45.5 — «بلا خلفية ولا ضوضاء» (قرار المالك): لون الخلفية يُقدَّر من أطراف الصورة، ويُزال كل ما يتصل بالأطراف ويشبهه
+//   (تعبئة من الحواف)، ثم تُحذف البقع الصغيرة المعزولة وتُنعَّم الحواف، ويُقص المنتج ويوضع في وسط مربع شفاف.
+//   بلا خدمات خارجية — يعمل على الجهاز. يناسب صور المنتج على خلفية سادة أو متقاربة اللون (طاولة، ورق، جدار).
+function cutoutPixels(px, w, h, opts = {}) {
+  const tol = opts.tol || 42, n = w * h;
+  // المقارنات على نسخة منعَّمة (متوسط 3×3) تُخمد ضوضاء الصورة وتُبقي الحواف — والبكسلات الأصلية لا تتغير
+  const B = new Float32Array(n * 3);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { let r = 0, g = 0, b = 0, c = 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const xx = x + dx, yy = y + dy; if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue; const k = (yy * w + xx) * 4; r += px[k]; g += px[k + 1]; b += px[k + 2]; c++; }
+    const o = (y * w + x) * 3; B[o] = r / c; B[o + 1] = g / c; B[o + 2] = b / c; }
+  const at = (i) => [B[i * 3], B[i * 3 + 1], B[i * 3 + 2]];
+  // لون مرجعي للخلفية يرافق التعبئة ويتغير ببطء (يتبع تدرّج الإضاءة)؛ أي قفزة أكبر من الحد عنه = حافة المنتج فتتوقف التعبئة
+  //   (تمنع التسرّب عبر الحواف المتدرجة التي تعبرها مقارنة الجار بالجار خطوة خطوة)
+  // حد القرب يتكيّف مع ضوضاء الخلفية: متوسط الفرق بين بكسلات الإطار المتجاورة (بعد التنعيم) — خلفية نظيفة ⇒ حد ضيق يحمي الحواف الباهتة
+  let ns = 0, nc = 0; for (let x = 1; x < w; x++) for (const y of [0, h - 1]) { const a = (y * w + x) * 3, b = a - 3; ns += Math.hypot(B[a] - B[b], B[a + 1] - B[b + 1], B[a + 2] - B[b + 2]); nc++; }
+  const REF = new Float32Array(n * 3), lt = opts.local || Math.max(6, Math.min(18, 6 + 4 * (ns / Math.max(1, nc))));
+  const d2 = (a, o, i) => { const dr = a[o] - REF[i * 3], dg = a[o + 1] - REF[i * 3 + 1], db = a[o + 2] - REF[i * 3 + 2]; return dr * dr + dg * dg + db * db; };
+  // المنعَّم قريب من المرجع (يتجاوز الضوضاء) والأصلي غير بعيد عنه (يقطع أطراف الأشكال الرفيعة التي يمحوها التنعيم)
+  const near = (i, j) => d2(B, j * 3, i) < lt * lt && d2(px, j * 4, i) < (lt * 1.7) ** 2;
+  const take = (i, j) => { for (let k = 0; k < 3; k++) REF[j * 3 + k] = REF[i * 3 + k] * 0.96 + B[j * 3 + k] * 0.04; };
+  // لون الخلفية: الوسيط لكل قناة من بكسلات الإطار
+  const border = []; for (let x = 0; x < w; x++) { border.push(x, (h - 1) * w + x); } for (let y = 1; y < h - 1; y++) { border.push(y * w, y * w + w - 1); }
+  const med = (k) => { const v = border.map(i => B[i * 3 + k]).sort((a, b) => a - b); return v[v.length >> 1]; };
+  const bg = [med(0), med(1), med(2)];
+  const dist = (i) => { const c = at(i); return Math.sqrt((c[0] - bg[0]) ** 2 + (c[1] - bg[1]) ** 2 + (c[2] - bg[2]) ** 2); };
+  const D = new Float32Array(n); for (let i = 0; i < n; i++) D[i] = dist(i);
+  // تعبئة من الحواف: ما يتصل بالإطار ويقترب من لون الخلفية = خلفية
+  const isBg = new Uint8Array(n), st = [];
+  border.forEach(i => { if (D[i] < tol && !isBg[i]) { isBg[i] = 1; st.push(i); for (let k = 0; k < 3; k++) REF[i * 3 + k] = B[i * 3 + k]; } });
+  while (st.length) { const i = st.pop(), x = i % w, y = (i / w) | 0;
+    const nb = [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, y > 0 ? i - w : -1, y < h - 1 ? i + w : -1];
+    for (const j of nb) if (j >= 0 && !isBg[j] && D[j] < tol && near(i, j)) { isBg[j] = 1; take(i, j); st.push(j); } }
+  // تمريرة تنظيف للهالة: بكسل ملاصق للخلفية لونه الأصلي يطابق مرجعها ⇒ خلفية (التنعيم يوسّع حافة المنتج بكسلًا)
+  for (let pass = 0; pass < 2; pass++) { const add = [];
+    for (let i = 0; i < n; i++) { if (isBg[i]) continue; const x = i % w, y = (i / w) | 0;
+      for (const j of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, y > 0 ? i - w : -1, y < h - 1 ? i + w : -1]) if (j >= 0 && isBg[j] && d2(px, i * 4, j) < (lt * 1.2) ** 2) { add.push([i, j]); break; } }
+    add.forEach(([i, j]) => { isBg[i] = 1; for (let k = 0; k < 3; k++) REF[i * 3 + k] = REF[j * 3 + k]; }); }
+  // إزالة الضوضاء: البقع الأمامية المعزولة الصغيرة (< 0.4% من الصورة) تُعد خلفية
+  const lab = new Int32Array(n), minArea = Math.max(30, Math.round(n * 0.004)); let L = 0;
+  for (let i0 = 0; i0 < n; i0++) { if (isBg[i0] || lab[i0]) continue; L++; const comp = [i0]; lab[i0] = L;
+    for (let k = 0; k < comp.length; k++) { const i = comp[k], x = i % w, y = (i / w) | 0;
+      for (const j of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, y > 0 ? i - w : -1, y < h - 1 ? i + w : -1]) if (j >= 0 && !isBg[j] && !lab[j]) { lab[j] = L; comp.push(j); } }
+    if (comp.length < minArea) comp.forEach(i => { isBg[i] = 1; }); }
+  // الثقوب الصغيرة داخل المنتج (لم تتصل بالأطراف) تبقى كما هي. تنعيم الحافة: الأمامي المجاور للخلفية وقريب اللون منها يأخذ شفافية جزئية
+  const out = new Uint8ClampedArray(px); let fg = 0, x0 = w, y0 = h, x1 = -1, y1 = -1;
+  for (let i = 0; i < n; i++) { const x = i % w, y = (i / w) | 0;
+    if (isBg[i]) { out[i * 4 + 3] = 0; continue; }
+    const edge = (x > 0 && isBg[i - 1]) || (x < w - 1 && isBg[i + 1]) || (y > 0 && isBg[i - w]) || (y < h - 1 && isBg[i + w]);
+    if (edge && D[i] < tol * 1.8) out[i * 4 + 3] = Math.round(255 * Math.min(1, Math.max(0.25, (D[i] - tol) / (tol * 0.8) + 0.25)));
+    fg++; if (x < x0) x0 = x; if (y < y0) y0 = y; if (x > x1) x1 = x; if (y > y1) y1 = y; }
+  return { data: out, fgRatio: fg / n, box: fg ? { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 } : null, bg };
+}
+function productThumb(file, opts = {}) {
+  const size = opts.size || 240, cut = opts.cutout !== false;
   return new Promise((resolve, reject) => { const rd = new FileReader(); rd.onerror = reject;
     rd.onload = () => { const img = new Image(); img.onerror = reject; img.onload = () => {
-      const s0 = Math.min(img.width, img.height), sx = (img.width - s0) / 2, sy = (img.height - s0) / 2, c = document.createElement('canvas'); c.width = size; c.height = size;
-      const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, size, size); g.drawImage(img, sx, sy, s0, s0, 0, 0, size, size);
-      let q = 0.72, url = c.toDataURL('image/jpeg', q); while (url.length > 40000 && q > 0.35) { q -= 0.1; url = c.toDataURL('image/jpeg', q); }
-      resolve(url); }; img.src = String(rd.result); }; rd.readAsDataURL(file); });
+      // تصغير أولي بحجم معقول للمعالجة (480 بكسل للضلع الأطول)
+      const k = Math.min(1, 480 / Math.max(img.width, img.height)), W = Math.max(1, Math.round(img.width * k)), H = Math.max(1, Math.round(img.height * k));
+      const a = document.createElement('canvas'); a.width = W; a.height = H; const ga = a.getContext('2d'); ga.drawImage(img, 0, 0, W, H);
+      const c = document.createElement('canvas'); c.width = size; c.height = size; const g = c.getContext('2d');
+      let cutOk = false;
+      if (cut) { const id = ga.getImageData(0, 0, W, H); const R = cutoutPixels(id.data, W, H);
+        // نجاح القص: بقي من المنتج ما بين 4% و92% من الصورة؛ وإلا (خلفية مزدحمة أو بلا خلفية) تُستخدم الصورة كما هي
+        if (R.box && R.fgRatio > 0.04 && R.fgRatio < 0.92) { id.data.set(R.data); ga.putImageData(id, 0, 0);
+          const pad = Math.round(Math.max(R.box.w, R.box.h) * 0.06), side = Math.max(R.box.w, R.box.h) + pad * 2, cx = R.box.x + R.box.w / 2, cy = R.box.y + R.box.h / 2;
+          g.drawImage(a, cx - side / 2, cy - side / 2, side, side, 0, 0, size, size); cutOk = true; } }
+      if (!cutOk) { const s0 = Math.min(W, H); g.fillStyle = '#fff'; g.fillRect(0, 0, size, size); g.drawImage(a, (W - s0) / 2, (H - s0) / 2, s0, s0, 0, 0, size, size); }
+      // الشفافية تحتاج WebP (أو PNG حيث لا يدعمه المتصفح)؛ والقص غير الناجح JPEG
+      let url, q = 0.8;
+      if (cutOk) { url = c.toDataURL('image/webp', q); if (!url.startsWith('data:image/webp')) url = c.toDataURL('image/png');
+        while (url.startsWith('data:image/webp') && url.length > 40000 && q > 0.4) { q -= 0.1; url = c.toDataURL('image/webp', q); } }
+      else { q = 0.72; url = c.toDataURL('image/jpeg', q); while (url.length > 40000 && q > 0.35) { q -= 0.1; url = c.toDataURL('image/jpeg', q); } }
+      resolve({ url, cut: cutOk }); }; img.src = String(rd.result); }; rd.readAsDataURL(file); });
 }
 const PREP_ST = { ok: ['b-mint', 'صالح'], near: ['b-amber', 'قارب الانتهاء'], expired: ['b-rose', 'منتهٍ — يُتلف'], used: ['b-dim', 'استُخدم'], discarded: ['b-dim', 'أُتلف'] };
 // v44.3 — مستودع أمر الشراء (المستلِم): المحدد في الأمر، وإلا مستودع فرعه، وإلا الرئيسي. الاستلام فيه فقط (قرار المالك)
@@ -11147,7 +11213,7 @@ async function qrAnalyzeComments(items) {
 
 
 // v38.3 — ما تحتاجه ملفات التطبيقات المنفصلة (mods/) من النواة
-export { productThumb, prepWasteStats, normDigits, normScan, posPaper, posPaperDev, setPosPaperDev, prepShelfH, prepBatchState, PREP_ST, canBrPurchase, brSigCheck, BR_PURCHASERS, poWhOf, syncPoInbox, INV_BILLERS, ITEM_NEW_TYPES, itemsSeq, nextItemCode, vatNoOk, supVatOf, ItemPick, A4_CSS, posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim, prepItemId, prepItemOf, prodNeeds, prodCheck, prodMoves, clrMerge, clrRead, clrViewStats, ppvReport, invTurnover, dirOf, isMzbk, mzbkDecrypt, clrData, clrRecord, clrSigRef, clrDiff, clrCompare, clrOn, clrState, clrMirror, clrLoad, clrSeed, OdooBar, ACCT_SECTIONS, ACCT_SEC_AR, ACC_KIND, ALL_TABS, APPS, AdvanceForm, AppPermsPanel, AppsStrip, BR_COLS, Badge, BalCell, BlindCount, BranchForm, COUNT_FREQ, COUNT_ST, CameraModal, CategoriesPanel, ClosingView, CloudHealth, CountScheduleCard, DAYS_AR, DENOMS, DOC_LABEL, DOC_TYPES, DailyBranchReport, DeliveryAppsPanel, DisbursementForm, DupInvHint, EXP_CATS, FILE_CATS, Field, FinancialReports, GROWTH_MONTHS, HR_WEEK_DAYS, HrSignPad, ITEM_TYPES, Kpi, LAUNCH_APPS, LEAVE_TYPES, LOCK_MSG, MAIN_WH, MFA_DEFAULT_ROLES, MOVE_KINDS, MZ_FIXED, MZ_KIND_AR, MZ_LOGO_HTML, MZ_SUGGEST, MfaPolicyCard, MizanMerge, Modal, MoneyField, NUM_FACE, NUM_LOCALE, NationalAddressFields, Num, OutputDialog, PAY_ADD_TYPES, PAY_GUESS, PEN_TYPES, POS_DEV_KEY, POS_SH_KEY, PROMO_IDEAS, PROMO_T, PT_SRC, PT_TYPE, PartnerChip, PdfTile, PhotoField, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, PriceAlerts, QR_ITEMS, QR_STATUS, QUOTA_MSG, QrBranchesView, QrComplaints, QrDashboard, RB_KIND_AR, RB_PM_AR, RB_SOURCES, REG_APPS, REG_CATS, REG_IX, ROLES, SC_KPIS, SIGN_DOC_AR, SIG_H, SIG_W, SectionNav, SigView, SignDocsModal, SignaturePad, SystemPanel, TAB_AR, TRAIN_STATUS_AR, UsageVariance, UserForm, WASTE_REASONS, WH_KIND, WH_MOVE, WH_ST, WarehousesPanel, WasteControl, WasteFields, WastePending, WhLines, _normName, _xe, aCountDone, aItemsOf, acctSecKey, activePriorCorrectives, activeTrainingRecord, aiHeaders, appCanSee, appOpenNow, appUseGet, appUseSet, arDT, arDate, arTime, bankOfBranch, bioEnroll, bookHidden, branchBanks, branchEntityId, browserName, bsLayout, bsRowsOf, buildAccounting, buildClosingA4, buildPartners, buildPayslipSignDocs, businessDay, canApproveCount, canApproveWaste, capOK, chartTone, closingInvoices, clr, compressImage, computeIncome, contactFields, contactOf, correctiveExpiry, correctiveSignDoc, countCfgOf, countDenoms, countFocus, countSchedule, countedClosing, customerAging, daysBetween, defaultHrPolicies, defaultPenaltySchedule, defaultPointsRules, defaultRewardTiers, defaultRoleKpis, defaultTrainingPrograms, deficitCfg, deficitPatterns, detectStmtMap, deviceType, emptyDenoms, entityById, entityList, eosAccrualLines, eosCumAt, eosState, eosYears, escH, expiringTraining, expiryLots, exportExcel, fineSuggest, fmtBalP, fmtNA, frozenSnapshotFor, gosiRatesFor, haversineMeters, hrAttendanceDetail, hrEmpStats, hrQrWindowCode, hrScoreFor, isCostCtl, isLayout, isPdfData, isRowsOf, isStocked, isoD, itemAvgCosts, itemType, kpiAchievement, leaveBalance, leaveDeductPlan, lockedThru, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, makeXlsx, missingRequiredTraining, mizanPlan, money, moneyP, monthEnd, monthLabel, monthLedger, multiEntityOn, mzNewCode, mzR2, naClean, naErr, naHas, naMissing, newBranchDraft, nextPartnerCode, nextWhAcc, normPhone, normalizeSupPays, nowISO, onLeave, openDocWin, openPdfData, otFromAttendance, otRateOf, overdueSignDocs, pFactor, parseCsvGrid, parseMt940, parseXlsxGrid, partGross, partYield, payCashPart, payLabel, paySplits, payTotal, payrollRowsOf, penTypeAr, pendShiftsGet, pendShiftsSet, periodLocked, piAggregate, piDetect, piNorm, pipTriggered, posCashNet, posClrOf, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posShiftHtml, posTotals, posZHtml, positionJdHtml, printA4, printClosingA4, printIncomeA4, printPartnerStatement, printReceipt, printSalesInvoice, programRequiredFor, promoActive, promoDesc, promoHits, purKey, pwStrength, q3, qrAnalyzeComments, qrAvg, qrBranchStats, qrDate, qrF1, qrFs, qrIsComplaint, qrMs, qrOverall, qrOverdue, qrPrintReport, qrRateUrl, qrSentBadge, qrStatusOf, qrSvg, rewardSignDoc, roleEdit, roleHasTab, roleKpisFor, rolePost, salesDaySource, sha, sha256Hex, short, siCredited, siRem, siSorted, siStamp, siVerify, sigBlockHtml, sigPoints, sigSvg, signDeclaration, signDocHtml, simplifySig, slimBranchDoc, snapAll, snapMonths, snapPut, stAddDays, stDate, stNum, stockByWh, submitWaste, suggestNextLevel, sum, supplierAging, supplierPrices, today, trainingExpiryOf, trainingStatusNow, uid, usageReport, useSecNav, verifyBackup, waNum, wasteCfg, wasteDaily, wasteReasonAr, wasteRows, webauthnSupported, whForBranch, whName, whOf, whOn, zatcaTLV };
+export { cutoutPixels, productThumb, prepWasteStats, normDigits, normScan, posPaper, posPaperDev, setPosPaperDev, prepShelfH, prepBatchState, PREP_ST, canBrPurchase, brSigCheck, BR_PURCHASERS, poWhOf, syncPoInbox, INV_BILLERS, ITEM_NEW_TYPES, itemsSeq, nextItemCode, vatNoOk, supVatOf, ItemPick, A4_CSS, posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim, prepItemId, prepItemOf, prodNeeds, prodCheck, prodMoves, clrMerge, clrRead, clrViewStats, ppvReport, invTurnover, dirOf, isMzbk, mzbkDecrypt, clrData, clrRecord, clrSigRef, clrDiff, clrCompare, clrOn, clrState, clrMirror, clrLoad, clrSeed, OdooBar, ACCT_SECTIONS, ACCT_SEC_AR, ACC_KIND, ALL_TABS, APPS, AdvanceForm, AppPermsPanel, AppsStrip, BR_COLS, Badge, BalCell, BlindCount, BranchForm, COUNT_FREQ, COUNT_ST, CameraModal, CategoriesPanel, ClosingView, CloudHealth, CountScheduleCard, DAYS_AR, DENOMS, DOC_LABEL, DOC_TYPES, DailyBranchReport, DeliveryAppsPanel, DisbursementForm, DupInvHint, EXP_CATS, FILE_CATS, Field, FinancialReports, GROWTH_MONTHS, HR_WEEK_DAYS, HrSignPad, ITEM_TYPES, Kpi, LAUNCH_APPS, LEAVE_TYPES, LOCK_MSG, MAIN_WH, MFA_DEFAULT_ROLES, MOVE_KINDS, MZ_FIXED, MZ_KIND_AR, MZ_LOGO_HTML, MZ_SUGGEST, MfaPolicyCard, MizanMerge, Modal, MoneyField, NUM_FACE, NUM_LOCALE, NationalAddressFields, Num, OutputDialog, PAY_ADD_TYPES, PAY_GUESS, PEN_TYPES, POS_DEV_KEY, POS_SH_KEY, PROMO_IDEAS, PROMO_T, PT_SRC, PT_TYPE, PartnerChip, PdfTile, PhotoField, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, PriceAlerts, QR_ITEMS, QR_STATUS, QUOTA_MSG, QrBranchesView, QrComplaints, QrDashboard, RB_KIND_AR, RB_PM_AR, RB_SOURCES, REG_APPS, REG_CATS, REG_IX, ROLES, SC_KPIS, SIGN_DOC_AR, SIG_H, SIG_W, SectionNav, SigView, SignDocsModal, SignaturePad, SystemPanel, TAB_AR, TRAIN_STATUS_AR, UsageVariance, UserForm, WASTE_REASONS, WH_KIND, WH_MOVE, WH_ST, WarehousesPanel, WasteControl, WasteFields, WastePending, WhLines, _normName, _xe, aCountDone, aItemsOf, acctSecKey, activePriorCorrectives, activeTrainingRecord, aiHeaders, appCanSee, appOpenNow, appUseGet, appUseSet, arDT, arDate, arTime, bankOfBranch, bioEnroll, bookHidden, branchBanks, branchEntityId, browserName, bsLayout, bsRowsOf, buildAccounting, buildClosingA4, buildPartners, buildPayslipSignDocs, businessDay, canApproveCount, canApproveWaste, capOK, chartTone, closingInvoices, clr, compressImage, computeIncome, contactFields, contactOf, correctiveExpiry, correctiveSignDoc, countCfgOf, countDenoms, countFocus, countSchedule, countedClosing, customerAging, daysBetween, defaultHrPolicies, defaultPenaltySchedule, defaultPointsRules, defaultRewardTiers, defaultRoleKpis, defaultTrainingPrograms, deficitCfg, deficitPatterns, detectStmtMap, deviceType, emptyDenoms, entityById, entityList, eosAccrualLines, eosCumAt, eosState, eosYears, escH, expiringTraining, expiryLots, exportExcel, fineSuggest, fmtBalP, fmtNA, frozenSnapshotFor, gosiRatesFor, haversineMeters, hrAttendanceDetail, hrEmpStats, hrQrWindowCode, hrScoreFor, isCostCtl, isLayout, isPdfData, isRowsOf, isStocked, isoD, itemAvgCosts, itemType, kpiAchievement, leaveBalance, leaveDeductPlan, lockedThru, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, makeXlsx, missingRequiredTraining, mizanPlan, money, moneyP, monthEnd, monthLabel, monthLedger, multiEntityOn, mzNewCode, mzR2, naClean, naErr, naHas, naMissing, newBranchDraft, nextPartnerCode, nextWhAcc, normPhone, normalizeSupPays, nowISO, onLeave, openDocWin, openPdfData, otFromAttendance, otRateOf, overdueSignDocs, pFactor, parseCsvGrid, parseMt940, parseXlsxGrid, partGross, partYield, payCashPart, payLabel, paySplits, payTotal, payrollRowsOf, penTypeAr, pendShiftsGet, pendShiftsSet, periodLocked, piAggregate, piDetect, piNorm, pipTriggered, posCashNet, posClrOf, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posShiftHtml, posTotals, posZHtml, positionJdHtml, printA4, printClosingA4, printIncomeA4, printPartnerStatement, printReceipt, printSalesInvoice, programRequiredFor, promoActive, promoDesc, promoHits, purKey, pwStrength, q3, qrAnalyzeComments, qrAvg, qrBranchStats, qrDate, qrF1, qrFs, qrIsComplaint, qrMs, qrOverall, qrOverdue, qrPrintReport, qrRateUrl, qrSentBadge, qrStatusOf, qrSvg, rewardSignDoc, roleEdit, roleHasTab, roleKpisFor, rolePost, salesDaySource, sha, sha256Hex, short, siCredited, siRem, siSorted, siStamp, siVerify, sigBlockHtml, sigPoints, sigSvg, signDeclaration, signDocHtml, simplifySig, slimBranchDoc, snapAll, snapMonths, snapPut, stAddDays, stDate, stNum, stockByWh, submitWaste, suggestNextLevel, sum, supplierAging, supplierPrices, today, trainingExpiryOf, trainingStatusNow, uid, usageReport, useSecNav, verifyBackup, waNum, wasteCfg, wasteDaily, wasteReasonAr, wasteRows, webauthnSupported, whForBranch, whName, whOf, whOn, zatcaTLV };
 export { ClosingForm };
 // v38.3 — للاختبارات الآلية (tests/): دوال المحرك والشاشات تُستورد من النواة مباشرة
 export { stockCosting, eosEntitledAmt, eosFullAmt, findDupInvoices, invNoNorm, promoLineDisc, tafqeet, Hub, Launcher, PosApp, Inventory, Partners, SalesHub, QrFeedback, AppsCenter, BranchWarehouse, Admin, AuditView, Accounting, emptyOrg, emptyOps, HUBS };

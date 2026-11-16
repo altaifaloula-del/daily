@@ -196,6 +196,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   .pos-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:9px}
   .pos-tile-img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:10px;display:block;background:var(--ink3,#f3f3f3)}
   .pos-tile.has-img{padding:7px 7px 10px;justify-content:flex-start}
+  .pos-tile-img.cut{object-fit:contain;background:transparent;filter:drop-shadow(0 3px 5px rgba(0,0,0,.18))}
   .pos-tile{border:1px solid var(--line);border-radius:14px;background:var(--ink2);padding:12px;min-height:104px;display:flex;flex-direction:column;justify-content:space-between;gap:6px;cursor:pointer;text-align:start;font:inherit;color:var(--txt)}
   .pos-tile:active{transform:scale(.97)} .pos-tile b{font-size:14.5px;line-height:1.4} .pos-tile .num{font-size:15px;font-weight:700;color:var(--txt)}
   .pos-tile.on{border:2px solid var(--brand-fill,var(--brass));padding:11px 7px}
@@ -381,7 +382,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
               <button className={'btn sm' + (!cat ? ' pri' : ' gh')} onClick={() => setCat('')}>الكل</button>
               {cats.map(c => <button key={c} className={'btn sm' + (cat === c ? ' pri' : ' gh')} onClick={() => setCat(c)}>{c}</button>)}
             </div>
-            <div className="pos-tiles">{shown.map(p => { const tg = tileTag(p); const inCart = cart.filter(l => l.productId === p.id).reduce((a, l) => a + l.qty, 0); return <button key={p.id} className={'pos-tile' + (inCart ? ' on' : '') + (p.img && !noImg ? ' has-img' : '')} onClick={() => add(p)}>{p.img && !noImg && <img className="pos-tile-img" src={p.img} alt="" loading="lazy" draggable={false} />}{tg && <i style={{ fontStyle: 'normal', fontSize: 10, background: 'var(--mint)', color: '#fff', borderRadius: 6, padding: '1px 6px', alignSelf: 'center' }}>🏷 {tg}</i>}<b>{p.name}</b><span className="pos-tile-f"><span className="num">{money(p.sellPrice)}</span>{inCart > 0 && <span className="num pos-qty" dir="ltr" style={{ unicodeBidi: 'isolate' }}>×{inCart}</span>}</span></button>; })}</div>
+            <div className="pos-tiles">{shown.map(p => { const tg = tileTag(p); const inCart = cart.filter(l => l.productId === p.id).reduce((a, l) => a + l.qty, 0); return <button key={p.id} className={'pos-tile' + (inCart ? ' on' : '') + (p.img && !noImg ? ' has-img' : '')} onClick={() => add(p)}>{p.img && !noImg && <img className={'pos-tile-img' + (/^data:image\/(webp|png)/.test(p.img) ? ' cut' : '')} src={p.img} alt="" loading="lazy" draggable={false} />}{tg && <i style={{ fontStyle: 'normal', fontSize: 10, background: 'var(--mint)', color: '#fff', borderRadius: 6, padding: '1px 6px', alignSelf: 'center' }}>🏷 {tg}</i>}<b>{p.name}</b><span className="pos-tile-f"><span className="num">{money(p.sellPrice)}</span>{inCart > 0 && <span className="num pos-qty" dir="ltr" style={{ unicodeBidi: 'isolate' }}>×{inCart}</span>}</span></button>; })}</div>
             {!shown.length && (q.trim() || cat ? <div className="card"><div className="empty">لا نتائج.</div></div>
               : <PosQuickProducts org={org} commitOrg={commitOrg} say={say} canAdd={!!R.admin} />)}
             {!!shown.length && R.admin && <div><button className="btn sm gh" onClick={() => setQuickP(x => !x)}><Plus size={12} />إضافة/تسعير أصناف</button></div>}
