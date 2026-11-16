@@ -2292,6 +2292,83 @@ Object.assign(EN, {
 "جارٍ التحقق من توقيع مدير الفرع": "Verifying the branch-manager signature",
 "لا يُحوَّل: الطلب بلا توقيع موثّق من مدير الفرع": "Not converted: the request has no verified branch-manager signature"
 });
+
+// ===== v44.5 التحضير اليومي بالباركود =====
+Object.assign(EN, {
+"التحضير اليومي (باركود)": "Daily prep (barcode)",
+"صالح": "Valid",
+"إتلاف": "Discard",
+"استخدام": "Use",
+"التحضيرة": "Prep",
+"الإنتاج": "Production",
+"سبب الإتلاف": "Discard reason",
+"لا فروع": "No branches",
+"للعرض فقط": "View only",
+"اختر التحضيرة": "Choose the prep",
+"خطأ تحضير": "Prep error",
+"قارب الانتهاء": "Near expiry",
+"منتهٍ — يُتلف": "Expired — discard",
+"استُخدم": "Used",
+"أُتلف": "Discarded",
+"على رف التحضير": "On the prep shelf",
+"دفعات صالحة أو تحتاج إجراء": "Batches valid or needing action",
+"ربع المدة أو أقل — يُستخدم أولًا": "A quarter of the shelf life or less — use first",
+"منتهٍ لم يُتلف": "Expired, not discarded",
+"أتلفه الآن": "Discard it now",
+"لا شيء ✓": "None ✓",
+"مسح الملصق": "Scan label",
+"مسح ملصق التحضير": "Scan prep label",
+"امسح الباركود بالقارئ أو اكتب الرمز ثم Enter": "Scan the barcode with the reader or type the code then Enter",
+"ملصق غير معروف:": "Unknown label:",
+"الدفعة": "Batch",
+"ليست من هذا المطبخ": "not from this kitchen",
+"الرمز:": "Code:",
+"الإنتاج:": "Produced:",
+"الانتهاء:": "Expires:",
+"استُخدم:": "Used:",
+"أُتلف:": "Discarded:",
+"تسجيل تحضير وطباعة ملصقه (50×30 مم)": "Record prep and print its label (50×30 mm)",
+"— اختر —": "— Choose —",
+"الكمية المحضّرة": "Prepared quantity",
+"عدد الملصقات (حاوية لكل ملصق)": "Number of labels (one per container)",
+"عدد الملصقات": "Number of labels",
+"ينتهي:": "Expires:",
+"تسجيل وطباعة الملصق": "Record and print label",
+"رف التحضير — الأقرب انتهاءً أولًا": "Prep shelf — soonest expiry first",
+"لا دفعات على الرف": "No batches on the shelf",
+"ما خرج من الرف اليوم": "Taken off the shelf today",
+"طباعة الملصق": "Print label",
+"تأكيد الإتلاف": "Confirm discard",
+"فرع التحضير": "Prep branch",
+"مدة الصلاحية بعد التحضير (ساعات)": "Shelf life after prep (hours)",
+"مدة الصلاحية بالساعات": "Shelf life in hours",
+"مثال: 24 أو 72": "e.g. 24 or 72",
+"لملصق «التحضير اليومي»: الانتهاء = وقت التحضير + هذه المدة": "For the «Daily prep» label: expiry = prep time + this period",
+"اختر سبب الإتلاف": "Choose the discard reason",
+"أدخل الكمية المحضّرة": "Enter the prepared quantity",
+"الدفعة منتهية الصلاحية — لا تُستخدم، سجّل إتلافها": "The batch has expired — do not use it, record its discard",
+"منتهٍ": "Expired"
+});
+
+// ===== v44.5 معاينة الملصق =====
+Object.assign(EN, {
+"معاينة الملصق قبل الطباعة": "Label preview before printing",
+"تاريخ ووقت الإنتاج": "Production date & time",
+"تاريخ ووقت الانتهاء": "Expiry date & time",
+"طباعته على الملصق": "Print it on the label",
+"تاريخ الإنتاج": "Production date",
+"تاريخ الانتهاء": "Expiry date",
+"طباعة تاريخ الإنتاج": "Print production date",
+"طباعة تاريخ الانتهاء": "Print expiry date",
+"عدد ملصقات المعاينة": "Number of labels",
+"تسجيل وطباعة": "Record and print",
+"طباعة": "Print",
+"معاينة وطباعة الملصق": "Preview and print label",
+"الانتهاء يُحسب آليًا من وقت الإنتاج + مدة الصلاحية، ويمكن تقديمه فقط (لا يُمدَّد بعد المدة).": "Expiry is calculated from production time + shelf life, and can only be brought forward (not extended).",
+"أدخل تاريخ ووقت الإنتاج والانتهاء": "Enter the production and expiry date & time",
+"الانتهاء يجب أن يكون بعد الإنتاج": "Expiry must be after production",
+"وقت الإنتاج في المستقبل": "Production time is in the future"
+});
 export const TX = (ar) => (LANG === 'en' && ar && EN[ar]) || ar;
 
 /* v43.1 مترجم الشاشة: في الوضع الإنجليزي يترجم نصوص الواجهة (عُقد النص + placeholder/title/aria-label) بمطابقة القاموس حرفيًا،
@@ -2353,6 +2430,12 @@ export const EN_RX = [
   [/^سُجّل استلام (\S+) — بانتظار الفحص قبل دخول المستودع · يرحّله المركز: فاتورة تلقائية عند المطابقة ✓$/, 'Receipt of $1 recorded — awaiting inspection before entering the warehouse · central posts it: automatic invoice when matched ✓'],
   [/^حركة (المستودع الرئيسي|مستودع .+)$/, (_, x) => (EN[x] || x) + ' movements'], [/^تحويل صادر إلى (.+)$/, (_, x) => 'Transfer out to ' + (EN[x] || x)], [/^تحويل وارد من (.+)$/, (_, x) => 'Transfer in from ' + (EN[x] || x)],
   [/^لا يُحوَّل: (.+)$/, (_, x) => 'Not converted: ' + (EN[x] || x)], [/^تعذّر الترحيل: (.+)$/, (_, x) => 'Could not post: ' + (EN[x] || x)],
+  [/^الكمية المحضّرة \((.+)\)$/, (_, u) => 'Prepared quantity (' + (EN[u] || u) + ')'], [/^إتلاف الدفعة (\S+)$/, 'Discard batch $1'], [/^(\d+) استُخدم · (\d+) أُتلف$/, '$1 used · $2 discarded'],
+  [/^سُجّلت الدفعة (\S+) — تنتهي (.+) ✓$/, 'Batch $1 recorded — expires $2 ✓'], [/^سُجّل استخدام (\S+) ✓$/, 'Use of $1 recorded ✓'], [/^أُتلفت الدفعة (\S+) ✓$/, 'Batch $1 discarded ✓'],
+  [/^(\d+) س (\d+) د$/, '$1h $2m'], [/^(\d+) د$/, '$1m'], [/^(\d+) يوم$/, '$1 days'], [/^\(الآن \+ (\d+(?:\.\d+)?) ساعة\)$/, '(now + $1 h)'],
+  [/^(.+) — صلاحية (\d+) (ساعة|يوم)$/, (_, n, k, u) => (EN[n] || n) + ' — shelf life ' + k + (u === 'يوم' ? ' days' : ' h')], [/^(.+) — بلا مدة صلاحية$/, (_, n) => (EN[n] || n) + ' — no shelf life'],
+  [/^مدة صلاحية «(.+)» غير محددة — يحددها المركز من بطاقة التحضيرة$/, (_, n) => 'Shelf life of «' + n + '» is not set — central sets it on the prep card'],
+  [/^إعادة طباعة ملصق (\S+)$/, 'Reprint label $1'], [/^· صلاحية (\d+(?:\.\d+)?) ساعة$/, '· shelf life $1 h'], [/^الانتهاء يتجاوز مدة صلاحية التحضيرة \((\d+(?:\.\d+)?) ساعة من الإنتاج\) — لا يُمدَّد$/, 'Expiry exceeds the prep shelf life ($1 h from production) — cannot be extended'],
   [/^أقصى مبلغ متاح (.+) ر\.س — يمكنك تعديله يدوياً$/, 'Max available $1 SAR — you can edit it manually'],
   [/^(\d{1,2}) (يناير|فبراير|مارس|أبريل|مايو|يونيو|يوليو|أغسطس|سبتمبر|أكتوبر|نوفمبر|ديسمبر) (\d{4})$/, (_, d, m, y) => d + ' ' + MONTHS[m] + ' ' + y]
 ];

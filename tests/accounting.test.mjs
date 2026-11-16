@@ -1264,3 +1264,24 @@ test('v44.3 التخزين: طلبات الشراء ونسخة الأوامر و
   const br = /const BR_COLS = \[([\s\S]*?)\];/.exec(src)[1];
   ['purchaseReqs', 'poInbox', 'poReceipts'].forEach(c => assert.ok(br.includes("'" + c + "'"), c));
 });
+
+// ===== v44.5 — التحضير اليومي بالباركود =====
+test('v44.5 حالة دفعة التحضير: صالح ثم «قارب الانتهاء» عند ربع المدة ثم منتهٍ؛ والمستخدم/المتلف ثابتان', () => {
+  const b = { status: 'shelf', madeAt: '2026-11-16T08:00:00Z', expAt: '2026-11-17T08:00:00Z' };   // 24 ساعة
+  const at = (iso) => E.prepBatchState(b, Date.parse(iso)).st;
+  assert.equal(at('2026-11-16T09:00:00Z'), 'ok');
+  assert.equal(at('2026-11-17T01:59:00Z'), 'ok', 'أكثر من ربع المدة');
+  assert.equal(at('2026-11-17T02:00:00Z'), 'near', 'ست ساعات = ربع المدة');
+  assert.equal(at('2026-11-17T08:00:00Z'), 'expired');
+  assert.equal(E.prepBatchState({ ...b, status: 'used' }, Date.parse('2026-11-18T00:00:00Z')).st, 'used');
+  assert.equal(E.prepBatchState({ ...b, status: 'discarded' }).st, 'discarded');
+  assert.equal(E.prepShelfH({ preps: [{ id: 'p1', shelfH: 72 }] }, 'p1'), 72);
+  assert.equal(E.prepShelfH({ preps: [{ id: 'p1' }] }, 'p1'), 0, 'بلا مدة');
+});
+test('v44.5 التخزين والدليل: الدفعات في مستند الفرع، والفرع يرى اسم التحضيرة ومدتها فقط (بلا مكوّنات)', async () => {
+  const src = (await import('node:fs')).readFileSync(new URL('../App.jsx', import.meta.url), 'latin1');
+  assert.ok(/const BR_COLS = \[[\s\S]*?'prepBatches'[\s\S]*?\];/.test(src));
+  const dir = Buffer.from(/function dirOf\(org\) \{[\s\S]*?\n\}/.exec(src)[0], 'latin1').toString('utf8');
+  const line = dir.split('\n').find(l => l.includes('preps: (org.preps'));
+  assert.ok(line && line.includes('shelfH') && !line.includes('parts') && !line.includes('cost'), line);
+});
