@@ -1,17 +1,18 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState } from 'react';
 import { Settings, Trash2, Plus, Check } from 'lucide-react';
-import { Field, POS_DEV_KEY, uid } from '../../App.jsx';
+import { Field, POS_DEV_KEY, posPaperDev, setPosPaperDev, uid } from '../../App.jsx';
 
 export function PosSettings({ org, commitOrg, say, dev }) {
   const c = org.posCfg || {};
-  const [f, setF] = useState({ branches: c.branches || [], footer: c.footer || '', autoPrint: c.autoPrint !== false, devName: dev ? dev.name : '', maxDiscPct: c.maxDiscPct != null ? String(c.maxDiscPct) : '', payMethods: (c.payMethods || []).map(x => ({ ...x })), tables: { ...(c.tables || {}) }, kds: !!c.kds });   // v42.9
+  const [f, setF] = useState({ branches: c.branches || [], footer: c.footer || '', autoPrint: c.autoPrint !== false, devName: dev ? dev.name : '', maxDiscPct: c.maxDiscPct != null ? String(c.maxDiscPct) : '', payMethods: (c.payMethods || []).map(x => ({ ...x })), tables: { ...(c.tables || {}) }, kds: !!c.kds, paper: String(c.paper || '') === '58' ? '58' : '80', devPaper: posPaperDev() });   // v42.9
   const KIND_AR = { card: 'شبكة', cash: 'نقدي', transfer: 'تحويل' };
   const setPm = (i, patch) => setF(x => ({ ...x, payMethods: x.payMethods.map((y, k) => k === i ? { ...y, ...patch } : y) }));
   const save = async () => {
     if (dev && f.devName.trim()) { try { localStorage.setItem(POS_DEV_KEY, JSON.stringify({ ...dev, name: f.devName.trim() })); } catch { } }
     const tables = {}; Object.entries(f.tables || {}).forEach(([b, n]) => { const v = Math.max(0, Math.min(200, Math.floor(Number(n) || 0))); if (v) tables[b] = v; });
-    const ok = await commitOrg(d => ({ ...d, posCfg: { ...(d.posCfg || {}), tables, kds: !!f.kds, branches: f.branches, footer: f.footer.trim(), autoPrint: !!f.autoPrint, maxDiscPct: Number(f.maxDiscPct) || 0, payMethods: f.payMethods.filter(x => (x.n || '').trim()).map(x => ({ id: x.id, n: x.n.trim(), kind: x.kind || 'card', active: x.active !== false })) } }), { actionType: 'update', targetType: 'settings', targetId: 'posCfg', need: 'edit', title: 'إعدادات نقطة البيع', details: 'الفروع: ' + f.branches.map(id => ((org.branches || []).find(b => b.id === id) || {}).name).join('، ') });
+    setPosPaperDev(f.devPaper);   // v44.7: تخصيص هذا الجهاز (على الجهاز فقط)
+    const ok = await commitOrg(d => ({ ...d, posCfg: { ...(d.posCfg || {}), paper: f.paper === '58' ? '58' : '80', tables, kds: !!f.kds, branches: f.branches, footer: f.footer.trim(), autoPrint: !!f.autoPrint, maxDiscPct: Number(f.maxDiscPct) || 0, payMethods: f.payMethods.filter(x => (x.n || '').trim()).map(x => ({ id: x.id, n: x.n.trim(), kind: x.kind || 'card', active: x.active !== false })) } }), { actionType: 'update', targetType: 'settings', targetId: 'posCfg', need: 'edit', title: 'إعدادات نقطة البيع', details: 'الفروع: ' + f.branches.map(id => ((org.branches || []).find(b => b.id === id) || {}).name).join('، ') });
     if (ok) say('حُفظت إعدادات نقطة البيع ✓');
   };
   return (
@@ -22,6 +23,10 @@ export function PosSettings({ org, commitOrg, say, dev }) {
       <div className="grid g2">
         <Field label="عبارة أسفل الفاتورة"><input className="inp" value={f.footer} placeholder="رقم خدمة العملاء، رابط التقييم…" onChange={e => setF(x => ({ ...x, footer: e.target.value }))} /></Field>
         <Field label="أقصى خصم يدوي للكاشير % (فارغ = بلا حد)"><input className="inp n" inputMode="decimal" value={f.maxDiscPct} placeholder="مثال: 10" onChange={e => setF(x => ({ ...x, maxDiscPct: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+        {/* v44.7 — عرض ورق الإيصال (طابعة الكاشير الحرارية) */}
+        <Field label="عرض ورق الإيصال (الإعداد العام)"><select className="sel" aria-label="عرض ورق الإيصال" value={f.paper} onChange={e => setF(x => ({ ...x, paper: e.target.value }))}><option value="80">80 مم (الافتراضي)</option><option value="58">58 مم</option></select></Field>
+        <Field label="عرض الورق لهذا الجهاز"><select className="sel" aria-label="عرض الورق لهذا الجهاز" value={f.devPaper} onChange={e => setF(x => ({ ...x, devPaper: e.target.value }))}><option value="">مثل الإعداد العام</option><option value="80">80 مم</option><option value="58">58 مم</option></select>
+          <div className="hint">لكاشير طابعته بعرض مختلف عن باقي الفروع — يُحفظ على هذا الجهاز فقط</div></Field>
         {dev && <Field label={'اسم هذا الجهاز (' + dev.tag + ')'}><input className="inp" value={f.devName} placeholder="كاشير 1" onChange={e => setF(x => ({ ...x, devName: e.target.value }))} /></Field>}
       </div>
       {/* v42.9 — الطاولات والحساب المفتوح وشاشة المطبخ (مُطفأة افتراضيًا) */}
