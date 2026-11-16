@@ -147,6 +147,8 @@ service cloud.firestore {
     function grnInspectors()  { return ['accountant', 'cost_controller', 'finance_department', 'general_management', 'head_office', 'system_admin']; }
     // [ROLES:PINV] — v44.0: محوّلو الاستلام غير المطابق إلى فاتورة مورد (قرار المالك: المحاسب ومدير النظام فقط)
     function invBillers()     { return ['accountant', 'system_admin']; }
+    // [ROLES:BRPUR] — v44.3: طلب الشراء من الفرع واستلام الفرع لأوامر الشراء (قرار المالك: مدير الفرع وحده)
+    function brPurchasers()   { return ['branch_manager']; }
 
     // نسخ «خفيفة» للقواعد الجديدة: العضوية وقائمة المدراء والسياسة تُقرأ مرة واحدة وتُمرَّر (حد 1000 عملية تقييم)
     function memOf() {
@@ -232,7 +234,7 @@ service cloud.firestore {
     function sigShape(d, role, rel) {
       return d.keys().hasOnly(['kind', 'stage', 'entityId', 'branchId', 'digest', 'email', 'role', 'at', 'cv', 'subRef', 'recountRef', 'nosub', 'edate', 'alert'])
         && d.keys().hasAll(['kind', 'stage', 'entityId', 'branchId', 'digest', 'email', 'role', 'at', 'cv'])
-        && d.kind in ['closing', 'waste', 'count', 'po', 'iban', 'grn', 'pinv']
+        && d.kind in ['closing', 'waste', 'count', 'po', 'iban', 'grn', 'pinv', 'preq', 'prcv']
         && d.stage in ['submit', 'recount', 'audit', 'gm', 'approve', 'reject']
         && shortStr(d.entityId, 120) && d.entityId.size() > 0
         && d.branchId is string && d.branchId.size() <= 80
@@ -276,7 +278,9 @@ service cloud.firestore {
       let scope = bId == '' ? (centralOf(m) || adm) : branchOf(m, adm, bId);
       let ro = m != null && m.get('role', '') in ['accountant_view'];
       return okUser(m, adm) && scope && sigShape(d, roleOf(m), rel)
-        && (d.kind == 'pinv' && d.stage == 'submit' ? roleIn(invBillers(), roleOf(m), adm)   // ث33 (v44.0)
+        // ث34 (v44.3): طلب شراء الفرع واستلامه لأمر شراء — يوقّعه مدير ذلك الفرع وحده (تقديمًا فقط)، والمركز لا يحوّل/يرحّل بلا توقيع موثّق
+        && (d.kind in ['preq', 'prcv'] ? d.stage == 'submit' && bId != '' && roleIn(brPurchasers(), roleOf(m), adm)
+          : d.kind == 'pinv' && d.stage == 'submit' ? roleIn(invBillers(), roleOf(m), adm)   // ث33 (v44.0)
           : d.stage in ['submit', 'recount'] ? (adm || !ro) : approveOk(d, roleOf(m), adm, rel));
     }
     function sigRead(bId) {

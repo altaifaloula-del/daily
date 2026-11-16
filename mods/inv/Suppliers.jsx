@@ -1,7 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Truck, FileBarChart, ChevronDown, Printer, FileText, Building2, ClipboardCheck, Users, Plus, AlertTriangle, CalendarDays, Trash2, Check, X, Banknote } from 'lucide-react';
-import { DupInvHint, Field, Kpi, LOCK_MSG, MAIN_WH, Modal, Num, ROLES, SectionNav, arDate, branchBanks, closingInvoices, isStocked, isoD, itemType, money, nowISO, pFactor, payTotal, periodLocked, printA4, purKey, q3, _xe, roleEdit, rolePost, buildAccounting, INV_BILLERS, itemsSeq, vatNoOk, supVatOf, ItemPick, roleHasTab, stockByWh, sum, supplierPrices, today, uid, whName, whOf, whOn, poWhOf, signoff, signDecision, sigFailMsg } from '../../App.jsx';
+import { DupInvHint, Field, Kpi, LOCK_MSG, MAIN_WH, Modal, Num, ROLES, SectionNav, arDate, branchBanks, closingInvoices, isStocked, isoD, itemType, money, nowISO, pFactor, payTotal, periodLocked, printA4, purKey, q3, _xe, roleEdit, rolePost, buildAccounting, INV_BILLERS, itemsSeq, vatNoOk, supVatOf, ItemPick, roleHasTab, stockByWh, sum, supplierPrices, today, uid, whName, whOf, whOn, poWhOf, brSigCheck, signoff, signDecision, sigFailMsg } from '../../App.jsx';
 import { cloud, bfKey } from '../../storage';
 
 export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: goTab, billOnly }) {
@@ -125,9 +125,17 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
   // v44.3 — استلامات الفروع المباشرة تُرحَّل تلقائيًا عند فتح المركز للمشتريات (الفرع لا يكتب المستند المركزي)
   const brRcvTried = useRef(new Set());
   const brRcvKey = (ops.poReceipts || []).filter(r => r.status === 'pending').map(r => r.id).join(',');
-  useEffect(() => { if (!canPay || !brRcvKey) return; let stop = false;
-    (async () => { for (const r of (ops.poReceipts || []).filter(x => x.status === 'pending')) { if (stop) return; if (brRcvTried.current.has(r.id)) continue; brRcvTried.current.add(r.id); await postBrRcv(r, true); } })();
-    return () => { stop = true; }; }, [brRcvKey]); // eslint-disable-line
+  // v44.3 (ث34): لا يُحوَّل طلب ولا يُرحَّل استلام إلا بتوقيع موثّق من مدير الفرع — حالة التوقيع لكل سجل معلّق
+  const [brSig, setBrSig] = useState({});
+  const brSigKey = [...(ops.purchaseReqs || []), ...(ops.poReceipts || [])].filter(x => x.status === 'pending').map(x => x.id + ':' + (x.sigSubmit || '')).join(',');
+  useEffect(() => { if (!canPay || !brSigKey) return; let stop = false;
+    (async () => { const out = {};
+      for (const x of (ops.purchaseReqs || []).filter(y => y.status === 'pending')) out[x.id] = await brSigCheck('preq', x, me, ids);
+      for (const x of (ops.poReceipts || []).filter(y => y.status === 'pending')) out[x.id] = await brSigCheck('prcv', x, me, ids);
+      if (stop) return; setBrSig(out);
+      for (const r of (ops.poReceipts || []).filter(x => x.status === 'pending')) { if (stop) return; if (out[r.id] !== 'ok' || brRcvTried.current.has(r.id)) continue; brRcvTried.current.add(r.id); await postBrRcv(r, true); } })();
+    return () => { stop = true; }; }, [brSigKey]); // eslint-disable-line
+  const SIG_WHY = { bad: 'بلا توقيع موثّق من مدير الفرع', wait: 'جارٍ التحقق من توقيع مدير الفرع' };
   const poAllRecv = (p2) => (p2.lines || []).every(l => (Number(l.received) || 0) >= (Number(l.qty) || 0));
   const nextPoNo = () => {
     let mx = 0;
@@ -200,6 +208,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     if (poWid && !poTw && poWid !== MAIN_WH) return say('اختر المستودع المستلِم', 'no');
     const req0 = f.reqId ? (ops.purchaseReqs || []).find(r => r.id === f.reqId) : null;
     if (f.reqId && (!req0 || req0.status !== 'pending')) return say('طلب الشراء لم يعد قائمًا', 'no');
+    if (req0 && (await brSigCheck('preq', req0, me, ids)) !== 'ok') return say('لا يُحوَّل: الطلب بلا توقيع موثّق من مدير الفرع', 'no');
     let rec = { id: uid('po'), poNo: nextPoNo(), supplierId: sp.id, supplierName: sp.name,
       branchId: (poTw && poTw.kind === 'branch' ? poTw.branchId : '') || f.branchId || '', ...(poWid ? { whId: poWid } : {}), ...(req0 ? { reqId: req0.id, reqNo: req0.no } : {}), note: f.note || '', lines, status: needAppr ? 'pending' : 'open', by: me.name, at: nowISO(), date: today(), ...(hiPrice ? { priceAlert: hiPrice } : {}) };
     // v40.0: أمر بانتظار الاعتماد يُوقَّع تقديمه — مع تنبيه السعر لا يعتمده منشئه (إلا المدير)، والقواعد تفرض ذلك
@@ -307,11 +316,11 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
   // ===== v44.3 — استلام مدير الفرع لأمر شراء موجّه لمستودع فرعه (poReceipts في مستند الفرع) =====
   // الفرع أدخل الأصناف مستودعه (بقيد «بضاعة مستلمة لم تُفوتر» بسعر الأمر) أو أرسلها للفحص؛ هنا تُحدَّث كميات الأمر،
   // وتُنشأ فاتورة المورد تلقائيًا عند المطابقة الكاملة (الكميات والمبلغ والرقم الضريبي)، وإلا تبقى «مستلم لم يُفوتر» يحوّلها المحاسب أو مدير النظام.
-  const brRcvWhy = (r) => { const p2 = (ops.purchaseOrders || []).find(x => x.id === r.poId);
+  const brRcvWhy = (r, sigOk) => { const p2 = (ops.purchaseOrders || []).find(x => x.id === r.poId);
     if (!p2) return 'أمر الشراء غير موجود'; if (!['open', 'partial'].includes(p2.status)) return 'أمر الشراء ليس قيد التوريد';
-    if (periodLocked(org, r.date)) return 'الشهر مقفل محاسبيًا'; return ''; };
+    if (periodLocked(org, r.date)) return 'الشهر مقفل محاسبيًا'; return sigOk || brSig[r.id] === 'ok' ? '' : SIG_WHY[brSig[r.id] || 'wait']; };
   const postBrRcv = async (r, auto) => {
-    const why0 = brRcvWhy(r); if (why0) { if (!auto) say('تعذّر الترحيل: ' + why0, 'no'); return false; }
+    const why0 = brRcvWhy(r, auto);   // التلقائي يُستدعى بعد التحقق من التوقيع if (why0) { if (!auto) say('تعذّر الترحيل: ' + why0, 'no'); return false; }
     const p2 = (ops.purchaseOrders || []).find(x => x.id === r.poId);
     const lines = (r.lines || []).filter(l => p2.lines[l.li] && (Number(l.qty) || 0) > 0).map(l => { const pl = p2.lines[l.li];
       return { li: l.li, itemId: pl.itemId || '', desc: pl.desc, ...(pl.note ? { note: pl.note } : {}), qty: Math.min(q3(l.qty), remOfLine(pl)), factor: Number(pl.factor) || 1, uomName: pl.uomName || '', price: Number(pl.price) || 0 }; }).filter(l => l.qty > 0);
@@ -319,7 +328,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     const rDate = String(r.date || today()).slice(0, 10);
     const supNo = String(r.supInvNo || '').trim(), supAmt = Number(r.supInvAmt) || 0;
     let g = { id: r.id, grn: r.no, date: rDate, whId: r.whId, branchId: r.branchId || '', supplierId: p2.supplierId, lines, by: r.by || '', byEmail: r.byEmail || '', at: r.at || nowISO(), branchRcv: true,
-      supInvNo: supNo, supInvAmt: supAmt, taxable: r.taxable !== false, ...(r.docId ? { docId: r.docId } : {}), ...(r.sigSubmit ? { sigSubmit: r.sigSubmit } : {}) };
+      supInvNo: supNo, supInvAmt: supAmt, taxable: r.taxable !== false, ...(r.docId ? { docId: r.docId } : {}), ...(r.grnSig ? { sigSubmit: r.grnSig } : {}) };
     let inv = null, res = 'qc', whyNot = '';
     if (!inspectOn) {
       const exp = rcvExpected(p2, (i) => takes[i], r.taxable !== false);
@@ -355,7 +364,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
   };
   // v44.3 — طلبات شراء الفروع: يراجعها المركز ويحوّلها لأمر شراء (المورد والسعر) موجّه لمستودع الفرع، أو يرفضها بسبب
   const reqsPending = (ops.purchaseReqs || []).filter(r => r.status === 'pending').sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')));
-  const reqToPo = (r) => setPoF({ supplierId: suppliers[0]?.id || '', branchId: r.branchId || '', whId: r.whId || MAIN_WH, reqId: r.id, note: 'طلب ' + r.no + (r.note ? ' — ' + r.note : ''),
+  const reqToPo = (r) => brSig[r.id] !== 'ok' ? say('لا يُحوَّل: ' + SIG_WHY[brSig[r.id] || 'wait'], 'no') : setPoF({ supplierId: suppliers[0]?.id || '', branchId: r.branchId || '', whId: r.whId || MAIN_WH, reqId: r.id, note: 'طلب ' + r.no + (r.note ? ' — ' + r.note : ''),
     lines: (r.lines || []).map(l => ({ itemId: l.itemId, desc: (items.find(x => x.id === l.itemId) || {}).name || '', qty: String(l.qty), price: '', uom: 'b', ...(l.note ? { note: l.note } : {}) })) });
   const rejectReq = async (r) => {
     const why = window.prompt('رفض طلب الشراء ' + r.no + ' — السبب (يظهر للفرع):'); if (why === null) return; if (!why.trim()) return say('اكتب سبب الرفض', 'no');
@@ -902,7 +911,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
                   <tr key={r.id} data-preq={r.no}><td><span className="num" style={{ fontSize: 11.5 }}>{r.no}</span><div style={{ fontSize: 9.5, color: 'var(--faint)' }}>{String(r.at || '').slice(0, 10)} · {r.by}</div></td>
                     <td style={{ fontSize: 12 }}>{whName(org, r.whId)}{r.note ? <div style={{ fontSize: 10.5, color: 'var(--dim)' }}>{r.note}</div> : null}</td>
                     <td style={{ fontSize: 11.5 }}>{(r.lines || []).map(l => ((items.find(x => x.id === l.itemId) || {}).name || '—') + ' ' + l.qty + (l.note ? ' (' + l.note + ')' : '')).join('، ')}</td>
-                    <td><div className="row" style={{ gap: 5, flexWrap: 'wrap' }}><button className="btn sm pri" data-req2po onClick={() => reqToPo(r)}>تحويل لأمر شراء</button><button className="btn sm gh" onClick={() => rejectReq(r)}>رفض</button></div></td></tr>))}
+                    <td><div className="row" style={{ gap: 5, flexWrap: 'wrap' }}>{brSig[r.id] && brSig[r.id] !== 'ok' ? <span className="badge b-rose">{SIG_WHY[brSig[r.id]]}</span> : <button className="btn sm pri" data-req2po disabled={!brSig[r.id]} onClick={() => reqToPo(r)}>تحويل لأمر شراء</button>}<button className="btn sm gh" onClick={() => rejectReq(r)}>رفض</button></div></td></tr>))}
                 </tbody></table></div>
             </div>)}
           {canPay && (ops.poReceipts || []).some(r => r.status === 'pending') && (

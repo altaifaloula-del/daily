@@ -690,6 +690,7 @@ test('الدستور: قوائم الأدوار في قواعد Firestore تطا
   assert.deepEqual(listOf('IBAN'), f(r => (r.tabs || []).includes('audit')), 'معتمدو تغيير حسابات الدفع = أصحاب شاشة التدقيق');
   assert.deepEqual(listOf('GRN'), f((r, k) => !!E.rolePost(k)), 'فاحصو الاستلام = canInspect (rolePost)');
   assert.deepEqual(listOf('PINV'), [...E.INV_BILLERS].sort(), 'محوّلو الفاتورة = INV_BILLERS');
+  assert.deepEqual(listOf('BRPUR'), [...E.BR_PURCHASERS].sort(), 'طلب/استلام الفرع = BR_PURCHASERS (مدير الفرع)');
 });
 
 test('الدستور ث19: التحقق من الاعتماد — موقّع ومطابق، أو عُدّل بعد اعتماده، أو بلا توقيع بعد بدء التوقيع، أو أقدم منه', () => {

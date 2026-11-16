@@ -1264,3 +1264,16 @@ test('v44.3 متابعة المخزون: الإجمالي لكل مستودع (�
   assert.equal(mv.length, 2); assert.match(mv[0], /صرف للتشغيل[\s\S]*-5/); assert.match(mv[1], /توريد شراء[\s\S]*\+12/);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v44.3 (ث34) طلب الشراء واستلام أوامر الشراء لمدير الفرع وحده — لا يظهران لغيره في «مستودع الفرع»', async () => {
+  for (const who of ['ho', 'ctl', 'admin']) {
+    const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 900 } }, 'live/BranchWarehouse/' + who);
+    await p.waitForTimeout(200);
+    assert.equal(await p.locator('button', { hasText: 'استلام أوامر الشراء' }).count(), 0, who);
+    assert.equal(await p.locator('button', { hasText: /^طلب شراء$/ }).count(), 0, who);
+    assert.deepEqual(errs, []); await ctx.close();
+  }
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 900 } }, 'live/BranchWarehouse/bm');
+  assert.equal(await p.locator('button', { hasText: 'استلام أوامر الشراء' }).count(), 1, 'مدير الفرع');
+  assert.deepEqual(errs, []); await ctx.close();
+});
