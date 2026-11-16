@@ -8,17 +8,19 @@ import { Field, Kpi, Modal, PREP_ST, WASTE_REASONS, nowISO, prepBatchState, prep
 
 const pad = (n) => String(n).padStart(2, '0');
 export const fmtDT = (iso) => { const d = new Date(iso); if (isNaN(d)) return '—'; return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()); };
+const toLocalInp = (t) => { const d = new Date(t); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()); };
 const fmtLeft = (ms) => { if (ms <= 0) return 'منتهٍ'; const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000); return h >= 48 ? Math.floor(h / 24) + ' يوم' : h > 0 ? h + ' س ' + m + ' د' : m + ' د'; };
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const newCode = () => 'P' + Date.now().toString(36).toUpperCase().slice(-5) + Math.random().toString(36).slice(2, 6).toUpperCase();
 
 /** ملصقات 50×30 مم — نسخة لكل حاوية */
-export async function printPrepLabels(batches, copies, say) {
+export async function printPrepLabels(batches, copies, say, show) {
+  const sh = { made: true, exp: true, ...(show || {}) };
   const { default: JsBarcode } = await import('jsbarcode');
   const svgOf = (code) => { const el = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     JsBarcode(el, code, { format: 'CODE128', width: 1.5, height: 34, displayValue: true, fontSize: 11, margin: 0, textMargin: 1 }); return el.outerHTML; };
   const one = (b) => `<div class="lb"><div class="t"><b>${esc(b.name)}</b><span>${esc(q3(b.qty))} ${esc(b.unit)}</span></div>
-    <div class="d"><span>إنتاج: <b dir="ltr">${esc(fmtDT(b.madeAt))}</b></span><span>انتهاء: <b dir="ltr">${esc(fmtDT(b.expAt))}</b></span></div><div class="bc">${svgOf(b.code)}</div></div>`;
+    <div class="d">${sh.made ? `<span>إنتاج: <b dir="ltr">${esc(fmtDT(b.madeAt))}</b></span>` : ''}${sh.exp ? `<span>انتهاء: <b dir="ltr">${esc(fmtDT(b.expAt))}</b></span>` : ''}</div><div class="bc">${svgOf(b.code)}</div></div>`;
   const html = batches.flatMap(b => Array.from({ length: Math.max(1, Math.min(50, Number(copies) || 1)) }, () => one(b))).join('');
   const w = window.open('', '_blank', 'width=420,height=360'); if (!w) { say && say('اسمح بالنوافذ المنبثقة للطباعة', 'no'); return false; }
   w.document.write(`<!doctype html><html dir="rtl"><head><meta charset="utf-8"><title>ملصقات التحضير</title><style>
@@ -43,6 +45,7 @@ export function PrepBatches({ org, ops, me, commit, say, whId, branchId, canAct 
   const [code, setCode] = useState('');
   const [hit, setHit] = useState(null);       // نتيجة المسح
   const [disc, setDisc] = useState(null);     // نموذج الإتلاف
+  const [pv, setPv] = useState(null);         // معاينة الملصق قبل الطباعة: تاريخا الإنتاج والانتهاء (تعديل وإظهار)
   const scanRef = useRef(null);
   const focusScan = () => setTimeout(() => scanRef.current && scanRef.current.focus(), 30);
   const prepOf = (id) => preps.find(p => p.id === id) || {};
@@ -52,14 +55,25 @@ export function PrepBatches({ org, ops, me, commit, say, whId, branchId, canAct 
     const p = prepOf(f.prepId); if (!p.id) return say('اختر التحضيرة', 'no');
     const qty = q3(f.qty); if (!(qty > 0)) return say('أدخل الكمية المحضّرة', 'no');
     const h = prepShelfH(org, p.id); if (!(h > 0)) return say('مدة صلاحية «' + p.name + '» غير محددة — يحددها المركز من بطاقة التحضيرة', 'no');
-    const mk = new Date(); const ex = new Date(mk.getTime() + h * 3600000);
+    const t0 = Date.now();
+    setPv({ isNew: true, prepId: p.id, name: p.name, unit: p.unit || '', qty, h, copies: f.copies, made: toLocalInp(t0), exp: toLocalInp(t0 + h * 3600000), showMade: true, showExp: true });
+  };
+  // v44.5 — قبل الطباعة: معاينة بتاريخي الإنتاج والانتهاء — تعديلهما وخيار إظهار كل منهما على الملصق
+  const savePv = async () => {
+    const v = pv; const mk = new Date(v.made), ex = new Date(v.exp);
+    if (isNaN(mk) || isNaN(ex)) return say('أدخل تاريخ ووقت الإنتاج والانتهاء', 'no');
+    if (!(ex > mk)) return say('الانتهاء يجب أن يكون بعد الإنتاج', 'no');
+    if (!v.isNew) { setPv(null); return printPrepLabels([v.b], v.copies, say, { made: v.showMade, exp: v.showExp }); }
+    if (mk.getTime() > Date.now() + 5 * 60000) return say('وقت الإنتاج في المستقبل', 'no');
+    if (ex.getTime() - mk.getTime() > v.h * 3600000 + 60000) return say('الانتهاء يتجاوز مدة صلاحية التحضيرة (' + v.h + ' ساعة من الإنتاج) — لا يُمدَّد', 'no');
+    const p = { id: v.prepId, name: v.name, unit: v.unit }; const qty = v.qty, h = v.h;
     const rec = { id: uid('pb'), code: newCode(), branchId, whId: whId || '', prepId: p.id, name: p.name, unit: p.unit || '', qty, shelfH: h, madeAt: mk.toISOString(), expAt: ex.toISOString(), status: 'shelf', by: me.name, at: nowISO() };
     const ok = await commit(d => ({ ...d, prepBatches: [rec, ...(d.prepBatches || [])] }),
       { actionType: 'create', targetType: 'stock_move', targetId: rec.id, branchName: whName(org, whId), title: 'تحضير يومي — ' + p.name, details: rec.code + ' · ' + qty + ' ' + rec.unit + ' · ينتهي ' + fmtDT(rec.expAt) });
     if (!ok) return;
-    setF({ prepId: f.prepId, qty: '', copies: f.copies });
+    setF({ prepId: f.prepId, qty: '', copies: f.copies }); setPv(null);
     say('سُجّلت الدفعة ' + rec.code + ' — تنتهي ' + fmtDT(rec.expAt) + ' ✓');
-    printPrepLabels([rec], f.copies, say);
+    printPrepLabels([rec], v.copies, say, { made: v.showMade, exp: v.showExp });
   };
   const scan = (e) => {
     e.preventDefault(); const c = code.trim().toUpperCase(); setCode(''); if (!c) return;
@@ -89,7 +103,7 @@ export function PrepBatches({ org, ops, me, commit, say, whId, branchId, canAct 
   };
   const actBtns = (b) => { const st = prepBatchState(b, now).st; return (
     <div className="row" style={{ gap: 5, flexWrap: 'wrap' }}>
-      <button className="btn sm gh" title="طباعة الملصق" onClick={() => printPrepLabels([b], 1, say)}><Printer size={12} /></button>
+      <button className="btn sm gh" title="طباعة الملصق" data-pbprint onClick={() => setPv({ isNew: false, b, name: b.name, unit: b.unit, qty: b.qty, copies: '1', made: toLocalInp(Date.parse(b.madeAt)), exp: toLocalInp(Date.parse(b.expAt)), showMade: true, showExp: true })}><Printer size={12} /></button>
       {canAct && (st === 'ok' || st === 'near') && <button className="btn sm pri" data-pbuse onClick={() => markUsed(b)}><Check size={12} />استخدام</button>}
       {canAct && ['ok', 'near', 'expired'].includes(st) && <button className={'btn sm' + (st === 'expired' ? ' pri' : ' gh')} data-pbdisc onClick={() => setDisc({ b, reason: st === 'expired' ? 'expired' : '', note: '' })}><Trash2 size={12} />إتلاف</button>}
     </div>); };
@@ -143,7 +157,7 @@ export function PrepBatches({ org, ops, me, commit, say, whId, branchId, canAct 
             <Field label="عدد الملصقات (حاوية لكل ملصق)"><input className="inp n" inputMode="numeric" aria-label="عدد الملصقات" value={f.copies} onChange={e => setF(x => ({ ...x, copies: e.target.value.replace(/[^\d]/g, '').slice(0, 2) }))} /></Field>
           </div>
           {f.prepId && prepShelfH(org, f.prepId) > 0 && <div className="hint">ينتهي: <b dir="ltr" className="num">{fmtDT(new Date(now + prepShelfH(org, f.prepId) * 3600000).toISOString())}</b> (الآن + {prepShelfH(org, f.prepId)} ساعة)</div>}
-          <button className="btn pri" style={{ marginTop: 8 }} data-pbsave onClick={create}><Printer size={14} />تسجيل وطباعة الملصق</button>
+          <button className="btn pri" style={{ marginTop: 8 }} data-pbsave onClick={create}><Printer size={14} />معاينة وطباعة الملصق</button>
         </div>
       )}
 
@@ -165,6 +179,22 @@ export function PrepBatches({ org, ops, me, commit, say, whId, branchId, canAct 
               <td className="num" dir="ltr" style={{ fontSize: 11 }}>{fmtDT(b.status === 'used' ? b.usedAt : b.discardAt)}</td><td style={{ fontSize: 11, color: 'var(--faint)' }}>{b.status === 'used' ? b.usedBy : b.discardBy}</td></tr>))}
           </tbody></table></div></>}
       </div>
+
+      {pv && (
+        <Modal title={pv.isNew ? 'معاينة الملصق قبل الطباعة' : 'إعادة طباعة ملصق ' + pv.b.code} icon={Printer} onClose={() => setPv(null)}
+          foot={<><button className="btn pri" data-pbprintok onClick={savePv}><Printer size={14} />{pv.isNew ? 'تسجيل وطباعة' : 'طباعة'}</button><button className="btn gh" onClick={() => setPv(null)}>إلغاء</button></>}>
+          <div className="note" style={{ marginBottom: 8 }}><b>{pv.name}</b> · {q3(pv.qty)} {pv.unit}{pv.isNew ? ' · صلاحية ' + pv.h + ' ساعة' : ''}</div>
+          <div className="grid g2">
+            <Field label="تاريخ ووقت الإنتاج"><input type="datetime-local" className="inp" aria-label="تاريخ الإنتاج" value={pv.made} disabled={!pv.isNew}
+              onChange={e => { const v = e.target.value; setPv(x => ({ ...x, made: v, ...(x.isNew && !isNaN(new Date(v)) ? { exp: toLocalInp(new Date(v).getTime() + x.h * 3600000) } : {}) })); }} />
+              <label className="row" style={{ gap: 6, alignItems: 'center', fontSize: 12.5, marginTop: 6 }}><input type="checkbox" aria-label="طباعة تاريخ الإنتاج" checked={pv.showMade} onChange={e => setPv(x => ({ ...x, showMade: e.target.checked }))} />طباعته على الملصق</label></Field>
+            <Field label="تاريخ ووقت الانتهاء"><input type="datetime-local" className="inp" aria-label="تاريخ الانتهاء" value={pv.exp} disabled={!pv.isNew} onChange={e => setPv(x => ({ ...x, exp: e.target.value }))} />
+              <label className="row" style={{ gap: 6, alignItems: 'center', fontSize: 12.5, marginTop: 6 }}><input type="checkbox" aria-label="طباعة تاريخ الانتهاء" checked={pv.showExp} onChange={e => setPv(x => ({ ...x, showExp: e.target.checked }))} />طباعته على الملصق</label></Field>
+            <Field label="عدد الملصقات"><input className="inp n" inputMode="numeric" aria-label="عدد ملصقات المعاينة" value={pv.copies} onChange={e => setPv(x => ({ ...x, copies: e.target.value.replace(/[^\d]/g, '').slice(0, 2) }))} /></Field>
+          </div>
+          {pv.isNew && <div className="hint">الانتهاء يُحسب آليًا من وقت الإنتاج + مدة الصلاحية، ويمكن تقديمه فقط (لا يُمدَّد بعد المدة).</div>}
+        </Modal>
+      )}
 
       {disc && (
         <Modal title={'إتلاف الدفعة ' + disc.b.code} icon={Trash2} onClose={() => setDisc(null)}

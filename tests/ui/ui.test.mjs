@@ -1293,11 +1293,25 @@ test('v44.5 التحضير اليومي بالباركود: تسجيل دفعة 
   assert.match(await say(p), /مدة صلاحية «تتبيلة شاورما» غير محددة/);
   // تسجيل وطباعة ملصقين
   await p.selectOption('select[aria-label="التحضيرة"]', 'pr1'); await p.fill('input[aria-label="الكمية المحضّرة"]', '5'); await p.fill('input[aria-label="عدد الملصقات"]', '2');
-  await p.locator('[data-pbsave]').click(); await p.waitForTimeout(600);
+  await p.locator('[data-pbsave]').click(); await p.waitForTimeout(200);
+  // المعاينة قبل الطباعة: الانتهاء = الإنتاج + 24 س، ولا يُمدَّد بعد المدة
+  const mk0 = await p.inputValue('input[aria-label="تاريخ الإنتاج"]'), ex0 = await p.inputValue('input[aria-label="تاريخ الانتهاء"]');
+  assert.equal(Date.parse(ex0) - Date.parse(mk0), 24 * 3600000);
+  await p.fill('input[aria-label="تاريخ الانتهاء"]', new Date(Date.parse(ex0) + 3 * 3600000 - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16));
+  await p.locator('[data-pbprintok]').click(); await p.waitForTimeout(150);
+  assert.match(await say(p), /يتجاوز مدة صلاحية التحضيرة/);
+  await p.fill('input[aria-label="تاريخ الانتهاء"]', ex0);
+  assert.equal(await p.evaluate(() => window.cur.prepBatches.length), 2, 'لا يُسجَّل قبل التأكيد');
+  await p.locator('[data-pbprintok]').click(); await p.waitForTimeout(600);
   const b = await p.evaluate(() => window.cur.prepBatches.find(x => x.id !== 'old' && x.id !== 'oth'));
   assert.equal(b.qty, 5); assert.equal(b.branchId, 'b1'); assert.equal(Date.parse(b.expAt) - Date.parse(b.madeAt), 24 * 3600000, 'الانتهاء = الإنتاج + 24 ساعة');
   const lab = await p.evaluate(() => window.__labels[0] || '');
   assert.equal((lab.match(/class="lb"/g) || []).length, 2, 'ملصقان'); assert.match(lab, /size:50mm 30mm/); assert.match(lab, /<svg/); assert.ok(lab.includes(b.code)); assert.match(lab, /إنتاج:[\s\S]*انتهاء:/);
+  // إعادة الطباعة بلا تاريخ الإنتاج (خيار الإظهار)
+  await p.locator('[data-pbrow="' + b.code + '"] [data-pbprint]').click(); await p.waitForTimeout(150);
+  await p.uncheck('input[aria-label="طباعة تاريخ الإنتاج"]'); await p.locator('[data-pbprintok]').click(); await p.waitForTimeout(600);
+  const lab2 = await p.evaluate(() => window.__labels[window.__labels.length - 1]);
+  assert.doesNotMatch(lab2, /إنتاج:/); assert.match(lab2, /انتهاء:/); assert.equal((lab2.match(/class="lb"/g) || []).length, 1);
   // المسح بالقارئ (الرمز ثم Enter) ⇒ الحالة ثم الاستخدام
   await p.fill('input[aria-label="مسح ملصق التحضير"]', b.code.toLowerCase()); await p.press('input[aria-label="مسح ملصق التحضير"]', 'Enter'); await p.waitForTimeout(150);
   assert.equal(await p.locator('[data-pbhit="ok"] [data-pbst]').getAttribute('data-pbst'), 'ok');

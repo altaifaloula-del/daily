@@ -2349,6 +2349,26 @@ Object.assign(EN, {
 "الدفعة منتهية الصلاحية — لا تُستخدم، سجّل إتلافها": "The batch has expired — do not use it, record its discard",
 "منتهٍ": "Expired"
 });
+
+// ===== v44.5 معاينة الملصق =====
+Object.assign(EN, {
+"معاينة الملصق قبل الطباعة": "Label preview before printing",
+"تاريخ ووقت الإنتاج": "Production date & time",
+"تاريخ ووقت الانتهاء": "Expiry date & time",
+"طباعته على الملصق": "Print it on the label",
+"تاريخ الإنتاج": "Production date",
+"تاريخ الانتهاء": "Expiry date",
+"طباعة تاريخ الإنتاج": "Print production date",
+"طباعة تاريخ الانتهاء": "Print expiry date",
+"عدد ملصقات المعاينة": "Number of labels",
+"تسجيل وطباعة": "Record and print",
+"طباعة": "Print",
+"معاينة وطباعة الملصق": "Preview and print label",
+"الانتهاء يُحسب آليًا من وقت الإنتاج + مدة الصلاحية، ويمكن تقديمه فقط (لا يُمدَّد بعد المدة).": "Expiry is calculated from production time + shelf life, and can only be brought forward (not extended).",
+"أدخل تاريخ ووقت الإنتاج والانتهاء": "Enter the production and expiry date & time",
+"الانتهاء يجب أن يكون بعد الإنتاج": "Expiry must be after production",
+"وقت الإنتاج في المستقبل": "Production time is in the future"
+});
 export const TX = (ar) => (LANG === 'en' && ar && EN[ar]) || ar;
 
 /* v43.1 مترجم الشاشة: في الوضع الإنجليزي يترجم نصوص الواجهة (عُقد النص + placeholder/title/aria-label) بمطابقة القاموس حرفيًا،
@@ -2415,6 +2435,7 @@ export const EN_RX = [
   [/^(\d+) س (\d+) د$/, '$1h $2m'], [/^(\d+) د$/, '$1m'], [/^(\d+) يوم$/, '$1 days'], [/^\(الآن \+ (\d+(?:\.\d+)?) ساعة\)$/, '(now + $1 h)'],
   [/^(.+) — صلاحية (\d+) (ساعة|يوم)$/, (_, n, k, u) => (EN[n] || n) + ' — shelf life ' + k + (u === 'يوم' ? ' days' : ' h')], [/^(.+) — بلا مدة صلاحية$/, (_, n) => (EN[n] || n) + ' — no shelf life'],
   [/^مدة صلاحية «(.+)» غير محددة — يحددها المركز من بطاقة التحضيرة$/, (_, n) => 'Shelf life of «' + n + '» is not set — central sets it on the prep card'],
+  [/^إعادة طباعة ملصق (\S+)$/, 'Reprint label $1'], [/^· صلاحية (\d+(?:\.\d+)?) ساعة$/, '· shelf life $1 h'], [/^الانتهاء يتجاوز مدة صلاحية التحضيرة \((\d+(?:\.\d+)?) ساعة من الإنتاج\) — لا يُمدَّد$/, 'Expiry exceeds the prep shelf life ($1 h from production) — cannot be extended'],
   [/^أقصى مبلغ متاح (.+) ر\.س — يمكنك تعديله يدوياً$/, 'Max available $1 SAR — you can edit it manually'],
   [/^(\d{1,2}) (يناير|فبراير|مارس|أبريل|مايو|يونيو|يوليو|أغسطس|سبتمبر|أكتوبر|نوفمبر|ديسمبر) (\d{4})$/, (_, d, m, y) => d + ' ' + MONTHS[m] + ' ' + y]
 ];
