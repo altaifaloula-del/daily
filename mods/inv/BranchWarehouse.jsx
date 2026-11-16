@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { HardDrive, ClipboardCheck, Truck, Send, ArrowLeftRight, Trash2, Scale, Check, X, ShoppingCart, PackageCheck } from 'lucide-react';
 import { cloud, bfKey } from '../../storage';
-import { ItemPick, signoff, sigFailMsg, BlindCount, COUNT_FREQ, Field, MAIN_WH, Modal, SectionNav, WH_MOVE, WH_ST, WasteFields, WastePending, WhLines, bookHidden, countFocus, countSchedule, isCostCtl, isStocked, itemAvgCosts, nowISO, q3, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whForBranch, whName, whOf, whOn } from '../../App.jsx';
+import { canBrPurchase, ItemPick, signoff, sigFailMsg, BlindCount, COUNT_FREQ, Field, MAIN_WH, Modal, SectionNav, WH_MOVE, WH_ST, WasteFields, WastePending, WhLines, bookHidden, countFocus, countSchedule, isCostCtl, isStocked, itemAvgCosts, nowISO, q3, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whForBranch, whName, whOf, whOn } from '../../App.jsx';
 
 export function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
   const items = (org.items || []).filter(it => it.isActive !== false && isStocked(it));
@@ -83,11 +83,14 @@ export function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
     if (ok) { setRecvF(null); say('سُجّل الاستلام ✓'); }
   };
   // v44.3 — طلب شراء من الفرع: يراجعه المركز ويحوّله لأمر شراء موجّه لهذا المستودع أو يرفضه بسبب
+  const pur = canBrPurchase(me);   // v44.3 (ث34): طلب الشراء والاستلام لمدير الفرع وحده
   const sendPr = async () => {
+    if (!pur) return say('طلب الشراء لمدير الفرع فقط', 'no');
     if (prF.lines.some(l => Number(l.qty) > 0 && !l.itemId)) return say('اختر الصنف لكل بند من الأصناف المضافة', 'no');
     const lines = prF.lines.filter(l => l.itemId && (Number(l.qty) || 0) > 0).map(l => ({ itemId: l.itemId, qty: q3(l.qty), ...(String(l.note || '').trim() ? { note: String(l.note).trim() } : {}) }));
     if (!lines.length) return say('أضف صنفًا وكمية', 'no');
-    const rec = { id: uid('preq'), no: 'PR-' + today().replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 5).toUpperCase(), branchId: wh.branchId, whId: wh.id, lines, note: String(prF.note || '').trim(), status: 'pending', by: me.name, at: nowISO() };
+    let rec = { id: uid('preq'), no: 'PR-' + today().replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 5).toUpperCase(), branchId: wh.branchId, whId: wh.id, lines, note: String(prF.note || '').trim(), status: 'pending', by: me.name, at: nowISO() };
+    const sgR = await signoff('preq', 'submit', rec, { branchId: wh.branchId }); if (!sgR.ok) return say(sigFailMsg(sgR, 'طلب الشراء'), 'no'); if (sgR.id) rec = { ...rec, sigSubmit: sgR.id };
     const ok = await commit(d => ({ ...d, purchaseReqs: [rec, ...(d.purchaseReqs || [])] }),
       { actionType: 'create', targetType: 'purchase_order', targetId: rec.id, branchName: whName(org, wh.id), title: 'طلب شراء من الفرع', details: rec.no + ' · ' + lines.map(l => itemOf(l.itemId).name + ' ' + l.qty).join('، ').slice(0, 150) });
     if (ok) { setPrF({ lines: [{ itemId: '', qty: '', note: '' }], note: '' }); say('أُرسل طلب الشراء ' + rec.no + ' للمشتريات المركزية ✓'); }
@@ -99,6 +102,7 @@ export function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
   const pickImg = (fl) => new Promise((resolve, reject) => { const rd = new FileReader(); rd.onload = () => { const img = new Image(); img.onload = () => { const mx = 1100; const sc = Math.min(1, mx / Math.max(img.width, img.height)); const c = document.createElement('canvas'); c.width = Math.round(img.width * sc); c.height = Math.round(img.height * sc); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); resolve(c.toDataURL('image/jpeg', 0.66)); }; img.onerror = reject; img.src = String(rd.result); }; rd.onerror = reject; rd.readAsDataURL(fl); });
   const savePoR = async () => {
     const f = poR, p = f.p;
+    if (!pur) return say('استلام أوامر الشراء لمدير الفرع فقط', 'no');
     const lines = p.lines.map((l, i) => { const q = Math.min(Math.max(Number(f.qtys[i]) || 0, 0), poRem(p, l, i)); return q > 0 ? { li: i, itemId: l.itemId, desc: l.desc, ...(l.note ? { note: l.note } : {}), qty: q3(q), factor: l.factor || 1, uomName: l.uomName || '' } : null; }).filter(Boolean);
     if (!lines.length) return say('أدخل كمية مستلمة لبند واحد على الأقل', 'no');
     if (!String(f.supInvNo || '').trim()) return say('أدخل رقم فاتورة المورد كما في ورقته', 'no');
@@ -109,7 +113,8 @@ export function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
     if (f.img) { const key = bfKey(wh.branchId); const d0 = (await cloud.get(key, { items: [] })) || { items: [] };
       const fr = { id: uid('fl'), title: 'فاتورة مورد ' + rec.supInvNo + ' — ' + p.supplierName, category: 'receipt', branchId: wh.branchId, fileUrl: f.img.url, fileType: 'image', fileName: f.img.name || 'invoice.jpg', fileSizeKb: Math.round(f.img.url.length * 0.75 / 1024), uploadDate: today(), uploadedBy: me.name, amount: rec.supInvAmt, referenceNo: rec.supInvNo, notes: 'فاتورة مورد', source: 'supplier-invoice', uploadedAt: nowISO() };
       if (await cloud.set(key, { ...d0, items: [fr, ...(d0.items || [])] })) rec.docId = fr.id; else say('تعذّر حفظ صورة الفاتورة — يُحفظ الاستلام بدونها', 'no'); }
-    if (inspect) { const sg = await signoff('grn', 'submit', rec, { branchId: wh.branchId }); if (!sg.ok) return say(sigFailMsg(sg, 'الاستلام'), 'no'); if (sg.id) rec = { ...rec, sigSubmit: sg.id }; }
+    const sgP = await signoff('prcv', 'submit', rec, { branchId: wh.branchId }); if (!sgP.ok) return say(sigFailMsg(sgP, 'الاستلام'), 'no'); if (sgP.id) rec = { ...rec, sigSubmit: sgP.id };
+    if (inspect) { const sg = await signoff('grn', 'submit', rec, { branchId: wh.branchId }); if (!sg.ok) return say(sigFailMsg(sg, 'الاستلام'), 'no'); if (sg.id) rec = { ...rec, grnSig: sg.id }; }
     const moves = inspect ? [] : lines.map(l => { const it = (org.items || []).find(x => x.id === l.itemId); if (!l.itemId || (it && !isStocked(it))) return null; const fac = Number(l.factor) || 1;
       return { id: uid('wm'), whId: wh.id, branchId: wh.branchId, itemId: l.itemId, kind: 'purchase', qty: q3(l.qty * fac), grnRef: rec.id,   // التكلفة بسعر الأمر يضعها المركز عند الترحيل — الفرع لا يرى الأسعار grn: rec.no, ref: p.poNo,
         note: 'استلام ' + p.poNo + ' — ' + l.desc, date: rDate, by: me.name, at: nowISO() }; }).filter(Boolean);
@@ -141,7 +146,7 @@ export function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
           <div className="card-t" style={{ marginInlineEnd: 'auto' }}><HardDrive size={15} color="var(--brass)" />{wh.name}<span style={{ fontSize: 11, color: 'var(--faint)', marginInlineStart: 6 }}>يتبع {whName(org, wh.parentId || MAIN_WH)}</span></div>
           {mine.length > 1 && <select className="inp sel" style={{ maxWidth: 240 }} value={whId} onChange={e => setWhId(e.target.value)}>{mine.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select>}
         </div>
-        <div style={{ marginTop: 10 }}><SectionNav label="أقسام مستودع الفرع" cur={view} onPick={setView} items={([{ id: 'bal', ar: 'الأرصدة', icon: ClipboardCheck }, { id: 'in', ar: 'الوارد', icon: Truck, badge: incoming.length || null }, { id: 'req', ar: 'طلب من الرئيسي', icon: Send }, { id: 'preq', ar: 'طلب شراء', icon: ShoppingCart }, { id: 'po', ar: 'استلام أوامر الشراء', icon: PackageCheck, badge: myPos.length || null }, { id: 'out', ar: 'صادر (فرع / إرجاع)', icon: ArrowLeftRight }, { id: 'mv', ar: 'صرف وهدر', icon: Trash2, badge: (ops.wasteRequests || []).filter(r => r.status === 'pending' && r.whId === wh.id).length || null }, { id: 'count', ar: 'الجرد', icon: Scale }]).filter(x => !ctl || ['bal', 'mv', 'count'].includes(x.id))} /></div>
+        <div style={{ marginTop: 10 }}><SectionNav label="أقسام مستودع الفرع" cur={view} onPick={setView} items={([{ id: 'bal', ar: 'الأرصدة', icon: ClipboardCheck }, { id: 'in', ar: 'الوارد', icon: Truck, badge: incoming.length || null }, { id: 'req', ar: 'طلب من الرئيسي', icon: Send }, ...(pur ? [{ id: 'preq', ar: 'طلب شراء', icon: ShoppingCart }, { id: 'po', ar: 'استلام أوامر الشراء', icon: PackageCheck, badge: myPos.length || null }] : []), { id: 'out', ar: 'صادر (فرع / إرجاع)', icon: ArrowLeftRight }, { id: 'mv', ar: 'صرف وهدر', icon: Trash2, badge: (ops.wasteRequests || []).filter(r => r.status === 'pending' && r.whId === wh.id).length || null }, { id: 'count', ar: 'الجرد', icon: Scale }]).filter(x => !ctl || ['bal', 'mv', 'count'].includes(x.id))} /></div>
       </div>
 
       {view === 'bal' && (
@@ -186,7 +191,7 @@ export function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
         </div>
       )}
 
-      {view === 'preq' && (
+      {view === 'preq' && pur && (
         <div className="card" data-preqform>
           <div style={{ fontSize: 12.5, color: 'var(--dim)', marginBottom: 10, lineHeight: 1.8 }}>طلب شراء من المورد لمستودعك — تراجعه المشتريات المركزية وتختار المورد والسعر وتحوّله لأمر شراء يُسلَّم لمستودعك مباشرة، أو ترفضه بسبب.</div>
           {prF.lines.map((l, i) => (
@@ -209,7 +214,7 @@ export function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
         </div>
       )}
 
-      {view === 'po' && (
+      {view === 'po' && pur && (
         <div className="card" data-brpo>
           <div style={{ fontSize: 12.5, color: 'var(--dim)', marginBottom: 10, lineHeight: 1.8 }}>أوامر الشراء المعتمدة الموجّهة لمستودعك — بضاعة تدخل الفرع مباشرة دون المرور بالمستودع الرئيسي. سجّل الكميات الفعلية ورقم فاتورة المورد ومبلغها.</div>
           <div className="tw"><table className="tb"><thead><tr><th>الأمر</th><th>المورد</th><th>المتبقي</th><th /></tr></thead><tbody>

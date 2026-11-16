@@ -290,6 +290,15 @@ test('ث32 فاتورة بفرق سعر فوق التسامح: يعتمدها م
 
   await assertSucceeds(setDoc(doc(as('owner'), 'signoffs', id('a')), sig('owner', { kind: 'pinv', stage: 'reject', entityId: 'i1', branchId: '', subRef: s0 })), 'الرفض من معتمد آخر');
 });
+test('ث34 طلب شراء الفرع واستلامه لأمر شراء: مدير ذلك الفرع وحده، تقديمًا فقط', async () => {
+  for (const k of ['preq', 'prcv']) {
+    await assertSucceeds(setDoc(doc(as('bm'), 'signoffs', id(k + '_a_submit')), sig('bm', { kind: k, stage: 'submit', entityId: 'r1', branchId: 'A' })), 'مدير الفرع لفرعه');
+    await assertFails(setDoc(doc(as('bmB'), 'signoffs', id('x')), sig('bmB', { kind: k, stage: 'submit', entityId: 'r1', branchId: 'A' })), 'مدير فرع آخر');
+    await assertFails(setDoc(doc(as('bm'), 'signoffs', id('x')), sig('bm', { kind: k, stage: 'submit', entityId: 'r1', branchId: '' })), 'بلا فرع');
+    for (const u of ['cash', 'reg', 'acct', 'gm', 'owner']) await assertFails(setDoc(doc(as(u), 'signoffs', id('x')), sig(u, { kind: k, stage: 'submit', entityId: 'r1', branchId: 'A' })), u + ' لا يوقّع ' + k);
+    for (const st of ['approve', 'reject']) await assertFails(setDoc(doc(as('gm'), 'signoffs', id('x')), sig('gm', { kind: k, stage: st, entityId: 'r1', branchId: '', subRef: id(k + '_a_submit') })), 'لا مرحلة ' + st);
+  }
+});
 test('ث33 تحويل الاستلام غير المطابق إلى فاتورة: المحاسب ومدير النظام فقط', async () => {
   await assertSucceeds(setDoc(doc(as('acct'), 'signoffs', id('pinv_x_submit')), sig('acct', { kind: 'pinv', stage: 'submit', entityId: 'i9', branchId: '', alert: false })), 'المحاسب');
   await assertSucceeds(setDoc(doc(as('owner'), 'signoffs', id('pinv_y_submit')), sig('owner', { kind: 'pinv', stage: 'submit', entityId: 'i9', branchId: '', alert: false })), 'مدير النظام');

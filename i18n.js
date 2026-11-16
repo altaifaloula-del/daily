@@ -2283,6 +2283,15 @@ Object.assign(EN, {
 "كل الأصناف": "All items",
 "بواسطة": "By"
 });
+
+// ===== v44.3 ث34 مدير الفرع =====
+Object.assign(EN, {
+"طلب الشراء لمدير الفرع فقط": "Purchase requests are for the branch manager only",
+"استلام أوامر الشراء لمدير الفرع فقط": "Receiving POs is for the branch manager only",
+"بلا توقيع موثّق من مدير الفرع": "No verified branch-manager signature",
+"جارٍ التحقق من توقيع مدير الفرع": "Verifying the branch-manager signature",
+"لا يُحوَّل: الطلب بلا توقيع موثّق من مدير الفرع": "Not converted: the request has no verified branch-manager signature"
+});
 export const TX = (ar) => (LANG === 'en' && ar && EN[ar]) || ar;
 
 /* v43.1 مترجم الشاشة: في الوضع الإنجليزي يترجم نصوص الواجهة (عُقد النص + placeholder/title/aria-label) بمطابقة القاموس حرفيًا،
@@ -2343,6 +2352,7 @@ export const EN_RX = [
   [/^سُجّل استلام (\S+) ودخلت الأصناف مستودعك · يرحّله المركز: فاتورة تلقائية عند المطابقة ✓$/, 'Receipt of $1 recorded and the items entered your warehouse · central posts it: automatic invoice when matched ✓'],
   [/^سُجّل استلام (\S+) — بانتظار الفحص قبل دخول المستودع · يرحّله المركز: فاتورة تلقائية عند المطابقة ✓$/, 'Receipt of $1 recorded — awaiting inspection before entering the warehouse · central posts it: automatic invoice when matched ✓'],
   [/^حركة (المستودع الرئيسي|مستودع .+)$/, (_, x) => (EN[x] || x) + ' movements'], [/^تحويل صادر إلى (.+)$/, (_, x) => 'Transfer out to ' + (EN[x] || x)], [/^تحويل وارد من (.+)$/, (_, x) => 'Transfer in from ' + (EN[x] || x)],
+  [/^لا يُحوَّل: (.+)$/, (_, x) => 'Not converted: ' + (EN[x] || x)], [/^تعذّر الترحيل: (.+)$/, (_, x) => 'Could not post: ' + (EN[x] || x)],
   [/^أقصى مبلغ متاح (.+) ر\.س — يمكنك تعديله يدوياً$/, 'Max available $1 SAR — you can edit it manually'],
   [/^(\d{1,2}) (يناير|فبراير|مارس|أبريل|مايو|يونيو|يوليو|أغسطس|سبتمبر|أكتوبر|نوفمبر|ديسمبر) (\d{4})$/, (_, d, m, y) => d + ' ' + MONTHS[m] + ' ' + y]
 ];
