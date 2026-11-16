@@ -2433,6 +2433,21 @@ Object.assign(EN, {
 "مسجّل «أُتلف» وما زال على الرف": "Recorded as discarded yet still on the shelf",
 "امسح ملصقات الرف أولًا": "Scan the shelf labels first"
 });
+
+// ===== v45.1 إضافة صنف من الباركود =====
+Object.assign(EN, {
+"+ إضافة صنف بهذا الباركود": "+ Add item with this barcode",
+"+ إضافة صنف": "+ Add item",
+"غير مضاف — اطلب من المركز إضافته": "Not added — ask central to add it",
+"إضافة صنف جديد": "Add new item",
+"إضافة واختيار": "Add and select",
+"اسم الصنف الجديد": "New item name",
+"وحدة الصنف الجديد": "New item unit",
+"باركود الصنف الجديد": "New item barcode",
+"التصنيف (إلزامي)": "Classification (required)",
+"كجم، حبة، لتر…": "kg, piece, litre…",
+"يُمنح رمزًا تسلسليًا تلقائيًا. التكلفة وحد الطلب ووحدة الشراء تُكمَّل لاحقًا من «المخزون ← الأصناف».": "A sequential code is assigned automatically. Cost, reorder level and purchase unit are completed later from «Inventory ← Items»."
+});
 export const TX = (ar) => (LANG === 'en' && ar && EN[ar]) || ar;
 
 /* v43.1 مترجم الشاشة: في الوضع الإنجليزي يترجم نصوص الواجهة (عُقد النص + placeholder/title/aria-label) بمطابقة القاموس حرفيًا،
@@ -2506,6 +2521,7 @@ export const EN_RX = [
   [/^طباعة «أعدّه: (.+)» على الملصق$/, 'Print «Prepared by: $1» on the label'], [/^سجل المسح \((\d+)\)$/, 'Scan log ($1)'],
   [/^موجود (\d+) من (\d+)$/, '$1 of $2 present'], [/^لم يُمسح بعد (\d+)$/, 'Not yet scanned $1'], [/^منتهٍ على الرف (\d+)$/, 'Expired on shelf $1'], [/^غير متوقع (\d+)$/, 'Unexpected $1'], [/^مُسح من قبل في هذا الجرد: (\S+)$/, 'Already scanned in this count: $1'],
   [/^حُفظ جرد الرف — توجد فروقات تحتاج إجراء$/, 'Shelf count saved — there are differences that need action'], [/^حُفظ جرد الرف — مطابق ✓$/, 'Shelf count saved — matches ✓'],
+  [/^أُضيف الصنف «(.+)» ✓$/, 'Item «$1» added ✓'],
   [/^أقصى مبلغ متاح (.+) ر\.س — يمكنك تعديله يدوياً$/, 'Max available $1 SAR — you can edit it manually'],
   [/^(\d{1,2}) (يناير|فبراير|مارس|أبريل|مايو|يونيو|يوليو|أغسطس|سبتمبر|أكتوبر|نوفمبر|ديسمبر) (\d{4})$/, (_, d, m, y) => d + ' ' + MONTHS[m] + ' ' + y]
 ];
