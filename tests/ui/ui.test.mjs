@@ -1312,6 +1312,18 @@ test('v44.5 التحضير اليومي بالباركود: تسجيل دفعة 
   await p.uncheck('input[aria-label="طباعة تاريخ الإنتاج"]'); await p.locator('[data-pbprintok]').click(); await p.waitForTimeout(600);
   const lab2 = await p.evaluate(() => window.__labels[window.__labels.length - 1]);
   assert.doesNotMatch(lab2, /إنتاج:/); assert.match(lab2, /انتهاء:/); assert.equal((lab2.match(/class="lb"/g) || []).length, 1);
+  // مقاسات متعددة: الافتراضي 50×30 ويُتذكّر الأخير، و100×50، وورقة A4 بـ 24 ملصقًا
+  await p.locator('[data-pbrow="' + b.code + '"] [data-pbprint]').click(); await p.waitForTimeout(150);
+  assert.equal(await p.inputValue('select[aria-label="مقاس الملصق"]'), '50x30');
+  await p.selectOption('select[aria-label="مقاس الملصق"]', '100x50'); await p.waitForTimeout(300);
+  assert.equal(await p.locator('[data-lbpreview="100x50"] iframe').count(), 1, 'معاينة حيّة بالمقاس');
+  await p.locator('[data-pbprintok]').click(); await p.waitForTimeout(500);
+  assert.match(await p.evaluate(() => window.__labels[window.__labels.length - 1]), /size:100mm 50mm/);
+  await p.locator('[data-pbrow="' + b.code + '"] [data-pbprint]').click(); await p.waitForTimeout(150);
+  assert.equal(await p.inputValue('select[aria-label="مقاس الملصق"]'), '100x50', 'يُتذكّر آخر مقاس');
+  await p.selectOption('select[aria-label="مقاس الملصق"]', 'a4'); await p.fill('input[aria-label="عدد ملصقات المعاينة"]', '24'); await p.locator('[data-pbprintok]').click(); await p.waitForTimeout(500);
+  const a4 = await p.evaluate(() => window.__labels[window.__labels.length - 1]);
+  assert.match(a4, /size:A4/); assert.match(a4, /class="sheet"/); assert.equal((a4.match(/class="lb"/g) || []).length, 24);
   // المسح بالقارئ (الرمز ثم Enter) ⇒ الحالة ثم الاستخدام
   await p.fill('input[aria-label="مسح ملصق التحضير"]', b.code.toLowerCase()); await p.press('input[aria-label="مسح ملصق التحضير"]', 'Enter'); await p.waitForTimeout(150);
   assert.equal(await p.locator('[data-pbhit="ok"] [data-pbst]').getAttribute('data-pbst'), 'ok');
