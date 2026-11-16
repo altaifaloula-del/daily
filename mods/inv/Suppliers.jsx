@@ -1,7 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useMemo } from 'react';
 import { Truck, FileBarChart, ChevronDown, Printer, FileText, Building2, ClipboardCheck, Users, Plus, AlertTriangle, CalendarDays, Trash2, Check, X, Banknote } from 'lucide-react';
-import { DupInvHint, Field, Kpi, LOCK_MSG, MAIN_WH, Modal, Num, ROLES, SectionNav, arDate, branchBanks, closingInvoices, isStocked, isoD, itemType, money, nowISO, pFactor, payTotal, periodLocked, printA4, purKey, q3, roleEdit, rolePost, buildAccounting, INV_BILLERS, itemsSeq, vatNoOk, supVatOf, ItemPick, roleHasTab, stockByWh, sum, supplierPrices, today, uid, whName, whOf, whOn, signoff, signDecision, sigFailMsg } from '../../App.jsx';
+import { DupInvHint, Field, Kpi, LOCK_MSG, MAIN_WH, Modal, Num, ROLES, SectionNav, arDate, branchBanks, closingInvoices, isStocked, isoD, itemType, money, nowISO, pFactor, payTotal, periodLocked, printA4, purKey, q3, _xe, roleEdit, rolePost, buildAccounting, INV_BILLERS, itemsSeq, vatNoOk, supVatOf, ItemPick, roleHasTab, stockByWh, sum, supplierPrices, today, uid, whName, whOf, whOn, signoff, signDecision, sigFailMsg } from '../../App.jsx';
 import { cloud, bfKey } from '../../storage';
 
 export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: goTab, billOnly }) {
@@ -153,23 +153,24 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     if (typedNo) { const o = invNoTaken(sp.id, typedNo); if (o) return say('فاتورة مكررة: رقم ' + typedNo + ' للمورد «' + sp.name + '» مسجّل بتاريخ ' + (o.date || '') + ' بمبلغ ' + money(o.amount) + ' — لم يُحفظ', 'no'); }
     const twin = (ops.invoices || []).find(i => !i.creditNote && i.supplierId === sp.id && (i.date || '') === (f.date || today()) && Math.abs((i.amount || 0) - v) < 0.01);
     if (twin && !window.confirm('تنبيه: يوجد فاتورة للمورد نفسه بنفس التاريخ والمبلغ (' + money(v) + ') برقم ' + (twin.invoiceNo || '') + '.\nهل هذه فاتورة مختلفة فعلًا؟')) return;
+    const py = payOf(f, Math.round((k.fcNet + k.fcVat) * 100) / 100, v, k.fxR, f.date || today()); if (py.err) return say(py.err, 'no');
     if (!(await ensureVat(sp.id, k.vat, f.vatNo))) return;
     const rDate = f.date || today(); const wid = whOn(org) ? (f.whId || MAIN_WH) : ''; const tw = wid ? whOf(org).find(w => w.id === wid) : null;
     const invId = uid('inv'), no = typedNo || autoNo();
-    const lines = k.ls.map(x => ({ itemId: x.it.id, desc: x.it.name, qty: x.q, unitCost: Math.round(x.pr * k.fxR * 10000) / 10000, net: x.net, stock: isStocked(x.it), ...(isFx(f.cur) ? { fcNet: x.fcNet } : {}) }));
+    const lines = k.ls.map(x => ({ itemId: x.it.id, desc: x.it.name, qty: x.q, unitCost: Math.round(x.pr * k.fxR * 10000) / 10000, net: x.net, stock: isStocked(x.it), ...(isFx(f.cur) ? { fcNet: x.fcNet } : {}), ...(String(x.l.note || '').trim() ? { note: String(x.l.note).trim() } : {}) }));
     const moves = lines.filter(l => l.stock).map(l => ({ id: uid('sm'), date: rDate, itemId: l.itemId, kind: 'purchase', qty: l.qty, unitCost: l.unitCost, note: 'فاتورة ' + no + ' — ' + l.desc, ref: no, by: me.name, at: nowISO(), invoiceId: invId,
       ...(wid ? { whId: wid } : {}), ...(tw && tw.kind === 'branch' ? { branchId: tw.branchId } : {}) }));
     const docId = await archiveImg(f.img, { branchId: f.branchId, title: 'فاتورة مورد ' + no + ' — ' + sp.name, amount: v, ref: no });
     const rec = { id: invId, supplierId: sp.id, supplierName: sp.name, branchId: f.branchId || (tw && tw.branchId) || '', branchName: br ? br.name : 'المركز الرئيسي', invoiceNo: no,
-      amount: v, vatAmt: k.vat, taxable: k.vat > 0, paidAmount: 0, date: rDate, dueDate: f.dueDate || rDate, createdAt: nowISO(), lines, ...(wid ? { whId: wid } : {}), ...(docId ? { docId } : {}),
+      amount: v, vatAmt: k.vat, taxable: k.vat > 0, paidAmount: py.paidAmount, pm: py.pm, ...(py.payments.length ? { payments: py.payments } : {}), date: rDate, dueDate: f.dueDate || rDate, createdAt: nowISO(), lines, ...(wid ? { whId: wid } : {}), ...(docId ? { docId } : {}),
       ...(isFx(f.cur) ? { cur: f.cur, fxRate: k.fxR, fcAmount: Math.round((k.fcNet + k.fcVat) * 100) / 100 } : {}) };
     const brMoves = moves.filter(m => m.branchId), mainMoves = moves.filter(m => !m.branchId);
     const ok = await commit(d => ({ ...d, invoices: [rec, ...(d.invoices || [])], whMoves: [...brMoves, ...(d.whMoves || [])], stockMoves: [...mainMoves, ...(d.stockMoves || [])] }), {
       actionType: 'create', targetType: 'expense', targetId: rec.id, branchName: rec.branchName,
-      title: 'سجّل فاتورة توريد آجلة', details: sp.name + ' · ' + rec.invoiceNo + ' · ' + lines.length + ' بند · ' + money(v) + (rec.cur ? ' (' + rec.fcAmount + ' ' + rec.cur + ' @ ' + k.fxR + ')' : '') + (rec.taxable ? ' · خاضعة للضريبة' : '') + (moves.length ? ' · دخل المخزون' : '')
+      title: 'سجّل فاتورة توريد آجلة', details: sp.name + ' · ' + rec.invoiceNo + ' · ' + lines.length + ' بند · ' + money(v) + (rec.cur ? ' (' + rec.fcAmount + ' ' + rec.cur + ' @ ' + k.fxR + ')' : '') + (rec.taxable ? ' · خاضعة للضريبة' : '') + (moves.length ? ' · دخل المخزون' : '') + ' · ' + PM_AR[py.pm] + (py.paidAmount ? ' ' + money(py.paidAmount) : '')
     });
     if (ok === false) return;
-    setNewInv(null); say('سُجّلت الفاتورة ' + rec.invoiceNo + (moves.length ? ' ودخلت أصنافها المخزنية ' + (wid ? whName(org, wid) : 'المخزون') : '') + ' وأُنشئ قيدها ✓');
+    setNewInv(null); say('سُجّلت الفاتورة ' + rec.invoiceNo + (moves.length ? ' ودخلت أصنافها المخزنية ' + (wid ? whName(org, wid) : 'المخزون') : '') + ' — ' + PM_AR[py.pm] + (py.paidAmount ? ' ' + money(py.paidAmount) + ' ر.س' + (py.paidAmount < v - 0.004 ? ' والباقي آجل' : '') : '') + ' ✓');
   };
 
   const savePo = async () => {
@@ -181,7 +182,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     const lines = (f.lines || []).filter(l => l.itemId && Number(l.qty) > 0).map(l => ({ ...l, desc: (l.desc || '').trim() || ((items.find(x => x.id === l.itemId) || {}).name || '') }))
       .map(l => { const it = items.find(x => x.id === l.itemId); const fac = it && l.uom === 'p' ? pFactor(it) : 1;
         const w = priceWarn(l);
-        return { desc: l.desc.trim(), itemId: l.itemId || '', qty: Number(l.qty), price: Number(l.price) || 0, received: 0, ...(fac > 1 ? { factor: fac, uomName: it.purchaseUnit } : {}),
+        return { desc: l.desc.trim(), itemId: l.itemId || '', qty: Number(l.qty), price: Number(l.price) || 0, received: 0, ...(String(l.note || '').trim() ? { note: String(l.note).trim() } : {}), ...(fac > 1 ? { factor: fac, uomName: it.purchaseUnit } : {}),
           ...(w && w.high ? { pAlert: { avg3: w.avg, n: w.n, unit: Math.round(w.u * 10000) / 10000, pct: w.pct } } : {}) }; });
     if (!lines.length) return say('أضف بنداً واحداً على الأقل (وصف وكمية)', 'no');
     const tot0 = lines.reduce((s2, l) => s2 + l.qty * l.price, 0);
@@ -201,7 +202,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
 
   // v8.2: طباعة أمر شراء كوثيقة تُرسل للمورد
   const printPO = (p2) => {
-    const rows = (p2.lines || []).map((l, i) => `<tr><td class="n">${i + 1}</td><td>${l.desc}</td><td class="n">${l.qty}</td><td class="n">${money(l.price)}</td><td class="n">${money((l.qty || 0) * (l.price || 0))}</td></tr>`).join('');
+    const rows = (p2.lines || []).map((l, i) => `<tr><td class="n">${i + 1}</td><td>${_xe(l.desc)}${l.note ? '<div style="font-size:9.5pt;color:#555">ملاحظة: ' + _xe(l.note) + '</div>' : ''}</td><td class="n">${l.qty}</td><td class="n">${money(l.price)}</td><td class="n">${money((l.qty || 0) * (l.price || 0))}</td></tr>`).join('');
     printA4(org, 'أمر شراء ' + p2.poNo, arDate(p2.date || today()) + (p2.branchId ? ' · ' + ((org.branches.find(b => b.id === p2.branchId) || {}).name || '') : ' · المركز الرئيسي'),
       `<div class="box"><b>المورد:</b> ${p2.supplierName} ${p2.note ? '· ' + p2.note : ''}<br><b>أعده:</b> ${p2.by || ''}</div>
       <table><thead><tr><th>#</th><th>البيان</th><th>الكمية</th><th>سعر الوحدة</th><th>الإجمالي</th></tr></thead><tbody>${rows}
@@ -263,7 +264,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     const gid = uid('grn');
     const gRec = matched ? null : { id: gid, grn, date: rDate, whId: wid, branchId: (tw && tw.branchId) || '', supplierId: p2.supplierId, status: 'done', direct: true, by: me.name, byEmail: me.email || '', at: nowISO(),
       supInvNo: supNo0, supInvAmt: supAmt0, whyNot, taxable: f.taxable !== false, ...(docId0 ? { docId: docId0 } : {}),
-      lines: p2.lines.map((l, i) => takes[i] > 0 ? { li: i, itemId: l.itemId || '', desc: l.desc, qty: takes[i], factor: Number(l.factor) || 1, uomName: l.uomName || '', price: Number(l.price) || 0 } : null).filter(Boolean) };
+      lines: p2.lines.map((l, i) => takes[i] > 0 ? { li: i, itemId: l.itemId || '', desc: l.desc, ...(l.note ? { note: l.note } : {}), qty: takes[i], factor: Number(l.factor) || 1, uomName: l.uomName || '', price: Number(l.price) || 0 } : null).filter(Boolean) };
     if (gRec) gRec.qc = { by: me.name, at: nowISO(), date: rDate, direct: true, lines: gRec.lines.map(l => ({ acc: l.qty, rej: 0, why: '' })) };
     const moves2 = matched ? moves : moves.map(({ invoiceId, ...m }) => ({ ...m, grnRef: gid }));
     const brMoves = moves2.filter(m => m.branchId), mainMoves = moves2.filter(m => !m.branchId);
@@ -333,10 +334,36 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
         onChange={async e => { const fl = e.target.files && e.target.files[0]; e.target.value = ''; if (!fl) return; if (!fl.type.startsWith('image/')) return say('صورة فقط', 'no'); try { onImg({ url: await compressImg(fl), name: fl.name }); } catch { say('تعذّرت معالجة الصورة', 'no'); } }} /></label>
       {img && <><img src={img.url} alt="" style={{ height: 40, borderRadius: 6, border: '1px solid var(--line)' }} /><button className="btn sm gh" onClick={() => onImg(null)} title="إزالة الصورة"><X size={12} /></button></>}
     </div>);
+  // v44.2 — طريقة الدفع إلزامية عند تسجيل فاتورة المورد (قرار المالك): آجل · نقدًا من الخزينة · تحويل بنكي · شيك؛ الدفع الفوري يُسجَّل دفعةً (جزئيًا مسموح والباقي آجل)
+  const PMS = [['credit', 'آجل'], ['cash', 'نقدًا من الخزينة'], ['bank', 'تحويل بنكي'], ['cheque', 'شيك']];
+  const PM_AR = Object.fromEntries(PMS);
+  const PayBox = (f, set, gross, cur) => (
+    <div className="card" style={{ padding: 10, margin: '8px 0', background: 'var(--ink2)' }} data-paybox>
+      <div className="lbl" style={{ marginBottom: 6 }}>طريقة الدفع (إلزامي)</div>
+      <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>{PMS.map(([k, t]) => <button key={k} type="button" data-pm={k} className={'btn sm' + (f.pm === k ? ' pri' : ' gh')} onClick={() => set(x => ({ ...x, pm: k, payAmt: x.payAmt != null && x.payAmt !== '' ? x.payAmt : '', payFund: x.payFund || (k === 'cash' ? '1101' : '1201') }))}>{t}</button>)}</div>
+      {f.pm && f.pm !== 'credit' && <div className="grid g3" style={{ marginTop: 8 }}>
+        <Field label={'المبلغ المدفوع الآن' + (isFx(cur) ? ' (' + cur + ')' : '')}><input className="inp n" inputMode="decimal" aria-label="المبلغ المدفوع" placeholder={money(gross)} value={f.payAmt ?? ''} onChange={e => set(x => ({ ...x, payAmt: e.target.value.replace(/[^\d.]/g, '') }))} />
+          <div className="hint">فارغ = كامل الفاتورة <span className="num">{money(gross)}</span> · الأقل منه يبقى باقيه آجلًا</div></Field>
+        {f.pm !== 'cash' && <Field label="من حساب"><select className="sel" aria-label="حساب الدفع" value={f.payFund || '1201'} onChange={e => set(x => ({ ...x, payFund: e.target.value }))}><option value="1201">البنك التجميعي</option>{branchBanks(org).map(bb => <option key={bb.code} value={bb.code}>{bb.name}</option>)}</select></Field>}
+        {f.pm !== 'cash' && <Field label={f.pm === 'cheque' ? 'رقم الشيك (إلزامي)' : 'مرجع التحويل (اختياري)'}><input className="inp" aria-label="مرجع الدفع" value={f.payRef || ''} onChange={e => set(x => ({ ...x, payRef: e.target.value }))} /></Field>}
+      </div>}
+    </div>);
+  // يعيد { pm, payments, paidAmount } أو { err } — gross بعملة الفاتورة، fxR سعرها (1 للريال)، grossSar بالريال
+  const payOf = (f, gross, grossSar, fxR, date) => {
+    if (!f.pm || !PM_AR[f.pm]) return { err: 'اختر طريقة الدفع: آجل أو نقدًا أو تحويل بنكي أو شيك' };
+    if (f.pm === 'credit') return { pm: 'credit', payments: [], paidAmount: 0 };
+    if (f.pm === 'cheque' && !String(f.payRef || '').trim()) return { err: 'أدخل رقم الشيك' };
+    const fc = f.payAmt === '' || f.payAmt == null ? gross : Number(f.payAmt) || 0;
+    if (!(fc > 0)) return { err: 'أدخل المبلغ المدفوع' }; if (fc > gross + 0.005) return { err: 'المدفوع أكبر من قيمة الفاتورة' };
+    const full = fc >= gross - 0.005; const sar = full ? grossSar : Math.round(fc * fxR * 100) / 100;
+    const fund = f.pm === 'cash' ? '1101' : (f.payFund || '1201');
+    const p = { id: uid('ipay'), amount: sar, date, fund, by: me.name, at: nowISO(), pm: f.pm, ...(String(f.payRef || '').trim() ? { ref: String(f.payRef).trim() } : {}), ...(fxR !== 1 ? { fc, rate: fxR, paid: sar } : {}) };
+    return { pm: f.pm, payments: [p], paidAmount: sar };
+  };
   const dueOf = (supplierId, from) => { const sp0 = suppliers.find(x => x.id === supplierId) || {}; const dd = new Date(from + 'T12:00:00'); dd.setDate(dd.getDate() + (Number(sp0.terms) || 0)); return isoD(dd); };
   const saveGrn = async (p2, takes, wid, tw, rDate, f) => {
     const no = 'GRN-' + rDate.replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 5).toUpperCase();
-    const lines = p2.lines.map((l, i) => takes[i] > 0 ? { li: i, itemId: l.itemId || '', desc: l.desc, qty: takes[i], factor: Number(l.factor) || 1, uomName: l.uomName || '', price: Number(l.price) || 0,
+    const lines = p2.lines.map((l, i) => takes[i] > 0 ? { li: i, itemId: l.itemId || '', desc: l.desc, ...(l.note ? { note: l.note } : {}), qty: takes[i], factor: Number(l.factor) || 1, uomName: l.uomName || '', price: Number(l.price) || 0,
       ...((f.batch || [])[i] ? { batch: f.batch[i] } : {}), ...((f.expiry || [])[i] ? { expiry: f.expiry[i] } : {}) } : null).filter(Boolean);
     let g = { id: uid('grn'), grn: no, date: rDate, whId: wid, branchId: (tw && tw.branchId) || '', supplierId: p2.supplierId, lines, status: 'qc', by: me.name, byEmail: me.email || '', at: nowISO(),
       supInvNo: String(f.supInvNo || '').trim(), supInvAmt: Number(f.supInvAmt) || 0, taxable: f.taxable !== false };
@@ -400,7 +427,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
   // التحويل لفاتورة: الاستلامات المفحوصة غير المفوترة — بأسعار فاتورة المورد
   const grnsToBill = (p2) => (p2.grns || []).filter(g => g.status === 'done' && !g.invoiceId && !(p2.pinv && (p2.pinv.grnRefs || []).includes(g.id)) && g.lines.some((l, k) => ((g.qc.lines[k] || {}).acc || 0) > 0));
   const openCv = (p2) => { const gs = grnsToBill(p2); const sp0 = suppliers.find(x => x.id === p2.supplierId) || {};
-    const rows = gs.flatMap(g => g.lines.map((l, k) => ({ g: g.id, grn: g.grn, k, itemId: l.itemId, desc: l.desc, qty: (g.qc.lines[k] || {}).acc || 0, factor: Number(l.factor) || 1, poPrice: Number(l.price) || 0, price: String(Number(l.price) || 0), whId: g.whId, branchId: g.branchId })).filter(r => r.qty > 0));
+    const rows = gs.flatMap(g => g.lines.map((l, k) => ({ g: g.id, grn: g.grn, k, itemId: l.itemId, desc: l.desc, note: l.note || '', qty: (g.qc.lines[k] || {}).acc || 0, factor: Number(l.factor) || 1, poPrice: Number(l.price) || 0, price: String(Number(l.price) || 0), whId: g.whId, branchId: g.branchId })).filter(r => r.qty > 0));
     const due = (() => { const dd = new Date(today() + 'T12:00:00'); dd.setDate(dd.getDate() + (Number(sp0.terms) || 0)); return isoD(dd); })();
     setCv({ po: p2, rows, supInvNo: (gs.find(g => g.supInvNo) || {}).supInvNo || '', docId: (gs.find(g => g.docId) || {}).docId || '', date: today(), dueDate: due, taxable: !!(org.taxCfg || {}).enabled }); };
   const cvCalc = (c) => { const r2 = (n) => Math.round(n * 100) / 100;
@@ -411,7 +438,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
   const invFromCv = (c, p2) => { const k = cvCalc(c);
     const lines = c.rows.map(r => { const it = items.find(x => x.id === r.itemId); const fac = r.factor || 1; const pr = Number(r.price) || 0;
       return { itemId: r.itemId || '', desc: r.desc, qty: Math.round(r.qty * fac * 1000) / 1000, unitCost: Math.round(pr / fac * 10000) / 10000, price: pr, poPrice: r.poPrice,
-        net: Math.round(r.qty * pr * 100) / 100, poNet: Math.round(r.qty * r.poPrice * 100) / 100, stock: !!(r.itemId && (!it || isStocked(it))), grnRef: r.g }; });
+        net: Math.round(r.qty * pr * 100) / 100, poNet: Math.round(r.qty * r.poPrice * 100) / 100, stock: !!(r.itemId && (!it || isStocked(it))), grnRef: r.g, ...(r.note ? { note: r.note } : {}) }; });
     return { id: uid('inv'), invoiceNo: c.supInvNo.trim(), supplierId: p2.supplierId, supplierName: p2.supplierName, amount: k.gross, vatAmt: k.vat, taxable: k.vat > 0,
       date: c.date, dueDate: c.dueDate || c.date, paidAmount: 0, branchId: c.rows[0].branchId || p2.branchId || '', poId: p2.id, poNo: p2.poNo, whId: c.rows[0].whId || '',
       grnRefs: [...new Set(c.rows.map(r => r.g))], grn: [...new Set(c.rows.map(r => r.grn))].join('، '), lines, poNet: k.poNet, varPct: k.pct, by: me.name, createdAt: nowISO() }; };
@@ -428,8 +455,9 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     const k0 = purKey({ supplierId: p2.supplierId, invoiceNo: c.supInvNo.trim() }); const o = (ops.invoices || []).find(i => purKey(i) === k0);
     if (o) return say('فاتورة مكررة: رقم ' + c.supInvNo.trim() + ' للمورد مسجّل بتاريخ ' + (o.date || '') + ' — لم يُحفظ', 'no');
     const k = cvCalc(c);
+    const pyC = payOf(c, k.gross, k.gross, 1, c.date); if (pyC.err) return say(pyC.err, 'no');
     if (!(await ensureVat(p2.supplierId, k.vat, c.vatNo))) return;
-    const inv = invFromCv(c, p2);
+    const inv = invFromCv(c, p2); inv.pm = pyC.pm; if (pyC.payments.length) { inv.payments = pyC.payments; inv.paidAmount = pyC.paidAmount; }
     const cDoc = c.img ? await archiveImg(c.img, { branchId: inv.branchId, title: 'فاتورة مورد ' + inv.invoiceNo + ' — ' + p2.supplierName, amount: inv.amount, ref: inv.invoiceNo }) : (c.docId || null); if (cDoc) inv.docId = cDoc;
     if (k.over) {
       // فوق التسامح: تنتظر اعتماد شخص آخر (توقيع تقديم موسوم بالتنبيه — القواعد تمنع مقدّمها من اعتمادها)
@@ -483,6 +511,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     if (periodLocked(org, f.date)) return say(LOCK_MSG(f.date), 'no');
     const typedNo = (f.invoiceNo || '').trim();
     if (typedNo) { const k0 = purKey({ supplierId: sp.id, invoiceNo: typedNo }); const o = (ops.invoices || []).find(i => purKey(i) === k0); if (o) return say('فاتورة مكررة: رقم ' + typedNo + ' للمورد «' + sp.name + '» مسجّل بتاريخ ' + (o.date || ''), 'no'); }
+    const pyS = payOf(f, k.gross, Math.round((sum(ls, l => toS(l.n)) + toS(k.vat)) * 100) / 100, fxR, f.date); if (pyS.err) return say(pyS.err, 'no');
     if (!(await ensureVat(sp.id, k.vat, f.vatNo))) return;
     const autoNo = () => { const pre = 'SVC-' + today().replace(/-/g, '').slice(2) + '-'; let n = 1; while ((ops.invoices || []).some(i => i.invoiceNo === pre + String(n).padStart(3, '0'))) n++; return pre + String(n).padStart(3, '0'); };
     const br = org.branches.find(b => b.id === f.branchId);
@@ -493,6 +522,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     const sDoc = await archiveImg(f.img, { branchId: f.branchId, title: 'فاتورة خدمات ' + rec.invoiceNo + ' — ' + sp.name, amount: rec.amount, ref: rec.invoiceNo }); if (sDoc) rec.docId = sDoc;
     // تقريب التحويل: الإجمالي بالريال = مجموع البنود + الضريبة (لا فرق تقريب في القيد)
     rec.amount = Math.round((sum(rec.expLines, l => l.net) + rec.vatAmt) * 100) / 100;
+    rec.pm = pyS.pm; if (pyS.payments.length) { const pp = { ...pyS.payments[0], amount: Math.min(pyS.payments[0].amount, rec.amount) }; if (pp.paid != null) pp.paid = pp.amount; rec.payments = [pp]; rec.paidAmount = pp.amount; }
     const ok = await commit(d => ({ ...d, invoices: [rec, ...(d.invoices || [])] }), { actionType: 'create', targetType: 'expense', targetId: rec.id, title: 'سجّل فاتورة خدمات ومصروفات',
       details: sp.name + ' · ' + rec.invoiceNo + ' · ' + ls.length + ' بند · ' + money(rec.amount) });
     if (ok === false) return;
@@ -600,12 +630,13 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
           {!!(org.taxCfg || {}).enabled && <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', margin: '4px 0 8px' }}><input type="checkbox" checked={!!cv.taxable} onChange={e => setCv(c => ({ ...c, taxable: e.target.checked }))} />خاضعة لضريبة القيمة المضافة</label>}
           <div className="tw"><table className="tb">
             <thead><tr><th>الاستلام</th><th>البند</th><th style={{ textAlign: 'end' }}>المقبول</th><th style={{ textAlign: 'end' }}>سعر الأمر</th><th style={{ textAlign: 'end' }}>سعر فاتورة المورد</th><th style={{ textAlign: 'end' }}>الصافي</th></tr></thead>
-            <tbody>{cv.rows.map((r, i) => <tr key={i}><td className="num" style={{ fontSize: 10.5 }}>{r.grn}</td><td>{r.desc}</td><td className="num" style={{ textAlign: 'end' }}>{r.qty}</td><td className="num" style={{ textAlign: 'end' }}>{money(r.poPrice)}</td>
+            <tbody>{cv.rows.map((r, i) => <tr key={i}><td className="num" style={{ fontSize: 10.5 }}>{r.grn}</td><td>{r.desc}{r.note ? <div style={{ fontSize: 10.5, color: 'var(--faint)' }}>📝 {r.note}</div> : null}</td><td className="num" style={{ textAlign: 'end' }}>{r.qty}</td><td className="num" style={{ textAlign: 'end' }}>{money(r.poPrice)}</td>
               <td style={{ textAlign: 'end' }}><input className="inp n" style={{ width: 100 }} inputMode="decimal" aria-label={'سعر الفاتورة ' + (i + 1)} value={r.price} onChange={e => setCv(c => ({ ...c, rows: c.rows.map((x, j) => j === i ? { ...x, price: e.target.value.replace(/[^\d.]/g, '') } : x) }))} /></td>
               <td className="num" style={{ textAlign: 'end' }}>{money(r.qty * (Number(r.price) || 0))}</td></tr>)}</tbody>
           </table></div>
           <div className="mono-b" style={{ margin: '8px 0' }}><span style={{ fontSize: 12 }}>قيمة الأمر للمقبول <span className="num">{money(k.poNet)}</span> · الفاتورة <span className="num">{money(k.net)}</span>{k.vat ? <> + ض <span className="num">{money(k.vat)}</span></> : null}</span><span className="num" style={{ fontWeight: 700 }}>{money(k.gross)}</span></div>
           {VatNoField({ supplierId: cv.po.supplierId, vat: k.vat, value: cv.vatNo, onChange: v => setCv(c => ({ ...c, vatNo: v })) })}
+          {PayBox(cv, setCv, k.gross, 'SAR')}
           {cv.docId ? <div className="hint">📎 صورة فاتورة المورد مرفقة من الاستلام</div> : ImgField({ img: cv.img, onImg: (img) => setCv(c => ({ ...c, img })) })}
           <div className={k.over ? 'note warn' : 'note'} data-var={k.pct}>فرق السعر <b className="num">{k.pct}%</b> — التسامح <span className="num">{varTol}%</span>. {k.over ? 'يتجاوز التسامح: تُرسل الفاتورة لاعتماد شخص آخر ولا تُقيَّد قبله.' : 'ضمن التسامح: تُقيَّد مباشرة.'} {pcfg.perpetualFrom ? 'القيد: من ح/ بضاعة مستلمة لم تُفوتر (بسعر الأمر) ± فروق أسعار الشراء، وضريبة المدخلات، إلى ح/ المورد.' : 'القيد: من ح/ المشتريات وضريبة المدخلات إلى ح/ المورد.'}</div>
         </Modal>); })();
@@ -695,7 +726,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
                       <td style={{ fontSize: 11.5, color: 'var(--dim)' }}>{i.branchName}</td>
                       <td className="dt" style={{ whiteSpace: 'nowrap', color: late ? 'var(--rose)' : 'inherit' }}>{arDate(i.dueDate)}</td>
                       <td style={{ whiteSpace: 'nowrap', color: mahla.c, fontSize: 11.5, fontWeight: 600 }}>{mahla.t}</td>
-                      <td className="num">{money(i.amount)}{i.cur && <div style={{ fontSize: 9.5, color: 'var(--faint)' }} data-fxamt>{money(i.fcAmount)} {i.cur} @ {i.fxRate}</div>}</td>
+                      <td className="num">{money(i.amount)}{i.cur && <div style={{ fontSize: 9.5, color: 'var(--faint)' }} data-fxamt>{money(i.fcAmount)} {i.cur} @ {i.fxRate}</div>}{i.pm && <div style={{ fontSize: 9.5, color: 'var(--faint)', fontFamily: 'inherit' }} data-pmlbl>{PM_AR[i.pm]}{(i.payments || []).find(x => x.ref) ? ' · ' + (i.payments || []).find(x => x.ref).ref : ''}</div>}</td>
                       <td className="num" style={{ color: 'var(--mint)' }}>{money(paidOf(i))}
                         {bp > 0 && <div style={{ fontSize: 9, color: 'var(--faint)' }}>منه من الفروع {money(bp)}</div>}</td>
                       <td className="num" style={{ color: rem > 0 ? 'var(--amber)' : 'var(--faint)', fontWeight: 600 }}>{money(rem)}</td>
@@ -892,6 +923,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
                 <input className="inp n" style={{ width: 90 }} inputMode="decimal" placeholder={'الكمية' + (it ? ' (' + it.unit + ')' : '')} aria-label={'كمية البند ' + (i + 1)} value={l.qty} onChange={e => setNewInv(f => ({ ...f, lines: f.lines.map((x, k2) => k2 === i ? { ...x, qty: e.target.value.replace(/[^\d.]/g, '') } : x) }))} />
                 <input className="inp n" style={{ width: 100 }} inputMode="decimal" placeholder="سعر الوحدة" aria-label={'سعر البند ' + (i + 1)} value={l.price} onChange={e => setNewInv(f => ({ ...f, lines: f.lines.map((x, k2) => k2 === i ? { ...x, price: e.target.value.replace(/[^\d.]/g, '') } : x) }))} />
                 {it && <span className={'badge ' + (isStocked(it) ? 'b-sky' : 'b-dim')}>{isStocked(it) ? 'يدخل المخزون' : 'مصروف'}</span>}
+                <input className="inp" style={{ flexBasis: '100%', fontSize: 12 }} placeholder="ملاحظة على البند (اختياري)" aria-label={'ملاحظة البند ' + (i + 1)} value={l.note || ''} onChange={e => setNewInv(f => ({ ...f, lines: f.lines.map((x, k2) => k2 === i ? { ...x, note: e.target.value } : x) }))} />
                 {(newInv.lines || []).length > 1 && <button className="btn sm gh" title="حذف البند" onClick={() => setNewInv(f => ({ ...f, lines: f.lines.filter((_, k2) => k2 !== i) }))}><X size={13} /></button>}
               </div>); })}
             <button className="btn sm gh" onClick={() => setNewInv(f => ({ ...f, lines: [...(f.lines || []), invLine()] }))}><Plus size={13} />بند آخر</button>
@@ -900,6 +932,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
             {VatNoField({ supplierId: (newInv.supplierId), vat: (k.vat), value: (newInv.vatNo), onChange: (v => setNewInv(f => ({ ...f, vatNo: v }))) })}
           </>); })()}
           {ImgField({ img: (newInv.img), onImg: ((img) => setNewInv(f => ({ ...f, img }))) })}
+          {(() => { const k = invCalc(newInv); return PayBox(newInv, setNewInv, Math.round((k.fcNet + k.fcVat) * 100) / 100, newInv.cur); })()}
         </Modal>
       )}
 
@@ -929,6 +962,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
               <input className="inp n" style={{ width: 100 }} inputMode="decimal" placeholder="سعر الوحدة" value={l.price}
                 onChange={e => setPoF(f => ({ ...f, lines: f.lines.map((x, k) => k === i ? { ...x, price: e.target.value.replace(/[^\d.]/g, '') } : x) }))} />
               {poF.lines.length > 1 && <button className="btn sm gh" onClick={() => setPoF(f => ({ ...f, lines: f.lines.filter((_, k) => k !== i) }))}><X size={13} /></button>}
+              <input className="inp" style={{ flexBasis: '100%', fontSize: 12 }} placeholder="ملاحظة على البند (اختياري)" aria-label={'ملاحظة بند الأمر ' + (i + 1)} value={l.note || ''} onChange={e => setPoF(f => ({ ...f, lines: f.lines.map((x, k) => k === i ? { ...x, note: e.target.value } : x) }))} />
               {(() => { const lp = l.itemId && lastPriceOf(l.itemId); if (!lp) return null; const w = priceWarn(l); return (
                 <div style={{ flexBasis: '100%', fontSize: 10.5, color: w && w.high ? 'var(--rose)' : 'var(--faint)' }}>
                   آخر سعر: <span className="num">{money(lp.unitCost)}</span> ({lp.supplierName} · {lp.date}){w ? <> · متوسط آخر {w.n}: <span className="num">{money(w.avg)}</span> · سعرك <span className="num">{money(w.u)}</span> (<span dir="ltr">{(w.pct > 0 ? '+' : '') + w.pct}%</span>)</> : ''}{w && w.high ? ' ⚠ يتجاوز حد التنبيه ' + alertPct + '% — سيحتاج الأمر اعتمادًا' : ''}
@@ -1032,6 +1066,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
           {isFx(svc.cur) && Number(svc.rate) > 0 && <div className="note" data-fxsar>بالريال: <b className="num">{money(k.gross * Number(svc.rate))}</b> ر.س بسعر {svc.rate}</div>}
           {VatNoField({ supplierId: svc.supplierId, vat: k.vat, value: svc.vatNo, onChange: v => setSvc(f => ({ ...f, vatNo: v })) })}
           {ImgField({ img: svc.img, onImg: (img) => setSvc(f => ({ ...f, img })) })}
+          {PayBox(svc, setSvc, k.gross, svc.cur)}
           <div className="note">كل بند يُقيَّد على حسابه المختار، وضريبة المدخلات للبنود الخاضعة، والإجمالي إلى ح/ المورد (آجل) ويظهر في كشفه وأعمار ديونه ويُسدَّد من «سداد».</div>
         </Modal>); })()}
 
@@ -1060,7 +1095,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
             const rem = remOfLine(l);
             return (
               <div key={i} className="row" style={{ gap: 8, marginBottom: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <div style={{ flex: 2, minWidth: 150, fontSize: 12.5 }}>{l.desc}
+                <div style={{ flex: 2, minWidth: 150, fontSize: 12.5 }}>{l.desc}{l.note ? <div style={{ fontSize: 10.5, color: 'var(--dim)' }}>📝 {l.note}</div> : null}
                   <div style={{ fontSize: 9.5, color: 'var(--faint)' }}>المطلوب <span className="num">{l.qty}</span> · المستلم سابقاً <span className="num">{l.received || 0}</span> · المتبقي <span className="num">{rem}</span>{l.itemId ? ' · مربوط بالمخزون' : ''}</div>
                 </div>
                 <input className="inp n" style={{ width: 110 }} inputMode="decimal" placeholder="المستلم الآن" value={recv.qtys[i]}
