@@ -1,7 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useMemo, useState } from 'react';
 import { HardDrive, Plus, ClipboardCheck, Truck, Landmark, Send, PenLine, X, Check } from 'lucide-react';
-import { CountScheduleCard, Field, Kpi, MAIN_WH, Modal, WH_KIND, WH_ST, WhLines, expiryLots, isCostCtl, isStocked, isoD, itemAvgCosts, money, nextWhAcc, nowISO, q3, rolePost, stockByWh, today, uid, whForBranch, whName, whOf, whOn } from '../../App.jsx';
+import { MOVE_KINDS, CountScheduleCard, Field, Kpi, MAIN_WH, Modal, WH_KIND, WH_ST, WhLines, expiryLots, isCostCtl, isStocked, isoD, itemAvgCosts, money, nextWhAcc, nowISO, q3, rolePost, stockByWh, today, uid, whForBranch, whName, whOf, whOn } from '../../App.jsx';
 
 export function WarehousesPanel({ org, ops, me, commit, commitOrg, say }) {
   const items = (org.items || []).filter(isStocked);
@@ -11,7 +11,7 @@ export function WarehousesPanel({ org, ops, me, commit, commitOrg, say }) {
   const SB = useMemo(() => stockByWh(org, ops), [org, ops]);
   const AVG = useMemo(() => itemAvgCosts(org, ops), [org, ops]);
   const LOTS = useMemo(() => expiryLots(org, ops).sort((a, b) => String(a.expiry).localeCompare(String(b.expiry))), [org, ops]);
-  const [sel, setSel] = useState(MAIN_WH);
+  const [sel, setSel] = useState('*');   // v44.3: الإجمالي أولًا
   const [sendF, setSendF] = useState(null);     // صرف تحويل (طلب قائم أو جديد)
   const [ren, setRen] = useState(null);
   const costOf = (id) => AVG[id] || 0;
@@ -20,6 +20,16 @@ export function WarehousesPanel({ org, ops, me, commit, commitOrg, say }) {
   const valOf = (wh) => Math.round(Object.entries(SB.byWh[wh] || {}).reduce((s, [id, q]) => s + Math.max(0, q) * costOf(id), 0) * 100) / 100;
   const transfers = (ops.whTransfers || []).slice().sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
   const missing = branches.filter(b => !whForBranch(org, b.id));
+  // v44.3 — متابعة المخزون: الإجمالي لكل الأصناف عبر المستودعات (عمود لكل فرع) + حركة المستودع المختار
+  const ALL = '*';
+  const totQ = (id) => q3(whs.reduce((s, w) => s + qOf(w.id, id), 0) + (SB.transit[id] || 0));
+  const whMovesOf = (wid) => [
+    ...(ops.stockMoves || []).filter(m => (m.whId || MAIN_WH) === wid).map(m => ({ id: 'sm' + m.id, date: m.date || String(m.at || '').slice(0, 10), at: m.at || '', itemId: m.itemId, k: (MOVE_KINDS[m.kind] || {}).ar || m.kind, c: (MOVE_KINDS[m.kind] || {}).c || 'b-dim', qty: Number(m.qty) || 0, by: m.by || '', note: m.note || '' })),
+    ...(ops.whMoves || []).filter(m => m.whId === wid).map(m => ({ id: 'wm' + m.id, date: m.date || String(m.at || '').slice(0, 10), at: m.at || '', itemId: m.itemId, k: (MOVE_KINDS[m.kind] || {}).ar || m.kind, c: (MOVE_KINDS[m.kind] || {}).c || 'b-dim', qty: Number(m.qty) || 0, by: m.by || '', note: m.note || '' })),
+    ...(ops.whTransfers || []).filter(t => ['sent', 'received'].includes(t.status) && t.kind !== 'b2b-in' && (t.fromWh || MAIN_WH) === wid).flatMap(t => (t.lines || []).map((l, i) => ({ id: 'to' + t.id + i, date: t.sentDate || '', at: t.sentAt || t.at || '', itemId: l.itemId, k: 'تحويل صادر إلى ' + whName(org, t.toWh), c: 'b-sky', qty: -(Number(l.qtySent) || 0), by: t.sentBy || '', note: t.no || '' }))),
+    ...(ops.whTransfers || []).filter(t => t.status === 'received' && t.kind !== 'b2b' && t.toWh === wid).flatMap(t => (t.lines || []).map((l, i) => ({ id: 'ti' + t.id + i, date: t.receivedDate || '', at: t.receivedAt || '', itemId: l.itemId, k: 'تحويل وارد من ' + whName(org, t.fromWh || MAIN_WH), c: 'b-mint', qty: Number(l.qtyRecv) || 0, by: t.receivedBy || '', note: t.no || '' })))
+  ].filter(m => m.qty).sort((a, b) => String(b.date + b.at).localeCompare(String(a.date + a.at)));
+  const [mvItem, setMvItem] = useState('');
 
   const setup = async () => {
     if (!canW) return say('لا تملك صلاحية الإعداد', 'no');
@@ -145,8 +155,28 @@ export function WarehousesPanel({ org, ops, me, commit, commitOrg, say }) {
         </table></div>
       </div>
 
-      <div className="card">
-        <div className="card-t" style={{ marginBottom: 8 }}><ClipboardCheck size={15} color="var(--brass)" />أرصدة {whName(org, sel)}</div>
+      <div className="card" data-whstock>
+        <div className="row" style={{ justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+          <div className="card-t"><ClipboardCheck size={15} color="var(--brass)" />{sel === ALL ? 'إجمالي المخزون — كل المستودعات' : 'أرصدة ' + whName(org, sel)}</div>
+          <select className="sel" style={{ maxWidth: 260 }} aria-label="مخزون المستودع" value={sel} onChange={e => { setSel(e.target.value); setMvItem(''); }}>
+            <option value={ALL}>الإجمالي — كل المستودعات</option>
+            {whs.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+          </select>
+        </div>
+        {sel === ALL ? (
+          <div className="tw"><table className="tb" data-whall>
+            <thead><tr><th>الصنف</th><th>الوحدة</th>{whs.map(w => <th key={w.id} style={{ textAlign: 'end', cursor: 'pointer' }} onClick={() => setSel(w.id)} title="عرض أرصدة المستودع وحركته">{w.name}</th>)}<th style={{ textAlign: 'end' }}>في الطريق</th><th style={{ textAlign: 'end' }}>الإجمالي</th><th style={{ textAlign: 'end' }}>القيمة</th></tr></thead>
+            <tbody>
+              {items.filter(it => totQ(it.id) !== 0 || whs.some(w => qOf(w.id, it.id) !== 0)).map(it => (
+                <tr key={it.id}><td>{it.name}</td><td style={{ fontSize: 11.5, color: 'var(--dim)' }}>{it.unit}</td>
+                  {whs.map(w => { const q = qOf(w.id, it.id), mn = it.minQty || 0; return <td key={w.id} className="num" style={{ textAlign: 'end', color: q < 0 ? 'var(--rose)' : w.kind === 'branch' && mn > 0 && q <= mn ? 'var(--amber, #E0A458)' : undefined }}>{q || '—'}</td>; })}
+                  <td className="num" style={{ textAlign: 'end', color: 'var(--dim)' }}>{q3(SB.transit[it.id] || 0) || '—'}</td>
+                  <td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{totQ(it.id)}</td>
+                  <td className="num" style={{ textAlign: 'end' }}>{money(Math.max(0, totQ(it.id)) * costOf(it.id))}</td></tr>))}
+              {items.every(it => totQ(it.id) === 0) && <tr><td colSpan={whs.length + 5}><div className="empty">لا أرصدة بعد</div></td></tr>}
+            </tbody>
+          </table><div className="hint" style={{ marginTop: 6 }}>اضغط اسم مستودع لعرض أرصدته وحركته · اللون البرتقالي: رصيد الفرع عند حد الطلب أو دونه</div></div>
+        ) : (<>
         <div className="tw"><table className="tb">
           <thead><tr><th>الصنف</th><th>الوحدة</th><th style={{ textAlign: 'end' }}>الرصيد</th><th style={{ textAlign: 'end' }}>القيمة</th></tr></thead>
           <tbody>
@@ -157,6 +187,17 @@ export function WarehousesPanel({ org, ops, me, commit, commitOrg, say }) {
             {items.every(it => qOf(sel, it.id) === 0) && <tr><td colSpan={4}><div className="empty">لا أرصدة في هذا المستودع</div></td></tr>}
           </tbody>
         </table></div>
+        {(() => { const mv = whMovesOf(sel).filter(m => !mvItem || m.itemId === mvItem); return (<>
+          <div className="row" style={{ justifyContent: 'space-between', margin: '14px 0 8px', flexWrap: 'wrap', gap: 8 }}>
+            <div className="card-t" style={{ fontSize: 13 }}>حركة {whName(org, sel)}</div>
+            <select className="sel" style={{ maxWidth: 220 }} aria-label="تصفية الحركة بالصنف" value={mvItem} onChange={e => setMvItem(e.target.value)}><option value="">كل الأصناف</option>{items.map(it => <option key={it.id} value={it.id}>{it.name}</option>)}</select>
+          </div>
+          <div className="tw"><table className="tb" data-whmoves><thead><tr><th>التاريخ</th><th>الصنف</th><th>الحركة</th><th style={{ textAlign: 'end' }}>الكمية</th><th>بواسطة</th></tr></thead><tbody>
+            {mv.slice(0, 100).map(m => (<tr key={m.id}><td className="num" style={{ fontSize: 11 }}>{m.date}</td><td>{itemOf(m.itemId).name}</td><td><span className={'badge ' + m.c}>{m.k}</span>{m.note ? <div style={{ fontSize: 10, color: 'var(--faint)' }}>{m.note}</div> : null}</td>
+              <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: m.qty < 0 ? 'var(--rose)' : 'var(--mint)' }}>{m.qty > 0 ? '+' + q3(m.qty) : q3(m.qty)}</td><td style={{ fontSize: 11, color: 'var(--faint)' }}>{m.by}</td></tr>))}
+            {!mv.length && <tr><td colSpan={5}><div className="empty">لا حركات</div></td></tr>}
+          </tbody></table></div></>); })()}
+        </>)}
       </div>
 
       <CountScheduleCard org={org} ops={ops} me={me} commitOrg={commitOrg} say={say} />

@@ -1227,3 +1227,39 @@ test('v44.2 فاتورة مدفوعة جزئيًا عند تسجيلها: قيد
   const A = E.buildAccounting(org, { invoices: [inv] }); const t = tb(A);
   assert.equal(A.balanced, true); near(t['2101'], -160, 'الباقي آجل'); near(t['1201'], -300, 'المدفوع من البنك'); near(t['1501'], 60); near(t['5198'], 400);
 });
+
+// ===== v44.3 — أوامر الشراء الموجّهة لمستودع الفرع: نسخة في مستند الفرع، واستلام الفرع المباشر يُقيَّد GRNI وتقفله الفاتورة =====
+test('v44.3 مستودع الأمر ونسخة الفرع: المعتمد الموجّه لمستودع فرع فقط، بالمستلم وقيد الفحص، وحتمية بلا تغيير', () => {
+  const org = { branches: [{ id: 'b1', name: 'ف1' }], warehouses: [{ id: 'wh-main', name: 'الرئيسي', kind: 'main' }, { id: 'wh-b1', name: 'مستودع ف1', kind: 'branch', branchId: 'b1' }] };
+  assert.equal(E.poWhOf(org, { whId: 'wh-b1' }), 'wh-b1');
+  assert.equal(E.poWhOf(org, { branchId: 'b1' }), 'wh-b1', 'الأوامر القديمة: مستودع فرعها');
+  assert.equal(E.poWhOf(org, {}), 'wh-main', 'وإلا الرئيسي');
+  const ops = { purchaseOrders: [
+    { id: 'p1', poNo: 'PO-1', status: 'open', whId: 'wh-b1', branchId: 'b1', supplierId: 's1', supplierName: 'م', lines: [{ itemId: 'i1', desc: 'زيت', qty: 10, received: 2, inQc: 3, price: 5 }] },
+    { id: 'p2', poNo: 'PO-2', status: 'pending', whId: 'wh-b1', lines: [] },
+    { id: 'p3', poNo: 'PO-3', status: 'open', whId: 'wh-main', lines: [] },
+    { id: 'p4', poNo: 'PO-4', status: 'received', whId: 'wh-b1', lines: [] }] };
+  const o = E.syncPoInbox(org, ops);
+  assert.deepEqual(o.poInbox.map(x => [x.id, x.branchId, x.whId]), [['pib_p1', 'b1', 'wh-b1']], 'المعتمد قيد التوريد لمستودع فرع فقط');
+  assert.equal(o.poInbox[0].lines[0].received, 5, 'المستلم + قيد الفحص');
+  assert.equal(JSON.stringify(o.poInbox).includes('price'), false, 'لا أسعار في مستند الفرع');
+  assert.equal(E.syncPoInbox(org, o), o, 'لا تغيير ⇒ نفس الكائن (لا كتابة)');
+  assert.equal(E.syncPoInbox({}, ops), ops, 'بلا مستودعات لا شيء');
+});
+test('v44.3 استلام الفرع المباشر: مستودع الفرع مدين مقابل 2105 بسعر الأمر، والفاتورة المطابقة تقفله إلى المورد', () => {
+  const org = baseOrg({ items: [{ id: 'i1', name: 'زيت', unit: 'لتر', type: 'stock' }], suppliers: [{ id: 's1', name: 'مورد' }], purchaseCfg: { perpetualFrom: '2026-01' },
+    warehouses: [{ id: 'wh-main', name: 'الرئيسي', kind: 'main', accCode: '160101' }, { id: 'wh-b1', name: 'مستودع ف1', kind: 'branch', branchId: 'b1', accCode: '160102' }] });
+  const mv = { id: 'w1', whId: 'wh-b1', branchId: 'b1', itemId: 'i1', kind: 'purchase', qty: 20, unitCost: 5, grnRef: 'grnB', grn: 'GRN-B', date: '2026-03-02', at: '2026-03-02T08:00:00Z' };
+  let A = E.buildAccounting(org, { stockMoves: [], whMoves: [mv], whTransfers: [] }); let t = tb(A);
+  assert.equal(A.balanced, true); near(t['160102'], 100, 'دخل مستودع الفرع'); near(t['2105'], -100, 'مستلم لم يُفوتر'); assert.equal(t['160101'] || 0, 0, 'لم يمر بالرئيسي');
+  const inv = { id: 'inv_grnB', supplierId: 's1', supplierName: 'مورد', amount: 115, vatAmt: 15, taxable: true, date: '2026-03-02', paidAmount: 0, branchId: 'b1', whId: 'wh-b1', grnRefs: ['grnB'], poNet: 100,
+    lines: [{ itemId: 'i1', qty: 20, unitCost: 5, net: 100, poNet: 100, stock: true, grnRef: 'grnB' }] };
+  A = E.buildAccounting(org, { stockMoves: [], whMoves: [mv], whTransfers: [], invoices: [inv] }); t = tb(A);
+  assert.equal(A.balanced, true); near(t['160102'], 100); assert.ok(Math.abs(t['2105'] || 0) < 0.01, '2105 أُقفل'); assert.equal(t['5504'] || 0, 0, 'بلا فرق سعر');
+  near(t['2101'], -115, 'ذمة المورد'); near(t['1501'], 15);
+});
+test('v44.3 التخزين: طلبات الشراء ونسخة الأوامر واستلامات الفروع في مستند الفرع', async () => {
+  const src = (await import('node:fs')).readFileSync(new URL('../App.jsx', import.meta.url), 'latin1');
+  const br = /const BR_COLS = \[([\s\S]*?)\];/.exec(src)[1];
+  ['purchaseReqs', 'poInbox', 'poReceipts'].forEach(c => assert.ok(br.includes("'" + c + "'"), c));
+});

@@ -2215,6 +2215,74 @@ Object.assign(EN, {
 "حساب الدفع": "Payment account",
 "مرجع الدفع": "Payment reference"
 });
+
+// ===== v44.3 طلبات شراء الفروع واستلامها =====
+Object.assign(EN, {
+"طلب شراء": "Purchase request",
+"استلام أوامر الشراء": "Receive purchase orders",
+"طلب شراء من المورد لمستودعك — تراجعه المشتريات المركزية وتختار المورد والسعر وتحوّله لأمر شراء يُسلَّم لمستودعك مباشرة، أو ترفضه بسبب.": "A purchase request for your warehouse — central purchasing reviews it, picks the supplier and price and converts it into a PO delivered straight to your warehouse, or rejects it with a reason.",
+"+ بند": "+ Line",
+"سبب الطلب أو موعد الحاجة": "Reason or date needed",
+"إرسال طلب الشراء": "Send purchase request",
+"طلباتي": "My requests",
+"الطلب": "Request",
+"بانتظار المراجعة": "Awaiting review",
+"أمر شراء": "PO",
+"لا طلبات شراء بعد": "No purchase requests yet",
+"أوامر الشراء المعتمدة الموجّهة لمستودعك — بضاعة تدخل الفرع مباشرة دون المرور بالمستودع الرئيسي. سجّل الكميات الفعلية ورقم فاتورة المورد ومبلغها.": "Approved POs delivered to your warehouse — goods enter the branch directly without passing through the main warehouse. Record the actual quantities and the supplier invoice No. and amount.",
+"لا أوامر شراء قيد التوريد لمستودعك": "No POs pending delivery to your warehouse",
+"استلاماتي": "My receipts",
+"بانتظار ترحيل المركز": "Awaiting central posting",
+"مطابق — فاتورة": "Matched — invoice",
+"غير مطابق — لدى المحاسب": "Not matched — with the accountant",
+"لا استلامات بعد": "No receipts yet",
+"المورد:": "Supplier:",
+"· يُستلم في": "· received into",
+"فقط (مستودع الأمر).": "only (the PO warehouse).",
+"(المتبقي": "(remaining",
+"بانتظار الفحص": "Awaiting inspection",
+"تاريخ الاستلام": "Receipt date",
+"المطابقة الكاملة (كل الكميات + مبلغ الفاتورة = قيمة الأمر وضريبته) ⇒ فاتورة المورد تُنشأ تلقائيًا؛ وإلا يحوّلها المحاسب أو مدير النظام.": "Full match (all quantities + invoice amount = PO value and its VAT) ⇒ the supplier invoice is created automatically; otherwise the accountant or system admin converts it.",
+"طلبات شراء الفروع بانتظار المراجعة": "Branch purchase requests awaiting review",
+"الفرع / المستودع": "Branch / warehouse",
+"تحويل لأمر شراء": "Convert to PO",
+"استلامات فروع لم تُرحَّل:": "Unposted branch receipts:",
+"ترحيل": "Post",
+"إلى:": "To:",
+"من طلب": "From request",
+"المستودع المستلِم (التسليم إليه)": "Receiving warehouse (deliver to)",
+"من طلب شراء الفرع — يُسلَّم لمستودعه": "From a branch purchase request — delivered to its warehouse",
+"مستودع فرع ⇐ يستلمه مدير الفرع من «مستودع الفرع» مباشرة": "Branch warehouse ⇒ the branch manager receives it directly from «Branch warehouse»",
+"تحويل طلب شراء إلى أمر شراء": "Convert purchase request to PO",
+"المستودع المستلِم (مستودع الأمر — لا يُغيَّر)": "Receiving warehouse (the PO's — cannot be changed)",
+"مستودع الأمر": "PO warehouse",
+"المستودع المستلِم": "Receiving warehouse",
+"— الحساب —": "— Account —",
+"الالتزامات": "Liabilities",
+"أضف صنفًا وكمية": "Add an item and quantity",
+"اختر الصنف لكل بند من الأصناف المضافة": "Pick an item from the added items for every line",
+"أدخل كمية مستلمة لبند واحد على الأقل": "Enter a received quantity for at least one line",
+"أدخل رقم فاتورة المورد كما في ورقته": "Enter the supplier invoice No. as printed",
+"أدخل مبلغ فاتورة المورد (شامل الضريبة)": "Enter the supplier invoice amount (VAT incl.)",
+"طلب الشراء لم يعد قائمًا": "The purchase request no longer exists",
+"اكتب سبب الرفض": "Write the rejection reason"
+});
+
+// ===== v44.3 متابعة المخزون =====
+Object.assign(EN, {
+"إجمالي المخزون — كل المستودعات": "Total stock — all warehouses",
+"الإجمالي — كل المستودعات": "Total — all warehouses",
+"مخزون المستودع": "Warehouse stock",
+"تصفية الحركة بالصنف": "Filter movements by item",
+"عرض أرصدة المستودع وحركته": "Show the warehouse balances and movements",
+"اضغط اسم مستودع لعرض أرصدته وحركته · اللون البرتقالي: رصيد الفرع عند حد الطلب أو دونه": "Tap a warehouse name to see its balances and movements · orange: branch balance at or below the reorder level",
+"لا حركات": "No movements",
+"في الطريق": "In transit",
+"الحركة": "Movement",
+"لا أرصدة بعد": "No balances yet",
+"كل الأصناف": "All items",
+"بواسطة": "By"
+});
 export const TX = (ar) => (LANG === 'en' && ar && EN[ar]) || ar;
 
 /* v43.1 مترجم الشاشة: في الوضع الإنجليزي يترجم نصوص الواجهة (عُقد النص + placeholder/title/aria-label) بمطابقة القاموس حرفيًا،
@@ -2270,6 +2338,11 @@ export const EN_RX = [
   [/^فاتورة (.+) بانتظار اعتماد الفرق \((.+)\)$/, 'Invoice $1 awaiting variance approval ($2)'],
   [/^البنود — من الأصناف المضافة(.*)$/, (_, x) => 'Lines — from added items' + x.replace(/\(الأسعار بـ (\w+)\)/, '(prices in $1)')], [/^صنف البند (\d+)( — بحث)?$/, (_, n, b) => 'Line ' + n + ' item' + (b ? ' — search' : '')], [/^كمية البند (\d+)$/, 'Line $1 quantity'], [/^سعر البند (\d+)$/, 'Line $1 price'], [/^الكمية \((.+)\)$/, 'Quantity ($1)'],
   [/^المبلغ المدفوع الآن \((\w+)\)$/, 'Amount paid now ($1)'], [/^ملاحظة البند (\d+)$/, 'Line $1 note'], [/^ملاحظة بند الأمر (\d+)$/, 'PO line $1 note'], [/^📝 (.+)$/, (m, x) => m],
+  [/^صنف الطلب (\d+)$/, 'Request item $1'], [/^صنف الطلب (\d+) — بحث$/, 'Request item $1 — search'], [/^كمية الطلب (\d+)$/, 'Request qty $1'], [/^الكمية المستلمة (\d+)$/, 'Received qty $1'],
+  [/^استلام أمر الشراء (\S+)$/, 'Receive PO $1'], [/^أُرسل طلب الشراء (\S+) للمشتريات المركزية ✓$/, 'Purchase request $1 sent to central purchasing ✓'], [/^رُفض الطلب (\S+) ✓$/, 'Request $1 rejected ✓'], [/^رُحّل الاستلام (\S+) ✓$/, 'Receipt $1 posted ✓'],
+  [/^سُجّل استلام (\S+) ودخلت الأصناف مستودعك · يرحّله المركز: فاتورة تلقائية عند المطابقة ✓$/, 'Receipt of $1 recorded and the items entered your warehouse · central posts it: automatic invoice when matched ✓'],
+  [/^سُجّل استلام (\S+) — بانتظار الفحص قبل دخول المستودع · يرحّله المركز: فاتورة تلقائية عند المطابقة ✓$/, 'Receipt of $1 recorded — awaiting inspection before entering the warehouse · central posts it: automatic invoice when matched ✓'],
+  [/^حركة (المستودع الرئيسي|مستودع .+)$/, (_, x) => (EN[x] || x) + ' movements'], [/^تحويل صادر إلى (.+)$/, (_, x) => 'Transfer out to ' + (EN[x] || x)], [/^تحويل وارد من (.+)$/, (_, x) => 'Transfer in from ' + (EN[x] || x)],
   [/^أقصى مبلغ متاح (.+) ر\.س — يمكنك تعديله يدوياً$/, 'Max available $1 SAR — you can edit it manually'],
   [/^(\d{1,2}) (يناير|فبراير|مارس|أبريل|مايو|يونيو|يوليو|أغسطس|سبتمبر|أكتوبر|نوفمبر|ديسمبر) (\d{4})$/, (_, d, m, y) => d + ' ' + MONTHS[m] + ' ' + y]
 ];
@@ -2283,7 +2356,7 @@ export function trWord(t) {
   return null;
 }
 const SKIP = 'script,style,textarea,input,[contenteditable],[data-noi18n]';
-const ATTRS = ['placeholder', 'title', 'aria-label'];
+const ATTRS = ['placeholder', 'title', 'aria-label', 'label'];   // v44.3: label لعناوين optgroup
 function trNode(n) {
   if (n.nodeType === 3) { const p = n.parentElement; if (!p || p.closest(SKIP)) return; const v = trWord(n.nodeValue); if (v != null && v !== n.nodeValue) n.nodeValue = v; return; }
   if (n.nodeType !== 1 || n.closest(SKIP)) return;

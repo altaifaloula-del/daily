@@ -1197,3 +1197,70 @@ test('v44.2 فاتورة المورد: ملاحظة تحت كل صنف، وطر�
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+
+test('v44.3 طلب شراء الفرع ← أمر شراء لمستودع الفرع ← استلام مدير الفرع مباشرة ← ترحيل تلقائي بفاتورة المطابق؛ وكل حسابات الدليل في فاتورة الخدمات', async () => {
+  // (1) مدير الفرع: طلب شراء
+  const b = await open({ viewport: { width: 1300, height: 1000 } }, 'live/BranchWarehouse/bm');
+  await b.p.evaluate(() => window.setOps(o => ({ ...o, purchaseReqs: [], poInbox: [], poReceipts: [], whMoves: [] })));
+  await b.p.locator('button', { hasText: 'طلب شراء' }).first().click(); await b.p.waitForTimeout(150);
+  await b.p.selectOption('select[aria-label="صنف الطلب 1"]', 'i1'); let r;
+  await b.p.fill('input[aria-label="كمية الطلب 1"]', '8');
+  await b.p.locator('button', { hasText: 'إرسال طلب الشراء' }).click(); await b.p.waitForTimeout(200);
+  const req = await b.p.evaluate(() => window.cur.purchaseReqs[0]);
+  assert.equal(req && req.status, 'pending', 'أُنشئ الطلب: ' + (await say(b.p)));
+  assert.deepEqual([req.branchId, req.whId, req.lines.map(l => l.qty)], ['b1', 'wh-b1', [8]]);
+  await b.ctx.close();
+  // (2) المركز: يحوّله لأمر شراء موجّه لمستودع الفرع (المستودع مقفل على مستودع الطلب)
+  const c = await open({ viewport: { width: 1300, height: 1000 } }, 'live/Hub/ho/purchasing:suppliers');
+  await c.p.evaluate((rq) => { window.setOrg(g => ({ ...g, suppliers: (g.suppliers || []).map(x => ({ ...x, vatNo: '300000000000003' })) })); window.setOps(o => ({ ...o, invoices: [], stockMoves: [], purchaseOrders: [], purchaseReqs: [rq], poInbox: [], poReceipts: [] })); }, req); await c.p.waitForTimeout(250);
+  await c.p.locator('button', { hasText: 'أوامر الشراء' }).first().click(); await c.p.waitForTimeout(200);
+  await c.p.locator('[data-req2po]').click(); await c.p.waitForTimeout(150);
+  assert.equal(await c.p.locator('select[aria-label="مستودع الأمر"]').inputValue(), 'wh-b1'); assert.equal(await c.p.locator('select[aria-label="مستودع الأمر"]').isDisabled(), true);
+  await c.p.locator('.modal input[placeholder="سعر الوحدة"]').first().fill('40');
+  await c.p.locator('button', { hasText: 'إنشاء الأمر' }).click(); await c.p.waitForTimeout(250);
+  r = await c.p.evaluate(() => ({ po: window.cur.purchaseOrders.map(x => [x.whId, x.branchId, x.status, x.reqNo]), rq: window.cur.purchaseReqs[0].status, ib: window.cur.poInbox.map(x => [x.branchId, x.poNo, x.lines[0].qty]) }));
+  assert.deepEqual(r.po, [['wh-b1', 'b1', 'open', req.no]]); assert.equal(r.rq, 'converted'); assert.equal(r.ib.length, 1, 'نسخة الأمر في مستند الفرع');
+  assert.match(await c.p.locator('tr', { hasText: r.ib[0][1] }).innerText(), /إلى: مستودع طيبة/);
+  const after = await c.p.evaluate(() => window.cur); await c.ctx.close();
+  // (3) مدير الفرع: يستلم الأمر مباشرة في مستودعه (يرى نسخة الأمر فقط)
+  const b2 = await open({ viewport: { width: 1300, height: 1000 } }, 'live/BranchWarehouse/bm');
+  await b2.p.evaluate((o2) => window.setOps(o => ({ ...o, poInbox: o2.poInbox, purchaseReqs: o2.purchaseReqs, poReceipts: [], whMoves: [] })), after); await b2.p.waitForTimeout(200);
+  await b2.p.locator('button', { hasText: 'استلام أوامر الشراء' }).click(); await b2.p.waitForTimeout(150);
+  await b2.p.locator('[data-brrecv]').click(); await b2.p.waitForTimeout(150);
+  await b2.p.fill('input[aria-label="رقم فاتورة المورد"]', 'SUP-900'); await b2.p.fill('input[aria-label="مبلغ فاتورة المورد"]', '368');
+  await b2.p.locator('button', { hasText: 'تأكيد الاستلام' }).click(); await b2.p.waitForTimeout(250);
+  r = await b2.p.evaluate(() => ({ rc: window.cur.poReceipts.map(x => [x.status, x.supInvNo, x.lines[0].qty]), mv: window.cur.whMoves.map(m => [m.whId, m.qty, m.unitCost, !!m.grnRef]) }));
+  assert.deepEqual(r, { rc: [['pending', 'SUP-900', 8]], mv: [['wh-b1', 8, undefined, true]] }, 'دخل مستودع الفرع فورًا — بلا سعر لدى الفرع');
+  assert.equal(JSON.stringify(after.poInbox).includes('price'), false, 'نسخة الأمر في الفرع كميات فقط');
+  assert.doesNotMatch(await b2.p.locator('[data-brpo]').innerText(), /40|ر\.س/, 'لا أسعار في شاشة الفرع');
+  assert.match(await b2.p.locator('[data-brpo]').innerText(), /لا أوامر شراء قيد التوريد/, 'المتبقي يُخصم منه الاستلام المعلّق');
+  const brOps = await b2.p.evaluate(() => ({ poReceipts: window.cur.poReceipts, whMoves: window.cur.whMoves }));
+  await b2.ctx.close();
+  // (4) المركز: يُرحَّل تلقائيًا — مطابق كليًا ⇒ فاتورة المورد بسعر الأمر، والأمر مستلم كاملاً
+  const c2 = await open({ viewport: { width: 1300, height: 1000 } }, 'live/Hub/ho/purchasing:suppliers');
+  await c2.p.evaluate(([o2, br]) => { window.setOrg(g => ({ ...g, suppliers: (g.suppliers || []).map(x => ({ ...x, vatNo: '300000000000003' })) })); window.setOps(o => ({ ...o, ...o2, ...br })); }, [after, brOps]); await c2.p.waitForTimeout(600);
+  r = await c2.p.evaluate(() => ({ inv: window.cur.invoices.map(i => [i.invoiceNo, i.amount, i.auto, (i.grnRefs || []).length]), po: window.cur.purchaseOrders[0].status, rc: window.cur.poReceipts.map(x => [x.status, x.result]), ib: window.cur.poInbox.length, uc: window.cur.whMoves.map(m => m.unitCost) }));
+  assert.deepEqual(r, { inv: [['SUP-900', 368, 'match', 1]], po: 'received', rc: [['posted', 'matched']], ib: 0, uc: [40] }, 'التكلفة بسعر الأمر عند الترحيل');
+  // (5) فاتورة الخدمات: كل حسابات الدليل مجمّعة بالنوع عدا 2101
+  await c2.p.locator('button', { hasText: 'فواتير الموردين الآجلة' }).first().click(); await c2.p.waitForTimeout(200);
+  await c2.p.locator('[data-svc]').click(); await c2.p.waitForTimeout(200);
+  r = await c2.p.evaluate(() => { const sel = document.querySelector('select[aria-label="حساب البند 1"]'); const v = [...sel.querySelectorAll('option')].map(o => o.value).filter(Boolean);
+    return { groups: [...sel.querySelectorAll('optgroup')].map(g => g.label), has: ['1101', '1501', '4101', '5198'].map(c => v.includes(c)), ap: v.includes('2101'), sorted: v.join() === [...v].sort().join() }; });
+  assert.deepEqual(r, { groups: ['الأصول', 'الالتزامات', 'حقوق الملكية', 'الإيرادات', 'المصروفات'], has: [true, true, true, true], ap: false, sorted: true });
+  await c2.ctx.close();
+  assert.deepEqual([...b.errs, ...c.errs, ...b2.errs, ...c2.errs], []);
+});
+
+test('v44.3 متابعة المخزون: الإجمالي لكل مستودع (عمود لكل فرع) في الرئيسي، واختيار أي فرع لأرصدته وحركته', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Inventory/ho/wh');
+  await p.evaluate(() => window.setOps(o => ({ ...o, whTransfers: [], stockMoves: [{ id: 's1', itemId: 'i1', kind: 'purchase', qty: 50, date: '2026-11-10', by: 'سارة' }],
+    whMoves: [{ id: 'w1', whId: 'wh-b1', branchId: 'b1', itemId: 'i1', kind: 'purchase', qty: 12, date: '2026-11-12', by: 'خالد' }, { id: 'w2', whId: 'wh-b1', branchId: 'b1', itemId: 'i1', kind: 'out', qty: -5, date: '2026-11-13', by: 'خالد' }] })));
+  await p.waitForTimeout(300);
+  const row = await p.evaluate(() => { const t = document.querySelector('[data-whall]'); const hs = [...t.querySelectorAll('thead th')].map(x => x.textContent); const tr = [...t.querySelectorAll('tbody tr')].find(x => x.textContent.includes('لحم غنم'));
+    const c = [...tr.querySelectorAll('td')].map(x => x.textContent); return { b1: c[hs.indexOf('مستودع طيبة')], main: c[hs.indexOf('المستودع الرئيسي')], tot: c[hs.indexOf('الإجمالي')] }; });
+  assert.deepEqual(row, { b1: '7', main: '50', tot: '57' });
+  await p.selectOption('select[aria-label="مخزون المستودع"]', 'wh-b1'); await p.waitForTimeout(200);
+  const mv = await p.locator('[data-whmoves] tbody tr').allInnerTexts();
+  assert.equal(mv.length, 2); assert.match(mv[0], /صرف للتشغيل[\s\S]*-5/); assert.match(mv[1], /توريد شراء[\s\S]*\+12/);
+  assert.deepEqual(errs, []); await ctx.close();
+});
