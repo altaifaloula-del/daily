@@ -1449,3 +1449,23 @@ test('v45.2 المسح بالأرقام العربية أو بلوحة مفات�
   assert.equal(await c.p.inputValue('input[aria-label="صنف البند 1 — بحث"]'), '', 'مُسح الحقل بعد الاختيار');
   assert.deepEqual(c.errs, []); await c.ctx.close();
 });
+
+test('v45.3 تقرير هدر التحضير: الفرع يرى الكميات والنسب بلا قيمة، والمركز يرى كل الفروع والقيمة', async () => {
+  const seed = () => { const now = Date.now(), H = 3600000, iso = (t) => new Date(t).toISOString();
+    const B = (id, br, qty, ex) => ({ id, code: id, branchId: br, prepId: 'pr1', name: 'صلصة ثوم', unit: 'كجم', qty, madeAt: iso(now - 2 * H), expAt: iso(now + 20 * H), status: 'shelf', by: 'سعد', ...(ex || {}) });
+    window.setOps(o => ({ ...o, prepBatches: [B('a', 'b1', 4), B('b', 'b1', 1, { status: 'discarded', discardAt: iso(now - H), reason: 'expired' }), B('c', 'b2', 2, { status: 'discarded', discardAt: iso(now - H), reason: 'storage' })] })); };
+  const b = await open({ viewport: { width: 1300, height: 1000 } }, 'live/Hub/bm/closehub:prepdaily');
+  await b.p.evaluate(() => window.setOrg(g => ({ ...g, preps: [{ id: 'pr1', name: 'صلصة ثوم', unit: 'كجم', shelfH: 24 }] }))); await b.p.evaluate(seed); await b.p.waitForTimeout(200);
+  await b.p.locator('[data-ptab="waste"]').click(); await b.p.waitForTimeout(200);
+  assert.match(await b.p.locator('[data-pwr-row="صلصة ثوم"]').innerText(), /5[\s\S]*1[\s\S]*20%[\s\S]*منتهي الصلاحية/);
+  assert.equal(await b.p.locator('[data-pwrbr]').count(), 0, 'الفرع لا يرى جدول الفروع');
+  assert.doesNotMatch(await b.p.locator('[data-pwrrows] thead').innerText(), /القيمة/);
+  assert.deepEqual(b.errs, []); await b.ctx.close();
+  const c = await open({ viewport: { width: 1300, height: 1000 } }, 'live/Hub/ho/closehub:prepdaily');
+  await c.p.evaluate(() => window.setOrg(g => ({ ...g, preps: [{ id: 'pr1', name: 'صلصة ثوم', unit: 'كجم', shelfH: 24, batch: 2, parts: [{ itemId: (g.items || [])[0].id, qty: 1 }] }] }))); await c.p.evaluate(seed); await c.p.waitForTimeout(200);
+  await c.p.locator('[data-ptab="waste"]').click(); await c.p.waitForTimeout(250);
+  assert.equal(await c.p.locator('[data-pwrbr] tbody tr').count(), 2, 'كل الفروع');
+  assert.match(await c.p.locator('[data-pwrrows] thead').innerText(), /القيمة/);
+  assert.match(await c.p.locator('[data-pwr-row="صلصة ثوم"]').innerText(), /3[\s\S]*2[\s\S]*%/);
+  assert.deepEqual(c.errs, []); await c.ctx.close();
+});

@@ -3,8 +3,8 @@
    قرارات المالك: يسجّلها مطبخ الفرع · الانتهاء آليًا من مدة صلاحية التحضيرة (يحددها المركز) · ملصق 50×30 مم.
    الإتلاف: التحضيرة المخزّنة صنفًا تُخصم هدرًا من مستودع الفرع بمسار الهدر الحالي (واعتماده)، وغيرها يُوثَّق على الدفعة. */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ScanLine, Printer, Check, Trash2, Plus, ChefHat, QrCode, PenLine, List, ClipboardList, X } from 'lucide-react';
-import { normScan, Field, Kpi, Modal, PREP_ST, WASTE_REASONS, nowISO, prepBatchState, prepItemOf, prepShelfH, q3, submitWaste, today, uid, whName } from '../../App.jsx';
+import { ScanLine, Printer, Check, Trash2, Plus, ChefHat, QrCode, PenLine, List, ClipboardList, X, BarChart3 } from 'lucide-react';
+import { prepWasteStats, itemAvgCosts, printA4, money, arDate, ROLES, normScan, Field, Kpi, Modal, PREP_ST, WASTE_REASONS, nowISO, prepBatchState, prepItemOf, prepShelfH, q3, submitWaste, today, uid, whName } from '../../App.jsx';
 
 const pad = (n) => String(n).padStart(2, '0');
 export const fmtDT = (iso) => { const d = new Date(iso); if (isNaN(d)) return '—'; return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()); };
@@ -323,15 +323,83 @@ export function PrepBatches({ org, ops, me, commit, say, whId, branchId, canAct 
 }
 
 /** شاشة «التحضير اليومي» في مركز الإغلاق (بجوار سجل سلامة الغذاء): الفرع يختار فرعه، والمركز يراقب أي فرع */
+/** v45.3 — تقرير هدر التحضير: لكل تحضيرة وفرع وسبب، بالفترة؛ القيمة للمركز فقط (بتكلفة الوصفة) */
+const pad2 = (n) => String(n).padStart(2, '0');
+const dayStr = (d) => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+export function PrepWasteReport({ org, ops, brs, central, say }) {
+  const now = new Date(), td = dayStr(now);
+  const m0 = td.slice(0, 8) + '01';
+  const pm = new Date(now.getFullYear(), now.getMonth() - 1, 1), pmEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+  const [P, setP] = useState({ from: m0, to: td, br: central ? '' : ((brs[0] || {}).id || '') });
+  const AVG = useMemo(() => central ? itemAvgCosts(org, ops) : null, [org, ops, central]);
+  const S = useMemo(() => prepWasteStats(org, ops, { from: P.from, to: P.to, branchIds: P.br ? [P.br] : brs.map(b => b.id), avg: AVG }), [org, ops, P, AVG, brs]);
+  const bn = (id) => (brs.find(b => b.id === id) || {}).name || id;
+  const val = S.hasValue && central;
+  const quick = [['اليوم', td, td], ['هذا الشهر', m0, td], ['الشهر الماضي', dayStr(pm), dayStr(pmEnd)]];
+  const print = () => {
+    const rows = S.rows.map(r => `<tr><td>${esc(r.name)}</td><td class="n">${q3(r.made)} ${esc(r.unit)}</td><td class="n">${q3(r.waste)} ${esc(r.unit)}</td><td class="n">${r.pct == null ? '—' : r.pct + '%'}</td><td>${esc(WASTE_REASONS[r.topReason] || '')}</td>${val ? `<td class="n">${money(r.value)}</td>` : ''}</tr>`).join('');
+    printA4(org, 'تقرير هدر التحضير', (P.br ? bn(P.br) : 'كل الفروع') + ' · ' + arDate(P.from) + ' — ' + arDate(P.to),
+      `<table><thead><tr><th>التحضيرة</th><th>المحضَّر</th><th>المتلَف</th><th>نسبة الهدر</th><th>أكثر سبب</th>${val ? '<th>القيمة</th>' : ''}</tr></thead><tbody>${rows}
+      ${val ? `<tr class="tot"><td colspan="5">إجمالي قيمة الهدر</td><td class="n">${money(S.totals.value)}</td></tr>` : ''}</tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+  };
+  return (<div data-pwr>
+    <div className="card">
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+        <div className="card-t"><BarChart3 size={15} color="var(--brass)" />تقرير هدر التحضير</div>
+        <button className="btn sm gh" onClick={print}><Printer size={13} />طباعة</button>
+      </div>
+      <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>{quick.map(([t, f, e]) => <button key={t} className={'btn sm' + (P.from === f && P.to === e ? ' pri' : ' gh')} onClick={() => setP(x => ({ ...x, from: f, to: e }))}>{t}</button>)}</div>
+      <div className="grid g3">
+        <Field label="من"><input type="date" className="inp" aria-label="من تاريخ" value={P.from} onChange={e => setP(x => ({ ...x, from: e.target.value }))} /></Field>
+        <Field label="إلى"><input type="date" className="inp" aria-label="إلى تاريخ" value={P.to} onChange={e => setP(x => ({ ...x, to: e.target.value }))} /></Field>
+        {brs.length > 1 && <Field label="الفرع"><select className="sel" aria-label="فرع التقرير" value={P.br} onChange={e => setP(x => ({ ...x, br: e.target.value }))}>{central && <option value="">كل الفروع</option>}{brs.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></Field>}
+      </div>
+    </div>
+    <div className="grid g4">
+      <Kpi label="دفعات محضّرة" value={String(S.totals.madeN)} sub="في الفترة" icon={ChefHat} color="#4FB286" />
+      <Kpi label="دفعات متلَفة" value={String(S.totals.wasteN)} sub={S.totals.madeN ? Math.round(S.totals.wasteN / S.totals.madeN * 1000) / 10 + '% من الدفعات' : '—'} icon={Trash2} color="#D9534F" />
+      <Kpi label="قيمة الهدر" value={val ? money(S.totals.value) : '—'} sub={val ? 'بتكلفة الوصفة' : central ? 'الوصفات بلا تكلفة' : 'تظهر للمركز'} icon={BarChart3} color="#E0A458" />
+      <Kpi label="أكثر سبب" value={S.byReason[0] ? WASTE_REASONS[S.byReason[0].reason] || S.byReason[0].reason : '—'} sub={S.byReason[0] ? S.byReason[0].n + ' دفعة' : 'لا هدر ✓'} icon={ClipboardList} color="#5B93C4" />
+    </div>
+    <div className="card">
+      <div className="card-t" style={{ marginBottom: 8 }}>حسب التحضيرة</div>
+      <div className="tw"><table className="tb" data-pwrrows>
+        <thead><tr><th>التحضيرة</th><th style={{ textAlign: 'end' }}>المحضَّر</th><th style={{ textAlign: 'end' }}>المتلَف</th><th style={{ textAlign: 'end' }}>نسبة الهدر</th><th>أكثر سبب</th>{val && <th style={{ textAlign: 'end' }}>القيمة</th>}</tr></thead>
+        <tbody>{S.rows.map(r => (<tr key={r.prepId} data-pwr-row={r.name}><td>{r.name}</td>
+          <td className="num" style={{ textAlign: 'end' }}>{q3(r.made)} <span style={{ color: 'var(--dim)', fontSize: 11 }}>{r.unit} · {r.madeN}</span></td>
+          <td className="num" style={{ textAlign: 'end', color: r.waste > 0 ? 'var(--rose)' : undefined }}>{q3(r.waste)} <span style={{ color: 'var(--dim)', fontSize: 11 }}>{r.unit} · {r.wasteN}</span></td>
+          <td style={{ textAlign: 'end' }}>{r.pct == null ? <span className="badge b-dim">—</span> : <span className={'badge ' + (r.pct >= 10 ? 'b-rose' : r.pct > 0 ? 'b-amber' : 'b-mint')} data-pwr-pct>{r.pct}%</span>}</td>
+          <td style={{ fontSize: 12 }}>{WASTE_REASONS[r.topReason] || '—'}</td>{val && <td className="num" style={{ textAlign: 'end' }}>{money(r.value)}</td>}</tr>))}
+          {!S.rows.length && <tr><td colSpan={6}><div className="empty">لا تحضير ولا هدر في الفترة</div></td></tr>}
+        </tbody></table></div>
+      {central && !P.br && S.byBranch.length > 0 && <>
+        <div className="card-t" style={{ margin: '14px 0 8px', fontSize: 13 }}>حسب الفرع</div>
+        <div className="tw"><table className="tb" data-pwrbr><thead><tr><th>الفرع</th><th style={{ textAlign: 'end' }}>دفعات متلَفة</th><th style={{ textAlign: 'end' }}>نسبة الهدر (كمية)</th>{val && <th style={{ textAlign: 'end' }}>القيمة</th>}</tr></thead>
+          <tbody>{S.byBranch.map(B => (<tr key={B.branchId}><td>{bn(B.branchId)}</td><td className="num" style={{ textAlign: 'end' }}>{B.wasteN}</td><td style={{ textAlign: 'end' }}>{B.pct == null ? '—' : B.pct + '%'}</td>{val && <td className="num" style={{ textAlign: 'end' }}>{money(B.value)}</td>}</tr>))}</tbody></table></div></>}
+      {S.byReason.length > 0 && <>
+        <div className="card-t" style={{ margin: '14px 0 8px', fontSize: 13 }}>حسب السبب</div>
+        <div className="row" style={{ gap: 6, flexWrap: 'wrap' }} data-pwrreasons>{S.byReason.map(Z => <span key={Z.reason} className="badge b-dim">{WASTE_REASONS[Z.reason] || Z.reason}: {Z.n}{val ? ' · ' + money(Z.value) : ''}</span>)}</div></>}
+    </div>
+  </div>);
+}
+
+/** شاشة «التحضير اليومي» في مركز الإغلاق (بجوار سجل سلامة الغذاء): الفرع يختار فرعه، والمركز يراقب أي فرع */
 export function PrepDaily({ org, ops, me, myBranches, commit, say }) {
   const brs = (myBranches && myBranches.length ? myBranches : (org.branches || [])).filter(b => b.isActive !== false);
   const [br, setBr] = useState(me?.branchId && brs.some(b => b.id === me.branchId) ? me.branchId : (brs[0] || {}).id || '');
+  const [tab, setTab] = useState('shelf');
   const wh = (org.warehouses || []).find(w => w && w.active !== false && w.kind === 'branch' && w.branchId === br);
   const ro = ['cost_controller', 'accountant_view'].includes(me?.role);
+  const central = (ROLES[me?.role] || {}).scope === 'all' || !!(ROLES[me?.role] || {}).costCtl;
   if (!brs.length) return <div className="card"><div className="empty">لا فروع</div></div>;
   return (<>
-    {brs.length > 1 && <div className="card" style={{ padding: 10 }}><div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}><ChefHat size={15} color="var(--brass)" /><b>الفرع</b>
-      <select className="sel" style={{ maxWidth: 260 }} aria-label="فرع التحضير" value={br} onChange={e => setBr(e.target.value)}>{brs.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></div></div>}
-    <PrepBatches key={br} org={org} ops={ops} me={me} commit={commit} say={say} whId={wh ? wh.id : ''} branchId={br} canAct={!ro} />
+    <div className="card" style={{ padding: 10 }}><div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+      <button className={'btn sm' + (tab === 'shelf' ? ' pri' : ' gh')} data-ptab="shelf" onClick={() => setTab('shelf')}><ChefHat size={13} />رف التحضير</button>
+      <button className={'btn sm' + (tab === 'waste' ? ' pri' : ' gh')} data-ptab="waste" onClick={() => setTab('waste')}><BarChart3 size={13} />تقرير الهدر</button>
+      {tab === 'shelf' && brs.length > 1 && <><b style={{ marginInlineStart: 'auto' }}>الفرع</b>
+        <select className="sel" style={{ maxWidth: 260 }} aria-label="فرع التحضير" value={br} onChange={e => setBr(e.target.value)}>{brs.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></>}
+    </div></div>
+    {tab === 'shelf' && <PrepBatches key={br} org={org} ops={ops} me={me} commit={commit} say={say} whId={wh ? wh.id : ''} branchId={br} canAct={!ro} />}
+    {tab === 'waste' && <PrepWasteReport org={org} ops={ops} brs={brs} central={central} say={say} />}
   </>);
 }
