@@ -1423,3 +1423,29 @@ test('v45.1 باركود غير معروف: المركز يضيف الصنف م�
   assert.equal(await b.p.locator('[data-itemadd]').count(), 0); assert.equal(await b.p.locator('[data-itemaddhint]').count(), 1);
   assert.deepEqual(b.errs, []); await b.ctx.close();
 });
+
+test('v45.2 المسح بالأرقام العربية أو بلوحة مفاتيح عربية: ملصق التحضير يُقرأ، والباركود يختار الصنف', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/Hub/bm/closehub:prepdaily');
+  await p.evaluate(() => { const now = Date.now(), H = 3600000, iso = (t) => new Date(t).toISOString();
+    window.setOrg(g => ({ ...g, preps: [{ id: 'pr1', name: 'صلصة ثوم', unit: 'كجم', shelfH: 24 }] }));
+    window.setOps(o => ({ ...o, prepBatches: [{ id: 'a', code: 'PMB7Q2K4XZ', branchId: 'b1', prepId: 'pr1', name: 'صلصة ثوم', unit: 'كجم', qty: 1, madeAt: iso(now - H), expAt: iso(now + 20 * H), status: 'shelf', by: 'سعد' }] })); });
+  await p.waitForTimeout(300);
+  const inp = 'input[aria-label="مسح ملصق التحضير"]';
+  for (const typed of ['حةلا٧ض٢ن٤ءئ', '؛\'لآ7َ2،4ْ~']) {
+    await p.locator(inp).pressSequentially(typed, { delay: 4 }); await p.press(inp, 'Enter'); await p.waitForTimeout(150);
+    assert.equal(await p.locator('[data-pbhit="ok"]').count(), 1, 'قُرئ: ' + typed);
+    assert.match(await p.locator('[data-pbhit="ok"]').innerText(), /PMB7Q2K4XZ/);
+  }
+  assert.deepEqual(errs, []); await ctx.close();
+  // الباركود بالأرقام العربية في بند أمر الشراء يختار الصنف تلقائيًا
+  const c = await open({ viewport: { width: 1300, height: 1000 } }, 'live/Hub/ho/purchasing:suppliers');
+  await c.p.evaluate(() => window.setOrg(g => ({ ...g, items: (g.items || []).map((x, i) => i === 0 ? { ...x, barcode: '6281000123456' } : x) })));
+  await c.p.waitForTimeout(200);
+  await c.p.locator('button', { hasText: 'أوامر الشراء' }).first().click(); await c.p.waitForTimeout(150);
+  await c.p.locator('button', { hasText: 'أمر شراء جديد' }).click(); await c.p.waitForTimeout(150);
+  await c.p.locator('input[aria-label="صنف البند 1 — بحث"]').pressSequentially('٦٢٨١٠٠٠١٢٣٤٥٦', { delay: 4 }); await c.p.waitForTimeout(150);
+  const id0 = await c.p.evaluate(() => window.curOrg.items[0].id);
+  assert.equal(await c.p.inputValue('select[aria-label="صنف البند 1"]'), id0);
+  assert.equal(await c.p.inputValue('input[aria-label="صنف البند 1 — بحث"]'), '', 'مُسح الحقل بعد الاختيار');
+  assert.deepEqual(c.errs, []); await c.ctx.close();
+});
