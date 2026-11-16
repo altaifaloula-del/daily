@@ -1369,3 +1369,26 @@ test('v44.7 عرض ورق الإيصال: إعداد عام 58 مم يُحفظ �
   assert.equal(await p.evaluate(() => localStorage.getItem('rms8:posPaper')), null, 'العودة للإعداد العام');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v45.0 جرد رف التحضير بالمسح: الموجود والمفقود والمنتهي وغير المتوقع، ويُحفظ في السجل', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Hub/bm/closehub:prepdaily');
+  await p.evaluate(() => { const now = Date.now(), H = 3600000, iso = (t) => new Date(t).toISOString();
+    const B = (id, code, st, exp, br) => ({ id, code, branchId: br || 'b1', prepId: 'pr1', name: 'صلصة ثوم', unit: 'كجم', qty: 1, madeAt: iso(now - 30 * H), expAt: iso(now + exp * H), status: st || 'shelf', by: 'سعد' });
+    window.setOrg(g => ({ ...g, preps: [{ id: 'pr1', name: 'صلصة ثوم', unit: 'كجم', shelfH: 48 }] }));
+    window.setOps(o => ({ ...o, prepCounts: [], prepBatches: [B('a', 'PA0001', 'shelf', 10), B('b', 'PB0002', 'shelf', 10), B('c', 'PC0003', 'shelf', -2), B('d', 'PD0004', 'used', 10), B('e', 'PE0005', 'shelf', 10, 'b2')] })); });
+  await p.waitForTimeout(300);
+  await p.locator('[data-cntstart]').click(); await p.waitForTimeout(100);
+  const inp = 'input[aria-label="مسح ملصق التحضير"]';
+  for (const c of ['PA0001', 'PC0003', 'PD0004', 'PE0005', 'ZZ9999']) { await p.locator(inp).pressSequentially(c, { delay: 4 }); await p.press(inp, 'Enter'); await p.waitForTimeout(80); }
+  await p.locator(inp).pressSequentially('PA0001', { delay: 4 }); await p.press(inp, 'Enter'); await p.waitForTimeout(80);
+  assert.match(await say(p), /مُسح من قبل/);
+  const n = async (k) => p.locator('[data-cntn="' + k + '"]').innerText();
+  assert.match(await n('found'), /موجود 2 من 3/); assert.match(await n('missing'), /1/); assert.match(await n('expired'), /1/); assert.match(await n('extra'), /3/);
+  assert.equal(await p.locator('[data-pbhit]').count(), 0, 'وضع الجرد لا يفتح بطاقة الدفعة');
+  await p.locator('[data-cntdone]').click(); await p.waitForTimeout(200);
+  const r = await p.evaluate(() => window.cur.prepCounts[0]);
+  assert.deepEqual([r.found.sort(), r.missing, r.expired, r.extra.map(x => x.why).sort(), r.shelf, r.viaScan], [['PA0001', 'PC0003'], ['PB0002'], ['PC0003'], ['other', 'unknown', 'used'], 3, 5]);
+  assert.equal(await p.locator('[data-cnthist] tbody tr').count(), 1);
+  assert.equal(await p.evaluate(() => window.cur.prepBatches.find(x => x.id === 'a').status), 'shelf', 'الجرد لا يغيّر حالة الدفعات');
+  assert.deepEqual(errs, []); await ctx.close();
+});

@@ -3,7 +3,7 @@
    قرارات المالك: يسجّلها مطبخ الفرع · الانتهاء آليًا من مدة صلاحية التحضيرة (يحددها المركز) · ملصق 50×30 مم.
    الإتلاف: التحضيرة المخزّنة صنفًا تُخصم هدرًا من مستودع الفرع بمسار الهدر الحالي (واعتماده)، وغيرها يُوثَّق على الدفعة. */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ScanLine, Printer, Check, Trash2, Plus, ChefHat, QrCode, PenLine, List } from 'lucide-react';
+import { ScanLine, Printer, Check, Trash2, Plus, ChefHat, QrCode, PenLine, List, ClipboardList, X } from 'lucide-react';
 import { Field, Kpi, Modal, PREP_ST, WASTE_REASONS, nowISO, prepBatchState, prepItemOf, prepShelfH, q3, submitWaste, today, uid, whName } from '../../App.jsx';
 
 const pad = (n) => String(n).padStart(2, '0');
@@ -25,6 +25,7 @@ export const VIA = { scan: ['b-mint', 'قارئ باركود', QrCode], manual: 
 const viaBadge = (v, attr) => { if (!v || !VIA[v]) return null; const [c, t, Ic] = VIA[v];
   return <span className={'badge ' + c} data-pbvia={attr || v} title={t} style={{ marginInlineStart: 4, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Ic size={13} aria-hidden="true" />{t}</span>; };
 
+const CNT_WHY = { unknown: 'ملصق غير معروف', other: 'من فرع آخر', used: 'مسجّل «استُخدم» وما زال على الرف', discarded: 'مسجّل «أُتلف» وما زال على الرف' };
 /** v44.5 — مقاسات الملصق: ورق حراري بمقاسات شائعة، أو ورقة A4 بـ 24 ملصقًا (3×8). الخطوط والباركود تتناسب مع المقاس */
 export const LABEL_SIZES = [
   { id: '50x30', ar: '50×30 مم (الافتراضي)', w: 50, h: 30 },
@@ -123,9 +124,33 @@ export function PrepBatches({ org, ops, me, commit, say, whId, branchId, canAct 
   };
   const keyT = useRef([]), pasted = useRef(false);
   const onScanKey = (e) => { if (e.key && e.key.length === 1) keyT.current.push(performance.now()); };
+  // v45.0 — جرد رف التحضير بالمسح: تُمسح كل الملصقات الموجودة فعلًا ثم يُقارن بالمسجّل على الرف
+  const [cnt, setCnt] = useState(null);   // { startAt, seen: [{code, id?, via, at}] }
+  const cntRes = cnt ? (() => {
+    const seenIds = new Set(cnt.seen.filter(x => x.id).map(x => x.id));
+    return { found: shelf.filter(b => seenIds.has(b.id)), missing: shelf.filter(b => !seenIds.has(b.id)),
+      expired: shelf.filter(b => seenIds.has(b.id) && b.S.st === 'expired'), extra: cnt.seen.filter(x => !x.id || !shelf.some(b => b.id === x.id)) };
+  })() : null;
+  const finishCnt = async () => {
+    if (!canAct) return say('للعرض فقط', 'no');
+    const R = cntRes; if (!cnt.seen.length) return say('امسح ملصقات الرف أولًا', 'no');
+    const rec = { id: uid('pc'), branchId, whId: whId || '', startAt: cnt.startAt, at: nowISO(), by: me.name, shelf: shelf.length,
+      found: R.found.map(b => b.code), missing: R.missing.map(b => b.code), expired: R.expired.map(b => b.code), extra: R.extra.map(x => ({ code: x.code, why: x.why })),
+      viaScan: cnt.seen.filter(x => x.via === 'scan').length, viaManual: cnt.seen.filter(x => x.via !== 'scan').length };
+    const ok = await commit(d => ({ ...d, prepCounts: [rec, ...(d.prepCounts || [])] }),
+      { actionType: 'create', targetType: 'stock_move', targetId: rec.id, branchName: whName(org, whId), title: 'جرد رف التحضير', details: 'موجود ' + rec.found.length + ' من ' + rec.shelf + ' · مفقود ' + rec.missing.length + ' · منتهٍ ' + rec.expired.length + ' · غير متوقع ' + rec.extra.length });
+    if (ok) { setCnt(null); say('حُفظ جرد الرف — ' + (rec.missing.length || rec.expired.length || rec.extra.length ? 'توجد فروقات تحتاج إجراء' : 'مطابق ✓')); }
+  };
+  const counts = (ops.prepCounts || []).filter(r => r.branchId === branchId).sort((a, b) => String(b.at).localeCompare(String(a.at)));
   const scan = (e) => {
     e.preventDefault(); const c = code.trim().toUpperCase(); setCode('');
     const via = scanVia(keyT.current, pasted.current); keyT.current = []; pasted.current = false; if (!c) return;
+    if (cnt) {   // وضع الجرد: يُضاف الملصق لقائمة الموجود (مرة واحدة) دون إجراء على الدفعة
+      if (cnt.seen.some(x => x.code === c)) { say('مُسح من قبل في هذا الجرد: ' + c, 'no'); return focusScan(); }
+      const b0 = (ops.prepBatches || []).find(x => String(x.code).toUpperCase() === c);
+      const why = !b0 ? 'unknown' : b0.branchId !== branchId ? 'other' : b0.status === 'used' ? 'used' : b0.status === 'discarded' ? 'discarded' : '';
+      setCnt(x => ({ ...x, seen: [{ code: c, id: b0 && !why ? b0.id : '', why, via, at: nowISO() }, ...x.seen] })); return focusScan();
+    }
     const b = (ops.prepBatches || []).find(x => String(x.code).toUpperCase() === c);
     if (!b) { setHit({ miss: c, via }); return focusScan(); }
     if (b.branchId !== branchId) { setHit({ other: b, via }); return focusScan(); }
@@ -160,24 +185,41 @@ export function PrepBatches({ org, ops, me, commit, say, whId, branchId, canAct 
       {canAct && ['ok', 'near', 'expired'].includes(st) && <button className={'btn sm' + (st === 'expired' ? ' pri' : ' gh')} data-pbdisc onClick={() => setDisc({ b, via, reason: st === 'expired' ? 'expired' : '', note: '' })}><Trash2 size={12} />إتلاف</button>}
     </div>); };
   const badge = (b) => { const S = prepBatchState(b, now); const [c, t] = PREP_ST[S.st] || ['b-dim', S.st]; return <span className={'badge ' + c} data-pbst={S.st}>{t}{(S.st === 'ok' || S.st === 'near') ? ' · ' + fmtLeft(S.left) : ''}</span>; };
-  const cnt = (st) => shelf.filter(b => b.S.st === st).length;
+  const nSt = (st) => shelf.filter(b => b.S.st === st).length;
 
   return (
     <div data-prepbatches>
       <div className="grid g4">
         <Kpi label="على رف التحضير" value={String(shelf.length)} sub="دفعات صالحة أو تحتاج إجراء" icon={ChefHat} color="#4FB286" />
-        <Kpi label="قارب الانتهاء" value={String(cnt('near'))} sub="ربع المدة أو أقل — يُستخدم أولًا" icon={ScanLine} color="#E0A458" />
-        <Kpi label="منتهٍ لم يُتلف" value={String(cnt('expired'))} sub={cnt('expired') ? 'أتلفه الآن' : 'لا شيء ✓'} icon={Trash2} color="#D9534F" />
+        <Kpi label="قارب الانتهاء" value={String(nSt('near'))} sub="ربع المدة أو أقل — يُستخدم أولًا" icon={ScanLine} color="#E0A458" />
+        <Kpi label="منتهٍ لم يُتلف" value={String(nSt('expired'))} sub={nSt('expired') ? 'أتلفه الآن' : 'لا شيء ✓'} icon={Trash2} color="#D9534F" />
         <Kpi label="اليوم" value={String(doneToday.length)} sub={doneToday.filter(b => b.status === 'used').length + ' استُخدم · ' + doneToday.filter(b => b.status === 'discarded').length + ' أُتلف'} icon={Check} color="#5B93C4" />
       </div>
 
       <div className="card">
-        <div className="card-t" style={{ marginBottom: 8 }}><ScanLine size={15} color="var(--brass)" />مسح الملصق</div>
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+          <div className="card-t"><ScanLine size={15} color="var(--brass)" />{cnt ? 'جرد الرف — امسح كل ملصق موجود' : 'مسح الملصق'}</div>
+          {canAct && !cnt && <button className="btn sm" data-cntstart onClick={() => { setCnt({ startAt: nowISO(), seen: [] }); setHit(null); focusScan(); }}><ClipboardList size={13} />جرد الرف</button>}
+          {cnt && <div className="row" style={{ gap: 6 }}><button className="btn sm pri" data-cntdone onClick={finishCnt}><Check size={13} />إنهاء وحفظ الجرد</button><button className="btn sm gh" onClick={() => setCnt(null)}><X size={13} />إلغاء</button></div>}
+        </div>
         <form onSubmit={scan} className="row" style={{ gap: 8 }}>
           <input ref={scanRef} autoFocus className="inp" style={{ flex: 1, fontSize: 16 }} aria-label="مسح ملصق التحضير" placeholder="امسح الباركود بالقارئ أو اكتب الرمز ثم Enter" value={code} onKeyDown={onScanKey} onPaste={() => { pasted.current = true; }} onChange={e => { if (!e.target.value) { keyT.current = []; pasted.current = false; } setCode(e.target.value); }} />
           <button className="btn pri" type="submit"><ScanLine size={14} />بحث</button>
         </form>
-        {hit && (hit.miss ? <div className="note" style={{ marginTop: 10, color: 'var(--rose)' }} data-pbhit="miss">ملصق غير معروف: <b dir="ltr">{hit.miss}</b>{viaBadge(hit.via, 'hit')}</div>
+        {cnt && cntRes && (
+          <div style={{ marginTop: 10 }} data-cntlive>
+            <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+              <span className="badge b-mint" data-cntn="found">موجود {cntRes.found.length} من {shelf.length}</span>
+              <span className={'badge ' + (cntRes.missing.length ? 'b-amber' : 'b-dim')} data-cntn="missing">لم يُمسح بعد {cntRes.missing.length}</span>
+              <span className={'badge ' + (cntRes.expired.length ? 'b-rose' : 'b-dim')} data-cntn="expired">منتهٍ على الرف {cntRes.expired.length}</span>
+              <span className={'badge ' + (cntRes.extra.length ? 'b-rose' : 'b-dim')} data-cntn="extra">غير متوقع {cntRes.extra.length}</span>
+            </div>
+            {cntRes.missing.length > 0 && <div className="note" style={{ marginBottom: 6 }}><b>لم يُمسح:</b> {cntRes.missing.map(b => b.name + ' (' + b.code + ')').join('، ')}</div>}
+            {cntRes.expired.length > 0 && <div className="note" style={{ marginBottom: 6, color: 'var(--rose)' }}><b>منتهٍ موجود — أتلفه:</b> {cntRes.expired.map(b => b.name + ' (' + b.code + ')').join('، ')}</div>}
+            {cntRes.extra.length > 0 && <div className="note" style={{ marginBottom: 6, color: 'var(--rose)' }}><b>غير متوقع:</b> {cntRes.extra.map(x => x.code + ' — ' + CNT_WHY[x.why]).join('، ')}</div>}
+            <div style={{ fontSize: 11.5, color: 'var(--dim)' }}>آخر ما مُسح: {cnt.seen.slice(0, 6).map((x, i) => <span key={i} style={{ marginInlineEnd: 6 }}><b dir="ltr">{x.code}</b>{viaBadge(x.via, 'cnt')}</span>)}</div>
+          </div>)}
+        {!cnt && hit && (hit.miss ? <div className="note" style={{ marginTop: 10, color: 'var(--rose)' }} data-pbhit="miss">ملصق غير معروف: <b dir="ltr">{hit.miss}</b>{viaBadge(hit.via, 'hit')}</div>
           : hit.other ? <div className="note" style={{ marginTop: 10, color: 'var(--rose)' }} data-pbhit="other">الدفعة <b dir="ltr">{hit.other.code}</b> تخص {whName(org, hit.other.whId) || 'فرعًا آخر'} — ليست من هذا المطبخ{viaBadge(hit.via, 'hit')}</div>
           : <div className="card" style={{ marginTop: 10, padding: 12, background: 'var(--ink2)' }} data-pbhit="ok">
               <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
@@ -235,6 +277,18 @@ export function PrepBatches({ org, ops, me, commit, say, whId, branchId, canAct 
               <td className="num" dir="ltr" style={{ fontSize: 11 }}>{fmtDT(b.status === 'used' ? b.usedAt : b.discardAt)}</td><td style={{ fontSize: 11, color: 'var(--faint)' }}>{b.status === 'used' ? b.usedBy : b.discardBy}{viaBadge(b.status === 'used' ? b.usedVia : b.discardVia)}</td></tr>))}
           </tbody></table></div></>}
       </div>
+
+      {counts.length > 0 && (
+        <div className="card" data-cnthist>
+          <div className="card-t" style={{ marginBottom: 8 }}><ClipboardList size={15} color="var(--brass)" />سجل جرد الرف</div>
+          <div className="tw"><table className="tb"><thead><tr><th>الوقت</th><th>بواسطة</th><th>موجود</th><th>مفقود</th><th>منتهٍ</th><th>غير متوقع</th></tr></thead><tbody>
+            {counts.slice(0, 20).map(r => (<tr key={r.id}><td className="num" dir="ltr" style={{ fontSize: 11 }}>{fmtDT(r.at)}</td><td style={{ fontSize: 12 }}>{r.by}</td>
+              <td className="num">{(r.found || []).length} / {r.shelf}</td>
+              <td title={(r.missing || []).join('، ')}><span className={'badge ' + ((r.missing || []).length ? 'b-amber' : 'b-mint')}>{(r.missing || []).length}</span></td>
+              <td title={(r.expired || []).join('، ')}><span className={'badge ' + ((r.expired || []).length ? 'b-rose' : 'b-mint')}>{(r.expired || []).length}</span></td>
+              <td title={(r.extra || []).map(x => x.code).join('، ')}><span className={'badge ' + ((r.extra || []).length ? 'b-rose' : 'b-mint')}>{(r.extra || []).length}</span></td></tr>))}
+          </tbody></table></div>
+        </div>)}
 
       {pv && (
         <Modal title={pv.isNew ? 'معاينة الملصق قبل الطباعة' : 'إعادة طباعة ملصق ' + pv.b.code} icon={Printer} onClose={() => setPv(null)}
