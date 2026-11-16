@@ -344,6 +344,8 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
           const ls = x.lines.map((l, i) => ({ ...l, received: q3((Number(l.received) || 0) + (takes[i] || 0)) }));
           return { ...x, lines: ls, status: ls.every(l => (Number(l.received) || 0) >= (Number(l.qty) || 0)) ? 'received' : 'partial', grns: [...(x.grns || []), g],
             ...(inv ? { invoiceId: x.invoiceId || inv.id, invoiceIds: [...new Set([...(x.invoiceIds || []), inv.id])] } : {}) }; }),
+        // v44.3: الفرع لا يرى الأسعار — حركات استلامه تأخذ تكلفة الوحدة من سعر الأمر عند الترحيل
+        whMoves: (d.whMoves || []).map(m => { if (m.grnRef !== r.id || m.kind !== 'purchase' || m.unitCost != null) return m; const l = lines.find(x => x.itemId === m.itemId); return l ? { ...m, unitCost: Math.round(l.price / (l.factor || 1) * 10000) / 10000 } : m; }),
         poReceipts: (d.poReceipts || []).map(x => x.id === r.id ? { ...x, status: 'posted', result: res, postedBy: me.name, postedAt: nowISO(), ...(whyNot ? { whyNot } : {}), ...(inv ? { invoiceId: inv.id, invoiceNo: inv.invoiceNo } : {}) } : x) };
     }, { actionType: 'update', targetType: 'purchase_order', targetId: p2.id, branchName: whName(org, r.whId), title: 'رحّل استلام فرع لأمر شراء',
       details: p2.poNo + ' · ' + r.no + ' · ' + (res === 'matched' ? 'مطابق — فاتورة ' + supNo : res === 'qc' ? 'بانتظار الفحص' : 'غير مطابق (' + whyNot + ')') });

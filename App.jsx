@@ -8363,7 +8363,7 @@ function syncPoInbox(org, ops) {
     const wid = poWhOf(org, po); const w = whOf(org).find(x => x.id === wid);
     if (!w || w.kind !== 'branch' || !w.branchId) return;
     out.push({ id: 'pib_' + po.id, poId: po.id, poNo: po.poNo || '', branchId: w.branchId, whId: wid, supplierId: po.supplierId || '', supplierName: po.supplierName || '', date: po.date || '',
-      lines: (po.lines || []).map(l => ({ itemId: l.itemId || '', desc: l.desc || '', qty: Number(l.qty) || 0, received: q3((Number(l.received) || 0) + (Number(l.inQc) || 0)), factor: Number(l.factor) || 1, uomName: l.uomName || '', price: Number(l.price) || 0, ...(l.note ? { note: l.note } : {}) })) });
+      lines: (po.lines || []).map(l => ({ itemId: l.itemId || '', desc: l.desc || '', qty: Number(l.qty) || 0, received: q3((Number(l.received) || 0) + (Number(l.inQc) || 0)), factor: Number(l.factor) || 1, uomName: l.uomName || '', ...(l.note ? { note: l.note } : {}) })) });   // كميات فقط — لا أسعار في مستند الفرع (قرار المالك)
   });
   if (JSON.stringify(ops.poInbox || []) === JSON.stringify(out)) return ops;
   return { ...ops, poInbox: out };

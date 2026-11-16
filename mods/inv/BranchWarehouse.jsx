@@ -99,7 +99,7 @@ export function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
   const pickImg = (fl) => new Promise((resolve, reject) => { const rd = new FileReader(); rd.onload = () => { const img = new Image(); img.onload = () => { const mx = 1100; const sc = Math.min(1, mx / Math.max(img.width, img.height)); const c = document.createElement('canvas'); c.width = Math.round(img.width * sc); c.height = Math.round(img.height * sc); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); resolve(c.toDataURL('image/jpeg', 0.66)); }; img.onerror = reject; img.src = String(rd.result); }; rd.onerror = reject; rd.readAsDataURL(fl); });
   const savePoR = async () => {
     const f = poR, p = f.p;
-    const lines = p.lines.map((l, i) => { const q = Math.min(Math.max(Number(f.qtys[i]) || 0, 0), poRem(p, l, i)); return q > 0 ? { li: i, itemId: l.itemId, desc: l.desc, ...(l.note ? { note: l.note } : {}), qty: q3(q), factor: l.factor || 1, uomName: l.uomName || '', price: Number(l.price) || 0 } : null; }).filter(Boolean);
+    const lines = p.lines.map((l, i) => { const q = Math.min(Math.max(Number(f.qtys[i]) || 0, 0), poRem(p, l, i)); return q > 0 ? { li: i, itemId: l.itemId, desc: l.desc, ...(l.note ? { note: l.note } : {}), qty: q3(q), factor: l.factor || 1, uomName: l.uomName || '' } : null; }).filter(Boolean);
     if (!lines.length) return say('أدخل كمية مستلمة لبند واحد على الأقل', 'no');
     if (!String(f.supInvNo || '').trim()) return say('أدخل رقم فاتورة المورد كما في ورقته', 'no');
     if (!((Number(f.supInvAmt) || 0) > 0)) return say('أدخل مبلغ فاتورة المورد (شامل الضريبة)', 'no');
@@ -111,7 +111,7 @@ export function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
       if (await cloud.set(key, { ...d0, items: [fr, ...(d0.items || [])] })) rec.docId = fr.id; else say('تعذّر حفظ صورة الفاتورة — يُحفظ الاستلام بدونها', 'no'); }
     if (inspect) { const sg = await signoff('grn', 'submit', rec, { branchId: wh.branchId }); if (!sg.ok) return say(sigFailMsg(sg, 'الاستلام'), 'no'); if (sg.id) rec = { ...rec, sigSubmit: sg.id }; }
     const moves = inspect ? [] : lines.map(l => { const it = (org.items || []).find(x => x.id === l.itemId); if (!l.itemId || (it && !isStocked(it))) return null; const fac = Number(l.factor) || 1;
-      return { id: uid('wm'), whId: wh.id, branchId: wh.branchId, itemId: l.itemId, kind: 'purchase', qty: q3(l.qty * fac), unitCost: Math.round(l.price / fac * 10000) / 10000, grnRef: rec.id, grn: rec.no, ref: p.poNo,
+      return { id: uid('wm'), whId: wh.id, branchId: wh.branchId, itemId: l.itemId, kind: 'purchase', qty: q3(l.qty * fac), grnRef: rec.id,   // التكلفة بسعر الأمر يضعها المركز عند الترحيل — الفرع لا يرى الأسعار grn: rec.no, ref: p.poNo,
         note: 'استلام ' + p.poNo + ' — ' + l.desc, date: rDate, by: me.name, at: nowISO() }; }).filter(Boolean);
     const ok = await commit(d => ({ ...d, poReceipts: [rec, ...(d.poReceipts || [])], whMoves: [...moves, ...(d.whMoves || [])] }),
       { actionType: 'create', targetType: 'purchase_order', targetId: rec.id, branchName: whName(org, wh.id), title: 'استلام الفرع لأمر شراء', details: p.poNo + ' · ' + rec.no + ' · فاتورة ' + rec.supInvNo + ' · ' + lines.length + ' بند' });

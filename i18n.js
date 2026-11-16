@@ -2267,6 +2267,22 @@ Object.assign(EN, {
 "طلب الشراء لم يعد قائمًا": "The purchase request no longer exists",
 "اكتب سبب الرفض": "Write the rejection reason"
 });
+
+// ===== v44.3 متابعة المخزون =====
+Object.assign(EN, {
+"إجمالي المخزون — كل المستودعات": "Total stock — all warehouses",
+"الإجمالي — كل المستودعات": "Total — all warehouses",
+"مخزون المستودع": "Warehouse stock",
+"تصفية الحركة بالصنف": "Filter movements by item",
+"عرض أرصدة المستودع وحركته": "Show the warehouse balances and movements",
+"اضغط اسم مستودع لعرض أرصدته وحركته · اللون البرتقالي: رصيد الفرع عند حد الطلب أو دونه": "Tap a warehouse name to see its balances and movements · orange: branch balance at or below the reorder level",
+"لا حركات": "No movements",
+"في الطريق": "In transit",
+"الحركة": "Movement",
+"لا أرصدة بعد": "No balances yet",
+"كل الأصناف": "All items",
+"بواسطة": "By"
+});
 export const TX = (ar) => (LANG === 'en' && ar && EN[ar]) || ar;
 
 /* v43.1 مترجم الشاشة: في الوضع الإنجليزي يترجم نصوص الواجهة (عُقد النص + placeholder/title/aria-label) بمطابقة القاموس حرفيًا،
@@ -2326,6 +2342,7 @@ export const EN_RX = [
   [/^استلام أمر الشراء (\S+)$/, 'Receive PO $1'], [/^أُرسل طلب الشراء (\S+) للمشتريات المركزية ✓$/, 'Purchase request $1 sent to central purchasing ✓'], [/^رُفض الطلب (\S+) ✓$/, 'Request $1 rejected ✓'], [/^رُحّل الاستلام (\S+) ✓$/, 'Receipt $1 posted ✓'],
   [/^سُجّل استلام (\S+) ودخلت الأصناف مستودعك · يرحّله المركز: فاتورة تلقائية عند المطابقة ✓$/, 'Receipt of $1 recorded and the items entered your warehouse · central posts it: automatic invoice when matched ✓'],
   [/^سُجّل استلام (\S+) — بانتظار الفحص قبل دخول المستودع · يرحّله المركز: فاتورة تلقائية عند المطابقة ✓$/, 'Receipt of $1 recorded — awaiting inspection before entering the warehouse · central posts it: automatic invoice when matched ✓'],
+  [/^حركة (المستودع الرئيسي|مستودع .+)$/, (_, x) => (EN[x] || x) + ' movements'], [/^تحويل صادر إلى (.+)$/, (_, x) => 'Transfer out to ' + (EN[x] || x)], [/^تحويل وارد من (.+)$/, (_, x) => 'Transfer in from ' + (EN[x] || x)],
   [/^أقصى مبلغ متاح (.+) ر\.س — يمكنك تعديله يدوياً$/, 'Max available $1 SAR — you can edit it manually'],
   [/^(\d{1,2}) (يناير|فبراير|مارس|أبريل|مايو|يونيو|يوليو|أغسطس|سبتمبر|أكتوبر|نوفمبر|ديسمبر) (\d{4})$/, (_, d, m, y) => d + ' ' + MONTHS[m] + ' ' + y]
 ];

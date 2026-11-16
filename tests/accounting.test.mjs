@@ -1242,6 +1242,7 @@ test('v44.3 مستودع الأمر ونسخة الفرع: المعتمد الم
   const o = E.syncPoInbox(org, ops);
   assert.deepEqual(o.poInbox.map(x => [x.id, x.branchId, x.whId]), [['pib_p1', 'b1', 'wh-b1']], 'المعتمد قيد التوريد لمستودع فرع فقط');
   assert.equal(o.poInbox[0].lines[0].received, 5, 'المستلم + قيد الفحص');
+  assert.equal(JSON.stringify(o.poInbox).includes('price'), false, 'لا أسعار في مستند الفرع');
   assert.equal(E.syncPoInbox(org, o), o, 'لا تغيير ⇒ نفس الكائن (لا كتابة)');
   assert.equal(E.syncPoInbox({}, ops), ops, 'بلا مستودعات لا شيء');
 });
