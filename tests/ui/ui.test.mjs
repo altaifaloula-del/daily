@@ -1345,3 +1345,17 @@ test('v44.5 التحضير اليومي بالباركود: تسجيل دفعة 
   assert.equal(await p.locator('[data-pbhit="miss"]').count(), 1);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v44.7 عرض ورق الإيصال: إعداد عام 58 مم يُحفظ في إعدادات نقطة البيع، وتخصيص الجهاز على الجهاز فقط', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosSettings/admin');
+  await p.waitForTimeout(300);
+  assert.equal(await p.inputValue('select[aria-label="عرض ورق الإيصال"]'), '80', 'الافتراضي 80');
+  assert.equal(await p.inputValue('select[aria-label="عرض الورق لهذا الجهاز"]'), '', 'مثل الإعداد العام');
+  await p.selectOption('select[aria-label="عرض ورق الإيصال"]', '58'); await p.selectOption('select[aria-label="عرض الورق لهذا الجهاز"]', '80');
+  await p.locator('.card button.pri', { hasText: /^حفظ$/ }).click(); await p.waitForTimeout(250);
+  const r = await p.evaluate(() => ({ org: (window.curOrg.posCfg || {}).paper, dev: localStorage.getItem('rms8:posPaper') }));
+  assert.deepEqual(r, { org: '58', dev: '80' });
+  await p.selectOption('select[aria-label="عرض الورق لهذا الجهاز"]', ''); await p.locator('.card button.pri', { hasText: /^حفظ$/ }).click(); await p.waitForTimeout(250);
+  assert.equal(await p.evaluate(() => localStorage.getItem('rms8:posPaper')), null, 'العودة للإعداد العام');
+  assert.deepEqual(errs, []); await ctx.close();
+});

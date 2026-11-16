@@ -1285,3 +1285,15 @@ test('v44.5 التخزين والدليل: الدفعات في مستند الف
   const line = dir.split('\n').find(l => l.includes('preps: (org.preps'));
   assert.ok(line && line.includes('shelfH') && !line.includes('parts') && !line.includes('cost'), line);
 });
+
+// ===== v44.7 — عرض ورق الإيصال 58/80 مم =====
+test('v44.7 عرض ورق الإيصال: 80 مم افتراضيًا، و58 مم من إعداد نقطة البيع — للفاتورة المبسّطة وتقرير الوردية', () => {
+  const o = { no: 'S-1', at: '2026-11-16T10:00:00Z', lines: [{ name: 'شاورما', qty: 1, price: 15, total: 15 }], total: 15, vat: 1.96, payments: [{ m: 'cash', amount: 15 }] };
+  const br = { id: 'b1', name: 'ف1' };
+  assert.equal(E.posPaper({}), '80'); assert.equal(E.posPaper({ posCfg: { paper: '58' } }), '58'); assert.equal(E.posPaper({ posCfg: { paper: 'x' } }), '80');
+  const h80 = E.posReceiptHtml({ company: { name: 'م' } }, o, br), h58 = E.posReceiptHtml({ company: { name: 'م' }, posCfg: { paper: '58' } }, o, br);
+  assert.match(h80, /size:80mm auto/); assert.match(h80, /width:74mm/); assert.doesNotMatch(h80, /58mm/);
+  assert.match(h58, /size:58mm auto/); assert.match(h58, /width:54mm/); assert.doesNotMatch(h58, /80mm/);
+  const z = E.posShiftHtml({ company: { name: 'م' }, posCfg: { paper: '58' } }, { openingCash: 0 }, [o], br, 'X');
+  assert.match(z, /size:58mm auto/); assert.doesNotMatch(z, /80mm/);
+});
