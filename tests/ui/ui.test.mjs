@@ -1392,3 +1392,34 @@ test('v45.0 جرد رف التحضير بالمسح: الموجود والمفق
   assert.equal(await p.evaluate(() => window.cur.prepBatches.find(x => x.id === 'a').status), 'shelf', 'الجرد لا يغيّر حالة الدفعات');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v45.1 باركود غير معروف: المركز يضيف الصنف من بند أمر الشراء ويُختار فورًا، والفرع يرى «اطلب من المركز»', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/Hub/ho/purchasing:suppliers');
+  await p.waitForTimeout(300);
+  await p.locator('button', { hasText: 'أوامر الشراء' }).first().click(); await p.waitForTimeout(200);
+  await p.locator('button', { hasText: 'أمر شراء جديد' }).click(); await p.waitForTimeout(200);
+  const n0 = await p.evaluate(() => window.curOrg.items.length);
+  await p.locator('input[aria-label="صنف البند 1 — بحث"]').pressSequentially('6281000123456', { delay: 5 }); await p.waitForTimeout(150);
+  await p.locator('[data-itemadd]').click(); await p.waitForTimeout(150);
+  assert.equal(await p.inputValue('input[aria-label="باركود الصنف الجديد"]'), '6281000123456', 'الباركود الممسوح مكتوب مسبقًا');
+  await p.fill('input[aria-label="اسم الصنف الجديد"]', 'زيت زيتون'); await p.fill('input[aria-label="وحدة الصنف الجديد"]', 'لتر');
+  await p.locator('[data-itemaddsave]').click(); await p.waitForTimeout(150);
+  assert.match(await say(p), /اختر تصنيف الصنف/, 'التصنيف إلزامي');
+  await p.locator('[data-qtype="stock"]').click(); await p.locator('[data-itemaddsave]').click(); await p.waitForTimeout(300);
+  const it = await p.evaluate(() => window.curOrg.items[window.curOrg.items.length - 1]);
+  assert.deepEqual([it.name, it.unit, it.type, it.barcode, /^ITM-\d{4}$/.test(it.code)], ['زيت زيتون', 'لتر', 'stock', '6281000123456', true]);
+  assert.equal(await p.evaluate(() => window.curOrg.items.length), n0 + 1);
+  assert.equal(await p.inputValue('select[aria-label="صنف البند 1"]'), it.id, 'اختير الصنف الجديد في البند');
+  // باركود مكرر ⇒ مرفوض
+  await p.locator('button', { hasText: 'بند إضافي' }).click(); await p.waitForTimeout(100);
+  await p.locator('input[aria-label="صنف البند 2 — بحث"]').pressSequentially('9999999999', { delay: 5 }); await p.locator('[data-itemadd]').click(); await p.waitForTimeout(100);
+  await p.fill('input[aria-label="باركود الصنف الجديد"]', '6281000123456'); await p.fill('input[aria-label="اسم الصنف الجديد"]', 'مكرر'); await p.locator('[data-qtype="consumable"]').click(); await p.locator('[data-itemaddsave]').click(); await p.waitForTimeout(150);
+  assert.match(await say(p), /مستخدم للصنف «زيت زيتون»/);
+  assert.deepEqual(errs, []); await ctx.close();
+  // الفرع: لا إضافة — تنبيه فقط
+  const b = await open({ viewport: { width: 1300, height: 900 } }, 'live/BranchWarehouse/bm');
+  await b.p.locator('button', { hasText: 'طلب شراء' }).first().click(); await b.p.waitForTimeout(150);
+  await b.p.locator('input[aria-label="صنف الطلب 1 — بحث"]').pressSequentially('6281000999999', { delay: 5 }); await b.p.waitForTimeout(150);
+  assert.equal(await b.p.locator('[data-itemadd]').count(), 0); assert.equal(await b.p.locator('[data-itemaddhint]').count(), 1);
+  assert.deepEqual(b.errs, []); await b.ctx.close();
+});

@@ -196,7 +196,7 @@ export function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
           <div style={{ fontSize: 12.5, color: 'var(--dim)', marginBottom: 10, lineHeight: 1.8 }}>طلب شراء من المورد لمستودعك — تراجعه المشتريات المركزية وتختار المورد والسعر وتحوّله لأمر شراء يُسلَّم لمستودعك مباشرة، أو ترفضه بسبب.</div>
           {prF.lines.map((l, i) => (
             <div key={i} className="row" style={{ gap: 6, alignItems: 'flex-end', marginBottom: 6, flexWrap: 'wrap' }}>
-              <div style={{ flex: '2 1 220px' }}><ItemPick items={allItems} value={l.itemId} label={'صنف الطلب ' + (i + 1)} onChange={(id) => setPrF(f => ({ ...f, lines: f.lines.map((x, k) => k === i ? { ...x, itemId: id } : x) }))} /></div>
+              <div style={{ flex: '2 1 220px' }}><ItemPick items={allItems} value={l.itemId} label={'صنف الطلب ' + (i + 1)} addHint onChange={(id) => setPrF(f => ({ ...f, lines: f.lines.map((x, k) => k === i ? { ...x, itemId: id } : x) }))} /></div>
               <input className="inp n" style={{ width: 110 }} inputMode="decimal" placeholder={'الكمية' + (itemOf(l.itemId).unit ? ' (' + itemOf(l.itemId).unit + ')' : '')} aria-label={'كمية الطلب ' + (i + 1)} value={l.qty} onChange={e => setPrF(f => ({ ...f, lines: f.lines.map((x, k) => k === i ? { ...x, qty: e.target.value.replace(/[^\d.]/g, '') } : x) }))} />
               <input className="inp" style={{ flex: '1 1 160px' }} placeholder="ملاحظة (اختياري)" value={l.note} onChange={e => setPrF(f => ({ ...f, lines: f.lines.map((x, k) => k === i ? { ...x, note: e.target.value } : x) }))} />
               {prF.lines.length > 1 && <button className="btn sm gh" onClick={() => setPrF(f => ({ ...f, lines: f.lines.filter((_, k) => k !== i) }))}><X size={13} /></button>}

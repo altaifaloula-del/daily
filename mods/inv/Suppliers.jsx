@@ -26,6 +26,8 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
   const fixed = (ops.fixedExpenses || []).filter(f => ids.includes(f.branchId));
   const suppliers = org.suppliers || [];
   const canPay = ROLES[me.role]?.scope !== 'own';
+  // v45.1: إضافة صنف من باركود غير معروف — للمركز فقط (كصلاحية نموذج الأصناف: نطاق الكل عدا مراقب التكاليف)
+  const canAddItem = ROLES[me.role]?.scope === 'all' && !ROLES[me.role]?.costCtl;
 
   // سدادات الفروع المرتبطة بالفواتير (من الإغلاقات المرحّلة/المعتمدة) — تُحتسب دون تعديل الفاتورة فلا ازدواج
   const branchPaid = (invId) => sum(
@@ -1020,7 +1022,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
             <div className="lbl" style={{ margin: '4px 0 6px' }}>البنود — من الأصناف المضافة{isFx(newInv.cur) ? ' (الأسعار بـ ' + newInv.cur + ')' : ''}</div>
             {(newInv.lines || []).map((l, i) => { const it = items.find(x => x.id === l.itemId); return (
               <div key={i} className="row" style={{ gap: 6, marginBottom: 6, flexWrap: 'wrap', alignItems: 'center' }} data-invline>
-                <ItemPick items={items} label={'صنف البند ' + (i + 1)} value={l.itemId} onChange={(id) => setNewInv(f => ({ ...f, lines: f.lines.map((x, k2) => k2 === i ? { ...x, itemId: id, price: x.price || String(((items.find(y => y.id === id) || {}).lastPrice) || '') } : x) }))} />
+                <ItemPick items={items} label={'صنف البند ' + (i + 1)} value={l.itemId} quickAdd={canAddItem ? { commitOrg, say } : undefined} addHint onChange={(id) => setNewInv(f => ({ ...f, lines: f.lines.map((x, k2) => k2 === i ? { ...x, itemId: id, price: x.price || String(((items.find(y => y.id === id) || {}).lastPrice) || '') } : x) }))} />
                 <input className="inp n" style={{ width: 90 }} inputMode="decimal" placeholder={'الكمية' + (it ? ' (' + it.unit + ')' : '')} aria-label={'كمية البند ' + (i + 1)} value={l.qty} onChange={e => setNewInv(f => ({ ...f, lines: f.lines.map((x, k2) => k2 === i ? { ...x, qty: e.target.value.replace(/[^\d.]/g, '') } : x) }))} />
                 <input className="inp n" style={{ width: 100 }} inputMode="decimal" placeholder="سعر الوحدة" aria-label={'سعر البند ' + (i + 1)} value={l.price} onChange={e => setNewInv(f => ({ ...f, lines: f.lines.map((x, k2) => k2 === i ? { ...x, price: e.target.value.replace(/[^\d.]/g, '') } : x) }))} />
                 {it && <span className={'badge ' + (isStocked(it) ? 'b-sky' : 'b-dim')}>{isStocked(it) ? 'يدخل المخزون' : 'مصروف'}</span>}
@@ -1058,7 +1060,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
           <div className="lbl" style={{ margin: '4px 0 6px' }}>البنود — اختر كل بند من الأصناف المضافة (بالرمز أو الاسم أو الباركود)</div>
           {(poF.lines || []).map((l, i) => (
             <div key={i} className="row" style={{ gap: 7, marginBottom: 7, flexWrap: 'wrap' }}>
-              <ItemPick items={items} label={'صنف البند ' + (i + 1)} value={l.itemId}
+              <ItemPick items={items} label={'صنف البند ' + (i + 1)} value={l.itemId} quickAdd={canAddItem ? { commitOrg, say } : undefined} addHint
                 onChange={(id) => { const it = items.find(x => x.id === id); setPoF(f => ({ ...f, lines: f.lines.map((x, k) => k === i ? { ...x, itemId: id, uom: it && it.purchaseUnit && pFactor(it) > 1 ? 'p' : 'b', desc: it ? it.name : '' } : x) })); }} />
               {(() => { const it = items.find(x => x.id === l.itemId); return it && it.purchaseUnit && pFactor(it) > 1 ? (
                 <select className="sel" style={{ width: 120 }} value={l.uom || 'p'} onChange={e => setPoF(f => ({ ...f, lines: f.lines.map((x, k) => k === i ? { ...x, uom: e.target.value } : x) }))}>

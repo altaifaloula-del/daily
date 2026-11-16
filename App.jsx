@@ -2878,7 +2878,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v45.0';
+const APP_VER = 'v45.1';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -7991,8 +7991,9 @@ const nextItemCode = (items) => { let mx = 0; itemsSeq(items).forEach(it => { co
 const vatNoOk = (v) => /^3\d{13}3$/.test(String(v || '').replace(/\s/g, ''));
 const supVatOf = (org, supplierId) => { const sp = (org.suppliers || []).find(x => x.id === supplierId) || {}; return String(sp.vatNo || sp.tax || '').replace(/\s/g, ''); };
 /** اختيار صنف من الأصناف المضافة مرتّبة بالرمز التسلسلي — بحث بالرمز أو الاسم أو الباركود (المسح بالماسح يختار مباشرة) */
-function ItemPick({ items, value, onChange, label, filter, style }) {
+function ItemPick({ items, value, onChange, label, filter, style, quickAdd, addHint }) {
   const [q, setQ] = useState('');
+  const [qa, setQa] = useState(null);   // v45.1 إضافة صنف بالباركود الممسوح غير المعروف (للمركز)
   const all = useMemo(() => itemsSeq(items).filter(it => it.isActive !== false && (!filter || filter(it))), [items, filter]);
   const qq = q.trim().toLowerCase();
   const list = qq ? all.filter(it => [it.code, it.name, it.barcode].some(x => String(x || '').toLowerCase().includes(qq))) : all;
@@ -8005,7 +8006,42 @@ function ItemPick({ items, value, onChange, label, filter, style }) {
         {list.map(it => <option key={it.id} value={it.id}>{it.code} · {it.name} ({it.unit}){itemType(it) !== 'stock' && itemType(it) !== 'sale' ? ' — ' + ITEM_TYPES[itemType(it)].short : ''}{it.barcode ? ' · ' + it.barcode : ''}</option>)}
         {value && !list.some(it => it.id === value) && (() => { const it = all.find(x => x.id === value); return it ? <option value={it.id}>{it.code} · {it.name}</option> : null; })()}
       </select>
+      {qq.length >= 3 && !list.length && (quickAdd
+        ? <button type="button" className="btn sm" data-itemadd onClick={() => setQa({ name: '', unit: '', type: '', barcode: /^[A-Za-z0-9-]+$/.test(q.trim()) ? q.trim() : '', nameQ: /^[A-Za-z0-9-]+$/.test(q.trim()) ? '' : q.trim() })}>+ إضافة صنف{/^[A-Za-z0-9-]+$/.test(q.trim()) ? ' بهذا الباركود' : ''}</button>
+        : addHint ? <span className="hint" data-itemaddhint style={{ color: 'var(--amber, #E0A458)', alignSelf: 'center' }}>غير مضاف — اطلب من المركز إضافته</span> : null)}
+      {qa && <ItemQuickAdd init={qa} items={items} quickAdd={quickAdd} onClose={() => setQa(null)} onDone={(rec) => { setQa(null); setQ(''); onChange(rec.id); }} />}
     </div>);
+}
+// v45.1 — إضافة صنف سريعة من حقل اختيار الصنف عند باركود غير معروف (المركز فقط — قرار المالك):
+//   نفس قواعد نموذج الأصناف: الاسم والتصنيف إلزاميان، والباركود لا يتكرر، والرمز التسلسلي يُمنح تلقائيًا
+function ItemQuickAdd({ init, items, quickAdd, onClose, onDone }) {
+  const [f, setF] = useState({ name: init.nameQ || '', unit: '', type: '', barcode: init.barcode || '' });
+  const save = async () => {
+    const say = quickAdd.say;
+    if (!f.name.trim()) return say('أدخل اسم الصنف', 'no');
+    if (!ITEM_TYPES[f.type]) return say('اختر تصنيف الصنف: مخزني أو استهلاكي أو خدمي', 'no');
+    const bc = String(f.barcode || '').trim();
+    if (bc) { const dup = (items || []).find(x => String(x.barcode || '').trim() === bc); if (dup) return say('الباركود ' + bc + ' مستخدم للصنف «' + dup.name + '»', 'no'); }
+    const rec = { id: uid('it'), name: f.name.trim(), unit: f.unit.trim() || 'وحدة', cost: 0, minQty: 0, isActive: true, type: f.type, barcode: bc, code: nextItemCode(items || []), purchaseUnit: '', purchaseFactor: 1 };
+    const ok = await quickAdd.commitOrg(d => { const seq = itemsSeq(d.items || []); const its = (d.items || []).map(x => x.code ? x : { ...x, code: (seq.find(y => y.id === x.id) || {}).code });
+      return { ...d, items: [...its, { ...rec, code: nextItemCode(its) }] }; },
+      { actionType: 'create', targetType: 'stock_item', targetId: rec.id, title: 'أضاف صنفًا من الباركود الممسوح', details: rec.name + (bc ? ' · ' + bc : '') + ' · ' + ITEM_TYPES[rec.type].short });
+    if (ok === false) return;
+    say('أُضيف الصنف «' + rec.name + '» ✓'); onDone(rec);
+  };
+  return (
+    <Modal title="إضافة صنف جديد" icon={Plus} onClose={onClose}
+      foot={<><button className="btn pri" data-itemaddsave onClick={save}><Check size={14} />إضافة واختيار</button><button className="btn gh" onClick={onClose}>إلغاء</button></>}>
+      <div className="grid g2">
+        <Field label="اسم الصنف"><input className="inp" aria-label="اسم الصنف الجديد" autoFocus value={f.name} onChange={e => setF(x => ({ ...x, name: e.target.value }))} /></Field>
+        <Field label="الوحدة"><input className="inp" aria-label="وحدة الصنف الجديد" value={f.unit} placeholder="كجم، حبة، لتر…" onChange={e => setF(x => ({ ...x, unit: e.target.value }))} /></Field>
+        <Field label="الباركود"><input className="inp num" dir="ltr" aria-label="باركود الصنف الجديد" value={f.barcode} onChange={e => setF(x => ({ ...x, barcode: e.target.value }))} /></Field>
+      </div>
+      <div className="lbl" style={{ margin: '6px 0' }}>التصنيف (إلزامي)</div>
+      <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>{ITEM_NEW_TYPES.map(t => <button key={t} type="button" data-qtype={t} className={'btn sm' + (f.type === t ? ' pri' : ' gh')} onClick={() => setF(x => ({ ...x, type: t }))}>{ITEM_TYPES[t].short}</button>)}</div>
+      {f.type && <div className="hint" style={{ marginTop: 6 }}>{ITEM_TYPES[f.type].ar}</div>}
+      <div className="note" style={{ marginTop: 8 }}>يُمنح رمزًا تسلسليًا تلقائيًا. التكلفة وحد الطلب ووحدة الشراء تُكمَّل لاحقًا من «المخزون ← الأصناف».</div>
+    </Modal>);
 }
 const pFactor = (it) => Math.max(1, Number(it && it.purchaseFactor) || 1);
 // v30.5 — دفتر التكلفة: يعيد تشغيل الحركات زمنيًا ويعطي لكل حدث متوسطه لحظة وقوعه (لقيود الجرد المستمر)
