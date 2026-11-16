@@ -1333,3 +1333,9 @@ test('v45.3 هدر التحضير: المحضَّر بتاريخ الإنتاج 
   assert.deepEqual(b1.byBranch.map(b => [b.branchId, b.wasteN]), [['b1', 2]]);
   assert.equal(E.prepWasteStats({ preps: [{ id: 'p1', name: 'صلصة ثوم', unit: 'كجم', shelfH: 24 }] }, ops, { from: '2026-11-05', to: '2026-11-30' }).hasValue, false, 'الفرع بلا تكاليف');
 });
+
+test('v45.4 صورة المنتج تصل أجهزة الفروع مع المنتج في الدليل (بلا الوصفة)', async () => {
+  const src = Buffer.from((await import('node:fs')).readFileSync(new URL('../App.jsx', import.meta.url))).toString('utf8');
+  const line = /function dirOf\(org\) \{[\s\S]*?\n\}/.exec(src)[0].split('\n').find(l => l.includes('products: (org.products'));
+  assert.ok(line.includes('img: p.img') && !line.includes('parts'), line);
+});

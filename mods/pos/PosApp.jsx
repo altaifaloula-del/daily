@@ -15,6 +15,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const dev = useMemo(posDev, []);
   const rate = (org.taxCfg || {}).enabled ? (Number((org.taxCfg || {}).rate) || 15) : 0;
   const prods = (org.products || []).filter(p => !p.posOff && Number(p.sellPrice) > 0);
+  const noImg = !!(org.posCfg || {}).noImg;   // v45.4: إخفاء صور المنتجات من إعدادات نقطة البيع
   const cats = [...new Set(prods.map(p => p.cat || 'أخرى'))];
   const [cat, setCat] = useState(''); const [q, setQ] = useState('');
   const [cart, setCart] = useState([]); const [channel, setChannel] = useState('takeaway');
@@ -193,6 +194,8 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   .pos-ticket.late{border-color:var(--rose);box-shadow:inset 3px 0 0 var(--rose)} .pos-ticket ul{margin:0;padding-inline-start:18px} .pos-ticket li small{color:var(--dim)}
   @media(max-width:700px){.pos-kds{grid-template-columns:repeat(3,minmax(230px,82vw))}}
   .pos-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:9px}
+  .pos-tile-img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:10px;display:block;background:var(--ink3,#f3f3f3)}
+  .pos-tile.has-img{padding:7px 7px 10px;justify-content:flex-start}
   .pos-tile{border:1px solid var(--line);border-radius:14px;background:var(--ink2);padding:12px;min-height:104px;display:flex;flex-direction:column;justify-content:space-between;gap:6px;cursor:pointer;text-align:start;font:inherit;color:var(--txt)}
   .pos-tile:active{transform:scale(.97)} .pos-tile b{font-size:14.5px;line-height:1.4} .pos-tile .num{font-size:15px;font-weight:700;color:var(--txt)}
   .pos-tile.on{border:2px solid var(--brand-fill,var(--brass));padding:11px 7px}
@@ -240,6 +243,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   @media(max-width:900px){.pos-wrap{grid-template-columns:1fr}.pos-cart{display:none}.pos-cart.open{display:block;position:fixed;inset:auto 0 calc(72px + env(safe-area-inset-bottom)) 0;max-height:calc(100dvh - 200px - env(safe-area-inset-bottom));overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;z-index:60;border-radius:18px;margin:0 6px;padding-bottom:14px;box-shadow:0 -10px 34px rgba(0,0,0,.35)}
     .pos-fab{display:flex;position:sticky;bottom:10px;z-index:55;width:100%;justify-content:space-between;align-items:center;min-height:58px;padding:0 18px;font-size:16px;font-weight:700;border-radius:14px;margin-top:10px;box-shadow:0 8px 24px rgba(0,0,0,.25);background:var(--txt) !important;color:var(--ink2) !important;background-image:none !important}
     .pos-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .pos-tile-img{aspect-ratio:16/9}
     .pos-head .pos-sub{max-width:180px}}`;
   const pendingBadge = (queue.length || pendClose || (localShift && localShift.branchId === (br || {}).id)) ? <span className="badge b-amber">⏳ {queue.length ? queue.length + ' فاتورة' : ''}{pendClose || localShift ? (queue.length ? ' + ' : '') + 'وردية' : ''} بانتظار الإرسال</span> : <span className="badge b-mint">متزامن ✓</span>;
   // v34.15: «إرسال الآن» — ينتظر أي إرسال جارٍ ثم يرسل فورًا ويعرض النتيجة
@@ -377,7 +381,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
               <button className={'btn sm' + (!cat ? ' pri' : ' gh')} onClick={() => setCat('')}>الكل</button>
               {cats.map(c => <button key={c} className={'btn sm' + (cat === c ? ' pri' : ' gh')} onClick={() => setCat(c)}>{c}</button>)}
             </div>
-            <div className="pos-tiles">{shown.map(p => { const tg = tileTag(p); const inCart = cart.filter(l => l.productId === p.id).reduce((a, l) => a + l.qty, 0); return <button key={p.id} className={'pos-tile' + (inCart ? ' on' : '')} onClick={() => add(p)}>{tg && <i style={{ fontStyle: 'normal', fontSize: 10, background: 'var(--mint)', color: '#fff', borderRadius: 6, padding: '1px 6px', alignSelf: 'center' }}>🏷 {tg}</i>}<b>{p.name}</b><span className="pos-tile-f"><span className="num">{money(p.sellPrice)}</span>{inCart > 0 && <span className="num pos-qty" dir="ltr" style={{ unicodeBidi: 'isolate' }}>×{inCart}</span>}</span></button>; })}</div>
+            <div className="pos-tiles">{shown.map(p => { const tg = tileTag(p); const inCart = cart.filter(l => l.productId === p.id).reduce((a, l) => a + l.qty, 0); return <button key={p.id} className={'pos-tile' + (inCart ? ' on' : '') + (p.img && !noImg ? ' has-img' : '')} onClick={() => add(p)}>{p.img && !noImg && <img className="pos-tile-img" src={p.img} alt="" loading="lazy" draggable={false} />}{tg && <i style={{ fontStyle: 'normal', fontSize: 10, background: 'var(--mint)', color: '#fff', borderRadius: 6, padding: '1px 6px', alignSelf: 'center' }}>🏷 {tg}</i>}<b>{p.name}</b><span className="pos-tile-f"><span className="num">{money(p.sellPrice)}</span>{inCart > 0 && <span className="num pos-qty" dir="ltr" style={{ unicodeBidi: 'isolate' }}>×{inCart}</span>}</span></button>; })}</div>
             {!shown.length && (q.trim() || cat ? <div className="card"><div className="empty">لا نتائج.</div></div>
               : <PosQuickProducts org={org} commitOrg={commitOrg} say={say} canAdd={!!R.admin} />)}
             {!!shown.length && R.admin && <div><button className="btn sm gh" onClick={() => setQuickP(x => !x)}><Plus size={12} />إضافة/تسعير أصناف</button></div>}

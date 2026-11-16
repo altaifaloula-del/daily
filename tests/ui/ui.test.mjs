@@ -1469,3 +1469,30 @@ test('v45.3 تقرير هدر التحضير: الفرع يرى الكميات �
   assert.match(await c.p.locator('[data-pwr-row="صلصة ثوم"]').innerText(), /3[\s\S]*2[\s\S]*%/);
   assert.deepEqual(c.errs, []); await c.ctx.close();
 });
+
+test('v45.4 صورة المنتج: تُرفع في نموذج المنتج (مصغّرة) وتظهر على زر نقطة البيع، ويمكن إخفاؤها من الإعدادات', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Inventory/admin/recipes');
+  // صورة اختبار 600×400 تُولَّد في المتصفح
+  const png = await p.evaluate(() => { const c = document.createElement('canvas'); c.width = 600; c.height = 400; const g = c.getContext('2d'); g.fillStyle = '#c33'; g.fillRect(0, 0, 600, 400); g.fillStyle = '#fff'; g.fillRect(250, 150, 100, 100); return c.toDataURL('image/png').split(',')[1]; });
+  await p.locator('.card:has-text("مندي لحم") button', { hasText: 'تعديل' }).first().click(); await p.waitForTimeout(200);
+  await p.setInputFiles('input[aria-label="صورة المنتج"]', { name: 'm.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') }); await p.waitForTimeout(400);
+  assert.equal(await p.locator('[data-prodimg] img').count(), 1, 'معاينة');
+  await p.locator('button', { hasText: 'حفظ المنتج' }).click(); await p.waitForTimeout(300);
+  const img = await p.evaluate(() => (window.curOrg.products.find(x => x.name.includes('مندي لحم')) || {}).img || '');
+  assert.match(img, /^data:image\/jpeg;base64,/); assert.ok(img.length < 41000, 'خفيفة: ' + img.length);
+  const dims = await p.evaluate((u) => new Promise(r => { const i = new Image(); i.onload = () => r([i.width, i.height]); i.src = u; }), img);
+  assert.deepEqual(dims, [240, 240], 'مربّعة ومصغّرة');
+  assert.deepEqual(errs, []); await ctx.close();
+  // نقطة البيع: الصورة على الزر، وتختفي عند إيقافها
+  const o = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosApp/bm');
+  await o.p.evaluate((img) => { window.setOrg(g => ({ ...g, posCfg: { branches: ['b1'], autoPrint: false }, products: [{ id: 'k', name: 'كبسة', sellPrice: 58, cat: 'رئيسي', img }, { id: 'h', name: 'حمص', sellPrice: 18, cat: 'مقبلات' }] })); window.setOps(x => ({ ...x, posOrders: [] })); }, img);
+  await o.p.waitForTimeout(400);
+  const ob = o.p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await o.p.waitForTimeout(400); }
+  assert.equal(await o.p.locator('.pos-tile:has-text("كبسة") img.pos-tile-img').count(), 1);
+  assert.equal(await o.p.locator('.pos-tile:has-text("حمص") img').count(), 0, 'بلا صورة ⇒ كما هو');
+  await o.p.locator('.pos-tile:has-text("كبسة")').click(); await o.p.waitForTimeout(150);
+  assert.equal(await o.p.locator('.pos-tile.on:has-text("كبسة")').count(), 1, 'الإضافة للسلة تعمل');
+  await o.p.evaluate(() => window.setOrg(g => ({ ...g, posCfg: { ...g.posCfg, noImg: true } }))); await o.p.waitForTimeout(200);
+  assert.equal(await o.p.locator('.pos-tile img').count(), 0, 'مخفية من الإعدادات');
+  assert.deepEqual(o.errs, []); await o.ctx.close();
+});

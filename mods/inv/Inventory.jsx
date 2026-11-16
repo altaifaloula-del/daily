@@ -4,7 +4,7 @@ import { HardDrive, FileBarChart, ChevronDown, Printer, ArrowLeftRight, Clipboar
 import { PrepList } from './PrepList.jsx';   // v40.8
 import { TurnoverPpv } from './TurnoverPpv.jsx';   // v42.0
 import { Production } from './Production.jsx';   // v42.8
-import { normDigits, BlindCount, Field, ITEM_TYPES, ITEM_NEW_TYPES, itemsSeq, nextItemCode, Kpi, LOCK_MSG, MAIN_WH, MOVE_KINDS, Modal, PriceAlerts, ROLES, SectionNav, UsageVariance, WarehousesPanel, WasteControl, WasteFields, arDate, isCostCtl, isStocked, itemAvgCosts, itemType, makeXlsx, money, nowISO, pFactor, parseCsvGrid, parseXlsxGrid, partGross, partYield, periodLocked, prepUnitCost, kcalUnitFactor, productKcal, printA4, q3, recipeCost, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whName, whOn, prepItemId } from '../../App.jsx';
+import { productThumb, normDigits, BlindCount, Field, ITEM_TYPES, ITEM_NEW_TYPES, itemsSeq, nextItemCode, Kpi, LOCK_MSG, MAIN_WH, MOVE_KINDS, Modal, PriceAlerts, ROLES, SectionNav, UsageVariance, WarehousesPanel, WasteControl, WasteFields, arDate, isCostCtl, isStocked, itemAvgCosts, itemType, makeXlsx, money, nowISO, pFactor, parseCsvGrid, parseXlsxGrid, partGross, partYield, periodLocked, prepUnitCost, kcalUnitFactor, productKcal, printA4, q3, recipeCost, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whName, whOn, prepItemId } from '../../App.jsx';
 
 export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
   const [view, setView] = useState('items');        // items | moves | count | recipes
@@ -287,7 +287,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
     const dv = Number((f.disc || {}).v) || 0;
     if (dv > 0 && (f.disc || {}).t !== 'amt' && dv > 100) return say('نسبة خصم الصنف لا تتجاوز 100%', 'no');
     if (dv > 0 && (f.disc || {}).t === 'amt' && dv >= (Number(f.sellPrice) || 0)) return say('خصم الصنف يجب أن يكون أقل من سعر البيع', 'no');
-    const rec = { id: f.id || uid('pr'), name: f.name.trim(), sellPrice: Number(f.sellPrice) || 0, parts, cat: (f.cat || '').trim(), ...(f.posOff ? { posOff: true } : {}),
+    const rec = { id: f.id || uid('pr'), name: f.name.trim(), sellPrice: Number(f.sellPrice) || 0, parts, cat: (f.cat || '').trim(), ...(f.posOff ? { posOff: true } : {}), ...(f.img ? { img: f.img } : {}),   // v45.4 صورة المنتج
       ...(f.kcalDeclared !== '' && f.kcalDeclared != null && Number(f.kcalDeclared) >= 0 ? { kcalDeclared: Number(f.kcalDeclared) } : {}),   // v41.1
       ...(dv > 0 ? { disc: { t: (f.disc || {}).t === 'amt' ? 'amt' : 'pct', v: dv, ...((f.disc || {}).to ? { to: f.disc.to } : {}) } } : {}) };
     await commitOrg(d => ({ ...d, products: f.id ? (d.products || []).map(x => x.id === f.id ? rec : x) : [...(d.products || []), rec] }), {
@@ -649,6 +649,12 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
             <button className="btn pri" onClick={saveProd}><Check size={14} />حفظ المنتج</button></>}>
           <div className="grid g2">
             <Field label="اسم المنتج"><input className="inp" value={prodF.name} placeholder="مندي لحم — وجبة" onChange={e => setProdF(f => ({ ...f, name: e.target.value }))} /></Field>
+            <Field label="صورة المنتج (تظهر في نقطة البيع)"><div className="row" style={{ gap: 8, alignItems: 'center' }} data-prodimg>
+              {prodF.img ? <img src={prodF.img} alt="" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 10, border: '1px solid var(--line)' }} /> : <span style={{ width: 56, height: 56, borderRadius: 10, border: '1px dashed var(--line)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'var(--faint)', fontSize: 20 }}>🖼</span>}
+              <label className="btn sm gh" style={{ cursor: 'pointer' }}>{prodF.img ? 'تغيير الصورة' : 'اختيار صورة'}<input type="file" accept="image/*" style={{ display: 'none' }} aria-label="صورة المنتج"
+                onChange={async e => { const fl = e.target.files && e.target.files[0]; e.target.value = ''; if (!fl) return; if (!fl.type.startsWith('image/')) return say('صورة فقط', 'no'); try { const url = await productThumb(fl); setProdF(f => ({ ...f, img: url })); } catch { say('تعذّرت معالجة الصورة', 'no'); } }} /></label>
+              {prodF.img && <button type="button" className="btn sm gh" onClick={() => setProdF(f => ({ ...f, img: '' }))}>إزالة</button>}
+            </div><div className="hint">تُقص مربّعًا وتُصغَّر تلقائيًا لتبقى خفيفة على أجهزة الفروع</div></Field>
             <Field label={'سعر البيع' + ((org.taxCfg || {}).enabled ? ' (شامل الضريبة)' : '')}>
               <input className="inp n" inputMode="decimal" value={prodF.sellPrice} onChange={e => setProdF(f => ({ ...f, sellPrice: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
             <Field label="تصنيف نقطة البيع"><input className="inp" list="pos-cats" value={prodF.cat || ''} placeholder="وجبات، مشروبات، حلويات…" onChange={e => setProdF(f => ({ ...f, cat: e.target.value }))} />

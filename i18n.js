@@ -2479,6 +2479,18 @@ Object.assign(EN, {
 "حسب السبب": "By reason",
 "إجمالي قيمة الهدر": "Total waste value"
 });
+
+// ===== v45.4 صورة المنتج =====
+Object.assign(EN, {
+"صورة المنتج (تظهر في نقطة البيع)": "Product image (shown in POS)",
+"تغيير الصورة": "Change image",
+"اختيار صورة": "Choose image",
+"إزالة": "Remove",
+"صورة المنتج": "Product image",
+"تُقص مربّعًا وتُصغَّر تلقائيًا لتبقى خفيفة على أجهزة الفروع": "Cropped square and shrunk automatically to stay light on branch devices",
+"إظهار صور المنتجات": "Show product images",
+"إظهار صور المنتجات على أزرار نقطة البيع (لمن أُضيفت له صورة)": "Show product images on POS buttons (for products with an image)"
+});
 export const TX = (ar) => (LANG === 'en' && ar && EN[ar]) || ar;
 
 /* v43.1 مترجم الشاشة: في الوضع الإنجليزي يترجم نصوص الواجهة (عُقد النص + placeholder/title/aria-label) بمطابقة القاموس حرفيًا،
@@ -2554,6 +2566,7 @@ export const EN_RX = [
   [/^حُفظ جرد الرف — توجد فروقات تحتاج إجراء$/, 'Shelf count saved — there are differences that need action'], [/^حُفظ جرد الرف — مطابق ✓$/, 'Shelf count saved — matches ✓'],
   [/^أُضيف الصنف «(.+)» ✓$/, 'Item «$1» added ✓'],
   [/^(\d+(?:\.\d+)?)% من الدفعات$/, '$1% of batches'], [/^(\d+) دفعة$/, '$1 batches'],
+
   [/^أقصى مبلغ متاح (.+) ر\.س — يمكنك تعديله يدوياً$/, 'Max available $1 SAR — you can edit it manually'],
   [/^(\d{1,2}) (يناير|فبراير|مارس|أبريل|مايو|يونيو|يوليو|أغسطس|سبتمبر|أكتوبر|نوفمبر|ديسمبر) (\d{4})$/, (_, d, m, y) => d + ' ' + MONTHS[m] + ' ' + y]
 ];
