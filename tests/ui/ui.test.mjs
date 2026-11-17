@@ -1537,3 +1537,35 @@ test('v45.7 إغلاق الوردية: تقرير Z يظهر في عارض ال�
   assert.match(doc, /size:80mm auto/); assert.match(doc, /\(Z\)|Z\)/);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v45.8 ملخصات الإغلاق: الإعداد يُفعَّل للمدير، والوردية المغلقة والفرق النقدي يظهران في مركز التنبيهات مع مشاركة واتساب — ومدير الفرع لا تصله', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/SystemPanel/admin');
+  await p.waitForSelector('[data-closealerts]', { timeout: 8000 });
+  await p.locator('[data-closealerts] button', { hasText: 'تفعيل' }).click(); await p.waitForTimeout(200);
+  const cfg = await p.evaluate(() => window.curOrg.closeAlerts);
+  assert.equal(cfg.on, true); assert.deepEqual(cfg.roles, ['system_admin', 'general_management', 'finance_department', 'accountant']);
+  assert.equal(cfg.shift && cfg.variance && cfg.daily, true);
+  await ctx.close();
+
+  const r = await open({ viewport: { width: 1300, height: 1000 } }, 'live/Notifications/admin');
+  await r.p.evaluate(() => { window.setOrg(g => ({ ...g, closeAlerts: { on: true, varMax: 10 } }));
+    const at = new Date().toISOString();
+    window.setOps(o => ({ ...o, posOrders: [], posShifts: [
+      { id: 'sh1', branchId: 'b1', devName: 'الكاشير 1', status: 'closed', closedAt: at, closedBy: 'أحمد', openingCash: 300, expected: 1300, counted: 1275, diff: -25, n: 14, total: 2140 },
+      { id: 'sh2', branchId: 'b2', devName: 'الكاشير 2', status: 'closed', closedAt: at, closedBy: 'سالم', openingCash: 300, expected: 900, counted: 905, diff: 5, n: 8, total: 980 }] })); });
+  await r.p.waitForSelector('[data-zsum]', { timeout: 8000 });
+  const txt = await r.p.locator('[data-zsum]').innerText();
+  assert.match(txt, /إغلاق وردية — عم قاسم طيبة/); assert.match(txt, /إغلاق وردية — عم قاسم النسيم/);
+  assert.match(txt, /عجز نقدي 25\.00 ر\.س — عم قاسم طيبة/, 'فرق فوق الحد يُنبَّه فوريًا');
+  assert.doesNotMatch(txt, /زيادة نقدية 5/, 'الفرق دون الحد لا يُنبَّه منفردًا');
+  await r.p.evaluate(() => { window.__wa = []; window.open = (u) => { window.__wa.push(u); return null; }; });
+  await r.p.locator('[data-zsum] button[data-wa]').first().click();
+  const u = await r.p.evaluate(() => window.__wa[0]);
+  assert.match(u, /^https:\/\/wa\.me\/\?text=/); const t = decodeURIComponent(u.split('text=')[1]);
+  assert.match(t, /المبيعات/); assert.match(t, /معدود/);
+  await r.p.evaluate(() => window.as('bm')); await r.p.waitForTimeout(300);
+  assert.equal(await r.p.locator('[data-zsum]').count(), 0, 'مدير الفرع ليس ضمن المستلمين');
+  await r.p.evaluate(() => window.as('acc')); await r.p.waitForTimeout(300);
+  assert.equal(await r.p.locator('[data-zsum]').count(), 1, 'المحاسب ضمن المستلمين');
+  assert.deepEqual([...errs, ...r.errs], []); await r.ctx.close();
+});

@@ -245,10 +245,11 @@ const NOTIF_CATS = {
   closing: { ar: 'الإغلاق اليومي', tabs: ['approve', 'closing'] },
   fin: { ar: 'المالية والموردون', tabs: ['suppliers', 'purchasing', 'treasury', 'acct'] },
   hr: { ar: 'الموارد البشرية', tabs: ['hrops', 'hrmaster', 'people'], who: (me) => { const R = ROLES[me?.role] || {}; return R.scope === 'all' || R.approver || me?.role === 'branch_manager' || me?.role === 'regional_manager'; } },
-  act: { ar: 'نشاط المستخدمين الآخرين', admin: true }
+  act: { ar: 'نشاط المستخدمين الآخرين', admin: true },
+  zsum: { ar: 'ملخصات الإغلاق والفروقات النقدية', tabs: [], org: true }   // v45.8 — حسب إعداد «ملخصات الإغلاق» لا حسب الشاشات
 };
 const roleHasTab = (me, t) => ((ROLES[me?.role] || {}).tabs || []).includes(t);
-const notifCatsFor = (me) => Object.keys(NOTIF_CATS).filter(k => NOTIF_CATS[k].admin ? !!(ROLES[me?.role] || {}).admin
+const notifCatsFor = (me, org) => Object.keys(NOTIF_CATS).filter(k => NOTIF_CATS[k].org ? closeAlertFor(org, me) : NOTIF_CATS[k].admin ? !!(ROLES[me?.role] || {}).admin
   : (NOTIF_CATS[k].tabs.some(t => roleHasTab(me, t)) && (!NOTIF_CATS[k].who || NOTIF_CATS[k].who(me))));
 function buildNotifEvents(org, ops, me, myBranches) {
   const ev = [];
@@ -341,8 +342,80 @@ function buildNotifEvents(org, ops, me, myBranches) {
     try { complianceItems(org, ops, { today: td }).items.filter(x => x.sev !== 'info' && x.cat !== 'emp').forEach(x =>
       push('cmp:' + x.id + ':' + x.sev, 'fin', x.title, x.sub + (x.amount ? ' · ' + money(x.amount) : ''), x.cat === 'tax' ? 'acct' : 'docs', x.cat === 'tax' ? 'vat' : undefined)); } catch { }
   }
+  // —— v45.8: ملخصات الإغلاق للمالك والإدارة (حسب إعداد ملخصات الإغلاق) ——
+  try { closeAlertEvents(org, ops, me, myBranches).forEach(e => ev.push(e)); } catch (e) { console.warn('close alerts', e); }
   return ev;
 }
+
+/* ============================================================
+   v45.8 — ملخصات الإغلاق: عند إغلاق كل وردية (Z)، وفوري عند وجود فرق نقدي، وتقرير يومي لكل الفروع.
+   تصل للأدوار المحددة في الإعداد (افتراضيًا: مسؤول النظام، الإدارة العليا، المالية، المحاسب) — كل حسب فروعه.
+   القناة: تنبيه المنصة + إشعار الجهاز، مع زر مشاركة واتساب ونسخ النص. الإعداد مغلق افتراضيًا.
+   ============================================================ */
+const CLOSE_ALERT_ROLES = ['system_admin', 'general_management', 'finance_department', 'accountant'];
+function closeAlertsCfg(org) {
+  const c = (org && org.closeAlerts) || {};
+  const at = /^\d{2}:\d{2}$/.test(c.dailyAt || '') ? c.dailyAt : '09:00';
+  return { on: !!c.on, shift: c.shift !== false, variance: c.variance !== false, daily: c.daily !== false, dailyAt: at,
+    varMax: Math.max(0, Number(c.varMax) || 0), roles: Array.isArray(c.roles) ? c.roles : CLOSE_ALERT_ROLES.slice() };
+}
+const closeAlertFor = (org, me) => { const c = closeAlertsCfg(org); return c.on && !!me && c.roles.includes(me.role); };
+const _caDT = (iso) => String(iso || '').slice(0, 16).replace('T', ' ');
+// نص ملخص وردية مغلقة — للتنبيه والمشاركة
+function shiftSumText(org, sh, ops) {
+  const br = (org.branches || []).find(b => b.id === sh.branchId) || {};
+  const os = (ops.posOrders || []).filter(o => o.shiftId === sh.id);
+  const st = os.length ? posOrdersStats(os) : null;
+  const total = st ? st.total : (sh.total || 0), n = st ? st.n : (sh.n || 0);
+  const L = ['🧾 إغلاق وردية — ' + (br.name || '') + (sh.devName ? ' · ' + sh.devName : ''), 'الإغلاق: ' + _caDT(sh.closedAt) + (sh.closedBy ? ' · ' + sh.closedBy : ''), '',
+    '💰 المبيعات: ' + money(total) + ' ر.س (' + n + ' فاتورة)'];
+  if (st) {
+    const pay = [['نقدي', st.cash], ['شبكة', st.card], ['تحويل', st.transfer]].filter(x => Math.abs(x[1] || 0) > 0.004).map(x => x[0] + ' ' + money(x[1]));
+    Object.entries(st.apps || {}).forEach(([id, x]) => { if (Math.abs(x.amount || 0) > 0.004) pay.push((((org.deliveryApps || APPS).find(a => a.id === id) || {}).n || 'تطبيق') + ' ' + money(x.amount)); });
+    if (pay.length) L.push('💳 ' + pay.join(' · '));
+    if (st.voidN) L.push('🚫 ملغاة: ' + st.voidN + ' · ' + money(st.voidAmt));
+  }
+  const d = Number(sh.diff) || 0;
+  L.push('💵 النقد: متوقع ' + money(sh.expected || 0) + ' · معدود ' + money(sh.counted || 0));
+  L.push((Math.abs(d) > 0.004 ? (d < 0 ? '🔴 عجز ' : '🟡 زيادة ') + money(Math.abs(d)) : '✅ لا فرق نقدي'));
+  if (sh.closeNote) L.push('ملاحظة: ' + sh.closeNote);
+  L.push(''); L.push('— ' + ((org.company || {}).name || 'RESTAURANT PRO'));
+  return L.join('\n');
+}
+function closeAlertEvents(org, ops, me, myBranches) {
+  const out = [];
+  if (!closeAlertFor(org, me)) return out;
+  const c = closeAlertsCfg(org);
+  const R = ROLES[me.role] || {};
+  const brs = (myBranches || []).filter(b => b.isActive !== false);
+  const ids = new Set(brs.map(b => b.id));
+  const inScope = (bId) => R.scope === 'all' || ids.has(bId);
+  const since = Date.now() - 2 * 86400000;
+  const bn = (id) => ((org.branches || []).find(b => b.id === id) || {}).name || '';
+  (ops.posShifts || []).forEach(sh => {
+    if (sh.status !== 'closed' || !sh.closedAt || !inScope(sh.branchId) || Date.parse(sh.closedAt) < since) return;
+    const d = Number(sh.diff) || 0; const txt = shiftSumText(org, sh, ops);
+    if (c.shift) out.push({ id: 'z:sh:' + sh.id, cat: 'zsum', kind: 'shift', at: sh.closedAt, title: 'إغلاق وردية — ' + bn(sh.branchId) + (sh.devName ? ' · ' + sh.devName : ''),
+      body: 'المبيعات ' + money(sh.total || 0) + ' ر.س · ' + (sh.n || 0) + ' فاتورة' + (Math.abs(d) > 0.004 ? ' · ' + (d < 0 ? 'عجز ' : 'زيادة ') + money(Math.abs(d)) : ''), tab: 'home', share: txt });
+    if (c.variance && Math.abs(d) > Math.max(c.varMax, 0.004)) out.push({ id: 'z:var:' + sh.id, cat: 'zsum', kind: 'var', sev: 'high', at: sh.closedAt,
+      title: (d < 0 ? '🔴 عجز نقدي ' : '🟡 زيادة نقدية ') + money(Math.abs(d)) + ' ر.س — ' + bn(sh.branchId), body: 'عند إغلاق وردية ' + (sh.devName || '') + ' · ' + (sh.closedBy || ''), tab: 'home', share: txt });
+  });
+  // التقرير اليومي لأمس: حين تُغلق كل الفروع، أو عند الساعة المحددة بما توفر
+  if (c.daily && brs.length) {
+    const now = new Date(); const y = new Date(now); y.setDate(y.getDate() - 1); const day = isoD(y);
+    const scoped = { closings: (ops.closings || []).filter(x => ids.has(x.branchId)), transfers: (ops.transfers || []).filter(x => ids.has(x.branchId)), advances: (ops.advances || []).filter(x => ids.has(x.branchId)) };
+    const D = morningData(org, ops, me, brs, scoped, day);
+    const allClosed = D.rows.length > 0 && D.rows.every(r => r.st === 'closed');
+    const hm = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+    if (allClosed || hm >= c.dailyAt) {
+      const open = D.rows.filter(r => r.st !== 'closed').length;
+      out.push({ id: 'z:day:' + day, cat: 'zsum', kind: 'day', at: day + 'T23:59', title: 'التقرير اليومي — ' + arDate(day),
+        body: 'المبيعات ' + money(D.revT) + ' ر.س · ' + D.rows.length + ' فرع' + (open ? ' · ⚠️ ' + open + ' لم يُغلق' : ' · كل الفروع مغلقة'), tab: 'home', share: morningText(org, D) });
+    }
+  }
+  return out;
+}
+const waShare = (text) => { try { window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank'); return true; } catch { return false; } };
 
 // نغمة تنبيه قصيرة دون أي ملفات خارجية
 let _actx = null;
@@ -2878,7 +2951,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v45.7';
+const APP_VER = 'v45.8';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3776,7 +3849,7 @@ function PlatformApp() {
     if (!me || !org || !(org.branches || []).length) return;
     const cfg = notifyCfg();
     if (!cfg.on) { nSeenRef.current = null; return; }
-    const cats = new Set(notifCatsFor(me).filter(k => k !== 'act' && cfg.cats[k] !== false));
+    const cats = new Set(notifCatsFor(me, org).filter(k => k !== 'act' && cfg.cats[k] !== false));
     if (!cats.size) return;
     let evs = [];
     try { evs = buildNotifEvents(org, ops, me, myBranches).filter(e => cats.has(e.cat)); } catch (e) { console.warn('notif events', e); return; }
@@ -5652,7 +5725,11 @@ function Notifications({ ops, org, me, myBranches, commit, onClose }) {
     if (next.on) setNMsg('مفعّلة — ستصلك إشعارات ما يخص دورك أثناء فتح المنصة (ولو في تبويب خلفي أو مصغّرة)');
   };
   const toggleSound = () => { const next = { ...ncfg, sound: !ncfg.sound }; saveNotifyCfg(next); setNcfg(next); };
-  const myCats = notifCatsFor(me);
+  const myCats = notifCatsFor(me, org);
+  // v45.8 — ملخصات الإغلاق (للأدوار المحددة في الإعداد): آخرها أولًا مع مشاركة واتساب ونسخ
+  const zsum = useMemo(() => { try { return closeAlertEvents(org, ops, me, myBranches).sort((x, y) => String(y.at).localeCompare(String(x.at))).slice(0, 12); } catch { return []; } }, [org, ops, me, myBranches]);
+  const [zCopied, setZCopied] = useState('');
+  const zCopy = async (e) => { try { await navigator.clipboard.writeText(e.share); setZCopied(e.id); setTimeout(() => setZCopied(''), 1600); } catch { } };
   const toggleCat = (k) => { const next = { ...ncfg, cats: { ...ncfg.cats, [k]: ncfg.cats[k] === false } }; saveNotifyCfg(next); setNcfg(next); };
   const testNow = () => {
     const ok = notifyBrowser('تجربة تنبيه — ' + (org.company?.name || 'المنصة'), 'هكذا سيصلك إشعار النشاط', org.company?.logoUrl);
@@ -5694,6 +5771,23 @@ function Notifications({ ops, org, me, myBranches, commit, onClose }) {
             </div>
           )}
           {nMsg && <div style={{ fontSize: 10.5, marginTop: 8, color: nMsg.includes('✓') || nMsg.startsWith('مفعّلة') ? 'var(--mint)' : 'var(--amber)' }}>{nMsg}</div>}
+        </div>
+      )}
+      {zsum.length > 0 && (
+        <div style={{ marginBottom: 14 }} data-zsum>
+          <div className="row" style={{ gap: 7, marginBottom: 8, color: 'var(--brass)', fontSize: 12, fontWeight: 600 }}>
+            <Receipt size={15} />ملخصات الإغلاق ({zsum.length})
+          </div>
+          {zsum.map(e => (
+            <div key={e.id} style={{ padding: '10px 12px', marginBottom: 7, borderRadius: 'var(--r-sm)',
+              background: e.kind === 'var' ? 'rgba(217,84,77,.1)' : 'var(--ink)', border: '1px solid ' + (e.kind === 'var' ? 'rgba(217,84,77,.3)' : 'var(--line)') }}>
+              <div style={{ fontSize: 12.5, fontWeight: 600 }}>{e.title}</div>
+              <div style={{ fontSize: 11.5, color: 'var(--dim)', marginTop: 2, lineHeight: 1.6 }}>{e.body}</div>
+              <div className="row" style={{ gap: 6, marginTop: 7, flexWrap: 'wrap' }}>
+                <button className="btn sm ok" data-wa onClick={() => waShare(e.share)}><Send size={13} />واتساب</button>
+                <button className="btn sm gh" onClick={() => zCopy(e)}>{zCopied === e.id ? <><Check size={13} />نُسخ</> : <><Copy size={13} />نسخ النص</>}</button>
+              </div>
+            </div>))}
         </div>
       )}
       {smart.length > 0 && (
@@ -11246,7 +11340,7 @@ async function qrAnalyzeComments(items) {
 
 
 // v38.3 — ما تحتاجه ملفات التطبيقات المنفصلة (mods/) من النواة
-export { posDocView, printScreen, cutoutPixels, productThumb, prepWasteStats, normDigits, normScan, posPaper, posPaperDev, setPosPaperDev, prepShelfH, prepBatchState, PREP_ST, canBrPurchase, brSigCheck, BR_PURCHASERS, poWhOf, syncPoInbox, INV_BILLERS, ITEM_NEW_TYPES, itemsSeq, nextItemCode, vatNoOk, supVatOf, ItemPick, A4_CSS, posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim, prepItemId, prepItemOf, prodNeeds, prodCheck, prodMoves, clrMerge, clrRead, clrViewStats, ppvReport, invTurnover, dirOf, isMzbk, mzbkDecrypt, clrData, clrRecord, clrSigRef, clrDiff, clrCompare, clrOn, clrState, clrMirror, clrLoad, clrSeed, OdooBar, ACCT_SECTIONS, ACCT_SEC_AR, ACC_KIND, ALL_TABS, APPS, AdvanceForm, AppPermsPanel, AppsStrip, BR_COLS, Badge, BalCell, BlindCount, BranchForm, COUNT_FREQ, COUNT_ST, CameraModal, CategoriesPanel, ClosingView, CloudHealth, CountScheduleCard, DAYS_AR, DENOMS, DOC_LABEL, DOC_TYPES, DailyBranchReport, DeliveryAppsPanel, DisbursementForm, DupInvHint, EXP_CATS, FILE_CATS, Field, FinancialReports, GROWTH_MONTHS, HR_WEEK_DAYS, HrSignPad, ITEM_TYPES, Kpi, LAUNCH_APPS, LEAVE_TYPES, LOCK_MSG, MAIN_WH, MFA_DEFAULT_ROLES, MOVE_KINDS, MZ_FIXED, MZ_KIND_AR, MZ_LOGO_HTML, MZ_SUGGEST, MfaPolicyCard, MizanMerge, Modal, MoneyField, NUM_FACE, NUM_LOCALE, NationalAddressFields, Num, OutputDialog, PAY_ADD_TYPES, PAY_GUESS, PEN_TYPES, POS_DEV_KEY, POS_SH_KEY, PROMO_IDEAS, PROMO_T, PT_SRC, PT_TYPE, PartnerChip, PdfTile, PhotoField, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, PriceAlerts, QR_ITEMS, QR_STATUS, QUOTA_MSG, QrBranchesView, QrComplaints, QrDashboard, RB_KIND_AR, RB_PM_AR, RB_SOURCES, REG_APPS, REG_CATS, REG_IX, ROLES, SC_KPIS, SIGN_DOC_AR, SIG_H, SIG_W, SectionNav, SigView, SignDocsModal, SignaturePad, SystemPanel, TAB_AR, TRAIN_STATUS_AR, UsageVariance, UserForm, WASTE_REASONS, WH_KIND, WH_MOVE, WH_ST, WarehousesPanel, WasteControl, WasteFields, WastePending, WhLines, _normName, _xe, aCountDone, aItemsOf, acctSecKey, activePriorCorrectives, activeTrainingRecord, aiHeaders, appCanSee, appOpenNow, appUseGet, appUseSet, arDT, arDate, arTime, bankOfBranch, bioEnroll, bookHidden, branchBanks, branchEntityId, browserName, bsLayout, bsRowsOf, buildAccounting, buildClosingA4, buildPartners, buildPayslipSignDocs, businessDay, canApproveCount, canApproveWaste, capOK, chartTone, closingInvoices, clr, compressImage, computeIncome, contactFields, contactOf, correctiveExpiry, correctiveSignDoc, countCfgOf, countDenoms, countFocus, countSchedule, countedClosing, customerAging, daysBetween, defaultHrPolicies, defaultPenaltySchedule, defaultPointsRules, defaultRewardTiers, defaultRoleKpis, defaultTrainingPrograms, deficitCfg, deficitPatterns, detectStmtMap, deviceType, emptyDenoms, entityById, entityList, eosAccrualLines, eosCumAt, eosState, eosYears, escH, expiringTraining, expiryLots, exportExcel, fineSuggest, fmtBalP, fmtNA, frozenSnapshotFor, gosiRatesFor, haversineMeters, hrAttendanceDetail, hrEmpStats, hrQrWindowCode, hrScoreFor, isCostCtl, isLayout, isPdfData, isRowsOf, isStocked, isoD, itemAvgCosts, itemType, kpiAchievement, leaveBalance, leaveDeductPlan, lockedThru, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, makeXlsx, missingRequiredTraining, mizanPlan, money, moneyP, monthEnd, monthLabel, monthLedger, multiEntityOn, mzNewCode, mzR2, naClean, naErr, naHas, naMissing, newBranchDraft, nextPartnerCode, nextWhAcc, normPhone, normalizeSupPays, nowISO, onLeave, openDocWin, openPdfData, otFromAttendance, otRateOf, overdueSignDocs, pFactor, parseCsvGrid, parseMt940, parseXlsxGrid, partGross, partYield, payCashPart, payLabel, paySplits, payTotal, payrollRowsOf, penTypeAr, pendShiftsGet, pendShiftsSet, periodLocked, piAggregate, piDetect, piNorm, pipTriggered, posCashNet, posClrOf, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posShiftHtml, posTotals, posZHtml, positionJdHtml, printA4, printClosingA4, printIncomeA4, printPartnerStatement, printReceipt, printSalesInvoice, programRequiredFor, promoActive, promoDesc, promoHits, purKey, pwStrength, q3, qrAnalyzeComments, qrAvg, qrBranchStats, qrDate, qrF1, qrFs, qrIsComplaint, qrMs, qrOverall, qrOverdue, qrPrintReport, qrRateUrl, qrSentBadge, qrStatusOf, qrSvg, rewardSignDoc, roleEdit, roleHasTab, roleKpisFor, rolePost, salesDaySource, sha, sha256Hex, short, siCredited, siRem, siSorted, siStamp, siVerify, sigBlockHtml, sigPoints, sigSvg, signDeclaration, signDocHtml, simplifySig, slimBranchDoc, snapAll, snapMonths, snapPut, stAddDays, stDate, stNum, stockByWh, submitWaste, suggestNextLevel, sum, supplierAging, supplierPrices, today, trainingExpiryOf, trainingStatusNow, uid, usageReport, useSecNav, verifyBackup, waNum, wasteCfg, wasteDaily, wasteReasonAr, wasteRows, webauthnSupported, whForBranch, whName, whOf, whOn, zatcaTLV };
+export { Notifications, closeAlertsCfg, closeAlertEvents, shiftSumText, waShare, CLOSE_ALERT_ROLES, posDocView, printScreen, cutoutPixels, productThumb, prepWasteStats, normDigits, normScan, posPaper, posPaperDev, setPosPaperDev, prepShelfH, prepBatchState, PREP_ST, canBrPurchase, brSigCheck, BR_PURCHASERS, poWhOf, syncPoInbox, INV_BILLERS, ITEM_NEW_TYPES, itemsSeq, nextItemCode, vatNoOk, supVatOf, ItemPick, A4_CSS, posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim, prepItemId, prepItemOf, prodNeeds, prodCheck, prodMoves, clrMerge, clrRead, clrViewStats, ppvReport, invTurnover, dirOf, isMzbk, mzbkDecrypt, clrData, clrRecord, clrSigRef, clrDiff, clrCompare, clrOn, clrState, clrMirror, clrLoad, clrSeed, OdooBar, ACCT_SECTIONS, ACCT_SEC_AR, ACC_KIND, ALL_TABS, APPS, AdvanceForm, AppPermsPanel, AppsStrip, BR_COLS, Badge, BalCell, BlindCount, BranchForm, COUNT_FREQ, COUNT_ST, CameraModal, CategoriesPanel, ClosingView, CloudHealth, CountScheduleCard, DAYS_AR, DENOMS, DOC_LABEL, DOC_TYPES, DailyBranchReport, DeliveryAppsPanel, DisbursementForm, DupInvHint, EXP_CATS, FILE_CATS, Field, FinancialReports, GROWTH_MONTHS, HR_WEEK_DAYS, HrSignPad, ITEM_TYPES, Kpi, LAUNCH_APPS, LEAVE_TYPES, LOCK_MSG, MAIN_WH, MFA_DEFAULT_ROLES, MOVE_KINDS, MZ_FIXED, MZ_KIND_AR, MZ_LOGO_HTML, MZ_SUGGEST, MfaPolicyCard, MizanMerge, Modal, MoneyField, NUM_FACE, NUM_LOCALE, NationalAddressFields, Num, OutputDialog, PAY_ADD_TYPES, PAY_GUESS, PEN_TYPES, POS_DEV_KEY, POS_SH_KEY, PROMO_IDEAS, PROMO_T, PT_SRC, PT_TYPE, PartnerChip, PdfTile, PhotoField, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, PriceAlerts, QR_ITEMS, QR_STATUS, QUOTA_MSG, QrBranchesView, QrComplaints, QrDashboard, RB_KIND_AR, RB_PM_AR, RB_SOURCES, REG_APPS, REG_CATS, REG_IX, ROLES, SC_KPIS, SIGN_DOC_AR, SIG_H, SIG_W, SectionNav, SigView, SignDocsModal, SignaturePad, SystemPanel, TAB_AR, TRAIN_STATUS_AR, UsageVariance, UserForm, WASTE_REASONS, WH_KIND, WH_MOVE, WH_ST, WarehousesPanel, WasteControl, WasteFields, WastePending, WhLines, _normName, _xe, aCountDone, aItemsOf, acctSecKey, activePriorCorrectives, activeTrainingRecord, aiHeaders, appCanSee, appOpenNow, appUseGet, appUseSet, arDT, arDate, arTime, bankOfBranch, bioEnroll, bookHidden, branchBanks, branchEntityId, browserName, bsLayout, bsRowsOf, buildAccounting, buildClosingA4, buildPartners, buildPayslipSignDocs, businessDay, canApproveCount, canApproveWaste, capOK, chartTone, closingInvoices, clr, compressImage, computeIncome, contactFields, contactOf, correctiveExpiry, correctiveSignDoc, countCfgOf, countDenoms, countFocus, countSchedule, countedClosing, customerAging, daysBetween, defaultHrPolicies, defaultPenaltySchedule, defaultPointsRules, defaultRewardTiers, defaultRoleKpis, defaultTrainingPrograms, deficitCfg, deficitPatterns, detectStmtMap, deviceType, emptyDenoms, entityById, entityList, eosAccrualLines, eosCumAt, eosState, eosYears, escH, expiringTraining, expiryLots, exportExcel, fineSuggest, fmtBalP, fmtNA, frozenSnapshotFor, gosiRatesFor, haversineMeters, hrAttendanceDetail, hrEmpStats, hrQrWindowCode, hrScoreFor, isCostCtl, isLayout, isPdfData, isRowsOf, isStocked, isoD, itemAvgCosts, itemType, kpiAchievement, leaveBalance, leaveDeductPlan, lockedThru, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, makeXlsx, missingRequiredTraining, mizanPlan, money, moneyP, monthEnd, monthLabel, monthLedger, multiEntityOn, mzNewCode, mzR2, naClean, naErr, naHas, naMissing, newBranchDraft, nextPartnerCode, nextWhAcc, normPhone, normalizeSupPays, nowISO, onLeave, openDocWin, openPdfData, otFromAttendance, otRateOf, overdueSignDocs, pFactor, parseCsvGrid, parseMt940, parseXlsxGrid, partGross, partYield, payCashPart, payLabel, paySplits, payTotal, payrollRowsOf, penTypeAr, pendShiftsGet, pendShiftsSet, periodLocked, piAggregate, piDetect, piNorm, pipTriggered, posCashNet, posClrOf, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posShiftHtml, posTotals, posZHtml, positionJdHtml, printA4, printClosingA4, printIncomeA4, printPartnerStatement, printReceipt, printSalesInvoice, programRequiredFor, promoActive, promoDesc, promoHits, purKey, pwStrength, q3, qrAnalyzeComments, qrAvg, qrBranchStats, qrDate, qrF1, qrFs, qrIsComplaint, qrMs, qrOverall, qrOverdue, qrPrintReport, qrRateUrl, qrSentBadge, qrStatusOf, qrSvg, rewardSignDoc, roleEdit, roleHasTab, roleKpisFor, rolePost, salesDaySource, sha, sha256Hex, short, siCredited, siRem, siSorted, siStamp, siVerify, sigBlockHtml, sigPoints, sigSvg, signDeclaration, signDocHtml, simplifySig, slimBranchDoc, snapAll, snapMonths, snapPut, stAddDays, stDate, stNum, stockByWh, submitWaste, suggestNextLevel, sum, supplierAging, supplierPrices, today, trainingExpiryOf, trainingStatusNow, uid, usageReport, useSecNav, verifyBackup, waNum, wasteCfg, wasteDaily, wasteReasonAr, wasteRows, webauthnSupported, whForBranch, whName, whOf, whOn, zatcaTLV };
 export { ClosingForm };
 // v38.3 — للاختبارات الآلية (tests/): دوال المحرك والشاشات تُستورد من النواة مباشرة
 export { stockCosting, eosEntitledAmt, eosFullAmt, findDupInvoices, invNoNorm, promoLineDisc, tafqeet, Hub, Launcher, PosApp, Inventory, Partners, SalesHub, QrFeedback, AppsCenter, BranchWarehouse, Admin, AuditView, Accounting, emptyOrg, emptyOps, HUBS };
