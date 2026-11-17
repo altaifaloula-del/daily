@@ -1,0 +1,60 @@
+name: ملخصات الإغلاق إلى الجوال
+
+# v45.9 — كل 10 دقائق (قد يتأخر GitHub بضع دقائق)، ويدويًا من تبويب Actions.
+# يقرأ Firestore بحساب الخدمة الموجود، ويرسل ملخصات الإغلاق المفعّلة في المنصة إلى الأجهزة المسجّلة.
+# لا يفعل شيئًا ما لم تُفعَّل «ملخصات الإغلاق» في المنصة ويسجّل جهاز واحد على الأقل.
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: push-alerts
+  cancel-in-progress: false
+
+jobs:
+  push:
+    name: إرسال ملخصات الإغلاق
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      TZ: Asia/Riyadh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: تثبيت الحزم
+        run: npm ci
+      - name: استرجاع حالة الإرسال
+        uses: actions/cache/restore@v4
+        with:
+          path: push-state.json
+          key: push-state-${{ github.run_id }}
+          restore-keys: push-state-
+      - name: تجهيز اعتماد الخدمة
+        env:
+          SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$SA" ]; then echo "::error::لم يُضبط FIREBASE_SERVICE_ACCOUNT"; exit 1; fi
+          umask 077
+          printf '%s' "$SA" > "$RUNNER_TEMP/sa.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/sa.json" >> $GITHUB_ENV
+      - name: حساب وإرسال الملخصات
+        env:
+          PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          STATE_FILE: push-state.json
+        run: node scripts/push-alerts.mjs
+      - name: حفظ حالة الإرسال
+        if: always() && hashFiles('push-state.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: push-state.json
+          key: push-state-${{ github.run_id }}
+      - name: حذف ملف الاعتماد
+        if: always()
+        run: rm -f "$RUNNER_TEMP/sa.json"
