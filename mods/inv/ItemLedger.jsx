@@ -1,7 +1,7 @@
 /* v46.2 — كرت حركة الصنف: الوارد والصادر والرصيد التراكمي لكل مستودع أو للمنشأة، والاستهلاك النظري من المبيعات */
 import React, { useMemo, useState } from 'react';
 import { History, Printer } from 'lucide-react';
-import { Modal, Field, MAIN_WH, itemLedger, isoD, today, whName, printA4 } from '../../App.jsx';
+import { saleDeductFrom, Modal, Field, MAIN_WH, itemLedger, isoD, today, whName, printA4 } from '../../App.jsx';
 
 const whsOf = (org) => ((org && org.warehouses) || []).filter(w => w && w.active !== false);
 const q3 = (n) => (Math.round((Number(n) || 0) * 1000) / 1000).toLocaleString('en-US', { maximumFractionDigits: 3 });
@@ -54,7 +54,7 @@ export function ItemLedger({ org, ops, item, onClose }) {
       </div>
       {L.transit.length > 0 && <div className="note" style={{ marginTop: 8 }} data-ledgertransit>🚚 في الطريق (لم يُستلم بعد): {L.transit.map(t => q3(t.q) + ' ' + (item.unit || '') + ' · ' + (t.ref || '') + ' إلى ' + wn(t.to)).join(' — ')}</div>}
       <div className="lbl" style={{ margin: '14px 0 6px' }}>المبيعات — الاستهلاك النظري من وصفات المنتجات المباعة</div>
-      <div className="note" style={{ fontSize: 11, marginBottom: 6 }}>للمتابعة والمقارنة فقط: المبيعات لا تخصم من الرصيد تلقائيًا — الخصم الفعلي يكون بحركة «صرف للتشغيل» أو بالجرد.</div>
+      <div className="note" style={{ fontSize: 11, marginBottom: 6 }}>{saleDeductFrom(org) ? 'خصم المبيعات من المخزون مفعّل من ' + saleDeductFrom(org) + ' — يظهر أعلاه حركاتٍ «خصم مبيعات» من مستودع الفرع. هذا الجدول للمقارنة.' : 'للمتابعة والمقارنة فقط: المبيعات لا تخصم من الرصيد — الخصم الفعلي بحركة «صرف للتشغيل» أو بالجرد (فعّل الخصم التلقائي من إعدادات المشتريات).'}</div>
       <div className="tw">
         <table className="tb" data-ledgersales>
           <thead><tr><th>يوم البيع</th><th style={{ textAlign: 'end' }}>كمية المنتجات المباعة</th><th style={{ textAlign: 'end' }}>استهلاك الصنف ({item.unit})</th></tr></thead>

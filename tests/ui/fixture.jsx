@@ -51,7 +51,7 @@ function Live() {
   const [o, setO] = React.useState(ops); window.cur = o; const [who, setWho] = React.useState(b || 'admin'); window.as = setWho;
   const [g, setG] = React.useState(org); window.curOrg = g; window.setOps = setO; window.setOrg = setG;   // v39.0: حقن بيانات للاختبار
   const [hv, setHv] = React.useState(c); window.hub = setHv;   // تنقّل بين المراكز مع بقاء البيانات
-  const commit = async (fn) => { try { const nx0 = fn(JSON.parse(JSON.stringify(o))); const nx = ME[who].branchId ? nx0 : M.syncPoInbox(g, nx0); setO(nx); return true; } catch (e) { window.lastErr = e.message; return false; } };
+  const commit = async (fn) => { try { const nx0 = fn(JSON.parse(JSON.stringify(o))); const nx1 = ME[who].branchId ? nx0 : M.syncPoInbox(g, nx0); const nx = M.syncSaleMoves(g, o, nx1); setO(nx); return true; } catch (e) { window.lastErr = e.message; return false; } };
   const commitOrg = async (fn) => { try { const nx = fn(JSON.parse(JSON.stringify(g))); setG(nx); return true; } catch (e) { window.lastErr = e.message; return false; } };
   const myB = ME[who].branchId ? B.filter(x => x.id === ME[who].branchId) : B;   // فريق الفرع يرى فرعه فقط
   const P = { ...base, myBranches: myB, branches: myB, org: g, ops: o, scoped: o, me: ME[who], commit, commitOrg, invIntent: hv ? { v: hv, ts: 1 } : null, acctIntent: a === 'Accounting' && hv ? { v: hv, ts: 1 } : null };

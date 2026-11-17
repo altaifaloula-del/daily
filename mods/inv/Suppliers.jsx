@@ -106,9 +106,12 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     return { u, lp, avg: a3.avg, n: a3.n, pct: Math.round(pct * 10) / 10, high: alertPct > 0 && pct > alertPct }; };
   const saveCfg = async () => {
     const f = cfgF;
-    const next = { approvalLimit: Math.max(0, Number(f.approvalLimit) || 0), priceAlertPct: Math.max(0, Number(f.priceAlertPct) || 0), perpetualFrom: f.perpetual ? (f.perpetualFrom || today().slice(0, 7)) : '', inspect: !!f.inspect, invVarPct: Math.max(0, Number(f.invVarPct) || 0), fx: !!f.fx };
+    const next = { approvalLimit: Math.max(0, Number(f.approvalLimit) || 0), priceAlertPct: Math.max(0, Number(f.priceAlertPct) || 0), perpetualFrom: f.perpetual ? (f.perpetualFrom || today().slice(0, 7)) : '', inspect: !!f.inspect, invVarPct: Math.max(0, Number(f.invVarPct) || 0), fx: !!f.fx,
+      saleDeductFrom: f.perpetual && f.saleDeduct ? (f.saleDeductFrom || today()) : '' };   // v46.3
+    if (next.saleDeductFrom) { const noWh = (org.branches || []).filter(b => b.isActive !== false && !whOf(org).some(w => w.kind === 'branch' && w.branchId === b.id && w.active !== false));
+      if (noWh.length && !window.confirm('خصم المبيعات يتم من مستودع الفرع. هذه الفروع بلا مستودع فلن تُخصم مبيعاتها: ' + noWh.map(b => b.name).join('، ') + '\n\nمتابعة؟')) return; }
     const ok = await commitOrg(d => ({ ...d, purchaseCfg: { ...(d.purchaseCfg || {}), ...next } }), { actionType: 'update', targetType: 'tax_settings', targetId: 'purchaseCfg', need: 'edit', title: 'إعدادات المشتريات والمخزون',
-      details: 'حد الاعتماد ' + money(next.approvalLimit) + ' · تنبيه السعر ' + next.priceAlertPct + '% · الجرد المستمر ' + (next.perpetualFrom || 'موقوف') + ' · مسار الفحص ' + (next.inspect ? 'مفعّل (تسامح ' + next.invVarPct + '%)' : 'موقوف') });
+      details: 'حد الاعتماد ' + money(next.approvalLimit) + ' · تنبيه السعر ' + next.priceAlertPct + '% · الجرد المستمر ' + (next.perpetualFrom || 'موقوف') + ' · مسار الفحص ' + (next.inspect ? 'مفعّل (تسامح ' + next.invVarPct + '%)' : 'موقوف') + ' · خصم المبيعات من المخزون ' + (next.saleDeductFrom ? 'من ' + next.saleDeductFrom : 'موقوف') });
     if (ok) { setCfgF(null); say('حُفظت الإعدادات ✓'); }
   };
   const decidePo = async (p2, approve) => {
@@ -907,7 +910,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
             <div className="card-t"><ClipboardCheck size={15} color="var(--brass)" />أوامر الشراء — إنشاء ← استلام ← فاتورة ← سداد</div>
             <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
               <button className={'btn sm' + (showPrices ? ' pri' : ' gh')} onClick={() => setShowPrices(v => !v)}>أسعار الموردين</button>
-              {canCfg && <button className="btn sm gh" onClick={() => setCfgF({ approvalLimit: String(apprLimit || ''), priceAlertPct: String(alertPct), perpetual: !!pcfg.perpetualFrom, perpetualFrom: pcfg.perpetualFrom || today().slice(0, 7), inspect: inspectOn, invVarPct: String(varTol), fx: fxOn })}>⚙ الإعدادات</button>}
+              {canCfg && <button className="btn sm gh" onClick={() => setCfgF({ approvalLimit: String(apprLimit || ''), priceAlertPct: String(alertPct), saleDeduct: !!pcfg.saleDeductFrom, saleDeductFrom: pcfg.saleDeductFrom || '', perpetual: !!pcfg.perpetualFrom, perpetualFrom: pcfg.perpetualFrom || today().slice(0, 7), inspect: inspectOn, invVarPct: String(varTol), fx: fxOn })}>⚙ الإعدادات</button>}
               {canPay && <button className="btn sm pri" onClick={() => setPoF({ supplierId: suppliers[0]?.id || '', branchId: '', whId: MAIN_WH, note: '', lines: [{ desc: '', itemId: '', qty: '', price: '' }] })}><Plus size={14} />أمر شراء جديد</button>}
             </div>
           </div>
@@ -915,6 +918,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
             <span className="badge b-dim">الاعتماد: {apprLimit > 0 ? 'الأوامر فوق ' + money(apprLimit) + ' ر.س' : 'غير مفعّل'}</span>
             <span className="badge b-dim">تنبيه السعر: {alertPct > 0 ? 'أعلى من متوسط آخر 3 مشتريات بأكثر من ' + alertPct + '% ⇐ اعتماد' : 'موقوف'}</span>
             <span className={'badge ' + (pcfg.perpetualFrom ? 'b-mint' : 'b-dim')}>الجرد المستمر: {pcfg.perpetualFrom ? 'من ' + pcfg.perpetualFrom : 'موقوف (دوري)'}</span>
+            {pcfg.saleDeductFrom && <span className="badge b-mint" data-saledeductbadge>خصم المبيعات من المخزون: من {pcfg.saleDeductFrom}</span>}
           </div>
           {canPay && reqsPending.length > 0 && (
             <div className="card" style={{ padding: 10, marginBottom: 12, background: 'var(--ink2)' }} data-preqs>
@@ -1145,6 +1149,11 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
           </label>
           {cfgF.inspect && <Num label="تسامح فرق سعر الفاتورة عن أمر الشراء (% من الإجمالي)" value={cfgF.invVarPct} onChange={v => setCfgF(f => ({ ...f, invVarPct: v }))} hint="فاتورة المورد ضمن هذه النسبة تُقيَّد مباشرة، وفوقها تنتظر اعتماد شخص آخر. الفرق يُقيَّد في «فروق أسعار الشراء»" />}
           {cfgF.perpetual && <Field label="بداية الجرد المستمر (شهر)"><input type="month" className="inp" value={cfgF.perpetualFrom} onChange={e => setCfgF(f => ({ ...f, perpetualFrom: e.target.value }))} /></Field>}
+          {cfgF.perpetual && <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer' }} data-salededuct>
+            <input type="checkbox" checked={!!cfgF.saleDeduct} onChange={e => setCfgF(f => ({ ...f, saleDeduct: e.target.checked, saleDeductFrom: f.saleDeductFrom || today() }))} />خصم المبيعات من المخزون تلقائيًا — مع كل فاتورة بيع حسب وصفات المنتجات
+          </label>}
+          {cfgF.perpetual && cfgF.saleDeduct && <Field label="يبدأ الخصم من تاريخ"><input type="date" className="inp" aria-label="بداية خصم المبيعات" value={cfgF.saleDeductFrom || ''} onChange={e => setCfgF(f => ({ ...f, saleDeductFrom: e.target.value }))} /></Field>}
+          {cfgF.perpetual && cfgF.saleDeduct && <div className="note" style={{ fontSize: 11 }}>تُخصم المواد من مستودع الفرع البائع بالكمية الإجمالية (مع الفاقد)، والتحضيرة المخزّنة يُخصم رصيدها هي. الفاتورة الملغاة تُعيد الكمية. يُقيَّد بالتكلفة على «تكلفة المبيعات» (5505). وصرف المواد الداخلة في الوصفات يدويًا يُمنع بعد تاريخ البدء.</div>}
           <div className="note">في الجرد المستمر: الاستلام يُقيَّد على حساب المستودع، والصرف والهالك والتسويات تُقيَّد بتكلفة المتوسط المرجّح لحظة الحركة، والتحويلات تمر بحساب «بضاعة في الطريق». يُنشأ قيد افتتاحي برصيد المخزون في أول يوم من الشهر المختار، ويتوقف قيد تقييم المخزون الدوري. يُفضَّل اختيار بداية شهر غير مقفل.</div>
         </Modal>
       )}

@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { HardDrive, ClipboardCheck, Truck, Send, ArrowLeftRight, Trash2, Scale, Check, X, ShoppingCart, PackageCheck } from 'lucide-react';
 import { cloud, bfKey } from '../../storage';
-import { canBrPurchase, ItemPick, signoff, sigFailMsg, BlindCount, COUNT_FREQ, Field, MAIN_WH, Modal, SectionNav, WH_MOVE, WH_ST, WasteFields, WastePending, WhLines, bookHidden, countFocus, countSchedule, isCostCtl, isStocked, itemAvgCosts, nowISO, q3, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whForBranch, whName, whOf, whOn } from '../../App.jsx';
+import { saleDeductOn, saleRecipeItems, canBrPurchase, ItemPick, signoff, sigFailMsg, BlindCount, COUNT_FREQ, Field, MAIN_WH, Modal, SectionNav, WH_MOVE, WH_ST, WasteFields, WastePending, WhLines, bookHidden, countFocus, countSchedule, isCostCtl, isStocked, itemAvgCosts, nowISO, q3, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whForBranch, whName, whOf, whOn } from '../../App.jsx';
 
 export function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
   const items = (org.items || []).filter(it => it.isActive !== false && isStocked(it));
@@ -126,6 +126,8 @@ export function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
     const k = WH_MOVE[mvF.kind];
     const lines = mvF.lines.filter(l => l.itemId && (Number(l.qty) || 0) > 0);
     if (!lines.length) return say('أضف صنفًا وكمية', 'no');
+    // v46.3: مع خصم المبيعات التلقائي لا تُصرف مواد الوصفات يدويًا (تُخصم بالبيع — والفرق يظهر بالجرد والهدر)
+    if (mvF.kind === 'out' && saleDeductOn(org, today())) { const R = saleRecipeItems(org); const bad = lines.find(l => R.has(l.itemId)); if (bad) return say('«' + itemOf(bad.itemId).name + '» يدخل في وصفات المنتجات ويُخصم تلقائيًا مع كل فاتورة بيع — لا يُصرف يدويًا. للتالف استخدم «هدر»', 'no'); }
     const over = lines.find(l => k.sign < 0 && q3(l.qty) > qOf(l.itemId) + 0.0005);
     if (over) return say('الكمية تتجاوز رصيد المستودع: ' + itemOf(over.itemId).name + (blind ? '' : ' (المتاح ' + qOf(over.itemId) + ')'), 'no');
     if (mvF.kind === 'waste') {   // v37.4 — سبب منظّم + صورة + اعتماد فوق الحد

@@ -1633,3 +1633,16 @@ test('v46.2 الأصناف: بحث وتصفية، و«الحذف» أرشفة د
   assert.match(sales, /\t2\t1$/, 'استهلاك نظري: 2 × 0.41 ÷ 82% = 1');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v46.3 خصم المبيعات من المخزون مفعّل: صرف مادة داخلة في الوصفات يدويًا ممنوع (تُخصم بالبيع)، والهدر مسموح، وكرت الحركة يوضح ذلك', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/BranchWarehouse/bm');
+  const td = new Date().toISOString().slice(0, 10);
+  await p.evaluate((td) => window.setOrg(g => ({ ...g, purchaseCfg: { ...(g.purchaseCfg || {}), perpetualFrom: td.slice(0, 7), saleDeductFrom: td } })), td);
+  await p.waitForTimeout(300);
+  await p.getByRole('button', { name: 'صرف وهدر' }).first().click(); await p.waitForTimeout(150);
+  await p.locator('.card select').first().selectOption('i1'); await p.locator('.card input[placeholder="الكمية"]').first().fill('2');
+  await p.locator('button', { hasText: /^تسجيل صرف/ }).first().click(); await p.waitForTimeout(250);
+  assert.match(await say(p), /يُخصم تلقائيًا مع كل فاتورة بيع — لا يُصرف يدويًا/);
+  assert.equal(await p.evaluate(() => (window.cur.whMoves || []).filter(m => m.kind === 'out' && m.itemId === 'i1' && String(m.at || m.date).slice(0, 10) === new Date().toISOString().slice(0, 10)).length), 0);
+  assert.deepEqual(errs, []); await ctx.close();
+});
