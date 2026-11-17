@@ -1383,3 +1383,20 @@ test('v46.3 خصم المبيعات من المخزون: مع كل فاتورة 
   // المواد الداخلة في الوصفات (لمنع صرفها يدويًا)
   assert.deepEqual([...E.saleRecipeItems(org)].sort(), ['bag', 'i1', 'i2', 'pp_sauce'].sort());
 });
+
+test('v46.5 ترقيم السندات المخزنية: الحركات المحفوظة معًا من نوع ومستودع واحد سند واحد، وتسلسل لكل مستودع ونوع، والقديم والتلقائي بلا رقم', () => {
+  const org = baseOrg({ warehouses: [{ id: 'wh-main', name: 'الرئيسي', kind: 'main' }, { id: 'wh-b1', name: 'العليا', kind: 'branch', branchId: 'b1' }], items: [{ id: 'i1', name: 'لحم', unit: 'كيلو' }, { id: 'i2', name: 'أرز', unit: 'كيلو' }] });
+  const before = { stockMoves: [{ id: 'old', itemId: 'i1', kind: 'in', qty: 5, date: '2026-03-01' }], whMoves: [] };
+  const m = (id, kind, qty, x) => ({ id, itemId: 'i1', kind, qty, date: '2026-03-02', ...x });
+  let next = E.assignVouchers(org, before, { ...before, stockMoves: [m('a', 'in', 10, { whId: 'wh-main' }), m('b', 'in', 4, { whId: 'wh-main', itemId: 'i2' }), m('c', 'out', -2, { whId: 'wh-main' }), ...before.stockMoves],
+    whMoves: [m('d', 'waste', -1, { whId: 'wh-b1', branchId: 'b1' }), m('s', 'sale', -3, { whId: 'wh-b1', branchId: 'b1', auto: true })] });
+  const v = (col, id) => next[col].find(x => x.id === id).vno;
+  assert.equal(v('stockMoves', 'a'), 'RCV-M-00001'); assert.equal(v('stockMoves', 'b'), 'RCV-M-00001', 'سند واحد متعدد البنود');
+  assert.equal(v('stockMoves', 'c'), 'ISS-M-00001'); assert.equal(v('stockMoves', 'old'), undefined, 'القديم لا يُرقَّم');
+  assert.equal(v('whMoves', 'd'), 'WST-W2-00001'); assert.equal(v('whMoves', 's'), undefined, 'خصم المبيعات التلقائي بلا سند');
+  const n2 = E.assignVouchers(org, next, { ...next, stockMoves: [m('e', 'in', 1, { whId: 'wh-main', opening: true }), m('f', 'in', 2, { whId: 'wh-main' }), ...next.stockMoves] });
+  assert.equal(n2.stockMoves.find(x => x.id === 'f').vno, 'RCV-M-00002', 'التسلسل يستمر'); assert.equal(n2.stockMoves.find(x => x.id === 'e').vno, 'OPN-M-00001');
+  assert.strictEqual(E.assignVouchers(org, n2, n2), n2, 'حفظ بلا حركات جديدة لا يغيّر شيئًا');
+  const L = E.voucherList(org, n2, {}); const r1 = L.find(x => x.no === 'RCV-M-00001');
+  assert.equal(r1.type, 'rcv'); assert.equal(r1.lines.length, 2);
+});

@@ -1,11 +1,12 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useEffect, useMemo } from 'react';
-import { HardDrive, FileBarChart, ChevronDown, Printer, ArrowLeftRight, ClipboardCheck, Truck, Store, BarChart3, AlertTriangle, Trash2, TrendingUp, Download, Check, Upload, Plus, Landmark, X, Archive, History } from 'lucide-react';
-import { ItemLedger } from './ItemLedger.jsx';   // v46.2
+import { HardDrive, FileBarChart, ChevronDown, Printer, ArrowLeftRight, ClipboardCheck, Truck, Store, BarChart3, AlertTriangle, Trash2, TrendingUp, Download, Check, Upload, Plus, Landmark, X, Archive, History, FileText } from 'lucide-react';
+import { ItemLedger } from './ItemLedger.jsx';
+import { StockVouchers } from './StockVouchers.jsx';   // v46.5   // v46.2
 import { PrepList } from './PrepList.jsx';   // v40.8
 import { TurnoverPpv } from './TurnoverPpv.jsx';   // v42.0
 import { Production } from './Production.jsx';   // v42.8
-import { saleDeductOn, saleRecipeItems, uomOf, UomSelect, productThumb, normDigits, BlindCount, Field, ITEM_TYPES, ITEM_NEW_TYPES, itemsSeq, nextItemCode, Kpi, LOCK_MSG, MAIN_WH, MOVE_KINDS, Modal, PriceAlerts, ROLES, SectionNav, UsageVariance, WarehousesPanel, WasteControl, WasteFields, arDate, isCostCtl, isStocked, itemAvgCosts, itemType, makeXlsx, money, nowISO, pFactor, parseCsvGrid, parseXlsxGrid, partGross, partYield, periodLocked, prepUnitCost, kcalUnitFactor, productKcal, printA4, q3, recipeCost, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whName, whOn, prepItemId } from '../../App.jsx';
+import { whOf, saleDeductOn, saleRecipeItems, uomOf, UomSelect, productThumb, normDigits, BlindCount, Field, ITEM_TYPES, ITEM_NEW_TYPES, itemsSeq, nextItemCode, Kpi, LOCK_MSG, MAIN_WH, MOVE_KINDS, Modal, PriceAlerts, ROLES, SectionNav, UsageVariance, WarehousesPanel, WasteControl, WasteFields, arDate, isCostCtl, isStocked, itemAvgCosts, itemType, makeXlsx, money, nowISO, pFactor, parseCsvGrid, parseXlsxGrid, partGross, partYield, periodLocked, prepUnitCost, kcalUnitFactor, productKcal, printA4, q3, recipeCost, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whName, whOn, prepItemId } from '../../App.jsx';
 
 export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
   const [view, setView] = useState('items');        // items | moves | count | recipes
@@ -70,7 +71,8 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
     const ok = await commitOrg(d => ({ ...d, items: (d.items || []).map(x => { if (x.id !== it.id) return x; const { archivedAt: _a, archivedBy: _b, ...rest } = x; return { ...rest, isActive: true }; }) }), { actionType: 'update', targetType: 'stock_item', targetId: it.id, title: 'استعاد صنفًا من الأرشيف', details: (it.code || '') + ' · ' + it.name });
     if (ok !== false) { setItemF(null); say('استُعيد الصنف من الأرشيف ✓'); }
   };
-  const [ledgerIt, setLedgerIt] = useState(null);   // v46.2 كرت حركة الصنف
+  const [ledgerIt, setLedgerIt] = useState(null);
+  const [cntWh, setCntWh] = useState(MAIN_WH);   // v46.5 نقطة الجرد لأي مستودع   // v46.2 كرت حركة الصنف
   const [iq, setIq] = useState(''); const [iType, setIType] = useState(''); const [iSt, setISt] = useState('active');
   const stateOf = (it) => {
     const b = balOf(it.id), mn = it.minQty || 0;
@@ -343,7 +345,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
       </div>
 
       <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-        <SectionNav label="أقسام المخزون" cur={view} onPick={setView} items={[{ id: 'items', ar: 'الأصناف والأرصدة', group: 'المخزون', icon: HardDrive }, { id: 'moves', ar: 'الحركات', group: 'المخزون', icon: ArrowLeftRight }, { id: 'count', ar: 'الجرد' + (whOn(org) ? ' (الرئيسي)' : ''), group: 'المخزون', icon: ClipboardCheck }, { id: 'wh', ar: 'المستودعات', group: 'المخزون', icon: Truck }, { id: 'recipes', ar: 'الوصفات والتكلفة', group: 'المطبخ والوصفات', icon: Store }, { id: 'prep', ar: 'قائمة التحضير اليومية', group: 'المطبخ والوصفات', icon: Store }, { id: 'production', ar: 'أوامر الإنتاج', group: 'المطبخ والوصفات', icon: Store }, { id: 'menu', ar: 'هندسة القائمة', group: 'المطبخ والوصفات', icon: BarChart3 }, { id: 'usage', ar: 'الاستهلاك النظري والفعلي', group: 'الرقابة', icon: AlertTriangle }, { id: 'turnover', ar: 'الدوران وفروق أسعار الشراء', group: 'الرقابة', icon: TrendingUp }, { id: 'waste', ar: 'ضبط الهدر', group: 'الرقابة', icon: Trash2, badge: (ops.wasteRequests || []).filter(r => r.status === 'pending').length || null }, { id: 'prices', ar: 'تنبيهات الأسعار', group: 'الرقابة', icon: TrendingUp, badge: (ops.purchaseOrders || []).filter(po => po.status === 'pending' && po.priceAlert).length || null }]} />
+        <SectionNav label="أقسام المخزون" cur={view} onPick={setView} items={[{ id: 'items', ar: 'الأصناف والأرصدة', group: 'المخزون', icon: HardDrive }, { id: 'moves', ar: 'الحركات', group: 'المخزون', icon: ArrowLeftRight }, { id: 'count', ar: 'الجرد' + (whOn(org) ? ' (الرئيسي)' : ''), group: 'المخزون', icon: ClipboardCheck }, { id: 'vouchers', ar: 'السندات المخزنية', group: 'المخزون', icon: FileText }, { id: 'wh', ar: 'المستودعات', group: 'المخزون', icon: Truck }, { id: 'recipes', ar: 'الوصفات والتكلفة', group: 'المطبخ والوصفات', icon: Store }, { id: 'prep', ar: 'قائمة التحضير اليومية', group: 'المطبخ والوصفات', icon: Store }, { id: 'production', ar: 'أوامر الإنتاج', group: 'المطبخ والوصفات', icon: Store }, { id: 'menu', ar: 'هندسة القائمة', group: 'المطبخ والوصفات', icon: BarChart3 }, { id: 'usage', ar: 'الاستهلاك النظري والفعلي', group: 'الرقابة', icon: AlertTriangle }, { id: 'turnover', ar: 'الدوران وفروق أسعار الشراء', group: 'الرقابة', icon: TrendingUp }, { id: 'waste', ar: 'ضبط الهدر', group: 'الرقابة', icon: Trash2, badge: (ops.wasteRequests || []).filter(r => r.status === 'pending').length || null }, { id: 'prices', ar: 'تنبيهات الأسعار', group: 'الرقابة', icon: TrendingUp, badge: (ops.purchaseOrders || []).filter(po => po.status === 'pending' && po.priceAlert).length || null }]} />
       </div>
 
       <div className="grid g4">
@@ -466,7 +468,14 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
         </div>
       )}
 
-      {view === 'count' && <BlindCount org={org} ops={ops} me={me} commit={commit} say={say} whId={MAIN_WH} branchId="" col="stockMoves" items={items.filter(isStocked)} title={whOn(org) ? whName(org, MAIN_WH) : 'المخزون'} canCount={canW} />}
+      {view === 'vouchers' && <StockVouchers org={org} ops={ops} me={me} commit={commit} say={say} canCreate={canW} />}
+      {view === 'count' && whOn(org) && whOf(org).length > 1 && (
+        <div className="row" style={{ gap: 8, marginBottom: 8, alignItems: 'center' }} data-countwh>
+          <span style={{ fontSize: 12.5 }}>نقطة الجرد:</span>
+          <select className="sel" style={{ maxWidth: 260 }} aria-label="مستودع الجرد" value={cntWh} onChange={e => setCntWh(e.target.value)}>{whOf(org).map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select>
+        </div>)}
+      {view === 'count' && (() => { const w = whOn(org) ? whOf(org).find(x => x.id === cntWh) : null; const br = w && w.kind === 'branch';
+        return <BlindCount key={cntWh} org={org} ops={ops} me={me} commit={commit} say={say} whId={br ? w.id : MAIN_WH} branchId={br ? w.branchId : ''} col={br ? 'whMoves' : 'stockMoves'} items={items.filter(isStocked)} title={whOn(org) ? whName(org, br ? w.id : MAIN_WH) : 'المخزون'} canCount={canW} />; })()}
 
       {view === 'prep' && <PrepList org={org} ops={ops} me={me} say={say} />}
       {view === 'usage' && <UsageVariance org={org} ops={ops} me={me} commit={commit} say={say} />}
@@ -569,11 +578,11 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
 
       <div className="card" style={{ background: 'rgba(200,162,74,.04)', borderStyle: 'dashed' }}>
         <div style={{ fontSize: 11.5, color: 'var(--dim)', lineHeight: 1.9 }}>
-          <b style={{ color: 'var(--brass-l)' }}>حدود هذه المرحلة (بشفافية):</b> لا خصم تلقائي للمخزون مع البيع —
-          النظام يسجّل إجماليات المبيعات لا أصنافها، فالاستهلاك يُسجَّل «صرفًا للتشغيل» أو عبر الجرد الدوري.
-          التكلفة المعروضة بآخر سعر شراء، وتتحدّث تلقائيًا عند استلام أوامر الشراء.
-          التقييم المحاسبي للمخزون (رسملة المشتريات وتكلفة المبيعات) قرار محاسبي يُبنى في مرحلة لاحقة —
-          حاليًا تبقى المشتريات مصروفًا كما هي (طريقة الجرد الدوري المتعارفة للمطاعم).
+          {(() => { const pc = org.purchaseCfg || {}; return <>   {/* v46.5: الحالة الفعلية بدل ملاحظة المرحلة القديمة */}
+            <b style={{ color: 'var(--brass-l)' }}>طريقة المخزون الحالية:</b>{' '}
+            {pc.perpetualFrom ? 'جرد مستمر من ' + pc.perpetualFrom + ' — الاستلام يرسمل المخزون، والصرف والهدر والتسويات تُقيَّد بالمتوسط المرجّح.' : 'جرد دوري — المشتريات مصروف، والاستهلاك يُعرف بالصرف والجرد. يمكن تفعيل الجرد المستمر من إعدادات المشتريات.'}{' '}
+            {pc.saleDeductFrom ? 'خصم المبيعات من المخزون مفعّل من ' + pc.saleDeductFrom + ' (حسب الوصفات، من مستودع الفرع).' : 'المبيعات لا تُخصم من المخزون تلقائيًا (يمكن تفعيلها من إعدادات المشتريات).'}
+          </>; })()}
         </div>
       </div>
 
