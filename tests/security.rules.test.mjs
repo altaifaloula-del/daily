@@ -304,3 +304,24 @@ test('ث33 تحويل الاستلام غير المطابق إلى فاتورة
   await assertSucceeds(setDoc(doc(as('owner'), 'signoffs', id('pinv_y_submit')), sig('owner', { kind: 'pinv', stage: 'submit', entityId: 'i9', branchId: '', alert: false })), 'مدير النظام');
   for (const k of ['gm', 'fin', 'ctl', 'view']) await assertFails(setDoc(doc(as(k), 'signoffs', id('x')), sig(k, { kind: 'pinv', stage: 'submit', entityId: 'i9', branchId: '', alert: false })), k + ' لا يحوّل');
 });
+
+/* ===== v45.7 — تحقق صريح من ادعاءات الأمان المعروضة على المالك ===== */
+const as2fa = (k) => env.authenticatedContext('u-' + k, { email: U[k], firebase: { sign_in_provider: 'password', sign_in_second_factor: 'totp' } }).firestore();
+test('تحقق: الفرع لا يقرأ المستند المركزي ولا مستند فرع آخر — والمركز يقرأ', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => { const d = ctx.firestore();
+    await setDoc(doc(d, 'platform', 'rms8_core'), { value: '{}', parts: 1, cv: 400000 }); await setDoc(doc(d, 'platform', 'rms8_br_B'), { value: '{}', parts: 1, cv: 400000 }); });
+  for (const k of ['cash', 'bm']) await assertFails(getDoc(doc(as(k), 'platform', 'rms8_core')), k + ' لا يقرأ المركزي');
+  await assertFails(getDoc(doc(as('bm'), 'platform', 'rms8_br_B')), 'مدير فرع A لا يقرأ فرع B');
+  await assertSucceeds(getDoc(doc(as('bm'), 'platform', 'rms8_br_A')), 'يقرأ فرعه');
+  await assertSucceeds(getDoc(doc(as('fin'), 'platform', 'rms8_core')), 'المركز يقرأ');
+  await assertFails(setDoc(doc(as('bm'), 'platform', 'rms8_core'), { value: '{}', parts: 1, updatedAt: 3, cv: 400000 }), 'الفرع لا يكتب المركزي');
+});
+test('تحقق: سياسة التحقق بخطوتين — حين تُفعَّل لدور يُرفض بلا عامل ثانٍ ويُقبل به، ولا تمس الأدوار غير المشمولة', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => { await setDoc(doc(ctx.firestore(), 'platform', 'security'), { roles: ['finance_department'], admins: true, at: 1 }); });
+  try {
+    await assertFails(getDoc(doc(as('fin'), 'platform', 'rms8_core')), 'المالية بلا خطوة ثانية ⇒ مرفوض');
+    await assertSucceeds(getDoc(doc(as2fa('fin'), 'platform', 'rms8_core')), 'بالخطوة الثانية ⇒ مقبول');
+    await assertFails(setDoc(doc(as('owner'), 'platform', 'release'), { minCv: 400000, cutover: '2026-11-13', at: 2, by: U.owner }), 'المدير بلا خطوة ثانية ⇒ مرفوض');
+    await assertSucceeds(getDoc(doc(as('cash'), 'platform', 'rms8_br_A')), 'الكاشير غير مشمول بالسياسة');
+  } finally { await env.withSecurityRulesDisabled(async (ctx) => { await deleteDoc(doc(ctx.firestore(), 'platform', 'security')); }); }
+});
