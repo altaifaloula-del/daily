@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { cloud, KEYS, brKey, bfKey } from '../../storage';
 import { Store, X, RefreshCw, FileText, Clock, ShieldCheck, Check, Plus, Printer, Download, Lock, Banknote, ChefHat, LayoutGrid, Send } from 'lucide-react';
 import { posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim } from '../../App.jsx';   // v42.9
-import { APPS, CloudHealth, Field, Modal, Num, POS_SH_KEY, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, QUOTA_MSG, ROLES, businessDay, isoD, logClientError, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, makeXlsx, money, normPhone, nowISO, pendShiftsGet, pendShiftsSet, posCashNet, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posTotals, posZHtml, promoActive, promoHits, sha256Hex, uid } from '../../App.jsx';
+import { posDocView, APPS, CloudHealth, Field, Modal, Num, POS_SH_KEY, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, QUOTA_MSG, ROLES, businessDay, isoD, logClientError, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, makeXlsx, money, normPhone, nowISO, pendShiftsGet, pendShiftsSet, posCashNet, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posTotals, posZHtml, promoActive, promoHits, sha256Hex, uid } from '../../App.jsx';
 
 export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const R = ROLES[me.role] || {};
@@ -133,11 +133,11 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
       if (!window.confirm('توجد بيانات لم تصل للسحابة بعد (' + (queue.length ? queue.length + ' فاتورة' : 'الوردية نفسها') + ').\n\nإغلاق الوردية على هذا الجهاز وطباعة تقرير Z الآن؟ تُرسل الوردية المغلقة وفواتيرها تلقائيًا عند نجاح الحفظ — لا تمسح بيانات المتصفح ولا تحذف التطبيق قبل ذلك.')) return;
       if (shift.pending) setLS(null);
       const nx = [...pendShiftsGet().filter(x => x.id !== rec.id), rec]; pendShiftsSet(nx); setPendClose(nx);
-      setShiftF(null); say('أُغلقت الوردية على الجهاز — الفرق ' + money(rec.diff) + ' · تُرسل تلقائيًا'); posPrint(posZHtml(org, rec, shiftOrders(shift), br)); flush();
+      setShiftF(null); say('أُغلقت الوردية على الجهاز — الفرق ' + money(rec.diff) + ' · تُرسل تلقائيًا'); posDocView(posZHtml(org, rec, shiftOrders(shift), br)); flush();
       return;
     }
     const ok = await commit(d => ({ ...d, posShifts: (d.posShifts || []).map(x => x.id === shift.id ? rec : x) }), { actionType: 'update', targetType: 'pos_shift', targetId: shift.id, branchName: br.name, title: 'إغلاق وردية نقطة بيع', details: dev.name + ' · متوقع ' + money(expected) + ' · فعلي ' + money(counted) + ' · فرق ' + money(rec.diff) });
-    if (ok) { setShiftF(null); say('أُغلقت الوردية — الفرق ' + money(rec.diff)); posPrint(posZHtml(org, rec, shiftOrders(shift), br)); }
+    if (ok) { setShiftF(null); say('أُغلقت الوردية — الفرق ' + money(rec.diff)); posDocView(posZHtml(org, rec, shiftOrders(shift), br)); }
   };
   const checkout = async (printNow) => {
     const paid = posR2((pay.parts || []).reduce((a, x) => a + (Number(x.amount) || 0), 0));
