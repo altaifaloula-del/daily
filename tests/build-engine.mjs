@@ -32,11 +32,14 @@ export async function buildEngine() {
   // v38.3: النواة تصدّر دوال المحرك نفسها (والتطبيقات في mods/ تستورد منها) — نبني من الملف الأصلي مباشرة
   const src = "export { " + ENGINE_EXPORTS.join(', ') + " } from '../../App.jsx';\n"
     + "export { integrityChecks, groupErrors } from '../../mods/admin/SystemMaintenance.jsx';\n";   // v38.5 صيانة النظام
-  const entry = path.join(cache, 'AppEngine.jsx');
+  // v45.9: ملف لكل عملية — ملفا اختبار يعملان معًا (node --test) كانا يكتبان الملف نفسه فيستورد أحدهما نسخة ناقصة
+  const tag = process.pid + '-' + Math.random().toString(36).slice(2, 8);
+  const entry = path.join(cache, 'AppEngine-' + tag + '.jsx');
   fs.writeFileSync(entry, src);
-  const out = path.join(cache, 'engine.mjs');
+  const out = path.join(cache, 'engine-' + tag + '.mjs');
   await build({ entryPoints: [entry], bundle: true, platform: 'node', format: 'esm', outfile: out, logLevel: 'error',
     loader: { '.js': 'jsx' }, define: { 'import.meta.env': '{}' }, jsx: 'automatic',
     external: ['react', 'react-dom', 'react-dom/*', 'lucide-react', 'recharts', 'firebase/*'] });
-  return import(out + '?t=' + Date.now());
+  try { return await import(out); }
+  finally { for (const f of [entry, out]) { try { fs.unlinkSync(f); } catch { } } }
 }
