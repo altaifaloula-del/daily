@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <rect width="512" height="512" fill="#101D35"/>
   <rect x="56" y="56" width="400" height="400" rx="88" fill="none" stroke="#C7A45B" stroke-width="10" opacity=".55"/>
-  <text x="256" y="318" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="800" font-size="190" fill="#E2C987" letter-spacing="4">RP</text>
+  <text x="262" y="282" text-anchor="middle" font-family="Arial,Tahoma,&apos;DejaVu Sans&apos;,sans-serif" font-weight="800" font-size="300" fill="#E2C987" >م</text>
 </svg>

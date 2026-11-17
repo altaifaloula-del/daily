@@ -11,6 +11,8 @@ export function setLangGlobal(l) {
   try { document.documentElement.lang = LANG; document.documentElement.dir = LANG === 'en' ? 'ltr' : 'rtl'; } catch { }
 }
 export const EN = {
+  // ===== الهوية (v46.8) =====
+  'مِثقال': 'Mithqal', 'مِثقال — Mithqal': 'Mithqal', 'منصة واحدة، لكل الأعمال ومن أي مكان': 'One platform for every business, from anywhere', 'مِثقال (المعتمد)': 'Mithqal (default)',
   // ===== الإطار والتنقل =====
   'الرئيسية': 'Home', 'الإدارة المالية والتشغيلية': 'Finance & Operations', 'الموارد والرقابة': 'People & Control', 'التشغيل اليومي': 'Daily operations',
   'التحليل والتنبيهات': 'Analytics & Alerts', 'مركز التنبيهات': 'Alerts Center', 'مركز التقارير': 'Reports Center', 'المبيعات': 'Sales', 'نقطة البيع': 'Point of Sale',

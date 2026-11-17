@@ -1693,6 +1693,9 @@ table.tb.tb-fp{min-width:520px}
 .rms.thm-restpro .rp-brand{display:flex;flex-direction:column;min-width:0;flex:1}
 .rms.thm-restpro .rp-brand b{overflow:hidden;text-overflow:ellipsis;font-size:17px;letter-spacing:1px;color:#FFFFFF;font-family:'MizanNum','IBM Plex Sans Arabic',sans-serif;font-weight:800;white-space:nowrap}
 .rms.thm-restpro .rp-brand span{color:var(--gold-l);font-size:10.5px;margin-top:5px;letter-spacing:.06em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* v46.8 شعار «مِثقال» تحت الاسم (يلتف على سطرين) واسم المنشأة تحته */
+.rms.thm-restpro .rp-brand span.rp-tag{white-space:normal;line-height:1.4;letter-spacing:0}
+.rms.thm-restpro .rp-brand span.rp-co{color:rgba(255,255,255,.6);font-size:10px;margin-top:3px;letter-spacing:0}
 .rms.thm-restpro .side .rp-nav{padding:6px 12px 12px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:2px}
 .rms.thm-restpro .side .nav-lbl{color:var(--side-dim);font-size:10.5px;padding:14px 12px 6px;letter-spacing:0;white-space:nowrap}
 .rms.thm-restpro .side .nav-i{color:var(--side-txt);border-radius:10px;min-height:42px;padding:11px 12px;font-size:13px;white-space:nowrap}
@@ -1727,7 +1730,7 @@ table.tb.tb-fp{min-width:520px}
   .rms.thm-restpro .side.open .brand{padding:18px 14px 14px;gap:9px}
   .rms.thm-restpro .topmenu{display:inline-grid !important}
 }
-.rp-mark{width:36px;height:36px;border-radius:10px;flex-shrink:0;display:grid;place-items:center;background:linear-gradient(140deg,#E2C987,#C7A45B);color:#101D35;font:800 13px/1 'MizanNum','IBM Plex Sans Arabic',sans-serif;letter-spacing:.5px}
+.rp-mark{width:36px;height:36px;border-radius:10px;flex-shrink:0;display:grid;place-items:center;background:linear-gradient(140deg,#E2C987,#C7A45B);color:#101D35;font:800 17px/1 'MizanNum','IBM Plex Sans Arabic',sans-serif;letter-spacing:.5px}
 
 /* ══════════════ v42.3 — المرحلة الأولى: أساس التصميم الموحّد لـ RESTAURANT PRO ══════════════
    مقياس واحد للزوايا والظلال والحركة والتركيز — يطال كل الشاشات لأنها تشترك في المكوّنات نفسها، دون تغيير أي وظيفة.

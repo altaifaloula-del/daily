@@ -382,7 +382,7 @@ function shiftSumText(org, sh, ops) {
   L.push('💵 النقد: متوقع ' + money(sh.expected || 0) + ' · معدود ' + money(sh.counted || 0));
   L.push((Math.abs(d) > 0.004 ? (d < 0 ? '🔴 عجز ' : '🟡 زيادة ') + money(Math.abs(d)) : '✅ لا فرق نقدي'));
   if (sh.closeNote) L.push('ملاحظة: ' + sh.closeNote);
-  L.push(''); L.push('— ' + ((org.company || {}).name || 'RESTAURANT PRO'));
+  L.push(''); L.push('— ' + ((org.company || {}).name || 'مِثقال'));
   return L.join('\n');
 }
 function closeAlertEvents(org, ops, me, myBranches) {
@@ -2500,7 +2500,7 @@ const TAB_AR = {
 };
 // ═══ ثيمات المنصّة الاحترافية (11 أسلوب تصميم كامل) × وضع ليل/نهار — v14.7 ═══
 const THEME_META = {
-  restpro: { name: 'RESTAURANT PRO (المعتمد)', desc: 'كحلي وذهبي فاخر', color: '#101D35' },
+  restpro: { name: 'مِثقال (المعتمد)', desc: 'كحلي وذهبي فاخر', color: '#101D35' },
   mizan: { name: 'ميزان 2', desc: 'واضح احترافي', color: '#C9A24D' },
   royal: { name: 'الملكي الذهبي', desc: 'فخم دافئ', color: '#A87D28' },
   glass: { name: 'الزجاجي الشفّاف', desc: 'بطاقات ضبابية', color: '#2E7CC4' },
@@ -2521,7 +2521,9 @@ const normTheme = (t) => THEME_META[t] ? t : (THEME_LEGACY[t] || 'restpro');
 const readMode = () => { try { return localStorage.getItem('rms8:mode') === 'dark' ? 'dark' : 'light'; } catch { return 'light'; } };
 // v42.1: «RESTAURANT PRO» يرث مكوّنات «ميزان 2» ويبدّل الألوان والقائمة والعلامة
 const themeCls = (t, mode) => { const n = normTheme(t); return 'rms mode-' + (mode === 'dark' ? 'dark' : 'light') + (n === 'restpro' ? ' thm-mizan thm-restpro' : ' thm-' + n); };
-const BRAND = 'RESTAURANT PRO', BRAND_SUB = 'SMART RESTAURANT MANAGEMENT', BRAND_AR = 'RESTAURANT PRO — نظام إدارة المطاعم';
+// v46.8: الهوية «مِثقال — Mithqal» وشعارها؛ الترجمة الإنجليزية في i18n.js (TX)
+const BRAND = 'مِثقال', BRAND_SUB = 'منصة واحدة، لكل الأعمال ومن أي مكان', BRAND_AR = 'مِثقال — Mithqal';
+const BRAND_MARK = () => (isEn() ? 'M' : 'م');
 
 // v44.0 — قرار المالك: تحويل الاستلام غير المطابق إلى فاتورة للمحاسب ومدير النظام فقط (يُفرض في قواعد Firestore: [ROLES:PINV])
 const INV_BILLERS = ['accountant', 'system_admin'];
@@ -2982,7 +2984,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v46.7';
+const APP_VER = 'v46.8';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -4083,10 +4085,11 @@ function PlatformApp() {
           <div className="brand">
             {org.company.logoUrl
               ? <img className="brand-logo" src={org.company.logoUrl} alt="شعار الشركة" />
-              : <div className="rp-mark">RP</div>}
+              : <div className="rp-mark">{BRAND_MARK()}</div>}
             <div className="rp-brand">
-              <b>{BRAND}</b>
-              <span>{org.company.name || BRAND_SUB}</span>
+              <b>{TX(BRAND)}</b>
+              <span className="rp-tag">{TX(BRAND_SUB)}</span>
+              {org.company.name && <span className="rp-co">{org.company.name}</span>}
             </div>
             <button className="btn sm gh sideclose" onClick={() => setDrawer(false)} title={TX('إخفاء القائمة')}>
               <X size={18} />
@@ -4126,7 +4129,7 @@ function PlatformApp() {
             </button>
           </div>
           </div>
-          <div className="rp-foot">{BRAND} · {APP_VER}</div>
+          <div className="rp-foot">{TX(BRAND)} · {APP_VER}</div>
         </aside>
 
         <div className="main">
@@ -4142,7 +4145,7 @@ function PlatformApp() {
             )}
             {org.company.logoUrl
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
-              : <span className="toplogo-mark rp-mark" style={{ width: 30, height: 30, fontSize: 11 }}>RP</span>}
+              : <span className="toplogo-mark rp-mark" style={{ width: 30, height: 30, fontSize: 15 }}>{BRAND_MARK()}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || TX('الرئيسية')) : TX(HR_TABS.includes(safeTab) ? 'الموارد البشرية' : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || ''))}</h1>
             <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>{APP_VER}</span>
             <div className="topstatus">
@@ -4433,7 +4436,7 @@ function BrandHead({ title, sub, logo }) {
     <div className="bhead" style={{ textAlign: 'center', marginBottom: 24 }}>
       {logo
         ? <img src={logo} alt="شعار" className="bhead-logo" style={{ width: 64, height: 64, margin: '0 auto 14px', borderRadius: 16, objectFit: 'cover', border: '1px solid var(--line)', display: 'block' }} />
-        : <div className="rp-mark bhead-logo" style={{ width: 64, height: 64, margin: '0 auto 14px', borderRadius: 18, fontSize: 22 }}>RP</div>}
+        : <div className="rp-mark bhead-logo" style={{ width: 64, height: 64, margin: '0 auto 14px', borderRadius: 18, fontSize: 30 }}>{BRAND_MARK()}</div>}
       <h1 style={{ fontSize: 20 }}>{title || BRAND_AR}</h1>
       <div style={{ color: 'var(--dim)', fontSize: 12.5, marginTop: 5 }}>{sub}</div>
     </div>
@@ -4641,7 +4644,7 @@ function FbGate({ css, theme, fbLogin, fbMfa, fbFirstSetup, notice }) {
       <style dangerouslySetInnerHTML={{ __html: css }} />
       <div className="gate">
         <div className="gate-c">
-          <BrandHead title={BRAND_AR} sub="دخول موثّق — البيانات محمية بحساب مصادقة لكل مستخدم" />
+          <BrandHead title={BRAND_AR} sub={TX(BRAND_SUB)} />
           <div className="row" style={{ justifyContent: 'center', marginBottom: 16 }}>
             <span className="badge b-mint"><Lock size={10} />مصادقة سحابية مفعّلة</span>
           </div>
@@ -4867,7 +4870,7 @@ function Gate({ css, org, onLogin, online, theme, notice }) {
       <style dangerouslySetInnerHTML={{ __html: css }} />
       <div className="gate">
         <div className="gate-c">
-          <BrandHead title={org.company?.name || BRAND} sub="RESTAURANT PRO — نظام إدارة المطاعم: الإغلاق اليومي والمحاسبة والمشتريات والمخزون والموارد البشرية" logo={org.company?.logoUrl} />
+          <BrandHead title={org.company?.name || TX(BRAND)} sub={TX(BRAND_AR) + ' — ' + TX(BRAND_SUB)} logo={org.company?.logoUrl} />
           <div className="row" style={{ justifyContent: 'center', marginBottom: 16 }}>
             <span className="badge b-mint"><span className="dot" />{online.length} متصل الآن</span>
             <span className="badge b-dim"><Lock size={10} />بيانات مشتركة ومؤمّنة</span>
@@ -7766,7 +7769,7 @@ function buildClosingA4(c, org) {
         <div class="sig-ok dim">الاعتماد النهائي</div>
       </div>
     </div>
-    <div class="foot dim">تم تصدير هذا التقرير آلياً من RESTAURANT PRO · ${co.name || ''}</div>
+    <div class="foot dim">تم تصدير هذا التقرير آلياً من مِثقال · ${co.name || ''}</div>
   </div>`;
 }
 
@@ -7782,17 +7785,18 @@ const docInApp = () => { try { return isStandaloneApp() || isIOSDev() || /Androi
    mzBrandDoc: يضيف توقيع «RESTAURANT PRO» بالشعار في تذييل كل مستند (أو سطرًا صغيرًا إن لم يوجد تذييل) — مرة واحدة فقط. */
 // v42.1: علامة RESTAURANT PRO في المطبوعات — مربع كحلي بحرفَي RP الذهبيين (المعامِلات القديمة مقبولة للتوافق)
 const mzSvg = (size) => '<svg xmlns="http://www.w3.org/2000/svg" width="' + size + '" height="' + size + '" viewBox="0 0 64 64" style="vertical-align:middle;flex-shrink:0">' +
-  '<rect width="64" height="64" rx="14" fill="#101D35"/><text x="32" y="41" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="800" font-size="25" fill="#C7A45B">RP</text></svg>';
+  '<rect width="64" height="64" rx="14" fill="#101D35"/><text x="32" y="41" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="800" font-size="34" fill="#C7A45B">م</text></svg>';
 const MZ_LOGO_HTML = '<span class="logo" style="display:inline-grid;place-items:center;border-radius:8px">' + mzSvg(30) + '</span>';
 const mzBrandDoc = (html) => {
   html = String(html || '');
   if (html.includes('data-mzb')) return html;
-  const sig = '<span data-mzb style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap">' + mzSvg(12, '#555', '#C9A24D', false) + 'RESTAURANT PRO</span>';
+  const sig = '<span data-mzb style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap">' + mzSvg(12, '#555', '#C9A24D', false) + 'مِثقال</span>';
   const bi = html.search(/<body[^>]*>/i);
   if (bi < 0) return html;
   const head = html.slice(0, bi), body = html.slice(bi);
-  if (body.includes('RESTAURANT PRO')) return head + body.replace(/RESTAURANT PRO/g, sig);
-  const foot = '<div data-mzb style="text-align:center;font-size:9px;color:#888;margin-top:10px;display:flex;align-items:center;justify-content:center;gap:4px">' + mzSvg(11, '#888', '#C9A24D', false) + 'RESTAURANT PRO</div>';
+  // RESTAURANT PRO: الاسم السابق — يُستبدل أيضًا في القوالب المحفوظة القديمة
+  if (/مِثقال|RESTAURANT PRO/.test(body)) return head + body.replace(/مِثقال|RESTAURANT PRO/g, sig);
+  const foot = '<div data-mzb style="text-align:center;font-size:9px;color:#888;margin-top:10px;display:flex;align-items:center;justify-content:center;gap:4px">' + mzSvg(11, '#888', '#C9A24D', false) + 'مِثقال — Mithqal</div>';
   return /<\/body>/i.test(body) ? head + body.replace(/<\/body>/i, foot + '</body>') : head + body + foot;
 };
 function openDocWin(features) {
@@ -8045,7 +8049,7 @@ function printPartnerStatement(p, org) {
   <table><thead><tr><th>التاريخ</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead>
   <tbody>${rows || '<tr><td colspan=5 style="text-align:center;color:#999;padding:20px">لا حركات</td></tr>'}</tbody>
   <tfoot><tr><td colspan="2">الإجماليات</td><td class="n">${money(sdr)}</td><td class="n">${money(scr)}</td><td class="n">${money(Math.abs(bal))}${bal > 0 ? ' دائن' : bal < 0 ? ' مدين' : ''}</td></tr></tfoot></table>
-  <div class="ft">كشف حساب صادر من RESTAURANT PRO — ${co.name || ''} · ${arDate(today())}</div></body></html>`);
+  <div class="ft">كشف حساب صادر من مِثقال — ${co.name || ''} · ${arDate(today())}</div></body></html>`);
   w.document.close();
   setTimeout(() => { w.focus(); w.print(); }, 400);
   return true;
@@ -8071,7 +8075,7 @@ function printA4(org, title, sub, bodyHtml) {
   <div class="h"><div><div class="co">${co.name || 'الشركة'}</div><div class="sub">${co.taxNumber ? 'الرقم الضريبي: ' + co.taxNumber : ''}</div></div>
   <div style="text-align:left"><h1>${title}</h1><div class="sub">${sub || ''}</div></div></div>
   ${bodyHtml}
-  <div class="ft">صادر من RESTAURANT PRO — ${arDate(today())}</div></body></html>`);
+  <div class="ft">صادر من مِثقال — ${arDate(today())}</div></body></html>`);
   w.document.close();
   setTimeout(() => { w.focus(); w.print(); }, 400);
   return true;
@@ -9806,7 +9810,7 @@ function morningText(org, D) {
   if (D.pay && (D.pay.over.length || D.pay.soon.length)) { L.push(''); L.push('🧾 الموردون: متأخر ' + money(D.pay.overT) + ' (' + D.pay.over.length + ') · مستحق خلال 7 أيام ' + money(D.pay.soonT) + ' (' + D.pay.soon.length + ')'); }
   if (D.food && D.food.all.pct != null) { L.push(''); L.push('🍽️ تكلفة الطعام للشهر: ' + D.food.all.pct + '% (الهدف ' + D.food.tgt + '%)' + (D.food.over.length ? ' · فوق الهدف: ' + D.food.over.map(x => x.b.name + ' ' + x.pct + '%').join('، ') : '')); }
   if (D.vat2302 != null && D.vat2302 > 0.004) { L.push(''); L.push('🏛️ ضريبة مستحقة غير مسددة: ' + money(D.vat2302)); }
-  L.push(''); L.push('— RESTAURANT PRO');
+  L.push(''); L.push('— مِثقال');
   return L.join('\n');
 }
 function morningHtml(org, D) {
@@ -9837,7 +9841,7 @@ function morningHtml(org, D) {
       ${D.patterns.map(x => `<div class="note" style="background:#fdeeed;color:#C0392B">عجز متكرر — ${x.branchName}: ${x.n} حالات خلال ${D.dcf.days} أيام بإجمالي ${money(Math.abs(x.total))}</div>`).join('')}` : ''}
     ${payT}${foodT}
     ${D.vat2302 != null && D.vat2302 > 0.004 ? `<div class="note">ضريبة القيمة المضافة المستحقة غير المسددة (2302): ${money(D.vat2302)}</div>` : ''}
-    <div class="foot dim" style="margin-top:14px;text-align:center;font-size:9.5px">تقرير آلي من RESTAURANT PRO — الأرقام من الإغلاقات والقيود الفعلية</div>
+    <div class="foot dim" style="margin-top:14px;text-align:center;font-size:9.5px">تقرير آلي من مِثقال — الأرقام من الإغلاقات والقيود الفعلية</div>
   </div></body></html>`;
 }
 function MorningBrief({ org, ops, me, myBranches, scoped, setTab, onClose }) {
