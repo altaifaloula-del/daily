@@ -1506,3 +1506,19 @@ test('v45.4 صورة المنتج: تُرفع في نموذج المنتج (مص
   assert.equal(await o.p.locator('.pos-tile img').count(), 0, 'مخفية من الإعدادات');
   assert.deepEqual(o.errs, []); await o.ctx.close();
 });
+
+test('v45.6 «طباعة الشاشة»: أي شاشة بلا زر طباعة تُطبع A4 — الجداول والقيم تبقى، والأزرار تُحذف، والحقول تُطبع قيمها نصًا', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/Inventory/ho/wh');
+  await p.evaluate(() => window.setOps(o => ({ ...o, stockMoves: [{ id: 's1', itemId: 'i1', kind: 'purchase', qty: 50, date: '2026-11-10', by: 'سارة' }], whMoves: [], whTransfers: [] })));
+  await p.waitForTimeout(300);
+  await p.selectOption('select[aria-label="مخزون المستودع"]', 'wh-b1'); await p.waitForTimeout(150);
+  const ok = await p.evaluate(() => window.__M.printScreen(window.curOrg, document.querySelector('#r'), 'المستودعات'));
+  assert.equal(ok, true); await p.waitForTimeout(500);
+  const doc = await p.evaluate(() => (document.querySelector('.mz-docv iframe') || {}).srcdoc || '');
+  assert.match(doc, /<title>المستودعات<\/title>/);
+  assert.match(doc, /<table/); assert.match(doc, /المستودع الرئيسي/);
+  assert.doesNotMatch(doc, /<button/, 'لا أزرار'); assert.doesNotMatch(doc, /<select/, 'لا قوائم');
+  assert.match(doc, /class="ps-val">مستودع طيبة</, 'قيمة القائمة المختارة نصًا');
+  assert.match(doc, /صادر من/, 'ترويسة وتذييل A4');
+  assert.deepEqual(errs, []); await ctx.close();
+});

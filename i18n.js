@@ -2500,6 +2500,13 @@ Object.assign(EN, {
 "تُصغَّر تلقائيًا لتبقى خفيفة على أجهزة الفروع": "Shrunk automatically to stay light on branch devices",
 "الخلفية مزدحمة — أُبقيت الصورة كما هي. للأفضل: صوّر المنتج على خلفية سادة": "Busy background — the image was kept as is. Best: photograph the product on a plain background"
 });
+
+// ===== v45.6 طباعة الشاشة =====
+Object.assign(EN, {
+"طباعة الشاشة": "Print screen",
+"تعذّر فتح نافذة الطباعة": "Could not open the print window",
+"طباعة": "Print"
+});
 export const TX = (ar) => (LANG === 'en' && ar && EN[ar]) || ar;
 
 /* v43.1 مترجم الشاشة: في الوضع الإنجليزي يترجم نصوص الواجهة (عُقد النص + placeholder/title/aria-label) بمطابقة القاموس حرفيًا،
@@ -2575,6 +2582,7 @@ export const EN_RX = [
   [/^حُفظ جرد الرف — توجد فروقات تحتاج إجراء$/, 'Shelf count saved — there are differences that need action'], [/^حُفظ جرد الرف — مطابق ✓$/, 'Shelf count saved — matches ✓'],
   [/^أُضيف الصنف «(.+)» ✓$/, 'Item «$1» added ✓'],
   [/^(\d+(?:\.\d+)?)% من الدفعات$/, '$1% of batches'], [/^(\d+) دفعة$/, '$1 batches'],
+
 
 
   [/^أقصى مبلغ متاح (.+) ر\.س — يمكنك تعديله يدوياً$/, 'Max available $1 SAR — you can edit it manually'],
