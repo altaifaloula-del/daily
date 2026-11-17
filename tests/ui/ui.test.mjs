@@ -1402,7 +1402,7 @@ test('v45.1 باركود غير معروف: المركز يضيف الصنف م�
   await p.locator('input[aria-label="صنف البند 1 — بحث"]').pressSequentially('6281000123456', { delay: 5 }); await p.waitForTimeout(150);
   await p.locator('[data-itemadd]').click(); await p.waitForTimeout(150);
   assert.equal(await p.inputValue('input[aria-label="باركود الصنف الجديد"]'), '6281000123456', 'الباركود الممسوح مكتوب مسبقًا');
-  await p.fill('input[aria-label="اسم الصنف الجديد"]', 'زيت زيتون'); await p.fill('input[aria-label="وحدة الصنف الجديد"]', 'لتر');
+  await p.fill('input[aria-label="اسم الصنف الجديد"]', 'زيت زيتون'); await p.selectOption('select[aria-label="وحدة الصنف الجديد"]', 'لتر');
   await p.locator('[data-itemaddsave]').click(); await p.waitForTimeout(150);
   assert.match(await say(p), /اختر تصنيف الصنف/, 'التصنيف إلزامي');
   await p.locator('[data-qtype="stock"]').click(); await p.locator('[data-itemaddsave]').click(); await p.waitForTimeout(300);
@@ -1413,7 +1413,7 @@ test('v45.1 باركود غير معروف: المركز يضيف الصنف م�
   // باركود مكرر ⇒ مرفوض
   await p.locator('button', { hasText: 'بند إضافي' }).click(); await p.waitForTimeout(100);
   await p.locator('input[aria-label="صنف البند 2 — بحث"]').pressSequentially('9999999999', { delay: 5 }); await p.locator('[data-itemadd]').click(); await p.waitForTimeout(100);
-  await p.fill('input[aria-label="باركود الصنف الجديد"]', '6281000123456'); await p.fill('input[aria-label="اسم الصنف الجديد"]', 'مكرر'); await p.locator('[data-qtype="consumable"]').click(); await p.locator('[data-itemaddsave]').click(); await p.waitForTimeout(150);
+  await p.fill('input[aria-label="باركود الصنف الجديد"]', '6281000123456'); await p.fill('input[aria-label="اسم الصنف الجديد"]', 'مكرر'); await p.selectOption('select[aria-label="وحدة الصنف الجديد"]', 'حبة'); await p.locator('[data-qtype="consumable"]').click(); await p.locator('[data-itemaddsave]').click(); await p.waitForTimeout(150);
   assert.match(await say(p), /مستخدم للصنف «زيت زيتون»/);
   assert.deepEqual(errs, []); await ctx.close();
   // الفرع: لا إضافة — تنبيه فقط
@@ -1568,4 +1568,30 @@ test('v45.8 ملخصات الإغلاق: الإعداد يُفعَّل للمد�
   await r.p.evaluate(() => window.as('acc')); await r.p.waitForTimeout(300);
   assert.equal(await r.p.locator('[data-zsum]').count(), 1, 'المحاسب ضمن المستلمين');
   assert.deepEqual([...errs, ...r.errs], []); await r.ctx.close();
+});
+
+test('v46.0 وحدة الصنف إلزامية في فاتورة الشراء: صنف بلا وحدة معتمدة يُطلب تحديدها وتُحفظ في بطاقته، والشراء بالجرام لصنف بالكيلو يُحوَّل للمخزون', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/Hub/admin/purchasing:suppliers');
+  await p.evaluate(() => { window.setOrg(g => ({ ...g, taxCfg: { enabled: false }, suppliers: (g.suppliers || []).map(x => ({ ...x, vatNo: '300000000000003' })),
+    items: [...(g.items || []), { id: 'ux', name: 'زعفران', unit: 'وحدة', cost: 5, isActive: true, type: 'stock' }] })); window.setOps(o => ({ ...o, invoices: [], stockMoves: [], whMoves: [] })); });
+  await p.waitForTimeout(300);
+  await p.locator('button', { hasText: 'فاتورة توريد جديدة' }).click(); await p.waitForTimeout(150);
+  await p.selectOption('select[aria-label="صنف البند 1"]', 'ux'); await p.waitForTimeout(100);
+  assert.equal(await p.locator('.modal [data-uomfix]').count(), 1, 'يُطلب تحديد وحدة الصنف');
+  await p.fill('input[aria-label="كمية البند 1"]', '500'); await p.fill('input[aria-label="سعر البند 1"]', '0.05');
+  await p.locator('.modal [data-pm="credit"]').click();
+  await p.locator('.modal button', { hasText: 'تسجيل الفاتورة' }).click(); await p.waitForTimeout(200);
+  assert.match(await say(p), /حدد وحدة الصنف «زعفران»/);
+  await p.selectOption('select[aria-label="وحدة الصنف للبند 1"]', 'كيلو'); await p.waitForTimeout(100);
+  const opts = await p.locator('select[aria-label="وحدة البند 1"] option').allInnerTexts();
+  assert.deepEqual(opts.map(x => x.split(' (')[0]), ['كيلو', 'جرام', 'طن'], 'وحدات الوزن فقط');
+  await p.selectOption('select[aria-label="وحدة البند 1"]', 'جرام');
+  await p.locator('.modal button', { hasText: 'تسجيل الفاتورة' }).click(); await p.waitForTimeout(300);
+  const r = await p.evaluate(() => { const i = window.cur.invoices[0]; const l = i.lines[0]; const mv = [...(window.cur.stockMoves || []), ...(window.cur.whMoves || [])].find(m => m.invoiceId === i.id);
+    return { amt: i.amount, l: [l.qty, l.unitCost, l.net, l.uomName, l.uomQty], mv: [mv.qty, mv.unitCost], unit: window.curOrg.items.find(x => x.id === 'ux').unit }; });
+  assert.deepEqual(r, { amt: 25, l: [0.5, 50, 25, 'جرام', 500], mv: [0.5, 50], unit: 'كيلو' });
+  // بطاقة الصنف: الوحدة من القائمة إلزامية
+  const u = await p.evaluate(() => [window.__M.uomOf('كجم').ar, window.__M.uomOf('مل').ar, window.__M.uomOf('وحدة'), window.__M.uomConv('جالون', 'لتر')]);
+  assert.deepEqual(u, ['كيلو', 'ملليلتر', null, 3.78541]);
+  assert.deepEqual(errs, []); await ctx.close();
 });

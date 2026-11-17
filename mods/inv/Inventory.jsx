@@ -4,7 +4,7 @@ import { HardDrive, FileBarChart, ChevronDown, Printer, ArrowLeftRight, Clipboar
 import { PrepList } from './PrepList.jsx';   // v40.8
 import { TurnoverPpv } from './TurnoverPpv.jsx';   // v42.0
 import { Production } from './Production.jsx';   // v42.8
-import { productThumb, normDigits, BlindCount, Field, ITEM_TYPES, ITEM_NEW_TYPES, itemsSeq, nextItemCode, Kpi, LOCK_MSG, MAIN_WH, MOVE_KINDS, Modal, PriceAlerts, ROLES, SectionNav, UsageVariance, WarehousesPanel, WasteControl, WasteFields, arDate, isCostCtl, isStocked, itemAvgCosts, itemType, makeXlsx, money, nowISO, pFactor, parseCsvGrid, parseXlsxGrid, partGross, partYield, periodLocked, prepUnitCost, kcalUnitFactor, productKcal, printA4, q3, recipeCost, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whName, whOn, prepItemId } from '../../App.jsx';
+import { uomOf, UomSelect, productThumb, normDigits, BlindCount, Field, ITEM_TYPES, ITEM_NEW_TYPES, itemsSeq, nextItemCode, Kpi, LOCK_MSG, MAIN_WH, MOVE_KINDS, Modal, PriceAlerts, ROLES, SectionNav, UsageVariance, WarehousesPanel, WasteControl, WasteFields, arDate, isCostCtl, isStocked, itemAvgCosts, itemType, makeXlsx, money, nowISO, pFactor, parseCsvGrid, parseXlsxGrid, partGross, partYield, periodLocked, prepUnitCost, kcalUnitFactor, productKcal, printA4, q3, recipeCost, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whName, whOn, prepItemId } from '../../App.jsx';
 
 export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
   const [view, setView] = useState('items');        // items | moves | count | recipes
@@ -143,6 +143,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
     if (!f.name.trim()) return say('أدخل اسم الصنف', 'no');
     // v44.1: التصنيف إلزامي عند الإنشاء (مخزني/استهلاكي/خدمي)، والباركود لا يتكرر، والرمز التسلسلي يُمنح تلقائيًا
     if (!ITEM_TYPES[f.type]) return say('اختر تصنيف الصنف: مخزني أو استهلاكي أو خدمي', 'no');
+    if (f.type !== 'service' && !uomOf(f.unit)) return say('اختر الوحدة الأساسية من القائمة: كيلو، جرام، لتر، حبة، كرتون…', 'no');   // v46.0
     const bc = normDigits(f.barcode).trim();   // v45.2: الأرقام العربية ⇒ الإنجليزية
     if (bc) { const dup = items.find(x => x.id !== f.id && String(x.barcode || '').trim() === bc); if (dup) return say('الباركود ' + bc + ' مستخدم للصنف «' + dup.name + '»', 'no'); }
     const pf = Math.max(1, Number(f.purchaseFactor) || 1);
@@ -590,7 +591,8 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
             <div style={{ fontSize: 11, color: ITEM_TYPES[itemF.type] ? 'var(--faint)' : 'var(--rose)', marginTop: 4 }}>{ITEM_TYPES[itemF.type] ? ITEM_TYPES[itemF.type].ar : 'اختر التصنيف — إلزامي'}</div>
           </Field>
           <div className="grid g3">
-            <Field label="الوحدة الأساسية (للأرصدة والصرف)"><input className="inp" value={itemF.unit} placeholder="كغ · حبة · لتر" onChange={e => setItemF(f => ({ ...f, unit: e.target.value }))} /></Field>
+            <Field label={'الوحدة الأساسية (للأرصدة والصرف)' + (itemF.type === 'service' ? '' : ' *')}><UomSelect label="الوحدة الأساسية" value={itemF.unit} required={itemF.type !== 'service'} onChange={v => setItemF(f => ({ ...f, unit: v }))} />
+              {itemF.id && (items.find(x => x.id === itemF.id) || {}).unit !== itemF.unit && <div className="note" style={{ fontSize: 10.5, marginTop: 4 }}>تغيير الوحدة لا يحوّل الأرصدة المسجّلة — اختر الوحدة التي سُجّلت بها الكميات فعلًا.</div>}</Field>
             <Field label={'التكلفة المرجعية / ' + (itemF.unit || 'الوحدة')}><input className="inp n" inputMode="decimal" value={itemF.cost} onChange={e => setItemF(f => ({ ...f, cost: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
             {isStocked(itemF) && <Field label="حد الطلب الأدنى"><input className="inp n" inputMode="decimal" value={itemF.minQty} onChange={e => setItemF(f => ({ ...f, minQty: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>}
           </div>
