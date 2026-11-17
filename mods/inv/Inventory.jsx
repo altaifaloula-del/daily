@@ -48,6 +48,33 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
     });
     say(ivD.enabled ? 'فُعّلت رسملة المخزون — يظهر قيد بضاعة آخر المدة في المحاسبة' : 'أُوقفت رسملة المخزون');
   };
+  // v46.1 — الحذف أو الإيقاف حسب الحالة: صنف بلا أي أثر يُحذف نهائيًا، وما عليه حركات أو فواتير أو رصيد أو يدخل في وصفة يُوقَف فقط (يبقى في التقارير)
+  const itemUses = (id) => {
+    const hit = (r) => !!r && (r.itemId === id || ['lines', 'parts', 'items'].some(k => Array.isArray(r[k]) && r[k].some(x => x && x.itemId === id)));
+    const n = { ops: 0, recipes: 0 };
+    Object.values(ops || {}).forEach(col => { if (Array.isArray(col)) col.forEach(r => { if (hit(r)) n.ops++; }); });
+    [...products, ...preps].forEach(r => { if (hit(r)) n.recipes++; });
+    const it = items.find(x => x.id === id) || {};
+    return { ...n, prep: !!it.prepId, bal: Math.abs(balOf(id)) > 0.0005, any: n.ops > 0 || n.recipes > 0 || !!it.prepId || Math.abs(balOf(id)) > 0.0005 };
+  };
+  const removeItem = async (it) => {
+    const u = itemUses(it.id);
+    if (u.any) {
+      const why = [u.ops ? u.ops + ' حركة/فاتورة' : '', u.recipes ? 'يدخل في ' + u.recipes + ' وصفة' : '', u.bal ? 'عليه رصيد' : '', u.prep ? 'مرتبط بتحضيرة' : ''].filter(Boolean).join('، ');
+      if (!window.confirm('«' + it.name + '» مستخدم (' + why + ') فلا يُحذف نهائيًا.\n\nإيقافه؟ يختفي من القوائم والفواتير الجديدة ويبقى في التقارير السابقة، ويمكن إعادة تفعيله.')) return;
+      const ok = await commitOrg(d => ({ ...d, items: (d.items || []).map(x => x.id === it.id ? { ...x, isActive: false } : x) }), { actionType: 'update', targetType: 'stock_item', targetId: it.id, title: 'أوقف صنفًا', details: (it.code || '') + ' · ' + it.name + ' — ' + why });
+      if (ok !== false) { setItemF(null); say('أُوقف الصنف ✓'); }
+      return;
+    }
+    if (!window.confirm('حذف «' + it.name + '» نهائيًا؟ لا توجد عليه أي حركة أو فاتورة أو وصفة.')) return;
+    const ok = await commitOrg(d => ({ ...d, items: (d.items || []).filter(x => x.id !== it.id) }), { actionType: 'delete', targetType: 'stock_item', targetId: it.id, title: 'حذف صنفًا', details: (it.code || '') + ' · ' + it.name });
+    if (ok !== false) { setItemF(null); say('حُذف الصنف ✓'); }
+  };
+  const reactivate = async (it) => {
+    const ok = await commitOrg(d => ({ ...d, items: (d.items || []).map(x => x.id === it.id ? { ...x, isActive: true } : x) }), { actionType: 'update', targetType: 'stock_item', targetId: it.id, title: 'أعاد تفعيل صنف', details: (it.code || '') + ' · ' + it.name });
+    if (ok !== false) { setItemF(null); say('أُعيد تفعيل الصنف ✓'); }
+  };
+  const [iq, setIq] = useState(''); const [iType, setIType] = useState(''); const [iSt, setISt] = useState('active');
   const stateOf = (it) => {
     const b = balOf(it.id), mn = it.minQty || 0;
     if (mn > 0 && b <= mn) return ['b-rose', 'اطلب الآن'];
@@ -147,7 +174,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
     const bc = normDigits(f.barcode).trim();   // v45.2: الأرقام العربية ⇒ الإنجليزية
     if (bc) { const dup = items.find(x => x.id !== f.id && String(x.barcode || '').trim() === bc); if (dup) return say('الباركود ' + bc + ' مستخدم للصنف «' + dup.name + '»', 'no'); }
     const pf = Math.max(1, Number(f.purchaseFactor) || 1);
-    const rec = { ...(f.id ? items.find(x => x.id === f.id) || {} : {}), id: f.id || uid('it'), name: f.name.trim(), unit: (f.unit || '').trim() || 'وحدة', cost: Number(f.cost) || 0, minQty: Number(f.minQty) || 0, isActive: true,
+    const rec = { ...(f.id ? items.find(x => x.id === f.id) || {} : {}), id: f.id || uid('it'), name: f.name.trim(), unit: (f.unit || '').trim() || 'وحدة', cost: Number(f.cost) || 0, minQty: Number(f.minQty) || 0, isActive: f.isActive !== false,
       type: ITEM_TYPES[f.type] ? f.type : 'stock', barcode: bc, code: f.code || nextItemCode(items), purchaseUnit: (f.purchaseUnit || '').trim(), purchaseFactor: (f.purchaseUnit || '').trim() ? pf : 1,
       ...(f.type === 'sale' ? { sellPrice: Number(f.sellPrice) || 0 } : {}) };
     // v41.1: السعرات — تُحفظ إن أُدخلت، وتُزال إن مُسحت
@@ -343,11 +370,27 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
 
       {view === 'items' && (
         <div className="card">
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 10 }} data-itemfilter>
+            <input className="inp" style={{ flex: 2, minWidth: 180 }} placeholder="بحث بالاسم أو الرمز أو الباركود" aria-label="بحث الأصناف" value={iq} onChange={e => setIq(e.target.value)} />
+            <select className="sel" style={{ flex: 1, minWidth: 130 }} aria-label="نوع الصنف" value={iType} onChange={e => setIType(e.target.value)}>
+              <option value="">كل الأنواع</option>{Object.keys(ITEM_TYPES).map(k => <option key={k} value={k}>{ITEM_TYPES[k].short}</option>)}
+            </select>
+            <select className="sel" style={{ flex: 1, minWidth: 130 }} aria-label="حالة الصنف" value={iSt} onChange={e => setISt(e.target.value)}>
+              <option value="active">النشطة ({items.filter(x => x.isActive !== false).length})</option><option value="low">تحت الحد الأدنى</option>
+              <option value="off">الموقوفة ({items.filter(x => x.isActive === false).length})</option><option value="all">الكل ({items.length})</option>
+            </select>
+          </div>
           <div className="tw">
             <table className="tb">
               <thead><tr><th>الرمز</th><th>الصنف</th><th>النوع</th><th>الوحدة</th><th style={{ textAlign: 'end' }}>متوسط التكلفة</th><th style={{ textAlign: 'end' }}>الرصيد</th><th style={{ textAlign: 'end' }}>القيمة</th><th>الحالة</th><th /></tr></thead>
               <tbody>
-                {itemsSeq(items).map(it => {
+                {itemsSeq(items).filter(it => {
+                  const off = it.isActive === false;
+                  if (iSt === 'active' && off) return false; if (iSt === 'off' && !off) return false;
+                  if (iSt === 'low' && (off || !isStocked(it) || !((it.minQty || 0) > 0 && balOf(it.id) <= it.minQty))) return false;
+                  if (iType && itemType(it) !== iType) return false;
+                  const q = normDigits(iq).trim().toLowerCase(); return !q || [it.name, it.code, it.barcode].some(x => String(x || '').toLowerCase().includes(q));
+                }).map(it => {
                   const [cls, txt] = stateOf(it); const b = balOf(it.id);
                   return (
                     <tr key={it.id}>
@@ -358,7 +401,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
                       <td className="num" style={{ textAlign: 'end' }}>{money(avgOf(it.id))}</td>
                       <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: b < 0 ? 'var(--rose)' : 'var(--txt)' }}>{isStocked(it) ? b : '—'}</td>
                       <td className="num" style={{ textAlign: 'end' }}>{isStocked(it) ? money(Math.max(0, b) * avgOf(it.id)) : '—'}</td>
-                      <td>{isStocked(it) ? <><span className={'badge ' + cls}>{txt}</span>{(it.minQty || 0) > 0 && <div style={{ fontSize: 9, color: 'var(--faint)' }}>الحد: <span className="num">{it.minQty}</span></div>}</> : <span style={{ fontSize: 11, color: 'var(--faint)' }}>لا يُخزَّن</span>}</td>
+                      <td>{it.isActive === false ? <span className="badge b-dim" data-itemoff>موقوف</span> : isStocked(it) ? <><span className={'badge ' + cls}>{txt}</span>{(it.minQty || 0) > 0 && <div style={{ fontSize: 9, color: 'var(--faint)' }}>الحد: <span className="num">{it.minQty}</span></div>}</> : <span style={{ fontSize: 11, color: 'var(--faint)' }}>لا يُخزَّن</span>}</td>
                       <td>{canW && <button className="btn sm gh" onClick={() => setItemF({ ...it, type: itemType(it) })}>تعديل</button>}</td>
                     </tr>
                   );
@@ -577,7 +620,10 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
       )}
       {itemF && (
         <Modal title={itemF.id ? 'تعديل صنف' : 'صنف جديد'} icon={HardDrive} onClose={() => setItemF(null)}
-          foot={<><button className="btn gh" onClick={() => setItemF(null)}>إلغاء</button>
+          foot={<>{itemF.id && (items.find(x => x.id === itemF.id) || {}).isActive === false
+              ? <button className="btn sm ok" style={{ marginInlineEnd: 'auto' }} data-itemreact onClick={() => reactivate(items.find(x => x.id === itemF.id))}>إعادة تفعيل</button>
+              : itemF.id && <button className="btn sm gh" style={{ marginInlineEnd: 'auto', color: 'var(--rose)' }} data-itemdel onClick={() => removeItem(items.find(x => x.id === itemF.id))}><Trash2 size={13} />{itemUses(itemF.id).any ? 'إيقاف الصنف' : 'حذف الصنف'}</button>}
+            <button className="btn gh" onClick={() => setItemF(null)}>إلغاء</button>
             <button className="btn pri" onClick={saveItem}><Check size={14} />حفظ الصنف</button></>}>
           <div className="grid g2">
             <Field label="رمز الصنف (تسلسلي تلقائي)"><input className="inp num" disabled value={itemF.code || nextItemCode(items)} /></Field>

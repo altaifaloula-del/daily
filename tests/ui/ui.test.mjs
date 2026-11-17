@@ -1595,3 +1595,29 @@ test('v46.0 وحدة الصنف إلزامية في فاتورة الشراء: �
   assert.deepEqual(u, ['كيلو', 'ملليلتر', null, 3.78541]);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v46.1 الأصناف: بحث وتصفية، والحذف النهائي لصنف بلا أثر، والإيقاف فقط لصنف عليه حركات (يختفي من الفواتير ويُعاد تفعيله)', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/Inventory/admin/items');
+  await p.evaluate(() => window.setOrg(g => ({ ...g, items: [...(g.items || []), { id: 'nx', name: 'بهارات تجربة', unit: 'كيلو', cost: 3, isActive: true, type: 'stock', code: 'ITM-0099' }] })));
+  await p.waitForTimeout(300);
+  await p.fill('input[aria-label="بحث الأصناف"]', 'بهارات'); await p.waitForTimeout(100);
+  assert.equal(await p.locator('table.tb tbody tr').count(), 1, 'البحث بالاسم');
+  await p.fill('input[aria-label="بحث الأصناف"]', ''); await p.waitForTimeout(100);
+  // صنف بلا أثر ⇒ حذف نهائي
+  await p.locator('tr', { hasText: 'بهارات تجربة' }).locator('button', { hasText: 'تعديل' }).click(); await p.waitForTimeout(150);
+  assert.match(await p.locator('[data-itemdel]').innerText(), /حذف الصنف/);
+  await p.locator('[data-itemdel]').click(); await p.waitForTimeout(200);
+  assert.equal(await p.evaluate(() => window.curOrg.items.some(x => x.id === 'nx')), false, 'حُذف نهائيًا');
+  // صنف عليه حركات ⇒ إيقاف فقط
+  await p.locator('tr', { hasText: 'لحم غنم' }).locator('button', { hasText: 'تعديل' }).click(); await p.waitForTimeout(150);
+  assert.match(await p.locator('[data-itemdel]').innerText(), /إيقاف الصنف/);
+  await p.locator('[data-itemdel]').click(); await p.waitForTimeout(200);
+  assert.equal(await p.evaluate(() => window.curOrg.items.find(x => x.id === 'i1').isActive), false, 'أُوقف ولم يُحذف');
+  assert.equal(await p.locator('tr', { hasText: 'لحم غنم' }).count(), 0, 'يختفي من النشطة');
+  await p.selectOption('select[aria-label="حالة الصنف"]', 'off'); await p.waitForTimeout(100);
+  assert.equal(await p.locator('[data-itemoff]').count(), 1);
+  await p.locator('tr', { hasText: 'لحم غنم' }).locator('button', { hasText: 'تعديل' }).click(); await p.waitForTimeout(150);
+  await p.locator('[data-itemreact]').click(); await p.waitForTimeout(200);
+  assert.equal(await p.evaluate(() => window.curOrg.items.find(x => x.id === 'i1').isActive), true, 'أُعيد تفعيله');
+  assert.deepEqual(errs, []); await ctx.close();
+});
