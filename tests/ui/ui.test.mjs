@@ -1522,3 +1522,18 @@ test('v45.6 «طباعة الشاشة»: أي شاشة بلا زر طباعة ت
   assert.match(doc, /صادر من/, 'ترويسة وتذييل A4');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v45.7 إغلاق الوردية: تقرير Z يظهر في عارض المستندات بزر «طباعة / PDF» (لا طباعة تلقائية تحجبها الأجهزة)', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosApp/bm');
+  await p.evaluate(() => { window.setOrg(g => ({ ...g, posCfg: { branches: ['b1'], autoPrint: false }, products: [{ id: 'k', name: 'كبسة', sellPrice: 58, cat: 'رئيسي' }] })); window.setOps(o => ({ ...o, posOrders: [], posShifts: [] })); });
+  await p.waitForTimeout(400);
+  const ob = p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await p.waitForTimeout(400); }
+  await p.locator('button', { hasText: /^الوردية$/ }).first().click(); await p.waitForTimeout(200);
+  await p.locator('.card input').first().fill('0'); await p.waitForTimeout(100);
+  await p.locator('button', { hasText: 'إغلاق الوردية وطباعة التقرير' }).click(); await p.waitForTimeout(700);
+  assert.equal(await p.locator('.mz-docv').count(), 1, 'عارض المستندات ظهر');
+  assert.equal(await p.locator('.mz-docv button', { hasText: 'طباعة / PDF' }).count(), 1);
+  const doc = await p.evaluate(() => document.querySelector('.mz-docv iframe').srcdoc);
+  assert.match(doc, /size:80mm auto/); assert.match(doc, /\(Z\)|Z\)/);
+  assert.deepEqual(errs, []); await ctx.close();
+});

@@ -1,7 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState } from 'react';
 import { ClipboardCheck, Printer, Lock } from 'lucide-react';
-import { Field, Modal, Num, _xe, businessDay, money, nowISO, posOrdersStats, posPrint, posR2, posShiftHtml, posZHtml, printA4 } from '../../App.jsx';
+import { posDocView, Field, Modal, Num, _xe, businessDay, money, nowISO, posOrdersStats, posPrint, posR2, posShiftHtml, posZHtml, printA4 } from '../../App.jsx';
 
 export function PosShifts({ org, ops, me, brs, commit, say }) {
   const [bid, setBid] = useState('all'); const [d, setD] = useState(businessDay()); const [rc, setRc] = useState(null);
@@ -18,7 +18,7 @@ export function PosShifts({ org, ops, me, brs, commit, say }) {
     const os = ordersOf(sh); const okOs = os.filter(o => o.status !== 'void'); const expected = expOf(sh);
     const rec = { ...sh, status: 'closed', closedAt: nowISO(), closedBy: me.name + ' (إنهاء إداري)', remote: true, closeNote: rc.note.trim(), expected, counted, diff: posR2(counted - expected), n: okOs.length, total: posR2(okOs.reduce((a, o) => a + o.total, 0)) };
     const ok = await commit(dd => ({ ...dd, posShifts: (dd.posShifts || []).map(x => x.id === sh.id ? rec : x) }), { actionType: 'update', targetType: 'pos_shift', targetId: sh.id, branchName: bOf(sh.branchId).name, title: 'إنهاء وردية نقطة بيع إداريًا', details: (sh.devName || '') + ' · ' + rc.note.trim() + ' · فرق ' + money(rec.diff) });
-    if (ok) { setRc(null); say('أُنهيت الوردية — الفرق ' + money(rec.diff)); posPrint(posZHtml(org, rec, os, bOf(sh.branchId))); }
+    if (ok) { setRc(null); say('أُنهيت الوردية — الفرق ' + money(rec.diff)); posDocView(posZHtml(org, rec, os, bOf(sh.branchId))); }
   };
   const printDay = () => {
     const m = (n) => money(n); const rowsB = (bid === 'all' ? brs : brs.filter(b => b.id === bid)).map(b => { const os = dayOrders.filter(o => o.branchId === b.id); const s2 = posOrdersStats(os);
@@ -55,9 +55,9 @@ export function PosShifts({ org, ops, me, brs, commit, say }) {
             <td className="num" style={{ textAlign: 'end' }}>{money(sh.status === 'closed' ? sh.expected : expOf(sh))}</td>
             <td className="num" style={{ textAlign: 'end', color: (sh.diff || 0) < -0.004 ? 'var(--rose)' : undefined }}>{sh.status === 'closed' ? money(sh.diff) : '—'}</td>
             <td><div className="row" style={{ gap: 4 }}>{sh.status === 'open' ? <>
-              <button className="btn sm gh" onClick={() => posPrint(posShiftHtml(org, sh, os, b, 'X'))}><Printer size={12} />X</button>
+              <button className="btn sm gh" onClick={() => posDocView(posShiftHtml(org, sh, os, b, 'X'))}><Printer size={12} />X</button>
               <button className="btn sm" onClick={() => setRc({ sh, counted: '', note: '' })}><Lock size={12} />إنهاء</button></>
-              : <button className="btn sm gh" onClick={() => posPrint(posZHtml(org, sh, os, b))}><Printer size={12} />Z</button>}</div></td></tr>); })}
+              : <button className="btn sm gh" onClick={() => posDocView(posZHtml(org, sh, os, b))}><Printer size={12} />Z</button>}</div></td></tr>); })}
         {!shifts.length && <tr><td colSpan={9}><div className="empty">لا ورديات في هذا اليوم.</div></td></tr>}
       </tbody></table></div>
         <div className="note" style={{ marginTop: 8 }}>«إنهاء» يغلق وردية جهاز آخر من هنا (نسي الكاشير الإغلاق أو تعطل الجهاز) بعد عدّ النقد، ويطبع تقرير Z. فواتير لم يرسلها ذلك الجهاز بعد تُضاف عند اتصاله وتظهر في تقرير اليوم.</div></div>
