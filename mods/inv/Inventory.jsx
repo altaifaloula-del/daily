@@ -5,7 +5,7 @@ import { ItemLedger } from './ItemLedger.jsx';   // v46.2
 import { PrepList } from './PrepList.jsx';   // v40.8
 import { TurnoverPpv } from './TurnoverPpv.jsx';   // v42.0
 import { Production } from './Production.jsx';   // v42.8
-import { uomOf, UomSelect, productThumb, normDigits, BlindCount, Field, ITEM_TYPES, ITEM_NEW_TYPES, itemsSeq, nextItemCode, Kpi, LOCK_MSG, MAIN_WH, MOVE_KINDS, Modal, PriceAlerts, ROLES, SectionNav, UsageVariance, WarehousesPanel, WasteControl, WasteFields, arDate, isCostCtl, isStocked, itemAvgCosts, itemType, makeXlsx, money, nowISO, pFactor, parseCsvGrid, parseXlsxGrid, partGross, partYield, periodLocked, prepUnitCost, kcalUnitFactor, productKcal, printA4, q3, recipeCost, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whName, whOn, prepItemId } from '../../App.jsx';
+import { saleDeductOn, saleRecipeItems, uomOf, UomSelect, productThumb, normDigits, BlindCount, Field, ITEM_TYPES, ITEM_NEW_TYPES, itemsSeq, nextItemCode, Kpi, LOCK_MSG, MAIN_WH, MOVE_KINDS, Modal, PriceAlerts, ROLES, SectionNav, UsageVariance, WarehousesPanel, WasteControl, WasteFields, arDate, isCostCtl, isStocked, itemAvgCosts, itemType, makeXlsx, money, nowISO, pFactor, parseCsvGrid, parseXlsxGrid, partGross, partYield, periodLocked, prepUnitCost, kcalUnitFactor, productKcal, printA4, q3, recipeCost, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whName, whOn, prepItemId } from '../../App.jsx';
 
 export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
   const [view, setView] = useState('items');        // items | moves | count | recipes
@@ -191,6 +191,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
     if (!it) return say('اختر الصنف', 'no');
     if (q <= 0) return say('أدخل كمية صحيحة', 'no');
     if (!isStocked(it)) return say('صنف خدمي لا يُخزَّن — لا حركات مخزون له', 'no');
+    if (f.kind === 'out' && saleDeductOn(org, f.date || today()) && saleRecipeItems(org).has(it.id)) return say('«' + it.name + '» يدخل في وصفات المنتجات ويُخصم تلقائيًا مع كل فاتورة بيع — لا يُصرف يدويًا. للتالف استخدم «هدر»', 'no');   // v46.3
     const sign = MOVE_KINDS[f.kind]?.sign || 1;
     // v30.4: الكمية بوحدة الشراء عند اختيارها تُحوَّل للوحدة الأساسية، والتوريد يحمل تكلفته فيُحدّث المتوسط
     const fac = f.uom === 'p' ? pFactor(it) : 1;

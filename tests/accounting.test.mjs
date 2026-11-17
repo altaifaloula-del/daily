@@ -1355,3 +1355,31 @@ test('v45.5 إزالة الخلفية: لون الإطار يُزال بالتع
   assert.deepEqual(R.box, { x: 20, y: 10, w: 25, h: 20 });
   assert.ok(Math.abs(R.fgRatio - 500 / 2400) < 0.001);
 });
+
+test('v46.3 خصم المبيعات من المخزون: مع كل فاتورة حركة يومية لكل صنف من مستودع الفرع (بالفاقد)، والتحضيرة المخزّنة يُخصم رصيدها، والإلغاء يُعيد الكمية، وقيد تكلفة المبيعات 5505', () => {
+  const org = baseOrg({
+    items: [{ id: 'i1', name: 'لحم', unit: 'كيلو', type: 'stock' }, { id: 'i2', name: 'ملح', unit: 'جرام', type: 'stock' }, { id: 'bag', name: 'كيس', unit: 'حبة', type: 'consumable' }, { id: 'pp_sauce', name: 'صلصة', unit: 'كيلو', type: 'stock', prepId: 'sauce' }],
+    preps: [{ id: 'sauce', name: 'صلصة', unit: 'كيلو', batch: 5, stocked: true, parts: [{ itemId: 'i2', qty: 100 }] }, { id: 'rub', name: 'تتبيلة', unit: 'كيلو', batch: 1, parts: [{ itemId: 'i2', qty: 50 }] }],
+    products: [{ id: 'p1', name: 'مندي', sellPrice: 60, parts: [{ itemId: 'i1', qty: 0.4, yield: 80 }, { prepId: 'sauce', qty: 0.1 }, { prepId: 'rub', qty: 0.2 }, { itemId: 'bag', qty: 1 }] }],
+    purchaseCfg: { perpetualFrom: '2026-01', saleDeductFrom: '2026-03-01' },
+    warehouses: [{ id: 'wh-main', name: 'الرئيسي', kind: 'main', accCode: '160101' }, { id: 'wh-b1', name: 'العليا', kind: 'branch', branchId: 'b1', parentId: 'wh-main', accCode: '160102' }] });
+  const o = (id, qty, st, date) => ({ id, branchId: 'b1', date: date || '2026-03-05', status: st || 'paid', total: qty * 60, lines: [{ productId: 'p1', qty }] });
+  const base = { whMoves: [{ id: 'in1', whId: 'wh-b1', branchId: 'b1', itemId: 'i1', kind: 'purchase', qty: 10, unitCost: 40, date: '2026-03-01', at: '2026-03-01T08:00:00Z' }], posOrders: [], stockMoves: [], whTransfers: [] };
+  let next = E.syncSaleMoves(org, base, { ...base, posOrders: [o('a', 2), o('b', 1)] });
+  const sl = (ops) => Object.fromEntries((ops.whMoves || []).filter(m => m.kind === 'sale').map(m => [m.itemId, m.qty]));
+  assert.deepEqual(sl(next), { i1: -1.5, pp_sauce: -0.3, i2: -30 }, 'لحم 3×0.5 بالفاقد · صلصة مخزّنة 0.3 · ملح التتبيلة 3×0.2×50 · الكيس الاستهلاكي لا يُخصم');
+  assert.ok(next.whMoves.every(m => m.kind !== 'sale' || (m.whId === 'wh-b1' && m.branchId === 'b1' && m.date === '2026-03-05')));
+  // إلغاء فاتورة ⇒ تُعاد الكمية (إعادة حساب لا تكرار)
+  const after = E.syncSaleMoves(org, next, { ...next, posOrders: [o('a', 2), o('b', 1, 'void')] });
+  assert.deepEqual(sl(after), { i1: -1, pp_sauce: -0.2, i2: -20 });
+  assert.equal(after.whMoves.filter(m => m.kind === 'sale').length, 3, 'حركة واحدة لكل صنف ويوم');
+  assert.equal(E.stockByWh(org, after).byWh['wh-b1'].i1, 9, 'الرصيد = 10 − 1');
+  // قبل تاريخ البدء لا خصم · وحفظ لا يمس الفواتير لا يغيّر شيئًا
+  assert.deepEqual(sl(E.syncSaleMoves(org, base, { ...base, posOrders: [o('c', 4, 'paid', '2026-02-20')] })), {});
+  assert.strictEqual(E.syncSaleMoves(org, after, after), after);
+  // القيد: تكلفة المبيعات 1 كجم × 40
+  const A = E.buildAccounting(org, after); const t = tb(A);
+  assert.equal(A.balanced, true); near(t['5505'], 40 + 0, 'تكلفة المبيعات للحم (الصلصة والملح بلا تكلفة شراء هنا)');
+  // المواد الداخلة في الوصفات (لمنع صرفها يدويًا)
+  assert.deepEqual([...E.saleRecipeItems(org)].sort(), ['bag', 'i1', 'i2', 'pp_sauce'].sort());
+});
