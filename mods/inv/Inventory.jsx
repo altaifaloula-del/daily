@@ -1,6 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useEffect, useMemo } from 'react';
-import { HardDrive, FileBarChart, ChevronDown, Printer, ArrowLeftRight, ClipboardCheck, Truck, Store, BarChart3, AlertTriangle, Trash2, TrendingUp, Download, Check, Upload, Plus, Landmark, X } from 'lucide-react';
+import { HardDrive, FileBarChart, ChevronDown, Printer, ArrowLeftRight, ClipboardCheck, Truck, Store, BarChart3, AlertTriangle, Trash2, TrendingUp, Download, Check, Upload, Plus, Landmark, X, Archive, History } from 'lucide-react';
+import { ItemLedger } from './ItemLedger.jsx';   // v46.2
 import { PrepList } from './PrepList.jsx';   // v40.8
 import { TurnoverPpv } from './TurnoverPpv.jsx';   // v42.0
 import { Production } from './Production.jsx';   // v42.8
@@ -57,23 +58,19 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
     const it = items.find(x => x.id === id) || {};
     return { ...n, prep: !!it.prepId, bal: Math.abs(balOf(id)) > 0.0005, any: n.ops > 0 || n.recipes > 0 || !!it.prepId || Math.abs(balOf(id)) > 0.0005 };
   };
+  // v46.2: لا حذف نهائي — «الحذف» أرشفة دائمًا: يختفي الصنف من القوائم والفواتير الجديدة ويبقى بكامل حركاته وتقاريره، ويُستعاد متى شئت
   const removeItem = async (it) => {
     const u = itemUses(it.id);
-    if (u.any) {
-      const why = [u.ops ? u.ops + ' حركة/فاتورة' : '', u.recipes ? 'يدخل في ' + u.recipes + ' وصفة' : '', u.bal ? 'عليه رصيد' : '', u.prep ? 'مرتبط بتحضيرة' : ''].filter(Boolean).join('، ');
-      if (!window.confirm('«' + it.name + '» مستخدم (' + why + ') فلا يُحذف نهائيًا.\n\nإيقافه؟ يختفي من القوائم والفواتير الجديدة ويبقى في التقارير السابقة، ويمكن إعادة تفعيله.')) return;
-      const ok = await commitOrg(d => ({ ...d, items: (d.items || []).map(x => x.id === it.id ? { ...x, isActive: false } : x) }), { actionType: 'update', targetType: 'stock_item', targetId: it.id, title: 'أوقف صنفًا', details: (it.code || '') + ' · ' + it.name + ' — ' + why });
-      if (ok !== false) { setItemF(null); say('أُوقف الصنف ✓'); }
-      return;
-    }
-    if (!window.confirm('حذف «' + it.name + '» نهائيًا؟ لا توجد عليه أي حركة أو فاتورة أو وصفة.')) return;
-    const ok = await commitOrg(d => ({ ...d, items: (d.items || []).filter(x => x.id !== it.id) }), { actionType: 'delete', targetType: 'stock_item', targetId: it.id, title: 'حذف صنفًا', details: (it.code || '') + ' · ' + it.name });
-    if (ok !== false) { setItemF(null); say('حُذف الصنف ✓'); }
+    const why = [u.ops ? u.ops + ' حركة/فاتورة' : '', u.recipes ? 'يدخل في ' + u.recipes + ' وصفة' : '', u.bal ? 'عليه رصيد' : '', u.prep ? 'مرتبط بتحضيرة' : ''].filter(Boolean).join('، ');
+    if (!window.confirm('أرشفة «' + it.name + '»؟' + (why ? '\n(' + why + ')' : '') + '\n\nيختفي من القوائم والفواتير الجديدة، ويبقى بكامل حركاته في التقارير، ويمكن استعادته من «المؤرشفة».')) return;
+    const ok = await commitOrg(d => ({ ...d, items: (d.items || []).map(x => x.id === it.id ? { ...x, isActive: false, archivedAt: nowISO(), archivedBy: me.name } : x) }), { actionType: 'update', targetType: 'stock_item', targetId: it.id, title: 'أرشف صنفًا', details: (it.code || '') + ' · ' + it.name + (why ? ' — ' + why : '') });
+    if (ok !== false) { setItemF(null); say('أُرشف الصنف ✓'); }
   };
   const reactivate = async (it) => {
-    const ok = await commitOrg(d => ({ ...d, items: (d.items || []).map(x => x.id === it.id ? { ...x, isActive: true } : x) }), { actionType: 'update', targetType: 'stock_item', targetId: it.id, title: 'أعاد تفعيل صنف', details: (it.code || '') + ' · ' + it.name });
-    if (ok !== false) { setItemF(null); say('أُعيد تفعيل الصنف ✓'); }
+    const ok = await commitOrg(d => ({ ...d, items: (d.items || []).map(x => { if (x.id !== it.id) return x; const { archivedAt: _a, archivedBy: _b, ...rest } = x; return { ...rest, isActive: true }; }) }), { actionType: 'update', targetType: 'stock_item', targetId: it.id, title: 'استعاد صنفًا من الأرشيف', details: (it.code || '') + ' · ' + it.name });
+    if (ok !== false) { setItemF(null); say('استُعيد الصنف من الأرشيف ✓'); }
   };
+  const [ledgerIt, setLedgerIt] = useState(null);   // v46.2 كرت حركة الصنف
   const [iq, setIq] = useState(''); const [iType, setIType] = useState(''); const [iSt, setISt] = useState('active');
   const stateOf = (it) => {
     const b = balOf(it.id), mn = it.minQty || 0;
@@ -377,7 +374,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
             </select>
             <select className="sel" style={{ flex: 1, minWidth: 130 }} aria-label="حالة الصنف" value={iSt} onChange={e => setISt(e.target.value)}>
               <option value="active">النشطة ({items.filter(x => x.isActive !== false).length})</option><option value="low">تحت الحد الأدنى</option>
-              <option value="off">الموقوفة ({items.filter(x => x.isActive === false).length})</option><option value="all">الكل ({items.length})</option>
+              <option value="off">المؤرشفة ({items.filter(x => x.isActive === false).length})</option><option value="all">الكل ({items.length})</option>
             </select>
           </div>
           <div className="tw">
@@ -401,8 +398,8 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
                       <td className="num" style={{ textAlign: 'end' }}>{money(avgOf(it.id))}</td>
                       <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: b < 0 ? 'var(--rose)' : 'var(--txt)' }}>{isStocked(it) ? b : '—'}</td>
                       <td className="num" style={{ textAlign: 'end' }}>{isStocked(it) ? money(Math.max(0, b) * avgOf(it.id)) : '—'}</td>
-                      <td>{it.isActive === false ? <span className="badge b-dim" data-itemoff>موقوف</span> : isStocked(it) ? <><span className={'badge ' + cls}>{txt}</span>{(it.minQty || 0) > 0 && <div style={{ fontSize: 9, color: 'var(--faint)' }}>الحد: <span className="num">{it.minQty}</span></div>}</> : <span style={{ fontSize: 11, color: 'var(--faint)' }}>لا يُخزَّن</span>}</td>
-                      <td>{canW && <button className="btn sm gh" onClick={() => setItemF({ ...it, type: itemType(it) })}>تعديل</button>}</td>
+                      <td>{it.isActive === false ? <span className="badge b-dim" data-itemoff title={it.archivedAt ? 'أرشفه ' + (it.archivedBy || '') + ' · ' + String(it.archivedAt).slice(0, 10) : ''}>مؤرشف</span> : isStocked(it) ? <><span className={'badge ' + cls}>{txt}</span>{(it.minQty || 0) > 0 && <div style={{ fontSize: 9, color: 'var(--faint)' }}>الحد: <span className="num">{it.minQty}</span></div>}</> : <span style={{ fontSize: 11, color: 'var(--faint)' }}>لا يُخزَّن</span>}</td>
+                      <td><div className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>{isStocked(it) && <button className="btn sm gh" data-itemledger title="حركة الصنف" onClick={() => setLedgerIt(it)}><History size={13} />الحركة</button>}{canW && <button className="btn sm gh" onClick={() => setItemF({ ...it, type: itemType(it) })}>تعديل</button>}</div></td>
                     </tr>
                   );
                 })}
@@ -618,11 +615,12 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
             </tbody></table></div>
         </Modal>
       )}
+      {ledgerIt && <ItemLedger org={org} ops={ops} item={ledgerIt} onClose={() => setLedgerIt(null)} />}
       {itemF && (
         <Modal title={itemF.id ? 'تعديل صنف' : 'صنف جديد'} icon={HardDrive} onClose={() => setItemF(null)}
           foot={<>{itemF.id && (items.find(x => x.id === itemF.id) || {}).isActive === false
-              ? <button className="btn sm ok" style={{ marginInlineEnd: 'auto' }} data-itemreact onClick={() => reactivate(items.find(x => x.id === itemF.id))}>إعادة تفعيل</button>
-              : itemF.id && <button className="btn sm gh" style={{ marginInlineEnd: 'auto', color: 'var(--rose)' }} data-itemdel onClick={() => removeItem(items.find(x => x.id === itemF.id))}><Trash2 size={13} />{itemUses(itemF.id).any ? 'إيقاف الصنف' : 'حذف الصنف'}</button>}
+              ? <button className="btn sm ok" style={{ marginInlineEnd: 'auto' }} data-itemreact onClick={() => reactivate(items.find(x => x.id === itemF.id))}>استعادة من الأرشيف</button>
+              : itemF.id && <button className="btn sm gh" style={{ marginInlineEnd: 'auto', color: 'var(--rose)' }} data-itemdel onClick={() => removeItem(items.find(x => x.id === itemF.id))}><Archive size={13} />أرشفة الصنف</button>}
             <button className="btn gh" onClick={() => setItemF(null)}>إلغاء</button>
             <button className="btn pri" onClick={saveItem}><Check size={14} />حفظ الصنف</button></>}>
           <div className="grid g2">

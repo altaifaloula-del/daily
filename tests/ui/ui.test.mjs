@@ -1596,28 +1596,40 @@ test('v46.0 وحدة الصنف إلزامية في فاتورة الشراء: �
   assert.deepEqual(errs, []); await ctx.close();
 });
 
-test('v46.1 الأصناف: بحث وتصفية، والحذف النهائي لصنف بلا أثر، والإيقاف فقط لصنف عليه حركات (يختفي من الفواتير ويُعاد تفعيله)', async () => {
+test('v46.2 الأصناف: بحث وتصفية، و«الحذف» أرشفة دائمًا (لا حذف نهائي) مع الاستعادة، وكرت حركة الصنف بالشراء والتحويل والمبيعات', async () => {
   const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/Inventory/admin/items');
-  await p.evaluate(() => window.setOrg(g => ({ ...g, items: [...(g.items || []), { id: 'nx', name: 'بهارات تجربة', unit: 'كيلو', cost: 3, isActive: true, type: 'stock', code: 'ITM-0099' }] })));
+  const td = new Date().toISOString().slice(0, 10);
+  await p.evaluate((td) => { window.setOrg(g => ({ ...g, items: [...(g.items || []), { id: 'nx', name: 'بهارات تجربة', unit: 'كيلو', cost: 3, isActive: true, type: 'stock', code: 'ITM-0099' }] }));
+    window.setOps(o => ({ ...o, stockMoves: [{ id: 'sm1', itemId: 'i1', kind: 'purchase', qty: 20, unitCost: 40, date: td, at: td + 'T08:00:00', ref: 'INV-7', by: 'سارة' }],
+      whTransfers: [{ id: 't1', no: 'TR-0001', kind: '', status: 'received', fromWh: 'wh-main', toWh: 'wh-b1', sentDate: td, receivedDate: td, lines: [{ itemId: 'i1', qtySent: 8, qtyRecv: 8 }] }],
+      posOrders: [{ id: 'po1', branchId: 'b1', date: td, status: 'paid', total: 120, lines: [{ productId: 'p9', qty: 2 }] }] })); }, td);
   await p.waitForTimeout(300);
   await p.fill('input[aria-label="بحث الأصناف"]', 'بهارات'); await p.waitForTimeout(100);
   assert.equal(await p.locator('table.tb tbody tr').count(), 1, 'البحث بالاسم');
   await p.fill('input[aria-label="بحث الأصناف"]', ''); await p.waitForTimeout(100);
-  // صنف بلا أثر ⇒ حذف نهائي
+  // «الحذف» = أرشفة حتى لصنف بلا أثر
   await p.locator('tr', { hasText: 'بهارات تجربة' }).locator('button', { hasText: 'تعديل' }).click(); await p.waitForTimeout(150);
-  assert.match(await p.locator('[data-itemdel]').innerText(), /حذف الصنف/);
+  assert.match(await p.locator('[data-itemdel]').innerText(), /أرشفة الصنف/);
   await p.locator('[data-itemdel]').click(); await p.waitForTimeout(200);
-  assert.equal(await p.evaluate(() => window.curOrg.items.some(x => x.id === 'nx')), false, 'حُذف نهائيًا');
-  // صنف عليه حركات ⇒ إيقاف فقط
-  await p.locator('tr', { hasText: 'لحم غنم' }).locator('button', { hasText: 'تعديل' }).click(); await p.waitForTimeout(150);
-  assert.match(await p.locator('[data-itemdel]').innerText(), /إيقاف الصنف/);
-  await p.locator('[data-itemdel]').click(); await p.waitForTimeout(200);
-  assert.equal(await p.evaluate(() => window.curOrg.items.find(x => x.id === 'i1').isActive), false, 'أُوقف ولم يُحذف');
-  assert.equal(await p.locator('tr', { hasText: 'لحم غنم' }).count(), 0, 'يختفي من النشطة');
+  const nx = await p.evaluate(() => window.curOrg.items.find(x => x.id === 'nx'));
+  assert.equal(nx && nx.isActive, false, 'أُرشف ولم يُحذف'); assert.ok(nx.archivedAt);
+  assert.equal(await p.locator('tr', { hasText: 'بهارات تجربة' }).count(), 0, 'يختفي من النشطة');
   await p.selectOption('select[aria-label="حالة الصنف"]', 'off'); await p.waitForTimeout(100);
   assert.equal(await p.locator('[data-itemoff]').count(), 1);
-  await p.locator('tr', { hasText: 'لحم غنم' }).locator('button', { hasText: 'تعديل' }).click(); await p.waitForTimeout(150);
+  await p.locator('tr', { hasText: 'بهارات تجربة' }).locator('button', { hasText: 'تعديل' }).click(); await p.waitForTimeout(150);
   await p.locator('[data-itemreact]').click(); await p.waitForTimeout(200);
-  assert.equal(await p.evaluate(() => window.curOrg.items.find(x => x.id === 'i1').isActive), true, 'أُعيد تفعيله');
+  assert.equal(await p.evaluate(() => window.curOrg.items.find(x => x.id === 'nx').isActive), true, 'استُعيد');
+  await p.selectOption('select[aria-label="حالة الصنف"]', 'active'); await p.waitForTimeout(100);
+  // كرت الحركة: افتتاحي من الحركات السابقة، شراء وتحويل صادر/وارد، ومبيعات نظرية
+  await p.locator('tr', { hasText: 'لحم غنم' }).locator('[data-itemledger]').click(); await p.waitForTimeout(250);
+  const kinds = await p.locator('[data-ledger] tbody tr td:nth-child(2)').allInnerTexts();
+  assert.deepEqual(kinds.sort(), ['تحويل صادر', 'تحويل وارد', 'توريد شراء'].sort());
+  const sum = await p.locator('[data-ledgersum]').innerText();
+  assert.match(sum, /رصيد افتتاحي\s*50/); assert.match(sum, /رصيد ختامي\s*70/);
+  await p.selectOption('select[aria-label="مستودع الحركة"]', 'wh-b1'); await p.waitForTimeout(150);
+  assert.deepEqual(await p.locator('[data-ledger] tbody tr td:nth-child(2)').allInnerTexts(), ['تحويل وارد'], 'تصفية بالمستودع');
+  assert.match(await p.locator('[data-ledgersum]').innerText(), /رصيد ختامي\s*58/);
+  const sales = await p.locator('[data-ledgersales] tbody tr').first().innerText();
+  assert.match(sales, /\t2\t1$/, 'استهلاك نظري: 2 × 0.41 ÷ 82% = 1');
   assert.deepEqual(errs, []); await ctx.close();
 });
