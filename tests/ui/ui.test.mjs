@@ -1701,3 +1701,50 @@ test('v46.5 السندات المخزنية: سند توريد متعدد الب
   assert.match(await c.p.locator('#r').innerText(), /مستودع طيبة/);
   assert.deepEqual(c.errs, []); await c.ctx.close();
 });
+
+test('v46.6 سندات القبض والصرف: صرف لمورد موزَّع على فاتورته والباقي على الحساب برقم PV وطباعة بالتفقيط، وسند قبض على حساب من الدليل، وربط عميل بمورد وكشف موحّد ومقاصّة، واستيراد جهات اتصال من vCard', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Hub/admin/finhub:treasury');
+  await p.evaluate(() => { window.setOrg(g => ({ ...g, taxCfg: { enabled: false }, partners: [...(g.partners || []), { id: 'cx', key: 'cust:cx', name: 'مؤسسة التموين', type: 'customer' }] }));
+    window.setOps(o => ({ ...o, cashVouchers: [], invoices: [{ id: 'iv1', supplierId: 's1', supplierName: 'مؤسسة اللحوم الطازجة للتجارة', amount: 800, date: '2026-11-01', invoiceNo: 'S-77', paidAmount: 0 }],
+      salesInvoices: [{ id: 'sx', no: 'INV-9', kind: 'invoice', terms: 'credit', customerKey: 'cust:cx', buyer: { name: 'مؤسسة التموين' }, date: '2026-11-02', net: 300, vat: 0, total: 300, receipts: [] }] })); });
+  await p.waitForTimeout(300);
+  await p.locator('[data-tabcv]').click(); await p.waitForTimeout(200);
+  // سند صرف لمورد
+  await p.locator('[data-newcv="pv"]').click(); await p.waitForTimeout(150);
+  await p.locator('[data-cvpt="sup"]').click(); await p.selectOption('select[aria-label="جهة السند"]', 'sup:s1');
+  await p.locator('[data-cvpm="bank"]').click(); await p.fill('input[aria-label="مبلغ السند"]', '1000'); await p.fill('input[aria-label="بيان السند"]', 'دفعة شهر نوفمبر');
+  await p.locator('[data-cvauto]').click(); await p.waitForTimeout(100);
+  assert.equal(await p.inputValue('input[aria-label="توزيع S-77"]'), '800');
+  await p.locator('[data-cvsave]').click(); await p.waitForTimeout(500);
+  let r = await p.evaluate(() => ({ v: window.cur.cashVouchers.map(v => [v.no, v.kind, v.amount, v.fund, (v.alloc || []).length]), pay: (window.cur.invoices[0].payments || []).map(x => [x.amount, x.cv]) }));
+  assert.deepEqual(r, { v: [['PV-000001', 'pv', 1000, '1201', 1]], pay: [[800, 'PV-000001']] });
+  const doc = await p.evaluate(() => (document.querySelector('.mz-docv iframe') || {}).srcdoc || '');
+  assert.match(doc, /سند صرف/); assert.match(doc, /PV-000001/); assert.match(doc, /ألف/, 'التفقيط');
+  await p.locator('.mz-docv button', { hasText: 'إغلاق' }).click().catch(() => {}); await p.waitForTimeout(150);
+  // سند قبض على حساب من الدليل
+  await p.locator('[data-newcv="rv"]').click(); await p.waitForTimeout(150);
+  await p.locator('[data-cvpt="acc"]').click(); const acc = await p.evaluate(() => Array.from(document.querySelectorAll('select[aria-label="حساب السند"] option')).map(o => o.value).find(v => /^4/.test(v)));
+  await p.selectOption('select[aria-label="حساب السند"]', acc); await p.fill('input[aria-label="مبلغ السند"]', '250');
+  await p.locator('[data-cvsave]').click(); await p.waitForTimeout(400);
+  r = await p.evaluate(() => window.cur.cashVouchers.map(v => [v.no, v.fund, (v.party || {}).t]));
+  assert.deepEqual(r[0], ['RV-000001', '1101', 'acc']);
+  assert.deepEqual(errs, []); await ctx.close();
+
+  // ربط العميل بالمورد + كشف موحّد + استيراد vCard
+  const q = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Partners/admin');
+  await q.p.evaluate(() => window.setOrg(g => ({ ...g, partners: [...(g.partners || []), { id: 'cx', key: 'cust:cx', name: 'مؤسسة التموين', type: 'customer' }] }))); await q.p.waitForTimeout(300);
+  await q.p.locator('tr', { hasText: 'مؤسسة التموين' }).first().locator('td').first().click(); await q.p.waitForTimeout(400);
+  await q.p.selectOption('select[aria-label="ربط الجهة"]', 'sup:s1'); await q.p.waitForTimeout(300);
+  r = await q.p.evaluate(() => [window.curOrg.partners.find(x => x.id === 'cx').linkKey, window.curOrg.suppliers.find(x => x.id === 's1').linkKey]);
+  assert.deepEqual(r, ['sup:s1', 'cust:cx']);
+  assert.equal(await q.p.locator('[data-mergedstmt]').count(), 1);
+  await q.p.locator('button', { hasText: 'رجوع إلى جهات الاتصال' }).click(); await q.p.waitForTimeout(200);
+  await q.p.locator('[data-cimp]').click(); await q.p.waitForTimeout(150);
+  const vcf = 'BEGIN:VCARD\nVERSION:3.0\nFN:مطبخ الوليمة\nTEL;TYPE=CELL:+966 50 111 2222\nEND:VCARD\nBEGIN:VCARD\nVERSION:3.0\nN:الحربي;سالم;;;\nTEL:0555000111\nEMAIL:s@x.sa\nEND:VCARD\n';
+  await q.p.setInputFiles('[data-cimpfile]', { name: 'contacts.vcf', mimeType: 'text/vcard', buffer: Buffer.from(vcf, 'utf8') }); await q.p.waitForTimeout(300);
+  assert.equal(await q.p.locator('[data-cimprows] tbody tr').count(), 2);
+  await q.p.locator('[data-cimpsave]').click(); await q.p.waitForTimeout(300);
+  r = await q.p.evaluate(() => window.curOrg.partners.filter(x => ['مطبخ الوليمة', 'سالم الحربي'].includes(x.name)).map(x => [x.name, x.phone, x.type]).sort());
+  assert.deepEqual(r, [['سالم الحربي', '0555000111', 'customer'], ['مطبخ الوليمة', '+966501112222', 'customer']]);
+  assert.deepEqual(q.errs, []); await q.ctx.close();
+});
