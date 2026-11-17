@@ -2954,7 +2954,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v46.3';
+const APP_VER = 'v46.4';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -8157,7 +8157,18 @@ function itemLedger(org, ops, itemId, opt = {}) {
   (ops.productSales || []).forEach(r => { if (!served.includes(r.branchId) || posBr.has(r.branchId) || !inP(r.to || r.from)) return; (r.lines || []).forEach(l => addS(r.to || r.from, l.productId, Number(l.qty) || 0)); });
   const salesRows = Object.values(sales).map(x => ({ ...x, q: Math.round(x.q * 1000) / 1000 })).sort((a, b) => a.date.localeCompare(b.date));
   const r3 = (n) => Math.round(n * 1000) / 1000;
-  return { rows, open: r3(open), qIn: r3(qIn), qOut: r3(qOut), close: r3(bal), transit, salesRows, salesQ: r3(salesRows.reduce((a, x) => a + x.q, 0)) };
+  // v46.4 — الحالات المعلّقة (لا تغيّر الرصيد بعد): تحويلات مطلوبة/بانتظار الاعتماد/في الطريق، هدر بانتظار الاعتماد، أوامر شراء لم تُستلم بالكامل
+  const pending = [];
+  (ops.whTransfers || []).forEach(t => { if (!['requested', 'proposed', 'sent'].includes(t.status) || t.kind === 'b2b-in') return;
+    (t.lines || []).forEach(l => { if (l.itemId !== itemId) return; if (whId && t.fromWh !== whId && t.toWh !== whId) return;
+      pending.push({ date: String(t.sentDate || t.requestedAt || t.date || t.createdAt || '').slice(0, 10), kind: t.kind === 'return' ? 'إرجاع' : 'تحويل', st: (WH_ST[t.status] || [])[1] || t.status, q: r3(Number(l.qtySent || l.qtyReq) || 0), ref: t.no || '', note: whName(org, t.fromWh || MAIN_WH) + ' ← ' + whName(org, t.toWh) }); }); });
+  (ops.wasteRequests || []).forEach(r => { if (r.status !== 'pending' || (whId && (r.whId || MAIN_WH) !== whId)) return;
+    (r.lines || []).forEach(l => { if (l.itemId === itemId) pending.push({ date: String(r.at || r.date || '').slice(0, 10), kind: 'هدر', st: 'بانتظار الاعتماد', q: r3(-(Number(l.qty) || 0)), ref: '', note: (r.reason || '') + (r.by ? ' · ' + r.by : '') }); }); });
+  (ops.purchaseOrders || []).forEach(po => { if (!PO_LIVE.includes(po.status)) return; if (whId && (po.whId || MAIN_WH) !== whId) return;
+    (po.lines || []).forEach(l => { if (l.itemId !== itemId) return; const fac = l.uom === 'p' ? pFactor(((org.items || []).find(x => x.id === itemId)) || {}) : 1; const left = (Number(l.qty) || 0) - (Number(l.received) || 0); if (!(left > 0.0005)) return;
+      pending.push({ date: String(po.date || po.createdAt || '').slice(0, 10), kind: 'أمر شراء', st: po.status === 'pending' ? 'بانتظار الاعتماد' : po.status === 'partial' ? 'مستلم جزئيًا' : 'مفتوح', q: r3(left * fac), ref: po.poNo || '', note: po.supplierName || '' }); }); });
+  pending.sort((a, b) => b.date.localeCompare(a.date));
+  return { rows, open: r3(open), qIn: r3(qIn), qOut: r3(qOut), close: r3(bal), transit, pending, salesRows, salesQ: r3(salesRows.reduce((a, x) => a + x.q, 0)) };
 }
 /* v30.4 — أنواع الأصناف + المتوسط المرجّح + وحدات الشراء
    • النوع: استهلاكي (مواد خام ومستلزمات تُستهلك) · قابل للبيع (بضاعة تُباع كما هي) · خدمي (لا يُخزَّن — لا أرصدة ولا جرد).
