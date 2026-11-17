@@ -1473,22 +1473,32 @@ test('v45.3 تقرير هدر التحضير: الفرع يرى الكميات �
 test('v45.4 صورة المنتج: تُرفع في نموذج المنتج (مصغّرة) وتظهر على زر نقطة البيع، ويمكن إخفاؤها من الإعدادات', async () => {
   const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Inventory/admin/recipes');
   // صورة اختبار 600×400 تُولَّد في المتصفح
-  const png = await p.evaluate(() => { const c = document.createElement('canvas'); c.width = 600; c.height = 400; const g = c.getContext('2d'); g.fillStyle = '#c33'; g.fillRect(0, 0, 600, 400); g.fillStyle = '#fff'; g.fillRect(250, 150, 100, 100); return c.toDataURL('image/png').split(',')[1]; });
+  // منتج (دائرة بنية) على خلفية فاتحة فيها ضوضاء خفيفة
+  const png = await p.evaluate(() => { const c = document.createElement('canvas'); c.width = 600; c.height = 400; const g = c.getContext('2d'); g.fillStyle = '#ece9e4'; g.fillRect(0, 0, 600, 400);
+    for (let i = 0; i < 400; i++) { g.fillStyle = 'rgba(0,0,0,.05)'; g.fillRect((i * 37) % 600, (i * 53) % 400, 2, 2); }
+    g.fillStyle = '#8a4b1f'; g.beginPath(); g.arc(300, 210, 120, 0, 7); g.fill(); return c.toDataURL('image/png').split(',')[1]; });
   await p.locator('.card:has-text("مندي لحم") button', { hasText: 'تعديل' }).first().click(); await p.waitForTimeout(200);
   await p.setInputFiles('input[aria-label="صورة المنتج"]', { name: 'm.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') }); await p.waitForTimeout(400);
   assert.equal(await p.locator('[data-prodimg] img').count(), 1, 'معاينة');
   await p.locator('button', { hasText: 'حفظ المنتج' }).click(); await p.waitForTimeout(300);
   const img = await p.evaluate(() => (window.curOrg.products.find(x => x.name.includes('مندي لحم')) || {}).img || '');
-  assert.match(img, /^data:image\/jpeg;base64,/); assert.ok(img.length < 41000, 'خفيفة: ' + img.length);
-  const dims = await p.evaluate((u) => new Promise(r => { const i = new Image(); i.onload = () => r([i.width, i.height]); i.src = u; }), img);
-  assert.deepEqual(dims, [240, 240], 'مربّعة ومصغّرة');
+  assert.match(img, /^data:image\/(webp|png);base64,/, 'بلا خلفية ⇒ صيغة شفافة'); assert.ok(img.length < 60000, 'خفيفة: ' + img.length);
+  const px = await p.evaluate((u) => new Promise(r => { const i = new Image(); i.onload = () => { const c = document.createElement('canvas'); c.width = i.width; c.height = i.height; const g = c.getContext('2d'); g.drawImage(i, 0, 0);
+    r([i.width, i.height, g.getImageData(3, 3, 1, 1).data[3], g.getImageData(120, 120, 1, 1).data[3]]); }; i.src = u; }), img);
+  assert.deepEqual(px, [240, 240, 0, 255], 'مربّعة 240 · الزاوية شفافة · المنتج في الوسط معتم');
+  // إيقاف الخيار ⇒ الصورة كما هي (JPEG بخلفيتها)
+  await p.locator('.card:has-text("مندي لحم") button', { hasText: 'تعديل' }).first().click(); await p.waitForTimeout(200);
+  await p.uncheck('input[aria-label="إزالة الخلفية والضوضاء"]');
+  await p.setInputFiles('input[aria-label="صورة المنتج"]', { name: 'm.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') }); await p.waitForTimeout(400);
+  assert.match(await p.getAttribute('[data-prodimg-prev]', 'src'), /^data:image\/jpeg/);
+  await p.locator('button', { hasText: 'إلغاء' }).last().click(); await p.waitForTimeout(150);
   assert.deepEqual(errs, []); await ctx.close();
   // نقطة البيع: الصورة على الزر، وتختفي عند إيقافها
   const o = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosApp/bm');
   await o.p.evaluate((img) => { window.setOrg(g => ({ ...g, posCfg: { branches: ['b1'], autoPrint: false }, products: [{ id: 'k', name: 'كبسة', sellPrice: 58, cat: 'رئيسي', img }, { id: 'h', name: 'حمص', sellPrice: 18, cat: 'مقبلات' }] })); window.setOps(x => ({ ...x, posOrders: [] })); }, img);
   await o.p.waitForTimeout(400);
   const ob = o.p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await o.p.waitForTimeout(400); }
-  assert.equal(await o.p.locator('.pos-tile:has-text("كبسة") img.pos-tile-img').count(), 1);
+  assert.equal(await o.p.locator('.pos-tile:has-text("كبسة") img.pos-tile-img.cut').count(), 1, 'مقصوصة ⇒ بلا خلفية على الزر');
   assert.equal(await o.p.locator('.pos-tile:has-text("حمص") img').count(), 0, 'بلا صورة ⇒ كما هو');
   await o.p.locator('.pos-tile:has-text("كبسة")').click(); await o.p.waitForTimeout(150);
   assert.equal(await o.p.locator('.pos-tile.on:has-text("كبسة")').count(), 1, 'الإضافة للسلة تعمل');

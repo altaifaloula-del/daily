@@ -650,11 +650,17 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
           <div className="grid g2">
             <Field label="اسم المنتج"><input className="inp" value={prodF.name} placeholder="مندي لحم — وجبة" onChange={e => setProdF(f => ({ ...f, name: e.target.value }))} /></Field>
             <Field label="صورة المنتج (تظهر في نقطة البيع)"><div className="row" style={{ gap: 8, alignItems: 'center' }} data-prodimg>
-              {prodF.img ? <img src={prodF.img} alt="" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 10, border: '1px solid var(--line)' }} /> : <span style={{ width: 56, height: 56, borderRadius: 10, border: '1px dashed var(--line)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'var(--faint)', fontSize: 20 }}>🖼</span>}
+              {prodF.img ? <img src={prodF.img} alt="" data-prodimg-prev style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 10, border: '1px solid var(--line)', background: 'repeating-conic-gradient(#e9e9e9 0 25%, #fff 0 50%) 0 0/14px 14px' }} /> : <span style={{ width: 56, height: 56, borderRadius: 10, border: '1px dashed var(--line)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'var(--faint)', fontSize: 20 }}>🖼</span>}
               <label className="btn sm gh" style={{ cursor: 'pointer' }}>{prodF.img ? 'تغيير الصورة' : 'اختيار صورة'}<input type="file" accept="image/*" style={{ display: 'none' }} aria-label="صورة المنتج"
-                onChange={async e => { const fl = e.target.files && e.target.files[0]; e.target.value = ''; if (!fl) return; if (!fl.type.startsWith('image/')) return say('صورة فقط', 'no'); try { const url = await productThumb(fl); setProdF(f => ({ ...f, img: url })); } catch { say('تعذّرت معالجة الصورة', 'no'); } }} /></label>
-              {prodF.img && <button type="button" className="btn sm gh" onClick={() => setProdF(f => ({ ...f, img: '' }))}>إزالة</button>}
-            </div><div className="hint">تُقص مربّعًا وتُصغَّر تلقائيًا لتبقى خفيفة على أجهزة الفروع</div></Field>
+                onChange={async e => { const fl = e.target.files && e.target.files[0]; e.target.value = ''; if (!fl) return; if (!fl.type.startsWith('image/')) return say('صورة فقط', 'no');
+                  try { const cut = prodF.imgCut !== false; const r = await productThumb(fl, { cutout: cut }); setProdF(f => ({ ...f, img: r.url, _imgFile: fl, _cutFail: cut && !r.cut })); if (cut && !r.cut) say('الخلفية مزدحمة — أُبقيت الصورة كما هي. للأفضل: صوّر المنتج على خلفية سادة', 'no'); } catch { say('تعذّرت معالجة الصورة', 'no'); } }} /></label>
+              {prodF.img && <button type="button" className="btn sm gh" onClick={() => setProdF(f => ({ ...f, img: '', _imgFile: null }))}>إزالة</button>}
+            </div>
+            <label className="row" style={{ gap: 6, alignItems: 'center', fontSize: 12.5, marginTop: 6 }}><input type="checkbox" aria-label="إزالة الخلفية والضوضاء" checked={prodF.imgCut !== false}
+              onChange={async e => { const on = e.target.checked; setProdF(f => ({ ...f, imgCut: on })); const fl = prodF._imgFile; if (!fl) return;
+                try { const r = await productThumb(fl, { cutout: on }); setProdF(f => ({ ...f, img: r.url, _cutFail: on && !r.cut })); } catch { say('تعذّرت معالجة الصورة', 'no'); } }} />إزالة الخلفية والضوضاء (الأفضل: صورة المنتج على خلفية سادة)</label>
+            {prodF._cutFail && <div className="hint" style={{ color: 'var(--amber, #E0A458)' }}>تعذّر فصل المنتج عن خلفية مزدحمة — أُبقيت الصورة كاملة</div>}
+            <div className="hint">تُصغَّر تلقائيًا لتبقى خفيفة على أجهزة الفروع</div></Field>
             <Field label={'سعر البيع' + ((org.taxCfg || {}).enabled ? ' (شامل الضريبة)' : '')}>
               <input className="inp n" inputMode="decimal" value={prodF.sellPrice} onChange={e => setProdF(f => ({ ...f, sellPrice: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
             <Field label="تصنيف نقطة البيع"><input className="inp" list="pos-cats" value={prodF.cat || ''} placeholder="وجبات، مشروبات، حلويات…" onChange={e => setProdF(f => ({ ...f, cat: e.target.value }))} />

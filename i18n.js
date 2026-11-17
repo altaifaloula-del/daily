@@ -2491,6 +2491,15 @@ Object.assign(EN, {
 "إظهار صور المنتجات": "Show product images",
 "إظهار صور المنتجات على أزرار نقطة البيع (لمن أُضيفت له صورة)": "Show product images on POS buttons (for products with an image)"
 });
+
+// ===== v45.5 إزالة خلفية صورة المنتج =====
+Object.assign(EN, {
+"إزالة الخلفية والضوضاء": "Remove background and noise",
+"إزالة الخلفية والضوضاء (الأفضل: صورة المنتج على خلفية سادة)": "Remove background and noise (best: product photo on a plain background)",
+"تعذّر فصل المنتج عن خلفية مزدحمة — أُبقيت الصورة كاملة": "Could not separate the product from a busy background — the full image was kept",
+"تُصغَّر تلقائيًا لتبقى خفيفة على أجهزة الفروع": "Shrunk automatically to stay light on branch devices",
+"الخلفية مزدحمة — أُبقيت الصورة كما هي. للأفضل: صوّر المنتج على خلفية سادة": "Busy background — the image was kept as is. Best: photograph the product on a plain background"
+});
 export const TX = (ar) => (LANG === 'en' && ar && EN[ar]) || ar;
 
 /* v43.1 مترجم الشاشة: في الوضع الإنجليزي يترجم نصوص الواجهة (عُقد النص + placeholder/title/aria-label) بمطابقة القاموس حرفيًا،
@@ -2566,6 +2575,7 @@ export const EN_RX = [
   [/^حُفظ جرد الرف — توجد فروقات تحتاج إجراء$/, 'Shelf count saved — there are differences that need action'], [/^حُفظ جرد الرف — مطابق ✓$/, 'Shelf count saved — matches ✓'],
   [/^أُضيف الصنف «(.+)» ✓$/, 'Item «$1» added ✓'],
   [/^(\d+(?:\.\d+)?)% من الدفعات$/, '$1% of batches'], [/^(\d+) دفعة$/, '$1 batches'],
+
 
   [/^أقصى مبلغ متاح (.+) ر\.س — يمكنك تعديله يدوياً$/, 'Max available $1 SAR — you can edit it manually'],
   [/^(\d{1,2}) (يناير|فبراير|مارس|أبريل|مايو|يونيو|يوليو|أغسطس|سبتمبر|أكتوبر|نوفمبر|ديسمبر) (\d{4})$/, (_, d, m, y) => d + ' ' + MONTHS[m] + ' ' + y]
