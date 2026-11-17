@@ -1430,3 +1430,19 @@ test('v46.6 سندات القبض والصرف والمقاصّة: التوزي�
   assert.ok(sup.txns.some(x => /على الحساب/.test(x.desc) && x.debit === 200)); assert.ok(sup.txns.some(x => /مقاصّة/.test(x.desc) && x.debit === 150));
   assert.equal(sup.linkKey, 'cust:c1');
 });
+
+test('v46.7 نفاد المواد مع خصم المبيعات: مادة وصفة بالسالب أو صفر في مستودع الفرع تنبيه عالٍ، وصنف تحت حده الأدنى تنبيه متوسط', () => {
+  const td = new Date().toISOString().slice(0, 10);
+  const org = baseOrg({ items: [{ id: 'i1', name: 'لحم', unit: 'كيلو', type: 'stock' }, { id: 'i2', name: 'أرز', unit: 'كيلو', type: 'stock', minQty: 10 }, { id: 'i3', name: 'زيت', unit: 'لتر', type: 'stock' }],
+    products: [{ id: 'p1', name: 'مندي', parts: [{ itemId: 'i1', qty: 0.5 }, { itemId: 'i3', qty: 0.1 }] }], purchaseCfg: { perpetualFrom: td.slice(0, 7), saleDeductFrom: td },
+    warehouses: [{ id: 'wh-main', name: 'الرئيسي', kind: 'main' }, { id: 'wh-b1', name: 'العليا', kind: 'branch', branchId: 'b1' }] });
+  const ops = { whMoves: [{ id: 'a', whId: 'wh-b1', branchId: 'b1', itemId: 'i1', kind: 'in', qty: 2, date: td }, { id: 'b', whId: 'wh-b1', branchId: 'b1', itemId: 'i1', kind: 'sale', qty: -3, date: td, auto: true },
+    { id: 'c', whId: 'wh-b1', branchId: 'b1', itemId: 'i2', kind: 'in', qty: 5, date: td }, { id: 'd', whId: 'wh-b1', branchId: 'b1', itemId: 'i3', kind: 'in', qty: 4, date: td }], stockMoves: [], whTransfers: [] };
+  const S = E.stockShortages(org, ops);
+  assert.deepEqual(S.map(x => [x.wh, x.itemId, x.qty, x.st]), [['wh-b1', 'i1', -1, 'neg'], ['wh-b1', 'i2', 5, 'low']]);
+  const A = E.computeSmartAlerts(org, ops, org.branches);
+  assert.ok(A.some(a => a.sev === 'high' && /نفاد مواد في العليا — 1 صنف/.test(a.title) && /البيع مستمر/.test(a.msg)));
+  assert.ok(A.some(a => a.sev === 'medium' && /تحت الحد الأدنى في العليا/.test(a.title)));
+  // بلا خصم المبيعات: لا تنبيه نفاد للوصفات (الحد الأدنى يبقى)
+  const S2 = E.stockShortages({ ...org, purchaseCfg: {} }, ops); assert.deepEqual(S2.map(x => x.st), ['low']);
+});

@@ -1748,3 +1748,18 @@ test('v46.6 سندات القبض والصرف: صرف لمورد موزَّع �
   assert.deepEqual(r, [['سالم الحربي', '0555000111', 'customer'], ['مطبخ الوليمة', '+966501112222', 'customer']]);
   assert.deepEqual(q.errs, []); await q.ctx.close();
 });
+
+test('v46.7 نواقص المخزون: شاشة الأصناف تعرض المادة النافدة بالسالب بعد خصم المبيعات، ومركز التنبيهات ينبّه بنفادها', async () => {
+  const td = new Date().toISOString().slice(0, 10);
+  const setup = (td) => { window.setOrg(g => ({ ...g, purchaseCfg: { ...(g.purchaseCfg || {}), perpetualFrom: td.slice(0, 7), saleDeductFrom: td } }));
+    window.setOps(o => ({ ...o, whMoves: [...(o.whMoves || []), { id: 'sl_x', whId: 'wh-b1', branchId: 'b1', itemId: 'i1', kind: 'sale', qty: -70, date: td, auto: true }] })); };
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Inventory/admin/items');
+  await p.evaluate(setup, td); await p.waitForTimeout(400);
+  const t = await p.locator('[data-shortages]').innerText();
+  assert.match(t, /نواقص المخزون/); assert.match(t, /لحم غنم[\s\S]*-20[\s\S]*سالب/);
+  assert.deepEqual(errs, []); await ctx.close();
+  const n = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Notifications/admin');
+  await n.p.evaluate(setup, td); await n.p.waitForTimeout(400);
+  assert.match(await n.p.locator('body').innerText(), /نفاد مواد في مستودع طيبة/);
+  assert.deepEqual(n.errs, []); await n.ctx.close();
+});
