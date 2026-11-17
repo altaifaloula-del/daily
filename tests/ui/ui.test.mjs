@@ -1646,3 +1646,21 @@ test('v46.3 خصم المبيعات من المخزون مفعّل: صرف ما�
   assert.equal(await p.evaluate(() => (window.cur.whMoves || []).filter(m => m.kind === 'out' && m.itemId === 'i1' && String(m.at || m.date).slice(0, 10) === new Date().toISOString().slice(0, 10)).length), 0);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v46.4 تقرير الصنف: تصفية بنوع الحركة، والحالات المعلّقة (تحويل مطلوب، أمر شراء مفتوح، هدر بانتظار الاعتماد)، والتصدير إلى Excel', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/Inventory/admin/items');
+  const td = new Date().toISOString().slice(0, 10);
+  await p.evaluate((td) => window.setOps(o => ({ ...o, stockMoves: [{ id: 'sm1', itemId: 'i1', kind: 'purchase', qty: 20, unitCost: 40, date: td, at: td + 'T08:00:00', ref: 'INV-7' }, { id: 'sm2', itemId: 'i1', kind: 'waste', qty: -2, date: td, at: td + 'T09:00:00' }],
+    whTransfers: [{ id: 't2', no: 'REQ-9', kind: '', status: 'requested', fromWh: 'wh-main', toWh: 'wh-b1', requestedAt: td, lines: [{ itemId: 'i1', qtyReq: 5 }] }],
+    purchaseOrders: [{ id: 'po9', poNo: 'PO-0009', status: 'open', supplierName: 'مورد', date: td, lines: [{ itemId: 'i1', qty: 12, received: 4 }] }],
+    wasteRequests: [{ id: 'wr1', status: 'pending', whId: 'wh-main', at: td + 'T10:00:00', by: 'خالد', lines: [{ itemId: 'i1', qty: 3 }] }] })), td);
+  await p.waitForTimeout(300);
+  await p.locator('tr', { hasText: 'لحم غنم' }).locator('[data-itemledger]').click(); await p.waitForTimeout(250);
+  await p.selectOption('select[aria-label="نوع الحركة"]', 'waste'); await p.waitForTimeout(100);
+  assert.deepEqual(await p.locator('[data-ledger] tbody tr td:nth-child(2)').allInnerTexts(), ['هدر/إتلاف']);
+  const pend = await p.locator('[data-ledgerpending] tbody').innerText();
+  assert.match(pend, /تحويل[\s\S]*مطلوب[\s\S]*5/); assert.match(pend, /أمر شراء[\s\S]*مفتوح[\s\S]*8/); assert.match(pend, /هدر[\s\S]*بانتظار الاعتماد[\s\S]*3/);
+  const [dl] = await Promise.all([p.waitForEvent('download'), p.locator('[data-ledgerxlsx]').click()]);
+  const fp = await dl.path(); const head = (await import('node:fs')).readFileSync(fp).subarray(0, 2).toString(); assert.equal(head, 'PK', 'ملف Excel (xlsx)');
+  assert.deepEqual(errs, []); await ctx.close();
+});
