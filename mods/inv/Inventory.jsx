@@ -6,7 +6,7 @@ import { StockVouchers } from './StockVouchers.jsx';   // v46.5   // v46.2
 import { PrepList } from './PrepList.jsx';   // v40.8
 import { TurnoverPpv } from './TurnoverPpv.jsx';   // v42.0
 import { Production } from './Production.jsx';   // v42.8
-import { whOf, saleDeductOn, saleRecipeItems, uomOf, UomSelect, productThumb, normDigits, BlindCount, Field, ITEM_TYPES, ITEM_NEW_TYPES, itemsSeq, nextItemCode, Kpi, LOCK_MSG, MAIN_WH, MOVE_KINDS, Modal, PriceAlerts, ROLES, SectionNav, UsageVariance, WarehousesPanel, WasteControl, WasteFields, arDate, isCostCtl, isStocked, itemAvgCosts, itemType, makeXlsx, money, nowISO, pFactor, parseCsvGrid, parseXlsxGrid, partGross, partYield, periodLocked, prepUnitCost, kcalUnitFactor, productKcal, printA4, q3, recipeCost, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whName, whOn, prepItemId } from '../../App.jsx';
+import { stockShortages, whOf, saleDeductOn, saleRecipeItems, uomOf, UomSelect, productThumb, normDigits, BlindCount, Field, ITEM_TYPES, ITEM_NEW_TYPES, itemsSeq, nextItemCode, Kpi, LOCK_MSG, MAIN_WH, MOVE_KINDS, Modal, PriceAlerts, ROLES, SectionNav, UsageVariance, WarehousesPanel, WasteControl, WasteFields, arDate, isCostCtl, isStocked, itemAvgCosts, itemType, makeXlsx, money, nowISO, pFactor, parseCsvGrid, parseXlsxGrid, partGross, partYield, periodLocked, prepUnitCost, kcalUnitFactor, productKcal, printA4, q3, recipeCost, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whName, whOn, prepItemId } from '../../App.jsx';
 
 export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
   const [view, setView] = useState('items');        // items | moves | count | recipes
@@ -72,6 +72,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
     if (ok !== false) { setItemF(null); say('استُعيد الصنف من الأرشيف ✓'); }
   };
   const [ledgerIt, setLedgerIt] = useState(null);
+  const shortages = useMemo(() => { try { return stockShortages(org, ops); } catch { return []; } }, [org, ops]);   // v46.7
   const [cntWh, setCntWh] = useState(MAIN_WH);   // v46.5 نقطة الجرد لأي مستودع   // v46.2 كرت حركة الصنف
   const [iq, setIq] = useState(''); const [iType, setIType] = useState(''); const [iSt, setISt] = useState('active');
   const stateOf = (it) => {
@@ -368,6 +369,19 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
         {canW && view === 'recipes' && <button className="btn sm pri" onClick={() => setProdF({ name: '', sellPrice: '', parts: [{ itemId: items[0]?.id || '', qty: '' }] })}><Plus size={14} />منتج جديد</button>}
       </div>
 
+      {view === 'items' && shortages.length > 0 && (
+        <div className="card" style={{ borderColor: shortages.some(x => x.st !== 'low') ? 'rgba(217,84,77,.45)' : 'rgba(224,164,88,.45)' }} data-shortages>
+          <div className="card-t" style={{ marginBottom: 8 }}><AlertTriangle size={15} color="var(--rose)" />نواقص المخزون — {shortages.filter(x => x.st !== 'low').length} نافد · {shortages.filter(x => x.st === 'low').length} تحت الحد</div>
+          <div className="tw"><table className="tb">
+            <thead><tr><th>المستودع</th><th>الصنف</th><th style={{ textAlign: 'end' }}>الرصيد</th><th style={{ textAlign: 'end' }}>الحد الأدنى</th><th>الحالة</th></tr></thead>
+            <tbody>{shortages.slice(0, 30).map((x, i) => <tr key={i}>
+              <td style={{ fontSize: 11.5 }}>{whName(org, x.wh)}</td><td style={{ fontSize: 12 }}>{x.name}</td>
+              <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: x.qty < 0 ? 'var(--rose)' : undefined }}>{x.qty} {x.unit}</td>
+              <td className="num" style={{ textAlign: 'end' }}>{x.min || '—'}</td>
+              <td><span className={'badge ' + (x.st === 'neg' ? 'b-rose' : x.st === 'zero' ? 'b-amber' : 'b-dim')}>{x.st === 'neg' ? 'سالب — بِيع دون رصيد' : x.st === 'zero' ? 'نفد' : 'تحت الحد'}</span></td></tr>)}</tbody>
+          </table></div>
+          <div className="note" style={{ fontSize: 11, marginTop: 6 }}>السالب يعني أن المبيعات خصمت أكثر من الرصيد المسجّل: سجّل التوريد أو التحويل الناقص، أو اعتمد جردًا للمستودع.</div>
+        </div>)}
       {view === 'items' && (
         <div className="card">
           <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 10 }} data-itemfilter>
