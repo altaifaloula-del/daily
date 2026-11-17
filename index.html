@@ -27,6 +27,9 @@
       (function () {
         if ('serviceWorker' in navigator) {
           navigator.serviceWorker.getRegistrations().then(function (regs) {
+            // v45.9: عامل إشعارات الإغلاق (push-sw.js) يبقى — لا كاش فيه ولا يتحكم في الصفحات
+            var isPush = function (r) { var w = r.active || r.waiting || r.installing; return !!(w && /push-sw\.js$/.test(w.scriptURL)); };
+            regs = regs.filter(function (r) { return !isPush(r); });
             var had = regs.length > 0;
             regs.forEach(function (r) { r.unregister(); });
             if ('caches' in window) {

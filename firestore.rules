@@ -104,6 +104,20 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // v45.9: رموز إشعارات الأجهزة (ملخصات الإغلاق والمنصة مغلقة) — كل عضو يدير رموز بريده فقط.
+    // لا دور ولا فرع في المستند: المُرسِل (حساب الخدمة) يحددهما من بيانات المنشأة، فلا يرفع الجهاز صلاحيته بنفسه.
+    match /pushTokens/{id} {
+      allow read: if isAdmin() || (realUser() && resource.data.email == userEmail());
+      allow create, update: if realUser() && (isMember() || isAdmin()) && mfaOk() && id.size() == 40
+        && request.resource.data.keys().hasOnly(['email', 'token', 'ua', 'at'])
+        && request.resource.data.email == userEmail()
+        && request.resource.data.token is string && request.resource.data.token.size() > 20 && request.resource.data.token.size() < 600
+        && request.resource.data.ua is string && request.resource.data.ua.size() <= 160
+        && request.resource.data.at is int
+        && (resource == null || resource.data.email == userEmail());
+      allow delete: if isAdmin() || (realUser() && resource.data.email == userEmail());
+    }
+
     // v28.1: قائمة سماح صريحة لأسماء المستندات — أي اسم آخر مرفوض قراءةً وكتابةً
     function knownDoc(id) {
       // v34.0: rms8_loy — نقاط ولاء العملاء، مشترك بين الفروع (يكتبه أي عضو نشط غير «عرض فقط» كي تُكسب النقاط وتُستبدل في كل فرع)

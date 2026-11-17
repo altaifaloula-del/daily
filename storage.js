@@ -170,6 +170,48 @@ async function reauthIf(m, u, pass, code) {
     throw e;
   }
 }
+/* ================= v45.9 — إشعارات الجوال والمنصة مغلقة (Firebase Cloud Messaging) =================
+   يُفعَّل لكل جهاز من مركز التنبيهات. الرمز يُحفظ في pushTokens باسم بريد المستخدم فقط؛
+   الدور والفروع يحددها الخادم من بيانات المنشأة (لا يثق بما يرسله الجهاز). يتطلب مفتاح VAPID العام في VITE_FCM_VAPID_KEY. */
+const VAPID = E.VITE_FCM_VAPID_KEY || '';
+const PUSH_LS = 'rms8:push';
+async function pushReg() {
+  const reg = await navigator.serviceWorker.register('push-sw.js', { scope: './push/' });
+  for (let i = 0; i < 50 && !reg.active; i++) await new Promise(r => setTimeout(r, 100));
+  if (!reg.active) throw new Error('push-sw-not-active');
+  return reg;
+}
+async function tokenId(t) { const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t)); return [...new Uint8Array(h)].slice(0, 20).map(b => b.toString(16).padStart(2, '0')).join(''); }
+export const pushApi = {
+  get configured() { return FB_READY && !!VAPID; },
+  get supported() { try { return typeof navigator !== 'undefined' && 'serviceWorker' in navigator && typeof window.PushManager !== 'undefined' && typeof Notification !== 'undefined'; } catch { return false; } },
+  get standaloneNeeded() { try { return /iPhone|iPad|iPod/.test(navigator.userAgent) && !(window.matchMedia('(display-mode: standalone)').matches || navigator.standalone); } catch { return false; } },
+  isOn() { try { return !!localStorage.getItem(PUSH_LS) && Notification.permission === 'granted'; } catch { return false; } },
+  async enable() {
+    if (!this.configured) throw new Error('push-not-configured');
+    if (!this.supported) throw new Error(this.standaloneNeeded ? 'push-ios-install' : 'push-unsupported');
+    let perm = Notification.permission; if (perm === 'default') perm = await Notification.requestPermission();
+    if (perm !== 'granted') throw new Error('push-denied');
+    const u = await authedUser(); if (!u || !u.email) throw new Error('push-no-user');
+    const reg = await pushReg();
+    const M = await import('firebase/messaging');
+    if (!(await M.isSupported())) throw new Error('push-unsupported');
+    const token = await M.getToken(M.getMessaging(await fbApp()), { vapidKey: VAPID, serviceWorkerRegistration: reg });
+    if (!token) throw new Error('push-no-token');
+    const f = await firestore(); if (!f) throw new Error('push-no-db');
+    const id = await tokenId(token);
+    await f.setDoc(f.doc(f.db, 'pushTokens', id), { email: u.email.toLowerCase(), token, ua: String(navigator.userAgent || '').slice(0, 160), at: Date.now() });
+    try { localStorage.setItem(PUSH_LS, id); } catch { }
+    return true;
+  },
+  async disable() {
+    let id = ''; try { id = localStorage.getItem(PUSH_LS) || ''; localStorage.removeItem(PUSH_LS); } catch { }
+    try { const M = await import('firebase/messaging'); const reg = await navigator.serviceWorker.getRegistration('./push/'); if (reg) { await M.deleteToken(M.getMessaging(await fbApp())).catch(() => { }); await reg.unregister(); } } catch { }
+    if (id) { try { const f = await firestore(); if (f) await f.deleteDoc(f.doc(f.db, 'pushTokens', id)); } catch { } }
+    return true;
+  }
+};
+
 export const authApi = {
   get enabled() { return FB_READY; },
 

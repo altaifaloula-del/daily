@@ -14,7 +14,7 @@
     "test:acct": "node --test tests/accounting.test.mjs",
     "test:ui": "node --test tests/ui/ui.test.mjs",
     "test:zatca": "node --test tests/zatca.test.mjs",
-    "test:backup": "node --test tests/backup.test.mjs",
+    "test:backup": "node --test tests/backup.test.mjs tests/push.test.mjs",
     "zatca:sandbox": "node scripts/zatca-sandbox.mjs"
   },
   "dependencies": {

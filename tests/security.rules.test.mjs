@@ -325,3 +325,19 @@ test('تحقق: سياسة التحقق بخطوتين — حين تُفعَّل
     await assertSucceeds(getDoc(doc(as('cash'), 'platform', 'rms8_br_A')), 'الكاشير غير مشمول بالسياسة');
   } finally { await env.withSecurityRulesDisabled(async (ctx) => { await deleteDoc(doc(ctx.firestore(), 'platform', 'security')); }); }
 });
+
+/* ===== v45.9 — رموز إشعارات الأجهزة ===== */
+test('ث35 رموز الإشعارات: العضو يسجّل رمز جهازه باسم بريده فقط، ولا يقرأ أو يحذف رموز غيره، ولا حقول إضافية (دور/فرع)', async () => {
+  const tid = (c) => c.repeat(40);
+  const tk = (k, x) => ({ email: U[k], token: 'fcm-token-' + 'x'.repeat(40), ua: 'test', at: 1, ...(x || {}) });
+  await assertSucceeds(setDoc(doc(as('fin'), 'pushTokens', tid('a')), tk('fin')), 'العضو يسجّل رمزه');
+  await assertSucceeds(getDoc(doc(as('fin'), 'pushTokens', tid('a'))), 'ويقرؤه');
+  await assertFails(setDoc(doc(as('cash'), 'pushTokens', tid('b')), tk('fin')), 'لا يسجّل باسم بريد غيره');
+  await assertFails(setDoc(doc(as('cash'), 'pushTokens', tid('a')), tk('cash')), 'لا يستولي على رمز غيره');
+  await assertFails(getDoc(doc(as('cash'), 'pushTokens', tid('a'))), 'لا يقرأ رمز غيره');
+  await assertFails(deleteDoc(doc(as('cash'), 'pushTokens', tid('a'))), 'لا يحذف رمز غيره');
+  await assertFails(setDoc(doc(as('cash'), 'pushTokens', tid('c')), tk('cash', { role: 'system_admin' })), 'لا حقل دور');
+  await assertFails(setDoc(doc(as('cash'), 'pushTokens', 'short'), tk('cash')), 'معرّف بطول ثابت');
+  await assertSucceeds(getDoc(doc(as('owner'), 'pushTokens', tid('a'))), 'المدير يقرأ');
+  await assertSucceeds(deleteDoc(doc(as('fin'), 'pushTokens', tid('a'))), 'العضو يحذف رمزه');
+});
