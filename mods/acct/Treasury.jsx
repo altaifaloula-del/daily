@@ -1,6 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useMemo } from 'react';
-import { Landmark, FileBarChart, ChevronDown, Printer, ArrowLeftRight, TrendingUp, TrendingDown, Banknote, FileText, Plus, Lock, Check, X } from 'lucide-react';
+import { Landmark, FileBarChart, ChevronDown, Printer, ArrowLeftRight, TrendingUp, TrendingDown, Banknote, FileText, Plus, Lock, Check, X, Receipt } from 'lucide-react';
+import { CashVouchers } from './CashVouchers.jsx';
 import { Badge, DisbursementForm, Kpi, LOCK_MSG, ROLES, arDate, money, nowISO, periodLocked, printA4, sum, today } from '../../App.jsx';
 
 export function Treasury({ org, ops, me, myBranches, scoped, commit, say }) {
@@ -92,6 +93,9 @@ export function Treasury({ org, ops, me, myBranches, scoped, commit, say }) {
           <button className={'btn sm' + (tab === 'out' ? ' pri' : ' gh')} onClick={() => setTab('out')}>
             <Banknote size={14} />أوامر الصرف
           </button>
+          <button className={'btn sm' + (tab === 'cv' ? ' pri' : ' gh')} data-tabcv onClick={() => setTab('cv')}>
+            <Receipt size={14} />سندات القبض والصرف
+          </button>
           <button className={'btn sm' + (tab === 'led' ? ' pri' : ' gh')} onClick={() => setTab('led')}>
             <FileText size={14} />كشف حركة الخزينة
           </button>
@@ -101,6 +105,7 @@ export function Treasury({ org, ops, me, myBranches, scoped, commit, say }) {
         </>}
       </div>
 
+      {tab === 'cv' && isCentral && <CashVouchers org={org} ops={ops} me={me} commit={commit} say={say} />}   {/* v46.6 */}
       {tab === 'in' && (
         <div className="card">
           <div className="card-h">

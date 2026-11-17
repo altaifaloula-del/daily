@@ -1400,3 +1400,33 @@ test('v46.5 ترقيم السندات المخزنية: الحركات المح�
   const L = E.voucherList(org, n2, {}); const r1 = L.find(x => x.no === 'RCV-M-00001');
   assert.equal(r1.type, 'rcv'); assert.equal(r1.lines.length, 2);
 });
+
+test('v46.6 سندات القبض والصرف والمقاصّة: التوزيع على الفواتير يُقيَّد مع الفاتورة والباقي على الحساب، والحساب من الدليل، وسلفة الموظف تُستقطع، والمقاصّة بين ذمم العميل والمورد — والميزان متوازن', () => {
+  const org = baseOrg({ taxCfg: { enabled: false }, suppliers: [{ id: 's1', name: 'مؤسسة التموين', linkKey: 'cust:c1' }], partners: [{ id: 'c1', key: 'cust:c1', name: 'مؤسسة التموين', type: 'customer', linkKey: 'sup:s1' }],
+    employees: [{ id: 'e1', name: 'أحمد', branchId: 'b1' }] });
+  const me = { name: 'المحاسب' };
+  let ops = { invoices: [{ id: 'i1', supplierId: 's1', supplierName: 'مؤسسة التموين', amount: 1000, date: '2026-03-01', invoiceNo: 'S-1', paidAmount: 0 }],
+    salesInvoices: [{ id: 'x1', no: 'INV-1', kind: 'invoice', terms: 'credit', customerKey: 'cust:c1', buyer: { name: 'مؤسسة التموين' }, date: '2026-03-02', net: 600, vat: 0, total: 600, receipts: [] }], cashVouchers: [], advances: [] };
+  assert.deepEqual(E.partyOpenDocs(org, ops, { t: 'sup', key: 'sup:s1' }).map(x => x.rem), [1000]);
+  // صرف 1200 للمورد: 1000 على الفاتورة + 200 على الحساب
+  const pv = { id: 'v1', no: E.cvNextNo(ops, 'pv'), kind: 'pv', date: '2026-03-05', amount: 1200, fund: '1201', pm: 'bank', party: { t: 'sup', key: 'sup:s1', name: 'مؤسسة التموين' }, alloc: [{ id: 'i1', no: 'S-1', amount: 1000 }], at: 't' };
+  assert.equal(pv.no, 'PV-000001');
+  ops = E.applyCashVoucher(ops, pv, me);
+  assert.equal(E.partyOpenDocs(org, ops, { t: 'sup', key: 'sup:s1' }).length, 0, 'الفاتورة سُدّدت');
+  // قبض 400 من العميل على فاتورته
+  ops = E.applyCashVoucher(ops, { id: 'v2', no: 'RV-000001', kind: 'rv', date: '2026-03-06', amount: 400, fund: '1101', pm: 'cash', party: { t: 'cust', key: 'cust:c1', name: 'مؤسسة التموين' }, alloc: [{ id: 'x1', amount: 400 }], at: 't' }, me);
+  assert.deepEqual(E.partyOpenDocs(org, ops, { t: 'cust', key: 'cust:c1' }).map(x => x.rem), [200]);
+  // صرف مصروف من الدليل · سلفة موظف · مقاصّة 150
+  ops = E.applyCashVoucher(ops, { id: 'v3', no: 'PV-000002', kind: 'pv', date: '2026-03-07', amount: 90, fund: '1101', party: { t: 'acc', acc: '5301', name: 'صيانة' }, at: 't' }, me);
+  ops = E.applyCashVoucher(ops, { id: 'v4', no: 'PV-000003', kind: 'pv', date: '2026-03-07', amount: 500, fund: '1101', empPurpose: 'advance', party: { t: 'emp', key: 'emp:e1', name: 'أحمد' }, at: 't' }, me);
+  ops = E.applyCashVoucher(ops, { id: 'v5', no: 'OV-000001', kind: 'ov', date: '2026-03-08', amount: 150, supKey: 'sup:s1', custKey: 'cust:c1', supName: 'مؤسسة التموين', custName: 'مؤسسة التموين', at: 't' }, me);
+  assert.equal(ops.advances.length, 1, 'السلفة سُجّلت لتُستقطع من الراتب');
+  const A = E.buildAccounting(org, ops); const t = tb(A);
+  assert.equal(A.balanced, true);
+  near(t['2101'], -1000 + 1200 + 150, 'المورد: فاتورة 1000 − سداد 1200 − مقاصّة 150 ⇒ مدين 350');
+  near(t['1380'], 600 - 400 - 150, 'العميل: 600 − تحصيل 400 − مقاصّة 150 = 50');
+  near(t['1401'], 500, 'سلفة الموظف مرة واحدة'); near(t['1101'], 400 - 90 - 500, 'الخزينة');
+  const P = E.buildPartners(org, ops); const sup = P.find(x => x.key === 'sup:s1');
+  assert.ok(sup.txns.some(x => /على الحساب/.test(x.desc) && x.debit === 200)); assert.ok(sup.txns.some(x => /مقاصّة/.test(x.desc) && x.debit === 150));
+  assert.equal(sup.linkKey, 'cust:c1');
+});

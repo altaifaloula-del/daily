@@ -1,0 +1,130 @@
+/* v46.6 — سندات القبض والصرف والمقاصّة: على عميل/مورد (مع التوزيع على الفواتير المفتوحة)، أو أي حساب في الدليل، أو موظف (سلفة أو عهدة).
+   الجهة التي هي عميل ومورد معًا: مقاصّة بين ذممها. ترقيم RV/PV/OV، طباعة A4 بالتفقيط، وتصدير Excel. */
+import React, { useMemo, useState } from 'react';
+import { Receipt, Plus, Printer, Download, Check, Scale } from 'lucide-react';
+import { CV_KIND, cvNextNo, partyOpenDocs, applyCashVoucher, cashVoucherHtml, buildAccounting, buildPartners, branchBanks, Field, Modal, LOCK_MSG, makeXlsx, money, nowISO, periodLocked, printA4, today, uid } from '../../App.jsx';
+
+const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+const PT = { cust: 'عميل', sup: 'مورد', acc: 'حساب من الدليل', emp: 'موظف' };
+
+export function CashVouchers({ org, ops, me, commit, say }) {
+  const [kind, setKind] = useState(''); const [q, setQ] = useState('');
+  const [f, setF] = useState(null);
+  const P = useMemo(() => buildPartners(org, ops), [org, ops]);
+  const bal = (key) => { const p = P.find(x => x.key === key); return p ? r2(p.txns.reduce((a, t) => a + (t.debit || 0) - (t.credit || 0), 0)) : 0; };
+  const accs = useMemo(() => buildAccounting(org, {}).accounts.map(a => ({ code: String(a.code), name: a.name })).sort((x, y) => x.code.localeCompare(y.code)), [org]);
+  const funds = [{ code: '1101', name: 'الخزينة (نقدًا)' }, { code: '1201', name: 'البنك التجميعي' }, ...branchBanks(org).map(b => ({ code: b.code, name: b.name }))];
+  const list = (ops.cashVouchers || []).filter(v => (!kind || v.kind === kind) && (!q || [v.no, (v.party || {}).name, v.supName, v.custName, v.note].some(x => String(x || '').includes(q))))
+    .sort((a, b) => String(b.date + b.at).localeCompare(String(a.date + a.at)));
+  const parties = (t) => t === 'sup' ? P.filter(p => p.type === 'supplier') : t === 'cust' ? P.filter(p => p.type === 'customer') : t === 'emp' ? P.filter(p => p.type === 'employee') : [];
+  const linked = P.filter(p => p.type === 'supplier' && p.linkKey && P.some(c => c.key === p.linkKey));
+
+  const open = (k) => setF({ kind: k, date: today(), amount: '', fund: '1101', pm: 'cash', ref: '', note: '', pt: k === 'rv' ? 'cust' : 'sup', key: '', acc: '', empPurpose: 'custody', alloc: {}, supKey: '', custKey: '' });
+  const party = f && f.kind !== 'ov' ? (f.pt === 'acc' ? (f.acc ? { t: 'acc', acc: f.acc, name: (accs.find(a => a.code === f.acc) || {}).name || f.acc } : null) : (f.key ? { t: f.pt, key: f.key, name: (P.find(p => p.key === f.key) || {}).name || '' } : null)) : null;
+  const docs = f && party && ((f.kind === 'pv' && party.t === 'sup') || (f.kind === 'rv' && party.t === 'cust')) ? partyOpenDocs(org, ops, party) : [];
+  const allocSum = r2(Object.values((f && f.alloc) || {}).reduce((a, x) => a + (Number(x) || 0), 0));
+  const autoAlloc = () => { let left = r2(f.amount); const al = {}; docs.forEach(d => { if (left <= 0) return; const a = Math.min(left, d.rem); al[d.id] = String(r2(a)); left = r2(left - a); }); setF(x => ({ ...x, alloc: al })); };
+
+  const print = (v) => printA4(org, CV_KIND[v.kind].ar + ' — ' + v.no, '', cashVoucherHtml(org, v));
+  const xlsx = () => { const rows = [['رقم السند', 'النوع', 'التاريخ', 'الجهة', 'نوع الجهة', 'المبلغ', 'الحساب', 'طريقة الدفع', 'المرجع', 'البيان', 'أعدّه'], ...list.map(v => [v.no, CV_KIND[v.kind].ar, v.date, v.kind === 'ov' ? v.supName + ' / ' + v.custName : (v.party || {}).name, v.kind === 'ov' ? 'مقاصّة' : PT[(v.party || {}).t] || '', v.amount, v.fund || '', v.pm || '', v.ref || '', v.note || '', v.by || ''])];
+    try { const blob = makeXlsx([{ name: 'سندات القبض والصرف', rows }]); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'سندات_القبض_والصرف.xlsx'; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(url), 4000); } catch (e) { console.warn(e); } };
+
+  const save = async () => {
+    const a = r2(f.amount);
+    if (!(a > 0)) return say('أدخل المبلغ', 'no');
+    if (periodLocked(org, f.date)) return say(LOCK_MSG(f.date), 'no');
+    let v = { id: uid('cv'), kind: f.kind, date: f.date, amount: a, note: String(f.note || '').trim(), by: me.name, at: nowISO() };
+    if (f.kind === 'ov') {
+      const s = P.find(p => p.key === f.supKey), c = P.find(p => p.key === f.custKey);
+      if (!s || !c) return say('اختر المورد والعميل', 'no');
+      const owe = -bal(s.key), due = bal(c.key);   // علينا للمورد (دائن) · لنا على العميل (مدين)
+      if (a > Math.min(owe, due) + 0.004) return say('المقاصّة لا تتجاوز أقل الرصيدين: علينا للمورد ' + money(Math.max(0, owe)) + ' · لنا على العميل ' + money(Math.max(0, due)), 'no');
+      v = { ...v, supKey: s.key, custKey: c.key, supName: s.name, custName: c.name };
+    } else {
+      if (!party) return say('اختر ' + (f.pt === 'acc' ? 'الحساب' : 'الجهة'), 'no');
+      if (f.pm === 'cheque' && !String(f.ref || '').trim()) return say('أدخل رقم الشيك', 'no');
+      const alloc = docs.map(d => ({ id: d.id, no: d.no, amount: r2(f.alloc[d.id]) })).filter(x => x.amount > 0);
+      const over = alloc.find(x => x.amount > (docs.find(d => d.id === x.id) || {}).rem + 0.004);
+      if (over) return say('المبلغ الموزَّع على ' + over.no + ' أكبر من المتبقي', 'no');
+      if (r2(alloc.reduce((s2, x) => s2 + x.amount, 0)) > a + 0.004) return say('مجموع التوزيع أكبر من مبلغ السند', 'no');
+      v = { ...v, fund: f.pm === 'cash' ? '1101' : (f.fund && f.fund !== '1101' ? f.fund : '1201'), pm: f.pm, ...(String(f.ref || '').trim() ? { ref: String(f.ref).trim() } : {}), party, ...(alloc.length ? { alloc } : {}), ...(party.t === 'emp' && f.kind === 'pv' ? { empPurpose: f.empPurpose } : {}) };
+    }
+    let no = '';
+    const ok = await commit(d => { no = cvNextNo(d, f.kind); return applyCashVoucher(d, { ...v, no }, me); },
+      { actionType: 'create', targetType: 'cash_voucher', targetId: v.id, need: 'post', title: 'أصدر ' + CV_KIND[f.kind].ar, details: money(a) + ' · ' + (f.kind === 'ov' ? v.supName + ' / ' + v.custName : party.name) });
+    if (ok === false) return;
+    setF(null); say('صدر ' + CV_KIND[f.kind].ar + ' ' + no + ' ✓');
+    const made = { ...v, no }; setTimeout(() => print(made), 50);
+  };
+
+  return (
+    <div className="card" data-cashvouchers>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+        <div className="card-t" style={{ margin: 0, flex: '1 1 160px' }}><Receipt size={15} color="var(--brass)" />سندات القبض والصرف</div>
+        <button className="btn sm pri" data-newcv="rv" onClick={() => open('rv')}><Plus size={14} />سند قبض</button>
+        <button className="btn sm pri" data-newcv="pv" onClick={() => open('pv')}><Plus size={14} />سند صرف</button>
+        <button className="btn sm" data-newcv="ov" onClick={() => open('ov')}><Scale size={14} />سند مقاصّة</button>
+        <button className="btn sm gh" onClick={xlsx}><Download size={13} />Excel</button>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8, marginBottom: 10 }}>
+        <Field label="النوع"><select className="sel" aria-label="نوع السند المالي" value={kind} onChange={e => setKind(e.target.value)}><option value="">الكل</option>{Object.entries(CV_KIND).map(([k, x]) => <option key={k} value={k}>{x.ar}</option>)}</select></Field>
+        <Field label="بحث"><input className="inp" placeholder="رقم السند أو الجهة" value={q} onChange={e => setQ(e.target.value)} /></Field>
+      </div>
+      <div className="tw">
+        <table className="tb" data-cvlist>
+          <thead><tr><th>رقم السند</th><th>النوع</th><th>التاريخ</th><th>الجهة</th><th style={{ textAlign: 'end' }}>المبلغ</th><th /></tr></thead>
+          <tbody>
+            {list.map(v => (
+              <tr key={v.id}>
+                <td className="num" style={{ fontWeight: 700, fontSize: 11.5 }}>{v.no}</td>
+                <td><span className={'badge ' + (v.kind === 'rv' ? 'b-mint' : v.kind === 'pv' ? 'b-rose' : 'b-amber')}>{CV_KIND[v.kind].ar}</span></td>
+                <td className="num" style={{ fontSize: 11.5 }}>{v.date}</td>
+                <td style={{ fontSize: 12 }}>{v.kind === 'ov' ? v.supName + ' ⇄ ' + v.custName : (v.party || {}).name}<div style={{ fontSize: 10, color: 'var(--faint)' }}>{v.kind === 'ov' ? 'مقاصّة' : PT[(v.party || {}).t]}{(v.alloc || []).length ? ' · ' + v.alloc.map(x => x.no).join('، ') : ''}</div></td>
+                <td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{money(v.amount)}</td>
+                <td><button className="btn sm gh" data-cvprint onClick={() => print(v)}><Printer size={13} />طباعة</button></td>
+              </tr>))}
+            {!list.length && <tr><td colSpan={6}><div className="empty">لا سندات بعد</div></td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      {f && (
+        <Modal title={CV_KIND[f.kind].ar + ' جديد'} icon={Receipt} onClose={() => setF(null)} wide
+          foot={<><button className="btn gh" onClick={() => setF(null)}>إلغاء</button><button className="btn pri" data-cvsave onClick={save}><Check size={14} />حفظ وطباعة</button></>}>
+          {f.kind === 'ov' ? <>
+            <div className="note" style={{ marginBottom: 8 }}>المقاصّة تُسوّي ما لنا على العميل بما علينا للمورد نفسه (مدين ذمم الموردين / دائن ذمم العملاء).</div>
+            {linked.length > 0 && <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>{linked.map(s => <button key={s.key} className={'btn sm' + (f.supKey === s.key ? ' pri' : ' gh')} data-ovpair onClick={() => setF(x => ({ ...x, supKey: s.key, custKey: s.linkKey }))}>{s.name} (مورد ⇄ عميل)</button>)}</div>}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
+              <Field label="المورد"><select className="sel" aria-label="مورد المقاصّة" value={f.supKey} onChange={e => setF(x => ({ ...x, supKey: e.target.value }))}><option value="">— اختر —</option>{parties('sup').map(p => <option key={p.key} value={p.key}>{p.name}</option>)}</select>
+                {f.supKey && <div className="hint">علينا له: <b className="num">{money(Math.max(0, -bal(f.supKey)))}</b></div>}</Field>
+              <Field label="العميل"><select className="sel" aria-label="عميل المقاصّة" value={f.custKey} onChange={e => setF(x => ({ ...x, custKey: e.target.value }))}><option value="">— اختر —</option>{parties('cust').map(p => <option key={p.key} value={p.key}>{p.name}</option>)}</select>
+                {f.custKey && <div className="hint">لنا عليه: <b className="num">{money(Math.max(0, bal(f.custKey)))}</b></div>}</Field>
+            </div>
+          </> : <>
+            <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>{Object.entries(PT).map(([k, t]) => <button key={k} className={'btn sm' + (f.pt === k ? ' pri' : ' gh')} data-cvpt={k} onClick={() => setF(x => ({ ...x, pt: k, key: '', acc: '', alloc: {} }))}>{t}</button>)}</div>
+            {f.pt === 'acc'
+              ? <Field label="الحساب"><select className="sel" aria-label="حساب السند" value={f.acc} onChange={e => setF(x => ({ ...x, acc: e.target.value }))}><option value="">— اختر الحساب —</option>{accs.map(a => <option key={a.code} value={a.code}>{a.code} · {a.name}</option>)}</select></Field>
+              : <Field label={PT[f.pt]}><select className="sel" aria-label="جهة السند" value={f.key} onChange={e => setF(x => ({ ...x, key: e.target.value, alloc: {} }))}><option value="">— اختر —</option>{parties(f.pt).map(p => <option key={p.key} value={p.key}>{p.name}</option>)}</select>
+                {f.key && <div className="hint">الرصيد: <b className="num">{money(Math.abs(bal(f.key)))}</b> {bal(f.key) > 0 ? '(لنا)' : bal(f.key) < 0 ? '(علينا)' : ''}</div>}</Field>}
+            {f.pt === 'emp' && f.kind === 'pv' && <div className="row" style={{ gap: 6, margin: '6px 0' }}>{[['custody', 'عهدة'], ['advance', 'سلفة تُستقطع من الراتب']].map(([k, t]) => <button key={k} className={'btn sm' + (f.empPurpose === k ? ' pri' : ' gh')} data-emppurpose={k} onClick={() => setF(x => ({ ...x, empPurpose: k }))}>{t}</button>)}</div>}
+            <div className="row" style={{ gap: 6, flexWrap: 'wrap', margin: '8px 0' }}>{[['cash', 'نقدًا'], ['bank', 'تحويل بنكي'], ['cheque', 'شيك']].map(([k, t]) => <button key={k} className={'btn sm' + (f.pm === k ? ' pri' : ' gh')} data-cvpm={k} onClick={() => setF(x => ({ ...x, pm: k, fund: k === 'cash' ? '1101' : (x.fund === '1101' ? '1201' : x.fund) }))}>{t}</button>)}</div>
+          </>}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
+            <Field label="المبلغ"><input className="inp n" inputMode="decimal" aria-label="مبلغ السند" value={f.amount} onChange={e => setF(x => ({ ...x, amount: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+            <Field label="التاريخ"><input type="date" className="inp" value={f.date} onChange={e => setF(x => ({ ...x, date: e.target.value }))} /></Field>
+            {f.kind !== 'ov' && f.pm !== 'cash' && <Field label={f.kind === 'rv' ? 'إلى حساب' : 'من حساب'}><select className="sel" aria-label="حساب الصندوق أو البنك" value={f.fund} onChange={e => setF(x => ({ ...x, fund: e.target.value }))}>{funds.filter(x => x.code !== '1101').map(x => <option key={x.code} value={x.code}>{x.name}</option>)}</select></Field>}
+            {f.kind !== 'ov' && f.pm !== 'cash' && <Field label={f.pm === 'cheque' ? 'رقم الشيك *' : 'مرجع التحويل'}><input className="inp" aria-label="مرجع السند" value={f.ref} onChange={e => setF(x => ({ ...x, ref: e.target.value }))} /></Field>}
+          </div>
+          <Field label="البيان"><input className="inp" aria-label="بيان السند" value={f.note} onChange={e => setF(x => ({ ...x, note: e.target.value }))} /></Field>
+          {docs.length > 0 && <div style={{ marginTop: 8 }} data-cvalloc>
+            <div className="row" style={{ justifyContent: 'space-between', marginBottom: 6 }}><span className="lbl">التوزيع على الفواتير المفتوحة (والباقي على الحساب)</span><button className="btn sm gh" onClick={autoAlloc} data-cvauto>توزيع تلقائي (الأقدم أولًا)</button></div>
+            {docs.map(d => <div key={d.id} className="row" style={{ gap: 8, marginBottom: 4, alignItems: 'center', fontSize: 12 }}>
+              <span style={{ flex: 1 }}>{d.no} · {d.date} · المتبقي <b className="num">{money(d.rem)}</b></span>
+              <input className="inp n" style={{ width: 110 }} inputMode="decimal" aria-label={'توزيع ' + d.no} value={f.alloc[d.id] || ''} onChange={e => setF(x => ({ ...x, alloc: { ...x.alloc, [d.id]: e.target.value.replace(/[^\d.]/g, '') } }))} />
+            </div>)}
+            <div className="hint">الموزَّع <b className="num">{money(allocSum)}</b> · على الحساب <b className="num">{money(Math.max(0, r2(f.amount) - allocSum))}</b></div>
+          </div>}
+        </Modal>
+      )}
+    </div>);
+}

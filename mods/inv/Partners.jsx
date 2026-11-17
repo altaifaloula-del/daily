@@ -3,6 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { authApi } from '../../storage';
 import { Trash2, ChevronRight, Plus, Printer, Settings, ArrowUp, Check, Bell, X, TrendingUp, TrendingDown, ArrowLeftRight, Users, Search } from 'lucide-react';
 import { ibanNorm, requestIban } from '../../App.jsx';   // v40.9
+import { ContactsImport } from './ContactsImport.jsx';   // v46.6
 import { BalCell, Field, Kpi, LOCK_MSG, Modal, MoneyField, NationalAddressFields, PT_SRC, PT_TYPE, PartnerChip, ROLES, buildPartners, contactFields, contactOf, money, naErr, naHas, naMissing, nextPartnerCode, nowISO, periodLocked, printPartnerStatement, today, uid, waNum } from '../../App.jsx';
 
 export function Partners({ org, ops, me, commit, commitOrg, say }) {
@@ -18,6 +19,20 @@ export function Partners({ org, ops, me, commit, commitOrg, say }) {
 
   const partners = useMemo(() => buildPartners(org, ops), [org, ops]);
   const cur = partners.find(p => p.key === openKey);
+  const [merged, setMerged] = useState(false);
+  const [impC, setImpC] = useState(false);   // v46.6 استيراد جهات الاتصال
+  // v46.6 — ربط مورد بعميل (نفس الجهة) في الاتجاهين، أو فكّه
+  const linkTo = async (a, otherKey) => {
+    const b = otherKey ? partners.find(p => p.key === otherKey) : partners.find(p => p.key === a.linkKey);
+    const pairs = {}; const set = (p, v) => { if (p) pairs[p.key] = v; };
+    if (otherKey) { set(a, otherKey); set(b, a.key); } else { set(a, ''); set(b, ''); }
+    const keyOf = (x, pre) => x.key || (pre + x.id);
+    const ok = await commitOrg(d => ({ ...d,
+      suppliers: (d.suppliers || []).map(x => keyOf(x, 'sup:') in pairs ? { ...x, linkKey: pairs[keyOf(x, 'sup:')] } : x),
+      partners: (d.partners || []).map(x => keyOf(x, 'cust:') in pairs ? { ...x, linkKey: pairs[keyOf(x, 'cust:')] } : x) }),
+      { actionType: 'update', targetType: 'partner', targetId: a.key, title: otherKey ? 'ربط عميل بمورد (نفس الجهة)' : 'فك ربط عميل ومورد', details: a.name + (b ? ' ⇄ ' + b.name : '') });
+    if (ok !== false) { say(otherKey ? 'رُبطت الجهتان ✓ — الكشف الموحّد والمقاصّة متاحان' : 'فُكّ الربط'); if (!otherKey) setMerged(false); }
+  };
   // v30.6 — موردون سُجّلوا سابقًا كشركاء عامين (لا تراهم المشتريات): نقلهم لسجل الموردين بنفس المفتاح فتبقى حركاتهم
   const strayS = (org.partners || []).filter(pt => pt.type === 'supplier');
   const moveStray = async () => {
@@ -189,14 +204,17 @@ export function Partners({ org, ops, me, commit, commitOrg, say }) {
   // ===== كشف حساب شريك =====
   if (cur) {
     let run = 0, sdr = 0, scr = 0;
-    const rows = cur.txns.map((t, i) => {
+    // v46.6 — العميل المورد: ربط الحسابين وكشف موحّد بالصافي
+    const lk = cur.linkKey ? partners.find(p => p.key === cur.linkKey) : null;
+    const showTx = merged && lk ? [...cur.txns.map(t => ({ ...t, who: cur.type })), ...lk.txns.map(t => ({ ...t, who: lk.type }))].sort((a, b) => String(a.date).localeCompare(String(b.date))) : cur.txns;
+    const rows = showTx.map((t, i) => {
       run += (t.credit || 0) - (t.debit || 0); sdr += t.debit || 0; scr += t.credit || 0;
       const src = PT_SRC[t.src] || PT_SRC.manual;
       const rbCol = Math.abs(run) < 0.005 ? 'var(--faint)' : (run > 0 ? 'var(--rose)' : 'var(--mint)');
       return (
         <tr key={i}>
           <td className="num" style={{ fontSize: 11.5, whiteSpace: 'nowrap' }}>{t.date}</td>
-          <td style={{ fontSize: 12.5 }}>{t.desc}
+          <td style={{ fontSize: 12.5 }}>{t.desc}{t.who ? <span className={'badge ' + (t.who === 'supplier' ? 'b-sky' : 'b-mint')} style={{ fontSize: 9, marginInlineStart: 6 }}>{t.who === 'supplier' ? 'كمورد' : 'كعميل'}</span> : null}
             <div style={{ fontSize: 10, color: src.c, marginTop: 3 }}>● {src.t}{t.ref ? ' · ' + t.ref : ''}</div></td>
           <td className="num" style={{ textAlign: 'end' }}>{t.debit ? money(t.debit) : '—'}</td>
           <td className="num" style={{ textAlign: 'end' }}>{t.credit ? money(t.credit) : '—'}</td>
@@ -242,6 +260,16 @@ export function Partners({ org, ops, me, commit, commitOrg, say }) {
               <a className="btn sm gh" target="_blank" rel="noreferrer" href={'https://wa.me/' + waNum(cur.phone)}>واتساب</a>
             </div>}
             {cur.notes && <div style={{ fontSize: 11.5, color: 'var(--dim)', marginTop: 8 }}>📝 {cur.notes}</div>}
+            {(cur.type === 'supplier' || cur.type === 'customer') && <div className="row" style={{ gap: 6, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }} data-partnerlink>
+              {lk ? <>
+                <span className="badge b-violet">⇄ مرتبط {cur.type === 'supplier' ? 'بالعميل' : 'بالمورد'}: {lk.name}</span>
+                <button className={'btn sm' + (merged ? ' pri' : ' gh')} data-mergedstmt onClick={() => setMerged(m => !m)}>{merged ? 'الكشف الموحّد ✓' : 'كشف موحّد'}</button>
+                {canEdit && <button className="btn sm gh" onClick={() => linkTo(cur, '')}>فك الربط</button>}
+              </> : canEdit && <select className="sel" style={{ maxWidth: 260 }} aria-label="ربط الجهة" value="" onChange={e => e.target.value && linkTo(cur, e.target.value)}>
+                <option value="">⇄ ربط {cur.type === 'supplier' ? 'بعميل (نفس الجهة)' : 'بمورد (نفس الجهة)'}…</option>
+                {partners.filter(p => p.type === (cur.type === 'supplier' ? 'customer' : 'supplier') && !p.linkKey && p.source !== 'branch').map(p => <option key={p.key} value={p.key}>{p.name}</option>)}
+              </select>}
+            </div>}
           </div>
           <div style={{ textAlign: 'center', background: 'var(--ink3)', border: '1px solid var(--line)', borderRadius: 14, padding: 14 }}>
             <div style={{ fontSize: 11.5, color: 'var(--dim)' }}>الرصيد الحالي</div>
@@ -298,6 +326,7 @@ export function Partners({ org, ops, me, commit, commitOrg, say }) {
   // ===== قائمة جهات الاتصال =====
   return (
     <div className="grid" style={{ gap: 14 }}>
+      {impC && <ContactsImport partners={partners} commitOrg={commitOrg} say={say} onClose={() => setImpC(false)} />}
       {canWriteOrgP && strayS.length > 0 && (
         <div className="card" style={{ borderColor: 'rgba(224,164,88,.5)' }}>
           <div className="row" style={{ justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
@@ -344,6 +373,7 @@ export function Partners({ org, ops, me, commit, commitOrg, say }) {
           <Search size={14} style={{ position: 'absolute', insetInlineStart: 10, top: 11, color: 'var(--faint)' }} />
         </div>
         {canEdit && <button className="btn sm" onClick={() => setAddP({ type: 'customer', openingSide: 'debit' })}><Plus size={14} />إضافة جهة اتصال</button>}
+        {canEdit && <button className="btn sm gh" data-cimp onClick={() => setImpC(true)}><ArrowUp size={14} />استيراد جهات اتصال</button>}
       </div>
 
       <div className="card">
