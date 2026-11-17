@@ -1,7 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Truck, FileBarChart, ChevronDown, Printer, FileText, Building2, ClipboardCheck, Users, Plus, AlertTriangle, CalendarDays, Trash2, Check, X, Banknote } from 'lucide-react';
-import { DupInvHint, Field, Kpi, LOCK_MSG, MAIN_WH, Modal, Num, ROLES, SectionNav, arDate, branchBanks, closingInvoices, isStocked, isoD, itemType, money, nowISO, pFactor, payTotal, periodLocked, printA4, purKey, q3, _xe, roleEdit, rolePost, buildAccounting, INV_BILLERS, itemsSeq, vatNoOk, supVatOf, ItemPick, roleHasTab, stockByWh, sum, supplierPrices, today, uid, whName, whOf, whOn, poWhOf, brSigCheck, signoff, signDecision, sigFailMsg } from '../../App.jsx';
+import { uomOf, uomOk, lineUnits, lineFac, UomSelect, DupInvHint, Field, Kpi, LOCK_MSG, MAIN_WH, Modal, Num, ROLES, SectionNav, arDate, branchBanks, closingInvoices, isStocked, isoD, itemType, money, nowISO, pFactor, payTotal, periodLocked, printA4, purKey, q3, _xe, roleEdit, rolePost, buildAccounting, INV_BILLERS, itemsSeq, vatNoOk, supVatOf, ItemPick, roleHasTab, stockByWh, sum, supplierPrices, today, uid, whName, whOf, whOn, poWhOf, brSigCheck, signoff, signDecision, sigFailMsg } from '../../App.jsx';
 import { cloud, bfKey } from '../../storage';
 
 export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: goTab, billOnly }) {
@@ -146,9 +146,11 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
   };
 
   // v44.1 — فاتورة توريد يدوية ببنود أصناف (قرار المالك): المخزني يدخل المستودع ويُحدّث تكلفته، والاستهلاكي والخدمي مصروف
-  const invLine = () => ({ itemId: '', qty: '', price: '' });
+  const invLine = () => ({ itemId: '', qty: '', price: '', uom: '' });
+  // v46.0: الصنف بوحدة غير معتمدة يُحدَّد له وحدة في السطر (baseU) وتُحفظ في بطاقته؛ وسطر الفاتورة بأي وحدة من مجموعته أو وحدة الشراء
+  const invItem = (l) => { const it = items.find(x => x.id === l.itemId); return it && l.baseU && !uomOk(it) ? { ...it, unit: l.baseU } : it; };
   const invCalc = (f) => { const r2 = (n) => Math.round(n * 100) / 100; const fxR = isFx(f.cur) ? Number(f.rate) || 0 : 1;
-    const ls = (f.lines || []).map(l => { const it = items.find(x => x.id === l.itemId); const q = Number(l.qty) || 0, pr = Number(l.price) || 0; return { l, it, q, pr, fcNet: r2(q * pr), net: r2(q * pr * fxR) }; }).filter(x => x.it && x.q > 0);
+    const ls = (f.lines || []).map(l => { const it = invItem(l); const q = Number(l.qty) || 0, pr = Number(l.price) || 0; const fac = it ? lineFac(it, l.uom) : 1; return { l, it, q, pr, fac, fcNet: r2(q * pr), net: r2(q * pr * fxR) }; }).filter(x => x.it && x.q > 0);
     const fcNet = r2(sum(ls, x => x.fcNet)), net = r2(sum(ls, x => x.net)); const on = !!(org.taxCfg || {}).enabled && !!f.taxable; const rate = (Number((org.taxCfg || {}).rate) || 15) / 100;
     return { ls, fxR, fcNet, net, fcVat: on ? r2(fcNet * rate) : 0, vat: on ? r2(net * rate) : 0 }; };
   const saveInv = async () => {
@@ -156,6 +158,8 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     const sp = (org.suppliers || []).find(x => x.id === f.supplierId);
     if (!sp) return say('اختر المورد', 'no');
     if ((f.lines || []).some(l => (Number(l.qty) > 0 || Number(l.price) > 0) && !l.itemId)) return say('اختر الصنف لكل بند من الأصناف المضافة', 'no');
+    const noU = (f.lines || []).map(invItem).find(it => it && !uomOk(it));
+    if (noU) return say('حدد وحدة الصنف «' + noU.name + '» (كيلو، جرام، لتر، حبة، كرتون…) — إلزامية في فواتير المشتريات', 'no');
     const k = invCalc(f);
     if (!k.ls.length || !(k.net > 0)) return say('أضف بندًا واحدًا على الأقل: صنف وكمية وسعر', 'no');
     if (isFx(f.cur) && !(k.fxR > 0)) return say('أدخل سعر صرف ' + f.cur + ' بالريال', 'no');
@@ -173,7 +177,15 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     if (!(await ensureVat(sp.id, k.vat, f.vatNo))) return;
     const rDate = f.date || today(); const wid = whOn(org) ? (f.whId || MAIN_WH) : ''; const tw = wid ? whOf(org).find(w => w.id === wid) : null;
     const invId = uid('inv'), no = typedNo || autoNo();
-    const lines = k.ls.map(x => ({ itemId: x.it.id, desc: x.it.name, qty: x.q, unitCost: Math.round(x.pr * k.fxR * 10000) / 10000, net: x.net, stock: isStocked(x.it), ...(isFx(f.cur) ? { fcNet: x.fcNet } : {}), ...(String(x.l.note || '').trim() ? { note: String(x.l.note).trim() } : {}) }));
+    // v46.0: وحدات الأصناف التي حُدّدت في السطر تُحفظ في بطاقاتها أولًا (مرة واحدة)
+    const fixU = {}; (f.lines || []).forEach(l => { const it = items.find(x => x.id === l.itemId); if (it && l.baseU && !uomOk(it)) fixU[it.id] = l.baseU; });
+    if (Object.keys(fixU).length) {
+      const okU = await commitOrg(d => ({ ...d, items: (d.items || []).map(x => fixU[x.id] ? { ...x, unit: fixU[x.id] } : x) }), { actionType: 'update', targetType: 'stock_item', targetId: Object.keys(fixU).join(','),
+        title: 'حدّد وحدة أصناف من فاتورة شراء', details: Object.keys(fixU).map(id => ((items.find(x => x.id === id) || {}).name || '') + ' ← ' + fixU[id]).join('، ') });
+      if (okU === false) return;
+    }
+    const lines = k.ls.map(x => ({ itemId: x.it.id, desc: x.it.name, qty: Math.round(x.q * x.fac * 1000) / 1000, unitCost: Math.round(x.pr * k.fxR / x.fac * 10000) / 10000, net: x.net,
+      ...(x.fac !== 1 ? { uomName: x.l.uom, uomQty: x.q } : {}), stock: isStocked(x.it), ...(isFx(f.cur) ? { fcNet: x.fcNet } : {}), ...(String(x.l.note || '').trim() ? { note: String(x.l.note).trim() } : {}) }));
     const moves = lines.filter(l => l.stock).map(l => ({ id: uid('sm'), date: rDate, itemId: l.itemId, kind: 'purchase', qty: l.qty, unitCost: l.unitCost, note: 'فاتورة ' + no + ' — ' + l.desc, ref: no, by: me.name, at: nowISO(), invoiceId: invId,
       ...(wid ? { whId: wid } : {}), ...(tw && tw.kind === 'branch' ? { branchId: tw.branchId } : {}) }));
     const docId = await archiveImg(f.img, { branchId: f.branchId, title: 'فاتورة مورد ' + no + ' — ' + sp.name, amount: v, ref: no });
@@ -1022,8 +1034,13 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
             <div className="lbl" style={{ margin: '4px 0 6px' }}>البنود — من الأصناف المضافة{isFx(newInv.cur) ? ' (الأسعار بـ ' + newInv.cur + ')' : ''}</div>
             {(newInv.lines || []).map((l, i) => { const it = items.find(x => x.id === l.itemId); return (
               <div key={i} className="row" style={{ gap: 6, marginBottom: 6, flexWrap: 'wrap', alignItems: 'center' }} data-invline>
-                <ItemPick items={items} label={'صنف البند ' + (i + 1)} value={l.itemId} quickAdd={canAddItem ? { commitOrg, say } : undefined} addHint onChange={(id) => setNewInv(f => ({ ...f, lines: f.lines.map((x, k2) => k2 === i ? { ...x, itemId: id, price: x.price || String(((items.find(y => y.id === id) || {}).lastPrice) || '') } : x) }))} />
-                <input className="inp n" style={{ width: 90 }} inputMode="decimal" placeholder={'الكمية' + (it ? ' (' + it.unit + ')' : '')} aria-label={'كمية البند ' + (i + 1)} value={l.qty} onChange={e => setNewInv(f => ({ ...f, lines: f.lines.map((x, k2) => k2 === i ? { ...x, qty: e.target.value.replace(/[^\d.]/g, '') } : x) }))} />
+                <ItemPick items={items} label={'صنف البند ' + (i + 1)} value={l.itemId} quickAdd={canAddItem ? { commitOrg, say } : undefined} addHint onChange={(id) => setNewInv(f => ({ ...f, lines: f.lines.map((x, k2) => k2 === i ? { ...x, itemId: id, uom: ((uomOf((items.find(y => y.id === id) || {}).unit) || {}).ar) || '', baseU: '', price: x.price || String(((items.find(y => y.id === id) || {}).lastPrice) || '') } : x) }))} />
+                {it && !uomOk(it) && <span data-uomfix style={{ display: 'inline-flex', gap: 4, alignItems: 'center', fontSize: 11, color: 'var(--amber)' }}>وحدة «{it.name}»:
+                  <UomSelect label={'وحدة الصنف للبند ' + (i + 1)} value={l.baseU || it.unit} required style={{ width: 150 }} onChange={v => setNewInv(f => ({ ...f, lines: f.lines.map((x, k2) => k2 === i ? { ...x, baseU: v, uom: v } : x) }))} /></span>}
+                {(() => { const itE = invItem(l); if (!itE || !uomOk(itE) || !uomOf(itE.unit)) return null; const us = lineUnits(itE); const cur = us.find(u => u.name === l.uom) ? l.uom : us[0].name;
+                  return us.length > 1 ? <select className="sel" style={{ width: 130 }} aria-label={'وحدة البند ' + (i + 1)} data-lineuom value={cur} onChange={e => setNewInv(f => ({ ...f, lines: f.lines.map((x, k2) => k2 === i ? { ...x, uom: e.target.value } : x) }))}>
+                    {us.map(u => <option key={u.name} value={u.name}>{u.name}{u.fac !== 1 ? ' (= ' + (Math.round(u.fac * 1000) / 1000) + ' ' + us[0].name + ')' : ''}</option>)}</select> : <span className="badge b-dim">{cur}</span>; })()}
+                <input className="inp n" style={{ width: 90 }} inputMode="decimal" placeholder={'الكمية' + (invItem(l) && uomOf(invItem(l).unit) ? ' (' + (lineUnits(invItem(l)).find(u => u.name === l.uom) ? l.uom : lineUnits(invItem(l))[0].name) + ')' : '')} aria-label={'كمية البند ' + (i + 1)} value={l.qty} onChange={e => setNewInv(f => ({ ...f, lines: f.lines.map((x, k2) => k2 === i ? { ...x, qty: e.target.value.replace(/[^\d.]/g, '') } : x) }))} />
                 <input className="inp n" style={{ width: 100 }} inputMode="decimal" placeholder="سعر الوحدة" aria-label={'سعر البند ' + (i + 1)} value={l.price} onChange={e => setNewInv(f => ({ ...f, lines: f.lines.map((x, k2) => k2 === i ? { ...x, price: e.target.value.replace(/[^\d.]/g, '') } : x) }))} />
                 {it && <span className={'badge ' + (isStocked(it) ? 'b-sky' : 'b-dim')}>{isStocked(it) ? 'يدخل المخزون' : 'مصروف'}</span>}
                 <input className="inp" style={{ flexBasis: '100%', fontSize: 12 }} placeholder="ملاحظة على البند (اختياري)" aria-label={'ملاحظة البند ' + (i + 1)} value={l.note || ''} onChange={e => setNewInv(f => ({ ...f, lines: f.lines.map((x, k2) => k2 === i ? { ...x, note: e.target.value } : x) }))} />
