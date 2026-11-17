@@ -1664,3 +1664,40 @@ test('v46.4 تقرير الصنف: تصفية بنوع الحركة، والحا
   const fp = await dl.path(); const head = (await import('node:fs')).readFileSync(fp).subarray(0, 2).toString(); assert.equal(head, 'PK', 'ملف Excel (xlsx)');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v46.5 السندات المخزنية: سند توريد متعدد البنود برقم تسلسلي، ورصيد افتتاحي لمستودع فرع، والتسوية تطلب السبب، والصرف لا يتجاوز الرصيد، والطباعة، ونقطة جرد لأي مستودع', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Inventory/admin/vouchers');
+  await p.waitForSelector('[data-vouchers]', { timeout: 8000 });
+  const newV = async (t, wh) => { await p.locator('[data-newvoucher]').click(); await p.waitForTimeout(150); await p.locator(`[data-vtype="${t}"]`).click(); if (wh) await p.selectOption('select[aria-label="مستودع السند"]', wh); };
+  // توريد ببندين
+  await newV('rcv', 'wh-main');
+  await p.selectOption('select[aria-label="صنف السند 1"]', 'i1'); await p.fill('input[aria-label="كمية السند 1"]', '10'); await p.fill('input[aria-label="تكلفة السند 1"]', '42');
+  await p.locator('.modal button', { hasText: 'بند آخر' }).click();
+  await p.selectOption('select[aria-label="صنف السند 2"]', 'i2'); await p.fill('input[aria-label="كمية السند 2"]', '30'); await p.fill('input[aria-label="تكلفة السند 2"]', '4');
+  await p.locator('[data-vsave]').click(); await p.waitForTimeout(300);
+  let r = await p.evaluate(() => window.cur.stockMoves.filter(m => m.kind === 'in' && m.vno).map(m => [m.itemId, m.qty, m.unitCost, m.vno, m.whId]));
+  assert.deepEqual(r.sort(), [['i1', 10, 42, 'RCV-M-00001', 'wh-main'], ['i2', 30, 4, 'RCV-M-00001', 'wh-main']]);
+  assert.match(await p.locator('[data-vlist] tbody').innerText(), /RCV-M-00001[\s\S]*سند توريد/);
+  // رصيد افتتاحي لمستودع الفرع
+  await newV('opn', 'wh-b1'); await p.selectOption('select[aria-label="صنف السند 1"]', 'i2'); await p.fill('input[aria-label="كمية السند 1"]', '7'); await p.fill('input[aria-label="تكلفة السند 1"]', '4');
+  await p.locator('[data-vsave]').click(); await p.waitForTimeout(300);
+  r = await p.evaluate(() => window.cur.whMoves.filter(m => m.opening).map(m => [m.whId, m.branchId, m.qty, !!/^OPN-/.test(m.vno)]));
+  assert.deepEqual(r, [['wh-b1', 'b1', 7, true]]);
+  // تسوية بلا سبب ⇒ مرفوض · صرف فوق الرصيد ⇒ مرفوض
+  await newV('adj', 'wh-main'); await p.selectOption('select[aria-label="صنف السند 1"]', 'i1'); await p.fill('input[aria-label="كمية السند 1"]', '1');
+  await p.locator('[data-vsave]').click(); await p.waitForTimeout(150); assert.match(await say(p), /سبب التسوية/);
+  await p.locator('[data-vtype="iss"]').click(); await p.fill('input[aria-label="كمية السند 1"]', '9999');
+  await p.locator('[data-vsave]').click(); await p.waitForTimeout(150); assert.match(await say(p), /تتجاوز رصيد المستودع/);
+  await p.keyboard.press('Escape'); await p.locator('.modal button', { hasText: 'إلغاء' }).first().click().catch(() => {}); await p.waitForTimeout(150);
+  // الطباعة في عارض المستندات
+  await p.locator('tr', { hasText: 'RCV-M-00001' }).locator('[data-vprint]').click(); await p.waitForTimeout(400);
+  const doc = await p.evaluate(() => (document.querySelector('.mz-docv iframe') || {}).srcdoc || '');
+  assert.match(doc, /سند توريد/); assert.match(doc, /RCV-M-00001/); assert.match(doc, /أمين المستودع/);
+  assert.deepEqual(errs, []); await ctx.close();
+  // نقطة جرد لأي مستودع
+  const c = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Inventory/admin/count');
+  await c.p.waitForSelector('[data-countwh]', { timeout: 8000 });
+  await c.p.selectOption('select[aria-label="مستودع الجرد"]', 'wh-b1'); await c.p.waitForTimeout(200);
+  assert.match(await c.p.locator('#r').innerText(), /مستودع طيبة/);
+  assert.deepEqual(c.errs, []); await c.ctx.close();
+});

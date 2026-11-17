@@ -1,7 +1,8 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useEffect, useMemo } from 'react';
-import { HardDrive, ClipboardCheck, Truck, Send, ArrowLeftRight, Trash2, Scale, Check, X, ShoppingCart, PackageCheck } from 'lucide-react';
+import { FileText, HardDrive, ClipboardCheck, Truck, Send, ArrowLeftRight, Trash2, Scale, Check, X, ShoppingCart, PackageCheck } from 'lucide-react';
 import { cloud, bfKey } from '../../storage';
+import { StockVouchers } from './StockVouchers.jsx';
 import { saleDeductOn, saleRecipeItems, canBrPurchase, ItemPick, signoff, sigFailMsg, BlindCount, COUNT_FREQ, Field, MAIN_WH, Modal, SectionNav, WH_MOVE, WH_ST, WasteFields, WastePending, WhLines, bookHidden, countFocus, countSchedule, isCostCtl, isStocked, itemAvgCosts, nowISO, q3, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whForBranch, whName, whOf, whOn } from '../../App.jsx';
 
 export function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
@@ -148,7 +149,7 @@ export function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
           <div className="card-t" style={{ marginInlineEnd: 'auto' }}><HardDrive size={15} color="var(--brass)" />{wh.name}<span style={{ fontSize: 11, color: 'var(--faint)', marginInlineStart: 6 }}>يتبع {whName(org, wh.parentId || MAIN_WH)}</span></div>
           {mine.length > 1 && <select className="inp sel" style={{ maxWidth: 240 }} value={whId} onChange={e => setWhId(e.target.value)}>{mine.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select>}
         </div>
-        <div style={{ marginTop: 10 }}><SectionNav label="أقسام مستودع الفرع" cur={view} onPick={setView} items={([{ id: 'bal', ar: 'الأرصدة', icon: ClipboardCheck }, { id: 'in', ar: 'الوارد', icon: Truck, badge: incoming.length || null }, { id: 'req', ar: 'طلب من الرئيسي', icon: Send }, ...(pur ? [{ id: 'preq', ar: 'طلب شراء', icon: ShoppingCart }, { id: 'po', ar: 'استلام أوامر الشراء', icon: PackageCheck, badge: myPos.length || null }] : []), { id: 'out', ar: 'صادر (فرع / إرجاع)', icon: ArrowLeftRight }, { id: 'mv', ar: 'صرف وهدر', icon: Trash2, badge: (ops.wasteRequests || []).filter(r => r.status === 'pending' && r.whId === wh.id).length || null }, { id: 'count', ar: 'الجرد', icon: Scale }]).filter(x => !ctl || ['bal', 'mv', 'count'].includes(x.id))} /></div>
+        <div style={{ marginTop: 10 }}><SectionNav label="أقسام مستودع الفرع" cur={view} onPick={setView} items={([{ id: 'bal', ar: 'الأرصدة', icon: ClipboardCheck }, { id: 'in', ar: 'الوارد', icon: Truck, badge: incoming.length || null }, { id: 'req', ar: 'طلب من الرئيسي', icon: Send }, ...(pur ? [{ id: 'preq', ar: 'طلب شراء', icon: ShoppingCart }, { id: 'po', ar: 'استلام أوامر الشراء', icon: PackageCheck, badge: myPos.length || null }] : []), { id: 'out', ar: 'صادر (فرع / إرجاع)', icon: ArrowLeftRight }, { id: 'mv', ar: 'صرف وهدر', icon: Trash2, badge: (ops.wasteRequests || []).filter(r => r.status === 'pending' && r.whId === wh.id).length || null }, { id: 'count', ar: 'الجرد', icon: Scale }, { id: 'vch', ar: 'السندات', icon: FileText }]).filter(x => !ctl || ['bal', 'mv', 'count'].includes(x.id))} /></div>
       </div>
 
       {view === 'bal' && (
@@ -235,6 +236,7 @@ export function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
         </div>
       )}
 
+      {view === 'vch' && <StockVouchers org={org} ops={ops} me={me} commit={commit} say={say} fixedWh={wh.id} canCreate={false} />}   {/* v46.5 سندات مستودع الفرع للطباعة */}
       {view === 'out' && (
         <div className="card">
           <div className="row" style={{ gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
