@@ -958,6 +958,29 @@ test('v49.2 MQ-006 التوصيل: إضافة سائق، طلب توصيل بع�
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+test('v49.2 MQ-024 طلب عروض الأسعار: إنشاء لموردَين، إدخال العروض، المقارنة، والترسية الأفضل لكل صنف إلى أوامر شراء', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Hub/admin/purchasing:rfq');
+  await p.evaluate(() => window.setOps(o => ({ ...o, rfqs: [], purchaseOrders: [] }))); await p.waitForTimeout(300);
+  await p.click('[data-rfq] button:has-text("طلب جديد")'); await p.waitForTimeout(200);
+  await p.fill('input[aria-label="موضوع الطلب"]', 'لحوم وخضار');
+  await p.fill('input[aria-label="وصف 1"]', 'لحم غنم'); await p.fill('input[aria-label="كمية 1"]', '20');
+  await p.click('.modal button:has-text("صنف")'); await p.fill('input[aria-label="وصف 2"]', 'طماطم'); await p.fill('input[aria-label="كمية 2"]', '50');
+  await p.check('input[aria-label="مورد مؤسسة اللحوم الطازجة للتجارة"]');
+  await p.click('.modal button:has-text("إنشاء الطلب")'); await p.waitForTimeout(200);
+  assert.match(await p.evaluate(() => window.lastSay || ''), /موردَين على الأقل/);
+  await p.check('input[aria-label="مورد شركة الخضار"]'); await p.click('.modal button:has-text("إنشاء الطلب")'); await p.waitForTimeout(300);
+  assert.deepEqual(await p.evaluate(() => window.cur.rfqs.map(r => [r.no, r.lines.length, r.suppliers.length, r.status])), [['RFQ-0001', 2, 2, 'open']]);
+  await p.click('[data-quote="مؤسسة اللحوم الطازجة للتجارة"]'); await p.waitForTimeout(150);
+  await p.fill('input[aria-label="سعر لحم غنم"]', '60'); await p.fill('input[aria-label="سعر طماطم"]', '5'); await p.click('.modal button:has-text("حفظ العرض")'); await p.waitForTimeout(250);
+  await p.click('[data-quote="شركة الخضار"]'); await p.waitForTimeout(150);
+  await p.fill('input[aria-label="سعر لحم غنم"]', '65'); await p.fill('input[aria-label="سعر طماطم"]', '3.5'); await p.fill('input[aria-label="مدة التوريد"]', '1'); await p.click('.modal button:has-text("حفظ العرض")'); await p.waitForTimeout(250);
+  assert.match(await p.locator('[data-rfqview]').innerText(), /الأفضل لكل صنف: 1,375\.00[\s\S]*يوفر 75\.00/, '20×60 + 50×3.5 = 1375؛ أفضل كامل 1450');
+  await p.click('[data-rfqview] button:has-text("ترسية الأفضل لكل صنف")'); await p.waitForTimeout(400);
+  const r = await p.evaluate(() => ({ rfq: window.cur.rfqs[0].status, pos: window.cur.purchaseOrders.map(x => [x.supplierName, x.lines.map(l => l.desc + ':' + l.qty + '×' + l.price).join()]) }));
+  assert.deepEqual(r, { rfq: 'awarded', pos: [['مؤسسة اللحوم الطازجة للتجارة', 'لحم غنم:20×60'], ['شركة الخضار', 'طماطم:50×3.5']] });
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
 test('v43.0 الواجهة الإنجليزية: الاتجاه LTR وترجمة الإطار (التطبيقات، رأس المركز، شريط الأقسام) والعربية افتراضيًا', async () => {
   // افتراضيًا: عربي RTL
   { const { p, errs, ctx } = await open({ viewport: { width: 1280, height: 900 } }, 'comp/Launcher');

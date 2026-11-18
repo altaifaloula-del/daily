@@ -1944,3 +1944,21 @@ test('v49.2 MQ-006 التوصيل الذاتي: السجل منفصل عن ال�
   const T = E.posTrim({ posDeliveries: [{ ...done, settledAt: 'x', at: '2026-08-01T10:00:00Z' }, done] }, '2026-11-18');
   assert.equal(T.posDeliveries.length, 1, 'المسوّى الأقدم من 60 يومًا يُقلَّم');
 });
+
+test('v49.2 MQ-024 طلب عروض الأسعار: المقارنة لكل صنف ولكل مورد، الفرق عن آخر سعر، والترسية الكاملة أو المجزأة بحد الاعتماد', () => {
+  const org = { suppliers: [{ id: 'A', name: 'مورد أ' }, { id: 'B', name: 'مورد ب' }, { id: 'C', name: 'مورد ج' }], purchaseCfg: { approvalLimit: 1000 } };
+  const ops = { purchaseOrders: [{ id: 'p0', poNo: 'PO-0007', supplierId: 'A', date: '2026-10-01', lines: [{ itemId: 'rice', qty: 10, price: 40, received: 10 }] }] };
+  const rfq = { id: 'r1', no: 'RFQ-0001', lines: [{ key: 'l1', itemId: 'rice', desc: 'رز', qty: 20 }, { key: 'l2', desc: 'زيت', qty: 10 }], suppliers: ['A', 'B', 'C'],
+    quotes: { A: { lines: { l1: { price: 42 }, l2: { price: 30 } } }, B: { lines: { l1: { price: 38 }, l2: { price: 33 } }, delivDays: 2 }, C: { lines: { l1: { price: 35 }, l2: { na: true } } } } };
+  const C = E.rfqCompare(org, ops, rfq);
+  assert.deepEqual(C.rows.map(r => [r.desc, r.best.supplierId, r.best.price, r.vsLast]), [['رز', 'C', 35, -12.5], ['زيت', 'A', 30, null]]);
+  assert.deepEqual(C.bySup.map(s => [s.supplierId, s.total, s.full, s.wins]), [['B', 1090, true, 0], ['A', 1140, true, 1], ['C', 700, false, 1]], 'الكامل أولًا ثم الأرخص');
+  assert.deepEqual([C.splitTotal, C.bestFull.supplierId, C.saving], [1000, 'B', 90]);
+  const one = E.rfqToPOs(org, ops, rfq, 'one', 'B', { name: 'م' }, '2026-11-18T10:00:00Z');
+  assert.deepEqual(one.pos.map(p => [p.poNo, p.supplierId, p.lines.length, p.status, p.rfqId]), [['PO-0008', 'B', 2, 'pending', 'r1']], '1090 فوق الحد ⇒ بانتظار الاعتماد');
+  assert.match(E.rfqToPOs(org, ops, rfq, 'one', 'C', {}).err, /لم يسعّر كل الأصناف/);
+  const sp = E.rfqToPOs(org, ops, rfq, 'split', '', { name: 'م' }, '2026-11-18T10:00:00Z');
+  assert.deepEqual(sp.pos.map(p => [p.poNo, p.supplierId, p.lines.map(l => l.desc + ':' + l.price).join(), p.status]), [['PO-0008', 'C', 'رز:35', 'open'], ['PO-0009', 'A', 'زيت:30', 'open']]);
+  assert.match(E.rfqToPOs(org, ops, { ...rfq, quotes: { C: rfq.quotes.C } }, 'split').err, /بلا أي عرض/);
+  assert.equal(E.rfqNextNo({ rfqs: [{ no: 'RFQ-0009' }] }), 'RFQ-0010');
+});
