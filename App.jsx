@@ -3930,7 +3930,7 @@ function PlatformApp() {
     const fresh = evs.filter(e => !seen.has(e.id));
     if (!fresh.length) return;
     fresh.forEach(e => seen.add(e.id)); persist(seen);
-    const logo = org.company?.logoUrl;
+    const logo = 'mithqal-192.png';   // v47.2: إشعار المنصة بشعار النظام لا شعار الشركة
     const go = (e) => () => { setTab(e.tab); if (e.tab === 'inv' && e.view) openInvView(e.view); };
     if (fresh.length <= 3) fresh.forEach(e => notifyBrowser(e.title, e.body, logo, { tag: e.id, onClick: go(e) }));
     else notifyBrowser(fresh.length + ' تنبيهات جديدة — ' + (org.company?.name || 'المنصة'), fresh.slice(0, 3).map(e => e.title).join(' · ') + ' …', logo, { tag: 'rms8-batch', onClick: go(fresh[0]) });
@@ -4112,13 +4112,12 @@ function PlatformApp() {
         {drawer && <div className="mask" style={{ zIndex: 55 }} onClick={() => setDrawer(false)} />}
         <aside className={'side' + (drawer ? ' open' : '')}>
           <div className="brand">
-            {org.company.logoUrl
-              ? <img className="brand-logo" src={org.company.logoUrl} alt="شعار الشركة" />
-              : <div className="rp-mark">{BRAND_MARK()}</div>}
+            {/* v47.2 (قرار المالك): شعار النظام «مِثقال» ثابت، وشعار الشركة يرافق اسمها */}
+            <div className="rp-mark">{BRAND_MARK()}</div>
             <div className="rp-brand">
               <b>{TX(BRAND)}</b>
               <span className="rp-tag">{TX(BRAND_SUB)}</span>
-              {org.company.name && <span className="rp-co">{org.company.name}</span>}
+              {(org.company.name || org.company.logoUrl) && <span className="rp-co">{org.company.logoUrl && <img className="co-logo" src={org.company.logoUrl} alt="" />}{org.company.name}</span>}
             </div>
             <button className="btn sm gh sideclose" onClick={() => setDrawer(false)} title={TX('إخفاء القائمة')}>
               <X size={18} />
@@ -4172,10 +4171,8 @@ function PlatformApp() {
                 <Home size={17} />
               </button>
             )}
-            {org.company.logoUrl
-              ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
-              : <span className="toplogo-mark rp-mark" style={{ width: 30, height: 30, fontSize: 15 }}>{BRAND_MARK()}</span>}
-            <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || TX('الرئيسية')) : TX(HR_TABS.includes(safeTab) ? 'الموارد البشرية' : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || ''))}</h1>
+            <span className="toplogo-mark rp-mark" style={{ width: 30, height: 30, fontSize: 15 }}>{BRAND_MARK()}</span>
+            <h1 className="toptitle">{safeTab === 'home' && org.company.name && org.company.logoUrl && <img className="co-logo co-logo-t" src={org.company.logoUrl} alt="" />}{safeTab === 'home' ? (org.company.name || TX('الرئيسية')) : TX(HR_TABS.includes(safeTab) ? 'الموارد البشرية' : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || ''))}</h1>
             <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>{APP_VER}</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
@@ -4463,12 +4460,11 @@ function PlatformApp() {
 // v47.1 — غلاف المنصة (قرار المالك): صورة الهوية بجانب الدخول على الحاسوب، وأعلاه على الجوال
 const GateCover = () => <div className="gate-cover" role="img" aria-label={TX(BRAND_AR) + ' — ' + TX(BRAND_SUB)} />;
 function BrandHead({ title, sub, logo }) {
+  // v47.2: العلامة أعلاه دائمًا شعار النظام «مِثقال»؛ شعار الشركة (logo) يظهر بجانب اسمها في العنوان
   return (
     <div className="bhead" style={{ textAlign: 'center', marginBottom: 24 }}>
-      {logo
-        ? <img src={logo} alt="شعار" className="bhead-logo" style={{ width: 64, height: 64, margin: '0 auto 14px', borderRadius: 16, objectFit: 'cover', border: '1px solid var(--line)', display: 'block' }} />
-        : <div className="rp-mark bhead-logo" style={{ width: 64, height: 64, margin: '0 auto 14px', borderRadius: 18, fontSize: 30 }}>{BRAND_MARK()}</div>}
-      <h1 style={{ fontSize: 20 }}>{title || BRAND_AR}</h1>
+      <div className="rp-mark bhead-logo" style={{ width: 64, height: 64, margin: '0 auto 14px', borderRadius: 18, fontSize: 30 }}>{BRAND_MARK()}</div>
+      <h1 style={{ fontSize: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>{logo && <img src={logo} alt="شعار الشركة" className="co-logo co-logo-h" />}{title || BRAND_AR}</h1>
       <div style={{ color: 'var(--dim)', fontSize: 12.5, marginTop: 5 }}>{sub}</div>
     </div>
   );
