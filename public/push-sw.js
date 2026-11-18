@@ -9,7 +9,7 @@ self.addEventListener('push', function (e) {
   var title = n.title || x.title || 'مِثقال — Mithqal';
   var app = self.registration.scope.replace(/push\/$/, '');
   e.waitUntil(self.registration.showNotification(title, {
-    body: n.body || x.body || '', icon: app + 'icon-192.png', badge: app + 'icon-192.png',
+    body: n.body || x.body || '', icon: app + 'mithqal-192.png', badge: app + 'mithqal-badge-96.png',
     dir: 'rtl', lang: 'ar', tag: x.tag || undefined, renotify: !!x.tag, data: { url: app }
   }));
 });
