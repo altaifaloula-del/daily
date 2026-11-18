@@ -2007,3 +2007,24 @@ test('v49.2 MQ-020 تقارير المخزون متسقة: كرت الصنف = �
   assert.deepEqual([L.open, L.qIn, L.qOut, L.close], [100, 30, 37, 93], 'نوفمبر: افتتاحي 100، وارد التحويل 30، صادر 5 + 30 + 2');
   assert.equal(Math.round((L.open + L.qIn - L.qOut) * 1000) / 1000, L.close);
 });
+
+test('v49.3 سياسة التكلفة: المتوسط المرجّح افتراضي، وFIFO يستهلك الأقدم — الدفاتر متوازنة بالطريقتين، والمقارنة لا تغيّر شيئًا', () => {
+  const mk = (method) => baseOrg({ items: [{ id: 'i1', name: 'زيت', unit: 'لتر', type: 'stock' }], purchaseCfg: { perpetualFrom: '2026-01' }, ...(method ? { costCfg: { method } } : {}),
+    warehouses: [{ id: 'wh-main', name: 'الرئيسي', kind: 'main', accCode: '160101' }] });
+  const ops = { stockMoves: [
+      { id: 'a', whId: 'wh-main', itemId: 'i1', kind: 'in', qty: 10, unitCost: 10, date: '2026-03-01', at: '2026-03-01T08:00:00Z' },
+      { id: 'b', whId: 'wh-main', itemId: 'i1', kind: 'in', qty: 10, unitCost: 12, date: '2026-03-02', at: '2026-03-02T08:00:00Z' },
+      { id: 'c', whId: 'wh-main', itemId: 'i1', kind: 'out', qty: -15, date: '2026-03-03', at: '2026-03-03T08:00:00Z' }], whMoves: [], whTransfers: [] };
+  assert.equal(E.costMethod(mk()), 'avg', 'الافتراضي'); assert.equal(E.costMethod(mk('fifo')), 'fifo'); assert.equal(E.costMethod(mk('lifo')), 'avg', 'LIFO غير مسموح ⇒ المتوسط');
+  const A = E.buildAccounting(mk(), ops), F = E.buildAccounting(mk('fifo'), ops);
+  assert.equal(A.balanced, true); assert.equal(F.balanced, true);
+  const ta = tb(A), tf = tb(F);
+  near(ta['5501'], 165, 'المتوسط: 15 × 11'); near(ta['160101'], 55, 'المتوسط: 5 × 11');
+  near(tf['5501'], 160, 'FIFO: 10 × 10 + 5 × 12'); near(tf['160101'], 60, 'FIFO: الباقي 5 × 12');
+  assert.equal(E.itemAvgCosts(mk('fifo'), ops).i1, 12, 'قيمة الوحدة القائمة بطبقاتها');
+  const C = E.costCompare(mk(), ops, { from: '2026-03-01', to: '2026-03-31' });
+  assert.deepEqual([C.current, C.tot.avgV, C.tot.fifoV, C.tot.avgOut, C.tot.fifoOut], ['avg', 55, 60, 165, 160]);
+  // مرتجع لمورد يُخرج من طبقة شرائه
+  const ops2 = { ...ops, stockMoves: [...ops.stockMoves.slice(0, 2), { id: 'r', whId: 'wh-main', itemId: 'i1', kind: 'purchase', qty: -10, unitCost: 12, date: '2026-03-02', at: '2026-03-02T09:00:00Z' }] };
+  assert.equal(E.itemAvgCosts(mk('fifo'), ops2).i1, 10, 'بقيت طبقة الـ10 فقط');
+});

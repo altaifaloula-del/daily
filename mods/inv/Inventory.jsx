@@ -6,7 +6,8 @@ import { StockVouchers } from './StockVouchers.jsx';   // v46.5   // v46.2
 import { PrepList } from './PrepList.jsx';   // v40.8
 import { TurnoverPpv } from './TurnoverPpv.jsx';   // v42.0
 import { Production } from './Production.jsx';   // v42.8
-import { itemBin, binOrder } from '../../App.jsx';   // v49.2 MQ-013
+import { itemBin, binOrder, costMethod } from '../../App.jsx';   // v49.2 MQ-013 · v49.3
+import { CostPolicy } from './CostPolicy.jsx';   // v49.3 سياسة التكلفة
 import { stockShortages, whOf, saleDeductOn, saleRecipeItems, uomOf, UomSelect, productThumb, normDigits, BlindCount, Field, ITEM_TYPES, ITEM_NEW_TYPES, itemsSeq, nextItemCode, Kpi, LOCK_MSG, MAIN_WH, MOVE_KINDS, Modal, PriceAlerts, ROLES, SectionNav, UsageVariance, WarehousesPanel, WasteControl, WasteFields, arDate, isCostCtl, isStocked, itemAvgCosts, itemType, makeXlsx, money, nowISO, pFactor, parseCsvGrid, parseXlsxGrid, partGross, partYield, periodLocked, prepUnitCost, kcalUnitFactor, productKcal, printA4, q3, recipeCost, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whName, whOn, prepItemId } from '../../App.jsx';
 
 export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
@@ -593,11 +594,12 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
         );
       })()}
 
+      {canW && <CostPolicy org={org} ops={ops} me={me} commitOrg={commitOrg} say={say} />}
       <div className="card" style={{ background: 'rgba(200,162,74,.04)', borderStyle: 'dashed' }}>
         <div style={{ fontSize: 11.5, color: 'var(--dim)', lineHeight: 1.9 }}>
           {(() => { const pc = org.purchaseCfg || {}; return <>   {/* v46.5: الحالة الفعلية بدل ملاحظة المرحلة القديمة */}
             <b style={{ color: 'var(--brass-l)' }}>طريقة المخزون الحالية:</b>{' '}
-            {pc.perpetualFrom ? 'جرد مستمر من ' + pc.perpetualFrom + ' — الاستلام يرسمل المخزون، والصرف والهدر والتسويات تُقيَّد بالمتوسط المرجّح.' : 'جرد دوري — المشتريات مصروف، والاستهلاك يُعرف بالصرف والجرد. يمكن تفعيل الجرد المستمر من إعدادات المشتريات.'}{' '}
+            {pc.perpetualFrom ? 'جرد مستمر من ' + pc.perpetualFrom + ' — الاستلام يرسمل المخزون، والصرف والهدر والتسويات تُقيَّد ' + (costMethod(org) === 'fifo' ? 'بطريقة الوارد أولًا يصرف أولًا (FIFO).' : 'بالمتوسط المرجّح.') : 'جرد دوري — المشتريات مصروف، والاستهلاك يُعرف بالصرف والجرد. يمكن تفعيل الجرد المستمر من إعدادات المشتريات.'}{' '}
             {pc.saleDeductFrom ? 'خصم المبيعات من المخزون مفعّل من ' + pc.saleDeductFrom + ' (حسب الوصفات، من مستودع الفرع).' : 'المبيعات لا تُخصم من المخزون تلقائيًا (يمكن تفعيلها من إعدادات المشتريات).'}
           </>; })()}
         </div>
