@@ -1053,8 +1053,9 @@ test('v41.9 سجلات الإغلاق المستقلة: الفرق، مرجع ا
   const K = E.clrCompare([aud, c({ id: 'c5' })], [{ ...recOf(aud), status: 'submitted' }, recOf(c({ id: 'c9' }))]);
   assert.deepEqual([K.ok, K.missing.map(x => x.id), K.differ.map(x => x.id), K.extra.map(x => x.id)], [false, ['c5'], ['c1'], ['c9']]);
   assert.equal(E.clrCompare([{ ...aud, cashSales: 999 }], [recOf(aud)]).differ.length, 1, 'تعديل الأرقام في مستند الفرع يُكشف');
-  assert.equal(E.clrOn({ closingRecords: { on: true } }), true); assert.equal(E.clrOn({}), false, 'مُطفأة افتراضيًا');
-  assert.equal(E.clrOn(E.dirOf({ company: {}, closingRecords: { on: true } })), true, 'الإشارة تصل لأجهزة الفروع عبر الدليل');
+  assert.equal(E.clrOn({ closingRecords: { on: true } }), true); assert.equal(E.clrOn({}), true, 'v46.9: مفعّلة افتراضيًا (قرار المالك)'); assert.equal(E.clrOn({ closingRecords: { on: false } }), false, 'تُطفأ صراحةً فقط'); assert.equal(E.clrOn(E.dirOf({ company: {} })), true);
+  assert.equal(E.clrRead({ closingRecords: { read: true } }), true, 'القراءة تتبع التفعيل الافتراضي'); assert.equal(E.clrRead({}), false, 'القراءة يدوية');
+  assert.equal(E.clrOn(E.dirOf({ company: {}, closingRecords: { on: false } })), false, 'الإشارة (ومنها الإيقاف) تصل لأجهزة الفروع عبر الدليل');
 });
 
 test('v42.0 فرق سعر الشراء (مقابل آخر سعر) ودوران المخزون', () => {
@@ -1445,4 +1446,73 @@ test('v46.7 نفاد المواد مع خصم المبيعات: مادة وصف�
   assert.ok(A.some(a => a.sev === 'medium' && /تحت الحد الأدنى في العليا/.test(a.title)));
   // بلا خصم المبيعات: لا تنبيه نفاد للوصفات (الحد الأدنى يبقى)
   const S2 = E.stockShortages({ ...org, purchaseCfg: {} }, ops); assert.deepEqual(S2.map(x => x.st), ['low']);
+});
+
+test('v46.8 مرتجع نقطة البيع — القيمة: خصم الفاتورة يُوزَّع على البنود فلا يُرد أكثر من المدفوع، والضريبة بنسبة الفاتورة', () => {
+  // بندان: 2×23 + 1×11.5 = 57.5 ثم خصم فاتورة 5.75 ⇒ 51.75 (ضريبتها 6.75)
+  const o = { id: 'o1', no: 'ف1-1', total: 51.75, vat: 6.75, lines: [{ productId: 'p1', name: 'مندي', qty: 2, price: 23 }, { productId: 'p2', name: 'شاي', qty: 1, price: 11.5 }], payments: [{ m: 'card', amount: 51.75 }] };
+  const C = E.posReturnCalc(o, { 0: 1 });
+  near(C.total, 20.7, '23 × (51.75 ÷ 57.5)'); near(C.vat, 2.7); near(C.net, 18);
+  near(E.posReturnCalc(o, { 0: 2, 1: 1 }).total, 51.75, 'المرتجع الكامل = المدفوع بالضبط');
+  near(E.posReturnCalc(o, { 0: 5 }).total, 41.4, 'لا تتجاوز الكمية المباعة');
+  assert.deepEqual(E.posRefundOptions(o).map(x => x.k), ['card', 'cash'], 'طريقة الدفع الأصلية أولًا ثم النقد');
+  assert.deepEqual(E.posReturnable({ posOrders: [o, { id: 'r1', kind: 'return', refId: 'o1', status: 'paid', retLines: [{ i: 0, qty: 1 }] }] }, o), [1, 1], 'المتبقي بعد مرتجع سابق');
+});
+
+test('v46.8 مرتجع نقطة البيع — ملخص اليوم والإغلاق: الإيراد والضريبة والنقد تنخفض، والمرتجع لا يُعد فاتورة', () => {
+  const sale = { id: 'o1', branchId: 'b1', date: '2026-03-05', status: 'paid', total: 51.75, vat: 6.75, payments: [{ m: 'cash', amount: 60 }], change: 8.25, lines: [{ productId: 'p1', qty: 2, price: 23 }] };
+  const ret = { id: 'r1', kind: 'return', refId: 'o1', branchId: 'b1', date: '2026-03-05', status: 'paid', total: -20.7, vat: -2.7, payments: [{ m: 'cash', amount: -20.7 }], change: 0, lines: [], retLines: [{ i: 0, productId: 'p1', qty: 1, amount: 20.7 }] };
+  const S = E.posDaySummary([sale, ret], 'b1', '2026-03-05');
+  assert.equal(S.n, 1, 'عدد الفواتير'); assert.equal(S.retN, 1); near(S.retAmt, 20.7);
+  near(S.total, 31.05); near(S.vat, 4.05); near(S.cash, 31.05, '51.75 نقدًا − 20.70 مردودة');
+});
+
+test('v46.8 مرتجع نقطة البيع — المخزون والدفاتر: الطبق المرتجع هدر؛ الرصيد لا يتغير، وتكلفته تنتقل من تكلفة المبيعات 5505 إلى الهدر 5502', () => {
+  const org = baseOrg({
+    items: [{ id: 'i1', name: 'لحم', unit: 'كيلو', type: 'stock' }],
+    products: [{ id: 'p1', name: 'مندي', sellPrice: 60, parts: [{ itemId: 'i1', qty: 0.5 }] }],
+    purchaseCfg: { perpetualFrom: '2026-01', saleDeductFrom: '2026-03-01' },
+    warehouses: [{ id: 'wh-main', name: 'الرئيسي', kind: 'main', accCode: '160101' }, { id: 'wh-b1', name: 'العليا', kind: 'branch', branchId: 'b1', parentId: 'wh-main', accCode: '160102' }] });
+  const sale = { id: 'o1', no: 'ف1-1', branchId: 'b1', date: '2026-03-05', status: 'paid', total: 120, vat: 15.65, lines: [{ productId: 'p1', qty: 2, price: 60 }], payments: [{ m: 'cash', amount: 120 }] };
+  const ret = { id: 'r1', kind: 'return', refId: 'o1', refNo: 'ف1-1', no: 'م1-1', branchId: 'b1', date: '2026-03-06', at: '2026-03-06T10:00:00Z', status: 'paid', total: -60, vat: -7.83, lines: [], retLines: [{ i: 0, productId: 'p1', qty: 1, amount: 60 }], payments: [{ m: 'cash', amount: -60 }], reason: 'prep', by: 'مدير' };
+  const base = { whMoves: [{ id: 'in1', whId: 'wh-b1', branchId: 'b1', itemId: 'i1', kind: 'purchase', qty: 10, unitCost: 40, date: '2026-03-01', at: '2026-03-01T08:00:00Z' }], posOrders: [], stockMoves: [], whTransfers: [] };
+  const s1 = E.syncSaleMoves(org, base, { ...base, posOrders: [sale] });
+  const s2 = E.syncSaleMoves(org, s1, { ...s1, posOrders: [sale, ret] });
+  const mv = (k, d) => s2.whMoves.filter(m => m.kind === k && m.date === d).map(m => m.qty);
+  assert.deepEqual(mv('sale', '2026-03-05'), [-1], 'بيع يوم الفاتورة كما هو');
+  assert.deepEqual(mv('sale', '2026-03-06'), [0.5], 'يوم المرتجع: عكس استهلاك البيع');
+  assert.deepEqual(mv('waste', '2026-03-06'), [-0.5], 'ويقابله هدر بالكمية نفسها');
+  const w = s2.whMoves.find(m => m.kind === 'waste'); assert.equal(w.reason, 'prep', 'بسبب المرتجع من قائمة الهدر'); assert.match(w.note, /م1-1/);
+  assert.equal(E.stockByWh(org, s2).byWh['wh-b1'].i1, 9, 'الرصيد = 10 − 1 (الطبق المرتجع لا يرجع للمخزون)');
+  const A = E.buildAccounting(org, s2); const t = tb(A); assert.equal(A.balanced, true);
+  near(t['5505'], 20, 'تكلفة المبيعات: 40 − 20 المعكوسة'); near(t['5502'], 20, 'الهدر: نصف كيلو × 40');
+  assert.ok(E.wasteRows(org, s2, { i1: 40 }).some(r => r.reason === 'prep' && r.val === 20), 'يظهر في تقارير الهدر بسببه وقيمته');
+  // حفظ المرتجع نفسه مرة ثانية لا يكرر الحركات
+  assert.equal(E.syncSaleMoves(org, s1, { ...s2, posOrders: [sale, ret] }).whMoves.filter(m => m.kind === 'waste').length, 1);
+});
+
+test('v46.9 مرتجع نقطة البيع — نقاط الولاء تُخصم بنسبة المرتجع، والمرتجع الكامل يخصم كلها، ولا يتجاوز المجموع ما اكتُسب', () => {
+  const o = { id: 'o1', total: 100, loyalty: { phone: '0500000000', earned: 10 } };
+  assert.equal(E.posReturnLoyDed({ posOrders: [o] }, o, 25), 3, 'يبقى floor(10 × 75/100) = 7 ⇒ يُخصم 3');
+  assert.equal(E.posReturnLoyDed({ posOrders: [o] }, o, 100), 10, 'المرتجع الكامل يخصم كل النقاط');
+  const r1 = { id: 'r1', kind: 'return', refId: 'o1', status: 'paid', total: -25, loyalty: { ded: 3 } };
+  assert.equal(E.posReturnLoyDed({ posOrders: [o, r1] }, o, 75), 7, 'المرتجع الثاني لباقي الفاتورة: 10 − 3 = 7');
+  assert.equal(E.posReturnLoyDed({ posOrders: [o, r1] }, o, 10), 1, 'يبقى floor(10 × 65/100) = 6 ⇒ 10 − 6 − 3 = 1');
+  assert.equal(E.posReturnLoyDed({ posOrders: [{ id: 'x', total: 50 }] }, { id: 'x', total: 50 }, 50), 0, 'فاتورة بلا عميل ولاء');
+});
+
+test('v47.1 اعتماد القيد اليدوي: بانتظار الاعتماد والمرفوض لا يدخلان الدفاتر، والقديم بلا حالة مرحّل؛ يعتمده المحاسب أو المالك ولا يعتمد أحدٌ قيده', () => {
+  const ln = [{ code: '5901', debit: 100, credit: 0 }, { code: '1201', debit: 0, credit: 100 }];
+  const j = (id, st) => ({ id, date: '2026-03-06', title: 'ت', by: 'منى', byId: 'u7', lines: ln, ...(st ? { status: st } : {}) });
+  const A = E.buildAccounting(baseOrg(), { journalManual: [j('old'), j('p', 'pending'), j('r', 'rejected'), j('ok', 'posted')] });
+  assert.equal(A.balanced, true);
+  assert.deepEqual(A.entries.filter(e => e.manual).map(e => e.id).sort(), ['man:ok', 'man:old'], 'المرحّل والقديم فقط');
+  assert.equal(E.jeOwner({ role: 'system_admin' }), true); assert.equal(E.jeOwner({ role: 'general_management' }), true); assert.equal(E.jeOwner({ role: 'accountant' }), false);
+  const pend = j('p', 'pending');
+  assert.equal(E.canApproveJe({ id: 'u1', name: 'مجاهد', role: 'system_admin' }, pend), true, 'المالك يعتمد');
+  assert.equal(E.canApproveJe({ id: 'u8', name: 'فهد', role: 'finance_department' }, pend), true, 'المحاسب الرئيسي يعتمد');
+  assert.equal(E.canApproveJe({ id: 'u6', name: 'هند', role: 'accountant' }, pend), true, 'محاسب آخر يعتمد');
+  assert.equal(E.canApproveJe({ id: 'u7', name: 'منى', role: 'accountant' }, pend), false, 'لا يعتمد قيده بنفسه');
+  assert.equal(E.canApproveJe({ id: 'u5', name: 'سارة', role: 'head_office' }, pend), false, 'المكتب الرئيسي لا يعتمد');
+  assert.equal(E.canApproveJe({ id: 'u9', name: 'ريم', role: 'cost_controller' }, pend), false);
 });

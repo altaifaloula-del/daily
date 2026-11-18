@@ -1,9 +1,12 @@
 {
-  "name": "restaurant-cloud-closing-platform",
-  "version": "1.0.0",
+  "name": "mithqal",
+  "version": "47.1.0",
   "private": true,
   "type": "module",
   "description": "منصة سحابية متكاملة لإدارة وإغلاق فروع المطاعم",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "concurrently -k \"node server.js\" \"vite\"",
     "server": "node server.js",
@@ -15,7 +18,10 @@
     "test:ui": "node --test tests/ui/ui.test.mjs",
     "test:zatca": "node --test tests/zatca.test.mjs",
     "test:backup": "node --test tests/backup.test.mjs tests/push.test.mjs",
-    "zatca:sandbox": "node scripts/zatca-sandbox.mjs"
+    "zatca:sandbox": "node scripts/zatca-sandbox.mjs",
+    "test": "node --test tests/accounting.test.mjs tests/zatca.test.mjs tests/backup.test.mjs tests/push.test.mjs tests/functional/cycles.test.mjs",
+    "test:all": "npm test && npm run test:rules && npm run test:ui",
+    "check": "npm run build && npm test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.6.0",
@@ -32,6 +38,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.0",
     "firebase-tools": "^15.35.0",
+    "google-auth-library": "^9.15.1",
     "playwright": "1.63.0",
     "vite": "^6.0.7"
   },

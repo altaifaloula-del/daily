@@ -1,7 +1,7 @@
 {
-  "name": "RESTAURANT PRO — نظام إدارة المطاعم",
-  "short_name": "RESTAURANT PRO",
-  "description": "الإغلاق اليومي والمحاسبة والمشتريات والمخزون والموارد البشرية لفروع المطاعم",
+  "name": "مِثقال — Mithqal",
+  "short_name": "مِثقال",
+  "description": "منصة واحدة، لكل الأعمال ومن أي مكان — One platform. Every business. Everywhere.",
   "lang": "ar",
   "dir": "rtl",
   "start_url": ".",

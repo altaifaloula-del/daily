@@ -382,7 +382,7 @@ function shiftSumText(org, sh, ops) {
   L.push('💵 النقد: متوقع ' + money(sh.expected || 0) + ' · معدود ' + money(sh.counted || 0));
   L.push((Math.abs(d) > 0.004 ? (d < 0 ? '🔴 عجز ' : '🟡 زيادة ') + money(Math.abs(d)) : '✅ لا فرق نقدي'));
   if (sh.closeNote) L.push('ملاحظة: ' + sh.closeNote);
-  L.push(''); L.push('— ' + ((org.company || {}).name || 'RESTAURANT PRO'));
+  L.push(''); L.push('— ' + ((org.company || {}).name || 'مِثقال'));
   return L.join('\n');
 }
 function closeAlertEvents(org, ops, me, myBranches) {
@@ -2416,7 +2416,8 @@ function buildAccounting(org, ops) {
   }
 
   // 9مكرر) القيود اليدوية والافتتاحية — يُدخلها المحاسب من شاشة المحاسبة (التصحيح بقيد عكسي لا بالحذف)
-  (ops.journalManual || []).forEach(j => {
+  // v47.1: القيد بانتظار الاعتماد أو المرفوض لا يُرحَّل (القيود القديمة والآلية بلا حالة = مرحّلة)
+  (ops.journalManual || []).filter(jeLive).forEach(j => {
     push({
       id: 'man:' + j.id, date: (j.date || '').slice(0, 10),
       title: j.title || 'قيد يدوي', src: j.opening ? 'قيد افتتاحي' : j.vatClose ? 'إقفال ضريبي' : j.vatPay ? 'سداد ضريبة' : (j.mizanSales ? 'مبيعات مستوردة' : 'قيد يدوي'),
@@ -2500,7 +2501,7 @@ const TAB_AR = {
 };
 // ═══ ثيمات المنصّة الاحترافية (11 أسلوب تصميم كامل) × وضع ليل/نهار — v14.7 ═══
 const THEME_META = {
-  restpro: { name: 'RESTAURANT PRO (المعتمد)', desc: 'كحلي وذهبي فاخر', color: '#101D35' },
+  restpro: { name: 'مِثقال (المعتمد)', desc: 'كحلي وذهبي فاخر', color: '#101D35' },
   mizan: { name: 'ميزان 2', desc: 'واضح احترافي', color: '#C9A24D' },
   royal: { name: 'الملكي الذهبي', desc: 'فخم دافئ', color: '#A87D28' },
   glass: { name: 'الزجاجي الشفّاف', desc: 'بطاقات ضبابية', color: '#2E7CC4' },
@@ -2521,7 +2522,17 @@ const normTheme = (t) => THEME_META[t] ? t : (THEME_LEGACY[t] || 'restpro');
 const readMode = () => { try { return localStorage.getItem('rms8:mode') === 'dark' ? 'dark' : 'light'; } catch { return 'light'; } };
 // v42.1: «RESTAURANT PRO» يرث مكوّنات «ميزان 2» ويبدّل الألوان والقائمة والعلامة
 const themeCls = (t, mode) => { const n = normTheme(t); return 'rms mode-' + (mode === 'dark' ? 'dark' : 'light') + (n === 'restpro' ? ' thm-mizan thm-restpro' : ' thm-' + n); };
-const BRAND = 'RESTAURANT PRO', BRAND_SUB = 'SMART RESTAURANT MANAGEMENT', BRAND_AR = 'RESTAURANT PRO — نظام إدارة المطاعم';
+// v46.8: الهوية «مِثقال — Mithqal» وشعارها؛ الترجمة الإنجليزية في i18n.js (TX)
+const BRAND = 'مِثقال', BRAND_SUB = 'منصة واحدة، لكل الأعمال ومن أي مكان', BRAND_AR = 'مِثقال — Mithqal';
+// v47.1 — العلامة المعتمدة: حلقة عالمية (عملة/كرة أرضية) مفتوحة أعلاها لمعين الارتكاز، وحرف M معلّق تحت عارضة الميزان.
+// لون واحد (currentColor) فتأخذ لون الحاوية: كحلي على الذهبي في المنصة.
+const BRAND_MARK = () => (
+  <svg viewBox="0 0 200 200" width="78%" height="78%" aria-hidden="true" style={{ display: 'block' }}>
+    <path d="M86 22.6 A80 80 0 1 0 114 22.6" fill="none" stroke="currentColor" strokeWidth="9" strokeLinecap="round" />
+    <path d="M100 12 l11 12 -11 12 -11 -12z" fill="currentColor" />
+    <rect x="40" y="56" width="120" height="10" rx="5" fill="currentColor" />
+    <path d="M52 66 h20 l28 30 28 -30 h20 v85 h-19 v-51 l-29 30 -29 -30 v51 h-19z" fill="currentColor" />
+  </svg>);
 
 // v44.0 — قرار المالك: تحويل الاستلام غير المطابق إلى فاتورة للمحاسب ومدير النظام فقط (يُفرض في قواعد Firestore: [ROLES:PINV])
 const INV_BILLERS = ['accountant', 'system_admin'];
@@ -2588,6 +2599,12 @@ const ROLES = {
 // v15.9: اشتقاق صلاحيات الكتابة من الدور — canPost=إدخال/ترحيل، canEdit=تعديل/حذف/تغيير إعدادات.
 // (للأدوار القائمة: readOnly/postOnly غير معرّفين ⇒ canPost=canEdit=النطاق الكامل، بلا أي تغيير سلوك.)
 const rolePost = (role) => ROLES[role]?.scope === 'all' && !ROLES[role]?.readOnly;
+/* v47.1 — اعتماد القيد اليدوي (قرار المالك): يعتمده المحاسب أو المالك.
+   قيد المالك (مسؤول النظام/الإدارة العليا) يُرحَّل مباشرة؛ قيد غيره ينتظر الاعتماد، ولا يعتمد أحدٌ قيدًا أدخله بنفسه.
+   المرحّل فقط يدخل الدفاتر؛ المرفوض يبقى للأثر بسببه. */
+const jeLive = (j) => !j || !j.status || j.status === 'posted';
+const jeOwner = (me) => !!(ROLES[me?.role] || {}).admin;
+const canApproveJe = (me, j) => !!me && (jeOwner(me) || ['accountant', 'finance_department'].includes(me.role)) && (!j || (j.byId ? j.byId !== me.id : j.by !== me.name));
 const isCostCtl = (me) => !!(ROLES[me?.role] || {}).costCtl;   // v37.8 مراقب التكاليف: يعتمد ويراقب ولا يُدخل حركات
 // v27.1 — نطاق فروع المستخدم كما تعرضه الواجهة (myBranches): null = كل الفروع (المركز)، وإلا قائمة معرّفات.
 // نطاق الكتابة (dataCtx.myBrIds) يجب أن يطابقه حرفيًا — أي سجل بفرع خارج هذا النطاق لا يُحفظ من جهاز الفرع.
@@ -2982,7 +2999,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v46.7';
+const APP_VER = 'v47.1';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3036,7 +3053,9 @@ class ErrorBoundary extends React.Component {
     return full ? <div className="rms mode-dark thm-mizan" style={{ minHeight: '100vh', background: '#141210', padding: 16 }}>{box}</div> : box;
   }
 }
-export { ErrorBoundary, logClientError };
+export { ErrorBoundary, logClientError, lockedLedgerChanged };
+export { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, saleRetUse, posReturnLoyDed };
+export { jeLive, jeOwner, canApproveJe };   // v47.1 اعتماد القيد اليدوي   // v46.8 مرتجع نقطة البيع   // v46.8: للاختبارات الوظيفية (حارس الإقفال)
 if (typeof window !== 'undefined' && !window.__mizanErrHook) {
   window.__mizanErrHook = true;
   window.addEventListener('error', (e) => logClientError(e.error || e.message, 'window'));
@@ -4083,10 +4102,11 @@ function PlatformApp() {
           <div className="brand">
             {org.company.logoUrl
               ? <img className="brand-logo" src={org.company.logoUrl} alt="شعار الشركة" />
-              : <div className="rp-mark">RP</div>}
+              : <div className="rp-mark">{BRAND_MARK()}</div>}
             <div className="rp-brand">
-              <b>{BRAND}</b>
-              <span>{org.company.name || BRAND_SUB}</span>
+              <b>{TX(BRAND)}</b>
+              <span className="rp-tag">{TX(BRAND_SUB)}</span>
+              {org.company.name && <span className="rp-co">{org.company.name}</span>}
             </div>
             <button className="btn sm gh sideclose" onClick={() => setDrawer(false)} title={TX('إخفاء القائمة')}>
               <X size={18} />
@@ -4126,7 +4146,7 @@ function PlatformApp() {
             </button>
           </div>
           </div>
-          <div className="rp-foot">{BRAND} · {APP_VER}</div>
+          <div className="rp-foot">{TX(BRAND)} · {APP_VER}</div>
         </aside>
 
         <div className="main">
@@ -4142,7 +4162,7 @@ function PlatformApp() {
             )}
             {org.company.logoUrl
               ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
-              : <span className="toplogo-mark rp-mark" style={{ width: 30, height: 30, fontSize: 11 }}>RP</span>}
+              : <span className="toplogo-mark rp-mark" style={{ width: 30, height: 30, fontSize: 15 }}>{BRAND_MARK()}</span>}
             <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || TX('الرئيسية')) : TX(HR_TABS.includes(safeTab) ? 'الموارد البشرية' : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || ''))}</h1>
             <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>{APP_VER}</span>
             <div className="topstatus">
@@ -4428,12 +4448,14 @@ function PlatformApp() {
 }
 
 /* ================= بوابة الدخول ================= */
+// v47.1 — غلاف المنصة (قرار المالك): صورة الهوية بجانب الدخول على الحاسوب، وأعلاه على الجوال
+const GateCover = () => <div className="gate-cover" role="img" aria-label={TX(BRAND_AR) + ' — ' + TX(BRAND_SUB)} />;
 function BrandHead({ title, sub, logo }) {
   return (
     <div className="bhead" style={{ textAlign: 'center', marginBottom: 24 }}>
       {logo
         ? <img src={logo} alt="شعار" className="bhead-logo" style={{ width: 64, height: 64, margin: '0 auto 14px', borderRadius: 16, objectFit: 'cover', border: '1px solid var(--line)', display: 'block' }} />
-        : <div className="rp-mark bhead-logo" style={{ width: 64, height: 64, margin: '0 auto 14px', borderRadius: 18, fontSize: 22 }}>RP</div>}
+        : <div className="rp-mark bhead-logo" style={{ width: 64, height: 64, margin: '0 auto 14px', borderRadius: 18, fontSize: 30 }}>{BRAND_MARK()}</div>}
       <h1 style={{ fontSize: 20 }}>{title || BRAND_AR}</h1>
       <div style={{ color: 'var(--dim)', fontSize: 12.5, marginTop: 5 }}>{sub}</div>
     </div>
@@ -4473,7 +4495,7 @@ function FirstRun({ css, theme, commitOrg, say, onDone }) {
   return (
     <div className={themeCls(theme, readMode())}>
       <style dangerouslySetInnerHTML={{ __html: css }} />
-      <div className="gate">
+      <div className="gate has-cover"><GateCover />
         <div className="gate-c">
           <BrandHead title="تهيئة المنصة لأول مرة" sub="أنشئ حساب المالك — سيكون لك وصول كامل لكل الشاشات" />
           <div className="card">
@@ -4639,9 +4661,9 @@ function FbGate({ css, theme, fbLogin, fbMfa, fbFirstSetup, notice }) {
   return (
     <div className={themeCls(theme, readMode())}>
       <style dangerouslySetInnerHTML={{ __html: css }} />
-      <div className="gate">
+      <div className="gate has-cover"><GateCover />
         <div className="gate-c">
-          <BrandHead title={BRAND_AR} sub="دخول موثّق — البيانات محمية بحساب مصادقة لكل مستخدم" />
+          <BrandHead title={BRAND_AR} sub={TX(BRAND_SUB)} />
           <div className="row" style={{ justifyContent: 'center', marginBottom: 16 }}>
             <span className="badge b-mint"><Lock size={10} />مصادقة سحابية مفعّلة</span>
           </div>
@@ -4865,9 +4887,9 @@ function Gate({ css, org, onLogin, online, theme, notice }) {
   return (
     <div className={themeCls(theme, readMode())}>
       <style dangerouslySetInnerHTML={{ __html: css }} />
-      <div className="gate">
+      <div className="gate has-cover"><GateCover />
         <div className="gate-c">
-          <BrandHead title={org.company?.name || BRAND} sub="RESTAURANT PRO — نظام إدارة المطاعم: الإغلاق اليومي والمحاسبة والمشتريات والمخزون والموارد البشرية" logo={org.company?.logoUrl} />
+          <BrandHead title={org.company?.name || TX(BRAND)} sub={TX(BRAND_AR) + ' — ' + TX(BRAND_SUB)} logo={org.company?.logoUrl} />
           <div className="row" style={{ justifyContent: 'center', marginBottom: 16 }}>
             <span className="badge b-mint"><span className="dot" />{online.length} متصل الآن</span>
             <span className="badge b-dim"><Lock size={10} />بيانات مشتركة ومؤمّنة</span>
@@ -6612,11 +6634,61 @@ const posCashNet = (o) => posR2((o.payments || []).filter(p => p.m === 'cash').r
 // ملخص مبيعات فرع في يوم: لتعبئة الإغلاق
 function posDaySummary(orders, branchId, date) {
   const os = (orders || []).filter(o => o.branchId === branchId && o.date === date && o.status !== 'void');
-  const out = { n: os.length, total: 0, cash: 0, card: 0, transfer: 0, apps: {}, vat: 0 };
-  os.forEach(o => { out.total += o.total; out.vat += o.vat; out.cash += posCashNet(o);
+  const out = { n: os.filter(o => o.kind !== 'return').length, total: 0, cash: 0, card: 0, transfer: 0, apps: {}, vat: 0, retN: 0, retAmt: 0 };
+  os.forEach(o => { if (o.kind === 'return') { out.retN++; out.retAmt += -(Number(o.total) || 0); } out.total += o.total; out.vat += o.vat; out.cash += posCashNet(o);
     (o.payments || []).forEach(p => { const a = Number(p.amount) || 0; if (p.m === 'card') out.card += a; else if (p.m === 'transfer') out.transfer += a; else if (p.m === 'app') { const x = out.apps[p.appId] || (out.apps[p.appId] = { amount: 0, n: 0 }); x.amount += a; x.n += 1; } }); });
-  ['total', 'cash', 'card', 'transfer', 'vat'].forEach(k => { out[k] = posR2(out[k]); }); Object.values(out.apps).forEach(x => { x.amount = posR2(x.amount); });
+  ['total', 'cash', 'card', 'transfer', 'vat', 'retAmt'].forEach(k => { out[k] = posR2(out[k]); }); Object.values(out.apps).forEach(x => { x.amount = posR2(x.amount); });
   return out;
+}
+/* ============================================================
+   v46.8 — مرتجع نقطة البيع (قرار المالك): الطبق المرتجع هدر — لا يرجع للمخزون؛ تكلفة مكوناته تنتقل من تكلفة المبيعات (5505)
+   إلى الهدر (5502) بسبب من قائمة أسباب الهدر. يعتمده مدير الفرع فقط. يُرد المبلغ بطريقة الدفع الأصلية افتراضيًا، ويمكن نقدًا.
+   المستند: «إشعار دائن» في posOrders بقيم سالبة (kind:'return'، refId) — فينخفض الإيراد والضريبة ودرج الوردية تلقائيًا
+   في ملخص اليوم والإغلاق وتقرير الوردية. بنوده في retLines (لا lines) حتى لا تُعامَل كمبيعات في خصم المكونات وتحليل الأصناف.
+   ============================================================ */
+const posLineNet = (l) => posR2((Number(l.qty) || 0) * (Number(l.price) || 0) - (Number(l.disc) || 0));
+// الكمية المتبقية القابلة للإرجاع لكل بند في الفاتورة (المباع − ما أُرجع سابقًا)
+function posReturnable(ops, o) {
+  const done = {}; (ops.posOrders || []).forEach(r => { if (r.kind === 'return' && r.refId === o.id && r.status !== 'void') (r.retLines || []).forEach(l => { done[l.i] = (done[l.i] || 0) + (Number(l.qty) || 0); }); });
+  return (o.lines || []).map((l, i) => Math.max(0, (Number(l.qty) || 0) - (done[i] || 0)));
+}
+// قيمة المرتجع: سعر الوحدة الصافي بعد خصم البند، موزَّعًا عليه خصم الفاتورة والولاء بنسبة (إجمالي الفاتورة ÷ مجموع البنود) — فلا يتجاوز المدفوع
+function posReturnCalc(o, qtys) {
+  const lines = o.lines || []; const base = lines.reduce((a, l) => a + posLineNet(l), 0); const ratio = base > 0 ? (Number(o.total) || 0) / base : 0;
+  const rl = []; lines.forEach((l, i) => { const q = Math.min(Number(qtys[i]) || 0, Number(l.qty) || 0); if (!(q > 0)) return; const unit = (Number(l.qty) || 0) > 0 ? posLineNet(l) / Number(l.qty) : 0;
+    rl.push({ i, productId: l.productId, name: l.name, qty: q, amount: posR2(unit * q * ratio) }); });
+  const total = posR2(rl.reduce((a, l) => a + l.amount, 0)); const vat = (Number(o.total) || 0) > 0 ? posR2(total * (Number(o.vat) || 0) / Number(o.total)) : 0;
+  return { lines: rl, total, vat, net: posR2(total - vat) };
+}
+// v46.9 (قرار المالك): نقاط الولاء المكتسبة تُخصم بنسبة المرتجع — المتبقي للعميل = نقاط الفاتورة × (المتبقي من مبلغها ÷ مبلغها)،
+// بالتقريب للأسفل؛ فالمرتجع الكامل يخصم كل نقاطها، ومجموع الخصم عبر مرتجعات متعددة لا يتجاوز ما اكتسبه
+function posReturnLoyDed(ops, o, refund) {
+  const earned = Number((o.loyalty || {}).earned) || 0, tot = Number(o.total) || 0; if (!(earned > 0) || !(tot > 0)) return 0;
+  let prevAmt = 0, prevDed = 0; (ops.posOrders || []).forEach(r => { if (r.kind === 'return' && r.refId === o.id && r.status !== 'void') { prevAmt += -(Number(r.total) || 0); prevDed += Number((r.loyalty || {}).ded) || 0; } });
+  const keep = Math.floor(earned * Math.max(0, tot - prevAmt - (Number(refund) || 0)) / tot + 1e-9);
+  return Math.max(0, earned - keep - prevDed);
+}
+// طرق الرد المتاحة: طرق دفع الفاتورة الأصلية + النقد دائمًا
+function posRefundOptions(o) {
+  const seen = new Set(), out = [];
+  (o.payments || []).forEach(p => { const k = p.m === 'app' ? 'app:' + p.appId : p.pm ? 'pm:' + p.pm : p.m; if (seen.has(k)) return; seen.add(k); out.push({ k, m: p.m, ...(p.appId ? { appId: p.appId, appName: p.appName } : {}), ...(p.pm ? { pm: p.pm, pmName: p.pmName } : {}) }); });
+  if (!seen.has('cash')) out.push({ k: 'cash', m: 'cash' });
+  return out;
+}
+function posReturnHtml(org, r, br) {
+  const co = org.company || {}; const svat = co.taxNumber || ''; const m = (n) => money(Math.abs(n));
+  const qr = svat ? qrSvg(zatcaTLV(co.name || '', svat, (r.at || '').slice(0, 19) + 'Z', Math.abs(r.total), Math.abs(r.vat)), { ecl: 1, px: 120 }) : '';
+  const L = (r.retLines || []).map(l => `<tr><td>${_xe(l.name)}</td><td class="n">×${l.qty}</td><td class="n">${m(l.amount)}</td></tr>`).join('');
+  const pm = (r.payments || [])[0] || {}; const pmAr = pm.pmName || (pm.m === 'cash' ? 'نقدي' : pm.m === 'card' ? 'شبكة' : pm.m === 'transfer' ? 'تحويل' : (pm.appName || 'تطبيق'));
+  return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>إشعار دائن ${_xe(r.no)}</title><style>${NUM_FACE}body{font-family:'MizanNum',Tahoma,sans-serif;margin:0 auto;color:#000}${posPaperCss(org)}
+  h1{font-size:15px;text-align:center;margin:2px 0} .c{text-align:center} .s{font-size:10px;color:#333} table{width:100%;border-collapse:collapse;margin-top:6px}
+  td{padding:3px 0;border-bottom:1px dashed #999;vertical-align:top} td.n{text-align:left;white-space:nowrap;font-variant-numeric:tabular-nums} .tot td{font-weight:800;font-size:13px;border-bottom:2px solid #000} .qr{text-align:center;margin-top:8px} .qr svg{width:34mm;height:34mm}</style></head><body>
+  <h1>${_xe(co.name || '')}</h1><div class="c s">${_xe(br ? br.name : '')}${svat ? '<br>الرقم الضريبي: ' + _xe(svat) : ''}</div>
+  <div class="c" style="font-weight:800;margin-top:6px">إشعار دائن — مرتجع</div>
+  <div class="c s">رقم: ${_xe(r.no)} · ${_xe((r.at || '').slice(0, 10))}<br>عن الفاتورة: ${_xe(r.refNo || '')}<br>السبب: ${_xe(wasteReasonAr(r.reason))}${r.note ? ' — ' + _xe(r.note) : ''}</div>
+  <table>${L}<tr><td colspan="2">المرتجع قبل الضريبة</td><td class="n">${m(r.net)}</td></tr><tr><td colspan="2">ضريبة القيمة المضافة</td><td class="n">${m(r.vat)}</td></tr>
+  <tr class="tot"><td colspan="2">المبلغ المردود شامل الضريبة</td><td class="n">${m(r.total)}</td></tr><tr><td colspan="2">طريقة الرد</td><td class="n">${_xe(pmAr)}</td></tr></table>
+  ${r.loyalty && r.loyalty.ded ? `<div class="c s" style="margin-top:6px;border:1px dashed #999;padding:4px">خُصم من نقاط الولاء: ${r.loyalty.ded}</div>` : ''}<div class="c s" style="margin-top:6px">اعتمده: ${_xe(r.by || '')}</div>${qr ? '<div class="qr">' + qr + '</div>' : ''}</body></html>`;
 }
 // v44.7 — عرض ورق الإيصال: 80 مم (الافتراضي) أو 58 مم — إعداد عام للمنشأة، ويمكن لكل جهاز كاشير تخصيصه لطابعته
 const POS_PAPER_KEY = 'rms8:posPaper';
@@ -6694,7 +6766,7 @@ function posShiftHtml(org, sh, allOs, br, kind) {
   const row = (k, v) => `<tr><td>${k}</td><td class="n">${v}</td></tr>`;
   return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>تقرير ${kind} — ${_xe(br.name)}</title><style>${NUM_FACE}body{font-family:'MizanNum',Tahoma,sans-serif;margin:0 auto}${posPaperCss(org, 12)}table{width:100%;border-collapse:collapse}td{padding:4px 0;border-bottom:1px dashed #999}td.n{text-align:left}h1{font-size:15px;text-align:center;margin:2px 0}.sec td{font-weight:800;border-bottom:1.5px solid #000;padding-top:8px}</style></head><body>
   <h1>${kind === 'Z' ? 'تقرير إغلاق وردية (Z)' : 'تقرير وردية مؤقت (X)'}</h1><div style="text-align:center">${_xe((org.company || {}).name || '')}<br>${_xe(br.name)} · ${_xe(sh.devName || '')} (${_xe(sh.dev || '')})<br>${_xe(String(sh.openedAt).slice(0, 16).replace('T', ' '))} ← ${kind === 'Z' ? _xe(String(sh.closedAt || '').slice(11, 16)) : 'الآن ' + _xe(new Date().toTimeString().slice(0, 5))}</div>
-  <table><tr class="sec"><td colspan="2">المبيعات</td></tr>${row('عدد الفواتير', st.n)}${row('المبيعات قبل الخصومات', m(st.gross))}${row('إجمالي المبيعات', m(st.total))}${row('منها ضريبة', m(st.vat))}
+  <table><tr class="sec"><td colspan="2">المبيعات</td></tr>${row('عدد الفواتير', st.n)}${row('المبيعات قبل الخصومات', m(st.gross))}${row('إجمالي المبيعات', m(st.total))}${row('منها ضريبة', m(st.vat))}${st.retN ? row('المرتجعات (' + st.retN + ')', '−' + m(st.retAmt)) : ''}
   <tr class="sec"><td colspan="2">طرق الدفع</td></tr>${row('نقدي (صافي)', m(st.cash))}${row('شبكة', m(st.card))}${row('تحويل', m(st.transfer))}
   ${Object.entries(st.apps).map(([id, x]) => row(_xe(((org.deliveryApps || APPS).find(a => a.id === id) || {}).n || 'تطبيق'), m(x.amount))).join('')}
   ${Object.entries(st.pms || {}).map(([n, v]) => row('منها: ' + _xe(n), m(v))).join('')}
@@ -7766,7 +7838,7 @@ function buildClosingA4(c, org) {
         <div class="sig-ok dim">الاعتماد النهائي</div>
       </div>
     </div>
-    <div class="foot dim">تم تصدير هذا التقرير آلياً من RESTAURANT PRO · ${co.name || ''}</div>
+    <div class="foot dim">تم تصدير هذا التقرير آلياً من مِثقال · ${co.name || ''}</div>
   </div>`;
 }
 
@@ -7782,17 +7854,18 @@ const docInApp = () => { try { return isStandaloneApp() || isIOSDev() || /Androi
    mzBrandDoc: يضيف توقيع «RESTAURANT PRO» بالشعار في تذييل كل مستند (أو سطرًا صغيرًا إن لم يوجد تذييل) — مرة واحدة فقط. */
 // v42.1: علامة RESTAURANT PRO في المطبوعات — مربع كحلي بحرفَي RP الذهبيين (المعامِلات القديمة مقبولة للتوافق)
 const mzSvg = (size) => '<svg xmlns="http://www.w3.org/2000/svg" width="' + size + '" height="' + size + '" viewBox="0 0 64 64" style="vertical-align:middle;flex-shrink:0">' +
-  '<rect width="64" height="64" rx="14" fill="#101D35"/><text x="32" y="41" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="800" font-size="25" fill="#C7A45B">RP</text></svg>';
+  '<rect width="64" height="64" rx="14" fill="#101D35"/><g transform="translate(7 7) scale(.25)"><path d="M86 22.6 A80 80 0 1 0 114 22.6" fill="none" stroke="#C7A45B" stroke-width="9" stroke-linecap="round"/><path d="M100 12 l11 12 -11 12 -11 -12z" fill="#C7A45B"/><rect x="40" y="56" width="120" height="10" rx="5" fill="#C7A45B"/><path d="M52 66 h20 l28 30 28 -30 h20 v85 h-19 v-51 l-29 30 -29 -30 v51 h-19z" fill="#C7A45B"/></g></svg>';   // v47.1 العلامة المعتمدة
 const MZ_LOGO_HTML = '<span class="logo" style="display:inline-grid;place-items:center;border-radius:8px">' + mzSvg(30) + '</span>';
 const mzBrandDoc = (html) => {
   html = String(html || '');
   if (html.includes('data-mzb')) return html;
-  const sig = '<span data-mzb style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap">' + mzSvg(12, '#555', '#C9A24D', false) + 'RESTAURANT PRO</span>';
+  const sig = '<span data-mzb style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap">' + mzSvg(12, '#555', '#C9A24D', false) + 'مِثقال</span>';
   const bi = html.search(/<body[^>]*>/i);
   if (bi < 0) return html;
   const head = html.slice(0, bi), body = html.slice(bi);
-  if (body.includes('RESTAURANT PRO')) return head + body.replace(/RESTAURANT PRO/g, sig);
-  const foot = '<div data-mzb style="text-align:center;font-size:9px;color:#888;margin-top:10px;display:flex;align-items:center;justify-content:center;gap:4px">' + mzSvg(11, '#888', '#C9A24D', false) + 'RESTAURANT PRO</div>';
+  // RESTAURANT PRO: الاسم السابق — يُستبدل أيضًا في القوالب المحفوظة القديمة
+  if (/مِثقال|RESTAURANT PRO/.test(body)) return head + body.replace(/مِثقال|RESTAURANT PRO/g, sig);
+  const foot = '<div data-mzb style="text-align:center;font-size:9px;color:#888;margin-top:10px;display:flex;align-items:center;justify-content:center;gap:4px">' + mzSvg(11, '#888', '#C9A24D', false) + 'مِثقال — Mithqal</div>';
   return /<\/body>/i.test(body) ? head + body.replace(/<\/body>/i, foot + '</body>') : head + body + foot;
 };
 function openDocWin(features) {
@@ -8045,7 +8118,7 @@ function printPartnerStatement(p, org) {
   <table><thead><tr><th>التاريخ</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead>
   <tbody>${rows || '<tr><td colspan=5 style="text-align:center;color:#999;padding:20px">لا حركات</td></tr>'}</tbody>
   <tfoot><tr><td colspan="2">الإجماليات</td><td class="n">${money(sdr)}</td><td class="n">${money(scr)}</td><td class="n">${money(Math.abs(bal))}${bal > 0 ? ' دائن' : bal < 0 ? ' مدين' : ''}</td></tr></tfoot></table>
-  <div class="ft">كشف حساب صادر من RESTAURANT PRO — ${co.name || ''} · ${arDate(today())}</div></body></html>`);
+  <div class="ft">كشف حساب صادر من مِثقال — ${co.name || ''} · ${arDate(today())}</div></body></html>`);
   w.document.close();
   setTimeout(() => { w.focus(); w.print(); }, 400);
   return true;
@@ -8071,7 +8144,7 @@ function printA4(org, title, sub, bodyHtml) {
   <div class="h"><div><div class="co">${co.name || 'الشركة'}</div><div class="sub">${co.taxNumber ? 'الرقم الضريبي: ' + co.taxNumber : ''}</div></div>
   <div style="text-align:left"><h1>${title}</h1><div class="sub">${sub || ''}</div></div></div>
   ${bodyHtml}
-  <div class="ft">صادر من RESTAURANT PRO — ${arDate(today())}</div></body></html>`);
+  <div class="ft">صادر من مِثقال — ${arDate(today())}</div></body></html>`);
   w.document.close();
   setTimeout(() => { w.focus(); w.print(); }, 400);
   return true;
@@ -8589,7 +8662,8 @@ const saleRecipeItems = (org) => { const set = new Set(); ((org && org.products)
 function saleDayUse(org, ops, bId, date) {
   const products = (org && org.products) || [], items = (org && org.items) || [];
   const os = (ops.posOrders || []).filter(o => o.branchId === bId && o.date === date && o.status !== 'void');
-  const lines = []; if (os.length) os.forEach(o => (o.lines || []).forEach(l => { if (l.productId) lines.push([l.productId, Number(l.qty) || 0]); }));
+  const lines = []; if (os.length) os.forEach(o => { (o.lines || []).forEach(l => { if (l.productId) lines.push([l.productId, Number(l.qty) || 0]); });
+    (o.kind === 'return' ? o.retLines || [] : []).forEach(l => { if (l.productId) lines.push([l.productId, -(Number(l.qty) || 0)]); }); });   // v46.8: المرتجع يُخرج من «المبيعات» (يذهب للهدر)
   else (ops.productSales || []).filter(r => r.branchId === bId && (r.to || r.from) === date).forEach(r => (r.lines || []).forEach(l => lines.push([l.productId, Number(l.qty) || 0])));
   const per = {}, use = {};
   lines.forEach(([pid, q]) => { if (!q) return; if (!(pid in per)) { const pr = products.find(x => x.id === pid); per[pid] = pr ? saleUse(org, pr.parts, 1) : {}; }
@@ -8682,6 +8756,13 @@ function voucherHtml(org, v) {
   ${v.note ? '<p>ملاحظة: ' + _xe(v.note) + '</p>' : ''}
   <div style="display:flex;gap:24px;margin-top:40px">${sig('أعدّه')}${sig(v.type === 'trf' ? 'المُرسِل' : v.type === 'rcv' || v.type === 'opn' ? 'أمين المستودع' : 'المستلم')}${sig(v.type === 'trf' ? 'المستلِم' : 'المعتمد')}</div>`;
 }
+// استهلاك المكونات لأطباق مرتجع واحد (للهدر)
+function saleRetUse(org, r) {
+  const products = (org && org.products) || [], items = (org && org.items) || [], use = {};
+  (r.retLines || []).forEach(l => { const pr = products.find(x => x.id === l.productId); if (!pr) return; Object.entries(saleUse(org, pr.parts, 1)).forEach(([k, v]) => { use[k] = (use[k] || 0) + v * (Number(l.qty) || 0); }); });
+  Object.keys(use).forEach(k => { const it = items.find(x => x.id === k); if (!it || !isStocked(it)) delete use[k]; else use[k] = Math.round(use[k] * 10000) / 10000; });
+  return use;
+}
 function syncSaleMoves(org, before, next) {
   const from = saleDeductFrom(org); if (!from || !next || !org) return next;
   const sig = (ops) => { const m = {}; const add = (k, v) => { m[k] = (m[k] || '') + v; };
@@ -8696,7 +8777,11 @@ function syncSaleMoves(org, before, next) {
     const [bId, date] = k.split('|'); const wh = whForBranch(org, bId); if (!wh || !date) return;
     const pre = 'sl_' + bId + '_' + date + '_';
     wm = wm.filter(m => !String(m.id || '').startsWith(pre));
-    Object.entries(saleDayUse(org, next, bId, date)).forEach(([itemId, q]) => { if (q > 0) wm.push({ id: pre + itemId, whId: wh.id, branchId: bId, itemId, kind: 'sale', qty: -q, date, at: date + 'T23:59:00', ref: 'مبيعات ' + date, by: 'تلقائي', auto: true }); });
+    // v46.8: صافي استهلاك اليوم قد يكون سالبًا (مرتجع عن فاتورة يوم سابق) ← حركة بيع عكسية تُقابلها حركة هدر أدناه
+    Object.entries(saleDayUse(org, next, bId, date)).forEach(([itemId, q]) => { if (q !== 0) wm.push({ id: pre + itemId, whId: wh.id, branchId: bId, itemId, kind: 'sale', qty: -q, date, at: date + 'T23:59:00', ref: 'مبيعات ' + date, by: 'تلقائي', auto: true }); });
+    (next.posOrders || []).filter(r => r.kind === 'return' && r.status !== 'void' && r.branchId === bId && r.date === date).forEach(r => {
+      Object.entries(saleRetUse(org, r)).forEach(([itemId, q]) => { if (q > 0) wm.push({ id: pre + 'w_' + r.id + '_' + itemId, whId: wh.id, branchId: bId, itemId, kind: 'waste', qty: -q, date, at: r.at || date + 'T23:59:00',
+        reason: r.reason || 'returned', note: 'مرتجع ' + (r.no || '') + ' عن ' + (r.refNo || '') + (r.note ? ' — ' + r.note : ''), ref: r.no || '', by: r.by || 'تلقائي', auto: true }); }); });
   });
   return { ...next, whMoves: wm };
 }
@@ -9806,7 +9891,7 @@ function morningText(org, D) {
   if (D.pay && (D.pay.over.length || D.pay.soon.length)) { L.push(''); L.push('🧾 الموردون: متأخر ' + money(D.pay.overT) + ' (' + D.pay.over.length + ') · مستحق خلال 7 أيام ' + money(D.pay.soonT) + ' (' + D.pay.soon.length + ')'); }
   if (D.food && D.food.all.pct != null) { L.push(''); L.push('🍽️ تكلفة الطعام للشهر: ' + D.food.all.pct + '% (الهدف ' + D.food.tgt + '%)' + (D.food.over.length ? ' · فوق الهدف: ' + D.food.over.map(x => x.b.name + ' ' + x.pct + '%').join('، ') : '')); }
   if (D.vat2302 != null && D.vat2302 > 0.004) { L.push(''); L.push('🏛️ ضريبة مستحقة غير مسددة: ' + money(D.vat2302)); }
-  L.push(''); L.push('— RESTAURANT PRO');
+  L.push(''); L.push('— مِثقال');
   return L.join('\n');
 }
 function morningHtml(org, D) {
@@ -9837,7 +9922,7 @@ function morningHtml(org, D) {
       ${D.patterns.map(x => `<div class="note" style="background:#fdeeed;color:#C0392B">عجز متكرر — ${x.branchName}: ${x.n} حالات خلال ${D.dcf.days} أيام بإجمالي ${money(Math.abs(x.total))}</div>`).join('')}` : ''}
     ${payT}${foodT}
     ${D.vat2302 != null && D.vat2302 > 0.004 ? `<div class="note">ضريبة القيمة المضافة المستحقة غير المسددة (2302): ${money(D.vat2302)}</div>` : ''}
-    <div class="foot dim" style="margin-top:14px;text-align:center;font-size:9.5px">تقرير آلي من RESTAURANT PRO — الأرقام من الإغلاقات والقيود الفعلية</div>
+    <div class="foot dim" style="margin-top:14px;text-align:center;font-size:9.5px">تقرير آلي من مِثقال — الأرقام من الإغلاقات والقيود الفعلية</div>
   </div></body></html>`;
 }
 function MorningBrief({ org, ops, me, myBranches, scoped, setTab, onClose }) {
@@ -11201,7 +11286,8 @@ function sigDigest(kind, x) {
 /* ===== v41.9 — الإغلاقات سجلات مستقلة (closings/{id}) — المرحلة الأولى: نسخ مطابق (mirror) =====
    مستند الفرع يبقى مصدر الحقيقة في هذه المرحلة؛ كل كتابة إغلاق تُنسخ إلى سجل مستقل تحرسه القواعد حقلًا حقلًا
    (الفرع: مسودة/مرحّل فقط؛ «معتمد/مرفوض/نهائي» بتوقيع موثّق للكاتب نفسه). المطابقة تكشف أي فرق بين الاثنين.
-   مُطفأة افتراضيًا: org.closingRecords = { on: true } يفعّلها المدير. */
+   v46.9 (قرار المالك): مفعّلة افتراضيًا — تُطفأ صراحةً فقط بـ org.closingRecords = { on: false } من «صيانة النظام».
+   القراءة من السجلات (المرحلة الثانية) تبقى قرارًا يدويًا بعد مطابقة كاملة. */
 const CLR_BIG = 4000;   // الحقول النصية الكبيرة (صور base64) لا تُنسخ — الصور في أرشيف المستندات
 const clrData = (x) => JSON.stringify(x, (k, v) => (typeof v === 'string' && v.length > CLR_BIG) ? '[ملف]' : v);
 const clrGm = (v) => ['pending', 'approved', 'rejected'].includes(v) ? v : '';
@@ -11235,7 +11321,7 @@ function clrCompare(closings, recs) {
   const extra = (recs || []).filter(r => !seen.has(r.id));
   return { ok: !missing.length && !differ.length && !extra.length, missing, differ, extra, total: (closings || []).length, recs: (recs || []).length };
 }
-const clrOn = (org) => !!(org && org.closingRecords && org.closingRecords.on);
+const clrOn = (org) => !!org && !(org.closingRecords && org.closingRecords.on === false);
 let _clrState = { at: 0, ok: 0, fail: 0, lastErr: '' };
 const clrState = () => _clrState;
 /** نسخ الفرق إلى السجلات المستقلة — لا يُفشل الحفظ (المستند ما زال المصدر)، ويُسجَّل الإخفاق للمطابقة */
@@ -11254,7 +11340,7 @@ async function clrMirror(before, after) {
 /* v42.2 — المرحلة الثانية: القراءة من السجلات المستقلة (org.closingRecords.read)
    السجل هو المصدر: أرقامه وحالته وقراره (الحقول التي تحرسها القواعد) تغلب ما في مستند الفرع؛ الصور (المختصرة في السجل)
    تُستعاد من مستند الفرع. إغلاق «معتمد» في مستند الفرع بلا سجل يُعرض «مرحّلًا» ويُعلَّم — لا اعتماد بلا توقيع موثّق. */
-const clrRead = (org) => !!(org && org.closingRecords && org.closingRecords.on && org.closingRecords.read);
+const clrRead = (org) => clrOn(org) && !!(org.closingRecords && org.closingRecords.read);
 function clrRestore(rv, bv) {
   if (rv === '[ملف]') return typeof bv === 'string' ? bv : '';
   if (Array.isArray(rv)) return rv.map((x, i) => clrRestore(x, Array.isArray(bv) ? bv[i] : undefined));

@@ -40,6 +40,18 @@ export function integrityChecks(org, ops, ctl) {
   const seen = new Map(), dups = [];
   (ops.invoices || []).forEach(i => { const k = purKey(i); if (!k) return; if (seen.has(k)) dups.push((i.supplierName || '') + ' · رقم ' + i.invoiceNo); else seen.set(k, i); });
   add('dupinv', dups.length ? 'bad' : 'ok', 'فواتير موردين مكررة (نفس المورد والرقم)', dups.length ? dups.length + ' فاتورة' : 'لا تكرار', dups.slice(0, 5), 'احذف النسخة المكررة من «المشتريات ← فواتير الموردين» بعد التأكد');
+  // 4ب) v46.8 إغلاقات مكررة: نفس المعرّف مرتين (يُضاعف الإيراد في القيود)، أو فرعٌ ويومٌ بإغلاقين غير مرفوضين.
+  //     نموذج الإغلاق يمنع التكرار في الواجهة فقط؛ هذا الفحص يكشف ما يصل للبيانات من مسار آخر (مزامنة، استيراد، جهاز قديم).
+  const clIds = new Map(), clDay = new Map(), dupCl = [];
+  (ops.closings || []).forEach(c => {
+    if (!c || !c.id) return;
+    if (clIds.has(c.id)) { dupCl.push('معرّف مكرر · ' + (c.branchName || brName(c.branchId)) + ' · ' + (c.date || '')); return; }
+    clIds.set(c.id, 1);
+    if (c.status === 'rejected') return;
+    const k = c.branchId + '|' + c.date;
+    if (clDay.has(k)) dupCl.push((c.branchName || brName(c.branchId)) + ' · ' + (c.date || '') + ' · إغلاقان لليوم نفسه'); else clDay.set(k, 1);
+  });
+  add('dupclose', dupCl.length ? 'bad' : 'ok', 'إغلاقات مكررة (نفس الفرع واليوم أو نفس المعرّف)', dupCl.length ? dupCl.length + ' حالة' : 'لا تكرار', dupCl.slice(0, 5), 'راجع الإغلاقين من «الإغلاق اليومي ← السجل» وارفض المكرر منهما');
   // 5) سجلات يتيمة (فرع محذوف)
   const orph = [];
   [['closings', 'إغلاق'], ['whMoves', 'حركة مستودع'], ['attendanceEvents', 'حضور'], ['posOrders', 'فاتورة نقطة بيع'], ['transfers', 'توريد']].forEach(([c, ar]) => {

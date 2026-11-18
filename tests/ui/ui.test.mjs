@@ -733,14 +733,17 @@ test('v41.8 فحص النسخة الليلية المشفّرة: يُطلب ال
   assert.deepEqual(errs, []); await ctx.close();
 });
 
-test('v41.9 الإغلاقات سجلات مستقلة: مُطفأة افتراضيًا، يفعّلها المدير بتأكيد، وتصل الإشارة لأجهزة الفروع عبر الدليل', async () => {
+test('v41.9/v46.9 الإغلاقات سجلات مستقلة: مفعّلة افتراضيًا (قرار المالك)، يوقفها المدير ويعيدها، والقراءة لا تُفعَّل قبل مطابقة', async () => {
   const ctx = await browser.newContext(devices['iPad (gen 7)']); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
   p.on('dialog', d => d.accept());
   await p.goto(base + 'live/Admin/admin'); await p.reload(); await p.waitForTimeout(500); await settle(p);
   await p.locator('button:has-text("صيانة")').first().click(); await p.waitForTimeout(500);
   const card = p.locator('[data-clr]');
+  assert.match(await card.innerText(), /النسخ مفعّل/, 'v46.9: مفعّل افتراضيًا');
+  await card.locator('button:has-text("إيقاف النسخ")').click(); await p.waitForTimeout(400);
+  assert.equal(await p.evaluate(() => (window.curOrg.closingRecords || {}).on), false);
   assert.match(await card.innerText(), /غير مفعّل/);
-  assert.equal(await card.locator('button:has-text("ترحيل الإغلاقات الحالية")').count(), 0, 'لا ترحيل قبل التفعيل');
+  assert.equal(await card.locator('button:has-text("ترحيل الإغلاقات الحالية")').count(), 0, 'لا ترحيل والنسخ متوقف');
   await card.locator('button:has-text("تفعيل النسخ")').click(); await p.waitForTimeout(400);
   assert.equal(await p.evaluate(() => !!(window.curOrg.closingRecords || {}).on), true);
   assert.match(await card.innerText(), /النسخ مفعّل/);
@@ -1762,4 +1765,103 @@ test('v46.7 نواقص المخزون: شاشة الأصناف تعرض الما
   await n.p.evaluate(setup, td); await n.p.waitForTimeout(400);
   assert.match(await n.p.locator('body').innerText(), /نفاد مواد في مستودع طيبة/);
   assert.deepEqual(n.errs, []); await n.ctx.close();
+});
+
+test('v46.8 «تعديل كمسودة» لإغلاق قديم تنقصه الفئات النقدية والمصروفات: النموذج يفتح دون انهيار ولا تتغير القيم', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1280, height: 900 } }, 'live/Hub/admin/closehub:closing');
+  await p.evaluate(() => { const o = window.cur; window.setOps({ ...o, closings: o.closings.map(c => c.id === 'c2' ? (({ denominationDetails, expenses, ...x }) => x)(c) : c) }); });
+  await p.waitForTimeout(200);
+  const btns = p.locator('button', { hasText: 'تعديل كمسودة' }); assert.ok(await btns.count() > 0, 'زر التعديل ظاهر للإدارة');
+  for (let i = 0; i < await btns.count(); i++) {
+    await btns.nth(i).click(); await p.waitForTimeout(300);
+    assert.equal(await p.evaluate(() => window.__crash || ''), '', 'لا انهيار');
+    assert.ok(await p.getByText('تعديل إغلاق وردية').count() > 0, 'النموذج مفتوح');
+    await p.keyboard.press('Escape'); await p.waitForTimeout(150);
+    if (await p.getByText('تعديل إغلاق وردية').count()) await p.reload().then(() => settle(p));
+  }
+  assert.deepEqual(errs, []);
+  await ctx.close();
+});
+
+test('v46.8 مرتجع نقطة البيع: معطّل افتراضيًا؛ عند تفعيله يرجع مدير الفرع طبقًا هدرًا بسببه ويُرد نقدًا من الدرج', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosApp/bm');
+  await p.evaluate(() => {
+    window.setOrg(g => ({ ...g, taxCfg: { enabled: true, rate: 15 }, posCfg: { branches: ['b1'], autoPrint: false }, products: [{ id: 'k', name: 'كبسة', sellPrice: 58, cat: 'رئيسي' }] }));
+    window.setOps(o => ({ ...o, posTabs: [], kdsTickets: [], posOrders: [], closings: o.closings.filter(c => c.branchId !== 'b1') }));   // يوم مفتوح بلا إغلاق مرحّل
+  }); await p.waitForTimeout(400);
+  const ob = p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await p.waitForTimeout(400); }
+  await p.locator('.pos-tile:has-text("كبسة")').click(); await p.locator('.pos-tile:has-text("كبسة")').click();
+  await p.click('.pos-cart button:has-text("نقدي")'); await p.waitForTimeout(200);
+  await p.click('.modal button:has-text("تأكيد")'); await p.waitForTimeout(600);
+  await p.click('.pos-tabs button:has-text("الفواتير")'); await p.waitForTimeout(300);
+  assert.equal(await p.locator('table button:has-text("مرتجع")').count(), 0, 'المرتجع معطّل افتراضيًا');
+  await p.evaluate(() => window.setOrg(g => ({ ...g, posCfg: { ...g.posCfg, returns: true } }))); await p.waitForTimeout(300);
+  await p.locator('table button:has-text("مرتجع")').first().click(); await p.waitForTimeout(250);
+  assert.match(await p.locator('.modal').innerText(), /تُسجَّل هدرًا/);
+  await p.fill('input[aria-label="كمية مرتجع كبسة"]', '3'); await p.locator('.modal button:has-text("حفظ")').last().click(); await p.waitForTimeout(250);
+  assert.match(await p.evaluate(() => window.lastSay || ''), /أكبر من المتبقي/, 'لا يُرجع أكثر من المباع');
+  await p.fill('input[aria-label="كمية مرتجع كبسة"]', '1');
+  await p.locator('.modal select').first().selectOption('prep');
+  await p.locator('.modal select').nth(1).selectOption('cash');
+  await p.locator('.modal button:has-text("حفظ")').last().click(); await p.waitForTimeout(500);
+  const say1 = await p.evaluate(() => window.lastSay || ''); assert.match(say1, /سُجّل المرتجع/, 'رسالة الحفظ: ' + say1);
+  const r = await p.evaluate(() => { const x = window.cur.posOrders.find(o => o.kind === 'return'); return x && { total: x.total, pay: x.payments.map(y => y.m + y.amount).join(), reason: x.reason, lines: x.lines.length, ret: x.retLines.map(l => l.name + l.qty).join(), ref: !!x.refNo, by: x.by }; });
+  assert.deepEqual({ ...r, by: undefined }, { total: -58, pay: 'cash-58', reason: 'prep', lines: 0, ret: 'كبسة1', ref: true, by: undefined });
+  const txt = await p.locator('.card').last().innerText();
+  assert.match(txt, /مرتجع عن/); assert.match(txt, /مرتجعات 1/); assert.match(txt, /1 فاتورة/, 'المرتجع لا يُعد فاتورة');
+  // الصنف الثاني فقط متبقٍ للإرجاع
+  await p.locator('table button:has-text("مرتجع")').first().click(); await p.waitForTimeout(200);
+  assert.match(await p.locator('.modal tbody tr').first().innerText(), /2\s+1/, 'المباع 2 والمتبقي 1');
+  // بعد ترحيل إغلاق اليوم: لا مرتجع عليه
+  await p.evaluate(() => window.setOps(o => ({ ...o, closings: [...o.closings, { id: 'cx', branchId: 'b1', date: o.posOrders[0].date, status: 'submitted' }] }))); await p.waitForTimeout(200);
+  await p.fill('input[aria-label="كمية مرتجع كبسة"]', '1'); await p.locator('.modal button:has-text("حفظ")').last().click(); await p.waitForTimeout(250);
+  assert.match(await p.evaluate(() => window.lastSay || ''), /إغلاق اليوم مُرحّل/);
+  assert.equal(await p.evaluate(() => window.cur.posOrders.filter(o => o.kind === 'return').length), 1);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v46.9 مرتجع نقطة البيع يخصم نقاط الولاء بنسبته ويظهر الخصم في النافذة وعلى الإشعار', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosApp/bm');
+  await p.evaluate(() => {
+    window.setOrg(g => ({ ...g, taxCfg: { enabled: true, rate: 15 }, posCfg: { branches: ['b1'], autoPrint: false, returns: true }, products: [{ id: 'k', name: 'كبسة', sellPrice: 58, cat: 'رئيسي' }] }));
+    const d = new Date(); const td = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    const bd = d.getHours() < 6 ? (() => { const y = new Date(d); y.setDate(y.getDate() - 1); return y.getFullYear() + '-' + String(y.getMonth() + 1).padStart(2, '0') + '-' + String(y.getDate()).padStart(2, '0'); })() : td;
+    window.setOps(o => ({ ...o, posTabs: [], closings: o.closings.filter(c => c.branchId !== 'b1'),
+      posOrders: [{ id: 'po1', no: 'ف1-T-0001', branchId: 'b1', date: bd, at: new Date().toISOString(), by: 'كاشير', channel: 'takeaway', lines: [{ productId: 'k', name: 'كبسة', qty: 2, price: 58 }], gross: 116, disc: 0, total: 116, vat: 15.13, net: 100.87, rate: 15, payments: [{ m: 'card', amount: 116 }], change: 0, status: 'paid', loyalty: { phone: '0551234567', name: 'سالم', earned: 10, redeemed: 0 } }] }));
+  }); await p.waitForTimeout(400);
+  const ob = p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await p.waitForTimeout(400); }
+  await p.click('.pos-tabs button:has-text("الفواتير")'); await p.waitForTimeout(300);
+  await p.locator('table button:has-text("مرتجع")').first().click(); await p.waitForTimeout(200);
+  await p.fill('input[aria-label="كمية مرتجع كبسة"]', '1'); await p.waitForTimeout(150);
+  assert.match(await p.locator('.modal').innerText(), /يُخصم 5 نقطة ولاء/, '10 نقاط × (58 المتبقي ÷ 116) = 5 تبقى ⇒ يُخصم 5');
+  assert.match(await p.locator('.modal select').nth(1).innerText(), /شبكة \(طريقة الدفع الأصلية\)[\s\S]*نقدي/, 'الطريقة الأصلية أولًا والنقد خيار');
+  await p.locator('.modal button:has-text("حفظ")').last().click(); await p.waitForTimeout(500);
+  assert.match(await p.evaluate(() => window.lastSay || ''), /خُصم 5 نقطة ولاء/);
+  const r = await p.evaluate(() => { const x = window.cur.posOrders.find(o => o.kind === 'return'); return [x.loyalty, x.payments[0].m, x.total]; });
+  assert.deepEqual(r, [{ phone: '0551234567', ded: 5 }, 'card', -58], 'رُدّ على الشبكة (الأصلية)');
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v47.1 اعتماد القيد اليدوي: قيد المحاسب ينتظر ولا يدخل الدفاتر ولا يعتمده بنفسه؛ المالك يعتمده فيُرحَّل', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1280, height: 900 } }, 'live/Accounting/acc/jr');
+  await p.click('button:has-text("قيد يدوي / افتتاحي")'); await p.waitForTimeout(300);
+  await p.fill('.modal input[placeholder^="مثال: استلام"]', 'تسوية اختبار');
+  await p.locator('.modal select.jm-acc').nth(0).selectOption('5901'); await p.locator('.modal input.jm-d').nth(0).fill('250');
+  await p.locator('.modal select.jm-acc').nth(1).selectOption('1201'); await p.locator('.modal input.jm-c').nth(1).fill('250');
+  await p.click('.modal button:has-text("تسجيل القيد")'); await p.waitForTimeout(500);
+  assert.match(await p.evaluate(() => window.lastSay || ''), /أُرسل القيد للاعتماد/);
+  assert.deepEqual(await p.evaluate(() => window.cur.journalManual.filter(j => j.title === 'تسوية اختبار').map(j => [j.status, j.by])), [['pending', 'منى']]);
+  await p.click('button:has-text("قيود بانتظار الاعتماد (1)")'); await p.waitForTimeout(250);
+  assert.equal(await p.locator('[data-je-pending] button:has-text("اعتماد وترحيل")').count(), 0, 'لا يعتمد قيده بنفسه');
+  assert.match(await p.locator('[data-je-pending]').innerText(), /بانتظار اعتماد محاسب آخر أو المالك/);
+  const ops = await p.evaluate(() => window.cur); await ctx.close();
+  // المالك (مسؤول النظام) يعتمد
+  const o2 = await open({ viewport: { width: 1280, height: 900 } }, 'live/Accounting/admin/jr');
+  await o2.p.evaluate((ops) => window.setOps(ops), ops); await o2.p.waitForTimeout(300);
+  await o2.p.click('button:has-text("قيود بانتظار الاعتماد (1)")'); await o2.p.waitForTimeout(250);
+  await o2.p.locator('[data-je-pending] button:has-text("اعتماد وترحيل")').click(); await o2.p.waitForTimeout(400);
+  assert.match(await o2.p.evaluate(() => window.lastSay || ''), /اعتُمد القيد/);
+  assert.deepEqual(await o2.p.evaluate(() => window.cur.journalManual.filter(j => j.title === 'تسوية اختبار').map(j => [j.status, j.approvedBy])), [['posted', 'مجاهد']]);
+  assert.equal(await o2.p.locator('button:has-text("قيود بانتظار الاعتماد")').count(), 0, 'لا قيود معلّقة بعد الاعتماد');
+  assert.deepEqual(errs, []); assert.deepEqual(o2.errs, []); await o2.ctx.close();
 });

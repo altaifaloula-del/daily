@@ -12,7 +12,7 @@ export function StockVouchers({ org, ops, me, commit, say, fixedWh, canCreate = 
   const items = (org.items || []).filter(it => it.isActive !== false && isStocked(it));
   const whs = whOn(org) ? whOf(org) : [{ id: MAIN_WH, name: 'المستودع الرئيسي' }];
   const [whId, setWhId] = useState(fixedWh || ''); const [type, setType] = useState('');
-  const d30 = (() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10); })();
+  const d30 = (() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); })();   // v46.8: تاريخ محلي كـ today() (كان UTC فيتأخر يومًا بين منتصف الليل و3 فجرًا)
   const [from, setFrom] = useState(d30); const [to, setTo] = useState(today());
   const list = useMemo(() => voucherList(org, ops, { whId: fixedWh || whId, type, from, to }), [org, ops, fixedWh, whId, type, from, to]);
   const [vf, setVf] = useState(null);

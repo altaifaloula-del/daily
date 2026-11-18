@@ -6,7 +6,7 @@ import { Scale, FileBarChart, ChevronDown, Printer, Settings, Receipt, BarChart3
 import { VatRegisters, SupplierPurchReport } from './TaxPurchReports.jsx';   // v39.1
 import { Suppliers } from '../inv/Suppliers.jsx';   // v44.0 «مستلم لم يُفوتر»
 import { OdooBar } from '../../App.jsx';   // v41.0
-import { ACCT_SECTIONS, ACC_KIND, Field, Kpi, LOCK_MSG, MizanMerge, Modal, NUM_FACE, Num, ROLES, _xe, acctSecKey, arDate, bankOfBranch, branchBanks, bsLayout, bsRowsOf, buildAccounting, buildPartners, capOK, countedClosing, customerAging, detectStmtMap, entityById, entityList, gosiRatesFor, isLayout, isRowsOf, isoD, lockedThru, makeXlsx, money, monthEnd, monthLedger, multiEntityOn, naMissing, nowISO, openDocWin, parseCsvGrid, parseMt940, parseXlsxGrid, payTotal, periodLocked, posClrOf, printA4, qrSvg, roleEdit, rolePost, snapMonths, stAddDays, stDate, stNum, sum, supplierAging, today, uid, useSecNav, zatcaTLV } from '../../App.jsx';
+import { jeOwner, canApproveJe, ACCT_SECTIONS, ACC_KIND, Field, Kpi, LOCK_MSG, MizanMerge, Modal, NUM_FACE, Num, ROLES, _xe, acctSecKey, arDate, bankOfBranch, branchBanks, bsLayout, bsRowsOf, buildAccounting, buildPartners, capOK, countedClosing, customerAging, detectStmtMap, entityById, entityList, gosiRatesFor, isLayout, isRowsOf, isoD, lockedThru, makeXlsx, money, monthEnd, monthLedger, multiEntityOn, naMissing, nowISO, openDocWin, parseCsvGrid, parseMt940, parseXlsxGrid, payTotal, periodLocked, posClrOf, printA4, qrSvg, roleEdit, rolePost, snapMonths, stAddDays, stDate, stNum, sum, supplierAging, today, uid, useSecNav, zatcaTLV } from '../../App.jsx';
 
 export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }) {
   const [view, setView] = useState('jr');           // jr قيود · coa دليل · tb ميزان · fs قوائم
@@ -1100,18 +1100,37 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
   const saveJm = async () => {
     if (periodLocked(org, jm && jm.date)) return say(LOCK_MSG(jm.date), 'no');
     if (!jmOk) return say('القيد غير مكتمل — اختر الحسابات وتأكد أن مجموع المدين يساوي الدائن', 'no');
+    const direct = jeOwner(me);   // v47.1: قيد المالك يُرحَّل مباشرة، وغيره ينتظر اعتماد المحاسب أو المالك
     const rec = {
       id: uid('jm'), date: jm.date || today(), title: jm.title.trim() || (jm.opening ? 'قيد افتتاحي' : 'قيد يدوي'),
-      opening: !!jm.opening, by: me?.name || '', createdAt: nowISO(),
+      opening: !!jm.opening, by: me?.name || '', byId: me?.id || '', createdAt: nowISO(),
+      status: direct ? 'posted' : 'pending', ...(direct ? { approvedBy: me?.name || '', approvedAt: nowISO() } : {}),
       lines: jm.lines.filter(l => l.code && ((Number(l.debit) || 0) + (Number(l.credit) || 0)) > 0)
         .map(l => ({ code: l.code, debit: Number(l.debit) || 0, credit: Number(l.credit) || 0 }))
     };
     await commit(d => ({ ...d, journalManual: [rec, ...(d.journalManual || [])] }), {
       actionType: 'create', targetType: 'journal_entry', targetId: rec.id,
-      need: 'post', title: rec.opening ? 'أضاف قيدًا افتتاحيًا' : 'أضاف قيدًا محاسبيًا يدويًا',
+      need: 'post', title: (rec.opening ? 'أضاف قيدًا افتتاحيًا' : 'أضاف قيدًا محاسبيًا يدويًا') + (direct ? '' : ' (بانتظار الاعتماد)'),
       details: rec.title + ' · ' + money(sum(rec.lines, l => l.debit)) + ' ر.س'
     });
-    setJm(null); say('سُجّل القيد ✓ — التصحيح لاحقًا يكون بقيد عكسي لا بالحذف');
+    setJm(null); say(direct ? 'سُجّل القيد ✓ — التصحيح لاحقًا يكون بقيد عكسي لا بالحذف' : 'أُرسل القيد للاعتماد ✓ — يعتمده المحاسب أو المالك، ولا يدخل الدفاتر قبل ذلك');
+  };
+  // v47.1 — القيود اليدوية بانتظار الاعتماد
+  const [jePend, setJePend] = useState(false);
+  const pendJe = (ops.journalManual || []).filter(j => j.status === 'pending');
+  const decideJe = async (j, ok) => {
+    if (!canApproveJe(me, j)) return say(j.byId === me?.id || j.by === me?.name ? 'لا تعتمد قيدًا أدخلته بنفسك — يعتمده محاسب آخر أو المالك' : 'اعتماد القيود للمحاسب أو المالك', 'no');
+    if (ok && periodLocked(org, j.date)) return say(LOCK_MSG(j.date), 'no');
+    let reason = '';
+    if (!ok) { reason = (window.prompt('سبب رفض القيد «' + (j.title || '') + '»:') || '').trim(); if (!reason) return; }
+    const done = await commit(d => ({ ...d, journalManual: (d.journalManual || []).map(x => x.id === j.id && x.status === 'pending' ? { ...x, status: ok ? 'posted' : 'rejected', ...(ok ? { approvedBy: me?.name || '', approvedAt: nowISO() } : { rejectedBy: me?.name || '', rejectedAt: nowISO(), rejectReason: reason }) } : x) }),
+      { actionType: ok ? 'approve' : 'reject', targetType: 'journal_entry', targetId: j.id, need: 'post', title: (ok ? 'اعتمد' : 'رفض') + ' قيدًا يدويًا — ' + (j.title || ''), details: money(sum(j.lines || [], l => l.debit || 0)) + ' ر.س · أدخله ' + (j.by || '') + (reason ? ' · السبب: ' + reason : '') });
+    if (done) say(ok ? 'اعتُمد القيد ورُحّل للدفاتر ✓' : 'رُفض القيد');
+  };
+  const delPendJe = async (j) => {
+    if (!(j.byId === me?.id || j.by === me?.name || canApproveJe(me))) return say('الحذف لمن أدخل القيد أو للمعتمِد', 'no');
+    if (!window.confirm('حذف القيد «' + (j.title || '') + '» قبل اعتماده؟')) return;
+    await commit(d => ({ ...d, journalManual: (d.journalManual || []).filter(x => !(x.id === j.id && x.status === 'pending')) }), { actionType: 'delete', targetType: 'journal_entry', targetId: j.id, need: 'post', title: 'حذف قيدًا يدويًا قبل اعتماده — ' + (j.title || '') });
   };
 
   // v9.7 — الحسابات القابلة لإدخال رصيد افتتاحي (أصول/خصوم، عدا ضريبة ومجمع إهلاك وأصول ثابتة ورأس المال المحسوب)
@@ -1407,7 +1426,9 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
           { id: 'tools', ar: 'أدوات', icon: Download, items: ['export', 'mizan'] }
         ];
         const ok = (v) => viewOK(v) && (v !== 'mizan' || canPost);
-        const manualBtn = canPost && ACCT_SECTIONS.some(s => viewOK(s.v)) && <button className="btn sm" style={{ marginInlineStart: 'auto' }} onClick={newJm}><Plus size={14} />قيد يدوي / افتتاحي</button>;
+        const manualBtn = canPost && ACCT_SECTIONS.some(s => viewOK(s.v)) && <>
+          {pendJe.length > 0 && <button className="btn sm" style={{ marginInlineStart: 'auto', color: 'var(--amber)' }} onClick={() => setJePend(true)}><ClipboardCheck size={14} />قيود بانتظار الاعتماد ({pendJe.length})</button>}
+          <button className="btn sm" style={pendJe.length ? undefined : { marginInlineStart: 'auto' }} onClick={newJm}><Plus size={14} />قيد يدوي / افتتاحي</button></>;
         const modeSw = (
           <div className="acct-mode" role="group" aria-label="طريقة عرض الأقسام">
             <button className={acctNavMode === 'dd' ? 'on' : ''} onClick={() => switchAcctNav('menu')} title="شريط قوائم"><ChevronDown size={14} /><span>قوائم</span></button>
@@ -3676,6 +3697,24 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
         );
       })()}
 
+      {jePend && (
+        <Modal title={'قيود بانتظار الاعتماد (' + pendJe.length + ')'} icon={ClipboardCheck} onClose={() => setJePend(false)} wide>
+          <div className="note" style={{ marginBottom: 8 }}>يعتمد القيدَ المحاسبُ أو المالك، ولا يعتمد أحدٌ قيدًا أدخله بنفسه. القيد لا يدخل الدفاتر قبل اعتماده.</div>
+          {!pendJe.length && <div className="empty">لا قيود بانتظار الاعتماد.</div>}
+          {pendJe.map(j => <div key={j.id} className="card" style={{ marginBottom: 8 }} data-je-pending={j.id}>
+            <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}><b>{j.title}</b><span className="num" style={{ fontSize: 12, color: 'var(--dim)' }}>{j.date} · أدخله {j.by}</span></div>
+            <div className="tw"><table className="tb"><thead><tr><th>الحساب</th><th style={{ textAlign: 'end' }}>مدين</th><th style={{ textAlign: 'end' }}>دائن</th></tr></thead><tbody>
+              {(j.lines || []).map((l, i) => <tr key={i}><td>{l.code} · {(A.accounts.find(a => a.code === l.code) || {}).name || ''}</td><td className="num" style={{ textAlign: 'end' }}>{l.debit ? money(l.debit) : ''}</td><td className="num" style={{ textAlign: 'end' }}>{l.credit ? money(l.credit) : ''}</td></tr>)}
+            </tbody></table></div>
+            <div className="row" style={{ gap: 6, marginTop: 6 }}>
+              {canApproveJe(me, j) && <button className="btn sm pri" onClick={() => decideJe(j, true)}><Check size={13} />اعتماد وترحيل</button>}
+              {canApproveJe(me, j) && <button className="btn sm gh" style={{ color: 'var(--rose)' }} onClick={() => decideJe(j, false)}>رفض</button>}
+              {(j.byId === me?.id || j.by === me?.name) && <button className="btn sm gh" onClick={() => delPendJe(j)}><Trash2 size={13} />حذف</button>}
+              {!canApproveJe(me, j) && <span style={{ fontSize: 12, color: 'var(--dim)', alignSelf: 'center' }}>{j.byId === me?.id || j.by === me?.name ? 'بانتظار اعتماد محاسب آخر أو المالك' : 'الاعتماد للمحاسب أو المالك'}</span>}
+            </div>
+          </div>)}
+        </Modal>
+      )}
       {jm && (
         <Modal title={jm.opening ? 'قيد افتتاحي' : 'قيد محاسبي يدوي'} sub="مجموع المدين يجب أن يساوي مجموع الدائن — وكل سطر في جهة واحدة فقط"
           icon={FileText} onClose={() => setJm(null)} wide
