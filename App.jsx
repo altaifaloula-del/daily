@@ -3015,7 +3015,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v47.5';
+const APP_VER = 'v47.6';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -6100,14 +6100,36 @@ function SalesHub(props) {
    الحقل يُكتب فيه بمحاكاة الإدخال الأصلي فتعمل فلاتر React كما لو كتب المستخدم. استثناء حقل: data-novoice. */
 const VOICE_SEL = 'input[type="search"],input[data-voice],input[placeholder*="بحث"],input[placeholder*="ابحث"],input[aria-label*="بحث"],input[placeholder*="Search"],input[placeholder*="search"]';
 const voiceSR = () => (typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition)) || null;
-const voiceNorm = (t) => String(t || '').replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[۰-۹]/g, d => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[.。؟?!،,]+$/g, '').trim();
+// v47.6: الأرقام المنطوقة كلمات («ألفين وستة وعشرين» ← 2026)، وحذف أوامر البدء («ابحث عن…»)، وتوحيد الأرقام العربية
+const VW_N = {  'صفر': 0, 'واحد': 1, 'وحده': 1, 'واحدة': 1, 'اثنين': 2, 'اثنان': 2, 'إثنين': 2, 'اتنين': 2, 'ثلاث': 3, 'ثلاثة': 3, 'ثلاثه': 3, 'أربع': 4, 'اربع': 4, 'أربعة': 4, 'اربعة': 4, 'اربعه': 4, 'خمس': 5, 'خمسة': 5, 'خمسه': 5, 'ست': 6, 'ستة': 6, 'سته': 6,
+  'سبع': 7, 'سبعة': 7, 'سبعه': 7, 'ثمان': 8, 'ثماني': 8, 'ثمانية': 8, 'ثمانيه': 8, 'تسع': 9, 'تسعة': 9, 'تسعه': 9, 'عشر': 10, 'عشرة': 10, 'عشره': 10, 'اثنا': 2, 'اثني': 2,
+  'عشرين': 20, 'عشرون': 20, 'ثلاثين': 30, 'ثلاثون': 30, 'أربعين': 40, 'اربعين': 40, 'خمسين': 50, 'ستين': 60, 'سبعين': 70, 'ثمانين': 80, 'تسعين': 90,
+  'مية': 100, 'ميه': 100, 'مائة': 100, 'مئة': 100, 'ميتين': 200, 'مئتين': 200, 'مائتين': 200, 'مئتان': 200, 'ثلاثمية': 300, 'ثلاثمائة': 300, 'ثلاثمئة': 300, 'اربعمية': 400, 'أربعمائة': 400, 'أربعمئة': 400, 'خمسمية': 500, 'خمسمائة': 500, 'خمسمئة': 500,
+  'ستمية': 600, 'ستمائة': 600, 'ستمئة': 600, 'سبعمية': 700, 'سبعمائة': 700, 'سبعمئة': 700, 'ثمانمية': 800, 'ثمانمائة': 800, 'ثمانمئة': 800, 'تسعمية': 900, 'تسعمائة': 900, 'تسعمئة': 900 };
+const VW_M = { 'ألف': 1000, 'الف': 1000, 'آلاف': 1000, 'الاف': 1000, 'ألفين': 2000, 'الفين': 2000, 'ألفان': 2000, 'مليون': 1e6, 'ملايين': 1e6 };
+function voiceWords(t) {
+  const W = String(t).split(/\s+/); const out = []; let cur = null, tot = 0;
+  const flush = () => { if (cur != null || tot) { out.push(String(tot + (cur || 0))); } cur = null; tot = 0; };
+  W.forEach(w0 => { const w = w0.replace(/^و(?=\S{2,})/, (m) => (VW_N[w0.slice(1)] != null || VW_M[w0.slice(1)] != null) ? '' : m);
+    if (VW_N[w] != null) { const v = VW_N[w]; cur = (cur || 0) + (v === 10 && cur != null && cur < 10 ? 10 : v); return; }
+    if (VW_M[w] != null) { const m = VW_M[w]; if (m === 2000 && cur == null) tot += 2000; else tot += (cur == null ? 1 : cur) * m; cur = null; return; }
+    if (/^\d+$/.test(w) && (cur != null || tot)) { cur = (cur || 0) + Number(w); return; }
+    flush(); out.push(w0); });
+  flush(); return out.join(' ');
+}
+const voiceNorm = (t) => {
+  let x = String(t || '').replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[۰-۹]/g, d => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[.。؟?!،,]+$/g, '').trim();
+  x = x.replace(/^(?:(?:لو سمحت|من فضلك)\s+)?(?:ابحث|إبحث|بحث|دور|دوّر|اعرض|أعرض|افتح|search(?: for)?|find|show)\s+(?:عن|على|لي|علي)?\s*/i, '');
+  x = voiceWords(x);
+  return x.replace(/(\d)\s*(?:شرطة|داش|-)\s*(\d)/g, '$1-$2').replace(/\s+/g, ' ').trim();
+};
 function voiceFill(el, text) {
   try { const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; set.call(el, text);
     el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); } catch { /* */ }
 }
 function VoiceSearchHost({ lang }) {
   const SR = voiceSR();
-  const [spots, setSpots] = useState([]); const [live, setLive] = useState(null); const [msg, setMsg] = useState('');
+  const [spots, setSpots] = useState([]); const [live, setLive] = useState(null); const [msg, setMsg] = useState(''); const [heard, setHeard] = useState('');
   const recRef = useRef(null); const elsRef = useRef([]);
   useEffect(() => {
     if (!SR) return undefined;
@@ -6119,7 +6141,7 @@ function VoiceSearchHost({ lang }) {
         const r = el.getBoundingClientRect(); if (r.width < 90 || r.height < 18 || r.bottom < 0 || r.top > vh || r.right < 0 || r.left > vw) return;
         const cx = Math.min(vw - 2, Math.max(1, r.left + r.width / 2)), cy = Math.min(vh - 2, Math.max(1, r.top + r.height / 2));
         const hit = document.elementFromPoint(cx, cy); if (!hit || (hit !== el && !el.contains(hit) && !hit.closest('[data-voicebtn]'))) return;   // مغطّى بنافذة
-        const rtl = getComputedStyle(el).direction === 'rtl'; const sz = Math.min(28, Math.max(22, r.height - 8));
+        const rtl = getComputedStyle(el).direction === 'rtl'; const sz = Math.min(32, Math.max(26, r.height - 6));
         if (!el.dataset.vpad) { el.dataset.vpad = '1'; el.style.paddingInlineEnd = (sz + 10) + 'px'; }
         els.push(el); out.push({ i: els.length - 1, top: r.top + (r.height - sz) / 2, left: rtl ? r.left + 5 : r.right - sz - 5, sz });
       });
@@ -6134,17 +6156,35 @@ function VoiceSearchHost({ lang }) {
     return () => { mo.disconnect(); window.removeEventListener('scroll', kick, true); window.removeEventListener('resize', kick); clearInterval(iv); clearTimeout(tm); if (raf) cancelAnimationFrame(raf); };
   }, [SR]);
   const stop = () => { try { recRef.current && recRef.current.stop(); } catch { /* */ } };
-  const start = (k) => {
+  // v47.6 — استجابة أقوى: جلسة مستمرة تنتظر بدء الكلام (حتى 7 ث)، وتنتهي بعد 1.3 ث من آخر كلمة، وتعرض النص المسموع حيًّا،
+  //          وتعيد المحاولة مرة تلقائيًا إن انتهت الجلسة فورًا (يحدث في iOS)، ولا تفتح لوحة المفاتيح على اللمس.
+  const timers = useRef({});
+  const clearT = () => { const T = timers.current; clearTimeout(T.sil); clearTimeout(T.max); clearTimeout(T.wait); };
+  const start = (k, retry) => {
     const el = elsRef.current[k]; if (!el || !SR) return;
-    if (live) { stop(); if (live.el === el) return; }
-    try { el.focus({ preventScroll: true }); } catch { /* */ }
+    if (live && !retry) { stop(); if (live.el === el) return; }
+    const touch = typeof matchMedia === 'function' && matchMedia('(pointer:coarse)').matches;
+    if (!touch) { try { el.focus({ preventScroll: true }); } catch { /* */ } }
     const rec = new SR(); recRef.current = rec;
-    rec.lang = lang === 'en' ? 'en-US' : 'ar-SA'; rec.interimResults = true; rec.continuous = false; rec.maxAlternatives = 1;
-    const before = el.value;
-    rec.onresult = (ev) => { let t = ''; for (let i = 0; i < ev.results.length; i++) t += ev.results[i][0].transcript; voiceFill(el, voiceNorm(t)); };
-    rec.onerror = (ev) => { const c = ev && ev.error; setMsg(c === 'not-allowed' || c === 'service-not-allowed' ? 'اسمح للمتصفح باستخدام الميكروفون' : c === 'no-speech' ? 'لم يُلتقط صوت — حاول مجددًا' : c === 'aborted' ? '' : 'تعذّر التعرّف على الصوت'); if (c === 'no-speech') voiceFill(el, before); };
-    rec.onend = () => { setLive(null); recRef.current = null; };
-    try { rec.start(); setLive({ el, k }); setMsg(''); } catch { setLive(null); }
+    rec.lang = lang === 'en' ? 'en-US' : 'ar-SA'; rec.interimResults = true; rec.continuous = true; rec.maxAlternatives = 1;
+    const before = el.value, t0 = Date.now(); let got = false, ended = false;
+    const T = timers.current; clearT();
+    T.wait = setTimeout(() => { if (!got) { setMsg('لم يُلتقط صوت — اقترب من الميكروفون وحاول مجددًا'); stop(); } }, 7000);
+    T.max = setTimeout(() => stop(), 15000);
+    rec.onresult = (ev) => { let t = ''; for (let i = 0; i < ev.results.length; i++) t += ev.results[i][0].transcript;
+      const v = voiceNorm(t); got = got || !!v; voiceFill(el, v); setHeard(v);
+      clearTimeout(T.sil); const fin = ev.results.length && ev.results[ev.results.length - 1].isFinal; T.sil = setTimeout(() => stop(), fin ? 700 : 1300); };
+    rec.onerror = (ev) => { const c = ev && ev.error;
+      if (c === 'not-allowed' || c === 'service-not-allowed') setMsg('اسمح للمتصفح باستخدام الميكروفون من الإعدادات');
+      else if (c === 'network') setMsg('التعرّف على الصوت يحتاج اتصالًا بالإنترنت');
+      else if (c === 'audio-capture') setMsg('لا يوجد ميكروفون متاح');
+      else if (c === 'no-speech') { if (!got) voiceFill(el, before); }
+      else if (c !== 'aborted') setMsg('تعذّر التعرّف على الصوت'); };
+    rec.onend = () => { if (ended) return; ended = true; clearT();
+      // iOS قد ينهي الجلسة فور بدئها قبل أن يبدأ المستخدم الكلام — نعيدها مرة واحدة
+      if (!got && !retry && Date.now() - t0 < 1500 && recRef.current === rec) { recRef.current = null; setTimeout(() => start(k, true), 120); return; }
+      setLive(null); setHeard(''); recRef.current = null; };
+    try { rec.start(); setLive({ el, k }); setMsg(''); setHeard(''); try { navigator.vibrate && navigator.vibrate(15); } catch { /* */ } } catch { setLive(null); }
   };
   useEffect(() => { if (!msg) return undefined; const t = setTimeout(() => setMsg(''), 3500); return () => clearTimeout(t); }, [msg]);
   if (!SR || (!spots.length && !msg)) return null;
@@ -6155,7 +6195,7 @@ function VoiceSearchHost({ lang }) {
         onMouseDown={e => e.preventDefault()} onPointerDown={e => e.preventDefault()} onClick={() => (on ? stop() : start(p.i))}>
         <svg viewBox="0 0 24 24" width="60%" height="60%" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2.5" width="6" height="12" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3.5" /></svg>
       </button>; })}
-    {(live || msg) && <div className="voicetoast" role="status">{live ? (lang === 'en' ? 'Listening…' : 'أستمع… تكلّم الآن') : msg}</div>}
+    {(live || msg) && <div className={'voicetoast' + (live ? ' on' : '')} role="status" data-voicetoast>{live ? <><i className="vdot" />{heard ? '«' + heard + '»' : (lang === 'en' ? 'Listening… speak now' : 'أستمع… تكلّم الآن')}</> : msg}</div>}
   </>, document.body);
 }
 

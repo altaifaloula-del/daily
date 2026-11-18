@@ -1911,4 +1911,11 @@ table.tb.tb-fp{min-width:520px}
 .doclink{background:none;border:0;padding:0;margin:0;font:inherit;color:var(--acc,#2C6BC4);cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;text-align:inherit}
 .doclink:hover{color:var(--gold,#C8A24A)}
 @media (prefers-reduced-motion:reduce){.voicebtn.on{animation:none}}
+
+/* v47.6 — البحث بالصوت: هدف لمس أكبر ونص مسموع حيّ */
+.voicebtn{color:#6B7891}
+.voicebtn::after{content:'';position:absolute;inset:-8px}
+@media(pointer:coarse){.voicebtn{color:#C8A24A}}
+.voicetoast{display:flex;align-items:center;gap:8px;max-width:min(92vw,520px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14px;padding:11px 18px}
+.voicetoast .vdot{width:9px;height:9px;border-radius:50%;background:#D9534F;flex-shrink:0;animation:vpulse 1.1s ease-in-out infinite}
 `;
