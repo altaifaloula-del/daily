@@ -2984,7 +2984,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v46.9';
+const APP_VER = 'v47.0';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3039,7 +3039,7 @@ class ErrorBoundary extends React.Component {
   }
 }
 export { ErrorBoundary, logClientError, lockedLedgerChanged };
-export { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, saleRetUse };   // v46.8 مرتجع نقطة البيع   // v46.8: للاختبارات الوظيفية (حارس الإقفال)
+export { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, saleRetUse, posReturnLoyDed };   // v46.8 مرتجع نقطة البيع   // v46.8: للاختبارات الوظيفية (حارس الإقفال)
 if (typeof window !== 'undefined' && !window.__mizanErrHook) {
   window.__mizanErrHook = true;
   window.addEventListener('error', (e) => logClientError(e.error || e.message, 'window'));
@@ -6642,6 +6642,14 @@ function posReturnCalc(o, qtys) {
   const total = posR2(rl.reduce((a, l) => a + l.amount, 0)); const vat = (Number(o.total) || 0) > 0 ? posR2(total * (Number(o.vat) || 0) / Number(o.total)) : 0;
   return { lines: rl, total, vat, net: posR2(total - vat) };
 }
+// v46.9 (قرار المالك): نقاط الولاء المكتسبة تُخصم بنسبة المرتجع — المتبقي للعميل = نقاط الفاتورة × (المتبقي من مبلغها ÷ مبلغها)،
+// بالتقريب للأسفل؛ فالمرتجع الكامل يخصم كل نقاطها، ومجموع الخصم عبر مرتجعات متعددة لا يتجاوز ما اكتسبه
+function posReturnLoyDed(ops, o, refund) {
+  const earned = Number((o.loyalty || {}).earned) || 0, tot = Number(o.total) || 0; if (!(earned > 0) || !(tot > 0)) return 0;
+  let prevAmt = 0, prevDed = 0; (ops.posOrders || []).forEach(r => { if (r.kind === 'return' && r.refId === o.id && r.status !== 'void') { prevAmt += -(Number(r.total) || 0); prevDed += Number((r.loyalty || {}).ded) || 0; } });
+  const keep = Math.floor(earned * Math.max(0, tot - prevAmt - (Number(refund) || 0)) / tot + 1e-9);
+  return Math.max(0, earned - keep - prevDed);
+}
 // طرق الرد المتاحة: طرق دفع الفاتورة الأصلية + النقد دائمًا
 function posRefundOptions(o) {
   const seen = new Set(), out = [];
@@ -6662,7 +6670,7 @@ function posReturnHtml(org, r, br) {
   <div class="c s">رقم: ${_xe(r.no)} · ${_xe((r.at || '').slice(0, 10))}<br>عن الفاتورة: ${_xe(r.refNo || '')}<br>السبب: ${_xe(wasteReasonAr(r.reason))}${r.note ? ' — ' + _xe(r.note) : ''}</div>
   <table>${L}<tr><td colspan="2">المرتجع قبل الضريبة</td><td class="n">${m(r.net)}</td></tr><tr><td colspan="2">ضريبة القيمة المضافة</td><td class="n">${m(r.vat)}</td></tr>
   <tr class="tot"><td colspan="2">المبلغ المردود شامل الضريبة</td><td class="n">${m(r.total)}</td></tr><tr><td colspan="2">طريقة الرد</td><td class="n">${_xe(pmAr)}</td></tr></table>
-  <div class="c s" style="margin-top:6px">اعتمده: ${_xe(r.by || '')}</div>${qr ? '<div class="qr">' + qr + '</div>' : ''}</body></html>`;
+  ${r.loyalty && r.loyalty.ded ? `<div class="c s" style="margin-top:6px;border:1px dashed #999;padding:4px">خُصم من نقاط الولاء: ${r.loyalty.ded}</div>` : ''}<div class="c s" style="margin-top:6px">اعتمده: ${_xe(r.by || '')}</div>${qr ? '<div class="qr">' + qr + '</div>' : ''}</body></html>`;
 }
 // v44.7 — عرض ورق الإيصال: 80 مم (الافتراضي) أو 58 مم — إعداد عام للمنشأة، ويمكن لكل جهاز كاشير تخصيصه لطابعته
 const POS_PAPER_KEY = 'rms8:posPaper';
@@ -11260,7 +11268,8 @@ function sigDigest(kind, x) {
 /* ===== v41.9 — الإغلاقات سجلات مستقلة (closings/{id}) — المرحلة الأولى: نسخ مطابق (mirror) =====
    مستند الفرع يبقى مصدر الحقيقة في هذه المرحلة؛ كل كتابة إغلاق تُنسخ إلى سجل مستقل تحرسه القواعد حقلًا حقلًا
    (الفرع: مسودة/مرحّل فقط؛ «معتمد/مرفوض/نهائي» بتوقيع موثّق للكاتب نفسه). المطابقة تكشف أي فرق بين الاثنين.
-   مُطفأة افتراضيًا: org.closingRecords = { on: true } يفعّلها المدير. */
+   v46.9 (قرار المالك): مفعّلة افتراضيًا — تُطفأ صراحةً فقط بـ org.closingRecords = { on: false } من «صيانة النظام».
+   القراءة من السجلات (المرحلة الثانية) تبقى قرارًا يدويًا بعد مطابقة كاملة. */
 const CLR_BIG = 4000;   // الحقول النصية الكبيرة (صور base64) لا تُنسخ — الصور في أرشيف المستندات
 const clrData = (x) => JSON.stringify(x, (k, v) => (typeof v === 'string' && v.length > CLR_BIG) ? '[ملف]' : v);
 const clrGm = (v) => ['pending', 'approved', 'rejected'].includes(v) ? v : '';
@@ -11294,7 +11303,7 @@ function clrCompare(closings, recs) {
   const extra = (recs || []).filter(r => !seen.has(r.id));
   return { ok: !missing.length && !differ.length && !extra.length, missing, differ, extra, total: (closings || []).length, recs: (recs || []).length };
 }
-const clrOn = (org) => !!(org && org.closingRecords && org.closingRecords.on);
+const clrOn = (org) => !!org && !(org.closingRecords && org.closingRecords.on === false);
 let _clrState = { at: 0, ok: 0, fail: 0, lastErr: '' };
 const clrState = () => _clrState;
 /** نسخ الفرق إلى السجلات المستقلة — لا يُفشل الحفظ (المستند ما زال المصدر)، ويُسجَّل الإخفاق للمطابقة */
@@ -11313,7 +11322,7 @@ async function clrMirror(before, after) {
 /* v42.2 — المرحلة الثانية: القراءة من السجلات المستقلة (org.closingRecords.read)
    السجل هو المصدر: أرقامه وحالته وقراره (الحقول التي تحرسها القواعد) تغلب ما في مستند الفرع؛ الصور (المختصرة في السجل)
    تُستعاد من مستند الفرع. إغلاق «معتمد» في مستند الفرع بلا سجل يُعرض «مرحّلًا» ويُعلَّم — لا اعتماد بلا توقيع موثّق. */
-const clrRead = (org) => !!(org && org.closingRecords && org.closingRecords.on && org.closingRecords.read);
+const clrRead = (org) => clrOn(org) && !!(org.closingRecords && org.closingRecords.read);
 function clrRestore(rv, bv) {
   if (rv === '[ملف]') return typeof bv === 'string' ? bv : '';
   if (Array.isArray(rv)) return rv.map((x, i) => clrRestore(x, Array.isArray(bv) ? bv[i] : undefined));

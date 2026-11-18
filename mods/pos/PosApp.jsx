@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { cloud, KEYS, brKey, bfKey } from '../../storage';
 import { Store, X, RefreshCw, FileText, Clock, ShieldCheck, Check, Plus, Printer, Download, Lock, Banknote, ChefHat, LayoutGrid, Send } from 'lucide-react';
 import { posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim } from '../../App.jsx';   // v42.9
-import { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, WASTE_REASONS } from '../../App.jsx';   // v46.8 المرتجع
+import { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, posReturnLoyDed, WASTE_REASONS } from '../../App.jsx';   // v46.8 المرتجع
 import { posDocView, APPS, CloudHealth, Field, Modal, Num, POS_SH_KEY, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, QUOTA_MSG, ROLES, businessDay, isoD, logClientError, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, makeXlsx, money, normPhone, nowISO, pendShiftsGet, pendShiftsSet, posCashNet, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posTotals, posZHtml, promoActive, promoHits, sha256Hex, uid } from '../../App.jsx';
 
 export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
@@ -204,7 +204,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     if (closed) return say('إغلاق اليوم مُرحّل — لا يُسجَّل مرتجع عليه', 'no');
     const opt = posRefundOptions(o).find(x => x.k === ret.k) || { m: 'cash' };
     if (opt.m === 'cash' && !shift) return say('الرد نقدًا يحتاج وردية مفتوحة على هذا الجهاز', 'no');
-    const C = posReturnCalc(o, qs);
+    const C = posReturnCalc(o, qs); const loyDed = posReturnLoyDed(ops, o, C.total);
     if (opt.m === 'cash' && shift) { const drawer = posR2((Number(shift.openingCash) || 0) + posOrdersStats(shiftOrders(shift)).cash); if (C.total > drawer + 0.004) return say('النقد في الدرج (' + money(drawer) + ') أقل من المبلغ المردود', 'no'); }
     const yy = today.replace(/-/g, '').slice(2); const sk = 'mizan:posRetSeq:' + br.id + ':' + today, hk = 'mizan:posHash:' + br.id;
     let seq = 1, prev = { icv: 0, hash: '0' }; try { seq = (Number(localStorage.getItem(sk)) || 0) + 1; prev = JSON.parse(localStorage.getItem(hk) || '{"icv":0,"hash":"0"}'); } catch { }
@@ -212,12 +212,13 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     const r = { id: uid('pr'), kind: 'return', refId: o.id, refNo: o.no, no: 'م' + bi + '-' + yy + '-' + dev.tag + '-' + String(seq).padStart(4, '0'), branchId: br.id, dev: dev.tag, ...(shift ? { shiftId: shift.id } : {}),
       date: today, at: nowISO(), by: me.name, channel: o.channel, lines: [], retLines: C.lines, gross: -C.total, disc: 0, manualDisc: 0, total: -C.total, vat: -C.vat, net: -C.net, rate: o.rate,
       payments: [{ m: opt.m, amount: -C.total, ...(opt.appId ? { appId: opt.appId, appName: opt.appName } : {}), ...(opt.pm ? { pm: opt.pm, pmName: opt.pmName } : {}) }], change: 0, status: 'paid',
-      reason: ret.reason, ...(ret.note.trim() ? { note: ret.note.trim() } : {}), icv: (prev.icv || 0) + 1, pih: prev.hash || '0' };
+      reason: ret.reason, ...(ret.note.trim() ? { note: ret.note.trim() } : {}), ...(loyDed ? { loyalty: { phone: o.loyalty.phone, ded: loyDed } } : {}), icv: (prev.icv || 0) + 1, pih: prev.hash || '0' };
     r.hash = sha256Hex(JSON.stringify([r.no, r.at, r.retLines, r.total, r.vat, r.payments, r.icv, r.pih, r.refId]));
     const ok = await commit(d => ({ ...d, posOrders: [...(d.posOrders || []), r] }), { actionType: 'create', targetType: 'pos_order', targetId: r.id, branchName: br.name, title: 'مرتجع ' + r.no + ' عن الفاتورة ' + o.no, details: C.lines.map(l => l.name + ' ×' + l.qty).join('، ') + ' · ' + money(C.total) + ' · ' + WASTE_REASONS[ret.reason] });
     if (!ok) return say('تعذّر حفظ المرتجع', 'no');
     try { localStorage.setItem(sk, String(seq)); localStorage.setItem(hk, JSON.stringify({ icv: r.icv, hash: r.hash })); } catch { }
-    setRet(null); say('سُجّل المرتجع ' + r.no + ' — رُدّ ' + money(C.total));
+    if (loyDed) { loyQSet([...loyQ(), { id: r.id + ':rd', phone: o.loyalty.phone, name: o.loyalty.name || '', pts: -loyDed, at: r.at, br: br.id, ord: r.no + ' (مرتجع عن ' + o.no + ')' }]); flush(); }   // v46.9 خصم نقاط الولاء
+    setRet(null); say('سُجّل المرتجع ' + r.no + ' — رُدّ ' + money(C.total) + (loyDed ? ' · خُصم ' + loyDed + ' نقطة ولاء' : ''));
     if (printNow) posPrint(posReturnHtml(org, r, br));
   };
 
@@ -530,7 +531,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
             <Field label="رد المبلغ"><select className="sel" value={ret.k} onChange={e => setRet(x => ({ ...x, k: e.target.value }))}>{opts.map(x => <option key={x.k} value={x.k}>{optAr(x)}{x.k === opts[0].k ? ' (طريقة الدفع الأصلية)' : ''}</option>)}</select></Field>
           </div>
           <Field label={ret.reason === 'other' ? 'وصف السبب (إلزامي)' : 'ملاحظة'}><input className="inp" value={ret.note} onChange={e => setRet(x => ({ ...x, note: e.target.value }))} /></Field>
-          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}><span className="badge b-rose">المبلغ المردود {money(C.total)}</span><span className="badge b-dim">منها ضريبة {money(C.vat)}</span></div>
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}><span className="badge b-rose">المبلغ المردود {money(C.total)}</span><span className="badge b-dim">منها ضريبة {money(C.vat)}</span>{(() => { const d = posReturnLoyDed(ops, o, C.total); return d > 0 ? <span className="badge b-amber">يُخصم {d} نقطة ولاء</span> : null; })()}</div>
         </Modal>; })()}
       {pay && <Modal title={'الدفع — ' + money(T.total)} icon={Banknote} onClose={() => setPay(null)}
         foot={<><button className="btn pri" style={{ flex: 1, minHeight: 50, fontSize: 16 }} onClick={() => checkout(cfg.autoPrint !== false)}><Check size={16} />{cfg.autoPrint !== false ? 'تأكيد وطباعة' : 'تأكيد'}</button>

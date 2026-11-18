@@ -1053,8 +1053,9 @@ test('v41.9 سجلات الإغلاق المستقلة: الفرق، مرجع ا
   const K = E.clrCompare([aud, c({ id: 'c5' })], [{ ...recOf(aud), status: 'submitted' }, recOf(c({ id: 'c9' }))]);
   assert.deepEqual([K.ok, K.missing.map(x => x.id), K.differ.map(x => x.id), K.extra.map(x => x.id)], [false, ['c5'], ['c1'], ['c9']]);
   assert.equal(E.clrCompare([{ ...aud, cashSales: 999 }], [recOf(aud)]).differ.length, 1, 'تعديل الأرقام في مستند الفرع يُكشف');
-  assert.equal(E.clrOn({ closingRecords: { on: true } }), true); assert.equal(E.clrOn({}), false, 'مُطفأة افتراضيًا');
-  assert.equal(E.clrOn(E.dirOf({ company: {}, closingRecords: { on: true } })), true, 'الإشارة تصل لأجهزة الفروع عبر الدليل');
+  assert.equal(E.clrOn({ closingRecords: { on: true } }), true); assert.equal(E.clrOn({}), true, 'v46.9: مفعّلة افتراضيًا (قرار المالك)'); assert.equal(E.clrOn({ closingRecords: { on: false } }), false, 'تُطفأ صراحةً فقط'); assert.equal(E.clrOn(E.dirOf({ company: {} })), true);
+  assert.equal(E.clrRead({ closingRecords: { read: true } }), true, 'القراءة تتبع التفعيل الافتراضي'); assert.equal(E.clrRead({}), false, 'القراءة يدوية');
+  assert.equal(E.clrOn(E.dirOf({ company: {}, closingRecords: { on: false } })), false, 'الإشارة (ومنها الإيقاف) تصل لأجهزة الفروع عبر الدليل');
 });
 
 test('v42.0 فرق سعر الشراء (مقابل آخر سعر) ودوران المخزون', () => {
@@ -1488,4 +1489,14 @@ test('v46.8 مرتجع نقطة البيع — المخزون والدفاتر: 
   assert.ok(E.wasteRows(org, s2, { i1: 40 }).some(r => r.reason === 'prep' && r.val === 20), 'يظهر في تقارير الهدر بسببه وقيمته');
   // حفظ المرتجع نفسه مرة ثانية لا يكرر الحركات
   assert.equal(E.syncSaleMoves(org, s1, { ...s2, posOrders: [sale, ret] }).whMoves.filter(m => m.kind === 'waste').length, 1);
+});
+
+test('v46.9 مرتجع نقطة البيع — نقاط الولاء تُخصم بنسبة المرتجع، والمرتجع الكامل يخصم كلها، ولا يتجاوز المجموع ما اكتُسب', () => {
+  const o = { id: 'o1', total: 100, loyalty: { phone: '0500000000', earned: 10 } };
+  assert.equal(E.posReturnLoyDed({ posOrders: [o] }, o, 25), 3, 'يبقى floor(10 × 75/100) = 7 ⇒ يُخصم 3');
+  assert.equal(E.posReturnLoyDed({ posOrders: [o] }, o, 100), 10, 'المرتجع الكامل يخصم كل النقاط');
+  const r1 = { id: 'r1', kind: 'return', refId: 'o1', status: 'paid', total: -25, loyalty: { ded: 3 } };
+  assert.equal(E.posReturnLoyDed({ posOrders: [o, r1] }, o, 75), 7, 'المرتجع الثاني لباقي الفاتورة: 10 − 3 = 7');
+  assert.equal(E.posReturnLoyDed({ posOrders: [o, r1] }, o, 10), 1, 'يبقى floor(10 × 65/100) = 6 ⇒ 10 − 6 − 3 = 1');
+  assert.equal(E.posReturnLoyDed({ posOrders: [{ id: 'x', total: 50 }] }, { id: 'x', total: 50 }, 50), 0, 'فاتورة بلا عميل ولاء');
 });

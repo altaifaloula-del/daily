@@ -733,14 +733,17 @@ test('v41.8 فحص النسخة الليلية المشفّرة: يُطلب ال
   assert.deepEqual(errs, []); await ctx.close();
 });
 
-test('v41.9 الإغلاقات سجلات مستقلة: مُطفأة افتراضيًا، يفعّلها المدير بتأكيد، وتصل الإشارة لأجهزة الفروع عبر الدليل', async () => {
+test('v41.9/v46.9 الإغلاقات سجلات مستقلة: مفعّلة افتراضيًا (قرار المالك)، يوقفها المدير ويعيدها، والقراءة لا تُفعَّل قبل مطابقة', async () => {
   const ctx = await browser.newContext(devices['iPad (gen 7)']); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
   p.on('dialog', d => d.accept());
   await p.goto(base + 'live/Admin/admin'); await p.reload(); await p.waitForTimeout(500); await settle(p);
   await p.locator('button:has-text("صيانة")').first().click(); await p.waitForTimeout(500);
   const card = p.locator('[data-clr]');
+  assert.match(await card.innerText(), /النسخ مفعّل/, 'v46.9: مفعّل افتراضيًا');
+  await card.locator('button:has-text("إيقاف النسخ")').click(); await p.waitForTimeout(400);
+  assert.equal(await p.evaluate(() => (window.curOrg.closingRecords || {}).on), false);
   assert.match(await card.innerText(), /غير مفعّل/);
-  assert.equal(await card.locator('button:has-text("ترحيل الإغلاقات الحالية")').count(), 0, 'لا ترحيل قبل التفعيل');
+  assert.equal(await card.locator('button:has-text("ترحيل الإغلاقات الحالية")').count(), 0, 'لا ترحيل والنسخ متوقف');
   await card.locator('button:has-text("تفعيل النسخ")').click(); await p.waitForTimeout(400);
   assert.equal(await p.evaluate(() => !!(window.curOrg.closingRecords || {}).on), true);
   assert.match(await card.innerText(), /النسخ مفعّل/);
@@ -1814,5 +1817,27 @@ test('v46.8 مرتجع نقطة البيع: معطّل افتراضيًا؛ عن
   await p.fill('input[aria-label="كمية مرتجع كبسة"]', '1'); await p.locator('.modal button:has-text("حفظ")').last().click(); await p.waitForTimeout(250);
   assert.match(await p.evaluate(() => window.lastSay || ''), /إغلاق اليوم مُرحّل/);
   assert.equal(await p.evaluate(() => window.cur.posOrders.filter(o => o.kind === 'return').length), 1);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v46.9 مرتجع نقطة البيع يخصم نقاط الولاء بنسبته ويظهر الخصم في النافذة وعلى الإشعار', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosApp/bm');
+  await p.evaluate(() => {
+    window.setOrg(g => ({ ...g, taxCfg: { enabled: true, rate: 15 }, posCfg: { branches: ['b1'], autoPrint: false, returns: true }, products: [{ id: 'k', name: 'كبسة', sellPrice: 58, cat: 'رئيسي' }] }));
+    const d = new Date(); const td = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    const bd = d.getHours() < 6 ? (() => { const y = new Date(d); y.setDate(y.getDate() - 1); return y.getFullYear() + '-' + String(y.getMonth() + 1).padStart(2, '0') + '-' + String(y.getDate()).padStart(2, '0'); })() : td;
+    window.setOps(o => ({ ...o, posTabs: [], closings: o.closings.filter(c => c.branchId !== 'b1'),
+      posOrders: [{ id: 'po1', no: 'ف1-T-0001', branchId: 'b1', date: bd, at: new Date().toISOString(), by: 'كاشير', channel: 'takeaway', lines: [{ productId: 'k', name: 'كبسة', qty: 2, price: 58 }], gross: 116, disc: 0, total: 116, vat: 15.13, net: 100.87, rate: 15, payments: [{ m: 'card', amount: 116 }], change: 0, status: 'paid', loyalty: { phone: '0551234567', name: 'سالم', earned: 10, redeemed: 0 } }] }));
+  }); await p.waitForTimeout(400);
+  const ob = p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await p.waitForTimeout(400); }
+  await p.click('.pos-tabs button:has-text("الفواتير")'); await p.waitForTimeout(300);
+  await p.locator('table button:has-text("مرتجع")').first().click(); await p.waitForTimeout(200);
+  await p.fill('input[aria-label="كمية مرتجع كبسة"]', '1'); await p.waitForTimeout(150);
+  assert.match(await p.locator('.modal').innerText(), /يُخصم 5 نقطة ولاء/, '10 نقاط × (58 المتبقي ÷ 116) = 5 تبقى ⇒ يُخصم 5');
+  assert.match(await p.locator('.modal select').nth(1).innerText(), /شبكة \(طريقة الدفع الأصلية\)[\s\S]*نقدي/, 'الطريقة الأصلية أولًا والنقد خيار');
+  await p.locator('.modal button:has-text("حفظ")').last().click(); await p.waitForTimeout(500);
+  assert.match(await p.evaluate(() => window.lastSay || ''), /خُصم 5 نقطة ولاء/);
+  const r = await p.evaluate(() => { const x = window.cur.posOrders.find(o => o.kind === 'return'); return [x.loyalty, x.payments[0].m, x.total]; });
+  assert.deepEqual(r, [{ phone: '0551234567', ded: 5 }, 'card', -58], 'رُدّ على الشبكة (الأصلية)');
   assert.deepEqual(errs, []); await ctx.close();
 });
