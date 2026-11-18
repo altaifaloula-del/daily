@@ -28,7 +28,7 @@ jobs:
         run: npm audit --omit=dev --audit-level=high
       - name: npm audit — الكل (تقرير كامل)
         continue-on-error: true
-        run: npm audit --json > npm-audit.json || true; node -e "const r=require('./npm-audit.json');console.log(JSON.stringify(r.metadata&&r.metadata.vulnerabilities||r,null,1))"
+        run: npm audit --json > npm-audit.json || true; node -e "const r=require('./npm-audit.json');console.log(JSON.stringify(r.metadata&&r.metadata.vulnerabilities||r,null,1));Object.values(r.vulnerabilities||{}).forEach(v=>console.log('VULN',v.severity,v.name,v.isDirect?'direct':'indirect',typeof v.fixAvailable==='object'?'fix:'+v.fixAvailable.name+'@'+v.fixAvailable.version+(v.fixAvailable.isSemVerMajor?'(major)':''):'fix:'+v.fixAvailable))"
       - uses: actions/upload-artifact@v4
         with:
           name: npm-audit
