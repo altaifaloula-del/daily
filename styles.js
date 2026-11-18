@@ -1918,4 +1918,16 @@ table.tb.tb-fp{min-width:520px}
 @media(pointer:coarse){.voicebtn{color:#C8A24A}}
 .voicetoast{display:flex;align-items:center;gap:8px;max-width:min(92vw,520px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14px;padding:11px 18px}
 .voicetoast .vdot{width:9px;height:9px;border-radius:50%;background:#D9534F;flex-shrink:0;animation:vpulse 1.1s ease-in-out infinite}
+
+/* v47.8 — مقبض ترتيب الصفوف ونسخ المستندات */
+.rowgrip{display:inline-flex;align-items:center;gap:2px;flex-shrink:0}
+.rowgrip .rg-h{border:0;background:transparent;color:var(--faint,#8A94A6);cursor:grab;font-size:17px;line-height:1;padding:6px 4px;touch-action:none;border-radius:6px}
+.rowgrip .rg-h:active{cursor:grabbing;background:var(--acc-soft,rgba(44,107,196,.1))}
+.rowgrip .rg-ab{display:inline-flex;flex-direction:column}
+.rowgrip .rg-ab button{border:0;background:transparent;color:var(--faint,#8A94A6);font-size:8.5px;line-height:1;padding:2px 3px;cursor:pointer}
+.rowgrip .rg-ab button:disabled{opacity:.25;cursor:default}
+.rowgrip .rg-ab button:not(:disabled):hover{color:var(--gold,#C8A24A)}
+[data-rowi].row-drag{opacity:.55;outline:2px dashed var(--gold,#C8A24A);outline-offset:2px;border-radius:8px}
+[data-rowi].row-over{box-shadow:0 -3px 0 0 var(--gold,#C8A24A);border-radius:2px}
+@media(pointer:coarse){.rowgrip .rg-h{font-size:20px;padding:8px 6px}.rowgrip .rg-ab{display:none}}
 `;
