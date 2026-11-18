@@ -5,7 +5,8 @@
  */
 import React from 'react'; import { createRoot } from 'react-dom/client';
 import * as M from '../../App.jsx'; import { CSS } from '../../styles.js'; import { domI18n } from '../../i18n.js';
-const iso = (d) => d.toISOString().slice(0, 10); const dA = (k) => { const x = new Date(); x.setDate(x.getDate() - k); return iso(x); };
+// تاريخ محلي (مثل today() في المنصة) — toISOString يعطي تاريخ UTC فيختلف اليوم بين منتصف الليل و3 فجرًا بتوقيت الرياض
+const iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); const dA = (k) => { const x = new Date(); x.setDate(x.getDate() - k); return iso(x); };
 const m = iso(new Date()).slice(0, 7);
 const B = [{ id: 'b1', name: 'عم قاسم طيبة', isActive: true, defaultFloat: 300, shiftEndTime: '23:30' }, { id: 'b2', name: 'عم قاسم النسيم', isActive: true, defaultFloat: 300 }, { id: 'b3', name: 'العليا', isActive: true }];
 const org = { ...M.emptyOrg({ name: 'شركة الطيف الأولى التجارية', taxNumber: '300000000000003' }), branches: B, taxCfg: { enabled: true, rate: 15 },
