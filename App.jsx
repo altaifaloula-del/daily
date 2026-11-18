@@ -3015,7 +3015,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v47.6';
+const APP_VER = 'v47.7';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -6099,6 +6099,7 @@ function SalesHub(props) {
    ويملأ الحقل بما يُنطق عبر Web Speech API (العربية السعودية، أو الإنجليزية في الواجهة الإنجليزية). لا يظهر في متصفح لا يدعمها.
    الحقل يُكتب فيه بمحاكاة الإدخال الأصلي فتعمل فلاتر React كما لو كتب المستخدم. استثناء حقل: data-novoice. */
 const VOICE_SEL = 'input[type="search"],input[data-voice],input[placeholder*="بحث"],input[placeholder*="ابحث"],input[aria-label*="بحث"],input[placeholder*="Search"],input[placeholder*="search"]';
+const voiceIOS = () => { try { const n = navigator; return /iP(hone|ad|od)/.test(n.userAgent || '') || (n.platform === 'MacIntel' && n.maxTouchPoints > 1); } catch { return false; } };
 const voiceSR = () => (typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition)) || null;
 // v47.6: الأرقام المنطوقة كلمات («ألفين وستة وعشرين» ← 2026)، وحذف أوامر البدء («ابحث عن…»)، وتوحيد الأرقام العربية
 const VW_N = {  'صفر': 0, 'واحد': 1, 'وحده': 1, 'واحدة': 1, 'اثنين': 2, 'اثنان': 2, 'إثنين': 2, 'اتنين': 2, 'ثلاث': 3, 'ثلاثة': 3, 'ثلاثه': 3, 'أربع': 4, 'اربع': 4, 'أربعة': 4, 'اربعة': 4, 'اربعه': 4, 'خمس': 5, 'خمسة': 5, 'خمسه': 5, 'ست': 6, 'ستة': 6, 'سته': 6,
@@ -6163,18 +6164,23 @@ function VoiceSearchHost({ lang }) {
   const start = (k, retry) => {
     const el = elsRef.current[k]; if (!el || !SR) return;
     if (live && !retry) { stop(); if (live.el === el) return; }
+    try { recRef.current && recRef.current.abort && recRef.current.abort(); } catch { /* */ }
     const touch = typeof matchMedia === 'function' && matchMedia('(pointer:coarse)').matches;
     if (!touch) { try { el.focus({ preventScroll: true }); } catch { /* */ } }
+    // v47.7 — iOS (Safari/WebKit): الجلسة المستمرة لا تُسلِّم النتائج، والإعادة خارج لمسة المستخدم لا تفتح الميكروفون؛
+    //          فنستعمل جلسة مفردة (تنتهي عند توقف الكلام) بلا إعادة تلقائية، ولا نقطعها بمؤقت قبل أن تُسلِّم نتيجتها.
+    const ios = voiceIOS();
     const rec = new SR(); recRef.current = rec;
-    rec.lang = lang === 'en' ? 'en-US' : 'ar-SA'; rec.interimResults = true; rec.continuous = true; rec.maxAlternatives = 1;
+    rec.lang = lang === 'en' ? 'en-US' : 'ar-SA'; rec.interimResults = true; rec.continuous = !ios; rec.maxAlternatives = 1;
     const before = el.value, t0 = Date.now(); let got = false, ended = false;
     const T = timers.current; clearT();
-    T.wait = setTimeout(() => { if (!got) { setMsg('لم يُلتقط صوت — اقترب من الميكروفون وحاول مجددًا'); stop(); } }, 7000);
+    T.wait = setTimeout(() => { if (!got) stop(); }, ios ? 9000 : 7000);   // نُنهي بلطف؛ الرسالة تظهر عند الانتهاء إن لم يصل كلام
     T.max = setTimeout(() => stop(), 15000);
     rec.onresult = (ev) => { let t = ''; for (let i = 0; i < ev.results.length; i++) t += ev.results[i][0].transcript;
-      const v = voiceNorm(t); got = got || !!v; voiceFill(el, v); setHeard(v);
-      clearTimeout(T.sil); const fin = ev.results.length && ev.results[ev.results.length - 1].isFinal; T.sil = setTimeout(() => stop(), fin ? 700 : 1300); };
-    rec.onerror = (ev) => { const c = ev && ev.error;
+      const v = voiceNorm(t); got = got || !!v; if (v) { voiceFill(el, v); setHeard(v); }
+      clearTimeout(T.sil); const fin = ev.results.length && ev.results[ev.results.length - 1].isFinal; T.sil = setTimeout(() => stop(), fin ? 700 : (ios ? 1800 : 1300)); };
+    let errShown = false;
+    rec.onerror = (ev) => { const c = ev && ev.error; errShown = !!c && c !== 'no-speech' && c !== 'aborted';
       if (c === 'not-allowed' || c === 'service-not-allowed') setMsg('اسمح للمتصفح باستخدام الميكروفون من الإعدادات');
       else if (c === 'network') setMsg('التعرّف على الصوت يحتاج اتصالًا بالإنترنت');
       else if (c === 'audio-capture') setMsg('لا يوجد ميكروفون متاح');
@@ -6182,7 +6188,8 @@ function VoiceSearchHost({ lang }) {
       else if (c !== 'aborted') setMsg('تعذّر التعرّف على الصوت'); };
     rec.onend = () => { if (ended) return; ended = true; clearT();
       // iOS قد ينهي الجلسة فور بدئها قبل أن يبدأ المستخدم الكلام — نعيدها مرة واحدة
-      if (!got && !retry && Date.now() - t0 < 1500 && recRef.current === rec) { recRef.current = null; setTimeout(() => start(k, true), 120); return; }
+      if (!got && !retry && !ios && Date.now() - t0 < 1500 && recRef.current === rec) { recRef.current = null; setTimeout(() => start(k, true), 120); return; }
+      if (!got && !errShown) setMsg(ios ? 'لم يصل كلام — اضغط الميكروفون وتكلّم مباشرة، أو استخدم ميكروفون لوحة المفاتيح' : 'لم يُلتقط صوت — اقترب من الميكروفون وحاول مجددًا');
       setLive(null); setHeard(''); recRef.current = null; };
     try { rec.start(); setLive({ el, k }); setMsg(''); setHeard(''); try { navigator.vibrate && navigator.vibrate(15); } catch { /* */ } } catch { setLive(null); }
   };

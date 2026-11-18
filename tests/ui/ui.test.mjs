@@ -2056,3 +2056,21 @@ test('v47.6 البحث بالصوت: إعادة محاولة تلقائية إن
   assert.equal(await p.locator('[data-voicebtn].on').count(), 0, 'توقف تلقائيًا بعد الصمت');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v47.7 البحث بالصوت على آيفون: جلسة مفردة غير مستمرة، بلا إعادة خارج اللمسة، والنتيجة تُملأ', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1' });
+  await ctx.addInitScript(() => { window.__s = []; class R { start() { const me = this; window.__s.push(me.continuous);
+      if (window.__s.length === 1) setTimeout(() => me.onend && me.onend(), 50);
+      else setTimeout(() => { me.onresult && me.onresult({ results: [Object.assign([{ transcript: 'شركة الخضار' }], { isFinal: true })] }); me.onend && me.onend(); }, 80); }
+    stop() { this.onend && this.onend(); } abort() {} }
+    window.webkitSpeechRecognition = R; window.SpeechRecognition = R; });
+  const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'live/SalesHub/admin'); await p.waitForTimeout(400); await settle(p);
+  await p.locator('button:has-text("فواتير المبيعات")').first().click(); await p.waitForTimeout(1700);
+  await p.locator('[data-voicebtn]').first().click(); await p.waitForTimeout(400);
+  assert.deepEqual(await p.evaluate(() => window.__s), [false], 'غير مستمرة، ولا إعادة تلقائية');
+  assert.match(await p.locator('[data-voicetoast]').innerText(), /ميكروفون لوحة المفاتيح/);
+  await p.waitForTimeout(300); await p.locator('[data-voicebtn]').first().click(); await p.waitForTimeout(400);
+  assert.equal(await p.locator('input[placeholder^="ابحث بالرقم"]').inputValue(), 'شركة الخضار');
+  assert.deepEqual(errs, []); await ctx.close();
+});
