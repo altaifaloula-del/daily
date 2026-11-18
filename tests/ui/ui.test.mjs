@@ -1779,3 +1779,40 @@ test('v46.8 «تعديل كمسودة» لإغلاق قديم تنقصه الف�
   assert.deepEqual(errs, []);
   await ctx.close();
 });
+
+test('v46.8 مرتجع نقطة البيع: معطّل افتراضيًا؛ عند تفعيله يرجع مدير الفرع طبقًا هدرًا بسببه ويُرد نقدًا من الدرج', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosApp/bm');
+  await p.evaluate(() => {
+    window.setOrg(g => ({ ...g, taxCfg: { enabled: true, rate: 15 }, posCfg: { branches: ['b1'], autoPrint: false }, products: [{ id: 'k', name: 'كبسة', sellPrice: 58, cat: 'رئيسي' }] }));
+    window.setOps(o => ({ ...o, posTabs: [], kdsTickets: [], posOrders: [], closings: o.closings.filter(c => c.branchId !== 'b1') }));   // يوم مفتوح بلا إغلاق مرحّل
+  }); await p.waitForTimeout(400);
+  const ob = p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await p.waitForTimeout(400); }
+  await p.locator('.pos-tile:has-text("كبسة")').click(); await p.locator('.pos-tile:has-text("كبسة")').click();
+  await p.click('.pos-cart button:has-text("نقدي")'); await p.waitForTimeout(200);
+  await p.click('.modal button:has-text("تأكيد")'); await p.waitForTimeout(600);
+  await p.click('.pos-tabs button:has-text("الفواتير")'); await p.waitForTimeout(300);
+  assert.equal(await p.locator('table button:has-text("مرتجع")').count(), 0, 'المرتجع معطّل افتراضيًا');
+  await p.evaluate(() => window.setOrg(g => ({ ...g, posCfg: { ...g.posCfg, returns: true } }))); await p.waitForTimeout(300);
+  await p.locator('table button:has-text("مرتجع")').first().click(); await p.waitForTimeout(250);
+  assert.match(await p.locator('.modal').innerText(), /تُسجَّل هدرًا/);
+  await p.fill('input[aria-label="كمية مرتجع كبسة"]', '3'); await p.locator('.modal button:has-text("حفظ")').last().click(); await p.waitForTimeout(250);
+  assert.match(await p.evaluate(() => window.lastSay || ''), /أكبر من المتبقي/, 'لا يُرجع أكثر من المباع');
+  await p.fill('input[aria-label="كمية مرتجع كبسة"]', '1');
+  await p.locator('.modal select').first().selectOption('prep');
+  await p.locator('.modal select').nth(1).selectOption('cash');
+  await p.locator('.modal button:has-text("حفظ")').last().click(); await p.waitForTimeout(500);
+  const say1 = await p.evaluate(() => window.lastSay || ''); assert.match(say1, /سُجّل المرتجع/, 'رسالة الحفظ: ' + say1);
+  const r = await p.evaluate(() => { const x = window.cur.posOrders.find(o => o.kind === 'return'); return x && { total: x.total, pay: x.payments.map(y => y.m + y.amount).join(), reason: x.reason, lines: x.lines.length, ret: x.retLines.map(l => l.name + l.qty).join(), ref: !!x.refNo, by: x.by }; });
+  assert.deepEqual({ ...r, by: undefined }, { total: -58, pay: 'cash-58', reason: 'prep', lines: 0, ret: 'كبسة1', ref: true, by: undefined });
+  const txt = await p.locator('.card').last().innerText();
+  assert.match(txt, /مرتجع عن/); assert.match(txt, /مرتجعات 1/); assert.match(txt, /1 فاتورة/, 'المرتجع لا يُعد فاتورة');
+  // الصنف الثاني فقط متبقٍ للإرجاع
+  await p.locator('table button:has-text("مرتجع")').first().click(); await p.waitForTimeout(200);
+  assert.match(await p.locator('.modal tbody tr').first().innerText(), /2\s+1/, 'المباع 2 والمتبقي 1');
+  // بعد ترحيل إغلاق اليوم: لا مرتجع عليه
+  await p.evaluate(() => window.setOps(o => ({ ...o, closings: [...o.closings, { id: 'cx', branchId: 'b1', date: o.posOrders[0].date, status: 'submitted' }] }))); await p.waitForTimeout(200);
+  await p.fill('input[aria-label="كمية مرتجع كبسة"]', '1'); await p.locator('.modal button:has-text("حفظ")').last().click(); await p.waitForTimeout(250);
+  assert.match(await p.evaluate(() => window.lastSay || ''), /إغلاق اليوم مُرحّل/);
+  assert.equal(await p.evaluate(() => window.cur.posOrders.filter(o => o.kind === 'return').length), 1);
+  assert.deepEqual(errs, []); await ctx.close();
+});

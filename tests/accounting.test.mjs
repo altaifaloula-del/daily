@@ -1446,3 +1446,46 @@ test('v46.7 نفاد المواد مع خصم المبيعات: مادة وصف�
   // بلا خصم المبيعات: لا تنبيه نفاد للوصفات (الحد الأدنى يبقى)
   const S2 = E.stockShortages({ ...org, purchaseCfg: {} }, ops); assert.deepEqual(S2.map(x => x.st), ['low']);
 });
+
+test('v46.8 مرتجع نقطة البيع — القيمة: خصم الفاتورة يُوزَّع على البنود فلا يُرد أكثر من المدفوع، والضريبة بنسبة الفاتورة', () => {
+  // بندان: 2×23 + 1×11.5 = 57.5 ثم خصم فاتورة 5.75 ⇒ 51.75 (ضريبتها 6.75)
+  const o = { id: 'o1', no: 'ف1-1', total: 51.75, vat: 6.75, lines: [{ productId: 'p1', name: 'مندي', qty: 2, price: 23 }, { productId: 'p2', name: 'شاي', qty: 1, price: 11.5 }], payments: [{ m: 'card', amount: 51.75 }] };
+  const C = E.posReturnCalc(o, { 0: 1 });
+  near(C.total, 20.7, '23 × (51.75 ÷ 57.5)'); near(C.vat, 2.7); near(C.net, 18);
+  near(E.posReturnCalc(o, { 0: 2, 1: 1 }).total, 51.75, 'المرتجع الكامل = المدفوع بالضبط');
+  near(E.posReturnCalc(o, { 0: 5 }).total, 41.4, 'لا تتجاوز الكمية المباعة');
+  assert.deepEqual(E.posRefundOptions(o).map(x => x.k), ['card', 'cash'], 'طريقة الدفع الأصلية أولًا ثم النقد');
+  assert.deepEqual(E.posReturnable({ posOrders: [o, { id: 'r1', kind: 'return', refId: 'o1', status: 'paid', retLines: [{ i: 0, qty: 1 }] }] }, o), [1, 1], 'المتبقي بعد مرتجع سابق');
+});
+
+test('v46.8 مرتجع نقطة البيع — ملخص اليوم والإغلاق: الإيراد والضريبة والنقد تنخفض، والمرتجع لا يُعد فاتورة', () => {
+  const sale = { id: 'o1', branchId: 'b1', date: '2026-03-05', status: 'paid', total: 51.75, vat: 6.75, payments: [{ m: 'cash', amount: 60 }], change: 8.25, lines: [{ productId: 'p1', qty: 2, price: 23 }] };
+  const ret = { id: 'r1', kind: 'return', refId: 'o1', branchId: 'b1', date: '2026-03-05', status: 'paid', total: -20.7, vat: -2.7, payments: [{ m: 'cash', amount: -20.7 }], change: 0, lines: [], retLines: [{ i: 0, productId: 'p1', qty: 1, amount: 20.7 }] };
+  const S = E.posDaySummary([sale, ret], 'b1', '2026-03-05');
+  assert.equal(S.n, 1, 'عدد الفواتير'); assert.equal(S.retN, 1); near(S.retAmt, 20.7);
+  near(S.total, 31.05); near(S.vat, 4.05); near(S.cash, 31.05, '51.75 نقدًا − 20.70 مردودة');
+});
+
+test('v46.8 مرتجع نقطة البيع — المخزون والدفاتر: الطبق المرتجع هدر؛ الرصيد لا يتغير، وتكلفته تنتقل من تكلفة المبيعات 5505 إلى الهدر 5502', () => {
+  const org = baseOrg({
+    items: [{ id: 'i1', name: 'لحم', unit: 'كيلو', type: 'stock' }],
+    products: [{ id: 'p1', name: 'مندي', sellPrice: 60, parts: [{ itemId: 'i1', qty: 0.5 }] }],
+    purchaseCfg: { perpetualFrom: '2026-01', saleDeductFrom: '2026-03-01' },
+    warehouses: [{ id: 'wh-main', name: 'الرئيسي', kind: 'main', accCode: '160101' }, { id: 'wh-b1', name: 'العليا', kind: 'branch', branchId: 'b1', parentId: 'wh-main', accCode: '160102' }] });
+  const sale = { id: 'o1', no: 'ف1-1', branchId: 'b1', date: '2026-03-05', status: 'paid', total: 120, vat: 15.65, lines: [{ productId: 'p1', qty: 2, price: 60 }], payments: [{ m: 'cash', amount: 120 }] };
+  const ret = { id: 'r1', kind: 'return', refId: 'o1', refNo: 'ف1-1', no: 'م1-1', branchId: 'b1', date: '2026-03-06', at: '2026-03-06T10:00:00Z', status: 'paid', total: -60, vat: -7.83, lines: [], retLines: [{ i: 0, productId: 'p1', qty: 1, amount: 60 }], payments: [{ m: 'cash', amount: -60 }], reason: 'prep', by: 'مدير' };
+  const base = { whMoves: [{ id: 'in1', whId: 'wh-b1', branchId: 'b1', itemId: 'i1', kind: 'purchase', qty: 10, unitCost: 40, date: '2026-03-01', at: '2026-03-01T08:00:00Z' }], posOrders: [], stockMoves: [], whTransfers: [] };
+  const s1 = E.syncSaleMoves(org, base, { ...base, posOrders: [sale] });
+  const s2 = E.syncSaleMoves(org, s1, { ...s1, posOrders: [sale, ret] });
+  const mv = (k, d) => s2.whMoves.filter(m => m.kind === k && m.date === d).map(m => m.qty);
+  assert.deepEqual(mv('sale', '2026-03-05'), [-1], 'بيع يوم الفاتورة كما هو');
+  assert.deepEqual(mv('sale', '2026-03-06'), [0.5], 'يوم المرتجع: عكس استهلاك البيع');
+  assert.deepEqual(mv('waste', '2026-03-06'), [-0.5], 'ويقابله هدر بالكمية نفسها');
+  const w = s2.whMoves.find(m => m.kind === 'waste'); assert.equal(w.reason, 'prep', 'بسبب المرتجع من قائمة الهدر'); assert.match(w.note, /م1-1/);
+  assert.equal(E.stockByWh(org, s2).byWh['wh-b1'].i1, 9, 'الرصيد = 10 − 1 (الطبق المرتجع لا يرجع للمخزون)');
+  const A = E.buildAccounting(org, s2); const t = tb(A); assert.equal(A.balanced, true);
+  near(t['5505'], 20, 'تكلفة المبيعات: 40 − 20 المعكوسة'); near(t['5502'], 20, 'الهدر: نصف كيلو × 40');
+  assert.ok(E.wasteRows(org, s2, { i1: 40 }).some(r => r.reason === 'prep' && r.val === 20), 'يظهر في تقارير الهدر بسببه وقيمته');
+  // حفظ المرتجع نفسه مرة ثانية لا يكرر الحركات
+  assert.equal(E.syncSaleMoves(org, s1, { ...s2, posOrders: [sale, ret] }).whMoves.filter(m => m.kind === 'waste').length, 1);
+});

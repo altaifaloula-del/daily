@@ -3,6 +3,7 @@ import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { cloud, KEYS, brKey, bfKey } from '../../storage';
 import { Store, X, RefreshCw, FileText, Clock, ShieldCheck, Check, Plus, Printer, Download, Lock, Banknote, ChefHat, LayoutGrid, Send } from 'lucide-react';
 import { posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim } from '../../App.jsx';   // v42.9
+import { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, WASTE_REASONS } from '../../App.jsx';   // v46.8 المرتجع
 import { posDocView, APPS, CloudHealth, Field, Modal, Num, POS_SH_KEY, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, QUOTA_MSG, ROLES, businessDay, isoD, logClientError, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, makeXlsx, money, normPhone, nowISO, pendShiftsGet, pendShiftsSet, posCashNet, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posTotals, posZHtml, promoActive, promoHits, sha256Hex, uid } from '../../App.jsx';
 
 export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
@@ -24,6 +25,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const loyCfg = org.loyaltyCfg || {}; const [loy, setLoy] = useState(null);
   useEffect(() => { if (!loyCfg.enabled) return; let dead = false; cloud.get(KEYS.loy, { members: {}, tx: [] }).then(d => { if (!dead) setLoy(d || { members: {}, tx: [] }); }).catch(() => { }); return () => { dead = true; }; }, [loyCfg.enabled]);
   const [view, setView] = useState('sell'); const [showCart, setShowCart] = useState(false);
+  const [ret, setRet] = useState(null);   // v46.8 نافذة المرتجع: { o, q:{i:qty}, reason, note, k }
   const [tbl, setTbl] = useState(''); const [payTab, setPayTab] = useState(null); const [tblSel, setTblSel] = useState(null); const [, setTick] = useState(0);   // v42.9
   const tables = br ? posTables(org, br.id) : []; const useTabs = tables.length > 0; const kds = kdsOn(org);
   useEffect(() => { if (!useTabs && !kds) return; const t = setInterval(() => setTick(x => x + 1), 30000); return () => clearInterval(t); }, [useTabs, kds]);   // تحديث الدقائق المنقضية (قبل أي عودة مبكرة — قاعدة الخطافات)
@@ -181,6 +183,42 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     await commit(d => ({ ...d, posOrders: (d.posOrders || []).map(x => x.id === o.id ? { ...x, status: 'void', voidBy: me.name, voidAt: nowISO(), voidReason: reason.trim() } : x) }), { actionType: 'update', targetType: 'pos_order', targetId: o.id, branchName: br.name, title: 'ألغى فاتورة نقطة بيع', details: o.no + ' · ' + money(o.total) + ' · ' + reason.trim() });
     if (o.loyalty && (o.loyalty.earned || o.loyalty.redeemed)) loyQSet([...loyQ(), ...(o.loyalty.earned ? [{ id: o.id + ':ve', phone: o.loyalty.phone, pts: -o.loyalty.earned, at: nowISO(), br: o.branchId, ord: o.no + ' (إلغاء)' }] : []), ...(o.loyalty.redeemed ? [{ id: o.id + ':vr', phone: o.loyalty.phone, pts: o.loyalty.redeemed, at: nowISO(), br: o.branchId, ord: o.no + ' (إلغاء)' }] : [])]);
     say('أُلغيت الفاتورة ' + o.no); flush();
+  };
+
+  // v46.8 — مرتجع جزئي/كلي لفاتورة مدفوعة (قرار المالك): مدير الفرع فقط · الطبق المرتجع هدر بسبب من قائمة الهدر · الرد بطريقة الدفع الأصلية أو نقدًا
+  const retOn = !!cfg.returns;
+  const openReturn = (o) => {
+    if (!isMgr) return say('المرتجع لمدير الفرع', 'no');
+    if (o.pending) return say('انتظر إرسال الفاتورة أولًا', 'no');
+    const left = posReturnable(ops, o); if (!left.some(x => x > 0)) return say('أُرجعت كل أصناف هذه الفاتورة سابقًا', 'no');
+    setRet({ o, q: {}, reason: 'returned', note: '', k: (posRefundOptions(o)[0] || {}).k || 'cash' });
+  };
+  const saveReturn = async (printNow) => {
+    const o = ret.o; const left = posReturnable(ops, o);
+    const qs = {}; Object.entries(ret.q).forEach(([i, v]) => { const n = Number(v) || 0; if (n > 0) qs[i] = n; });
+    if (!Object.keys(qs).length) return say('حدّد كمية صنف واحد على الأقل', 'no');
+    if (Object.entries(qs).some(([i, n]) => n > (left[i] || 0) + 1e-9 || n !== Math.floor(n))) return say('الكمية أكبر من المتبقي في الفاتورة', 'no');
+    if (!WASTE_REASONS[ret.reason]) return say('اختر سبب المرتجع', 'no');
+    if (ret.reason === 'other' && !ret.note.trim()) return say('اكتب وصف السبب', 'no');
+    const closed = (ops.closings || []).some(c => c.branchId === br.id && c.date === today && (c.status === 'submitted' || c.status === 'approved'));
+    if (closed) return say('إغلاق اليوم مُرحّل — لا يُسجَّل مرتجع عليه', 'no');
+    const opt = posRefundOptions(o).find(x => x.k === ret.k) || { m: 'cash' };
+    if (opt.m === 'cash' && !shift) return say('الرد نقدًا يحتاج وردية مفتوحة على هذا الجهاز', 'no');
+    const C = posReturnCalc(o, qs);
+    if (opt.m === 'cash' && shift) { const drawer = posR2((Number(shift.openingCash) || 0) + posOrdersStats(shiftOrders(shift)).cash); if (C.total > drawer + 0.004) return say('النقد في الدرج (' + money(drawer) + ') أقل من المبلغ المردود', 'no'); }
+    const yy = today.replace(/-/g, '').slice(2); const sk = 'mizan:posRetSeq:' + br.id + ':' + today, hk = 'mizan:posHash:' + br.id;
+    let seq = 1, prev = { icv: 0, hash: '0' }; try { seq = (Number(localStorage.getItem(sk)) || 0) + 1; prev = JSON.parse(localStorage.getItem(hk) || '{"icv":0,"hash":"0"}'); } catch { }
+    const bi = (org.branches || []).findIndex(b => b.id === br.id) + 1;
+    const r = { id: uid('pr'), kind: 'return', refId: o.id, refNo: o.no, no: 'م' + bi + '-' + yy + '-' + dev.tag + '-' + String(seq).padStart(4, '0'), branchId: br.id, dev: dev.tag, ...(shift ? { shiftId: shift.id } : {}),
+      date: today, at: nowISO(), by: me.name, channel: o.channel, lines: [], retLines: C.lines, gross: -C.total, disc: 0, manualDisc: 0, total: -C.total, vat: -C.vat, net: -C.net, rate: o.rate,
+      payments: [{ m: opt.m, amount: -C.total, ...(opt.appId ? { appId: opt.appId, appName: opt.appName } : {}), ...(opt.pm ? { pm: opt.pm, pmName: opt.pmName } : {}) }], change: 0, status: 'paid',
+      reason: ret.reason, ...(ret.note.trim() ? { note: ret.note.trim() } : {}), icv: (prev.icv || 0) + 1, pih: prev.hash || '0' };
+    r.hash = sha256Hex(JSON.stringify([r.no, r.at, r.retLines, r.total, r.vat, r.payments, r.icv, r.pih, r.refId]));
+    const ok = await commit(d => ({ ...d, posOrders: [...(d.posOrders || []), r] }), { actionType: 'create', targetType: 'pos_order', targetId: r.id, branchName: br.name, title: 'مرتجع ' + r.no + ' عن الفاتورة ' + o.no, details: C.lines.map(l => l.name + ' ×' + l.qty).join('، ') + ' · ' + money(C.total) + ' · ' + WASTE_REASONS[ret.reason] });
+    if (!ok) return say('تعذّر حفظ المرتجع', 'no');
+    try { localStorage.setItem(sk, String(seq)); localStorage.setItem(hk, JSON.stringify({ icv: r.icv, hash: r.hash })); } catch { }
+    setRet(null); say('سُجّل المرتجع ' + r.no + ' — رُدّ ' + money(C.total));
+    if (printNow) posPrint(posReturnHtml(org, r, br));
   };
 
   const css = `.pos-wrap{display:grid;grid-template-columns:1fr 360px;gap:12px;align-items:start}
@@ -403,7 +441,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
         const st = posOrdersStats(list);
         const xl = () => { try { const head = ['رقم الفاتورة', 'التاريخ', 'الوقت', 'الكاشير', 'الأصناف', 'قبل الخصم', 'الخصم', 'الإجمالي', 'منها ضريبة', 'نقدي', 'شبكة', 'تحويل', 'تطبيق', 'الباقي', 'الحالة'];
           const amt = (o, m) => posR2((o.payments || []).filter(p => p.m === m).reduce((a, p) => a + (Number(p.amount) || 0), 0));
-          const body = list.map(o => [o.no, o.date, new Date(o.at).toTimeString().slice(0, 5), o.by || '', (o.lines || []).map(l => l.name + ' ×' + l.qty).join('، '), o.gross || 0, o.disc || 0, o.total, o.vat, amt(o, 'cash'), amt(o, 'card'), amt(o, 'transfer'), amt(o, 'app'), o.change || 0, o.status === 'void' ? 'ملغاة: ' + (o.voidReason || '') : o.pending ? 'لم تُرسل بعد' : 'مدفوعة']);
+          const body = list.map(o => [o.no, o.date, new Date(o.at).toTimeString().slice(0, 5), o.by || '', (o.lines || []).map(l => l.name + ' ×' + l.qty).join('، '), o.gross || 0, o.disc || 0, o.total, o.vat, amt(o, 'cash'), amt(o, 'card'), amt(o, 'transfer'), amt(o, 'app'), o.change || 0, o.status === 'void' ? 'ملغاة: ' + (o.voidReason || '') : o.kind === 'return' ? 'مرتجع عن ' + (o.refNo || '') + ' — ' + (WASTE_REASONS[o.reason] || '') : o.pending ? 'لم تُرسل بعد' : 'مدفوعة']);
           const blob = makeXlsx([{ name: 'فواتير ' + ordF.d, rows: [head, ...body] }]); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'فواتير_' + br.name + '_' + ordF.d + '.xlsx'; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(url), 1500); say('نُزّل سجل الفواتير (Excel) ✓'); } catch { say('تعذّر التصدير', 'no'); } };
         return <div className="card">
           <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'end', marginBottom: 8 }}>
@@ -418,16 +456,16 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
             {Object.entries(st.pms || {}).map(([n, v]) => <span key={n} className="badge b-dim">{n} {money(v)}</span>)}
             {Object.entries(st.apps).map(([id, x]) => <span key={id} className="badge b-dim">{(apps.find(a => a.id === id) || {}).n || 'تطبيق'} {money(x.amount)}</span>)}
             {st.ldisc + st.odisc + st.mdisc + st.loyAmt > 0 && <span className="badge b-amber">خصومات {money(st.ldisc + st.odisc + st.mdisc + st.loyAmt)}</span>}
-            {st.voidN > 0 && <span className="badge b-rose">ملغاة {st.voidN}</span>}
+            {st.voidN > 0 && <span className="badge b-rose">ملغاة {st.voidN}</span>}{st.retN > 0 && <span className="badge b-rose">مرتجعات {st.retN} · {money(st.retAmt)}</span>}
           </div>
           <div className="tw"><table className="tb"><thead><tr><th>الفاتورة</th><th>الوقت</th><th>الأصناف</th><th style={{ textAlign: 'end' }}>المبلغ</th><th>نوع السداد</th><th></th></tr></thead><tbody>
             {list.map(o => <tr key={o.id} style={o.status === 'void' ? { opacity: .5 } : undefined}>
               <td className="num" style={{ fontSize: 11.5 }}>{o.no}{o.pending && <div><span className="badge b-amber" style={{ fontSize: 9.5 }}>لم تُرسل بعد</span></div>}{o.by && <div style={{ fontSize: 10, color: 'var(--faint)' }}>{o.by}</div>}</td>
               <td className="num" style={{ fontSize: 11.5 }}>{new Date(o.at).toLocaleTimeString('ar-SA-u-ca-gregory-nu-latn', { hour: '2-digit', minute: '2-digit' })}</td>
-              <td style={{ fontSize: 12 }}>{(o.lines || []).map(l => l.name + (l.qty > 1 ? ' ×' + l.qty : '')).join('، ')}</td>
+              <td style={{ fontSize: 12 }}>{o.kind === 'return' ? <><span className="badge b-rose">مرتجع عن {o.refNo}</span> {(o.retLines || []).map(l => l.name + (l.qty > 1 ? ' ×' + l.qty : '')).join('، ')}<div style={{ fontSize: 10.5, color: 'var(--faint)' }}>{WASTE_REASONS[o.reason] || ''}{o.note ? ' — ' + o.note : ''}</div></> : (o.lines || []).map(l => l.name + (l.qty > 1 ? ' ×' + l.qty : '')).join('، ')}</td>
               <td style={{ textAlign: 'end' }}><b className="num">{money(o.total)}</b>{o.disc ? <div className="num" style={{ fontSize: 10, color: 'var(--mint)' }}>خصم {money(o.disc)}</div> : null}</td>
               <td style={{ fontSize: 11.5 }}>{o.status === 'void' ? <span className="badge b-rose">ملغاة: {o.voidReason}</span> : (o.payments || []).map((p, k) => <div key={k}><span className="badge b-dim">{payAr(p)}</span> <span className="num">{money(p.amount)}</span></div>)}{o.change ? <div className="num" style={{ fontSize: 10, color: 'var(--faint)' }}>الباقي {money(o.change)}</div> : null}</td>
-              <td><div className="row" style={{ gap: 4 }}><button className="btn sm gh" title="إعادة طباعة" onClick={() => posPrint(posReceiptHtml(org, o, br))}><Printer size={12} /></button>{isMgr && o.status !== 'void' && <button className="btn sm gh" onClick={() => voidOrder(o)}>إلغاء</button>}</div></td>
+              <td><div className="row" style={{ gap: 4 }}><button className="btn sm gh" title="إعادة طباعة" onClick={() => posPrint(o.kind === 'return' ? posReturnHtml(org, o, br) : posReceiptHtml(org, o, br))}><Printer size={12} /></button>{isMgr && o.status !== 'void' && o.kind !== 'return' && <button className="btn sm gh" onClick={() => voidOrder(o)}>إلغاء</button>}{retOn && isMgr && o.status !== 'void' && o.kind !== 'return' && !o.pending && <button className="btn sm gh" style={{ color: 'var(--rose)' }} onClick={() => openReturn(o)}>مرتجع</button>}</div></td>
             </tr>)}
             {!list.length && <tr><td colSpan={6}><div className="empty">لا فواتير بهذه التصفية.</div></td></tr>}
           </tbody></table></div></div>;
@@ -477,6 +515,23 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
       {view === 'loyalty' && <PosLoyalty org={org} commitOrg={commitOrg} say={say} canCfg={!!(R.admin || R.scope === 'all')} me={me} />}
       {view === 'shifts' && <PosShifts org={org} ops={ops} me={me} brs={brs} commit={commit} say={say} />}
 
+      {ret && (() => { const o = ret.o; const left = posReturnable(ops, o); const qs = {}; Object.entries(ret.q).forEach(([i, v]) => { const n = Number(v) || 0; if (n > 0) qs[i] = Math.min(n, left[i] || 0); });
+        const C = posReturnCalc(o, qs); const opts = posRefundOptions(o);
+        const optAr = (x) => x.pmName || (x.m === 'cash' ? 'نقدي' : x.m === 'card' ? 'شبكة' : x.m === 'transfer' ? 'تحويل' : (x.appName || 'تطبيق'));
+        return <Modal title={'مرتجع عن الفاتورة ' + o.no} icon={FileText} onClose={() => setRet(null)}
+          foot={<><button className="btn pri" disabled={!(C.total > 0)} onClick={() => saveReturn(true)}><Printer size={14} />حفظ وطباعة الإشعار</button><button className="btn" disabled={!(C.total > 0)} onClick={() => saveReturn(false)}>حفظ</button><button className="btn gh" onClick={() => setRet(null)}>إلغاء</button></>}>
+          <div className="note" style={{ marginBottom: 8 }}>الأطباق المرتجعة تُسجَّل <b>هدرًا</b> ولا ترجع للمخزون. يُصدر «إشعار دائن» ويُخصم المبلغ والضريبة من مبيعات اليوم.</div>
+          <div className="tw"><table className="tb"><thead><tr><th>الصنف</th><th>المباع</th><th>المتبقي</th><th>المرتجع</th></tr></thead><tbody>
+            {(o.lines || []).map((l, i) => <tr key={i}><td>{l.name}</td><td className="num">{l.qty}</td><td className="num">{left[i]}</td>
+              <td>{left[i] > 0 ? <input className="inp n" style={{ width: 80 }} inputMode="numeric" aria-label={'كمية مرتجع ' + l.name} value={ret.q[i] || ''} onChange={e => { const v = e.target.value.replace(/[^0-9]/g, ''); setRet(x => ({ ...x, q: { ...x.q, [i]: v } })); }} /> : '—'}</td></tr>)}
+          </tbody></table></div>
+          <div className="grid g2" style={{ gap: 8, marginTop: 8 }}>
+            <Field label="سبب المرتجع (قائمة الهدر)"><select className="sel" value={ret.reason} onChange={e => setRet(x => ({ ...x, reason: e.target.value }))}>{Object.entries(WASTE_REASONS).map(([k, t]) => <option key={k} value={k}>{t}</option>)}</select></Field>
+            <Field label="رد المبلغ"><select className="sel" value={ret.k} onChange={e => setRet(x => ({ ...x, k: e.target.value }))}>{opts.map(x => <option key={x.k} value={x.k}>{optAr(x)}{x.k === opts[0].k ? ' (طريقة الدفع الأصلية)' : ''}</option>)}</select></Field>
+          </div>
+          <Field label={ret.reason === 'other' ? 'وصف السبب (إلزامي)' : 'ملاحظة'}><input className="inp" value={ret.note} onChange={e => setRet(x => ({ ...x, note: e.target.value }))} /></Field>
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}><span className="badge b-rose">المبلغ المردود {money(C.total)}</span><span className="badge b-dim">منها ضريبة {money(C.vat)}</span></div>
+        </Modal>; })()}
       {pay && <Modal title={'الدفع — ' + money(T.total)} icon={Banknote} onClose={() => setPay(null)}
         foot={<><button className="btn pri" style={{ flex: 1, minHeight: 50, fontSize: 16 }} onClick={() => checkout(cfg.autoPrint !== false)}><Check size={16} />{cfg.autoPrint !== false ? 'تأكيد وطباعة' : 'تأكيد'}</button>
           <button className="btn" style={{ minHeight: 50 }} onClick={() => checkout(cfg.autoPrint === false)}>{cfg.autoPrint !== false ? 'بلا طباعة' : 'تأكيد وطباعة'}</button></>}>

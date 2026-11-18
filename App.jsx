@@ -2984,7 +2984,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v46.8';
+const APP_VER = 'v46.9';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3038,7 +3038,8 @@ class ErrorBoundary extends React.Component {
     return full ? <div className="rms mode-dark thm-mizan" style={{ minHeight: '100vh', background: '#141210', padding: 16 }}>{box}</div> : box;
   }
 }
-export { ErrorBoundary, logClientError, lockedLedgerChanged };   // v46.8: للاختبارات الوظيفية (حارس الإقفال)
+export { ErrorBoundary, logClientError, lockedLedgerChanged };
+export { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, saleRetUse };   // v46.8 مرتجع نقطة البيع   // v46.8: للاختبارات الوظيفية (حارس الإقفال)
 if (typeof window !== 'undefined' && !window.__mizanErrHook) {
   window.__mizanErrHook = true;
   window.addEventListener('error', (e) => logClientError(e.error || e.message, 'window'));
@@ -6615,11 +6616,53 @@ const posCashNet = (o) => posR2((o.payments || []).filter(p => p.m === 'cash').r
 // ملخص مبيعات فرع في يوم: لتعبئة الإغلاق
 function posDaySummary(orders, branchId, date) {
   const os = (orders || []).filter(o => o.branchId === branchId && o.date === date && o.status !== 'void');
-  const out = { n: os.length, total: 0, cash: 0, card: 0, transfer: 0, apps: {}, vat: 0 };
-  os.forEach(o => { out.total += o.total; out.vat += o.vat; out.cash += posCashNet(o);
+  const out = { n: os.filter(o => o.kind !== 'return').length, total: 0, cash: 0, card: 0, transfer: 0, apps: {}, vat: 0, retN: 0, retAmt: 0 };
+  os.forEach(o => { if (o.kind === 'return') { out.retN++; out.retAmt += -(Number(o.total) || 0); } out.total += o.total; out.vat += o.vat; out.cash += posCashNet(o);
     (o.payments || []).forEach(p => { const a = Number(p.amount) || 0; if (p.m === 'card') out.card += a; else if (p.m === 'transfer') out.transfer += a; else if (p.m === 'app') { const x = out.apps[p.appId] || (out.apps[p.appId] = { amount: 0, n: 0 }); x.amount += a; x.n += 1; } }); });
-  ['total', 'cash', 'card', 'transfer', 'vat'].forEach(k => { out[k] = posR2(out[k]); }); Object.values(out.apps).forEach(x => { x.amount = posR2(x.amount); });
+  ['total', 'cash', 'card', 'transfer', 'vat', 'retAmt'].forEach(k => { out[k] = posR2(out[k]); }); Object.values(out.apps).forEach(x => { x.amount = posR2(x.amount); });
   return out;
+}
+/* ============================================================
+   v46.8 — مرتجع نقطة البيع (قرار المالك): الطبق المرتجع هدر — لا يرجع للمخزون؛ تكلفة مكوناته تنتقل من تكلفة المبيعات (5505)
+   إلى الهدر (5502) بسبب من قائمة أسباب الهدر. يعتمده مدير الفرع فقط. يُرد المبلغ بطريقة الدفع الأصلية افتراضيًا، ويمكن نقدًا.
+   المستند: «إشعار دائن» في posOrders بقيم سالبة (kind:'return'، refId) — فينخفض الإيراد والضريبة ودرج الوردية تلقائيًا
+   في ملخص اليوم والإغلاق وتقرير الوردية. بنوده في retLines (لا lines) حتى لا تُعامَل كمبيعات في خصم المكونات وتحليل الأصناف.
+   ============================================================ */
+const posLineNet = (l) => posR2((Number(l.qty) || 0) * (Number(l.price) || 0) - (Number(l.disc) || 0));
+// الكمية المتبقية القابلة للإرجاع لكل بند في الفاتورة (المباع − ما أُرجع سابقًا)
+function posReturnable(ops, o) {
+  const done = {}; (ops.posOrders || []).forEach(r => { if (r.kind === 'return' && r.refId === o.id && r.status !== 'void') (r.retLines || []).forEach(l => { done[l.i] = (done[l.i] || 0) + (Number(l.qty) || 0); }); });
+  return (o.lines || []).map((l, i) => Math.max(0, (Number(l.qty) || 0) - (done[i] || 0)));
+}
+// قيمة المرتجع: سعر الوحدة الصافي بعد خصم البند، موزَّعًا عليه خصم الفاتورة والولاء بنسبة (إجمالي الفاتورة ÷ مجموع البنود) — فلا يتجاوز المدفوع
+function posReturnCalc(o, qtys) {
+  const lines = o.lines || []; const base = lines.reduce((a, l) => a + posLineNet(l), 0); const ratio = base > 0 ? (Number(o.total) || 0) / base : 0;
+  const rl = []; lines.forEach((l, i) => { const q = Math.min(Number(qtys[i]) || 0, Number(l.qty) || 0); if (!(q > 0)) return; const unit = (Number(l.qty) || 0) > 0 ? posLineNet(l) / Number(l.qty) : 0;
+    rl.push({ i, productId: l.productId, name: l.name, qty: q, amount: posR2(unit * q * ratio) }); });
+  const total = posR2(rl.reduce((a, l) => a + l.amount, 0)); const vat = (Number(o.total) || 0) > 0 ? posR2(total * (Number(o.vat) || 0) / Number(o.total)) : 0;
+  return { lines: rl, total, vat, net: posR2(total - vat) };
+}
+// طرق الرد المتاحة: طرق دفع الفاتورة الأصلية + النقد دائمًا
+function posRefundOptions(o) {
+  const seen = new Set(), out = [];
+  (o.payments || []).forEach(p => { const k = p.m === 'app' ? 'app:' + p.appId : p.pm ? 'pm:' + p.pm : p.m; if (seen.has(k)) return; seen.add(k); out.push({ k, m: p.m, ...(p.appId ? { appId: p.appId, appName: p.appName } : {}), ...(p.pm ? { pm: p.pm, pmName: p.pmName } : {}) }); });
+  if (!seen.has('cash')) out.push({ k: 'cash', m: 'cash' });
+  return out;
+}
+function posReturnHtml(org, r, br) {
+  const co = org.company || {}; const svat = co.taxNumber || ''; const m = (n) => money(Math.abs(n));
+  const qr = svat ? qrSvg(zatcaTLV(co.name || '', svat, (r.at || '').slice(0, 19) + 'Z', Math.abs(r.total), Math.abs(r.vat)), { ecl: 1, px: 120 }) : '';
+  const L = (r.retLines || []).map(l => `<tr><td>${_xe(l.name)}</td><td class="n">×${l.qty}</td><td class="n">${m(l.amount)}</td></tr>`).join('');
+  const pm = (r.payments || [])[0] || {}; const pmAr = pm.pmName || (pm.m === 'cash' ? 'نقدي' : pm.m === 'card' ? 'شبكة' : pm.m === 'transfer' ? 'تحويل' : (pm.appName || 'تطبيق'));
+  return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>إشعار دائن ${_xe(r.no)}</title><style>${NUM_FACE}body{font-family:'MizanNum',Tahoma,sans-serif;margin:0 auto;color:#000}${posPaperCss(org)}
+  h1{font-size:15px;text-align:center;margin:2px 0} .c{text-align:center} .s{font-size:10px;color:#333} table{width:100%;border-collapse:collapse;margin-top:6px}
+  td{padding:3px 0;border-bottom:1px dashed #999;vertical-align:top} td.n{text-align:left;white-space:nowrap;font-variant-numeric:tabular-nums} .tot td{font-weight:800;font-size:13px;border-bottom:2px solid #000} .qr{text-align:center;margin-top:8px} .qr svg{width:34mm;height:34mm}</style></head><body>
+  <h1>${_xe(co.name || '')}</h1><div class="c s">${_xe(br ? br.name : '')}${svat ? '<br>الرقم الضريبي: ' + _xe(svat) : ''}</div>
+  <div class="c" style="font-weight:800;margin-top:6px">إشعار دائن — مرتجع</div>
+  <div class="c s">رقم: ${_xe(r.no)} · ${_xe((r.at || '').slice(0, 10))}<br>عن الفاتورة: ${_xe(r.refNo || '')}<br>السبب: ${_xe(wasteReasonAr(r.reason))}${r.note ? ' — ' + _xe(r.note) : ''}</div>
+  <table>${L}<tr><td colspan="2">المرتجع قبل الضريبة</td><td class="n">${m(r.net)}</td></tr><tr><td colspan="2">ضريبة القيمة المضافة</td><td class="n">${m(r.vat)}</td></tr>
+  <tr class="tot"><td colspan="2">المبلغ المردود شامل الضريبة</td><td class="n">${m(r.total)}</td></tr><tr><td colspan="2">طريقة الرد</td><td class="n">${_xe(pmAr)}</td></tr></table>
+  <div class="c s" style="margin-top:6px">اعتمده: ${_xe(r.by || '')}</div>${qr ? '<div class="qr">' + qr + '</div>' : ''}</body></html>`;
 }
 // v44.7 — عرض ورق الإيصال: 80 مم (الافتراضي) أو 58 مم — إعداد عام للمنشأة، ويمكن لكل جهاز كاشير تخصيصه لطابعته
 const POS_PAPER_KEY = 'rms8:posPaper';
@@ -6697,7 +6740,7 @@ function posShiftHtml(org, sh, allOs, br, kind) {
   const row = (k, v) => `<tr><td>${k}</td><td class="n">${v}</td></tr>`;
   return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>تقرير ${kind} — ${_xe(br.name)}</title><style>${NUM_FACE}body{font-family:'MizanNum',Tahoma,sans-serif;margin:0 auto}${posPaperCss(org, 12)}table{width:100%;border-collapse:collapse}td{padding:4px 0;border-bottom:1px dashed #999}td.n{text-align:left}h1{font-size:15px;text-align:center;margin:2px 0}.sec td{font-weight:800;border-bottom:1.5px solid #000;padding-top:8px}</style></head><body>
   <h1>${kind === 'Z' ? 'تقرير إغلاق وردية (Z)' : 'تقرير وردية مؤقت (X)'}</h1><div style="text-align:center">${_xe((org.company || {}).name || '')}<br>${_xe(br.name)} · ${_xe(sh.devName || '')} (${_xe(sh.dev || '')})<br>${_xe(String(sh.openedAt).slice(0, 16).replace('T', ' '))} ← ${kind === 'Z' ? _xe(String(sh.closedAt || '').slice(11, 16)) : 'الآن ' + _xe(new Date().toTimeString().slice(0, 5))}</div>
-  <table><tr class="sec"><td colspan="2">المبيعات</td></tr>${row('عدد الفواتير', st.n)}${row('المبيعات قبل الخصومات', m(st.gross))}${row('إجمالي المبيعات', m(st.total))}${row('منها ضريبة', m(st.vat))}
+  <table><tr class="sec"><td colspan="2">المبيعات</td></tr>${row('عدد الفواتير', st.n)}${row('المبيعات قبل الخصومات', m(st.gross))}${row('إجمالي المبيعات', m(st.total))}${row('منها ضريبة', m(st.vat))}${st.retN ? row('المرتجعات (' + st.retN + ')', '−' + m(st.retAmt)) : ''}
   <tr class="sec"><td colspan="2">طرق الدفع</td></tr>${row('نقدي (صافي)', m(st.cash))}${row('شبكة', m(st.card))}${row('تحويل', m(st.transfer))}
   ${Object.entries(st.apps).map(([id, x]) => row(_xe(((org.deliveryApps || APPS).find(a => a.id === id) || {}).n || 'تطبيق'), m(x.amount))).join('')}
   ${Object.entries(st.pms || {}).map(([n, v]) => row('منها: ' + _xe(n), m(v))).join('')}
@@ -8593,7 +8636,8 @@ const saleRecipeItems = (org) => { const set = new Set(); ((org && org.products)
 function saleDayUse(org, ops, bId, date) {
   const products = (org && org.products) || [], items = (org && org.items) || [];
   const os = (ops.posOrders || []).filter(o => o.branchId === bId && o.date === date && o.status !== 'void');
-  const lines = []; if (os.length) os.forEach(o => (o.lines || []).forEach(l => { if (l.productId) lines.push([l.productId, Number(l.qty) || 0]); }));
+  const lines = []; if (os.length) os.forEach(o => { (o.lines || []).forEach(l => { if (l.productId) lines.push([l.productId, Number(l.qty) || 0]); });
+    (o.kind === 'return' ? o.retLines || [] : []).forEach(l => { if (l.productId) lines.push([l.productId, -(Number(l.qty) || 0)]); }); });   // v46.8: المرتجع يُخرج من «المبيعات» (يذهب للهدر)
   else (ops.productSales || []).filter(r => r.branchId === bId && (r.to || r.from) === date).forEach(r => (r.lines || []).forEach(l => lines.push([l.productId, Number(l.qty) || 0])));
   const per = {}, use = {};
   lines.forEach(([pid, q]) => { if (!q) return; if (!(pid in per)) { const pr = products.find(x => x.id === pid); per[pid] = pr ? saleUse(org, pr.parts, 1) : {}; }
@@ -8686,6 +8730,13 @@ function voucherHtml(org, v) {
   ${v.note ? '<p>ملاحظة: ' + _xe(v.note) + '</p>' : ''}
   <div style="display:flex;gap:24px;margin-top:40px">${sig('أعدّه')}${sig(v.type === 'trf' ? 'المُرسِل' : v.type === 'rcv' || v.type === 'opn' ? 'أمين المستودع' : 'المستلم')}${sig(v.type === 'trf' ? 'المستلِم' : 'المعتمد')}</div>`;
 }
+// استهلاك المكونات لأطباق مرتجع واحد (للهدر)
+function saleRetUse(org, r) {
+  const products = (org && org.products) || [], items = (org && org.items) || [], use = {};
+  (r.retLines || []).forEach(l => { const pr = products.find(x => x.id === l.productId); if (!pr) return; Object.entries(saleUse(org, pr.parts, 1)).forEach(([k, v]) => { use[k] = (use[k] || 0) + v * (Number(l.qty) || 0); }); });
+  Object.keys(use).forEach(k => { const it = items.find(x => x.id === k); if (!it || !isStocked(it)) delete use[k]; else use[k] = Math.round(use[k] * 10000) / 10000; });
+  return use;
+}
 function syncSaleMoves(org, before, next) {
   const from = saleDeductFrom(org); if (!from || !next || !org) return next;
   const sig = (ops) => { const m = {}; const add = (k, v) => { m[k] = (m[k] || '') + v; };
@@ -8700,7 +8751,11 @@ function syncSaleMoves(org, before, next) {
     const [bId, date] = k.split('|'); const wh = whForBranch(org, bId); if (!wh || !date) return;
     const pre = 'sl_' + bId + '_' + date + '_';
     wm = wm.filter(m => !String(m.id || '').startsWith(pre));
-    Object.entries(saleDayUse(org, next, bId, date)).forEach(([itemId, q]) => { if (q > 0) wm.push({ id: pre + itemId, whId: wh.id, branchId: bId, itemId, kind: 'sale', qty: -q, date, at: date + 'T23:59:00', ref: 'مبيعات ' + date, by: 'تلقائي', auto: true }); });
+    // v46.8: صافي استهلاك اليوم قد يكون سالبًا (مرتجع عن فاتورة يوم سابق) ← حركة بيع عكسية تُقابلها حركة هدر أدناه
+    Object.entries(saleDayUse(org, next, bId, date)).forEach(([itemId, q]) => { if (q !== 0) wm.push({ id: pre + itemId, whId: wh.id, branchId: bId, itemId, kind: 'sale', qty: -q, date, at: date + 'T23:59:00', ref: 'مبيعات ' + date, by: 'تلقائي', auto: true }); });
+    (next.posOrders || []).filter(r => r.kind === 'return' && r.status !== 'void' && r.branchId === bId && r.date === date).forEach(r => {
+      Object.entries(saleRetUse(org, r)).forEach(([itemId, q]) => { if (q > 0) wm.push({ id: pre + 'w_' + r.id + '_' + itemId, whId: wh.id, branchId: bId, itemId, kind: 'waste', qty: -q, date, at: r.at || date + 'T23:59:00',
+        reason: r.reason || 'returned', note: 'مرتجع ' + (r.no || '') + ' عن ' + (r.refNo || '') + (r.note ? ' — ' + r.note : ''), ref: r.no || '', by: r.by || 'تلقائي', auto: true }); }); });
   });
   return { ...next, whMoves: wm };
 }
