@@ -485,11 +485,12 @@ service cloud.firestore {
     /* G4 (قرار المالك): نافذة ترحيل مؤقتة — المدير يفتح fin_periods/migration لمدة أقصاها 24 ساعة، وخلالها فقط ينسخ القيود
        القديمة بحالتها الأصلية (بما فيها المرفوضة) وفي الفترات المقفلة، بعلامة legacy ومنشئها الأصلي. خارج النافذة: لا شيء. */
     function finMigPath() { return /databases/$(database)/documents/fin_periods/migration; }
-    function finMigOpen() { return exists(finMigPath()) && get(finMigPath()).data.open == true && get(finMigPath()).data.until > request.time; }
+    function finMigOpen() { return exists(finMigPath()) && finMigLive(get(finMigPath()).data); }
+    function finMigLive(g) { return g.open == true && g.until > request.time; }
     function fjLegacy(id, d) {
       let m = memOf();
       let adm = admOf(m);
-      return adm && okUser(m, adm) && mfaOk() && finMigOpen() && fjShape(d, id)
+      return adm && okUser(m, adm) && finMigOpen() && fjShape(d, id)
         && d.legacy == true && d.origBy is string && d.origBy.size() <= 120
         && d.by == userEmail() && d.at == request.time && !('decidedBy' in d);
     }
@@ -534,7 +535,7 @@ service cloud.firestore {
     function fdLegacy(id, d) {
       let m = memOf();
       let adm = admOf(m);
-      return adm && okUser(m, adm) && mfaOk() && finMigOpen() && fdShape(d, id)
+      return adm && okUser(m, adm) && finMigOpen() && fdShape(d, id)
         && d.legacy == true && d.by == userEmail() && d.at == request.time && !('updBy' in d);
     }
     function fdUpdate(id, d, o) {
@@ -552,7 +553,7 @@ service cloud.firestore {
     }
     match /fin_docs/{id} {
       allow read: if (isAdmin() || isCentral()) && mfaOk();
-      allow create: if fdCreate(id, request.resource.data) || fdLegacy(id, request.resource.data);
+      allow create: if request.resource.data.get('legacy', false) == true ? fdLegacy(id, request.resource.data) : fdCreate(id, request.resource.data);
       allow update: if fdUpdate(id, request.resource.data, resource.data);
       allow delete: if fdDelete(resource.data);
     }
@@ -573,7 +574,7 @@ service cloud.firestore {
     }
     match /fin_journal/{id} {
       allow read: if (isAdmin() || isCentral()) && mfaOk();
-      allow create: if fjCreate(id, request.resource.data) || fjLegacy(id, request.resource.data);
+      allow create: if request.resource.data.get('legacy', false) == true ? fjLegacy(id, request.resource.data) : fjCreate(id, request.resource.data);
       allow update: if fjUpdate(id, request.resource.data, resource.data);
       allow delete: if fjDelete(resource.data);
     }
