@@ -1859,3 +1859,12 @@ test('v49.0 الفواتير والسندات سجلات مستقلة: المح�
   const K = E.fdCompare('pi', [paid, { ...pi, id: 'inv2' }], [rec('pi', pi), rec('pi', { ...pi, id: 'inv9' }), rec('si', { id: 'x', date: '2026-11-10' })]);
   assert.deepEqual([K.differ.length, K.missing.length, K.extra.length, K.recs], [1, 1, 1, 3 - 1], 'السداد غير المنسوخ يُكشف، والأنواع الأخرى لا تختلط');
 });
+
+test('v49.0 BUG-01-04: إلغاء الإقفال الضريبي المرحّل بقيد عكسي لا بالحذف', () => {
+  const c = { id: 'vc1', date: '2026-09-30', vatClose: { from: '2026-07-01', to: '2026-09-30', net: 100 }, lines: [{ code: '2301', debit: 150, credit: 0 }, { code: '1501', debit: 0, credit: 50 }, { code: '2302', debit: 0, credit: 100 }] };
+  assert.equal(E.vatCloseLive([c], c), true);
+  assert.equal(E.vatCloseLive([c, { id: 'u', vatUndo: 'vc1', status: 'pending' }], c), true, 'الإلغاء المعلّق لا يلغي الإقفال');
+  assert.equal(E.vatCloseLive([c, { id: 'u', vatUndo: 'vc1', status: 'posted' }], c), false);
+  assert.equal(E.vatCloseLive([c, { id: 'u', vatUndo: 'vc1', status: 'rejected' }], c), true);
+  assert.equal(E.vatCloseLive([], { ...c, status: 'rejected' }), false);
+});

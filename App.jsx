@@ -2623,6 +2623,8 @@ const jeLive = (j) => !j || !j.status || j.status === 'posted';
 const jeOwner = (me) => !!(ROLES[me?.role] || {}).admin;
 /** v49.0 (قرار المالك G1): القيد الآلي (إقفال ضريبي، سداد، كشف بنك، تسوية الشبكة) يمر بالاعتماد كاليدوي — المالك وحده يُرحّله مباشرة */
 const jeAutoSt = (me) => jeOwner(me) ? { status: 'posted', byId: me?.id || '', approvedBy: me?.name || '', approvedAt: nowISO() } : { status: 'pending', byId: me?.id || '' };
+/** v49.0 (BUG-01-04): إقفال ضريبي أُلغي بقيد عكسي مرحّل لا يُعدّ إقفالًا — الإلغاء لا يحذف القيد المرحّل */
+const vatCloseLive = (list, c) => !!c && c.status !== 'rejected' && !(list || []).some(j => j.vatUndo === c.id && jeLive(j));
 const canApproveJe = (me, j) => !!me && (jeOwner(me) || ['accountant', 'finance_department'].includes(me.role)) && (!j || (j.byId ? j.byId !== me.id : j.by !== me.name));
 const isCostCtl = (me) => !!(ROLES[me?.role] || {}).costCtl;   // v37.8 مراقب التكاليف: يعتمد ويراقب ولا يُدخل حركات
 // v27.1 — نطاق فروع المستخدم كما تعرضه الواجهة (myBranches): null = كل الفروع (المركز)، وإلا قائمة معرّفات.
@@ -3021,7 +3023,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v48.1';
+const APP_VER = 'v49.0';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3077,7 +3079,7 @@ class ErrorBoundary extends React.Component {
 }
 export { ErrorBoundary, logClientError, lockedLedgerChanged };
 export { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, saleRetUse, posReturnLoyDed };
-export { jeLive, jeOwner, canApproveJe, jeAutoSt };   // v47.1 اعتماد القيد اليدوي
+export { jeLive, jeOwner, canApproveJe, jeAutoSt, vatCloseLive };   // v47.1 اعتماد القيد اليدوي
 export { gosiNewSched, gosiNewAuto };   // v47.2 الرواتب   // v46.8 مرتجع نقطة البيع   // v46.8: للاختبارات الوظيفية (حارس الإقفال)
 if (typeof window !== 'undefined' && !window.__mizanErrHook) {
   window.__mizanErrHook = true;
@@ -5448,7 +5450,7 @@ function vatStatus(org, ops, A, td, cfg = {}) {
   const tax = org.taxCfg || {};
   if (!tax.enabled) return { on: false };
   const rate = (Number(tax.rate) || 15) / 100;
-  const closes = (ops.journalManual || []).filter(j => j.vatClose && j.vatClose.to && j.status !== 'rejected').sort((a, b) => a.vatClose.to.localeCompare(b.vatClose.to));
+  const closes = (ops.journalManual || []).filter(j => j.vatClose && j.vatClose.to && vatCloseLive(ops.journalManual, j)).sort((a, b) => a.vatClose.to.localeCompare(b.vatClose.to));
   const pays = (ops.journalManual || []).filter(j => j.vatPay && j.status !== 'rejected');
   const unpaid = closes.map(c => { const paid = sum(pays.filter(p => p.vatPay.closeId === c.id), p => Number(p.vatPay.amount) || 0);
     return { id: c.id, from: c.vatClose.from, to: c.vatClose.to, net: anR(c.vatClose.net), rem: anR((Number(c.vatClose.net) || 0) - paid), due: cfMEnd(c.vatClose.to, 1) }; })

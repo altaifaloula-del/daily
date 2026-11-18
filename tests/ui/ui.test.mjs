@@ -1900,6 +1900,20 @@ test('v47.2 عكس القيد اليدوي: قيد بأطراف معكوسة ب�
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+test('v49.0 BUG-01-04: إلغاء الإقفال الضريبي المرحّل بقيد عكسي بتاريخه — القيد الأصلي يبقى، والفترة تُتاح للإقفال من جديد', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1280, height: 1000 } }, 'live/Accounting/admin/vat');
+  p.on('dialog', d => d.accept());
+  await p.evaluate(() => window.setOps(o => ({ ...o, journalManual: [{ id: 'vcx', date: '2026-09-30', title: 'إقفال الفترة الضريبية اختبار', by: 'مجاهد', createdAt: '2026-10-01T08:00:00Z', src: 'vat-close',
+    vatClose: { from: '2026-07-01', to: '2026-09-30', out: 150, inn: 50, net: 100, rate: 15 }, lines: [{ code: '2301', debit: 150, credit: 0 }, { code: '1501', debit: 0, credit: 50 }, { code: '2302', debit: 0, credit: 100 }] }] })));
+  await p.waitForTimeout(400);
+  await p.locator('button:has-text("إلغاء الإقفال")').first().click(); await p.waitForTimeout(400);
+  assert.match(await p.evaluate(() => window.lastSay || ''), /بقيد عكسي/);
+  const r = await p.evaluate(() => window.cur.journalManual.map(j => [j.id === 'vcx' ? 'orig' : j.vatUndo, j.status || '', j.date, j.lines.map(l => l.code + ':' + l.debit + '/' + l.credit).join(',')]));
+  assert.deepEqual(r.sort(), [['orig', '', '2026-09-30', '2301:150/0,1501:0/50,2302:0/100'], ['vcx', 'posted', '2026-09-30', '2301:0/150,1501:50/0,2302:100/0']].sort(), 'لا حذف — قيد عكسي مرحّل بتاريخ الإقفال');
+  assert.equal(await p.locator('button:has-text("إلغاء الإقفال")').count(), 0, 'الإقفال الملغى لا يظهر في القائمة');
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
 test('v47.3 سند التحويل: من الخزينة إلى البنك برقم TV، يمنع الحساب نفسه، ويُطبع بالطرفين', async () => {
   const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Hub/admin/finhub:treasury');
   await p.evaluate(() => window.setOps(o => ({ ...o, cashVouchers: [] }))); await p.waitForTimeout(200);
