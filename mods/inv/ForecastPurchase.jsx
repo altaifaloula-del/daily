@@ -2,6 +2,7 @@
    المحرك في النواة (purchasePlan). الأوامر المنشأة تمر بحد اعتماد المشتريات كأي أمر شراء. */
 import React, { useMemo, useState } from 'react';
 import { TrendingUp, Truck, Plus, Download, Info, PackageCheck } from 'lucide-react';
+import { poNeedsAppr } from '../../App.jsx';   // v49.5 مسارات الاعتماد
 import { Kpi, ROLES, arDate, makeXlsx, money, nowISO, purchasePlan, today, uid, signoff, sigFailMsg } from '../../App.jsx';
 
 const SRC = { actual: ['b-mint', 'استهلاك فعلي'], recipe: ['b-sky', 'من الوصفات'], none: ['b-dim', 'حد الأمان'] };
@@ -33,7 +34,7 @@ export function ForecastPurchase({ org, ops, me, commit, say }) {
       const ls = rs.map(r => ({ desc: r.name, itemId: r.id, qty: qtyPU(r), price: Math.round(r.cost * r.factor * 10000) / 10000, received: 0, ...(r.factor > 1 ? { factor: r.factor, uomName: r.purchaseUnit } : {}) }));
       const tot = ls.reduce((s, l) => s + l.qty * l.price, 0);
       return { id: uid('po'), poNo: 'PO-' + String(mx + 1 + i).padStart(4, '0'), supplierId: sp.id, supplierName: sp.name, branchId: (br && br.kind === 'branch' && br.branchId) || '',
-        note: 'من التوقع — ' + pool.name + ' · تغطية ' + P.cover + ' أيام' + (P.lead ? ' + توريد ' + P.lead : ''), lines: ls, status: lim > 0 && tot > lim ? 'pending' : 'open', by: me.name, at: nowISO(), date: today(), fromPlan: true }; });
+        note: 'من التوقع — ' + pool.name + ' · تغطية ' + P.cover + ' أيام' + (P.lead ? ' + توريد ' + P.lead : ''), lines: ls, status: poNeedsAppr(org, tot) ? 'pending' : 'open', by: me.name, at: nowISO(), date: today(), fromPlan: true }; });
     // v40.0: الأوامر بانتظار الاعتماد تُوقَّع تقديمها (مطلوب لاعتمادها لاحقًا)
     for (let i = 0; i < recs.length; i++) if (recs[i].status === 'pending') { const sg = await signoff('po', 'submit', recs[i], { branchId: '', alert: false }); if (!sg.ok) return say(sigFailMsg(sg, 'أوامر الشراء'), 'no'); if (sg.id) recs[i] = { ...recs[i], sigSubmit: sg.id }; }
     const ok = await commit(d => ({ ...d, purchaseOrders: [...recs, ...(d.purchaseOrders || [])] }), { actionType: 'create', targetType: 'purchase_order', targetId: recs.map(r => r.id).join(','), title: 'أنشأ أوامر شراء من التوقع', details: recs.map(r => r.poNo + ' · ' + r.supplierName).join('، ') });

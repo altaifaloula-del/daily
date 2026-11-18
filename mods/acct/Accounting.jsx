@@ -7,7 +7,7 @@ import { VatRegisters, SupplierPurchReport } from './TaxPurchReports.jsx';   // 
 import { Suppliers } from '../inv/Suppliers.jsx';   // v44.0 «مستلم لم يُفوتر»
 import { OdooBar } from '../../App.jsx';   // v41.0
 import { GeneralLedger } from './GeneralLedger.jsx';   // v49.4 المرحلة 03
-import { DEP_METHODS, depMethod, deprSchedule } from '../../App.jsx';   // v49.4 طرق الإهلاك
+import { DEP_METHODS, depMethod, deprSchedule, wfOn, wfRequired, wfState, wfCanAct, wfApprove } from '../../App.jsx';   // v49.4 طرق الإهلاك
 import { DocLink, RowGrip, moveIdx, RECUR_AR, recurNext, recurDue, jeOwner, canApproveJe, jeAutoSt, vatCloseLive, projList, projectPL, projNextCode, ACCT_SECTIONS, ACC_KIND, Field, Kpi, LOCK_MSG, MizanMerge, Modal, NUM_FACE, Num, ROLES, _xe, acctSecKey, arDate, bankOfBranch, branchBanks, bsLayout, bsRowsOf, buildAccounting, buildPartners, capOK, countedClosing, customerAging, detectStmtMap, entityById, entityList, gosiRatesFor, isLayout, isRowsOf, isoD, lockedThru, makeXlsx, money, monthEnd, monthLedger, multiEntityOn, naMissing, nowISO, openDocWin, parseCsvGrid, parseMt940, parseXlsxGrid, payTotal, periodLocked, posClrOf, printA4, qrSvg, roleEdit, rolePost, snapMonths, stAddDays, stDate, stNum, sum, supplierAging, today, uid, useSecNav, zatcaTLV } from '../../App.jsx';
 
 export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }) {
@@ -1162,12 +1162,24 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
   // v47.1 — القيود اليدوية بانتظار الاعتماد
   const [jePend, setJePend] = useState(false);
   const pendJe = (ops.journalManual || []).filter(j => j.status === 'pending');
+  // v49.5 — مسار اعتماد القيود المهيّأ: يعتمد كل مستوى دوره، والقيد يُرحَّل بعد آخر مستوى
+  const jeAmt = (j) => Math.round(sum(j.lines || [], l => Number(l.debit) || 0) * 100) / 100;
+  const jeWfOn = wfOn(org, 'je');
+  const canDecideJe = (j) => jeWfOn ? wfCanAct(org, 'je', j, jeAmt(j), me).ok || (canApproveJe(me, j) && !wfRequired(org, 'je', jeAmt(j)).length) : canApproveJe(me, j);
   const decideJe = async (j, ok) => {
-    if (!canApproveJe(me, j)) return say(j.byId === me?.id || j.by === me?.name ? 'لا تعتمد قيدًا أدخلته بنفسك — يعتمده محاسب آخر أو المالك' : 'اعتماد القيود للمحاسب أو المالك', 'no');
+    const W = ok && jeWfOn && wfRequired(org, 'je', jeAmt(j)).length ? wfCanAct(org, 'je', j, jeAmt(j), me) : null;
+    if (W && !W.ok) return say(W.why, 'no');
+    if (W && !W.last) {
+      if (periodLocked(org, j.date)) return say(LOCK_MSG(j.date), 'no');
+      const done = await commit(d => ({ ...d, journalManual: (d.journalManual || []).map(x => x.id === j.id && x.status === 'pending' ? wfApprove(x, W.tier, me) : x) }),
+        { actionType: 'approve', targetType: 'journal_entry', targetId: j.id, need: 'post', title: 'اعتمد مستوى من قيد — ' + W.tier.label, details: (j.title || '') + ' · ' + money(jeAmt(j)) });
+      if (done) { const n = wfState(org, 'je', wfApprove(j, W.tier, me), jeAmt(j)).next; say('اعتُمد «' + W.tier.label + '» ✓ — بانتظار «' + (n ? n.label : '') + '» قبل الترحيل'); } return;
+    }
+    if (!W && !canDecideJe(j)) return say(j.byId === me?.id || j.by === me?.name ? 'لا تعتمد قيدًا أدخلته بنفسك — يعتمده محاسب آخر أو المالك' : 'اعتماد القيود للمحاسب أو المالك', 'no');
     if (ok && periodLocked(org, j.date)) return say(LOCK_MSG(j.date), 'no');
     let reason = '';
     if (!ok) { reason = (window.prompt('سبب رفض القيد «' + (j.title || '') + '»:') || '').trim(); if (!reason) return; }
-    const done = await commit(d => ({ ...d, journalManual: (d.journalManual || []).map(x => x.id === j.id && x.status === 'pending' ? { ...x, status: ok ? 'posted' : 'rejected', ...(ok ? { approvedBy: me?.name || '', approvedAt: nowISO() } : { rejectedBy: me?.name || '', rejectedAt: nowISO(), rejectReason: reason }) } : x) }),
+    const done = await commit(d => ({ ...d, journalManual: (d.journalManual || []).map(x => x.id === j.id && x.status === 'pending' ? { ...(W ? wfApprove(x, W.tier, me) : x), status: ok ? 'posted' : 'rejected', ...(ok ? { approvedBy: me?.name || '', approvedAt: nowISO() } : { rejectedBy: me?.name || '', rejectedAt: nowISO(), rejectReason: reason }) } : x) }),
       { actionType: ok ? 'approve' : 'reject', targetType: 'journal_entry', targetId: j.id, need: 'post', title: (ok ? 'اعتمد' : 'رفض') + ' قيدًا يدويًا — ' + (j.title || ''), details: money(sum(j.lines || [], l => l.debit || 0)) + ' ر.س · أدخله ' + (j.by || '') + (reason ? ' · السبب: ' + reason : '') });
     if (done) say(ok ? 'اعتُمد القيد ورُحّل للدفاتر ✓' : 'رُفض القيد');
   };
@@ -3830,10 +3842,11 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
               {(j.lines || []).map((l, i) => <tr key={i}><td>{l.code} · {(A.accounts.find(a => a.code === l.code) || {}).name || ''}</td><td className="num" style={{ textAlign: 'end' }}>{l.debit ? money(l.debit) : ''}</td><td className="num" style={{ textAlign: 'end' }}>{l.credit ? money(l.credit) : ''}</td></tr>)}
             </tbody></table></div>
             <div className="row" style={{ gap: 6, marginTop: 6 }}>
-              {canApproveJe(me, j) && <button className="btn sm pri" onClick={() => decideJe(j, true)}><Check size={13} />اعتماد وترحيل</button>}
-              {canApproveJe(me, j) && <button className="btn sm gh" style={{ color: 'var(--rose)' }} onClick={() => decideJe(j, false)}>رفض</button>}
+              {jeWfOn && (() => { const S = wfState(org, 'je', j, jeAmt(j)); return S.req.length ? <span className="badge b-amber" style={{ alignSelf: 'center' }} data-wfstep>المستوى {S.done.length + 1}/{S.req.length}: {S.next ? S.next.label : ''}</span> : null; })()}
+              {canDecideJe(j) && <button className="btn sm pri" onClick={() => decideJe(j, true)}><Check size={13} />اعتماد وترحيل</button>}
+              {canDecideJe(j) && <button className="btn sm gh" style={{ color: 'var(--rose)' }} onClick={() => decideJe(j, false)}>رفض</button>}
               {(j.byId === me?.id || j.by === me?.name) && <button className="btn sm gh" onClick={() => delPendJe(j)}><Trash2 size={13} />حذف</button>}
-              {!canApproveJe(me, j) && <span style={{ fontSize: 12, color: 'var(--dim)', alignSelf: 'center' }}>{j.byId === me?.id || j.by === me?.name ? 'بانتظار اعتماد محاسب آخر أو المالك' : 'الاعتماد للمحاسب أو المالك'}</span>}
+              {!canDecideJe(j) && <span style={{ fontSize: 12, color: 'var(--dim)', alignSelf: 'center' }}>{j.byId === me?.id || j.by === me?.name ? 'بانتظار اعتماد محاسب آخر أو المالك' : 'الاعتماد للمحاسب أو المالك'}</span>}
             </div>
           </div>)}
         </Modal>

@@ -1099,6 +1099,37 @@ test('v49.4 MQ-048 طرق الإهلاك: القسط الثابت افتراضي
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+test('v49.5 MQ-059 مسارات الاعتماد: تهيئة مستويين للقيود، المحاسب يعتمد الأول فيبقى معلّقًا، والمالك يعتمد الأخير فيُرحَّل', async () => {
+  { const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Admin/admin'); await p.reload(); await p.waitForTimeout(500); await settle(p);
+    await p.locator('button:has-text("صيانة")').first().click(); await p.waitForTimeout(400);
+    const c = p.locator('[data-wf]'); await c.locator('button:has-text("تهيئة")').click();
+    const je = c.locator('[data-wfdoc="je"]');
+    await je.locator('button:has-text("مستوى")').click(); await je.locator('button:has-text("مستوى")').click();
+    await je.locator('input[aria-label="اسم المستوى 1"]').fill('المحاسبة'); await je.locator('input[aria-label="حد المستوى 1"]').fill('0');
+    await je.locator('input[aria-label^="دور محاسب"][aria-label$=" 1"]').first().check();
+    await je.locator('input[aria-label="اسم المستوى 2"]').fill('المالك'); await je.locator('input[aria-label="حد المستوى 2"]').fill('1000');
+    await je.locator('input[aria-label^="دور الإدارة العليا"][aria-label$=" 2"]').first().check();
+    await c.locator('button:has-text("حفظ المسارات")').click(); await p.waitForTimeout(300);
+    assert.deepEqual(await p.evaluate(() => window.curOrg.wf.je.tiers.map(t => [t.label, t.min, t.roles.length > 0])), [['المحاسبة', 0, true], ['المالك', 1000, true]]);
+    assert.deepEqual(errs, []); await ctx.close(); }
+  const seed = async (p) => { await p.evaluate(() => {
+    window.setOrg(g => ({ ...g, wf: { je: { tiers: [{ id: 'a', min: 0, roles: ['accountant'], label: 'المحاسبة' }, { id: 'b', min: 1000, roles: ['general_management'], label: 'المالك' }] } } }));
+    if (!(window.cur.journalManual || []).some(j => j.id === 'wj')) window.setOps(o => ({ ...o, journalManual: [{ id: 'wj', date: new Date().toISOString().slice(0, 10), title: 'قيد كبير', by: 'سعد', byId: 'zz', createdAt: new Date().toISOString(), status: 'pending', lines: [{ code: '1101', debit: 5000, credit: 0 }, { code: '3101', debit: 0, credit: 5000 }] }] })); }); await p.waitForTimeout(400); };
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Accounting/acc/jr'); await seed(p);
+  await p.click('button:has-text("قيود بانتظار الاعتماد (1)")'); await p.waitForTimeout(250);
+  assert.match(await p.locator('[data-wfstep]').first().innerText(), /المستوى 1\/2: المحاسبة/);
+  await p.locator('button:has-text("اعتماد وترحيل")').first().click(); await p.waitForTimeout(300);
+  let j = await p.evaluate(() => window.cur.journalManual.find(x => x.id === 'wj'));
+  assert.deepEqual([j.status, j.approvals.map(a => a.label)], ['pending', ['المحاسبة']], 'المستوى الأول فقط — لم يُرحَّل');
+  await p.evaluate(() => window.as('admin')); await p.waitForTimeout(400);
+  if (!(await p.locator('[data-wfstep]').count())) { await p.click('button:has-text("قيود بانتظار الاعتماد (1)")'); await p.waitForTimeout(250); }
+  assert.match(await p.locator('[data-wfstep]').first().innerText(), /المستوى 2\/2: المالك/);
+  await p.locator('button:has-text("اعتماد وترحيل")').first().click(); await p.waitForTimeout(300);
+  j = await p.evaluate(() => window.cur.journalManual.find(x => x.id === 'wj'));
+  assert.deepEqual([j.status, j.approvals.length], ['posted', 2]);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
 test('v43.0 الواجهة الإنجليزية: الاتجاه LTR وترجمة الإطار (التطبيقات، رأس المركز، شريط الأقسام) والعربية افتراضيًا', async () => {
   // افتراضيًا: عربي RTL
   { const { p, errs, ctx } = await open({ viewport: { width: 1280, height: 900 } }, 'comp/Launcher');

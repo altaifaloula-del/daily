@@ -2068,3 +2068,23 @@ test('v49.4 MQ-048 طرق الإهلاك: القسط الثابت افتراضي
   const A = E.buildAccounting(org, {}); assert.equal(A.balanced, true);
   const t = tb(A); near(-t['1791'], 12000, 'استُنفد بالكامل بعد عامين');
 });
+
+test('v49.5 MQ-059 مسارات الاعتماد: مستويات بحدود مبالغ وأدوار، بالترتيب، مع فصل المهام، وبلا تهيئة يبقى السلوك الحالي', () => {
+  const org = baseOrg({ purchaseCfg: { approvalLimit: 1000 }, wf: { po: { tiers: [
+    { id: 'm', min: 5000, roles: ['head_office'], label: 'المكتب الرئيسي' }, { id: 'f', min: 0, roles: ['finance_department'], label: 'المالية' }] } } });
+  const fin = { id: 'u1', name: 'سعد', role: 'finance_department' }, gm = { id: 'u2', name: 'خالد', role: 'head_office' }, own = { id: 'u0', name: 'مجاهد', role: 'general_management' };
+  assert.deepEqual(E.wfTiers(org, 'po').map(t => t.id), ['f', 'm'], 'مرتبة بالحد');
+  assert.equal(E.poNeedsAppr(org, 300), true, 'المسار المهيّأ يحل محل حد الاعتماد (المستوى الأول من صفر)');
+  assert.equal(E.poNeedsAppr(baseOrg({ purchaseCfg: { approvalLimit: 1000 } }), 300), false, 'بلا تهيئة: الحد القديم');
+  const po = { id: 'p', by: 'منى', byId: 'u9' };
+  assert.deepEqual(E.wfState(org, 'po', po, 800).req.map(t => t.id), ['f']);
+  let S = E.wfState(org, 'po', po, 8000); assert.deepEqual([S.req.length, S.next.id, S.complete], [2, 'f', false]);
+  assert.match(E.wfCanAct(org, 'po', po, 8000, gm).why, /المالية/, 'الترتيب: المالية أولًا');
+  assert.match(E.wfCanAct(org, 'po', po, 8000, { id: 'u9', name: 'منى', role: 'finance_department' }).why, /أنشأته/);
+  const c1 = E.wfCanAct(org, 'po', po, 8000, fin); assert.deepEqual([c1.ok, c1.tier.id, c1.last], [true, 'f', false]);
+  const po1 = E.wfApprove(po, c1.tier, fin, '2026-11-19T10:00:00Z');
+  assert.match(E.wfCanAct(org, 'po', po1, 8000, fin).why, /اعتمدتَ مستوى سابقًا/, 'الشخص نفسه لا يعتمد مستويين');
+  const c2 = E.wfCanAct(org, 'po', po1, 8000, gm); assert.deepEqual([c2.ok, c2.last], [true, true]);
+  assert.equal(E.wfCanAct(org, 'po', po1, 8000, own).ok, true, 'المالك يعتمد أي مستوى');
+  assert.equal(E.wfState(org, 'po', E.wfApprove(po1, c2.tier, gm), 8000).complete, true);
+});

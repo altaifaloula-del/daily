@@ -36,3 +36,6 @@
 
 ## v49.4
 - حقلان اختياريان على الأصل: `assets[].depMethod` ('sl' افتراضي | 'ddb' | 'syd') و`assets[].salvage`. بلا الحقلين = السلوك الحالي (قسط ثابت بلا قيمة متبقية).
+
+## v49.5
+- حقل اختياري `org.wf = { po: { tiers }, je: { tiers } }` — مسارات الاعتماد. `purchaseOrders[].approvals` و`journalManual[].approvals` لسجل الاعتمادات المرحلية (مستبعد من بصمة السجل المحمي fin_journal).

@@ -1,6 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Truck, FileBarChart, ChevronDown, Printer, FileText, Building2, ClipboardCheck, Users, Plus, AlertTriangle, CalendarDays, Trash2, Check, X, Banknote } from 'lucide-react';
+import { poNeedsAppr, wfOn, wfState, wfCanAct, wfApprove } from '../../App.jsx';   // v49.5 مسارات الاعتماد
 import { DocLink, RowGrip, moveIdx, projList, uomOf, uomOk, lineUnits, lineFac, UomSelect, DupInvHint, Field, Kpi, LOCK_MSG, MAIN_WH, Modal, Num, ROLES, SectionNav, arDate, branchBanks, closingInvoices, isStocked, isoD, itemType, money, nowISO, pFactor, payTotal, periodLocked, printA4, purKey, q3, _xe, roleEdit, rolePost, buildAccounting, INV_BILLERS, itemsSeq, vatNoOk, supVatOf, ItemPick, roleHasTab, stockByWh, sum, supplierPrices, today, uid, whName, whOf, whOn, poWhOf, brSigCheck, signoff, signDecision, sigFailMsg } from '../../App.jsx';
 import { cloud, bfKey } from '../../storage';
 
@@ -117,9 +118,17 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
   const decidePo = async (p2, approve) => {
     if (approve && p2.priceAlert && p2.by === me.name && !ROLES[me.role]?.admin) return say('أمر بتنبيه سعر — يعتمده شخص غير منشئه', 'no');
     const note = approve ? '' : window.prompt('سبب رفض أمر الشراء ' + p2.poNo + ':'); if (!approve && note === null) return;
+    // v49.5 — مسار الاعتماد المهيّأ: مستويات بالترتيب؛ الأمر يُفتح بعد آخر مستوى مطلوب
+    const W = approve && wfOn(org, 'po') ? wfCanAct(org, 'po', p2, poTotal(p2), me) : null;
+    if (W && !W.ok) return say(W.why, 'no');
     const sg = await signDecision('po', approve ? 'approve' : 'reject', p2, { branchId: '' });   // v40.0 توقيع موثّق
     if (!sg.ok) return say(sigFailMsg(sg, approve ? 'اعتماد أمر الشراء' : 'رفض أمر الشراء'), 'no');
-    await commit(d => ({ ...d, purchaseOrders: (d.purchaseOrders || []).map(x => x.id === p2.id && x.status === 'pending' ? { ...x, ...(sg.id ? { sigDecide: sg.id } : {}), status: approve ? 'open' : 'rejected', decidedBy: me.name, decidedAt: nowISO(), ...(note ? { rejectNote: note } : {}) } : x) }),
+    if (W && !W.last) {
+      const ok = await commit(d => ({ ...d, purchaseOrders: (d.purchaseOrders || []).map(x => x.id === p2.id && x.status === 'pending' ? wfApprove(x, W.tier, me) : x) }),
+        { actionType: 'approve', targetType: 'purchase_order', targetId: p2.id, need: 'post', title: 'اعتمد مستوى من أمر شراء — ' + W.tier.label, details: p2.poNo + ' · ' + money(poTotal(p2)) });
+      if (ok) { const n = wfState(org, 'po', wfApprove(p2, W.tier, me), poTotal(p2)).next; say('اعتُمد «' + W.tier.label + '» ✓ — بانتظار «' + (n ? n.label : '') + '»'); } return;
+    }
+    await commit(d => ({ ...d, purchaseOrders: (d.purchaseOrders || []).map(x => x.id === p2.id && x.status === 'pending' ? { ...(W ? wfApprove(x, W.tier, me) : x), ...(sg.id ? { sigDecide: sg.id } : {}), status: approve ? 'open' : 'rejected', decidedBy: me.name, decidedAt: nowISO(), ...(note ? { rejectNote: note } : {}) } : x) }),
       { actionType: 'update', targetType: 'purchase_order', targetId: p2.id, need: 'post', title: (approve ? 'اعتمد' : 'رفض') + ' أمر شراء', details: p2.poNo + ' · ' + money(poTotal(p2)) + (note ? ' · ' + note : '') });
     say(approve ? 'اعتُمد أمر الشراء ✓' : 'رُفض أمر الشراء');
   };
@@ -231,7 +240,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     const tot0 = lines.reduce((s2, l) => s2 + l.qty * l.price, 0);
     const hiPrice = lines.filter(l => l.pAlert).length;
     // v37.7: بند بسعر أعلى من متوسط آخر 3 مشتريات بأكثر من الحد ⇒ الأمر يحتاج اعتمادًا ولو كان تحت حد القيمة
-    const needAppr = (apprLimit > 0 && tot0 > apprLimit) || hiPrice > 0;
+    const needAppr = poNeedsAppr(org, tot0) || hiPrice > 0;   // v49.5: المسار المهيّأ أو حد الاعتماد
     // v44.3: مستودع الأمر (المستلِم) يُحدَّد عند الإنشاء — والفرع يُشتق منه؛ الاستلام فيه فقط
     const poWid = whOn(org) ? (f.whId || MAIN_WH) : ''; const poTw = poWid ? whOf(org).find(w => w.id === poWid) : null;
     if (poWid && !poTw && poWid !== MAIN_WH) return say('اختر المستودع المستلِم', 'no');
@@ -1034,7 +1043,8 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
                         {(p2.returnIds || []).length > 0 && <div><span className="badge b-amber" style={{ marginBottom: 3 }}>مرتجع · {money(-sum((ops.invoices || []).filter(x => (p2.returnIds || []).includes(x.id)), x => x.amount))}</span></div>}{inv ? <span className="badge b-mint">مفوترة · {invs.filter(x => !x.creditNote).map(x => x.invoiceNo).join('، ')}</span> : <span className="badge b-dim">لم تُفوتر</span>}{p2.priceAlert ? <div><span className="badge b-rose" style={{ marginTop: 3 }}>⚠ سعر مرتفع في {p2.priceAlert} بند</span></div> : null}</td>
                       <td><div className="row" style={{ gap: 5, flexWrap: 'wrap' }}>
                         <button className="btn sm gh" onClick={() => printPO(p2)}><Printer size={12} /></button>
-                        {canApprovePo && p2.status === 'pending' && <><button className="btn sm pri" onClick={() => decidePo(p2, true)}>اعتماد</button><button className="btn sm gh" onClick={() => decidePo(p2, false)}>رفض</button></>}
+                        {p2.status === 'pending' && wfOn(org, 'po') && (() => { const S = wfState(org, 'po', p2, poTotal(p2)); return S.req.length ? <span className="badge b-amber" data-wfstep>المستوى {S.done.length + 1}/{S.req.length}: {S.next ? S.next.label : ''}</span> : null; })()}
+                        {(canApprovePo || (wfOn(org, 'po') && wfCanAct(org, 'po', p2, poTotal(p2), me).ok)) && p2.status === 'pending' && <><button className="btn sm pri" onClick={() => decidePo(p2, true)}>اعتماد</button><button className="btn sm gh" onClick={() => decidePo(p2, false)}>رفض</button></>}
                         {canInspect && (p2.grns || []).filter(g => g.status === 'qc').map(g => <button key={g.id} className="btn sm pri" data-qc onClick={() => setQc({ po: p2, g, acc: g.lines.map(l => String(l.qty)), why: g.lines.map(() => '') })}>فحص {g.grn}</button>)}
                         {canBill && grnsToBill(p2).length > 0 && !p2.pinv && <button className="btn sm pri" data-cv onClick={() => openCv(p2)}>تحويل لفاتورة</button>}
                         {canApprovePo && p2.pinv && <><button className="btn sm pri" onClick={() => decidePinv(p2, true)}>اعتماد الفرق</button><button className="btn sm gh" onClick={() => decidePinv(p2, false)}>رفض الفاتورة</button></>}
