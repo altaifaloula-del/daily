@@ -2037,3 +2037,22 @@ test('v47.5 البحث بالصوت: زر ميكروفون في حقول الب�
   assert.equal(await p.locator('tbody tr', { hasText: 'فاتورة-2026-00009' }).count(), 1);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v47.6 البحث بالصوت: إعادة محاولة تلقائية إن انتهت الجلسة فورًا، ونص مسموع حيّ، وأرقام بالكلمات', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1300, height: 1000 } });
+  await ctx.addInitScript(() => { window.__n = 0; class R { constructor() { window.__n++; this.k = window.__n; } start() { const me = this;
+      if (me.k === 1) setTimeout(() => me.onend && me.onend(), 50);   // الجلسة الأولى تنتهي فورًا بلا كلام (سلوك iOS)
+      else { setTimeout(() => me.onresult && me.onresult({ results: [Object.assign([{ transcript: 'ابحث عن فاتورة ألفين وستة وعشرين' }], { isFinal: false })] }), 80); }
+    } stop() { this.onend && this.onend(); } }
+    window.webkitSpeechRecognition = R; window.SpeechRecognition = R; });
+  const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'live/SalesHub/admin'); await p.waitForTimeout(400); await settle(p);
+  await p.locator('button:has-text("فواتير المبيعات")').first().click(); await p.waitForTimeout(1700);
+  await p.locator('[data-voicebtn]').first().click(); await p.waitForTimeout(500);
+  assert.equal(await p.evaluate(() => window.__n), 2, 'أُعيدت الجلسة مرة');
+  assert.match(await p.locator('[data-voicetoast]').innerText(), /«فاتورة 2026»/);
+  assert.equal(await p.locator('input[placeholder^="ابحث بالرقم"]').inputValue(), 'فاتورة 2026');
+  await p.waitForTimeout(1600);
+  assert.equal(await p.locator('[data-voicebtn].on').count(), 0, 'توقف تلقائيًا بعد الصمت');
+  assert.deepEqual(errs, []); await ctx.close();
+});
