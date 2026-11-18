@@ -56,7 +56,8 @@ function Live() {
   const commitOrg = async (fn) => { try { const nx = fn(JSON.parse(JSON.stringify(g))); setG(nx); return true; } catch (e) { window.lastErr = e.message; return false; } };
   const myB = ME[who].branchId ? B.filter(x => x.id === ME[who].branchId) : B;   // فريق الفرع يرى فرعه فقط
   const P = { ...base, myBranches: myB, branches: myB, org: g, ops: o, scoped: o, me: ME[who], commit, commitOrg, invIntent: hv ? { v: hv, ts: 1 } : null, acctIntent: a === 'Accounting' && hv ? { v: hv, ts: 1 } : null };
-  return React.createElement(M[a], { key: who, ...P, ...(a === 'Hub' ? { hubId: hv.split(':')[0], view: hv.split(':')[1] } : {}) });
+  return React.createElement(React.Fragment, null, React.createElement(M[a], { key: who, ...P, ...(a === 'Hub' ? { hubId: hv.split(':')[0], view: hv.split(':')[1] } : {}) }),
+    React.createElement(M.DocPeekHost, { org: g, ops: o }), React.createElement(M.VoiceSearchHost, { lang: 'ar' }));   // v47.5 المضيفان العامّان كما في القشرة
 }
 let el;
 if (kind === 'live') el = React.createElement(Live);

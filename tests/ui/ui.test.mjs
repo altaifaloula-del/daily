@@ -1999,3 +1999,41 @@ test('v47.4 المشاريع: إضافة مشروع، قيد يدوي بمشرو
   assert.match(row, /400/); assert.match(row, /-400|−400/);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v47.5 استعراض المستند: النقر على رقم القيد أو الفاتورة أو السند يفتح نافذته', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/SalesHub/admin');
+  await p.locator('button:has-text("فواتير المبيعات")').first().click(); await p.waitForTimeout(300);
+  await p.evaluate(() => window.setOps(o => ({ ...o, salesInvoices: [{ id: 'sx', no: 'فاتورة-2026-00007', seq: 7, icv: 7, pih: '0', hash: 'h', kind: 'invoice', type: 'simplified', terms: 'credit', customerKey: 'cust:cx', buyer: { name: 'مؤسسة التموين' }, date: '2026-11-02', lines: [{ desc: 'وجبات غداء', qty: 2, price: 100, vatRate: 15, net: 200, vat: 30 }], net: 200, vat: 30, total: 230, dueDate: '2099-12-02', receipts: [{ id: 'r9', date: '2026-11-03', amount: 30, fund: '1201' }] }] }))); await p.waitForTimeout(250);
+  await p.locator('[data-doclink]', { hasText: 'فاتورة-2026-00007' }).click(); await p.waitForTimeout(250);
+  const t = await p.locator('[data-peek]').innerText();
+  assert.match(t, /وجبات غداء/); assert.match(t, /مؤسسة التموين/); assert.match(t, /المتبقي/);
+  assert.equal(await p.locator('[data-peek-je]').count(), 2, 'قيد الفاتورة وقيد التحصيل');
+  assert.match(await p.locator('[data-peek-je]').first().innerText(), /1380/);
+  await p.locator('[data-peek-print]').click(); await p.waitForTimeout(300);
+  assert.match(await p.evaluate(() => (document.querySelector('.mz-docv iframe') || {}).srcdoc || ''), /فاتورة-2026-00007/);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v47.5 استعراض القيد من دفتر اليومية', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/Accounting/admin/jr');
+  const first = p.locator('[data-doclink]').first(); const no = (await first.innerText()).trim();
+  await first.click(); await p.waitForTimeout(250);
+  assert.match(await p.locator('.modal-h, .modal').first().innerText(), new RegExp('قيد ' + no.replace(/[-/]/g, '.')));
+  assert.ok(await p.locator('[data-peek-je] tbody tr').count() >= 3, 'سطور القيد والإجمالي');
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v47.5 البحث بالصوت: زر ميكروفون في حقول البحث يملأ الحقل بالكلام ويطبّق التصفية', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1300, height: 1000 } });
+  await ctx.addInitScript(() => { window.webkitSpeechRecognition = class { constructor() { window.__rec = this; } start() { setTimeout(() => { this.onresult && this.onresult({ results: [[{ transcript: 'فاتورة-٢٠٢٦-٠٠٠٠٩.' }]] }); this.onend && this.onend(); }, 60); } stop() { this.onend && this.onend(); } }; window.SpeechRecognition = window.webkitSpeechRecognition; });
+  const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'live/SalesHub/admin'); await p.waitForTimeout(400); await settle(p);
+  await p.locator('button:has-text("فواتير المبيعات")').first().click(); await p.waitForTimeout(300);
+  await p.evaluate(() => window.setOps(o => ({ ...o, salesInvoices: ['00008', '00009'].map((n, k) => ({ id: 'v' + k, no: 'فاتورة-2026-' + n, seq: k + 1, icv: k + 1, pih: '0', hash: 'h', kind: 'invoice', type: 'simplified', terms: 'cash', fund: '1201', buyer: { name: 'نقدي' }, date: '2026-11-02', lines: [], net: 100, vat: 15, total: 115, receipts: [] })) }))); await p.waitForTimeout(1700);
+  assert.ok(await p.locator('[data-voicebtn]').count() >= 1, 'زر الميكروفون ظاهر');
+  await p.locator('[data-voicebtn]').first().click(); await p.waitForTimeout(400);
+  assert.equal(await p.locator('input[placeholder^="ابحث بالرقم"]').inputValue(), 'فاتورة-2026-00009', 'أرقام عربية حُوّلت وأُزيلت النقطة');
+  assert.equal(await p.locator('tbody tr', { hasText: 'فاتورة-2026-00008' }).count(), 0, 'التصفية طُبّقت');
+  assert.equal(await p.locator('tbody tr', { hasText: 'فاتورة-2026-00009' }).count(), 1);
+  assert.deepEqual(errs, []); await ctx.close();
+});

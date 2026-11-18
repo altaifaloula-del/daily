@@ -1,7 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useMemo, useState } from 'react';
 import { FileText, Wallet, AlertTriangle, ShieldCheck, Plus, Printer, Check, X, Banknote } from 'lucide-react';
-import { projList, Field, Kpi, LOCK_MSG, Modal, Num, ROLES, branchBanks, buildPartners, entityList, isoD, money, naMissing, nowISO, periodLocked, printSalesInvoice, rolePost, siCredited, siRem, siSorted, siStamp, siVerify, sum, today, uid } from '../../App.jsx';
+import { DocLink, projList, Field, Kpi, LOCK_MSG, Modal, Num, ROLES, branchBanks, buildPartners, entityList, isoD, money, naMissing, nowISO, periodLocked, printSalesInvoice, rolePost, siCredited, siRem, siSorted, siStamp, siVerify, sum, today, uid } from '../../App.jsx';
 
 export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
   const all = ops.salesInvoices || [];
@@ -131,7 +131,7 @@ export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
         <tbody>
           {shown.map(x => { const rem = siRem(ops, x), crd = siCredited(ops, x), o = x.kind === 'credit' || x.kind === 'debit' ? byId(x.refId) : null; return (
             <tr key={x.id}>
-              <td><span className="num" style={{ fontSize: 11.5, fontWeight: 700 }}>{x.no}</span><div style={{ fontSize: 9.5, color: 'var(--faint)' }}>{x.date} · {x.by}</div></td>
+              <td><DocLink to={{ si: x.id }} title="استعراض الفاتورة"><span className="num" style={{ fontSize: 11.5, fontWeight: 700 }}>{x.no}</span></DocLink><div style={{ fontSize: 9.5, color: 'var(--faint)' }}>{x.date} · {x.by}</div></td>
               <td style={{ fontSize: 12.5 }}>{(x.buyer || {}).name || <span style={{ color: 'var(--faint)' }}>عميل نقدي</span>}{(x.buyer || {}).vat ? <div className="num" style={{ fontSize: 9.5, color: 'var(--faint)' }}>{x.buyer.vat}</div> : null}</td>
               <td><span className="badge b-dim">{x.kind === 'credit' ? 'إشعار دائن' + (o ? ' عن ' + o.no : '') : x.kind === 'debit' ? 'إشعار مدين' + (o ? ' عن ' + o.no : '') + (x.terms === 'credit' ? ' · آجل' : ' · نقدي') : (x.type === 'standard' ? 'ضريبية' : 'مبسّطة') + ' · ' + (x.terms === 'credit' ? 'آجل' : 'نقدي')}</span>{x.inClosing && <div><span className="badge b-dim" style={{ marginTop: 3 }}>ضمن إغلاق وردية</span></div>}</td>
               <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: x.kind === 'credit' ? 'var(--rose)' : undefined }}>{x.kind === 'credit' ? '−' : ''}{money(x.total)}</td>

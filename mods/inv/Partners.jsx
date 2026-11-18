@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { authApi } from '../../storage';
 import { Trash2, ChevronRight, Plus, Printer, Settings, ArrowUp, Check, Bell, X, TrendingUp, TrendingDown, ArrowLeftRight, Users, Search } from 'lucide-react';
-import { ibanNorm, requestIban } from '../../App.jsx';   // v40.9
+import { DocLink, ibanNorm, requestIban } from '../../App.jsx';   // v40.9
 import { ContactsImport } from './ContactsImport.jsx';   // v46.6
 import { BalCell, Field, Kpi, LOCK_MSG, Modal, MoneyField, NationalAddressFields, PT_SRC, PT_TYPE, PartnerChip, ROLES, buildPartners, contactFields, contactOf, money, naErr, naHas, naMissing, nextPartnerCode, nowISO, periodLocked, printPartnerStatement, today, uid, waNum } from '../../App.jsx';
 
@@ -214,7 +214,7 @@ export function Partners({ org, ops, me, commit, commitOrg, say }) {
       return (
         <tr key={i}>
           <td className="num" style={{ fontSize: 11.5, whiteSpace: 'nowrap' }}>{t.date}</td>
-          <td style={{ fontSize: 12.5 }}>{t.desc}{t.who ? <span className={'badge ' + (t.who === 'supplier' ? 'b-sky' : 'b-mint')} style={{ fontSize: 9, marginInlineStart: 6 }}>{t.who === 'supplier' ? 'كمورد' : 'كعميل'}</span> : null}
+          <td style={{ fontSize: 12.5 }}>{t.ref && ['si', 'inv', 'cv'].includes(t.src) ? <DocLink to={{ ref: t.ref, src: t.src }}>{t.desc}</DocLink> : t.desc}{t.who ? <span className={'badge ' + (t.who === 'supplier' ? 'b-sky' : 'b-mint')} style={{ fontSize: 9, marginInlineStart: 6 }}>{t.who === 'supplier' ? 'كمورد' : 'كعميل'}</span> : null}
             <div style={{ fontSize: 10, color: src.c, marginTop: 3 }}>● {src.t}{t.ref ? ' · ' + t.ref : ''}</div></td>
           <td className="num" style={{ textAlign: 'end' }}>{t.debit ? money(t.debit) : '—'}</td>
           <td className="num" style={{ textAlign: 'end' }}>{t.credit ? money(t.credit) : '—'}</td>

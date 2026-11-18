@@ -3015,7 +3015,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v47.4';
+const APP_VER = 'v47.5';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -4087,6 +4087,8 @@ function PlatformApp() {
     <div className={themeCls(theme, mode) + (sideCol ? ' rp-collapsed' : '') + (lang === 'en' ? ' lang-en' : '')} dir={lang === 'en' ? 'ltr' : 'rtl'} lang={lang}>
       <style dangerouslySetInnerHTML={{ __html: CSS + '.spin{animation:sp 1s linear infinite}@keyframes sp{to{transform:rotate(360deg)}}' }} />
       {needUpdate && <UpdateGate rel={needUpdate} />}
+      <DocPeekHost org={org} ops={ops} />
+      <VoiceSearchHost lang={lang} />
       <div className="shell" key={'lang-' + lang}
         onTouchStart={(e) => {
           if (window.innerWidth > 900) return;
@@ -6090,6 +6092,165 @@ function SalesHub(props) {
     </div>
   );
 }
+
+
+/* ══════ v47.5 — البحث بالصوت في كل أقسام المنصة ══════
+   مضيف واحد يضع زر ميكروفون داخل كل حقل بحث ظاهر (placeholder/aria-label فيه «بحث/ابحث/search»، أو type=search، أو data-voice)،
+   ويملأ الحقل بما يُنطق عبر Web Speech API (العربية السعودية، أو الإنجليزية في الواجهة الإنجليزية). لا يظهر في متصفح لا يدعمها.
+   الحقل يُكتب فيه بمحاكاة الإدخال الأصلي فتعمل فلاتر React كما لو كتب المستخدم. استثناء حقل: data-novoice. */
+const VOICE_SEL = 'input[type="search"],input[data-voice],input[placeholder*="بحث"],input[placeholder*="ابحث"],input[aria-label*="بحث"],input[placeholder*="Search"],input[placeholder*="search"]';
+const voiceSR = () => (typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition)) || null;
+const voiceNorm = (t) => String(t || '').replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/[۰-۹]/g, d => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/[.。؟?!،,]+$/g, '').trim();
+function voiceFill(el, text) {
+  try { const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; set.call(el, text);
+    el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); } catch { /* */ }
+}
+function VoiceSearchHost({ lang }) {
+  const SR = voiceSR();
+  const [spots, setSpots] = useState([]); const [live, setLive] = useState(null); const [msg, setMsg] = useState('');
+  const recRef = useRef(null); const elsRef = useRef([]);
+  useEffect(() => {
+    if (!SR) return undefined;
+    let raf = 0, tm = 0;
+    const scan = () => { raf = 0;
+      const vw = window.innerWidth, vh = window.innerHeight, out = [], els = [];
+      document.querySelectorAll(VOICE_SEL).forEach(el => {
+        if (el.matches('[data-novoice],[disabled],[readonly]') || el.type === 'password' || el.closest('.mz-docv')) return;
+        const r = el.getBoundingClientRect(); if (r.width < 90 || r.height < 18 || r.bottom < 0 || r.top > vh || r.right < 0 || r.left > vw) return;
+        const cx = Math.min(vw - 2, Math.max(1, r.left + r.width / 2)), cy = Math.min(vh - 2, Math.max(1, r.top + r.height / 2));
+        const hit = document.elementFromPoint(cx, cy); if (!hit || (hit !== el && !el.contains(hit) && !hit.closest('[data-voicebtn]'))) return;   // مغطّى بنافذة
+        const rtl = getComputedStyle(el).direction === 'rtl'; const sz = Math.min(28, Math.max(22, r.height - 8));
+        if (!el.dataset.vpad) { el.dataset.vpad = '1'; el.style.paddingInlineEnd = (sz + 10) + 'px'; }
+        els.push(el); out.push({ i: els.length - 1, top: r.top + (r.height - sz) / 2, left: rtl ? r.left + 5 : r.right - sz - 5, sz });
+      });
+      elsRef.current = els;
+      setSpots(prev => (prev.length === out.length && prev.every((p, k) => Math.abs(p.top - out[k].top) < 0.5 && Math.abs(p.left - out[k].left) < 0.5)) ? prev : out);
+    };
+    const kick = () => { if (!raf) raf = requestAnimationFrame(scan); };
+    const mo = new MutationObserver(() => { clearTimeout(tm); tm = setTimeout(kick, 120); });
+    mo.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'placeholder', 'hidden'] });
+    window.addEventListener('scroll', kick, true); window.addEventListener('resize', kick); kick();
+    const iv = setInterval(kick, 1500);
+    return () => { mo.disconnect(); window.removeEventListener('scroll', kick, true); window.removeEventListener('resize', kick); clearInterval(iv); clearTimeout(tm); if (raf) cancelAnimationFrame(raf); };
+  }, [SR]);
+  const stop = () => { try { recRef.current && recRef.current.stop(); } catch { /* */ } };
+  const start = (k) => {
+    const el = elsRef.current[k]; if (!el || !SR) return;
+    if (live) { stop(); if (live.el === el) return; }
+    try { el.focus({ preventScroll: true }); } catch { /* */ }
+    const rec = new SR(); recRef.current = rec;
+    rec.lang = lang === 'en' ? 'en-US' : 'ar-SA'; rec.interimResults = true; rec.continuous = false; rec.maxAlternatives = 1;
+    const before = el.value;
+    rec.onresult = (ev) => { let t = ''; for (let i = 0; i < ev.results.length; i++) t += ev.results[i][0].transcript; voiceFill(el, voiceNorm(t)); };
+    rec.onerror = (ev) => { const c = ev && ev.error; setMsg(c === 'not-allowed' || c === 'service-not-allowed' ? 'اسمح للمتصفح باستخدام الميكروفون' : c === 'no-speech' ? 'لم يُلتقط صوت — حاول مجددًا' : c === 'aborted' ? '' : 'تعذّر التعرّف على الصوت'); if (c === 'no-speech') voiceFill(el, before); };
+    rec.onend = () => { setLive(null); recRef.current = null; };
+    try { rec.start(); setLive({ el, k }); setMsg(''); } catch { setLive(null); }
+  };
+  useEffect(() => { if (!msg) return undefined; const t = setTimeout(() => setMsg(''), 3500); return () => clearTimeout(t); }, [msg]);
+  if (!SR || (!spots.length && !msg)) return null;
+  return createPortal(<>
+    {spots.map(p => { const on = live && live.k === p.i;
+      return <button key={p.i} type="button" data-voicebtn className={'voicebtn' + (on ? ' on' : '')} aria-label={on ? 'إيقاف الاستماع' : 'بحث بالصوت'} title={on ? 'إيقاف' : 'بحث بالصوت'}
+        style={{ top: p.top, left: p.left, width: p.sz, height: p.sz }}
+        onMouseDown={e => e.preventDefault()} onPointerDown={e => e.preventDefault()} onClick={() => (on ? stop() : start(p.i))}>
+        <svg viewBox="0 0 24 24" width="60%" height="60%" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2.5" width="6" height="12" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3.5" /></svg>
+      </button>; })}
+    {(live || msg) && <div className="voicetoast" role="status">{live ? (lang === 'en' ? 'Listening…' : 'أستمع… تكلّم الآن') : msg}</div>}
+  </>, document.body);
+}
+
+/* ══════ v47.5 — نافذة استعراض القيد/المستند: النقر على رقم قيد أو فاتورة أو سند يفتح نافذته للاستعراض في أي شاشة ══════
+   peekDoc({ e: entryId } | { no: رقم القيد } | { si: id } | { inv: id } | { cv: id } | { ref, src }) — يُرسل حدثًا تلتقطه DocPeekHost. */
+const peekDoc = (spec) => { try { window.dispatchEvent(new CustomEvent('mz-peek', { detail: spec || {} })); } catch { /* */ } };
+function DocLink({ to, children, style, title }) {
+  if (!to) return <>{children}</>;
+  return <button type="button" className="doclink" data-doclink title={title || 'استعراض'} style={style}
+    onClick={(ev) => { ev.stopPropagation(); peekDoc(to); }}>{children}</button>;
+}
+// يحدد المستند والقيود المرتبطة به
+function peekResolve(org, ops, A, sp) {
+  const E = (A && A.entries) || []; const out = { entries: [], doc: null, kind: '' };
+  const byId = (id) => E.filter(e => e.id === id);
+  const SI = ops.salesInvoices || [], INV = ops.invoices || [], CV = ops.cashVouchers || [];
+  let si = sp.si ? SI.find(x => x.id === sp.si) : null, inv = sp.inv ? INV.find(x => x.id === sp.inv) : null, cv = sp.cv ? CV.find(x => x.id === sp.cv) : null;
+  if (sp.ref != null && !si && !inv && !cv) {
+    const r = String(sp.ref);
+    if (sp.src === 'si') si = SI.find(x => x.no === r); else if (sp.src === 'inv') inv = INV.find(x => x.invoiceNo === r && (!sp.sup || x.supplierId === sp.sup)); else if (sp.src === 'cv') cv = CV.find(x => x.no === r);
+    else { si = SI.find(x => x.no === r) || null; if (!si) cv = CV.find(x => x.no === r) || null; if (!si && !cv) inv = INV.find(x => x.invoiceNo === r) || null; }
+  }
+  if (sp.e || sp.no) { const e = sp.e ? byId(sp.e) : E.filter(x => String(x.no) === String(sp.no)); out.entries = e;
+    const id = String((e[0] || {}).id || ''); const m = /^(si|inv|cv):(.+)$/.exec(id);
+    if (m && m[1] === 'si') si = SI.find(x => x.id === m[2]); else if (m && m[1] === 'inv') inv = INV.find(x => x.id === m[2]); else if (m && m[1] === 'cv') cv = CV.find(x => x.id === m[2]); }
+  if (si) { out.kind = 'si'; out.doc = si; if (!out.entries.length) { const rc = new Set((si.receipts || []).map(r => 'sir:' + r.id)); out.entries = E.filter(e => e.id === 'si:' + si.id || rc.has(e.id)); } }
+  else if (inv) { out.kind = 'inv'; out.doc = inv; if (!out.entries.length) { const pm = new Set((ops.closingInvPays || []).filter(x => x.refId === inv.id).map(x => 'cip:' + x.id)); out.entries = E.filter(e => e.id === 'inv:' + inv.id || pm.has(e.id)); } }
+  else if (cv) { out.kind = 'cv'; out.doc = cv; if (!out.entries.length) out.entries = byId('cv:' + cv.id); }
+  if (!out.doc && !out.entries.length && sp.ref) out.entries = E.filter(e => String(e.ref) === String(sp.ref) || String(e.id).endsWith(':' + sp.ref)).slice(0, 6);
+  return out;
+}
+function DocPeekHost({ org, ops }) {
+  const [sp, setSp] = useState(null);
+  useEffect(() => { const on = (ev) => setSp(ev.detail || {}); window.addEventListener('mz-peek', on); return () => window.removeEventListener('mz-peek', on); }, []);
+  const A = useMemo(() => (sp && org && ops ? buildAccounting(org, ops) : null), [sp, org, ops]);
+  if (!sp || !org || !ops) return null;
+  const R = peekResolve(org, ops, A, sp); const d = R.doc;
+  const SI = ops.salesInvoices || [];
+  const prn = () => { if (R.kind === 'si') printSalesInvoice(org, d, d.refId ? SI.find(x => x.id === d.refId) : null);
+    else if (R.kind === 'cv') printA4(org, (CV_KIND[d.kind] || {}).ar + ' — ' + d.no, '', cashVoucherHtml(org, d)); };
+  const ttl = R.kind === 'si' ? (d.kind === 'credit' ? 'إشعار دائن ' : d.kind === 'debit' ? 'إشعار مدين ' : 'فاتورة مبيعات ') + d.no
+    : R.kind === 'inv' ? (d.debitNote ? 'إشعار مدين للمورد ' : d.creditNote ? 'إشعار دائن/مرتجع مورد ' : d.supDebit ? 'إشعار مدين من المورد ' : 'فاتورة مورد ') + (d.invoiceNo || '')
+    : R.kind === 'cv' ? ((CV_KIND[d.kind] || {}).ar || 'سند') + ' ' + d.no
+    : R.entries.length === 1 ? 'قيد ' + R.entries[0].no : 'استعراض';
+  const brn = (id) => (((org.branches || []).find(b => b.id === id)) || {}).name;
+  const prj = (id) => (((org.projects || []).find(p => p.id === id)) || {}).name;
+  return (
+    <Modal title={ttl} icon={FileText} onClose={() => setSp(null)}
+      foot={<>{(R.kind === 'si' || R.kind === 'cv') && <button className="btn pri" data-peek-print onClick={prn}><Printer size={14} />عرض المستند / طباعة</button>}<button className="btn gh" onClick={() => setSp(null)}>إغلاق</button></>}>
+      <div data-peek>
+        {R.kind === 'si' && <div className="grid g3" style={{ marginBottom: 10 }}>
+          <div className="mono-b"><span>التاريخ</span><b className="num">{d.date}{d.time ? ' ' + d.time : ''}</b></div>
+          <div className="mono-b"><span>العميل</span><b>{(d.buyer || {}).name || 'نقدي'}</b></div>
+          <div className="mono-b"><span>الإجمالي</span><b className="num">{money(d.total)}</b></div>
+          {d.refId && <div className="mono-b"><span>عن الفاتورة</span><b className="num">{(SI.find(x => x.id === d.refId) || {}).no || '—'}</b></div>}
+          {d.terms === 'credit' && d.kind !== 'credit' && <div className="mono-b"><span>المتبقي</span><b className="num">{money(siRem(ops, d))}</b></div>}
+        </div>}
+        {R.kind === 'si' && <table className="tb" style={{ fontSize: 12, marginBottom: 10 }}><thead><tr><th>البند</th><th style={{ textAlign: 'end' }}>الكمية</th><th style={{ textAlign: 'end' }}>السعر</th><th style={{ textAlign: 'end' }}>الضريبة</th><th style={{ textAlign: 'end' }}>الإجمالي</th></tr></thead>
+          <tbody>{(d.lines || []).map((l, i) => <tr key={i}><td>{l.desc}</td><td className="num" style={{ textAlign: 'end' }}>{l.qty}</td><td className="num" style={{ textAlign: 'end' }}>{money(l.price)}</td><td className="num" style={{ textAlign: 'end' }}>{money(l.vat)}</td><td className="num" style={{ textAlign: 'end' }}>{money((l.net || 0) + (l.vat || 0))}</td></tr>)}</tbody></table>}
+        {R.kind === 'inv' && <>
+          <div className="grid g3" style={{ marginBottom: 10 }}>
+            <div className="mono-b"><span>المورد</span><b>{d.supplierName}</b></div>
+            <div className="mono-b"><span>التاريخ / الاستحقاق</span><b className="num">{String(d.date || '').slice(0, 10)}{d.dueDate ? ' ← ' + d.dueDate : ''}</b></div>
+            <div className="mono-b"><span>المبلغ (منه ضريبة)</span><b className="num">{money(d.amount)} ({money(d.vatAmt || 0)})</b></div>
+            <div className="mono-b"><span>المسدّد</span><b className="num">{money(d.paidAmount || 0)}</b></div>
+            {d.branchName && <div className="mono-b"><span>الفرع</span><b>{d.branchName}</b></div>}
+            {d.reason && <div className="mono-b"><span>السبب</span><b>{d.reason}</b></div>}
+          </div>
+          {(d.lines || d.expLines || []).length > 0 && <table className="tb" style={{ fontSize: 12, marginBottom: 10 }}><thead><tr><th>البند</th><th style={{ textAlign: 'end' }}>الكمية</th><th style={{ textAlign: 'end' }}>المبلغ</th></tr></thead>
+            <tbody>{(d.lines || d.expLines || []).map((l, i) => <tr key={i}><td>{l.name || l.desc || l.itemName || l.itemId || '—'}{l.note ? <div style={{ fontSize: 10, color: 'var(--faint)' }}>{l.note}</div> : null}</td><td className="num" style={{ textAlign: 'end' }}>{l.qty != null ? l.qty : '—'}</td><td className="num" style={{ textAlign: 'end' }}>{money(l.net != null ? l.net : (Number(l.qty) || 0) * (Number(l.price || l.unitCost) || 0))}</td></tr>)}</tbody></table>}
+        </>}
+        {R.kind === 'cv' && <div className="grid g3" style={{ marginBottom: 10 }}>
+          <div className="mono-b"><span>التاريخ</span><b className="num">{d.date}</b></div>
+          <div className="mono-b"><span>المبلغ</span><b className="num">{money(d.amount)}</b></div>
+          <div className="mono-b"><span>{d.kind === 'tv' ? 'من ← إلى' : 'الطرف'}</span><b>{d.kind === 'tv' ? d.fund + ' ← ' + d.toFund : d.kind === 'ov' ? d.supName + ' / ' + d.custName : (d.party || {}).name}</b></div>
+          {d.note && <div className="mono-b"><span>البيان</span><b>{d.note}</b></div>}
+        </div>}
+        {R.entries.map(e => (
+          <div key={e.id} className="card" style={{ padding: 12, marginBottom: 8 }} data-peek-je>
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 6 }}>
+              <b className="num">قيد {e.no}</b><span className="badge b-dim num">{e.date}</span><span className="badge b-sky" style={{ fontSize: 10 }}>{e.manual ? '' : 'تلقائي · '}{e.src}</span>
+              {e.branchId && <span className="badge b-dim">{brn(e.branchId) || e.branchId}</span>}{e.projectId && <span className="badge b-amber">{prj(e.projectId) || 'مشروع'}</span>}
+              {!e.balanced && <span className="badge b-rose">غير متوازن</span>}
+            </div>
+            <div style={{ fontSize: 12.5, marginBottom: 6 }}>{e.title}</div>
+            <table className="tb" style={{ fontSize: 12 }}><thead><tr><th>الحساب</th><th style={{ textAlign: 'end' }}>مدين</th><th style={{ textAlign: 'end' }}>دائن</th></tr></thead>
+              <tbody>{(e.lines || []).map((l, i) => <tr key={i}><td><span className="num" style={{ fontSize: 11, color: 'var(--faint)' }}>{l.code}</span> {l.name}{l.projectId ? <span className="badge b-amber" style={{ marginInlineStart: 4, fontSize: 9 }}>{prj(l.projectId)}</span> : null}</td><td className="num" style={{ textAlign: 'end' }}>{l.debit ? money(l.debit) : '—'}</td><td className="num" style={{ textAlign: 'end' }}>{l.credit ? money(l.credit) : '—'}</td></tr>)}
+                <tr style={{ fontWeight: 700 }}><td>الإجمالي</td><td className="num" style={{ textAlign: 'end' }}>{money(e.debit)}</td><td className="num" style={{ textAlign: 'end' }}>{money(e.credit)}</td></tr></tbody></table>
+          </div>))}
+        {!R.doc && !R.entries.length && <div className="empty">لم يُعثر على المستند أو القيد.</div>}
+        {R.doc && !R.entries.length && <div className="note">لا قيد لهذا المستند (مسودة، أو مُرحَّل ضمن إغلاق، أو خارج النطاق).</div>}
+      </div>
+    </Modal>);
+}
+
 function printSalesInvoice(org, x, orig) {
   const ent = entityById(org, x.entityId);
   const seller = ent.name || ((org.company || {}).name) || '', svat = ent.taxNumber || '', scr = ent.commercialReg || '';
@@ -11797,6 +11958,7 @@ async function qrAnalyzeComments(items) {
 
 
 // v38.3 — ما تحتاجه ملفات التطبيقات المنفصلة (mods/) من النواة
+export { peekDoc, DocLink, DocPeekHost, VoiceSearchHost, voiceNorm };
 export { fefoPick, lotsFor, projList, projectPL, projNextCode };
 export { computeSmartAlerts, stockShortages, CV_KIND, cvNextNo, partyOpenDocs, applyCashVoucher, cashVoucherHtml, VCH_T, VCH_TRF, vchTypeOf, assignVouchers, voucherList, voucherHtml, saleDeductFrom, saleDeductOn, saleUse, saleRecipeItems, saleDayUse, syncSaleMoves, itemLedger, UOM_LIST, UOM_GROUPS, uomOf, uomConv, uomOk, uomNeeded, lineUnits, lineFac, UomSelect, Notifications, closeAlertsCfg, closeAlertEvents, closeAlertFor, shiftSumText, waShare, CLOSE_ALERT_ROLES, posDocView, printScreen, cutoutPixels, productThumb, prepWasteStats, normDigits, normScan, posPaper, posPaperDev, setPosPaperDev, prepShelfH, prepBatchState, PREP_ST, canBrPurchase, brSigCheck, BR_PURCHASERS, poWhOf, syncPoInbox, INV_BILLERS, ITEM_NEW_TYPES, itemsSeq, nextItemCode, vatNoOk, supVatOf, ItemPick, A4_CSS, posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim, prepItemId, prepItemOf, prodNeeds, prodCheck, prodMoves, clrMerge, clrRead, clrViewStats, ppvReport, invTurnover, dirOf, isMzbk, mzbkDecrypt, clrData, clrRecord, clrSigRef, clrDiff, clrCompare, clrOn, clrState, clrMirror, clrLoad, clrSeed, OdooBar, ACCT_SECTIONS, ACCT_SEC_AR, ACC_KIND, ALL_TABS, APPS, AdvanceForm, AppPermsPanel, AppsStrip, BR_COLS, Badge, BalCell, BlindCount, BranchForm, COUNT_FREQ, COUNT_ST, CameraModal, CategoriesPanel, ClosingView, CloudHealth, CountScheduleCard, DAYS_AR, DENOMS, DOC_LABEL, DOC_TYPES, DailyBranchReport, DeliveryAppsPanel, DisbursementForm, DupInvHint, EXP_CATS, FILE_CATS, Field, FinancialReports, GROWTH_MONTHS, HR_WEEK_DAYS, HrSignPad, ITEM_TYPES, Kpi, LAUNCH_APPS, LEAVE_TYPES, LOCK_MSG, MAIN_WH, MFA_DEFAULT_ROLES, MOVE_KINDS, MZ_FIXED, MZ_KIND_AR, MZ_LOGO_HTML, MZ_SUGGEST, MfaPolicyCard, MizanMerge, Modal, MoneyField, NUM_FACE, NUM_LOCALE, NationalAddressFields, Num, OutputDialog, PAY_ADD_TYPES, PAY_GUESS, PEN_TYPES, POS_DEV_KEY, POS_SH_KEY, PROMO_IDEAS, PROMO_T, PT_SRC, PT_TYPE, PartnerChip, PdfTile, PhotoField, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, PriceAlerts, QR_ITEMS, QR_STATUS, QUOTA_MSG, QrBranchesView, QrComplaints, QrDashboard, RB_KIND_AR, RB_PM_AR, RB_SOURCES, REG_APPS, REG_CATS, REG_IX, ROLES, SC_KPIS, SIGN_DOC_AR, SIG_H, SIG_W, SectionNav, SigView, SignDocsModal, SignaturePad, SystemPanel, TAB_AR, TRAIN_STATUS_AR, UsageVariance, UserForm, WASTE_REASONS, WH_KIND, WH_MOVE, WH_ST, WarehousesPanel, WasteControl, WasteFields, WastePending, WhLines, _normName, _xe, aCountDone, aItemsOf, acctSecKey, activePriorCorrectives, activeTrainingRecord, aiHeaders, appCanSee, appOpenNow, appUseGet, appUseSet, arDT, arDate, arTime, bankOfBranch, bioEnroll, bookHidden, branchBanks, branchEntityId, browserName, bsLayout, bsRowsOf, buildAccounting, buildClosingA4, buildPartners, buildPayslipSignDocs, businessDay, canApproveCount, canApproveWaste, capOK, chartTone, closingInvoices, clr, compressImage, computeIncome, contactFields, contactOf, correctiveExpiry, correctiveSignDoc, countCfgOf, countDenoms, countFocus, countSchedule, countedClosing, customerAging, daysBetween, defaultHrPolicies, defaultPenaltySchedule, defaultPointsRules, defaultRewardTiers, defaultRoleKpis, defaultTrainingPrograms, deficitCfg, deficitPatterns, detectStmtMap, deviceType, emptyDenoms, entityById, entityList, eosAccrualLines, eosCumAt, eosState, eosYears, escH, expiringTraining, expiryLots, exportExcel, fineSuggest, fmtBalP, fmtNA, frozenSnapshotFor, gosiRatesFor, haversineMeters, hrAttendanceDetail, hrEmpStats, hrQrWindowCode, hrScoreFor, isCostCtl, isLayout, isPdfData, isRowsOf, isStocked, isoD, itemAvgCosts, itemType, kpiAchievement, leaveBalance, leaveDeductPlan, lockedThru, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, makeXlsx, missingRequiredTraining, mizanPlan, money, moneyP, monthEnd, monthLabel, monthLedger, multiEntityOn, mzNewCode, mzR2, naClean, naErr, naHas, naMissing, newBranchDraft, nextPartnerCode, nextWhAcc, normPhone, normalizeSupPays, nowISO, onLeave, openDocWin, openPdfData, otFromAttendance, otRateOf, overdueSignDocs, pFactor, parseCsvGrid, parseMt940, parseXlsxGrid, partGross, partYield, payCashPart, payLabel, paySplits, payTotal, payrollRowsOf, penTypeAr, pendShiftsGet, pendShiftsSet, periodLocked, piAggregate, piDetect, piNorm, pipTriggered, posCashNet, posClrOf, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posShiftHtml, posTotals, posZHtml, positionJdHtml, printA4, printClosingA4, printIncomeA4, printPartnerStatement, printReceipt, printSalesInvoice, programRequiredFor, promoActive, promoDesc, promoHits, purKey, pwStrength, q3, qrAnalyzeComments, qrAvg, qrBranchStats, qrDate, qrF1, qrFs, qrIsComplaint, qrMs, qrOverall, qrOverdue, qrPrintReport, qrRateUrl, qrSentBadge, qrStatusOf, qrSvg, rewardSignDoc, roleEdit, roleHasTab, roleKpisFor, rolePost, salesDaySource, sha, sha256Hex, short, siCredited, siRem, siSorted, siStamp, siVerify, sigBlockHtml, sigPoints, sigSvg, signDeclaration, signDocHtml, simplifySig, slimBranchDoc, snapAll, snapMonths, snapPut, stAddDays, stDate, stNum, stockByWh, submitWaste, suggestNextLevel, sum, supplierAging, supplierPrices, today, trainingExpiryOf, trainingStatusNow, uid, usageReport, useSecNav, verifyBackup, waNum, wasteCfg, wasteDaily, wasteReasonAr, wasteRows, webauthnSupported, whForBranch, whName, whOf, whOn, zatcaTLV };
 export { ClosingForm };

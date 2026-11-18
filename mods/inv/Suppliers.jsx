@@ -1,7 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Truck, FileBarChart, ChevronDown, Printer, FileText, Building2, ClipboardCheck, Users, Plus, AlertTriangle, CalendarDays, Trash2, Check, X, Banknote } from 'lucide-react';
-import { projList, uomOf, uomOk, lineUnits, lineFac, UomSelect, DupInvHint, Field, Kpi, LOCK_MSG, MAIN_WH, Modal, Num, ROLES, SectionNav, arDate, branchBanks, closingInvoices, isStocked, isoD, itemType, money, nowISO, pFactor, payTotal, periodLocked, printA4, purKey, q3, _xe, roleEdit, rolePost, buildAccounting, INV_BILLERS, itemsSeq, vatNoOk, supVatOf, ItemPick, roleHasTab, stockByWh, sum, supplierPrices, today, uid, whName, whOf, whOn, poWhOf, brSigCheck, signoff, signDecision, sigFailMsg } from '../../App.jsx';
+import { DocLink, projList, uomOf, uomOk, lineUnits, lineFac, UomSelect, DupInvHint, Field, Kpi, LOCK_MSG, MAIN_WH, Modal, Num, ROLES, SectionNav, arDate, branchBanks, closingInvoices, isStocked, isoD, itemType, money, nowISO, pFactor, payTotal, periodLocked, printA4, purKey, q3, _xe, roleEdit, rolePost, buildAccounting, INV_BILLERS, itemsSeq, vatNoOk, supVatOf, ItemPick, roleHasTab, stockByWh, sum, supplierPrices, today, uid, whName, whOf, whOn, poWhOf, brSigCheck, signoff, signDecision, sigFailMsg } from '../../App.jsx';
 import { cloud, bfKey } from '../../storage';
 
 export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: goTab, billOnly }) {
@@ -859,7 +859,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
                     : { t: `${daysLeft} يوم`, c: 'var(--dim)' };
                   return (
                     <tr key={i.id}>
-                      <td style={{ fontSize: 11 }}><span className="num">{i.invoiceNo}</span>
+                      <td style={{ fontSize: 11 }}><DocLink to={i.source === 'stored' ? { inv: i.id } : null} title="استعراض الفاتورة"><span className="num">{i.invoiceNo}</span></DocLink>
                         {i.source === 'closing' && <div><span className="badge b-mint" style={{ fontSize: 8.5, marginTop: 2 }}>من وردية · {i.categoryName}</span></div>}</td>
                       <td style={{ fontSize: 12 }}>{i.supplierName}</td>
                       <td style={{ fontSize: 11.5, color: 'var(--dim)' }}>{i.branchName}</td>
