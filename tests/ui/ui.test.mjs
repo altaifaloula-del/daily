@@ -927,6 +927,37 @@ test('v49.2 MQ-005 الصالات: إعدادها بالنطاقات (مع رف�
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+test('v49.2 MQ-006 التوصيل: إضافة سائق، طلب توصيل بعنوانه، إسناده ثم «تم التوصيل»، والعهدة النقدية وتسويتها', async () => {
+  { const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosSettings/admin');
+    await p.click('[data-drivers] button:has-text("+ سائق")');
+    await p.fill('input[aria-label="اسم السائق"]', 'أحمد'); await p.fill('input[aria-label="جوال السائق"]', '0551112222');
+    await p.locator('.card button.pri', { hasText: /^حفظ$/ }).click(); await p.waitForTimeout(250);
+    assert.deepEqual(await p.evaluate(() => window.curOrg.posCfg.drivers.map(d => [d.name, d.phone, d.active])), [['أحمد', '0551112222', true]]);
+    assert.deepEqual(errs, []); await ctx.close(); }
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosApp/bm');
+  await p.evaluate(() => {
+    window.setOrg(g => ({ ...g, taxCfg: { enabled: true, rate: 15 }, posCfg: { branches: ['b1'], autoPrint: false, drivers: [{ id: 'd1', name: 'أحمد', active: true }] },
+      products: [{ id: 'k', name: 'كبسة', sellPrice: 58, cat: 'رئيسي' }] }));
+    window.setOps(o => ({ ...o, posOrders: [], posDeliveries: [] }));
+  }); await p.waitForTimeout(400);
+  const ob = p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await p.waitForTimeout(400); }
+  await p.click('.pos-seg button:has-text("توصيل")');
+  await p.fill('input[aria-label="عنوان التوصيل"]', 'حي النسيم، شارع 5'); await p.fill('input[aria-label="جوال التوصيل"]', '0500000000');
+  await p.locator('.pos-tile:has-text("كبسة")').click();
+  await p.click('.pos-cart button:has-text("نقدي")'); await p.waitForTimeout(200);
+  await p.click('.modal button:has-text("تأكيد")'); await p.waitForTimeout(600);
+  assert.deepEqual(await p.evaluate(() => window.cur.posDeliveries.map(x => [x.st, x.addr, x.phone, x.cash])), [['new', 'حي النسيم، شارع 5', '0500000000', 58]]);
+  await p.click('.pos-tabs button:has-text("التوصيل")'); await p.waitForTimeout(200);
+  const no = await p.evaluate(() => window.cur.posDeliveries[0].no);
+  await p.selectOption('select[aria-label="سائق ' + no + '"]', 'd1'); await p.waitForTimeout(300);
+  assert.equal(await p.locator('[data-dlvcol="out"] [data-dlv]').count(), 1);
+  await p.click('[data-dlvcol="out"] button:has-text("تم التوصيل")'); await p.waitForTimeout(300);
+  assert.match(await p.locator('[data-dlvsum]').innerText(), /أحمد[\s\S]*58\.00/);
+  await p.click('[data-dlvsum] button:has-text("استلام النقد")'); await p.waitForTimeout(300);
+  assert.deepEqual(await p.evaluate(() => window.cur.posDeliveries.map(x => [x.st, x.driverName, !!x.settledAt])), [['done', 'أحمد', true]]);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
 test('v43.0 الواجهة الإنجليزية: الاتجاه LTR وترجمة الإطار (التطبيقات، رأس المركز، شريط الأقسام) والعربية افتراضيًا', async () => {
   // افتراضيًا: عربي RTL
   { const { p, errs, ctx } = await open({ viewport: { width: 1280, height: 900 } }, 'comp/Launcher');

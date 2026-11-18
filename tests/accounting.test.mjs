@@ -1923,3 +1923,24 @@ test('v49.2 MQ-005 الصالات: نطاقات صالحة فقط، الطاول
   assert.deepEqual(E.salesByArea({ posCfg: { tables: { b1: 12 }, areas: { b1: [{ id: 'm', name: 'الرئيسية', from: 1, to: 5 }, { id: 'f', name: 'العائلات', from: 6, to: 10 }] } } }, ops, 'b1', '2026-11-18', '2026-11-18').map(x => [x.name, x.orders, x.total]),
     [['الرئيسية', 1, 50], ['العائلات', 1, 30], ['بلا صالة', 1, 20]]);
 });
+
+test('v49.2 MQ-006 التوصيل الذاتي: السجل منفصل عن الفاتورة، الانتقالات المسموحة، وعهدة السائق وتسويتها', () => {
+  const o = { id: 'o1', no: 'ف1-1', branchId: 'b1', at: '2026-11-18T12:00:00.000Z', channel: 'delivery', total: 92, change: 8, payments: [{ m: 'cash', amount: 100 }] };
+  assert.equal(E.dlvNeeded(o), true); assert.equal(E.dlvNeeded({ ...o, payments: [{ m: 'app', amount: 92 }] }), false, 'طلب تطبيق: سائق التطبيق');
+  assert.equal(E.dlvNeeded({ ...o, channel: 'takeaway' }), false);
+  const r = E.dlvRecord(o, { phone: '0500', addr: 'حي النسيم' });
+  assert.deepEqual([r.id, r.st, r.cash, r.addr], ['dl_o1', 'new', 92, 'حي النسيم'], 'النقد = المدفوع − الباقي');
+  assert.match(E.dlvMove(r, 'done', 'س').err, /غير مسموح/);
+  assert.match(E.dlvMove(r, 'out', 'س').err, /السائق/);
+  const out = E.dlvMove(r, 'out', 'س', { driverId: 'd1', driverName: 'أحمد', at: '2026-11-18T12:05:00.000Z' });
+  assert.match(E.dlvMove(out, 'fail', 'س').err, /سبب/);
+  const done = E.dlvMove(out, 'done', 'س', { at: '2026-11-18T12:29:00.000Z' });
+  const ops = { posDeliveries: [done, { ...E.dlvRecord({ ...o, id: 'o2', total: 40, change: 0, payments: [{ m: 'card', amount: 40 }] }), st: 'out', driverId: 'd1', driverName: 'أحمد', outAt: '2026-11-18T12:10:00.000Z' }] };
+  const S = E.dlvSummary({}, ops, 'b1', '2026-11-18');
+  assert.deepEqual(S.map(x => [x.name, x.orders, x.done, x.out, x.avgMin, x.custody]), [['أحمد', 2, 1, 1, 24, 92]]);
+  const settled = { posDeliveries: ops.posDeliveries.map(x => x.st === 'done' ? { ...x, settledAt: '2026-11-18T13:00:00Z' } : x) };
+  assert.equal(E.dlvSummary({}, settled, 'b1', '2026-11-18')[0].custody, 0);
+  assert.deepEqual(E.posDrivers({ posCfg: { drivers: [{ id: 'd1', name: 'أ' }, { id: 'd2', name: 'ب', branchId: 'b2' }, { id: 'd3', name: 'ج', active: false }] } }, 'b1').map(d => d.id), ['d1']);
+  const T = E.posTrim({ posDeliveries: [{ ...done, settledAt: 'x', at: '2026-08-01T10:00:00Z' }, done] }, '2026-11-18');
+  assert.equal(T.posDeliveries.length, 1, 'المسوّى الأقدم من 60 يومًا يُقلَّم');
+});
