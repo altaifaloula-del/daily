@@ -3038,7 +3038,7 @@ class ErrorBoundary extends React.Component {
     return full ? <div className="rms mode-dark thm-mizan" style={{ minHeight: '100vh', background: '#141210', padding: 16 }}>{box}</div> : box;
   }
 }
-export { ErrorBoundary, logClientError };
+export { ErrorBoundary, logClientError, lockedLedgerChanged };   // v46.8: للاختبارات الوظيفية (حارس الإقفال)
 if (typeof window !== 'undefined' && !window.__mizanErrHook) {
   window.__mizanErrHook = true;
   window.addEventListener('error', (e) => logClientError(e.error || e.message, 'window'));
