@@ -503,3 +503,35 @@ test('v49.0 fin_docs: الترحيل legacy للمدير داخل النافذة
   await assertFails(updateDoc(doc(owner(), 'fin_docs', 'si_l1'), { legacy: false, updBy: OWNER, updAt: serverTimestamp() }), 'العلامة ثابتة');
   await assertSucceeds(setDoc(doc(owner(), 'fin_periods', 'migration'), { open: false, until: Timestamp.fromMillis(Date.now()), by: OWNER, at: serverTimestamp() }));
 });
+
+/* v49.0.1 — إصلاح: في الإنتاج توجد سياسة التحقق الثنائي وحد الإصدار (platform/security, platform/release)، فيزيد عدد قراءات القاعدة.
+   كانت قاعدة الإنشاء تُقيِّم المسارين (العادي ثم الترحيل) فتتجاوز حد 10 قراءات ⇒ permission-denied رغم صحة الطلب. */
+test('v49.0.1 السجلات المستقلة في ظروف الإنتاج (سياسة تحقق ثنائي + حد إصدار): الترحيل والإنشاء والقرار ضمن حد القراءات', async () => {
+  await finSeed('2026-10-31');
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    const d = db(ctx);
+    await setDoc(doc(d, 'platform', 'security'), { roles: ['accountant', 'finance_department'], admins: true, at: 1 });
+    await setDoc(doc(d, 'platform', 'release'), { minCv: 10000 });
+  });
+  const O = () => tf('u-owner', OWNER), A1 = () => tf('u-acct', ACCT), A2 = () => tf('u-acct2', ACCT2);
+  const cv = { cv: 490000 };
+  try {
+    await assertSucceeds(setDoc(doc(O(), 'fin_periods', 'migration'), { open: true, until: Timestamp.fromMillis(Date.now() + 3600e3), by: OWNER, at: serverTimestamp() }));
+    await assertSucceeds(setDoc(doc(O(), 'fin_docs', 'pi_p1'), fd('pi', OWNER, { legacy: true, date: '2026-02-01', paid: 120.5, ...cv })), 'ترحيل فاتورة مورد');
+    await assertSucceeds(setDoc(doc(O(), 'fin_journal', 'p_j1'), fj(OWNER, { legacy: true, origBy: 'منى', status: 'rejected', date: '2026-02-01', ...cv })), 'ترحيل قيد');
+    await assertSucceeds(setDoc(doc(A1(), 'fin_docs', 'pi_p2'), fd('pi', ACCT, cv)), 'إنشاء عادي');
+    await assertSucceeds(updateDoc(doc(A1(), 'fin_docs', 'pi_p2'), { prog: '{"paidAmount":5}', paid: 5, updBy: ACCT, updAt: serverTimestamp(), ...cv }));
+    await assertSucceeds(setDoc(doc(A1(), 'fin_journal', 'p_j2'), fj(ACCT, cv)));
+    await assertSucceeds(updateDoc(doc(A2(), 'fin_journal', 'p_j2'), { status: 'posted', decidedBy: ACCT2, decidedAt: serverTimestamp(), ...cv }));
+    await assertSucceeds(setDoc(doc(A1(), 'fin_journal', 'p_j3'), fj(ACCT, cv)));
+    await assertSucceeds(deleteDoc(doc(A1(), 'fin_journal', 'p_j3')));
+    await assertSucceeds(setDoc(doc(A1(), 'fin_docs', 'pi_p3'), fd('pi', ACCT, cv)));
+    await assertSucceeds(deleteDoc(doc(A1(), 'fin_docs', 'pi_p3')));
+    await assertFails(setDoc(doc(A1(), 'fin_docs', 'pi_p4'), fd('pi', ACCT, { legacy: true, date: '2026-02-01', ...cv })), 'الترحيل للمدير فقط');
+    await assertFails(setDoc(doc(owner(), 'fin_docs', 'pi_p5'), fd('pi', OWNER, cv)), 'المدير بلا تحقق ثنائي مرفوض حين تفرضه السياسة');
+  } finally {
+    await env.withSecurityRulesDisabled(async (ctx) => { const d = db(ctx);
+      await deleteDoc(doc(d, 'platform', 'security')); await deleteDoc(doc(d, 'platform', 'release'));
+      await setDoc(doc(d, 'fin_periods', 'migration'), { open: false, until: new Date(), by: OWNER, at: new Date() }); });
+  }
+});
