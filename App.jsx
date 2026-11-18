@@ -2661,6 +2661,37 @@ const jeOwner = (me) => !!(ROLES[me?.role] || {}).admin;
 const jeAutoSt = (me) => jeOwner(me) ? { status: 'posted', byId: me?.id || '', approvedBy: me?.name || '', approvedAt: nowISO() } : { status: 'pending', byId: me?.id || '' };
 /** v49.0 (BUG-01-04): إقفال ضريبي أُلغي بقيد عكسي مرحّل لا يُعدّ إقفالًا — الإلغاء لا يحذف القيد المرحّل */
 const vatCloseLive = (list, c) => !!c && c.status !== 'rejected' && !(list || []).some(j => j.vatUndo === c.id && jeLive(j));
+/* ============================================================
+   v49.5 — المرحلة 04 (MQ-059): مسارات اعتماد قابلة للتهيئة — مستويات بحدود مبالغ وأدوار
+   org.wf = { po: { tiers: [{ id, min, roles:[...], label }] }, je: { tiers: [...] } }
+   • المستند بقيمة X يحتاج كل مستوى حدّه ≤ X، بالترتيب. كل مستوى يعتمده دور من أدواره (أو المالك).
+   • فصل المهام: المنشئ لا يعتمد، ولا يعتمد الشخص نفسه مستويين للمستند نفسه.
+   • بلا تهيئة: السلوك الحالي كما هو (حد اعتماد أوامر الشراء الواحد، واعتماد واحد للقيد).
+   ============================================================ */
+const WF_DOCS = { po: { ar: 'أوامر الشراء', unit: 'إجمالي الأمر' }, je: { ar: 'القيود اليدوية', unit: 'مجموع المدين' } };
+function wfTiers(org, type) {
+  const T = ((((org || {}).wf || {})[type] || {}).tiers) || [];
+  return T.filter(t => t && (t.roles || []).length && Number(t.min) >= 0).map((t, i) => ({ id: t.id || ('t' + i), min: Number(t.min) || 0, roles: t.roles, label: t.label || ('المستوى ' + (i + 1)) })).sort((a, b) => a.min - b.min);
+}
+const wfOn = (org, type) => wfTiers(org, type).length > 0;
+const wfRequired = (org, type, amount) => wfTiers(org, type).filter(t => (Number(amount) || 0) >= t.min);
+/** هل يحتاج أمر الشراء اعتمادًا؟ — المسار المهيّأ أولًا، وإلا حد الاعتماد القديم */
+const poNeedsAppr = (org, total) => wfOn(org, 'po') ? wfRequired(org, 'po', total).length > 0 : ((Number(((org || {}).purchaseCfg || {}).approvalLimit) || 0) > 0 && total > Number(org.purchaseCfg.approvalLimit));
+function wfState(org, type, doc, amount) {
+  const req = wfRequired(org, type, amount), got = new Set(((doc || {}).approvals || []).map(a => a.tier));
+  const next = req.find(t => !got.has(t.id)) || null;
+  return { req, next, done: req.filter(t => got.has(t.id)), complete: !next, step: req.length ? req.indexOf(next) + 1 : 0 };
+}
+function wfCanAct(org, type, doc, amount, me) {
+  if (!me) return { ok: false, why: 'لا مستخدم' };
+  const S = wfState(org, type, doc, amount); if (!S.next) return { ok: false, why: 'اكتملت الاعتمادات' };
+  const mine = (doc.byId && doc.byId === me.id) || (!doc.byId && doc.by && doc.by === me.name);
+  if (mine) return { ok: false, why: 'لا تعتمد مستندًا أنشأته — فصل المهام' };
+  if ((doc.approvals || []).some(a => (a.byId && a.byId === me.id) || a.by === me.name)) return { ok: false, why: 'اعتمدتَ مستوى سابقًا لهذا المستند — يعتمد المستوى التالي شخص آخر' };
+  if (!(S.next.roles.includes(me.role) || (ROLES[me.role] || {}).admin)) return { ok: false, why: 'المستوى «' + S.next.label + '» يعتمده: ' + S.next.roles.map(r => (ROLES[r] || {}).ar || r).join('، ') };
+  return { ok: true, tier: S.next, last: S.req.indexOf(S.next) === S.req.length - 1 };
+}
+const wfApprove = (doc, tier, me, at) => ({ ...doc, approvals: [...(doc.approvals || []), { tier: tier.id, label: tier.label, by: me.name || '', byId: me.id || '', role: me.role || '', at: at || nowISO() }] });
 const canApproveJe = (me, j) => !!me && (jeOwner(me) || ['accountant', 'finance_department'].includes(me.role)) && (!j || (j.byId ? j.byId !== me.id : j.by !== me.name));
 const isCostCtl = (me) => !!(ROLES[me?.role] || {}).costCtl;   // v37.8 مراقب التكاليف: يعتمد ويراقب ولا يُدخل حركات
 // v27.1 — نطاق فروع المستخدم كما تعرضه الواجهة (myBranches): null = كل الفروع (المركز)، وإلا قائمة معرّفات.
@@ -3061,7 +3092,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v49.4';
+const APP_VER = 'v49.5';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3117,7 +3148,7 @@ class ErrorBoundary extends React.Component {
 }
 export { ErrorBoundary, logClientError, lockedLedgerChanged };
 export { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, saleRetUse, posReturnLoyDed };
-export { jeLive, jeOwner, canApproveJe, jeAutoSt, vatCloseLive };   // v47.1 اعتماد القيد اليدوي
+export { jeLive, jeOwner, canApproveJe, jeAutoSt, vatCloseLive, WF_DOCS, wfTiers, wfOn, wfRequired, poNeedsAppr, wfState, wfCanAct, wfApprove };   // v47.1 اعتماد القيد اليدوي
 export { gosiNewSched, gosiNewAuto };   // v47.2 الرواتب   // v46.8 مرتجع نقطة البيع   // v46.8: للاختبارات الوظيفية (حارس الإقفال)
 if (typeof window !== 'undefined' && !window.__mizanErrHook) {
   window.__mizanErrHook = true;
@@ -9100,7 +9131,7 @@ function rfqCompare(org, ops, rfq) {
 }
 /** أوامر الشراء من الترسية: mode = 'one' (supplierId) أو 'split' (الأفضل لكل سطر) */
 function rfqToPOs(org, ops, rfq, mode, supplierId, me, at) {
-  const C = rfqCompare(org, ops, rfq), lim = Number(((org || {}).purchaseCfg || {}).approvalLimit) || 0;
+  const C = rfqCompare(org, ops, rfq);
   const groups = {};
   if (mode === 'one') { if (!supplierId || !rfq.quotes[supplierId]) return { err: 'اختر المورد' };
     C.rows.forEach(r => { const p = rfqPrice(rfq.quotes[supplierId], r.key); if (p != null) (groups[supplierId] = groups[supplierId] || []).push({ r, p }); });
@@ -9112,7 +9143,7 @@ function rfqToPOs(org, ops, rfq, mode, supplierId, me, at) {
     const lines = L.map(({ r, p }) => ({ desc: r.desc, ...(r.itemId ? { itemId: r.itemId } : {}), qty: Number(r.qty) || 0, price: p, received: 0 }));
     const tot = lines.reduce((a, l) => a + l.qty * l.price, 0);
     return { id: uid('po'), poNo: 'PO-' + String(mx + 1 + i).padStart(4, '0'), supplierId: sid, supplierName: sp.name, branchId: '', note: 'من ' + rfq.no + (rfq.title ? ' — ' + rfq.title : ''), rfqId: rfq.id,
-      lines, status: lim > 0 && tot > lim ? 'pending' : 'open', by: (me && me.name) || '', at: at || nowISO(), date: String(at || nowISO()).slice(0, 10) }; });
+      lines, status: poNeedsAppr(org, tot) ? 'pending' : 'open', by: (me && me.name) || '', at: at || nowISO(), date: String(at || nowISO()).slice(0, 10) }; });
   return { pos, C };
 }
 // v30.5 — دفعات الصلاحية: كل استلام بتاريخ انتهاء دفعة في مستودعه؛ الصادر من المستودع يستهلك الأقرب انتهاءً أولًا (FEFO)
@@ -12317,7 +12348,7 @@ async function clrSeed(closings, onProgress) {
    الوثيقة الحالية (journalManual) تبقى المصدر في هذه المرحلة؛ كل إنشاء/اعتماد/رفض/حذف قبل الاعتماد يُنسخ إلى سجل تحرسه القواعد
    على الخادم: الإنشاء لأدوار المحاسبة المركزية وبعد تاريخ الإقفال، «مرحّل مباشرة» للمدير فقط، والاعتماد لغير المنشئ،
    والمحتوى والبصمة ثابتان بعد الإنشاء. مُطفأ افتراضيًا — يُفعّله المدير من «صيانة النظام» (org.finRecords.on). */
-const FJ_STATE_KEYS = ['status', 'approvedBy', 'approvedAt', 'rejectedBy', 'rejectedAt', 'rejectReason', 'reason', 'decidedBy', 'decidedAt'];
+const FJ_STATE_KEYS = ['approvals', 'status', 'approvedBy', 'approvedAt', 'rejectedBy', 'rejectedAt', 'rejectReason', 'reason', 'decidedBy', 'decidedAt'];
 /** محتوى القيد الثابت (بلا حقول الحالة والقرار وعلامات العرض) — هو ما تُحسب عليه البصمة */
 const fjData = (x) => { const o = {}; Object.keys(x || {}).forEach(k => { if (!FJ_STATE_KEYS.includes(k) && !k.startsWith('_')) o[k] = x[k]; }); return clrData(o); };
 const fjStatus = (x) => ['pending', 'posted', 'rejected'].includes(x && x.status) ? x.status : 'posted';   // بلا حالة = مرحّل (كما في jeLive)
