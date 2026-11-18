@@ -1,7 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Truck, FileBarChart, ChevronDown, Printer, FileText, Building2, ClipboardCheck, Users, Plus, AlertTriangle, CalendarDays, Trash2, Check, X, Banknote } from 'lucide-react';
-import { DocLink, projList, uomOf, uomOk, lineUnits, lineFac, UomSelect, DupInvHint, Field, Kpi, LOCK_MSG, MAIN_WH, Modal, Num, ROLES, SectionNav, arDate, branchBanks, closingInvoices, isStocked, isoD, itemType, money, nowISO, pFactor, payTotal, periodLocked, printA4, purKey, q3, _xe, roleEdit, rolePost, buildAccounting, INV_BILLERS, itemsSeq, vatNoOk, supVatOf, ItemPick, roleHasTab, stockByWh, sum, supplierPrices, today, uid, whName, whOf, whOn, poWhOf, brSigCheck, signoff, signDecision, sigFailMsg } from '../../App.jsx';
+import { DocLink, RowGrip, moveIdx, projList, uomOf, uomOk, lineUnits, lineFac, UomSelect, DupInvHint, Field, Kpi, LOCK_MSG, MAIN_WH, Modal, Num, ROLES, SectionNav, arDate, branchBanks, closingInvoices, isStocked, isoD, itemType, money, nowISO, pFactor, payTotal, periodLocked, printA4, purKey, q3, _xe, roleEdit, rolePost, buildAccounting, INV_BILLERS, itemsSeq, vatNoOk, supVatOf, ItemPick, roleHasTab, stockByWh, sum, supplierPrices, today, uid, whName, whOf, whOn, poWhOf, brSigCheck, signoff, signDecision, sigFailMsg } from '../../App.jsx';
 import { cloud, bfKey } from '../../storage';
 
 export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: goTab, billOnly }) {
@@ -150,6 +150,18 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
 
   // v44.1 — فاتورة توريد يدوية ببنود أصناف (قرار المالك): المخزني يدخل المستودع ويُحدّث تكلفته، والاستهلاكي والخدمي مصروف
   const invLine = () => ({ itemId: '', qty: '', price: '', uom: '' });
+  // v47.8 — نسخة مطابقة من فاتورة مورد: نفس المورد والأصناف والكميات والأسعار والفرع/المستودع، بتاريخ اليوم ورقم جديد، تُراجع ثم تُحفظ
+  const invToForm = (i) => { if (i.kind === 'svc') return null;
+    const dd = (i.dueDate && i.date) ? Math.max(0, Math.round((new Date(i.dueDate) - new Date(String(i.date).slice(0, 10))) / 864e5)) : 0;
+    const due = (() => { const d = new Date(today() + 'T12:00:00'); d.setDate(d.getDate() + dd); return d.toISOString().slice(0, 10); })();
+    return { supplierId: i.supplierId, invoiceNo: '', taxable: Math.abs(i.vatAmt || 0) > 0.004 || i.taxable === true, date: today(), dueDate: due, branchId: i.branchId || '', copyOf: i.id,
+      ...(i.whId ? { whId: i.whId } : {}), ...(i.cur ? { cur: i.cur, rate: i.fxRate } : {}),
+      lines: (i.lines || []).filter(l => l.itemId).map(l => { const q = Number(l.uomQty) || Number(l.qty) || 0; const base = l.fcNet != null ? l.fcNet : l.net;
+        return { itemId: l.itemId, qty: String(q), price: q ? String(Math.round(base / q * 10000) / 10000) : '', uom: l.uomName || '', ...(l.note ? { note: l.note } : {}) }; }) }; };
+  const svcToForm = (i) => ({ supplierId: i.supplierId, invoiceNo: '', date: today(), dueDate: today(), branchId: i.branchId || '', copyOf: i.id, ...(i.projectId ? { projectId: i.projectId } : {}), ...(i.cur ? { cur: i.cur, rate: i.fxRate } : {}),
+    lines: (i.expLines || []).map(l => ({ desc: l.desc, accCode: l.accCode, net: String(l.fcNet != null ? l.fcNet : l.net), taxable: Math.abs(l.vat || 0) > 0.004 })) });
+  const copyInv = (i) => { if (i.kind === 'svc') setSvc(svcToForm(i)); else { const f = invToForm(i); if (!f.lines.length) return say('لا بنود أصناف في هذه الفاتورة لنسخها', 'no'); setNewInv(f); } };
+  const lastInvOf = (sid) => (ops.invoices || []).filter(i => i.supplierId === sid && !i.creditNote && !i.supDebit && i.kind !== 'svc' && (i.lines || []).some(l => l.itemId)).sort((a, b) => String(b.date).localeCompare(String(a.date)))[0];
   // v46.0: الصنف بوحدة غير معتمدة يُحدَّد له وحدة في السطر (baseU) وتُحفظ في بطاقته؛ وسطر الفاتورة بأي وحدة من مجموعته أو وحدة الشراء
   const invItem = (l) => { const it = items.find(x => x.id === l.itemId); return it && l.baseU && !uomOk(it) ? { ...it, unit: l.baseU } : it; };
   const invCalc = (f) => { const r2 = (n) => Math.round(n * 100) / 100; const fxR = isFx(f.cur) ? Number(f.rate) || 0 : 1;
@@ -873,6 +885,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
                         {rem <= 0 ? 'مسددة' : late ? 'متأخرة' : 'قيد السداد'}</span></td>
                       <td style={{ whiteSpace: 'nowrap' }}>{rem > 0 && canPay &&
                         <button className="btn sm" onClick={() => { setPay(i); setAmt(rem); if (i.cur) setFxPay({ fc: String(fxRemFc(i)), rate: lastRate(i.cur) || String(i.fxRate || '') }); }}>سداد</button>}
+                        {i.source === 'stored' && canPay && i.amount > 0 && !i.creditNote && !i.supDebit && <button className="btn sm gh" data-copyinv style={{ marginInlineStart: 4 }} title="نسخة مطابقة بتاريخ اليوم" onClick={() => copyInv(i)}>⧉ نسخ</button>}
                         {i.source === 'stored' && canPay && i.amount > 0 && !i.creditNote && !i.cur && <button className="btn sm gh" data-pdn style={{ marginInlineStart: 4 }} onClick={() => setPdn({ inv: i, dir: 'red', date: today(), no: '', reason: '', net: '', taxable: taxOf(i), acc: i.accCode || '5198' })}>إشعار مدين</button>}
                         {i.source === 'stored' && canDelInv && <button className="btn sm gh" title="حذف فاتورة مكررة أو مستوردة خطأً" style={{ color: 'var(--rose)', marginInlineStart: 4 }} onClick={() => delInv(i)}><Trash2 size={12} /></button>}</td>
                     </tr>
@@ -1048,6 +1061,9 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
               <select className="sel" value={newInv.supplierId} onChange={e => setNewInv(f => ({ ...f, supplierId: e.target.value }))}>
                 {suppliers.map(sp => <option key={sp.id} value={sp.id}>{sp.name}</option>)}
               </select>
+              {(() => { const L = !newInv.poId && !newInv.copyOf && lastInvOf(newInv.supplierId); if (!L || (newInv.lines || []).some(l => l.itemId)) return null;
+                return <button type="button" className="btn sm gh" data-replast style={{ marginTop: 4, fontSize: 11 }} onClick={() => setNewInv(f => ({ ...invToForm(L), img: f.img }))}>⧉ تكرار آخر فاتورة لهذا المورد ({L.invoiceNo} · {money(L.amount)})</button>; })()}
+              {newInv.copyOf && <div className="hint" data-copyhint>نسخة من فاتورة سابقة — راجع الكميات والأسعار والتاريخ قبل الحفظ</div>}
             </Field>
             <Field label="رقم الفاتورة (اختياري — يُولَّد تلقائياً)">
               <input className="inp" value={newInv.invoiceNo} onChange={e => setNewInv(f => ({ ...f, invoiceNo: e.target.value }))} />
@@ -1076,7 +1092,8 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
           {(() => { const k = invCalc(newInv); return (<>
             <div className="lbl" style={{ margin: '4px 0 6px' }}>البنود — من الأصناف المضافة{isFx(newInv.cur) ? ' (الأسعار بـ ' + newInv.cur + ')' : ''}</div>
             {(newInv.lines || []).map((l, i) => { const it = items.find(x => x.id === l.itemId); return (
-              <div key={i} className="row" style={{ gap: 6, marginBottom: 6, flexWrap: 'wrap', alignItems: 'center' }} data-invline>
+              <div key={i} className="row" style={{ gap: 6, marginBottom: 6, flexWrap: 'wrap', alignItems: 'center' }} data-invline data-rowgrp="inv" data-rowi={i}>
+                <RowGrip grp="inv" i={i} n={newInv.lines.length} onMove={(a, b) => setNewInv(f => ({ ...f, lines: moveIdx(f.lines, a, b) }))} />
                 <ItemPick items={items} label={'صنف البند ' + (i + 1)} value={l.itemId} quickAdd={canAddItem ? { commitOrg, say } : undefined} addHint onChange={(id) => setNewInv(f => ({ ...f, lines: f.lines.map((x, k2) => k2 === i ? { ...x, itemId: id, uom: ((uomOf((items.find(y => y.id === id) || {}).unit) || {}).ar) || '', baseU: '', price: x.price || String(((items.find(y => y.id === id) || {}).lastPrice) || '') } : x) }))} />
                 {it && !uomOk(it) && <span data-uomfix style={{ display: 'inline-flex', gap: 4, alignItems: 'center', fontSize: 11, color: 'var(--amber)' }}>وحدة «{it.name}»:
                   <UomSelect label={'وحدة الصنف للبند ' + (i + 1)} value={l.baseU || it.unit} required style={{ width: 150 }} onChange={v => setNewInv(f => ({ ...f, lines: f.lines.map((x, k2) => k2 === i ? { ...x, baseU: v, uom: v } : x) }))} /></span>}
@@ -1119,7 +1136,8 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
           </div>
           <div className="lbl" style={{ margin: '4px 0 6px' }}>البنود — اختر كل بند من الأصناف المضافة (بالرمز أو الاسم أو الباركود)</div>
           {(poF.lines || []).map((l, i) => (
-            <div key={i} className="row" style={{ gap: 7, marginBottom: 7, flexWrap: 'wrap' }}>
+            <div key={i} className="row" style={{ gap: 7, marginBottom: 7, flexWrap: 'wrap', alignItems: 'center' }} data-rowgrp="po" data-rowi={i}>
+              <RowGrip grp="po" i={i} n={poF.lines.length} onMove={(a, b) => setPoF(f => ({ ...f, lines: moveIdx(f.lines, a, b) }))} />
               <ItemPick items={items} label={'صنف البند ' + (i + 1)} value={l.itemId} quickAdd={canAddItem ? { commitOrg, say } : undefined} addHint
                 onChange={(id) => { const it = items.find(x => x.id === id); setPoF(f => ({ ...f, lines: f.lines.map((x, k) => k === i ? { ...x, itemId: id, uom: it && it.purchaseUnit && pFactor(it) > 1 ? 'p' : 'b', desc: it ? it.name : '' } : x) })); }} />
               {(() => { const it = items.find(x => x.id === l.itemId); return it && it.purchaseUnit && pFactor(it) > 1 ? (
@@ -1228,7 +1246,8 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
             {fxOn && isFx(svc.cur) && <Field label={'سعر الصرف (ر.س لكل ' + svc.cur + ')'}><input className="inp n" inputMode="decimal" aria-label="سعر الصرف" value={svc.rate || ''} onChange={e => setSvc(f => ({ ...f, rate: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>}
           </div>
           {svc.lines.map((l, i) => (
-            <div key={i} className="row" style={{ gap: 6, marginBottom: 6, alignItems: 'center', flexWrap: 'wrap' }} data-svcline>
+            <div key={i} className="row" style={{ gap: 6, marginBottom: 6, alignItems: 'center', flexWrap: 'wrap' }} data-svcline data-rowgrp="svc" data-rowi={i}>
+              <RowGrip grp="svc" i={i} n={svc.lines.length} onMove={(a, b) => setSvc(f => ({ ...f, lines: moveIdx(f.lines, a, b) }))} />
               <input className="inp" style={{ flex: 2, minWidth: 150 }} placeholder="وصف البند (صيانة مكيف، كهرباء نوفمبر…)" value={l.desc} onChange={e => setSvc(f => ({ ...f, lines: f.lines.map((x, j) => j === i ? { ...x, desc: e.target.value } : x) }))} />
               <select className="sel" style={{ flex: 2, minWidth: 170 }} aria-label={'حساب البند ' + (i + 1)} value={l.accCode} onChange={e => setSvc(f => ({ ...f, lines: f.lines.map((x, j) => j === i ? { ...x, accCode: e.target.value } : x) }))}>
                 <option value="">— الحساب —</option>{svcGroups.map(([k, l]) => <optgroup key={k || 'x'} label={ACC_KIND_AR[k] || 'أخرى'}>{l.map(a => <option key={a.code} value={a.code}>{a.code} · {a.name}</option>)}</optgroup>)}</select>

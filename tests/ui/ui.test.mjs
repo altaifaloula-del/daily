@@ -2074,3 +2074,58 @@ test('v47.7 البحث بالصوت على آيفون: جلسة مفردة غي�
   assert.equal(await p.locator('input[placeholder^="ابحث بالرقم"]').inputValue(), 'شركة الخضار');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v47.8 القيد: ترتيب السطور بالسحب والأسهم، قيد دوري يُنشأ مستحقه بضغطة، ونسخة مطابقة', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/Accounting/admin/jr');
+  await p.evaluate(() => window.setOps(o => ({ ...o, journalManual: [], jeRecurring: [] }))); await p.waitForTimeout(200);
+  await p.click('button:has-text("قيد يدوي / افتتاحي")'); await p.waitForTimeout(300);
+  await p.fill('.modal input[placeholder^="مثال: استلام"]', 'إيجار شهري');
+  await p.locator('.modal select.jm-acc').nth(0).selectOption('1201'); await p.locator('.modal input.jm-c').nth(0).fill('3000');
+  await p.locator('.modal select.jm-acc').nth(1).selectOption('5901'); await p.locator('.modal input.jm-d').nth(1).fill('3000');
+  // السحب: السطر الثاني (المصروف) إلى الأول
+  const g = p.locator('[data-rowgrp="jm"][data-rowi="1"] .rg-h'), t = p.locator('[data-rowgrp="jm"][data-rowi="0"]');
+  const gb = await g.boundingBox(), tb2 = await t.boundingBox();
+  await p.mouse.move(gb.x + gb.width / 2, gb.y + gb.height / 2); await p.mouse.down(); await p.mouse.move(tb2.x + 300, tb2.y + 5, { steps: 6 }); await p.mouse.up(); await p.waitForTimeout(150);
+  assert.equal(await p.locator('.modal select.jm-acc').nth(0).inputValue(), '5901', 'المصروف صار أولًا');
+  await p.locator('[data-rowgrp="jm"][data-rowi="0"] button[aria-label$="لأسفل"]').click(); await p.waitForTimeout(100);
+  assert.equal(await p.locator('.modal select.jm-acc').nth(0).inputValue(), '1201', 'والسهم يعيده');
+  await p.locator('[data-rowgrp="jm"][data-rowi="0"] button[aria-label$="لأسفل"]').click(); await p.waitForTimeout(100);
+  await p.fill('.modal input[type="date"]', '2026-08-01');
+  await p.check('input[aria-label="قيد دوري"]'); await p.selectOption('select[aria-label="دورية القيد"]', 'm');
+  await p.click('.modal button:has-text("تسجيل القيد")'); await p.waitForTimeout(500);
+  let r = await p.evaluate(() => ({ jm: window.cur.journalManual.map(j => [j.date, j.lines[0].code]), tp: window.cur.jeRecurring.map(t => [t.every, t.next]) }));
+  assert.deepEqual(r, { jm: [['2026-08-01', '5901']], tp: [['m', '2026-09-01']] });
+  await p.locator('[data-recdue]').click(); await p.waitForTimeout(500);
+  r = await p.evaluate(() => ({ n: window.cur.journalManual.filter(j => j.recurId).length, next: window.cur.jeRecurring[0].next }));
+  assert.ok(r.n >= 4, 'أُنشئت الأشهر المستحقة حتى اليوم'); assert.ok(r.next > new Date().toISOString().slice(0, 7), 'تقدّم الموعد القادم');
+  assert.equal(await p.locator('[data-recdue]').count(), 0);
+  // نسخة مطابقة من القيد
+  await p.locator('tbody tr', { hasText: 'إيجار شهري' }).first().locator('td').nth(2).click(); await p.waitForTimeout(200);
+  await p.locator('[data-copyje]').first().click(); await p.waitForTimeout(250);
+  assert.match(await p.locator('.modal input[placeholder^="مثال: استلام"]').inputValue(), /إيجار شهري/);
+  assert.equal(await p.locator('.modal input.jm-d').first().inputValue(), '3000');
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v47.8 الفواتير: نسخة مطابقة لفاتورة مورد وتكرار آخر فاتورة له، ونسخ فاتورة مبيعات، وترتيب البنود', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Hub/admin/purchasing:suppliers');
+  await p.evaluate(() => window.setOps(o => ({ ...o, invoices: [{ id: 'q1', supplierId: 's1', supplierName: 'مؤسسة اللحوم الطازجة للتجارة', amount: 460, vatAmt: 60, taxable: true, date: '2026-11-01', dueDate: '2026-11-31', invoiceNo: 'SUP-77', branchId: 'b1', paidAmount: 0,
+    lines: [{ itemId: 'i1', desc: 'صنف', qty: 5, unitCost: 40, net: 200 }, { itemId: 'i2', desc: 'صنف 2', qty: 4, unitCost: 50, net: 200, note: 'مبرد' }] }] }))); await p.waitForTimeout(300);
+  await p.locator('tr', { hasText: 'SUP-77' }).locator('[data-copyinv]').click(); await p.waitForTimeout(250);
+  assert.equal(await p.locator('[data-invline]').count(), 2); assert.equal(await p.locator('input[aria-label="كمية البند 1"]').inputValue(), '5');
+  assert.equal(await p.locator('input[aria-label="سعر البند 2"]').inputValue(), '50'); assert.equal(await p.locator('[data-copyhint]').count(), 1);
+  await p.locator('[data-rowgrp="inv"][data-rowi="1"] button[aria-label$="لأعلى"]').click(); await p.waitForTimeout(100);
+  assert.equal(await p.locator('input[aria-label="سعر البند 1"]').inputValue(), '50', 'رُتّبت البنود');
+  await p.locator('.modal button', { hasText: 'إلغاء' }).click(); await p.waitForTimeout(150);
+  await p.locator('button', { hasText: 'فاتورة توريد جديدة' }).click(); await p.waitForTimeout(200);
+  await p.locator('.modal select').first().selectOption('s1'); await p.waitForTimeout(100);
+  await p.locator('[data-replast]').click(); await p.waitForTimeout(200);
+  assert.equal(await p.locator('[data-invline]').count(), 2, 'كُرّرت آخر فاتورة للمورد');
+  await ctx.close();
+  const S = await open({ viewport: { width: 1300, height: 1100 } }, 'live/SalesHub/admin');
+  await S.p.locator('button:has-text("فواتير المبيعات")').first().click(); await S.p.waitForTimeout(300);
+  await S.p.evaluate(() => window.setOps(o => ({ ...o, salesInvoices: [{ id: 'sx', no: 'فاتورة-2026-00003', seq: 3, icv: 3, pih: '0', hash: 'h', kind: 'invoice', type: 'simplified', terms: 'cash', fund: '1201', buyer: { name: 'زبون' }, date: '2026-11-02', lines: [{ desc: 'وجبة أ', qty: 2, price: 50, vatRate: 15, net: 100, vat: 15 }, { desc: 'وجبة ب', qty: 1, price: 30, vatRate: 15, net: 30, vat: 4.5 }], net: 130, vat: 19.5, total: 149.5, receipts: [] }] }))); await S.p.waitForTimeout(250);
+  await S.p.locator('[data-copysi]').click(); await S.p.waitForTimeout(250);
+  assert.equal(await S.p.locator('[data-rowgrp="si"]').count(), 2); assert.equal(await S.p.locator('[data-rowgrp="si"][data-rowi="0"] input').first().inputValue(), 'وجبة أ');
+  assert.deepEqual([...errs, ...S.errs], []); await S.ctx.close();
+});

@@ -1,7 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useMemo, useState } from 'react';
 import { FileText, Wallet, AlertTriangle, ShieldCheck, Plus, Printer, Check, X, Banknote } from 'lucide-react';
-import { DocLink, projList, Field, Kpi, LOCK_MSG, Modal, Num, ROLES, branchBanks, buildPartners, entityList, isoD, money, naMissing, nowISO, periodLocked, printSalesInvoice, rolePost, siCredited, siRem, siSorted, siStamp, siVerify, sum, today, uid } from '../../App.jsx';
+import { DocLink, RowGrip, moveIdx, projList, Field, Kpi, LOCK_MSG, Modal, Num, ROLES, branchBanks, buildPartners, entityList, isoD, money, naMissing, nowISO, periodLocked, printSalesInvoice, rolePost, siCredited, siRem, siSorted, siStamp, siVerify, sum, today, uid } from '../../App.jsx';
 
 export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
   const all = ops.salesInvoices || [];
@@ -24,6 +24,10 @@ export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
   const totals = (lines) => { const L = lines.map(lineCalc); return { net: r2(sum(L, x => x.net)), vat: r2(sum(L, x => x.vat)), total: r2(sum(L, x => x.net + x.vat)) }; };
   const newInv = () => setF({ type: 'simplified', entityId: (ents[0] || {}).id || 'primary', branchId: central ? '' : (brIds[0] || ''), date: today(), time: new Date().toTimeString().slice(0, 5), customerKey: '', buyerName: '', terms: 'cash', fund: '1101', inClosing: false, lines: [{ desc: '', qty: '1', price: '', vatRate: String(vatRate) }] });
 
+  // v47.8 — نسخة مطابقة من فاتورة مبيعات (نفس العميل والبنود والأسعار) بتاريخ اليوم ورقم جديد في السلسلة
+  const copySi = (x) => setF({ type: x.type, entityId: x.entityId, branchId: x.branchId || '', date: today(), time: new Date().toTimeString().slice(0, 5), customerKey: x.customerKey || '', buyerName: x.customerKey ? '' : ((x.buyer || {}).name || ''),
+    terms: x.terms || 'cash', fund: x.fund || '1101', inClosing: false, copyOf: x.id, ...(x.projectId ? { projectId: x.projectId } : {}),
+    lines: (x.lines || []).map(l => ({ desc: l.desc, qty: String(l.qty), price: String(l.price), vatRate: String(l.vatRate ?? vatRate) })) });
   const save = async () => {
     const x = f; const lines = (x.lines || []).filter(l => (l.desc || '').trim() && (Number(l.qty) || 0) > 0 && (Number(l.price) || 0) > 0);
     if (!lines.length) return say('أضف بندًا واحدًا على الأقل (بيان وكمية وسعر)', 'no');
@@ -146,6 +150,7 @@ export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
                 <button className="btn sm gh" title="طباعة" onClick={() => printSalesInvoice(org, x, o)}><Printer size={12} /></button>
                 {canIssue && x.kind !== 'credit' && x.terms === 'credit' && rem > 0.004 && <button className="btn sm" onClick={() => setRc({ id: x.id, amount: String(rem), date: today(), fund: '1201' })}>تحصيل</button>}
                 {canIssue && x.kind === 'invoice' && crd < x.total - 0.004 && <button className="btn sm gh" onClick={() => setCn({ id: x.id, date: today(), reason: '', settle: 'credit', fund: x.fund || '1101', qtys: x.lines.map(() => '') })}>إشعار دائن</button>}
+                {canIssue && x.kind === 'invoice' && <button className="btn sm gh" data-copysi title="نسخة مطابقة بتاريخ اليوم" onClick={() => copySi(x)}>⧉ نسخ</button>}
                 {canIssue && x.kind === 'invoice' && <button className="btn sm gh" data-dn onClick={() => setDn({ id: x.id, date: today(), reason: '', settle: x.customerKey ? (x.terms === 'credit' ? 'credit' : 'cash') : 'cash', fund: x.fund || '1101', lines: [{ desc: '', amount: '', vatRate: String((x.lines[0] || {}).vatRate ?? 15) }] })}>إشعار مدين</button>}
               </div></td>
             </tr>); })}
@@ -182,8 +187,10 @@ export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
           {f.terms === 'cash' && <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', margin: '4px 0 8px' }}>
             <input type="checkbox" checked={!!f.inClosing} onChange={e => setF(x => ({ ...x, inClosing: e.target.checked }))} />هذا البيع مسجّل في إغلاق الوردية (تُصدر الفاتورة وتُرقَّم فقط دون قيد ثانٍ)</label>}
           <div className="lbl" style={{ margin: '4px 0 6px' }}>البنود — السعر قبل الضريبة</div>
+          {f.copyOf && <div className="hint" data-copyhint style={{ marginBottom: 6 }}>نسخة من فاتورة سابقة — راجع البنود والتاريخ قبل الإصدار</div>}
           {(f.lines || []).map((l, i) => { const k = lineCalc(l); return (
-            <div key={i} className="row" style={{ gap: 7, marginBottom: 7, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div key={i} className="row" style={{ gap: 7, marginBottom: 7, flexWrap: 'wrap', alignItems: 'center' }} data-rowgrp="si" data-rowi={i}>
+              <RowGrip grp="si" i={i} n={f.lines.length} onMove={(a, b) => setF(z => ({ ...z, lines: moveIdx(z.lines, a, b) }))} />
               <input className="inp" style={{ flex: 2, minWidth: 170 }} placeholder="البيان (وجبات، تموين حفل…)" value={l.desc} onChange={e => setF(x => ({ ...x, lines: x.lines.map((z, j) => j === i ? { ...z, desc: e.target.value } : z) }))} />
               <input className="inp n" style={{ width: 80 }} inputMode="decimal" placeholder="الكمية" value={l.qty} onChange={e => setF(x => ({ ...x, lines: x.lines.map((z, j) => j === i ? { ...z, qty: e.target.value.replace(/[^\d.]/g, '') } : z) }))} />
               <input className="inp n" style={{ width: 100 }} inputMode="decimal" placeholder="سعر الوحدة" value={l.price} onChange={e => setF(x => ({ ...x, lines: x.lines.map((z, j) => j === i ? { ...z, price: e.target.value.replace(/[^\d.]/g, '') } : z) }))} />
@@ -241,7 +248,8 @@ export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
             {(!o.customerKey || dn.settle === 'cash') && <Field label="يُحصَّل إلى"><select className="sel" value={dn.fund} onChange={e => setDn(r => ({ ...r, fund: e.target.value }))}>{fundOpts}</select></Field>}
           </div>
           {dn.lines.map((l, i) => (
-            <div key={i} className="row" style={{ gap: 8, marginBottom: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div key={i} className="row" style={{ gap: 8, marginBottom: 8, alignItems: 'center', flexWrap: 'wrap' }} data-rowgrp="dn" data-rowi={i}>
+              <RowGrip grp="dn" i={i} n={dn.lines.length} onMove={(a, b) => setDn(r => ({ ...r, lines: moveIdx(r.lines, a, b) }))} />
               <input className="inp" style={{ flex: 2, minWidth: 150 }} placeholder="البيان" value={l.desc} onChange={e => setDn(r => ({ ...r, lines: r.lines.map((z, j) => j === i ? { ...z, desc: e.target.value } : z) }))} />
               <input className="inp n" style={{ width: 120 }} inputMode="decimal" aria-label="مبلغ الزيادة قبل الضريبة" placeholder="قبل الضريبة" value={l.amount} onChange={e => setDn(r => ({ ...r, lines: r.lines.map((z, j) => j === i ? { ...z, amount: e.target.value.replace(/[^\d.]/g, '') } : z) }))} />
               <select className="sel" style={{ width: 90 }} value={l.vatRate} onChange={e => setDn(r => ({ ...r, lines: r.lines.map((z, j) => j === i ? { ...z, vatRate: e.target.value } : z) }))}><option value="15">15%</option><option value="0">0%</option></select>

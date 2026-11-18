@@ -1660,3 +1660,16 @@ test('v47.6 البحث بالصوت: تطبيع الكلام المنطوق (أ�
   assert.equal(N('أحمد الواحدي'), 'أحمد الواحدي', 'لا يمس الأسماء');
   assert.equal(N('search for invoice 12'), 'invoice 12');
 });
+
+test('v47.8 ترتيب الصفوف والقيود الدورية: moveIdx و recurNext و recurDue', () => {
+  assert.deepEqual(E.moveIdx(['a', 'b', 'c', 'd'], 3, 0), ['d', 'a', 'b', 'c']);
+  assert.deepEqual(E.moveIdx(['a', 'b', 'c'], 0, 2), ['b', 'c', 'a']);
+  assert.deepEqual(E.moveIdx(['a', 'b'], 0, 5), ['a', 'b'], 'خارج المدى لا يغيّر');
+  assert.equal(E.recurNext('2026-01-31', 'm', 31), '2026-02-28', 'آخر الشهر');
+  assert.equal(E.recurNext('2026-02-28', 'm', 31), '2026-03-31', 'يعود لليوم المطلوب');
+  assert.equal(E.recurNext('2026-11-18', 'w'), '2026-11-25');
+  assert.equal(E.recurNext('2026-11-15', 'q', 15), '2027-02-15');
+  assert.equal(E.recurNext('2024-02-29', 'y', 29), '2025-02-28');
+  const due = E.recurDue([{ id: 't1', every: 'm', day: 5, next: '2026-09-05', active: true }, { id: 't2', every: 'm', day: 1, next: '2026-12-01' }, { id: 't3', every: 'm', day: 5, next: '2026-09-05', end: '2026-10-31' }, { id: 't4', every: 'm', next: '2026-09-05', active: false }], '2026-11-18');
+  assert.deepEqual(due.map(x => [x.t.id, x.dates, x.next]), [['t1', ['2026-09-05', '2026-10-05', '2026-11-05'], '2026-12-05'], ['t3', ['2026-09-05', '2026-10-05'], '2026-11-05']]);
+});
