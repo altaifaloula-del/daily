@@ -1500,3 +1500,19 @@ test('v46.9 مرتجع نقطة البيع — نقاط الولاء تُخصم 
   assert.equal(E.posReturnLoyDed({ posOrders: [o, r1] }, o, 10), 1, 'يبقى floor(10 × 65/100) = 6 ⇒ 10 − 6 − 3 = 1');
   assert.equal(E.posReturnLoyDed({ posOrders: [{ id: 'x', total: 50 }] }, { id: 'x', total: 50 }, 50), 0, 'فاتورة بلا عميل ولاء');
 });
+
+test('v47.1 اعتماد القيد اليدوي: بانتظار الاعتماد والمرفوض لا يدخلان الدفاتر، والقديم بلا حالة مرحّل؛ يعتمده المحاسب أو المالك ولا يعتمد أحدٌ قيده', () => {
+  const ln = [{ code: '5901', debit: 100, credit: 0 }, { code: '1201', debit: 0, credit: 100 }];
+  const j = (id, st) => ({ id, date: '2026-03-06', title: 'ت', by: 'منى', byId: 'u7', lines: ln, ...(st ? { status: st } : {}) });
+  const A = E.buildAccounting(baseOrg(), { journalManual: [j('old'), j('p', 'pending'), j('r', 'rejected'), j('ok', 'posted')] });
+  assert.equal(A.balanced, true);
+  assert.deepEqual(A.entries.filter(e => e.manual).map(e => e.id).sort(), ['man:ok', 'man:old'], 'المرحّل والقديم فقط');
+  assert.equal(E.jeOwner({ role: 'system_admin' }), true); assert.equal(E.jeOwner({ role: 'general_management' }), true); assert.equal(E.jeOwner({ role: 'accountant' }), false);
+  const pend = j('p', 'pending');
+  assert.equal(E.canApproveJe({ id: 'u1', name: 'مجاهد', role: 'system_admin' }, pend), true, 'المالك يعتمد');
+  assert.equal(E.canApproveJe({ id: 'u8', name: 'فهد', role: 'finance_department' }, pend), true, 'المحاسب الرئيسي يعتمد');
+  assert.equal(E.canApproveJe({ id: 'u6', name: 'هند', role: 'accountant' }, pend), true, 'محاسب آخر يعتمد');
+  assert.equal(E.canApproveJe({ id: 'u7', name: 'منى', role: 'accountant' }, pend), false, 'لا يعتمد قيده بنفسه');
+  assert.equal(E.canApproveJe({ id: 'u5', name: 'سارة', role: 'head_office' }, pend), false, 'المكتب الرئيسي لا يعتمد');
+  assert.equal(E.canApproveJe({ id: 'u9', name: 'ريم', role: 'cost_controller' }, pend), false);
+});

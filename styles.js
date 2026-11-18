@@ -1865,4 +1865,18 @@ table.tb.tb-fp{min-width:520px}
 .rms.lang-en .is-tb tr.flag td:first-child{box-shadow:inset 3px 0 0 var(--amber)}
 .rms.lang-en .tb tr.cnt-bad td:first-child{box-shadow:inset 3px 0 0 var(--rose)}
 .rms.lang-en .langbtn{font-family:inherit}
+
+/* v47.1 غلاف المنصة: صورة الهوية — على الحاسوب عمود بجانب بطاقة الدخول، وعلى الجوال شريط أعلاها */
+.gate-cover{display:none}
+.gate.has-cover .gate-cover{display:block;background:#071A35 url(cover.webp) center/contain no-repeat}
+@media (min-width:960px){
+  .gate.has-cover{grid-template-columns:minmax(0,1.35fr) minmax(420px,1fr);place-items:stretch;padding:0 !important;gap:0}
+  .gate.has-cover .gate-cover{min-height:100vh;box-shadow:inset -40px 0 60px -40px rgba(0,0,0,.45)}
+  .gate.has-cover .gate-c{align-self:center;justify-self:center;width:100%;max-width:440px;padding:32px 24px;box-sizing:border-box;position:relative;z-index:1}
+}
+@media (max-width:959px){
+  .gate.has-cover{place-items:start center;padding:0 0 calc(14px + env(safe-area-inset-bottom)) !important;row-gap:18px}
+  .gate.has-cover .gate-cover{justify-self:stretch;width:100%;aspect-ratio:3/2;max-height:44vh;background-size:cover}
+  .gate.has-cover .gate-c{width:calc(100% - 28px)}
+}
 `;

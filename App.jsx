@@ -2416,7 +2416,8 @@ function buildAccounting(org, ops) {
   }
 
   // 9مكرر) القيود اليدوية والافتتاحية — يُدخلها المحاسب من شاشة المحاسبة (التصحيح بقيد عكسي لا بالحذف)
-  (ops.journalManual || []).forEach(j => {
+  // v47.1: القيد بانتظار الاعتماد أو المرفوض لا يُرحَّل (القيود القديمة والآلية بلا حالة = مرحّلة)
+  (ops.journalManual || []).filter(jeLive).forEach(j => {
     push({
       id: 'man:' + j.id, date: (j.date || '').slice(0, 10),
       title: j.title || 'قيد يدوي', src: j.opening ? 'قيد افتتاحي' : j.vatClose ? 'إقفال ضريبي' : j.vatPay ? 'سداد ضريبة' : (j.mizanSales ? 'مبيعات مستوردة' : 'قيد يدوي'),
@@ -2523,7 +2524,15 @@ const readMode = () => { try { return localStorage.getItem('rms8:mode') === 'dar
 const themeCls = (t, mode) => { const n = normTheme(t); return 'rms mode-' + (mode === 'dark' ? 'dark' : 'light') + (n === 'restpro' ? ' thm-mizan thm-restpro' : ' thm-' + n); };
 // v46.8: الهوية «مِثقال — Mithqal» وشعارها؛ الترجمة الإنجليزية في i18n.js (TX)
 const BRAND = 'مِثقال', BRAND_SUB = 'منصة واحدة، لكل الأعمال ومن أي مكان', BRAND_AR = 'مِثقال — Mithqal';
-const BRAND_MARK = () => (isEn() ? 'M' : 'م');
+// v47.1 — العلامة المعتمدة: حلقة عالمية (عملة/كرة أرضية) مفتوحة أعلاها لمعين الارتكاز، وحرف M معلّق تحت عارضة الميزان.
+// لون واحد (currentColor) فتأخذ لون الحاوية: كحلي على الذهبي في المنصة.
+const BRAND_MARK = () => (
+  <svg viewBox="0 0 200 200" width="78%" height="78%" aria-hidden="true" style={{ display: 'block' }}>
+    <path d="M86 22.6 A80 80 0 1 0 114 22.6" fill="none" stroke="currentColor" strokeWidth="9" strokeLinecap="round" />
+    <path d="M100 12 l11 12 -11 12 -11 -12z" fill="currentColor" />
+    <rect x="40" y="56" width="120" height="10" rx="5" fill="currentColor" />
+    <path d="M52 66 h20 l28 30 28 -30 h20 v85 h-19 v-51 l-29 30 -29 -30 v51 h-19z" fill="currentColor" />
+  </svg>);
 
 // v44.0 — قرار المالك: تحويل الاستلام غير المطابق إلى فاتورة للمحاسب ومدير النظام فقط (يُفرض في قواعد Firestore: [ROLES:PINV])
 const INV_BILLERS = ['accountant', 'system_admin'];
@@ -2590,6 +2599,12 @@ const ROLES = {
 // v15.9: اشتقاق صلاحيات الكتابة من الدور — canPost=إدخال/ترحيل، canEdit=تعديل/حذف/تغيير إعدادات.
 // (للأدوار القائمة: readOnly/postOnly غير معرّفين ⇒ canPost=canEdit=النطاق الكامل، بلا أي تغيير سلوك.)
 const rolePost = (role) => ROLES[role]?.scope === 'all' && !ROLES[role]?.readOnly;
+/* v47.1 — اعتماد القيد اليدوي (قرار المالك): يعتمده المحاسب أو المالك.
+   قيد المالك (مسؤول النظام/الإدارة العليا) يُرحَّل مباشرة؛ قيد غيره ينتظر الاعتماد، ولا يعتمد أحدٌ قيدًا أدخله بنفسه.
+   المرحّل فقط يدخل الدفاتر؛ المرفوض يبقى للأثر بسببه. */
+const jeLive = (j) => !j || !j.status || j.status === 'posted';
+const jeOwner = (me) => !!(ROLES[me?.role] || {}).admin;
+const canApproveJe = (me, j) => !!me && (jeOwner(me) || ['accountant', 'finance_department'].includes(me.role)) && (!j || (j.byId ? j.byId !== me.id : j.by !== me.name));
 const isCostCtl = (me) => !!(ROLES[me?.role] || {}).costCtl;   // v37.8 مراقب التكاليف: يعتمد ويراقب ولا يُدخل حركات
 // v27.1 — نطاق فروع المستخدم كما تعرضه الواجهة (myBranches): null = كل الفروع (المركز)، وإلا قائمة معرّفات.
 // نطاق الكتابة (dataCtx.myBrIds) يجب أن يطابقه حرفيًا — أي سجل بفرع خارج هذا النطاق لا يُحفظ من جهاز الفرع.
@@ -2984,7 +2999,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v47.0';
+const APP_VER = 'v47.1';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3039,7 +3054,8 @@ class ErrorBoundary extends React.Component {
   }
 }
 export { ErrorBoundary, logClientError, lockedLedgerChanged };
-export { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, saleRetUse, posReturnLoyDed };   // v46.8 مرتجع نقطة البيع   // v46.8: للاختبارات الوظيفية (حارس الإقفال)
+export { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, saleRetUse, posReturnLoyDed };
+export { jeLive, jeOwner, canApproveJe };   // v47.1 اعتماد القيد اليدوي   // v46.8 مرتجع نقطة البيع   // v46.8: للاختبارات الوظيفية (حارس الإقفال)
 if (typeof window !== 'undefined' && !window.__mizanErrHook) {
   window.__mizanErrHook = true;
   window.addEventListener('error', (e) => logClientError(e.error || e.message, 'window'));
@@ -4432,6 +4448,8 @@ function PlatformApp() {
 }
 
 /* ================= بوابة الدخول ================= */
+// v47.1 — غلاف المنصة (قرار المالك): صورة الهوية بجانب الدخول على الحاسوب، وأعلاه على الجوال
+const GateCover = () => <div className="gate-cover" role="img" aria-label={TX(BRAND_AR) + ' — ' + TX(BRAND_SUB)} />;
 function BrandHead({ title, sub, logo }) {
   return (
     <div className="bhead" style={{ textAlign: 'center', marginBottom: 24 }}>
@@ -4477,7 +4495,7 @@ function FirstRun({ css, theme, commitOrg, say, onDone }) {
   return (
     <div className={themeCls(theme, readMode())}>
       <style dangerouslySetInnerHTML={{ __html: css }} />
-      <div className="gate">
+      <div className="gate has-cover"><GateCover />
         <div className="gate-c">
           <BrandHead title="تهيئة المنصة لأول مرة" sub="أنشئ حساب المالك — سيكون لك وصول كامل لكل الشاشات" />
           <div className="card">
@@ -4643,7 +4661,7 @@ function FbGate({ css, theme, fbLogin, fbMfa, fbFirstSetup, notice }) {
   return (
     <div className={themeCls(theme, readMode())}>
       <style dangerouslySetInnerHTML={{ __html: css }} />
-      <div className="gate">
+      <div className="gate has-cover"><GateCover />
         <div className="gate-c">
           <BrandHead title={BRAND_AR} sub={TX(BRAND_SUB)} />
           <div className="row" style={{ justifyContent: 'center', marginBottom: 16 }}>
@@ -4869,7 +4887,7 @@ function Gate({ css, org, onLogin, online, theme, notice }) {
   return (
     <div className={themeCls(theme, readMode())}>
       <style dangerouslySetInnerHTML={{ __html: css }} />
-      <div className="gate">
+      <div className="gate has-cover"><GateCover />
         <div className="gate-c">
           <BrandHead title={org.company?.name || TX(BRAND)} sub={TX(BRAND_AR) + ' — ' + TX(BRAND_SUB)} logo={org.company?.logoUrl} />
           <div className="row" style={{ justifyContent: 'center', marginBottom: 16 }}>
@@ -7836,7 +7854,7 @@ const docInApp = () => { try { return isStandaloneApp() || isIOSDev() || /Androi
    mzBrandDoc: يضيف توقيع «RESTAURANT PRO» بالشعار في تذييل كل مستند (أو سطرًا صغيرًا إن لم يوجد تذييل) — مرة واحدة فقط. */
 // v42.1: علامة RESTAURANT PRO في المطبوعات — مربع كحلي بحرفَي RP الذهبيين (المعامِلات القديمة مقبولة للتوافق)
 const mzSvg = (size) => '<svg xmlns="http://www.w3.org/2000/svg" width="' + size + '" height="' + size + '" viewBox="0 0 64 64" style="vertical-align:middle;flex-shrink:0">' +
-  '<rect width="64" height="64" rx="14" fill="#101D35"/><text x="32" y="41" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="800" font-size="34" fill="#C7A45B">م</text></svg>';
+  '<rect width="64" height="64" rx="14" fill="#101D35"/><g transform="translate(7 7) scale(.25)"><path d="M86 22.6 A80 80 0 1 0 114 22.6" fill="none" stroke="#C7A45B" stroke-width="9" stroke-linecap="round"/><path d="M100 12 l11 12 -11 12 -11 -12z" fill="#C7A45B"/><rect x="40" y="56" width="120" height="10" rx="5" fill="#C7A45B"/><path d="M52 66 h20 l28 30 28 -30 h20 v85 h-19 v-51 l-29 30 -29 -30 v51 h-19z" fill="#C7A45B"/></g></svg>';   // v47.1 العلامة المعتمدة
 const MZ_LOGO_HTML = '<span class="logo" style="display:inline-grid;place-items:center;border-radius:8px">' + mzSvg(30) + '</span>';
 const mzBrandDoc = (html) => {
   html = String(html || '');

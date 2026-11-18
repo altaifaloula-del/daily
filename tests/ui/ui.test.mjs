@@ -1841,3 +1841,27 @@ test('v46.9 مرتجع نقطة البيع يخصم نقاط الولاء بنس
   assert.deepEqual(r, [{ phone: '0551234567', ded: 5 }, 'card', -58], 'رُدّ على الشبكة (الأصلية)');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v47.1 اعتماد القيد اليدوي: قيد المحاسب ينتظر ولا يدخل الدفاتر ولا يعتمده بنفسه؛ المالك يعتمده فيُرحَّل', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1280, height: 900 } }, 'live/Accounting/acc/jr');
+  await p.click('button:has-text("قيد يدوي / افتتاحي")'); await p.waitForTimeout(300);
+  await p.fill('.modal input[placeholder^="مثال: استلام"]', 'تسوية اختبار');
+  await p.locator('.modal select.jm-acc').nth(0).selectOption('5901'); await p.locator('.modal input.jm-d').nth(0).fill('250');
+  await p.locator('.modal select.jm-acc').nth(1).selectOption('1201'); await p.locator('.modal input.jm-c').nth(1).fill('250');
+  await p.click('.modal button:has-text("تسجيل القيد")'); await p.waitForTimeout(500);
+  assert.match(await p.evaluate(() => window.lastSay || ''), /أُرسل القيد للاعتماد/);
+  assert.deepEqual(await p.evaluate(() => window.cur.journalManual.filter(j => j.title === 'تسوية اختبار').map(j => [j.status, j.by])), [['pending', 'منى']]);
+  await p.click('button:has-text("قيود بانتظار الاعتماد (1)")'); await p.waitForTimeout(250);
+  assert.equal(await p.locator('[data-je-pending] button:has-text("اعتماد وترحيل")').count(), 0, 'لا يعتمد قيده بنفسه');
+  assert.match(await p.locator('[data-je-pending]').innerText(), /بانتظار اعتماد محاسب آخر أو المالك/);
+  const ops = await p.evaluate(() => window.cur); await ctx.close();
+  // المالك (مسؤول النظام) يعتمد
+  const o2 = await open({ viewport: { width: 1280, height: 900 } }, 'live/Accounting/admin/jr');
+  await o2.p.evaluate((ops) => window.setOps(ops), ops); await o2.p.waitForTimeout(300);
+  await o2.p.click('button:has-text("قيود بانتظار الاعتماد (1)")'); await o2.p.waitForTimeout(250);
+  await o2.p.locator('[data-je-pending] button:has-text("اعتماد وترحيل")').click(); await o2.p.waitForTimeout(400);
+  assert.match(await o2.p.evaluate(() => window.lastSay || ''), /اعتُمد القيد/);
+  assert.deepEqual(await o2.p.evaluate(() => window.cur.journalManual.filter(j => j.title === 'تسوية اختبار').map(j => [j.status, j.approvedBy])), [['posted', 'مجاهد']]);
+  assert.equal(await o2.p.locator('button:has-text("قيود بانتظار الاعتماد")').count(), 0, 'لا قيود معلّقة بعد الاعتماد');
+  assert.deepEqual(errs, []); assert.deepEqual(o2.errs, []); await o2.ctx.close();
+});
