@@ -5,13 +5,23 @@ import { Check, ChevronDown, ClipboardCheck, FileText, Send, Banknote, CreditCar
 import { APPS, CameraModal, DENOMS, EXP_CATS, Field, LOCK_MSG, Modal, MoneyField, Num, OutputDialog, PT_TYPE, PhotoField, ROLES, SignaturePad, arDate, buildPartners, businessDay, countDenoms, countedClosing, deficitCfg, deficitPatterns, emptyDenoms, isoD, money, nextPartnerCode, normalizeSupPays, nowISO, payCashPart, paySplits, payTotal, periodLocked, posR2, salesDaySource, sum, uid, signoff, sigFailMsg } from '../../App.jsx';
 
 export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say, onClose, onStartNew, existing = [], invoices = [], branchPartners = [], posOrders = [], posImports = [] }) {
-  const [f, setF] = useState(() => initial ? { ...initial, supplierPayments: normalizeSupPays(initial.supplierPayments) } : {
-    date: businessDay(), branchId: branches[0]?.id || '',
-    openingBalance: branches[0]?.defaultFloat || 0,
-    cashSales: 0, cardSales: 0, bankTransferSales: 0,
-    deliverySales: (org.deliveryApps || APPS).map(a => ({ appId: a.id, appName: a.n, amount: 0, orderCount: 0, commissionPercentage: a.c })),
-    expenses: [], supplierPayments: [], denominationDetails: emptyDenoms(),
-    transferredToMainTreasury: 0, varianceReason: '', notes: ''
+  const [f, setF] = useState(() => {
+    const blank = {
+      date: businessDay(), branchId: branches[0]?.id || '',
+      openingBalance: branches[0]?.defaultFloat || 0,
+      cashSales: 0, cardSales: 0, bankTransferSales: 0,
+      deliverySales: (org.deliveryApps || APPS).map(a => ({ appId: a.id, appName: a.n, amount: 0, orderCount: 0, commissionPercentage: a.c })),
+      expenses: [], supplierPayments: [], denominationDetails: emptyDenoms(),
+      transferredToMainTreasury: 0, varianceReason: '', notes: ''
+    };
+    if (!initial) return blank;
+    // v46.8: إغلاق قديم أو وارد من مسار آخر قد تنقصه حقول — كان «تعديل كمسودة» ينهار (denominationDetails/expenses غير معرّفة).
+    // نكمل الناقص فقط ولا نغيّر أي قيمة موجودة (الرصيد الافتتاحي الناقص = 0 لا رصيد الفرع الافتراضي، حتى لا يتغير الفرق).
+    return { ...blank, openingBalance: 0, ...initial,
+      expenses: Array.isArray(initial.expenses) ? initial.expenses : [],
+      deliverySales: Array.isArray(initial.deliverySales) ? initial.deliverySales : blank.deliverySales,
+      denominationDetails: { ...emptyDenoms(), ...(initial.denominationDetails || {}) },
+      supplierPayments: normalizeSupPays(initial.supplierPayments) };
   });
   const [secs, setSecs] = useState(() => {
     const d = initial || {};

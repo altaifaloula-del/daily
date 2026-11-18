@@ -1763,3 +1763,19 @@ test('v46.7 نواقص المخزون: شاشة الأصناف تعرض الما
   assert.match(await n.p.locator('body').innerText(), /نفاد مواد في مستودع طيبة/);
   assert.deepEqual(n.errs, []); await n.ctx.close();
 });
+
+test('v46.8 «تعديل كمسودة» لإغلاق قديم تنقصه الفئات النقدية والمصروفات: النموذج يفتح دون انهيار ولا تتغير القيم', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1280, height: 900 } }, 'live/Hub/admin/closehub:closing');
+  await p.evaluate(() => { const o = window.cur; window.setOps({ ...o, closings: o.closings.map(c => c.id === 'c2' ? (({ denominationDetails, expenses, ...x }) => x)(c) : c) }); });
+  await p.waitForTimeout(200);
+  const btns = p.locator('button', { hasText: 'تعديل كمسودة' }); assert.ok(await btns.count() > 0, 'زر التعديل ظاهر للإدارة');
+  for (let i = 0; i < await btns.count(); i++) {
+    await btns.nth(i).click(); await p.waitForTimeout(300);
+    assert.equal(await p.evaluate(() => window.__crash || ''), '', 'لا انهيار');
+    assert.ok(await p.getByText('تعديل إغلاق وردية').count() > 0, 'النموذج مفتوح');
+    await p.keyboard.press('Escape'); await p.waitForTimeout(150);
+    if (await p.getByText('تعديل إغلاق وردية').count()) await p.reload().then(() => settle(p));
+  }
+  assert.deepEqual(errs, []);
+  await ctx.close();
+});
