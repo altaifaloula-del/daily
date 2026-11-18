@@ -999,6 +999,43 @@ test('v49.2 MQ-037 ربحية الأصناف والفروع: من فواتير �
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+test('v49.2 MQ-013 مواقع التخزين: إدخال موقع الصنف لكل مستودع، حفظه، وظهوره في قائمة الأصناف', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Inventory/admin/items');
+  await p.waitForTimeout(300);
+  const first = await p.evaluate(() => window.curOrg.items.filter(i => i.isActive !== false && (i.type || 'stock') === 'stock')[0]);
+  await p.locator('tr', { hasText: first.name }).first().locator('button', { hasText: 'تعديل' }).click(); await p.waitForTimeout(150);
+  await p.locator('[data-bins] input').first().fill('C-12');
+  await p.locator('button', { hasText: 'حفظ الصنف' }).click(); await p.waitForTimeout(250);
+  const it = await p.evaluate((id) => window.curOrg.items.find(x => x.id === id), first.id);
+  assert.equal(Object.values(it.bins || {})[0], 'C-12');
+  assert.match(await p.locator('tr', { hasText: first.name }).first().innerText(), /C-12/);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v49.2 MQ-011 صلاحيات نقطة البيع: الكاشير لا يتجاوز حد الخصم ولا يلغي ولا يُرجع، ومدير الفرع يتجاوز الحد', async () => {
+  const setup = async (p) => { await p.evaluate(() => {
+    window.setOrg(g => ({ ...g, taxCfg: { enabled: false }, posCfg: { branches: ['b1'], autoPrint: false, maxDiscPct: 10, returns: true }, products: [{ id: 'k', name: 'كبسة', sellPrice: 100, cat: 'رئيسي' }] }));
+    window.setOps(o => ({ ...o, posOrders: [] })); }); await p.waitForTimeout(400);
+    const ob = p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await p.waitForTimeout(400); } };
+  const sell = async (p, amt) => { await p.locator('.pos-tile:has-text("كبسة")').click();
+    await p.click('button:has-text("+ خصم")'); await p.locator('.pos-cart input.inp.n').first().fill(String(amt)); await p.fill('.pos-cart input[placeholder="إلزامي"]', 'عميل دائم');
+    await p.click('.pos-cart button:has-text("نقدي")'); await p.waitForTimeout(200); await p.click('.modal button:has-text("تأكيد")'); await p.waitForTimeout(500); };
+  { const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosApp/cs'); await setup(p);
+    await sell(p, 20);
+    assert.match(await p.evaluate(() => window.lastSay || ''), /يتجاوز الحد المسموح للكاشير \(10%\)/);
+    assert.equal(await p.evaluate(() => window.cur.posOrders.length), 0, 'لم تُسجَّل');
+    await p.evaluate(() => window.setOps(o => ({ ...o, posOrders: [{ id: 'x1', no: 'ف1-1', branchId: 'b1', date: new Date().toISOString().slice(0, 10), at: new Date().toISOString(), status: 'paid', total: 100, lines: [{ productId: 'k', name: 'كبسة', qty: 1, price: 100 }], payments: [{ m: 'cash', amount: 100 }] }] })));
+    await p.keyboard.press('Escape'); await p.waitForTimeout(200); if (await p.locator('.modal').count()) { await p.locator('.modal button:has-text("إلغاء")').first().click().catch(() => {}); await p.waitForTimeout(200); }
+    await p.click('.pos-tabs button:has-text("الفواتير")'); await p.waitForTimeout(250);
+    assert.equal(await p.locator('button:has-text("إلغاء")').filter({ hasText: /^إلغاء$/ }).count(), 0, 'لا زر إلغاء للكاشير');
+    assert.equal(await p.locator('button:has-text("مرتجع")').count(), 0, 'لا زر مرتجع للكاشير');
+    assert.deepEqual(errs, []); await ctx.close(); }
+  { const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosApp/bm'); await setup(p);
+    await sell(p, 20);
+    assert.deepEqual(await p.evaluate(() => window.cur.posOrders.map(o => [o.total, o.manualDisc])), [[80, 20]], 'المدير يتجاوز الحد');
+    assert.deepEqual(errs, []); await ctx.close(); }
+});
+
 test('v43.0 الواجهة الإنجليزية: الاتجاه LTR وترجمة الإطار (التطبيقات، رأس المركز، شريط الأقسام) والعربية افتراضيًا', async () => {
   // افتراضيًا: عربي RTL
   { const { p, errs, ctx } = await open({ viewport: { width: 1280, height: 900 } }, 'comp/Launcher');

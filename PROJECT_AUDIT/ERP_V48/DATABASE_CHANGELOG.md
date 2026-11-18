@@ -24,3 +24,9 @@
 
 ## v49.1 (فرع erp-stage-02)
 - لا تغيير في البنية. حقل اختياري `org.allowNegStock` (طوارئ؛ غير ظاهر في الواجهة). سير عمل جديد `restore-drill.yml` يكتب في **المحاكي فقط**.
+
+## v49.2 — المرحلة 02 (فرع erp-stage-02) — كلها إضافية بلا حذف ولا ترحيل
+- `org.posCfg.areas = { [branchId]: [{ id, name, from, to }] }` — الصالات. `posOrders[].areaId/areaName` للفواتير الجديدة.
+- `org.posCfg.drivers = [{ id, name, phone?, branchId?, active }]` — السائقون. مجموعة جديدة في مستند الفرع `posDeliveries` (تُقلَّم المسوّاة بعد 60 يومًا).
+- مجموعة جديدة في المستند المركزي `rfqs` — طلبات عروض الأسعار. `purchaseOrders[].rfqId` للأوامر الناتجة عنها.
+- `items[].bins = { [whId]: 'A-03-2' }` — مواقع التخزين.

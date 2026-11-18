@@ -6,6 +6,7 @@ import { StockVouchers } from './StockVouchers.jsx';   // v46.5   // v46.2
 import { PrepList } from './PrepList.jsx';   // v40.8
 import { TurnoverPpv } from './TurnoverPpv.jsx';   // v42.0
 import { Production } from './Production.jsx';   // v42.8
+import { itemBin, binOrder } from '../../App.jsx';   // v49.2 MQ-013
 import { stockShortages, whOf, saleDeductOn, saleRecipeItems, uomOf, UomSelect, productThumb, normDigits, BlindCount, Field, ITEM_TYPES, ITEM_NEW_TYPES, itemsSeq, nextItemCode, Kpi, LOCK_MSG, MAIN_WH, MOVE_KINDS, Modal, PriceAlerts, ROLES, SectionNav, UsageVariance, WarehousesPanel, WasteControl, WasteFields, arDate, isCostCtl, isStocked, itemAvgCosts, itemType, makeXlsx, money, nowISO, pFactor, parseCsvGrid, parseXlsxGrid, partGross, partYield, periodLocked, prepUnitCost, kcalUnitFactor, productKcal, printA4, q3, recipeCost, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whName, whOn, prepItemId } from '../../App.jsx';
 
 export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
@@ -177,6 +178,8 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
     const rec = { ...(f.id ? items.find(x => x.id === f.id) || {} : {}), id: f.id || uid('it'), name: f.name.trim(), unit: (f.unit || '').trim() || 'وحدة', cost: Number(f.cost) || 0, minQty: Number(f.minQty) || 0, isActive: f.isActive !== false,
       type: ITEM_TYPES[f.type] ? f.type : 'stock', barcode: bc, code: f.code || nextItemCode(items), purchaseUnit: (f.purchaseUnit || '').trim(), purchaseFactor: (f.purchaseUnit || '').trim() ? pf : 1,
       ...(f.type === 'sale' ? { sellPrice: Number(f.sellPrice) || 0 } : {}) };
+    // v49.2 — MQ-013: مواقع التخزين لكل مستودع (تُحذف الفارغة)
+    if (f.bins) { const b = {}; Object.entries(f.bins).forEach(([w, v]) => { const t = String(v || '').trim().slice(0, 24); if (t) b[w] = t; }); if (Object.keys(b).length) rec.bins = b; else delete rec.bins; }
     // v41.1: السعرات — تُحفظ إن أُدخلت، وتُزال إن مُسحت
     if (f.kcal && f.kcal.v !== '' && f.kcal.v != null && Number(f.kcal.v) >= 0) rec.kcal = { basis: f.kcal.basis === 'unit' || kcalUnitFactor(rec.unit) == null ? 'unit' : '100', v: Number(f.kcal.v) }; else delete rec.kcal;
     // الأصناف القديمة بلا رمز تأخذ رموزها التسلسلية الآن بترتيب إضافتها (ثابتة بعد ذلك)
@@ -227,9 +230,9 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
   };
   const printCountSheet = () => {
     // v37.5 — جرد أعمى: الورقة بلا رصيد دفتري ولا فرق
-    const rows = items.filter(isStocked).map(it => `<tr><td>${it.name}</td><td>${it.unit}</td><td style="height:26px"></td><td></td></tr>`).join('');
+    const rows = binOrder(items.filter(isStocked)).map(it => `<tr><td>${itemBin(it)}</td><td>${it.name}</td><td>${it.unit}</td><td style="height:26px"></td><td></td></tr>`).join('');
     printA4(org, 'قائمة جرد أعمى', arDate(today()) + ' — تُملأ أثناء العدّ ثم تُدخل في شاشة الجرد · لا يظهر الرصيد الدفتري للعادّ',
-      `<table><thead><tr><th>الصنف</th><th>الوحدة</th><th>العدّ الفعلي</th><th>ملاحظات</th></tr></thead><tbody>${rows}</tbody></table>
+      `<table><thead><tr><th>الموقع</th><th>الصنف</th><th>الوحدة</th><th>العدّ الفعلي</th><th>ملاحظات</th></tr></thead><tbody>${rows}</tbody></table>
       <div class="sign"><div>قام بالعدّ</div><div>أعاد العدّ</div><div>اعتماد (شخص آخر)</div></div>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
   };
 
@@ -409,7 +412,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
                   return (
                     <tr key={it.id}>
                       <td className="num" style={{ fontSize: 11 }}>{it.code}</td>
-                      <td style={{ fontWeight: 600, fontSize: 12.5 }}>{it.name}{it.barcode ? <div className="num" style={{ fontSize: 9.5, color: 'var(--faint)' }}>{it.barcode}</div> : null}</td>
+                      <td style={{ fontWeight: 600, fontSize: 12.5 }}>{it.name}{it.barcode ? <div className="num" style={{ fontSize: 9.5, color: 'var(--faint)' }}>{it.barcode}</div> : null}{itemBin(it) ? <div className="num" style={{ fontSize: 9.5, color: 'var(--dim)' }} data-bin>📍 {itemBin(it)}</div> : null}</td>
                       <td><span className={'badge ' + ITEM_TYPES[itemType(it)].c}>{ITEM_TYPES[itemType(it)].short}</span></td>
                       <td style={{ fontSize: 11.5, color: 'var(--dim)' }}>{it.unit}{it.purchaseUnit && pFactor(it) > 1 ? <div style={{ fontSize: 10, color: 'var(--faint)' }}>{it.purchaseUnit} = {pFactor(it)} {it.unit}</div> : null}</td>
                       <td className="num" style={{ textAlign: 'end' }}>{money(avgOf(it.id))}</td>
@@ -664,6 +667,10 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
             <Field label={'التكلفة المرجعية / ' + (itemF.unit || 'الوحدة')}><input className="inp n" inputMode="decimal" value={itemF.cost} onChange={e => setItemF(f => ({ ...f, cost: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
             {isStocked(itemF) && <Field label="حد الطلب الأدنى"><input className="inp n" inputMode="decimal" value={itemF.minQty} onChange={e => setItemF(f => ({ ...f, minQty: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>}
           </div>
+          {isStocked(itemF) && <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 4 }} data-bins>
+            {[{ id: MAIN_WH, name: whOf(org).length ? (whOf(org).find(w => w.id === MAIN_WH) || {}).name || 'المستودع الرئيسي' : 'المخزن' }, ...whOf(org).filter(w => w.id !== MAIN_WH)].map(w =>
+              <Field key={w.id} label={'موقع التخزين — ' + w.name} style={{ minWidth: 150 }}><input className="inp" aria-label={'موقع ' + w.name} placeholder="مثال: A-03-2" value={((itemF.bins || {})[w.id]) ?? itemBin(itemF, w.id)} onChange={e => setItemF(f => ({ ...f, bins: { ...(f.bins || {}), [w.id]: e.target.value } }))} /></Field>)}
+          </div>}
           {isStocked(itemF) && (
             <div className="grid g3">
               <Field label="وحدة الشراء (اختياري)"><input className="inp" value={itemF.purchaseUnit || ''} placeholder="كرتون · كيس · صندوق" onChange={e => setItemF(f => ({ ...f, purchaseUnit: e.target.value }))} /></Field>

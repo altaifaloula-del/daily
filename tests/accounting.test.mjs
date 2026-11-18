@@ -1985,3 +1985,25 @@ test('v49.2 MQ-037 الربحية صنف × فرع × فترة: الإيراد �
   assert.equal(E.profitMatrix(org, ops, { from: '2026-10-01', to: '2026-11-30', branchIds: ['b2'] }).rows.length, 1);
   assert.equal(E.pmPeriod('2026-11-18', 'week'), 'أسبوع 2026-11-14', 'الأسبوع يبدأ السبت');
 });
+
+test('v49.2 MQ-013 مواقع التخزين: الموقع لكل مستودع، والترتيب الطبيعي (A-2 قبل A-10) والأصناف بلا موقع آخرًا', () => {
+  const its = [{ id: 'a', name: 'رز', bins: { 'wh-main': 'A-10' } }, { id: 'b', name: 'زيت', bins: { 'wh-main': 'A-2', 'w1': 'B-1' } }, { id: 'c', name: 'ملح' }, { id: 'd', name: 'بهار', bins: { 'wh-main': 'B-1' } }];
+  assert.equal(E.itemBin(its[1], 'w1'), 'B-1'); assert.equal(E.itemBin(its[1]), 'A-2', 'بلا مستودع = الرئيسي'); assert.equal(E.itemBin(its[2], 'w1'), '');
+  assert.deepEqual([...its].sort(E.binSort('wh-main')).map(x => x.id), ['b', 'a', 'd', 'c']);
+  assert.deepEqual([...its].sort(E.binSort('w1')).map(x => x.id), ['b', 'd', 'c', 'a'].filter(x => x === 'b').concat(['d', 'c', 'a'].sort((x, y) => ({ d: 'بهار', c: 'ملح', a: 'رز' }[x]).localeCompare({ d: 'بهار', c: 'ملح', a: 'رز' }[y], 'ar'))));
+});
+
+test('v49.2 MQ-020 تقارير المخزون متسقة: كرت الصنف = الأرصدة لكل مستودع، والافتتاحي + الوارد − الصادر = الختامي، والفترة تُحترم', () => {
+  const org = { items: [{ id: 'i1', name: 'دجاج', unit: 'كجم', cost: 10 }], warehouses: [{ id: 'wh-main', kind: 'main', name: 'الرئيسي' }, { id: 'w1', kind: 'branch', branchId: 'b1', name: 'طيبة' }] };
+  const ops = { stockMoves: [
+      { id: 'a', itemId: 'i1', whId: 'wh-main', kind: 'purchase', qty: 100, date: '2026-10-01', at: '2026-10-01T08:00:00' },
+      { id: 'b', itemId: 'i1', whId: 'wh-main', kind: 'out', qty: -5, date: '2026-11-02', at: '2026-11-02T08:00:00' }],
+    whMoves: [{ id: 'c', itemId: 'i1', whId: 'w1', kind: 'waste', qty: -2, date: '2026-11-05', at: '2026-11-05T08:00:00' }],
+    whTransfers: [{ id: 't', no: 'TR-1', status: 'received', fromWh: 'wh-main', toWh: 'w1', sentDate: '2026-11-03', receivedDate: '2026-11-03', lines: [{ itemId: 'i1', qtySent: 30, qtyRecv: 30 }] }] };
+  const S = E.stockByWh(org, ops).byWh;
+  for (const w of ['wh-main', 'w1']) assert.equal(E.itemLedger(org, ops, 'i1', { whId: w }).close, S[w].i1, 'كرت الصنف يطابق الأرصدة في ' + w);
+  assert.deepEqual([S['wh-main'].i1, S.w1.i1], [65, 28]);
+  const L = E.itemLedger(org, ops, 'i1', { from: '2026-11-01', to: '2026-11-30' });
+  assert.deepEqual([L.open, L.qIn, L.qOut, L.close], [100, 30, 37, 93], 'نوفمبر: افتتاحي 100، وارد التحويل 30، صادر 5 + 30 + 2');
+  assert.equal(Math.round((L.open + L.qIn - L.qOut) * 1000) / 1000, L.close);
+});
