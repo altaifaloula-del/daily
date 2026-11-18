@@ -6,7 +6,7 @@ import { Scale, FileBarChart, ChevronDown, Printer, Settings, Receipt, BarChart3
 import { VatRegisters, SupplierPurchReport } from './TaxPurchReports.jsx';   // v39.1
 import { Suppliers } from '../inv/Suppliers.jsx';   // v44.0 «مستلم لم يُفوتر»
 import { OdooBar } from '../../App.jsx';   // v41.0
-import { jeOwner, canApproveJe, projList, projectPL, projNextCode, ACCT_SECTIONS, ACC_KIND, Field, Kpi, LOCK_MSG, MizanMerge, Modal, NUM_FACE, Num, ROLES, _xe, acctSecKey, arDate, bankOfBranch, branchBanks, bsLayout, bsRowsOf, buildAccounting, buildPartners, capOK, countedClosing, customerAging, detectStmtMap, entityById, entityList, gosiRatesFor, isLayout, isRowsOf, isoD, lockedThru, makeXlsx, money, monthEnd, monthLedger, multiEntityOn, naMissing, nowISO, openDocWin, parseCsvGrid, parseMt940, parseXlsxGrid, payTotal, periodLocked, posClrOf, printA4, qrSvg, roleEdit, rolePost, snapMonths, stAddDays, stDate, stNum, sum, supplierAging, today, uid, useSecNav, zatcaTLV } from '../../App.jsx';
+import { DocLink, jeOwner, canApproveJe, projList, projectPL, projNextCode, ACCT_SECTIONS, ACC_KIND, Field, Kpi, LOCK_MSG, MizanMerge, Modal, NUM_FACE, Num, ROLES, _xe, acctSecKey, arDate, bankOfBranch, branchBanks, bsLayout, bsRowsOf, buildAccounting, buildPartners, capOK, countedClosing, customerAging, detectStmtMap, entityById, entityList, gosiRatesFor, isLayout, isRowsOf, isoD, lockedThru, makeXlsx, money, monthEnd, monthLedger, multiEntityOn, naMissing, nowISO, openDocWin, parseCsvGrid, parseMt940, parseXlsxGrid, payTotal, periodLocked, posClrOf, printA4, qrSvg, roleEdit, rolePost, snapMonths, stAddDays, stDate, stNum, sum, supplierAging, today, uid, useSecNav, zatcaTLV } from '../../App.jsx';
 
 export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }) {
   const [view, setView] = useState('jr'); const [prjF, setPrjF] = useState({ name: '', branchId: '', budget: '' }); const [prjOpen, setPrjOpen] = useState(null);   // v47.4           // jr قيود · coa دليل · tb ميزان · fs قوائم
@@ -324,7 +324,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
         party = x.categoryName || x.party || x.partyName || '';
         if (v.inn > 0 && !x.receiptImage && !x.receiptNumber) { noRcpt.n++; noRcpt.vat += v.inn; flag = 'بلا إيصال'; }
       }
-      tx.push({ date: e.date, src: sk, ref: e.ref || '', title: e.title || '', br: brName(e.branchId), party, pVat, ns: r2x(v.netSales), out: r2x(v.out), np: r2x(v.netPurch), inn: r2x(v.inn), flag });
+      tx.push({ eid: e.id, date: e.date, src: sk, ref: e.ref || '', title: e.title || '', br: brName(e.branchId), party, pVat, ns: r2x(v.netSales), out: r2x(v.out), np: r2x(v.netPurch), inn: r2x(v.inn), flag });
     });
     Object.keys(F).forEach(k => { F[k] = r2x(F[k]); });
     const rnd = (o) => { Object.keys(o).forEach(k => { if (typeof o[k] === 'number' && k !== 'n') o[k] = r2x(o[k]); }); return o; };
@@ -1508,7 +1508,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                 {entries.map(e => (
                   <React.Fragment key={e.id}>
                     <tr onClick={() => setOpen(o => ({ ...o, [e.id]: !o[e.id] }))} style={{ cursor: 'pointer' }}>
-                      <td className="num" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>{e.no}</td>
+                      <td className="num" style={{ fontSize: 11, whiteSpace: 'nowrap' }}><DocLink to={{ e: e.id }} title="استعراض القيد">{e.no}</DocLink></td>
                       <td className="num" style={{ fontSize: 11.5, whiteSpace: 'nowrap' }}>{e.date}{periodLocked(org, e.date) ? ' 🔒' : ''}</td>
                       <td style={{ fontSize: 12.5 }}>{e.title}
                         {!e.balanced && <span className="badge b-rose" style={{ marginInlineStart: 6 }}>غير متوازن!</span>}</td>
@@ -2215,7 +2215,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                       {stmt.map((t, i) => (
                         <tr key={i}>
                           <td className="num" style={{ fontSize: 11 }}>{t.date}</td>
-                          <td style={{ fontSize: 12 }}>{t.desc}</td>
+                          <td style={{ fontSize: 12 }}>{t.ref && ['si', 'inv', 'cv'].includes(t.src) ? <DocLink to={{ ref: t.ref, src: t.src }}>{t.desc}</DocLink> : t.desc}</td>
                           <td className="num" style={{ textAlign: 'end', color: 'var(--rose)' }}>{t.credit ? money(t.credit) : '—'}</td>
                           <td className="num" style={{ textAlign: 'end', color: 'var(--mint)' }}>{t.debit ? money(t.debit) : '—'}</td>
                           <td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{money(t.run)}</td>
@@ -2311,7 +2311,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                       {stmt.map((t, i) => (
                         <tr key={i}>
                           <td className="num" style={{ fontSize: 11 }}>{t.date}</td>
-                          <td style={{ fontSize: 12 }}>{t.desc}</td>
+                          <td style={{ fontSize: 12 }}>{t.ref && ['si', 'inv', 'cv'].includes(t.src) ? <DocLink to={{ ref: t.ref, src: t.src }}>{t.desc}</DocLink> : t.desc}</td>
                           <td className="num" style={{ textAlign: 'end', color: 'var(--amber)' }}>{t.debit ? money(t.debit) : '—'}</td>
                           <td className="num" style={{ textAlign: 'end', color: 'var(--mint)' }}>{t.credit ? money(t.credit) : '—'}</td>
                           <td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{money(t.run)}</td>
@@ -3124,7 +3124,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                       <tbody>
                         {rows.slice(0, 300).map((t, i) => <tr key={i} className={'is-line' + (t.flag ? ' flag' : '')}>
                           <td><span className="num">{t.date}</span></td>
-                          <td>{t.title}{t.flag && <small className="vat-flag"> · {t.flag}</small>}</td>
+                          <td><DocLink to={{ e: t.eid }}>{t.title}</DocLink>{t.flag && <small className="vat-flag"> · {t.flag}</small>}</td>
                           <td>{t.br}</td>
                           <td className={'is-amt' + (t.ns + t.np < 0 ? ' neg' : '')}><span className="num">{fmtBal(r2x(t.ns + t.np))}</span></td>
                           <td className={'is-amt' + (t.out < 0 ? ' neg' : '')}><span className="num">{t.out ? fmtBal(t.out) : '—'}</span></td>

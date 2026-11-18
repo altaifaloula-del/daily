@@ -2,7 +2,7 @@
    الجهة التي هي عميل ومورد معًا: مقاصّة بين ذممها. ترقيم RV/PV/OV، طباعة A4 بالتفقيط، وتصدير Excel. */
 import React, { useMemo, useState } from 'react';
 import { Receipt, Plus, Printer, Download, Check, Scale } from 'lucide-react';
-import { CV_KIND, cvNextNo, projList, partyOpenDocs, applyCashVoucher, cashVoucherHtml, buildAccounting, buildPartners, branchBanks, Field, Modal, LOCK_MSG, makeXlsx, money, nowISO, periodLocked, printA4, today, uid } from '../../App.jsx';
+import { DocLink, CV_KIND, cvNextNo, projList, partyOpenDocs, applyCashVoucher, cashVoucherHtml, buildAccounting, buildPartners, branchBanks, Field, Modal, LOCK_MSG, makeXlsx, money, nowISO, periodLocked, printA4, today, uid } from '../../App.jsx';
 
 const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 const PT = { cust: 'عميل', sup: 'مورد', acc: 'حساب من الدليل', emp: 'موظف' };
@@ -83,7 +83,7 @@ export function CashVouchers({ org, ops, me, commit, say }) {
           <tbody>
             {list.map(v => (
               <tr key={v.id}>
-                <td className="num" style={{ fontWeight: 700, fontSize: 11.5 }}>{v.no}</td>
+                <td className="num" style={{ fontWeight: 700, fontSize: 11.5 }}><DocLink to={{ cv: v.id }} title="استعراض السند">{v.no}</DocLink></td>
                 <td><span className={'badge ' + (v.kind === 'rv' ? 'b-mint' : v.kind === 'pv' ? 'b-rose' : v.kind === 'tv' ? 'b-sky' : 'b-amber')}>{CV_KIND[v.kind].ar}</span></td>
                 <td className="num" style={{ fontSize: 11.5 }}>{v.date}</td>
                 <td style={{ fontSize: 12 }}>{v.kind === 'tv' ? fname(v.fund) + ' ← ' + fname(v.toFund) : v.kind === 'ov' ? v.supName + ' ⇄ ' + v.custName : (v.party || {}).name}<div style={{ fontSize: 10, color: 'var(--faint)' }}>{v.kind === 'tv' ? 'تحويل بين الحسابات' : v.kind === 'ov' ? 'مقاصّة' : PT[(v.party || {}).t]}{(v.alloc || []).length ? ' · ' + v.alloc.map(x => x.no).join('، ') : ''}</div></td>

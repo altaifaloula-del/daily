@@ -1885,4 +1885,30 @@ table.tb.tb-fp{min-width:520px}
 .co-logo{width:16px;height:16px;border-radius:4px;object-fit:cover;flex-shrink:0;background:#fff;border:1px solid rgba(255,255,255,.25)}
 .co-logo-t{width:24px;height:24px;border-radius:6px;vertical-align:-6px;margin-inline-end:7px;border-color:var(--line)}
 .co-logo-h{width:28px;height:28px;border-radius:7px;border-color:var(--line)}
+
+/* v47.5 — آيفون/آيباد: المناطق الآمنة. على iOS تمتد الصفحة تحت شريط الحالة والجزيرة الديناميكية، ويضبّب Safari (iOS 26) حافة الشاشة العليا،
+   فكان رأس القائمة الجانبية (شعار المنصة وشعار الشركة) ورأس النوافذ الكاملة يقعان تحتها. ندفعها أسفل المنطقة الآمنة بهامش إضافي. */
+.rms.thm-restpro .rp-brand span.rp-co{display:flex;align-items:center;gap:6px;min-width:0}
+.rms.thm-restpro .rp-brand span.rp-co .co-logo{width:22px;height:22px;border-radius:6px}
+.rms.thm-restpro .side .brand{padding-top:calc(22px + env(safe-area-inset-top))}
+.rms.thm-restpro .side .rp-foot{padding-bottom:calc(14px + env(safe-area-inset-bottom))}
+@media(max-width:900px){
+  .rms.thm-restpro .side.open .brand{padding-top:calc(18px + env(safe-area-inset-top) + (env(safe-area-inset-top) * .35))}
+  .rms.thm-restpro .side.open{padding-inline-start:env(safe-area-inset-left)}
+}
+@media(max-width:640px){ .modal-h{padding-top:calc(14px + env(safe-area-inset-top))} }
+@media(max-width:900px) and (orientation:landscape){
+  .top{padding-inline:calc(12px + env(safe-area-inset-left)) calc(12px + env(safe-area-inset-right))}
+  .page{padding-inline:calc(14px + env(safe-area-inset-left)) calc(14px + env(safe-area-inset-right))}
+}
+
+/* v47.5 — زر البحث بالصوت، ورابط استعراض القيد/المستند */
+.voicebtn{position:fixed;z-index:2147482000;display:grid;place-items:center;border-radius:50%;border:0;padding:0;cursor:pointer;background:transparent;color:#8A94A6;transition:color .15s,background .15s}
+.voicebtn:hover{color:#C8A24A;background:rgba(200,162,74,.12)}
+.voicebtn.on{color:#fff;background:#D9534F;animation:vpulse 1.1s ease-in-out infinite}
+@keyframes vpulse{0%,100%{box-shadow:0 0 0 0 rgba(217,83,79,.55)}50%{box-shadow:0 0 0 7px rgba(217,83,79,0)}}
+.voicetoast{position:fixed;z-index:2147482001;bottom:calc(22px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);background:#101D35;color:#fff;padding:9px 16px;border-radius:999px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.25);pointer-events:none}
+.doclink{background:none;border:0;padding:0;margin:0;font:inherit;color:var(--acc,#2C6BC4);cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;text-align:inherit}
+.doclink:hover{color:var(--gold,#C8A24A)}
+@media (prefers-reduced-motion:reduce){.voicebtn.on{animation:none}}
 `;
