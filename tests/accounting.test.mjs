@@ -1820,4 +1820,8 @@ test('v49.0 — القيود اليدوية سجلات مستقلة: الفرق 
   assert.equal(E.fjCompare([a], [tampered]).differ.length, 1, 'تغيير الأرقام يُكشف');
   assert.equal(E.fjOn({}), false, 'مُطفأ افتراضيًا');
   assert.equal(E.fjOn({ finRecords: { on: true } }), true);
+  // BUG-01-02: قفل التطبيق الشهري ← تاريخ الخادم (آخر يوم في الشهر)
+  assert.equal(E.fpLockedTo({ periodLocks: { lockedThrough: '2026-02' } }), '2026-02-28');
+  assert.equal(E.fpLockedTo({ periodLocks: { lockedThrough: '2026-10' } }), '2026-10-31');
+  assert.equal(E.fpLockedTo({}), '0000-00-00');
 });

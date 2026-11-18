@@ -6,7 +6,7 @@ import { cloud, KEYS, brKey } from '../../storage';
 import { ShieldCheck, RefreshCw, Trash2, AlertTriangle, Check, Server, Bug, Activity, HardDrive } from 'lucide-react';
 import { archKey, archivePlan, nowISO, printA4, uid } from '../../App.jsx';   // v41.7
 import { clrCompare, clrLoad, clrOn, clrSeed, clrState, logAudit, clrRead, clrViewStats } from '../../App.jsx';   // v41.9 + v42.2
-import { fjCompare, fjLoad, fjOn, fjState } from '../../App.jsx';   // v49.0 المرحلة 01
+import { fjCompare, fjLoad, fjOn, fjState, fpLockedTo, fpLoad } from '../../App.jsx';   // v49.0 المرحلة 01
 import { dataFootprint, recipeRaw, APP_CV, APP_VER, CloudHealth, ERRLOG_KEY, MAIN_WH, ROLES, SIG_BADGE, SIG_NAME, buildAccounting, loadRelease, loadSignoffs, sigVerify, branchBanks, cashForecast, complianceItems, entityList, vatStatus, countedClosing, isoD, money, purKey, q3, qrFs, snapAll, stockByWh, today, whName, whOf } from '../../App.jsx';
 
 const ST = { ok: ['b-mint', 'سليم'], warn: ['b-amber', 'تنبيه'], bad: ['b-rose', 'خلل'] };
@@ -431,7 +431,8 @@ function JournalRecordsCard({ org, ops, commitOrg, say, isAdm }) {
     setBusy('check'); const recs = await fjLoad(); setBusy('');
     if (!recs) return say('السجلات المستقلة تعمل على قاعدة Firestore فقط', 'no');
     if (recs.err) return say('تعذّرت قراءة السجلات (' + recs.err + ') — قد تكون القواعد لم تُنشر بعد', 'no');
-    setRep(fjCompare(ops.journalManual || [], recs));
+    const lk = await fpLoad();
+    setRep({ ...fjCompare(ops.journalManual || [], recs), lockApp: fpLockedTo(org), lockSrv: lk && !lk.err ? lk.lockedTo : '?' });
   };
   const st = fjState();
   const row = (j, why) => <div key={j.id} className="me-row"><span className="me-a"><b>{(j.title || j.id) + ' — ' + (j.date || '')}</b><small>{why}</small></span></div>;
@@ -451,6 +452,9 @@ function JournalRecordsCard({ org, ops, commitOrg, say, isAdm }) {
       {rep && <div style={{ marginTop: 10 }} data-fjrep>
         <div style={{ fontSize: 13, fontWeight: 700, color: rep.ok ? 'var(--mint)' : 'var(--rose)' }}>
           {rep.ok ? '✓ متطابقة: ' + rep.total + ' قيدًا = ' + rep.recs + ' سجلًا مستقلًا' : 'غير متطابقة: ناقص ' + rep.missing.length + ' · مختلف ' + rep.differ.length + ' · زائد ' + rep.extra.length}
+        </div>
+        <div style={{ fontSize: 12, marginTop: 4, color: rep.lockApp === rep.lockSrv ? 'var(--dim)' : 'var(--rose)' }} data-fjlock>
+          إقفال الفترات: التطبيق حتى {rep.lockApp === '0000-00-00' ? 'لا قفل' : rep.lockApp} · الخادم حتى {rep.lockSrv === '0000-00-00' ? 'لا قفل' : rep.lockSrv}{rep.lockApp === rep.lockSrv ? ' ✓' : ' — غير متطابق (يُصحَّح بإعادة حفظ القفل من المدير)'}
         </div>
         {!rep.ok && <div className="me-list" style={{ marginTop: 6 }}>
           {rep.differ.slice(0, 15).map(j => row(j, 'مختلف عن سجله المستقل — عُدّل محتواه أو حالته خارج المسار المحمي'))}
