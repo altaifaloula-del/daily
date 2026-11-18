@@ -1,0 +1,53 @@
+name: فحص أمني (الاعتماديات والأسرار)
+
+# المرحلة 01 — BUG-00-02: فحص ثغرات الاعتماديات وسجل git عن الأسرار.
+# لا يكتب شيئًا ولا ينشر؛ يُنتج تقريرًا فقط. التشغيل الأول تقريري (لا يُفشل الدمج) حتى تُعالج النتائج القائمة بقرار.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 2 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: فحص ثغرات الاعتماديات (npm audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: npm audit — التشغيلية
+        continue-on-error: true
+        run: npm audit --omit=dev --audit-level=high
+      - name: npm audit — الكل (تقرير كامل)
+        continue-on-error: true
+        run: npm audit --json > npm-audit.json || true; node -e "const r=require('./npm-audit.json');console.log(JSON.stringify(r.metadata&&r.metadata.vulnerabilities||r,null,1))"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit
+          path: npm-audit.json
+
+  secrets:
+    name: فحص سجل git عن الأسرار (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks — كامل السجل
+        continue-on-error: true
+        run: |
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.21.2 detect --source /repo --redact -v --report-format json --report-path /repo/gitleaks.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gitleaks
+          path: gitleaks.json
+          if-no-files-found: ignore
