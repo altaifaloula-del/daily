@@ -1839,3 +1839,23 @@ test('v49.0 القيود الآلية تمر بالاعتماد (قرار الم
   assert.equal(E.jeLive({ status: 'pending' }), false, 'لا يدخل الدفاتر قبل الاعتماد');
 });
 
+
+test('v49.0 الفواتير والسندات سجلات مستقلة: المحتوى ثابت، والسداد وحده يتغير، والمطابقة تكشف العبث', () => {
+  const pi = { id: 'inv1', supplierId: 's1', invoiceNo: 'A-1', date: '2026-11-10', amount: 115, vatAmt: 15, paidAmount: 0, lines: [{ itemId: 'i', qty: 2, price: 50 }] };
+  const paid = { ...pi, paidAmount: 50, payments: [{ amount: 50, date: '2026-11-12' }] };
+  assert.equal(E.fdData('pi', pi), E.fdData('pi', paid), 'السداد لا يغيّر المحتوى ولا البصمة');
+  assert.notEqual(E.fdProg('pi', pi), E.fdProg('pi', paid));
+  assert.deepEqual([E.fdPaid('pi', paid), E.fdPaid('si', { receipts: [{ amount: 10 }, { amount: 5.5 }] }), E.fdPaid('cv', { amount: 99 })], [50, 15.5, 0]);
+  const r = E.fdRecord('pi', pi);
+  assert.deepEqual([r.kind, r.date, r.digest, r.paid], ['pi', '2026-11-10', E.sha256Hex(r.data), 0]);
+  assert.equal(E.fdDate({ createdAt: '2026-11-03T10:00:00Z' }), '2026-11-03', 'بلا تاريخ: تاريخ الإنشاء');
+  let D = E.fdDiff('pi', [], [pi]); assert.equal(D.create.length, 1);
+  D = E.fdDiff('pi', [pi], [paid]); assert.deepEqual([D.upd.length, D.skip.length], [1, 0]);
+  D = E.fdDiff('pi', [pi], [{ ...pi, amount: 999 }]); assert.deepEqual([D.upd.length, D.skip.length, D.skip[0].why], [0, 1, 'content']);
+  D = E.fdDiff('pi', [pi], []); assert.equal(D.del.length, 1);
+  D = E.fdDiff('cv', [{ id: 'v1', date: '2026-11-10', amount: 5 }], [{ id: 'v1', date: '2026-11-10', amount: 5, _flag: 1 }]); assert.equal(D.upd.length + D.skip.length, 0, 'علامات العرض لا تُحسب');
+  const rec = (k, x) => ({ id: k + '_' + x.id, ...E.fdRecord(k, x) });
+  assert.equal(E.fdCompare('pi', [paid], [rec('pi', paid)]).ok, true);
+  const K = E.fdCompare('pi', [paid, { ...pi, id: 'inv2' }], [rec('pi', pi), rec('pi', { ...pi, id: 'inv9' }), rec('si', { id: 'x', date: '2026-11-10' })]);
+  assert.deepEqual([K.differ.length, K.missing.length, K.extra.length, K.recs], [1, 1, 1, 3 - 1], 'السداد غير المنسوخ يُكشف، والأنواع الأخرى لا تختلط');
+});

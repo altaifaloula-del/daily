@@ -510,6 +510,52 @@ service cloud.firestore {
       return okUser(m, adm) && o.status == 'pending'
         && ((finRole(m, adm) && o.by == userEmail()) || finApprover(m, adm));
     }
+    /* v49.0 — المرحلة 01 الخطوة 6: الفواتير والسندات سجلات مستقلة (fin_docs/{kind}_{id}) — kind: pi فاتورة مورد، si فاتورة مبيعات، cv سند.
+       • data (محتوى المستند المالي) + digest ثابتان بعد الإنشاء؛ لا يتغير إلا التقدم (prog: السدادات/التحصيلات) ومجموعه paid.
+       • الإنشاء بعد تاريخ الإقفال فقط. السند لا يُعدَّل ولا يُحذف. فاتورة المبيعات لا تُحذف (التصحيح بإشعار دائن).
+       • فاتورة المورد تُحذف فقط إن لم يُسدَّد منها شيء وفترتها مفتوحة. */
+    function fdShape(d, id) {
+      return d.keys().hasOnly(['kind', 'date', 'digest', 'data', 'prog', 'paid', 'by', 'at', 'cv', 'updBy', 'updAt', 'legacy'])
+        && d.keys().hasAll(['kind', 'date', 'digest', 'data', 'prog', 'paid', 'by', 'at'])
+        && d.kind in ['pi', 'si', 'cv'] && id.matches('^(pi|si|cv)_[A-Za-z0-9_-]{1,110}$') && id.split('_')[0] == d.kind
+        && d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && d.digest is string && d.digest.matches('^[0-9a-f]{64}$')
+        && d.data is string && d.data.size() <= 300000 && d.prog is string && d.prog.size() <= 200000
+        && (d.paid is int || d.paid is float) && d.paid >= 0
+        && d.by is string && cvOk(d);
+    }
+    function fdWriter(m, adm) { return okUser(m, adm) && roleOf(m) != 'accountant_view'; }
+    function fdCreate(id, d) {
+      let m = memOf();
+      let adm = admOf(m);
+      return fdWriter(m, adm) && fdShape(d, id) && d.by == userEmail() && d.at == request.time
+        && finOpen(d.date) && !('updBy' in d) && !('legacy' in d);
+    }
+    function fdLegacy(id, d) {
+      let m = memOf();
+      let adm = admOf(m);
+      return adm && okUser(m, adm) && mfaOk() && finMigOpen() && fdShape(d, id)
+        && d.legacy == true && d.by == userEmail() && d.at == request.time && !('updBy' in d);
+    }
+    function fdUpdate(id, d, o) {
+      let m = memOf();
+      let adm = admOf(m);
+      return fdWriter(m, adm) && fdShape(d, id) && o.kind != 'cv'
+        && d.kind == o.kind && d.date == o.date && d.digest == o.digest && d.data == o.data && d.by == o.by && d.at == o.at
+        && d.get('legacy', false) == o.get('legacy', false)
+        && d.updBy == userEmail() && d.updAt == request.time;
+    }
+    function fdDelete(o) {
+      let m = memOf();
+      let adm = admOf(m);
+      return fdWriter(m, adm) && o.kind == 'pi' && o.paid == 0 && finOpen(o.date);
+    }
+    match /fin_docs/{id} {
+      allow read: if (isAdmin() || isCentral()) && mfaOk();
+      allow create: if fdCreate(id, request.resource.data) || fdLegacy(id, request.resource.data);
+      allow update: if fdUpdate(id, request.resource.data, resource.data);
+      allow delete: if fdDelete(resource.data);
+    }
     match /fin_periods/{id} {
       allow read: if isMember() || isAdmin();
       allow create, update: if isAdmin() && mfaOk() && id == 'migration'
