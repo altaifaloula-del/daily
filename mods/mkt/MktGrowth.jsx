@@ -4,7 +4,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { cloud, KEYS } from '../../storage';
 import { Target, Users, Grid3x3 as Layers, ShieldCheck, Settings, Download, Users as UserCheck, RefreshCw as GitMerge } from 'lucide-react';
 import { Field, Kpi, Modal, money, makeXlsx, today, nowISO, uid, normPhone, loyPost, ROLES,
-  mktCfg, mktCanApprove, MKT_SEGS, MKT_SEG_ORDER, crmBuild, crmSegment, crmDupes, mktKpis, mktCanContact } from '../../App.jsx';
+  mktCfg, mktCanApprove, MKT_SEGS, MKT_SEG_ORDER, crmBuild, crmSegment, crmDupes, mktKpis, mktCanContact,
+  loyX, loyTier, loyPeriodicTx, mktProfiles, rewardCoupon, cpnKey, posR2 } from '../../App.jsx';
+import { Gift, Gift as Ticket } from 'lucide-react';
 
 const CH = { all: 'كل القنوات', whatsapp: 'واتساب', sms: 'رسائل SMS', email: 'البريد', app: 'إشعارات التطبيق' };
 const anDay = (iso, k) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + k); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
@@ -20,7 +22,7 @@ export function MktGrowth({ org, ops, me, myBranches, commit, commitOrg, say }) 
   const list = useMemo(() => crmSegment(crmBuild(org, ops, loy, { branches: central ? null : brIds }), cfg, today()), [org, ops, loy, central, brIds.join(',')]);
   const brName = (id) => ((org.branches || []).find(b => b.id === id) || {}).name || id;
   const [sel, setSel] = useState(null);
-  const V = [['dash', 'لوحة التسويق', Target], ['crm', 'ملفات العملاء', Users], ['seg', 'الشرائح', Layers], ['gov', 'الموافقات والتكرار', ShieldCheck], ['cfg', 'الإعدادات', Settings]];
+  const V = [['dash', 'لوحة التسويق', Target], ['crm', 'ملفات العملاء', Users], ['seg', 'الشرائح', Layers], ['loy', 'الولاء والمكافآت', Gift], ['cpn', 'الكوبونات', Ticket], ['gov', 'الموافقات والتكرار', ShieldCheck], ['cfg', 'الإعدادات', Settings]];
   return (
     <div className="grid" style={{ gap: 12 }} data-mkt>
       <div className="row" style={{ gap: 6, flexWrap: 'wrap' }} role="tablist" aria-label="أقسام التسويق">
@@ -31,8 +33,10 @@ export function MktGrowth({ org, ops, me, myBranches, commit, commitOrg, say }) 
       {loy && view === 'crm' && <Crm list={list} brName={brName} onOpen={setSel} />}
       {loy && view === 'seg' && <Seg list={list} cfg={cfg} />}
       {loy && view === 'gov' && <Gov list={list} ops={ops} me={me} canApp={canApp} commit={commit} say={say} setLoy={setLoy} />}
+      {loy && view === 'loy' && <Loy org={org} ops={ops} loy={loy} setLoy={setLoy} canApp={canApp} me={me} commit={commit} commitOrg={commitOrg} say={say} />}
+      {loy && view === 'cpn' && <Cpn org={org} ops={ops} loy={loy} canApp={canApp} me={me} commitOrg={commitOrg} say={say} brName={brName} />}
       {view === 'cfg' && <Cfg cfg={cfg} canApp={canApp} commitOrg={commitOrg} say={say} />}
-      {sel && <Profile c={list.find(x => x.id === sel)} brName={brName} me={me} commit={commit} say={say} onClose={() => setSel(null)} />}
+      {sel && <Profile c={list.find(x => x.id === sel)} org={org} ops={ops} loy={loy} setLoy={setLoy} canApp={canApp} brName={brName} me={me} commit={commit} commitOrg={commitOrg} say={say} onClose={() => setSel(null)} />}
     </div>);
 }
 
@@ -97,9 +101,23 @@ function Crm({ list, brName, onOpen }) {
   </div>);
 }
 
-function Profile({ c, brName, me, commit, say, onClose }) {
+function Profile({ c, org, ops, loy, setLoy, canApp, brName, me, commit, commitOrg, say, onClose }) {
   const [f, setF] = useState({ status: 'in', ch: 'all', src: 'نقطة البيع', note: '' });
+  const P0 = c ? (mktProfiles(ops)[c.phone] || {}) : {}; const [pf, setPf] = useState({ bday: P0.bday || '', email: P0.email || '' }); const [rw, setRw] = useState('');
   if (!c) return null;
+  const X = loyX(org); const T = loyTier(org, loy, c.phone, today());
+  const saveProf = async () => { const b = String(pf.bday || '').trim(); if (b && !/^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(b)) return say('عيد الميلاد بصيغة شهر-يوم مثل 04-21', 'no');
+    const e = String(pf.email || '').trim(); if (e && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) return say('بريد غير صحيح', 'no');
+    const ok = await commit(d => ({ ...d, mktProfiles: [...(d.mktProfiles || []), { id: uid('mp'), phone: c.phone, bday: b, email: e, by: me.name, at: nowISO() }] }), { actionType: 'update', targetType: 'customer', targetId: c.phone, need: 'edit', title: 'حدّث بيانات عميل', details: c.phone });
+    if (ok) say('حُفظت بيانات العميل ✓'); };
+  const redeem = async () => { const R0 = (X.rewards || []).find(r => r.id === rw); if (!R0) return say('اختر جائزة', 'no'); if (!canApp) return say('إصدار الجوائز لمن له صلاحية الاعتماد', 'no');
+    if (c.pts < R0.pts) return say('الرصيد ' + c.pts + ' أقل من ' + R0.pts, 'no');
+    const code = 'RW' + Math.random().toString(36).slice(2, 8).toUpperCase(); const txid = 'rw:' + uid('x');
+    const r = await loyPost([{ id: txid, phone: c.phone, name: c.name, pts: -R0.pts, at: nowISO(), br: '', ord: 'استبدال جائزة: ' + R0.name + ' (' + code + ')' }]); if (!r) return say('تعذّر خصم النقاط — لم تُصدر الجائزة', 'no'); setLoy(r);
+    const cp = rewardCoupon(R0, c.phone, today(), code);
+    const ok = await commitOrg(g => ({ ...g, posPromos: [...(g.posPromos || []), cp] }), { actionType: 'create', targetType: 'settings', targetId: cp.id, need: 'edit', title: 'أصدر جائزة ولاء', details: c.phone + ' · ' + R0.name + ' · ' + code });
+    if (ok === false) { const back = await loyPost([{ id: txid + ':undo', phone: c.phone, pts: R0.pts, at: nowISO(), br: '', ord: 'إلغاء استبدال (تعذّر إصدار الكوبون)' }]); if (back) setLoy(back); return say('تعذّر إصدار الكوبون — أُعيدت النقاط', 'no'); }
+    say('صدرت الجائزة بكوبون ' + code + ' (لهذا العميل، مرة واحدة، حتى ' + cp.to + ') ✓'); };
   const rec = async () => {
     const x = { id: uid('mc'), phone: c.phone, status: f.status, ch: f.ch, src: f.src.trim() || '—', ...(f.note.trim() ? { note: f.note.trim() } : {}), by: me.name, byId: me.id || '', at: nowISO() };
     const ok = await commit(d => ({ ...d, mktConsents: [...(d.mktConsents || []), x] }), { actionType: 'create', targetType: 'customer', targetId: c.phone, need: 'edit', title: x.status === 'in' ? 'سجّل موافقة تسويقية' : 'سجّل إلغاء اشتراك تسويقي', details: c.phone + ' · ' + CH[x.ch] + ' · ' + x.src });
@@ -112,9 +130,21 @@ function Profile({ c, brName, me, commit, say, onClose }) {
         {[['أول ظهور', c.since || c.first || '—'], ['آخر شراء', c.last ? c.last + ' (قبل ' + c.daysSince + ' يوم)' : '—'], ['عدد الزيارات', c.n + (c.gapDays != null ? ' · كل ' + c.gapDays + ' يوم تقريبًا' : '')], ['إجمالي المشتريات', money(c.total) + (c.ret ? ' (مرتجع ' + money(c.ret) + ')' : '')], ['متوسط الفاتورة', money(c.avg)], ['رصيد النقاط', String(c.pts)]].map(([k, v]) =>
           <div key={k} className="mono-b"><span>{k}</span><b className="num">{v}</b></div>)}
       </div>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 10 }} data-crmtier><span className="badge b-brass">المستوى: {T.ar}</span><span className="badge b-dim">نقاط مكتسبة خلال 365 يومًا: {T.earned}</span>{T.next && <span className="badge b-dim">للمستوى {T.next.ar}: {T.next.need} نقطة</span>}</div>
       <div className="grid g2">
         <div className="card"><div className="card-t">الأكثر شراءً</div>{c.top.length ? <table className="tb" style={{ fontSize: 12 }}><tbody>{c.top.map(p => <tr key={p.id}><td>{p.name}</td><td className="num" style={{ textAlign: 'end' }}>{p.qty}</td><td className="num" style={{ textAlign: 'end' }}>{money(p.amt)}</td></tr>)}</tbody></table> : <div className="empty">—</div>}</div>
         <div className="card"><div className="card-t">الفروع</div>{c.branches.length ? <table className="tb" style={{ fontSize: 12 }}><tbody>{c.branches.map(b => <tr key={b.id}><td>{brName(b.id)}</td><td className="num" style={{ textAlign: 'end' }}>{b.n} زيارة</td></tr>)}</tbody></table> : <div className="empty">—</div>}</div>
+      </div>
+      <div className="grid g2" style={{ marginTop: 10 }}>
+        <div className="card"><div className="card-t">بيانات تكميلية</div>
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <Field label="عيد الميلاد (شهر-يوم)"><input className="inp n" style={{ width: 110 }} aria-label="عيد الميلاد" placeholder="04-21" value={pf.bday} onChange={e => setPf(x => ({ ...x, bday: e.target.value }))} /></Field>
+            <Field label="البريد"><input className="inp" aria-label="بريد العميل" value={pf.email} onChange={e => setPf(x => ({ ...x, email: e.target.value }))} /></Field>
+            <button className="btn sm" data-prof-save onClick={saveProf}>حفظ</button></div></div>
+        <div className="card"><div className="card-t">استبدال جائزة</div>
+          {(X.rewards || []).length ? <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <Field label="الجائزة"><select className="sel" aria-label="جائزة الولاء" value={rw} onChange={e => setRw(e.target.value)}><option value="">—</option>{X.rewards.filter(r => r.active !== false).map(r => <option key={r.id} value={r.id} disabled={c.pts < r.pts}>{r.name} — {r.pts} نقطة</option>)}</select></Field>
+            {canApp && <button className="btn sm pri" data-redeem onClick={redeem}>إصدار</button>}</div> : <div className="empty">لا جوائز في الكتالوج — من «الولاء والمكافآت».</div>}</div>
       </div>
       <div className="card" style={{ marginTop: 10 }}>
         <div className="card-t">الموافقة التسويقية (سجل غير قابل للتعديل)</div>
@@ -199,5 +229,102 @@ function Cfg({ cfg, canApp, commitOrg, say }) {
     <div className="grid g3">{F.map(([k, ar]) => <Field key={k} label={ar}><input className="inp n" inputMode="decimal" aria-label={ar} disabled={!canApp} value={S[k]} onChange={e => setS(x => ({ ...x, [k]: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>)}</div>
     {canApp && <button className="btn pri" style={{ marginTop: 8 }} data-mktcfg-save onClick={save}>حفظ</button>}
     <div className="note" style={{ marginTop: 8 }}>التسويق يتطلب موافقة صريحة مسجّلة لكل عميل (لا يُعطَّل). الأرقام أمثلة ابتدائية وليست قواعد ثابتة.</div>
+  </div>);
+}
+
+
+function Loy({ org, ops, loy, setLoy, canApp, me, commit, commitOrg, say }) {
+  const X = loyX(org); const prods = (org.products || []).filter(p => !p.posOff); const brs = org.branches || [];
+  const [F, setF] = useState(() => JSON.parse(JSON.stringify({ tiers: X.tiers, brMult: X.brMult || {}, prodPts: X.prodPts || {}, expireMonths: X.expireMonths || 0, bdayPts: X.bdayPts || 0, refPts: X.refPts || 0, rewards: X.rewards || [] })));
+  const [nr, setNr] = useState({ name: '', productId: '', pts: '', days: '30' }); const [pp, setPp] = useState({ pid: '', pts: '' }); const [ref, setRef] = useState({ a: '', b: '' });
+  const phones = [...new Set((loy.tx || []).map(t => t.phone))];
+  const dist = {}; let liab = 0; phones.forEach(ph => { const t = loyTier(org, loy, ph, today()); dist[t.k] = (dist[t.k] || 0) + 1; }); (loy.tx || []).forEach(t => { liab += Number(t.pts) || 0; });
+  const ptv = Number((org.loyaltyCfg || {}).ptValue) || 0;
+  const due = loyPeriodicTx(org, ops, loy, today()); const byK = due.reduce((m, t) => { m[t.kind] = (m[t.kind] || 0) + 1; return m; }, {});
+  const save = async () => {
+    const tiers = F.tiers.map(t => ({ ...t, min: Number(t.min) || 0, mult: Number(t.mult) || 1 })); if (tiers.some(t => t.mult < 1 || t.mult > 5)) return say('مضاعف المستوى بين 1 و5', 'no');
+    const v = { ...F, tiers, expireMonths: Number(F.expireMonths) || 0, bdayPts: Number(F.bdayPts) || 0, refPts: Number(F.refPts) || 0 };
+    const ok = await commitOrg(g => ({ ...g, mkt: { ...(g.mkt || {}), loy: v } }), { actionType: 'update', targetType: 'settings', targetId: 'mkt.loy', need: 'edit', title: 'عدّل برنامج الولاء المتقدم', details: tiers.map(t => t.ar + '≥' + t.min + '×' + t.mult).join('، ') });
+    if (ok !== false) say('حُفظ برنامج الولاء ✓'); };
+  const run = async () => { if (!canApp) return say('الترحيل لمن له صلاحية الاعتماد', 'no'); if (!due.length) return say('لا حركات مستحقة', 'no');
+    const r = await loyPost(due.map(({ kind, ...t }) => t)); if (!r) return say('تعذّر الترحيل — تحقق من الاتصال', 'no'); setLoy(r); say('رُحّلت ' + due.length + ' حركة ولاء ✓'); };
+  const addRef = async () => { const a = normPhone(ref.a), b = normPhone(ref.b); if (a.length < 9 || b.length < 9 || a === b) return say('أدخل جوالين صحيحين مختلفين', 'no');
+    if ((ops.mktReferrals || []).some(r => r.referred === b)) return say('هذا العميل مُحال من قبل', 'no');
+    if ((ops.posOrders || []).some(o => o.loyalty && o.loyalty.phone === b && o.status !== 'void' && o.kind !== 'return')) return say('العميل المُحال اشترى من قبل — الإحالة للعملاء الجدد فقط', 'no');
+    const ok = await commit(d => ({ ...d, mktReferrals: [...(d.mktReferrals || []), { id: uid('rf'), referrer: a, referred: b, by: me.name, at: nowISO() }] }), { actionType: 'create', targetType: 'customer', targetId: b, need: 'edit', title: 'سجّل إحالة عميل', details: a + ' ← ' + b });
+    if (ok) { setRef({ a: '', b: '' }); say('سُجّلت الإحالة — تُمنح المكافأة بعد أول شراء للمُحال ✓'); } };
+  const dis = !canApp;
+  return (<>
+    <div className="grid g4" data-loystats>
+      {X.tiers.map(t => <Kpi key={t.k} label={'مستوى ' + t.ar} value={String(dist[t.k] || 0)} sub={'من ' + t.min + ' نقطة/سنة · ×' + t.mult} color="#C8A24A" />)}
+      <Kpi label="التزام النقاط القائمة" value={money(posR2(Math.max(0, liab) * ptv))} sub={posR2(liab) + ' نقطة × ' + ptv} color="#D95C4F" />
+    </div>
+    <div className="card" data-loydue>
+      <div className="card-t">الحركات الدورية المستحقة</div>
+      <div style={{ fontSize: 12.5 }}>انتهاء نقاط: {byK.expire || 0} · أعياد ميلاد: {byK.bday || 0} · إحالات: {byK.ref || 0}</div>
+      <div className="note">كل حركة بمعرّف ثابت (الشهر/السنة/العميل) فلا تتكرر المكافأة ولو ضُغط الزر مرتين.</div>
+      {canApp && due.length > 0 && <button className="btn pri sm" style={{ marginTop: 6 }} data-loyrun onClick={run}>ترحيل {due.length} حركة</button>}
+    </div>
+    <div className="card" data-loycfg>
+      <div className="card-t">برنامج الولاء المتقدم {dis && <span className="badge b-dim">للاطلاع</span>}</div>
+      <div className="note" style={{ marginBottom: 6 }}>الأساس (نقطة لكل كم ريال وقيمة النقطة) من إعداد الولاء في نقطة البيع، وهنا: المستويات تُحسب بالنقاط المكتسبة من المشتريات خلال آخر 365 يومًا، والمضاعفات تُطبّق على نقاط الشراء.</div>
+      <table className="tb" style={{ fontSize: 12.5 }}><thead><tr><th>المستوى</th><th>من (نقطة/سنة)</th><th>مضاعف النقاط</th></tr></thead><tbody>{F.tiers.map((t, i) => <tr key={t.k}><td>{t.ar}</td>
+        <td><input className="inp n" style={{ width: 100 }} disabled={dis} aria-label={'حد ' + t.ar} value={t.min} onChange={e => setF(x => ({ ...x, tiers: x.tiers.map((z, j) => j === i ? { ...z, min: e.target.value.replace(/\D/g, '') } : z) }))} /></td>
+        <td><input className="inp n" style={{ width: 80 }} disabled={dis} aria-label={'مضاعف ' + t.ar} value={t.mult} onChange={e => setF(x => ({ ...x, tiers: x.tiers.map((z, j) => j === i ? { ...z, mult: e.target.value.replace(/[^\d.]/g, '') } : z) }))} /></td></tr>)}</tbody></table>
+      <div className="grid g3" style={{ marginTop: 8 }}>
+        <Field label="انتهاء النقاط بعد (شهر، 0 = لا تنتهي)"><input className="inp n" disabled={dis} aria-label="انتهاء النقاط" value={F.expireMonths} onChange={e => setF(x => ({ ...x, expireMonths: e.target.value.replace(/\D/g, '') }))} /></Field>
+        <Field label="نقاط عيد الميلاد"><input className="inp n" disabled={dis} aria-label="نقاط عيد الميلاد" value={F.bdayPts} onChange={e => setF(x => ({ ...x, bdayPts: e.target.value.replace(/\D/g, '') }))} /></Field>
+        <Field label="نقاط الإحالة (للمُحيل بعد أول شراء)"><input className="inp n" disabled={dis} aria-label="نقاط الإحالة" value={F.refPts} onChange={e => setF(x => ({ ...x, refPts: e.target.value.replace(/\D/g, '') }))} /></Field>
+      </div>
+      <div className="lbl" style={{ marginTop: 8 }}>مضاعف نقاط الفرع</div>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>{brs.map(b => <Field key={b.id} label={b.name}><input className="inp n" style={{ width: 80 }} disabled={dis} aria-label={'مضاعف فرع ' + b.name} placeholder="1" value={F.brMult[b.id] || ''} onChange={e => setF(x => ({ ...x, brMult: { ...x.brMult, [b.id]: e.target.value.replace(/[^\d.]/g, '') } }))} /></Field>)}</div>
+      <div className="lbl" style={{ marginTop: 8 }}>نقاط إضافية لكل وحدة من منتج</div>
+      <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>{Object.entries(F.prodPts).filter(([, v]) => Number(v) > 0).map(([pid, v]) => <span key={pid} className="badge b-sky">{(prods.find(p => p.id === pid) || {}).name || pid}: +{v}{!dis && <button className="btn sm gh" style={{ padding: '0 4px' }} onClick={() => setF(x => { const m = { ...x.prodPts }; delete m[pid]; return { ...x, prodPts: m }; })}>×</button>}</span>)}
+        {!dis && <><select className="sel" style={{ width: 170 }} aria-label="منتج بنقاط إضافية" value={pp.pid} onChange={e => setPp(x => ({ ...x, pid: e.target.value }))}><option value="">منتج…</option>{prods.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+          <input className="inp n" style={{ width: 70 }} aria-label="نقاط المنتج" placeholder="نقاط" value={pp.pts} onChange={e => setPp(x => ({ ...x, pts: e.target.value.replace(/\D/g, '') }))} />
+          <button className="btn sm" onClick={() => { if (!pp.pid || !(Number(pp.pts) > 0)) return; setF(x => ({ ...x, prodPts: { ...x.prodPts, [pp.pid]: Number(pp.pts) } })); setPp({ pid: '', pts: '' }); }}>إضافة</button></>}</div>
+      <div className="lbl" style={{ marginTop: 8 }}>كتالوج الجوائز (تُصرف بكوبون شخصي لمرة واحدة عبر محرك العروض)</div>
+      <table className="tb" style={{ fontSize: 12.5 }} data-rewards><tbody>{F.rewards.map((r, i) => <tr key={r.id}><td>{r.name}</td><td>{(prods.find(p => p.id === r.productId) || {}).name || '—'}</td><td className="num">{r.pts} نقطة</td><td className="num">صلاحية {r.days} يوم</td>
+        <td>{!dis && <button className="btn sm gh" onClick={() => setF(x => ({ ...x, rewards: x.rewards.filter((_, j) => j !== i) }))}>حذف</button>}</td></tr>)}</tbody></table>
+      {!dis && <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+        <input className="inp" style={{ width: 160 }} aria-label="اسم الجائزة" placeholder="اسم الجائزة" value={nr.name} onChange={e => setNr(x => ({ ...x, name: e.target.value }))} />
+        <select className="sel" style={{ width: 170 }} aria-label="منتج الجائزة" value={nr.productId} onChange={e => setNr(x => ({ ...x, productId: e.target.value }))}><option value="">المنتج المجاني…</option>{prods.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+        <input className="inp n" style={{ width: 80 }} aria-label="نقاط الجائزة" placeholder="نقاط" value={nr.pts} onChange={e => setNr(x => ({ ...x, pts: e.target.value.replace(/\D/g, '') }))} />
+        <input className="inp n" style={{ width: 70 }} aria-label="صلاحية الجائزة" placeholder="أيام" value={nr.days} onChange={e => setNr(x => ({ ...x, days: e.target.value.replace(/\D/g, '') }))} />
+        <button className="btn sm" data-addreward onClick={() => { if (!nr.name.trim() || !nr.productId || !(Number(nr.pts) > 0)) return say('أكمل اسم الجائزة والمنتج والنقاط', 'no'); setF(x => ({ ...x, rewards: [...x.rewards, { id: uid('rw'), name: nr.name.trim(), productId: nr.productId, pts: Number(nr.pts), days: Number(nr.days) || 30, active: true }] })); setNr({ name: '', productId: '', pts: '', days: '30' }); }}>إضافة جائزة</button></div>}
+      {!dis && <button className="btn pri" style={{ marginTop: 10 }} data-loycfg-save onClick={save}>حفظ برنامج الولاء</button>}
+    </div>
+    <div className="card">
+      <div className="card-t">تسجيل إحالة</div>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <Field label="جوال المُحيل"><input className="inp" inputMode="tel" aria-label="جوال المحيل" value={ref.a} onChange={e => setRef(x => ({ ...x, a: e.target.value }))} /></Field>
+        <Field label="جوال العميل الجديد"><input className="inp" inputMode="tel" aria-label="جوال المحال" value={ref.b} onChange={e => setRef(x => ({ ...x, b: e.target.value }))} /></Field>
+        <button className="btn sm" data-refadd onClick={addRef}>تسجيل</button></div>
+      <div className="note">المكافأة تُستحق مرة واحدة لكل عميل جديد بعد أول شراء فعلي له.</div>
+    </div>
+  </>);
+}
+
+function Cpn({ org, ops, loy, canApp, me, commitOrg, say, brName }) {
+  const U = loy.cpn || {}; const list = (org.posPromos || []).filter(p => p.code);
+  const [open, setOpen] = useState(null);
+  const stat = (pr) => { const k = cpnKey(pr.code); const L = U[k] || []; const live = L.filter(u => !u.rel);
+    const os = (ops.posOrders || []).filter(o => o.coupon && cpnKey(o.coupon) === k && o.status !== 'void' && o.kind !== 'return');
+    const disc = os.reduce((a, o) => a + (o.lines || []).filter(l => l.promoId === pr.id).reduce((b, l) => b + (Number(l.disc) || 0), 0) + (o.orderPromo && o.orderPromo.id === pr.id ? Number(o.orderDisc) || 0 : 0), 0);
+    return { L, live: live.length, n: os.length, sales: posR2(os.reduce((a, o) => a + (Number(o.total) || 0), 0)), disc: posR2(disc), rate: Number(pr.maxUses) > 0 ? Math.round(live.length / pr.maxUses * 100) : null }; };
+  const approve = (pr) => commitOrg(d => ({ ...d, posPromos: (d.posPromos || []).map(x => x.id === pr.id ? { ...x, pending: false, apprBy: me.name, apprAt: nowISO() } : x) }), { actionType: 'approve', targetType: 'settings', targetId: pr.id, need: 'edit', title: 'اعتمد كوبونًا', details: pr.name }).then(ok => ok !== false && say('اعتُمد ✓'));
+  return (<div className="card">
+    <div className="card-t">الكوبونات — الاستخدام والاسترداد</div>
+    <div className="note" style={{ marginBottom: 8 }}>الإنشاء والتعديل من «نقطة البيع ← العروض» (محرك واحد للعروض). «مبيعات الفواتير» هنا إجمالي فواتير استُخدم فيها الكوبون — ليست إيرادًا إضافيًا ناتجًا عنه.</div>
+    <div className="tw"><table className="tb" data-cpntable><thead><tr><th>الكوبون</th><th>الحالة</th><th style={{ textAlign: 'end' }}>الاستخدام</th><th style={{ textAlign: 'end' }}>نسبة الاسترداد</th><th style={{ textAlign: 'end' }}>الخصم الممنوح</th><th style={{ textAlign: 'end' }}>مبيعات الفواتير</th><th /></tr></thead>
+      <tbody>{list.map(pr => { const S = stat(pr); return <React.Fragment key={pr.id}><tr data-cpn={pr.code}>
+        <td><b className="num">{pr.code}</b><div style={{ fontSize: 11, color: 'var(--faint)' }}>{pr.name}{pr.reward ? ' · جائزة ولاء' : ''}</div></td>
+        <td>{pr.pending ? <span className="badge b-amber">بانتظار الاعتماد</span> : pr.active === false ? <span className="badge b-dim">موقوف</span> : pr.to && pr.to < today() ? <span className="badge b-dim">منتهٍ</span> : <span className="badge b-mint">متاح</span>}</td>
+        <td className="num" style={{ textAlign: 'end' }}>{S.live}{Number(pr.maxUses) > 0 ? ' / ' + pr.maxUses : ''}</td><td className="num" style={{ textAlign: 'end' }}>{S.rate == null ? '—' : S.rate + '%'}</td>
+        <td className="num" style={{ textAlign: 'end' }}>{money(S.disc)}</td><td className="num" style={{ textAlign: 'end' }}>{money(S.sales)}</td>
+        <td style={{ whiteSpace: 'nowrap' }}>{S.L.length > 0 && <button className="btn sm gh" onClick={() => setOpen(o => o === pr.id ? null : pr.id)}>السجل</button>}{pr.pending && canApp && <button className="btn sm pri" onClick={() => approve(pr)}>اعتماد</button>}</td></tr>
+        {open === pr.id && <tr><td colSpan={7}><table className="tb" style={{ fontSize: 12 }} data-cpnhist><tbody>{S.L.map(u => <tr key={u.id}><td className="num">{String(u.at).slice(0, 16).replace('T', ' ')}</td><td className="num">{u.phone || '—'}</td><td>{brName(u.br)}</td><td className="num">{u.id}</td><td>{u.rel ? 'مُحرَّر: ' + (u.relWhy || '') : 'مستخدم'}</td></tr>)}</tbody></table></td></tr>}
+      </React.Fragment>; })}
+        {!list.length && <tr><td colSpan={7}><div className="empty">لا كوبونات بعد.</div></td></tr>}</tbody></table></div>
   </div>);
 }

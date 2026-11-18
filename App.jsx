@@ -697,7 +697,7 @@ const BR_COLS = ['posTabs', 'kdsTickets', 'closings', 'transfers', 'partnerReque
   'prepBatches',
   // v45.0 — جرد رف التحضير بالمسح (الموجود/المفقود/المنتهي/غير المتوقع)
   'prepCounts'];
-const CORE_COLS = ['cashVouchers', 'prodOrders', 'archLog', 'cardRecons', 'ledgerSnaps', 'salesInvoices', 'advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'jeRecurring', 'mktConsents', 'mktMerges', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules', 'hrScoreSnapshots'];
+const CORE_COLS = ['cashVouchers', 'prodOrders', 'archLog', 'cardRecons', 'ledgerSnaps', 'salesInvoices', 'advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'jeRecurring', 'mktConsents', 'mktMerges', 'mktProfiles', 'mktReferrals', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules', 'hrScoreSnapshots'];
 
 // تقسيم ops المدمجة إلى مستند مركزي + مستند لكل فرع
 function splitOps(ops, branchIds) {
@@ -737,7 +737,7 @@ function dirOf(org) {
     company: { name: (org.company || {}).name || '', logoUrl: (org.company || {}).logoUrl || '', activity: (org.company || {}).activity || '', taxNumber: (org.company || {}).taxNumber || '' },
     // v34.0: ما تحتاجه نقطة البيع على أجهزة الفروع — الأصناف بأسعار البيع فقط (بلا تكلفة ولا وصفات)، الإعدادات، العروض، الولاء، الضريبة
     products: (org.products || []).map(p => ({ id: p.id, name: p.name, sellPrice: p.sellPrice || 0, cat: p.cat || '', ...(p.posOff ? { posOff: true } : {}), ...(p.disc ? { disc: p.disc } : {}), ...(p.img ? { img: p.img } : {}) })),   // v45.4: صورة المنتج المصغّرة لنقطة البيع
-    posCfg: org.posCfg || {}, posPromos: org.posPromos || [], loyaltyCfg: org.loyaltyCfg || {},
+    posCfg: org.posCfg || {}, posPromos: org.posPromos || [], loyaltyCfg: org.loyaltyCfg || {}, mkt: { loy: ((org.mkt || {}).loy) || {}, seg: ((org.mkt || {}).seg) || {}, approveDiscPct: (org.mkt || {}).approveDiscPct },   // v48.1 إعداد الولاء المتقدم وقواعد الشرائح (بلا أسرار)
     taxCfg: { enabled: !!(org.taxCfg || {}).enabled, rate: (org.taxCfg || {}).rate || 15 },
     branches: (org.branches || []).map(b => ({ id: b.id, name: b.name, defaultFloat: b.defaultFloat || 0, isActive: b.isActive !== false, logoUrl: b.logoUrl || '', city: b.city || '', bankName: b.bankName || '', bankAcc: b.bankAcc || '', geofence: b.geofence || null })),   // v24.0: الجيوفنس لازم لكشك الحضور على جهاز الفرع
     expenseCats: org.expenseCats || [],
@@ -3008,7 +3008,7 @@ function emptyOrg(company) {
 }
 
 function emptyOps() {
-  return { cashVouchers: [], jeRecurring: [], mktConsents: [], mktMerges: [], actions: [], countSessions: [], wasteRequests: [], posImports: [], posOrders: [], posShifts: [], ledgerSnaps: [], stockCounts: [], leaveRequests: [], productSales: [], salesInvoices: [], closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
+  return { cashVouchers: [], jeRecurring: [], mktConsents: [], mktMerges: [], mktProfiles: [], mktReferrals: [], actions: [], countSessions: [], wasteRequests: [], posImports: [], posOrders: [], posShifts: [], ledgerSnaps: [], stockCounts: [], leaveRequests: [], productSales: [], salesInvoices: [], closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
     attendanceEvents: [], hrPins: [], shiftTemplates: [], shiftAssignments: [], shiftSwapRequests: [], branchTransferRequests: [], taskTemplates: [], taskAssignments: [], taskCompletions: [], pointsEntries: [], qualityReviews: [], rewardRequests: [], hrSignDocs: [], hrCorrective: [], hrPips: [], hrTraining: [], hrKpiEntries: [], hrScoreSnapshots: [], purchaseReqs: [], poInbox: [], poReceipts: [] };
 }
 
@@ -3019,7 +3019,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v48.0';
+const APP_VER = 'v48.1';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -6209,6 +6209,119 @@ function mktKpis(org, ops, list, opt) {
     campaigns: null, couponRate: null, upsellRate: null, mktCost: null, incRevenue: null, incProfit: null, roi: null };
 }
 
+
+/* ══════ v48.1 — SMART POS GROWTH المرحلة E: الولاء المتقدم والكوبونات ══════
+   سجل استخدام الكوبونات داخل مستند الولاء المشترك (cpn) بكتابة مشروطة ذرّية — يمنع تجاوز الحد عبر الأجهزة والفروع. */
+const cpnKey = (code) => String(code || '').trim().toLowerCase();
+// سبب رفض كوبون (لرسالة الكاشير) — null إن كان مقبولًا
+function couponWhy(promos, code, opt, now, branchId) {
+  const k = cpnKey(code); if (!k) return null; now = now || new Date();
+  const pr = (promos || []).find(x => cpnKey(x.code) === k); if (!pr) return 'رمز غير معروف';
+  if (pr.active === false) return 'الكوبون موقوف'; if (pr.pending) return 'الكوبون بانتظار الاعتماد';
+  const d = isoD(now); if (pr.from && d < pr.from) return 'لم يبدأ بعد (' + pr.from + ')'; if (pr.to && d > pr.to) return 'انتهت صلاحيته (' + pr.to + ')';
+  if (!promoActive(pr, now, branchId)) return 'غير متاح في هذا الفرع أو الوقت';
+  opt = opt || {}; const ph = opt.phone || '';
+  if (pr.custPhone && pr.custPhone !== ph) return 'خاص بعميل آخر — أدخل جوال العميل';
+  if (pr.firstOnly && (!ph || opt.isMember)) return ph ? 'لأول شراء فقط' : 'أدخل جوال العميل (لأول شراء)';
+  if (pr.loyOnly && (!ph || !opt.isMember)) return 'لأعضاء الولاء — أدخل جوال العميل';
+  if (Number(pr.maxUses) > 0 || Number(pr.perCust) > 0) {
+    if (!opt.uses) return 'يتطلب اتصالًا للتحقق من حد الاستخدام';
+    const L = (opt.uses[k] || []).filter(u => !u.rel);
+    if (Number(pr.maxUses) > 0 && L.length >= Number(pr.maxUses)) return 'استُنفد حد الاستخدام (' + pr.maxUses + ')';
+    if (Number(pr.perCust) > 0 && !ph) return 'أدخل جوال العميل (حد لكل عميل)';
+    if (Number(pr.perCust) > 0 && L.filter(u => u.phone === ph).length >= Number(pr.perCust)) return 'استخدمه هذا العميل من قبل';
+  }
+  if (Number(pr.minTotal) > 0 && opt.sub != null && opt.sub + 0.0001 < Number(pr.minTotal)) return 'الحد الأدنى للفاتورة ' + money(pr.minTotal);
+  return null;
+}
+// حجز/تحرير استخدام كوبون محدود — ذرّي؛ يُعيد { ok, why }
+async function cpnReserve(code, use, limits) {
+  const k = cpnKey(code);
+  for (let i = 0; i < 5; i++) {
+    const cur = (await cloud.get(KEYS.loy, null)) || { members: {}, tx: [] };
+    const all = { ...((cur.cpn) || {}) }; const L = (all[k] || []).slice();
+    if (L.some(u => u.id === use.id && !u.rel)) return { ok: true, doc: cur };   // تكرار الطلب نفسه (مفتاح عدم التكرار)
+    const live = L.filter(u => !u.rel);
+    if (Number(limits.maxUses) > 0 && live.length >= Number(limits.maxUses)) return { ok: false, why: 'استُنفد حد الاستخدام' };
+    if (Number(limits.perCust) > 0 && live.filter(u => u.phone === use.phone).length >= Number(limits.perCust)) return { ok: false, why: 'استخدمه هذا العميل من قبل' };
+    all[k] = [...L, use]; const r = await cloud.setIfUnchanged(KEYS.loy, { ...cur, cpn: all });
+    if (r === 'ok') return { ok: true, doc: { ...cur, cpn: all } }; if (r === 'fail') return { ok: false, why: 'تعذّر الاتصال — لا يُقبل الكوبون المحدود دون اتصال' };
+  }
+  return { ok: false, why: 'ازدحام — أعد المحاولة' };
+}
+async function cpnRelease(code, orderId, why) {
+  const k = cpnKey(code);
+  for (let i = 0; i < 5; i++) {
+    const cur = (await cloud.get(KEYS.loy, null)); if (!cur || !cur.cpn || !cur.cpn[k]) return true;
+    const L = cur.cpn[k].map(u => u.id === orderId && !u.rel ? { ...u, rel: nowISO(), relWhy: why || '' } : u);
+    const r = await cloud.setIfUnchanged(KEYS.loy, { ...cur, cpn: { ...cur.cpn, [k]: L } }); if (r === 'ok') return true; if (r === 'fail') return false;
+  }
+  return false;
+}
+// نسبة الخصم المتوقعة للعرض (للضوابط المالية)
+function promoDiscPct(pr, unitPrice) {
+  const v = Number(pr.value) || 0, u = Number(unitPrice) || 0;
+  if (pr.type === 'pct' || (pr.type === 'order' && pr.mode !== 'amt')) return Math.min(100, v);
+  if (pr.type === 'amt') return u > 0 ? Math.min(100, v / u * 100) : null;
+  if (pr.type === 'price') return u > 0 && v < u ? (u - v) / u * 100 : 0;
+  if (pr.type === 'bxgy') { const x = Number(pr.x) || 0, y = Number(pr.y) || 0; return x + y > 0 ? y / (x + y) * 100 : 0; }
+  if (pr.type === 'order' && pr.mode === 'amt') return pr.minTotal > 0 ? Math.min(100, v / pr.minTotal * 100) : null;
+  return null;
+}
+/** فحص الهامش قبل التفعيل: لكل منتج مشمول — السعر الصافي بعد الخصم مقابل تكلفة الوصفة. «غير مكتمل» إن غابت التكلفة */
+function promoMarginCheck(org, ops, pr, rate) {
+  rate = rate == null ? (Number(((org || {}).taxCfg || {}).rate) || 15) : rate; const AVG = itemAvgCosts(org, ops || {});
+  const prods = ((org && org.products) || []).filter(p => !p.posOff && Number(p.sellPrice) > 0 && (pr.type === 'order' || promoHits(pr, p)));
+  const rows = prods.map(p => { const price = Number(p.sellPrice); const pct = promoDiscPct(pr, price); const after = pct == null ? null : price * (1 - pct / 100);
+    const net = after == null ? null : after / (1 + rate / 100);
+    const C = (p.parts || []).length ? recipeCost(org, p.parts, AVG) : { cost: 0, miss: 'بلا وصفة' };
+    const cost = C.miss ? null : C.cost; const cm = net != null && cost != null ? Math.round((net - cost) * 100) / 100 : null;
+    return { id: p.id, name: p.name, price, pct: pct == null ? null : Math.round(pct * 10) / 10, net: net == null ? null : Math.round(net * 100) / 100, cost, cm, cmPct: cm != null && net > 0 ? Math.round(cm / net * 1000) / 10 : null, miss: C.miss || '' }; });
+  const pcts = rows.map(r => r.pct).filter(x => x != null);
+  return { rows, neg: rows.filter(r => r.cm != null && r.cm < 0), incomplete: rows.filter(r => r.cm == null), maxPct: pcts.length ? Math.max(...pcts) : promoDiscPct(pr, 0) };
+}
+/* الولاء المتقدم — الإعداد في org.mkt.loy:
+   { tiers: [{k, ar, min (نقاط مكتسبة خلال 365 يومًا), mult}], brMult: {branchId: mult}, prodPts: {productId: نقاط لكل وحدة},
+     expireMonths, bdayPts, refPts, rewards: [{id, name, pts, productId, days}] } */
+const LOY_DEF = { tiers: [{ k: 'silver', ar: 'فضي', min: 0, mult: 1 }, { k: 'gold', ar: 'ذهبي', min: 500, mult: 1.25 }, { k: 'platinum', ar: 'بلاتيني', min: 1500, mult: 1.5 }], brMult: {}, prodPts: {}, expireMonths: 0, bdayPts: 0, refPts: 0, rewards: [] };
+const loyX = (org) => { const m = ((org && org.mkt) || {}).loy || {}; return { ...LOY_DEF, ...m, tiers: (m.tiers && m.tiers.length ? m.tiers : LOY_DEF.tiers).slice().sort((a, b) => a.min - b.min) }; };
+const loyEarned365 = (doc, phone, td) => { const from = anDay(td || today(), -365); return ((doc && doc.tx) || []).filter(t => t.phone === phone && /:e$/.test(String(t.id)) && String(t.at || '').slice(0, 10) >= from).reduce((a, t) => a + (Number(t.pts) || 0), 0); };
+function loyTier(org, doc, phone, td) { const X = loyX(org); const e = loyEarned365(doc, phone, td); let t = X.tiers[0]; X.tiers.forEach(x => { if (e >= x.min) t = x; }); const nx = X.tiers.find(x => x.min > e); return { ...t, earned: e, next: nx ? { ...nx, need: nx.min - e } : null }; }
+/** نقاط الشراء: الأساس (القاعدة القائمة) × مضاعف المستوى × مضاعف الفرع + نقاط المنتجات */
+function loyEarnX(org, cfg, amount, ctx) {
+  const base = loyEarn(cfg, amount); if (!(cfg && cfg.enabled)) return 0; ctx = ctx || {}; const X = loyX(org);
+  const tm = ctx.tierMult || 1, bm = Number((X.brMult || {})[ctx.branchId]) || 1;
+  const pp = (ctx.lines || []).reduce((a, l) => a + (Number((X.prodPts || {})[l.productId]) || 0) * (Number(l.qty) || 0), 0);
+  return Math.floor(base * tm * bm + pp + 1e-9);
+}
+// انتهاء النقاط (الأقدم يُستهلك أولًا): ما تبقّى من نقاط كُسبت قبل N شهرًا
+function loyExpiring(doc, phone, months, td) {
+  if (!(Number(months) > 0)) return 0; td = td || today(); const cut = (() => { const d = new Date(td + 'T12:00:00'); d.setMonth(d.getMonth() - Number(months)); return isoD(d); })();
+  const T = ((doc && doc.tx) || []).filter(t => t.phone === phone).slice().sort((a, b) => String(a.at).localeCompare(String(b.at)));
+  const lots = []; let neg = 0;
+  T.forEach(t => { const p = Number(t.pts) || 0; if (p > 0) lots.push({ at: String(t.at || '').slice(0, 10), left: p }); else neg += -p; });
+  lots.forEach(l => { const u = Math.min(l.left, neg); l.left -= u; neg -= u; });
+  return Math.floor(lots.filter(l => l.at < cut).reduce((a, l) => a + l.left, 0) + 1e-9);
+}
+/** حركات دورية مستحقة — معرّفات حتمية فلا تتكرر المكافأة (loyPost يتجاهل المعرّف الموجود) */
+function loyPeriodicTx(org, ops, doc, td) {
+  td = td || today(); const X = loyX(org); const out = []; const y = td.slice(0, 4), mm = td.slice(5, 7);
+  const have = new Set(((doc && doc.tx) || []).map(t => t.id));
+  const phones = new Set(((doc && doc.tx) || []).map(t => t.phone));
+  if (Number(X.expireMonths) > 0) phones.forEach(ph => { const e = loyExpiring(doc, ph, X.expireMonths, td); const id = 'ex:' + ph + ':' + td.slice(0, 7); if (e > 0 && !have.has(id)) out.push({ id, phone: ph, pts: -e, at: td + 'T00:00:00', br: '', ord: 'انتهاء نقاط أقدم من ' + X.expireMonths + ' شهرًا', kind: 'expire' }); });
+  if (Number(X.bdayPts) > 0) { const prof = mktProfiles(ops); Object.values(prof).forEach(p => { if (!p.bday || p.bday.slice(0, 2) !== mm) return; const id = 'bd:' + p.phone + ':' + y; if (!have.has(id)) out.push({ id, phone: p.phone, pts: Number(X.bdayPts), at: td + 'T00:00:00', br: '', ord: 'مكافأة عيد الميلاد ' + y, kind: 'bday' }); }); }
+  if (Number(X.refPts) > 0) { const A = mktAlias(ops); const bought = new Set((ops.posOrders || []).filter(o => o.kind !== 'return' && o.status !== 'void' && o.loyalty && o.loyalty.phone).map(o => A(o.loyalty.phone)));
+    (ops.mktReferrals || []).forEach(r => { const id = 'rf:' + r.referred; if (bought.has(r.referred) && !have.has(id)) out.push({ id, phone: r.referrer, pts: Number(X.refPts), at: td + 'T00:00:00', br: '', ord: 'مكافأة إحالة ' + r.referred, kind: 'ref' }); }); }
+  return out;
+}
+// ملف تكميلي للعميل (عيد الميلاد، البريد) — آخر قيمة تغلب
+function mktProfiles(ops) { const m = {}; (ops.mktProfiles || []).slice().sort((a, b) => String(a.at).localeCompare(String(b.at))).forEach(p => { m[p.phone] = { ...(m[p.phone] || {}), ...p }; }); return m; }
+// جائزة من الكتالوج ← كوبون شخصي لمرة واحدة عبر محرك العروض القائم (لا محرك ثانٍ)
+function rewardCoupon(rw, phone, td, code) {
+  const to = (() => { const d = new Date((td || today()) + 'T12:00:00'); d.setDate(d.getDate() + (Number(rw.days) || 30)); return isoD(d); })();
+  return { id: uid('pm'), name: 'جائزة: ' + rw.name, type: 'pct', value: 100, scope: 'items', items: [rw.productId], cats: [], code, custPhone: phone, maxUses: 1, perCust: 1, maxQty: 1, from: td || today(), to, days: [], branches: [], active: true, reward: rw.id, at: nowISO() };
+}
+
 /* ══════ v47.8 — ترتيب صفوف القيد والفاتورة بالسحب (فأرة ولمس) أو بالأسهم، والقيود الدورية ══════ */
 const moveIdx = (arr, from, to) => { const a = (arr || []).slice(); if (from === to || from < 0 || to < 0 || from >= a.length || to >= a.length) return a; const [x] = a.splice(from, 1); a.splice(to, 0, x); return a; };
 // مقبض السحب: يوضع في أول الصف؛ والصف يحمل data-rowgrp و data-rowi. onMove(from, to)
@@ -6953,7 +7066,23 @@ function promoActive(pr, now, branchId) {
   if ((pr.branches || []).length && branchId && !pr.branches.includes(branchId)) return false;
   return true;
 }
-const promoHits = (pr, p) => !pr.scope || pr.scope === 'all' || (pr.scope === 'items' && (pr.items || []).includes(p.id)) || (pr.scope === 'cats' && (pr.cats || []).includes(p.cat || 'أخرى'));
+const promoHits = (pr, p) => !(pr.exclude || []).includes(p.id) && (!pr.scope || pr.scope === 'all' || (pr.scope === 'items' && (pr.items || []).includes(p.id)) || (pr.scope === 'cats' && (pr.cats || []).includes(p.cat || 'أخرى')));
+/* v48.1 — أهلية العرض/الكوبون للعميل (حقول اختيارية؛ العروض القديمة بلا هذه الحقول تبقى كما هي):
+   pending (بانتظار الاعتماد) · custPhone (كوبون لعميل محدد) · firstOnly (أول شراء) · loyOnly (أعضاء الولاء) · maxUses/perCust (يتطلب سجل الاستخدام) */
+function promoEligible(pr, opt) {
+  opt = opt || {}; if (pr.pending) return false;
+  const ph = opt.phone || '';
+  if (pr.custPhone && pr.custPhone !== ph) return false;
+  if (pr.firstOnly && (!ph || opt.isMember)) return false;
+  if (pr.loyOnly && (!ph || !opt.isMember)) return false;
+  if (Number(pr.maxUses) > 0 || Number(pr.perCust) > 0) {
+    const U = opt.uses; if (!U) return false;   // بلا سجل استخدام (انقطاع) لا يُقبل كوبون محدود — احتياطي آمن
+    const L = (U[String(pr.code || pr.id).trim().toLowerCase()] || []).filter(u => !u.rel);
+    if (Number(pr.maxUses) > 0 && L.length >= Number(pr.maxUses)) return false;
+    if (Number(pr.perCust) > 0 && (!ph || L.filter(u => u.phone === ph).length >= Number(pr.perCust))) return false;
+  }
+  return true;
+}
 function promoLineDisc(pr, unit, qty) {
   const v = Number(pr.value) || 0; unit = Number(unit) || 0; qty = Number(qty) || 0;
   if (pr.type === 'pct') return posR2(unit * qty * Math.min(100, Math.max(0, v)) / 100);
@@ -6964,22 +7093,29 @@ function promoLineDisc(pr, unit, qty) {
 }
 function posPriceCart(cart, products, promos, opt) {
   opt = opt || {}; const now = opt.now || new Date(); const code = String(opt.code || '').trim().toLowerCase();
-  const act = (promos || []).filter(pr => promoActive(pr, now, opt.branchId) && (!pr.code || String(pr.code).trim().toLowerCase() === code));
+  const act = (promos || []).filter(pr => promoActive(pr, now, opt.branchId) && (!pr.code || String(pr.code).trim().toLowerCase() === code) && promoEligible(pr, opt));
   const lines = (cart || []).map(l => {
     const p = (products || []).find(x => x.id === l.productId) || { id: l.productId };
     const cands = [];
     if (p.disc && Number(p.disc.v) > 0 && (!p.disc.to || isoD(now) <= p.disc.to)) cands.push({ id: 'card:' + p.id, name: 'خصم الصنف', type: p.disc.t === 'amt' ? 'amt' : 'pct', value: p.disc.v });
     act.filter(pr => pr.type !== 'order' && promoHits(pr, p)).forEach(pr => cands.push(pr));
     let best = null, bd = 0;
-    cands.forEach(pr => { const dd = promoLineDisc(pr, l.price, l.qty); if (dd > bd + 0.0001) { bd = dd; best = pr; } });
+    cands.forEach(pr => { const dd = promoLineDisc(pr, l.price, Number(pr.maxQty) > 0 ? Math.min(l.qty, Number(pr.maxQty)) : l.qty); if (dd > bd + 0.0001) { bd = dd; best = pr; } });
     const { disc: _d, promoId: _p, promoName: _n, ...rest } = l;
     return { ...rest, disc: posR2(bd), ...(best ? { promoId: best.id, promoName: best.name } : {}) };
   });
+  // v48.1 سقف الخصم لكل عرض (maxDisc) — يُوزَّع التخفيض على أسطره بالتناسب
+  act.filter(pr => pr.type !== 'order' && Number(pr.maxDisc) > 0).forEach(pr => { const ix = lines.map((l, i) => l.promoId === pr.id ? i : -1).filter(i => i >= 0);
+    const tot = ix.reduce((a, i) => a + (lines[i].disc || 0), 0); const cap = Number(pr.maxDisc); if (tot <= cap + 0.0001) return;
+    let left = cap; ix.forEach((i, k) => { const d = k === ix.length - 1 ? posR2(left) : posR2(lines[i].disc * cap / tot); left = posR2(left - d); lines[i] = { ...lines[i], disc: d }; }); });
   const sub = posR2(lines.reduce((a, l) => a + l.qty * l.price - (l.disc || 0), 0));
   let order = null, od = 0;
   act.filter(pr => pr.type === 'order' && sub > 0 && sub + 0.0001 >= (Number(pr.minTotal) || 0)).forEach(pr => {
-    const v = Number(pr.value) || 0; const dd = pr.mode === 'amt' ? Math.min(sub, v) : posR2(sub * Math.min(100, v) / 100); if (dd > od + 0.0001) { od = posR2(dd); order = pr; } });
-  return { lines, sub, orderDisc: od, orderPromo: order ? { id: order.id, name: order.name } : null, codeOk: !!code && act.some(pr => pr.code) };
+    const v = Number(pr.value) || 0; let dd = pr.mode === 'amt' ? Math.min(sub, v) : posR2(sub * Math.min(100, v) / 100); if (Number(pr.maxDisc) > 0) dd = Math.min(dd, Number(pr.maxDisc)); if (dd > od + 0.0001) { od = posR2(dd); order = pr; } });
+  const cp = code ? act.find(pr => pr.code) : null;
+  const cpUsed = !!cp && (lines.some(l => l.promoId === cp.id && l.disc > 0) || (order && order.id === cp.id));
+  return { lines, sub, orderDisc: od, orderPromo: order ? { id: order.id, name: order.name } : null, codeOk: !!code && act.some(pr => pr.code),
+    coupon: cpUsed ? { id: cp.id, code: cp.code, limited: Number(cp.maxUses) > 0 || Number(cp.perCust) > 0 } : null };
 }
 // نقاط الولاء: { enabled, earnPer (ريال لكل نقطة), ptValue (قيمة النقطة بالريال), minRedeem (حد أدنى للاستبدال), maxRedeemPct (سقف % من الفاتورة) }
 const normPhone = (x) => { let d = String(x || '').replace(/[٠-٩]/g, c => '٠١٢٣٤٥٦٧٨٩'.indexOf(c)).replace(/\D/g, ''); d = d.replace(/^(00966|966)/, '').replace(/^0/, ''); return d; };
@@ -12158,6 +12294,7 @@ async function qrAnalyzeComments(items) {
 
 
 // v38.3 — ما تحتاجه ملفات التطبيقات المنفصلة (mods/) من النواة
+export { promoEligible, couponWhy, cpnKey, cpnReserve, cpnRelease, promoDiscPct, promoMarginCheck, LOY_DEF, loyX, loyTier, loyEarnX, loyExpiring, loyPeriodicTx, mktProfiles, rewardCoupon };
 export { MKT_DEF, mktCfg, mktCanApprove, MKT_SEGS, MKT_SEG_ORDER, mktAlias, mktConsentOf, mktCanContact, crmBuild, crmSegment, crmDupes, mktNameKey, mktKpis };
 export { moveIdx, RowGrip, RECUR_AR, recurNext, recurDue };
 export { peekDoc, DocLink, DocPeekHost, VoiceSearchHost, voiceNorm };

@@ -1736,3 +1736,61 @@ test('v48.0 لوحة التسويق: مؤشرات من الطلبات الفعل
   assert.equal(K.prevActive, 2); assert.equal(K.retention, 50, 'عاد واحد من اثنين');
   ['campaigns', 'couponRate', 'upsellRate', 'mktCost', 'incRevenue', 'incProfit', 'roi'].forEach(k => assert.equal(K[k], null, k + ' لا يُختلق'));
 });
+
+// ═══ v48.1 SMART POS GROWTH — المرحلة E ═══
+test('v48.1 الكوبونات: الأهلية (عميل محدد، أول شراء، أعضاء)، حد الاستخدام الكلي ولكل عميل، والسقف، والاستثناء — والعروض القديمة كما هي', () => {
+  const now = new Date('2026-11-18T13:00:00');
+  const prods = [{ id: 'p1', name: 'برجر', sellPrice: 30 }, { id: 'p2', name: 'ماء', sellPrice: 2 }];
+  const cart = [{ productId: 'p1', name: 'برجر', qty: 2, price: 30 }, { productId: 'p2', name: 'ماء', qty: 5, price: 2 }];
+  const legacy = [{ id: 'l', name: 'قديم', type: 'pct', value: 10, scope: 'all', active: true }];
+  const L0 = E.posPriceCart(cart, prods, legacy, { now }); near(L0.lines[0].disc, 6); near(L0.lines[1].disc, 1); assert.equal(L0.coupon, null);
+  const cp = { id: 'c', name: 'كوبون', type: 'pct', value: 50, scope: 'all', code: 'VIP50', active: true, maxUses: 2, perCust: 1, maxDisc: 20, exclude: ['p2'] };
+  const uses0 = { vip50: [] };
+  let R = E.posPriceCart(cart, prods, [cp], { now, code: 'vip50', phone: '555', uses: uses0 });
+  near(R.lines[0].disc, 20, 'سقف 20 بدل 30'); near(R.lines[1].disc || 0, 0, 'الماء مستثنى'); assert.deepEqual(R.coupon, { id: 'c', code: 'VIP50', limited: true });
+  assert.equal(E.posPriceCart(cart, prods, [cp], { now, code: 'vip50', phone: '555', uses: null }).coupon, null, 'بلا سجل استخدام (انقطاع) يُرفض');
+  assert.equal(E.couponWhy([cp], 'VIP50', { phone: '555', uses: null }, now), 'يتطلب اتصالًا للتحقق من حد الاستخدام');
+  const used1 = { vip50: [{ id: 'o1', phone: '555' }] };
+  assert.equal(E.posPriceCart(cart, prods, [cp], { now, code: 'vip50', phone: '555', uses: used1 }).coupon, null, 'لكل عميل مرة');
+  assert.equal(E.couponWhy([cp], 'vip50', { phone: '555', uses: used1 }, now), 'استخدمه هذا العميل من قبل');
+  assert.ok(E.posPriceCart(cart, prods, [cp], { now, code: 'vip50', phone: '777', uses: used1 }).coupon, 'عميل آخر مسموح');
+  const used2 = { vip50: [{ id: 'o1', phone: '555' }, { id: 'o2', phone: '666' }] };
+  assert.equal(E.couponWhy([cp], 'vip50', { phone: '777', uses: used2 }, now), 'استُنفد حد الاستخدام (2)');
+  const rel = { vip50: [{ id: 'o1', phone: '555', rel: '2026-11-18' }, { id: 'o2', phone: '666' }] };
+  assert.ok(E.posPriceCart(cart, prods, [cp], { now, code: 'vip50', phone: '555', uses: rel }).coupon, 'المحرَّر بالإلغاء لا يُحتسب');
+  const first = { id: 'f', name: 'أول', type: 'order', mode: 'amt', value: 10, code: 'NEW', firstOnly: true, active: true };
+  assert.equal(E.posPriceCart(cart, prods, [first], { now, code: 'new', phone: '555', isMember: true }).orderDisc, 0);
+  assert.equal(E.posPriceCart(cart, prods, [first], { now, code: 'new', phone: '555', isMember: false }).orderDisc, 10);
+  const own = { id: 'o', name: 'خاص', type: 'pct', value: 100, scope: 'items', items: ['p1'], code: 'RW1', custPhone: '555', maxQty: 1, active: true };
+  near(E.posPriceCart(cart, prods, [own], { now, code: 'rw1', phone: '555' }).lines[0].disc, 30, 'وحدة واحدة مجانًا لا الكل');
+  assert.equal(E.posPriceCart(cart, prods, [own], { now, code: 'rw1', phone: '999' }).coupon, null);
+  assert.equal(E.couponWhy([{ ...cp, to: '2026-11-01' }], 'vip50', {}, now), 'انتهت صلاحيته (2026-11-01)');
+  assert.equal(E.posPriceCart(cart, prods, [{ ...cp, pending: true }], { now, code: 'vip50', phone: '1', uses: uses0 }).coupon, null, 'بانتظار الاعتماد لا يُطبَّق');
+});
+
+test('v48.1 فحص الهامش قبل التفعيل: خصم يجعل الهامش سالبًا يُكشف، وبلا وصفة «غير مكتمل»، والنسبة المتوقعة لكل نوع', () => {
+  const org = { taxCfg: { rate: 15 }, items: [{ id: 'm', name: 'لحم', unit: 'كجم', cost: 40 }], products: [{ id: 'p1', name: 'برجر', sellPrice: 23, parts: [{ itemId: 'm', qty: 0.25 }] }, { id: 'p2', name: 'عصير', sellPrice: 10 }] };
+  const ok = E.promoMarginCheck(org, {}, { type: 'pct', value: 10, scope: 'all' });
+  const b = ok.rows.find(r => r.id === 'p1'); near(b.cost, 10); near(b.net, 18); near(b.cm, 8); assert.equal(ok.neg.length, 0); assert.equal(ok.incomplete.length, 1, 'العصير بلا وصفة');
+  const bad = E.promoMarginCheck(org, {}, { type: 'pct', value: 60, scope: 'items', items: ['p1'] }); assert.equal(bad.neg.length, 1); near(bad.neg[0].cm, -2);
+  near(E.promoDiscPct({ type: 'bxgy', x: 2, y: 1 }), 33.33, 'اشترِ 2 والثالث مجانًا ≈ 33%');
+  near(E.promoDiscPct({ type: 'price', value: 15 }, 20), 25); near(E.promoDiscPct({ type: 'amt', value: 5 }, 20), 25);
+});
+
+test('v48.1 الولاء المتقدم: المستويات بنقاط السنة، مضاعف المستوى والفرع ونقاط المنتج، الانتهاء الأقدم أولًا، والمكافآت الدورية بلا تكرار', () => {
+  const org = { mkt: { loy: { tiers: [{ k: 's', ar: 'فضي', min: 0, mult: 1 }, { k: 'g', ar: 'ذهبي', min: 100, mult: 1.5 }], brMult: { b2: 2 }, prodPts: { p1: 3 }, expireMonths: 12, bdayPts: 50, refPts: 20 } } };
+  const doc = { tx: [{ id: 'a:e', phone: '5', pts: 80, at: '2025-06-01T10:00' }, { id: 'b:e', phone: '5', pts: 120, at: '2026-10-01T10:00' }, { id: 'c:r', phone: '5', pts: -30, at: '2026-10-05T10:00' }, { id: 'adj', phone: '5', pts: 500, at: '2026-10-06' }] };
+  const T = E.loyTier(org, doc, '5', '2026-11-18'); assert.equal(T.k, 'g', '120 خلال السنة (التعديل لا يُحتسب)'); assert.equal(T.earned, 120);
+  const cfg = { enabled: true, earnPer: 10 };
+  assert.equal(E.loyEarnX(org, cfg, 100, { tierMult: 1.5, branchId: 'b2', lines: [{ productId: 'p1', qty: 2 }] }), 36, '10 × 1.5 × 2 + 6');
+  assert.equal(E.loyEarnX(org, { enabled: false, earnPer: 10 }, 100, {}), 0);
+  assert.equal(E.loyExpiring(doc, '5', 12, '2026-11-18'), 50, 'من 80 القديمة يبقى 50 بعد استهلاك 30');
+  const ops = { mktProfiles: [{ phone: '7', bday: '11-02', at: '1' }, { phone: '8', bday: '03-01', at: '1' }], mktReferrals: [{ referrer: '5', referred: '9' }, { referrer: '5', referred: '10' }],
+    posOrders: [{ id: 'q', kind: 'sale', status: 'paid', loyalty: { phone: '9' } }] };
+  const P = E.loyPeriodicTx(org, ops, doc, '2026-11-18');
+  assert.deepEqual(P.map(t => [t.kind, t.phone, t.pts]).sort(), [['bday', '7', 50], ['expire', '5', -50], ['ref', '5', 20]].sort());
+  const doc2 = { tx: [...doc.tx, ...P.map(({ kind, ...t }) => t)] };
+  assert.equal(E.loyPeriodicTx(org, ops, doc2, '2026-11-25').filter(t => t.kind !== 'expire').length, 0, 'لا تكرار للمكافأة');
+  const rc = E.rewardCoupon({ id: 'r', name: 'قهوة', productId: 'p1', days: 10 }, '5', '2026-11-18', 'RWX');
+  assert.deepEqual([rc.type, rc.value, rc.items, rc.custPhone, rc.maxUses, rc.maxQty, rc.to], ['pct', 100, ['p1'], '5', 1, 1, '2026-11-28']);
+});

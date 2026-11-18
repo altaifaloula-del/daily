@@ -3,6 +3,7 @@ import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { cloud, KEYS, brKey, bfKey } from '../../storage';
 import { Store, X, RefreshCw, FileText, Clock, ShieldCheck, Check, Plus, Printer, Download, Lock, Banknote, ChefHat, LayoutGrid, Send } from 'lucide-react';
 import { posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim } from '../../App.jsx';   // v42.9
+import { couponWhy, cpnReserve, cpnRelease, loyEarnX, loyTier } from '../../App.jsx';   // v48.1 الكوبونات المحدودة والولاء المتقدم
 import { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, posReturnLoyDed, WASTE_REASONS } from '../../App.jsx';   // v46.8 المرتجع
 import { posDocView, APPS, CloudHealth, Field, Modal, Num, POS_SH_KEY, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, QUOTA_MSG, ROLES, businessDay, isoD, logClientError, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, makeXlsx, money, normPhone, nowISO, pendShiftsGet, pendShiftsSet, posCashNet, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posTotals, posZHtml, promoActive, promoHits, sha256Hex, uid } from '../../App.jsx';
 
@@ -23,7 +24,11 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const [disc, setDisc] = useState({ mode: 'amt', amt: '', reason: '' }); const [pay, setPay] = useState(null); const [last, setLast] = useState(null);
   const [code, setCode] = useState(''); const [quickP, setQuickP] = useState(false); const [diag, setDiag] = useState(false); const [sending, setSending] = useState(false); const [ext, setExt] = useState({ disc: false, code: false, loy: false }); const [ordF, setOrdF] = useState(() => ({ d: businessDay(), pay: 'all', q: '' })); const [cust, setCust] = useState({ phone: '', name: '', redeem: false });
   const loyCfg = org.loyaltyCfg || {}; const [loy, setLoy] = useState(null);
-  useEffect(() => { if (!loyCfg.enabled) return; let dead = false; cloud.get(KEYS.loy, { members: {}, tx: [] }).then(d => { if (!dead) setLoy(d || { members: {}, tx: [] }); }).catch(() => { }); return () => { dead = true; }; }, [loyCfg.enabled]);
+  // v48.1: يُحمَّل دفتر الولاء أيضًا إن وُجد كوبون محدود/مشروط (سجل الاستخدام فيه) — ويُحدَّث عند كتابة الرمز
+  const needLoy = !!loyCfg.enabled || (org.posPromos || []).some(p => Number(p.maxUses) > 0 || Number(p.perCust) > 0 || p.firstOnly || p.loyOnly || p.custPhone);
+  const reloadLoy = () => cloud.get(KEYS.loy, { members: {}, tx: [] }).then(d => setLoy(d || { members: {}, tx: [] })).catch(() => { });
+  useEffect(() => { if (!needLoy) return; let dead = false; cloud.get(KEYS.loy, { members: {}, tx: [] }).then(d => { if (!dead) setLoy(d || { members: {}, tx: [] }); }).catch(() => { }); return () => { dead = true; }; }, [needLoy]);
+  useEffect(() => { if (!needLoy || !code.trim()) return; const t = setTimeout(reloadLoy, 350); return () => clearTimeout(t); }, [code, needLoy]);
   const [view, setView] = useState('sell'); const [showCart, setShowCart] = useState(false);
   const [ret, setRet] = useState(null);   // v46.8 نافذة المرتجع: { o, q:{i:qty}, reason, note, k }
   const [tbl, setTbl] = useState(''); const [payTab, setPayTab] = useState(null); const [tblSel, setTblSel] = useState(null); const [, setTick] = useState(0);   // v42.9
@@ -41,7 +46,9 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const shift = cloudShift || (localShift && localShift.branchId === (br || {}).id && localShift.dev === dev.tag && localShift.status === 'open' ? { ...localShift, pending: true } : null);
   const setLS = (v) => { try { if (v) localStorage.setItem(POS_SH_KEY, JSON.stringify(v)); else localStorage.removeItem(POS_SH_KEY); } catch { } setLocalShift(v); };
   // v34.0: التسعير = العروض وخصم الصنف (لكل سطر) ← عرض الفاتورة ← الخصم اليدوي (مبلغ أو نسبة) ← استبدال النقاط
-  const priced = posPriceCart(cart, org.products, org.posPromos, { branchId: (br || {}).id, code });
+  const phoneN0 = normPhone(cust.phone); const phone0 = phoneN0.length >= 9 ? phoneN0 : '';
+  const cpOpt = { branchId: (br || {}).id, code, phone: phone0, isMember: !!(phone0 && loy && (loy.members || {})[phone0]), uses: loy ? (loy.cpn || {}) : null };
+  const priced = posPriceCart(cart, org.products, org.posPromos, cpOpt);
   const base1 = posR2(priced.sub - priced.orderDisc);
   const manual = disc.mode === 'pct' ? posR2(base1 * Math.min(100, Number(disc.amt) || 0) / 100) : Math.min(base1, posR2(disc.amt));
   const phoneN = normPhone(cust.phone); const phoneOk = phoneN.length >= 9;
@@ -49,7 +56,8 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const redeemPts = phoneOk && loy && cust.redeem ? loyRedeemMax(loyCfg, loyBalance, posR2(base1 - manual)) : 0;
   const redeemAmt = posR2(redeemPts * (Number(loyCfg.ptValue) || 0));
   const T = posTotals(priced.lines, priced.orderDisc + manual + redeemAmt, rate);
-  const earnPts = phoneOk && loyCfg.enabled ? loyEarn(loyCfg, T.total) : 0;
+  const tierNow = phoneOk && loy ? loyTier(org, loy, phoneN, today) : null;
+  const earnPts = phoneOk && loyCfg.enabled ? loyEarnX(org, loyCfg, T.total, { tierMult: tierNow ? Number(tierNow.mult) || 1 : 1, branchId: (br || {}).id, lines: priced.lines }) : 0;   // v48.1 المستوى والفرع ونقاط المنتج
   const custName = phoneOk && loy ? (((loy.members || {})[phoneN] || {}).name || '') : '';
   // المزامنة: إرسال المعلّق ثم إزالته من الجهاز
   const flushRaw = useCallback(async () => {
@@ -150,14 +158,20 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     const maxPct = Number(cfg.maxDiscPct) || 0;
     if (manual > 0 && maxPct > 0 && !isMgr && base1 > 0 && manual / base1 * 100 > maxPct + 0.001) return say('الخصم اليدوي يتجاوز الحد المسموح للكاشير (' + maxPct + '%) — يلزم مدير الفرع', 'no');
     if (cust.phone.trim() && !phoneOk) return say('رقم جوال العميل غير صحيح', 'no');
+    // v48.1: الكوبون المحدود يُحجز ذرّيًا قبل إتمام البيع (مفتاح عدم التكرار = معرّف الطلب)؛ إن تعذّر لا يُكمل البيع بالكوبون
+    const oid = uid('po');
+    if (priced.coupon && priced.coupon.limited) { const pr = (org.posPromos || []).find(x => x.id === priced.coupon.id) || {};
+      const rv = await cpnReserve(code, { id: oid, phone: phoneOk ? phoneN : '', at: nowISO(), br: br.id }, pr);
+      if (!rv.ok) { setSending(false); reloadLoy(); return say('الكوبون: ' + rv.why + ' — احذف الرمز لإكمال البيع بدونه', 'no'); }
+      if (rv.doc) setLoy(rv.doc); }
     // ترقيم الجهاز اليومي وسلسلة البصمات (تعمل دون اتصال)
     const yy = today.replace(/-/g, '').slice(2); const sk = 'mizan:posSeq:' + br.id + ':' + today, hk = 'mizan:posHash:' + br.id;
     let seq = 1, prev = { icv: 0, hash: '0' }; try { seq = (Number(localStorage.getItem(sk)) || 0) + 1; prev = JSON.parse(localStorage.getItem(hk) || '{"icv":0,"hash":"0"}'); } catch { }
     const bi = (org.branches || []).findIndex(b => b.id === br.id) + 1;
-    const o = { id: uid('po'), no: 'ف' + bi + '-' + yy + '-' + dev.tag + '-' + String(seq).padStart(4, '0'), branchId: br.id, dev: dev.tag, shiftId: shift.id, date: today, at: nowISO(), by: me.name,
+    const o = { id: oid, no: 'ف' + bi + '-' + yy + '-' + dev.tag + '-' + String(seq).padStart(4, '0'), branchId: br.id, dev: dev.tag, shiftId: shift.id, date: today, at: nowISO(), by: me.name,
       channel, lines: priced.lines.map(l => ({ productId: l.productId, name: l.name, qty: l.qty, price: l.price, ...(l.note ? { note: l.note } : {}), ...(l.disc ? { disc: l.disc, promoId: l.promoId, promoName: l.promoName } : {}) })),
       gross: T.gross, disc: T.disc, ...(priced.orderDisc ? { orderDisc: priced.orderDisc, orderPromo: priced.orderPromo } : {}), manualDisc: manual, ...(manual ? { discReason: disc.reason.trim() } : {}),
-      ...(code.trim() && priced.codeOk ? { coupon: code.trim() } : {}),
+      ...(code.trim() && priced.codeOk ? { coupon: code.trim(), ...(priced.coupon ? { couponId: priced.coupon.id, ...(priced.coupon.limited ? { couponLtd: true } : {}) } : {}) } : {}),
       ...(phoneOk ? { loyalty: { phone: phoneN, name: (cust.name || custName).trim(), earned: earnPts, redeemed: redeemPts, redeemAmt, balAfter: posR2(loyBalance - redeemPts + earnPts) } } : {}),
       total: T.total, vat: T.vat, net: T.net, rate,
       payments: pay.parts.filter(x => Number(x.amount) > 0).map(x => ({ m: x.m, amount: posR2(x.amount), ...(x.m === 'app' ? { appId: x.appId, appName: (apps.find(a => a.id === x.appId) || {}).n || 'تطبيق' } : {}), ...(x.pm ? { pm: x.pm, pmName: x.pmName } : {}) })),
@@ -182,6 +196,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     const reason = window.prompt('سبب إلغاء الفاتورة ' + o.no + ':'); if (!reason || !reason.trim()) return;
     await commit(d => ({ ...d, posOrders: (d.posOrders || []).map(x => x.id === o.id ? { ...x, status: 'void', voidBy: me.name, voidAt: nowISO(), voidReason: reason.trim() } : x) }), { actionType: 'update', targetType: 'pos_order', targetId: o.id, branchName: br.name, title: 'ألغى فاتورة نقطة بيع', details: o.no + ' · ' + money(o.total) + ' · ' + reason.trim() });
     if (o.loyalty && (o.loyalty.earned || o.loyalty.redeemed)) loyQSet([...loyQ(), ...(o.loyalty.earned ? [{ id: o.id + ':ve', phone: o.loyalty.phone, pts: -o.loyalty.earned, at: nowISO(), br: o.branchId, ord: o.no + ' (إلغاء)' }] : []), ...(o.loyalty.redeemed ? [{ id: o.id + ':vr', phone: o.loyalty.phone, pts: o.loyalty.redeemed, at: nowISO(), br: o.branchId, ord: o.no + ' (إلغاء)' }] : [])]);
+    if (o.coupon && o.couponLtd) cpnRelease(o.coupon, o.id, 'إلغاء الفاتورة');   // v48.1 يعود حد الكوبون
     say('أُلغيت الفاتورة ' + o.no); flush();
   };
 
@@ -341,7 +356,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
         <div className="pos-ext">
           <button className={extOpen.disc ? 'on' : ''} onClick={() => setExt(x => ({ ...x, disc: !extOpen.disc }))}>{manual ? 'خصم ' + money(manual) : '+ خصم'}</button>
           <button className={extOpen.code ? 'on' : ''} onClick={() => setExt(x => ({ ...x, code: !extOpen.code }))}>{priced.codeOk ? 'كوبون ✓' : '+ كوبون'}</button>
-          {loyCfg.enabled && <button className={extOpen.loy ? 'on' : ''} onClick={() => setExt(x => ({ ...x, loy: !extOpen.loy }))}>{phoneOk ? (custName || 'عميل') + ' ✓' : '+ عميل ولاء'}</button>}
+          {needLoy && <button className={extOpen.loy ? 'on' : ''} onClick={() => setExt(x => ({ ...x, loy: !extOpen.loy }))}>{phoneOk ? (custName || 'عميل') + ' ✓' : '+ عميل ولاء'}</button>}
         </div>
         {extOpen.disc && <div className="grid g2" style={{ gap: 6, marginTop: 8 }}>
           <Field label="خصم يدوي" style={{ marginBottom: 0 }}><div className="row" style={{ gap: 4 }}>
@@ -350,8 +365,8 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
           <Field label="سبب الخصم" style={{ marginBottom: 0 }}><input className="inp" value={disc.reason} placeholder={manual ? 'إلزامي' : ''} onChange={e => setDisc(d => ({ ...d, reason: e.target.value }))} /></Field>
         </div>}
         {extOpen.code && <div style={{ marginTop: 8 }}><input className="inp" value={code} placeholder="رمز الكوبون" aria-label="رمز الكوبون" onChange={e => setCode(e.target.value)} />
-          {code.trim() && <div style={{ fontSize: 12, marginTop: 3, color: priced.codeOk ? 'var(--mint)' : 'var(--rose)', fontWeight: 600 }}>{priced.codeOk ? '✓ الكوبون فعّال' : 'رمز غير صالح أو العرض غير متاح الآن'}</div>}</div>}
-        {loyCfg.enabled && extOpen.loy && <div style={{ marginTop: 8 }}>
+          {code.trim() && <div style={{ fontSize: 12, marginTop: 3, color: priced.codeOk ? 'var(--mint)' : 'var(--rose)', fontWeight: 600 }}>{priced.codeOk ? '✓ الكوبون فعّال' : (couponWhy(org.posPromos, code, { ...cpOpt, sub: priced.sub }, new Date(), (br || {}).id) || 'رمز غير صالح أو العرض غير متاح الآن')}</div>}</div>}
+        {needLoy && extOpen.loy && <div style={{ marginTop: 8 }}>
           <div className="row" style={{ gap: 6 }}><input className="inp" inputMode="tel" style={{ flex: 1 }} placeholder="جوال العميل" aria-label="جوال العميل" value={cust.phone} onChange={e => setCust(c => ({ ...c, phone: e.target.value, redeem: false }))} />
             {phoneOk && !custName && <input className="inp" style={{ flex: 1 }} placeholder="اسم العميل (جديد)" value={cust.name} onChange={e => setCust(c => ({ ...c, name: e.target.value }))} />}</div>
           {phoneOk && <div style={{ fontSize: 12, marginTop: 5, lineHeight: 1.8 }}>{custName ? <b>{custName}</b> : <span className="badge b-mint">عميل جديد</span>} · الرصيد <b className="num">{loy ? loyBalance : '…'}</b> نقطة{earnPts ? <> · يكسب <b className="num">{earnPts}</b></> : null}
@@ -512,7 +527,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
       </div>}
 
       {view === 'cfg' && <PosSettings org={org} commitOrg={commitOrg} say={say} dev={dev} />}
-      {view === 'promos' && <PosPromos org={org} commitOrg={commitOrg} say={say} />}
+      {view === 'promos' && <PosPromos org={org} ops={ops} me={me} commitOrg={commitOrg} say={say} />}
       {view === 'loyalty' && <PosLoyalty org={org} commitOrg={commitOrg} say={say} canCfg={!!(R.admin || R.scope === 'all')} me={me} />}
       {view === 'shifts' && <PosShifts org={org} ops={ops} me={me} brs={brs} commit={commit} say={say} />}
 
