@@ -85,3 +85,20 @@ test('إقفال الفترة: شهر مقفل يُرفض فيه أي تغيير
   assert.equal(E.lockedLedgerChanged(org, ops, org, jm('2026-04-02')), false, 'قيد في أبريل مسموح');
   assert.equal(E.lockedLedgerChanged(org, ops, org, { closings: [closing({ cashSales: 700, totalRevenue: 1160, actualCashCount: 700 })] }), true, 'تعديل إغلاق في شهر مقفل يُكتشف');
 });
+
+test('دورة الرواتب: استحقاق 10,000 ← سلفة 500 من البنك ← صرف 8,950 (بعد السلفة 500 وحصة الموظف في التأمينات 550) + حصة صاحب العمل 1,180 ← الدفاتر', () => {
+  const org = baseOrg({ employees: [{ id: 'e1', name: 'أ', branchId: 'b1' }] });
+  const ops = {
+    advances: [{ id: 'a1', employeeId: 'e1', employeeName: 'أ', branchId: 'b1', month: '2026-03', date: '2026-03-10', type: 'advance', amount: 500, paymentMethod: 'bank' }],
+    ledgerEntries: [
+      { id: 'acc', kind: 'salary_accrual', month: '2026-03', date: '2026-03-28', credit: 10000 },
+      { id: 'pay', kind: 'salary_payout', month: '2026-03', date: '2026-03-30', debit: 8950, gosi: 550, gosiEr: 1180, fund: '1201' }] };
+  const A = E.buildAccounting(org, ops); assert.equal(A.balanced, true);
+  const t = tb(A);
+  near(t['5201'] || 0, 10000, 'مصروف الرواتب');
+  near(t['5202'] || 0, 1180, 'تأمينات صاحب العمل');
+  near(t['2201'] || 0, 0, 'الرواتب المستحقة أُقفلت (10000 − 8950 − 1050)');
+  near(t['1401'] || 0, 0, 'السلفة استُردّت من الراتب');
+  near(-(t['2202'] || 0), 1730, 'التأمينات المستحقة = 550 + 1180');
+  near(t['1201'] || 0, -9450, 'البنك = −500 سلفة − 8950 صافي');
+});
