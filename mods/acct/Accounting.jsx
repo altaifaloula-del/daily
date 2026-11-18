@@ -6,10 +6,10 @@ import { Scale, FileBarChart, ChevronDown, Printer, Settings, Receipt, BarChart3
 import { VatRegisters, SupplierPurchReport } from './TaxPurchReports.jsx';   // v39.1
 import { Suppliers } from '../inv/Suppliers.jsx';   // v44.0 «مستلم لم يُفوتر»
 import { OdooBar } from '../../App.jsx';   // v41.0
-import { jeOwner, canApproveJe, ACCT_SECTIONS, ACC_KIND, Field, Kpi, LOCK_MSG, MizanMerge, Modal, NUM_FACE, Num, ROLES, _xe, acctSecKey, arDate, bankOfBranch, branchBanks, bsLayout, bsRowsOf, buildAccounting, buildPartners, capOK, countedClosing, customerAging, detectStmtMap, entityById, entityList, gosiRatesFor, isLayout, isRowsOf, isoD, lockedThru, makeXlsx, money, monthEnd, monthLedger, multiEntityOn, naMissing, nowISO, openDocWin, parseCsvGrid, parseMt940, parseXlsxGrid, payTotal, periodLocked, posClrOf, printA4, qrSvg, roleEdit, rolePost, snapMonths, stAddDays, stDate, stNum, sum, supplierAging, today, uid, useSecNav, zatcaTLV } from '../../App.jsx';
+import { jeOwner, canApproveJe, projList, projectPL, projNextCode, ACCT_SECTIONS, ACC_KIND, Field, Kpi, LOCK_MSG, MizanMerge, Modal, NUM_FACE, Num, ROLES, _xe, acctSecKey, arDate, bankOfBranch, branchBanks, bsLayout, bsRowsOf, buildAccounting, buildPartners, capOK, countedClosing, customerAging, detectStmtMap, entityById, entityList, gosiRatesFor, isLayout, isRowsOf, isoD, lockedThru, makeXlsx, money, monthEnd, monthLedger, multiEntityOn, naMissing, nowISO, openDocWin, parseCsvGrid, parseMt940, parseXlsxGrid, payTotal, periodLocked, posClrOf, printA4, qrSvg, roleEdit, rolePost, snapMonths, stAddDays, stDate, stNum, sum, supplierAging, today, uid, useSecNav, zatcaTLV } from '../../App.jsx';
 
 export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }) {
-  const [view, setView] = useState('jr');           // jr قيود · coa دليل · tb ميزان · fs قوائم
+  const [view, setView] = useState('jr'); const [prjF, setPrjF] = useState({ name: '', branchId: '', budget: '' }); const [prjOpen, setPrjOpen] = useState(null);   // v47.4           // jr قيود · coa دليل · tb ميزان · fs قوائم
   const [vatTab, setVatTab] = useState('form');      // v35.8: أقسام تفاصيل الإقرار
   const [vpay, setVpay] = useState(null);            // v36.1: نموذج سداد الضريبة
   const [vatQ, setVatQ] = useState('');
@@ -1088,8 +1088,8 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
 
   // ===== القيد اليدوي/الافتتاحي =====
   const newJm = () => setJm({
-    date: today(), title: '', opening: false,
-    lines: [{ code: '', debit: '', credit: '' }, { code: '', debit: '', credit: '' }]
+    date: today(), title: '', opening: false, branchId: '', projectId: '',
+    lines: [{ code: '', debit: '', credit: '', projectId: '' }, { code: '', debit: '', credit: '', projectId: '' }]
   });
   const jmUp = (i, k, v) => setJm(m => ({ ...m, lines: m.lines.map((l, x) => x === i ? { ...l, [k]: v } : l) }));
   const jmD = jm ? sum(jm.lines, l => Number(l.debit) || 0) : 0;
@@ -1105,8 +1105,9 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
       id: uid('jm'), date: jm.date || today(), title: jm.title.trim() || (jm.opening ? 'قيد افتتاحي' : 'قيد يدوي'),
       opening: !!jm.opening, by: me?.name || '', byId: me?.id || '', createdAt: nowISO(),
       status: direct ? 'posted' : 'pending', ...(direct ? { approvedBy: me?.name || '', approvedAt: nowISO() } : {}),
+      ...(jm.branchId ? { branchId: jm.branchId } : {}), ...(jm.projectId ? { projectId: jm.projectId } : {}),   // v47.4 مركز التكلفة (الفرع) والمشروع
       lines: jm.lines.filter(l => l.code && ((Number(l.debit) || 0) + (Number(l.credit) || 0)) > 0)
-        .map(l => ({ code: l.code, debit: Number(l.debit) || 0, credit: Number(l.credit) || 0 }))
+        .map(l => ({ code: l.code, debit: Number(l.debit) || 0, credit: Number(l.credit) || 0, ...(l.projectId && l.projectId !== jm.projectId ? { projectId: l.projectId } : {}) }))
     };
     await commit(d => ({ ...d, journalManual: [rec, ...(d.journalManual || [])] }), {
       actionType: 'create', targetType: 'journal_entry', targetId: rec.id,
@@ -1424,7 +1425,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
         const IT = {
           jr: ['القيود اليومية', FileText], coa: ['دليل الحسابات', Landmark], tb: ['ميزان المراجعة', Scale], ob: ['الأرصدة الافتتاحية', Landmark],
           fs: ['القوائم المالية', FileBarChart], cf: ['التدفقات النقدية', ArrowLeftRight], fcast: ['التوقّع النقدي', TrendingUp], bud: ['الموازنة', BarChart3], anl: ['التحليل والنِسَب', TrendingUp], cc: ['مراكز التكلفة', BarChart3],
-          food: ['تكلفة الطعام بالفروع', Store], apage: ['أعمار الموردين', Users], arage: ['أعمار العملاء', Users], unbilled: ['مستلم لم يُفوتر', Truck],
+          prj: ['المشاريع', Grid3x3], food: ['تكلفة الطعام بالفروع', Store], apage: ['أعمار الموردين', Users], arage: ['أعمار العملاء', Users], unbilled: ['مستلم لم يُفوتر', Truck],
           vat: ['الضريبة (ق.م)', Receipt], vatreg: ['سجلات الضريبة المفصلة', FileText], suprep: ['مشتريات الموردين بطرق الدفع', Truck], einv: ['الفوترة (زاتكا)', QrCode], zakat: ['الزكاة وضريبة الدخل', Landmark],
           bank: ['التسوية البنكية', Landmark], ast: ['الأصول والإهلاك', Building2], astl: ['تسوية التطبيقات', Truck],
           mclose: ['حزمة الإقفال', ClipboardCheck], ctrl: ['الضوابط والتدقيق', ShieldCheck], lock: ['الإقفال الشهري', Lock], yend: ['إقفال السنة', CalendarDays],
@@ -1432,7 +1433,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
         };
         const GROUPS = [
           { id: 'books', ar: 'الدفاتر', icon: FileText, items: ['jr', 'coa', 'tb', 'ob'] },
-          { id: 'stmts', ar: 'القوائم والتحليل', icon: FileBarChart, items: ['fs', 'food', 'cf', 'fcast', 'bud', 'anl', 'cc'] },
+          { id: 'stmts', ar: 'القوائم والتحليل', icon: FileBarChart, items: ['fs', 'food', 'cf', 'fcast', 'bud', 'anl', 'cc', 'prj'] },
           { id: 'ages', ar: 'الذمم والأعمار', icon: Users, items: ['unbilled', 'apage', 'arage', 'suprep'] },
           { id: 'tax', ar: 'الضريبة والزكاة', icon: Receipt, items: ['vat', 'vatreg', 'einv', 'zakat'] },
           { id: 'bank', ar: 'البنوك والأصول', icon: Building2, items: ['bank', 'ast', 'astl'] },
@@ -2393,6 +2394,41 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
         );
       })()}
 
+      {view === 'prj' && (() => {   // v47.4 بُعد المشروع — ربحية كل مشروع في الفترة
+        const P = projList(org, true); const canEd = canPost;
+        const addP = async () => { const nm = (prjF.name || '').trim(); if (!nm) return say('اكتب اسم المشروع', 'no');
+          if (P.some(p => p.name === nm)) return say('يوجد مشروع بهذا الاسم', 'no');
+          const rec = { id: uid('prj'), code: projNextCode(org), name: nm, ...(prjF.branchId ? { branchId: prjF.branchId } : {}), ...(prjF.budget ? { budget: Number(prjF.budget) || 0 } : {}), active: true, by: me.name, at: nowISO() };
+          const ok = await commitOrg(g => ({ ...g, projects: [...(g.projects || []), rec] })); if (ok !== false) { setPrjF({ name: '', branchId: '', budget: '' }); say('أُضيف المشروع ' + rec.code + ' ✓'); } };
+        const togP = async (p) => { await commitOrg(g => ({ ...g, projects: (g.projects || []).map(x => x.id === p.id ? { ...x, active: x.active === false } : x) })); };
+        const rows = P.map(p => ({ p, R: projectPL(A, p.id, from, to) }));
+        return (
+        <div className="grid" style={{ gap: 12 }} data-prjview>
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>{periodBar}</div>
+          <div className="card">
+            <div className="card-t"><Grid3x3 size={15} color="var(--brass)" />المشاريع</div>
+            <div className="note" style={{ marginBottom: 8 }}>المشروع بُعد تحليلي مستقل عن الفرع (عقد تموين، مناسبة، افتتاح فرع، تجهيز قاعة…). اختره في القيد اليدوي (للقيد كله أو لكل سطر)، وسندات القبض والصرف، وفواتير المبيعات، وفواتير الخدمات؛ وتظهر هنا ربحيته.</div>
+            {canEd && <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 10 }}>
+              <Field label="اسم المشروع" style={{ flex: 2, minWidth: 180 }}><input className="inp" aria-label="اسم المشروع" value={prjF.name} onChange={e => setPrjF(x => ({ ...x, name: e.target.value }))} /></Field>
+              <Field label="الفرع (اختياري)" style={{ minWidth: 150 }}><select className="sel" value={prjF.branchId} onChange={e => setPrjF(x => ({ ...x, branchId: e.target.value }))}><option value="">—</option>{(org.branches || []).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></Field>
+              <Field label="الموازنة (اختياري)" style={{ width: 130 }}><input className="inp n" inputMode="decimal" value={prjF.budget} onChange={e => setPrjF(x => ({ ...x, budget: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+              <button className="btn pri sm" data-prjadd onClick={addP}><Plus size={13} />إضافة مشروع</button></div>}
+            <div className="tw"><table className="tb" data-prjtable>
+              <thead><tr><th>الرمز</th><th>المشروع</th><th style={{ textAlign: 'end' }}>الإيراد</th><th style={{ textAlign: 'end' }}>المصروف</th><th style={{ textAlign: 'end' }}>الصافي</th><th style={{ textAlign: 'end' }}>من الموازنة</th><th /></tr></thead>
+              <tbody>
+                {rows.map(({ p, R }) => <React.Fragment key={p.id}>
+                  <tr style={{ cursor: 'pointer', opacity: p.active === false ? .55 : 1 }} onClick={() => setPrjOpen(o => o === p.id ? null : p.id)}>
+                    <td className="num" style={{ fontSize: 11.5 }}>{p.code}</td><td>{p.name}{p.branchId && <div style={{ fontSize: 10, color: 'var(--faint)' }}>{((org.branches || []).find(b => b.id === p.branchId) || {}).name}</div>}{p.active === false && <span className="badge b-dim" style={{ marginInlineStart: 6 }}>مغلق</span>}</td>
+                    <td className="num" style={{ textAlign: 'end' }}>{money(R.rev)}</td><td className="num" style={{ textAlign: 'end' }}>{money(R.exp)}</td>
+                    <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: R.net < 0 ? 'var(--rose)' : 'var(--mint)' }}>{money(R.net)}</td>
+                    <td className="num" style={{ textAlign: 'end' }}>{p.budget ? Math.round(R.exp / p.budget * 100) + '%' : '—'}</td>
+                    <td>{canEd && <button className="btn sm gh" onClick={(ev) => { ev.stopPropagation(); togP(p); }}>{p.active === false ? 'إعادة فتح' : 'إغلاق'}</button>}</td></tr>
+                  {prjOpen === p.id && <tr><td colSpan={7}>{R.accs.length ? <table className="tb" style={{ fontSize: 12 }}><tbody>{R.accs.map(a => <tr key={a.code}><td className="num">{a.code}</td><td>{a.name}</td><td>{a.kind === 'rev' ? 'إيراد' : 'مصروف'}</td><td className="num" style={{ textAlign: 'end' }}>{money(a.v)}</td></tr>)}</tbody></table> : <div className="empty">لا حركة على المشروع في الفترة.</div>}</td></tr>}
+                </React.Fragment>)}
+                {!rows.length && <tr><td colSpan={7}><div className="empty">لا مشاريع بعد.</div></td></tr>}
+              </tbody></table></div>
+          </div>
+        </div>); })()}
       {view === 'cc' && (
         <div className="grid" style={{ gap: 12 }}>
           <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>{periodBar}</div>
@@ -3752,6 +3788,10 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
               قيد افتتاحي (أرصدة بداية المدة)
             </label>
           </div>
+          <div className="row" style={{ gap: 9, flexWrap: 'wrap', marginBottom: 8 }}>
+            <Field label="مركز التكلفة (الفرع)" style={{ minWidth: 180 }}><select className="sel" aria-label="فرع القيد" value={jm.branchId || ''} onChange={e => setJm(m => ({ ...m, branchId: e.target.value }))}><option value="">المركز الرئيسي</option>{(org.branches || []).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></Field>
+            {projList(org).length > 0 && <Field label="المشروع (للقيد كله)" style={{ minWidth: 180 }}><select className="sel" aria-label="مشروع القيد" value={jm.projectId || ''} onChange={e => setJm(m => ({ ...m, projectId: e.target.value }))}><option value="">—</option>{projList(org).map(p => <option key={p.id} value={p.id}>{p.code} · {p.name}</option>)}</select></Field>}
+          </div>
           {jm.lines.map((l, i) => (
             <div key={i} className="row" style={{ gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
               <select className="sel jm-acc" style={{ flex: 2, minWidth: 190 }} value={l.code} onChange={e => jmUp(i, 'code', e.target.value)}>
@@ -3766,11 +3806,12 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                 onChange={e => jmUp(i, 'debit', e.target.value.replace(/[^\d.]/g, ''))} />
               <input className="inp n jm-c" inputMode="decimal" style={{ flex: 1, minWidth: 110 }} placeholder="دائن 0.00" value={l.credit}
                 onChange={e => jmUp(i, 'credit', e.target.value.replace(/[^\d.]/g, ''))} />
+              {projList(org).length > 0 && <select className="sel jm-prj" style={{ flex: 1, minWidth: 120 }} aria-label="مشروع السطر" value={l.projectId || ''} onChange={e => jmUp(i, 'projectId', e.target.value)}><option value="">{jm.projectId ? 'مشروع القيد' : 'بلا مشروع'}</option>{projList(org).map(p => <option key={p.id} value={p.id}>{p.code} · {p.name}</option>)}</select>}
               {jm.lines.length > 2 && <button className="btn sm gh" onClick={() => setJm(m => ({ ...m, lines: m.lines.filter((_, x) => x !== i) }))}><X size={13} /></button>}
             </div>
           ))}
           <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-            <button className="btn sm" onClick={() => setJm(m => ({ ...m, lines: [...m.lines, { code: '', debit: '', credit: '' }] }))}><Plus size={13} />سطر إضافي</button>
+            <button className="btn sm" onClick={() => setJm(m => ({ ...m, lines: [...m.lines, { code: '', debit: '', credit: '', projectId: '' }] }))}><Plus size={13} />سطر إضافي</button>
             <div className="row" style={{ gap: 10, fontSize: 12.5 }}>
               <span>مدين: <b className="num" style={{ color: 'var(--brass-l)' }}>{money(jmD)}</b></span>
               <span>دائن: <b className="num" style={{ color: 'var(--brass-l)' }}>{money(jmC)}</b></span>

@@ -1,13 +1,13 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Truck, FileBarChart, ChevronDown, Printer, FileText, Building2, ClipboardCheck, Users, Plus, AlertTriangle, CalendarDays, Trash2, Check, X, Banknote } from 'lucide-react';
-import { uomOf, uomOk, lineUnits, lineFac, UomSelect, DupInvHint, Field, Kpi, LOCK_MSG, MAIN_WH, Modal, Num, ROLES, SectionNav, arDate, branchBanks, closingInvoices, isStocked, isoD, itemType, money, nowISO, pFactor, payTotal, periodLocked, printA4, purKey, q3, _xe, roleEdit, rolePost, buildAccounting, INV_BILLERS, itemsSeq, vatNoOk, supVatOf, ItemPick, roleHasTab, stockByWh, sum, supplierPrices, today, uid, whName, whOf, whOn, poWhOf, brSigCheck, signoff, signDecision, sigFailMsg } from '../../App.jsx';
+import { projList, uomOf, uomOk, lineUnits, lineFac, UomSelect, DupInvHint, Field, Kpi, LOCK_MSG, MAIN_WH, Modal, Num, ROLES, SectionNav, arDate, branchBanks, closingInvoices, isStocked, isoD, itemType, money, nowISO, pFactor, payTotal, periodLocked, printA4, purKey, q3, _xe, roleEdit, rolePost, buildAccounting, INV_BILLERS, itemsSeq, vatNoOk, supVatOf, ItemPick, roleHasTab, stockByWh, sum, supplierPrices, today, uid, whName, whOf, whOn, poWhOf, brSigCheck, signoff, signDecision, sigFailMsg } from '../../App.jsx';
 import { cloud, bfKey } from '../../storage';
 
 export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: goTab, billOnly }) {
   const [tab, setTab] = useState('inv');
   const [repOpen, setRepOpen] = useState(false);    // v9.4 قائمة تقارير التطبيق
-  const [pay, setPay] = useState(null);
+  const [pay, setPay] = useState(null); const [pdn, setPdn] = useState(null); const [disc, setDisc] = useState('');   // v47.4 الإشعار المدين للمشتريات والخصم المكتسب
   const [amt, setAmt] = useState(0);
   const [payFund, setPayFund] = useState('1201');   // v15.19: مصدر السداد — بنك (افتراضي) أو خزينة رئيسية
   const [newInv, setNewInv] = useState(null);        // نموذج فاتورة توريد (م4)
@@ -616,7 +616,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     if (!(await ensureVat(sp.id, k.vat, f.vatNo))) return;
     const autoNo = () => { const pre = 'SVC-' + today().replace(/-/g, '').slice(2) + '-'; let n = 1; while ((ops.invoices || []).some(i => i.invoiceNo === pre + String(n).padStart(3, '0'))) n++; return pre + String(n).padStart(3, '0'); };
     const br = org.branches.find(b => b.id === f.branchId);
-    const rec = { id: uid('inv'), kind: 'svc', supplierId: sp.id, supplierName: sp.name, branchId: f.branchId || '', branchName: br ? br.name : 'المركز الرئيسي', invoiceNo: typedNo || autoNo(),
+    const rec = { id: uid('inv'), kind: 'svc', ...(f.projectId ? { projectId: f.projectId } : {}), supplierId: sp.id, supplierName: sp.name, branchId: f.branchId || '', branchName: br ? br.name : 'المركز الرئيسي', invoiceNo: typedNo || autoNo(),
       amount: toS(k.gross), vatAmt: toS(k.vat), taxable: k.vat > 0, paidAmount: 0, date: f.date, dueDate: f.dueDate || f.date,
       expLines: ls.map(l => ({ desc: String(l.desc).trim(), accCode: l.accCode, net: toS(l.n), vat: toS(l.v), ...(isFx(f.cur) ? { fcNet: l.n } : {}) })), by: me.name, createdAt: nowISO(),
       ...(isFx(f.cur) ? { cur: f.cur, fxRate: fxR, fcAmount: k.gross } : {}) };
@@ -665,6 +665,38 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     if (ok) { setRet(null); say('سُجّل المرتجع وأُصدر إشعار دائن ' + cn.invoiceNo + ' بـ ' + money(-cn.amount) + ' ✓'); }
   };
 
+  // v47.4 — الإشعار المدين للمشتريات: «نُصدره للمورد» يخفض الذمة والتكلفة وضريبة المدخلات (فرق سعر، خصم مكتسب، نقص/تلف، رسوم غير مستحقة)،
+  //          و«استلمناه من المورد» يزيدها (فرق سعر لصالحه، رسوم إضافية). كلاهما مربوط بالفاتورة الأصلية.
+  const taxOf = (i) => typeof i.vatAmt === 'number' ? Math.abs(i.vatAmt) > 0.004 : i.taxable === true;
+  const vRate = () => Number((org.taxCfg || {}).rate) || 15;
+  const accOpts = (i) => { const o = [{ code: (i.accCode || '5198'), ar: 'حساب الفاتورة الأصلية (' + (i.accCode || '5198') + ')' }];
+    if (Array.isArray(i.lines) && i.lines.some(l => l.stock)) { const w = whOn(org) ? (whOf(org).find(x => x.id === (i.whId || MAIN_WH)) || {}) : {}; o.push({ code: String(w.accCode || '1601'), ar: 'المخزون' + (w.name ? ' — ' + w.name : '') + ' (للأصناف المخزنية)' }); }
+    o.push({ code: '4202', ar: 'خصم مكتسب (4202)' }); return o; };
+  const pdnMk = (inv, f, me0) => { const net = Math.round((Number(f.net) || 0) * 100) / 100; const vat = f.taxable ? Math.round(net * vRate() / 100 * 100) / 100 : 0; const tot = Math.round((net + vat) * 100) / 100;
+    const no = (f.no || '').trim() || ((f.dir === 'inc' ? 'SDN-' : 'PDN-') + (f.date || today()).replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 5).toUpperCase());
+    const base = { id: uid('inv'), invoiceNo: no, supplierId: inv.supplierId, supplierName: inv.supplierName, branchId: inv.branchId || '', branchName: inv.branchName || '', date: f.date, dueDate: f.dir === 'inc' ? (inv.dueDate && inv.dueDate > f.date ? inv.dueDate : f.date) : f.date, paidAmount: 0,
+      appliesTo: inv.id, refNo: inv.invoiceNo, ...(inv.projectId ? { projectId: inv.projectId } : {}), reason: f.reason.trim(), taxable: !!f.taxable, accCode: f.acc, ...(inv.whId ? { whId: inv.whId } : {}), ...(f.disc ? { disc: true } : {}), by: me0.name, createdAt: nowISO() };
+    return f.dir === 'inc' ? { ...base, supDebit: true, amount: tot, vatAmt: vat } : { ...base, creditNote: true, debitNote: true, amount: -tot, vatAmt: -vat }; };
+  const savePdn = async () => {
+    const f = pdn, inv = f.inv; if (periodLocked(org, f.date)) return say(LOCK_MSG(f.date), 'no');
+    if (!(f.reason || '').trim()) return say('اكتب سبب الإشعار', 'no');
+    if (!(Number(f.net) > 0)) return say('أدخل المبلغ قبل الضريبة', 'no');
+    if (f.date < (inv.date || '').slice(0, 10)) return say('تاريخ الإشعار قبل تاريخ الفاتورة', 'no');
+    const rec = pdnMk(inv, f, me);
+    if (f.dir !== 'inc' && -rec.amount > Math.round((inv.amount - cnOf(inv)) * 100) / 100 + 0.004) return say('الإشعار أكبر من قيمة الفاتورة بعد الإشعارات السابقة (' + money(inv.amount - cnOf(inv)) + ')', 'no');
+    const ok = await commit(d => ({ ...d, invoices: [rec, ...(d.invoices || [])] }),
+      { actionType: 'create', targetType: 'expense', targetId: rec.id, branchName: inv.branchName, need: 'post', title: f.dir === 'inc' ? 'سجّل إشعارًا مدينًا من مورد' : 'أصدر إشعارًا مدينًا لمورد', details: inv.supplierName + ' · عن ' + inv.invoiceNo + ' · ' + money(Math.abs(rec.amount)) + ' · ' + f.reason.trim() });
+    if (ok) { setPdn(null); say((f.dir === 'inc' ? 'سُجّل إشعار المورد ' : 'صدر الإشعار المدين ') + rec.invoiceNo + ' بـ ' + money(Math.abs(rec.amount)) + ' ✓');
+      if (f.dir !== 'inc') printA4(org, 'إشعار مدين للمورد — ' + rec.invoiceNo, '', pdnHtml(rec, inv)); }
+  };
+  const pdnHtml = (r, inv) => { const net = Math.round((-r.amount + r.vatAmt) * 100) / 100, sp = (org.suppliers || []).find(x => x.id === r.supplierId) || {};
+    return `<div class="sub">رقم الإشعار: <b>${_xe(r.invoiceNo)}</b> · التاريخ: ${_xe(r.date)}${r.by ? ' · أعدّه: ' + _xe(r.by) : ''}</div>
+  <table><tbody><tr><td style="width:30%">إلى المورد</td><td>${_xe(r.supplierName)}${sp.vatNo ? ' · الرقم الضريبي ' + _xe(sp.vatNo) : ''}</td></tr>
+  <tr><td>عن فاتورته</td><td>${_xe(inv.invoiceNo)} بتاريخ ${_xe((inv.date || '').slice(0, 10))} — ${money(inv.amount)} ر.س</td></tr>
+  <tr><td>السبب</td><td>${_xe(r.reason)}</td></tr><tr><td>المبلغ قبل الضريبة</td><td class="n">${money(net)}</td></tr>
+  <tr><td>ضريبة القيمة المضافة</td><td class="n">${money(-r.vatAmt)}</td></tr><tr><td><b>يُخصم من حسابكم</b></td><td class="n"><b>${money(-r.amount)} ر.س</b></td></tr></tbody></table>
+  <div class="sub" style="margin-top:10px">نرجو إصدار إشعار دائن ضريبي مقابل هذا المبلغ مرتبطًا بفاتورتكم (المادة 40 والمادة 54 من اللائحة التنفيذية لضريبة القيمة المضافة).</div>`; };
+
   const settle = async () => {
     const inv = pay;
     // v8.1: فاتورة مشتقة من وردية → السداد يُسجل في سجل مستقل وقيده (ذمم/بنك) يتولد تلقائياً
@@ -687,12 +719,17 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
       const ap = fc >= fxRemFc(inv) - 0.005 ? invRem(inv) : Math.round(fc * (Number(inv.fxRate) || 0) * 100) / 100;
       fxp = { fc, rate, paid: Math.round(fc * rate * 100) / 100, ap };
     }
-    const v = fxp ? fxp.ap : Math.min(amt, invRem(inv));
-    if (v <= 0) return say('أدخل مبلغ سداد صحيح', 'no');
+    const dsc = fxp ? 0 : Math.round((Number(disc) || 0) * 100) / 100;   // v47.4 خصم تعجيل سداد مكتسب (بإجماليه شامل الضريبة)
+    const v = fxp ? fxp.ap : Math.min(amt, Math.max(0, Math.round((invRem(inv) - dsc) * 100) / 100));
+    if (dsc < 0 || dsc > invRem(inv) + 0.004) return say('الخصم أكبر من المتبقي', 'no');
+    if (v <= 0 && !(dsc > 0)) return say('أدخل مبلغ سداد صحيح', 'no');
+    const dRec = dsc > 0 ? (() => { const tx = taxOf(inv); const net = tx ? Math.round(dsc / (1 + vRate() / 100) * 100) / 100 : dsc;
+      return pdnMk(inv, { dir: 'red', date: today(), no: '', reason: 'خصم تعجيل سداد مكتسب', net, taxable: tx, acc: '4202', disc: true }, me); })() : null;
+    if (dRec) dRec.amount = -dsc, dRec.vatAmt = -Math.round((dsc - Math.round((dsc / (1 + (taxOf(inv) ? vRate() : 0) / 100)) * 100) / 100) * 100) / 100;   // الإجمالي كما اتُّفق تمامًا
     await commit(d => ({
       ...d,
       // v29.4: الدفعة تُحفظ بتاريخها ومصدرها؛ paidAmount يبقى مجموع المسدَّد (تعتمد عليه شاشات المتبقي)
-      invoices: (d.invoices || []).map(i => i.id === inv.id ? { ...i, paidAmount: Math.round(((i.paidAmount || 0) + v) * 100) / 100,
+      invoices: (dRec ? [dRec, ...(d.invoices || [])] : (d.invoices || [])).map(i => i.id === inv.id && v > 0 ? { ...i, paidAmount: Math.round(((i.paidAmount || 0) + v) * 100) / 100,
         payments: [...(Array.isArray(i.payments) ? i.payments : (i.paidAmount > 0 ? [{ id: 'legacy', amount: i.paidAmount, date: (i.paidDate || i.date || '').slice(0, 10), fund: i.payFund || '' }] : [])),
           { id: uid('ipay'), amount: v, date: today(), fund: payFund, by: me.name, at: nowISO(), ...(fxp ? { fc: fxp.fc, rate: fxp.rate, paid: fxp.paid } : {}) }] } : i)
     }), {
@@ -700,7 +737,8 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
       title: 'سدّد دفعة لمورد', details: `${inv.supplierName} · فاتورة ${inv.invoiceNo} · ${money(v)} ر.س` + (fxp ? ` (${fxp.fc} ${inv.cur} @ ${fxp.rate} = ${money(fxp.paid)} ر.س)` : '') + (payFund === '1101' ? ' · نقداً من الخزينة' : ' · من البنك')
     });
     say(fxp ? `تم تسجيل سداد ${fxp.fc} ${inv.cur} = ${money(fxp.paid)} ر.س` + (Math.abs(fxp.paid - v) > 0.004 ? ` · فرق صرف ${fxp.paid > v ? 'خسارة' : 'ربح'} ${money(Math.abs(fxp.paid - v))} ر.س` : '') : `تم تسجيل سداد ${money(v)} ر.س لـ${inv.supplierName}`);
-    setPay(null); setAmt(0);
+    if (dRec) say('سُجّل السداد' + (v > 0 ? ' ' + money(v) : '') + ' وخصم مكتسب ' + money(dsc) + ' بإشعار مدين ' + dRec.invoiceNo + ' (يخفض ضريبة المدخلات ' + money(-dRec.vatAmt) + ') ✓');
+    setPay(null); setAmt(0); setDisc('');
   };
 
   const togglePaid = async (f) => {
@@ -835,6 +873,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
                         {rem <= 0 ? 'مسددة' : late ? 'متأخرة' : 'قيد السداد'}</span></td>
                       <td style={{ whiteSpace: 'nowrap' }}>{rem > 0 && canPay &&
                         <button className="btn sm" onClick={() => { setPay(i); setAmt(rem); if (i.cur) setFxPay({ fc: String(fxRemFc(i)), rate: lastRate(i.cur) || String(i.fxRate || '') }); }}>سداد</button>}
+                        {i.source === 'stored' && canPay && i.amount > 0 && !i.creditNote && !i.cur && <button className="btn sm gh" data-pdn style={{ marginInlineStart: 4 }} onClick={() => setPdn({ inv: i, dir: 'red', date: today(), no: '', reason: '', net: '', taxable: taxOf(i), acc: i.accCode || '5198' })}>إشعار مدين</button>}
                         {i.source === 'stored' && canDelInv && <button className="btn sm gh" title="حذف فاتورة مكررة أو مستوردة خطأً" style={{ color: 'var(--rose)', marginInlineStart: 4 }} onClick={() => delInv(i)}><Trash2 size={12} /></button>}</td>
                     </tr>
                   );
@@ -1181,6 +1220,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
             <Field label="المورد"><select className="sel" value={svc.supplierId} onChange={e => setSvc(f => ({ ...f, supplierId: e.target.value }))}>{suppliers.map(sp => <option key={sp.id} value={sp.id}>{sp.name}</option>)}</select></Field>
             <Field label="رقم فاتورة المورد (اختياري — يُولَّد تلقائيًا)"><input className="inp" value={svc.invoiceNo} onChange={e => setSvc(f => ({ ...f, invoiceNo: e.target.value }))} />
               <DupInvHint invoices={ops.invoices} supplierId={svc.supplierId} invoiceNo={svc.invoiceNo} /></Field>
+            {projList(org).length > 0 && <Field label="المشروع (اختياري)"><select className="sel" aria-label="مشروع فاتورة الخدمات" value={svc.projectId || ''} onChange={e => setSvc(x => ({ ...x, projectId: e.target.value }))}><option value="">—</option>{projList(org).map(p => <option key={p.id} value={p.id}>{p.code} · {p.name}</option>)}</select></Field>}
             <Field label="الفرع / مركز التكلفة"><select className="sel" value={svc.branchId} onChange={e => setSvc(f => ({ ...f, branchId: e.target.value }))}><option value="">المركز الرئيسي</option>{myBranches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></Field>
             <Field label="تاريخ الفاتورة"><input type="date" className="inp" value={svc.date} onChange={e => setSvc(f => ({ ...f, date: e.target.value }))} /></Field>
             <Field label="تاريخ الاستحقاق"><input type="date" className="inp" value={svc.dueDate} onChange={e => setSvc(f => ({ ...f, dueDate: e.target.value }))} /></Field>
@@ -1248,6 +1288,29 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
         </Modal>
       )}
 
+      {pdn && (() => { const f = pdn, inv = f.inv, net = Number(f.net) || 0, vat = f.taxable ? Math.round(net * vRate() / 100 * 100) / 100 : 0; const R = [['فرق سعر', 'red'], ['خصم مكتسب', 'red'], ['نقص أو تلف مطالَب به', 'red'], ['رسوم غير مستحقة', 'red']]; return (
+        <Modal title={'إشعار مدين — فاتورة ' + inv.invoiceNo} icon={FileText} onClose={() => setPdn(null)}
+          foot={<><button className="btn pri" data-pdn-save onClick={savePdn}><Check size={14} />{f.dir === 'inc' ? 'تسجيل إشعار المورد' : 'إصدار وطباعة'}</button><button className="btn gh" onClick={() => setPdn(null)}>إلغاء</button></>}>
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+            <button className={'btn sm' + (f.dir === 'red' ? ' pri' : ' gh')} data-pdndir="red" onClick={() => setPdn(x => ({ ...x, dir: 'red', acc: inv.accCode || '5198' }))}>نُصدره للمورد (تخفيض)</button>
+            <button className={'btn sm' + (f.dir === 'inc' ? ' pri' : ' gh')} data-pdndir="inc" onClick={() => setPdn(x => ({ ...x, dir: 'inc', acc: inv.accCode || '5198' }))}>استلمناه من المورد (زيادة)</button>
+          </div>
+          <div className="mono-b" style={{ marginBottom: 8 }}><span style={{ fontSize: 12 }}>{inv.supplierName} · {(inv.date || '').slice(0, 10)}</span><span className="num">{money(inv.amount)}{cnOf(inv) > 0 ? ' · سبق تخفيض ' + money(cnOf(inv)) : ''}</span></div>
+          {f.dir === 'red' && <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>{R.map(([t]) => <button key={t} className={'btn sm' + (f.reason === t ? ' pri' : ' gh')} onClick={() => setPdn(x => ({ ...x, reason: t, acc: t === 'خصم مكتسب' ? '4202' : (x.acc === '4202' ? (inv.accCode || '5198') : x.acc) }))}>{t}</button>)}</div>}
+          <div className="grid g2">
+            <Field label="السبب"><input className="inp" aria-label="سبب إشعار المورد" value={f.reason} onChange={e => setPdn(x => ({ ...x, reason: e.target.value }))} placeholder={f.dir === 'inc' ? 'فرق سعر، رسوم نقل…' : ''} /></Field>
+            <Field label={f.dir === 'inc' ? 'رقم إشعار المورد' : 'رقم الإشعار (اختياري)'}><input className="inp" value={f.no} onChange={e => setPdn(x => ({ ...x, no: e.target.value }))} /></Field>
+            <Field label="التاريخ"><input type="date" className="inp" value={f.date} onChange={e => setPdn(x => ({ ...x, date: e.target.value }))} /></Field>
+            <Field label="المبلغ قبل الضريبة"><input className="inp n" inputMode="decimal" aria-label="مبلغ إشعار المورد" value={f.net} onChange={e => setPdn(x => ({ ...x, net: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+            <Field label="الحساب المقابل"><select className="sel" aria-label="حساب إشعار المورد" value={f.acc} onChange={e => setPdn(x => ({ ...x, acc: e.target.value }))}>{accOpts(inv).filter(o => f.dir === 'red' || o.code !== '4202').map(o => <option key={o.code} value={o.code}>{o.ar}</option>)}</select></Field>
+            <Field label="الضريبة"><label className="row" style={{ gap: 6, alignItems: 'center', fontSize: 12.5 }}><input type="checkbox" checked={!!f.taxable} onChange={e => setPdn(x => ({ ...x, taxable: e.target.checked }))} />خاضع بنسبة {vRate()}%</label></Field>
+          </div>
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 6 }}><span className="badge b-dim">الضريبة {money(vat)}</span><span className="badge b-sky" data-pdn-total>الإجمالي {money(net + vat)}</span></div>
+          <div className="note" style={{ marginTop: 8 }}>{f.dir === 'inc'
+            ? 'إشعار المورد المدين يزيد التكلفة وضريبة المدخلات وذمة المورد، ويُسدَّد كفاتورة مستقلة مرتبطة بالأصلية.'
+            : 'يخفض ذمة المورد والتكلفة (أو يُثبت خصمًا مكتسبًا) ويعكس ضريبة المدخلات المقابلة. نظاميًا يُصدر المورد إشعارًا دائنًا ضريبيًا مقابله — يُطبع الإشعار لإرساله له.'}</div>
+        </Modal>); })()}
+
       {pay && (
         <Modal title={`سداد فاتورة ${pay.invoiceNo}`} icon={Banknote} onClose={() => setPay(null)}
           foot={<><button className="btn pri" onClick={settle}><Check size={14} />تسجيل السداد</button>
@@ -1264,7 +1327,9 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
             </div>
             {fc > 0 && rate > 0 && <div className="note" data-fxdiff={d}>يخرج من المصدر <b className="num">{money(paid)}</b> ر.س، وتُخفَّض ذمة المورد <b className="num">{money(ap)}</b> ر.س (بسعر الفاتورة){Math.abs(d) > 0.004 ? <> — فرق صرف <b>{d > 0 ? 'خسارة' : 'ربح'} <span className="num">{money(Math.abs(d))}</span></b> ر.س يُقيَّد في «أرباح/خسائر فروق العملة»</> : null}.</div>}
           </>); })() :
-          <Num label="مبلغ السداد" value={amt} onChange={setAmt} hint="يمكن السداد جزئياً على دفعات" />}
+          <><Num label="مبلغ السداد" value={amt} onChange={setAmt} hint="يمكن السداد جزئياً على دفعات" />
+            {pay.source === 'stored' && <Field label="خصم تعجيل سداد مكتسب (اختياري، شامل الضريبة)"><input className="inp n" inputMode="decimal" aria-label="خصم مكتسب" value={disc} onChange={e => { const x = e.target.value.replace(/[^\d.]/g, ''); setDisc(x); setAmt(Math.max(0, Math.round((invRem(pay) - (Number(x) || 0)) * 100) / 100)); }} />
+              {Number(disc) > 0 && <div className="hint" data-discnote>يُسجَّل إشعار مدين للمورد بالخصم{taxOf(pay) ? ' ويُخفَّض من ضريبة المدخلات ' + money(Number(disc) - Number(disc) / (1 + vRate() / 100)) : ''} — اطلب من المورد إشعارًا دائنًا ضريبيًا مقابله.</div>}</Field>}</>}
           <Field label="مصدر السداد">
             <select className="sel" value={payFund} onChange={e => setPayFund(e.target.value)}>
               <option value="1201">من البنك التجميعي</option>

@@ -1884,7 +1884,9 @@ function buildAccounting(org, ops) {
   // — الإيرادات —
   addAcc('4101', 'المبيعات (إجمالية)', 'rev', { link: 'إغلاقات الورديات المعتمدة' });
   addAcc('4102', 'مبيعات بالفواتير (عملاء ومؤسسات)', 'rev', { link: 'سجل فواتير المبيعات — غير المسجّلة في الإغلاقات' });
+  addAcc('4103', 'خصم مسموح به (يُطرح من المبيعات)', 'rev', { link: 'خصم تعجيل السداد للعملاء — بإشعار دائن يخفض الضريبة' });   // v47.4
   addAcc('4201', 'أرباح بيع/استبعاد الأصول', 'rev', { link: 'سجل الأصول — عند البيع بأعلى من القيمة الدفترية' });
+  addAcc('4202', 'خصم مكتسب', 'rev', { link: 'خصومات الموردين بعد الفاتورة — بإشعار مدين يخفض ضريبة المدخلات' });   // v47.4
   // — المصروفات —
   addAcc('5201', 'الرواتب والأجور (كشف الرواتب)', 'exp', { link: 'ترحيل الاستحقاق الشهري' });
   addAcc('5203', 'مصروف مكافأة نهاية الخدمة', 'exp', { link: 'ترحيل المخصص الشهري' });
@@ -2072,13 +2074,13 @@ function buildAccounting(org, ops) {
         ...(Math.abs(restNet) > 0.004 ? [L(exC, restNet, 0)] : [])];
       const credPpv = ppv < -0.004 ? [L('5504', 0, -ppv)] : [];
       push({
-        id: 'inv:' + i.id, date: d, branchId: i.branchId, title: 'فاتورة توريد آجلة — ' + (i.supplierName || 'مورد') + (stockNet > 0 ? ' (مخزون)' : ''),
+        id: 'inv:' + i.id, date: d, branchId: i.branchId, ...(i.projectId ? { projectId: i.projectId } : {}), title: (i.supDebit ? 'إشعار مدين من المورد (زيادة) — ' : 'فاتورة توريد آجلة — ') + (i.supplierName || 'مورد') + (stockNet > 0 ? ' (مخزون)' : ''),
         src: 'فاتورة مورد', ref: i.invoiceNo || i.id,
         lines: ti.vat
           ? [...debit, L('1501', ti.vat, 0), ...credPpv, L('2101', 0, i.amount)]
           : [...debit, ...credPpv, L('2101', 0, i.amount)],
         vat: ti.vat ? { out: 0, inn: ti.vat, netSales: 0, netPurch: ti.net } : null,
-        reg: { k: 'p', doc: 'فاتورة مورد', party: i.supplierName || '', pvat: ((org.suppliers || []).find(x => x.id === i.supplierId) || {}).vatNo || '', supplierId: i.supplierId || '', no: i.invoiceNo || '', pm: 'deferred', net: ti.net, vat: ti.vat, gross: i.amount }
+        reg: { k: 'p', doc: i.supDebit ? 'إشعار مدين من المورد' : 'فاتورة مورد', party: i.supplierName || '', pvat: ((org.suppliers || []).find(x => x.id === i.supplierId) || {}).vatNo || '', supplierId: i.supplierId || '', no: i.invoiceNo || '', pm: 'deferred', net: ti.net, vat: ti.vat, gross: i.amount }
       });
     } else if (i.amount < 0 && (i.mizanId || i.creditNote)) {
       // v28.2: إشعار دائن من مورد (مرتجع) مستورد من ميزان — يعكس قيد الفاتورة: يخفض الذمة والمصروف وضريبة المدخلات
@@ -2090,11 +2092,11 @@ function buildAccounting(org, ops) {
       const stockCr = (perpOn(d) && Array.isArray(i.lines)) ? Math.min(n, Math.round(i.lines.filter(l => l.stock).reduce((s2, l) => s2 + Math.abs(Number(l.net) || 0), 0) * 100) / 100) : 0;
       const restCr = Math.round((n - stockCr) * 100) / 100;
       push({
-        id: 'inv:' + i.id, date: d, branchId: i.branchId, title: (i.creditNote ? 'مرتجع مشتريات — إشعار دائن ' : 'إشعار دائن من مورد — ') + (i.supplierName || 'مورد'),
+        id: 'inv:' + i.id, date: d, branchId: i.branchId, ...(i.projectId ? { projectId: i.projectId } : {}), title: (i.debitNote ? 'إشعار مدين للمورد' + (i.disc ? ' (خصم مكتسب)' : '') + ' — ' : i.creditNote ? 'مرتجع مشتريات — إشعار دائن ' : 'إشعار دائن من مورد — ') + (i.supplierName || 'مورد'),
         src: 'فاتورة مورد', ref: i.invoiceNo || i.id,
         lines: [L('2101', a, 0), ...(stockCr > 0 ? [L(whAccOf(i.whId), 0, stockCr)] : []), ...(restCr > 0.004 ? [L(exC, 0, restCr)] : []), ...(v ? [L('1501', 0, v)] : [])],
         vat: v ? { out: 0, inn: -v, netSales: 0, netPurch: -n } : null,
-        reg: { k: 'p', doc: 'إشعار دائن من مورد', party: i.supplierName || '', pvat: ((org.suppliers || []).find(x => x.id === i.supplierId) || {}).vatNo || '', supplierId: i.supplierId || '', no: i.invoiceNo || '', pm: 'deferred', net: -n, vat: -v, gross: -a }
+        reg: { k: 'p', doc: i.debitNote ? 'إشعار مدين للمورد' : 'إشعار دائن من مورد', party: i.supplierName || '', pvat: ((org.suppliers || []).find(x => x.id === i.supplierId) || {}).vatNo || '', supplierId: i.supplierId || '', no: i.invoiceNo || '', pm: 'deferred', net: -n, vat: -v, gross: -a }
       });
     }
     // v29.4: قيد لكل دفعة بتاريخها ومصدرها (الدفعة القديمة المجمّعة تبقى بمعرّفها السابق invp:)
@@ -2128,9 +2130,9 @@ function buildAccounting(org, ops) {
       const side = (orig.terms === 'credit' && x.kind !== 'credit') || (x.kind === 'credit' && x.terms === 'credit') ? '1380' : fundOf(x.fund);
       const net = Math.round((x.net || 0) * 100) / 100, vt = Math.round((x.vat || 0) * 100) / 100;
       const lines = x.kind === 'credit'
-        ? [L('4102', net, 0), ...(vt ? [L('2301', vt, 0)] : []), L(side, 0, x.total)]
+        ? [L(x.disc ? '4103' : '4102', net, 0), ...(vt ? [L('2301', vt, 0)] : []), L(side, 0, x.total)]   // v47.4 خصم تعجيل السداد ← 4103
         : [L(side, x.total, 0), L('4102', 0, net), ...(vt ? [L('2301', 0, vt)] : [])];
-      push({ id: 'si:' + x.id, date: x.date, ...(x.branchId ? { branchId: x.branchId } : {}), title: (x.kind === 'credit' ? 'إشعار دائن مبيعات ' + x.no + ' (عن ' + (orig.no || '') + ')' : x.kind === 'debit' ? 'إشعار مدين مبيعات ' + x.no + ' (عن ' + ((siById[x.refId] || {}).no || '') + ')' : (x.terms === 'credit' ? 'فاتورة مبيعات آجلة ' : 'فاتورة مبيعات نقدية ') + x.no) + ' — ' + ((x.buyer || {}).name || 'عميل'),
+      push({ id: 'si:' + x.id, date: x.date, ...(x.branchId ? { branchId: x.branchId } : {}), ...((x.projectId || (siById[x.refId] || {}).projectId) ? { projectId: x.projectId || siById[x.refId].projectId } : {}), title: (x.kind === 'credit' ? 'إشعار دائن مبيعات ' + x.no + ' (عن ' + (orig.no || '') + ')' : x.kind === 'debit' ? 'إشعار مدين مبيعات ' + x.no + ' (عن ' + ((siById[x.refId] || {}).no || '') + ')' : (x.terms === 'credit' ? 'فاتورة مبيعات آجلة ' : 'فاتورة مبيعات نقدية ') + x.no) + ' — ' + ((x.buyer || {}).name || 'عميل'),
         src: 'فواتير المبيعات', ref: x.no, lines, vat: vt ? (x.kind === 'credit' ? { out: -vt, inn: 0, netSales: -net, netPurch: 0 } : { out: vt, inn: 0, netSales: net, netPurch: 0 }) : null,
         reg: (() => { const sg = x.kind === 'credit' ? -1 : 1; const b = x.buyer || orig.buyer || {}; return { k: 's', doc: x.kind === 'credit' ? 'إشعار دائن مبيعات' : x.kind === 'debit' ? 'إشعار مدين مبيعات' : (x.type === 'standard' || b.vat ? 'فاتورة ضريبية' : 'فاتورة مبسطة'), no: x.no, party: b.name || '', pvat: b.vat || b.vatNo || '', net: sg * net, vat: sg * vt, gross: sg * x.total }; })() });
     }
@@ -2143,7 +2145,7 @@ function buildAccounting(org, ops) {
     const a = Math.round((Number(v.amount) || 0) * 100) / 100; if (!(a > 0)) return;
     const fund = (v.fund && accIx[v.fund]) ? v.fund : '1201'; const p = v.party || {};
     const rest = Math.round((a - (v.alloc || []).reduce((s2, x) => s2 + (Number(x.amount) || 0), 0)) * 100) / 100;
-    const base = { id: 'cv:' + v.id, date: String(v.date || '').slice(0, 10), ...(v.branchId ? { branchId: v.branchId } : {}), src: v.kind === 'ov' ? 'سند مقاصّة' : v.kind === 'rv' ? 'سند قبض' : 'سند صرف', ref: v.no };
+    const base = { id: 'cv:' + v.id, date: String(v.date || '').slice(0, 10), ...(v.branchId ? { branchId: v.branchId } : {}), src: v.kind === 'ov' ? 'سند مقاصّة' : v.kind === 'rv' ? 'سند قبض' : 'سند صرف', ref: v.no, ...(v.projectId ? { projectId: v.projectId } : {}) };
     if (v.kind === 'ov') { push({ ...base, title: 'مقاصّة ذمم — ' + (v.supName || '') + ' / ' + (v.custName || ''), lines: [L('2101', a, 0), L('1380', 0, a)] }); return; }
     // v47.3 سند التحويل: من حساب نقدي إلى آخر (خزينة/بنك) — من الطرف الدائن إلى الطرف المدين، بلا أثر على الإيراد أو المصروف
     if (v.kind === 'tv') { const to = (v.toFund && accIx[v.toFund]) ? v.toFund : ''; if (!to || to === fund || !accIx[v.fund]) return;
@@ -2435,8 +2437,8 @@ function buildAccounting(org, ops) {
     push({
       id: 'man:' + j.id, date: (j.date || '').slice(0, 10),
       title: j.title || 'قيد يدوي', src: j.opening ? 'قيد افتتاحي' : j.vatClose ? 'إقفال ضريبي' : j.vatPay ? 'سداد ضريبة' : (j.mizanSales ? 'مبيعات مستوردة' : 'قيد يدوي'),
-      ref: j.by || '', manual: true, ...(j.vat ? { vat: j.vat, reg: { k: j.vat.out || j.vat.netSales ? 's' : 'p', doc: 'مستورد من نظام سابق', party: j.title || '', net: (j.vat.netSales || 0) + (j.vat.netPurch || 0), vat: (j.vat.out || 0) + (j.vat.inn || 0), gross: (j.vat.netSales || 0) + (j.vat.netPurch || 0) + (j.vat.out || 0) + (j.vat.inn || 0) } } : {}),   // v28.5: قيد مبيعات مستورد يحمل أثره الضريبي لشاشة الضريبة
-      lines: (j.lines || []).map(l => L(l.code, l.debit || 0, l.credit || 0))
+      ref: j.by || '', manual: true, ...(j.branchId ? { branchId: j.branchId } : {}), ...(j.projectId ? { projectId: j.projectId } : {}), ...(j.vat ? { vat: j.vat, reg: { k: j.vat.out || j.vat.netSales ? 's' : 'p', doc: 'مستورد من نظام سابق', party: j.title || '', net: (j.vat.netSales || 0) + (j.vat.netPurch || 0), vat: (j.vat.out || 0) + (j.vat.inn || 0), gross: (j.vat.netSales || 0) + (j.vat.netPurch || 0) + (j.vat.out || 0) + (j.vat.inn || 0) } } : {}),   // v28.5: قيد مبيعات مستورد يحمل أثره الضريبي لشاشة الضريبة
+      lines: (j.lines || []).map(l => ({ ...L(l.code, l.debit || 0, l.credit || 0), ...(l.projectId ? { projectId: l.projectId } : {}) }))   // v47.4 مشروع لكل سطر
     });
   });
 
@@ -2801,7 +2803,7 @@ const ACCT_SECTIONS = [
   { v: 'jr', ar: 'القيود اليومية' }, { v: 'coa', ar: 'دليل الحسابات' }, { v: 'tb', ar: 'ميزان المراجعة' },
   { v: 'fs', ar: 'القوائم المالية' }, { v: 'food', ar: 'تكلفة الطعام بالفروع' }, { v: 'cf', ar: 'التدفقات النقدية' }, { v: 'fcast', ar: 'التوقّع النقدي' },
   { v: 'bud', ar: 'الموازنة' }, { v: 'anl', ar: 'التحليل والنِسَب' }, { v: 'unbilled', ar: 'مستلم لم يُفوتر' }, { v: 'apage', ar: 'أعمار الموردين' },
-  { v: 'arage', ar: 'أعمار العملاء' }, { v: 'export', ar: 'تصدير للمحاسب' }, { v: 'cc', ar: 'مراكز التكلفة' },
+  { v: 'arage', ar: 'أعمار العملاء' }, { v: 'export', ar: 'تصدير للمحاسب' }, { v: 'cc', ar: 'مراكز التكلفة' }, { v: 'prj', ar: 'المشاريع' },
   { v: 'vat', ar: 'الضريبة (ق.م)' }, { v: 'vatreg', ar: 'سجلات الضريبة المفصلة' }, { v: 'einv', ar: 'الفوترة (زاتكا)' }, { v: 'zakat', ar: 'الزكاة وضريبة الدخل' }, { v: 'suprep', ar: 'مشتريات الموردين بطرق الدفع' },
   { v: 'ast', ar: 'الأصول والإهلاك' }, { v: 'bank', ar: 'التسوية البنكية' }, { v: 'mclose', ar: 'حزمة الإقفال' },
   { v: 'ctrl', ar: 'الضوابط والتدقيق' }, { v: 'lock', ar: 'الإقفال الشهري' }, { v: 'astl', ar: 'تسوية التطبيقات' },
@@ -3013,7 +3015,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v47.3';
+const APP_VER = 'v47.4';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -6957,9 +6959,11 @@ function otFromAttendance(org, ops, emp, month) {
     days++;
     if (off.has(new Date(ds + 'T00:00:00').getDay())) offMin += mins; else regMin += Math.max(0, mins - H * 60);
   });
-  // تقريب لأقرب ربع ساعة لأسفل (لا تُحتسب كسور الدقائق لصالح أي طرف بلا اعتماد)
+  // تقريب لأقرب ربع ساعة لأسفل مرة واحدة على مجموع الشهر (لصالح الموظف: لا تضيع كسور كل يوم)
+  // v47.4 (قرار GAP-022): التفصيل يطابق الإجمالي — ساعات الراحة تُقرَّب، وساعات أيام العمل = الإجمالي − الراحة
   const q = (m) => Math.floor(m / 15) / 4;
-  return { hours: q(regMin + offMin), regH: q(regMin), offH: q(offMin), days, open, H };
+  const hours = q(regMin + offMin), offH = q(offMin);
+  return { hours, regH: Math.round((hours - offH) * 100) / 100, offH, days, open, H };
 }
 
 /* OvertimeSheet: نُقل إلى mods/hr/OvertimeSheet.jsx (تحميل كسول) */
@@ -8456,6 +8460,22 @@ function expiryLots(org, ops) {
     for (let i = a.length - 1; i >= 0; i--) { const t = Math.min(a[i].qty, have); a[i].left = Math.round(t * 1000) / 1000; have -= t; } });
   return lots.filter(l => l.left > 0.0005);
 }
+
+/* v47.4 بُعد «المشروع» (GAP-011): org.projects [{id, code, name, branchId?, active}] — يُوسَم به القيد كله (مستند) أو سطر القيد اليدوي.
+   ربحية المشروع = إيراداته − مصروفاته في الفترة، من سطور القيود (وسم السطر يغلب وسم القيد). */
+const projList = (org, all) => ((org && org.projects) || []).filter(p => all || p.active !== false);
+function projectPL(A, pid, from, to) {
+  const kind = {}; (A.accounts || []).forEach(a => { kind[String(a.code)] = a.kind; });
+  const acc = {}; let rev = 0, exp = 0, n = 0;
+  (A.entries || []).forEach(e => { if (e.closing || (from && e.date < from) || (to && e.date > to)) return; let hit = false;
+    (e.lines || []).forEach(l => { if ((l.projectId || e.projectId) !== pid) return; const k = kind[String(l.code)]; if (k !== 'rev' && k !== 'exp') return; hit = true;
+      const v = k === 'rev' ? (l.credit || 0) - (l.debit || 0) : (l.debit || 0) - (l.credit || 0);
+      if (k === 'rev') rev += v; else exp += v; const a = acc[l.code] = acc[l.code] || { code: l.code, name: l.name, kind: k, v: 0 }; a.v += v; });
+    if (hit) n++; });
+  const r = (x) => Math.round(x * 100) / 100;
+  return { rev: r(rev), exp: r(exp), net: r(rev - exp), n, accs: Object.values(acc).map(a => ({ ...a, v: r(a.v) })).sort((a, b) => a.kind === b.kind ? b.v - a.v : a.kind === 'rev' ? -1 : 1) };
+}
+const projNextCode = (org) => { let mx = 0; ((org && org.projects) || []).forEach(p => { const g = /^PRJ-(\d+)$/.exec(p.code || ''); if (g) mx = Math.max(mx, +g[1]); }); return 'PRJ-' + String(mx + 1).padStart(3, '0'); };
 
 /* v47.3 FEFO عند الصرف: يوزّع الكمية على دفعات المستودع الأقرب انتهاءً أولًا (lots من expiryLots لنفس المستودع والصنف).
    يعيد الدفعات المقترحة وما يُصرف منها، وما زاد عن الدفعات المؤرَّخة (بلا تاريخ صلاحية)، وعدد المنتهي ضمنها. */
@@ -11777,7 +11797,7 @@ async function qrAnalyzeComments(items) {
 
 
 // v38.3 — ما تحتاجه ملفات التطبيقات المنفصلة (mods/) من النواة
-export { fefoPick, lotsFor };
+export { fefoPick, lotsFor, projList, projectPL, projNextCode };
 export { computeSmartAlerts, stockShortages, CV_KIND, cvNextNo, partyOpenDocs, applyCashVoucher, cashVoucherHtml, VCH_T, VCH_TRF, vchTypeOf, assignVouchers, voucherList, voucherHtml, saleDeductFrom, saleDeductOn, saleUse, saleRecipeItems, saleDayUse, syncSaleMoves, itemLedger, UOM_LIST, UOM_GROUPS, uomOf, uomConv, uomOk, uomNeeded, lineUnits, lineFac, UomSelect, Notifications, closeAlertsCfg, closeAlertEvents, closeAlertFor, shiftSumText, waShare, CLOSE_ALERT_ROLES, posDocView, printScreen, cutoutPixels, productThumb, prepWasteStats, normDigits, normScan, posPaper, posPaperDev, setPosPaperDev, prepShelfH, prepBatchState, PREP_ST, canBrPurchase, brSigCheck, BR_PURCHASERS, poWhOf, syncPoInbox, INV_BILLERS, ITEM_NEW_TYPES, itemsSeq, nextItemCode, vatNoOk, supVatOf, ItemPick, A4_CSS, posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim, prepItemId, prepItemOf, prodNeeds, prodCheck, prodMoves, clrMerge, clrRead, clrViewStats, ppvReport, invTurnover, dirOf, isMzbk, mzbkDecrypt, clrData, clrRecord, clrSigRef, clrDiff, clrCompare, clrOn, clrState, clrMirror, clrLoad, clrSeed, OdooBar, ACCT_SECTIONS, ACCT_SEC_AR, ACC_KIND, ALL_TABS, APPS, AdvanceForm, AppPermsPanel, AppsStrip, BR_COLS, Badge, BalCell, BlindCount, BranchForm, COUNT_FREQ, COUNT_ST, CameraModal, CategoriesPanel, ClosingView, CloudHealth, CountScheduleCard, DAYS_AR, DENOMS, DOC_LABEL, DOC_TYPES, DailyBranchReport, DeliveryAppsPanel, DisbursementForm, DupInvHint, EXP_CATS, FILE_CATS, Field, FinancialReports, GROWTH_MONTHS, HR_WEEK_DAYS, HrSignPad, ITEM_TYPES, Kpi, LAUNCH_APPS, LEAVE_TYPES, LOCK_MSG, MAIN_WH, MFA_DEFAULT_ROLES, MOVE_KINDS, MZ_FIXED, MZ_KIND_AR, MZ_LOGO_HTML, MZ_SUGGEST, MfaPolicyCard, MizanMerge, Modal, MoneyField, NUM_FACE, NUM_LOCALE, NationalAddressFields, Num, OutputDialog, PAY_ADD_TYPES, PAY_GUESS, PEN_TYPES, POS_DEV_KEY, POS_SH_KEY, PROMO_IDEAS, PROMO_T, PT_SRC, PT_TYPE, PartnerChip, PdfTile, PhotoField, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, PriceAlerts, QR_ITEMS, QR_STATUS, QUOTA_MSG, QrBranchesView, QrComplaints, QrDashboard, RB_KIND_AR, RB_PM_AR, RB_SOURCES, REG_APPS, REG_CATS, REG_IX, ROLES, SC_KPIS, SIGN_DOC_AR, SIG_H, SIG_W, SectionNav, SigView, SignDocsModal, SignaturePad, SystemPanel, TAB_AR, TRAIN_STATUS_AR, UsageVariance, UserForm, WASTE_REASONS, WH_KIND, WH_MOVE, WH_ST, WarehousesPanel, WasteControl, WasteFields, WastePending, WhLines, _normName, _xe, aCountDone, aItemsOf, acctSecKey, activePriorCorrectives, activeTrainingRecord, aiHeaders, appCanSee, appOpenNow, appUseGet, appUseSet, arDT, arDate, arTime, bankOfBranch, bioEnroll, bookHidden, branchBanks, branchEntityId, browserName, bsLayout, bsRowsOf, buildAccounting, buildClosingA4, buildPartners, buildPayslipSignDocs, businessDay, canApproveCount, canApproveWaste, capOK, chartTone, closingInvoices, clr, compressImage, computeIncome, contactFields, contactOf, correctiveExpiry, correctiveSignDoc, countCfgOf, countDenoms, countFocus, countSchedule, countedClosing, customerAging, daysBetween, defaultHrPolicies, defaultPenaltySchedule, defaultPointsRules, defaultRewardTiers, defaultRoleKpis, defaultTrainingPrograms, deficitCfg, deficitPatterns, detectStmtMap, deviceType, emptyDenoms, entityById, entityList, eosAccrualLines, eosCumAt, eosState, eosYears, escH, expiringTraining, expiryLots, exportExcel, fineSuggest, fmtBalP, fmtNA, frozenSnapshotFor, gosiRatesFor, haversineMeters, hrAttendanceDetail, hrEmpStats, hrQrWindowCode, hrScoreFor, isCostCtl, isLayout, isPdfData, isRowsOf, isStocked, isoD, itemAvgCosts, itemType, kpiAchievement, leaveBalance, leaveDeductPlan, lockedThru, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, makeXlsx, missingRequiredTraining, mizanPlan, money, moneyP, monthEnd, monthLabel, monthLedger, multiEntityOn, mzNewCode, mzR2, naClean, naErr, naHas, naMissing, newBranchDraft, nextPartnerCode, nextWhAcc, normPhone, normalizeSupPays, nowISO, onLeave, openDocWin, openPdfData, otFromAttendance, otRateOf, overdueSignDocs, pFactor, parseCsvGrid, parseMt940, parseXlsxGrid, partGross, partYield, payCashPart, payLabel, paySplits, payTotal, payrollRowsOf, penTypeAr, pendShiftsGet, pendShiftsSet, periodLocked, piAggregate, piDetect, piNorm, pipTriggered, posCashNet, posClrOf, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posShiftHtml, posTotals, posZHtml, positionJdHtml, printA4, printClosingA4, printIncomeA4, printPartnerStatement, printReceipt, printSalesInvoice, programRequiredFor, promoActive, promoDesc, promoHits, purKey, pwStrength, q3, qrAnalyzeComments, qrAvg, qrBranchStats, qrDate, qrF1, qrFs, qrIsComplaint, qrMs, qrOverall, qrOverdue, qrPrintReport, qrRateUrl, qrSentBadge, qrStatusOf, qrSvg, rewardSignDoc, roleEdit, roleHasTab, roleKpisFor, rolePost, salesDaySource, sha, sha256Hex, short, siCredited, siRem, siSorted, siStamp, siVerify, sigBlockHtml, sigPoints, sigSvg, signDeclaration, signDocHtml, simplifySig, slimBranchDoc, snapAll, snapMonths, snapPut, stAddDays, stDate, stNum, stockByWh, submitWaste, suggestNextLevel, sum, supplierAging, supplierPrices, today, trainingExpiryOf, trainingStatusNow, uid, usageReport, useSecNav, verifyBackup, waNum, wasteCfg, wasteDaily, wasteReasonAr, wasteRows, webauthnSupported, whForBranch, whName, whOf, whOn, zatcaTLV };
 export { ClosingForm };
 // v38.3 — للاختبارات الآلية (tests/): دوال المحرك والشاشات تُستورد من النواة مباشرة

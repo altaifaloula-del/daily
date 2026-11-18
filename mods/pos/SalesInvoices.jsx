@@ -1,7 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useMemo, useState } from 'react';
 import { FileText, Wallet, AlertTriangle, ShieldCheck, Plus, Printer, Check, X, Banknote } from 'lucide-react';
-import { Field, Kpi, LOCK_MSG, Modal, Num, ROLES, branchBanks, buildPartners, entityList, isoD, money, naMissing, nowISO, periodLocked, printSalesInvoice, rolePost, siCredited, siRem, siSorted, siStamp, siVerify, sum, today, uid } from '../../App.jsx';
+import { projList, Field, Kpi, LOCK_MSG, Modal, Num, ROLES, branchBanks, buildPartners, entityList, isoD, money, naMissing, nowISO, periodLocked, printSalesInvoice, rolePost, siCredited, siRem, siSorted, siStamp, siVerify, sum, today, uid } from '../../App.jsx';
 
 export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
   const all = ops.salesInvoices || [];
@@ -44,20 +44,26 @@ export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
     const due = (() => { const dd = new Date(x.date + 'T12:00:00'); dd.setDate(dd.getDate() + (Number(c && c.terms) || 0)); return isoD(dd); })();
     const base = { id: uid('si'), kind: 'invoice', type: x.type, entityId: x.entityId || 'primary', branchId: x.branchId || '', date: x.date, time: x.time || '',
       customerKey: c ? c.key : '', buyer: c ? { name: c.name, vat: c.tax || '', address: c.address || '', crNo: c.crNo || '' } : { name: (x.buyerName || '').trim() },
-      lines: L, net: T.net, vat: T.vat, total: T.total, terms: x.terms, ...(x.terms === 'cash' ? { fund: x.fund || '1101' } : { dueDate: due }), inClosing: !!x.inClosing, receipts: [], by: me.name, at: nowISO() };
+      lines: L, net: T.net, vat: T.vat, total: T.total, terms: x.terms, ...(x.terms === 'cash' ? { fund: x.fund || '1101' } : { dueDate: due }), inClosing: !!x.inClosing, ...(x.projectId ? { projectId: x.projectId } : {}), receipts: [], by: me.name, at: nowISO() };
     let made = null;
     const ok = await commit(d => { const rec = siStamp(d.salesInvoices || [], base); made = rec; return { ...d, salesInvoices: [...(d.salesInvoices || []), rec] }; },
       { actionType: 'create', targetType: 'sales_invoice', targetId: base.id, need: 'post', title: 'أصدر فاتورة مبيعات', details: (base.buyer.name || 'عميل نقدي') + ' · ' + money(T.total) + (x.terms === 'credit' ? ' · آجل' : '') });
     if (ok && made) { setF(null); say('صدرت ' + made.no + ' ✓'); printSalesInvoice(org, made); }
   };
   const saveRc = async () => {
-    const x = byId(rc.id); const a = r2(rc.amount); const rem = siRem(ops, x);
-    if (!(a > 0)) return say('أدخل مبلغ التحصيل', 'no'); if (a > rem + 0.004) return say('أكبر من المتبقي ' + money(rem), 'no');
+    const x = byId(rc.id); const a = r2(rc.amount); const rem = siRem(ops, x); const dsc = r2(rc.disc);   // v47.4 خصم تعجيل السداد الممنوح (شامل الضريبة)
+    if (!(a > 0) && !(dsc > 0)) return say('أدخل مبلغ التحصيل', 'no'); if (r2(a + dsc) > rem + 0.004) return say('التحصيل والخصم أكبر من المتبقي ' + money(rem), 'no');
     if (periodLocked(org, rc.date)) return say(LOCK_MSG(rc.date), 'no');
-    const r = { id: uid('rc'), date: rc.date, amount: a, fund: rc.fund || '1201', by: me.name, at: nowISO() };
-    const ok = await commit(d => ({ ...d, salesInvoices: (d.salesInvoices || []).map(y => y.id === x.id ? { ...y, receipts: [...(y.receipts || []), r] } : y) }),
-      { actionType: 'create', targetType: 'sales_invoice', targetId: x.id, need: 'post', title: 'تحصيل من عميل', details: x.no + ' · ' + money(a) });
-    if (ok) { setRc(null); say('سُجّل التحصيل ✓'); }
+    const r = a > 0 ? { id: uid('rc'), date: rc.date, amount: a, fund: rc.fund || '1201', by: me.name, at: nowISO() } : null;
+    // الخصم بعد الفاتورة يعدّل قيمة التوريد ⇒ إشعار دائن ضريبي مرتبط بالفاتورة (المادة 40 و54 من اللائحة) — الضريبة بنسبة الفاتورة نفسها
+    const dVat = dsc > 0 && x.total > 0 ? r2(dsc * (Number(x.vat) || 0) / x.total) : 0, dNet = r2(dsc - dVat);
+    const cnBase = dsc > 0 ? { id: uid('si'), kind: 'credit', disc: true, refId: x.id, type: x.type, entityId: x.entityId, branchId: x.branchId, date: rc.date, time: new Date().toTimeString().slice(0, 5), customerKey: x.customerKey, buyer: x.buyer,
+      lines: [{ desc: 'خصم تعجيل سداد', qty: 1, price: dNet, vatRate: dNet > 0 ? r2(dVat / dNet * 100) : 0, net: dNet, vat: dVat }], net: dNet, vat: dVat, total: dsc, terms: 'credit', inClosing: false, reason: 'خصم تعجيل سداد', receipts: [], by: me.name, at: nowISO() } : null;
+    let made = null;
+    const ok = await commit(d => { let list = (d.salesInvoices || []).map(y => y.id === x.id && r ? { ...y, receipts: [...(y.receipts || []), r] } : y);
+      if (cnBase) { made = siStamp(list, cnBase); list = [...list, made]; } return { ...d, salesInvoices: list }; },
+      { actionType: 'create', targetType: 'sales_invoice', targetId: x.id, need: 'post', title: 'تحصيل من عميل', details: x.no + ' · ' + money(a) + (dsc > 0 ? ' · خصم ممنوح ' + money(dsc) : '') });
+    if (ok) { setRc(null); say(made ? 'سُجّل التحصيل' + (a > 0 ? ' ' + money(a) : '') + ' وخصم ممنوح ' + money(dsc) + ' بإشعار دائن ' + made.no + ' ✓' : 'سُجّل التحصيل ✓'); if (made) printSalesInvoice(org, made, x); }
   };
   const saveCn = async () => {
     const o = byId(cn.id); const reason = (cn.reason || '').trim(); if (!reason) return say('اكتب سبب الإشعار الدائن', 'no');
@@ -162,6 +168,7 @@ export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
             <Field label="العميل (من جهات الاتصال)"><select className="sel" value={f.customerKey} onChange={e => setF(x => ({ ...x, customerKey: e.target.value }))}>
               <option value="">{f.type === 'standard' ? '— اختر العميل —' : 'عميل نقدي (بلا بطاقة)'}</option>{customers.map(c => <option key={c.key} value={c.key}>{c.name}{c.tax ? ' — ' + c.tax : ''}</option>)}</select></Field>
             {!f.customerKey && f.type === 'simplified' && <Field label="اسم العميل (اختياري)"><input className="inp" value={f.buyerName} onChange={e => setF(x => ({ ...x, buyerName: e.target.value }))} /></Field>}
+            {projList(org).length > 0 && <Field label="المشروع (اختياري)"><select className="sel" aria-label="مشروع الفاتورة" value={f.projectId || ''} onChange={e => setF(x => ({ ...x, projectId: e.target.value }))}><option value="">—</option>{projList(org).map(p => <option key={p.id} value={p.id}>{p.code} · {p.name}</option>)}</select></Field>}
             <Field label="طريقة البيع"><select className="sel" value={f.terms} onChange={e => setF(x => ({ ...x, terms: e.target.value, inClosing: e.target.value === 'credit' ? false : x.inClosing }))}><option value="cash">نقدي / شبكة</option><option value="credit">آجل على حساب العميل</option></select></Field>
             {f.terms === 'cash' && !f.inClosing && <Field label="المتحصَّل في"><select className="sel" value={f.fund} onChange={e => setF(x => ({ ...x, fund: e.target.value }))}>{fundOpts}</select></Field>}
           </div>
@@ -202,6 +209,8 @@ export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
             <Field label="التاريخ"><input type="date" className="inp" value={rc.date} onChange={e => setRc(r => ({ ...r, date: e.target.value }))} /></Field>
             <Field label="أُودِع في"><select className="sel" value={rc.fund} onChange={e => setRc(r => ({ ...r, fund: e.target.value }))}>{fundOpts}</select></Field>
           </div>
+          <Field label="خصم تعجيل سداد ممنوح (اختياري، شامل الضريبة)"><input className="inp n" inputMode="decimal" aria-label="خصم ممنوح" value={rc.disc || ''} onChange={e => { const v = e.target.value.replace(/[^\d.]/g, ''); setRc(r => ({ ...r, disc: v, amount: String(Math.max(0, r2(siRem(ops, x) - (Number(v) || 0)))) })); }} />
+            {Number(rc.disc) > 0 && <div className="hint" data-rcdisc>يصدر إشعار دائن ضريبي بالخصم مرتبط بالفاتورة، ويخفض ضريبة المخرجات {money(r2(Number(rc.disc) * (Number(x.vat) || 0) / (x.total || 1)))}.</div>}</Field>
         </Modal>); })()}
 
       {cn && (() => { const o = byId(cn.id); const already = all.filter(c => c.kind === 'credit' && c.refId === o.id); return (
