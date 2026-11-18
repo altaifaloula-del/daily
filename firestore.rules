@@ -453,6 +453,61 @@ service cloud.firestore {
       allow read, delete: if isAdmin() && mfaOk();
     }
 
+    /* ===== v49.0 — المرحلة 01 (قرار G1-ب): السجلات المالية المستقلة بقواعد تفحص المحتوى =====
+       fin_periods/locks: تاريخ إقفال الفترات (يكتبه المدير فقط). fin_journal/{id}: القيد اليدوي سجلًا مستقلًا:
+       • الإنشاء: أدوار المحاسبة المركزية فقط، وبتاريخ بعد الإقفال؛ «مرحّل مباشرة» للمدير فقط وإلا «بانتظار الاعتماد».
+       • التحديث: انتقال وحيد بانتظار ← مرحّل/مرفوض، بمعتمِد مؤهل غير المنشئ، والمحتوى والبصمة والتاريخ ثابتة، وبعد الإقفال.
+       • الحذف: ممنوع للجميع — التصحيح بقيد عكسي (يحمل reverses). */
+    function finLocksPath() { return /databases/$(database)/documents/fin_periods/locks; }
+    function finLockedTo() { return exists(finLocksPath()) ? get(finLocksPath()).data.lockedTo : '0000-00-00'; }
+    function finOpen(date) { return date > finLockedTo(); }
+    function finRole(m, adm) { return adm || roleOf(m) in ['general_management', 'head_office', 'finance_department', 'accountant']; }
+    function finApprover(m, adm) { return adm || roleOf(m) in ['general_management', 'finance_department', 'accountant']; }
+    function fjShape(d, id) {
+      return d.keys().hasOnly(['date', 'status', 'digest', 'data', 'by', 'at', 'cv', 'reverses', 'decidedBy', 'decidedAt', 'reason'])
+        && d.keys().hasAll(['date', 'status', 'digest', 'data', 'by', 'at'])
+        && d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && d.status in ['pending', 'posted', 'rejected']
+        && d.digest is string && d.digest.matches('^[0-9a-f]{64}$')
+        && d.data is string && d.data.size() <= 200000
+        && d.by is string && (!('reverses' in d) || shortStr(d.reverses, 120))
+        && (!('reason' in d) || shortStr(d.reason, 500))
+        && cvOk(d) && id.matches('^[A-Za-z0-9_-]{1,120}$');
+    }
+    function fjCreate(id, d) {
+      let m = memOf();
+      let adm = admOf(m);
+      return okUser(m, adm) && finRole(m, adm) && fjShape(d, id)
+        && d.by == userEmail() && d.at == request.time && finOpen(d.date)
+        && (d.status == 'pending' || (d.status == 'posted' && adm))
+        && !('decidedBy' in d);
+    }
+    function fjUpdate(id, d, o) {
+      let m = memOf();
+      let adm = admOf(m);
+      return okUser(m, adm) && finApprover(m, adm) && fjShape(d, id)
+        && o.status == 'pending' && d.status in ['posted', 'rejected']
+        && d.date == o.date && d.digest == o.digest && d.data == o.data && d.by == o.by && d.at == o.at
+        && o.by != userEmail() && d.decidedBy == userEmail() && d.decidedAt == request.time
+        && finOpen(d.date);
+    }
+    match /fin_periods/{id} {
+      allow read: if isMember() || isAdmin();
+      allow create, update: if isAdmin() && mfaOk() && id == 'locks'
+        && request.resource.data.keys().hasOnly(['lockedTo', 'by', 'at', 'reason'])
+        && request.resource.data.lockedTo is string && request.resource.data.lockedTo.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && request.resource.data.by == userEmail() && request.resource.data.at == request.time
+        // فتح فترة مقفلة (تراجع التاريخ) يتطلب سببًا مكتوبًا
+        && (resource == null || request.resource.data.lockedTo >= resource.data.lockedTo || (shortStr(request.resource.data.get('reason', ''), 500) && request.resource.data.get('reason', '').size() >= 5));
+      allow delete: if false;
+    }
+    match /fin_journal/{id} {
+      allow read: if (isAdmin() || isCentral()) && mfaOk();
+      allow create: if fjCreate(id, request.resource.data);
+      allow update: if fjUpdate(id, request.resource.data, resource.data);
+      allow delete: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
