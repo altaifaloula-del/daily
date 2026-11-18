@@ -1868,3 +1868,40 @@ test('v49.0 BUG-01-04: إلغاء الإقفال الضريبي المرحّل �
   assert.equal(E.vatCloseLive([c, { id: 'u', vatUndo: 'vc1', status: 'rejected' }], c), true);
   assert.equal(E.vatCloseLive([], { ...c, status: 'rejected' }), false);
 });
+
+test('v49.1 MQ-021 الحارس المركزي للرصيد السالب: يمنع ما يجعل الرصيد سالبًا من أي شاشة، ويستثني خصم المبيعات التلقائي', () => {
+  const org = { items: [{ id: 'i1', name: 'دجاج', unit: 'كجم' }], warehouses: [{ id: 'wh-main', kind: 'main' }, { id: 'w1', kind: 'branch', branchId: 'b1' }] };
+  const base = { stockMoves: [{ id: 'm1', itemId: 'i1', qty: 10, kind: 'purchase', whId: 'wh-main' }], whMoves: [], whTransfers: [] };
+  const add = (o, k, m) => ({ ...o, [k]: [...o[k], m] });
+  assert.deepEqual(E.negStockChanges(org, base, add(base, 'stockMoves', { id: 'm2', itemId: 'i1', qty: -10, kind: 'out' })), [], 'حتى الصفر مسموح');
+  const N = E.negStockChanges(org, base, add(base, 'stockMoves', { id: 'm2', itemId: 'i1', qty: -12, kind: 'out' }));
+  assert.deepEqual(N.map(x => [x.whId, x.itemId, x.before, x.after]), [['wh-main', 'i1', 10, -2]]);
+  assert.match(E.negStockMsg(org, N), /دجاج.*المتاح 10 كجم/);
+  // تحويل يتجاوز الرصيد · حذف التوريد بعد الصرف
+  assert.equal(E.negStockChanges(org, base, add(base, 'whTransfers', { id: 't1', status: 'sent', fromWh: 'wh-main', toWh: 'w1', lines: [{ itemId: 'i1', qtySent: 11 }] })).length, 1);
+  const used = add(base, 'stockMoves', { id: 'm2', itemId: 'i1', qty: -6, kind: 'out' });
+  assert.equal(E.negStockChanges(org, used, { ...used, stockMoves: used.stockMoves.filter(m => m.id !== 'm1') }).length, 1, 'حذف توريد مستهلك');
+  // خصم المبيعات التلقائي لا يُمنع (البيع لا يتوقف)
+  assert.deepEqual(E.negStockChanges(org, base, add(base, 'whMoves', { id: 's1', itemId: 'i1', qty: -50, kind: 'sale', whId: 'w1' })), []);
+  // سالب قديم لا يمنع حفظًا لا يمسّه، والتوريد يُسمح
+  const neg = { ...base, stockMoves: [{ id: 'mx', itemId: 'i1', qty: -3, kind: 'out', whId: 'wh-main' }] };
+  assert.deepEqual(E.negStockChanges(org, neg, add(neg, 'stockMoves', { id: 'my', itemId: 'i1', qty: 1, kind: 'in', whId: 'wh-main' })), []);
+  assert.deepEqual(E.negStockChanges(org, neg, { ...neg, closings: [] }), []);
+  assert.deepEqual(E.negStockChanges({ ...org, allowNegStock: true }, base, add(base, 'stockMoves', { id: 'm2', itemId: 'i1', qty: -12, kind: 'out' })), [], 'استثناء صريح من الإعدادات');
+});
+
+test('v49.1 MQ-169 منع تكرار العمليات: إعادة المحاولة لا تكرر السجل نفسه، والنقرة المزدوجة على حفظ تُرفض', () => {
+  const v = { id: 'cv1', kind: 'pv', date: '2026-11-18', amount: 50, by: 'منى', at: '2026-11-18T10:00:00.000Z' };
+  const prev = { cashVouchers: [v] };
+  assert.deepEqual(E.dedupeSameId(prev, { cashVouchers: [v, v] }).cashVouchers.map(x => x.id), ['cv1'], 'المعرّف نفسه مرة واحدة');
+  const old = { cashVouchers: [v, v] };
+  assert.equal(E.dedupeSameId(old, { cashVouchers: [v, v, { id: 'cv2' }] }).cashVouchers.length, 3, 'تكرار قديم لا يُمس');
+  // نقرتان: نفس المحتوى بمعرّف جديد خلال دقيقتين
+  const v2 = { ...v, id: 'cv2', at: '2026-11-18T10:00:40.000Z' };
+  assert.equal(E.findRecentDups(prev, { cashVouchers: [v2, v] }).length, 1);
+  assert.equal(E.findRecentDups(prev, { cashVouchers: [{ ...v2, at: '2026-11-18T10:05:00.000Z' }, v] }).length, 0, 'بعد دقائق: عملية مقصودة');
+  assert.equal(E.findRecentDups(prev, { cashVouchers: [{ ...v2, amount: 51 }, v] }).length, 0, 'محتوى مختلف');
+  assert.equal(E.findRecentDups(prev, { cashVouchers: [{ ...v2, by: 'سعد' }, v] }).length, 0, 'مستخدم آخر');
+  const j = { id: 'j1', date: '2026-11-18', title: 'ت', by: 'منى', createdAt: '2026-11-18T10:00:00Z', lines: [{ code: '1101', debit: 1, credit: 0 }] };
+  assert.equal(E.findRecentDups({ journalManual: [j] }, { journalManual: [{ ...j, id: 'j2', createdAt: '2026-11-18T10:00:05Z' }, j] }).length, 1);
+});

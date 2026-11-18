@@ -1,6 +1,6 @@
 {
   "name": "mithqal",
-  "version": "49.0.0",
+  "version": "49.1.0",
   "private": true,
   "type": "module",
   "description": "منصة سحابية متكاملة لإدارة وإغلاق فروع المطاعم",
@@ -13,13 +13,13 @@
     "build": "vite build",
     "start": "NODE_ENV=production node server.js",
     "preview": "vite preview",
-    "test:rules": "firebase emulators:exec --only firestore \"node --test tests/rules.test.mjs tests/security.rules.test.mjs\"",
+    "test:rules": "firebase emulators:exec --only firestore \"node --test tests/rules.test.mjs tests/security.rules.test.mjs tests/restore.emu.test.mjs\"",
     "test:acct": "node --test tests/accounting.test.mjs",
     "test:ui": "node --test tests/ui/ui.test.mjs",
     "test:zatca": "node --test tests/zatca.test.mjs",
     "test:backup": "node --test tests/backup.test.mjs tests/push.test.mjs",
     "zatca:sandbox": "node scripts/zatca-sandbox.mjs",
-    "test": "node --test tests/accounting.test.mjs tests/zatca.test.mjs tests/backup.test.mjs tests/push.test.mjs tests/functional/cycles.test.mjs",
+    "test": "node --test tests/accounting.test.mjs tests/zatca.test.mjs tests/backup.test.mjs tests/restore.test.mjs tests/push.test.mjs tests/functional/cycles.test.mjs",
     "test:all": "npm test && npm run test:rules && npm run test:ui",
     "check": "npm run build && npm test"
   },

@@ -775,6 +775,20 @@ test('v49.0 القيود اليدوية سجلات مستقلة: مُطفأة ا
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+test('v49.1 MQ-021 الحارس المركزي: الهدر أو أي حركة تُنقص الرصيد دون الصفر تُرفض، والنقرة المزدوجة على حفظ السند لا تكرره', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1280, height: 900 } }, 'live/Inventory/admin/moves');
+  await p.evaluate(() => {
+    window.setOrg(g => ({ ...g, warehouses: [], items: [{ id: 'mt', name: 'لحم', unit: 'كجم', cost: 40 }] }));
+    window.setOps(o => ({ ...o, whMoves: [], whTransfers: [], stockMoves: [{ id: 'p1', date: '2026-09-01', at: '2026-09-01T10:00', itemId: 'mt', kind: 'purchase', qty: 4, unitCost: 40 }] }));
+  }); await p.waitForTimeout(300);
+  await p.locator('button:has-text("حركة جديدة")').click(); await p.waitForTimeout(200);
+  await p.selectOption('.modal select >> nth=0', 'waste');
+  await p.fill('.modal input.inp.n', '9'); await p.click('.modal button:has-text("تسجيل الحركة")'); await p.waitForTimeout(300);
+  assert.match(await p.evaluate(() => window.lastSay || ''), /الرصيد غير كافٍ|تتجاوز الرصيد/);
+  assert.equal(await p.evaluate(() => window.cur.stockMoves.length), 1, 'لم تُسجَّل الحركة');
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
 test('v42.0 المخزون: «صرف للتشغيل» لا يتجاوز الرصيد (بلا استثناء)، وشاشة الدوران وفروق الأسعار على الجوال', async () => {
   const { p, errs, ctx } = await open({ ...devices['iPhone 13'] }, 'live/Inventory/admin/moves');
   await p.evaluate(() => {
