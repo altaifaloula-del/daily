@@ -1079,7 +1079,7 @@ function sha256Hex(str) {
   }
   return H.map(x => (x >>> 0).toString(16).padStart(8, '0')).join('');
 }
-const SI_SERIES = { invoice: 'فاتورة', credit: 'إشعار' };
+const SI_SERIES = { invoice: 'فاتورة', credit: 'إشعار', debit: 'إشعار مدين' };   // v47.3 debit: الإشعار المدين (زيادة على فاتورة)
 /* v32.1 — الدفتر المُرحَّل المجمَّد: عند إقفال شهر يُحفظ ميزانه (مدين/دائن لكل حساب) وبصمة SHA-256 لقيوده،
    ثم يُقارن الحي بالمجمَّد في أي وقت — أي اختلاف (بعد فتح استثنائي أو خلل) يظهر فورًا */
 function monthLedger(A, m) {
@@ -1404,7 +1404,7 @@ function buildPartners(org, ops) {
     (ops.salesInvoices || []).filter(x => x.customerKey === key && !x.inClosing).forEach(x => {
       if (x.kind === 'credit') { if (x.terms === 'credit') t.push({ date: x.date, desc: 'إشعار دائن ' + x.no, ref: x.no, src: 'si', debit: 0, credit: x.total }); return; }
       if (x.terms !== 'credit') return;
-      t.push({ date: x.date, desc: 'فاتورة مبيعات ' + x.no, ref: x.no, src: 'si', debit: x.total, credit: 0, due: x.dueDate });
+      t.push({ date: x.date, desc: (x.kind === 'debit' ? 'إشعار مدين ' : 'فاتورة مبيعات ') + x.no, ref: x.no, src: 'si', debit: x.total, credit: 0, due: x.dueDate });
       (x.receipts || []).forEach(r => t.push({ date: r.date, desc: 'تحصيل عن ' + x.no, ref: x.no, src: 'si', debit: 0, credit: Number(r.amount) || 0 }));
     }); return t; };
 
@@ -2130,9 +2130,9 @@ function buildAccounting(org, ops) {
       const lines = x.kind === 'credit'
         ? [L('4102', net, 0), ...(vt ? [L('2301', vt, 0)] : []), L(side, 0, x.total)]
         : [L(side, x.total, 0), L('4102', 0, net), ...(vt ? [L('2301', 0, vt)] : [])];
-      push({ id: 'si:' + x.id, date: x.date, ...(x.branchId ? { branchId: x.branchId } : {}), title: (x.kind === 'credit' ? 'إشعار دائن مبيعات ' + x.no + ' (عن ' + (orig.no || '') + ')' : (x.terms === 'credit' ? 'فاتورة مبيعات آجلة ' : 'فاتورة مبيعات نقدية ') + x.no) + ' — ' + ((x.buyer || {}).name || 'عميل'),
+      push({ id: 'si:' + x.id, date: x.date, ...(x.branchId ? { branchId: x.branchId } : {}), title: (x.kind === 'credit' ? 'إشعار دائن مبيعات ' + x.no + ' (عن ' + (orig.no || '') + ')' : x.kind === 'debit' ? 'إشعار مدين مبيعات ' + x.no + ' (عن ' + ((siById[x.refId] || {}).no || '') + ')' : (x.terms === 'credit' ? 'فاتورة مبيعات آجلة ' : 'فاتورة مبيعات نقدية ') + x.no) + ' — ' + ((x.buyer || {}).name || 'عميل'),
         src: 'فواتير المبيعات', ref: x.no, lines, vat: vt ? (x.kind === 'credit' ? { out: -vt, inn: 0, netSales: -net, netPurch: 0 } : { out: vt, inn: 0, netSales: net, netPurch: 0 }) : null,
-        reg: (() => { const sg = x.kind === 'credit' ? -1 : 1; const b = x.buyer || orig.buyer || {}; return { k: 's', doc: x.kind === 'credit' ? 'إشعار دائن مبيعات' : (x.type === 'standard' || b.vat ? 'فاتورة ضريبية' : 'فاتورة مبسطة'), no: x.no, party: b.name || '', pvat: b.vat || b.vatNo || '', net: sg * net, vat: sg * vt, gross: sg * x.total }; })() });
+        reg: (() => { const sg = x.kind === 'credit' ? -1 : 1; const b = x.buyer || orig.buyer || {}; return { k: 's', doc: x.kind === 'credit' ? 'إشعار دائن مبيعات' : x.kind === 'debit' ? 'إشعار مدين مبيعات' : (x.type === 'standard' || b.vat ? 'فاتورة ضريبية' : 'فاتورة مبسطة'), no: x.no, party: b.name || '', pvat: b.vat || b.vatNo || '', net: sg * net, vat: sg * vt, gross: sg * x.total }; })() });
     }
     (x.receipts || []).forEach(r => { const a = Math.round((Number(r.amount) || 0) * 100) / 100; if (!(a > 0)) return;
       push({ id: 'sir:' + r.id, date: r.date, ...(x.branchId ? { branchId: x.branchId } : {}), title: 'تحصيل من عميل — ' + ((x.buyer || {}).name || '') + ' عن ' + x.no, src: 'فواتير المبيعات', ref: x.no, lines: [L(fundOf(r.fund), a, 0), L('1380', 0, a)] }); });
@@ -2145,6 +2145,9 @@ function buildAccounting(org, ops) {
     const rest = Math.round((a - (v.alloc || []).reduce((s2, x) => s2 + (Number(x.amount) || 0), 0)) * 100) / 100;
     const base = { id: 'cv:' + v.id, date: String(v.date || '').slice(0, 10), ...(v.branchId ? { branchId: v.branchId } : {}), src: v.kind === 'ov' ? 'سند مقاصّة' : v.kind === 'rv' ? 'سند قبض' : 'سند صرف', ref: v.no };
     if (v.kind === 'ov') { push({ ...base, title: 'مقاصّة ذمم — ' + (v.supName || '') + ' / ' + (v.custName || ''), lines: [L('2101', a, 0), L('1380', 0, a)] }); return; }
+    // v47.3 سند التحويل: من حساب نقدي إلى آخر (خزينة/بنك) — من الطرف الدائن إلى الطرف المدين، بلا أثر على الإيراد أو المصروف
+    if (v.kind === 'tv') { const to = (v.toFund && accIx[v.toFund]) ? v.toFund : ''; if (!to || to === fund || !accIx[v.fund]) return;
+      push({ ...base, src: 'سند تحويل', title: 'سند تحويل ' + v.no + ' — ' + (accIx[fund] || {}).name + ' ← ' + (accIx[to] || {}).name, lines: [L(to, a, 0), L(fund, 0, a)] }); return; }
     let side = '';
     if (p.t === 'sup') side = '2101'; else if (p.t === 'cust') side = '1380'; else if (p.t === 'emp') side = '1401'; else if (p.t === 'acc' && accIx[p.acc]) side = p.acc;
     const amt = (p.t === 'sup' || p.t === 'cust') ? rest : (p.t === 'emp' && v.kind === 'pv' && v.empPurpose === 'advance') ? 0 : a;   // السلفة تُقيَّد من سجل السلف المرتبط
@@ -3010,7 +3013,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v47.2';
+const APP_VER = 'v47.3';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -6089,11 +6092,11 @@ function printSalesInvoice(org, x, orig) {
   const ent = entityById(org, x.entityId);
   const seller = ent.name || ((org.company || {}).name) || '', svat = ent.taxNumber || '', scr = ent.commercialReg || '';
   const sAddr = ent.primary ? ((org.company || {}).address || '') : (ent.address || '');
-  const std = x.type === 'standard', cr = x.kind === 'credit';
+  const std = x.type === 'standard', cr = x.kind === 'credit', dr = x.kind === 'debit';
   const ts = x.date + 'T' + (/^\d{2}:\d{2}$/.test(x.time || '') ? x.time : '12:00') + ':00Z';
   const svg = svat ? qrSvg(zatcaTLV(seller, svat, ts, x.total, x.vat), { ecl: 1, px: 140 }) : '';
   const b = x.buyer || {};
-  const title = cr ? (std ? 'إشعار دائن ضريبي' : 'إشعار دائن ضريبي مبسّط') : (std ? 'فاتورة ضريبية' : 'فاتورة ضريبية مبسّطة');
+  const title = cr ? (std ? 'إشعار دائن ضريبي' : 'إشعار دائن ضريبي مبسّط') : dr ? (std ? 'إشعار مدين ضريبي' : 'إشعار مدين ضريبي مبسّط') : (std ? 'فاتورة ضريبية' : 'فاتورة ضريبية مبسّطة');
   const rows = (x.lines || []).map((l, i) => `<tr><td>${i + 1}</td><td>${_xe(l.desc || '')}</td><td class="n">${l.qty}</td><td class="n">${money(l.price)}</td><td class="n">${money(l.net)}</td><td class="n">${l.vatRate}%</td><td class="n">${money(l.vat)}</td><td class="n">${money(Math.round((l.net + l.vat) * 100) / 100)}</td></tr>`).join('');
   const body = `
     <div class="box" style="display:flex;justify-content:space-between;align-items:flex-start;gap:18px">
@@ -6101,8 +6104,8 @@ function printSalesInvoice(org, x, orig) {
         <div style="font-size:15px;font-weight:800;color:#5a4a1e">${title}</div>
         <div style="margin-top:8px"><b>البائع:</b> ${_xe(seller)} · الرقم الضريبي: ${_xe(svat || '—')}${scr ? ' · س.ت ' + _xe(scr) : ''}</div>
         ${sAddr ? '<div>العنوان: ' + _xe(sAddr) + '</div>' : ''}
-        <div style="margin-top:6px">الرقم: <b>${_xe(x.no)}</b> · التاريخ: <span class="n">${x.date}${x.time ? ' ' + x.time : ''}</span>${x.terms === 'credit' && !cr ? ' · الاستحقاق: <span class="n">' + (x.dueDate || '') + '</span>' : ''}</div>
-        ${cr && orig ? '<div>عن الفاتورة: <b>' + _xe(orig.no) + '</b> بتاريخ ' + orig.date + (x.reason ? ' — السبب: ' + _xe(x.reason) : '') + '</div>' : ''}
+        <div style="margin-top:6px">الرقم: <b>${_xe(x.no)}</b> · التاريخ: <span class="n">${x.date}${x.time ? ' ' + x.time : ''}</span>${x.terms === 'credit' && !cr && x.dueDate ? ' · الاستحقاق: <span class="n">' + (x.dueDate || '') + '</span>' : ''}</div>
+        ${(cr || dr) && orig ? '<div>عن الفاتورة: <b>' + _xe(orig.no) + '</b> بتاريخ ' + orig.date + (x.reason ? ' — السبب: ' + _xe(x.reason) : '') + '</div>' : ''}
         ${b.name ? `<div style="margin-top:6px"><b>${std ? 'المشتري' : 'العميل'}:</b> ${_xe(b.name)}${b.vat ? ' · الرقم الضريبي: ' + _xe(b.vat) : ''}${b.crNo ? ' · س.ت ' + _xe(b.crNo) : ''}${std && b.address ? '<br>العنوان: ' + _xe(b.address) : ''}</div>` : ''}
       </div>
       <div style="text-align:center">${svg}<div class="sub" style="margin-top:3px">${svg ? 'امسح رمز QR للتحقق' : ''}</div></div>
@@ -6112,7 +6115,7 @@ function printSalesInvoice(org, x, orig) {
       <tbody>${rows}
         <tr><td colspan="7">الإجمالي قبل الضريبة</td><td class="n">${money(x.net)}</td></tr>
         <tr><td colspan="7">ضريبة القيمة المضافة</td><td class="n">${money(x.vat)}</td></tr>
-        <tr class="tot"><td colspan="7">${cr ? 'إجمالي الإشعار' : 'الإجمالي شامل الضريبة'}</td><td class="n">${money(x.total)}</td></tr>
+        <tr class="tot"><td colspan="7">${cr || dr ? 'إجمالي الإشعار' : 'الإجمالي شامل الضريبة'}</td><td class="n">${money(x.total)}</td></tr>
       </tbody>
     </table>
     <div class="box" style="font-size:9.5px;color:#888">التسلسل في السجل: ${x.icv} · البصمة الرقمية: <span style="direction:ltr;unicode-bidi:embed">${x.hash ? x.hash.slice(0, 32) + '…' : ''}</span></div>`;
@@ -8454,6 +8457,18 @@ function expiryLots(org, ops) {
   return lots.filter(l => l.left > 0.0005);
 }
 
+/* v47.3 FEFO عند الصرف: يوزّع الكمية على دفعات المستودع الأقرب انتهاءً أولًا (lots من expiryLots لنفس المستودع والصنف).
+   يعيد الدفعات المقترحة وما يُصرف منها، وما زاد عن الدفعات المؤرَّخة (بلا تاريخ صلاحية)، وعدد المنتهي ضمنها. */
+function fefoPick(lots, qty, td) {
+  td = td || today(); let left = Math.round((Number(qty) || 0) * 1000) / 1000; const picks = [];
+  (lots || []).slice().sort((a, b) => String(a.expiry).localeCompare(String(b.expiry))).forEach(l => { if (left <= 0.0005) return;
+    const q = Math.min(left, Number(l.left) || 0); if (!(q > 0.0005)) return;
+    picks.push({ lotId: l.id, batch: l.batch || '', expiry: l.expiry, qty: Math.round(q * 1000) / 1000, expired: String(l.expiry) < td }); left = Math.round((left - q) * 1000) / 1000; });
+  const expiredAll = (lots || []).filter(l => String(l.expiry) < td && (Number(l.left) || 0) > 0.0005);
+  return { picks, undated: Math.max(0, left), expiredPicked: picks.filter(p => p.expired).reduce((a, p) => a + p.qty, 0), expiredLots: expiredAll.length };
+}
+const lotsFor = (lots, whId, itemId) => (lots || []).filter(l => l.whId === whId && l.itemId === itemId).sort((a, b) => String(a.expiry).localeCompare(String(b.expiry)));
+
 // رمز حساب مخزون جديد للمستودع: 160101، 160102… (ثابت على المستودع — لا يتغير بترتيب الفروع)
 const nextWhAcc = (list) => { let n = 1; const used = new Set((list || []).map(w => String(w.accCode || ''))); while (used.has('1601' + String(n).padStart(2, '0'))) n++; return '1601' + String(n).padStart(2, '0'); };
 
@@ -8683,7 +8698,7 @@ function saleDayUse(org, ops, bId, date) {
    v46.6 — سندات القبض والصرف والمقاصّة (قرار المالك): على عميل/مورد (مع التوزيع على الفواتير المفتوحة)، أو أي حساب في الدليل، أو موظف (سلفة تُستقطع من الراتب أو عهدة).
    ترقيم: RV قبض · PV صرف · OV مقاصّة — تسلسل واحد لكل نوع. الجهة التي هي عميل ومورد تُربط (linkKey) فيظهر كشف موحّد ويُقاصّ بينهما.
    ============================================================ */
-const CV_KIND = { rv: { ar: 'سند قبض', p: 'RV' }, pv: { ar: 'سند صرف', p: 'PV' }, ov: { ar: 'سند مقاصّة', p: 'OV' } };
+const CV_KIND = { rv: { ar: 'سند قبض', p: 'RV' }, pv: { ar: 'سند صرف', p: 'PV' }, ov: { ar: 'سند مقاصّة', p: 'OV' }, tv: { ar: 'سند تحويل', p: 'TV' } };   // v47.3 tv: تحويل بين حسابين نقديين
 const cvNextNo = (ops, kind) => { const p = CV_KIND[kind].p; let mx = 0; (ops.cashVouchers || []).forEach(v => { const g = new RegExp('^' + p + '-(\\d+)$').exec(v.no || ''); if (g) mx = Math.max(mx, +g[1]); }); return p + '-' + String(mx + 1).padStart(6, '0'); };
 // الفواتير المفتوحة لجهة: فواتير المورد (المتبقي = المبلغ − المسدَّد) أو فواتير المبيعات الآجلة للعميل (siRem)
 function partyOpenDocs(org, ops, party) {
@@ -8704,6 +8719,10 @@ function applyCashVoucher(d, v, me) {
 }
 function cashVoucherHtml(org, v) {
   const p = v.party || {}; const fundN = (c) => c === '1101' ? 'الخزينة (نقدًا)' : c === '1201' ? 'البنك التجميعي' : (branchBanks(org).find(b => b.code === c) || {}).name || c;
+  if (v.kind === 'tv') return `<div class="sub">رقم السند: <b>${_xe(v.no)}</b> · التاريخ: ${_xe(v.date)}${v.by ? ' · أعدّه: ' + _xe(v.by) : ''}</div>
+  <table><tbody><tr><td style="width:30%">من حساب</td><td>${_xe(fundN(v.fund))}</td></tr><tr><td>إلى حساب</td><td>${_xe(fundN(v.toFund))}</td></tr>
+  <tr><td>المبلغ</td><td class="n"><b>${money(v.amount)} ر.س</b> — ${_xe(tafqeet(v.amount))}</td></tr>${v.ref ? `<tr><td>المرجع</td><td>${_xe(v.ref)}</td></tr>` : ''}${v.note ? `<tr><td>البيان</td><td>${_xe(v.note)}</td></tr>` : ''}</tbody></table>
+  <div style="display:flex;gap:24px;margin-top:40px"><div style="flex:1;text-align:center"><div style="height:46px;border-bottom:1px solid #999"></div><div style="font-size:11px;margin-top:4px">أعدّه</div></div><div style="flex:1;text-align:center"><div style="height:46px;border-bottom:1px solid #999"></div><div style="font-size:11px;margin-top:4px">المعتمد</div></div></div>`;
   const who = v.kind === 'ov' ? 'المورد: ' + _xe(v.supName || '') + ' · العميل: ' + _xe(v.custName || '') : (v.kind === 'rv' ? 'استلمنا من: ' : 'صرفنا إلى: ') + _xe(p.name || '') + (p.t === 'acc' ? ' (حساب ' + _xe(p.acc) + ')' : '');
   const al = (v.alloc || []).length ? `<table><thead><tr><th>الفاتورة</th><th>المبلغ</th></tr></thead><tbody>${v.alloc.map(x => `<tr><td>${_xe(x.no || x.id)}</td><td class="n">${money(x.amount)}</td></tr>`).join('')}</tbody></table>` : '';
   const sig = (a) => `<div style="flex:1;text-align:center"><div style="height:46px;border-bottom:1px solid #999"></div><div style="font-size:11px;margin-top:4px">${a}</div></div>`;
@@ -8796,7 +8815,7 @@ function syncSaleMoves(org, before, next) {
 /* ============ v29.9 — لوحة المستودعات (المركز): الإعداد، الأرصدة، صرف التحويلات ============ */
 const WH_ST = { requested: ['b-amber', 'مطلوب'], proposed: ['b-amber', 'بانتظار اعتماد المركز'], sent: ['b-sky', 'في الطريق'], received: ['b-mint', 'مُستلم'], cancelled: ['b-dim', 'ملغى'], rejected: ['b-rose', 'مرفوض'] };
 const WH_KIND = { b2b: 'فرع ← فرع', return: 'إرجاع للرئيسي' };
-function WhLines({ items, lines, setLines, field, max }) {
+function WhLines({ items, lines, setLines, field, max, lotsOf, lotsBlind }) {
   return (
     <div className="grid" style={{ gap: 6 }}>
       {lines.map((l, i) => (
@@ -8809,6 +8828,13 @@ function WhLines({ items, lines, setLines, field, max }) {
             onChange={e => setLines(ls => ls.map((x, j) => j === i ? { ...x, [field]: e.target.value } : x))} />
           {max && l.itemId && <span style={{ fontSize: 10.5, color: 'var(--faint)', minWidth: 70 }}>المتاح {q3(max(l.itemId))}</span>}
           <button className="btn sm gh" onClick={() => setLines(ls => ls.filter((_, j) => j !== i))}><X size={12} /></button>
+          {lotsOf && l.itemId && (() => { const lots = lotsOf(l.itemId); if (!lots.length) return null; const P = fefoPick(lots, Number(l[field]) || 0);
+            const first = lots[0]; const td = today();
+            return <div data-fefo style={{ flexBasis: '100%', fontSize: 10.5, lineHeight: 1.7, color: 'var(--dim)', paddingInlineStart: 4 }}>
+              {P.picks.length ? <>اصرف حسب الأقرب انتهاءً: {P.picks.map((p, k) => <span key={k} className={'badge ' + (p.expired ? 'b-rose' : 'b-dim')} style={{ marginInlineEnd: 4 }}>{(p.batch ? 'دفعة ' + p.batch + ' · ' : '') + 'تنتهي ' + p.expiry + (lotsBlind ? '' : ' · ' + q3(p.qty))}</span>)}{P.undated > 0.0005 && !lotsBlind && <span className="badge b-dim">بلا تاريخ · {q3(P.undated)}</span>}</>
+                : <>أول دفعة للصرف: {first.batch ? 'دفعة ' + first.batch + ' · ' : ''}تنتهي {first.expiry}{lotsBlind ? '' : ' (المتبقي ' + q3(first.left) + ')'}</>}
+              {P.expiredLots > 0 && <div style={{ color: 'var(--rose)' }}>⚠ في المستودع {P.expiredLots} دفعة منتهية الصلاحية من هذا الصنف{lots.some(x => x.expiry < td) && P.expiredPicked > 0 ? ' — الكمية ستُصرف منها؛ سجّلها هدرًا بدل صرفها' : ''}</div>}
+            </div>; })()}
         </div>
       ))}
       <button className="btn sm gh" style={{ alignSelf: 'flex-start' }} onClick={() => setLines(ls => [...ls, { itemId: '', [field]: '' }])}><Plus size={12} />سطر</button>
@@ -11751,6 +11777,7 @@ async function qrAnalyzeComments(items) {
 
 
 // v38.3 — ما تحتاجه ملفات التطبيقات المنفصلة (mods/) من النواة
+export { fefoPick, lotsFor };
 export { computeSmartAlerts, stockShortages, CV_KIND, cvNextNo, partyOpenDocs, applyCashVoucher, cashVoucherHtml, VCH_T, VCH_TRF, vchTypeOf, assignVouchers, voucherList, voucherHtml, saleDeductFrom, saleDeductOn, saleUse, saleRecipeItems, saleDayUse, syncSaleMoves, itemLedger, UOM_LIST, UOM_GROUPS, uomOf, uomConv, uomOk, uomNeeded, lineUnits, lineFac, UomSelect, Notifications, closeAlertsCfg, closeAlertEvents, closeAlertFor, shiftSumText, waShare, CLOSE_ALERT_ROLES, posDocView, printScreen, cutoutPixels, productThumb, prepWasteStats, normDigits, normScan, posPaper, posPaperDev, setPosPaperDev, prepShelfH, prepBatchState, PREP_ST, canBrPurchase, brSigCheck, BR_PURCHASERS, poWhOf, syncPoInbox, INV_BILLERS, ITEM_NEW_TYPES, itemsSeq, nextItemCode, vatNoOk, supVatOf, ItemPick, A4_CSS, posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim, prepItemId, prepItemOf, prodNeeds, prodCheck, prodMoves, clrMerge, clrRead, clrViewStats, ppvReport, invTurnover, dirOf, isMzbk, mzbkDecrypt, clrData, clrRecord, clrSigRef, clrDiff, clrCompare, clrOn, clrState, clrMirror, clrLoad, clrSeed, OdooBar, ACCT_SECTIONS, ACCT_SEC_AR, ACC_KIND, ALL_TABS, APPS, AdvanceForm, AppPermsPanel, AppsStrip, BR_COLS, Badge, BalCell, BlindCount, BranchForm, COUNT_FREQ, COUNT_ST, CameraModal, CategoriesPanel, ClosingView, CloudHealth, CountScheduleCard, DAYS_AR, DENOMS, DOC_LABEL, DOC_TYPES, DailyBranchReport, DeliveryAppsPanel, DisbursementForm, DupInvHint, EXP_CATS, FILE_CATS, Field, FinancialReports, GROWTH_MONTHS, HR_WEEK_DAYS, HrSignPad, ITEM_TYPES, Kpi, LAUNCH_APPS, LEAVE_TYPES, LOCK_MSG, MAIN_WH, MFA_DEFAULT_ROLES, MOVE_KINDS, MZ_FIXED, MZ_KIND_AR, MZ_LOGO_HTML, MZ_SUGGEST, MfaPolicyCard, MizanMerge, Modal, MoneyField, NUM_FACE, NUM_LOCALE, NationalAddressFields, Num, OutputDialog, PAY_ADD_TYPES, PAY_GUESS, PEN_TYPES, POS_DEV_KEY, POS_SH_KEY, PROMO_IDEAS, PROMO_T, PT_SRC, PT_TYPE, PartnerChip, PdfTile, PhotoField, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, PriceAlerts, QR_ITEMS, QR_STATUS, QUOTA_MSG, QrBranchesView, QrComplaints, QrDashboard, RB_KIND_AR, RB_PM_AR, RB_SOURCES, REG_APPS, REG_CATS, REG_IX, ROLES, SC_KPIS, SIGN_DOC_AR, SIG_H, SIG_W, SectionNav, SigView, SignDocsModal, SignaturePad, SystemPanel, TAB_AR, TRAIN_STATUS_AR, UsageVariance, UserForm, WASTE_REASONS, WH_KIND, WH_MOVE, WH_ST, WarehousesPanel, WasteControl, WasteFields, WastePending, WhLines, _normName, _xe, aCountDone, aItemsOf, acctSecKey, activePriorCorrectives, activeTrainingRecord, aiHeaders, appCanSee, appOpenNow, appUseGet, appUseSet, arDT, arDate, arTime, bankOfBranch, bioEnroll, bookHidden, branchBanks, branchEntityId, browserName, bsLayout, bsRowsOf, buildAccounting, buildClosingA4, buildPartners, buildPayslipSignDocs, businessDay, canApproveCount, canApproveWaste, capOK, chartTone, closingInvoices, clr, compressImage, computeIncome, contactFields, contactOf, correctiveExpiry, correctiveSignDoc, countCfgOf, countDenoms, countFocus, countSchedule, countedClosing, customerAging, daysBetween, defaultHrPolicies, defaultPenaltySchedule, defaultPointsRules, defaultRewardTiers, defaultRoleKpis, defaultTrainingPrograms, deficitCfg, deficitPatterns, detectStmtMap, deviceType, emptyDenoms, entityById, entityList, eosAccrualLines, eosCumAt, eosState, eosYears, escH, expiringTraining, expiryLots, exportExcel, fineSuggest, fmtBalP, fmtNA, frozenSnapshotFor, gosiRatesFor, haversineMeters, hrAttendanceDetail, hrEmpStats, hrQrWindowCode, hrScoreFor, isCostCtl, isLayout, isPdfData, isRowsOf, isStocked, isoD, itemAvgCosts, itemType, kpiAchievement, leaveBalance, leaveDeductPlan, lockedThru, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, makeXlsx, missingRequiredTraining, mizanPlan, money, moneyP, monthEnd, monthLabel, monthLedger, multiEntityOn, mzNewCode, mzR2, naClean, naErr, naHas, naMissing, newBranchDraft, nextPartnerCode, nextWhAcc, normPhone, normalizeSupPays, nowISO, onLeave, openDocWin, openPdfData, otFromAttendance, otRateOf, overdueSignDocs, pFactor, parseCsvGrid, parseMt940, parseXlsxGrid, partGross, partYield, payCashPart, payLabel, paySplits, payTotal, payrollRowsOf, penTypeAr, pendShiftsGet, pendShiftsSet, periodLocked, piAggregate, piDetect, piNorm, pipTriggered, posCashNet, posClrOf, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posShiftHtml, posTotals, posZHtml, positionJdHtml, printA4, printClosingA4, printIncomeA4, printPartnerStatement, printReceipt, printSalesInvoice, programRequiredFor, promoActive, promoDesc, promoHits, purKey, pwStrength, q3, qrAnalyzeComments, qrAvg, qrBranchStats, qrDate, qrF1, qrFs, qrIsComplaint, qrMs, qrOverall, qrOverdue, qrPrintReport, qrRateUrl, qrSentBadge, qrStatusOf, qrSvg, rewardSignDoc, roleEdit, roleHasTab, roleKpisFor, rolePost, salesDaySource, sha, sha256Hex, short, siCredited, siRem, siSorted, siStamp, siVerify, sigBlockHtml, sigPoints, sigSvg, signDeclaration, signDocHtml, simplifySig, slimBranchDoc, snapAll, snapMonths, snapPut, stAddDays, stDate, stNum, stockByWh, submitWaste, suggestNextLevel, sum, supplierAging, supplierPrices, today, trainingExpiryOf, trainingStatusNow, uid, usageReport, useSecNav, verifyBackup, waNum, wasteCfg, wasteDaily, wasteReasonAr, wasteRows, webauthnSupported, whForBranch, whName, whOf, whOn, zatcaTLV };
 export { ClosingForm };
 // v38.3 — للاختبارات الآلية (tests/): دوال المحرك والشاشات تُستورد من النواة مباشرة

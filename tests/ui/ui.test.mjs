@@ -1881,3 +1881,61 @@ test('v47.2 عكس القيد اليدوي: قيد بأطراف معكوسة ب�
   assert.ok(await p.locator('text=معكوس').count() > 0, 'يُعلَّم «معكوس»'); assert.equal(await p.locator('button:has-text("↺ عكس القيد")').count(), 0, 'لا يُعكس مرتين');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v47.3 سند التحويل: من الخزينة إلى البنك برقم TV، يمنع الحساب نفسه، ويُطبع بالطرفين', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Hub/admin/finhub:treasury');
+  await p.evaluate(() => window.setOps(o => ({ ...o, cashVouchers: [] }))); await p.waitForTimeout(200);
+  await p.locator('[data-tabcv]').click(); await p.waitForTimeout(200);
+  await p.locator('[data-newcv="tv"]').click(); await p.waitForTimeout(150);
+  await p.fill('input[aria-label="مبلغ السند"]', '700'); await p.selectOption('select[aria-label="إلى حساب"]', '1101');
+  await p.locator('[data-cvsave]').click(); await p.waitForTimeout(250);
+  assert.equal(await p.evaluate(() => window.lastSay || ''), 'اختر حسابين مختلفين للتحويل');
+  await p.selectOption('select[aria-label="إلى حساب"]', '1201'); await p.fill('input[aria-label="بيان السند"]', 'إيداع نقدية الأسبوع');
+  await p.locator('[data-cvsave]').click(); await p.waitForTimeout(500);
+  const r = await p.evaluate(() => window.cur.cashVouchers.map(v => [v.no, v.kind, v.amount, v.fund, v.toFund]));
+  assert.deepEqual(r, [['TV-000001', 'tv', 700, '1101', '1201']]);
+  const doc = await p.evaluate(() => (document.querySelector('.mz-docv iframe') || {}).srcdoc || '');
+  assert.match(doc, /من حساب/); assert.match(doc, /الخزينة \(نقدًا\)/); assert.match(doc, /البنك التجميعي/);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v47.3 الإشعار المدين: زيادة على فاتورة آجلة ترفع المتبقي وتُرقَّم في السلسلة وتُحصَّل', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/SalesHub/admin');
+  await p.evaluate(() => window.setOrg(g => ({ ...g, partners: [...(g.partners || []), { id: 'cx', key: 'cust:cx', name: 'مؤسسة التموين', type: 'customer' }] }))); await p.waitForTimeout(150);
+  await p.locator('button:has-text("فواتير المبيعات")').first().click(); await p.waitForTimeout(300);
+  await p.evaluate(() => window.setOps(o => ({ ...o, salesInvoices: [] }))); await p.waitForTimeout(150);
+  // فاتورة آجلة عبر المحرك نفسه (الختم والبصمة)
+  await p.evaluate(() => window.setOps(o => ({ ...o, salesInvoices: [{ id: 'sx', no: 'فاتورة-2026-00001', seq: 1, icv: 1, pih: '0', hash: 'h', kind: 'invoice', type: 'simplified', terms: 'credit', customerKey: 'cust:cx', buyer: { name: 'مؤسسة التموين' }, date: '2026-11-02', lines: [{ desc: 'وجبات', qty: 2, price: 100, vatRate: 15, net: 200, vat: 30 }], net: 200, vat: 30, total: 230, dueDate: '2026-12-02', receipts: [] }] }))); await p.waitForTimeout(250);
+  await p.locator('[data-dn]').first().click(); await p.waitForTimeout(200);
+  await p.locator('[data-dn-save]').click(); await p.waitForTimeout(200);
+  assert.equal(await p.evaluate(() => window.lastSay || ''), 'اكتب سبب الإشعار المدين');
+  await p.fill('input[aria-label="سبب الإشعار المدين"]', 'رسوم توصيل'); await p.fill('input[aria-label="مبلغ الزيادة قبل الضريبة"]', '40');
+  assert.match(await p.locator('[data-dn-total]').innerText(), /46/);
+  await p.locator('[data-dn-save]').click(); await p.waitForTimeout(500);
+  assert.match(await p.evaluate(() => window.lastSay || ''), /إشعار مدين/);
+  assert.match(await p.evaluate(() => (document.querySelector('.mz-docv iframe') || {}).srcdoc || ''), /إشعار مدين ضريبي مبسّط[\s\S]*عن الفاتورة/);
+  await p.click('.mz-docv button:has-text("إغلاق")'); await p.waitForTimeout(200);
+  const r = await p.evaluate(() => window.cur.salesInvoices.filter(x => x.kind === 'debit').map(x => [x.no, x.refId, x.total, x.terms, x.icv]));
+  assert.deepEqual(r, [['إشعار مدين-2026-00001', 'sx', 46, 'credit', 2]]);
+  await p.click('button:has-text("إشعارات مدينة")'); await p.waitForTimeout(200);
+  assert.equal(await p.locator('tbody tr', { hasText: 'إشعار مدين عن فاتورة-2026-00001' }).count(), 1);
+  assert.equal(await p.locator('tbody tr', { hasText: 'إشعار مدين' }).locator('button:has-text("تحصيل")').count(), 1, 'يُحصَّل كمستند آجل');
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v47.3 FEFO في صرف الفرع: يقترح الدفعة الأقرب انتهاءً، ينبّه للمنتهية، ويحفظ الدفعات المصروفة', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/BranchWarehouse/bm');
+  await p.evaluate(() => window.setOps(o => ({ ...o, whMoves: [...o.whMoves.filter(m => m.itemId !== 'i2'),
+    { id: 'L1', whId: 'wh-b1', branchId: 'b1', itemId: 'i2', kind: 'in', qty: 4, unitCost: 4, batch: 'A1', expiry: '2020-01-01', date: '2019-12-01', at: '2019-12-01T00:00:00' },
+    { id: 'L2', whId: 'wh-b1', branchId: 'b1', itemId: 'i2', kind: 'in', qty: 10, unitCost: 4, batch: 'B2', expiry: '2099-06-01', date: '2026-01-02', at: '2026-01-02T00:00:00' }] }))); await p.waitForTimeout(250);
+  await p.getByRole('button', { name: 'صرف وهدر' }).first().click(); await p.waitForTimeout(150);
+  await p.click('button:has-text("صرف للمطبخ")'); await p.waitForTimeout(100);
+  await p.locator('.card select').first().selectOption('i2'); await p.locator('.card input[placeholder="الكمية"]').first().fill('6'); await p.waitForTimeout(150);
+  const hint = await p.locator('[data-fefo]').first().innerText();
+  assert.match(hint, /دفعة A1/); assert.match(hint, /دفعة B2/); assert.match(hint, /منتهية الصلاحية/);
+  assert.ok(hint.indexOf('A1') < hint.indexOf('B2'), 'الأقرب انتهاءً أولًا');
+  await p.click('button:has-text("تسجيل صرف للمطبخ")'); await p.waitForTimeout(400);
+  const m = await p.evaluate(() => window.cur.whMoves.find(x => x.kind === 'out' && x.itemId === 'i2'));
+  assert.deepEqual(m.lots, [{ batch: 'A1', expiry: '2020-01-01', qty: 4 }, { batch: 'B2', expiry: '2099-06-01', qty: 2 }]);
+  assert.deepEqual(errs, []); await ctx.close();
+});
