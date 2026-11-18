@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { FileText, HardDrive, ClipboardCheck, Truck, Send, ArrowLeftRight, Trash2, Scale, Check, X, ShoppingCart, PackageCheck } from 'lucide-react';
 import { cloud, bfKey } from '../../storage';
 import { StockVouchers } from './StockVouchers.jsx';
-import { saleDeductOn, saleRecipeItems, canBrPurchase, ItemPick, signoff, sigFailMsg, BlindCount, COUNT_FREQ, Field, MAIN_WH, Modal, SectionNav, WH_MOVE, WH_ST, WasteFields, WastePending, WhLines, bookHidden, countFocus, countSchedule, isCostCtl, isStocked, itemAvgCosts, nowISO, q3, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whForBranch, whName, whOf, whOn } from '../../App.jsx';
+import { saleDeductOn, saleRecipeItems, canBrPurchase, ItemPick, signoff, sigFailMsg, BlindCount, COUNT_FREQ, Field, MAIN_WH, Modal, SectionNav, WH_MOVE, WH_ST, WasteFields, WastePending, WhLines, fefoPick, lotsFor, expiryLots, bookHidden, countFocus, countSchedule, isCostCtl, isStocked, itemAvgCosts, nowISO, q3, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whForBranch, whName, whOf, whOn } from '../../App.jsx';
 
 export function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
   const items = (org.items || []).filter(it => it.isActive !== false && isStocked(it));
@@ -24,6 +24,8 @@ export function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
   const SB = useMemo(() => stockByWh(org, ops), [org, ops]);
   const AVG = useMemo(() => itemAvgCosts(org, ops), [org, ops]);   // v37.4 قيمة الهدر
   const qOf = (id) => q3(((SB.byWh[whId] || {})[id]) || 0);
+  const LOTS = useMemo(() => expiryLots(org, ops), [org, ops]);   // v47.3 FEFO
+  const lotsOf = (id) => lotsFor(LOTS, whId, id);
   const itemOf = (id) => (org.items || []).find(x => x.id === id) || { name: '—', unit: '' };
   // الوارد: من الرئيسي، أو نسخة «واردة» لتحويل فرع←فرع اعتمده المركز (لا النسخة الصادرة لفرع آخر)
   const myT = (ops.whTransfers || []).filter(t => t.toWh === whId && t.kind !== 'b2b' && t.kind !== 'return').sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
@@ -136,7 +138,7 @@ export function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
       if (ok) setMvF({ kind: 'waste', lines: [{ itemId: '', qty: '' }], note: '', reason: '', photo: '' });
       return;
     }
-    const recs = lines.map(l => ({ id: uid('wm'), whId: wh.id, branchId: wh.branchId, itemId: l.itemId, kind: mvF.kind, qty: k.sign * q3(l.qty), note: mvF.note || '', date: today(), by: me.name, at: nowISO() }));
+    const recs = lines.map(l => ({ id: uid('wm'), whId: wh.id, branchId: wh.branchId, itemId: l.itemId, kind: mvF.kind, qty: k.sign * q3(l.qty), ...(k.sign < 0 ? (() => { const P = fefoPick(lotsOf(l.itemId), q3(l.qty)); return P.picks.length ? { lots: P.picks.map(p => ({ batch: p.batch, expiry: p.expiry, qty: p.qty })) } : {}; })() : {}), note: mvF.note || '', date: today(), by: me.name, at: nowISO() }));   // v47.3 الدفعات المصروفة (FEFO)
     const ok = await commit(d => ({ ...d, whMoves: [...recs, ...(d.whMoves || [])] }),
       { actionType: 'create', targetType: 'stock_move', targetId: recs[0].id, branchName: whName(org, wh.id), title: k.ar + ' — ' + wh.name, details: lines.map(l => itemOf(l.itemId).name + ' ' + l.qty).join('، ').slice(0, 160) });
     if (ok) { setMvF({ kind: mvF.kind, lines: [{ itemId: '', qty: '' }], note: '' }); say('سُجّلت الحركة ✓'); }
@@ -256,7 +258,7 @@ export function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
               </select>
             </Field>
           )}
-          <WhLines items={items} lines={outF.lines} setLines={(fn) => setOutF(f => ({ ...f, lines: typeof fn === 'function' ? fn(f.lines) : fn }))} field="qtySent" max={blind ? null : qOf} />
+          <WhLines items={items} lines={outF.lines} setLines={(fn) => setOutF(f => ({ ...f, lines: typeof fn === 'function' ? fn(f.lines) : fn }))} field="qtySent" max={blind ? null : qOf} lotsOf={lotsOf} lotsBlind={blind} />
           <Field label="البيان"><input className="inp" value={outF.note} onChange={e => setOutF(f => ({ ...f, note: e.target.value }))} placeholder={outF.kind === 'return' ? 'سبب الإرجاع (فائض، قرب انتهاء…)' : 'سبب التحويل'} /></Field>
           <button className="btn pri" onClick={sendOut}><Send size={14} />{outF.kind === 'b2b' ? 'إرسال للاعتماد' : 'إرسال الإرجاع'}</button>
 
@@ -281,7 +283,7 @@ export function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
           <div className="row" style={{ gap: 8, marginBottom: 10 }}>
             {['out', 'waste'].map(k => <button key={k} className={'btn sm' + (mvF.kind === k ? ' pri' : ' gh')} onClick={() => setMvF(f => ({ ...f, kind: k }))}>{WH_MOVE[k].ar}</button>)}
           </div>
-          <WhLines items={items} lines={mvF.lines} setLines={(fn) => setMvF(f => ({ ...f, lines: typeof fn === 'function' ? fn(f.lines) : fn }))} field="qty" max={blind ? null : qOf} />
+          <WhLines items={items} lines={mvF.lines} setLines={(fn) => setMvF(f => ({ ...f, lines: typeof fn === 'function' ? fn(f.lines) : fn }))} field="qty" max={blind ? null : qOf} lotsOf={lotsOf} lotsBlind={blind} />
           {mvF.kind === 'waste'
             ? <WasteFields f={mvF} setF={setMvF} cfg={wasteCfg(org)} me={me} say={say} value={Math.round(sum(mvF.lines.filter(l => l.itemId), l => (Number(l.qty) || 0) * (AVG[l.itemId] || 0)) * 100) / 100} />
             : <Field label="البيان"><input className="inp" value={mvF.note} onChange={e => setMvF(f => ({ ...f, note: e.target.value }))} placeholder="مثال: تشغيل الوردية" /></Field>}

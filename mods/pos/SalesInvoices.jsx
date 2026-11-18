@@ -14,7 +14,7 @@ export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
   const ents = entityList(org);
   const chain = useMemo(() => siVerify(all), [all]);
   const [q, setQ] = useState(''); const [flt, setFlt] = useState('all');
-  const [f, setF] = useState(null); const [rc, setRc] = useState(null); const [cn, setCn] = useState(null);
+  const [f, setF] = useState(null); const [rc, setRc] = useState(null); const [cn, setCn] = useState(null); const [dn, setDn] = useState(null);
   const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
   const byId = (id) => all.find(x => x.id === id);
   const custOf = (key) => customers.find(c => c.key === key);
@@ -76,12 +76,31 @@ export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
     if (ok && made) { setCn(null); say('صدر ' + made.no + ' (إشعار دائن) ✓'); printSalesInvoice(org, made, o); }
   };
 
+  // v47.3 الإشعار المدين: زيادة على فاتورة صادرة (فرق سعر، رسوم إضافية، خطأ بالنقص) — يرفع الإيراد والضريبة والذمة أو يُحصَّل نقدًا
+  const saveDn = async () => {
+    const o = byId(dn.id); const reason = (dn.reason || '').trim(); if (!reason) return say('اكتب سبب الإشعار المدين', 'no');
+    if (periodLocked(org, dn.date)) return say(LOCK_MSG(dn.date), 'no');
+    if (dn.date < o.date) return say('تاريخ الإشعار قبل تاريخ الفاتورة ' + o.date, 'no');
+    const L = dn.lines.map(l => { const net = r2(l.amount); if (!(net > 0)) return null; const rate = Number(l.vatRate) || 0; return { desc: String(l.desc || '').trim() || reason, qty: 1, price: net, vatRate: rate, net, vat: r2(net * rate / 100) }; }).filter(Boolean);
+    if (!L.length) return say('أدخل مبلغ الزيادة', 'no');
+    const T = { net: r2(sum(L, l => l.net)), vat: r2(sum(L, l => l.vat)) }; T.total = r2(T.net + T.vat);
+    const settle = o.customerKey ? (dn.settle || 'credit') : 'cash';
+    const c = o.customerKey ? custOf(o.customerKey) : null;
+    const due = (() => { const dd = new Date(dn.date + 'T12:00:00'); dd.setDate(dd.getDate() + (Number(c && c.terms) || 0)); return isoD(dd); })();
+    const base = { id: uid('si'), kind: 'debit', refId: o.id, type: o.type, entityId: o.entityId, branchId: o.branchId, date: dn.date, time: new Date().toTimeString().slice(0, 5), customerKey: o.customerKey, buyer: o.buyer,
+      lines: L, net: T.net, vat: T.vat, total: T.total, terms: settle, ...(settle === 'cash' ? { fund: dn.fund || o.fund || '1101' } : { dueDate: due }), inClosing: false, reason, receipts: [], by: me.name, at: nowISO() };
+    let made = null;
+    const ok = await commit(d => { const rec = siStamp(d.salesInvoices || [], base); made = rec; return { ...d, salesInvoices: [...(d.salesInvoices || []), rec] }; },
+      { actionType: 'create', targetType: 'sales_invoice', targetId: base.id, need: 'post', title: 'أصدر إشعارًا مدينًا للمبيعات', details: 'عن ' + o.no + ' · ' + money(T.total) + ' · ' + reason });
+    if (ok && made) { setDn(null); say('صدر ' + made.no + ' (إشعار مدين) ✓'); printSalesInvoice(org, made, o); }
+  };
+
   const mth = today().slice(0, 7);
-  const invs = list.filter(x => x.kind === 'invoice');
+  const invs = list.filter(x => x.kind !== 'credit');
   const kMonth = r2(sum(invs.filter(x => (x.date || '').startsWith(mth)), x => x.total) - sum(list.filter(x => x.kind === 'credit' && (x.date || '').startsWith(mth)), x => x.total));
   const kOpen = r2(sum(invs, x => siRem(ops, x)));
   const kOver = r2(sum(invs.filter(x => x.dueDate && x.dueDate < today()), x => siRem(ops, x)));
-  const FLT = { all: () => true, open: x => x.kind === 'invoice' && siRem(ops, x) > 0, credit: x => x.kind === 'invoice' && x.terms === 'credit', cash: x => x.kind === 'invoice' && x.terms !== 'credit', cn: x => x.kind === 'credit' };
+  const FLT = { all: () => true, open: x => x.kind !== 'credit' && siRem(ops, x) > 0, credit: x => x.kind === 'invoice' && x.terms === 'credit', cash: x => x.kind === 'invoice' && x.terms !== 'credit', cn: x => x.kind === 'credit', dn: x => x.kind === 'debit' };
   const shown = siSorted(list).reverse().filter(x => (FLT[flt] || FLT.all)(x)
     && (!q.trim() || [x.no, (x.buyer || {}).name, (x.buyer || {}).vat].some(v => v && String(v).includes(q.trim()))));
   const T = f ? totals(f.lines || []) : null;
@@ -96,7 +115,7 @@ export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
         <Kpi label="سلامة السجل" value={chain.ok ? 'سليم ✓' : 'خلل!'} sub={chain.ok ? (chain.n || 0) + ' مستند بسلسلة بصمات متصلة' : chain.why} icon={ShieldCheck} color={chain.ok ? '#4FB286' : '#D9544D'} />
       </div>
       <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-        {[['all', 'الكل'], ['open', 'مفتوحة'], ['credit', 'آجلة'], ['cash', 'نقدية'], ['cn', 'إشعارات دائنة']].map(([k, t]) => (
+        {[['all', 'الكل'], ['open', 'مفتوحة'], ['credit', 'آجلة'], ['cash', 'نقدية'], ['cn', 'إشعارات دائنة'], ['dn', 'إشعارات مدينة']].map(([k, t]) => (
           <button key={k} className={'btn sm' + (flt === k ? ' pri' : ' gh')} onClick={() => setFlt(k)}>{t}</button>))}
         <input className="inp" style={{ width: 220, marginInlineStart: 'auto' }} placeholder="ابحث بالرقم أو العميل أو الرقم الضريبي…" value={q} onChange={e => setQ(e.target.value)} />
         {canIssue && <button className="btn sm pri" onClick={newInv}><Plus size={14} />فاتورة مبيعات</button>}
@@ -104,22 +123,24 @@ export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
       <div className="card"><div className="tw"><table className="tb">
         <thead><tr><th>الرقم</th><th>العميل</th><th>النوع</th><th style={{ textAlign: 'end' }}>الإجمالي</th><th style={{ textAlign: 'end' }}>المتبقي</th><th>الحالة</th><th></th></tr></thead>
         <tbody>
-          {shown.map(x => { const rem = siRem(ops, x), crd = siCredited(ops, x), o = x.kind === 'credit' ? byId(x.refId) : null; return (
+          {shown.map(x => { const rem = siRem(ops, x), crd = siCredited(ops, x), o = x.kind === 'credit' || x.kind === 'debit' ? byId(x.refId) : null; return (
             <tr key={x.id}>
               <td><span className="num" style={{ fontSize: 11.5, fontWeight: 700 }}>{x.no}</span><div style={{ fontSize: 9.5, color: 'var(--faint)' }}>{x.date} · {x.by}</div></td>
               <td style={{ fontSize: 12.5 }}>{(x.buyer || {}).name || <span style={{ color: 'var(--faint)' }}>عميل نقدي</span>}{(x.buyer || {}).vat ? <div className="num" style={{ fontSize: 9.5, color: 'var(--faint)' }}>{x.buyer.vat}</div> : null}</td>
-              <td><span className="badge b-dim">{x.kind === 'credit' ? 'إشعار دائن' + (o ? ' عن ' + o.no : '') : (x.type === 'standard' ? 'ضريبية' : 'مبسّطة') + ' · ' + (x.terms === 'credit' ? 'آجل' : 'نقدي')}</span>{x.inClosing && <div><span className="badge b-dim" style={{ marginTop: 3 }}>ضمن إغلاق وردية</span></div>}</td>
+              <td><span className="badge b-dim">{x.kind === 'credit' ? 'إشعار دائن' + (o ? ' عن ' + o.no : '') : x.kind === 'debit' ? 'إشعار مدين' + (o ? ' عن ' + o.no : '') + (x.terms === 'credit' ? ' · آجل' : ' · نقدي') : (x.type === 'standard' ? 'ضريبية' : 'مبسّطة') + ' · ' + (x.terms === 'credit' ? 'آجل' : 'نقدي')}</span>{x.inClosing && <div><span className="badge b-dim" style={{ marginTop: 3 }}>ضمن إغلاق وردية</span></div>}</td>
               <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: x.kind === 'credit' ? 'var(--rose)' : undefined }}>{x.kind === 'credit' ? '−' : ''}{money(x.total)}</td>
-              <td className="num" style={{ textAlign: 'end' }}>{x.kind === 'invoice' && x.terms === 'credit' ? money(rem) : '—'}</td>
+              <td className="num" style={{ textAlign: 'end' }}>{x.kind !== 'credit' && x.terms === 'credit' ? money(rem) : '—'}</td>
               <td>{x.kind === 'credit' ? <span className="badge b-amber">{x.reason || 'مرتجع'}</span>
+                : x.kind === 'debit' && x.terms !== 'credit' ? <span className="badge b-mint">{x.reason || 'زيادة'} ✓</span>
                 : x.terms !== 'credit' ? <span className="badge b-mint">{crd > 0 ? 'نقدية — عليها إشعار' : 'نقدية ✓'}</span>
                 : rem <= 0.004 ? <span className="badge b-mint">محصّلة ✓</span>
                 : x.dueDate && x.dueDate < today() ? <span className="badge b-rose">متأخرة منذ {x.dueDate}</span>
                 : <span className="badge b-sky">مستحقة {x.dueDate}</span>}</td>
               <td><div className="row" style={{ gap: 5, flexWrap: 'wrap' }}>
                 <button className="btn sm gh" title="طباعة" onClick={() => printSalesInvoice(org, x, o)}><Printer size={12} /></button>
-                {canIssue && x.kind === 'invoice' && x.terms === 'credit' && rem > 0.004 && <button className="btn sm" onClick={() => setRc({ id: x.id, amount: String(rem), date: today(), fund: '1201' })}>تحصيل</button>}
+                {canIssue && x.kind !== 'credit' && x.terms === 'credit' && rem > 0.004 && <button className="btn sm" onClick={() => setRc({ id: x.id, amount: String(rem), date: today(), fund: '1201' })}>تحصيل</button>}
                 {canIssue && x.kind === 'invoice' && crd < x.total - 0.004 && <button className="btn sm gh" onClick={() => setCn({ id: x.id, date: today(), reason: '', settle: 'credit', fund: x.fund || '1101', qtys: x.lines.map(() => '') })}>إشعار دائن</button>}
+                {canIssue && x.kind === 'invoice' && <button className="btn sm gh" data-dn onClick={() => setDn({ id: x.id, date: today(), reason: '', settle: x.customerKey ? (x.terms === 'credit' ? 'credit' : 'cash') : 'cash', fund: x.fund || '1101', lines: [{ desc: '', amount: '', vatRate: String((x.lines[0] || {}).vatRate ?? 15) }] })}>إشعار مدين</button>}
               </div></td>
             </tr>); })}
           {shown.length === 0 && <tr><td colSpan={7}><div className="empty">لا فواتير بعد — كل فاتورة تصدر هنا تُرقَّم تلقائيًا ولا تُحذف، وتُصحَّح بإشعار دائن.</div></td></tr>}
@@ -199,6 +220,27 @@ export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
               <button className="btn sm gh" disabled={can <= 0} onClick={() => setCn(r => ({ ...r, qtys: r.qtys.map((z, j) => j === i ? String(can) : z) }))}>الكل</button>
             </div>); })}
           <div className="note">الإشعار الدائن يعكس البيع والضريبة بالكميات المختارة، ولا يتجاوز ما لم يُشعَر به سابقًا.</div>
+        </Modal>); })()}
+
+      {dn && (() => { const o = byId(dn.id); const DT = (() => { const n = r2(sum(dn.lines, l => r2(l.amount))), v = r2(sum(dn.lines, l => r2(r2(l.amount) * (Number(l.vatRate) || 0) / 100))); return { n, v, t: r2(n + v) }; })(); return (
+        <Modal title={'إشعار مدين عن ' + o.no} icon={FileText} onClose={() => setDn(null)}
+          foot={<><button className="btn gh" onClick={() => setDn(null)}>إلغاء</button><button className="btn pri" data-dn-save onClick={saveDn}><Check size={14} />إصدار الإشعار</button></>}>
+          <div className="grid g2">
+            <Field label="التاريخ"><input type="date" className="inp" value={dn.date} onChange={e => setDn(r => ({ ...r, date: e.target.value }))} /></Field>
+            <Field label="السبب"><input className="inp" aria-label="سبب الإشعار المدين" value={dn.reason} placeholder="فرق سعر، رسوم توصيل، خطأ بالنقص…" onChange={e => setDn(r => ({ ...r, reason: e.target.value }))} /></Field>
+            {o.customerKey && <Field label="التسوية"><select className="sel" value={dn.settle} onChange={e => setDn(r => ({ ...r, settle: e.target.value }))}><option value="credit">على ذمة العميل (آجل)</option><option value="cash">تحصيل فوري</option></select></Field>}
+            {(!o.customerKey || dn.settle === 'cash') && <Field label="يُحصَّل إلى"><select className="sel" value={dn.fund} onChange={e => setDn(r => ({ ...r, fund: e.target.value }))}>{fundOpts}</select></Field>}
+          </div>
+          {dn.lines.map((l, i) => (
+            <div key={i} className="row" style={{ gap: 8, marginBottom: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input className="inp" style={{ flex: 2, minWidth: 150 }} placeholder="البيان" value={l.desc} onChange={e => setDn(r => ({ ...r, lines: r.lines.map((z, j) => j === i ? { ...z, desc: e.target.value } : z) }))} />
+              <input className="inp n" style={{ width: 120 }} inputMode="decimal" aria-label="مبلغ الزيادة قبل الضريبة" placeholder="قبل الضريبة" value={l.amount} onChange={e => setDn(r => ({ ...r, lines: r.lines.map((z, j) => j === i ? { ...z, amount: e.target.value.replace(/[^\d.]/g, '') } : z) }))} />
+              <select className="sel" style={{ width: 90 }} value={l.vatRate} onChange={e => setDn(r => ({ ...r, lines: r.lines.map((z, j) => j === i ? { ...z, vatRate: e.target.value } : z) }))}><option value="15">15%</option><option value="0">0%</option></select>
+              {dn.lines.length > 1 && <button className="btn sm gh" onClick={() => setDn(r => ({ ...r, lines: r.lines.filter((_, j) => j !== i) }))}><X size={12} /></button>}
+            </div>))}
+          <button className="btn sm gh" onClick={() => setDn(r => ({ ...r, lines: [...r.lines, { desc: '', amount: '', vatRate: '15' }] }))}><Plus size={12} />بند</button>
+          <div className="row" style={{ gap: 8, marginTop: 8, flexWrap: 'wrap' }}><span className="badge b-dim">قبل الضريبة {money(DT.n)}</span><span className="badge b-dim">الضريبة {money(DT.v)}</span><span className="badge b-sky" data-dn-total>الإجمالي {money(DT.t)}</span></div>
+          <div className="note">الإشعار المدين يزيد قيمة الفاتورة الأصلية (إيراد + ضريبة مخرجات) ويُرقَّم في سجل الفواتير المتسلسل نفسه.</div>
         </Modal>); })()}
     </div>
   );

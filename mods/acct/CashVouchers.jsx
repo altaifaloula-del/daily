@@ -13,7 +13,10 @@ export function CashVouchers({ org, ops, me, commit, say }) {
   const P = useMemo(() => buildPartners(org, ops), [org, ops]);
   const bal = (key) => { const p = P.find(x => x.key === key); return p ? r2(p.txns.reduce((a, t) => a + (t.debit || 0) - (t.credit || 0), 0)) : 0; };
   const accs = useMemo(() => buildAccounting(org, {}).accounts.map(a => ({ code: String(a.code), name: a.name })).sort((x, y) => x.code.localeCompare(y.code)), [org]);
+  const ACC = useMemo(() => buildAccounting(org, ops), [org, ops]);
+  const cashBal = (code) => r2(ACC.entries.reduce((t, e) => t + (e.lines || []).reduce((s, l) => s + (String(l.code) === String(code) ? (l.debit || 0) - (l.credit || 0) : 0), 0), 0));   // v47.3 رصيد الحساب النقدي قبل التحويل
   const funds = [{ code: '1101', name: 'الخزينة (نقدًا)' }, { code: '1201', name: 'البنك التجميعي' }, ...branchBanks(org).map(b => ({ code: b.code, name: b.name }))];
+  const fname = (c) => (funds.find(x => x.code === c) || {}).name || c;
   const list = (ops.cashVouchers || []).filter(v => (!kind || v.kind === kind) && (!q || [v.no, (v.party || {}).name, v.supName, v.custName, v.note].some(x => String(x || '').includes(q))))
     .sort((a, b) => String(b.date + b.at).localeCompare(String(a.date + a.at)));
   const parties = (t) => t === 'sup' ? P.filter(p => p.type === 'supplier') : t === 'cust' ? P.filter(p => p.type === 'customer') : t === 'emp' ? P.filter(p => p.type === 'employee') : [];
@@ -26,7 +29,7 @@ export function CashVouchers({ org, ops, me, commit, say }) {
   const autoAlloc = () => { let left = r2(f.amount); const al = {}; docs.forEach(d => { if (left <= 0) return; const a = Math.min(left, d.rem); al[d.id] = String(r2(a)); left = r2(left - a); }); setF(x => ({ ...x, alloc: al })); };
 
   const print = (v) => printA4(org, CV_KIND[v.kind].ar + ' — ' + v.no, '', cashVoucherHtml(org, v));
-  const xlsx = () => { const rows = [['رقم السند', 'النوع', 'التاريخ', 'الجهة', 'نوع الجهة', 'المبلغ', 'الحساب', 'طريقة الدفع', 'المرجع', 'البيان', 'أعدّه'], ...list.map(v => [v.no, CV_KIND[v.kind].ar, v.date, v.kind === 'ov' ? v.supName + ' / ' + v.custName : (v.party || {}).name, v.kind === 'ov' ? 'مقاصّة' : PT[(v.party || {}).t] || '', v.amount, v.fund || '', v.pm || '', v.ref || '', v.note || '', v.by || ''])];
+  const xlsx = () => { const rows = [['رقم السند', 'النوع', 'التاريخ', 'الجهة', 'نوع الجهة', 'المبلغ', 'الحساب', 'طريقة الدفع', 'المرجع', 'البيان', 'أعدّه'], ...list.map(v => [v.no, CV_KIND[v.kind].ar, v.date, v.kind === 'tv' ? fname(v.fund) + ' ← ' + fname(v.toFund) : v.kind === 'ov' ? v.supName + ' / ' + v.custName : (v.party || {}).name, v.kind === 'tv' ? 'تحويل بين الحسابات' : v.kind === 'ov' ? 'مقاصّة' : PT[(v.party || {}).t] || '', v.amount, v.kind === 'tv' ? v.fund + ' ← ' + v.toFund : v.fund || '', v.pm || '', v.ref || '', v.note || '', v.by || ''])];
     try { const blob = makeXlsx([{ name: 'سندات القبض والصرف', rows }]); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'سندات_القبض_والصرف.xlsx'; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(url), 4000); } catch (e) { console.warn(e); } };
 
   const save = async () => {
@@ -34,7 +37,10 @@ export function CashVouchers({ org, ops, me, commit, say }) {
     if (!(a > 0)) return say('أدخل المبلغ', 'no');
     if (periodLocked(org, f.date)) return say(LOCK_MSG(f.date), 'no');
     let v = { id: uid('cv'), kind: f.kind, date: f.date, amount: a, note: String(f.note || '').trim(), by: me.name, at: nowISO() };
-    if (f.kind === 'ov') {
+    if (f.kind === 'tv') {   // v47.3 تحويل بين حسابين نقديين
+      if (!f.fund || !f.toFund || f.fund === f.toFund) return say('اختر حسابين مختلفين للتحويل', 'no');
+      v = { ...v, fund: f.fund, toFund: f.toFund, ...(String(f.ref || '').trim() ? { ref: String(f.ref).trim() } : {}) };
+    } else if (f.kind === 'ov') {
       const s = P.find(p => p.key === f.supKey), c = P.find(p => p.key === f.custKey);
       if (!s || !c) return say('اختر المورد والعميل', 'no');
       const owe = -bal(s.key), due = bal(c.key);   // علينا للمورد (دائن) · لنا على العميل (مدين)
@@ -51,7 +57,7 @@ export function CashVouchers({ org, ops, me, commit, say }) {
     }
     let no = '';
     const ok = await commit(d => { no = cvNextNo(d, f.kind); return applyCashVoucher(d, { ...v, no }, me); },
-      { actionType: 'create', targetType: 'cash_voucher', targetId: v.id, need: 'post', title: 'أصدر ' + CV_KIND[f.kind].ar, details: money(a) + ' · ' + (f.kind === 'ov' ? v.supName + ' / ' + v.custName : party.name) });
+      { actionType: 'create', targetType: 'cash_voucher', targetId: v.id, need: 'post', title: 'أصدر ' + CV_KIND[f.kind].ar, details: money(a) + ' · ' + (f.kind === 'ov' ? v.supName + ' / ' + v.custName : f.kind === 'tv' ? fname(v.fund) + ' ← ' + fname(v.toFund) : party.name) });
     if (ok === false) return;
     setF(null); say('صدر ' + CV_KIND[f.kind].ar + ' ' + no + ' ✓');
     const made = { ...v, no }; setTimeout(() => print(made), 50);
@@ -60,10 +66,11 @@ export function CashVouchers({ org, ops, me, commit, say }) {
   return (
     <div className="card" data-cashvouchers>
       <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-        <div className="card-t" style={{ margin: 0, flex: '1 1 160px' }}><Receipt size={15} color="var(--brass)" />سندات القبض والصرف</div>
+        <div className="card-t" style={{ margin: 0, flex: '1 1 160px' }}><Receipt size={15} color="var(--brass)" />سندات القبض والصرف والتحويل</div>
         <button className="btn sm pri" data-newcv="rv" onClick={() => open('rv')}><Plus size={14} />سند قبض</button>
         <button className="btn sm pri" data-newcv="pv" onClick={() => open('pv')}><Plus size={14} />سند صرف</button>
         <button className="btn sm" data-newcv="ov" onClick={() => open('ov')}><Scale size={14} />سند مقاصّة</button>
+        <button className="btn sm" data-newcv="tv" onClick={() => setF({ kind: 'tv', date: today(), amount: '', fund: '1101', toFund: '1201', ref: '', note: '' })}><Receipt size={14} />سند تحويل</button>
         <button className="btn sm gh" onClick={xlsx}><Download size={13} />Excel</button>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8, marginBottom: 10 }}>
@@ -77,9 +84,9 @@ export function CashVouchers({ org, ops, me, commit, say }) {
             {list.map(v => (
               <tr key={v.id}>
                 <td className="num" style={{ fontWeight: 700, fontSize: 11.5 }}>{v.no}</td>
-                <td><span className={'badge ' + (v.kind === 'rv' ? 'b-mint' : v.kind === 'pv' ? 'b-rose' : 'b-amber')}>{CV_KIND[v.kind].ar}</span></td>
+                <td><span className={'badge ' + (v.kind === 'rv' ? 'b-mint' : v.kind === 'pv' ? 'b-rose' : v.kind === 'tv' ? 'b-sky' : 'b-amber')}>{CV_KIND[v.kind].ar}</span></td>
                 <td className="num" style={{ fontSize: 11.5 }}>{v.date}</td>
-                <td style={{ fontSize: 12 }}>{v.kind === 'ov' ? v.supName + ' ⇄ ' + v.custName : (v.party || {}).name}<div style={{ fontSize: 10, color: 'var(--faint)' }}>{v.kind === 'ov' ? 'مقاصّة' : PT[(v.party || {}).t]}{(v.alloc || []).length ? ' · ' + v.alloc.map(x => x.no).join('، ') : ''}</div></td>
+                <td style={{ fontSize: 12 }}>{v.kind === 'tv' ? fname(v.fund) + ' ← ' + fname(v.toFund) : v.kind === 'ov' ? v.supName + ' ⇄ ' + v.custName : (v.party || {}).name}<div style={{ fontSize: 10, color: 'var(--faint)' }}>{v.kind === 'tv' ? 'تحويل بين الحسابات' : v.kind === 'ov' ? 'مقاصّة' : PT[(v.party || {}).t]}{(v.alloc || []).length ? ' · ' + v.alloc.map(x => x.no).join('، ') : ''}</div></td>
                 <td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{money(v.amount)}</td>
                 <td><button className="btn sm gh" data-cvprint onClick={() => print(v)}><Printer size={13} />طباعة</button></td>
               </tr>))}
@@ -91,7 +98,15 @@ export function CashVouchers({ org, ops, me, commit, say }) {
       {f && (
         <Modal title={CV_KIND[f.kind].ar + ' جديد'} icon={Receipt} onClose={() => setF(null)} wide
           foot={<><button className="btn gh" onClick={() => setF(null)}>إلغاء</button><button className="btn pri" data-cvsave onClick={save}><Check size={14} />حفظ وطباعة</button></>}>
-          {f.kind === 'ov' ? <>
+          {f.kind === 'tv' ? <>
+            <div className="note" style={{ marginBottom: 8 }}>تحويل بين الخزينة والبنوك (إيداع نقدية، سحب، تحويل بين بنكين). لا أثر له على الإيرادات أو المصروفات.</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
+              <Field label="من حساب"><select className="sel" aria-label="من حساب" value={f.fund} onChange={e => setF(x => ({ ...x, fund: e.target.value }))}>{funds.map(x => <option key={x.code} value={x.code}>{x.name}</option>)}</select>
+                <div className="hint">الرصيد الدفتري: <b className="num">{money(cashBal(f.fund))}</b>{r2(f.amount) > cashBal(f.fund) + 0.004 && <span data-tv-warn style={{ color: 'var(--rose)' }}> · المبلغ أكبر من الرصيد الدفتري</span>}</div></Field>
+              <Field label="إلى حساب"><select className="sel" aria-label="إلى حساب" value={f.toFund} onChange={e => setF(x => ({ ...x, toFund: e.target.value }))}>{funds.map(x => <option key={x.code} value={x.code}>{x.name}</option>)}</select></Field>
+              <Field label="مرجع (إيصال إيداع/تحويل)"><input className="inp" aria-label="مرجع السند" value={f.ref} onChange={e => setF(x => ({ ...x, ref: e.target.value }))} /></Field>
+            </div>
+          </> : f.kind === 'ov' ? <>
             <div className="note" style={{ marginBottom: 8 }}>المقاصّة تُسوّي ما لنا على العميل بما علينا للمورد نفسه (مدين ذمم الموردين / دائن ذمم العملاء).</div>
             {linked.length > 0 && <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>{linked.map(s => <button key={s.key} className={'btn sm' + (f.supKey === s.key ? ' pri' : ' gh')} data-ovpair onClick={() => setF(x => ({ ...x, supKey: s.key, custKey: s.linkKey }))}>{s.name} (مورد ⇄ عميل)</button>)}</div>}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
@@ -112,8 +127,8 @@ export function CashVouchers({ org, ops, me, commit, say }) {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
             <Field label="المبلغ"><input className="inp n" inputMode="decimal" aria-label="مبلغ السند" value={f.amount} onChange={e => setF(x => ({ ...x, amount: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
             <Field label="التاريخ"><input type="date" className="inp" value={f.date} onChange={e => setF(x => ({ ...x, date: e.target.value }))} /></Field>
-            {f.kind !== 'ov' && f.pm !== 'cash' && <Field label={f.kind === 'rv' ? 'إلى حساب' : 'من حساب'}><select className="sel" aria-label="حساب الصندوق أو البنك" value={f.fund} onChange={e => setF(x => ({ ...x, fund: e.target.value }))}>{funds.filter(x => x.code !== '1101').map(x => <option key={x.code} value={x.code}>{x.name}</option>)}</select></Field>}
-            {f.kind !== 'ov' && f.pm !== 'cash' && <Field label={f.pm === 'cheque' ? 'رقم الشيك *' : 'مرجع التحويل'}><input className="inp" aria-label="مرجع السند" value={f.ref} onChange={e => setF(x => ({ ...x, ref: e.target.value }))} /></Field>}
+            {f.kind !== 'ov' && f.kind !== 'tv' && f.pm !== 'cash' && <Field label={f.kind === 'rv' ? 'إلى حساب' : 'من حساب'}><select className="sel" aria-label="حساب الصندوق أو البنك" value={f.fund} onChange={e => setF(x => ({ ...x, fund: e.target.value }))}>{funds.filter(x => x.code !== '1101').map(x => <option key={x.code} value={x.code}>{x.name}</option>)}</select></Field>}
+            {f.kind !== 'ov' && f.kind !== 'tv' && f.pm !== 'cash' && <Field label={f.pm === 'cheque' ? 'رقم الشيك *' : 'مرجع التحويل'}><input className="inp" aria-label="مرجع السند" value={f.ref} onChange={e => setF(x => ({ ...x, ref: e.target.value }))} /></Field>}
           </div>
           <Field label="البيان"><input className="inp" aria-label="بيان السند" value={f.note} onChange={e => setF(x => ({ ...x, note: e.target.value }))} /></Field>
           {docs.length > 0 && <div style={{ marginTop: 8 }} data-cvalloc>

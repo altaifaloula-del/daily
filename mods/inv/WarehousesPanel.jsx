@@ -1,7 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useMemo, useState } from 'react';
 import { HardDrive, Plus, ClipboardCheck, Truck, Landmark, Send, PenLine, X, Check } from 'lucide-react';
-import { MOVE_KINDS, CountScheduleCard, Field, Kpi, MAIN_WH, Modal, WH_KIND, WH_ST, WhLines, expiryLots, isCostCtl, isStocked, isoD, itemAvgCosts, money, nextWhAcc, nowISO, q3, rolePost, stockByWh, today, uid, whForBranch, whName, whOf, whOn } from '../../App.jsx';
+import { MOVE_KINDS, CountScheduleCard, Field, Kpi, MAIN_WH, Modal, WH_KIND, WH_ST, WhLines, expiryLots, lotsFor, isCostCtl, isStocked, isoD, itemAvgCosts, money, nextWhAcc, nowISO, q3, rolePost, stockByWh, today, uid, whForBranch, whName, whOf, whOn } from '../../App.jsx';
 
 export function WarehousesPanel({ org, ops, me, commit, commitOrg, say }) {
   const items = (org.items || []).filter(isStocked);
@@ -258,7 +258,7 @@ export function WarehousesPanel({ org, ops, me, commit, commitOrg, say }) {
             </select>
           </Field>
           <Field label="الكميات المصروفة (يمكن صرف أقل من المطلوب)">
-            <WhLines items={items} lines={sendF.lines} setLines={(fn) => setSendF(f => ({ ...f, lines: typeof fn === 'function' ? fn(f.lines) : fn }))} field="qtySent" max={(id) => qOf(MAIN_WH, id)} />
+            <WhLines items={items} lines={sendF.lines} setLines={(fn) => setSendF(f => ({ ...f, lines: typeof fn === 'function' ? fn(f.lines) : fn }))} field="qtySent" max={(id) => qOf(MAIN_WH, id)} lotsOf={(id) => lotsFor(LOTS, MAIN_WH, id)} />
           </Field>
           <Field label="ملاحظة"><input className="inp" value={sendF.note} onChange={e => setSendF(f => ({ ...f, note: e.target.value }))} /></Field>
         </Modal>

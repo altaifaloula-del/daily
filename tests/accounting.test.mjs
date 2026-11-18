@@ -1561,3 +1561,48 @@ test('v47.2 الإضافي (المادة 107): أجر الساعة الفعلي 
   assert.deepEqual([O.regH, O.offH, O.hours, O.days, O.open], [1.75, 4, 6, 2, 1]);
   near(O.hours * R.rate, 165, 'مبلغ الإضافي = 6 × 27.5');
 });
+
+test('v47.3 سند التحويل: من الخزينة إلى بنك الفرع — قيد متوازن بلا أثر على الإيراد أو المصروف', () => {
+  const org = baseOrg();
+  const ops = { cashVouchers: [{ id: 't1', kind: 'tv', no: 'TV-0001', date: '2026-11-10', amount: 2500, fund: '1101', toFund: '1201', note: 'إيداع نقدية' }] };
+  const A = E.buildAccounting(org, ops); const t = tb(A);
+  near(t['1201'], 2500, 'البنك مدين'); near(t['1101'], -2500, 'الخزينة دائنة');
+  assert.ok(A.balanced); assert.equal(A.entries.filter(e => e.id === 'cv:t1').length, 1);
+  assert.equal(A.entries.find(e => e.id === 'cv:t1').src, 'سند تحويل');
+  // حساب واحد للطرفين أو حساب غير معروف: لا قيد
+  const bad = E.buildAccounting(org, { cashVouchers: [{ id: 't2', kind: 'tv', no: 'TV-0002', date: '2026-11-10', amount: 100, fund: '1101', toFund: '1101' }, { id: 't3', kind: 'tv', no: 'TV-0003', date: '2026-11-10', amount: 100, fund: '9999', toFund: '1201' }] });
+  assert.equal(bad.entries.filter(e => String(e.id).startsWith('cv:')).length, 0);
+  assert.equal(E.CV_KIND.tv.p, 'TV'); assert.equal(E.cvNextNo(ops, 'tv'), 'TV-000002');
+});
+
+test('v47.3 الإشعار المدين: يرفع الإيراد وضريبة المخرجات والذمة، ويُحصَّل كأي مستند آجل', () => {
+  const org = baseOrg();
+  let list = [];
+  const inv = E.siStamp(list, { id: 'i1', kind: 'invoice', type: 'standard', date: '2026-11-01', customerKey: 'c:1', buyer: { name: 'عميل', vat: '300000000000003' }, lines: [{ desc: 'وجبات', qty: 10, price: 100, vatRate: 15, net: 1000, vat: 150 }], net: 1000, vat: 150, total: 1150, terms: 'credit', dueDate: '2026-12-01', receipts: [] });
+  list = [inv];
+  const dn = E.siStamp(list, { id: 'd1', kind: 'debit', refId: 'i1', type: 'standard', date: '2026-11-05', customerKey: 'c:1', buyer: inv.buyer, lines: [{ desc: 'رسوم توصيل', qty: 1, price: 200, vatRate: 15, net: 200, vat: 30 }], net: 200, vat: 30, total: 230, terms: 'credit', dueDate: '2026-12-05', reason: 'رسوم توصيل', receipts: [{ id: 'r1', date: '2026-11-08', amount: 100, fund: '1201' }] });
+  list = [inv, dn];
+  assert.ok(/^إشعار مدين-2026-00001$/.test(dn.no), dn.no); assert.equal(dn.icv, 2); assert.equal(E.siVerify(list).ok, true, 'السلسلة متصلة');
+  const A = E.buildAccounting(org, { salesInvoices: list }); const t = tb(A);
+  near(t['4102'], -1200, 'الإيراد 1000 + 200'); near(t['2301'], -180, 'الضريبة 150 + 30'); near(t['1380'], 1280, '1150 + 230 − 100 تحصيل'); near(t['1201'], 100);
+  assert.ok(A.balanced);
+  near(E.siRem({ salesInvoices: list }, dn), 130, 'المتبقي على الإشعار المدين');
+  const e = A.entries.find(x => x.id === 'si:d1'); assert.equal(e.reg.doc, 'إشعار مدين مبيعات'); near(e.reg.gross, 230);
+  // الإشعار المدين النقدي يذهب للصندوق
+  const cash = E.buildAccounting(org, { salesInvoices: [inv, { ...dn, id: 'd2', terms: 'cash', fund: '1101', receipts: [] }] });
+  near(tb(cash)['1101'], 230);
+});
+
+test('v47.3 FEFO: الصرف يقترح الدفعات الأقرب انتهاءً وينبّه للمنتهية', () => {
+  const lots = [{ id: 'a', whId: 'w', itemId: 'x', batch: 'B2', expiry: '2026-12-20', left: 5 }, { id: 'b', whId: 'w', itemId: 'x', batch: 'B1', expiry: '2026-11-10', left: 3 }, { id: 'c', whId: 'w2', itemId: 'x', batch: 'Z', expiry: '2026-01-01', left: 9 }];
+  const mine = E.lotsFor(lots, 'w', 'x'); assert.deepEqual(mine.map(l => l.batch), ['B1', 'B2'], 'مستودع واحد مرتبًا بالانتهاء');
+  const P = E.fefoPick(mine, 6, '2026-11-01');
+  assert.deepEqual(P.picks.map(p => [p.batch, p.qty]), [['B1', 3], ['B2', 3]]); assert.equal(P.undated, 0); assert.equal(P.expiredLots, 0);
+  const Q = E.fefoPick(mine, 10, '2026-11-15');
+  assert.equal(Q.expiredLots, 1); near(Q.expiredPicked, 3, 'B1 منتهية'); near(Q.undated, 2, 'الزائد من رصيد بلا تاريخ');
+  // expiryLots: الرصيد الحالي على الدفعات الأحدث، والصادر يستهلك الأقدم
+  const org = { items: [{ id: 'x', name: 'حليب', unit: 'ل', stock: true }] };
+  const ops = { whMoves: [{ id: 'm1', whId: 'w', itemId: 'x', kind: 'purchase', qty: 4, expiry: '2026-11-10', batch: 'B1', date: '2026-10-01' }, { id: 'm2', whId: 'w', itemId: 'x', kind: 'purchase', qty: 6, expiry: '2026-12-20', batch: 'B2', date: '2026-10-05' }, { id: 'm3', whId: 'w', itemId: 'x', kind: 'out', qty: -3, date: '2026-10-06' }] };
+  const L = E.lotsFor(E.expiryLots(org, ops), 'w', 'x');
+  assert.deepEqual(L.map(l => [l.batch, l.left]), [['B1', 1], ['B2', 6]]);
+});
