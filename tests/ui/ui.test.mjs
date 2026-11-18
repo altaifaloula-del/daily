@@ -2174,3 +2174,81 @@ test('v48.0 التسويق والنمو: مدير الفرع يرى عملاء �
   await p.click('[data-mktv="cfg"]'); await p.waitForTimeout(150); assert.equal(await p.locator('[data-mktcfg-save]').count(), 0);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+// ═══ v48.1 SMART POS GROWTH — المرحلة E ═══
+test('v48.1 نقطة البيع: كوبون محدود لكل عميل يُحجز ذرّيًا مع البيع، ويُرفض للعميل نفسه مرة ثانية برسالة واضحة، والإلغاء يحرّره', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosApp/bm');
+  await p.evaluate(() => {
+    window.setOrg(g => ({ ...g, taxCfg: { enabled: true, rate: 15 }, posCfg: { branches: ['b1'], autoPrint: false }, loyaltyCfg: { enabled: true, earnPer: 10, ptValue: 0.5, minRedeem: 20, maxRedeemPct: 50 },
+      products: [{ id: 'k', name: 'كبسة', sellPrice: 50, cat: 'رئيسي' }], posPromos: [{ id: 'cp', name: 'ترحيب', type: 'pct', value: 20, scope: 'all', code: 'HELLO', perCust: 1, maxUses: 5, active: true }] }));
+    window.setOps(o => ({ ...o, posTabs: [], posOrders: [], closings: o.closings.filter(c => c.branchId !== 'b1') }));
+  }); await p.waitForTimeout(400);
+  const ob = p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await p.waitForTimeout(400); }
+  const sell = async () => {
+    await p.locator('.pos-tile:has-text("كبسة")').click();
+    if (!(await p.locator('input[aria-label="جوال العميل"]').count())) await p.click('button:has-text("+ عميل ولاء")');
+    await p.fill('input[aria-label="جوال العميل"]', '0551112222');
+    if (!(await p.locator('input[aria-label="رمز الكوبون"]').count())) await p.click('button:has-text("+ كوبون")');
+    await p.fill('input[aria-label="رمز الكوبون"]', 'hello'); await p.waitForTimeout(700);
+  };
+  await sell();
+  assert.match(await p.locator('.pos-cart').innerText(), /الكوبون فعّال/);
+  await p.click('.pos-cart button:has-text("نقدي")'); await p.waitForTimeout(200); await p.click('.modal button:has-text("تأكيد")'); await p.waitForTimeout(700);
+  let r = await p.evaluate(() => (window.cur.posOrders.length ? window.cur.posOrders : []).map(o => [o.coupon, o.couponLtd, o.total]));
+  const q = await p.evaluate(() => JSON.parse(localStorage.getItem('mizan:posQueue') || '[]').map(o => [o.coupon, o.couponLtd, o.total]));
+  assert.deepEqual([...r, ...q].slice(0, 1), [['hello', true, 40]], 'خصم 20% من 50');
+  await sell();
+  assert.match(await p.locator('.pos-cart').innerText(), /استخدمه هذا العميل من قبل/);
+  assert.doesNotMatch(await p.locator('.pos-cart').innerText(), /الكوبون فعّال/);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v48.1 العروض: هامش سالب يُمنع، وخصم فوق الحد من غير المعتمد ينتظر الاعتماد ثم يعتمده المالك', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/MktGrowth/admin');
+  await p.evaluate(() => window.setOrg(g => ({ ...g, taxCfg: { enabled: true, rate: 15 }, mkt: { approveDiscPct: 20 }, items: [{ id: 'm', name: 'لحم', unit: 'كجم', cost: 40 }],
+    products: [{ id: 'p1', name: 'برجر', sellPrice: 23, cat: 'رئيسي', parts: [{ itemId: 'm', qty: 0.25 }] }],
+    posPromos: [{ id: 'z', name: 'كبير', type: 'pct', value: 30, scope: 'all', code: 'BIG', active: true, pending: true, pendPct: 30, pendBy: 'خالد' }] })));
+  await p.waitForTimeout(300);
+  await p.click('[data-mktv="cpn"]'); await p.waitForTimeout(200);
+  assert.match(await p.locator('[data-cpntable]').innerText(), /بانتظار الاعتماد/);
+  await p.locator('[data-cpn="BIG"] button:has-text("اعتماد")').click(); await p.waitForTimeout(300);
+  assert.equal(await p.evaluate(() => window.curOrg.posPromos[0].pending), false);
+  await ctx.close();
+  // محرر العروض: هامش سالب
+  const P = await open({ viewport: { width: 1300, height: 1100 } }, 'live/PosApp/admin');
+  await P.p.evaluate(() => window.setOrg(g => ({ ...g, taxCfg: { enabled: true, rate: 15 }, posCfg: { branches: ['b1'], autoPrint: false }, mkt: { approveDiscPct: 20 }, items: [{ id: 'm', name: 'لحم', unit: 'كجم', cost: 40 }],
+    products: [{ id: 'p1', name: 'برجر', sellPrice: 23, cat: 'رئيسي', parts: [{ itemId: 'm', qty: 0.25 }] }], posPromos: [] }))); await P.p.waitForTimeout(300);
+  const ob2 = P.p.locator('button:has-text("فتح الوردية")'); if (await ob2.count()) { await ob2.click(); await P.p.waitForTimeout(400); }
+  await P.p.selectOption('select[aria-label="المزيد"]', 'promos'); await P.p.waitForTimeout(300);
+  await P.p.locator('button:has-text("عرض جديد")').first().click(); await P.p.waitForTimeout(200);
+  await P.p.locator('.modal input').first().fill('خصم كبير'); await P.p.locator('.modal input.inp.n').first().fill('60'); await P.p.waitForTimeout(200);
+  assert.match(await P.p.locator('[data-promomargin]').innerText(), /هامش سالب: برجر/);
+  await P.p.locator('.modal button:has-text("حفظ العرض")').click(); await P.p.waitForTimeout(300);
+  assert.match(await P.p.evaluate(() => window.lastSay || ''), /سالبًا/); assert.equal(await P.p.evaluate(() => (window.curOrg.posPromos || []).length), 0);
+  assert.deepEqual([...errs, ...P.errs], []); await P.ctx.close();
+});
+
+test('v48.1 الولاء المتقدم: إعداد المستويات والجوائز، ترحيل مكافأة عيد الميلاد مرة واحدة، واستبدال جائزة بكوبون شخصي', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/MktGrowth/admin');
+  await p.evaluate(() => { const td = new Date(); td.setHours(12); const iso = td.toISOString().slice(0, 10); const mm = iso.slice(5, 7);
+    window.setOrg(g => ({ ...g, loyaltyCfg: { enabled: true, earnPer: 10, ptValue: 0.5 }, products: [{ id: 'p1', name: 'قهوة', sellPrice: 12 }], posPromos: [] }));
+    window.setOps(o => ({ ...o, mktProfiles: [{ id: 'x', phone: '511111111', bday: mm + '-01', at: iso }], mktReferrals: [], mktConsents: [], mktMerges: [],
+      posOrders: [{ id: 'g1', no: 'g1', branchId: 'b1', date: iso, at: iso + 'T10:00:00', total: 1500, status: 'paid', lines: [], loyalty: { phone: '511111111', name: 'سعد' } }] }));
+    localStorage.setItem('__loyseed', '1'); });
+  await p.evaluate(async () => { const { cloud, KEYS } = window.__storage || {}; }).catch(() => {});
+  await p.waitForTimeout(300);
+  await p.click('[data-mktv="loy"]'); await p.waitForTimeout(250);
+  await p.fill('input[aria-label="نقاط عيد الميلاد"]', '40');
+  await p.fill('input[aria-label="اسم الجائزة"]', 'قهوة مجانية'); await p.selectOption('select[aria-label="منتج الجائزة"]', 'p1'); await p.fill('input[aria-label="نقاط الجائزة"]', '30');
+  await p.click('[data-addreward]'); await p.click('[data-loycfg-save]'); await p.waitForTimeout(300);
+  assert.deepEqual(await p.evaluate(() => [window.curOrg.mkt.loy.bdayPts, window.curOrg.mkt.loy.rewards.map(r => [r.name, r.pts])]), [40, [['قهوة مجانية', 30]]]);
+  assert.match(await p.locator('[data-loydue]').innerText(), /أعياد ميلاد: 1/);
+  await p.click('[data-loyrun]'); await p.waitForTimeout(500);
+  assert.match(await p.locator('[data-loydue]').innerText(), /أعياد ميلاد: 0/, 'لا تتكرر');
+  await p.click('[data-mktv="crm"]'); await p.waitForTimeout(200);
+  await p.locator('[data-crmrow="511111111"]').click(); await p.waitForTimeout(200);
+  await p.selectOption('select[aria-label="جائزة الولاء"]', { label: 'قهوة مجانية — 30 نقطة' }); await p.click('[data-redeem]'); await p.waitForTimeout(500);
+  const c = await p.evaluate(() => window.curOrg.posPromos.map(x => [x.custPhone, x.maxUses, x.items, x.value]));
+  assert.deepEqual(c, [['511111111', 1, ['p1'], 100]]); assert.match(await p.evaluate(() => window.lastSay || ''), /صدرت الجائزة بكوبون RW/);
+  assert.deepEqual(errs, []); await ctx.close();
+});
