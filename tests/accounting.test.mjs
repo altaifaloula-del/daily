@@ -1794,3 +1794,77 @@ test('v48.1 الولاء المتقدم: المستويات بنقاط السن�
   const rc = E.rewardCoupon({ id: 'r', name: 'قهوة', productId: 'p1', days: 10 }, '5', '2026-11-18', 'RWX');
   assert.deepEqual([rc.type, rc.value, rc.items, rc.custPhone, rc.maxUses, rc.maxQty, rc.to], ['pct', 100, ['p1'], '5', 1, 1, '2026-11-28']);
 });
+
+test('v49.0 — القيود اليدوية سجلات مستقلة: الفرق والمطابقة والبصمة', () => {
+  const j = (o = {}) => ({ id: 'jm1', date: '2026-11-10', title: 'قيد', by: 'أ', byId: 'u1', createdAt: '2026-11-10T08:00:00Z', status: 'pending', lines: [{ code: '1101', debit: 100, credit: 0 }, { code: '4101', debit: 0, credit: 100 }], ...o });
+  const a = j(), posted = j({ status: 'posted', approvedBy: 'ب', approvedAt: '2026-11-11T08:00:00Z' });
+  // المحتوى الثابت لا يتأثر بالاعتماد — البصمة واحدة قبل القرار وبعده (القواعد تشترط ثباتها)
+  assert.equal(E.fjData(a), E.fjData(posted));
+  const r = E.fjRecord(a);
+  assert.deepEqual([r.date, r.status, r.digest, r.digest.length], ['2026-11-10', 'pending', E.sha256Hex(r.data), 64]);
+  assert.equal(E.fjRecord(j({ reverses: 'jm0' })).reverses, 'jm0');
+  assert.equal(E.fjStatus({}), 'posted', 'قيد بلا حالة (قديم/آلي) يُعدّ مرحّلًا كما في jeLive');
+  // الفرق: إنشاء · قرار · حذف قبل الاعتماد · تعديل محتوى (لا يُنسخ — تكشفه المطابقة)
+  let D = E.fjDiff([], [a]); assert.deepEqual([D.create.length, D.decide.length, D.del.length, D.skip.length], [1, 0, 0, 0]);
+  D = E.fjDiff([a], [posted]); assert.deepEqual([D.create.length, D.decide.length], [0, 1]);
+  D = E.fjDiff([a], []); assert.equal(D.del.length, 1);
+  D = E.fjDiff([a], [j({ title: 'معدّل' })]); assert.deepEqual([D.decide.length, D.skip.length, D.skip[0].why], [0, 1, 'content']);
+  D = E.fjDiff([a], [a]); assert.equal(D.create.length + D.decide.length + D.del.length + D.skip.length, 0);
+  assert.equal(E.fjDiff([], [j({ id: 'bad id!' })]).skip.length, 1);
+  // المطابقة
+  const rec = (x) => ({ id: x.id, ...E.fjRecord(x) });
+  assert.equal(E.fjCompare([a], [rec(a)]).ok, true);
+  const K = E.fjCompare([posted, j({ id: 'jm2' })], [rec(a), rec(j({ id: 'jm9' }))]);
+  assert.deepEqual([K.ok, K.differ.length, K.missing.length, K.extra.length], [false, 1, 1, 1], 'حالة مختلفة + ناقص + زائد');
+  const tampered = { ...rec(a), data: E.fjData(j({ lines: [{ code: '1101', debit: 999, credit: 0 }, { code: '4101', debit: 0, credit: 999 }] })) };
+  assert.equal(E.fjCompare([a], [tampered]).differ.length, 1, 'تغيير الأرقام يُكشف');
+  assert.equal(E.fjOn({}), false, 'مُطفأ افتراضيًا');
+  assert.equal(E.fjOn({ finRecords: { on: true } }), true);
+  // BUG-01-02: قفل التطبيق الشهري ← تاريخ الخادم (آخر يوم في الشهر)
+  assert.equal(E.fpLockedTo({ periodLocks: { lockedThrough: '2026-02' } }), '2026-02-28');
+  assert.equal(E.fpLockedTo({ periodLocks: { lockedThrough: '2026-10' } }), '2026-10-31');
+  assert.equal(E.fpLockedTo({}), '0000-00-00');
+  // G4: سجل الترحيل يحمل الحالة الأصلية والمنشئ الأصلي، وبصمته كبصمة النسخ المزدوج (فتنجح المطابقة بعده)
+  const rej = j({ id: 'jm7', status: 'rejected', rejectedBy: 'ب', rejectReason: 'حساب خاطئ' });
+  const L = E.fjLegacyRecord(rej);
+  assert.deepEqual([L.legacy, L.origBy, L.status, L.reason, L.digest], [true, 'أ', 'rejected', 'حساب خاطئ', E.fjRecord(rej).digest]);
+  assert.equal(E.fjCompare([rej], [{ id: 'jm7', ...L }]).ok, true);
+});
+
+test('v49.0 القيود الآلية تمر بالاعتماد (قرار المالك): المالك يرحّل مباشرة، وغيره بانتظار الاعتماد', () => {
+  const own = Object.keys(E.ROLES).find(k => E.ROLES[k].admin);
+  assert.equal(E.jeAutoSt({ id: 'u1', name: 'م', role: own }).status, 'posted');
+  const p = E.jeAutoSt({ id: 'u2', name: 'ح', role: 'accountant' });
+  assert.deepEqual([p.status, p.byId, 'approvedBy' in p], ['pending', 'u2', false]);
+  assert.equal(E.jeLive({ status: 'pending' }), false, 'لا يدخل الدفاتر قبل الاعتماد');
+});
+
+
+test('v49.0 الفواتير والسندات سجلات مستقلة: المحتوى ثابت، والسداد وحده يتغير، والمطابقة تكشف العبث', () => {
+  const pi = { id: 'inv1', supplierId: 's1', invoiceNo: 'A-1', date: '2026-11-10', amount: 115, vatAmt: 15, paidAmount: 0, lines: [{ itemId: 'i', qty: 2, price: 50 }] };
+  const paid = { ...pi, paidAmount: 50, payments: [{ amount: 50, date: '2026-11-12' }] };
+  assert.equal(E.fdData('pi', pi), E.fdData('pi', paid), 'السداد لا يغيّر المحتوى ولا البصمة');
+  assert.notEqual(E.fdProg('pi', pi), E.fdProg('pi', paid));
+  assert.deepEqual([E.fdPaid('pi', paid), E.fdPaid('si', { receipts: [{ amount: 10 }, { amount: 5.5 }] }), E.fdPaid('cv', { amount: 99 })], [50, 15.5, 0]);
+  const r = E.fdRecord('pi', pi);
+  assert.deepEqual([r.kind, r.date, r.digest, r.paid], ['pi', '2026-11-10', E.sha256Hex(r.data), 0]);
+  assert.equal(E.fdDate({ createdAt: '2026-11-03T10:00:00Z' }), '2026-11-03', 'بلا تاريخ: تاريخ الإنشاء');
+  let D = E.fdDiff('pi', [], [pi]); assert.equal(D.create.length, 1);
+  D = E.fdDiff('pi', [pi], [paid]); assert.deepEqual([D.upd.length, D.skip.length], [1, 0]);
+  D = E.fdDiff('pi', [pi], [{ ...pi, amount: 999 }]); assert.deepEqual([D.upd.length, D.skip.length, D.skip[0].why], [0, 1, 'content']);
+  D = E.fdDiff('pi', [pi], []); assert.equal(D.del.length, 1);
+  D = E.fdDiff('cv', [{ id: 'v1', date: '2026-11-10', amount: 5 }], [{ id: 'v1', date: '2026-11-10', amount: 5, _flag: 1 }]); assert.equal(D.upd.length + D.skip.length, 0, 'علامات العرض لا تُحسب');
+  const rec = (k, x) => ({ id: k + '_' + x.id, ...E.fdRecord(k, x) });
+  assert.equal(E.fdCompare('pi', [paid], [rec('pi', paid)]).ok, true);
+  const K = E.fdCompare('pi', [paid, { ...pi, id: 'inv2' }], [rec('pi', pi), rec('pi', { ...pi, id: 'inv9' }), rec('si', { id: 'x', date: '2026-11-10' })]);
+  assert.deepEqual([K.differ.length, K.missing.length, K.extra.length, K.recs], [1, 1, 1, 3 - 1], 'السداد غير المنسوخ يُكشف، والأنواع الأخرى لا تختلط');
+});
+
+test('v49.0 BUG-01-04: إلغاء الإقفال الضريبي المرحّل بقيد عكسي لا بالحذف', () => {
+  const c = { id: 'vc1', date: '2026-09-30', vatClose: { from: '2026-07-01', to: '2026-09-30', net: 100 }, lines: [{ code: '2301', debit: 150, credit: 0 }, { code: '1501', debit: 0, credit: 50 }, { code: '2302', debit: 0, credit: 100 }] };
+  assert.equal(E.vatCloseLive([c], c), true);
+  assert.equal(E.vatCloseLive([c, { id: 'u', vatUndo: 'vc1', status: 'pending' }], c), true, 'الإلغاء المعلّق لا يلغي الإقفال');
+  assert.equal(E.vatCloseLive([c, { id: 'u', vatUndo: 'vc1', status: 'posted' }], c), false);
+  assert.equal(E.vatCloseLive([c, { id: 'u', vatUndo: 'vc1', status: 'rejected' }], c), true);
+  assert.equal(E.vatCloseLive([], { ...c, status: 'rejected' }), false);
+});

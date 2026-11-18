@@ -15,7 +15,7 @@ import {
   assertFails,
   assertSucceeds
 } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc, updateDoc, deleteDoc, addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, deleteDoc, addDoc, collection, serverTimestamp, Timestamp } from 'firebase/firestore';
 
 let env;
 const OWNER = 'owner@test.com';      // مدير (ضمن platform/admins)
@@ -374,4 +374,132 @@ test('v31.3: إلغاء السياسة للمدير بجلسة بخطوتين ف
   await assertFails(deleteDoc(doc(owner(), 'platform', 'security')));
   await assertSucceeds(deleteDoc(doc(tf('u-owner', OWNER), 'platform', 'security')));
   await assertSucceeds(getDoc(doc(owner(), 'platform', 'rms8_org')));
+});
+
+/* ===== v49.0 — المرحلة 01 (G1-ب): السجلات المالية المستقلة ===== */
+const ACCT = 'acct@test.com', ACCT2 = 'acct2@test.com', HO = 'ho@test.com';
+const acct = () => env.authenticatedContext('u-acct', { email: ACCT }).firestore();
+const acct2 = () => env.authenticatedContext('u-acct2', { email: ACCT2 }).firestore();
+const ho = () => env.authenticatedContext('u-ho', { email: HO }).firestore();
+const D64 = 'a'.repeat(64);
+const fj = (email, over) => ({ date: '2026-11-10', status: 'pending', digest: D64, data: '{"lines":[]}', by: email, at: serverTimestamp(), ...(over || {}) });
+async function finSeed(lockedTo) {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    const d = db(ctx);
+    await setDoc(doc(d, 'members', ACCT), { email: ACCT, active: true, scope: 'all', role: 'accountant' });
+    await setDoc(doc(d, 'members', ACCT2), { email: ACCT2, active: true, scope: 'all', role: 'finance_department' });
+    await setDoc(doc(d, 'members', HO), { email: HO, active: true, scope: 'all', role: 'head_office' });
+    if (lockedTo) await setDoc(doc(d, 'fin_periods', 'locks'), { lockedTo, by: OWNER, at: new Date() });
+  });
+}
+
+test('v49.0 fin_journal: المحاسب ينشئ «بانتظار الاعتماد» فقط، ولا ينشئ مرحّلًا، والكاشير والعرض فقط ممنوعان', async () => {
+  await finSeed('2026-10-31');
+  await assertSucceeds(setDoc(doc(acct(), 'fin_journal', 'j1'), fj(ACCT)));
+  await assertFails(setDoc(doc(acct(), 'fin_journal', 'j2'), fj(ACCT, { status: 'posted' })), 'المرحّل مباشرة للمدير فقط');
+  await assertSucceeds(setDoc(doc(owner(), 'fin_journal', 'j3'), fj(OWNER, { status: 'posted' })));
+  await assertFails(setDoc(doc(brA(), 'fin_journal', 'j4'), fj(BR_A)));
+  await assertFails(setDoc(doc(viewer(), 'fin_journal', 'j5'), fj(VIEWER)));
+  await assertFails(setDoc(doc(acct(), 'fin_journal', 'j6'), fj(OWNER)), 'لا ينتحل منشئًا آخر');
+  await assertFails(setDoc(doc(acct(), 'fin_journal', 'j7'), { ...fj(ACCT), extra: 1 }), 'شكل صارم');
+});
+
+test('v49.0 fin_journal: الفترة المقفلة ممنوعة على الخادم (إنشاءً واعتمادًا)، والفتح يتطلب سببًا من المدير', async () => {
+  await finSeed('2026-10-31');
+  await assertFails(setDoc(doc(acct(), 'fin_journal', 'l1'), fj(ACCT, { date: '2026-10-31' })), 'يوم الإقفال نفسه مقفل');
+  await assertFails(setDoc(doc(owner(), 'fin_journal', 'l2'), fj(OWNER, { status: 'posted', date: '2026-09-15' })), 'حتى المدير');
+  await assertFails(setDoc(doc(acct(), 'fin_periods', 'locks'), { lockedTo: '2026-11-30', by: ACCT, at: serverTimestamp() }), 'الإقفال للمدير فقط');
+  await assertSucceeds(setDoc(doc(owner(), 'fin_periods', 'locks'), { lockedTo: '2026-11-15', by: OWNER, at: serverTimestamp() }));
+  await assertFails(setDoc(doc(owner(), 'fin_periods', 'locks'), { lockedTo: '2026-09-30', by: OWNER, at: serverTimestamp() }), 'الفتح بلا سبب');
+  await assertSucceeds(setDoc(doc(owner(), 'fin_periods', 'locks'), { lockedTo: '2026-09-30', by: OWNER, at: serverTimestamp(), reason: 'تصحيح قيد أكتوبر بقرار المالك' }));
+  await assertFails(deleteDoc(doc(owner(), 'fin_periods', 'locks')));
+});
+
+test('v49.0 fin_journal: الاعتماد انتقال واحد بمعتمِد غير المنشئ، والمحتوى ثابت، ولا حذف ولا تعديل بعد الترحيل', async () => {
+  await finSeed('2026-10-31');
+  await assertSucceeds(setDoc(doc(acct(), 'fin_journal', 'a1'), fj(ACCT)));
+  await assertFails(setDoc(doc(acct(), 'fin_journal', 'a1'), fj(ACCT, { status: 'posted', decidedBy: ACCT, decidedAt: serverTimestamp() })), 'لا يعتمد قيده');
+  await assertFails(setDoc(doc(ho(), 'fin_journal', 'a1'), fj(ACCT, { status: 'posted', decidedBy: HO, decidedAt: serverTimestamp() })), 'المكتب الرئيسي ليس معتمِدًا للقيود');
+  await assertFails(updateDoc(doc(acct2(), 'fin_journal', 'a1'), { status: 'posted', decidedBy: ACCT2, decidedAt: serverTimestamp(), data: '{"lines":[1]}' }), 'المحتوى ثابت');
+  await assertSucceeds(updateDoc(doc(acct2(), 'fin_journal', 'a1'), { status: 'posted', decidedBy: ACCT2, decidedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(owner(), 'fin_journal', 'a1'), { status: 'rejected', decidedBy: OWNER, decidedAt: serverTimestamp() }), 'المرحّل لا يتغير');
+  await assertFails(deleteDoc(doc(owner(), 'fin_journal', 'a1')), 'لا حذف حتى للمدير');
+  await assertSucceeds(getDoc(doc(acct(), 'fin_journal', 'a1')));
+  await assertFails(getDoc(doc(brA(), 'fin_journal', 'a1')), 'الفروع لا تقرأ القيود');
+});
+
+test('v49.0 fin_journal: حذف القيد قبل اعتماده لمنشئه أو للمعتمِد فقط، ولا حذف بعد القرار', async () => {
+  await finSeed('2026-10-31');
+  await assertSucceeds(setDoc(doc(acct(), 'fin_journal', 'd1'), fj(ACCT)));
+  await assertSucceeds(setDoc(doc(acct(), 'fin_journal', 'd2'), fj(ACCT)));
+  await assertSucceeds(setDoc(doc(acct(), 'fin_journal', 'd3'), fj(ACCT)));
+  await assertFails(deleteDoc(doc(ho(), 'fin_journal', 'd1')), 'ليس منشئه ولا معتمِدًا');
+  await assertFails(deleteDoc(doc(brA(), 'fin_journal', 'd1')));
+  await assertSucceeds(deleteDoc(doc(acct(), 'fin_journal', 'd1')), 'المنشئ يحذف قيده المعلّق');
+  await assertSucceeds(deleteDoc(doc(acct2(), 'fin_journal', 'd2')), 'المعتمِد يحذف المعلّق');
+  await assertSucceeds(updateDoc(doc(acct2(), 'fin_journal', 'd3'), { status: 'rejected', decidedBy: ACCT2, decidedAt: serverTimestamp(), reason: 'خطأ في الحساب' }));
+  await assertFails(deleteDoc(doc(acct(), 'fin_journal', 'd3')), 'المرفوض لا يُحذف');
+  await assertFails(deleteDoc(doc(owner(), 'fin_journal', 'd3')), 'ولا للمدير');
+});
+
+test('v49.0 G4 نافذة الترحيل: المدير وحده يفتحها لمدة ≤24 ساعة، وخلالها فقط تُنسخ القيود القديمة بحالتها وفي الفترات المقفلة', async () => {
+  await finSeed('2026-10-31');
+  const leg = (email, over) => fj(email, { legacy: true, origBy: 'محاسب سابق', date: '2026-03-15', ...(over || {}) });
+  const soon = () => Timestamp.fromMillis(Date.now() + 3600e3);
+  // قبل فتح النافذة: مرفوض
+  await assertFails(setDoc(doc(owner(), 'fin_journal', 'g1'), leg(OWNER, { status: 'posted' })), 'النافذة مغلقة');
+  // الفتح للمدير فقط وبمدة ≤ 24 ساعة
+  await assertFails(setDoc(doc(acct(), 'fin_periods', 'migration'), { open: true, until: soon(), by: ACCT, at: serverTimestamp() }));
+  await assertFails(setDoc(doc(owner(), 'fin_periods', 'migration'), { open: true, until: Timestamp.fromMillis(Date.now() + 48 * 3600e3), by: OWNER, at: serverTimestamp() }), 'أكثر من 24 ساعة');
+  await assertSucceeds(setDoc(doc(owner(), 'fin_periods', 'migration'), { open: true, until: soon(), by: OWNER, at: serverTimestamp() }));
+  // خلال النافذة: المدير ينسخ المرحّل والمرفوض والمعلّق في فترة مقفلة؛ المحاسب لا
+  await assertSucceeds(setDoc(doc(owner(), 'fin_journal', 'g1'), leg(OWNER, { status: 'posted' })));
+  await assertSucceeds(setDoc(doc(owner(), 'fin_journal', 'g2'), leg(OWNER, { status: 'rejected', reason: 'مرفوض سابقًا' })));
+  await assertSucceeds(setDoc(doc(owner(), 'fin_journal', 'g3'), leg(OWNER, { status: 'pending', date: '2026-11-12' })));
+  await assertFails(setDoc(doc(acct(), 'fin_journal', 'g4'), leg(ACCT)), 'الترحيل للمدير فقط');
+  await assertFails(setDoc(doc(owner(), 'fin_journal', 'g5'), fj(OWNER, { date: '2026-03-15', status: 'posted' })), 'بلا علامة legacy تبقى قاعدة الإقفال');
+  // القيد المعلّق المرحَّل يعتمده المدير (المنشئ الأصلي غيره)، والعلامة ثابتة؛ والمرحّل لا يتغير
+  await assertFails(updateDoc(doc(owner(), 'fin_journal', 'g3'), { status: 'posted', decidedBy: OWNER, decidedAt: serverTimestamp(), legacy: false }));
+  await assertSucceeds(updateDoc(doc(owner(), 'fin_journal', 'g3'), { status: 'posted', decidedBy: OWNER, decidedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(owner(), 'fin_journal', 'g1'), { status: 'rejected', decidedBy: OWNER, decidedAt: serverTimestamp() }));
+  // بعد الإغلاق: لا ترحيل
+  await assertSucceeds(setDoc(doc(owner(), 'fin_periods', 'migration'), { open: false, until: Timestamp.fromMillis(Date.now()), by: OWNER, at: serverTimestamp() }));
+  await assertFails(setDoc(doc(owner(), 'fin_journal', 'g6'), leg(OWNER, { status: 'posted' })), 'النافذة أُغلقت');
+});
+
+/* ===== v49.0 الخطوة 6: الفواتير والسندات سجلات مستقلة (fin_docs) ===== */
+const fd = (kind, email, over) => ({ kind, date: '2026-11-10', digest: D64, data: '{"lines":[]}', prog: '{}', paid: 0, by: email, at: serverTimestamp(), ...(over || {}) });
+test('v49.0 fin_docs: الإنشاء بعد الإقفال، والمحتوى ثابت ولا يتغير إلا السداد، والسند لا يُعدَّل ولا يُحذف', async () => {
+  await finSeed('2026-10-31');
+  await assertSucceeds(setDoc(doc(brA(), 'fin_docs', 'pi_a1'), fd('pi', BR_A)), 'الفرع يسجل فاتورة مورد');
+  await assertSucceeds(setDoc(doc(acct(), 'fin_docs', 'si_s1'), fd('si', ACCT)));
+  await assertSucceeds(setDoc(doc(acct(), 'fin_docs', 'cv_v1'), fd('cv', ACCT)));
+  await assertFails(setDoc(doc(acct(), 'fin_docs', 'pi_old'), fd('pi', ACCT, { date: '2026-10-15' })), 'فترة مقفلة');
+  await assertFails(setDoc(doc(acct(), 'fin_docs', 'si_x'), fd('pi', ACCT)), 'النوع يطابق المعرّف');
+  await assertFails(setDoc(doc(viewer(), 'fin_docs', 'pi_v'), fd('pi', VIEWER)));
+  await assertFails(setDoc(doc(acct(), 'fin_docs', 'pi_n'), fd('pi', ACCT, { paid: -1 })));
+  // السداد يغيّر prog وpaid فقط
+  await assertSucceeds(updateDoc(doc(acct(), 'fin_docs', 'pi_a1'), { prog: '{"paidAmount":50}', paid: 50, updBy: ACCT, updAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(acct(), 'fin_docs', 'pi_a1'), { data: '{"lines":[9]}', updBy: ACCT, updAt: serverTimestamp() }), 'المحتوى ثابت');
+  await assertFails(updateDoc(doc(acct(), 'fin_docs', 'pi_a1'), { date: '2026-11-20', updBy: ACCT, updAt: serverTimestamp() }), 'التاريخ ثابت');
+  await assertFails(updateDoc(doc(acct(), 'fin_docs', 'cv_v1'), { prog: '{"x":1}', updBy: ACCT, updAt: serverTimestamp() }), 'السند لا يُعدَّل');
+  // الحذف: فاتورة مورد غير مسددة في فترة مفتوحة فقط
+  await assertFails(deleteDoc(doc(owner(), 'fin_docs', 'pi_a1')), 'مسدد منها');
+  await assertSucceeds(setDoc(doc(acct(), 'fin_docs', 'pi_a2'), fd('pi', ACCT)));
+  await assertSucceeds(deleteDoc(doc(acct(), 'fin_docs', 'pi_a2')));
+  await assertFails(deleteDoc(doc(owner(), 'fin_docs', 'si_s1')), 'فاتورة المبيعات لا تُحذف');
+  await assertFails(deleteDoc(doc(owner(), 'fin_docs', 'cv_v1')), 'السند لا يُحذف');
+  await assertSucceeds(getDoc(doc(acct(), 'fin_docs', 'si_s1')));
+  await assertFails(getDoc(doc(brA(), 'fin_docs', 'si_s1')), 'الفروع لا تقرأ السجل المركزي');
+});
+
+test('v49.0 fin_docs: الترحيل legacy للمدير داخل النافذة فقط وفي الفترات المقفلة', async () => {
+  await finSeed('2026-10-31');
+  const leg = fd('si', OWNER, { legacy: true, date: '2026-02-01' });
+  await assertFails(setDoc(doc(owner(), 'fin_docs', 'si_l1'), leg), 'النافذة مغلقة');
+  await assertSucceeds(setDoc(doc(owner(), 'fin_periods', 'migration'), { open: true, until: Timestamp.fromMillis(Date.now() + 3600e3), by: OWNER, at: serverTimestamp() }));
+  await assertSucceeds(setDoc(doc(owner(), 'fin_docs', 'si_l1'), leg));
+  await assertFails(setDoc(doc(acct(), 'fin_docs', 'si_l2'), fd('si', ACCT, { legacy: true, date: '2026-02-01' })), 'للمدير فقط');
+  await assertFails(updateDoc(doc(owner(), 'fin_docs', 'si_l1'), { legacy: false, updBy: OWNER, updAt: serverTimestamp() }), 'العلامة ثابتة');
+  await assertSucceeds(setDoc(doc(owner(), 'fin_periods', 'migration'), { open: false, until: Timestamp.fromMillis(Date.now()), by: OWNER, at: serverTimestamp() }));
 });

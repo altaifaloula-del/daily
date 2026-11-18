@@ -757,6 +757,24 @@ test('v41.9/v46.9 الإغلاقات سجلات مستقلة: مفعّلة اف�
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+test('v49.0 القيود اليدوية سجلات مستقلة: مُطفأة افتراضيًا، يفعّلها المدير ويوقفها، والمطابقة خارج Firestore لا تنهار', async () => {
+  const ctx = await browser.newContext(devices['iPad (gen 7)']); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  p.on('dialog', d => d.accept());
+  await p.goto(base + 'live/Admin/admin'); await p.reload(); await p.waitForTimeout(500); await settle(p);
+  await p.locator('button:has-text("صيانة")').first().click(); await p.waitForTimeout(500);
+  const card = p.locator('[data-fjrec]');
+  assert.match(await card.innerText(), /غير مفعّل/, 'مُطفأ افتراضيًا');
+  await card.locator('[data-fjtoggle]').click(); await p.waitForTimeout(400);
+  assert.equal(await p.evaluate(() => !!(window.curOrg.finRecords || {}).on), true);
+  assert.match(await card.innerText(), /النسخ مفعّل/);
+  await card.locator('[data-fjcheck]').click(); await p.waitForTimeout(400);
+  assert.match(await p.evaluate(() => window.lastSay || ''), /Firestore فقط/);
+  await card.locator('[data-fjtoggle]').click(); await p.waitForTimeout(400);
+  assert.equal(await p.evaluate(() => !!(window.curOrg.finRecords || {}).on), false, 'الإيقاف متاح للتراجع');
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
 test('v42.0 المخزون: «صرف للتشغيل» لا يتجاوز الرصيد (بلا استثناء)، وشاشة الدوران وفروق الأسعار على الجوال', async () => {
   const { p, errs, ctx } = await open({ ...devices['iPhone 13'] }, 'live/Inventory/admin/moves');
   await p.evaluate(() => {
@@ -1879,6 +1897,20 @@ test('v47.2 عكس القيد اليدوي: قيد بأطراف معكوسة ب�
   await p.locator('td', { hasText: 'قيد خاطئ للعكس' }).first().click(); await p.waitForTimeout(150);
   if (!(await p.locator('text=معكوس').count())) { await p.locator('td', { hasText: 'قيد خاطئ للعكس' }).first().click(); await p.waitForTimeout(150); }
   assert.ok(await p.locator('text=معكوس').count() > 0, 'يُعلَّم «معكوس»'); assert.equal(await p.locator('button:has-text("↺ عكس القيد")').count(), 0, 'لا يُعكس مرتين');
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v49.0 BUG-01-04: إلغاء الإقفال الضريبي المرحّل بقيد عكسي بتاريخه — القيد الأصلي يبقى، والفترة تُتاح للإقفال من جديد', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1280, height: 1000 } }, 'live/Accounting/admin/vat');
+  p.on('dialog', d => d.accept());
+  await p.evaluate(() => window.setOps(o => ({ ...o, journalManual: [{ id: 'vcx', date: '2026-09-30', title: 'إقفال الفترة الضريبية اختبار', by: 'مجاهد', createdAt: '2026-10-01T08:00:00Z', src: 'vat-close',
+    vatClose: { from: '2026-07-01', to: '2026-09-30', out: 150, inn: 50, net: 100, rate: 15 }, lines: [{ code: '2301', debit: 150, credit: 0 }, { code: '1501', debit: 0, credit: 50 }, { code: '2302', debit: 0, credit: 100 }] }] })));
+  await p.waitForTimeout(400);
+  await p.locator('button:has-text("إلغاء الإقفال")').first().click(); await p.waitForTimeout(400);
+  assert.match(await p.evaluate(() => window.lastSay || ''), /بقيد عكسي/);
+  const r = await p.evaluate(() => window.cur.journalManual.map(j => [j.id === 'vcx' ? 'orig' : j.vatUndo, j.status || '', j.date, j.lines.map(l => l.code + ':' + l.debit + '/' + l.credit).join(',')]));
+  assert.deepEqual(r.sort(), [['orig', '', '2026-09-30', '2301:150/0,1501:0/50,2302:0/100'], ['vcx', 'posted', '2026-09-30', '2301:0/150,1501:50/0,2302:100/0']].sort(), 'لا حذف — قيد عكسي مرحّل بتاريخ الإقفال');
+  assert.equal(await p.locator('button:has-text("إلغاء الإقفال")').count(), 0, 'الإقفال الملغى لا يظهر في القائمة');
   assert.deepEqual(errs, []); await ctx.close();
 });
 

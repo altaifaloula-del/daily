@@ -6,7 +6,7 @@ import { RotateCcw, Scale, FileBarChart, ChevronDown, Printer, Settings, Receipt
 import { VatRegisters, SupplierPurchReport } from './TaxPurchReports.jsx';   // v39.1
 import { Suppliers } from '../inv/Suppliers.jsx';   // v44.0 «مستلم لم يُفوتر»
 import { OdooBar } from '../../App.jsx';   // v41.0
-import { DocLink, RowGrip, moveIdx, RECUR_AR, recurNext, recurDue, jeOwner, canApproveJe, projList, projectPL, projNextCode, ACCT_SECTIONS, ACC_KIND, Field, Kpi, LOCK_MSG, MizanMerge, Modal, NUM_FACE, Num, ROLES, _xe, acctSecKey, arDate, bankOfBranch, branchBanks, bsLayout, bsRowsOf, buildAccounting, buildPartners, capOK, countedClosing, customerAging, detectStmtMap, entityById, entityList, gosiRatesFor, isLayout, isRowsOf, isoD, lockedThru, makeXlsx, money, monthEnd, monthLedger, multiEntityOn, naMissing, nowISO, openDocWin, parseCsvGrid, parseMt940, parseXlsxGrid, payTotal, periodLocked, posClrOf, printA4, qrSvg, roleEdit, rolePost, snapMonths, stAddDays, stDate, stNum, sum, supplierAging, today, uid, useSecNav, zatcaTLV } from '../../App.jsx';
+import { DocLink, RowGrip, moveIdx, RECUR_AR, recurNext, recurDue, jeOwner, canApproveJe, jeAutoSt, vatCloseLive, projList, projectPL, projNextCode, ACCT_SECTIONS, ACC_KIND, Field, Kpi, LOCK_MSG, MizanMerge, Modal, NUM_FACE, Num, ROLES, _xe, acctSecKey, arDate, bankOfBranch, branchBanks, bsLayout, bsRowsOf, buildAccounting, buildPartners, capOK, countedClosing, customerAging, detectStmtMap, entityById, entityList, gosiRatesFor, isLayout, isRowsOf, isoD, lockedThru, makeXlsx, money, monthEnd, monthLedger, multiEntityOn, naMissing, nowISO, openDocWin, parseCsvGrid, parseMt940, parseXlsxGrid, payTotal, periodLocked, posClrOf, printA4, qrSvg, roleEdit, rolePost, snapMonths, stAddDays, stDate, stNum, sum, supplierAging, today, uid, useSecNav, zatcaTLV } from '../../App.jsx';
 
 export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }) {
   const [view, setView] = useState('jr'); const [prjF, setPrjF] = useState({ name: '', branchId: '', budget: '' }); const [prjOpen, setPrjOpen] = useState(null);   // v47.4           // jr قيود · coa دليل · tb ميزان · fs قوائم
@@ -403,8 +403,8 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
   // ===== v36.1 — إقفال الفترة الضريبية في الحساب الوسيط 2302 وسدادها =====
   // قيد الإقفال: من 2301 (مخرجات الفترة) إلى 1501 (مدخلات الفترة) والفرق إلى 2302 (المستحق للهيئة) — بمبالغ الإقرار نفسها.
   // قيد السداد: من 2302 إلى حساب نقدي. القيود تُخزَّن في journalManual بوسم vatClose/vatPay ولا تحمل أثرًا ضريبيًا فلا تغيّر الإقرار.
-  const vatCloses = (ops.journalManual || []).filter(j => j.vatClose).sort((a, b) => (b.vatClose.to || '').localeCompare(a.vatClose.to || ''));
-  const vatPays = (ops.journalManual || []).filter(j => j.vatPay);
+  const vatCloses = (ops.journalManual || []).filter(j => j.vatClose && vatCloseLive(ops.journalManual, j)).sort((a, b) => (b.vatClose.to || '').localeCompare(a.vatClose.to || ''));
+  const vatPays = (ops.journalManual || []).filter(j => j.vatPay && j.status !== 'rejected');
   const vcPaid = (id) => r2x(sum(vatPays.filter(p => p.vatPay.closeId === id), p => p.vatPay.amount));
   const vcOverlap = (f, t) => vatCloses.find(c => !(t < c.vatClose.from || f > c.vatClose.to));
   const vcNextFrom = vatCloses.length ? (() => { const d = new Date(vatCloses[0].vatClose.to + 'T00:00:00'); d.setDate(d.getDate() + 1); return isoD(d); })() : '';
@@ -426,14 +426,15 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
       ...(net ? [{ code: '2302', debit: net < 0 ? -net : 0, credit: net > 0 ? net : 0 }] : [])
     ];
     const rec = { id: uid('jm'), date: to, title: 'إقفال الفترة الضريبية ' + from + ' ← ' + to + (net >= 0 ? ' — مستحق للهيئة' : ' — رصيد دائن مرحّل'),
-      opening: false, by: me?.name || '', createdAt: nowISO(), src: 'vat-close', vatClose: { from, to, out, inn, net, rate: taxRate }, lines };
+      opening: false, by: me?.name || '', createdAt: nowISO(), ...jeAutoSt(me), src: 'vat-close', vatClose: { from, to, out, inn, net, rate: taxRate }, lines };
     const ok = await commit(d => ({ ...d, journalManual: [rec, ...(d.journalManual || [])] }), { actionType: 'create', targetType: 'journal_entry', targetId: rec.id, need: 'post', title: 'إقفال فترة ضريبية', details: from + ' ← ' + to + ' · مخرجات ' + money(out) + ' · مدخلات ' + money(inn) + ' · صافي ' + money(net) });
-    if (ok) say('أُقفلت الفترة الضريبية ✓ — الصافي ' + money(Math.abs(net)) + (net >= 0 ? ' مستحق للهيئة في 2302' : ' رصيد دائن لصالحك'));
+    if (ok) say('أُقفلت الفترة الضريبية ✓ — الصافي ' + money(Math.abs(net)) + (net >= 0 ? ' مستحق للهيئة في 2302' : ' رصيد دائن لصالحك') + (rec.status === 'pending' ? ' — بانتظار الاعتماد، لا يدخل الدفاتر قبله' : ''));
   };
   const cashAccts = A.accounts.filter(a => a.cash);
   const postVatPay = async () => {
     const f = vpay; if (!f) return;
     const c = vatCloses.find(x => x.id === f.closeId); if (!c) return say('اختر الفترة', 'no');
+    if (c.status === 'pending') return say('إقفال هذه الفترة بانتظار الاعتماد — يُسدَّد بعد اعتماده', 'no');
     const amt = r2x(Number(String(f.amount).replace(/[^\d.]/g, '')) || 0);
     const rem = r2x(c.vatClose.net - vcPaid(c.id));
     if (!(amt > 0)) return say('أدخل مبلغ السداد', 'no');
@@ -441,17 +442,27 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
     if (!f.acc) return say('اختر حساب السداد', 'no');
     if (periodLocked(org, f.date)) return say(LOCK_MSG(f.date), 'no');
     const rec = { id: uid('jm'), date: f.date, title: 'سداد ضريبة القيمة المضافة — فترة ' + c.vatClose.from + ' ← ' + c.vatClose.to + (f.ref ? ' · ' + f.ref : ''),
-      opening: false, by: me?.name || '', createdAt: nowISO(), src: 'vat-pay', vatPay: { closeId: c.id, amount: amt, ref: f.ref || '' },
+      opening: false, by: me?.name || '', createdAt: nowISO(), ...jeAutoSt(me), src: 'vat-pay', vatPay: { closeId: c.id, amount: amt, ref: f.ref || '' },
       lines: [{ code: '2302', debit: amt, credit: 0 }, { code: f.acc, debit: 0, credit: amt }] };
     const ok = await commit(d => ({ ...d, journalManual: [rec, ...(d.journalManual || [])] }), { actionType: 'create', targetType: 'journal_entry', targetId: rec.id, need: 'post', title: 'سداد ضريبة القيمة المضافة', details: money(amt) + ' · ' + c.vatClose.from + ' ← ' + c.vatClose.to });
-    if (ok) { setVpay(null); say('سُجّل السداد ✓'); }
+    if (ok) { setVpay(null); say('سُجّل السداد ✓' + (rec.status === 'pending' ? ' — بانتظار الاعتماد، لا يدخل الدفاتر قبله' : '')); }
   };
   const undoVatClose = async (c) => {
     if (vatCloses[0]?.id !== c.id) return say('يُلغى آخر إقفال فقط — ألغِ الأحدث أولًا', 'no');
     if (vcPaid(c.id) > 0) return say('على هذه الفترة سداد مسجّل — اعكس السداد بقيد يدوي قبل الإلغاء', 'no');
     if (periodLocked(org, c.date)) return say(LOCK_MSG(c.date), 'no');
-    const ok = await commit(d => ({ ...d, journalManual: (d.journalManual || []).filter(j => j.id !== c.id) }), { actionType: 'delete', targetType: 'journal_entry', targetId: c.id, need: 'post', title: 'ألغى إقفال فترة ضريبية', details: c.vatClose.from + ' ← ' + c.vatClose.to + ' · صافي ' + money(c.vatClose.net) });
-    if (ok) say('أُلغي الإقفال — يمكنك إعادة إقفال الفترة بعد التصحيح');
+    if ((ops.journalManual || []).some(j => j.vatUndo === c.id && j.status === 'pending')) return say('إلغاء هذا الإقفال بانتظار الاعتماد', 'no');
+    // v49.0 (BUG-01-04): الإقفال المعلّق يُحذف كما كان؛ المرحّل يُلغى بقيد عكسي بتاريخه نفسه (لا حذف لقيد مرحّل)
+    if (c.status === 'pending') {
+      const ok = await commit(d => ({ ...d, journalManual: (d.journalManual || []).filter(j => j.id !== c.id) }), { actionType: 'delete', targetType: 'journal_entry', targetId: c.id, need: 'post', title: 'ألغى إقفال فترة ضريبية', details: c.vatClose.from + ' ← ' + c.vatClose.to + ' · صافي ' + money(c.vatClose.net) });
+      if (ok) say('أُلغي الإقفال — يمكنك إعادة إقفال الفترة بعد التصحيح');
+      return;
+    }
+    const rec = { id: uid('jm'), date: c.date, title: 'إلغاء ' + (c.title || 'إقفال فترة ضريبية'), reverses: c.id, vatUndo: c.id, src: 'vat-close-undo', opening: false,
+      by: me?.name || '', createdAt: nowISO(), ...jeAutoSt(me), lines: (c.lines || []).map(l => ({ code: l.code, debit: Number(l.credit) || 0, credit: Number(l.debit) || 0 })) };
+    const ok = await commit(d => ({ ...d, journalManual: [rec, ...(d.journalManual || [])] }), { actionType: 'create', targetType: 'journal_entry', targetId: rec.id, need: 'post',
+      title: 'ألغى إقفال فترة ضريبية بقيد عكسي' + (rec.status === 'pending' ? ' (بانتظار الاعتماد)' : ''), details: c.vatClose.from + ' ← ' + c.vatClose.to });
+    if (ok) say(rec.status === 'pending' ? 'أُرسل إلغاء الإقفال للاعتماد ✓ — يبقى الإقفال قائمًا حتى اعتماده' : 'أُلغي الإقفال بقيد عكسي ✓ — يمكنك إعادة إقفال الفترة بعد التصحيح');
   };
   const vatTxRows = () => [['التاريخ', 'المصدر', 'المرجع', 'البيان', 'الفرع', 'الطرف', 'الرقم الضريبي للطرف', 'مبيعات صافية', 'ضريبة مخرجات', 'مشتريات صافية', 'ضريبة مدخلات', 'ملاحظة المدقق'],
     ...vatX.tx.map(t => [t.date, t.src, t.ref, t.title, t.br, t.party, t.pVat, t.ns, t.out, t.np, t.inn, t.flag])];
@@ -767,10 +778,10 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
     const code = fixAcc[x.i]; if (!code) return say('اختر الحساب المقابل', 'no');
     if (periodLocked(org, x.date)) return say(LOCK_MSG(x.date), 'no');
     const a = Math.abs(x.amount);
-    const rec = { id: uid('jm'), date: x.date, title: 'من كشف ' + bankLabel(brAcc) + ': ' + (x.desc || (x.amount > 0 ? 'إيداع' : 'سحب')), opening: false, by: me?.name || '', createdAt: nowISO(), src: 'bank-stmt',
+    const rec = { id: uid('jm'), date: x.date, title: 'من كشف ' + bankLabel(brAcc) + ': ' + (x.desc || (x.amount > 0 ? 'إيداع' : 'سحب')), opening: false, by: me?.name || '', createdAt: nowISO(), ...jeAutoSt(me), src: 'bank-stmt',
       lines: x.amount > 0 ? [{ code: brAcc, debit: a, credit: 0 }, { code, debit: 0, credit: a }] : [{ code, debit: a, credit: 0 }, { code: brAcc, debit: 0, credit: a }] };
     const ok = await commit(d => ({ ...d, journalManual: [rec, ...(d.journalManual || [])] }), { actionType: 'create', targetType: 'journal_entry', targetId: rec.id, need: 'post', title: 'قيد من كشف البنك', details: bankLabel(brAcc) + ' · ' + x.date + ' · ' + money(x.amount) + ' · ' + (x.desc || '') });
-    if (ok) { say('قُيّد ✓ — أعد المطابقة لتحديث الأرصدة'); setFullM(m => m ? { ...m, bankUn: m.bankUn.filter(y => y.i !== x.i), fixed: [...(m.fixed || []), x] } : m); }
+    if (ok) { say(rec.status === 'pending' ? 'أُرسل القيد للاعتماد ✓ — يظهر في المطابقة بعد اعتماده' : 'قُيّد ✓ — أعد المطابقة لتحديث الأرصدة'); setFullM(m => m ? { ...m, bankUn: m.bankUn.filter(y => y.i !== x.i), fixed: [...(m.fixed || []), x] } : m); }
   };
   const [clsAmt, setClsAmt] = useState('');
   const [clsDate, setClsDate] = useState(() => today());
@@ -781,14 +792,14 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
     if (amt > clrBal + 0.01) return say('المبلغ أكبر من رصيد الوسيط الحالي (' + money(clrBal) + ')', 'no');
     const rec = {
       id: uid('jm'), date: clsDate, title: 'إقفال وسيط الشبكة في ' + bankLabel(brAcc) + (stMatch ? ' — مطابقة ' + stMatch.month : ''),
-      opening: false, by: me?.name || '', createdAt: nowISO(),
+      opening: false, by: me?.name || '', createdAt: nowISO(), ...jeAutoSt(me),
       lines: [{ code: brAcc, debit: amt, credit: 0 }, { code: clrAcc, debit: 0, credit: amt }]
     };
     const ok = await commit(d => ({ ...d, journalManual: [rec, ...(d.journalManual || [])] }), {
       actionType: 'create', targetType: 'journal_entry', targetId: rec.id, need: 'post',
       title: 'قيد إقفال وسيط الشبكة', details: bankLabel(brAcc) + ' · ' + money(amt) + ' ر.س'
     });
-    if (ok) { setClsAmt(''); say('أُقفل ' + money(amt) + ' من وسيط الشبكة في ' + bankLabel(brAcc) + ' ✓'); }
+    if (ok) { setClsAmt(''); say('أُقفل ' + money(amt) + ' من وسيط الشبكة في ' + bankLabel(brAcc) + ' ✓' + (rec.status === 'pending' ? ' — بانتظار الاعتماد، لا يدخل الدفاتر قبله' : '')); }
   };
 
   // ===== v8.4: إقفال الفترات =====
@@ -1567,11 +1578,11 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                           <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 6 }}>
                             {e.manual
                               ? <>قيد {e.src === 'قيد افتتاحي' ? 'افتتاحي' : 'يدوي'} أدخله: {e.ref || '—'} — التصحيح يكون بقيد عكسي، لا حذف حفاظًا على سلامة السجل.
-                                {(() => { const jid = String(e.id || '').replace(/^man:/, ''); const jj = (ops.journalManual || []).find(x => x.id === jid); if (!canPost || !jj || jj.vatClose || jj.vatPay) return null;
+                                {(() => { const jid = String(e.id || '').replace(/^man:/, ''); const jj = (ops.journalManual || []).find(x => x.id === jid); if (!canPost || !jj || jj.vatClose || jj.vatPay || jj.vatUndo) return null;
                                   const rv = (ops.journalManual || []).find(x => x.reverses === jid && x.status !== 'rejected');
                                   return rv ? <span className="badge b-dim" style={{ marginInlineStart: 8 }}>{rv.status === 'pending' ? 'عكسه بانتظار الاعتماد' : 'معكوس'}</span>
                                     : jj.reverses ? null : <button className="btn sm gh" style={{ marginInlineStart: 8, padding: '3px 9px', fontSize: 10.5 }} onClick={() => reverseJe(jid)}>↺ عكس القيد</button>; })()}
-                                {(() => { const jid = String(e.id || '').replace(/^man:/, ''); const jj = (ops.journalManual || []).find(x => x.id === jid); return canPost && jj && !jj.vatClose && !jj.vatPay && !jj.closing
+                                {(() => { const jid = String(e.id || '').replace(/^man:/, ''); const jj = (ops.journalManual || []).find(x => x.id === jid); return canPost && jj && !jj.vatClose && !jj.vatPay && !jj.vatUndo && !jj.closing
                                   ? <button className="btn sm gh" data-copyje style={{ marginInlineStart: 8, padding: '3px 9px', fontSize: 10.5 }} onClick={() => copyJm(jj)}>⧉ نسخ القيد</button> : null; })()}</>
                               : <>المصدر: {e.src} · المرجع: <span className="num">{e.ref}</span> — لم يُدخل هذا القيد يدويًا؛ تصحيح المصدر ينعكس هنا تلقائيًا.
                                 {(() => { const SRC_TAB = { 'إغلاق وردية': 'closing', 'مصروف وردية': 'closing', 'سداد مورد بالوردية': 'closing', 'تحويل خزينة': 'treasury', 'الخزينة الرئيسية': 'treasury', 'فاتورة مورد': 'suppliers', 'سداد مركزي': 'suppliers', 'كشف الرواتب': 'payroll', 'الرواتب والسلف': 'payroll' };
