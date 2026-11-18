@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
-import {
+import { Target,
   LayoutDashboard, ClipboardCheck, Banknote, Users, Building2, FileBarChart,
   ShieldCheck, ScanLine, Bell, LogOut, Plus, Minus, Trash2, Check, X, Search,
   CircleDollarSign, TrendingUp, TrendingDown, AlertTriangle, Wallet,
@@ -141,6 +141,7 @@ const Archive = lazyComp(() => import('./mods/acct/Archive.jsx'), 'Archive');
 const FinancialReports = lazyComp(() => import('./mods/acct/FinancialReports.jsx'), 'FinancialReports');
 const IncomeStatement = lazyComp(() => import('./mods/acct/IncomeStatement.jsx'), 'IncomeStatement');
 const QrFeedback = lazyComp(() => import('./mods/pos/QrFeedback.jsx'), 'QrFeedback');
+const MktGrowth = lazyComp(() => import('./mods/mkt/MktGrowth.jsx'), 'MktGrowth');   // v48.0 SMART POS GROWTH
 const QrDashboard = lazyComp(() => import('./mods/pos/QrDashboard.jsx'), 'QrDashboard');
 const QrComplaints = lazyComp(() => import('./mods/pos/QrComplaints.jsx'), 'QrComplaints');
 const QrBranchesView = lazyComp(() => import('./mods/pos/QrBranchesView.jsx'), 'QrBranchesView');
@@ -696,7 +697,7 @@ const BR_COLS = ['posTabs', 'kdsTickets', 'closings', 'transfers', 'partnerReque
   'prepBatches',
   // v45.0 — جرد رف التحضير بالمسح (الموجود/المفقود/المنتهي/غير المتوقع)
   'prepCounts'];
-const CORE_COLS = ['cashVouchers', 'prodOrders', 'archLog', 'cardRecons', 'ledgerSnaps', 'salesInvoices', 'advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'jeRecurring', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules', 'hrScoreSnapshots'];
+const CORE_COLS = ['cashVouchers', 'prodOrders', 'archLog', 'cardRecons', 'ledgerSnaps', 'salesInvoices', 'advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'jeRecurring', 'mktConsents', 'mktMerges', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules', 'hrScoreSnapshots'];
 
 // تقسيم ops المدمجة إلى مستند مركزي + مستند لكل فرع
 function splitOps(ops, branchIds) {
@@ -2504,12 +2505,12 @@ const DENOMS = [
 const emptyDenoms = () => DENOMS.reduce((o, d) => ({ ...o, [d.k]: 0 }), {});
 const countDenoms = (d) => DENOMS.reduce((s, x) => s + (Number(d?.[x.k]) || 0) * x.v, 0);
 
-const ALL_TABS = ['pos', 'whbranch', 'analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'hrops', 'hrperf', 'attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'kpi', 'empfile', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'perfsnap', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit', 'qrfb'];
+const ALL_TABS = ['pos', 'whbranch', 'analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'mkt', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'hrops', 'hrperf', 'attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'kpi', 'empfile', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'perfsnap', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'admin', 'audit', 'qrfb'];
 const TAB_AR = {
   muster: 'مسير الرواتب', overtime: 'مسير الأجور الإضافية',
   cashiers: 'سجل الكاشير',
   analytics: 'مركز التحليل والأداء', reporting: 'مركز التقارير', exec: 'اللوحة التنفيذية',
-  pos: 'نقطة البيع', dash: 'لوحة المؤشرات', compare: 'مقارنة الفروع', growth: 'تحليلات النمو', breakeven: 'تحليل التعادل', scorecard: 'لوحة الأهداف', scenario: 'ماذا-لو', boardpack: 'تقرير الإدارة', cashflow: 'التدفق النقدي', closing: 'الإغلاق اليومي', apps: 'التطبيقات',
+  pos: 'نقطة البيع', dash: 'لوحة المؤشرات', compare: 'مقارنة الفروع', growth: 'تحليلات النمو', mkt: 'التسويق والنمو الذكي', breakeven: 'تحليل التعادل', scorecard: 'لوحة الأهداف', scenario: 'ماذا-لو', boardpack: 'تقرير الإدارة', cashflow: 'التدفق النقدي', closing: 'الإغلاق اليومي', apps: 'التطبيقات',
   approve: 'التدقيق والاعتماد', treasury: 'الخزينة والترحيل', people: 'شؤون الموظفين', payroll: 'الرواتب والسلف', leaves: 'الإجازات', workforce: 'تخطيط العمالة والتكلفة', hrmaster: 'البيانات الرئيسية', hrpolicy: 'السياسات والأدوار', attendance: 'الحضور الموثَّق', shiftengine: 'محرّك الورديات', tasks: 'المهام', points: 'دفتر النقاط', kpi: 'الأداء والتقييم', rewards: 'المكافآت والجزاءات', esign: 'التوقيع الإلكتروني', corrective: 'الإجراءات التصحيحية', training: 'التدريب والشهادات', rolekpi: 'مؤشرات الأداء بالدور', hrdash: 'لوحة الموارد البشرية', perfsnap: 'تجميد الأداء الشهري',
   purchasing: 'المشتريات والموردون', suppliers: 'الموردون والمشتريات', inv: 'المخزون والمنتجات', reorder: 'المشتريات الذكية', partners: 'جهات الاتصال',
   acct: 'المحاسبة', shifts: 'مواعيد الإغلاق والتذكيرات', archive: 'أرشيف المستندات', ai: 'المركز الذكي',
@@ -2561,17 +2562,17 @@ const ROLES = {
   },
   branch_manager: {
     ar: 'مدير الفرع', badge: 'b-mint', scope: 'own', create: true,
-    tabs: ['pos', 'whbranch', 'closing', 'sales', 'apps', 'archive', 'hrops', 'hrperf', 'attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'kpi', 'empfile', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'qrfb'],
+    tabs: ['pos', 'whbranch', 'closing', 'sales', 'apps', 'archive', 'hrops', 'hrperf', 'attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'kpi', 'empfile', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'qrfb', 'mkt'],
     perms: ['إدخال وترحيل إغلاق فرعه', 'عرض سجل إغلاقات فرعه', 'أرشيف مستندات فرعه فقط', 'تسجيل الحضور وضبط أرقام PIN وسجل حضور فرعه', 'محرّك ورديات فرعه: قوالب، تعيين أسبوعي، مطابقة حضور، تبديل وردية، طلب نقل موظف', 'كشك التوقيع الإلكتروني وسجل إقرارات فرعه (بلا مبالغ الرواتب)']
   },
   regional_manager: {
     ar: 'مدير إقليمي — فروع مُسندة', badge: 'b-amber', scope: 'assigned',
-    tabs: ['whbranch', 'analytics', 'reporting', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'reports', 'archive', 'hrops', 'hrperf', 'attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'kpi', 'empfile', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'qrfb'],
+    tabs: ['whbranch', 'analytics', 'reporting', 'dash', 'compare', 'growth', 'sales', 'closing', 'apps', 'reports', 'archive', 'hrops', 'hrperf', 'attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'kpi', 'empfile', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'qrfb', 'mkt'],
     perms: ['متابعة الفروع المسندة إليه فقط', 'مقارنة وتقارير فروعه ولوحة مؤشراتها ونموّها', 'سجل حضور فروعه المسندة ومحرّك ورديات فروعه', 'بلا وصول للمحاسبة والخزينة والإعدادات']
   },
   head_office: {
     ar: 'المكتب الرئيسي — المالية والإدارة', badge: 'b-brass', scope: 'all', approver: true,
-    tabs: ['whbranch', 'analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'hrops', 'hrperf', 'attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'kpi', 'empfile', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'perfsnap', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit', 'qrfb'],
+    tabs: ['whbranch', 'analytics', 'reporting', 'people', 'purchasing', 'exec', 'alerts', 'dash', 'compare', 'growth', 'breakeven', 'scorecard', 'scenario', 'boardpack', 'cashflow', 'sales', 'closing', 'apps', 'approve', 'treasury', 'payroll', 'workforce', 'hrmaster', 'hrpolicy', 'hrops', 'hrperf', 'attendance', 'leaves', 'shiftengine', 'tasks', 'points', 'kpi', 'empfile', 'rewards', 'esign', 'corrective', 'training', 'rolekpi', 'hrdash', 'perfsnap', 'suppliers', 'inv', 'reorder', 'partners', 'acct', 'shifts', 'docs', 'archive', 'ai', 'reports', 'rbuild', 'entities', 'audit', 'qrfb', 'mkt'],
     perms: ['كل الفروع والتقارير المجمّعة', 'التدقيق والاعتماد النهائي', 'الخزينة والرواتب والموردون والمشتريات والمخزون', 'المحاسبة الكاملة: قيود وميزان وقوائم وضريبة وأصول ومراكز تكلفة']
   },
   system_admin: {
@@ -2738,7 +2739,8 @@ const REG_APPS = [
   { id: 'archive', ar: 'أرشيف المستندات', en: 'Documents Archive', cat: 'gov', icon: ImageIcon, open: { tab: 'archive' }, kw: ['مستند', 'صورة', 'أرشيف', 'وثيقة', 'إيصال'], fns: ['صور الإغلاقات والإيصالات', 'تصفح بالفرع والتاريخ'], d: 'كل صور التوثيق والإيصالات مؤرشفة بالفرع والتاريخ.' },
   // ——— التحليل والذكاء المالي ———
   { id: 'ai', ar: 'المركز المالي الذكي', en: 'Financial Intelligence', cat: 'bi', icon: Sparkles, open: { tab: 'ai' }, kw: ['تحليل', 'ذكاء', 'توقع', 'انحراف', 'نسبة', 'اتجاه'], fns: ['مؤشرات وتحليلات', 'كشف الانحرافات', 'توصيات'], d: 'قراءة ذكية لأرقامك: اتجاهات وانحرافات وتوصيات.' },
-  { id: 'qrfb', ar: 'تقييم العملاء بالـ QR', en: 'QR Customer Feedback', cat: 'pos', icon: QrCode, open: { tab: 'qrfb' }, kw: ['تقييم', 'عميل', 'عملاء', 'رضا', 'شكوى', 'شكاوى', 'QR', 'تعليق', 'نجوم'], fns: ['رمز QR لكل فرع يفتح صفحة تقييم بلا تسجيل دخول', 'تقييم 10 عناصر (الطعام والخدمة والمكان) + تعليق', 'شكوى تلقائية عند تقييم أقل من 3 مع مهلة 24 ساعة', 'مقارنة الفروع والاتجاه الأسبوعي وأكثر المشاكل', 'تحليل التعليقات بالذكاء الاصطناعي'], d: 'العميل يمسح رمز الطاولة ويقيّم تجربته، والمدير يتابع الشكاوى والاتجاهات والتوصيات لحظيًا.' }
+  { id: 'qrfb', ar: 'تقييم العملاء بالـ QR', en: 'QR Customer Feedback', cat: 'pos', icon: QrCode, open: { tab: 'qrfb' }, kw: ['تقييم', 'عميل', 'عملاء', 'رضا', 'شكوى', 'شكاوى', 'QR', 'تعليق', 'نجوم'], fns: ['رمز QR لكل فرع يفتح صفحة تقييم بلا تسجيل دخول', 'تقييم 10 عناصر (الطعام والخدمة والمكان) + تعليق', 'شكوى تلقائية عند تقييم أقل من 3 مع مهلة 24 ساعة', 'مقارنة الفروع والاتجاه الأسبوعي وأكثر المشاكل', 'تحليل التعليقات بالذكاء الاصطناعي'], d: 'العميل يمسح رمز الطاولة ويقيّم تجربته، والمدير يتابع الشكاوى والاتجاهات والتوصيات لحظيًا.' },
+  { id: 'mkt', ar: 'التسويق والنمو الذكي', en: 'Smart POS Growth', cat: 'pos', icon: Target, open: { tab: 'mkt' }, kw: ['تسويق', 'عملاء', 'CRM', 'شرائح', 'ولاء', 'حملات', 'كوبون', 'نمو'], fns: ['ملفات العملاء وتاريخ مشترياتهم', 'شرائح قابلة للضبط (VIP، أوفياء، معرّضون للانقطاع…)', 'سجل الموافقات التسويقية', 'كشف التكرار والدمج المعتمد'] },
 ];
 const REG_IX = {}; REG_APPS.forEach(a => { REG_IX[a.id] = a; });
 
@@ -2769,6 +2771,8 @@ const LAUNCH_APPS = [
     sections: ['الأداء والتقييم', 'مؤشرات الأداء بالدور', 'المكافآت والجزاءات', 'الإجراءات التصحيحية', 'التدريب والشهادات', 'تجميد الأداء', 'لوحة الموارد البشرية'], kw: ['أداء', 'تقييم', 'kpi', 'مؤشر', 'مكافأة', 'جزاء', 'تأديب', 'إجراء', 'تدريب', 'شهادة', 'تجميد', 'لوحة'] },
   { id: 'qrfb', ar: 'تقييم العملاء (QR)', en: 'QR Customer Feedback', cat: 'pos', icon: QrCode, open: { tab: 'qrfb' },
     sections: ['لوحة التقييمات', 'الشكاوى', 'رموز QR للفروع'], kw: ['تقييم', 'عميل', 'عملاء', 'رضا', 'شكوى', 'شكاوى', 'QR', 'تعليق', 'نجوم', 'طاولة'] },
+  { id: 'mkt', ar: 'التسويق والنمو الذكي', en: 'Smart POS Growth', cat: 'pos', icon: Target, open: { tab: 'mkt' },
+    sections: ['لوحة التسويق', 'ملفات العملاء', 'الشرائح', 'الموافقات', 'الإعدادات'], kw: ['تسويق', 'عملاء', 'CRM', 'شرائح', 'ولاء', 'حملات', 'كوبون', 'عروض', 'نمو', 'VIP'] },
   { id: 'whbranch', ar: 'مستودع الفرع', en: 'Branch Warehouse', cat: 'inv2', icon: Truck, open: { tab: 'whbranch' },
     sections: ['الأرصدة', 'الوارد', 'طلب من الرئيسي', 'صرف وهدر', 'الجرد'], kw: ['مستودع', 'فرع', 'تحويل', 'استلام', 'طلب', 'هدر', 'جرد'] },
   { id: 'sales', ar: 'المبيعات', en: 'Sales', cat: 'pos', icon: CircleDollarSign, open: { tab: 'sales' },
@@ -2818,7 +2822,7 @@ const ACCT_SEC_AR = {}; ACCT_SECTIONS.forEach(s => { ACCT_SEC_AR[s.v] = s.ar; })
 (() => { const ids = ['hrops', 'people', 'hrperf']; const as = ids.map(id => LAUNCH_APPS.find(a => a.id === id)).filter(Boolean);
   const secs = [...new Set(as.flatMap(a => a.sections || []))], kw = [...new Set(as.flatMap(a => a.kw || []))];
   as.forEach(a => { a.sections = secs; a.kw = kw; }); })();
-const LAUNCH_ORDER = ['pos', 'closing', 'sales', 'qrfb', 'whbranch', 'inv', 'purchasing', 'partners', 'acct', 'vat', 'reporting', 'analytics', 'hrops', 'people', 'hrperf', 'docs', 'brmgmt', 'audit', 'approve', 'shifts', 'alerts', 'treasury', 'entities', 'archive', 'backup'];
+const LAUNCH_ORDER = ['pos', 'closing', 'sales', 'mkt', 'qrfb', 'whbranch', 'inv', 'purchasing', 'partners', 'acct', 'vat', 'reporting', 'analytics', 'hrops', 'people', 'hrperf', 'docs', 'brmgmt', 'audit', 'approve', 'shifts', 'alerts', 'treasury', 'entities', 'archive', 'backup'];
 const launchRank = (id) => { const i = LAUNCH_ORDER.indexOf(id); return i < 0 ? 999 : i; };
 /* v8.5 — لقطات احتياطية يومية محلية (IndexedDB) على أجهزة الإدارة:
    حماية إضافية ضد التلف أو الحذف الخاطئ — والنسخة الملفية تبقى الحماية الخارجية */
@@ -3004,7 +3008,7 @@ function emptyOrg(company) {
 }
 
 function emptyOps() {
-  return { cashVouchers: [], jeRecurring: [], actions: [], countSessions: [], wasteRequests: [], posImports: [], posOrders: [], posShifts: [], ledgerSnaps: [], stockCounts: [], leaveRequests: [], productSales: [], salesInvoices: [], closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
+  return { cashVouchers: [], jeRecurring: [], mktConsents: [], mktMerges: [], actions: [], countSessions: [], wasteRequests: [], posImports: [], posOrders: [], posShifts: [], ledgerSnaps: [], stockCounts: [], leaveRequests: [], productSales: [], salesInvoices: [], closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
     attendanceEvents: [], hrPins: [], shiftTemplates: [], shiftAssignments: [], shiftSwapRequests: [], branchTransferRequests: [], taskTemplates: [], taskAssignments: [], taskCompletions: [], pointsEntries: [], qualityReviews: [], rewardRequests: [], hrSignDocs: [], hrCorrective: [], hrPips: [], hrTraining: [], hrKpiEntries: [], hrScoreSnapshots: [], purchaseReqs: [], poInbox: [], poReceipts: [] };
 }
 
@@ -3015,7 +3019,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v47.8';
+const APP_VER = 'v48.0';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -4046,6 +4050,7 @@ function PlatformApp() {
     { id: 'hrops', ar: 'الموارد البشرية — التشغيل', icon: Fingerprint },
     { id: 'hrperf', ar: 'الأداء والانضباط', icon: TrendingUp },
     { id: 'qrfb', ar: 'تقييم العملاء (QR)', icon: QrCode },
+    { id: 'mkt', ar: 'التسويق والنمو الذكي', icon: Target },
     { id: 'apps', ar: 'إدارة التطبيقات', icon: Grid3x3 },
     { id: 'approve', ar: 'التدقيق والاعتماد', icon: ShieldCheck, cnt: pending },
     { id: 'treasury', ar: 'الخزينة والترحيل', icon: Landmark },
@@ -4348,6 +4353,7 @@ function PlatformApp() {
               {['closing', 'approve', 'shifts', 'cashiers', 'myactions', 'myforecast', 'fsafety', 'prepdaily', 'cashcount', 'maint'].includes(safeTab) && <Hub hubId="closehub" {...shared} view={safeTab} />}
               {HR_TABS.includes(safeTab) && <Hub hubId="hr" {...shared} view={safeTab} />}
               {safeTab === 'qrfb' && <QrFeedback {...shared} />}
+              {safeTab === 'mkt' && <MktGrowth {...shared} />}
               {safeTab === 'apps' && <AppsCenter {...shared} />}
 
               {['purchasing', 'suppliers', 'reorder', 'suprep'].includes(safeTab) && <Hub hubId="purchasing" {...shared} view={safeTab} />}
@@ -6094,6 +6100,114 @@ function SalesHub(props) {
 }
 
 
+
+
+/* ══════════════ v48.0 — SMART POS GROWTH «التسويق والنمو الذكي» — المرحلتان C وD ══════════════
+   الأساس: لا تعديل على الطلبات أو الأسعار أو الضريبة أو القيود. الوحدة تقرأ ops.posOrders (مصدر الحقيقة) ودفتر الولاء،
+   وتكتب في مجموعات جديدة فقط (mktConsents · mktMerges) وفي org.mkt (الإعداد). هوية العميل = الجوال المطبَّع (هوية نقطة البيع). */
+const MKT_DEF = {
+  seg: { vipSpend: 1500, vipTopPct: 10, loyalVisits: 4, loyalDays: 90, newDays: 30, inactiveDays: 60, riskDays: 30, riskMinVisits: 3, potMult: 1.5, potMaxVisits: 2, activeDays: 90 },
+  approveDiscPct: 20,        // خصم فوق هذه النسبة يتطلب اعتماد (المرحلة E)
+  consentRequired: true,     // لا تسويق بلا موافقة صريحة مسجّلة
+};
+const mktCfg = (org) => { const m = (org && org.mkt) || {}; return { ...MKT_DEF, ...m, seg: { ...MKT_DEF.seg, ...(m.seg || {}) } }; };
+const mktCanApprove = (me) => { const R = ROLES[(me || {}).role] || {}; return !!(R.admin || R.approver); };   // نفس نظام الأدوار القائم
+const MKT_SEGS = { vip: { ar: 'كبار العملاء (VIP)', c: 'b-brass' }, loyal: { ar: 'عملاء أوفياء', c: 'b-mint' }, risk: { ar: 'معرّضون للانقطاع', c: 'b-amber' }, inactive: { ar: 'غير نشطين', c: 'b-rose' },
+  potential: { ar: 'واعدون', c: 'b-sky' }, new: { ar: 'جدد', c: 'b-sky' }, regular: { ar: 'عاديون', c: 'b-dim' } };
+const MKT_SEG_ORDER = ['vip', 'loyal', 'risk', 'inactive', 'potential', 'new', 'regular'];
+const mktDays = (a, b) => Math.round((new Date(String(b).slice(0, 10) + 'T12:00:00') - new Date(String(a).slice(0, 10) + 'T12:00:00')) / 864e5);
+// خريطة الدمج المعتمد: من ← إلى (تتبّع السلاسل)
+function mktAlias(ops) { const m = {}; (ops.mktMerges || []).filter(x => !x.undone).forEach(x => { m[x.from] = x.to; });
+  return (ph) => { let p = ph, k = 0; while (m[p] && k++ < 10) p = m[p]; return p; }; }
+// حالة الموافقة التسويقية: آخر حركة في السجل (إلحاق فقط) لكل قناة أو للكل
+function mktConsentOf(ops, phone) {
+  const L = (ops.mktConsents || []).filter(c => c.phone === phone).sort((a, b) => String(a.at).localeCompare(String(b.at)));
+  const st = { all: 'unknown', ch: {} , at: '', hist: L };
+  L.forEach(c => { if (!c.ch || c.ch === 'all') { st.all = c.status; st.ch = {}; } else st.ch[c.ch] = c.status; st.at = c.at; });
+  return st;
+}
+const mktCanContact = (cs, ch) => { const v = (cs.ch || {})[ch] || cs.all; return v === 'in'; };
+/** ملفات العملاء من طلبات نقطة البيع المعرَّفة بالجوال (بعد الدمج المعتمد)، مقصورة على فروع المستخدم */
+function crmBuild(org, ops, loyDoc, opt) {
+  opt = opt || {}; const td = opt.td || today(); const allow = opt.branches ? new Set(opt.branches) : null; const A = mktAlias(ops);
+  const prods = {}; ((org && org.products) || []).forEach(p => { prods[p.id] = p.name; });
+  const C = {}; const byOrd = {};
+  const get = (ph, name) => C[ph] || (C[ph] = { id: ph, phone: ph, name: '', first: '', last: '', n: 0, total: 0, ret: 0, dates: [], br: {}, prod: {}, aliases: [] });
+  (ops.posOrders || []).forEach(o => {
+    if (o.kind === 'return' || o.status === 'void' || !o.loyalty || !o.loyalty.phone) return; if (allow && !allow.has(o.branchId)) return;
+    const ph = A(o.loyalty.phone); const c = get(ph); byOrd[o.id] = ph;
+    if (o.loyalty.name && (!c.nameAt || o.at > c.nameAt)) { c.name = o.loyalty.name; c.nameAt = o.at; }
+    if (ph !== o.loyalty.phone && !c.aliases.includes(o.loyalty.phone)) c.aliases.push(o.loyalty.phone);
+    c.n++; c.total += Number(o.total) || 0; const d = String(o.date || o.at || '').slice(0, 10); c.dates.push(d);
+    if (!c.first || d < c.first) c.first = d; if (!c.last || d > c.last) c.last = d;
+    c.br[o.branchId] = (c.br[o.branchId] || 0) + 1;
+    (o.lines || []).forEach(l => { if (!l.productId) return; const x = c.prod[l.productId] || (c.prod[l.productId] = { id: l.productId, name: l.name || prods[l.productId] || l.productId, qty: 0, amt: 0 }); x.qty += Number(l.qty) || 0; x.amt += (Number(l.qty) || 0) * (Number(l.price) || 0) - (Number(l.disc) || 0); });
+  });
+  (ops.posOrders || []).forEach(o => { if (o.kind !== 'return' || !byOrd[o.refId]) return; const c = C[byOrd[o.refId]]; c.ret += Math.abs(Number(o.total) || 0); });
+  const mem = (loyDoc && loyDoc.members) || {}; const bal = {};
+  ((loyDoc && loyDoc.tx) || []).forEach(t => { const ph = A(t.phone); bal[ph] = (bal[ph] || 0) + (Number(t.pts) || 0); });
+  if (!allow) Object.keys(mem).forEach(ph0 => { const ph = A(ph0); if (!C[ph]) { const c = get(ph); c.name = mem[ph0].name || ''; c.first = String(mem[ph0].since || '').slice(0, 10); } });
+  const partners = ((org && org.partners) || []).filter(p => p.type === 'customer' && p.phone);
+  const r2 = (x) => Math.round(x * 100) / 100;
+  return Object.values(C).map(c => {
+    const ds = c.dates.slice().sort(); let gap = null; if (ds.length > 1) gap = r2(mktDays(ds[0], ds[ds.length - 1]) / (ds.length - 1));
+    const m = mem[c.phone] || {}; const b2b = partners.find(p => normPhone(p.phone) === c.phone);
+    const net = r2(c.total - c.ret);
+    return { id: c.id, phone: c.phone, name: c.name || m.name || '', email: m.email || '', since: String(m.since || c.first || '').slice(0, 10), first: c.first, last: c.last,
+      n: c.n, total: r2(c.total), ret: r2(c.ret), net, avg: c.n ? r2(c.total / c.n) : 0, gapDays: gap, daysSince: c.last ? mktDays(c.last, td) : null,
+      branches: Object.entries(c.br).sort((a, b) => b[1] - a[1]).map(([id, k]) => ({ id, n: k })),
+      top: Object.values(c.prod).sort((a, b) => b.qty - a.qty).slice(0, 5).map(x => ({ ...x, amt: r2(x.amt) })),
+      visits90: c.dates.filter(d => mktDays(d, td) <= 90).length, dates: ds,
+      pts: r2(bal[c.phone] || 0), aliases: c.aliases, b2b: b2b ? { id: b2b.id, name: b2b.name } : null, consent: mktConsentOf(ops, c.phone) };
+  });
+}
+/** الشرائح بقواعد قابلة للضبط — للعميل عدة وسوم وتصنيف رئيسي واحد بالأولوية */
+function crmSegment(list, cfg, td) {
+  const S = (cfg && cfg.seg) || MKT_DEF.seg; td = td || today();
+  const buyers = list.filter(c => c.n > 0); const avgAll = buyers.length ? buyers.reduce((a, c) => a + c.total, 0) / buyers.reduce((a, c) => a + c.n, 0) : 0;
+  const sorted = buyers.slice().sort((a, b) => b.net - a.net); const topN = buyers.length >= 5 ? Math.max(1, Math.floor(buyers.length * (Number(S.vipTopPct) || 0) / 100)) : 0;
+  const topSet = new Set(sorted.slice(0, topN).map(c => c.id));
+  return list.map(c => {
+    const t = []; const ds = c.daysSince;
+    if (c.n > 0 && (c.net >= (Number(S.vipSpend) || Infinity) || topSet.has(c.id))) t.push('vip');
+    const recent = (c.dates || []).filter(d => mktDays(d, td) <= (Number(S.loyalDays) || 90)).length;
+    if (recent >= (Number(S.loyalVisits) || 4)) t.push('loyal');
+    if (c.n > 0 && ds != null && ds > (Number(S.inactiveDays) || 60)) t.push('inactive');
+    else if (c.n >= (Number(S.riskMinVisits) || 3) && ds != null && ds > (Number(S.riskDays) || 30)) t.push('risk');
+    if (c.n > 0 && c.n <= (Number(S.potMaxVisits) || 2) && avgAll > 0 && c.avg >= avgAll * (Number(S.potMult) || 1.5) && !(ds > (Number(S.inactiveDays) || 60))) t.push('potential');
+    if (c.first && mktDays(c.first, td) <= (Number(S.newDays) || 30)) t.push('new');
+    const cls = MKT_SEG_ORDER.find(k => t.includes(k)) || 'regular';
+    return { ...c, tags: t, cls };
+  });
+}
+// مرشّحو التكرار — لا دمج تلقائي: أسماء متطابقة بجوالات مختلفة، أو جوال يطابق عميل B2B
+const mktNameKey = (n) => String(n || '').trim().replace(/\s+/g, ' ').replace(/^(ال)/, '').replace(/[ةه]$/g, 'ه').replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').toLowerCase();
+function crmDupes(list) {
+  const g = {}; list.forEach(c => { const k = mktNameKey(c.name); if (k.length < 3) return; (g[k] = g[k] || []).push(c); });
+  return Object.values(g).filter(a => a.length > 1).map(a => ({ key: mktNameKey(a[0].name), name: a[0].name, items: a.slice().sort((x, y) => y.n - x.n) }));
+}
+/** مؤشرات اللوحة من البيانات الفعلية فقط — ما لم يُبنَ بعد يُعاد null ولا يُختلق */
+function mktKpis(org, ops, list, opt) {
+  opt = opt || {}; const to = opt.to || today(), from = opt.from || anDay(to, -29); const allow = opt.branches ? new Set(opt.branches) : null;
+  const len = mktDays(from, to) + 1; const pFrom = anDay(from, -len), pTo = anDay(from, -1);
+  const os = (ops.posOrders || []).filter(o => o.kind !== 'return' && o.status !== 'void' && (!allow || allow.has(o.branchId)));
+  const inR = (o, a, b) => { const d = String(o.date || '').slice(0, 10); return d >= a && d <= b; };
+  const cur = os.filter(o => inR(o, from, to)), prev = os.filter(o => inR(o, pFrom, pTo));
+  const sales = cur.reduce((a, o) => a + (Number(o.total) || 0), 0);
+  const idc = cur.filter(o => o.loyalty && o.loyalty.phone); const A = mktAlias(ops);
+  const curSet = new Set(idc.map(o => A(o.loyalty.phone))), prevSet = new Set(prev.filter(o => o.loyalty && o.loyalty.phone).map(o => A(o.loyalty.phone)));
+  const firstOf = {}; os.forEach(o => { if (!o.loyalty || !o.loyalty.phone) return; const ph = A(o.loyalty.phone); const d = String(o.date || '').slice(0, 10); if (!firstOf[ph] || d < firstOf[ph]) firstOf[ph] = d; });
+  const newC = [...curSet].filter(ph => firstOf[ph] >= from).length;
+  const retained = [...prevSet].filter(ph => curSet.has(ph)).length;
+  const r2 = (x) => Math.round(x * 100) / 100;
+  const S = (list || []).reduce((m, c) => { m[c.cls] = (m[c.cls] || 0) + 1; return m; }, {});
+  return { from, to, orders: cur.length, sales: r2(sales), aov: cur.length ? r2(sales / cur.length) : 0, identified: idc.length, idPct: cur.length ? Math.round(idc.length / cur.length * 100) : 0,
+    active: curSet.size, newC, returning: curSet.size - newC, inactive: S.inactive || 0, risk: S.risk || 0, vip: S.vip || 0,
+    retention: prevSet.size ? Math.round(retained / prevSet.size * 100) : null, prevActive: prevSet.size,
+    consentIn: (list || []).filter(c => mktCanContact(c.consent, 'any')).length,
+    // مراحل لاحقة — غير مبنية بعد: لا أرقام
+    campaigns: null, couponRate: null, upsellRate: null, mktCost: null, incRevenue: null, incProfit: null, roi: null };
+}
 
 /* ══════ v47.8 — ترتيب صفوف القيد والفاتورة بالسحب (فأرة ولمس) أو بالأسهم، والقيود الدورية ══════ */
 const moveIdx = (arr, from, to) => { const a = (arr || []).slice(); if (from === to || from < 0 || to < 0 || from >= a.length || to >= a.length) return a; const [x] = a.splice(from, 1); a.splice(to, 0, x); return a; };
@@ -12044,13 +12158,14 @@ async function qrAnalyzeComments(items) {
 
 
 // v38.3 — ما تحتاجه ملفات التطبيقات المنفصلة (mods/) من النواة
+export { MKT_DEF, mktCfg, mktCanApprove, MKT_SEGS, MKT_SEG_ORDER, mktAlias, mktConsentOf, mktCanContact, crmBuild, crmSegment, crmDupes, mktNameKey, mktKpis };
 export { moveIdx, RowGrip, RECUR_AR, recurNext, recurDue };
 export { peekDoc, DocLink, DocPeekHost, VoiceSearchHost, voiceNorm };
 export { fefoPick, lotsFor, projList, projectPL, projNextCode };
 export { computeSmartAlerts, stockShortages, CV_KIND, cvNextNo, partyOpenDocs, applyCashVoucher, cashVoucherHtml, VCH_T, VCH_TRF, vchTypeOf, assignVouchers, voucherList, voucherHtml, saleDeductFrom, saleDeductOn, saleUse, saleRecipeItems, saleDayUse, syncSaleMoves, itemLedger, UOM_LIST, UOM_GROUPS, uomOf, uomConv, uomOk, uomNeeded, lineUnits, lineFac, UomSelect, Notifications, closeAlertsCfg, closeAlertEvents, closeAlertFor, shiftSumText, waShare, CLOSE_ALERT_ROLES, posDocView, printScreen, cutoutPixels, productThumb, prepWasteStats, normDigits, normScan, posPaper, posPaperDev, setPosPaperDev, prepShelfH, prepBatchState, PREP_ST, canBrPurchase, brSigCheck, BR_PURCHASERS, poWhOf, syncPoInbox, INV_BILLERS, ITEM_NEW_TYPES, itemsSeq, nextItemCode, vatNoOk, supVatOf, ItemPick, A4_CSS, posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim, prepItemId, prepItemOf, prodNeeds, prodCheck, prodMoves, clrMerge, clrRead, clrViewStats, ppvReport, invTurnover, dirOf, isMzbk, mzbkDecrypt, clrData, clrRecord, clrSigRef, clrDiff, clrCompare, clrOn, clrState, clrMirror, clrLoad, clrSeed, OdooBar, ACCT_SECTIONS, ACCT_SEC_AR, ACC_KIND, ALL_TABS, APPS, AdvanceForm, AppPermsPanel, AppsStrip, BR_COLS, Badge, BalCell, BlindCount, BranchForm, COUNT_FREQ, COUNT_ST, CameraModal, CategoriesPanel, ClosingView, CloudHealth, CountScheduleCard, DAYS_AR, DENOMS, DOC_LABEL, DOC_TYPES, DailyBranchReport, DeliveryAppsPanel, DisbursementForm, DupInvHint, EXP_CATS, FILE_CATS, Field, FinancialReports, GROWTH_MONTHS, HR_WEEK_DAYS, HrSignPad, ITEM_TYPES, Kpi, LAUNCH_APPS, LEAVE_TYPES, LOCK_MSG, MAIN_WH, MFA_DEFAULT_ROLES, MOVE_KINDS, MZ_FIXED, MZ_KIND_AR, MZ_LOGO_HTML, MZ_SUGGEST, MfaPolicyCard, MizanMerge, Modal, MoneyField, NUM_FACE, NUM_LOCALE, NationalAddressFields, Num, OutputDialog, PAY_ADD_TYPES, PAY_GUESS, PEN_TYPES, POS_DEV_KEY, POS_SH_KEY, PROMO_IDEAS, PROMO_T, PT_SRC, PT_TYPE, PartnerChip, PdfTile, PhotoField, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, PriceAlerts, QR_ITEMS, QR_STATUS, QUOTA_MSG, QrBranchesView, QrComplaints, QrDashboard, RB_KIND_AR, RB_PM_AR, RB_SOURCES, REG_APPS, REG_CATS, REG_IX, ROLES, SC_KPIS, SIGN_DOC_AR, SIG_H, SIG_W, SectionNav, SigView, SignDocsModal, SignaturePad, SystemPanel, TAB_AR, TRAIN_STATUS_AR, UsageVariance, UserForm, WASTE_REASONS, WH_KIND, WH_MOVE, WH_ST, WarehousesPanel, WasteControl, WasteFields, WastePending, WhLines, _normName, _xe, aCountDone, aItemsOf, acctSecKey, activePriorCorrectives, activeTrainingRecord, aiHeaders, appCanSee, appOpenNow, appUseGet, appUseSet, arDT, arDate, arTime, bankOfBranch, bioEnroll, bookHidden, branchBanks, branchEntityId, browserName, bsLayout, bsRowsOf, buildAccounting, buildClosingA4, buildPartners, buildPayslipSignDocs, businessDay, canApproveCount, canApproveWaste, capOK, chartTone, closingInvoices, clr, compressImage, computeIncome, contactFields, contactOf, correctiveExpiry, correctiveSignDoc, countCfgOf, countDenoms, countFocus, countSchedule, countedClosing, customerAging, daysBetween, defaultHrPolicies, defaultPenaltySchedule, defaultPointsRules, defaultRewardTiers, defaultRoleKpis, defaultTrainingPrograms, deficitCfg, deficitPatterns, detectStmtMap, deviceType, emptyDenoms, entityById, entityList, eosAccrualLines, eosCumAt, eosState, eosYears, escH, expiringTraining, expiryLots, exportExcel, fineSuggest, fmtBalP, fmtNA, frozenSnapshotFor, gosiRatesFor, haversineMeters, hrAttendanceDetail, hrEmpStats, hrQrWindowCode, hrScoreFor, isCostCtl, isLayout, isPdfData, isRowsOf, isStocked, isoD, itemAvgCosts, itemType, kpiAchievement, leaveBalance, leaveDeductPlan, lockedThru, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, makeXlsx, missingRequiredTraining, mizanPlan, money, moneyP, monthEnd, monthLabel, monthLedger, multiEntityOn, mzNewCode, mzR2, naClean, naErr, naHas, naMissing, newBranchDraft, nextPartnerCode, nextWhAcc, normPhone, normalizeSupPays, nowISO, onLeave, openDocWin, openPdfData, otFromAttendance, otRateOf, overdueSignDocs, pFactor, parseCsvGrid, parseMt940, parseXlsxGrid, partGross, partYield, payCashPart, payLabel, paySplits, payTotal, payrollRowsOf, penTypeAr, pendShiftsGet, pendShiftsSet, periodLocked, piAggregate, piDetect, piNorm, pipTriggered, posCashNet, posClrOf, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posShiftHtml, posTotals, posZHtml, positionJdHtml, printA4, printClosingA4, printIncomeA4, printPartnerStatement, printReceipt, printSalesInvoice, programRequiredFor, promoActive, promoDesc, promoHits, purKey, pwStrength, q3, qrAnalyzeComments, qrAvg, qrBranchStats, qrDate, qrF1, qrFs, qrIsComplaint, qrMs, qrOverall, qrOverdue, qrPrintReport, qrRateUrl, qrSentBadge, qrStatusOf, qrSvg, rewardSignDoc, roleEdit, roleHasTab, roleKpisFor, rolePost, salesDaySource, sha, sha256Hex, short, siCredited, siRem, siSorted, siStamp, siVerify, sigBlockHtml, sigPoints, sigSvg, signDeclaration, signDocHtml, simplifySig, slimBranchDoc, snapAll, snapMonths, snapPut, stAddDays, stDate, stNum, stockByWh, submitWaste, suggestNextLevel, sum, supplierAging, supplierPrices, today, trainingExpiryOf, trainingStatusNow, uid, usageReport, useSecNav, verifyBackup, waNum, wasteCfg, wasteDaily, wasteReasonAr, wasteRows, webauthnSupported, whForBranch, whName, whOf, whOn, zatcaTLV };
 export { ClosingForm };
 // v38.3 — للاختبارات الآلية (tests/): دوال المحرك والشاشات تُستورد من النواة مباشرة
-export { stockCosting, eosEntitledAmt, eosFullAmt, findDupInvoices, invNoNorm, promoLineDisc, tafqeet, Hub, Launcher, PosApp, Inventory, Partners, SalesHub, QrFeedback, AppsCenter, BranchWarehouse, Admin, AuditView, Accounting, emptyOrg, emptyOps, HUBS };
+export { stockCosting, eosEntitledAmt, eosFullAmt, findDupInvoices, invNoNorm, promoLineDisc, tafqeet, MktGrowth, Hub, Launcher, PosApp, Inventory, Partners, SalesHub, QrFeedback, AppsCenter, BranchWarehouse, Admin, AuditView, Accounting, emptyOrg, emptyOps, HUBS };
 // v38.5 — لصيانة النظام (mods/admin/SystemMaintenance.jsx)
 export { APP_VER, ERRLOG_KEY };
 // v38.6 — كشف الأنماط الشاذة (الشاشة والاختبارات)

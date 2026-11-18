@@ -2129,3 +2129,48 @@ test('v47.8 الفواتير: نسخة مطابقة لفاتورة مورد وت
   assert.equal(await S.p.locator('[data-rowgrp="si"]').count(), 2); assert.equal(await S.p.locator('[data-rowgrp="si"][data-rowi="0"] input').first().inputValue(), 'وجبة أ');
   assert.deepEqual([...errs, ...S.errs], []); await S.ctx.close();
 });
+
+// ═══ v48.0 SMART POS GROWTH — المرحلتان C وD ═══
+const spgOrders = (td) => { const d = (k) => { const x = new Date(td + 'T12:00:00'); x.setDate(x.getDate() - k); return x.toISOString().slice(0, 10); };
+  const o = (id, ph, nm, k, tot, br) => ({ id, no: id, branchId: br, date: d(k), at: d(k) + 'T12:00:00', total: tot, vat: 0, net: tot, status: 'paid', lines: [{ productId: 'p1', name: 'برجر', qty: 1, price: tot }], loyalty: { phone: ph, name: nm } });
+  return [o('g1', '511111111', 'أحمد الحربي', 3, 2000, 'b1'), o('g2', '522222222', 'احمد الحربي', 5, 50, 'b1'), o('g3', '533333333', 'منى', 2, 80, 'b2'), o('g4', '511111111', 'أحمد الحربي', 10, 120, 'b1')]; };
+
+test('v48.0 التسويق والنمو: لوحة من بيانات فعلية، ملف عميل، موافقة بسجل، إعدادات للمعتمد فقط، ودمج يدوي معتمد', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/MktGrowth/admin');
+  await p.evaluate(() => { const td = new Date(); td.setHours(12); window.setOps(o => ({ ...o, mktConsents: [], mktMerges: [], posOrders: window.__spg(td.toISOString().slice(0, 10)) })); });
+  await p.waitForTimeout(400);
+  const k = await p.locator('[data-mktkpis]').innerText(); assert.match(k, /2,250\.00|2250/); assert.match(k, /العملاء النشطون/);
+  assert.match(await p.locator('[data-mktkpis]').innerText(), /تُفعَّل في مرحلة لاحقة/, 'لا أرقام مختلقة للمراحل القادمة');
+  await p.click('[data-mktv="crm"]'); await p.waitForTimeout(200);
+  assert.equal(await p.locator('[data-crmtable] tbody tr').count(), 3);
+  await p.locator('[data-crmrow="511111111"]').click(); await p.waitForTimeout(200);
+  assert.match(await p.locator('[data-crmprofile]').innerText(), /كبار العملاء/);
+  await p.selectOption('select[aria-label="قناة الموافقة"]', 'whatsapp'); await p.click('[data-consent-save]'); await p.waitForTimeout(300);
+  assert.deepEqual(await p.evaluate(() => window.cur.mktConsents.map(c => [c.phone, c.status, c.ch])), [['511111111', 'in', 'whatsapp']]);
+  assert.equal(await p.locator('[data-consent-hist] tr').count(), 1);
+  await p.locator('.modal button[aria-label="إغلاق"], .modal .x, .modal-h button').first().click().catch(() => {}); await p.keyboard.press('Escape'); await p.waitForTimeout(150);
+  await p.click('[data-mktv="gov"]'); await p.waitForTimeout(200);
+  assert.equal(await p.locator('[data-dupe]').count(), 1, 'احتمال تكرار بالاسم');
+  await p.click('[data-merge]'); await p.waitForTimeout(150); await p.click('[data-merge-save]'); await p.waitForTimeout(200);
+  assert.equal(await p.evaluate(() => (window.cur.mktMerges || []).length), 0, 'لا دمج بلا سبب');
+  await p.fill('input[aria-label="سبب الدمج"]', 'تحقق هاتفي'); await p.click('[data-merge-save]'); await p.waitForTimeout(400);
+  assert.deepEqual(await p.evaluate(() => window.cur.mktMerges.map(m => [m.from, m.to])), [['522222222', '511111111']]);
+  await p.click('[data-mktv="crm"]'); await p.waitForTimeout(200);
+  assert.equal(await p.locator('[data-crmtable] tbody tr').count(), 2, 'بعد الدمج');
+  await p.click('[data-mktv="cfg"]'); await p.waitForTimeout(150);
+  await p.fill('input[aria-label="VIP: حد صافي المشتريات (ر.س)"]', '5000'); await p.click('[data-mktcfg-save]'); await p.waitForTimeout(300);
+  assert.equal(await p.evaluate(() => window.curOrg.mkt.seg.vipSpend), 5000);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v48.0 التسويق والنمو: مدير الفرع يرى عملاء فرعه فقط، ولا يعدّل الإعدادات ولا يدمج', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/MktGrowth/bm');
+  await p.evaluate(() => { const td = new Date(); td.setHours(12); window.setOps(o => ({ ...o, mktConsents: [], mktMerges: [], posOrders: window.__spg(td.toISOString().slice(0, 10)) })); });
+  await p.waitForTimeout(400);
+  await p.click('[data-mktv="crm"]'); await p.waitForTimeout(200);
+  const rows = await p.locator('[data-crmtable] tbody tr').allInnerTexts();
+  assert.equal(rows.length, 2); assert.ok(!rows.join(' ').includes('533333333'), 'عميل الفرع الآخر محجوب');
+  await p.click('[data-mktv="gov"]'); await p.waitForTimeout(150); assert.equal(await p.locator('[data-merge]').count(), 0);
+  await p.click('[data-mktv="cfg"]'); await p.waitForTimeout(150); assert.equal(await p.locator('[data-mktcfg-save]').count(), 0);
+  assert.deepEqual(errs, []); await ctx.close();
+});

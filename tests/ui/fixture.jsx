@@ -36,8 +36,11 @@ org.products = [...org.products, { id: 'p9', name: 'مندي لحم', sellPrice:
 const ops = { ...ops0,
   whMoves: [{ id: 'o1', whId: 'wh-b1', branchId: 'b1', itemId: 'i1', kind: 'in', qty: 50, unitCost: 40, date: '2026-01-01', at: '2026-01-01T00:00:00' }, { id: 'o2', whId: 'wh-b1', branchId: 'b1', itemId: 'i2', kind: 'in', qty: 100, unitCost: 4, date: '2026-01-01', at: '2026-01-01T00:00:01' }],
   closings: [...ops0.closings, { id: 'ctd', branchId: 'b1', branchName: B[0].name, date: td, status: 'submitted', totalRevenue: 1000, expenses: [] }] };
+window.__spg = (td) => { const d = (k) => { const x = new Date(td + 'T12:00:00'); x.setDate(x.getDate() - k); return x.toISOString().slice(0, 10); };
+  const o = (id, ph, nm, k, tot, br) => ({ id, no: id, branchId: br, date: d(k), at: d(k) + 'T12:00:00', total: tot, vat: 0, net: tot, status: 'paid', lines: [{ productId: 'p1', name: 'برجر', qty: 1, price: tot }], loyalty: { phone: ph, name: nm } });
+  return [o('g1', '511111111', 'أحمد الحربي', 3, 2000, 'b1'), o('g2', '522222222', 'احمد الحربي', 5, 50, 'b1'), o('g3', '533333333', 'منى', 2, 80, 'b2'), o('g4', '511111111', 'أحمد الحربي', 10, 120, 'b1')]; };
 window.routes = [...Object.entries(M.HUBS).flatMap(([h, c]) => c.views.map(v => 'hub/' + h + '/' + v.id)), ...M.ACCT_SECTIONS.map(s => 'acct/' + s.v),
-  ...['Launcher', 'PosApp', 'Inventory', 'Partners', 'SalesHub', 'QrFeedback', 'AppsCenter', 'BranchWarehouse', 'Admin', 'AuditView'].map(c => 'comp/' + c)];
+  ...['Launcher', 'PosApp', 'Inventory', 'Partners', 'SalesHub', 'QrFeedback', 'MktGrowth', 'AppsCenter', 'BranchWarehouse', 'Admin', 'AuditView'].map(c => 'comp/' + c)];
 const css = document.createElement('style'); css.textContent = CSS; document.head.appendChild(css);
 const dark = location.hash.includes('dark');
 document.body.innerHTML = '<div class="rms mode-' + (dark ? 'dark' : 'light') + ' thm-mizan' + (localStorage.getItem('rms8:lang') === 'en' ? ' lang-en" dir="ltr' : '') + '"><div class="page"><div class="page-inner" id=r></div></div></div>';

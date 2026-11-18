@@ -1673,3 +1673,66 @@ test('v47.8 ترتيب الصفوف والقيود الدورية: moveIdx و re
   const due = E.recurDue([{ id: 't1', every: 'm', day: 5, next: '2026-09-05', active: true }, { id: 't2', every: 'm', day: 1, next: '2026-12-01' }, { id: 't3', every: 'm', day: 5, next: '2026-09-05', end: '2026-10-31' }, { id: 't4', every: 'm', next: '2026-09-05', active: false }], '2026-11-18');
   assert.deepEqual(due.map(x => [x.t.id, x.dates, x.next]), [['t1', ['2026-09-05', '2026-10-05', '2026-11-05'], '2026-12-05'], ['t3', ['2026-09-05', '2026-10-05'], '2026-11-05']]);
 });
+
+// ═══ v48.0 SMART POS GROWTH — المرحلتان C وD ═══
+const spgOrg = { branches: [{ id: 'b1', name: 'طيبة' }, { id: 'b2', name: 'النسيم' }], products: [{ id: 'p1', name: 'برجر' }, { id: 'p2', name: 'بطاطس' }], partners: [{ id: 'c9', type: 'customer', name: 'مؤسسة', phone: '0555000009' }] };
+const po = (id, ph, d, tot, br, extra) => ({ id, no: id, branchId: br || 'b1', date: d, at: d + 'T12:00:00', total: tot, vat: 0, net: tot, status: 'paid', lines: [{ productId: 'p1', name: 'برجر', qty: 1, price: tot }],
+  ...(ph ? { loyalty: { phone: ph, name: 'عميل ' + ph.slice(-2) } } : {}), ...(extra || {}) });
+
+test('v48.0 CRM: ملف العميل من طلبات نقطة البيع، بعد خصم المرتجع، واستبعاد الملغى، وربط عميل B2B', () => {
+  const ops = { posOrders: [po('o1', '555000001', '2026-10-01', 100), po('o2', '555000001', '2026-11-01', 300, 'b2'), po('o3', '555000001', '2026-11-10', 50, 'b1', { status: 'void' }),
+    { id: 'r1', kind: 'return', refId: 'o2', branchId: 'b2', date: '2026-11-02', total: -40 }, po('o4', '555000009', '2026-11-15', 80), po('o5', null, '2026-11-15', 999)] };
+  const loy = { members: { '555000001': { name: 'سارة', since: '2026-09-20T10:00:00' }, '555000077': { name: 'بلا طلبات', since: '2026-11-01' } }, tx: [{ id: 't1', phone: '555000001', pts: 40 }] };
+  const L = E.crmBuild(spgOrg, ops, loy, { td: '2026-11-18' });
+  const a = L.find(c => c.phone === '555000001');
+  assert.equal(a.n, 2, 'الملغى مستبعد'); near(a.total, 400); near(a.ret, 40); near(a.net, 360); near(a.avg, 200); assert.equal(a.last, '2026-11-01'); assert.equal(a.daysSince, 17);
+  assert.equal(a.pts, 40); assert.equal(a.since, '2026-09-20'); assert.deepEqual(a.branches.map(b => b.id).sort(), ['b1', 'b2']);
+  assert.equal(L.find(c => c.phone === '555000009').b2b.id, 'c9', 'ربط بعميل آجل بالجوال');
+  assert.ok(L.find(c => c.phone === '555000077'), 'عضو ولاء بلا طلبات يظهر للنطاق الكامل');
+  assert.equal(L.length, 3, 'الطلب بلا جوال لا يصنع عميلًا');
+  // عزل الفروع: مستخدم فرع b2 لا يرى عملاء طلبات b1 ولا أعضاء الولاء بلا طلبات
+  const B = E.crmBuild(spgOrg, ops, loy, { td: '2026-11-18', branches: ['b2'] });
+  assert.deepEqual(B.map(c => c.phone), ['555000001']); assert.equal(B[0].n, 1);
+});
+
+test('v48.0 الشرائح: قواعد قابلة للضبط وتصنيف رئيسي بالأولوية', () => {
+  const td = '2026-11-18'; const mk = (ph, dates, tot) => dates.map((d, i) => po(ph + i, ph, d, tot));
+  const ops = { posOrders: [
+    ...mk('500000001', ['2026-10-20', '2026-10-28', '2026-11-05', '2026-11-12'], 100),   // 4 زيارات خلال 90 يومًا ← وفيّ
+    ...mk('500000002', ['2026-06-01', '2026-06-15', '2026-07-01', '2026-07-10'], 50),    // انقطع > 60 ← غير نشط
+    ...mk('500000003', ['2026-09-01', '2026-09-20', '2026-10-05'], 60),                  // 3 زيارات وآخرها قبل 44 يومًا ← معرّض
+    ...mk('500000004', ['2026-11-10'], 900),                                              // زيارة واحدة بمتوسط عالٍ وجديد ← VIP (حد 800) ثم واعد وجديد
+    ...mk('500000005', ['2026-11-15'], 40) ] };
+  const cfg = E.mktCfg({ mkt: { seg: { vipSpend: 800 } } });
+  assert.equal(cfg.seg.loyalVisits, 4, 'الافتراضات تبقى عند تعديل جزء');
+  const S = E.crmSegment(E.crmBuild(spgOrg, ops, null, { td }), cfg, td); const by = (ph) => S.find(c => c.phone === ph);
+  assert.equal(by('500000001').cls, 'loyal'); assert.equal(by('500000002').cls, 'inactive'); assert.equal(by('500000003').cls, 'risk');
+  assert.equal(by('500000004').cls, 'vip'); assert.ok(by('500000004').tags.includes('potential') && by('500000004').tags.includes('new'));
+  assert.equal(by('500000005').cls, 'new');
+});
+
+test('v48.0 الموافقة التسويقية: آخر حركة تحكم، وإلغاء الاشتراك فوري، والقناة الخاصة تغلب', () => {
+  const ops = { mktConsents: [{ id: 'a', phone: '5', status: 'in', ch: 'all', at: '2026-11-01T10:00' }, { id: 'b', phone: '5', status: 'out', ch: 'sms', at: '2026-11-05T10:00' }, { id: 'c', phone: '6', status: 'in', ch: 'all', at: '2026-11-01' }, { id: 'd', phone: '6', status: 'out', ch: 'all', at: '2026-11-02' }] };
+  const c5 = E.mktConsentOf(ops, '5'), c6 = E.mktConsentOf(ops, '6'), c7 = E.mktConsentOf(ops, '7');
+  assert.equal(E.mktCanContact(c5, 'whatsapp'), true); assert.equal(E.mktCanContact(c5, 'sms'), false, 'ألغى SMS فقط');
+  assert.equal(E.mktCanContact(c6, 'whatsapp'), false, 'إلغاء شامل'); assert.equal(E.mktCanContact(c7, 'any'), false, 'بلا موافقة = لا مراسلة');
+  assert.equal(c5.hist.length, 2);
+});
+
+test('v48.0 التكرار والدمج المعتمد: لا دمج تلقائي، والدمج يوحّد الطلبات تحت الجوال الباقي', () => {
+  const ops = { posOrders: [po('x1', '511111111', '2026-11-01', 100), po('x2', '522222222', '2026-11-02', 50)] };
+  ops.posOrders[0].loyalty.name = 'أحمد الحربي'; ops.posOrders[1].loyalty.name = 'احمد  الحربي';
+  const L = E.crmBuild(spgOrg, ops, null, { td: '2026-11-18' });
+  assert.equal(L.length, 2, 'لا دمج تلقائي'); const D = E.crmDupes(L); assert.equal(D.length, 1); assert.equal(D[0].items.length, 2);
+  const M = E.crmBuild(spgOrg, { ...ops, mktMerges: [{ id: 'm', from: '522222222', to: '511111111' }] }, null, { td: '2026-11-18' });
+  assert.equal(M.length, 1); assert.equal(M[0].n, 2); near(M[0].total, 150); assert.deepEqual(M[0].aliases, ['522222222']);
+  assert.equal(E.mktCanApprove({ role: 'system_admin' }), true); assert.equal(E.mktCanApprove({ role: 'branch_manager' }), false); assert.equal(E.mktCanApprove({ role: 'cashier' }), false);
+});
+
+test('v48.0 لوحة التسويق: مؤشرات من الطلبات الفعلية فقط، والاحتفاظ مقابل الفترة السابقة، وما لم يُبنَ = null', () => {
+  const ops = { posOrders: [po('k1', '501', '2026-10-25', 100), po('k2', '502', '2026-10-26', 100), po('k3', '501', '2026-11-10', 200), po('k4', '503', '2026-11-11', 100), po('k5', null, '2026-11-12', 60), po('k6', '504', '2026-11-12', 70, 'b2')] };
+  const K = E.mktKpis(spgOrg, ops, [], { from: '2026-11-05', to: '2026-11-18', branches: ['b1'] });
+  assert.equal(K.orders, 3); near(K.sales, 360); near(K.aov, 120); assert.equal(K.idPct, 67); assert.equal(K.active, 2); assert.equal(K.newC, 1); assert.equal(K.returning, 1);
+  assert.equal(K.prevActive, 2); assert.equal(K.retention, 50, 'عاد واحد من اثنين');
+  ['campaigns', 'couponRate', 'upsellRate', 'mktCost', 'incRevenue', 'incProfit', 'roi'].forEach(k => assert.equal(K[k], null, k + ' لا يُختلق'));
+});
