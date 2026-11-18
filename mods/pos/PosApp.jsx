@@ -1,7 +1,8 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { cloud, KEYS, brKey, bfKey } from '../../storage';
-import { Store, X, RefreshCw, FileText, Clock, ShieldCheck, Check, Plus, Printer, Download, Lock, Banknote, ChefHat, LayoutGrid, Send } from 'lucide-react';
+import { Store, X, RefreshCw, FileText, Clock, ShieldCheck, Check, Plus, Printer, Download, Lock, Banknote, ChefHat, LayoutGrid, Send, Truck } from 'lucide-react';
+import { posAreas, tableArea, salesByArea, DLV_ST, posDrivers, dlvNeeded, dlvRecord, dlvMove, dlvSummary } from '../../App.jsx';   // v49.2 التوصيل   // v49.2 الصالات
 import { posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim } from '../../App.jsx';   // v42.9
 import { couponWhy, cpnReserve, cpnRelease, loyEarnX, loyTier } from '../../App.jsx';   // v48.1 الكوبونات المحدودة والولاء المتقدم
 import { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, posReturnLoyDed, WASTE_REASONS } from '../../App.jsx';   // v46.8 المرتجع
@@ -31,7 +32,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   useEffect(() => { if (!needLoy || !code.trim()) return; const t = setTimeout(reloadLoy, 350); return () => clearTimeout(t); }, [code, needLoy]);
   const [view, setView] = useState('sell'); const [showCart, setShowCart] = useState(false);
   const [ret, setRet] = useState(null);   // v46.8 نافذة المرتجع: { o, q:{i:qty}, reason, note, k }
-  const [tbl, setTbl] = useState(''); const [payTab, setPayTab] = useState(null); const [tblSel, setTblSel] = useState(null); const [, setTick] = useState(0);   // v42.9
+  const [tbl, setTbl] = useState(''); const [areaF, setAreaF] = useState(''); const dlvOn = !!br && (posDrivers(org, br.id).length > 0 || (ops.posDeliveries || []).some(x => x.branchId === br.id)); const [dlv, setDlv] = useState({ phone: '', addr: '' }); const [payTab, setPayTab] = useState(null); const [tblSel, setTblSel] = useState(null); const [, setTick] = useState(0);   // v42.9
   const tables = br ? posTables(org, br.id) : []; const useTabs = tables.length > 0; const kds = kdsOn(org);
   useEffect(() => { if (!useTabs && !kds) return; const t = setInterval(() => setTick(x => x + 1), 30000); return () => clearInterval(t); }, [useTabs, kds]);   // تحديث الدقائق المنقضية (قبل أي عودة مبكرة — قاعدة الخطافات)
   const [queue, setQueue] = useState(posQueue); const [cfgF, setCfgF] = useState(null); const [shiftF, setShiftF] = useState(null);
@@ -175,7 +176,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
       ...(phoneOk ? { loyalty: { phone: phoneN, name: (cust.name || custName).trim(), earned: earnPts, redeemed: redeemPts, redeemAmt, balAfter: posR2(loyBalance - redeemPts + earnPts) } } : {}),
       total: T.total, vat: T.vat, net: T.net, rate,
       payments: pay.parts.filter(x => Number(x.amount) > 0).map(x => ({ m: x.m, amount: posR2(x.amount), ...(x.m === 'app' ? { appId: x.appId, appName: (apps.find(a => a.id === x.appId) || {}).n || 'تطبيق' } : {}), ...(x.pm ? { pm: x.pm, pmName: x.pmName } : {}) })),
-      change, status: 'paid', icv: (prev.icv || 0) + 1, pih: prev.hash || '0', ...(channel === 'dinein' && tbl ? { table: tbl } : {}), ...(payTab ? { tabId: payTab } : {}) };
+      change, status: 'paid', icv: (prev.icv || 0) + 1, pih: prev.hash || '0', ...(channel === 'dinein' && tbl ? { table: tbl, ...((ar) => ar ? { areaId: ar.id, areaName: ar.name } : {})(tableArea(org, br.id, tbl)) } : {}), ...(payTab ? { tabId: payTab } : {}) };
     o.hash = sha256Hex(JSON.stringify([o.no, o.at, o.lines, o.total, o.vat, o.payments, o.icv, o.pih]));
     try { localStorage.setItem(sk, String(seq)); localStorage.setItem(hk, JSON.stringify({ icv: o.icv, hash: o.hash })); } catch { }
     const qn = [...posQueue(), o]; posQueueSet(qn); setQueue(qn);
@@ -186,7 +187,10 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     // v42.9: إغلاق حساب الطاولة بعد دفعه، أو تذكرة مطبخ للطلب المدفوع مباشرة (بالخلفية — الفاتورة نفسها محفوظة على الجهاز)
     if (payTab) { const tid = payTab; setPayTab(null); setTbl('');
       commit(d => posTrim({ ...d, posTabs: (d.posTabs || []).map(t => t.id === tid ? { ...t, status: 'paid', orderId: o.id, orderNo: o.no, closedAt: o.at, closedBy: me.name } : t) }, today)).then(ok => { if (!ok) say('دُفعت الفاتورة، لكن تعذّر إغلاق حساب الطاولة الآن — أغلقه من «الطاولات» عند عودة الاتصال', 'no'); }); }
-    else if (kds) commit(d => posTrim({ ...d, kdsTickets: [...(d.kdsTickets || []), kdsTicket({ branchId: br.id, src: 'order', ref: o.no, table: o.table || '', channel: o.channel, lines: o.lines, at: o.at, by: me.name })] }, today)).then(ok => { if (!ok) say('دُفعت الفاتورة، لكن لم تصل لشاشة المطبخ (لا اتصال) — أبلغ المطبخ يدويًا', 'no'); });
+    // v49.2 — MQ-006: طلب توصيل ذاتي ⇒ سجل توصيل (بالخلفية، مستقل عن الفاتورة)
+    if (dlvNeeded(o)) { const rec = dlvRecord(o, { phone: dlv.phone || (phoneOk ? phoneN : ''), addr: dlv.addr }); setDlv({ phone: '', addr: '' });
+      commit(d => posTrim({ ...d, posDeliveries: [rec, ...(d.posDeliveries || []).filter(x => x.id !== rec.id)] }, today)).then(ok => { if (!ok) say('دُفعت الفاتورة، لكن تعذّر تسجيل التوصيل الآن — أعد المحاولة من «التوصيل»', 'no'); }); }
+    if (payTab) { } else if (kds) commit(d => posTrim({ ...d, kdsTickets: [...(d.kdsTickets || []), kdsTicket({ branchId: br.id, src: 'order', ref: o.no, table: o.table || '', channel: o.channel, lines: o.lines, at: o.at, by: me.name })] }, today)).then(ok => { if (!ok) say('دُفعت الفاتورة، لكن لم تصل لشاشة المطبخ (لا اتصال) — أبلغ المطبخ يدويًا', 'no'); });
   };
   const voidOrder = async (o) => {
     if (!isMgr) return say('إلغاء الفاتورة لمدير الفرع', 'no');
@@ -335,10 +339,14 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
         </div>
       </div>
       <div className="pos-seg" role="group" aria-label="نوع الطلب">{[['takeaway', 'سفري'], ['dinein', 'محلي'], ['delivery', 'توصيل']].map(([k, t]) => <button key={k} className={channel === k ? 'on' : ''} onClick={() => setChannel(k)}>{t}</button>)}</div>
+      {channel === 'delivery' && <div className="row" style={{ gap: 6, flexWrap: 'wrap', margin: '0 0 8px' }} data-dlvform>
+        <input className="inp" style={{ width: 130 }} inputMode="tel" aria-label="جوال التوصيل" placeholder="جوال العميل" value={dlv.phone || cust.phone || ''} onChange={e => setDlv(x => ({ ...x, phone: e.target.value }))} />
+        <input className="inp" style={{ flex: 1, minWidth: 160 }} aria-label="عنوان التوصيل" placeholder="العنوان / الحي / وصف الموقع" value={dlv.addr} onChange={e => setDlv(x => ({ ...x, addr: e.target.value }))} />
+      </div>}
       {channel === 'dinein' && useTabs && <div className="row" style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap', margin: '0 0 8px' }}>
         {payTab ? <div className="note" style={{ flex: 1, margin: 0 }}>دفع حساب الطاولة <b className="num">{tbl}</b> <button className="btn sm gh" onClick={cancelPayTab}>إلغاء الدفع</button></div>
           : <><span style={{ fontSize: 13, fontWeight: 600 }}>الطاولة</span><select className="sel" style={{ width: 'auto', minWidth: 110 }} aria-label="الطاولة" value={tbl} onChange={e => setTbl(e.target.value)}><option value="">— اختر —</option>
-            {tables.map(no => { const t = openTab(ops, br.id, no); return <option key={no} value={no}>{no}{t ? ' (مفتوحة · ' + money(tabSum(t).total) + ')' : ''}</option>; })}</select></>}
+            {tables.map(no => { const t = openTab(ops, br.id, no); const ar = tableArea(org, br.id, no); return <option key={no} value={no}>{no}{ar ? ' · ' + ar.name : ''}{t ? ' (مفتوحة · ' + money(tabSum(t).total) + ')' : ''}</option>; })}</select></>}
       </div>}
       {cart.map(l => (
         <div key={l.key} className="pos-line">
@@ -411,7 +419,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
           {pendLeft() > 0 && <button className="btn sm pri" disabled={sending} onClick={sendNow}><RefreshCw size={13} />{sending ? 'جارٍ الإرسال…' : 'إرسال الآن'}</button>}
         </div>
         <div className="pos-tabs" role="tablist" aria-label="أقسام نقطة البيع">
-          {[['sell', 'البيع', Store], ...(useTabs ? [['tables', 'الطاولات', LayoutGrid]] : []), ...(kds ? [['kds', 'المطبخ', ChefHat]] : []), ['orders', 'الفواتير', FileText], ['shift', 'الوردية', Clock]].map(([id, t, Ic]) => <button key={id} role="tab" aria-selected={view === id} className={view === id ? 'on' : ''} onClick={() => setView(id)}><Ic size={15} />{t}{id === 'orders' && todayOrders.length ? <span className="num pos-cnt">{todayOrders.length}</span> : null}</button>)}
+          {[['sell', 'البيع', Store], ...(useTabs ? [['tables', 'الطاولات', LayoutGrid]] : []), ...(kds ? [['kds', 'المطبخ', ChefHat]] : []), ...(dlvOn ? [['dlv', 'التوصيل', Truck]] : []), ['orders', 'الفواتير', FileText], ['shift', 'الوردية', Clock]].map(([id, t, Ic]) => <button key={id} role="tab" aria-selected={view === id} className={view === id ? 'on' : ''} onClick={() => setView(id)}><Ic size={15} />{t}{id === 'orders' && todayOrders.length ? <span className="num pos-cnt">{todayOrders.length}</span> : null}</button>)}
           {(() => { const more = [...(isMgr ? [['shifts', 'الورديات والتقارير']] : []), ...(R.admin || R.scope === 'all' ? [['promos', 'العروض']] : []), ...(isMgr ? [['loyalty', 'الولاء']] : []), ...(R.admin || R.scope === 'all' ? [['cfg', 'الإعدادات']] : [])];
             if (!more.length) return null; const curM = more.find(x => x[0] === view);
             return <select className={'sel pos-moresel' + (curM ? ' on' : '')} aria-label="المزيد" value={curM ? view : ''} onChange={e => e.target.value && setView(e.target.value)}><option value="">المزيد…</option>{more.map(([id, t]) => <option key={id} value={id}>{t}</option>)}</select>; })()}
@@ -491,8 +499,17 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
         return <div className="card" data-tables>
           <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}><b style={{ fontSize: 16 }}>الطاولات — {br.name}</b>
             <div className="row" style={{ gap: 12, fontSize: 12 }}>{Object.entries(C2).map(([k, [c, t]]) => <span key={k} className="row" style={{ gap: 5, alignItems: 'center' }}><i style={{ width: 9, height: 9, borderRadius: 3, background: c, display: 'inline-block' }} />{t} <b className="num">{TS.filter(x => x.st === k).length}</b></span>)}</div></div>
-          <div className="pos-tables">{TS.map(x => <button key={x.no} className={'pos-tbl ' + x.st} aria-label={'طاولة ' + x.no} onClick={() => { if (x.st === 'free') { setTbl(x.no); setChannel('dinein'); setPayTab(null); setView('sell'); } else setTblSel(x); }}>
-            <b className="num">{x.no}</b>{x.st === 'free' ? <small>متاحة</small> : <><small className="num">{money(x.total)}</small><small>{x.rounds} جولة · <span className="num">{x.mins}</span> د</small></>}</button>)}</div>
+          {(() => { const AR = posAreas(org, br.id); const btn = (x) => <button key={x.no} className={'pos-tbl ' + x.st} aria-label={'طاولة ' + x.no} onClick={() => { if (x.st === 'free') { setTbl(x.no); setChannel('dinein'); setPayTab(null); setView('sell'); } else setTblSel(x); }}>
+            <b className="num">{x.no}</b>{x.st === 'free' ? <small>متاحة</small> : <><small className="num">{money(x.total)}</small><small>{x.rounds} جولة · <span className="num">{x.mins}</span> د</small></>}</button>;
+            if (!AR.length) return <div className="pos-tables">{TS.map(btn)}</div>;
+            // v49.2 — MQ-005: الطاولات مجمّعة حسب الصالة، ومنتقي سريع للصالة
+            const groups = [...AR.map(a => ({ ...a, list: TS.filter(x => +x.no >= a.from && +x.no <= a.to) })), { id: '', name: 'بلا صالة', list: TS.filter(x => !AR.some(a => +x.no >= a.from && +x.no <= a.to)) }].filter(g => g.list.length);
+            const shown = areaF ? groups.filter(g => g.id === areaF) : groups;
+            return <>
+              <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }} data-areas>{[{ id: '', name: 'كل الصالات' }, ...groups.filter(g => g.id)].map(g => <button key={g.id || 'all'} className={'btn sm' + ((areaF || '') === g.id ? ' pri' : ' gh')} onClick={() => setAreaF(g.id)}>{g.name}{g.list ? <small className="num" style={{ marginInlineStart: 5 }}>{g.list.filter(x => x.st !== 'free').length}/{g.list.length}</small> : null}</button>)}</div>
+              {(() => { const SA = salesByArea(org, ops, br.id, today, today); return SA.length ? <div className="note" style={{ marginBottom: 10, fontSize: 12 }} data-areasales>مبيعات اليوم حسب الصالة: {SA.map(x => <span key={x.id || 'n'} style={{ marginInlineEnd: 12 }}>{x.name} <b className="num">{money(x.total)}</b> <small>({x.orders})</small></span>)}</div> : null; })()}
+              {shown.map(g => <div key={g.id || 'none'} style={{ marginBottom: 12 }} data-area={g.name}><div className="lbl" style={{ marginBottom: 6 }}>{g.name}</div><div className="pos-tables">{g.list.map(btn)}</div></div>)}
+            </>; })()}
           {tblSel && <Modal title={'الطاولة ' + tblSel.no} onClose={() => setTblSel(null)}>
             <div className="note" style={{ marginBottom: 10 }}>مفتوحة منذ <b className="num">{tblSel.mins}</b> دقيقة · {tblSel.rounds} جولة · الإجمالي <b className="num">{money(tblSel.total)}</b></div>
             {tabSum(tblSel.tab).lines.map((l, i) => <div key={i} className="row" style={{ justifyContent: 'space-between', fontSize: 13, padding: '4px 0', borderBottom: '1px dashed var(--line)' }}><span>{l.name} ×<b className="num">{l.qty}</b>{l.note ? <small style={{ color: 'var(--faint)' }}> · {l.note}</small> : null}</span><span className="num">{money(l.qty * l.price)}</span></div>)}
@@ -505,6 +522,37 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
           </Modal>}
         </div>; })()}
 
+      {view === 'dlv' && dlvOn && (() => {
+        // v49.2 — MQ-006: لوحة التوصيل — جديد ← مع السائق ← تم/تعذّر، وعهدة نقد كل سائق وتسويتها
+        const DR = posDrivers(org, br.id), L = (ops.posDeliveries || []).filter(x => x.branchId === br.id && (x.st === 'new' || x.st === 'out' || x.st === 'fail' || (x.st === 'done' && (!x.settledAt || String(x.doneAt || '').slice(0, 10) === today))));
+        const move = async (x, to, extra = {}) => { const r = dlvMove(x, to, me.name, extra); if (r.err) return say(r.err, 'no');
+          const ok = await commit(d => ({ ...d, posDeliveries: (d.posDeliveries || []).map(y => y.id === x.id ? r : y) }), { actionType: 'update', targetType: 'pos_delivery', targetId: x.id, branchName: br.name, title: 'التوصيل: ' + DLV_ST[to].ar, details: x.no + (r.driverName ? ' · ' + r.driverName : '') + (r.reason ? ' · ' + r.reason : '') });
+          if (ok) say(x.no + ' — ' + DLV_ST[to].ar + ' ✓'); };
+        const settle = async (s2) => { if (!(s2.custody > 0)) return; if (!window.confirm('استلام ' + money(s2.custody) + ' نقدًا من ' + s2.name + '؟')) return; const at = nowISO();
+          const ok = await commit(d => ({ ...d, posDeliveries: (d.posDeliveries || []).map(y => y.branchId === br.id && y.driverId === s2.driverId && y.st === 'done' && !y.settledAt ? { ...y, settledAt: at, settledBy: me.name } : y) }), { actionType: 'update', targetType: 'pos_delivery', targetId: s2.driverId, branchName: br.name, title: 'تسوية عهدة سائق', details: s2.name + ' · ' + money(s2.custody) });
+          if (ok) say('سُوّيت عهدة ' + s2.name + ' ✓'); };
+        const SM = dlvSummary(org, ops, br.id, today);
+        const col = (st) => <div className="card" style={{ flex: 1, minWidth: 240 }} data-dlvcol={st}>
+          <div className="card-t" style={{ marginBottom: 8 }}><span className={'badge ' + DLV_ST[st].c}>{DLV_ST[st].ar}</span> <b className="num">{L.filter(x => x.st === st).length}</b></div>
+          {L.filter(x => x.st === st).map(x => <div key={x.id} className="note" style={{ margin: '0 0 8px', fontSize: 12.5 }} data-dlv={x.no}>
+            <div className="row" style={{ justifyContent: 'space-between' }}><b className="num">{x.no}</b><b className="num">{money(x.total)}</b></div>
+            {(x.addr || x.phone) && <div style={{ color: 'var(--dim)' }}>{x.addr}{x.phone ? <span className="num"> · {x.phone}</span> : null}</div>}
+            {x.cash > 0 && <div>نقد يُحصَّل: <b className="num">{money(x.cash)}</b></div>}
+            {x.driverName && <div>السائق: <b>{x.driverName}</b></div>}{x.reason && <div style={{ color: 'var(--rose)' }}>{x.reason}</div>}
+            <div className="row" style={{ gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+              {(st === 'new' || st === 'fail') && <select className="sel" style={{ width: 'auto' }} aria-label={'سائق ' + x.no} defaultValue="" onChange={e => { const d0 = DR.find(d => d.id === e.target.value); if (d0) move(x, 'out', { driverId: d0.id, driverName: d0.name }); }}><option value="">إرسال مع…</option>{DR.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select>}
+              {st === 'out' && <><button className="btn sm pri" onClick={() => move(x, 'done')}>تم التوصيل</button><button className="btn sm gh" onClick={() => { const r = window.prompt('سبب تعذّر التوصيل:'); if (r) move(x, 'fail', { reason: r }); }}>تعذّر</button></>}
+              {st === 'done' && (x.settledAt ? <span className="badge b-mint">سُوّي</span> : x.cash > 0 ? <span className="badge b-amber">النقد مع السائق</span> : null)}
+            </div></div>)}
+        </div>;
+        return <>
+          {!DR.length && <div className="note">أضف السائقين من إعدادات نقطة البيع لإسناد الطلبات.</div>}
+          <div className="row" style={{ gap: 10, alignItems: 'flex-start', flexWrap: 'wrap' }}>{['new', 'out', 'done', 'fail'].map(col)}</div>
+          {SM.length > 0 && <div className="card" style={{ marginTop: 10 }} data-dlvsum><div className="card-t" style={{ marginBottom: 8 }}>السائقون اليوم</div>
+            <div className="tw"><table className="tb"><thead><tr><th>السائق</th><th>الطلبات</th><th>تم</th><th>جارٍ</th><th>متوسط الدقائق</th><th>العهدة النقدية</th><th /></tr></thead><tbody>
+              {SM.map(r => <tr key={r.driverId}><td>{r.name}</td><td className="num">{r.orders}</td><td className="num">{r.done}</td><td className="num">{r.out}</td><td className="num">{r.avgMin ?? '—'}</td><td className="num"><b>{money(r.custody)}</b></td>
+                <td>{r.custody > 0 && <button className="btn sm" onClick={() => settle(r)}>استلام النقد</button>}</td></tr>)}</tbody></table></div></div>}
+        </>; })()}
       {view === 'kds' && kds && (() => { const L = kdsLive(ops, br.id), now = Date.now(); const cols = ['new', 'prep', 'ready'];
         return <div className="pos-kds" data-kds>{cols.map(c => { const list = L.filter(k => k.status === c); return <div key={c} className="pos-kcol">
           <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}><b>{KDS_ST[c][1]}</b><span className={'badge ' + KDS_ST[c][0]}>{list.length}</span></div>

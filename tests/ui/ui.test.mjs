@@ -775,6 +775,20 @@ test('v49.0 القيود اليدوية سجلات مستقلة: مُطفأة ا
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+test('v49.1 MQ-021 الحارس المركزي: الهدر أو أي حركة تُنقص الرصيد دون الصفر تُرفض، والنقرة المزدوجة على حفظ السند لا تكرره', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1280, height: 900 } }, 'live/Inventory/admin/moves');
+  await p.evaluate(() => {
+    window.setOrg(g => ({ ...g, warehouses: [], items: [{ id: 'mt', name: 'لحم', unit: 'كجم', cost: 40 }] }));
+    window.setOps(o => ({ ...o, whMoves: [], whTransfers: [], stockMoves: [{ id: 'p1', date: '2026-09-01', at: '2026-09-01T10:00', itemId: 'mt', kind: 'purchase', qty: 4, unitCost: 40 }] }));
+  }); await p.waitForTimeout(300);
+  await p.locator('button:has-text("حركة جديدة")').click(); await p.waitForTimeout(200);
+  await p.selectOption('.modal select >> nth=0', 'waste');
+  await p.fill('.modal input.inp.n', '9'); await p.click('.modal button:has-text("تسجيل الحركة")'); await p.waitForTimeout(300);
+  assert.match(await p.evaluate(() => window.lastSay || ''), /الرصيد غير كافٍ|تتجاوز الرصيد/);
+  assert.equal(await p.evaluate(() => window.cur.stockMoves.length), 1, 'لم تُسجَّل الحركة');
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
 test('v42.0 المخزون: «صرف للتشغيل» لا يتجاوز الرصيد (بلا استثناء)، وشاشة الدوران وفروق الأسعار على الجوال', async () => {
   const { p, errs, ctx } = await open({ ...devices['iPhone 13'] }, 'live/Inventory/admin/moves');
   await p.evaluate(() => {
@@ -876,6 +890,150 @@ test('v42.9 الطاولات والحساب المفتوح وشاشة المطب
   r = await p.evaluate(() => ({ tab: window.cur.posTabs[0].status, orderNo: !!window.cur.posTabs[0].orderNo, kN: window.cur.kdsTickets.length }));
   assert.deepEqual(r, { tab: 'paid', orderNo: true, kN: 2 }, 'الدفع يغلق الحساب ولا يكرر تذكرة المطبخ');
   assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v49.2 MQ-005 الصالات: إعدادها بالنطاقات (مع رفض التداخل)، الطاولات مجمّعة حسب الصالة، والفاتورة تحمل صالتها', async () => {
+  { const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosSettings/admin');
+    await p.evaluate(() => window.setOrg(g => ({ ...g, posCfg: { ...(g.posCfg || {}), branches: ['b1'], tables: { b1: 8 } } }))); await p.waitForTimeout(200);
+    await p.evaluate(() => window.as('ctl')); await p.waitForTimeout(150); await p.evaluate(() => window.as('admin')); await p.waitForTimeout(300);   // إعادة تركيب الشاشة بالإعداد الجديد
+    const ed = p.locator('[data-areaed]').first();
+    await ed.locator('button:has-text("+ صالة")').click(); await ed.locator('button:has-text("+ صالة")').click();
+    const nm = ed.locator('input[aria-label="اسم الصالة"]'), fr = ed.locator('input[aria-label="من طاولة"]'), to = ed.locator('input[aria-label="إلى طاولة"]');
+    await nm.nth(0).fill('الرئيسية'); await fr.nth(0).fill('1'); await to.nth(0).fill('5');
+    await nm.nth(1).fill('العائلات'); await fr.nth(1).fill('5'); await to.nth(1).fill('8');
+    await p.locator('.card button.pri', { hasText: /^حفظ$/ }).click(); await p.waitForTimeout(250);
+    assert.match(await p.evaluate(() => window.lastSay || ''), /متداخلتان/);
+    await fr.nth(1).fill('6'); await p.locator('.card button.pri', { hasText: /^حفظ$/ }).click(); await p.waitForTimeout(250);
+    assert.deepEqual(await p.evaluate(() => window.curOrg.posCfg.areas.b1.map(a => [a.name, a.from, a.to])), [['الرئيسية', 1, 5], ['العائلات', 6, 8]]);
+    assert.deepEqual(errs, []); await ctx.close(); }
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosApp/bm');
+  await p.evaluate(() => {
+    window.setOrg(g => ({ ...g, taxCfg: { enabled: true, rate: 15 }, posCfg: { branches: ['b1'], tables: { b1: 8 }, areas: { b1: [{ id: 'am', name: 'الرئيسية', from: 1, to: 5 }, { id: 'af', name: 'العائلات', from: 6, to: 8 }] }, autoPrint: false },
+      products: [{ id: 'k', name: 'كبسة', sellPrice: 58, cat: 'رئيسي' }] }));
+    window.setOps(o => ({ ...o, posTabs: [], kdsTickets: [], posOrders: [] }));
+  }); await p.waitForTimeout(400);
+  const ob = p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await p.waitForTimeout(400); }
+  await p.click('.pos-tabs button:has-text("الطاولات")'); await p.waitForTimeout(200);
+  assert.deepEqual(await p.locator('[data-area]').evaluateAll(els => els.map(e => [e.getAttribute('data-area'), e.querySelectorAll('.pos-tbl').length])), [['الرئيسية', 5], ['العائلات', 3]]);
+  await p.click('[data-areas] button:has-text("العائلات")'); await p.waitForTimeout(150);
+  assert.equal(await p.locator('[data-area]').count(), 1, 'منتقي الصالة');
+  await p.click('[data-area="العائلات"] .pos-tbl >> nth=1'); await p.waitForTimeout(200);
+  await p.locator('.pos-tile:has-text("كبسة")').click();
+  await p.click('.pos-cart button:has-text("نقدي")'); await p.waitForTimeout(200);
+  await p.click('.modal button:has-text("تأكيد")'); await p.waitForTimeout(500);
+  assert.deepEqual(await p.evaluate(() => window.cur.posOrders.map(o => [o.table, o.areaId, o.areaName])), [['7', 'af', 'العائلات']]);
+  await p.click('.pos-tabs button:has-text("الطاولات")'); await p.waitForTimeout(200);
+  assert.match(await p.locator('[data-areasales]').innerText(), /العائلات[\s\S]*58\.00/);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v49.2 MQ-006 التوصيل: إضافة سائق، طلب توصيل بعنوانه، إسناده ثم «تم التوصيل»، والعهدة النقدية وتسويتها', async () => {
+  { const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosSettings/admin');
+    await p.click('[data-drivers] button:has-text("+ سائق")');
+    await p.fill('input[aria-label="اسم السائق"]', 'أحمد'); await p.fill('input[aria-label="جوال السائق"]', '0551112222');
+    await p.locator('.card button.pri', { hasText: /^حفظ$/ }).click(); await p.waitForTimeout(250);
+    assert.deepEqual(await p.evaluate(() => window.curOrg.posCfg.drivers.map(d => [d.name, d.phone, d.active])), [['أحمد', '0551112222', true]]);
+    assert.deepEqual(errs, []); await ctx.close(); }
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosApp/bm');
+  await p.evaluate(() => {
+    window.setOrg(g => ({ ...g, taxCfg: { enabled: true, rate: 15 }, posCfg: { branches: ['b1'], autoPrint: false, drivers: [{ id: 'd1', name: 'أحمد', active: true }] },
+      products: [{ id: 'k', name: 'كبسة', sellPrice: 58, cat: 'رئيسي' }] }));
+    window.setOps(o => ({ ...o, posOrders: [], posDeliveries: [] }));
+  }); await p.waitForTimeout(400);
+  const ob = p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await p.waitForTimeout(400); }
+  await p.click('.pos-seg button:has-text("توصيل")');
+  await p.fill('input[aria-label="عنوان التوصيل"]', 'حي النسيم، شارع 5'); await p.fill('input[aria-label="جوال التوصيل"]', '0500000000');
+  await p.locator('.pos-tile:has-text("كبسة")').click();
+  await p.click('.pos-cart button:has-text("نقدي")'); await p.waitForTimeout(200);
+  await p.click('.modal button:has-text("تأكيد")'); await p.waitForTimeout(600);
+  assert.deepEqual(await p.evaluate(() => window.cur.posDeliveries.map(x => [x.st, x.addr, x.phone, x.cash])), [['new', 'حي النسيم، شارع 5', '0500000000', 58]]);
+  await p.click('.pos-tabs button:has-text("التوصيل")'); await p.waitForTimeout(200);
+  const no = await p.evaluate(() => window.cur.posDeliveries[0].no);
+  await p.selectOption('select[aria-label="سائق ' + no + '"]', 'd1'); await p.waitForTimeout(300);
+  assert.equal(await p.locator('[data-dlvcol="out"] [data-dlv]').count(), 1);
+  await p.click('[data-dlvcol="out"] button:has-text("تم التوصيل")'); await p.waitForTimeout(300);
+  assert.match(await p.locator('[data-dlvsum]').innerText(), /أحمد[\s\S]*58\.00/);
+  await p.click('[data-dlvsum] button:has-text("استلام النقد")'); await p.waitForTimeout(300);
+  assert.deepEqual(await p.evaluate(() => window.cur.posDeliveries.map(x => [x.st, x.driverName, !!x.settledAt])), [['done', 'أحمد', true]]);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v49.2 MQ-024 طلب عروض الأسعار: إنشاء لموردَين، إدخال العروض، المقارنة، والترسية الأفضل لكل صنف إلى أوامر شراء', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Hub/admin/purchasing:rfq');
+  await p.evaluate(() => window.setOps(o => ({ ...o, rfqs: [], purchaseOrders: [] }))); await p.waitForTimeout(300);
+  await p.click('[data-rfq] button:has-text("طلب جديد")'); await p.waitForTimeout(200);
+  await p.fill('input[aria-label="موضوع الطلب"]', 'لحوم وخضار');
+  await p.fill('input[aria-label="وصف 1"]', 'لحم غنم'); await p.fill('input[aria-label="كمية 1"]', '20');
+  await p.click('.modal button:has-text("صنف")'); await p.fill('input[aria-label="وصف 2"]', 'طماطم'); await p.fill('input[aria-label="كمية 2"]', '50');
+  await p.check('input[aria-label="مورد مؤسسة اللحوم الطازجة للتجارة"]');
+  await p.click('.modal button:has-text("إنشاء الطلب")'); await p.waitForTimeout(200);
+  assert.match(await p.evaluate(() => window.lastSay || ''), /موردَين على الأقل/);
+  await p.check('input[aria-label="مورد شركة الخضار"]'); await p.click('.modal button:has-text("إنشاء الطلب")'); await p.waitForTimeout(300);
+  assert.deepEqual(await p.evaluate(() => window.cur.rfqs.map(r => [r.no, r.lines.length, r.suppliers.length, r.status])), [['RFQ-0001', 2, 2, 'open']]);
+  await p.click('[data-quote="مؤسسة اللحوم الطازجة للتجارة"]'); await p.waitForTimeout(150);
+  await p.fill('input[aria-label="سعر لحم غنم"]', '60'); await p.fill('input[aria-label="سعر طماطم"]', '5'); await p.click('.modal button:has-text("حفظ العرض")'); await p.waitForTimeout(250);
+  await p.click('[data-quote="شركة الخضار"]'); await p.waitForTimeout(150);
+  await p.fill('input[aria-label="سعر لحم غنم"]', '65'); await p.fill('input[aria-label="سعر طماطم"]', '3.5'); await p.fill('input[aria-label="مدة التوريد"]', '1'); await p.click('.modal button:has-text("حفظ العرض")'); await p.waitForTimeout(250);
+  assert.match(await p.locator('[data-rfqview]').innerText(), /الأفضل لكل صنف: 1,375\.00[\s\S]*يوفر 75\.00/, '20×60 + 50×3.5 = 1375؛ أفضل كامل 1450');
+  await p.click('[data-rfqview] button:has-text("ترسية الأفضل لكل صنف")'); await p.waitForTimeout(400);
+  const r = await p.evaluate(() => ({ rfq: window.cur.rfqs[0].status, pos: window.cur.purchaseOrders.map(x => [x.supplierName, x.lines.map(l => l.desc + ':' + l.qty + '×' + l.price).join()]) }));
+  assert.deepEqual(r, { rfq: 'awarded', pos: [['مؤسسة اللحوم الطازجة للتجارة', 'لحم غنم:20×60'], ['شركة الخضار', 'طماطم:50×3.5']] });
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v49.2 MQ-037 ربحية الأصناف والفروع: من فواتير نقطة البيع، حسب الصنف والفرع والتفصيل، والإيراد بلا تكلفة معروفة يُذكر ولا يدخل الهامش', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/Hub/admin/analytics:profitmx');
+  await p.evaluate(() => {
+    const t = new Date().toISOString().slice(0, 10);
+    window.setOrg(g => ({ ...g, taxCfg: { enabled: false }, items: [{ id: 'i1', name: 'دجاج', unit: 'كجم', cost: 10 }], products: [{ id: 'K', name: 'كبسة', sellPrice: 40, parts: [{ itemId: 'i1', qty: 1 }] }, { id: 'S', name: 'شاي', sellPrice: 5, parts: [] }] }));
+    window.setOps(o => ({ ...o, stockMoves: [], whMoves: [], posOrders: [
+      { id: 'a', branchId: 'b1', date: t, status: 'paid', net: 85, lines: [{ productId: 'K', name: 'كبسة', qty: 2, price: 40 }, { productId: 'S', name: 'شاي', qty: 1, price: 5 }] },
+      { id: 'b', branchId: 'b2', date: t, status: 'paid', net: 40, lines: [{ productId: 'K', name: 'كبسة', qty: 1, price: 40 }] }] }));
+  }); await p.waitForTimeout(400);
+  assert.match(await p.locator('[data-pmx]').innerText(), /الإيراد الصافي[\s\S]*125\.00[\s\S]*مجمل الربح[\s\S]*90\.00/, 'كبسة 3 × (40 − 10) = 90؛ الشاي بلا تكلفة');
+  assert.match(await p.locator('[data-pmxtable]').innerText(), /كبسة[\s\S]*120\.00[\s\S]*30\.00[\s\S]*90\.00[\s\S]*75%/);
+  await p.click('[data-pmx] button:has-text("حسب الفرع")'); await p.waitForTimeout(150);
+  assert.equal(await p.locator('[data-pmxtable] tbody tr').count(), 2);
+  await p.click('[data-pmx] button:has-text("صنف × فرع × فترة")'); await p.waitForTimeout(150);
+  assert.match(await p.locator('[data-pmxtable]').innerText(), /شاي[\s\S]*غير معروفة/);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v49.2 MQ-013 مواقع التخزين: إدخال موقع الصنف لكل مستودع، حفظه، وظهوره في قائمة الأصناف', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Inventory/admin/items');
+  await p.waitForTimeout(300);
+  const first = await p.evaluate(() => window.curOrg.items.filter(i => i.isActive !== false && (i.type || 'stock') === 'stock')[0]);
+  await p.locator('tr', { hasText: first.name }).first().locator('button', { hasText: 'تعديل' }).click(); await p.waitForTimeout(150);
+  await p.locator('[data-bins] input').first().fill('C-12');
+  await p.locator('button', { hasText: 'حفظ الصنف' }).click(); await p.waitForTimeout(250);
+  const it = await p.evaluate((id) => window.curOrg.items.find(x => x.id === id), first.id);
+  assert.equal(Object.values(it.bins || {})[0], 'C-12');
+  assert.match(await p.locator('tr', { hasText: first.name }).first().innerText(), /C-12/);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v49.2 MQ-011 صلاحيات نقطة البيع: الكاشير لا يتجاوز حد الخصم ولا يلغي ولا يُرجع، ومدير الفرع يتجاوز الحد', async () => {
+  const setup = async (p) => { await p.evaluate(() => {
+    window.setOrg(g => ({ ...g, taxCfg: { enabled: false }, posCfg: { branches: ['b1'], autoPrint: false, maxDiscPct: 10, returns: true }, products: [{ id: 'k', name: 'كبسة', sellPrice: 100, cat: 'رئيسي' }] }));
+    window.setOps(o => ({ ...o, posOrders: [] })); }); await p.waitForTimeout(400);
+    const ob = p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await p.waitForTimeout(400); } };
+  const sell = async (p, amt) => { await p.locator('.pos-tile:has-text("كبسة")').click();
+    await p.click('button:has-text("+ خصم")'); await p.locator('.pos-cart input.inp.n').first().fill(String(amt)); await p.fill('.pos-cart input[placeholder="إلزامي"]', 'عميل دائم');
+    await p.click('.pos-cart button:has-text("نقدي")'); await p.waitForTimeout(200); await p.click('.modal button:has-text("تأكيد")'); await p.waitForTimeout(500); };
+  { const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosApp/cs'); await setup(p);
+    await sell(p, 20);
+    assert.match(await p.evaluate(() => window.lastSay || ''), /يتجاوز الحد المسموح للكاشير \(10%\)/);
+    assert.equal(await p.evaluate(() => window.cur.posOrders.length), 0, 'لم تُسجَّل');
+    await p.evaluate(() => window.setOps(o => ({ ...o, posOrders: [{ id: 'x1', no: 'ف1-1', branchId: 'b1', date: new Date().toISOString().slice(0, 10), at: new Date().toISOString(), status: 'paid', total: 100, lines: [{ productId: 'k', name: 'كبسة', qty: 1, price: 100 }], payments: [{ m: 'cash', amount: 100 }] }] })));
+    await p.keyboard.press('Escape'); await p.waitForTimeout(200); if (await p.locator('.modal').count()) { await p.locator('.modal button:has-text("إلغاء")').first().click().catch(() => {}); await p.waitForTimeout(200); }
+    await p.click('.pos-tabs button:has-text("الفواتير")'); await p.waitForTimeout(250);
+    assert.equal(await p.locator('button:has-text("إلغاء")').filter({ hasText: /^إلغاء$/ }).count(), 0, 'لا زر إلغاء للكاشير');
+    assert.equal(await p.locator('button:has-text("مرتجع")').count(), 0, 'لا زر مرتجع للكاشير');
+    assert.deepEqual(errs, []); await ctx.close(); }
+  { const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosApp/bm'); await setup(p);
+    await sell(p, 20);
+    assert.deepEqual(await p.evaluate(() => window.cur.posOrders.map(o => [o.total, o.manualDisc])), [[80, 20]], 'المدير يتجاوز الحد');
+    assert.deepEqual(errs, []); await ctx.close(); }
 });
 
 test('v43.0 الواجهة الإنجليزية: الاتجاه LTR وترجمة الإطار (التطبيقات، رأس المركز، شريط الأقسام) والعربية افتراضيًا', async () => {

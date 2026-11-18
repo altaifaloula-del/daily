@@ -1868,3 +1868,142 @@ test('v49.0 BUG-01-04: إلغاء الإقفال الضريبي المرحّل �
   assert.equal(E.vatCloseLive([c, { id: 'u', vatUndo: 'vc1', status: 'rejected' }], c), true);
   assert.equal(E.vatCloseLive([], { ...c, status: 'rejected' }), false);
 });
+
+test('v49.1 MQ-021 الحارس المركزي للرصيد السالب: يمنع ما يجعل الرصيد سالبًا من أي شاشة، ويستثني خصم المبيعات التلقائي', () => {
+  const org = { items: [{ id: 'i1', name: 'دجاج', unit: 'كجم' }], warehouses: [{ id: 'wh-main', kind: 'main' }, { id: 'w1', kind: 'branch', branchId: 'b1' }] };
+  const base = { stockMoves: [{ id: 'm1', itemId: 'i1', qty: 10, kind: 'purchase', whId: 'wh-main' }], whMoves: [], whTransfers: [] };
+  const add = (o, k, m) => ({ ...o, [k]: [...o[k], m] });
+  assert.deepEqual(E.negStockChanges(org, base, add(base, 'stockMoves', { id: 'm2', itemId: 'i1', qty: -10, kind: 'out' })), [], 'حتى الصفر مسموح');
+  const N = E.negStockChanges(org, base, add(base, 'stockMoves', { id: 'm2', itemId: 'i1', qty: -12, kind: 'out' }));
+  assert.deepEqual(N.map(x => [x.whId, x.itemId, x.before, x.after]), [['wh-main', 'i1', 10, -2]]);
+  assert.match(E.negStockMsg(org, N), /دجاج.*المتاح 10 كجم/);
+  // تحويل يتجاوز الرصيد · حذف التوريد بعد الصرف
+  assert.equal(E.negStockChanges(org, base, add(base, 'whTransfers', { id: 't1', status: 'sent', fromWh: 'wh-main', toWh: 'w1', lines: [{ itemId: 'i1', qtySent: 11 }] })).length, 1);
+  const used = add(base, 'stockMoves', { id: 'm2', itemId: 'i1', qty: -6, kind: 'out' });
+  assert.equal(E.negStockChanges(org, used, { ...used, stockMoves: used.stockMoves.filter(m => m.id !== 'm1') }).length, 1, 'حذف توريد مستهلك');
+  // خصم المبيعات التلقائي لا يُمنع (البيع لا يتوقف)
+  assert.deepEqual(E.negStockChanges(org, base, add(base, 'whMoves', { id: 's1', itemId: 'i1', qty: -50, kind: 'sale', whId: 'w1' })), []);
+  // سالب قديم لا يمنع حفظًا لا يمسّه، والتوريد يُسمح
+  const neg = { ...base, stockMoves: [{ id: 'mx', itemId: 'i1', qty: -3, kind: 'out', whId: 'wh-main' }] };
+  assert.deepEqual(E.negStockChanges(org, neg, add(neg, 'stockMoves', { id: 'my', itemId: 'i1', qty: 1, kind: 'in', whId: 'wh-main' })), []);
+  assert.deepEqual(E.negStockChanges(org, neg, { ...neg, closings: [] }), []);
+  assert.deepEqual(E.negStockChanges({ ...org, allowNegStock: true }, base, add(base, 'stockMoves', { id: 'm2', itemId: 'i1', qty: -12, kind: 'out' })), [], 'استثناء صريح من الإعدادات');
+});
+
+test('v49.1 MQ-169 منع تكرار العمليات: إعادة المحاولة لا تكرر السجل نفسه، والنقرة المزدوجة على حفظ تُرفض', () => {
+  const v = { id: 'cv1', kind: 'pv', date: '2026-11-18', amount: 50, by: 'منى', at: '2026-11-18T10:00:00.000Z' };
+  const prev = { cashVouchers: [v] };
+  assert.deepEqual(E.dedupeSameId(prev, { cashVouchers: [v, v] }).cashVouchers.map(x => x.id), ['cv1'], 'المعرّف نفسه مرة واحدة');
+  const old = { cashVouchers: [v, v] };
+  assert.equal(E.dedupeSameId(old, { cashVouchers: [v, v, { id: 'cv2' }] }).cashVouchers.length, 3, 'تكرار قديم لا يُمس');
+  // نقرتان: نفس المحتوى بمعرّف جديد خلال دقيقتين
+  const v2 = { ...v, id: 'cv2', at: '2026-11-18T10:00:40.000Z' };
+  assert.equal(E.findRecentDups(prev, { cashVouchers: [v2, v] }).length, 1);
+  assert.equal(E.findRecentDups(prev, { cashVouchers: [{ ...v2, at: '2026-11-18T10:05:00.000Z' }, v] }).length, 0, 'بعد دقائق: عملية مقصودة');
+  assert.equal(E.findRecentDups(prev, { cashVouchers: [{ ...v2, amount: 51 }, v] }).length, 0, 'محتوى مختلف');
+  assert.equal(E.findRecentDups(prev, { cashVouchers: [{ ...v2, by: 'سعد' }, v] }).length, 0, 'مستخدم آخر');
+  const j = { id: 'j1', date: '2026-11-18', title: 'ت', by: 'منى', createdAt: '2026-11-18T10:00:00Z', lines: [{ code: '1101', debit: 1, credit: 0 }] };
+  assert.equal(E.findRecentDups({ journalManual: [j] }, { journalManual: [{ ...j, id: 'j2', createdAt: '2026-11-18T10:00:05Z' }, j] }).length, 1);
+});
+
+test('v49.2 MQ-005 الصالات: نطاقات صالحة فقط، الطاولة خارج الصالات «بلا صالة»، والتحقق يكشف التداخل والتجاوز، ومبيعات كل صالة', () => {
+  const org = { posCfg: { tables: { b1: 12 }, areas: { b1: [{ id: 'f', name: 'العائلات', from: 6, to: 10 }, { id: 'm', name: 'الرئيسية', from: 1, to: 5 }, { id: 'x', name: 'متداخلة', from: 4, to: 7 }, { id: 'y', name: 'خارج', from: 11, to: 30 }] } } };
+  assert.deepEqual(E.posAreas(org, 'b1').map(a => [a.id, a.from, a.to]), [['m', 1, 5], ['f', 6, 10], ['y', 11, 12]], 'المتداخلة تُهمل والتجاوز يُقص');
+  assert.equal(E.tableArea(org, 'b1', '7').name, 'العائلات'); assert.equal(E.tableArea({ posCfg: { tables: { b1: 12 } } }, 'b1', '7'), null);
+  assert.equal(E.areasErr([{ name: 'أ', from: 1, to: 5 }, { name: 'ب', from: 5, to: 8 }], 12), 'الصالتان «أ» و«ب» متداخلتان');
+  assert.match(E.areasErr([{ name: 'أ', from: 1, to: 15 }], 12), /يتجاوز عدد الطاولات/);
+  assert.match(E.areasErr([{ name: '', from: 1, to: 2 }], 12), /اسم/);
+  assert.equal(E.areasErr([{ name: 'أ', from: 1, to: 6 }, { name: 'ب', from: 7, to: 12 }], 12), '');
+  const ops = { posOrders: [
+    { branchId: 'b1', status: 'paid', table: '2', total: 50, at: '2026-11-18T10:00:00Z' },
+    { branchId: 'b1', status: 'paid', table: '8', total: 30, at: '2026-11-18T11:00:00Z', areaId: 'f', areaName: 'العائلات' },
+    { branchId: 'b1', status: 'paid', table: '12', total: 20, at: '2026-11-18T12:00:00Z' },
+    { branchId: 'b1', status: 'void', table: '2', total: 99, at: '2026-11-18T12:00:00Z' },
+    { branchId: 'b1', status: 'paid', total: 70, at: '2026-11-18T12:00:00Z' }] };
+  assert.deepEqual(E.salesByArea({ posCfg: { tables: { b1: 12 }, areas: { b1: [{ id: 'm', name: 'الرئيسية', from: 1, to: 5 }, { id: 'f', name: 'العائلات', from: 6, to: 10 }] } } }, ops, 'b1', '2026-11-18', '2026-11-18').map(x => [x.name, x.orders, x.total]),
+    [['الرئيسية', 1, 50], ['العائلات', 1, 30], ['بلا صالة', 1, 20]]);
+});
+
+test('v49.2 MQ-006 التوصيل الذاتي: السجل منفصل عن الفاتورة، الانتقالات المسموحة، وعهدة السائق وتسويتها', () => {
+  const o = { id: 'o1', no: 'ف1-1', branchId: 'b1', at: '2026-11-18T12:00:00.000Z', channel: 'delivery', total: 92, change: 8, payments: [{ m: 'cash', amount: 100 }] };
+  assert.equal(E.dlvNeeded(o), true); assert.equal(E.dlvNeeded({ ...o, payments: [{ m: 'app', amount: 92 }] }), false, 'طلب تطبيق: سائق التطبيق');
+  assert.equal(E.dlvNeeded({ ...o, channel: 'takeaway' }), false);
+  const r = E.dlvRecord(o, { phone: '0500', addr: 'حي النسيم' });
+  assert.deepEqual([r.id, r.st, r.cash, r.addr], ['dl_o1', 'new', 92, 'حي النسيم'], 'النقد = المدفوع − الباقي');
+  assert.match(E.dlvMove(r, 'done', 'س').err, /غير مسموح/);
+  assert.match(E.dlvMove(r, 'out', 'س').err, /السائق/);
+  const out = E.dlvMove(r, 'out', 'س', { driverId: 'd1', driverName: 'أحمد', at: '2026-11-18T12:05:00.000Z' });
+  assert.match(E.dlvMove(out, 'fail', 'س').err, /سبب/);
+  const done = E.dlvMove(out, 'done', 'س', { at: '2026-11-18T12:29:00.000Z' });
+  const ops = { posDeliveries: [done, { ...E.dlvRecord({ ...o, id: 'o2', total: 40, change: 0, payments: [{ m: 'card', amount: 40 }] }), st: 'out', driverId: 'd1', driverName: 'أحمد', outAt: '2026-11-18T12:10:00.000Z' }] };
+  const S = E.dlvSummary({}, ops, 'b1', '2026-11-18');
+  assert.deepEqual(S.map(x => [x.name, x.orders, x.done, x.out, x.avgMin, x.custody]), [['أحمد', 2, 1, 1, 24, 92]]);
+  const settled = { posDeliveries: ops.posDeliveries.map(x => x.st === 'done' ? { ...x, settledAt: '2026-11-18T13:00:00Z' } : x) };
+  assert.equal(E.dlvSummary({}, settled, 'b1', '2026-11-18')[0].custody, 0);
+  assert.deepEqual(E.posDrivers({ posCfg: { drivers: [{ id: 'd1', name: 'أ' }, { id: 'd2', name: 'ب', branchId: 'b2' }, { id: 'd3', name: 'ج', active: false }] } }, 'b1').map(d => d.id), ['d1']);
+  const T = E.posTrim({ posDeliveries: [{ ...done, settledAt: 'x', at: '2026-08-01T10:00:00Z' }, done] }, '2026-11-18');
+  assert.equal(T.posDeliveries.length, 1, 'المسوّى الأقدم من 60 يومًا يُقلَّم');
+});
+
+test('v49.2 MQ-024 طلب عروض الأسعار: المقارنة لكل صنف ولكل مورد، الفرق عن آخر سعر، والترسية الكاملة أو المجزأة بحد الاعتماد', () => {
+  const org = { suppliers: [{ id: 'A', name: 'مورد أ' }, { id: 'B', name: 'مورد ب' }, { id: 'C', name: 'مورد ج' }], purchaseCfg: { approvalLimit: 1000 } };
+  const ops = { purchaseOrders: [{ id: 'p0', poNo: 'PO-0007', supplierId: 'A', date: '2026-10-01', lines: [{ itemId: 'rice', qty: 10, price: 40, received: 10 }] }] };
+  const rfq = { id: 'r1', no: 'RFQ-0001', lines: [{ key: 'l1', itemId: 'rice', desc: 'رز', qty: 20 }, { key: 'l2', desc: 'زيت', qty: 10 }], suppliers: ['A', 'B', 'C'],
+    quotes: { A: { lines: { l1: { price: 42 }, l2: { price: 30 } } }, B: { lines: { l1: { price: 38 }, l2: { price: 33 } }, delivDays: 2 }, C: { lines: { l1: { price: 35 }, l2: { na: true } } } } };
+  const C = E.rfqCompare(org, ops, rfq);
+  assert.deepEqual(C.rows.map(r => [r.desc, r.best.supplierId, r.best.price, r.vsLast]), [['رز', 'C', 35, -12.5], ['زيت', 'A', 30, null]]);
+  assert.deepEqual(C.bySup.map(s => [s.supplierId, s.total, s.full, s.wins]), [['B', 1090, true, 0], ['A', 1140, true, 1], ['C', 700, false, 1]], 'الكامل أولًا ثم الأرخص');
+  assert.deepEqual([C.splitTotal, C.bestFull.supplierId, C.saving], [1000, 'B', 90]);
+  const one = E.rfqToPOs(org, ops, rfq, 'one', 'B', { name: 'م' }, '2026-11-18T10:00:00Z');
+  assert.deepEqual(one.pos.map(p => [p.poNo, p.supplierId, p.lines.length, p.status, p.rfqId]), [['PO-0008', 'B', 2, 'pending', 'r1']], '1090 فوق الحد ⇒ بانتظار الاعتماد');
+  assert.match(E.rfqToPOs(org, ops, rfq, 'one', 'C', {}).err, /لم يسعّر كل الأصناف/);
+  const sp = E.rfqToPOs(org, ops, rfq, 'split', '', { name: 'م' }, '2026-11-18T10:00:00Z');
+  assert.deepEqual(sp.pos.map(p => [p.poNo, p.supplierId, p.lines.map(l => l.desc + ':' + l.price).join(), p.status]), [['PO-0008', 'C', 'رز:35', 'open'], ['PO-0009', 'A', 'زيت:30', 'open']]);
+  assert.match(E.rfqToPOs(org, ops, { ...rfq, quotes: { C: rfq.quotes.C } }, 'split').err, /بلا أي عرض/);
+  assert.equal(E.rfqNextNo({ rfqs: [{ no: 'RFQ-0009' }] }), 'RFQ-0010');
+});
+
+test('v49.2 MQ-037 الربحية صنف × فرع × فترة: الإيراد بحصة السطر من صافي الفاتورة بعد الخصم، المرتجع يُطرح، الملغاة تُستبعد، وبلا وصفة «غير معروفة»', () => {
+  const org = baseOrg({ taxCfg: { enabled: true, rate: 15 }, branches: [{ id: 'b1', name: 'طيبة' }, { id: 'b2', name: 'النسيم' }], items: [{ id: 'i1', name: 'دجاج', unit: 'كجم', cost: 10 }],
+    products: [{ id: 'K', name: 'كبسة', sellPrice: 46, parts: [{ itemId: 'i1', qty: 1.5 }] }, { id: 'S', name: 'شاي', sellPrice: 4.6, parts: [] }] });
+  const o = (id, br, date, lines, net, extra = {}) => ({ id, branchId: br, date, status: 'paid', lines, net, ...extra });
+  const ops = { posOrders: [
+    o('1', 'b1', '2026-10-05', [{ productId: 'K', name: 'كبسة', qty: 2, price: 46 }, { productId: 'S', name: 'شاي', qty: 2, price: 4.6 }], 88),      // 101.2 قبل خصم ⇒ 88 صافيًا (خصم فاتورة)
+    o('2', 'b1', '2026-11-02', [{ productId: 'K', name: 'كبسة', qty: 1, price: 46 }], 40),
+    o('3', 'b1', '2026-11-03', [{ productId: 'K', name: 'كبسة', qty: -1, price: 46 }], -40, { kind: 'return' }),
+    o('4', 'b2', '2026-11-04', [{ productId: 'K', name: 'كبسة', qty: 3, price: 46 }], 120),
+    o('5', 'b2', '2026-11-04', [{ productId: 'K', name: 'كبسة', qty: 9, price: 46 }], 360, { status: 'void' })] };
+  const P = E.profitMatrix(org, ops, { from: '2026-10-01', to: '2026-11-30', by: 'month' });
+  const pick = (pid, br, per) => P.rows.find(r => r.productId === pid && r.branchId === br && r.period === per);
+  const k1 = pick('K', 'b1', '2026-10');
+  assert.deepEqual([k1.qty, k1.rev, k1.cost, k1.gp], [2, 80, 30, 50], 'حصة الكبسة 92/101.2 × 88 = 80؛ التكلفة 2 × 1.5 × 10');
+  assert.deepEqual([pick('S', 'b1', '2026-10').rev, pick('S', 'b1', '2026-10').cost], [8, null], 'بلا وصفة: تكلفة غير معروفة');
+  const k2 = pick('K', 'b1', '2026-11'); assert.deepEqual([k2.qty, k2.rev, k2.cost], [0, 0, 0], 'المرتجع يلغي البيع');
+  assert.deepEqual([pick('K', 'b2', '2026-11').qty, pick('K', 'b2', '2026-11').gpPct], [3, 62.5], 'الملغاة مستبعدة');
+  assert.deepEqual(P.byBranch.map(b => [b.name, b.rev, b.unknown, b.gp]), [['النسيم', 120, 0, 75], ['طيبة', 88, 8, 50]]);
+  assert.deepEqual([P.tot.rev, P.tot.known, P.tot.cost, P.tot.gp, P.tot.unknownRev], [208, 200, 75, 125, 8]);
+  assert.equal(E.profitMatrix(org, ops, { from: '2026-10-01', to: '2026-11-30', branchIds: ['b2'] }).rows.length, 1);
+  assert.equal(E.pmPeriod('2026-11-18', 'week'), 'أسبوع 2026-11-14', 'الأسبوع يبدأ السبت');
+});
+
+test('v49.2 MQ-013 مواقع التخزين: الموقع لكل مستودع، والترتيب الطبيعي (A-2 قبل A-10) والأصناف بلا موقع آخرًا', () => {
+  const its = [{ id: 'a', name: 'رز', bins: { 'wh-main': 'A-10' } }, { id: 'b', name: 'زيت', bins: { 'wh-main': 'A-2', 'w1': 'B-1' } }, { id: 'c', name: 'ملح' }, { id: 'd', name: 'بهار', bins: { 'wh-main': 'B-1' } }];
+  assert.equal(E.itemBin(its[1], 'w1'), 'B-1'); assert.equal(E.itemBin(its[1]), 'A-2', 'بلا مستودع = الرئيسي'); assert.equal(E.itemBin(its[2], 'w1'), '');
+  assert.deepEqual([...its].sort(E.binSort('wh-main')).map(x => x.id), ['b', 'a', 'd', 'c']);
+  assert.deepEqual([...its].sort(E.binSort('w1')).map(x => x.id), ['b', 'd', 'c', 'a'].filter(x => x === 'b').concat(['d', 'c', 'a'].sort((x, y) => ({ d: 'بهار', c: 'ملح', a: 'رز' }[x]).localeCompare({ d: 'بهار', c: 'ملح', a: 'رز' }[y], 'ar'))));
+});
+
+test('v49.2 MQ-020 تقارير المخزون متسقة: كرت الصنف = الأرصدة لكل مستودع، والافتتاحي + الوارد − الصادر = الختامي، والفترة تُحترم', () => {
+  const org = { items: [{ id: 'i1', name: 'دجاج', unit: 'كجم', cost: 10 }], warehouses: [{ id: 'wh-main', kind: 'main', name: 'الرئيسي' }, { id: 'w1', kind: 'branch', branchId: 'b1', name: 'طيبة' }] };
+  const ops = { stockMoves: [
+      { id: 'a', itemId: 'i1', whId: 'wh-main', kind: 'purchase', qty: 100, date: '2026-10-01', at: '2026-10-01T08:00:00' },
+      { id: 'b', itemId: 'i1', whId: 'wh-main', kind: 'out', qty: -5, date: '2026-11-02', at: '2026-11-02T08:00:00' }],
+    whMoves: [{ id: 'c', itemId: 'i1', whId: 'w1', kind: 'waste', qty: -2, date: '2026-11-05', at: '2026-11-05T08:00:00' }],
+    whTransfers: [{ id: 't', no: 'TR-1', status: 'received', fromWh: 'wh-main', toWh: 'w1', sentDate: '2026-11-03', receivedDate: '2026-11-03', lines: [{ itemId: 'i1', qtySent: 30, qtyRecv: 30 }] }] };
+  const S = E.stockByWh(org, ops).byWh;
+  for (const w of ['wh-main', 'w1']) assert.equal(E.itemLedger(org, ops, 'i1', { whId: w }).close, S[w].i1, 'كرت الصنف يطابق الأرصدة في ' + w);
+  assert.deepEqual([S['wh-main'].i1, S.w1.i1], [65, 28]);
+  const L = E.itemLedger(org, ops, 'i1', { from: '2026-11-01', to: '2026-11-30' });
+  assert.deepEqual([L.open, L.qIn, L.qOut, L.close], [100, 30, 37, 93], 'نوفمبر: افتتاحي 100، وارد التحويل 30، صادر 5 + 30 + 2');
+  assert.equal(Math.round((L.open + L.qIn - L.qOut) * 1000) / 1000, L.close);
+});

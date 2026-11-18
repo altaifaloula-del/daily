@@ -1,6 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useMemo, useState } from 'react';
 import { EyeOff, RotateCcw, Check, ClipboardCheck, X, Printer } from 'lucide-react';
+import { itemBin, binSort, binOrder } from '../../App.jsx';   // v49.2 MQ-013
 import { COUNT_ST, Field, MAIN_WH, Modal, aCountDone, aItemsOf, arDate, canApproveCount, countCfgOf, countFocus, fmtBalP, itemAvgCosts, money, nowISO, periodLocked, printA4, q3, stockByWh, sum, today, uid, whOn, signoff, signDecision, sigFailMsg } from '../../App.jsx';
 
 export function BlindCount({ org, ops, me, commit, say, whId, branchId, col, items, title, canCount = true }) {
@@ -20,7 +21,7 @@ export function BlindCount({ org, ops, me, commit, say, whId, branchId, col, ite
   const canAppr = canApproveCount(me);
   const outTol = (l) => { const d = Math.abs(l.final - l.book), v = d * (l.cost || 0), pct = l.book > 0 ? d / l.book * 100 : (d > 0.0005 ? 100 : 0);
     return d > 0.0005 && v >= cc.tolVal && pct >= cc.tolPct; };
-  const list = (mode === 'a' ? items.filter(it => A.includes(it.id)) : (focus ? [...items].sort((x, y) => (focus.has(y.id) ? 1 : 0) - (focus.has(x.id) ? 1 : 0)) : items));
+  const list = (mode === 'a' ? items.filter(it => A.includes(it.id)) : (focus ? [...items].sort((x, y) => (focus.has(y.id) ? 1 : 0) - (focus.has(x.id) ? 1 : 0) || (items.some(it => itemBin(it, whId)) ? binSort(whId)(x, y) : 0)) : binOrder(items, whId)));   // v49.2: بمسار المشي حسب المواقع
   const meta = { actionType: 'update', targetType: 'stocktake', branchName: title };
   const submit = async () => {
     const ent = list.filter(it => cnt[it.id] !== undefined && cnt[it.id] !== '');
@@ -69,9 +70,9 @@ export function BlindCount({ org, ops, me, commit, say, whId, branchId, col, ite
     if (ok) { setRej(null); say(approve ? (diffs.length ? 'اعتُمد الجرد وسُجّلت ' + diffs.length + ' تسوية ✓' : 'اعتُمد الجرد — مطابق ✓') : 'رُفض الجرد — يُعاد العدّ من جديد'); }
   };
   const printSheet = () => {
-    const rows = list.map(it => `<tr><td>${it.name}</td><td>${it.unit || ''}</td><td style="height:26px"></td><td></td></tr>`).join('');
+    const rows = list.map(it => `<tr><td>${itemBin(it, whId)}</td><td>${it.name}</td><td>${it.unit || ''}</td><td style="height:26px"></td><td></td></tr>`).join('');
     printA4(org, 'قائمة جرد أعمى — ' + title, arDate(today()) + (mode === 'a' ? ' · أصناف الفئة A' : '') + ' — لا يظهر الرصيد الدفتري للعادّ',
-      `<table><thead><tr><th>الصنف</th><th>الوحدة</th><th>العدّ الفعلي</th><th>ملاحظات</th></tr></thead><tbody>${rows}</tbody></table>
+      `<table><thead><tr><th>الموقع</th><th>الصنف</th><th>الوحدة</th><th>العدّ الفعلي</th><th>ملاحظات</th></tr></thead><tbody>${rows}</tbody></table>
       <div class="sign"><div>قام بالعدّ</div><div>أعاد العدّ</div><div>اعتماد (شخص آخر)</div></div>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
   };
   const inp = (id) => <input className="inp n" inputMode="decimal" disabled={!canCount} value={cnt[id] ?? ''} onChange={e => setCnt(c => ({ ...c, [id]: e.target.value.replace(/[^\d.]/g, '') }))} />;
@@ -134,7 +135,7 @@ export function BlindCount({ org, ops, me, commit, say, whId, branchId, col, ite
     {last && last.status === 'rejected' && <div className="note" style={{ marginBottom: 8, borderColor: 'rgba(217,84,77,.4)' }}>رُفض آخر جرد ({arDate(last.date)}) من {last.decidedBy}: {last.decideNote || '—'} — أعد الجرد.</div>}
     {mode === 'a' && !A.length ? <div className="empty">لا أصناف برصيد ذي قيمة في هذا المستودع.</div> : <div className="tw"><table className="tb">
       <thead><tr><th>الصنف</th><th style={{ width: 140 }}>العدّ الفعلي</th></tr></thead>
-      <tbody>{list.map(it => <tr key={it.id}><td>{(mode === 'a' || (focus && focus.has(it.id))) ? <span style={{ color: 'var(--brass)' }}>★ </span> : null}{it.name} <span style={{ fontSize: 10.5, color: 'var(--faint)' }}>{it.unit}</span></td><td>{inp(it.id)}</td></tr>)}
+      <tbody>{list.map(it => <tr key={it.id}><td>{(mode === 'a' || (focus && focus.has(it.id))) ? <span style={{ color: 'var(--brass)' }}>★ </span> : null}{itemBin(it, whId) ? <span className="badge b-dim num" style={{ marginInlineEnd: 5 }} data-bin>{itemBin(it, whId)}</span> : null}{it.name} <span style={{ fontSize: 10.5, color: 'var(--faint)' }}>{it.unit}</span></td><td>{inp(it.id)}</td></tr>)}
         {!list.length && <tr><td colSpan={2}><div className="empty">لا أصناف.</div></td></tr>}</tbody>
     </table></div>}
     {canCount && <button className="btn pri" style={{ marginTop: 10 }} onClick={submit}><Check size={14} />تسليم العدّ للاعتماد</button>}
