@@ -1794,3 +1794,30 @@ test('v48.1 الولاء المتقدم: المستويات بنقاط السن�
   const rc = E.rewardCoupon({ id: 'r', name: 'قهوة', productId: 'p1', days: 10 }, '5', '2026-11-18', 'RWX');
   assert.deepEqual([rc.type, rc.value, rc.items, rc.custPhone, rc.maxUses, rc.maxQty, rc.to], ['pct', 100, ['p1'], '5', 1, 1, '2026-11-28']);
 });
+
+test('v49.0 — القيود اليدوية سجلات مستقلة: الفرق والمطابقة والبصمة', () => {
+  const j = (o = {}) => ({ id: 'jm1', date: '2026-11-10', title: 'قيد', by: 'أ', byId: 'u1', createdAt: '2026-11-10T08:00:00Z', status: 'pending', lines: [{ code: '1101', debit: 100, credit: 0 }, { code: '4101', debit: 0, credit: 100 }], ...o });
+  const a = j(), posted = j({ status: 'posted', approvedBy: 'ب', approvedAt: '2026-11-11T08:00:00Z' });
+  // المحتوى الثابت لا يتأثر بالاعتماد — البصمة واحدة قبل القرار وبعده (القواعد تشترط ثباتها)
+  assert.equal(E.fjData(a), E.fjData(posted));
+  const r = E.fjRecord(a);
+  assert.deepEqual([r.date, r.status, r.digest, r.digest.length], ['2026-11-10', 'pending', E.sha256Hex(r.data), 64]);
+  assert.equal(E.fjRecord(j({ reverses: 'jm0' })).reverses, 'jm0');
+  assert.equal(E.fjStatus({}), 'posted', 'قيد بلا حالة (قديم/آلي) يُعدّ مرحّلًا كما في jeLive');
+  // الفرق: إنشاء · قرار · حذف قبل الاعتماد · تعديل محتوى (لا يُنسخ — تكشفه المطابقة)
+  let D = E.fjDiff([], [a]); assert.deepEqual([D.create.length, D.decide.length, D.del.length, D.skip.length], [1, 0, 0, 0]);
+  D = E.fjDiff([a], [posted]); assert.deepEqual([D.create.length, D.decide.length], [0, 1]);
+  D = E.fjDiff([a], []); assert.equal(D.del.length, 1);
+  D = E.fjDiff([a], [j({ title: 'معدّل' })]); assert.deepEqual([D.decide.length, D.skip.length, D.skip[0].why], [0, 1, 'content']);
+  D = E.fjDiff([a], [a]); assert.equal(D.create.length + D.decide.length + D.del.length + D.skip.length, 0);
+  assert.equal(E.fjDiff([], [j({ id: 'bad id!' })]).skip.length, 1);
+  // المطابقة
+  const rec = (x) => ({ id: x.id, ...E.fjRecord(x) });
+  assert.equal(E.fjCompare([a], [rec(a)]).ok, true);
+  const K = E.fjCompare([posted, j({ id: 'jm2' })], [rec(a), rec(j({ id: 'jm9' }))]);
+  assert.deepEqual([K.ok, K.differ.length, K.missing.length, K.extra.length], [false, 1, 1, 1], 'حالة مختلفة + ناقص + زائد');
+  const tampered = { ...rec(a), data: E.fjData(j({ lines: [{ code: '1101', debit: 999, credit: 0 }, { code: '4101', debit: 0, credit: 999 }] })) };
+  assert.equal(E.fjCompare([a], [tampered]).differ.length, 1, 'تغيير الأرقام يُكشف');
+  assert.equal(E.fjOn({}), false, 'مُطفأ افتراضيًا');
+  assert.equal(E.fjOn({ finRecords: { on: true } }), true);
+});

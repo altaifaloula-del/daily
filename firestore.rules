@@ -457,7 +457,7 @@ service cloud.firestore {
        fin_periods/locks: تاريخ إقفال الفترات (يكتبه المدير فقط). fin_journal/{id}: القيد اليدوي سجلًا مستقلًا:
        • الإنشاء: أدوار المحاسبة المركزية فقط، وبتاريخ بعد الإقفال؛ «مرحّل مباشرة» للمدير فقط وإلا «بانتظار الاعتماد».
        • التحديث: انتقال وحيد بانتظار ← مرحّل/مرفوض، بمعتمِد مؤهل غير المنشئ، والمحتوى والبصمة والتاريخ ثابتة، وبعد الإقفال.
-       • الحذف: ممنوع للجميع — التصحيح بقيد عكسي (يحمل reverses). */
+       • الحذف: قبل الاعتماد فقط (للمنشئ أو المعتمِد)؛ المرحّل والمرفوض لا يُحذفان — التصحيح بقيد عكسي (يحمل reverses). */
     function finLocksPath() { return /databases/$(database)/documents/fin_periods/locks; }
     function finLockedTo() { return exists(finLocksPath()) ? get(finLocksPath()).data.lockedTo : '0000-00-00'; }
     function finOpen(date) { return date > finLockedTo(); }
@@ -491,6 +491,13 @@ service cloud.firestore {
         && o.by != userEmail() && d.decidedBy == userEmail() && d.decidedAt == request.time
         && finOpen(d.date);
     }
+    // حذف القيد قبل اعتماده فقط (كما في التطبيق): لمنشئه أو لمعتمِد مؤهل — المرحّل والمرفوض لا يُحذفان أبدًا
+    function fjDelete(o) {
+      let m = memOf();
+      let adm = admOf(m);
+      return okUser(m, adm) && o.status == 'pending'
+        && ((finRole(m, adm) && o.by == userEmail()) || finApprover(m, adm));
+    }
     match /fin_periods/{id} {
       allow read: if isMember() || isAdmin();
       allow create, update: if isAdmin() && mfaOk() && id == 'locks'
@@ -505,7 +512,7 @@ service cloud.firestore {
       allow read: if (isAdmin() || isCentral()) && mfaOk();
       allow create: if fjCreate(id, request.resource.data);
       allow update: if fjUpdate(id, request.resource.data, resource.data);
-      allow delete: if false;
+      allow delete: if fjDelete(resource.data);
     }
 
     match /{document=**} {

@@ -427,3 +427,17 @@ test('v49.0 fin_journal: الاعتماد انتقال واحد بمعتمِد �
   await assertSucceeds(getDoc(doc(acct(), 'fin_journal', 'a1')));
   await assertFails(getDoc(doc(brA(), 'fin_journal', 'a1')), 'الفروع لا تقرأ القيود');
 });
+
+test('v49.0 fin_journal: حذف القيد قبل اعتماده لمنشئه أو للمعتمِد فقط، ولا حذف بعد القرار', async () => {
+  await finSeed('2026-10-31');
+  await assertSucceeds(setDoc(doc(acct(), 'fin_journal', 'd1'), fj(ACCT)));
+  await assertSucceeds(setDoc(doc(acct(), 'fin_journal', 'd2'), fj(ACCT)));
+  await assertSucceeds(setDoc(doc(acct(), 'fin_journal', 'd3'), fj(ACCT)));
+  await assertFails(deleteDoc(doc(ho(), 'fin_journal', 'd1')), 'ليس منشئه ولا معتمِدًا');
+  await assertFails(deleteDoc(doc(brA(), 'fin_journal', 'd1')));
+  await assertSucceeds(deleteDoc(doc(acct(), 'fin_journal', 'd1')), 'المنشئ يحذف قيده المعلّق');
+  await assertSucceeds(deleteDoc(doc(acct2(), 'fin_journal', 'd2')), 'المعتمِد يحذف المعلّق');
+  await assertSucceeds(updateDoc(doc(acct2(), 'fin_journal', 'd3'), { status: 'rejected', decidedBy: ACCT2, decidedAt: serverTimestamp(), reason: 'خطأ في الحساب' }));
+  await assertFails(deleteDoc(doc(acct(), 'fin_journal', 'd3')), 'المرفوض لا يُحذف');
+  await assertFails(deleteDoc(doc(owner(), 'fin_journal', 'd3')), 'ولا للمدير');
+});

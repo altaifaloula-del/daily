@@ -757,6 +757,24 @@ test('v41.9/v46.9 الإغلاقات سجلات مستقلة: مفعّلة اف�
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+test('v49.0 القيود اليدوية سجلات مستقلة: مُطفأة افتراضيًا، يفعّلها المدير ويوقفها، والمطابقة خارج Firestore لا تنهار', async () => {
+  const ctx = await browser.newContext(devices['iPad (gen 7)']); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  p.on('dialog', d => d.accept());
+  await p.goto(base + 'live/Admin/admin'); await p.reload(); await p.waitForTimeout(500); await settle(p);
+  await p.locator('button:has-text("صيانة")').first().click(); await p.waitForTimeout(500);
+  const card = p.locator('[data-fjrec]');
+  assert.match(await card.innerText(), /غير مفعّل/, 'مُطفأ افتراضيًا');
+  await card.locator('[data-fjtoggle]').click(); await p.waitForTimeout(400);
+  assert.equal(await p.evaluate(() => !!(window.curOrg.finRecords || {}).on), true);
+  assert.match(await card.innerText(), /النسخ مفعّل/);
+  await card.locator('[data-fjcheck]').click(); await p.waitForTimeout(400);
+  assert.match(await p.evaluate(() => window.lastSay || ''), /Firestore فقط/);
+  await card.locator('[data-fjtoggle]').click(); await p.waitForTimeout(400);
+  assert.equal(await p.evaluate(() => !!(window.curOrg.finRecords || {}).on), false, 'الإيقاف متاح للتراجع');
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
 test('v42.0 المخزون: «صرف للتشغيل» لا يتجاوز الرصيد (بلا استثناء)، وشاشة الدوران وفروق الأسعار على الجوال', async () => {
   const { p, errs, ctx } = await open({ ...devices['iPhone 13'] }, 'live/Inventory/admin/moves');
   await p.evaluate(() => {

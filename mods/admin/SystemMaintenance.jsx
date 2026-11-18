@@ -6,6 +6,7 @@ import { cloud, KEYS, brKey } from '../../storage';
 import { ShieldCheck, RefreshCw, Trash2, AlertTriangle, Check, Server, Bug, Activity, HardDrive } from 'lucide-react';
 import { archKey, archivePlan, nowISO, printA4, uid } from '../../App.jsx';   // v41.7
 import { clrCompare, clrLoad, clrOn, clrSeed, clrState, logAudit, clrRead, clrViewStats } from '../../App.jsx';   // v41.9 + v42.2
+import { fjCompare, fjLoad, fjOn, fjState } from '../../App.jsx';   // v49.0 المرحلة 01
 import { dataFootprint, recipeRaw, APP_CV, APP_VER, CloudHealth, ERRLOG_KEY, MAIN_WH, ROLES, SIG_BADGE, SIG_NAME, buildAccounting, loadRelease, loadSignoffs, sigVerify, branchBanks, cashForecast, complianceItems, entityList, vatStatus, countedClosing, isoD, money, purKey, q3, qrFs, snapAll, stockByWh, today, whName, whOf } from '../../App.jsx';
 
 const ST = { ok: ['b-mint', 'سليم'], warn: ['b-amber', 'تنبيه'], bad: ['b-rose', 'خلل'] };
@@ -302,6 +303,7 @@ export function SystemMaintenance({ org, ops, me, commit, commitOrg, say }) {
       </div>
       {showDocs && <CloudHealth org={org} say={say} commit={commit} me={me} auto />}
       <ClosingRecordsCard org={org} ops={ops} me={me} commitOrg={commitOrg} say={say} isAdm={isAdm} />
+      <JournalRecordsCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <div className="card">
         <div className="card-h"><div className="card-t"><HardDrive size={15} color="var(--brass)" />أرشفة فواتير نقطة البيع القديمة</div>{isAdm && AP.n > 0 && <button className="btn sm pri" disabled={arcBusy} onClick={doArchive}>{arcBusy ? 'جارٍ الأرشفة…' : 'أرشفة ' + AP.n + ' فاتورة'}</button>}</div>
         <div style={{ fontSize: 12, color: 'var(--dim)', marginBottom: 6 }}>قرارك: الفواتير التفصيلية الأقدم من 12 شهرًا (قبل {AP.cutoff}) وفي أشهر مقفلة محاسبيًا فقط. الإغلاقات والقيود لا تُمس.{AP.unlocked ? ' · ' + AP.unlocked + ' فاتورة قديمة في أشهر غير مقفلة لا تُؤرشَف حتى تُقفل.' : ''}</div>
@@ -407,6 +409,53 @@ function ClosingRecordsCard({ org, ops, me, commitOrg, say, isAdm }) {
           {rep.differ.slice(0, 15).map(c => row(c, 'مختلف عن سجله المستقل — عُدّل في مستند الفرع دون المرور بالسجل'))}
           {rep.missing.slice(0, 15).map(c => row(c, 'لا سجل مستقل له — شغّل «ترحيل الإغلاقات الحالية»'))}
           {rep.extra.slice(0, 15).map(c => row(c, 'سجل مستقل بلا إغلاق في مستند الفرع (حُذف أو أُرشف)'))}
+        </div>}
+      </div>}
+    </div>
+  );
+}
+
+/* v49.0 — المرحلة 01 (قرار G1-ب): القيود اليدوية سجلات مستقلة يحرسها الخادم — تفعيل النسخ ومطابقة (ناقص · مختلف · زائد)
+   ترحيل القيود القديمة وتحويل القراءة خطوتان لاحقتان تتطلبان موافقة المالك (G4). */
+function JournalRecordsCard({ org, ops, commitOrg, say, isAdm }) {
+  const on = fjOn(org);
+  const [busy, setBusy] = useState(''); const [rep, setRep] = useState(null);
+  const toggle = async () => {
+    if (!isAdm) return;
+    if (!on && !window.confirm('تفعيل نسخ كل قيد يدوي إلى سجل مستقل يحرسه الخادم؟\nالقيود الحالية تبقى المصدر ولا يتغير شيء في الدفاتر؛ النسخ إضافي ويمكن إيقافه.')) return;
+    const ok = await commitOrg(o => ({ ...o, finRecords: on ? { ...(o.finRecords || {}), on: false, offAt: nowISO() } : { ...(o.finRecords || {}), on: true, since: (o.finRecords || {}).since || nowISO() } }),
+      { actionType: 'settings', targetType: 'system_settings', targetId: 'finRecords', title: on ? 'أوقف نسخ القيود اليدوية إلى السجلات المستقلة' : 'فعّل نسخ القيود اليدوية إلى السجلات المستقلة' });
+    if (ok) say(on ? 'أُوقف النسخ' : 'فُعّل النسخ — القيود الجديدة تُنسخ من الآن، واضغط «مطابقة» للمتابعة');
+  };
+  const check = async () => {
+    setBusy('check'); const recs = await fjLoad(); setBusy('');
+    if (!recs) return say('السجلات المستقلة تعمل على قاعدة Firestore فقط', 'no');
+    if (recs.err) return say('تعذّرت قراءة السجلات (' + recs.err + ') — قد تكون القواعد لم تُنشر بعد', 'no');
+    setRep(fjCompare(ops.journalManual || [], recs));
+  };
+  const st = fjState();
+  const row = (j, why) => <div key={j.id} className="me-row"><span className="me-a"><b>{(j.title || j.id) + ' — ' + (j.date || '')}</b><small>{why}</small></span></div>;
+  return (
+    <div className="card" data-fjrec>
+      <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />القيود اليدوية سجلات مستقلة (حماية على مستوى الخادم)</div>
+        <span className={'badge ' + (on ? 'b-sky' : 'b-dim')}>{on ? 'النسخ مفعّل' : 'غير مفعّل'}</span></div>
+      <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>
+        كل قيد يدوي يُنسخ إلى سجل مستقل يفرض الخادم قواعده: <b>لا قيد في فترة مقفلة، ولا يعتمد المحاسب قيده، ولا يتغير قيد بعد إنشائه، ولا يُحذف بعد اعتماده</b>.
+        في هذه المرحلة تبقى القيود الحالية هي المصدر، والمطابقة تكشف الناقص والمختلف والزائد. ترحيل القيود القديمة وتحويل القراءة خطوة لاحقة بموافقة المالك.
+      </div>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        {isAdm && <button className={'btn sm' + (on ? ' gh' : ' pri')} disabled={!!busy} onClick={toggle} data-fjtoggle>{on ? 'إيقاف النسخ' : 'تفعيل النسخ'}</button>}
+        <button className="btn sm" disabled={!!busy} onClick={check} data-fjcheck><RefreshCw size={13} />{busy === 'check' ? 'جارٍ المطابقة…' : 'مطابقة'}</button>
+      </div>
+      {st.at > 0 && <div style={{ fontSize: 11.5, color: st.fail ? 'var(--rose)' : 'var(--dim)', marginTop: 8 }}>هذا الجهاز: نُسخ {st.ok}{st.fail ? ' · تعذّر ' + st.fail + ' (' + st.lastErr + ')' : ''}{st.skip ? ' · لم يُنسخ ' + st.skip + ' تعديلًا على قيد قائم' : ''}</div>}
+      {rep && <div style={{ marginTop: 10 }} data-fjrep>
+        <div style={{ fontSize: 13, fontWeight: 700, color: rep.ok ? 'var(--mint)' : 'var(--rose)' }}>
+          {rep.ok ? '✓ متطابقة: ' + rep.total + ' قيدًا = ' + rep.recs + ' سجلًا مستقلًا' : 'غير متطابقة: ناقص ' + rep.missing.length + ' · مختلف ' + rep.differ.length + ' · زائد ' + rep.extra.length}
+        </div>
+        {!rep.ok && <div className="me-list" style={{ marginTop: 6 }}>
+          {rep.differ.slice(0, 15).map(j => row(j, 'مختلف عن سجله المستقل — عُدّل محتواه أو حالته خارج المسار المحمي'))}
+          {rep.missing.slice(0, 15).map(j => row(j, 'لا سجل مستقل له — قيد سابق للتفعيل أو تعذّر نسخه'))}
+          {rep.extra.slice(0, 15).map(r => row({ id: r.id, date: r.date, title: r.id }, 'سجل مستقل بلا قيد مقابل (حُذف من الوثيقة)'))}
         </div>}
       </div>}
     </div>
