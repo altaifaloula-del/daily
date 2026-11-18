@@ -30,3 +30,6 @@
 - `org.posCfg.drivers = [{ id, name, phone?, branchId?, active }]` — السائقون. مجموعة جديدة في مستند الفرع `posDeliveries` (تُقلَّم المسوّاة بعد 60 يومًا).
 - مجموعة جديدة في المستند المركزي `rfqs` — طلبات عروض الأسعار. `purchaseOrders[].rfqId` للأوامر الناتجة عنها.
 - `items[].bins = { [whId]: 'A-03-2' }` — مواقع التخزين.
+
+## v49.3
+- حقل اختياري `org.costCfg = { method: 'avg' | 'fifo', since, by }` — بلا الحقل = المتوسط المرجّح (السلوك الحالي دون تغيير).

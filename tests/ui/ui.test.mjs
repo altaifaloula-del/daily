@@ -1036,6 +1036,27 @@ test('v49.2 MQ-011 صلاحيات نقطة البيع: الكاشير لا يت�
     assert.deepEqual(errs, []); await ctx.close(); }
 });
 
+test('v49.3 سياسة تكلفة المخزون: المتوسط المرجّح افتراضي وموصى، مقارنة الطريقتين، واعتماد FIFO بتأكيد المدير', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Inventory/admin/items');
+  await p.evaluate(() => {
+    window.setOrg(g => ({ ...g, warehouses: [], costCfg: undefined, items: [{ id: 'z', name: 'زيت', unit: 'لتر', type: 'stock', cost: 10 }] }));
+    window.setOps(o => ({ ...o, whMoves: [], whTransfers: [], stockMoves: [
+      { id: 'a', itemId: 'z', kind: 'in', qty: 10, unitCost: 10, date: '2026-11-01', at: '2026-11-01T08:00:00Z' },
+      { id: 'b', itemId: 'z', kind: 'in', qty: 10, unitCost: 12, date: '2026-11-02', at: '2026-11-02T08:00:00Z' },
+      { id: 'c', itemId: 'z', kind: 'out', qty: -15, date: '2026-11-03', at: '2026-11-03T08:00:00Z' }] }));
+  }); await p.waitForTimeout(400);
+  const card = p.locator('[data-costpolicy]');
+  assert.match(await card.innerText(), /الحالية: المتوسط المرجّح[\s\S]*الافتراضي · موصى به/);
+  assert.equal(await card.locator('input[aria-label="المتوسط المرجّح"]').isChecked(), true);
+  await card.locator('[data-costcmp]').click(); await p.waitForTimeout(150);
+  await card.locator('input[aria-label="مقارنة من"]').fill('2026-11-01'); await card.locator('input[aria-label="مقارنة إلى"]').fill('2026-11-30'); await p.waitForTimeout(200);
+  assert.match(await card.locator('[data-costcmptable]').innerText(), /المتوسط 55\.00 · FIFO 60\.00[\s\S]*المتوسط 165\.00 · FIFO 160\.00/);
+  await card.locator('input[aria-label="الوارد أولًا يصرف أولًا (FIFO)"]').check();
+  await card.locator('button:has-text("اعتماد")').click(); await p.waitForTimeout(300);
+  assert.equal(await p.evaluate(() => window.curOrg.costCfg.method), 'fifo');
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
 test('v43.0 الواجهة الإنجليزية: الاتجاه LTR وترجمة الإطار (التطبيقات، رأس المركز، شريط الأقسام) والعربية افتراضيًا', async () => {
   // افتراضيًا: عربي RTL
   { const { p, errs, ctx } = await open({ viewport: { width: 1280, height: 900 } }, 'comp/Launcher');
