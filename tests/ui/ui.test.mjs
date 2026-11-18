@@ -1865,3 +1865,19 @@ test('v47.1 اعتماد القيد اليدوي: قيد المحاسب ينتظ
   assert.equal(await o2.p.locator('button:has-text("قيود بانتظار الاعتماد")').count(), 0, 'لا قيود معلّقة بعد الاعتماد');
   assert.deepEqual(errs, []); assert.deepEqual(o2.errs, []); await o2.ctx.close();
 });
+
+test('v47.2 عكس القيد اليدوي: قيد بأطراف معكوسة بتاريخ اليوم، مرة واحدة، ويصفّر أثر القيد الأصلي', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1280, height: 900 } }, 'live/Accounting/admin/jr');
+  await p.evaluate(() => window.setOps(o => ({ ...o, journalManual: [{ id: 'jx1', date: o.closings[0].date, title: 'قيد خاطئ للعكس', by: 'منى', status: 'posted', lines: [{ code: '5901', debit: 300, credit: 0 }, { code: '1201', debit: 0, credit: 300 }] }] })));
+  await p.waitForTimeout(300);
+  await p.fill('input[placeholder="بحث في القيود…"]', 'قيد خاطئ للعكس'); await p.waitForTimeout(200);
+  await p.locator('td', { hasText: 'قيد خاطئ للعكس' }).first().click(); await p.waitForTimeout(250);
+  await p.click('button:has-text("↺ عكس القيد")'); await p.waitForTimeout(400);
+  assert.match(await p.evaluate(() => window.lastSay || ''), /سُجّل القيد العكسي/, 'المالك: مباشر');
+  const r = await p.evaluate(() => window.cur.journalManual.filter(j => j.reverses === 'jx1').map(j => [j.status, j.title, j.lines.map(l => l.code + ':' + l.debit + '/' + l.credit).join(',')]));
+  assert.deepEqual(r, [['posted', 'عكس: قيد خاطئ للعكس', '5901:0/300,1201:300/0']]);
+  await p.locator('td', { hasText: 'قيد خاطئ للعكس' }).first().click(); await p.waitForTimeout(150);
+  if (!(await p.locator('text=معكوس').count())) { await p.locator('td', { hasText: 'قيد خاطئ للعكس' }).first().click(); await p.waitForTimeout(150); }
+  assert.ok(await p.locator('text=معكوس').count() > 0, 'يُعلَّم «معكوس»'); assert.equal(await p.locator('button:has-text("↺ عكس القيد")').count(), 0, 'لا يُعكس مرتين');
+  assert.deepEqual(errs, []); await ctx.close();
+});

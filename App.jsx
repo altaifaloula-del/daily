@@ -1751,7 +1751,17 @@ const ACC_KIND = {
 /* v15: نِسب التأمينات الاجتماعية حسب اللوائح — سعودي (قديم/جديد) وغير سعودي، مع سقف الأجر الخاضع.
    القيم افتراضات نظامية قابلة للتعديل من إعداد التأمينات؛ عند عدم تحديد الجنسية تُستخدم النِّسب العامة (توافق رجعي). */
 const GOSI_DEF = { saudiOldEmp: 9.75, saudiOldEr: 11.75, saudiNewEmp: 10.75, saudiNewEr: 12.75, nonSaudiEmp: 0, nonSaudiEr: 2, ceiling: 45000, newFrom: '2024-07-03' };
-function gosiRatesFor(e, gcfg) {
+/* v47.2 — نظام التأمينات الجديد (المسجّلون من 3 يوليو 2024): فرع المعاشات يرتفع 0.5% لكلٍّ من الموظف وصاحب العمل
+   كل 1 يوليو من 2025 حتى 2028 (من 9% إلى 11%). مع ساند (0.75% لكلٍّ) والأخطار المهنية (2% على صاحب العمل):
+   حتى يونيو 2025: 9.75/11.75 · من يوليو 2025: 10.25/12.25 · 2026: 10.75/12.75 · 2027: 11.25/13.25 · 2028: 11.75/13.75.
+   تلقائي للمنشأة التي لم تحفظ نسبًا يدوية، أو التي اختارت «حسب الجدول النظامي» (newAuto). */
+function gosiNewSched(ym) {
+  const m = String(ym || '').slice(0, 7) || today().slice(0, 7);
+  const k = ['2025-07', '2026-07', '2027-07', '2028-07'].filter(x => m >= x).length;
+  return { emp: Math.round((9.75 + 0.5 * k) * 100) / 100, er: Math.round((11.75 + 0.5 * k) * 100) / 100 };
+}
+const gosiNewAuto = (gcfg) => !!gcfg && (gcfg.newAuto === true || (gcfg.newAuto == null && gcfg.saudiNewEmp == null && gcfg.saudiNewEr == null));
+function gosiRatesFor(e, gcfg, ym) {
   gcfg = gcfg || {};
   const base0 = e.gosiWage != null ? Number(e.gosiWage) || 0 : Math.round(((e.baseSalary || 0) + (e.housingAllowance || 0)) * 100) / 100;
   const cap = Number(gcfg.ceiling != null ? gcfg.ceiling : GOSI_DEF.ceiling) || GOSI_DEF.ceiling;
@@ -1759,6 +1769,7 @@ function gosiRatesFor(e, gcfg) {
   if (e.nationality === 'nonSaudi') return { emp: pick('nonSaudiEmp'), er: pick('nonSaudiEr'), base: Math.min(base0, cap), cat: 'غير سعودي' };
   if (e.nationality === 'saudi') {
     const isNew = (e.hireDate || '') >= (gcfg.newFrom || GOSI_DEF.newFrom);
+    if (isNew && gosiNewAuto(gcfg)) { const s = gosiNewSched(ym); return { emp: s.emp, er: s.er, base: Math.min(base0, cap), cat: 'سعودي (جديد)' }; }
     return isNew
       ? { emp: pick('saudiNewEmp'), er: pick('saudiNewEr'), base: Math.min(base0, cap), cat: 'سعودي (جديد)' }
       : { emp: pick('saudiOldEmp'), er: pick('saudiOldEr'), base: Math.min(base0, cap), cat: 'سعودي (قديم)' };
@@ -2999,7 +3010,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v47.1';
+const APP_VER = 'v47.2';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3055,7 +3066,8 @@ class ErrorBoundary extends React.Component {
 }
 export { ErrorBoundary, logClientError, lockedLedgerChanged };
 export { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, saleRetUse, posReturnLoyDed };
-export { jeLive, jeOwner, canApproveJe };   // v47.1 اعتماد القيد اليدوي   // v46.8 مرتجع نقطة البيع   // v46.8: للاختبارات الوظيفية (حارس الإقفال)
+export { jeLive, jeOwner, canApproveJe };   // v47.1 اعتماد القيد اليدوي
+export { gosiNewSched, gosiNewAuto };   // v47.2 الرواتب   // v46.8 مرتجع نقطة البيع   // v46.8: للاختبارات الوظيفية (حارس الإقفال)
 if (typeof window !== 'undefined' && !window.__mizanErrHook) {
   window.__mizanErrHook = true;
   window.addEventListener('error', (e) => logClientError(e.error || e.message, 'window'));
@@ -3918,7 +3930,7 @@ function PlatformApp() {
     const fresh = evs.filter(e => !seen.has(e.id));
     if (!fresh.length) return;
     fresh.forEach(e => seen.add(e.id)); persist(seen);
-    const logo = org.company?.logoUrl;
+    const logo = 'mithqal-192.png';   // v47.2: إشعار المنصة بشعار النظام لا شعار الشركة
     const go = (e) => () => { setTab(e.tab); if (e.tab === 'inv' && e.view) openInvView(e.view); };
     if (fresh.length <= 3) fresh.forEach(e => notifyBrowser(e.title, e.body, logo, { tag: e.id, onClick: go(e) }));
     else notifyBrowser(fresh.length + ' تنبيهات جديدة — ' + (org.company?.name || 'المنصة'), fresh.slice(0, 3).map(e => e.title).join(' · ') + ' …', logo, { tag: 'rms8-batch', onClick: go(fresh[0]) });
@@ -4100,13 +4112,12 @@ function PlatformApp() {
         {drawer && <div className="mask" style={{ zIndex: 55 }} onClick={() => setDrawer(false)} />}
         <aside className={'side' + (drawer ? ' open' : '')}>
           <div className="brand">
-            {org.company.logoUrl
-              ? <img className="brand-logo" src={org.company.logoUrl} alt="شعار الشركة" />
-              : <div className="rp-mark">{BRAND_MARK()}</div>}
+            {/* v47.2 (قرار المالك): شعار النظام «مِثقال» ثابت، وشعار الشركة يرافق اسمها */}
+            <div className="rp-mark">{BRAND_MARK()}</div>
             <div className="rp-brand">
               <b>{TX(BRAND)}</b>
               <span className="rp-tag">{TX(BRAND_SUB)}</span>
-              {org.company.name && <span className="rp-co">{org.company.name}</span>}
+              {(org.company.name || org.company.logoUrl) && <span className="rp-co">{org.company.logoUrl && <img className="co-logo" src={org.company.logoUrl} alt="" />}{org.company.name}</span>}
             </div>
             <button className="btn sm gh sideclose" onClick={() => setDrawer(false)} title={TX('إخفاء القائمة')}>
               <X size={18} />
@@ -4160,10 +4171,8 @@ function PlatformApp() {
                 <Home size={17} />
               </button>
             )}
-            {org.company.logoUrl
-              ? <img className="toplogo" src={org.company.logoUrl} alt="شعار الشركة" />
-              : <span className="toplogo-mark rp-mark" style={{ width: 30, height: 30, fontSize: 15 }}>{BRAND_MARK()}</span>}
-            <h1 className="toptitle">{safeTab === 'home' ? (org.company.name || TX('الرئيسية')) : TX(HR_TABS.includes(safeTab) ? 'الموارد البشرية' : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || ''))}</h1>
+            <span className="toplogo-mark rp-mark" style={{ width: 30, height: 30, fontSize: 15 }}>{BRAND_MARK()}</span>
+            <h1 className="toptitle">{safeTab === 'home' && org.company.name && org.company.logoUrl && <img className="co-logo co-logo-t" src={org.company.logoUrl} alt="" />}{safeTab === 'home' ? (org.company.name || TX('الرئيسية')) : TX(HR_TABS.includes(safeTab) ? 'الموارد البشرية' : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || ''))}</h1>
             <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>{APP_VER}</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
@@ -4451,12 +4460,11 @@ function PlatformApp() {
 // v47.1 — غلاف المنصة (قرار المالك): صورة الهوية بجانب الدخول على الحاسوب، وأعلاه على الجوال
 const GateCover = () => <div className="gate-cover" role="img" aria-label={TX(BRAND_AR) + ' — ' + TX(BRAND_SUB)} />;
 function BrandHead({ title, sub, logo }) {
+  // v47.2: العلامة أعلاه دائمًا شعار النظام «مِثقال»؛ شعار الشركة (logo) يظهر بجانب اسمها في العنوان
   return (
     <div className="bhead" style={{ textAlign: 'center', marginBottom: 24 }}>
-      {logo
-        ? <img src={logo} alt="شعار" className="bhead-logo" style={{ width: 64, height: 64, margin: '0 auto 14px', borderRadius: 16, objectFit: 'cover', border: '1px solid var(--line)', display: 'block' }} />
-        : <div className="rp-mark bhead-logo" style={{ width: 64, height: 64, margin: '0 auto 14px', borderRadius: 18, fontSize: 30 }}>{BRAND_MARK()}</div>}
-      <h1 style={{ fontSize: 20 }}>{title || BRAND_AR}</h1>
+      <div className="rp-mark bhead-logo" style={{ width: 64, height: 64, margin: '0 auto 14px', borderRadius: 18, fontSize: 30 }}>{BRAND_MARK()}</div>
+      <h1 style={{ fontSize: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>{logo && <img src={logo} alt="شعار الشركة" className="co-logo co-logo-h" />}{title || BRAND_AR}</h1>
       <div style={{ color: 'var(--dim)', fontSize: 12.5, marginTop: 5 }}>{sub}</div>
     </div>
   );
@@ -6910,7 +6918,7 @@ function payrollRowsOf(org, advances, emps, month) {
     const cuts = sum(ads.filter(a => !['advance', 'salary_draw', ...PAY_ADD_TYPES].includes(a.type)), a => a.amount);
     const allow = (e.housingAllowance || 0) + (e.transportAllowance || 0) + (e.otherAllowance || 0);
     const gross = r2((e.baseSalary || 0) + allow + bonus + ot);
-    const gr = gosiRatesFor(e, org.gosiCfg);
+    const gr = gosiRatesFor(e, org.gosiCfg, month);   // v47.2: نسبة الشهر نفسه (جدول النظام الجديد)
     const gEmp = (gosiOn && e.gosiSubject) ? r2(gr.base * gr.emp / 100) : 0;
     const gEr = (gosiOn && e.gosiSubject) ? r2(gr.base * gr.er / 100) : 0;
     return { e, ads, draws, bonus, ot, otHours, cuts, allow, gross, gEmp, gEr, net: r2(gross - draws - cuts - gEmp), flags: ads.filter(a => a.isUnjustified).length };

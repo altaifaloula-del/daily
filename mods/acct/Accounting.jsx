@@ -1127,6 +1127,20 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
       { actionType: ok ? 'approve' : 'reject', targetType: 'journal_entry', targetId: j.id, need: 'post', title: (ok ? 'اعتمد' : 'رفض') + ' قيدًا يدويًا — ' + (j.title || ''), details: money(sum(j.lines || [], l => l.debit || 0)) + ' ر.س · أدخله ' + (j.by || '') + (reason ? ' · السبب: ' + reason : '') });
     if (done) say(ok ? 'اعتُمد القيد ورُحّل للدفاتر ✓' : 'رُفض القيد');
   };
+  // v47.2 — عكس القيد اليدوي: قيد جديد بأطراف معكوسة بتاريخ اليوم، يمر بالاعتماد نفسه، ومرة واحدة لكل قيد
+  const reverseJe = async (srcId) => {
+    const j = (ops.journalManual || []).find(x => x.id === srcId); if (!j) return;
+    if ((ops.journalManual || []).some(x => x.reverses === j.id && x.status !== 'rejected')) return say('هذا القيد عُكس مسبقًا', 'no');
+    const d0 = today(); if (periodLocked(org, d0)) return say(LOCK_MSG(d0), 'no');
+    if (!window.confirm('إنشاء قيد عكسي للقيد «' + (j.title || '') + '» بتاريخ اليوم؟')) return;
+    const direct = jeOwner(me);
+    const rec = { id: uid('jm'), date: d0, title: 'عكس: ' + (j.title || 'قيد يدوي'), reverses: j.id, opening: false, by: me?.name || '', byId: me?.id || '', createdAt: nowISO(),
+      status: direct ? 'posted' : 'pending', ...(direct ? { approvedBy: me?.name || '', approvedAt: nowISO() } : {}),
+      lines: (j.lines || []).map(l => ({ code: l.code, debit: Number(l.credit) || 0, credit: Number(l.debit) || 0 })) };
+    const ok = await commit(d => ({ ...d, journalManual: [rec, ...(d.journalManual || [])] }), { actionType: 'create', targetType: 'journal_entry', targetId: rec.id, need: 'post',
+      title: 'عكس قيدًا يدويًا' + (direct ? '' : ' (بانتظار الاعتماد)'), details: (j.title || '') + ' · ' + money(sum(rec.lines, l => l.debit)) + ' ر.س' });
+    if (ok) say(direct ? 'سُجّل القيد العكسي ✓' : 'أُرسل القيد العكسي للاعتماد ✓');
+  };
   const delPendJe = async (j) => {
     if (!(j.byId === me?.id || j.by === me?.name || canApproveJe(me))) return say('الحذف لمن أدخل القيد أو للمعتمِد', 'no');
     if (!window.confirm('حذف القيد «' + (j.title || '') + '» قبل اعتماده؟')) return;
@@ -1522,7 +1536,11 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                           </table>
                           <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 6 }}>
                             {e.manual
-                              ? <>قيد {e.src === 'قيد افتتاحي' ? 'افتتاحي' : 'يدوي'} أدخله: {e.ref || '—'} — التصحيح يكون بقيد عكسي، لا حذف حفاظًا على سلامة السجل.</>
+                              ? <>قيد {e.src === 'قيد افتتاحي' ? 'افتتاحي' : 'يدوي'} أدخله: {e.ref || '—'} — التصحيح يكون بقيد عكسي، لا حذف حفاظًا على سلامة السجل.
+                                {(() => { const jid = String(e.id || '').replace(/^man:/, ''); const jj = (ops.journalManual || []).find(x => x.id === jid); if (!canPost || !jj || jj.vatClose || jj.vatPay) return null;
+                                  const rv = (ops.journalManual || []).find(x => x.reverses === jid && x.status !== 'rejected');
+                                  return rv ? <span className="badge b-dim" style={{ marginInlineStart: 8 }}>{rv.status === 'pending' ? 'عكسه بانتظار الاعتماد' : 'معكوس'}</span>
+                                    : jj.reverses ? null : <button className="btn sm gh" style={{ marginInlineStart: 8, padding: '3px 9px', fontSize: 10.5 }} onClick={() => reverseJe(jid)}>↺ عكس القيد</button>; })()}</>
                               : <>المصدر: {e.src} · المرجع: <span className="num">{e.ref}</span> — لم يُدخل هذا القيد يدويًا؛ تصحيح المصدر ينعكس هنا تلقائيًا.
                                 {(() => { const SRC_TAB = { 'إغلاق وردية': 'closing', 'مصروف وردية': 'closing', 'سداد مورد بالوردية': 'closing', 'تحويل خزينة': 'treasury', 'الخزينة الرئيسية': 'treasury', 'فاتورة مورد': 'suppliers', 'سداد مركزي': 'suppliers', 'كشف الرواتب': 'payroll', 'الرواتب والسلف': 'payroll' };
                                   const t = SRC_TAB[e.src];

@@ -1879,4 +1879,10 @@ table.tb.tb-fp{min-width:520px}
   .gate.has-cover .gate-cover{justify-self:stretch;width:100%;aspect-ratio:3/2;max-height:44vh;background-size:cover}
   .gate.has-cover .gate-c{width:calc(100% - 28px)}
 }
+
+/* v47.2 شعار الشركة يرافق اسمها (شعار النظام «مِثقال» ثابت في العلامة) */
+.rms.thm-restpro .rp-brand span.rp-co{display:flex;align-items:center;gap:5px}
+.co-logo{width:16px;height:16px;border-radius:4px;object-fit:cover;flex-shrink:0;background:#fff;border:1px solid rgba(255,255,255,.25)}
+.co-logo-t{width:24px;height:24px;border-radius:6px;vertical-align:-6px;margin-inline-end:7px;border-color:var(--line)}
+.co-logo-h{width:28px;height:28px;border-radius:7px;border-color:var(--line)}
 `;

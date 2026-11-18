@@ -1516,3 +1516,48 @@ test('v47.1 اعتماد القيد اليدوي: بانتظار الاعتما�
   assert.equal(E.canApproveJe({ id: 'u5', name: 'سارة', role: 'head_office' }, pend), false, 'المكتب الرئيسي لا يعتمد');
   assert.equal(E.canApproveJe({ id: 'u9', name: 'ريم', role: 'cost_controller' }, pend), false);
 });
+
+test('v47.2 الرواتب برقم فعلي: الإجمالي والاستقطاعات والتأمينات والصافي لموظف سعودي (نظام قديم) مع سلفة ومكافأة وإضافي وجزاء', () => {
+  const org = { gosiCfg: { enabled: true } };
+  const e = { id: 'e1', name: 'سعد', nationality: 'saudi', hireDate: '2020-01-01', gosiSubject: true, baseSalary: 6000, housingAllowance: 1500, transportAllowance: 500 };
+  const adv = [{ employeeId: 'e1', month: '2026-10', type: 'advance', amount: 500 }, { employeeId: 'e1', month: '2026-10', type: 'bonus', amount: 300 },
+    { employeeId: 'e1', month: '2026-10', type: 'overtime', amount: 450, hours: 10 }, { employeeId: 'e1', month: '2026-10', type: 'deduction', amount: 200 },
+    { employeeId: 'e1', month: '2026-09', type: 'advance', amount: 999 }];
+  const [r] = E.payrollRowsOf(org, adv, [e], '2026-10');
+  near(r.allow, 2000, 'البدلات 1500 + 500'); near(r.gross, 8750, '6000 + 2000 + 300 مكافأة + 450 إضافي'); assert.equal(r.otHours, 10);
+  near(r.draws, 500, 'سلفة الشهر فقط (سلفة سبتمبر لا تدخل)'); near(r.cuts, 200, 'الجزاء');
+  near(r.gEmp, 731.25, '9.75% × (6000 + 1500)'); near(r.gEr, 881.25, '11.75% × 7500');
+  near(r.net, 7318.75, '8750 − 500 − 200 − 731.25');
+});
+
+test('v47.2 التأمينات — النظام الجديد (المسجّلون من 3 يوليو 2024): +0.5% لكل طرف كل يوليو حتى 2028، بحسب شهر المسير', () => {
+  const s = (m) => [E.gosiNewSched(m).emp, E.gosiNewSched(m).er];
+  assert.deepEqual(s('2025-06'), [9.75, 11.75]); assert.deepEqual(s('2025-07'), [10.25, 12.25]);
+  assert.deepEqual(s('2026-06'), [10.25, 12.25]); assert.deepEqual(s('2026-07'), [10.75, 12.75]);
+  assert.deepEqual(s('2027-07'), [11.25, 13.25]); assert.deepEqual(s('2028-07'), [11.75, 13.75]); assert.deepEqual(s('2031-01'), [11.75, 13.75], 'يثبت بعد 2028');
+  const e = { id: 'n', nationality: 'saudi', hireDate: '2025-02-01', gosiSubject: true, baseSalary: 5000, housingAllowance: 1000 };
+  const row = (cfg, m) => E.payrollRowsOf({ gosiCfg: cfg }, [], [e], m)[0];
+  near(row({ enabled: true }, '2026-03').gEmp, 615, 'مارس 2026: 10.25% × 6000'); near(row({ enabled: true }, '2026-10').gEmp, 645, 'أكتوبر 2026: 10.75% × 6000');
+  near(row({ enabled: true }, '2026-10').gEr, 765, '12.75% × 6000');
+  near(row({ enabled: true, saudiNewEmp: 10, saudiNewEr: 12 }, '2026-10').gEmp, 600, 'نسب يدوية محفوظة سابقًا تبقى كما هي (توافق رجعي)');
+  near(row({ enabled: true, saudiNewEmp: 10, saudiNewEr: 12, newAuto: true }, '2026-10').gEmp, 645, 'اختيار «حسب الجدول» يغلب اليدوي');
+  const old = { ...e, hireDate: '2024-07-02' }; near(E.payrollRowsOf({ gosiCfg: { enabled: true } }, [], [old], '2026-10')[0].gEmp, 585, 'قبل 3 يوليو 2024: القديم 9.75%');
+  const xp = { ...e, nationality: 'nonSaudi' }; const rx = E.payrollRowsOf({ gosiCfg: { enabled: true } }, [], [xp], '2026-10')[0];
+  assert.deepEqual([rx.gEmp, rx.gEr], [0, 120], 'غير السعودي: 0% موظف و2% أخطار مهنية على صاحب العمل');
+  near(E.payrollRowsOf({ gosiCfg: { enabled: true } }, [], [{ ...e, baseSalary: 50000 }], '2026-10')[0].gEmp, 4837.5, 'سقف الأجر الخاضع 45,000');
+});
+
+test('v47.2 الإضافي (المادة 107): أجر الساعة الفعلي + 50% من الأساسي، والساعات من البصمة بتقريب ربع ساعة للأسفل', () => {
+  const e = { id: 'e1', baseSalary: 3600, housingAllowance: 900, transportAllowance: 300 };
+  const R = E.otRateOf(e, 8, 'actual');
+  near(R.hBasic, 15, '3600 ÷ 30 ÷ 8'); near(R.hActual, 20, '4800 ÷ 30 ÷ 8'); near(R.rate, 27.5, '20 + 0.5 × 15');
+  near(E.otRateOf(e, 8, 'basic').rate, 22.5, 'على الأساسي = 1.5 × 15');
+  const org = { hrPolicies: { workHoursPerDay: 8, weeklyOffDays: [5] } };
+  const ev = (d, t, ty) => ({ employeeId: 'e1', at: d + 'T' + t + ':00', type: ty });
+  // الأحد 2026-11-01: 9 ساعات و50 دقيقة ⇒ 1:50 إضافي ⇒ 1.75 · الجمعة 2026-11-06 (راحة): 4:10 ⇒ 4.0 · يوم بلا خروج: مفتوح
+  const ops = { attendanceEvents: [ev('2026-11-01', '08:00', 'in'), ev('2026-11-01', '17:50', 'out'), ev('2026-11-06', '10:00', 'in'), ev('2026-11-06', '14:10', 'out'), ev('2026-11-02', '08:00', 'in')] };
+  const O = E.otFromAttendance(org, ops, e, '2026-11');
+  // الإجمالي يُقرَّب مرة واحدة على مجموع الدقائق (110 + 250 = 360 دقيقة = 6 ساعات)، بينما التفصيل يُقرَّب لكل نوع (1.75 + 4 = 5.75) — موثَّق في سجل النواقص لقرار المالك
+  assert.deepEqual([O.regH, O.offH, O.hours, O.days, O.open], [1.75, 4, 6, 2, 1]);
+  near(O.hours * R.rate, 165, 'مبلغ الإضافي = 6 × 27.5');
+});

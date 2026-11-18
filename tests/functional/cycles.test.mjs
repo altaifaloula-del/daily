@@ -102,3 +102,17 @@ test('دورة الرواتب: استحقاق 10,000 ← سلفة 500 من ال�
   near(-(t['2202'] || 0), 1730, 'التأمينات المستحقة = 550 + 1180');
   near(t['1201'] || 0, -9450, 'البنك = −500 سلفة − 8950 صافي');
 });
+
+test('إقفال السنة: إيرادات ومصروفات حتى تاريخ الإقفال تُصفَّر إلى الأرباح المبقاة 3201، وما بعده يبقى، والميزان متوازن', () => {
+  const org = baseOrg({ yearEnd: { enabled: true, closeDate: '2025-12-31' } });
+  const ops = { closings: [closing({ id: 'y1', date: '2025-12-20' }), closing({ id: 'y2', date: '2026-01-05' })],
+    journalManual: [{ id: 'm1', date: '2025-12-28', title: 'إيجار', lines: [{ code: '5901', debit: 300, credit: 0 }, { code: '1201', debit: 0, credit: 300 }] }] };
+  const A = E.buildAccounting(org, ops); assert.equal(A.balanced, true);
+  const ye = A.entries.find(e => e.id === 'yearend'); assert.ok(ye, 'قيد الإقفال موجود'); assert.equal(ye.date, '2025-12-31');
+  const t = tb(A, e => e.date <= '2025-12-31');
+  Object.entries(t).filter(([c]) => c.startsWith('4') || c.startsWith('5')).forEach(([c, v]) => near(v, 0, 'الحساب ' + c + ' مُصفّر حتى الإقفال'));
+  near(-(t['3201'] || 0), 700, 'الربح المدوّر = 1000 إيراد − 300 مصروف');
+  const after = tb(A, e => e.date > '2025-12-31');
+  near(-Object.entries(after).filter(([c]) => c.startsWith('4')).reduce((s, [, v]) => s + v, 0), 1000, 'إيراد 2026 لم يُمس');
+  const inc = A.entries.filter(e => e.closing); assert.equal(inc.length, 1, 'قيد الإقفال موسوم closing (يُستثنى من قائمة الدخل)');
+});
