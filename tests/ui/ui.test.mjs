@@ -1057,6 +1057,48 @@ test('v49.3 سياسة تكلفة المخزون: المتوسط المرجّح 
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+test('v49.4 المرحلة 03: من ميزان المراجعة إلى دفتر الأستاذ برصيد جارٍ ثم إلى القيد، وحركة الحسابات متوازنة', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Accounting/admin/tb');
+  await p.evaluate(() => window.setOps(o => ({ ...o, journalManual: [
+    { id: 'g1', date: '2026-10-05', title: 'تمويل أول', status: 'posted', lines: [{ code: '1101', debit: 1000, credit: 0 }, { code: '3101', debit: 0, credit: 1000 }] },
+    { id: 'g2', date: '2026-11-05', title: 'سحب نقدي', status: 'posted', lines: [{ code: '3101', debit: 300, credit: 0 }, { code: '1101', debit: 0, credit: 300 }] }] })));
+  await p.waitForTimeout(400);
+  await p.locator('[data-tbgl="1101"]').click(); await p.waitForTimeout(300);
+  const gl = p.locator('[data-gl]');
+  assert.equal(await p.locator('select[aria-label="الحساب"]').inputValue(), '1101');
+  const txt = await gl.innerText();
+  assert.match(txt, /تمويل أول[\s\S]*سحب نقدي/);
+  await gl.locator('[data-doclink]').last().click(); await p.waitForTimeout(300);
+  assert.match(await p.locator('.mz-docv, .modal').last().innerText(), /سحب نقدي/, 'فتح القيد من الدفتر');
+  await p.keyboard.press('Escape'); await p.waitForTimeout(150);
+  const cl = p.locator('.mz-docv button:has-text("إغلاق"), .modal button:has-text("إغلاق")'); if (await cl.count()) { await cl.first().click(); await p.waitForTimeout(150); }
+  assert.deepEqual(errs, []); await ctx.close();
+  { const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Accounting/admin/actmv');
+    await p.waitForTimeout(400);
+    assert.match(await p.locator('[data-actmv]').innerText(), /متوازن ✓/);
+    await p.locator('[data-glopen]').first().click(); await p.waitForTimeout(250);
+    assert.equal(await p.locator('[data-gl]').count(), 1, 'اسم الحساب يفتح دفتره');
+    assert.deepEqual(errs, []); await ctx.close(); }
+});
+
+test('v49.4 MQ-048 طرق الإهلاك: القسط الثابت افتراضي وموصى، اختيار المتناقص مع القيمة المتبقية ومعاينة إهلاك السنوات', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Accounting/admin/ast');
+  await p.waitForTimeout(300);
+  await p.locator('button', { hasText: 'أصل جديد' }).first().click(); await p.waitForTimeout(200);
+  const m = p.locator('.modal');
+  await m.locator('input[placeholder^="فرن مطبخ"]').fill('فرن');
+  await m.locator('.inp.n').first().fill('12000');
+  assert.equal(await m.locator('input[aria-label="القسط الثابت"]').isChecked(), true);
+  assert.match(await m.locator('[data-depm]').innerText(), /القسط الثابت[\s\S]*الافتراضي · موصى به/);
+  await m.locator('input[aria-label="القيمة المتبقية"]').fill('2000');
+  await m.locator('input[aria-label="القسط المتناقص (المضاعف)"]').check();
+  assert.match(await m.locator('[data-depprev]').innerText(), /س1:/);
+  await m.locator('button:has-text("حفظ الأصل")').click(); await p.waitForTimeout(300);
+  const a = await p.evaluate(() => (window.curOrg.assets || []).find(x => x.name === 'فرن'));
+  assert.deepEqual([a.depMethod, a.salvage, a.cost], ['ddb', 2000, 12000]);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
 test('v43.0 الواجهة الإنجليزية: الاتجاه LTR وترجمة الإطار (التطبيقات، رأس المركز، شريط الأقسام) والعربية افتراضيًا', async () => {
   // افتراضيًا: عربي RTL
   { const { p, errs, ctx } = await open({ viewport: { width: 1280, height: 900 } }, 'comp/Launcher');
