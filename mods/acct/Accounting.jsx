@@ -6,6 +6,8 @@ import { RotateCcw, Scale, FileBarChart, ChevronDown, Printer, Settings, Receipt
 import { VatRegisters, SupplierPurchReport } from './TaxPurchReports.jsx';   // v39.1
 import { Suppliers } from '../inv/Suppliers.jsx';   // v44.0 «مستلم لم يُفوتر»
 import { OdooBar } from '../../App.jsx';   // v41.0
+import { GeneralLedger } from './GeneralLedger.jsx';   // v49.4 المرحلة 03
+import { DEP_METHODS, depMethod, deprSchedule } from '../../App.jsx';   // v49.4 طرق الإهلاك
 import { DocLink, RowGrip, moveIdx, RECUR_AR, recurNext, recurDue, jeOwner, canApproveJe, jeAutoSt, vatCloseLive, projList, projectPL, projNextCode, ACCT_SECTIONS, ACC_KIND, Field, Kpi, LOCK_MSG, MizanMerge, Modal, NUM_FACE, Num, ROLES, _xe, acctSecKey, arDate, bankOfBranch, branchBanks, bsLayout, bsRowsOf, buildAccounting, buildPartners, capOK, countedClosing, customerAging, detectStmtMap, entityById, entityList, gosiRatesFor, isLayout, isRowsOf, isoD, lockedThru, makeXlsx, money, monthEnd, monthLedger, multiEntityOn, naMissing, nowISO, openDocWin, parseCsvGrid, parseMt940, parseXlsxGrid, payTotal, periodLocked, posClrOf, printA4, qrSvg, roleEdit, rolePost, snapMonths, stAddDays, stDate, stNum, sum, supplierAging, today, uid, useSecNav, zatcaTLV } from '../../App.jsx';
 
 export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }) {
@@ -64,6 +66,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
   const [lockTo, setLockTo] = useState('');         // شهر القفل الجديد (v8.4)
   const [unReason, setUnReason] = useState('');     // سبب الفتح الاستثنائي
   const [unTo, setUnTo] = useState('');             // الحد الجديد بعد الفتح (فارغ = فتح الكل)
+  const [glCode, setGlCode] = useState('');         // v49.4 دفتر الأستاذ: الحساب المعروض
 
   // فتح شاشة محددة قادمة من مركز التطبيقات (دليل/ميزان/قوائم…)
   useEffect(() => { if (acctIntent && acctIntent.v) setView(acctIntent.v); }, [acctIntent && acctIntent.ts]);
@@ -547,7 +550,9 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
     const cost = Number(f.cost) || 0;
     if (cost <= 0) return say('أدخل تكلفة الأصل', 'no');
     if (!(Number(f.lifeYears) > 0)) return say('أدخل العمر الإنتاجي بالسنوات', 'no');
-    const rec = { id: f.id || uid('as'), name: f.name.trim(), cost, buyDate: f.buyDate || today(), lifeYears: Number(f.lifeYears), fund: f.fund || 'none', note: f.note || '' };
+    const salv = Number(f.salvage) || 0; if (salv < 0 || salv >= cost) return say('القيمة المتبقية يجب أن تكون أقل من التكلفة', 'no');
+    const rec = { id: f.id || uid('as'), name: f.name.trim(), cost, buyDate: f.buyDate || today(), lifeYears: Number(f.lifeYears), fund: f.fund || 'none', note: f.note || '',
+      ...(f.depMethod && f.depMethod !== 'sl' ? { depMethod: f.depMethod } : {}), ...(salv > 0 ? { salvage: salv } : {}) };   // v49.4 طريقة الإهلاك والقيمة المتبقية
     await commitOrg(d => ({ ...d, assets: f.id ? (d.assets || []).map(x => x.id === f.id ? rec : x) : [...(d.assets || []), rec] }), {
       actionType: f.id ? 'update' : 'create', targetType: 'fixed_asset', targetId: rec.id,
       need: f.id ? 'edit' : 'post', title: f.id ? 'عدّل أصلاً ثابتاً (أُعيد اشتقاق إهلاكه)' : 'سجّل أصلاً ثابتاً',
@@ -563,13 +568,13 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
     if (!(cost > 0 && Number(a.lifeYears) > 0 && a.buyDate)) return { accum: 0, book: cost };
     const ymAdd2 = (ym, k) => { const pr = ym.split('-').map(Number); const t = pr[0] * 12 + (pr[1] - 1) + k; return String(Math.floor(t / 12)).padStart(4, '0') + '-' + String((t % 12) + 1).padStart(2, '0'); };
     const dispYm = dateStr ? dateStr.slice(0, 7) : '';
-    const base = Math.floor(cost / nM * 100) / 100;
+    const sched = deprSchedule(a);   // v49.4: نفس جدول المحرك (حسب طريقة الأصل)
     const start = ymAdd2(a.buyDate.slice(0, 7), 1);
     let accum = 0;
-    for (let k = 0; k < nM; k++) {
+    for (let k = 0; k < sched.length; k++) {
       const ym = ymAdd2(start, k);
       if (dispYm && ym >= dispYm) break;
-      const amt = k === nM - 1 ? Math.round((cost - base * (nM - 1)) * 100) / 100 : base;
+      const amt = sched[k];
       accum = Math.round((accum + amt) * 100) / 100;
     }
     return { accum, book: Math.round((cost - accum) * 100) / 100 };
@@ -1461,7 +1466,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
       {(() => {
         const go = (v) => { setAcctNavOpen(null); setAcctGridOpen(false); setView(v); if (v === 'apage') setApSel(null); if (v === 'arage') setArSel(null); };
         const IT = {
-          jr: ['القيود اليومية', FileText], coa: ['دليل الحسابات', Landmark], tb: ['ميزان المراجعة', Scale], ob: ['الأرصدة الافتتاحية', Landmark],
+          jr: ['القيود اليومية', FileText], coa: ['دليل الحسابات', Landmark], tb: ['ميزان المراجعة', Scale], gl: ['دفتر الأستاذ', FileText], actmv: ['حركة الحسابات', ArrowLeftRight], ob: ['الأرصدة الافتتاحية', Landmark],
           fs: ['القوائم المالية', FileBarChart], cf: ['التدفقات النقدية', ArrowLeftRight], fcast: ['التوقّع النقدي', TrendingUp], bud: ['الموازنة', BarChart3], anl: ['التحليل والنِسَب', TrendingUp], cc: ['مراكز التكلفة', BarChart3],
           prj: ['المشاريع', Grid3x3], food: ['تكلفة الطعام بالفروع', Store], apage: ['أعمار الموردين', Users], arage: ['أعمار العملاء', Users], unbilled: ['مستلم لم يُفوتر', Truck],
           vat: ['الضريبة (ق.م)', Receipt], vatreg: ['سجلات الضريبة المفصلة', FileText], suprep: ['مشتريات الموردين بطرق الدفع', Truck], einv: ['الفوترة (زاتكا)', QrCode], zakat: ['الزكاة وضريبة الدخل', Landmark],
@@ -1470,7 +1475,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
           export: ['تصدير للمحاسب', Download], mizan: ['استيراد البيانات التاريخية', Upload]
         };
         const GROUPS = [
-          { id: 'books', ar: 'الدفاتر', icon: FileText, items: ['jr', 'coa', 'tb', 'ob'] },
+          { id: 'books', ar: 'الدفاتر', icon: FileText, items: ['jr', 'coa', 'tb', 'gl', 'actmv', 'ob'] },
           { id: 'stmts', ar: 'القوائم والتحليل', icon: FileBarChart, items: ['fs', 'food', 'cf', 'fcast', 'bud', 'anl', 'cc', 'prj'] },
           { id: 'ages', ar: 'الذمم والأعمار', icon: Users, items: ['unbilled', 'apage', 'arage', 'suprep'] },
           { id: 'tax', ar: 'الضريبة والزكاة', icon: Receipt, items: ['vat', 'vatreg', 'einv', 'zakat'] },
@@ -1720,6 +1725,8 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
         </div>
       )}
 
+      {(view === 'gl' || view === 'actmv') && <><div className="card" style={{ padding: '10px 14px' }}>{periodBar}</div>
+        <GeneralLedger org={org} ops={ops} A={A} mode={view === 'actmv' ? 'act' : 'gl'} code={glCode} setCode={setGlCode} from={from} to={to} bf={bf} setBf={setBf} onMode={(m) => setView(m === 'gl' ? 'gl' : 'actmv')} /></>}
       {view === 'tb' && (
         <div className="card">
           <div className="card-h">
@@ -1735,7 +1742,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                   return (
                     <tr key={a.code} className={isV ? 'tb-vat' : undefined}>
                       <td>{codeChip(a.code)}</td>
-                      <td style={{ fontSize: 12.5 }}>{a.name}{isV && <span className="badge b-brass" style={{ marginInlineStart: 6, fontSize: 10 }}>ضريبة</span>}</td>
+                      <td style={{ fontSize: 12.5 }}>{viewOK('gl') ? <button type="button" className="doclink" data-tbgl={a.code} title="دفتر الأستاذ لهذا الحساب" onClick={() => { setGlCode(a.code); setView('gl'); }}>{a.name}</button> : a.name}{isV && <span className="badge b-brass" style={{ marginInlineStart: 6, fontSize: 10 }}>ضريبة</span>}</td>
                       {from && <td className="num" style={{ textAlign: 'end', color: op < 0 ? 'var(--rose)' : 'var(--dim)' }}>{op ? fmtBal(op) : '—'}</td>}
                       <td className="num" style={{ textAlign: 'end' }}>{x.debit ? money(x.debit) : '—'}</td>
                       <td className="num" style={{ textAlign: 'end' }}>{x.credit ? money(x.credit) : '—'}</td>
@@ -3439,7 +3446,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                 <tbody>
                   {A.assetRows.map(a => (
                     <tr key={a.id} style={a.disposed ? { opacity: .62 } : null}>
-                      <td style={{ fontWeight: 600, fontSize: 12.5 }}>{a.name}<div style={{ fontSize: 9.5, color: 'var(--faint)' }}>{a.lifeYears} سنة · {a.fund === 'none' ? 'بلا قيد شراء (مسجل سابقاً)' : 'التمويل: ' + ((({ '1101': 'الخزينة', '1201': 'البنك', '3101': 'افتتاحي' })[a.fund]) || '')}</div></td>
+                      <td style={{ fontWeight: 600, fontSize: 12.5 }}>{a.name}<div style={{ fontSize: 9.5, color: 'var(--faint)' }}>{a.lifeYears} سنة · {depMethod(a) !== 'sl' ? DEP_METHODS[depMethod(a)].ar + ' · ' : ''}{Number(a.salvage) > 0 ? 'متبقية ' + money(a.salvage) + ' · ' : ''}{a.fund === 'none' ? 'بلا قيد شراء (مسجل سابقاً)' : 'التمويل: ' + ((({ '1101': 'الخزينة', '1201': 'البنك', '3101': 'افتتاحي' })[a.fund]) || '')}</div></td>
                       <td className="num" style={{ fontSize: 11 }}>{a.buyDate}</td>
                       <td className="num" style={{ textAlign: 'end' }}>{money(a.cost)}</td>
                       <td className="num" style={{ textAlign: 'end' }}>{money(a.monthly)}</td>
@@ -3705,6 +3712,15 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
             <Field label="التكلفة"><input className="inp n" inputMode="decimal" value={astF.cost} onChange={e => setAstF(f => ({ ...f, cost: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
             <Field label="تاريخ الشراء"><input type="date" className="inp" value={astF.buyDate} onChange={e => setAstF(f => ({ ...f, buyDate: e.target.value }))} /></Field>
             <Field label="العمر الإنتاجي (سنوات)"><input className="inp n" inputMode="decimal" value={astF.lifeYears} onChange={e => setAstF(f => ({ ...f, lifeYears: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+            <Field label="القيمة المتبقية (خردة)"><input className="inp n" inputMode="decimal" aria-label="القيمة المتبقية" placeholder="0" value={astF.salvage ?? ''} onChange={e => setAstF(f => ({ ...f, salvage: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+            <div style={{ gridColumn: '1 / -1' }} data-depm>
+              <div className="lbl">طريقة الإهلاك</div>
+              <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>{Object.entries(DEP_METHODS).map(([k, m]) => <label key={k} className="note" style={{ margin: 0, cursor: 'pointer', flex: m.rec ? '1 1 220px' : '1 1 180px', borderStyle: 'solid', borderWidth: m.rec ? 2 : 1, borderColor: depMethod(astF) === k ? 'var(--brass)' : undefined }}>
+                <div className="row" style={{ gap: 6, alignItems: 'center' }}><input type="radio" name="depm" aria-label={m.ar} checked={depMethod(astF) === k} onChange={() => setAstF(f => ({ ...f, depMethod: k }))} /><b style={{ fontSize: m.rec ? 14 : 12.5 }}>{m.ar}</b>{m.rec && <span className="badge b-mint">الافتراضي · موصى به</span>}</div>
+                <div style={{ fontSize: 11.5, color: 'var(--dim)', marginTop: 3 }}>{m.desc}</div></label>)}</div>
+              {Number(astF.cost) > 0 && Number(astF.lifeYears) > 0 && (() => { const S = deprSchedule({ ...astF, cost: Number(astF.cost), salvage: Number(astF.salvage) || 0 }); const yr = []; S.forEach((v, i) => { yr[Math.floor(i / 12)] = Math.round(((yr[Math.floor(i / 12)] || 0) + v) * 100) / 100; });
+                return <div style={{ fontSize: 11.5, color: 'var(--dim)', marginTop: 6 }} data-depprev>إهلاك كل سنة: {yr.slice(0, 6).map((v, i) => <span key={i} className="num" style={{ marginInlineEnd: 10 }}>س{i + 1}: {money(v)}</span>)}{yr.length > 6 ? '…' : ''}</div>; })()}
+            </div>
           </div>
           <Field label="مصدر تمويل الشراء — يحدد الطرف الدائن لقيد الشراء">
             <select className="sel" value={astF.fund} onChange={e => setAstF(f => ({ ...f, fund: e.target.value }))}>

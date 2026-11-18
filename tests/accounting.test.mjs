@@ -2028,3 +2028,43 @@ test('v49.3 سياسة التكلفة: المتوسط المرجّح افترا�
   const ops2 = { ...ops, stockMoves: [...ops.stockMoves.slice(0, 2), { id: 'r', whId: 'wh-main', itemId: 'i1', kind: 'purchase', qty: -10, unitCost: 12, date: '2026-03-02', at: '2026-03-02T09:00:00Z' }] };
   assert.equal(E.itemAvgCosts(mk('fifo'), ops2).i1, 10, 'بقيت طبقة الـ10 فقط');
 });
+
+test('v49.4 المرحلة 03 دفتر الأستاذ وحركة الحسابات: رصيد جارٍ، افتتاحي الفترة، الحساب الأب مع فروعه، الفرع، والمطابقة مع الميزان لكل حساب', () => {
+  const org = baseOrg({ items: [{ id: 'i1', name: 'زيت', unit: 'لتر', type: 'stock' }], suppliers: [{ id: 's1', name: 'مورد' }], purchaseCfg: { perpetualFrom: '2026-01' },
+    warehouses: [{ id: 'wh-main', name: 'الرئيسي', kind: 'main', accCode: '160101' }, { id: 'wh-b1', name: 'العليا', kind: 'branch', branchId: 'b1', parentId: 'wh-main', accCode: '160102' }] });
+  const ops = {
+    invoices: [{ id: 'inv1', supplierId: 's1', supplierName: 'مورد', amount: 690, vatAmt: 90, taxable: true, date: '2026-03-02', paidAmount: 0, branchId: 'b1', whId: 'wh-b1', lines: [{ itemId: 'i1', qty: 60, unitCost: 10, net: 600, stock: true }] }],
+    whMoves: [{ id: 'm1', whId: 'wh-b1', branchId: 'b1', itemId: 'i1', kind: 'purchase', qty: 60, unitCost: 10, invoiceId: 'inv1', date: '2026-03-02', at: '2026-03-02T08:00:00Z' },
+      { id: 'm2', whId: 'wh-b1', branchId: 'b1', itemId: 'i1', kind: 'out', qty: -6, date: '2026-04-03', at: '2026-04-03T08:00:00Z' }],
+    journalManual: [{ id: 'j1', date: '2026-04-10', title: 'تمويل', status: 'posted', lines: [{ code: '1101', debit: 500, credit: 0 }, { code: '3101', debit: 0, credit: 500 }] }],
+    stockMoves: [], whTransfers: [] };
+  const A = E.buildAccounting(org, ops); assert.equal(A.balanced, true);
+  const L = E.glLedger(A, '160102', { from: '2026-04-01', to: '2026-04-30' });
+  assert.deepEqual([L.open, L.debit, L.credit, L.close, L.rows.length, L.rows[0].bal], [600, 0, 60, 540, 1, 540], 'افتتاحي أبريل 600 ثم صرف 60');
+  const P = E.glLedger(A, '1601', { to: '2026-04-30' });
+  assert.equal(P.close, 540, 'الحساب الأب يجمع فروعه');
+  assert.equal(E.glLedger(A, '1601', { to: '2026-04-30', sub: false }).rows.length, 0);
+  assert.equal(E.glLedger(A, '2101', { to: '2026-04-30' }).close, 690, 'المورد دائن بطبيعته');
+  assert.equal(E.glLedger(A, '1101', { bf: 'b1' }).rows.length, 0, 'القيد المركزي خارج الفرع');
+  // المطابقة: لكل حساب ورقي، ختامي الدفتر = ختامي حركة الحسابات = رصيد الميزان، والحركة متوازنة
+  const M = E.acctActivity(A, { from: '2026-04-01', to: '2026-04-30' });
+  assert.equal(M.balanced, true);
+  M.rows.forEach(r => { const g = E.glLedger(A, r.code, { from: '2026-04-01', to: '2026-04-30', sub: false });
+    assert.deepEqual([g.open, g.debit, g.credit, g.close], [r.open, r.debit, r.credit, r.close], 'الحساب ' + r.code); });
+  const t = tb(A); M.rows.forEach(r => near(r.close * (['asset', 'exp'].includes(r.kind) ? 1 : -1), t[r.code] || 0, 'الميزان ' + r.code));
+});
+
+test('v49.4 MQ-048 طرق الإهلاك: القسط الثابت افتراضي، والمتناقص ومجموع أرقام السنين يستنفدان القابل للإهلاك بالهللة، والقيود متوازنة', () => {
+  const a = { cost: 12000, lifeYears: 2, salvage: 0 };
+  const sl = E.deprSchedule(a), dd = E.deprSchedule({ ...a, depMethod: 'ddb' }), sy = E.deprSchedule({ ...a, depMethod: 'syd' }), sv = E.deprSchedule({ ...a, salvage: 2400 });
+  const S = (x) => Math.round(x.reduce((p, v) => p + v, 0) * 100) / 100;
+  assert.equal(E.depMethod({}), 'sl'); assert.equal(E.depMethod({ depMethod: 'xx' }), 'sl');
+  assert.deepEqual([sl.length, sl[0], S(sl)], [24, 500, 12000]);
+  assert.deepEqual([dd.length, dd[0], S(dd)], [24, 1000, 12000], 'المضاعف: 2/24 من الرصيد أول شهر');
+  assert.ok(dd[0] > dd[10] && Math.abs(dd[22] - dd[13]) < 0.02, 'متناقص ثم يتحول للثابت على المتبقي');
+  assert.deepEqual([sy.length, sy[0], sy[23], S(sy)], [24, 960, 40, 12000], 'مجموع الأرقام 300: 24/300 ثم 1/300');
+  assert.deepEqual([sv[0], S(sv)], [400, 9600], 'القيمة المتبقية خارج القابل للإهلاك');
+  const org = baseOrg({ assets: [{ id: 'x', name: 'فرن', cost: 12000, buyDate: '2024-01-10', lifeYears: 2, fund: '1201', depMethod: 'ddb' }] });
+  const A = E.buildAccounting(org, {}); assert.equal(A.balanced, true);
+  const t = tb(A); near(-t['1791'], 12000, 'استُنفد بالكامل بعد عامين');
+});
