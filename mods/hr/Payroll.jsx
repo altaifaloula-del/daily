@@ -2,6 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { Wallet, FileBarChart, ChevronDown, Printer, Check, Landmark, Banknote, Signature, Plus, TrendingDown, ShieldCheck, AlertTriangle, Users, PenLine, Receipt, Download } from 'lucide-react';
 import { ibanNorm, ibanStatus, loadIbanSigs, requestIban } from '../../App.jsx';   // v40.9
+import { gosiNewSched, gosiNewAuto } from '../../App.jsx';   // v47.2
 import { AdvanceForm, Field, Kpi, LOCK_MSG, MZ_LOGO_HTML, Modal, NUM_FACE, PAY_ADD_TYPES, ROLES, SignDocsModal, arDT, arDate, branchBanks, buildPayslipSignDocs, eosAccrualLines, eosCumAt, eosState, isoD, leaveBalance, lockedThru, makeXlsx, money, monthEnd, nowISO, openDocWin, payrollRowsOf, periodLocked, printA4, rolePost, sigBlockHtml, sigSvg, sum, today, uid } from '../../App.jsx';
 
 export function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, say }) {
@@ -21,7 +22,7 @@ export function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, s
       saudiOldEr: String(g.saudiOldEr != null ? g.saudiOldEr : (g.erRate != null ? g.erRate : 11.75)),
       saudiNewEmp: String(g.saudiNewEmp != null ? g.saudiNewEmp : 10.75), saudiNewEr: String(g.saudiNewEr != null ? g.saudiNewEr : 12.75),
       nonSaudiEmp: String(g.nonSaudiEmp != null ? g.nonSaudiEmp : 0), nonSaudiEr: String(g.nonSaudiEr != null ? g.nonSaudiEr : 2),
-      ceiling: String(g.ceiling != null ? g.ceiling : 45000),
+      ceiling: String(g.ceiling != null ? g.ceiling : 45000), newAuto: gosiNewAuto(g),
     };
   });
   const ids = myBranches.map(b => b.id);
@@ -274,7 +275,7 @@ export function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, s
       enabled: !!gosiD.enabled,
       empRate: Number(gosiD.saudiOldEmp) || 0, erRate: Number(gosiD.saudiOldEr) || 0,
       saudiOldEmp: Number(gosiD.saudiOldEmp) || 0, saudiOldEr: Number(gosiD.saudiOldEr) || 0,
-      saudiNewEmp: Number(gosiD.saudiNewEmp) || 0, saudiNewEr: Number(gosiD.saudiNewEr) || 0,
+      saudiNewEmp: Number(gosiD.saudiNewEmp) || 0, saudiNewEr: Number(gosiD.saudiNewEr) || 0, newAuto: !!gosiD.newAuto,
       nonSaudiEmp: Number(gosiD.nonSaudiEmp) || 0, nonSaudiEr: Number(gosiD.nonSaudiEr) || 0,
       ceiling: Number(gosiD.ceiling) || 45000,
     } }), {
@@ -366,9 +367,11 @@ export function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, s
               <Field label="سعودي (قديم) — موظف %"><input className="inp n" inputMode="decimal" value={gosiD.saudiOldEmp} onChange={e => setGosiD(s => ({ ...s, saudiOldEmp: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
               <Field label="سعودي (قديم) — صاحب العمل %"><input className="inp n" inputMode="decimal" value={gosiD.saudiOldEr} onChange={e => setGosiD(s => ({ ...s, saudiOldEr: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
               <Field label="سقف الأجر الخاضع (ر.س)"><input className="inp n" inputMode="decimal" value={gosiD.ceiling} onChange={e => setGosiD(s => ({ ...s, ceiling: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
-              <Field label="سعودي (جديد 2024+) — موظف %"><input className="inp n" inputMode="decimal" value={gosiD.saudiNewEmp} onChange={e => setGosiD(s => ({ ...s, saudiNewEmp: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+              <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', gridColumn: '1 / -1', alignItems: 'center' }}><input type="checkbox" aria-label="نسب النظام الجديد حسب الجدول النظامي" checked={!!gosiD.newAuto} onChange={e => setGosiD(s => ({ ...s, newAuto: e.target.checked }))} />
+                سعودي (جديد 2024+): حسب الجدول النظامي تلقائيًا — +0.5% لكلٍّ من الطرفين كل يوليو حتى 2028 (هذا الشهر: موظف {gosiNewSched().emp}% · صاحب العمل {gosiNewSched().er}%)</label>
+              {!gosiD.newAuto && <><Field label="سعودي (جديد 2024+) — موظف %"><input className="inp n" inputMode="decimal" value={gosiD.saudiNewEmp} onChange={e => setGosiD(s => ({ ...s, saudiNewEmp: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
               <Field label="سعودي (جديد 2024+) — صاحب العمل %"><input className="inp n" inputMode="decimal" value={gosiD.saudiNewEr} onChange={e => setGosiD(s => ({ ...s, saudiNewEr: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
-              <div />
+              <div /></>}
               <Field label="غير سعودي — موظف %"><input className="inp n" inputMode="decimal" value={gosiD.nonSaudiEmp} onChange={e => setGosiD(s => ({ ...s, nonSaudiEmp: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
               <Field label="غير سعودي — صاحب العمل % (أخطار مهنية)"><input className="inp n" inputMode="decimal" value={gosiD.nonSaudiEr} onChange={e => setGosiD(s => ({ ...s, nonSaudiEr: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
             </div>
