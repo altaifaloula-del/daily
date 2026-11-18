@@ -2,7 +2,7 @@
    الجهة التي هي عميل ومورد معًا: مقاصّة بين ذممها. ترقيم RV/PV/OV، طباعة A4 بالتفقيط، وتصدير Excel. */
 import React, { useMemo, useState } from 'react';
 import { Receipt, Plus, Printer, Download, Check, Scale } from 'lucide-react';
-import { CV_KIND, cvNextNo, partyOpenDocs, applyCashVoucher, cashVoucherHtml, buildAccounting, buildPartners, branchBanks, Field, Modal, LOCK_MSG, makeXlsx, money, nowISO, periodLocked, printA4, today, uid } from '../../App.jsx';
+import { CV_KIND, cvNextNo, projList, partyOpenDocs, applyCashVoucher, cashVoucherHtml, buildAccounting, buildPartners, branchBanks, Field, Modal, LOCK_MSG, makeXlsx, money, nowISO, periodLocked, printA4, today, uid } from '../../App.jsx';
 
 const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 const PT = { cust: 'عميل', sup: 'مورد', acc: 'حساب من الدليل', emp: 'موظف' };
@@ -36,7 +36,7 @@ export function CashVouchers({ org, ops, me, commit, say }) {
     const a = r2(f.amount);
     if (!(a > 0)) return say('أدخل المبلغ', 'no');
     if (periodLocked(org, f.date)) return say(LOCK_MSG(f.date), 'no');
-    let v = { id: uid('cv'), kind: f.kind, date: f.date, amount: a, note: String(f.note || '').trim(), by: me.name, at: nowISO() };
+    let v = { id: uid('cv'), kind: f.kind, date: f.date, amount: a, note: String(f.note || '').trim(), by: me.name, at: nowISO(), ...(f.projectId && f.kind !== 'tv' ? { projectId: f.projectId } : {}) };   // v47.4 المشروع
     if (f.kind === 'tv') {   // v47.3 تحويل بين حسابين نقديين
       if (!f.fund || !f.toFund || f.fund === f.toFund) return say('اختر حسابين مختلفين للتحويل', 'no');
       v = { ...v, fund: f.fund, toFund: f.toFund, ...(String(f.ref || '').trim() ? { ref: String(f.ref).trim() } : {}) };
@@ -131,6 +131,7 @@ export function CashVouchers({ org, ops, me, commit, say }) {
             {f.kind !== 'ov' && f.kind !== 'tv' && f.pm !== 'cash' && <Field label={f.pm === 'cheque' ? 'رقم الشيك *' : 'مرجع التحويل'}><input className="inp" aria-label="مرجع السند" value={f.ref} onChange={e => setF(x => ({ ...x, ref: e.target.value }))} /></Field>}
           </div>
           <Field label="البيان"><input className="inp" aria-label="بيان السند" value={f.note} onChange={e => setF(x => ({ ...x, note: e.target.value }))} /></Field>
+          {f.kind !== 'tv' && f.kind !== 'ov' && projList(org).length > 0 && <Field label="المشروع (اختياري)"><select className="sel" aria-label="مشروع السند" value={f.projectId || ''} onChange={e => setF(x => ({ ...x, projectId: e.target.value }))}><option value="">—</option>{projList(org).map(p => <option key={p.id} value={p.id}>{p.code} · {p.name}</option>)}</select></Field>}
           {docs.length > 0 && <div style={{ marginTop: 8 }} data-cvalloc>
             <div className="row" style={{ justifyContent: 'space-between', marginBottom: 6 }}><span className="lbl">التوزيع على الفواتير المفتوحة (والباقي على الحساب)</span><button className="btn sm gh" onClick={autoAlloc} data-cvauto>توزيع تلقائي (الأقدم أولًا)</button></div>
             {docs.map(d => <div key={d.id} className="row" style={{ gap: 8, marginBottom: 4, alignItems: 'center', fontSize: 12 }}>

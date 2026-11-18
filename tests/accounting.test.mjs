@@ -1557,8 +1557,8 @@ test('v47.2 الإضافي (المادة 107): أجر الساعة الفعلي 
   // الأحد 2026-11-01: 9 ساعات و50 دقيقة ⇒ 1:50 إضافي ⇒ 1.75 · الجمعة 2026-11-06 (راحة): 4:10 ⇒ 4.0 · يوم بلا خروج: مفتوح
   const ops = { attendanceEvents: [ev('2026-11-01', '08:00', 'in'), ev('2026-11-01', '17:50', 'out'), ev('2026-11-06', '10:00', 'in'), ev('2026-11-06', '14:10', 'out'), ev('2026-11-02', '08:00', 'in')] };
   const O = E.otFromAttendance(org, ops, e, '2026-11');
-  // الإجمالي يُقرَّب مرة واحدة على مجموع الدقائق (110 + 250 = 360 دقيقة = 6 ساعات)، بينما التفصيل يُقرَّب لكل نوع (1.75 + 4 = 5.75) — موثَّق في سجل النواقص لقرار المالك
-  assert.deepEqual([O.regH, O.offH, O.hours, O.days, O.open], [1.75, 4, 6, 2, 1]);
+  // الإجمالي يُقرَّب مرة واحدة على مجموع الدقائق (110 + 250 = 360 دقيقة = 6 ساعات)، والتفصيل يطابقه (v47.4): راحة 4 + عمل 2
+  assert.deepEqual([O.regH, O.offH, O.hours, O.days, O.open], [2, 4, 6, 2, 1]); assert.equal(O.regH + O.offH, O.hours, 'التفصيل = الإجمالي');
   near(O.hours * R.rate, 165, 'مبلغ الإضافي = 6 × 27.5');
 });
 
@@ -1605,4 +1605,45 @@ test('v47.3 FEFO: الصرف يقترح الدفعات الأقرب انتهاء
   const ops = { whMoves: [{ id: 'm1', whId: 'w', itemId: 'x', kind: 'purchase', qty: 4, expiry: '2026-11-10', batch: 'B1', date: '2026-10-01' }, { id: 'm2', whId: 'w', itemId: 'x', kind: 'purchase', qty: 6, expiry: '2026-12-20', batch: 'B2', date: '2026-10-05' }, { id: 'm3', whId: 'w', itemId: 'x', kind: 'out', qty: -3, date: '2026-10-06' }] };
   const L = E.lotsFor(E.expiryLots(org, ops), 'w', 'x');
   assert.deepEqual(L.map(l => [l.batch, l.left]), [['B1', 1], ['B2', 6]]);
+});
+
+test('v47.4 الإشعار المدين للمشتريات: نُصدره للمورد يخفض الذمة والتكلفة وضريبة المدخلات؛ وإشعار المورد (زيادة) يرفعها', () => {
+  const org = baseOrg({ suppliers: [{ id: 's1', name: 'المورد', vatNo: '300000000000003' }] });
+  const inv = { id: 'p1', supplierId: 's1', supplierName: 'المورد', invoiceNo: 'S-1', date: '2026-11-01', amount: 1150, vatAmt: 150, accCode: '5198', paidAmount: 0 };
+  const dn = { id: 'p2', creditNote: true, debitNote: true, appliesTo: 'p1', supplierId: 's1', supplierName: 'المورد', invoiceNo: 'PDN-1', date: '2026-11-05', amount: -230, vatAmt: -30, accCode: '5198', reason: 'فرق سعر' };
+  const inc = { id: 'p3', supDebit: true, appliesTo: 'p1', supplierId: 's1', supplierName: 'المورد', invoiceNo: 'SDN-1', date: '2026-11-06', amount: 115, vatAmt: 15, accCode: '5198', reason: 'رسوم نقل' };
+  const A = E.buildAccounting(org, { invoices: [inv, dn, inc] }); const t = tb(A);
+  near(t['2101'], -(1150 - 230 + 115), 'ذمة المورد'); near(t['1501'], 150 - 30 + 15, 'ضريبة المدخلات'); near(t['5198'], 1000 - 200 + 100, 'التكلفة');
+  assert.ok(A.balanced);
+  assert.equal(A.entries.find(e => e.id === 'inv:p2').reg.doc, 'إشعار مدين للمورد'); near(A.entries.find(e => e.id === 'inv:p2').vat.inn, -30);
+  assert.equal(A.entries.find(e => e.id === 'inv:p3').reg.doc, 'إشعار مدين من المورد');
+  // خصم مكتسب: الحساب 4202 والضريبة تُعكس
+  const disc = { ...dn, id: 'p4', accCode: '4202', disc: true, amount: -57.5, vatAmt: -7.5 };
+  const B = E.buildAccounting(org, { invoices: [inv, disc] }); const u = tb(B);
+  near(u['4202'], -50, 'خصم مكتسب دائن'); near(u['1501'], 142.5); near(u['2101'], -1092.5); assert.ok(B.balanced);
+});
+
+test('v47.4 الخصم الممنوح بعد الفاتورة: إشعار دائن إلى «خصم مسموح به» 4103 ويخفض ضريبة المخرجات', () => {
+  const org = baseOrg();
+  const inv = E.siStamp([], { id: 'i1', kind: 'invoice', type: 'simplified', date: '2026-11-01', customerKey: 'c:1', buyer: { name: 'عميل' }, lines: [{ desc: 'وجبات', qty: 1, price: 1000, vatRate: 15, net: 1000, vat: 150 }], net: 1000, vat: 150, total: 1150, terms: 'credit', receipts: [{ id: 'r1', date: '2026-11-10', amount: 1092.5, fund: '1201' }] });
+  const cn = E.siStamp([inv], { id: 'c1', kind: 'credit', disc: true, refId: 'i1', type: 'simplified', date: '2026-11-10', customerKey: 'c:1', buyer: inv.buyer, lines: [{ desc: 'خصم تعجيل سداد', qty: 1, price: 50, vatRate: 15, net: 50, vat: 7.5 }], net: 50, vat: 7.5, total: 57.5, terms: 'credit', reason: 'خصم تعجيل سداد', receipts: [] });
+  const list = [inv, cn]; const A = E.buildAccounting(org, { salesInvoices: list }); const t = tb(A);
+  near(t['4103'], 50, 'خصم مسموح به مدين'); near(t['4102'], -1000, 'المبيعات كما هي'); near(t['2301'], -142.5, 'الضريبة بعد الخصم'); near(t['1380'] || 0, 0, 'الذمة مقفلة');
+  near(E.siRem({ salesInvoices: list }, inv), 0); assert.ok(A.balanced);
+});
+
+test('v47.4 بُعد المشروع: وسم المستند أو سطر القيد اليدوي، وربحية المشروع = إيراده − مصروفه في الفترة', () => {
+  const org = baseOrg({ projects: [{ id: 'pa', code: 'PRJ-001', name: 'تموين عرس', active: true }, { id: 'pb', code: 'PRJ-002', name: 'افتتاح فرع', active: false }] });
+  assert.equal(E.projNextCode(org), 'PRJ-003'); assert.deepEqual(E.projList(org).map(p => p.id), ['pa']); assert.equal(E.projList(org, true).length, 2);
+  const ops = {
+    salesInvoices: [{ id: 's1', no: 'X-1', kind: 'invoice', date: '2026-11-03', net: 5000, vat: 750, total: 5750, terms: 'cash', fund: '1201', projectId: 'pa', receipts: [] }],
+    cashVouchers: [{ id: 'v1', kind: 'pv', no: 'PV-000001', date: '2026-11-04', amount: 800, fund: '1101', party: { t: 'acc', acc: '5901', name: 'مصروفات' }, projectId: 'pa' }],
+    journalManual: [{ id: 'j1', date: '2026-11-05', title: 'تحميل', status: 'posted', branchId: 'b1', lines: [{ code: '5201', debit: 1200, credit: 0, projectId: 'pa' }, { code: '5201', debit: 300, credit: 0, projectId: 'pb' }, { code: '1201', debit: 0, credit: 1500 }] }]
+  };
+  const A = E.buildAccounting(org, ops);
+  const R = E.projectPL(A, 'pa', '2026-11-01', '2026-11-30');
+  near(R.rev, 5000); near(R.exp, 2000, '800 سند + 1200 سطر القيد'); near(R.net, 3000); assert.equal(R.n, 3);
+  near(E.projectPL(A, 'pb').exp, 300, 'سطر واحد فقط للمشروع الثاني');
+  near(E.projectPL(A, 'pa', '2026-12-01', '2026-12-31').net, 0, 'خارج الفترة');
+  assert.equal(A.entries.find(e => e.id === 'man:j1').branchId, 'b1', 'القيد اليدوي يحمل مركز التكلفة');
 });

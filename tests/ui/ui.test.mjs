@@ -1939,3 +1939,63 @@ test('v47.3 FEFO في صرف الفرع: يقترح الدفعة الأقرب ا
   assert.deepEqual(m.lots, [{ batch: 'A1', expiry: '2020-01-01', qty: 4 }, { batch: 'B2', expiry: '2099-06-01', qty: 2 }]);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v47.4 الإشعار المدين للمشتريات وخصم السداد المكتسب: يخفضان المتبقي وضريبة المدخلات، وإشعار المورد بالزيادة يُسجَّل', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Hub/admin/purchasing:suppliers');
+  await p.evaluate(() => window.setOps(o => ({ ...o, closings: [], invoices: [{ id: 'q1', supplierId: 's1', supplierName: 'مؤسسة اللحوم الطازجة للتجارة', amount: 1150, vatAmt: 150, taxable: true, accCode: '5198', date: '2026-11-01', dueDate: '2099-12-01', invoiceNo: 'SUP-500', branchId: 'b1', paidAmount: 0 }] })));
+  await p.waitForTimeout(300);
+  await p.locator('[data-pdn]').first().click(); await p.waitForTimeout(150);
+  await p.locator('.modal button', { hasText: 'فرق سعر' }).click(); await p.fill('input[aria-label="مبلغ إشعار المورد"]', '100');
+  assert.match(await p.locator('[data-pdn-total]').innerText(), /115/);
+  await p.locator('[data-pdn-save]').click(); await p.waitForTimeout(500);
+  assert.match(await p.evaluate(() => window.lastSay || ''), /صدر الإشعار المدين PDN-/);
+  assert.match(await p.evaluate(() => (document.querySelector('.mz-docv iframe') || {}).srcdoc || ''), /إشعار دائن ضريبي/);
+  await p.click('.mz-docv button:has-text("إغلاق")'); await p.waitForTimeout(200);
+  let r = await p.evaluate(() => window.cur.invoices.filter(i => i.debitNote).map(i => [i.amount, i.vatAmt, i.appliesTo, i.accCode]));
+  assert.deepEqual(r, [[-115, -15, 'q1', '5198']]);
+  // إشعار مدين من المورد (زيادة)
+  await p.locator('tr', { hasText: 'SUP-500' }).locator('[data-pdn]').click(); await p.waitForTimeout(150);
+  await p.locator('[data-pdndir="inc"]').click(); await p.fill('input[aria-label="سبب إشعار المورد"]', 'رسوم نقل'); await p.fill('input[aria-label="مبلغ إشعار المورد"]', '20');
+  await p.locator('[data-pdn-save]').click(); await p.waitForTimeout(400);
+  r = await p.evaluate(() => window.cur.invoices.filter(i => i.supDebit).map(i => [i.amount, i.vatAmt, i.appliesTo]));
+  assert.deepEqual(r, [[23, 3, 'q1']]);
+  // سداد الباقي (1035) بخصم مكتسب 57.5 شامل الضريبة
+  await p.locator('tr', { hasText: 'SUP-500' }).locator('button', { hasText: /^سداد$/ }).click(); await p.waitForTimeout(150);
+  await p.fill('input[aria-label="خصم مكتسب"]', '57.5'); await p.waitForTimeout(100);
+  assert.match(await p.locator('[data-discnote]').innerText(), /7\.50/);
+  await p.locator('.modal button', { hasText: 'تسجيل السداد' }).click(); await p.waitForTimeout(500);
+  r = await p.evaluate(() => ({ d: window.cur.invoices.filter(i => i.disc).map(i => [i.amount, i.vatAmt, i.accCode]), paid: window.cur.invoices.find(i => i.id === 'q1').paidAmount }));
+  assert.deepEqual(r, { d: [[-57.5, -7.5, '4202']], paid: 977.5 });
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v47.4 الخصم الممنوح عند التحصيل: إشعار دائن ضريبي تلقائي مرتبط بالفاتورة ويقفل المتبقي', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/SalesHub/admin');
+  await p.locator('button:has-text("فواتير المبيعات")').first().click(); await p.waitForTimeout(300);
+  await p.evaluate(() => window.setOps(o => ({ ...o, salesInvoices: [{ id: 'sx', no: 'فاتورة-2026-00001', seq: 1, icv: 1, pih: '0', hash: 'h', kind: 'invoice', type: 'simplified', terms: 'credit', customerKey: 'cust:cx', buyer: { name: 'مؤسسة التموين' }, date: '2026-11-02', lines: [{ desc: 'وجبات', qty: 10, price: 100, vatRate: 15, net: 1000, vat: 150 }], net: 1000, vat: 150, total: 1150, dueDate: '2099-12-02', receipts: [] }] }))); await p.waitForTimeout(250);
+  await p.locator('tr', { hasText: 'فاتورة-2026-00001' }).locator('button', { hasText: 'تحصيل' }).click(); await p.waitForTimeout(200);
+  await p.fill('input[aria-label="خصم ممنوح"]', '57.5'); await p.waitForTimeout(100);
+  assert.match(await p.locator('[data-rcdisc]').innerText(), /7\.50/);
+  await p.locator('.modal button', { hasText: 'تسجيل التحصيل' }).click(); await p.waitForTimeout(500);
+  assert.match(await p.evaluate(() => window.lastSay || ''), /خصم ممنوح 57\.50 بإشعار دائن إشعار-2026-00001/);
+  const r = await p.evaluate(() => ({ rc: window.cur.salesInvoices[0].receipts.map(x => x.amount), cn: window.cur.salesInvoices.filter(x => x.kind === 'credit').map(x => [x.disc, x.net, x.vat, x.total, x.refId]) }));
+  assert.deepEqual(r, { rc: [1092.5], cn: [[true, 50, 7.5, 57.5, 'sx']] });
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v47.4 المشاريع: إضافة مشروع، قيد يدوي بمشروع ومركز تكلفة، وظهور ربحيته', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/Accounting/admin/prj');
+  await p.fill('input[aria-label="اسم المشروع"]', 'تموين حفل'); await p.locator('[data-prjadd]').click(); await p.waitForTimeout(300);
+  assert.deepEqual(await p.evaluate(() => window.curOrg.projects.map(x => [x.code, x.name, x.active])), [['PRJ-001', 'تموين حفل', true]]);
+  const pid = await p.evaluate(() => window.curOrg.projects[0].id);
+  await p.click('button:has-text("قيد يدوي / افتتاحي")'); await p.waitForTimeout(300);
+  await p.fill('.modal input[placeholder^="مثال: استلام"]', 'مصروف حفل');
+  await p.selectOption('select[aria-label="فرع القيد"]', 'b1'); await p.selectOption('select[aria-label="مشروع القيد"]', pid);
+  await p.locator('.modal select.jm-acc').nth(0).selectOption('5901'); await p.locator('.modal input.jm-d').nth(0).fill('400');
+  await p.locator('.modal select.jm-acc').nth(1).selectOption('1201'); await p.locator('.modal input.jm-c').nth(1).fill('400');
+  await p.click('.modal button:has-text("تسجيل القيد")'); await p.waitForTimeout(500);
+  assert.deepEqual(await p.evaluate(() => window.cur.journalManual.filter(j => j.title === 'مصروف حفل').map(j => [j.branchId, j.projectId === window.curOrg.projects[0].id])), [['b1', true]]);
+  const row = await p.locator('[data-prjtable] tr', { hasText: 'تموين حفل' }).innerText();
+  assert.match(row, /400/); assert.match(row, /-400|−400/);
+  assert.deepEqual(errs, []); await ctx.close();
+});
