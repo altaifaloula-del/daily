@@ -2,6 +2,7 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { cloud, KEYS, brKey, bfKey } from '../../storage';
 import { Store, X, RefreshCw, FileText, Clock, ShieldCheck, Check, Plus, Printer, Download, Lock, Banknote, ChefHat, LayoutGrid, Send } from 'lucide-react';
+import { posAreas, tableArea, salesByArea } from '../../App.jsx';   // v49.2 الصالات
 import { posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim } from '../../App.jsx';   // v42.9
 import { couponWhy, cpnReserve, cpnRelease, loyEarnX, loyTier } from '../../App.jsx';   // v48.1 الكوبونات المحدودة والولاء المتقدم
 import { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, posReturnLoyDed, WASTE_REASONS } from '../../App.jsx';   // v46.8 المرتجع
@@ -31,7 +32,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   useEffect(() => { if (!needLoy || !code.trim()) return; const t = setTimeout(reloadLoy, 350); return () => clearTimeout(t); }, [code, needLoy]);
   const [view, setView] = useState('sell'); const [showCart, setShowCart] = useState(false);
   const [ret, setRet] = useState(null);   // v46.8 نافذة المرتجع: { o, q:{i:qty}, reason, note, k }
-  const [tbl, setTbl] = useState(''); const [payTab, setPayTab] = useState(null); const [tblSel, setTblSel] = useState(null); const [, setTick] = useState(0);   // v42.9
+  const [tbl, setTbl] = useState(''); const [areaF, setAreaF] = useState(''); const [payTab, setPayTab] = useState(null); const [tblSel, setTblSel] = useState(null); const [, setTick] = useState(0);   // v42.9
   const tables = br ? posTables(org, br.id) : []; const useTabs = tables.length > 0; const kds = kdsOn(org);
   useEffect(() => { if (!useTabs && !kds) return; const t = setInterval(() => setTick(x => x + 1), 30000); return () => clearInterval(t); }, [useTabs, kds]);   // تحديث الدقائق المنقضية (قبل أي عودة مبكرة — قاعدة الخطافات)
   const [queue, setQueue] = useState(posQueue); const [cfgF, setCfgF] = useState(null); const [shiftF, setShiftF] = useState(null);
@@ -175,7 +176,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
       ...(phoneOk ? { loyalty: { phone: phoneN, name: (cust.name || custName).trim(), earned: earnPts, redeemed: redeemPts, redeemAmt, balAfter: posR2(loyBalance - redeemPts + earnPts) } } : {}),
       total: T.total, vat: T.vat, net: T.net, rate,
       payments: pay.parts.filter(x => Number(x.amount) > 0).map(x => ({ m: x.m, amount: posR2(x.amount), ...(x.m === 'app' ? { appId: x.appId, appName: (apps.find(a => a.id === x.appId) || {}).n || 'تطبيق' } : {}), ...(x.pm ? { pm: x.pm, pmName: x.pmName } : {}) })),
-      change, status: 'paid', icv: (prev.icv || 0) + 1, pih: prev.hash || '0', ...(channel === 'dinein' && tbl ? { table: tbl } : {}), ...(payTab ? { tabId: payTab } : {}) };
+      change, status: 'paid', icv: (prev.icv || 0) + 1, pih: prev.hash || '0', ...(channel === 'dinein' && tbl ? { table: tbl, ...((ar) => ar ? { areaId: ar.id, areaName: ar.name } : {})(tableArea(org, br.id, tbl)) } : {}), ...(payTab ? { tabId: payTab } : {}) };
     o.hash = sha256Hex(JSON.stringify([o.no, o.at, o.lines, o.total, o.vat, o.payments, o.icv, o.pih]));
     try { localStorage.setItem(sk, String(seq)); localStorage.setItem(hk, JSON.stringify({ icv: o.icv, hash: o.hash })); } catch { }
     const qn = [...posQueue(), o]; posQueueSet(qn); setQueue(qn);
@@ -338,7 +339,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
       {channel === 'dinein' && useTabs && <div className="row" style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap', margin: '0 0 8px' }}>
         {payTab ? <div className="note" style={{ flex: 1, margin: 0 }}>دفع حساب الطاولة <b className="num">{tbl}</b> <button className="btn sm gh" onClick={cancelPayTab}>إلغاء الدفع</button></div>
           : <><span style={{ fontSize: 13, fontWeight: 600 }}>الطاولة</span><select className="sel" style={{ width: 'auto', minWidth: 110 }} aria-label="الطاولة" value={tbl} onChange={e => setTbl(e.target.value)}><option value="">— اختر —</option>
-            {tables.map(no => { const t = openTab(ops, br.id, no); return <option key={no} value={no}>{no}{t ? ' (مفتوحة · ' + money(tabSum(t).total) + ')' : ''}</option>; })}</select></>}
+            {tables.map(no => { const t = openTab(ops, br.id, no); const ar = tableArea(org, br.id, no); return <option key={no} value={no}>{no}{ar ? ' · ' + ar.name : ''}{t ? ' (مفتوحة · ' + money(tabSum(t).total) + ')' : ''}</option>; })}</select></>}
       </div>}
       {cart.map(l => (
         <div key={l.key} className="pos-line">
@@ -491,8 +492,17 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
         return <div className="card" data-tables>
           <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}><b style={{ fontSize: 16 }}>الطاولات — {br.name}</b>
             <div className="row" style={{ gap: 12, fontSize: 12 }}>{Object.entries(C2).map(([k, [c, t]]) => <span key={k} className="row" style={{ gap: 5, alignItems: 'center' }}><i style={{ width: 9, height: 9, borderRadius: 3, background: c, display: 'inline-block' }} />{t} <b className="num">{TS.filter(x => x.st === k).length}</b></span>)}</div></div>
-          <div className="pos-tables">{TS.map(x => <button key={x.no} className={'pos-tbl ' + x.st} aria-label={'طاولة ' + x.no} onClick={() => { if (x.st === 'free') { setTbl(x.no); setChannel('dinein'); setPayTab(null); setView('sell'); } else setTblSel(x); }}>
-            <b className="num">{x.no}</b>{x.st === 'free' ? <small>متاحة</small> : <><small className="num">{money(x.total)}</small><small>{x.rounds} جولة · <span className="num">{x.mins}</span> د</small></>}</button>)}</div>
+          {(() => { const AR = posAreas(org, br.id); const btn = (x) => <button key={x.no} className={'pos-tbl ' + x.st} aria-label={'طاولة ' + x.no} onClick={() => { if (x.st === 'free') { setTbl(x.no); setChannel('dinein'); setPayTab(null); setView('sell'); } else setTblSel(x); }}>
+            <b className="num">{x.no}</b>{x.st === 'free' ? <small>متاحة</small> : <><small className="num">{money(x.total)}</small><small>{x.rounds} جولة · <span className="num">{x.mins}</span> د</small></>}</button>;
+            if (!AR.length) return <div className="pos-tables">{TS.map(btn)}</div>;
+            // v49.2 — MQ-005: الطاولات مجمّعة حسب الصالة، ومنتقي سريع للصالة
+            const groups = [...AR.map(a => ({ ...a, list: TS.filter(x => +x.no >= a.from && +x.no <= a.to) })), { id: '', name: 'بلا صالة', list: TS.filter(x => !AR.some(a => +x.no >= a.from && +x.no <= a.to)) }].filter(g => g.list.length);
+            const shown = areaF ? groups.filter(g => g.id === areaF) : groups;
+            return <>
+              <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }} data-areas>{[{ id: '', name: 'كل الصالات' }, ...groups.filter(g => g.id)].map(g => <button key={g.id || 'all'} className={'btn sm' + ((areaF || '') === g.id ? ' pri' : ' gh')} onClick={() => setAreaF(g.id)}>{g.name}{g.list ? <small className="num" style={{ marginInlineStart: 5 }}>{g.list.filter(x => x.st !== 'free').length}/{g.list.length}</small> : null}</button>)}</div>
+              {(() => { const SA = salesByArea(org, ops, br.id, today, today); return SA.length ? <div className="note" style={{ marginBottom: 10, fontSize: 12 }} data-areasales>مبيعات اليوم حسب الصالة: {SA.map(x => <span key={x.id || 'n'} style={{ marginInlineEnd: 12 }}>{x.name} <b className="num">{money(x.total)}</b> <small>({x.orders})</small></span>)}</div> : null; })()}
+              {shown.map(g => <div key={g.id || 'none'} style={{ marginBottom: 12 }} data-area={g.name}><div className="lbl" style={{ marginBottom: 6 }}>{g.name}</div><div className="pos-tables">{g.list.map(btn)}</div></div>)}
+            </>; })()}
           {tblSel && <Modal title={'الطاولة ' + tblSel.no} onClose={() => setTblSel(null)}>
             <div className="note" style={{ marginBottom: 10 }}>مفتوحة منذ <b className="num">{tblSel.mins}</b> دقيقة · {tblSel.rounds} جولة · الإجمالي <b className="num">{money(tblSel.total)}</b></div>
             {tabSum(tblSel.tab).lines.map((l, i) => <div key={i} className="row" style={{ justifyContent: 'space-between', fontSize: 13, padding: '4px 0', borderBottom: '1px dashed var(--line)' }}><span>{l.name} ×<b className="num">{l.qty}</b>{l.note ? <small style={{ color: 'var(--faint)' }}> · {l.note}</small> : null}</span><span className="num">{money(l.qty * l.price)}</span></div>)}

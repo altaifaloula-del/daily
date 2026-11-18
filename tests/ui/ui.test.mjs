@@ -892,6 +892,41 @@ test('v42.9 الطاولات والحساب المفتوح وشاشة المطب
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+test('v49.2 MQ-005 الصالات: إعدادها بالنطاقات (مع رفض التداخل)، الطاولات مجمّعة حسب الصالة، والفاتورة تحمل صالتها', async () => {
+  { const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosSettings/admin');
+    await p.evaluate(() => window.setOrg(g => ({ ...g, posCfg: { ...(g.posCfg || {}), branches: ['b1'], tables: { b1: 8 } } }))); await p.waitForTimeout(200);
+    await p.evaluate(() => window.as('ctl')); await p.waitForTimeout(150); await p.evaluate(() => window.as('admin')); await p.waitForTimeout(300);   // إعادة تركيب الشاشة بالإعداد الجديد
+    const ed = p.locator('[data-areaed]').first();
+    await ed.locator('button:has-text("+ صالة")').click(); await ed.locator('button:has-text("+ صالة")').click();
+    const nm = ed.locator('input[aria-label="اسم الصالة"]'), fr = ed.locator('input[aria-label="من طاولة"]'), to = ed.locator('input[aria-label="إلى طاولة"]');
+    await nm.nth(0).fill('الرئيسية'); await fr.nth(0).fill('1'); await to.nth(0).fill('5');
+    await nm.nth(1).fill('العائلات'); await fr.nth(1).fill('5'); await to.nth(1).fill('8');
+    await p.locator('.card button.pri', { hasText: /^حفظ$/ }).click(); await p.waitForTimeout(250);
+    assert.match(await p.evaluate(() => window.lastSay || ''), /متداخلتان/);
+    await fr.nth(1).fill('6'); await p.locator('.card button.pri', { hasText: /^حفظ$/ }).click(); await p.waitForTimeout(250);
+    assert.deepEqual(await p.evaluate(() => window.curOrg.posCfg.areas.b1.map(a => [a.name, a.from, a.to])), [['الرئيسية', 1, 5], ['العائلات', 6, 8]]);
+    assert.deepEqual(errs, []); await ctx.close(); }
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosApp/bm');
+  await p.evaluate(() => {
+    window.setOrg(g => ({ ...g, taxCfg: { enabled: true, rate: 15 }, posCfg: { branches: ['b1'], tables: { b1: 8 }, areas: { b1: [{ id: 'am', name: 'الرئيسية', from: 1, to: 5 }, { id: 'af', name: 'العائلات', from: 6, to: 8 }] }, autoPrint: false },
+      products: [{ id: 'k', name: 'كبسة', sellPrice: 58, cat: 'رئيسي' }] }));
+    window.setOps(o => ({ ...o, posTabs: [], kdsTickets: [], posOrders: [] }));
+  }); await p.waitForTimeout(400);
+  const ob = p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await p.waitForTimeout(400); }
+  await p.click('.pos-tabs button:has-text("الطاولات")'); await p.waitForTimeout(200);
+  assert.deepEqual(await p.locator('[data-area]').evaluateAll(els => els.map(e => [e.getAttribute('data-area'), e.querySelectorAll('.pos-tbl').length])), [['الرئيسية', 5], ['العائلات', 3]]);
+  await p.click('[data-areas] button:has-text("العائلات")'); await p.waitForTimeout(150);
+  assert.equal(await p.locator('[data-area]').count(), 1, 'منتقي الصالة');
+  await p.click('[data-area="العائلات"] .pos-tbl >> nth=1'); await p.waitForTimeout(200);
+  await p.locator('.pos-tile:has-text("كبسة")').click();
+  await p.click('.pos-cart button:has-text("نقدي")'); await p.waitForTimeout(200);
+  await p.click('.modal button:has-text("تأكيد")'); await p.waitForTimeout(500);
+  assert.deepEqual(await p.evaluate(() => window.cur.posOrders.map(o => [o.table, o.areaId, o.areaName])), [['7', 'af', 'العائلات']]);
+  await p.click('.pos-tabs button:has-text("الطاولات")'); await p.waitForTimeout(200);
+  assert.match(await p.locator('[data-areasales]').innerText(), /العائلات[\s\S]*58\.00/);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
 test('v43.0 الواجهة الإنجليزية: الاتجاه LTR وترجمة الإطار (التطبيقات، رأس المركز، شريط الأقسام) والعربية افتراضيًا', async () => {
   // افتراضيًا: عربي RTL
   { const { p, errs, ctx } = await open({ viewport: { width: 1280, height: 900 } }, 'comp/Launcher');

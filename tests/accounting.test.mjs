@@ -1905,3 +1905,21 @@ test('v49.1 MQ-169 منع تكرار العمليات: إعادة المحاول
   const j = { id: 'j1', date: '2026-11-18', title: 'ت', by: 'منى', createdAt: '2026-11-18T10:00:00Z', lines: [{ code: '1101', debit: 1, credit: 0 }] };
   assert.equal(E.findRecentDups({ journalManual: [j] }, { journalManual: [{ ...j, id: 'j2', createdAt: '2026-11-18T10:00:05Z' }, j] }).length, 1);
 });
+
+test('v49.2 MQ-005 الصالات: نطاقات صالحة فقط، الطاولة خارج الصالات «بلا صالة»، والتحقق يكشف التداخل والتجاوز، ومبيعات كل صالة', () => {
+  const org = { posCfg: { tables: { b1: 12 }, areas: { b1: [{ id: 'f', name: 'العائلات', from: 6, to: 10 }, { id: 'm', name: 'الرئيسية', from: 1, to: 5 }, { id: 'x', name: 'متداخلة', from: 4, to: 7 }, { id: 'y', name: 'خارج', from: 11, to: 30 }] } } };
+  assert.deepEqual(E.posAreas(org, 'b1').map(a => [a.id, a.from, a.to]), [['m', 1, 5], ['f', 6, 10], ['y', 11, 12]], 'المتداخلة تُهمل والتجاوز يُقص');
+  assert.equal(E.tableArea(org, 'b1', '7').name, 'العائلات'); assert.equal(E.tableArea({ posCfg: { tables: { b1: 12 } } }, 'b1', '7'), null);
+  assert.equal(E.areasErr([{ name: 'أ', from: 1, to: 5 }, { name: 'ب', from: 5, to: 8 }], 12), 'الصالتان «أ» و«ب» متداخلتان');
+  assert.match(E.areasErr([{ name: 'أ', from: 1, to: 15 }], 12), /يتجاوز عدد الطاولات/);
+  assert.match(E.areasErr([{ name: '', from: 1, to: 2 }], 12), /اسم/);
+  assert.equal(E.areasErr([{ name: 'أ', from: 1, to: 6 }, { name: 'ب', from: 7, to: 12 }], 12), '');
+  const ops = { posOrders: [
+    { branchId: 'b1', status: 'paid', table: '2', total: 50, at: '2026-11-18T10:00:00Z' },
+    { branchId: 'b1', status: 'paid', table: '8', total: 30, at: '2026-11-18T11:00:00Z', areaId: 'f', areaName: 'العائلات' },
+    { branchId: 'b1', status: 'paid', table: '12', total: 20, at: '2026-11-18T12:00:00Z' },
+    { branchId: 'b1', status: 'void', table: '2', total: 99, at: '2026-11-18T12:00:00Z' },
+    { branchId: 'b1', status: 'paid', total: 70, at: '2026-11-18T12:00:00Z' }] };
+  assert.deepEqual(E.salesByArea({ posCfg: { tables: { b1: 12 }, areas: { b1: [{ id: 'm', name: 'الرئيسية', from: 1, to: 5 }, { id: 'f', name: 'العائلات', from: 6, to: 10 }] } } }, ops, 'b1', '2026-11-18', '2026-11-18').map(x => [x.name, x.orders, x.total]),
+    [['الرئيسية', 1, 50], ['العائلات', 1, 30], ['بلا صالة', 1, 20]]);
+});
