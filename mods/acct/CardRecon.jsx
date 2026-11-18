@@ -2,7 +2,7 @@
    المحرك في النواة (cardStmtLines/cardRecon). الكشف يُقرأ في الجهاز ولا يُحفظ؛ يُحفظ ملخص المطابقة المعتمد فقط. */
 import React, { useMemo, useState } from 'react';
 import { CreditCard, Upload, Info, Download, Check, Lock, ChevronDown, AlertTriangle } from 'lucide-react';
-import { CRS_ST, capOK, cardSettlePlan } from '../../App.jsx';   // v41.3
+import { CRS_ST, capOK, cardSettlePlan, jeAutoSt } from '../../App.jsx';   // v41.3
 import { Kpi, ROLES, CR_TYPE, cardRecon, cardStmtLines, detectStmtMap, makeXlsx, money, nowISO, parseCsvGrid, parseMt940, parseXlsxGrid, roleEdit, today, uid } from '../../App.jsx';
 
 const addD = (d, k) => { const x = new Date(d + 'T12:00:00'); x.setDate(x.getDate() + k); return x.toISOString().slice(0, 10); };
@@ -56,10 +56,10 @@ export function CardRecon({ org, ops, me, commit, commitOrg, say }) {
   const SP = M ? cardSettlePlan(org, ops, lines, { lags: Object.fromEntries(M.branches.map(b => [b.id, b.lag])) }) : null;
   const canPost = capOK(me?.role, 'post') && !!commit;
   const postSettle = async () => { if (!SP || !SP.ready.length) return; const now = nowISO();
-    const recs = SP.ready.map(r => ({ id: uid('jm'), date: r.date, ref: r.ref, src: 'cardSettle', title: 'تسوية وسيط الشبكة آليًا — ' + r.branch + ' — إيداع ' + r.date + ' (مبيعات ' + r.biz + ')', opening: false, by: me?.name || '', createdAt: now, lines: r.lines }));
-    const ok = await commit(d => { const have = new Set((d.journalManual || []).map(j => j.ref).filter(Boolean)); const add = recs.filter(x => !have.has(x.ref)); return add.length ? { ...d, journalManual: [...add, ...(d.journalManual || [])] } : d; },
+    const recs = SP.ready.map(r => ({ id: uid('jm'), date: r.date, ref: r.ref, src: 'cardSettle', title: 'تسوية وسيط الشبكة آليًا — ' + r.branch + ' — إيداع ' + r.date + ' (مبيعات ' + r.biz + ')', opening: false, by: me?.name || '', createdAt: now, ...jeAutoSt(me), lines: r.lines }));
+    const ok = await commit(d => { const have = new Set((d.journalManual || []).filter(j => j.status !== 'rejected').map(j => j.ref).filter(Boolean)); const add = recs.filter(x => !have.has(x.ref)); return add.length ? { ...d, journalManual: [...add, ...(d.journalManual || [])] } : d; },
       { actionType: 'create', targetType: 'journal_entry', targetId: 'cardSettle', need: 'post', title: 'رحّل التسوية التلقائية لوسيط الشبكة', details: recs.length + ' قيد · ' + money(recs.reduce((a, r) => a + r.lines.reduce((x, l) => x + l.debit, 0), 0)) });
-    if (ok !== false) say('رُحّل ' + recs.length + ' قيد تسوية ✓ — الوسيط يُقفل بما أودعه البنك، والعمولات وضريبتها في حساباتها'); };
+    if (ok !== false) say(jeAutoSt(me).status === 'posted' ? 'رُحّل ' + recs.length + ' قيد تسوية ✓ — الوسيط يُقفل بما أودعه البنك، والعمولات وضريبتها في حساباتها' : 'أُرسل ' + recs.length + ' قيد تسوية للاعتماد ✓ — لا تدخل الدفاتر قبل اعتمادها'); };
   const saved = (ops.cardRecons || []).slice(0, 6);
   return (
     <div className="grid" style={{ gap: 12 }}>

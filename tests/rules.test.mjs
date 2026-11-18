@@ -15,7 +15,7 @@ import {
   assertFails,
   assertSucceeds
 } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc, updateDoc, deleteDoc, addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, deleteDoc, addDoc, collection, serverTimestamp, Timestamp } from 'firebase/firestore';
 
 let env;
 const OWNER = 'owner@test.com';      // مدير (ضمن platform/admins)
@@ -440,4 +440,29 @@ test('v49.0 fin_journal: حذف القيد قبل اعتماده لمنشئه أ
   await assertSucceeds(updateDoc(doc(acct2(), 'fin_journal', 'd3'), { status: 'rejected', decidedBy: ACCT2, decidedAt: serverTimestamp(), reason: 'خطأ في الحساب' }));
   await assertFails(deleteDoc(doc(acct(), 'fin_journal', 'd3')), 'المرفوض لا يُحذف');
   await assertFails(deleteDoc(doc(owner(), 'fin_journal', 'd3')), 'ولا للمدير');
+});
+
+test('v49.0 G4 نافذة الترحيل: المدير وحده يفتحها لمدة ≤24 ساعة، وخلالها فقط تُنسخ القيود القديمة بحالتها وفي الفترات المقفلة', async () => {
+  await finSeed('2026-10-31');
+  const leg = (email, over) => fj(email, { legacy: true, origBy: 'محاسب سابق', date: '2026-03-15', ...(over || {}) });
+  const soon = () => Timestamp.fromMillis(Date.now() + 3600e3);
+  // قبل فتح النافذة: مرفوض
+  await assertFails(setDoc(doc(owner(), 'fin_journal', 'g1'), leg(OWNER, { status: 'posted' })), 'النافذة مغلقة');
+  // الفتح للمدير فقط وبمدة ≤ 24 ساعة
+  await assertFails(setDoc(doc(acct(), 'fin_periods', 'migration'), { open: true, until: soon(), by: ACCT, at: serverTimestamp() }));
+  await assertFails(setDoc(doc(owner(), 'fin_periods', 'migration'), { open: true, until: Timestamp.fromMillis(Date.now() + 48 * 3600e3), by: OWNER, at: serverTimestamp() }), 'أكثر من 24 ساعة');
+  await assertSucceeds(setDoc(doc(owner(), 'fin_periods', 'migration'), { open: true, until: soon(), by: OWNER, at: serverTimestamp() }));
+  // خلال النافذة: المدير ينسخ المرحّل والمرفوض والمعلّق في فترة مقفلة؛ المحاسب لا
+  await assertSucceeds(setDoc(doc(owner(), 'fin_journal', 'g1'), leg(OWNER, { status: 'posted' })));
+  await assertSucceeds(setDoc(doc(owner(), 'fin_journal', 'g2'), leg(OWNER, { status: 'rejected', reason: 'مرفوض سابقًا' })));
+  await assertSucceeds(setDoc(doc(owner(), 'fin_journal', 'g3'), leg(OWNER, { status: 'pending', date: '2026-11-12' })));
+  await assertFails(setDoc(doc(acct(), 'fin_journal', 'g4'), leg(ACCT)), 'الترحيل للمدير فقط');
+  await assertFails(setDoc(doc(owner(), 'fin_journal', 'g5'), fj(OWNER, { date: '2026-03-15', status: 'posted' })), 'بلا علامة legacy تبقى قاعدة الإقفال');
+  // القيد المعلّق المرحَّل يعتمده المدير (المنشئ الأصلي غيره)، والعلامة ثابتة؛ والمرحّل لا يتغير
+  await assertFails(updateDoc(doc(owner(), 'fin_journal', 'g3'), { status: 'posted', decidedBy: OWNER, decidedAt: serverTimestamp(), legacy: false }));
+  await assertSucceeds(updateDoc(doc(owner(), 'fin_journal', 'g3'), { status: 'posted', decidedBy: OWNER, decidedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(owner(), 'fin_journal', 'g1'), { status: 'rejected', decidedBy: OWNER, decidedAt: serverTimestamp() }));
+  // بعد الإغلاق: لا ترحيل
+  await assertSucceeds(setDoc(doc(owner(), 'fin_periods', 'migration'), { open: false, until: Timestamp.fromMillis(Date.now()), by: OWNER, at: serverTimestamp() }));
+  await assertFails(setDoc(doc(owner(), 'fin_journal', 'g6'), leg(OWNER, { status: 'posted' })), 'النافذة أُغلقت');
 });

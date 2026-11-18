@@ -6,7 +6,7 @@ import { cloud, KEYS, brKey } from '../../storage';
 import { ShieldCheck, RefreshCw, Trash2, AlertTriangle, Check, Server, Bug, Activity, HardDrive } from 'lucide-react';
 import { archKey, archivePlan, nowISO, printA4, uid } from '../../App.jsx';   // v41.7
 import { clrCompare, clrLoad, clrOn, clrSeed, clrState, logAudit, clrRead, clrViewStats } from '../../App.jsx';   // v41.9 + v42.2
-import { fjCompare, fjLoad, fjOn, fjState, fpLockedTo, fpLoad } from '../../App.jsx';   // v49.0 المرحلة 01
+import { fjCompare, fjLoad, fjOn, fjState, fpLockedTo, fpLoad, fmLoad, fmSet, fjSeed } from '../../App.jsx';   // v49.0 المرحلة 01
 import { dataFootprint, recipeRaw, APP_CV, APP_VER, CloudHealth, ERRLOG_KEY, MAIN_WH, ROLES, SIG_BADGE, SIG_NAME, buildAccounting, loadRelease, loadSignoffs, sigVerify, branchBanks, cashForecast, complianceItems, entityList, vatStatus, countedClosing, isoD, money, purKey, q3, qrFs, snapAll, stockByWh, today, whName, whOf } from '../../App.jsx';
 
 const ST = { ok: ['b-mint', 'سليم'], warn: ['b-amber', 'تنبيه'], bad: ['b-rose', 'خلل'] };
@@ -419,7 +419,25 @@ function ClosingRecordsCard({ org, ops, me, commitOrg, say, isAdm }) {
    ترحيل القيود القديمة وتحويل القراءة خطوتان لاحقتان تتطلبان موافقة المالك (G4). */
 function JournalRecordsCard({ org, ops, commitOrg, say, isAdm }) {
   const on = fjOn(org);
-  const [busy, setBusy] = useState(''); const [rep, setRep] = useState(null);
+  const [busy, setBusy] = useState(''); const [rep, setRep] = useState(null); const [mig, setMig] = useState(null);
+  // G4: نافذة الترحيل — تُفتح لساعات محدودة، والترحيل يكتب الناقص فقط ثم تُعاد المطابقة
+  const winSet = async (open) => {
+    if (!isAdm || !on) return;
+    if (open && !window.confirm('فتح نافذة ترحيل القيود القديمة لمدة 6 ساعات؟\nخلالها فقط يستطيع المدير نسخ القيود الناقصة بحالتها الأصلية، ثم تُغلق تلقائيًا. لا يُحذف ولا يتغير أي قيد.')) return;
+    setBusy('win'); const r = await fmSet(open); setBusy('');
+    if (r.err) return say('تعذّر ' + (open ? 'فتح' : 'إغلاق') + ' النافذة (' + r.err + ')', 'no');
+    await logAudit({ actionType: 'settings', targetType: 'system_settings', targetId: 'finMigration', title: open ? 'فتح نافذة ترحيل القيود القديمة (6 ساعات)' : 'أغلق نافذة ترحيل القيود' });
+    setMig(await fmLoad()); say(open ? 'فُتحت النافذة ✓ — اضغط «مطابقة» ثم «ترحيل القيود الناقصة»' : 'أُغلقت النافذة ✓');
+  };
+  const seed = async () => {
+    if (!isAdm || !rep || !rep.missing.length) return;
+    if (!window.confirm('نسخ ' + rep.missing.length + ' قيدًا ناقصًا إلى السجلات المحمية بحالتها الأصلية؟ (لا يتغير شيء في القيود الحالية)')) return;
+    setBusy('seed'); const r = await fjSeed(rep.missing, (i, t) => setBusy('seed ' + i + '/' + t)); setBusy('');
+    if (r.err) return say(r.err, 'no');
+    await logAudit({ actionType: 'migrate', targetType: 'system_settings', targetId: 'finRecords', title: 'رحّل القيود اليدوية القديمة إلى السجلات المحمية', details: r.ok + ' من ' + r.total + (r.fail ? ' · تعذّر ' + r.fail + ' (' + r.lastErr + ')' : '') });
+    say(r.fail ? 'نُسخ ' + r.ok + ' وتعذّر ' + r.fail + ' (' + r.lastErr + ')' : 'نُسخ ' + r.ok + ' قيدًا ✓ — أُعيدت المطابقة', r.fail ? 'no' : 'ok');
+    check();
+  };
   const toggle = async () => {
     if (!isAdm) return;
     if (!on && !window.confirm('تفعيل نسخ كل قيد يدوي إلى سجل مستقل يحرسه الخادم؟\nالقيود الحالية تبقى المصدر ولا يتغير شيء في الدفاتر؛ النسخ إضافي ويمكن إيقافه.')) return;
@@ -431,7 +449,7 @@ function JournalRecordsCard({ org, ops, commitOrg, say, isAdm }) {
     setBusy('check'); const recs = await fjLoad(); setBusy('');
     if (!recs) return say('السجلات المستقلة تعمل على قاعدة Firestore فقط', 'no');
     if (recs.err) return say('تعذّرت قراءة السجلات (' + recs.err + ') — قد تكون القواعد لم تُنشر بعد', 'no');
-    const lk = await fpLoad();
+    const lk = await fpLoad(); setMig(await fmLoad());
     setRep({ ...fjCompare(ops.journalManual || [], recs), lockApp: fpLockedTo(org), lockSrv: lk && !lk.err ? lk.lockedTo : '?' });
   };
   const st = fjState();
@@ -442,10 +460,12 @@ function JournalRecordsCard({ org, ops, commitOrg, say, isAdm }) {
         <span className={'badge ' + (on ? 'b-sky' : 'b-dim')}>{on ? 'النسخ مفعّل' : 'غير مفعّل'}</span></div>
       <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>
         كل قيد يدوي يُنسخ إلى سجل مستقل يفرض الخادم قواعده: <b>لا قيد في فترة مقفلة، ولا يعتمد المحاسب قيده، ولا يتغير قيد بعد إنشائه، ولا يُحذف بعد اعتماده</b>.
-        في هذه المرحلة تبقى القيود الحالية هي المصدر، والمطابقة تكشف الناقص والمختلف والزائد. ترحيل القيود القديمة وتحويل القراءة خطوة لاحقة بموافقة المالك.
+        في هذه المرحلة تبقى القيود الحالية هي المصدر، والمطابقة تكشف الناقص والمختلف والزائد. القيود القديمة تُرحَّل عبر «نافذة الترحيل» المؤقتة (6 ساعات، للمدير فقط)، وتحويل القراءة إلى السجلات خطوة لاحقة بموافقة المالك.
       </div>
       <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
         {isAdm && <button className={'btn sm' + (on ? ' gh' : ' pri')} disabled={!!busy} onClick={toggle} data-fjtoggle>{on ? 'إيقاف النسخ' : 'تفعيل النسخ'}</button>}
+        {isAdm && on && mig && !mig.err && <button className={'btn sm' + (mig.open ? ' gh' : '')} disabled={!!busy} onClick={() => winSet(!mig.open)} data-fjwin>{mig.open ? 'إغلاق نافذة الترحيل' : 'فتح نافذة الترحيل (6 ساعات)'}</button>}
+        {isAdm && on && mig && mig.open && rep && rep.missing.length > 0 && <button className="btn sm pri" disabled={!!busy} onClick={seed} data-fjseed>{busy.startsWith('seed') ? 'جارٍ الترحيل… ' + busy.slice(5) : 'ترحيل القيود الناقصة (' + rep.missing.length + ')'}</button>}
         <button className="btn sm" disabled={!!busy} onClick={check} data-fjcheck><RefreshCw size={13} />{busy === 'check' ? 'جارٍ المطابقة…' : 'مطابقة'}</button>
       </div>
       {st.at > 0 && <div style={{ fontSize: 11.5, color: st.fail ? 'var(--rose)' : 'var(--dim)', marginTop: 8 }}>هذا الجهاز: نُسخ {st.ok}{st.fail ? ' · تعذّر ' + st.fail + ' (' + st.lastErr + ')' : ''}{st.skip ? ' · لم يُنسخ ' + st.skip + ' تعديلًا على قيد قائم' : ''}</div>}
@@ -453,6 +473,7 @@ function JournalRecordsCard({ org, ops, commitOrg, say, isAdm }) {
         <div style={{ fontSize: 13, fontWeight: 700, color: rep.ok ? 'var(--mint)' : 'var(--rose)' }}>
           {rep.ok ? '✓ متطابقة: ' + rep.total + ' قيدًا = ' + rep.recs + ' سجلًا مستقلًا' : 'غير متطابقة: ناقص ' + rep.missing.length + ' · مختلف ' + rep.differ.length + ' · زائد ' + rep.extra.length}
         </div>
+        {mig && mig.open && <div style={{ fontSize: 12, marginTop: 4, color: 'var(--amber)' }} data-fjmig>نافذة الترحيل مفتوحة حتى {new Date(mig.until).toLocaleTimeString('ar-SA-u-nu-latn', { hour: '2-digit', minute: '2-digit' })}</div>}
         <div style={{ fontSize: 12, marginTop: 4, color: rep.lockApp === rep.lockSrv ? 'var(--dim)' : 'var(--rose)' }} data-fjlock>
           إقفال الفترات: التطبيق حتى {rep.lockApp === '0000-00-00' ? 'لا قفل' : rep.lockApp} · الخادم حتى {rep.lockSrv === '0000-00-00' ? 'لا قفل' : rep.lockSrv}{rep.lockApp === rep.lockSrv ? ' ✓' : ' — غير متطابق (يُصحَّح بإعادة حفظ القفل من المدير)'}
         </div>

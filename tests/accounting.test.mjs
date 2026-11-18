@@ -1824,4 +1824,18 @@ test('v49.0 — القيود اليدوية سجلات مستقلة: الفرق 
   assert.equal(E.fpLockedTo({ periodLocks: { lockedThrough: '2026-02' } }), '2026-02-28');
   assert.equal(E.fpLockedTo({ periodLocks: { lockedThrough: '2026-10' } }), '2026-10-31');
   assert.equal(E.fpLockedTo({}), '0000-00-00');
+  // G4: سجل الترحيل يحمل الحالة الأصلية والمنشئ الأصلي، وبصمته كبصمة النسخ المزدوج (فتنجح المطابقة بعده)
+  const rej = j({ id: 'jm7', status: 'rejected', rejectedBy: 'ب', rejectReason: 'حساب خاطئ' });
+  const L = E.fjLegacyRecord(rej);
+  assert.deepEqual([L.legacy, L.origBy, L.status, L.reason, L.digest], [true, 'أ', 'rejected', 'حساب خاطئ', E.fjRecord(rej).digest]);
+  assert.equal(E.fjCompare([rej], [{ id: 'jm7', ...L }]).ok, true);
 });
+
+test('v49.0 القيود الآلية تمر بالاعتماد (قرار المالك): المالك يرحّل مباشرة، وغيره بانتظار الاعتماد', () => {
+  const own = Object.keys(E.ROLES).find(k => E.ROLES[k].admin);
+  assert.equal(E.jeAutoSt({ id: 'u1', name: 'م', role: own }).status, 'posted');
+  const p = E.jeAutoSt({ id: 'u2', name: 'ح', role: 'accountant' });
+  assert.deepEqual([p.status, p.byId, 'approvedBy' in p], ['pending', 'u2', false]);
+  assert.equal(E.jeLive({ status: 'pending' }), false, 'لا يدخل الدفاتر قبل الاعتماد');
+});
+
