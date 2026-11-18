@@ -1962,3 +1962,26 @@ test('v49.2 MQ-024 طلب عروض الأسعار: المقارنة لكل صن�
   assert.match(E.rfqToPOs(org, ops, { ...rfq, quotes: { C: rfq.quotes.C } }, 'split').err, /بلا أي عرض/);
   assert.equal(E.rfqNextNo({ rfqs: [{ no: 'RFQ-0009' }] }), 'RFQ-0010');
 });
+
+test('v49.2 MQ-037 الربحية صنف × فرع × فترة: الإيراد بحصة السطر من صافي الفاتورة بعد الخصم، المرتجع يُطرح، الملغاة تُستبعد، وبلا وصفة «غير معروفة»', () => {
+  const org = baseOrg({ taxCfg: { enabled: true, rate: 15 }, branches: [{ id: 'b1', name: 'طيبة' }, { id: 'b2', name: 'النسيم' }], items: [{ id: 'i1', name: 'دجاج', unit: 'كجم', cost: 10 }],
+    products: [{ id: 'K', name: 'كبسة', sellPrice: 46, parts: [{ itemId: 'i1', qty: 1.5 }] }, { id: 'S', name: 'شاي', sellPrice: 4.6, parts: [] }] });
+  const o = (id, br, date, lines, net, extra = {}) => ({ id, branchId: br, date, status: 'paid', lines, net, ...extra });
+  const ops = { posOrders: [
+    o('1', 'b1', '2026-10-05', [{ productId: 'K', name: 'كبسة', qty: 2, price: 46 }, { productId: 'S', name: 'شاي', qty: 2, price: 4.6 }], 88),      // 101.2 قبل خصم ⇒ 88 صافيًا (خصم فاتورة)
+    o('2', 'b1', '2026-11-02', [{ productId: 'K', name: 'كبسة', qty: 1, price: 46 }], 40),
+    o('3', 'b1', '2026-11-03', [{ productId: 'K', name: 'كبسة', qty: -1, price: 46 }], -40, { kind: 'return' }),
+    o('4', 'b2', '2026-11-04', [{ productId: 'K', name: 'كبسة', qty: 3, price: 46 }], 120),
+    o('5', 'b2', '2026-11-04', [{ productId: 'K', name: 'كبسة', qty: 9, price: 46 }], 360, { status: 'void' })] };
+  const P = E.profitMatrix(org, ops, { from: '2026-10-01', to: '2026-11-30', by: 'month' });
+  const pick = (pid, br, per) => P.rows.find(r => r.productId === pid && r.branchId === br && r.period === per);
+  const k1 = pick('K', 'b1', '2026-10');
+  assert.deepEqual([k1.qty, k1.rev, k1.cost, k1.gp], [2, 80, 30, 50], 'حصة الكبسة 92/101.2 × 88 = 80؛ التكلفة 2 × 1.5 × 10');
+  assert.deepEqual([pick('S', 'b1', '2026-10').rev, pick('S', 'b1', '2026-10').cost], [8, null], 'بلا وصفة: تكلفة غير معروفة');
+  const k2 = pick('K', 'b1', '2026-11'); assert.deepEqual([k2.qty, k2.rev, k2.cost], [0, 0, 0], 'المرتجع يلغي البيع');
+  assert.deepEqual([pick('K', 'b2', '2026-11').qty, pick('K', 'b2', '2026-11').gpPct], [3, 62.5], 'الملغاة مستبعدة');
+  assert.deepEqual(P.byBranch.map(b => [b.name, b.rev, b.unknown, b.gp]), [['النسيم', 120, 0, 75], ['طيبة', 88, 8, 50]]);
+  assert.deepEqual([P.tot.rev, P.tot.known, P.tot.cost, P.tot.gp, P.tot.unknownRev], [208, 200, 75, 125, 8]);
+  assert.equal(E.profitMatrix(org, ops, { from: '2026-10-01', to: '2026-11-30', branchIds: ['b2'] }).rows.length, 1);
+  assert.equal(E.pmPeriod('2026-11-18', 'week'), 'أسبوع 2026-11-14', 'الأسبوع يبدأ السبت');
+});

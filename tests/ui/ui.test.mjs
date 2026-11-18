@@ -981,6 +981,24 @@ test('v49.2 MQ-024 طلب عروض الأسعار: إنشاء لموردَين،
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+test('v49.2 MQ-037 ربحية الأصناف والفروع: من فواتير نقطة البيع، حسب الصنف والفرع والتفصيل، والإيراد بلا تكلفة معروفة يُذكر ولا يدخل الهامش', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/Hub/admin/analytics:profitmx');
+  await p.evaluate(() => {
+    const t = new Date().toISOString().slice(0, 10);
+    window.setOrg(g => ({ ...g, taxCfg: { enabled: false }, items: [{ id: 'i1', name: 'دجاج', unit: 'كجم', cost: 10 }], products: [{ id: 'K', name: 'كبسة', sellPrice: 40, parts: [{ itemId: 'i1', qty: 1 }] }, { id: 'S', name: 'شاي', sellPrice: 5, parts: [] }] }));
+    window.setOps(o => ({ ...o, stockMoves: [], whMoves: [], posOrders: [
+      { id: 'a', branchId: 'b1', date: t, status: 'paid', net: 85, lines: [{ productId: 'K', name: 'كبسة', qty: 2, price: 40 }, { productId: 'S', name: 'شاي', qty: 1, price: 5 }] },
+      { id: 'b', branchId: 'b2', date: t, status: 'paid', net: 40, lines: [{ productId: 'K', name: 'كبسة', qty: 1, price: 40 }] }] }));
+  }); await p.waitForTimeout(400);
+  assert.match(await p.locator('[data-pmx]').innerText(), /الإيراد الصافي[\s\S]*125\.00[\s\S]*مجمل الربح[\s\S]*90\.00/, 'كبسة 3 × (40 − 10) = 90؛ الشاي بلا تكلفة');
+  assert.match(await p.locator('[data-pmxtable]').innerText(), /كبسة[\s\S]*120\.00[\s\S]*30\.00[\s\S]*90\.00[\s\S]*75%/);
+  await p.click('[data-pmx] button:has-text("حسب الفرع")'); await p.waitForTimeout(150);
+  assert.equal(await p.locator('[data-pmxtable] tbody tr').count(), 2);
+  await p.click('[data-pmx] button:has-text("صنف × فرع × فترة")'); await p.waitForTimeout(150);
+  assert.match(await p.locator('[data-pmxtable]').innerText(), /شاي[\s\S]*غير معروفة/);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
 test('v43.0 الواجهة الإنجليزية: الاتجاه LTR وترجمة الإطار (التطبيقات، رأس المركز، شريط الأقسام) والعربية افتراضيًا', async () => {
   // افتراضيًا: عربي RTL
   { const { p, errs, ctx } = await open({ viewport: { width: 1280, height: 900 } }, 'comp/Launcher');
