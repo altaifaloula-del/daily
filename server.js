@@ -18,6 +18,7 @@ import { fileURLToPath } from 'url';
 import { onboardEgs } from './zatca/onboard.js';
 import { vaultReady } from './zatca/vault.js';
 import { createVerifier } from './server-auth.js';
+import { planAllows, PLAN_AR } from './plans.js';
 import { loadTenants } from './tenants.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -173,6 +174,12 @@ if (STORE_ENABLED) {
 // نتيجة التحقق تُحفظ مؤقتًا دقيقتين لتقليل النداءات الخارجية
 const verifyMember = createVerifier({ T: TENANTS, headers: googleHeaders });
 const tenantOf = (req) => TENANTS.byId((req.user && req.user.tenant) || 'default') || TENANTS.def;
+// v51.3 (S4): الخاصية غير المشمولة في خطة المنشأة تُرفض هنا على الخادم — لا يكفي إخفاؤها في الواجهة
+const requireFeature = (feature) => (req, res, next) => {
+  const t = tenantOf(req);
+  if (planAllows(t.plan, feature)) return next();
+  res.status(402).json({ error: 'هذه الخاصية غير مشمولة في خطة «' + (PLAN_AR[t.plan] || t.plan) + '» — راجع اشتراكك', feature, plan: t.plan });
+};
 
 async function requireMember(req, res, next) {
   if (!FB_READY) {
@@ -206,8 +213,8 @@ const zatcaAllowed = (req, res) => {
   if (FB_READY && !ZATCA_ROLES.has(req.user.role)) { res.status(403).json({ error: 'تسجيل أجهزة الفوترة للمفوَّضين فقط (مسؤول النظام أو المكتب الرئيسي)' }); return false; }
   return true;
 };
-app.get('/api/zatca/config', requireMember, (req, res) => res.json({ vault: vaultReady(tenantVault(req)), envs: ['sandbox', 'simulation'], canOnboard: !FB_READY || ZATCA_ROLES.has(req.user.role) }));
-app.post('/api/zatca/onboard', zJson, requireMember, rateLimit({ windowMs: 3600000, max: 12, keyFn: (r) => 'z:' + tenantOf(r).id + ':' + ((r.user && r.user.email) || r.ip) }), async (req, res) => {
+app.get('/api/zatca/config', requireMember, (req, res) => res.json({ vault: vaultReady(tenantVault(req)), envs: ['sandbox', 'simulation'], canOnboard: (!FB_READY || ZATCA_ROLES.has(req.user.role)) && planAllows(tenantOf(req).plan, 'zatca') }));
+app.post('/api/zatca/onboard', zJson, requireMember, requireFeature('zatca'), rateLimit({ windowMs: 3600000, max: 12, keyFn: (r) => 'z:' + tenantOf(r).id + ':' + ((r.user && r.user.email) || r.ip) }), async (req, res) => {
   if (!zatcaAllowed(req, res)) return;
   const vault = tenantVault(req);
   if (!vaultReady(vault)) return res.status(503).json({ error: 'مفتاح تشفير الفوترة غير مضبوط على الخادم (ZATCA_ENC_KEY) — أضفه من إعدادات الخادم ثم أعد المحاولة' });
@@ -327,7 +334,7 @@ const aiJson = express.json({ limit: '1mb' });
 const aiLimit = rateLimit({ windowMs: 3600000, max: Number(process.env.AI_RATE_LIMIT_PER_HOUR) || 30, keyFn: req => req.user && (tenantOf(req).id + ':' + req.user.email) });
 const aiErr = (res, e) => res.status(e.status || 500).json({ error: e.status ? e.message : 'تعذّر إتمام التحليل' });
 
-app.post('/api/ai/analyze', aiJson, requireMember, aiLimit, async (req, res) => {
+app.post('/api/ai/analyze', aiJson, requireMember, requireFeature('ai'), aiLimit, async (req, res) => {
   const digest = req.body?.digest;
   if (!digest || typeof digest !== 'object') return res.status(400).json({ error: 'لا توجد بيانات للتحليل' });
   const data = JSON.stringify(digest);
@@ -351,7 +358,7 @@ app.post('/api/ai/analyze', aiJson, requireMember, aiLimit, async (req, res) => 
   } catch (e) { aiErr(res, e); }
 });
 
-app.post('/api/ai/feedback', aiJson, requireMember, aiLimit, async (req, res) => {
+app.post('/api/ai/feedback', aiJson, requireMember, requireFeature('ai'), aiLimit, async (req, res) => {
   const items = Array.isArray(req.body?.items) ? req.body.items : null;
   if (!items || !items.length) return res.status(400).json({ error: 'لا توجد تعليقات للتحليل' });
   const payload = items.slice(0, 20).map(x => ({ id: String(x?.id || '').slice(0, 80), comment: String(x?.comment || '').slice(0, 1000) }));

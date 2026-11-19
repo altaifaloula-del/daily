@@ -21,7 +21,7 @@ const okCol = (v) => /^[A-Za-z][A-Za-z0-9_-]{0,39}$/.test(v);
 function fromEnv(env) {
   const E = env || {};
   return {
-    id: DEFAULT_TENANT_ID, name: '', plan: 'enterprise', region: '', source: 'env',
+    id: DEFAULT_TENANT_ID, name: '', plan: 'enterprise', region: '', status: 'active', source: 'env',
     collection: S(E.VITE_FIREBASE_COLLECTION) || 'platform',
     firebase: {
       apiKey: E.VITE_FIREBASE_API_KEY, authDomain: E.VITE_FIREBASE_AUTH_DOMAIN, projectId: E.VITE_FIREBASE_PROJECT_ID,
@@ -39,6 +39,7 @@ export function tenantConfigError(t) {
   if (!okKey(S(f.apiKey))) return 'مفتاح Firebase غير صالح';
   if (t.collection != null && !okCol(S(t.collection))) return 'اسم المجموعة غير صالح';
   if (t.plan != null && !PLANS.includes(t.plan)) return 'الخطة غير معروفة';
+  if (t.status != null && !['active', 'readonly', 'suspended'].includes(t.status)) return 'حالة الاشتراك غير معروفة';
   if (t.region != null && t.region !== '' && !TENANT_REGIONS.includes(t.region)) return 'المنطقة غير معتمدة';
   return '';
 }
@@ -51,7 +52,8 @@ export function resolveTenant(env, injected) {
   if (err) { try { console.warn('[mithqal] إعداد المستأجر المحقون مرفوض — يُستعمل الافتراضي:', err); } catch { } return { ...def, rejected: err }; }
   const f = injected.firebase;
   return {
-    id: injected.id, name: S(injected.name), plan: injected.plan || 'basic', region: injected.region || TENANT_REGIONS[0], source: 'injected',
+    id: injected.id, name: S(injected.name), plan: injected.plan || 'basic', region: injected.region || TENANT_REGIONS[0],
+    status: injected.status === 'readonly' ? 'readonly' : 'active', source: 'injected',
     collection: S(injected.collection) || 'platform',
     firebase: { apiKey: S(f.apiKey), authDomain: S(f.authDomain) || f.projectId + '.firebaseapp.com', projectId: S(f.projectId),
       storageBucket: S(f.storageBucket), messagingSenderId: S(f.messagingSenderId), appId: S(f.appId) }

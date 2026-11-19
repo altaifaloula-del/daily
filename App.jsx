@@ -21,7 +21,7 @@ import {
 } from 'recharts';
 import { CSS } from './styles';
 import { TX, getLang, setLangGlobal, isEn, domI18n } from './i18n';
-import { tenantFirebase, tenantFbReady } from './tenant.js';
+import { tenantFirebase, tenantFbReady, TENANT } from './tenant.js';
 import { cloud, KEYS, kb, authApi, brKey, bfKey, pushApi } from './storage';
 
 /* ===== v38.3 — تحميل التطبيقات عند الطلب =====
@@ -3242,7 +3242,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v51.2';
+const APP_VER = 'v51.3';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -4545,6 +4545,17 @@ function PlatformApp() {
               </div>
             );
           })()}
+
+          {/* v51.3 (S4): اشتراك «للقراءة فقط» — القواعد على الخادم ترفض أي حفظ؛ هذا تنبيه فقط */}
+          {TENANT.status === 'readonly' && (
+            <div className="mq-sub-ro" style={{
+              background: 'rgba(224,164,88,.14)', borderBottom: '1px solid rgba(224,164,88,.4)',
+              color: 'var(--amber)', padding: '9px 20px', fontSize: 12, display: 'flex', gap: 9, alignItems: 'center'
+            }}>
+              <AlertTriangle size={15} />
+              اشتراك المنشأة «للقراءة فقط» — يمكنك العرض والطباعة والتصدير، ولا يُحفظ أي تعديل حتى يُجدَّد الاشتراك.
+            </div>
+          )}
 
           {offline && (
             <div style={{

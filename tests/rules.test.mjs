@@ -43,12 +43,14 @@ const visitor = () => env.unauthenticatedContext().firestore();
 
 before(async () => {
   env = await initializeTestEnvironment({
-    projectId: 'rules-test',
-    firestore: { rules: fs.readFileSync('firestore.rules', 'utf8') }
+    projectId: process.env.RULES_FILE ? 'rules-tenant-test' : 'rules-test',
+    firestore: { rules: fs.readFileSync(process.env.RULES_FILE || 'firestore.rules', 'utf8') }
   });
   await env.withSecurityRulesDisabled(async (ctx) => {
     const d = db(ctx);
     await setDoc(doc(d, 'platform', 'admins'), { emails: [OWNER] });
+    // v51.3: نفس الاختبارات على قواعد المنشآت المشتركة باشتراك «نشط» — يجب أن تتطابق النتائج (ويُختبر حد استدعاءات المستندات)
+    if (process.env.RULES_FILE) await setDoc(doc(d, 'mq_control', 'subscription'), { status: 'active', plan: 'pro' });
     await setDoc(doc(d, 'members', OWNER), { email: OWNER, active: true });
     await setDoc(doc(d, 'members', STAFF), { email: STAFF, active: true });
     await setDoc(doc(d, 'members', FROZEN), { email: FROZEN, active: false });

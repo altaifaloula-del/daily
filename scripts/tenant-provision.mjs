@@ -7,10 +7,13 @@
  *
  * «plan»: يطبع الخطوات والأوامر بالترتيب (لا ينفّذ شيئًا) — ينفّذها المالك بحسابه في Google بعد المراجعة.
  * «registry»: يحوّل مخرجات `firebase apps:sdkconfig web` إلى ملف السجل public/tenants/<id>.json بعد التحقق منه.
+ *   node scripts/tenant-provision.mjs status   --id client2 --set readonly|suspended|active   (v51.3 — يطبع أوامر تغيير الحالة فقط)
+ *
  * لا يحذف شيئًا ولا يلمس مشروع الطيف أبدًا.
  */
 import fs from 'node:fs'; import path from 'node:path'; import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tenantConfigError, PLANS, TENANT_REGIONS } from '../tenant.js';
+import { TENANT_STATUSES, STATUS_AR } from '../plans.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const REGION = TENANT_REGIONS[0];   // الدمام — قرار المالك 2026-11-19
@@ -27,6 +30,21 @@ export function validateArgs(a) {
   return errs;
 }
 
+const subPatch = (P, status, plan) => 'curl -sS -X PATCH "https://firestore.googleapis.com/v1/projects/' + P + '/databases/(default)/documents/mq_control/subscription'
+  + (plan ? '' : '?updateMask.fieldPaths=status&updateMask.fieldPaths=at') + '" -H "Authorization: Bearer $(gcloud auth print-access-token)" -H "Content-Type: application/json" -d \'{"fields":{"status":{"stringValue":"' + status + '"}'
+  + (plan ? ',"plan":{"stringValue":"' + plan + '"}' : '') + ',"at":{"integerValue":"' + Date.now() + '"}}}\'';
+
+/** v51.3: تغيير حالة اشتراك منشأة — أوامر فقط (تُنفَّذ بعد موافقة المالك) */
+export function statusPlan(a) {
+  if (!okId(a.id)) return { error: '--id غير صالح' };
+  if (!TENANT_STATUSES.includes(a.set)) return { error: '--set: ' + TENANT_STATUSES.join(' | ') };
+  const P = projectIdOf(a.id);
+  return { steps: [
+    { t: 'القاعدة (التطبيق الفعلي): الحالة «' + STATUS_AR[a.set] + '»', cmd: [subPatch(P, a.set)], note: a.set === 'active' ? 'تعود الكتابة فورًا' : 'تتوقف كل كتابة في المنشأة فورًا؛ القراءة والتصدير باقيان' },
+    { t: 'السجل (ما تعرضه الواجهة)', cmd: [], note: 'public/tenants/' + a.id + '.json: "status": "' + a.set + '" — ثم طلب دمج' + (a.set === 'suspended' ? ' (الموقوفة تظهر لها صفحة إيقاف)' : '') }
+  ] };
+}
+
 /** خطوات التهيئة بالترتيب — كل خطوة: عنوان، وأوامر (إن وُجدت)، وملاحظة */
 export function provisionPlan(a) {
   const P = projectIdOf(a.id), q = (s) => '"' + String(s).replace(/"/g, '\\"') + '"';
@@ -38,11 +56,12 @@ export function provisionPlan(a) {
     { t: 'إنشاء قاعدة Firestore في الدمام (لا يتغير الموقع بعد الإنشاء)', cmd: ['gcloud firestore databases create --project=' + P + ' --location=' + REGION + ' --type=firestore-native'] },
     { t: 'تفعيل الدخول بالبريد وكلمة السر', cmd: [], note: 'وحدة تحكم Firebase ← Authentication ← Sign-in method ← Email/Password' },
     { t: 'إنشاء تطبيق الويب وتنزيل إعداده', cmd: ['firebase apps:create web ' + q('Mithqal Web') + ' --project ' + P, 'firebase apps:sdkconfig web --project ' + P + ' > sdkconfig.json'] },
-    { t: 'نشر قواعد الأمان والفهارس نفسها المختبرة على الطيف', cmd: ['firebase deploy --only firestore:rules,firestore:indexes --project ' + P] },
+    { t: 'نشر قواعد المنشآت المشتركة (قواعد الطيف نفسها + شرط الاشتراك) والفهارس', cmd: ['node scripts/tenant-rules.mjs --check', 'firebase deploy --config firebase.tenant.json --only firestore:rules,firestore:indexes --project ' + P] },
     { t: 'تثبيت مالك المنشأة مديرًا قبل نشر الرابط (يغلق باب «أول من يسجّل يصبح مديرًا»)', cmd: ['curl -sS -X PATCH "https://firestore.googleapis.com/v1/projects/' + P + '/databases/(default)/documents/platform/admins" -H "Authorization: Bearer $(gcloud auth print-access-token)" -H "Content-Type: application/json" -d \'{"fields":{"emails":{"arrayValue":{"values":[{"stringValue":"' + String(a.owner).toLowerCase() + '"}]}},"at":{"integerValue":"' + Date.now() + '"}}}\''] },
+    { t: 'تسجيل حالة الاشتراك والخطة (لا يغيّرها أي حساب في المنشأة — حساب الخدمة فقط)', cmd: [subPatch(P, 'active', a.plan)] },
     { t: 'تقييد مفتاح الويب بنطاق المنصة', cmd: [], note: 'Google Cloud ← APIs & Services ← Credentials ← قيود HTTP referrer على نطاق مِثقال' },
     { t: 'إضافة المنشأة إلى السجل', cmd: ['node scripts/tenant-provision.mjs registry --id ' + a.id + ' --name ' + q(a.name) + ' --plan ' + a.plan + ' --owner ' + a.owner + ' --sdk sdkconfig.json'], note: 'ثم طلب دمج يعتمده المالك' },
-    { t: 'إعداد الخادم للمنشأة', cmd: [], note: 'متغيرات Render: إضافة {"id":"' + a.id + '","projectId":"' + P + '","apiKeyEnv":"FB_KEY_' + K + '","zatcaKeyEnv":"ZATCA_KEY_' + K + '"} إلى MQ_TENANTS_JSON، ثم FB_KEY_' + K + ' = مفتاح الويب، وZATCA_KEY_' + K + ' = سر عشوائي جديد (32+ حرفًا، لا يُعاد استخدام سر منشأة أخرى) — مثل: openssl rand -base64 48' },
+    { t: 'إعداد الخادم للمنشأة', cmd: [], note: 'متغيرات Render: إضافة {"id":"' + a.id + '","projectId":"' + P + '","plan":"' + a.plan + '","apiKeyEnv":"FB_KEY_' + K + '","zatcaKeyEnv":"ZATCA_KEY_' + K + '"} إلى MQ_TENANTS_JSON، ثم FB_KEY_' + K + ' = مفتاح الويب، وZATCA_KEY_' + K + ' = سر عشوائي جديد (32+ حرفًا، لا يُعاد استخدام سر منشأة أخرى) — مثل: openssl rand -base64 48' },
     { t: 'النسخ الليلي للمنشأة', cmd: ['gcloud iam service-accounts create mithqal-backup --project=' + P, 'gcloud projects add-iam-policy-binding ' + P + ' --member=serviceAccount:mithqal-backup@' + P + '.iam.gserviceaccount.com --role=roles/datastore.viewer', 'gcloud iam service-accounts keys create sa-' + a.id + '.json --iam-account=mithqal-backup@' + P + '.iam.gserviceaccount.com'], note: 'أسرار المستودع: FIREBASE_SERVICE_ACCOUNT_' + K + ' = محتوى sa-' + a.id + '.json (ثم احذف الملف)، وBACKUP_KEY_' + K + ' = سر تشفير مستقل (12+ حرفًا). سير النسخ الليلي يلتقط المنشأة من السجل تلقائيًا' },
     { t: 'فتح «الإعداد الأول» لمالك المنشأة', cmd: [], note: 'الرابط: ' + '<موقع مِثقال>/?t=' + a.id + ' — ينشئ المالك حسابه ومنشأته بنفسه' }
   ];
@@ -61,7 +80,12 @@ function parse(argv) { const a = { _: [] }; for (let i = 0; i < argv.length; i++
 
 async function main() {
   const a = parse(process.argv.slice(2)), cmd = a._[0];
-  const errs = validateArgs(a); if (!['plan', 'registry'].includes(cmd)) errs.unshift('الأمر: plan | registry');
+  if (cmd === 'status') {
+    const r = statusPlan(a); if (r.error) { console.error(r.error); process.exit(2); }
+    r.steps.forEach((s, i) => { console.log(`\n${i + 1}) ${s.t}`); s.cmd.forEach(c => console.log('   $ ' + c)); if (s.note) console.log('   ↳ ' + s.note); });
+    return;
+  }
+  const errs = validateArgs(a); if (!['plan', 'registry'].includes(cmd)) errs.unshift('الأمر: plan | registry | status');
   if (errs.length) { console.error(errs.join('\n')); process.exit(2); }
   if (cmd === 'plan') {
     provisionPlan(a).forEach((s, i) => { console.log(`\n${i + 1}) ${s.t}`); (s.cmd || []).forEach(c => console.log('   $ ' + c)); if (s.note) console.log('   ↳ ' + s.note); });

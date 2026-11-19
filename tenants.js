@@ -6,13 +6,14 @@
  * الأسرار نفسها لا تُكتب في JSON — يُذكر اسم متغير البيئة الذي يحملها فقط (خزنة الأسرار = متغيرات بيئة الخادم السرية).
  * v51.2 (S3): الخادم يخدم كل المنشآت المسجّلة — انظر server-auth.js.
  */
+import { PLAN_FEATURES } from './plans.js';
 const clean = (v) => String(v || '').trim().replace(/^["'`]+|["'`]+$/g, '').trim();
 const okId = (v) => /^[a-z0-9][a-z0-9-]{1,39}$/.test(v);
 const okProject = (v) => /^[a-z][a-z0-9-]{4,29}$/.test(v);
 const okEnvName = (v) => /^[A-Z][A-Z0-9_]{2,60}$/.test(v);
 
 export function loadTenants(env = process.env) {
-  const def = { id: 'default', projectId: clean(env.FIREBASE_PROJECT_ID || env.VITE_FIREBASE_PROJECT_ID), apiKey: clean(env.FIREBASE_API_KEY || env.VITE_FIREBASE_API_KEY), zatcaKey: String(env.ZATCA_ENC_KEY || '').trim() };
+  const def = { id: 'default', projectId: clean(env.FIREBASE_PROJECT_ID || env.VITE_FIREBASE_PROJECT_ID), apiKey: clean(env.FIREBASE_API_KEY || env.VITE_FIREBASE_API_KEY), zatcaKey: String(env.ZATCA_ENC_KEY || '').trim(), plan: 'enterprise' };
   const list = [def], errors = [];
   if (env.MQ_TENANTS_JSON) {
     let arr = [];
@@ -28,7 +29,10 @@ export function loadTenants(env = process.env) {
       const dupKey = zatcaKey && list.some(x => x.zatcaKey && x.zatcaKey === zatcaKey);
       if (dupKey) errors.push(id + ': مفتاح تشفير الفوترة مكرر مع منشأة أخرى — عُطّل لها');
       if (!clean(env[t.apiKeyEnv])) errors.push(id + ': متغير المفتاح ' + t.apiKeyEnv + ' فارغ');
-      list.push({ id, projectId, apiKey: clean(env[t.apiKeyEnv]), zatcaKey: dupKey ? '' : zatcaKey });
+      // v51.3 (S4): الخطة من السجل؛ غير المعروفة ⇒ الأساسية (الأضيق) مع تنبيه
+      const plan = Object.prototype.hasOwnProperty.call(PLAN_FEATURES, t.plan) ? t.plan : 'basic';
+      if (t.plan != null && t.plan !== plan) errors.push(id + ': خطة غير معروفة (' + t.plan + ') — طُبّقت الأساسية');
+      list.push({ id, projectId, apiKey: clean(env[t.apiKeyEnv]), zatcaKey: dupKey ? '' : zatcaKey, plan });
     }
   }
   return { list, errors, byProject: (p) => list.find(t => t.projectId && t.projectId === p) || null, byId: (id) => list.find(t => t.id === id) || null, def };
