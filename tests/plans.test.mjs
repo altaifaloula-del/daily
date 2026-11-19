@@ -63,7 +63,7 @@ test('تغيير حالة الاشتراك: أوامر فقط، على مستن�
   const { statusPlan, provisionPlan } = await import('../scripts/tenant-provision.mjs');
   assert.match(statusPlan({ id: 'c2', set: 'paused' }).error, /--set/); assert.ok(statusPlan({ id: 'default', set: 'readonly' }).error);
   const r = JSON.stringify(statusPlan({ id: 'c2', set: 'readonly' }));
-  assert.match(r, /mithqal-c2\/databases\/\(default\)\/documents\/platform\/release\?updateMask\.fieldPaths=sub\\"/); assert.doesNotMatch(r, /plan|minCv/, 'يغيّر الحالة وحدها');
+  assert.match(r, /mithqal-c2\/databases\/\(default\)\/documents\/platform\/release\?updateMask\.fieldPaths=sub&currentDocument\.exists=true\\"/); assert.doesNotMatch(r, /plan|minCv/, 'يغيّر الحالة وحدها');
   const P = provisionPlan({ id: 'c2', name: 'مطعم', plan: 'pro', owner: 'o@c.sa' }), txt = JSON.stringify(P);
   assert.match(txt, /firebase deploy --config firebase\.tenant\.json/); assert.match(txt, /\\"plan\\":\\"pro\\"/);
   const iRules = P.findIndex(s => /قواعد المنشآت/.test(s.t)), iSub = P.findIndex(s => /حالة الاشتراك/.test(s.t)), iReg = P.findIndex(s => /إضافة المنشأة إلى السجل/.test(s.t));

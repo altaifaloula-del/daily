@@ -32,7 +32,10 @@ export function loadTenants(env = process.env) {
       // v51.3 (S4): الخطة من السجل؛ غير المعروفة ⇒ الأساسية (الأضيق) مع تنبيه
       const plan = Object.prototype.hasOwnProperty.call(PLAN_FEATURES, t.plan) ? t.plan : 'basic';
       if (t.plan != null && t.plan !== plan) errors.push(id + ': خطة غير معروفة (' + t.plan + ') — طُبّقت الأساسية');
-      list.push({ id, projectId, apiKey: clean(env[t.apiKeyEnv]), zatcaKey: dupKey ? '' : zatcaKey, plan });
+      // v51.5 (S6): حساب خدمة تشغيلي اختياري للمنشأة (تغيير حالة الاشتراك من لوحة مِثقال) — اسم المتغير فقط في JSON
+      let sa = null;
+      if (okEnvName(t.saEnv || '')) { try { const o = JSON.parse(env[t.saEnv] || ''); if (o && o.client_email && o.private_key && (!o.project_id || o.project_id === projectId)) sa = { client_email: o.client_email, private_key: o.private_key }; else errors.push(id + ': حساب الخدمة لا يطابق المشروع'); } catch { errors.push(id + ': ' + t.saEnv + ' غير صالح'); } }
+      list.push({ id, projectId, apiKey: clean(env[t.apiKeyEnv]), zatcaKey: dupKey ? '' : zatcaKey, plan, sa });
     }
   }
   return { list, errors, byProject: (p) => list.find(t => t.projectId && t.projectId === p) || null, byId: (id) => list.find(t => t.id === id) || null, def };

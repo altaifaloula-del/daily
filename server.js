@@ -20,6 +20,7 @@ import { vaultReady } from './zatca/vault.js';
 import { createVerifier } from './server-auth.js';
 import { planAllows, PLAN_AR } from './plans.js';
 import { billingConfig, mountBilling, moyasarGateway, firestoreStore, saTokenSource, memoryStore } from './server-billing.js';
+import { providerConfig, mountProvider } from './server-provider.js';
 import { loadTenants } from './tenants.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -245,11 +246,23 @@ async function tenantAdminCheck(req) {
     return (vals.values || []).some(v => String(v.stringValue || '').toLowerCase() === req.user.email);
   } catch { return false; }
 }
+const CONTROL = BILLING.controlReady ? firestoreStore({ project: BILLING.controlProject, token: saTokenSource(BILLING.sa) }) : memoryStore();
 mountBilling(app, {
-  express, requireMember, tenantOf, rateLimit, cfg: BILLING, adminCheck: tenantAdminCheck,
-  store: BILLING.enabled ? firestoreStore({ project: BILLING.controlProject, token: saTokenSource(BILLING.sa) }) : memoryStore(),
+  express, requireMember, tenantOf, rateLimit, cfg: BILLING, adminCheck: tenantAdminCheck, store: CONTROL,
   gateway: moyasarGateway({ secretKey: BILLING.secretKey })
 });
+/* ===== لوحة مزوّد مِثقال والتسجيل العام (v51.5 — S6، انظر server-provider.js) ===== */
+// سجل المنشآت المنشور مع الواجهة (dist/tenants أو public/tenants) — للعرض في اللوحة فقط
+let regCache = { t: 0, v: {} };
+function readRegistry() {
+  if (Date.now() - regCache.t < 60000) return regCache.v;
+  const v = {};
+  for (const dir of [path.join(__dirname, 'dist', 'tenants'), path.join(__dirname, 'public', 'tenants')]) {
+    try { for (const f of fs.readdirSync(dir).filter(f => /^[a-z0-9-]+\.json$/.test(f))) { const c = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); if (c && c.id + '.json' === f && !v[c.id]) v[c.id] = { id: c.id, name: c.name || '', plan: c.plan || '', status: c.status || 'active', firebase: { projectId: (c.firebase || {}).projectId || '' } }; } } catch { /* */ }
+  }
+  regCache = { t: Date.now(), v }; return v;
+}
+mountProvider(app, { express, requireMember, rateLimit, T: TENANTS, cfg: providerConfig(process.env), store: CONTROL, controlReady: BILLING.controlReady, registry: readRegistry });
 
 /* ================= الذكاء الاصطناعي ================= */
 const AI_MODEL = process.env.AI_MODEL || 'claude-opus-5-5';
@@ -308,7 +321,7 @@ async function callClaude({ system, user, maxTokens }) {
 /* ---- فحص الإعدادات: هل مفتاحا Firebase وAnthropic صالحان؟ (لا يكشف أي قيمة سرية) ---- */
 let deepCache = null;   // نتيجة اختبار الطلب الحقيقي تُحفظ 10 دقائق — لا تكلفة متكررة
 app.get('/api/health/config', rateLimit({ windowMs: 3600000, max: 20 }), async (req, res) => {
-  const out = { ok: true, model: AI_MODEL, tenants: { count: TENANTS.list.length, errors: TENANTS.errors.length }, billing: { enabled: BILLING.enabled }, firebase: { configured: !!FB_API_KEY }, anthropic: { configured: !!ANTHROPIC_KEY } };
+  const out = { ok: true, model: AI_MODEL, tenants: { count: TENANTS.list.length, errors: TENANTS.errors.length }, billing: { enabled: BILLING.enabled }, control: { ready: BILLING.controlReady }, firebase: { configured: !!FB_API_KEY }, anthropic: { configured: !!ANTHROPIC_KEY } };
   if (FB_API_KEY) {
     try {
       const r = await fetch('https://identitytoolkit.googleapis.com/v1/projects?key=' + encodeURIComponent(FB_API_KEY), { headers: googleHeaders() });

@@ -1,12 +1,17 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { authApi } from '../../storage';
 import { SystemMaintenance } from './SystemMaintenance.jsx';
+import { ProviderConsole, probeProvider } from './ProviderConsole.jsx';
+import { TENANT } from '../../tenant.js';
 import { Building2, Users, Receipt, Truck, ShieldCheck, Grid3x3, Settings, Plus, Store, Lock, Check, Trash2, Activity } from 'lucide-react';
 import { ALL_TABS, AppPermsPanel, BranchForm, CategoriesPanel, DeliveryAppsPanel, ROLES, SystemPanel, TAB_AR, UserForm, clr, money, newBranchDraft, sha, today, uid } from '../../App.jsx';
 
 export function Admin({ org, ops, me, commit, commitOrg, say }) {
   const [tab, setTab] = useState('branches');
+  // v51.5 (S6): «لوحة مِثقال» تظهر لمزوّد المنصة فقط — الخادم يقرر (والمسارات تفحصه من جديد)
+  const [isProv, setIsProv] = useState(false);
+  useEffect(() => { let on = true; if (TENANT.id === 'default' && authApi.enabled) probeProvider().then(v => { if (on) setIsProv(v); }); return () => { on = false; }; }, []);
   const [bEdit, setBEdit] = useState(null);
   const [uEdit, setUEdit] = useState(null);
 
@@ -135,6 +140,9 @@ export function Admin({ org, ops, me, commit, commitOrg, say }) {
         <button className={'btn sm' + (tab === 'maint' ? ' pri' : ' gh')} onClick={() => setTab('maint')}>
           <Activity size={14} />صيانة النظام
         </button>
+        {isProv && <button className={'btn sm mq-prov-tab' + (tab === 'provider' ? ' pri' : ' gh')} onClick={() => setTab('provider')}>
+          <Store size={14} />لوحة مِثقال
+        </button>}
         {(tab === 'branches' || tab === 'users') && <button className="btn pri" style={{ marginInlineStart: 'auto' }}
           onClick={() => tab === 'branches'
             ? setBEdit(newBranchDraft())
@@ -217,6 +225,7 @@ export function Admin({ org, ops, me, commit, commitOrg, say }) {
       {tab === 'cats' && <CategoriesPanel org={org} ops={ops} commitOrg={commitOrg} say={say} />}
       {tab === 'delivery' && <DeliveryAppsPanel org={org} ops={ops} commitOrg={commitOrg} say={say} />}
       {tab === 'appperms' && <AppPermsPanel org={org} commitOrg={commitOrg} say={say} />}
+      {tab === 'provider' && isProv && <ProviderConsole say={say} />}
       {tab === 'maint' && <SystemMaintenance org={org} ops={ops} me={me} commit={commit} commitOrg={commitOrg} say={say} />}
       {tab === 'system' && <SystemPanel org={org} ops={ops} me={me} commit={commit} commitOrg={commitOrg} say={say} />}
       {tab === 'perms' && (() => {

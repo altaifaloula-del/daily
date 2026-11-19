@@ -30,8 +30,9 @@ export function billingConfig(env = process.env) {
   if (!/^https:\/\//.test(String(env.MQ_APP_URL || ''))) why.push('MQ_APP_URL (عنوان المنصة https)');
   const bank = env.MQ_BANK_IBAN ? { iban: s(env.MQ_BANK_IBAN, 34).replace(/\s+/g, ''), name: s(env.MQ_BANK_NAME, 80), holder: s(env.MQ_BANK_HOLDER, 120) } : null;
   if (bank && !/^SA[0-9]{22}$/.test(bank.iban)) why.push('MQ_BANK_IBAN غير صالح');
+  const controlReady = /^[a-z][a-z0-9-]{4,29}$/.test(String(env.MQ_CONTROL_PROJECT || '')) && !!(sa && sa.client_email && sa.private_key);
   return {
-    enabled: why.length === 0, why, priceErrors: P.errors, prices: P.prices, seller, bank: bank && /^SA[0-9]{22}$/.test(bank.iban) ? bank : null,
+    enabled: why.length === 0, why, controlReady, priceErrors: P.errors, prices: P.prices, seller, bank: bank && /^SA[0-9]{22}$/.test(bank.iban) ? bank : null,
     secretKey: String(env.MOYASAR_SECRET_KEY || ''), controlProject: String(env.MQ_CONTROL_PROJECT || ''), sa,
     hookKey: String(env.MQ_BILLING_HOOK_KEY || ''), publicApi: String(env.MQ_PUBLIC_API || '').replace(/\/+$/, ''), appUrl: String(env.MQ_APP_URL || '').replace(/\/+$/, '')
   };
@@ -66,9 +67,13 @@ export function gatewayMethod(g) {
 
 /* ================= سجل الفوترة (مشروع التحكم) ================= */
 export function memoryStore() {
-  const inv = new Map(), subs = new Map(); let seq = 0;
+  const inv = new Map(), subs = new Map(), sgs = new Map(), seq = {};
   return {
-    async nextSeq() { return ++seq; },
+    async nextSeq(name = 'seq') { return (seq[name] = (seq[name] || 0) + 1); },
+    async nextSignupSeq() { return this.nextSeq('signup'); },
+    async getSignup(id) { const v = sgs.get(id); return v ? { ...v } : null; },
+    async putSignup(v) { sgs.set(v.id, { ...v }); return v; },
+    async listSignups() { return [...sgs.values()].sort((a, b) => b.seq - a.seq).map(v => ({ ...v })); },
     async getInvoice(no) { const v = inv.get(no); return v ? structuredClone(v) : null; },
     async putInvoice(v) { inv.set(v.no, structuredClone(v)); return v; },
     async listInvoices(tenant) { return [...inv.values()].filter(v => v.tenant === tenant).sort((a, b) => b.seq - a.seq).map(v => structuredClone(v)); },
@@ -109,12 +114,19 @@ export function firestoreStore({ project, token, fetchImpl = fetch }) {
   const enc = (v, extra) => ({ fields: { json: { stringValue: JSON.stringify(v) }, ...(extra || {}) } });
   const dec = (d) => (d && d.fields && d.fields.json ? JSON.parse(d.fields.json.stringValue) : null);
   return {
-    async nextSeq() {
+    async nextSignupSeq() { return this.nextSeq('signup'); },
+    async getSignup(id) { return dec(await req('GET', root + '/signups/' + encodeURIComponent(id))); },
+    async putSignup(v) { await req('PATCH', root + '/signups/' + encodeURIComponent(v.id), enc(v, { status: { stringValue: v.status } })); return v; },
+    async listSignups() {
+      const r = await req('GET', root + '/signups?pageSize=300');
+      return ((r && r.documents) || []).map(dec).filter(Boolean).sort((a, b) => b.seq - a.seq);
+    },
+    async nextSeq(name = 'seq') {
       for (let i = 0; i < 6; i++) {
-        const d = await req('GET', root + '/billing_meta/seq');
+        const d = await req('GET', root + '/billing_meta/' + name);
         const n = (dec(d) || { n: 0 }).n + 1;
         const pre = d ? 'currentDocument.updateTime=' + encodeURIComponent(d.updateTime) : 'currentDocument.exists=false';
-        try { await req('PATCH', root + '/billing_meta/seq?' + pre, enc({ n })); return n; } catch (e) { if (e.code !== 400 && e.code !== 409 && e.code !== 412) throw e; }
+        try { await req('PATCH', root + '/billing_meta/' + name + '?' + pre, enc({ n })); return n; } catch (e) { if (e.code !== 400 && e.code !== 409 && e.code !== 412) throw e; }
       }
       throw new Error('تعذّر حجز رقم فاتورة — أعد المحاولة');
     },
