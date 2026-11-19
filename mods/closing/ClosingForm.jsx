@@ -231,7 +231,8 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
       // v34.7: كانت 60 يومًا — فبلغ ملف فرع ~20MB يُنزَّل ويُرفع مع كل حفظ
       const cutoff = isoD(new Date(Date.now() - 14 * 864e5));
       const pruneImgs = (c) => {
-        if (c.imagesPruned || !c.date || c.date >= cutoff || c.status === 'draft') return c;
+        // v52.8: المعتمد نهائيًا تُزال صوره فورًا (نُسخت للأرشيف عند الترحيل) — وغيره بعد 14 يومًا كما كان
+        if (c.imagesPruned || !c.date || c.status === 'draft' || (c.date >= cutoff && c.gmApprovalStatus !== 'approved')) return c;
         if (!c.sessionPhoto && !(c.sessionPhotos || []).length && !c.cardReceiptImage && !(c.expenses || []).some(e => e.receiptImage)) return c;
         return { ...c, sessionPhoto: '', sessionPhotos: [], cardReceiptImage: '', expenses: (c.expenses || []).map(e => e.receiptImage ? { ...e, receiptImage: '' } : e), imagesPruned: true };
       };

@@ -162,7 +162,7 @@ Object.assign(EN, {
   'رُحّل بلا توقيع موثّق — يتعذّر تدقيقه حتى يُعاد ترحيله': 'Posted without a verified signature — cannot be audited until re-posted', 'لا سجل محمي لهذا الإغلاق بعد — شغّل «ترحيل الإغلاقات الحالية» من صيانة النظام': 'No protected record for this closing yet — run "migrate existing closings" from System Maintenance',
   'تعذّر عرض هذا المرفق': 'Cannot display this attachment', 'الملف المحفوظ تالف أو من نوع غير مدعوم للعرض. إن كان الإغلاق قديمًا فقد تجد نسخته في «أرشيف المستندات».': 'The saved file is damaged or of an unsupported type. If the closing is old, you may find its copy in the Document Archive.',
   '🗄 صور هذا الإغلاق في أرشيف المستندات': "🗄 This closing's photos are in the Document Archive", 'سياسة الاحتفاظ 60 يومًا': '60-day retention policy', '— تجدها مرتّبة بالفرع والتاريخ.': '— sorted by branch and date.',
-  '🗄 صور هذا الإغلاق نُقلت إلى «أرشيف المستندات» (سياسة الاحتفاظ 60 يومًا) — تجدها هناك باسم الفرع وتاريخ اليوم.': "🗄 This closing's photos moved to the Document Archive (60-day retention) — find them under the branch name and date.",
+  '🗄 صور هذا الإغلاق نُقلت إلى «أرشيف المستندات» (عند الاعتماد النهائي أو بعد 14 يومًا) — تجدها هناك باسم الفرع وتاريخ اليوم.': "🗄 This closing's photos were moved to the Documents Archive (on final approval or after 14 days) — find them there by branch and date.",
   '— نقد': '— cash', '— نقدي': '— cash', '— شبكة وتحويل': '— card & transfer', '— توصيل': '— delivery', '— مدى / فيزا / ماستركارد': '— mada / Visa / Mastercard', '— تأكد من الرقم': '— check the number', 'نقطة البيع': 'Point of Sale', 'الإغلاق اليومي': 'Daily Closing'
 });
 

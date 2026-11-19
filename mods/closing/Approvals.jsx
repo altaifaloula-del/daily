@@ -1,7 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useEffect, useState } from 'react';
 import { ClipboardCheck, ShieldCheck, AlertTriangle, Eye, Check, X, Lock } from 'lucide-react';
-import { Badge, ClosingView, Kpi, LOCK_MSG, ROLES, arDate, arTime, money, nowISO, periodLocked, uid, signDecision, sigFailMsg, loadRelease, loadSignoffs, sigVerify, SIG_BADGE } from '../../App.jsx';
+import { Badge, ClosingView, Kpi, LOCK_MSG, ROLES, arDate, arTime, money, nowISO, periodLocked, uid, signDecision, sigFailMsg, loadRelease, loadSignoffs, sigVerify, SIG_BADGE, closingImgs, closingArchiveOne, closingStripImgs } from '../../App.jsx';
 
 export function Approvals({ org, me, scoped, commit, say }) {
   const [note, setNote] = useState({});
@@ -21,6 +21,9 @@ export function Approvals({ org, me, scoped, commit, say }) {
     const sg = await signDecision('closing', kind, c);
     if (!sg.ok) return say(sigFailMsg(sg, kind === 'audit' ? 'التدقيق' : kind === 'gm' ? 'الاعتماد النهائي' : 'الرفض'), 'no');
     const sigF = sg.id ? { [kind === 'audit' ? 'sigAudit' : kind === 'gm' ? 'sigGm' : 'sigReject']: sg.id } : {};
+    // v52.8 (قرار المالك): عند الاعتماد النهائي تُنقل صور الإغلاق للأرشيف وتُزال من ملف الفرع — وإن تعذّر الأرشيف تبقى الصور (لا فقد)
+    let strip = false;
+    if (kind === 'gm' && closingImgs(c).length) { const ar = await closingArchiveOne(c, me); strip = !!ar.ok; }
     await commit(d => ({
       ...d,
       // v15.12: رفض الإغلاق يُبطِل توريده أيضًا (الحالة → rejected) فلا يبقى قيدٌ «تحت التحويل» وهمي في الحساب الوسيط ولا نقصٌ في نقد الفرع. (مطابق لسلوك حذف الإغلاق.)
@@ -28,7 +31,7 @@ export function Approvals({ org, me, scoped, commit, say }) {
       closings: d.closings.map(x => {
         if (x.id !== c.id) return x;
         if (kind === 'audit') return { ...x, ...sigF, status: 'approved', auditedBy: me.name, auditedAt: nowISO(), updatedAt: nowISO() };
-        if (kind === 'gm') return { ...x, ...sigF, gmApprovalStatus: 'approved', gmApprovedBy: me.name, gmApprovedAt: nowISO(), gmNotes: reason, updatedAt: nowISO() };
+        if (kind === 'gm') return { ...(strip ? closingStripImgs(x) : x), ...sigF, gmApprovalStatus: 'approved', gmApprovedBy: me.name, gmApprovedAt: nowISO(), gmNotes: reason, updatedAt: nowISO() };
         return { ...x, ...sigF, status: 'rejected', rejectionReason: reason, updatedAt: nowISO() };
       }),
       notifications: [{
