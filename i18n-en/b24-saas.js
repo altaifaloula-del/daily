@@ -1,5 +1,35 @@
 /* v51.3 دفعة الترجمة b24 — الاشتراك والمنشأة (المرحلة 07 / S4) */
 export default {
+"جارٍ تحميل الفواتير…": "Loading invoices…",
+"الفواتير والدفع": "Invoices & payment",
+"حوّل": "Transfer",
+"إلى:": "to:",
+"المستفيد:": "Beneficiary:",
+"واكتب في وصف التحويل رقم الفاتورة:": "and write the invoice number in the transfer description:",
+"— يُفعَّل الاشتراك بعد تأكيد مِثقال لاستلام المبلغ.": "— the subscription is activated once Mithqal confirms receipt.",
+"تعذّر تحميل بيانات الاشتراك": "Could not load subscription details",
+"تعذّر الاتصال بخادم مِثقال": "Could not reach the Mithqal server",
+"الاشتراك والدفع لمسؤول المنشأة فقط.": "Subscription and payment are for the organization admin only.",
+"الدفع الإلكتروني للاشتراك غير مفعّل بعد — تواصل مع مِثقال.": "Online subscription payment is not enabled yet — contact Mithqal.",
+"تعذّر بدء الدفع": "Could not start the payment",
+"تعذّر تحميل الفاتورة": "Could not load the invoice",
+"— مدفوع حتى": "— paid through",
+"جارٍ التحويل لصفحة الدفع…": "Redirecting to the payment page…",
+"ادفع إلكترونيًا": "Pay online",
+"طباعة الفاتورة": "Print invoice",
+"شهري": "Monthly",
+"مستحقة": "Due",
+"بانتظار تأكيد التحويل": "Awaiting transfer confirmation",
+"مدفوعة": "Paid",
+"لم يُفعَّل الدفع بعد": "No payment yet",
+"مدفوع": "Paid",
+"يستحق قريبًا": "Due soon",
+"مهلة سداد": "Grace period",
+"متأخر": "Overdue",
+"منتهٍ": "Lapsed",
+"مدى": "mada",
+"فيزا / ماستركارد": "Visa / Mastercard",
+"تحويل بنكي": "Bank transfer",
 "الاشتراك والمنشأة": "Subscription & organization",
 "الخصائص المشمولة": "Included features",
 "عدد الفروع يتجاوز حد الخطة — تواصل مع مِثقال لترقية الاشتراك.": "Branch count exceeds the plan limit — contact Mithqal to upgrade your subscription.",
@@ -22,6 +52,10 @@ export default {
 "اشتراك المنشأة «للقراءة فقط» — يمكنك العرض والطباعة والتصدير، ولا يُحفظ أي تعديل حتى يُجدَّد الاشتراك.": "The organization subscription is read-only — you can view, print and export, but no changes are saved until the subscription is renewed."
 };
 export const RX = [
+  [/^الدفع الإلكتروني: (.+) — عبر صفحة «ميسر» الآمنة؛ بيانات البطاقة لا تمر بمِثقال\.$/, 'Online payment: mada, Visa / Mastercard, Apple Pay, STC Pay — via Moyasar\'s secure page; card details never pass through Mithqal.'],
+  [/^(شهري|سنوي): ([0-9.,]+) ر\.س$/, (_, p, v) => (p === 'شهري' ? 'Monthly' : 'Annual') + ': ' + v + ' SAR'],
+  [/^([0-9.,]+) ر\.س \+ ضريبة 15% ([0-9.,]+) =\s*$/, '$1 SAR + 15% VAT $2 = '],
+  [/^([0-9.,]+) ر\.س$/, '$1 SAR'],
   [/^عدد الفروع: (.+) \(بلا حد\)$/, 'Branches: $1 (unlimited)'],
   [/^عدد الفروع: (.+)$/, 'Branches: $1']
 ];
