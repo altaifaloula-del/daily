@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Truck, FileBarChart, ChevronDown, Printer, FileText, Building2, ClipboardCheck, Users, Plus, AlertTriangle, CalendarDays, Trash2, Check, X, Banknote } from 'lucide-react';
 import { poNeedsAppr, wfOn, wfState, wfCanAct, wfApprove } from '../../App.jsx';   // v49.5 مسارات الاعتماد
-import { canEditRec, DocLink, RowGrip, moveIdx, projList, uomOf, uomOk, lineUnits, lineFac, UomSelect, DupInvHint, Field, Kpi, LOCK_MSG, MAIN_WH, Modal, Num, ROLES, SectionNav, arDate, branchBanks, closingInvoices, isStocked, isoD, itemType, money, nowISO, pFactor, payTotal, periodLocked, printA4, purKey, q3, _xe, roleEdit, rolePost, buildAccounting, INV_BILLERS, itemsSeq, vatNoOk, supVatOf, ItemPick, roleHasTab, stockByWh, sum, supplierPrices, today, uid, whName, whOf, whOn, poWhOf, brSigCheck, signoff, signDecision, sigFailMsg } from '../../App.jsx';
+import { canEditRec, autoCfgOf, poSuggestions, DocLink, RowGrip, moveIdx, projList, uomOf, uomOk, lineUnits, lineFac, UomSelect, DupInvHint, Field, Kpi, LOCK_MSG, MAIN_WH, Modal, Num, ROLES, SectionNav, arDate, branchBanks, closingInvoices, isStocked, isoD, itemType, money, nowISO, pFactor, payTotal, periodLocked, printA4, purKey, q3, _xe, roleEdit, rolePost, buildAccounting, INV_BILLERS, itemsSeq, vatNoOk, supVatOf, ItemPick, roleHasTab, stockByWh, sum, supplierPrices, today, uid, whName, whOf, whOn, poWhOf, brSigCheck, signoff, signDecision, sigFailMsg } from '../../App.jsx';
 import { cloud, bfKey } from '../../storage';
 
 export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: goTab, billOnly }) {
@@ -990,6 +990,17 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
               {canPay && <button className="btn sm pri" onClick={() => setPoF({ supplierId: suppliers[0]?.id || '', branchId: '', whId: MAIN_WH, note: '', lines: [{ desc: '', itemId: '', qty: '', price: '' }] })}><Plus size={14} />أمر شراء جديد</button>}
             </div>
           </div>
+          {/* v52.0 (أتمتة): أوامر مقترحة من نفاد المخزون — تُفتح في نموذج الأمر لمراجعتها، ثم تمر بالاعتماد والتوقيع كالمعتاد */}
+          {canPay && autoCfgOf(org).poSuggest && (() => { const G = poSuggestions(org, ops); return G.length ? (
+            <div className="card mq-posugg" style={{ background: 'var(--ink)', marginBottom: 10 }}>
+              <div className="lbl" style={{ marginBottom: 6 }}>أوامر شراء مقترحة من نفاد المخزون ({G.length})</div>
+              {G.slice(0, 8).map(g => <div key={g.supplierId + g.whId} className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap', padding: '5px 0', borderTop: '1px solid var(--line)' }}>
+                <b style={{ fontSize: 12.5 }}>{g.supplierName}</b><span className="badge b-dim">{whName(org, g.whId)}</span>
+                <span style={{ fontSize: 12, color: 'var(--dim)' }}>{g.lines.map(l => l.desc + ' ' + l.qty + (l.unit ? ' ' + l.unit : '')).join('، ')}</span>
+                <span className="num" style={{ marginInlineStart: 'auto' }}>{money(g.total)}</span>
+                <button className="btn sm pri" onClick={() => setPoF({ supplierId: g.supplierId, branchId: '', whId: g.whId, note: 'مقترح آليًا من نفاد المخزون', lines: g.lines.map(l => ({ desc: l.desc, itemId: l.itemId, qty: String(l.qty), price: String(l.price) })) })}>مراجعة وإنشاء الأمر</button>
+              </div>)}
+            </div>) : null; })()}
           <div className="row" style={{ gap: 6, flexWrap: 'wrap', margin: '0 0 10px' }}>
             <span className="badge b-dim">الاعتماد: {apprLimit > 0 ? 'الأوامر فوق ' + money(apprLimit) + ' ر.س' : 'غير مفعّل'}</span>
             <span className="badge b-dim">تنبيه السعر: {alertPct > 0 ? 'أعلى من متوسط آخر 3 مشتريات بأكثر من ' + alertPct + '% ⇐ اعتماد' : 'موقوف'}</span>
