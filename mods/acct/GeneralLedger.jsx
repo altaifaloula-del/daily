@@ -1,12 +1,13 @@
 /* v49.4 — المرحلة 03: دفتر الأستاذ العام (كشف أي حساب برصيد جارٍ) وحركة الحسابات — كل سطر يُفتح على قيده (Drill-down) */
 import React, { useMemo, useState } from 'react';
 import { FileText as BookOpen, Printer, Download, ArrowLeftRight } from 'lucide-react';
-import { glLedger, acctActivity, DocLink, money, printA4, makeXlsx, _xe, projList } from '../../App.jsx';
+import { glLedger, acctActivity, DocLink, money, printA4, makeXlsx, _xe, projList, peekDoc, APP_VER } from '../../App.jsx';
+import { RptTable } from '../rpt/RptTable.jsx';   // v50.0 نموذج منظومة التقارير الموحدة
 
 const fmt = (n) => n < 0 ? '(' + money(-n) + ')' : money(n);
 const dl = (blob, name) => { const u = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = u; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 2000); };
 
-export function GeneralLedger({ org, ops, A, mode, code, setCode, from, to, bf, setBf, onMode }) {
+export function GeneralLedger({ org, ops, A, mode, code, setCode, from, to, bf, setBf, onMode, me }) {
   const [sub, setSub] = useState(true);
   const [prj, setPrj] = useState('');
   const [q, setQ] = useState('');
@@ -31,16 +32,10 @@ export function GeneralLedger({ org, ops, A, mode, code, setCode, from, to, bf, 
     return (
       <div className="card" data-actmv>
         <div className="card-h"><div className="card-t"><ArrowLeftRight size={15} color="var(--brass)" />حركة الحسابات — {per}</div>
-          <div className="row" style={{ gap: 6 }}>{filters}<button className="btn sm" onClick={pr}><Printer size={13} />طباعة</button><button className="btn sm" onClick={xl}><Download size={13} />Excel</button></div></div>
-        <input className="inp" style={{ width: 200, marginBottom: 8 }} aria-label="بحث في الحسابات" placeholder="بحث بالرمز أو الاسم…" value={q} onChange={e => setQ(e.target.value)} />
-        <div className="tw"><table className="tb"><thead><tr><th>الرمز</th><th>الحساب</th><th style={{ textAlign: 'end' }}>رصيد أول المدة</th><th style={{ textAlign: 'end' }}>مدين</th><th style={{ textAlign: 'end' }}>دائن</th><th style={{ textAlign: 'end' }}>رصيد آخر المدة</th></tr></thead><tbody>
-          {rows.map(r => <tr key={r.code}><td className="num">{r.code}</td>
-            <td><button type="button" className="doclink" data-glopen={r.code} title="فتح دفتر الأستاذ" onClick={() => { setCode(r.code); onMode('gl'); }}>{r.name}</button></td>
-            <td className="num" style={{ textAlign: 'end' }}>{r.open ? fmt(r.open) : '—'}</td><td className="num" style={{ textAlign: 'end' }}>{r.debit ? money(r.debit) : '—'}</td><td className="num" style={{ textAlign: 'end' }}>{r.credit ? money(r.credit) : '—'}</td>
-            <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: r.close < 0 ? 'var(--rose)' : undefined }}>{fmt(r.close)}</td></tr>)}
-          {!rows.length && <tr><td colSpan={6}><div className="empty">لا حركة في هذه الفترة.</div></td></tr>}
-          <tr style={{ fontWeight: 800 }}><td colSpan={3}>الإجمالي {M.balanced ? '— متوازن ✓' : '— غير متوازن!'}</td><td className="num" style={{ textAlign: 'end' }}>{money(M.debit)}</td><td className="num" style={{ textAlign: 'end' }}>{money(M.credit)}</td><td /></tr>
-        </tbody></table></div>
+          <div className="row" style={{ gap: 6 }}>{filters}<span className="badge b-mint" data-actbal>{M.balanced ? 'متوازن ✓' : 'غير متوازن!'}</span></div></div>
+        <RptTable org={org} me={me} onRow={(r) => { setCode(r.code); onMode('gl'); }} spec={{ id: 'actmv', title: 'حركة الحسابات', sub: per, template: 'list', meta: { user: (me && me.name) || '', source: 'مِثقال ' + APP_VER + ' — المحاسبة' },
+          filters: [['الفرع', bfName]], columns: [{ key: 'code', label: 'الرمز', en: 'Code', w: 10 }, { key: 'name', label: 'الحساب', en: 'Account', w: 34 }, { key: 'open', label: 'رصيد أول المدة', en: 'Opening', type: 'money' }, { key: 'debit', label: 'مدين', en: 'Debit', type: 'money', total: 'sum' }, { key: 'credit', label: 'دائن', en: 'Credit', type: 'money', total: 'sum' }, { key: 'close', label: 'رصيد آخر المدة', en: 'Closing', type: 'money' }],
+          rows: M.rows, notes: [M.balanced ? 'المدين = الدائن — متوازن ✓' : 'تنبيه: غير متوازن'] }} />
         <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 8 }}>اضغط اسم أي حساب لفتح دفتر أستاذه بالفترة نفسها، ثم رقم أي قيد لاستعراضه.</div>
       </div>);
   }
@@ -51,23 +46,20 @@ export function GeneralLedger({ org, ops, A, mode, code, setCode, from, to, bf, 
   return (
     <div className="card" data-gl>
       <div className="card-h"><div className="card-t"><BookOpen size={15} color="var(--brass)" />دفتر الأستاذ — {per}</div>
-        <div className="row" style={{ gap: 6 }}>{filters}<button className="btn sm" onClick={pr} disabled={!L}><Printer size={13} />طباعة</button><button className="btn sm" onClick={xl} disabled={!L}><Download size={13} />Excel</button></div></div>
+        <div className="row" style={{ gap: 6 }}>{filters}</div></div>
       <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
         <select className="sel" style={{ minWidth: 260 }} aria-label="الحساب" value={code} onChange={e => setCode(e.target.value)}>
           <option value="">اختر الحساب…</option>{accs.map(a => <option key={a.code} value={a.code}>{a.code} — {a.name}</option>)}</select>
         <label className="row" style={{ gap: 5, fontSize: 12.5 }}><input type="checkbox" checked={sub} onChange={e => setSub(e.target.checked)} />مع الحسابات الفرعية</label>
       </div>
       {!L ? <div className="empty">اختر حسابًا لعرض كشفه برصيد جارٍ — أو اضغط اسم حساب في «ميزان المراجعة» أو «حركة الحسابات».</div> : <>
-        <div className="tw"><table className="tb" data-gltable><thead><tr><th>التاريخ</th><th>القيد</th><th>البيان</th><th>المقابل</th><th style={{ textAlign: 'end' }}>مدين</th><th style={{ textAlign: 'end' }}>دائن</th><th style={{ textAlign: 'end' }}>الرصيد</th></tr></thead><tbody>
-          <tr style={{ background: 'rgba(200,162,74,.05)' }}><td colSpan={6}><b>رصيد أول المدة</b></td><td className="num" style={{ textAlign: 'end', fontWeight: 700 }} data-glopen-bal>{fmt(L.open)}</td></tr>
-          {L.rows.map(r => <tr key={r.id}><td className="num" style={{ whiteSpace: 'nowrap' }}>{r.date}</td><td className="num"><DocLink to={{ e: r.id }} title="استعراض القيد">{r.no || '—'}</DocLink></td>
-            <td style={{ fontSize: 12.5 }}>{r.title}{r.src ? <span className="badge b-dim" style={{ marginInlineStart: 6, fontSize: 10 }}>{r.src}</span> : null}{r.codes.length > 1 || r.codes[0] !== L.acc.code ? <div className="num" style={{ fontSize: 10.5, color: 'var(--faint)' }}>{r.codes.join('، ')}</div> : null}</td>
-            <td style={{ fontSize: 11.5, color: 'var(--dim)' }}>{r.against.map(accName).join('، ')}</td>
-            <td className="num" style={{ textAlign: 'end' }}>{r.debit ? money(r.debit) : ''}</td><td className="num" style={{ textAlign: 'end' }}>{r.credit ? money(r.credit) : ''}</td>
-            <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: r.bal < 0 ? 'var(--rose)' : undefined }}>{fmt(r.bal)}</td></tr>)}
-          {!L.rows.length && <tr><td colSpan={7}><div className="empty">لا حركة على الحساب في الفترة.</div></td></tr>}
-          <tr style={{ fontWeight: 800 }}><td colSpan={4}>الإجمالي ورصيد آخر المدة</td><td className="num" style={{ textAlign: 'end' }}>{money(L.debit)}</td><td className="num" style={{ textAlign: 'end' }}>{money(L.credit)}</td><td className="num" style={{ textAlign: 'end' }} data-glclose>{fmt(L.close)}</td></tr>
-        </tbody></table></div>
+        <RptTable org={org} me={me} onRow={(r) => r.id && peekDoc({ e: r.id })} spec={{ id: 'gl', title: 'دفتر الأستاذ — ' + L.acc.code + ' ' + L.acc.name, sub: per, template: 'ledger', meta: { user: (me && me.name) || '', source: 'مِثقال ' + APP_VER + ' — المحاسبة' },
+          filters: [['الفرع', bfName], ['الحسابات الفرعية', sub ? 'مشمولة' : 'غير مشمولة']], kpis: [{ label: 'رصيد أول المدة', value: fmt(L.open) }, { label: 'مدين الفترة', value: money(L.debit) }, { label: 'دائن الفترة', value: money(L.credit) }, { label: 'رصيد آخر المدة', value: fmt(L.close) }],
+          columns: [{ key: 'date', label: 'التاريخ', en: 'Date', type: 'date' }, { key: 'no', label: 'القيد', en: 'Entry', w: 10 }, { key: 'title', label: 'البيان', en: 'Description', w: 36 }, { key: 'against', label: 'المقابل', en: 'Contra', w: 24 },
+            { key: 'debit', label: 'مدين', en: 'Debit', type: 'money', total: 'sum' }, { key: 'credit', label: 'دائن', en: 'Credit', type: 'money', total: 'sum' }, { key: 'bal', label: 'الرصيد', en: 'Balance', type: 'money' }],
+          rows: [{ date: '', no: '', title: 'رصيد أول المدة', against: '', bal: L.open, _bold: true, _drill: false }, ...L.rows.map(r => ({ id: r.id, date: r.date, no: r.no || '', title: r.title + (r.src ? ' · ' + r.src : ''), against: r.against.map(accName).join('، '), debit: r.debit || null, credit: r.credit || null, bal: r.bal }))],
+          notes: ['الرصيد بطبيعة الحساب (' + (L.nat > 0 ? 'مدين' : 'دائن') + ')؛ القيمة بين قوسين رصيد عكس الطبيعة.'] }} />
+        <div data-glclose style={{ display: 'none' }}>{fmt(L.close)}</div>
         <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 8 }}>الرصيد بطبيعة الحساب ({L.nat > 0 ? 'مدين' : 'دائن'})؛ القيمة بين قوسين = رصيد عكس الطبيعة. اضغط رقم القيد لاستعراضه ومستنده.</div>
       </>}
     </div>);

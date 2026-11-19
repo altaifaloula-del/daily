@@ -1068,7 +1068,7 @@ test('v49.4 المرحلة 03: من ميزان المراجعة إلى دفتر 
   assert.equal(await p.locator('select[aria-label="الحساب"]').inputValue(), '1101');
   const txt = await gl.innerText();
   assert.match(txt, /تمويل أول[\s\S]*سحب نقدي/);
-  await gl.locator('[data-doclink]').last().click(); await p.waitForTimeout(300);
+  await gl.locator('[data-rptrow]', { hasText: 'سحب نقدي' }).click(); await p.waitForTimeout(300);
   assert.match(await p.locator('.mz-docv, .modal').last().innerText(), /سحب نقدي/, 'فتح القيد من الدفتر');
   await p.keyboard.press('Escape'); await p.waitForTimeout(150);
   const cl = p.locator('.mz-docv button:has-text("إغلاق"), .modal button:has-text("إغلاق")'); if (await cl.count()) { await cl.first().click(); await p.waitForTimeout(150); }
@@ -1076,7 +1076,7 @@ test('v49.4 المرحلة 03: من ميزان المراجعة إلى دفتر 
   { const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Accounting/admin/actmv');
     await p.waitForTimeout(400);
     assert.match(await p.locator('[data-actmv]').innerText(), /متوازن ✓/);
-    await p.locator('[data-glopen]').first().click(); await p.waitForTimeout(250);
+    await p.locator('[data-actmv] [data-rptrow]').first().click(); await p.waitForTimeout(250);
     assert.equal(await p.locator('[data-gl]').count(), 1, 'اسم الحساب يفتح دفتره');
     assert.deepEqual(errs, []); await ctx.close(); }
 });
@@ -1127,6 +1127,34 @@ test('v49.5 MQ-059 مسارات الاعتماد: تهيئة مستويين لل
   await p.locator('button:has-text("اعتماد وترحيل")').first().click(); await p.waitForTimeout(300);
   j = await p.evaluate(() => window.cur.journalManual.find(x => x.id === 'wj'));
   assert.deepEqual([j.status, j.approvals.length], ['posted', 2]);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v50.0 المرحلة 05 الجدول الموحد: فرز وإخفاء عمود وبحث وعرض محفوظ، ومخرجات Excel وCSV والطباعة بالقالب الموحد', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Accounting/admin/actmv');
+  await p.evaluate(() => window.setOps(o => ({ ...o, journalManual: [
+    { id: 'r1', date: '2026-10-05', title: 'تمويل', status: 'posted', lines: [{ code: '1101', debit: 1000, credit: 0 }, { code: '3101', debit: 0, credit: 1000 }] },
+    { id: 'r2', date: '2026-10-06', title: 'إيداع', status: 'posted', lines: [{ code: '1201', debit: 400, credit: 0 }, { code: '1101', debit: 0, credit: 400 }] }] })));
+  await p.waitForTimeout(400);
+  const T = p.locator('[data-rpttable="actmv"]');
+  const debits = async () => (await T.locator('[data-rptrow] td:nth-child(4)').allInnerTexts()).map(x => Number(x.replace(/[^\d.]/g, '')) || 0);
+  const sorted = (a, d) => a.every((v, i) => !i || (d > 0 ? a[i - 1] <= v : a[i - 1] >= v));
+  await T.locator('th', { hasText: /^مدين/ }).click(); await p.waitForTimeout(100);
+  assert.ok(sorted(await debits(), 1), 'تصاعدي'); await T.locator('th', { hasText: /^مدين/ }).click(); await p.waitForTimeout(100);
+  assert.ok(sorted(await debits(), -1), 'تنازلي');
+  await T.locator('[data-rptcols]').click(); await T.locator('input[aria-label="عمود رصيد أول المدة"]').uncheck();
+  assert.equal(await T.locator('th', { hasText: 'رصيد أول المدة' }).count(), 0, 'إخفاء العمود');
+  await T.locator('input[aria-label="بحث في التقرير"]').fill('1201'); await p.waitForTimeout(100);
+  assert.equal(await T.locator('[data-rptrow]').count(), 1);
+  await p.evaluate(() => { window.prompt = () => 'بنوك فقط'; });
+  await T.locator('[data-rptsave]').click(); await p.waitForTimeout(150);
+  assert.match(await T.locator('select[aria-label="العروض المحفوظة"]').innerText(), /بنوك فقط/);
+  const [dl1] = await Promise.all([p.waitForEvent('download'), T.locator('[data-rptxlsx]').click()]);
+  const fs = await import('node:fs'); const xb = fs.readFileSync(await dl1.path()).toString('latin1');
+  assert.ok(xb.startsWith('PK') && /<f>SUM\(/.test(xb) && /ySplit/.test(xb), 'ملف Excel حقيقي بمجاميع بصيغ ورأس مجمّد');
+  const [dl2] = await Promise.all([p.waitForEvent('download'), T.locator('[data-rptcsv]').click()]);
+  const csv = fs.readFileSync(await dl2.path(), 'utf8');
+  assert.match(csv, /^\uFEFF/); assert.match(csv, /1201/);
   assert.deepEqual(errs, []); await ctx.close();
 });
 

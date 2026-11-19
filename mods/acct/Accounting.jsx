@@ -7,6 +7,7 @@ import { VatRegisters, SupplierPurchReport } from './TaxPurchReports.jsx';   // 
 import { Suppliers } from '../inv/Suppliers.jsx';   // v44.0 «مستلم لم يُفوتر»
 import { OdooBar } from '../../App.jsx';   // v41.0
 import { GeneralLedger } from './GeneralLedger.jsx';   // v49.4 المرحلة 03
+import { makeRptXlsx } from '../../App.jsx';   // v50.0 منظومة التقارير
 import { DEP_METHODS, depMethod, deprSchedule, wfOn, wfRequired, wfState, wfCanAct, wfApprove } from '../../App.jsx';   // v49.4 طرق الإهلاك
 import { DocLink, RowGrip, moveIdx, RECUR_AR, recurNext, recurDue, jeOwner, canApproveJe, jeAutoSt, vatCloseLive, projList, projectPL, projNextCode, ACCT_SECTIONS, ACC_KIND, Field, Kpi, LOCK_MSG, MizanMerge, Modal, NUM_FACE, Num, ROLES, _xe, acctSecKey, arDate, bankOfBranch, branchBanks, bsLayout, bsRowsOf, buildAccounting, buildPartners, capOK, countedClosing, customerAging, detectStmtMap, entityById, entityList, gosiRatesFor, isLayout, isRowsOf, isoD, lockedThru, makeXlsx, money, monthEnd, monthLedger, multiEntityOn, naMissing, nowISO, openDocWin, parseCsvGrid, parseMt940, parseXlsxGrid, payTotal, periodLocked, posClrOf, printA4, qrSvg, roleEdit, rolePost, snapMonths, stAddDays, stDate, stNum, sum, supplierAging, today, uid, useSecNav, zatcaTLV } from '../../App.jsx';
 
@@ -1344,8 +1345,17 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
   // v15.4: تصدير كل تقرير في ملف Excel (.xlsx) مستقل — بدل الملف المجمّع
   const xlOne = (base, rows) => { try { dlBlob(base + '_' + expTag + '.xlsx', makeXlsx([{ name: base.replace(/_/g, ' ').slice(0, 28), rows }])); } catch (e) { say('تعذّر توليد Excel', 'no'); } };
   const xlCoa = () => xlOne('دليل_الحسابات', coaRows());
-  const xlJournal = () => xlOne('دفتر_اليومية', journalRows());
-  const xlTB = () => xlOne('ميزان_المراجعة', tbRows());
+  // v50.0 (G2): اليومية والميزان بالقالب الموحد — ترويسة ورأس مجمّد وتنسيق أرقام ومجاميع بصيغ SUM حقيقية
+  const rptMeta = { user: me?.name || '', source: 'مِثقال — المحاسبة' };
+  const rptPer = (from || to) ? ((from || '…') + ' ← ' + (to || '…')) : 'كل الفترات';
+  const xlRpt = (base, spec) => { try { dlBlob(base + '_' + expTag + '.xlsx', makeRptXlsx(org, spec)); } catch (e) { say('تعذّر توليد Excel', 'no'); } };
+  const xlJournal = () => xlRpt('دفتر_اليومية', { id: 'journal', title: 'دفتر اليومية', sub: rptPer, meta: rptMeta, filters: bfLabel ? [['الفرع', bfLabel]] : [],
+    columns: [{ key: 'no', label: 'رقم القيد', w: 10 }, { key: 'date', label: 'التاريخ', type: 'date' }, { key: 'title', label: 'البيان', w: 34 }, { key: 'src', label: 'المصدر', w: 16 }, { key: 'code', label: 'رمز الحساب', w: 10 }, { key: 'name', label: 'اسم الحساب', w: 26 }, { key: 'debit', label: 'مدين', type: 'money', total: 'sum' }, { key: 'credit', label: 'دائن', type: 'money', total: 'sum' }],
+    rows: tbEntries.slice().sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.no || '').localeCompare(b.no || '')).flatMap(e => e.lines.map(l => ({ no: e.no, date: e.date, title: e.title, src: e.src, code: l.code, name: l.name, debit: l.debit || null, credit: l.credit || null }))) });
+  const xlTB = () => xlRpt('ميزان_المراجعة', { id: 'tb', title: 'ميزان المراجعة', sub: rptPer, meta: rptMeta, filters: bfLabel ? [['الفرع', bfLabel]] : [],
+    columns: [{ key: 'code', label: 'رمز الحساب', w: 10 }, { key: 'name', label: 'اسم الحساب', w: 32 }, { key: 'kind', label: 'النوع', w: 12 }, { key: 'open', label: 'رصيد أول المدة', type: 'money' }, { key: 'debit', label: 'مدين', type: 'money', total: 'sum' }, { key: 'credit', label: 'دائن', type: 'money', total: 'sum' }, { key: 'close', label: 'رصيد آخر المدة', type: 'money' }],
+    rows: A.accounts.filter(tbShow).map(a => { const x = tbMov(a); return { code: a.code, name: a.name, kind: kindAr[a.kind] || a.kind, open: Math.round(tbOpen(a) * 100) / 100, debit: Math.round(x.debit * 100) / 100, credit: Math.round(x.credit * 100) / 100, close: tbClose(a) }; }),
+    notes: [Math.abs(tbD - tbC) < 0.01 ? 'المدين = الدائن — متوازن' : 'تنبيه: غير متوازن'] });
   const xlIS = () => xlOne('قائمة_الدخل', isRows());
   const xlBS = () => xlOne('المركز_المالي', bsRows());
 
@@ -1738,7 +1748,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
       )}
 
       {(view === 'gl' || view === 'actmv') && <><div className="card" style={{ padding: '10px 14px' }}>{periodBar}</div>
-        <GeneralLedger org={org} ops={ops} A={A} mode={view === 'actmv' ? 'act' : 'gl'} code={glCode} setCode={setGlCode} from={from} to={to} bf={bf} setBf={setBf} onMode={(m) => setView(m === 'gl' ? 'gl' : 'actmv')} /></>}
+        <GeneralLedger me={me} org={org} ops={ops} A={A} mode={view === 'actmv' ? 'act' : 'gl'} code={glCode} setCode={setGlCode} from={from} to={to} bf={bf} setBf={setBf} onMode={(m) => setView(m === 'gl' ? 'gl' : 'actmv')} /></>}
       {view === 'tb' && (
         <div className="card">
           <div className="card-h">
