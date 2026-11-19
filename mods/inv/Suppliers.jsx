@@ -847,7 +847,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
           {canPay && <button className="btn sm pri" onClick={() => setNewInv({ supplierId: suppliers[0]?.id || '', invoiceNo: '', taxable: !!(org.taxCfg || {}).enabled, date: today(), dueDate: today(), branchId: '', lines: [invLine()] })}><Plus size={14} />فاتورة توريد جديدة</button>}
           {canPay && <button className="btn sm" data-svc onClick={() => setSvc({ supplierId: suppliers[0]?.id || '', invoiceNo: '', date: today(), dueDate: today(), branchId: '', lines: [svcLine()] })}><Plus size={14} />فاتورة خدمات ومصروفات</button>}</>} />
       <div className="grid g4">
-        <Kpi label="مستحقات الموردين" value={money(outstanding)} sub={`${allInvs.filter(i => remOf(i) > 0).length} فاتورة مفتوحة (منها ${clInvs.filter(v => cRem(v) > 0).length} من الورديات)`} icon={Truck} color="#C8A24A" />
+        <Kpi label="مستحقات الموردين" value={money(outstanding)} sub={`${allInvs.filter(i => remOf(i) > 0).length} فاتورة مفتوحة (منها ${clInvs.filter(v => cRem(v) > 0).length} من الورديات)`} icon={Truck} color="#D9A83E" />
         <Kpi label="متأخرة عن الاستحقاق" value={money(sum(overdue, remOf))} sub={`${overdue.length} فاتورة`} icon={AlertTriangle} color="#D9544D" />
         <Kpi label="التزامات الشهر الثابتة" value={money(sum(fixed, fxTotal))} sub={`${fixed.length} فرع`} icon={Building2} color="#5B93C4" />
         <Kpi label="غير المسدد من الثابتة" value={money(sum(fixed.filter(f => !f.isPaid), fxTotal))} icon={CalendarDays} color="#E0A458" />

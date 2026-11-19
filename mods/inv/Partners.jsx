@@ -360,7 +360,7 @@ export function Partners({ org, ops, me, commit, commitOrg, say }) {
       <div className="grid g4">
         <Kpi label="إجمالي دائن (علينا)" value={money(cr)} sub="مستحق للموردين والموظفين" icon={TrendingUp} color="#D9544D" />
         <Kpi label="إجمالي مدين (لنا)" value={money(dr)} sub="مستحق من العملاء والسلف" icon={TrendingDown} color="#4FB286" />
-        <Kpi label="صافي المركز" value={money(Math.abs(net))} sub={net >= 0 ? 'صافي التزام علينا' : 'صافي مستحق لنا'} icon={ArrowLeftRight} color="#C8A24A" />
+        <Kpi label="صافي المركز" value={money(Math.abs(net))} sub={net >= 0 ? 'صافي التزام علينا' : 'صافي مستحق لنا'} icon={ArrowLeftRight} color="#D9A83E" />
         <Kpi label="عدد الشركاء" value={String(partners.length)} sub={`${cCust} عميل · ${cSupp} مورد · ${cEmp} موظف`} icon={Users} color="#5B93C4" />
       </div>
 

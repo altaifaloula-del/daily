@@ -40,7 +40,7 @@ export function PrepList({ org, ops, me, say }) {
       {P && P.notes.length > 0 && <div className="cf-notes">{P.notes.map((n, i) => <div key={i} className="cf-note warn"><span className="badge b-amber">تنبيه</span><span>{n}</span></div>)}</div>}
       {P && P.f != null && P.mix.days > 0 && <div className="grid g3">
         <Kpi label="المبيعات المتوقعة" value={money(P.f)} sub={'المدى ' + money(P.lo) + ' – ' + money(P.hi)} icon={ChefHat} color="#5B93C4" />
-        <Kpi label="تحضيرات اليوم" value={String(P.preps.length)} sub={P.preps.filter(r => r.make > 0).length + ' تحتاج تحضيرًا'} icon={ChefHat} color="#C8A24A" />
+        <Kpi label="تحضيرات اليوم" value={String(P.preps.length)} sub={P.preps.filter(r => r.make > 0).length + ' تحتاج تحضيرًا'} icon={ChefHat} color="#D9A83E" />
         <Kpi label="مزيج الأصناف" value={P.mix.days + ' يومًا'} sub={'من مبيعات ' + money(P.mix.rev) + ' في آخر 28 يومًا'} icon={ChefHat} color="#4FB286" />
       </div>}
       {P && P.preps.length > 0 && <div className="card"><div className="pl-list">{P.preps.map(r => (

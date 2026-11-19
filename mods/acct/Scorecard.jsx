@@ -62,7 +62,7 @@ export function Scorecard({ org, ops, me, scoped, commitOrg, say, setTab }) {
 
       <div className="grid g3">
         <Kpi label="أهداف محقّقة" value={achieved + ' / ' + withTarget.length} sub={withTarget.length ? Math.round(achieved / withTarget.length * 100) + '% من أهدافك' : 'حدّد أهدافك أدناه'} icon={CheckCircle2} color={withTarget.length && achieved === withTarget.length ? '#4FB286' : achieved > 0 ? '#E0A458' : '#7E7566'} />
-        <Kpi label="إيراد الشهر" value={money(rev)} sub={monthLabel(month)} icon={TrendingUp} color="#C8A24A" />
+        <Kpi label="إيراد الشهر" value={money(rev)} sub={monthLabel(month)} icon={TrendingUp} color="#D9A83E" />
         <Kpi label="صافي الشهر" value={money(net)} sub={'هامش ' + margin + '%'} icon={Landmark} color={net >= 0 ? '#4FB286' : '#D9544D'} />
       </div>
 

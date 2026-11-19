@@ -25,7 +25,7 @@ export function PayrollMuster({ org, ops, me, myBranches, scoped, say }) {
     const body = groups.map(g => `<tr class="hd"><td colspan="${cols.length + 3}">${g.b.name} — ${g.rows.length} موظف</td></tr>` + g.rows.map(r => `<tr><td class="n">${++n}</td><td>${r.e.name}${r.e.jobTitle ? '<br><span style="font-size:9px;color:#888">' + r.e.jobTitle + '</span>' : ''}</td>${cols.map(c => `<td class="n"${c[2] ? ' style="font-weight:700"' : ''}>${c[1](r) ? money(c[1](r)) : '—'}</td>`).join('')}<td>${r.e.iban ? '<span style="font-size:9px">' + r.e.iban + '</span>' : ''}</td></tr>`).join('')
       + `<tr class="grp"><td colspan="2">مجموع ${g.b.name}</td>${cols.map(c => `<td class="n">${money(Math.round(sum(g.rows, c[1]) * 100) / 100)}</td>`).join('')}<td></td></tr>`).join('');
     printA4(org, 'مسير رواتب شهر ' + monthName, rows.length + ' موظف' + (bf ? ' · ' + (brs.find(b => b.id === bf) || {}).name : ' · كل الفروع') + (accrual ? ' · الاستحقاق مُرحّل' : ' · مسودة قبل الترحيل'),
-      `<style>@page{size:A4 landscape}table{font-size:10px}td,th{padding:4px 5px}.hd td{background:#f5f0e4;font-weight:800}.grp td{font-weight:700;background:#fbf8f1}</style>
+      `<style>@page{size:A4 landscape}table{font-size:10px}td,th{padding:4px 5px}.hd td{background:#FBF4E4;font-weight:800}.grp td{font-weight:700;background:#F7F8FA}</style>
       <table><thead><tr><th>#</th><th>الموظف</th>${cols.map(c => `<th>${c[0]}</th>`).join('')}<th>الآيبان</th></tr></thead><tbody>${body}
       <tr class="tot"><td colspan="2">الإجمالي العام</td>${cols.map(c => `<td class="n">${money(T(c[1]))}</td>`).join('')}<td></td></tr></tbody></table>
       <div class="box">الإجمالي = الأساسي + البدلات + الإضافي المعتمد + المكافآت المعتمدة · الصافي = الإجمالي − السلف − الخصومات${gosiOn ? ' − حصة الموظف من التأمينات' : ''}.</div>
@@ -47,7 +47,7 @@ export function PayrollMuster({ org, ops, me, myBranches, scoped, say }) {
         <span className={'badge ' + (payout ? 'b-mint' : accrual ? 'b-brass' : 'b-amber')}>{payout ? 'مصروف ✓' : accrual ? 'الاستحقاق مُرحّل — بانتظار الصرف' : 'مسودة — قبل ترحيل الاستحقاق'}</span>
       </div>
       <div className="grid g4">
-        <Kpi label="الموظفون" value={String(rows.length)} sub={groups.length + ' فرع'} icon={Users} color="#C8A24A" />
+        <Kpi label="الموظفون" value={String(rows.length)} sub={groups.length + ' فرع'} icon={Users} color="#D9A83E" />
         <Kpi label="إجمالي المستحق" value={money(T('gross'))} sub={'منها إضافي ' + money(T('ot')) + ' (' + T('otHours') + ' ساعة)'} icon={Wallet} color="#5B93C4" />
         <Kpi label="الاستقطاعات" value={money(T(r => r.draws + r.cuts + r.gEmp))} sub={'سلف ' + money(T('draws')) + ' · خصومات ' + money(T('cuts'))} icon={TrendingDown} color="#D9544D" />
         <Kpi label="صافي المسير" value={money(T('net'))} sub="المطلوب صرفه" icon={Landmark} color="#4FB286" />

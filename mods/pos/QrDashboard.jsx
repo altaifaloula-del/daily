@@ -133,7 +133,7 @@ export function QrDashboard({ fb, scopeFb, brs, sel, nb, upd, ro, say, loading }
                   <XAxis type="number" domain={[0, 5]} hide reversed />
                   <YAxis type="category" dataKey="name" width={100} orientation="right" tick={{ fontSize: 11, fill: 'var(--dim)' }} />
                   <Tooltip formatter={(v) => [v, 'المتوسط']} />
-                  <Bar dataKey="value" fill="#C8A24A" radius={[4, 0, 0, 4]} />
+                  <Bar dataKey="value" fill="#D9A83E" radius={[4, 0, 0, 4]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>

@@ -84,7 +84,7 @@ export function EmployeeFile({ org, ops, me, myBranches, say }) {
         <div className="grid g4">
           <Kpi label="حضور الشهر" value={D.cur.st.onTime + ' / ' + (D.cur.st.onTime + D.cur.st.late + D.cur.st.absent)} sub={'تأخير ' + D.cur.st.late + ' · غياب ' + D.cur.st.absent} icon={Fingerprint} color="#5B93C4" />
           <Kpi label="رصيد الإجازة السنوية" value={D.lb.ok ? String(Math.floor(D.lb.balance)) + ' يوم' : '—'} sub={Object.entries(D.lvBy).map(([k, v]) => (LEAVE_TYPES[k] || {}).ar + ' ' + v).join(' · ') || 'لا إجازات خلال 12 شهرًا'} icon={CalendarDays} color="#9B7BB8" />
-          <Kpi label="النقاط (12 شهرًا)" value={String(D.ptsSum)} sub={D.pts.length + ' حركة'} icon={Star} color="#C8A24A" />
+          <Kpi label="النقاط (12 شهرًا)" value={String(D.ptsSum)} sub={D.pts.length + ' حركة'} icon={Star} color="#D9A83E" />
           <Kpi label="مكافآت / جزاءات" value={money(D.rwSum)} sub={'جزاءات ' + money(D.penSum)} icon={Coins} color="#4FB286" />
         </div>
         <div className="grid g2">

@@ -56,7 +56,7 @@ export function ForecastPurchase({ org, ops, me, commit, say }) {
       <div className="grid g3" style={{ marginTop: 10 }}>
         <Kpi label={'المبيعات المتوقعة (' + P.days + ' أيام)'} value={money(pool.revN)} sub={pool.revLo !== pool.revHi ? 'المدى ' + money(pool.revLo) + ' – ' + money(pool.revHi) : 'بمتوسط المبيعات'} icon={TrendingUp} color="#5B93C4" />
         <Kpi label="أصناف للطلب" value={String(lines.length)} sub={pool.rows.length + ' صنف بحساب استهلاك'} icon={PackageCheck} color={lines.length ? '#E0A458' : '#4FB286'} />
-        <Kpi label="قيمة الطلب المقترح" value={money(value)} sub="بآخر سعر شراء مستلم" icon={Truck} color="#C8A24A" />
+        <Kpi label="قيمة الطلب المقترح" value={money(value)} sub="بآخر سعر شراء مستلم" icon={Truck} color="#D9A83E" />
       </div>
       {pool.notes.length > 0 && <div className="cf-notes" style={{ marginTop: 10 }}>{pool.notes.map((n, i) => <div key={i} className={'cf-note ' + n.sev}><span className={'badge ' + (n.sev === 'warn' ? 'b-amber' : 'b-dim')}>{n.sev === 'warn' ? 'تنبيه' : 'معلومة'}</span><span>{n.msg}</span></div>)}</div>}
       {!pool.rows.length ? <div className="empty">لا أصناف باستهلاك مسجّل أو حد أمان في {pool.name}.</div> : <div className="pp-list">

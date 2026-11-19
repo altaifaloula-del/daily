@@ -172,23 +172,23 @@ export function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, s
       <style>${NUM_FACE}
         *{margin:0;padding:0;box-sizing:border-box;font-family:'MizanNum','IBM Plex Sans Arabic','Noto Sans Arabic','Segoe UI',Tahoma,sans-serif}
         body{padding:32px;color:#222;background:#fff}
-        .head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #C8A24A;padding-bottom:16px;margin-bottom:20px}
+        .head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #D9A83E;padding-bottom:16px;margin-bottom:20px}
         .logo{width:64px;height:64px;object-fit:contain}
-        .co-n{font-size:19px;font-weight:bold;color:#8C6F2C}
+        .co-n{font-size:19px;font-weight:bold;color:#10294A}
         .co-m{font-size:11px;color:#666;margin-top:3px}
         .title{text-align:center;font-size:16px;font-weight:bold;margin:8px 0}
         .sub{text-align:center;font-size:13px;color:#666;margin-bottom:20px}
         .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;margin-bottom:20px}
-        .fld{display:flex;justify-content:space-between;padding:8px 12px;background:#F6F2E9;border-radius:6px;font-size:13px}
-        .fld b{color:#8C6F2C}
+        .fld{display:flex;justify-content:space-between;padding:8px 12px;background:#F3F5F8;border-radius:6px;font-size:13px}
+        .fld b{color:#10294A}
         table{width:100%;border-collapse:collapse;margin:16px 0;font-size:12.5px}
-        th{background:#241F1B;color:#fff;padding:8px;text-align:right}
+        th{background:#10294A;color:#fff;padding:8px;text-align:right}
         td{border:1px solid #ddd;padding:7px 10px}
         td.n{text-align:left;font-variant-numeric:tabular-nums}
         td.ce{text-align:center;color:#999}
-        .totals{margin-top:20px;border:2px solid #C8A24A;border-radius:10px;overflow:hidden}
+        .totals{margin-top:20px;border:2px solid #D9A83E;border-radius:10px;overflow:hidden}
         .totals .row{display:flex;justify-content:space-between;padding:11px 16px;font-size:14px;border-bottom:1px solid #eee}
-        .totals .net{background:#241F1B;color:#fff;font-size:17px;font-weight:bold;border:none}
+        .totals .net{background:#10294A;color:#fff;font-size:17px;font-weight:bold;border:none}
         .sign{display:flex;justify-content:space-between;margin-top:48px;gap:40px}
         .sign div{flex:1;text-align:center;border-top:1px solid #999;padding-top:8px;font-size:12px;color:#666}
         @media print{body{padding:16px}}
@@ -345,7 +345,7 @@ export function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, s
       </div>
 
       <div className="grid g4">
-        <Kpi label="إجمالي الاستحقاق (أساسي + بدلات)" value={money(totalGross)} icon={Wallet} color="#C8A24A" />
+        <Kpi label="إجمالي الاستحقاق (أساسي + بدلات)" value={money(totalGross)} icon={Wallet} color="#D9A83E" />
         <Kpi label="السلف والمسحوبات" value={money(sum(rows, r => r.draws))} icon={TrendingDown} color="#E0A458" />
         {gosiOn
           ? <Kpi label="التأمينات (موظف + عمل)" value={money(totalGosi)} sub={'استقطاع ' + money(totalGEmp) + ' · صاحب العمل ' + money(totalGEr)} icon={ShieldCheck} color="#5B93C4" />

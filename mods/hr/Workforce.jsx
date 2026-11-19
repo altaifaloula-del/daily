@@ -141,7 +141,7 @@ export function Workforce({ org, ops, me, myBranches, scoped, commit, commitOrg,
 
         <div className="grid g4">
           <Kpi label={'إجمالي ساعات الأسبوع (' + (mode === 'plan' ? 'مخطط' : 'فعلي') + ')'} value={String(totHours)} sub={emps.length + ' موظف'} icon={Clock} color="#5B93C4" />
-          <Kpi label="تكلفة العمالة" value={money(totCost)} sub={'أجر/ساعة وسطي ' + money(allAvgRate)} icon={Banknote} color="#C8A24A" />
+          <Kpi label="تكلفة العمالة" value={money(totCost)} sub={'أجر/ساعة وسطي ' + money(allAvgRate)} icon={Banknote} color="#D9A83E" />
           <Kpi label="نسبة العمالة من المبيعات" value={weekPct != null ? weekPct + '%' : '—'} sub={'الهدف ' + targetPct + '%'} icon={TrendingUp} color={weekPct == null ? '#5B93C4' : weekPct > targetPct ? '#D9544D' : '#4FB286'} />
           <Kpi label="المبيعات لكل ساعة عمل" value={money(splh)} sub={'من مبيعات ' + money(totSales)} icon={CircleDollarSign} color="#4FB286" />
         </div>

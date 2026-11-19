@@ -127,7 +127,7 @@ export function GrowthAnalytics({ org, ops, me, myBranches, scoped, setTab, them
       <div className="grid g4">
         <Kpi label={'نمو ' + yr + ' (حتى ' + GROWTH_MONTHS[lastMo - 1] + ')'} value={ytdG.txt} sub={money(ytdCur) + ' مقابل ' + money(ytdPrev)} icon={TrendingUp} color={!ytdG.has ? '#7E7566' : ytdG.up ? '#4FB286' : '#D9544D'} />
         <Kpi label={'نمو شهر ' + GROWTH_MONTHS[lastMo - 1]} value={moG.txt} sub={money(curMoRev) + ' مقابل ' + money(prevMoRev)} icon={CalendarDays} color={!moG.has ? '#7E7566' : moG.up ? '#4FB286' : '#D9544D'} />
-        <Kpi label="أعلى شهر مبيعات" value={money(bestMo.rev)} sub={moLabel(bestMo.k)} icon={ArrowUp} color="#C8A24A" />
+        <Kpi label="أعلى شهر مبيعات" value={money(bestMo.rev)} sub={moLabel(bestMo.k)} icon={ArrowUp} color="#D9A83E" />
         <Kpi label={'إجمالي مبيعات ' + yr} value={money(totCur)} sub={lastMo + ' من ٱثنَي عشر شهرًا مسجّلة'} icon={BarChart3} color="#5B93C4" />
       </div>
 
@@ -151,7 +151,7 @@ export function GrowthAnalytics({ org, ops, me, myBranches, scoped, setTab, them
         <div className="card-h">
           <div className="card-t"><BarChart3 size={15} color="var(--brass)" />المقارنة السنوية شهرًا بشهر</div>
           <div className="row" style={{ gap: 12, fontSize: 11 }}>
-            <span className="row" style={{ gap: 5 }}><span style={{ width: 11, height: 11, borderRadius: 3, background: '#C8A24A', display: 'inline-block' }} />{yr}</span>
+            <span className="row" style={{ gap: 5 }}><span style={{ width: 11, height: 11, borderRadius: 3, background: '#D9A83E', display: 'inline-block' }} />{yr}</span>
             <span className="row" style={{ gap: 5 }}><span style={{ width: 11, height: 11, borderRadius: 3, background: '#7E7566', display: 'inline-block' }} />{prevYr}</span>
           </div>
         </div>

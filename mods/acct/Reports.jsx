@@ -163,7 +163,7 @@ export function Reports({ org, ops, me, myBranches, scoped, say, theme }) {
       </div>
 
       <div className="grid g4">
-        <Kpi label="الإيرادات" value={money(T.rev)} sub={`${rows.length} إغلاق`} icon={CircleDollarSign} color="#C8A24A" />
+        <Kpi label="الإيرادات" value={money(T.rev)} sub={`${rows.length} إغلاق`} icon={CircleDollarSign} color="#D9A83E" />
         <Kpi label="المصروفات" value={money(T.exp)} icon={Receipt} color="#D9544D" />
         <Kpi label="صافي الربح" value={money(T.net)} sub={`هامش ${T.rev ? ((T.net / T.rev) * 100).toFixed(1) : 0}%`} icon={TrendingUp} color="#4FB286" />
         <Kpi label="ض. القيمة المضافة المستحقة" value={money(T.vat)} sub="15% من الإيراد الشامل" icon={Landmark} color="#5B93C4" />

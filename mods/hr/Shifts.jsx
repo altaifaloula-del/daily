@@ -43,7 +43,7 @@ export function Shifts({ org, ops, me, myBranches, commitOrg, say }) {
       <div className="grid g3">
         <Kpi label="فروع أغلقت وردية اليوم" value={rows.filter(r => r.st.done).length + ' / ' + rows.length} icon={Check} color="#4FB286" />
         <Kpi label="فروع متأخرة عن الإغلاق" value={late} sub={late ? 'تتطلب متابعة فورية' : 'لا تأخير'} icon={AlertTriangle} color={late ? '#D9544D' : '#5B93C4'} />
-        <Kpi label="الوقت الآن" value={now.toLocaleTimeString(NUM_LOCALE, { hour: '2-digit', minute: '2-digit' })} sub={arDate(today())} icon={Clock} color="#C8A24A" />
+        <Kpi label="الوقت الآن" value={now.toLocaleTimeString(NUM_LOCALE, { hour: '2-digit', minute: '2-digit' })} sub={arDate(today())} icon={Clock} color="#D9A83E" />
       </div>
 
       <div className="grid g2">

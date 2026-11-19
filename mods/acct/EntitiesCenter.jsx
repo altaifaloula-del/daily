@@ -68,7 +68,7 @@ export function EntitiesCenter({ org, ops, me, myBranches, scoped, commitOrg, sa
       </div>
 
       <div className="grid g3">
-        <Kpi label="عدد المنشآت" value={ents.length} sub={multiEntityOn(org) ? (org.entities.length + ' إضافية + الرئيسية') : 'منشأة واحدة (الوضع الافتراضي)'} icon={Building2} color="#C8A24A" />
+        <Kpi label="عدد المنشآت" value={ents.length} sub={multiEntityOn(org) ? (org.entities.length + ' إضافية + الرئيسية') : 'منشأة واحدة (الوضع الافتراضي)'} icon={Building2} color="#D9A83E" />
         <Kpi label="إجمالي الفروع" value={tot.nb} sub="موزّعة على المنشآت" icon={Store} color="#5B93C4" />
         <Kpi label="صافي المجموعة (موحّد)" value={money(tot.net)} sub={(from || to) ? 'للفترة المحددة' : 'كل المدة'} icon={Landmark} color={tot.net >= 0 ? '#4FB286' : '#D9544D'} />
       </div>

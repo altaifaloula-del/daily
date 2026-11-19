@@ -520,7 +520,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
     const body = `
     <div class="box" style="display:flex;justify-content:space-between;align-items:flex-start;gap:18px">
       <div style="line-height:1.9">
-        <div style="font-size:15px;font-weight:800;color:#5a4a1e">${einvIsStd ? 'فاتورة ضريبية' : 'فاتورة ضريبية مبسّطة'}</div>
+        <div style="font-size:15px;font-weight:800;color:#10294A">${einvIsStd ? 'فاتورة ضريبية' : 'فاتورة ضريبية مبسّطة'}</div>
         <div class="sub">${einvIsStd ? 'Tax Invoice' : 'Simplified Tax Invoice'}</div>
         <div style="margin-top:8px"><b>البائع:</b> ${_xe(einvSeller)} · الرقم الضريبي: ${_xe(einvSellerVat)}${einvSellerCR ? ' · س.ت ' + _xe(einvSellerCR) : ''}</div>
         ${einvSellerAddr ? '<div>العنوان: ' + _xe(einvSellerAddr) + '</div>' : ''}
@@ -1038,7 +1038,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
           ${rr('الدين إلى حقوق الملكية', xTxt(ratios.de))}${rr('الخصوم إلى الأصول', pctTxt(ratios.da))}${rr('معدل دوران الأصول', xTxt(ratios.turnover))}
         </tbody></table>
       </div>
-      <h3 style="margin:14px 0 6px;color:#5a4a1e">الاتجاه الشهري (آخر 6 أشهر)</h3>
+      <h3 style="margin:14px 0 6px;color:#10294A">الاتجاه الشهري (آخر 6 أشهر)</h3>
       <table><thead><tr><th>الشهر</th><th>الإيرادات</th><th>المصروفات</th><th>صافي الربح</th></tr></thead><tbody>${trend}</tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
   };
 
@@ -1079,12 +1079,12 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
     const isTitle = bfLabel ? ' — ' + bfLabel : ' (موحدة)';
     w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>القوائم المالية — ${co.name || ''}</title>
     <style>${NUM_FACE}*{font-family:'MizanNum','IBM Plex Sans Arabic','Noto Sans Arabic','Segoe UI',Tahoma,sans-serif;box-sizing:border-box}body{margin:0;padding:26px;color:#1a1a1a;font-size:12.5px}
-    .h{display:flex;justify-content:space-between;border-bottom:2px solid #8C6F2C;padding-bottom:10px;margin-bottom:14px}
-    .co{font-size:19px;font-weight:800;color:#5a4a1e}.sub{font-size:11px;color:#666;margin-top:2px}
-    h2{font-size:15px;margin:14px 0 8px;color:#5a4a1e}table{width:100%;border-collapse:collapse;margin-bottom:8px}
-    td{padding:6px 8px;border:1px solid #e6ddc8}.n{text-align:left;direction:ltr;font-variant-numeric:tabular-nums;white-space:nowrap}
-    .tot td{background:#f5f0e4;font-weight:800;border-top:2px solid #8C6F2C}
-    .hd td{font-weight:800;color:#5a4a1e;border:0;padding-top:10px}.grp td{font-weight:700;background:#fbf8f1}.net td{border-top:3px double #1a1a1a;font-size:13.5px}
+    .h{display:flex;justify-content:space-between;border-bottom:2px solid #10294A;padding-bottom:10px;margin-bottom:14px}
+    .co{font-size:19px;font-weight:800;color:#10294A}.sub{font-size:11px;color:#666;margin-top:2px}
+    h2{font-size:15px;margin:14px 0 8px;color:#10294A}table{width:100%;border-collapse:collapse;margin-bottom:8px}
+    td{padding:6px 8px;border:1px solid #DDE2EA}.n{text-align:left;direction:ltr;font-variant-numeric:tabular-nums;white-space:nowrap}
+    .tot td{background:#FBF4E4;font-weight:800;border-top:2px solid #10294A}
+    .hd td{font-weight:800;color:#10294A;border:0;padding-top:10px}.grp td{font-weight:700;background:#F7F8FA}.net td{border-top:3px double #1a1a1a;font-size:13.5px}
     .ft{margin-top:14px;font-size:10px;color:#888;text-align:center}.grid2{display:flex;gap:16px}.grid2>div{flex:1}</style></head><body>
     <div class="h"><div><div class="co">${co.name || 'الشركة'}</div><div class="sub">${co.taxNumber ? 'الرقم الضريبي: ' + co.taxNumber : ''}</div></div>
     <div style="text-align:left"><div style="font-size:17px;font-weight:800">القوائم المالية</div><div class="sub">${period}</div></div></div>
@@ -1478,7 +1478,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
       <div className="grid g4">
         <Kpi label="القيود المسجّلة" value={String(A.entries.length)} sub="تلقائية من عملياتك + يدوية المحاسب" icon={FileText} color="#4FB286" />
         <Kpi label={A.balanced ? 'كل القيود متوازنة ✓' : 'يوجد قيد غير متوازن!'} value={money(A.totalDebit)}
-          sub="إجمالي المدين = إجمالي الدائن" icon={Scale} color={A.balanced ? '#C8A24A' : '#D9544D'} />
+          sub="إجمالي المدين = إجمالي الدائن" icon={Scale} color={A.balanced ? '#D9A83E' : '#D9544D'} />
         <Kpi label="صافي نتيجة الفترة المعروضة" value={money(netP)} sub={netP >= 0 ? 'ربح' : 'خسارة'} icon={TrendingUp} color={netP >= 0 ? '#4FB286' : '#D9544D'} />
         <Kpi label="حسابات نشطة" value={String(A.accounts.filter(a => a.active).length) + ' / ' + A.accounts.length}
           sub="من دليل الحسابات" icon={Landmark} color="#5B93C4" />
@@ -1972,7 +1972,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
             </div>
 
             <div className="grid g3">
-              <Kpi label="النقد الآن (خزائن + بنك)" value={money(f.cashNow)} sub={'+ ذمم تطبيقات ' + money(f.appRecv)} icon={Wallet} color="#C8A24A" />
+              <Kpi label="النقد الآن (خزائن + بنك)" value={money(f.cashNow)} sub={'+ ذمم تطبيقات ' + money(f.appRecv)} icon={Wallet} color="#D9A83E" />
               <Kpi label="أدنى رصيد متوقّع" value={money(f.minClosing)} sub={'خلال ' + f.horizon + ' أشهر'} icon={TrendingDown} color={f.minClosing < f.buffer - 0.004 ? '#D9544D' : '#4FB286'} />
               <Kpi label={f.gap ? 'أول شهر عجز متوقّع' : 'لا عجز متوقّع'} value={f.gap ? f.gap.ym : '✓'} sub={f.gap ? 'الرصيد ' + money(f.gap.closing) : 'ضمن حد الأمان'} icon={AlertTriangle} color={f.gap ? '#D9544D' : '#4FB286'} />
             </div>
@@ -2128,7 +2128,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
             <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>{periodBar}</div>
             <div className="grid g4">
               <Kpi label="تكلفة الطعام — الشركة" value={pctTxt(all.pct)} sub={money(all.cogs) + ' من مبيعات ' + money(all.ns)} icon={Store} color={all.pct != null && all.pct > tgt ? '#D9544D' : '#4FB286'} />
-              <Kpi label="الهدف" value={tgt + '%'} sub={canPost ? 'قابل للتعديل أدناه' : 'تحدده الإدارة المالية'} icon={Scale} color="#C8A24A" />
+              <Kpi label="الهدف" value={tgt + '%'} sub={canPost ? 'قابل للتعديل أدناه' : 'تحدده الإدارة المالية'} icon={Scale} color="#D9A83E" />
               <Kpi label="فروع فوق الهدف" value={String(over.length) + ' / ' + rows.length} sub={over.length ? over.map(r => r.b.name).slice(0, 2).join('، ') + (over.length > 2 ? '…' : '') : 'كل الفروع ضمن الهدف'} icon={AlertTriangle} color={over.length ? '#D9544D' : '#4FB286'} />
               <Kpi label="وفر ممكن عند بلوغ الهدف" value={money(saving)} sub="للفترة المعروضة" icon={TrendingDown} color="#5B93C4" />
             </div>
@@ -2270,7 +2270,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
               <div className="grid g3">
                 <Kpi label="الرصيد المستحق للمورد" value={money(sel.balance)} sub={sel.balance > 0 ? 'عليك سداده' : sel.balance < 0 ? 'دفعة مقدمة لصالحك' : 'مسوّى'} icon={Users} color={sel.balance > 0.004 ? '#D9544D' : '#4FB286'} />
                 <Kpi label="مهلة السداد" value={sel.terms ? sel.terms + ' يوم' : '—'} sub={sel.phone || 'بلا هاتف'} icon={ClipboardCheck} color="#5B93C4" />
-                <Kpi label="عدد الحركات" value={String(stmt.length)} sub={sel.tax ? 'ر.ض ' + sel.tax : 'مورد'} icon={FileText} color="#C8A24A" />
+                <Kpi label="عدد الحركات" value={String(stmt.length)} sub={sel.tax ? 'ر.ض ' + sel.tax : 'مورد'} icon={FileText} color="#D9A83E" />
               </div>
               <div className="card">
                 <div className="tw">
@@ -2299,7 +2299,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
           <div className="grid" style={{ gap: 12 }}>
             <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
               <div className="grid g4" style={{ flex: 1, minWidth: 300 }}>
-                <Kpi label="إجمالي المستحق للموردين" value={money(apTot.owed)} sub={apTot.debtors + ' مورد مدين'} icon={Users} color="#C8A24A" />
+                <Kpi label="إجمالي المستحق للموردين" value={money(apTot.owed)} sub={apTot.debtors + ' مورد مدين'} icon={Users} color="#D9A83E" />
                 <Kpi label="جاري (≤30 يوم)" value={money(apTot.b0)} sub="غير متأخر" icon={ClipboardCheck} color="#4FB286" />
                 <Kpi label="متأخر 31–90" value={money(r2(apTot.b30 + apTot.b60))} sub="يستحق المتابعة" icon={AlertTriangle} color="#E0A458" />
                 <Kpi label="متأخر أكثر من 90" value={money(apTot.b90)} sub="أولوية سداد" icon={AlertTriangle} color={apTot.b90 > 0.004 ? '#D9544D' : '#4FB286'} />
@@ -2366,7 +2366,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
               <div className="grid g3">
                 <Kpi label="المستحق على العميل" value={money(due)} sub={due > 0.004 ? 'مدين لك' : due < -0.004 ? 'رصيد دائن لصالحه' : 'مسوّى'} icon={Users} color={due > 0.004 ? '#E0A458' : '#4FB286'} />
                 <Kpi label="حد الائتمان" value={lim ? money(lim) : 'غير محدّد'} sub={lim && due > lim + 0.004 ? 'تجاوز الحد بـ ' + money(r2(due - lim)) : lim ? 'ضمن الحد' : 'اضبطه من الأعمار'} icon={ShieldCheck} color={lim && due > lim + 0.004 ? '#D9544D' : '#5B93C4'} />
-                <Kpi label="عدد الحركات" value={String(stmt.length)} sub={sel.phone || (sel.tax ? 'ر.ض ' + sel.tax : 'عميل')} icon={FileText} color="#C8A24A" />
+                <Kpi label="عدد الحركات" value={String(stmt.length)} sub={sel.phone || (sel.tax ? 'ر.ض ' + sel.tax : 'عميل')} icon={FileText} color="#D9A83E" />
               </div>
               <div className="card">
                 <div className="tw">
@@ -2395,7 +2395,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
           <div className="grid" style={{ gap: 12 }}>
             <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
               <div className="grid g4" style={{ flex: 1, minWidth: 300 }}>
-                <Kpi label="إجمالي الذمم المدينة" value={money(arTot.owed)} sub={arTot.debtors + ' عميل مدين'} icon={Users} color="#C8A24A" />
+                <Kpi label="إجمالي الذمم المدينة" value={money(arTot.owed)} sub={arTot.debtors + ' عميل مدين'} icon={Users} color="#D9A83E" />
                 <Kpi label="جاري (≤30 يوم)" value={money(arTot.b0)} sub="غير متأخر" icon={ClipboardCheck} color="#4FB286" />
                 <Kpi label="متأخر 31–90" value={money(r2(arTot.b30 + arTot.b60))} sub="يستحق المتابعة" icon={AlertTriangle} color="#E0A458" />
                 <Kpi label="تجاوزوا حد الائتمان" value={String(arTot.over)} sub={arTot.b90 > 0.004 ? 'متأخر +90: ' + money(arTot.b90) : 'راقب الحدود'} icon={ShieldAlert} color={arTot.over > 0 || arTot.b90 > 0.004 ? '#D9544D' : '#4FB286'} />
@@ -2907,7 +2907,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
             </div>
 
             <div className="grid g3">
-              <Kpi label="إجمالي الملاحظات" value={String(F.length)} sub="عبر 8 ضوابط" icon={ShieldCheck} color={F.length ? '#C8A24A' : '#4FB286'} />
+              <Kpi label="إجمالي الملاحظات" value={String(F.length)} sub="عبر 8 ضوابط" icon={ShieldCheck} color={F.length ? '#D9A83E' : '#4FB286'} />
               <Kpi label="مرتفعة المخاطر" value={String(nHi)} sub="تتطلب تحقيقًا" icon={AlertTriangle} color={nHi ? '#D9544D' : '#4FB286'} />
               <Kpi label="متوسطة/منخفضة" value={nMd + ' / ' + nLo} sub="مراجعة" icon={Eye} color="#5B93C4" />
             </div>
@@ -2939,7 +2939,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
               sub={plCfg.lockedThrough ? 'كل ما قبله وضمنه محمي من التعديل' : 'اقفل الشهور المعتمدة لحمايتها'} icon={Lock} color={plCfg.lockedThrough ? '#4FB286' : '#E0A458'} />
             <Kpi label="آخر إجراء" value={plLog[0] ? (plLog[0].action === 'lock' ? 'قفل ' + plLog[0].month : 'فتح استثنائي') : '—'}
               sub={plLog[0] ? 'بواسطة ' + plLog[0].by + ' · ' + (plLog[0].at || '').slice(0, 10) : ''} icon={Eye} color="#5B93C4" />
-            <Kpi label="إجراءات السجل" value={String(plLog.length)} sub="كل قفل وفتح موثق دائمًا" icon={ShieldCheck} color="#C8A24A" />
+            <Kpi label="إجراءات السجل" value={String(plLog.length)} sub="كل قفل وفتح موثق دائمًا" icon={ShieldCheck} color="#D9A83E" />
           </div>
 
           {canLock ? (
@@ -3394,7 +3394,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
             <div className="grid g3">
               <Kpi label="الزكاة المستحقة (تقديري)" value={saudiShare > 0 ? money(zakatDue) : 'غير مطبّقة'} sub={saudiShare === 100 ? ('ملكية سعودية/خليجية · وعاء ' + money(base)) : (saudiShare > 0 ? ('على حصة ' + saudiShare + '% · وعاء ' + money(base)) : 'منشأة أجنبية — ضريبة دخل')} icon={Landmark} color="#4FB286" />
               <Kpi label="ضريبة الدخل المستحقة (تقديري)" value={foreignShare > 0 ? money(incomeTax) : 'غير مطبّقة'} sub={foreignShare > 0 ? ('حصة ' + foreignShare + '% × ' + incTaxRate + '% من صافي الربح') : 'لا حصة أجنبية'} icon={Receipt} color="#5B93C4" />
-              <Kpi label="الإجمالي المستحق" value={money(dueTotal)} sub="زكاة + ضريبة دخل" icon={CircleDollarSign} color="#C8A24A" />
+              <Kpi label="الإجمالي المستحق" value={money(dueTotal)} sub="زكاة + ضريبة دخل" icon={CircleDollarSign} color="#D9A83E" />
             </div>
             <div className="grid g2" style={{ alignItems: 'start' }}>
               <div className="card">
@@ -3446,7 +3446,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
         <div className="grid" style={{ gap: 12 }}>
           <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
             <div className="grid g3" style={{ flex: 1, minWidth: 280 }}>
-              <Kpi label="تكلفة الأصول القائمة" value={money(sum(A.assetRows.filter(a => !a.disposed), a => a.cost))} sub={A.assetRows.filter(a => !a.disposed).length + ' أصلاً قائماً' + (A.assetRows.some(a => a.disposed) ? ' · ' + A.assetRows.filter(a => a.disposed).length + ' مُستبعَد' : '')} icon={Building2} color="#C8A24A" />
+              <Kpi label="تكلفة الأصول القائمة" value={money(sum(A.assetRows.filter(a => !a.disposed), a => a.cost))} sub={A.assetRows.filter(a => !a.disposed).length + ' أصلاً قائماً' + (A.assetRows.some(a => a.disposed) ? ' · ' + A.assetRows.filter(a => a.disposed).length + ' مُستبعَد' : '')} icon={Building2} color="#D9A83E" />
               <Kpi label="مجمّع الإهلاك" value={money(sum(A.assetRows.filter(a => !a.disposed), a => a.accum))} sub="قسط ثابت شهري تلقائي" icon={TrendingDown} color="#E0A458" />
               <Kpi label="القيمة الدفترية" value={money(sum(A.assetRows.filter(a => !a.disposed), a => a.book))} sub="للأصول القائمة (التكلفة − المجمّع)" icon={Scale} color="#4FB286" />
             </div>
@@ -3661,7 +3661,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
           )}
 
           <div className="grid g3">
-            <Kpi label={'رصيد ' + bankLabel(brAcc) + ' بالدفاتر (' + brAcc + ')'} value={money(bankBookAt(''))} sub={brAcc === '1201' ? 'الشبكة والمدفوعات البنكية — تجميعي' : 'تحصيلات الشبكة والتحويل بالفرع'} icon={Landmark} color="#C8A24A" />
+            <Kpi label={'رصيد ' + bankLabel(brAcc) + ' بالدفاتر (' + brAcc + ')'} value={money(bankBookAt(''))} sub={brAcc === '1201' ? 'الشبكة والمدفوعات البنكية — تجميعي' : 'تحصيلات الشبكة والتحويل بالفرع'} icon={Landmark} color="#D9A83E" />
             <Kpi label={lastRec ? 'آخر تسوية موثقة' : 'لا تسويات بعد'} value={lastRec ? money(lastRec.stmtBalance) : '—'} sub={lastRec ? lastRec.date + ' · بواسطة ' + lastRec.by : 'ابدأ أول تسوية أدناه'} icon={ClipboardCheck} color="#5B93C4" />
             <Kpi label={lastRec ? 'فرق آخر تسوية' : 'الفرق'} value={lastRec ? money(Math.abs(lastRec.diff)) : '—'} sub={lastRec ? (Math.abs(lastRec.diff) < 0.01 ? 'مطابق تماماً ✓' : lastRec.diff > 0 ? 'الكشف أعلى من الدفتر' : 'الدفتر أعلى من الكشف') : ''} icon={Scale} color={lastRec && Math.abs(lastRec.diff) >= 0.01 ? '#D9544D' : '#4FB286'} />
           </div>

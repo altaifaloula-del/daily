@@ -62,7 +62,7 @@ export function Sales({ org, ops, me, myBranches, scoped, setTab, say }) {
       </div></div>
 
       <div className="grid g4">
-        <Kpi label="إجمالي المبيعات" value={money(total)} sub={days + ' يوم · متوسط ' + money(avgDay) + '/يوم'} icon={CircleDollarSign} color="#C8A24A" />
+        <Kpi label="إجمالي المبيعات" value={money(total)} sub={days + ' يوم · متوسط ' + money(avgDay) + '/يوم'} icon={CircleDollarSign} color="#D9A83E" />
         <Kpi label="نقدي" value={money(cash)} sub={pct(cash) + '% من المبيعات'} icon={Coins} color="#4FB286" />
         <Kpi label="شبكة (مدى/بطاقات)" value={money(card)} sub={pct(card) + '% من المبيعات'} icon={CreditCard} color="#5B93C4" />
         <Kpi label="تطبيقات التوصيل" value={money(del)} sub={pct(del) + '% من المبيعات'} icon={Truck} color="#E0A458" />

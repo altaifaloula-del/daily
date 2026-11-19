@@ -112,7 +112,7 @@ export function BoardPack({ org, ops, me, myBranches, scoped, say }) {
 
       {!D.hasData ? <div className="card"><div className="empty">لا نشاط مسجّل في {mL} — اختر شهرًا فيه إغلاقات وقيود.</div></div> : <>
         <div className="grid g4">
-          <Kpi label="الإيراد" value={money(D.rev)} sub={mL} icon={TrendingUp} color="#C8A24A" />
+          <Kpi label="الإيراد" value={money(D.rev)} sub={mL} icon={TrendingUp} color="#D9A83E" />
           <Kpi label="صافي الربح" value={money(D.net)} sub={'هامش ' + D.margin + '%'} icon={Landmark} color={D.net >= 0 ? '#4FB286' : '#D9544D'} />
           <Kpi label="النقد والصناديق" value={money(D.cash)} sub="حتى اليوم" icon={Banknote} color="#5B93C4" />
           <Kpi label="النمو عن الشهر السابق" value={D.growth == null ? '—' : (D.growth >= 0 ? '+' : '') + D.growth + '%'} sub={D.growth == null ? 'لا شهر سابق' : 'مقابل ' + D.lastM} icon={D.growth >= 0 ? ArrowUp : ArrowDown} color={D.growth == null ? '#7E7566' : D.growth >= 0 ? '#4FB286' : '#D9544D'} />

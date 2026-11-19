@@ -59,7 +59,7 @@ export function CashCount({ org, ops, me, myBranches, commit, say }) {
         <div className="cc-den">{DENOMS.map(d => <label key={d.k} className="cc-d" style={{ borderColor: d.c }}><span>{d.v}</span><input className="inp n" inputMode="numeric" aria-label={'فئة ' + d.v} value={f.denoms[d.k] || ''} onChange={e => setF(x => ({ ...x, denoms: { ...x.denoms, [d.k]: e.target.value.replace(/\D/g, '').slice(0, 5) } }))} /></label>)}</div>
         <div className="grid g3" style={{ marginTop: 10 }}>
           <Kpi label="المتوقع" value={money(expected)} sub={CC_SRC[f.src]} icon={Banknote} color="#5B93C4" />
-          <Kpi label="المعدود" value={money(counted)} sub="مجموع الفئات" icon={Banknote} color="#C8A24A" />
+          <Kpi label="المعدود" value={money(counted)} sub="مجموع الفئات" icon={Banknote} color="#D9A83E" />
           <Kpi label={variance < 0 ? 'عجز' : variance > 0 ? 'زيادة' : 'الفرق'} value={money(variance)} sub={Math.abs(variance) < 0.01 ? 'مطابق' : 'يتطلب تفسيرًا'} icon={Banknote} color={Math.abs(variance) < 0.01 ? '#4FB286' : '#D9544D'} />
         </div>
         {Math.abs(variance) >= 0.01 && <Field label="تفسير حافظ النقد (إلزامي)"><input className="inp" aria-label="التفسير" value={f.note} onChange={e => setF(x => ({ ...x, note: e.target.value }))} /></Field>}

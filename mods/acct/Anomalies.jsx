@@ -8,10 +8,10 @@ import { ListChecks } from 'lucide-react';
 const AREA = {
   sales: { ar: 'المبيعات', icon: TrendingDown, c: '#D9544D' },
   expense: { ar: 'المصروفات', icon: Receipt, c: '#E0A458' },
-  waste: { ar: 'الهدر', icon: Trash2, c: '#C8A24A' },
+  waste: { ar: 'الهدر', icon: Trash2, c: '#D9A83E' },
   price: { ar: 'أسعار الموردين', icon: Truck, c: '#5B93C4' },
   pos: { ar: 'نقطة البيع', icon: CreditCard, c: '#9A7CC4' },
-  usage: { ar: 'الاستهلاك مقابل النظري', icon: Scale, c: '#C8A24A' }   // v39.3
+  usage: { ar: 'الاستهلاك مقابل النظري', icon: Scale, c: '#D9A83E' }   // v39.3
 };
 
 // منحنى صغير: الأسابيع السابقة رمادية والقيمة الحالية ملوّنة، وخط الوسيط المعتاد متقطع

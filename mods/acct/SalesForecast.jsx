@@ -48,7 +48,7 @@ export function SalesForecast({ org, ops, myBranches }) {
     <div className="grid" style={{ gap: 12 }}>
       <div className="row" style={{ gap: 6 }}>{[[7, 'الأسبوع القادم'], [14, 'أسبوعان']].map(([d, l]) => <button key={d} className={'btn sm' + (h === d ? ' pri' : ' gh')} onClick={() => setH(d)}>{l}</button>)}</div>
       <div className="grid g4">
-        <Kpi label={'المبيعات المتوقعة (' + h + ' أيام)' + (tax.enabled ? ' — شاملة الضريبة' : '')} value={money(F.total)} sub={arDate(F.from) + ' ← ' + arDate(F.to)} icon={LineChart} color="#C8A24A" />
+        <Kpi label={'المبيعات المتوقعة (' + h + ' أيام)' + (tax.enabled ? ' — شاملة الضريبة' : '')} value={money(F.total)} sub={arDate(F.from) + ' ← ' + arDate(F.to)} icon={LineChart} color="#D9A83E" />
         <Kpi label={'مقابل آخر ' + h + ' أيام فعلية'} value={chg == null ? '—' : (chg > 0 ? '+' : '') + chg + '%'} sub={lastN ? money(lastN) + ' فعليًا' : 'لا بيانات'} icon={chg != null && chg < 0 ? TrendingDown : TrendingUp} color={chg != null && chg < 0 ? '#D9544D' : '#4FB286'} />
         <Kpi label="دقة التوقع (وسيط الفروع)" value={medMape == null ? '—' : (100 - medMape).toFixed(1) + '%'} sub={medMape == null ? 'تُقاس بعد 3 أسابيع من الإغلاقات' : 'متوسط الخطأ ' + medMape + '% على آخر 28 يومًا'} icon={Target} color="#5B93C4" />
         <Kpi label="فروع بتوقع" value={ready.length + '/' + F.branches.length} sub={F.branches.length - ready.length ? (F.branches.length - ready.length) + ' تحتاج تاريخًا أطول' : 'كل الفروع'} icon={CalendarDays} color="#9A7CC4" />

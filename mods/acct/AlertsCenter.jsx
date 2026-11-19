@@ -196,7 +196,7 @@ export function AlertsCenter({ org, ops, me, myBranches, scoped, setTab, openAcc
       </div>
 
       <div className="grid g4">
-        <Kpi label="إجمالي التنبيهات" value={String(AL.length)} sub="عبر كل الوحدات" icon={Bell} color="#C8A24A" />
+        <Kpi label="إجمالي التنبيهات" value={String(AL.length)} sub="عبر كل الوحدات" icon={Bell} color="#D9A83E" />
         <Kpi label="عاجل" value={String(counts.high)} sub="يتطلب إجراءً الآن" icon={AlertTriangle} color={counts.high ? '#D9544D' : '#4FB286'} />
         <Kpi label="متابعة" value={String(counts.mid)} sub="راقبه هذا الأسبوع" icon={Clock} color={counts.mid ? '#E0A458' : '#4FB286'} />
         <Kpi label="اقتراح" value={String(counts.low)} sub="تحسينات وإعداد" icon={Sparkles} color="#5B93C4" />

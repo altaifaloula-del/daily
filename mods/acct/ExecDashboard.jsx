@@ -82,7 +82,7 @@ export function ExecDashboard({ org, ops, me, myBranches, scoped, setTab, openAc
 
       <div className="grid g4">
         <Kpi label={isToday ? 'مبيعات اليوم' : 'مبيعات آخر يوم (' + salesDay + ')'} value={money(salesVal)} sub={isToday ? td : 'لا مبيعات اليوم بعد'} icon={CircleDollarSign} color="#4FB286" />
-        <Kpi label="النقد الآن (خزائن + بنك)" value={money(cashNow)} sub="الرصيد الدفتري الحالي" icon={Wallet} color="#C8A24A" />
+        <Kpi label="النقد الآن (خزائن + بنك)" value={money(cashNow)} sub="الرصيد الدفتري الحالي" icon={Wallet} color="#D9A83E" />
         <Kpi label="صافي ربح الشهر" value={money(monNet)} sub={'إيراد ' + money(monRev) + ' − مصروف ' + money(monExp)} icon={TrendingUp} color={monNet >= 0 ? '#4FB286' : '#D9544D'} />
         <Kpi label="التغيّر النقدي هذا الشهر" value={money(monCash)} sub={monCash >= 0 ? 'دخول صافٍ' : 'خروج صافٍ'} icon={ArrowLeftRight} color={monCash >= 0 ? '#4FB286' : '#E0A458'} />
       </div>

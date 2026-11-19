@@ -70,7 +70,7 @@ export function DocsCenter({ org, ops, me, myBranches, commitOrg, say }) {
         </div>); })()}
 
       <div className="grid g3">
-        <Kpi label="إجمالي الوثائق" value={String(docs.length)} sub="في السجل" icon={Stamp} color="#C8A24A" />
+        <Kpi label="إجمالي الوثائق" value={String(docs.length)} sub="في السجل" icon={Stamp} color="#D9A83E" />
         <Kpi label="منتهية" value={String(nExpired)} sub="تتطلب تجديدًا فوريًا" icon={AlertTriangle} color={nExpired ? '#D9544D' : '#4FB286'} />
         <Kpi label={'تنتهي خلال ' + remindDays + ' يومًا'} value={String(nSoon)} sub="جهّز التجديد" icon={CalendarDays} color={nSoon ? '#E0A458' : '#4FB286'} />
       </div>

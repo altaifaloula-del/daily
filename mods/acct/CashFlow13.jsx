@@ -65,7 +65,7 @@ export function CashFlow13({ org, ops, me, theme, commitOrg, say }) {
       </div>
 
       <div className="grid g4">
-        <Kpi label="النقد الآن (الدفاتر)" value={money(C.opening)} sub="الخزائن والبنوك والوسطاء" icon={Banknote} color="#C8A24A" />
+        <Kpi label="النقد الآن (الدفاتر)" value={money(C.opening)} sub="الخزائن والبنوك والوسطاء" icon={Banknote} color="#D9A83E" />
         <Kpi label="أدنى رصيد متوقع" value={money(C.min.v)} sub={C.min.k < 0 ? 'الرصيد الحالي هو الأدنى' : wkLbl(C.min.k) + ' · ' + arDate(C.weeks[C.min.k].from)} icon={AlertTriangle} color={C.min.v < 0 ? '#D9544D' : '#4FB286'} />
         <Kpi label="أدنى رصيد — حالة متحفظة" value={money(C.minLo.v)} sub={'مبيعات عند الحد الأدنى المتوقع' + (C.gapsLo ? ' · ' + C.gapsLo + ' أسابيع عجز' : '')} icon={ShieldCheck} color={C.minLo.v < 0 ? '#D9544D' : C.minLo.v < C.opening * 0.25 ? '#E0A458' : '#4FB286'} />
         <Kpi label="الرصيد بعد 13 أسبوعًا" value={money(C.weeks[12].bal)} sub={arDate(C.end)} icon={CalendarDays} color={C.weeks[12].bal >= 0 ? '#4FB286' : '#D9544D'} />
