@@ -20,19 +20,22 @@ export function billingConfig(env = process.env) {
   let sa = null; try { sa = env.MQ_CONTROL_SA ? JSON.parse(env.MQ_CONTROL_SA) : null; } catch { sa = null; }
   const why = [];
   if (env.MQ_BILLING !== '1') why.push('MQ_BILLING غير مفعّل');
-  if (!/^sk_(test|live)_[A-Za-z0-9]{10,}$/.test(String(env.MOYASAR_SECRET_KEY || ''))) why.push('MOYASAR_SECRET_KEY');
+  // v51.7 (S7): البوابة اختيارية — يكفي التحويل البنكي وحده للبدء (قرار المالك: تجربة مجانية ثم تحويل بنكي)
+  const gateway = /^sk_(test|live)_[A-Za-z0-9]{10,}$/.test(String(env.MOYASAR_SECRET_KEY || ''));
+  if (env.MOYASAR_SECRET_KEY && !gateway) why.push('MOYASAR_SECRET_KEY غير صالح');
   if (!/^[a-z][a-z0-9-]{4,29}$/.test(String(env.MQ_CONTROL_PROJECT || ''))) why.push('MQ_CONTROL_PROJECT');
   if (!sa || !sa.client_email || !sa.private_key) why.push('MQ_CONTROL_SA');
   const se = sellerError(seller); if (se) why.push('MQ_SELLER_JSON: ' + se);
   if (!Object.keys(P.prices).length) why.push('MQ_PRICES_JSON: لا أسعار');
-  if (String(env.MQ_BILLING_HOOK_KEY || '').length < 32) why.push('MQ_BILLING_HOOK_KEY (32+ حرفًا)');
-  if (!/^https:\/\//.test(String(env.MQ_PUBLIC_API || ''))) why.push('MQ_PUBLIC_API (عنوان الخادم https)');
+  if (gateway && String(env.MQ_BILLING_HOOK_KEY || '').length < 32) why.push('MQ_BILLING_HOOK_KEY (32+ حرفًا)');
+  if (gateway && !/^https:\/\//.test(String(env.MQ_PUBLIC_API || ''))) why.push('MQ_PUBLIC_API (عنوان الخادم https)');
   if (!/^https:\/\//.test(String(env.MQ_APP_URL || ''))) why.push('MQ_APP_URL (عنوان المنصة https)');
   const bank = env.MQ_BANK_IBAN ? { iban: s(env.MQ_BANK_IBAN, 34).replace(/\s+/g, ''), name: s(env.MQ_BANK_NAME, 80), holder: s(env.MQ_BANK_HOLDER, 120) } : null;
   if (bank && !/^SA[0-9]{22}$/.test(bank.iban)) why.push('MQ_BANK_IBAN غير صالح');
+  if (!gateway && !(bank && /^SA[0-9]{22}$/.test(bank.iban))) why.push('لا وسيلة دفع: MOYASAR_SECRET_KEY أو MQ_BANK_IBAN');
   const controlReady = /^[a-z][a-z0-9-]{4,29}$/.test(String(env.MQ_CONTROL_PROJECT || '')) && !!(sa && sa.client_email && sa.private_key);
   return {
-    enabled: why.length === 0, why, controlReady, priceErrors: P.errors, prices: P.prices, seller, bank: bank && /^SA[0-9]{22}$/.test(bank.iban) ? bank : null,
+    enabled: why.length === 0, why, controlReady, gateway, priceErrors: P.errors, prices: P.prices, seller, bank: bank && /^SA[0-9]{22}$/.test(bank.iban) ? bank : null,
     secretKey: String(env.MOYASAR_SECRET_KEY || ''), controlProject: String(env.MQ_CONTROL_PROJECT || ''), sa,
     hookKey: String(env.MQ_BILLING_HOOK_KEY || ''), publicApi: String(env.MQ_PUBLIC_API || '').replace(/\/+$/, ''), appUrl: String(env.MQ_APP_URL || '').replace(/\/+$/, '')
   };
@@ -191,7 +194,7 @@ export function mountBilling(app, { express, requireMember, tenantOf, rateLimit,
       const st = subscriptionState(sub.paidThrough || '', today(now));
       const prices = Object.fromEntries(PERIODS.map(p => [p, priceFor(cfg.prices, t.plan, p)]).filter(x => x[1]));
       res.json({ enabled: true, plan: t.plan, prices, sub: { paidThrough: sub.paidThrough || '', period: sub.period || '', ...st },
-        invoices: (await store.listInvoices(t.id)).slice(0, 24).map(view), methods: PAYMENT_METHODS.filter(m => m.via === 'gateway' || cfg.bank).map(m => m.id),
+        invoices: (await store.listInvoices(t.id)).slice(0, 24).map(view), methods: PAYMENT_METHODS.filter(m => (m.via === 'gateway' && cfg.gateway) || (m.via === 'manual' && cfg.bank)).map(m => m.id),
         bank: cfg.bank, seller: { name: cfg.seller.name, vatNo: cfg.seller.vatNo } });
     } catch (e) { console.error('[billing] summary', e.message); res.status(502).json({ error: 'تعذّر تحميل بيانات الاشتراك' }); }
   });
@@ -204,6 +207,7 @@ export function mountBilling(app, { express, requireMember, tenantOf, rateLimit,
       if (!period) return res.status(400).json({ error: 'اختر دورة الاشتراك' });
       if (!priceFor(cfg.prices, t.plan, period)) return res.status(409).json({ error: 'لا سعر معتمد لهذه الخطة والدورة بعد' });
       if (method === 'bank' && !cfg.bank) return res.status(409).json({ error: 'التحويل البنكي غير متاح حاليًا' });
+      if (method === 'gateway' && !cfg.gateway) return res.status(409).json({ error: 'الدفع الإلكتروني غير متاح حاليًا — استخدم التحويل البنكي' });
       const b = (req.body && req.body.buyer) || {};
       const buyer = { name: s(b.name, 120), vatNo: /^3[0-9]{13}3$/.test(String(b.vatNo || '')) ? String(b.vatNo) : '', address: s(b.address, 200) };
       // فاتورة مفتوحة لنفس الدورة تُعاد (لا فواتير مكررة)؛ وإلا تُصدر الفاتورة التالية
@@ -246,7 +250,7 @@ export function mountBilling(app, { express, requireMember, tenantOf, rateLimit,
   // إشعار البوابة: الرابط موقّع برقم فاتورتنا، والجسم لا يُصدَّق — الحالة تُقرأ من البوابة بمفتاحنا السري
   app.post('/api/billing/webhook', express.json({ limit: '64kb' }), rateLimit({ windowMs: 60000, max: 120 }), async (req, res) => {
     const no = String(req.query.inv || '');
-    if (!cfg.enabled || !okInvoiceNo(no) || !sigOk(cfg.hookKey, no, req.query.sig)) return res.status(404).json({ ok: false });
+    if (!cfg.enabled || !cfg.gateway || !okInvoiceNo(no) || !sigOk(cfg.hookKey, no, req.query.sig)) return res.status(404).json({ ok: false });
     try { const r = await settleInvoice({ store, gateway, no, now }); res.json({ ok: true, status: r.inv ? r.inv.status : 'unknown' }); }
     catch (e) { console.error('[billing] webhook', no, e.message); res.status(502).json({ ok: false }); }   // البوابة تعيد المحاولة
   });

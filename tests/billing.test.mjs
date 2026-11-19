@@ -44,11 +44,16 @@ test('الدفعة: تُسجَّل مرة واحدة، والمبلغ المخت
 });
 
 test('الإعداد: معطّلة حتى يكتمل كل شيء، وتذكر الناقص دون كشف أسرار', () => {
-  const off = billingConfig({}); assert.equal(off.enabled, false); assert.ok(off.why.length >= 8);
+  const off = billingConfig({}); assert.equal(off.enabled, false); assert.ok(off.why.length >= 5);
   assert.ok(!JSON.stringify(billingConfig({ ...ENV, MQ_BILLING: '0' }).why).includes('sk_test'));
   const on = billingConfig(ENV); assert.equal(on.enabled, true, on.why.join()); assert.equal(on.bank.iban, 'SA0380000000608010167519');
   assert.equal(billingConfig({ ...ENV, MQ_BANK_IBAN: 'SA12' }).enabled, false);
   assert.equal(billingConfig({ ...ENV, MQ_BANK_IBAN: '' }).bank, null, 'بلا آيبان: البوابة وحدها');
+  // v51.7: التحويل البنكي وحده يكفي (بلا «ميسر» ولا رابط إشعار)
+  const bankOnly = billingConfig({ ...ENV, MOYASAR_SECRET_KEY: '', MQ_BILLING_HOOK_KEY: '', MQ_PUBLIC_API: '' });
+  assert.equal(bankOnly.enabled, true, bankOnly.why.join()); assert.equal(bankOnly.gateway, false);
+  assert.equal(billingConfig({ ...ENV, MOYASAR_SECRET_KEY: '', MQ_BANK_IBAN: '' }).enabled, false, 'لا وسيلة دفع');
+  assert.match(billingConfig({ ...ENV, MOYASAR_SECRET_KEY: 'bad' }).why.join(), /غير صالح/);
 });
 
 /* ---- خادم مصغّر لاختبار المسارات دون شبكة ---- */
@@ -165,4 +170,13 @@ test('مشروع التحكم: قواعده ترفض كل وصول من المت
   const r = fs.readFileSync(new URL('../firestore.control.rules', import.meta.url), 'utf8').replace(/\/\/[^\n]*/g, '');
   assert.equal((r.match(/allow /g) || []).length, 1); assert.match(r, /match \/\{document=\*\*\} \{\s*allow read, write: if false;/);
   assert.equal(JSON.parse(fs.readFileSync(new URL('../firebase.control.json', import.meta.url), 'utf8')).firestore.rules, 'firestore.control.rules');
+});
+
+test('v51.7 وضع التحويل البنكي وحده: لا زر دفع إلكتروني، والبوابة والإشعار مرفوضان، والتحويل يعمل', async () => {
+  const H = harness({ users: U, env: { ...ENV, MOYASAR_SECRET_KEY: '', MQ_BILLING_HOOK_KEY: '', MQ_PUBLIC_API: '' } });
+  assert.deepEqual((await H.call('GET /api/billing/summary', { token: 'a2' })).json.methods, ['bank']);
+  assert.equal((await H.call('POST /api/billing/checkout', { token: 'a2', body: { period: 'monthly' } })).status, 409);
+  assert.equal(H.created.length, 0);
+  const r = (await H.call('POST /api/billing/checkout', { token: 'a2', body: { period: 'monthly', method: 'bank' } })).json; assert.ok(r.reference);
+  assert.equal((await H.call('POST /api/billing/webhook', { query: { inv: r.no, sig: 'x' } })).status, 404);
 });
