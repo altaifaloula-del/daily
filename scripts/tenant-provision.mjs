@@ -30,6 +30,7 @@ export function validateArgs(a) {
 /** خطوات التهيئة بالترتيب — كل خطوة: عنوان، وأوامر (إن وُجدت)، وملاحظة */
 export function provisionPlan(a) {
   const P = projectIdOf(a.id), q = (s) => '"' + String(s).replace(/"/g, '\\"') + '"';
+  const K = a.id.toUpperCase().replace(/-/g, '_');
   return [
     { t: 'إنشاء مشروع Google Cloud مستقل للمنشأة', cmd: ['gcloud projects create ' + P + ' --name=' + q('Mithqal ' + a.id)] },
     { t: 'ربط حساب الفوترة (خطة Blaze) وتحديد سقف ميزانية وتنبيه', cmd: a.billing ? ['gcloud billing projects link ' + P + ' --billing-account=' + a.billing] : [], note: a.billing ? '' : 'أضف --billing أو اربطه من وحدة تحكم الفوترة، ثم ضع تنبيه ميزانية شهري' },
@@ -41,8 +42,8 @@ export function provisionPlan(a) {
     { t: 'تثبيت مالك المنشأة مديرًا قبل نشر الرابط (يغلق باب «أول من يسجّل يصبح مديرًا»)', cmd: ['curl -sS -X PATCH "https://firestore.googleapis.com/v1/projects/' + P + '/databases/(default)/documents/platform/admins" -H "Authorization: Bearer $(gcloud auth print-access-token)" -H "Content-Type: application/json" -d \'{"fields":{"emails":{"arrayValue":{"values":[{"stringValue":"' + String(a.owner).toLowerCase() + '"}]}},"at":{"integerValue":"' + Date.now() + '"}}}\''] },
     { t: 'تقييد مفتاح الويب بنطاق المنصة', cmd: [], note: 'Google Cloud ← APIs & Services ← Credentials ← قيود HTTP referrer على نطاق مِثقال' },
     { t: 'إضافة المنشأة إلى السجل', cmd: ['node scripts/tenant-provision.mjs registry --id ' + a.id + ' --name ' + q(a.name) + ' --plan ' + a.plan + ' --owner ' + a.owner + ' --sdk sdkconfig.json'], note: 'ثم طلب دمج يعتمده المالك' },
-    { t: 'إعداد الخادم للمنشأة', cmd: [], note: 'متغيرات Render: إضافة {"id":"' + a.id + '","projectId":"' + P + '","apiKeyEnv":"FB_KEY_' + a.id.toUpperCase().replace(/-/g, '_') + '"} إلى MQ_TENANTS_JSON، والمفتاح في المتغير المذكور' },
-    { t: 'النسخ الليلي وتمرين الاستعادة للمنشأة', cmd: [], note: 'إضافة المشروع إلى سير النسخ الليلي (الدفعة S3)' },
+    { t: 'إعداد الخادم للمنشأة', cmd: [], note: 'متغيرات Render: إضافة {"id":"' + a.id + '","projectId":"' + P + '","apiKeyEnv":"FB_KEY_' + K + '","zatcaKeyEnv":"ZATCA_KEY_' + K + '"} إلى MQ_TENANTS_JSON، ثم FB_KEY_' + K + ' = مفتاح الويب، وZATCA_KEY_' + K + ' = سر عشوائي جديد (32+ حرفًا، لا يُعاد استخدام سر منشأة أخرى) — مثل: openssl rand -base64 48' },
+    { t: 'النسخ الليلي للمنشأة', cmd: ['gcloud iam service-accounts create mithqal-backup --project=' + P, 'gcloud projects add-iam-policy-binding ' + P + ' --member=serviceAccount:mithqal-backup@' + P + '.iam.gserviceaccount.com --role=roles/datastore.viewer', 'gcloud iam service-accounts keys create sa-' + a.id + '.json --iam-account=mithqal-backup@' + P + '.iam.gserviceaccount.com'], note: 'أسرار المستودع: FIREBASE_SERVICE_ACCOUNT_' + K + ' = محتوى sa-' + a.id + '.json (ثم احذف الملف)، وBACKUP_KEY_' + K + ' = سر تشفير مستقل (12+ حرفًا). سير النسخ الليلي يلتقط المنشأة من السجل تلقائيًا' },
     { t: 'فتح «الإعداد الأول» لمالك المنشأة', cmd: [], note: 'الرابط: ' + '<موقع مِثقال>/?t=' + a.id + ' — ينشئ المالك حسابه ومنشأته بنفسه' }
   ];
 }

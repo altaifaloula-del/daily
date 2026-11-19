@@ -75,6 +75,6 @@ export async function onboardEgs(p) {
   if (!step('شهادة الإنتاج', P.ok && statusOf(P) === 'ISSUED', P.ok ? statusOf(P) : 'HTTP ' + P.status, msgsOf(P))) return { ok: false, steps };
   const pcert = certFromToken(P.json.binarySecurityToken); const ci = certInfo(pcert);
   const vault = seal({ privateKeyPem: k.privateKeyPem, production: { token: P.json.binarySecurityToken, secret: P.json.secret }, compliance: { token: C.json.binarySecurityToken, secret: C.json.secret, requestID: C.json.requestID } },
-    'egs|' + env + '|' + egsId);
+    'egs|' + env + '|' + egsId, p.vault);
   return { ok: true, steps, egs: { env, egsId, vault, cert: { serial: ci.serial, issuer: ci.issuer, validTo: ci.validTo }, icv: 0, pih: FIRST_PIH } };
 }
