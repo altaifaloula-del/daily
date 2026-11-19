@@ -1738,7 +1738,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
       )}
 
       {(view === 'gl' || view === 'actmv') && <><div className="card" style={{ padding: '10px 14px' }}>{periodBar}</div>
-        <GeneralLedger org={org} ops={ops} A={A} mode={view === 'actmv' ? 'act' : 'gl'} code={glCode} setCode={setGlCode} from={from} to={to} bf={bf} setBf={setBf} onMode={(m) => setView(m === 'gl' ? 'gl' : 'actmv')} /></>}
+        <GeneralLedger me={me} org={org} ops={ops} A={A} mode={view === 'actmv' ? 'act' : 'gl'} code={glCode} setCode={setGlCode} from={from} to={to} bf={bf} setBf={setBf} onMode={(m) => setView(m === 'gl' ? 'gl' : 'actmv')} /></>}
       {view === 'tb' && (
         <div className="card">
           <div className="card-h">

@@ -2088,3 +2088,28 @@ test('v49.5 MQ-059 مسارات الاعتماد: مستويات بحدود مب
   assert.equal(E.wfCanAct(org, 'po', po1, 8000, own).ok, true, 'المالك يعتمد أي مستوى');
   assert.equal(E.wfState(org, 'po', E.wfApprove(po1, c2.tier, gm), 8000).complete, true);
 });
+
+test('v50.0 المرحلة 05 منظومة التقارير: مواصفة واحدة ⇒ طباعة وExcel بصيغ وCSV بأرقام متطابقة، والصيغ تغطي صفوف البيانات بالضبط', async () => {
+  const org = baseOrg({ company: { name: 'مطعم الطائف', taxNumber: '300000000000003' } });
+  const spec = { id: 'demo', title: 'مصروفات الفروع', sub: 'نوفمبر 2026', template: 'statement', lang: 'ar', meta: { user: 'مجاهد', source: 'مِثقال v50.0', at: '2026-11-19T10:00:00Z' }, filters: [['الفرع', 'الكل']],
+    columns: [{ key: 'name', label: 'البند' }, { key: 'q', label: 'الكمية', type: 'qty', total: 'sum' }, { key: 'amt', label: 'المبلغ', type: 'money', total: 'sum' }],
+    groups: [{ label: 'طيبة', rows: [{ name: 'كهرباء', q: 1, amt: 1200.5 }, { name: 'ماء', q: 2, amt: 300 }] }, { label: 'النسيم', rows: [{ name: 'كهرباء', q: 1, amt: -50 }] }] };
+  assert.deepEqual(E.rptTotals(spec), { q: 4, amt: 1450.5 });
+  assert.deepEqual(E.rptFlat(spec).map(r => r._k), ['head', 'row', 'row', 'sub', 'head', 'row', 'sub']);
+  const X = E.rptXlsxRows(org, spec), tot = X.rows[X.rows.length - 1];
+  assert.equal(tot[2].f, 'SUM(C' + (X.freeze + 2) + ',C' + (X.freeze + 3) + ',C' + (X.freeze + 6) + ')', 'المجموع الكلي بصيغة على صفوف البيانات وحدها (لا المجاميع الفرعية)');
+  const refs = tot[2].f.slice(4, -1).split(',').map(r => Number(r.slice(1)) - 1);
+  assert.equal(Math.round(refs.reduce((a, i) => a + X.rows[i][2].v, 0) * 100) / 100, tot[2].v, 'قيمة الصيغة = المجموع المحسوب');
+  const flat = { ...spec, groups: undefined, rows: spec.groups.flatMap(g => g.rows) };
+  const XF = E.rptXlsxRows(org, flat), tf = XF.rows[XF.rows.length - 1];
+  assert.equal(tf[2].f, 'SUM(C' + (XF.freeze + 1) + ':C' + (XF.rows.length - 1) + ')');
+  const xml = new TextDecoder().decode(new Uint8Array(await E.makeRptXlsx(org, spec).arrayBuffer()));   // ملف مخزّن بلا ضغط ⇒ الـXML مقروء
+  assert.match(xml, /<pane ySplit="\d+"/); assert.match(xml, /<f>SUM\(C\d+,C\d+,C\d+\)<\/f><v>1450\.5<\/v>/); assert.match(xml, /#,##0\.00/); assert.match(xml, /<col min="1"/);
+  const csv = E.rptCsv(spec);
+  assert.equal(csv.charCodeAt(0), 0xFEFF, 'BOM للعربية'); assert.match(csv, /الإجمالي,4,1450\.5/);
+  const html = E.rptHtml(org, spec);
+  assert.match(html, /thead\{display:table-header-group\}/, 'رأس الجدول يتكرر في كل صفحة');
+  assert.match(html, /counter\(page\)/, 'ترقيم الصفحات'); assert.match(html, /طبعه: مجاهد/); assert.match(html, /300000000000003/);
+  assert.match(html, /\(50\.00\)/, 'السالب بين قوسين'); assert.match(html, /1,450\.50/);
+  assert.match(E.rptHtml(org, { ...spec, lang: 'en', orientation: 'landscape', paper: 'A3' }), /size:A3 landscape[\s\S]*dir="ltr"|dir="ltr"[\s\S]*size:A3 landscape/);
+});

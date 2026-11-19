@@ -1548,17 +1548,24 @@ function _zipStore(files) {
 }
 function _colName(i) { let s = ''; i++; while (i > 0) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; }
 function _xe(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
-function _sheetXml(rows) {
+function _sheetXml(rows, opt = {}) {
   let body = '';
   (rows || []).forEach((row, r) => {
     let cells = '';
-    row.forEach((v, c) => {
-      const ref = _colName(c) + (r + 1); const st = r === 0 ? ' s="1"' : '';
-      if (typeof v === 'number' && isFinite(v)) cells += `<c r="${ref}"${st}><v>${v}</v></c>`;
+    row.forEach((v0, c) => {
+      // v50.0: خلية كائن { v, f (صيغة), s (نمط) } — وإلا القيمة كما كانت (الصف الأول عريض في الأوراق القديمة)
+      const o = v0 && typeof v0 === 'object' && !Array.isArray(v0) ? v0 : null, v = o ? o.v : v0;
+      const ref = _colName(c) + (r + 1); const st = o && o.s != null ? ` s="${o.s}"` : (!opt.styled && r === 0 ? ' s="1"' : '');
+      if (o && o.f) cells += `<c r="${ref}"${st}><f>${_xe(o.f)}</f>${typeof v === 'number' && isFinite(v) ? `<v>${v}</v>` : ''}</c>`;
+      else if (typeof v === 'number' && isFinite(v)) cells += `<c r="${ref}"${st}><v>${v}</v></c>`;
+      else if (opt.styled && (v == null || v === '')) { if (st) cells += `<c r="${ref}"${st}/>`; }
       else cells += `<c r="${ref}"${st} t="inlineStr"><is><t xml:space="preserve">${_xe(v == null ? '' : v)}</t></is></c>`;
     });
     body += `<row r="${r + 1}">${cells}</row>`;
   });
+  const pane = opt.freeze ? `<pane ySplit="${opt.freeze}" topLeftCell="A${opt.freeze + 1}" activePane="bottomLeft" state="frozen"/>` : '';
+  const cols = (opt.cols || []).length ? `<cols>${opt.cols.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols>` : '';
+  if (pane || cols) return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView rightToLeft="1" workbookViewId="0">${pane}</sheetView></sheetViews>${cols}<sheetData>${body}</sheetData></worksheet>`;
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView rightToLeft="1" workbookViewId="0"/></sheetViews><sheetData>${body}</sheetData></worksheet>`;
 }
 function makeXlsx(sheets) {
@@ -1568,11 +1575,114 @@ function makeXlsx(sheets) {
   add('_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`);
   add('xl/workbook.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${names.map((n, i) => `<sheet name="${_xe(n)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets></workbook>`);
   add('xl/_rels/workbook.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheets.map((s, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`);
-  add('xl/styles.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="1"><fill><patternFill patternType="none"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" applyFont="1"/></cellXfs></styleSheet>`);
-  sheets.forEach((s, i) => add(`xl/worksheets/sheet${i + 1}.xml`, _sheetXml(s.rows)));
+  add('xl/styles.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="3"><numFmt numFmtId="164" formatCode="#,##0.00;(#,##0.00)"/><numFmt numFmtId="165" formatCode="#,##0.###"/><numFmt numFmtId="166" formatCode="0.0&quot;%&quot;"/></numFmts><fonts count="3"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="14"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEFE8D8"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="8"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" applyFont="1" applyFill="1"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" applyNumberFormat="1"/><xf numFmtId="164" fontId="1" fillId="2" borderId="0" applyNumberFormat="1" applyFont="1" applyFill="1"/><xf numFmtId="0" fontId="2" fillId="0" borderId="0" applyFont="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="0" applyNumberFormat="1"/><xf numFmtId="166" fontId="0" fillId="0" borderId="0" applyNumberFormat="1"/><xf numFmtId="1" fontId="0" fillId="0" borderId="0" applyNumberFormat="1"/></cellXfs></styleSheet>`);
+  sheets.forEach((s, i) => add(`xl/worksheets/sheet${i + 1}.xml`, _sheetXml(s.rows, { freeze: s.freeze, cols: s.cols, styled: !!(s.freeze || s.cols) })));
   return _zipStore(files);
 }
 
+/* ============================================================
+   v50.0 — المرحلة 05: منظومة التقارير الموحدة (نموذج للاعتماد G2)
+   مواصفة واحدة لكل تقرير ⇒ ثلاثة مخرجات متطابقة الأرقام: طباعة موحدة، Excel منسق بصيغ حقيقية، CSV.
+   spec = { id, title, sub, template, orientation: 'portrait'|'landscape', paper: 'A4'|'A3'|'Letter', lang: 'ar'|'en',
+            columns: [{ key, label, en?, type: 'text'|'money'|'qty'|'int'|'pct'|'date', total?: 'sum', w? }],
+            rows: [{ ...values, _group?, _level?, _bold? }], groups?: [{ label, rows }], kpis?: [{ label, value }],
+            filters?: [[label, value]], notes?: [..], signatures?: [..], meta: { user, source } }
+   القوالب الستة: list (قائمة) · statement (قائمة مالية بأقسام ومجاميع) · ledger (كشف برصيد جارٍ) · summary (مؤشرات + جدول)
+                  · document (مستند/سند بتوقيعات) · matrix (جدول محوري عريض)
+   ============================================================ */
+const RPT_TEMPLATES = { list: { ar: 'قائمة', en: 'List' }, statement: { ar: 'قائمة مالية', en: 'Financial statement' }, ledger: { ar: 'كشف حساب', en: 'Ledger' },
+  summary: { ar: 'ملخص بمؤشرات', en: 'Summary' }, document: { ar: 'مستند', en: 'Document' }, matrix: { ar: 'جدول محوري', en: 'Matrix' } };
+const RPT_NUM = { money: 2, qty: 3, int: 0, pct: 1 };
+const rptIsNum = (c) => c && RPT_NUM[c.type] != null;
+function rptFmt(v, c) {
+  if (v == null || v === '') return '';
+  if (!rptIsNum(c)) return String(v);
+  const n = Number(v); if (!isFinite(n)) return String(v);
+  const s = Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: c.type === 'qty' ? 0 : RPT_NUM[c.type], maximumFractionDigits: RPT_NUM[c.type] }) + (c.type === 'pct' ? '%' : '');
+  return n < 0 ? '(' + s + ')' : s;
+}
+/** صفوف البيانات المسطّحة (المجموعات تُفك بعناوينها ومجاميعها الفرعية) */
+function rptFlat(spec) {
+  if (!(spec.groups || []).length) return (spec.rows || []).map(r => ({ ...r, _k: 'row' }));
+  const out = []; const C = spec.columns || [];
+  spec.groups.forEach(g => { out.push({ _k: 'head', _label: g.label }); (g.rows || []).forEach(r => out.push({ ...r, _k: 'row' }));
+    if (g.subtotal !== false) { const t = { _k: 'sub', _label: (spec.lang === 'en' ? 'Total ' : 'إجمالي ') + g.label }; C.forEach(c => { if (c.total === 'sum') t[c.key] = Math.round((g.rows || []).reduce((a, r) => a + (Number(r[c.key]) || 0), 0) * 1000) / 1000; }); out.push(t); } });
+  return out;
+}
+function rptTotals(spec) { const t = {}; (spec.columns || []).forEach(c => { if (c.total === 'sum') t[c.key] = Math.round(rptFlat(spec).filter(r => r._k === 'row').reduce((a, r) => a + (Number(r[c.key]) || 0), 0) * 1000) / 1000; }); return t; }
+const rptLbl = (spec, c) => spec.lang === 'en' && c.en ? c.en : c.label;
+/** HTML الطباعة الموحد: ترويسة بالشعار والهوية، رأس جدول يتكرر في كل صفحة، ترقيم صفحات، وتذييل بالوقت والمستخدم والمصدر */
+function rptHtml(org, spec) {
+  const co = (org && org.company) || {}, en = spec.lang === 'en', dir = en ? 'ltr' : 'rtl', C = spec.columns || [], T = rptTotals(spec), anyTot = Object.keys(T).length > 0;
+  const paper = ['A4', 'A3', 'Letter'].includes(spec.paper) ? spec.paper : 'A4', orient = spec.orientation === 'landscape' ? 'landscape' : 'portrait';
+  const meta = spec.meta || {}, at = meta.at || new Date().toISOString();
+  const L = en ? { by: 'Printed by', at: 'at', src: 'Source', page: 'Page', of: 'of', vat: 'VAT No.', tot: 'Total', filt: 'Filters', none: 'No data' } : { by: 'طبعه', at: 'في', src: 'المصدر', page: 'صفحة', of: 'من', vat: 'الرقم الضريبي', tot: 'الإجمالي', filt: 'التصفية', none: 'لا بيانات' };
+  const cell = (r, c) => { const v = r[c.key]; const neg = rptIsNum(c) && Number(v) < 0; return `<td class="${rptIsNum(c) ? 'n' : ''}${neg ? ' neg' : ''}">${_xe(rptFmt(v, c))}</td>`; };
+  const rows = rptFlat(spec).map(r => r._k === 'head' ? `<tr class="gh"><td colspan="${C.length}">${_xe(r._label)}</td></tr>`
+    : r._k === 'sub' ? `<tr class="sub"><td>${_xe(r._label)}</td>${C.slice(1).map(c => c.total === 'sum' ? cell(r, c) : '<td></td>').join('')}</tr>`
+    : `<tr${r._bold ? ' class="b"' : ''}>${C.map((c, i) => i === 0 && r._level ? `<td style="padding-inline-start:${8 + r._level * 14}px">${_xe(rptFmt(r[c.key], c))}</td>` : cell(r, c)).join('')}</tr>`).join('');
+  const kpis = (spec.kpis || []).length ? `<div class="kp">${spec.kpis.map(k => `<div><small>${_xe(k.label)}</small><b>${_xe(k.value)}</b></div>`).join('')}</div>` : '';
+  const filt = !(spec.filters || []).length ? '' : spec.template === 'document' ? `<div class="fl">${spec.filters.map(([k, v]) => '<b>' + _xe(k) + ':</b> ' + _xe(v)).join(' &nbsp;·&nbsp; ')}</div>` : `<div class="fl"><b>${L.filt}:</b> ${spec.filters.map(([k, v]) => _xe(k) + ': ' + _xe(v)).join(' · ')}</div>`;
+  const sig = (spec.signatures || []).length ? `<div class="sign">${spec.signatures.map(s => `<div>${_xe(s)}</div>`).join('')}</div>` : '';
+  const logo = co.logoUrl && /^(https:|data:image\/)/.test(co.logoUrl) ? `<img class="lg" src="${_xe(co.logoUrl)}" alt="">` : '';
+  const foot = `${L.by}: ${_xe(meta.user || '—')} · ${L.at} ${_xe(String(at).slice(0, 16).replace('T', ' '))} · ${L.src}: ${_xe(meta.source || 'مِثقال')}`;
+  return `<!doctype html><html dir="${dir}" lang="${en ? 'en' : 'ar'}"><head><meta charset="utf-8"><title>${_xe(spec.title)}</title><style>${typeof NUM_FACE === 'string' ? NUM_FACE : ''}
+  @page{size:${paper} ${orient};margin:14mm 10mm 16mm;@bottom-center{content:"${L.page} " counter(page) " ${L.of} " counter(pages);font-size:9px;color:#777}@bottom-${en ? 'left' : 'right'}{content:"${foot.replace(/"/g, "'")}";font-size:8px;color:#888}}
+  *{font-family:'MizanNum','Segoe UI',Tahoma,sans-serif;box-sizing:border-box}body{margin:0;color:#1a1a1a;font-size:11.5px}
+  .h{display:flex;justify-content:space-between;align-items:center;gap:12px;border-bottom:2px solid #8C6F2C;padding-bottom:8px;margin-bottom:10px}
+  .h .l{display:flex;gap:10px;align-items:center}.lg{height:46px;max-width:120px;object-fit:contain}.co{font-size:16px;font-weight:800;color:#5a4a1e}.s{font-size:10.5px;color:#666;margin-top:2px}
+  h1{font-size:15px;margin:0;text-align:${en ? 'right' : 'left'}}.tp{font-size:10px;color:#8C6F2C;text-align:${en ? 'right' : 'left'}}
+  .fl{font-size:10.5px;background:#faf6ee;border:1px solid #e5dcc5;border-radius:6px;padding:5px 9px;margin-bottom:8px}
+  .kp{display:grid;grid-template-columns:repeat(${Math.min(4, (spec.kpis || []).length || 1)},1fr);gap:8px;margin-bottom:10px}.kp div{border:1px solid #e5dcc5;border-radius:6px;padding:6px 8px}.kp small{display:block;color:#777;font-size:9.5px}.kp b{font-size:13px}
+  table{width:100%;border-collapse:collapse}thead{display:table-header-group}tfoot{display:table-row-group}tr{page-break-inside:avoid}
+  th{background:#efe8d8;color:#4a3f22;padding:6px;border:1px solid #d9cba5;text-align:start;font-size:10.5px}
+  td{padding:5px 7px;border:1px solid #e6ddc8}.n{text-align:${en ? 'right' : 'left'};direction:ltr;font-variant-numeric:tabular-nums;white-space:nowrap}.neg{color:#C0392B}
+  .gh td{background:#f7f2e6;font-weight:800;color:#5a4a1e}.sub td{background:#fbf8f1;font-weight:700}.b td{font-weight:700}.tot td{background:#f2ead6;font-weight:800;border-top:2px solid #8C6F2C}
+  .nt{font-size:10px;color:#666;margin-top:8px}.sign{display:flex;justify-content:space-around;margin-top:36px;text-align:center;font-size:11px}.sign div{border-top:1px solid #999;padding-top:6px;min-width:140px}
+  .ft{display:none}@media screen{body{padding:22px}.ft{display:block;margin-top:12px;font-size:9.5px;color:#888;text-align:center}}</style></head><body data-rpt="${_xe(spec.id || '')}" data-template="${_xe(spec.template || 'list')}">
+  <div class="h"><div class="l">${logo}<div><div class="co">${_xe(co.name || '')}</div><div class="s">${co.taxNumber ? L.vat + ': ' + _xe(co.taxNumber) : ''}${co.address ? ' · ' + _xe(co.address) : ''}</div></div></div>
+  <div><h1>${_xe(spec.title)}</h1><div class="s" style="text-align:inherit">${_xe(spec.sub || '')}</div></div></div>
+  ${filt}${kpis}
+  ${C.length ? `<table><thead><tr>${C.map(c => `<th${rptIsNum(c) ? ' class="n"' : ''}>${_xe(rptLbl(spec, c))}</th>`).join('')}</tr></thead><tbody>${rows || `<tr><td colspan="${C.length}" style="text-align:center;color:#888">${L.none}</td></tr>`}</tbody>
+  ${anyTot ? `<tfoot><tr class="tot"><td>${_xe(spec.totalLabel || L.tot)}</td>${C.slice(1).map(c => c.total === 'sum' ? cell(T, c) : '<td></td>').join('')}</tr></tfoot>` : ''}</table>` : ''}
+  ${(spec.notes || []).map(n => `<div class="nt">${_xe(n)}</div>`).join('')}${sig}
+  <div class="ft">${foot}</div></body></html>`;
+}
+function printReport(org, spec) {
+  const w = openDocWin('width=1000,height=1100'); if (!w) return false;
+  w.document.write(rptHtml(org, spec)); w.document.close(); setTimeout(() => { w.focus(); w.print(); }, 450); return true;
+}
+/** Excel منسق: ترويسة (المنشأة، العنوان، الفترة، التصفية، المصدر)، رأس عريض مجمّد، تنسيق أرقام، عرض أعمدة، ومجاميع بصيغ SUM حقيقية */
+function rptXlsxRows(org, spec) {
+  const co = (org && org.company) || {}, C = spec.columns || [], meta = spec.meta || {}, en = spec.lang === 'en';
+  const rows = [], put = (arr) => rows.push(arr);
+  put([{ v: co.name || '', s: 4 }]); put([{ v: spec.title, s: 4 }]); if (spec.sub) put([spec.sub]);
+  if ((spec.filters || []).length) put([(en ? 'Filters: ' : 'التصفية: ') + spec.filters.map(([k, v]) => k + ': ' + v).join(' · ')]);
+  put([(en ? 'Printed by ' : 'أعدّه ') + (meta.user || '—') + ' · ' + String(meta.at || new Date().toISOString()).slice(0, 16).replace('T', ' ') + ' · ' + (meta.source || 'مِثقال')]);
+  put([]);
+  const head = rows.length; put(C.map(c => ({ v: rptLbl(spec, c), s: 1 })));
+  const st = (c, bold) => c.type === 'money' ? (bold ? 3 : 2) : c.type === 'qty' ? 5 : c.type === 'pct' ? 6 : c.type === 'int' ? 7 : (bold ? 1 : 0);
+  const first = rows.length + 1; const subRefs = {};
+  rptFlat(spec).forEach(r => {
+    if (r._k === 'head') { put([{ v: r._label, s: 1 }]); return; }
+    if (r._k === 'sub') { put(C.map((c, i) => i === 0 ? { v: r._label, s: 1 } : c.total === 'sum' ? { v: r[c.key], s: st(c, true) } : '')); return; }
+    put(C.map(c => { const v = r[c.key]; return rptIsNum(c) ? (v == null || v === '' ? '' : { v: Number(v), s: st(c, !!r._bold) }) : (v == null ? '' : String(v)); }));
+    const rn = rows.length; C.forEach((c, ci) => { if (c.total === 'sum') (subRefs[ci] = subRefs[ci] || []).push(_colName(ci) + rn); });
+  });
+  const last = rows.length, T = rptTotals(spec);
+  if (Object.keys(T).length) put(C.map((c, ci) => ci === 0 ? { v: spec.totalLabel || (en ? 'Total' : 'الإجمالي'), s: 1 } : c.total === 'sum' ? { v: T[c.key], f: (spec.groups || []).length ? 'SUM(' + (subRefs[ci] || []).join(',') + ')' : 'SUM(' + _colName(ci) + first + ':' + _colName(ci) + last + ')', s: st(c, true) } : ''));
+  return { rows, freeze: head + 1, cols: C.map(c => c.w || (rptIsNum(c) ? 15 : c.type === 'date' ? 12 : 28)) };
+}
+const makeRptXlsx = (org, spec) => { const X = rptXlsxRows(org, spec); return makeXlsx([{ name: String(spec.title || 'تقرير').slice(0, 31), rows: X.rows, freeze: X.freeze, cols: X.cols }]); };
+/** CSV بترميز UTF-8 (مع BOM ليفتح بالعربية في Excel) — قيم خام بلا تنسيق */
+function rptCsv(spec) {
+  const C = spec.columns || [], q = (v) => { const s = v == null ? '' : String(v); return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const lines = [C.map(c => q(rptLbl(spec, c))).join(',')];
+  rptFlat(spec).forEach(r => lines.push(r._k === 'row' ? C.map(c => q(r[c.key])).join(',') : r._k === 'head' ? q(r._label) : C.map((c, i) => i === 0 ? q(r._label) : c.total === 'sum' ? q(r[c.key]) : '').join(',')));
+  const T = rptTotals(spec); if (Object.keys(T).length) lines.push(C.map((c, i) => i === 0 ? q(spec.totalLabel || (spec.lang === 'en' ? 'Total' : 'الإجمالي')) : c.total === 'sum' ? q(T[c.key]) : '').join(','));
+  return '﻿' + lines.join('\r\n');
+}
+function rptDownload(blob, name) { const u = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = u; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 2000); }
 /* ============================================================
    v11.8 — الفوترة الإلكترونية (زاتكا / رمز QR) — من غير أي مكتبة خارجية
    مولّد رمز QR كامل (نمط البايت، اختيار الإصدار والتصحيح تلقائيًا) +
@@ -3092,7 +3202,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v49.5';
+const APP_VER = 'v50.0';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -12868,7 +12978,7 @@ export { MKT_DEF, mktCfg, mktCanApprove, MKT_SEGS, MKT_SEG_ORDER, mktAlias, mktC
 export { moveIdx, RowGrip, RECUR_AR, recurNext, recurDue };
 export { peekDoc, DocLink, DocPeekHost, VoiceSearchHost, voiceNorm };
 export { fefoPick, lotsFor, projList, projectPL, projNextCode };
-export { DEP_METHODS, depMethod, deprSchedule, glLedger, acctActivity, COST_METHODS, costMethod, stockCostingAvg, stockCostingFifo, costCompare, itemBin, binSort, binOrder, pmPeriod, profitMatrix, RFQ_ST, rfqNextNo, rfqCompare, rfqToPOs, DLV_ST, DLV_NEXT, posDrivers, dlvNeeded, dlvRecord, dlvMove, dlvSummary, posAreas, tableArea, areasErr, salesByArea, computeSmartAlerts, stockShortages, CV_KIND, cvNextNo, partyOpenDocs, applyCashVoucher, cashVoucherHtml, VCH_T, VCH_TRF, vchTypeOf, assignVouchers, voucherList, voucherHtml, saleDeductFrom, saleDeductOn, saleUse, saleRecipeItems, saleDayUse, syncSaleMoves, itemLedger, UOM_LIST, UOM_GROUPS, uomOf, uomConv, uomOk, uomNeeded, lineUnits, lineFac, UomSelect, Notifications, closeAlertsCfg, closeAlertEvents, closeAlertFor, shiftSumText, waShare, CLOSE_ALERT_ROLES, posDocView, printScreen, cutoutPixels, productThumb, prepWasteStats, normDigits, normScan, posPaper, posPaperDev, setPosPaperDev, prepShelfH, prepBatchState, PREP_ST, canBrPurchase, brSigCheck, BR_PURCHASERS, poWhOf, syncPoInbox, INV_BILLERS, ITEM_NEW_TYPES, itemsSeq, nextItemCode, vatNoOk, supVatOf, ItemPick, A4_CSS, posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim, prepItemId, prepItemOf, prodNeeds, prodCheck, prodMoves, clrMerge, clrRead, clrViewStats, ppvReport, invTurnover, dirOf, isMzbk, mzbkDecrypt, clrData, clrRecord, clrSigRef, clrDiff, clrCompare, clrOn, clrState, clrMirror, clrLoad, clrSeed, fjData, fjStatus, fjRecord, fjDiff, fjCompare, fjOn, fjState, fjMirror, fjLoad, fpLockedTo, fpLoad, fmLoad, fmSet, fjSeed, fjLegacyRecord, dedupeSameId, findRecentDups, negStockChanges, negStockMsg, FD_KINDS, fdDate, fdData, fdProg, fdPaid, fdRecord, fdDiff, fdCompare, fdLoad, fdSeed, OdooBar, ACCT_SECTIONS, ACCT_SEC_AR, ACC_KIND, ALL_TABS, APPS, AdvanceForm, AppPermsPanel, AppsStrip, BR_COLS, Badge, BalCell, BlindCount, BranchForm, COUNT_FREQ, COUNT_ST, CameraModal, CategoriesPanel, ClosingView, CloudHealth, CountScheduleCard, DAYS_AR, DENOMS, DOC_LABEL, DOC_TYPES, DailyBranchReport, DeliveryAppsPanel, DisbursementForm, DupInvHint, EXP_CATS, FILE_CATS, Field, FinancialReports, GROWTH_MONTHS, HR_WEEK_DAYS, HrSignPad, ITEM_TYPES, Kpi, LAUNCH_APPS, LEAVE_TYPES, LOCK_MSG, MAIN_WH, MFA_DEFAULT_ROLES, MOVE_KINDS, MZ_FIXED, MZ_KIND_AR, MZ_LOGO_HTML, MZ_SUGGEST, MfaPolicyCard, MizanMerge, Modal, MoneyField, NUM_FACE, NUM_LOCALE, NationalAddressFields, Num, OutputDialog, PAY_ADD_TYPES, PAY_GUESS, PEN_TYPES, POS_DEV_KEY, POS_SH_KEY, PROMO_IDEAS, PROMO_T, PT_SRC, PT_TYPE, PartnerChip, PdfTile, PhotoField, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, PriceAlerts, QR_ITEMS, QR_STATUS, QUOTA_MSG, QrBranchesView, QrComplaints, QrDashboard, RB_KIND_AR, RB_PM_AR, RB_SOURCES, REG_APPS, REG_CATS, REG_IX, ROLES, SC_KPIS, SIGN_DOC_AR, SIG_H, SIG_W, SectionNav, SigView, SignDocsModal, SignaturePad, SystemPanel, TAB_AR, TRAIN_STATUS_AR, UsageVariance, UserForm, WASTE_REASONS, WH_KIND, WH_MOVE, WH_ST, WarehousesPanel, WasteControl, WasteFields, WastePending, WhLines, _normName, _xe, aCountDone, aItemsOf, acctSecKey, activePriorCorrectives, activeTrainingRecord, aiHeaders, appCanSee, appOpenNow, appUseGet, appUseSet, arDT, arDate, arTime, bankOfBranch, bioEnroll, bookHidden, branchBanks, branchEntityId, browserName, bsLayout, bsRowsOf, buildAccounting, buildClosingA4, buildPartners, buildPayslipSignDocs, businessDay, canApproveCount, canApproveWaste, capOK, chartTone, closingInvoices, clr, compressImage, computeIncome, contactFields, contactOf, correctiveExpiry, correctiveSignDoc, countCfgOf, countDenoms, countFocus, countSchedule, countedClosing, customerAging, daysBetween, defaultHrPolicies, defaultPenaltySchedule, defaultPointsRules, defaultRewardTiers, defaultRoleKpis, defaultTrainingPrograms, deficitCfg, deficitPatterns, detectStmtMap, deviceType, emptyDenoms, entityById, entityList, eosAccrualLines, eosCumAt, eosState, eosYears, escH, expiringTraining, expiryLots, exportExcel, fineSuggest, fmtBalP, fmtNA, frozenSnapshotFor, gosiRatesFor, haversineMeters, hrAttendanceDetail, hrEmpStats, hrQrWindowCode, hrScoreFor, isCostCtl, isLayout, isPdfData, isRowsOf, isStocked, isoD, itemAvgCosts, itemType, kpiAchievement, leaveBalance, leaveDeductPlan, lockedThru, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, makeXlsx, missingRequiredTraining, mizanPlan, money, moneyP, monthEnd, monthLabel, monthLedger, multiEntityOn, mzNewCode, mzR2, naClean, naErr, naHas, naMissing, newBranchDraft, nextPartnerCode, nextWhAcc, normPhone, normalizeSupPays, nowISO, onLeave, openDocWin, openPdfData, otFromAttendance, otRateOf, overdueSignDocs, pFactor, parseCsvGrid, parseMt940, parseXlsxGrid, partGross, partYield, payCashPart, payLabel, paySplits, payTotal, payrollRowsOf, penTypeAr, pendShiftsGet, pendShiftsSet, periodLocked, piAggregate, piDetect, piNorm, pipTriggered, posCashNet, posClrOf, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posShiftHtml, posTotals, posZHtml, positionJdHtml, printA4, printClosingA4, printIncomeA4, printPartnerStatement, printReceipt, printSalesInvoice, programRequiredFor, promoActive, promoDesc, promoHits, purKey, pwStrength, q3, qrAnalyzeComments, qrAvg, qrBranchStats, qrDate, qrF1, qrFs, qrIsComplaint, qrMs, qrOverall, qrOverdue, qrPrintReport, qrRateUrl, qrSentBadge, qrStatusOf, qrSvg, rewardSignDoc, roleEdit, roleHasTab, roleKpisFor, rolePost, salesDaySource, sha, sha256Hex, short, siCredited, siRem, siSorted, siStamp, siVerify, sigBlockHtml, sigPoints, sigSvg, signDeclaration, signDocHtml, simplifySig, slimBranchDoc, snapAll, snapMonths, snapPut, stAddDays, stDate, stNum, stockByWh, submitWaste, suggestNextLevel, sum, supplierAging, supplierPrices, today, trainingExpiryOf, trainingStatusNow, uid, usageReport, useSecNav, verifyBackup, waNum, wasteCfg, wasteDaily, wasteReasonAr, wasteRows, webauthnSupported, whForBranch, whName, whOf, whOn, zatcaTLV };
+export { RPT_TEMPLATES, rptFmt, rptFlat, rptTotals, rptHtml, printReport, rptXlsxRows, makeRptXlsx, rptCsv, rptDownload, DEP_METHODS, depMethod, deprSchedule, glLedger, acctActivity, COST_METHODS, costMethod, stockCostingAvg, stockCostingFifo, costCompare, itemBin, binSort, binOrder, pmPeriod, profitMatrix, RFQ_ST, rfqNextNo, rfqCompare, rfqToPOs, DLV_ST, DLV_NEXT, posDrivers, dlvNeeded, dlvRecord, dlvMove, dlvSummary, posAreas, tableArea, areasErr, salesByArea, computeSmartAlerts, stockShortages, CV_KIND, cvNextNo, partyOpenDocs, applyCashVoucher, cashVoucherHtml, VCH_T, VCH_TRF, vchTypeOf, assignVouchers, voucherList, voucherHtml, saleDeductFrom, saleDeductOn, saleUse, saleRecipeItems, saleDayUse, syncSaleMoves, itemLedger, UOM_LIST, UOM_GROUPS, uomOf, uomConv, uomOk, uomNeeded, lineUnits, lineFac, UomSelect, Notifications, closeAlertsCfg, closeAlertEvents, closeAlertFor, shiftSumText, waShare, CLOSE_ALERT_ROLES, posDocView, printScreen, cutoutPixels, productThumb, prepWasteStats, normDigits, normScan, posPaper, posPaperDev, setPosPaperDev, prepShelfH, prepBatchState, PREP_ST, canBrPurchase, brSigCheck, BR_PURCHASERS, poWhOf, syncPoInbox, INV_BILLERS, ITEM_NEW_TYPES, itemsSeq, nextItemCode, vatNoOk, supVatOf, ItemPick, A4_CSS, posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim, prepItemId, prepItemOf, prodNeeds, prodCheck, prodMoves, clrMerge, clrRead, clrViewStats, ppvReport, invTurnover, dirOf, isMzbk, mzbkDecrypt, clrData, clrRecord, clrSigRef, clrDiff, clrCompare, clrOn, clrState, clrMirror, clrLoad, clrSeed, fjData, fjStatus, fjRecord, fjDiff, fjCompare, fjOn, fjState, fjMirror, fjLoad, fpLockedTo, fpLoad, fmLoad, fmSet, fjSeed, fjLegacyRecord, dedupeSameId, findRecentDups, negStockChanges, negStockMsg, FD_KINDS, fdDate, fdData, fdProg, fdPaid, fdRecord, fdDiff, fdCompare, fdLoad, fdSeed, OdooBar, ACCT_SECTIONS, ACCT_SEC_AR, ACC_KIND, ALL_TABS, APPS, AdvanceForm, AppPermsPanel, AppsStrip, BR_COLS, Badge, BalCell, BlindCount, BranchForm, COUNT_FREQ, COUNT_ST, CameraModal, CategoriesPanel, ClosingView, CloudHealth, CountScheduleCard, DAYS_AR, DENOMS, DOC_LABEL, DOC_TYPES, DailyBranchReport, DeliveryAppsPanel, DisbursementForm, DupInvHint, EXP_CATS, FILE_CATS, Field, FinancialReports, GROWTH_MONTHS, HR_WEEK_DAYS, HrSignPad, ITEM_TYPES, Kpi, LAUNCH_APPS, LEAVE_TYPES, LOCK_MSG, MAIN_WH, MFA_DEFAULT_ROLES, MOVE_KINDS, MZ_FIXED, MZ_KIND_AR, MZ_LOGO_HTML, MZ_SUGGEST, MfaPolicyCard, MizanMerge, Modal, MoneyField, NUM_FACE, NUM_LOCALE, NationalAddressFields, Num, OutputDialog, PAY_ADD_TYPES, PAY_GUESS, PEN_TYPES, POS_DEV_KEY, POS_SH_KEY, PROMO_IDEAS, PROMO_T, PT_SRC, PT_TYPE, PartnerChip, PdfTile, PhotoField, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, PriceAlerts, QR_ITEMS, QR_STATUS, QUOTA_MSG, QrBranchesView, QrComplaints, QrDashboard, RB_KIND_AR, RB_PM_AR, RB_SOURCES, REG_APPS, REG_CATS, REG_IX, ROLES, SC_KPIS, SIGN_DOC_AR, SIG_H, SIG_W, SectionNav, SigView, SignDocsModal, SignaturePad, SystemPanel, TAB_AR, TRAIN_STATUS_AR, UsageVariance, UserForm, WASTE_REASONS, WH_KIND, WH_MOVE, WH_ST, WarehousesPanel, WasteControl, WasteFields, WastePending, WhLines, _normName, _xe, aCountDone, aItemsOf, acctSecKey, activePriorCorrectives, activeTrainingRecord, aiHeaders, appCanSee, appOpenNow, appUseGet, appUseSet, arDT, arDate, arTime, bankOfBranch, bioEnroll, bookHidden, branchBanks, branchEntityId, browserName, bsLayout, bsRowsOf, buildAccounting, buildClosingA4, buildPartners, buildPayslipSignDocs, businessDay, canApproveCount, canApproveWaste, capOK, chartTone, closingInvoices, clr, compressImage, computeIncome, contactFields, contactOf, correctiveExpiry, correctiveSignDoc, countCfgOf, countDenoms, countFocus, countSchedule, countedClosing, customerAging, daysBetween, defaultHrPolicies, defaultPenaltySchedule, defaultPointsRules, defaultRewardTiers, defaultRoleKpis, defaultTrainingPrograms, deficitCfg, deficitPatterns, detectStmtMap, deviceType, emptyDenoms, entityById, entityList, eosAccrualLines, eosCumAt, eosState, eosYears, escH, expiringTraining, expiryLots, exportExcel, fineSuggest, fmtBalP, fmtNA, frozenSnapshotFor, gosiRatesFor, haversineMeters, hrAttendanceDetail, hrEmpStats, hrQrWindowCode, hrScoreFor, isCostCtl, isLayout, isPdfData, isRowsOf, isStocked, isoD, itemAvgCosts, itemType, kpiAchievement, leaveBalance, leaveDeductPlan, lockedThru, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, makeXlsx, missingRequiredTraining, mizanPlan, money, moneyP, monthEnd, monthLabel, monthLedger, multiEntityOn, mzNewCode, mzR2, naClean, naErr, naHas, naMissing, newBranchDraft, nextPartnerCode, nextWhAcc, normPhone, normalizeSupPays, nowISO, onLeave, openDocWin, openPdfData, otFromAttendance, otRateOf, overdueSignDocs, pFactor, parseCsvGrid, parseMt940, parseXlsxGrid, partGross, partYield, payCashPart, payLabel, paySplits, payTotal, payrollRowsOf, penTypeAr, pendShiftsGet, pendShiftsSet, periodLocked, piAggregate, piDetect, piNorm, pipTriggered, posCashNet, posClrOf, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posShiftHtml, posTotals, posZHtml, positionJdHtml, printA4, printClosingA4, printIncomeA4, printPartnerStatement, printReceipt, printSalesInvoice, programRequiredFor, promoActive, promoDesc, promoHits, purKey, pwStrength, q3, qrAnalyzeComments, qrAvg, qrBranchStats, qrDate, qrF1, qrFs, qrIsComplaint, qrMs, qrOverall, qrOverdue, qrPrintReport, qrRateUrl, qrSentBadge, qrStatusOf, qrSvg, rewardSignDoc, roleEdit, roleHasTab, roleKpisFor, rolePost, salesDaySource, sha, sha256Hex, short, siCredited, siRem, siSorted, siStamp, siVerify, sigBlockHtml, sigPoints, sigSvg, signDeclaration, signDocHtml, simplifySig, slimBranchDoc, snapAll, snapMonths, snapPut, stAddDays, stDate, stNum, stockByWh, submitWaste, suggestNextLevel, sum, supplierAging, supplierPrices, today, trainingExpiryOf, trainingStatusNow, uid, usageReport, useSecNav, verifyBackup, waNum, wasteCfg, wasteDaily, wasteReasonAr, wasteRows, webauthnSupported, whForBranch, whName, whOf, whOn, zatcaTLV };
 export { ClosingForm };
 // v38.3 — للاختبارات الآلية (tests/): دوال المحرك والشاشات تُستورد من النواة مباشرة
 export { stockCosting, eosEntitledAmt, eosFullAmt, findDupInvoices, invNoNorm, promoLineDisc, tafqeet, MktGrowth, Hub, Launcher, PosApp, Inventory, Partners, SalesHub, QrFeedback, AppsCenter, BranchWarehouse, Admin, AuditView, Accounting, emptyOrg, emptyOps, HUBS };
