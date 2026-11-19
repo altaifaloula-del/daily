@@ -5,8 +5,8 @@ import { cloud, KEYS } from '../../storage';
 import { Target, Users, Grid3x3 as Layers, ShieldCheck, Settings, Download, Users as UserCheck, RefreshCw as GitMerge } from 'lucide-react';
 import { Field, Kpi, Modal, money, makeXlsx, today, nowISO, uid, normPhone, loyPost, ROLES,
   mktCfg, mktCanApprove, MKT_SEGS, MKT_SEG_ORDER, crmBuild, crmSegment, crmDupes, mktKpis, mktCanContact,
-  loyX, loyTier, loyPeriodicTx, mktProfiles, rewardCoupon, cpnKey, posR2, CAMP_ST, campNextNo, campStatusOf, campStats } from '../../App.jsx';
-import { Megaphone } from 'lucide-react';
+  loyX, loyTier, loyPeriodicTx, mktProfiles, rewardCoupon, cpnKey, posR2, CAMP_ST, campNextNo, campStatusOf, campStats, recCfgOf, recStats } from '../../App.jsx';
+import { Megaphone, Sparkles } from 'lucide-react';
 import { Gift, Gift as Ticket } from 'lucide-react';
 
 const CH = { all: 'كل القنوات', whatsapp: 'واتساب', sms: 'رسائل SMS', email: 'البريد', app: 'إشعارات التطبيق' };
@@ -23,7 +23,7 @@ export function MktGrowth({ org, ops, me, myBranches, commit, commitOrg, say }) 
   const list = useMemo(() => crmSegment(crmBuild(org, ops, loy, { branches: central ? null : brIds }), cfg, today()), [org, ops, loy, central, brIds.join(',')]);
   const brName = (id) => ((org.branches || []).find(b => b.id === id) || {}).name || id;
   const [sel, setSel] = useState(null);
-  const V = [['dash', 'لوحة التسويق', Target], ['crm', 'ملفات العملاء', Users], ['seg', 'الشرائح', Layers], ['loy', 'الولاء والمكافآت', Gift], ['cpn', 'الكوبونات', Ticket], ['cmp', 'الحملات', Megaphone], ['gov', 'الموافقات والتكرار', ShieldCheck], ['cfg', 'الإعدادات', Settings]];
+  const V = [['dash', 'لوحة التسويق', Target], ['crm', 'ملفات العملاء', Users], ['seg', 'الشرائح', Layers], ['loy', 'الولاء والمكافآت', Gift], ['cpn', 'الكوبونات', Ticket], ['cmp', 'الحملات', Megaphone], ['rec', 'التوصيات', Sparkles], ['gov', 'الموافقات والتكرار', ShieldCheck], ['cfg', 'الإعدادات', Settings]];
   return (
     <div className="grid" style={{ gap: 12 }} data-mkt>
       <div className="row" style={{ gap: 6, flexWrap: 'wrap' }} role="tablist" aria-label="أقسام التسويق">
@@ -37,6 +37,7 @@ export function MktGrowth({ org, ops, me, myBranches, commit, commitOrg, say }) 
       {loy && view === 'loy' && <Loy org={org} ops={ops} loy={loy} setLoy={setLoy} canApp={canApp} me={me} commit={commit} commitOrg={commitOrg} say={say} />}
       {loy && view === 'cpn' && <Cpn org={org} ops={ops} loy={loy} canApp={canApp} me={me} commitOrg={commitOrg} say={say} brName={brName} />}
       {loy && view === 'cmp' && <Cmp org={org} ops={ops} list={list} canApp={canApp} me={me} commit={commit} commitOrg={commitOrg} say={say} brName={brName} />}
+      {view === 'rec' && <Rec org={org} ops={ops} central={central} brIds={brIds} myBranches={myBranches} canApp={canApp} commitOrg={commitOrg} say={say} />}
       {view === 'cfg' && <Cfg cfg={cfg} canApp={canApp} commitOrg={commitOrg} say={say} />}
       {sel && <Profile c={list.find(x => x.id === sel)} org={org} ops={ops} loy={loy} setLoy={setLoy} canApp={canApp} brName={brName} me={me} commit={commit} commitOrg={commitOrg} say={say} onClose={() => setSel(null)} />}
     </div>);
@@ -390,3 +391,42 @@ function Cmp({ org, ops, list, canApp, me, commit, commitOrg, say, brName }) {
     </Modal>}
   </div>);
 }
+
+/* v52.2 — المرحلة G: نتائج التوصيات عند الدفع وإعداداتها */
+function Rec({ org, ops, central, brIds, myBranches, canApp, commitOrg, say }) {
+  const C = recCfgOf(org);
+  const [to, setTo] = useState(today()); const [from, setFrom] = useState(anDay(today(), -29)); const [br, setBr] = useState('');
+  const S = useMemo(() => recStats(ops.posOrders, { from, to, branches: br ? [br] : (central ? null : brIds) }), [ops.posOrders, from, to, br, central, brIds.join(',')]);
+  const [F, setF] = useState(() => ({ on: C.on, days: String(C.days), minPair: String(C.minPair), minConf: String(C.minConf), max: String(C.max) }));
+  const save = async () => {
+    const v = { on: !!F.on, days: Number(F.days), minPair: Number(F.minPair), minConf: Number(F.minConf), max: Number(F.max) };
+    if (!(v.days >= 7 && v.days <= 365) || !(v.minPair >= 1) || !(v.minConf >= 1 && v.minConf <= 100) || !(v.max >= 1 && v.max <= 6)) return say('قيم غير صالحة: الفترة 7–365 يومًا، الثقة 1–100%، العدد 1–6', 'no');
+    const ok = await commitOrg(g => ({ ...g, mkt: { ...(g.mkt || {}), recs: v } }), { actionType: 'update', targetType: 'settings', targetId: 'mkt.recs', need: 'edit', title: 'عدّل إعدادات التوصيات عند الدفع', details: JSON.stringify(v) });
+    if (ok !== false) say('حُفظت إعدادات التوصيات ✓');
+  };
+  const N = (k, ar) => <Field label={ar}><input className="inp n" inputMode="numeric" aria-label={ar} disabled={!canApp} value={F[k]} onChange={e => setF(x => ({ ...x, [k]: e.target.value.replace(/\D/g, '') }))} /></Field>;
+  return (<div className="grid" style={{ gap: 12 }} data-recview>
+    <div className="card">
+      <div className="row" style={{ gap: 8, alignItems: 'end', flexWrap: 'wrap', marginBottom: 8 }}><div className="card-t" style={{ margin: 0 }}>نتائج التوصيات عند الدفع</div><span style={{ marginInlineStart: 'auto' }} />
+        <Field label="من"><input type="date" className="inp" value={from} onChange={e => setFrom(e.target.value)} /></Field>
+        <Field label="إلى"><input type="date" className="inp" value={to} onChange={e => setTo(e.target.value)} /></Field>
+        <Field label="الفرع"><select className="sel" value={br} onChange={e => setBr(e.target.value)}><option value="">{central ? 'كل الفروع' : 'فروعي'}</option>{(myBranches || []).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></Field></div>
+      <div className="row" style={{ gap: 14, flexWrap: 'wrap', fontSize: 13 }} data-recstats>
+        <span>فواتير عُرضت فيها توصيات: <b className="num">{S.orders}</b></span><span>مرات العرض: <b className="num">{S.shown}</b></span><span>القبول: <b className="num">{S.accepted}</b></span>
+        <span>نسبة القبول: <b className="num">{S.rate == null ? '—' : S.rate + '%'}</b></span><span>أُخفيت: <b className="num">{S.dismissed}</b></span><span>مبيعات الأسطر المقبولة: <b className="num">{money(S.sales)}</b></span></div>
+      <div className="note" style={{ marginTop: 8 }}>«مبيعات الأسطر المقبولة» قيمة الأصناف التي أضافها الكاشير من التوصية — ليست إيرادًا إضافيًا بالضرورة (قد يكون العميل سيطلبها أصلًا).</div>
+      {S.rows.length ? <div className="tw" style={{ marginTop: 8 }}><table className="tb" data-rectable><thead><tr><th>الصنف</th><th>عُرض</th><th>قُبل</th><th>أُخفي</th><th>نسبة القبول</th><th>الكمية</th><th>المبيعات</th></tr></thead>
+        <tbody>{S.rows.map(r => <tr key={r.productId}><td>{r.name}</td><td className="num">{r.shown}</td><td className="num">{r.accepted}</td><td className="num">{r.dismissed}</td><td className="num">{r.rate == null ? '—' : r.rate + '%'}</td><td className="num">{r.qty}</td><td className="num">{money(r.sales)}</td></tr>)}</tbody></table></div>
+        : <div className="empty">لا توصيات في هذه الفترة.</div>}
+    </div>
+    <div className="card" data-reccfg>
+      <div className="card-t">إعدادات التوصيات</div>
+      {!canApp && <div className="note" style={{ marginBottom: 8 }}>للاطلاع فقط — التعديل لمن له صلاحية الاعتماد.</div>}
+      <label className="row" style={{ gap: 6, marginBottom: 8 }}><input type="checkbox" aria-label="تفعيل التوصيات" disabled={!canApp} checked={!!F.on} onChange={e => setF(x => ({ ...x, on: e.target.checked }))} />إظهار «مقترح مع الطلب» في نقطة البيع</label>
+      <div className="grid g4">{N('days', 'تحليل طلبات آخر (يوم)')}{N('minPair', 'أقل عدد طلبات مشتركة')}{N('minConf', 'أقل نسبة ارتباط (%)')}{N('max', 'عدد الاقتراحات')}</div>
+      {canApp && <button className="btn pri" style={{ marginTop: 8 }} data-reccfg-save onClick={save}>حفظ</button>}
+      <div className="note" style={{ marginTop: 8 }}>الاقتراح من طلبات الفرع الفعلية: الصنف الذي يُطلب مع ما في السلة بنسبة لا تقل عن الحد، أو ما يطلبه عميل الولاء عادةً (مرتان فأكثر). لا يقترح صنفًا موقوفًا أو موجودًا في السلة، ولا يغيّر السعر أو الخصم.</div>
+    </div>
+  </div>);
+}
+

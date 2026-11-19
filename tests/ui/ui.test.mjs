@@ -2846,3 +2846,36 @@ test('v52.1 الحملات: إنشاء حملة تربط كوبونًا بشري
   assert.match(await p.locator('[data-cpntable]').innerText(), /حملة CMP-0001/);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v52.2 التوصيات عند الدفع: «مقترح مع الطلب» من سلال الفرع، الإضافة بنقرة والإخفاء يُحفظان مع الفاتورة، والنتائج في التسويق', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosApp/bm');
+  await p.evaluate(() => {
+    const td = new Date(); td.setHours(12); const d = td.toISOString().slice(0, 10);
+    const hist = []; for (let i = 0; i < 6; i++) hist.push({ id: 'h' + i, date: d, branchId: 'b1', status: 'paid', total: 53, lines: [{ productId: 'k', name: 'كبسة', qty: 1, price: 50 }, { productId: 'l', name: 'لبن', qty: 1, price: 3 }, ...(i < 4 ? [{ productId: 's', name: 'سلطة', qty: 1, price: 8 }] : [])] });
+    window.setOrg(g => ({ ...g, taxCfg: { enabled: false }, posCfg: { branches: ['b1'], autoPrint: false },
+      products: [{ id: 'k', name: 'كبسة', sellPrice: 50, cat: 'رئيسي' }, { id: 'l', name: 'لبن', sellPrice: 3, cat: 'مشروبات' }, { id: 's', name: 'سلطة', sellPrice: 8, cat: 'مقبلات' }] }));
+    window.setOps(o => ({ ...o, posTabs: [], posOrders: hist, closings: o.closings.filter(c => c.branchId !== 'b1') }));
+  }); await p.waitForTimeout(400);
+  const ob = p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await p.waitForTimeout(400); }
+  await p.locator('.pos-tile:has-text("كبسة")').click(); await p.waitForSelector('[data-recs]');
+  const t = await p.locator('[data-recs]').innerText(); assert.match(t, /مقترح مع الطلب/); assert.match(t, /لبن/); assert.match(t, /سلطة/); assert.match(t, /كبسة.+100%/);
+  await p.click('[data-rec="l"] button:has-text("لبن")'); await p.waitForTimeout(200);
+  assert.equal(await p.locator('[data-rec="l"]').count(), 0, 'لا يُقترح ما في السلة');
+  await p.click('[data-rec="s"] button[aria-label="إخفاء سلطة"]'); await p.waitForTimeout(200);
+  assert.equal(await p.locator('[data-recs]').count(), 0);
+  await p.click('.pos-cart button:has-text("نقدي")'); await p.waitForTimeout(200); await p.click('.modal button:has-text("تأكيد")'); await p.waitForTimeout(700);
+  const all = await p.evaluate(() => [...window.cur.posOrders, ...JSON.parse(localStorage.getItem('mizan:posQueue') || '[]')]);
+  const o = all.find(x => !String(x.id).startsWith('h')); assert.ok(o, 'الفاتورة محفوظة');
+  assert.deepEqual(o.recShown.slice().sort(), ['l', 's']); assert.deepEqual(o.recDismissed, ['s']);
+  assert.deepEqual(o.lines.map(l => [l.productId, l.rec || '']), [['k', ''], ['l', 'co']]); assert.equal(o.total, 53, 'التوصية لا تغيّر السعر');
+  assert.deepEqual(errs, []); await ctx.close();
+  const M = await open({ viewport: { width: 1300, height: 1100 } }, 'live/MktGrowth/admin');
+  await M.p.evaluate((o) => { window.setOps(x => ({ ...x, posOrders: [{ ...o, pending: undefined }] })); }, o); await M.p.waitForTimeout(300);
+  await M.p.click('[data-mktv="rec"]'); await M.p.waitForSelector('[data-recview]');
+  const s = (await M.p.locator('[data-recstats]').innerText()).replace(/\s+/g, ' ');
+  assert.match(s, /مرات العرض: 2/); assert.match(s, /القبول: 1/); assert.match(s, /نسبة القبول: 50%/); assert.match(s, /أُخفيت: 1/); assert.match(s, /3\.00/);
+  await M.p.locator('[data-reccfg] input[aria-label="تفعيل التوصيات"]').uncheck(); await M.p.fill('[data-reccfg] input[aria-label="عدد الاقتراحات"]', '2');
+  await M.p.click('[data-reccfg-save]'); await M.p.waitForTimeout(300);
+  assert.deepEqual(await M.p.evaluate(() => window.curOrg.mkt.recs), { on: false, days: 60, minPair: 3, minConf: 15, max: 2 });
+  assert.deepEqual(M.errs, []); await M.ctx.close();
+});

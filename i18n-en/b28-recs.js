@@ -1,0 +1,33 @@
+/* v52.2 دفعة الترجمة b28 — التوصيات عند الدفع */
+export default {
+"مقترح مع الطلب": "Suggested with this order",
+"التوصيات": "Recommendations",
+"نتائج التوصيات عند الدفع": "Checkout recommendation results",
+"فروعي": "My branches",
+"فواتير عُرضت فيها توصيات:": "Invoices with recommendations shown:",
+"مرات العرض:": "Times shown:",
+"القبول:": "Accepted:",
+"نسبة القبول:": "Acceptance rate:",
+"أُخفيت:": "Dismissed:",
+"مبيعات الأسطر المقبولة:": "Sales of accepted lines:",
+"«مبيعات الأسطر المقبولة» قيمة الأصناف التي أضافها الكاشير من التوصية — ليست إيرادًا إضافيًا بالضرورة (قد يكون العميل سيطلبها أصلًا).": "“Sales of accepted lines” is the value of items the cashier added from a recommendation — not necessarily additional revenue (the customer may have ordered them anyway).",
+"عُرض": "Shown",
+"قُبل": "Accepted",
+"أُخفي": "Dismissed",
+"نسبة القبول": "Acceptance rate",
+"لا توصيات في هذه الفترة.": "No recommendations in this period.",
+"إعدادات التوصيات": "Recommendation settings",
+"إظهار «مقترح مع الطلب» في نقطة البيع": "Show “Suggested with this order” in the POS",
+"تحليل طلبات آخر (يوم)": "Analyze orders from the last (days)",
+"أقل عدد طلبات مشتركة": "Minimum shared orders",
+"أقل نسبة ارتباط (%)": "Minimum association (%)",
+"عدد الاقتراحات": "Number of suggestions",
+"حُفظت إعدادات التوصيات ✓": "Recommendation settings saved ✓",
+"قيم غير صالحة: الفترة 7–365 يومًا، الثقة 1–100%، العدد 1–6": "Invalid values: period 7–365 days, association 1–100%, count 1–6",
+"الاقتراح من طلبات الفرع الفعلية: الصنف الذي يُطلب مع ما في السلة بنسبة لا تقل عن الحد، أو ما يطلبه عميل الولاء عادةً (مرتان فأكثر). لا يقترح صنفًا موقوفًا أو موجودًا في السلة، ولا يغيّر السعر أو الخصم.": "Suggestions come from the branch's actual orders: an item ordered with what is in the cart at or above the threshold, or what a loyalty customer usually orders (twice or more). It never suggests a disabled item or one already in the cart, and never changes price or discount.",
+};
+export const RX = [
+  [/^يُطلب مع «(.+)» في (\d+)% من طلباته$/, 'Ordered with “$1” in $2% of its orders'],
+  [/^يطلبه هذا العميل عادةً \((\d+) مرات\)$/, 'This customer usually orders it ($1 times)'],
+  [/^إخفاء (.+)$/, 'Hide $1'],
+];
