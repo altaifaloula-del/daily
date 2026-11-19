@@ -2732,3 +2732,25 @@ test('v51.6 طباعة تقرير الإغلاق PDF: المستند وحده ب
   await p.emulateMedia({ media: 'screen' });
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v51.8 التنقل بين أقسام التطبيق: السابق / التالي / رجوع — في المخزون والمحاسبة', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } }); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'comp/Inventory'); await p.waitForSelector('.secpager', { timeout: 15000 }); await settle(p);
+  const pos = async () => (await p.locator('.secpager .sp-pos').first().innerText()).trim();
+  const p0 = await pos(); assert.match(p0, /^1 \/ \d+$/); const n = Number(p0.split('/')[1]);
+  assert.equal(await p.locator('.secpager .sp-prev').first().isDisabled(), true, 'لا سابق للقسم الأول');
+  assert.equal(await p.locator('.secpager .sp-back').count(), 0, 'لا رجوع قبل أي تنقل');
+  await p.click('.secpager .sp-next'); await settle(p); assert.equal(await pos(), '2 / ' + n);
+  await p.click('.secpager .sp-next'); await settle(p); assert.equal(await pos(), '3 / ' + n);
+  await p.click('.secpager .sp-prev'); await settle(p); assert.equal(await pos(), '2 / ' + n);
+  await p.click('.secpager .sp-back'); await settle(p); assert.equal(await pos(), '3 / ' + n, 'رجوع = القسم الذي كنت فيه قبله');
+  for (let i = 3; i < n; i++) { await p.click('.secpager .sp-next'); await settle(p); }
+  assert.equal(await pos(), n + ' / ' + n); assert.equal(await p.locator('.secpager .sp-next').first().isDisabled(), true, 'لا تالٍ للأخير');
+  await ctx.close();
+  const c2 = await browser.newContext({ viewport: { width: 1280, height: 900 } }); const q = await c2.newPage(); q.on('pageerror', e => errs.push(e.message));
+  await q.goto(base + 'acct/jr'); await q.waitForSelector('.secpager', { timeout: 15000 }); await settle(q);
+  const a0 = (await q.locator('.secpager .sp-pos').innerText()).trim(); await q.click('.secpager .sp-next'); await settle(q);
+  const a1 = (await q.locator('.secpager .sp-pos').innerText()).trim(); assert.notEqual(a0, a1, 'المحاسبة: التالي ينقل القسم');
+  await q.click('.secpager .sp-back'); await settle(q); assert.equal((await q.locator('.secpager .sp-pos').innerText()).trim(), a0);
+  assert.deepEqual(errs, []); await c2.close();
+});

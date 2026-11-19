@@ -3242,7 +3242,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v51.7';
+const APP_VER = 'v51.8';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3341,6 +3341,10 @@ function PlatformApp() {
   useEffect(() => { _rptCtx.user = (me && me.name) || ''; }, [me]);   // v50.0: اسم الطابع في تذييل كل تقرير
   useEffect(() => { ERR_CTX.role = (me && me.role) || ''; ERR_CTX.branchId = (me && me.branchId) || ''; }, [me]);   // v38.5 سياق سجل الأخطاء
   const [tab, setTab] = useState('home');
+  // v51.8: «رجوع» للشاشة السابقة بين التطبيقات (سجل داخل المنصة — آخر 30 شاشة)
+  const [tabHist, setTabHist] = useState([]); const tabPrev = useRef('home'), tabViaBack = useRef(false);
+  useEffect(() => { if (tabPrev.current !== tab) { const from = tabPrev.current; if (!tabViaBack.current) setTabHist(h => [...h, from].slice(-30)); tabViaBack.current = false; tabPrev.current = tab; } }, [tab]);
+  const goBackTab = () => { const h = [...tabHist]; while (h.length) { const t = h.pop(); if (t && t !== tab) { tabViaBack.current = true; setTabHist(h); setTab(t); return; } } setTabHist([]); };
   const [acctIntent, setAcctIntent] = useState(null);          // فتح المحاسبة على شاشة محددة من مركز التطبيقات
   const openAcctView = useCallback((v) => setAcctIntent({ v, ts: Date.now() }), []);
   const [invIntent, setInvIntent] = useState(null);            // فتح المخزون على شاشة محددة
@@ -3360,12 +3364,17 @@ function PlatformApp() {
   const [auditTick, setAuditTick] = useState(0);
   const [auditFeed, setAuditFeed] = useState(null);
   const [needUpdate, setNeedUpdate] = useState(null);
-  const [subLive, setSubLive] = useState('');   // v51.7: حالة الاشتراك الفعلية من قاعدة المنشأة (platform/release.sub) — تظهر فور تغييرها من لوحة مِثقال
+  const [subLive, setSubLive] = useState('');
+  const [subDue, setSubDue] = useState(null);   // v51.8: تذكير التجديد لمسؤول المنشأة المشتركة (من خادم مِثقال)   // v51.7: حالة الاشتراك الفعلية من قاعدة المنشأة (platform/release.sub) — تظهر فور تغييرها من لوحة مِثقال
   const auditReader = !!me && (!!(ROLES[me.role] || {}).admin || roleHasTab(me, 'audit'));
   useEffect(() => { if (!me) return; let dead = false;
     const chk = async () => { const rel = (ROLES[me.role] || {}).admin ? ((await raiseRelease(me)) || (await loadRelease())) : await loadRelease();
       if (!dead && rel && (rel.minCv || 0) > APP_CV) setNeedUpdate(rel);
-      if (!dead && rel) setSubLive(typeof rel.sub === 'string' ? rel.sub : ''); };
+      if (!dead && rel) setSubLive(typeof rel.sub === 'string' ? rel.sub : '');
+      // v51.8: تذكير التجديد — للمنشآت المشتركة فقط، ويرد الخادم 403 لغير مسؤوليها فلا يظهر لهم
+      if (!dead && TENANT.id !== 'default') { try { const E = import.meta.env || {}; const base = E.VITE_ZATCA_ENDPOINT ? String(E.VITE_ZATCA_ENDPOINT).replace(/\/+$/, '') : (E.VITE_AI_ENDPOINT ? new URL(E.VITE_AI_ENDPOINT).origin : '');
+        if (base) { const r = await fetch(base + '/api/billing/summary', { headers: await aiHeaders() }); const j = r.ok ? await r.json() : null;
+          if (!dead) setSubDue(j && j.enabled && j.sub && ['due', 'grace', 'overdue', 'lapsed'].includes(j.sub.state) ? { state: j.sub.state, days: j.sub.daysLeft, through: j.sub.paidThrough, open: (j.invoices || []).find(v => v.status === 'open' || v.status === 'pending_transfer') } : null); } } catch { } } };
     chk(); const h = setInterval(chk, 10 * 60000); return () => { dead = true; clearInterval(h); }; }, [me]);
   useEffect(() => { if (!me || !auditReader) { setAuditFeed(null); return; } let dead = false;
     const go = async () => { const r = await auditFetch(300); if (!dead && Array.isArray(r)) setAuditFeed(r); };
@@ -4092,6 +4101,18 @@ function PlatformApp() {
     setLastSync(new Date());
     return true;
   }, [writeOps, me, say, appendAudit]);
+  // v51.8 (أتمتة — قرار المالك): القيود الدورية المستحقة تُنشأ تلقائيًا عند دخول من يملك الترحيل (مرة يوميًا لكل جهاز)،
+  // بنفس مسار الاعتماد: المالك يرحّل مباشرة وغيره «بانتظار الاعتماد». لا تعمل في اشتراك «للقراءة فقط».
+  useEffect(() => {
+    if (boot !== 'ready' || !me || !rolePost(me.role) || TENANT.status === 'readonly' || subLive === 'readonly' || subLive === 'suspended') return;
+    const td = today(), k = 'mq:recur:' + td; try { if (sessionStorage.getItem(k)) return; } catch { }
+    if (!recurDue(ops.jeRecurring, td).length) return;
+    try { sessionStorage.setItem(k, '1'); } catch { }
+    let n = 0; const direct = jeOwner(me);
+    commit(d => { const r = recurApply(d, me, orgNow.current, td); n = r.recs.length; return r.next; },
+      { actionType: 'create', targetType: 'journal_entry', need: 'post', title: 'أنشأ القيود الدورية المستحقة تلقائيًا', details: 'تشغيل تلقائي' })
+      .then(ok => { if (ok && n) say('أُنشئ ' + n + ' قيد دوري تلقائيًا' + (direct ? ' ورُحّل ✓' : ' — بانتظار الاعتماد')); });
+  }, [boot, me, ops.jeRecurring, subLive]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const commitOrg = useCallback(async (mutator, log) => {
     // v15.12: البوابة المركزية — نفس الحارس على كتابات الإعدادات/المنشأة.
@@ -4416,6 +4437,11 @@ function PlatformApp() {
               {drawer ? <X size={18} /> : <Menu size={18} />}
             </button>
             <button className="rp-col" onClick={toggleSide} title={TX(sideCol ? 'توسيع القائمة' : 'طيّ القائمة')} aria-label="طيّ القائمة الجانبية"><Menu size={18} /></button>
+            {tabHist.some(t => t !== tab) && (
+              <button className="homebtn2 backbtn" onClick={goBackTab} title={TX('رجوع للشاشة السابقة')} aria-label={TX('رجوع')}>
+                {isEn() ? <ChevronLeft size={17} /> : <ChevronRight size={17} />}
+              </button>
+            )}
             {safeTab !== 'home' && (
               <button className="homebtn2" onClick={() => setTab('home')} title="الرئيسية — كل التطبيقات">
                 <Home size={17} />
@@ -4549,6 +4575,14 @@ function PlatformApp() {
           })()}
 
           {/* v51.3 (S4): اشتراك «للقراءة فقط» — القواعد على الخادم ترفض أي حفظ؛ هذا تنبيه فقط */}
+          {subDue && !(TENANT.status === 'readonly' || subLive === 'readonly' || subLive === 'suspended') && (
+            <div className="mq-sub-due" style={{ background: 'rgba(217,168,62,.14)', borderBottom: '1px solid rgba(217,168,62,.45)', color: 'var(--amber)', padding: '9px 20px', fontSize: 12, display: 'flex', gap: 9, alignItems: 'center', flexWrap: 'wrap' }}>
+              <AlertTriangle size={15} />
+              {subDue.days >= 0 ? 'اشتراك المنشأة يستحق خلال ' + subDue.days + ' يوم (' + subDue.through + ')' : 'اشتراك المنشأة متأخر منذ ' + (-subDue.days) + ' يوم — يتحول «للقراءة فقط» بعد المهلة'}
+              {subDue.open ? ' — الفاتورة ' + subDue.open.no + ' جاهزة للدفع' : ''}
+              <button className="btn sm" style={{ marginInlineStart: 'auto' }} onClick={() => setTab('admin')}>{TX('الاشتراك والدفع')}</button>
+            </div>
+          )}
           {(TENANT.status === 'readonly' || subLive === 'readonly' || subLive === 'suspended') && (
             <div className="mq-sub-ro" style={{
               background: 'rgba(224,164,88,.14)', borderBottom: '1px solid rgba(224,164,88,.4)',
@@ -6605,6 +6639,18 @@ function recurNext(date, every, day) {
     const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate(); d.setDate(Math.min(want, last)); }
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
+/** v51.8 — تطبيق القيود الدورية المستحقة على بيانات التشغيل (للزر وللتشغيل التلقائي معًا).
+   المعرّف ثابت لكل (قالب، تاريخ) ويُتجاهل الموجود — فلا يتكرر القيد مهما تعددت الأجهزة أو المحاولات. */
+function recurApply(d, me, org, td) {
+  const due = recurDue(d.jeRecurring, td); if (!due.length) return { next: d, recs: [] };
+  const direct = jeOwner(me), have = new Set((d.journalManual || []).map(x => x.id)), recs = [], upd = {};
+  due.forEach(({ t, dates, next }) => { dates.forEach(dt => { if (periodLocked(org, dt)) return; const id = 'jmr_' + t.id + '_' + dt; if (have.has(id)) return;
+      recs.push({ id, date: dt, title: t.title + ' — ' + dt.slice(0, 7), opening: false, by: (me && me.name) || '', byId: (me && me.id) || '', createdAt: nowISO(), recurId: t.id,
+        status: direct ? 'posted' : 'pending', ...(direct ? { approvedBy: (me && me.name) || '', approvedAt: nowISO() } : {}),
+        ...(t.branchId ? { branchId: t.branchId } : {}), ...(t.projectId ? { projectId: t.projectId } : {}), lines: (t.lines || []).map(l => ({ ...l })) }); });
+    upd[t.id] = next; });
+  return { recs, next: { ...d, journalManual: [...recs, ...(d.journalManual || [])], jeRecurring: (d.jeRecurring || []).map(t => upd[t.id] ? { ...t, next: upd[t.id], lastRun: td } : t) } };
+}
 function recurDue(tpls, td) {
   td = td || today(); const out = [];
   (tpls || []).filter(t => t.active !== false && t.next).forEach(t => { const ds = []; let n = t.next;
@@ -7163,7 +7209,31 @@ function OdooBar({ groups, cur, onPick, extra, sw }) {
 }
 /** تجميع عناصر مسطّحة في قوائم: بحسب x.group؛ وما لا مجموعة له يصير رابطًا مباشرًا */
 const obGroups = (list) => { const out = []; list.forEach(x => { const k = x.group || ('_' + x.id); let g = out.find(y => y.id === k); if (!g) { g = { id: k, ar: x.group || x.ar, items: [] }; out.push(g); } g.items.push(x); }); return out; };
-function SectionNav({ items, cur, onPick, extra, label, force }) {
+/* v51.8 — «السابق / التالي / رجوع» عند استعراض أقسام أي تطبيق (طلب المالك 2026-11-19).
+   items: قائمة الأقسام بترتيب ظهورها · cur · onPick(id). «رجوع» يعيد القسم الذي كنت فيه قبله (سجل لكل شريط). */
+function SecPager({ items, cur, onPick }) {
+  const list = (items || []).filter(Boolean);
+  const [hist, setHist] = useState([]); const last = useRef(cur), viaBack = useRef(false);
+  useEffect(() => { if (last.current !== cur) { const from = last.current; if (!viaBack.current && from != null) setHist(h => [...h, from].slice(-30)); viaBack.current = false; last.current = cur; } }, [cur]);
+  if (list.length < 2) return null;
+  const i = list.findIndex(x => x.id === cur), prev = i > 0 ? list[i - 1] : null, next = i >= 0 && i < list.length - 1 ? list[i + 1] : null;
+  const back = hist.filter(id => list.some(x => x.id === id) && id !== cur).slice(-1)[0];
+  const en = isEn(), PrevI = en ? ChevronLeft : ChevronRight, NextI = en ? ChevronRight : ChevronLeft;
+  const goBack = () => { const h = [...hist]; while (h.length) { const id = h.pop(); if (list.some(x => x.id === id) && id !== cur) { viaBack.current = true; setHist(h); onPick(id); return; } } setHist([]); };
+  return (
+    <div className="secpager" role="navigation" aria-label={TX('التنقل بين الأقسام')}>
+      {back && <button className="btn sm gh sp-back" onClick={goBack} title={TX('رجوع') + ': ' + TX((list.find(x => x.id === back) || {}).ar || '')}><RotateCcw size={13} />{TX('رجوع')}</button>}
+      <span className="sp-pos">{i >= 0 ? (i + 1) + ' / ' + list.length : ''}</span>
+      <button className="btn sm gh sp-prev" disabled={!prev} onClick={() => prev && onPick(prev.id)} title={prev ? TX(prev.ar) : ''}><PrevI size={14} />{TX('السابق')}</button>
+      <button className="btn sm gh sp-next" disabled={!next} onClick={() => next && onPick(next.id)} title={next ? TX(next.ar) : ''}>{TX('التالي')}<NextI size={14} /></button>
+    </div>
+  );
+}
+function SectionNav(props) {
+  const list = (props.items || []).filter(Boolean);
+  return <><SectionNavCore {...props} />{!props.force && list.length >= 2 && <SecPager items={list} cur={props.cur} onPick={props.onPick} />}</>;
+}
+function SectionNavCore({ items, cur, onPick, extra, label, force }) {
   const [modeSel, setMode] = useSecNav();
   const mode = force || modeSel;   // force: نمط ثابت لشاشات تحتاج المساحة (نقطة البيع)
   const [open, setOpen] = useState(false);
@@ -13096,7 +13166,7 @@ export { MKT_DEF, mktCfg, mktCanApprove, MKT_SEGS, MKT_SEG_ORDER, mktAlias, mktC
 export { moveIdx, RowGrip, RECUR_AR, recurNext, recurDue };
 export { peekDoc, DocLink, DocPeekHost, VoiceSearchHost, voiceNorm };
 export { fefoPick, lotsFor, projList, projectPL, projNextCode };
-export { BrandSymbol, BrandLockup, ACCT_GROUPS, MYWORK_CATS, myWorkGroups, MyWork, rptShell, RPT_TEMPLATES, rptFmt, rptFlat, rptTotals, rptHtml, printReport, rptXlsxRows, makeRptXlsx, rptCsv, rptDownload, DEP_METHODS, depMethod, deprSchedule, glLedger, acctActivity, COST_METHODS, costMethod, stockCostingAvg, stockCostingFifo, costCompare, itemBin, binSort, binOrder, pmPeriod, profitMatrix, RFQ_ST, rfqNextNo, rfqCompare, rfqToPOs, DLV_ST, DLV_NEXT, posDrivers, dlvNeeded, dlvRecord, dlvMove, dlvSummary, posAreas, tableArea, areasErr, salesByArea, computeSmartAlerts, stockShortages, CV_KIND, cvNextNo, partyOpenDocs, applyCashVoucher, cashVoucherHtml, VCH_T, VCH_TRF, vchTypeOf, assignVouchers, voucherList, voucherHtml, saleDeductFrom, saleDeductOn, saleUse, saleRecipeItems, saleDayUse, syncSaleMoves, itemLedger, UOM_LIST, UOM_GROUPS, uomOf, uomConv, uomOk, uomNeeded, lineUnits, lineFac, UomSelect, Notifications, closeAlertsCfg, closeAlertEvents, closeAlertFor, shiftSumText, waShare, CLOSE_ALERT_ROLES, posDocView, printScreen, cutoutPixels, productThumb, prepWasteStats, normDigits, normScan, posPaper, posPaperDev, setPosPaperDev, prepShelfH, prepBatchState, PREP_ST, canBrPurchase, brSigCheck, BR_PURCHASERS, poWhOf, syncPoInbox, INV_BILLERS, ITEM_NEW_TYPES, itemsSeq, nextItemCode, vatNoOk, supVatOf, ItemPick, A4_CSS, posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim, prepItemId, prepItemOf, prodNeeds, prodCheck, prodMoves, clrMerge, clrRead, clrViewStats, ppvReport, invTurnover, dirOf, isMzbk, mzbkDecrypt, clrData, clrRecord, clrSigRef, clrDiff, clrCompare, clrOn, clrState, clrMirror, clrLoad, clrSeed, fjData, fjStatus, fjRecord, fjDiff, fjCompare, fjOn, fjState, fjMirror, fjLoad, fpLockedTo, fpLoad, fmLoad, fmSet, fjSeed, fjLegacyRecord, dedupeSameId, findRecentDups, negStockChanges, negStockMsg, FD_KINDS, fdDate, fdData, fdProg, fdPaid, fdRecord, fdDiff, fdCompare, fdLoad, fdSeed, OdooBar, ACCT_SECTIONS, ACCT_SEC_AR, ACC_KIND, ALL_TABS, APPS, AdvanceForm, AppPermsPanel, AppsStrip, BR_COLS, Badge, BalCell, BlindCount, BranchForm, COUNT_FREQ, COUNT_ST, CameraModal, CategoriesPanel, ClosingView, CloudHealth, CountScheduleCard, DAYS_AR, DENOMS, DOC_LABEL, DOC_TYPES, DailyBranchReport, DeliveryAppsPanel, DisbursementForm, DupInvHint, EXP_CATS, FILE_CATS, Field, FinancialReports, GROWTH_MONTHS, HR_WEEK_DAYS, HrSignPad, ITEM_TYPES, Kpi, LAUNCH_APPS, LEAVE_TYPES, LOCK_MSG, MAIN_WH, MFA_DEFAULT_ROLES, MOVE_KINDS, MZ_FIXED, MZ_KIND_AR, MZ_LOGO_HTML, MZ_SUGGEST, MfaPolicyCard, MizanMerge, Modal, MoneyField, NUM_FACE, NUM_LOCALE, NationalAddressFields, Num, OutputDialog, PAY_ADD_TYPES, PAY_GUESS, PEN_TYPES, POS_DEV_KEY, POS_SH_KEY, PROMO_IDEAS, PROMO_T, PT_SRC, PT_TYPE, PartnerChip, PdfTile, PhotoField, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, PriceAlerts, QR_ITEMS, QR_STATUS, QUOTA_MSG, QrBranchesView, QrComplaints, QrDashboard, RB_KIND_AR, RB_PM_AR, RB_SOURCES, REG_APPS, REG_CATS, REG_IX, ROLES, SC_KPIS, SIGN_DOC_AR, SIG_H, SIG_W, SectionNav, SigView, SignDocsModal, SignaturePad, SystemPanel, TAB_AR, TRAIN_STATUS_AR, UsageVariance, UserForm, WASTE_REASONS, WH_KIND, WH_MOVE, WH_ST, WarehousesPanel, WasteControl, WasteFields, WastePending, WhLines, _normName, _xe, aCountDone, aItemsOf, acctSecKey, activePriorCorrectives, activeTrainingRecord, aiHeaders, appCanSee, appOpenNow, appUseGet, appUseSet, arDT, arDate, arTime, bankOfBranch, bioEnroll, bookHidden, branchBanks, branchEntityId, browserName, bsLayout, bsRowsOf, buildAccounting, buildClosingA4, buildPartners, buildPayslipSignDocs, businessDay, canApproveCount, canApproveWaste, capOK, chartTone, closingInvoices, clr, compressImage, computeIncome, contactFields, contactOf, correctiveExpiry, correctiveSignDoc, countCfgOf, countDenoms, countFocus, countSchedule, countedClosing, customerAging, daysBetween, defaultHrPolicies, defaultPenaltySchedule, defaultPointsRules, defaultRewardTiers, defaultRoleKpis, defaultTrainingPrograms, deficitCfg, deficitPatterns, detectStmtMap, deviceType, emptyDenoms, entityById, entityList, eosAccrualLines, eosCumAt, eosState, eosYears, escH, expiringTraining, expiryLots, exportExcel, fineSuggest, fmtBalP, fmtNA, frozenSnapshotFor, gosiRatesFor, haversineMeters, hrAttendanceDetail, hrEmpStats, hrQrWindowCode, hrScoreFor, isCostCtl, isLayout, isPdfData, isRowsOf, isStocked, isoD, itemAvgCosts, itemType, kpiAchievement, leaveBalance, leaveDeductPlan, lockedThru, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, makeXlsx, missingRequiredTraining, mizanPlan, money, moneyP, monthEnd, monthLabel, monthLedger, multiEntityOn, mzNewCode, mzR2, naClean, naErr, naHas, naMissing, newBranchDraft, nextPartnerCode, nextWhAcc, normPhone, normalizeSupPays, nowISO, onLeave, openDocWin, openPdfData, otFromAttendance, otRateOf, overdueSignDocs, pFactor, parseCsvGrid, parseMt940, parseXlsxGrid, partGross, partYield, payCashPart, payLabel, paySplits, payTotal, payrollRowsOf, penTypeAr, pendShiftsGet, pendShiftsSet, periodLocked, piAggregate, piDetect, piNorm, pipTriggered, posCashNet, posClrOf, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posShiftHtml, posTotals, posZHtml, positionJdHtml, printA4, printClosingA4, printIncomeA4, printPartnerStatement, printReceipt, printSalesInvoice, programRequiredFor, promoActive, promoDesc, promoHits, purKey, pwStrength, q3, qrAnalyzeComments, qrAvg, qrBranchStats, qrDate, qrF1, qrFs, qrIsComplaint, qrMs, qrOverall, qrOverdue, qrPrintReport, qrRateUrl, qrSentBadge, qrStatusOf, qrSvg, rewardSignDoc, roleEdit, roleHasTab, roleKpisFor, rolePost, salesDaySource, sha, sha256Hex, short, siCredited, siRem, siSorted, siStamp, siVerify, sigBlockHtml, sigPoints, sigSvg, signDeclaration, signDocHtml, simplifySig, slimBranchDoc, snapAll, snapMonths, snapPut, stAddDays, stDate, stNum, stockByWh, submitWaste, suggestNextLevel, sum, supplierAging, supplierPrices, today, trainingExpiryOf, trainingStatusNow, uid, usageReport, useSecNav, verifyBackup, waNum, wasteCfg, wasteDaily, wasteReasonAr, wasteRows, webauthnSupported, whForBranch, whName, whOf, whOn, zatcaTLV };
+export { SecPager, recurApply, BrandSymbol, BrandLockup, ACCT_GROUPS, MYWORK_CATS, myWorkGroups, MyWork, rptShell, RPT_TEMPLATES, rptFmt, rptFlat, rptTotals, rptHtml, printReport, rptXlsxRows, makeRptXlsx, rptCsv, rptDownload, DEP_METHODS, depMethod, deprSchedule, glLedger, acctActivity, COST_METHODS, costMethod, stockCostingAvg, stockCostingFifo, costCompare, itemBin, binSort, binOrder, pmPeriod, profitMatrix, RFQ_ST, rfqNextNo, rfqCompare, rfqToPOs, DLV_ST, DLV_NEXT, posDrivers, dlvNeeded, dlvRecord, dlvMove, dlvSummary, posAreas, tableArea, areasErr, salesByArea, computeSmartAlerts, stockShortages, CV_KIND, cvNextNo, partyOpenDocs, applyCashVoucher, cashVoucherHtml, VCH_T, VCH_TRF, vchTypeOf, assignVouchers, voucherList, voucherHtml, saleDeductFrom, saleDeductOn, saleUse, saleRecipeItems, saleDayUse, syncSaleMoves, itemLedger, UOM_LIST, UOM_GROUPS, uomOf, uomConv, uomOk, uomNeeded, lineUnits, lineFac, UomSelect, Notifications, closeAlertsCfg, closeAlertEvents, closeAlertFor, shiftSumText, waShare, CLOSE_ALERT_ROLES, posDocView, printScreen, cutoutPixels, productThumb, prepWasteStats, normDigits, normScan, posPaper, posPaperDev, setPosPaperDev, prepShelfH, prepBatchState, PREP_ST, canBrPurchase, brSigCheck, BR_PURCHASERS, poWhOf, syncPoInbox, INV_BILLERS, ITEM_NEW_TYPES, itemsSeq, nextItemCode, vatNoOk, supVatOf, ItemPick, A4_CSS, posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim, prepItemId, prepItemOf, prodNeeds, prodCheck, prodMoves, clrMerge, clrRead, clrViewStats, ppvReport, invTurnover, dirOf, isMzbk, mzbkDecrypt, clrData, clrRecord, clrSigRef, clrDiff, clrCompare, clrOn, clrState, clrMirror, clrLoad, clrSeed, fjData, fjStatus, fjRecord, fjDiff, fjCompare, fjOn, fjState, fjMirror, fjLoad, fpLockedTo, fpLoad, fmLoad, fmSet, fjSeed, fjLegacyRecord, dedupeSameId, findRecentDups, negStockChanges, negStockMsg, FD_KINDS, fdDate, fdData, fdProg, fdPaid, fdRecord, fdDiff, fdCompare, fdLoad, fdSeed, OdooBar, ACCT_SECTIONS, ACCT_SEC_AR, ACC_KIND, ALL_TABS, APPS, AdvanceForm, AppPermsPanel, AppsStrip, BR_COLS, Badge, BalCell, BlindCount, BranchForm, COUNT_FREQ, COUNT_ST, CameraModal, CategoriesPanel, ClosingView, CloudHealth, CountScheduleCard, DAYS_AR, DENOMS, DOC_LABEL, DOC_TYPES, DailyBranchReport, DeliveryAppsPanel, DisbursementForm, DupInvHint, EXP_CATS, FILE_CATS, Field, FinancialReports, GROWTH_MONTHS, HR_WEEK_DAYS, HrSignPad, ITEM_TYPES, Kpi, LAUNCH_APPS, LEAVE_TYPES, LOCK_MSG, MAIN_WH, MFA_DEFAULT_ROLES, MOVE_KINDS, MZ_FIXED, MZ_KIND_AR, MZ_LOGO_HTML, MZ_SUGGEST, MfaPolicyCard, MizanMerge, Modal, MoneyField, NUM_FACE, NUM_LOCALE, NationalAddressFields, Num, OutputDialog, PAY_ADD_TYPES, PAY_GUESS, PEN_TYPES, POS_DEV_KEY, POS_SH_KEY, PROMO_IDEAS, PROMO_T, PT_SRC, PT_TYPE, PartnerChip, PdfTile, PhotoField, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, PriceAlerts, QR_ITEMS, QR_STATUS, QUOTA_MSG, QrBranchesView, QrComplaints, QrDashboard, RB_KIND_AR, RB_PM_AR, RB_SOURCES, REG_APPS, REG_CATS, REG_IX, ROLES, SC_KPIS, SIGN_DOC_AR, SIG_H, SIG_W, SectionNav, SigView, SignDocsModal, SignaturePad, SystemPanel, TAB_AR, TRAIN_STATUS_AR, UsageVariance, UserForm, WASTE_REASONS, WH_KIND, WH_MOVE, WH_ST, WarehousesPanel, WasteControl, WasteFields, WastePending, WhLines, _normName, _xe, aCountDone, aItemsOf, acctSecKey, activePriorCorrectives, activeTrainingRecord, aiHeaders, appCanSee, appOpenNow, appUseGet, appUseSet, arDT, arDate, arTime, bankOfBranch, bioEnroll, bookHidden, branchBanks, branchEntityId, browserName, bsLayout, bsRowsOf, buildAccounting, buildClosingA4, buildPartners, buildPayslipSignDocs, businessDay, canApproveCount, canApproveWaste, capOK, chartTone, closingInvoices, clr, compressImage, computeIncome, contactFields, contactOf, correctiveExpiry, correctiveSignDoc, countCfgOf, countDenoms, countFocus, countSchedule, countedClosing, customerAging, daysBetween, defaultHrPolicies, defaultPenaltySchedule, defaultPointsRules, defaultRewardTiers, defaultRoleKpis, defaultTrainingPrograms, deficitCfg, deficitPatterns, detectStmtMap, deviceType, emptyDenoms, entityById, entityList, eosAccrualLines, eosCumAt, eosState, eosYears, escH, expiringTraining, expiryLots, exportExcel, fineSuggest, fmtBalP, fmtNA, frozenSnapshotFor, gosiRatesFor, haversineMeters, hrAttendanceDetail, hrEmpStats, hrQrWindowCode, hrScoreFor, isCostCtl, isLayout, isPdfData, isRowsOf, isStocked, isoD, itemAvgCosts, itemType, kpiAchievement, leaveBalance, leaveDeductPlan, lockedThru, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, makeXlsx, missingRequiredTraining, mizanPlan, money, moneyP, monthEnd, monthLabel, monthLedger, multiEntityOn, mzNewCode, mzR2, naClean, naErr, naHas, naMissing, newBranchDraft, nextPartnerCode, nextWhAcc, normPhone, normalizeSupPays, nowISO, onLeave, openDocWin, openPdfData, otFromAttendance, otRateOf, overdueSignDocs, pFactor, parseCsvGrid, parseMt940, parseXlsxGrid, partGross, partYield, payCashPart, payLabel, paySplits, payTotal, payrollRowsOf, penTypeAr, pendShiftsGet, pendShiftsSet, periodLocked, piAggregate, piDetect, piNorm, pipTriggered, posCashNet, posClrOf, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posShiftHtml, posTotals, posZHtml, positionJdHtml, printA4, printClosingA4, printIncomeA4, printPartnerStatement, printReceipt, printSalesInvoice, programRequiredFor, promoActive, promoDesc, promoHits, purKey, pwStrength, q3, qrAnalyzeComments, qrAvg, qrBranchStats, qrDate, qrF1, qrFs, qrIsComplaint, qrMs, qrOverall, qrOverdue, qrPrintReport, qrRateUrl, qrSentBadge, qrStatusOf, qrSvg, rewardSignDoc, roleEdit, roleHasTab, roleKpisFor, rolePost, salesDaySource, sha, sha256Hex, short, siCredited, siRem, siSorted, siStamp, siVerify, sigBlockHtml, sigPoints, sigSvg, signDeclaration, signDocHtml, simplifySig, slimBranchDoc, snapAll, snapMonths, snapPut, stAddDays, stDate, stNum, stockByWh, submitWaste, suggestNextLevel, sum, supplierAging, supplierPrices, today, trainingExpiryOf, trainingStatusNow, uid, usageReport, useSecNav, verifyBackup, waNum, wasteCfg, wasteDaily, wasteReasonAr, wasteRows, webauthnSupported, whForBranch, whName, whOf, whOn, zatcaTLV };
 export { ClosingForm };
 // v38.3 — للاختبارات الآلية (tests/): دوال المحرك والشاشات تُستورد من النواة مباشرة
 export { stockCosting, eosEntitledAmt, eosFullAmt, findDupInvoices, invNoNorm, promoLineDisc, tafqeet, MktGrowth, Hub, Launcher, PosApp, Inventory, Partners, SalesHub, QrFeedback, AppsCenter, BranchWarehouse, Admin, AuditView, Accounting, emptyOrg, emptyOps, HUBS };

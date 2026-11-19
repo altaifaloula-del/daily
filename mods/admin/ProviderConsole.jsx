@@ -43,7 +43,8 @@ export function ProviderConsole({ say }) {
     <div className="mq-prov">
       <div className="row" style={{ gap: 8, alignItems: 'center', marginBottom: 10 }}>
         <div className="card-t" style={{ margin: 0 }}>لوحة مِثقال — المنشآت المشتركة</div>
-        <button className="btn sm gh" style={{ marginInlineStart: 'auto' }} onClick={load}><RefreshCw size={13} />تحديث</button>
+        <button className="btn sm gh mq-auto-run" style={{ marginInlineStart: 'auto' }} onClick={() => act(() => api('/api/provider/automation/run', {}), j => (j.log || []).length ? 'الأتمتة: ' + j.log.map(x => x.tenant + ' ' + (x.action === 'invoice' ? 'فاتورة ' + x.no : x.action === 'status' ? '← ' + STATUS_AR[x.to] : x.action === 'status-skipped' ? '(بلا حساب خدمة)' : x.why || x.action)).join(' · ') : 'الأتمتة: لا شيء مستحق الآن')}>تشغيل الأتمتة الآن</button>
+        <button className="btn sm gh" onClick={load}><RefreshCw size={13} />تحديث</button>
       </div>
       {msg && <div className="note" style={{ marginBottom: 8 }}>{msg}</div>}
       {cmd && <div className="note mq-prov-cmd" style={{ marginBottom: 8, direction: 'ltr', textAlign: 'left', fontFamily: 'monospace', fontSize: 12, userSelect: 'all' }}>{cmd}</div>}
@@ -54,7 +55,7 @@ export function ProviderConsole({ say }) {
           <td>{PLAN_AR[t.plan] || t.registryPlan || '—'}{t.registryPlan && t.plan && t.registryPlan !== t.plan ? ' ⚠' : ''}</td>
           <td>{STATE_AR[t.state] || t.state}{t.trial ? ' (تجربة)' : ''}</td>
           <td className="n">{t.paidThrough || '—'}</td>
-          <td>{t.recommend && t.recommend !== 'active' ? <b style={{ color: 'var(--amber)' }}>{STATUS_AR[t.recommend]}</b> : '—'}</td>
+          <td>{t.recommend && t.recommend !== 'active' ? <b style={{ color: 'var(--amber)' }}>{STATUS_AR[t.recommend]}</b> : '—'}{t.appliedStatus && t.appliedStatus !== 'active' ? <div style={{ fontSize: 11 }}>المطبّق: {STATUS_AR[t.appliedStatus]}</div> : null}</td>
           <td style={{ fontSize: 11 }}>{['web', 'zatca', 'ops'].map(k => <span key={k} style={{ marginInlineEnd: 6 }}>{(t.keys || {})[k] ? '✓' : '✕'} {k}</span>)}</td>
           <td><div className="row" style={{ gap: 4, flexWrap: 'wrap' }}>
             {t.state !== 'unconfigured' && <>
@@ -86,6 +87,7 @@ export function ProviderConsole({ say }) {
               <button className="btn sm gh" onClick={() => decide(s, 'rejected')}><X size={13} />رفض</button></div>}</td>
           </tr>)}</tbody></table></div>}
       <div className="note" style={{ marginTop: 12 }}>القبول لا ينشئ المنشأة تلقائيًا: يعرض أمر التهيئة لتنفيذه بحسابك في Google، ثم «بدء تجربة» عند جاهزيتها.</div>
+      <div className="note" style={{ marginTop: 6 }}>الأتمتة تعمل كل ساعة على الخادم: فاتورة الدورة التالية قبل الاستحقاق بأسبوع، و«للقراءة فقط» بعد المهلة ثم «موقوف»، وعودة «نشط» فور الدفع (للمنشآت ذات حساب الخدمة التشغيلي).</div>
     </div>
   );
 }

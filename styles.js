@@ -1134,6 +1134,13 @@ td.num,th.num{display:table-cell}
 @media(max-width:700px){.acct-nav .abar-dd{position:static}.acct-nav .abar-menu{inset-inline:0;min-width:0;max-width:none}}
 /* v28.9 — مبدّل طريقة العرض + شبكة أقسام المحاسبة */
 .acct-mode{display:inline-flex;border:1px solid var(--line-g);border-radius:9px;padding:2px;gap:2px;background:var(--ink2)}
+/* v51.8 — السابق / التالي / رجوع بين أقسام التطبيق */
+.secpager{display:flex;align-items:center;gap:6px;justify-content:flex-end;margin:6px 0 2px;flex-wrap:wrap}
+.secpager .btn{padding:4px 10px;font-size:12px}
+.secpager .btn:disabled{opacity:.4;cursor:default}
+.secpager .sp-pos{font-size:11.5px;color:var(--dim);font-variant-numeric:tabular-nums}
+.secpager .sp-back{margin-inline-end:auto}
+@media print{.secpager{display:none !important}}
 .acct-mode button{display:inline-flex;align-items:center;gap:5px;border:none;background:none;color:var(--faint);font:inherit;font-size:11.5px;padding:5px 9px;border-radius:7px;cursor:pointer}
 .acct-mode button.on{background:var(--acc-soft);color:var(--txt);font-weight:700}
 .acct-gridnav{display:flex;flex-direction:column;gap:12px}

@@ -55,7 +55,7 @@ export async function writeTenantStatus({ tenant, status, fetchImpl = fetch, tok
   return true;
 }
 
-export function mountProvider(app, { express, requireMember, rateLimit, T, cfg, store, controlReady, registry = () => ({}), now = Date.now, fetchImpl = fetch }) {
+export function mountProvider(app, { express, requireMember, rateLimit, T, cfg, store, controlReady, registry = () => ({}), now = Date.now, fetchImpl = fetch, onPaid = () => {}, runAuto = null }) {
   const json = express.json({ limit: '16kb' });
   const tokens = new Map();
   const tokenFor = (t) => { if (!tokens.has(t.id)) tokens.set(t.id, saTokenSource(t.sa, { fetchImpl })); return tokens.get(t.id)(); };
@@ -76,7 +76,7 @@ export function mountProvider(app, { express, requireMember, rateLimit, T, cfg, 
       const list = T.list.filter(t => t.id !== 'default').map(t => {
         const sub = subs[t.id] || {}, st = subscriptionState(sub.paidThrough || '', d), r = reg[t.id] || {};
         return { id: t.id, name: r.name || '', projectId: t.projectId, plan: t.plan, registryPlan: r.plan || '', registryStatus: r.status || (r.id ? 'active' : 'missing'),
-          paidThrough: sub.paidThrough || '', trial: !!sub.trial, period: sub.period || '', ...st,
+          paidThrough: sub.paidThrough || '', trial: !!sub.trial, period: sub.period || '', appliedStatus: sub.appliedStatus || 'active', ...st,
           keys: { web: !!t.apiKey, zatca: !!t.zatcaKey, ops: !!(t.sa && t.sa.client_email) } };
       });
       for (const id of Object.keys(reg)) if (!T.byId(id)) list.push({ id, name: reg[id].name || '', projectId: (reg[id].firebase || {}).projectId || '', plan: '', registryPlan: reg[id].plan || '', registryStatus: reg[id].status || 'active', state: 'unconfigured', recommend: 'active', keys: { web: false, zatca: false, ops: false } });
@@ -100,6 +100,7 @@ export function mountProvider(app, { express, requireMember, rateLimit, T, cfg, 
       const r = applyPayment(inv, { ref: 'bank:' + ref, method: 'bank', amount, at: new Date(now()).toISOString() });
       if (r.error) return res.status(409).json({ error: r.error });
       await store.putInvoice({ ...r.inv, confirmedBy: req.user.email }); await extendSub(store, r.inv);
+      Promise.resolve(onPaid(r.inv.tenant)).catch(() => { });
       audit(req, 'confirm', { no, ref }); res.json({ ok: true, status: 'paid', end: r.inv.end });
     } catch (e) { console.error('[provider] confirm', e.message); res.status(502).json({ error: 'تعذّر التأكيد' }); }
   });
@@ -136,6 +137,12 @@ export function mountProvider(app, { express, requireMember, rateLimit, T, cfg, 
       await store.putSub(t.id, { ...cur, plan: t.plan, period: '', paidThrough, trial: true, trialDays: days, trialBy: req.user.email });
       audit(req, 'trial', { tenant: t.id, days }); res.json({ ok: true, paidThrough });
     } catch (e) { res.status(502).json({ error: 'تعذّر بدء التجربة' }); }
+  });
+
+  // v51.8: تشغيل الأتمتة الآن (الفواتير المسبقة وتطبيق الحالة) — تعمل تلقائيًا كل ساعة أيضًا
+  app.post('/api/provider/automation/run', json, requireMember, need, plim, async (req, res) => {
+    if (!runAuto) return res.status(503).json({ error: 'الأتمتة غير مفعّلة على الخادم' });
+    try { const log = await runAuto(); audit(req, 'automation', { n: log.length }); res.json({ log }); } catch (e) { res.status(502).json({ error: 'تعذّر التشغيل' }); }
   });
 
   app.get('/api/provider/signups', requireMember, need, plim, async (req, res) => {

@@ -31,6 +31,9 @@ export default {
 "فيزا / ماستركارد": "Visa / Mastercard",
 "تحويل بنكي": "Bank transfer",
 "لوحة مِثقال": "Mithqal console",
+"الاشتراك والدفع": "Subscription & payment",
+"رجوع للشاشة السابقة": "Back to previous screen",
+"التنقل بين الأقسام": "Section navigation",
 "الاشتراك والمنشأة": "Subscription & organization",
 "الخصائص المشمولة": "Included features",
 "عدد الفروع يتجاوز حد الخطة — تواصل مع مِثقال لترقية الاشتراك.": "Branch count exceeds the plan limit — contact Mithqal to upgrade your subscription.",
@@ -53,6 +56,11 @@ export default {
 "اشتراك المنشأة «للقراءة فقط» — يمكنك العرض والطباعة والتصدير، ولا يُحفظ أي تعديل حتى يُجدَّد الاشتراك.": "The organization subscription is read-only — you can view, print and export, but no changes are saved until the subscription is renewed."
 };
 export const RX = [
+  [/^اشتراك المنشأة يستحق خلال (\d+) يوم \(([\d-]+)\)$/, 'Your subscription is due in $1 days ($2)'],
+  [/^اشتراك المنشأة متأخر منذ (\d+) يوم — يتحول «للقراءة فقط» بعد المهلة$/, 'Your subscription is $1 days overdue — it becomes read-only after the grace period'],
+  [/^— الفاتورة (MQ-\d{4}-\d{6}) جاهزة للدفع$/, '— invoice $1 is ready to pay'],
+  [/^أُنشئ (\d+) قيد دوري تلقائيًا ورُحّل ✓$/, '$1 recurring entries created automatically and posted ✓'],
+  [/^أُنشئ (\d+) قيد دوري تلقائيًا — بانتظار الاعتماد$/, '$1 recurring entries created automatically — awaiting approval'],
   [/^الدفع الإلكتروني: (.+) — عبر صفحة «ميسر» الآمنة؛ بيانات البطاقة لا تمر بمِثقال\.$/, 'Online payment: mada, Visa / Mastercard, Apple Pay, STC Pay — via Moyasar\'s secure page; card details never pass through Mithqal.'],
   [/^(شهري|سنوي): ([0-9.,]+) ر\.س$/, (_, p, v) => (p === 'شهري' ? 'Monthly' : 'Annual') + ': ' + v + ' SAR'],
   [/^([0-9.,]+) ر\.س \+ ضريبة 15% ([0-9.,]+) =\s*$/, '$1 SAR + 15% VAT $2 = '],
