@@ -2509,6 +2509,15 @@ Object.assign(EN, {
 "تعذّر فتح نافذة الطباعة": "Could not open the print window",
 "طباعة": "Print"
 });
+/* v50.2 — المرحلة 06: حزمة الترجمة الكاملة (i18n-en/) تُحمَّل عند الطلب فقط في الوضع الإنجليزي — لا تثقل الواجهة العربية.
+   عند وصولها تُدمج في القاموس ويُعاد ترجمة الشاشة ويُبث حدث mz-i18n لإعادة رسم ما يمر عبر TX */
+let PACK = null, PACK_OK = false;
+export const enPackReady = () => PACK_OK;
+export function loadEnPack() {
+  if (!PACK) PACK = import('./i18n-en/index.js').then(m => { Object.assign(EN, m.default || {}); if (m.RX) EN_RX.unshift(...m.RX); if (m.RX_END) EN_RX.push(...m.RX_END); PACK_OK = true;
+    try { if (OBS && typeof document !== 'undefined') trNode(document.body); window.dispatchEvent(new Event('mz-i18n')); } catch { } return true; }).catch(() => { PACK = null; return false; });
+  return PACK;
+}
 export const TX = (ar) => (LANG === 'en' && ar && EN[ar]) || ar;
 
 /* v43.1 مترجم الشاشة: في الوضع الإنجليزي يترجم نصوص الواجهة (عُقد النص + placeholder/title/aria-label) بمطابقة القاموس حرفيًا،
@@ -2594,7 +2603,7 @@ export function trWord(t) {
   if (!t || !/[؀-ۿ]/.test(t)) return null;
   const k = t.trim(); if (EN[k]) return t.replace(k, EN[k]);
   const m = AFFIX.exec(t); if (m && m[2] && EN[m[2]]) return m[1] + EN[m[2]] + m[3];
-  const tt = t.trim(); for (const [re, to] of EN_RX) if (re.test(tt)) return t.replace(tt, tt.replace(re, to));
+  const tt = t.trim(); for (const [re, to] of EN_RX) if (re.test(tt)) { const v = tt.replace(re, to); if (v !== tt) return t.replace(tt, v); }   // v50.2: قاعدة لا تغيّر شيئًا لا توقف البحث
   // نص مركّب «أ · ب · ج»: تُترجم الأجزاء المعروفة ويبقى الباقي (أسماء الفروع مثلًا)
   if (t.includes(' · ')) { const ps = t.split(' · '); let hit = false; const out = ps.map(x => { const v = trWord(x); if (v != null) { hit = true; return v; } return x; }); if (hit) return out.join(' · '); }
   return null;
@@ -2614,6 +2623,7 @@ export function domI18n(on) {
   if (OBS) { OBS.disconnect(); OBS = null; }
   if (!on) return;
   trNode(document.body);
+  loadEnPack();
   OBS = new MutationObserver(ms => { for (const m of ms) {
     if (m.type === 'characterData') trNode(m.target);
     else if (m.type === 'attributes') { const v = m.target.getAttribute(m.attributeName); const t = v && trWord(v); if (t && t !== v && !m.target.closest(SKIP)) m.target.setAttribute(m.attributeName, t); }

@@ -2577,3 +2577,25 @@ test('v48.1 الولاء المتقدم: إعداد المستويات والج�
   assert.deepEqual(c, [['511111111', 1, ['p1'], 100]]); assert.match(await p.evaluate(() => window.lastSay || ''), /صدرت الجائزة بكوبون RW/);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v50.2 المرحلة 06: حزمة الترجمة الكاملة تُحمَّل في الوضع الإنجليزي — «مهامي» ومجموعات المحاسبة الخمس بالإنجليزية', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1300, height: 1000 } }); await ctx.addInitScript(() => { try { localStorage.setItem('rms8:lang', 'en'); } catch { } });
+  const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'live/MyWork/acc'); await p.waitForTimeout(500); await settle(p);
+  await p.waitForFunction(() => /My work/.test(document.querySelector('[data-mywork]')?.innerText || ''), null, { timeout: 5000 });
+  const t = await p.locator('[data-mywork]').innerText();
+  assert.match(t, /My work/); assert.match(t, /items waiting for you/); assert.match(t, /Finance & Suppliers/);
+  await p.goto(base + 'acct/jr'); await p.waitForTimeout(500); await settle(p);
+  await p.waitForFunction(() => /Daily operations/.test(document.body.innerText), null, { timeout: 5000 });
+  const b = await p.evaluate(() => document.body.innerText);
+  for (const g of ['Daily operations', 'Books', 'Reports', 'Closing & Tax', 'Setup & Tools']) assert.match(b, new RegExp(g.replace('&', '&')), g);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v50.2 الواجهة العربية لا تحمّل حزمة الترجمة', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1280, height: 900 } }, 'acct/jr');
+  const b = await p.evaluate(() => document.body.innerText);
+  assert.match(b, /العمليات اليومية/); assert.match(b, /الإقفال والضريبة/);
+  assert.equal(await p.evaluate(() => performance.getEntriesByType('resource').some(r => /i18n-en|index-.*\.js/.test(r.name) && /i18n/.test(r.name))), false);
+  assert.deepEqual(errs, []); await ctx.close();
+});

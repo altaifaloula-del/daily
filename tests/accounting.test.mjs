@@ -2134,3 +2134,11 @@ test('v50.1 المرحلة 06 «مهامي»: ما ينتظر المستخدم �
   assert.ok(fin({ id: 'u1', name: 'مجاهد', role: 'general_management' }).includes('fin:po'), 'المالك يرى أمر الشراء المعلّق');
   assert.deepEqual(E.myWorkGroups(org, ops, { id: 'c', name: 'نورة', role: 'cashier', branchId: 'b1' }, org.branches).filter(g => g.cat === 'fin'), [], 'الكاشير لا يرى المالية');
 });
+
+test('v50.2 المرحلة 06: تنظيم المحاسبة في خمس مجموعات — كل قسم في مجموعة واحدة بالضبط ولا قسم مفقود', () => {
+  const secs = E.ACCT_SECTIONS.map(s => s.v), all = E.ACCT_GROUPS.flatMap(g => g.items);
+  assert.equal(E.ACCT_GROUPS.length, 5);
+  assert.deepEqual([...all].sort(), [...secs].sort(), 'كل الأقسام موجودة');
+  assert.equal(new Set(all).size, all.length, 'لا تكرار');
+  assert.deepEqual(E.ACCT_GROUPS.map(g => g.id), ['daily', 'books', 'reports', 'close', 'setup']);
+});
