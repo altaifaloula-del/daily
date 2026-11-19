@@ -2879,3 +2879,19 @@ test('v52.2 التوصيات عند الدفع: «مقترح مع الطلب» �
   assert.deepEqual(await M.p.evaluate(() => window.curOrg.mkt.recs), { on: false, days: 60, minPair: 3, minConf: 15, max: 2 });
   assert.deepEqual(M.errs, []); await M.ctx.close();
 });
+
+test('v52.4 تقارير الفروع والربحية: المبيعات والنمو والخصومات والهامش التقديري لكل فرع، والتفاصيل، وExcel', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1200 } }, 'live/MktGrowth/admin');
+  await p.evaluate(() => { const td = new Date(); td.setHours(12); const d = td.toISOString().slice(0, 10);
+    window.setOrg(g => ({ ...g, taxCfg: { enabled: true, rate: 15 }, items: [{ id: 'm', name: 'لحم', unit: 'كجم', cost: 40 }], products: [{ id: 'k', name: 'كبسة', sellPrice: 46, parts: [{ itemId: 'm', qty: 0.5 }] }] }));
+    window.setOps(o => ({ ...o, posOrders: [{ id: 'o1', date: d, at: new Date().toISOString(), branchId: 'b1', channel: 'takeaway', total: 92, net: 80, manualDisc: 0, lines: [{ productId: 'k', name: 'كبسة', qty: 2, price: 46 }] }] })); });
+  await p.waitForTimeout(300); await p.click('[data-mktv="brr"]'); await p.waitForSelector('[data-brrtable]');
+  const row = (await p.locator('[data-brrow="b1"]').innerText()).replace(/\s+/g, ' ');
+  assert.match(row, /92\.00/); assert.match(row, /50%/, 'هامش الوصفات: (80 − 40) ÷ 80');
+  assert.match(await p.locator('[data-brrkpis]').innerText(), /92\.00/);
+  await p.click('[data-brrow="b1"] button:has-text("تفاصيل")'); await p.waitForSelector('[data-brrdet]');
+  assert.match(await p.locator('[data-brrdet]').innerText(), /كبسة: 2/);
+  const [dlf] = await Promise.all([p.waitForEvent('download'), p.click('[data-brr] button:has-text("Excel")')]);
+  assert.equal((await import('node:fs')).readFileSync(await dlf.path()).subarray(0, 2).toString(), 'PK', 'ملف Excel (xlsx)');
+  assert.deepEqual(errs, []); await ctx.close();
+});

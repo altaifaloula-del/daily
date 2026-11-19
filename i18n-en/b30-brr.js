@@ -1,0 +1,30 @@
+/* v52.4 دفعة الترجمة b30 — تقارير الفروع والربحية */
+export default {
+"تقارير الفروع": "Branch reports",
+"تقرير الفروع والربحية": "Branch & profitability report",
+"مبيعات الفروع": "Branch sales",
+"الخصومات الممنوحة": "Discounts given",
+"المرتجعات": "Returns",
+"الفروع — الفترة المختارة": "Branches — selected period",
+"النمو": "Growth",
+"الخصومات": "Discounts",
+"هامش الوصفات": "Recipe margin",
+"الذروة": "Peak",
+"العروض والكوبونات:": "Promotions & coupons:",
+"يدوي:": "Manual:",
+"نقاط الولاء:": "Loyalty points:",
+"طلبات بكوبون:": "Orders with coupon:",
+"القنوات والعملاء": "Channels & customers",
+"تعريف العميل:": "Customer identified:",
+"مبيعات التوصيات:": "Recommendation sales:",
+"الأعلى مبيعًا": "Top sellers",
+"تكلفة التسويق والعائد": "Marketing cost & return",
+"كل الأرقام من طلبات نقطة البيع الفعلية (بلا الملغاة). «هامش الوصفات» تقديري: صافي الأسطر قبل خصم الفاتورة ناقص تكلفة الوصفات بمتوسط التكلفة الحالي، ويُحسب للأصناف ذات الوصفة المكتملة فقط — «غير مكتمل» يعني أن بعض المبيعات بلا تكلفة. ليس بديلًا عن قائمة الدخل.": "All figures come from actual POS orders (excluding voided). “Recipe margin” is an estimate: line net before invoice discounts minus recipe cost at current average cost, computed only for items with complete recipes — “incomplete” means some sales have no cost. Not a substitute for the income statement.",
+};
+export const RX = [
+  [/^مقارنة بالفترة السابقة (\S+) ← (\S+)$/, 'Compared with the previous period $1 ← $2'],
+  [/^(\d+) طلب · (.+)$/, '$1 orders · $2'],
+  [/^الفترة السابقة: (.+)$/, 'Previous period: $1'],
+  [/^(\d+) طلب بكوبون$/, '$1 orders with coupon'],
+  [/^\(غير مكتمل (\d+)%\)$/, '(incomplete $1%)'],
+];
