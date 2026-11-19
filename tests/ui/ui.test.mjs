@@ -2706,3 +2706,29 @@ test('v51.5 التسجيل العام: نموذج عربي مستقل، الحق
   assert.equal(await p.evaluate(() => document.querySelector('.mq-signup').getAttribute('dir')), 'rtl');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v51.6 طباعة تقرير الإغلاق PDF: المستند وحده بلا شريط العارض، وبلا صفحة بيضاء — من الزر ومن طباعة المتصفح', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 900, height: 1000 } }); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'comp/Launcher'); await p.waitForTimeout(1200);
+  const open = () => p.evaluate(() => { window.print = () => { window.__printed = (window.__printed || 0) + 1; };
+    window.__M.printClosingA4({ id: 'c1', branchId: 'b1', branchName: 'طيبة', date: '2026-11-18', status: 'approved', totalRevenue: 9420, cashSales: 5000, networkSales: 3000, deliverySales: [], expenses: [{ id: 'x', categoryName: 'خضار', amount: 120, paymentMethod: 'cash' }], totalExpenses: 120, variance: 0, actualCashCount: 1000, expectedCashInSafe: 1000, createdBy: 'أحمد علي' },
+      { company: { name: 'شركة الطيف الأولى' }, branches: [{ id: 'b1', name: 'طيبة' }] }); });
+  const state = () => p.evaluate(() => { const h = document.getElementById('mz-print'), r = h && (h.shadowRoot || h);
+    const kids = r ? [...r.querySelectorAll('.page > *')] : [];
+    return { docv: getComputedStyle(document.querySelector('.mz-docv')).display, host: h ? getComputedStyle(h).display : 'none', text: r ? r.textContent : '',
+      minOpacity: kids.length ? Math.min(...kids.map(k => Number(getComputedStyle(k).opacity))) : -1, anim: kids.length ? getComputedStyle(kids[0]).animationName : '' }; });
+  // ١) زر «طباعة / PDF» في العارض
+  await open(); await p.waitForSelector('.mz-docv'); await p.click('.mz-docv button:has-text("طباعة")'); await p.waitForTimeout(450);
+  await p.emulateMedia({ media: 'print' }); let s = await state();
+  assert.equal(s.docv, 'none', 'شريط العارض (إغلاق/Excel/PDF) لا يُطبع'); assert.equal(s.host, 'block');
+  assert.match(s.text, /تقرير الإغلاق اليومي الرسمي/); assert.match(s.text, /9,420\.00/); assert.match(s.text, /أحمد علي/, 'المسؤول لا يظهر undefined');
+  assert.equal(s.minOpacity, 1, 'لا حركة ظهور من أنماط المنصة (كانت تطبع صفحة بيضاء)'); assert.equal(s.anim, 'none');
+  assert.equal(await p.evaluate(() => window.__printed), 1);
+  await p.emulateMedia({ media: 'screen' }); await p.evaluate(() => window.dispatchEvent(new Event('afterprint')));
+  assert.equal(await p.locator('#mz-print').count(), 0, 'التنظيف بعد الطباعة');
+  // ٢) طباعة المتصفح نفسه (Ctrl+P / مشاركة ← طباعة) والعارض مفتوح
+  await p.evaluate(() => window.dispatchEvent(new Event('beforeprint'))); await p.emulateMedia({ media: 'print' }); s = await state();
+  assert.equal(s.docv, 'none'); assert.equal(s.host, 'block'); assert.match(s.text, /تقرير الإغلاق اليومي الرسمي/); assert.equal(s.minOpacity, 1);
+  await p.emulateMedia({ media: 'screen' });
+  assert.deepEqual(errs, []); await ctx.close();
+});

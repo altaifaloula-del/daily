@@ -3242,7 +3242,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v51.5';
+const APP_VER = 'v51.6';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -7493,22 +7493,37 @@ function posReceiptHtml(org, o, br) {
 // طباعة عبر إطار مخفي — بلا نوافذ منبثقة (يعمل على الآيباد والكمبيوتر)
 /* v34.13 — الطباعة داخل الصفحة نفسها: الإطار المخفي لا يطبع على الآيفون/سفاري (يطبع الصفحة كلها أو لا شيء).
    نضع المستند في حاوية #mz-print بأنماط طباعة فقط، ونخفي بقية المنصة عند الطباعة، ثم window.print() — يعمل على كل المتصفحات. */
+/* v51.6 — المستند يُوضع داخل Shadow DOM: أنماط المنصة لا تلمسه. كانت فئات مثل .page و.kpi و.dim في المنصة تطبّق على تقرير
+   الإغلاق عند الطباعة — منها حركة ظهور (.page > * تبدأ بشفافية 0) فتخرج الصفحة بيضاء أو باهتة. */
+function preparePrint(html) {
+  html = mzBrandDoc(html);
+  const doc = new DOMParser().parseFromString(String(html), 'text/html');
+  let css = [...doc.querySelectorAll('style')].map(x => x.textContent).join('\n');
+  const imports = (css.match(/@import\s+url\([^)]*\)[^;]*;/g) || []).join('\n'); css = css.replace(/@import\s+url\([^)]*\)[^;]*;/g, '');
+  const faces = (css.match(/@font-face\s*{[^}]*}/g) || []).join('\n'); css = css.replace(/@font-face\s*{[^}]*}/g, '');
+  const pages = (css.match(/@page\s*{[^}]*}/g) || []).join('\n'); css = css.replace(/@page\s*{[^}]*}/g, '');
+  css = css.replace(/(^|[{}\s,;])(html|body)(?=\s*[{,.:#\[>~+\s])/g, '$1.mzp-root');
+  document.getElementById('mz-print')?.remove(); document.getElementById('mz-print-css')?.remove();
+  const st = document.createElement('style'); st.id = 'mz-print-css';
+  st.textContent = imports + '\n' + faces + '\n@media screen{#mz-print{display:none !important}}\n@media print{' + pages + '\nhtml,body{background:#fff !important;height:auto !important;overflow:visible !important;margin:0 !important;padding:0 !important}body>*:not(#mz-print){display:none !important}#mz-print{display:block !important}}';
+  const host = document.createElement('div'); host.id = 'mz-print';
+  const dir = doc.documentElement.getAttribute('dir') || 'rtl';
+  let root = host;
+  try { root = host.attachShadow({ mode: 'open' }); } catch { /* متصفح قديم: داخل الصفحة كما كان */ }
+  const inner = document.createElement('div'); inner.className = 'mzp-root'; inner.setAttribute('dir', dir);
+  inner.innerHTML = doc.body ? doc.body.innerHTML : String(html);
+  const ist = document.createElement('style');
+  ist.textContent = (root === host ? '' : ':host{all:initial;display:block;color:#000;background:#fff}') + '.mzp-root{display:block}.mzp-root *{animation:none !important;transition:none !important}\n' + css;
+  root.appendChild(ist); root.appendChild(inner);
+  document.head.appendChild(st); document.body.appendChild(host);
+  let done = false;
+  const clean = () => { if (done) return; done = true; try { host.remove(); st.remove(); } catch { } window.removeEventListener('afterprint', clean); };
+  window.addEventListener('afterprint', clean);
+  return clean;
+}
 function printHtmlInPage(html) {
   try {
-    html = mzBrandDoc(html);
-    const doc = new DOMParser().parseFromString(String(html), 'text/html');
-    let css = [...doc.querySelectorAll('style')].map(x => x.textContent).join('\n');
-    const faces = (css.match(/@font-face\s*{[^}]*}/g) || []).join('\n'); css = css.replace(/@font-face\s*{[^}]*}/g, '');
-    const pages = (css.match(/@page\s*{[^}]*}/g) || []).join('\n'); css = css.replace(/@page\s*{[^}]*}/g, '');
-    css = css.replace(/(^|[{}\s,;])(html|body)(?=\s*[{,.:#\[>~+\s])/g, '$1#mz-print');
-    document.getElementById('mz-print')?.remove(); document.getElementById('mz-print-css')?.remove();
-    const st = document.createElement('style'); st.id = 'mz-print-css';
-    st.textContent = faces + '\n@media screen{#mz-print{display:none !important}}\n@media print{' + pages + '\nhtml,body{background:#fff !important;height:auto !important;overflow:visible !important}body>*:not(#mz-print){display:none !important}#mz-print{display:block !important}\n' + css + '}';
-    const box = document.createElement('div'); box.id = 'mz-print'; box.setAttribute('dir', doc.documentElement.getAttribute('dir') || 'rtl');
-    box.innerHTML = doc.body ? doc.body.innerHTML : String(html);
-    document.head.appendChild(st); document.body.appendChild(box);
-    const clean = () => { try { box.remove(); st.remove(); } catch { } window.removeEventListener('afterprint', clean); };
-    window.addEventListener('afterprint', clean);
+    const clean = preparePrint(html);
     setTimeout(() => { try { window.print(); } catch { } setTimeout(clean, 60000); }, 250);
     return true;
   } catch { return false; }
@@ -8525,7 +8540,7 @@ function buildClosingA4(c, org) {
         <div class="banner-sub">التاريخ: ${arDate(c.date)}${c.transferReferenceNo ? ' · سند: ' + c.transferReferenceNo : ''}</div>
       </div>
       <div class="banner-l">
-        <div>الفرع: <b>${c.branchName}</b> · المسؤول: <b>${c.managerName}</b></div>
+        <div>الفرع: <b>${c.branchName}</b> · المسؤول: <b>${_xe(c.managerName || c.createdBy || '—')}</b></div>
         <span class="banner-badge">${statusAr}</span>
       </div>
     </div>
@@ -8541,7 +8556,7 @@ function buildClosingA4(c, org) {
 
     <div class="meta-row">
       <span class="badge">${statusAr}</span>
-      <span>المسؤول: ${c.managerName}</span>
+      <span>المسؤول: ${_xe(c.managerName || c.createdBy || '—')}</span>
       <span>سند التحويل: ${c.transferReferenceNo || '—'}</span>
     </div>
 
@@ -8633,6 +8648,8 @@ const mzBrandDoc = (html) => {
   const foot = '<div data-mzb style="text-align:center;font-size:9px;color:#888;margin-top:10px">مِثقال — Mithqal</div>';
   return /<\/body>/i.test(body) ? head + body.replace(/<\/body>/i, foot + '</body>') : head + body + foot;
 };
+// v51.6: شريط العارض (إغلاق، طباعة، Excel، CSV) لا يُطبع أبدًا
+function docvPrintCss() { if (document.getElementById('mz-docv-print')) return; const st = document.createElement('style'); st.id = 'mz-docv-print'; st.textContent = '@media print{.mz-docv{display:none !important}}'; document.head.appendChild(st); }
 function openDocWin(features) {
   if (typeof document === 'undefined') {   // v41.2: العارض داخل المنصة على كل الأجهزة (أزرار PDF وExcel وCSV، ولا يحجبه مانع النوافذ)
     const rw = window.open('', '_blank', features); if (!rw) return null;
@@ -8644,6 +8661,7 @@ function openDocWin(features) {
   let buf = '', t = null, closed = false;
   const box = document.createElement('div');
   box.setAttribute('dir', 'rtl'); box.className = 'mz-docv';
+  docvPrintCss();
   box.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:#fff;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top)';
   const bar = document.createElement('div');
   bar.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 10px;background:#10294A;color:#fff;font-family:Tahoma,sans-serif;flex:0 0 auto';
@@ -8659,12 +8677,15 @@ function openDocWin(features) {
     if (dw > cw + 4) de.style.zoom = String(Math.max(0.35, cw / dw)); } catch { /* */ } };
   const render = () => { t = null; buf = mzBrandDoc(buf); ifr.srcdoc = buf; const m = /<title>([^<]*)<\/title>/i.exec(buf); ttl.textContent = m ? m[1] : ''; };
   ifr.addEventListener('load', fit);
-  const close = () => { if (closed) return; closed = true; try { box.remove(); } catch { /* */ } window.removeEventListener('popstate', onPop); if (history.state && history.state.mzDoc) { try { history.back(); } catch { /* */ } } };
-  const onPop = () => { if (!closed) { closed = true; try { box.remove(); } catch { /* */ } window.removeEventListener('popstate', onPop); } };
+  const close = () => { if (closed) return; closed = true; try { box.remove(); } catch { /* */ } window.removeEventListener('popstate', onPop); window.removeEventListener('beforeprint', onBefore); if (history.state && history.state.mzDoc) { try { history.back(); } catch { /* */ } } };
+  const onPop = () => { if (!closed) { closed = true; try { box.remove(); } catch { /* */ } window.removeEventListener('popstate', onPop); window.removeEventListener('beforeprint', onBefore); } };
   try { history.pushState({ ...(history.state || {}), mzDoc: 1 }, ''); } catch { /* */ }
   window.addEventListener('popstate', onPop);
   bClose.onclick = close;
   bPrint.onclick = () => { printHtmlInPage(buf); };
+  // v51.6: طباعة المتصفح نفسه (Ctrl+P أو قائمة المشاركة) والعارض مفتوح — كانت تطبع شريط الأزرار وإطارًا فارغًا؛ الآن تطبع المستند وحده
+  const onBefore = () => { if (!closed && buf && !document.getElementById('mz-print')) { try { preparePrint(buf); } catch { /* */ } } };
+  window.addEventListener('beforeprint', onBefore);
   const fname = () => (ttl.textContent || 'تقرير').replace(/[\\/:*?"<>|]/g, '-').slice(0, 80);
   const dl = (blob, ext) => { const u = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = u; a.download = fname() + '.' + ext; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 1500); };
   bXls.onclick = () => { const T = docTables(buf); if (!T.length) return alert('لا جداول في هذا التقرير لتصديرها'); try { dl(makeXlsx(T.map((t, i) => ({ name: (t.name || ('جدول ' + (i + 1))).replace(/[\\/?*[\]:]/g, ' ').slice(0, 28), rows: t.rows }))), 'xlsx'); } catch { alert('تعذّر توليد Excel'); } };
