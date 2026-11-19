@@ -2123,3 +2123,14 @@ test('v50.0 G2 التعميم: كل طباعة قديمة بالقالب الم�
   assert.match(xml, /<pane ySplit="1"/); assert.match(xml, /<col min="1" max="1" width="\d+"/);
   assert.match(xml, /<c r="A1" s="1"/, 'الرأس عريض كما كان');
 });
+
+test('v50.1 المرحلة 06 «مهامي»: ما ينتظر المستخدم حسب دوره — القيد المعلّق للمحاسب الآخر لا لمنشئه، والأوامر للمعتمِد', () => {
+  const org = baseOrg({});
+  const ops = { journalManual: [{ id: 'j', date: '2026-11-19', title: 'تسوية', by: 'منى', byId: 'u7', status: 'pending', lines: [{ code: '1101', debit: 300, credit: 0 }, { code: '3101', debit: 0, credit: 300 }] }],
+    purchaseOrders: [{ id: 'p', poNo: 'PO-1', supplierName: 'مورد', status: 'pending', lines: [{ qty: 1, price: 9000 }] }], closings: [], invoices: [] };
+  const fin = (me) => (E.myWorkGroups(org, ops, me, org.branches).find(g => g.cat === 'fin') || { items: [] }).items.map(e => e.id.split(':').slice(0, 2).join(':'));
+  assert.ok(fin({ id: 'u9', name: 'سعد', role: 'accountant' }).includes('fin:je'), 'محاسب آخر يرى القيد');
+  assert.ok(!fin({ id: 'u7', name: 'منى', role: 'accountant' }).includes('fin:je'), 'المنشئ لا يراه');
+  assert.ok(fin({ id: 'u1', name: 'مجاهد', role: 'general_management' }).includes('fin:po'), 'المالك يرى أمر الشراء المعلّق');
+  assert.deepEqual(E.myWorkGroups(org, ops, { id: 'c', name: 'نورة', role: 'cashier', branchId: 'b1' }, org.branches).filter(g => g.cat === 'fin'), [], 'الكاشير لا يرى المالية');
+});

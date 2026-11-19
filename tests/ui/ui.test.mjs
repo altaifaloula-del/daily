@@ -1158,6 +1158,19 @@ test('v50.0 المرحلة 05 الجدول الموحد: فرز وإخفاء ع�
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+test('v50.1 المرحلة 06 «مهامي» على الرئيسية: القيد المعلّق يظهر لمحاسب آخر ويفتح دفتر اليومية، والكاشير لا يرى المالية', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/MyWork/acc');
+  await p.evaluate(() => window.setOps(o => ({ ...o, journalManual: [{ id: 'mw', date: new Date().toISOString().slice(0, 10), title: 'قيد للتجربة', by: 'سعد', byId: 'zz', status: 'pending', lines: [{ code: '1101', debit: 250, credit: 0 }, { code: '3101', debit: 0, credit: 250 }] }] })));
+  await p.waitForTimeout(400);
+  const W = p.locator('[data-mywork]');
+  assert.match(await W.innerText(), /مهامي[\s\S]*بند ينتظرك/);
+  await W.locator('[data-mywork-item]', { hasText: 'قيد للتجربة' }).click(); await p.waitForTimeout(200);
+  assert.match(await p.evaluate(() => window.__nav || ''), /acct/, 'البند يفتح المحاسبة (دفتر اليومية)');
+  await p.evaluate(() => window.as('cs')); await p.waitForTimeout(300);
+  assert.equal(await p.locator('[data-mywork-cat="fin"]').count(), 0, 'الكاشير لا يرى المالية');
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
 test('v43.0 الواجهة الإنجليزية: الاتجاه LTR وترجمة الإطار (التطبيقات، رأس المركز، شريط الأقسام) والعربية افتراضيًا', async () => {
   // افتراضيًا: عربي RTL
   { const { p, errs, ctx } = await open({ viewport: { width: 1280, height: 900 } }, 'comp/Launcher');
