@@ -259,20 +259,20 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   .pos-tile:active{transform:scale(.97)} .pos-tile b{font-size:14.5px;line-height:1.4} .pos-tile .num{font-size:15px;font-weight:700;color:var(--txt)}
   .pos-tile.on{border:2px solid var(--brand-fill,var(--brass));padding:11px 7px}
   .pos-tile-f{display:flex;align-items:center;justify-content:space-between;gap:8px}
-  .pos-qty{font-size:12px !important;font-weight:800 !important;background:var(--brand-fill,var(--brass));color:var(--brand-ink,#1a1410) !important;border-radius:999px;padding:1px 9px}
+  .pos-qty{font-size:12px !important;font-weight:800 !important;background:var(--brand-fill,var(--brass));color:var(--brand-ink,#10294A) !important;border-radius:999px;padding:1px 9px}
   .pos-head{background:var(--side-bg,#1F1C18);color:var(--side-txt,#EFEAE1);border-radius:var(--r-md);padding:10px 12px;display:flex;flex-direction:column;gap:10px}
   .pos-head-r{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-  .pos-mark{width:36px;height:36px;border-radius:10px;background:var(--brand-fill,var(--brass));color:var(--brand-ink,#1a1410);display:grid;place-items:center;flex-shrink:0}
+  .pos-mark{width:36px;height:36px;border-radius:10px;background:var(--brand-fill,var(--brass));color:var(--brand-ink,#10294A);display:grid;place-items:center;flex-shrink:0}
   .pos-sub{font-size:12px;color:var(--side-dim,#B5AC9F);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .pos-chip{font-size:12.5px;font-weight:600;padding:5px 11px;border-radius:999px;background:var(--side-hl,#2F2A23);color:var(--side-txt,#EFEAE1)}
   .pos-head .sel.pos-br{width:auto;min-width:150px;background:var(--side-hl,#2F2A23);color:var(--side-txt,#EFEAE1);border-color:transparent}
   .pos-tabs{display:flex;gap:6px;flex-wrap:wrap}
   .pos-tabs button{display:inline-flex;align-items:center;gap:7px;min-height:40px;padding:0 14px;border-radius:10px;border:1px solid var(--side-hl,#3A342C);background:transparent;color:var(--side-txt,#EFEAE1);font:600 14px inherit;font-family:inherit;cursor:pointer}
-  .pos-tabs button.on{background:var(--brand-fill,var(--brass));color:var(--brand-ink,#1a1410);border-color:transparent}
+  .pos-tabs button.on{background:var(--brand-fill,var(--brass));color:var(--brand-ink,#10294A);border-color:transparent}
   .pos-tabs .sel.pos-moresel{width:auto;min-height:40px;background:transparent;color:var(--side-txt,#EFEAE1);border:1px solid var(--side-hl,#3A342C);font-weight:600}
-  .pos-tabs .sel.pos-moresel.on{background:var(--brand-fill,var(--brass));color:var(--brand-ink,#1a1410)}
+  .pos-tabs .sel.pos-moresel.on{background:var(--brand-fill,var(--brass));color:var(--brand-ink,#10294A)}
   .pos-tabs .sel option{color:#1D1B18;background:#fff}
-  .pos-cnt{font-size:11.5px;font-weight:700;background:var(--brand-fill,var(--brass));color:var(--brand-ink,#1a1410);border-radius:999px;padding:0 8px;margin-inline-start:6px}
+  .pos-cnt{font-size:11.5px;font-weight:700;background:var(--brand-fill,var(--brass));color:var(--brand-ink,#10294A);border-radius:999px;padding:0 8px;margin-inline-start:6px}
   .pos-seg{display:flex;background:color-mix(in srgb,var(--txt) 7%,transparent);border-radius:10px;padding:4px;gap:4px;margin-bottom:6px}
   .pos-seg button{flex:1;min-height:36px;border:0;border-radius:8px;background:transparent;font:500 13.5px inherit;font-family:inherit;color:var(--dim);cursor:pointer}
   .pos-seg button.on{background:var(--ink2);color:var(--txt);font-weight:700;box-shadow:0 1px 3px rgba(0,0,0,.1)}
@@ -286,7 +286,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   .pos-sum .pos-total .num{font-size:28px;font-weight:700}
   .pos-more-pay{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:6px;margin-top:8px}
   .pos-more-pay .btn{min-height:42px}
-  .pos-fab-n{background:var(--brand-fill,var(--brass));color:var(--brand-ink,#1a1410);border-radius:999px;padding:1px 10px;font-size:14px}
+  .pos-fab-n{background:var(--brand-fill,var(--brass));color:var(--brand-ink,#10294A);border-radius:999px;padding:1px 10px;font-size:14px}
   .pos-addpay{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:13px;color:var(--dim)}
   .pos-addpay button{min-height:38px;padding:0 12px;border-radius:999px;border:1px dashed color-mix(in srgb,var(--txt) 25%,var(--line));background:transparent;font:500 13px inherit;font-family:inherit;color:var(--txt);cursor:pointer}
   .pos-paystat{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border-radius:12px;font-weight:700;margin-top:6px}

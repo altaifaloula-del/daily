@@ -122,7 +122,7 @@ export function Leaves({ org, ops, me, myBranches, commit, commitOrg, say }) {
       <div className="grid g4">
         <Kpi label="طلبات بانتظار الاعتماد" value={String(pendN)} sub={canDecide ? 'قرارك مطلوب' : 'لدى الإدارة'} icon={Bell} color="#E0A458" />
         <Kpi label="في إجازة اليوم" value={String(onNow.length)} sub={onNow.slice(0, 3).map(r => r.employeeName).join('، ') || '—'} icon={CalendarDays} color="#5B93C4" />
-        <Kpi label="أرصدة الإجازات (أيام)" value={String(Math.round(sum(emps, e => leaveBalance(org, ops, e, td).balance)))} sub={emps.length + ' موظف'} icon={Users} color="#C8A24A" />
+        <Kpi label="أرصدة الإجازات (أيام)" value={String(Math.round(sum(emps, e => leaveBalance(org, ops, e, td).balance)))} sub={emps.length + ' موظف'} icon={Users} color="#D9A83E" />
         <Kpi label="قيمة الأرصدة" value={money(r2(sum(emps, e => Math.max(0, leaveBalance(org, ops, e, td).balance) * lvDaily(e))))} sub={LV.open ? 'المخصص في الدفاتر ' + money(lvTotal) : 'المخصص غير مفعّل'} icon={Wallet} color="#9B7BB8" />
       </div>
 

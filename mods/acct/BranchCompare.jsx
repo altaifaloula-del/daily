@@ -55,7 +55,7 @@ export function BranchCompare({ org, ops, me, myBranches, scoped, theme, setTab 
 
       <div className="grid g4">
         <Kpi label="فروع أغلقت" value={`${closedCount} / ${rows.length}`} icon={CheckCircle2} color="#4FB286" />
-        <Kpi label="إجمالي الإيراد" value={money(totRev)} icon={TrendingUp} color="#C8A24A" />
+        <Kpi label="إجمالي الإيراد" value={money(totRev)} icon={TrendingUp} color="#D9A83E" />
         <Kpi label="صافي المجموعة" value={money(totNet)} icon={Landmark} color={totNet >= 0 ? '#4FB286' : '#D9544D'} />
         <Kpi label="فروع بعجز" value={deficitRows.length} icon={AlertTriangle} color={deficitRows.length ? '#D9544D' : '#4FB286'} />
       </div>

@@ -6,7 +6,7 @@ import { Field, Kpi, MENU_CLS, ROLES, makeXlsx, menuEngineering, money, newActio
 
 const addD = (d, k) => { const x = new Date(d + 'T12:00:00'); x.setDate(x.getDate() + k); return x.toISOString().slice(0, 10); };
 const mEnd = (ym) => { const [y, m] = ym.split('-').map(Number); return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10); };
-const COL = { star: '#4FB286', plow: '#5B93C4', puzzle: '#C8A24A', dog: '#D9544D' };
+const COL = { star: '#4FB286', plow: '#5B93C4', puzzle: '#D9A83E', dog: '#D9544D' };
 
 function Matrix({ M }) {
   if (!M.rows.length) return null;
@@ -62,7 +62,7 @@ export function MenuEngineering({ org, ops, me, commit, commitOrg, say }) {
         <div className="rp-dates"><select className="inp sel" value={br} onChange={e => setBr(e.target.value)}><option value="">كل الفروع</option>{(org.branches || []).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></div></div>
       {!M.rows.length ? <div className="card"><div className="empty">لا كميات مبيعات بالأصناف في الفترة{M.excluded.length ? ' قابلة للتحليل' : ''}. المصدر: فواتير نقطة البيع في ميزان، أو «المخزون ← الاستهلاك مقابل النظري ← مبيعات المنتجات» (استيراد Excel بعمودي المنتج والكمية، مثل تقرير مبيعات الأصناف من نظام الكاشير).</div></div> : <>
         <div className="grid g4">
-          <Kpi label="أصناف محلّلة" value={String(M.rows.length)} sub={M.excluded.length ? M.excluded.length + ' مستبعد لنقص بياناته' : 'كل المبيع محلّل'} icon={UtensilsCrossed} color="#C8A24A" />
+          <Kpi label="أصناف محلّلة" value={String(M.rows.length)} sub={M.excluded.length ? M.excluded.length + ' مستبعد لنقص بياناته' : 'كل المبيع محلّل'} icon={UtensilsCrossed} color="#D9A83E" />
           <Kpi label="إجمالي هامش المساهمة" value={money(M.tot.cm)} sub={'من ' + money(M.tot.rev) + ' مبيعات' + (M.vat ? ' بعد الضريبة' : '')} icon={UtensilsCrossed} color="#4FB286" />
           <Kpi label="تكلفة الطعام النظرية" value={M.tot.foodPct == null ? '—' : M.tot.foodPct + '%'} sub="تكلفة الوصفات ÷ المبيعات" icon={UtensilsCrossed} color="#E0A458" />
           <Kpi label="متوسط الهامش للوحدة" value={money(M.cmAvg)} sub={'عتبة الشعبية ' + M.popTh + '%'} icon={UtensilsCrossed} color="#5B93C4" />

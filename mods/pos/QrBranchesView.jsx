@@ -44,8 +44,8 @@ export function QrBranchesView({ org, brs, fb, pub, canPublish, canAddBranch, co
     const url = qrRateUrl(b.id);
     const svg = qrSvg(url, { ecl: 2, px: 300 });
     const html = '<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>رمز تقييم — ' + escH(b.name) + '</title>' +
-      '<style>body{font-family:Tahoma,sans-serif;margin:0;padding:28px;display:flex;justify-content:center}.card{width:360px;border:2px solid #8C6F2C;border-radius:16px;padding:22px;text-align:center}' +
-      '.co{font-size:13px;color:#5a4a1e;font-weight:700}.t{font-size:24px;font-weight:800;margin:8px 0 2px}.br{font-size:13px;color:#555;margin-bottom:12px}.h{font-size:12px;color:#444;margin-top:10px}.u{font-family:monospace;font-size:9.5px;color:#888;direction:ltr;word-break:break-all;margin-top:8px}@media print{body{padding:0}}</style></head><body><div class="card">' +
+      '<style>body{font-family:Tahoma,sans-serif;margin:0;padding:28px;display:flex;justify-content:center}.card{width:360px;border:2px solid #10294A;border-radius:16px;padding:22px;text-align:center}' +
+      '.co{font-size:13px;color:#10294A;font-weight:700}.t{font-size:24px;font-weight:800;margin:8px 0 2px}.br{font-size:13px;color:#555;margin-bottom:12px}.h{font-size:12px;color:#444;margin-top:10px}.u{font-family:monospace;font-size:9.5px;color:#888;direction:ltr;word-break:break-all;margin-top:8px}@media print{body{padding:0}}</style></head><body><div class="card">' +
       '<div class="co">' + escH(company) + '</div><div class="t">قيّم تجربتك</div><div class="br">' + escH(b.name) + '</div>' +
       (svg || '<div style="color:#b00">تعذّر توليد الرمز</div>') +
       '<div class="h">امسح الرمز بكاميرا الجوال — دقيقة واحدة وبدون تسجيل دخول</div><div class="u">' + escH(url) + '</div></div>' +

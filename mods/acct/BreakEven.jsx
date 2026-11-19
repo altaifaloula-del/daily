@@ -61,7 +61,7 @@ export function BreakEven({ org, ops, me, scoped, setTab, theme, commitOrg, say 
 
       {revenue <= 0.004 ? <div className="card"><div className="empty">لا إيراد مسجّل في {monName} — اختر شهرًا فيه إغلاقات معتمدة.</div></div> : <>
         <div className="grid g4">
-          <Kpi label="نقطة التعادل (شهري)" value={money(breakEven)} sub={cmRatio > 0 ? 'لتغطية التكاليف الثابتة' : 'المتغيّر ≥ الإيراد!'} icon={Scale} color="#C8A24A" />
+          <Kpi label="نقطة التعادل (شهري)" value={money(breakEven)} sub={cmRatio > 0 ? 'لتغطية التكاليف الثابتة' : 'المتغيّر ≥ الإيراد!'} icon={Scale} color="#D9A83E" />
           <Kpi label="نقطة التعادل (يومي)" value={money(breakEvenDay)} sub={days + ' يوم تشغيل'} icon={CalendarDays} color="#5B93C4" />
           <Kpi label="هامش الأمان" value={marginSafety.toFixed(1) + '%'} sub={marginSafety >= 0 ? 'فوق التعادل' : 'تحت التعادل — خطر' } icon={ShieldCheck} color={marginSafety >= 20 ? '#4FB286' : marginSafety >= 0 ? '#E0A458' : '#D9544D'} />
           <Kpi label="الربح الحالي للشهر" value={money(profit)} sub={'هامش ' + (revenue > 0 ? r2(profit / revenue * 100) : 0) + '%'} icon={TrendingUp} color={profit >= 0 ? '#4FB286' : '#D9544D'} />

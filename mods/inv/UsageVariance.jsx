@@ -71,7 +71,7 @@ export function UsageVariance({ org, ops, me, commit, say }) {
       </div>
       <div className="grid g4">
         <Kpi label="التكلفة النظرية" value={money(R.theoV)} sub={'نسبة تكلفة الطعام ' + pctOf(R.theoV)} icon={ClipboardCheck} color="#5B93C4" />
-        <Kpi label="التكلفة الفعلية" value={money(R.actV)} sub={'نسبة تكلفة الطعام ' + pctOf(R.actV)} icon={HardDrive} color="#C8A24A" />
+        <Kpi label="التكلفة الفعلية" value={money(R.actV)} sub={'نسبة تكلفة الطعام ' + pctOf(R.actV)} icon={HardDrive} color="#D9A83E" />
         <Kpi label="الفرق (هدر/فقد)" value={money(Math.round((R.actV - R.theoV) * 100) / 100)} sub={'منها زيادات ' + money(lossV)} icon={AlertTriangle} color={R.actV - R.theoV > 0 ? '#D9544D' : '#4FB286'} />
         <Kpi label="أصناف تتجاوز الحد" value={String(over.length)} sub={'من ' + R.rows.length + ' صنف · حد ' + T + '%'} icon={AlertTriangle} color={over.length ? '#D9544D' : '#4FB286'} />
       </div>

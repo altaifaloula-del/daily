@@ -125,7 +125,7 @@ export function WarehousesPanel({ org, ops, me, commit, commitOrg, say }) {
   return (
     <>
       <div className="grid g4">
-        <Kpi label="المستودعات" value={String(whs.length)} sub={'رئيسي + ' + whs.filter(w => w.kind === 'branch').length + ' فرعي'} icon={HardDrive} color="#C8A24A" />
+        <Kpi label="المستودعات" value={String(whs.length)} sub={'رئيسي + ' + whs.filter(w => w.kind === 'branch').length + ' فرعي'} icon={HardDrive} color="#D9A83E" />
         <Kpi label="بانتظار إجراء المركز" value={String(pendingReq.length)} sub="صرف · اعتماد فرع←فرع · استلام إرجاع" icon={ClipboardCheck} color="#E0A458" />
         <Kpi label="تحويلات في الطريق" value={String(inTransit.filter(t => t.kind !== 'b2b').length)} sub={money(Math.round(Object.entries(SB.transit).reduce((s, [id, q]) => s + q * costOf(id), 0) * 100) / 100) + ' ر.س'} icon={Truck} color="#5B93C4" />
         <Kpi label="قيمة المخزون — كل المستودعات" value={money(whs.reduce((s, w) => s + valOf(w.id), 0))} sub="بالتكلفة" icon={Landmark} color="#4FB286" />

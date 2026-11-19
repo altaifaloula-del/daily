@@ -78,7 +78,7 @@ export function Dashboard({ org, ops, pulse, me, myBranches, scoped, online, set
   const channels = useMemo(() => [
     { k: 'نقدي', v: sum(win, c => c.cashSales), c: '#4FB286' },
     { k: 'شبكة', v: sum(win, c => c.cardSales), c: '#5B93C4' },
-    { k: 'تطبيقات', v: sum(win, c => c.totalDeliverySales), c: '#C8A24A' },
+    { k: 'تطبيقات', v: sum(win, c => c.totalDeliverySales), c: '#D9A83E' },
     { k: 'تحويل بنكي', v: sum(win, c => c.bankTransferSales || 0), c: '#9B7BB8' }
   ], [win]);
   const chTotal = sum(channels, c => c.v) || 1;
@@ -112,7 +112,7 @@ export function Dashboard({ org, ops, pulse, me, myBranches, scoped, online, set
       {dayReport && <DailyBranchReport org={org} scoped={scoped} myBranches={myBranches} onClose={() => setDayReport(false)} />}
 
       <div className="grid g4">
-        <Kpi label="إجمالي الإيرادات" value={money(rev)} sub={`${win.length} إغلاق مسجل`} icon={CircleDollarSign} color="#C8A24A" />
+        <Kpi label="إجمالي الإيرادات" value={money(rev)} sub={`${win.length} إغلاق مسجل`} icon={CircleDollarSign} color="#D9A83E" />
         <Kpi label="إجمالي المصروفات" value={money(exp)} sub={`${rev ? ((exp / rev) * 100).toFixed(1) : 0}% من الإيراد`} icon={Receipt} color="#D9544D" />
         <Kpi label="صافي الربح" value={money(net)} sub={`هامش ${margin.toFixed(1)}%`} icon={TrendingUp} color="#4FB286" />
         <Kpi label="فروقات الصندوق" value={money(varSum)} sub={`${deficits.length} حالة عجز`} icon={AlertTriangle} color={varSum < 0 ? '#D9544D' : '#5B93C4'} />
@@ -155,8 +155,8 @@ export function Dashboard({ org, ops, pulse, me, myBranches, scoped, online, set
             <AreaChart data={series} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
               <defs>
                 <linearGradient id="gr" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#C8A24A" stopOpacity={0.42} />
-                  <stop offset="100%" stopColor="#C8A24A" stopOpacity={0.02} />
+                  <stop offset="0%" stopColor="#D9A83E" stopOpacity={0.42} />
+                  <stop offset="100%" stopColor="#D9A83E" stopOpacity={0.02} />
                 </linearGradient>
                 <linearGradient id="ge" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#D9544D" stopOpacity={0.3} />

@@ -55,11 +55,11 @@ function Dash({ org, ops, list, brIds, myBranches, brName }) {
     </div>
     <div className="grid g4" data-mktkpis>
       <Kpi label="مبيعات نقطة البيع" value={money(K.sales)} sub={K.orders + ' طلب'} color="#2C6BC4" />
-      <Kpi label="متوسط الفاتورة" value={money(K.aov)} sub={'معرَّف العميل: ' + K.idPct + '%'} color="#C8A24A" />
+      <Kpi label="متوسط الفاتورة" value={money(K.aov)} sub={'معرَّف العميل: ' + K.idPct + '%'} color="#D9A83E" />
       <Kpi label="العملاء النشطون" value={String(K.active)} sub={K.newC + ' جديد · ' + K.returning + ' عائد'} color="#2f8a5b" />
       <Kpi label="الاحتفاظ بالعملاء" value={K.retention == null ? '—' : K.retention + '%'} sub={K.retention == null ? 'لا عملاء معرَّفون في الفترة السابقة' : 'من ' + K.prevActive + ' عميل في الفترة السابقة'} color="#5B93C4" />
       <Kpi label="غير نشطين" value={String(K.inactive)} sub={'معرّضون للانقطاع: ' + K.risk} color="#D95C4F" />
-      <Kpi label="كبار العملاء" value={String(K.vip)} sub="حسب قواعد الشرائح" color="#C8A24A" />
+      <Kpi label="كبار العملاء" value={String(K.vip)} sub="حسب قواعد الشرائح" color="#D9A83E" />
       <Kpi label="موافقون على التسويق" value={String(K.consentIn)} sub={'من ' + list.length + ' عميل'} color="#2f8a5b" />
       <Kpi label="الحملات والكوبونات والعائد" value="—" sub={na} color="#8A94A6" />
     </div>
@@ -256,7 +256,7 @@ function Loy({ org, ops, loy, setLoy, canApp, me, commit, commitOrg, say }) {
   const dis = !canApp;
   return (<>
     <div className="grid g4" data-loystats>
-      {X.tiers.map(t => <Kpi key={t.k} label={'مستوى ' + t.ar} value={String(dist[t.k] || 0)} sub={'من ' + t.min + ' نقطة/سنة · ×' + t.mult} color="#C8A24A" />)}
+      {X.tiers.map(t => <Kpi key={t.k} label={'مستوى ' + t.ar} value={String(dist[t.k] || 0)} sub={'من ' + t.min + ' نقطة/سنة · ×' + t.mult} color="#D9A83E" />)}
       <Kpi label="التزام النقاط القائمة" value={money(posR2(Math.max(0, liab) * ptv))} sub={posR2(liab) + ' نقطة × ' + ptv} color="#D95C4F" />
     </div>
     <div className="card" data-loydue>

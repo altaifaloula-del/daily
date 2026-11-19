@@ -61,7 +61,7 @@ export function Production({ org, ops, me, commit, say }) {
   return (
     <div className="grid" style={{ gap: 14 }} data-prod>
       <div className="grid g4">
-        <Kpi label="أوامر مخططة" value={orders.filter(o => o.status === 'planned').length} sub="بانتظار التنفيذ" icon={Factory} color="#C8A24A" />
+        <Kpi label="أوامر مخططة" value={orders.filter(o => o.status === 'planned').length} sub="بانتظار التنفيذ" icon={Factory} color="#D9A83E" />
         <Kpi label="منجزة اليوم" value={doneToday.length} sub={money(doneToday.reduce((a, o) => a + (o.cost || 0), 0)) + ' تكلفة'} icon={Check} color="#4FB286" />
         <Kpi label="متوسط الإنجاز" value={avgYield == null ? '—' : avgYield + '%'} sub="الفعلي ÷ المخطط (آخر 30)" icon={Factory} color="#5B93C4" />
         <Kpi label="تحضيرات مخزّنة" value={stocked.length} sub={'من ' + (org.preps || []).length + ' تحضيرة'} icon={Factory} color="#9B7BB8" />

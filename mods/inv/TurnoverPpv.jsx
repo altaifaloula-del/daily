@@ -39,7 +39,7 @@ export function TurnoverPpv({ org, ops }) {
       </div>
       {tab === 'turn' ? <>
         <div className="grid g4">
-          <Kpi label="معدل الدوران" value={T.turn == null ? '—' : T.turn + '×'} sub={T.days + ' يومًا'} icon={TrendingUp} color="#C8A24A" />
+          <Kpi label="معدل الدوران" value={T.turn == null ? '—' : T.turn + '×'} sub={T.days + ' يومًا'} icon={TrendingUp} color="#D9A83E" />
           <Kpi label="أيام التغطية" value={T.daysOnHand == null ? '—' : T.daysOnHand + ' يومًا'} sub="المخزون يكفي" icon={TrendingUp} color="#5B93C4" />
           <Kpi label="تكلفة الاستهلاك" value={money(T.use)} sub="صرف + هدر + عجز جرد" icon={TrendingUp} color="#4FB286" />
           <Kpi label="مخزون راكد" value={money(T.idleValue)} sub="بلا استهلاك في الفترة" icon={TrendingUp} color="#D9544D" />
@@ -57,7 +57,7 @@ export function TurnoverPpv({ org, ops }) {
         <div className="grid g4">
           <Kpi label="دفعنا أكثر" value={money(P.up)} sub="ارتفاع عن السعر السابق" icon={TrendingUp} color="#D9544D" />
           <Kpi label="وفّرنا" value={money(P.down)} sub="انخفاض عن السعر السابق" icon={TrendingUp} color="#4FB286" />
-          <Kpi label="صافي الفرق" value={sgn(P.net)} sub={P.lines.length + ' استلامًا'} icon={TrendingUp} color="#C8A24A" />
+          <Kpi label="صافي الفرق" value={sgn(P.net)} sub={P.lines.length + ' استلامًا'} icon={TrendingUp} color="#D9A83E" />
           <Kpi label="أصناف تغيّر سعرها" value={P.items.filter(g => g.value !== 0).length} sub={'من ' + P.items.length} icon={TrendingUp} color="#5B93C4" />
         </div>
         <div style={{ fontSize: 11.5, color: 'var(--dim)', margin: '8px 0' }}>كل استلام شراء يُقارن بآخر سعر دُفع للصنف نفسه قبله (أي مورد) — الأثر = الفرق × الكمية بالوحدة الأساسية. أول شراء للصنف لا يُقارن.</div>

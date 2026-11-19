@@ -581,12 +581,12 @@ function exportExcel(filename, sheetTitle, headers, rows, opts = {}) {
     <style>
       table{border-collapse:collapse;font-family:'IBM Plex Sans Arabic','Noto Sans Arabic','Segoe UI',Tahoma,sans-serif;direction:rtl}
       caption{font-size:15px;font-weight:bold;padding:10px;text-align:right}
-      th{background:#C8A24A;color:#1a1410;font-weight:bold;border:1px solid #8C6F2C;padding:7px 10px;text-align:center}
+      th{background:#D9A83E;color:#10294A;font-weight:bold;border:1px solid #10294A;padding:7px 10px;text-align:center}
       td{border:1px solid #ccc;padding:6px 10px}
       td.n{mso-number-format:"#,##0.00";text-align:left}
       td.t{text-align:right}
-      .meta{background:#F6F2E9;font-weight:bold;border:none;text-align:right}
-      .tot td{background:#241F1B;color:#fff;font-weight:bold;border:1px solid #000}
+      .meta{background:#F3F5F8;font-weight:bold;border:none;text-align:right}
+      .tot td{background:#10294A;color:#fff;font-weight:bold;border:1px solid #000}
     </style></head><body>
     <table><caption>${esc(sheetTitle)}</caption>
     ${metaRows}${thead}${tbody}${tfoot}</table></body></html>`;
@@ -605,7 +605,7 @@ const chartTone = () => {
       const el = document.querySelector('.rms');
       if (el) {
         const cs = getComputedStyle(el);
-        const acc = _cget(cs, '--acc', '#C8A24A');
+        const acc = _cget(cs, '--acc', '#D9A83E');
         return {
           grid: _cget(cs, '--line', '#332C26'), tick: _cget(cs, '--faint', '#6E635A'),
           axis: _cget(cs, '--dim', '#8A7F72'), tip: _cget(cs, '--ink2', '#1C1815'),
@@ -617,9 +617,9 @@ const chartTone = () => {
       }
     }
   } catch (e) { }
-  return { grid: '#332C26', tick: '#6E635A', axis: '#8A7F72', tip: '#1C1815', tipTxt: '#EFE7DB', bar: '#3A322B', accent: '#C8A24A', pos: '#4FB286', neg: '#D9544D', warn: '#E0A458', info: '#5B93C4', muted: '#7E7566', series: ['#C8A24A', '#5B93C4', '#4FB286', '#E0A458', '#9B7BB8', '#D9544D'] };
+  return { grid: '#332C26', tick: '#6E635A', axis: '#8A7F72', tip: '#1C1815', tipTxt: '#EFE7DB', bar: '#3A322B', accent: '#D9A83E', pos: '#4FB286', neg: '#D9544D', warn: '#E0A458', info: '#5B93C4', muted: '#7E7566', series: ['#D9A83E', '#5B93C4', '#4FB286', '#E0A458', '#9B7BB8', '#D9544D'] };
 };
-const clr = (i) => ['#C8A24A', '#4FB286', '#5B93C4', '#D9544D', '#E0A458', '#9B7BB8'][i % 6];
+const clr = (i) => ['#D9A83E', '#4FB286', '#5B93C4', '#D9544D', '#E0A458', '#9B7BB8'][i % 6];
 
 /* ================= دفتر الشركاء: تجميع حركات كل شريك من مصادرها ================= */
 // الرصيد الجاري = مجموع الدائن − مجموع المدين. موجب = دائن (علينا)، سالب = مدين (لنا).
@@ -1579,7 +1579,7 @@ function makeXlsx(sheets) {
   add('_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`);
   add('xl/workbook.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${names.map((n, i) => `<sheet name="${_xe(n)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets></workbook>`);
   add('xl/_rels/workbook.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheets.map((s, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`);
-  add('xl/styles.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="3"><numFmt numFmtId="164" formatCode="#,##0.00;(#,##0.00)"/><numFmt numFmtId="165" formatCode="#,##0.###"/><numFmt numFmtId="166" formatCode="0.0&quot;%&quot;"/></numFmts><fonts count="3"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="14"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEFE8D8"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="8"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" applyFont="1" applyFill="1"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" applyNumberFormat="1"/><xf numFmtId="164" fontId="1" fillId="2" borderId="0" applyNumberFormat="1" applyFont="1" applyFill="1"/><xf numFmtId="0" fontId="2" fillId="0" borderId="0" applyFont="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="0" applyNumberFormat="1"/><xf numFmtId="166" fontId="0" fillId="0" borderId="0" applyNumberFormat="1"/><xf numFmtId="1" fontId="0" fillId="0" borderId="0" applyNumberFormat="1"/></cellXfs></styleSheet>`);
+  add('xl/styles.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="3"><numFmt numFmtId="164" formatCode="#,##0.00;(#,##0.00)"/><numFmt numFmtId="165" formatCode="#,##0.###"/><numFmt numFmtId="166" formatCode="0.0&quot;%&quot;"/></numFmts><fonts count="3"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="14"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE9EDF3"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="8"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" applyFont="1" applyFill="1"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" applyNumberFormat="1"/><xf numFmtId="164" fontId="1" fillId="2" borderId="0" applyNumberFormat="1" applyFont="1" applyFill="1"/><xf numFmtId="0" fontId="2" fillId="0" borderId="0" applyFont="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="0" applyNumberFormat="1"/><xf numFmtId="166" fontId="0" fillId="0" borderId="0" applyNumberFormat="1"/><xf numFmtId="1" fontId="0" fillId="0" borderId="0" applyNumberFormat="1"/></cellXfs></styleSheet>`);
   // v50.0 (G2): الأوراق القديمة أيضًا برأس مجمّد وعرض أعمدة تلقائي حسب المحتوى
   const autoCols = (rows) => { const w = []; (rows || []).slice(0, 400).forEach(r => (r || []).forEach((v, c) => { const x = v && typeof v === 'object' ? v.v : v; const n = String(x == null ? '' : x).length; w[c] = Math.max(w[c] || 8, Math.min(50, n + 2)); })); return w.map(x => x || 8); };
   sheets.forEach((s, i) => add(`xl/worksheets/sheet${i + 1}.xml`, _sheetXml(s.rows, { freeze: s.freeze || ((s.rows || []).length > 1 ? 1 : 0), cols: s.cols || autoCols(s.rows), styled: !!(s.freeze || s.cols) })));
@@ -1635,15 +1635,15 @@ function rptHtml(org, spec) {
   return `<!doctype html><html dir="${dir}" lang="${en ? 'en' : 'ar'}"><head><meta charset="utf-8"><title>${_xe(spec.title)}</title><style>${typeof NUM_FACE === 'string' ? NUM_FACE : ''}
   @page{size:${paper} ${orient};margin:14mm 10mm 16mm;@bottom-center{content:"${L.page} " counter(page) " ${L.of} " counter(pages);font-size:9px;color:#777}@bottom-${en ? 'left' : 'right'}{content:"${foot.replace(/"/g, "'")}";font-size:8px;color:#888}}
   *{font-family:'MizanNum','IBM Plex Sans Arabic','Noto Sans Arabic','Segoe UI',Tahoma,sans-serif;box-sizing:border-box}body{margin:0;color:#1a1a1a;font-size:11.5px}
-  .h{display:flex;justify-content:space-between;align-items:center;gap:12px;border-bottom:2px solid #8C6F2C;padding-bottom:8px;margin-bottom:10px}
-  .h .l{display:flex;gap:10px;align-items:center}.lg{height:46px;max-width:120px;object-fit:contain}.co{font-size:16px;font-weight:800;color:#5a4a1e}.s{font-size:10.5px;color:#666;margin-top:2px}
-  h1{font-size:15px;margin:0;text-align:${en ? 'right' : 'left'}}.tp{font-size:10px;color:#8C6F2C;text-align:${en ? 'right' : 'left'}}
-  .fl{font-size:10.5px;background:#faf6ee;border:1px solid #e5dcc5;border-radius:6px;padding:5px 9px;margin-bottom:8px}
-  .kp{display:grid;grid-template-columns:repeat(${Math.min(4, (spec.kpis || []).length || 1)},1fr);gap:8px;margin-bottom:10px}.kp div{border:1px solid #e5dcc5;border-radius:6px;padding:6px 8px}.kp small{display:block;color:#777;font-size:9.5px}.kp b{font-size:13px}
+  .h{display:flex;justify-content:space-between;align-items:center;gap:12px;border-bottom:2px solid #10294A;padding-bottom:8px;margin-bottom:10px}
+  .h .l{display:flex;gap:10px;align-items:center}.lg{height:46px;max-width:120px;object-fit:contain}.co{font-size:16px;font-weight:800;color:#10294A}.s{font-size:10.5px;color:#666;margin-top:2px}
+  h1{font-size:15px;margin:0;text-align:${en ? 'right' : 'left'}}.tp{font-size:10px;color:#10294A;text-align:${en ? 'right' : 'left'}}
+  .fl{font-size:10.5px;background:#F3F5F8;border:1px solid #DDE2EA;border-radius:6px;padding:5px 9px;margin-bottom:8px}
+  .kp{display:grid;grid-template-columns:repeat(${Math.min(4, (spec.kpis || []).length || 1)},1fr);gap:8px;margin-bottom:10px}.kp div{border:1px solid #DDE2EA;border-radius:6px;padding:6px 8px}.kp small{display:block;color:#777;font-size:9.5px}.kp b{font-size:13px}
   table{width:100%;border-collapse:collapse}thead{display:table-header-group}tfoot{display:table-row-group}tr{page-break-inside:avoid}
-  th{background:#efe8d8;color:#4a3f22;padding:6px;border:1px solid #d9cba5;text-align:start;font-size:10.5px}
-  td{padding:5px 7px;border:1px solid #e6ddc8}.n{text-align:${en ? 'right' : 'left'};direction:ltr;font-variant-numeric:tabular-nums;white-space:nowrap}.neg{color:#C0392B}
-  .gh td{background:#f7f2e6;font-weight:800;color:#5a4a1e}.sub td{background:#fbf8f1;font-weight:700}.b td{font-weight:700}.tot td{background:#f2ead6;font-weight:800;border-top:2px solid #8C6F2C}
+  th{background:#E9EDF3;color:#10294A;padding:6px;border:1px solid #CBD3DF;text-align:start;font-size:10.5px}
+  td{padding:5px 7px;border:1px solid #DDE2EA}.n{text-align:${en ? 'right' : 'left'};direction:ltr;font-variant-numeric:tabular-nums;white-space:nowrap}.neg{color:#C0392B}
+  .gh td{background:#F1F4F8;font-weight:800;color:#10294A}.sub td{background:#F7F8FA;font-weight:700}.b td{font-weight:700}.tot td{background:#f2ead6;font-weight:800;border-top:2px solid #10294A}
   .nt{font-size:10px;color:#666;margin-top:8px}.sign{display:flex;justify-content:space-around;margin-top:36px;text-align:center;font-size:11px}.sign div{border-top:1px solid #999;padding-top:6px;min-width:140px}
   .ft{display:none}@media screen{body{padding:22px}.ft{display:block;margin-top:12px;font-size:9.5px;color:#888;text-align:center}}</style></head><body data-rpt="${_xe(spec.id || '')}" data-template="${_xe(spec.template || 'list')}">
   <div class="h"><div class="l">${logo}<div><div class="co">${_xe(co.name || '')}</div><div class="s">${co.taxNumber ? L.vat + ': ' + _xe(co.taxNumber) : ''}${co.address ? ' · ' + _xe(co.address) : ''}</div></div></div>
@@ -3241,7 +3241,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v50.3';
+const APP_VER = 'v50.4';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -4208,7 +4208,7 @@ function PlatformApp() {
       <div className="rms" style={{ display: 'grid', placeItems: 'center', minHeight: '100vh' }}>
         <style dangerouslySetInnerHTML={{ __html: CSS }} />
         <div style={{ textAlign: 'center' }}>
-          <RefreshCw size={26} color="#C8A24A" className="spin" />
+          <RefreshCw size={26} color="#D9A83E" className="spin" />
           <div style={{ marginTop: 12, color: '#A2968A', fontSize: 13 }}>جارٍ الاتصال بالسحابة…</div>
         </div>
       </div>
@@ -4420,7 +4420,7 @@ function PlatformApp() {
             )}
             <span className="toplogo-mark rp-mark" style={{ width: 30, height: 30, fontSize: 15 }}>{BRAND_MARK()}</span>
             <h1 className="toptitle">{safeTab === 'home' && org.company.name && org.company.logoUrl && <img className="co-logo co-logo-t" src={org.company.logoUrl} alt="" />}{safeTab === 'home' ? (org.company.name || TX('الرئيسية')) : TX(HR_TABS.includes(safeTab) ? 'الموارد البشرية' : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || ''))}</h1>
-            <span className="verbadge" style={{ fontSize: 11, color: '#1a1410', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>{APP_VER}</span>
+            <span className="verbadge" style={{ fontSize: 11, color: '#10294A', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>{APP_VER}</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -6816,7 +6816,7 @@ function printSalesInvoice(org, x, orig) {
   const body = `
     <div class="box" style="display:flex;justify-content:space-between;align-items:flex-start;gap:18px">
       <div style="line-height:1.9">
-        <div style="font-size:15px;font-weight:800;color:#5a4a1e">${title}</div>
+        <div style="font-size:15px;font-weight:800;color:#10294A">${title}</div>
         <div style="margin-top:8px"><b>البائع:</b> ${_xe(seller)} · الرقم الضريبي: ${_xe(svat || '—')}${scr ? ' · س.ت ' + _xe(scr) : ''}</div>
         ${sAddr ? '<div>العنوان: ' + _xe(sAddr) + '</div>' : ''}
         <div style="margin-top:6px">الرقم: <b>${_xe(x.no)}</b> · التاريخ: <span class="n">${x.date}${x.time ? ' ' + x.time : ''}</span>${x.terms === 'credit' && !cr && x.dueDate ? ' · الاستحقاق: <span class="n">' + (x.dueDate || '') + '</span>' : ''}</div>
@@ -8461,7 +8461,7 @@ function buildClosingA4(c, org) {
   const supPaySum = supPaysArr.reduce((s, pm) => s + payTotal(pm), 0);
   const supPayCash = supPaysArr.reduce((s, pm) => s + payCashPart(pm), 0);
   const expRows = (c.expenses || []).length ? (c.expenses || []).map(e => `<tr>
-    <td>${e.categoryName || '—'}${e.isTaxable ? '<br><span style="font-size:8px;color:#8C6F2C">خاضع للضريبة' + (e.taxInvoice ? ' · فاتورة ضريبية' : '') + '</span>' : '<br><span style="font-size:8px;color:#999">غير خاضع</span>'}</td>
+    <td>${e.categoryName || '—'}${e.isTaxable ? '<br><span style="font-size:8px;color:#10294A">خاضع للضريبة' + (e.taxInvoice ? ' · فاتورة ضريبية' : '') + '</span>' : '<br><span style="font-size:8px;color:#999">غير خاضع</span>'}</td>
     <td class="dim">${e.beneficiaryName || '—'}</td>
     <td>${payLbl(e.paymentMethod)}${e.receiptNumber ? '<br><span style="font-size:8px;color:#999">' + e.receiptNumber + '</span>' : ''}</td>
     <td class="ce">${e.receiptImage ? '<span class="chip">مرفق ✓</span>' : '—'}</td>
@@ -8634,10 +8634,10 @@ function openDocWin(features) {
   box.setAttribute('dir', 'rtl'); box.className = 'mz-docv';
   box.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:#fff;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top)';
   const bar = document.createElement('div');
-  bar.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 10px;background:#241F1B;color:#fff;font-family:Tahoma,sans-serif;flex:0 0 auto';
-  const mk = (txt, bg) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = txt; b.style.cssText = 'border:0;border-radius:9px;padding:8px 12px;font-size:13.5px;font-weight:700;cursor:pointer;font-family:inherit;background:' + bg + ';color:' + (bg === '#C8A24A' ? '#1a1410' : '#fff'); bar.appendChild(b); return b; };
+  bar.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 10px;background:#10294A;color:#fff;font-family:Tahoma,sans-serif;flex:0 0 auto';
+  const mk = (txt, bg) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = txt; b.style.cssText = 'border:0;border-radius:9px;padding:8px 12px;font-size:13.5px;font-weight:700;cursor:pointer;font-family:inherit;background:' + bg + ';color:' + (bg === '#D9A83E' ? '#10294A' : '#fff'); bar.appendChild(b); return b; };
   const bClose = mk('✕ إغلاق', '#a33');
-  const bPrint = mk('طباعة / PDF', '#C8A24A');
+  const bPrint = mk('طباعة / PDF', '#D9A83E');
   const bXls = mk('Excel', '#2f6b45'), bCsv = mk('CSV', '#3b4a5a');   // v41.2: تصدير جداول التقرير نفسه
   const bShare = (navigator.share && typeof File !== 'undefined') ? mk('مشاركة', '#3b4a5a') : null;
   const ttl = document.createElement('div'); ttl.style.cssText = 'flex:1;text-align:start;font-size:12.5px;opacity:.85;overflow:hidden;white-space:nowrap;text-overflow:ellipsis'; bar.appendChild(ttl);
@@ -8702,31 +8702,31 @@ const A4_CSS = `
   * { box-sizing: border-box }
   body { font-family: 'MizanNum','IBM Plex Sans Arabic','Noto Sans Arabic','Readex Pro',Tahoma,sans-serif; font-variant-numeric: tabular-nums; color: #1a1a1a; margin: 0; font-size: 11px; background: #fff }
   .page { max-width: 186mm; margin: 0 auto }
-  .head { border-bottom: 2.5px solid #8C6F2C; padding-bottom: 10px; margin-bottom: 12px }
+  .head { border-bottom: 2.5px solid #10294A; padding-bottom: 10px; margin-bottom: 12px }
   .co { display: flex; align-items: center; gap: 10px; margin-bottom: 8px }
   .logo { height: 44px; width: 44px; object-fit: contain; border-radius: 8px }
-  .co-n { font-size: 16px; font-weight: 700; color: #14110F }
+  .co-n { font-size: 16px; font-weight: 700; color: #10294A }
   .co-m { font-size: 9.5px; color: #666; margin-top: 2px }
-  .doc-title { font-size: 15px; font-weight: 700; color: #8C6F2C; margin-top: 6px }
+  .doc-title { font-size: 15px; font-weight: 700; color: #10294A; margin-top: 6px }
   .doc-sub { font-size: 11px; margin-top: 2px }
   .dim { color: #888 }
   .kpis { display: grid; grid-template-columns: repeat(3,1fr); gap: 7px; margin-bottom: 12px }
-  .kpi { border: 1px solid #e5e0d5; border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 3px; background: #faf8f3 }
+  .kpi { border: 1px solid #e5e0d5; border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 3px; background: #F7F8FA }
   .kpi span { font-size: 9px; color: #777 }
   .kpi b { font-size: 13px }
   .kpi.ok { background: #eef8f2; border-color: #b6e2cd } .kpi.ok b { color: #2E8B62 }
   .kpi.bad { background: #fdeeed; border-color: #f2c3bf } .kpi.bad b { color: #C0392B }
   .kpi.warn { background: #fdf6e9; border-color: #f2ddb0 } .kpi.warn b { color: #B7791F }
-  .brass { color: #8C6F2C } .rose { color: #C0392B } .mint { color: #2E8B62 }
+  .brass { color: #10294A } .rose { color: #C0392B } .mint { color: #2E8B62 }
   .meta-row { display: flex; gap: 14px; align-items: center; font-size: 10.5px; color: #555; margin-bottom: 12px; flex-wrap: wrap }
-  .badge { background: #8C6F2C; color: #fff; padding: 2px 10px; border-radius: 20px; font-size: 10px; font-weight: 600 }
-  .sec-h { background: #f0ebe0; color: #14110F; font-weight: 700; font-size: 11.5px; padding: 5px 9px; border-radius: 5px; margin: 12px 0 7px }
+  .badge { background: #10294A; color: #fff; padding: 2px 10px; border-radius: 20px; font-size: 10px; font-weight: 600 }
+  .sec-h { background: #EEF1F5; color: #10294A; font-weight: 700; font-size: 11.5px; padding: 5px 9px; border-radius: 5px; margin: 12px 0 7px }
   table.t { width: 100%; border-collapse: collapse; font-size: 10.5px }
-  table.t th { background: #14110F; color: #fff; padding: 6px 8px; text-align: right; font-weight: 600; font-size: 10px }
+  table.t th { background: #10294A; color: #fff; padding: 6px 8px; text-align: right; font-weight: 600; font-size: 10px }
   table.t th.num, table.t td.num { text-align: left; font-variant-numeric: tabular-nums; white-space: nowrap }
   table.t th.ce, table.t td.ce { text-align: center }
   table.t td { padding: 6px 8px; border-bottom: 1px solid #eee }
-  table.t tfoot .tot td { font-weight: 700; font-size: 11.5px; border-top: 2px solid #14110F; background: #faf8f3 }
+  table.t tfoot .tot td { font-weight: 700; font-size: 11.5px; border-top: 2px solid #10294A; background: #F7F8FA }
   table.t.compact td { padding: 6px 9px }
   table.t .tot.ok { background: #eef8f2 } table.t .tot.bad { background: #fdeeed } table.t .tot.warn { background: #fdf6e9 }
   .chip { background: #eef8f2; color: #2E8B62; padding: 1px 7px; border-radius: 10px; font-size: 9px; font-weight: 600 }
@@ -8743,12 +8743,12 @@ const A4_CSS = `
   .sig-line { border-bottom: 1px dashed #999; margin: 22px 12px 6px }
   .sig-ok { font-size: 9.5px; color: #2E8B62; font-weight: 600; margin-top: 4px }
   .foot { text-align: center; font-size: 9px; margin-top: 16px; border-top: 1px dashed #ccc; padding-top: 8px }
-  .summary-card { border: 1px solid #e5e0d5; border-radius: 10px; padding: 11px 14px; margin-bottom: 12px; background: #faf8f3 }
-  .summary-h { font-size: 11.5px; font-weight: 700; color: #14110F; margin-bottom: 9px }
+  .summary-card { border: 1px solid #e5e0d5; border-radius: 10px; padding: 11px 14px; margin-bottom: 12px; background: #F7F8FA }
+  .summary-h { font-size: 11.5px; font-weight: 700; color: #10294A; margin-bottom: 9px }
   .summary-grid { display: grid; grid-template-columns: repeat(5,1fr); gap: 8px }
   .sc { text-align: center } .sc span { font-size: 8.5px; color: #777; display: block } .sc b { font-size: 12.5px; display: block; margin-top: 3px }
   .warn2 { color: #B7791F }
-  .banner { display: flex; justify-content: space-between; align-items: center; gap: 12px; background: #14110F; color: #EFE7DB; border-radius: 10px; padding: 11px 15px; margin-bottom: 12px; flex-wrap: wrap }
+  .banner { display: flex; justify-content: space-between; align-items: center; gap: 12px; background: #10294A; color: #EFE7DB; border-radius: 10px; padding: 11px 15px; margin-bottom: 12px; flex-wrap: wrap }
   .banner-id { font-family: 'MizanNum','IBM Plex Mono',ui-monospace,monospace; color: #E0C074; font-size: 12px; font-weight: 700; direction: ltr; text-align: left }
   .banner-sub { font-size: 9px; color: #A2968A; margin-top: 3px }
   .banner-l { text-align: end; font-size: 10px; color: #D9CFC0; display: flex; flex-direction: column; gap: 3px; align-items: flex-end }
@@ -8855,14 +8855,14 @@ function printPartnerStatement(p, org) {
   const balT = Math.abs(bal) < 0.005 ? 'مسدّد' : (bal > 0 ? money(bal) + ' دائن (مستحق للطرف علينا)' : money(-bal) + ' مدين (مستحق لنا على الطرف)');
   w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>كشف حساب ${p.name}</title>
   <style>${NUM_FACE}*{font-family:'MizanNum','IBM Plex Sans Arabic','Noto Sans Arabic','Segoe UI',Tahoma,sans-serif;box-sizing:border-box}body{margin:0;padding:28px;color:#1a1a1a}
-  .h{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #8C6F2C;padding-bottom:12px;margin-bottom:16px}
-  .co{font-size:20px;font-weight:800;color:#5a4a1e}.sub{font-size:12px;color:#666;margin-top:3px}
-  .t{font-size:22px;font-weight:800}.who{background:#faf6ee;border:1px solid #e5dcc5;border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:13px;line-height:1.9}
-  .who b{color:#5a4a1e}.bal{text-align:center;background:#f5f0e4;border:1px solid #d9cba5;border-radius:10px;padding:12px;margin-bottom:14px}
+  .h{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #10294A;padding-bottom:12px;margin-bottom:16px}
+  .co{font-size:20px;font-weight:800;color:#10294A}.sub{font-size:12px;color:#666;margin-top:3px}
+  .t{font-size:22px;font-weight:800}.who{background:#F3F5F8;border:1px solid #DDE2EA;border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:13px;line-height:1.9}
+  .who b{color:#10294A}.bal{text-align:center;background:#FBF4E4;border:1px solid #CBD3DF;border-radius:10px;padding:12px;margin-bottom:14px}
   .bal .v{font-size:26px;font-weight:800}table{width:100%;border-collapse:collapse;font-size:12px}
-  th{background:#efe8d8;color:#4a3f22;padding:8px;text-align:right;border:1px solid #d9cba5}
-  td{padding:7px 8px;border:1px solid #e6ddc8}.n{text-align:left;font-variant-numeric:tabular-nums;direction:ltr}
-  tfoot td{background:#f5f0e4;font-weight:800;border-top:2px solid #8C6F2C}
+  th{background:#E9EDF3;color:#10294A;padding:8px;text-align:right;border:1px solid #CBD3DF}
+  td{padding:7px 8px;border:1px solid #DDE2EA}.n{text-align:left;font-variant-numeric:tabular-nums;direction:ltr}
+  tfoot td{background:#FBF4E4;font-weight:800;border-top:2px solid #10294A}
   .ft{margin-top:16px;font-size:10.5px;color:#888;text-align:center}</style></head><body>
   <div class="h"><div><div class="co">${co.name || 'الشركة'}</div><div class="sub">${co.activity || ''} ${co.taxNumber ? '· رقم ضريبي ' + co.taxNumber : ''}</div></div>
   <div style="text-align:left"><div class="t">كشف حساب</div><div class="sub">${arDate(today())}</div></div></div>
@@ -8889,13 +8889,13 @@ function rptShell(org, title, sub, bodyHtml, opt = {}) {
   return `<!doctype html><html dir="${en ? 'ltr' : 'rtl'}" lang="${en ? 'en' : 'ar'}"><head><meta charset="utf-8"><title>${_xe(title)}</title>
   <style>@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;600;700&display=swap');${NUM_FACE}@page{size:${paper} ${orient};margin:14mm 10mm 16mm;@bottom-center{content:"${en ? 'Page ' : 'صفحة '}" counter(page) "${en ? ' of ' : ' من '}" counter(pages);font-size:9px;color:#777}@bottom-${en ? 'left' : 'right'}{content:"${foot.replace(/"/g, "'")}";font-size:8px;color:#888}}
   *{font-family:'MizanNum','IBM Plex Sans Arabic','Noto Sans Arabic','Segoe UI',Tahoma,sans-serif;box-sizing:border-box}body{margin:0;color:#1a1a1a;font-size:12px}
-  .h{display:flex;justify-content:space-between;align-items:center;gap:12px;border-bottom:2px solid #8C6F2C;padding-bottom:10px;margin-bottom:14px}.h .l{display:flex;gap:10px;align-items:center}.lg{height:46px;max-width:120px;object-fit:contain}
-  .co{font-size:18px;font-weight:800;color:#5a4a1e}.sub{font-size:11px;color:#666;margin-top:2px}
+  .h{display:flex;justify-content:space-between;align-items:center;gap:12px;border-bottom:2px solid #10294A;padding-bottom:10px;margin-bottom:14px}.h .l{display:flex;gap:10px;align-items:center}.lg{height:46px;max-width:120px;object-fit:contain}
+  .co{font-size:18px;font-weight:800;color:#10294A}.sub{font-size:11px;color:#666;margin-top:2px}
   h1{font-size:16px;margin:0}table{width:100%;border-collapse:collapse;margin:8px 0}thead{display:table-header-group}tr{page-break-inside:avoid}
-  th{background:#efe8d8;color:#4a3f22;padding:7px;border:1px solid #d9cba5;text-align:start;font-size:11px}
-  td{padding:6px 8px;border:1px solid #e6ddc8}.n{text-align:${en ? 'right' : 'left'};direction:ltr;font-variant-numeric:tabular-nums;white-space:nowrap}
-  .tot td{background:#f5f0e4;font-weight:800;border-top:2px solid #8C6F2C}.neg{color:#C0392B}
-  .box{background:#faf6ee;border:1px solid #e5dcc5;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:11.5px}
+  th{background:#E9EDF3;color:#10294A;padding:7px;border:1px solid #CBD3DF;text-align:start;font-size:11px}
+  td{padding:6px 8px;border:1px solid #DDE2EA}.n{text-align:${en ? 'right' : 'left'};direction:ltr;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .tot td{background:#FBF4E4;font-weight:800;border-top:2px solid #10294A}.neg{color:#C0392B}
+  .box{background:#F3F5F8;border:1px solid #DDE2EA;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:11.5px}
   .sign{display:flex;justify-content:space-around;margin-top:34px;text-align:center;font-size:11px}.sign div{border-top:1px solid #999;padding-top:6px;min-width:140px}
   .ft{display:none}@media screen{body{padding:26px}.ft{display:block;margin-top:14px;font-size:10px;color:#888;text-align:center}}</style></head><body>
   <div class="h"><div class="l">${logo}<div><div class="co">${_xe(co.name || 'الشركة')}</div><div class="sub">${co.taxNumber ? (en ? 'VAT No.: ' : 'الرقم الضريبي: ') + _xe(co.taxNumber) : ''}${co.address ? ' · ' + _xe(co.address) : ''}</div></div></div>
@@ -8914,12 +8914,12 @@ function printA4(org, title, sub, bodyHtml, opt) {
 
 // v45.6 — «طباعة الشاشة»: أي شاشة مفتوحة تُطبع A4 بترويسة المنشأة — نسخة من المحتوى بلا أزرار، والحقول تُطبع قيمها نصًا،
 //   والرسوم البيانية تبقى. يغطي كل التقارير التي لا زر طباعة خاصًا بها.
-const PRINT_SCREEN_CSS = `.card{border:1px solid #e6ddc8;border-radius:8px;padding:10px 12px;margin:0 0 10px;break-inside:avoid}
+const PRINT_SCREEN_CSS = `.card{border:1px solid #DDE2EA;border-radius:8px;padding:10px 12px;margin:0 0 10px;break-inside:avoid}
   .grid{display:grid;gap:8px}.g2{grid-template-columns:repeat(2,1fr)}.g3{grid-template-columns:repeat(3,1fr)}.g4{grid-template-columns:repeat(4,1fr)}
-  .row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.badge{display:inline-block;border:1px solid #d9cba5;border-radius:10px;padding:1px 7px;font-size:10px;background:#faf6ee}
+  .row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.badge{display:inline-block;border:1px solid #CBD3DF;border-radius:10px;padding:1px 7px;font-size:10px;background:#F3F5F8}
   .card-t{font-weight:800;font-size:13px;margin-bottom:6px}.empty{color:#888;padding:8px;text-align:center}.note,.hint{color:#666;font-size:10.5px}
   .tw{overflow:visible !important;max-height:none !important}table{page-break-inside:auto}tr{page-break-inside:avoid}
-  .kpi,.k{border:1px solid #e6ddc8;border-radius:8px;padding:8px}.num{font-variant-numeric:tabular-nums}img{max-width:100%}
+  .kpi,.k{border:1px solid #DDE2EA;border-radius:8px;padding:8px}.num{font-variant-numeric:tabular-nums}img{max-width:100%}
   .ps-val{font-weight:600;border-bottom:1px dotted #aaa;padding:0 2px}svg.lucide{display:none}`;
 function printScreen(org, root, title) {
   if (!root) return false;
@@ -12232,10 +12232,10 @@ function printIncomeA4(org, data, meta) {
     .is-t { width:100%; border-collapse:collapse; font-size:11.5px; margin-top:8px }
     .is-t td { padding:8px 10px; border-bottom:1px solid #eee }
     .is-t td.num { text-align:left; font-variant-numeric:tabular-nums; font-weight:500 }
-    .is-t tr.sub td { background:#faf8f3; font-weight:700; border-top:1.5px solid #ddd }
+    .is-t tr.sub td { background:#F7F8FA; font-weight:700; border-top:1.5px solid #ddd }
     .is-t tr.pos td { background:#eef8f2; font-weight:700; color:#2E8B62; font-size:13px; border-top:2px solid #2E8B62 }
     .is-t tr.neg td { background:#fdeeed; font-weight:700; color:#C0392B; font-size:13px; border-top:2px solid #C0392B }
-    .is-t tr.rev td { color:#8C6F2C }
+    .is-t tr.rev td { color:#10294A }
   </style></head><body><div class="page">
     <div class="head">
       <div class="co">${logo ? `<img class="logo" src="${logo}">` :MZ_LOGO_HTML}
@@ -12259,7 +12259,7 @@ function printIncomeA4(org, data, meta) {
       <tr class="sub"><td>إجمالي الإيرادات</td><td class="num">${m(d.grossRevenue)}</td></tr>
       ${row('عمولات منصات التوصيل', -d.commissions, '', true)}
       <tr class="sub"><td>صافي الإيرادات</td><td class="num">${m(d.netRevenue)}</td></tr>
-      <tr><td colspan="2" style="background:#14110F;color:#fff;font-weight:700;font-size:11px">التكاليف والمصروفات</td></tr>
+      <tr><td colspan="2" style="background:#10294A;color:#fff;font-weight:700;font-size:11px">التكاليف والمصروفات</td></tr>
       ${expRows}
       ${row('الالتزامات الثابتة (إيجار/كهرباء/مياه)', -d.fixedTotal, '', true)}
       ${row('الرواتب غير المصروفة بالفروع', -d.payrollRemaining, '', true)}
@@ -12903,7 +12903,7 @@ function QrRatePublic({ branchId }) {
   }
 
   return shell(<>
-    <div className="card" style={{ background: 'linear-gradient(135deg,var(--brass-l),var(--brass))', color: '#1a1410', border: 'none' }}>
+    <div className="card" style={{ background: 'linear-gradient(135deg,var(--brass-l),var(--brass))', color: '#10294A', border: 'none' }}>
       <div style={{ fontSize: 11.5, opacity: 0.75 }}>{now}</div>
       {branch.company && <div style={{ fontSize: 12.5, fontWeight: 700, marginTop: 4 }}>{branch.company}</div>}
       <h1 style={{ fontSize: 22, marginTop: 4, lineHeight: 1.35 }}>كيف كانت تجربتك في {branch.name}؟</h1>

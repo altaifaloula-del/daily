@@ -35,7 +35,7 @@ export function StaffingPlan({ org, ops, me, myBranches, commitOrg, say }) {
         <Kpi label="ساعات مقترحة" value={String(Math.round(sugH))} sub={'التعيين الحالي ' + Math.round(asgH) + ' ساعة'} icon={Clock} color="#5B93C4" />
         <Kpi label="نسبة العمالة بالتعيين الحالي" value={asgPct == null ? '—' : asgPct + '%'} sub={'الهدف ' + S.target + '% (' + S.targetSrc + ')'} icon={TrendingUp} color={asgPct == null ? '#9A7CC4' : asgPct > S.target * 1.1 ? '#D9544D' : asgPct < S.target * 0.8 ? '#E0A458' : '#4FB286'} />
         <Kpi label="ورديات بنقص" value={String(short)} sub={over + ' وردية بزيادة'} icon={AlertTriangle} color={short ? '#D9544D' : '#4FB286'} />
-        <Kpi label="تكلفة الساعة" value={B.rate ? money(B.rate) : '—'} sub={B.emps + ' موظف' + (B.splh ? ' · إنتاجيتك ' + money(B.splh) + '/ساعة' : '')} icon={Users} color="#C8A24A" />
+        <Kpi label="تكلفة الساعة" value={B.rate ? money(B.rate) : '—'} sub={B.emps + ' موظف' + (B.splh ? ' · إنتاجيتك ' + money(B.splh) + '/ساعة' : '')} icon={Users} color="#D9A83E" />
       </div>
       {B.notes.length > 0 && <div className="cf-notes">{B.notes.map((n, i) => <div key={i} className={'cf-note ' + n.sev}><span className={'badge ' + (n.sev === 'warn' ? 'b-amber' : 'b-dim')}>{n.sev === 'warn' ? 'تنبيه' : 'معلومة'}</span><span>{n.msg}</span></div>)}</div>}
       {days.map(d => (

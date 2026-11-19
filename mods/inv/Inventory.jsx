@@ -354,7 +354,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
       </div>
 
       <div className="grid g4">
-        <Kpi label="قيمة المخزون (بآخر تكلفة)" value={money(stockValue)} sub={items.length + ' صنفاً'} icon={HardDrive} color="#C8A24A" />
+        <Kpi label="قيمة المخزون (بآخر تكلفة)" value={money(stockValue)} sub={items.length + ' صنفاً'} icon={HardDrive} color="#D9A83E" />
         <Kpi label="أصناف تحت حد الطلب" value={String(lowItems.length)} sub={lowItems.map(i => i.name).join('، ').slice(0, 40) || 'لا شيء — ممتاز'} icon={AlertTriangle} color={lowItems.length ? '#D9544D' : '#4FB286'} />
         <Kpi label="حركات المخزون" value={String(moves.length)} sub="توريد · صرف · هدر · جرد" icon={ArrowLeftRight} color="#5B93C4" />
         <Kpi label="منتجات بوصفات" value={String(products.length)} sub="تكلفة وهامش لكل منتج" icon={Store} color="#9B7BB8" />

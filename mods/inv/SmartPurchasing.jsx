@@ -73,7 +73,7 @@ export function SmartPurchasing({ org, ops, me, commit, commitOrg, say }) {
       {items.length === 0 ? <div className="card"><div className="empty">أضف أصناف مخزونك من «المخزون ← الأصناف والأرصدة» أولًا، ثم حدّد حد الطلب لكلٍّ منها هنا.</div></div> : <>
         <div className="grid g3">
           <Kpi label="أصناف تحت حد الطلب" value={String(toOrder.length)} sub={toOrder.length ? 'تحتاج إعادة طلب' : 'كل الأصناف كافية 👍'} icon={AlertTriangle} color={toOrder.length ? '#D9544D' : '#4FB286'} />
-          <Kpi label="قيمة أمر الشراء المقترح" value={money(orderValue)} sub="بآخر أسعار الشراء" icon={Truck} color="#C8A24A" />
+          <Kpi label="قيمة أمر الشراء المقترح" value={money(orderValue)} sub="بآخر أسعار الشراء" icon={Truck} color="#D9A83E" />
           <Kpi label="أصناف تحت المراقبة" value={String(lowCount)} sub="منخفضة أو تحت الحد" icon={HardDrive} color={lowCount ? '#E0A458' : '#4FB286'} />
         </div>
 

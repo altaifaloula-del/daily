@@ -119,7 +119,7 @@ export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
   return (
     <div className="grid" style={{ gap: 12 }}>
       <div className="grid g4">
-        <Kpi label="مبيعات الفواتير هذا الشهر" value={money(kMonth)} sub="بعد الإشعارات الدائنة" icon={FileText} color="#C8A24A" />
+        <Kpi label="مبيعات الفواتير هذا الشهر" value={money(kMonth)} sub="بعد الإشعارات الدائنة" icon={FileText} color="#D9A83E" />
         <Kpi label="ذمم العملاء المفتوحة" value={money(kOpen)} sub="فواتير آجلة لم تُحصَّل" icon={Wallet} color="#5B93C4" />
         <Kpi label="متأخرة السداد" value={money(kOver)} sub="تجاوزت تاريخ الاستحقاق" icon={AlertTriangle} color="#D9544D" />
         <Kpi label="سلامة السجل" value={chain.ok ? 'سليم ✓' : 'خلل!'} sub={chain.ok ? (chain.n || 0) + ' مستند بسلسلة بصمات متصلة' : chain.why} icon={ShieldCheck} color={chain.ok ? '#4FB286' : '#D9544D'} />

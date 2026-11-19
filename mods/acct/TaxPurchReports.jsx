@@ -55,7 +55,7 @@ export function VatRegisters({ org, ops, say }) {
     <div className="grid" style={{ gap: 12 }}>
       <PeriodBar org={org} st={st} set={set} />
       <div className="grid g4">
-        <Kpi label="ضريبة المخرجات (المبيعات)" value={money(R.boxes[2].vat)} sub={R.sales.length + ' مستند · ' + money(R.boxes[2].net) + ' قبل الضريبة'} icon={Receipt} color="#C8A24A" />
+        <Kpi label="ضريبة المخرجات (المبيعات)" value={money(R.boxes[2].vat)} sub={R.sales.length + ' مستند · ' + money(R.boxes[2].net) + ' قبل الضريبة'} icon={Receipt} color="#D9A83E" />
         <Kpi label="ضريبة المدخلات (المشتريات)" value={money(R.boxes[5].vat)} sub={R.purch.length + ' مستند · ' + money(R.boxes[5].net) + ' قبل الضريبة'} icon={Receipt} color="#5B93C4" />
         <Kpi label="صافي الضريبة للفترة" value={money(R.boxes[6].vat)} sub={R.boxes[6].vat >= 0 ? 'مستحقة للهيئة' : 'رصيد دائن (استرداد/ترحيل)'} icon={ShieldCheck} color={R.boxes[6].vat >= 0 ? '#D9544D' : '#4FB286'} />
         <Kpi label="المطابقة مع الدفاتر" value={R.checks.some(c => c.sev === 'bad') ? 'فرق' : 'مطابق'} sub="حسابا 2301 و1501" icon={ShieldCheck} color={R.checks.some(c => c.sev === 'bad') ? '#D9544D' : '#4FB286'} />
@@ -97,7 +97,7 @@ export function SupplierPurchReport({ org, ops, say }) {
     <div className="grid" style={{ gap: 12 }}>
       <PeriodBar org={org} st={st} set={set} />
       <div className="grid g4">
-        <Kpi label="إجمالي المشتريات" value={money(R.tot.buyTot)} sub={'منها ضريبة ' + money(R.tot.vat)} icon={Truck} color="#C8A24A" />
+        <Kpi label="إجمالي المشتريات" value={money(R.tot.buyTot)} sub={'منها ضريبة ' + money(R.tot.vat)} icon={Truck} color="#D9A83E" />
         <Kpi label="آجل (على الحساب)" value={money(R.tot.buy.deferred)} sub={R.tot.buyTot ? Math.round(R.tot.buy.deferred / R.tot.buyTot * 100) + '% من المشتريات' : '—'} icon={Truck} color="#E0A458" />
         <Kpi label="مدفوع فورًا" value={money(R.tot.buyTot - R.tot.buy.deferred)} sub={'نقدي ' + money(R.tot.buy.cash) + ' · شبكة ' + money(R.tot.buy.card)} icon={Truck} color="#4FB286" />
         <Kpi label="سداد الموردين" value={money(R.tot.payTot)} sub={'نقدي ' + money(R.tot.pay.cash) + ' · بنكي ' + money(R.tot.pay.transfer + R.tot.pay.cheque)} icon={Truck} color="#5B93C4" />

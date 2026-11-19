@@ -41,7 +41,7 @@ export function SavingsPlan({ org, ops, me, commit, say }) {
         <div className="rp-seg"><button className="btn sm" onClick={exportX}><Download size={13} />Excel</button></div>
       </div>
       <div className="grid g3">
-        <Kpi label="فرص مقاسة (لكل 30 يومًا)" value={money(S.tot30)} sub={S.opps.length + ' بند · ' + S.days + ' يومًا من البيانات'} icon={PiggyBank} color="#C8A24A" />
+        <Kpi label="فرص مقاسة (لكل 30 يومًا)" value={money(S.tot30)} sub={S.opps.length + ' بند · ' + S.days + ' يومًا من البيانات'} icon={PiggyBank} color="#D9A83E" />
         <Kpi label="المستهدف في الخطة" value={money(tgt)} sub={plan.length + ' بند في الخطة'} icon={Target} color="#5B93C4" />
         <Kpi label="المتحقق فعلًا" value={meas ? money(real) : '—'} sub={meas ? 'لكل 30 يومًا · ' + meas + ' بند مقاس' : 'يُقاس بعد 7 أيام من بدء البند'} icon={CheckCircle2} color={meas && real >= tgt ? '#4FB286' : '#E0A458'} />
       </div>

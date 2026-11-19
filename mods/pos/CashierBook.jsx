@@ -53,7 +53,7 @@ export function CashierBook({ org, ops, me, myBranches, scoped }) {
         {[[7, 'أسبوع'], [30, '30 يومًا'], [90, '90 يومًا']].map(([d, l]) => <button key={d} className={'btn sm' + (days === d ? ' pri' : ' gh')} onClick={() => setDays(d)}>{l}</button>)}
       </div>
       <div className="grid g4">
-        <Kpi label="الكاشيرية في الفترة" value={String(people.length)} sub={sum(people, p => p.shifts) + ' وردية · ' + sum(people, p => p.closings) + ' إغلاق'} icon={Users} color="#C8A24A" />
+        <Kpi label="الكاشيرية في الفترة" value={String(people.length)} sub={sum(people, p => p.shifts) + ' وردية · ' + sum(people, p => p.closings) + ' إغلاق'} icon={Users} color="#D9A83E" />
         <Kpi label="يحتاجون مراجعة" value={String(hi.length)} sub={hi.length ? hi.map(p => p.name).slice(0, 2).join('، ') : 'لا أحد'} icon={AlertTriangle} color={hi.length ? '#D9544D' : '#4FB286'} />
         <Kpi label="إجمالي العجز" value={moneyP(sum(people, p => p.defT))} sub={sum(people, p => p.defN) + ' حالة'} icon={TrendingDown} color="#D9544D" />
         <Kpi label="إجمالي الزيادة" value={money(sum(people, p => p.surT))} sub={sum(people, p => p.surN) + ' حالة — الزيادة المتكررة خلل أيضًا'} icon={TrendingUp} color="#5B93C4" />
@@ -84,7 +84,7 @@ export function CashierBook({ org, ops, me, myBranches, scoped }) {
           <div className="card-h"><div className="card-t"><Eye size={15} color="var(--brass)" />تفاصيل {P.name}</div><button className="btn sm gh" onClick={() => setSel(null)}><X size={13} /></button></div>
           <div className="grid g4" style={{ marginBottom: 10 }}>
             <Kpi label="مبيعات ورديات نقطة البيع" value={money(P.sales)} sub={P.inv + ' فاتورة · متوسط ' + money(P.avgTicket)} icon={Store} color="#4FB286" />
-            <Kpi label="أسوأ عجز" value={P.worst ? moneyP(P.worst) : '—'} sub={P.big ? P.big + ' فوق الحد (' + money(dcf.max) + ')' : 'لا شيء فوق الحد'} icon={AlertTriangle} color={P.big ? '#D9544D' : '#C8A24A'} />
+            <Kpi label="أسوأ عجز" value={P.worst ? moneyP(P.worst) : '—'} sub={P.big ? P.big + ' فوق الحد (' + money(dcf.max) + ')' : 'لا شيء فوق الحد'} icon={AlertTriangle} color={P.big ? '#D9544D' : '#D9A83E'} />
             <Kpi label="صافي الفروقات" value={moneyP(P.net)} sub={'عجز ' + P.defN + ' · زيادة ' + P.surN} icon={Scale} color={P.net < 0 ? '#D9544D' : '#4FB286'} />
             <Kpi label="إنهاءات إدارية" value={String(P.remote)} sub="ورديات أنهتها الإدارة عن بُعد" icon={Lock} color={P.remote ? '#E0A458' : '#4FB286'} />
           </div>

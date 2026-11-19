@@ -122,7 +122,7 @@ export function IncomeStatement({ org, ops, myBranches, scoped, say }) {
       </div>
 
       <div className="grid g4">
-        <Kpi label="صافي الإيراد" value={money(netRevenue)} sub={`${cls.length} إغلاق`} icon={CircleDollarSign} color="#C8A24A" />
+        <Kpi label="صافي الإيراد" value={money(netRevenue)} sub={`${cls.length} إغلاق`} icon={CircleDollarSign} color="#D9A83E" />
         <Kpi label="إجمالي التكاليف" value={money(totalCost)} sub={`${netRevenue ? ((totalCost / netRevenue) * 100).toFixed(1) : 0}% من الإيراد`} icon={Receipt} color="#D9544D" />
         <Kpi label="الربح التشغيلي" value={money(operatingProfit)} sub={`هامش ${netRevenue ? ((operatingProfit / netRevenue) * 100).toFixed(1) : 0}%`} icon={TrendingUp} color="#4FB286" />
         <Kpi label="ض.ق.م المستحقة" value={money(vatDue)} sub="مخرجات ناقص مدخلات" icon={Landmark} color="#5B93C4" />

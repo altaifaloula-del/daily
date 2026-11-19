@@ -78,7 +78,7 @@ export function OvertimeSheet({ org, ops, me, myBranches, scoped, commit, commit
       </div>
       {!pol.overtimeEnabled && <div className="note">⚠ احتساب العمل الإضافي غير مفعّل في سياسات الموارد البشرية — المسير يعمل للمراجعة والإعداد، وفعّله من «السياسات والأدوار».</div>}
       <div className="grid g4">
-        <Kpi label="ساعات الإضافي" value={String(totH)} sub={rows.filter(r => r.hours > 0).length + ' موظف'} icon={Clock} color="#C8A24A" />
+        <Kpi label="ساعات الإضافي" value={String(totH)} sub={rows.filter(r => r.hours > 0).length + ' موظف'} icon={Clock} color="#D9A83E" />
         <Kpi label="مبلغ الإضافي" value={money(totA)} sub={'يُضاف لمسير ' + month} icon={Wallet} color="#4FB286" />
         <Kpi label="فوق الحد الشهري" value={String(rows.filter(r => r.overCap).length)} sub={cap ? 'الحد ' + cap + ' ساعة' : 'بلا حد'} icon={AlertTriangle} color={rows.some(r => r.overCap) ? '#D9544D' : '#4FB286'} />
         <Kpi label="بصمات بلا انصراف" value={String(sum(rows, r => r.att.open))} sub="أيام لا تُحتسب حتى تُصحَّح" icon={Fingerprint} color={rows.some(r => r.att.open) ? '#E0A458' : '#4FB286'} />
