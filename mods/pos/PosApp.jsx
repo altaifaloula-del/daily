@@ -524,7 +524,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
 
       {view === 'dlv' && dlvOn && (() => {
         // v49.2 — MQ-006: لوحة التوصيل — جديد ← مع السائق ← تم/تعذّر، وعهدة نقد كل سائق وتسويتها
-        const DR = posDrivers(org, br.id), L = (ops.posDeliveries || []).filter(x => x.branchId === br.id && (x.st === 'new' || x.st === 'out' || x.st === 'fail' || (x.st === 'done' && (!x.settledAt || String(x.doneAt || '').slice(0, 10) === today))));
+        const DR = posDrivers(org, br.id), L = (ops.posDeliveries || []).filter(x => x.branchId === br.id && (x.st === 'new' || x.st === 'out' || x.st === 'fail' || (x.st === 'done' && (!x.settledAt || String(x.date || x.doneAt || '').slice(0, 10) === today))));
         const move = async (x, to, extra = {}) => { const r = dlvMove(x, to, me.name, extra); if (r.err) return say(r.err, 'no');
           const ok = await commit(d => ({ ...d, posDeliveries: (d.posDeliveries || []).map(y => y.id === x.id ? r : y) }), { actionType: 'update', targetType: 'pos_delivery', targetId: x.id, branchName: br.name, title: 'التوصيل: ' + DLV_ST[to].ar, details: x.no + (r.driverName ? ' · ' + r.driverName : '') + (r.reason ? ' · ' + r.reason : '') });
           if (ok) say(x.no + ' — ' + DLV_ST[to].ar + ' ✓'); };

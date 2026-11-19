@@ -9361,7 +9361,7 @@ function areasErr(list, tables) {
 /** مبيعات الصالات (المحلي فقط) من فواتير نقطة البيع المدفوعة في الفترة — الصالة المختومة على الفاتورة، وإلا من رقم الطاولة */
 function salesByArea(org, ops, brId, from, to) {
   const m = new Map();
-  ((ops || {}).posOrders || []).forEach(o => { if (o.branchId !== brId || o.status !== 'paid' || !o.table) return; const d = String(o.at || o.date || '').slice(0, 10); if ((from && d < from) || (to && d > to)) return;
+  ((ops || {}).posOrders || []).forEach(o => { if (o.branchId !== brId || o.status !== 'paid' || !o.table) return; const d = String(o.date || o.at || '').slice(0, 10);   // يوم العمل المختوم على الفاتورة (لا تاريخ UTC) if ((from && d < from) || (to && d > to)) return;
     const a = o.areaId ? { id: o.areaId, name: o.areaName || o.areaId } : (tableArea(org, brId, o.table) || { id: '', name: 'بلا صالة' });
     const x = m.get(a.id) || { id: a.id, name: a.name, orders: 0, total: 0 }; x.orders++; x.total = Math.round((x.total + (Number(o.total) || 0)) * 100) / 100; m.set(a.id, x); });
   return [...m.values()].sort((a, b) => b.total - a.total);
@@ -9408,7 +9408,7 @@ const posDrivers = (org, brId) => ((((org || {}).posCfg || {}).drivers) || []).f
 const dlvNeeded = (o) => !!o && o.channel === 'delivery' && !((o.payments || []).length && (o.payments || []).every(p => p.m === 'app'));
 function dlvRecord(o, extra = {}) {
   const cash = Math.round((o.payments || []).filter(p => p.m === 'cash').reduce((a, p) => a + (Number(p.amount) || 0), 0) * 100) / 100 - (Number(o.change) || 0);
-  return { id: 'dl_' + o.id, orderId: o.id, no: o.no, branchId: o.branchId, at: o.at, total: o.total, cash: Math.max(0, Math.round(cash * 100) / 100), st: 'new',
+  return { id: 'dl_' + o.id, orderId: o.id, no: o.no, branchId: o.branchId, at: o.at, ...(o.date ? { date: o.date } : {}), total: o.total, cash: Math.max(0, Math.round(cash * 100) / 100), st: 'new',
     ...(extra.phone ? { phone: String(extra.phone).slice(0, 20) } : {}), ...(extra.addr ? { addr: String(extra.addr).slice(0, 200) } : {}) };
 }
 /** انتقال حالة — يعيد السجل الجديد أو { err } */
@@ -9422,7 +9422,7 @@ function dlvMove(x, to, by, extra = {}) {
 }
 /** ملخص السائقين لفرع/يوم: الطلبات، المنجزة، الجارية، متوسط دقائق التوصيل، العهدة النقدية غير المسوّاة */
 function dlvSummary(org, ops, brId, day) {
-  const L = ((ops || {}).posDeliveries || []).filter(x => x.branchId === brId && (!day || String(x.at || '').slice(0, 10) === day || (x.st === 'done' && !x.settledAt) || x.st === 'out'));
+  const L = ((ops || {}).posDeliveries || []).filter(x => x.branchId === brId && (!day || String(x.date || x.at || '').slice(0, 10) === day || (x.st === 'done' && !x.settledAt) || x.st === 'out'));
   const m = new Map();
   L.forEach(x => { if (!x.driverId) return; const k = x.driverId; const r = m.get(k) || { driverId: k, name: x.driverName || k, orders: 0, done: 0, out: 0, fail: 0, mins: [], custody: 0 };
     r.orders++; if (x.st === 'done') r.done++; if (x.st === 'out') r.out++; if (x.st === 'fail') r.fail++;
