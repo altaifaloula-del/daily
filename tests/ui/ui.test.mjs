@@ -2802,3 +2802,22 @@ test('v51.9 تعديل القيود: المعلّق يُستبدل، والمر�
   await o2.p.waitForTimeout(400); await o2.p.click('button:has-text("قيود بانتظار الاعتماد")').catch(() => {}); await o2.p.waitForTimeout(300);
   assert.equal(await o2.p.locator('[data-editje]').count(), 0, 'محاسب «إدخال بلا تعديل» بلا منح — لا زر تعديل'); await o2.ctx.close();
 });
+
+test('v52.0 الأتمتة: إعداداتها في بيانات الشركة، وأوامر الشراء المقترحة تُفتح في نموذج الأمر للمراجعة', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/SystemPanel/admin');
+  await p.waitForSelector('.mq-auto'); const t = (await p.locator('.mq-auto').innerText()).replace(/\s+/g, ' ');
+  assert.match(t, /القيود الدورية المستحقة/); assert.match(t, /استحقاق رواتب الشهر السابق/); assert.match(t, /أوامر شراء مقترحة/); assert.match(t, /تذكير الإقرار الضريبي/); assert.match(t, /تذكير الإقفال الشهري/);
+  await p.fill('.mq-auto input[aria-label="payrollDay"]', '3'); await p.fill('.mq-auto input[aria-label="payrollDay"]', '3');
+  await p.locator('.mq-auto label:has-text("أوامر شراء مقترحة") input').uncheck();
+  await p.click('.mq-auto button:has-text("حفظ إعدادات الأتمتة")'); await p.waitForTimeout(300);
+  assert.deepEqual(await p.evaluate(() => window.curOrg.autoCfg), { recurring: true, payroll: true, payrollDay: 3, poSuggest: false, vatRemindDays: 7, lockAfterDays: 10 });
+  await ctx.close();
+  const o2 = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Hub/admin/purchasing:suppliers');
+  await o2.p.evaluate(() => { window.setOrg(o => ({ ...o, items: o.items.map(i => i.id === 'i1' ? { ...i, minQty: 60 } : i) }));
+    window.setOps(o => ({ ...o, purchaseOrders: [...(o.purchaseOrders || []), { id: 'pr1', poNo: 'PO-0009', supplierId: 's1', supplierName: 'مؤسسة اللحوم الطازجة للتجارة', status: 'received', date: '2026-10-01', whId: 'wh-b1', lines: [{ itemId: 'i1', desc: 'لحم غنم', qty: 10, price: 41, received: 10 }] }] })); });
+  await o2.p.waitForTimeout(400); await o2.p.click('button:has-text("أوامر الشراء")').catch(() => {}); await o2.p.waitForSelector('.mq-posugg', { timeout: 8000 });
+  const s = (await o2.p.locator('.mq-posugg').innerText()).replace(/\s+/g, ' '); assert.match(s, /مؤسسة اللحوم الطازجة/); assert.match(s, /لحم غنم 70/, 'حتى ضعف الحد: 120 − 50');
+  await o2.p.click('.mq-posugg button:has-text("مراجعة وإنشاء الأمر")'); await o2.p.waitForSelector('text=أمر شراء جديد');
+  assert.ok(await o2.p.locator('.modal input[value="70"]').count() >= 1, 'النموذج معبأ بالكمية المقترحة');
+  assert.deepEqual([...errs, ...o2.errs], []); await o2.ctx.close();
+});
