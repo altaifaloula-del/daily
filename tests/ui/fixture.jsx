@@ -67,7 +67,10 @@ function Live() {
     React.createElement(M.DocPeekHost, { org: g, ops: o }), React.createElement(M.VoiceSearchHost, { lang: 'ar' }));   // v47.5 المضيفان العامّان كما في القشرة
 }
 let el;
+// v51.4: بطاقة الاشتراك لمنشأة مشتركة (الخادم يُحاكى في الاختبار بالتقاط طلبات /api/billing)
+const SubCard = React.lazy(() => import('../../mods/admin/SubscriptionCard.jsx').then(m => ({ default: m.SubscriptionCard })));
 if (kind === 'live') el = React.createElement(Live);
+else if (kind === 'subcard') el = React.createElement(React.Suspense, { fallback: null }, React.createElement(SubCard, { branches: 2, tenant: { id: 'c2', name: 'مطعم تجريبي', plan: 'pro', region: 'me-central2', status: 'active', firebase: { projectId: 'mithqal-c2' } } }));
 else { const P = { ...base, ops, scoped: ops, me: ME.admin, commit: async () => true, acctIntent: kind === 'acct' ? { v: a, ts: 1 } : null, invIntent: null };
   el = kind === 'hub' ? React.createElement(M.Hub, { ...P, hubId: a, view: b }) : kind === 'acct' ? React.createElement(M.Accounting, P) : React.createElement(M[a], P); }
 createRoot(document.getElementById('r')).render(React.createElement(EB, null, el));

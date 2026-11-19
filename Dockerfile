@@ -23,7 +23,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
-COPY server.js tenants.js server-auth.js plans.js ./
+COPY server.js tenants.js server-auth.js plans.js billing.js server-billing.js ./
 # server.js يستورد ./zatca/onboard.js و./zatca/vault.js — بدونها تتوقف الحاوية عند الإقلاع (ERR_MODULE_NOT_FOUND)
 COPY zatca ./zatca
 COPY --from=build /app/dist ./dist

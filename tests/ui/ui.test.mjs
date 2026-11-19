@@ -2631,3 +2631,33 @@ test('v51.3 الاشتراك والمنشأة: بطاقة عرض فقط في إ�
     assert.deepEqual(errs, []); await ctx.close();
   }
 });
+
+test('v51.4 الفواتير والدفع لمنشأة مشتركة: الأسعار شاملة الضريبة، وسائل الدفع، التحويل البنكي، وطباعة الفاتورة الضريبية', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
+  const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  const INV = { no: 'MQ-2026-000001', seq: 1, issuedAt: '2026-11-19T10:00:00.000Z', tenant: 'c2', plan: 'pro', period: 'monthly', start: '2026-11-19', end: '2026-12-18', net: 19900, vat: 2985, total: 22885, currency: 'SAR', status: 'paid', method: 'mada', paidAt: '2026-11-19T10:05:00.000Z',
+    seller: { name: 'مِثقال لتقنية المعلومات', vatNo: '311111111100003', crNo: '1010000000', address: 'الرياض' }, buyer: { name: 'مطعم تجريبي', vatNo: '300000000000003', address: 'الدمام' }, payments: [] };
+  const calls = [];
+  await p.route('http://zatca.test/api/billing/**', async (route) => { const u = new URL(route.request().url()); calls.push(route.request().method() + ' ' + u.pathname + ' ' + (route.request().postData() || ''));
+    const J = (b) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(b) });
+    if (u.pathname.endsWith('/summary')) return J({ enabled: true, plan: 'pro', prices: { monthly: 19900, yearly: 199000 }, sub: { paidThrough: '2026-12-18', state: 'active' }, invoices: [{ ...INV, payments: undefined }],
+      methods: ['mada', 'card', 'applepay', 'stcpay', 'bank'], bank: { iban: 'SA0380000000608010167519', name: 'الراجحي', holder: 'مِثقال لتقنية المعلومات' }, seller: { name: INV.seller.name, vatNo: INV.seller.vatNo } });
+    if (u.pathname.endsWith('/checkout')) return J({ no: 'MQ-2026-000002', total: 228850, bank: { iban: 'SA0380000000608010167519', name: 'الراجحي', holder: 'مِثقال لتقنية المعلومات' }, reference: 'MQ-2026-000002' });
+    if (u.pathname.includes('/invoice/')) return J(INV);
+    return J({}); });
+  await p.goto(base + 'subcard'); await p.waitForSelector('.mq-bill', { timeout: 15000 }); await settle(p);
+  const t = (await p.locator('.mq-sub-card').innerText()).replace(/\s+/g, ' ');
+  assert.match(t, /الفواتير والدفع/); assert.match(t, /مدفوع حتى 2026-12-18/); assert.match(t, /شهري: 228\.85 ر\.س/); assert.match(t, /سنوي: 2288\.50 ر\.س/);
+  assert.match(t, /199\.00 ر\.س \+ ضريبة 15% 29\.85 = 228\.85 ر\.س/); assert.match(t, /مدى، فيزا \/ ماستركارد، Apple Pay، STC Pay/); assert.match(t, /MQ-2026-000001/); assert.match(t, /مدفوعة/);
+  assert.match(t, /المتقدمة/); assert.match(t, /2 \/ 5/);
+  await p.click('input[name="mq-period"] >> nth=1'); await p.click('button:has-text("تحويل بنكي")'); await p.waitForSelector('.mq-bank');
+  const bk = (await p.locator('.mq-bank').innerText()).replace(/\s+/g, ' ');
+  assert.match(bk, /SA0380000000608010167519/); assert.match(bk, /MQ-2026-000002/); assert.match(bk, /مِثقال لتقنية المعلومات/);
+  assert.ok(calls.some(c => c.startsWith('POST /api/billing/checkout') && c.includes('"period":"yearly"') && c.includes('"method":"bank"')), calls.join('\n'));
+  await p.click('button[title="طباعة الفاتورة"]'); await p.waitForSelector('.mz-docv iframe', { timeout: 8000 }); await p.waitForTimeout(400);
+  const html = await p.evaluate(() => document.querySelector('.mz-docv iframe').srcdoc);
+  assert.match(html, /فاتورة ضريبية/); assert.doesNotMatch(html, /فاتورة ضريبية مبسطة/, 'مشترٍ برقم ضريبي ⇒ فاتورة ضريبية');
+  assert.match(html, /311111111100003/); assert.match(html, /300000000000003/); assert.match(html, /228\.85/); assert.match(html, /29\.85/); assert.match(html, /<svg/, 'رمز QR');
+  assert.match(html, /2026-11-19 — 2026-12-18/); assert.match(html, /لتقنية المعلومات/);
+  assert.deepEqual(errs, []); await ctx.close();
+});

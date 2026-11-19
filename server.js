@@ -19,6 +19,7 @@ import { onboardEgs } from './zatca/onboard.js';
 import { vaultReady } from './zatca/vault.js';
 import { createVerifier } from './server-auth.js';
 import { planAllows, PLAN_AR } from './plans.js';
+import { billingConfig, mountBilling, moyasarGateway, firestoreStore, saTokenSource, memoryStore } from './server-billing.js';
 import { loadTenants } from './tenants.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -230,6 +231,26 @@ app.post('/api/zatca/onboard', zJson, requireMember, requireFeature('zatca'), ra
   }
 });
 
+/* ================= الاشتراك والدفع (v51.4 — S5، انظر server-billing.js) ================= */
+const BILLING = billingConfig(process.env);
+if (process.env.MQ_BILLING === '1' && !BILLING.enabled) console.warn('[mithqal] الفوترة معطّلة — إعداد ناقص:', BILLING.why.join(' · '));
+// مدير المنشأة (platform/admins) يُقرأ برمز المستخدم نفسه من قاعدة منشأته — القواعد تسمح للعضو بقراءته
+async function tenantAdminCheck(req) {
+  const t = tenantOf(req), m = /^Bearer\s+(.+)$/i.exec(String(req.headers.authorization || ''));
+  if (!m || !t || !t.projectId || !req.user || !req.user.email) return false;
+  try {
+    const r = await fetch('https://firestore.googleapis.com/v1/projects/' + encodeURIComponent(t.projectId) + '/databases/(default)/documents/platform/admins', { headers: { authorization: 'Bearer ' + m[1].trim() } });
+    if (!r.ok) return false;
+    const vals = ((((await r.json()) || {}).fields || {}).emails || {}).arrayValue || {};
+    return (vals.values || []).some(v => String(v.stringValue || '').toLowerCase() === req.user.email);
+  } catch { return false; }
+}
+mountBilling(app, {
+  express, requireMember, tenantOf, rateLimit, cfg: BILLING, adminCheck: tenantAdminCheck,
+  store: BILLING.enabled ? firestoreStore({ project: BILLING.controlProject, token: saTokenSource(BILLING.sa) }) : memoryStore(),
+  gateway: moyasarGateway({ secretKey: BILLING.secretKey })
+});
+
 /* ================= الذكاء الاصطناعي ================= */
 const AI_MODEL = process.env.AI_MODEL || 'claude-opus-5-5';
 const AI_EFFORT = process.env.AI_EFFORT || 'medium';
@@ -287,7 +308,7 @@ async function callClaude({ system, user, maxTokens }) {
 /* ---- فحص الإعدادات: هل مفتاحا Firebase وAnthropic صالحان؟ (لا يكشف أي قيمة سرية) ---- */
 let deepCache = null;   // نتيجة اختبار الطلب الحقيقي تُحفظ 10 دقائق — لا تكلفة متكررة
 app.get('/api/health/config', rateLimit({ windowMs: 3600000, max: 20 }), async (req, res) => {
-  const out = { ok: true, model: AI_MODEL, tenants: { count: TENANTS.list.length, errors: TENANTS.errors.length }, firebase: { configured: !!FB_API_KEY }, anthropic: { configured: !!ANTHROPIC_KEY } };
+  const out = { ok: true, model: AI_MODEL, tenants: { count: TENANTS.list.length, errors: TENANTS.errors.length }, billing: { enabled: BILLING.enabled }, firebase: { configured: !!FB_API_KEY }, anthropic: { configured: !!ANTHROPIC_KEY } };
   if (FB_API_KEY) {
     try {
       const r = await fetch('https://identitytoolkit.googleapis.com/v1/projects?key=' + encodeURIComponent(FB_API_KEY), { headers: googleHeaders() });
