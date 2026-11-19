@@ -21,6 +21,7 @@ import {
 } from 'recharts';
 import { CSS } from './styles';
 import { TX, getLang, setLangGlobal, isEn, domI18n } from './i18n';
+import { tenantFirebase, tenantFbReady } from './tenant.js';
 import { cloud, KEYS, kb, authApi, brKey, bfKey, pushApi } from './storage';
 
 /* ===== v38.3 — تحميل التطبيقات عند الطلب =====
@@ -3241,7 +3242,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v50.4';
+const APP_VER = 'v51.0';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -12799,16 +12800,12 @@ function sigVerify(kind, x, sigs, cutover) {
 const SIG_BADGE = { ok: ['b-mint', 'موثّق ✓'], tampered: ['b-rose', 'عُدّل بعد اعتماده'], unsigned: ['b-rose', 'اعتماد غير موثّق'], legacy: ['b-dim', 'قبل التوثيق'] };
 
 function qrFs() {
-  const E = import.meta.env || {};
-  if (!(E.VITE_FIREBASE_API_KEY && E.VITE_FIREBASE_PROJECT_ID)) return Promise.resolve(null);
+  if (!tenantFbReady()) return Promise.resolve(null);   // v51.0 (S1): من طبقة المستأجر
   if (!_qrFsP) {
     _qrFsP = (async () => {
       const { initializeApp, getApps, getApp } = await import('firebase/app');
       const sdk = await import('firebase/firestore');
-      const app = getApps().length ? getApp() : initializeApp({
-        apiKey: E.VITE_FIREBASE_API_KEY, authDomain: E.VITE_FIREBASE_AUTH_DOMAIN, projectId: E.VITE_FIREBASE_PROJECT_ID,
-        storageBucket: E.VITE_FIREBASE_STORAGE_BUCKET, messagingSenderId: E.VITE_FIREBASE_SENDER_ID, appId: E.VITE_FIREBASE_APP_ID
-      });
+      const app = getApps().length ? getApp() : initializeApp({ ...tenantFirebase() });
       return { db: sdk.getFirestore(app), ...sdk };
     })().catch((e) => { _qrFsP = null; throw e; });
   }
