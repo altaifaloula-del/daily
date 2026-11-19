@@ -5,7 +5,7 @@ import { cloud, KEYS } from '../../storage';
 import { Target, Users, Grid3x3 as Layers, ShieldCheck, Settings, Download, Users as UserCheck, RefreshCw as GitMerge } from 'lucide-react';
 import { Field, Kpi, Modal, money, makeXlsx, today, nowISO, uid, normPhone, loyPost, ROLES,
   mktCfg, mktCanApprove, MKT_SEGS, MKT_SEG_ORDER, crmBuild, crmSegment, crmDupes, mktKpis, mktCanContact,
-  loyX, loyTier, loyPeriodicTx, mktProfiles, rewardCoupon, cpnKey, posR2, CAMP_ST, campNextNo, campStatusOf, campStats, recCfgOf, recStats, dtLocal, brReport, printScreen, AI_GROWTH_PRESETS, growthDigest, aiGrowthAsk, COMMS_PROVIDERS, COMMS_CH, COMMS_VARS, commsCfgOf, commsRender, smsParts, commsTplErr } from '../../App.jsx';
+  loyX, loyTier, loyPeriodicTx, mktProfiles, rewardCoupon, cpnKey, posR2, CAMP_ST, campNextNo, campStatusOf, campStats, recCfgOf, recStats, dtLocal, brReport, printScreen, AI_GROWTH_PRESETS, growthDigest, aiGrowthAsk, COMMS_PROVIDERS, COMMS_CH, COMMS_VARS, commsCfgOf, commsRender, smsParts, commsTplErr, loyAudit, LOY_AUDIT_WHY } from '../../App.jsx';
 import { Megaphone, Sparkles, Building2, Bot, MessageSquare } from 'lucide-react';
 import { Gift, Gift as Ticket } from 'lucide-react';
 
@@ -265,6 +265,7 @@ function Loy({ org, ops, loy, setLoy, canApp, me, commit, commitOrg, say }) {
       {X.tiers.map(t => <Kpi key={t.k} label={'مستوى ' + t.ar} value={String(dist[t.k] || 0)} sub={'من ' + t.min + ' نقطة/سنة · ×' + t.mult} color="#D9A83E" />)}
       <Kpi label="التزام النقاط القائمة" value={money(posR2(Math.max(0, liab) * ptv))} sub={posR2(liab) + ' نقطة × ' + ptv} color="#D95C4F" />
     </div>
+    <LoyAuditCard loy={loy} ops={ops} />
     <div className="card" data-loydue>
       <div className="card-t">الحركات الدورية المستحقة</div>
       <div style={{ fontSize: 12.5 }}>انتهاء نقاط: {byK.expire || 0} · أعياد ميلاد: {byK.bday || 0} · إحالات: {byK.ref || 0}</div>
@@ -571,3 +572,21 @@ function Com({ org, canApp, commitOrg, say }) {
     </Modal>}
   </div>);
 }
+
+/* v52.6 — BUG-00-12: فحص سلامة الولاء والكوبونات (رقابة كاشفة) */
+function LoyAuditCard({ loy, ops }) {
+  const A = useMemo(() => loyAudit(loy, ops), [loy, ops]); const [open, setOpen] = useState(false);
+  return (<div className="card" data-loyaudit style={{ borderColor: A.ok ? 'var(--line)' : 'rgba(217,84,77,.45)' }}>
+    <div className="row" style={{ alignItems: 'center', gap: 8 }}><div className="card-t" style={{ margin: 0 }}>فحص سلامة النقاط والكوبونات</div>
+      <span className={'badge ' + (A.ok ? 'b-mint' : 'b-rose')}>{A.ok ? 'سليم ✓' : (A.flags.length + A.cpn.length) + ' ملاحظة'}</span>
+      {(A.flags.length + A.cpn.length + A.manual.n) > 0 && <button className="btn sm gh" style={{ marginInlineStart: 'auto' }} onClick={() => setOpen(o => !o)}>{open ? 'إخفاء' : 'التفاصيل'}</button>}</div>
+    <div style={{ fontSize: 12.5, marginTop: 6 }}>فُحصت <b className="num">{A.checked}</b> حركة نقاط مقابل الفواتير والمرتجعات والدمج{A.outOfRange ? ' · ' + A.outOfRange + ' أقدم من الفواتير المحمّلة (مؤرشفة)' : ''} · تعديلات يدوية: <b className="num">{A.manual.n}</b> ({A.manual.pts} نقطة)</div>
+    <div className="note" style={{ marginTop: 6 }}>كل حركة نقاط يجب أن يكون لها مصدر: فاتورة بالقيمة نفسها، أو مرتجع، أو إلغاء، أو دمج معتمد، أو جائزة، أو حركة دورية، أو تعديل يدوي مسجّل باسم من أجراه. وكل حجز كوبون أقدم من يوم يجب أن تقابله فاتورة. ما لا مصدر له يظهر هنا للمراجعة.</div>
+    {open && <div className="tw" style={{ marginTop: 8 }}><table className="tb" data-loyflags><thead><tr><th>الملاحظة</th><th>العميل</th><th style={{ textAlign: 'end' }}>النقاط</th><th>البيان</th><th>الوقت</th></tr></thead><tbody>
+      {A.flags.map(f => <tr key={f.id}><td style={{ color: 'var(--rose)' }}>{LOY_AUDIT_WHY[f.why]}{f.expected != null ? ' (المتوقع ' + f.expected + ')' : ''}</td><td className="num">{f.phone}</td><td className="num" style={{ textAlign: 'end' }}>{f.pts}</td><td>{f.ord}</td><td className="num">{dtLocal(f.at)}</td></tr>)}
+      {A.cpn.map(c => <tr key={c.code + c.id}><td style={{ color: 'var(--rose)' }}>{LOY_AUDIT_WHY[c.why]} — {c.code}</td><td className="num">{c.phone}</td><td /><td className="num">{c.id}</td><td className="num">{dtLocal(c.at)}</td></tr>)}
+      {A.manual.list.map(m => <tr key={m.id}><td style={{ color: 'var(--amber)' }}>تعديل يدوي</td><td className="num">{m.phone}</td><td className="num" style={{ textAlign: 'end' }}>{m.pts}</td><td>{m.ord}</td><td className="num">{dtLocal(m.at)}</td></tr>)}
+    </tbody></table></div>}
+  </div>);
+}
+

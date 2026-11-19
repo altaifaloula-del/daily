@@ -2575,6 +2575,10 @@ test('v48.1 الولاء المتقدم: إعداد المستويات والج�
   await p.selectOption('select[aria-label="جائزة الولاء"]', { label: 'قهوة مجانية — 30 نقطة' }); await p.click('[data-redeem]'); await p.waitForTimeout(500);
   const c = await p.evaluate(() => window.curOrg.posPromos.map(x => [x.custPhone, x.maxUses, x.items, x.value]));
   assert.deepEqual(c, [['511111111', 1, ['p1'], 100]]); assert.match(await p.evaluate(() => window.lastSay || ''), /صدرت الجائزة بكوبون RW/);
+  // v52.6 فحص سلامة النقاط: عيد الميلاد والجائزة لهما مصدر معروف → سليم
+  await p.keyboard.press('Escape'); await p.waitForTimeout(150); if (await p.locator('.mask').count()) await p.locator('.mask button[aria-label="إغلاق"]').first().click().catch(() => {});
+  await p.click('[data-mktv="loy"]'); await p.waitForSelector('[data-loyaudit]');
+  assert.match(await p.locator('[data-loyaudit]').innerText(), /سليم ✓/);
   assert.deepEqual(errs, []); await ctx.close();
 });
 
