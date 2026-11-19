@@ -2113,3 +2113,13 @@ test('v50.0 المرحلة 05 منظومة التقارير: مواصفة واح
   assert.match(html, /\(50\.00\)/, 'السالب بين قوسين'); assert.match(html, /1,450\.50/);
   assert.match(E.rptHtml(org, { ...spec, lang: 'en', orientation: 'landscape', paper: 'A3' }), /size:A3 landscape[\s\S]*dir="ltr"|dir="ltr"[\s\S]*size:A3 landscape/);
 });
+
+test('v50.0 G2 التعميم: كل طباعة قديمة بالقالب الموحد (ترقيم، رأس متكرر، تذييل)، وكل ورقة Excel قديمة برأس مجمّد وعرض أعمدة', async () => {
+  const org = baseOrg({ company: { name: 'مطعم', taxNumber: '3001', address: 'الطائف' } });
+  const h = E.rptShell(org, 'كشف', 'نوفمبر', '<table><thead><tr><th>أ</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table>', { orientation: 'landscape' });
+  assert.match(h, /counter\(page\)[\s\S]*counter\(pages\)/); assert.match(h, /thead\{display:table-header-group\}/); assert.match(h, /size:A4 landscape/);
+  assert.match(h, /الرقم الضريبي: 3001 · الطائف/); assert.match(h, /صادر من مِثقال v[\s\S]*طبعه:/);
+  const xml = new TextDecoder().decode(new Uint8Array(await E.makeXlsx([{ name: 'قديم', rows: [['البند', 'المبلغ'], ['كهرباء طويلة الاسم جدًا', 1200]] }]).arrayBuffer()));
+  assert.match(xml, /<pane ySplit="1"/); assert.match(xml, /<col min="1" max="1" width="\d+"/);
+  assert.match(xml, /<c r="A1" s="1"/, 'الرأس عريض كما كان');
+});
