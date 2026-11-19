@@ -19,7 +19,7 @@
     "test:zatca": "node --test tests/zatca.test.mjs",
     "test:backup": "node --test tests/backup.test.mjs tests/push.test.mjs",
     "zatca:sandbox": "node scripts/zatca-sandbox.mjs",
-    "test": "node --test tests/accounting.test.mjs tests/zatca.test.mjs tests/backup.test.mjs tests/restore.test.mjs tests/push.test.mjs tests/functional/cycles.test.mjs tests/brand.test.mjs tests/tenant.test.mjs tests/tenant-boot.test.mjs tests/tenant-server.test.mjs tests/plans.test.mjs tests/billing.test.mjs tests/provider.test.mjs tests/automation.test.mjs tests/editperm.test.mjs tests/automation2.test.mjs",
+    "test": "node --test tests/accounting.test.mjs tests/zatca.test.mjs tests/backup.test.mjs tests/restore.test.mjs tests/push.test.mjs tests/functional/cycles.test.mjs tests/brand.test.mjs tests/tenant.test.mjs tests/tenant-boot.test.mjs tests/tenant-server.test.mjs tests/plans.test.mjs tests/billing.test.mjs tests/provider.test.mjs tests/automation.test.mjs tests/editperm.test.mjs tests/automation2.test.mjs tests/campaigns.test.mjs",
     "test:all": "npm test && npm run test:rules && npm run test:ui",
     "check": "npm run build && npm test"
   },

@@ -61,6 +61,8 @@ export function Approvals({ org, me, scoped, commit, say }) {
       {queue.map(c => {
         const needAudit = c.status === 'submitted';
         const canAct = needAudit ? (ROLES[me.role]?.scope !== 'own' && ROLES[me.role]?.tabs?.includes('approve')) : isGM;
+        // v52.1 (BUG-08-01): ترحيل بلا توقيع بعد بدء التوثيق لا يُدقَّق (القواعد ترفضه) — المسار الصحيح «إرجاع» ليعيد الفرع ترحيله موقّعًا
+        const noSub = needAudit && !!sigs && !c.sigSubmit && !!cut && c.date >= cut;
         return (
           <div key={c.id} className="card" style={{ borderColor: c.variance < 0 ? 'rgba(217,84,77,.3)' : 'var(--line)' }}>
             <div className="card-h">
@@ -85,6 +87,7 @@ export function Approvals({ org, me, scoped, commit, say }) {
                 <span className="num" style={{ color: c.variance < 0 ? 'var(--rose)' : c.variance > 0 ? 'var(--mint)' : 'var(--faint)' }}>{money(c.variance)}</span>
               </div>
             </div>
+            {noSub && <div className="note" data-nosub style={{ marginTop: 10, borderColor: 'rgba(217,84,77,.4)' }}>رُحّل هذا الإغلاق دون توقيع تقديم موثّق، فلا يمكن اعتماد تدقيقه. اكتب السبب (مثل «يرجى إعادة الترحيل للتوثيق») واضغط «إرجاع» — يعيد {c.managerName || 'مدير الفرع'} ترحيله فيُوقَّع تلقائيًا، ثم تعتمده.</div>}
             {c.varianceReason && <div style={{ fontSize: 11.5, color: 'var(--amber)', marginTop: 10 }}>تبرير الفرق: {c.varianceReason}</div>}
             <div className="row" style={{ marginTop: 12 }}>
               <input className="inp" style={{ flex: 1, minWidth: 180 }} placeholder="ملاحظة التدقيق أو سبب الإرجاع"
@@ -92,9 +95,9 @@ export function Approvals({ org, me, scoped, commit, say }) {
               <button className="btn sm gh" onClick={() => setView(c)}><Eye size={13} />تفاصيل</button>
               {canAct ? (
                 <>
-                  <button className="btn sm ok" onClick={() => act(c, needAudit ? 'audit' : 'gm')}>
+                  {!noSub && <button className="btn sm ok" onClick={() => act(c, needAudit ? 'audit' : 'gm')}>
                     <Check size={13} />{needAudit ? 'اعتماد التدقيق' : 'اعتماد نهائي'}
-                  </button>
+                  </button>}
                   <button className="btn sm no" onClick={() => act(c, 'reject')}><X size={13} />إرجاع</button>
                 </>
               ) : <span className="badge b-dim"><Lock size={10} />خارج صلاحيتك</span>}

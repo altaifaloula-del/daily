@@ -2821,3 +2821,28 @@ test('v52.0 الأتمتة: إعداداتها في بيانات الشركة، 
   assert.ok(await o2.p.locator('.modal input[value="70"]').count() >= 1, 'النموذج معبأ بالكمية المقترحة');
   assert.deepEqual([...errs, ...o2.errs], []); await o2.ctx.close();
 });
+
+test('v52.1 الحملات: إنشاء حملة تربط كوبونًا بشريحة، والنتائج من الطلبات الفعلية، والكوبون لا يُربط بحملتين', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1200 } }, 'live/MktGrowth/admin');
+  await p.evaluate(() => { const td = new Date(); td.setHours(12); const d = td.toISOString().slice(0, 10);
+    window.setOrg(g => ({ ...g, posPromos: [{ id: 'cw', name: 'عودة', type: 'pct', value: 10, scope: 'all', code: 'BACK10', active: true }] }));
+    window.setOps(o => ({ ...o, mktCampaigns: [], posOrders: [{ id: 'o1', date: d, branchId: 'b1', coupon: 'BACK10', total: 90, lines: [{ promoId: 'cw', disc: 10 }], loyalty: { phone: '0511111111' } }] })); });
+  await p.waitForTimeout(300); await p.click('[data-mktv="cmp"]'); await p.waitForSelector('[data-cmp]');
+  await p.click('[data-cmp] button:has-text("حملة جديدة")');
+  await p.fill('.modal input[aria-label="اسم الحملة"]', 'استرجاع العملاء'); await p.fill('.modal input[aria-label="الميزانية"]', '20');
+  await p.locator('.modal label:has-text("BACK10") input').check();
+  await p.click('.modal button:has-text("إطلاق الحملة")'); await p.waitForTimeout(400);
+  const c = await p.evaluate(() => window.cur.mktCampaigns[0]);
+  assert.equal(c.no, 'CMP-0001'); assert.equal(c.status, 'active'); assert.deepEqual(c.promoIds, ['cw']);
+  assert.equal(await p.evaluate(() => window.curOrg.posPromos[0].campaignId), c.id, 'الكوبون مرتبط بالحملة');
+  const s = (await p.locator('[data-camp="CMP-0001"] [data-campstats]').innerText()).replace(/\s+/g, ' ');
+  assert.match(s, /الاستخدام: 1/); assert.match(s, /90\.00/); assert.match(s, /التكلفة لكل طلب: 30\.00/);
+  await p.click('[data-cmp] button:has-text("حملة جديدة")');
+  assert.equal(await p.locator('.modal label:has-text("BACK10") input').isDisabled(), true, 'لا يُربط بحملتين قائمتين');
+  await p.click('.modal button:has-text("إلغاء")');
+  await p.click('[data-camp="CMP-0001"] button:has-text("إنهاء")'); await p.waitForTimeout(300);
+  assert.equal(await p.evaluate(() => window.cur.mktCampaigns[0].status), 'ended');
+  await p.click('[data-mktv="cpn"]'); await p.waitForTimeout(200);
+  assert.match(await p.locator('[data-cpntable]').innerText(), /حملة CMP-0001/);
+  assert.deepEqual(errs, []); await ctx.close();
+});
