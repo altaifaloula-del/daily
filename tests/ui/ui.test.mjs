@@ -2661,3 +2661,48 @@ test('v51.4 الفواتير والدفع لمنشأة مشتركة: الأسع�
   assert.match(html, /2026-11-19 — 2026-12-18/); assert.match(html, /لتقنية المعلومات/);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v51.5 لوحة مِثقال: المنشآت والتوصيات والمفاتيح، تأكيد التحويل، وقبول طلب تسجيل يعرض أمر التهيئة', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1360, height: 1000 } }); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  p.on('dialog', d => d.accept(d.type() === 'prompt' ? (/مرجع/.test(d.message()) ? 'TRX-77' : /المبلغ/.test(d.message()) ? '228.85' : /معرّف/.test(d.message()) ? 'burger-house' : '14') : undefined));
+  const posts = []; let confirmed = false;
+  await p.route('http://zatca.test/api/provider/**', async (route) => { const u = new URL(route.request().url()), m = route.request().method(); if (m === 'POST') posts.push(u.pathname + ' ' + route.request().postData());
+    const J = (b, st = 200) => route.fulfill({ status: st, contentType: 'application/json', body: JSON.stringify(b) });
+    if (u.pathname.endsWith('/tenants')) return J({ tenants: [{ id: 'c2', name: 'مطعم س', projectId: 'mithqal-c2', plan: 'pro', registryPlan: 'pro', state: 'overdue', recommend: 'readonly', paidThrough: '2026-11-01', keys: { web: true, zatca: true, ops: false } },
+      { id: 'c9', name: 'جديدة', projectId: 'mithqal-c9', plan: '', state: 'unconfigured', recommend: 'active', keys: { web: false, zatca: false, ops: false } }] });
+    if (u.pathname.endsWith('/signups')) return J({ signups: [{ id: 'S00001', seq: 1, company: 'Burger House', contact: 'أحمد علي', email: 'own@bh.sa', phone: '0501234567', plan: 'pro', branches: 3, status: 'new', at: '2026-11-19T08:00:00Z' }] });
+    if (u.pathname.endsWith('/invoices')) return J({ invoices: [{ no: 'MQ-2026-000005', start: '2026-11-19', end: '2026-12-18', total: 22885, status: confirmed ? 'paid' : 'pending_transfer' }] });
+    if (u.pathname.endsWith('/invoice/confirm')) { confirmed = true; return J({ ok: true, status: 'paid', end: '2026-12-18' }); }
+    if (u.pathname.endsWith('/status')) return J({ error: 'لا حساب خدمة تشغيلي لهذه المنشأة (saEnv) — نفّذ الأمر يدويًا', cmd: 'node scripts/tenant-provision.mjs status --id c2 --set readonly' }, 409);
+    if (u.pathname.endsWith('/signups/decide')) return J({ ok: true, cmd: 'node scripts/tenant-provision.mjs plan --id burger-house --name "Burger House" --plan pro --owner own@bh.sa' });
+    return J({}); });
+  await p.goto(base + 'provider'); await p.waitForSelector('.mq-prov table', { timeout: 15000 }); await settle(p);
+  const t = (await p.locator('.mq-prov').innerText()).replace(/\s+/g, ' ');
+  assert.match(t, /مطعم س/); assert.match(t, /متأخر/); assert.match(t, /للقراءة فقط/); assert.match(t, /غير مهيأة على الخادم/); assert.match(t, /✕ ops/); assert.match(t, /Burger House/); assert.match(t, /own@bh\.sa/);
+  await p.click('tr:has-text("مطعم س") button:has-text("للقراءة فقط")'); await p.waitForSelector('.mq-prov-cmd');
+  assert.match(await p.locator('.mq-prov-cmd').innerText(), /tenant-provision\.mjs status --id c2 --set readonly/, 'بلا حساب خدمة: الأمر اليدوي');
+  await p.click('tr:has-text("مطعم س") button:has-text("الفواتير")'); await p.click('button:has-text("تأكيد التحويل")'); await p.waitForTimeout(500);
+  assert.ok(posts.some(x => x.startsWith('/api/provider/invoice/confirm') && x.includes('"ref":"TRX-77"') && x.includes('"amount":"228.85"')), posts.join('\n'));
+  await p.click('tr:has-text("Burger House") button:has-text("قبول")'); await p.waitForTimeout(400);
+  assert.match(await p.locator('.mq-prov-cmd').innerText(), /plan --id burger-house --name "Burger House" --plan pro --owner own@bh\.sa/);
+  assert.ok(posts.some(x => x.startsWith('/api/provider/signups/decide') && x.includes('"tenantId":"burger-house"') && x.includes('"status":"approved"')));
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v51.5 التسجيل العام: نموذج عربي مستقل، الحقل المخفي يُرسل فارغًا، ورسالة الاستلام', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 420, height: 900 } }); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  let sent = null;
+  await p.route('http://zatca.test/api/signup', async (route) => { sent = JSON.parse(route.request().postData()); route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, id: 'S00042' }) }); });
+  await p.goto(base + 'signup'); await p.waitForSelector('.mq-signup form', { timeout: 15000 });
+  const ins = p.locator('.mq-signup form input:not([type=radio]):not([name=website])');
+  await ins.nth(0).fill('مطعم الوادي'); await ins.nth(1).fill('أحمد علي'); await ins.nth(2).fill('0501234567'); await ins.nth(3).fill('own@wadi.sa');
+  await ins.nth(0).press('End'); await p.keyboard.type('ي'); await p.keyboard.type('ة'); assert.equal(await ins.nth(0).inputValue(), 'مطعم الواديية', 'الكتابة المتتابعة لا تفقد المؤشر');
+  await p.click('label:has-text("المؤسسات")');
+  const hb = await p.locator('input[name=website]').boundingBox(); assert.ok(!hb || hb.width <= 1, 'الحقل المخفي لا يظهر');
+  assert.ok(await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), 'لا تمرير أفقي على الجوال');
+  await p.click('button[type=submit]'); await p.waitForSelector('.mq-signup-ok');
+  assert.match(await p.locator('.mq-signup-ok').innerText(), /S00042/);
+  assert.equal(sent.company, 'مطعم الواديية'); assert.equal(sent.plan, 'enterprise'); assert.equal(sent.website, ''); assert.equal(sent.email, 'own@wadi.sa');
+  assert.equal(await p.evaluate(() => document.querySelector('.mq-signup').getAttribute('dir')), 'rtl');
+  assert.deepEqual(errs, []); await ctx.close();
+});

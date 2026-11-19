@@ -69,7 +69,12 @@ function Live() {
 let el;
 // v51.4: بطاقة الاشتراك لمنشأة مشتركة (الخادم يُحاكى في الاختبار بالتقاط طلبات /api/billing)
 const SubCard = React.lazy(() => import('../../mods/admin/SubscriptionCard.jsx').then(m => ({ default: m.SubscriptionCard })));
+// v51.5: لوحة مِثقال وصفحة التسجيل العام (الخادم يُحاكى بالتقاط /api/provider و/api/signup)
+const ProvC = React.lazy(() => import('../../mods/admin/ProviderConsole.jsx').then(m => ({ default: m.ProviderConsole })));
+const SignupP = React.lazy(() => import('../../mods/signup/SignupPage.jsx').then(m => ({ default: m.SignupPage })));
 if (kind === 'live') el = React.createElement(Live);
+else if (kind === 'provider') el = React.createElement(React.Suspense, { fallback: null }, React.createElement(ProvC, { say: (m) => { window.lastSay = m; } }));
+else if (kind === 'signup') el = React.createElement(React.Suspense, { fallback: null }, React.createElement(SignupP));
 else if (kind === 'subcard') el = React.createElement(React.Suspense, { fallback: null }, React.createElement(SubCard, { branches: 2, tenant: { id: 'c2', name: 'مطعم تجريبي', plan: 'pro', region: 'me-central2', status: 'active', firebase: { projectId: 'mithqal-c2' } } }));
 else { const P = { ...base, ops, scoped: ops, me: ME.admin, commit: async () => true, acctIntent: kind === 'acct' ? { v: a, ts: 1 } : null, invIntent: null };
   el = kind === 'hub' ? React.createElement(M.Hub, { ...P, hubId: a, view: b }) : kind === 'acct' ? React.createElement(M.Accounting, P) : React.createElement(M[a], P); }

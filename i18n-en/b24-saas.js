@@ -30,6 +30,7 @@ export default {
 "مدى": "mada",
 "فيزا / ماستركارد": "Visa / Mastercard",
 "تحويل بنكي": "Bank transfer",
+"لوحة مِثقال": "Mithqal console",
 "الاشتراك والمنشأة": "Subscription & organization",
 "الخصائص المشمولة": "Included features",
 "عدد الفروع يتجاوز حد الخطة — تواصل مع مِثقال لترقية الاشتراك.": "Branch count exceeds the plan limit — contact Mithqal to upgrade your subscription.",
