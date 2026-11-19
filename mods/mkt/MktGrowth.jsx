@@ -5,7 +5,7 @@ import { cloud, KEYS } from '../../storage';
 import { Target, Users, Grid3x3 as Layers, ShieldCheck, Settings, Download, Users as UserCheck, RefreshCw as GitMerge } from 'lucide-react';
 import { Field, Kpi, Modal, money, makeXlsx, today, nowISO, uid, normPhone, loyPost, ROLES,
   mktCfg, mktCanApprove, MKT_SEGS, MKT_SEG_ORDER, crmBuild, crmSegment, crmDupes, mktKpis, mktCanContact,
-  loyX, loyTier, loyPeriodicTx, mktProfiles, rewardCoupon, cpnKey, posR2, CAMP_ST, campNextNo, campStatusOf, campStats, recCfgOf, recStats } from '../../App.jsx';
+  loyX, loyTier, loyPeriodicTx, mktProfiles, rewardCoupon, cpnKey, posR2, CAMP_ST, campNextNo, campStatusOf, campStats, recCfgOf, recStats, dtLocal } from '../../App.jsx';
 import { Megaphone, Sparkles } from 'lucide-react';
 import { Gift, Gift as Ticket } from 'lucide-react';
 
@@ -157,7 +157,7 @@ function Profile({ c, org, ops, loy, setLoy, canApp, brName, me, commit, commitO
           <Field label="المصدر/الإثبات"><input className="inp" aria-label="مصدر الموافقة" value={f.src} onChange={e => setF(x => ({ ...x, src: e.target.value }))} /></Field>
           <button className="btn pri sm" data-consent-save onClick={rec}>تسجيل</button>
         </div>
-        <table className="tb" style={{ fontSize: 12, marginTop: 8 }} data-consent-hist><tbody>{c.consent.hist.slice().reverse().map(h => <tr key={h.id}><td className="num">{String(h.at).slice(0, 16).replace('T', ' ')}</td><td>{h.status === 'in' ? 'موافقة' : 'إلغاء اشتراك'}</td><td>{CH[h.ch] || h.ch}</td><td>{h.src}</td><td>{h.by}</td></tr>)}
+        <table className="tb" style={{ fontSize: 12, marginTop: 8 }} data-consent-hist><tbody>{c.consent.hist.slice().reverse().map(h => <tr key={h.id}><td className="num">{dtLocal(h.at)}</td><td>{h.status === 'in' ? 'موافقة' : 'إلغاء اشتراك'}</td><td>{CH[h.ch] || h.ch}</td><td>{h.src}</td><td>{h.by}</td></tr>)}
           {!c.consent.hist.length && <tr><td><div className="empty">لا موافقة مسجّلة — لا يُراسَل تسويقيًا.</div></td></tr>}</tbody></table>
       </div>
     </div>
@@ -326,7 +326,7 @@ function Cpn({ org, ops, loy, canApp, me, commitOrg, say, brName }) {
         <td className="num" style={{ textAlign: 'end' }}>{S.live}{Number(pr.maxUses) > 0 ? ' / ' + pr.maxUses : ''}</td><td className="num" style={{ textAlign: 'end' }}>{S.rate == null ? '—' : S.rate + '%'}</td>
         <td className="num" style={{ textAlign: 'end' }}>{money(S.disc)}</td><td className="num" style={{ textAlign: 'end' }}>{money(S.sales)}</td>
         <td style={{ whiteSpace: 'nowrap' }}>{S.L.length > 0 && <button className="btn sm gh" onClick={() => setOpen(o => o === pr.id ? null : pr.id)}>السجل</button>}{pr.pending && canApp && <button className="btn sm pri" onClick={() => approve(pr)}>اعتماد</button>}</td></tr>
-        {open === pr.id && <tr><td colSpan={7}><table className="tb" style={{ fontSize: 12 }} data-cpnhist><tbody>{S.L.map(u => <tr key={u.id}><td className="num">{String(u.at).slice(0, 16).replace('T', ' ')}</td><td className="num">{u.phone || '—'}</td><td>{brName(u.br)}</td><td className="num">{u.id}</td><td>{u.rel ? 'مُحرَّر: ' + (u.relWhy || '') : 'مستخدم'}</td></tr>)}</tbody></table></td></tr>}
+        {open === pr.id && <tr><td colSpan={7}><table className="tb" style={{ fontSize: 12 }} data-cpnhist><tbody>{S.L.map(u => <tr key={u.id}><td className="num">{dtLocal(u.at)}</td><td className="num">{u.phone || '—'}</td><td>{brName(u.br)}</td><td className="num">{u.id}</td><td>{u.rel ? 'مُحرَّر: ' + (u.relWhy || '') : 'مستخدم'}</td></tr>)}</tbody></table></td></tr>}
       </React.Fragment>; })}
         {!list.length && <tr><td colSpan={7}><div className="empty">لا كوبونات بعد.</div></td></tr>}</tbody></table></div>
   </div>);

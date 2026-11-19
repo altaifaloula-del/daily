@@ -1,7 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState } from 'react';
 import { ClipboardCheck, Printer, Lock } from 'lucide-react';
-import { posDocView, Field, Modal, Num, _xe, businessDay, money, nowISO, posOrdersStats, posPrint, posR2, posShiftHtml, posZHtml, printA4 } from '../../App.jsx';
+import { posDocView, Field, Modal, Num, _xe, businessDay, money, nowISO, posOrdersStats, posPrint, posR2, posShiftHtml, posZHtml, printA4, dtLocal } from '../../App.jsx';
 
 export function PosShifts({ org, ops, me, brs, commit, say }) {
   const [bid, setBid] = useState('all'); const [d, setD] = useState(businessDay()); const [rc, setRc] = useState(null);
@@ -49,7 +49,7 @@ export function PosShifts({ org, ops, me, brs, commit, say }) {
       <div className="card"><div className="tw"><table className="tb"><thead><tr><th>الفرع</th><th>الجهاز</th><th>فتحها</th><th>الحالة</th><th style={{ textAlign: 'end' }}>الفواتير</th><th style={{ textAlign: 'end' }}>المبيعات</th><th style={{ textAlign: 'end' }}>النقد المتوقع</th><th style={{ textAlign: 'end' }}>الفرق</th><th></th></tr></thead><tbody>
         {shifts.map(sh => { const os = ordersOf(sh); const s2 = posOrdersStats(os); const b = bOf(sh.branchId); return (
           <tr key={sh.id}><td style={{ fontSize: 12 }}>{b.name}</td><td style={{ fontSize: 12 }}>{sh.devName} <span className="num" style={{ color: 'var(--faint)' }}>({sh.dev})</span></td>
-            <td style={{ fontSize: 11.5 }}>{sh.openedBy}<div className="num" style={{ color: 'var(--faint)' }}>{String(sh.openedAt).slice(0, 16).replace('T', ' ')}</div></td>
+            <td style={{ fontSize: 11.5 }}>{sh.openedBy}<div className="num" style={{ color: 'var(--faint)' }}>{dtLocal(sh.openedAt)}</div></td>
             <td>{sh.status === 'open' ? <span className="badge b-mint">مفتوحة</span> : <span className="badge b-dim">مغلقة {String(sh.closedAt || '').slice(11, 16)}</span>}{sh.remote && <div><span className="badge b-amber" title={sh.closeNote}>إنهاء إداري</span></div>}</td>
             <td className="num" style={{ textAlign: 'end' }}>{s2.n}</td><td className="num" style={{ textAlign: 'end' }}>{money(s2.total)}</td>
             <td className="num" style={{ textAlign: 'end' }}>{money(sh.status === 'closed' ? sh.expected : expOf(sh))}</td>

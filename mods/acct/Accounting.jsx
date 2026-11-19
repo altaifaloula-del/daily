@@ -5,7 +5,7 @@ import { EInvoiceOnboard } from './EInvoiceOnboard.jsx';
 import { RotateCcw, Scale, FileBarChart, ChevronDown, Printer, Settings, Receipt, BarChart3, Lock, Landmark, FileText, TrendingUp, ArrowLeftRight, Store, Users, QrCode, Building2, Truck, ClipboardCheck, ShieldCheck, CalendarDays, Download, Upload, Plus, Grid3x3, Check, Trash2, RefreshCw, Wallet, TrendingDown, AlertTriangle, ChevronRight, ShieldAlert, Eye, ChevronLeft, CircleDollarSign, X } from 'lucide-react';
 import { VatRegisters, SupplierPurchReport } from './TaxPurchReports.jsx';   // v39.1
 import { Suppliers } from '../inv/Suppliers.jsx';   // v44.0 «مستلم لم يُفوتر»
-import { OdooBar , SecPager, recurApply, canEditRec } from '../../App.jsx';   // v41.0
+import { OdooBar , SecPager, recurApply, canEditRec, dtLocal } from '../../App.jsx';   // v41.0
 import { GeneralLedger } from './GeneralLedger.jsx';   // v49.4 المرحلة 03
 import { makeRptXlsx } from '../../App.jsx';   // v50.0 منظومة التقارير
 import { DEP_METHODS, depMethod, deprSchedule, wfOn, wfRequired, wfState, wfCanAct, wfApprove } from '../../App.jsx';   // v49.4 طرق الإهلاك
@@ -3028,7 +3028,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                 <thead><tr><th>التاريخ</th><th>الإجراء</th><th>الشهر/الحد</th><th>السبب</th><th>بواسطة</th></tr></thead>
                 <tbody>{plLog.map(l => (
                   <tr key={l.id}>
-                    <td className="num" style={{ fontSize: 11 }}>{(l.at || '').slice(0, 16).replace('T', ' ')}</td>
+                    <td className="num" style={{ fontSize: 11 }}>{dtLocal(l.at || '')}</td>
                     <td>{l.action === 'lock' ? <span className="badge b-mint">قفل 🔒</span> : <span className="badge b-amber">فتح استثنائي</span>}</td>
                     <td className="num">{l.month}</td>
                     <td style={{ fontSize: 11.5, color: 'var(--dim)' }}>{l.reason || '—'}</td>

@@ -3,7 +3,7 @@
    المحرك في النواة (fsStatus/fsInRange). */
 import React, { useMemo, useState } from 'react';
 import { Thermometer, Plus, Printer, Info, Check, Trash2 } from 'lucide-react';
-import { FS_KIND, Field, Kpi, ROLES, arDate, fsInRange, fsStatus, nowISO, printA4, today, uid } from '../../App.jsx';
+import { FS_KIND, Field, Kpi, ROLES, arDate, fsInRange, fsStatus, nowISO, printA4, today, uid, dtLocal } from '../../App.jsx';
 
 const addD = (d, k) => { const x = new Date(d + 'T12:00:00'); x.setDate(x.getDate() + k); return x.toISOString().slice(0, 10); };
 const rng = (u) => (u.min != null && u.min !== '' ? u.min + '°' : '') + (u.min != null && u.min !== '' && u.max != null && u.max !== '' ? ' إلى ' : '') + (u.max != null && u.max !== '' ? u.max + '°' : '') || 'بلا مدى';
@@ -35,7 +35,7 @@ export function FoodSafety({ org, ops, me, myBranches, commit, commitOrg, say })
   const print = () => { const from = addD(td, -(per7 - 1)); const L = (ops.fsLogs || []).filter(l => l.date >= from && l.date <= td && (central || l.branchId === br)).sort((a, c) => String(a.at).localeCompare(String(c.at)));
     const bn = (id) => ((org.branches || []).find(b => b.id === id) || {}).name || id;
     printA4(org, 'سجل درجات حرارة سلامة الغذاء', from + ' — ' + td + (central ? '' : ' · ' + bn(br)),
-      `<table><thead><tr><th>الفرع</th><th>الجهاز</th><th>التاريخ والوقت</th><th>الحرارة °م</th><th>الحالة</th><th>الإجراء التصحيحي</th><th>سجّلها</th></tr></thead><tbody>${L.map(l => `<tr><td>${bn(l.branchId)}</td><td>${l.unitName || ''}</td><td class="n">${String(l.at).slice(0, 16).replace('T', ' ')}</td><td class="n">${l.temp}</td><td>${l.ok ? 'ضمن المدى' : '<b style="color:#C0392B">خارج المدى</b>'}</td><td>${l.action || ''}</td><td>${l.by || ''}</td></tr>`).join('')}</tbody></table>
+      `<table><thead><tr><th>الفرع</th><th>الجهاز</th><th>التاريخ والوقت</th><th>الحرارة °م</th><th>الحالة</th><th>الإجراء التصحيحي</th><th>سجّلها</th></tr></thead><tbody>${L.map(l => `<tr><td>${bn(l.branchId)}</td><td>${l.unitName || ''}</td><td class="n">${dtLocal(l.at)}</td><td class="n">${l.temp}</td><td>${l.ok ? 'ضمن المدى' : '<b style="color:#C0392B">خارج المدى</b>'}</td><td>${l.action || ''}</td><td>${l.by || ''}</td></tr>`).join('')}</tbody></table>
       <div class="sign"><div>مسؤول المطبخ</div><div>مدير الفرع</div><div>المراجعة</div></div>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no'); };
   return (
     <div className="grid" style={{ gap: 12 }}>
@@ -56,7 +56,7 @@ export function FoodSafety({ org, ops, me, myBranches, commit, commitOrg, say })
       </div>
       <div className="grid g3">{S.branches.map(b => <Kpi key={b.id} label={'الالتزام — ' + b.name} value={b.pct == null ? '—' : b.pct + '%'} sub={b.done + ' من ' + b.req + ' قراءة · ' + b.out.length + ' خارج المدى'} icon={Thermometer} color={b.pct >= 95 ? '#4FB286' : b.pct >= 80 ? '#E0A458' : '#D9544D'} />)}</div>
       {S.branches.some(b => b.out.length) && <div className="card"><div className="card-t" style={{ marginBottom: 6 }}>قراءات خارج المدى</div>
-        <div className="me-list">{S.branches.flatMap(b => b.out.map(l => <div key={l.id} className="me-row"><span className="me-a"><b>{b.name} — {l.unitName}</b><small>{String(l.at).slice(0, 16).replace('T', ' ')} · {l.by} · الإجراء: {l.action || '—'}</small></span><span className="me-b"><b className="num" style={{ color: 'var(--rose)' }}>{l.temp}°</b></span></div>))}</div></div>}
+        <div className="me-list">{S.branches.flatMap(b => b.out.map(l => <div key={l.id} className="me-row"><span className="me-a"><b>{b.name} — {l.unitName}</b><small>{dtLocal(l.at)} · {l.by} · الإجراء: {l.action || '—'}</small></span><span className="me-b"><b className="num" style={{ color: 'var(--rose)' }}>{l.temp}°</b></span></div>))}</div></div>}
       {central && commitOrg && <div className="card">
         <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}><div className="card-t">المعدات ({(org.fsUnits || []).length})</div>
           <div className="rp-seg"><label className="pp-lead">قراءات يوميًا <input className="inp n" inputMode="numeric" defaultValue={perDay} onBlur={e => Number(e.target.value) !== perDay && savePer(e.target.value)} /></label>

@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { cloud, KEYS, brKey } from '../../storage';
 import { ShieldCheck, RefreshCw, Trash2, AlertTriangle, Check, Server, Bug, Activity, HardDrive } from 'lucide-react';
-import { archKey, archivePlan, nowISO, printA4, uid } from '../../App.jsx';   // v41.7
+import { archKey, archivePlan, nowISO, printA4, uid, dtLocal } from '../../App.jsx';   // v41.7
 import { clrCompare, clrLoad, clrOn, clrSeed, clrState, logAudit, clrRead, clrViewStats } from '../../App.jsx';   // v41.9 + v42.2
 import { WorkflowsCard } from './Workflows.jsx';   // v49.5 MQ-059
 import { fjCompare, fjLoad, fjOn, fjState, fpLockedTo, fpLoad, fmLoad, fmSet, fjSeed, FD_KINDS, fdCompare, fdLoad, fdSeed } from '../../App.jsx';   // v49.0 المرحلة 01
@@ -218,7 +218,7 @@ export function SystemMaintenance({ org, ops, me, commit, commitOrg, say }) {
     } catch (e) { say((e && e.message) || 'توقفت الأرشفة', 'no'); } finally { setArcBusy(false); }
   };
   const viewArch = async (l) => { const a = (await cloud.get(l.key, null)) || {}; const os = (a.orders || []).slice().sort((x, y) => String(x.at || x.date).localeCompare(String(y.at || y.date)));
-    printA4(org, 'أرشيف فواتير نقطة البيع — ' + (l.branch || l.branchId) + ' ' + l.year, os.length + ' فاتورة', `<table><thead><tr><th>الرقم</th><th>التاريخ</th><th>الإجمالي</th><th>الضريبة</th><th>الحالة</th><th>الكاشير</th></tr></thead><tbody>${os.map(o => `<tr><td>${o.no || o.id}</td><td class="n">${String(o.at || o.date).slice(0, 16).replace('T', ' ')}</td><td class="n">${money(o.total || 0)}</td><td class="n">${money(o.vat || 0)}</td><td>${o.status === 'void' ? 'ملغاة' : 'مدفوعة'}</td><td>${o.by || ''}</td></tr>`).join('')}</tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no'); };
+    printA4(org, 'أرشيف فواتير نقطة البيع — ' + (l.branch || l.branchId) + ' ' + l.year, os.length + ' فاتورة', `<table><thead><tr><th>الرقم</th><th>التاريخ</th><th>الإجمالي</th><th>الضريبة</th><th>الحالة</th><th>الكاشير</th></tr></thead><tbody>${os.map(o => `<tr><td>${o.no || o.id}</td><td class="n">${dtLocal(o.at || o.date)}</td><td class="n">${money(o.total || 0)}</td><td class="n">${money(o.vat || 0)}</td><td>${o.status === 'void' ? 'ملغاة' : 'مدفوعة'}</td><td>${o.by || ''}</td></tr>`).join('')}</tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no'); };
   const [busy, setBusy] = useState(false);
   const local = (() => { try { return JSON.parse(localStorage.getItem(ERRLOG_KEY) || '[]'); } catch { return []; } })();
   const brName = (id) => ((org.branches || []).find(b => b.id === id) || {}).name || id;
@@ -330,13 +330,13 @@ export function SystemMaintenance({ org, ops, me, commit, commitOrg, say }) {
           : !errs.groups.length ? <div className="empty">لا أخطاء مسجّلة من أي جهاز ✓</div> : <div className="mt-list">{errs.groups.map(g => (
             <div key={g.sig} className="mt-err">
               <div className="mt-err-h"><b className="mt-msg" dir="ltr">{g.msg}</b><span className="badge b-amber num">×{g.n}</span></div>
-              <small>{g.where ? 'في: ' + g.where + ' · ' : ''}آخر مرة <span className="dt">{g.last.slice(0, 16).replace('T', ' ')}</span> · {g.users.length} مستخدم{g.branches.length ? ' · ' + g.branches.map(brName).join('، ') : ''} · {g.vers.join('، ')}</small>
+              <small>{g.where ? 'في: ' + g.where + ' · ' : ''}آخر مرة <span className="dt">{dtLocal(g.last)}</span> · {g.users.length} مستخدم{g.branches.length ? ' · ' + g.branches.map(brName).join('، ') : ''} · {g.vers.join('، ')}</small>
               <details><summary>التفاصيل التقنية</summary><pre dir="ltr">{(g.stack || '').slice(0, 1500)}</pre><small dir="ltr">{g.devices.join(' | ')}</small></details>
               <div className="row" style={{ gap: 6, marginTop: 4 }}><button className="btn sm gh" disabled={busy} onClick={() => delGroup(g)}><Trash2 size={12} />حذف بعد المعالجة</button></div>
             </div>))}</div>}
         <div className="note" style={{ marginTop: 8 }}>تصل هنا أخطاء كل الأجهزة بعد تسجيل الدخول — مجمّعة حسب نوعها، بلا أي بيانات مالية. أخطاء الشبكة المؤقتة لا تُسجَّل. أرسل نوع الخطأ للدعم الفني لإصلاحه.</div>
         {local.length > 0 && <details style={{ marginTop: 8 }}><summary style={{ cursor: 'pointer', fontSize: 12.5 }}>أخطاء هذا الجهاز ({local.length})</summary>
-          <div className="mt-list" style={{ marginTop: 6 }}>{local.slice(0, 10).map((x, i) => <div key={i} className="mt-err"><b dir="ltr" className="mt-msg">{x.msg}</b><small>{(x.at || '').slice(0, 16).replace('T', ' ')} · {x.where} · {x.v}</small></div>)}</div></details>}
+          <div className="mt-list" style={{ marginTop: 6 }}>{local.slice(0, 10).map((x, i) => <div key={i} className="mt-err"><b dir="ltr" className="mt-msg">{x.msg}</b><small>{dtLocal(x.at || '')} · {x.where} · {x.v}</small></div>)}</div></details>}
       </div>
     </div>);
 }

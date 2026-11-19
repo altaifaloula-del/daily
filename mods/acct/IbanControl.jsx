@@ -2,7 +2,7 @@
    المحرك في النواة (ibanStatus/requestIban/ibanApply)؛ الفصل بين الطالب والمعتمد تفرضه قواعد Firestore (ثابت 21). */
 import React, { useEffect, useMemo, useState } from 'react';
 import { Landmark, ShieldCheck, Info, Lock, Check, X, RefreshCw } from 'lucide-react';
-import { IBAN_APPROVERS, IBAN_ST, Kpi, ROLES, ibanApply, ibanMask, ibanStatus, loadIbanSigs, requestIban, sigFailMsg, signoff } from '../../App.jsx';
+import { IBAN_APPROVERS, IBAN_ST, Kpi, ROLES, ibanApply, ibanMask, ibanStatus, loadIbanSigs, requestIban, sigFailMsg, signoff, dtLocal } from '../../App.jsx';
 
 export function IbanControl({ org, me, commitOrg, say }) {
   const central = (ROLES[me?.role] || {}).scope === 'all';
@@ -48,7 +48,7 @@ export function IbanControl({ org, me, commitOrg, say }) {
       </div>
       {pend.length > 0 && <div className="card"><div className="card-t" style={{ marginBottom: 6 }}>طلبات بانتظار الاعتماد</div>
         <div className="me-list">{pend.map(r => <div key={r.id} className="me-row">
-          <span className="me-a"><b>{r.name}</b><small>{r.ent.startsWith('emp:') ? 'موظف' : 'مورد'} · {r.oldIban ? 'من ' + ibanMask(r.oldIban) + ' إلى' : 'توثيق'} <b className="num" dir="ltr">{r.iban}</b></small><small>طلبه {r.by} · {String(r.at).slice(0, 16).replace('T', ' ')} — طابِقه مع خطاب البنك أو شهادة الآيبان قبل الاعتماد</small></span>
+          <span className="me-a"><b>{r.name}</b><small>{r.ent.startsWith('emp:') ? 'موظف' : 'مورد'} · {r.oldIban ? 'من ' + ibanMask(r.oldIban) + ' إلى' : 'توثيق'} <b className="num" dir="ltr">{r.iban}</b></small><small>طلبه {r.by} · {dtLocal(r.at)} — طابِقه مع خطاب البنك أو شهادة الآيبان قبل الاعتماد</small></span>
           <span className="me-b">{mine(r) ? <small>بانتظار شخص آخر</small> : canApprove ? <span className="sv-go"><button className="btn sm pri" disabled={busy} onClick={() => decide(r, 'approve')}><Check size={12} />اعتماد</button><button className="btn sm gh" disabled={busy} onClick={() => decide(r, 'reject')}><X size={12} />رفض</button></span> : <small>للمالية أو الإدارة</small>}</span>
         </div>)}</div></div>}
       <div className="card">

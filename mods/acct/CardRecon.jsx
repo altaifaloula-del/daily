@@ -2,7 +2,7 @@
    المحرك في النواة (cardStmtLines/cardRecon). الكشف يُقرأ في الجهاز ولا يُحفظ؛ يُحفظ ملخص المطابقة المعتمد فقط. */
 import React, { useMemo, useState } from 'react';
 import { CreditCard, Upload, Info, Download, Check, Lock, ChevronDown, AlertTriangle } from 'lucide-react';
-import { CRS_ST, capOK, cardSettlePlan, jeAutoSt } from '../../App.jsx';   // v41.3
+import { CRS_ST, capOK, cardSettlePlan, jeAutoSt, dtLocal } from '../../App.jsx';   // v41.3
 import { Kpi, ROLES, CR_TYPE, cardRecon, cardStmtLines, detectStmtMap, makeXlsx, money, nowISO, parseCsvGrid, parseMt940, parseXlsxGrid, roleEdit, today, uid } from '../../App.jsx';
 
 const addD = (d, k) => { const x = new Date(d + 'T12:00:00'); x.setDate(x.getDate() + k); return x.toISOString().slice(0, 10); };
@@ -113,7 +113,7 @@ export function CardRecon({ org, ops, me, commit, commitOrg, say }) {
               : <small>{(brOpts.find(b => b.id === t.branchId) || {}).name || 'غير مسند'}</small>}</span></div>)}</div></div>
       </>}
       {saved.length > 0 && <div className="card"><div className="card-t" style={{ marginBottom: 6 }}>المطابقات المعتمدة</div>
-        <div className="me-list">{saved.map(r => <div key={r.id} className="me-row"><span className="me-a"><b>{r.from} — {r.to}</b><small>{r.by} · {String(r.at).slice(0, 16).replace('T', ' ')} · {(r.files || []).length} كشف</small></span>
+        <div className="me-list">{saved.map(r => <div key={r.id} className="me-row"><span className="me-a"><b>{r.from} — {r.to}</b><small>{r.by} · {dtLocal(r.at)} · {(r.files || []).length} كشف</small></span>
           <span className="me-b"><b className="num" dir="ltr">{money(r.tot.diff)}</b><small>{r.branches.filter(b => !b.ok).length ? r.branches.filter(b => !b.ok).length + ' فرع بفرق' : 'كل الفروع متطابقة'}</small></span></div>)}</div></div>}
       <div className="note"><Info size={13} style={{ verticalAlign: -2 }} /> <b>كيف تُطابَق؟</b> من نص كل حركة يُقرأ رقم الجهاز (آخر 4 أرقام) ونوع البطاقة. دفعة مدى تُودَع بإجماليها وعمولتها قيد مستقل؛ وفيزا وماستركارد وأمريكان إكسبريس تُودَع صافية،
         فيُعاد إجماليها بنسب العقد في «إعدادات الربحية» (العمولة + ضريبتها {M ? M.vat : 15}%). رسوم «ضعف الاستخدام» الشهرية رسوم أجهزة لا عمولة مبيعات. فارق توقيت الإيداع (0–2 يوم) يُستنتج لكل فرع بأقل فرق يومي.

@@ -2,7 +2,7 @@
    المحرك في النواة (maintStatus). التكلفة هنا للمتابعة — السداد يُقيَّد من الفاتورة أو الإغلاق. */
 import React, { useMemo, useState } from 'react';
 import { Wrench, Plus, Check, Printer, Info, ShieldAlert } from 'lucide-react';
-import { Field, Kpi, MT_TYPE, ROLES, arDate, maintStatus, money, nowISO, printA4, today, uid } from '../../App.jsx';
+import { Field, Kpi, MT_TYPE, ROLES, arDate, maintStatus, money, nowISO, printA4, today, uid, dtLocal } from '../../App.jsx';
 
 export function Maintenance({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const central = (ROLES[me?.role] || {}).scope === 'all';
@@ -34,7 +34,7 @@ export function Maintenance({ org, ops, me, myBranches, commit, commitOrg, say }
     const ok = await commitOrg(d => ({ ...d, equipment: f.id ? (d.equipment || []).map(x => x.id === f.id ? rec : x) : [...(d.equipment || []), rec] }), { actionType: f.id ? 'update' : 'create', targetType: 'settings', targetId: rec.id, title: 'سجل المعدات', details: rec.name + ' · ' + bn(rec.branchId) });
     if (ok !== false) { setEF(null); say('حُفظ ✓'); } };
   const print = () => { const L = (ops.maintLogs || []).filter(l => !br || l.branchId === br).sort((a, c) => String(c.at).localeCompare(String(a.at)));
-    printA4(org, 'سجل صيانة المعدات', br ? bn(br) : 'كل الفروع', `<table><thead><tr><th>الفرع</th><th>الجهاز</th><th>النوع</th><th>البلاغ</th><th>الوصف</th><th>الإغلاق</th><th>الإصلاح</th><th>التكلفة</th><th>المورد/المرجع</th></tr></thead><tbody>${L.map(l => `<tr><td>${bn(l.branchId)}</td><td>${l.equipName || ''}</td><td>${MT_TYPE[l.type]}</td><td class="n">${String(l.at).slice(0, 16).replace('T', ' ')}</td><td>${l.issue || ''}</td><td class="n">${l.doneAt ? String(l.doneAt).slice(0, 16).replace('T', ' ') : 'مفتوح'}</td><td>${l.fix || ''}</td><td class="n">${l.cost != null ? money(l.cost) : ''}</td><td>${[l.vendor, l.ref].filter(Boolean).join(' · ')}</td></tr>`).join('')}</tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no'); };
+    printA4(org, 'سجل صيانة المعدات', br ? bn(br) : 'كل الفروع', `<table><thead><tr><th>الفرع</th><th>الجهاز</th><th>النوع</th><th>البلاغ</th><th>الوصف</th><th>الإغلاق</th><th>الإصلاح</th><th>التكلفة</th><th>المورد/المرجع</th></tr></thead><tbody>${L.map(l => `<tr><td>${bn(l.branchId)}</td><td>${l.equipName || ''}</td><td>${MT_TYPE[l.type]}</td><td class="n">${dtLocal(l.at)}</td><td>${l.issue || ''}</td><td class="n">${l.doneAt ? dtLocal(l.doneAt) : 'مفتوح'}</td><td>${l.fix || ''}</td><td class="n">${l.cost != null ? money(l.cost) : ''}</td><td>${[l.vendor, l.ref].filter(Boolean).join(' · ')}</td></tr>`).join('')}</tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no'); };
   const tot = { open: S.reduce((a, x) => a + x.open.length, 0), due: S.filter(x => x.pmDue).length, cost: S.reduce((a, x) => a + x.cost12, 0), warr: S.reduce((a, x) => a + x.paidInWarranty, 0) };
   return (
     <div className="grid" style={{ gap: 12 }}>
@@ -71,7 +71,7 @@ export function Maintenance({ org, ops, me, myBranches, commit, commitOrg, say }
           <div className="me-list">{S.map(x => <div key={x.id} className="me-row">
             <span className="me-a"><b>{x.name}</b><small>{bn(x.branchId)}{x.cat ? ' · ' + x.cat : ''} · {x.breakdowns12} عطل في 12 شهرًا · توقف {x.downHrs12} ساعة{x.costPct != null ? ' · الصيانة ' + x.costPct + '% من تكلفة الأصل' : ''}</small>
               <small>{x.warranty ? '🛡 تحت الضمان حتى ' + x.warrantyTo : x.warrantyTo ? 'انتهى الضمان ' + x.warrantyTo : 'بلا ضمان مسجّل'}{x.nextPM ? ' · الوقائية القادمة ' + arDate(x.nextPM) : ''}{x.paidInWarranty ? ' · ⚠ دُفع أثناء الضمان ' + money(x.paidInWarranty) : ''}</small>
-              {x.open.map(l => <small key={l.id} style={{ color: 'var(--rose)' }}>عطل مفتوح منذ {String(l.at).slice(0, 16).replace('T', ' ')}: {l.issue} {commit && <button className="btn sm gh" onClick={() => setCls({ log: l })}>إغلاق</button>}</small>)}</span>
+              {x.open.map(l => <small key={l.id} style={{ color: 'var(--rose)' }}>عطل مفتوح منذ {dtLocal(l.at)}: {l.issue} {commit && <button className="btn sm gh" onClick={() => setCls({ log: l })}>إغلاق</button>}</small>)}</span>
             <span className="me-b"><b className="num" dir="ltr">{money(x.cost12)}</b><small>12 شهرًا</small>{x.pmDue && <span className="badge b-amber">وقائية مستحقة</span>}</span></div>)}</div>}
       </div>
       {central && commitOrg && <div className="card">
