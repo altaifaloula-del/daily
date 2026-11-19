@@ -68,7 +68,7 @@ export function Approvals({ org, me, scoped, commit, say }) {
             <div className="card-h">
               <div>
                 <div className="card-t">{c.branchName}<span className="dt" style={{ color: 'var(--faint)', fontSize: 12 }}>{arDate(c.date)}</span></div>
-                <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 3 }}>سجّله {c.managerName} · {arTime(c.createdAt)}</div>
+                <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 3 }}>سجّله {c.managerName} · {arTime(c.createdAt)}{c.updatedAt && c.updatedAt !== c.createdAt ? ' · آخر تحديث ' + arTime(c.updatedAt) : ''}</div>
               </div>
               <div className="row">
                 <Badge s={c.status} />

@@ -5,7 +5,7 @@ import { Settings, Check, Clock, HardDrive, Download, ShieldCheck, Upload, X, Sh
 import { CloseAlertsCard } from './CloseAlertsCard.jsx';
 import { SubscriptionCard } from './SubscriptionCard.jsx';
 import { AutomationCard } from './AutomationCard.jsx';
-import { CloudHealth, Field, MfaPolicyCard, Modal, NationalAddressFields, PhotoField, ROLES, fmtNA, isoD, lockedThru, money, naClean, naErr, naHas, nowISO, periodLocked, snapAll, snapPut, today, uid, verifyBackup, logAudit, isMzbk, mzbkDecrypt } from '../../App.jsx';
+import { CloudHealth, Field, MfaPolicyCard, Modal, NationalAddressFields, PhotoField, ROLES, fmtNA, isoD, lockedThru, money, naClean, naErr, naHas, nowISO, periodLocked, snapAll, snapPut, today, uid, verifyBackup, logAudit, isMzbk, mzbkDecrypt, dtLocal } from '../../App.jsx';
 
 export function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
   const [hist, setHist] = useState({ closings: [] });
@@ -459,7 +459,7 @@ export function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
               <tbody>{snaps.slice(0, 10).map(sn => (
                 <tr key={sn.key}>
                   <td><span className="num" style={{ fontSize: 11 }}>{sn.key}</span> {sn.preRestore && <span className="badge b-amber" style={{ fontSize: 8.5 }}>أمان ما قبل استعادة</span>}</td>
-                  <td className="num" style={{ fontSize: 11 }}>{(sn.at || '').slice(0, 16).replace('T', ' ')}</td>
+                  <td className="num" style={{ fontSize: 11 }}>{dtLocal(sn.at || '')}</td>
                   <td style={{ fontSize: 11, color: 'var(--dim)' }}>{((sn.ops || {}).closings || []).length} إغلاقًا · {((sn.org || {}).users || []).length} مستخدمًا</td>
                   <td><div className="row" style={{ gap: 5 }}>
                     <button className="btn sm gh" onClick={() => downloadSnap(sn)}><Download size={12} /></button>
