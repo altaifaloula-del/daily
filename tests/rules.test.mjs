@@ -535,3 +535,15 @@ test('v49.0.1 السجلات المستقلة في ظروف الإنتاج (سي
       await setDoc(doc(d, 'fin_periods', 'migration'), { open: false, until: new Date(), by: OWNER, at: new Date() }); });
   }
 });
+
+test('v51.9 صلاحيات التعديل: «ممنوع» على عضوية الخادم يمنع حذف القيد المعلّق وفاتورة المورد — وغيره كما كان', async () => {
+  await finSeed('2026-10-31');
+  await assertSucceeds(setDoc(doc(acct(), 'fin_journal', 'ed1'), fj(ACCT)));
+  await assertSucceeds(setDoc(doc(acct(), 'fin_docs', 'pi_ed1'), fd('pi', ACCT)));
+  await env.withSecurityRulesDisabled((ctx) => setDoc(doc(db(ctx), 'members', ACCT), { email: ACCT, active: true, scope: 'all', role: 'accountant', editDeny: ['je', 'inv'] }));
+  await assertFails(deleteDoc(doc(acct(), 'fin_journal', 'ed1')), 'ممنوع من تعديل القيود');
+  await assertFails(deleteDoc(doc(acct(), 'fin_docs', 'pi_ed1')), 'ممنوع من تعديل الفواتير');
+  await env.withSecurityRulesDisabled((ctx) => setDoc(doc(db(ctx), 'members', ACCT), { email: ACCT, active: true, scope: 'all', role: 'accountant', editDeny: [] }));
+  await assertSucceeds(deleteDoc(doc(acct(), 'fin_journal', 'ed1')), 'بلا منع يعود كما كان');
+  await assertSucceeds(deleteDoc(doc(acct(), 'fin_docs', 'pi_ed1')));
+});

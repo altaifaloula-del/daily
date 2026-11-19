@@ -5,7 +5,7 @@ import { EInvoiceOnboard } from './EInvoiceOnboard.jsx';
 import { RotateCcw, Scale, FileBarChart, ChevronDown, Printer, Settings, Receipt, BarChart3, Lock, Landmark, FileText, TrendingUp, ArrowLeftRight, Store, Users, QrCode, Building2, Truck, ClipboardCheck, ShieldCheck, CalendarDays, Download, Upload, Plus, Grid3x3, Check, Trash2, RefreshCw, Wallet, TrendingDown, AlertTriangle, ChevronRight, ShieldAlert, Eye, ChevronLeft, CircleDollarSign, X } from 'lucide-react';
 import { VatRegisters, SupplierPurchReport } from './TaxPurchReports.jsx';   // v39.1
 import { Suppliers } from '../inv/Suppliers.jsx';   // v44.0 «مستلم لم يُفوتر»
-import { OdooBar , SecPager, recurApply } from '../../App.jsx';   // v41.0
+import { OdooBar , SecPager, recurApply, canEditRec } from '../../App.jsx';   // v41.0
 import { GeneralLedger } from './GeneralLedger.jsx';   // v49.4 المرحلة 03
 import { makeRptXlsx } from '../../App.jsx';   // v50.0 منظومة التقارير
 import { DEP_METHODS, depMethod, deprSchedule, wfOn, wfRequired, wfState, wfCanAct, wfApprove } from '../../App.jsx';   // v49.4 طرق الإهلاك
@@ -1118,6 +1118,14 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
   const copyJm = (j) => setJm({ date: today(), title: j.title || '', opening: false, branchId: j.branchId || '', projectId: j.projectId || '', copyOf: j.id,
     lines: (j.lines || []).map(l => ({ code: l.code, debit: l.debit ? String(l.debit) : '', credit: l.credit ? String(l.credit) : '', projectId: l.projectId || '' })) });
   const jmMove = (a, b) => setJm(m => ({ ...m, lines: moveIdx(m.lines, a, b) }));
+  // v51.9 — تعديل القيد اليدوي بصلاحية شخصية يحددها المسؤول: المعلّق يُستبدل، والمرحّل يُصحَّح بقيد عكسي + قيد جديد (لا يُمسح أثره)
+  const jeEditable = (j) => !!j && !j.vatClose && !j.vatPay && !j.vatUndo && !j.closing && !j.reverses && !j.recurTplOnly && j.status !== 'rejected'
+    && !(ops.journalManual || []).some(x => x.reverses === j.id && x.status !== 'rejected') && canEditRec(me, 'je', j);
+  const editJm = (j) => { if (!jeEditable(j)) return say('لا تملك صلاحية تعديل هذا القيد', 'no');
+    const lockedDate = periodLocked(org, j.date);
+    setJm({ date: lockedDate ? today() : j.date, title: j.title || '', opening: !!j.opening, branchId: j.branchId || '', projectId: j.projectId || '', editOf: j.id, editPosted: j.status === 'posted',
+      lines: (j.lines || []).map(l => ({ code: l.code, debit: l.debit ? String(l.debit) : '', credit: l.credit ? String(l.credit) : '', projectId: l.projectId || '' })) });
+    if (lockedDate) say('فترة القيد مقفلة — يُسجَّل التصحيح بتاريخ اليوم', 'no'); };
   // v47.8 — القيود الدورية: قالب يُكرَّر حسب الدورية؛ المستحق منها يُنشأ بضغطة (لا ترحيل خفي بلا علم المستخدم)
   const recurs = ops.jeRecurring || [];
   const recDue = recurDue(recurs, today());
@@ -1149,6 +1157,18 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
     const tpl = jm.recur ? { id: uid('jr'), title: rec.title, every: jm.recurEvery || 'm', day: Number(rec.date.slice(8, 10)), next: recurNext(rec.date, jm.recurEvery || 'm', Number(rec.date.slice(8, 10))),
       ...(jm.recurEnd ? { end: jm.recurEnd } : {}), active: true, lines: rec.lines, ...(rec.branchId ? { branchId: rec.branchId } : {}), ...(rec.projectId ? { projectId: rec.projectId } : {}), by: me?.name || '', at: nowISO() } : null;
     if (tpl) rec.recurId = tpl.id;
+    if (jm.editOf) {
+      const orig = (ops.journalManual || []).find(x => x.id === jm.editOf);
+      if (!jeEditable(orig)) return say('لا تملك صلاحية تعديل هذا القيد', 'no');
+      rec.replaces = orig.id;
+      const rev = orig.status === 'posted' ? { id: uid('jm'), date: rec.date, title: 'عكس للتصحيح: ' + (orig.title || 'قيد يدوي'), reverses: orig.id, opening: false, by: me?.name || '', byId: me?.id || '', createdAt: nowISO(),
+        status: rec.status, ...(direct ? { approvedBy: me?.name || '', approvedAt: nowISO() } : {}), lines: (orig.lines || []).map(l => ({ code: l.code, debit: Number(l.credit) || 0, credit: Number(l.debit) || 0 })) } : null;
+      const ok = await commit(d => ({ ...d, journalManual: [...(rev ? [rec, rev] : [rec]), ...(d.journalManual || []).filter(x => rev || !(x.id === orig.id && x.status === 'pending'))] }), {
+        actionType: 'update', targetType: 'journal_entry', targetId: orig.id + ' → ' + rec.id, need: 'post', perm: { kind: 'je', rec: orig },
+        title: orig.status === 'posted' ? 'صحّح قيدًا مرحّلًا (عكس + قيد مصحّح)' : 'عدّل قيدًا قبل اعتماده', details: (orig.title || '') + ' · ' + money(sum(orig.lines, l => l.debit)) + ' ← ' + money(sum(rec.lines, l => l.debit)) + ' ر.س' });
+      if (ok === false) return;
+      setJm(null); return say(orig.status === 'posted' ? 'سُجّل التصحيح: قيد عكسي + قيد مصحّح' + (direct ? ' ✓' : ' — بانتظار الاعتماد') : 'عُدّل القيد ✓' + (direct ? '' : ' — بانتظار الاعتماد'));
+    }
     await commit(d => ({ ...d, journalManual: [rec, ...(d.journalManual || [])], ...(tpl ? { jeRecurring: [...(d.jeRecurring || []), tpl] } : {}) }), {
       actionType: 'create', targetType: 'journal_entry', targetId: rec.id,
       need: 'post', title: (rec.opening ? 'أضاف قيدًا افتتاحيًا' : 'أضاف قيدًا محاسبيًا يدويًا') + (direct ? '' : ' (بانتظار الاعتماد)'),
@@ -1602,7 +1622,8 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                                 {(() => { const jid = String(e.id || '').replace(/^man:/, ''); const jj = (ops.journalManual || []).find(x => x.id === jid); if (!canPost || !jj || jj.vatClose || jj.vatPay || jj.vatUndo) return null;
                                   const rv = (ops.journalManual || []).find(x => x.reverses === jid && x.status !== 'rejected');
                                   return rv ? <span className="badge b-dim" style={{ marginInlineStart: 8 }}>{rv.status === 'pending' ? 'عكسه بانتظار الاعتماد' : 'معكوس'}</span>
-                                    : jj.reverses ? null : <button className="btn sm gh" style={{ marginInlineStart: 8, padding: '3px 9px', fontSize: 10.5 }} onClick={() => reverseJe(jid)}>↺ عكس القيد</button>; })()}
+                                    : jj.reverses ? null : <><button className="btn sm gh" style={{ marginInlineStart: 8, padding: '3px 9px', fontSize: 10.5 }} onClick={() => reverseJe(jid)}>↺ عكس القيد</button>
+                                      {jeEditable(jj) && <button className="btn sm gh" data-editje style={{ marginInlineStart: 8, padding: '3px 9px', fontSize: 10.5 }} onClick={() => editJm(jj)}>✎ تعديل</button>}</>; })()}
                                 {(() => { const jid = String(e.id || '').replace(/^man:/, ''); const jj = (ops.journalManual || []).find(x => x.id === jid); return canPost && jj && !jj.vatClose && !jj.vatPay && !jj.vatUndo && !jj.closing
                                   ? <button className="btn sm gh" data-copyje style={{ marginInlineStart: 8, padding: '3px 9px', fontSize: 10.5 }} onClick={() => copyJm(jj)}>⧉ نسخ القيد</button> : null; })()}</>
                               : <>المصدر: {e.src} · المرجع: <span className="num">{e.ref}</span> — لم يُدخل هذا القيد يدويًا؛ تصحيح المصدر ينعكس هنا تلقائيًا.
@@ -3849,6 +3870,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
               {jeWfOn && (() => { const S = wfState(org, 'je', j, jeAmt(j)); return S.req.length ? <span className="badge b-amber" style={{ alignSelf: 'center' }} data-wfstep>المستوى {S.done.length + 1}/{S.req.length}: {S.next ? S.next.label : ''}</span> : null; })()}
               {canDecideJe(j) && <button className="btn sm pri" onClick={() => decideJe(j, true)}><Check size={13} />اعتماد وترحيل</button>}
               {canDecideJe(j) && <button className="btn sm gh" style={{ color: 'var(--rose)' }} onClick={() => decideJe(j, false)}>رفض</button>}
+              {jeEditable(j) && <button className="btn sm gh" data-editje onClick={() => { setJePend(false); editJm(j); }}>✎ تعديل</button>}
               {(j.byId === me?.id || j.by === me?.name) && <button className="btn sm gh" onClick={() => delPendJe(j)}><Trash2 size={13} />حذف</button>}
               {!canDecideJe(j) && <span style={{ fontSize: 12, color: 'var(--dim)', alignSelf: 'center' }}>{j.byId === me?.id || j.by === me?.name ? 'بانتظار اعتماد محاسب آخر أو المالك' : 'الاعتماد للمحاسب أو المالك'}</span>}
             </div>
@@ -3856,7 +3878,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
         </Modal>
       )}
       {jm && (
-        <Modal title={jm.opening ? 'قيد افتتاحي' : 'قيد محاسبي يدوي'} sub="مجموع المدين يجب أن يساوي مجموع الدائن — وكل سطر في جهة واحدة فقط"
+        <Modal title={jm.editOf ? (jm.editPosted ? 'تصحيح قيد مرحّل' : 'تعديل قيد بانتظار الاعتماد') : jm.opening ? 'قيد افتتاحي' : 'قيد محاسبي يدوي'} sub={jm.editPosted ? 'يُسجَّل قيد عكسي للقيد الأصلي وقيد جديد بالأرقام المصحّحة — السجل يبقى كاملًا' : 'مجموع المدين يجب أن يساوي مجموع الدائن — وكل سطر في جهة واحدة فقط'}
           icon={FileText} onClose={() => setJm(null)} wide
           foot={<>
             <button className="btn gh" onClick={() => setJm(null)}>إلغاء</button>
@@ -3875,7 +3897,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
             </label>
           </div>
           {!jm.opening && <div className="row" style={{ gap: 9, flexWrap: 'wrap', marginBottom: 8, alignItems: 'center' }} data-jmrecur>
-            <label className="row" style={{ gap: 6, fontSize: 12.5, cursor: 'pointer' }}><input type="checkbox" aria-label="قيد دوري" checked={!!jm.recur} onChange={e => setJm(m => ({ ...m, recur: e.target.checked, recurEvery: m.recurEvery || 'm' }))} />قيد دوري — يتكرر تلقائيًا كقالب</label>
+            {!jm.editOf && <label className="row" style={{ gap: 6, fontSize: 12.5, cursor: 'pointer' }}><input type="checkbox" aria-label="قيد دوري" checked={!!jm.recur} onChange={e => setJm(m => ({ ...m, recur: e.target.checked, recurEvery: m.recurEvery || 'm' }))} />قيد دوري — يتكرر تلقائيًا كقالب</label>}
             {jm.recur && <><select className="sel" style={{ width: 130 }} aria-label="دورية القيد" value={jm.recurEvery || 'm'} onChange={e => setJm(m => ({ ...m, recurEvery: e.target.value }))}>{Object.entries(RECUR_AR).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
               <span style={{ fontSize: 12 }}>حتى</span><input type="date" className="inp" style={{ width: 160 }} aria-label="نهاية التكرار" value={jm.recurEnd || ''} onChange={e => setJm(m => ({ ...m, recurEnd: e.target.value }))} />
               <span className="hint">القادم: {recurNext(jm.date || today(), jm.recurEvery || 'm')} — تظهر المستحقة بزر «إنشاء القيود الدورية المستحقة»</span></>}

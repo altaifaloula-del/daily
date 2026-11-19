@@ -5,7 +5,7 @@ import { SystemMaintenance } from './SystemMaintenance.jsx';
 import { ProviderConsole, probeProvider } from './ProviderConsole.jsx';
 import { TENANT } from '../../tenant.js';
 import { Building2, Users, Receipt, Truck, ShieldCheck, Grid3x3, Settings, Plus, Store, Lock, Check, Trash2, Activity } from 'lucide-react';
-import { ALL_TABS, AppPermsPanel, BranchForm, CategoriesPanel, DeliveryAppsPanel, ROLES, SystemPanel, TAB_AR, UserForm, clr, money, newBranchDraft, sha, today, uid } from '../../App.jsx';
+import { EDIT_KINDS, editPermOf, ALL_TABS, AppPermsPanel, BranchForm, CategoriesPanel, DeliveryAppsPanel, ROLES, SystemPanel, TAB_AR, UserForm, clr, money, newBranchDraft, sha, today, uid } from '../../App.jsx';
 
 export function Admin({ org, ops, me, commit, commitOrg, say }) {
   const [tab, setTab] = useState('branches');
@@ -66,7 +66,7 @@ export function Admin({ org, ops, me, commit, commitOrg, say }) {
     // ⇒ جهاز فرعه لا يستطيع قراءة/كتابة بياناته. نُبلغ صراحةً.
     let memOk = true;
     if (authApi.enabled) {
-      memOk = await authApi.upsertMember(email, { active: rec.isActive !== false, role: rec.role, branchId: rec.branchId || '', branchIds: rec.allowedBranchIds || [], scope: (ROLES[rec.role]?.scope === 'all') ? 'all' : 'branch' });
+      memOk = await authApi.upsertMember(email, { active: rec.isActive !== false, editDeny: Object.keys(EDIT_KINDS).filter(k => editPermOf(rec, k).mode === 'deny'), role: rec.role, branchId: rec.branchId || '', branchIds: rec.allowedBranchIds || [], scope: (ROLES[rec.role]?.scope === 'all') ? 'all' : 'branch' });
       const admOk = await authApi.syncAdmin(email, !!ROLES[rec.role]?.admin && rec.isActive !== false);   // v28.1: الموقوف يخرج من قائمة المدراء
       if (memOk && !admOk && ROLES[rec.role]?.admin) say('حُفظ المستخدم لكن تعذّر إدراجه في قائمة المدراء على الخادم — نفّذ الحفظ من حساب مسؤول النظام الأول', 'no');
     }
@@ -105,7 +105,7 @@ export function Admin({ org, ops, me, commit, commitOrg, say }) {
     let ok = 0, fail = 0; const failed = [];
     for (const u of (org.users || [])) {
       if (!u.email) continue;
-      const r = await authApi.upsertMember(u.email, { active: u.isActive !== false, role: u.role, branchId: u.branchId || '', branchIds: u.allowedBranchIds || [], scope: (ROLES[u.role]?.scope === 'all') ? 'all' : 'branch' });
+      const r = await authApi.upsertMember(u.email, { active: u.isActive !== false, editDeny: Object.keys(EDIT_KINDS).filter(k => editPermOf(u, k).mode === 'deny'), role: u.role, branchId: u.branchId || '', branchIds: u.allowedBranchIds || [], scope: (ROLES[u.role]?.scope === 'all') ? 'all' : 'branch' });
       if (r) { ok++; try { await authApi.syncAdmin(u.email, !!ROLES[u.role]?.admin && u.isActive !== false); } catch { } } else { fail++; failed.push(u.name || u.email); }
     }
     setMemSync({ ok, fail, failed });

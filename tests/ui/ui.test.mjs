@@ -2754,3 +2754,51 @@ test('v51.8 التنقل بين أقسام التطبيق: السابق / الت
   await q.click('.secpager .sp-back'); await settle(q); assert.equal((await q.locator('.secpager .sp-pos').innerText()).trim(), a0);
   assert.deepEqual(errs, []); await c2.close();
 });
+
+test('v51.9 صلاحيات التعديل لكل مستخدم: المسؤول يمنح محاسبًا «إدخال بلا تعديل» تعديل القيود لآخر 30 يومًا ويمنع عنه الفواتير', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/AppPermsPanel/admin');
+  await p.evaluate(() => window.setOrg(o => ({ ...o, users: [...o.users, { id: 'u7', name: 'محاسب الإدخال', email: 'acc@x.sa', role: 'accountant' }] })));
+  await p.waitForTimeout(300);
+  await p.selectOption('select.sel >> nth=0', 'u7'); await p.waitForSelector('.mq-editperms [data-perm="je"]');
+  const t0 = (await p.locator('.mq-editperms').innerText()).replace(/\s+/g, ' '); assert.match(t0, /يُدخل بلا تعديل/); assert.match(t0, /حسب الدور \(لا يعدّل\)/);
+  await p.selectOption('.mq-editperms [data-perm="je"] select', 'allow');
+  await p.fill('.mq-editperms [data-perm="je"] input.inp', '30');
+  await p.selectOption('.mq-editperms [data-perm="inv"] select', 'deny');
+  assert.equal(await p.locator('.mq-editperms [data-perm="inv"] input').count(), 0, 'الممنوع بلا خيارات حصر');
+  await p.click('.mq-editperms button:has-text("حفظ صلاحيات التعديل")'); await p.waitForTimeout(400);
+  const u = await p.evaluate(() => window.curOrg.users.find(x => x.id === 'u7'));
+  assert.deepEqual(u.editPerms, { je: { mode: 'allow', days: 30 }, inv: { mode: 'deny' } });
+  // صاحب الدور الذي لا يُدخل: لا تُمنح له صلاحية
+  await p.selectOption('select.sel >> nth=0', 'u2'); await p.waitForTimeout(200);
+  assert.match(await p.locator('.mq-editperms').innerText(), /لا تُمنح له صلاحية تعديل/);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v51.9 تعديل القيود: المعلّق يُستبدل، والمرحّل يُصحَّح بعكس + قيد جديد — وزر التعديل لا يظهر لمن لا يملكه', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1200 } }, 'live/Accounting/admin/jr');
+  const L = (a, b) => [{ code: '5201', debit: a, credit: 0 }, { code: '1101', debit: 0, credit: b }];
+  await p.evaluate((ls) => window.setOps(o => ({ ...o, journalManual: [
+    { id: 'jp1', date: new Date().toISOString().slice(0, 10), title: 'إيجار معلّق', by: 'منى', byId: 'u7', createdAt: new Date().toISOString(), status: 'pending', lines: ls[0] },
+    { id: 'jq1', date: new Date().toISOString().slice(0, 10), title: 'كهرباء مرحّل', by: 'مجاهد', byId: 'u1', createdAt: new Date().toISOString(), status: 'posted', approvedBy: 'مجاهد', lines: ls[1] }] })), [L(100, 100), L(80, 80)]);
+  await p.waitForTimeout(400); await settle(p);
+  await p.click('button:has-text("قيود بانتظار الاعتماد")'); await p.waitForSelector('[data-je-pending="jp1"] [data-editje]');
+  await p.click('[data-je-pending="jp1"] [data-editje]'); await p.waitForSelector('text=تعديل قيد بانتظار الاعتماد');
+  const nums = p.locator('.modal input[inputmode="decimal"]');
+  await nums.nth(0).fill('150'); await nums.nth(3).fill('150');
+  await p.click('button:has-text("تسجيل القيد")'); await p.waitForTimeout(400);
+  let jm = await p.evaluate(() => window.cur.journalManual);
+  assert.ok(!jm.some(x => x.id === 'jp1'), 'المعلّق الأصلي استُبدل'); const nw = jm.find(x => x.replaces === 'jp1'); assert.ok(nw); assert.equal(nw.lines[0].debit, 150);
+  assert.match(await p.evaluate(() => window.lastSay), /عُدّل القيد/);
+  // المرحّل: عكس + مصحّح، والأصل باقٍ
+  await p.click('tr:has-text("كهرباء مرحّل")'); await p.waitForTimeout(300);
+  const btn = p.locator('[data-editje]').first(); assert.equal(await btn.count(), 1, 'زر تعديل للمرحّل');
+  { await btn.click(); await p.waitForSelector('text=تصحيح قيد مرحّل');
+    await nums.nth(0).fill('90'); await nums.nth(3).fill('90'); await p.click('button:has-text("تسجيل القيد")'); await p.waitForTimeout(400);
+    jm = await p.evaluate(() => window.cur.journalManual);
+    assert.ok(jm.some(x => x.id === 'jq1'), 'المرحّل لا يُمسح'); assert.ok(jm.some(x => x.reverses === 'jq1'), 'قيد عكسي'); assert.equal(jm.find(x => x.replaces === 'jq1').lines[0].debit, 90); }
+  assert.deepEqual(errs, []); await ctx.close();
+  const o2 = await open({ viewport: { width: 1300, height: 1200 } }, 'live/Accounting/acc/jr');
+  await o2.p.evaluate(() => window.setOps(o => ({ ...o, journalManual: [{ id: 'jp9', date: new Date().toISOString().slice(0, 10), title: 'x', by: 'منى', byId: 'u7', createdAt: new Date().toISOString(), status: 'pending', lines: [{ code: '5201', debit: 5 }, { code: '1101', credit: 5 }] }] })));
+  await o2.p.waitForTimeout(400); await o2.p.click('button:has-text("قيود بانتظار الاعتماد")').catch(() => {}); await o2.p.waitForTimeout(300);
+  assert.equal(await o2.p.locator('[data-editje]').count(), 0, 'محاسب «إدخال بلا تعديل» بلا منح — لا زر تعديل'); await o2.ctx.close();
+});

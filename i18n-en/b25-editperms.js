@@ -1,0 +1,41 @@
+/* v51.9 دفعة الترجمة b25 — صلاحيات التعديل لكل مستخدم */
+export default {
+"دور هذا المستخدم لا يُدخل قيودًا ولا فواتير — لا تُمنح له صلاحية تعديل. غيّر دوره أولًا إن لزم.": "This user's role does not enter entries or invoices — edit rights cannot be granted. Change the role first if needed.",
+"«حسب الدور» يبقي الصلاحية كما هي. «مسموح» يمنحه التعديل ولو كان دوره بلا تعديل، و«ممنوع» يسحبه حتى لو كان دوره يعدّل. ويمكن حصرها فيما أدخله هو، أو في آخر أيام محددة. القيد المرحّل يُعدَّل بقيد عكسي وقيد مصحَّح (لا يُمسح أثره)، والفترة المقفلة تبقى مقفلة.": "\"By role\" keeps the permission as is. \"Allowed\" grants editing even if the role has none, and \"Denied\" removes it even if the role allows it. It can be limited to records the user entered, or to the last N days. A posted entry is corrected by a reversal plus a corrected entry (its trace is kept), and locked periods stay locked.",
+"ما أدخله هو فقط": "Only records they entered",
+"خلال آخر": "Within the last",
+"عُدّل القيد ✓": "Entry updated ✓",
+"عُدّل القيد ✓ — بانتظار الاعتماد": "Entry updated ✓ — awaiting approval",
+"سُجّل التصحيح: قيد عكسي + قيد مصحّح — بانتظار الاعتماد": "Correction recorded: reversal + corrected entry — awaiting approval",
+"سُجّل التصحيح: قيد عكسي + قيد مصحّح ✓": "Correction recorded: reversal + corrected entry ✓",
+"حفظ صلاحيات التعديل": "Save edit permissions",
+"حسب الدور": "By role",
+"مسموح": "Allowed",
+"ممنوع": "Denied",
+"يُدخل بلا تعديل": "Enters without editing",
+"لا يُدخل قيودًا ولا فواتير": "Does not enter entries or invoices",
+"(يعدّل)": "(can edit)",
+"(لا يعدّل)": "(cannot edit)",
+"✎ تعديل": "✎ Edit",
+"لا تملك صلاحية تعديل هذا القيد": "You don't have permission to edit this entry",
+"فترة القيد مقفلة — يُسجَّل التصحيح بتاريخ اليوم": "The entry's period is locked — the correction is dated today",
+"سُجّل التصحيح: قيد عكسي + قيد مصحّح": "Correction recorded: reversal + corrected entry",
+"تصحيح قيد مرحّل": "Correct a posted entry",
+"تعديل قيد بانتظار الاعتماد": "Edit an entry awaiting approval",
+"يُسجَّل قيد عكسي للقيد الأصلي وقيد جديد بالأرقام المصحّحة — السجل يبقى كاملًا": "A reversal of the original entry and a new corrected entry are recorded — the ledger stays complete",
+"لا تملك صلاحية حذف هذه الفاتورة — يحددها مسؤول النظام لكل مستخدم": "You don't have permission to delete this invoice — the system admin sets it per user",
+"لا يمكن تعديل هذه الفاتورة (مسددة، أو فترة مقفلة، أو بلا صلاحية)": "This invoice can't be edited (paid, locked period, or no permission)",
+"لا يمكن تعديل هذه الفاتورة (سُددت أو أُقفلت فترتها أو لا صلاحية)": "This invoice can't be edited (paid, locked period, or no permission)",
+"لا بنود أصناف في هذه الفاتورة لتعديلها": "This invoice has no item lines to edit",
+"تعديل الفاتورة (غير مسددة وفترتها مفتوحة)": "Edit invoice (unpaid, open period)",
+"تعديل القيود اليدوية": "Edit manual journal entries",
+"تعديل وحذف فواتير الموردين": "Edit and delete supplier invoices",
+"لا تملك صلاحية تعديل هذا السجل — يحددها مسؤول النظام لكل مستخدم": "You don't have permission to edit this record — the system admin sets it per user"
+};
+export const RX = [
+  [/^صلاحيات التعديل لـ (.+)$/, 'Edit permissions for $1'],
+  [/^تعديل فاتورة المورد ?(.*)$/, 'Edit supplier invoice $1'],
+  [/^عُدّلت الفاتورة (.+) ✓ — الأصل محفوظ في سجل التدقيق$/, 'Invoice $1 updated ✓ — the original is kept in the audit log'],
+  [/^دوره: (يعدّل|يُدخل بلا تعديل|لا يُدخل قيودًا ولا فواتير)$/, (_, r) => 'Role: ' + ({ 'يعدّل': 'can edit', 'يُدخل بلا تعديل': 'enters without editing', 'لا يُدخل قيودًا ولا فواتير': 'no entries or invoices' })[r]],
+  [/^حُفظت صلاحيات التعديل لـ (.+)$/, 'Edit permissions saved for $1']
+];

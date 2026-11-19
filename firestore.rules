@@ -509,7 +509,9 @@ service cloud.firestore {
       let m = memOf();
       let adm = admOf(m);
       return okUser(m, adm) && o.status == 'pending'
-        && ((finRole(m, adm) && o.by == userEmail()) || finApprover(m, adm));
+        && ((finRole(m, adm) && o.by == userEmail()) || finApprover(m, adm))
+        // v51.9: «ممنوع» من تعديل القيود (يحدده المسؤول لكل مستخدم) يمنع الحذف هنا أيضًا
+        && (adm || !('je' in m.get('editDeny', [])));
     }
     /* v49.0 — المرحلة 01 الخطوة 6: الفواتير والسندات سجلات مستقلة (fin_docs/{kind}_{id}) — kind: pi فاتورة مورد، si فاتورة مبيعات، cv سند.
        • data (محتوى المستند المالي) + digest ثابتان بعد الإنشاء؛ لا يتغير إلا التقدم (prog: السدادات/التحصيلات) ومجموعه paid.
@@ -549,7 +551,8 @@ service cloud.firestore {
     function fdDelete(o) {
       let m = memOf();
       let adm = admOf(m);
-      return fdWriter(m, adm) && o.kind == 'pi' && o.paid == 0 && finOpen(o.date);
+      return fdWriter(m, adm) && o.kind == 'pi' && o.paid == 0 && finOpen(o.date)
+        && (adm || !('inv' in m.get('editDeny', [])));   // v51.9: «ممنوع» من تعديل الفواتير يمنع حذفها على الخادم
     }
     match /fin_docs/{id} {
       allow read: if (isAdmin() || isCentral()) && mfaOk();
