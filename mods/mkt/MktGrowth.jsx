@@ -1,12 +1,12 @@
 /* v48.0 — SMART POS GROWTH «التسويق والنمو الذكي» — المرحلتان C (الأساس والصلاحيات) وD (ملفات العملاء والشرائح)
    القراءة فقط من طلبات نقطة البيع ودفتر الولاء؛ الكتابة في mktConsents وmktMerges وorg.mkt، وحركات دمج النقاط في دفتر الولاء نفسه (إلحاق فقط). */
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { cloud, KEYS } from '../../storage';
 import { Target, Users, Grid3x3 as Layers, ShieldCheck, Settings, Download, Users as UserCheck, RefreshCw as GitMerge } from 'lucide-react';
 import { Field, Kpi, Modal, money, makeXlsx, today, nowISO, uid, normPhone, loyPost, ROLES,
   mktCfg, mktCanApprove, MKT_SEGS, MKT_SEG_ORDER, crmBuild, crmSegment, crmDupes, mktKpis, mktCanContact,
-  loyX, loyTier, loyPeriodicTx, mktProfiles, rewardCoupon, cpnKey, posR2, CAMP_ST, campNextNo, campStatusOf, campStats, recCfgOf, recStats, dtLocal } from '../../App.jsx';
-import { Megaphone, Sparkles } from 'lucide-react';
+  loyX, loyTier, loyPeriodicTx, mktProfiles, rewardCoupon, cpnKey, posR2, CAMP_ST, campNextNo, campStatusOf, campStats, recCfgOf, recStats, dtLocal, brReport, printScreen } from '../../App.jsx';
+import { Megaphone, Sparkles, Building2 } from 'lucide-react';
 import { Gift, Gift as Ticket } from 'lucide-react';
 
 const CH = { all: 'كل القنوات', whatsapp: 'واتساب', sms: 'رسائل SMS', email: 'البريد', app: 'إشعارات التطبيق' };
@@ -23,7 +23,7 @@ export function MktGrowth({ org, ops, me, myBranches, commit, commitOrg, say }) 
   const list = useMemo(() => crmSegment(crmBuild(org, ops, loy, { branches: central ? null : brIds }), cfg, today()), [org, ops, loy, central, brIds.join(',')]);
   const brName = (id) => ((org.branches || []).find(b => b.id === id) || {}).name || id;
   const [sel, setSel] = useState(null);
-  const V = [['dash', 'لوحة التسويق', Target], ['crm', 'ملفات العملاء', Users], ['seg', 'الشرائح', Layers], ['loy', 'الولاء والمكافآت', Gift], ['cpn', 'الكوبونات', Ticket], ['cmp', 'الحملات', Megaphone], ['rec', 'التوصيات', Sparkles], ['gov', 'الموافقات والتكرار', ShieldCheck], ['cfg', 'الإعدادات', Settings]];
+  const V = [['dash', 'لوحة التسويق', Target], ['crm', 'ملفات العملاء', Users], ['seg', 'الشرائح', Layers], ['loy', 'الولاء والمكافآت', Gift], ['cpn', 'الكوبونات', Ticket], ['cmp', 'الحملات', Megaphone], ['rec', 'التوصيات', Sparkles], ['brr', 'تقارير الفروع', Building2], ['gov', 'الموافقات والتكرار', ShieldCheck], ['cfg', 'الإعدادات', Settings]];
   return (
     <div className="grid" style={{ gap: 12 }} data-mkt>
       <div className="row" style={{ gap: 6, flexWrap: 'wrap' }} role="tablist" aria-label="أقسام التسويق">
@@ -37,6 +37,7 @@ export function MktGrowth({ org, ops, me, myBranches, commit, commitOrg, say }) 
       {loy && view === 'loy' && <Loy org={org} ops={ops} loy={loy} setLoy={setLoy} canApp={canApp} me={me} commit={commit} commitOrg={commitOrg} say={say} />}
       {loy && view === 'cpn' && <Cpn org={org} ops={ops} loy={loy} canApp={canApp} me={me} commitOrg={commitOrg} say={say} brName={brName} />}
       {loy && view === 'cmp' && <Cmp org={org} ops={ops} list={list} canApp={canApp} me={me} commit={commit} commitOrg={commitOrg} say={say} brName={brName} />}
+      {view === 'brr' && <Brr org={org} ops={ops} central={central} brIds={brIds} />}
       {view === 'rec' && <Rec org={org} ops={ops} central={central} brIds={brIds} myBranches={myBranches} canApp={canApp} commitOrg={commitOrg} say={say} />}
       {view === 'cfg' && <Cfg cfg={cfg} canApp={canApp} commitOrg={commitOrg} say={say} />}
       {sel && <Profile c={list.find(x => x.id === sel)} org={org} ops={ops} loy={loy} setLoy={setLoy} canApp={canApp} brName={brName} me={me} commit={commit} commitOrg={commitOrg} say={say} onClose={() => setSel(null)} />}
@@ -64,7 +65,7 @@ function Dash({ org, ops, list, brIds, myBranches, brName }) {
       <Kpi label="غير نشطين" value={String(K.inactive)} sub={'معرّضون للانقطاع: ' + K.risk} color="#D95C4F" />
       <Kpi label="كبار العملاء" value={String(K.vip)} sub="حسب قواعد الشرائح" color="#D9A83E" />
       <Kpi label="موافقون على التسويق" value={String(K.consentIn)} sub={'من ' + list.length + ' عميل'} color="#2f8a5b" />
-      <Kpi label="الحملات والكوبونات والعائد" value="—" sub={na} color="#8A94A6" />
+      <Kpi label="تكلفة التسويق والعائد" value="—" sub={na} color="#8A94A6" />
     </div>
     <div className="card">
       <div className="card-t">مقارنة الفروع — الفترة المختارة</div>
@@ -75,7 +76,7 @@ function Dash({ org, ops, list, brIds, myBranches, brName }) {
     </div>
     <div className="card" data-mktroadmap>
       <div className="card-t">مراحل الوحدة</div>
-      <div style={{ fontSize: 12.5, lineHeight: 1.9 }}>✓ الأساس والصلاحيات · ✓ ملفات العملاء والشرائح والموافقات · ○ الولاء المتقدم والكوبونات · ○ الحملات والاعتماد · ○ اقتراحات البيع عند الدفع · ○ تقارير الفروع والربحية · ○ قنوات التواصل · ○ المساعد الذكي</div>
+      <div style={{ fontSize: 12.5, lineHeight: 1.9 }}>✓ الأساس والصلاحيات · ✓ ملفات العملاء والشرائح والموافقات · ✓ الولاء المتقدم والكوبونات · ✓ الحملات والاعتماد · ✓ اقتراحات البيع عند الدفع · ✓ تقارير الفروع والربحية · ○ قنوات التواصل · ○ المساعد الذكي</div>
     </div>
   </>);
 }
@@ -430,3 +431,49 @@ function Rec({ org, ops, central, brIds, myBranches, canApp, commitOrg, say }) {
   </div>);
 }
 
+
+/* v52.4 — المرحلة H: تقارير الفروع والربحية */
+function Brr({ org, ops, central, brIds }) {
+  const [to, setTo] = useState(today()); const [from, setFrom] = useState(anDay(today(), -29)); const [open, setOpen] = useState(''); const ref = useRef(null);
+  const R = useMemo(() => brReport(org, ops, { from, to, branches: central ? null : brIds }), [org, ops, from, to, central, brIds.join(',')]);
+  const pc = (v) => v == null ? '—' : (v > 0 ? '+' : '') + v + '%';
+  const hr = (h) => h == null ? '—' : String(h).padStart(2, '0') + ':00–' + String((h + 1) % 24).padStart(2, '0') + ':00';
+  const xl = () => dl('تقرير الفروع ' + from + ' — ' + to, [['الفرع', 'الطلبات', 'المبيعات', 'الفترة السابقة', 'النمو %', 'متوسط الفاتورة', 'الخصومات', 'نسبة الخصم %', 'طلبات بكوبون', 'مبيعات التوصيات', 'المرتجعات', 'تعريف العميل %', 'تكلفة الوصفات', 'تغطية التكلفة %', 'هامش الوصفات %', 'ساعة الذروة'],
+    ...R.rows.map(r => [r.name, r.orders, r.sales, r.prevSales, r.growthPct == null ? '' : r.growthPct, r.aov, r.discTotal, r.discPct, r.couponOrders, r.recSales, r.returns, r.idPct, r.cost, r.costCover, r.marginPct == null ? '' : r.marginPct, hr(r.peakHour)]),
+    ['الإجمالي', R.total.orders, R.total.sales, R.total.prevSales, R.total.growthPct == null ? '' : R.total.growthPct, R.total.aov, R.total.discTotal, '', R.total.couponOrders, R.total.recSales, R.total.returns, '', '', '', '', ''],
+    [], ['تاريخ ووقت التصدير: ' + dtLocal(new Date())]]);
+  return (<div className="grid" style={{ gap: 12 }} data-brr ref={ref}>
+    <div className="card row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+      <Field label="من"><input type="date" className="inp" aria-label="من تاريخ" value={from} onChange={e => setFrom(e.target.value)} /></Field>
+      <Field label="إلى"><input type="date" className="inp" aria-label="إلى تاريخ" value={to} onChange={e => setTo(e.target.value)} /></Field>
+      <span className="hint">مقارنة بالفترة السابقة {R.pFrom} ← {R.pTo}</span><span style={{ marginInlineStart: 'auto' }} />
+      <button className="btn sm gh" data-noprint onClick={xl}><Download size={14} />Excel</button>
+      <button className="btn sm gh" data-noprint onClick={() => printScreen(org, ref.current, 'تقرير الفروع والربحية ' + from + ' — ' + to)}>طباعة</button>
+    </div>
+    <div className="grid g4" data-brrkpis>
+      <Kpi label="مبيعات الفروع" value={money(R.total.sales)} sub={R.total.orders + ' طلب · ' + pc(R.total.growthPct)} color="#2C6BC4" />
+      <Kpi label="متوسط الفاتورة" value={money(R.total.aov)} sub={'الفترة السابقة: ' + money(R.total.prevSales)} color="#D9A83E" />
+      <Kpi label="الخصومات الممنوحة" value={money(R.total.discTotal)} sub={R.total.couponOrders + ' طلب بكوبون'} color="#D95C4F" />
+      <Kpi label="المرتجعات" value={money(R.total.returns)} sub={'مبيعات التوصيات: ' + money(R.total.recSales)} color="#8A94A6" />
+    </div>
+    <div className="card">
+      <div className="card-t">الفروع — الفترة المختارة</div>
+      <div className="tw"><table className="tb" data-brrtable><thead><tr><th>الفرع</th><th style={{ textAlign: 'end' }}>الطلبات</th><th style={{ textAlign: 'end' }}>المبيعات</th><th style={{ textAlign: 'end' }}>النمو</th><th style={{ textAlign: 'end' }}>متوسط الفاتورة</th><th style={{ textAlign: 'end' }}>الخصومات</th><th style={{ textAlign: 'end' }}>المرتجعات</th><th style={{ textAlign: 'end' }}>هامش الوصفات</th><th>الذروة</th><th data-noprint /></tr></thead>
+        <tbody>{R.rows.map(r => <React.Fragment key={r.branchId}><tr data-brrow={r.branchId}>
+          <td><b>{r.name}</b></td><td className="num" style={{ textAlign: 'end' }}>{r.orders}</td><td className="num" style={{ textAlign: 'end' }}>{money(r.sales)}</td>
+          <td className="num" style={{ textAlign: 'end', color: r.growthPct == null ? 'var(--faint)' : r.growthPct >= 0 ? 'var(--mint)' : 'var(--rose)' }}>{pc(r.growthPct)}</td>
+          <td className="num" style={{ textAlign: 'end' }}>{money(r.aov)}</td><td className="num" style={{ textAlign: 'end' }}>{money(r.discTotal)} <small>({r.discPct}%)</small></td>
+          <td className="num" style={{ textAlign: 'end' }}>{money(r.returns)}</td>
+          <td className="num" style={{ textAlign: 'end' }} title={'تغطية التكلفة ' + r.costCover + '%'}>{r.marginPct == null ? '—' : r.marginPct + '%'}{r.marginPct != null && r.costCover < 100 ? <small style={{ color: 'var(--amber)' }}> (غير مكتمل {r.costCover}%)</small> : null}</td>
+          <td className="num">{hr(r.peakHour)}</td>
+          <td data-noprint><button className="btn sm gh" onClick={() => setOpen(open === r.branchId ? '' : r.branchId)}>{open === r.branchId ? 'إخفاء' : 'تفاصيل'}</button></td></tr>
+          {open === r.branchId && <tr><td colSpan={10}><div className="grid g3" style={{ gap: 10, fontSize: 12.5 }} data-brrdet>
+            <div><b>الخصومات</b><div>العروض والكوبونات: <span className="num">{money(r.promoDisc)}</span></div><div>يدوي: <span className="num">{money(r.manualDisc)}</span></div><div>نقاط الولاء: <span className="num">{money(r.loyDisc)}</span></div><div>طلبات بكوبون: <span className="num">{r.couponOrders}</span></div></div>
+            <div><b>القنوات والعملاء</b>{r.channels.map(c => <div key={c.k}>{c.ar}: <span className="num">{c.n} ({c.pct}%)</span></div>)}<div>تعريف العميل: <span className="num">{r.idPct}%</span></div><div>مبيعات التوصيات: <span className="num">{money(r.recSales)}</span></div></div>
+            <div><b>الأعلى مبيعًا</b>{r.top.map(p => <div key={p.productId}>{p.name}: <span className="num">{p.qty} · {money(p.sales)}</span></div>)}</div>
+          </div></td></tr>}</React.Fragment>)}
+          {!R.rows.length && <tr><td colSpan={10}><div className="empty">لا طلبات نقطة بيع في الفترة.</div></td></tr>}</tbody></table></div>
+      <div className="note" style={{ marginTop: 8 }}>كل الأرقام من طلبات نقطة البيع الفعلية (بلا الملغاة). «هامش الوصفات» تقديري: صافي الأسطر قبل خصم الفاتورة ناقص تكلفة الوصفات بمتوسط التكلفة الحالي، ويُحسب للأصناف ذات الوصفة المكتملة فقط — «غير مكتمل» يعني أن بعض المبيعات بلا تكلفة. ليس بديلًا عن قائمة الدخل.</div>
+    </div>
+  </div>);
+}
