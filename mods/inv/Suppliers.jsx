@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Truck, FileBarChart, ChevronDown, Printer, FileText, Building2, ClipboardCheck, Users, Plus, AlertTriangle, CalendarDays, Trash2, Check, X, Banknote } from 'lucide-react';
 import { poNeedsAppr, wfOn, wfState, wfCanAct, wfApprove } from '../../App.jsx';   // v49.5 مسارات الاعتماد
-import { DocLink, RowGrip, moveIdx, projList, uomOf, uomOk, lineUnits, lineFac, UomSelect, DupInvHint, Field, Kpi, LOCK_MSG, MAIN_WH, Modal, Num, ROLES, SectionNav, arDate, branchBanks, closingInvoices, isStocked, isoD, itemType, money, nowISO, pFactor, payTotal, periodLocked, printA4, purKey, q3, _xe, roleEdit, rolePost, buildAccounting, INV_BILLERS, itemsSeq, vatNoOk, supVatOf, ItemPick, roleHasTab, stockByWh, sum, supplierPrices, today, uid, whName, whOf, whOn, poWhOf, brSigCheck, signoff, signDecision, sigFailMsg } from '../../App.jsx';
+import { canEditRec, DocLink, RowGrip, moveIdx, projList, uomOf, uomOk, lineUnits, lineFac, UomSelect, DupInvHint, Field, Kpi, LOCK_MSG, MAIN_WH, Modal, Num, ROLES, SectionNav, arDate, branchBanks, closingInvoices, isStocked, isoD, itemType, money, nowISO, pFactor, payTotal, periodLocked, printA4, purKey, q3, _xe, roleEdit, rolePost, buildAccounting, INV_BILLERS, itemsSeq, vatNoOk, supVatOf, ItemPick, roleHasTab, stockByWh, sum, supplierPrices, today, uid, whName, whOf, whOn, poWhOf, brSigCheck, signoff, signDecision, sigFailMsg } from '../../App.jsx';
 import { cloud, bfKey } from '../../storage';
 
 export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: goTab, billOnly }) {
@@ -66,9 +66,10 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
   // v29.7: حذف فاتورة مورد مفردة (مكررة أو مستوردة خطأً) — كان الحذف متاحًا فقط لدفعة استيراد كاملة.
   // ضوابط: صلاحية التعديل، لا سداد مسجّل عليها من المنصة، ليست في شهر مقفل، تأكيد بكتابة رقمها، وسجل تدقيق بنسخة منها.
   // السدادات البنكية الموزّعة عليها (alloc) تنتقل لتوأمها (نفس المورد والتاريخ والمبلغ) إن وُجد، وإلا تبقى على المورد غير موزّعة.
-  const canDelInv = roleEdit(me.role);
+  // v51.9: صلاحية تعديل/حذف الفواتير شخصية يحددها المسؤول (حسب الدور افتراضيًا)
+  const canDelInv = (inv) => canEditRec(me, 'inv', inv);
   const delInv = async (inv) => {
-    if (!canDelInv) return say('حذف الفواتير لمن يملك صلاحية التعديل فقط', 'no');
+    if (!canDelInv(inv)) return say('لا تملك صلاحية حذف هذه الفاتورة — يحددها مسؤول النظام لكل مستخدم', 'no');
     if ((inv.paidAmount || 0) > 0 || branchPaid(inv.id) > 0) return say('على الفاتورة سداد مسجّل من المنصة — لا تُحذف. صحّحها بإشعار دائن أو قيد يدوي', 'no');
     const d0 = (inv.date || inv.createdAt || inv.dueDate || '').slice(0, 10);
     if (periodLocked(org, d0)) return say(LOCK_MSG(d0), 'no');
@@ -84,7 +85,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
       closingInvPays: (d.closingInvPays || []).map(p => Array.isArray(p.alloc) && p.alloc.some(([id]) => id === inv.id)
         ? { ...p, alloc: twin ? p.alloc.map(([id, v]) => [id === inv.id ? twin.id : id, v]) : p.alloc.filter(([id]) => id !== inv.id) }
         : p)
-    }), { actionType: 'delete', targetType: 'expense', targetId: inv.id, need: 'edit', branchName: inv.branchName || '',
+    }), { actionType: 'delete', targetType: 'expense', targetId: inv.id, need: 'edit', perm: { kind: 'inv', rec: inv }, branchName: inv.branchName || '',
       title: 'حذف فاتورة مورد', details: snapshot });
     if (ok) say('حُذفت الفاتورة ' + (inv.invoiceNo || '') + (twin ? ' ونُقلت سداداتها الموزّعة إلى ' + (twin.invoiceNo || '') : '') + ' ✓');
   };
@@ -169,6 +170,12 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
         return { itemId: l.itemId, qty: String(q), price: q ? String(Math.round(base / q * 10000) / 10000) : '', uom: l.uomName || '', ...(l.note ? { note: l.note } : {}) }; }) }; };
   const svcToForm = (i) => ({ supplierId: i.supplierId, invoiceNo: '', date: today(), dueDate: today(), branchId: i.branchId || '', copyOf: i.id, ...(i.projectId ? { projectId: i.projectId } : {}), ...(i.cur ? { cur: i.cur, rate: i.fxRate } : {}),
     lines: (i.expLines || []).map(l => ({ desc: l.desc, accCode: l.accCode, net: String(l.fcNet != null ? l.fcNet : l.net), taxable: Math.abs(l.vat || 0) > 0.004 })) });
+  // v51.9 — تعديل فاتورة مورد غير مسددة في فترة مفتوحة: تُستبدل بفاتورة مصحّحة (بنودها وحركاتها المخزنية)، ويبقى أصلها في سجل التدقيق
+  const invEditable = (i) => i && i.source === 'stored' && i.kind !== 'svc' && !i.creditNote && !i.supDebit && !i.cur && i.amount > 0
+    && !((i.paidAmount || 0) > 0) && !(branchPaid(i.id) > 0) && !periodLocked(org, String(i.date || '').slice(0, 10)) && canEditRec(me, 'inv', i);
+  const editInv = (i) => { if (!invEditable(i)) return say('لا يمكن تعديل هذه الفاتورة (مسددة، أو فترة مقفلة، أو بلا صلاحية)', 'no');
+    const f = invToForm(i); if (!f || !f.lines.length) return say('لا بنود أصناف في هذه الفاتورة لتعديلها', 'no');
+    setNewInv({ ...f, copyOf: undefined, replaces: i.id, invoiceNo: i.invoiceNo || '', date: String(i.date || today()).slice(0, 10), dueDate: String(i.dueDate || i.date || today()).slice(0, 10) }); };
   const copyInv = (i) => { if (i.kind === 'svc') setSvc(svcToForm(i)); else { const f = invToForm(i); if (!f.lines.length) return say('لا بنود أصناف في هذه الفاتورة لنسخها', 'no'); setNewInv(f); } };
   const lastInvOf = (sid) => (ops.invoices || []).filter(i => i.supplierId === sid && !i.creditNote && !i.supDebit && i.kind !== 'svc' && (i.lines || []).some(l => l.itemId)).sort((a, b) => String(b.date).localeCompare(String(a.date)))[0];
   // v46.0: الصنف بوحدة غير معتمدة يُحدَّد له وحدة في السطر (baseU) وتُحفظ في بطاقته؛ وسطر الفاتورة بأي وحدة من مجموعته أو وحدة الشراء
@@ -194,8 +201,10 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     const autoNo = () => { const pre = 'INV-' + today().replace(/-/g, '').slice(2) + '-'; let n = (ops.invoices || []).length + 1;
       while ((ops.invoices || []).some(i => i.invoiceNo === pre + String(n).padStart(3, '0'))) n++; return pre + String(n).padStart(3, '0'); };
     const typedNo = (f.invoiceNo || '').trim();
-    if (typedNo) { const o = invNoTaken(sp.id, typedNo); if (o) return say('فاتورة مكررة: رقم ' + typedNo + ' للمورد «' + sp.name + '» مسجّل بتاريخ ' + (o.date || '') + ' بمبلغ ' + money(o.amount) + ' — لم يُحفظ', 'no'); }
-    const twin = (ops.invoices || []).find(i => !i.creditNote && i.supplierId === sp.id && (i.date || '') === (f.date || today()) && Math.abs((i.amount || 0) - v) < 0.01);
+    const orig = f.replaces ? (ops.invoices || []).find(x => x.id === f.replaces) : null;
+    if (f.replaces && !invEditable(orig)) return say('لا يمكن تعديل هذه الفاتورة (سُددت أو أُقفلت فترتها أو لا صلاحية)', 'no');
+    if (typedNo) { const o = invNoTaken(sp.id, typedNo); if (o && (!orig || o.id !== orig.id)) return say('فاتورة مكررة: رقم ' + typedNo + ' للمورد «' + sp.name + '» مسجّل بتاريخ ' + (o.date || '') + ' بمبلغ ' + money(o.amount) + ' — لم يُحفظ', 'no'); }
+    const twin = (ops.invoices || []).find(i => !i.creditNote && (!orig || i.id !== orig.id) && i.supplierId === sp.id && (i.date || '') === (f.date || today()) && Math.abs((i.amount || 0) - v) < 0.01);
     if (twin && !window.confirm('تنبيه: يوجد فاتورة للمورد نفسه بنفس التاريخ والمبلغ (' + money(v) + ') برقم ' + (twin.invoiceNo || '') + '.\nهل هذه فاتورة مختلفة فعلًا؟')) return;
     const py = payOf(f, Math.round((k.fcNet + k.fcVat) * 100) / 100, v, k.fxR, f.date || today()); if (py.err) return say(py.err, 'no');
     if (!(await ensureVat(sp.id, k.vat, f.vatNo))) return;
@@ -217,12 +226,17 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
       amount: v, vatAmt: k.vat, taxable: k.vat > 0, paidAmount: py.paidAmount, pm: py.pm, ...(py.payments.length ? { payments: py.payments } : {}), date: rDate, dueDate: f.dueDate || rDate, createdAt: nowISO(), lines, ...(wid ? { whId: wid } : {}), ...(docId ? { docId } : {}),
       ...(isFx(f.cur) ? { cur: f.cur, fxRate: k.fxR, fcAmount: Math.round((k.fcNet + k.fcVat) * 100) / 100 } : {}) };
     const brMoves = moves.filter(m => m.branchId), mainMoves = moves.filter(m => !m.branchId);
-    const ok = await commit(d => ({ ...d, invoices: [rec, ...(d.invoices || [])], whMoves: [...brMoves, ...(d.whMoves || [])], stockMoves: [...mainMoves, ...(d.stockMoves || [])] }), {
-      actionType: 'create', targetType: 'expense', targetId: rec.id, branchName: rec.branchName,
-      title: 'سجّل فاتورة توريد آجلة', details: sp.name + ' · ' + rec.invoiceNo + ' · ' + lines.length + ' بند · ' + money(v) + (rec.cur ? ' (' + rec.fcAmount + ' ' + rec.cur + ' @ ' + k.fxR + ')' : '') + (rec.taxable ? ' · خاضعة للضريبة' : '') + (moves.length ? ' · دخل المخزون' : '') + ' · ' + PM_AR[py.pm] + (py.paidAmount ? ' ' + money(py.paidAmount) : '')
+    if (orig) rec.replaces = orig.id;
+    const dropOld = (arr) => orig ? (arr || []).filter(x => x.id !== orig.id && x.invoiceId !== orig.id) : (arr || []);
+    const ok = await commit(d => ({ ...d, invoices: [rec, ...dropOld(d.invoices)], whMoves: [...brMoves, ...dropOld(d.whMoves)], stockMoves: [...mainMoves, ...dropOld(d.stockMoves)] }), {
+      actionType: orig ? 'update' : 'create', targetType: 'expense', targetId: rec.id, branchName: rec.branchName,
+      title: 'سجّل فاتورة توريد آجلة', details: sp.name + ' · ' + rec.invoiceNo + ' · ' + lines.length + ' بند · ' + money(v) + (rec.cur ? ' (' + rec.fcAmount + ' ' + rec.cur + ' @ ' + k.fxR + ')' : '') + (rec.taxable ? ' · خاضعة للضريبة' : '') + (moves.length ? ' · دخل المخزون' : '') + ' · ' + PM_AR[py.pm] + (py.paidAmount ? ' ' + money(py.paidAmount) : ''),
+      // v51.9: التعديل — العنوان والتفاصيل بنسخة من الأصل
+      ...(orig ? { perm: { kind: 'inv', rec: orig }, actionType: 'update', title: 'عدّل فاتورة مورد', details: (orig.invoiceNo || '') + ' · ' + money(orig.amount) + ' ← ' + money(v) + ' · الأصل: ' + JSON.stringify({ id: orig.id, invoiceNo: orig.invoiceNo, amount: orig.amount, vatAmt: orig.vatAmt, date: orig.date, lines: (orig.lines || []).length }) } : {}),
     });
     if (ok === false) return;
-    setNewInv(null); say('سُجّلت الفاتورة ' + rec.invoiceNo + (moves.length ? ' ودخلت أصنافها المخزنية ' + (wid ? whName(org, wid) : 'المخزون') : '') + ' — ' + PM_AR[py.pm] + (py.paidAmount ? ' ' + money(py.paidAmount) + ' ر.س' + (py.paidAmount < v - 0.004 ? ' والباقي آجل' : '') : '') + ' ✓');
+    setNewInv(null); if (orig) return say('عُدّلت الفاتورة ' + rec.invoiceNo + ' ✓ — الأصل محفوظ في سجل التدقيق');
+    say('سُجّلت الفاتورة ' + rec.invoiceNo + (moves.length ? ' ودخلت أصنافها المخزنية ' + (wid ? whName(org, wid) : 'المخزون') : '') + ' — ' + PM_AR[py.pm] + (py.paidAmount ? ' ' + money(py.paidAmount) + ' ر.س' + (py.paidAmount < v - 0.004 ? ' والباقي آجل' : '') : '') + ' ✓');
   };
 
   const savePo = async () => {
@@ -896,7 +910,8 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
                         <button className="btn sm" onClick={() => { setPay(i); setAmt(rem); if (i.cur) setFxPay({ fc: String(fxRemFc(i)), rate: lastRate(i.cur) || String(i.fxRate || '') }); }}>سداد</button>}
                         {i.source === 'stored' && canPay && i.amount > 0 && !i.creditNote && !i.supDebit && <button className="btn sm gh" data-copyinv style={{ marginInlineStart: 4 }} title="نسخة مطابقة بتاريخ اليوم" onClick={() => copyInv(i)}>⧉ نسخ</button>}
                         {i.source === 'stored' && canPay && i.amount > 0 && !i.creditNote && !i.cur && <button className="btn sm gh" data-pdn style={{ marginInlineStart: 4 }} onClick={() => setPdn({ inv: i, dir: 'red', date: today(), no: '', reason: '', net: '', taxable: taxOf(i), acc: i.accCode || '5198' })}>إشعار مدين</button>}
-                        {i.source === 'stored' && canDelInv && <button className="btn sm gh" title="حذف فاتورة مكررة أو مستوردة خطأً" style={{ color: 'var(--rose)', marginInlineStart: 4 }} onClick={() => delInv(i)}><Trash2 size={12} /></button>}</td>
+                        {invEditable(i) && <button className="btn sm gh" data-editinv style={{ marginInlineStart: 4 }} title="تعديل الفاتورة (غير مسددة وفترتها مفتوحة)" onClick={() => editInv(i)}>✎ تعديل</button>}
+                        {i.source === 'stored' && canDelInv(i) && <button className="btn sm gh" title="حذف فاتورة مكررة أو مستوردة خطأً" style={{ color: 'var(--rose)', marginInlineStart: 4 }} onClick={() => delInv(i)}><Trash2 size={12} /></button>}</td>
                     </tr>
                   );
                 })}
@@ -1063,7 +1078,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
       )}
 
       {newInv && (
-        <Modal title={newInv.poId ? 'فاتورة من أمر الشراء' : 'فاتورة توريد جديدة'} icon={FileText} onClose={() => setNewInv(null)}
+        <Modal title={newInv.replaces ? 'تعديل فاتورة المورد ' + (newInv.invoiceNo || '') : newInv.poId ? 'فاتورة من أمر الشراء' : 'فاتورة توريد جديدة'} icon={FileText} onClose={() => setNewInv(null)}
           foot={<><button className="btn gh" onClick={() => setNewInv(null)}>إلغاء</button>
             <button className="btn pri" onClick={saveInv}><Check size={14} />تسجيل الفاتورة</button></>}>
           <div className="grid g2">

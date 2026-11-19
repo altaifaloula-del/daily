@@ -1,7 +1,51 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
-import React, { useState } from 'react';
-import { UserCog, Check, Scale } from 'lucide-react';
-import { ACCT_SECTIONS, ACCT_SEC_AR, LAUNCH_APPS, ROLES, acctSecKey } from '../../App.jsx';
+import React, { useState, useEffect } from 'react';
+import { UserCog, Check, Scale, Lock } from 'lucide-react';
+import { ACCT_SECTIONS, ACCT_SEC_AR, LAUNCH_APPS, ROLES, acctSecKey, EDIT_KINDS, editPermOf, rolePost, roleEdit } from '../../App.jsx';
+import { authApi } from '../../storage';
+
+/* v51.9 — صلاحيات التعديل لكل مستخدم (طلب المالك): القيود اليدوية وفواتير الموردين — اختيارية يحددها المسؤول */
+const MODE_AR = { role: 'حسب الدور', allow: 'مسموح', deny: 'ممنوع' };
+function EditPermsCard({ u, commitOrg, say }) {
+  const init = () => Object.fromEntries(Object.keys(EDIT_KINDS).map(k => [k, editPermOf(u, k)]));
+  const [f, setF] = useState(init);
+  useEffect(() => { setF(init()); }, [u.id]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const canPostRole = rolePost(u.role), roleCan = roleEdit(u.role);
+  const set = (k, patch) => setF(x => ({ ...x, [k]: { ...x[k], ...patch } }));
+  const save = async () => {
+    const ep = Object.fromEntries(Object.entries(f).filter(([, v]) => v.mode !== 'role' || v.own || v.days).map(([k, v]) => [k, { mode: v.mode, ...(v.own ? { own: true } : {}), ...(v.days ? { days: v.days } : {}) }]));
+    const ok = await commitOrg(d => ({ ...d, users: (d.users || []).map(x => x.id === u.id ? (Object.keys(ep).length ? { ...x, editPerms: ep } : (({ editPerms, ...rest }) => rest)(x)) : x) }), {
+      actionType: 'update', targetType: 'user_perms', targetId: u.id, need: 'edit', title: 'حدّد صلاحيات التعديل لمستخدم',
+      details: u.name + ' · ' + Object.keys(EDIT_KINDS).map(k => EDIT_KINDS[k] + ': ' + MODE_AR[f[k].mode] + (f[k].own ? ' (ما أدخله فقط)' : '') + (f[k].days ? ' (آخر ' + f[k].days + ' يوم)' : '')).join(' · ') });
+    if (ok === false) return;
+    // «ممنوع» يُنسخ لعضوية الخادم فترفض قواعد Firestore الحذف للسجلات المالية المستقلة أيضًا
+    if (u.email && authApi.enabled) { try { await authApi.upsertMember(u.email, { editDeny: Object.keys(f).filter(k => f[k].mode === 'deny') }); } catch { } }
+    say('حُفظت صلاحيات التعديل لـ ' + u.name);
+  };
+  return (
+    <div className="card mq-editperms">
+      <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 6 }}>
+        <Lock size={16} color="var(--brass)" />
+        <span style={{ fontSize: 12.5, fontWeight: 600 }}>صلاحيات التعديل لـ {u.name}</span>
+        <span className="badge b-dim" style={{ marginInlineStart: 'auto' }}>دوره: {roleCan ? 'يعدّل' : canPostRole ? 'يُدخل بلا تعديل' : 'لا يُدخل قيودًا ولا فواتير'}</span>
+      </div>
+      {!canPostRole ? <div className="note">دور هذا المستخدم لا يُدخل قيودًا ولا فواتير — لا تُمنح له صلاحية تعديل. غيّر دوره أولًا إن لزم.</div> : <>
+        <div className="note" style={{ marginBottom: 10 }}>«حسب الدور» يبقي الصلاحية كما هي. «مسموح» يمنحه التعديل ولو كان دوره بلا تعديل، و«ممنوع» يسحبه حتى لو كان دوره يعدّل. ويمكن حصرها فيما أدخله هو، أو في آخر أيام محددة. القيد المرحّل يُعدَّل بقيد عكسي وقيد مصحَّح (لا يُمسح أثره)، والفترة المقفلة تبقى مقفلة.</div>
+        {Object.keys(EDIT_KINDS).map(k => <div key={k} className="row" data-perm={k} style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center', padding: '8px 0', borderTop: '1px solid var(--line)' }}>
+          <b style={{ minWidth: 190, fontSize: 12.5 }}>{EDIT_KINDS[k]}</b>
+          <select className="sel" aria-label={EDIT_KINDS[k]} value={f[k].mode} onChange={e => set(k, { mode: e.target.value })}>
+            {['role', 'allow', 'deny'].map(m => <option key={m} value={m}>{MODE_AR[m]}{m === 'role' ? (roleCan ? ' (يعدّل)' : ' (لا يعدّل)') : ''}</option>)}
+          </select>
+          {f[k].mode !== 'deny' && <>
+            <label className="row" style={{ gap: 5, fontSize: 12, cursor: 'pointer' }}><input type="checkbox" checked={f[k].own} onChange={e => set(k, { own: e.target.checked })} />ما أدخله هو فقط</label>
+            <label className="row" style={{ gap: 5, fontSize: 12 }}>خلال آخر<input className="inp n" style={{ width: 64 }} inputMode="numeric" value={f[k].days || ''} placeholder="∞" onChange={e => set(k, { days: Math.max(0, Math.min(3650, parseInt(e.target.value.replace(/\D/g, ''), 10) || 0)) })} />يومًا</label>
+          </>}
+        </div>)}
+        <button className="btn pri sm" onClick={save}><Check size={14} />حفظ صلاحيات التعديل</button>
+      </>}
+    </div>
+  );
+}
 
 export function AppPermsPanel({ org, commitOrg, say }) {
   const editable = (org.users || []).filter(u => !ROLES[u.role]?.admin);
@@ -84,6 +128,8 @@ export function AppPermsPanel({ org, commitOrg, say }) {
           </div>
         </div>
       )}
+
+      <EditPermsCard u={u} commitOrg={commitOrg} say={say} />
 
       <div className="card" style={{ background: 'rgba(200,162,74,.04)', borderStyle: 'dashed' }}>
         <div style={{ fontSize: 11.5, color: 'var(--dim)', lineHeight: 2 }}>
