@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { cloud, KEYS, brKey } from '../../storage';
 import { ShieldCheck, RefreshCw, Trash2, AlertTriangle, Check, Server, Bug, Activity, HardDrive } from 'lucide-react';
-import { archKey, archivePlan, nowISO, printA4, uid, dtLocal } from '../../App.jsx';   // v41.7
+import { archKey, archivePlan, nowISO, printA4, uid, dtLocal, posSplitBranch, posUnsplitBranch, posSplitOn } from '../../App.jsx';   // v41.7 + v52.7
 import { clrCompare, clrLoad, clrOn, clrSeed, clrState, logAudit, clrRead, clrViewStats } from '../../App.jsx';   // v41.9 + v42.2
 import { WorkflowsCard } from './Workflows.jsx';   // v49.5 MQ-059
 import { fjCompare, fjLoad, fjOn, fjState, fpLockedTo, fpLoad, fmLoad, fmSet, fjSeed, FD_KINDS, fdCompare, fdLoad, fdSeed } from '../../App.jsx';   // v49.0 المرحلة 01
@@ -306,6 +306,7 @@ export function SystemMaintenance({ org, ops, me, commit, commitOrg, say }) {
       <ClosingRecordsCard org={org} ops={ops} me={me} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <JournalRecordsCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <WorkflowsCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
+      <PosSplitCard org={org} ops={ops} me={me} say={say} isAdm={isAdm} commit={commit} />
       <div className="card">
         <div className="card-h"><div className="card-t"><HardDrive size={15} color="var(--brass)" />أرشفة فواتير نقطة البيع القديمة</div>{isAdm && AP.n > 0 && <button className="btn sm pri" disabled={arcBusy} onClick={doArchive}>{arcBusy ? 'جارٍ الأرشفة…' : 'أرشفة ' + AP.n + ' فاتورة'}</button>}</div>
         <div style={{ fontSize: 12, color: 'var(--dim)', marginBottom: 6 }}>قرارك: الفواتير التفصيلية الأقدم من 12 شهرًا (قبل {AP.cutoff}) وفي أشهر مقفلة محاسبيًا فقط. الإغلاقات والقيود لا تُمس.{AP.unlocked ? ' · ' + AP.unlocked + ' فاتورة قديمة في أشهر غير مقفلة لا تُؤرشَف حتى تُقفل.' : ''}</div>
@@ -502,3 +503,38 @@ function JournalRecordsCard({ org, ops, commitOrg, say, isAdm }) {
     </div>
   );
 }
+
+/* v52.7 — G3 الخيار A (قرار المالك): فصل فواتير نقطة البيع إلى مستند شهري لكل فرع — بفرع واحد في كل مرة، مع تحقق وتراجع */
+function PosSplitCard({ org, ops, me, say, isAdm, commit }) {
+  const brs = (org.branches || []); const [st, setSt] = useState(null); const [busy, setBusy] = useState('');
+  const counts = useMemo(() => { const m = {}; (ops.posOrders || []).forEach(o => { m[o.branchId] = (m[o.branchId] || 0) + 1; }); return m; }, [ops.posOrders]);
+  const check = async () => { setBusy('check'); const out = {};
+    for (const b of brs) { const r = await cloud.tryGet(brKey(b.id)); out[b.id] = r.denied ? 'denied' : r.failed ? 'failed' : posSplitOn(r.value) ? 'split' : 'single'; }
+    setSt(out); setBusy(''); };
+  const log = (b, title, details) => logAudit({ actionType: 'migrate', targetType: 'system_settings', targetId: 'pos_split:' + b.id, branchName: b.name, title, details });
+  const run = async (b, undo) => {
+    const msg = undo ? 'التراجع عن فصل فواتير «' + b.name + '»؟\n\nتعود كل فواتير الفرع إلى مستنده الواحد كما كانت. المستندات الشهرية تبقى كما هي (لا حذف).'
+      : 'فصل فواتير نقطة البيع لفرع «' + b.name + '» (' + (counts[b.id] || 0) + ' فاتورة) إلى مستند لكل شهر؟\n\n• نزّل نسخة احتياطية أولًا (أعلى هذه الصفحة).\n• تُكتب الأشهر ثم يُتحقق منها بإعادة القراءة (العدد والمجموع لكل شهر)، ولا يتغير مستند الفرع إن فشل التحقق.\n• يمكن التراجع لاحقًا.\n• بعده يُفضَّل رفع «الحد الأدنى للإصدار» كي لا تكتب أجهزة بإصدار قديم.';
+    if (!window.confirm(msg)) return;
+    setBusy(b.id);
+    try { const r = undo ? await posUnsplitBranch(b.id) : await posSplitBranch(b.id);
+      if (!r.ok) { say(r.err || 'تعذّر', 'no'); return; }
+      if (!r.already) await log(b, undo ? 'تراجع عن فصل فواتير نقطة البيع' : 'فصل فواتير نقطة البيع إلى مستندات شهرية', undo ? (r.n || 0) + ' فاتورة عادت لمستند الفرع' : (r.n || 0) + ' فاتورة · ' + (r.months || 0) + ' شهر · بواسطة ' + ((me || {}).name || ''));
+      say(r.already ? 'لا تغيير — الفرع ' + (undo ? 'غير مفصول' : 'مفصول') + ' أصلًا' : undo ? 'تم التراجع لفرع ' + b.name : 'فُصلت فواتير ' + b.name + ': ' + r.n + ' فاتورة في ' + r.months + ' شهر ✓');
+      await check();
+    } finally { setBusy(''); }
+  };
+  const ST = { split: ['b-mint', 'مفصول شهريًا'], single: ['b-dim', 'مستند واحد'], failed: ['b-amber', 'تعذّرت القراءة'], denied: ['b-rose', 'لا صلاحية'] };
+  return (<div className="card" data-possplit>
+    <div className="card-h"><div className="card-t"><HardDrive size={15} color="var(--brass)" />فصل فواتير نقطة البيع شهريًا (G3)</div>
+      {isAdm && <button className="btn sm" disabled={!!busy} onClick={check}>{busy === 'check' ? 'جارٍ الفحص…' : 'فحص الحالة'}</button>}</div>
+    <div style={{ fontSize: 12, color: 'var(--dim)', marginBottom: 6 }}>قرارك (G3 — الخيار A): فواتير كل فرع في مستند لكل شهر، فلا يُعاد رفع فواتير السنة كلها مع كل حفظ. ابدأ بالمنشأة التجريبية ثم بفرع واحد هنا. كل الشاشات والتقارير تعمل كما هي.</div>
+    {!isAdm && <div className="note">لمدير النظام فقط.</div>}
+    {isAdm && <div className="me-list">{brs.map(b => { const s = st && st[b.id]; return <div key={b.id} className="me-row" data-posbr={b.id}>
+      <span className="me-a"><b>{b.name}</b><small><span className="num">{counts[b.id] || 0}</span> فاتورة محمّلة{s ? <> · <span className={'badge ' + ST[s][0]}>{ST[s][1]}</span></> : null}</small></span>
+      {s === 'single' && <button className="btn sm pri" disabled={!!busy} onClick={() => run(b, false)}>{busy === b.id ? 'جارٍ الفصل…' : 'فصل شهريًا'}</button>}
+      {s === 'split' && <button className="btn sm gh" disabled={!!busy} onClick={() => run(b, true)}>{busy === b.id ? 'جارٍ…' : 'تراجع'}</button>}
+    </div>; })}</div>}
+  </div>);
+}
+

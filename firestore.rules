@@ -70,12 +70,16 @@ service cloud.firestore {
     function isCoreDoc(id)   { return baseId(id) == 'rms8_core'; }
     function isBrDoc(id)     { return baseId(id).matches('^rms8_br_.+$'); }
     function isBfDoc(id)     { return baseId(id).matches('^rms8_bf_.+$'); }
-    function isBranchDoc(id) { return isBrDoc(id) || isBfDoc(id); }
+    // v52.7 (G3 الخيار A): فواتير نقطة البيع لكل فرع وشهر — صلاحيتها صلاحية الفرع نفسه
+    function isPosDoc(id)    { return baseId(id).matches('^rms8_pos_[A-Za-z0-9_-]{1,80}_[0-9]{6}$'); }
+    function isBranchDoc(id) { return isBrDoc(id) || isBfDoc(id) || isPosDoc(id); }
     // v41.7: أرشيف فواتير نقطة البيع القديمة لكل فرع وسنة — يقرؤه المركز ويكتبه مسؤول النظام وحده
     function isArchDoc(id)   { return baseId(id).matches('^rms8_arch_[A-Za-z0-9_-]{1,80}_[0-9]{4}$'); }
 
     function branchIdOf(id) {
-      return isBrDoc(id) ? baseId(id).split('rms8_br_')[1] : baseId(id).split('rms8_bf_')[1];
+      return isBrDoc(id) ? baseId(id).split('rms8_br_')[1]
+        : isPosDoc(id) ? baseId(id).replace('^rms8_pos_', '').replace('_[0-9]{6}$', '')
+        : baseId(id).split('rms8_bf_')[1];
     }
 
     // v40.0: أُزيلت pulseAuditSafe — كانت تفحص حقل «audit» في مستند محفوظ نصًا مضغوطًا فلا تراه أبدًا (تمر دائمًا).

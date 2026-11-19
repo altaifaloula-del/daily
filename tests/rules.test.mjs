@@ -175,6 +175,18 @@ test('عزل الفروع: كاشير الفرع B لا يصل لمستند ال
   await assertFails(setDoc(doc(brB(), 'platform', 'rms8_br_b-AAA__0'), { chunk: 'x' }));
 });
 
+test('v52.7 فواتير نقطة البيع الشهرية: صلاحيتها صلاحية الفرع — الفرع A يقرأ ويكتب شهره، والفرع B لا، والمركز يقرأ، والاسم المخالف مرفوض', async () => {
+  await assertSucceeds(setDoc(doc(brA(), 'platform', 'rms8_pos_b-AAA_202611'), { value: '{"orders":[]}', parts: 1, updatedAt: 1 }));
+  await assertSucceeds(setDoc(doc(brA(), 'platform', 'rms8_pos_b-AAA_202611__v1abc_0'), { chunk: 'abc' }));
+  await assertSucceeds(getDoc(doc(brA(), 'platform', 'rms8_pos_b-AAA_202611')));
+  await assertFails(getDoc(doc(brB(), 'platform', 'rms8_pos_b-AAA_202611')));
+  await assertFails(setDoc(doc(brB(), 'platform', 'rms8_pos_b-AAA_202612'), { value: '{}', parts: 1 }));
+  await assertFails(setDoc(doc(brB(), 'platform', 'rms8_pos_b-AAA_202611__v1abc_0'), { chunk: 'x' }));
+  await assertSucceeds(getDoc(doc(central(), 'platform', 'rms8_pos_b-AAA_202611')));
+  await assertFails(setDoc(doc(brA(), 'platform', 'rms8_pos_b-AAA_2026-11'), { value: '{}', parts: 1 }));   // شهر بغير الصيغة = اسم غير معروف
+  await assertFails(setDoc(doc(brA(), 'platform', 'rms8_pos_b-AAA'), { value: '{}', parts: 1 }));
+});
+
 test('عزل الفروع: مدير إقليمي مُسنَد لفرع A فقط يصل له لا لفرع B', async () => {
   await assertSucceeds(getDoc(doc(regional(), 'platform', 'rms8_br_b-AAA')));
   await assertFails(getDoc(doc(regional(), 'platform', 'rms8_br_b-BBB')));

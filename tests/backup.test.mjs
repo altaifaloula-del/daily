@@ -94,3 +94,10 @@ test('المسار الليلي: أسرار فقط، حذف الاعتماد د�
   assert.ok(!/writeFileSync\([^)]*JSON\.stringify\(\{ logical/.test(s), 'لا يُكتب المحتوى غير مشفّر');
   assert.match(s, /process\.exit\(1\)/);
 });
+
+test('v52.7 composeLogical: فواتير نقطة البيع الشهرية تُضم بلا تكرار مع ما بقي في مستند الفرع', () => {
+  const L = composeLogical({ rms8_org: { branches: [{ id: 'b1' }] }, rms8_br_b1: { posOrders: [{ id: 'x', branchId: 'b1' }], posMonths: ['202611'] },
+    rms8_pos_b1_202611: { orders: [{ id: 'a', branchId: 'b1' }, { id: 'x', branchId: 'b1' }] }, rms8_pos_b1_202610: { orders: [{ id: 'b', branchId: 'b1' }] } });
+  assert.deepEqual(L.ops.posOrders.map(o => o.id).sort(), ['a', 'b', 'x']);
+});
+
