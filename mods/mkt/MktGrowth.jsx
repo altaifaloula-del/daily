@@ -5,8 +5,8 @@ import { cloud, KEYS } from '../../storage';
 import { Target, Users, Grid3x3 as Layers, ShieldCheck, Settings, Download, Users as UserCheck, RefreshCw as GitMerge } from 'lucide-react';
 import { Field, Kpi, Modal, money, makeXlsx, today, nowISO, uid, normPhone, loyPost, ROLES,
   mktCfg, mktCanApprove, MKT_SEGS, MKT_SEG_ORDER, crmBuild, crmSegment, crmDupes, mktKpis, mktCanContact,
-  loyX, loyTier, loyPeriodicTx, mktProfiles, rewardCoupon, cpnKey, posR2, CAMP_ST, campNextNo, campStatusOf, campStats, recCfgOf, recStats, dtLocal, brReport, printScreen } from '../../App.jsx';
-import { Megaphone, Sparkles, Building2 } from 'lucide-react';
+  loyX, loyTier, loyPeriodicTx, mktProfiles, rewardCoupon, cpnKey, posR2, CAMP_ST, campNextNo, campStatusOf, campStats, recCfgOf, recStats, dtLocal, brReport, printScreen, AI_GROWTH_PRESETS, growthDigest, aiGrowthAsk, COMMS_PROVIDERS, COMMS_CH, COMMS_VARS, commsCfgOf, commsRender, smsParts, commsTplErr } from '../../App.jsx';
+import { Megaphone, Sparkles, Building2, Bot, MessageSquare } from 'lucide-react';
 import { Gift, Gift as Ticket } from 'lucide-react';
 
 const CH = { all: 'كل القنوات', whatsapp: 'واتساب', sms: 'رسائل SMS', email: 'البريد', app: 'إشعارات التطبيق' };
@@ -23,7 +23,7 @@ export function MktGrowth({ org, ops, me, myBranches, commit, commitOrg, say }) 
   const list = useMemo(() => crmSegment(crmBuild(org, ops, loy, { branches: central ? null : brIds }), cfg, today()), [org, ops, loy, central, brIds.join(',')]);
   const brName = (id) => ((org.branches || []).find(b => b.id === id) || {}).name || id;
   const [sel, setSel] = useState(null);
-  const V = [['dash', 'لوحة التسويق', Target], ['crm', 'ملفات العملاء', Users], ['seg', 'الشرائح', Layers], ['loy', 'الولاء والمكافآت', Gift], ['cpn', 'الكوبونات', Ticket], ['cmp', 'الحملات', Megaphone], ['rec', 'التوصيات', Sparkles], ['brr', 'تقارير الفروع', Building2], ['gov', 'الموافقات والتكرار', ShieldCheck], ['cfg', 'الإعدادات', Settings]];
+  const V = [['dash', 'لوحة التسويق', Target], ['crm', 'ملفات العملاء', Users], ['seg', 'الشرائح', Layers], ['loy', 'الولاء والمكافآت', Gift], ['cpn', 'الكوبونات', Ticket], ['cmp', 'الحملات', Megaphone], ['rec', 'التوصيات', Sparkles], ['brr', 'تقارير الفروع', Building2], ['ai', 'المساعد الذكي', Bot], ['com', 'إعدادات التواصل', MessageSquare], ['gov', 'الموافقات والتكرار', ShieldCheck], ['cfg', 'الإعدادات', Settings]];
   return (
     <div className="grid" style={{ gap: 12 }} data-mkt>
       <div className="row" style={{ gap: 6, flexWrap: 'wrap' }} role="tablist" aria-label="أقسام التسويق">
@@ -37,6 +37,8 @@ export function MktGrowth({ org, ops, me, myBranches, commit, commitOrg, say }) 
       {loy && view === 'loy' && <Loy org={org} ops={ops} loy={loy} setLoy={setLoy} canApp={canApp} me={me} commit={commit} commitOrg={commitOrg} say={say} />}
       {loy && view === 'cpn' && <Cpn org={org} ops={ops} loy={loy} canApp={canApp} me={me} commitOrg={commitOrg} say={say} brName={brName} />}
       {loy && view === 'cmp' && <Cmp org={org} ops={ops} list={list} canApp={canApp} me={me} commit={commit} commitOrg={commitOrg} say={say} brName={brName} />}
+      {loy && view === 'ai' && <Ai org={org} ops={ops} list={list} central={central} brIds={brIds} />}
+      {view === 'com' && <Com org={org} canApp={canApp} commitOrg={commitOrg} say={say} />}
       {view === 'brr' && <Brr org={org} ops={ops} central={central} brIds={brIds} />}
       {view === 'rec' && <Rec org={org} ops={ops} central={central} brIds={brIds} myBranches={myBranches} canApp={canApp} commitOrg={commitOrg} say={say} />}
       {view === 'cfg' && <Cfg cfg={cfg} canApp={canApp} commitOrg={commitOrg} say={say} />}
@@ -76,7 +78,7 @@ function Dash({ org, ops, list, brIds, myBranches, brName }) {
     </div>
     <div className="card" data-mktroadmap>
       <div className="card-t">مراحل الوحدة</div>
-      <div style={{ fontSize: 12.5, lineHeight: 1.9 }}>✓ الأساس والصلاحيات · ✓ ملفات العملاء والشرائح والموافقات · ✓ الولاء المتقدم والكوبونات · ✓ الحملات والاعتماد · ✓ اقتراحات البيع عند الدفع · ✓ تقارير الفروع والربحية · ○ قنوات التواصل · ○ المساعد الذكي</div>
+      <div style={{ fontSize: 12.5, lineHeight: 1.9 }}>✓ الأساس والصلاحيات · ✓ ملفات العملاء والشرائح والموافقات · ✓ الولاء المتقدم والكوبونات · ✓ الحملات والاعتماد · ✓ اقتراحات البيع عند الدفع · ✓ تقارير الفروع والربحية · ○ قنوات التواصل (الإعدادات جاهزة — الإرسال بانتظار اعتماد المزوّد) · ✓ المساعد الذكي</div>
     </div>
   </>);
 }
@@ -475,5 +477,97 @@ function Brr({ org, ops, central, brIds }) {
           {!R.rows.length && <tr><td colSpan={10}><div className="empty">لا طلبات نقطة بيع في الفترة.</div></td></tr>}</tbody></table></div>
       <div className="note" style={{ marginTop: 8 }}>كل الأرقام من طلبات نقطة البيع الفعلية (بلا الملغاة). «هامش الوصفات» تقديري: صافي الأسطر قبل خصم الفاتورة ناقص تكلفة الوصفات بمتوسط التكلفة الحالي، ويُحسب للأصناف ذات الوصفة المكتملة فقط — «غير مكتمل» يعني أن بعض المبيعات بلا تكلفة. ليس بديلًا عن قائمة الدخل.</div>
     </div>
+  </div>);
+}
+
+/* v52.5 — المرحلة J: المساعد الذكي للنمو — ملخص مجمّع بلا بيانات شخصية، والاقتراحات للمراجعة فقط */
+function Ai({ org, ops, list, central, brIds }) {
+  const [to, setTo] = useState(today()); const [from, setFrom] = useState(anDay(today(), -29));
+  const [q, setQ] = useState(''); const [busy, setBusy] = useState(false); const [err, setErr] = useState(''); const [hist, setHist] = useState([]); const [show, setShow] = useState(false);
+  const D = useMemo(() => growthDigest(org, ops, list, { from, to, branches: central ? null : brIds }), [org, ops, list, from, to, central, brIds.join(',')]);
+  const ask = async (text) => {
+    const question = String(text || q).trim(); if (question.length < 3) return setErr('اكتب سؤالك');
+    setBusy(true); setErr('');
+    try { const r = await aiGrowthAsk(D, question); setHist(h => [{ q: question, r, at: new Date() }, ...h].slice(0, 10)); setQ(''); }
+    catch (e) { setErr(String((e && e.message) || e)); } finally { setBusy(false); }
+  };
+  return (<div className="grid" style={{ gap: 12 }} data-ai>
+    <div className="card">
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}><div className="card-t" style={{ margin: 0 }}>اسأل عن نمو مطاعمك</div><span style={{ marginInlineStart: 'auto' }} />
+        <Field label="من"><input type="date" className="inp" aria-label="من تاريخ" value={from} onChange={e => setFrom(e.target.value)} /></Field>
+        <Field label="إلى"><input type="date" className="inp" aria-label="إلى تاريخ" value={to} onChange={e => setTo(e.target.value)} /></Field></div>
+      <div className="row" style={{ gap: 6, flexWrap: 'wrap', margin: '8px 0' }}>{AI_GROWTH_PRESETS.map(p => <button key={p} className="btn sm gh" disabled={busy} data-aipreset onClick={() => ask(p)}>{p}</button>)}</div>
+      <div className="row" style={{ gap: 6 }}><textarea className="inp" rows={2} style={{ flex: 1 }} aria-label="سؤالك" maxLength={500} placeholder="مثال: لماذا انخفضت مبيعات فرع النسيم هذا الشهر؟" value={q} onChange={e => setQ(e.target.value)} />
+        <button className="btn pri" disabled={busy} onClick={() => ask()}>{busy ? 'جارٍ التحليل…' : 'اسأل'}</button></div>
+      {err && <div className="note" style={{ marginTop: 8, color: 'var(--rose)' }} data-aierr>{err}</div>}
+      <div className="note" style={{ marginTop: 8 }}>يُرسل للمساعد ملخص أرقام مجمّع فقط (المبيعات والفروع والشرائح والحملات والكوبونات والتوصيات) — لا أسماء عملاء ولا جوالات. الإجابات اقتراحات للمراجعة ولا يُنفَّذ شيء تلقائيًا. <button className="pos-link" onClick={() => setShow(s => !s)}>{show ? 'إخفاء ما يُرسل' : 'عرض ما يُرسل'}</button></div>
+      {show && <pre className="num" dir="ltr" style={{ maxHeight: 260, overflow: 'auto', fontSize: 11, background: 'var(--ink)', padding: 8, borderRadius: 8, marginTop: 6 }} data-aidigest>{JSON.stringify(D, null, 1)}</pre>}
+    </div>
+    {hist.map((h, i) => <div key={i} className="card" data-aians>
+      <div style={{ fontSize: 12, color: 'var(--dim)' }}>{h.q} · <span className="num">{dtLocal(h.at)}</span></div>
+      <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.9, marginTop: 6 }}>{h.r.answer}</div>
+      {h.r.points.length > 0 && <ul style={{ margin: '8px 0', paddingInlineStart: 18, lineHeight: 1.8 }}>{h.r.points.map((p, k) => <li key={k}>{p}</li>)}</ul>}
+      {h.r.actions.length > 0 && <div style={{ marginTop: 6 }}><b>إجراءات مقترحة للمراجعة</b>{h.r.actions.map((a, k) => <div key={k} className="note" style={{ marginTop: 6 }} data-aiact><b>{a.title}</b>{a.why ? ' — ' + a.why : ''}{a.where ? <div style={{ fontSize: 11, color: 'var(--faint)' }}>المكان: {a.where}</div> : null}</div>)}</div>}
+      {h.r.caveats.length > 0 && <div style={{ fontSize: 11.5, color: 'var(--amber)', marginTop: 6 }}>{h.r.caveats.join(' · ')}</div>}
+    </div>)}
+  </div>);
+}
+
+/* v52.5 — إعدادات التواصل مع العملاء (تمهيد للمرحلة I) — لا إرسال ولا مفاتيح هنا */
+function Com({ org, canApp, commitOrg, say }) {
+  const C = commsCfgOf(org);
+  const [F, setF] = useState(() => JSON.parse(JSON.stringify({ provider: C.provider, channels: C.channels, senderName: C.senderName, quietFrom: C.quietFrom, quietTo: C.quietTo, maxPerMonth: String(C.maxPerMonth), optOutText: C.optOutText, templates: C.templates })));
+  const [t, setT] = useState(null);
+  const sample = { name: 'سارة', points: 120, coupon: 'BACK10', branch: ((org.branches || [])[0] || {}).name || 'الفرع', company: ((org.company || {}).name) || 'المنشأة' };
+  const save = async (next) => {
+    const v = next || F; const mp = Number(v.maxPerMonth);
+    if (!(mp >= 0 && mp <= 30)) return say('الحد الشهري بين 0 و30 رسالة', 'no');
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(v.quietFrom) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(v.quietTo)) return say('ساعات الهدوء غير صحيحة', 'no');
+    const comms = { provider: v.provider, channels: v.channels, senderName: String(v.senderName || '').trim().slice(0, 11), quietFrom: v.quietFrom, quietTo: v.quietTo, maxPerMonth: mp, optOutText: String(v.optOutText || '').trim().slice(0, 80), templates: v.templates };
+    const ok = await commitOrg(g => ({ ...g, mkt: { ...(g.mkt || {}), comms } }), { actionType: 'update', targetType: 'settings', targetId: 'mkt.comms', need: 'edit', title: 'عدّل إعدادات التواصل مع العملاء', details: (COMMS_PROVIDERS[comms.provider] || '') + ' · ' + comms.templates.length + ' قالب' });
+    if (ok !== false) { say('حُفظت إعدادات التواصل ✓'); if (next) setF(next); }
+    return ok;
+  };
+  const saveTpl = async () => { const e = commsTplErr(t); if (e) return say(e, 'no');
+    const rec = { id: t.id || uid('tpl'), name: t.name.trim().slice(0, 60), ch: t.ch, body: String(t.body).trim(), at: nowISO() };
+    const next = { ...F, templates: [...F.templates.filter(x => x.id !== rec.id), rec] }; const ok = await save(next); if (ok !== false) setT(null); };
+  const delTpl = (id) => { if (window.confirm('حذف القالب؟')) save({ ...F, templates: F.templates.filter(x => x.id !== id) }); };
+  const R = t ? commsRender(t.body, sample) : null; const SP = t && t.ch === 'sms' ? smsParts(R.text + (F.optOutText ? '\n' + F.optOutText : '')) : null;
+  const dis = !canApp;
+  return (<div className="grid" style={{ gap: 12 }} data-com>
+    <div className="card" style={{ borderColor: 'rgba(217,164,65,.5)' }}><div className="note" data-comoff>الإرسال للعملاء <b>غير مفعّل</b> — هذه الإعدادات تمهيد للمرحلة I. يُفعَّل الإرسال بعد اعتمادك للمزوّد والتكلفة، ويُضاف مفتاح المزوّد في إعدادات الخادم (لا يُحفظ هنا أبدًا). الرسائل التسويقية تُرسل فقط لمن سجّل موافقة صريحة، وتحترم ساعات الهدوء والحد الشهري.</div></div>
+    <div className="card" data-comcfg>
+      <div className="card-t">المزوّد والقنوات</div>
+      {dis && <div className="note" style={{ marginBottom: 8 }}>للاطلاع فقط — التعديل لمن له صلاحية الاعتماد.</div>}
+      <div className="grid g3">
+        <Field label="المزوّد المقترح"><select className="sel" aria-label="المزوّد" disabled={dis} value={F.provider} onChange={e => setF(x => ({ ...x, provider: e.target.value }))}>{Object.entries(COMMS_PROVIDERS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
+        <Field label="اسم المرسل (حتى 11 حرفًا لاتينيًا)"><input className="inp" dir="ltr" aria-label="اسم المرسل" disabled={dis} maxLength={11} value={F.senderName} onChange={e => setF(x => ({ ...x, senderName: e.target.value }))} /></Field>
+        <Field label="أقصى رسائل تسويقية للعميل شهريًا"><input className="inp n" inputMode="numeric" aria-label="الحد الشهري" disabled={dis} value={F.maxPerMonth} onChange={e => setF(x => ({ ...x, maxPerMonth: e.target.value.replace(/\D/g, '') }))} /></Field>
+        <Field label="ساعات الهدوء من"><input type="time" className="inp" aria-label="الهدوء من" disabled={dis} value={F.quietFrom} onChange={e => setF(x => ({ ...x, quietFrom: e.target.value }))} /></Field>
+        <Field label="إلى"><input type="time" className="inp" aria-label="الهدوء إلى" disabled={dis} value={F.quietTo} onChange={e => setF(x => ({ ...x, quietTo: e.target.value }))} /></Field>
+        <Field label="نص إلغاء الاشتراك (يُلحق بكل رسالة)"><input className="inp" aria-label="نص الإلغاء" disabled={dis} value={F.optOutText} onChange={e => setF(x => ({ ...x, optOutText: e.target.value }))} /></Field>
+      </div>
+      <div className="row" style={{ gap: 12, marginTop: 6 }}>{Object.entries(COMMS_CH).map(([k, v]) => <label key={k} className="row" style={{ gap: 4 }}><input type="checkbox" aria-label={'قناة ' + v} disabled={dis} checked={!!F.channels[k]} onChange={e => setF(x => ({ ...x, channels: { ...x.channels, [k]: e.target.checked } }))} />{v}</label>)}</div>
+      {canApp && <button className="btn pri" style={{ marginTop: 8 }} data-comsave onClick={() => save()}>حفظ</button>}
+    </div>
+    <div className="card" data-comtpl>
+      <div className="row" style={{ alignItems: 'center', marginBottom: 8 }}><div className="card-t" style={{ margin: 0 }}>قوالب الرسائل</div>
+        {canApp && <button className="btn sm pri" style={{ marginInlineStart: 'auto' }} onClick={() => setT({ name: '', ch: 'whatsapp', body: '' })}>قالب جديد</button>}</div>
+      {!F.templates.length && <div className="empty">لا قوالب بعد.</div>}
+      {F.templates.map(x => <div key={x.id} className="row" data-tpl={x.name} style={{ gap: 8, alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--line)' }}>
+        <b>{x.name}</b><span className="badge b-dim">{COMMS_CH[x.ch]}</span><span style={{ flex: 1, fontSize: 12, color: 'var(--dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.body}</span>
+        {canApp && <><button className="btn sm gh" onClick={() => setT({ ...x })}>تعديل</button><button className="btn sm gh" onClick={() => delTpl(x.id)}>حذف</button></>}</div>)}
+      <div className="note" style={{ marginTop: 8 }}>المتغيرات المتاحة: {Object.entries(COMMS_VARS).map(([k, v]) => '{' + k + '} ' + v).join(' · ')}</div>
+    </div>
+    {t && <Modal title={t.id ? 'تعديل قالب' : 'قالب جديد'} icon={MessageSquare} onClose={() => setT(null)} wide foot={<><button className="btn gh" onClick={() => setT(null)}>إلغاء</button><button className="btn pri" onClick={saveTpl}>حفظ القالب</button></>}>
+      <div className="row" style={{ gap: 10 }}><Field label="اسم القالب"><input className="inp" aria-label="اسم القالب" value={t.name} onChange={e => setT(x => ({ ...x, name: e.target.value }))} /></Field>
+        <Field label="القناة"><select className="sel" aria-label="القناة" value={t.ch} onChange={e => setT(x => ({ ...x, ch: e.target.value }))}>{Object.entries(COMMS_CH).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field></div>
+      <Field label="النص"><textarea className="inp" rows={4} aria-label="نص القالب" value={t.body} onChange={e => setT(x => ({ ...x, body: e.target.value }))} /></Field>
+      <div className="row" style={{ gap: 4, flexWrap: 'wrap' }}>{Object.keys(COMMS_VARS).map(k => <button key={k} className="btn sm gh" onClick={() => setT(x => ({ ...x, body: x.body + '{' + k + '}' }))}>{'{' + k + '}'}</button>)}</div>
+      <div className="lbl" style={{ margin: '8px 0 4px' }}>معاينة ببيانات تجريبية</div>
+      <div className="note" style={{ whiteSpace: 'pre-wrap' }} data-tplprev>{R.text}{F.optOutText ? '\n' + F.optOutText : ''}</div>
+      {R.unknown.length > 0 && <div style={{ color: 'var(--rose)', fontSize: 12 }}>متغير غير معروف: {'{' + R.unknown[0] + '}'}</div>}
+      {SP && <div style={{ fontSize: 12, color: 'var(--dim)', marginTop: 4 }} data-smsparts>{SP.chars} حرفًا · {SP.parts} رسالة SMS</div>}
+    </Modal>}
   </div>);
 }

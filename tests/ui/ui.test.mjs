@@ -2895,3 +2895,33 @@ test('v52.4 تقارير الفروع والربحية: المبيعات وال�
   assert.equal((await import('node:fs')).readFileSync(await dlf.path()).subarray(0, 2).toString(), 'PK', 'ملف Excel (xlsx)');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v52.5 المساعد الذكي: يرسل ملخصًا بلا بيانات شخصية ويعرض الإجابة والإجراءات المقترحة — وإعدادات التواصل والقوالب دون إرسال', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1200 } }, 'live/MktGrowth/admin');
+  await p.evaluate(() => { const td = new Date(); td.setHours(12); const d = td.toISOString().slice(0, 10);
+    window.setOps(o => ({ ...o, posOrders: [{ id: 'o1', date: d, at: new Date().toISOString(), branchId: 'b1', total: 92, net: 80, lines: [{ productId: 'k', name: 'كبسة', qty: 2, price: 46 }], loyalty: { phone: '0559998877', name: 'عميل سري' } }] })); });
+  let sent = null;
+  await p.route('http://zatca.test/api/ai/growth', r => { sent = JSON.parse(r.request().postData()); r.fulfill({ json: { result: { answer: 'فرع طيبة يقود المبيعات.', points: ['92 ريال في الفترة'], actions: [{ title: 'أطلق حملة استرجاع', why: 'العملاء المعرّضون للانقطاع', where: 'التسويق والنمو ← الحملات' }], caveats: ['البيانات قليلة'] } } }); });
+  await p.waitForTimeout(300); await p.click('[data-mktv="ai"]'); await p.waitForSelector('[data-ai]');
+  await p.locator('[data-aipreset]').first().click(); await p.waitForSelector('[data-aians]');
+  assert.ok(sent && sent.digest && sent.question); const s = JSON.stringify(sent);
+  assert.ok(!/559998877|عميل سري/.test(s), 'لا جوال ولا اسم عميل فيما يُرسل');
+  const a = (await p.locator('[data-aians]').innerText()).replace(/\s+/g, ' ');
+  assert.match(a, /فرع طيبة يقود المبيعات/); assert.match(a, /أطلق حملة استرجاع/); assert.match(a, /التسويق والنمو ← الحملات/); assert.match(a, /البيانات قليلة/);
+  // إعدادات التواصل
+  await p.click('[data-mktv="com"]'); await p.waitForSelector('[data-com]');
+  assert.match(await p.locator('[data-comoff]').innerText(), /غير مفعّل/);
+  await p.selectOption('[data-comcfg] select[aria-label="المزوّد"]', 'unifonic'); await p.fill('[data-comcfg] input[aria-label="اسم المرسل"]', 'ALTAIF');
+  await p.locator('[data-comcfg] input[aria-label="قناة رسائل SMS"]').check(); await p.click('[data-comsave]'); await p.waitForTimeout(300);
+  let c = await p.evaluate(() => window.curOrg.mkt.comms); assert.equal(c.provider, 'unifonic'); assert.equal(c.senderName, 'ALTAIF'); assert.equal(c.channels.sms, true); assert.equal('sendingEnabled' in c, false);
+  await p.click('[data-comtpl] button:has-text("قالب جديد")');
+  await p.fill('.modal input[aria-label="اسم القالب"]', 'تذكير النقاط'); await p.selectOption('.modal select[aria-label="القناة"]', 'sms');
+  await p.fill('.modal textarea[aria-label="نص القالب"]', 'أهلًا {name}، رصيدك {points} نقطة في {company}');
+  assert.match(await p.locator('[data-tplprev]').innerText(), /أهلًا سارة، رصيدك 120 نقطة/); assert.match(await p.locator('[data-smsparts]').innerText(), /رسالة SMS/);
+  await p.click('.modal button:has-text("حفظ القالب")'); await p.waitForTimeout(300);
+  c = await p.evaluate(() => window.curOrg.mkt.comms); assert.deepEqual(c.templates.map(t => [t.name, t.ch]), [['تذكير النقاط', 'sms']]);
+  await p.click('[data-comtpl] button:has-text("قالب جديد")'); await p.fill('.modal input[aria-label="اسم القالب"]', 'خطأ'); await p.fill('.modal textarea[aria-label="نص القالب"]', 'مرحبا {foo} يا عميل');
+  await p.click('.modal button:has-text("حفظ القالب")'); await p.waitForTimeout(200);
+  assert.match(await p.evaluate(() => window.lastSay || ''), /متغير غير معروف/);
+  assert.deepEqual(errs, []); await ctx.close();
+});
