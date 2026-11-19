@@ -88,10 +88,10 @@ function Billing({ tenant }) {
       </div>
       {A && <div className="note" style={{ margin: '6px 0' }}>{sar(A.net)} ر.س + ضريبة {VAT_RATE}% {sar(A.vat)} = <b>{sar(A.total)} ر.س</b></div>}
       <div className="row" style={{ gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
-        <button className="btn pri sm" disabled={!!busy || !price} onClick={() => pay('gateway')}><CreditCard size={14} />{busy === 'gateway' ? 'جارٍ التحويل لصفحة الدفع…' : 'ادفع إلكترونيًا'}</button>
+        {(d.methods || []).includes('mada') && <button className="btn pri sm" disabled={!!busy || !price} onClick={() => pay('gateway')}><CreditCard size={14} />{busy === 'gateway' ? 'جارٍ التحويل لصفحة الدفع…' : 'ادفع إلكترونيًا'}</button>}
         {d.bank && (d.methods || []).includes('bank') && <button className="btn sm" disabled={!!busy || !price} onClick={() => pay('bank')}><Landmark size={14} />تحويل بنكي</button>}
       </div>
-      <div className="note" style={{ marginTop: 4 }}>الدفع الإلكتروني: {GW_METHODS} — عبر صفحة «ميسر» الآمنة؛ بيانات البطاقة لا تمر بمِثقال.</div>
+      {(d.methods || []).includes('mada') && <div className="note" style={{ marginTop: 4 }}>الدفع الإلكتروني: {GW_METHODS} — عبر صفحة «ميسر» الآمنة؛ بيانات البطاقة لا تمر بمِثقال.</div>}
       {bank && <div className="card mq-bank" style={{ marginTop: 8, padding: 10 }}>
         <div>حوّل <b>{sar(bank.total)} ر.س</b> إلى:</div>
         <div>المستفيد: <b>{bank.bank.holder}</b>{bank.bank.name ? ' — ' + bank.bank.name : ''}</div>

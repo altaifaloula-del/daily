@@ -3242,7 +3242,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v51.6';
+const APP_VER = 'v51.7';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3360,10 +3360,12 @@ function PlatformApp() {
   const [auditTick, setAuditTick] = useState(0);
   const [auditFeed, setAuditFeed] = useState(null);
   const [needUpdate, setNeedUpdate] = useState(null);
+  const [subLive, setSubLive] = useState('');   // v51.7: حالة الاشتراك الفعلية من قاعدة المنشأة (platform/release.sub) — تظهر فور تغييرها من لوحة مِثقال
   const auditReader = !!me && (!!(ROLES[me.role] || {}).admin || roleHasTab(me, 'audit'));
   useEffect(() => { if (!me) return; let dead = false;
     const chk = async () => { const rel = (ROLES[me.role] || {}).admin ? ((await raiseRelease(me)) || (await loadRelease())) : await loadRelease();
-      if (!dead && rel && (rel.minCv || 0) > APP_CV) setNeedUpdate(rel); };
+      if (!dead && rel && (rel.minCv || 0) > APP_CV) setNeedUpdate(rel);
+      if (!dead && rel) setSubLive(typeof rel.sub === 'string' ? rel.sub : ''); };
     chk(); const h = setInterval(chk, 10 * 60000); return () => { dead = true; clearInterval(h); }; }, [me]);
   useEffect(() => { if (!me || !auditReader) { setAuditFeed(null); return; } let dead = false;
     const go = async () => { const r = await auditFetch(300); if (!dead && Array.isArray(r)) setAuditFeed(r); };
@@ -4547,7 +4549,7 @@ function PlatformApp() {
           })()}
 
           {/* v51.3 (S4): اشتراك «للقراءة فقط» — القواعد على الخادم ترفض أي حفظ؛ هذا تنبيه فقط */}
-          {TENANT.status === 'readonly' && (
+          {(TENANT.status === 'readonly' || subLive === 'readonly' || subLive === 'suspended') && (
             <div className="mq-sub-ro" style={{
               background: 'rgba(224,164,88,.14)', borderBottom: '1px solid rgba(224,164,88,.4)',
               color: 'var(--amber)', padding: '9px 20px', fontSize: 12, display: 'flex', gap: 9, alignItems: 'center'
