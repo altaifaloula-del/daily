@@ -54,6 +54,9 @@ export function composeLogical(values, meta = {}) {
   const merge = (src) => Object.entries(src || {}).forEach(([k, v]) => { if (Array.isArray(v)) ops[k] = [...(ops[k] || []), ...v]; });
   merge(core);
   Object.keys(values).filter(k => /^rms8_br_/.test(k)).sort().forEach(k => merge(values[k]));
+  // v52.7 (G3-A): فواتير نقطة البيع الشهرية لكل فرع تُضم إلى posOrders (بلا تكرار مع ما بقي في مستند الفرع)
+  const seenPos = new Set((ops.posOrders || []).map(o => o && o.id));
+  Object.keys(values).filter(k => /^rms8_pos_.+_[0-9]{6}$/.test(k)).sort().forEach(k => ((values[k] || {}).orders || []).forEach(o => { if (o && !seenPos.has(o.id)) { seenPos.add(o.id); (ops.posOrders = ops.posOrders || []).push(o); } }));
   const branchesDocs = Object.keys(values).filter(k => /^rms8_br_/.test(k)).length;
   return { meta: { app: 'rms8', kind: 'nightly', exportedAt: new Date().toISOString(), by: 'النسخ الليلي (GitHub Actions)', branchesDocs, ...meta }, org, ops, hist: values.rms8_hist || null, loy: values.rms8_loy || null };
 }

@@ -2930,3 +2930,21 @@ test('v52.5 المساعد الذكي: يرسل ملخصًا بلا بيانات
   assert.match(await p.evaluate(() => window.lastSay || ''), /متغير غير معروف/);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v52.7 فصل فواتير نقطة البيع شهريًا (G3-A): فحص الحالة، الفصل مع التحقق، والتراجع — من صيانة النظام', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Admin/admin');
+  await p.evaluate(() => { const os = [{ id: 'p1', branchId: 'b1', date: '2026-10-05', total: 20, lines: [] }, { id: 'p2', branchId: 'b1', date: '2026-11-03', total: 30, lines: [] }, { id: 'p3', branchId: 'b1', date: '2026-11-04', total: 40, lines: [] }];
+    localStorage.setItem('rms8:br_b1', JSON.stringify({ posOrders: os, closings: [], rev: 2 }));
+    window.setOps(o => ({ ...o, posOrders: os })); });
+  await p.locator('button:has-text("صيانة")').first().click(); await p.waitForSelector('[data-possplit]');
+  await p.click('[data-possplit] button:has-text("فحص الحالة")'); await p.waitForSelector('[data-posbr="b1"] .badge');
+  assert.match(await p.locator('[data-posbr="b1"]').innerText(), /مستند واحد/);
+  await p.click('[data-posbr="b1"] button:has-text("فصل شهريًا")'); await p.waitForTimeout(600);
+  const s = await p.evaluate(() => ({ br: JSON.parse(localStorage.getItem('rms8:br_b1')), oct: JSON.parse(localStorage.getItem('rms8:pos_b1_202610')), nov: JSON.parse(localStorage.getItem('rms8:pos_b1_202611')) }));
+  assert.deepEqual(s.br.posMonths, ['202610', '202611']); assert.deepEqual(s.br.posOrders, []); assert.equal(s.oct.orders.length, 1); assert.equal(s.nov.orders.length, 2);
+  assert.match(await p.locator('[data-posbr="b1"]').innerText(), /مفصول شهريًا/); assert.match(await p.evaluate(() => window.lastSay || ''), /3 فاتورة في 2 شهر/);
+  await p.click('[data-posbr="b1"] button:has-text("تراجع")'); await p.waitForTimeout(600);
+  const u = await p.evaluate(() => JSON.parse(localStorage.getItem('rms8:br_b1')));
+  assert.equal(u.posOrders.length, 3); assert.equal('posMonths' in u, false); assert.match(await p.locator('[data-posbr="b1"]').innerText(), /مستند واحد/);
+  assert.deepEqual(errs, []); await ctx.close();
+});
