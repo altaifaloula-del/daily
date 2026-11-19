@@ -6,7 +6,7 @@ import { posAreas, tableArea, salesByArea, DLV_ST, posDrivers, dlvNeeded, dlvRec
 import { posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim } from '../../App.jsx';   // v42.9
 import { couponWhy, cpnReserve, cpnRelease, loyEarnX, loyTier } from '../../App.jsx';   // v48.1 الكوبونات المحدودة والولاء المتقدم
 import { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, posReturnLoyDed, WASTE_REASONS } from '../../App.jsx';   // v46.8 المرتجع
-import { posDocView, APPS, CloudHealth, Field, Modal, Num, POS_SH_KEY, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, QUOTA_MSG, ROLES, businessDay, isoD, logClientError, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, makeXlsx, money, normPhone, nowISO, pendShiftsGet, pendShiftsSet, posCashNet, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posTotals, posZHtml, promoActive, promoHits, sha256Hex, uid } from '../../App.jsx';
+import { posDocView, APPS, CloudHealth, Field, Modal, Num, POS_SH_KEY, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, QUOTA_MSG, ROLES, businessDay, isoD, logClientError, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, makeXlsx, money, normPhone, nowISO, pendShiftsGet, pendShiftsSet, posCashNet, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posTotals, posZHtml, promoActive, promoHits, sha256Hex, uid, recCfgOf, recIndex, recFor } from '../../App.jsx';
 
 export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const R = ROLES[me.role] || {};
@@ -60,6 +60,14 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const tierNow = phoneOk && loy ? loyTier(org, loy, phoneN, today) : null;
   const earnPts = phoneOk && loyCfg.enabled ? loyEarnX(org, loyCfg, T.total, { tierMult: tierNow ? Number(tierNow.mult) || 1 : 1, branchId: (br || {}).id, lines: priced.lines }) : 0;   // v48.1 المستوى والفرع ونقاط المنتج
   const custName = phoneOk && loy ? (((loy.members || {})[phoneN] || {}).name || '') : '';
+  // v52.2 — المرحلة G: توصيات عند الدفع من سلال الفرع الفعلية وطلبات العميل المعتادة؛ المعروض والمُغفل والمقبول يُحفظ مع الفاتورة نفسها
+  const recCfg = recCfgOf(org); const [recSeen, setRecSeen] = useState([]); const [recDis, setRecDis] = useState([]);
+  const recIdx = useMemo(() => (recCfg.on && br ? recIndex(ops.posOrders, { to: today, days: recCfg.days, branchId: br.id }) : null), [ops.posOrders, (br || {}).id, today, recCfg.on, recCfg.days]);
+  const recs = recIdx && cart.length && !payTab ? recFor(recIdx, cart, org.products, { cfg: recCfg, phone: phoneOk ? phoneN : '', dismissed: recDis }) : [];
+  const recKey = recs.map(r => r.productId).join(',');
+  useEffect(() => { if (recKey) setRecSeen(s => { const add = recKey.split(',').filter(x => !s.includes(x)); return add.length ? [...s, ...add] : s; }); }, [recKey]);
+  useEffect(() => { if (!cart.length) { setRecSeen([]); setRecDis([]); } }, [cart.length]);
+  const addRec = (r) => setCart(c => c.some(l => l.productId === r.productId) ? c : [...c, { key: uid('l'), productId: r.productId, name: r.name, price: r.price, qty: 1, note: '', rec: r.kind }]);
   // المزامنة: إرسال المعلّق ثم إزالته من الجهاز
   const flushRaw = useCallback(async () => {
     // الوردية المحلية أولًا (إن لم تصل السحابة بعد)
@@ -170,12 +178,13 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     let seq = 1, prev = { icv: 0, hash: '0' }; try { seq = (Number(localStorage.getItem(sk)) || 0) + 1; prev = JSON.parse(localStorage.getItem(hk) || '{"icv":0,"hash":"0"}'); } catch { }
     const bi = (org.branches || []).findIndex(b => b.id === br.id) + 1;
     const o = { id: oid, no: 'ف' + bi + '-' + yy + '-' + dev.tag + '-' + String(seq).padStart(4, '0'), branchId: br.id, dev: dev.tag, shiftId: shift.id, date: today, at: nowISO(), by: me.name,
-      channel, lines: priced.lines.map(l => ({ productId: l.productId, name: l.name, qty: l.qty, price: l.price, ...(l.note ? { note: l.note } : {}), ...(l.disc ? { disc: l.disc, promoId: l.promoId, promoName: l.promoName } : {}) })),
+      channel, lines: priced.lines.map(l => ({ productId: l.productId, name: l.name, qty: l.qty, price: l.price, ...(l.note ? { note: l.note } : {}), ...(((cart.find(c => c.key === l.key) || {}).rec) ? { rec: (cart.find(c => c.key === l.key) || {}).rec } : {}), ...(l.disc ? { disc: l.disc, promoId: l.promoId, promoName: l.promoName } : {}) })),
       gross: T.gross, disc: T.disc, ...(priced.orderDisc ? { orderDisc: priced.orderDisc, orderPromo: priced.orderPromo } : {}), manualDisc: manual, ...(manual ? { discReason: disc.reason.trim() } : {}),
       ...(code.trim() && priced.codeOk ? { coupon: code.trim(), ...(priced.coupon ? { couponId: priced.coupon.id, ...(priced.coupon.limited ? { couponLtd: true } : {}) } : {}) } : {}),
       ...(phoneOk ? { loyalty: { phone: phoneN, name: (cust.name || custName).trim(), earned: earnPts, redeemed: redeemPts, redeemAmt, balAfter: posR2(loyBalance - redeemPts + earnPts) } } : {}),
       total: T.total, vat: T.vat, net: T.net, rate,
       payments: pay.parts.filter(x => Number(x.amount) > 0).map(x => ({ m: x.m, amount: posR2(x.amount), ...(x.m === 'app' ? { appId: x.appId, appName: (apps.find(a => a.id === x.appId) || {}).n || 'تطبيق' } : {}), ...(x.pm ? { pm: x.pm, pmName: x.pmName } : {}) })),
+      ...(recSeen.length ? { recShown: recSeen.slice(0, 30) } : {}), ...(recDis.length ? { recDismissed: recDis.slice(0, 30) } : {}),
       change, status: 'paid', icv: (prev.icv || 0) + 1, pih: prev.hash || '0', ...(channel === 'dinein' && tbl ? { table: tbl, ...((ar) => ar ? { areaId: ar.id, areaName: ar.name } : {})(tableArea(org, br.id, tbl)) } : {}), ...(payTab ? { tabId: payTab } : {}) };
     o.hash = sha256Hex(JSON.stringify([o.no, o.at, o.lines, o.total, o.vat, o.payments, o.icv, o.pih]));
     try { localStorage.setItem(sk, String(seq)); localStorage.setItem(hk, JSON.stringify({ icv: o.icv, hash: o.hash })); } catch { }
@@ -360,6 +369,14 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
           <b className="num" style={{ minWidth: 60, textAlign: 'end' }}>{money(l.qty * l.price - (pl(l).disc || 0))}</b>
         </div>))}
       {!cart.length && <div className="empty">اضغط الأصناف لإضافتها</div>}
+      {recs.length > 0 && <div className="pos-recs" data-recs style={{ margin: '8px 0 2px', padding: '8px 10px', border: '1px dashed var(--line)', borderRadius: 12 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--dim)', marginBottom: 6 }}>مقترح مع الطلب</div>
+        {recs.map(r => <div key={r.productId} className="row" data-rec={r.productId} style={{ gap: 6, alignItems: 'center', marginBottom: 4 }}>
+          <button className="btn sm gh" style={{ flex: 1, justifyContent: 'space-between', minWidth: 0 }} title={r.why} onClick={() => addRec(r)}><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>+ {r.name}</span><span className="num">{money(r.price)}</span></button>
+          <button className="btn sm gh" aria-label={'إخفاء ' + r.name} onClick={() => setRecDis(d => d.includes(r.productId) ? d : [...d, r.productId])}><X size={13} /></button>
+        </div>)}
+        <div style={{ fontSize: 11, color: 'var(--faint)' }}>{recs[0].why}</div>
+      </div>}
       {cart.length > 0 && <>
         <div className="pos-ext">
           <button className={extOpen.disc ? 'on' : ''} onClick={() => setExt(x => ({ ...x, disc: !extOpen.disc }))}>{manual ? 'خصم ' + money(manual) : '+ خصم'}</button>
