@@ -23,17 +23,12 @@ export const bfKey = (branchId) => 'rms8:bf_' + branchId;
 export const kb = (o) => Math.round(JSON.stringify(o || {}).length / 1024);
 
 /* ================= إعدادات Firebase ================= */
+// v51.0 (S1): إعداد Firebase والمجموعة من طبقة المستأجر (tenant.js) — الافتراضي = متغيرات البناء نفسها (الطيف كما هو)
+import { TENANT } from './tenant.js';
 const E = import.meta.env || {};
-const FB = {
-  apiKey: E.VITE_FIREBASE_API_KEY,
-  authDomain: E.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: E.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: E.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: E.VITE_FIREBASE_SENDER_ID,
-  appId: E.VITE_FIREBASE_APP_ID
-};
+const FB = TENANT.firebase;
 const FB_READY = !!(FB.apiKey && FB.projectId);
-const COL = E.VITE_FIREBASE_COLLECTION || 'platform';
+const COL = TENANT.collection;
 // v28.1: التقسيم بالبايت لا بعدد الأحرف — الحرف العربي بايتان في UTF-8 وحد مستند Firestore ميبيبايت واحد
 const CHUNK_BYTES = 900000;
 const MAX_PARTS = 500;          // سقف أجزاء المستند الواحد (يطابق قواعد Firestore) — يمنع حلقات قراءة لا تنتهي

@@ -17,6 +17,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { onboardEgs } from './zatca/onboard.js';
 import { vaultReady } from './zatca/vault.js';
+import { loadTenants } from './tenants.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 8787;
@@ -27,11 +28,14 @@ const STORE = path.join(DATA_DIR, 'store.json');
 // إعدادات Firebase على الخادم (تُقبل أسماء VITE_ نفسها لتسهيل النشر على Render)
 // تنظيف المفاتيح من مسافات أو أسطر أو علامات اقتباس قد تُلصق معها بالخطأ
 const cleanKey = (v) => String(v || '').trim().replace(/^["'`]+|["'`]+$/g, '').trim();
-const RAW_FB_KEY = process.env.FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY || '';
+// v51.0 (S1): سجل المستأجرين — الافتراضي (الطيف) من متغيرات البيئة نفسها، فلا يتغير سلوك الخادم الحالي
+const TENANTS = loadTenants(process.env);
+if (TENANTS.errors.length) console.warn('[mithqal] سجل المستأجرين:', TENANTS.errors.join(' · '));
+const RAW_FB_KEY = TENANTS.def.apiKey;
 const FB_API_KEY = cleanKey(RAW_FB_KEY);
 const ANTHROPIC_KEY = cleanKey(process.env.ANTHROPIC_API_KEY);
 // معرّف المشروع اختياري: إن لم يُضبط يُؤخذ من رمز المستخدم بعد التحقق منه بمفتاح المشروع
-const FB_PROJECT = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || '';
+const FB_PROJECT = TENANTS.def.projectId;
 const FB_READY = !!FB_API_KEY;
 
 // يقرأ حقل aud (معرّف مشروع Firebase) من رمز JWT — لا يُستخدم إلا بعد أن تقبل Google الرمز بمفتاح مشروعنا
