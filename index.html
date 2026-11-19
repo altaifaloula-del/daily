@@ -3,15 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#0B1F3A" />
+    <meta name="theme-color" content="#10294A" />
     <title>مِثقال — Mithqal | منصة واحدة، لكل الأعمال ومن أي مكان</title>
     <meta name="description" content="مِثقال (Mithqal) — منصة واحدة، لكل الأعمال ومن أي مكان. One platform. Every business. Everywhere. — الإغلاق اليومي والضبط النقدي والمحاسبة والمشتريات والمخزون والموارد البشرية والتقارير المالية لفروع المطاعم." />
     <!-- v29.6: اتصال مسبق بخوادم Google (الدخول وقاعدة البيانات) يختصر الانتظار بعد تسجيل الدخول -->
     <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin />
     <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin />
     <link rel="preconnect" href="https://securetoken.googleapis.com" crossorigin />
+    <!-- v50.3 هوية MITHQAL ERP الرسمية: خط IBM Plex Sans Arabic (عربي) وManrope (إنجليزي) — مع بدائل Noto Sans Arabic والنظام عند انقطاع الشبكة -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap" />
     <link rel="manifest" href="manifest.webmanifest" />
-    <!-- v47.2: أيقونة التطبيق على الأجهزة = العلامة المعتمدة (أسماء ملفات جديدة حتى تتجدد عند الأجهزة التي حفظت القديمة) -->
+    <!-- v50.3: أيقونة التطبيق وFavicon من حزمة الهوية الرسمية MITHQAL ERP (رمز M المعتمد) -->
     <link rel="icon" href="favicon.ico" sizes="48x48" />
     <link rel="icon" type="image/svg+xml" href="icon.svg" />
     <link rel="icon" type="image/png" sizes="192x192" href="mithqal-192.png" />
@@ -21,7 +25,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="مِثقال" />
   </head>
-  <body style="margin:0;background:#14110F">
+  <body style="margin:0;background:#10294A">
     <div id="root"></div>
     <script type="module" src="/main.jsx"></script>
     <script>

@@ -1158,6 +1158,19 @@ test('v50.0 المرحلة 05 الجدول الموحد: فرز وإخفاء ع�
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+test('v50.1 المرحلة 06 «مهامي» على الرئيسية: القيد المعلّق يظهر لمحاسب آخر ويفتح دفتر اليومية، والكاشير لا يرى المالية', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/MyWork/acc');
+  await p.evaluate(() => window.setOps(o => ({ ...o, journalManual: [{ id: 'mw', date: new Date().toISOString().slice(0, 10), title: 'قيد للتجربة', by: 'سعد', byId: 'zz', status: 'pending', lines: [{ code: '1101', debit: 250, credit: 0 }, { code: '3101', debit: 0, credit: 250 }] }] })));
+  await p.waitForTimeout(400);
+  const W = p.locator('[data-mywork]');
+  assert.match(await W.innerText(), /مهامي[\s\S]*بند ينتظرك/);
+  await W.locator('[data-mywork-item]', { hasText: 'قيد للتجربة' }).click(); await p.waitForTimeout(200);
+  assert.match(await p.evaluate(() => window.__nav || ''), /acct/, 'البند يفتح المحاسبة (دفتر اليومية)');
+  await p.evaluate(() => window.as('cs')); await p.waitForTimeout(300);
+  assert.equal(await p.locator('[data-mywork-cat="fin"]').count(), 0, 'الكاشير لا يرى المالية');
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
 test('v43.0 الواجهة الإنجليزية: الاتجاه LTR وترجمة الإطار (التطبيقات، رأس المركز، شريط الأقسام) والعربية افتراضيًا', async () => {
   // افتراضيًا: عربي RTL
   { const { p, errs, ctx } = await open({ viewport: { width: 1280, height: 900 } }, 'comp/Launcher');
@@ -2563,4 +2576,44 @@ test('v48.1 الولاء المتقدم: إعداد المستويات والج�
   const c = await p.evaluate(() => window.curOrg.posPromos.map(x => [x.custPhone, x.maxUses, x.items, x.value]));
   assert.deepEqual(c, [['511111111', 1, ['p1'], 100]]); assert.match(await p.evaluate(() => window.lastSay || ''), /صدرت الجائزة بكوبون RW/);
   assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v50.2 المرحلة 06: حزمة الترجمة الكاملة تُحمَّل في الوضع الإنجليزي — «مهامي» ومجموعات المحاسبة الخمس بالإنجليزية', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1300, height: 1000 } }); await ctx.addInitScript(() => { try { localStorage.setItem('rms8:lang', 'en'); } catch { } });
+  const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'live/MyWork/acc'); await p.waitForTimeout(500); await settle(p);
+  await p.waitForFunction(() => /My work/.test(document.querySelector('[data-mywork]')?.innerText || ''), null, { timeout: 15000 });
+  const t = await p.locator('[data-mywork]').innerText();
+  assert.match(t, /My work/); assert.match(t, /items waiting for you/); assert.match(t, /Finance & Suppliers/);
+  await p.close(); const p2 = await ctx.newPage(); p2.on('pageerror', e => errs.push(e.message));
+  await p2.goto(base + 'acct/jr'); await p2.waitForTimeout(1200); await settle(p2);
+  await p2.waitForFunction(() => /Daily operations/.test(document.body.innerText), null, { timeout: 15000 });
+  const b = await p2.evaluate(() => document.body.innerText);
+  for (const g of ['Daily operations', 'Books', 'Reports', 'Closing & Tax', 'Setup & Tools']) assert.match(b, new RegExp(g.replace('&', '&')), g);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v50.2 الواجهة العربية لا تحمّل حزمة الترجمة', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1280, height: 900 } }, 'acct/jr');
+  const b = await p.evaluate(() => document.body.innerText);
+  assert.match(b, /العمليات اليومية/); assert.match(b, /الإقفال والضريبة/);
+  assert.equal(await p.evaluate(() => performance.getEntriesByType('resource').some(r => /i18n-en|index-.*\.js/.test(r.name) && /i18n/.test(r.name))), false);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v50.3 الهوية الرسمية: الرمز المعتمد كما في الحزمة والشعار الثنائي بنص حيّ (عربي/إنجليزي)', async () => {
+  for (const lang of ['ar', 'en']) {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } }); await ctx.addInitScript((l) => { try { localStorage.setItem('rms8:lang', l); } catch { } }, lang);
+    const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+    await p.goto(base + 'comp/BrandLockup'); await p.waitForTimeout(800); await settle(p);
+    const r = await p.evaluate(() => { const sv = document.querySelector('svg[data-mq-symbol]'); const lk = document.querySelector('[data-mq-lockup]');
+      return { v: sv && sv.dataset.mqSymbol, d: sv ? [...sv.querySelectorAll('path')].map(x => x.getAttribute('d')) : [], w: sv ? [...sv.querySelectorAll('path')].map(x => x.getAttribute('stroke-width')) : [],
+        c: sv ? [...sv.querySelectorAll('path')].map(x => getComputedStyle(x).stroke) : [], t: lk ? lk.innerText.replace(/\s+/g, ' ') : '' }; });
+    assert.equal(r.v, 'light');
+    assert.deepEqual(r.d, ['M18 82 L18 24 L50 55 L82 24 L82 82', 'M50 55 L50 82', 'M31 24 L50 42 L69 24'], 'مسارات الرمز مطابقة للحزمة');
+    assert.deepEqual(r.w, ['11', '11', '7']);
+    assert.deepEqual(r.c, ['rgb(16, 41, 74)', 'rgb(217, 168, 62)', 'rgb(217, 168, 62)'], 'ألوان الحزمة #10294A و#D9A83E');
+    assert.match(r.t, /MITHQAL/); assert.match(r.t, /مثقال/, 'الاسم العربي يبقى عربيًا في الوضعين'); assert.match(r.t, /ERP/);
+    assert.deepEqual(errs, []); await ctx.close();
+  }
 });

@@ -327,6 +327,10 @@ function buildNotifEvents(org, ops, me, myBranches) {
     const lim = isoD(new Date(Date.now() + 7 * 86400000));
     expiryLots(org, ops).forEach(l => { if ((!myWh || myWh.includes(l.whId)) && l.expiry <= lim) push('inv:exp:' + l.id + ':' + (l.expiry <= td ? 'x' : 's'), 'inv', (l.expiry <= td ? 'دفعة منتهية الصلاحية — ' : 'دفعة تنتهي خلال 7 أيام — ') + whName(org, l.whId), itemN(l.itemId) + ' · ' + q3(l.left) + (l.batch ? ' · دفعة ' + l.batch : '') + ' · ' + l.expiry, central ? 'inv' : 'whbranch', 'wh'); });
   }
+  // —— v50.1: قيود بانتظار اعتمادي (مسار الاعتماد المهيّأ أو الاعتماد الواحد) ——
+  if (roleHasTab(me, 'acct')) (ops.journalManual || []).forEach(j => { if (j.status !== 'pending') return; const amt = (j.lines || []).reduce((a, l) => a + (Number(l.debit) || 0), 0);
+    const can = wfOn(org, 'je') && wfRequired(org, 'je', amt).length ? wfCanAct(org, 'je', j, amt, me).ok : canApproveJe(me, j);
+    if (can) push('fin:je:' + j.id + ':' + ((j.approvals || []).length), 'fin', 'قيد بانتظار اعتمادك — ' + (j.title || ''), money(amt) + ' ر.س · ' + (j.date || ''), 'acct', 'jr'); });
   // —— المالية والموردون ——
   if (central && (roleHasTab(me, 'suppliers') || roleHasTab(me, 'purchasing') || roleHasTab(me, 'acct'))) {
     const due = (ops.invoices || []).filter(i => (i.amount || 0) > 0 && (i.amount - (i.paidAmount || 0)) > 0.004 && i.dueDate && i.dueDate <= td);
@@ -575,7 +579,7 @@ function exportExcel(filename, sheetTitle, headers, rows, opts = {}) {
   const metaRows = meta.map(m => `<tr><td colspan="${headers.length}" class="meta">${esc(m)}</td></tr>`).join('');
   const html = `<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8">
     <style>
-      table{border-collapse:collapse;font-family:'Segoe UI',Tahoma,sans-serif;direction:rtl}
+      table{border-collapse:collapse;font-family:'IBM Plex Sans Arabic','Noto Sans Arabic','Segoe UI',Tahoma,sans-serif;direction:rtl}
       caption{font-size:15px;font-weight:bold;padding:10px;text-align:right}
       th{background:#C8A24A;color:#1a1410;font-weight:bold;border:1px solid #8C6F2C;padding:7px 10px;text-align:center}
       td{border:1px solid #ccc;padding:6px 10px}
@@ -1630,7 +1634,7 @@ function rptHtml(org, spec) {
   const foot = `${L.by}: ${_xe(meta.user || '—')} · ${L.at} ${_xe(String(at).slice(0, 16).replace('T', ' '))} · ${L.src}: ${_xe(meta.source || 'مِثقال')}`;
   return `<!doctype html><html dir="${dir}" lang="${en ? 'en' : 'ar'}"><head><meta charset="utf-8"><title>${_xe(spec.title)}</title><style>${typeof NUM_FACE === 'string' ? NUM_FACE : ''}
   @page{size:${paper} ${orient};margin:14mm 10mm 16mm;@bottom-center{content:"${L.page} " counter(page) " ${L.of} " counter(pages);font-size:9px;color:#777}@bottom-${en ? 'left' : 'right'}{content:"${foot.replace(/"/g, "'")}";font-size:8px;color:#888}}
-  *{font-family:'MizanNum','Segoe UI',Tahoma,sans-serif;box-sizing:border-box}body{margin:0;color:#1a1a1a;font-size:11.5px}
+  *{font-family:'MizanNum','IBM Plex Sans Arabic','Noto Sans Arabic','Segoe UI',Tahoma,sans-serif;box-sizing:border-box}body{margin:0;color:#1a1a1a;font-size:11.5px}
   .h{display:flex;justify-content:space-between;align-items:center;gap:12px;border-bottom:2px solid #8C6F2C;padding-bottom:8px;margin-bottom:10px}
   .h .l{display:flex;gap:10px;align-items:center}.lg{height:46px;max-width:120px;object-fit:contain}.co{font-size:16px;font-weight:800;color:#5a4a1e}.s{font-size:10.5px;color:#666;margin-top:2px}
   h1{font-size:15px;margin:0;text-align:${en ? 'right' : 'left'}}.tp{font-size:10px;color:#8C6F2C;text-align:${en ? 'right' : 'left'}}
@@ -2666,7 +2670,7 @@ const TAB_AR = {
 };
 // ═══ ثيمات المنصّة الاحترافية (11 أسلوب تصميم كامل) × وضع ليل/نهار — v14.7 ═══
 const THEME_META = {
-  restpro: { name: 'مِثقال (المعتمد)', desc: 'كحلي وذهبي فاخر', color: '#101D35' },
+  restpro: { name: 'مِثقال (المعتمد)', desc: 'كحلي وذهبي فاخر', color: '#10294A' },
   mizan: { name: 'ميزان 2', desc: 'واضح احترافي', color: '#C9A24D' },
   royal: { name: 'الملكي الذهبي', desc: 'فخم دافئ', color: '#A87D28' },
   glass: { name: 'الزجاجي الشفّاف', desc: 'بطاقات ضبابية', color: '#2E7CC4' },
@@ -2689,15 +2693,39 @@ const readMode = () => { try { return localStorage.getItem('rms8:mode') === 'dar
 const themeCls = (t, mode) => { const n = normTheme(t); return 'rms mode-' + (mode === 'dark' ? 'dark' : 'light') + (n === 'restpro' ? ' thm-mizan thm-restpro' : ' thm-' + n); };
 // v46.8: الهوية «مِثقال — Mithqal» وشعارها؛ الترجمة الإنجليزية في i18n.js (TX)
 const BRAND = 'مِثقال', BRAND_SUB = 'منصة واحدة، لكل الأعمال ومن أي مكان', BRAND_AR = 'مِثقال — Mithqal';
-// v47.1 — العلامة المعتمدة: حلقة عالمية (عملة/كرة أرضية) مفتوحة أعلاها لمعين الارتكاز، وحرف M معلّق تحت عارضة الميزان.
-// لون واحد (currentColor) فتأخذ لون الحاوية: كحلي على الذهبي في المنصة.
-const BRAND_MARK = () => (
-  <svg viewBox="0 0 200 200" width="78%" height="78%" aria-hidden="true" style={{ display: 'block' }}>
-    <path d="M86 22.6 A80 80 0 1 0 114 22.6" fill="none" stroke="currentColor" strokeWidth="9" strokeLinecap="round" />
-    <path d="M100 12 l11 12 -11 12 -11 -12z" fill="currentColor" />
-    <rect x="40" y="56" width="120" height="10" rx="5" fill="currentColor" />
-    <path d="M52 66 h20 l28 30 28 -30 h20 v85 h-19 v-51 l-29 30 -29 -30 v51 h-19z" fill="currentColor" />
-  </svg>);
+// v50.3 — هوية MITHQAL ERP الرسمية (حزمة الهوية المعتمدة من المالك 2026-11-19): رمز M كما هو بلا تعديل.
+// نسختان من الحزمة نفسها: «light» (كحلي + ذهبي — mithqal-symbol.svg) للخلفيات الفاتحة، و«dark» (ذهبي + أبيض — من mithqal-app-icon.svg) للكحلية.
+// الألوان من ملف التوكنات الموحّد brand/mithqal-brand-tokens.css (--mithqal-*) مع القيمة الرسمية احتياطًا.
+const MQ = { navy: 'var(--mithqal-navy,#10294A)', gold: 'var(--mithqal-gold,#D9A83E)', white: 'var(--mithqal-white,#FFFFFF)', deep: 'var(--mithqal-deep-navy,#091A30)' };
+const BrandSymbol = ({ variant = 'light', size = '100%' }) => {
+  const dark = variant === 'dark';
+  return (
+    <svg viewBox="0 0 100 100" width={size} height={size} aria-hidden="true" style={{ display: 'block' }} data-mq-symbol={variant}>
+      <g fill="none" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M18 82 L18 24 L50 55 L82 24 L82 82" stroke={dark ? MQ.gold : MQ.navy} strokeWidth="11" />
+        <path d="M50 55 L50 82" stroke={dark ? MQ.white : MQ.gold} strokeWidth={dark ? 8 : 11} />
+        <path d="M31 24 L50 42 L69 24" stroke={MQ.gold} strokeWidth="7" />
+      </g>
+    </svg>);
+};
+// أيقونة التطبيق (مربع كحلي برمز ذهبي وأبيض) — مطابقة لـ mithqal-app-icon.svg
+const BRAND_MARK = () => <BrandSymbol variant="dark" size="72%" />;
+// الشعار الأفقي (رمز + MITHQAL + مثقال + ERP) بنص حيّ بخط الواجهة حتى يتشكّل العربي صحيحًا في كل المتصفحات.
+// lang: 'bi' ثنائي | 'ar' عربي | 'en' إنجليزي — كما في الحزمة. onDark: نسخة معكوسة للخلفية الكحلية (الرمز الداكن من الحزمة ونص أبيض).
+const BrandLockup = ({ lang = 'bi', onDark = false, height = 44 }) => {
+  const ink = onDark ? MQ.white : MQ.navy;
+  return (
+    <span className="mq-lockup" data-mq-lockup={lang} style={{ display: 'inline-flex', alignItems: 'center', gap: height * 0.22, height, direction: 'ltr' }} aria-label="MITHQAL ERP — مثقال">
+      <span style={{ width: height, height, flexShrink: 0 }}><BrandSymbol variant={onDark ? 'dark' : 'light'} /></span>
+      <span style={{ display: 'flex', flexDirection: 'column', lineHeight: 1, gap: height * 0.1 }}>
+        {lang !== 'ar' && <span data-noi18n style={{ font: `800 ${height * 0.36}px/1 Manrope,var(--font-en,sans-serif)`, letterSpacing: height * 0.016, color: ink }}>MITHQAL</span>}
+        <span style={{ display: 'flex', alignItems: 'baseline', gap: height * 0.16 }}>
+          {lang !== 'en' && <span data-noi18n lang="ar" dir="rtl" style={{ font: `700 ${lang === 'ar' ? height * 0.38 : height * 0.29}px/1.15 'IBM Plex Sans Arabic','Noto Sans Arabic',var(--font-ui,sans-serif)`, color: ink }}>مثقال</span>}
+          <span data-noi18n style={{ font: `700 ${height * 0.15}px/1 Manrope,var(--font-en,sans-serif)`, letterSpacing: height * 0.04, color: MQ.gold }}>ERP</span>
+        </span>
+      </span>
+    </span>);
+};
 
 // v44.0 — قرار المالك: تحويل الاستلام غير المطابق إلى فاتورة للمحاسب ومدير النظام فقط (يُفرض في قواعد Firestore: [ROLES:PINV])
 const INV_BILLERS = ['accountant', 'system_admin'];
@@ -3000,6 +3028,15 @@ const ACCT_SECTIONS = [
   { v: 'mizan', ar: 'استيراد البيانات التاريخية' }   // v28.2
 ];
 const acctSecKey = (v) => 'acctsec:' + v;
+// v50.2 — المرحلة 06 (G2 معتمد 2026-11-19): تنظيم أقسام المحاسبة في خمس مجموعات حسب دورة العمل.
+// كل قسم في ACCT_SECTIONS يقع في مجموعة واحدة بالضبط (اختبار يمنع سقوط قسم)؛ الصلاحيات (acctsec:*) كما هي
+const ACCT_GROUPS = [
+  { id: 'daily', ar: 'العمليات اليومية', items: ['jr', 'bank', 'astl', 'unbilled', 'ast'] },
+  { id: 'books', ar: 'الدفاتر', items: ['coa', 'tb', 'gl', 'actmv', 'ob', 'cc', 'prj'] },
+  { id: 'reports', ar: 'التقارير', items: ['fs', 'cf', 'fcast', 'bud', 'anl', 'food', 'apage', 'arage', 'suprep'] },
+  { id: 'close', ar: 'الإقفال والضريبة', items: ['vat', 'vatreg', 'einv', 'zakat', 'mclose', 'ctrl', 'lock', 'yend'] },
+  { id: 'setup', ar: 'الإعداد والأدوات', items: ['export', 'mizan'] }
+];
 const ACCT_SEC_AR = {}; ACCT_SECTIONS.forEach(s => { ACCT_SEC_AR[s.v] = s.ar; });
 // v31.5 — ترتيب حسب دورة العمل: التشغيل اليومي (الإغلاق والمبيعات) ← المخزون والمشتريات وجهات الاتصال ←
 // المالية والضريبة والتقارير والتحليل ← الموارد البشرية ← المستندات والإعدادات والتدقيق. المدمجة في غيرها في الآخر (لا تظهر مستقلة)
@@ -3204,7 +3241,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v50.0';
+const APP_VER = 'v50.3';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3342,6 +3379,8 @@ function PlatformApp() {
   // v43.0: لغة الواجهة (عربي/إنجليزي) — تفضيل محلي لكل جهاز؛ التبديل يعيد رسم المحتوى
   const [lang, setLang] = useState(getLang);
   useEffect(() => { setLangGlobal(lang); domI18n(lang === 'en'); return () => domI18n(false); }, [lang]);
+  const [, setI18nTick] = useState(0);   // v50.2: إعادة رسم عند وصول حزمة الترجمة الكاملة
+  useEffect(() => { const f = () => setI18nTick(t => t + 1); window.addEventListener('mz-i18n', f); return () => window.removeEventListener('mz-i18n', f); }, []);
   const toggleLang = () => setLang(l => { const n = l === 'en' ? 'ar' : 'en'; setLangGlobal(n); return n; });
   const toggleSide = () => setSideCol(v => { const n = !v; try { localStorage.setItem('rms8:sideCol', n ? '1' : '0'); } catch { } return n; });
   const [mode, setMode] = useState(() => { try { return localStorage.getItem('rms8:mode') === 'dark' ? 'dark' : 'light'; } catch { return 'light'; } });
@@ -4323,7 +4362,7 @@ function PlatformApp() {
             {/* v47.2 (قرار المالك): شعار النظام «مِثقال» ثابت، وشعار الشركة يرافق اسمها */}
             <div className="rp-mark">{BRAND_MARK()}</div>
             <div className="rp-brand">
-              <b>{TX(BRAND)}</b>
+              <span className="rp-lockup"><BrandLockup lang={isEn() ? 'en' : 'bi'} onDark height={46} /></span>
               <span className="rp-tag">{TX(BRAND_SUB)}</span>
               {(org.company.name || org.company.logoUrl) && <span className="rp-co">{org.company.logoUrl && <img className="co-logo" src={org.company.logoUrl} alt="" />}{org.company.name}</span>}
             </div>
@@ -4667,12 +4706,16 @@ function PlatformApp() {
 
 /* ================= بوابة الدخول ================= */
 // v47.1 — غلاف المنصة (قرار المالك): صورة الهوية بجانب الدخول على الحاسوب، وأعلاه على الجوال
-const GateCover = () => <div className="gate-cover" role="img" aria-label={TX(BRAND_AR) + ' — ' + TX(BRAND_SUB)} />;
+// v50.3: غلاف الدخول = لوحة الهوية الرسمية (الشعار الثنائي على الرمادي الناعم) بدل صورة الغلاف القديمة
+const GateCover = () => (
+  <div className="gate-cover mq-cover" role="img" aria-label={TX(BRAND_AR) + ' — ' + TX(BRAND_SUB)}>
+    <div className="mq-cover-in"><BrandLockup lang="bi" height={86} /><div className="mq-cover-sub" dir="auto">{TX(BRAND_SUB)}</div></div>
+  </div>);
 function BrandHead({ title, sub, logo }) {
   // v47.2: العلامة أعلاه دائمًا شعار النظام «مِثقال»؛ شعار الشركة (logo) يظهر بجانب اسمها في العنوان
   return (
     <div className="bhead" style={{ textAlign: 'center', marginBottom: 24 }}>
-      <div className="rp-mark bhead-logo" style={{ width: 64, height: 64, margin: '0 auto 14px', borderRadius: 18, fontSize: 30 }}>{BRAND_MARK()}</div>
+      <div className="bhead-logo mq-bhead" style={{ margin: '0 auto 14px', width: 'fit-content' }}><BrandLockup lang={isEn() ? 'en' : 'bi'} height={52} /></div>
       <h1 style={{ fontSize: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>{logo && <img src={logo} alt="شعار الشركة" className="co-logo co-logo-h" />}{title || BRAND_AR}</h1>
       <div style={{ color: 'var(--dim)', fontSize: 12.5, marginTop: 5 }}>{sub}</div>
     </div>
@@ -7388,7 +7431,7 @@ function posReturnHtml(org, r, br) {
   const qr = svat ? qrSvg(zatcaTLV(co.name || '', svat, (r.at || '').slice(0, 19) + 'Z', Math.abs(r.total), Math.abs(r.vat)), { ecl: 1, px: 120 }) : '';
   const L = (r.retLines || []).map(l => `<tr><td>${_xe(l.name)}</td><td class="n">×${l.qty}</td><td class="n">${m(l.amount)}</td></tr>`).join('');
   const pm = (r.payments || [])[0] || {}; const pmAr = pm.pmName || (pm.m === 'cash' ? 'نقدي' : pm.m === 'card' ? 'شبكة' : pm.m === 'transfer' ? 'تحويل' : (pm.appName || 'تطبيق'));
-  return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>إشعار دائن ${_xe(r.no)}</title><style>${NUM_FACE}body{font-family:'MizanNum',Tahoma,sans-serif;margin:0 auto;color:#000}${posPaperCss(org)}
+  return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>إشعار دائن ${_xe(r.no)}</title><style>${NUM_FACE}body{font-family:'MizanNum','IBM Plex Sans Arabic','Noto Sans Arabic',Tahoma,sans-serif;margin:0 auto;color:#000}${posPaperCss(org)}
   h1{font-size:15px;text-align:center;margin:2px 0} .c{text-align:center} .s{font-size:10px;color:#333} table{width:100%;border-collapse:collapse;margin-top:6px}
   td{padding:3px 0;border-bottom:1px dashed #999;vertical-align:top} td.n{text-align:left;white-space:nowrap;font-variant-numeric:tabular-nums} .tot td{font-weight:800;font-size:13px;border-bottom:2px solid #000} .qr{text-align:center;margin-top:8px} .qr svg{width:34mm;height:34mm}</style></head><body>
   <h1>${_xe(co.name || '')}</h1><div class="c s">${_xe(br ? br.name : '')}${svat ? '<br>الرقم الضريبي: ' + _xe(svat) : ''}</div>
@@ -7419,7 +7462,7 @@ function posReceiptHtml(org, o, br) {
   const ly = o.loyalty;
   const P = (o.payments || []).map(p => `<tr><td colspan="2">${p.pmName ? _xe(p.pmName) : p.m === 'cash' ? 'نقدًا' : p.m === 'card' ? 'شبكة' : p.m === 'transfer' ? 'تحويل' : _xe(p.appName || 'تطبيق')}</td><td class="n">${m(p.amount)}</td></tr>`).join('');
   return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>${_xe(o.no)}</title><style>${NUM_FACE}
-  *{box-sizing:border-box} body{font-family:'MizanNum','IBM Plex Sans Arabic',Tahoma,sans-serif;margin:0 auto;color:#000} ${posPaperCss(org, 11.5)}
+  *{box-sizing:border-box} body{font-family:'MizanNum','IBM Plex Sans Arabic','Noto Sans Arabic',Tahoma,sans-serif;margin:0 auto;color:#000} ${posPaperCss(org, 11.5)}
   h1{font-size:15px;text-align:center;margin:2px 0} .c{text-align:center} .s{font-size:10px;color:#333} table{width:100%;border-collapse:collapse;margin-top:6px}
   td{padding:3px 0;border-bottom:1px dashed #999;vertical-align:top} td.n{text-align:left;white-space:nowrap;font-variant-numeric:tabular-nums} .nt{font-size:9.5px;color:#555}
   .tot td{font-weight:800;font-size:13px;border-bottom:2px solid #000} .qr{text-align:center;margin-top:8px} .qr svg{width:34mm;height:34mm}</style></head><body>
@@ -7472,7 +7515,7 @@ function posShiftHtml(org, sh, allOs, br, kind) {
   const st = posOrdersStats(allOs); const m = (n) => money(n);
   const expected = sh.expected != null && kind === 'Z' ? sh.expected : posR2((sh.openingCash || 0) + st.cash);
   const row = (k, v) => `<tr><td>${k}</td><td class="n">${v}</td></tr>`;
-  return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>تقرير ${kind} — ${_xe(br.name)}</title><style>${NUM_FACE}body{font-family:'MizanNum',Tahoma,sans-serif;margin:0 auto}${posPaperCss(org, 12)}table{width:100%;border-collapse:collapse}td{padding:4px 0;border-bottom:1px dashed #999}td.n{text-align:left}h1{font-size:15px;text-align:center;margin:2px 0}.sec td{font-weight:800;border-bottom:1.5px solid #000;padding-top:8px}</style></head><body>
+  return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>تقرير ${kind} — ${_xe(br.name)}</title><style>${NUM_FACE}body{font-family:'MizanNum','IBM Plex Sans Arabic','Noto Sans Arabic',Tahoma,sans-serif;margin:0 auto}${posPaperCss(org, 12)}table{width:100%;border-collapse:collapse}td{padding:4px 0;border-bottom:1px dashed #999}td.n{text-align:left}h1{font-size:15px;text-align:center;margin:2px 0}.sec td{font-weight:800;border-bottom:1.5px solid #000;padding-top:8px}</style></head><body>
   <h1>${kind === 'Z' ? 'تقرير إغلاق وردية (Z)' : 'تقرير وردية مؤقت (X)'}</h1><div style="text-align:center">${_xe((org.company || {}).name || '')}<br>${_xe(br.name)} · ${_xe(sh.devName || '')} (${_xe(sh.dev || '')})<br>${_xe(String(sh.openedAt).slice(0, 16).replace('T', ' '))} ← ${kind === 'Z' ? _xe(String(sh.closedAt || '').slice(11, 16)) : 'الآن ' + _xe(new Date().toTimeString().slice(0, 5))}</div>
   <table><tr class="sec"><td colspan="2">المبيعات</td></tr>${row('عدد الفواتير', st.n)}${row('المبيعات قبل الخصومات', m(st.gross))}${row('إجمالي المبيعات', m(st.total))}${row('منها ضريبة', m(st.vat))}${st.retN ? row('المرتجعات (' + st.retN + ')', '−' + m(st.retAmt)) : ''}
   <tr class="sec"><td colspan="2">طرق الدفع</td></tr>${row('نقدي (صافي)', m(st.cash))}${row('شبكة', m(st.card))}${row('تحويل', m(st.transfer))}
@@ -8563,19 +8606,19 @@ const docInApp = () => { try { return isStandaloneApp() || isIOSDev() || /Androi
    mzSvg: الشعار كنص SVG للمستندات المطبوعة (بلا اعتماد على CSS الصفحة).
    mzBrandDoc: يضيف توقيع «RESTAURANT PRO» بالشعار في تذييل كل مستند (أو سطرًا صغيرًا إن لم يوجد تذييل) — مرة واحدة فقط. */
 // v42.1: علامة RESTAURANT PRO في المطبوعات — مربع كحلي بحرفَي RP الذهبيين (المعامِلات القديمة مقبولة للتوافق)
-const mzSvg = (size) => '<svg xmlns="http://www.w3.org/2000/svg" width="' + size + '" height="' + size + '" viewBox="0 0 64 64" style="vertical-align:middle;flex-shrink:0">' +
-  '<rect width="64" height="64" rx="14" fill="#101D35"/><g transform="translate(7 7) scale(.25)"><path d="M86 22.6 A80 80 0 1 0 114 22.6" fill="none" stroke="#C7A45B" stroke-width="9" stroke-linecap="round"/><path d="M100 12 l11 12 -11 12 -11 -12z" fill="#C7A45B"/><rect x="40" y="56" width="120" height="10" rx="5" fill="#C7A45B"/><path d="M52 66 h20 l28 30 28 -30 h20 v85 h-19 v-51 l-29 30 -29 -30 v51 h-19z" fill="#C7A45B"/></g></svg>';   // v47.1 العلامة المعتمدة
-const MZ_LOGO_HTML = '<span class="logo" style="display:inline-grid;place-items:center;border-radius:8px">' + mzSvg(30) + '</span>';
+// v50.3: أُزيل رمز مِثقال القديم من المطبوعات (mzSvg) — المطبوعات بشعار المنشأة فقط
+// v50.3 (قرار المالك 2026-11-19): المطبوعات تحمل شعار المنشأة (الطيف) فقط — لا شعار لمِثقال مكانه إن لم يُرفع شعار المنشأة
+const MZ_LOGO_HTML = '';
 const mzBrandDoc = (html) => {
   html = String(html || '');
   if (html.includes('data-mzb')) return html;
-  const sig = '<span data-mzb style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap">' + mzSvg(12, '#555', '#C9A24D', false) + 'مِثقال</span>';
+  const sig = '<span data-mzb style="white-space:nowrap">مِثقال</span>';   // v50.3: نص فقط بلا شعار — الشعار في المطبوعات للمنشأة وحدها
   const bi = html.search(/<body[^>]*>/i);
   if (bi < 0) return html;
   const head = html.slice(0, bi), body = html.slice(bi);
   // RESTAURANT PRO: الاسم السابق — يُستبدل أيضًا في القوالب المحفوظة القديمة
   if (/مِثقال|RESTAURANT PRO/.test(body)) return head + body.replace(/مِثقال|RESTAURANT PRO/g, sig);
-  const foot = '<div data-mzb style="text-align:center;font-size:9px;color:#888;margin-top:10px;display:flex;align-items:center;justify-content:center;gap:4px">' + mzSvg(11, '#888', '#C9A24D', false) + 'مِثقال — Mithqal</div>';
+  const foot = '<div data-mzb style="text-align:center;font-size:9px;color:#888;margin-top:10px">مِثقال — Mithqal</div>';
   return /<\/body>/i.test(body) ? head + body.replace(/<\/body>/i, foot + '</body>') : head + body + foot;
 };
 function openDocWin(features) {
@@ -8653,10 +8696,11 @@ const docCsv = (T) => T.map(t => [...(t.name ? [[t.name]] : []), ...t.rows].map(
 const NUM_FACE = (() => { try { const u = new URL('fonts/inter-latin.woff2', document.baseURI).href;
   return "@font-face{font-family:'MizanNum';src:url('" + u + "') format('woff2');font-weight:100 900;unicode-range:U+0030-0039,U+0025,U+0024,U+002B-002E,U+002F,U+003A,U+00D7,U+2212,U+2013}"; } catch { return ''; } })();
 const A4_CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;600;700&display=swap');
   ${NUM_FACE}
   @page { size: A4; margin: 12mm }
   * { box-sizing: border-box }
-  body { font-family: 'MizanNum','IBM Plex Sans Arabic','Readex Pro',Tahoma,sans-serif; font-variant-numeric: tabular-nums; color: #1a1a1a; margin: 0; font-size: 11px; background: #fff }
+  body { font-family: 'MizanNum','IBM Plex Sans Arabic','Noto Sans Arabic','Readex Pro',Tahoma,sans-serif; font-variant-numeric: tabular-nums; color: #1a1a1a; margin: 0; font-size: 11px; background: #fff }
   .page { max-width: 186mm; margin: 0 auto }
   .head { border-bottom: 2.5px solid #8C6F2C; padding-bottom: 10px; margin-bottom: 12px }
   .co { display: flex; align-items: center; gap: 10px; margin-bottom: 8px }
@@ -8744,7 +8788,7 @@ function printReceipt(c, org, size) {
   const html = `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
   <title>إيصال إغلاق ${c.branchName}</title><style>${NUM_FACE}
   @page{size:${PG}mm auto;margin:3mm}
-  body{font-family:'MizanNum','IBM Plex Sans Arabic',Tahoma,sans-serif;width:${W}mm;margin:0 auto;color:#000;font-size:11px}
+  body{font-family:'MizanNum','IBM Plex Sans Arabic','Noto Sans Arabic',Tahoma,sans-serif;width:${W}mm;margin:0 auto;color:#000;font-size:11px}
   h1{font-size:14px;text-align:center;margin:0 0 2px}
   .c{text-align:center;font-size:9.5px;color:#333}
   .sep{border-top:1px dashed #000;margin:6px 0}
@@ -8810,7 +8854,7 @@ function printPartnerStatement(p, org) {
   const bal = scr - sdr;
   const balT = Math.abs(bal) < 0.005 ? 'مسدّد' : (bal > 0 ? money(bal) + ' دائن (مستحق للطرف علينا)' : money(-bal) + ' مدين (مستحق لنا على الطرف)');
   w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>كشف حساب ${p.name}</title>
-  <style>${NUM_FACE}*{font-family:'MizanNum','Segoe UI',Tahoma,sans-serif;box-sizing:border-box}body{margin:0;padding:28px;color:#1a1a1a}
+  <style>${NUM_FACE}*{font-family:'MizanNum','IBM Plex Sans Arabic','Noto Sans Arabic','Segoe UI',Tahoma,sans-serif;box-sizing:border-box}body{margin:0;padding:28px;color:#1a1a1a}
   .h{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #8C6F2C;padding-bottom:12px;margin-bottom:16px}
   .co{font-size:20px;font-weight:800;color:#5a4a1e}.sub{font-size:12px;color:#666;margin-top:3px}
   .t{font-size:22px;font-weight:800}.who{background:#faf6ee;border:1px solid #e5dcc5;border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:13px;line-height:1.9}
@@ -8843,8 +8887,8 @@ function rptShell(org, title, sub, bodyHtml, opt = {}) {
   const foot = (en ? 'Issued from Mithqal ' : 'صادر من مِثقال ') + APP_VER + ' · ' + (en ? 'Printed by ' : 'طبعه: ') + (_rptCtx.user || '—') + ' · ' + new Date().toISOString().slice(0, 16).replace('T', ' ');
   const logo = co.logoUrl && /^(https:|data:image\/)/.test(co.logoUrl) ? `<img class="lg" src="${_xe(co.logoUrl)}" alt="">` : '';
   return `<!doctype html><html dir="${en ? 'ltr' : 'rtl'}" lang="${en ? 'en' : 'ar'}"><head><meta charset="utf-8"><title>${_xe(title)}</title>
-  <style>${NUM_FACE}@page{size:${paper} ${orient};margin:14mm 10mm 16mm;@bottom-center{content:"${en ? 'Page ' : 'صفحة '}" counter(page) "${en ? ' of ' : ' من '}" counter(pages);font-size:9px;color:#777}@bottom-${en ? 'left' : 'right'}{content:"${foot.replace(/"/g, "'")}";font-size:8px;color:#888}}
-  *{font-family:'MizanNum','Segoe UI',Tahoma,sans-serif;box-sizing:border-box}body{margin:0;color:#1a1a1a;font-size:12px}
+  <style>@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;600;700&display=swap');${NUM_FACE}@page{size:${paper} ${orient};margin:14mm 10mm 16mm;@bottom-center{content:"${en ? 'Page ' : 'صفحة '}" counter(page) "${en ? ' of ' : ' من '}" counter(pages);font-size:9px;color:#777}@bottom-${en ? 'left' : 'right'}{content:"${foot.replace(/"/g, "'")}";font-size:8px;color:#888}}
+  *{font-family:'MizanNum','IBM Plex Sans Arabic','Noto Sans Arabic','Segoe UI',Tahoma,sans-serif;box-sizing:border-box}body{margin:0;color:#1a1a1a;font-size:12px}
   .h{display:flex;justify-content:space-between;align-items:center;gap:12px;border-bottom:2px solid #8C6F2C;padding-bottom:10px;margin-bottom:14px}.h .l{display:flex;gap:10px;align-items:center}.lg{height:46px;max-width:120px;object-fit:contain}
   .co{font-size:18px;font-weight:800;color:#5a4a1e}.sub{font-size:11px;color:#666;margin-top:2px}
   h1{font-size:16px;margin:0}table{width:100%;border-collapse:collapse;margin:8px 0}thead{display:table-header-group}tr{page-break-inside:avoid}
@@ -11146,6 +11190,37 @@ function TodayPanel({ org, ops, me, myBranches, scoped, setTab }) {
   );
 }
 
+/* ============================================================
+   v50.1 — المرحلة 06 (نموذج G2): «مهامي» — لوحة حسب الدور على الرئيسية
+   نفس مصدر التنبيهات (buildNotifEvents) مجمّعًا حسب المجال: كل بند قابل للنقر يفتح شاشته، والعدد يعكس ما ينتظر هذا المستخدم بدوره ونطاق فروعه.
+   ============================================================ */
+const MYWORK_CATS = { closing: { ar: 'الإغلاق اليومي', ic: '🧾' }, fin: { ar: 'المالية والموردون', ic: '💰' }, inv: { ar: 'المخزون', ic: '📦' }, hr: { ar: 'الموارد البشرية', ic: '👥' } };
+function myWorkGroups(org, ops, me, myBranches) {
+  let evs = []; try { evs = buildNotifEvents(org, ops, me, myBranches); } catch (e) { evs = []; }
+  const G = {}; evs.filter(e => MYWORK_CATS[e.cat]).forEach(e => { (G[e.cat] = G[e.cat] || []).push(e); });
+  return Object.keys(MYWORK_CATS).filter(k => G[k]).map(k => ({ cat: k, ...MYWORK_CATS[k], items: G[k] }));
+}
+function MyWork({ org, ops, me, myBranches, setTab, openAcctView, openInvView }) {
+  const [open, setOpen] = useState(() => { try { return localStorage.getItem('mz-mywork') !== '0'; } catch (e) { return true; } });
+  const G = useMemo(() => myWorkGroups(org, ops, me, myBranches), [org, ops, me, myBranches]);
+  const total = G.reduce((a, g) => a + g.items.length, 0);
+  const go = (e) => { setTab(e.tab); if (e.view && e.tab === 'acct') openAcctView(e.view); if (e.view && (e.tab === 'inv' || e.tab === 'whbranch') && openInvView) openInvView(e.view); };
+  const tog = () => { const n = !open; setOpen(n); try { localStorage.setItem('mz-mywork', n ? '1' : '0'); } catch (e) { /* */ } };
+  const roleAr = String(((ROLES[me.role] || {}).ar) || '').split(' — ')[0];
+  return (
+    <div className="card" style={{ marginBottom: 12 }} data-mywork>
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={tog}>
+        <div className="card-t" style={{ margin: 0 }}>مهامي {roleAr ? <small style={{ color: 'var(--faint)', fontWeight: 400 }}>· {roleAr}</small> : null}</div>
+        <span className={'badge ' + (total ? 'b-amber' : 'b-mint')} data-mywork-n>{total ? total + ' بند ينتظرك' : 'لا شيء ينتظرك ✓'}</span>
+      </div>
+      {open && total > 0 && <div className="grid g2" style={{ gap: 10, marginTop: 10 }}>{G.map(g => <div key={g.cat} className="note" style={{ margin: 0 }} data-mywork-cat={g.cat}>
+        <div className="row" style={{ justifyContent: 'space-between', marginBottom: 6 }}><b>{g.ic} {g.ar}</b><span className="badge b-dim num">{g.items.length}</span></div>
+        {g.items.slice(0, 5).map(e => <button key={e.id} type="button" className="doclink" style={{ display: 'block', width: '100%', textAlign: 'start', padding: '4px 0', fontSize: 12.5 }} onClick={() => go(e)} data-mywork-item>
+          {e.title}{e.body ? <div style={{ fontSize: 11, color: 'var(--faint)' }}>{e.body}</div> : null}</button>)}
+        {g.items.length > 5 && <div style={{ fontSize: 11, color: 'var(--faint)' }}>+ {g.items.length - 5} أخرى</div>}
+      </div>)}</div>}
+    </div>);
+}
 function Launcher({ org, ops, me, myBranches, scoped, setTab, openAcctView, openInvView }) {
   const [q, setQ] = useState('');
   const [bump, setBump] = useState(0);
@@ -11346,6 +11421,7 @@ function Launcher({ org, ops, me, myBranches, scoped, setTab, openAcctView, open
         <input className="inp" placeholder={TX('ابحث عن تطبيق أو قسم… (جرّب: تعادل، رواتب، تدفق نقدي)')} value={q} onChange={e => setQ(e.target.value)} />
       </div>
 
+      {!qq && <MyWork org={org} ops={ops} me={me} myBranches={myBranches} setTab={setTab} openAcctView={openAcctView} openInvView={openInvView} />}
       {!qq && <TodayPanel org={org} ops={ops} me={me} myBranches={myBranches} scoped={scoped} setTab={setTab} />}
 
       {qq && matchedSecs.length > 0 && (
@@ -12989,7 +13065,7 @@ export { MKT_DEF, mktCfg, mktCanApprove, MKT_SEGS, MKT_SEG_ORDER, mktAlias, mktC
 export { moveIdx, RowGrip, RECUR_AR, recurNext, recurDue };
 export { peekDoc, DocLink, DocPeekHost, VoiceSearchHost, voiceNorm };
 export { fefoPick, lotsFor, projList, projectPL, projNextCode };
-export { rptShell, RPT_TEMPLATES, rptFmt, rptFlat, rptTotals, rptHtml, printReport, rptXlsxRows, makeRptXlsx, rptCsv, rptDownload, DEP_METHODS, depMethod, deprSchedule, glLedger, acctActivity, COST_METHODS, costMethod, stockCostingAvg, stockCostingFifo, costCompare, itemBin, binSort, binOrder, pmPeriod, profitMatrix, RFQ_ST, rfqNextNo, rfqCompare, rfqToPOs, DLV_ST, DLV_NEXT, posDrivers, dlvNeeded, dlvRecord, dlvMove, dlvSummary, posAreas, tableArea, areasErr, salesByArea, computeSmartAlerts, stockShortages, CV_KIND, cvNextNo, partyOpenDocs, applyCashVoucher, cashVoucherHtml, VCH_T, VCH_TRF, vchTypeOf, assignVouchers, voucherList, voucherHtml, saleDeductFrom, saleDeductOn, saleUse, saleRecipeItems, saleDayUse, syncSaleMoves, itemLedger, UOM_LIST, UOM_GROUPS, uomOf, uomConv, uomOk, uomNeeded, lineUnits, lineFac, UomSelect, Notifications, closeAlertsCfg, closeAlertEvents, closeAlertFor, shiftSumText, waShare, CLOSE_ALERT_ROLES, posDocView, printScreen, cutoutPixels, productThumb, prepWasteStats, normDigits, normScan, posPaper, posPaperDev, setPosPaperDev, prepShelfH, prepBatchState, PREP_ST, canBrPurchase, brSigCheck, BR_PURCHASERS, poWhOf, syncPoInbox, INV_BILLERS, ITEM_NEW_TYPES, itemsSeq, nextItemCode, vatNoOk, supVatOf, ItemPick, A4_CSS, posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim, prepItemId, prepItemOf, prodNeeds, prodCheck, prodMoves, clrMerge, clrRead, clrViewStats, ppvReport, invTurnover, dirOf, isMzbk, mzbkDecrypt, clrData, clrRecord, clrSigRef, clrDiff, clrCompare, clrOn, clrState, clrMirror, clrLoad, clrSeed, fjData, fjStatus, fjRecord, fjDiff, fjCompare, fjOn, fjState, fjMirror, fjLoad, fpLockedTo, fpLoad, fmLoad, fmSet, fjSeed, fjLegacyRecord, dedupeSameId, findRecentDups, negStockChanges, negStockMsg, FD_KINDS, fdDate, fdData, fdProg, fdPaid, fdRecord, fdDiff, fdCompare, fdLoad, fdSeed, OdooBar, ACCT_SECTIONS, ACCT_SEC_AR, ACC_KIND, ALL_TABS, APPS, AdvanceForm, AppPermsPanel, AppsStrip, BR_COLS, Badge, BalCell, BlindCount, BranchForm, COUNT_FREQ, COUNT_ST, CameraModal, CategoriesPanel, ClosingView, CloudHealth, CountScheduleCard, DAYS_AR, DENOMS, DOC_LABEL, DOC_TYPES, DailyBranchReport, DeliveryAppsPanel, DisbursementForm, DupInvHint, EXP_CATS, FILE_CATS, Field, FinancialReports, GROWTH_MONTHS, HR_WEEK_DAYS, HrSignPad, ITEM_TYPES, Kpi, LAUNCH_APPS, LEAVE_TYPES, LOCK_MSG, MAIN_WH, MFA_DEFAULT_ROLES, MOVE_KINDS, MZ_FIXED, MZ_KIND_AR, MZ_LOGO_HTML, MZ_SUGGEST, MfaPolicyCard, MizanMerge, Modal, MoneyField, NUM_FACE, NUM_LOCALE, NationalAddressFields, Num, OutputDialog, PAY_ADD_TYPES, PAY_GUESS, PEN_TYPES, POS_DEV_KEY, POS_SH_KEY, PROMO_IDEAS, PROMO_T, PT_SRC, PT_TYPE, PartnerChip, PdfTile, PhotoField, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, PriceAlerts, QR_ITEMS, QR_STATUS, QUOTA_MSG, QrBranchesView, QrComplaints, QrDashboard, RB_KIND_AR, RB_PM_AR, RB_SOURCES, REG_APPS, REG_CATS, REG_IX, ROLES, SC_KPIS, SIGN_DOC_AR, SIG_H, SIG_W, SectionNav, SigView, SignDocsModal, SignaturePad, SystemPanel, TAB_AR, TRAIN_STATUS_AR, UsageVariance, UserForm, WASTE_REASONS, WH_KIND, WH_MOVE, WH_ST, WarehousesPanel, WasteControl, WasteFields, WastePending, WhLines, _normName, _xe, aCountDone, aItemsOf, acctSecKey, activePriorCorrectives, activeTrainingRecord, aiHeaders, appCanSee, appOpenNow, appUseGet, appUseSet, arDT, arDate, arTime, bankOfBranch, bioEnroll, bookHidden, branchBanks, branchEntityId, browserName, bsLayout, bsRowsOf, buildAccounting, buildClosingA4, buildPartners, buildPayslipSignDocs, businessDay, canApproveCount, canApproveWaste, capOK, chartTone, closingInvoices, clr, compressImage, computeIncome, contactFields, contactOf, correctiveExpiry, correctiveSignDoc, countCfgOf, countDenoms, countFocus, countSchedule, countedClosing, customerAging, daysBetween, defaultHrPolicies, defaultPenaltySchedule, defaultPointsRules, defaultRewardTiers, defaultRoleKpis, defaultTrainingPrograms, deficitCfg, deficitPatterns, detectStmtMap, deviceType, emptyDenoms, entityById, entityList, eosAccrualLines, eosCumAt, eosState, eosYears, escH, expiringTraining, expiryLots, exportExcel, fineSuggest, fmtBalP, fmtNA, frozenSnapshotFor, gosiRatesFor, haversineMeters, hrAttendanceDetail, hrEmpStats, hrQrWindowCode, hrScoreFor, isCostCtl, isLayout, isPdfData, isRowsOf, isStocked, isoD, itemAvgCosts, itemType, kpiAchievement, leaveBalance, leaveDeductPlan, lockedThru, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, makeXlsx, missingRequiredTraining, mizanPlan, money, moneyP, monthEnd, monthLabel, monthLedger, multiEntityOn, mzNewCode, mzR2, naClean, naErr, naHas, naMissing, newBranchDraft, nextPartnerCode, nextWhAcc, normPhone, normalizeSupPays, nowISO, onLeave, openDocWin, openPdfData, otFromAttendance, otRateOf, overdueSignDocs, pFactor, parseCsvGrid, parseMt940, parseXlsxGrid, partGross, partYield, payCashPart, payLabel, paySplits, payTotal, payrollRowsOf, penTypeAr, pendShiftsGet, pendShiftsSet, periodLocked, piAggregate, piDetect, piNorm, pipTriggered, posCashNet, posClrOf, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posShiftHtml, posTotals, posZHtml, positionJdHtml, printA4, printClosingA4, printIncomeA4, printPartnerStatement, printReceipt, printSalesInvoice, programRequiredFor, promoActive, promoDesc, promoHits, purKey, pwStrength, q3, qrAnalyzeComments, qrAvg, qrBranchStats, qrDate, qrF1, qrFs, qrIsComplaint, qrMs, qrOverall, qrOverdue, qrPrintReport, qrRateUrl, qrSentBadge, qrStatusOf, qrSvg, rewardSignDoc, roleEdit, roleHasTab, roleKpisFor, rolePost, salesDaySource, sha, sha256Hex, short, siCredited, siRem, siSorted, siStamp, siVerify, sigBlockHtml, sigPoints, sigSvg, signDeclaration, signDocHtml, simplifySig, slimBranchDoc, snapAll, snapMonths, snapPut, stAddDays, stDate, stNum, stockByWh, submitWaste, suggestNextLevel, sum, supplierAging, supplierPrices, today, trainingExpiryOf, trainingStatusNow, uid, usageReport, useSecNav, verifyBackup, waNum, wasteCfg, wasteDaily, wasteReasonAr, wasteRows, webauthnSupported, whForBranch, whName, whOf, whOn, zatcaTLV };
+export { BrandSymbol, BrandLockup, ACCT_GROUPS, MYWORK_CATS, myWorkGroups, MyWork, rptShell, RPT_TEMPLATES, rptFmt, rptFlat, rptTotals, rptHtml, printReport, rptXlsxRows, makeRptXlsx, rptCsv, rptDownload, DEP_METHODS, depMethod, deprSchedule, glLedger, acctActivity, COST_METHODS, costMethod, stockCostingAvg, stockCostingFifo, costCompare, itemBin, binSort, binOrder, pmPeriod, profitMatrix, RFQ_ST, rfqNextNo, rfqCompare, rfqToPOs, DLV_ST, DLV_NEXT, posDrivers, dlvNeeded, dlvRecord, dlvMove, dlvSummary, posAreas, tableArea, areasErr, salesByArea, computeSmartAlerts, stockShortages, CV_KIND, cvNextNo, partyOpenDocs, applyCashVoucher, cashVoucherHtml, VCH_T, VCH_TRF, vchTypeOf, assignVouchers, voucherList, voucherHtml, saleDeductFrom, saleDeductOn, saleUse, saleRecipeItems, saleDayUse, syncSaleMoves, itemLedger, UOM_LIST, UOM_GROUPS, uomOf, uomConv, uomOk, uomNeeded, lineUnits, lineFac, UomSelect, Notifications, closeAlertsCfg, closeAlertEvents, closeAlertFor, shiftSumText, waShare, CLOSE_ALERT_ROLES, posDocView, printScreen, cutoutPixels, productThumb, prepWasteStats, normDigits, normScan, posPaper, posPaperDev, setPosPaperDev, prepShelfH, prepBatchState, PREP_ST, canBrPurchase, brSigCheck, BR_PURCHASERS, poWhOf, syncPoInbox, INV_BILLERS, ITEM_NEW_TYPES, itemsSeq, nextItemCode, vatNoOk, supVatOf, ItemPick, A4_CSS, posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim, prepItemId, prepItemOf, prodNeeds, prodCheck, prodMoves, clrMerge, clrRead, clrViewStats, ppvReport, invTurnover, dirOf, isMzbk, mzbkDecrypt, clrData, clrRecord, clrSigRef, clrDiff, clrCompare, clrOn, clrState, clrMirror, clrLoad, clrSeed, fjData, fjStatus, fjRecord, fjDiff, fjCompare, fjOn, fjState, fjMirror, fjLoad, fpLockedTo, fpLoad, fmLoad, fmSet, fjSeed, fjLegacyRecord, dedupeSameId, findRecentDups, negStockChanges, negStockMsg, FD_KINDS, fdDate, fdData, fdProg, fdPaid, fdRecord, fdDiff, fdCompare, fdLoad, fdSeed, OdooBar, ACCT_SECTIONS, ACCT_SEC_AR, ACC_KIND, ALL_TABS, APPS, AdvanceForm, AppPermsPanel, AppsStrip, BR_COLS, Badge, BalCell, BlindCount, BranchForm, COUNT_FREQ, COUNT_ST, CameraModal, CategoriesPanel, ClosingView, CloudHealth, CountScheduleCard, DAYS_AR, DENOMS, DOC_LABEL, DOC_TYPES, DailyBranchReport, DeliveryAppsPanel, DisbursementForm, DupInvHint, EXP_CATS, FILE_CATS, Field, FinancialReports, GROWTH_MONTHS, HR_WEEK_DAYS, HrSignPad, ITEM_TYPES, Kpi, LAUNCH_APPS, LEAVE_TYPES, LOCK_MSG, MAIN_WH, MFA_DEFAULT_ROLES, MOVE_KINDS, MZ_FIXED, MZ_KIND_AR, MZ_LOGO_HTML, MZ_SUGGEST, MfaPolicyCard, MizanMerge, Modal, MoneyField, NUM_FACE, NUM_LOCALE, NationalAddressFields, Num, OutputDialog, PAY_ADD_TYPES, PAY_GUESS, PEN_TYPES, POS_DEV_KEY, POS_SH_KEY, PROMO_IDEAS, PROMO_T, PT_SRC, PT_TYPE, PartnerChip, PdfTile, PhotoField, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, PriceAlerts, QR_ITEMS, QR_STATUS, QUOTA_MSG, QrBranchesView, QrComplaints, QrDashboard, RB_KIND_AR, RB_PM_AR, RB_SOURCES, REG_APPS, REG_CATS, REG_IX, ROLES, SC_KPIS, SIGN_DOC_AR, SIG_H, SIG_W, SectionNav, SigView, SignDocsModal, SignaturePad, SystemPanel, TAB_AR, TRAIN_STATUS_AR, UsageVariance, UserForm, WASTE_REASONS, WH_KIND, WH_MOVE, WH_ST, WarehousesPanel, WasteControl, WasteFields, WastePending, WhLines, _normName, _xe, aCountDone, aItemsOf, acctSecKey, activePriorCorrectives, activeTrainingRecord, aiHeaders, appCanSee, appOpenNow, appUseGet, appUseSet, arDT, arDate, arTime, bankOfBranch, bioEnroll, bookHidden, branchBanks, branchEntityId, browserName, bsLayout, bsRowsOf, buildAccounting, buildClosingA4, buildPartners, buildPayslipSignDocs, businessDay, canApproveCount, canApproveWaste, capOK, chartTone, closingInvoices, clr, compressImage, computeIncome, contactFields, contactOf, correctiveExpiry, correctiveSignDoc, countCfgOf, countDenoms, countFocus, countSchedule, countedClosing, customerAging, daysBetween, defaultHrPolicies, defaultPenaltySchedule, defaultPointsRules, defaultRewardTiers, defaultRoleKpis, defaultTrainingPrograms, deficitCfg, deficitPatterns, detectStmtMap, deviceType, emptyDenoms, entityById, entityList, eosAccrualLines, eosCumAt, eosState, eosYears, escH, expiringTraining, expiryLots, exportExcel, fineSuggest, fmtBalP, fmtNA, frozenSnapshotFor, gosiRatesFor, haversineMeters, hrAttendanceDetail, hrEmpStats, hrQrWindowCode, hrScoreFor, isCostCtl, isLayout, isPdfData, isRowsOf, isStocked, isoD, itemAvgCosts, itemType, kpiAchievement, leaveBalance, leaveDeductPlan, lockedThru, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, makeXlsx, missingRequiredTraining, mizanPlan, money, moneyP, monthEnd, monthLabel, monthLedger, multiEntityOn, mzNewCode, mzR2, naClean, naErr, naHas, naMissing, newBranchDraft, nextPartnerCode, nextWhAcc, normPhone, normalizeSupPays, nowISO, onLeave, openDocWin, openPdfData, otFromAttendance, otRateOf, overdueSignDocs, pFactor, parseCsvGrid, parseMt940, parseXlsxGrid, partGross, partYield, payCashPart, payLabel, paySplits, payTotal, payrollRowsOf, penTypeAr, pendShiftsGet, pendShiftsSet, periodLocked, piAggregate, piDetect, piNorm, pipTriggered, posCashNet, posClrOf, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posShiftHtml, posTotals, posZHtml, positionJdHtml, printA4, printClosingA4, printIncomeA4, printPartnerStatement, printReceipt, printSalesInvoice, programRequiredFor, promoActive, promoDesc, promoHits, purKey, pwStrength, q3, qrAnalyzeComments, qrAvg, qrBranchStats, qrDate, qrF1, qrFs, qrIsComplaint, qrMs, qrOverall, qrOverdue, qrPrintReport, qrRateUrl, qrSentBadge, qrStatusOf, qrSvg, rewardSignDoc, roleEdit, roleHasTab, roleKpisFor, rolePost, salesDaySource, sha, sha256Hex, short, siCredited, siRem, siSorted, siStamp, siVerify, sigBlockHtml, sigPoints, sigSvg, signDeclaration, signDocHtml, simplifySig, slimBranchDoc, snapAll, snapMonths, snapPut, stAddDays, stDate, stNum, stockByWh, submitWaste, suggestNextLevel, sum, supplierAging, supplierPrices, today, trainingExpiryOf, trainingStatusNow, uid, usageReport, useSecNav, verifyBackup, waNum, wasteCfg, wasteDaily, wasteReasonAr, wasteRows, webauthnSupported, whForBranch, whName, whOf, whOn, zatcaTLV };
 export { ClosingForm };
 // v38.3 — للاختبارات الآلية (tests/): دوال المحرك والشاشات تُستورد من النواة مباشرة
 export { stockCosting, eosEntitledAmt, eosFullAmt, findDupInvoices, invNoNorm, promoLineDisc, tafqeet, MktGrowth, Hub, Launcher, PosApp, Inventory, Partners, SalesHub, QrFeedback, AppsCenter, BranchWarehouse, Admin, AuditView, Accounting, emptyOrg, emptyOps, HUBS };

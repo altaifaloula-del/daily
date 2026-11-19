@@ -1,6 +1,6 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useEffect, useMemo } from 'react';
-import { isEn } from '../../i18n';
+import { isEn, TX } from '../../i18n';
 import { EInvoiceOnboard } from './EInvoiceOnboard.jsx';
 import { RotateCcw, Scale, FileBarChart, ChevronDown, Printer, Settings, Receipt, BarChart3, Lock, Landmark, FileText, TrendingUp, ArrowLeftRight, Store, Users, QrCode, Building2, Truck, ClipboardCheck, ShieldCheck, CalendarDays, Download, Upload, Plus, Grid3x3, Check, Trash2, RefreshCw, Wallet, TrendingDown, AlertTriangle, ChevronRight, ShieldAlert, Eye, ChevronLeft, CircleDollarSign, X } from 'lucide-react';
 import { VatRegisters, SupplierPurchReport } from './TaxPurchReports.jsx';   // v39.1
@@ -9,7 +9,7 @@ import { OdooBar } from '../../App.jsx';   // v41.0
 import { GeneralLedger } from './GeneralLedger.jsx';   // v49.4 المرحلة 03
 import { makeRptXlsx } from '../../App.jsx';   // v50.0 منظومة التقارير
 import { DEP_METHODS, depMethod, deprSchedule, wfOn, wfRequired, wfState, wfCanAct, wfApprove } from '../../App.jsx';   // v49.4 طرق الإهلاك
-import { DocLink, RowGrip, moveIdx, RECUR_AR, recurNext, recurDue, jeOwner, canApproveJe, jeAutoSt, vatCloseLive, projList, projectPL, projNextCode, ACCT_SECTIONS, ACC_KIND, Field, Kpi, LOCK_MSG, MizanMerge, Modal, NUM_FACE, Num, ROLES, _xe, acctSecKey, arDate, bankOfBranch, branchBanks, bsLayout, bsRowsOf, buildAccounting, buildPartners, capOK, countedClosing, customerAging, detectStmtMap, entityById, entityList, gosiRatesFor, isLayout, isRowsOf, isoD, lockedThru, makeXlsx, money, monthEnd, monthLedger, multiEntityOn, naMissing, nowISO, openDocWin, parseCsvGrid, parseMt940, parseXlsxGrid, payTotal, periodLocked, posClrOf, printA4, qrSvg, roleEdit, rolePost, snapMonths, stAddDays, stDate, stNum, sum, supplierAging, today, uid, useSecNav, zatcaTLV } from '../../App.jsx';
+import { ACCT_GROUPS, DocLink, RowGrip, moveIdx, RECUR_AR, recurNext, recurDue, jeOwner, canApproveJe, jeAutoSt, vatCloseLive, projList, projectPL, projNextCode, ACCT_SECTIONS, ACC_KIND, Field, Kpi, LOCK_MSG, MizanMerge, Modal, NUM_FACE, Num, ROLES, _xe, acctSecKey, arDate, bankOfBranch, branchBanks, bsLayout, bsRowsOf, buildAccounting, buildPartners, capOK, countedClosing, customerAging, detectStmtMap, entityById, entityList, gosiRatesFor, isLayout, isRowsOf, isoD, lockedThru, makeXlsx, money, monthEnd, monthLedger, multiEntityOn, naMissing, nowISO, openDocWin, parseCsvGrid, parseMt940, parseXlsxGrid, payTotal, periodLocked, posClrOf, printA4, qrSvg, roleEdit, rolePost, snapMonths, stAddDays, stDate, stNum, sum, supplierAging, today, uid, useSecNav, zatcaTLV } from '../../App.jsx';
 
 export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }) {
   const [view, setView] = useState('jr'); const [prjF, setPrjF] = useState({ name: '', branchId: '', budget: '' }); const [prjOpen, setPrjOpen] = useState(null);   // v47.4           // jr قيود · coa دليل · tb ميزان · fs قوائم
@@ -1078,7 +1078,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
     const period = (from || to) ? ('الفترة: ' + (from || 'البداية') + ' ← ' + (to || today())) : 'كامل المدة حتى ' + arDate(today());
     const isTitle = bfLabel ? ' — ' + bfLabel : ' (موحدة)';
     w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>القوائم المالية — ${co.name || ''}</title>
-    <style>${NUM_FACE}*{font-family:'MizanNum','Segoe UI',Tahoma,sans-serif;box-sizing:border-box}body{margin:0;padding:26px;color:#1a1a1a;font-size:12.5px}
+    <style>${NUM_FACE}*{font-family:'MizanNum','IBM Plex Sans Arabic','Noto Sans Arabic','Segoe UI',Tahoma,sans-serif;box-sizing:border-box}body{margin:0;padding:26px;color:#1a1a1a;font-size:12.5px}
     .h{display:flex;justify-content:space-between;border-bottom:2px solid #8C6F2C;padding-bottom:10px;margin-bottom:14px}
     .co{font-size:19px;font-weight:800;color:#5a4a1e}.sub{font-size:11px;color:#666;margin-top:2px}
     h2{font-size:15px;margin:14px 0 8px;color:#5a4a1e}table{width:100%;border-collapse:collapse;margin-bottom:8px}
@@ -1496,15 +1496,9 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
           mclose: ['حزمة الإقفال', ClipboardCheck], ctrl: ['الضوابط والتدقيق', ShieldCheck], lock: ['الإقفال الشهري', Lock], yend: ['إقفال السنة', CalendarDays],
           export: ['تصدير للمحاسب', Download], mizan: ['استيراد البيانات التاريخية', Upload]
         };
-        const GROUPS = [
-          { id: 'books', ar: 'الدفاتر', icon: FileText, items: ['jr', 'coa', 'tb', 'gl', 'actmv', 'ob'] },
-          { id: 'stmts', ar: 'القوائم والتحليل', icon: FileBarChart, items: ['fs', 'food', 'cf', 'fcast', 'bud', 'anl', 'cc', 'prj'] },
-          { id: 'ages', ar: 'الذمم والأعمار', icon: Users, items: ['unbilled', 'apage', 'arage', 'suprep'] },
-          { id: 'tax', ar: 'الضريبة والزكاة', icon: Receipt, items: ['vat', 'vatreg', 'einv', 'zakat'] },
-          { id: 'bank', ar: 'البنوك والأصول', icon: Building2, items: ['bank', 'ast', 'astl'] },
-          { id: 'close', ar: 'الإقفال والرقابة', icon: Lock, items: ['mclose', 'ctrl', 'lock', 'yend'] },
-          { id: 'tools', ar: 'أدوات', icon: Download, items: ['export', 'mizan'] }
-        ];
+        // v50.2 (المرحلة 06 — G2 معتمد): خمس مجموعات حسب دورة العمل — ACCT_GROUPS في App.jsx (كل الأقسام موجودة، لا حذف)
+        const GI = { daily: ClipboardCheck, books: FileText, reports: FileBarChart, close: Lock, setup: Download };
+        const GROUPS = ACCT_GROUPS.map(g => ({ ...g, ar: TX(g.ar), icon: GI[g.id] || FileText }));
         const ok = (v) => viewOK(v) && (v !== 'mizan' || canPost);
         const manualBtn = canPost && ACCT_SECTIONS.some(s => viewOK(s.v)) && <>
           {pendJe.length > 0 && <button className="btn sm" style={{ marginInlineStart: 'auto', color: 'var(--amber)' }} onClick={() => setJePend(true)}><ClipboardCheck size={14} />قيود بانتظار الاعتماد ({pendJe.length})</button>}

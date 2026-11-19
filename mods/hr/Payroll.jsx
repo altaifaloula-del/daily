@@ -170,7 +170,7 @@ export function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, s
     w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
       <title>قسيمة راتب - ${r.e.name} - ${monthName}</title>
       <style>${NUM_FACE}
-        *{margin:0;padding:0;box-sizing:border-box;font-family:'MizanNum','Segoe UI',Tahoma,sans-serif}
+        *{margin:0;padding:0;box-sizing:border-box;font-family:'MizanNum','IBM Plex Sans Arabic','Noto Sans Arabic','Segoe UI',Tahoma,sans-serif}
         body{padding:32px;color:#222;background:#fff}
         .head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #C8A24A;padding-bottom:16px;margin-bottom:20px}
         .logo{width:64px;height:64px;object-fit:contain}

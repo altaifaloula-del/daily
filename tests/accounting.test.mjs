@@ -2123,3 +2123,34 @@ test('v50.0 G2 التعميم: كل طباعة قديمة بالقالب الم�
   assert.match(xml, /<pane ySplit="1"/); assert.match(xml, /<col min="1" max="1" width="\d+"/);
   assert.match(xml, /<c r="A1" s="1"/, 'الرأس عريض كما كان');
 });
+
+test('v50.1 المرحلة 06 «مهامي»: ما ينتظر المستخدم حسب دوره — القيد المعلّق للمحاسب الآخر لا لمنشئه، والأوامر للمعتمِد', () => {
+  const org = baseOrg({});
+  const ops = { journalManual: [{ id: 'j', date: '2026-11-19', title: 'تسوية', by: 'منى', byId: 'u7', status: 'pending', lines: [{ code: '1101', debit: 300, credit: 0 }, { code: '3101', debit: 0, credit: 300 }] }],
+    purchaseOrders: [{ id: 'p', poNo: 'PO-1', supplierName: 'مورد', status: 'pending', lines: [{ qty: 1, price: 9000 }] }], closings: [], invoices: [] };
+  const fin = (me) => (E.myWorkGroups(org, ops, me, org.branches).find(g => g.cat === 'fin') || { items: [] }).items.map(e => e.id.split(':').slice(0, 2).join(':'));
+  assert.ok(fin({ id: 'u9', name: 'سعد', role: 'accountant' }).includes('fin:je'), 'محاسب آخر يرى القيد');
+  assert.ok(!fin({ id: 'u7', name: 'منى', role: 'accountant' }).includes('fin:je'), 'المنشئ لا يراه');
+  assert.ok(fin({ id: 'u1', name: 'مجاهد', role: 'general_management' }).includes('fin:po'), 'المالك يرى أمر الشراء المعلّق');
+  assert.deepEqual(E.myWorkGroups(org, ops, { id: 'c', name: 'نورة', role: 'cashier', branchId: 'b1' }, org.branches).filter(g => g.cat === 'fin'), [], 'الكاشير لا يرى المالية');
+});
+
+test('v50.2 المرحلة 06: تنظيم المحاسبة في خمس مجموعات — كل قسم في مجموعة واحدة بالضبط ولا قسم مفقود', () => {
+  const secs = E.ACCT_SECTIONS.map(s => s.v), all = E.ACCT_GROUPS.flatMap(g => g.items);
+  assert.equal(E.ACCT_GROUPS.length, 5);
+  assert.deepEqual([...all].sort(), [...secs].sort(), 'كل الأقسام موجودة');
+  assert.equal(new Set(all).size, all.length, 'لا تكرار');
+  assert.deepEqual(E.ACCT_GROUPS.map(g => g.id), ['daily', 'books', 'reports', 'close', 'setup']);
+});
+
+test('v50.3 الهوية: المطبوعات تحمل شعار المنشأة (الطيف) فقط — لا رمز لمِثقال، وخط IBM Plex Sans Arabic', () => {
+  assert.equal(E.MZ_LOGO_HTML, '', 'لا شعار بديل لمِثقال عند غياب شعار المنشأة');
+  const withLogo = E.rptShell({ company: { name: 'شركة الطيف الأولى', logoUrl: 'data:image/png;base64,AAAA' } }, 'كشف', '', '<p>x</p>');
+  assert.match(withLogo, /<img class="lg" src="data:image\/png;base64,AAAA"/);
+  const noLogo = E.rptShell({ company: { name: 'شركة الطيف الأولى' } }, 'كشف', '', '<p>x</p>');
+  for (const h of [withLogo, noLogo]) {
+    assert.doesNotMatch(h, /M18 82 L18 24|M86 22\.6|data-mq-symbol/, 'لا رمز لمِثقال في المطبوع');
+    assert.match(h, /IBM Plex Sans Arabic/);
+  }
+  assert.doesNotMatch(noLogo, /<img/);
+});
