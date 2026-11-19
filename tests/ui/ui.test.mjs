@@ -2617,3 +2617,17 @@ test('v50.3 الهوية الرسمية: الرمز المعتمد كما في �
     assert.deepEqual(errs, []); await ctx.close();
   }
 });
+
+test('v51.3 الاشتراك والمنشأة: بطاقة عرض فقط في إعدادات النظام — الطيف «المؤسسات» نشط بكل الخصائص', async () => {
+  for (const lang of ['ar', 'en']) {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } }); await ctx.addInitScript((l) => { try { localStorage.setItem('rms8:lang', l); } catch { } }, lang);
+    const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+    await p.goto(base + 'comp/SystemPanel'); await p.waitForSelector('.mq-sub-card', { timeout: 15000 }); await settle(p);
+    const t = (await p.locator('.mq-sub-card').innerText()).replace(/\s+/g, ' ');
+    if (lang === 'ar') { assert.match(t, /الاشتراك والمنشأة/); assert.match(t, /المنشأة الرئيسية/); assert.match(t, /المؤسسات/); assert.match(t, /نشط/); assert.match(t, /✓ التحليل بالذكاء الاصطناعي/); assert.match(t, /✓ الفوترة الإلكترونية/); assert.match(t, /بلا حد/); }
+    else { assert.match(t, /Subscription & organization/); assert.match(t, /Enterprise/); assert.match(t, /Active/); assert.match(t, /unlimited/); }
+    assert.equal(await p.locator('.mq-sub-card input, .mq-sub-card select, .mq-sub-card button').count(), 0, 'عرض فقط — لا يُعدَّل من داخل المنشأة');
+    assert.equal(await p.locator('.mq-sub-ro').count(), 0, 'لا شريط «للقراءة فقط» للطيف');
+    assert.deepEqual(errs, []); await ctx.close();
+  }
+});

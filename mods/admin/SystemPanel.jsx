@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { cloud, KEYS, bfKey, kb, authApi } from '../../storage';
 import { Settings, Check, Clock, HardDrive, Download, ShieldCheck, Upload, X, ShieldAlert, RefreshCw, Trash2, FileBarChart } from 'lucide-react';
 import { CloseAlertsCard } from './CloseAlertsCard.jsx';
+import { SubscriptionCard } from './SubscriptionCard.jsx';
 import { CloudHealth, Field, MfaPolicyCard, Modal, NationalAddressFields, PhotoField, ROLES, fmtNA, isoD, lockedThru, money, naClean, naErr, naHas, nowISO, periodLocked, snapAll, snapPut, today, uid, verifyBackup, logAudit, isMzbk, mzbkDecrypt } from '../../App.jsx';
 
 export function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
@@ -343,6 +344,8 @@ export function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
           <PhotoField value={c.logoUrl} onChange={v => set('logoUrl', v)} say={say} />
         </Field>
         <button className="btn pri" onClick={saveCompany}><Check size={14} />حفظ بيانات المنشأة</button>
+
+        <SubscriptionCard branches={(org.branches || []).length} />
 
         {authApi.enabled && <MfaPolicyCard org={org} me={me} commitOrg={commitOrg} say={say} />}
         <CloseAlertsCard org={org} me={me} commitOrg={commitOrg} say={say} />

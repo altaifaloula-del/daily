@@ -43,8 +43,8 @@ const visitor = () => env.unauthenticatedContext().firestore();
 
 before(async () => {
   env = await initializeTestEnvironment({
-    projectId: 'rules-test',
-    firestore: { rules: fs.readFileSync('firestore.rules', 'utf8') }
+    projectId: process.env.RULES_FILE ? 'rules-tenant-test' : 'rules-test',
+    firestore: { rules: fs.readFileSync(process.env.RULES_FILE || 'firestore.rules', 'utf8') }
   });
   await env.withSecurityRulesDisabled(async (ctx) => {
     const d = db(ctx);

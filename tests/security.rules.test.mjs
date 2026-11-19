@@ -29,7 +29,7 @@ const sig = (k, x) => ({ digest: HEX, email: U[k], role: ROLE[k], at: serverTime
 let n = 0; const id = (p) => p + '_' + (++n);
 
 before(async () => {
-  env = await initializeTestEnvironment({ projectId: 'security-test', firestore: { rules: fs.readFileSync('firestore.rules', 'utf8') } });
+  env = await initializeTestEnvironment({ projectId: process.env.RULES_FILE ? 'security-tenant-test' : 'security-test', firestore: { rules: fs.readFileSync(process.env.RULES_FILE || 'firestore.rules', 'utf8') } });
   await env.withSecurityRulesDisabled(async (ctx) => {
     const d = ctx.firestore();
     await setDoc(doc(d, 'platform', 'admins'), { emails: [U.owner] });
