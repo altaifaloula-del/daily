@@ -20,7 +20,8 @@ import { vaultReady } from './zatca/vault.js';
 import { createVerifier } from './server-auth.js';
 import { planAllows, PLAN_AR } from './plans.js';
 import { billingConfig, mountBilling, moyasarGateway, firestoreStore, saTokenSource, memoryStore } from './server-billing.js';
-import { providerConfig, mountProvider } from './server-provider.js';
+import { providerConfig, mountProvider, writeTenantStatus } from './server-provider.js';
+import { automationConfig, runAutomation, scheduleAutomation } from './server-automation.js';
 import { loadTenants } from './tenants.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -247,8 +248,15 @@ async function tenantAdminCheck(req) {
   } catch { return false; }
 }
 const CONTROL = BILLING.controlReady ? firestoreStore({ project: BILLING.controlProject, token: saTokenSource(BILLING.sa) }) : memoryStore();
+// v51.8: أتمتة الاشتراكات (فاتورة مسبقة + تطبيق الحالة) — كل ساعة، وفور أي دفعة لمنشأتها
+const AUTO = automationConfig(process.env);
+const tenantTokens = new Map();
+const tenantToken = (t) => { if (!tenantTokens.has(t.id)) tenantTokens.set(t.id, saTokenSource(t.sa)); return tenantTokens.get(t.id)(); };
+const runAuto = (only) => runAutomation({ T: TENANTS, store: CONTROL, billing: BILLING, auto: AUTO, only, writeStatus: (t, status) => writeTenantStatus({ tenant: t, status, tokenFor: tenantToken }) });
+if (BILLING.controlReady) scheduleAutomation(() => runAuto());
+const onPaid = (tenantId) => BILLING.controlReady ? runAuto(tenantId).then(l => { if (l.length) console.log('[automation:paid]', JSON.stringify(l)); }) : null;
 mountBilling(app, {
-  express, requireMember, tenantOf, rateLimit, cfg: BILLING, adminCheck: tenantAdminCheck, store: CONTROL,
+  express, requireMember, tenantOf, rateLimit, cfg: BILLING, adminCheck: tenantAdminCheck, store: CONTROL, onPaid,
   gateway: moyasarGateway({ secretKey: BILLING.secretKey })
 });
 /* ===== لوحة مزوّد مِثقال والتسجيل العام (v51.5 — S6، انظر server-provider.js) ===== */
@@ -262,7 +270,7 @@ function readRegistry() {
   }
   regCache = { t: Date.now(), v }; return v;
 }
-mountProvider(app, { express, requireMember, rateLimit, T: TENANTS, cfg: providerConfig(process.env), store: CONTROL, controlReady: BILLING.controlReady, registry: readRegistry });
+mountProvider(app, { express, requireMember, rateLimit, T: TENANTS, cfg: providerConfig(process.env), store: CONTROL, controlReady: BILLING.controlReady, registry: readRegistry, onPaid, runAuto: BILLING.controlReady ? () => runAuto() : null });
 
 /* ================= الذكاء الاصطناعي ================= */
 const AI_MODEL = process.env.AI_MODEL || 'claude-opus-5-5';

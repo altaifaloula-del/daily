@@ -171,11 +171,11 @@ export async function settleInvoice({ store, gateway, no, now = Date.now }) {
 export async function extendSub(store, inv) {
   const cur = (await store.getSub(inv.tenant)) || {};
   const paidThrough = !cur.paidThrough || inv.end > cur.paidThrough ? inv.end : cur.paidThrough;
-  return store.putSub(inv.tenant, { ...cur, plan: inv.plan, period: inv.period, paidThrough, lastInvoice: inv.no });
+  return store.putSub(inv.tenant, { ...cur, plan: inv.plan, period: inv.period, paidThrough, lastInvoice: inv.no, ...(inv.buyer && inv.buyer.name ? { buyer: inv.buyer } : {}) });
 }
 
 /* ================= المسارات ================= */
-export function mountBilling(app, { express, requireMember, tenantOf, rateLimit, cfg, store, gateway, now = Date.now, adminCheck }) {
+export function mountBilling(app, { express, requireMember, tenantOf, rateLimit, cfg, store, gateway, now = Date.now, adminCheck, onPaid = () => {} }) {
   const json = express.json({ limit: '16kb' });
   const isAdmin = async (req) => BILL_ROLES.has(req.user && req.user.role) || (adminCheck ? await adminCheck(req) : false);
   const gate = async (req, res) => {
@@ -243,6 +243,7 @@ export function mountBilling(app, { express, requireMember, tenantOf, rateLimit,
       const inv = await store.getInvoice(no);
       if (!inv || inv.tenant !== t.id) return res.status(404).json({ error: 'الفاتورة غير موجودة' });
       const r = await settleInvoice({ store, gateway, no, now });
+      if (r.paidNow) Promise.resolve(onPaid(inv.tenant)).catch(() => { });
       res.json({ status: (r.inv || inv).status });
     } catch (e) { console.error('[billing] refresh', e.message); res.status(502).json({ error: 'تعذّر التحقق من الدفع' }); }
   });
@@ -251,7 +252,7 @@ export function mountBilling(app, { express, requireMember, tenantOf, rateLimit,
   app.post('/api/billing/webhook', express.json({ limit: '64kb' }), rateLimit({ windowMs: 60000, max: 120 }), async (req, res) => {
     const no = String(req.query.inv || '');
     if (!cfg.enabled || !cfg.gateway || !okInvoiceNo(no) || !sigOk(cfg.hookKey, no, req.query.sig)) return res.status(404).json({ ok: false });
-    try { const r = await settleInvoice({ store, gateway, no, now }); res.json({ ok: true, status: r.inv ? r.inv.status : 'unknown' }); }
+    try { const r = await settleInvoice({ store, gateway, no, now }); if (r.paidNow) Promise.resolve(onPaid(r.inv.tenant)).catch(() => { }); res.json({ ok: true, status: r.inv ? r.inv.status : 'unknown' }); }
     catch (e) { console.error('[billing] webhook', no, e.message); res.status(502).json({ ok: false }); }   // البوابة تعيد المحاولة
   });
 

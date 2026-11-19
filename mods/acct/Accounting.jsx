@@ -5,7 +5,7 @@ import { EInvoiceOnboard } from './EInvoiceOnboard.jsx';
 import { RotateCcw, Scale, FileBarChart, ChevronDown, Printer, Settings, Receipt, BarChart3, Lock, Landmark, FileText, TrendingUp, ArrowLeftRight, Store, Users, QrCode, Building2, Truck, ClipboardCheck, ShieldCheck, CalendarDays, Download, Upload, Plus, Grid3x3, Check, Trash2, RefreshCw, Wallet, TrendingDown, AlertTriangle, ChevronRight, ShieldAlert, Eye, ChevronLeft, CircleDollarSign, X } from 'lucide-react';
 import { VatRegisters, SupplierPurchReport } from './TaxPurchReports.jsx';   // v39.1
 import { Suppliers } from '../inv/Suppliers.jsx';   // v44.0 «مستلم لم يُفوتر»
-import { OdooBar } from '../../App.jsx';   // v41.0
+import { OdooBar , SecPager, recurApply } from '../../App.jsx';   // v41.0
 import { GeneralLedger } from './GeneralLedger.jsx';   // v49.4 المرحلة 03
 import { makeRptXlsx } from '../../App.jsx';   // v50.0 منظومة التقارير
 import { DEP_METHODS, depMethod, deprSchedule, wfOn, wfRequired, wfState, wfCanAct, wfApprove } from '../../App.jsx';   // v49.4 طرق الإهلاك
@@ -1123,16 +1123,13 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
   const recDue = recurDue(recurs, today());
   const [recMng, setRecMng] = useState(false);
   const runRecurring = async () => {
-    const direct = jeOwner(me); const recs = []; const upd = {};
-    recDue.forEach(({ t, dates, next }) => { dates.forEach(dt => { if (periodLocked(org, dt)) return;
-      recs.push({ id: uid('jm'), date: dt, title: t.title + ' — ' + dt.slice(0, 7), opening: false, by: me?.name || '', byId: me?.id || '', createdAt: nowISO(), recurId: t.id,
-        status: direct ? 'posted' : 'pending', ...(direct ? { approvedBy: me?.name || '', approvedAt: nowISO() } : {}),
-        ...(t.branchId ? { branchId: t.branchId } : {}), ...(t.projectId ? { projectId: t.projectId } : {}), lines: (t.lines || []).map(l => ({ ...l })) }); });
-      upd[t.id] = next; });
-    if (!recs.length) return say('لا قيود دورية مستحقة (أو أن فتراتها مقفلة)', 'no');
-    const ok = await commit(d => ({ ...d, journalManual: [...recs, ...(d.journalManual || [])], jeRecurring: (d.jeRecurring || []).map(t => upd[t.id] ? { ...t, next: upd[t.id], lastRun: today() } : t) }),
-      { actionType: 'create', targetType: 'journal_entry', targetId: recs.map(r => r.id).join(','), need: 'post', title: 'أنشأ القيود الدورية المستحقة', details: recs.length + ' قيد · ' + money(sum(recs, r => sum(r.lines, l => l.debit || 0))) + ' ر.س' });
-    if (ok) say('أُنشئ ' + recs.length + ' قيد دوري' + (direct ? ' ورُحّل ✓' : ' — بانتظار الاعتماد ✓'));
+    // v51.8: المنطق في recurApply (App.jsx) — مشترك مع التشغيل التلقائي، ومعرّفات ثابتة تمنع التكرار
+    const direct = jeOwner(me); const pre = recurApply(ops, me, org, today()).recs;
+    if (!pre.length) return say('لا قيود دورية مستحقة (أو أن فتراتها مقفلة)', 'no');
+    let made = [];
+    const ok = await commit(d => { const r = recurApply(d, me, org, today()); made = r.recs; return r.next; },
+      { actionType: 'create', targetType: 'journal_entry', targetId: pre.map(r => r.id).join(','), need: 'post', title: 'أنشأ القيود الدورية المستحقة', details: pre.length + ' قيد · ' + money(sum(pre, r => sum(r.lines, l => l.debit || 0))) + ' ر.س' });
+    if (ok) say('أُنشئ ' + (made.length || pre.length) + ' قيد دوري' + (direct ? ' ورُحّل ✓' : ' — بانتظار الاعتماد ✓'));
   };
   const setRecur = async (t, patch) => { await commit(d => ({ ...d, jeRecurring: patch === null ? (d.jeRecurring || []).filter(x => x.id !== t.id) : (d.jeRecurring || []).map(x => x.id === t.id ? { ...x, ...patch } : x) }),
     { actionType: patch === null ? 'delete' : 'update', targetType: 'journal_entry', targetId: t.id, need: 'post', title: patch === null ? 'حذف قيدًا دوريًا' : 'عدّل قيدًا دوريًا', details: t.title }); };
@@ -1511,6 +1508,8 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
             <button className={acctNavMode === 'grid' ? 'on' : ''} onClick={() => switchAcctNav('grid')} title={isEn() ? 'Grid' : 'شبكة'}><Grid3x3 size={14} /><span>{isEn() ? 'Grid' : 'شبكة'}</span></button>
           </div>
         );
+        // v51.8: السابق / التالي / رجوع بين أقسام المحاسبة بترتيب المجموعات الخمس
+        const pager = <SecPager items={GROUPS.flatMap(g => g.items.filter(ok)).map(v => ({ id: v, ar: IT[v][0] }))} cur={view} onPick={go} />;
         if (acctNavMode === 'grid') {
           const cur = IT[view];
           const CurI = cur ? cur[1] : FileText;
@@ -1539,11 +1538,12 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                   </div>
                 );
               })}
+              {pager}
             </div>
           );
         }
         // v41.0: شريط القوائم بنمط أودو (موحّد مع بقية التطبيقات)
-        return <OdooBar groups={GROUPS.map(g => ({ id: g.id, ar: g.ar, items: g.items.filter(ok).map(v => ({ id: v, ar: IT[v][0] })) }))} cur={view} onPick={go} extra={manualBtn} sw={modeSw} />;
+        return <><OdooBar groups={GROUPS.map(g => ({ id: g.id, ar: g.ar, items: g.items.filter(ok).map(v => ({ id: v, ar: IT[v][0] })) }))} cur={view} onPick={go} extra={manualBtn} sw={modeSw} />{pager}</>;
       })()}
 
       {/* v15.11: لا قسم متاح (أُخفيت كل الأقسام لهذا المستخدم) — رسالة بدل تسريب اليومية */}
