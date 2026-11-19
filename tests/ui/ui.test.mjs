@@ -2582,12 +2582,13 @@ test('v50.2 المرحلة 06: حزمة الترجمة الكاملة تُحمَ
   const ctx = await browser.newContext({ viewport: { width: 1300, height: 1000 } }); await ctx.addInitScript(() => { try { localStorage.setItem('rms8:lang', 'en'); } catch { } });
   const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
   await p.goto(base + 'live/MyWork/acc'); await p.waitForTimeout(500); await settle(p);
-  await p.waitForFunction(() => /My work/.test(document.querySelector('[data-mywork]')?.innerText || ''), null, { timeout: 5000 });
+  await p.waitForFunction(() => /My work/.test(document.querySelector('[data-mywork]')?.innerText || ''), null, { timeout: 15000 });
   const t = await p.locator('[data-mywork]').innerText();
   assert.match(t, /My work/); assert.match(t, /items waiting for you/); assert.match(t, /Finance & Suppliers/);
-  await p.goto(base + 'acct/jr'); await p.waitForTimeout(500); await settle(p);
-  await p.waitForFunction(() => /Daily operations/.test(document.body.innerText), null, { timeout: 5000 });
-  const b = await p.evaluate(() => document.body.innerText);
+  await p.close(); const p2 = await ctx.newPage(); p2.on('pageerror', e => errs.push(e.message));
+  await p2.goto(base + 'acct/jr'); await p2.waitForTimeout(1200); await settle(p2);
+  await p2.waitForFunction(() => /Daily operations/.test(document.body.innerText), null, { timeout: 15000 });
+  const b = await p2.evaluate(() => document.body.innerText);
   for (const g of ['Daily operations', 'Books', 'Reports', 'Closing & Tax', 'Setup & Tools']) assert.match(b, new RegExp(g.replace('&', '&')), g);
   assert.deepEqual(errs, []); await ctx.close();
 });

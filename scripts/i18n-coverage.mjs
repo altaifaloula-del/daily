@@ -10,7 +10,7 @@ for (const f of files) { const s = strip(fs.readFileSync(path.join(root, f), 'ut
   while ((m = re.exec(s))) { const t = m[1].trim(); if (t && !/[<>=]/.test(t)) S.has(t) || S.set(t, f); }
   while ((m = re2.exec(s))) { const t = m[2].trim(); if (t && t.length < 220 && !/<\/?[a-z]/i.test(t) && !/\$\{/.test(t)) S.has(t) || S.set(t, f); } }
 const SKIP = new Set(fs.existsSync(path.join(root, 'scripts', 'i18n-skip.txt')) ? fs.readFileSync(path.join(root, 'scripts', 'i18n-skip.txt'), 'utf8').split('\n').map(x => x.trim()).filter(Boolean) : []);
-const noise = (t) => /' \+|\+ '|_xe\(|money\(|[{}]|=>|\? '|\.replace\(|escH\(|^\)|^0(\.\d+)? \?/.test(t) || SKIP.has(t) || !/[\u0600-\u06FF]{2}/.test(t);
+const noise = (t) => /' \+|\+ '|_xe\(|money\(|[{}]|=>|\? '|\.replace\(|\.test\(|\.includes\(|, \/|escH\(|^\)|^0(\.\d+)? \?/.test(t) || SKIP.has(t) || !/[\u0600-\u06FF]{2}/.test(t);
 for (const k of [...S.keys()]) if (noise(k)) S.delete(k);
 let ok = 0; const miss = [];
 for (const [t, f] of S) { if (trWord(t) != null) ok++; else miss.push([t, f]); }
