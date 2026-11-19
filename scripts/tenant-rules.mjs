@@ -4,28 +4,24 @@
  * • قواعد الطيف (firestore.rules) لا تُمس — تبقى كما هي حرفيًا.
  * • كل قاعدة كتابة (create/update/delete/write) تُغلَّف بشرط subOk(): الاشتراك «نشط».
  *   اشتراك «للقراءة فقط» أو «موقوف» ⇒ لا كتابة إطلاقًا من أي حساب، والقراءة تبقى (حق المنشأة في بياناتها وتصديرها).
- * • حالة الاشتراك في mq_control/subscription — يقرؤها الأعضاء ولا يكتبها أي عميل (يكتبها مزوّد مِثقال بحساب الخدمة فقط).
+ * • حالة الاشتراك في platform/release.sub — يقرؤها الأعضاء، ولا يغيّرها أي حساب في المنشأة (يكتبها مزوّد مِثقال بحساب الخدمة فقط).
  * الاستعمال: node scripts/tenant-rules.mjs           ⇒ يكتب الملف
  *            node scripts/tenant-rules.mjs --check   ⇒ يفشل إن كان الملف غير محدَّث
  */
 import fs from 'node:fs'; import path from 'node:path'; import { fileURLToPath } from 'node:url';
 
-const SUB = '/databases/$(database)/documents/mq_control/subscription';
+// حالة الاشتراك حقل «sub» في platform/release — المستند الذي تقرؤه أثقل الطلبات أصلًا (relOf)، فلا تُضاف قراءة جديدة
+// تتجاوز سقف 10 قراءات للطلب. غياب الحقل أو المستند ⇒ نشط. يكتبه مزوّد مِثقال بحساب الخدمة؛ والمدير لا يغيّره.
 const HEADER = '// ⚠ ملف مولَّد من firestore.rules بواسطة scripts/tenant-rules.mjs — لا تعدّله يدويًا. للمنشآت المشتركة فقط (ليس الطيف).\n';
 const FUNCS = `
-    // [TENANT] v51.3 — حالة اشتراك المنشأة: الكتابة للمشترك النشط فقط
+    // [TENANT] v51.3 — حالة اشتراك المنشأة (platform/release.sub): الكتابة للمشترك النشط فقط
     function subOk() {
-      return !exists(${SUB})
-        || get(${SUB}).data.get('status', 'active') == 'active';
+      let r = relOf();
+      return r == null || r.get('sub', 'active') == 'active';
     }
 `;
-const CONTROL = `
-    // [TENANT] حالة الاشتراك والخطة — للقراءة فقط من الواجهة؛ يكتبها مزوّد مِثقال بحساب الخدمة
-    match /mq_control/{docId} {
-      allow read: if isMember() || isAdmin();
-      allow write: if false;
-    }
-`;
+const REL_OLD = "request.resource.data.keys().hasOnly(['minCv', 'cutover', 'at', 'by'])";
+const REL_NEW = "request.resource.data.keys().hasOnly(['minCv', 'cutover', 'at', 'by', 'sub'])\n        // [TENANT] المدير يرفع الإصدار ولا يغيّر حالة الاشتراك\n        && request.resource.data.get('sub', 'active') == (resource == null ? 'active' : resource.data.get('sub', 'active'))";
 
 /** نهاية عبارة allow: أول «;» خارج النصوص والتعليقات */
 function stmtEnd(s, i) {
@@ -64,10 +60,9 @@ export function tenantRules(src) {
   if (a < 0) throw new Error('بنية القواعد غير متوقعة');
   const ins = out.indexOf('\n', a) + 1;
   out = out.slice(0, ins) + FUNCS + out.slice(ins);
-  const tail = out.lastIndexOf('match /{document=**}');
-  if (tail < 0) throw new Error('لا توجد قاعدة الرفض العامة');
-  const ls = out.lastIndexOf('\n', tail) + 1;
-  out = out.slice(0, ls) + CONTROL.replace(/^\n/, '') + '\n' + out.slice(ls);
+  if (out.split(REL_OLD).length !== 2) throw new Error('شكل قاعدة platform/release تغيّر — حدّث المولّد');
+  if (!/function relOf\(\)/.test(out)) throw new Error('relOf غير موجودة');
+  out = out.replace(REL_OLD, REL_NEW);
   return { text: HEADER + out, wrapped };
 }
 

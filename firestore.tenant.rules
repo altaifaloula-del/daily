@@ -3,10 +3,10 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // [TENANT] v51.3 — حالة اشتراك المنشأة: الكتابة للمشترك النشط فقط
+    // [TENANT] v51.3 — حالة اشتراك المنشأة (platform/release.sub): الكتابة للمشترك النشط فقط
     function subOk() {
-      return !exists(/databases/$(database)/documents/mq_control/subscription)
-        || get(/databases/$(database)/documents/mq_control/subscription).data.get('status', 'active') == 'active';
+      let r = relOf();
+      return r == null || r.get('sub', 'active') == 'active';
     }
 
     function realUser() {
@@ -203,7 +203,9 @@ service cloud.firestore {
     match /platform/release {
       allow read: if isMember() || isAdmin();
       allow create, update: if subOk() && (isAdmin() && mfaOk()
-        && request.resource.data.keys().hasOnly(['minCv', 'cutover', 'at', 'by'])
+        && request.resource.data.keys().hasOnly(['minCv', 'cutover', 'at', 'by', 'sub'])
+        // [TENANT] المدير يرفع الإصدار ولا يغيّر حالة الاشتراك
+        && request.resource.data.get('sub', 'active') == (resource == null ? 'active' : resource.data.get('sub', 'active'))
         && request.resource.data.minCv is int && request.resource.data.minCv >= 0
         && request.resource.data.cutover is string && request.resource.data.cutover.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'));
       allow delete: if false;
@@ -585,12 +587,6 @@ service cloud.firestore {
       allow create: if subOk() && (request.resource.data.get('legacy', false) == true ? fjLegacy(id, request.resource.data) : fjCreate(id, request.resource.data));
       allow update: if subOk() && (fjUpdate(id, request.resource.data, resource.data));
       allow delete: if subOk() && (fjDelete(resource.data));
-    }
-
-    // [TENANT] حالة الاشتراك والخطة — للقراءة فقط من الواجهة؛ يكتبها مزوّد مِثقال بحساب الخدمة
-    match /mq_control/{docId} {
-      allow read: if isMember() || isAdmin();
-      allow write: if false;
     }
 
     match /{document=**} {

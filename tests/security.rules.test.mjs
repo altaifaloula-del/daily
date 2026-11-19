@@ -33,8 +33,6 @@ before(async () => {
   await env.withSecurityRulesDisabled(async (ctx) => {
     const d = ctx.firestore();
     await setDoc(doc(d, 'platform', 'admins'), { emails: [U.owner] });
-    // v51.3: نفس الاختبارات على قواعد المنشآت المشتركة باشتراك «نشط» — يجب أن تتطابق النتائج (ويُختبر حد استدعاءات المستندات)
-    if (process.env.RULES_FILE) await setDoc(doc(d, 'mq_control', 'subscription'), { status: 'active', plan: 'pro' });
     const m = (k, x) => setDoc(doc(d, 'members', U[k]), { email: U[k], active: true, ...x });
     await m('owner', {});
     await m('fin', { scope: 'all', role: 'finance_department' });

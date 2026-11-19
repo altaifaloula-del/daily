@@ -30,9 +30,12 @@ export function validateArgs(a) {
   return errs;
 }
 
-const subPatch = (P, status, plan) => 'curl -sS -X PATCH "https://firestore.googleapis.com/v1/projects/' + P + '/databases/(default)/documents/mq_control/subscription'
-  + (plan ? '' : '?updateMask.fieldPaths=status&updateMask.fieldPaths=at') + '" -H "Authorization: Bearer $(gcloud auth print-access-token)" -H "Content-Type: application/json" -d \'{"fields":{"status":{"stringValue":"' + status + '"}'
-  + (plan ? ',"plan":{"stringValue":"' + plan + '"}' : '') + ',"at":{"integerValue":"' + Date.now() + '"}}}\'';
+// v51.3: حالة الاشتراك حقل sub في platform/release (تقرؤه القواعد دون قراءة إضافية). الإنشاء الأول: إصدار 0 وبداية التوقيع اليوم.
+const relUrl = (P, mask) => '"https://firestore.googleapis.com/v1/projects/' + P + '/databases/(default)/documents/platform/release' + (mask ? '?updateMask.fieldPaths=sub' : '') + '"';
+const AUTH = ' -H "Authorization: Bearer $(gcloud auth print-access-token)" -H "Content-Type: application/json" -d ';
+const subPatch = (P, status, init) => 'curl -sS -X PATCH ' + relUrl(P, !init) + AUTH + "'" + JSON.stringify({ fields: init
+  ? { minCv: { integerValue: '0' }, cutover: { stringValue: new Date().toISOString().slice(0, 10) }, at: { integerValue: String(Date.now()) }, by: { stringValue: 'mithqal-provision' }, sub: { stringValue: status } }
+  : { sub: { stringValue: status } } }) + "'";
 
 /** v51.3: تغيير حالة اشتراك منشأة — أوامر فقط (تُنفَّذ بعد موافقة المالك) */
 export function statusPlan(a) {
@@ -58,7 +61,7 @@ export function provisionPlan(a) {
     { t: 'إنشاء تطبيق الويب وتنزيل إعداده', cmd: ['firebase apps:create web ' + q('Mithqal Web') + ' --project ' + P, 'firebase apps:sdkconfig web --project ' + P + ' > sdkconfig.json'] },
     { t: 'نشر قواعد المنشآت المشتركة (قواعد الطيف نفسها + شرط الاشتراك) والفهارس', cmd: ['node scripts/tenant-rules.mjs --check', 'firebase deploy --config firebase.tenant.json --only firestore:rules,firestore:indexes --project ' + P] },
     { t: 'تثبيت مالك المنشأة مديرًا قبل نشر الرابط (يغلق باب «أول من يسجّل يصبح مديرًا»)', cmd: ['curl -sS -X PATCH "https://firestore.googleapis.com/v1/projects/' + P + '/databases/(default)/documents/platform/admins" -H "Authorization: Bearer $(gcloud auth print-access-token)" -H "Content-Type: application/json" -d \'{"fields":{"emails":{"arrayValue":{"values":[{"stringValue":"' + String(a.owner).toLowerCase() + '"}]}},"at":{"integerValue":"' + Date.now() + '"}}}\''] },
-    { t: 'تسجيل حالة الاشتراك والخطة (لا يغيّرها أي حساب في المنشأة — حساب الخدمة فقط)', cmd: [subPatch(P, 'active', a.plan)] },
+    { t: 'تسجيل حالة الاشتراك «نشط» (لا يغيّرها أي حساب في المنشأة — حساب الخدمة فقط)', cmd: [subPatch(P, 'active', true)], note: 'الخطة نفسها في السجل وعلى الخادم (MQ_TENANTS_JSON)' },
     { t: 'تقييد مفتاح الويب بنطاق المنصة', cmd: [], note: 'Google Cloud ← APIs & Services ← Credentials ← قيود HTTP referrer على نطاق مِثقال' },
     { t: 'إضافة المنشأة إلى السجل', cmd: ['node scripts/tenant-provision.mjs registry --id ' + a.id + ' --name ' + q(a.name) + ' --plan ' + a.plan + ' --owner ' + a.owner + ' --sdk sdkconfig.json'], note: 'ثم طلب دمج يعتمده المالك' },
     { t: 'إعداد الخادم للمنشأة', cmd: [], note: 'متغيرات Render: إضافة {"id":"' + a.id + '","projectId":"' + P + '","plan":"' + a.plan + '","apiKeyEnv":"FB_KEY_' + K + '","zatcaKeyEnv":"ZATCA_KEY_' + K + '"} إلى MQ_TENANTS_JSON، ثم FB_KEY_' + K + ' = مفتاح الويب، وZATCA_KEY_' + K + ' = سر عشوائي جديد (32+ حرفًا، لا يُعاد استخدام سر منشأة أخرى) — مثل: openssl rand -base64 48' },

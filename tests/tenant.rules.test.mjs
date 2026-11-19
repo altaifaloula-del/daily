@@ -1,7 +1,7 @@
 /**
  * v51.3 — المرحلة 07 / S4: قواعد المنشآت المشتركة (firestore.tenant.rules) على المحاكي.
  * الاشتراك النشط يكتب كالمعتاد؛ «للقراءة فقط» و«موقوف» لا يكتبان من أي حساب (حتى المالك) والقراءة باقية؛
- * حالة الاشتراك لا يغيّرها أي عميل.
+ * حالة الاشتراك (platform/release.sub) لا يغيّرها أي حساب في المنشأة.
  */
 import { test, before, after } from 'node:test';
 import fs from 'node:fs';
@@ -12,7 +12,8 @@ let env;
 const OWNER = 'owner@t.sa', CASH = 'cash@t.sa';
 const as = (e) => env.authenticatedContext('u-' + e, { email: e }).firestore();
 const pulse = () => ({ value: '{}', parts: 1, cv: 400000 });
-const setStatus = (status) => env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'mq_control', 'subscription'), { status, plan: 'pro' }));
+const REL = (sub, x = {}) => ({ minCv: 0, cutover: '2026-01-01', at: 1, by: 'mithqal', ...(sub ? { sub } : {}), ...x });
+const setStatus = (status) => env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), 'platform', 'release'), REL(status)));
 
 before(async () => {
   env = await initializeTestEnvironment({ projectId: 'tenant-rules-test', firestore: { rules: fs.readFileSync('firestore.tenant.rules', 'utf8') } });
@@ -46,11 +47,14 @@ for (const st of ['readonly', 'suspended']) {
   });
 }
 
-test('حالة الاشتراك: يقرؤها الأعضاء، ولا يكتبها أي عميل — حتى المالك', async () => {
+test('حالة الاشتراك: يقرؤها الأعضاء، والمدير يرفع الإصدار دون أن يغيّر الحالة أو يمحوها', async () => {
+  await setStatus('active');
+  await assertSucceeds(getDoc(doc(as(CASH), 'platform', 'release')));
+  await assertFails(setDoc(doc(as(OWNER), 'platform', 'release'), REL('readonly')), 'لا يغيّرها المدير');
+  await assertSucceeds(setDoc(doc(as(OWNER), 'platform', 'release'), REL('active', { minCv: 5 })), 'رفع الإصدار مسموح');
   await setStatus('readonly');
-  await assertSucceeds(getDoc(doc(as(CASH), 'mq_control', 'subscription')));
-  await assertFails(getDoc(doc(env.authenticatedContext('u-x', { email: 'stranger@x.sa' }).firestore(), 'mq_control', 'subscription')), 'غير عضو');
-  await assertFails(setDoc(doc(as(OWNER), 'mq_control', 'subscription'), { status: 'active', plan: 'enterprise' }), 'المالك لا يرفع حالته أو خطته');
-  await assertFails(deleteDoc(doc(as(OWNER), 'mq_control', 'subscription')), 'ولا يحذفها ليتجاوز القيد');
+  await assertFails(setDoc(doc(as(OWNER), 'platform', 'release'), REL('active')), 'المالك لا يرفع القيد عن نفسه');
+  await assertFails(setDoc(doc(as(OWNER), 'platform', 'release'), REL(null)), 'ولا يمحو الحقل ليتجاوزه');
+  await assertFails(deleteDoc(doc(as(OWNER), 'platform', 'release')), 'ولا يحذف المستند');
   await setStatus('active');
 });

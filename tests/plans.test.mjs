@@ -44,16 +44,17 @@ test('السجل: حالة الاشتراك مقيّدة القيم، والمن
 test('قواعد المنشآت مولّدة من قواعد الطيف ومحدَّثة — وكل قاعدة كتابة مشروطة بالاشتراك', () => {
   const src = rd('firestore.rules'), gen = tenantRules(src);
   assert.equal(rd('firestore.tenant.rules'), gen.text, 'شغّل node scripts/tenant-rules.mjs');
-  assert.doesNotMatch(src, /subOk|mq_control/, 'قواعد الطيف لم تُمس');
+  assert.doesNotMatch(src, /subOk|'sub'/, 'قواعد الطيف لم تُمس');
   const allows = [...gen.text.matchAll(/^\s*allow ([a-z, ]+):\s*if\s+([^\n]*)/gm)];
   const writes = allows.filter(m => /create|update|delete|write/.test(m[1]));
   assert.ok(writes.length >= 25);
   for (const m of writes) assert.ok(/^false/.test(m[2]) || m[2].startsWith('subOk() && ('), m[0].trim());
   for (const m of allows.filter(m => /read/.test(m[1]))) assert.ok(!/create|update|delete|write/.test(m[1]) || /^false/.test(m[2]), 'القراءة لا تُربط بالاشتراك: ' + m[0].trim());
-  assert.match(gen.text, /match \/mq_control\/\{docId\} \{\s*allow read: if isMember\(\) \|\| isAdmin\(\);\s*allow write: if false;/);
+  assert.match(gen.text, /function subOk\(\) \{\s*let r = relOf\(\);\s*return r == null \|\| r\.get\('sub', 'active'\) == 'active';/, 'الحالة من مستند تقرؤه الطلبات أصلًا (لا قراءة إضافية)');
+  assert.match(gen.text, /hasOnly\(\['minCv', 'cutover', 'at', 'by', 'sub'\]\)\s*\/\/[^\n]*\n\s*&& request\.resource\.data\.get\('sub', 'active'\) == \(resource == null \? 'active' : resource\.data\.get\('sub', 'active'\)\)/);
   const fb = JSON.parse(rd('firebase.tenant.json')); assert.equal(fb.firestore.rules, 'firestore.tenant.rules');
   // عبارة مركّبة: الشرط كاملًا داخل القوسين
-  const t = tenantRules("service x {\n  match /databases/{database}/documents {\n    match /a/{i} {\n      allow read, delete: if A() // ملاحظة; لا تقطع\n        || B('x;y');\n    }\n    match /{document=**} {\n      allow read, write: if false;\n    }\n  }\n}\n").text;
+  const t = tenantRules("service x {\n  match /databases/{database}/documents {\n    function relOf() { return null; }\n    match /platform/release {\n      allow write: if request.resource.data.keys().hasOnly(['minCv', 'cutover', 'at', 'by']);\n    }\n    match /a/{i} {\n      allow read, delete: if A() // ملاحظة; لا تقطع\n        || B('x;y');\n    }\n    match /{document=**} {\n      allow read, write: if false;\n    }\n  }\n}\n").text;
   assert.match(t, /allow read: if A\(\) \/\/ ملاحظة; لا تقطع\n        \|\| B\('x;y'\);/);
   assert.match(t, /allow delete: if subOk\(\) && \(A\(\) \/\/ ملاحظة; لا تقطع\n        \|\| B\('x;y'\)\);/);
 });
@@ -62,7 +63,7 @@ test('تغيير حالة الاشتراك: أوامر فقط، على مستن�
   const { statusPlan, provisionPlan } = await import('../scripts/tenant-provision.mjs');
   assert.match(statusPlan({ id: 'c2', set: 'paused' }).error, /--set/); assert.ok(statusPlan({ id: 'default', set: 'readonly' }).error);
   const r = JSON.stringify(statusPlan({ id: 'c2', set: 'readonly' }));
-  assert.match(r, /mithqal-c2\/databases\/\(default\)\/documents\/mq_control\/subscription\?updateMask\.fieldPaths=status/); assert.doesNotMatch(r, /plan/);
+  assert.match(r, /mithqal-c2\/databases\/\(default\)\/documents\/platform\/release\?updateMask\.fieldPaths=sub\\"/); assert.doesNotMatch(r, /plan|minCv/, 'يغيّر الحالة وحدها');
   const P = provisionPlan({ id: 'c2', name: 'مطعم', plan: 'pro', owner: 'o@c.sa' }), txt = JSON.stringify(P);
   assert.match(txt, /firebase deploy --config firebase\.tenant\.json/); assert.match(txt, /\\"plan\\":\\"pro\\"/);
   const iRules = P.findIndex(s => /قواعد المنشآت/.test(s.t)), iSub = P.findIndex(s => /حالة الاشتراك/.test(s.t)), iReg = P.findIndex(s => /إضافة المنشأة إلى السجل/.test(s.t));
