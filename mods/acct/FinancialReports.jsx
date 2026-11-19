@@ -75,7 +75,7 @@ export function FinancialReports({ org, ops, myBranches, scoped, say }) {
     w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
       <title>إقرار ضريبة القيمة المضافة - ${range.label}</title>
       <style>${NUM_FACE}
-        *{margin:0;padding:0;box-sizing:border-box;font-family:'MizanNum','Segoe UI',Tahoma,sans-serif}
+        *{margin:0;padding:0;box-sizing:border-box;font-family:'MizanNum','IBM Plex Sans Arabic','Noto Sans Arabic','Segoe UI',Tahoma,sans-serif}
         body{padding:32px;color:#222}
         .head{text-align:center;border-bottom:3px solid #C8A24A;padding-bottom:16px;margin-bottom:8px}
         .co-n{font-size:19px;font-weight:bold;color:#8C6F2C}

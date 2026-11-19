@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="330" height="100" viewBox="0 0 330 100">
+
+
+<g transform="translate(0,0) scale(1.0)">
+<g fill="none" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M18 82 L18 24 L50 55 L82 24 L82 82" stroke="#10294A" stroke-width="11"/>
+  <path d="M50 55 L50 82" stroke="#D9A83E" stroke-width="11"/>
+  <path d="M31 24 L50 42 L69 24" stroke="#D9A83E" stroke-width="7"/>
+</g></g>
+<text x="112" y="43" font-family="Manrope, Arial, sans-serif" font-size="29" font-weight="800" letter-spacing="1.2" fill="#10294A">MITHQAL</text>
+<text x="112" y="72" font-family="Noto Sans Arabic, IBM Plex Sans Arabic, Arial, sans-serif" font-size="23" font-weight="700" fill="#10294A">مثقال</text>
+<text x="252" y="72" font-family="Manrope, Arial, sans-serif" font-size="12" font-weight="700" letter-spacing="3" fill="#D9A83E">ERP</text>
+
+</svg>

@@ -2142,3 +2142,15 @@ test('v50.2 المرحلة 06: تنظيم المحاسبة في خمس مجمو�
   assert.equal(new Set(all).size, all.length, 'لا تكرار');
   assert.deepEqual(E.ACCT_GROUPS.map(g => g.id), ['daily', 'books', 'reports', 'close', 'setup']);
 });
+
+test('v50.3 الهوية: المطبوعات تحمل شعار المنشأة (الطيف) فقط — لا رمز لمِثقال، وخط IBM Plex Sans Arabic', () => {
+  assert.equal(E.MZ_LOGO_HTML, '', 'لا شعار بديل لمِثقال عند غياب شعار المنشأة');
+  const withLogo = E.rptShell({ company: { name: 'شركة الطيف الأولى', logoUrl: 'data:image/png;base64,AAAA' } }, 'كشف', '', '<p>x</p>');
+  assert.match(withLogo, /<img class="lg" src="data:image\/png;base64,AAAA"/);
+  const noLogo = E.rptShell({ company: { name: 'شركة الطيف الأولى' } }, 'كشف', '', '<p>x</p>');
+  for (const h of [withLogo, noLogo]) {
+    assert.doesNotMatch(h, /M18 82 L18 24|M86 22\.6|data-mq-symbol/, 'لا رمز لمِثقال في المطبوع');
+    assert.match(h, /IBM Plex Sans Arabic/);
+  }
+  assert.doesNotMatch(noLogo, /<img/);
+});

@@ -7,5 +7,8 @@ export default {
   'الإيراد = حصة كل صنف من صافي الفاتورة بعد الخصومات وقبل الضريبة، والمرتجعات مطروحة. التكلفة = تكلفة الوصفة بالمتوسط المرجّح حتى نهاية الفترة.': "Revenue = each item's share of the net invoice after discounts and before VAT, less returns. Cost = recipe cost at weighted average up to the period end.",
   'الوارد أخيرًا يصرف أولًا (LIFO) غير مسموح وفق المعايير الدولية المعتمدة في المملكة (IAS 2) فلا يُعرض. والتكلفة المعيارية (تكلفة الوصفة) متاحة للتحليل في «هندسة القائمة» و«الربحية» ولا تُقيَّد في الدفاتر.': 'Last in, first out (LIFO) is not permitted under the international standards adopted in the Kingdom (IAS 2), so it is not offered. Standard cost (recipe cost) is available for analysis in «Menu Engineering» and «Profitability» and is not booked.',
   '«تعريف العميل» = نسبة الطلبات التي أُدخل فيها جوال العميل. كلما ارتفعت صار تحليل العملاء أدق.': '«Customer identification» = the share of orders where the customer mobile was entered. The higher it is, the more accurate customer analysis becomes.',
-  'الفترة المختارة': 'Selected period'
+  'الفترة المختارة': 'Selected period',
+  'نسيت بياناتك؟ راجع المدير العام لإعادة تعيينها من إدارة المستخدمين.': 'Forgot your details? Ask the general manager to reset them from user management.',
+  'إنشاء المنصة والدخول': 'Create platform and sign in', '(اختياري الآن)': '(optional for now)',
+  'كلمة السر تُخزَّن مجزّأة (SHA-256) ولا تُحفظ كنص. احتفظ بها — لا يمكن استرجاعها.': "The password is stored hashed (SHA-256), never as text. Keep it safe — it can't be recovered."
 };

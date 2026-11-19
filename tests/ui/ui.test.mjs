@@ -2600,3 +2600,20 @@ test('v50.2 الواجهة العربية لا تحمّل حزمة الترجم�
   assert.equal(await p.evaluate(() => performance.getEntriesByType('resource').some(r => /i18n-en|index-.*\.js/.test(r.name) && /i18n/.test(r.name))), false);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v50.3 الهوية الرسمية: الرمز المعتمد كما في الحزمة والشعار الثنائي بنص حيّ (عربي/إنجليزي)', async () => {
+  for (const lang of ['ar', 'en']) {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } }); await ctx.addInitScript((l) => { try { localStorage.setItem('rms8:lang', l); } catch { } }, lang);
+    const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+    await p.goto(base + 'comp/BrandLockup'); await p.waitForTimeout(800); await settle(p);
+    const r = await p.evaluate(() => { const sv = document.querySelector('svg[data-mq-symbol]'); const lk = document.querySelector('[data-mq-lockup]');
+      return { v: sv && sv.dataset.mqSymbol, d: sv ? [...sv.querySelectorAll('path')].map(x => x.getAttribute('d')) : [], w: sv ? [...sv.querySelectorAll('path')].map(x => x.getAttribute('stroke-width')) : [],
+        c: sv ? [...sv.querySelectorAll('path')].map(x => getComputedStyle(x).stroke) : [], t: lk ? lk.innerText.replace(/\s+/g, ' ') : '' }; });
+    assert.equal(r.v, 'light');
+    assert.deepEqual(r.d, ['M18 82 L18 24 L50 55 L82 24 L82 82', 'M50 55 L50 82', 'M31 24 L50 42 L69 24'], 'مسارات الرمز مطابقة للحزمة');
+    assert.deepEqual(r.w, ['11', '11', '7']);
+    assert.deepEqual(r.c, ['rgb(16, 41, 74)', 'rgb(217, 168, 62)', 'rgb(217, 168, 62)'], 'ألوان الحزمة #10294A و#D9A83E');
+    assert.match(r.t, /MITHQAL/); assert.match(r.t, /مثقال/, 'الاسم العربي يبقى عربيًا في الوضعين'); assert.match(r.t, /ERP/);
+    assert.deepEqual(errs, []); await ctx.close();
+  }
+});
