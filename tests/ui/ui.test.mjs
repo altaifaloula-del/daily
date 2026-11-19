@@ -2850,7 +2850,8 @@ test('v52.1 الحملات: إنشاء حملة تربط كوبونًا بشري
 test('v52.2 التوصيات عند الدفع: «مقترح مع الطلب» من سلال الفرع، الإضافة بنقرة والإخفاء يُحفظان مع الفاتورة، والنتائج في التسويق', async () => {
   const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosApp/bm');
   await p.evaluate(() => {
-    const td = new Date(); td.setHours(12); const d = td.toISOString().slice(0, 10);
+    // تاريخ قبل يومين: يوم العمل في نقطة البيع قد يكون أمس بعد منتصف الليل، فلا نربط الاختبار بالساعة
+    const td = new Date(Date.now() - 2 * 864e5); td.setHours(12); const d = td.toISOString().slice(0, 10);
     const hist = []; for (let i = 0; i < 6; i++) hist.push({ id: 'h' + i, date: d, branchId: 'b1', status: 'paid', total: 53, lines: [{ productId: 'k', name: 'كبسة', qty: 1, price: 50 }, { productId: 'l', name: 'لبن', qty: 1, price: 3 }, ...(i < 4 ? [{ productId: 's', name: 'سلطة', qty: 1, price: 8 }] : [])] });
     window.setOrg(g => ({ ...g, taxCfg: { enabled: false }, posCfg: { branches: ['b1'], autoPrint: false },
       products: [{ id: 'k', name: 'كبسة', sellPrice: 50, cat: 'رئيسي' }, { id: 'l', name: 'لبن', sellPrice: 3, cat: 'مشروبات' }, { id: 's', name: 'سلطة', sellPrice: 8, cat: 'مقبلات' }] }));
