@@ -3,7 +3,8 @@
  * النموذج المعتمد (مشروع Firebase لكل عميل): المستأجر يُعرف من مشروع رمز الدخول (aud) بعد تحقق Google منه — لا من ترويسة يرسلها المتصفح.
  * الافتراضي (الطيف) من متغيرات البيئة الحالية كما هي. المستأجرون الإضافيون (الدفعة S3) من MQ_TENANTS_JSON:
  *   [{ "id": "client2", "projectId": "mithqal-client2", "apiKeyEnv": "FB_KEY_CLIENT2", "zatcaKeyEnv": "ZATCA_KEY_CLIENT2" }]
- * الأسرار نفسها لا تُكتب في JSON — يُذكر اسم متغير البيئة الذي يحملها فقط.
+ * الأسرار نفسها لا تُكتب في JSON — يُذكر اسم متغير البيئة الذي يحملها فقط (خزنة الأسرار = متغيرات بيئة الخادم السرية).
+ * v51.2 (S3): الخادم يخدم كل المنشآت المسجّلة — انظر server-auth.js.
  */
 const clean = (v) => String(v || '').trim().replace(/^["'`]+|["'`]+$/g, '').trim();
 const okId = (v) => /^[a-z0-9][a-z0-9-]{1,39}$/.test(v);
@@ -22,7 +23,12 @@ export function loadTenants(env = process.env) {
       if (!okProject(projectId)) { errors.push(id + ': مشروع غير صالح'); continue; }
       if (list.some(x => x.id === id || (x.projectId && x.projectId === projectId))) { errors.push(id + ': مكرر'); continue; }
       if (!okEnvName(t.apiKeyEnv || '')) { errors.push(id + ': اسم متغير المفتاح غير صالح'); continue; }
-      list.push({ id, projectId, apiKey: clean(env[t.apiKeyEnv]), zatcaKey: okEnvName(t.zatcaKeyEnv || '') ? String(env[t.zatcaKeyEnv] || '').trim() : '' });
+      const zatcaKey = okEnvName(t.zatcaKeyEnv || '') ? String(env[t.zatcaKeyEnv] || '').trim() : '';
+      // v51.2 (S3): مفتاح تشفير الفوترة لا يُشارك بين المنشآت — يُرفض تكراره (يعمل المستأجر بلا فوترة حتى يُضبط مفتاحه)
+      const dupKey = zatcaKey && list.some(x => x.zatcaKey && x.zatcaKey === zatcaKey);
+      if (dupKey) errors.push(id + ': مفتاح تشفير الفوترة مكرر مع منشأة أخرى — عُطّل لها');
+      if (!clean(env[t.apiKeyEnv])) errors.push(id + ': متغير المفتاح ' + t.apiKeyEnv + ' فارغ');
+      list.push({ id, projectId, apiKey: clean(env[t.apiKeyEnv]), zatcaKey: dupKey ? '' : zatcaKey });
     }
   }
   return { list, errors, byProject: (p) => list.find(t => t.projectId && t.projectId === p) || null, byId: (id) => list.find(t => t.id === id) || null, def };

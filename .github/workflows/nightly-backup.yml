@@ -3,6 +3,8 @@ name: النسخ الاحتياطي الليلي (مشفّر)
 # v41.8 — كل ليلة 03:17 بتوقيت الرياض (00:17 UTC)، ويدويًا من تبويب Actions.
 # يقرأ Firestore بحساب الخدمة الموجود (قراءة فقط)، يفحص توازن الدفاتر، يشفّر بـ BACKUP_KEY، ويحفظ النسخة 30 يومًا.
 # فشل أي خطوة ⇒ يفشل التشغيل ⇒ يصل مالك المستودع بريد تنبيه من GitHub.
+# v51.2 (S3): نسخة مستقلة لكل منشأة في السجل public/tenants — بحساب خدمتها ومفتاح تشفيرها:
+#   FIREBASE_SERVICE_ACCOUNT_<ID> و BACKUP_KEY_<ID> (المعرّف بأحرف كبيرة والشرطة _). نسخة الطيف كما هي دون تغيير.
 on:
   schedule:
     - cron: '17 0 * * *'
@@ -41,6 +43,62 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mizan-backup-${{ github.run_id }}
+          path: ${{ runner.temp }}/backup/
+          retention-days: 30
+          if-no-files-found: error
+      - name: حذف ملف الاعتماد
+        if: always()
+        run: rm -f "$RUNNER_TEMP/sa.json"
+
+  tenants-list:
+    name: قائمة المنشآت في السجل
+    runs-on: ubuntu-latest
+    outputs:
+      ids: ${{ steps.ls.outputs.ids }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: ls
+        run: |
+          ids=$(node -e "const fs=require('fs');const d='public/tenants';const a=fs.existsSync(d)?fs.readdirSync(d).filter(f=>f.endsWith('.json')).map(f=>JSON.parse(fs.readFileSync(d+'/'+f,'utf8'))).filter(c=>c.status!=='suspended'&&/^[a-z0-9][a-z0-9-]{1,21}$/.test(c.id)).map(c=>({id:c.id,key:c.id.toUpperCase().replace(/-/g,'_'),project:c.firebase.projectId})):[];process.stdout.write(JSON.stringify(a))")
+          echo "ids=$ids" >> "$GITHUB_OUTPUT"
+          echo "المنشآت: $ids"
+
+  tenant-backup:
+    name: نسخة منشأة ${{ matrix.t.id }}
+    needs: tenants-list
+    if: needs.tenants-list.outputs.ids != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        t: ${{ fromJSON(needs.tenants-list.outputs.ids) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - name: تثبيت الحزم
+        run: npm ci
+      - name: تجهيز اعتماد خدمة المنشأة
+        env:
+          SA: ${{ secrets[format('FIREBASE_SERVICE_ACCOUNT_{0}', matrix.t.key)] }}
+        run: |
+          if [ -z "$SA" ]; then echo "::error::لم يُضبط FIREBASE_SERVICE_ACCOUNT_${{ matrix.t.key }}"; exit 1; fi
+          umask 077
+          printf '%s' "$SA" > "$RUNNER_TEMP/sa.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/sa.json" >> $GITHUB_ENV
+      - name: قراءة وفحص وتشفير
+        env:
+          PROJECT_ID: ${{ matrix.t.project }}
+          TENANT_ID: ${{ matrix.t.id }}
+          BACKUP_KEY: ${{ secrets[format('BACKUP_KEY_{0}', matrix.t.key)] }}
+          OUT_DIR: ${{ runner.temp }}/backup
+        run: node scripts/nightly-backup.mjs
+      - name: حفظ النسخة (30 يومًا)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mithqal-${{ matrix.t.id }}-backup-${{ github.run_id }}
           path: ${{ runner.temp }}/backup/
           retention-days: 30
           if-no-files-found: error

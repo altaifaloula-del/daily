@@ -41,7 +41,9 @@ const payload = Buffer.from(JSON.stringify({ logical, platform: A.values, raw: o
 const enc = encrypt(payload, pass);
 if (decrypt(enc, pass).length !== payload.length) { console.error('::error::تعذّر التحقق من فك التشفير'); process.exit(1); }
 fs.mkdirSync(outDir, { recursive: true });
-fs.writeFileSync(path.join(outDir, 'mizan-backup-' + day + '.enc'), enc);
+// v51.2 (S3): نسخة كل منشأة باسمها؛ الطيف باسمه القديم نفسه
+const tid = /^[a-z0-9][a-z0-9-]{1,21}$/.test(process.env.TENANT_ID || '') && process.env.TENANT_ID !== 'default' ? process.env.TENANT_ID : '';
+fs.writeFileSync(path.join(outDir, (tid ? 'mithqal-' + tid + '-backup-' : 'mizan-backup-') + day + '.enc'), enc);
 const summary = { day, bytes: payload.length, encBytes: enc.length, collections: logical.meta.collections, counts: V.counts, balanced: V.balanced };
 fs.writeFileSync(path.join(outDir, 'summary.json'), JSON.stringify(summary, null, 2));   // أعداد فقط — بلا بيانات
 console.log('✓ نسخة ' + day + ' · ' + Math.round(enc.length / 1024) + ' KB مشفّرة · ' + V.counts.closings + ' إغلاق · ' + V.counts.entries + ' قيد · الدفاتر متوازنة');

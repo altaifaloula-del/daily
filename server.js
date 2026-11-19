@@ -17,6 +17,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { onboardEgs } from './zatca/onboard.js';
 import { vaultReady } from './zatca/vault.js';
+import { createVerifier } from './server-auth.js';
 import { loadTenants } from './tenants.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -38,13 +39,6 @@ const ANTHROPIC_KEY = cleanKey(process.env.ANTHROPIC_API_KEY);
 const FB_PROJECT = TENANTS.def.projectId;
 const FB_READY = !!FB_API_KEY;
 
-// يقرأ حقل aud (معرّف مشروع Firebase) من رمز JWT — لا يُستخدم إلا بعد أن تقبل Google الرمز بمفتاح مشروعنا
-function tokenProject(idToken) {
-  try {
-    const p = JSON.parse(Buffer.from(String(idToken).split('.')[1], 'base64url').toString('utf8'));
-    return typeof p.aud === 'string' && /^[a-z0-9-]{4,40}$/.test(p.aud) ? p.aud : '';
-  } catch { return ''; }
-}
 
 // تخزين الخادم المحلي: بلا مصادقة بطبيعته، فلا يعمل إلا للتطوير المحلي أو بتفعيل صريح، وأبدًا مع Firebase
 const STORE_ENABLED = !FB_READY && (!IS_PROD || process.env.ENABLE_STORE_API === '1');
@@ -175,52 +169,16 @@ if (STORE_ENABLED) {
   app.all('/api/store/:key', (_req, res) => res.status(404).json({ error: 'التخزين عبر الخادم غير مفعّل' }));
 }
 
-/* ================= التحقق من هوية المستخدم ================= */
+/* ================= التحقق من هوية المستخدم (v51.2 — لكل المنشآت، انظر server-auth.js) ================= */
 // نتيجة التحقق تُحفظ مؤقتًا دقيقتين لتقليل النداءات الخارجية
-const authCache = new Map();
-
-async function verifyMember(idToken) {
-  const hit = authCache.get(idToken);
-  if (hit && hit.exp > Date.now()) return hit.user;
-
-  // 1) صحة الرمز وهوية صاحبه
-  const r = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=' + encodeURIComponent(FB_API_KEY), {
-    method: 'POST',
-    headers: googleHeaders({ 'content-type': 'application/json' }),
-    body: JSON.stringify({ idToken })
-  });
-  if (!r.ok) {
-    const why = ((await r.json().catch(() => ({}))).error || {}).message || r.status;
-    if (why !== 'INVALID_ID_TOKEN') console.error('firebase lookup failed:', why);
-    return null;
-  }
-  const u = ((await r.json()).users || [])[0];
-  const email = String((u && u.email) || '').toLowerCase();
-  if (!email || u.disabled) return null;
-
-  // Google قبلت الرمز بمفتاح مشروعنا، فمعرّف المشروع داخله موثوق. إن ضُبط FIREBASE_PROJECT_ID يجب أن يطابقه.
-  const project = tokenProject(idToken);
-  if (!project || (FB_PROJECT && project !== FB_PROJECT)) return null;
-
-  // 2) عضوية نشطة — تُقرأ برمز المستخدم نفسه فتسري قواعد Firestore (يقرأ العضو سجله فقط)
-  const docUrl = 'https://firestore.googleapis.com/v1/projects/' + encodeURIComponent(project)
-    + '/databases/(default)/documents/members/' + encodeURIComponent(email);
-  const m = await fetch(docUrl, { headers: { authorization: 'Bearer ' + idToken } });
-  if (!m.ok) return null;
-  const fields = ((await m.json()) || {}).fields || {};
-  if (!(fields.active && fields.active.booleanValue === true)) return null;
-
-  const user = { email, role: (fields.role && fields.role.stringValue) || '' };
-  authCache.set(idToken, { user, exp: Date.now() + 120000 });
-  if (authCache.size > 1000) authCache.delete(authCache.keys().next().value);
-  return user;
-}
+const verifyMember = createVerifier({ T: TENANTS, headers: googleHeaders });
+const tenantOf = (req) => TENANTS.byId((req.user && req.user.tenant) || 'default') || TENANTS.def;
 
 async function requireMember(req, res, next) {
   if (!FB_READY) {
     // بلا Firebase لا توجد هوية للتحقق منها — يُسمح فقط في التطوير المحلي
     if (IS_PROD) return res.status(503).json({ error: 'إعدادات Firebase غير مضبوطة على الخادم (FIREBASE_API_KEY)' });
-    req.user = { email: 'local-dev' };
+    req.user = { email: 'local-dev', tenant: 'default' };
     return next();
   }
   const m = /^Bearer\s+(.+)$/i.exec(String(req.headers.authorization || ''));
@@ -240,21 +198,24 @@ async function requireMember(req, res, next) {
    • للمفوَّضين فقط (مسؤول النظام، الإدارة العليا، المكتب الرئيسي) — الدور من سجل العضوية نفسه.
    • الرمز المؤقت لا يُسجَّل ولا يُخزَّن؛ المفتاح الخاص وكلمات سر الشهادات تعود مشفّرة بمفتاح الخادم (ZATCA_ENC_KEY).
    • الإنتاج (core) مقفل في هذه المرحلة: بيئة المطورين للتجربة، والمحاكاة لفحص الامتثال ببيانات المنشأة. */
+// كل منشأة بمفتاح تشفير مستقل (الطيف: ZATCA_ENC_KEY كما هو) — جهاز منشأة لا يُفك بمفتاح أخرى
+const tenantVault = (req) => { const t = tenantOf(req); return { secret: t.zatcaKey, tenant: t.id }; };
 const ZATCA_ROLES = new Set(['system_admin', 'general_management', 'head_office']);
 const zJson = express.json({ limit: '64kb' });
 const zatcaAllowed = (req, res) => {
   if (FB_READY && !ZATCA_ROLES.has(req.user.role)) { res.status(403).json({ error: 'تسجيل أجهزة الفوترة للمفوَّضين فقط (مسؤول النظام أو المكتب الرئيسي)' }); return false; }
   return true;
 };
-app.get('/api/zatca/config', requireMember, (req, res) => res.json({ vault: vaultReady(), envs: ['sandbox', 'simulation'], canOnboard: !FB_READY || ZATCA_ROLES.has(req.user.role) }));
-app.post('/api/zatca/onboard', zJson, requireMember, rateLimit({ windowMs: 3600000, max: 12, keyFn: (r) => 'z:' + ((r.user && r.user.email) || r.ip) }), async (req, res) => {
+app.get('/api/zatca/config', requireMember, (req, res) => res.json({ vault: vaultReady(tenantVault(req)), envs: ['sandbox', 'simulation'], canOnboard: !FB_READY || ZATCA_ROLES.has(req.user.role) }));
+app.post('/api/zatca/onboard', zJson, requireMember, rateLimit({ windowMs: 3600000, max: 12, keyFn: (r) => 'z:' + tenantOf(r).id + ':' + ((r.user && r.user.email) || r.ip) }), async (req, res) => {
   if (!zatcaAllowed(req, res)) return;
-  if (!vaultReady()) return res.status(503).json({ error: 'مفتاح تشفير الفوترة غير مضبوط على الخادم (ZATCA_ENC_KEY) — أضفه من إعدادات الخادم ثم أعد المحاولة' });
+  const vault = tenantVault(req);
+  if (!vaultReady(vault)) return res.status(503).json({ error: 'مفتاح تشفير الفوترة غير مضبوط على الخادم (ZATCA_ENC_KEY) — أضفه من إعدادات الخادم ثم أعد المحاولة' });
   const { env, otp, seller, branch, industry } = req.body || {};
   if (!['sandbox', 'simulation'].includes(env)) return res.status(400).json({ error: 'التشغيل الفعلي (الإنتاج) يُفعَّل في المرحلة الثالثة — اختر المحاكاة أو بيئة المطورين' });
   try {
-    const r = await onboardEgs({ env, otp: String(otp || '').trim(), seller, branch, industry });
-    console.log('zatca onboard', env, (branch && branch.id) || '', r.ok ? 'ok' : 'failed', (req.user && req.user.email) || '');
+    const r = await onboardEgs({ env, otp: String(otp || '').trim(), seller, branch, industry, vault });
+    console.log('zatca onboard', tenantOf(req).id, env, (branch && branch.id) || '', r.ok ? 'ok' : 'failed', (req.user && req.user.email) || '');
     res.json(r);
   } catch (e) {
     console.error('zatca onboard error', e && e.message);
@@ -319,7 +280,7 @@ async function callClaude({ system, user, maxTokens }) {
 /* ---- فحص الإعدادات: هل مفتاحا Firebase وAnthropic صالحان؟ (لا يكشف أي قيمة سرية) ---- */
 let deepCache = null;   // نتيجة اختبار الطلب الحقيقي تُحفظ 10 دقائق — لا تكلفة متكررة
 app.get('/api/health/config', rateLimit({ windowMs: 3600000, max: 20 }), async (req, res) => {
-  const out = { ok: true, model: AI_MODEL, firebase: { configured: !!FB_API_KEY }, anthropic: { configured: !!ANTHROPIC_KEY } };
+  const out = { ok: true, model: AI_MODEL, tenants: { count: TENANTS.list.length, errors: TENANTS.errors.length }, firebase: { configured: !!FB_API_KEY }, anthropic: { configured: !!ANTHROPIC_KEY } };
   if (FB_API_KEY) {
     try {
       const r = await fetch('https://identitytoolkit.googleapis.com/v1/projects?key=' + encodeURIComponent(FB_API_KEY), { headers: googleHeaders() });
@@ -363,7 +324,7 @@ app.get('/api/health/config', rateLimit({ windowMs: 3600000, max: 20 }), async (
 });
 
 const aiJson = express.json({ limit: '1mb' });
-const aiLimit = rateLimit({ windowMs: 3600000, max: Number(process.env.AI_RATE_LIMIT_PER_HOUR) || 30, keyFn: req => req.user && req.user.email });
+const aiLimit = rateLimit({ windowMs: 3600000, max: Number(process.env.AI_RATE_LIMIT_PER_HOUR) || 30, keyFn: req => req.user && (tenantOf(req).id + ':' + req.user.email) });
 const aiErr = (res, e) => res.status(e.status || 500).json({ error: e.status ? e.message : 'تعذّر إتمام التحليل' });
 
 app.post('/api/ai/analyze', aiJson, requireMember, aiLimit, async (req, res) => {
