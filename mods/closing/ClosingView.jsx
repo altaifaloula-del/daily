@@ -33,7 +33,7 @@ export function ClosingView({ c, org, onClose }) {
       <div className="row" style={{ marginBottom: 14 }}>
         <Badge s={c.status} />
         {c.gmApprovalStatus === 'approved' && <span className="badge b-brass"><ShieldCheck size={11} />معتمد من الإدارة العليا</span>}
-        {c.imagesPruned && <span className="badge b-dim" title="سياسة الاحتفاظ 60 يومًا">🗄 صور هذا الإغلاق في أرشيف المستندات</span>}
+        {c.imagesPruned && <span className="badge b-dim" title="تُنقل الصور للأرشيف عند الاعتماد النهائي أو بعد 14 يومًا">🗄 صور هذا الإغلاق في أرشيف المستندات</span>}
         <span className="badge b-dim">المسؤول: {c.managerName}</span>
         {c.auditedBy && <span className="badge b-sky">دقّقه: {c.auditedBy}</span>}
       </div>
@@ -131,7 +131,7 @@ export function ClosingView({ c, org, onClose }) {
       )}
       {c.imagesPruned && sessPhotos.length === 0 && (
         <div style={{ marginTop: 12, fontSize: 11.5, color: 'var(--dim)' }}>
-          🗄 صور هذا الإغلاق نُقلت إلى «أرشيف المستندات» (سياسة الاحتفاظ 60 يومًا) — تجدها هناك باسم الفرع وتاريخ اليوم.
+          🗄 صور هذا الإغلاق نُقلت إلى «أرشيف المستندات» (عند الاعتماد النهائي أو بعد 14 يومًا) — تجدها هناك باسم الفرع وتاريخ اليوم.
         </div>
       )}
       {c.managerSignature && (

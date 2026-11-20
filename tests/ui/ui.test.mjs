@@ -2948,3 +2948,18 @@ test('v52.7 فصل فواتير نقطة البيع شهريًا (G3-A): فحص 
   assert.equal(u.posOrders.length, 3); assert.equal('posMonths' in u, false); assert.match(await p.locator('[data-posbr="b1"]').innerText(), /مستند واحد/);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v52.8 صور الإغلاق: الاعتماد النهائي ينقلها لأرشيف المستندات ويزيلها من ملف الفرع (قرار المالك)', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Hub/admin/closehub:approve');
+  const img = 'data:image/jpeg;base64,' + 'A'.repeat(600);
+  await p.evaluate((img) => { localStorage.removeItem('rms8:bf_b1');
+    window.setOps(o => ({ ...o, closings: [{ id: 'cg1', branchId: 'b1', branchName: 'فرع عم قاسم طيبة', date: '2026-11-15', status: 'approved', gmApprovalStatus: 'pending', managerName: 'عبدالجليل', createdAt: '2026-11-15T20:00:00Z',
+      totalRevenue: 100, totalExpenses: 0, variance: 0, transferredToMainTreasury: 100, sessionPhoto: img, sessionPhotos: [img], cardReceiptImage: img.replace(/A+$/, m => 'B'.repeat(m.length)), expenses: [] }] })); }, img);
+  await p.waitForTimeout(400);
+  await p.locator('button:has-text("اعتماد نهائي")').first().click(); await p.waitForTimeout(800);
+  const c = await p.evaluate(() => window.cur.closings.find(x => x.id === 'cg1'));
+  assert.equal(c.gmApprovalStatus, 'approved'); assert.equal(c.imagesPruned, true); assert.equal(c.sessionPhoto, ''); assert.equal(c.cardReceiptImage, ''); assert.deepEqual(c.sessionPhotos, []);
+  const bf = await p.evaluate(() => JSON.parse(localStorage.getItem('rms8:bf_b1') || '{"items":[]}'));
+  assert.ok(bf.items.filter(x => x.closingId === 'cg1').length >= 2, 'نُسخت الصور للأرشيف قبل الإزالة: ' + JSON.stringify(await p.evaluate(() => Object.keys(localStorage).filter(k => /bf/.test(k)).map(k => [k, localStorage.getItem(k).length]))));
+  assert.deepEqual(errs, []); await ctx.close();
+});
