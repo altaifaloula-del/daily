@@ -2,9 +2,9 @@
 import React, { useState } from 'react';
 import { UserCog, Check, Eye, Fingerprint, Trash2, RefreshCw, ScanFace } from 'lucide-react';
 import { authApi } from '../../storage';
-import { Field, Modal, ROLES, bioEnroll, webauthnSupported } from '../../App.jsx';
+import { Field, Modal, ROLES, bioEnroll, webauthnSupported, usersApi, dtLocal, logAudit } from '../../App.jsx';
 
-export function UserForm({ u, org, onSave, onClose }) {
+export function UserForm({ u, org, onSave, onClose, canPw }) {
   const [resetMsg, setResetMsg] = useState('');
   const [f, setF] = useState(u);
   const [bioMsg, setBioMsg] = useState('');
@@ -73,6 +73,7 @@ export function UserForm({ u, org, onSave, onClose }) {
             {resetMsg && <div style={{ marginTop: 4, color: resetMsg.startsWith('أُرسل') ? 'var(--mint)' : 'var(--amber)' }}>{resetMsg}</div>}
           </div>
         )}
+        {authApi.enabled && canPw && u.name && u.email && <LoginAccount u={u} />}
       </Field>
       <Field label="رقم سري للدخول السريع (اختياري — 4 إلى 6 أرقام)">
         <input className="inp" inputMode="numeric" style={{ direction: 'ltr', textAlign: 'right', letterSpacing: 4 }} value={f.newPin || ''}
@@ -127,3 +128,36 @@ export function UserForm({ u, org, onSave, onClose }) {
     </Modal>
   );
 }
+
+/* v52.9 — حساب الدخول: فحص حالته وتعيين كلمة سر مباشرة (للبريد الشكلي الذي لا يستقبل رابط التعيين) — عبر الخادم لمسؤول النظام */
+function LoginAccount({ u }) {
+  const [st, setSt] = useState(null); const [pw, setPw] = useState(''); const [show, setShow] = useState(false); const [busy, setBusy] = useState(''); const [msg, setMsg] = useState(null);
+  const email = String(u.email || '').trim().toLowerCase();
+  const check = async () => { setBusy('st'); setMsg(null);
+    try { const j = await usersApi('status', { email }); setSt(j.account); } catch (e) { setMsg({ ok: false, t: e.message }); } finally { setBusy(''); } };
+  const setPass = async () => {
+    if (!window.confirm('تعيين كلمة سر جديدة لـ ' + u.name + ' (' + email + ')؟\nتتوقف كلمة سره الحالية فورًا. أبلغه بالجديدة بنفسك.')) return;
+    setBusy('pw'); setMsg(null);
+    try { const j = await usersApi('password', { email, password: pw, enable: true });
+      logAudit({ actionType: 'permission_change', targetType: 'user_account', targetId: u.id, title: j.created ? 'أنشأ حساب دخول بكلمة سر' : 'عيّن كلمة سر جديدة لمستخدم', details: u.name + ' — ' + email });
+      setMsg({ ok: true, t: j.created ? 'لم يكن له حساب دخول — أُنشئ بالبريد وكلمة السر الجديدة ✓' : 'تم تعيين كلمة السر الجديدة ✓ — يدخل بها الآن' }); setPw(''); check();
+    } catch (e) { setMsg({ ok: false, t: e.message }); } finally { setBusy(''); } };
+  return (<div data-loginacct style={{ marginTop: 10, padding: 10, border: '1px solid var(--line)', borderRadius: 10 }}>
+    <div className="row" style={{ alignItems: 'center', gap: 6 }}><b style={{ fontSize: 12.5 }}>حساب الدخول</b><span style={{ marginInlineStart: 'auto' }} />
+      <button type="button" className="btn sm gh" disabled={!!busy} onClick={check}>{busy === 'st' ? '…' : 'فحص الحساب'}</button></div>
+    {st && <div style={{ fontSize: 11.5, marginTop: 6, lineHeight: 1.9 }} data-acctstatus>
+      {!st.exists ? <span style={{ color: 'var(--rose)' }}>لا يوجد حساب دخول بهذا البريد في خدمة الدخول — عيّن كلمة سر أدناه فيُنشأ.</span> : <>
+        <div>الحالة: <b style={{ color: st.disabled ? 'var(--rose)' : 'var(--mint)' }}>{st.disabled ? 'موقوف في خدمة الدخول' : 'فعّال'}</b>{st.mfa ? ' · بخطوتين' : ''}</div>
+        <div>آخر دخول: <span className="num">{st.lastLoginAt ? dtLocal(st.lastLoginAt) : '—'}</span> · آخر تغيير لكلمة السر: <span className="num">{st.passwordUpdatedAt ? dtLocal(st.passwordUpdatedAt) : '—'}</span></div>
+        <div>أُنشئ: <span className="num">{st.createdAt ? dtLocal(st.createdAt) : '—'}</span></div></>}
+    </div>}
+    <div className="row" style={{ gap: 6, marginTop: 8 }}>
+      <input className="inp" dir="ltr" type={show ? 'text' : 'password'} autoComplete="new-password" aria-label="كلمة السر الجديدة" placeholder="كلمة سر جديدة (8+ أرقام وحروف)" value={pw} onChange={e => setPw(e.target.value)} style={{ flex: 1 }} />
+      <button type="button" className="btn sm gh" onClick={() => setShow(s => !s)} aria-label="إظهار"><Eye size={13} /></button>
+      <button type="button" className="btn sm pri" disabled={!!busy || pw.length < 8} onClick={setPass}>{busy === 'pw' ? '…' : 'تعيين الآن'}</button>
+    </div>
+    <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 4 }}>لمسؤول النظام فقط، وتُنفَّذ على الخادم. مفيدة حين يكون البريد شكليًا لا يستقبل رابط التعيين. لا تُحفظ كلمة السر في المنصة.</div>
+    {msg && <div style={{ marginTop: 6, fontSize: 11.5, color: msg.ok ? 'var(--mint)' : 'var(--amber)' }} data-acctmsg>{msg.t}</div>}
+  </div>);
+}
+

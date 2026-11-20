@@ -21,6 +21,7 @@ import { createVerifier } from './server-auth.js';
 import { planAllows, PLAN_AR } from './plans.js';
 import { billingConfig, mountBilling, moyasarGateway, firestoreStore, saTokenSource, memoryStore } from './server-billing.js';
 import { providerConfig, mountProvider, writeTenantStatus } from './server-provider.js';
+import { mountUserAdmin } from './server-users.js';
 import { automationConfig, runAutomation, scheduleAutomation } from './server-automation.js';
 import { loadTenants } from './tenants.js';
 
@@ -271,6 +272,8 @@ function readRegistry() {
   regCache = { t: Date.now(), v }; return v;
 }
 mountProvider(app, { express, requireMember, rateLimit, T: TENANTS, cfg: providerConfig(process.env), store: CONTROL, controlReady: BILLING.controlReady, registry: readRegistry, onPaid, runAuto: BILLING.controlReady ? () => runAuto() : null });
+// v52.9: إدارة حسابات الدخول (الحالة وتعيين كلمة السر) لمسؤول النظام — بحساب خدمة المنشأة
+mountUserAdmin(app, { express, requireMember, rateLimit, T: TENANTS });
 
 /* ================= الذكاء الاصطناعي ================= */
 const AI_MODEL = process.env.AI_MODEL || 'claude-opus-5-5';

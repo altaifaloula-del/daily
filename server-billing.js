@@ -87,13 +87,13 @@ export function memoryStore() {
 }
 
 /** رمز وصول بحساب الخدمة (JWT RS256) — بلا مكتبات إضافية على الخادم */
-export function saTokenSource(sa, { fetchImpl = fetch, now = Date.now } = {}) {
+export function saTokenSource(sa, { fetchImpl = fetch, now = Date.now, scope = 'https://www.googleapis.com/auth/datastore' } = {}) {
   let cache = null;
   return async () => {
     if (cache && cache.exp > now() + 60000) return cache.token;
     const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
     const iat = Math.floor(now() / 1000);
-    const head = b64({ alg: 'RS256', typ: 'JWT' }), claim = b64({ iss: sa.client_email, scope: 'https://www.googleapis.com/auth/datastore', aud: 'https://oauth2.googleapis.com/token', iat, exp: iat + 3600 });
+    const head = b64({ alg: 'RS256', typ: 'JWT' }), claim = b64({ iss: sa.client_email, scope, aud: 'https://oauth2.googleapis.com/token', iat, exp: iat + 3600 });
     const sig = crypto.createSign('RSA-SHA256').update(head + '.' + claim).sign(sa.private_key).toString('base64url');
     const r = await fetchImpl('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: 'grant_type=' + encodeURIComponent('urn:ietf:params:oauth:grant-type:jwt-bearer') + '&assertion=' + head + '.' + claim + '.' + sig });

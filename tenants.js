@@ -12,8 +12,12 @@ const okId = (v) => /^[a-z0-9][a-z0-9-]{1,39}$/.test(v);
 const okProject = (v) => /^[a-z][a-z0-9-]{4,29}$/.test(v);
 const okEnvName = (v) => /^[A-Z][A-Z0-9_]{2,60}$/.test(v);
 
+// v52.9: حساب خدمة اختياري للمنشأة الرئيسية (FIREBASE_SERVICE_ACCOUNT على الخادم) — لإدارة حسابات الدخول من التطبيق
+function defSa(env) { try { const o = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || ''); const p = clean(env.FIREBASE_PROJECT_ID || env.VITE_FIREBASE_PROJECT_ID);
+  if (o && o.client_email && o.private_key && (!o.project_id || !p || o.project_id === p)) return { client_email: o.client_email, private_key: o.private_key }; } catch { } return null; }
+
 export function loadTenants(env = process.env) {
-  const def = { id: 'default', projectId: clean(env.FIREBASE_PROJECT_ID || env.VITE_FIREBASE_PROJECT_ID), apiKey: clean(env.FIREBASE_API_KEY || env.VITE_FIREBASE_API_KEY), zatcaKey: String(env.ZATCA_ENC_KEY || '').trim(), plan: 'enterprise' };
+  const def = { id: 'default', projectId: clean(env.FIREBASE_PROJECT_ID || env.VITE_FIREBASE_PROJECT_ID), apiKey: clean(env.FIREBASE_API_KEY || env.VITE_FIREBASE_API_KEY), zatcaKey: String(env.ZATCA_ENC_KEY || '').trim(), plan: 'enterprise', sa: defSa(env) };
   const list = [def], errors = [];
   if (env.MQ_TENANTS_JSON) {
     let arr = [];
