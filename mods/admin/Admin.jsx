@@ -265,7 +265,7 @@ export function Admin({ org, ops, me, commit, commitOrg, say }) {
       })()}
 
       {bEdit && <BranchForm b={bEdit} org={org} say={say} onSave={saveBranch} onClose={() => setBEdit(null)} />}
-      {uEdit && <UserForm u={uEdit} org={org} onSave={saveUser} onClose={() => setUEdit(null)} />}
+      {uEdit && <UserForm u={uEdit} org={org} onSave={saveUser} onClose={() => setUEdit(null)} canPw={me && me.role === 'system_admin'} />}
     </div>
   );
 }
