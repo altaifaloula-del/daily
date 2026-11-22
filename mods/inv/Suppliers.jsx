@@ -1,9 +1,10 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Truck, FileBarChart, ChevronDown, Printer, FileText, Building2, ClipboardCheck, Users, Plus, AlertTriangle, CalendarDays, Trash2, Check, X, Banknote } from 'lucide-react';
+import { Upload, Truck, FileBarChart, ChevronDown, Printer, FileText, Building2, ClipboardCheck, Users, Plus, AlertTriangle, CalendarDays, Trash2, Check, X, Banknote } from 'lucide-react';
 import { poNeedsAppr, wfOn, wfState, wfCanAct, wfApprove } from '../../App.jsx';   // v49.5 مسارات الاعتماد
 import { canEditRec, autoCfgOf, poSuggestions, DocLink, RowGrip, moveIdx, projList, uomOf, uomOk, lineUnits, lineFac, UomSelect, DupInvHint, Field, Kpi, LOCK_MSG, MAIN_WH, Modal, Num, ROLES, SectionNav, arDate, branchBanks, closingInvoices, isStocked, isoD, itemType, money, nowISO, pFactor, payTotal, periodLocked, printA4, purKey, q3, _xe, roleEdit, rolePost, buildAccounting, INV_BILLERS, itemsSeq, vatNoOk, supVatOf, ItemPick, roleHasTab, stockByWh, sum, supplierPrices, today, uid, whName, whOf, whOn, poWhOf, brSigCheck, signoff, signDecision, sigFailMsg } from '../../App.jsx';
 import { cloud, bfKey } from '../../storage';
+import { ExpImport } from './ExpImport.jsx';   // v53.1
 
 export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, setTab: goTab, billOnly }) {
   const [tab, setTab] = useState('inv');
@@ -27,6 +28,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
   const fixed = (ops.fixedExpenses || []).filter(f => ids.includes(f.branchId));
   const suppliers = org.suppliers || [];
   const canPay = ROLES[me.role]?.scope !== 'own';
+  const [xi, setXi] = useState(false);   // v53.1 استيراد فواتير المصروفات
   // v45.1: إضافة صنف من باركود غير معروف — للمركز فقط (كصلاحية نموذج الأصناف: نطاق الكل عدا مراقب التكاليف)
   const canAddItem = ROLES[me.role]?.scope === 'all' && !ROLES[me.role]?.costCtl;
 
@@ -859,7 +861,8 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
       <SectionNav label="الفواتير والأوامر" cur={tab} onPick={setTab} items={[{ id: 'inv', ar: 'فواتير الموردين الآجلة', icon: FileText }, { id: 'fx', ar: 'إيجارات وفواتير الفروع', icon: Building2 }, { id: 'po', ar: 'أوامر الشراء', icon: ClipboardCheck, badge: (canPay && reqsPending.length) || null }]}
         extra={<>{goTab && roleHasTab(me, 'partners') && <button className="btn sm gh" onClick={() => goTab('partners')}><Users size={14} />الموردون ← جهات الاتصال</button>}
           {canPay && <button className="btn sm pri" onClick={() => setNewInv({ supplierId: suppliers[0]?.id || '', invoiceNo: '', taxable: !!(org.taxCfg || {}).enabled, date: today(), dueDate: today(), branchId: '', lines: [invLine()] })}><Plus size={14} />فاتورة توريد جديدة</button>}
-          {canPay && <button className="btn sm" data-svc onClick={() => setSvc({ supplierId: suppliers[0]?.id || '', invoiceNo: '', date: today(), dueDate: today(), branchId: '', lines: [svcLine()] })}><Plus size={14} />فاتورة خدمات ومصروفات</button>}</>} />
+          {canPay && <button className="btn sm" data-svc onClick={() => setSvc({ supplierId: suppliers[0]?.id || '', invoiceNo: '', date: today(), dueDate: today(), branchId: '', lines: [svcLine()] })}><Plus size={14} />فاتورة خدمات ومصروفات</button>}
+          {canPay && <button className="btn sm gh" data-xiopen onClick={() => setXi(true)}><Upload size={14} />استيراد من Excel</button>}</>} />
       <div className="grid g4">
         <Kpi label="مستحقات الموردين" value={money(outstanding)} sub={`${allInvs.filter(i => remOf(i) > 0).length} فاتورة مفتوحة (منها ${clInvs.filter(v => cRem(v) > 0).length} من الورديات)`} icon={Truck} color="#D9A83E" />
         <Kpi label="متأخرة عن الاستحقاق" value={money(sum(overdue, remOf))} sub={`${overdue.length} فاتورة`} icon={AlertTriangle} color="#D9544D" />
@@ -1267,6 +1270,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
 
       {cvModalEl}
 
+      {xi && <ExpImport org={org} ops={ops} me={me} commit={commit} commitOrg={commitOrg} say={say} onClose={() => setXi(false)} />}
       {svc && (() => { const k = svcCalc(svc); return (
         <Modal title="فاتورة خدمات ومصروفات" icon={FileText} onClose={() => setSvc(null)} wide
           foot={<><button className="btn gh" onClick={() => setSvc(null)}>إلغاء</button><button className="btn pri" data-svcsave onClick={saveSvc}><Check size={14} />تسجيل الفاتورة</button></>}>

@@ -3005,3 +3005,20 @@ test('v53.0 فئات المنتجات: إضافة فئة بمجالها من ا�
   assert.match(t, /مندي دجاج/); assert.doesNotMatch(t, /لاتيه/, 'فرع المطعم لا يرى فئة المقهى');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v53.1 استيراد فواتير المصروفات من Excel/CSV: التعرّف والمعاينة وحفظ الصالح فقط مع مورد جديد', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1200 } }, 'live/Hub/admin/purchasing:suppliers');
+  await p.evaluate(() => window.setOrg(g => ({ ...g, taxCfg: { enabled: true, rate: 15 }, suppliers: [{ id: 'sE', name: 'شركة الكهرباء', vatNo: '300000000000003' }] })));
+  await p.waitForTimeout(300); await p.click('[data-xiopen]'); await p.waitForSelector('.modal input[aria-label="ملف الكشف"]', { state: 'attached' });
+  const csv = 'التاريخ,المورد,الرقم الضريبي,رقم الفاتورة,البيان,الحساب,المبلغ قبل الضريبة,الضريبة,طريقة الدفع\n2026-11-01,شركة الكهرباء,,E-77,كهرباء,5198,1000,150,آجل\n2026-11-02,مغسلة النور,,W-1,غسيل,5198,200,0,نقدي\n2026-11-03,مورد بلا رقم,,X-1,شيء,5198,100,15,آجل\n';
+  await p.setInputFiles('.modal input[aria-label="ملف الكشف"]', { name: 'كشف.csv', mimeType: 'text/csv', buffer: Buffer.from(csv, 'utf8') });
+  await p.waitForSelector('[data-xisum]');
+  const s = (await p.locator('[data-xisum]').innerText()).replace(/\s+/g, ' ');
+  assert.match(s, /صالحة: 2/); assert.match(s, /بها ملاحظة: 1/); assert.match(s, /1,350\.00/); assert.match(s, /موردون جدد: 1/);
+  assert.match(await p.locator('[data-xirow="4"]').innerText(), /رقم ضريبي/);
+  await p.click('[data-xisave]'); await p.waitForTimeout(700);
+  const inv = await p.evaluate(() => window.cur.invoices.filter(i => i.importBatch).map(i => [i.invoiceNo, i.kind, i.amount, i.paidAmount, i.expLines[0].accCode]));
+  assert.deepEqual(inv.sort(), [['E-77', 'svc', 1150, 0, '5198'], ['W-1', 'svc', 200, 200, '5198']].sort());
+  assert.ok(await p.evaluate(() => window.curOrg.suppliers.some(s => s.name === 'مغسلة النور')));
+  assert.deepEqual(errs, []); await ctx.close();
+});
