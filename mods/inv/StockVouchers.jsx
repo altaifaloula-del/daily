@@ -2,6 +2,7 @@
    وقائمة كل السندات (مع سندات التحويل) بالطباعة A4 والتصدير إلى Excel. رقم السند يُمنح عند الحفظ (assignVouchers). */
 import React, { useMemo, useState } from 'react';
 import { FileText, Plus, Printer, Download, Upload, X, Check } from 'lucide-react';
+import { domFilter, whOf as whOfD } from '../../App.jsx';   // v53.0
 import { VCH_T, VCH_TRF, voucherList, voucherHtml, ItemPick, Field, Modal, MAIN_WH, WasteFields, itemAvgCosts, isStocked, makeXlsx, nowISO, printA4, parseXlsxGrid, parseCsvGrid,
   saleDeductOn, saleRecipeItems, stockByWh, submitWaste, today, uid, wasteCfg, whName, whOf, whOn, normDigits } from '../../App.jsx';
 
@@ -122,7 +123,7 @@ export function StockVouchers({ org, ops, me, commit, say, fixedWh, canCreate = 
           <div className="lbl" style={{ margin: '8px 0 6px' }}>البنود</div>
           {vf.lines.map((l, i) => { const it = items.find(x => x.id === l.itemId); return (
             <div key={i} className="row" style={{ gap: 6, marginBottom: 6, flexWrap: 'wrap', alignItems: 'center' }} data-vline>
-              <ItemPick items={items} label={'صنف السند ' + (i + 1)} value={l.itemId} onChange={id => setLine(i, 'itemId', id)} />
+              <ItemPick items={domFilter(org, (whOfD(org).find(w => w.id === vf.whId) || {}).branchId, items)} label={'صنف السند ' + (i + 1)} value={l.itemId} onChange={id => setLine(i, 'itemId', id)} />
               {vf.type === 'adj' && <select className="sel" style={{ width: 110 }} aria-label={'اتجاه التسوية ' + (i + 1)} value={l.dir} onChange={e => setLine(i, 'dir', e.target.value)}><option value="+">زيادة +</option><option value="-">نقص −</option></select>}
               <input className="inp n" style={{ width: 100 }} inputMode="decimal" placeholder={'الكمية' + (it ? ' (' + it.unit + ')' : '')} aria-label={'كمية السند ' + (i + 1)} value={l.qty} onChange={e => setLine(i, 'qty', e.target.value.replace(/[^\d.]/g, ''))} />
               {(vf.type === 'rcv' || vf.type === 'opn') && <input className="inp n" style={{ width: 100 }} inputMode="decimal" placeholder="التكلفة للوحدة" aria-label={'تكلفة السند ' + (i + 1)} value={l.cost} onChange={e => setLine(i, 'cost', e.target.value.replace(/[^\d.]/g, ''))} />}

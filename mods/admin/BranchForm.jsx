@@ -1,7 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState } from 'react';
 import { Building2, Check, Landmark } from 'lucide-react';
-import { Field, Modal, Num, PhotoField } from '../../App.jsx';
+import { Field, Modal, Num, PhotoField, DomainChips } from '../../App.jsx';
 
 export function BranchForm({ b, org, say, onSave, onClose }) {
   const [f, setF] = useState(b);
@@ -18,6 +18,7 @@ export function BranchForm({ b, org, say, onSave, onClose }) {
         <Num label="العهدة التشغيلية الافتراضية" value={f.defaultFloat} onChange={v => set('defaultFloat', v)} />
         <Field label="وقت نهاية الوردية"><input type="time" className="inp" value={f.shiftEndTime} onChange={e => set('shiftEndTime', e.target.value)} /></Field>
       </div>
+      <Field label="مجال نشاط الفرع"><DomainChips org={org} value={f.domains} onChange={v => set('domains', v)} hint="بلا اختيار = يرى أصناف ومنتجات كل المجالات" /></Field>
       <div className="card" style={{ marginTop: 6, background: 'rgba(200,162,74,.05)', borderColor: 'var(--frame)' }}>
         <div className="card-t" style={{ marginBottom: 4 }}><Landmark size={14} color="var(--brass)" />الحساب البنكي للفرع (اختياري)</div>
         <div className="note" style={{ marginBottom: 10 }}>عند إدخال بنكٍ للفرع، تُرحَّل إليه تحصيلات الشبكة والتحويل بدل البنك التجميعي، ويُنشأ للفرع <b>حساب وسيط «تحصيلات تحت التحويل»</b> يمرّ عبره توريد النقد للخزينة الرئيسية. اتركه فارغًا ليعمل الفرع كالسابق تمامًا.</div>

@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { FileText, HardDrive, ClipboardCheck, Truck, Send, ArrowLeftRight, Trash2, Scale, Check, X, ShoppingCart, PackageCheck } from 'lucide-react';
 import { cloud, bfKey } from '../../storage';
 import { StockVouchers } from './StockVouchers.jsx';
+import { domFilter } from '../../App.jsx';   // v53.0
 import { saleDeductOn, saleRecipeItems, canBrPurchase, ItemPick, signoff, sigFailMsg, BlindCount, COUNT_FREQ, Field, MAIN_WH, Modal, SectionNav, WH_MOVE, WH_ST, WasteFields, WastePending, WhLines, fefoPick, lotsFor, expiryLots, bookHidden, countFocus, countSchedule, isCostCtl, isStocked, itemAvgCosts, nowISO, q3, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whForBranch, whName, whOf, whOn } from '../../App.jsx';
 
 export function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
@@ -41,6 +42,8 @@ export function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
   const myPos = (ops.poInbox || []).filter(p => p.whId === whId && (p.lines || []).some((l, i) => poRem(p, l, i) > 0));
   const myReqs = (ops.purchaseReqs || []).filter(r => r.whId === whId).sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
   const allItems = (org.items || []).filter(it => it.isActive !== false);
+  // v53.0: أصناف مجال الفرع فقط (ما له رصيد هنا لا يُخفى)
+  const itemsD = domFilter(org, wh && wh.branchId, items, it => qOf(it.id) !== 0); const allItemsD = domFilter(org, wh && wh.branchId, allItems, it => qOf(it.id) !== 0);
 
   if (!whOn(org)) return <div className="card"><div className="empty">لم تُفعَّل المستودعات بعد — يُنشئها المركز من «المخزون والمنتجات ← المستودعات».</div></div>;
   if (!wh) return <div className="card"><div className="empty">لا يوجد مستودع مرتبط بفرعك — اطلب من المركز إنشاءه.</div></div>;
@@ -191,7 +194,7 @@ export function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
       {view === 'req' && (
         <div className="card">
           <div style={{ fontSize: 12.5, color: 'var(--dim)', marginBottom: 10 }}>يُرسل الطلب إلى {whName(org, wh.parentId || MAIN_WH)}، ويظهر لديك في «الوارد» بعد صرفه.</div>
-          <WhLines items={items} lines={reqLines} setLines={setReqLines} field="qtyReq" />
+          <WhLines items={itemsD} lines={reqLines} setLines={setReqLines} field="qtyReq" />
           <button className="btn pri" style={{ marginTop: 10 }} onClick={request}><Send size={14} />إرسال الطلب</button>
         </div>
       )}
@@ -201,7 +204,7 @@ export function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
           <div style={{ fontSize: 12.5, color: 'var(--dim)', marginBottom: 10, lineHeight: 1.8 }}>طلب شراء من المورد لمستودعك — تراجعه المشتريات المركزية وتختار المورد والسعر وتحوّله لأمر شراء يُسلَّم لمستودعك مباشرة، أو ترفضه بسبب.</div>
           {prF.lines.map((l, i) => (
             <div key={i} className="row" style={{ gap: 6, alignItems: 'flex-end', marginBottom: 6, flexWrap: 'wrap' }}>
-              <div style={{ flex: '2 1 220px' }}><ItemPick items={allItems} value={l.itemId} label={'صنف الطلب ' + (i + 1)} addHint onChange={(id) => setPrF(f => ({ ...f, lines: f.lines.map((x, k) => k === i ? { ...x, itemId: id } : x) }))} /></div>
+              <div style={{ flex: '2 1 220px' }}><ItemPick items={allItemsD} value={l.itemId} label={'صنف الطلب ' + (i + 1)} addHint onChange={(id) => setPrF(f => ({ ...f, lines: f.lines.map((x, k) => k === i ? { ...x, itemId: id } : x) }))} /></div>
               <input className="inp n" style={{ width: 110 }} inputMode="decimal" placeholder={'الكمية' + (itemOf(l.itemId).unit ? ' (' + itemOf(l.itemId).unit + ')' : '')} aria-label={'كمية الطلب ' + (i + 1)} value={l.qty} onChange={e => setPrF(f => ({ ...f, lines: f.lines.map((x, k) => k === i ? { ...x, qty: e.target.value.replace(/[^\d.]/g, '') } : x) }))} />
               <input className="inp" style={{ flex: '1 1 160px' }} placeholder="ملاحظة (اختياري)" value={l.note} onChange={e => setPrF(f => ({ ...f, lines: f.lines.map((x, k) => k === i ? { ...x, note: e.target.value } : x) }))} />
               {prF.lines.length > 1 && <button className="btn sm gh" onClick={() => setPrF(f => ({ ...f, lines: f.lines.filter((_, k) => k !== i) }))}><X size={13} /></button>}
@@ -258,7 +261,7 @@ export function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
               </select>
             </Field>
           )}
-          <WhLines items={items} lines={outF.lines} setLines={(fn) => setOutF(f => ({ ...f, lines: typeof fn === 'function' ? fn(f.lines) : fn }))} field="qtySent" max={blind ? null : qOf} lotsOf={lotsOf} lotsBlind={blind} />
+          <WhLines items={itemsD} lines={outF.lines} setLines={(fn) => setOutF(f => ({ ...f, lines: typeof fn === 'function' ? fn(f.lines) : fn }))} field="qtySent" max={blind ? null : qOf} lotsOf={lotsOf} lotsBlind={blind} />
           <Field label="البيان"><input className="inp" value={outF.note} onChange={e => setOutF(f => ({ ...f, note: e.target.value }))} placeholder={outF.kind === 'return' ? 'سبب الإرجاع (فائض، قرب انتهاء…)' : 'سبب التحويل'} /></Field>
           <button className="btn pri" onClick={sendOut}><Send size={14} />{outF.kind === 'b2b' ? 'إرسال للاعتماد' : 'إرسال الإرجاع'}</button>
 
@@ -283,7 +286,7 @@ export function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
           <div className="row" style={{ gap: 8, marginBottom: 10 }}>
             {['out', 'waste'].map(k => <button key={k} className={'btn sm' + (mvF.kind === k ? ' pri' : ' gh')} onClick={() => setMvF(f => ({ ...f, kind: k }))}>{WH_MOVE[k].ar}</button>)}
           </div>
-          <WhLines items={items} lines={mvF.lines} setLines={(fn) => setMvF(f => ({ ...f, lines: typeof fn === 'function' ? fn(f.lines) : fn }))} field="qty" max={blind ? null : qOf} lotsOf={lotsOf} lotsBlind={blind} />
+          <WhLines items={itemsD} lines={mvF.lines} setLines={(fn) => setMvF(f => ({ ...f, lines: typeof fn === 'function' ? fn(f.lines) : fn }))} field="qty" max={blind ? null : qOf} lotsOf={lotsOf} lotsBlind={blind} />
           {mvF.kind === 'waste'
             ? <WasteFields f={mvF} setF={setMvF} cfg={wasteCfg(org)} me={me} say={say} value={Math.round(sum(mvF.lines.filter(l => l.itemId), l => (Number(l.qty) || 0) * (AVG[l.itemId] || 0)) * 100) / 100} />
             : <Field label="البيان"><input className="inp" value={mvF.note} onChange={e => setMvF(f => ({ ...f, note: e.target.value }))} placeholder="مثال: تشغيل الوردية" /></Field>}
@@ -299,7 +302,7 @@ export function BranchWarehouse({ org, ops, me, myBranches, commit, say }) {
               <span className="badge b-dim">آخر جرد: {sc.last || '—'}</span>
               {fc && <span className="badge b-brass">المطلوب: الأصناف المميّزة بـ ★ (الأعلى قيمة)</span>}
             </div>) : null; })()}
-          <BlindCount org={org} ops={ops} me={me} commit={commit} say={say} whId={wh.id} branchId={wh.branchId} col="whMoves" items={items} title={wh.name} canCount={!ctl} />
+          <BlindCount org={org} ops={ops} me={me} commit={commit} say={say} whId={wh.id} branchId={wh.branchId} col="whMoves" items={itemsD} title={wh.name} canCount={!ctl} />
         </div>
       )}
 

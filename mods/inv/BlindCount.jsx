@@ -1,14 +1,16 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useMemo, useState } from 'react';
 import { EyeOff, RotateCcw, Check, ClipboardCheck, X, Printer } from 'lucide-react';
-import { itemBin, binSort, binOrder } from '../../App.jsx';   // v49.2 MQ-013
+import { itemBin, binSort, binOrder } from '../../App.jsx';
+import { domFilter, domOk, userBrIds, DomainChips, ROLES as ROLES_D } from '../../App.jsx';   // v53.0 مجالات النشاط   // v49.2 MQ-013
 import { COUNT_ST, Field, MAIN_WH, Modal, aCountDone, aItemsOf, arDate, canApproveCount, countCfgOf, countFocus, fmtBalP, itemAvgCosts, money, nowISO, periodLocked, printA4, q3, stockByWh, sum, today, uid, whOn, signoff, signDecision, sigFailMsg } from '../../App.jsx';
 
-export function BlindCount({ org, ops, me, commit, say, whId, branchId, col, items, title, canCount = true }) {
+export function BlindCount({ org, ops, me, commit, say, whId, branchId, col, items: itemsIn, title, canCount = true }) {
   const cc = countCfgOf(org);
   const SB = useMemo(() => stockByWh(org, ops), [org, ops]);
   const AVG = useMemo(() => itemAvgCosts(org, ops), [org, ops]);
   const bookOf = (id) => q3((((whOn(org) ? SB.byWh[whId] : SB.total) || {})[id]) || 0);
+  const items = domFilter(org, branchId, itemsIn || [], it => bookOf(it.id) !== 0);   // v53.0 مجال الفرع — ما له رصيد يبقى في الجرد
   const A = useMemo(() => aItemsOf(org, ops, whId, SB, AVG), [org, ops, whId]);
   const focus = useMemo(() => countFocus(org, ops, whId), [org, ops, whId]);
   const [mode, setMode] = useState(cc.dailyA && !aCountDone(ops, whId, today()) ? 'a' : 'full');
