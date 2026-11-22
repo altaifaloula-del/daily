@@ -5,7 +5,7 @@ import { SystemMaintenance } from './SystemMaintenance.jsx';
 import { ProviderConsole, probeProvider } from './ProviderConsole.jsx';
 import { TENANT } from '../../tenant.js';
 import { Building2, Users, Receipt, Truck, ShieldCheck, Grid3x3, Settings, Plus, Store, Lock, Check, Trash2, Activity } from 'lucide-react';
-import { EDIT_KINDS, editPermOf, ALL_TABS, AppPermsPanel, BranchForm, CategoriesPanel, DeliveryAppsPanel, ROLES, SystemPanel, TAB_AR, UserForm, clr, money, newBranchDraft, sha, today, uid, domCfgOf } from '../../App.jsx';
+import { EDIT_KINDS, editPermOf, ALL_TABS, AppPermsPanel, BranchForm, CategoriesPanel, DeliveryAppsPanel, ROLES, SystemPanel, TAB_AR, UserForm, clr, money, newBranchDraft, sha, today, uid, domCfgOf, catListOf, CAT_FOR, DomainChips, Field } from '../../App.jsx';
 
 export function Admin({ org, ops, me, commit, commitOrg, say }) {
   const [tab, setTab] = useState('branches');
@@ -152,6 +152,7 @@ export function Admin({ org, ops, me, commit, commitOrg, say }) {
       </div>
 
       {tab === 'branches' && <DomainsCard org={org} commitOrg={commitOrg} say={say} />}
+      {tab === 'branches' && <CatsCard org={org} commitOrg={commitOrg} say={say} />}
       {tab === 'branches' && (
         <div className="grid g2">
           {org.branches.map(b => (
@@ -289,6 +290,48 @@ function DomainsCard({ org, commitOrg, say }) {
       <button type="button" className="pos-link" style={{ marginInlineStart: 6 }} onClick={() => setOpen(o => !o)}>{open ? 'إخفاء القائمة' : 'تعديل قائمة المجالات (' + C.list.length + ')'}</button></div>
     {open && <div className="row" style={{ gap: 6, marginTop: 8 }}><input className="inp" aria-label="قائمة المجالات" style={{ flex: 1 }} value={txt} onChange={e => setTxt(e.target.value)} placeholder="مطعم، مقهى، كشك" />
       <button className="btn sm pri" onClick={saveList}>حفظ القائمة</button></div>}
+  </div>);
+}
+
+/* v53.0 — فئات المنتجات والأصناف المُدارة: لكل فئة نطاقها ومجالاتها، ويرثها ما لا مجال خاص له */
+function CatsCard({ org, commitOrg, say }) {
+  const L = catListOf(org); const [ed, setEd] = useState(null); const [open, setOpen] = useState(false);
+  const legacy = [...new Set([...(org.products || []), ...(org.items || [])].map(p => String(p.cat || '').trim()).filter(Boolean))].filter(n => !L.some(c => c.name === n));
+  const write = (next, title, details, rename) => commitOrg(d => {
+    let out = { ...d, catList: next };
+    if (rename && rename.from !== rename.to) { const fx = (arr) => (arr || []).map(x => String(x.cat || '').trim() === rename.from ? { ...x, cat: rename.to } : x); out = { ...out, products: fx(d.products), items: fx(d.items) }; }
+    return out; }, { actionType: 'update', targetType: 'system_settings', targetId: 'catList', title, details });
+  const save = async () => {
+    const name = String(ed.name || '').trim(); if (name.length < 2) return say('اسم الفئة مطلوب', 'no');
+    if (L.some(c => c.name === name && c.id !== ed.id)) return say('الفئة «' + name + '» موجودة', 'no');
+    const old = L.find(c => c.id === ed.id); const rec = { id: ed.id || uid('cat'), name, for: ed.for || 'both', domains: ed.domains || [] };
+    const next = old ? L.map(c => c.id === rec.id ? rec : c) : [...L, rec];
+    const ok = await write(next, old ? 'عدّل فئة' : 'أضاف فئة', name + ' · ' + CAT_FOR[rec.for] + (rec.domains.length ? ' · ' + rec.domains.join('، ') : ''), old ? { from: old.name, to: name } : null);
+    if (ok !== false) { setEd(null); say('حُفظت الفئة ✓'); }
+  };
+  const del = async (c) => { const n = [...(org.products || []), ...(org.items || [])].filter(x => String(x.cat || '').trim() === c.name).length;
+    if (!window.confirm('حذف الفئة «' + c.name + '»؟' + (n ? '\n' + n + ' منتج/صنف يحمل اسمها يبقى كما هو بلا مجال موروث.' : ''))) return;
+    if (await write(L.filter(x => x.id !== c.id), 'حذف فئة', c.name) !== false) say('حُذفت الفئة'); };
+  const importLegacy = async () => { const next = [...L, ...legacy.map(n => ({ id: uid('cat'), name: n, for: 'both', domains: [] }))];
+    if (await write(next, 'استورد الفئات الحالية', legacy.join('، ')) !== false) say('استُوردت ' + legacy.length + ' فئة ✓'); };
+  return (<div className="card" data-catscard style={{ marginBottom: 12 }}>
+    <div className="card-h"><div className="card-t"><Grid3x3 size={15} color="var(--brass)" />فئات المنتجات والأصناف</div>
+      <button className="btn sm" onClick={() => setOpen(o => !o)}>{open ? 'إخفاء' : 'إدارة الفئات (' + L.length + ')'}</button></div>
+    <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9 }}>اختر لكل فئة مجالها مرة واحدة (مثل «مشروبات ساخنة» ← مقهى)، فيرث كل منتج أو صنف في الفئة مجالها ما لم يُحدَّد له مجال خاص. الفئة تظهر في نماذج المنتج والصنف وفي تصفية القوائم ونقطة البيع.</div>
+    {open && <div style={{ marginTop: 8 }}>
+      {L.map(c => <div key={c.id} className="row" data-cat={c.name} style={{ gap: 8, alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--line)' }}>
+        <b>{c.name}</b><span className="badge b-dim">{CAT_FOR[c.for]}</span><span style={{ fontSize: 12, color: 'var(--dim)', flex: 1 }}>{c.domains.length ? c.domains.join('، ') : 'كل المجالات'}</span>
+        <button className="btn sm gh" onClick={() => setEd({ ...c })}>تعديل</button><button className="btn sm gh" onClick={() => del(c)}><Trash2 size={13} /></button></div>)}
+      {!L.length && <div className="empty">لا فئات بعد.</div>}
+      <div className="row" style={{ gap: 6, marginTop: 8 }}><button className="btn sm pri" onClick={() => setEd({ name: '', for: 'both', domains: [] })}><Plus size={13} />فئة جديدة</button>
+        {legacy.length > 0 && <button className="btn sm gh" onClick={importLegacy}>استيراد الفئات المكتوبة حاليًا ({legacy.length})</button>}</div>
+      {ed && <div className="card" style={{ marginTop: 8, background: 'var(--ink)' }} data-catedit>
+        <div className="grid g2"><Field label="اسم الفئة"><input className="inp" aria-label="اسم الفئة" value={ed.name} onChange={e => setEd(x => ({ ...x, name: e.target.value }))} placeholder="مشروبات ساخنة" /></Field>
+          <Field label="تخص"><select className="sel" aria-label="تخص" value={ed.for} onChange={e => setEd(x => ({ ...x, for: e.target.value }))}>{Object.entries(CAT_FOR).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field></div>
+        <Field label="مجال الفئة"><DomainChips org={org} value={ed.domains} onChange={v => setEd(x => ({ ...x, domains: v }))} /></Field>
+        <div className="row" style={{ gap: 6 }}><button className="btn sm pri" onClick={save}>حفظ الفئة</button><button className="btn sm gh" onClick={() => setEd(null)}>إلغاء</button></div>
+      </div>}
+    </div>}
   </div>);
 }
 

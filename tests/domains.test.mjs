@@ -26,3 +26,13 @@ test('الخيار مفعّل: الفرع يرى مجاله والمشترك، �
   assert.equal(E.domOk(O, 'k', { domains: ['مطعم'] }), false); assert.equal(E.domOk(O, '', { domains: ['مطعم'] }), true);
   assert.deepEqual(E.userBrIds({ branchId: 'k', allowedBranchIds: ['r', 'k'] }), ['k', 'r']);
 });
+
+test('الفئات المُدارة: المنتج بلا مجال يرث مجال فئته، ومجاله الخاص يتقدّم، والفئة لنطاقها', () => {
+  const O = { ...org(true), catList: [{ id: 'c1', name: 'مشروبات ساخنة', for: 'prod', domains: ['مقهى'] }, { id: 'c2', name: 'لحوم', for: 'item', domains: ['مطعم'] }, { id: 'c3', name: 'عام' }, { name: '' }] };
+  assert.deepEqual(E.catListOf(O).map(c => [c.name, c.for]), [['مشروبات ساخنة', 'prod'], ['لحوم', 'item'], ['عام', 'both']]);
+  assert.deepEqual(E.catsFor(O, 'prod').map(c => c.name), ['مشروبات ساخنة', 'عام']);
+  const latte = { id: 'l', cat: 'مشروبات ساخنة' }, special = { id: 's', cat: 'مشروبات ساخنة', domains: ['مطعم'] }, meat = { id: 'm', cat: 'لحوم' }, misc = { id: 'x', cat: 'غير مُدارة' };
+  assert.deepEqual(E.recDomains(O, latte), ['مقهى']); assert.deepEqual(E.recDomains(O, special), ['مطعم']); assert.deepEqual(E.recDomains(O, misc), []);
+  assert.deepEqual(E.domFilter(O, 'k', [latte, special, meat, misc]).map(x => x.id), ['l', 'x']);
+  assert.deepEqual(E.domFilter(O, 'r', [latte, special, meat, misc]).map(x => x.id), ['s', 'm', 'x']);
+});

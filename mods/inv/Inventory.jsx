@@ -7,7 +7,7 @@ import { PrepList } from './PrepList.jsx';   // v40.8
 import { TurnoverPpv } from './TurnoverPpv.jsx';   // v42.0
 import { Production } from './Production.jsx';   // v42.8
 import { itemBin, binOrder, costMethod } from '../../App.jsx';
-import { domFilter, domOk, userBrIds, DomainChips, ROLES as ROLES_D } from '../../App.jsx';   // v53.0 مجالات النشاط   // v49.2 MQ-013 · v49.3
+import { domFilter, domOk, userBrIds, DomainChips, ROLES as ROLES_D, catsFor, catOf } from '../../App.jsx';   // v53.0 مجالات النشاط   // v49.2 MQ-013 · v49.3
 import { CostPolicy } from './CostPolicy.jsx';   // v49.3 سياسة التكلفة
 import { stockShortages, whOf, saleDeductOn, saleRecipeItems, uomOf, UomSelect, productThumb, normDigits, BlindCount, Field, ITEM_TYPES, ITEM_NEW_TYPES, itemsSeq, nextItemCode, Kpi, LOCK_MSG, MAIN_WH, MOVE_KINDS, Modal, PriceAlerts, ROLES, SectionNav, UsageVariance, WarehousesPanel, WasteControl, WasteFields, arDate, isCostCtl, isStocked, itemAvgCosts, itemType, makeXlsx, money, nowISO, pFactor, parseCsvGrid, parseXlsxGrid, partGross, partYield, periodLocked, prepUnitCost, kcalUnitFactor, productKcal, printA4, q3, recipeCost, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whName, whOn, prepItemId } from '../../App.jsx';
 
@@ -80,7 +80,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
   const [ledgerIt, setLedgerIt] = useState(null);
   const shortages = useMemo(() => { try { return stockShortages(org, ops); } catch { return []; } }, [org, ops]);   // v46.7
   const [cntWh, setCntWh] = useState(MAIN_WH);   // v46.5 نقطة الجرد لأي مستودع   // v46.2 كرت حركة الصنف
-  const [iq, setIq] = useState(''); const [iType, setIType] = useState(''); const [iSt, setISt] = useState('active');
+  const [iq, setIq] = useState(''); const [iType, setIType] = useState(''); const [iSt, setISt] = useState('active'); const [iCat, setICat] = useState('');   // v53.0 فئة
   const stateOf = (it) => {
     const b = balOf(it.id), mn = it.minQty || 0;
     if (mn > 0 && b <= mn) return ['b-rose', 'اطلب الآن'];
@@ -184,6 +184,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
       type: ITEM_TYPES[f.type] ? f.type : 'stock', barcode: bc, code: f.code || nextItemCode(items), purchaseUnit: (f.purchaseUnit || '').trim(), purchaseFactor: (f.purchaseUnit || '').trim() ? pf : 1,
       ...(f.type === 'sale' ? { sellPrice: Number(f.sellPrice) || 0 } : {}) };
     if (Array.isArray(f.domains) && f.domains.length) rec.domains = f.domains; else delete rec.domains;   // v53.0
+    if (String(f.cat || '').trim()) rec.cat = String(f.cat).trim().slice(0, 40); else delete rec.cat;
     // v49.2 — MQ-013: مواقع التخزين لكل مستودع (تُحذف الفارغة)
     if (f.bins) { const b = {}; Object.entries(f.bins).forEach(([w, v]) => { const t = String(v || '').trim().slice(0, 24); if (t) b[w] = t; }); if (Object.keys(b).length) rec.bins = b; else delete rec.bins; }
     // v41.1: السعرات — تُحفظ إن أُدخلت، وتُزال إن مُسحت
@@ -399,6 +400,8 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
             <select className="sel" style={{ flex: 1, minWidth: 130 }} aria-label="نوع الصنف" value={iType} onChange={e => setIType(e.target.value)}>
               <option value="">كل الأنواع</option>{Object.keys(ITEM_TYPES).map(k => <option key={k} value={k}>{ITEM_TYPES[k].short}</option>)}
             </select>
+            {(() => { const cs = [...new Set(items.map(x => String(x.cat || '').trim()).filter(Boolean))].sort(); return cs.length > 0 && <select className="sel" style={{ flex: 1, minWidth: 130 }} aria-label="فئة الصنف" value={iCat} onChange={e => setICat(e.target.value)}>
+              <option value="">كل الفئات</option>{cs.map(c => <option key={c} value={c}>{c}</option>)}<option value="-">بلا فئة</option></select>; })()}
             <select className="sel" style={{ flex: 1, minWidth: 130 }} aria-label="حالة الصنف" value={iSt} onChange={e => setISt(e.target.value)}>
               <option value="active">النشطة ({items.filter(x => x.isActive !== false).length})</option><option value="low">تحت الحد الأدنى</option>
               <option value="off">المؤرشفة ({items.filter(x => x.isActive === false).length})</option><option value="all">الكل ({items.length})</option>
@@ -413,6 +416,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
                   if (iSt === 'active' && off) return false; if (iSt === 'off' && !off) return false;
                   if (iSt === 'low' && (off || !isStocked(it) || !((it.minQty || 0) > 0 && balOf(it.id) <= it.minQty))) return false;
                   if (iType && itemType(it) !== iType) return false;
+                  if (iCat && (iCat === '-' ? !!String(it.cat || '').trim() : String(it.cat || '').trim() !== iCat)) return false;
                   const q = normDigits(iq).trim().toLowerCase(); return !q || [it.name, it.code, it.barcode].some(x => String(x || '').toLowerCase().includes(q));
                 }).map(it => {
                   const [cls, txt] = stateOf(it); const b = balOf(it.id);
@@ -663,7 +667,10 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
             <Field label="الباركود (اختياري)"><input className="inp num" aria-label="الباركود" value={itemF.barcode || ''} placeholder="امسحه بالماسح أو اكتبه" onChange={e => setItemF(f => ({ ...f, barcode: e.target.value.replace(/\s/g, '') }))} /></Field>
           </div>
           <Field label="اسم الصنف"><input className="inp" value={itemF.name} placeholder="أرز بسمتي، لحم غنم…" onChange={e => setItemF(f => ({ ...f, name: e.target.value }))} /></Field>
-          <Field label="مجال النشاط"><DomainChips org={org} value={itemF.domains} onChange={v => setItemF(f => ({ ...f, domains: v }))} /></Field>
+          <div className="grid g2"><Field label="فئة الصنف"><input className="inp" list="item-cats" aria-label="فئة الصنف" value={itemF.cat || ''} placeholder="لحوم، خضار، مشروبات…" onChange={e => setItemF(f => ({ ...f, cat: e.target.value }))} />
+            <datalist id="item-cats">{[...new Set([...catsFor(org, 'item').map(c => c.name), ...items.map(x => x.cat).filter(Boolean)])].map(c => <option key={c} value={c} />)}</datalist>
+            {catOf(org, itemF) && <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 3 }}>مجال الفئة: {catOf(org, itemF).domains.join('، ') || 'كل المجالات'}</div>}</Field>
+          <Field label="مجال النشاط"><DomainChips org={org} value={itemF.domains} onChange={v => setItemF(f => ({ ...f, domains: v }))} hint="بلا اختيار = مجال فئته، أو مشترك إن لم تكن له فئة" /></Field></div>
           <Field label="نوع الصنف">
             <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
               {ITEM_NEW_TYPES.map(k => <button key={k} type="button" data-itype={k} className={'btn sm' + (itemF.type === k || (k === 'stock' && itemF.type === 'sale') ? ' pri' : ' gh')} onClick={() => setItemF(f => ({ ...f, type: k }))}>{ITEM_TYPES[k].short}</button>)}
@@ -750,8 +757,9 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
             <div className="hint">تُصغَّر تلقائيًا لتبقى خفيفة على أجهزة الفروع</div></Field>
             <Field label={'سعر البيع' + ((org.taxCfg || {}).enabled ? ' (شامل الضريبة)' : '')}>
               <input className="inp n" inputMode="decimal" value={prodF.sellPrice} onChange={e => setProdF(f => ({ ...f, sellPrice: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
-            <Field label="تصنيف نقطة البيع"><input className="inp" list="pos-cats" value={prodF.cat || ''} placeholder="وجبات، مشروبات، حلويات…" onChange={e => setProdF(f => ({ ...f, cat: e.target.value }))} />
-              <datalist id="pos-cats">{[...new Set((org.products || []).map(p => p.cat).filter(Boolean))].map(c => <option key={c} value={c} />)}</datalist></Field>
+            <Field label="فئة المنتج"><input className="inp" list="pos-cats" aria-label="فئة المنتج" value={prodF.cat || ''} placeholder="وجبات، مشروبات، حلويات…" onChange={e => setProdF(f => ({ ...f, cat: e.target.value }))} />
+              <datalist id="pos-cats">{[...new Set([...catsFor(org, 'prod').map(c => c.name), ...(org.products || []).map(p => p.cat).filter(Boolean)])].map(c => <option key={c} value={c} />)}</datalist>
+              {catOf(org, prodF) && <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 3 }} data-catinh>مجال الفئة: {catOf(org, prodF).domains.join('، ') || 'كل المجالات'}{(prodF.domains || []).length ? ' — يتقدّم عليه مجال المنتج الخاص' : ' — يرثه المنتج'}</div>}</Field>
             <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', paddingTop: 18 }}><input type="checkbox" checked={!prodF.posOff} onChange={e => setProdF(f => ({ ...f, posOff: !e.target.checked }))} />متاح في نقطة البيع</label>
             <Field label="خصم الصنف في نقطة البيع (اختياري)"><div className="row" style={{ gap: 4 }}>
               <input className="inp n" inputMode="decimal" style={{ flex: 1 }} value={(prodF.disc || {}).v || ''} placeholder="0" onChange={e => setProdF(f => ({ ...f, disc: { ...(f.disc || {}), v: e.target.value.replace(/[^\d.]/g, '') } }))} />
