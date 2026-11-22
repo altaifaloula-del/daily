@@ -2963,3 +2963,26 @@ test('v52.8 صور الإغلاق: الاعتماد النهائي ينقلها 
   assert.ok(bf.items.filter(x => x.closingId === 'cg1').length >= 2, 'نُسخت الصور للأرشيف قبل الإزالة: ' + JSON.stringify(await p.evaluate(() => Object.keys(localStorage).filter(k => /bf/.test(k)).map(k => [k, localStorage.getItem(k).length]))));
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v53.0 مجالات النشاط: تفعيل الخيار وتحديد مجال الفرع، ونقطة البيع تعرض منتجات مجال الفرع والمشتركة فقط', async () => {
+  const A = await open({ viewport: { width: 1300, height: 1200 } }, 'live/Admin/admin');
+  await A.p.waitForSelector('[data-domcard]');
+  await A.p.locator('[data-domcard] input[aria-label="إظهار حسب المجال"]').check(); await A.p.waitForTimeout(300);
+  assert.equal(await A.p.evaluate(() => window.curOrg.domainCfg.on), true);
+  await A.p.locator('button:text-is("تعديل")').first().click(); await A.p.waitForSelector('.modal [data-domchips]');
+  await A.p.click('.modal [data-domchips] button:has-text("مقهى")'); await A.p.click('.modal button:has-text("حفظ الفرع")'); await A.p.waitForTimeout(400);
+  assert.deepEqual(await A.p.evaluate(() => window.curOrg.branches[0].domains), ['مقهى']);
+  assert.match(await A.p.locator('[data-brdom]').first().innerText(), /مقهى/);
+  assert.deepEqual(A.errs, []); await A.ctx.close();
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosApp/bm');
+  await p.evaluate(() => { window.setOrg(g => ({ ...g, domainCfg: { on: true }, posCfg: { branches: ['b1'], autoPrint: false }, branches: g.branches.map(b => b.id === 'b1' ? { ...b, domains: ['مقهى'] } : b),
+    products: [{ id: 'c', name: 'قهوة عربية', sellPrice: 8, cat: 'مشروبات', domains: ['مقهى'] }, { id: 'm', name: 'مندي لحم', sellPrice: 45, cat: 'رئيسي', domains: ['مطعم'] }, { id: 'w', name: 'ماء', sellPrice: 2, cat: 'مشروبات' }] }));
+    window.setOps(o => ({ ...o, posTabs: [], closings: o.closings.filter(c => c.branchId !== 'b1') })); });
+  await p.waitForTimeout(400); const ob = p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await p.waitForTimeout(400); }
+  await p.waitForSelector('.pos-tile');
+  const tiles = await p.locator('.pos-tile').allInnerTexts(); const t = tiles.join(' | ');
+  assert.match(t, /قهوة عربية/); assert.match(t, /ماء/); assert.doesNotMatch(t, /مندي لحم/);
+  await p.evaluate(() => window.setOrg(g => ({ ...g, domainCfg: { on: false } }))); await p.waitForTimeout(300);
+  assert.match((await p.locator('.pos-tile').allInnerTexts()).join(' | '), /مندي لحم/, 'الخيار متوقف = كل المنتجات');
+  assert.deepEqual(errs, []); await ctx.close();
+});

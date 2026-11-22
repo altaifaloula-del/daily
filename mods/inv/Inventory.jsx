@@ -6,7 +6,8 @@ import { StockVouchers } from './StockVouchers.jsx';   // v46.5   // v46.2
 import { PrepList } from './PrepList.jsx';   // v40.8
 import { TurnoverPpv } from './TurnoverPpv.jsx';   // v42.0
 import { Production } from './Production.jsx';   // v42.8
-import { itemBin, binOrder, costMethod } from '../../App.jsx';   // v49.2 MQ-013 · v49.3
+import { itemBin, binOrder, costMethod } from '../../App.jsx';
+import { domFilter, domOk, userBrIds, DomainChips, ROLES as ROLES_D } from '../../App.jsx';   // v53.0 مجالات النشاط   // v49.2 MQ-013 · v49.3
 import { CostPolicy } from './CostPolicy.jsx';   // v49.3 سياسة التكلفة
 import { stockShortages, whOf, saleDeductOn, saleRecipeItems, uomOf, UomSelect, productThumb, normDigits, BlindCount, Field, ITEM_TYPES, ITEM_NEW_TYPES, itemsSeq, nextItemCode, Kpi, LOCK_MSG, MAIN_WH, MOVE_KINDS, Modal, PriceAlerts, ROLES, SectionNav, UsageVariance, WarehousesPanel, WasteControl, WasteFields, arDate, isCostCtl, isStocked, itemAvgCosts, itemType, makeXlsx, money, nowISO, pFactor, parseCsvGrid, parseXlsxGrid, partGross, partYield, periodLocked, prepUnitCost, kcalUnitFactor, productKcal, printA4, q3, recipeCost, stockByWh, submitWaste, sum, today, uid, wasteCfg, wasteReasonAr, whName, whOn, prepItemId } from '../../App.jsx';
 
@@ -26,6 +27,9 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
   const items = org.items || [];
   const products = org.products || [];
   const preps = org.preps || [];   // v40.7
+  // v53.0: مستخدم الفرع يرى في قوائم العرض أصناف ومنتجات مجال فرعه (الحفظ والترميز على القائمة الكاملة)
+  const domBr = (ROLES_D[me && me.role] || {}).scope === 'all' ? [] : userBrIds(me);
+  const vis = (L) => domFilter(org, domBr, L, it => (bal[it.id] || 0) > 0);
   const moves = ops.stockMoves || [];
   const taxCfg = org.taxCfg || {};
   const netOf = (p) => taxCfg.enabled ? Math.round(p / (1 + (Number(taxCfg.rate) || 15) / 100) * 100) / 100 : p;
@@ -179,6 +183,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
     const rec = { ...(f.id ? items.find(x => x.id === f.id) || {} : {}), id: f.id || uid('it'), name: f.name.trim(), unit: (f.unit || '').trim() || 'وحدة', cost: Number(f.cost) || 0, minQty: Number(f.minQty) || 0, isActive: f.isActive !== false,
       type: ITEM_TYPES[f.type] ? f.type : 'stock', barcode: bc, code: f.code || nextItemCode(items), purchaseUnit: (f.purchaseUnit || '').trim(), purchaseFactor: (f.purchaseUnit || '').trim() ? pf : 1,
       ...(f.type === 'sale' ? { sellPrice: Number(f.sellPrice) || 0 } : {}) };
+    if (Array.isArray(f.domains) && f.domains.length) rec.domains = f.domains; else delete rec.domains;   // v53.0
     // v49.2 — MQ-013: مواقع التخزين لكل مستودع (تُحذف الفارغة)
     if (f.bins) { const b = {}; Object.entries(f.bins).forEach(([w, v]) => { const t = String(v || '').trim().slice(0, 24); if (t) b[w] = t; }); if (Object.keys(b).length) rec.bins = b; else delete rec.bins; }
     // v41.1: السعرات — تُحفظ إن أُدخلت، وتُزال إن مُسحت
@@ -322,7 +327,8 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
     if (dv > 0 && (f.disc || {}).t === 'amt' && dv >= (Number(f.sellPrice) || 0)) return say('خصم الصنف يجب أن يكون أقل من سعر البيع', 'no');
     const rec = { id: f.id || uid('pr'), name: f.name.trim(), sellPrice: Number(f.sellPrice) || 0, parts, cat: (f.cat || '').trim(), ...(f.posOff ? { posOff: true } : {}), ...(f.img ? { img: f.img } : {}),   // v45.4 صورة المنتج
       ...(f.kcalDeclared !== '' && f.kcalDeclared != null && Number(f.kcalDeclared) >= 0 ? { kcalDeclared: Number(f.kcalDeclared) } : {}),   // v41.1
-      ...(dv > 0 ? { disc: { t: (f.disc || {}).t === 'amt' ? 'amt' : 'pct', v: dv, ...((f.disc || {}).to ? { to: f.disc.to } : {}) } } : {}) };
+      ...(dv > 0 ? { disc: { t: (f.disc || {}).t === 'amt' ? 'amt' : 'pct', v: dv, ...((f.disc || {}).to ? { to: f.disc.to } : {}) } } : {}),
+      ...(Array.isArray(f.domains) && f.domains.length ? { domains: f.domains } : {}) };   // v53.0
     await commitOrg(d => ({ ...d, products: f.id ? (d.products || []).map(x => x.id === f.id ? rec : x) : [...(d.products || []), rec] }), {
       actionType: f.id ? 'update' : 'create', targetType: 'product', targetId: rec.id,
       title: f.id ? 'عدّل وصفة منتج' : 'أضاف منتجًا بوصفته', details: rec.name + ' · تكلفة ' + money(prodCost(rec))
@@ -402,7 +408,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
             <table className="tb">
               <thead><tr><th>الرمز</th><th>الصنف</th><th>النوع</th><th>الوحدة</th><th style={{ textAlign: 'end' }}>متوسط التكلفة</th><th style={{ textAlign: 'end' }}>الرصيد</th><th style={{ textAlign: 'end' }}>القيمة</th><th>الحالة</th><th /></tr></thead>
               <tbody>
-                {itemsSeq(items).filter(it => {
+                {itemsSeq(vis(items)).filter(it => {
                   const off = it.isActive === false;
                   if (iSt === 'active' && off) return false; if (iSt === 'off' && !off) return false;
                   if (iSt === 'low' && (off || !isStocked(it) || !((it.minQty || 0) > 0 && balOf(it.id) <= it.minQty))) return false;
@@ -511,7 +517,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
       </div> : <div className="note">🥣 <b>التحضيرات (وصفات فرعية):</b> للصلصات والتتبيلات والعجين التي تُحضَّر بدفعات — أنشئ التحضيرة بكمية ناتجها ومكوّناتها، ثم استخدمها مكوّنًا في وصفات المنتجات؛ تكلفتها واستهلاكها النظري يُحسبان من خاماتها.</div>)}
       {view === 'recipes' && (
         <div className="grid g2">
-          {products.map(p => {
+          {domFilter(org, domBr, products).map(p => {
             const cost = prodCost(p); const net = netOf(p.sellPrice || 0);
             const margin = net > 0 ? Math.round((net - cost) / net * 1000) / 10 : 0;
             return (
@@ -657,6 +663,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
             <Field label="الباركود (اختياري)"><input className="inp num" aria-label="الباركود" value={itemF.barcode || ''} placeholder="امسحه بالماسح أو اكتبه" onChange={e => setItemF(f => ({ ...f, barcode: e.target.value.replace(/\s/g, '') }))} /></Field>
           </div>
           <Field label="اسم الصنف"><input className="inp" value={itemF.name} placeholder="أرز بسمتي، لحم غنم…" onChange={e => setItemF(f => ({ ...f, name: e.target.value }))} /></Field>
+          <Field label="مجال النشاط"><DomainChips org={org} value={itemF.domains} onChange={v => setItemF(f => ({ ...f, domains: v }))} /></Field>
           <Field label="نوع الصنف">
             <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
               {ITEM_NEW_TYPES.map(k => <button key={k} type="button" data-itype={k} className={'btn sm' + (itemF.type === k || (k === 'stock' && itemF.type === 'sale') ? ' pri' : ' gh')} onClick={() => setItemF(f => ({ ...f, type: k }))}>{ITEM_TYPES[k].short}</button>)}
@@ -728,6 +735,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
             <button className="btn pri" onClick={saveProd}><Check size={14} />حفظ المنتج</button></>}>
           <div className="grid g2">
             <Field label="اسم المنتج"><input className="inp" value={prodF.name} placeholder="مندي لحم — وجبة" onChange={e => setProdF(f => ({ ...f, name: e.target.value }))} /></Field>
+            <Field label="مجال النشاط"><DomainChips org={org} value={prodF.domains} onChange={v => setProdF(f => ({ ...f, domains: v }))} /></Field>
             <Field label="صورة المنتج (تظهر في نقطة البيع)"><div className="row" style={{ gap: 8, alignItems: 'center' }} data-prodimg>
               {prodF.img ? <img src={prodF.img} alt="" data-prodimg-prev style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 10, border: '1px solid var(--line)', background: 'repeating-conic-gradient(#e9e9e9 0 25%, #fff 0 50%) 0 0/14px 14px' }} /> : <span style={{ width: 56, height: 56, borderRadius: 10, border: '1px dashed var(--line)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'var(--faint)', fontSize: 20 }}>🖼</span>}
               <label className="btn sm gh" style={{ cursor: 'pointer' }}>{prodF.img ? 'تغيير الصورة' : 'اختيار صورة'}<input type="file" accept="image/*" style={{ display: 'none' }} aria-label="صورة المنتج"

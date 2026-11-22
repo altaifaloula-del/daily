@@ -5,7 +5,7 @@ import { SystemMaintenance } from './SystemMaintenance.jsx';
 import { ProviderConsole, probeProvider } from './ProviderConsole.jsx';
 import { TENANT } from '../../tenant.js';
 import { Building2, Users, Receipt, Truck, ShieldCheck, Grid3x3, Settings, Plus, Store, Lock, Check, Trash2, Activity } from 'lucide-react';
-import { EDIT_KINDS, editPermOf, ALL_TABS, AppPermsPanel, BranchForm, CategoriesPanel, DeliveryAppsPanel, ROLES, SystemPanel, TAB_AR, UserForm, clr, money, newBranchDraft, sha, today, uid } from '../../App.jsx';
+import { EDIT_KINDS, editPermOf, ALL_TABS, AppPermsPanel, BranchForm, CategoriesPanel, DeliveryAppsPanel, ROLES, SystemPanel, TAB_AR, UserForm, clr, money, newBranchDraft, sha, today, uid, domCfgOf } from '../../App.jsx';
 
 export function Admin({ org, ops, me, commit, commitOrg, say }) {
   const [tab, setTab] = useState('branches');
@@ -151,6 +151,7 @@ export function Admin({ org, ops, me, commit, commitOrg, say }) {
         </button>}
       </div>
 
+      {tab === 'branches' && <DomainsCard org={org} commitOrg={commitOrg} say={say} />}
       {tab === 'branches' && (
         <div className="grid g2">
           {org.branches.map(b => (
@@ -163,6 +164,7 @@ export function Admin({ org, ops, me, commit, commitOrg, say }) {
                 <div>المدينة: {b.city} · المسؤول: {b.managerName}</div>
                 <div>الجوال: <span className="num">{b.phone}</span> · نهاية الوردية: <span className="num">{b.shiftEndTime}</span></div>
                 <div>العهدة الافتراضية: <span className="num" style={{ color: 'var(--brass)' }}>{money(b.defaultFloat)}</span> ر.س</div>
+                {domCfgOf(org).on && <div data-brdom>المجال: <b style={{ color: 'var(--brass)' }}>{(b.domains || []).length ? b.domains.join('، ') : 'كل المجالات'}</b></div>}
                 {(b.bankName || b.bankIban) && <div>🏦 بنك الفرع: <b style={{ color: 'var(--brass)' }}>{b.bankName || '—'}</b>{b.bankIban ? <> · <span className="num" style={{ direction: 'ltr', unicodeBidi: 'embed' }}>{b.bankIban}</span></> : ''}</div>}
               </div>
               <div className="row" style={{ marginTop: 12 }}>
@@ -269,3 +271,24 @@ export function Admin({ org, ops, me, commit, commitOrg, say }) {
     </div>
   );
 }
+
+/* v53.0 — مجالات النشاط: خيار إظهار الأصناف والمنتجات في كل فرع حسب مجاله */
+function DomainsCard({ org, commitOrg, say }) {
+  const C = domCfgOf(org); const [txt, setTxt] = useState(C.list.join('، ')); const [open, setOpen] = useState(false);
+  const save = async (next) => {
+    const ok = await commitOrg(d => ({ ...d, domainCfg: { ...(d.domainCfg || {}), ...next } }), { actionType: 'update', targetType: 'system_settings', targetId: 'domainCfg', title: 'عدّل إعداد مجالات النشاط', details: JSON.stringify(next) });
+    if (ok !== false) say('حُفظ ✓');
+  };
+  const saveList = () => { const L = [...new Set(txt.split(/[،,\n]/).map(x => x.trim()).filter(Boolean))].slice(0, 20); if (!L.length) return say('اكتب مجالًا واحدًا على الأقل', 'no'); save({ list: L }); };
+  return (<div className="card" data-domcard style={{ marginBottom: 12 }}>
+    <div className="card-h"><div className="card-t"><Grid3x3 size={15} color="var(--brass)" />مجالات النشاط</div>
+      <label className="row" style={{ gap: 6, fontSize: 12.5 }}><input type="checkbox" aria-label="إظهار حسب المجال" checked={C.on} onChange={e => save({ on: e.target.checked })} />إظهار الأصناف والمنتجات في كل فرع حسب مجاله</label></div>
+    <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9 }}>
+      عند التفعيل يرى كل فرع في نقطة البيع والمستودع والجرد أصناف ومنتجات مجاله فقط. حدّد مجال الفرع من «تعديل» الفرع، ومجال الصنف أو المنتج من شاشة المخزون.
+      الصنف أو المنتج بلا مجال مشترك لكل الفروع، والفرع بلا مجال يرى الكل، والصنف الذي له رصيد في مستودع الفرع لا يُخفى. التقارير المركزية لا تتأثر.
+      <button type="button" className="pos-link" style={{ marginInlineStart: 6 }} onClick={() => setOpen(o => !o)}>{open ? 'إخفاء القائمة' : 'تعديل قائمة المجالات (' + C.list.length + ')'}</button></div>
+    {open && <div className="row" style={{ gap: 6, marginTop: 8 }}><input className="inp" aria-label="قائمة المجالات" style={{ flex: 1 }} value={txt} onChange={e => setTxt(e.target.value)} placeholder="مطعم، مقهى، كشك" />
+      <button className="btn sm pri" onClick={saveList}>حفظ القائمة</button></div>}
+  </div>);
+}
+

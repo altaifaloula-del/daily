@@ -4,7 +4,8 @@ import { cloud, KEYS, brKey, bfKey } from '../../storage';
 import { Store, X, RefreshCw, FileText, Clock, ShieldCheck, Check, Plus, Printer, Download, Lock, Banknote, ChefHat, LayoutGrid, Send, Truck } from 'lucide-react';
 import { posAreas, tableArea, salesByArea, DLV_ST, posDrivers, dlvNeeded, dlvRecord, dlvMove, dlvSummary } from '../../App.jsx';   // v49.2 التوصيل   // v49.2 الصالات
 import { posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim } from '../../App.jsx';   // v42.9
-import { couponWhy, cpnReserve, cpnRelease, loyEarnX, loyTier } from '../../App.jsx';   // v48.1 الكوبونات المحدودة والولاء المتقدم
+import { couponWhy, cpnReserve, cpnRelease, loyEarnX, loyTier } from '../../App.jsx';
+import { domFilter, domOk, userBrIds, DomainChips, ROLES as ROLES_D } from '../../App.jsx';   // v53.0 مجالات النشاط   // v48.1 الكوبونات المحدودة والولاء المتقدم
 import { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, posReturnLoyDed, WASTE_REASONS } from '../../App.jsx';   // v46.8 المرتجع
 import { posDocView, APPS, CloudHealth, Field, Modal, Num, POS_SH_KEY, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, QUOTA_MSG, ROLES, businessDay, isoD, logClientError, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, makeXlsx, money, normPhone, nowISO, pendShiftsGet, pendShiftsSet, posCashNet, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posTotals, posZHtml, promoActive, promoHits, sha256Hex, uid, recCfgOf, recIndex, recFor } from '../../App.jsx';
 
@@ -17,7 +18,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const br = brs.find(b => b.id === brId) || brs[0];
   const dev = useMemo(posDev, []);
   const rate = (org.taxCfg || {}).enabled ? (Number((org.taxCfg || {}).rate) || 15) : 0;
-  const prods = (org.products || []).filter(p => !p.posOff && Number(p.sellPrice) > 0);
+  const prods = (org.products || []).filter(p => !p.posOff && Number(p.sellPrice) > 0 && domOk(org, br && br.id, p));   // v53.0 مجال الفرع
   const noImg = !!(org.posCfg || {}).noImg;   // v45.4: إخفاء صور المنتجات من إعدادات نقطة البيع
   const cats = [...new Set(prods.map(p => p.cat || 'أخرى'))];
   const [cat, setCat] = useState(''); const [q, setQ] = useState('');
@@ -63,7 +64,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   // v52.2 — المرحلة G: توصيات عند الدفع من سلال الفرع الفعلية وطلبات العميل المعتادة؛ المعروض والمُغفل والمقبول يُحفظ مع الفاتورة نفسها
   const recCfg = recCfgOf(org); const [recSeen, setRecSeen] = useState([]); const [recDis, setRecDis] = useState([]);
   const recIdx = useMemo(() => (recCfg.on && br ? recIndex(ops.posOrders, { to: today, days: recCfg.days, branchId: br.id }) : null), [ops.posOrders, (br || {}).id, today, recCfg.on, recCfg.days]);
-  const recs = recIdx && cart.length && !payTab ? recFor(recIdx, cart, org.products, { cfg: recCfg, phone: phoneOk ? phoneN : '', dismissed: recDis }) : [];
+  const recs = recIdx && cart.length && !payTab ? recFor(recIdx, cart, prods, { cfg: recCfg, phone: phoneOk ? phoneN : '', dismissed: recDis }) : [];
   const recKey = recs.map(r => r.productId).join(',');
   useEffect(() => { if (recKey) setRecSeen(s => { const add = recKey.split(',').filter(x => !s.includes(x)); return add.length ? [...s, ...add] : s; }); }, [recKey]);
   useEffect(() => { if (!cart.length) { setRecSeen([]); setRecDis([]); } }, [cart.length]);
