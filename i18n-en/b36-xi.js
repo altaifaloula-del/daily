@@ -18,8 +18,18 @@ export default {
 "المورد غير محدد": "Supplier missing", "حساب المصروف غير محدد": "Expense account missing", "فاتورة ضريبية بلا رقم ضريبي صالح للمورد": "Tax invoice without a valid supplier VAT number",
 "مسجّلة سابقًا": "Already recorded", "مكررة في الملف": "Duplicated in file",
 "كشف بسطر لكل فاتورة: التاريخ، المورد، رقم الفاتورة، الفرع، البيان، الحساب (رقمه أو اسمه)، المبلغ قبل الضريبة والضريبة أو الإجمالي، وطريقة الدفع. تُسجَّل «فواتير خدمات ومصروفات» بقيدها، ولا يُحفظ السطر الذي به ملاحظة.": "A statement with one row per invoice: date, supplier, invoice number, branch, description, account (code or name), amount before VAT and VAT or the total, and payment method. Rows are recorded as “Service & expense invoices” with their entries; rows with issues are not saved.",
+"إنشاء حسابات المصروفات غير الموجودة (5xxx/6xxx) بأسمائها من الملف": "Create missing expense accounts (5xxx/6xxx) with names from the file",
+"تأكد أن هذه الفواتير غير مسجّلة في النظام من طريق آخر (مصروفات الإغلاق اليومي، أو «فاتورة توريد»، أو قيود يدوية) — وإلا تتكرر التكلفة. النظام يمنع تكرار رقم فاتورة المورد نفسه فقط.": "Make sure these invoices are not already recorded another way (daily-closing expenses, a supply invoice, or manual entries) — otherwise the cost is duplicated. The system only blocks a repeated supplier invoice number.",
+"رقم القيد": "Entry no", "اسم الحساب": "Account name", " (غير متعرَّف)": " (not recognized)",
 };
 export const RX = [
+  [/^حساب غير موجود في الدليل: (\d+)$/, 'Account not in chart: $1'],
+  [/^منها ضريبة مدخلات: (.+)$/, 'Input VAT: $1'],
+  [/^حسابات جديدة: (\d+)$/, 'New accounts: $1'],
+  [/^أسباب الرفض: (.+)$/, 'Rejection reasons: $1'],
+  [/^جارٍ الحفظ (\d+) \/ (\d+)$/, 'Saving $1 / $2'],
+  [/^يُعرض أول (\d+) سطر من (\d+) — كلها تُفحص وتُحفظ\. اختر «الملاحظات فقط» لرؤية المرفوض\.$/, 'Showing the first $1 of $2 rows — all are checked and saved. Choose “Issues only” to see rejected rows.'],
+  [/^اختيرت ورقة «(.+)» \((\d+) سطرًا\) — يمكنك تغييرها$/, 'Sheet “$1” selected ($2 rows) — you can change it'],
   [/^حفظ (\d+) فاتورة$/, 'Save $1 invoices'],
   [/^الأعمدة المعروفة: (.+)$/, 'Recognized columns: $1'],
   [/^مورد غير موجود: (.+)$/, 'Unknown supplier: $1'],

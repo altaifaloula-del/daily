@@ -57,3 +57,27 @@ test('السجلات: فاتورة مصروفات بحسابها، ومدفوع�
   assert.match(R[0].invoiceNo, /^XI-261101-001$/); assert.notEqual(R[0].invoiceNo, R[1].invoiceNo);
   assert.equal(R[0].importBatch, 'XB1');
 });
+
+test('v53.2 كشف قيود بأعمدة متعددة: «رمز حساب المدين» يتقدّم على «التصنيف»، ورقم القيد يُحفظ، والحسابات الجديدة تُنشأ عند الطلب', () => {
+  const H = ['رقم القيد', 'التاريخ', 'المورد', 'الرقم الضريبي', 'رقم فاتورة المورد', 'البيان', 'التصنيف', 'نوع المصروف في الكشف', 'رمز حساب المدين', 'قبل الضريبة', 'ضريبة المدخلات (1501)', 'الإجمالي — دائن 2101', 'المرفق', 'اسم حساب المدين'];
+  const g = [H, ['PUR-2026-01-0001', 46023, 'شركة الكهرباء', 300000000000003, '226-16', 'فاتورة مشتريات', 'منتجات (مخزون)', 'مشتريات مواد غذائيه', '5116', 892, 119.4, 1011.4, 'x.pdf', 'مواد التغليف والتعبئة'],
+    ['PUR-2026-01-0002', 46023, 'شركة الكهرباء', 300000000000003, '226-17', 'ب', 'مصروف', 'x', '4101', 10, 1.5, 11.5, '', 'إيراد']];
+  const d = E.xiDetect(g);
+  assert.deepEqual([d.map.acc, d.map.accName, d.map.no, d.map.ref, d.map.vat, d.map.total, d.map.net], [8, 13, 4, 0, 10, 11, 9]);
+  const P0 = E.xiPlan(g, d, { org, ops: {}, opts: { accounts } });
+  assert.match(P0.rows[0].err.join(), /حساب غير موجود في الدليل: 5116/);
+  const P = E.xiPlan(g, d, { org, ops: {}, opts: { accounts, createAcc: true } });
+  assert.equal(P.rows[0].ok, true); assert.equal(P.rows[0].date, '2026-01-01'); assert.deepEqual(P.newAcc, [{ code: '5116', name: 'مواد التغليف والتعبئة', kind: 'exp' }]);
+  assert.match(P.rows[1].err.join(), /4101/, 'لا يُنشأ حساب خارج المصروفات والتكاليف');
+  assert.equal(P.vatSum, 119.4);
+  const R = E.xiRecords(P, { me: { name: 'م' }, batch: 'b' }); assert.equal(R[0].extRef, 'PUR-2026-01-0001'); assert.equal(R[0].expLines[0].accCode, '5116');
+});
+
+test('v53.2 الرقم الضريبي الصالح في السطر يتقدّم: المورد الجديد يأخذه حتى لو جاء أول سطر برقم ناقص، والقائم بلا رقم يُستكمل', () => {
+  const H = ['التاريخ', 'المورد', 'الرقم الضريبي', 'رقم الفاتورة', 'الحساب', 'قبل الضريبة', 'الضريبة'];
+  const g = [H, ['2026-11-01', 'الهيبة', '31152885600003', 'A1', '5198', 100, 15], ['2026-11-02', 'الهيبة', '311528856500003', 'A2', '5198', 100, 15], ['2026-11-03', 'محطة الوقود', '300000000000003', 'F1', '5198', 10, 1.5]];
+  const P = E.xiPlan(g, E.xiDetect(g), { org, ops: {}, opts: { accounts, createSup: true } });
+  assert.deepEqual(P.rows.map(r => r.ok), [false, true, true]);
+  assert.equal(P.newSup[0].vatNo, '311528856500003');
+  assert.deepEqual(P.supVatFix, [{ id: 's2', name: 'محطة الوقود', vatNo: '300000000000003' }]);
+});
