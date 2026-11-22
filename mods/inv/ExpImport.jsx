@@ -7,17 +7,22 @@ import { Modal, Field, money, uid, today, nextPartnerCode, parseCsvGrid, parseXl
 const PM_L = { credit: 'آجل', cash: 'نقدًا (الصندوق)', bank: 'بنك/شبكة', cheque: 'شيك' };
 
 export function ExpImport({ org, ops, me, commit, commitOrg, say, onClose }) {
-  const [file, setFile] = useState(null);   // {name, grid, det}
-  const [opts, setOpts] = useState({ createSup: true, inclVat: false, addVat: false, defAcc: '', defBranch: '', defPay: 'credit' });
-  const [busy, setBusy] = useState(false); const [onlyBad, setOnlyBad] = useState(false);
+  const [file, setFile] = useState(null);   // {name, sheets:[{name,grid,det}], si}
+  const [opts, setOpts] = useState({ createSup: true, createAcc: false, inclVat: false, addVat: false, defAcc: '', defBranch: '', defPay: 'credit' });
+  const [busy, setBusy] = useState(false); const [onlyBad, setOnlyBad] = useState(false); const [prog, setProg] = useState('');
+  const sheet = file ? file.sheets[file.si] : null;
   const accounts = useMemo(() => buildAccounting(org, {}).accounts.filter(a => String(a.code) !== '2101').map(a => ({ code: String(a.code), name: a.name })).sort((x, y) => x.code.localeCompare(y.code)), [org]);
-  const plan = useMemo(() => (file && file.det ? xiPlan(file.grid, file.det, { org, ops, opts: { ...opts, accounts } }) : null), [file, opts, org, ops, accounts]);
+  const plan = useMemo(() => (sheet && sheet.det ? xiPlan(sheet.grid, sheet.det, { org, ops, opts: { ...opts, accounts } }) : null), [sheet, opts, org, ops, accounts]);
   const pick = async (e) => {
     const f = e.target.files && e.target.files[0]; e.target.value = ''; if (!f) return;
-    try { const grid = /\.xlsx$/i.test(f.name) ? await parseXlsxGrid(await f.arrayBuffer()) : parseCsvGrid(await f.text());
-      const det = xiDetect(grid || []);
-      setFile({ name: f.name, grid: grid || [], det });
-      if (!det) say('لم أتعرّف على أعمدة الكشف — يلزم على الأقل: التاريخ والمورد أو البيان والمبلغ. نزّل النموذج للمقارنة', 'no');
+    try {
+      // v53.2: ملف بعدة أوراق ⇒ تُفحص كلها وتُختار تلقائيًا الورقة التي تعرّفنا على أعمدتها وبها أكثر الأسطر
+      const raw = /\.xlsx$/i.test(f.name) ? await parseXlsxGrid(await f.arrayBuffer(), { all: true }) : [{ name: f.name, grid: parseCsvGrid(await f.text()) }];
+      const sheets = (raw || []).map(s => ({ name: s.name, grid: s.grid || [], det: xiDetect(s.grid || []) }));
+      let si = -1; sheets.forEach((s, i) => { if (s.det && (si < 0 || s.grid.length > sheets[si].grid.length)) si = i; });
+      setFile({ name: f.name, sheets, si: si < 0 ? 0 : si });
+      if (si < 0) say('لم أتعرّف على أعمدة الكشف في أي ورقة — يلزم على الأقل: التاريخ والمورد أو البيان والمبلغ. نزّل النموذج للمقارنة', 'no');
+      else if (sheets.length > 1) say('اختيرت ورقة «' + sheets[si].name + '» (' + (sheets[si].grid.length - sheets[si].det.header - 1) + ' سطرًا) — يمكنك تغييرها');
     } catch { say('تعذّرت قراءة الملف — احفظه بصيغة xlsx أو CSV وأعد رفعه', 'no'); }
   };
   const template = () => { try { const blob = makeXlsx([{ name: 'فواتير المصروفات', rows: XI_TEMPLATE }]); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'نموذج استيراد فواتير المصروفات.xlsx'; document.body.appendChild(a); a.click(); a.remove(); } catch { say('تعذّر إنشاء النموذج', 'no'); } };
@@ -27,21 +32,32 @@ export function ExpImport({ org, ops, me, commit, commitOrg, say, onClose }) {
     setBusy(true);
     try {
       const supIds = {};
-      if (plan.newSup.length) {
-        const ok = await commitOrg(d => { const sups = [...(d.suppliers || [])]; const all = sups.map(s => ({ ...s, type: 'supplier' }));
+      // v53.2: الحسابات الجديدة والموردون الجدد في حفظ واحد للإعدادات
+      if (plan.newAcc.length || plan.newSup.length) {
+        const ok = await commitOrg(d => {
+          const have = new Set([...(d.customAccounts || []).map(a => String(a.code)), ...accounts.map(a => a.code)]);
+          const sups = [...(d.suppliers || [])]; const all = sups.map(s => ({ ...s, type: 'supplier' }));
           plan.newSup.forEach(s => { const id = uid('sp'); const code = nextPartnerCode(all, 'supplier'); all.push({ code, type: 'supplier' }); supIds[s.id] = id;
             sups.push({ id, code, name: s.name, category: '', phone: '', vatNo: s.vatNo || '', address: '', taxable: !!s.vatNo, terms: 0, createdAt: today(), source: 'xi' }); });
-          return { ...d, suppliers: sups }; }, { actionType: 'create', targetType: 'partner', targetId: 'xi', title: 'أنشأ موردين من استيراد فواتير المصروفات', details: plan.newSup.map(s => s.name).join('، ') });
+          return { ...d, suppliers: sups, customAccounts: [...(d.customAccounts || []), ...plan.newAcc.filter(a => !have.has(a.code))] }; },
+          { actionType: 'create', targetType: 'partner', targetId: 'xi', title: 'أضاف موردين وحسابات من استيراد فواتير المصروفات',
+            details: [plan.newSup.length ? plan.newSup.length + ' مورد' : '', plan.newAcc.length ? 'حسابات: ' + plan.newAcc.map(a => a.code).join('، ') : ''].filter(Boolean).join(' · ') });
         if (ok === false) return;
       }
       const batch = uid('xb'); const recs = xiRecords(plan, { me, supIds, batch });
-      const ok = await commit(d => ({ ...d, invoices: [...recs, ...(d.invoices || [])] }), { actionType: 'create', targetType: 'expense', targetId: batch, title: 'استورد فواتير مصروفات من Excel', details: file.name + ' · ' + recs.length + ' فاتورة · ' + money(plan.sum) });
-      if (ok === false) return;
-      say('استُوردت ' + recs.length + ' فاتورة مصروفات وقُيّدت على حساباتها ✓'); onClose();
-    } finally { setBusy(false); }
+      // v53.2: الملفات الكبيرة على دفعات من 300 فاتورة — كل دفعة حفظ مستقل يظهر تقدّمه، ويتوقف عند أول تعذّر (ما حُفظ يبقى ولا يتكرر عند الإعادة)
+      const N = 300; let done = 0;
+      for (let i = 0; i < recs.length; i += N) {
+        const part = recs.slice(i, i + N); setProg('جارٍ الحفظ ' + Math.min(i + N, recs.length) + ' / ' + recs.length);
+        const ok = await commit(d => ({ ...d, invoices: [...part, ...(d.invoices || [])] }), { actionType: 'create', targetType: 'expense', targetId: batch + ':' + (i / N + 1), title: 'استورد فواتير مصروفات من Excel', details: file.name + ' · دفعة ' + (i / N + 1) + ' · ' + part.length + ' فاتورة · ' + money(part.reduce((a, r) => a + r.amount, 0)) });
+        if (ok === false) { say('توقف الاستيراد بعد ' + done + ' فاتورة — أعد رفع الملف، فالمحفوظ يظهر «مسجّلة سابقًا» ولا يتكرر', 'no'); return; }
+        done += part.length;
+      }
+      say('استُوردت ' + done + ' فاتورة مصروفات وقُيّدت على حساباتها ✓'); onClose();
+    } finally { setBusy(false); setProg(''); }
   };
   const O = (k, v) => setOpts(o => ({ ...o, [k]: v }));
-  const rows = plan ? (onlyBad ? plan.rows.filter(r => !r.ok) : plan.rows) : [];
+  const rowsAll = plan ? (onlyBad ? plan.rows.filter(r => !r.ok) : plan.rows) : []; const LIM = 300; const rows = rowsAll.slice(0, LIM);
   return (
     <Modal title="استيراد فواتير المصروفات من Excel" icon={Upload} onClose={onClose} wide
       foot={<><button className="btn gh" onClick={onClose}>إلغاء</button><button className="btn pri" data-xisave disabled={busy || !plan || !plan.ok} onClick={save}><Check size={14} />{busy ? 'جارٍ الحفظ…' : 'حفظ ' + (plan ? plan.ok : 0) + ' فاتورة'}</button></>}>
@@ -50,29 +66,37 @@ export function ExpImport({ org, ops, me, commit, commitOrg, say, onClose }) {
         <label className="btn sm pri" style={{ cursor: 'pointer' }}><Upload size={14} />رفع الكشف (xlsx/CSV)<input type="file" accept=".xlsx,.csv,text/csv" aria-label="ملف الكشف" style={{ display: 'none' }} onChange={pick} /></label>
         <button className="btn sm gh" onClick={template}><Download size={14} />نموذج فارغ</button>
         {file && <span style={{ fontSize: 12, color: 'var(--dim)' }}>{file.name}</span>}
+        {file && file.sheets.length > 1 && <select className="sel" aria-label="الورقة" style={{ width: 'auto' }} value={file.si} onChange={e => setFile(x => ({ ...x, si: Number(e.target.value) }))}>
+          {file.sheets.map((s, i) => <option key={i} value={i}>{s.name}{s.det ? '' : ' (غير متعرَّف)'}</option>)}</select>}
       </div>
-      {file && file.det && <div style={{ fontSize: 11.5, color: 'var(--dim)', marginTop: 6 }} data-ximap>الأعمدة المعروفة: {Object.keys(file.det.map).map(k => XI_AR[k]).join('، ')}</div>}
-      {file && file.det && <div className="grid g3" style={{ marginTop: 8 }}>
+      <div className="note" style={{ marginTop: 8, borderColor: 'rgba(217,164,65,.5)' }}>تأكد أن هذه الفواتير غير مسجّلة في النظام من طريق آخر (مصروفات الإغلاق اليومي، أو «فاتورة توريد»، أو قيود يدوية) — وإلا تتكرر التكلفة. النظام يمنع تكرار رقم فاتورة المورد نفسه فقط.</div>
+      {sheet && sheet.det && <div style={{ fontSize: 11.5, color: 'var(--dim)', marginTop: 6 }} data-ximap>الأعمدة المعروفة: {Object.keys(sheet.det.map).map(k => XI_AR[k]).join('، ')}</div>}
+      {sheet && sheet.det && <div className="grid g3" style={{ marginTop: 8 }}>
         <Field label="الحساب حين لا يُعرف"><select className="sel" aria-label="الحساب الافتراضي" value={opts.defAcc} onChange={e => O('defAcc', e.target.value)}><option value="">— بلا (السطر يحتاج حسابًا) —</option>{accounts.map(a => <option key={a.code} value={a.code}>{a.code} · {a.name}</option>)}</select></Field>
         <Field label="الفرع حين لا يُذكر"><select className="sel" aria-label="الفرع الافتراضي" value={opts.defBranch} onChange={e => O('defBranch', e.target.value)}><option value="">المركز الرئيسي</option>{(org.branches || []).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></Field>
         <Field label="الدفع حين لا يُذكر"><select className="sel" aria-label="الدفع الافتراضي" value={opts.defPay} onChange={e => O('defPay', e.target.value)}>{Object.entries(PM_L).filter(([k]) => k !== 'cheque').map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
       </div>}
-      {file && file.det && <div className="row" style={{ gap: 14, flexWrap: 'wrap', fontSize: 12.5, marginTop: 4 }}>
+      {sheet && sheet.det && <div className="row" style={{ gap: 14, flexWrap: 'wrap', fontSize: 12.5, marginTop: 4 }}>
         <label className="row" style={{ gap: 4 }}><input type="checkbox" checked={opts.createSup} onChange={e => O('createSup', e.target.checked)} />إنشاء الموردين غير الموجودين</label>
+        <label className="row" style={{ gap: 4 }}><input type="checkbox" aria-label="إنشاء الحسابات" checked={opts.createAcc} onChange={e => O('createAcc', e.target.checked)} />إنشاء حسابات المصروفات غير الموجودة (5xxx/6xxx) بأسمائها من الملف</label>
         <label className="row" style={{ gap: 4 }}><input type="checkbox" checked={opts.inclVat} onChange={e => O('inclVat', e.target.checked)} />الإجمالي شامل الضريبة (عند غياب عمودها)</label>
         <label className="row" style={{ gap: 4 }}><input type="checkbox" checked={opts.addVat} onChange={e => O('addVat', e.target.checked)} />أضف الضريبة على «قبل الضريبة» (عند غياب عمودها)</label>
       </div>}
       {plan && <>
         <div className="row" style={{ gap: 12, flexWrap: 'wrap', margin: '10px 0 6px', fontSize: 13 }} data-xisum>
           <span>صالحة: <b className="num" style={{ color: 'var(--mint)' }}>{plan.ok}</b></span><span>بها ملاحظة: <b className="num" style={{ color: plan.bad ? 'var(--rose)' : 'inherit' }}>{plan.bad}</b></span>
-          <span>إجمالي الصالحة: <b className="num">{money(plan.sum)}</b></span>{plan.newSup.length > 0 && <span>موردون جدد: <b className="num">{plan.newSup.length}</b></span>}
+          <span>إجمالي الصالحة: <b className="num">{money(plan.sum)}</b></span><span>منها ضريبة مدخلات: <b className="num">{money(plan.vatSum)}</b></span>{plan.newSup.length > 0 && <span>موردون جدد: <b className="num">{plan.newSup.length}</b></span>}
+          {plan.newAcc.length > 0 && <span>حسابات جديدة: <b className="num">{plan.newAcc.length}</b></span>}
           {plan.bad > 0 && <label className="row" style={{ gap: 4, marginInlineStart: 'auto' }}><input type="checkbox" checked={onlyBad} onChange={e => setOnlyBad(e.target.checked)} />الملاحظات فقط</label>}
         </div>
         <div className="tw" style={{ maxHeight: 360, overflow: 'auto' }}><table className="tb" data-xitable><thead><tr><th>سطر</th><th>التاريخ</th><th>المورد</th><th>رقم</th><th>الفرع</th><th>الحساب</th><th style={{ textAlign: 'end' }}>قبل الضريبة</th><th style={{ textAlign: 'end' }}>الضريبة</th><th style={{ textAlign: 'end' }}>الإجمالي</th><th>الدفع</th><th>الحالة</th></tr></thead>
           <tbody>{rows.map(r => <tr key={r.line} data-xirow={r.line} style={r.ok ? null : { background: 'rgba(217,84,77,.06)' }}>
             <td className="num">{r.line}</td><td className="num">{r.date || '—'}</td><td>{r.supName || '—'}{r.sp && r.sp._new ? <small style={{ color: 'var(--amber)' }}> (جديد)</small> : null}</td><td className="num">{r.no || 'تلقائي'}</td>
-            <td>{r.branch ? r.branch.name : 'المركز'}</td><td>{r.acc ? r.acc.code + ' · ' + r.acc.name : '—'}</td><td className="num" style={{ textAlign: 'end' }}>{money(r.net)}</td><td className="num" style={{ textAlign: 'end' }}>{money(r.vat)}</td><td className="num" style={{ textAlign: 'end' }}>{money(r.total)}</td>
+            <td>{r.branch ? r.branch.name : 'المركز'}</td><td>{r.acc ? r.acc.code + ' · ' + r.acc.name + (r.acc._new ? ' (جديد)' : '') : '—'}</td><td className="num" style={{ textAlign: 'end' }}>{money(r.net)}</td><td className="num" style={{ textAlign: 'end' }}>{money(r.vat)}</td><td className="num" style={{ textAlign: 'end' }}>{money(r.total)}</td>
             <td>{PM_L[r.pm]}</td><td style={{ color: r.ok ? 'var(--mint)' : 'var(--rose)', fontSize: 12 }}>{r.ok ? '✓' : r.err.join(' · ')}</td></tr>)}</tbody></table></div>
+        {rowsAll.length > LIM && <div className="hint" style={{ marginTop: 4 }}>يُعرض أول {LIM} سطر من {rowsAll.length} — كلها تُفحص وتُحفظ. اختر «الملاحظات فقط» لرؤية المرفوض.</div>}
+        {plan.bad > 0 && <div className="note" style={{ marginTop: 6 }} data-xiwhy>أسباب الرفض: {Object.entries(plan.rows.filter(r => !r.ok).reduce((m, r) => { r.err.forEach(e => { const k = e.replace(/: .*/, ''); m[k] = (m[k] || 0) + 1; }); return m; }, {})).map(([k, n]) => k + ' (' + n + ')').join(' · ')}</div>}
+        {prog && <div className="note" style={{ marginTop: 6 }} data-xiprog>{prog}</div>}
       </>}
     </Modal>);
 }

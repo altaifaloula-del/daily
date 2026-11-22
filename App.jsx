@@ -3336,7 +3336,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v53.1';
+const APP_VER = 'v53.2';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -6782,10 +6782,12 @@ function domCfgOf(org) { const d = (org && org.domainCfg) || {}; const L = (Arra
 const XI_KW = [
   ['vatNo', ['الرقم الضريبي', 'رقم ضريبي', 'ضريبي للمورد', 'vat no', 'vat number', 'tax id', 'trn']],
   ['date', ['التاريخ', 'تاريخ', 'date', 'يوم']],
-  ['no', ['رقم الفاتورة', 'رقم المستند', 'فاتورة', 'invoice', 'المرجع', 'reference', 'ref']],
+  ['ref', ['رقم القيد', 'entry no']],
+  ['no', ['رقم الفاتورة', 'رقم فاتورة', 'رقم المستند', 'فاتورة', 'invoice', 'المرجع', 'reference', 'ref']],
   ['supplier', ['المورد', 'اسم المورد', 'الجهة', 'المستفيد', 'supplier', 'vendor', 'payee']],
   ['branch', ['الفرع', 'فرع', 'branch', 'store']],
-  ['acc', ['الحساب', 'رقم الحساب', 'البند', 'نوع المصروف', 'الفئة', 'التصنيف', 'account', 'category']],
+  ['accName', ['اسم حساب', 'اسم الحساب', 'account name']],
+  ['acc', ['رمز حساب', 'رمز الحساب', 'رقم الحساب', 'كود الحساب', 'الحساب', 'account', 'البند', 'نوع المصروف', 'الفئة', 'التصنيف', 'category']],
   ['desc', ['البيان', 'الوصف', 'التفاصيل', 'الشرح', 'description', 'memo', 'details']],
   ['pay', ['طريقة الدفع', 'الدفع', 'السداد', 'payment', 'pay method']],
   ['net', ['قبل الضريبة', 'الصافي', 'المبلغ الخاضع', 'net', 'subtotal', 'excl']],
@@ -6793,7 +6795,7 @@ const XI_KW = [
   ['vat', ['الضريبة', 'ضريبة', 'ض.ق.م', 'vat', 'tax']],
   ['amount', ['المبلغ', 'القيمة', 'amount', 'value']],
 ];
-const XI_AR = { date: 'التاريخ', supplier: 'المورد', no: 'رقم الفاتورة', branch: 'الفرع', desc: 'البيان', acc: 'الحساب', net: 'قبل الضريبة', vat: 'الضريبة', total: 'الإجمالي', amount: 'المبلغ', pay: 'طريقة الدفع', vatNo: 'الرقم الضريبي' };
+const XI_AR = { ref: 'رقم القيد', accName: 'اسم الحساب', date: 'التاريخ', supplier: 'المورد', no: 'رقم الفاتورة', branch: 'الفرع', desc: 'البيان', acc: 'الحساب', net: 'قبل الضريبة', vat: 'الضريبة', total: 'الإجمالي', amount: 'المبلغ', pay: 'طريقة الدفع', vatNo: 'الرقم الضريبي' };
 const xiNorm = (x) => String(x == null ? '' : x).replace(/[ً-ْـ]/g, '').replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/\s+/g, ' ').trim().toLowerCase();
 const xiNum = (v) => { if (v == null || v === '') return null; const s = String(v).replace(/[٠-٩]/g, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))).replace(/٫/g, '.').replace(/[,\s٬]/g, '').replace(/[^\d.\-()]/g, '');
   if (!s) return null; const neg = /^\(.*\)$/.test(s); const n = parseFloat(s.replace(/[()]/g, '')); return isFinite(n) ? (neg ? -n : n) : null; };
@@ -6801,7 +6803,8 @@ const xiNum = (v) => { if (v == null || v === '') return null; const s = String(
 function xiDetect(grid) {
   for (let r = 0; r < Math.min(10, (grid || []).length); r++) {
     const row = grid[r] || []; const map = {}; const used = new Set();
-    XI_KW.forEach(([k, kws]) => { if (k in map) return; const i = row.findIndex((c, j) => !used.has(j) && kws.some(w => xiNorm(c).includes(xiNorm(w)))); if (i >= 0) { map[k] = i; used.add(i); } });
+    // v53.2: الكلمات بترتيب أولويتها (مثلًا «رمز حساب المدين» قبل «التصنيف») — لكل كلمة أول عمود غير مستخدم يحويها
+    XI_KW.forEach(([k, kws]) => { if (k in map) return; for (const w of kws) { const i = row.findIndex((c, j) => !used.has(j) && xiNorm(c).includes(xiNorm(w))); if (i >= 0) { map[k] = i; used.add(i); return; } } });
     const hasAmt = ['net', 'total', 'amount'].some(k => k in map);
     if (hasAmt && ('date' in map) && Object.keys(map).length >= 3) return { header: r, map };
   }
@@ -6818,6 +6821,7 @@ function xiPlan(grid, det, ctx) {
   const brBy = (name) => { const n = xiNorm(name); if (!n) return null; return (org.branches || []).find(b => xiNorm(b.name) === n || xiNorm(b.name).includes(n) || n.includes(xiNorm(b.name))) || null; };
   const accBy = (v) => { const s = String(v == null ? '' : v).trim(); if (!s) return null; const code = (s.match(/\d{3,6}/) || [])[0];
     return (code && accs.find(a => a.code === code)) || accs.find(a => a.n === xiNorm(s)) || accs.find(a => a.n.includes(xiNorm(s)) || xiNorm(s).includes(a.n)) || null; };
+  const newAcc = []; const accNew = (code, name) => { if (!/^[56]\d{3,5}$/.test(code)) return null; let a = newAcc.find(x => x.code === code); if (!a) { a = { code, name: String(name || '').trim().slice(0, 60) || ('حساب ' + code), n: '', _new: true }; newAcc.push(a); } return a; };
   const keys = new Set((ops.invoices || []).map(i => purKey(i)).filter(Boolean)); const fileKeys = new Set();
   const rows = []; const today0 = today();
   for (let r = det.header + 1; r < grid.length; r++) {
@@ -6837,7 +6841,12 @@ function xiPlan(grid, det, ctx) {
     if (!supName) err.push('المورد غير محدد');
     let sp = supName ? supBy(supName, vatNoRaw) : null;
     if (supName && !sp) { if (opts.createSup) { sp = { id: 'new:' + newSup.length, name: supName, vatNo: vatNoRaw, _new: true }; newSup.push(sp); } else err.push('مورد غير موجود: ' + supName); }
-    const acc = accBy(cell(row, 'acc')) || accs.find(a => a.code === String(opts.defAcc || '')) || null; if (!acc) err.push('حساب المصروف غير محدد');
+    const accCell = String(cell(row, 'acc') == null ? '' : cell(row, 'acc')).trim(); const accCode = (accCell.match(/^\d{3,6}$/) || [])[0];
+    let acc = accBy(accCell);
+    if (!acc && accCode && opts.createAcc) acc = accNew(accCode, cell(row, 'accName'));   // v53.2: حساب جديد من الملف (مصروفات وتكاليف فقط)
+    if (!acc && accCode) err.push('حساب غير موجود في الدليل: ' + accCode);
+    if (!acc && !accCode) acc = accs.find(a => a.code === String(opts.defAcc || '')) || null;
+    if (!acc && !accCode) err.push('حساب المصروف غير محدد');
     const brCell = String(cell(row, 'branch') || '').trim(); const br = brCell ? brBy(brCell) : null; if (brCell && !br) err.push('فرع غير معروف: ' + brCell);
     const branch = br || (opts.defBranch ? (org.branches || []).find(b => b.id === opts.defBranch) : null);
     const spVat = sp ? String(sp.vatNo || sp.tax || '').replace(/\s/g, '') || vatNoRaw : vatNoRaw;
@@ -6847,10 +6856,11 @@ function xiPlan(grid, det, ctx) {
     let dup = false; if (no && sp) { const k = purKey({ supplierId: sp._new ? '' : sp.id, supplierName: sp.name, invoiceNo: no }); const k2 = (sp._new ? 'n:' + invNoNorm(sp.name) : sp.id) + '|inv|' + invNoNorm(no);
       if (keys.has(k) || keys.has(k2)) { dup = true; err.push('مسجّلة سابقًا'); } else if (fileKeys.has(k2)) { dup = true; err.push('مكررة في الملف'); } else fileKeys.add(k2); }
     const desc = String(cell(row, 'desc') || '').trim() || (acc ? acc.name : 'مصروف');
-    rows.push({ line, ok: !err.length, dup, err, date, supName, sp, vatNo: vatNoRaw, no, branch, acc, desc, net: r2(net || 0), vat: r2(vat || 0), total: r2(total || 0), pm });
+    rows.push({ line, ok: !err.length, dup, err, date, supName, sp, vatNo: vatNoRaw, no, branch, acc, desc, ref: String(cell(row, 'ref') || '').trim().slice(0, 40), net: r2(net || 0), vat: r2(vat || 0), total: r2(total || 0), pm });
   }
   const okRows = rows.filter(x => x.ok);
-  return { rows, ok: okRows.length, bad: rows.length - okRows.length, newSup: newSup.filter(s => okRows.some(x => x.sp === s)), sum: r2(okRows.reduce((a, x) => a + x.total, 0)) };
+  return { rows, ok: okRows.length, bad: rows.length - okRows.length, newSup: newSup.filter(s => okRows.some(x => x.sp === s)), newAcc: newAcc.filter(a => okRows.some(x => x.acc === a)).map(({ code, name }) => ({ code, name, kind: 'exp' })),
+    sum: r2(okRows.reduce((a, x) => a + x.total, 0)), vatSum: r2(okRows.reduce((a, x) => a + x.vat, 0)) };
 }
 /** يبني سجلات الفواتير من خطة الاستيراد بعد إنشاء الموردين الجدد (supIds: معرف مؤقت ⇒ معرف حقيقي) */
 function xiRecords(plan, ctx) {
@@ -6862,7 +6872,7 @@ function xiRecords(plan, ctx) {
     return { id: uid('inv'), kind: 'svc', supplierId: spId, supplierName: x.sp.name, branchId: x.branch ? x.branch.id : '', branchName: x.branch ? x.branch.name : 'المركز الرئيسي', invoiceNo: no,
       amount: x.total, vatAmt: x.vat, taxable: x.vat > 0, paidAmount: paid ? x.total : 0, date: x.date, dueDate: x.date, pm: x.pm,
       ...(paid ? { payments: [{ id: uid('ipay'), amount: x.total, date: x.date, fund, by: me.name, at: nowISO(), pm: x.pm }] } : {}),
-      expLines: [{ desc: x.desc, accCode: x.acc.code, net: x.net, vat: x.vat }], by: me.name, createdAt: nowISO(), importBatch: batch, importLine: x.line };
+      expLines: [{ desc: x.desc, accCode: x.acc.code, net: x.net, vat: x.vat }], by: me.name, createdAt: nowISO(), importBatch: batch, importLine: x.line, ...(x.ref ? { extRef: x.ref } : {}) };
   });
 }
 const XI_TEMPLATE = [['التاريخ', 'المورد', 'الرقم الضريبي للمورد', 'رقم الفاتورة', 'الفرع', 'البيان', 'الحساب', 'المبلغ قبل الضريبة', 'الضريبة', 'الإجمالي', 'طريقة الدفع'],
