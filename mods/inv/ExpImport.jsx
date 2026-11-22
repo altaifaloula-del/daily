@@ -33,15 +33,16 @@ export function ExpImport({ org, ops, me, commit, commitOrg, say, onClose }) {
     try {
       const supIds = {};
       // v53.2: الحسابات الجديدة والموردون الجدد في حفظ واحد للإعدادات
-      if (plan.newAcc.length || plan.newSup.length) {
+      if (plan.newAcc.length || plan.newSup.length || plan.supVatFix.length) {
         const ok = await commitOrg(d => {
           const have = new Set([...(d.customAccounts || []).map(a => String(a.code)), ...accounts.map(a => a.code)]);
-          const sups = [...(d.suppliers || [])]; const all = sups.map(s => ({ ...s, type: 'supplier' }));
+          const fix = new Map(plan.supVatFix.map(f => [f.id, f.vatNo]));
+          const sups = (d.suppliers || []).map(s => fix.has(s.id) && !String(s.vatNo || '').trim() ? { ...s, vatNo: fix.get(s.id), taxable: true } : s); const all = sups.map(s => ({ ...s, type: 'supplier' }));
           plan.newSup.forEach(s => { const id = uid('sp'); const code = nextPartnerCode(all, 'supplier'); all.push({ code, type: 'supplier' }); supIds[s.id] = id;
             sups.push({ id, code, name: s.name, category: '', phone: '', vatNo: s.vatNo || '', address: '', taxable: !!s.vatNo, terms: 0, createdAt: today(), source: 'xi' }); });
           return { ...d, suppliers: sups, customAccounts: [...(d.customAccounts || []), ...plan.newAcc.filter(a => !have.has(a.code))] }; },
           { actionType: 'create', targetType: 'partner', targetId: 'xi', title: 'أضاف موردين وحسابات من استيراد فواتير المصروفات',
-            details: [plan.newSup.length ? plan.newSup.length + ' مورد' : '', plan.newAcc.length ? 'حسابات: ' + plan.newAcc.map(a => a.code).join('، ') : ''].filter(Boolean).join(' · ') });
+            details: [plan.newSup.length ? plan.newSup.length + ' مورد' : '', plan.supVatFix.length ? 'استكمال الرقم الضريبي لـ ' + plan.supVatFix.length + ' مورد' : '', plan.newAcc.length ? 'حسابات: ' + plan.newAcc.map(a => a.code).join('، ') : ''].filter(Boolean).join(' · ') });
         if (ok === false) return;
       }
       const batch = uid('xb'); const recs = xiRecords(plan, { me, supIds, batch });

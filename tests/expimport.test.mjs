@@ -72,3 +72,12 @@ test('v53.2 كشف قيود بأعمدة متعددة: «رمز حساب الم�
   assert.equal(P.vatSum, 119.4);
   const R = E.xiRecords(P, { me: { name: 'م' }, batch: 'b' }); assert.equal(R[0].extRef, 'PUR-2026-01-0001'); assert.equal(R[0].expLines[0].accCode, '5116');
 });
+
+test('v53.2 الرقم الضريبي الصالح في السطر يتقدّم: المورد الجديد يأخذه حتى لو جاء أول سطر برقم ناقص، والقائم بلا رقم يُستكمل', () => {
+  const H = ['التاريخ', 'المورد', 'الرقم الضريبي', 'رقم الفاتورة', 'الحساب', 'قبل الضريبة', 'الضريبة'];
+  const g = [H, ['2026-11-01', 'الهيبة', '31152885600003', 'A1', '5198', 100, 15], ['2026-11-02', 'الهيبة', '311528856500003', 'A2', '5198', 100, 15], ['2026-11-03', 'محطة الوقود', '300000000000003', 'F1', '5198', 10, 1.5]];
+  const P = E.xiPlan(g, E.xiDetect(g), { org, ops: {}, opts: { accounts, createSup: true } });
+  assert.deepEqual(P.rows.map(r => r.ok), [false, true, true]);
+  assert.equal(P.newSup[0].vatNo, '311528856500003');
+  assert.deepEqual(P.supVatFix, [{ id: 's2', name: 'محطة الوقود', vatNo: '300000000000003' }]);
+});

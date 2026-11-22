@@ -6817,13 +6817,14 @@ function xiPlan(grid, det, ctx) {
   const r2 = (n) => Math.round(n * 100) / 100; const M = det.map; const cell = (row, k) => (k in M ? row[M[k]] : '');
   const accs = (opts.accounts || []).map(a => ({ code: String(a.code), name: a.name, n: xiNorm(a.name) }));
   const sups = [...(org.suppliers || [])]; const newSup = []; const supBy = (name, vat) => { const n = xiNorm(name), v = String(vat || '').replace(/\s/g, '');
-    return sups.find(s => (v && String(s.vatNo || s.tax || '').replace(/\s/g, '') === v) || xiNorm(s.name) === n) || newSup.find(s => xiNorm(s.name) === n) || null; };
+    // الاسم أولًا ثم الرقم الضريبي (اسم مختلف برقم ضريبي مطابق ⇒ المورد نفسه بصيغة اسم أخرى)
+    return sups.find(s => xiNorm(s.name) === n) || newSup.find(s => xiNorm(s.name) === n) || (vatNoOk(v) ? sups.find(s => String(s.vatNo || s.tax || '').replace(/\s/g, '') === v) || newSup.find(s => s.vatNo === v) : null) || null; };
   const brBy = (name) => { const n = xiNorm(name); if (!n) return null; return (org.branches || []).find(b => xiNorm(b.name) === n || xiNorm(b.name).includes(n) || n.includes(xiNorm(b.name))) || null; };
   const accBy = (v) => { const s = String(v == null ? '' : v).trim(); if (!s) return null; const code = (s.match(/\d{3,6}/) || [])[0];
     return (code && accs.find(a => a.code === code)) || accs.find(a => a.n === xiNorm(s)) || accs.find(a => a.n.includes(xiNorm(s)) || xiNorm(s).includes(a.n)) || null; };
   const newAcc = []; const accNew = (code, name) => { if (!/^[56]\d{3,5}$/.test(code)) return null; let a = newAcc.find(x => x.code === code); if (!a) { a = { code, name: String(name || '').trim().slice(0, 60) || ('حساب ' + code), n: '', _new: true }; newAcc.push(a); } return a; };
   const keys = new Set((ops.invoices || []).map(i => purKey(i)).filter(Boolean)); const fileKeys = new Set();
-  const rows = []; const today0 = today();
+  const rows = []; const today0 = today(); const supVatFix = [];
   for (let r = det.header + 1; r < grid.length; r++) {
     const row = grid[r] || []; if (!row.some(c => String(c == null ? '' : c).trim())) continue;
     const line = r + 1; const err = []; const date = stDate(cell(row, 'date'));
@@ -6849,7 +6850,10 @@ function xiPlan(grid, det, ctx) {
     if (!acc && !accCode) err.push('حساب المصروف غير محدد');
     const brCell = String(cell(row, 'branch') || '').trim(); const br = brCell ? brBy(brCell) : null; if (brCell && !br) err.push('فرع غير معروف: ' + brCell);
     const branch = br || (opts.defBranch ? (org.branches || []).find(b => b.id === opts.defBranch) : null);
-    const spVat = sp ? String(sp.vatNo || sp.tax || '').replace(/\s/g, '') || vatNoRaw : vatNoRaw;
+    // v53.2: رقم السطر الصالح يتقدّم على رقم المورد (المورد الجديد يأخذ أول رقم صالح، والقائم بلا رقم صالح يُستكمل له)
+    let spVat = sp ? String(sp.vatNo || sp.tax || '').replace(/\s/g, '') : '';
+    if (vatNoOk(vatNoRaw) && !vatNoOk(spVat)) { if (sp && sp._new) sp.vatNo = vatNoRaw; else if (sp) { const f = supVatFix.find(x => x.id === sp.id); if (!f) supVatFix.push({ id: sp.id, name: sp.name, vatNo: vatNoRaw }); } spVat = vatNoRaw; }
+    else if (!spVat) spVat = vatNoRaw;
     if (vat > 0.004 && !vatNoOk(spVat)) err.push('فاتورة ضريبية بلا رقم ضريبي صالح للمورد');
     const pm = XI_PAY(cell(row, 'pay')) || opts.defPay || 'credit';
     const no = String(cell(row, 'no') || '').trim();
@@ -6859,7 +6863,7 @@ function xiPlan(grid, det, ctx) {
     rows.push({ line, ok: !err.length, dup, err, date, supName, sp, vatNo: vatNoRaw, no, branch, acc, desc, ref: String(cell(row, 'ref') || '').trim().slice(0, 40), net: r2(net || 0), vat: r2(vat || 0), total: r2(total || 0), pm });
   }
   const okRows = rows.filter(x => x.ok);
-  return { rows, ok: okRows.length, bad: rows.length - okRows.length, newSup: newSup.filter(s => okRows.some(x => x.sp === s)), newAcc: newAcc.filter(a => okRows.some(x => x.acc === a)).map(({ code, name }) => ({ code, name, kind: 'exp' })),
+  return { rows, ok: okRows.length, bad: rows.length - okRows.length, newSup: newSup.filter(s => okRows.some(x => x.sp === s)), supVatFix: supVatFix.filter(f => okRows.some(x => x.sp && x.sp.id === f.id)), newAcc: newAcc.filter(a => okRows.some(x => x.acc === a)).map(({ code, name }) => ({ code, name, kind: 'exp' })),
     sum: r2(okRows.reduce((a, x) => a + x.total, 0)), vatSum: r2(okRows.reduce((a, x) => a + x.vat, 0)) };
 }
 /** يبني سجلات الفواتير من خطة الاستيراد بعد إنشاء الموردين الجدد (supIds: معرف مؤقت ⇒ معرف حقيقي) */
