@@ -337,7 +337,7 @@ export function mountMcp(app, { express, requireMember, requireFeature = () => (
   // v53.9: سطر لكل طلب من Claude (المفتاح مخفي) — لتشخيص الربط لأن سجلات الطلبات غير متاحة في خطة Render المجانية
   if (typeof app.use === 'function') app.use((req, res, next) => {
     if (!/^\/(mcp\/|\.well-known\/|authorize|register|token)/.test(req.path)) return next();
-    const t0 = now(); const path = req.path.replace(/^(\/mcp\/mq_[a-z0-9-]+_).{0,39}(.{4})$/, '$1…$2');
+    const t0 = now(); const path = req.path.replace(/(mq_[a-z0-9-]+_)[A-Za-z0-9_-]*?([A-Za-z0-9_-]{4})(?=\/|$)/g, '$1…$2');
     res.on('finish', () => log.log('mcp طلب:', req.method, path, res.statusCode, (now() - t0) + 'ms', String(req.headers['user-agent'] || '').slice(0, 40)));
     next();
   });
