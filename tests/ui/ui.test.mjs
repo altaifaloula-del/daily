@@ -3061,3 +3061,26 @@ test('v53.4 تفنيد المشتريات من المصروفات: عمود ال
   t = (await p.locator('table.tb tbody').first().innerText()); assert.match(t, /F1/); assert.doesNotMatch(t, /F2/);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v53.5 ربط Claude: إنشاء رابط يظهر مرة واحدة، قائمة الروابط، الإلغاء، وتنبيه حساب الخدمة', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Admin/admin');
+  let links = []; const posts = [];
+  await p.route('http://zatca.test/api/mcp/**', async (route) => { const u = new URL(route.request().url()), m = route.request().method();
+    if (m === 'GET') return route.fulfill({ json: { links } });
+    const b = JSON.parse(route.request().postData() || '{}'); posts.push(u.pathname + ' ' + JSON.stringify(b));
+    if (u.pathname.endsWith('/revoke')) { links = links.map(l => l.id === b.id ? { ...l, active: false } : l); return route.fulfill({ json: { ok: true } }); }
+    links = [{ id: 'h1', label: b.label, email: 'own@x.sa', createdAt: '2026-11-23T08:00:00Z', active: true, calls: 0, hint: 'Zx9Q' }];
+    return route.fulfill({ json: { id: 'h1', label: b.label, url: 'https://mithqal.onrender.com/mcp/mq_default_' + 'A'.repeat(39) + 'Zx9Q' } }); });
+  await p.click('[data-tab-claude]'); await p.waitForSelector('[data-claudelink]');
+  assert.match(await p.locator('[data-mcplinks]').innerText(), /لا روابط بعد/);
+  await p.fill('input[aria-label="اسم الرابط"]', 'جوالي'); await p.click('[data-mcpnew]'); await p.waitForSelector('[data-mcpfresh]');
+  assert.match(await p.locator('input[aria-label="رابط الربط"]').inputValue(), /\/mcp\/mq_default_.+Zx9Q$/);
+  assert.match(await p.locator('[data-mcplinks]').innerText(), /جوالي[\s\S]*نشط/);
+  await p.click('[data-mcprevoke]'); await p.waitForTimeout(400);
+  assert.match(await p.locator('[data-mcplinks]').innerText(), /ملغى/); assert.equal(await p.locator('[data-mcpfresh]').count(), 0);
+  assert.deepEqual(posts, ['/api/mcp/links {"label":"جوالي"}', '/api/mcp/links/revoke {"id":"h1"}']);
+  await p.unroute('http://zatca.test/api/mcp/**');
+  await p.route('http://zatca.test/api/mcp/**', r => r.fulfill({ status: 409, json: { error: 'لم يُضبط حساب الخدمة', code: 'no-sa' } }));
+  await p.click('[data-tab-claude]'); await p.click('button:has-text("صيانة النظام")'); await p.click('[data-tab-claude]'); await p.waitForSelector('[data-mcpnosa]');
+  assert.deepEqual(errs.filter(e => !/409|Failed to load resource/.test(e)), []); await ctx.close();
+});

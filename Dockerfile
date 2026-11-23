@@ -16,6 +16,8 @@ ARG VITE_AI_ENDPOINT
 ARG VITE_AI_FEEDBACK_ENDPOINT
 ARG VITE_FCM_VAPID_KEY
 RUN npm run build
+# v53.5: محرك المحاسبة لموصل Claude (MCP) — يُبنى هنا لأن esbuild من اعتماديات التطوير
+RUN node scripts/build-mcp-engine.mjs
 
 # ---- التشغيل ----
 FROM node:22-alpine
@@ -23,10 +25,12 @@ WORKDIR /app
 ENV NODE_ENV=production
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
-COPY server.js tenants.js server-auth.js plans.js billing.js server-billing.js server-provider.js server-automation.js server-users.js ./
+COPY server.js tenants.js server-auth.js plans.js billing.js server-billing.js server-provider.js server-automation.js server-users.js server-mcp.js ./
+COPY scripts/backup-lib.mjs ./scripts/backup-lib.mjs
 # server.js يستورد ./zatca/onboard.js و./zatca/vault.js — بدونها تتوقف الحاوية عند الإقلاع (ERR_MODULE_NOT_FOUND)
 COPY zatca ./zatca
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/dist-engine ./dist-engine
 # التشغيل بمستخدم غير جذري
 RUN mkdir -p /app/data && chown -R node:node /app/data
 USER node

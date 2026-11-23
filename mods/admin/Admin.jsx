@@ -2,9 +2,10 @@
 import React, { useState, useEffect } from 'react';
 import { authApi } from '../../storage';
 import { SystemMaintenance } from './SystemMaintenance.jsx';
+import { ClaudeLink } from './ClaudeLink.jsx';   // v53.5 ربط Claude (MCP)
 import { ProviderConsole, probeProvider } from './ProviderConsole.jsx';
 import { TENANT } from '../../tenant.js';
-import { Building2, Users, Receipt, Truck, ShieldCheck, Grid3x3, Settings, Plus, Store, Lock, Check, Trash2, Activity } from 'lucide-react';
+import { Building2, Users, Receipt, Truck, ShieldCheck, Grid3x3, Settings, Plus, Store, Lock, Check, Trash2, Activity, Link2 } from 'lucide-react';
 import { EDIT_KINDS, editPermOf, ALL_TABS, AppPermsPanel, BranchForm, CategoriesPanel, DeliveryAppsPanel, ROLES, SystemPanel, TAB_AR, UserForm, clr, money, newBranchDraft, sha, today, uid, domCfgOf, catListOf, CAT_FOR, DomainChips, Field } from '../../App.jsx';
 
 export function Admin({ org, ops, me, commit, commitOrg, say }) {
@@ -140,6 +141,7 @@ export function Admin({ org, ops, me, commit, commitOrg, say }) {
         <button className={'btn sm' + (tab === 'maint' ? ' pri' : ' gh')} onClick={() => setTab('maint')}>
           <Activity size={14} />صيانة النظام
         </button>
+        {me && me.role === 'system_admin' && <button className={'btn sm' + (tab === 'claude' ? ' pri' : ' gh')} data-tab-claude onClick={() => setTab('claude')}><Link2 size={14} />ربط Claude</button>}
         {isProv && <button className={'btn sm mq-prov-tab' + (tab === 'provider' ? ' pri' : ' gh')} onClick={() => setTab('provider')}>
           <Store size={14} />لوحة مِثقال
         </button>}
@@ -229,6 +231,7 @@ export function Admin({ org, ops, me, commit, commitOrg, say }) {
       {tab === 'delivery' && <DeliveryAppsPanel org={org} ops={ops} commitOrg={commitOrg} say={say} />}
       {tab === 'appperms' && <AppPermsPanel org={org} commitOrg={commitOrg} say={say} />}
       {tab === 'provider' && isProv && <ProviderConsole say={say} />}
+      {tab === 'claude' && <ClaudeLink me={me} say={say} />}
       {tab === 'maint' && <SystemMaintenance org={org} ops={ops} me={me} commit={commit} commitOrg={commitOrg} say={say} />}
       {tab === 'system' && <SystemPanel org={org} ops={ops} me={me} commit={commit} commitOrg={commitOrg} say={say} />}
       {tab === 'perms' && (() => {
