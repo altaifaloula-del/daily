@@ -4,7 +4,7 @@ services:
     name: mizan-ai
     runtime: node
     plan: free            # المجانية تنام بعد 15 دقيقة خمول (أول طلب بعدها يتأخر ~دقيقة). غيّرها إلى starter لإلغاء ذلك
-    buildCommand: npm ci --omit=dev   # ci: يلتزم بملف القفل حرفيًا
+    buildCommand: npm ci && node scripts/build-mcp-engine.mjs && npm prune --omit=dev   # ci: يلتزم بملف القفل حرفيًا — v53.9: يبني محرك موصل Claude (dist-engine) ثم يحذف اعتماديات التطوير
     startCommand: node server.js
     healthCheckPath: /api/health
     envVars:
@@ -12,6 +12,8 @@ services:
         value: 22
       - key: NODE_ENV
         value: production
+      - key: NODE_OPTIONS        # v53.9: سقف ذاكرة V8 أقرب لحد الخطة المجانية (512MB) بدل الافتراضي الأصغر
+        value: --max-old-space-size=400
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: FIREBASE_API_KEY

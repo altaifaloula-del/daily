@@ -10,6 +10,8 @@ import crypto from 'node:crypto';
 import { saTokenSource } from './server-billing.js';
 import { decodeFields, assemble, composeLogical } from './scripts/backup-lib.mjs';
 
+// مستندات المنصة التي يحتاجها الموصل (ورؤوسها وأجزاؤها __…) — يُستبعد السجل التاريخي والولاء وغيرها توفيرًا للذاكرة
+export const MCP_DOC_RE = /^rms8_(org|core|br_[^_].*?|pos_.+_[0-9]{6})(__.+)?$/;
 export const MCP_PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const TOKEN_RE = /^mq_([a-z0-9][a-z0-9-]{1,39})_([A-Za-z0-9_-]{43})$/;
 const MAX_TOKENS = 10;
@@ -328,9 +330,11 @@ export function mountMcp(app, { express, requireMember, requireFeature = () => (
   const data = new Map();
   const loadData = (t) => { const c = data.get(t.id); if (c && c.exp > now()) return c.p;
     const p = (async () => { const all = {}; let pt = '';
-      for (let i = 0; i < 100; i++) { const r = await fs(t, docs(t) + '/platform?pageSize=300' + (pt ? '&pageToken=' + encodeURIComponent(pt) : ''));
+      // v53.9: صفحات صغيرة (الأجزاء قد تقارب 1MB لكل مستند) ولا نحتفظ إلا بما يلزم الموصل (org/core/الفروع/نقطة البيع)
+      // — تحميل كل المنصة بصفحات 300 كان يستنفد ذاكرة خطة Render المجانية (512MB) فينهار الخادم (status 134)
+      for (let i = 0; i < 2000; i++) { const r = await fs(t, docs(t) + '/platform?pageSize=20' + (pt ? '&pageToken=' + encodeURIComponent(pt) : ''));
         if (!r.ok) throw new Error('تعذّرت قراءة بيانات المنشأة (' + r.status + ')');
-        (r.j.documents || []).forEach(d => { all[d.name.split('/').pop()] = decodeFields(d.fields); }); pt = r.j.nextPageToken || ''; if (!pt) break; }
+        (r.j.documents || []).forEach(d => { const id = d.name.split('/').pop(); if (MCP_DOC_RE.test(id)) all[id] = decodeFields(d.fields); }); pt = r.j.nextPageToken || ''; r.j = null; if (!pt) break; }
       const A = assemble(all); const L = composeLogical(A.values); return { org: L.org || {}, ops: L.ops || {}, _at: new Date(now()).toISOString() }; })();
     data.set(t.id, { p, exp: now() + 120000 }); p.catch(() => data.delete(t.id)); return p; };
 
