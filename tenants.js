@@ -14,10 +14,13 @@ const okEnvName = (v) => /^[A-Z][A-Z0-9_]{2,60}$/.test(v);
 
 // v52.9: حساب خدمة اختياري للمنشأة الرئيسية (FIREBASE_SERVICE_ACCOUNT على الخادم) — لإدارة حسابات الدخول من التطبيق
 function defSa(env) { try { const o = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT || ''); const p = clean(env.FIREBASE_PROJECT_ID || env.VITE_FIREBASE_PROJECT_ID);
-  if (o && o.client_email && o.private_key && (!o.project_id || !p || o.project_id === p)) return { client_email: o.client_email, private_key: o.private_key }; } catch { } return null; }
+  if (o && o.client_email && o.private_key && (!o.project_id || !p || o.project_id === p)) return { client_email: o.client_email, private_key: o.private_key, ...(okProject(clean(o.project_id)) ? { project_id: clean(o.project_id) } : {}) }; } catch { } return null; }
 
 export function loadTenants(env = process.env) {
   const def = { id: 'default', projectId: clean(env.FIREBASE_PROJECT_ID || env.VITE_FIREBASE_PROJECT_ID), apiKey: clean(env.FIREBASE_API_KEY || env.VITE_FIREBASE_API_KEY), zatcaKey: String(env.ZATCA_ENC_KEY || '').trim(), plan: 'enterprise', sa: defSa(env) };
+  // v53.6: مشروع البيانات لأدوات حساب الخدمة (إدارة كلمات السر، موصل Claude) — من FIREBASE_PROJECT_ID وإلا من project_id داخل ملف حساب الخدمة.
+  // لا يمس توجيه التحقق من الدخول (projectId): إضافة FIREBASE_PROJECT_ID لم تعد شرطًا، وخطؤها كان يرفض كل الأعضاء.
+  def.dataProject = def.projectId || (def.sa && def.sa.project_id) || '';
   const list = [def], errors = [];
   if (env.MQ_TENANTS_JSON) {
     let arr = [];

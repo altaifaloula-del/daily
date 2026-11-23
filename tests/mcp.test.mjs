@@ -108,3 +108,11 @@ test('الرابط الملغى أو صاحب الدور المتغير أو ا�
   assert.equal((await H.call('GET /mcp/:token', { params: { token: tok } })).status, 405);
   assert.equal((await handleRpc({ jsonrpc: '1.0', id: 1, method: 'ping' })).error.code, -32600);
 });
+
+test('v53.6 مشروع البيانات من ملف حساب الخدمة دون FIREBASE_PROJECT_ID — ولا يمس توجيه التحقق من الدخول', () => {
+  const T = loadTenants({ ...ENV, FIREBASE_PROJECT_ID: '' });
+  assert.equal(T.def.projectId, '', 'التحقق من الدخول كما كان');
+  assert.equal(T.def.dataProject, 'altaif-prod'); assert.ok(T.def.sa && T.def.sa.private_key);
+  const T2 = loadTenants(ENV); assert.equal(T2.def.dataProject, 'altaif-prod');
+  const T3 = loadTenants({ ...ENV, FIREBASE_PROJECT_ID: 'other-proj' }); assert.equal(T3.def.sa, null, 'ملف من مشروع آخر يُرفض');
+});

@@ -347,6 +347,12 @@ app.get('/api/health/config', rateLimit({ windowMs: 3600000, max: 20 }), async (
       }
     } catch (e) { out.firebase.valid = false; out.firebase.error = 'network'; }
   }
+  // v53.6: تشخيص حساب الخدمة (بلا أسرار): هل الملف صالح، ما مشروعه، وهل يقرأ بيانات مثقال فعلًا (platform/rms8_org)
+  { const sa = TENANTS.def.sa;
+    if (!sa) out.serviceAccount = { set: false, ...(process.env.FIREBASE_SERVICE_ACCOUNT ? { error: 'الملف غير صالح أو project_id فيه لا يطابق FIREBASE_PROJECT_ID' } : {}) };
+    else { out.serviceAccount = { set: true, project: TENANTS.def.dataProject || null, projectIdEnv: TENANTS.def.projectId || null };
+      try { const tk = await saTokenSource(sa)(); const r = await fetch('https://firestore.googleapis.com/v1/projects/' + encodeURIComponent(TENANTS.def.dataProject) + '/databases/(default)/documents/platform/rms8_org?mask.fieldPaths=parts', { headers: { authorization: 'Bearer ' + tk } });
+        out.serviceAccount.readsData = r.ok; if (!r.ok) out.serviceAccount.status = r.status; } catch (e) { out.serviceAccount.readsData = false; out.serviceAccount.error = 'تعذّر الحصول على رمز الخدمة'; } } }
   if (ANTHROPIC_KEY) {
     try {
       await aiClient().models.retrieve(AI_MODEL);
