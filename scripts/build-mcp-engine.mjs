@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const MCP_ENGINE_EXPORTS = ['buildAccounting', 'acctActivity', 'glLedger', 'isLayout', 'invCls', 'INV_CLS', 'invPayments', 'APP_VER'];
+export const MCP_ENGINE_EXPORTS = ['MCP_KINDS', 'mcpPlanJournal', 'mcpPlanReclass', 'mcpPlanExp', 'buildAccounting', 'acctActivity', 'glLedger', 'isLayout', 'invCls', 'INV_CLS', 'invPayments', 'APP_VER'];
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 export async function buildMcpEngine(outfile = path.join(root, 'dist-engine', 'engine.mjs')) {

@@ -231,7 +231,7 @@ export function Admin({ org, ops, me, commit, commitOrg, say }) {
       {tab === 'delivery' && <DeliveryAppsPanel org={org} ops={ops} commitOrg={commitOrg} say={say} />}
       {tab === 'appperms' && <AppPermsPanel org={org} commitOrg={commitOrg} say={say} />}
       {tab === 'provider' && isProv && <ProviderConsole say={say} />}
-      {tab === 'claude' && <ClaudeLink me={me} say={say} />}
+      {tab === 'claude' && <ClaudeLink org={org} ops={ops} me={me} commit={commit} commitOrg={commitOrg} say={say} />}
       {tab === 'maint' && <SystemMaintenance org={org} ops={ops} me={me} commit={commit} commitOrg={commitOrg} say={say} />}
       {tab === 'system' && <SystemPanel org={org} ops={ops} me={me} commit={commit} commitOrg={commitOrg} say={say} />}
       {tab === 'perms' && (() => {
