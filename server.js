@@ -198,6 +198,7 @@ async function requireMember(req, res, next) {
   try {
     const user = await verifyMember(m[1].trim());
     if (!user) return res.status(403).json({ error: 'لا صلاحية — العضوية غير نشطة أو الجلسة منتهية' });
+    if (user.blocked === 'mfa') return res.status(403).json({ error: 'يلزم الدخول بخطوتين لهذا الحساب — سجّل الخروج ثم ادخل برمز تطبيق المصادقة', code: 'mfa-required' });
     req.user = user;
     next();
   } catch (e) {

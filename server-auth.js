@@ -12,6 +12,14 @@ export function tokenProject(idToken) {
   } catch { return ''; }
 }
 
+/** هل اجتازت الجلسة الخطوة الثانية؟ (مطالبة firebase.sign_in_second_factor — تُقرأ بعد أن تتحقق Google من الرمز) */
+export function secondFactor(idToken) {
+  try {
+    const p = JSON.parse(Buffer.from(String(idToken).split('.')[1], 'base64url').toString('utf8'));
+    return !!(p.firebase && typeof p.firebase === 'object' && p.firebase.sign_in_second_factor);
+  } catch { return false; }
+}
+
 /** المنشأة المسؤولة عن رمز ما — قبل التحقق منه (التحقق يتم بمفتاحها بعد ذلك) */
 export function tenantForToken(T, idToken) {
   const aud = tokenProject(idToken);
@@ -51,7 +59,36 @@ export function createVerifier({ T, fetchImpl = fetch, headers = (x) => x || {},
     const fields = ((await m.json()) || {}).fields || {};
     if (!(fields.active && fields.active.booleanValue === true)) return null;
 
-    const user = { email, role: (fields.role && fields.role.stringValue) || '', tenant: t.id };
+    const role = (fields.role && fields.role.stringValue) || '';
+
+    // v53.8 — إلزام التحقق بخطوتين على الخادم بالسياسة نفسها التي تفرضها قواعد Firestore (mfaRequired/mfaOk):
+    // كانت مسارات الخادم (رابط Claude، تعيين كلمات السر، الفوترة الإلكترونية...) تقبل جلسة بلا خطوة ثانية
+    // حتى لو ألزمتها السياسة — فيُتجاوز الإلزام عبر الخادم. الآن: من تلزمه السياسة ولم يجتز الخطوة الثانية يُرفض.
+    const second = secondFactor(idToken);
+    const base = 'https://firestore.googleapis.com/v1/projects/' + encodeURIComponent(project) + '/databases/(default)/documents/platform/';
+    const auth = { headers: { authorization: 'Bearer ' + idToken } };
+    if (!second) {
+      const sp = await fetchImpl(base + 'security', auth);
+      if (sp.status !== 404) {
+        if (!sp.ok) return null;   // تعذّرت قراءة السياسة ⇒ رفض (لا نفتح بابًا عند الشك)
+        const pf = ((await sp.json()) || {}).fields || {};
+        const roles = ((pf.roles && pf.roles.arrayValue && pf.roles.arrayValue.values) || []).map(v => v.stringValue);
+        let need = roles.includes(role);
+        if (!need && pf.admins && pf.admins.booleanValue === true) {
+          const ad = await fetchImpl(base + 'admins', auth);
+          if (!ad.ok) return null;
+          const emails = ((((await ad.json()) || {}).fields || {}).emails || {}).arrayValue || {};
+          need = (emails.values || []).some(v => String(v.stringValue || '').toLowerCase() === email);
+        }
+        if (need) {
+          const blocked = { blocked: 'mfa', email, tenant: t.id };
+          cache.set(idToken, { user: blocked, exp: now() + ttlMs });
+          return blocked;
+        }
+      }
+    }
+
+    const user = { email, role, tenant: t.id, mfa: second };
     cache.set(idToken, { user, exp: now() + ttlMs });
     if (cache.size > 1000) cache.delete(cache.keys().next().value);
     return user;
