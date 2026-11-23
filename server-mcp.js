@@ -168,7 +168,7 @@ export async function handleRpc(msg, { tools = MCP_TOOLS, call, version = '' } =
 export function mountMcp(app, { express, requireMember, requireFeature = () => (q, r, n) => n(), rateLimit, T, fetchImpl = fetch, log = console, engine = null, now = Date.now, publicBase = '' }) {
   const json = express.json({ limit: '256kb' }), small = express.json({ limit: '4kb' });
   const toks = new Map(); const tokenFor = (t) => { if (!toks.has(t.id)) toks.set(t.id, saTokenSource(t.sa, { fetchImpl })); return toks.get(t.id)(); };
-  const docs = (t) => 'https://firestore.googleapis.com/v1/projects/' + encodeURIComponent(t.projectId) + '/databases/(default)/documents';
+  const docs = (t) => 'https://firestore.googleapis.com/v1/projects/' + encodeURIComponent(t.dataProject || t.projectId) + '/databases/(default)/documents';
   const fs = async (t, url, init = {}) => { const r = await fetchImpl(url, { ...init, headers: { authorization: 'Bearer ' + await tokenFor(t), 'content-type': 'application/json', ...(init.headers || {}) } });
     const j = await r.json().catch(() => ({})); return { ok: r.ok, status: r.status, j }; };
   const S = (v) => ({ stringValue: String(v) }), Bo = (v) => ({ booleanValue: !!v }), I = (v) => ({ integerValue: String(Math.round(Number(v) || 0)) });

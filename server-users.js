@@ -31,7 +31,7 @@ export function mountUserAdmin(app, { express, requireMember, rateLimit, T, fetc
   const tokens = new Map();
   const tenantOf = (req) => T.byId((req.user && req.user.tenant) || 'default') || T.def;
   const tokenFor = (t) => { if (!tokens.has(t.id)) tokens.set(t.id, saTokenSource(t.sa, { fetchImpl, scope: SCOPE })); return tokens.get(t.id)(); };
-  const base = (t) => 'https://identitytoolkit.googleapis.com/v1/projects/' + encodeURIComponent(t.projectId);
+  const base = (t) => 'https://identitytoolkit.googleapis.com/v1/projects/' + encodeURIComponent(t.dataProject || t.projectId);
   const call = async (t, path, body) => {
     const r = await fetchImpl(base(t) + path, { method: 'POST', headers: { authorization: 'Bearer ' + await tokenFor(t), 'content-type': 'application/json' }, body: JSON.stringify(body) });
     const j = await r.json().catch(() => ({}));
@@ -39,7 +39,7 @@ export function mountUserAdmin(app, { express, requireMember, rateLimit, T, fetc
     return j;
   };
   const memberOf = async (t, email) => {   // الهدف عضو في المنشأة نفسها؟ (مستند members بحساب الخدمة)
-    const r = await fetchImpl('https://firestore.googleapis.com/v1/projects/' + encodeURIComponent(t.projectId) + '/databases/(default)/documents/members/' + encodeURIComponent(email),
+    const r = await fetchImpl('https://firestore.googleapis.com/v1/projects/' + encodeURIComponent(t.dataProject || t.projectId) + '/databases/(default)/documents/members/' + encodeURIComponent(email),
       { headers: { authorization: 'Bearer ' + await tokenForFs(t) } });
     if (r.status === 404) return null;
     if (!r.ok) throw new Error('تعذّرت قراءة العضوية');
