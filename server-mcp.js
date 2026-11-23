@@ -356,14 +356,18 @@ export function mountMcp(app, { express, requireMember, requireFeature = () => (
   const failAll = (msg) => { pend.forEach(p => { clearTimeout(p.tm); p.rej(new Error(msg)); }); pend.clear(); };
   const worker = () => { if (W) return W;
     W = new Worker(new URL('./server-mcp-worker.mjs', import.meta.url), { resourceLimits: { maxOldGenerationSizeMb: isolate.heapMb || 220 } });
-    W.unref(); W.on('message', (m) => { const p = pend.get(m.id); if (!p) return; pend.delete(m.id); clearTimeout(p.tm); if (m.ver) appVer = m.ver;
+    W.unref(); W.on('message', (m) => { if (!pend.size) clearTimeout(hard); const p = pend.get(m.id); if (!p) return; pend.delete(m.id); clearTimeout(p.tm); if (m.ver) appVer = m.ver;
       if (m.ok) p.res(m.result); else { const e = new Error(m.error); if (m.code) e.code = m.code; p.rej(e); } });
     W.on('error', (e) => { log.error('mcp worker', e && (e.code || e.message)); failAll(e && e.code === 'ERR_WORKER_OUT_OF_MEMORY' ? 'بيانات المنشأة أكبر من ذاكرة الموصل المتاحة (MCP_WORKER_MB) — رقِّ خطة الخادم وارفع السقف؛ بقية المنصة لم تتأثر' : 'تعذّر الحساب — أعد المحاولة'); W = null; });
     W.on('exit', (c) => { if (c) failAll('توقف الحساب — أعد المحاولة'); W = null; });
     return W; };
   let appVer = '';
-  const inWorker = (t, op, name, args) => new Promise((res, rej) => { const id = ++seq; const w = worker();
-    const tm = setTimeout(() => { pend.delete(id); rej(new Error('انتهت مهلة الحساب (' + Math.round((isolate.timeoutMs || 90000) / 1000) + ' ث)')); try { w.terminate(); } catch { } W = null; }, isolate.timeoutMs || 90000);
+  // مهلتان: «لينة» تعيد رسالة للمستخدم ويواصل العامل الحساب ويخبّئ النتيجة (المعالج في الخطة المجانية بطيء: 0.1 CPU)،
+  // و«صلبة» تُنهي العامل إن علق فعلًا
+  let hard = null; const armHard = () => { clearTimeout(hard); hard = setTimeout(() => { if (W) { log.error('mcp worker: مهلة صلبة — إنهاء'); try { W.terminate(); } catch { } W = null; } }, isolate.hardMs || 600000); };
+  const inWorker = (t, op, name, args) => new Promise((res, rej) => { const id = ++seq; const w = worker(); armHard();
+    const tm = setTimeout(() => { const p = pend.get(id); if (!p) return; pend.delete(id);
+      rej(new Error('ما زال الخادم يجهّز بيانات المنشأة (أول طلب بعد الخمول يأخذ دقائق على الخطة المجانية) — أعد السؤال بعد دقيقة أو دقيقتين')); }, isolate.timeoutMs || 100000);
     pend.set(id, { res, rej, tm }); w.postMessage({ id, t: { id: t.id, sa: t.sa, projectId: t.projectId, dataProject: t.dataProject }, op, name, args: args || {} }); });
 
   // v53.9: سطر لكل طلب من Claude (المفتاح مخفي) — لتشخيص الربط لأن سجلات الطلبات غير متاحة في خطة Render المجانية
