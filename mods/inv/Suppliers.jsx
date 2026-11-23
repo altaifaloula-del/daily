@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Upload, Truck, FileBarChart, ChevronDown, Printer, FileText, Building2, ClipboardCheck, Users, Plus, AlertTriangle, CalendarDays, Trash2, Check, X, Banknote } from 'lucide-react';
 import { poNeedsAppr, wfOn, wfState, wfCanAct, wfApprove } from '../../App.jsx';   // v49.5 مسارات الاعتماد
-import { canEditRec, autoCfgOf, poSuggestions, DocLink, RowGrip, moveIdx, projList, uomOf, uomOk, lineUnits, lineFac, UomSelect, DupInvHint, Field, Kpi, LOCK_MSG, MAIN_WH, Modal, Num, ROLES, SectionNav, arDate, branchBanks, closingInvoices, isStocked, isoD, itemType, money, nowISO, pFactor, payTotal, periodLocked, printA4, purKey, q3, _xe, roleEdit, rolePost, buildAccounting, INV_BILLERS, itemsSeq, vatNoOk, supVatOf, ItemPick, roleHasTab, stockByWh, sum, supplierPrices, today, uid, whName, whOf, whOn, poWhOf, brSigCheck, signoff, signDecision, sigFailMsg, pjBackfill, pjMissing } from '../../App.jsx';
+import { canEditRec, autoCfgOf, poSuggestions, DocLink, RowGrip, moveIdx, projList, uomOf, uomOk, lineUnits, lineFac, UomSelect, DupInvHint, Field, Kpi, LOCK_MSG, MAIN_WH, Modal, Num, ROLES, SectionNav, arDate, branchBanks, closingInvoices, isStocked, isoD, itemType, money, nowISO, pFactor, payTotal, periodLocked, printA4, purKey, q3, _xe, roleEdit, rolePost, buildAccounting, INV_BILLERS, itemsSeq, vatNoOk, supVatOf, ItemPick, roleHasTab, stockByWh, sum, supplierPrices, today, uid, whName, whOf, whOn, poWhOf, brSigCheck, signoff, signDecision, sigFailMsg, pjBackfill, pjMissing, INV_CLS, invCls } from '../../App.jsx';
 import { cloud, bfKey } from '../../storage';
 import { ExpImport } from './ExpImport.jsx';   // v53.1
 
@@ -59,6 +59,8 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
   // v29.7: بحث في الفواتير (آلاف الفواتير المستوردة كانت تُعرض كلها دفعة واحدة بلا بحث)
   const [invQ, setInvQ] = useState('');
   const INV_CAP = 300;
+  const [invCf, setInvCf] = useState('');   // v53.4: تفنيد المشتريات من المصروفات
+  const clsTot = (() => { const m = { pur: [0, 0], exp: [0, 0], asset: [0, 0] }; allInvs.forEach(i => { const k = invCls(org, i); if (m[k]) { m[k][0]++; m[k][1] += Number(i.amount) || 0; } }); return m; })();
   const pjMiss = useMemo(() => pjMissing(invoices), [invoices]);
   const pjFill = async () => {
     if (!window.confirm('ترقيم ' + pjMiss + ' فاتورة برقم قيد ثابت؟ لا يغيّر أي مبلغ أو قيد، ويمكن البحث بالرقم بعدها.')) return;
@@ -67,7 +69,8 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
   };
   const invShown = (() => {
     const q = invQ.trim().toLowerCase();
-    const list = q ? allInvs.filter(i => (String(i.invoiceNo || '') + ' ' + (i.supplierName || '') + ' ' + (i.mizanId || '') + ' ' + (i.jeNo || '') + ' ' + (i.importNo || '')).toLowerCase().includes(q)) : allInvs;
+    const base = invCf ? allInvs.filter(i => invCls(org, i) === invCf) : allInvs;
+    const list = q ? base.filter(i => (String(i.invoiceNo || '') + ' ' + (i.supplierName || '') + ' ' + (i.mizanId || '') + ' ' + (i.jeNo || '') + ' ' + (i.importNo || '')).toLowerCase().includes(q)) : base;
     return { list: list.slice(0, INV_CAP), total: list.length };
   })();
 
@@ -883,6 +886,10 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
             <input className="inp" style={{ maxWidth: 320 }} placeholder="بحث برقم الفاتورة أو المورد أو رقم القيد أو الدفعة (IMP-)…" value={invQ} onChange={e => setInvQ(e.target.value)} />
             <button className="btn sm" onClick={printInvs}><Printer size={13} />طباعة الفواتير المفتوحة</button>
           </div>
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }} data-invcls>
+            {[['', 'الكل', allInvs.length, null], ...Object.keys(INV_CLS).map(k => [k, INV_CLS[k], clsTot[k][0], clsTot[k][1]])].map(([k, l, n, v]) =>
+              <button key={k || 'all'} className={'btn sm ' + (invCf === k ? 'pri' : 'gh')} data-cf={k || 'all'} onClick={() => setInvCf(k)}>{l} <span className="num" style={{ opacity: .75 }}>({n}{v != null ? ' · ' + money(v) : ''})</span></button>)}
+          </div>
           {canPay && pjMiss > 0 && <div className="note" data-pjmiss style={{ marginBottom: 8, fontSize: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <span>{pjMiss} فاتورة بلا رقم قيد ثابت (سُجّلت قبل v53.3). الترقيم يمنح كل فاتورة رقمًا ثابتًا PJ- بترتيب تاريخها، ولكل دفعة استيراد رقمًا موحدًا IMP- — لا يغيّر أي مبلغ أو قيد.</span>
             <button className="btn sm pri" data-pjfill onClick={pjFill}>ترقيم الفواتير</button></div>}
@@ -908,6 +915,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
                     <tr key={i.id}>
                       <td style={{ fontSize: 11 }}><DocLink to={i.source === 'stored' ? { inv: i.id } : null} title="استعراض الفاتورة"><span className="num">{i.invoiceNo}</span></DocLink>
                         {i.jeNo && <div className="num" data-jeno style={{ fontSize: 10, color: 'var(--dim)', marginTop: 2 }}><DocLink to={{ e: 'inv:' + i.id }} title="استعراض القيد">قيد {i.jeNo}</DocLink>{i.importNo && <span className="badge b-sky" data-impno style={{ fontSize: 8.5, marginInlineStart: 4 }}>{i.importNo}</span>}</div>}
+                        {(() => { const c = invCls(org, i); return <div><span className={'badge ' + (c === 'pur' ? 'b-mint' : c === 'asset' ? 'b-sky' : 'b-amber')} data-clsb={c} style={{ fontSize: 8.5, marginTop: 2 }}>{INV_CLS[c]}</span></div>; })()}
                         {i.source === 'closing' && <div><span className="badge b-mint" style={{ fontSize: 8.5, marginTop: 2 }}>من وردية · {i.categoryName}</span></div>}</td>
                       <td style={{ fontSize: 12 }}>{i.supplierName}</td>
                       <td style={{ fontSize: 11.5, color: 'var(--dim)' }}>{i.branchName}</td>
