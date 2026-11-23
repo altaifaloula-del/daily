@@ -3022,3 +3022,20 @@ test('v53.1 استيراد فواتير المصروفات من Excel/CSV: ال�
   assert.ok(await p.evaluate(() => window.curOrg.suppliers.some(s => s.name === 'مغسلة النور')));
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v53.3 رقم القيد الثابت للفواتير والرقم الموحد للدفعة: الترقيم والعرض والبحث', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1200 } }, 'live/Hub/admin/purchasing:suppliers');
+  await p.evaluate(() => window.setOps(o => ({ ...o, invoices: [
+    { id: 'pj1', kind: 'svc', supplierId: 's1', supplierName: 'مورد أ', invoiceNo: 'A-1', amount: 100, vatAmt: 0, date: '2026-02-02', dueDate: '2026-12-30', branchId: '', importBatch: 'xbZ', importLine: 2 },
+    { id: 'pj2', kind: 'svc', supplierId: 's1', supplierName: 'مورد أ', invoiceNo: 'A-2', amount: 50, vatAmt: 0, date: '2026-02-01', dueDate: '2026-12-30', branchId: '' }] })));
+  await p.waitForSelector('[data-pjfill]');
+  assert.match(await p.locator('[data-pjmiss]').innerText(), /2 فاتورة بلا رقم قيد ثابت/);
+  await p.click('[data-pjfill]'); await p.waitForTimeout(600);
+  const r = await p.evaluate(() => window.cur.invoices.map(i => [i.id, i.jeNo, i.importNo || '']).sort());
+  assert.deepEqual(r, [['pj1', 'PJ-000002', 'IMP-0001'], ['pj2', 'PJ-000001', '']]);
+  assert.equal(await p.locator('[data-pjmiss]').count(), 0);
+  const jn = await p.locator('[data-jeno]').allInnerTexts(); assert.ok(jn.some(t => /PJ-000002/.test(t) && /IMP-0001/.test(t)));
+  await p.fill('input[placeholder^="بحث برقم الفاتورة"]', 'IMP-0001'); await p.waitForTimeout(200);
+  assert.equal(await p.locator('[data-jeno]').count(), 1);
+  assert.deepEqual(errs, []); await ctx.close();
+});
