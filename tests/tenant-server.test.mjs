@@ -21,6 +21,7 @@ const fakeFetch = async (url, init) => {
     const p = JSON.parse(Buffer.from(idToken.split('.')[1], 'base64url')); const ok = KEY_PROJECT[key] === p.aud;
     return { ok, status: ok ? 200 : 400, json: async () => ok ? { users: [{ email: p.email }] } : { error: { message: 'INVALID_ID_TOKEN' } } };
   }
+  if (/\/documents\/platform\/security$/.test(url)) return { ok: false, status: 404, json: async () => ({}) };   // بلا سياسة إلزام
   const m = url.match(/projects\/([^/]+)\/databases\/\(default\)\/documents\/members\/(.+)$/);
   const role = m && (MEMBERS[decodeURIComponent(m[1])] || {})[decodeURIComponent(m[2])];
   return { ok: !!role, json: async () => ({ fields: { active: { booleanValue: true }, role: { stringValue: role } } }) };
@@ -36,8 +37,8 @@ test('السجل على الخادم: الطيف + منشأة إضافية، و�
 
 test('الهوية: كل منشأة تتحقق بمفتاحها، ورمز منشأة لا يفتح الأخرى', async () => {
   const T = loadTenants(ENV); const v = createVerifier({ T, fetchImpl: fakeFetch });
-  assert.deepEqual(await v(tok('altaif-prod', 'a@altaif.sa')), { email: 'a@altaif.sa', role: 'system_admin', tenant: 'default' });
-  assert.deepEqual(await v(tok('mithqal-client2', 'b@c2.sa')), { email: 'b@c2.sa', role: 'branch_manager', tenant: 'client2' });
+  assert.deepEqual(await v(tok('altaif-prod', 'a@altaif.sa')), { email: 'a@altaif.sa', role: 'system_admin', tenant: 'default', mfa: false });
+  assert.deepEqual(await v(tok('mithqal-client2', 'b@c2.sa')), { email: 'b@c2.sa', role: 'branch_manager', tenant: 'client2', mfa: false });
   calls.length = 0;
   assert.equal(await v(tok('mithqal-client2', 'a@altaif.sa')), null, 'مدير الطيف ليس عضوًا في منشأة أخرى');
   assert.ok(calls.some(u => u.includes('projects/mithqal-client2/')) && !calls.some(u => u.includes('projects/altaif-prod/')), 'العضوية من قاعدة المنشأة نفسها فقط');
@@ -53,6 +54,39 @@ test('الطيف بلا FIREBASE_PROJECT_ID: يبقى السلوك القديم 
   assert.equal((await v(tok('altaif-prod', 'a@altaif.sa'))).tenant, 'default');
   assert.equal(await v(tok('evil-project', 'a@altaif.sa')), null, 'Google ترفض رمز مشروع آخر بمفتاح الطيف');
   assert.equal(tokenProject(tok('A_B', 'x')), '');
+});
+
+/* v53.8 — الخادم يفرض سياسة التحقق بخطوتين كما تفرضها القواعد (لا تجاوز عبر رابط Claude أو تعيين كلمات السر) */
+const mfaTok = (aud, email, second) => ['h', Buffer.from(JSON.stringify({ aud, email, ...(second ? { firebase: { sign_in_second_factor: 'totp' } } : {}) })).toString('base64url'), 's'].join('.');
+const policyFetch = (policy, admins = [], fail = false) => async (url, init) => {
+  if (/\/documents\/platform\/security$/.test(url)) {
+    if (fail) return { ok: false, status: 500, json: async () => ({}) };
+    if (!policy) return { ok: false, status: 404, json: async () => ({}) };
+    return { ok: true, status: 200, json: async () => ({ fields: { roles: { arrayValue: { values: policy.roles.map(r => ({ stringValue: r })) } }, admins: { booleanValue: !!policy.admins } } }) };
+  }
+  if (/\/documents\/platform\/admins$/.test(url)) return { ok: true, status: 200, json: async () => ({ fields: { emails: { arrayValue: { values: admins.map(e => ({ stringValue: e })) } } } }) };
+  return fakeFetch(url, init);
+};
+test('التحقق بخطوتين: من تلزمه السياسة بلا خطوة ثانية يُرفض على الخادم', async () => {
+  const T = loadTenants(ENV);
+  const byRole = createVerifier({ T, fetchImpl: policyFetch({ roles: ['system_admin'], admins: false }) });
+  assert.deepEqual(await byRole(mfaTok('altaif-prod', 'a@altaif.sa', false)), { blocked: 'mfa', email: 'a@altaif.sa', tenant: 'default' }, 'الدور ملزَم ولا خطوة ثانية');
+  assert.deepEqual(await byRole(mfaTok('altaif-prod', 'a@altaif.sa', true)), { email: 'a@altaif.sa', role: 'system_admin', tenant: 'default', mfa: true }, 'بخطوتين يمر');
+  assert.equal((await byRole(mfaTok('mithqal-client2', 'b@c2.sa', false))).role, 'branch_manager', 'دور غير ملزَم يمر بلا خطوة ثانية');
+  const byAdmin = createVerifier({ T, fetchImpl: policyFetch({ roles: [], admins: true }, ['a@altaif.sa']) });
+  assert.equal((await byAdmin(mfaTok('altaif-prod', 'a@altaif.sa', false))).blocked, 'mfa', 'المدراء ملزَمون ⇒ المدير يُرفض بلا خطوة ثانية');
+  const notAdmin = createVerifier({ T, fetchImpl: policyFetch({ roles: [], admins: true }, ['x@altaif.sa']) });
+  assert.equal((await notAdmin(mfaTok('altaif-prod', 'a@altaif.sa', false))).role, 'system_admin', 'ليس في قائمة المدراء ⇒ غير ملزَم');
+  const none = createVerifier({ T, fetchImpl: policyFetch(null) });
+  assert.equal((await none(mfaTok('altaif-prod', 'a@altaif.sa', false))).role, 'system_admin', 'بلا سياسة ⇒ السلوك القديم');
+  const broken = createVerifier({ T, fetchImpl: policyFetch(null, [], true) });
+  assert.equal(await broken(mfaTok('altaif-prod', 'a@altaif.sa', false)), null, 'تعذّر قراءة السياسة ⇒ رفض');
+});
+
+test('server.js يرفض الجلسة المحجوبة بخطوتين في requireMember', async () => {
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+  assert.match(src, /user\.blocked === 'mfa'[^\n]*403[^\n]*mfa-required/);
 });
 
 test('خزنة الفوترة لكل منشأة: الطيف على اشتقاقه القديم، ولا يُفك جهاز منشأة بمفتاح أخرى', () => {
