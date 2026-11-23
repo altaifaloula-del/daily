@@ -3039,3 +3039,25 @@ test('v53.3 رقم القيد الثابت للفواتير والرقم الم�
   assert.equal(await p.locator('[data-jeno]').count(), 1);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v53.4 تفنيد المشتريات من المصروفات: عمود التصنيف، تطبيق تصنيف ملف مستورد سابقًا، وتصفية القائمة', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1200 } }, 'live/Hub/admin/purchasing:suppliers');
+  await p.evaluate(() => { window.setOrg(g => ({ ...g, taxCfg: { enabled: true, rate: 15 }, customAccounts: [...(g.customAccounts || []), { code: '5134', name: 'مواد البناء', kind: 'exp' }, { code: '5111', name: 'مواد تنظيف', kind: 'exp' }], suppliers: [{ id: 'sM', name: 'مكين', vatNo: '311135091100003' }] }));
+    window.setOps(o => ({ ...o, invoices: [
+      { id: 'q1', kind: 'svc', supplierId: 'sM', supplierName: 'مكين', invoiceNo: 'F1', amount: 230, vatAmt: 30, date: '2026-01-02', dueDate: '2026-12-30', branchId: '', expLines: [{ accCode: '5134', net: 200, vat: 30 }], importBatch: 'xb1' },
+      { id: 'q2', kind: 'svc', supplierId: 'sM', supplierName: 'مكين', invoiceNo: 'F2', amount: 115, vatAmt: 15, date: '2026-01-03', dueDate: '2026-12-30', branchId: '', expLines: [{ accCode: '5111', net: 100, vat: 15 }], importBatch: 'xb1' }] })); });
+  await p.waitForTimeout(300); await p.click('[data-xiopen]'); await p.waitForSelector('.modal input[aria-label="ملف الكشف"]', { state: 'attached' });
+  const csv = 'رقم القيد,التاريخ,المورد,الرقم الضريبي,رقم فاتورة المورد,البيان,التصنيف,رمز حساب المدين,قبل الضريبة,ضريبة المدخلات,الإجمالي\nPUR-1,2026-01-02,مكين,311135091100003,F1,x,مصروف,5134,200,30,230\nPUR-2,2026-01-03,مكين,311135091100003,F2,x,منتجات (مخزون),5111,100,15,115\n';
+  await p.setInputFiles('.modal input[aria-label="ملف الكشف"]', { name: 'كشف.csv', mimeType: 'text/csv', buffer: Buffer.from(csv, 'utf8') });
+  await p.waitForSelector('[data-xiclsnote]');
+  assert.match(await p.locator('[data-ximap]').innerText(), /التصنيف/);
+  assert.match(await p.locator('[data-xiclsnote]').innerText(), /5134 مصروفات.*5111 مشتريات|5111 مشتريات.*5134 مصروفات/);
+  await p.click('[data-xiapplycls]'); await p.waitForTimeout(600);
+  assert.deepEqual(await p.evaluate(() => window.curOrg.accCls), { 5134: 'exp', 5111: 'pur' });
+  await p.locator('.modal button:has-text("إلغاء")').click(); await p.waitForTimeout(300);
+  await p.click('[data-cf="pur"]'); await p.waitForTimeout(200);
+  let t = (await p.locator('table.tb tbody').first().innerText()); assert.match(t, /F2/); assert.doesNotMatch(t, /F1/);
+  await p.click('[data-cf="exp"]'); await p.waitForTimeout(200);
+  t = (await p.locator('table.tb tbody').first().innerText()); assert.match(t, /F1/); assert.doesNotMatch(t, /F2/);
+  assert.deepEqual(errs, []); await ctx.close();
+});
