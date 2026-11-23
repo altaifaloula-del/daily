@@ -4,7 +4,7 @@ services:
     name: mizan-ai
     runtime: node
     plan: free            # المجانية تنام بعد 15 دقيقة خمول (أول طلب بعدها يتأخر ~دقيقة). غيّرها إلى starter لإلغاء ذلك
-    buildCommand: npm ci && node scripts/build-mcp-engine.mjs && npm prune --omit=dev   # ci: يلتزم بملف القفل حرفيًا — v53.9: يبني محرك موصل Claude (dist-engine) ثم يحذف اعتماديات التطوير
+    buildCommand: npm ci --omit=dev && npm install --prefix .esb --no-save --no-package-lock --no-audit --no-fund esbuild@0.25.12 && node scripts/build-mcp-engine.mjs && rm -rf .esb   # v53.9: اعتماديات التشغيل فقط + esbuild وحده لبناء محرك موصل Claude (تثبيت كل اعتماديات التطوير أفشل البناء)
     startCommand: node server.js
     healthCheckPath: /api/health
     envVars:
