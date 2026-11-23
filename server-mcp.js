@@ -37,6 +37,58 @@ export const MCP_TOOLS = [
   { name: 'journal_entries', title: 'قيود اليومية', description: 'قيود اليومية (الآلية واليدوية) لفترة مع بنودها. ابحث في البيان أو رقم القيد أو المرجع. limit الافتراضي 50.', inputSchema: { type: 'object', properties: { from: FROM, to: TO, q: { type: 'string' }, branch: BR, limit: { type: 'integer', minimum: 1, maximum: 300 } } } },
 ].map(t => ({ ...t, annotations: { ...RO, title: t.title } }));
 
+/* ===== v53.7 — كتابة مشروطة بالاعتماد: أدوات «اقتراح» تُسجّل مقترحًا في mcp_proposals ولا تمس بيانات المنشأة؛ التنفيذ عند اعتماد مسؤول النظام في مثقال ===== */
+const WR = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
+const PEND = ' لا يُنفَّذ شيء الآن: يُسجَّل «مقترحًا بانتظار الاعتماد» ويعتمده مسؤول النظام في مثقال (الإعدادات ← ربط Claude ← المقترحات). أخبر المستخدم بذلك.';
+export const MCP_WRITE_TOOLS = [
+  { name: 'propose_journal_entry', title: 'اقتراح قيد يومية', description: 'اقتراح قيد يومية يدوي متوازن (حسابات من chart_of_accounts).' + PEND, inputSchema: { type: 'object', properties: {
+    date: { type: 'string', description: 'YYYY-MM-DD' }, title: { type: 'string', description: 'بيان القيد' }, branch: BR,
+    lines: { type: 'array', minItems: 2, maxItems: 60, items: { type: 'object', properties: { code: { type: 'string' }, debit: { type: 'number' }, credit: { type: 'number' } }, required: ['code'] } },
+    reason: { type: 'string', description: 'سبب القيد للمعتمِد' } }, required: ['date', 'title', 'lines'] } },
+  { name: 'propose_reclassify_invoices', title: 'اقتراح إعادة تصنيف فواتير', description: 'نقل فواتير مصروفات (بحساب واحد) إلى حساب آخر. invoice = رقم القيد الثابت PJ- أو رقم فاتورة المورد (مع supplier عند التكرار). حتى 2000 فاتورة في المقترح.' + PEND, inputSchema: { type: 'object', properties: {
+    changes: { type: 'array', minItems: 1, maxItems: 2000, items: { type: 'object', properties: { invoice: { type: 'string' }, supplier: { type: 'string' }, to_account: { type: 'string' } }, required: ['invoice', 'to_account'] } },
+    reason: { type: 'string' } }, required: ['changes'] } },
+  { name: 'propose_expense_invoices', title: 'اقتراح فواتير مصروفات ومشتريات', description: 'تسجيل فواتير موردين (خدمات/مصروفات/مشتريات بلا أصناف) بنفس تحقق استيراد Excel: الموردون، الرقم الضريبي، التكرار، الإقفال. payment: credit آجل / cash نقدي / bank بنك. حتى 300 فاتورة.' + PEND, inputSchema: { type: 'object', properties: {
+    invoices: { type: 'array', minItems: 1, maxItems: 300, items: { type: 'object', properties: { date: { type: 'string' }, supplier: { type: 'string' }, vat_number: { type: 'string' }, invoice_no: { type: 'string' }, description: { type: 'string' },
+      account: { type: 'string', description: 'رمز الحساب' }, net: { type: 'number' }, vat: { type: 'number' }, total: { type: 'number' }, branch: { type: 'string' }, payment: { type: 'string', enum: ['credit', 'cash', 'bank'] } }, required: ['date', 'supplier', 'invoice_no', 'account'] } },
+    reason: { type: 'string' } }, required: ['invoices'] } },
+  { name: 'list_proposals', title: 'حالة المقترحات', description: 'المقترحات المرسلة وحالتها (بانتظار الاعتماد / نُفّذ / رُفض) مع ملاحظة المعتمِد.', inputSchema: { type: 'object', properties: { status: { type: 'string', enum: ['pending', 'applied', 'rejected'] } } } },
+].map(t => ({ ...t, annotations: { ...(t.name === 'list_proposals' ? RO : WR), title: t.title } }));
+export const WRITE_NAMES = new Set(MCP_WRITE_TOOLS.filter(t => t.name !== 'list_proposals').map(t => t.name));
+
+/** يبني المقترح ويتحقق منه على البيانات الحالية (نفس دوال التطبيق في مثقال) — يرمي خطأ مفهومًا إن لم يصلح شيء */
+export function proposeTool(E, D, name, a = {}) {
+  const C = ctxOf(E, D); const reason = String(a.reason || '').slice(0, 500);
+  if (name === 'propose_journal_entry') {
+    const payload = { date: String(a.date || '').slice(0, 10), title: String(a.title || '').slice(0, 140), ...(a.branch ? { branchId: (() => { const b = C.brOf(a.branch); return b === 'central' ? '' : b; })() } : {}),
+      lines: (a.lines || []).map(l => ({ code: String(l.code || '').trim(), debit: Number(l.debit) || 0, credit: Number(l.credit) || 0 })) };
+    const P = E.mcpPlanJournal(C.org, payload, { role: 'system_admin' }); if (!P.ok) throw new Error('القيد مرفوض: ' + P.errs.join(' · '));
+    return { kind: 'journal', title: payload.title, reason, payload, summary: { date: payload.date, branch: payload.branchId ? C.brName(payload.branchId) : 'المركز الرئيسي', total: P.total, lines: P.lines } };
+  }
+  if (name === 'propose_reclassify_invoices') {
+    const inv = C.ops.invoices || []; const byJe = new Map(), byNo = new Map(); const pre = [];
+    inv.forEach(i => { if (i.jeNo) byJe.set(String(i.jeNo).toUpperCase(), i); const k = norm(i.invoiceNo); if (k) (byNo.get(k) || byNo.set(k, []).get(k)).push(i); });
+    (a.changes || []).slice(0, 2000).forEach(c => { const ref = String(c.invoice || '').trim(); let i = inv.find(x => x.id === ref) || byJe.get(ref.toUpperCase());
+      if (!i) { let L = byNo.get(norm(ref)) || []; if (c.supplier) L = L.filter(x => norm(x.supplierName).includes(norm(c.supplier))); if (L.length === 1) i = L[0]; else { pre.push({ ref, why: L.length ? 'رقم الفاتورة مكرر — حدّد المورد أو استعمل PJ-' : 'الفاتورة غير موجودة' }); return; } }
+      pre.push({ id: i.id, to: String(c.to_account || '').trim() }); });
+    const P = E.mcpPlanReclass(C.org, C.ops, { changes: pre.filter(x => x.id) });
+    const skipped = [...pre.filter(x => !x.id), ...P.skipped];
+    if (!P.ok.length) throw new Error('لا تغيير صالح: ' + skipped.slice(0, 10).map(x => x.ref + ' — ' + x.why).join(' · '));
+    const by = {}; P.ok.forEach(x => { const k = x.from + ' → ' + x.to; const g = by[k] || (by[k] = { from: x.from + ' ' + x.fromName, to: x.to + ' ' + x.toName, count: 0, total: 0 }); g.count++; g.total = r2(g.total + x.amount); });
+    return { kind: 'reclass', title: 'إعادة تصنيف ' + P.ok.length + ' فاتورة', reason, payload: { changes: P.ok.map(x => ({ id: x.id, from: x.from, to: x.to })) },
+      summary: { count: P.ok.length, total: P.total, groups: Object.values(by), skipped: skipped.length, skipped_sample: skipped.slice(0, 20) } };
+  }
+  if (name === 'propose_expense_invoices') {
+    const rows = (a.invoices || []).slice(0, 300); const P = E.mcpPlanExp(C.org, C.ops, { invoices: rows });
+    const okRows = P.rows.map((r, k) => r.ok ? rows[k] : null).filter(Boolean);
+    const bad = P.rows.map((r, k) => r.ok ? null : { row: k + 1, invoice_no: rows[k] && rows[k].invoice_no, why: r.err.join(' · ') }).filter(Boolean);
+    if (!okRows.length) throw new Error('لا فاتورة صالحة: ' + bad.slice(0, 10).map(x => '#' + x.row + ' ' + (x.invoice_no || '') + ' — ' + x.why).join(' · '));
+    return { kind: 'expinv', title: okRows.length + ' فاتورة مصروفات ومشتريات', reason, payload: { invoices: okRows },
+      summary: { count: okRows.length, total: P.sum, vat: P.vatSum, new_suppliers: P.newSup.map(x => x.name), rejected: bad.length, rejected_rows: bad.slice(0, 30) } };
+  }
+  const e = new Error('أداة غير معروفة: ' + name); e.code = -32602; throw e;
+}
+
 function ctxOf(E, D) {
   const org = D.org || {}, ops = D.ops || {};
   const A = D._A || (D._A = E.buildAccounting(org, ops));
@@ -142,7 +194,7 @@ export function runTool(E, D, name, a = {}, today = new Date().toISOString().sli
 }
 
 /* ===================== JSON-RPC (MCP) ===================== */
-export async function handleRpc(msg, { tools = MCP_TOOLS, call, version = '' } = {}) {
+export async function handleRpc(msg, { tools = [...MCP_TOOLS, ...MCP_WRITE_TOOLS], call, version = '' } = {}) {
   if (!msg || msg.jsonrpc !== '2.0' || typeof msg.method !== 'string') return { jsonrpc: '2.0', id: (msg && msg.id) ?? null, error: { code: -32600, message: 'Invalid Request' } };
   if (!('id' in msg)) return null;   // إشعار (notifications/*) — لا رد
   const ok = (result) => ({ jsonrpc: '2.0', id: msg.id, result }); const err = (code, message) => ({ jsonrpc: '2.0', id: msg.id, error: { code, message } });
@@ -150,7 +202,7 @@ export async function handleRpc(msg, { tools = MCP_TOOLS, call, version = '' } =
   switch (msg.method) {
     case 'initialize': return ok({ protocolVersion: MCP_PROTOCOLS.includes(p.protocolVersion) ? p.protocolVersion : MCP_PROTOCOLS[0], capabilities: { tools: { listChanged: false } },
       serverInfo: { name: 'mithqal', title: 'مِثقال ERP', version: version || '1' },
-      instructions: 'موصل مثقال للقراءة فقط: بيانات المنشأة المحاسبية الحية (قيود، ميزان، قائمة دخل، مبيعات الفروع، فواتير الموردين وتصنيفها، أرصدة الموردين). ابدأ بـ mithqal_overview لمعرفة الفروع ونطاق التواريخ. المبالغ بالريال السعودي. أجب المستخدم بالعربية.' });
+      instructions: 'موصل مثقال: قراءة مباشرة لبيانات المنشأة المحاسبية الحية (قيود، ميزان، قائمة دخل، مبيعات الفروع، فواتير الموردين وتصنيفها، أرصدة الموردين). ابدأ بـ mithqal_overview لمعرفة الفروع ونطاق التواريخ. الكتابة بأدوات propose_* فقط وهي مقترحات لا تُنفَّذ إلا باعتماد مسؤول النظام في مثقال — لا تقل إنها نُفّذت. المبالغ بالريال السعودي. أجب المستخدم بالعربية.' });
     case 'ping': return ok({});
     case 'tools/list': return ok({ tools });
     case 'tools/call': {
@@ -210,6 +262,41 @@ export function mountMcp(app, { express, requireMember, requireFeature = () => (
     catch (e) { res.status(502).json({ error: e.message }); }
   });
 
+  // --- v53.7: المقترحات (mcp_proposals/{id}) — يكتبها الخادم وحده؛ التطبيق يقرؤها ويقرّر عبر الخادم، والتنفيذ بالحفظ العادي في التطبيق ---
+  const MAX_PENDING = 50;
+  const propList = async (t) => { const r = await fs(t, docs(t) + '/mcp_proposals?pageSize=300'); if (!r.ok && r.status !== 404) throw new Error('تعذّرت قراءة المقترحات');
+    return (r.j.documents || []).map(d => { const f = decodeFields(d.fields); let payload = null, summary = null; try { payload = JSON.parse(f.payload || 'null'); summary = JSON.parse(f.summary || 'null'); } catch { }
+      return { id: d.name.split('/').pop(), kind: f.kind, status: f.status, title: f.title || '', reason: f.reason || '', by: f.by || '', link: f.link || '', createdAt: f.createdAt || '', decidedAt: f.decidedAt || '', decidedBy: f.decidedBy || '', note: f.note || '', payload, summary }; })
+      .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))); };
+  const listProposals = async (t, status) => ({ proposals: (await propList(t)).filter(p => !status || p.status === status).slice(0, 100).map(({ payload, ...p }) => p) });
+  const storeProposal = async (v, P) => {
+    const L = await propList(v.t); if (L.filter(p => p.status === 'pending').length >= MAX_PENDING) throw new Error('يوجد ' + MAX_PENDING + ' مقترحًا بانتظار الاعتماد — اطلب من المستخدم مراجعتها أولًا');
+    const body = JSON.stringify(P.payload); if (body.length > 900000) throw new Error('المقترح كبير جدًا — قسّمه');
+    const id = 'mp-' + new Date(now()).toISOString().slice(0, 10).replace(/-/g, '') + '-' + crypto.randomBytes(5).toString('hex');
+    const w = await fs(v.t, docs(v.t) + '/mcp_proposals/' + id + '?currentDocument.exists=false', { method: 'PATCH', body: JSON.stringify({ fields: { kind: S(P.kind), status: S('pending'), title: S(P.title), reason: S(P.reason || ''),
+      payload: S(body), summary: S(JSON.stringify(P.summary)), by: S(v.email), link: S(v.h.slice(0, 12)), createdAt: S(new Date(now()).toISOString()) } }) });
+    if (!w.ok) throw new Error('تعذّر حفظ المقترح');
+    log.log('mcp: مقترح', v.t.id, id, P.kind);
+    return { proposal_id: id, status: 'pending', kind: P.kind, title: P.title, summary: P.summary, next: 'بانتظار اعتماد مسؤول النظام في مثقال: الإعدادات ← ربط Claude ← المقترحات. لم يُنفَّذ شيء بعد.' };
+  };
+  app.get('/api/mcp/proposals', requireMember, lim, async (req, res) => {
+    const t = admin(req, res); if (!t) return;
+    try { res.json({ proposals: (await propList(t)).slice(0, 200) }); } catch (e) { res.status(502).json({ error: e.message }); }
+  });
+  app.post('/api/mcp/proposals/decide', express.json({ limit: '64kb' }), requireMember, lim, async (req, res) => {
+    const t = admin(req, res); if (!t) return;
+    const b = req.body || {}; const id = String(b.id || ''); const dec = String(b.decision || '');
+    if (!/^mp-\d{8}-[a-f0-9]{10}$/.test(id) || !['applied', 'rejected'].includes(dec)) return res.status(400).json({ error: 'طلب غير صالح' });
+    try {
+      const cur = await fs(t, docs(t) + '/mcp_proposals/' + id); if (!cur.ok) return res.status(404).json({ error: 'المقترح غير موجود' });
+      const st = decodeFields(cur.j.fields).status; if (st !== 'pending') return res.status(409).json({ error: 'سبق البت في هذا المقترح (' + st + ')', status: st });
+      const w = await fs(t, docs(t) + '/mcp_proposals/' + id + '?updateMask.fieldPaths=status&updateMask.fieldPaths=decidedAt&updateMask.fieldPaths=decidedBy&updateMask.fieldPaths=note&currentDocument.updateTime=' + encodeURIComponent(cur.j.updateTime || ''),
+        { method: 'PATCH', body: JSON.stringify({ fields: { status: S(dec), decidedAt: S(new Date(now()).toISOString()), decidedBy: S(req.user.email), note: S(String(b.note || '').slice(0, 500)) } }) });
+      if (!w.ok) return res.status(w.status === 400 || w.status === 412 ? 409 : 502).json({ error: 'تعذّر تسجيل القرار — أعد المحاولة' });
+      log.log('mcp: قرار', t.id, id, dec, req.user.email); res.json({ ok: true });
+    } catch (e) { res.status(502).json({ error: e.message }); }
+  });
+
   // --- التحقق من الرابط عند كل طلب (مخبأ دقيقة) ---
   const auth = new Map();
   const verify = async (tok) => {
@@ -244,7 +331,10 @@ export function mountMcp(app, { express, requireMember, requireFeature = () => (
     if (!v) return deny(res, 401, 'رابط ربط غير صالح أو أُلغي — أنشئ رابطًا جديدًا من مثقال: الإعدادات ← ربط Claude');
     const msgs = Array.isArray(req.body) ? req.body : [req.body];
     let D = null; const call = async (name, args) => { if (!D) D = await loadData(v.t); const En = await loadEngine(); touch(v);
-      log.log('mcp:', v.t.id, v.email, name); return runTool(En, D, name, args); };
+      log.log('mcp:', v.t.id, v.email, name);
+      if (name === 'list_proposals') return listProposals(v.t, args.status);
+      if (WRITE_NAMES.has(name)) return storeProposal(v, proposeTool(En, D, name, args));
+      return runTool(En, D, name, args); };
     const out = []; for (const m of msgs) { const r = await handleRpc(m, { call, version: (E && E.APP_VER) || '' }); if (r) out.push(r); }
     if (!out.length) return res.status(202).end();
     res.json(Array.isArray(req.body) ? out : out[0]);

@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
-import { mountMcp, handleRpc, MCP_TOOLS, runTool, hashToken, parseToken, newToken } from '../server-mcp.js';
+import { mountMcp, handleRpc, MCP_TOOLS, MCP_WRITE_TOOLS, runTool, proposeTool, hashToken, parseToken, newToken } from '../server-mcp.js';
 import { loadTenants } from '../tenants.js';
 import { buildMcpEngine } from '../scripts/build-mcp-engine.mjs';
 
@@ -25,7 +25,7 @@ const OPS = { invoices: [
 function harness({ env = ENV, role = 'system_admin', memberRole = 'system_admin', memberActive = true } = {}) {
   const routes = {}; const reg = (m) => (p, ...h) => { routes[m + ' ' + p] = h; };
   const app = { get: reg('GET'), post: reg('POST'), delete: reg('DELETE') };
-  const store = { mcp_tokens: {} }; const sent = []; const logs = [];
+  const store = { mcp_tokens: {}, mcp_proposals: {} }; const sent = []; const logs = [];
   const platform = { rms8_org: { parts: 1, value: JSON.stringify(ORG) }, rms8_core: { parts: 1, value: JSON.stringify(OPS) } };
   const enc = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, typeof v === 'boolean' ? { booleanValue: v } : typeof v === 'number' ? { integerValue: String(v) } : { stringValue: String(v) }]));
   const fetchImpl = async (u, i = {}) => { sent.push({ u, method: i.method || 'GET', body: i.body });
@@ -34,11 +34,12 @@ function harness({ env = ENV, role = 'system_admin', memberRole = 'system_admin'
     const m = /\/documents\/(.+?)(\?|$)/.exec(u); const p = m ? decodeURIComponent(m[1]) : '';
     if (p.startsWith('members/')) return memberActive != null ? J(200, { fields: enc({ role: memberRole, active: memberActive }) }) : J(404, {});
     if (p === 'platform') return J(200, { documents: Object.entries(platform).map(([id, f]) => ({ name: 'x/platform/' + id, fields: enc(f) })) });
-    if (p === 'mcp_tokens') return J(200, { documents: Object.entries(store.mcp_tokens).map(([id, f]) => ({ name: 'x/mcp_tokens/' + id, fields: enc(f) })) });
-    if (p.startsWith('mcp_tokens/')) { const id = p.split('/')[1];
+    const [col, id] = p.split('/');
+    if (store[col] && !id) return J(200, { documents: Object.entries(store[col]).map(([k, f]) => ({ name: 'x/' + col + '/' + k, fields: enc(f) })) });
+    if (store[col] && id) {
       if (i.method === 'PATCH') { const f = Object.fromEntries(Object.entries(JSON.parse(i.body).fields).map(([k, v]) => [k, 'booleanValue' in v ? v.booleanValue : 'integerValue' in v ? Number(v.integerValue) : v.stringValue]));
-        if (u.includes('exists=true') && !store.mcp_tokens[id]) return J(404, {}); store.mcp_tokens[id] = { ...(store.mcp_tokens[id] || {}), ...f }; return J(200, {}); }
-      return store.mcp_tokens[id] ? J(200, { fields: enc(store.mcp_tokens[id]) }) : J(404, {}); }
+        if (u.includes('exists=true') && !store[col][id]) return J(404, {}); if (u.includes('exists=false') && store[col][id]) return J(409, {}); store[col][id] = { ...(store[col][id] || {}), ...f }; return J(200, {}); }
+      return store[col][id] ? J(200, { fields: enc(store[col][id]), updateTime: '2026-01-01T00:00:00Z' }) : J(404, {}); }
     return J(404, {}); };
   const user = { email: 'o@altaif.sa', role, tenant: 'default' };
   const requireMember = (req, res, next) => { req.user = user; next(); };
@@ -71,7 +72,8 @@ test('البروتوكول: تهيئة، إشعار بلا رد، قائمة أ�
   assert.equal(i.json.result.protocolVersion, '2025-06-18'); assert.equal(i.json.result.serverInfo.name, 'mithqal'); assert.ok(i.json.result.capabilities.tools);
   const n = await rpc(H, tok, { jsonrpc: '2.0', method: 'notifications/initialized' }); assert.equal(n.status, 202);
   const L = await rpc(H, tok, { jsonrpc: '2.0', id: 2, method: 'tools/list' });
-  assert.equal(L.json.result.tools.length, MCP_TOOLS.length); assert.ok(L.json.result.tools.every(t => t.annotations.readOnlyHint === true && t.inputSchema.type === 'object'));
+  assert.equal(L.json.result.tools.length, MCP_TOOLS.length + MCP_WRITE_TOOLS.length); assert.ok(L.json.result.tools.filter(t => !/^propose_/.test(t.name)).every(t => t.annotations.readOnlyHint === true && t.inputSchema.type === 'object'));
+  assert.ok(L.json.result.tools.filter(t => /^propose_/.test(t.name)).every(t => t.annotations.readOnlyHint === false && t.annotations.destructiveHint === false));
   const o = await rpc(H, tok, { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'mithqal_overview', arguments: {} } });
   const ov = o.json.result.structuredContent; assert.equal(ov.company, 'شركة الطيف الأولى'); assert.deepEqual(ov.branches.map(b => b.name), ['طيبة', 'النسيم']); assert.equal(ov.counts.supplier_invoices, 2);
   assert.equal(JSON.parse(o.json.result.content[0].text).company, 'شركة الطيف الأولى');
@@ -115,4 +117,34 @@ test('v53.6 مشروع البيانات من ملف حساب الخدمة دون
   assert.equal(T.def.dataProject, 'altaif-prod'); assert.ok(T.def.sa && T.def.sa.private_key);
   const T2 = loadTenants(ENV); assert.equal(T2.def.dataProject, 'altaif-prod');
   const T3 = loadTenants({ ...ENV, FIREBASE_PROJECT_ID: 'other-proj' }); assert.equal(T3.def.sa, null, 'ملف من مشروع آخر يُرفض');
+});
+
+
+test('v53.7 المقترحات: التحقق عند الاقتراح، الحفظ بانتظار الاعتماد دون مس البيانات، والقرار مرة واحدة', async () => {
+  const H = harness(); const tok = (await H.call('POST /api/mcp/links', { body: {} })).json.url.split('/mcp/')[1];
+  const call = (name, args) => rpc(H, tok, { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name, arguments: args } });
+  const bad = await call('propose_journal_entry', { date: '2026-02-01', title: 'غير متوازن', lines: [{ code: '5198', debit: 100 }, { code: '1101', credit: 90 }] });
+  assert.equal(bad.json.result.isError, true); assert.match(bad.json.result.content[0].text, /غير متوازن/); assert.equal(Object.keys(H.store.mcp_proposals).length, 0);
+  const j = await call('propose_journal_entry', { date: '2026-02-01', title: 'إيجار فبراير', branch: 'طيبة', lines: [{ code: '5198', debit: 100 }, { code: '1101', credit: 100 }], reason: 'عقد الإيجار' });
+  const r = j.json.result.structuredContent; assert.equal(r.status, 'pending'); assert.match(r.next, /بانتظار اعتماد/);
+  const doc = H.store.mcp_proposals[r.proposal_id]; assert.equal(doc.kind, 'journal'); assert.equal(doc.status, 'pending'); assert.equal(JSON.parse(doc.payload).branchId, 'b1');
+  assert.ok(!H.sent.some(x => x.method === 'PATCH' && x.u.includes('/platform')), 'لا كتابة على بيانات المنشأة');
+  const rc = await call('propose_reclassify_invoices', { changes: [{ invoice: 'PJ-000002', to_account: '5198' }, { invoice: 'لا-يوجد', to_account: '5198' }] });
+  const rr = rc.json.result.structuredContent; assert.equal(rr.summary.count, 1); assert.equal(rr.summary.skipped, 1);
+  const L = await call('list_proposals', { status: 'pending' }); assert.equal(L.json.result.structuredContent.proposals.length, 2);
+  const G = await H.call('GET /api/mcp/proposals'); assert.equal(G.json.proposals.length, 2); assert.ok(G.json.proposals.every(p => p.payload));
+  assert.equal((await H.call('POST /api/mcp/proposals/decide', { body: { id: r.proposal_id, decision: 'applied', note: 'قيد مرحّل' } })).status, 200);
+  assert.equal(H.store.mcp_proposals[r.proposal_id].status, 'applied');
+  assert.equal((await H.call('POST /api/mcp/proposals/decide', { body: { id: r.proposal_id, decision: 'rejected' } })).status, 409, 'لا يُبت مرتين');
+  assert.equal((await harness({ role: 'accountant' }).call('GET /api/mcp/proposals')).status, 403);
+});
+
+test('v53.7 دوال المقترحات في المحرك: القيد، إعادة التصنيف، والفواتير بنفس تحقق الاستيراد', () => {
+  const D = { org: ORG, ops: OPS };
+  const fx = proposeTool(E, D, 'propose_expense_invoices', { invoices: [
+    { date: '2026-01-10', supplier: 'مكين', vat_number: '311135091100003', invoice_no: 'NEW-1', account: '5198', net: 100, vat: 15, payment: 'cash' },
+    { date: '2026-01-05', supplier: 'مكين', invoice_no: 'F-1', account: '5198', net: 1000, vat: 150 },
+    { date: '2026-01-11', supplier: 'مورد جديد', invoice_no: 'Z-9', account: '5199', total: 50 }] });
+  assert.equal(fx.summary.count, 2); assert.equal(fx.summary.rejected, 1); assert.match(fx.summary.rejected_rows[0].why, /سابق|مسجل/); assert.deepEqual(fx.summary.new_suppliers, ['مورد جديد']);
+  assert.throws(() => proposeTool(E, D, 'propose_journal_entry', { date: '2026-02-01', title: 'x', lines: [{ code: '9999', debit: 1 }, { code: '1101', credit: 1 }] }), /حساب غير موجود/);
 });

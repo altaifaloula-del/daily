@@ -3084,3 +3084,32 @@ test('v53.5 ربط Claude: إنشاء رابط يظهر مرة واحدة، قا
   await p.click('[data-tab-claude]'); await p.click('button:has-text("صيانة النظام")'); await p.click('[data-tab-claude]'); await p.waitForSelector('[data-mcpnosa]');
   assert.deepEqual(errs.filter(e => !/409|Failed to load resource/.test(e)), []); await ctx.close();
 });
+
+test('v53.7 مقترحات Claude: اعتماد قيد وإعادة تصنيف بالحفظ العادي، والرفض بسبب', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Admin/admin');
+  await p.evaluate(() => window.setOps(o => ({ ...o, invoices: [{ id: 'rc1', kind: 'svc', supplierId: 's1', supplierName: 'مكين', invoiceNo: 'R-1', amount: 115, vatAmt: 15, date: '2026-10-02', dueDate: '2026-12-30', branchId: '', jeNo: 'PJ-000009', expLines: [{ accCode: '5198', net: 100, vat: 15 }] }, ...(o.invoices || [])] })));
+  const P = [
+    { id: 'mp-20261123-aaaaaaaaaa', kind: 'journal', status: 'pending', title: 'إيجار أكتوبر', reason: 'عقد', by: 'own@x.sa', createdAt: '2026-11-23T10:00:00Z',
+      payload: { date: '2026-10-31', title: 'إيجار أكتوبر', lines: [{ code: '5198', debit: 500, credit: 0 }, { code: '1101', debit: 0, credit: 500 }] }, summary: { date: '2026-10-31', branch: 'المركز الرئيسي', total: 500, lines: [] } },
+    { id: 'mp-20261123-bbbbbbbbbb', kind: 'reclass', status: 'pending', title: 'إعادة تصنيف 1 فاتورة', by: 'own@x.sa', createdAt: '2026-11-23T10:01:00Z',
+      payload: { changes: [{ id: 'rc1', from: '5198', to: '5199' }] }, summary: { count: 1, total: 115, groups: [{ from: '5198', to: '5199', count: 1, total: 115 }] } },
+    { id: 'mp-20261123-cccccccccc', kind: 'journal', status: 'pending', title: 'قيد مرفوض', by: 'own@x.sa', createdAt: '2026-11-23T10:02:00Z', payload: { date: '2026-10-31', title: 'x', lines: [] }, summary: { total: 1 } }];
+  const decided = [];
+  await p.route('http://zatca.test/api/mcp/**', async (route) => { const u = new URL(route.request().url());
+    if (u.pathname.endsWith('/links')) return route.fulfill({ json: { links: [] } });
+    if (u.pathname.endsWith('/proposals')) return route.fulfill({ json: { proposals: P } });
+    const b = JSON.parse(route.request().postData()); decided.push(b.id + ' ' + b.decision); const x = P.find(q => q.id === b.id); x.status = b.decision; x.note = b.note; return route.fulfill({ json: { ok: true } }); });
+  await p.evaluate(() => { window.prompt = () => 'لا حاجة له'; });
+  await p.click('[data-tab-claude]'); await p.waitForSelector('[data-mcppend]');
+  assert.match(await p.locator('[data-mcppend]').innerText(), /3 بانتظار/);
+  await p.locator('[data-mcpprop="journal"] [data-mcpapprove]').first().click(); await p.waitForTimeout(600);
+  const jm = await p.evaluate(() => (window.cur.journalManual || []).find(j => j.mcpProposal === 'mp-20261123-aaaaaaaaaa'));
+  assert.ok(jm, 'القيد حُفظ'); assert.equal(jm.status, 'posted'); assert.match(jm.title, /^Claude: إيجار أكتوبر/);
+  await p.locator('[data-mcpprop="reclass"] [data-mcpapprove]').click(); await p.waitForTimeout(600);
+  const inv = await p.evaluate(() => window.cur.invoices.find(i => i.id === 'rc1'));
+  assert.equal(inv.expLines[0].accCode, '5199'); assert.equal(inv.reclass[0].via, 'claude'); assert.equal(inv.reclass[0].from, '5198');
+  await p.locator('[data-mcpprop="journal"] [data-mcpreject]').click(); await p.waitForTimeout(500);
+  assert.deepEqual(decided, ['mp-20261123-aaaaaaaaaa applied', 'mp-20261123-bbbbbbbbbb applied', 'mp-20261123-cccccccccc rejected']);
+  assert.equal(P[2].note, 'لا حاجة له'); assert.equal(await p.locator('[data-mcppend]').count(), 0);
+  assert.deepEqual(errs, []); await ctx.close();
+});
