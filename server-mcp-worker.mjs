@@ -7,7 +7,7 @@ import { saTokenSource } from './server-billing.js';
 import { loadPlatformData, runTool, proposeTool } from './server-mcp.js';
 
 let E = null; const cache = new Map(); const toks = new Map();
-const TTL = 120000;
+const TTL = 10 * 60000;   // التجهيز مكلف على المعالج البطيء — البيانات تُحدَّث كل 10 دقائق على الأكثر (data_as_of في الرد)
 
 const getter = (t) => {
   if (!toks.has(t.id)) toks.set(t.id, saTokenSource(t.sa));

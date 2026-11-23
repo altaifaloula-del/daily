@@ -278,7 +278,7 @@ mountProvider(app, { express, requireMember, rateLimit, T: TENANTS, cfg: provide
 mountUserAdmin(app, { express, requireMember, rateLimit, T: TENANTS });
 mountMcp(app, { express, requireMember, requireFeature, rateLimit, T: TENANTS, publicBase: String(process.env.MCP_PUBLIC_BASE || '').replace(/\/+$/, ''),
   // v53.9: حسابات الموصل في عامل معزول بحد ذاكرة — نفاد ذاكرته لا يُسقط الخادم
-  isolate: IS_PROD ? { heapMb: Number(process.env.MCP_WORKER_MB) || 200, timeoutMs: 90000 } : null });
+  isolate: IS_PROD ? { heapMb: Number(process.env.MCP_WORKER_MB) || 200, timeoutMs: 100000, hardMs: 600000 } : null });
 
 /* ================= الذكاء الاصطناعي ================= */
 const AI_MODEL = process.env.AI_MODEL || 'claude-opus-5-5';
