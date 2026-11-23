@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
-import { mountMcp, handleRpc, MCP_TOOLS, MCP_WRITE_TOOLS, runTool, proposeTool, hashToken, parseToken, newToken } from '../server-mcp.js';
+import { loadPlatformData, mountMcp, handleRpc, MCP_TOOLS, MCP_WRITE_TOOLS, runTool, proposeTool, hashToken, parseToken, newToken } from '../server-mcp.js';
 import { loadTenants } from '../tenants.js';
 import { buildMcpEngine } from '../scripts/build-mcp-engine.mjs';
 
@@ -147,4 +147,21 @@ test('v53.7 دوال المقترحات في المحرك: القيد، إعاد
     { date: '2026-01-11', supplier: 'مورد جديد', invoice_no: 'Z-9', account: '5199', total: 50 }] });
   assert.equal(fx.summary.count, 2); assert.equal(fx.summary.rejected, 1); assert.match(fx.summary.rejected_rows[0].why, /سابق|مسجل/); assert.deepEqual(fx.summary.new_suppliers, ['مورد جديد']);
   assert.throws(() => proposeTool(E, D, 'propose_journal_entry', { date: '2026-02-01', title: 'x', lines: [{ code: '9999', debit: 1 }, { code: '1101', credit: 1 }] }), /حساب غير موجود/);
+});
+
+test('v53.9 تحميل بأقل ذاكرة: الأجزاء تُجمع، ونقطة البيع والسجل التاريخي يُستبعدان، والصفحات صغيرة', async () => {
+  const enc = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, typeof v === 'number' ? { integerValue: String(v) } : { stringValue: String(v) }]));
+  const core = JSON.stringify({ invoices: [{ id: 'i1' }], closings: [{ id: 'c1' }] });
+  const docs = [['rms8_org', { parts: 1, value: JSON.stringify({ company: { name: 'X' } }) }],
+    ['rms8_core', { parts: 2, ver: 'abcd', value: '' }], ['rms8_core__abcd_0', { chunk: core.slice(0, 10) }], ['rms8_core__abcd_1', { chunk: core.slice(10) }],
+    ['rms8_br_b1', { parts: 1, value: JSON.stringify({ closings: [{ id: 'c2' }], posOrders: [{ id: 'p1' }], posShifts: [{ id: 's' }] }) }],
+    ['rms8_pos_b1_202611', { parts: 1, value: JSON.stringify({ orders: [{ id: 'p2' }] }) }], ['rms8_hist', { parts: 1, value: '{"big":1}' }], ['security', { x: 1 }]];
+  const urls = [];
+  const get = async (u) => { urls.push(u); const pt = Number((/pageToken=(\d+)/.exec(u) || [])[1] || 0); const page = docs.slice(pt, pt + 3);
+    return { ok: true, status: 200, j: { documents: page.map(([id, f]) => ({ name: 'p/platform/' + id, fields: enc(f) })), nextPageToken: pt + 3 < docs.length ? String(pt + 3) : undefined } }; };
+  const D = await loadPlatformData('B', get);
+  assert.deepEqual(D.org, { company: { name: 'X' } });
+  assert.deepEqual(D.ops.closings.map(x => x.id), ['c1', 'c2']); assert.equal(D.ops.invoices.length, 1);
+  assert.equal(D.ops.posOrders, undefined, 'فواتير نقطة البيع لا تُحمَّل'); assert.equal(D.ops.posShifts, undefined);
+  assert.ok(urls.every(u => u.includes('pageSize=20')));
 });
