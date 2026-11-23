@@ -102,11 +102,11 @@ test('الرابط الملغى أو صاحب الدور المتغير أو ا�
   const H = harness(); const r = (await H.call('POST /api/mcp/links', { body: {} })).json; const tok = r.url.split('/mcp/')[1];
   assert.equal((await rpc(H, tok, { jsonrpc: '2.0', id: 1, method: 'ping' })).status, 200);
   assert.equal((await H.call('POST /api/mcp/links/revoke', { body: { id: r.id } })).status, 200);
-  assert.equal((await rpc(H, tok, { jsonrpc: '2.0', id: 2, method: 'ping' })).status, 401, 'الإلغاء يمسح المخبأ فورًا');
-  assert.equal((await rpc(H, 'mq_default_' + 'A'.repeat(43), { jsonrpc: '2.0', id: 3, method: 'ping' })).status, 401);
-  assert.equal((await rpc(H, 'abc', { jsonrpc: '2.0', id: 4, method: 'ping' })).status, 401);
+  assert.equal((await rpc(H, tok, { jsonrpc: '2.0', id: 2, method: 'ping' })).status, 403, 'الإلغاء يمسح المخبأ فورًا');
+  assert.equal((await rpc(H, 'mq_default_' + 'A'.repeat(43), { jsonrpc: '2.0', id: 3, method: 'ping' })).status, 403);
+  assert.equal((await rpc(H, 'abc', { jsonrpc: '2.0', id: 4, method: 'ping' })).status, 403);
   const A = harness({ memberRole: 'accountant' }); const t2 = (await A.call('POST /api/mcp/links', { body: {} })).json.url.split('/mcp/')[1];
-  assert.equal((await rpc(A, t2, { jsonrpc: '2.0', id: 1, method: 'ping' })).status, 401, 'صاحب الرابط لم يعد مسؤول نظام');
+  assert.equal((await rpc(A, t2, { jsonrpc: '2.0', id: 1, method: 'ping' })).status, 403, 'صاحب الرابط لم يعد مسؤول نظام');
   assert.equal((await H.call('GET /mcp/:token', { params: { token: tok } })).status, 405);
   assert.equal((await handleRpc({ jsonrpc: '1.0', id: 1, method: 'ping' })).error.code, -32600);
 });

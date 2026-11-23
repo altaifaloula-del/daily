@@ -299,17 +299,27 @@ export function mountMcp(app, { express, requireMember, requireFeature = () => (
 
   // --- التحقق من الرابط عند كل طلب (مخبأ دقيقة) ---
   const auth = new Map();
+  // v53.9: يعيد { v, why } — سبب الرفض يُسجَّل في سجلات الخادم (بلا المفتاح نفسه) لتشخيص الربط
   const verify = async (tok) => {
-    const p = parseToken(tok); if (!p) return null; const t = T.byId(p.tenant); if (!t || !t.sa) return null;
-    const h = hashToken(tok); const c = auth.get(h); if (c && c.exp > now()) return c.v;
-    let v = null;
+    const p = parseToken(tok); if (!p) return { v: null, why: 'شكل الرابط غير صحيح (len=' + String(tok || '').length + ')' };
+    const t = T.byId(p.tenant); if (!t) return { v: null, why: 'منشأة غير معروفة: ' + p.tenant };
+    if (!t.sa) return { v: null, why: 'لا يوجد حساب خدمة للمنشأة ' + t.id };
+    const h = hashToken(tok); const c = auth.get(h); if (c && c.exp > now()) return c.r;
+    let r = { v: null, why: '' };
     const d = await fs(t, docs(t) + '/mcp_tokens/' + h);
-    if (d.ok) { const f = decodeFields(d.j.fields); if (f.active === true && f.email) {
-      const m = await fs(t, docs(t) + '/members/' + encodeURIComponent(String(f.email).toLowerCase()));
-      const mf = m.ok ? decodeFields(m.j.fields) : {};
-      if (mf.active === true && mf.role === 'system_admin') v = { t, h, email: f.email, calls: Number(f.calls) || 0, lastUsedAt: f.lastUsedAt || '' }; } }
-    auth.set(h, { v, exp: now() + 60000 }); if (auth.size > 500) auth.delete(auth.keys().next().value);
-    return v;
+    if (!d.ok) r.why = 'الرابط غير موجود في القاعدة (' + d.status + ')';
+    else { const f = decodeFields(d.j.fields);
+      if (f.active !== true) r.why = 'الرابط ملغى';
+      else if (!f.email) r.why = 'الرابط بلا بريد صاحبه';
+      else {
+        const m = await fs(t, docs(t) + '/members/' + encodeURIComponent(String(f.email).toLowerCase()));
+        const mf = m.ok ? decodeFields(m.j.fields) : {};
+        if (!m.ok) r.why = 'تعذّرت قراءة عضوية ' + f.email + ' (' + m.status + ')';
+        else if (mf.active !== true) r.why = 'عضوية ' + f.email + ' غير نشطة';
+        else if (mf.role !== 'system_admin') r.why = 'دور ' + f.email + ' ليس مسؤول نظام (' + mf.role + ')';
+        else r = { v: { t, h, email: f.email, calls: Number(f.calls) || 0, lastUsedAt: f.lastUsedAt || '' }, why: '' }; } }
+    auth.set(h, { r, exp: now() + 60000 }); if (auth.size > 500) auth.delete(auth.keys().next().value);
+    return r;
   };
   const touch = async (v) => { const last = Date.parse(v.lastUsedAt || 0) || 0; v.calls++; if (now() - last < 5 * 60000) return; v.lastUsedAt = new Date(now()).toISOString();
     try { await fs(v.t, docs(v.t) + '/mcp_tokens/' + v.h + '?updateMask.fieldPaths=lastUsedAt&updateMask.fieldPaths=calls&currentDocument.exists=true', { method: 'PATCH', body: JSON.stringify({ fields: { lastUsedAt: S(v.lastUsedAt), calls: I(v.calls) } }) }); } catch { } };
@@ -324,11 +334,20 @@ export function mountMcp(app, { express, requireMember, requireFeature = () => (
       const A = assemble(all); const L = composeLogical(A.values); return { org: L.org || {}, ops: L.ops || {}, _at: new Date(now()).toISOString() }; })();
     data.set(t.id, { p, exp: now() + 120000 }); p.catch(() => data.delete(t.id)); return p; };
 
+  // v53.9: سطر لكل طلب من Claude (المفتاح مخفي) — لتشخيص الربط لأن سجلات الطلبات غير متاحة في خطة Render المجانية
+  if (typeof app.use === 'function') app.use((req, res, next) => {
+    if (!/^\/(mcp\/|\.well-known\/|authorize|register|token)/.test(req.path)) return next();
+    const t0 = now(); const path = req.path.replace(/^(\/mcp\/mq_[a-z0-9-]+_).{0,39}(.{4})$/, '$1…$2');
+    res.on('finish', () => log.log('mcp طلب:', req.method, path, res.statusCode, (now() - t0) + 'ms', String(req.headers['user-agent'] || '').slice(0, 40)));
+    next();
+  });
   const mlim = rateLimit({ windowMs: 60000, max: 60, keyFn: (r) => 'mcp:' + hashToken(r.params.token || '').slice(0, 16) });
   const deny = (res, code, msg) => res.status(code).json({ jsonrpc: '2.0', id: null, error: { code: -32001, message: msg } });
   app.post('/mcp/:token', mlim, json, async (req, res) => {
-    let v; try { v = await verify(req.params.token); } catch (e) { log.error('mcp verify', e.message); return deny(res, 503, 'تعذّر التحقق من الرابط'); }
-    if (!v) return deny(res, 401, 'رابط ربط غير صالح أو أُلغي — أنشئ رابطًا جديدًا من مثقال: الإعدادات ← ربط Claude');
+    let r; try { r = await verify(req.params.token); } catch (e) { log.error('mcp verify', e.message); return deny(res, 503, 'تعذّر التحقق من الرابط'); }
+    const v = r.v;
+    // 403 لا 401: الرد 401 يجعل Claude يظن أن الخادم يطلب تسجيل دخول OAuth فيفتح /authorize (غير موجود)
+    if (!v) { log.error('mcp رفض:', r.why); return deny(res, 403, 'رابط ربط غير صالح أو أُلغي (' + r.why + ') — أنشئ رابطًا جديدًا من مثقال: الإعدادات ← ربط Claude'); }
     const msgs = Array.isArray(req.body) ? req.body : [req.body];
     let D = null; const call = async (name, args) => { if (!D) D = await loadData(v.t); const En = await loadEngine(); touch(v);
       log.log('mcp:', v.t.id, v.email, name);
