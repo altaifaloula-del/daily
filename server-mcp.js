@@ -7,11 +7,30 @@
  * • البروتوكول: MCP عبر HTTP (JSON-RPC 2.0، رد JSON مباشر بلا SSE) — POST /mcp/<الرمز>.
  */
 import crypto from 'node:crypto';
+import { Worker } from 'node:worker_threads';
 import { saTokenSource } from './server-billing.js';
 import { decodeFields, assemble, composeLogical } from './scripts/backup-lib.mjs';
 
-// مستندات المنصة التي يحتاجها الموصل (ورؤوسها وأجزاؤها __…) — يُستبعد السجل التاريخي والولاء وغيرها توفيرًا للذاكرة
-export const MCP_DOC_RE = /^rms8_(org|core|br_[^_].*?|pos_.+_[0-9]{6})(__.+)?$/;
+// مستندات المنصة التي يحتاجها الموصل (ورؤوسها وأجزاؤها __…) — يُستبعد السجل التاريخي والولاء وفواتير نقطة البيع الشهرية توفيرًا للذاكرة
+// (محرك المحاسبة buildAccounting وأدوات الموصل لا تقرأ posOrders/posShifts — الإيراد من الإغلاقات اليومية)
+export const MCP_DOC_RE = /^rms8_(org|core|br_[^_].*?)(__.+)?$/;
+const MCP_DROP_KEYS = ['posOrders', 'posShifts', 'posDeliveries', '_posLegacy'];
+
+/** v53.9: تحميل بيانات المنشأة للموصل بأقل ذاكرة: صفحات صغيرة، مستندات لازمة فقط، وتجميع كل مستند ثم تقليمه فورًا.
+ *  get(url) ⇒ { ok, status, j } بحساب الخدمة. يُستخدم داخل عامل معزول في الإنتاج (server-mcp-worker.mjs). */
+export async function loadPlatformData(base, get, now = Date.now) {
+  const raw = {}; let pt = '';
+  for (let i = 0; i < 2000; i++) { const r = await get(base + '/platform?pageSize=20' + (pt ? '&pageToken=' + encodeURIComponent(pt) : ''));
+    if (!r.ok) throw new Error('تعذّرت قراءة بيانات المنشأة (' + r.status + ')');
+    (r.j.documents || []).forEach(d => { const id = d.name.split('/').pop(); if (MCP_DOC_RE.test(id)) raw[id] = decodeFields(d.fields); }); pt = r.j.nextPageToken || ''; r.j = null; if (!pt) break; }
+  const heads = Object.keys(raw).filter(id => !id.includes('__')); const values = {};
+  for (const h of heads) {   // مستند واحد في الذاكرة مفكوكًا في كل مرة، ثم تُحذف نصوصه الخام
+    const sub = { [h]: raw[h] }; const pre = h + '__'; Object.keys(raw).forEach(k => { if (k.startsWith(pre)) sub[k] = raw[k]; });
+    const v = assemble(sub).values[h]; Object.keys(sub).forEach(k => { delete raw[k]; });
+    if (v && typeof v === 'object') MCP_DROP_KEYS.forEach(k => { delete v[k]; }); values[h] = v;
+  }
+  const L = composeLogical(values); return { org: L.org || {}, ops: L.ops || {}, _at: new Date(now()).toISOString() };
+}
 export const MCP_PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const TOKEN_RE = /^mq_([a-z0-9][a-z0-9-]{1,39})_([A-Za-z0-9_-]{43})$/;
 const MAX_TOKENS = 10;
@@ -219,7 +238,7 @@ export async function handleRpc(msg, { tools = [...MCP_TOOLS, ...MCP_WRITE_TOOLS
 }
 
 /* ===================== التركيب على الخادم ===================== */
-export function mountMcp(app, { express, requireMember, requireFeature = () => (q, r, n) => n(), rateLimit, T, fetchImpl = fetch, log = console, engine = null, now = Date.now, publicBase = '' }) {
+export function mountMcp(app, { express, requireMember, requireFeature = () => (q, r, n) => n(), rateLimit, T, fetchImpl = fetch, log = console, engine = null, now = Date.now, publicBase = '', isolate = null }) {
   const json = express.json({ limit: '256kb' }), small = express.json({ limit: '4kb' });
   const toks = new Map(); const tokenFor = (t) => { if (!toks.has(t.id)) toks.set(t.id, saTokenSource(t.sa, { fetchImpl })); return toks.get(t.id)(); };
   const docs = (t) => 'https://firestore.googleapis.com/v1/projects/' + encodeURIComponent(t.dataProject || t.projectId) + '/databases/(default)/documents';
@@ -329,14 +348,23 @@ export function mountMcp(app, { express, requireMember, requireFeature = () => (
   // --- البيانات: كل مستندات platform بحساب الخدمة ⇒ تجميع منطقي (مخبأ دقيقتين لكل منشأة) ---
   const data = new Map();
   const loadData = (t) => { const c = data.get(t.id); if (c && c.exp > now()) return c.p;
-    const p = (async () => { const all = {}; let pt = '';
-      // v53.9: صفحات صغيرة (الأجزاء قد تقارب 1MB لكل مستند) ولا نحتفظ إلا بما يلزم الموصل (org/core/الفروع/نقطة البيع)
-      // — تحميل كل المنصة بصفحات 300 كان يستنفد ذاكرة خطة Render المجانية (512MB) فينهار الخادم (status 134)
-      for (let i = 0; i < 2000; i++) { const r = await fs(t, docs(t) + '/platform?pageSize=20' + (pt ? '&pageToken=' + encodeURIComponent(pt) : ''));
-        if (!r.ok) throw new Error('تعذّرت قراءة بيانات المنشأة (' + r.status + ')');
-        (r.j.documents || []).forEach(d => { const id = d.name.split('/').pop(); if (MCP_DOC_RE.test(id)) all[id] = decodeFields(d.fields); }); pt = r.j.nextPageToken || ''; r.j = null; if (!pt) break; }
-      const A = assemble(all); const L = composeLogical(A.values); return { org: L.org || {}, ops: L.ops || {}, _at: new Date(now()).toISOString() }; })();
+    const p = loadPlatformData(docs(t), (u) => fs(t, u), now);
     data.set(t.id, { p, exp: now() + 120000 }); p.catch(() => data.delete(t.id)); return p; };
+
+  // v53.9: عزل الحساب في عامل بحد ذاكرة مستقل — نفاد الذاكرة أو التعليق يُنهي العامل وحده لا الخادم (الفوترة والذكاء الاصطناعي)
+  let W = null; const pend = new Map(); let seq = 0;
+  const failAll = (msg) => { pend.forEach(p => { clearTimeout(p.tm); p.rej(new Error(msg)); }); pend.clear(); };
+  const worker = () => { if (W) return W;
+    W = new Worker(new URL('./server-mcp-worker.mjs', import.meta.url), { resourceLimits: { maxOldGenerationSizeMb: isolate.heapMb || 220 } });
+    W.unref(); W.on('message', (m) => { const p = pend.get(m.id); if (!p) return; pend.delete(m.id); clearTimeout(p.tm); if (m.ver) appVer = m.ver;
+      if (m.ok) p.res(m.result); else { const e = new Error(m.error); if (m.code) e.code = m.code; p.rej(e); } });
+    W.on('error', (e) => { log.error('mcp worker', e && (e.code || e.message)); failAll(e && e.code === 'ERR_WORKER_OUT_OF_MEMORY' ? 'بيانات المنشأة أكبر من ذاكرة الموصل المتاحة (MCP_WORKER_MB) — رقِّ خطة الخادم وارفع السقف؛ بقية المنصة لم تتأثر' : 'تعذّر الحساب — أعد المحاولة'); W = null; });
+    W.on('exit', (c) => { if (c) failAll('توقف الحساب — أعد المحاولة'); W = null; });
+    return W; };
+  let appVer = '';
+  const inWorker = (t, op, name, args) => new Promise((res, rej) => { const id = ++seq; const w = worker();
+    const tm = setTimeout(() => { pend.delete(id); rej(new Error('انتهت مهلة الحساب (' + Math.round((isolate.timeoutMs || 90000) / 1000) + ' ث)')); try { w.terminate(); } catch { } W = null; }, isolate.timeoutMs || 90000);
+    pend.set(id, { res, rej, tm }); w.postMessage({ id, t: { id: t.id, sa: t.sa, projectId: t.projectId, dataProject: t.dataProject }, op, name, args: args || {} }); });
 
   // v53.9: سطر لكل طلب من Claude (المفتاح مخفي) — لتشخيص الربط لأن سجلات الطلبات غير متاحة في خطة Render المجانية
   if (typeof app.use === 'function') app.use((req, res, next) => {
@@ -347,18 +375,32 @@ export function mountMcp(app, { express, requireMember, requireFeature = () => (
   });
   const mlim = rateLimit({ windowMs: 60000, max: 60, keyFn: (r) => 'mcp:' + hashToken(r.params.token || '').slice(0, 16) });
   const deny = (res, code, msg) => res.status(code).json({ jsonrpc: '2.0', id: null, error: { code: -32001, message: msg } });
-  app.post('/mcp/:token', mlim, json, async (req, res) => {
+  // v53.9 أمان: حد لكل عنوان IP (لا يكفي الحد لكل رابط — من يجرّب روابط كثيرة يتجاوزه)، وحظر مؤقت بعد محاولات فاشلة متكررة
+  const iplim = rateLimit({ windowMs: 60000, max: 120, keyFn: (r) => 'mcpip:' + (r.ip || '') });
+  const fails = new Map(); const FAIL_MAX = 10, FAIL_WIN = 15 * 60000;
+  const blocked = (ip) => { const f = fails.get(ip); return !!(f && now() - f.t < FAIL_WIN && f.n >= FAIL_MAX); };
+  const failed = (ip) => { const f = fails.get(ip); if (!f || now() - f.t >= FAIL_WIN) fails.set(ip, { t: now(), n: 1 }); else f.n++; if (fails.size > 5000) fails.delete(fails.keys().next().value); };
+  // حماية من DNS rebinding/الطلبات من المتصفح (توصية مواصفة MCP): يُرفض أي Origin غير Claude — خوادم Claude لا ترسل Origin أصلًا
+  const ORIGIN_OK = /^https:\/\/([a-z0-9-]+\.)?(claude\.ai|claude\.com|anthropic\.com)$/i;
+  app.post('/mcp/:token', iplim, mlim, (req, res, next) => {
+    const o = String((req.headers || {}).origin || ''); if (o && !ORIGIN_OK.test(o)) { log.error('mcp رفض: Origin غير مسموح', o.slice(0, 80)); return deny(res, 403, 'مصدر غير مسموح'); }
+    if (blocked(req.ip || '')) return deny(res, 429, 'محاولات فاشلة كثيرة — أعد المحاولة لاحقًا');
+    next(); }, json, async (req, res) => {
     let r; try { r = await verify(req.params.token); } catch (e) { log.error('mcp verify', e.message); return deny(res, 503, 'تعذّر التحقق من الرابط'); }
     const v = r.v;
     // 403 لا 401: الرد 401 يجعل Claude يظن أن الخادم يطلب تسجيل دخول OAuth فيفتح /authorize (غير موجود)
-    if (!v) { log.error('mcp رفض:', r.why); return deny(res, 403, 'رابط ربط غير صالح أو أُلغي (' + r.why + ') — أنشئ رابطًا جديدًا من مثقال: الإعدادات ← ربط Claude'); }
+    // السبب التفصيلي في سجل الخادم فقط — لا يُكشف للطالب (قد يتضمن بريد صاحب الرابط ودوره)
+    if (!v) { failed(req.ip || ''); log.error('mcp رفض:', r.why); return deny(res, 403, 'رابط ربط غير صالح أو أُلغي — أنشئ رابطًا جديدًا من مثقال: الإعدادات ← ربط Claude'); }
     const msgs = Array.isArray(req.body) ? req.body : [req.body];
-    let D = null; const call = async (name, args) => { if (!D) D = await loadData(v.t); const En = await loadEngine(); touch(v);
+    if (msgs.length > 20) return deny(res, 400, 'دفعة طلبات كبيرة');
+    let D = null; const call = async (name, args) => { touch(v);
       log.log('mcp:', v.t.id, v.email, name);
       if (name === 'list_proposals') return listProposals(v.t, args.status);
+      if (isolate) return WRITE_NAMES.has(name) ? storeProposal(v, await inWorker(v.t, 'propose', name, args)) : inWorker(v.t, 'run', name, args);
+      if (!D) D = await loadData(v.t); const En = await loadEngine();
       if (WRITE_NAMES.has(name)) return storeProposal(v, proposeTool(En, D, name, args));
       return runTool(En, D, name, args); };
-    const out = []; for (const m of msgs) { const r = await handleRpc(m, { call, version: (E && E.APP_VER) || '' }); if (r) out.push(r); }
+    const out = []; for (const m of msgs) { const r = await handleRpc(m, { call, version: (E && E.APP_VER) || appVer || '' }); if (r) out.push(r); }
     if (!out.length) return res.status(202).end();
     res.json(Array.isArray(req.body) ? out : out[0]);
   });
