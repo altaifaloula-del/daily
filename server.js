@@ -22,6 +22,7 @@ import { planAllows, PLAN_AR } from './plans.js';
 import { billingConfig, mountBilling, moyasarGateway, firestoreStore, saTokenSource, memoryStore } from './server-billing.js';
 import { providerConfig, mountProvider, writeTenantStatus } from './server-provider.js';
 import { mountUserAdmin } from './server-users.js';
+import { mountMcp } from './server-mcp.js';   // v53.5 موصل Claude (MCP) للقراءة فقط
 import { automationConfig, runAutomation, scheduleAutomation } from './server-automation.js';
 import { loadTenants } from './tenants.js';
 
@@ -274,6 +275,7 @@ function readRegistry() {
 mountProvider(app, { express, requireMember, rateLimit, T: TENANTS, cfg: providerConfig(process.env), store: CONTROL, controlReady: BILLING.controlReady, registry: readRegistry, onPaid, runAuto: BILLING.controlReady ? () => runAuto() : null });
 // v52.9: إدارة حسابات الدخول (الحالة وتعيين كلمة السر) لمسؤول النظام — بحساب خدمة المنشأة
 mountUserAdmin(app, { express, requireMember, rateLimit, T: TENANTS });
+mountMcp(app, { express, requireMember, requireFeature, rateLimit, T: TENANTS, publicBase: String(process.env.MCP_PUBLIC_BASE || '').replace(/\/+$/, '') });
 
 /* ================= الذكاء الاصطناعي ================= */
 const AI_MODEL = process.env.AI_MODEL || 'claude-opus-5-5';
