@@ -54,7 +54,7 @@ export function ExpImport({ org, ops, me, commit, commitOrg, say, onClose }) {
         if (ok === false) { say('توقف الاستيراد بعد ' + done + ' فاتورة — أعد رفع الملف، فالمحفوظ يظهر «مسجّلة سابقًا» ولا يتكرر', 'no'); return; }
         done += part.length;
       }
-      say('استُوردت ' + done + ' فاتورة مصروفات وقُيّدت على حساباتها ✓'); onClose();
+      say('استُوردت ' + done + ' فاتورة مصروفات وقُيّدت على حساباتها ✓ — لكل فاتورة رقم قيد ثابت PJ-، وللدفعة رقم موحد IMP- تبحث به في القائمة'); onClose();
     } finally { setBusy(false); setProg(''); }
   };
   const O = (k, v) => setOpts(o => ({ ...o, [k]: v }));

@@ -85,7 +85,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
 
   const entries = A.entries.filter(e =>
     (!month || (e.date || '').startsWith(month)) &&
-    (!q.trim() || (e.title + ' ' + e.no + ' ' + (e.src || '')).includes(q.trim()))
+    (!q.trim() || (e.title + ' ' + e.no + ' ' + (e.fix || '') + ' ' + (e.ref || '') + ' ' + (e.src || '')).includes(q.trim()))
   );
   const kinds = ['asset', 'liab', 'equity', 'rev', 'exp'];
   const srcBadge = (s) => s === 'إغلاق وردية' ? 'b-mint'
@@ -1589,7 +1589,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                 {entries.map(e => (
                   <React.Fragment key={e.id}>
                     <tr onClick={() => setOpen(o => ({ ...o, [e.id]: !o[e.id] }))} style={{ cursor: 'pointer' }}>
-                      <td className="num" style={{ fontSize: 11, whiteSpace: 'nowrap' }}><DocLink to={{ e: e.id }} title="استعراض القيد">{e.no}</DocLink></td>
+                      <td className="num" style={{ fontSize: 11, whiteSpace: 'nowrap' }}><DocLink to={{ e: e.id }} title="استعراض القيد">{e.no}</DocLink>{e.fix && <div data-fixno style={{ fontSize: 9.5, color: 'var(--gold, #B8862B)' }}>{e.fix}</div>}</td>
                       <td className="num" style={{ fontSize: 11.5, whiteSpace: 'nowrap' }}>{e.date}{periodLocked(org, e.date) ? ' 🔒' : ''}</td>
                       <td style={{ fontSize: 12.5 }}>{e.title}
                         {!e.balanced && <span className="badge b-rose" style={{ marginInlineStart: 6 }}>غير متوازن!</span>}</td>
