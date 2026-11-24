@@ -559,3 +559,9 @@ test('v51.9 صلاحيات التعديل: «ممنوع» على عضوية ال
   await assertSucceeds(deleteDoc(doc(acct(), 'fin_journal', 'ed1')), 'بلا منع يعود كما كان');
   await assertSucceeds(deleteDoc(doc(acct(), 'fin_docs', 'pi_ed1')));
 });
+
+test('v54.7 مجموعات الخادم (المراجع، سجل الذكاء الاصطناعي، روابط ومقترحات Claude) ممنوعة على العميل حتى لمالك المنشأة', async () => {
+  for (const [col, id] of [['ref_docs', 'rf-000000000000'], ['ref_chunks', 'rf-000000000000__00000'], ['ai_log', 'x'], ['mcp_tokens', 'h'], ['mcp_proposals', 'mp-1']]) {
+    await assertFails(getDoc(doc(owner(), col, id))); await assertFails(setDoc(doc(owner(), col, id), { a: 1 })); await assertFails(setDoc(doc(staff(), col, id), { a: 1 }));
+  }
+});
