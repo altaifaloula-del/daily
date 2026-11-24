@@ -39,7 +39,7 @@ export function CtlCases({ org, ops, me, myBranches, commit, say }) {
       const ok = await commit(d => ({ ...d, ctlCases: (d.ctlCases || []).map(x => by.has(x.key) ? { ...x, review: { ...by.get(x.key), by: who }, history: [...(x.history || []), { at, st: x.status, by: who, note: 'مراجعة بالمراجع: ' + by.get(x.key).basisLabel }] } : x) }),
         { actionType: 'update', targetType: 'settings', targetId: 'ctl-review', title: 'مراجعة محاسبية بالمراجع', details: by.size + ' حالة' });
       const errs = r.findings.filter(f => f.error); if (ok !== false) say('روجعت ' + by.size + ' حالة ✓' + (errs.length ? ' — تعذّر ' + errs.length : ''), errs.length ? 'no' : undefined);
-    } catch (e) { say(e.code === 'no-ai' ? 'وكيل المراجعة يتطلب مفتاح Claude على الخادم' : 'تعذّرت المراجعة: ' + e.message, 'no'); } finally { setRbusy(''); } };
+    } catch (e) { say(e.code === 'no-ai' ? 'وكيل المراجعة يتطلب مفتاح Claude على الخادم' : e.code === 'no-credit' ? e.message : 'تعذّرت المراجعة: ' + e.message, 'no'); } finally { setRbusy(''); } };
   const proposeFix = async (c) => { const f = c.review; if (!f || !f.correction.lines.length) return;
     try { const r = await mcpApi('POST', 'proposals/review', { caseNo: c.no, date: today(), branch: c.branchId || '', title: 'تصحيح ' + c.no + ' — ' + String(c.title).slice(0, 80), lines: f.correction.lines, reason: f.correction.text,
         citations: f.citations.map(x => x.title + ' ص' + x.page + ' م' + x.para) });

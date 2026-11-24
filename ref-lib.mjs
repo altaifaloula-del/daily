@@ -92,3 +92,7 @@ export function revValidate(raw, c, hits, { at = '', model = '' } = {}) {
     confidence, approval: 'required', at, model, dropped, caseNo: c.no || '', caseKey: c.key || '',
   };
 }
+
+/* v54.8 — رصيد Anthropic: رفض المزود لنفاد الرصيد يُعرف ويُعرض بالعربية ويوقف بقية الطلبات (لا تكرار لطلب مرفوض حتمًا) */
+export const AI_NO_CREDIT = 'رصيد Anthropic غير كافٍ — اشحنه من console.anthropic.com ← Plans & Billing ثم أعد المحاولة';
+export const isNoCredit = (e) => /credit balance is too low|purchase credits/i.test(String((e && e.message) || '') + ' ' + String((e && e.error && e.error.error && e.error.error.message) || ''));

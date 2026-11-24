@@ -25,7 +25,7 @@ import { mountUserAdmin } from './server-users.js';
 import { mountMcp } from './server-mcp.js';
 import { mountRefs } from './server-refs.js';   // v54.4 مكتبة المراجع
 import { mountAiLog } from './server-ailog.js';   // v54.6 سجل الذكاء الاصطناعي
-import { refSearch } from './ref-lib.mjs';   // v53.5 موصل Claude (MCP) للقراءة فقط
+import { refSearch, AI_NO_CREDIT, isNoCredit } from './ref-lib.mjs';   // v53.5 موصل Claude (MCP) للقراءة فقط
 import { automationConfig, runAutomation, scheduleAutomation } from './server-automation.js';
 import { loadTenants } from './tenants.js';
 
@@ -323,6 +323,7 @@ async function callClaude({ system, user, maxTokens }) {
   try {
     msg = await client.beta.messages.create(messageParams({ system, user, maxTokens }));
   } catch (err) {
+    if (isNoCredit(err)) { console.error('anthropic error: رصيد غير كافٍ'); const e = new Error(AI_NO_CREDIT); e.status = 402; e.code = 'no-credit'; throw e; }
     if (err instanceof Anthropic.RateLimitError) { const e = new Error('مزود الذكاء الاصطناعي مشغول — أعد المحاولة بعد قليل'); e.status = 429; throw e; }
     const why = err instanceof Anthropic.AuthenticationError ? 'مفتاح Anthropic غير صالح'
       : err instanceof Anthropic.APIError ? ('HTTP ' + err.status + ' — ' + apiErrorText(err))
@@ -393,7 +394,7 @@ app.get('/api/health/config', rateLimit({ windowMs: 3600000, max: 20 }), async (
 
 const aiJson = express.json({ limit: '1mb' });
 const aiLimit = rateLimit({ windowMs: 3600000, max: Number(process.env.AI_RATE_LIMIT_PER_HOUR) || 30, keyFn: req => req.user && (tenantOf(req).id + ':' + req.user.email) });
-const aiErr = (res, e) => res.status(e.status || 500).json({ error: e.status ? e.message : 'تعذّر إتمام التحليل' });
+const aiErr = (res, e) => res.status(e.status || 500).json({ error: e.status ? e.message : 'تعذّر إتمام التحليل', ...(e.code ? { code: e.code } : {}) });
 
 app.post('/api/ai/analyze', aiJson, requireMember, requireFeature('ai'), aiLimit, async (req, res) => {
   const digest = req.body?.digest;

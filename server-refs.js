@@ -9,7 +9,7 @@
 import crypto from 'node:crypto';
 import { saTokenSource } from './server-billing.js';
 import { decodeFields } from './scripts/backup-lib.mjs';
-import { refChunk, refSearch, REF_AUTH, REF_CATS, revQuery, revPrompt, revValidate } from './ref-lib.mjs';
+import { refChunk, refSearch, REF_AUTH, REF_CATS, revQuery, revPrompt, revValidate, AI_NO_CREDIT, isNoCredit } from './ref-lib.mjs';
 export const REVIEW_ROLES = new Set(['system_admin', 'finance_department', 'accountant', 'general_management', 'head_office']);
 
 const S = (v) => ({ stringValue: String(v == null ? '' : v) }), Bo = (v) => ({ booleanValue: !!v }), I = (v) => ({ integerValue: String(Math.round(Number(v) || 0)) });
@@ -61,12 +61,12 @@ export function mountRefs(app, { express, requireMember, rateLimit, T, fetchImpl
   app.post('/api/refs/search', express.json({ limit: '16kb' }), requireMember, lim, async (req, res) => { const t = tenantOf(req, res); if (!t) return;
     const b = req.body || {}; const q = String(b.q || '').slice(0, 500); if (q.trim().length < 2) return res.status(400).json({ error: 'اكتب عبارة البحث' });
     try { const L = await lib(t); let hits = refSearch(L.chunks, L.docs, q, { cat: b.cat, authority: b.authority, family: b.family, year: b.year, includeInactive: !!b.includeInactive, limit: 20 });
-      let ranked = false;
+      let ranked = false, rkNote = '';
       if (b.rerank && hits.length > 1 && aiClient) { try {
         const ai = aiClient(); const r = await ai.messages.create({ model: refModel, max_tokens: 800, messages: [{ role: 'user', content: 'رتّب المقاطع التالية حسب صلتها بالسؤال. أعد JSON فقط: {"order":[أرقام المقاطع]} ولا تضف مقاطع.\nالسؤال: ' + q + '\n\n' + hits.map((h, i) => '[' + i + '] ' + h.excerpt).join('\n\n') }] });
         const m = ((r.content || []).find(c => c.type === 'text') || {}).text || ''; const o = (JSON.parse((m.match(/\{[\s\S]*\}/) || ['{}'])[0]).order || []).map(Number).filter(i => i >= 0 && i < hits.length);
-        if (o.length) { const seen = new Set(o); hits = [...o.map(i => hits[i]), ...hits.filter((_, i) => !seen.has(i))]; ranked = true; } } catch (e) { log.error('refs rerank', e.message); } }
-      res.json({ q, ranked, hits, note: 'المقتطفات حرفية من الملفات المرفوعة. «غير موثّق» = لم يتحقق مسؤول النظام من إصداره ونفاذه.' }); } catch (e) { res.status(502).json({ error: e.message }); } });
+        if (o.length) { const seen = new Set(o); hits = [...o.map(i => hits[i]), ...hits.filter((_, i) => !seen.has(i))]; ranked = true; } } catch (e) { log.error('refs rerank', e.message); if (isNoCredit(e)) rkNote = AI_NO_CREDIT; } }
+      res.json({ q, ranked, hits, ...(rkNote ? { rerankError: rkNote } : {}), note: 'المقتطفات حرفية من الملفات المرفوعة. «غير موثّق» = لم يتحقق مسؤول النظام من إصداره ونفاذه.' }); } catch (e) { res.status(502).json({ error: e.message }); } });
   // رفع: {meta, pages:[{page,text}]} أو {meta, pdf: base64}
   app.post('/api/refs/upload', express.json({ limit: '40mb' }), requireMember, upLim, async (req, res) => { const t = tenantOf(req, res); if (!t) return;
     if (!isAdmin(req)) return res.status(403).json({ error: 'رفع المراجع لمسؤول النظام فقط' });
@@ -81,7 +81,7 @@ export function mountRefs(app, { express, requireMember, rateLimit, T, fetchImpl
       const writes = [{ update: { name: docPath(t, 'ref_docs', id), fields: { ...Object.fromEntries(Object.entries(meta).map(([k, v]) => [k, S(v)])), verified: Bo(false), pages: I(pages.length), chunks: I(ch.length), uploadedBy: S(req.user.email), at: S(new Date(now()).toISOString()) } } },
         ...ch.map((c, n) => ({ update: { name: docPath(t, 'ref_chunks', id + '__' + String(n).padStart(5, '0')), fields: { doc: S(id), page: I(c.page), para: I(c.para), text: S(c.text) } } }))];
       await commit(t, writes); cache.delete(t.id); job.state = 'done'; job.pages = pages.length; job.chunks = ch.length; log.log('refs: رفع', t.id, id, pages.length + 'ص');
-    })().catch(e => { job.state = 'error'; job.error = e.message; log.error('refs upload', e.message); });
+    })().catch(e => { job.state = 'error'; job.error = isNoCredit(e) ? AI_NO_CREDIT : e.message; job.code = isNoCredit(e) ? 'no-credit' : ''; log.error('refs upload', e.message); });
   });
   app.get('/api/refs/job/:id', requireMember, (req, res) => { const j = jobs.get(String(req.params.id)); if (!j) return res.status(404).json({ error: 'غير موجود' }); res.json(j); });
   app.post('/api/refs/update', express.json({ limit: '16kb' }), requireMember, lim, async (req, res) => { const t = tenantOf(req, res); if (!t) return;
@@ -105,7 +105,7 @@ export function mountRefs(app, { express, requireMember, rateLimit, T, fetchImpl
       for (const c of cases) {
         const hits = refSearch(L.chunks, L.docs, revQuery(c), { limit: 6 }).map(h => ({ ...h, text: txt.get(h.doc + '|' + h.page + '|' + h.para) || h.excerpt }));
         let raw = '{}'; try { const r = await ai.messages.create({ model: refModel, max_tokens: 1500, messages: [{ role: 'user', content: revPrompt(c, hits) }] }); raw = ((r.content || []).find(x => x.type === 'text') || {}).text || '{}'; }
-        catch (e) { log.error('refs review', e.message); out.push({ caseNo: c.no, caseKey: c.key, error: 'تعذّر تحليل الحالة: ' + e.message }); continue; }
+        catch (e) { log.error('refs review', e.message); if (isNoCredit(e)) return res.status(402).json({ error: AI_NO_CREDIT, code: 'no-credit', done: out.length }); out.push({ caseNo: c.no, caseKey: c.key, error: 'تعذّر تحليل الحالة: ' + e.message }); continue; }
         out.push({ ...revValidate(raw, c, hits, { at: new Date(now()).toISOString(), model: refModel }), searched: hits.length }); }
       log.log('refs: مراجعة', t.id, req.user.email, cases.length); res.json({ findings: out, note: hits0(L) }); } catch (e) { res.status(502).json({ error: e.message }); } });
   const hits0 = (L) => L.docs.length ? 'الاستشهادات تحققها المنصة حرفيًا من المراجع المرفوعة؛ ما لا يثبت يُسقط.' : 'لا مراجع مرفوعة بعد — النتائج ستكون شرحًا من الذكاء الاصطناعي بلا سند.';
