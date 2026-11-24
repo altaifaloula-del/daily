@@ -3195,3 +3195,27 @@ test('v54.3 لوحة المدير المالي: درجات بمنهجيتها، 
   assert.match(await p.locator('[data-cfofc]').innerText(), /ليس نتيجة مؤكدة[\s\S]*المنهجية/);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v54.4 مكتبة المراجع: رفع نص بحقول الإصدار والنفاذ، بحث بالاستشهاد بالصفحة والحجية والتوثيق', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1300, height: 1400 } }); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  const docs = [{ id: 'rf-1', title: 'IFRS 15 الإيراد', cat: 'ifrs', authority: 'official', family: 'IFRS 15', version: '2024', effFrom: '2018-01-01', pages: 3, status: 'active', verified: false }];
+  const posts = [];
+  await ctx.route('http://zatca.test/api/refs**', async (r) => { const u = new URL(r.request().url()), m = r.request().method(); const J = (b) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(b) });
+    if (m === 'POST') posts.push(u.pathname + ' ' + r.request().postData());
+    if (u.pathname.endsWith('/search')) return J({ note: 'نتائج من المراجع المرفوعة فقط', hits: [{ doc: 'rf-1', title: 'IFRS 15 الإيراد', family: 'IFRS 15', version: '2024', authority: 'official', authorityLabel: 'متطلب رسمي', verified: false, status: 'active', page: 2, para: 3, score: 4, excerpt: 'تعترف المنشأة بالإيراد عند الوفاء بالتزام الأداء' }] });
+    if (u.pathname.endsWith('/upload')) return J({ job: 'j1' });
+    if (u.pathname.includes('/job/')) return J({ state: 'done', pages: 1 });
+    if (u.pathname.endsWith('/update')) { docs[0].verified = true; return J({ ok: true }); }
+    return J({ docs, cats: { ifrs: 'معايير IFRS', policy: 'سياسة داخلية' }, auth: { official: 'متطلب رسمي', internal: 'سياسة داخلية' } }); });
+  await p.goto(base + 'live/Hub/admin/analytics:refs'); await settle(p); await p.waitForSelector('[data-reflib]');
+  assert.match(await p.locator('[data-reflist]').innerText(), /IFRS 15 الإيراد[\s\S]*غير موثّق/);
+  await p.fill('input[aria-label="بحث المراجع"]', 'الاعتراف بالإيراد'); await p.click('[data-refsearch]'); await p.waitForSelector('[data-refhit]');
+  const h = await p.locator('[data-refhit]').innerText(); assert.match(h, /ص 2 · مقطع 3/); assert.match(h, /متطلب رسمي/); assert.match(h, /غير موثّق/); assert.match(h, /التزام الأداء/);
+  await p.setInputFiles('input[aria-label="ملف المرجع"]', { name: 'policy.txt', mimeType: 'text/plain', buffer: Buffer.from('سياسة الاعتراف بالإيراد\n\nفقرة ثانية') });
+  await p.fill('input[aria-label="العنوان"]', 'سياسة الإيراد'); await p.selectOption('select[aria-label="حجية الرفع"]', 'internal');
+  await p.click('[data-refupload]'); await p.waitForFunction(() => /أُضيف المرجع/.test(window.lastSay || ''), null, { timeout: 10000 });
+  const up = posts.find(x => x.startsWith('/api/refs/upload')); assert.ok(up && /"authority":"internal"/.test(up) && /فقرة ثانية/.test(up) && /"page":1/.test(up), up);
+  await p.click('[data-refverify]'); await p.waitForFunction(() => /حُدّث/.test(window.lastSay || ''));
+  assert.ok(posts.some(x => x.startsWith('/api/refs/update') && /"verify":true/.test(x)));
+  assert.deepEqual(errs, []); await ctx.close();
+});
