@@ -80,6 +80,7 @@ export const MCP_TOOLS = [
   { name: 'search_invoices', title: 'بحث في فواتير الموردين', description: 'فواتير الموردين برقمها أو المورد أو رقم القيد الثابت (PJ-) أو دفعة الاستيراد (IMP-)، مع التصنيف والحساب والمبالغ والمتبقي. limit الافتراضي 50.', inputSchema: { type: 'object', properties: { q: { type: 'string' }, from: FROM, to: TO, cls: { type: 'string', enum: ['pur', 'exp', 'asset'] }, open_only: { type: 'boolean' }, limit: { type: 'integer', minimum: 1, maximum: 500 } } } },
   { name: 'financial_analysis', title: 'التحليل المالي المتتبَّع', description: '14 نسبة مالية (سيولة، ربحية، كفاءة، ملاءة، تدفق نقدي) لكل منها المعادلة والحسابات المصدرية والفترة والقيمة والمقارنة بالفترة السابقة والسنة السابقة والمخاطرة والإجراء، مع فحص اكتمال البيانات أولًا. النسبة ذات البيانات الناقصة قيمتها null وحالتها insufficient — اذكر ذلك للمستخدم ولا تقدّر قيمة بديلة.', inputSchema: { type: 'object', properties: { from: FROM, to: TO, branch: BR }, required: ['from', 'to'] } },
   { name: 'control_scan', title: 'الفحص الرقابي وسجل الحالات', description: 'نتائج الفحص المحاسبي الحتمي الآن (فواتير مكررة، ضريبة غير مطابقة، ضريبة بلا رقم ضريبي للمورد، أرصدة بعكس طبيعتها، قيود غير متوازنة…) مع حالات السجل المسجّلة وحالتها ومسؤولها وموعدها. للقراءة فقط.', inputSchema: { type: 'object', properties: { category: { type: 'string' }, open_only: { type: 'boolean' } } } },
+  { name: 'search_references', title: 'البحث في مكتبة المراجع', description: 'بحث في المراجع المرفوعة للمنشأة (IFRS/IAS/IFRIC، الهيئة السعودية للمراجعين والمحاسبين، هيئة الزكاة والضريبة والجمارك، السياسات الداخلية). يُرجع مقتطفات حرفية مع العنوان والصفحة والفقرة وحجية المرجع وحالة توثيقه. استشهد فقط بما يُرجعه — لا تذكر فقرة أو متطلبًا غير موجود في المقتطفات، وفرّق بين «متطلب رسمي» و«سياسة داخلية» و«تفسير مهني» وشرحك أنت، ونبّه إن كان المرجع «غير موثّق».', inputSchema: { type: 'object', properties: { q: { type: 'string', description: 'السؤال أو الكلمات أو رقم المعيار/الفقرة' }, cat: { type: 'string' }, family: { type: 'string', description: 'مثل IFRS 15' }, include_inactive: { type: 'boolean' } }, required: ['q'] } },
   { name: 'journal_entries', title: 'قيود اليومية', description: 'قيود اليومية (الآلية واليدوية) لفترة مع بنودها. ابحث في البيان أو رقم القيد أو المرجع. limit الافتراضي 50.', inputSchema: { type: 'object', properties: { from: FROM, to: TO, q: { type: 'string' }, branch: BR, limit: { type: 'integer', minimum: 1, maximum: 300 } } } },
 ].map(t => ({ ...t, annotations: { ...RO, title: t.title } }));
 
@@ -274,7 +275,7 @@ export async function handleRpc(msg, { tools = [...MCP_TOOLS, ...MCP_WRITE_TOOLS
 }
 
 /* ===================== التركيب على الخادم ===================== */
-export function mountMcp(app, { express, requireMember, requireFeature = () => (q, r, n) => n(), rateLimit, T, fetchImpl = fetch, log = console, engine = null, now = Date.now, publicBase = '', isolate = null }) {
+export function mountMcp(app, { refs = null, express, requireMember, requireFeature = () => (q, r, n) => n(), rateLimit, T, fetchImpl = fetch, log = console, engine = null, now = Date.now, publicBase = '', isolate = null }) {
   const json = express.json({ limit: '256kb' }), small = express.json({ limit: '4kb' });
   const toks = new Map(); const tokenFor = (t) => { if (!toks.has(t.id)) toks.set(t.id, saTokenSource(t.sa, { fetchImpl })); return toks.get(t.id)(); };
   const docs = (t) => 'https://firestore.googleapis.com/v1/projects/' + encodeURIComponent(t.dataProject || t.projectId) + '/databases/(default)/documents';
@@ -435,6 +436,7 @@ export function mountMcp(app, { express, requireMember, requireFeature = () => (
     if (msgs.length > 20) return deny(res, 400, 'دفعة طلبات كبيرة');
     let D = null; const call = async (name, args) => { touch(v);
       log.log('mcp:', v.t.id, v.email, name);
+      if (name === 'search_references') { if (!refs) throw new Error('مكتبة المراجع غير متاحة'); const hits = await refs.search(v.t, args); return { hits, count: hits.length, note: hits.length ? 'مقتطفات حرفية — استشهد بالعنوان والصفحة' : 'لا نتائج في المراجع المرفوعة — لا تستشهد بمراجع غير موجودة' }; }
       if (name === 'list_proposals') return listProposals(v.t, args.status);
       if (isolate) return WRITE_NAMES.has(name) ? storeProposal(v, await inWorker(v.t, 'propose', name, args)) : inWorker(v.t, 'run', name, args);
       if (!D) D = await loadData(v.t); const En = await loadEngine();
