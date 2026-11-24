@@ -3113,3 +3113,17 @@ test('v53.7 مقترحات Claude: اعتماد قيد وإعادة تصنيف �
   assert.equal(P[2].note, 'لا حاجة له'); assert.equal(await p.locator('[data-mcppend]').count(), 0);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v53.9 قائمة الدخل في مركز التقارير: من الدفاتر تلقائيًا حين لا إغلاقات، وفتح قيود الحساب، والاستعراض بالمؤشر', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Hub/admin/reporting:reports');
+  await p.evaluate(() => window.setOps(o => ({ ...o, closings: [], invoices: [{ id: 'gp1', kind: 'svc', supplierId: 's1', supplierName: 'مكين', invoiceNo: 'G-1', amount: 1150, vatAmt: 150, taxable: true, date: '2025-03-02', dueDate: '2025-03-02', branchId: '', jeNo: 'PJ-000077', expLines: [{ accCode: '5198', net: 1000, vat: 150 }] }] })));
+  await p.locator('button:has-text("قائمة الدخل (يومي/شهري/سنوي)")').click();
+  await p.locator('button:text-is("سنوي")').click(); await p.selectOption('select.sel:has(option[value="2025"]):visible', '2025'); await p.waitForTimeout(400);
+  await p.waitForSelector('[data-glpnl]'); assert.equal(await p.locator('[data-pnlauto]').count(), 1);
+  assert.match(await p.locator('[data-glpnl]').innerText(), /1,000\.00/); assert.equal(await p.locator('[data-nosales]').count(), 1);
+  await p.locator('[data-doclink]:has-text("5198")').hover(); await p.waitForSelector('[data-peek]', { timeout: 3000 });
+  assert.match(await p.locator('.modal').innerText(), /قيود الحساب 5198 \(1\)/);
+  await p.keyboard.press('Escape'); await p.locator('.modal button:has-text("إغلاق")').click().catch(() => {});
+  await p.click('[data-src="closing"]'); assert.equal(await p.locator('[data-glpnl]').count(), 0);
+  assert.deepEqual(errs, []); await ctx.close();
+});

@@ -1,7 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useMemo } from 'react';
 import { FileText, Download, FileBarChart, Receipt, TrendingUp, TrendingDown, Wallet } from 'lucide-react';
-import { Kpi, NUM_FACE, arDate, computeIncome, exportExcel, money, openDocWin, printIncomeA4, sum, today } from '../../App.jsx';
+import { Kpi, NUM_FACE, arDate, computeIncome, exportExcel, money, openDocWin, printIncomeA4, sum, today, buildAccounting, acctActivity, isLayout, DocLink } from '../../App.jsx';
 
 export function FinancialReports({ org, ops, myBranches, scoped, say }) {
   const [period, setPeriod] = useState('monthly');
@@ -20,6 +20,17 @@ export function FinancialReports({ org, ops, myBranches, scoped, say }) {
   const data = useMemo(() => computeIncome(org, ops, scoped.closings, ids, range.from, range.to),
     [org, ops, scoped, ids.join(), range.from, range.to]);
 
+  // v53.9 — مصدر القائمة: الإغلاقات اليومية (تشغيلية) أو الدفاتر المحاسبية (كل القيود: فواتير الموردين المستوردة، القيود اليدوية، المبيعات…).
+  // تلقائيًا: الدفاتر حين لا إغلاقات في الفترة. الدفاتر لكل الفروع تتاح فقط لمن يرى كل الفروع.
+  const [src, setSrc] = useState('');
+  const allBr = myBranches.length >= (org.branches || []).length;
+  const glOk = bid !== 'all' || allBr;
+  const gl = useMemo(() => { if (!glOk) return null; try {
+    const A = buildAccounting(org, ops); const T = acctActivity(A, { from: range.from, to: range.to, bf: bid === 'all' ? '' : bid }); const mv = {};
+    T.rows.forEach(r => { const n = (r.kind === 'asset' || r.kind === 'exp') ? 1 : -1; mv[r.code] = n * (r.debit - r.credit); });
+    const Y = isLayout(A.accounts, a => mv[a.code] || 0); Y._any = Object.values(mv).some(v => Math.abs(v) > 0.004); return Y; } catch { return null; } },
+    [org, ops, glOk, bid, range.from, range.to]);
+  const useGl = !!gl && (src ? src === 'gl' : (data.n === 0 && gl._any));
   const m = (n) => money(n);
   const scopeLabel = bid === 'all' ? 'كل الفروع' : (branches[0]?.name || '');
   const branchLogo = bid !== 'all' ? branches[0]?.logoUrl : '';
@@ -172,6 +183,13 @@ export function FinancialReports({ org, ops, myBranches, scoped, say }) {
         </div>
       </div>
 
+      <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center' }} data-pnlsrc>
+        <span style={{ fontSize: 12, color: 'var(--dim)' }}>المصدر:</span>
+        <button className={'btn sm ' + (!useGl ? 'pri' : 'gh')} data-src="closing" onClick={() => setSrc('closing')}>الإغلاقات اليومية ({data.n})</button>
+        <button className={'btn sm ' + (useGl ? 'pri' : 'gh')} data-src="gl" disabled={!glOk} title={glOk ? '' : 'اختر فرعًا — الدفاتر لكل الفروع لمن يرى كل الفروع'} onClick={() => setSrc('gl')}>الدفاتر المحاسبية (كل القيود)</button>
+        {useGl && !src && <span className="hint" data-pnlauto>لا إغلاقات يومية في الفترة — عُرضت القائمة من الدفاتر المحاسبية تلقائيًا</span>}
+      </div>
+      {useGl ? <GlPnl Y={gl} range={range} scopeLabel={scopeLabel} L={L} bf={bid === 'all' ? '' : bid} /> : <>
       <div className="grid g3">
         <Kpi label="صافي الإيراد" value={money(data.netRevenue)} sub={`${data.n} إغلاق`} icon={TrendingUp} color="#D9A83E" />
         <Kpi label="إجمالي التكاليف" value={money(data.totalCost)} icon={TrendingDown} color="#D9544D" />
@@ -209,6 +227,42 @@ export function FinancialReports({ org, ops, myBranches, scoped, say }) {
         <L k="صافي الضريبة المستحقة للهيئة" v={data.vatDue} c="var(--amber)" bold />
         <L k="إجمالي فروقات الصندوق للفترة" v={data.cashVariance} c={data.cashVariance < 0 ? 'var(--rose)' : 'var(--faint)'} />
       </div>
+      </>}
     </div>
   );
+}
+
+/* v53.9 — قائمة الدخل من الدفاتر المحاسبية (نفس تخطيط قائمة الدخل في المحاسبة: تكلفة المبيعات حسب تصنيف الحساب) */
+function GlPnl({ Y, range, scopeLabel, L, bf }) {
+  const ab = (v) => Math.abs(Number(v) || 0);
+  const costs = ab(Y.cogsT) + ab(Y.opexT);
+  const rows = [['صافي المبيعات', Y.netSales], ...Y.sales.map(l => ['  ' + l.code + ' ' + l.name, ab(l.amt)]), ['تكلفة المبيعات', -ab(Y.cogsT)], ...Y.cogs.map(l => ['  ' + l.code + ' ' + l.name, -ab(l.amt)]),
+    ['مجمل الربح', Y.gross], ...(Y.opexG || []).flatMap(g => [[g.t, -ab(g.lines.reduce((a, l) => a + l.amt, 0))], ...g.lines.map(l => ['  ' + l.code + ' ' + l.name, -ab(l.amt)])]), ['الربح التشغيلي', Y.oper], ['بنود أخرى', Y.otherT], ['صافي الربح', Y.net]];
+  const xls = () => exportExcel('قائمة-الدخل-الدفاتر-' + range.label, 'قائمة الدخل (الدفاتر) — ' + range.label, ['البند', 'المبلغ (ر.س)'], rows.map(r => [r[0], +(+r[1]).toFixed(2)]), { meta: [['النطاق', scopeLabel], ['الفترة', range.from + ' — ' + range.to]] });
+  const Acc = ({ l, neg }) => <L k={<DocLink to={{ acc: l.code, from: range.from, to: range.to, ...(bf ? { bf } : {}) }} title="قيود الحساب في الفترة">{l.code} · {l.name}</DocLink>} v={neg ? -ab(l.amt) : ab(l.amt)} c={neg ? 'var(--rose)' : 'var(--brass)'} ind />;
+  return (<>
+    <div className="grid g3" data-glpnl>
+      <Kpi label="صافي المبيعات" value={money(Y.netSales)} sub="من القيود" icon={TrendingUp} color="#D9A83E" />
+      <Kpi label="إجمالي التكاليف" value={money(costs)} sub="تكلفة المبيعات + التشغيل" icon={TrendingDown} color="#D9544D" />
+      <Kpi label="صافي الربح" value={money(Y.net)} icon={Wallet} color={Y.net >= 0 ? '#4FB286' : '#D9544D'} />
+    </div>
+    {Math.abs(Y.netSales) < 0.005 && <div className="note" data-nosales>لا مبيعات مسجّلة في هذه الفترة — المبيعات تدخل الدفاتر من الإغلاقات اليومية أو فواتير المبيعات أو استيراد مبيعات نقاط البيع. لذا تظهر التكاليف وحدها وصافي الربح سالبًا.</div>}
+    <div className="card">
+      <div className="row" style={{ justifyContent: 'space-between', marginBottom: 6 }}><div className="card-t"><FileText size={15} color="var(--brass)" />قائمة الدخل {range.type} من الدفاتر — {range.label}</div>
+        <button className="btn sm ok" onClick={xls}><FileBarChart size={13} />Excel</button></div>
+      <div style={{ fontSize: 11.5, color: 'var(--dim)', marginBottom: 10 }}>{scopeLabel} · اضغط أي حساب لفتح دفتر أستاذه وقيوده</div>
+      {Y.sales.map(l => <Acc key={l.code} l={l} />)}
+      <L k="صافي المبيعات" v={Y.netSales} c="var(--brass)" bold sub />
+      {Y.cogs.map(l => <Acc key={l.code} l={l} neg />)}
+      <L k="تكلفة المبيعات" v={-ab(Y.cogsT)} c="var(--rose)" bold sub />
+      <L k="مجمل الربح" v={Y.gross} c={Y.gross >= 0 ? 'var(--mint)' : 'var(--rose)'} bold />
+      {(Y.opexG || []).map(g => <React.Fragment key={g.t}><div style={{ fontSize: 12, color: 'var(--dim)', marginTop: 8 }}>{g.t}</div>{g.lines.map(l => <Acc key={l.code} l={l} neg />)}</React.Fragment>)}
+      <L k="مصروفات التشغيل" v={-ab(Y.opexT)} c="var(--rose)" bold sub />
+      <L k="الربح التشغيلي" v={Y.oper} c={Y.oper >= 0 ? 'var(--mint)' : 'var(--rose)'} bold />
+      {Math.abs(Y.otherT) > 0.004 && <L k="بنود أخرى" v={Y.otherT} ind />}
+      <div style={{ marginTop: 8, padding: '14px 16px', background: Y.net >= 0 ? 'rgba(79,178,134,.12)' : 'rgba(217,84,77,.12)', borderRadius: 12 }}>
+        <div className="row" style={{ justifyContent: 'space-between' }}><span style={{ fontSize: 14, fontWeight: 700 }}>صافي الربح</span>
+          <span className="num" style={{ fontSize: 18, fontWeight: 700, color: Y.net >= 0 ? 'var(--mint)' : 'var(--rose)' }}>{money(Y.net)}</span></div></div>
+    </div>
+  </>);
 }

@@ -3338,7 +3338,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v53.8';
+const APP_VER = 'v53.9';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -7388,14 +7388,23 @@ function VoiceSearchHost({ lang }) {
 /* ══════ v47.5 — نافذة استعراض القيد/المستند: النقر على رقم قيد أو فاتورة أو سند يفتح نافذته للاستعراض في أي شاشة ══════
    peekDoc({ e: entryId } | { no: رقم القيد } | { si: id } | { inv: id } | { cv: id } | { ref, src }) — يُرسل حدثًا تلتقطه DocPeekHost. */
 const peekDoc = (spec) => { try { window.dispatchEvent(new CustomEvent('mz-peek', { detail: spec || {} })); } catch { /* */ } };
+/* v53.9 — طلب المالك: وضع المؤشر على القيد يفتحه. على الأجهزة ذات المؤشر (لا اللمس) يفتح الاستعراض بعد توقف قصير (0.6ث) فوق الرابط؛ مغادرة الرابط قبلها تلغيه. النقر يبقى كما هو */
+let _peekHover = null;
+const canHover = () => { try { return window.matchMedia('(hover: hover) and (pointer: fine)').matches; } catch { return false; } };
 function DocLink({ to, children, style, title }) {
   if (!to) return <>{children}</>;
   return <button type="button" className="doclink" data-doclink title={title || 'استعراض'} style={style}
-    onClick={(ev) => { ev.stopPropagation(); peekDoc(to); }}>{children}</button>;
+    onMouseEnter={() => { if (!canHover()) return; clearTimeout(_peekHover); _peekHover = setTimeout(() => peekDoc(to), 600); }}
+    onMouseLeave={() => clearTimeout(_peekHover)}
+    onClick={(ev) => { ev.stopPropagation(); clearTimeout(_peekHover); peekDoc(to); }}>{children}</button>;
 }
 // يحدد المستند والقيود المرتبطة به
 function peekResolve(org, ops, A, sp) {
   const E = (A && A.entries) || []; const out = { entries: [], doc: null, kind: '' };
+  if (sp.acc) {   // v53.9: قيود حساب في فترة (من قائمة الدخل بالدفاتر) — أحدث 60 قيدًا
+    const c = String(sp.acc); const L = E.filter(e => (!sp.from || String(e.date) >= sp.from) && (!sp.to || String(e.date) <= sp.to) && (!sp.bf || e.branchId === sp.bf) && (e.lines || []).some(l => String(l.code) === c));
+    out.kind = 'acc'; out.acc = c; out.accTotal = L.length; out.entries = L.slice(-60).reverse(); return out;
+  }
   const byId = (id) => E.filter(e => e.id === id);
   const SI = ops.salesInvoices || [], INV = ops.invoices || [], CV = ops.cashVouchers || [];
   let si = sp.si ? SI.find(x => x.id === sp.si) : null, inv = sp.inv ? INV.find(x => x.id === sp.inv) : null, cv = sp.cv ? CV.find(x => x.id === sp.cv) : null;
@@ -7425,6 +7434,7 @@ function DocPeekHost({ org, ops }) {
   const ttl = R.kind === 'si' ? (d.kind === 'credit' ? 'إشعار دائن ' : d.kind === 'debit' ? 'إشعار مدين ' : 'فاتورة مبيعات ') + d.no
     : R.kind === 'inv' ? (d.debitNote ? 'إشعار مدين للمورد ' : d.creditNote ? 'إشعار دائن/مرتجع مورد ' : d.supDebit ? 'إشعار مدين من المورد ' : 'فاتورة مورد ') + (d.invoiceNo || '')
     : R.kind === 'cv' ? ((CV_KIND[d.kind] || {}).ar || 'سند') + ' ' + d.no
+    : R.kind === 'acc' ? 'قيود الحساب ' + R.acc + ' (' + R.accTotal + ')'
     : R.entries.length === 1 ? 'قيد ' + R.entries[0].no : 'استعراض';
   const brn = (id) => (((org.branches || []).find(b => b.id === id)) || {}).name;
   const prj = (id) => (((org.projects || []).find(p => p.id === id)) || {}).name;
@@ -7459,6 +7469,7 @@ function DocPeekHost({ org, ops }) {
           <div className="mono-b"><span>{d.kind === 'tv' ? 'من ← إلى' : 'الطرف'}</span><b>{d.kind === 'tv' ? d.fund + ' ← ' + d.toFund : d.kind === 'ov' ? d.supName + ' / ' + d.custName : (d.party || {}).name}</b></div>
           {d.note && <div className="mono-b"><span>البيان</span><b>{d.note}</b></div>}
         </div>}
+        {R.kind === 'acc' && R.accTotal > R.entries.length && <div className="hint" data-peek-acc style={{ marginBottom: 6 }}>تُعرض أحدث {R.entries.length} من {R.accTotal} قيدًا — للكامل افتح دفتر الأستاذ في المالية والمحاسبة.</div>}
         {R.entries.map(e => (
           <div key={e.id} className="card" style={{ padding: 12, marginBottom: 8 }} data-peek-je>
             <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 6 }}>
