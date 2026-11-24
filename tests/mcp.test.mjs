@@ -187,3 +187,9 @@ test('v54.0 أداة التحليل المالي في الموصل: نفس مح�
   const gm = F.ratios.find(r => r.id === 'gm'); assert.equal(gm.value, null); assert.equal(gm.status, 'insufficient');
   assert.equal(runTool(E, { org: ORG, ops: OPS }, 'financial_analysis', { from: '2026-01-01', to: '2026-01-31', branch: 'طيبة' }).branch, 'طيبة');
 });
+
+
+test('v54.1 أداة الفحص الرقابي في الموصل', () => {
+  const R = runTool(E, { org: ORG, ops: OPS }, 'control_scan', {}, '2026-03-01');
+  assert.ok(R.issues_now >= 1); assert.ok(R.issues.every(i => i.key && i.category && i.fix)); assert.equal(R.registered_cases, 0);
+});

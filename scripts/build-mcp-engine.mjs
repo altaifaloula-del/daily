@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-export const MCP_ENGINE_EXPORTS = ['finAnalyze', 'MCP_KINDS', 'mcpPlanJournal', 'mcpPlanReclass', 'mcpPlanExp', 'buildAccounting', 'acctActivity', 'glLedger', 'isLayout', 'invCls', 'INV_CLS', 'invPayments', 'APP_VER'];
+export const MCP_ENGINE_EXPORTS = ['ctlScan', 'CTL_OPEN', 'finAnalyze', 'MCP_KINDS', 'mcpPlanJournal', 'mcpPlanReclass', 'mcpPlanExp', 'buildAccounting', 'acctActivity', 'glLedger', 'isLayout', 'invCls', 'INV_CLS', 'invPayments', 'APP_VER'];
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 // v53.9: على Render يُثبَّت esbuild وحده في .esb/ (بدل كل اعتماديات التطوير الثقيلة التي أفشلت البناء) — وإلا من node_modules

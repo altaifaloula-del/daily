@@ -79,6 +79,7 @@ export const MCP_TOOLS = [
   { name: 'supplier_balances', title: 'أرصدة الموردين', description: 'لكل مورد: إجمالي الفواتير والمسدد والمتبقي والمتأخر عن الاستحقاق، مرتبة من الأكبر متبقيًا.', inputSchema: { type: 'object', properties: { supplier: { type: 'string', description: 'جزء من اسم المورد' }, open_only: { type: 'boolean' } } } },
   { name: 'search_invoices', title: 'بحث في فواتير الموردين', description: 'فواتير الموردين برقمها أو المورد أو رقم القيد الثابت (PJ-) أو دفعة الاستيراد (IMP-)، مع التصنيف والحساب والمبالغ والمتبقي. limit الافتراضي 50.', inputSchema: { type: 'object', properties: { q: { type: 'string' }, from: FROM, to: TO, cls: { type: 'string', enum: ['pur', 'exp', 'asset'] }, open_only: { type: 'boolean' }, limit: { type: 'integer', minimum: 1, maximum: 500 } } } },
   { name: 'financial_analysis', title: 'التحليل المالي المتتبَّع', description: '14 نسبة مالية (سيولة، ربحية، كفاءة، ملاءة، تدفق نقدي) لكل منها المعادلة والحسابات المصدرية والفترة والقيمة والمقارنة بالفترة السابقة والسنة السابقة والمخاطرة والإجراء، مع فحص اكتمال البيانات أولًا. النسبة ذات البيانات الناقصة قيمتها null وحالتها insufficient — اذكر ذلك للمستخدم ولا تقدّر قيمة بديلة.', inputSchema: { type: 'object', properties: { from: FROM, to: TO, branch: BR }, required: ['from', 'to'] } },
+  { name: 'control_scan', title: 'الفحص الرقابي وسجل الحالات', description: 'نتائج الفحص المحاسبي الحتمي الآن (فواتير مكررة، ضريبة غير مطابقة، ضريبة بلا رقم ضريبي للمورد، أرصدة بعكس طبيعتها، قيود غير متوازنة…) مع حالات السجل المسجّلة وحالتها ومسؤولها وموعدها. للقراءة فقط.', inputSchema: { type: 'object', properties: { category: { type: 'string' }, open_only: { type: 'boolean' } } } },
   { name: 'journal_entries', title: 'قيود اليومية', description: 'قيود اليومية (الآلية واليدوية) لفترة مع بنودها. ابحث في البيان أو رقم القيد أو المرجع. limit الافتراضي 50.', inputSchema: { type: 'object', properties: { from: FROM, to: TO, q: { type: 'string' }, branch: BR, limit: { type: 'integer', minimum: 1, maximum: 300 } } } },
 ].map(t => ({ ...t, annotations: { ...RO, title: t.title } }));
 
@@ -231,6 +232,13 @@ export function runTool(E, D, name, a = {}, today = new Date().toISOString().sli
     case 'financial_analysis': {
       if (!a.from || !a.to) throw new Error('from و to مطلوبان');
       const F = E.finAnalyze(C.org, C.ops, { from: a.from, to: a.to, bf }, C.A); return { ...F, branch: bf ? C.brName(bf === 'central' ? '' : bf) : 'الكل' };
+    }
+    case 'control_scan': {
+      const I = E.ctlScan(C.org, C.ops, { today, A: C.A }).filter(x => !a.category || x.cat === a.category);
+      const K = (C.ops.ctlCases || []).filter(c => (!a.category || c.cat === a.category) && (!a.open_only || E.CTL_OPEN.includes(c.status)));
+      const by = {}; I.forEach(x => { by[x.cat] = (by[x.cat] || 0) + 1; });
+      return { scanned_at: today, issues_now: I.length, by_category: by, issues: I.slice(0, 200).map(x => ({ key: x.key, category: x.cat, severity: x.sev, title: x.title, evidence: x.evidence, impact: x.impact, fix: x.fix, branch: C.brName(x.branchId) })),
+        registered_cases: K.length, cases: K.slice(0, 200).map(c => ({ no: c.no, category: c.cat, severity: c.sev, status: c.status, title: c.title, owner: c.owner, due: c.due, impact: c.impact, occurrences: c.occurrences })) };
     }
     case 'journal_entries': {
       const q = norm(a.q); const lim = Math.min(300, Math.max(1, Number(a.limit) || 50));
