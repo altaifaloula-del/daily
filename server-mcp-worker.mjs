@@ -4,7 +4,7 @@
  * لا يكتب شيئًا: القراءة فقط بحساب الخدمة، والمقترحات تُحفظ في الخادم الرئيسي بعد عودة النتيجة. */
 import { parentPort } from 'node:worker_threads';
 import { saTokenSource } from './server-billing.js';
-import { loadPlatformData, runTool, proposeTool } from './server-mcp.js';
+import { loadPlatformData, runTool, proposeTool, mcpScope } from './server-mcp.js';
 
 let E = null; const cache = new Map(); const toks = new Map();
 const TTL = 10 * 60000;   // التجهيز مكلف على المعالج البطيء — البيانات تُحدَّث كل 10 دقائق على الأكثر (data_as_of في الرد)
@@ -24,10 +24,10 @@ const dataOf = (t) => {
   cache.set(t.id, { p, exp: Date.now() + TTL }); p.catch(() => cache.delete(t.id)); return p;
 };
 
-parentPort.on('message', async ({ id, t, op, name, args }) => {
+parentPort.on('message', async ({ id, t, op, name, args, scope }) => {
   try {
     if (!E) E = await import('./dist-engine/engine.mjs');
-    const D = await dataOf(t);
+    const D = mcpScope(await dataOf(t), scope || []);
     const result = op === 'propose' ? proposeTool(E, D, name, args) : runTool(E, D, name, args);
     parentPort.postMessage({ id, ok: true, result, ver: E.APP_VER || '' });
   } catch (e) {

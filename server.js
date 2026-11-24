@@ -24,6 +24,7 @@ import { providerConfig, mountProvider, writeTenantStatus } from './server-provi
 import { mountUserAdmin } from './server-users.js';
 import { mountMcp } from './server-mcp.js';
 import { mountRefs } from './server-refs.js';   // v54.4 مكتبة المراجع
+import { mountAiLog } from './server-ailog.js';   // v54.6 سجل الذكاء الاصطناعي
 import { refSearch } from './ref-lib.mjs';   // v53.5 موصل Claude (MCP) للقراءة فقط
 import { automationConfig, runAutomation, scheduleAutomation } from './server-automation.js';
 import { loadTenants } from './tenants.js';
@@ -278,8 +279,9 @@ function readRegistry() {
 mountProvider(app, { express, requireMember, rateLimit, T: TENANTS, cfg: providerConfig(process.env), store: CONTROL, controlReady: BILLING.controlReady, registry: readRegistry, onPaid, runAuto: BILLING.controlReady ? () => runAuto() : null });
 // v52.9: إدارة حسابات الدخول (الحالة وتعيين كلمة السر) لمسؤول النظام — بحساب خدمة المنشأة
 mountUserAdmin(app, { express, requireMember, rateLimit, T: TENANTS });
+const AILOG = mountAiLog(app, { requireMember, rateLimit, T: TENANTS });   // v54.6 — قبل مسارات /api/ai و/api/refs و/api/mcp
 const REFS = mountRefs(app, { express, requireMember, rateLimit, T: TENANTS, aiClient: ANTHROPIC_KEY ? aiClient : null, refModel: process.env.REF_MODEL || 'claude-haiku-5-5' });
-mountMcp(app, { refs: { search: async (t, a) => { const L = await REFS.lib(t); return refSearch(L.chunks, L.docs, String(a.q || ''), { cat: a.cat, family: a.family, includeInactive: !!a.include_inactive, limit: 15 }); } }, express, requireMember, requireFeature, rateLimit, T: TENANTS, publicBase: String(process.env.MCP_PUBLIC_BASE || '').replace(/\/+$/, ''),
+mountMcp(app, { audit: AILOG.write, refs: { search: async (t, a) => { const L = await REFS.lib(t); return refSearch(L.chunks, L.docs, String(a.q || ''), { cat: a.cat, family: a.family, includeInactive: !!a.include_inactive, limit: 15 }); } }, express, requireMember, requireFeature, rateLimit, T: TENANTS, publicBase: String(process.env.MCP_PUBLIC_BASE || '').replace(/\/+$/, ''),
   // v53.9: حسابات الموصل في عامل معزول بحد ذاكرة — نفاد ذاكرته لا يُسقط الخادم
   isolate: IS_PROD ? { heapMb: Number(process.env.MCP_WORKER_MB) || 200, timeoutMs: 100000, hardMs: 600000 } : null });
 

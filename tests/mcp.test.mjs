@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
-import { loadPlatformData, mountMcp, handleRpc, MCP_TOOLS, MCP_WRITE_TOOLS, runTool, proposeTool, hashToken, parseToken, newToken } from '../server-mcp.js';
+import { mcpScope, loadPlatformData, mountMcp, handleRpc, MCP_TOOLS, MCP_WRITE_TOOLS, runTool, proposeTool, hashToken, parseToken, newToken } from '../server-mcp.js';
 import { loadTenants } from '../tenants.js';
 import { buildMcpEngine } from '../scripts/build-mcp-engine.mjs';
 
@@ -22,7 +22,7 @@ const OPS = { invoices: [
   { id: 'i2', kind: 'svc', supplierId: 's1', supplierName: 'مكين', invoiceNo: 'F-2', amount: 230, vatAmt: 30, taxable: true, date: '2026-01-06', dueDate: '2026-01-06', branchId: 'b2', jeNo: 'PJ-000002', expLines: [{ accCode: '5199', net: 200, vat: 30 }], cls: 'exp',
     paidAmount: 230, payments: [{ id: 'p', amount: 230, date: '2026-01-06', fund: '1101' }] }] };
 
-function harness({ env = ENV, role = 'system_admin', memberRole = 'system_admin', memberActive = true } = {}) {
+function harness({ env = ENV, role = 'system_admin', memberRole = 'system_admin', memberActive = true, audit = null } = {}) {
   const routes = {}; const reg = (m) => (p, ...h) => { routes[m + ' ' + p] = h; };
   const app = { get: reg('GET'), post: reg('POST'), delete: reg('DELETE') };
   const store = { mcp_tokens: {}, mcp_proposals: {} }; const sent = []; const logs = [];
@@ -45,7 +45,7 @@ function harness({ env = ENV, role = 'system_admin', memberRole = 'system_admin'
   const user = { email: 'o@altaif.sa', role, tenant: 'default' };
   const requireMember = (req, res, next) => { req.user = user; next(); };
   let t = 1_800_000_000_000;
-  mountMcp(app, { express: { json: () => (q, r, n) => n() }, requireMember, rateLimit: () => (q, r, n) => n(), T: loadTenants(env), fetchImpl, engine: E, now: () => t,
+  mountMcp(app, { audit, express: { json: () => (q, r, n) => n() }, requireMember, rateLimit: () => (q, r, n) => n(), T: loadTenants(env), fetchImpl, engine: E, now: () => t,
     log: { log: (...a) => logs.push(a.join(' ')), error: (...a) => logs.push(a.join(' ')) } });
   const call = async (key, { body, params = {} } = {}) => { const req = { body, params, protocol: 'https', get: () => 'mithqal.onrender.com', user: null }; const o = { status: 200, headers: {} };
     const res = { status(c) { o.status = c; return this; }, json(j) { o.json = j; return this; }, end() { o.ended = true; return this; }, set(k, v) { o.headers[k] = v; return this; } };
@@ -203,4 +203,19 @@ test('v54.5 قيد تصحيحي من وكيل المراجعة: نفس تحقق 
   const doc = H.store.mcp_proposals[ok.json.proposal_id]; assert.equal(doc.kind, 'journal'); assert.match(doc.reason, /وكيل المراجعة — الحالة CASE-000003/); assert.match(doc.summary, /دليل الضريبة ص4/);
   assert.ok(!H.sent.some(x => x.method === 'PATCH' && x.u.includes('/platform')), 'لا ترحيل مباشر');
   assert.equal((await harness({ role: 'cashier' }).call('POST /api/mcp/proposals/review', { body: { lines: [] } })).status, 403);
+});
+
+test('v54.6 نطاق الفروع للرابط: يرى فروعه فقط، لا قيود على المركز، وكل استدعاء يُسجَّل في سجل الذكاء الاصطناعي', async () => {
+  const A = []; const H = harness({ audit: (tid, e) => A.push({ tid, ...e }) });
+  assert.equal((await H.call('POST /api/mcp/links', { body: { branches: ['b2', 'x y'] } })).status, 400, 'معرّف غير صالح');
+  const L = await H.call('POST /api/mcp/links', { body: { label: 'النسيم فقط', branches: ['b2'] } }); assert.deepEqual(L.json.branches, ['b2']); const tok = L.json.url.split('/mcp/')[1];
+  assert.deepEqual((await H.call('GET /api/mcp/links')).json.links[0].branches, ['b2']);
+  const call = (name, args) => rpc(H, tok, { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name, arguments: args } });
+  const s1 = (await call('search_invoices', { q: 'pj-000001' })).json.result.structuredContent; assert.equal(s1.matched, 0, 'فاتورة فرع آخر لا تظهر');
+  const s2 = (await call('search_invoices', { q: 'pj-000002' })).json.result.structuredContent; assert.equal(s2.matched, 1);
+  const c = await call('propose_journal_entry', { date: '2026-02-01', title: 'مركزي', lines: [{ code: '5198', debit: 1 }, { code: '1101', credit: 1 }] }); assert.equal(c.json.result.isError, true); assert.match(c.json.result.content[0].text, /مقيّد بفروع/);
+  const o = await call('propose_journal_entry', { date: '2026-02-01', title: 'طيبة', branch: 'طيبة', lines: [{ code: '5198', debit: 1 }, { code: '1101', credit: 1 }] }); assert.equal(o.json.result.isError, true, 'فرع خارج النطاق'); assert.match(o.json.result.content[0].text, /فرع غير معروف/);
+  assert.ok(A.some(x => x.kind === 'mcp' && x.name === 'search_invoices' && x.ok && /نطاق: 1 فرع/.test(x.detail)));
+  assert.ok(A.some(x => x.kind === 'proposal' && x.ok === false)); assert.ok(A.every(x => x.by === 'o@altaif.sa' && x.tid === 'default'));
+  const D = { org: ORG, ops: OPS }; assert.equal(mcpScope(D, []), D); const S = mcpScope(D, ['b1']); assert.deepEqual(S.org.branches.map(b => b.id), ['b1']); assert.equal(S.ops.invoices.length, 1); assert.equal(mcpScope(D, ['b1']), S, 'مخبأ');
 });
