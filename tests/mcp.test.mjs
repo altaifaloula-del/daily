@@ -31,6 +31,7 @@ function harness({ env = ENV, role = 'system_admin', memberRole = 'system_admin'
   const fetchImpl = async (u, i = {}) => { sent.push({ u, method: i.method || 'GET', body: i.body });
     const J = (status, j) => ({ ok: status < 300, status, json: async () => j });
     if (u.includes('oauth2')) return J(200, { access_token: 'AT', expires_in: 3600 });
+    if (u.endsWith(':batchGet')) return J(200, JSON.parse(i.body).documents.map(n => { const id = n.split('/').pop(); return platform[id] ? { found: { name: n, fields: enc(platform[id]) } } : { missing: n }; }));
     const m = /\/documents\/(.+?)(\?|$)/.exec(u); const p = m ? decodeURIComponent(m[1]) : '';
     if (p.startsWith('members/')) return memberActive != null ? J(200, { fields: enc({ role: memberRole, active: memberActive }) }) : J(404, {});
     if (p === 'platform') return J(200, { documents: Object.entries(platform).map(([id, f]) => ({ name: 'x/platform/' + id, fields: enc(f) })) });
@@ -156,23 +157,25 @@ test('v53.9 تحميل بأقل ذاكرة: الأجزاء تُجمع، ونقط
     ['rms8_core', { parts: 2, ver: 'abcd', value: '' }], ['rms8_core__abcd_0', { chunk: core.slice(0, 10) }], ['rms8_core__abcd_1', { chunk: core.slice(10) }],
     ['rms8_br_b1', { parts: 1, value: JSON.stringify({ closings: [{ id: 'c2' }], posOrders: [{ id: 'p1' }], posShifts: [{ id: 's' }] }) }],
     ['rms8_pos_b1_202611', { parts: 1, value: JSON.stringify({ orders: [{ id: 'p2' }] }) }], ['rms8_hist', { parts: 1, value: '{"big":1}' }], ['security', { x: 1 }]];
-  const urls = [];
-  const get = async (u) => { urls.push(u); const pt = Number((/pageToken=(\d+)/.exec(u) || [])[1] || 0); const page = docs.slice(pt, pt + 3);
-    return { ok: true, status: 200, j: { documents: page.map(([id, f]) => ({ name: 'p/platform/' + id, fields: enc(f) })), nextPageToken: pt + 3 < docs.length ? String(pt + 3) : undefined } }; };
-  const D = await loadPlatformData('B', get);
-  assert.deepEqual(D.org, { company: { name: 'X' } });
+  docs[0][1].value = JSON.stringify({ company: { name: 'X' }, branches: [{ id: 'b1' }] });
+  const urls = [], M = Object.fromEntries(docs);
+  const get = async (u, i) => { urls.push(u); return { ok: true, status: 200, j: JSON.parse(i.body).documents.map(n => { const id = n.split('/').pop(); return M[id] ? { found: { name: n, fields: enc(M[id]) } } : { missing: n }; }) }; };
+  const D = await loadPlatformData('https://firestore.googleapis.com/v1/projects/p/databases/(default)/documents', get);
+  assert.deepEqual(D.org.company, { name: 'X' });
   assert.deepEqual(D.ops.closings.map(x => x.id), ['c1', 'c2']); assert.equal(D.ops.invoices.length, 1);
   assert.equal(D.ops.posOrders, undefined, 'فواتير نقطة البيع لا تُحمَّل'); assert.equal(D.ops.posShifts, undefined);
-  assert.ok(urls.every(u => u.includes('pageSize=20')));
+  assert.ok(urls.every(u => u.endsWith(':batchGet')), 'قراءة بالأسماء لا تصفّح المجموعة');
+  assert.ok(!urls.some(u => /pos_|hist|bf_/.test(u)));
 });
 
 test('v53.9 تحميل متدفق: أجزاء متداخلة الترتيب، إسقاط المرفقات المضمّنة والمصفوفات غير المحاسبية، وتجاهل أجزاء النسخ القديمة', async () => {
   const enc = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, typeof v === 'number' ? { integerValue: String(v) } : { stringValue: String(v) }]));
   const b1 = JSON.stringify({ invoices: [{ id: 'i1', img: 'data:image/png;base64,' + 'A'.repeat(5000) }], hrLeaves: [{ id: 'h' }] });
-  const docs = [['rms8_br_b1', { parts: 2, ver: 'v2', value: '' }], ['rms8_br_b10', { parts: 1, value: JSON.stringify({ closings: [{ id: 'c10' }] }) }],
+  const docs = [['rms8_org', { parts: 1, value: JSON.stringify({ branches: [{ id: 'b1' }, { id: 'b10' }] }) }], ['rms8_br_b1', { parts: 2, ver: 'v2', value: '' }], ['rms8_br_b10', { parts: 1, value: JSON.stringify({ closings: [{ id: 'c10' }] }) }],
     ['rms8_br_b1__v1_0', { chunk: 'قديم' }], ['rms8_br_b1__v2_0', { chunk: b1.slice(0, 50) }], ['rms8_br_b1__v2_1', { chunk: b1.slice(50) }]];
-  const get = async () => ({ ok: true, status: 200, j: { documents: docs.map(([id, f]) => ({ name: 'p/platform/' + id, fields: enc(f) })) } });
-  const D = await loadPlatformData('B', get);
+  const M = Object.fromEntries(docs);
+  const get = async (u, i) => ({ ok: true, status: 200, j: JSON.parse(i.body).documents.map(n => { const id = n.split('/').pop(); return M[id] ? { found: { name: n, fields: enc(M[id]) } } : { missing: n }; }) });
+  const D = await loadPlatformData('https://firestore.googleapis.com/v1/projects/p/databases/(default)/documents', get);
   assert.equal(D.ops.invoices.length, 1); assert.equal(D.ops.invoices[0].img, undefined, 'المرفق المضمّن يُسقط');
   assert.equal(D.ops.hrLeaves, undefined, 'مصفوفة غير محاسبية تُحذف'); assert.deepEqual(D.ops.closings.map(x => x.id), ['c10']);
 });
