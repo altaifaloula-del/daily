@@ -14,23 +14,47 @@ import { decodeFields, assemble, composeLogical } from './scripts/backup-lib.mjs
 // مستندات المنصة التي يحتاجها الموصل (ورؤوسها وأجزاؤها __…) — يُستبعد السجل التاريخي والولاء وفواتير نقطة البيع الشهرية توفيرًا للذاكرة
 // (محرك المحاسبة buildAccounting وأدوات الموصل لا تقرأ posOrders/posShifts — الإيراد من الإغلاقات اليومية)
 export const MCP_DOC_RE = /^rms8_(org|core|br_[^_].*?)(__.+)?$/;
-const MCP_DROP_KEYS = ['posOrders', 'posShifts', 'posDeliveries', '_posLegacy'];
 
-/** v53.9: تحميل بيانات المنشأة للموصل بأقل ذاكرة: صفحات صغيرة، مستندات لازمة فقط، وتجميع كل مستند ثم تقليمه فورًا.
- *  get(url) ⇒ { ok, status, j } بحساب الخدمة. يُستخدم داخل عامل معزول في الإنتاج (server-mcp-worker.mjs). */
+// مصفوفات العمليات التي يقرؤها محرك المحاسبة (buildAccounting وما يستدعيه) ودوال المقترحات وأدوات الموصل — مُستخرجة من App.jsx.
+// أي مصفوفة أخرى (نقطة البيع، التسويق، الموارد البشرية…) تُحذف فور فك مستندها توفيرًا للذاكرة.
+export const MCP_OPS_KEYS = new Set(['advances', 'appSettlements', 'cashVouchers', 'closingInvPays', 'closings', 'disbursements', 'invoices',
+  'journalManual', 'ledgerEntries', 'salesInvoices', 'stockMoves', 'transfers', 'whMoves', 'whTransfers']);
+// الملفات المضمّنة (صور/مرفقات data:…) لا تلزم المحاسبة — تُسقط أثناء الفك نفسه فلا تبقى في الذاكرة
+const DROP_BLOBS = (k, v) => (typeof v === 'string' && v.length > 1024 && v.startsWith('data:')) ? undefined : v;
+
+/** v53.9: تحميل بيانات المنشأة للموصل بأقل ذاكرة ممكنة (الخطة المجانية 512MB):
+ *  صفحات صغيرة؛ كل مستند يُجمَّع ويُفك فور اكتمال أجزائه ثم تُحرَّر نصوصه (لا تُحمَّل المنصة كلها نصوصًا ثم تُفك)؛
+ *  تُحذف المصفوفات غير اللازمة والمرفقات المضمّنة. get(url) ⇒ { ok, status, j } بحساب الخدمة. */
 export async function loadPlatformData(base, get, now = Date.now) {
-  const raw = {}; let pt = '';
-  for (let i = 0; i < 2000; i++) { const r = await get(base + '/platform?pageSize=20' + (pt ? '&pageToken=' + encodeURIComponent(pt) : ''));
+  const values = {}, pend = new Map(), done = new Set(), bad = [];
+  const finish = (id, text) => {
+    if (typeof text !== 'string' || !text) return;
+    let v; try { v = JSON.parse(text, id === 'rms8_org' ? undefined : DROP_BLOBS); } catch { bad.push(id); return; }
+    if (id !== 'rms8_org' && v && typeof v === 'object') Object.keys(v).forEach(k => { if (Array.isArray(v[k]) && !MCP_OPS_KEYS.has(k)) delete v[k]; });
+    values[id] = v;
+  };
+  const tryDone = (id) => { const e = pend.get(id); if (!e || !e.f) return; const parts = Number(e.f.parts) || 1, pre = e.f.ver ? e.f.ver + '_' : '';
+    const cs = []; for (let i = 0; i < parts; i++) { const c = e.ch[pre + i]; if (typeof c !== 'string') return; cs.push(c); }
+    pend.delete(id); done.add(id); finish(id, cs.join('')); };
+  const onDoc = (id, fields) => {
+    const cut = id.indexOf('__');
+    if (cut < 0) { const f = decodeFields(fields); const parts = Number(f.parts) || 1;
+      if (parts === 1) { done.add(id); finish(id, f.value); return; }
+      if (parts > 500) { bad.push(id); return; }
+      const e = pend.get(id) || { ch: {} }; e.f = { parts, ver: f.ver || '' }; pend.set(id, e); tryDone(id); return; }
+    const head = id.slice(0, cut); if (done.has(head)) return;   // أجزاء نسخة قديمة بعد اكتمال المستند
+    const e = pend.get(head) || { ch: {} }; e.ch[id.slice(cut + 2)] = (decodeFields(fields) || {}).chunk; pend.set(head, e); tryDone(head);
+  };
+  let pt = '';
+  for (let i = 0; i < 5000; i++) { const r = await get(base + '/platform?pageSize=20' + (pt ? '&pageToken=' + encodeURIComponent(pt) : ''));
     if (!r.ok) throw new Error('تعذّرت قراءة بيانات المنشأة (' + r.status + ')');
-    (r.j.documents || []).forEach(d => { const id = d.name.split('/').pop(); if (MCP_DOC_RE.test(id)) raw[id] = decodeFields(d.fields); }); pt = r.j.nextPageToken || ''; r.j = null; if (!pt) break; }
-  const heads = Object.keys(raw).filter(id => !id.includes('__')); const values = {};
-  for (const h of heads) {   // مستند واحد في الذاكرة مفكوكًا في كل مرة، ثم تُحذف نصوصه الخام
-    const sub = { [h]: raw[h] }; const pre = h + '__'; Object.keys(raw).forEach(k => { if (k.startsWith(pre)) sub[k] = raw[k]; });
-    const v = assemble(sub).values[h]; Object.keys(sub).forEach(k => { delete raw[k]; });
-    if (v && typeof v === 'object') MCP_DROP_KEYS.forEach(k => { delete v[k]; }); values[h] = v;
-  }
+    (r.j.documents || []).forEach(d => { const id = d.name.split('/').pop(); if (MCP_DOC_RE.test(id)) onDoc(id, d.fields); });
+    pt = r.j.nextPageToken || ''; r.j = null; if (!pt) break; }
+  pend.forEach((e, id) => { if (e.f) bad.push(id); });
+  if (bad.length) console.error('mcp: مستندات لم تُقرأ كاملة:', bad.join(','));
   const L = composeLogical(values); return { org: L.org || {}, ops: L.ops || {}, _at: new Date(now()).toISOString() };
 }
+
 export const MCP_PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const TOKEN_RE = /^mq_([a-z0-9][a-z0-9-]{1,39})_([A-Za-z0-9_-]{43})$/;
 const MAX_TOKENS = 10;
@@ -352,13 +376,13 @@ export function mountMcp(app, { express, requireMember, requireFeature = () => (
     data.set(t.id, { p, exp: now() + 120000 }); p.catch(() => data.delete(t.id)); return p; };
 
   // v53.9: عزل الحساب في عامل بحد ذاكرة مستقل — نفاد الذاكرة أو التعليق يُنهي العامل وحده لا الخادم (الفوترة والذكاء الاصطناعي)
-  let W = null; const pend = new Map(); let seq = 0;
+  let W = null; const pend = new Map(); let seq = 0; let lastFail = null;   // سبب آخر فشل للعامل — يُعرض بدل «ما زال يجهّز»
   const failAll = (msg) => { pend.forEach(p => { clearTimeout(p.tm); p.rej(new Error(msg)); }); pend.clear(); };
   const worker = () => { if (W) return W;
     W = new Worker(new URL('./server-mcp-worker.mjs', import.meta.url), { resourceLimits: { maxOldGenerationSizeMb: isolate.heapMb || 220 } });
-    W.unref(); W.on('message', (m) => { if (!pend.size) clearTimeout(hard); const p = pend.get(m.id); if (!p) return; pend.delete(m.id); clearTimeout(p.tm); if (m.ver) appVer = m.ver;
+    W.unref(); W.on('message', (m) => { if (m.ok) lastFail = null; if (!pend.size) clearTimeout(hard); const p = pend.get(m.id); if (!p) return; pend.delete(m.id); clearTimeout(p.tm); if (m.ver) appVer = m.ver;
       if (m.ok) p.res(m.result); else { const e = new Error(m.error); if (m.code) e.code = m.code; p.rej(e); } });
-    W.on('error', (e) => { log.error('mcp worker', e && (e.code || e.message)); failAll(e && e.code === 'ERR_WORKER_OUT_OF_MEMORY' ? 'بيانات المنشأة أكبر من ذاكرة الموصل المتاحة (MCP_WORKER_MB) — رقِّ خطة الخادم وارفع السقف؛ بقية المنصة لم تتأثر' : 'تعذّر الحساب — أعد المحاولة'); W = null; });
+    W.on('error', (e) => { log.error('mcp worker', e && (e.code || e.message)); lastFail = { at: now(), oom: !!(e && e.code === 'ERR_WORKER_OUT_OF_MEMORY') }; failAll(e && e.code === 'ERR_WORKER_OUT_OF_MEMORY' ? 'بيانات المنشأة أكبر من ذاكرة الموصل المتاحة (MCP_WORKER_MB) — رقِّ خطة الخادم وارفع السقف؛ بقية المنصة لم تتأثر' : 'تعذّر الحساب — أعد المحاولة'); W = null; });
     W.on('exit', (c) => { if (c) failAll('توقف الحساب — أعد المحاولة'); W = null; });
     return W; };
   let appVer = '';
@@ -367,7 +391,7 @@ export function mountMcp(app, { express, requireMember, requireFeature = () => (
   let hard = null; const armHard = () => { clearTimeout(hard); hard = setTimeout(() => { if (W) { log.error('mcp worker: مهلة صلبة — إنهاء'); try { W.terminate(); } catch { } W = null; } }, isolate.hardMs || 600000); };
   const inWorker = (t, op, name, args) => new Promise((res, rej) => { const id = ++seq; const w = worker(); armHard();
     const tm = setTimeout(() => { const p = pend.get(id); if (!p) return; pend.delete(id);
-      rej(new Error('ما زال الخادم يجهّز بيانات المنشأة (أول طلب بعد الخمول يأخذ دقائق على الخطة المجانية) — أعد السؤال بعد دقيقة أو دقيقتين')); }, isolate.timeoutMs || 100000);
+      rej(new Error(lastFail && lastFail.oom && now() - lastFail.at < 15 * 60000 ? 'بيانات المنشأة أكبر من ذاكرة الموصل في الخطة الحالية (نفدت أثناء التجهيز) — بقية المنصة تعمل؛ الحل ترقية خطة الخادم' : 'ما زال الخادم يجهّز بيانات المنشأة (أول طلب بعد الخمول يأخذ دقائق على الخطة المجانية) — أعد السؤال بعد دقيقة أو دقيقتين')); }, isolate.timeoutMs || 100000);
     pend.set(id, { res, rej, tm }); w.postMessage({ id, t: { id: t.id, sa: t.sa, projectId: t.projectId, dataProject: t.dataProject }, op, name, args: args || {} }); });
 
   // v53.9: سطر لكل طلب من Claude (المفتاح مخفي) — لتشخيص الربط لأن سجلات الطلبات غير متاحة في خطة Render المجانية

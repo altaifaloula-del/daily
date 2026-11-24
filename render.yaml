@@ -15,7 +15,7 @@ services:
       - key: NODE_OPTIONS        # v53.9: يستبدل قيمة سابقة (--max-old-space-size) كانت تلغي سقف عامل الموصل — لا تضع فيه سقف ذاكرة
         value: --disable-warning=ExperimentalWarning
       - key: MCP_WORKER_MB       # سقف ذاكرة عامل موصل Claude — ارفعه (مثل 1200) عند الترقية لخطة Standard 2GB. لا تضع --max-old-space-size في NODE_OPTIONS: يلغي هذا السقف
-        value: "200"
+        value: "280"
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: FIREBASE_API_KEY
