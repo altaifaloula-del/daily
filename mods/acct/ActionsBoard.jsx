@@ -2,7 +2,7 @@
    تظهر في «مركز التحليل» للمركز، وفي «الإغلاق اليومي ← إجراءات الفرع» لفريق الفرع (إجراءات فروعه فقط). */
 import React, { useMemo, useState } from 'react';
 import { ListChecks, Plus, Check, X, Play, MessageSquare, TrendingUp, TrendingDown, Clock, AlertTriangle } from 'lucide-react';
-import { ACT_KIND, ACT_SRC, ACT_ST, Field, Kpi, Modal, ROLES, actionEffect, arDate, money, newAction, nowISO, rolePost, today } from '../../App.jsx';
+import { ACT_KIND, ACT_SRC, ACT_ST, Field, Kpi, Modal, ROLES, actionEffect, arDate, money, newAction, nowISO, rolePost, today, recRealized, jeOwner } from '../../App.jsx';
 
 const fmtM = (kind, v) => v == null ? '—' : /rate/.test(kind) ? v + '%' : money(v);
 export const canEditAction = (me, a) => { const R = ROLES[me?.role] || {};
@@ -77,6 +77,13 @@ export function ActionsBoard({ org, ops, me, myBranches, commit, say }) {
                 <span>المسؤول: {can && (a.status === 'open' || a.status === 'doing') ? <select className="act-sel" value={a.assignee || ''} onChange={ev => reassign(a, ev.target.value)}><option value="">—</option>{users.filter(u => !a.branchId || !u.branchId || u.branchId === a.branchId || (ROLES[u.role] || {}).scope === 'all').map(u => <option key={u.id} value={u.name}>{u.name}</option>)}</select> : <b>{a.assignee || '—'}</b>}</span>
                 <span className={od ? 'act-late' : ''}>الموعد: {can && (a.status === 'open' || a.status === 'doing') ? <input type="date" className="act-sel" value={a.due || ''} onChange={ev => reassign(a, a.assignee || '', ev.target.value)} /> : <span className="dt">{a.due ? arDate(a.due) : '—'}</span>}{od ? ' — متأخر' : ''}</span>
               </div>
+              {a.rec && <div className="act-m" data-actrec>   {/* v54.2 توصية مالية: المتوقع منفصل عن الفعلي + الاعتماد */}
+                <span className={'badge ' + (a.approval === 'approved' ? 'b-mint' : a.approval === 'rejected' ? 'b-rose' : 'b-amber')}>{a.approval === 'approved' ? 'معتمدة' : a.approval === 'rejected' ? 'مرفوضة' : 'بانتظار الاعتماد'}</span>
+                <span>المتوقع: <b className="num">{money((a.expected || {}).amount || 0)}</b> <small style={{ color: 'var(--faint)' }}>({(a.expected || {}).method})</small></span>
+                {(() => { const r = recRealized(org, ops, a); return <span>الفعلي: {!r || r.state === 'not_done' ? 'بعد الإنجاز' : r.state === 'measuring' ? 'يُقاس حتى ' + r.ready : r.state === 'measured' && r.actual != null ? <b className="num">{money(r.actual)}</b> : r.state === 'measured' ? 'النسبة ' + r.before + ' ← ' + r.after : 'لا بيانات'}</span>; })()}
+                {a.approval === 'pending' && jeOwner(me) && <><button className="btn sm ok" data-recapprove onClick={() => commit(d => ({ ...d, actions: (d.actions || []).map(x => x.id === a.id ? { ...x, approval: 'approved', approvedBy: me.name, approvedAt: nowISO() } : x) }), { actionType: 'update', targetType: 'settings', targetId: a.id, title: 'اعتمد توصية مالية', details: a.title.slice(0, 160) })}>اعتماد</button>
+                  <button className="btn sm gh" onClick={() => commit(d => ({ ...d, actions: (d.actions || []).map(x => x.id === a.id ? { ...x, approval: 'rejected', approvedBy: me.name, approvedAt: nowISO() } : x) }), { actionType: 'update', targetType: 'settings', targetId: a.id, title: 'رفض توصية مالية', details: a.title.slice(0, 160) })}>رفض</button></>}
+              </div>}
               {a.metric && <div className="act-m">
                 <span>{(ACT_KIND[a.metric.kind] || {}).ar}: عند الإنشاء <b className="num">{fmtM(a.metric.kind, a.metric.before)}</b> · المعتاد <b className="num">{fmtM(a.metric.kind, a.metric.normal)}</b></span>
                 {e && (e.pending ? <span className="badge b-dim">يُقاس الأثر في <span className="dt">{arDate(e.ready)}</span></span>
