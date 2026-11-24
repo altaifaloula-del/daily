@@ -337,6 +337,18 @@ export function mountMcp(app, { refs = null, express, requireMember, requireFeat
     log.log('mcp: مقترح', v.t.id, id, P.kind);
     return { proposal_id: id, status: 'pending', kind: P.kind, title: P.title, summary: P.summary, next: 'بانتظار اعتماد مسؤول النظام في مثقال: الإعدادات ← ربط Claude ← المقترحات. لم يُنفَّذ شيء بعد.' };
   };
+  // v54.5 — المرحلة 6: قيد تصحيحي من «وكيل المراجعة» يمر بنفس تحقق propose_journal_entry ويُحفظ مقترحًا بانتظار اعتماد مسؤول النظام — لا ترحيل مباشر
+  const REV_ROLES = new Set(['system_admin', 'finance_department', 'accountant', 'general_management', 'head_office']);
+  app.post('/api/mcp/proposals/review', express.json({ limit: '64kb' }), requireMember, lim, async (req, res) => {
+    if (!req.user || !REV_ROLES.has(req.user.role)) return res.status(403).json({ error: 'للمالية والإدارة فقط' });
+    const t = tenantOf(req); if (!t || !t.sa) return res.status(409).json({ error: 'لم يُضبط حساب الخدمة على الخادم', code: 'no-sa' });
+    const b = req.body || {}; const caseNo = String(b.caseNo || '').slice(0, 20);
+    const args = { date: String(b.date || '').slice(0, 10), title: String(b.title || ('تصحيح ' + caseNo)).slice(0, 140), lines: Array.isArray(b.lines) ? b.lines.slice(0, 20) : [], ...(b.branch ? { branch: String(b.branch) } : {}),
+      reason: ('من وكيل المراجعة — الحالة ' + caseNo + (b.reason ? ' · ' + String(b.reason) : '')).slice(0, 500) };
+    const v = { t, email: req.user.email, h: 'review-agent' };
+    try { const P = isolate ? await inWorker(t, 'propose', 'propose_journal_entry', args) : proposeTool(await loadEngine(), await loadData(t), 'propose_journal_entry', args);
+      P.summary = { ...P.summary, case: caseNo, citations: (Array.isArray(b.citations) ? b.citations : []).slice(0, 6).map(c => String(c).slice(0, 200)) };
+      res.json(await storeProposal(v, P)); } catch (e) { res.status(400).json({ error: e.message }); } });
   app.get('/api/mcp/proposals', requireMember, lim, async (req, res) => {
     const t = admin(req, res); if (!t) return;
     try { res.json({ proposals: (await propList(t)).slice(0, 200) }); } catch (e) { res.status(502).json({ error: e.message }); }

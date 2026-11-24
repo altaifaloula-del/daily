@@ -3219,3 +3219,25 @@ test('v54.4 مكتبة المراجع: رفع نص بحقول الإصدار و�
   assert.ok(posts.some(x => x.startsWith('/api/refs/update') && /"verify":true/.test(x)));
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v54.5 وكيل المراجعة: تحليل الحالة بالسند والحجية والثقة، حفظه في الحالة، والقيد التصحيحي مقترح بانتظار الاعتماد', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1300, height: 1500 } }); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  const posts = [];
+  await ctx.route('http://zatca.test/api/**', async (r) => { const u = new URL(r.request().url()); const J = (b) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(b) }); posts.push(u.pathname + ' ' + (r.request().postData() || ''));
+    if (u.pathname === '/api/refs/review') { const c = JSON.parse(r.request().postData()).cases[0]; return J({ findings: [{ caseKey: c.key, caseNo: c.no, issue: c.title, category: c.cat, severity: c.sev, evidence: c.evidence, impact: 15, basis: 'requirement', basisLabel: 'متطلب رسمي (من نص مرفوع موثّق)',
+      citations: [{ doc: 'd1', title: 'دليل الضريبة', version: '2024', page: 4, para: 2, quote: 'بنسبة 15% من قيمة التوريد', authorityLabel: 'متطلب رسمي منشور', verified: true }], analysis: 'الفاتورة مسجلة مرتين', correction: { text: 'عكس الفاتورة المكررة', lines: [{ code: '2101', debit: 115, credit: 0 }, { code: '5198', debit: 0, credit: 115 }], total: 115 },
+      confidence: 'medium', approval: 'required', at: '2026-11-24T10:00', model: 'claude-haiku-5-5', dropped: ['عبارة غير موجودة حرفيًا'] }] }); }
+    if (u.pathname === '/api/mcp/proposals/review') return J({ proposal_id: 'mp-20261124-abc', status: 'pending' });
+    return J({}); });
+  await p.goto(base + 'live/Hub/admin/analytics:cases'); await settle(p);
+  await p.evaluate(() => window.setOps(o => ({ ...o, ctlCases: [{ id: 'c1', no: 'CASE-000001', key: 'dup_invoice|A1', cat: 'dup_invoice', sev: 'high', status: 'new', title: 'فاتورة مكررة A1', evidence: 'A1 مرتين', fix: 'احذف المكرر', impact: 115, due: '2026-12-01', detectedAt: '2026-11-20', history: [] }] })));
+  await p.waitForSelector('[data-case="dup_invoice"]'); await p.locator('[data-case="dup_invoice"]').click(); await p.waitForSelector('[data-casereview]');
+  assert.match(await p.locator('[data-casereview]').innerText(), /لم تُراجع بعد/);
+  await p.click('[data-casereviewrun]'); await p.waitForSelector('[data-revcites]');
+  const t = await p.locator('[data-casereview]').innerText(); assert.match(t, /بنسبة 15% من قيمة التوريد[\s\S]*دليل الضريبة[\s\S]*ص 4/); assert.match(t, /متطلب رسمي/); assert.match(t, /متوسطة/); assert.match(t, /مطلوب اعتماد بشري/); assert.match(t, /أُسقط من الرد/);
+  const cs = await p.evaluate(() => window.cur.ctlCases); assert.equal(cs[0].review.basis, 'requirement'); assert.match(cs[0].history.slice(-1)[0].note, /مراجعة بالمراجع/);
+  await p.click('[data-revpropose]'); await p.waitForFunction(() => /بانتظار اعتماد/.test(window.lastSay || ''));
+  assert.ok(posts.some(x => x.startsWith('/api/mcp/proposals/review') && /"caseNo":"CASE-000001"/.test(x) && /"2101"/.test(x)));
+  assert.equal((await p.evaluate(() => window.cur.ctlCases))[0].review.proposal, 'mp-20261124-abc');
+  assert.deepEqual(errs, []); await ctx.close();
+});

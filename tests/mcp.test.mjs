@@ -193,3 +193,14 @@ test('v54.1 أداة الفحص الرقابي في الموصل', () => {
   const R = runTool(E, { org: ORG, ops: OPS }, 'control_scan', {}, '2026-03-01');
   assert.ok(R.issues_now >= 1); assert.ok(R.issues.every(i => i.key && i.category && i.fix)); assert.equal(R.registered_cases, 0);
 });
+
+test('v54.5 قيد تصحيحي من وكيل المراجعة: نفس تحقق اقتراح القيد، يُحفظ بانتظار الاعتماد، وللمالية فقط', async () => {
+  const H = harness({ role: 'accountant' });
+  const bad = await H.call('POST /api/mcp/proposals/review', { body: { caseNo: 'CASE-000003', date: '2026-02-01', lines: [{ code: '5198', debit: 100 }, { code: '1101', credit: 90 }] } });
+  assert.equal(bad.status, 400); assert.match(bad.json.error, /غير متوازن/); assert.equal(Object.keys(H.store.mcp_proposals).length, 0);
+  const ok = await H.call('POST /api/mcp/proposals/review', { body: { caseNo: 'CASE-000003', date: '2026-02-01', title: 'تصحيح تصنيف', lines: [{ code: '5198', debit: 100 }, { code: '1101', credit: 100 }], citations: ['دليل الضريبة ص4'] } });
+  assert.equal(ok.status, 200, JSON.stringify(ok.json)); assert.equal(ok.json.status, 'pending');
+  const doc = H.store.mcp_proposals[ok.json.proposal_id]; assert.equal(doc.kind, 'journal'); assert.match(doc.reason, /وكيل المراجعة — الحالة CASE-000003/); assert.match(doc.summary, /دليل الضريبة ص4/);
+  assert.ok(!H.sent.some(x => x.method === 'PATCH' && x.u.includes('/platform')), 'لا ترحيل مباشر');
+  assert.equal((await harness({ role: 'cashier' }).call('POST /api/mcp/proposals/review', { body: { lines: [] } })).status, 403);
+});

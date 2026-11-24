@@ -48,3 +48,47 @@ export function refExcerpt(text, qt) {
   const t = String(text || ''); const n = refNorm(t); let at = -1; for (const w of qt || []) { const i = n.indexOf(w); if (i >= 0 && (at < 0 || i < at)) at = i; }
   const st = Math.max(0, (at < 0 ? 0 : at) - 120); return (st > 0 ? '…' : '') + t.slice(st, st + 420) + (st + 420 < t.length ? '…' : '');
 }
+
+/* ===== v54.5 — المرحلة 6: وكيل المراجعة المحاسبية بالمراجع — أدوات حتمية للتحقق من مخرجات النموذج =====
+   النموذج يقترح، والتحقق هنا يقرّر: لا استشهاد إلا بمقطع مُرسل إليه وبنص موجود فيه حرفيًا، والحجية تُشتق من بيانات المرجع لا من ادعاء النموذج،
+   والقيد التصحيحي يُقبل متوازنًا فقط ثم يمر بتحقق «اقتراح قيد» في الخادم ولا يُرحَّل إلا باعتماد مسؤول النظام. */
+export const REV_BASIS = { requirement: 'متطلب رسمي (من نص مرفوع موثّق)', policy: 'سياسة داخلية للمنشأة', interpretation: 'تفسير مهني', ai: 'شرح الذكاء الاصطناعي — بلا سند مرفوع' };
+export const REV_CONF = { high: 'عالية', medium: 'متوسطة', low: 'منخفضة' };
+export const REV_Q = {
+  dup_invoice: 'فاتورة مكررة تسجيل المصروف مرة واحدة الالتزامات', dup_amount: 'تكرار المبلغ نفس المورد الفاتورة',
+  vat_calc: 'ضريبة القيمة المضافة احتساب 15% الفاتورة الضريبية', vat_supplier: 'الرقم الضريبي للمورد استرداد ضريبة المدخلات الفاتورة الضريبية',
+  missing_doc: 'المستندات المؤيدة للقيد إثبات الفاتورة', future_date: 'تاريخ القيد الفترة المحاسبية الاستحقاق', unbalanced: 'القيد المزدوج تساوي المدين والدائن',
+  locked_pending: 'إقفال الفترة القيود المعلقة', equity_touch: 'حقوق الملكية رأس المال جاري الشريك', nature: 'تصنيف المصروف طبيعة الحساب الرصيد', anomaly: 'قيد غير اعتيادي مراجعة',
+};
+export const revQuery = (c) => [REV_Q[c.cat] || '', String(c.title || '')].join(' ').trim();
+const wsn = (s) => refNorm(s).replace(/[\s‏‎«»"“”'.,،:؛;()\-–—…]+/g, ' ').trim();
+/** نص التعليمات للنموذج: المقاطع مرقمة، والمطلوب JSON فقط */
+export function revPrompt(c, hits) {
+  return 'أنت مراجع محاسبي. حلّل الحالة الرقابية التالية مستندًا فقط إلى المقاطع المرقمة أدناه من مراجع المنشأة المرفوعة. لا تذكر معيارًا أو رقم فقرة غير موجود حرفيًا في المقاطع.\n'
+    + 'أعد JSON فقط بالشكل: {"analysis":"تحليل موجز","basis":"requirement|policy|interpretation|ai","citations":[{"n":رقم المقطع,"quote":"عبارة منقولة حرفيًا من المقطع لا تتجاوز 25 كلمة"}],"correction":"التصحيح المقترح نصًا","lines":[{"code":"رمز الحساب","debit":0,"credit":0}],"confidence":"high|medium|low"}\n'
+    + 'اجعل lines فارغة إن لم يلزم قيد تصحيحي أو لم تتأكد من الحسابات. إن لم تجد سندًا في المقاطع فاجعل citations فارغة وbasis="ai".\n\n'
+    + 'الحالة: ' + [c.no, c.title].filter(Boolean).join(' — ') + '\nالفئة: ' + (c.cat || '') + '\nالدليل: ' + String(c.evidence || '').slice(0, 1500) + '\nالأثر التقديري: ' + (Number(c.impact) || 0) + '\nالحل المقترح من الفحص: ' + (c.fix || '') + '\n\n'
+    + 'المقاطع:\n' + (hits || []).map((h, i) => '[' + i + '] «' + h.title + '» ص' + h.page + ' مقطع ' + h.para + ' (' + (h.authorityLabel || '') + (h.verified ? '، موثّق' : '، غير موثّق') + '):\n' + String(h.text || h.excerpt || '').slice(0, 1500)).join('\n\n');
+}
+const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+/** يتحقق من رد النموذج ويبني «النتيجة» بحقولها الإحدى عشرة — كل ما لا يُثبت يُسقط أو يُخفَّض */
+export function revValidate(raw, c, hits, { at = '', model = '' } = {}) {
+  let o = raw; if (typeof raw === 'string') { try { o = JSON.parse((raw.match(/\{[\s\S]*\}/) || ['{}'])[0]); } catch { o = {}; } } o = o || {};
+  const dropped = [];
+  const cites = []; (Array.isArray(o.citations) ? o.citations : []).slice(0, 6).forEach(x => { const n = Number(x && x.n); const h = Number.isInteger(n) ? (hits || [])[n] : null; const q = String((x && x.quote) || '').trim();
+    if (!h) return dropped.push('استشهاد بمقطع غير مُرسل'); if (q.length < 8 || !wsn(h.text || h.excerpt).includes(wsn(q))) return dropped.push('عبارة غير موجودة حرفيًا في «' + h.title + '» ص' + h.page);
+    if (!cites.some(y => y.doc === h.doc && y.page === h.page && y.para === h.para)) cites.push({ doc: h.doc, title: h.title, family: h.family || '', version: h.version || '', page: h.page, para: h.para, quote: q.slice(0, 300), authority: h.authority, authorityLabel: h.authorityLabel || REF_AUTH[h.authority] || '', verified: !!h.verified, status: h.status || 'active' }); });
+  // الحجية من بيانات المرجع: «متطلب» فقط من مرجع رسمي موثّق ساري؛ سياسة من مرجع داخلي؛ وإلا تفسير؛ وبلا استشهاد = شرح AI
+  let basis = REV_BASIS[o.basis] ? o.basis : 'interpretation';
+  const offOk = cites.some(x => x.authority === 'official' && x.verified && x.status === 'active'), pol = cites.some(x => x.authority === 'internal');
+  if (!cites.length) basis = 'ai'; else if (basis === 'requirement' && !offOk) basis = pol ? 'policy' : 'interpretation'; else if (basis === 'policy' && !pol) basis = 'interpretation'; else if (basis === 'ai') basis = 'interpretation';
+  let lines = (Array.isArray(o.lines) ? o.lines : []).slice(0, 20).map(l => ({ code: String((l && l.code) || '').trim(), debit: r2(l && l.debit), credit: r2(l && l.credit) })).filter(l => l.code && (l.debit > 0 || l.credit > 0));
+  const dr = r2(lines.reduce((s, l) => s + l.debit, 0)), cr = r2(lines.reduce((s, l) => s + l.credit, 0));
+  if (lines.length && (lines.length < 2 || dr !== cr || lines.some(l => l.debit > 0 && l.credit > 0))) { dropped.push('قيد تصحيحي غير متوازن أُسقط'); lines = []; }
+  let confidence = REV_CONF[o.confidence] ? o.confidence : 'low'; if (basis === 'ai' || cites.some(x => !x.verified)) confidence = confidence === 'high' ? 'medium' : confidence; if (basis === 'ai') confidence = 'low';
+  return {
+    issue: String(c.title || ''), category: c.cat || '', severity: c.sev || '', evidence: String(c.evidence || ''), citations: cites, basis, basisLabel: REV_BASIS[basis],
+    analysis: String(o.analysis || '').slice(0, 2000) || 'لم يُرجع النموذج تحليلًا', impact: r2(c.impact), correction: { text: String(o.correction || '').slice(0, 1200), lines, total: dr },
+    confidence, approval: 'required', at, model, dropped, caseNo: c.no || '', caseKey: c.key || '',
+  };
+}
