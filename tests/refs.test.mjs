@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { refChunk, refSearch, refStdRefs, refExcerpt, revValidate, revPrompt, revQuery } from '../ref-lib.mjs';
+import { refChunk, refSearch, refStdRefs, refExcerpt, revValidate, revPrompt, revQuery, isNoCredit } from '../ref-lib.mjs';
 import { mountRefs, refMetaClean, refPdfPages } from '../server-refs.js';
 import { loadTenants } from '../tenants.js';
 
@@ -103,4 +103,13 @@ test('الخادم: /api/refs/review للمالية فقط، يبحث في ال�
   assert.equal(f.basis, 'interpretation', 'المرجع غير موثّق بعد'); assert.match(prompt, /\[0\]/); assert.equal(JSON.stringify(H.store), before, 'لا كتابة');
   assert.equal((await harness({ role: 'cashier' }).call('POST /api/refs/review', { body: { cases: [CASE] } })).status, 403);
   assert.equal((await H.call('POST /api/refs/review', { body: { cases: [] } })).status, 400);
+});
+
+test('v54.8 نفاد رصيد Anthropic: المراجعة تتوقف عند أول رفض برسالة عربية، والترتيب يعلن السبب ويُبقي النتائج', async () => {
+  let n = 0; const H = harness({ aiText: () => { n++; throw new Error('400 {"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."}}'); } });
+  await H.call('POST /api/refs/upload', { body: { meta: { title: 'IFRS 15', cat: 'ifrs', authority: 'official' }, pages: PAGES15 } }); await new Promise(r => setTimeout(r, 30));
+  const r = await H.call('POST /api/refs/review', { body: { cases: [CASE, { ...CASE, key: 'b' }, { ...CASE, key: 'c' }] } });
+  assert.equal(r.status, 402); assert.equal(r.json.code, 'no-credit'); assert.match(r.json.error, /رصيد Anthropic غير كافٍ/); assert.equal(n, 1, 'لا تكرار بعد الرفض');
+  const s = await H.call('POST /api/refs/search', { body: { q: 'الإيراد العقود', rerank: true } }); assert.equal(s.status, 200); assert.ok(s.json.hits.length > 1); assert.equal(s.json.ranked, false); assert.match(s.json.rerankError, /رصيد/);
+  assert.equal(isNoCredit(new Error('rate limit')), false);
 });

@@ -3258,3 +3258,13 @@ test('v54.6 الحوكمة: رابط Claude مقيّد بفرع، وسجل ال�
   await p.selectOption('select[aria-label="نوع السجل"]', 'mcp'); assert.equal(await p.locator('[data-ailogrow]').count(), 1);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v54.8 نفاد رصيد Anthropic يظهر برسالة عربية واضحة في وكيل المراجعة', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1300, height: 1300 } }); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await ctx.route('http://zatca.test/api/refs/review', r => r.fulfill({ status: 402, contentType: 'application/json', body: JSON.stringify({ error: 'رصيد Anthropic غير كافٍ — اشحنه من console.anthropic.com ← Plans & Billing ثم أعد المحاولة', code: 'no-credit' }) }));
+  await p.goto(base + 'live/Hub/admin/analytics:cases'); await settle(p);
+  await p.evaluate(() => window.setOps(o => ({ ...o, ctlCases: [{ id: 'c1', no: 'CASE-000001', key: 'k1', cat: 'dup_invoice', sev: 'high', status: 'new', title: 'مكررة', evidence: 'x', fix: 'y', impact: 1, due: '2026-12-01', detectedAt: '2026-11-20', history: [] }] })));
+  await p.locator('[data-case="dup_invoice"]').click(); await p.click('[data-casereviewrun]');
+  await p.waitForFunction(() => /رصيد Anthropic غير كافٍ/.test(window.lastSay || '')); assert.ok(!(await p.evaluate(() => window.cur.ctlCases[0].review)), 'لا نتيجة محفوظة');
+  assert.deepEqual(errs, []); await ctx.close();
+});

@@ -38,7 +38,7 @@ export function RefLibrary({ me, say }) {
           <label style={{ fontSize: 12 }}><input type="checkbox" checked={f.rerank} onChange={e => setF({ ...f, rerank: e.target.checked })} /> ترتيب بـ Claude</label>
           <button className="btn sm pri" data-refsearch disabled={busy === 's'} onClick={search}><Search size={13} />{busy === 's' ? 'جارٍ…' : 'بحث'}</button></div>
         {hits && <div style={{ marginTop: 10 }} data-refhits>
-          <div className="hint">{hits.note}</div>
+          <div className="hint">{hits.note}</div>{hits.rerankError && <div className="note" data-refrkerr style={{ marginTop: 6 }}>لم يُرتَّب بـ Claude: {hits.rerankError} — النتائج بالترتيب النصي.</div>}
           {!hits.hits.length && <div className="empty">لا نتائج في المراجع المرفوعة — لا يُستشهد بما ليس فيها.</div>}
           {hits.hits.map((h, i) => <div key={i} className="note" style={{ marginTop: 6 }} data-refhit>
             <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center' }}><b>{h.title}</b>{h.family && <span className="badge b-dim">{h.family}</span>}{h.version && <span className="badge b-dim">إصدار {h.version}</span>}
