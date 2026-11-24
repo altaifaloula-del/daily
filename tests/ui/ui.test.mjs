@@ -3145,3 +3145,22 @@ test('v54.0 التحليل المالي المتقدم: اكتمال البيا�
   assert.match(await p.locator('[data-ratio="gm"]').innerText(), /بيانات ناقصة/); assert.equal((await p.locator('[data-ratio="gm"] [data-val]').innerText()).trim(), '—');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v54.1 سجل حالات الرقابة: الفحص يكتشف ويسجّل دون تكرار، الإسناد، دورة الحياة، وإعادة التحقق', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1400 } }, 'live/Hub/admin/analytics:cases');
+  const inv = (id, x) => ({ id, kind: 'svc', supplierId: 's1', supplierName: 'مكين', invoiceNo: id, amount: 115, vatAmt: 15, taxable: true, date: '2024-02-01', dueDate: '2024-02-01', expLines: [{ accCode: '5198', net: 100, vat: 15 }], ...x });
+  await p.evaluate((L) => { window.setOrg(g => ({ ...g, suppliers: [{ id: 's1', name: 'مكين', vatNo: '311135091100003' }] })); window.setOps(o => ({ ...o, closings: [], ctlCases: [], journalManual: [], invoices: L })); },
+    [inv('A1'), inv('A1b', { invoiceNo: 'A1' })]);
+  await p.waitForSelector('[data-ctlsync]'); await p.waitForTimeout(300);
+  await p.click('[data-ctlsync]'); await p.waitForTimeout(600);
+  let cs = await p.evaluate(() => window.cur.ctlCases); const dup = cs.find(c => c.cat === 'dup_invoice'); assert.ok(dup); assert.match(dup.no, /^CASE-/);
+  const n1 = cs.length; await p.click('[data-ctlsync]'); await p.waitForTimeout(500); assert.equal((await p.evaluate(() => window.cur.ctlCases)).length, n1, 'لا تكرار');
+  await p.locator('[data-case="dup_invoice"]').click(); await p.fill('[data-casex] input[aria-label="المسؤول"]', 'المحاسب'); await p.click('[data-caseassign]'); await p.waitForTimeout(400);
+  cs = await p.evaluate(() => window.cur.ctlCases); assert.equal(cs.find(c => c.cat === 'dup_invoice').status, 'assigned'); assert.equal(cs.find(c => c.cat === 'dup_invoice').owner, 'المحاسب');
+  await p.click('[data-casemove="review"]'); await p.waitForTimeout(300);
+  await p.fill('[data-casex] input[aria-label="ملاحظة القرار"]', 'أُصدر إشعار دائن'); await p.click('[data-casemove="resolved"]'); await p.waitForTimeout(300);
+  await p.evaluate(() => window.setOps(o => ({ ...o, invoices: o.invoices.filter(i => i.id !== 'A1b') }))); await p.waitForTimeout(300);
+  await p.click('[data-ctlsync]'); await p.waitForTimeout(500);
+  cs = await p.evaluate(() => window.cur.ctlCases); const d2 = cs.find(c => c.cat === 'dup_invoice'); assert.equal(d2.status, 'verified'); assert.equal(d2.verify.result, 'pass');
+  assert.deepEqual(errs, []); await ctx.close();
+});
