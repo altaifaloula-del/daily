@@ -3164,3 +3164,20 @@ test('v54.1 سجل حالات الرقابة: الفحص يكتشف ويسجّل
   cs = await p.evaluate(() => window.cur.ctlCases); const d2 = cs.find(c => c.cat === 'dup_invoice'); assert.equal(d2.status, 'verified'); assert.equal(d2.verify.result, 'pass');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v54.2 التوصيات المالية: توصية بدليل وطريقة حساب، تبنّيها إجراءً بلا تكرار، والمتوقع منفصل عن الفعلي', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1400 } }, 'live/Hub/admin/analytics:recs');
+  const d = (k) => { const x = new Date(); x.setDate(x.getDate() - k); return x.toISOString().slice(0, 10); };
+  await p.evaluate((L) => { window.setOrg(g => ({ ...g, suppliers: [{ id: 's1', name: 'مكين', vatNo: '311135091100003' }] })); window.setOps(o => ({ ...o, actions: [], journalManual: [], invoices: L })); },
+    [{ id: 'r1', kind: 'svc', supplierId: 's1', supplierName: 'مكين', invoiceNo: 'R1', amount: 90000, vatAmt: 0, date: d(5), dueDate: d(5), expLines: [{ accCode: '5198', net: 90000, vat: 0 }] }]);
+  await p.waitForSelector('[data-rec="supplier_concentration"]');
+  assert.match(await p.locator('[data-rec="supplier_concentration"]').innerText(), /مكين[\s\S]*الدليل[\s\S]*الأثر المتوقع[\s\S]*تقدير لا نتيجة/);
+  await p.click('[data-rec="supplier_concentration"] [data-recadopt]'); await p.waitForTimeout(500);
+  const acts = await p.evaluate(() => window.cur.actions); assert.equal(acts.length, 1); assert.equal(acts[0].src, 'rec'); assert.equal(acts[0].approval, 'approved'); assert.ok(acts[0].expected.amount > 0);
+  assert.equal(await p.locator('[data-rec="supplier_concentration"] [data-recadopted]').count(), 1);
+  assert.deepEqual(errs, []); await ctx.close();
+  const B = await open({ viewport: { width: 1300, height: 1200 } }, 'live/Hub/admin/analytics:actions');
+  await B.p.evaluate((A) => window.setOps(o => ({ ...o, actions: A })), acts); await B.p.waitForSelector('[data-actrec]');
+  assert.match(await B.p.locator('[data-actrec]').innerText(), /معتمدة[\s\S]*المتوقع[\s\S]*الفعلي: بعد الإنجاز/);
+  assert.deepEqual(B.errs, []); await B.ctx.close();
+});
