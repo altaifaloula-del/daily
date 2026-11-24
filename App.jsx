@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback, useLayoutEffe
 import { createPortal } from 'react-dom';
 import { Target,
   LayoutDashboard, ClipboardCheck, Banknote, Users, Building2, FileBarChart,
-  ShieldCheck, ScanLine, Bell, LogOut, Plus, Minus, Trash2, Check, X, Search,
+  ShieldCheck, ScanLine, Bell, LogOut, Plus, Minus, Trash2, Check, X, Search, ListChecks,
   CircleDollarSign, TrendingUp, TrendingDown, AlertTriangle, Wallet,
   ArrowLeftRight, UserCog, Menu, RefreshCw, Lock, Radio, Download,
   ChevronLeft, Stamp, Landmark, Receipt, CalendarDays, Store, Eye, Send, Copy,
@@ -3343,7 +3343,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v54.9';
+const APP_VER = 'v55.0';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -12287,13 +12287,65 @@ function myWorkGroups(org, ops, me, myBranches) {
   const G = {}; evs.filter(e => MYWORK_CATS[e.cat]).forEach(e => { (G[e.cat] = G[e.cat] || []).push(e); });
   return Object.keys(MYWORK_CATS).filter(k => G[k]).map(k => ({ cat: k, ...MYWORK_CATS[k], items: G[k] }));
 }
-function MyWork({ org, ops, me, myBranches, setTab, openAcctView, openInvView }) {
+/* v55.0 — الرئيسية «التطبيقات أولًا»: المهام شارات على التطبيقات + لوحة جانبية، وشريط أرقام اليوم */
+const isLateWork = (e) => /متأخر|late|:over/i.test(String(e.id || '') + ' ' + String(e.title || ''));
+/** تبويب المهمة ⇐ معرّف تطبيق الرئيسية (مباشرة، أو ضمن أقسام التطبيق، أو عبر المركز الذي يضم القسم) */
+function appOfTab(tab) {
+  if (!tab) return null; const L = LAUNCH_APPS.filter(a => !a.soon && !a.hideOnHome);
+  let a = L.find(x => x.open && x.open.tab === tab) || L.find(x => (x.tabs || []).includes(tab));
+  if (!a) { const h = Object.keys(HUB_BASE).find(k => hubTabs(k).includes(tab)); if (h) a = L.find(x => x.open && x.open.tab === HUB_BASE[h]) || L.find(x => (x.tabs || []).includes(HUB_BASE[h])); }
+  if (!a && HR_TABS.includes(tab)) a = L.find(x => ['hrops', 'people', 'hrperf'].includes(x.open && x.open.tab));
+  return a ? a.id : null;
+}
+/** عدد المهام لكل تطبيق، و«عاجل» إن كان فيها متأخر */
+function appTaskBadges(events) {
+  const m = {}; (events || []).forEach(e => { const id = appOfTab(e.tab); if (!id) return; const b = m[id] || (m[id] = { n: 0, late: false }); b.n++; if (isLateWork(e)) b.late = true; }); return m;
+}
+/** شريط أرقام اليوم — كل رقم يفتح شاشته، ويظهر فقط لمن يملك التبويب */
+function homeKpis(org, ops, scoped, myBranches, me, td = today()) {
+  const R = ROLES[me.role] || {}; const tabs = R.tabs || [];
+  const can = (t) => tabs.includes(t) || (me.appAllow || []).some(id => ((LAUNCH_IX[id] || {}).open || {}).tab === t);
+  const brs = (myBranches || []).filter(b => b.isActive !== false); const cls = (scoped && scoped.closings) || ops.closings || []; const out = [];
+  if (brs.length && (can('closing') || can('sales') || can('analytics'))) {
+    const v = brs.reduce((s, b) => { const bc = cls.filter(c => countedClosing(c) && c.branchId === b.id && c.date === td);
+      if (bc.length) return s + sum(bc, c => c.totalRevenue); const ps = salesDaySource(ops || {}, b.id, td); return s + (Number(ps.total) || 0); }, 0);
+    out.push({ id: 'sales', ar: 'مبيعات اليوم', v: money(v), tone: 'var(--mint)', tab: can('sales') ? 'sales' : can('closing') ? 'closing' : 'analytics' });
+  }
+  if (R.approver && (can('approve') || can('closing'))) out.push({ id: 'pend', ar: 'إغلاقات بانتظار الاعتماد', v: String(cls.filter(c => c.status === 'submitted').length), tone: 'var(--brass)', tab: can('approve') ? 'approve' : 'closing' });
+  if (can('purchasing')) { const inv = ((scoped && scoped.invoices) || ops.invoices || []).filter(i => (i.amount || 0) > 0 && (i.amount - (i.paidAmount || 0)) > 0.004 && i.dueDate && i.dueDate <= td);
+    out.push({ id: 'due', ar: 'فواتير موردين مستحقة', v: String(inv.length), tone: 'var(--amber)', tab: 'suppliers' }); }
+  if (can('analytics')) { let n = 0; try { n = computeSmartAlerts(org, ops, myBranches || []).filter(a => a.sev === 'high').length; } catch (e) { n = 0; }
+    out.push({ id: 'crit', ar: 'تنبيهات حرجة', v: String(n), tone: 'var(--rose)', tab: 'alerts' }); }
+  return out.slice(0, 4);
+}
+function MyWork({ org, ops, me, myBranches, setTab, openAcctView, openInvView, drawer = false, onClose }) {
   const [open, setOpen] = useState(() => { try { return localStorage.getItem('mz-mywork') !== '0'; } catch (e) { return true; } });
+  const [fc, setFc] = useState('');
   const G = useMemo(() => myWorkGroups(org, ops, me, myBranches), [org, ops, me, myBranches]);
   const total = G.reduce((a, g) => a + g.items.length, 0);
-  const go = (e) => { setTab(e.tab); if (e.view && e.tab === 'acct') openAcctView(e.view); if (e.view && (e.tab === 'inv' || e.tab === 'whbranch') && openInvView) openInvView(e.view); };
+  const go = (e) => { if (onClose) onClose(); setTab(e.tab); if (e.view && e.tab === 'acct') openAcctView(e.view); if (e.view && (e.tab === 'inv' || e.tab === 'whbranch') && openInvView) openInvView(e.view); };
   const tog = () => { const n = !open; setOpen(n); try { localStorage.setItem('mz-mywork', n ? '1' : '0'); } catch (e) { /* */ } };
   const roleAr = String(((ROLES[me.role] || {}).ar) || '').split(' — ')[0];
+  // v55.0 — وضع اللوحة الجانبية: المتأخر أولًا، ثم ما ينتظر إجراءك، مع تصفية حسب المجال
+  if (drawer) {
+    const all = G.flatMap(g => g.items.map(e => ({ ...e, _g: g }))).filter(e => !fc || e._g.cat === fc);
+    const late = all.filter(isLateWork), rest = all.filter(e => !isLateWork(e));
+    const Row = (e) => <div key={e.id} className="lh-tk" data-mywork-item><div style={{ flex: 1, minWidth: 0 }}><div className="t">{e.title}</div><div className="s">{e._g.ar}{e.body ? ' · ' + e.body : ''}</div></div>
+      <button type="button" className={'btn sm ' + (isLateWork(e) ? 'pri' : 'gh')} onClick={() => go(e)}>فتح</button></div>;
+    return (
+      <div data-mywork data-mywork-drawer>
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <div className="card-t" style={{ margin: 0 }}>مهامي <small style={{ color: 'var(--faint)', fontWeight: 400 }}>· {total}{roleAr ? ' · ' + roleAr : ''}</small></div>
+          <button type="button" className="btn sm gh" aria-label="إغلاق" onClick={onClose}><X size={15} /></button></div>
+        {G.length > 1 && <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+          <button type="button" className={'btn sm ' + (!fc ? 'pri' : 'gh')} onClick={() => setFc('')}>الكل</button>
+          {G.map(g => <button key={g.cat} type="button" data-mywork-cat={g.cat} className={'btn sm ' + (fc === g.cat ? 'pri' : 'gh')} onClick={() => setFc(g.cat)}>{g.ar} · {g.items.length}</button>)}</div>}
+        {!total && <div className="empty">لا شيء ينتظرك ✓</div>}
+        {late.length > 0 && <div className="lh-tkg" data-mywork-late><h4 style={{ color: 'var(--rose)' }}>متأخرة · {late.length}</h4>{late.slice(0, 40).map(Row)}</div>}
+        {rest.length > 0 && <div className="lh-tkg"><h4 style={{ color: 'var(--brass)' }}>تنتظر إجراءك · {rest.length}</h4>{rest.slice(0, 60).map(Row)}</div>}
+        <div className="hint" style={{ marginTop: 10 }}>تُنفَّذ المهمة من شاشتها؛ تنقص الشارة على أيقونة التطبيق عند إنجازها.</div>
+      </div>);
+  }
   return (
     <div className="card" style={{ marginBottom: 12 }} data-mywork>
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={tog}>
@@ -12310,6 +12362,10 @@ function MyWork({ org, ops, me, myBranches, setTab, openAcctView, openInvView })
 }
 function Launcher({ org, ops, me, myBranches, scoped, setTab, openAcctView, openInvView }) {
   const [q, setQ] = useState('');
+  const [tasksOpen, setTasksOpen] = useState(false);   // v55.0 لوحة «مهامي» الجانبية
+  const workEv = useMemo(() => myWorkGroups(org, ops, me, myBranches).flatMap(g => g.items), [org, ops, me, myBranches]);
+  const badges = useMemo(() => appTaskBadges(workEv), [workEv]);
+  const kpis = useMemo(() => { try { return homeKpis(org, ops, scoped, myBranches, me); } catch (e) { return []; } }, [org, ops, scoped, myBranches, me]);
   const [bump, setBump] = useState(0);
   const u = appUseGet(me.id);
   const isFav = (id) => (u.fav || []).includes(id);
@@ -12475,9 +12531,9 @@ function Launcher({ org, ops, me, myBranches, scoped, setTab, openAcctView, open
       title={(a.sections?.length ? a.sections.join(' · ') : a.ar) + (draggable ? ' — اسحبه لتغيير ترتيبه' : '')}>
       <button className={'lh-star' + (isFav(a.id) ? ' on' : '')} title={isFav(a.id) ? 'إزالة من المفضلة' : 'تثبيت في المفضلة'}
         onClick={(e) => toggleFav(a.id, e)}><Star size={12} fill={isFav(a.id) ? 'currentColor' : 'none'} /></button>
-      {(a.id === 'approve' || (a.id === 'closing' && canApr)) && pend > 0 && <span className="lh-bdg">{pend}</span>}
+      {!badges[a.id] && (a.id === 'approve' || (a.id === 'closing' && canApr)) && pend > 0 && <span className="lh-bdg">{pend}</span>}
       {(() => { const lv = liveOf(a.id); return (
-      <div className={'lh-box' + (lv ? ' live' : '')} title={lv ? lv.t : undefined}><AppGlyph a={a} />{lv && lv.dot && <span className="lh-dot" />}{a.sections?.length > 1 && <span className="lh-cnt" title={a.sections.length + ' أقسام'}>{a.sections.length}</span>}</div>); })()}
+      <div className={'lh-box' + (lv ? ' live' : '')} title={lv ? lv.t : undefined}><AppGlyph a={a} />{lv && lv.dot && <span className="lh-dot" />}{badges[a.id] && <span className={'lh-cnt' + (badges[a.id].late ? ' urg' : '')} data-appbadge={a.id} title={badges[a.id].n + ' مهمة' + (badges[a.id].late ? ' — فيها متأخر' : '')}>{badges[a.id].n}</span>}</div>); })()}
       <div className="lh-nm">{aNm(a)}</div>
     </div>
   );
@@ -12501,15 +12557,19 @@ function Launcher({ org, ops, me, myBranches, scoped, setTab, openAcctView, open
         : <div className="lh-wm mark"><MizanMark size={420} /></div>}
     </div>
     <div className="lh">
-      <p className="lh-hi">{TX(greet + ' يا')} <b>{(me.name || '').split(' ')[0]}</b> · <span>{new Date().toLocaleDateString(isEn() ? 'en-GB' : 'ar-SA-u-ca-gregory-nu-latn', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span></p>
-      <div className="lh-role"><span className="pill">{(ROLES[me.role]?.ar || me.role).split('—')[0].trim()} · {shown.length} {isEn() ? 'apps' : 'تطبيقاً'}</span></div>
+      <div className="lh-top">
+        <div className="lh-greet">
+    <p className="lh-hi">{TX(greet + ' يا')} <b>{(me.name || '').split(' ')[0]}</b> · <span>{new Date().toLocaleDateString(isEn() ? 'en-GB' : 'ar-SA-u-ca-gregory-nu-latn', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span></p>
+    <div className="lh-role"><span className="pill">{(ROLES[me.role]?.ar || me.role).split('—')[0].trim()} · {shown.length} {isEn() ? 'apps' : 'تطبيقاً'}</span></div>
+        </div>
       <div className="lh-search">
         <Search size={15} className="lh-si" />
         <input className="inp" placeholder={TX('ابحث عن تطبيق أو قسم… (جرّب: تعادل، رواتب، تدفق نقدي)')} value={q} onChange={e => setQ(e.target.value)} />
       </div>
-
-      {!qq && <MyWork org={org} ops={ops} me={me} myBranches={myBranches} setTab={setTab} openAcctView={openAcctView} openInvView={openInvView} />}
-      {!qq && <TodayPanel org={org} ops={ops} me={me} myBranches={myBranches} scoped={scoped} setTab={setTab} />}
+        <button type="button" className="lh-tasks" data-tasksbtn onClick={() => setTasksOpen(true)}><ListChecks size={17} />{TX('مهامي')}<span className="n" data-mywork-n>{workEv.length}</span></button>
+      </div>
+      {!qq && kpis.length > 0 && <div className="lh-kpis" data-homekpis>{kpis.map(k => <button key={k.id} type="button" className="lh-kpi" data-homekpi={k.id} style={{ '--k': k.tone }} onClick={() => setTab(k.tab)}><i aria-hidden="true" /><span><small>{k.ar}</small><b className="num">{k.v}</b></span></button>)}</div>}
+      {tasksOpen && <><div className="lh-drawer-bg" onClick={() => setTasksOpen(false)} /><aside className="lh-drawer" role="dialog" aria-label="مهامي"><MyWork org={org} ops={ops} me={me} myBranches={myBranches} setTab={setTab} openAcctView={openAcctView} openInvView={openInvView} drawer onClose={() => setTasksOpen(false)} /></aside></>}
 
       {qq && matchedSecs.length > 0 && (
         <div className="lh-sec">
@@ -12531,6 +12591,7 @@ function Launcher({ org, ops, me, myBranches, scoped, setTab, openAcctView, open
         <div className="lh-grid" ref={gridRef}>{shown.map(a => Tile(a, !qq))}</div>
       </div>
       {shown.length === 0 && <div className="lh-empty">لا يوجد تطبيق بهذا الاسم — جرّب كلمة أخرى</div>}
+      {!qq && <div className="lh-sec" data-hometoday><div className="lh-sect">{TX('ملخص اليوم والتقرير الصباحي')}</div><TodayPanel org={org} ops={ops} me={me} myBranches={myBranches} scoped={scoped} setTab={setTab} /></div>}
     </div>
     </>
   );
@@ -14168,7 +14229,7 @@ export { MKT_DEF, mktCfg, mktCanApprove, MKT_SEGS, MKT_SEG_ORDER, mktAlias, mktC
 export { moveIdx, RowGrip, RECUR_AR, recurNext, recurDue };
 export { peekDoc, DocLink, DocPeekHost, VoiceSearchHost, voiceNorm };
 export { fefoPick, lotsFor, projList, projectPL, projNextCode };
-export { HUB_BASE, hubTabs, HR_TABS, refsApi, docxPages, textPages, xlsxPages, cfoDash, REC_PRI, REC_DEPT, finRecs, recRealized, CTL_SEV, CTL_ST, CTL_OPEN, CTL_CAT, CTL_FLOW, ctlScan, caseSync, caseMove, FA_RATIOS, faSnap, faQuality, finAnalyze, MCP_KINDS, mcpPlanJournal, mcpPlanReclass, mcpApplyReclass, mcpPlanExp, MCP_XI_HEAD, mcpApi, invPayments, INV_CLS, XI_CLS, accClsOf, invCls, PJ_PRE, IMP_PRE, pjNumber, pjStamp, pjBackfill, pjMissing, XI_KW, XI_AR, XI_TEMPLATE, xiDetect, xiPlan, xiRecords, xiNum, CAT_FOR, catListOf, catsFor, catOf, recDomains, DOMAIN_DEF, domCfgOf, domOk, domFilter, userBrIds, DomainChips, usersApi, closingImgs, closingArchiveOne, closingStripImgs, posKey, posYmOf, posSplitOn, posSplitDoc, posJoin, brRead, brWrite, posSplitBranch, posUnsplitBranch, LOY_AUDIT_WHY, loyAudit, AI_GROWTH_PRESETS, growthDigest, aiGrowthClean, aiGrowthAsk, COMMS_PROVIDERS, COMMS_CH, COMMS_VARS, COMMS_DEF, commsCfgOf, commsRender, smsParts, commsQuiet, commsTplErr, BRR_CH, brReport, dtLocal, REC_DEF, recCfgOf, recIndex, recFor, recStats, CAMP_ST, campNextNo, campStatusOf, campStats, AUTO_DEFAULTS, autoCfgOf, payrollAccrualApply, poSuggestions, autoAlerts, prevMonthOf, SecPager, recurApply, EDIT_KINDS, editPermOf, canEditRec, BrandSymbol, BrandLockup, ACCT_GROUPS, MYWORK_CATS, myWorkGroups, MyWork, rptShell, RPT_TEMPLATES, rptFmt, rptFlat, rptTotals, rptHtml, printReport, rptXlsxRows, makeRptXlsx, rptCsv, rptDownload, DEP_METHODS, depMethod, deprSchedule, glLedger, acctActivity, COST_METHODS, costMethod, stockCostingAvg, stockCostingFifo, costCompare, itemBin, binSort, binOrder, pmPeriod, profitMatrix, RFQ_ST, rfqNextNo, rfqCompare, rfqToPOs, DLV_ST, DLV_NEXT, posDrivers, dlvNeeded, dlvRecord, dlvMove, dlvSummary, posAreas, tableArea, areasErr, salesByArea, computeSmartAlerts, stockShortages, CV_KIND, cvNextNo, partyOpenDocs, applyCashVoucher, cashVoucherHtml, VCH_T, VCH_TRF, vchTypeOf, assignVouchers, voucherList, voucherHtml, saleDeductFrom, saleDeductOn, saleUse, saleRecipeItems, saleDayUse, syncSaleMoves, itemLedger, UOM_LIST, UOM_GROUPS, uomOf, uomConv, uomOk, uomNeeded, lineUnits, lineFac, UomSelect, Notifications, closeAlertsCfg, closeAlertEvents, closeAlertFor, shiftSumText, waShare, CLOSE_ALERT_ROLES, posDocView, printScreen, cutoutPixels, productThumb, prepWasteStats, normDigits, normScan, posPaper, posPaperDev, setPosPaperDev, prepShelfH, prepBatchState, PREP_ST, canBrPurchase, brSigCheck, BR_PURCHASERS, poWhOf, syncPoInbox, INV_BILLERS, ITEM_NEW_TYPES, itemsSeq, nextItemCode, vatNoOk, supVatOf, ItemPick, A4_CSS, posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim, prepItemId, prepItemOf, prodNeeds, prodCheck, prodMoves, clrMerge, clrRead, clrViewStats, ppvReport, invTurnover, dirOf, isMzbk, mzbkDecrypt, clrData, clrRecord, clrSigRef, clrDiff, clrCompare, clrOn, clrState, clrMirror, clrLoad, clrSeed, fjData, fjStatus, fjRecord, fjDiff, fjCompare, fjOn, fjState, fjMirror, fjLoad, fpLockedTo, fpLoad, fmLoad, fmSet, fjSeed, fjLegacyRecord, dedupeSameId, findRecentDups, negStockChanges, negStockMsg, FD_KINDS, fdDate, fdData, fdProg, fdPaid, fdRecord, fdDiff, fdCompare, fdLoad, fdSeed, OdooBar, ACCT_SECTIONS, ACCT_SEC_AR, ACC_KIND, ALL_TABS, APPS, AdvanceForm, AppPermsPanel, AppsStrip, BR_COLS, Badge, BalCell, BlindCount, BranchForm, COUNT_FREQ, COUNT_ST, CameraModal, CategoriesPanel, ClosingView, CloudHealth, CountScheduleCard, DAYS_AR, DENOMS, DOC_LABEL, DOC_TYPES, DailyBranchReport, DeliveryAppsPanel, DisbursementForm, DupInvHint, EXP_CATS, FILE_CATS, Field, FinancialReports, GROWTH_MONTHS, HR_WEEK_DAYS, HrSignPad, ITEM_TYPES, Kpi, LAUNCH_APPS, LEAVE_TYPES, LOCK_MSG, MAIN_WH, MFA_DEFAULT_ROLES, MOVE_KINDS, MZ_FIXED, MZ_KIND_AR, MZ_LOGO_HTML, MZ_SUGGEST, MfaPolicyCard, MizanMerge, Modal, MoneyField, NUM_FACE, NUM_LOCALE, NationalAddressFields, Num, OutputDialog, PAY_ADD_TYPES, PAY_GUESS, PEN_TYPES, POS_DEV_KEY, POS_SH_KEY, PROMO_IDEAS, PROMO_T, PT_SRC, PT_TYPE, PartnerChip, PdfTile, PhotoField, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, PriceAlerts, QR_ITEMS, QR_STATUS, QUOTA_MSG, QrBranchesView, QrComplaints, QrDashboard, RB_KIND_AR, RB_PM_AR, RB_SOURCES, REG_APPS, REG_CATS, REG_IX, ROLES, SC_KPIS, SIGN_DOC_AR, SIG_H, SIG_W, SectionNav, SigView, SignDocsModal, SignaturePad, SystemPanel, TAB_AR, TRAIN_STATUS_AR, UsageVariance, UserForm, WASTE_REASONS, WH_KIND, WH_MOVE, WH_ST, WarehousesPanel, WasteControl, WasteFields, WastePending, WhLines, _normName, _xe, aCountDone, aItemsOf, acctSecKey, activePriorCorrectives, activeTrainingRecord, aiHeaders, appCanSee, appOpenNow, appUseGet, appUseSet, arDT, arDate, arTime, bankOfBranch, bioEnroll, bookHidden, branchBanks, branchEntityId, browserName, bsLayout, bsRowsOf, buildAccounting, buildClosingA4, buildPartners, buildPayslipSignDocs, businessDay, canApproveCount, canApproveWaste, capOK, chartTone, closingInvoices, clr, compressImage, computeIncome, contactFields, contactOf, correctiveExpiry, correctiveSignDoc, countCfgOf, countDenoms, countFocus, countSchedule, countedClosing, customerAging, daysBetween, defaultHrPolicies, defaultPenaltySchedule, defaultPointsRules, defaultRewardTiers, defaultRoleKpis, defaultTrainingPrograms, deficitCfg, deficitPatterns, detectStmtMap, deviceType, emptyDenoms, entityById, entityList, eosAccrualLines, eosCumAt, eosState, eosYears, escH, expiringTraining, expiryLots, exportExcel, fineSuggest, fmtBalP, fmtNA, frozenSnapshotFor, gosiRatesFor, haversineMeters, hrAttendanceDetail, hrEmpStats, hrQrWindowCode, hrScoreFor, isCostCtl, isLayout, isPdfData, isRowsOf, isStocked, isoD, itemAvgCosts, itemType, kpiAchievement, leaveBalance, leaveDeductPlan, lockedThru, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, makeXlsx, missingRequiredTraining, mizanPlan, money, moneyP, monthEnd, monthLabel, monthLedger, multiEntityOn, mzNewCode, mzR2, naClean, naErr, naHas, naMissing, newBranchDraft, nextPartnerCode, nextWhAcc, normPhone, normalizeSupPays, nowISO, onLeave, openDocWin, openPdfData, otFromAttendance, otRateOf, overdueSignDocs, pFactor, parseCsvGrid, parseMt940, parseXlsxGrid, partGross, partYield, payCashPart, payLabel, paySplits, payTotal, payrollRowsOf, penTypeAr, pendShiftsGet, pendShiftsSet, periodLocked, piAggregate, piDetect, piNorm, pipTriggered, posCashNet, posClrOf, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posShiftHtml, posTotals, posZHtml, positionJdHtml, printA4, printClosingA4, printIncomeA4, printPartnerStatement, printReceipt, printSalesInvoice, programRequiredFor, promoActive, promoDesc, promoHits, purKey, pwStrength, q3, qrAnalyzeComments, qrAvg, qrBranchStats, qrDate, qrF1, qrFs, qrIsComplaint, qrMs, qrOverall, qrOverdue, qrPrintReport, qrRateUrl, qrSentBadge, qrStatusOf, qrSvg, rewardSignDoc, roleEdit, roleHasTab, roleKpisFor, rolePost, salesDaySource, sha, sha256Hex, short, siCredited, siRem, siSorted, siStamp, siVerify, sigBlockHtml, sigPoints, sigSvg, signDeclaration, signDocHtml, simplifySig, slimBranchDoc, snapAll, snapMonths, snapPut, stAddDays, stDate, stNum, stockByWh, submitWaste, suggestNextLevel, sum, supplierAging, supplierPrices, today, trainingExpiryOf, trainingStatusNow, uid, usageReport, useSecNav, verifyBackup, waNum, wasteCfg, wasteDaily, wasteReasonAr, wasteRows, webauthnSupported, whForBranch, whName, whOf, whOn, zatcaTLV };
+export { appOfTab, appTaskBadges, homeKpis, isLateWork, HUB_BASE, hubTabs, HR_TABS, refsApi, docxPages, textPages, xlsxPages, cfoDash, REC_PRI, REC_DEPT, finRecs, recRealized, CTL_SEV, CTL_ST, CTL_OPEN, CTL_CAT, CTL_FLOW, ctlScan, caseSync, caseMove, FA_RATIOS, faSnap, faQuality, finAnalyze, MCP_KINDS, mcpPlanJournal, mcpPlanReclass, mcpApplyReclass, mcpPlanExp, MCP_XI_HEAD, mcpApi, invPayments, INV_CLS, XI_CLS, accClsOf, invCls, PJ_PRE, IMP_PRE, pjNumber, pjStamp, pjBackfill, pjMissing, XI_KW, XI_AR, XI_TEMPLATE, xiDetect, xiPlan, xiRecords, xiNum, CAT_FOR, catListOf, catsFor, catOf, recDomains, DOMAIN_DEF, domCfgOf, domOk, domFilter, userBrIds, DomainChips, usersApi, closingImgs, closingArchiveOne, closingStripImgs, posKey, posYmOf, posSplitOn, posSplitDoc, posJoin, brRead, brWrite, posSplitBranch, posUnsplitBranch, LOY_AUDIT_WHY, loyAudit, AI_GROWTH_PRESETS, growthDigest, aiGrowthClean, aiGrowthAsk, COMMS_PROVIDERS, COMMS_CH, COMMS_VARS, COMMS_DEF, commsCfgOf, commsRender, smsParts, commsQuiet, commsTplErr, BRR_CH, brReport, dtLocal, REC_DEF, recCfgOf, recIndex, recFor, recStats, CAMP_ST, campNextNo, campStatusOf, campStats, AUTO_DEFAULTS, autoCfgOf, payrollAccrualApply, poSuggestions, autoAlerts, prevMonthOf, SecPager, recurApply, EDIT_KINDS, editPermOf, canEditRec, BrandSymbol, BrandLockup, ACCT_GROUPS, MYWORK_CATS, myWorkGroups, MyWork, rptShell, RPT_TEMPLATES, rptFmt, rptFlat, rptTotals, rptHtml, printReport, rptXlsxRows, makeRptXlsx, rptCsv, rptDownload, DEP_METHODS, depMethod, deprSchedule, glLedger, acctActivity, COST_METHODS, costMethod, stockCostingAvg, stockCostingFifo, costCompare, itemBin, binSort, binOrder, pmPeriod, profitMatrix, RFQ_ST, rfqNextNo, rfqCompare, rfqToPOs, DLV_ST, DLV_NEXT, posDrivers, dlvNeeded, dlvRecord, dlvMove, dlvSummary, posAreas, tableArea, areasErr, salesByArea, computeSmartAlerts, stockShortages, CV_KIND, cvNextNo, partyOpenDocs, applyCashVoucher, cashVoucherHtml, VCH_T, VCH_TRF, vchTypeOf, assignVouchers, voucherList, voucherHtml, saleDeductFrom, saleDeductOn, saleUse, saleRecipeItems, saleDayUse, syncSaleMoves, itemLedger, UOM_LIST, UOM_GROUPS, uomOf, uomConv, uomOk, uomNeeded, lineUnits, lineFac, UomSelect, Notifications, closeAlertsCfg, closeAlertEvents, closeAlertFor, shiftSumText, waShare, CLOSE_ALERT_ROLES, posDocView, printScreen, cutoutPixels, productThumb, prepWasteStats, normDigits, normScan, posPaper, posPaperDev, setPosPaperDev, prepShelfH, prepBatchState, PREP_ST, canBrPurchase, brSigCheck, BR_PURCHASERS, poWhOf, syncPoInbox, INV_BILLERS, ITEM_NEW_TYPES, itemsSeq, nextItemCode, vatNoOk, supVatOf, ItemPick, A4_CSS, posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim, prepItemId, prepItemOf, prodNeeds, prodCheck, prodMoves, clrMerge, clrRead, clrViewStats, ppvReport, invTurnover, dirOf, isMzbk, mzbkDecrypt, clrData, clrRecord, clrSigRef, clrDiff, clrCompare, clrOn, clrState, clrMirror, clrLoad, clrSeed, fjData, fjStatus, fjRecord, fjDiff, fjCompare, fjOn, fjState, fjMirror, fjLoad, fpLockedTo, fpLoad, fmLoad, fmSet, fjSeed, fjLegacyRecord, dedupeSameId, findRecentDups, negStockChanges, negStockMsg, FD_KINDS, fdDate, fdData, fdProg, fdPaid, fdRecord, fdDiff, fdCompare, fdLoad, fdSeed, OdooBar, ACCT_SECTIONS, ACCT_SEC_AR, ACC_KIND, ALL_TABS, APPS, AdvanceForm, AppPermsPanel, AppsStrip, BR_COLS, Badge, BalCell, BlindCount, BranchForm, COUNT_FREQ, COUNT_ST, CameraModal, CategoriesPanel, ClosingView, CloudHealth, CountScheduleCard, DAYS_AR, DENOMS, DOC_LABEL, DOC_TYPES, DailyBranchReport, DeliveryAppsPanel, DisbursementForm, DupInvHint, EXP_CATS, FILE_CATS, Field, FinancialReports, GROWTH_MONTHS, HR_WEEK_DAYS, HrSignPad, ITEM_TYPES, Kpi, LAUNCH_APPS, LEAVE_TYPES, LOCK_MSG, MAIN_WH, MFA_DEFAULT_ROLES, MOVE_KINDS, MZ_FIXED, MZ_KIND_AR, MZ_LOGO_HTML, MZ_SUGGEST, MfaPolicyCard, MizanMerge, Modal, MoneyField, NUM_FACE, NUM_LOCALE, NationalAddressFields, Num, OutputDialog, PAY_ADD_TYPES, PAY_GUESS, PEN_TYPES, POS_DEV_KEY, POS_SH_KEY, PROMO_IDEAS, PROMO_T, PT_SRC, PT_TYPE, PartnerChip, PdfTile, PhotoField, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, PriceAlerts, QR_ITEMS, QR_STATUS, QUOTA_MSG, QrBranchesView, QrComplaints, QrDashboard, RB_KIND_AR, RB_PM_AR, RB_SOURCES, REG_APPS, REG_CATS, REG_IX, ROLES, SC_KPIS, SIGN_DOC_AR, SIG_H, SIG_W, SectionNav, SigView, SignDocsModal, SignaturePad, SystemPanel, TAB_AR, TRAIN_STATUS_AR, UsageVariance, UserForm, WASTE_REASONS, WH_KIND, WH_MOVE, WH_ST, WarehousesPanel, WasteControl, WasteFields, WastePending, WhLines, _normName, _xe, aCountDone, aItemsOf, acctSecKey, activePriorCorrectives, activeTrainingRecord, aiHeaders, appCanSee, appOpenNow, appUseGet, appUseSet, arDT, arDate, arTime, bankOfBranch, bioEnroll, bookHidden, branchBanks, branchEntityId, browserName, bsLayout, bsRowsOf, buildAccounting, buildClosingA4, buildPartners, buildPayslipSignDocs, businessDay, canApproveCount, canApproveWaste, capOK, chartTone, closingInvoices, clr, compressImage, computeIncome, contactFields, contactOf, correctiveExpiry, correctiveSignDoc, countCfgOf, countDenoms, countFocus, countSchedule, countedClosing, customerAging, daysBetween, defaultHrPolicies, defaultPenaltySchedule, defaultPointsRules, defaultRewardTiers, defaultRoleKpis, defaultTrainingPrograms, deficitCfg, deficitPatterns, detectStmtMap, deviceType, emptyDenoms, entityById, entityList, eosAccrualLines, eosCumAt, eosState, eosYears, escH, expiringTraining, expiryLots, exportExcel, fineSuggest, fmtBalP, fmtNA, frozenSnapshotFor, gosiRatesFor, haversineMeters, hrAttendanceDetail, hrEmpStats, hrQrWindowCode, hrScoreFor, isCostCtl, isLayout, isPdfData, isRowsOf, isStocked, isoD, itemAvgCosts, itemType, kpiAchievement, leaveBalance, leaveDeductPlan, lockedThru, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, makeXlsx, missingRequiredTraining, mizanPlan, money, moneyP, monthEnd, monthLabel, monthLedger, multiEntityOn, mzNewCode, mzR2, naClean, naErr, naHas, naMissing, newBranchDraft, nextPartnerCode, nextWhAcc, normPhone, normalizeSupPays, nowISO, onLeave, openDocWin, openPdfData, otFromAttendance, otRateOf, overdueSignDocs, pFactor, parseCsvGrid, parseMt940, parseXlsxGrid, partGross, partYield, payCashPart, payLabel, paySplits, payTotal, payrollRowsOf, penTypeAr, pendShiftsGet, pendShiftsSet, periodLocked, piAggregate, piDetect, piNorm, pipTriggered, posCashNet, posClrOf, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posShiftHtml, posTotals, posZHtml, positionJdHtml, printA4, printClosingA4, printIncomeA4, printPartnerStatement, printReceipt, printSalesInvoice, programRequiredFor, promoActive, promoDesc, promoHits, purKey, pwStrength, q3, qrAnalyzeComments, qrAvg, qrBranchStats, qrDate, qrF1, qrFs, qrIsComplaint, qrMs, qrOverall, qrOverdue, qrPrintReport, qrRateUrl, qrSentBadge, qrStatusOf, qrSvg, rewardSignDoc, roleEdit, roleHasTab, roleKpisFor, rolePost, salesDaySource, sha, sha256Hex, short, siCredited, siRem, siSorted, siStamp, siVerify, sigBlockHtml, sigPoints, sigSvg, signDeclaration, signDocHtml, simplifySig, slimBranchDoc, snapAll, snapMonths, snapPut, stAddDays, stDate, stNum, stockByWh, submitWaste, suggestNextLevel, sum, supplierAging, supplierPrices, today, trainingExpiryOf, trainingStatusNow, uid, usageReport, useSecNav, verifyBackup, waNum, wasteCfg, wasteDaily, wasteReasonAr, wasteRows, webauthnSupported, whForBranch, whName, whOf, whOn, zatcaTLV };
 export { ClosingForm };
 // v38.3 — للاختبارات الآلية (tests/): دوال المحرك والشاشات تُستورد من النواة مباشرة
 export { stockCosting, eosEntitledAmt, eosFullAmt, findDupInvoices, invNoNorm, promoLineDisc, tafqeet, MktGrowth, Hub, Launcher, PosApp, Inventory, Partners, SalesHub, QrFeedback, AppsCenter, BranchWarehouse, Admin, AuditView, Accounting, emptyOrg, emptyOps, HUBS };
