@@ -179,3 +179,11 @@ test('v53.9 تحميل متدفق: أجزاء متداخلة الترتيب، إ
   assert.equal(D.ops.invoices.length, 1); assert.equal(D.ops.invoices[0].img, undefined, 'المرفق المضمّن يُسقط');
   assert.equal(D.ops.hrLeaves, undefined, 'مصفوفة غير محاسبية تُحذف'); assert.deepEqual(D.ops.closings.map(x => x.id), ['c10']);
 });
+
+
+test('v54.0 أداة التحليل المالي في الموصل: نفس محرك المنصة، والنقص يُعلَن', () => {
+  const F = runTool(E, { org: ORG, ops: OPS }, 'financial_analysis', { from: '2026-01-01', to: '2026-01-31' });
+  assert.equal(F.ratios.length, 14); assert.equal(F.quality.complete, false);
+  const gm = F.ratios.find(r => r.id === 'gm'); assert.equal(gm.value, null); assert.equal(gm.status, 'insufficient');
+  assert.equal(runTool(E, { org: ORG, ops: OPS }, 'financial_analysis', { from: '2026-01-01', to: '2026-01-31', branch: 'طيبة' }).branch, 'طيبة');
+});

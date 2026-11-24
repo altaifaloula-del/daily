@@ -3127,3 +3127,21 @@ test('v53.9 قائمة الدخل في مركز التقارير: من الدف�
   await p.click('[data-src="closing"]'); assert.equal(await p.locator('[data-glpnl]').count(), 0);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v54.0 التحليل المالي المتقدم: اكتمال البيانات، نسب متتبَّعة بمعادلتها، ورفض النسبة عند نقص البيانات', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1400 } }, 'live/Hub/admin/analytics:finintel');
+  const J = (id, date, lines, extra = {}) => ({ id, date, title: id, status: 'posted', lines: lines.map(([code, debit, credit]) => ({ code, debit, credit })), ...extra });
+  await p.evaluate((jm) => window.setOps(o => ({ ...o, closings: [], invoices: [], salesInvoices: [], journalManual: jm })), [
+    J('open', '2023-12-31', [['1101', 100000, 0], ['3101', 0, 100000]], { opening: true }), J('sale', '2024-02-10', [['1101', 50000, 0], ['4101', 0, 50000]]),
+    J('purch', '2024-02-11', [['5198', 20000, 0], ['2101', 0, 20000]]), J('sal', '2024-02-12', [['5201', 10000, 0], ['1101', 0, 10000]])]);
+  await p.waitForSelector('[data-finintel]');
+  await p.fill('input[aria-label="من"]', '2024-01-01'); await p.fill('input[aria-label="إلى"]', '2024-03-31'); await p.waitForTimeout(400);
+  assert.equal(await p.locator('[data-faqc="sales:1"]').count(), 1);
+  assert.equal((await p.locator('[data-ratio="gm"] [data-val]').innerText()).trim(), '60%');
+  await p.locator('[data-ratio="gm"] [data-why]').click();
+  assert.match(await p.locator('[data-ratiox="gm"]').innerText(), /مجمل الربح ÷ صافي المبيعات[\s\S]*2024-01-01/);
+  await p.fill('input[aria-label="من"]', '2024-06-01'); await p.fill('input[aria-label="إلى"]', '2024-06-30'); await p.waitForTimeout(400);
+  assert.equal(await p.locator('[data-faqc="sales:0"]').count(), 1);
+  assert.match(await p.locator('[data-ratio="gm"]').innerText(), /بيانات ناقصة/); assert.equal((await p.locator('[data-ratio="gm"] [data-val]').innerText()).trim(), '—');
+  assert.deepEqual(errs, []); await ctx.close();
+});
