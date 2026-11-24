@@ -3078,7 +3078,7 @@ test('v53.5 ربط Claude: إنشاء رابط يظهر مرة واحدة، قا
   assert.match(await p.locator('[data-mcplinks]').innerText(), /جوالي[\s\S]*نشط/);
   await p.click('[data-mcprevoke]'); await p.waitForTimeout(400);
   assert.match(await p.locator('[data-mcplinks]').innerText(), /ملغى/); assert.equal(await p.locator('[data-mcpfresh]').count(), 0);
-  assert.deepEqual(posts, ['/api/mcp/links {"label":"جوالي"}', '/api/mcp/links/revoke {"id":"h1"}']);
+  assert.deepEqual(posts, ['/api/mcp/links {"label":"جوالي","branches":[]}', '/api/mcp/links/revoke {"id":"h1"}']);
   await p.unroute('http://zatca.test/api/mcp/**');
   await p.route('http://zatca.test/api/mcp/**', r => r.fulfill({ status: 409, json: { error: 'لم يُضبط حساب الخدمة', code: 'no-sa' } }));
   await p.click('[data-tab-claude]'); await p.click('button:has-text("صيانة النظام")'); await p.click('[data-tab-claude]'); await p.waitForSelector('[data-mcpnosa]');
@@ -3239,5 +3239,22 @@ test('v54.5 وكيل المراجعة: تحليل الحالة بالسند وا
   await p.click('[data-revpropose]'); await p.waitForFunction(() => /بانتظار اعتماد/.test(window.lastSay || ''));
   assert.ok(posts.some(x => x.startsWith('/api/mcp/proposals/review') && /"caseNo":"CASE-000001"/.test(x) && /"2101"/.test(x)));
   assert.equal((await p.evaluate(() => window.cur.ctlCases))[0].review.proposal, 'mp-20261124-abc');
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v54.6 الحوكمة: رابط Claude مقيّد بفرع، وسجل الذكاء الاصطناعي لمسؤول النظام', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1300, height: 1300 } }); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  let links = []; const posts = [];
+  await ctx.route('http://zatca.test/api/**', async (r) => { const u = new URL(r.request().url()), m = r.request().method(); const J = (b) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(b) });
+    if (u.pathname === '/api/ai/log') return J({ kinds: { mcp: 'موصل Claude', review: 'وكيل المراجعة' }, log: [{ id: '1', at: '2026-11-24T09:00:00Z', by: 'own@x.sa', kind: 'review', name: 'refs_review', ok: true, ms: 1200, detail: '3 حالة' }, { id: '2', at: '2026-11-24T08:00:00Z', by: 'own@x.sa', kind: 'mcp', name: 'trial_balance', ok: false, status: 500, ms: 40, detail: 'مهلة' }] });
+    if (u.pathname === '/api/mcp/links' && m === 'POST') { const b = JSON.parse(r.request().postData()); posts.push(b); links = [{ id: 'h1', label: b.label, email: 'own@x.sa', active: true, calls: 0, hint: 'Q', branches: b.branches }]; return J({ id: 'h1', label: b.label, url: 'https://m/mcp/mq_default_x', branches: b.branches }); }
+    if (u.pathname === '/api/mcp/links') return J({ links }); return J({ proposals: [] }); });
+  await p.goto(base + 'live/Admin/admin'); await settle(p); await p.click('[data-tab-claude]'); await p.waitForSelector('[data-claudelink]');
+  const bn = await p.evaluate(() => ((window.curOrg.branches || [])[0] || {})); await p.locator('[data-mcpscope] label', { hasText: bn.name }).locator('input').check();
+  assert.match(await p.locator('[data-mcpscope]').innerText(), /مقيّد بالفروع المحددة/);
+  await p.fill('input[aria-label="اسم الرابط"]', 'فرع واحد'); await p.click('[data-mcpnew]'); await p.waitForSelector('[data-mcpfresh]');
+  assert.deepEqual(posts[0].branches, [bn.id]); assert.match(await p.locator('[data-mcplinks]').innerText(), new RegExp(bn.name));
+  await p.waitForSelector('[data-ailogrow]'); const t = await p.locator('[data-ailog]').innerText(); assert.match(t, /وكيل المراجعة[\s\S]*refs_review[\s\S]*نجح/); assert.match(t, /فشل 500/);
+  await p.selectOption('select[aria-label="نوع السجل"]', 'mcp'); assert.equal(await p.locator('[data-ailogrow]').count(), 1);
   assert.deepEqual(errs, []); await ctx.close();
 });

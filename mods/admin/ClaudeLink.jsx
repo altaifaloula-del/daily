@@ -1,19 +1,19 @@
 /* v53.5 — ربط Claude بمثقال (موصل MCP للقراءة فقط): إنشاء رابط سري، نسخه مرة واحدة، متابعة الاستخدام، والإلغاء */
 import React, { useState, useEffect } from 'react';
 import { Link2, Copy, Trash2, Plus, ShieldCheck, Check, X } from 'lucide-react';
-import { mcpApi, dtLocal, money, uid, today, MCP_KINDS, mcpPlanJournal, mcpPlanReclass, mcpApplyReclass, mcpPlanExp, xiRecords, nextPartnerCode } from '../../App.jsx';
+import { aiHeaders, mcpApi, dtLocal, money, uid, today, MCP_KINDS, mcpPlanJournal, mcpPlanReclass, mcpApplyReclass, mcpPlanExp, xiRecords, nextPartnerCode } from '../../App.jsx';
 
 const TOOLS_W = ['اقتراح قيد يومية', 'اقتراح إعادة تصنيف فواتير', 'اقتراح فواتير مصروفات ومشتريات'];
 const TOOLS_AR = ['نظرة عامة على المنشأة والفروع', 'دليل الحسابات', 'ميزان المراجعة', 'قائمة الدخل', 'دفتر أستاذ أي حساب', 'المبيعات حسب الفرع والشهر', 'المشتريات والمصروفات حسب التصنيف', 'أرصدة الموردين والمتأخرات', 'البحث في فواتير الموردين (PJ- / IMP-)', 'قيود اليومية'];
 
 export function ClaudeLink({ org, ops, me, commit, commitOrg, say }) {
   const [links, setLinks] = useState(null); const [err, setErr] = useState(null); const [busy, setBusy] = useState(false);
-  const [label, setLabel] = useState(''); const [fresh, setFresh] = useState(null);
+  const [label, setLabel] = useState(''); const [fresh, setFresh] = useState(null); const [scope, setScope] = useState([]);   // v54.6 نطاق الفروع
   const load = async () => { try { const j = await mcpApi('GET', 'links'); setLinks(j.links || []); setErr(null); } catch (e) { setErr(e); setLinks([]); } };
   useEffect(() => { load(); }, []);
   const create = async () => {
     setBusy(true);
-    try { const j = await mcpApi('POST', 'links', { label: label.trim() || 'Claude' }); setFresh(j); setLabel(''); await load(); say('أُنشئ رابط الربط ✓ — انسخه الآن، لن يظهر مرة أخرى'); }
+    try { const j = await mcpApi('POST', 'links', { label: label.trim() || 'Claude', branches: scope }); setFresh(j); setLabel(''); setScope([]); await load(); say('أُنشئ رابط الربط ✓ — انسخه الآن، لن يظهر مرة أخرى'); }
     catch (e) { say(e.message, 'no'); if (e.code === 'no-sa') setErr(e); } finally { setBusy(false); }
   };
   const revoke = async (l) => {
@@ -40,6 +40,8 @@ export function ClaudeLink({ org, ops, me, commit, commitOrg, say }) {
       {err && err.code !== 'no-sa' && <div className="note" style={{ marginTop: 10 }} data-mcperr>{err.message}</div>}
       <div className="row" style={{ gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
         <input className="inp" style={{ maxWidth: 260 }} placeholder="اسم الرابط (مثل: جوالي)" aria-label="اسم الرابط" value={label} maxLength={60} onChange={e => setLabel(e.target.value)} />
+        <span style={{ fontSize: 12 }} data-mcpscope>النطاق: {(org.branches || []).map(b => <label key={b.id} style={{ marginInlineEnd: 8 }}><input type="checkbox" checked={scope.includes(b.id)} onChange={e => setScope(e.target.checked ? [...scope, b.id] : scope.filter(x => x !== b.id))} /> {b.name}</label>)}
+          <small style={{ color: 'var(--dim)' }}>{scope.length ? 'مقيّد بالفروع المحددة — بلا بيانات المركز' : 'كل المنشأة'}</small></span>
         <button className="btn pri" data-mcpnew disabled={busy} onClick={create}><Plus size={14} />{busy ? 'جارٍ الإنشاء…' : 'إنشاء رابط ربط'}</button>
       </div>
       {fresh && <div className="note" data-mcpfresh style={{ marginTop: 10, borderColor: 'rgba(76,175,125,.6)' }}>
@@ -48,15 +50,16 @@ export function ClaudeLink({ org, ops, me, commit, commitOrg, say }) {
           <button className="btn sm pri" onClick={copy}><Copy size={13} />نسخ</button></div></div>}
     </div>
     <Proposals org={org} ops={ops} me={me} commit={commit} commitOrg={commitOrg} say={say} />
+    <AiLog />
     <div className="card">
       <b style={{ fontSize: 14 }}>الروابط ({active.length} نشط)</b>
-      <div className="tw" style={{ marginTop: 8 }}><table className="tb" data-mcplinks><thead><tr><th>الاسم</th><th>أنشأه</th><th>الإنشاء</th><th>آخر استخدام</th><th>الطلبات</th><th>الحالة</th><th></th></tr></thead>
+      <div className="tw" style={{ marginTop: 8 }}><table className="tb" data-mcplinks><thead><tr><th>الاسم</th><th>أنشأه</th><th>الإنشاء</th><th>آخر استخدام</th><th>الطلبات</th><th>النطاق</th><th>الحالة</th><th></th></tr></thead>
         <tbody>{(links || []).map(l => <tr key={l.id}><td>{l.label || 'Claude'} <small className="num" style={{ color: 'var(--faint)' }}>…{l.hint}</small></td><td style={{ fontSize: 11.5 }}>{l.email}</td>
-          <td className="num" style={{ fontSize: 11.5 }}>{l.createdAt ? dtLocal(l.createdAt) : ''}</td><td className="num" style={{ fontSize: 11.5 }}>{l.lastUsedAt ? dtLocal(l.lastUsedAt) : '—'}</td><td className="num">{l.calls || 0}</td>
+          <td className="num" style={{ fontSize: 11.5 }}>{l.createdAt ? dtLocal(l.createdAt) : ''}</td><td className="num" style={{ fontSize: 11.5 }}>{l.lastUsedAt ? dtLocal(l.lastUsedAt) : '—'}</td><td className="num">{l.calls || 0}</td><td style={{ fontSize: 11.5 }}>{(l.branches || []).length ? l.branches.map(id => (((org.branches || []).find(b => b.id === id)) || {}).name || id).join('، ') : 'كل المنشأة'}</td>
           <td><span className={'badge ' + (l.active ? 'b-mint' : 'b-dim')}>{l.active ? 'نشط' : 'ملغى'}</span></td>
           <td>{l.active && <button className="btn sm gh" data-mcprevoke onClick={() => revoke(l)}><Trash2 size={13} />إلغاء</button>}</td></tr>)}
-          {links && !links.length && <tr><td colSpan={7}><div className="empty">لا روابط بعد</div></td></tr>}
-          {!links && <tr><td colSpan={7}><div className="empty">جارٍ التحميل…</div></td></tr>}</tbody></table></div>
+          {links && !links.length && <tr><td colSpan={8}><div className="empty">لا روابط بعد</div></td></tr>}
+          {!links && <tr><td colSpan={8}><div className="empty">جارٍ التحميل…</div></td></tr>}</tbody></table></div>
     </div>
   </>);
 }
@@ -130,4 +133,24 @@ function Proposals({ org, ops, me, commit, commitOrg, say }) {
       {done.length > 0 && <div style={{ marginTop: 10 }}><button className="btn sm gh" onClick={() => setHist(h => !h)}>{hist ? 'إخفاء السجل' : 'سجل المقترحات (' + done.length + ')'}</button>
         {hist && <table className="tb" style={{ fontSize: 12, marginTop: 6 }}><tbody>{done.slice(0, 30).map(p => <tr key={p.id}><td>{MCP_KINDS[p.kind]}</td><td>{p.title}</td><td><span className={'badge ' + (p.status === 'applied' ? 'b-mint' : 'b-dim')}>{p.status === 'applied' ? 'نُفّذ' : 'رُفض'}</span></td><td style={{ fontSize: 11 }}>{p.note}</td><td className="num" style={{ fontSize: 11 }}>{dtLocal(p.decidedAt)}</td></tr>)}</tbody></table>}</div>}
     </div>);
+}
+
+/* v54.6 — المرحلة 7: سجل الذكاء الاصطناعي — من استخدم الذكاء الاصطناعي أو الموصل أو المراجعة، ومتى، وبأي نتيجة (بلا محتوى البيانات) */
+function AiLog() {
+  const [log, setLog] = useState(null); const [kinds, setKinds] = useState({}); const [err, setErr] = useState(''); const [k, setK] = useState('');
+  const load = async () => { try { const b = (import.meta.env || {}).VITE_ZATCA_ENDPOINT || ''; if (!b) throw new Error('الخادم غير مهيأ لهذه النسخة');
+    const r = await fetch(String(b).replace(/\/+$/, '') + '/api/ai/log', { headers: await aiHeaders() }); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    setLog(j.log || []); setKinds(j.kinds || {}); setErr(''); } catch (e) { setErr(e.message); setLog([]); } };
+  useEffect(() => { load(); }, []);
+  const rows = (log || []).filter(x => !k || x.kind === k);
+  return <div className="card" data-ailog>
+    <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}><b style={{ fontSize: 14 }}>سجل الذكاء الاصطناعي</b><small style={{ color: 'var(--dim)' }}>كل تحليل ومراجعة واستدعاء للموصل وقرار على مقترح — دون محتوى البيانات</small>
+      <select className="sel" style={{ maxWidth: 200 }} aria-label="نوع السجل" value={k} onChange={e => setK(e.target.value)}><option value="">الكل</option>{Object.entries(kinds).map(([a, b]) => <option key={a} value={a}>{b}</option>)}</select>
+      <button className="btn sm gh" onClick={load}>تحديث</button></div>
+    {err && <div className="note" style={{ marginTop: 8 }}>{err}</div>}
+    <div className="tw" style={{ marginTop: 8 }}><table className="tb" style={{ fontSize: 11.5 }}><thead><tr><th>الوقت</th><th>المستخدم</th><th>النوع</th><th>الوظيفة</th><th>النتيجة</th><th>المدة</th><th>تفاصيل</th></tr></thead>
+      <tbody>{rows.slice(0, 300).map(x => <tr key={x.id} data-ailogrow><td className="num">{x.at ? dtLocal(x.at) : ''}</td><td>{x.by}</td><td>{kinds[x.kind] || x.kind}</td><td className="num">{x.name}</td>
+        <td><span className={'badge ' + (x.ok ? 'b-mint' : 'b-rose')}>{x.ok ? 'نجح' : 'فشل ' + (x.status || '')}</span></td><td className="num">{x.ms ? x.ms + 'ms' : ''}</td><td>{x.detail}</td></tr>)}
+        {log && !rows.length && <tr><td colSpan={7}><div className="empty">لا سجلات</div></td></tr>}</tbody></table></div>
+  </div>;
 }

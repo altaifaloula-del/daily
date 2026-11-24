@@ -107,6 +107,7 @@ export const WRITE_NAMES = new Set(MCP_WRITE_TOOLS.filter(t => t.name !== 'list_
 export function proposeTool(E, D, name, a = {}) {
   const C = ctxOf(E, D); const reason = String(a.reason || '').slice(0, 500);
   if (name === 'propose_journal_entry') {
+    if (D._scope && !a.branch) throw new Error('الرابط مقيّد بفروع محددة — حدّد الفرع في القيد (لا قيود على المركز الرئيسي)');
     const payload = { date: String(a.date || '').slice(0, 10), title: String(a.title || '').slice(0, 140), ...(a.branch ? { branchId: (() => { const b = C.brOf(a.branch); return b === 'central' ? '' : b; })() } : {}),
       lines: (a.lines || []).map(l => ({ code: String(l.code || '').trim(), debit: Number(l.debit) || 0, credit: Number(l.credit) || 0 })) };
     const P = E.mcpPlanJournal(C.org, payload, { role: 'system_admin' }); if (!P.ok) throw new Error('القيد مرفوض: ' + P.errs.join(' · '));
@@ -275,7 +276,15 @@ export async function handleRpc(msg, { tools = [...MCP_TOOLS, ...MCP_WRITE_TOOLS
 }
 
 /* ===================== التركيب على الخادم ===================== */
-export function mountMcp(app, { refs = null, express, requireMember, requireFeature = () => (q, r, n) => n(), rateLimit, T, fetchImpl = fetch, log = console, engine = null, now = Date.now, publicBase = '', isolate = null }) {
+/* v54.6 — المرحلة 7: نطاق الفروع للرابط — رابط مقيّد يرى بيانات فروعه فقط (العمليات بلا فرع — مستوى الشركة — تُستبعد)، ولا يقترح قيدًا على المركز */
+export const SCOPE_RE = /^[A-Za-z0-9_-]{1,60}$/;
+export function mcpScope(D, scope) {
+  if (!scope || !scope.length) return D; const key = scope.slice().sort().join(','); D._sc = D._sc || new Map(); if (D._sc.has(key)) return D._sc.get(key);
+  const set = new Set(scope); const org = D.org || {}, ops = D.ops || {}; const inS = (x) => x && typeof x === 'object' && set.has(String(x.branchId || x.branch || ''));
+  const sOps = Object.fromEntries(Object.entries(ops).map(([k, v]) => [k, Array.isArray(v) ? v.filter(inS) : v]));
+  const R = { ...D, org: { ...org, branches: (org.branches || []).filter(b => set.has(b.id)) }, ops: sOps, _scope: [...set], _A: null, _sc: null }; D._sc.set(key, R); return R;
+}
+export function mountMcp(app, { audit = null, refs = null, express, requireMember, requireFeature = () => (q, r, n) => n(), rateLimit, T, fetchImpl = fetch, log = console, engine = null, now = Date.now, publicBase = '', isolate = null }) {
   const json = express.json({ limit: '256kb' }), small = express.json({ limit: '4kb' });
   const toks = new Map(); const tokenFor = (t) => { if (!toks.has(t.id)) toks.set(t.id, saTokenSource(t.sa, { fetchImpl })); return toks.get(t.id)(); };
   const docs = (t) => 'https://firestore.googleapis.com/v1/projects/' + encodeURIComponent(t.dataProject || t.projectId) + '/databases/(default)/documents';
@@ -295,7 +304,7 @@ export function mountMcp(app, { refs = null, express, requireMember, requireFeat
 
   app.get('/api/mcp/links', requireMember, lim, async (req, res) => {
     const t = admin(req, res); if (!t) return;
-    try { const L = await listOf(t); res.json({ links: L.map(x => ({ id: x.id, label: x.label || '', email: x.email || '', createdAt: x.createdAt || '', active: !!x.active, lastUsedAt: x.lastUsedAt || '', calls: Number(x.calls) || 0, hint: x.hint || '' })).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))) }); }
+    try { const L = await listOf(t); res.json({ links: L.map(x => ({ id: x.id, label: x.label || '', email: x.email || '', createdAt: x.createdAt || '', active: !!x.active, lastUsedAt: x.lastUsedAt || '', calls: Number(x.calls) || 0, hint: x.hint || '', branches: String(x.branches || '').split(',').filter(Boolean) })).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))) }); }
     catch (e) { log.error('mcp/links', t.id, e.message); res.status(502).json({ error: e.message }); }
   });
   app.post('/api/mcp/links', small, requireMember, requireFeature('ai'), lim, async (req, res) => {
@@ -303,11 +312,12 @@ export function mountMcp(app, { refs = null, express, requireMember, requireFeat
     const label = String((req.body && req.body.label) || '').trim().slice(0, 60) || 'Claude';
     try {
       const L = await listOf(t); if (L.filter(x => x.active).length >= MAX_TOKENS) return res.status(409).json({ error: 'وصلت الحد (' + MAX_TOKENS + ' روابط نشطة) — ألغِ رابطًا غير مستخدم أولًا' });
+      const br = Array.isArray(req.body && req.body.branches) ? [...new Set(req.body.branches.map(String))].slice(0, 30) : []; if (br.some(x => !SCOPE_RE.test(x))) return res.status(400).json({ error: 'معرّف فرع غير صالح' });
       const tok = newToken(t.id), h = hashToken(tok);
-      const w = await fs(t, docs(t) + '/mcp_tokens/' + h + '?currentDocument.exists=false', { method: 'PATCH', body: JSON.stringify({ fields: { email: S(req.user.email), label: S(label), createdAt: S(new Date(now()).toISOString()), active: Bo(true), calls: I(0), hint: S(tok.slice(-4)), scope: S('read') } }) });
+      const w = await fs(t, docs(t) + '/mcp_tokens/' + h + '?currentDocument.exists=false', { method: 'PATCH', body: JSON.stringify({ fields: { email: S(req.user.email), label: S(label), createdAt: S(new Date(now()).toISOString()), active: Bo(true), calls: I(0), hint: S(tok.slice(-4)), scope: S('read'), branches: S(br.join(',')) } }) });
       if (!w.ok) throw new Error('تعذّر حفظ الرابط');
       log.log('mcp: رابط جديد', t.id, req.user.email, label);
-      res.json({ id: h, url: baseOf(req) + '/mcp/' + tok, label });
+      res.json({ id: h, url: baseOf(req) + '/mcp/' + tok, label, branches: br });
     } catch (e) { log.error('mcp/create', t.id, e.message); res.status(502).json({ error: e.message }); }
   });
   app.post('/api/mcp/links/revoke', small, requireMember, lim, async (req, res) => {
@@ -387,7 +397,7 @@ export function mountMcp(app, { refs = null, express, requireMember, requireFeat
         if (!m.ok) r.why = 'تعذّرت قراءة عضوية ' + f.email + ' (' + m.status + ')';
         else if (mf.active !== true) r.why = 'عضوية ' + f.email + ' غير نشطة';
         else if (mf.role !== 'system_admin') r.why = 'دور ' + f.email + ' ليس مسؤول نظام (' + mf.role + ')';
-        else r = { v: { t, h, email: f.email, calls: Number(f.calls) || 0, lastUsedAt: f.lastUsedAt || '' }, why: '' }; } }
+        else r = { v: { t, h, email: f.email, calls: Number(f.calls) || 0, lastUsedAt: f.lastUsedAt || '', scope: String(f.branches || '').split(',').filter(Boolean) }, why: '' }; } }
     auth.set(h, { r, exp: now() + 60000 }); if (auth.size > 500) auth.delete(auth.keys().next().value);
     return r;
   };
@@ -414,10 +424,10 @@ export function mountMcp(app, { refs = null, express, requireMember, requireFeat
   // مهلتان: «لينة» تعيد رسالة للمستخدم ويواصل العامل الحساب ويخبّئ النتيجة (المعالج في الخطة المجانية بطيء: 0.1 CPU)،
   // و«صلبة» تُنهي العامل إن علق فعلًا
   let hard = null; const armHard = () => { clearTimeout(hard); hard = setTimeout(() => { if (W) { log.error('mcp worker: مهلة صلبة — إنهاء'); try { W.terminate(); } catch { } W = null; } }, isolate.hardMs || 600000); };
-  const inWorker = (t, op, name, args) => new Promise((res, rej) => { const id = ++seq; const w = worker(); armHard();
+  const inWorker = (t, op, name, args, scope = []) => new Promise((res, rej) => { const id = ++seq; const w = worker(); armHard();
     const tm = setTimeout(() => { const p = pend.get(id); if (!p) return; pend.delete(id);
       rej(new Error(lastFail && lastFail.oom && now() - lastFail.at < 15 * 60000 ? 'بيانات المنشأة أكبر من ذاكرة الموصل في الخطة الحالية (نفدت أثناء التجهيز) — بقية المنصة تعمل؛ الحل ترقية خطة الخادم' : 'ما زال الخادم يجهّز بيانات المنشأة (أول طلب بعد الخمول يأخذ دقائق على الخطة المجانية) — أعد السؤال بعد دقيقة أو دقيقتين')); }, isolate.timeoutMs || 100000);
-    pend.set(id, { res, rej, tm }); w.postMessage({ id, t: { id: t.id, sa: t.sa, projectId: t.projectId, dataProject: t.dataProject }, op, name, args: args || {} }); });
+    pend.set(id, { res, rej, tm }); w.postMessage({ id, t: { id: t.id, sa: t.sa, projectId: t.projectId, dataProject: t.dataProject }, op, name, args: args || {}, scope }); });
 
   // v53.9: سطر لكل طلب من Claude (المفتاح مخفي) — لتشخيص الربط لأن سجلات الطلبات غير متاحة في خطة Render المجانية
   if (typeof app.use === 'function') app.use((req, res, next) => {
@@ -446,12 +456,14 @@ export function mountMcp(app, { refs = null, express, requireMember, requireFeat
     if (!v) { failed(req.ip || ''); log.error('mcp رفض:', r.why); return deny(res, 403, 'رابط ربط غير صالح أو أُلغي — أنشئ رابطًا جديدًا من مثقال: الإعدادات ← ربط Claude'); }
     const msgs = Array.isArray(req.body) ? req.body : [req.body];
     if (msgs.length > 20) return deny(res, 400, 'دفعة طلبات كبيرة');
-    let D = null; const call = async (name, args) => { touch(v);
+    let D = null; const call = async (name, args) => { const t0 = now(); try { const out = await call0(name, args); if (audit) audit(v.t.id, { by: v.email, role: 'system_admin', kind: WRITE_NAMES.has(name) ? 'proposal' : 'mcp', name, ok: true, ms: now() - t0, detail: (v.scope || []).length ? 'نطاق: ' + v.scope.length + ' فرع' : '' }); return out; }
+      catch (e) { if (audit) audit(v.t.id, { by: v.email, role: 'system_admin', kind: WRITE_NAMES.has(name) ? 'proposal' : 'mcp', name, ok: false, ms: now() - t0, detail: String(e.message || '').slice(0, 200) }); throw e; } };
+    const call0 = async (name, args) => { touch(v); const sc = v.scope || [];
       log.log('mcp:', v.t.id, v.email, name);
       if (name === 'search_references') { if (!refs) throw new Error('مكتبة المراجع غير متاحة'); const hits = await refs.search(v.t, args); return { hits, count: hits.length, note: hits.length ? 'مقتطفات حرفية — استشهد بالعنوان والصفحة' : 'لا نتائج في المراجع المرفوعة — لا تستشهد بمراجع غير موجودة' }; }
       if (name === 'list_proposals') return listProposals(v.t, args.status);
-      if (isolate) return WRITE_NAMES.has(name) ? storeProposal(v, await inWorker(v.t, 'propose', name, args)) : inWorker(v.t, 'run', name, args);
-      if (!D) D = await loadData(v.t); const En = await loadEngine();
+      if (isolate) return WRITE_NAMES.has(name) ? storeProposal(v, await inWorker(v.t, 'propose', name, args, sc)) : inWorker(v.t, 'run', name, args, sc);
+      if (!D) D = mcpScope(await loadData(v.t), sc); const En = await loadEngine();
       if (WRITE_NAMES.has(name)) return storeProposal(v, proposeTool(En, D, name, args));
       return runTool(En, D, name, args); };
     const out = []; for (const m of msgs) { const r = await handleRpc(m, { call, version: (E && E.APP_VER) || appVer || '' }); if (r) out.push(r); }
