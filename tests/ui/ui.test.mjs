@@ -3181,3 +3181,17 @@ test('v54.2 التوصيات المالية: توصية بدليل وطريقة 
   assert.match(await B.p.locator('[data-actrec]').innerText(), /معتمدة[\s\S]*المتوقع[\s\S]*الفعلي: بعد الإنجاز/);
   assert.deepEqual(B.errs, []); await B.ctx.close();
 });
+
+test('v54.3 لوحة المدير المالي: درجات بمنهجيتها، تنقيب الفرع ← الحساب ← القيود، والتوقع بمنهجية معلنة', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1600 } }, 'live/Hub/admin/analytics:cfo');
+  const J = (id, date, lines, extra = {}) => ({ id, date, title: id, status: 'posted', lines: lines.map(([code, debit, credit]) => ({ code, debit, credit })), ...extra });
+  const bid = await p.evaluate(() => ((window.curOrg.branches || [])[0] || {}).id);
+  await p.evaluate((jm) => window.setOps(o => ({ ...o, closings: [], invoices: [], ctlCases: [], actions: [], journalManual: jm })), [
+    J('open', '2023-12-31', [['1101', 50000, 0], ['3101', 0, 50000]], { opening: true }), J('s1', '2024-03-10', [['1101', 20000, 0], ['4101', 0, 20000]], { branchId: bid }), J('c1', '2024-03-11', [['5198', 8000, 0], ['1101', 0, 8000]], { branchId: bid })]);
+  await p.waitForSelector('[data-cfodash]'); await p.fill('input[aria-label="من"]', '2024-01-01'); await p.fill('input[aria-label="إلى"]', '2024-12-31'); await p.waitForTimeout(500);
+  await p.locator('[data-score="profit"] button').click(); assert.match(await p.locator('[data-scorewhy]').innerText(), /هامش صافي الربح/);
+  await p.click('[data-br="' + bid + '"]'); await p.waitForSelector('[data-cfoacc]'); assert.match(await p.locator('[data-cfoacc]').innerText(), /4101[\s\S]*5198/);
+  await p.locator('[data-cfoacc] [data-doclink]:has-text("5198")').click(); await p.waitForSelector('[data-peek]'); assert.match(await p.locator('.modal').innerText(), /قيود الحساب 5198/);
+  assert.match(await p.locator('[data-cfofc]').innerText(), /ليس نتيجة مؤكدة[\s\S]*المنهجية/);
+  assert.deepEqual(errs, []); await ctx.close();
+});
