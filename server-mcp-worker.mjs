@@ -11,8 +11,8 @@ const TTL = 10 * 60000;   // التجهيز مكلف على المعالج ال�
 
 const getter = (t) => {
   if (!toks.has(t.id)) toks.set(t.id, saTokenSource(t.sa));
-  return async (url) => {
-    const r = await fetch(url, { headers: { authorization: 'Bearer ' + await toks.get(t.id)() } });
+  return async (url, init = {}) => {
+    const r = await fetch(url, { method: init.method || 'GET', body: init.body, headers: { authorization: 'Bearer ' + await toks.get(t.id)(), 'content-type': 'application/json' } });
     const j = await r.json().catch(() => ({})); return { ok: r.ok, status: r.status, j };
   };
 };

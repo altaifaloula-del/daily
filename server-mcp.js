@@ -22,38 +22,37 @@ export const MCP_OPS_KEYS = new Set(['advances', 'appSettlements', 'cashVouchers
 // الملفات المضمّنة (صور/مرفقات data:…) لا تلزم المحاسبة — تُسقط أثناء الفك نفسه فلا تبقى في الذاكرة
 const DROP_BLOBS = (k, v) => (typeof v === 'string' && v.length > 1024 && v.startsWith('data:')) ? undefined : v;
 
-/** v53.9: تحميل بيانات المنشأة للموصل بأقل ذاكرة ممكنة (الخطة المجانية 512MB):
- *  صفحات صغيرة؛ كل مستند يُجمَّع ويُفك فور اكتمال أجزائه ثم تُحرَّر نصوصه (لا تُحمَّل المنصة كلها نصوصًا ثم تُفك)؛
- *  تُحذف المصفوفات غير اللازمة والمرفقات المضمّنة. get(url) ⇒ { ok, status, j } بحساب الخدمة. */
+/** v53.9: تحميل بيانات المنشأة للموصل — قراءة المستندات اللازمة بأسمائها (batchGet) لا تصفّح المجموعة كلها:
+ *  المجموعة فيها أرشيف الصور لكل فرع (rms8_bf_*) وفواتير نقطة البيع الشهرية والسجل التاريخي والهيكل القديم — تنزيلها كان
+ *  يستنفد ذاكرة الخطة المجانية ويستغرق دقائق. الآن: org + core + مستند كل فرع من org.branches، وكل مستند يُجمَّع ويُفك وحده
+ *  ثم تُحرَّر نصوصه، مع حذف المصفوفات غير المحاسبية والمرفقات المضمّنة. get(url, init?) ⇒ { ok, status, j } بحساب الخدمة. */
 export async function loadPlatformData(base, get, now = Date.now) {
-  const values = {}, pend = new Map(), done = new Set(), bad = [];
-  const finish = (id, text) => {
-    if (typeof text !== 'string' || !text) return;
-    let v; try { v = JSON.parse(text, id === 'rms8_org' ? undefined : DROP_BLOBS); } catch { bad.push(id); return; }
-    if (id !== 'rms8_org' && v && typeof v === 'object') Object.keys(v).forEach(k => { if (Array.isArray(v[k]) && !MCP_OPS_KEYS.has(k)) delete v[k]; });
-    values[id] = v;
-  };
-  const tryDone = (id) => { const e = pend.get(id); if (!e || !e.f) return; const parts = Number(e.f.parts) || 1, pre = e.f.ver ? e.f.ver + '_' : '';
-    const cs = []; for (let i = 0; i < parts; i++) { const c = e.ch[pre + i]; if (typeof c !== 'string') return; cs.push(c); }
-    pend.delete(id); done.add(id); finish(id, cs.join('')); };
-  const onDoc = (id, fields) => {
-    const cut = id.indexOf('__');
-    if (cut < 0) { const f = decodeFields(fields); const parts = Number(f.parts) || 1;
-      if (parts === 1) { done.add(id); finish(id, f.value); return; }
-      if (parts > 500) { bad.push(id); return; }
-      const e = pend.get(id) || { ch: {} }; e.f = { parts, ver: f.ver || '' }; pend.set(id, e); tryDone(id); return; }
-    const head = id.slice(0, cut); if (done.has(head)) return;   // أجزاء نسخة قديمة بعد اكتمال المستند
-    const e = pend.get(head) || { ch: {} }; e.ch[id.slice(cut + 2)] = (decodeFields(fields) || {}).chunk; pend.set(head, e); tryDone(head);
-  };
-  let pt = '';
-  for (let i = 0; i < 5000; i++) { const r = await get(base + '/platform?pageSize=20' + (pt ? '&pageToken=' + encodeURIComponent(pt) : ''));
-    if (!r.ok) throw new Error('تعذّرت قراءة بيانات المنشأة (' + r.status + ')');
-    (r.j.documents || []).forEach(d => { const id = d.name.split('/').pop(); if (MCP_DOC_RE.test(id)) onDoc(id, d.fields); });
-    pt = r.j.nextPageToken || ''; r.j = null; if (!pt) break; }
-  pend.forEach((e, id) => { if (e.f) bad.push(id); });
+  const prefix = base.replace(/^https:\/\/[^/]+\/v1\//, '') + '/platform/';
+  const batch = async (ids) => { const out = {};
+    for (let i = 0; i < ids.length; i += 10) {
+      const r = await get(base + ':batchGet', { method: 'POST', body: JSON.stringify({ documents: ids.slice(i, i + 10).map(id => prefix + id) }) });
+      if (!r.ok) throw new Error('تعذّرت قراءة بيانات المنشأة (' + r.status + ')');
+      (Array.isArray(r.j) ? r.j : []).forEach(x => { if (x && x.found) out[x.found.name.split('/').pop()] = decodeFields(x.found.fields); }); r.j = null; }
+    return out; };
+  const values = {}, bad = [];
+  const load = async (ids) => { const heads = await batch(ids);
+    for (const id of ids) { const f = heads[id]; if (!f) continue; delete heads[id];
+      const parts = Number(f.parts) || 1; let text = f.value;
+      if (parts > 1) { if (parts > 500) { bad.push(id); continue; }
+        const names = Array.from({ length: parts }, (_, i) => id + '__' + (f.ver ? f.ver + '_' : '') + i);
+        const ch = await batch(names); if (names.some(n => !ch[n] || typeof ch[n].chunk !== 'string')) { bad.push(id); continue; }
+        text = names.map(n => ch[n].chunk).join(''); }
+      if (typeof text !== 'string' || !text) continue;
+      let v; try { v = JSON.parse(text, id === 'rms8_org' ? undefined : DROP_BLOBS); } catch { bad.push(id); continue; } text = null;
+      if (id !== 'rms8_org' && v && typeof v === 'object') Object.keys(v).forEach(k => { if (Array.isArray(v[k]) && !MCP_OPS_KEYS.has(k)) delete v[k]; });
+      values[id] = v; } };
+  await load(['rms8_org', 'rms8_core']);
+  const brs = (((values.rms8_org || {}).branches) || []).map(b => 'rms8_br_' + String((b && b.id) || '').replace(/[^\w-]/g, '_')).filter(x => x !== 'rms8_br_');
+  for (const id of brs) await load([id]);   // فرع فرع — مستند واحد مفكوك في الذاكرة في كل مرة
   if (bad.length) console.error('mcp: مستندات لم تُقرأ كاملة:', bad.join(','));
   const L = composeLogical(values); return { org: L.org || {}, ops: L.ops || {}, _at: new Date(now()).toISOString() };
 }
+
 
 export const MCP_PROTOCOLS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const TOKEN_RE = /^mq_([a-z0-9][a-z0-9-]{1,39})_([A-Za-z0-9_-]{43})$/;
@@ -372,7 +371,7 @@ export function mountMcp(app, { express, requireMember, requireFeature = () => (
   // --- البيانات: كل مستندات platform بحساب الخدمة ⇒ تجميع منطقي (مخبأ دقيقتين لكل منشأة) ---
   const data = new Map();
   const loadData = (t) => { const c = data.get(t.id); if (c && c.exp > now()) return c.p;
-    const p = loadPlatformData(docs(t), (u) => fs(t, u), now);
+    const p = loadPlatformData(docs(t), (u, init) => fs(t, u, init), now);
     data.set(t.id, { p, exp: now() + 120000 }); p.catch(() => data.delete(t.id)); return p; };
 
   // v53.9: عزل الحساب في عامل بحد ذاكرة مستقل — نفاد الذاكرة أو التعليق يُنهي العامل وحده لا الخادم (الفوترة والذكاء الاصطناعي)
