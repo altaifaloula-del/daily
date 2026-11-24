@@ -165,3 +165,14 @@ test('v53.9 تحميل بأقل ذاكرة: الأجزاء تُجمع، ونقط
   assert.equal(D.ops.posOrders, undefined, 'فواتير نقطة البيع لا تُحمَّل'); assert.equal(D.ops.posShifts, undefined);
   assert.ok(urls.every(u => u.includes('pageSize=20')));
 });
+
+test('v53.9 تحميل متدفق: أجزاء متداخلة الترتيب، إسقاط المرفقات المضمّنة والمصفوفات غير المحاسبية، وتجاهل أجزاء النسخ القديمة', async () => {
+  const enc = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, typeof v === 'number' ? { integerValue: String(v) } : { stringValue: String(v) }]));
+  const b1 = JSON.stringify({ invoices: [{ id: 'i1', img: 'data:image/png;base64,' + 'A'.repeat(5000) }], hrLeaves: [{ id: 'h' }] });
+  const docs = [['rms8_br_b1', { parts: 2, ver: 'v2', value: '' }], ['rms8_br_b10', { parts: 1, value: JSON.stringify({ closings: [{ id: 'c10' }] }) }],
+    ['rms8_br_b1__v1_0', { chunk: 'قديم' }], ['rms8_br_b1__v2_0', { chunk: b1.slice(0, 50) }], ['rms8_br_b1__v2_1', { chunk: b1.slice(50) }]];
+  const get = async () => ({ ok: true, status: 200, j: { documents: docs.map(([id, f]) => ({ name: 'p/platform/' + id, fields: enc(f) })) } });
+  const D = await loadPlatformData('B', get);
+  assert.equal(D.ops.invoices.length, 1); assert.equal(D.ops.invoices[0].img, undefined, 'المرفق المضمّن يُسقط');
+  assert.equal(D.ops.hrLeaves, undefined, 'مصفوفة غير محاسبية تُحذف'); assert.deepEqual(D.ops.closings.map(x => x.id), ['c10']);
+});
