@@ -9,7 +9,8 @@
 import crypto from 'node:crypto';
 import { saTokenSource } from './server-billing.js';
 import { decodeFields } from './scripts/backup-lib.mjs';
-import { refChunk, refSearch, REF_AUTH, REF_CATS } from './ref-lib.mjs';
+import { refChunk, refSearch, REF_AUTH, REF_CATS, revQuery, revPrompt, revValidate } from './ref-lib.mjs';
+export const REVIEW_ROLES = new Set(['system_admin', 'finance_department', 'accountant', 'general_management', 'head_office']);
 
 const S = (v) => ({ stringValue: String(v == null ? '' : v) }), Bo = (v) => ({ booleanValue: !!v }), I = (v) => ({ integerValue: String(Math.round(Number(v) || 0)) });
 const META = ['title', 'cat', 'authority', 'family', 'version', 'pubDate', 'effFrom', 'effTo', 'status', 'supersededBy', 'source', 'lang', 'note'];
@@ -92,5 +93,21 @@ export function mountRefs(app, { express, requireMember, rateLimit, T, fetchImpl
       const mask = Object.keys(f).map(k => 'updateMask.fieldPaths=' + k).join('&');
       const w = await fs(t, base(t) + '/ref_docs/' + id + '?' + mask + '&currentDocument.exists=true', { method: 'PATCH', body: JSON.stringify({ fields: f }) }); if (!w.ok) throw new Error('تعذّر الحفظ');
       cache.delete(t.id); log.log('refs: تحديث', t.id, id, req.user.email); res.json({ ok: true }); } catch (e) { res.status(400).json({ error: e.message }); } });
+  // v54.5 — المرحلة 6: وكيل المراجعة: لكل حالة رقابية ⇐ بحث في المراجع ⇐ Claude مقيَّد بالمقاطع ⇐ تحقق حتمي (revValidate). لا يكتب شيئًا في بيانات المنشأة.
+  const revLim = rateLimit({ windowMs: 60 * 60 * 1000, max: 60 });
+  app.post('/api/refs/review', express.json({ limit: '128kb' }), requireMember, revLim, async (req, res) => { const t = tenantOf(req, res); if (!t) return;
+    if (!REVIEW_ROLES.has(req.user && req.user.role)) return res.status(403).json({ error: 'المراجعة المحاسبية للمالية والإدارة فقط' });
+    if (!aiClient) return res.status(503).json({ error: 'وكيل المراجعة يتطلب ANTHROPIC_API_KEY على الخادم', code: 'no-ai' });
+    const cases = (Array.isArray((req.body || {}).cases) ? req.body.cases : []).slice(0, 10).map(c => ({ no: String(c.no || '').slice(0, 20), key: String(c.key || '').slice(0, 300), cat: String(c.cat || '').slice(0, 30), sev: String(c.sev || '').slice(0, 12),
+      title: String(c.title || '').slice(0, 300), evidence: String(c.evidence || '').slice(0, 2000), fix: String(c.fix || '').slice(0, 600), impact: Number(c.impact) || 0 }));
+    if (!cases.length) return res.status(400).json({ error: 'لا حالات للمراجعة' });
+    try { const L = await lib(t); const txt = new Map(L.chunks.map(c => [c.doc + '|' + c.page + '|' + c.para, c.text])); const ai = aiClient(); const out = [];
+      for (const c of cases) {
+        const hits = refSearch(L.chunks, L.docs, revQuery(c), { limit: 6 }).map(h => ({ ...h, text: txt.get(h.doc + '|' + h.page + '|' + h.para) || h.excerpt }));
+        let raw = '{}'; try { const r = await ai.messages.create({ model: refModel, max_tokens: 1500, messages: [{ role: 'user', content: revPrompt(c, hits) }] }); raw = ((r.content || []).find(x => x.type === 'text') || {}).text || '{}'; }
+        catch (e) { log.error('refs review', e.message); out.push({ caseNo: c.no, caseKey: c.key, error: 'تعذّر تحليل الحالة: ' + e.message }); continue; }
+        out.push({ ...revValidate(raw, c, hits, { at: new Date(now()).toISOString(), model: refModel }), searched: hits.length }); }
+      log.log('refs: مراجعة', t.id, req.user.email, cases.length); res.json({ findings: out, note: hits0(L) }); } catch (e) { res.status(502).json({ error: e.message }); } });
+  const hits0 = (L) => L.docs.length ? 'الاستشهادات تحققها المنصة حرفيًا من المراجع المرفوعة؛ ما لا يثبت يُسقط.' : 'لا مراجع مرفوعة بعد — النتائج ستكون شرحًا من الذكاء الاصطناعي بلا سند.';
   return { lib, jobs, cache };
 }
