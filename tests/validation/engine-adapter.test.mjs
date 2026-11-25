@@ -29,7 +29,8 @@ test('المحرك الحقيقي: فاتورة مورد 1,150 شاملة ⇐ م
   const lg = normalizeFromEngine(A);
   const r = validateLedger(lg, { reported: { balances: { 5198: 1000, 1501: 150, 2101: -1150 } } });
   const blocking = r.findings.filter(f => f.check !== 'posting.account-missing');
-  assert.deepEqual(blocking, [], 'FINDINGS ' + JSON.stringify(blocking));
+  const raw = blocking.map(f => { const e = A.entries[Number(String(f.ref).slice(1))]; return e && { id: e.id, title: e.title, src: e.src, keys: Object.keys(e), lines: e.lines.map(l => l.code + ':' + l.debit + '/' + l.credit) }; });
+  assert.deepEqual(blocking, [], 'FINDINGS ' + JSON.stringify(blocking) + ' RAW ' + JSON.stringify(raw));
   assert.equal(r.tb.balanced, true);
 });
 
