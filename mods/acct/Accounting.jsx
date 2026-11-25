@@ -489,6 +489,22 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
     });
   };
 
+  // ===== v53.6: قيد المبيعات من فواتير نقطة البيع بدل الإغلاق اليومي (قرار المالك) — تاريخ سريان لكل فرع =====
+  const pjCfgUi = org.posJournal || {};
+  const [pjF, setPjF] = useState(() => ({ enabled: !!pjCfgUi.enabled, from: { ...(pjCfgUi.from || {}) } }));
+  const savePj = async () => {
+    const from = {}; Object.entries(pjF.from || {}).forEach(([k, v]) => { if (v) from[k] = v; });
+    if (pjF.enabled && !Object.keys(from).length) return say('حدد تاريخ السريان لفرع واحد على الأقل', 'no');
+    const lt = lockedThru(org); const bad = Object.values(from).find(v => lt && String(v).slice(0, 7) <= lt);
+    if (pjF.enabled && bad) return say('تاريخ السريان ' + bad + ' داخل فترة مقفلة حتى ' + lt + ' — اختر تاريخًا بعدها', 'no');
+    const brN = (id) => ((org.branches || []).find(b => b.id === id) || {}).name || id;
+    await commitOrg(d => ({ ...d, posJournal: { enabled: !!pjF.enabled, from } }), {
+      actionType: 'update', targetType: 'settings', targetId: 'posJournal', need: 'edit',
+      title: pjF.enabled ? 'فعّل قيد المبيعات من فواتير نقطة البيع' : 'أوقف قيد المبيعات من فواتير نقطة البيع',
+      details: pjF.enabled ? Object.entries(from).map(([k, v]) => brN(k) + ' من ' + v).join('، ') : ''
+    });
+  };
+
   // ===== v11.8: الفوترة الإلكترونية المبسّطة (زاتكا — رمز QR للمرحلة الأولى) =====
   const einvEnt = entityById(org, einvF.entity);
   const einvSeller = einvEnt.name || '';
@@ -3065,6 +3081,36 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                   : <button className="btn pri" onClick={() => saveTax({ ...taxCfg, enabled: true, rate: taxRate }, 'فعّل احتساب ضريبة القيمة المضافة', taxRate + '%')}><Check size={14} />تفعيل الاحتساب ({taxRate}%)</button>}
               </div>
             ) : <div className="note">تفعيل الضريبة وتعديل نسبتها صلاحية للإدارة العليا/مسؤول النظام فقط.</div>}
+          </div>
+
+          {/* v53.6 — قيد المبيعات من فواتير نقطة البيع (معطّل افتراضيًا، تاريخ سريان لكل فرع) */}
+          <div className="card" data-testid="pos-journal-card">
+            <div className="card-h">
+              <div className="card-t"><Receipt size={15} color="var(--brass)" />قيد المبيعات من فواتير نقطة البيع</div>
+              <span className={'badge ' + (pjCfgUi.enabled ? 'b-mint' : 'b-amber')}>{pjCfgUi.enabled ? 'مفعّل' : 'غير مفعّل'}</span>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 10 }}>
+              من تاريخ السريان لكل فرع: <b>الإغلاق اليومي يصبح بيانات تشغيلية</b> لا يولّد قيد مبيعات ولا ضريبة،
+              ويُقيَّد <b>لكل فاتورة نقطة بيع قيدها</b> بضريبتها الفعلية (والمرتجع يعكسها). عجز/فائض الصندوق ومصروفات الوردية
+              وسداد الموردين تبقى من الإغلاق. ما قبل التاريخ والفروع بلا تاريخ تبقى كما هي تمامًا.
+              فعّله فقط للفروع التي تبيع بنقطة البيع الداخلية.
+            </div>
+            {canTax ? (
+              <div className="grid" style={{ gap: 9 }}>
+                <label className="row" style={{ gap: 7, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={pjF.enabled} onChange={e => setPjF(f => ({ ...f, enabled: e.target.checked }))} />
+                  <span style={{ fontSize: 12.5, fontWeight: 600 }}>تفعيل القيد من فواتير نقطة البيع</span>
+                </label>
+                {(org.branches || []).map(b => (
+                  <div key={b.id} className="row" style={{ gap: 9, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                    <Field label={'يسري في ' + (b.name || 'فرع') + ' من تاريخ (فارغ = لا يسري)'} style={{ width: 260, marginBottom: 0 }}>
+                      <input type="date" className="inp" value={(pjF.from || {})[b.id] || ''} onChange={e => { const v = e.target.value; setPjF(f => ({ ...f, from: { ...(f.from || {}), [b.id]: v } })); }} />
+                    </Field>
+                  </div>
+                ))}
+                <div><button className="btn pri" onClick={savePj}><Check size={14} />حفظ الإعداد</button></div>
+              </div>
+            ) : <div className="note">هذا الإعداد صلاحية للإدارة العليا/مسؤول النظام فقط.</div>}
           </div>
 
           {taxOn && <>

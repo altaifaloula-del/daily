@@ -2175,6 +2175,12 @@ function buildAccounting(org, ops) {
   const supNameOf = (pm) => pm.supplierName
     || ((org.suppliers || []).find(s => s.id === pm.supplierId) || {}).name || '';
 
+  /* v53.6 — قرار المالك 2026-11-25: الإغلاق اليومي بيانات تشغيلية لا يولّد قيد مبيعات ولا ضريبة؛ قيد المبيعات
+     من فواتير نقطة البيع (قيد لكل فاتورة بضريبتها الفعلية). يسري لكل فرع من تاريخ يحدده المالك (org.posJournal.from[branchId]).
+     معطّل افتراضيًا؛ ما قبل التاريخ وفروع بلا تاريخ تبقى كما كانت تمامًا. عجز الصندوق ومصروفات الوردية وسداد الموردين تبقى من الإغلاق. */
+  const pjCfg = org.posJournal || {};
+  const pjOn = (brId, d) => { const f = pjCfg.enabled && pjCfg.from ? pjCfg.from[brId] : ''; return !!(f && d && String(d).slice(0, 10) >= String(f)); };
+
   const counted = (ops.closings || []).filter(countedClosing);
   counted.forEach(c => {
     const bCode = cashCode[c.branchId] || '1101';
@@ -2184,7 +2190,7 @@ function buildAccounting(org, ops) {
     const appRows = (c.deliverySales || []).filter(s => (s.amount || 0) > 0);
     const appsGross = sum(appRows, s => s.amount);
     const tot = cash + card + bankT + appsGross;
-    if (tot > 0) {
+    if (tot > 0 && !pjOn(c.branchId, c.date)) {
       const lines = [];
       if (cash) lines.push(L(bCode, cash, 0));
       // v16.7: مع تفعيل وسيط الشبكة، الشبكة تدخل الوسيط (البنك يسوّيها لاحقاً) — التحويل البنكي المباشر يبقى للبنك
@@ -2248,6 +2254,37 @@ function buildAccounting(org, ops) {
         src: 'سداد مورد بالوردية', ref: pm.reference || pm.invoiceId || c.id, lines
       });
     });
+  });
+
+  // v53.6) قيد لكل فاتورة نقطة بيع (والمرتجع بقيمه السالبة يعكسها) — للفروع التي سرى عليها القيد من الفواتير
+  const sL = (code, amt) => { const a = posR2(amt); return a > 0 ? L(code, a, 0) : L(code, 0, -a); };
+  (ops.posOrders || []).forEach(o => {
+    if (!o || o.status === 'void' || !pjOn(o.branchId, o.date)) return;
+    const total = posR2(o.total), vat = posR2(o.vat), net = posR2(total - vat);
+    if (!total) return;
+    const bCode = cashCode[o.branchId] || '1101', bkCode = bankCode[o.branchId] || '1201';
+    const acc = {}; const add = (code, a) => { if (a) acc[code] = (acc[code] || 0) + a; };
+    add(bCode, -(Number(o.change) || 0));   // الباقي المردود للعميل يُطرح من النقد
+    (o.payments || []).forEach(p => {
+      const a = Number(p.amount) || 0; if (!a) return;
+      if (p.m === 'cash') add(bCode, a);
+      else if (p.m === 'card') add(pcOn(o.date) ? posClrOf(bkCode) : bkCode, a);
+      else if (p.m === 'transfer') add(bkCode, a);
+      else if (p.m === 'app') {
+        const app = (org.deliveryApps || []).find(x => x.id === p.appId);
+        const comm = Math.round(a * (app ? Number(app.c) || 0 : 0)) / 100;
+        add(appAcc[p.appId] || '1399', a - comm); add('5301', comm);
+      } else add('1380', a);   // آجل أو طريقة غير معروفة ← ذمم العملاء (قرار المالك)
+    });
+    const isRet = o.kind === 'return';
+    const lines = Object.keys(acc).filter(k => posR2(acc[k])).map(k => sL(k, acc[k]));
+    lines.push(sL('4101', -net)); if (vat) lines.push(sL('2301', -vat));
+    const brName = ((org.branches || []).find(b => b.id === o.branchId) || {}).name || '';
+    push({ id: 'pos:' + o.id, date: o.date, branchId: o.branchId,
+      title: (isRet ? 'مرتجع نقطة بيع ' + (o.no || '') + (o.refNo ? ' (عن ' + o.refNo + ')' : '') : 'فاتورة نقطة بيع ' + (o.no || '')) + ' — ' + brName,
+      src: 'نقطة البيع', ref: o.no || o.id, lines,
+      vat: vat ? { out: vat, inn: 0, netSales: net, netPurch: 0 } : null,
+      reg: { k: 's', doc: isRet ? 'إشعار دائن — نقطة البيع' : 'فاتورة مبسطة — نقطة البيع', no: o.no || '', party: 'عملاء أفراد — ' + brName, net, vat, gross: total } });
   });
 
   // 4) توريد النقد من الفرع للخزينة الرئيسية
@@ -2364,7 +2401,7 @@ function buildAccounting(org, ops) {
   const siById = {}; (ops.salesInvoices || []).forEach(x => { siById[x.id] = x; });
   (ops.salesInvoices || []).forEach(x => {
     const fundOf = (f) => (f && accIx[f]) ? f : '1201';
-    if (!x.inClosing && x.total > 0) {
+    if ((!x.inClosing || pjOn(x.branchId, x.date)) && x.total > 0) {   // v53.6: بعد سريان القيد من الفواتير لم يعد الإغلاق يقيّدها
       const orig = x.kind === 'credit' ? (siById[x.refId] || {}) : x;
       const side = (orig.terms === 'credit' && x.kind !== 'credit') || (x.kind === 'credit' && x.terms === 'credit') ? '1380' : fundOf(x.fund);
       const net = Math.round((x.net || 0) * 100) / 100, vt = Math.round((x.vat || 0) * 100) / 100;
@@ -3343,7 +3380,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v55.0';
+const APP_VER = 'v55.1';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };

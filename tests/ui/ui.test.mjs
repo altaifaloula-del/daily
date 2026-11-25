@@ -3285,3 +3285,21 @@ test('v55.0 الرئيسية «التطبيقات أولًا»: شريط علو�
     assert.deepEqual(errs, []); await ctx.close();
   }
 });
+
+test('v55.1 — قيد المبيعات من فواتير نقطة البيع: البطاقة معطّلة افتراضيًا، والحفظ بتاريخ لكل فرع، ورفض الفترة المقفلة (حاسوب وجوال)', async () => {
+  for (const [dev, opt] of [['desk', { viewport: { width: 1300, height: 1000 } }], ['iphone', devices['iPhone 13']]]) {
+    const { p, errs, ctx } = await open(opt, 'live/Accounting/admin/vat');
+    const card = p.locator('[data-testid="pos-journal-card"]'); await card.waitFor();
+    assert.ok((await card.innerText()).includes('غير مفعّل'), 'معطّل افتراضيًا');
+    await p.evaluate(() => window.setOrg(g => ({ ...g, periodLocks: { lockedThrough: '2026-02' } }))); await p.waitForTimeout(200);
+    await card.locator('input[type=checkbox]').check();
+    await card.locator('input[type=date]').first().fill('2026-02-10'); await card.locator('button.btn.pri').click(); await p.waitForTimeout(200);
+    assert.ok(String(await p.evaluate(() => window.lastSay)).includes('فترة مقفلة'), 'يرفض تاريخًا داخل فترة مقفلة');
+    await card.locator('input[type=date]').first().fill('2026-03-10'); await card.locator('button.btn.pri').click(); await p.waitForTimeout(300);
+    assert.deepEqual(await p.evaluate(() => window.curOrg.posJournal), { enabled: true, from: { b1: '2026-03-10' } });
+    assert.ok((await card.innerText()).includes('مفعّل'));
+    const over = await p.evaluate(() => document.documentElement.scrollWidth - window.innerWidth); assert.ok(over <= 2, dev + ' تجاوز أفقي ' + over);
+    await card.scrollIntoViewIfNeeded(); await card.screenshot({ path: path.join(cache, 'pos-journal-' + dev + '.png') });
+    assert.deepEqual(errs, []); await ctx.close();
+  }
+});
