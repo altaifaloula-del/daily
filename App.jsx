@@ -2175,7 +2175,7 @@ function buildAccounting(org, ops) {
   const supNameOf = (pm) => pm.supplierName
     || ((org.suppliers || []).find(s => s.id === pm.supplierId) || {}).name || '';
 
-  /* v53.6 — قرار المالك 2026-11-25: الإغلاق اليومي بيانات تشغيلية لا يولّد قيد مبيعات ولا ضريبة؛ قيد المبيعات
+  /* v55.1 — قرار المالك 2026-11-25: الإغلاق اليومي بيانات تشغيلية لا يولّد قيد مبيعات ولا ضريبة؛ قيد المبيعات
      من فواتير نقطة البيع (قيد لكل فاتورة بضريبتها الفعلية). يسري لكل فرع من تاريخ يحدده المالك (org.posJournal.from[branchId]).
      معطّل افتراضيًا؛ ما قبل التاريخ وفروع بلا تاريخ تبقى كما كانت تمامًا. عجز الصندوق ومصروفات الوردية وسداد الموردين تبقى من الإغلاق. */
   const pjCfg = org.posJournal || {};
@@ -2256,12 +2256,12 @@ function buildAccounting(org, ops) {
     });
   });
 
-  // v53.6) قيد لكل فاتورة نقطة بيع (والمرتجع بقيمه السالبة يعكسها) — للفروع التي سرى عليها القيد من الفواتير
+  // v55.1) قيد لكل فاتورة نقطة بيع (والمرتجع بقيمه السالبة يعكسها) — للفروع التي سرى عليها القيد من الفواتير
   const sL = (code, amt) => { const a = posR2(amt); return a > 0 ? L(code, a, 0) : L(code, 0, -a); };
   (ops.posOrders || []).forEach(o => {
     if (!o || o.status === 'void' || !pjOn(o.branchId, o.date)) return;
     const total = posR2(o.total), vat = posR2(o.vat), net = posR2(total - vat);
-    if (!total) return;
+    if (!total || !(o.payments || []).length) return;   // فاتورة بلا دفعات = بيانات تالفة — لا قيد غير متوازن (تظهر في فحص السلامة)
     const bCode = cashCode[o.branchId] || '1101', bkCode = bankCode[o.branchId] || '1201';
     const acc = {}; const add = (code, a) => { if (a) acc[code] = (acc[code] || 0) + a; };
     add(bCode, -(Number(o.change) || 0));   // الباقي المردود للعميل يُطرح من النقد
@@ -2272,7 +2272,8 @@ function buildAccounting(org, ops) {
       else if (p.m === 'transfer') add(bkCode, a);
       else if (p.m === 'app') {
         const app = (org.deliveryApps || []).find(x => x.id === p.appId);
-        const comm = Math.round(a * (app ? Number(app.c) || 0 : 0)) / 100;
+        const rate = p.commPct != null ? Number(p.commPct) || 0 : (app ? Number(app.c) || 0 : 0);   // النسبة المحفوظة على الفاتورة وقت البيع، وإلا الإعداد (الفواتير القديمة)
+        const comm = Math.round(a * rate) / 100;
         add(appAcc[p.appId] || '1399', a - comm); add('5301', comm);
       } else add('1380', a);   // آجل أو طريقة غير معروفة ← ذمم العملاء (قرار المالك)
     });
@@ -2401,7 +2402,7 @@ function buildAccounting(org, ops) {
   const siById = {}; (ops.salesInvoices || []).forEach(x => { siById[x.id] = x; });
   (ops.salesInvoices || []).forEach(x => {
     const fundOf = (f) => (f && accIx[f]) ? f : '1201';
-    if ((!x.inClosing || pjOn(x.branchId, x.date)) && x.total > 0) {   // v53.6: بعد سريان القيد من الفواتير لم يعد الإغلاق يقيّدها
+    if ((!x.inClosing || pjOn(x.branchId, x.date)) && x.total > 0) {   // v55.1: بعد سريان القيد من الفواتير لم يعد الإغلاق يقيّدها
       const orig = x.kind === 'credit' ? (siById[x.refId] || {}) : x;
       const side = (orig.terms === 'credit' && x.kind !== 'credit') || (x.kind === 'credit' && x.terms === 'credit') ? '1380' : fundOf(x.fund);
       const net = Math.round((x.net || 0) * 100) / 100, vt = Math.round((x.vat || 0) * 100) / 100;

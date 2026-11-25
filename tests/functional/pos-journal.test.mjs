@@ -92,3 +92,14 @@ test('فاتورة مبيعات «مسجلة في الإغلاق» تأخذ قي
   assert.ok(entry(E.buildAccounting(org(PJ), { salesInvoices: [si] }), 'si:s1'), 'بعد السريان لها قيد');
   assert.equal(entry(E.buildAccounting(org(PJ), { salesInvoices: [{ ...si, date: '2026-03-09' }] }), 'si:s1'), undefined, 'قبل السريان لا قيد (يقيّدها الإغلاق)');
 });
+
+test('عمولة التطبيق: النسبة المحفوظة على الفاتورة وقت البيع تغلب الإعداد الحالي (لا أثر رجعي)', () => {
+  const o = order({ id: 'oa', total: 230, vat: 30, net: 200, payments: [{ m: 'app', appId: 'appA', amount: 230, commPct: 20 }] });
+  const A = E.buildAccounting(org(PJ, { deliveryApps: [{ id: 'appA', n: 'تطبيق أ', c: 25 }] }), { posOrders: [o] });
+  const e = entry(A, 'pos:oa'); near(amt(e, '5301', 'debit'), 46, '20% المحفوظة لا 25% الحالية'); assert.equal(e.balanced, true);
+});
+
+test('فاتورة بلا دفعات (بيانات تالفة) لا تولّد قيدًا غير متوازن', () => {
+  const A = E.buildAccounting(org(PJ), { posOrders: [order({ payments: [] })] });
+  assert.equal(entry(A, 'pos:o1'), undefined); assert.equal(A.balanced, true);
+});

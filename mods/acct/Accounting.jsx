@@ -489,7 +489,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
     });
   };
 
-  // ===== v53.6: قيد المبيعات من فواتير نقطة البيع بدل الإغلاق اليومي (قرار المالك) — تاريخ سريان لكل فرع =====
+  // ===== v55.1: قيد المبيعات من فواتير نقطة البيع بدل الإغلاق اليومي (قرار المالك) — تاريخ سريان لكل فرع =====
   const pjCfgUi = org.posJournal || {};
   const [pjF, setPjF] = useState(() => ({ enabled: !!pjCfgUi.enabled, from: { ...(pjCfgUi.from || {}) } }));
   const savePj = async () => {
@@ -3083,7 +3083,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
             ) : <div className="note">تفعيل الضريبة وتعديل نسبتها صلاحية للإدارة العليا/مسؤول النظام فقط.</div>}
           </div>
 
-          {/* v53.6 — قيد المبيعات من فواتير نقطة البيع (معطّل افتراضيًا، تاريخ سريان لكل فرع) */}
+          {/* v55.1 — قيد المبيعات من فواتير نقطة البيع (معطّل افتراضيًا، تاريخ سريان لكل فرع) */}
           <div className="card" data-testid="pos-journal-card">
             <div className="card-h">
               <div className="card-t"><Receipt size={15} color="var(--brass)" />قيد المبيعات من فواتير نقطة البيع</div>
