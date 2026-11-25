@@ -29,7 +29,7 @@ test('المحرك الحقيقي: فاتورة مورد 1,150 شاملة ⇐ م
   const lg = normalizeFromEngine(A);
   const r = validateLedger(lg, { reported: { balances: { 5198: 1000, 1501: 150, 2101: -1150 } } });
   const blocking = r.findings.filter(f => f.check !== 'posting.account-missing');
-  assert.deepEqual(blocking, []);
+  assert.deepEqual(blocking, [], 'FINDINGS ' + JSON.stringify(blocking));
   assert.equal(r.tb.balanced, true);
 });
 
@@ -59,7 +59,8 @@ test('المحرك الحقيقي: الجرد المستمر 60×10 ثم صرف 
   const lg = normalizeFromEngine(E.buildAccounting(org, ops));
   // المتوقع محسوب يدويًا: المخزون 30 × 10 = 300؛ المورد 690 − 276 = 414؛ المدخلات 90 − 36 = 54؛ المصروف 6 × 10 = 60
   const r = validateLedger(lg, { reported: { balances: { 160102: 300, 2101: -414, 1501: 54, 5501: 60 } } });
-  assert.deepEqual(r.findings.filter(f => f.check !== 'posting.account-missing'), []);
+  const blk = r.findings.filter(f => f.check !== 'posting.account-missing');
+  assert.deepEqual(blk, [], 'FINDINGS ' + JSON.stringify(blk) + ' ACCOUNTS ' + JSON.stringify(lg.accounts.map(a => a.code + ':' + a.kind)));
   const { bal } = computeBalances(lg);
   // إعادة حساب مستقلة لتقييم المخزون من الحركات، ومقارنتها برصيد حساب المستودع الناتج من المحرك
   const moves = [{ qty: 60, unitCost: 10 }, { qty: -6, kind: 'out' }, { qty: -24, kind: 'out' }];

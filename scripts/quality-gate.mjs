@@ -114,7 +114,7 @@ export function runCheck(c, mode, ui) {
   const counts = parseNodeTest(out);
   let status = r.status === 0 ? 'pass' : 'fail';
   if (status === 'pass' && c.skipIsNotRun && counts.skipped && counts.skipped === counts.tests) status = 'not-run';
-  const failLines = out.split('\n').filter(l => /^not ok|✗|Error:/.test(l)).slice(0, 15);
+  const failLines = out.split('\n').filter(l => /^not ok|✗|Error:|^\s+error: /.test(l)).map(l => l.slice(0, 1500)).slice(0, 15);
   return { ...pick(c), status, counts, ms: Date.now() - t0, ...(status !== 'pass' ? { detail: failLines.length ? failLines : out.trim().split('\n').slice(-8) } : {}), ...(status === 'not-run' ? { reason: 'كل الحالات متخطاة (البيئة ناقصة)' } : {}) };
 }
 const pick = (c) => ({ id: c.id, title: c.title, cat: c.cat, critical: c.critical, mandatory: c.mandatory.includes(MODE) });
