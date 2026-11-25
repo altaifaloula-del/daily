@@ -42,6 +42,9 @@ jobs:
         run: npm run test:zatca
       - name: اختبارات النسخ الاحتياطي الليلي (التجميع، الفحص، التشفير وفكّه في المتصفح)
         run: npm run test:backup
+      # v55.1 — بوابة الجودة (قرار المالك 2026-11-25): التحقق المحاسبي المستقل، سلامة إطار الوكلاء، الهوية، الأسرار
+      - name: بوابة الجودة — التحقق المحاسبي المستقل وسلامة الإطار والهوية والأسرار
+        run: node scripts/quality-gate.mjs --only framework,accounting-validation,engine-validation,design-lint,secrets
 
   # ===== 1ب) اختبارات الواجهة: كل الشاشات على الجوال والحاسوب + تدفقات الرقابة (هدر، جرد أعمى، أرقام) =====
   ui-tests:
