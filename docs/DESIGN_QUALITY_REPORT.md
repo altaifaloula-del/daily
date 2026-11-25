@@ -37,13 +37,14 @@
 | فحص الهوية والـ SVG | `node tests/ai-team/design-lint.mjs` | ✓ نجح — 8 SVG، 7 ملفات هوية مطابقة للبصمة |
 | خطأ متعمد: تغيير لون الكحلي | `tests/ai-team/gate.test.mjs` | ✓ اكتُشف |
 | خطأ متعمد: SVG بنص برمجي | `tests/ai-team/gate.test.mjs` | ✓ اكتُشف |
-| اختبارات الواجهة Playwright | `npm run test:ui` | ⏸ لم يُشغَّل — لا اعتماديات |
+| اختبارات الواجهة Playwright | `npm run test:ui` في CI (#235) | ✓ 145/145 |
 | `tests/brand.test.mjs` | ضمن `npm test` | ⏸ لم يُشغَّل |
 
 ## 4. النتائج الفعلية
 - ملفات الهوية سليمة ومطابقة للبصمة المسجلة الآن في `tests/ai-team/brand-baseline.json`.
 - الرموز الستة الرسمية مطابقة (#10294A، #D9A83E، #091A30، #2671B9، #FFFFFF، #F3F5F8).
 - لا SVG بلا `viewBox` ولا بنص برمجي أو مورد خارجي.
+- مقترح توحيد الأيقونات المكررة: `docs/quality/ICON_MAP_PROPOSAL.md` (لم يُنفَّذ).
 
 ## 5. الأخطاء المكتشفة
 | # | الملاحظة | الخطورة |
