@@ -1,0 +1,12 @@
+{
+ "note": "بصمات ملفات الهوية المعتمدة (v50.3). تغييرها يحتاج موافقة المالك ثم تحديث هذا الملف في الطلب نفسه.",
+ "files": {
+  "brand/mithqal-brand-tokens.css": "20dd3533cf7e03c0f647a25d7a9678969585c76c5deb30cf0535648b96b73b2b",
+  "public/brand/mithqal-app-icon.svg": "97546b6b8fcf9abd8e00e0da7c96c52fce88b7853c7bf0333cf3da6d97c51762",
+  "public/brand/mithqal-favicon.svg": "3235936949421941bc0e18d64ecd861163c2a2dfaa9a0fb23594cef50da807ea",
+  "public/brand/mithqal-logo-horizontal-arabic.svg": "402481e096298f7a595c05b3e877b94d79b6ed9c7938c4e54172a37e58d0a381",
+  "public/brand/mithqal-logo-horizontal-bilingual.svg": "b7ed9eb60951eec694ca8d30744e252121afdafa6950bcfe0cddc4ac91f49773",
+  "public/brand/mithqal-logo-horizontal-english.svg": "50ad0d12bc43a5de445a1a8e957f80eddbabc6cf1872d0d16be30c7f0dc009db",
+  "public/brand/mithqal-symbol.svg": "8c586933006a6c0a45e9a9809834f73bbcb967b05d9b10fb6eeb70d8e44649d8"
+ }
+}
