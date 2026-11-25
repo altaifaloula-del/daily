@@ -103,3 +103,9 @@ test('اكتشاف تغييرات الواجهة يفعّل مراجعة الت�
   assert.equal(isUiChange(['styles.js']), true);
   assert.equal(isUiChange(['docs/X.md', 'tests/a.test.mjs']), false);
 });
+
+test('فحوص الإصدار فقط لا تُشغَّل في بوابة التغيير', async () => {
+  const { runCheck, CHECKS } = await import('../../scripts/quality-gate.mjs');
+  const r = runCheck(CHECKS.find(c => c.id === 'human-approval'), 'change', false);
+  assert.equal(r.status, 'n/a');
+});

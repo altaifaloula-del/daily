@@ -43,7 +43,7 @@ export const CHECKS = [
   { id: 'build', title: 'بناء الواجهة (vite build)', cat: 'code', critical: true, mandatory: ['change', 'release'], needs: needDeps, cmd: ['npm', 'run', 'build'] },
   { id: 'engine-tests', title: 'اختبارات المحرك والخادم القائمة (npm test)', cat: 'code', critical: true, mandatory: ['change', 'release'], needs: needDeps, cmd: ['npm', 'test'] },
   { id: 'rules', title: 'قواعد Firestore: الصلاحيات والعزل والاستعادة (المحاكي)', cat: 'security', critical: true, mandatory: ['change', 'release'], needs: needJava, cmd: ['npm', 'run', 'test:rules'] },
-  { id: 'ui', title: 'اختبارات الواجهة Playwright (جوال وحاسوب، RTL/LTR)', cat: 'design', critical: true, mandatory: ['release'], uiOnly: true, needs: needPw, cmd: ['npm', 'run', 'test:ui'] },
+  { id: 'ui', title: 'اختبارات الواجهة Playwright (جوال وحاسوب، RTL/LTR)', cat: 'design', critical: true, mandatory: ['change', 'release'], uiOnly: true, needs: needPw, cmd: ['npm', 'run', 'test:ui'] },
   { id: 'design-review', title: 'مراجعة التصميم المستقلة (design-quality-auditor)', cat: 'design', critical: true, mandatory: ['change', 'release'], uiOnly: true, fn: designReview },
   { id: 'open-critical-bugs', title: 'لا أخطاء حرجة مفتوحة في سجل الأخطاء', cat: 'process', critical: true, mandatory: ['release'], fn: openCriticalBugs },
   { id: 'human-approval', title: 'الموافقة البشرية الفعلية على الإصدار', cat: 'approval', critical: true, mandatory: ['release'], fn: humanApproval },
@@ -103,6 +103,7 @@ function parseNodeTest(out) {
 }
 export function runCheck(c, mode, ui) {
   const t0 = Date.now();
+  if (!c.mandatory.includes(mode)) return { ...pick(c), status: 'n/a', reason: 'لبوابة الإصدار فقط' };
   if (c.uiOnly && !ui && (c.id === 'design-review' || mode !== 'release')) return { ...pick(c), status: 'n/a', reason: 'لا تغييرات واجهة' };
   const need = c.needs && c.needs();
   if (need) return { ...pick(c), status: 'not-run', reason: need };
