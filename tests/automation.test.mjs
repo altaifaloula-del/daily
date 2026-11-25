@@ -9,7 +9,7 @@ import { buildEngine } from './build-engine.mjs';
 const SA = JSON.stringify({ client_email: 'ops@x.iam.gserviceaccount.com', private_key: 'k', project_id: 'mithqal-c2' });
 const T = loadTenants({ FIREBASE_API_KEY: 'AIzaSy' + 'a'.repeat(33), FB_C2: 'AIzaSy' + 'b'.repeat(33), FB_C3: 'AIzaSy' + 'c'.repeat(33), SA_C2: SA,
   MQ_TENANTS_JSON: JSON.stringify([{ id: 'c2', projectId: 'mithqal-c2', apiKeyEnv: 'FB_C2', plan: 'pro', saEnv: 'SA_C2' }, { id: 'c3', projectId: 'mithqal-c3', apiKeyEnv: 'FB_C3', plan: 'pro' }]) });
-const BILL = billingConfig({ MQ_BILLING: '1', MQ_CONTROL_PROJECT: 'mithqal-control', MQ_CONTROL_SA: JSON.stringify({ client_email: 'b@x', private_key: 'k' }), MQ_SELLER_JSON: JSON.stringify({ name: 'مِثقال', vatNo: '311111111100003' }),
+const BILL = billingConfig({ MQ_BILLING: '1', MQ_CONTROL_PROJECT: 'mithqal-control', MQ_CONTROL_SA: JSON.stringify({ client_email: 'b@x', private_key: 'k' }), MQ_SELLER_JSON: JSON.stringify({ name: 'مُكتسَب', vatNo: '311111111100003' }),
   MQ_PRICES_JSON: '{"pro":{"monthly":199}}', MQ_APP_URL: 'https://app.x', MQ_BANK_IBAN: 'SA0380000000608010167519' });
 const at = (d) => () => Date.parse(d + 'T09:00:00Z');
 

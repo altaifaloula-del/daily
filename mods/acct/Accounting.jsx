@@ -5,7 +5,8 @@ import { EInvoiceOnboard } from './EInvoiceOnboard.jsx';
 import { RotateCcw, Scale, FileBarChart, ChevronDown, Printer, Settings, Receipt, BarChart3, Lock, Landmark, FileText, TrendingUp, ArrowLeftRight, Store, Users, QrCode, Building2, Truck, ClipboardCheck, ShieldCheck, CalendarDays, Download, Upload, Plus, Grid3x3, Check, Trash2, RefreshCw, Wallet, TrendingDown, AlertTriangle, ChevronRight, ShieldAlert, Eye, ChevronLeft, CircleDollarSign, X } from 'lucide-react';
 import { VatRegisters, SupplierPurchReport } from './TaxPurchReports.jsx';   // v39.1
 import { Suppliers } from '../inv/Suppliers.jsx';   // v44.0 «مستلم لم يُفوتر»
-import { OdooBar , SecPager, recurApply, canEditRec, dtLocal } from '../../App.jsx';   // v41.0
+import { OdooBar , SecPager, recurApply, canEditRec, dtLocal, yearEndNext } from '../../App.jsx';
+import { tbCss, tenantBrand } from '../../App.jsx';   // v56.0 ألوان مستندات المنشأة   // v41.0
 import { GeneralLedger } from './GeneralLedger.jsx';   // v49.4 المرحلة 03
 import { makeRptXlsx } from '../../App.jsx';   // v50.0 منظومة التقارير
 import { DEP_METHODS, depMethod, deprSchedule, wfOn, wfRequired, wfState, wfCanAct, wfApprove } from '../../App.jsx';   // v49.4 طرق الإهلاك
@@ -97,7 +98,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
     : 'b-dim';
   const fmtBal = (n) => n < 0 ? '(' + money(-n) + ')' : money(n);
   const codeChip = (c) => (
-    <span className="num" style={{ fontSize: 10.5, color: 'var(--brass-l)', background: 'var(--acc-soft)', border: '1px solid var(--frame-o)', borderRadius: 6, padding: '0 7px' }}>{c}</span>
+    <span className="num" style={{ fontSize: 10.5, color: 'var(--brass-t)', background: 'var(--acc-soft)', border: '1px solid var(--frame-o)', borderRadius: 6, padding: '0 7px' }}>{c}</span>
   );
 
   // ===== تجميع بفترة/فرع — كل قيد وحدة متوازنة، لذا أي تصفية كاملة القيود تبقى متوازنة =====
@@ -520,7 +521,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
     const body = `
     <div class="box" style="display:flex;justify-content:space-between;align-items:flex-start;gap:18px">
       <div style="line-height:1.9">
-        <div style="font-size:15px;font-weight:800;color:#10294A">${einvIsStd ? 'فاتورة ضريبية' : 'فاتورة ضريبية مبسّطة'}</div>
+        <div style="font-size:15px;font-weight:800;color:var(--tb-p,#1F2A37)">${einvIsStd ? 'فاتورة ضريبية' : 'فاتورة ضريبية مبسّطة'}</div>
         <div class="sub">${einvIsStd ? 'Tax Invoice' : 'Simplified Tax Invoice'}</div>
         <div style="margin-top:8px"><b>البائع:</b> ${_xe(einvSeller)} · الرقم الضريبي: ${_xe(einvSellerVat)}${einvSellerCR ? ' · س.ت ' + _xe(einvSellerCR) : ''}</div>
         ${einvSellerAddr ? '<div>العنوان: ' + _xe(einvSellerAddr) + '</div>' : ''}
@@ -538,7 +539,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
       </tbody>
     </table>
     <div class="box" style="font-size:10px;color:#777">${einvIsStd ? 'فاتورة ضريبية (B2B) تحوي بيانات البائع والمشتري كاملة' : 'فاتورة ضريبية مبسّطة (B2C)'} متوافقة مع المرحلة الأولى للفوترة الإلكترونية (رمز QR بترميز TLV: اسم البائع، الرقم الضريبي، التاريخ والوقت، الإجمالي، وقيمة الضريبة). الربط المعتمد للمرحلة الثانية يتطلب شهادة رقمية وتكامل بوابة «فاتورة» من هيئة الزكاة والضريبة والجمارك.</div>`;
-    const ok = printA4(org, einvIsStd ? 'فاتورة ضريبية' : 'فاتورة ضريبية مبسّطة', 'البائع: ' + (einvSeller || '—') + ' · الرقم الضريبي: ' + (einvSellerVat || '—'), body);
+    const ok = printA4(org, einvIsStd ? 'فاتورة ضريبية' : 'فاتورة ضريبية مبسّطة', 'البائع: ' + (einvSeller || '—') + ' · الرقم الضريبي: ' + (einvSellerVat || '—'), body, { invTpl: tenantBrand(org).invoiceTpl });   // v56.0 قالب فاتورة المنشأة
     if (!ok) return say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
     if (!einvF.invNo.trim() && canPost) commitOrg(d => ({ ...d, einvSeq: (d.einvSeq || 0) + 1 }), { actionType: 'create', targetType: 'tax_settings', targetId: 'einvSeq', need: 'post', title: 'إصدار ' + (einvIsStd ? 'فاتورة ضريبية' : 'فاتورة مبسّطة'), details: einvNo }).catch(() => { });  // v15.11: لا يزيد التسلسل لدور «عرض فقط»
   };
@@ -1038,7 +1039,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
           ${rr('الدين إلى حقوق الملكية', xTxt(ratios.de))}${rr('الخصوم إلى الأصول', pctTxt(ratios.da))}${rr('معدل دوران الأصول', xTxt(ratios.turnover))}
         </tbody></table>
       </div>
-      <h3 style="margin:14px 0 6px;color:#10294A">الاتجاه الشهري (آخر 6 أشهر)</h3>
+      <h3 style="margin:14px 0 6px;color:var(--tb-p,#1F2A37)">الاتجاه الشهري (آخر 6 أشهر)</h3>
       <table><thead><tr><th>الشهر</th><th>الإيرادات</th><th>المصروفات</th><th>صافي الربح</th></tr></thead><tbody>${trend}</tbody></table>`) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
   };
 
@@ -1078,13 +1079,13 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
     const period = (from || to) ? ('الفترة: ' + (from || 'البداية') + ' ← ' + (to || today())) : 'كامل المدة حتى ' + arDate(today());
     const isTitle = bfLabel ? ' — ' + bfLabel : ' (موحدة)';
     w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>القوائم المالية — ${co.name || ''}</title>
-    <style>${NUM_FACE}*{font-family:'MizanNum','IBM Plex Sans Arabic','Noto Sans Arabic','Segoe UI',Tahoma,sans-serif;box-sizing:border-box}body{margin:0;padding:26px;color:#1a1a1a;font-size:12.5px}
-    .h{display:flex;justify-content:space-between;border-bottom:2px solid #10294A;padding-bottom:10px;margin-bottom:14px}
-    .co{font-size:19px;font-weight:800;color:#10294A}.sub{font-size:11px;color:#666;margin-top:2px}
-    h2{font-size:15px;margin:14px 0 8px;color:#10294A}table{width:100%;border-collapse:collapse;margin-bottom:8px}
+    <style>${tbCss(tenantBrand(org))}${NUM_FACE}*{font-family:'MizanNum','IBM Plex Sans Arabic','Noto Sans Arabic','Segoe UI',Tahoma,sans-serif;box-sizing:border-box}body{margin:0;padding:26px;color:#1a1a1a;font-size:12.5px}
+    .h{display:flex;justify-content:space-between;border-bottom:2px solid var(--tb-p,#1F2A37);padding-bottom:10px;margin-bottom:14px}
+    .co{font-size:19px;font-weight:800;color:var(--tb-p,#1F2A37)}.sub{font-size:11px;color:#666;margin-top:2px}
+    h2{font-size:15px;margin:14px 0 8px;color:var(--tb-p,#1F2A37)}table{width:100%;border-collapse:collapse;margin-bottom:8px}
     td{padding:6px 8px;border:1px solid #DDE2EA}.n{text-align:left;direction:ltr;font-variant-numeric:tabular-nums;white-space:nowrap}
-    .tot td{background:#FBF4E4;font-weight:800;border-top:2px solid #10294A}
-    .hd td{font-weight:800;color:#10294A;border:0;padding-top:10px}.grp td{font-weight:700;background:#F7F8FA}.net td{border-top:3px double #1a1a1a;font-size:13.5px}
+    .tot td{background:#FBF4E4;font-weight:800;border-top:2px solid var(--tb-p,#1F2A37)}
+    .hd td{font-weight:800;color:var(--tb-p,#1F2A37);border:0;padding-top:10px}.grp td{font-weight:700;background:#F7F8FA}.net td{border-top:3px double #1a1a1a;font-size:13.5px}
     .ft{margin-top:14px;font-size:10px;color:#888;text-align:center}.grid2{display:flex;gap:16px}.grid2>div{flex:1}</style></head><body>
     <div class="h"><div><div class="co">${co.name || 'الشركة'}</div><div class="sub">${co.taxNumber ? 'الرقم الضريبي: ' + co.taxNumber : ''}</div></div>
     <div style="text-align:left"><div style="font-size:17px;font-weight:800">القوائم المالية</div><div class="sub">${period}</div></div></div>
@@ -1243,7 +1244,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
     const cd = (yeD.closeDate || '').slice(0, 10);
     if (yeD.enabled && !cd) return say('اختر تاريخ إقفال السنة', 'no');
     if (yeD.enabled && cd > today()) return say('تاريخ الإقفال في المستقبل — اختر تاريخًا منتهيًا', 'no');
-    await commitOrg(d => ({ ...d, yearEnd: { enabled: !!yeD.enabled, closeDate: cd } }), {
+    await commitOrg(d => ({ ...d, yearEnd: yearEndNext(d.yearEnd, yeD.enabled, cd) }), {   // v56.0: السنوات السابقة تبقى مُقفلة
       actionType: 'update', targetType: 'year_end', targetId: 'yearend',
       need: 'edit', title: yeD.enabled ? 'فعّل إقفال السنة المالية' : 'أوقف إقفال السنة المالية',
       details: yeD.enabled ? ('حتى ' + cd) : 'موقوف'
@@ -1363,7 +1364,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
   const xlOne = (base, rows) => { try { dlBlob(base + '_' + expTag + '.xlsx', makeXlsx([{ name: base.replace(/_/g, ' ').slice(0, 28), rows }])); } catch (e) { say('تعذّر توليد Excel', 'no'); } };
   const xlCoa = () => xlOne('دليل_الحسابات', coaRows());
   // v50.0 (G2): اليومية والميزان بالقالب الموحد — ترويسة ورأس مجمّد وتنسيق أرقام ومجاميع بصيغ SUM حقيقية
-  const rptMeta = { user: me?.name || '', source: 'مِثقال — المحاسبة' };
+  const rptMeta = { user: me?.name || '', source: 'مُكتسَب — المحاسبة' };
   const rptPer = (from || to) ? ((from || '…') + ' ← ' + (to || '…')) : 'كل الفترات';
   const xlRpt = (base, spec) => { try { dlBlob(base + '_' + expTag + '.xlsx', makeRptXlsx(org, spec)); } catch (e) { say('تعذّر توليد Excel', 'no'); } };
   const xlJournal = () => xlRpt('دفتر_اليومية', { id: 'journal', title: 'دفتر اليومية', sub: rptPer, meta: rptMeta, filters: bfLabel ? [['الفرع', bfLabel]] : [],
@@ -1492,7 +1493,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
           <div style={{ fontSize: 12.5, marginTop: 4 }}>جُمعت مبالغها في «الحساب المعلّق 9999» حتى لا يختل ميزان المراجعة. صحّحها بقيد يدوي ينقلها للحساب الصحيح، أو أعِد إنشاء الحساب بالرمز نفسه.</div>
         </div>
       )}
-      <div className="grid g4">
+      <div className="grid g4 acct-sum" data-acct-sum>   {/* v56.0 (DESIGN-V56-009): مضغوطة على الجوال */}
         <Kpi label="القيود المسجّلة" value={String(A.entries.length)} sub="تلقائية من عملياتك + يدوية المحاسب" icon={FileText} color="#4FB286" />
         <Kpi label={A.balanced ? 'كل القيود متوازنة ✓' : 'يوجد قيد غير متوازن!'} value={money(A.totalDebit)}
           sub="إجمالي المدين = إجمالي الدائن" icon={Scale} color={A.balanced ? '#D9A83E' : '#D9544D'} />
@@ -1611,8 +1612,8 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                               ))}
                               <tr style={{ fontWeight: 700 }}>
                                 <td>الإجمالي {e.balanced ? '— متوازن ✓' : ''}</td>
-                                <td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{money(e.debit)}</td>
-                                <td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{money(e.credit)}</td>
+                                <td className="num" style={{ textAlign: 'end', color: 'var(--brass-t)' }}>{money(e.debit)}</td>
+                                <td className="num" style={{ textAlign: 'end', color: 'var(--brass-t)' }}>{money(e.credit)}</td>
                               </tr>
                             </tbody>
                           </table>
@@ -1655,7 +1656,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
               {(org.branches || []).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </div>
-          <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--brass-l)', marginTop: 2 }}>كل تقرير في ملف Excel (.xlsx) مستقل — لكل عنصر ملفّه وحده</div>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--brass-t)', marginTop: 2 }}>كل تقرير في ملف Excel (.xlsx) مستقل — لكل عنصر ملفّه وحده</div>
           <div className="grid g2">
             <div className="card">
               <div className="card-t" style={{ marginBottom: 6 }}><Landmark size={15} color="var(--brass)" />دليل الحسابات</div>
@@ -1731,7 +1732,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
               <tbody>
                 {kinds.map(k => (
                   <React.Fragment key={k}>
-                    <tr><td colSpan={5} style={{ background: 'var(--acc-soft)', fontWeight: 800, color: 'var(--brass-l)', fontSize: 12.5 }}>
+                    <tr><td colSpan={5} style={{ background: 'var(--acc-soft)', fontWeight: 800, color: 'var(--brass-t)', fontSize: 12.5 }}>
                       {ACC_KIND[k].ar} <span style={{ color: 'var(--faint)', fontWeight: 500, fontSize: 10.5 }}>· طبيعته {ACC_KIND[k].nature}</span></td></tr>
                     {A.accounts.filter(a => a.kind === k).map(a => (
                       <tr key={a.code} style={{ opacity: a.active ? 1 : .55 }}>
@@ -1752,8 +1753,8 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                 ))}
                 <tr style={{ fontWeight: 800, background: 'rgba(200,162,74,.05)' }}>
                   <td colSpan={2}>الإجمالي {A.balanced ? '— متوازن ✓' : '— غير متوازن!'}</td>
-                  <td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{money(A.totalDebit)}</td>
-                  <td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{money(A.totalCredit)}</td>
+                  <td className="num" style={{ textAlign: 'end', color: 'var(--brass-t)' }}>{money(A.totalDebit)}</td>
+                  <td className="num" style={{ textAlign: 'end', color: 'var(--brass-t)' }}>{money(A.totalCredit)}</td>
                   <td />
                 </tr>
               </tbody>
@@ -1790,8 +1791,8 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                 {tbEntries.length === 0 && <tr><td colSpan={5}><div className="empty">لا حركة في هذه الفترة/الفرع.</div></td></tr>}
                 <tr style={{ fontWeight: 800, background: 'rgba(200,162,74,.05)' }}>
                   <td colSpan={from ? 3 : 2}>إجمالي الفترة {Math.abs(tbD - tbC) < 0.01 ? '— متوازن ✓' : '— غير متوازن!'}</td>
-                  <td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{money(tbD)}</td>
-                  <td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{money(tbC)}</td>
+                  <td className="num" style={{ textAlign: 'end', color: 'var(--brass-t)' }}>{money(tbD)}</td>
+                  <td className="num" style={{ textAlign: 'end', color: 'var(--brass-t)' }}>{money(tbC)}</td>
                   <td />
                 </tr>
               </tbody>
@@ -2358,7 +2359,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                         <td className="num" style={{ textAlign: 'end' }}>{money(apTot.b30)}</td>
                         <td className="num" style={{ textAlign: 'end' }}>{money(apTot.b60)}</td>
                         <td className="num" style={{ textAlign: 'end', color: apTot.b90 > 0.004 ? 'var(--rose)' : 'inherit' }}>{money(apTot.b90)}</td>
-                        <td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{money(apTot.owed)}</td>
+                        <td className="num" style={{ textAlign: 'end', color: 'var(--brass-t)' }}>{money(apTot.owed)}</td>
                         <td />
                       </tr>
                     )}
@@ -2458,7 +2459,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                         <td className="num" style={{ textAlign: 'end' }}>{money(arTot.b30)}</td>
                         <td className="num" style={{ textAlign: 'end' }}>{money(arTot.b60)}</td>
                         <td className="num" style={{ textAlign: 'end', color: arTot.b90 > 0.004 ? 'var(--rose)' : 'inherit' }}>{money(arTot.b90)}</td>
-                        <td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{money(arTot.owed)}</td>
+                        <td className="num" style={{ textAlign: 'end', color: 'var(--brass-t)' }}>{money(arTot.owed)}</td>
                         <td /><td />
                       </tr>
                     )}
@@ -2533,13 +2534,13 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
               <table className="tb">
                 <thead><tr><th>الحساب</th>{centers.map(c => <th key={c.id} style={{ textAlign: 'end' }}>{c.ar}</th>)}<th style={{ textAlign: 'end' }}>الإجمالي</th></tr></thead>
                 <tbody>
-                  <tr><td colSpan={centers.length + 2} style={{ background: 'var(--acc-soft)', fontWeight: 800, color: 'var(--brass-l)', fontSize: 12 }}>الإيرادات</td></tr>
+                  <tr><td colSpan={centers.length + 2} style={{ background: 'var(--acc-soft)', fontWeight: 800, color: 'var(--brass-t)', fontSize: 12 }}>الإيرادات</td></tr>
                   {A.accounts.filter(a => a.kind === 'rev' && ccAgg[a.code]).map(a => (
                     <tr key={a.code}><td style={{ fontSize: 12 }}>{a.name}</td>
                       {centers.map(c => <td key={c.id} className="num" style={{ textAlign: 'end' }}>{ccVal(a, c.id) ? money(ccVal(a, c.id)) : '—'}</td>)}
                       <td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{money(sum(centers, c => ccVal(a, c.id)))}</td></tr>
                   ))}
-                  <tr><td colSpan={centers.length + 2} style={{ background: 'var(--acc-soft)', fontWeight: 800, color: 'var(--brass-l)', fontSize: 12 }}>المصروفات</td></tr>
+                  <tr><td colSpan={centers.length + 2} style={{ background: 'var(--acc-soft)', fontWeight: 800, color: 'var(--brass-t)', fontSize: 12 }}>المصروفات</td></tr>
                   {A.accounts.filter(a => a.kind === 'exp' && ccAgg[a.code]).map(a => (
                     <tr key={a.code}><td style={{ fontSize: 12, color: 'var(--dim)' }}>{a.name}</td>
                       {centers.map(c => <td key={c.id} className="num" style={{ textAlign: 'end', color: 'var(--rose)' }}>{ccVal(a, c.id) ? '(' + money(ccVal(a, c.id)) + ')' : '—'}</td>)}
@@ -2548,7 +2549,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                   <tr style={{ fontWeight: 900, background: 'rgba(200,162,74,.05)' }}>
                     <td>صافي كل مركز</td>
                     {centers.map(c => <td key={c.id} className="num" style={{ textAlign: 'end', color: ccNet(c.id) >= 0 ? 'var(--mint)' : 'var(--rose)', fontSize: 13 }}>{ccNet(c.id) < 0 ? '(' + money(-ccNet(c.id)) + ')' : money(ccNet(c.id))}</td>)}
-                    <td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)', fontSize: 13 }}>{money(sum(centers, c => ccNet(c.id)))}</td>
+                    <td className="num" style={{ textAlign: 'end', color: 'var(--brass-t)', fontSize: 13 }}>{money(sum(centers, c => ccNet(c.id)))}</td>
                   </tr>
                 </tbody>
               </table>
@@ -2587,7 +2588,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                         <tr key={b.id}>
                           <td style={{ fontWeight: 600, fontSize: 12.5 }}>{b.name}</td>
                           <td className="num" style={{ textAlign: 'end' }}>{money(branchRev[b.id] || 0)}</td>
-                          <td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>
+                          <td className="num" style={{ textAlign: 'end', color: 'var(--brass-t)' }}>
                             {ccBasis === 'manual' && canPost
                               ? <input className="inp n cc-pct" style={{ width: 76, padding: '5px 8px', textAlign: 'end' }} inputMode="decimal"
                                   value={(mPct || ccManual)[b.id] ?? ''} placeholder="0"
@@ -2612,7 +2613,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                         <td className="num" style={{ textAlign: 'end' }}>{ccBasis === 'manual' ? manualTot + '%' : '100%'}</td>
                         <td className="num" style={{ textAlign: 'end', color: 'var(--rose)' }}>({money(allocTot)})</td>
                         <td className="num" style={{ textAlign: 'end' }}>{money(sum(org.branches || [], b => ccNet(b.id)))}</td>
-                        <td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{money(sum(org.branches || [], b => netAfter(b.id)))}</td>
+                        <td className="num" style={{ textAlign: 'end', color: 'var(--brass-t)' }}>{money(sum(org.branches || [], b => netAfter(b.id)))}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -3330,7 +3331,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                     </div>
                     <div style={{ background: 'var(--acc-soft)', border: '1px solid var(--frame-o)', borderRadius: 10, padding: '8px 6px' }}>
                       <div style={{ fontSize: 10.5, color: 'var(--dim)' }}>الضريبة {einvRate}%</div>
-                      <div className="num" style={{ fontSize: 14, fontWeight: 800, color: 'var(--brass-l)' }}>{money(einvCalc.vat)}</div>
+                      <div className="num" style={{ fontSize: 14, fontWeight: 800, color: 'var(--brass-t)' }}>{money(einvCalc.vat)}</div>
                     </div>
                     <div style={{ background: 'var(--acc-soft)', border: '1px solid var(--frame-o)', borderRadius: 10, padding: '8px 6px' }}>
                       <div style={{ fontSize: 10.5, color: 'var(--dim)' }}>الإجمالي</div>
@@ -3427,12 +3428,12 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                   <tr style={{ fontWeight: 800, background: 'rgba(217,84,77,.06)' }}><td colSpan={2}>المخصومات</td></tr>
                   {zkDed.map((x, i) => <tr key={'d' + i}><td>{x[0]}</td><td className="num" style={{ textAlign: 'end' }}>({money(x[1])})</td></tr>)}
                   <tr style={{ fontWeight: 700 }}><td>إجمالي المخصومات</td><td className="num" style={{ textAlign: 'end' }}>({money(deductions)})</td></tr>
-                  <tr style={{ fontWeight: 900, background: 'rgba(200,162,74,.08)' }}><td>وعاء الزكاة{floored ? ' (رُفع لصافي الربح)' : ''}</td><td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)', fontSize: 14 }}>{money(base)}</td></tr>
+                  <tr style={{ fontWeight: 900, background: 'rgba(200,162,74,.08)' }}><td>وعاء الزكاة{floored ? ' (رُفع لصافي الربح)' : ''}</td><td className="num" style={{ textAlign: 'end', color: 'var(--brass-t)', fontSize: 14 }}>{money(base)}</td></tr>
                   <tr style={{ fontWeight: 700 }}><td>الزكاة على كامل الوعاء ({rate}%)</td><td className="num" style={{ textAlign: 'end', color: 'var(--dim)', fontSize: 13 }}>{money(zakat)}</td></tr>
                   <tr><td>نوع الملكية</td><td className="num" style={{ textAlign: 'end' }}>{ownerLabel}{zkD.ownerType !== 'saudi' ? ' (' + saudiShare + '% سعودي · ' + foreignShare + '% أجنبي)' : ''}</td></tr>
                   {saudiShare > 0 && <tr style={{ fontWeight: 900, background: 'rgba(79,178,134,.08)' }}><td>الزكاة المستحقة{saudiShare < 100 ? ' — حصة الملكية السعودية (' + saudiShare + '%)' : ''}</td><td className="num" style={{ textAlign: 'end', color: 'var(--mint)', fontSize: 14 }}>{money(zakatDue)}</td></tr>}
                   {foreignShare > 0 && <tr style={{ fontWeight: 900, background: 'rgba(91,147,196,.08)' }}><td>ضريبة الدخل المستحقة — الحصة الأجنبية ({foreignShare}% × {incTaxRate}%)</td><td className="num" style={{ textAlign: 'end', color: 'var(--sky)', fontSize: 14 }}>{money(incomeTax)}</td></tr>}
-                  {foreignShare > 0 && saudiShare > 0 && <tr style={{ fontWeight: 900, background: 'rgba(200,162,74,.08)' }}><td>الإجمالي المستحق (زكاة + ضريبة دخل)</td><td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)', fontSize: 14 }}>{money(dueTotal)}</td></tr>}
+                  {foreignShare > 0 && saudiShare > 0 && <tr style={{ fontWeight: 900, background: 'rgba(200,162,74,.08)' }}><td>الإجمالي المستحق (زكاة + ضريبة دخل)</td><td className="num" style={{ textAlign: 'end', color: 'var(--brass-t)', fontSize: 14 }}>{money(dueTotal)}</td></tr>}
                 </tbody></table></div>
               </div>
               <div className="card">
@@ -3504,7 +3505,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                 </tbody>
               </table>
             </div>
-            <div className="note" style={{ marginTop: 10 }}>الإهلاك قسط ثابت يبدأ من الشهر التالي للشراء ويتوقف باكتمال العمر — قيد مجمّع واحد شهرياً في اليومية. تعديل الأصل يعيد اشتقاق إهلاكه كاملاً (القيود محسوبة لا مخزنة). <b style={{ color: 'var(--brass-l)' }}>البيع/الاستبعاد</b>: يتوقف الإهلاك عند شهر البيع، ويتولّد قيد إقفال متوازن يُخرج الأصل ومجمّعه ويحتسب الفرق مع سعر البيع ربحًا (4201) أو خسارة (5801) تلقائيًا.</div>
+            <div className="note" style={{ marginTop: 10 }}>الإهلاك قسط ثابت يبدأ من الشهر التالي للشراء ويتوقف باكتمال العمر — قيد مجمّع واحد شهرياً في اليومية. تعديل الأصل يعيد اشتقاق إهلاكه كاملاً (القيود محسوبة لا مخزنة). <b style={{ color: 'var(--brass-t)' }}>البيع/الاستبعاد</b>: يتوقف الإهلاك عند شهر البيع، ويتولّد قيد إقفال متوازن يُخرج الأصل ومجمّعه ويحتسب الفرق مع سعر البيع ربحًا (4201) أو خسارة (5801) تلقائيًا.</div>
           </div>
         </div>
       )}
@@ -3806,7 +3807,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
 
       <div className="card" style={{ background: 'rgba(200,162,74,.04)', borderStyle: 'dashed' }}>
         <div style={{ fontSize: 11.5, color: 'var(--dim)', lineHeight: 1.9 }}>
-          <b style={{ color: 'var(--brass-l)' }}>حدود المرحلة الحالية (بشفافية):</b> {taxOn ? 'الضريبة مفعّلة (' + taxRate + '%) — المبيعات والمصروفات والفواتير الموسومة «خاضعة» مفصولة تلقائيًا.' : 'المبالغ إجمالية كما سُجّلت — فصل الضريبة متاح من شاشة الضريبة متى فعّلته.'}
+          <b style={{ color: 'var(--brass-t)' }}>حدود المرحلة الحالية (بشفافية):</b> {taxOn ? 'الضريبة مفعّلة (' + taxRate + '%) — المبيعات والمصروفات والفواتير الموسومة «خاضعة» مفصولة تلقائيًا.' : 'المبالغ إجمالية كما سُجّلت — فصل الضريبة متاح من شاشة الضريبة متى فعّلته.'}
           كل تطبيق توصيل له ذمّة مستقلة وتُفصل عمولته تلقائيًا بنسبته المعرّفة في «الفروع والمستخدمون ← تطبيقات التوصيل»؛ وعند استلام مستحقات تطبيق في البنك سجّلها بقيد يدوي (مدين البنك / دائن ذمّة التطبيق).
           المدفوعات البنكية تتجمع في حساب واحد (1201) وتُطابقه شاشة «التسوية البنكية» مع كشفك الفعلي.
           بطاقات «إيجارات وفواتير الفروع» الثابتة لا تولّد قيودًا (سدادها الفعلي يدخل من مصروفات الورديات) تفاديًا للازدواج.
@@ -3928,8 +3929,8 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
           <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
             <button className="btn sm" onClick={() => setJm(m => ({ ...m, lines: [...m.lines, { code: '', debit: '', credit: '', projectId: '' }] }))}><Plus size={13} />سطر إضافي</button>
             <div className="row" style={{ gap: 10, fontSize: 12.5 }}>
-              <span>مدين: <b className="num" style={{ color: 'var(--brass-l)' }}>{money(jmD)}</b></span>
-              <span>دائن: <b className="num" style={{ color: 'var(--brass-l)' }}>{money(jmC)}</b></span>
+              <span>مدين: <b className="num" style={{ color: 'var(--brass-t)' }}>{money(jmD)}</b></span>
+              <span>دائن: <b className="num" style={{ color: 'var(--brass-t)' }}>{money(jmC)}</b></span>
               <span className={'badge ' + (jmOk ? 'b-mint' : 'b-rose')}>{jmOk ? 'متوازن ✓' : Math.abs(jmD - jmC) < 0.005 ? 'أكمل البيانات' : 'فرق ' + money(Math.abs(jmD - jmC))}</span>
             </div>
           </div>

@@ -1,4 +1,4 @@
-/* v53.5 — ربط Claude بمثقال (موصل MCP للقراءة فقط): إنشاء رابط سري، نسخه مرة واحدة، متابعة الاستخدام، والإلغاء */
+/* v53.5 — ربط Claude بمُكتسَب (موصل MCP للقراءة فقط): إنشاء رابط سري، نسخه مرة واحدة، متابعة الاستخدام، والإلغاء */
 import React, { useState, useEffect } from 'react';
 import { Link2, Copy, Trash2, Plus, ShieldCheck, Check, X } from 'lucide-react';
 import { aiHeaders, mcpApi, dtLocal, money, uid, today, MCP_KINDS, mcpPlanJournal, mcpPlanReclass, mcpApplyReclass, mcpPlanExp, xiRecords, nextPartnerCode } from '../../App.jsx';
@@ -25,14 +25,14 @@ export function ClaudeLink({ org, ops, me, commit, commitOrg, say }) {
   if (me && me.role !== 'system_admin') return <div className="card"><div className="empty">ربط Claude لمسؤول النظام فقط</div></div>;
   return (<>
     <div className="card" data-claudelink>
-      <div className="row" style={{ gap: 8, alignItems: 'center', marginBottom: 6 }}><Link2 size={18} /><b>ربط Claude بمثقال (موصل للقراءة فقط)</b></div>
+      <div className="row" style={{ gap: 8, alignItems: 'center', marginBottom: 6 }}><Link2 size={18} /><b>ربط Claude بمُكتسَب (موصل للقراءة فقط)</b></div>
       <div style={{ fontSize: 13, lineHeight: 1.9, color: 'var(--dim)' }}>
         يتيح لك سؤال Claude (في تطبيقه على الجوال أو الكمبيوتر) عن بيانات منشأتك الحية مباشرة: «كم مصروفات الصيانة في النسيم هذا الشهر؟»، «ما الموردون المتأخرون؟»، «قارن مبيعات الفروع».
         <b> Claude يقرأ مباشرة، ولا يكتب إلا «مقترحات»</b> تظهر لك في «مقترحات Claude» أدناه — لا يُنفَّذ أي مقترح إلا حين تضغط «اعتماد وتنفيذ»، وبنفس تحقق النظام (الإقفال، التوازن، التكرار). لا يستطيع الحذف أبدًا.
       </div>
       <div className="grid g2" style={{ marginTop: 10, gap: 12 }}>
         <div className="note" style={{ fontSize: 12.5, lineHeight: 1.9 }}><b>طريقة الربط</b><ol style={{ margin: '4px 0 0', paddingInlineStart: 18 }}>
-          <li>أنشئ رابطًا هنا وانسخه.</li><li>في Claude: الإعدادات ← الموصلات ← إضافة موصل مخصص.</li><li>الاسم: «مثقال»، والرابط: الصق الرابط المنسوخ، ثم «إضافة».</li><li>فعّل موصل «مثقال» في المحادثة واسأل.</li></ol></div>
+          <li>أنشئ رابطًا هنا وانسخه.</li><li>في Claude: الإعدادات ← الموصلات ← إضافة موصل مخصص.</li><li>الاسم: «مُكتسَب»، والرابط: الصق الرابط المنسوخ، ثم «إضافة».</li><li>فعّل موصل «مُكتسَب» في المحادثة واسأل.</li></ol></div>
         <div className="note" style={{ fontSize: 12.5, lineHeight: 1.9 }}><b>ما يستطيع Claude قراءته</b><div>{TOOLS_AR.join(' · ')}</div><b>وما يستطيع اقتراحه (باعتمادك)</b><div>{TOOLS_W.join(' · ')}</div></div>
       </div>
       <div className="note" style={{ marginTop: 10, fontSize: 12.5, borderColor: 'rgba(217,164,65,.5)' }}><ShieldCheck size={13} /> الرابط نفسه هو المفتاح: من يملكه يقرأ بيانات المنشأة المالية. لا ترسله لأحد ولا تنشره، وألغِه فورًا إن شككت. يتوقف تلقائيًا إذا لم يعد صاحبه مسؤول نظام نشطًا.</div>
@@ -105,7 +105,7 @@ function Proposals({ org, ops, me, commit, commitOrg, say }) {
     throw new Error('نوع غير معروف');
   };
   const approve = async (p) => {
-    if (!window.confirm('اعتماد وتنفيذ: ' + (MCP_KINDS[p.kind] || p.kind) + ' — ' + p.title + '؟\nيُنفَّذ بالحفظ العادي في مثقال ويُسجَّل في سجل التدقيق.')) return;
+    if (!window.confirm('اعتماد وتنفيذ: ' + (MCP_KINDS[p.kind] || p.kind) + ' — ' + p.title + '؟\nيُنفَّذ بالحفظ العادي في مُكتسَب ويُسجَّل في سجل التدقيق.')) return;
     setBusy(p.id); try { const r = await applyOne(p); await decide(p, 'applied', r); say('نُفّذ المقترح ✓ — ' + r); } catch (e) { say('لم يُنفَّذ: ' + e.message, 'no'); } finally { setBusy(''); }
   };
   const reject = async (p) => { const note = window.prompt('سبب الرفض (يراه Claude):', ''); if (note === null) return; setBusy(p.id); await decide(p, 'rejected', note); setBusy(''); say('رُفض المقترح'); };

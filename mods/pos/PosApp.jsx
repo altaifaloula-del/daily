@@ -9,6 +9,8 @@ import { domFilter, domOk, userBrIds, DomainChips, ROLES as ROLES_D } from '../.
 import { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, posReturnLoyDed, WASTE_REASONS } from '../../App.jsx';   // v46.8 المرتجع
 import { posDocView, APPS, CloudHealth, Field, Modal, Num, POS_SH_KEY, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, QUOTA_MSG, ROLES, businessDay, isoD, logClientError, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, makeXlsx, money, normPhone, nowISO, pendShiftsGet, pendShiftsSet, posCashNet, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posTotals, posZHtml, promoActive, promoHits, sha256Hex, uid, recCfgOf, recIndex, recFor } from '../../App.jsx';
 
+import { posHolds, posHoldsSet, posHoldPut, posHoldRecall } from '../../App.jsx';   // v56.0 (GAP-007) تعليق الطلب واستدعاؤه
+
 export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const R = ROLES[me.role] || {};
   const isMgr = !!(R.admin || R.scope === 'all' || me.role === 'branch_manager' || me.role === 'regional_manager');
@@ -23,6 +25,9 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const cats = [...new Set(prods.map(p => p.cat || 'أخرى'))];
   const [cat, setCat] = useState(''); const [q, setQ] = useState('');
   const [cart, setCart] = useState([]); const [channel, setChannel] = useState('takeaway');
+  // v56.0 (GAP-007): الطلبات المعلّقة على هذا الجهاز لهذا الفرع — الخطافات هنا قبل أي «return» مبكر (قاعدة React)
+  const [holds, setHolds] = useState(() => posHolds((br || {}).id)); const [holdOpen, setHoldOpen] = useState(false);
+  useEffect(() => { setHolds(posHolds((br || {}).id)); setHoldOpen(false); }, [(br || {}).id]);   // eslint-disable-line react-hooks/exhaustive-deps
   const [disc, setDisc] = useState({ mode: 'amt', amt: '', reason: '' }); const [pay, setPay] = useState(null); const [last, setLast] = useState(null);
   const [code, setCode] = useState(''); const [quickP, setQuickP] = useState(false); const [diag, setDiag] = useState(false); const [sending, setSending] = useState(false); const [ext, setExt] = useState({ disc: false, code: false, loy: false }); const [ordF, setOrdF] = useState(() => ({ d: businessDay(), pay: 'all', q: '' })); const [cust, setCust] = useState({ phone: '', name: '', redeem: false });
   const loyCfg = org.loyaltyCfg || {}; const [loy, setLoy] = useState(null);
@@ -337,6 +342,25 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const daySum = posDaySummary(todayOrders, br.id, today);
   const pl = (l) => priced.lines.find(x => x.key === l.key) || {};
   const payMs = (cfg.payMethods || []).filter(x => x.active !== false && x.n);
+  // v56.0 (GAP-007): الطلبات المعلّقة على هذا الجهاز لهذا الفرع — بلا رقم فاتورة حتى الدفع
+  const holdCur = () => {
+    if (payTab) return say('أنت في دفع حساب طاولة — أكمل الدفع أو ألغه', 'no');
+    const r = posHoldPut(posHolds(br.id), { id: uid('hold'), at: nowISO(), by: me.name, channel, cart, cust, disc, code, label: (cust.name || cust.phone || '').trim() });
+    if (r.err) return say(r.err, 'no');
+    if (!posHoldsSet(br.id, r.list)) return say('تعذّر حفظ الطلب المعلّق على الجهاز (المساحة ممتلئة)', 'no');
+    setHolds(r.list); setCart([]); setDisc({ mode: 'amt', amt: '', reason: '' }); setCode(''); setCust({ phone: '', name: '', redeem: false }); setShowCart(false);
+    say('عُلّق الطلب ✓ — استدعه من «المعلّقة» متى عاد العميل');
+  };
+  const recallHold = (h) => {
+    if (cart.length) return say('علّق الطلب الحالي أو أفرغه أولًا', 'no');
+    const r = posHoldRecall(h, prods);
+    if (!r.cart.length) { const rest = posHolds(br.id).filter(x => x.id !== h.id); posHoldsSet(br.id, rest); setHolds(rest); return say('أصناف هذا الطلب لم تعد متاحة — حُذف من المعلّقة', 'no'); }
+    const rest = posHolds(br.id).filter(x => x.id !== h.id); posHoldsSet(br.id, rest); setHolds(rest);
+    setCart(r.cart); setChannel(h.channel === 'dinein' ? 'takeaway' : (h.channel || 'takeaway')); setDisc(h.disc || { mode: 'amt', amt: '', reason: '' }); setCode(h.code || ''); setCust(h.cust || { phone: '', name: '', redeem: false });
+    setHoldOpen(false); setShowCart(true);
+    say('استُدعي الطلب' + (r.dropped.length ? ' — أُسقط غير المتاح: ' + r.dropped.join('، ') : '') + (r.repriced.length ? ' — حُدّث سعر: ' + r.repriced.join('، ') : '') + ' ✓', r.dropped.length ? 'no' : undefined);
+  };
+  const dropHold = (h) => { if (!window.confirm('حذف الطلب المعلّق؟')) return; const rest = posHolds(br.id).filter(x => x.id !== h.id); posHoldsSet(br.id, rest); setHolds(rest); };
   const cartCount = cart.reduce((a, l) => a + l.qty, 0);
   const extOpen = { disc: ext.disc || !!disc.amt, code: ext.code || !!code.trim(), loy: ext.loy || !!cust.phone };
   const cartBox = (
@@ -344,10 +368,18 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         <b style={{ fontSize: 17 }}>الطلب الحالي{cartCount ? <span className="num pos-cnt">{cartCount}</span> : null}</b>
         <div className="row" style={{ gap: 4 }}>
+          {holds.length > 0 && <button className="btn sm gh" data-holdlist onClick={() => setHoldOpen(v => !v)}>المعلّقة <span className="num">{holds.length}</span></button>}
+          {cart.length > 0 && !payTab && channel !== 'dinein' && <button className="btn sm gh" data-hold onClick={holdCur}>تعليق</button>}
           {cart.length > 0 && <button className="btn sm gh" style={{ color: 'var(--rose)' }} onClick={() => { if (window.confirm('إفراغ الطلب؟')) setCart([]); }}>إفراغ</button>}
           {showCart && <button className="btn sm gh" aria-label="إغلاق" onClick={() => setShowCart(false)}><X size={16} /></button>}
         </div>
       </div>
+      {holdOpen && holds.length > 0 && <div className="note" data-holds style={{ marginBottom: 8 }}>
+        {holds.map(h => <div key={h.id} className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 6, padding: '4px 0', borderBottom: '1px solid var(--line)' }}>
+          <span style={{ fontSize: 12 }}><b>{h.label || 'طلب'}</b> · {(h.cart || []).reduce((a, l) => a + (Number(l.qty) || 0), 0)} صنف · {money((h.cart || []).reduce((a, l) => a + (Number(l.qty) || 0) * (Number(l.price) || 0), 0))} · {String(h.at || '').slice(11, 16)} · {h.by}</span>
+          <span className="row" style={{ gap: 4 }}><button className="btn sm pri" onClick={() => recallHold(h)}>استدعاء</button><button className="btn sm gh" style={{ color: 'var(--rose)' }} aria-label="حذف المعلّق" onClick={() => dropHold(h)}>حذف</button></span>
+        </div>)}
+      </div>}
       <div className="pos-seg" role="group" aria-label="نوع الطلب">{[['takeaway', 'سفري'], ['dinein', 'محلي'], ['delivery', 'توصيل']].map(([k, t]) => <button key={k} className={channel === k ? 'on' : ''} onClick={() => setChannel(k)}>{t}</button>)}</div>
       {channel === 'delivery' && <div className="row" style={{ gap: 6, flexWrap: 'wrap', margin: '0 0 8px' }} data-dlvform>
         <input className="inp" style={{ width: 130 }} inputMode="tel" aria-label="جوال التوصيل" placeholder="جوال العميل" value={dlv.phone || cust.phone || ''} onChange={e => setDlv(x => ({ ...x, phone: e.target.value }))} />

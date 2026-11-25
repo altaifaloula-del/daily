@@ -1,4 +1,4 @@
-# مثقال (Mithqal) — منصة إدارة المطاعم متعددة الفروع
+# مُكتسَب (Muktasab) — منصة إدارة المطاعم متعددة الفروع
 
 > الإصدار: **v47.2** — فرع التطوير: `mithqal-erp-2.1` — الشعار: «منصة واحدة، لكل الأعمال ومن أي مكان» — One platform. Every business. Everywhere..
 > سابقًا: «ميزان» و«منصة الإغلاق اليومي».
@@ -57,7 +57,7 @@ zatca/                   الفوترة الإلكترونية (CSR، التوق
 scripts/                 النسخ الاحتياطي الليلي، الإشعارات، تفعيل MFA، تجربة ZATCA
 firestore.rules          قواعد الأمان (مرجعها: tests/security/CONSTITUTION.md)
 tests/                   الاختبارات
-PROJECT_AUDIT/           تقارير المراجعة الهندسية (MITHQAL ERP 2.0)
+PROJECT_AUDIT/           تقارير المراجعة الهندسية (MUKTASAB 2.0)
 ```
 
 ## النشر

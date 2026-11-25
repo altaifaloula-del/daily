@@ -23,8 +23,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: npm audit — التشغيلية
-        continue-on-error: true
+      # v56.0: الاعتماديات التشغيلية نظيفة (0 ثغرات، تحقق 2026-11-25) — صار الفحص مانعًا لأي ثغرة عالية جديدة
+      - name: npm audit — التشغيلية (مانع)
         run: npm audit --omit=dev --audit-level=high
       - name: npm audit — الكل (تقرير كامل)
         continue-on-error: true

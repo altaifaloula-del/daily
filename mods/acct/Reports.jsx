@@ -3,6 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { FileBarChart, FileText, ChevronDown, Printer, Download, CircleDollarSign, Receipt, TrendingUp, Landmark } from 'lucide-react';
 import { ResponsiveContainer, LineChart, CartesianGrid, XAxis, YAxis, Tooltip, Line } from 'recharts';
 import { A4_CSS, FinancialReports, Kpi, MZ_LOGO_HTML, arDT, arDate, chartTone, countedClosing, exportExcel, isoD, money, openDocWin, short, sum, today } from '../../App.jsx';
+import { tbLogo } from '../../App.jsx';   // v56.0 شعار المستند من هوية المنشأة
 
 export function Reports({ org, ops, me, myBranches, scoped, say, theme }) {
   const [repOpen, setRepOpen] = useState(false);    // v9.5 قائمة تقارير التطبيق
@@ -76,7 +77,7 @@ export function Reports({ org, ops, me, myBranches, scoped, say, theme }) {
     w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
       <title>تقرير أداء الفروع</title><style>${A4_CSS}</style></head><body><div class="page">
       <div class="head">
-        <div class="co">${co.logoUrl ? `<img class="logo" src="${co.logoUrl}">` :MZ_LOGO_HTML}
+        <div class="co">${tbLogo(org) ? `<img class="logo" src="${tbLogo(org)}">` :MZ_LOGO_HTML}
           <div><div class="co-n">${co.name || 'المنشأة'}</div>
           <div class="co-m">الرقم الضريبي: ${co.taxNumber || '—'}</div></div></div>
         <div class="doc-title">تقرير الأداء التشغيلي للفروع</div>

@@ -1,0 +1,144 @@
+<title>حركات شعار مُكتسَب</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@500;700&family=Manrope:wght@700;800&display=swap">
+<style>
+/* التخطيط: شبكة بطاقات؛ كل بطاقة مسرح يعرض حركة واحدة للشعار الكامل، وتحته أيقونة التطبيق بالحركة نفسها والاستعمال المقترح */
+:root{
+  --bg:#F3F5F8; --card:#FFFFFF; --fg:#10294A; --muted:#55657B; --line:#DCE2EA;
+  --navy:#10294A; --gold:#D9A83E;
+  --ar:'IBM Plex Sans Arabic','Noto Sans Arabic',system-ui,sans-serif; --en:Manrope,'Segoe UI',system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0A1424;--card:#111D31;--fg:#E8EDF4;--muted:#9AA8BC;--line:#22314A;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0A1424;--card:#111D31;--fg:#E8EDF4;--muted:#9AA8BC;--line:#22314A;color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--ar);font-size:15px;line-height:1.7}
+.wrap{max-width:1200px;margin:0 auto;padding-block:28px 64px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;grid-template-columns:minmax(0,1fr);gap:22px}
+.top{display:flex;align-items:end;justify-content:space-between;gap:12px;flex-wrap:wrap}
+h1{font-size:clamp(26px,4vw,36px);line-height:1.25;margin:0}
+.lead{color:var(--muted);margin:6px 0 0;max-width:70ch}
+.btn{font:inherit;font-size:13px;cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:999px;padding:6px 14px}
+.btn:hover{border-color:var(--muted)} .btn:focus-visible,.stage:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden;display:grid;min-width:0}
+.card.wide{grid-column:1/-1}
+.stage{background:#FFFFFF;display:flex;align-items:center;justify-content:center;gap:22px;padding:40px 16px;cursor:pointer;direction:rtl;overflow:hidden;--o:var(--navy);--i:var(--gold);--t:var(--navy)}
+.stage.dk{background:var(--navy);--o:#FFFFFF;--t:#FFFFFF}
+.sym{width:108px;height:108px;flex:none;overflow:visible}
+.wide .sym{width:140px;height:140px}
+.wm{display:grid;justify-items:center;line-height:1}
+.wm b{font-family:var(--ar);font-weight:700;font-size:58px;color:var(--t);line-height:1.15}
+.wm small{font-family:var(--en);font-weight:800;font-size:15px;letter-spacing:.34em;color:var(--t);direction:ltr;margin-inline-start:.34em}
+.wide .wm b{font-size:72px} .wide .wm small{font-size:18px}
+.row{display:flex;align-items:center;gap:14px;padding:14px 16px;border-top:1px solid var(--line);flex-wrap:wrap}
+.app{width:64px;height:64px;border-radius:16px;background:var(--navy);display:flex;align-items:center;justify-content:center;cursor:pointer;--o:#FFFFFF;--i:var(--gold);overflow:hidden}
+.app .sym{width:40px;height:40px}
+.info{flex:1;min-width:0}
+.info h2{margin:0;font-size:17px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.info p{margin:2px 0 0;font-size:13.5px;color:var(--muted)}
+.tag{font-size:11.5px;border-radius:999px;padding:1px 9px;background:var(--gold);color:#16120A;font-weight:500}
+.dur{font-family:var(--en);font-size:12px;color:var(--muted)}
+.pc{transform-box:fill-box;transform-origin:center}
+.pc.l{transform-origin:50% 100%}
+/* الحالة الساكنة = الشعار النهائي؛ الحركة تعمل فقط مع .play */
+.play .pc,.play .wm,.play .glint,.play .sym{animation-fill-mode:backwards;animation-timing-function:cubic-bezier(.2,.8,.2,1)}
+/* 1 البناء */
+.v1.play .l{animation:growY .7s calc(var(--k)*120ms) backwards}
+.v1.play .a{animation:flyIn .7s calc(280ms + var(--k)*120ms) backwards}
+.v1.play .wm{animation:slideIn .7s .75s backwards}
+/* 2 الالتقاء */
+.v2.play .pc{animation:converge .9s cubic-bezier(.3,1.4,.4,1) backwards}
+.v2.play .wm{animation:fadeUp .6s .7s backwards}
+/* 3 التراكم */
+.v3.play .pc{animation:drop .65s cubic-bezier(.3,1.5,.5,1) calc(var(--n)*170ms) backwards}
+.v3.play .wm{animation:fadeUp .6s .9s backwards}
+/* 4 الرسم */
+.v4.play .pc{animation:draw 1.1s ease-in-out backwards, fillIn .5s 1s backwards}
+.v4.play .wm{animation:fadeIn .7s 1.2s backwards}
+/* 5 الدوران */
+.v5.play .sym{animation:spinIn 1s cubic-bezier(.2,.9,.3,1.15) backwards}
+.v5.play .a{animation:flipIn .6s .6s backwards}
+.v5.play .wm{animation:zoomIn .6s .85s backwards}
+/* 6 الكشف */
+.v6.play .sym{animation:wipe .8s cubic-bezier(.6,0,.2,1) backwards}
+.v6.play .wm{animation:wipe .8s .5s cubic-bezier(.6,0,.2,1) backwards}
+/* 7 اللمعة */
+.v7.play .l{animation:fadeIn .45s backwards}
+.v7.play .a{animation:fadeIn .45s .15s backwards}
+.v7.play .glint{animation:glint 1.1s .5s ease-in-out backwards}
+.v7.play .sym{animation:pulse .5s 1.45s ease-out}
+.v7.play .wm{animation:fadeUp .6s .35s backwards}
+.glint{opacity:0}
+@keyframes growY{from{transform:scaleY(0)}}
+@keyframes flyIn{from{transform:translate(var(--dx),-26px);opacity:0}}
+@keyframes slideIn{from{transform:translateX(-18px);opacity:0}}
+@keyframes fadeUp{from{transform:translateY(12px);opacity:0}}
+@keyframes fadeIn{from{opacity:0}}
+@keyframes converge{from{transform:translate(var(--cx),var(--cy)) rotate(var(--cr));opacity:0}}
+@keyframes drop{from{transform:translateY(-70px);opacity:0}}
+@keyframes draw{from{stroke-dashoffset:100}}
+@keyframes fillIn{from{fill-opacity:0}}
+@keyframes spinIn{from{transform:rotate(-180deg) scale(.3);opacity:0}}
+@keyframes flipIn{from{transform:scaleY(-1);opacity:.2}}
+@keyframes zoomIn{from{transform:scale(.85);opacity:0}}
+@keyframes wipe{from{clip-path:inset(0 0 0 100%)}}
+@keyframes glint{0%{opacity:1;transform:translateX(-90px) skewX(-20deg)}100%{opacity:1;transform:translateX(120px) skewX(-20deg)}}
+@keyframes pulse{50%{transform:scale(1.06)}}
+@media (prefers-reduced-motion:reduce){.play *,.play{animation:none!important}}
+.note{font-size:13px;color:var(--muted);border-top:1px solid var(--line);padding-top:14px;margin:0}
+@media (max-width:860px){.grid{grid-template-columns:1fr}}
+@media (max-width:520px){.stage{gap:12px;padding:28px 12px}.sym,.wide .sym{width:72px;height:72px}.wm b,.wide .wm b{font-size:40px}.wm small,.wide .wm small{font-size:11px}}
+</style>
+
+<div class="wrap">
+  <div class="top">
+    <div><h1>مُكتسَب — سبع حركات للشعار</h1>
+      <p class="lead">الرمز الهندسي المعتمد بالكحلي والذهبي مع الاسم الجديد. اضغط أي شعار أو أيقونة لإعادة حركته.</p></div>
+    <button class="btn" id="all" type="button">تشغيل كل الحركات</button>
+  </div>
+  <div class="grid" id="grid"></div>
+  <p class="note">الحركات هنا بلغة CSS قابلة للنقل مباشرة إلى شاشة تحميل المنصة. بعد اختيارك تُصدَّر الحركة المختارة بصيغة Lottie وفيديو MP4 وصورة GIF للاستعمال في العروض ووسائل التواصل.</p>
+</div>
+
+<script>
+(() => {
+const L1 = [[8, 86], [26, 86], [26, 32], [8, 14]], L2 = [[92, 14], [74, 32], [74, 86], [92, 86]];
+const A1 = [[33, 14], [50, 31], [50, 55], [33, 38]], A2 = [[67, 38], [50, 55], [50, 31], [67, 14]];
+const P = a => a.map(p => p.join(',')).join(' ');
+const V = [
+ { n: 'البناء', d: 'الساقان تنموان من الأرض، ثم يهبط الذراعان الذهبيان ويلتقيان في القلب، ثم يظهر الاسم.', u: 'شاشة بدء التطبيق', t: '1.4 ث', rec: true },
+ { n: 'الالتقاء', d: 'الأجزاء الأربعة تأتي من الزوايا وتلتقي في مكانها بارتداد خفيف: كل أقسام المنشأة في نظام واحد.', u: 'الإعلانات ومقاطع الفيديو', t: '1.3 ث' },
+ { n: 'التراكم', d: 'الأجزاء تسقط واحدًا بعد الآخر وتستقر كعملات تتراكم: المكتسبات تُبنى خطوة بخطوة.', u: 'شاشة التحميل', t: '1.5 ث' },
+ { n: 'الرسم', d: 'خط رفيع يرسم حدود الرمز ثم يمتلئ باللون: دقة وهدوء يناسبان المحاسبة.', u: 'العروض التقديمية', t: '1.9 ث' },
+ { n: 'الدوران', d: 'الرمز يدور نصف دورة ويكبر حتى يستقر، ثم ينقلب الذراعان إلى مكانهما.', u: 'وسائل التواصل', t: '1.5 ث' },
+ { n: 'الكشف', d: 'ستارة تنزاح فتكشف الرمز ثم الاسم: انتقال نظيف ورسمي.', u: 'بداية الفيديوهات الرسمية', t: '1.3 ث' },
+ { n: 'اللمعة', d: 'الشعار يظهر، ثم تعبر لمعة على الذهبي وينبض الرمز نبضة واحدة: لحظة «كسب».', u: 'إشعار نجاح العملية', t: '2.0 ث' },
+];
+let uid = 0;
+function sym(v) {
+  const id = 'c' + (++uid);
+  const pc = (pts, cls, k, n, cv, f) => `<polygon class="pc ${cls}" points="${P(pts)}" fill="var(${f})" style="--k:${k};--n:${n};--dx:${pts[0][0] < 50 ? '-14px' : '14px'};--cx:${cv[0]};--cy:${cv[1]};--cr:${cv[2]}"${v === 4 ? ` stroke="var(${f})" stroke-width="1.5" pathLength="100" stroke-dasharray="100"` : ''}/>`;
+  let s = pc(L1, 'l', 0, 0, ['-60px', '40px', '-30deg'], '--o') + pc(L2, 'l', 1, 1, ['60px', '40px', '30deg'], '--o') + pc(A1, 'a', 0, 2, ['-60px', '-50px', '30deg'], '--i') + pc(A2, 'a', 1, 3, ['60px', '-50px', '-30deg'], '--i');
+  if (v === 7) s += `<defs><clipPath id="${id}"><polygon points="${P(A1)}"/><polygon points="${P(A2)}"/><polygon points="${P(L1)}"/><polygon points="${P(L2)}"/></clipPath></defs><g clip-path="url(#${id})"><rect class="glint" x="20" y="0" width="16" height="100" fill="#FFFFFF" fill-opacity=".75"/></g>`;
+  return `<svg class="sym" viewBox="0 0 100 100" aria-hidden="true">${s}</svg>`;
+}
+const wm = `<span class="wm"><b>مكتسب</b><small>MUKTASAB</small></span>`;
+document.getElementById('grid').innerHTML = V.map((x, i) => `
+  <article class="card${x.rec ? ' wide' : ''}">
+    <div class="stage v${i + 1}${i === 4 || i === 6 ? ' dk' : ''}" role="button" tabindex="0" aria-label="إعادة حركة ${x.n}">${sym(i + 1)}${wm}</div>
+    <div class="row"><div class="app v${i + 1}" role="button" tabindex="0" aria-label="إعادة حركة الأيقونة">${sym(i + 1)}</div>
+      <div class="info"><h2>${i + 1}. ${x.n}${x.rec ? '<span class="tag">ترشيحي</span>' : ''} <span class="dur">${x.t}</span></h2><p>${x.d}</p><p><b>الاستعمال:</b> ${x.u}</p></div>
+      <button class="btn" type="button" data-r>إعادة</button></div>
+  </article>`).join('');
+const play = el => { el.classList.remove('play'); void el.getBoundingClientRect(); el.classList.add('play'); };
+document.addEventListener('click', e => {
+  const s = e.target.closest('.stage,.app'); if (s) return play(s);
+  if (e.target.closest('[data-r]')) e.target.closest('.card').querySelectorAll('.stage,.app').forEach(play);
+});
+document.addEventListener('keydown', e => { const s = e.target.closest('.stage,.app'); if (s && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); play(s); } });
+const all = () => document.querySelectorAll('.stage,.app').forEach((el, n) => setTimeout(() => play(el), n * 120));
+document.getElementById('all').addEventListener('click', all);
+requestAnimationFrame(() => setTimeout(all, 250));
+})();
+</script>

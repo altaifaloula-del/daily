@@ -537,7 +537,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
                       const y = partYield(pt);
                       return <tr key={i}><td>{it.prep && <span className="badge b-sky" style={{ fontSize: 9.5, marginInlineEnd: 4 }}>تحضيرة</span>}{it.name}{y < 100 && <div style={{ fontSize: 10.5, color: 'var(--dim)' }}>ناتج {y}% · يُصرف <span className="num">{q3(partGross(pt))}</span> {it.unit || ''}</div>}</td><td className="num" style={{ textAlign: 'end' }}>{pt.qty} {it.unit || ''}</td><td className="num" style={{ textAlign: 'end' }}>{money(partGross(pt) * it.unitCost)}</td></tr>;
                     })}
-                    <tr style={{ fontWeight: 800 }}><td>تكلفة المنتج</td><td /><td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{money(cost)}</td></tr>
+                    <tr style={{ fontWeight: 800 }}><td>تكلفة المنتج</td><td /><td className="num" style={{ textAlign: 'end', color: 'var(--brass-t)' }}>{money(cost)}</td></tr>
                   </tbody>
                 </table>
                 <div className="row" style={{ gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
@@ -589,7 +589,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
                           <td style={{ textAlign: 'center' }}><span className={'badge ' + r.cl.c}>{r.cl.k}</span></td>
                         </tr>
                       ))}
-                      <tr style={{ fontWeight: 800, background: 'rgba(200,162,74,.05)' }}><td colSpan={6}>إجمالي مساهمة الربح الشهرية (من الكميات المُدخلة)</td><td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{money(totalContribution)}</td><td /></tr>
+                      <tr style={{ fontWeight: 800, background: 'rgba(200,162,74,.05)' }}><td colSpan={6}>إجمالي مساهمة الربح الشهرية (من الكميات المُدخلة)</td><td className="num" style={{ textAlign: 'end', color: 'var(--brass-t)' }}>{money(totalContribution)}</td><td /></tr>
                     </tbody>
                   </table>
                 </div>
@@ -608,7 +608,7 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
       <div className="card" style={{ background: 'rgba(200,162,74,.04)', borderStyle: 'dashed' }}>
         <div style={{ fontSize: 11.5, color: 'var(--dim)', lineHeight: 1.9 }}>
           {(() => { const pc = org.purchaseCfg || {}; return <>   {/* v46.5: الحالة الفعلية بدل ملاحظة المرحلة القديمة */}
-            <b style={{ color: 'var(--brass-l)' }}>طريقة المخزون الحالية:</b>{' '}
+            <b style={{ color: 'var(--brass-t)' }}>طريقة المخزون الحالية:</b>{' '}
             {pc.perpetualFrom ? 'جرد مستمر من ' + pc.perpetualFrom + ' — الاستلام يرسمل المخزون، والصرف والهدر والتسويات تُقيَّد ' + (costMethod(org) === 'fifo' ? 'بطريقة الوارد أولًا يصرف أولًا (FIFO).' : 'بالمتوسط المرجّح.') : 'جرد دوري — المشتريات مصروف، والاستهلاك يُعرف بالصرف والجرد. يمكن تفعيل الجرد المستمر من إعدادات المشتريات.'}{' '}
             {pc.saleDeductFrom ? 'خصم المبيعات من المخزون مفعّل من ' + pc.saleDeductFrom + ' (حسب الوصفات، من مستودع الفرع).' : 'المبيعات لا تُخصم من المخزون تلقائيًا (يمكن تفعيلها من إعدادات المشتريات).'}
           </>; })()}

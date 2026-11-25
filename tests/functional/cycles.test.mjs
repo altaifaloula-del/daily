@@ -1,5 +1,5 @@
 /**
- * اختبارات الترابط الوظيفي بين الوحدات (MITHQAL Functional Audit — v46.8).
+ * اختبارات الترابط الوظيفي بين الوحدات (MUKTASAB Functional Audit — v46.8).
  * تُشغَّل: node --test tests/functional/cycles.test.mjs — الأرقام المتوقعة محسوبة يدويًا.
  */
 import { test, before } from 'node:test';

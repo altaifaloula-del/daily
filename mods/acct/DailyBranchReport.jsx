@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { FileText, Printer } from 'lucide-react';
 import { A4_CSS, Field, MZ_LOGO_HTML, Modal, arDT, arDate, buildClosingA4, businessDay, countedClosing, money, openDocWin, sum } from '../../App.jsx';
+import { tbLogo } from '../../App.jsx';   // v56.0 شعار المستند من هوية المنشأة
 
 export function DailyBranchReport({ org, scoped, myBranches, onClose }) {
   const [date, setDate] = useState(businessDay());
@@ -44,7 +45,7 @@ export function DailyBranchReport({ org, scoped, myBranches, onClose }) {
     w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
       <title>تقرير الفروع اليومي - ${date}</title><style>${A4_CSS}</style></head><body><div class="page">
       <div class="head">
-        <div class="co">${co.logoUrl ? `<img class="logo" src="${co.logoUrl}">` :MZ_LOGO_HTML}
+        <div class="co">${tbLogo(org) ? `<img class="logo" src="${tbLogo(org)}">` :MZ_LOGO_HTML}
           <div><div class="co-n">${co.name || 'المنشأة'}</div>
           <div class="co-m">الرقم الضريبي: ${co.taxNumber || '—'} · السجل التجاري: ${co.commercialReg || '—'}</div></div></div>
         <div class="doc-title">تقرير الإغلاق اليومي المجمّع للفروع</div>

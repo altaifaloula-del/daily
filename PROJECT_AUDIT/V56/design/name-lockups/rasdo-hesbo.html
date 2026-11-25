@@ -1,0 +1,140 @@
+<title>هوية رصدو وحسبو</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;700&family=Manrope:wght@500;700;800&display=swap">
+<style>
+/* التخطيط: قسم لكل اسم — رأس بالمعنى والألوان، ثم ثلاث بطاقات رموز، ثم معاينة المنتج (شريط تطبيق + بطاقة رصيد) */
+:root{
+  --bg:#F5F6FA; --card:#FFFFFF; --fg:#0F1222; --muted:#5D6478; --line:#E1E4EC; --chip:#EEF0F6;
+  --ar:'IBM Plex Sans Arabic','Noto Sans Arabic',system-ui,sans-serif; --en:Manrope,'Segoe UI',system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0B0D16;--card:#141724;--fg:#E9ECF5;--muted:#9AA2B8;--line:#262B3D;--chip:#1C2031;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0B0D16;--card:#141724;--fg:#E9ECF5;--muted:#9AA2B8;--line:#262B3D;--chip:#1C2031;color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--ar);font-size:15px;line-height:1.7}
+.wrap{max-width:1200px;margin:0 auto;padding-block:28px 64px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;grid-template-columns:minmax(0,1fr);gap:34px}
+h1{font-size:clamp(26px,4vw,36px);line-height:1.25;margin:0;text-wrap:balance}
+.lead{color:var(--muted);margin:6px 0 0;max-width:72ch}
+section{display:grid;gap:16px;min-width:0}
+.head{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.head .tile{width:64px;height:64px;border-radius:19px}
+.head h2{margin:0;font-family:var(--en);font-weight:800;font-size:34px;letter-spacing:-.03em;line-height:1}
+.head h2 small{font-family:var(--ar);font-weight:500;font-size:17px;color:var(--muted);letter-spacing:0;margin-inline-start:8px}
+.head p{margin:2px 0 0;color:var(--muted);font-size:14px;max-width:62ch}
+.sw{display:flex;gap:6px;margin-inline-start:auto}
+.sw span{display:grid;gap:2px;justify-items:center;font-family:var(--en);font-size:11px;color:var(--muted)}
+.sw i{width:34px;height:34px;border-radius:10px;display:block}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;overflow:hidden;display:grid;min-width:0}
+.hero{background:#FFFFFF;display:flex;align-items:center;justify-content:center;gap:14px;padding:30px 14px;cursor:pointer;direction:ltr;--p:var(--c1);--a:var(--c2)}
+.hero.dk{background:var(--c1);--p:#FFFFFF}
+.hero:focus-visible{outline:2px solid var(--c2);outline-offset:-4px}
+.tile{width:68px;height:68px;border-radius:20px;background:var(--c1);display:flex;align-items:center;justify-content:center;flex:none;--p:#FFFFFF;--a:var(--c2)}
+.hero.dk .tile{background:#FFFFFF;--p:var(--c1)}
+.tile .sym{width:42px;height:42px}
+.wm{font-family:var(--en);font-weight:800;font-size:38px;letter-spacing:-.03em;color:#0F1222;line-height:1}
+.hero.dk .wm{color:#FFFFFF}
+.wm em{font-style:normal;color:var(--c2)}
+.body{padding:12px 14px 14px;display:grid;gap:8px}
+.body h3{margin:0;font-size:16px}
+.body p{margin:0;font-size:13.5px;color:var(--muted)}
+.sizes{display:flex;gap:10px;align-items:end;--p:var(--c1);--a:var(--c2)}
+/* معاينة المنتج */
+.prod{background:var(--card);border:1px solid var(--line);border-radius:18px;overflow:hidden;display:grid;min-width:0}
+.bar{display:flex;align-items:center;gap:10px;padding:11px 16px;background:var(--c1);direction:ltr;--p:#FFFFFF;--a:var(--c2)}
+.bar .sym{width:24px;height:24px}
+.bar b{font-family:var(--en);font-weight:800;color:#FFFFFF;font-size:18px;letter-spacing:-.02em}
+.bar nav{display:flex;gap:16px;margin-inline-start:22px;font-size:13px;color:rgba(255,255,255,.75);font-family:var(--ar);direction:rtl}
+.bar nav span:first-child{color:#FFFFFF;border-bottom:2px solid var(--c2)}
+.kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:16px}
+.kpi{border:1px solid var(--line);border-radius:14px;padding:12px;display:grid;gap:4px;min-width:0}
+.kpi small{color:var(--muted);font-size:12.5px}
+.kpi b{font-family:var(--en);font-size:22px;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.kpi b i{font-style:normal;font-family:var(--ar);font-size:13px;color:var(--muted);font-weight:500}
+.kpi svg{width:100%;height:34px}
+.ex{font-size:12px;color:var(--muted);padding:0 16px 12px}
+.pc{transform-box:fill-box;transform-origin:center}
+.pc[data-o="bottom"]{transform-origin:50% 100%} .pc[data-o="left"]{transform-origin:0 50%}
+.play .pc{animation:var(--an) .8s cubic-bezier(.2,.8,.2,1) calc(var(--i) * 120ms) backwards}
+.play .wm{animation:nm .7s cubic-bezier(.2,.8,.2,1) .4s backwards}
+@keyframes pop{from{transform:scale(0);opacity:0}}
+@keyframes grow{from{transform:scaleY(0)}}
+@keyframes growx{from{transform:scaleX(0)}}
+@keyframes draw{from{stroke-dashoffset:var(--len)}}
+@keyframes nm{from{transform:translateX(-10px);opacity:0}}
+@media (prefers-reduced-motion:reduce){.play .pc,.play .wm{animation:none}}
+.note{font-size:13px;color:var(--muted);border-top:1px solid var(--line);padding-top:14px;margin:0}
+@media (max-width:980px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.kpis{grid-template-columns:1fr 1fr}}
+@media (max-width:640px){.grid,.kpis{grid-template-columns:1fr}.sw{margin-inline-start:0}.bar nav{display:none}}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>هوية Rasdo وHesbo</h1>
+    <p class="lead">لكل اسم ثلاثة رموز بطابع تقني عصري، بأيقونة تطبيق وشعار بحروف صغيرة ونسخة داكنة، ثم معاينة لشكل الاسم داخل المنصة. اضغط أي شعار لإعادة تحريكه.</p>
+  </header>
+  <div id="root" style="display:grid;gap:40px"></div>
+  <p class="note">الأرقام في معاينة المنصة أمثلة للعرض فقط. الاسمان لم يُفحصا بعد في سجل العلامات ولا في توفر النطاقات؛ يُفحص المختار منهما رسميًا قبل الاعتماد.</p>
+</div>
+
+<script>
+(() => {
+const arc = (cx, cy, r, a0, a1) => { const p = a => [cx + r * Math.cos(a * Math.PI / 180), cy + r * Math.sin(a * Math.PI / 180)].map(v => +v.toFixed(2)); return `M${p(a0)} A${r} ${r} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${p(a1)}`; };
+const NAMES = [
+ { en: 'rasdo', ar: 'رَصدو', c1: '#2547D0', c2: '#21C7A8', c1n: 'أزرق', c2n: 'نعناعي',
+   idea: 'من «الرصيد» و«الرصد»: المنصة تحفظ رصيدك وترصد أعمالك لحظة بلحظة.',
+   kpi: [['الرصيد الحالي', '248,500'], ['مبيعات اليوم', '18,240'], ['الرصد: فواتير مستحقة', '12']],
+   cs: [
+    { n: 'التوازن', d: 'علامة «=» بخطين، والنقطة الملونة تكمل السطر الثاني: المدين يساوي الدائن، والرصيد متوازن.',
+      s: () => [ { k: 'rect', x: 12, y: 28, w: 76, h: 17, rx: 8.5, f: 'p', an: 'growx', i: 0, o: 'left' }, { k: 'rect', x: 12, y: 55, w: 52, h: 17, rx: 8.5, f: 'p', an: 'growx', i: 1, o: 'left' }, { k: 'circle', cx: 79, cy: 63.5, r: 9, f: 'a', an: 'pop', i: 5 } ] },
+    { n: 'الرصد', d: 'موجات رادار تنطلق من نقطة: المنصة ترصد كل حركة في المنشأة وتنبّهك قبل أن تفوتك.',
+      s: () => [ ...[28, 48, 68].map((r, i) => ({ k: 'path', d: arc(18, 82, r, -90, 0), stroke: 11, f: 'p', an: 'draw', i, len: Math.ceil(r * 1.6) })), { k: 'circle', cx: 18, cy: 82, r: 9, f: 'a', an: 'pop', i: 5 } ] },
+    { n: 'حرف r', d: 'حرف r بخط مستدير ونقطة ملونة: علامة قصيرة جدًا تُعرف من بعيد، مثل علامات شركات التقنية الكبرى.',
+      s: () => [ { k: 'rect', x: 18, y: 26, w: 18, h: 62, rx: 9, f: 'p', an: 'grow', i: 0, o: 'bottom' }, { k: 'path', d: 'M27 56 A28 28 0 0 1 58 30', stroke: 18, cap: 'round', f: 'p', an: 'draw', i: 2, len: 50 }, { k: 'circle', cx: 80, cy: 30, r: 10, f: 'a', an: 'pop', i: 5 } ] },
+   ] },
+ { en: 'hesbo', ar: 'حِسبو', c1: '#1F2A44', c2: '#FF6B4A', c1n: 'فحمي', c2n: 'مرجاني',
+   idea: 'من «الحساب» و«الحِسبة»: كل حسابات منشأتك محسوبة في مكان واحد.',
+   kpi: [['صافي الربح', '61,300'], ['المصروفات', '42,870'], ['الضريبة المستحقة', '9,195']],
+   cs: [
+    { n: 'حرف h', d: 'حرف h بخط مستدير ونقطة ملونة فوق قوسه: بسيط وقوي، ويصلح أيقونة تطبيق في كل الأحجام.',
+      s: () => [ { k: 'rect', x: 16, y: 12, w: 18, h: 76, rx: 9, f: 'p', an: 'grow', i: 0, o: 'bottom' }, { k: 'path', d: 'M25 62 A24 24 0 0 1 73 62 L73 79', stroke: 18, cap: 'round', f: 'p', an: 'draw', i: 2, len: 95 }, { k: 'circle', cx: 80, cy: 20, r: 10, f: 'a', an: 'pop', i: 5 } ] },
+    { n: 'الحاسبة', d: 'أربعة مربعات كأزرار الحاسبة، أحدها ملون: الحساب في قلب المنصة، وكل قسم وحدة في نظام واحد.',
+      s: () => [ [12, 12, 'p'], [54, 12, 'a'], [12, 54, 'p'], [54, 54, 'p'] ].map(([x, y, f], i) => ({ k: 'rect', x, y, w: 34, h: 34, rx: 10, f, an: 'pop', i })) },
+    { n: 'النمو', d: 'ثلاثة أعمدة صاعدة، آخرها ملون: الحساب الذي ينتهي بالنمو. مألوف لكل صاحب منشأة.',
+      s: () => [ [12, 56], [40, 36], [68, 14] ].map(([x, y], i) => ({ k: 'rect', x, y, w: 20, h: 88 - y, rx: 10, f: i === 2 ? 'a' : 'p', an: 'grow', i, o: 'bottom' })) },
+   ] },
+];
+function svg(parts, size) {
+  const b = parts.map(p => { const fill = p.f === 'a' ? 'var(--a)' : 'var(--p)', st = `--an:${p.an};--i:${p.i}${p.len ? ';--len:' + p.len : ''}`, o = p.o ? ` data-o="${p.o}"` : '';
+    if (p.k === 'circle') return `<circle class="pc"${o} style="${st}" cx="${p.cx}" cy="${p.cy}" r="${p.r}" fill="${fill}"/>`;
+    if (p.k === 'rect') return `<rect class="pc"${o} style="${st}" x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="${p.rx}" fill="${fill}"/>`;
+    return `<path class="pc"${o} style="${st}" d="${p.d}" fill="none" stroke="${fill}" stroke-width="${p.stroke}" stroke-linecap="${p.cap || 'round'}" stroke-dasharray="${p.len} 400"/>`; }).join('');
+  return `<svg class="sym" viewBox="0 0 100 100"${size ? ` width="${size}" height="${size}"` : ''} aria-hidden="true">${b}</svg>`;
+}
+const wm = en => `<span class="wm">${en.slice(0, -1)}<em>${en.slice(-1)}</em></span>`;
+const spark = [12, 18, 15, 24, 21, 30, 27, 36];
+const sp = () => { const pts = spark.map((v, i) => `${(i * 100 / 7).toFixed(1)},${(38 - v).toFixed(1)}`).join(' ');
+  return `<svg viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true"><polyline points="0,40 ${pts} 100,40" fill="var(--c2)" fill-opacity=".14" stroke="none"/><polyline points="${pts}" fill="none" stroke="var(--c2)" stroke-width="2.4" vector-effect="non-scaling-stroke"/></svg>`; };
+document.getElementById('root').innerHTML = NAMES.map(N => `
+  <section style="--c1:${N.c1};--c2:${N.c2}" aria-label="${N.en}">
+    <div class="head"><div class="tile">${svg(N.cs[0].s())}</div><div><h2>${N.en[0].toUpperCase() + N.en.slice(1)}<small>${N.ar}</small></h2><p>${N.idea}</p></div>
+      <div class="sw"><span><i style="background:${N.c1}"></i>${N.c1n}</span><span><i style="background:${N.c2}"></i>${N.c2n}</span></div></div>
+    <div class="grid">${N.cs.map(C => `
+      <article class="card">
+        <div class="hero" role="button" tabindex="0" aria-label="إعادة تحريك ${C.n}"><div class="tile">${svg(C.s())}</div>${wm(N.en)}</div>
+        <div class="hero dk" role="button" tabindex="0" aria-label="إعادة تحريك ${C.n} على الداكن"><div class="tile">${svg(C.s())}</div>${wm(N.en)}</div>
+        <div class="body"><h3>${C.n}</h3><p>${C.d}</p><div class="sizes">${[40, 28, 18].map(z => svg(C.s(), z)).join('')}</div></div>
+      </article>`).join('')}</div>
+    <div class="prod">
+      <div class="bar">${svg(N.cs[0].s())}<b>${N.en}</b><nav><span>الرئيسية</span><span>المبيعات</span><span>المخزون</span><span>الحسابات</span><span>الرواتب</span></nav></div>
+      <div class="kpis">${N.kpi.map(([l, v]) => `<div class="kpi"><small>${l}</small><b>${v} <i>${/فواتير/.test(l) ? 'فاتورة' : 'ر.س'}</i></b>${sp()}</div>`).join('')}</div>
+      <div class="ex">مثال لشكل الاسم داخل المنصة · أرقام توضيحية</div>
+    </div>
+  </section>`).join('');
+const play = el => { el.classList.remove('play'); void el.getBoundingClientRect(); el.classList.add('play'); };
+document.addEventListener('click', e => { const h = e.target.closest('.hero'); if (h) play(h); });
+document.addEventListener('keydown', e => { const h = e.target.closest('.hero'); if (h && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); play(h); } });
+requestAnimationFrame(() => setTimeout(() => document.querySelectorAll('.hero').forEach((el, n) => setTimeout(() => play(el), n * 110)), 250));
+})();
+</script>

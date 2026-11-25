@@ -1,0 +1,84 @@
+[
+ {
+  "dev": "desk",
+  "r": "hub/hr/muster",
+  "crash": "",
+  "errs": [],
+  "over": 0,
+  "empty": false,
+  "lowContrast": [
+   "TD:عم قاسم طيبة · 1 موظف",
+   "TD:عم قاسم النسيم · 1 موظف",
+   "TD:العليا · 1 موظف"
+  ]
+ },
+ {
+  "dev": "desk",
+  "r": "acct/fs",
+  "crash": "",
+  "errs": [],
+  "over": 0,
+  "empty": false,
+  "lowContrast": [
+   "TD:الإيرادات",
+   "TD:تكلفة المبيعات",
+   "TD:مصروفات التشغيل",
+   "TD:الأصول",
+   "TD:الخصوم وحقوق الملكية"
+  ]
+ },
+ {
+  "dev": "desk",
+  "r": "acct/cf",
+  "crash": "",
+  "errs": [],
+  "over": 0,
+  "empty": false,
+  "lowContrast": [
+   "TD:الأنشطة التشغيلية",
+   "TD:الأنشطة الاستثمارية",
+   "TD:الأنشطة التمويلية"
+  ]
+ },
+ {
+  "dev": "mob",
+  "r": "hub/hr/muster",
+  "crash": "",
+  "errs": [],
+  "over": 0,
+  "empty": false,
+  "lowContrast": [
+   "TD:عم قاسم طيبة · 1 موظف",
+   "TD:عم قاسم النسيم · 1 موظف",
+   "TD:العليا · 1 موظف"
+  ]
+ },
+ {
+  "dev": "mob",
+  "r": "acct/fs",
+  "crash": "",
+  "errs": [],
+  "over": 0,
+  "empty": false,
+  "lowContrast": [
+   "TD:الإيرادات",
+   "TD:تكلفة المبيعات",
+   "TD:مصروفات التشغيل",
+   "TD:الأصول",
+   "TD:الخصوم وحقوق الملكية"
+  ]
+ },
+ {
+  "dev": "mob",
+  "r": "acct/cf",
+  "crash": "",
+  "errs": [],
+  "over": 0,
+  "empty": false,
+  "lowContrast": [
+   "TD:الأنشطة التشغيلية",
+   "TD:الأنشطة الاستثمارية",
+   "TD:الأنشطة التمويلية"
+  ]
+ }
+]

@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback, useLayoutEffect } from 'react';
+import { mqSymbolShapes, mqPoints } from './brand-geom.js';   // v56.0 (إعادة التسمية) هندسة رمز مُكتسَب (البوصلة)
+import React, { useState, useEffect, useMemo, useRef, useCallback, useLayoutEffect, useId } from 'react';
 import { createPortal } from 'react-dom';
 import { Target,
   LayoutDashboard, ClipboardCheck, Banknote, Users, Building2, FileBarChart,
@@ -398,7 +399,7 @@ function shiftSumText(org, sh, ops) {
   L.push('💵 النقد: متوقع ' + money(sh.expected || 0) + ' · معدود ' + money(sh.counted || 0));
   L.push((Math.abs(d) > 0.004 ? (d < 0 ? '🔴 عجز ' : '🟡 زيادة ') + money(Math.abs(d)) : '✅ لا فرق نقدي'));
   if (sh.closeNote) L.push('ملاحظة: ' + sh.closeNote);
-  L.push(''); L.push('— ' + ((org.company || {}).name || 'مِثقال'));
+  L.push(''); L.push('— ' + ((org.company || {}).name || 'مُكتسَب'));
   return L.join('\n');
 }
 function closeAlertEvents(org, ops, me, myBranches) {
@@ -594,12 +595,12 @@ function exportExcel(filename, sheetTitle, headers, rows, opts = {}) {
     <style>
       table{border-collapse:collapse;font-family:'IBM Plex Sans Arabic','Noto Sans Arabic','Segoe UI',Tahoma,sans-serif;direction:rtl}
       caption{font-size:15px;font-weight:bold;padding:10px;text-align:right}
-      th{background:#D9A83E;color:#10294A;font-weight:bold;border:1px solid #10294A;padding:7px 10px;text-align:center}
+      th{background:#E5E7EB;color:#111827;font-weight:bold;border:1px solid #9CA3AF;padding:7px 10px;text-align:center}
       td{border:1px solid #ccc;padding:6px 10px}
       td.n{mso-number-format:"#,##0.00";text-align:left}
       td.t{text-align:right}
       .meta{background:#F3F5F8;font-weight:bold;border:none;text-align:right}
-      .tot td{background:#10294A;color:#fff;font-weight:bold;border:1px solid #000}
+      .tot td{background:#1F2A37;color:#fff;font-weight:bold;border:1px solid #000}
     </style></head><body>
     <table><caption>${esc(sheetTitle)}</caption>
     ${metaRows}${thead}${tbody}${tfoot}</table></body></html>`;
@@ -642,6 +643,13 @@ const countedClosing = (c) => !!c && (c.status === 'submitted' || c.status === '
 /* v8.4 — إقفال الفترات: قفل تراكمي حتى شهر (org.periodLocks.lockedThrough)
    كل ما يغيّر قيود شهر مقفل يُمنع — والفتح استثنائي موثق بسبب من شاشة الإقفال */
 const lockedThru = (org) => ((org || {}).periodLocks || {}).lockedThrough || '';
+/** v56.0 (ACC-V56-001): تواريخ إقفال السنوات المالية مرتبة (السابقة في history + الحالية closeDate) */
+const yearEndDates = (ye) => [...new Set([...(((ye || {}).history) || []), (ye || {}).closeDate].filter(d => /^\d{4}-\d{2}-\d{2}/.test(String(d || ''))).map(d => String(d).slice(0, 10)))].sort();
+/** v56.0: حفظ تاريخ إقفال جديد — تاريخ لاحق يحفظ السابق في السجل (لا يُمحى قيده)، وتاريخ أسبق يصحّح ويحذف ما بعده */
+function yearEndNext(prev, enabled, cd) {
+  const p = prev || {}, hist = yearEndDates({ history: p.history, closeDate: p.enabled ? p.closeDate : '' }).filter(d => d < cd);
+  return { enabled: !!enabled, closeDate: cd, ...(hist.length ? { history: hist } : {}) };
+}
 const periodLocked = (org, dateStr) => {
   const lt = lockedThru(org);
   return !!lt && !!(dateStr || '') && (dateStr || '').slice(0, 7) <= lt;
@@ -822,11 +830,12 @@ function dirOf(org) {
   return {
     dirOnly: true,
     company: { name: (org.company || {}).name || '', logoUrl: (org.company || {}).logoUrl || '', activity: (org.company || {}).activity || '', taxNumber: (org.company || {}).taxNumber || '' },
+    branding: tbNorm(org.branding),   // v56.0: هوية المنشأة (بلا أسرار) — كي تطبع أجهزة الفروع الإيصالات والتقارير بهوية منشأتها
     // v34.0: ما تحتاجه نقطة البيع على أجهزة الفروع — الأصناف بأسعار البيع فقط (بلا تكلفة ولا وصفات)، الإعدادات، العروض، الولاء، الضريبة
     products: (org.products || []).map(p => ({ id: p.id, name: p.name, sellPrice: p.sellPrice || 0, cat: p.cat || '', ...(p.posOff ? { posOff: true } : {}), ...(p.disc ? { disc: p.disc } : {}), ...(p.img ? { img: p.img } : {}) })),   // v45.4: صورة المنتج المصغّرة لنقطة البيع
     posCfg: org.posCfg || {}, posPromos: org.posPromos || [], loyaltyCfg: org.loyaltyCfg || {}, mkt: { loy: ((org.mkt || {}).loy) || {}, seg: ((org.mkt || {}).seg) || {}, approveDiscPct: (org.mkt || {}).approveDiscPct },   // v48.1 إعداد الولاء المتقدم وقواعد الشرائح (بلا أسرار)
     taxCfg: { enabled: !!(org.taxCfg || {}).enabled, rate: (org.taxCfg || {}).rate || 15 },
-    branches: (org.branches || []).map(b => ({ id: b.id, name: b.name, defaultFloat: b.defaultFloat || 0, isActive: b.isActive !== false, logoUrl: b.logoUrl || '', city: b.city || '', bankName: b.bankName || '', bankAcc: b.bankAcc || '', geofence: b.geofence || null })),   // v24.0: الجيوفنس لازم لكشك الحضور على جهاز الفرع
+    branches: (org.branches || []).map(b => ({ id: b.id, name: b.name, defaultFloat: b.defaultFloat || 0, isActive: b.isActive !== false, logoUrl: b.logoUrl || '', brandColor: tbHex(b.brandColor), city: b.city || '', bankName: b.bankName || '', bankAcc: b.bankAcc || '', geofence: b.geofence || null })),   // v24.0: الجيوفنس لازم لكشك الحضور على جهاز الفرع
     expenseCats: org.expenseCats || [],
     purchaseCfg: { inspect: !!(org.purchaseCfg || {}).inspect },   // v44.3: استلام الفرع لأوامر الشراء يتبع مسار الفحص إن فُعّل
     deliveryApps: org.deliveryApps || [],
@@ -1199,7 +1208,31 @@ const siSig = (x) => [x.kind, x.refId || '', x.date, x.customerKey || invNoNorm(
 /* v49.1 — MQ-169: منع تكرار العمليات (Idempotency) على مستوى الحفظ المركزي
    (1) نفس المعرّف مرتين: إعادة المحاولة بعد حفظ نجح ولم يصل ردّه تُضيف السجل نفسه ثانية — يُبقى أوله (لا يتكرر).
    (2) نقرتان على «حفظ»: سجل مالي جديد مطابق لآخر أنشأه المستخدم نفسه قبل أقل من دقيقتين يُرفض. */
-const IDEM_COLS = ['cashVouchers', 'journalManual', 'advances', 'disbursements', 'fixedExpenses', 'invoices', 'salesInvoices', 'closingInvPays', 'stockMoves', 'whMoves', 'whTransfers', 'purchaseOrders'];
+// v56.0 (GAP-002): «closings» أُضيفت — إغلاق بالمعرّف نفسه مرتين (مزامنة/إعادة محاولة) كان يُحفظ مرتين فيُضاعف الإيراد في القيود
+const IDEM_COLS = ['cashVouchers', 'journalManual', 'advances', 'disbursements', 'fixedExpenses', 'invoices', 'salesInvoices', 'closingInvPays', 'stockMoves', 'whMoves', 'whTransfers', 'purchaseOrders', 'closings'];
+/* v56.0 (GAP-002): الحارس المركزي لتكرار الإغلاق — فرعٌ ويومٌ بإغلاقين غير مرفوضين. كان المنع في نموذج الإغلاق وحده
+   وعلى نسخة الشاشة القديمة، فجهازان (أو طابور دون اتصال) يُنشئان إغلاقين لليوم نفسه بمعرّفين مختلفين فيتضاعف الإيراد.
+   يُفحص هنا على أحدث نسخة سحابية داخل حلقة الكتابة المشروطة (setIfUnchanged)، فالكاتب الثاني يُرفض بعد إعادة القراءة.
+   لا يمنع حفظًا لا يمسّ التكرار: الزوج القائم أصلًا قبل هذا الحفظ (بيانات قديمة) يكشفه فحص السلامة «dupclose» ولا يوقف العمل. */
+const clDayKey = (c) => (c && c.id && c.branchId && c.date && c.status !== 'rejected') ? c.branchId + '|' + String(c.date).slice(0, 10) : '';
+function findDupClosings(prev, next) {
+  const out = [], P = (prev || {}).closings || [], N = (next || {}).closings || [];
+  if (N === P) return out;
+  const pById = new Map(P.map(c => [c && c.id, c]));
+  const pDay = new Map(); P.forEach(c => { const k = clDayKey(c); if (k) { if (!pDay.has(k)) pDay.set(k, new Set()); pDay.get(k).add(c.id); } });
+  const nDay = new Map(); N.forEach(c => { const k = clDayKey(c); if (k) { if (!nDay.has(k)) nDay.set(k, []); nDay.get(k).push(c); } });
+  nDay.forEach((list, k) => {
+    if (list.length < 2) return;
+    // أدخل هذا الحفظ إغلاقًا (جديدًا أو مُعادًا من «مرفوض») ليوم فيه إغلاق قائم؟
+    const old = pDay.get(k) || new Set();
+    const fresh = list.filter(c => !old.has(c.id));
+    if (!fresh.length) return;
+    const keep = list.find(c => old.has(c.id)) || list.find(c => c !== fresh[0]);
+    fresh.filter(c => c !== keep).forEach(c => out.push({ rec: c, dup: keep, prevRec: pById.get(c.id) || null,
+      msg: 'يوجد إغلاق مسجّل لفرع «' + (c.branchName || c.branchId) + '» بتاريخ ' + String(c.date).slice(0, 10) + ' (' + ((keep && (keep.closingNo || keep.id)) || '') + ') — عدّل الإغلاق القائم بدل إنشاء نسخة ثانية' }));
+  });
+  return out;
+}
 function dedupeSameId(prev, next) {
   if (!next || typeof next !== 'object') return next;
   let out = next;
@@ -1660,7 +1693,7 @@ function makeXlsx(sheets) {
   add('_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>`);
   // v52.3: وقت إنشاء الملف في خصائصه (لا يغيّر صفوف البيانات — قوالب الاستيراد تبقى كما هي)
   const _ts = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
-  add('docProps/core.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:creator>Mithqal</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">${_ts}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${_ts}</dcterms:modified></cp:coreProperties>`);
+  add('docProps/core.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:creator>Muktasab</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">${_ts}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${_ts}</dcterms:modified></cp:coreProperties>`);
   add('xl/workbook.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${names.map((n, i) => `<sheet name="${_xe(n)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets></workbook>`);
   add('xl/_rels/workbook.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheets.map((s, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`);
   add('xl/styles.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="3"><numFmt numFmtId="164" formatCode="#,##0.00;(#,##0.00)"/><numFmt numFmtId="165" formatCode="#,##0.###"/><numFmt numFmtId="166" formatCode="0.0&quot;%&quot;"/></numFmts><fonts count="3"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="14"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE9EDF3"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="8"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" applyFont="1" applyFill="1"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" applyNumberFormat="1"/><xf numFmtId="164" fontId="1" fillId="2" borderId="0" applyNumberFormat="1" applyFont="1" applyFill="1"/><xf numFmtId="0" fontId="2" fillId="0" borderId="0" applyFont="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="0" applyNumberFormat="1"/><xf numFmtId="166" fontId="0" fillId="0" borderId="0" applyNumberFormat="1"/><xf numFmtId="1" fontId="0" fillId="0" borderId="0" applyNumberFormat="1"/></cellXfs></styleSheet>`);
@@ -1702,40 +1735,130 @@ function rptFlat(spec) {
 function rptTotals(spec) { const t = {}; (spec.columns || []).forEach(c => { if (c.total === 'sum') t[c.key] = Math.round(rptFlat(spec).filter(r => r._k === 'row').reduce((a, r) => a + (Number(r[c.key]) || 0), 0) * 1000) / 1000; }); return t; }
 const rptLbl = (spec, c) => spec.lang === 'en' && c.en ? c.en : c.label;
 /** HTML الطباعة الموحد: ترويسة بالشعار والهوية، رأس جدول يتكرر في كل صفحة، ترقيم صفحات، وتذييل بالوقت والمستخدم والمصدر */
-function rptHtml(org, spec) {
-  const co = (org && org.company) || {}, en = spec.lang === 'en', dir = en ? 'ltr' : 'rtl', C = spec.columns || [], T = rptTotals(spec), anyTot = Object.keys(T).length > 0;
-  const paper = ['A4', 'A3', 'Letter'].includes(spec.paper) ? spec.paper : 'A4', orient = spec.orientation === 'landscape' ? 'landscape' : 'portrait';
+/* ============================================================
+   v56.0 — هوية المنشأة التجارية (Tenant Branding) — منفصلة تمامًا عن هوية المنصة MUKTASAB
+   • org.branding تخص المنشأة وحدها (مستند منشأتها في مشروع Firebase الخاص بها — العزل مادي)، يكتبها مسؤول النظام فقط (القواعد: rms8_org).
+   • tbNorm يعقّم كل حقل (ألوان HEX فقط، صور https أو data:image بحد حجم، نصوص بأطوال قصوى) — لا يُخزَّن ولا يُطبع ما لم يمر به.
+   • tenantBrand يحلّ الهوية للاستعمال: الفرع (شعاره إن وُجد) ← هوية المنشأة ← بيانات الشركة القديمة (توافق رجعي).
+   • الألوان الافتراضية محايدة — لا تُفرض ألوان MUKTASAB على مستندات المنشأة. شعار المنصة لا يمر من هنا إطلاقًا.
+   ============================================================ */
+const TB_HEX = /^#[0-9A-Fa-f]{6}$/;
+const TB_NEUTRAL = Object.freeze({ primary: '#1F2A37', accent: '#8A6D3B', heading: '#111827', text: '#1F2937' });
+const TB_TPL_INV = ['classic', 'modern', 'compact'], TB_TPL_RPT = ['standard', 'minimal', 'boxed'], TB_PAPER = ['A4', 'A3', 'Letter'];
+const TB_IMG_MAX = 400000;
+const tbImg = (v) => typeof v === 'string' && v.length <= TB_IMG_MAX && /^(https:\/\/[^\s"'<>()]+|data:image\/(png|jpeg|webp|svg\+xml);base64,[A-Za-z0-9+/=]+)$/.test(v) ? v : '';
+const tbStr = (v, n) => typeof v === 'string' ? v.replace(/[<>]/g, '').trim().slice(0, n) : '';
+const tbHex = (v) => typeof v === 'string' && TB_HEX.test(v.trim()) ? v.trim().toUpperCase() : '';
+/** تعقيم إعدادات الهوية — يعيد كائنًا بالحقول المسموحة فقط */
+function tbNorm(raw) {
+  const r = raw && typeof raw === 'object' ? raw : {}, c = r.colors && typeof r.colors === 'object' ? r.colors : {}, pr = r.print && typeof r.print === 'object' ? r.print : {};
+  const colors = {}; ['primary', 'accent', 'heading', 'text'].forEach(k => { const h = tbHex(c[k]); if (h) colors[k] = h; });
+  const o = { nameAr: tbStr(r.nameAr, 120), nameEn: tbStr(r.nameEn, 120), logo: tbImg(r.logo), logoAlt: tbImg(r.logoAlt), logoDoc: tbImg(r.logoDoc), colors,
+    phone: tbStr(r.phone, 40), email: tbStr(r.email, 120), website: tbStr(r.website, 160), address: tbStr(r.address, 300), addressEn: tbStr(r.addressEn, 300),
+    header: tbStr(r.header, 300), footer: tbStr(r.footer, 400), footerEn: tbStr(r.footerEn, 400),
+    invoiceTpl: TB_TPL_INV.includes(r.invoiceTpl) ? r.invoiceTpl : 'classic', reportTpl: TB_TPL_RPT.includes(r.reportTpl) ? r.reportTpl : 'standard',
+    print: { paper: TB_PAPER.includes(pr.paper) ? pr.paper : 'A4', mono: pr.mono === true, showLogo: pr.showLogo !== false, showContact: pr.showContact !== false } };
+  if (typeof r.updatedAt === 'string') o.updatedAt = r.updatedAt.slice(0, 40);
+  if (typeof r.updatedBy === 'string') o.updatedBy = tbStr(r.updatedBy, 120);
+  return o;
+}
+/** الهوية المحلولة لمستند/شاشة: opt = { branchId, lang } */
+function tenantBrand(org, opt = {}) {
+  const O = org || {}, b = tbNorm(O.branding), co = O.company || {}, en = opt.lang === 'en';
+  const br = opt.branchId ? (O.branches || []).find(x => x.id === opt.branchId) || null : null;
+  const coLogo = tbImg(co.logoUrl), brLogo = br ? tbImg(br.logoUrl) : '';
+  const nameAr = b.nameAr || tbStr(co.name, 120), nameEn = b.nameEn;
+  return { nameAr, nameEn, name: en ? (nameEn || nameAr) : (nameAr || nameEn), altName: en ? (nameEn ? nameAr : '') : nameEn,
+    logo: b.logo || coLogo, logoAlt: b.logoAlt || b.logo || coLogo, logoDoc: brLogo || b.logoDoc || b.logo || coLogo,
+    colors: { ...TB_NEUTRAL, ...b.colors, ...(br && tbHex(br.brandColor) ? { primary: tbHex(br.brandColor) } : {}) }, vat: tbStr(co.taxNumber, 30),   // v56.0: لون الفرع يغلب في مستنداته cr: tbStr(co.commercialReg, 30),
+    address: en ? (b.addressEn || b.address || tbStr(co.address, 300)) : (b.address || tbStr(co.address, 300)),
+    phone: b.phone || tbStr(co.phone, 40), email: b.email || tbStr(co.email, 120), website: b.website,
+    header: b.header, footer: en ? (b.footerEn || b.footer) : (b.footer || b.footerEn),
+    invoiceTpl: b.invoiceTpl, reportTpl: b.reportTpl, print: b.print, branchName: br ? tbStr(br.name, 120) : '', custom: !!(O.branding && Object.keys(O.branding).length) };
+}
+/** متغيرات CSS للمستندات من هوية المنشأة؛ mono = طباعة أحادية (تدرج رمادي، والشعار رمادي) */
+/** شعار المستند المعقّم (الفرع ← المنشأة) — لقوالب الطباعة */
+const tbLogo = (org, branchId) => tenantBrand(org, { branchId }).logoDoc;
+function tbCss(B, opt = {}) {
+  const mono = opt.mono != null ? !!opt.mono : !!(B.print && B.print.mono), C = B.colors || TB_NEUTRAL;
+  const v = mono ? { p: '#222222', a: '#555555', h: '#000000', t: '#111111' } : { p: C.primary, a: C.accent, h: C.heading, t: C.text };
+  return `:root{--tb-p:${v.p};--tb-a:${v.a};--tb-h:${v.h};--tb-t:${v.t};--tb-soft:color-mix(in srgb,${v.p} 9%,#fff);--tb-line:color-mix(in srgb,${v.p} 22%,#fff)}${mono ? 'img.lg,img.logo{filter:grayscale(1)}' : ''}`;
+}
+/** ترويسة المستند الموحّدة بهوية المنشأة (شعار، اسمان، بيانات اتصال، رقم ضريبي) — HTML آمن */
+function tbHeadHtml(B, L) {
+  const logo = B.print.showLogo && B.logoDoc ? `<img class="lg" src="${_xe(B.logoDoc)}" alt="">` : '';
+  const contact = B.print.showContact ? [B.vat ? L.vat + ': ' + _xe(B.vat) : '', B.cr ? (L.cr || 'CR') + ': ' + _xe(B.cr) : '', _xe(B.address || ''), _xe(B.phone || ''), _xe(B.email || ''), _xe(B.website || '')].filter(Boolean).join(' · ') : (B.vat ? L.vat + ': ' + _xe(B.vat) : '');
+  return `<div class="l">${logo}<div><div class="co">${_xe(B.name || '')}</div>${B.altName ? `<div class="co2">${_xe(B.altName)}</div>` : ''}${B.branchName ? `<div class="s">${_xe(B.branchName)}</div>` : ''}<div class="s">${contact}</div>${B.header ? `<div class="s">${_xe(B.header)}</div>` : ''}</div></div>`;
+}
+/* v56.0 — القوالب الستة على المحرك نفسه (لا محرك موازٍ) وبمعرّفاتها القائمة: التصميم منفصل عن البيانات — كل قالب يعرض صفوف المواصفة كما هي.
+   list قائمة · statement (Financial) مالي بمستويات وخط إجمالي مزدوج · ledger (Statement) كشف بافتتاحي/ختامي · summary ملخص بمؤشرات بارزة
+   document (Official) مستند رسمي باعتماد وتوقيع وختم · matrix (Pivot) جدول محوري يجمع قيم الصفوف المعطاة صفًا×عمودًا — عرض فقط */
+// المعرّفات القائمة (v50) لا تتغير؛ أسماء أمر التصميم v56.0 أسماء بديلة: Financial = statement · Statement = ledger · Pivot = matrix
+const RPT_TPL_ALIAS = { financial: 'statement', pivot: 'matrix', official: 'document' };
+const rptTpl = (t) => { const k = RPT_TPL_ALIAS[t] || t; return RPT_TEMPLATES[k] ? k : 'list'; };
+/** الجدول المحوري: يعيد مواصفة أعمدة/صفوف من spec.pivot = { row, col, val, rowLabel, valType } — مجموع val لكل (row, col) وإجماليات */
+function rptPivot(spec) {
+  const P = spec.pivot || {}, R = spec.rows || [], cols = [...new Set(R.map(r => String(r[P.col] ?? '')))].sort();
+  const acc = new Map(); R.forEach(r => { const rk = String(r[P.row] ?? ''), ck = String(r[P.col] ?? ''); const m = acc.get(rk) || {}; m[ck] = Math.round(((m[ck] || 0) + (Number(r[P.val]) || 0)) * 1000) / 1000; acc.set(rk, m); });
+  const t = P.valType || 'money';
+  const columns = [{ key: '_r', label: P.rowLabel || P.row, en: P.rowLabelEn }, ...cols.map((c, i) => ({ key: '_c' + i, label: c, type: t, total: 'sum' })), { key: '_t', label: 'الإجمالي', en: 'Total', type: t, total: 'sum' }];
+  const rows = [...acc.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([rk, m]) => { const o = { _r: rk }; let tot = 0; cols.forEach((c, i) => { o['_c' + i] = m[c] || 0; tot += m[c] || 0; }); o._t = Math.round(tot * 1000) / 1000; return o; });
+  const { pivot: _pv, ...rest } = spec;   // الناتج جدول عادي — لا يُحوَّل مرة ثانية عند الطباعة/التصدير
+  return { ...rest, template: 'matrix', columns, rows, groups: [] };
+}
+function rptHtml(org, spec0) {
+  const tpl = rptTpl(spec0.template);
+  const spec = tpl === 'matrix' && spec0.pivot ? rptPivot(spec0) : spec0;
+  const en = spec.lang === 'en', dir = en ? 'ltr' : 'rtl', C = spec.columns || [], T = rptTotals(spec), anyTot = Object.keys(T).length > 0;
   const meta = { user: _rptCtx.user, ...(spec.meta || {}) }, at = meta.at || new Date().toISOString();
-  const L = en ? { by: 'Printed by', at: 'at', src: 'Source', page: 'Page', of: 'of', vat: 'VAT No.', tot: 'Total', filt: 'Filters', none: 'No data' } : { by: 'طبعه', at: 'في', src: 'المصدر', page: 'صفحة', of: 'من', vat: 'الرقم الضريبي', tot: 'الإجمالي', filt: 'التصفية', none: 'لا بيانات' };
+  const B = tenantBrand(org, { lang: spec.lang, branchId: meta.branchId });   // v56.0: هوية المنشأة هي الهوية البصرية للتقرير
+  const paper = ['A4', 'A3', 'Letter'].includes(spec.paper) ? spec.paper : B.print.paper, orient = spec.orientation === 'landscape' ? 'landscape' : 'portrait';
+  const mono = spec.mono != null ? !!spec.mono : B.print.mono;
+  const L = en ? { by: 'Printed by', at: 'at', src: 'Source', page: 'Page', of: 'of', vat: 'VAT No.', cr: 'CR', tot: 'Total', filt: 'Filters', none: 'No data', open: 'Opening balance', close: 'Closing balance', period: 'Period', prep: 'Prepared by', appr: 'Approved by', stamp: 'Stamp' }
+    : { by: 'طبعه', at: 'في', src: 'المصدر', page: 'صفحة', of: 'من', vat: 'الرقم الضريبي', cr: 'السجل التجاري', tot: 'الإجمالي', filt: 'التصفية', none: 'لا توجد بيانات', open: 'الرصيد الافتتاحي', close: 'الرصيد الختامي', period: 'الفترة', prep: 'أعدّه', appr: 'اعتمده', stamp: 'الختم' };
   const cell = (r, c) => { const v = r[c.key]; const neg = rptIsNum(c) && Number(v) < 0; return `<td class="${rptIsNum(c) ? 'n' : ''}${neg ? ' neg' : ''}">${_xe(rptFmt(v, c))}</td>`; };
+  const balRow = (lbl, val, cls) => val == null ? '' : `<tr class="${cls}"><td colspan="${Math.max(1, C.length - 1)}">${_xe(lbl)}</td>${cell({ v: val }, { key: 'v', type: 'money' })}</tr>`;
   const rows = rptFlat(spec).map(r => r._k === 'head' ? `<tr class="gh"><td colspan="${C.length}">${_xe(r._label)}</td></tr>`
     : r._k === 'sub' ? `<tr class="sub"><td>${_xe(r._label)}</td>${C.slice(1).map(c => c.total === 'sum' ? cell(r, c) : '<td></td>').join('')}</tr>`
     : `<tr${r._bold ? ' class="b"' : ''}>${C.map((c, i) => i === 0 && r._level ? `<td style="padding-inline-start:${8 + r._level * 14}px">${_xe(rptFmt(r[c.key], c))}</td>` : cell(r, c)).join('')}</tr>`).join('');
-  const kpis = (spec.kpis || []).length ? `<div class="kp">${spec.kpis.map(k => `<div><small>${_xe(k.label)}</small><b>${_xe(k.value)}</b></div>`).join('')}</div>` : '';
-  const filt = !(spec.filters || []).length ? '' : spec.template === 'document' ? `<div class="fl">${spec.filters.map(([k, v]) => '<b>' + _xe(k) + ':</b> ' + _xe(v)).join(' &nbsp;·&nbsp; ')}</div>` : `<div class="fl"><b>${L.filt}:</b> ${spec.filters.map(([k, v]) => _xe(k) + ': ' + _xe(v)).join(' · ')}</div>`;
-  const sig = (spec.signatures || []).length ? `<div class="sign">${spec.signatures.map(s => `<div>${_xe(s)}</div>`).join('')}</div>` : '';
-  const logo = co.logoUrl && /^(https:|data:image\/)/.test(co.logoUrl) ? `<img class="lg" src="${_xe(co.logoUrl)}" alt="">` : '';
-  const foot = `${L.by}: ${_xe(meta.user || '—')} · ${L.at} ${_xe(dtLocal(at))} · ${L.src}: ${_xe(meta.source || 'مِثقال')}`;
-  return `<!doctype html><html dir="${dir}" lang="${en ? 'en' : 'ar'}"><head><meta charset="utf-8"><title>${_xe(spec.title)}</title><style>${typeof NUM_FACE === 'string' ? NUM_FACE : ''}
+  const kpis = (spec.kpis || []).length ? `<div class="kp">${spec.kpis.map(k => `<div><small>${_xe(k.label)}</small><b>${_xe(k.value)}</b>${k.delta != null ? `<i class="${String(k.delta).trim().startsWith('-') ? 'dn' : 'up'}">${_xe(k.delta)}</i>` : ''}</div>`).join('')}</div>` : '';
+  const filt = !(spec.filters || []).length ? '' : tpl === 'document' ? `<div class="fl">${spec.filters.map(([k, v]) => '<b>' + _xe(k) + ':</b> ' + _xe(v)).join(' &nbsp;·&nbsp; ')}</div>` : `<div class="fl"><b>${L.filt}:</b> ${spec.filters.map(([k, v]) => _xe(k) + ': ' + _xe(v)).join(' · ')}</div>`;
+  const sigs = (spec.signatures || []).length ? spec.signatures : tpl === 'document' ? [L.prep, L.appr] : [];
+  const sig = sigs.length ? `<div class="sign">${sigs.map(x => `<div>${_xe(x)}</div>`).join('')}${tpl === 'document' ? `<div class="stamp">${L.stamp}</div>` : ''}</div>` : '';
+  const foot = `${L.by}: ${_xe(meta.user || '—')} · ${L.at} ${_xe(dtLocal(at))} · ${L.src}: ${_xe(meta.source || 'مُكتسَب')}`;
+  const tfoot = B.footer ? `<div class="tf">${_xe(B.footer)}</div>` : '';
+  const left = en ? 'right' : 'left';
+  return `<!doctype html><html dir="${dir}" lang="${en ? 'en' : 'ar'}"><head><meta charset="utf-8"><title>${_xe(spec.title)}</title><style>${typeof NUM_FACE === 'string' ? NUM_FACE : ''}${tbCss(B, { mono })}
   @page{size:${paper} ${orient};margin:14mm 10mm 16mm;@bottom-center{content:"${L.page} " counter(page) " ${L.of} " counter(pages);font-size:9px;color:#777}@bottom-${en ? 'left' : 'right'}{content:"${foot.replace(/"/g, "'")}";font-size:8px;color:#888}}
-  *{font-family:'MizanNum','IBM Plex Sans Arabic','Noto Sans Arabic','Segoe UI',Tahoma,sans-serif;box-sizing:border-box}body{margin:0;color:#1a1a1a;font-size:11.5px}
-  .h{display:flex;justify-content:space-between;align-items:center;gap:12px;border-bottom:2px solid #10294A;padding-bottom:8px;margin-bottom:10px}
-  .h .l{display:flex;gap:10px;align-items:center}.lg{height:46px;max-width:120px;object-fit:contain}.co{font-size:16px;font-weight:800;color:#10294A}.s{font-size:10.5px;color:#666;margin-top:2px}
-  h1{font-size:15px;margin:0;text-align:${en ? 'right' : 'left'}}.tp{font-size:10px;color:#10294A;text-align:${en ? 'right' : 'left'}}
-  .fl{font-size:10.5px;background:#F3F5F8;border:1px solid #DDE2EA;border-radius:6px;padding:5px 9px;margin-bottom:8px}
-  .kp{display:grid;grid-template-columns:repeat(${Math.min(4, (spec.kpis || []).length || 1)},1fr);gap:8px;margin-bottom:10px}.kp div{border:1px solid #DDE2EA;border-radius:6px;padding:6px 8px}.kp small{display:block;color:#777;font-size:9.5px}.kp b{font-size:13px}
-  table{width:100%;border-collapse:collapse}thead{display:table-header-group}tfoot{display:table-row-group}tr{page-break-inside:avoid}
-  th{background:#E9EDF3;color:#10294A;padding:6px;border:1px solid #CBD3DF;text-align:start;font-size:10.5px}
-  td{padding:5px 7px;border:1px solid #DDE2EA}.n{text-align:${en ? 'right' : 'left'};direction:ltr;font-variant-numeric:tabular-nums;white-space:nowrap}.neg{color:#C0392B}
-  .gh td{background:#F1F4F8;font-weight:800;color:#10294A}.sub td{background:#F7F8FA;font-weight:700}.b td{font-weight:700}.tot td{background:#f2ead6;font-weight:800;border-top:2px solid #10294A}
-  .nt{font-size:10px;color:#666;margin-top:8px}.sign{display:flex;justify-content:space-around;margin-top:36px;text-align:center;font-size:11px}.sign div{border-top:1px solid #999;padding-top:6px;min-width:140px}
-  .ft{display:none}@media screen{body{padding:22px}.ft{display:block;margin-top:12px;font-size:9.5px;color:#888;text-align:center}}</style></head><body data-rpt="${_xe(spec.id || '')}" data-template="${_xe(spec.template || 'list')}">
-  <div class="h"><div class="l">${logo}<div><div class="co">${_xe(co.name || '')}</div><div class="s">${co.taxNumber ? L.vat + ': ' + _xe(co.taxNumber) : ''}${co.address ? ' · ' + _xe(co.address) : ''}</div></div></div>
-  <div><h1>${_xe(spec.title)}</h1><div class="s" style="text-align:inherit">${_xe(spec.sub || '')}</div><div class="s" style="text-align:inherit" data-issued>${en ? 'Issued: ' : 'تاريخ ووقت الإصدار: '}${_xe(dtLocal(at))}</div></div></div>
+  *{font-family:'MizanNum','IBM Plex Sans Arabic','Noto Sans Arabic',Manrope,'Segoe UI',Tahoma,sans-serif;box-sizing:border-box}body{margin:0;color:var(--tb-t);font-size:11.5px}
+  .h{display:flex;justify-content:space-between;align-items:center;gap:12px;border-bottom:2px solid var(--tb-p);padding-bottom:8px;margin-bottom:10px}
+  .h .l{display:flex;gap:10px;align-items:center}.lg{height:46px;max-width:120px;object-fit:contain}.co{font-size:16px;font-weight:800;color:var(--tb-h)}.co2{font-size:12px;font-weight:700;color:var(--tb-a)}.s{font-size:10.5px;color:#666;margin-top:2px}
+  h1{font-size:15px;margin:0;text-align:${left};color:var(--tb-h)}.tp{font-size:10px;color:var(--tb-p);text-align:${left}}
+  .fl{font-size:10.5px;background:var(--tb-soft);border:1px solid var(--tb-line);border-radius:6px;padding:5px 9px;margin-bottom:8px}
+  .kp{display:grid;grid-template-columns:repeat(${Math.min(4, (spec.kpis || []).length || 1)},1fr);gap:8px;margin-bottom:10px}.kp div{border:1px solid var(--tb-line);border-top:3px solid var(--tb-a);border-radius:6px;padding:6px 8px}.kp small{display:block;color:#777;font-size:9.5px}.kp b{font-size:13px;color:var(--tb-h)}.kp i{display:block;font-style:normal;font-size:9.5px}.kp .up{color:#1E7A52}.kp .dn{color:#B3372E}
+  table{width:100%;border-collapse:collapse}thead{display:table-header-group}tfoot{display:table-row-group}tr{page-break-inside:avoid;break-inside:avoid}
+  th{background:var(--tb-soft);color:var(--tb-h);padding:6px;border:1px solid var(--tb-line);text-align:start;font-size:10.5px}
+  td{padding:5px 7px;border:1px solid #DDE2EA}.n{text-align:${left};direction:ltr;font-variant-numeric:tabular-nums;white-space:nowrap}.neg{color:#B3372E}
+  .gh td{background:var(--tb-soft);font-weight:800;color:var(--tb-h)}.sub td{background:#F7F8FA;font-weight:700}.b td{font-weight:700}.tot td{background:color-mix(in srgb,var(--tb-a) 14%,#fff);font-weight:800;border-top:2px solid var(--tb-p)}
+  .ob td,.cb td{font-weight:700;background:#F7F8FA}
+  .nt{font-size:10px;color:#666;margin-top:8px}.sign{display:flex;justify-content:space-around;margin-top:36px;text-align:center;font-size:11px;break-inside:avoid}.sign div{border-top:1px solid #999;padding-top:6px;min-width:140px}
+  .sign .stamp{border:1px dashed #aaa;border-radius:50%;width:92px;height:92px;min-width:0;display:flex;align-items:center;justify-content:center;color:#999}
+  .tf{margin-top:12px;padding-top:6px;border-top:1px solid var(--tb-line);font-size:9.5px;color:#666;text-align:center}
+  /* القوالب */
+  body[data-template=statement] .tot td{border-top:3px double var(--tb-p);border-bottom:3px double var(--tb-p)}body[data-template=statement] td{border-inline:0;border-color:#E6E9EE}
+  body[data-template=summary] .kp{grid-template-columns:repeat(${Math.min(3, (spec.kpis || []).length || 1)},1fr)}body[data-template=summary] .kp b{font-size:18px}
+  body[data-template=document] .h{flex-direction:column;align-items:stretch;text-align:center}body[data-template=document] .h .l{justify-content:center}body[data-template=document] h1{text-align:center;font-size:18px;margin-top:8px}body[data-template=document] .hd2{text-align:center}
+  body[data-template=matrix] th.n,body[data-template=matrix] td.n{min-width:70px}body[data-template=ledger] td.n:last-child{font-weight:700}
+  /* أنماط هوية المنشأة */
+  body.rt-minimal .h{border-bottom-width:1px}body.rt-minimal th{background:#fff;border-inline:0}body.rt-minimal td{border-inline:0}
+  body.rt-boxed{outline:2px solid var(--tb-p);outline-offset:6mm}
+  .ft{display:none}@media screen{body{padding:22px}.ft{display:block;margin-top:12px;font-size:9.5px;color:#888;text-align:center}}</style></head><body class="rt-${_xe(B.reportTpl)}${mono ? ' mono' : ''}" data-rpt="${_xe(spec.id || '')}" data-template="${tpl}">
+  <div class="h">${tbHeadHtml(B, L)}
+  <div class="hd2"><h1>${_xe(spec.title)}</h1><div class="s" style="text-align:inherit">${_xe(spec.sub || '')}</div><div class="s" style="text-align:inherit" data-issued>${en ? 'Issued: ' : 'تاريخ ووقت الإصدار: '}${_xe(dtLocal(at))}</div></div></div>
   ${filt}${kpis}
-  ${C.length ? `<table><thead><tr>${C.map(c => `<th${rptIsNum(c) ? ' class="n"' : ''}>${_xe(rptLbl(spec, c))}</th>`).join('')}</tr></thead><tbody>${rows || `<tr><td colspan="${C.length}" style="text-align:center;color:#888">${L.none}</td></tr>`}</tbody>
+  ${C.length ? `<table><thead><tr>${C.map(c => `<th${rptIsNum(c) ? ' class="n"' : ''}>${_xe(rptLbl(spec, c))}</th>`).join('')}</tr></thead><tbody>${tpl === 'ledger' ? balRow(spec.openingLabel || L.open, spec.opening, 'ob') : ''}${rows || `<tr><td colspan="${C.length}" style="text-align:center;color:#888">${L.none}</td></tr>`}${tpl === 'ledger' ? balRow(spec.closingLabel || L.close, spec.closing, 'cb') : ''}</tbody>
   ${anyTot ? `<tfoot><tr class="tot"><td>${_xe(spec.totalLabel || L.tot)}</td>${C.slice(1).map(c => c.total === 'sum' ? cell(T, c) : '<td></td>').join('')}</tr></tfoot>` : ''}</table>` : ''}
-  ${(spec.notes || []).map(n => `<div class="nt">${_xe(n)}</div>`).join('')}${sig}
+  ${(spec.notes || []).map(n => `<div class="nt">${_xe(n)}</div>`).join('')}${sig}${tfoot}
   <div class="ft">${foot}</div></body></html>`;
 }
 function printReport(org, spec) {
@@ -1746,9 +1869,10 @@ function printReport(org, spec) {
 function rptXlsxRows(org, spec) {
   const co = (org && org.company) || {}, C = spec.columns || [], meta = spec.meta || {}, en = spec.lang === 'en';
   const rows = [], put = (arr) => rows.push(arr);
-  put([{ v: co.name || '', s: 4 }]); put([{ v: spec.title, s: 4 }]); if (spec.sub) put([spec.sub]);
+  const TBx = tenantBrand(org, { lang: spec.lang, branchId: meta.branchId });   // v56.0: اسم المنشأة من هويتها
+  put([{ v: TBx.name || co.name || '', s: 4 }]); put([{ v: spec.title, s: 4 }]); if (spec.sub) put([spec.sub]);
   if ((spec.filters || []).length) put([(en ? 'Filters: ' : 'التصفية: ') + spec.filters.map(([k, v]) => k + ': ' + v).join(' · ')]);
-  put([(en ? 'Printed by ' : 'أعدّه ') + (meta.user || '—') + ' · ' + dtLocal(meta.at || new Date().toISOString()) + ' · ' + (meta.source || 'مِثقال')]);
+  put([(en ? 'Printed by ' : 'أعدّه ') + (meta.user || '—') + ' · ' + dtLocal(meta.at || new Date().toISOString()) + ' · ' + (meta.source || 'مُكتسَب')]);
   put([]);
   const head = rows.length; put(C.map(c => ({ v: rptLbl(spec, c), s: 1 })));
   const st = (c, bold) => c.type === 'money' ? (bold ? 3 : 2) : c.type === 'qty' ? 5 : c.type === 'pct' ? 6 : c.type === 'int' ? 7 : (bold ? 1 : 0);
@@ -2684,25 +2808,31 @@ function buildAccounting(org, ops) {
   // 9د) قيد إقفال السنة المالية: يُصفّر الإيرادات والمصروفات حتى تاريخ الإقفال ويحوّل صافيها إلى «الأرباح المبقاة» (3201)
   //     يُستثنى من قائمة الدخل (closing:true) فتبقى قائمة الدخل تعرض الأداء التشغيلي، ويُدرَج في الميزان والمركز المالي
   //     التوازن مضمون: مدين (الإيرادات + صافي الخسارة) = دائن (المصروفات + صافي الربح)
+  // v56.0 (ACC-V56-001): إقفال عدة سنوات — كان تاريخ واحد فقط، فإقفال سنة جديدة يحرّك التاريخ ويمحو قيد إقفال السنة السابقة
+  //   (ويرفضه حارس الإقفال إن كانت السابقة مقفلة، فيستحيل إقفال السنة الثانية). الآن: قيد لكل سنة في yearEnd.history + closeDate،
+  //   كلٌّ يُصفّر إيرادات ومصروفات فترته (بعد الإقفال السابق حتى تاريخه). أقدمها يحمل المعرّف «yearend» نفسه فلا تتغير بصمة الفترات المقفلة.
   const ye = org.yearEnd;
   if (ye && ye.enabled && ye.closeDate) {
-    const cd = ye.closeDate.slice(0, 10);
-    const cm = {};
-    entries.forEach(e => { if ((e.date || '') <= cd) e.lines.forEach(l => { const x = cm[l.code] || (cm[l.code] = { debit: 0, credit: 0 }); x.debit += l.debit; x.credit += l.credit; }); });
-    let dr = 0, cr = 0; const clLines = [];
-    accounts.filter(a => a.kind === 'rev' || a.kind === 'exp').forEach(a => {
-      const agg = cm[a.code] || { debit: 0, credit: 0 };
-      const bal = a.kind === 'rev' ? agg.credit - agg.debit : agg.debit - agg.credit; // الرصيد الطبيعي
-      if (Math.abs(bal) < 0.005) return;
-      if (a.kind === 'rev') { if (bal > 0) { clLines.push(L(a.code, bal, 0)); dr += bal; } else { clLines.push(L(a.code, 0, -bal)); cr += -bal; } }
-      else { if (bal > 0) { clLines.push(L(a.code, 0, bal)); cr += bal; } else { clLines.push(L(a.code, -bal, 0)); dr += -bal; } }
-    });
-    const plug = Math.round((dr - cr) * 100) / 100;   // موجب = ربح (دائن للأرباح المبقاة) · سالب = خسارة
-    if (Math.abs(plug) >= 0.005) clLines.push(plug > 0 ? L('3201', 0, plug) : L('3201', -plug, 0));
-    if (clLines.length) push({
-      id: 'yearend', date: cd,
-      title: 'قيد إقفال السنة المالية حتى ' + cd + (plug > 0 ? ' (ربح مُدوّر ' + money(plug) + ')' : plug < 0 ? ' (خسارة مُدوّرة ' + money(-plug) + ')' : ''),
-      src: 'إقفال سنوي', ref: 'إقفال', closing: true, lines: clLines
+    const cds = yearEndDates(ye);
+    cds.forEach((cd, i) => {
+      const from = i ? cds[i - 1] : '';
+      const cm = {};
+      entries.forEach(e => { const d = e.date || ''; if (d <= cd && d > from && !e.closing) e.lines.forEach(l => { const x = cm[l.code] || (cm[l.code] = { debit: 0, credit: 0 }); x.debit += l.debit; x.credit += l.credit; }); });
+      let dr = 0, cr = 0; const clLines = [];
+      accounts.filter(a => a.kind === 'rev' || a.kind === 'exp').forEach(a => {
+        const agg = cm[a.code] || { debit: 0, credit: 0 };
+        const bal = a.kind === 'rev' ? agg.credit - agg.debit : agg.debit - agg.credit; // الرصيد الطبيعي
+        if (Math.abs(bal) < 0.005) return;
+        if (a.kind === 'rev') { if (bal > 0) { clLines.push(L(a.code, bal, 0)); dr += bal; } else { clLines.push(L(a.code, 0, -bal)); cr += -bal; } }
+        else { if (bal > 0) { clLines.push(L(a.code, 0, bal)); cr += bal; } else { clLines.push(L(a.code, -bal, 0)); dr += -bal; } }
+      });
+      const plug = Math.round((dr - cr) * 100) / 100;   // موجب = ربح (دائن للأرباح المبقاة) · سالب = خسارة
+      if (Math.abs(plug) >= 0.005) clLines.push(plug > 0 ? L('3201', 0, plug) : L('3201', -plug, 0));
+      if (clLines.length) push({
+        id: i ? 'yearend-' + cd : 'yearend', date: cd,
+        title: 'قيد إقفال السنة المالية حتى ' + cd + (plug > 0 ? ' (ربح مُدوّر ' + money(plug) + ')' : plug < 0 ? ' (خسارة مُدوّرة ' + money(-plug) + ')' : ''),
+        src: 'إقفال سنوي', ref: 'إقفال', closing: true, lines: clLines
+      });
     });
   }
 
@@ -2756,7 +2886,7 @@ const TAB_AR = {
 };
 // ═══ ثيمات المنصّة الاحترافية (11 أسلوب تصميم كامل) × وضع ليل/نهار — v14.7 ═══
 const THEME_META = {
-  restpro: { name: 'مِثقال (المعتمد)', desc: 'كحلي وذهبي فاخر', color: '#10294A' },
+  restpro: { name: 'مُكتسَب (المعتمد)', desc: 'كحلي وذهبي فاخر', color: '#10294A' },
   mizan: { name: 'ميزان 2', desc: 'واضح احترافي', color: '#C9A24D' },
   royal: { name: 'الملكي الذهبي', desc: 'فخم دافئ', color: '#A87D28' },
   glass: { name: 'الزجاجي الشفّاف', desc: 'بطاقات ضبابية', color: '#2E7CC4' },
@@ -2777,37 +2907,38 @@ const normTheme = (t) => THEME_META[t] ? t : (THEME_LEGACY[t] || 'restpro');
 const readMode = () => { try { return localStorage.getItem('rms8:mode') === 'dark' ? 'dark' : 'light'; } catch { return 'light'; } };
 // v42.1: «RESTAURANT PRO» يرث مكوّنات «ميزان 2» ويبدّل الألوان والقائمة والعلامة
 const themeCls = (t, mode) => { const n = normTheme(t); return 'rms mode-' + (mode === 'dark' ? 'dark' : 'light') + (n === 'restpro' ? ' thm-mizan thm-restpro' : ' thm-' + n); };
-// v46.8: الهوية «مِثقال — Mithqal» وشعارها؛ الترجمة الإنجليزية في i18n.js (TX)
-const BRAND = 'مِثقال', BRAND_SUB = 'منصة واحدة، لكل الأعمال ومن أي مكان', BRAND_AR = 'مِثقال — Mithqal';
-// v50.3 — هوية MITHQAL ERP الرسمية (حزمة الهوية المعتمدة من المالك 2026-11-19): رمز M كما هو بلا تعديل.
-// نسختان من الحزمة نفسها: «light» (كحلي + ذهبي — mithqal-symbol.svg) للخلفيات الفاتحة، و«dark» (ذهبي + أبيض — من mithqal-app-icon.svg) للكحلية.
-// الألوان من ملف التوكنات الموحّد brand/mithqal-brand-tokens.css (--mithqal-*) مع القيمة الرسمية احتياطًا.
+// v56.0 (إعادة التسمية): الهوية «مُكتسَب — Muktasab» (قرار المالك 2026-11-25، تحل محل «مُكتسَب»)؛ الترجمة الإنجليزية في i18n.js (TX)
+const BRAND = 'مُكتسَب', BRAND_SUB = 'منصة الأعمال الذكية', BRAND_AR = 'مُكتسَب — Muktasab';
+// v56.0 (إعادة التسمية) — رمز «مُكتسَب» (البوصلة، قرار المالك 2026-11-25): رأس شمالي ذهبي، وثلاثة رؤوس كحلية، ورؤوس قطرية خفيفة، ومركز مفرّغ
+// من الهندسة الموحّدة brand-geom.js (المصدر نفسه لملفات brand/logo). نسختان: «light» (كحلي + ذهبي) و«dark» (أبيض + ذهبي) للخلفيات الكحلية.
+// الألوان من ملف التوكنات الموحّد brand/mithqal-brand-tokens.css (--mithqal-*) مع القيمة الرسمية احتياطًا. لا تغيّره أي منشأة.
 const MQ = { navy: 'var(--mithqal-navy,#10294A)', gold: 'var(--mithqal-gold,#D9A83E)', white: 'var(--mithqal-white,#FFFFFF)', deep: 'var(--mithqal-deep-navy,#091A30)' };
+const MQ_SHAPES = mqSymbolShapes();
 const BrandSymbol = ({ variant = 'light', size = '100%' }) => {
-  const dark = variant === 'dark';
+  const dark = variant === 'dark', ink = dark ? MQ.white : MQ.navy, mid = 'mqh' + useId().replace(/[^a-zA-Z0-9_-]/g, '');
   return (
     <svg viewBox="0 0 100 100" width={size} height={size} aria-hidden="true" style={{ display: 'block' }} data-mq-symbol={variant}>
-      <g fill="none" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M18 82 L18 24 L50 55 L82 24 L82 82" stroke={dark ? MQ.gold : MQ.navy} strokeWidth="11" />
-        <path d="M50 55 L50 82" stroke={dark ? MQ.white : MQ.gold} strokeWidth={dark ? 8 : 11} />
-        <path d="M31 24 L50 42 L69 24" stroke={MQ.gold} strokeWidth="7" />
+      <defs><mask id={mid} maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100"><rect width="100" height="100" fill="#fff" /><circle cx={MQ_SHAPES.hole.cx} cy={MQ_SHAPES.hole.cy} r={MQ_SHAPES.hole.r} fill="#000" /></mask></defs>
+      <g mask={`url(#${mid})`}>
+        {MQ_SHAPES.minor.map((p, i) => <polygon key={'m' + i} points={mqPoints(p)} fill={ink} opacity={MQ_SHAPES.minorOpacity} />)}
+        {MQ_SHAPES.outer.map((p, i) => <polygon key={'o' + i} points={mqPoints(p)} fill={ink} />)}
+        {MQ_SHAPES.inner.map((p, i) => <polygon key={'i' + i} points={mqPoints(p)} fill={MQ.gold} />)}
       </g>
     </svg>);
 };
 // أيقونة التطبيق (مربع كحلي برمز ذهبي وأبيض) — مطابقة لـ mithqal-app-icon.svg
 const BRAND_MARK = () => <BrandSymbol variant="dark" size="72%" />;
-// الشعار الأفقي (رمز + MITHQAL + مثقال + ERP) بنص حيّ بخط الواجهة حتى يتشكّل العربي صحيحًا في كل المتصفحات.
+// الشعار الأفقي (رمز + MUKTASAB + مكتسب) بنص حيّ بخط الواجهة حتى يتشكّل العربي صحيحًا في كل المتصفحات.
 // lang: 'bi' ثنائي | 'ar' عربي | 'en' إنجليزي — كما في الحزمة. onDark: نسخة معكوسة للخلفية الكحلية (الرمز الداكن من الحزمة ونص أبيض).
 const BrandLockup = ({ lang = 'bi', onDark = false, height = 44 }) => {
   const ink = onDark ? MQ.white : MQ.navy;
   return (
-    <span className="mq-lockup" data-mq-lockup={lang} style={{ display: 'inline-flex', alignItems: 'center', gap: height * 0.22, height, direction: 'ltr' }} aria-label="MITHQAL ERP — مثقال">
+    <span className="mq-lockup" data-mq-lockup={lang} style={{ display: 'inline-flex', alignItems: 'center', gap: height * 0.22, height, direction: 'ltr' }} aria-label="Muktasab — مكتسب">
       <span style={{ width: height, height, flexShrink: 0 }}><BrandSymbol variant={onDark ? 'dark' : 'light'} /></span>
       <span style={{ display: 'flex', flexDirection: 'column', lineHeight: 1, gap: height * 0.1 }}>
-        {lang !== 'ar' && <span data-noi18n style={{ font: `800 ${height * 0.36}px/1 Manrope,var(--font-en,sans-serif)`, letterSpacing: height * 0.016, color: ink }}>MITHQAL</span>}
+        {lang !== 'ar' && <span data-noi18n style={{ font: `800 ${height * 0.36}px/1 Manrope,var(--font-en,sans-serif)`, letterSpacing: height * 0.016, color: ink }}>MUKTASAB</span>}
         <span style={{ display: 'flex', alignItems: 'baseline', gap: height * 0.16 }}>
-          {lang !== 'en' && <span data-noi18n lang="ar" dir="rtl" style={{ font: `700 ${lang === 'ar' ? height * 0.38 : height * 0.29}px/1.15 'IBM Plex Sans Arabic','Noto Sans Arabic',var(--font-ui,sans-serif)`, color: ink }}>مثقال</span>}
-          <span data-noi18n style={{ font: `700 ${height * 0.15}px/1 Manrope,var(--font-en,sans-serif)`, letterSpacing: height * 0.04, color: MQ.gold }}>ERP</span>
+          {lang !== 'en' && <span data-noi18n lang="ar" dir="rtl" style={{ font: `700 ${lang === 'ar' ? height * 0.38 : height * 0.29}px/1.15 'IBM Plex Sans Arabic','Noto Sans Arabic',var(--font-ui,sans-serif)`, color: ink }}>مكتسب</span>}
         </span>
       </span>
     </span>);
@@ -3343,7 +3474,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v55.0';
+const APP_VER = 'v56.0';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3401,6 +3532,11 @@ export { ErrorBoundary, logClientError, lockedLedgerChanged };
 export { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, saleRetUse, posReturnLoyDed };
 export { jeLive, jeOwner, canApproveJe, jeAutoSt, vatCloseLive, WF_DOCS, wfTiers, wfOn, wfRequired, poNeedsAppr, wfState, wfCanAct, wfApprove };   // v47.1 اعتماد القيد اليدوي
 export { gosiNewSched, gosiNewAuto };   // v47.2 الرواتب   // v46.8 مرتجع نقطة البيع   // v46.8: للاختبارات الوظيفية (حارس الإقفال)
+export { findDupClosings, clDayKey, clrKeyId, yearEndDates, yearEndNext, payFactor, POS_HOLD_MAX, posHolds, posHoldsSet, posHoldPut, posHoldRecall };
+export { rptPivot, rptTpl, RPT_TPL_ALIAS };
+export { tnRemember, tnHref, tnOkId, RD_DEF, RD_ROLE, roleDash, roleDashList, roleDashDefault };
+export { salesInvoiceHtml, gsearch, gsNorm, kbAction, KB_SHORTCUTS, GlobalSearch };
+export { TB_NEUTRAL, TB_TPL_INV, TB_TPL_RPT, TB_PAPER, TB_IMG_MAX, tbNorm, tenantBrand, tbCss, tbHeadHtml, tbLogo, tbImg };   // v56.0 هوية المنشأة   // v56.0 (GAP-002) الحارس المركزي لتكرار الإغلاق
 if (typeof window !== 'undefined' && !window.__mizanErrHook) {
   window.__mizanErrHook = true;
   window.addEventListener('error', (e) => logClientError(e.error || e.message, 'window'));
@@ -3466,7 +3602,7 @@ function PlatformApp() {
   const [auditFeed, setAuditFeed] = useState(null);
   const [needUpdate, setNeedUpdate] = useState(null);
   const [subLive, setSubLive] = useState('');
-  const [subDue, setSubDue] = useState(null);   // v51.8: تذكير التجديد لمسؤول المنشأة المشتركة (من خادم مِثقال)   // v51.7: حالة الاشتراك الفعلية من قاعدة المنشأة (platform/release.sub) — تظهر فور تغييرها من لوحة مِثقال
+  const [subDue, setSubDue] = useState(null);   // v51.8: تذكير التجديد لمسؤول المنشأة المشتركة (من خادم مُكتسَب)   // v51.7: حالة الاشتراك الفعلية من قاعدة المنشأة (platform/release.sub) — تظهر فور تغييرها من لوحة مُكتسَب
   const auditReader = !!me && (!!(ROLES[me.role] || {}).admin || roleHasTab(me, 'audit'));
   useEffect(() => { if (!me) return; let dead = false;
     const chk = async () => { const rel = (ROLES[me.role] || {}).admin ? ((await raiseRelease(me)) || (await loadRelease())) : await loadRelease();
@@ -3495,6 +3631,7 @@ function PlatformApp() {
   const [, setI18nTick] = useState(0);   // v50.2: إعادة رسم عند وصول حزمة الترجمة الكاملة
   useEffect(() => { const f = () => setI18nTick(t => t + 1); window.addEventListener('mz-i18n', f); return () => window.removeEventListener('mz-i18n', f); }, []);
   const toggleLang = () => setLang(l => { const n = l === 'en' ? 'ar' : 'en'; setLangGlobal(n); return n; });
+  const [gsOpen, setGsOpen] = useState(false), [gsHelp, setGsHelp] = useState(false);   // v56.0 البحث العام والاختصارات
   const toggleSide = () => setSideCol(v => { const n = !v; try { localStorage.setItem('rms8:sideCol', n ? '1' : '0'); } catch { } return n; });
   const [mode, setMode] = useState(() => { try { return localStorage.getItem('rms8:mode') === 'dark' ? 'dark' : 'light'; } catch { return 'light'; } });
   const [tour, setTour] = useState(false);
@@ -4097,6 +4234,9 @@ function PlatformApp() {
       // v33.2: الحارس المركزي لتكرار الفواتير — يُفحص على أحدث نسخة سحابية (يمنع النقرتين والتصادم بين جهازين)
       const dups = findDupInvoices(latest, next);
       if (dups.length) { lastWriteErr.current = 'dup'; lastDupMsg.current = dups[0].msg + (dups.length > 1 ? ' (+' + (dups.length - 1) + ' أخرى)' : ''); return false; }
+      // v56.0 (GAP-002): إغلاقان لفرع ويوم — على أحدث نسخة سحابية (جهازان/طابور دون اتصال)
+      const dcl = findDupClosings(latest, next);
+      if (dcl.length) { lastWriteErr.current = 'dupclose'; lastDupMsg.current = dcl[0].msg; return false; }
       // v27.1: على مسار الفرع لا يُكتب المستند المركزي — أي سجل جديد بلا فرع أو لفرع خارج نطاقي كان يضيع بصمت
       // (يظهر محليًا ثم يختفي بعد إعادة التحميل). نرفضه صراحةً.
       if (!ctx.central) {
@@ -4183,6 +4323,7 @@ function PlatformApp() {
       // v27.1: رسالة تُسمّي السبب — رفض صلاحيات الخادم (عضوية الحساب لا تحمل فرعه) يختلف تمامًا عن انقطاع الشبكة
       const k = lastWriteErr.current;
       if (k === 'dup') say('لم يُحفظ — ' + (/^(سند|قيد|سلفة|صرف) مطابق/.test(lastDupMsg.current) ? '' : 'فاتورة مكررة: ') + lastDupMsg.current, 'no');
+      else if (k === 'dupclose') say('لم يُحفظ — ' + lastDupMsg.current, 'no');
       else if (k === 'neg') say('لم يُحفظ — ' + lastNegMsg.current, 'no');
       else if (k === 'quota') say(QUOTA_MSG(), 'no');
       else if (k === 'locked') say('لم يُحفظ: هذا التعديل يغيّر قيودًا في شهر مقفل محاسبيًا 🔒 — الفتح الاستثنائي من المحاسبة ← الإقفال', 'no');
@@ -4227,6 +4368,12 @@ function PlatformApp() {
       { actionType: 'create', targetType: 'journal_entry', need: 'post', title: 'أنشأ القيود الدورية المستحقة تلقائيًا', details: 'تشغيل تلقائي' })
       .then(ok => { if (ok && n) say('أُنشئ ' + n + ' قيد دوري تلقائيًا' + (direct ? ' ورُحّل ✓' : ' — بانتظار الاعتماد')); });
   }, [boot, me, ops.jeRecurring, subLive]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // v56.0 (GAP-003): مدير المنصة يطابق قفل الفترات على الخادم مرة لكل جلسة (القواعد ترفض غير المدير فلا ضرر من المحاولة)
+  useEffect(() => {
+    if (boot !== 'ready' || !me || me.role !== 'system_admin' || !orgNow.current) return;
+    let seen = false; try { seen = !!sessionStorage.getItem('mq:fprec'); sessionStorage.setItem('mq:fprec', '1'); } catch { }
+    if (!seen) fpReconcile(orgNow.current).catch(() => null);
+  }, [boot, me]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const commitOrg = useCallback(async (mutator, log) => {
     // v15.12: البوابة المركزية — نفس الحارس على كتابات الإعدادات/المنشأة.
@@ -4247,7 +4394,9 @@ function PlatformApp() {
     // v9: كل تعديل للمنشأة يجدّد الدليل العام المنزوع الأسرار الذي تقرؤه أجهزة الفروع
     try { await cloud.set(KEYS.dir, dirOf(next)); } catch { }
     // v49.0: قفل الفترات يُنسخ إلى الخادم متى فُعّلت السجلات المستقلة (أو عند تفعيلها)
-    if (fjOn(next) && (lockedThru(org) !== lockedThru(next) || !fjOn(org))) _fjChain = _fjChain.then(() => fpSync(next)).catch(() => null);
+    // v56.0 (GAP-003): كان النسخ مشروطًا بـ finRecords (مُطفأة افتراضيًا) فلا يوجد قفل على الخادم في التشغيل الافتراضي
+    //   ويبقى finOpen() صحيحًا دائمًا. الآن يُنسخ متى فُعّلت أي سجلات مستقلة (الإغلاقات مفعّلة افتراضيًا منذ v46.9).
+    if (fpOn(next) && (lockedThru(org) !== lockedThru(next) || !fpOn(org))) _fjChain = _fjChain.then(() => fpSync(next)).catch(() => null);
     snap.current.org = JSON.stringify(next);
     setOrg(next);
     if (log && me) await appendAudit({ id: uid('lg'), timestamp: nowISO(), at: Date.now(), userName: me.name, userRole: me.role, userRoleLabel: (ROLES[me.role] || {}).ar || me.role, ...log });
@@ -4499,12 +4648,12 @@ function PlatformApp() {
         {drawer && <div className="mask" style={{ zIndex: 55 }} onClick={() => setDrawer(false)} />}
         <aside className={'side' + (drawer ? ' open' : '')}>
           <div className="brand">
-            {/* v47.2 (قرار المالك): شعار النظام «مِثقال» ثابت، وشعار الشركة يرافق اسمها */}
+            {/* v47.2 (قرار المالك): شعار النظام «مُكتسَب» ثابت، وشعار الشركة يرافق اسمها */}
             <div className="rp-mark">{BRAND_MARK()}</div>
             <div className="rp-brand">
               <span className="rp-lockup"><BrandLockup lang={isEn() ? 'en' : 'bi'} onDark height={46} /></span>
               <span className="rp-tag">{TX(BRAND_SUB)}</span>
-              {(org.company.name || org.company.logoUrl) && <span className="rp-co">{org.company.logoUrl && <img className="co-logo" src={org.company.logoUrl} alt="" />}{org.company.name}</span>}
+              {(() => { const TB = tenantBrand(org, { lang: isEn() ? 'en' : 'ar' }); const lg = TB.logoAlt || TB.logo; return TB.name || lg ? <span className="rp-co" data-tenant-side>{lg && <img className="co-logo" src={lg} alt="" />}{TB.name}</span> : null; })()}
             </div>
             <button className="btn sm gh sideclose" onClick={() => setDrawer(false)} title={TX('إخفاء القائمة')}>
               <X size={18} />
@@ -4564,8 +4713,13 @@ function PlatformApp() {
               </button>
             )}
             <span className="toplogo-mark rp-mark" style={{ width: 30, height: 30, fontSize: 15 }}>{BRAND_MARK()}</span>
-            <h1 className="toptitle">{safeTab === 'home' && org.company.name && org.company.logoUrl && <img className="co-logo co-logo-t" src={org.company.logoUrl} alt="" />}{safeTab === 'home' ? (org.company.name || TX('الرئيسية')) : TX(HR_TABS.includes(safeTab) ? 'الموارد البشرية' : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || ''))}</h1>
-            <span className="verbadge" style={{ fontSize: 11, color: '#10294A', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>{APP_VER}</span>
+            <h1 className="toptitle">{safeTab === 'home' ? TX('الرئيسية') : TX(HR_TABS.includes(safeTab) ? 'الموارد البشرية' : (NAV.find(n => n.id === safeTab)?.ar || TAB_AR[safeTab] || ''))}</h1>
+            <button className="btn sm gh gs-btn" onClick={() => { setGsHelp(false); setGsOpen(true); }} title={TX('البحث العام') + ' (Ctrl+K)'} aria-label={TX('البحث العام')} data-gs-open><Search size={16} /><span className="gs-hint">{TX('بحث')}<kbd>Ctrl K</kbd></span></button>
+            <GlobalSearch open={gsOpen} help={gsHelp} onClose={() => setGsOpen(false)} org={org} ops={scoped} allowed={allowedTabs} screens={NAV.map(n => ({ id: n.id, label: TX(n.ar) }))} setTab={setTab} />
+            <KbShortcuts onAction={(a) => { if (a === 'search') { setGsHelp(false); setGsOpen(true); } else if (a === 'help') { setGsHelp(true); setGsOpen(true); } else if (a === 'home') setTab('home'); else if (a === 'back') goBackTab(); else if (a === 'side') toggleSide(); else if (a === 'lang') toggleLang();
+              else if (a === 'mode') { const mv = mode === 'dark' ? 'light' : 'dark'; setMode(mv); try { localStorage.setItem('rms8:mode', mv); } catch { } } }} />
+            <TenantChip org={org} dark={mode === 'dark'} />
+            <span className="verbadge" style={{ fontSize: 11, color: 'var(--mithqal-navy,#10294A)', background: 'var(--mint)', fontFamily: 'monospace', flexShrink: 0, padding: '3px 8px', borderRadius: 6, fontWeight: 700, alignSelf: 'center' }}>{APP_VER}</span>
             <div className="topstatus">
               <div className="row avrow" style={{ gap: 0 }}>
                 {online.slice(0, 4).map((p, i) => (
@@ -4875,8 +5029,113 @@ const GateCover = () => (
   <div className="gate-cover mq-cover" role="img" aria-label={TX(BRAND_AR) + ' — ' + TX(BRAND_SUB)}>
     <div className="mq-cover-in"><BrandLockup lang="bi" height={86} /><div className="mq-cover-sub" dir="auto">{TX(BRAND_SUB)}</div></div>
   </div>);
+/* ============================================================
+   v56.0 — البحث العام (الشريط العلوي، Ctrl/⌘+K أو «/»)
+   يبحث في الشاشات المسموحة للمستخدم، وفي السجلات التي يملك شاشتها فقط (الصلاحية = التبويب نفسه):
+   فواتير الموردين، فواتير المبيعات، السندات، القيود اليدوية، الإغلاقات، جهات الاتصال، الموظفين، الأصناف والمنتجات.
+   النتيجة تفتح المستند في نافذة الاستعراض (peekDoc) أو تنتقل لشاشته. لا يقرأ إلا ما في يد الجلسة (scoped). دالة نقية.
+   ============================================================ */
+const gsNorm = (v) => normDigits(String(v == null ? '' : v)).toLowerCase().replace(/[ً-ٰٟـ]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/\s+/g, ' ').trim();
+const GS_KIND = { screen: 'شاشة', pinv: 'فاتورة مورد', sinv: 'فاتورة مبيعات', cv: 'سند', je: 'قيد', closing: 'إغلاق', party: 'جهة', emp: 'موظف', item: 'صنف', prod: 'منتج' };
+function gsearch(org, ops, allowed, screens, q, max = 30) {
+  const Q = gsNorm(q); if (Q.length < 2) return [];
+  const can = (...t) => t.some(x => (allowed || []).includes(x));
+  const out = [];
+  const add = (kind, label, sub, go, hay) => { const H = gsNorm([label, sub, hay].filter(Boolean).join(' ')); const i = H.indexOf(Q); if (i < 0) return;
+    out.push({ kind, label: String(label || ''), sub: String(sub || ''), go, score: (gsNorm(label).startsWith(Q) ? 0 : gsNorm(label).includes(Q) ? 1 : 2) }); };
+  (screens || []).filter(x => (allowed || []).includes(x.id)).forEach(x => add('screen', x.label, '', { tab: x.id }));
+  const O = ops || {}, G = org || {};
+  if (can('purchasing', 'acct')) (O.invoices || []).forEach(i => add('pinv', (i.invoiceNo || '—') + ' — ' + (i.supplierName || ''), (i.date || '') + ' · ' + money(Math.abs(i.amount || 0)), { peek: { inv: i.id }, tab: 'purchasing' }));
+  if (can('sales', 'acct')) (O.salesInvoices || []).forEach(x => add('sinv', (x.no || '—') + ' — ' + ((x.buyer || {}).name || ''), (x.date || '') + ' · ' + money(x.total || 0), { peek: { si: x.id }, tab: 'sales' }));
+  if (can('acct', 'treasury')) (O.cashVouchers || []).forEach(v => add('cv', (v.no || '—') + (v.note ? ' — ' + v.note : ''), (v.date || '') + ' · ' + money(v.amount || 0), { peek: { cv: v.id }, tab: 'acct' }, v.party || v.partyName));
+  if (can('acct')) (O.journalManual || []).forEach(j => add('je', j.title || 'قيد يدوي', (j.date || '') + (j.no ? ' · ' + j.no : ''), { peek: { e: 'man:' + j.id }, tab: 'acct' }, j.no));
+  if (can('closing', 'approve')) (O.closings || []).forEach(c => add('closing', (c.closingNo || c.transferReferenceNo || c.id) + ' — ' + (c.branchName || ''), (c.date || '') + ' · ' + money(c.totalRevenue || 0), { tab: 'closing' }, c.date));
+  if (can('partners', 'purchasing')) [...(G.suppliers || []), ...(G.partners || []), ...(G.customAccounts || [])].forEach(x => x && x.name && add('party', x.name, x.code || x.phone || '', { tab: 'partners' }, [x.code, x.phone, x.taxNumber].join(' ')));
+  if (can('people')) (G.employees || []).forEach(e => e && e.name && add('emp', e.name, e.jobTitle || e.code || '', { tab: 'people' }, e.code));
+  if (can('inv')) { (G.items || []).forEach(x => x && x.name && add('item', x.name, x.unit || '', { tab: 'inv' }, x.code || x.barcode)); (G.products || []).forEach(x => x && x.name && add('prod', x.name, money(x.sellPrice || 0), { tab: 'inv' }, x.barcode)); }
+  return out.sort((a, b) => a.score - b.score || (a.kind === 'screen' ? -1 : 0) - (b.kind === 'screen' ? -1 : 0)).slice(0, max);
+}
+/* v56.0 — اختصارات لوحة المفاتيح (لا تعمل أثناء الكتابة في حقل، عدا Ctrl/⌘+K وEscape) */
+const KB_SHORTCUTS = [['Ctrl/⌘ + K', 'البحث العام'], ['/', 'البحث العام'], ['?', 'قائمة الاختصارات'], ['Alt + H', 'الرئيسية'], ['Alt + B', 'رجوع للشاشة السابقة'],
+  ['Alt + M', 'طي/توسيع القائمة الجانبية'], ['Alt + D', 'الوضع الفاتح/الداكن'], ['Alt + L', 'العربية/الإنجليزية'], ['Esc', 'إغلاق النافذة']];
+const kbTyping = (el) => !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName || ''));
+/** يحوّل حدث لوحة المفاتيح إلى أمر (دالة نقية قابلة للاختبار) — '' إن لم يكن اختصارًا */
+function kbAction(e) {
+  const k = String(e.key || '').toLowerCase(), code = String(e.code || '');
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && k === 'k') return 'search';
+  if (kbTyping(e.target)) return '';
+  if (e.altKey && !e.ctrlKey && !e.metaKey) return ({ KeyH: 'home', KeyB: 'back', KeyM: 'side', KeyD: 'mode', KeyL: 'lang' })[code] || '';
+  if (e.ctrlKey || e.metaKey || e.altKey) return '';
+  if (k === '/') return 'search';
+  if (k === '?') return 'help';
+  return '';
+}
+function KbShortcuts({ onAction }) {
+  const ref = useRef(onAction); ref.current = onAction;
+  useEffect(() => { const h = (e) => { const a = kbAction(e); if (!a) return; e.preventDefault(); ref.current(a); }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, []);
+  return null;
+}
+function GlobalSearch({ open, onClose, org, ops, allowed, screens, setTab, help }) {
+  const [q, setQ] = useState(''); const [i, setI] = useState(0); const inp = useRef(null);
+  useEffect(() => { if (open) { setQ(''); setI(0); setTimeout(() => inp.current && inp.current.focus(), 20); } }, [open]);
+  // Esc يغلق النافذة في الوضعين (نافذة الاختصارات بلا حقل يلتقطه)
+  useEffect(() => { if (!open) return; const h = (e) => { if (e.key === 'Escape') { e.preventDefault(); onClose(); } }; window.addEventListener('keydown', h); return () => window.removeEventListener('keydown', h); }, [open, onClose]);
+  const R = useMemo(() => open && !help ? gsearch(org, ops, allowed, screens, q) : [], [open, help, org, ops, allowed, screens, q]);
+  if (!open) return null;
+  const go = (r) => { if (!r) return; onClose(); if (r.go.tab) setTab(r.go.tab); if (r.go.peek) setTimeout(() => peekDoc(r.go.peek), 60); };
+  const key = (e) => { if (e.key === 'Escape') onClose(); else if (e.key === 'ArrowDown') { e.preventDefault(); setI(x => Math.min(R.length - 1, x + 1)); } else if (e.key === 'ArrowUp') { e.preventDefault(); setI(x => Math.max(0, x - 1)); } else if (e.key === 'Enter') go(R[i]); };
+  return createPortal(<div className="gs-back" onMouseDown={onClose} data-gsearch>
+    <div className="gs-box" role="dialog" aria-modal="true" aria-label={help ? 'اختصارات لوحة المفاتيح' : 'البحث العام'} onMouseDown={e => e.stopPropagation()}>
+      {help ? <><div className="gs-h">اختصارات لوحة المفاتيح</div>
+        <table className="gs-kb" data-kbhelp><tbody>{KB_SHORTCUTS.map(([k, t]) => <tr key={k + t}><td><kbd>{k}</kbd></td><td>{t}</td></tr>)}</tbody></table>
+        <button className="btn sm gh" onClick={onClose} style={{ marginTop: 8 }}>إغلاق</button></>
+      : <><input ref={inp} className="inp gs-in" value={q} onChange={e => { setQ(e.target.value); setI(0); }} onKeyDown={key} placeholder="ابحث عن شاشة، فاتورة، قيد، إغلاق، مورد، موظف، صنف…" aria-label="البحث العام" data-gs-input />
+        <div className="gs-list" role="listbox">{q.trim().length < 2 ? <div className="gs-empty">اكتب حرفين على الأقل · ↑↓ للتنقل · Enter للفتح · Esc للإغلاق</div>
+          : !R.length ? <div className="gs-empty" data-gs-none>لا نتائج ضمن صلاحياتك</div>
+          : R.map((r, k) => <button key={k} type="button" role="option" aria-selected={k === i} className={'gs-r' + (k === i ? ' on' : '')} onMouseEnter={() => setI(k)} onClick={() => go(r)} data-gs-kind={r.kind}>
+            <span className="gs-k">{GS_KIND[r.kind]}</span><span className="gs-l">{r.label}</span>{r.sub && <span className="gs-s num">{r.sub}</span>}</button>)}</div></>}
+    </div></div>, document.body);
+}
+/* v56.0 — موضع هوية المنشأة في الشريط العلوي + محدد المنشأة.
+   كل منشأة نشر/مشروع Firebase مستقل؛ الانتقال = إعادة تحميل نظيفة إلى ?t=<id> (يتحقق منه سجل المنشآت في tenant-boot)
+   بجلسة دخول مستقلة وتخزين محلي معزول (nsStorage) — فلا تنتقل بيانات ولا إعدادات ولا شعارات بين المنشآت.
+   قائمة «المنشآت على هذا الجهاز» (mq:tenants — خارج نطاق العزل عمدًا) تحفظ المعرّف والاسم فقط. */
+const MQ_TENANTS_KEY = 'mq:tenants';
+const tnOkId = (v) => typeof v === 'string' && /^[a-z0-9][a-z0-9-]{1,39}$/.test(v);
+/** يضيف/يحدّث منشأة في قائمة الجهاز (الأحدث أولًا، بحد 12) — دالة نقية */
+function tnRemember(list, id, name) {
+  if (!tnOkId(id)) return Array.isArray(list) ? list : [];
+  const L = (Array.isArray(list) ? list : []).filter(x => x && tnOkId(x.id) && x.id !== id);
+  return [{ id, name: String(name || '').replace(/[<>]/g, '').slice(0, 80) }, ...L].slice(0, 12);
+}
+/** رابط الانتقال إلى منشأة — نفس المسار مع ?t=<id> فقط (لا يقبل إعدادًا من الرابط) */
+function tnHref(loc, id) { if (!tnOkId(id)) return ''; const base = String((loc && loc.pathname) || '/'); return base + '?t=' + encodeURIComponent(id); }
+const tnList = () => { try { const a = JSON.parse(localStorage.getItem(MQ_TENANTS_KEY) || '[]'); return Array.isArray(a) ? a.filter(x => x && tnOkId(x.id)) : []; } catch { return []; } };
+function TenantChip({ org, dark }) {
+  const TB = tenantBrand(org, { lang: isEn() ? 'en' : 'ar' });
+  const [open, setOpen] = useState(false); const [code, setCode] = useState(''); const [list, setList] = useState([]);
+  useEffect(() => { try { const n = tnRemember(tnList(), TENANT.id, TB.name || TENANT.name); localStorage.setItem(MQ_TENANTS_KEY, JSON.stringify(n)); setList(n); } catch { } }, [TB.name]);   // eslint-disable-line react-hooks/exhaustive-deps
+  if (!TB.name && !TB.logo) return null;
+  const lg = dark ? (TB.logoAlt || TB.logo) : TB.logo;
+  const go = (id) => { const h = tnHref(window.location, id); if (h && id !== TENANT.id) window.location.href = h; };
+  const others = list.filter(x => x.id !== TENANT.id);
+  return <span className="tn-wrap">
+    <button type="button" className="tn-chip" data-tenant-chip title={TB.name} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(v => !v)} style={{ '--tbp': TB.colors.primary }}>
+      {lg ? <img src={lg} alt="" /> : <span className="tn-ini">{(TB.name || '').slice(0, 1)}</span>}<span className="tn-name">{TB.name}</span><ChevronDown size={13} /></button>
+    {open && <div className="tn-menu" role="menu" data-tenant-menu onMouseLeave={() => setOpen(false)}>
+      <div className="tn-cur"><b>{TB.name}</b><span className="num">{TENANT.id}</span></div>
+      {others.length > 0 && <div className="tn-sec">{TX('المنشآت على هذا الجهاز')}</div>}
+      {others.map(x => <button key={x.id} type="button" role="menuitem" className="tn-it" onClick={() => go(x.id)} data-tenant-go={x.id}>{x.name || x.id}<span className="num">{x.id}</span></button>)}
+      <div className="tn-sec">{TX('فتح منشأة أخرى')}</div>
+      <form className="row" style={{ gap: 6 }} onSubmit={e => { e.preventDefault(); go(code.trim().toLowerCase()); }}>
+        <input className="inp n" dir="ltr" value={code} onChange={e => setCode(e.target.value)} placeholder="tenant-id" aria-label={TX('رمز المنشأة')} data-tenant-code style={{ flex: 1, height: 34 }} />
+        <button className="btn sm pri" disabled={!tnOkId(code.trim().toLowerCase())}>{TX('انتقال')}</button></form>
+      <div className="tn-note">{TX('الانتقال يفتح المنشأة بدخول مستقل — لا تنتقل أي بيانات بين المنشآت')}</div>
+    </div>}
+  </span>;
+}
 function BrandHead({ title, sub, logo }) {
-  // v47.2: العلامة أعلاه دائمًا شعار النظام «مِثقال»؛ شعار الشركة (logo) يظهر بجانب اسمها في العنوان
+  // v47.2: العلامة أعلاه دائمًا شعار النظام «مُكتسَب»؛ شعار الشركة (logo) يظهر بجانب اسمها في العنوان
   return (
     <div className="bhead" style={{ textAlign: 'center', marginBottom: 24 }}>
       <div className="bhead-logo mq-bhead" style={{ margin: '0 auto 14px', width: 'fit-content' }}><BrandLockup lang={isEn() ? 'en' : 'bi'} height={52} /></div>
@@ -5092,8 +5351,8 @@ function FbGate({ css, theme, fbLogin, fbMfa, fbFirstSetup, notice }) {
             <span className="badge b-mint"><Lock size={10} />مصادقة سحابية مفعّلة</span>
           </div>
           <div className="card">
-            {notice && <div style={{ border: '1px solid rgba(200,162,74,.45)', background: 'rgba(200,162,74,.10)', color: 'var(--brass-l)', borderRadius: 10, padding: '10px 12px', marginBottom: 12, fontSize: 12, lineHeight: 1.8, textAlign: 'center' }}>{notice}</div>}
-            {setup && <div style={{ border: '1px solid rgba(200,162,74,.4)', background: 'rgba(200,162,74,.08)', color: 'var(--brass-l)', borderRadius: 10, padding: '9px 12px', marginBottom: 12, fontSize: 11.5, lineHeight: 1.7 }}>
+            {notice && <div style={{ border: '1px solid rgba(200,162,74,.45)', background: 'rgba(200,162,74,.10)', color: 'var(--brass-t)', borderRadius: 10, padding: '10px 12px', marginBottom: 12, fontSize: 12, lineHeight: 1.8, textAlign: 'center' }}>{notice}</div>}
+            {setup && <div style={{ border: '1px solid rgba(200,162,74,.4)', background: 'rgba(200,162,74,.08)', color: 'var(--brass-t)', borderRadius: 10, padding: '9px 12px', marginBottom: 12, fontSize: 11.5, lineHeight: 1.7 }}>
               الإعداد الأول (مرة واحدة بعد الترقية): أدخل بريد المالك وكلمة سر جديدة — يُنشأ حساب المصادقة وتصبح مديرًا للمنصة.
             </div>}
             {mfa ? (<>
@@ -5313,13 +5572,13 @@ function Gate({ css, org, onLogin, online, theme, notice }) {
       <style dangerouslySetInnerHTML={{ __html: css }} />
       <div className="gate has-cover"><GateCover />
         <div className="gate-c">
-          <BrandHead title={org.company?.name || TX(BRAND)} sub={TX(BRAND_AR) + ' — ' + TX(BRAND_SUB)} logo={org.company?.logoUrl} />
+          <BrandHead title={org.company?.name || TX(BRAND)} sub={TX(BRAND_AR) + ' — ' + TX(BRAND_SUB)} logo={tenantBrand(org).logo} />
           <div className="row" style={{ justifyContent: 'center', marginBottom: 16 }}>
             <span className="badge b-mint"><span className="dot" />{online.length} متصل الآن</span>
             <span className="badge b-dim"><Lock size={10} />بيانات مشتركة ومؤمّنة</span>
           </div>
           <div className="card">
-            {notice && <div style={{ border: '1px solid rgba(200,162,74,.45)', background: 'rgba(200,162,74,.10)', color: 'var(--brass-l)', borderRadius: 10, padding: '10px 12px', marginBottom: 12, fontSize: 12, lineHeight: 1.8, textAlign: 'center' }}>{notice}</div>}
+            {notice && <div style={{ border: '1px solid rgba(200,162,74,.45)', background: 'rgba(200,162,74,.10)', color: 'var(--brass-t)', borderRadius: 10, padding: '10px 12px', marginBottom: 12, fontSize: 12, lineHeight: 1.8, textAlign: 'center' }}>{notice}</div>}
             {(hasPinUsers || mode === 'pin') && (
               <div className="loginseg">
                 <button type="button" className={'loginseg-b' + (mode === 'pass' ? ' on' : '')} onClick={() => { setMode('pass'); setErr(''); }}><Lock size={13} />كلمة السر</button>
@@ -6113,7 +6372,8 @@ const prevMonthOf = (td) => { const [y, m] = td.split('-').map(Number); const d 
 function payrollAccrualApply(d, org, month) {
   if ((d.ledgerEntries || []).some(x => x.kind === 'salary_accrual' && x.month === month)) return { next: d, entries: [] };
   if (periodLocked(org, month + '-28')) return { next: d, entries: [] };
-  const emps = (org.employees || []).filter(e => e.isActive !== false && (org.branches || []).some(b => b.id === e.branchId));
+  // v56.0: المنتهية خدمته خلال الشهر يُستحق له ما خدمه منه (payFactor) — كان يُستبعد كليًا
+  const emps = (org.employees || []).filter(e => (e.isActive !== false || String(e.endDate || '') >= month + '-01') && (org.branches || []).some(b => b.id === e.branchId));
   const rows = payrollRowsOf(org, d.advances, emps, month);
   const entries = rows.filter(r => r.gross > 0).map(r => ({ id: 'le_acc_' + r.e.id + '_' + month, partnerKey: 'emp:' + r.e.id, date: month + '-28', month, kind: 'salary_accrual',
     desc: 'استحقاق راتب شهر ' + month, src: 'salary', debit: 0, credit: r.gross, auto: true }));
@@ -7143,7 +7403,7 @@ const FA_R2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 const FA_DIV = (a, b) => Math.abs(Number(b) || 0) < 0.005 ? null : a / b;
 const FA_SHIFT = (d, k, unit) => { const x = new Date(d + 'T00:00:00Z'); if (unit === 'y') x.setUTCFullYear(x.getUTCFullYear() + k); else x.setUTCDate(x.getUTCDate() + k); return x.toISOString().slice(0, 10); };
 const FA_DAYS = (a, b) => Math.round((new Date(b + 'T00:00:00Z') - new Date(a + 'T00:00:00Z')) / 86400000) + 1;
-/** تصنيف حسابات المركز المالي حسب دليل مثقال */
+/** تصنيف حسابات المركز المالي حسب دليل مُكتسَب */
 const FA_CLS = { cash: c => /^1[12]/.test(c), ar: c => /^13/.test(c), inv: c => /^160/.test(c), fixed: c => /^17/.test(c), curAsset: c => /^1/.test(c) && !/^17/.test(c) };
 /** لقطة مالية لفترة: المركز المالي في نهايتها وبدايتها + قائمة الدخل للفترة + التدفق التشغيلي (طريقة مباشرة تقريبية) */
 function faSnap(A, from, to, bf) {
@@ -7249,7 +7509,7 @@ function finAnalyze(org, ops, opts = {}, A0) {
       liabilities: S.B.liab.close, payables: S.B.ap.close, equity: S.B.eq.close, operatingCashFlow: S.ocf, balanced: !!S.T.balanced },
     ratios };
 }
-/* ===== v53.7 — مقترحات Claude (موصل MCP بكتابة مشروطة بالاعتماد): Claude يقترح، ومسؤول النظام يعتمد في مثقال فيُنفَّذ بالحفظ العادي =====
+/* ===== v53.7 — مقترحات Claude (موصل MCP بكتابة مشروطة بالاعتماد): Claude يقترح، ومسؤول النظام يعتمد في مُكتسَب فيُنفَّذ بالحفظ العادي =====
    الأنواع: journal (قيد يومية) · reclass (إعادة تصنيف حساب فواتير مصروفات) · expinv (فواتير مصروفات/مشتريات عبر مسار استيراد Excel نفسه).
    الدوال نقية: يستعملها الخادم للتحقق عند الاقتراح، والتطبيق عند الاعتماد على البيانات الحية — فالنتيجة واحدة. */
 const MCP_KINDS = { journal: 'قيد يومية', reclass: 'إعادة تصنيف فواتير', expinv: 'فواتير مصروفات ومشتريات' };
@@ -7837,7 +8097,7 @@ function DocPeekHost({ org, ops }) {
     </Modal>);
 }
 
-function printSalesInvoice(org, x, orig) {
+function salesInvoiceParts(org, x, orig) {
   const ent = entityById(org, x.entityId);
   const seller = ent.name || ((org.company || {}).name) || '', svat = ent.taxNumber || '', scr = ent.commercialReg || '';
   const sAddr = ent.primary ? ((org.company || {}).address || '') : (ent.address || '');
@@ -7850,7 +8110,7 @@ function printSalesInvoice(org, x, orig) {
   const body = `
     <div class="box" style="display:flex;justify-content:space-between;align-items:flex-start;gap:18px">
       <div style="line-height:1.9">
-        <div style="font-size:15px;font-weight:800;color:#10294A">${title}</div>
+        <div style="font-size:15px;font-weight:800;color:var(--tb-p,#1F2A37)">${title}</div>
         <div style="margin-top:8px"><b>البائع:</b> ${_xe(seller)} · الرقم الضريبي: ${_xe(svat || '—')}${scr ? ' · س.ت ' + _xe(scr) : ''}</div>
         ${sAddr ? '<div>العنوان: ' + _xe(sAddr) + '</div>' : ''}
         <div style="margin-top:6px">الرقم: <b>${_xe(x.no)}</b> · التاريخ: <span class="n">${x.date}${x.time ? ' ' + x.time : ''}</span>${x.terms === 'credit' && !cr && x.dueDate ? ' · الاستحقاق: <span class="n">' + (x.dueDate || '') + '</span>' : ''}</div>
@@ -7868,7 +8128,16 @@ function printSalesInvoice(org, x, orig) {
       </tbody>
     </table>
     <div class="box" style="font-size:9.5px;color:#888">التسلسل في السجل: ${x.icv} · البصمة الرقمية: <span style="direction:ltr;unicode-bidi:embed">${x.hash ? x.hash.slice(0, 32) + '…' : ''}</span></div>`;
-  return printA4(org, title + ' ' + x.no, 'البائع: ' + seller + (svat ? ' · الرقم الضريبي: ' + svat : ''), body);
+  return { title: title + ' ' + x.no, sub: 'البائع: ' + seller + (svat ? ' · الرقم الضريبي: ' + svat : ''), body };
+}
+/** v56.0: HTML الفاتورة كاملًا بقالب المنشأة (classic/modern/compact) ولون فرعها — دالة نقية للطباعة والاختبار */
+function salesInvoiceHtml(org, x, orig) {
+  const P = salesInvoiceParts(org, x, orig), B = tenantBrand(org, { branchId: x.branchId });
+  return rptShell(org, P.title, P.sub, P.body, { invTpl: B.invoiceTpl, branchId: x.branchId });
+}
+function printSalesInvoice(org, x, orig) {
+  const w = openDocWin('width=900,height=1000'); if (!w) return false;
+  w.document.write(salesInvoiceHtml(org, x, orig)); w.document.close(); setTimeout(() => { w.focus(); w.print(); }, 400); return true;
 }
 /* SalesInvoices: نُقل إلى mods/pos/SalesInvoices.jsx (تحميل كسول) */
 
@@ -8159,6 +8428,9 @@ function useSecNav() {
    groups: [{ id, ar, items: [{ id, ar, icon, badge, sub }] }] — sub: عنوان فرعي داخل القائمة (اختياري) */
 function OdooBar({ groups, cur, onPick, extra, sw }) {
   const [open, setOpen] = useState(null);
+  // v56.0 (DESIGN-V56-008): على الجوال الشريط سطر قابل للتمرير — القسم الحالي يُمرَّر ليظهر
+  const obRef = useRef(null);
+  useEffect(() => { const c = obRef.current; if (!c || c.scrollWidth <= c.clientWidth + 2) return; const el = c.querySelector('.ob-it.on'); if (el && el.scrollIntoView) { try { el.scrollIntoView({ inline: 'center', block: 'nearest' }); } catch { } } }, [cur]);
   const [vars, setVars] = useState({});
   const [pos, setPos] = useState(null);   // القائمة تُرسم في جذر الصفحة (portal) لتعلو كل البطاقات، بموضع الزر
   const place = (el) => { if (!el) return; const r = el.getBoundingClientRect(), W = window.innerWidth;
@@ -8169,7 +8441,7 @@ function OdooBar({ groups, cur, onPick, extra, sw }) {
   const gs = (groups || []).map(g => ({ ...g, items: (g.items || []).filter(Boolean) })).filter(g => g.items.length);
   const pick = (id) => { setOpen(null); onPick(id); };
   return (
-    <div className="ob" role="navigation" aria-label="أقسام التطبيق">
+    <div className="ob" role="navigation" aria-label="أقسام التطبيق" ref={obRef}>
       {gs.map(g => { const act = g.items.some(x => x.id === cur);
         if (g.items.length === 1) { const x = g.items[0]; return <button key={g.id} className={'ob-it' + (act ? ' on' : '')} onClick={() => pick(x.id)}>{TX(x.ar)}{x.badge ? <span className="ob-bd">{x.badge}</span> : null}</button>; }
         const subs = [...new Set(g.items.map(x => x.sub || ''))];
@@ -8348,6 +8620,28 @@ async function loyPost(txs) {
 }
 const posQueue = () => { try { return JSON.parse(localStorage.getItem(POS_Q_KEY) || '[]'); } catch { return []; } };
 const posQueueSet = (a) => { try { localStorage.setItem(POS_Q_KEY, JSON.stringify(a)); } catch { } };
+/* v56.0 (GAP-007): تعليق طلب سفري واستدعاؤه — مسودة على الجهاز لكل فرع (تعمل دون اتصال)، لا رقم فاتورة ولا عدّاد ولا بصمة
+   قبل الدفع، فتبقى سلسلة الفوترة الإلكترونية بلا فجوات. الاستدعاء يعيد التسعير بسعر المنتج الحالي ويُسقط المنتج المحذوف. */
+const POS_HOLD_MAX = 20;
+const posHoldKey = (b) => 'mizan:posHold:' + (b || '');
+const posHolds = (b) => { try { const a = JSON.parse(localStorage.getItem(posHoldKey(b)) || '[]'); return Array.isArray(a) ? a : []; } catch { return []; } };
+const posHoldsSet = (b, a) => { try { localStorage.setItem(posHoldKey(b), JSON.stringify(a)); return true; } catch { return false; } };
+/** إضافة طلب معلّق: { list } أو { err } — لا سلة فارغة، وبحد أقصى POS_HOLD_MAX */
+function posHoldPut(list, h) {
+  const L = Array.isArray(list) ? list : [];
+  if (!h || !Array.isArray(h.cart) || !h.cart.length) return { err: 'السلة فارغة' };
+  if (L.length >= POS_HOLD_MAX) return { err: 'بلغت الطلبات المعلّقة الحد (' + POS_HOLD_MAX + ') — استدعِ أحدها أو احذفه' };
+  return { list: [h, ...L] };
+}
+/** استدعاء: السلة بأسعار المنتجات الحالية، وما حُذف من المنتجات يُسقط ويُبلَّغ عنه */
+function posHoldRecall(h, prods) {
+  const P = new Map((prods || []).map(p => [p.id, p])), cart = [], dropped = [], repriced = [];
+  ((h && h.cart) || []).forEach(l => { const p = P.get(l.productId);
+    if (!p) { dropped.push(l.name || l.productId); return; }
+    const price = Number(p.sellPrice) || 0; if (Math.abs(price - (Number(l.price) || 0)) > 0.0001) repriced.push(l.name || p.name);
+    cart.push({ ...l, price, name: p.name || l.name }); });
+  return { cart, dropped, repriced };
+}
 const posR2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 // إجماليات الطلب: الأسعار شاملة الضريبة؛ الخصم من الإجمالي؛ الضريبة = الإجمالي × النسبة ÷ (100 + النسبة)
 function posTotals(lines, discount, rate) {
@@ -8730,10 +9024,26 @@ function DisbursementForm({ org, me, balance, commit, say, onClose }) {
    payrollRowsOf: حساب كشف الرواتب الموحّد (تستخدمه شاشة الرواتب والمسير معًا — رقم واحد في كل مكان).
    الإضافي يُخزَّن كحركة في advances بنوع 'overtime' (مثل المكافأة: إضافة للإجمالي) فيدخل الاستحقاق والقيود تلقائيًا. */
 const PAY_ADD_TYPES = ['bonus', 'overtime'];
+/* v56.0 (PAY-V56-001): نسبة أيام الخدمة في الشهر — كان الراتب كاملًا دائمًا: موظف يُعيَّن في نوفمبر يُستحق له راتب أكتوبر كاملًا
+   (الاستحقاق التلقائي)، والموظف المنتهية خدمته يظهر براتب كامل كل شهر في مسير الرواتب. الأجر اليومي = الشهري ÷ 30 (كأساس الإضافي، م107).
+   شهر كامل = 1 · خارج مدة الخدمة = 0 · جزئي = أيام الخدمة ÷ 30 (بحد أقصى 1). الموقوف بلا تاريخ انتهاء = 0. */
+function payFactor(e, month) {
+  const ms = month + '-01', mEnd = monthEnd(month);
+  if (e.isActive === false && !e.endDate) return { f: 0, days: 0 };
+  const hd = String(e.hireDate || '').slice(0, 10), ed = String(e.endDate || '').slice(0, 10);
+  const st = /^\d{4}-\d{2}-\d{2}$/.test(hd) && hd > ms ? hd : ms, en = /^\d{4}-\d{2}-\d{2}$/.test(ed) && ed < mEnd ? ed : mEnd;
+  if (st > en) return { f: 0, days: 0 };
+  if (st === ms && en === mEnd) return { f: 1, days: 30 };
+  const days = Math.round((Date.parse(en + 'T00:00:00Z') - Date.parse(st + 'T00:00:00Z')) / 864e5) + 1;
+  return { f: Math.min(30, days) / 30, days: Math.min(30, days) };
+}
 function payrollRowsOf(org, advances, emps, month) {
   const gosiOn = !!(org.gosiCfg || {}).enabled;
   const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
-  return (emps || []).map(e => {
+  return (emps || []).map(e0 => {
+    const pf = payFactor(e0, month);
+    // الأساسي والبدلات بنسبة أيام الخدمة؛ المكافأة والإضافي والسلف والجزاءات كما سُجّلت للشهر
+    const e = pf.f === 1 ? e0 : { ...e0, baseSalary: r2((e0.baseSalary || 0) * pf.f), housingAllowance: r2((e0.housingAllowance || 0) * pf.f), transportAllowance: r2((e0.transportAllowance || 0) * pf.f), otherAllowance: r2((e0.otherAllowance || 0) * pf.f) };
     const ads = (advances || []).filter(a => a.employeeId === e.id && a.month === month);
     const draws = sum(ads.filter(a => ['advance', 'salary_draw'].includes(a.type)), a => a.amount);
     const bonus = r2(sum(ads.filter(a => a.type === 'bonus'), a => a.amount));
@@ -8742,10 +9052,11 @@ function payrollRowsOf(org, advances, emps, month) {
     const cuts = sum(ads.filter(a => !['advance', 'salary_draw', ...PAY_ADD_TYPES].includes(a.type)), a => a.amount);
     const allow = (e.housingAllowance || 0) + (e.transportAllowance || 0) + (e.otherAllowance || 0);
     const gross = r2((e.baseSalary || 0) + allow + bonus + ot);
-    const gr = gosiRatesFor(e, org.gosiCfg, month);   // v47.2: نسبة الشهر نفسه (جدول النظام الجديد)
-    const gEmp = (gosiOn && e.gosiSubject) ? r2(gr.base * gr.emp / 100) : 0;
-    const gEr = (gosiOn && e.gosiSubject) ? r2(gr.base * gr.er / 100) : 0;
-    return { e, ads, draws, bonus, ot, otHours, cuts, allow, gross, gEmp, gEr, net: r2(gross - draws - cuts - gEmp), flags: ads.filter(a => a.isUnjustified).length };
+    // التأمينات اشتراك شهري على الأجر المسجّل: كاملة لأي شهر فيه خدمة، ولا شيء خارجها
+    const gr = gosiRatesFor(e0, org.gosiCfg, month);   // v47.2: نسبة الشهر نفسه (جدول النظام الجديد)
+    const gEmp = (gosiOn && e0.gosiSubject && pf.f > 0) ? r2(gr.base * gr.emp / 100) : 0;
+    const gEr = (gosiOn && e0.gosiSubject && pf.f > 0) ? r2(gr.base * gr.er / 100) : 0;
+    return { e: e0, ads, draws, bonus, ot, otHours, cuts, allow, gross, gEmp, gEr, net: r2(gross - draws - cuts - gEmp), flags: ads.filter(a => a.isUnjustified).length, factor: pf.f, days: pf.days };
   });
 }
 
@@ -9514,7 +9825,7 @@ function AuditView({ pulse, onSeen }) {
 function buildClosingA4(c, org) {
   const co = org.company || {};
   const branch = (org.branches || []).find(b => b.id === c.branchId);
-  const headLogo = (branch && branch.logoUrl) || co.logoUrl || '';
+  const headLogo = tbLogo(org, c.branchId);   // v56.0: هوية المنشأة المعقّمة (الفرع ← المنشأة)
   const money2 = (n) => (Math.round((n || 0) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const dels = (c.deliverySales || []);
   const delComm = (d) => (d.commissionAmount != null ? d.commissionAmount : (d.amount * (d.commissionPercentage || 0) / 100));
@@ -9542,7 +9853,7 @@ function buildClosingA4(c, org) {
   const supPaySum = supPaysArr.reduce((s, pm) => s + payTotal(pm), 0);
   const supPayCash = supPaysArr.reduce((s, pm) => s + payCashPart(pm), 0);
   const expRows = (c.expenses || []).length ? (c.expenses || []).map(e => `<tr>
-    <td>${e.categoryName || '—'}${e.isTaxable ? '<br><span style="font-size:8px;color:#10294A">خاضع للضريبة' + (e.taxInvoice ? ' · فاتورة ضريبية' : '') + '</span>' : '<br><span style="font-size:8px;color:#999">غير خاضع</span>'}</td>
+    <td>${e.categoryName || '—'}${e.isTaxable ? '<br><span style="font-size:8px;color:var(--tb-p,#1F2A37)">خاضع للضريبة' + (e.taxInvoice ? ' · فاتورة ضريبية' : '') + '</span>' : '<br><span style="font-size:8px;color:#999">غير خاضع</span>'}</td>
     <td class="dim">${e.beneficiaryName || '—'}</td>
     <td>${payLbl(e.paymentMethod)}${e.receiptNumber ? '<br><span style="font-size:8px;color:#999">' + e.receiptNumber + '</span>' : ''}</td>
     <td class="ce">${e.receiptImage ? '<span class="chip">مرفق ✓</span>' : '—'}</td>
@@ -9672,7 +9983,7 @@ function buildClosingA4(c, org) {
         <div class="sig-ok dim">الاعتماد النهائي</div>
       </div>
     </div>
-    <div class="foot dim">تم تصدير هذا التقرير آلياً من مِثقال · ${co.name || ''}</div>
+    <div class="foot dim">تم تصدير هذا التقرير آلياً من مُكتسَب · ${co.name || ''}</div>
   </div>`;
 }
 
@@ -9687,19 +9998,19 @@ const docInApp = () => { try { return isStandaloneApp() || isIOSDev() || /Androi
    mzSvg: الشعار كنص SVG للمستندات المطبوعة (بلا اعتماد على CSS الصفحة).
    mzBrandDoc: يضيف توقيع «RESTAURANT PRO» بالشعار في تذييل كل مستند (أو سطرًا صغيرًا إن لم يوجد تذييل) — مرة واحدة فقط. */
 // v42.1: علامة RESTAURANT PRO في المطبوعات — مربع كحلي بحرفَي RP الذهبيين (المعامِلات القديمة مقبولة للتوافق)
-// v50.3: أُزيل رمز مِثقال القديم من المطبوعات (mzSvg) — المطبوعات بشعار المنشأة فقط
-// v50.3 (قرار المالك 2026-11-19): المطبوعات تحمل شعار المنشأة (الطيف) فقط — لا شعار لمِثقال مكانه إن لم يُرفع شعار المنشأة
+// v50.3: أُزيل رمز مُكتسَب القديم من المطبوعات (mzSvg) — المطبوعات بشعار المنشأة فقط
+// v50.3 (قرار المالك 2026-11-19): المطبوعات تحمل شعار المنشأة (الطيف) فقط — لا شعار لمُكتسَب مكانه إن لم يُرفع شعار المنشأة
 const MZ_LOGO_HTML = '';
 const mzBrandDoc = (html) => {
   html = String(html || '');
   if (html.includes('data-mzb')) return html;
-  const sig = '<span data-mzb style="white-space:nowrap">مِثقال</span>';   // v50.3: نص فقط بلا شعار — الشعار في المطبوعات للمنشأة وحدها
+  const sig = '<span data-mzb style="white-space:nowrap">مُكتسَب</span>';   // v50.3: نص فقط بلا شعار — الشعار في المطبوعات للمنشأة وحدها
   const bi = html.search(/<body[^>]*>/i);
   if (bi < 0) return html;
   const head = html.slice(0, bi), body = html.slice(bi);
   // RESTAURANT PRO: الاسم السابق — يُستبدل أيضًا في القوالب المحفوظة القديمة
-  if (/مِثقال|RESTAURANT PRO/.test(body)) return head + body.replace(/مِثقال|RESTAURANT PRO/g, sig);
-  const foot = '<div data-mzb style="text-align:center;font-size:9px;color:#888;margin-top:10px">مِثقال — Mithqal</div>';
+  if (/مُكتسَب|RESTAURANT PRO/.test(body)) return head + body.replace(/مُكتسَب|RESTAURANT PRO/g, sig);
+  const foot = '<div data-mzb style="text-align:center;font-size:9px;color:#888;margin-top:10px">مُكتسَب — Muktasab</div>';
   return /<\/body>/i.test(body) ? head + body.replace(/<\/body>/i, foot + '</body>') : head + body + foot;
 };
 // v51.6: شريط العارض (إغلاق، طباعة، Excel، CSV) لا يُطبع أبدًا
@@ -9789,12 +10100,12 @@ const A4_CSS = `
   * { box-sizing: border-box }
   body { font-family: 'MizanNum','IBM Plex Sans Arabic','Noto Sans Arabic','Readex Pro',Tahoma,sans-serif; font-variant-numeric: tabular-nums; color: #1a1a1a; margin: 0; font-size: 11px; background: #fff }
   .page { max-width: 186mm; margin: 0 auto }
-  .head { border-bottom: 2.5px solid #10294A; padding-bottom: 10px; margin-bottom: 12px }
+  .head { border-bottom: 2.5px solid var(--tb-p,#1F2A37); padding-bottom: 10px; margin-bottom: 12px }
   .co { display: flex; align-items: center; gap: 10px; margin-bottom: 8px }
   .logo { height: 44px; width: 44px; object-fit: contain; border-radius: 8px }
-  .co-n { font-size: 16px; font-weight: 700; color: #10294A }
+  .co-n { font-size: 16px; font-weight: 700; color: var(--tb-p,#1F2A37) }
   .co-m { font-size: 9.5px; color: #666; margin-top: 2px }
-  .doc-title { font-size: 15px; font-weight: 700; color: #10294A; margin-top: 6px }
+  .doc-title { font-size: 15px; font-weight: 700; color: var(--tb-p,#1F2A37); margin-top: 6px }
   .doc-sub { font-size: 11px; margin-top: 2px }
   .dim { color: #888 }
   .kpis { display: grid; grid-template-columns: repeat(3,1fr); gap: 7px; margin-bottom: 12px }
@@ -9804,16 +10115,16 @@ const A4_CSS = `
   .kpi.ok { background: #eef8f2; border-color: #b6e2cd } .kpi.ok b { color: #2E8B62 }
   .kpi.bad { background: #fdeeed; border-color: #f2c3bf } .kpi.bad b { color: #C0392B }
   .kpi.warn { background: #fdf6e9; border-color: #f2ddb0 } .kpi.warn b { color: #B7791F }
-  .brass { color: #10294A } .rose { color: #C0392B } .mint { color: #2E8B62 }
+  .brass { color: var(--tb-p,#1F2A37) } .rose { color: #C0392B } .mint { color: #2E8B62 }
   .meta-row { display: flex; gap: 14px; align-items: center; font-size: 10.5px; color: #555; margin-bottom: 12px; flex-wrap: wrap }
-  .badge { background: #10294A; color: #fff; padding: 2px 10px; border-radius: 20px; font-size: 10px; font-weight: 600 }
-  .sec-h { background: #EEF1F5; color: #10294A; font-weight: 700; font-size: 11.5px; padding: 5px 9px; border-radius: 5px; margin: 12px 0 7px }
+  .badge { background: var(--tb-p,#1F2A37); color: #fff; padding: 2px 10px; border-radius: 20px; font-size: 10px; font-weight: 600 }
+  .sec-h { background: #EEF1F5; color: var(--tb-p,#1F2A37); font-weight: 700; font-size: 11.5px; padding: 5px 9px; border-radius: 5px; margin: 12px 0 7px }
   table.t { width: 100%; border-collapse: collapse; font-size: 10.5px }
-  table.t th { background: #10294A; color: #fff; padding: 6px 8px; text-align: right; font-weight: 600; font-size: 10px }
+  table.t th { background: var(--tb-p,#1F2A37); color: #fff; padding: 6px 8px; text-align: right; font-weight: 600; font-size: 10px }
   table.t th.num, table.t td.num { text-align: left; font-variant-numeric: tabular-nums; white-space: nowrap }
   table.t th.ce, table.t td.ce { text-align: center }
   table.t td { padding: 6px 8px; border-bottom: 1px solid #eee }
-  table.t tfoot .tot td { font-weight: 700; font-size: 11.5px; border-top: 2px solid #10294A; background: #F7F8FA }
+  table.t tfoot .tot td { font-weight: 700; font-size: 11.5px; border-top: 2px solid var(--tb-p,#1F2A37); background: #F7F8FA }
   table.t.compact td { padding: 6px 9px }
   table.t .tot.ok { background: #eef8f2 } table.t .tot.bad { background: #fdeeed } table.t .tot.warn { background: #fdf6e9 }
   .chip { background: #eef8f2; color: #2E8B62; padding: 1px 7px; border-radius: 10px; font-size: 9px; font-weight: 600 }
@@ -9831,11 +10142,11 @@ const A4_CSS = `
   .sig-ok { font-size: 9.5px; color: #2E8B62; font-weight: 600; margin-top: 4px }
   .foot { text-align: center; font-size: 9px; margin-top: 16px; border-top: 1px dashed #ccc; padding-top: 8px }
   .summary-card { border: 1px solid #e5e0d5; border-radius: 10px; padding: 11px 14px; margin-bottom: 12px; background: #F7F8FA }
-  .summary-h { font-size: 11.5px; font-weight: 700; color: #10294A; margin-bottom: 9px }
+  .summary-h { font-size: 11.5px; font-weight: 700; color: var(--tb-p,#1F2A37); margin-bottom: 9px }
   .summary-grid { display: grid; grid-template-columns: repeat(5,1fr); gap: 8px }
   .sc { text-align: center } .sc span { font-size: 8.5px; color: #777; display: block } .sc b { font-size: 12.5px; display: block; margin-top: 3px }
   .warn2 { color: #B7791F }
-  .banner { display: flex; justify-content: space-between; align-items: center; gap: 12px; background: #10294A; color: #EFE7DB; border-radius: 10px; padding: 11px 15px; margin-bottom: 12px; flex-wrap: wrap }
+  .banner { display: flex; justify-content: space-between; align-items: center; gap: 12px; background: var(--tb-p,#1F2A37); color: #EFE7DB; border-radius: 10px; padding: 11px 15px; margin-bottom: 12px; flex-wrap: wrap }
   .banner-id { font-family: 'MizanNum','IBM Plex Mono',ui-monospace,monospace; color: #E0C074; font-size: 12px; font-weight: 700; direction: ltr; text-align: left }
   .banner-sub { font-size: 9px; color: #A2968A; margin-top: 3px }
   .banner-l { text-align: end; font-size: 10px; color: #D9CFC0; display: flex; flex-direction: column; gap: 3px; align-items: flex-end }
@@ -9848,7 +10159,7 @@ function printClosingA4(c, org) {
   const w = openDocWin('width=880,height=1000');
   if (!w) return false;
   w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
-    <title>تقرير الإغلاق - ${c.branchName} - ${c.date}</title><style>${A4_CSS}</style></head>
+    <title>تقرير الإغلاق - ${c.branchName} - ${c.date}</title><style>${tbCss(tenantBrand(org))}${A4_CSS}</style></head>
     <body>${buildClosingA4(c, org)}</body></html>`);
   w.document.close();
   setTimeout(() => { w.focus(); w.print(); }, 500);
@@ -9860,7 +10171,7 @@ function printReceipt(c, org, size) {
   const PG = size === '58' ? 58 : 80, W = size === '58' ? 48 : 74;
   const co = (org && org.company) || {};
   const branch = ((org && org.branches) || []).find(b => b.id === c.branchId);
-  const thLogo = (branch && branch.logoUrl) || co.logoUrl || '';
+  const thLogo = tbLogo(org, c.branchId);   // v56.0
   const m = (n) => (Math.round((n || 0) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 });
   const line = (k, v) => `<tr><td>${k}</td><td class="v">${v}</td></tr>`;
   const dels = (c.deliverySales || []).filter(d => d.amount > 0)
@@ -9941,15 +10252,15 @@ function printPartnerStatement(p, org) {
   const bal = scr - sdr;
   const balT = Math.abs(bal) < 0.005 ? 'مسدّد' : (bal > 0 ? money(bal) + ' دائن (مستحق للطرف علينا)' : money(-bal) + ' مدين (مستحق لنا على الطرف)');
   w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>كشف حساب ${p.name}</title>
-  <style>${NUM_FACE}*{font-family:'MizanNum','IBM Plex Sans Arabic','Noto Sans Arabic','Segoe UI',Tahoma,sans-serif;box-sizing:border-box}body{margin:0;padding:28px;color:#1a1a1a}
-  .h{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #10294A;padding-bottom:12px;margin-bottom:16px}
-  .co{font-size:20px;font-weight:800;color:#10294A}.sub{font-size:12px;color:#666;margin-top:3px}
+  <style>${tbCss(tenantBrand(org))}${NUM_FACE}*{font-family:'MizanNum','IBM Plex Sans Arabic','Noto Sans Arabic','Segoe UI',Tahoma,sans-serif;box-sizing:border-box}body{margin:0;padding:28px;color:#1a1a1a}
+  .h{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid var(--tb-p,#1F2A37);padding-bottom:12px;margin-bottom:16px}
+  .co{font-size:20px;font-weight:800;color:var(--tb-p,#1F2A37)}.sub{font-size:12px;color:#666;margin-top:3px}
   .t{font-size:22px;font-weight:800}.who{background:#F3F5F8;border:1px solid #DDE2EA;border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:13px;line-height:1.9}
-  .who b{color:#10294A}.bal{text-align:center;background:#FBF4E4;border:1px solid #CBD3DF;border-radius:10px;padding:12px;margin-bottom:14px}
+  .who b{color:var(--tb-p,#1F2A37)}.bal{text-align:center;background:#FBF4E4;border:1px solid #CBD3DF;border-radius:10px;padding:12px;margin-bottom:14px}
   .bal .v{font-size:26px;font-weight:800}table{width:100%;border-collapse:collapse;font-size:12px}
-  th{background:#E9EDF3;color:#10294A;padding:8px;text-align:right;border:1px solid #CBD3DF}
+  th{background:#E9EDF3;color:var(--tb-p,#1F2A37);padding:8px;text-align:right;border:1px solid #CBD3DF}
   td{padding:7px 8px;border:1px solid #DDE2EA}.n{text-align:left;font-variant-numeric:tabular-nums;direction:ltr}
-  tfoot td{background:#FBF4E4;font-weight:800;border-top:2px solid #10294A}
+  tfoot td{background:#FBF4E4;font-weight:800;border-top:2px solid var(--tb-p,#1F2A37)}
   .ft{margin-top:16px;font-size:10.5px;color:#888;text-align:center}</style></head><body>
   <div class="h"><div><div class="co">${co.name || 'الشركة'}</div><div class="sub">${co.activity || ''} ${co.taxNumber ? '· رقم ضريبي ' + co.taxNumber : ''}</div></div>
   <div style="text-align:left"><div class="t">كشف حساب</div><div class="sub">${arDate(today())}</div></div></div>
@@ -9959,7 +10270,7 @@ function printPartnerStatement(p, org) {
   <table><thead><tr><th>التاريخ</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr></thead>
   <tbody>${rows || '<tr><td colspan=5 style="text-align:center;color:#999;padding:20px">لا حركات</td></tr>'}</tbody>
   <tfoot><tr><td colspan="2">الإجماليات</td><td class="n">${money(sdr)}</td><td class="n">${money(scr)}</td><td class="n">${money(Math.abs(bal))}${bal > 0 ? ' دائن' : bal < 0 ? ' مدين' : ''}</td></tr></tfoot></table>
-  <div class="ft">كشف حساب صادر من مِثقال — ${co.name || ''} · ${arDate(today())}</div></body></html>`);
+  <div class="ft">كشف حساب صادر من مُكتسَب — ${co.name || ''} · ${arDate(today())}</div></body></html>`);
   w.document.close();
   setTimeout(() => { w.focus(); w.print(); }, 400);
   return true;
@@ -9970,24 +10281,27 @@ function printPartnerStatement(p, org) {
 //   نفس التوقيع القديم (المحتوى HTML جاهز) + خيارات اختيارية: { orientation, paper, lang }
 const _rptCtx = { user: '' };
 function rptShell(org, title, sub, bodyHtml, opt = {}) {
-  const co = (org && org.company) || {}, en = opt.lang === 'en', paper = ['A4', 'A3', 'Letter'].includes(opt.paper) ? opt.paper : 'A4', orient = opt.orientation === 'landscape' ? 'landscape' : 'portrait';
-  const foot = (en ? 'Issued from Mithqal ' : 'صادر من مِثقال ') + APP_VER + ' · ' + (en ? 'Printed by ' : 'طبعه: ') + (_rptCtx.user || '—') + ' · ' + dtLocal(new Date());
-  const logo = co.logoUrl && /^(https:|data:image\/)/.test(co.logoUrl) ? `<img class="lg" src="${_xe(co.logoUrl)}" alt="">` : '';
+  const co = (org && org.company) || {}, en = opt.lang === 'en', B = tenantBrand(org, { lang: opt.lang, branchId: opt.branchId }), paper = ['A4', 'A3', 'Letter'].includes(opt.paper) ? opt.paper : B.print.paper, orient = opt.orientation === 'landscape' ? 'landscape' : 'portrait';
+  const foot = (en ? 'Issued from Muktasab ' : 'صادر من مُكتسَب ') + APP_VER + ' · ' + (en ? 'Printed by ' : 'طبعه: ') + (_rptCtx.user || '—') + ' · ' + dtLocal(new Date());
   return `<!doctype html><html dir="${en ? 'ltr' : 'rtl'}" lang="${en ? 'en' : 'ar'}"><head><meta charset="utf-8"><title>${_xe(title)}</title>
-  <style>@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;600;700&display=swap');${NUM_FACE}@page{size:${paper} ${orient};margin:14mm 10mm 16mm;@bottom-center{content:"${en ? 'Page ' : 'صفحة '}" counter(page) "${en ? ' of ' : ' من '}" counter(pages);font-size:9px;color:#777}@bottom-${en ? 'left' : 'right'}{content:"${foot.replace(/"/g, "'")}";font-size:8px;color:#888}}
-  *{font-family:'MizanNum','IBM Plex Sans Arabic','Noto Sans Arabic','Segoe UI',Tahoma,sans-serif;box-sizing:border-box}body{margin:0;color:#1a1a1a;font-size:12px}
-  .h{display:flex;justify-content:space-between;align-items:center;gap:12px;border-bottom:2px solid #10294A;padding-bottom:10px;margin-bottom:14px}.h .l{display:flex;gap:10px;align-items:center}.lg{height:46px;max-width:120px;object-fit:contain}
-  .co{font-size:18px;font-weight:800;color:#10294A}.sub{font-size:11px;color:#666;margin-top:2px}
+  <style>@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;600;700&display=swap');${NUM_FACE}${tbCss(B, { mono: opt.mono })}@page{size:${paper} ${orient};margin:14mm 10mm 16mm;@bottom-center{content:"${en ? 'Page ' : 'صفحة '}" counter(page) "${en ? ' of ' : ' من '}" counter(pages);font-size:9px;color:#777}@bottom-${en ? 'left' : 'right'}{content:"${foot.replace(/"/g, "'")}";font-size:8px;color:#888}}
+  *{font-family:'MizanNum','IBM Plex Sans Arabic','Noto Sans Arabic','Segoe UI',Tahoma,sans-serif;box-sizing:border-box}body{margin:0;color:var(--tb-t);font-size:12px}
+  .h{display:flex;justify-content:space-between;align-items:center;gap:12px;border-bottom:2px solid var(--tb-p);padding-bottom:10px;margin-bottom:14px}.h .l{display:flex;gap:10px;align-items:center}.lg{height:46px;max-width:120px;object-fit:contain}
+  .co{font-size:18px;font-weight:800;color:var(--tb-h)}.co2{font-size:12px;font-weight:700;color:var(--tb-a)}.s{font-size:11px;color:#666;margin-top:2px}.tf{margin-top:12px;padding-top:6px;border-top:1px solid var(--tb-line);font-size:10px;color:#666;text-align:center}.sub{font-size:11px;color:#666;margin-top:2px}
   h1{font-size:16px;margin:0}table{width:100%;border-collapse:collapse;margin:8px 0}thead{display:table-header-group}tr{page-break-inside:avoid}
-  th{background:#E9EDF3;color:#10294A;padding:7px;border:1px solid #CBD3DF;text-align:start;font-size:11px}
+  th{background:var(--tb-soft);color:var(--tb-h);padding:7px;border:1px solid var(--tb-line);text-align:start;font-size:11px}
   td{padding:6px 8px;border:1px solid #DDE2EA}.n{text-align:${en ? 'right' : 'left'};direction:ltr;font-variant-numeric:tabular-nums;white-space:nowrap}
-  .tot td{background:#FBF4E4;font-weight:800;border-top:2px solid #10294A}.neg{color:#C0392B}
-  .box{background:#F3F5F8;border:1px solid #DDE2EA;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:11.5px}
+  .tot td{background:color-mix(in srgb,var(--tb-a) 14%,#fff);font-weight:800;border-top:2px solid var(--tb-p)}.neg{color:#C0392B}
+  .box{background:var(--tb-soft);border:1px solid var(--tb-line);border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:11.5px}
   .sign{display:flex;justify-content:space-around;margin-top:34px;text-align:center;font-size:11px}.sign div{border-top:1px solid #999;padding-top:6px;min-width:140px}
-  .ft{display:none}@media screen{body{padding:26px}.ft{display:block;margin-top:14px;font-size:10px;color:#888;text-align:center}}</style></head><body>
-  <div class="h"><div class="l">${logo}<div><div class="co">${_xe(co.name || 'الشركة')}</div><div class="sub">${co.taxNumber ? (en ? 'VAT No.: ' : 'الرقم الضريبي: ') + _xe(co.taxNumber) : ''}${co.address ? ' · ' + _xe(co.address) : ''}</div></div></div>
+  /* v56.0 — قوالب الفاتورة الثلاثة (هوية المنشأة: invoiceTpl) */
+  .inv-modern .h{background:var(--tb-p);border:0;border-radius:10px;padding:14px 16px}.inv-modern .h .co,.inv-modern .h .co2,.inv-modern .h h1,.inv-modern .h .s,.inv-modern .h .sub{color:#fff}.inv-modern .h .lg{background:#fff;border-radius:8px;padding:3px}
+  .inv-modern th{background:var(--tb-p);color:#fff;border-color:var(--tb-p)}.inv-modern .tot td{background:var(--tb-p);color:#fff;border-top:0}.inv-modern .box{border-radius:10px;border-inline-start:4px solid var(--tb-a)}
+  .inv-compact{font-size:10.5px}.inv-compact th,.inv-compact td{padding:3px 6px}.inv-compact .h{padding-bottom:5px;margin-bottom:8px}.inv-compact .lg{height:30px}.inv-compact .co{font-size:14px}.inv-compact h1{font-size:13px}.inv-compact .box{padding:6px 8px;margin-bottom:6px}
+  .ft{display:none}@media screen{body{padding:26px}.ft{display:block;margin-top:14px;font-size:10px;color:#888;text-align:center}}</style></head><body class="inv-${_xe(opt.invTpl || 'classic')}" data-inv-tpl="${_xe(opt.invTpl || 'classic')}">
+  <div class="h">${tbHeadHtml(B, en ? { vat: 'VAT No.', cr: 'CR' } : { vat: 'الرقم الضريبي', cr: 'السجل التجاري' })}
   <div style="text-align:${en ? 'right' : 'left'}"><h1>${title}</h1><div class="sub">${sub || ''}</div><div class="sub" data-issued>${en ? 'Issued: ' : 'تاريخ ووقت الإصدار: '}${dtLocal(new Date())}</div></div></div>
-  ${bodyHtml}
+  ${bodyHtml}${B.footer ? `<div class="tf">${_xe(B.footer)}</div>` : ''}
   <div class="ft">${foot}</div></body></html>`;
 }
 function printA4(org, title, sub, bodyHtml, opt) {
@@ -11938,7 +12252,7 @@ function AppsStrip({ me, setTab, openAcctView, openInvView }) {
           <Clock size={11} />{a.ar}
         </button>
       ))}
-      <button className="appchip" style={{ borderColor: 'var(--frame)', color: 'var(--brass-l)' }} onClick={() => setTab('apps')}>
+      <button className="appchip" style={{ borderColor: 'var(--frame)', color: 'var(--brass-t)' }} onClick={() => setTab('apps')}>
         <Grid3x3 size={12} />فتح التطبيقات
       </button>
     </div>
@@ -12087,7 +12401,7 @@ function morningText(org, D) {
   if (D.pay && (D.pay.over.length || D.pay.soon.length)) { L.push(''); L.push('🧾 الموردون: متأخر ' + money(D.pay.overT) + ' (' + D.pay.over.length + ') · مستحق خلال 7 أيام ' + money(D.pay.soonT) + ' (' + D.pay.soon.length + ')'); }
   if (D.food && D.food.all.pct != null) { L.push(''); L.push('🍽️ تكلفة الطعام للشهر: ' + D.food.all.pct + '% (الهدف ' + D.food.tgt + '%)' + (D.food.over.length ? ' · فوق الهدف: ' + D.food.over.map(x => x.b.name + ' ' + x.pct + '%').join('، ') : '')); }
   if (D.vat2302 != null && D.vat2302 > 0.004) { L.push(''); L.push('🏛️ ضريبة مستحقة غير مسددة: ' + money(D.vat2302)); }
-  L.push(''); L.push('— مِثقال');
+  L.push(''); L.push('— مُكتسَب');
   return L.join('\n');
 }
 function morningHtml(org, D) {
@@ -12102,8 +12416,8 @@ function morningHtml(org, D) {
     </tbody></table>` : '';
   const foodT = D.food && D.food.all.pct != null ? `<div class="sec-h">تكلفة الطعام — من ${arDate(D.food.from)} حتى ${arDate(D.day)}</div>
     <div class="note" style="background:${D.food.all.pct > D.food.tgt ? '#fdeeed' : '#eef8f2'};color:${D.food.all.pct > D.food.tgt ? '#C0392B' : '#2E8B62'}">الشركة ${D.food.all.pct}% مقابل هدف ${D.food.tgt}%${D.food.over.length ? ' — فوق الهدف: ' + D.food.over.map(x => x.b.name + ' ' + x.pct + '%').join('، ') : ' — كل الفروع ضمن الهدف'}</div>` : '';
-  return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>التقرير الصباحي — ${D.day}</title><style>${A4_CSS}</style></head><body><div class="page">
-    <div class="head"><div class="co">${co.logoUrl ? `<img class="logo" src="${co.logoUrl}">` : MZ_LOGO_HTML}<div><div class="co-n">${co.name || ''}</div><div class="co-m">${D.brs.length} فرع</div></div></div>
+  return `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>التقرير الصباحي — ${D.day}</title><style>${tbCss(tenantBrand(org))}${A4_CSS}</style></head><body><div class="page">
+    <div class="head"><div class="co">${tbLogo(org) ? `<img class="logo" src="${tbLogo(org)}">` : MZ_LOGO_HTML}<div><div class="co-n">${co.name || ''}</div><div class="co-m">${D.brs.length} فرع</div></div></div>
     <div class="doc-title">التقرير الصباحي</div><div class="doc-sub">ليوم ${arDate(D.day)} · مقارنة بـ ${arDate(D.wk)}</div></div>
     <div class="kpis">${k('مبيعات اليوم', money(D.revT), '', D.chg != null ? (D.chg >= 0 ? '▲ ' : '▼ ') + Math.abs(D.chg) + '% عن الأسبوع السابق' : '')}
       ${k('فروع لم تُغلق', D.notClosed.length + ' / ' + D.rows.length, D.notClosed.length ? 'warn' : 'ok', D.notClosed.map(r => r.b.name).join('، '))}
@@ -12118,7 +12432,7 @@ function morningHtml(org, D) {
       ${D.patterns.map(x => `<div class="note" style="background:#fdeeed;color:#C0392B">عجز متكرر — ${x.branchName}: ${x.n} حالات خلال ${D.dcf.days} أيام بإجمالي ${money(Math.abs(x.total))}</div>`).join('')}` : ''}
     ${payT}${foodT}
     ${D.vat2302 != null && D.vat2302 > 0.004 ? `<div class="note">ضريبة القيمة المضافة المستحقة غير المسددة (2302): ${money(D.vat2302)}</div>` : ''}
-    <div class="foot dim" style="margin-top:14px;text-align:center;font-size:9.5px">تقرير آلي من مِثقال — الأرقام من الإغلاقات والقيود الفعلية</div>
+    <div class="foot dim" style="margin-top:14px;text-align:center;font-size:9.5px">تقرير آلي من مُكتسَب — الأرقام من الإغلاقات والقيود الفعلية</div>
   </div></body></html>`;
 }
 function MorningBrief({ org, ops, me, myBranches, scoped, setTab, onClose }) {
@@ -12360,6 +12674,127 @@ function MyWork({ org, ops, me, myBranches, setTab, openAcctView, openInvView, d
       </div>)}</div>}
     </div>);
 }
+/* ============================================================
+   v56.0 — لوحات الأدوار التسع (أمر التصميم 5.5–5.6) — عرض فقط من المحرك القائم، بلا أي منطق حسابي جديد:
+   الإيراد والمصروف والربح والنقد والذمم من buildAccounting، والرواتب من payrollRowsOf، والنفاد من stockShortages…
+   كل لوحة تتطلب تبويبات بياناتها؛ لا تظهر لوحة ولا يفتح مؤشر شاشة خارج صلاحية المستخدم. المقارنة بالشهر السابق.
+   ============================================================ */
+const RD_DEF = {
+  exec: { ar: 'الإدارة العليا', need: ['acct', 'analytics', 'reporting'] },
+  cfo: { ar: 'المدير المالي', need: ['acct'] },
+  accountant: { ar: 'المحاسب', need: ['acct'] },
+  sales: { ar: 'مدير المبيعات', need: ['sales', 'pos'] },
+  purchasing: { ar: 'مدير المشتريات', need: ['purchasing'] },
+  inventory: { ar: 'مدير المخزون', need: ['inv'] },
+  hr: { ar: 'مدير الموارد البشرية', need: ['people', 'hrops'] },
+  branch: { ar: 'مدير الفرع', need: ['closing'] },
+  ops: { ar: 'المستخدم التشغيلي', need: ['pos', 'closing'] } };
+const RD_ROLE = { general_management: 'exec', head_office: 'exec', system_admin: 'exec', finance_department: 'cfo', accountant: 'accountant', accountant_view: 'accountant',
+  cost_controller: 'inventory', branch_manager: 'branch', regional_manager: 'branch', cashier: 'ops' };
+/** اللوحات المتاحة لمن يملك هذه التبويبات (أي تبويب من need يكفي) — والافتراضية حسب الدور */
+function roleDashList(role, allowed) { const A = allowed || []; return Object.keys(RD_DEF).filter(k => RD_DEF[k].need.some(t => A.includes(t))); }
+const roleDashDefault = (role, allowed) => { const L = roleDashList(role, allowed), d = RD_ROLE[role]; return L.includes(d) ? d : (L[0] || ''); };
+const rdPct = (v, p) => (p == null || !isFinite(p) || Math.abs(p) < 0.005) ? null : Math.round(((v - p) / Math.abs(p)) * 1000) / 10;
+/** مؤشرات لوحة (دالة نقية): { kind, kpis: [{ id, ar, v, prev, fmt, good: 'up'|'down', tab }], trend: [{ m, v }], trendAr } */
+function roleDash(org, ops, kind, opt = {}) {
+  const td = opt.td || today(), m = td.slice(0, 7), pm = prevMonthOf(td), allowed = opt.allowed || [], brIds = opt.branchIds || null;
+  const tabOk = (t) => allowed.includes(t) ? t : '';
+  const O = ops || {}, G = org || {};
+  const inM = (d, mm) => String(d || '').slice(0, 7) === mm;
+  const months = Array.from({ length: 6 }, (_, i) => { const [y, mo] = m.split('-').map(Number); return new Date(Date.UTC(y, mo - 1 - (5 - i), 1)).toISOString().slice(0, 7); });
+  let A = null; const acc = () => { if (!A) { try { A = buildAccounting(G, O); } catch { A = { entries: [], accounts: [] }; } } return A; };
+  const kindOf = () => { const K = {}; (acc().accounts || []).forEach(a => { K[a.code] = a.kind; }); return K; };
+  const pl = (mm) => { const K = kindOf(); let rev = 0, exp = 0; acc().entries.forEach(e => { if (e.closing || !inM(e.date, mm)) return; e.lines.forEach(l => { if (K[l.code] === 'rev') rev += l.credit - l.debit; else if (K[l.code] === 'exp') exp += l.debit - l.credit; }); });
+    return { rev: Math.round(rev * 100) / 100, exp: Math.round(exp * 100) / 100, net: Math.round((rev - exp) * 100) / 100 }; };
+  const bal = (pred, upto) => { let b = 0; acc().entries.forEach(e => { if (upto && String(e.date || '') > upto) return; e.lines.forEach(l => { if (pred(l.code)) b += l.debit - l.credit; }); }); return Math.round(b * 100) / 100; };
+  const pmEnd = monthEnd(pm);
+  const brOk = (b) => !brIds || brIds.includes(b);
+  const clsRev = (mm, d) => sum((O.closings || []).filter(c => countedClosing(c) && brOk(c.branchId) && (d ? c.date === d : inM(c.date, mm))), c => c.totalRevenue);
+  const siRev = (mm) => sum((O.salesInvoices || []).filter(x => inM(x.date, mm) && x.kind !== 'credit'), x => x.total);
+  const purch = (mm) => sum((O.invoices || []).filter(i => inM(i.date, mm) && (i.amount || 0) > 0), i => i.amount);
+  const K = [], push = (id, ar, v, prev, fmt, good, tab) => K.push({ id, ar, v: Math.round((Number(v) || 0) * 100) / 100, prev: prev == null ? null : Math.round((Number(prev) || 0) * 100) / 100, fmt, good, tab: tabOk(tab) });
+  let trend = [], trendAr = '';
+  if (kind === 'exec' || kind === 'cfo') {
+    const a = pl(m), b = pl(pm);
+    push('rev', 'الإيرادات — الشهر', a.rev, b.rev, 'money', 'up', 'acct'); push('exp', 'المصروفات — الشهر', a.exp, b.exp, 'money', 'down', 'acct'); push('net', 'صافي الربح — الشهر', a.net, b.net, 'money', 'up', 'acct');
+    const cashP = (c) => /^1[12]/.test(c); push('cash', 'النقد والبنوك', bal(cashP), bal(cashP, pmEnd), 'money', 'up', 'treasury');
+    if (kind === 'cfo') { push('ar', 'ذمم العملاء والتطبيقات', bal(c => /^13/.test(c)), bal(c => /^13/.test(c), pmEnd), 'money', 'down', 'acct');
+      push('ap', 'ذمم الموردين', -bal(c => c === '2101'), -bal(c => c === '2101', pmEnd), 'money', 'down', 'purchasing');
+      push('vat', 'ضريبة مخرجات − مدخلات', -bal(c => c === '2301') - bal(c => c === '1501'), null, 'money', 'down', 'acct'); }
+    else { push('pend', 'إغلاقات بانتظار الاعتماد', (O.closings || []).filter(c => c.status === 'submitted').length, null, 'int', 'down', 'approve'); }
+    trend = months.map(mm => ({ m: mm, v: pl(mm).net })); trendAr = 'صافي الربح — آخر 6 أشهر';
+  } else if (kind === 'accountant') {
+    const J = O.journalManual || [];
+    push('jpend', 'قيود بانتظار الاعتماد', J.filter(j => j.status === 'pending').length, null, 'int', 'down', 'acct');
+    push('jm', 'قيود يدوية — الشهر', J.filter(j => inM(j.date, m)).length, J.filter(j => inM(j.date, pm)).length, 'int', '', 'acct');
+    push('pinv', 'فواتير موردين — الشهر', (O.invoices || []).filter(i => inM(i.date, m)).length, (O.invoices || []).filter(i => inM(i.date, pm)).length, 'int', '', 'purchasing');
+    push('cv', 'سندات قبض وصرف — الشهر', (O.cashVouchers || []).filter(v => inM(v.date, m)).length, (O.cashVouchers || []).filter(v => inM(v.date, pm)).length, 'int', '', 'acct');
+    const lt = lockedThru(G); K.push({ id: 'lock', ar: 'آخر شهر مقفل', v: lt || '—', prev: null, fmt: 'text', good: '', tab: tabOk('acct') });
+    trend = months.map(mm => ({ m: mm, v: J.filter(j => inM(j.date, mm)).length })); trendAr = 'القيود اليدوية — آخر 6 أشهر';
+  } else if (kind === 'sales') {
+    const v = (mm) => clsRev(mm) + siRev(mm);
+    push('sales', 'المبيعات — الشهر (شامل)', v(m), v(pm), 'money', 'up', 'sales');
+    const P = (mm) => (O.posOrders || []).filter(o => o.status === 'paid' && inM(o.date, mm) && brOk(o.branchId));
+    push('orders', 'فواتير نقطة البيع — الشهر', P(m).length, P(pm).length, 'int', 'up', 'pos');
+    const avg = (L) => L.length ? sum(L, o => o.total) / L.length : 0; push('avg', 'متوسط الفاتورة', avg(P(m)), avg(P(pm)), 'money', 'up', 'pos');
+    push('si', 'فواتير المبيعات — الشهر', siRev(m), siRev(pm), 'money', 'up', 'sales');
+    trend = months.map(mm => ({ m: mm, v: v(mm) })); trendAr = 'المبيعات — آخر 6 أشهر';
+  } else if (kind === 'purchasing') {
+    push('pur', 'المشتريات — الشهر', purch(m), purch(pm), 'money', '', 'purchasing');
+    const due = (O.invoices || []).filter(i => (i.amount || 0) > 0 && (i.amount - (i.paidAmount || 0)) > 0.004 && i.dueDate && i.dueDate <= td);
+    push('due', 'فواتير مستحقة غير مسددة', due.length, null, 'int', 'down', 'purchasing'); push('dueAmt', 'قيمة المستحق', sum(due, i => i.amount - (i.paidAmount || 0)), null, 'money', 'down', 'purchasing');
+    push('po', 'أوامر شراء بانتظار الاستلام', (O.purchaseOrders || []).filter(p => ['open', 'partial'].includes(p.status)).length, null, 'int', '', 'purchasing');
+    trend = months.map(mm => ({ m: mm, v: purch(mm) })); trendAr = 'المشتريات — آخر 6 أشهر';
+  } else if (kind === 'inventory') {
+    let sh = []; try { sh = stockShortages(G, O) || []; } catch { sh = []; }
+    push('short', 'أصناف ناقصة أو نافدة', sh.length, null, 'int', 'down', 'inv');
+    const mv = (mm, k) => (O.whMoves || []).concat(O.stockMoves || []).filter(x => x.kind === k && inM(x.date, mm));
+    push('waste', 'حركات هدر — الشهر', mv(m, 'waste').length, mv(pm, 'waste').length, 'int', 'down', 'inv');
+    push('adj', 'تسويات جرد — الشهر', mv(m, 'adjust').length, mv(pm, 'adjust').length, 'int', 'down', 'inv');
+    push('items', 'الأصناف المخزنية', (G.items || []).length, null, 'int', '', 'inv');
+    trend = months.map(mm => ({ m: mm, v: mv(mm, 'waste').length })); trendAr = 'حركات الهدر — آخر 6 أشهر';
+  } else if (kind === 'hr') {
+    const emps = (G.employees || []).filter(e => brOk(e.branchId));
+    const act = emps.filter(e => e.isActive !== false);
+    push('emp', 'الموظفون النشطون', act.length, null, 'int', '', 'people');
+    const gross = (mm) => { try { return sum(payrollRowsOf(G, O.advances || [], emps, mm), r => r.gross); } catch { return 0; } };
+    push('payroll', 'إجمالي الرواتب — الشهر', gross(m), gross(pm), 'money', '', 'people');
+    push('leave', 'طلبات إجازة معلّقة', (O.leaveRequests || []).filter(x => x.status === 'pending' && brOk(x.branchId)).length, null, 'int', 'down', 'hrops');
+    const att = new Set((O.attendanceEvents || []).filter(x => String(x.at || '').slice(0, 10) === td && brOk(x.branchId)).map(x => x.employeeId));
+    push('att', 'حضروا اليوم', att.size, null, 'int', 'up', 'hrops');
+    trend = months.map(mm => ({ m: mm, v: gross(mm) })); trendAr = 'إجمالي الرواتب — آخر 6 أشهر';
+  } else if (kind === 'branch' || kind === 'ops') {
+    const C = (O.closings || []).filter(c => brOk(c.branchId));
+    push('today', 'مبيعات اليوم', clsRev(null, td) || sum((O.posOrders || []).filter(o => o.status === 'paid' && o.date === td && brOk(o.branchId)), o => o.total), null, 'money', 'up', 'closing');
+    push('month', 'مبيعات الشهر', clsRev(m), clsRev(pm), 'money', 'up', 'closing');
+    push('draft', 'إغلاقات مسودة', C.filter(c => c.status === 'draft').length, null, 'int', 'down', 'closing');
+    const def = (mm) => sum(C.filter(c => countedClosing(c) && inM(c.date, mm) && (c.variance || 0) < 0), c => -c.variance);
+    if (kind === 'branch') push('deficit', 'عجز الصندوق — الشهر', def(m), def(pm), 'money', 'down', 'closing');
+    else push('orders', 'فواتير اليوم', (O.posOrders || []).filter(o => o.status === 'paid' && o.date === td && brOk(o.branchId)).length, null, 'int', 'up', 'pos');
+    trend = months.map(mm => ({ m: mm, v: clsRev(mm) })); trendAr = 'مبيعات الفرع — آخر 6 أشهر';
+  }
+  return { kind, kpis: K.map(k => ({ ...k, pct: typeof k.v === 'number' ? rdPct(k.v, k.prev) : null })), trend, trendAr };
+}
+function RoleDashboard({ org, ops, me, myBranches, allowed, setTab }) {
+  const L = roleDashList(me.role, allowed);
+  const [kind, setKind] = useState(() => { try { const v = localStorage.getItem('mz-rdash:' + me.id); if (v && L.includes(v)) return v; } catch { } return roleDashDefault(me.role, allowed); });
+  const brIds = (ROLES[me.role] || {}).scope === 'all' ? null : (myBranches || []).map(b => b.id);
+  const D = useMemo(() => kind ? roleDash(org, ops, kind, { allowed, branchIds: brIds }) : null, [org, ops, kind, allowed.join(','), (brIds || []).join(',')]);   // eslint-disable-line react-hooks/exhaustive-deps
+  if (!L.length || !D) return null;
+  const pick = (k) => { setKind(k); try { localStorage.setItem('mz-rdash:' + me.id, k); } catch { } };
+  const fmt = (k) => k.fmt === 'money' ? money(k.v) : k.fmt === 'int' ? String(k.v) : String(k.v);
+  const mx = Math.max(1, ...D.trend.map(t => Math.abs(t.v)));
+  return <div className="lh-sec rd" data-roledash={kind}>
+    <div className="rd-h"><div className="lh-sect">{TX('لوحة') + ' ' + TX(RD_DEF[kind].ar)}</div>
+      {L.length > 1 && <select className="sel rd-sel" value={kind} onChange={e => pick(e.target.value)} aria-label={TX('اختر اللوحة')} data-roledash-pick>{L.map(k => <option key={k} value={k}>{TX(RD_DEF[k].ar)}</option>)}</select>}</div>
+    <div className="rd-k">{D.kpis.map(k => { const good = k.pct == null || !k.good ? '' : ((k.pct > 0) === (k.good === 'up') ? 'ok' : 'bad');
+      return <button key={k.id} type="button" className="rd-c" data-rd-kpi={k.id} disabled={!k.tab} onClick={() => k.tab && setTab(k.tab)} title={k.tab ? TX('فتح التفاصيل') : ''}>
+        <span className="rd-l">{TX(k.ar)}</span><b className="num">{fmt(k)}</b>
+        {k.pct != null ? <span className={'rd-d ' + good}>{k.pct > 0 ? '▲' : '▼'} <span className="num">{Math.abs(k.pct)}%</span> <small>{TX('عن الشهر السابق')}</small></span> : <span className="rd-d" />}</button>; })}</div>
+    {D.trend.length > 0 && <div className="rd-t" data-rd-trend><div className="rd-tl">{TX(D.trendAr)}</div><div className="rd-bars">{D.trend.map(t =>
+      <div key={t.m} className="rd-bar" title={t.m + ': ' + (D.kpis[0] && D.kpis[0].fmt === 'int' ? t.v : money(t.v))}><i style={{ height: Math.max(2, Math.round(Math.abs(t.v) / mx * 56)) + 'px' }} className={t.v < 0 ? 'neg' : ''} /><span className="num">{t.m.slice(5)}</span></div>)}</div></div>}
+  </div>;
+}
 function Launcher({ org, ops, me, myBranches, scoped, setTab, openAcctView, openInvView }) {
   const [q, setQ] = useState('');
   const [tasksOpen, setTasksOpen] = useState(false);   // v55.0 لوحة «مهامي» الجانبية
@@ -12591,6 +13026,7 @@ function Launcher({ org, ops, me, myBranches, scoped, setTab, openAcctView, open
         <div className="lh-grid" ref={gridRef}>{shown.map(a => Tile(a, !qq))}</div>
       </div>
       {shown.length === 0 && <div className="lh-empty">لا يوجد تطبيق بهذا الاسم — جرّب كلمة أخرى</div>}
+      {!qq && <RoleDashboard org={org} ops={scoped || ops} me={me} myBranches={myBranches} allowed={[...((ROLES[me.role] || {}).tabs || []), ...(me.appAllow || []).map(id => ((LAUNCH_IX[id] || {}).open || {}).tab).filter(Boolean)]} setTab={setTab} />}   {/* v56.0 لوحات الأدوار — بعد التطبيقات (قرار المالك v55: «التطبيقات أولًا») */}
       {!qq && <div className="lh-sec" data-hometoday><div className="lh-sect">{TX('ملخص اليوم والتقرير الصباحي')}</div><TodayPanel org={org} ops={ops} me={me} myBranches={myBranches} scoped={scoped} setTab={setTab} /></div>}
     </div>
     </>
@@ -13381,7 +13817,7 @@ function computeIncome(org, ops, closings, ids, from, to) {
 // طباعة قائمة الدخل كتقرير A4 رسمي
 function printIncomeA4(org, data, meta) {
   const co = org.company || {};
-  const logo = meta.branchLogo || co.logoUrl || '';
+  const logo = tbImg(meta.branchLogo) || tbLogo(org);   // v56.0
   const m = (n) => (Math.round((n || 0) * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const d = data;
   const row = (k, v, cls, ind) => `<tr class="${cls || ''}"><td style="${ind ? 'padding-inline-start:22px;color:#777' : ''}">${k}</td><td class="num">${m(v)}</td></tr>`;
@@ -13390,14 +13826,14 @@ function printIncomeA4(org, data, meta) {
   const w = openDocWin('width=880,height=1000');
   if (!w) return;
   w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
-  <title>قائمة الدخل - ${meta.periodLabel}</title><style>${A4_CSS}
+  <title>قائمة الدخل - ${meta.periodLabel}</title><style>${tbCss(tenantBrand(org))}${A4_CSS}
     .is-t { width:100%; border-collapse:collapse; font-size:11.5px; margin-top:8px }
     .is-t td { padding:8px 10px; border-bottom:1px solid #eee }
     .is-t td.num { text-align:left; font-variant-numeric:tabular-nums; font-weight:500 }
     .is-t tr.sub td { background:#F7F8FA; font-weight:700; border-top:1.5px solid #ddd }
     .is-t tr.pos td { background:#eef8f2; font-weight:700; color:#2E8B62; font-size:13px; border-top:2px solid #2E8B62 }
     .is-t tr.neg td { background:#fdeeed; font-weight:700; color:#C0392B; font-size:13px; border-top:2px solid #C0392B }
-    .is-t tr.rev td { color:#10294A }
+    .is-t tr.rev td { color:var(--tb-p,#1F2A37) }
   </style></head><body><div class="page">
     <div class="head">
       <div class="co">${logo ? `<img class="logo" src="${logo}">` :MZ_LOGO_HTML}
@@ -13421,7 +13857,7 @@ function printIncomeA4(org, data, meta) {
       <tr class="sub"><td>إجمالي الإيرادات</td><td class="num">${m(d.grossRevenue)}</td></tr>
       ${row('عمولات منصات التوصيل', -d.commissions, '', true)}
       <tr class="sub"><td>صافي الإيرادات</td><td class="num">${m(d.netRevenue)}</td></tr>
-      <tr><td colspan="2" style="background:#10294A;color:#fff;font-weight:700;font-size:11px">التكاليف والمصروفات</td></tr>
+      <tr><td colspan="2" style="background:var(--tb-p,#1F2A37);color:#fff;font-weight:700;font-size:11px">التكاليف والمصروفات</td></tr>
       ${expRows}
       ${row('الالتزامات الثابتة (إيجار/كهرباء/مياه)', -d.fixedTotal, '', true)}
       ${row('الرواتب غير المصروفة بالفروع', -d.payrollRemaining, '', true)}
@@ -13628,6 +14064,23 @@ function clrCompare(closings, recs) {
   return { ok: !missing.length && !differ.length && !extra.length, missing, differ, extra, total: (closings || []).length, recs: (recs || []).length };
 }
 const clrOn = (org) => !!org && !(org.closingRecords && org.closingRecords.on === false);
+/* v56.0 (GAP-002): مفتاح التفرد closing_keys/{فرع~تاريخ} — يُكتب مع السجل في دفعة ذرية واحدة (القواعد: getAfter).
+   إن رفض الخادم الدفعة (الخانة يشغلها إغلاق آخر غير مرفوض) نجرّب كتابة السجل وحده: تنجح فقط ما دامت القواعد لا تُلزم
+   بالمفتاح (قبل رفع الحد الأدنى للإصدار إلى v56.0)، وبعدها يُرفض التكرار على الخادم. */
+const clrKeyId = (x) => String(x.branchId || '') + '~' + String(x.date || '').slice(0, 10);
+async function clrPut(c, x, prev) {
+  const ref = c.f.doc(c.f.db, 'closings', String(x.id));
+  const rec = { ...clrRecord(x, prev), by: c.email, at: c.f.serverTimestamp(), cv: APP_CV };
+  if (x.status !== 'rejected' && c.f.writeBatch && /^\d{4}-\d{2}-\d{2}$/.test(rec.date)) {
+    try {
+      const b = c.f.writeBatch(c.f.db);
+      b.set(ref, rec);
+      b.set(c.f.doc(c.f.db, 'closing_keys', clrKeyId(x)), { branchId: rec.branchId, date: rec.date, id: String(x.id), by: c.email, at: c.f.serverTimestamp() });
+      await ctlTimeout(b.commit()); return 'ok';
+    } catch (e) { /* الخانة مشغولة أو القواعد لا تعرف المفتاح بعد — نجرّب السجل وحده أدناه */ }
+  }
+  await ctlTimeout(c.f.setDoc(ref, rec)); return 'ok';
+}
 let _clrState = { at: 0, ok: 0, fail: 0, lastErr: '' };
 const clrState = () => _clrState;
 /** نسخ الفرق إلى السجلات المستقلة — لا يُفشل الحفظ (المستند ما زال المصدر)، ويُسجَّل الإخفاق للمطابقة */
@@ -13636,7 +14089,7 @@ async function clrMirror(before, after) {
   const { put, del } = clrDiff(before, after); if (!put.length && !del.length) return { ok: 0, fail: 0 };
   let ok = 0, fail = 0, lastErr = '';
   for (const { x, prev } of put) {
-    try { await ctlTimeout(c.f.setDoc(c.f.doc(c.f.db, 'closings', String(x.id)), { ...clrRecord(x, prev), by: c.email, at: c.f.serverTimestamp(), cv: APP_CV })); ok++; }
+    try { await clrPut(c, x, prev); ok++; }
     catch (e) { fail++; lastErr = (e && e.code) || 'error'; }
   }
   for (const { id } of del) { try { await ctlTimeout(c.f.deleteDoc(c.f.doc(c.f.db, 'closings', String(id)))); ok++; } catch (e) { fail++; lastErr = (e && e.code) || 'error'; } }
@@ -13700,7 +14153,7 @@ async function clrSeed(closings, onProgress) {
   const c = await ctlIdentity(); if (!c) return { err: 'خارج Firestore' };
   let ok = 0, fail = 0, lastErr = '', i = 0; const list = (closings || []).filter(x => clrOkId(x.id) && x.branchId);
   for (const x of list) {
-    try { await ctlTimeout(c.f.setDoc(c.f.doc(c.f.db, 'closings', String(x.id)), { ...clrRecord(x, x), by: c.email, at: c.f.serverTimestamp(), cv: APP_CV })); ok++; }
+    try { await clrPut(c, x, x); ok++; }
     catch (e) { fail++; lastErr = (e && e.code) || 'error'; }
     if (onProgress && (++i % 20 === 0)) onProgress(i, list.length);
   }
@@ -13773,6 +14226,17 @@ async function fjLoad() {
 /* v49.0 — ربط تاريخ الإقفال (BUG-01-02): قفل التطبيق شهري (org.periodLocks.lockedThrough = YYYY-MM)، والخادم يفرض
    fin_periods/locks.lockedTo (تاريخ). عند تفعيل السجلات المستقلة يُنسخ القفل إلى الخادم (المدير فقط — كما في التطبيق). */
 const fpLockedTo = (org) => { const lt = lockedThru(org); return lt ? monthEnd(lt) : '0000-00-00'; };
+/** v56.0 (GAP-003): القفل يُفرض على الخادم متى عملت أي سجلات مستقلة تحرسها القواعد (الإغلاقات أو القيود/الفواتير) */
+const fpOn = (org) => clrOn(org) || fjOn(org);
+/** v56.0 (GAP-003): مطابقة القفل عند دخول المدير — منشأة قفلت فتراتها قبل v56 ليس لها مستند قفل على الخادم.
+ *  يكتب فقط عند الاختلاف، ولا يُخفّض قفل الخادم أبدًا (الفتح الاستثنائي يمر من شاشة الإقفال بسببه المكتوب). */
+async function fpReconcile(org) {
+  if (!fpOn(org)) return null;
+  const want = fpLockedTo(org); if (want === '0000-00-00') return null;
+  const cur = await fpLoad(); if (!cur || cur.err) return cur;
+  if (cur.lockedTo >= want) return { ok: true, same: true };
+  return fpSync(org);
+}
 async function fpSync(org) {
   const c = await ctlIdentity(); if (!c) return null;
   const pl = (org && org.periodLocks) || {}, last = (pl.log || [])[0] || {};
@@ -14151,9 +14615,9 @@ function qrPrintReport({ org, fb, brs, days, sel, nb, say }) {
   const scope = sel === 'all' ? 'كل الفروع' : e((brs[0] || {}).name || nb(sel));
 
   w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
-    <title>تقرير تقييم العملاء</title><style>${A4_CSS}</style></head><body><div class="page">
+    <title>تقرير تقييم العملاء</title><style>${tbCss(tenantBrand(org))}${A4_CSS}</style></head><body><div class="page">
     <div class="head">
-      <div class="co">${co.logoUrl ? `<img class="logo" src="${e(co.logoUrl)}">` :MZ_LOGO_HTML}
+      <div class="co">${tbLogo(org) ? `<img class="logo" src="${e(tbLogo(org))}">` :MZ_LOGO_HTML}
         <div><div class="co-n">${e(co.name || 'المنشأة')}</div><div class="co-m">الرقم الضريبي: ${e(co.taxNumber || '—')}</div></div></div>
       <div class="doc-title">تقرير تقييم العملاء (QR)</div>
       <div class="doc-sub">${scope} · من ${arDate(iso(from))} إلى ${arDate(iso(to))} (آخر ${days} يومًا)</div>
@@ -14229,7 +14693,7 @@ export { MKT_DEF, mktCfg, mktCanApprove, MKT_SEGS, MKT_SEG_ORDER, mktAlias, mktC
 export { moveIdx, RowGrip, RECUR_AR, recurNext, recurDue };
 export { peekDoc, DocLink, DocPeekHost, VoiceSearchHost, voiceNorm };
 export { fefoPick, lotsFor, projList, projectPL, projNextCode };
-export { appOfTab, appTaskBadges, homeKpis, isLateWork, HUB_BASE, hubTabs, HR_TABS, refsApi, docxPages, textPages, xlsxPages, cfoDash, REC_PRI, REC_DEPT, finRecs, recRealized, CTL_SEV, CTL_ST, CTL_OPEN, CTL_CAT, CTL_FLOW, ctlScan, caseSync, caseMove, FA_RATIOS, faSnap, faQuality, finAnalyze, MCP_KINDS, mcpPlanJournal, mcpPlanReclass, mcpApplyReclass, mcpPlanExp, MCP_XI_HEAD, mcpApi, invPayments, INV_CLS, XI_CLS, accClsOf, invCls, PJ_PRE, IMP_PRE, pjNumber, pjStamp, pjBackfill, pjMissing, XI_KW, XI_AR, XI_TEMPLATE, xiDetect, xiPlan, xiRecords, xiNum, CAT_FOR, catListOf, catsFor, catOf, recDomains, DOMAIN_DEF, domCfgOf, domOk, domFilter, userBrIds, DomainChips, usersApi, closingImgs, closingArchiveOne, closingStripImgs, posKey, posYmOf, posSplitOn, posSplitDoc, posJoin, brRead, brWrite, posSplitBranch, posUnsplitBranch, LOY_AUDIT_WHY, loyAudit, AI_GROWTH_PRESETS, growthDigest, aiGrowthClean, aiGrowthAsk, COMMS_PROVIDERS, COMMS_CH, COMMS_VARS, COMMS_DEF, commsCfgOf, commsRender, smsParts, commsQuiet, commsTplErr, BRR_CH, brReport, dtLocal, REC_DEF, recCfgOf, recIndex, recFor, recStats, CAMP_ST, campNextNo, campStatusOf, campStats, AUTO_DEFAULTS, autoCfgOf, payrollAccrualApply, poSuggestions, autoAlerts, prevMonthOf, SecPager, recurApply, EDIT_KINDS, editPermOf, canEditRec, BrandSymbol, BrandLockup, ACCT_GROUPS, MYWORK_CATS, myWorkGroups, MyWork, rptShell, RPT_TEMPLATES, rptFmt, rptFlat, rptTotals, rptHtml, printReport, rptXlsxRows, makeRptXlsx, rptCsv, rptDownload, DEP_METHODS, depMethod, deprSchedule, glLedger, acctActivity, COST_METHODS, costMethod, stockCostingAvg, stockCostingFifo, costCompare, itemBin, binSort, binOrder, pmPeriod, profitMatrix, RFQ_ST, rfqNextNo, rfqCompare, rfqToPOs, DLV_ST, DLV_NEXT, posDrivers, dlvNeeded, dlvRecord, dlvMove, dlvSummary, posAreas, tableArea, areasErr, salesByArea, computeSmartAlerts, stockShortages, CV_KIND, cvNextNo, partyOpenDocs, applyCashVoucher, cashVoucherHtml, VCH_T, VCH_TRF, vchTypeOf, assignVouchers, voucherList, voucherHtml, saleDeductFrom, saleDeductOn, saleUse, saleRecipeItems, saleDayUse, syncSaleMoves, itemLedger, UOM_LIST, UOM_GROUPS, uomOf, uomConv, uomOk, uomNeeded, lineUnits, lineFac, UomSelect, Notifications, closeAlertsCfg, closeAlertEvents, closeAlertFor, shiftSumText, waShare, CLOSE_ALERT_ROLES, posDocView, printScreen, cutoutPixels, productThumb, prepWasteStats, normDigits, normScan, posPaper, posPaperDev, setPosPaperDev, prepShelfH, prepBatchState, PREP_ST, canBrPurchase, brSigCheck, BR_PURCHASERS, poWhOf, syncPoInbox, INV_BILLERS, ITEM_NEW_TYPES, itemsSeq, nextItemCode, vatNoOk, supVatOf, ItemPick, A4_CSS, posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim, prepItemId, prepItemOf, prodNeeds, prodCheck, prodMoves, clrMerge, clrRead, clrViewStats, ppvReport, invTurnover, dirOf, isMzbk, mzbkDecrypt, clrData, clrRecord, clrSigRef, clrDiff, clrCompare, clrOn, clrState, clrMirror, clrLoad, clrSeed, fjData, fjStatus, fjRecord, fjDiff, fjCompare, fjOn, fjState, fjMirror, fjLoad, fpLockedTo, fpLoad, fmLoad, fmSet, fjSeed, fjLegacyRecord, dedupeSameId, findRecentDups, negStockChanges, negStockMsg, FD_KINDS, fdDate, fdData, fdProg, fdPaid, fdRecord, fdDiff, fdCompare, fdLoad, fdSeed, OdooBar, ACCT_SECTIONS, ACCT_SEC_AR, ACC_KIND, ALL_TABS, APPS, AdvanceForm, AppPermsPanel, AppsStrip, BR_COLS, Badge, BalCell, BlindCount, BranchForm, COUNT_FREQ, COUNT_ST, CameraModal, CategoriesPanel, ClosingView, CloudHealth, CountScheduleCard, DAYS_AR, DENOMS, DOC_LABEL, DOC_TYPES, DailyBranchReport, DeliveryAppsPanel, DisbursementForm, DupInvHint, EXP_CATS, FILE_CATS, Field, FinancialReports, GROWTH_MONTHS, HR_WEEK_DAYS, HrSignPad, ITEM_TYPES, Kpi, LAUNCH_APPS, LEAVE_TYPES, LOCK_MSG, MAIN_WH, MFA_DEFAULT_ROLES, MOVE_KINDS, MZ_FIXED, MZ_KIND_AR, MZ_LOGO_HTML, MZ_SUGGEST, MfaPolicyCard, MizanMerge, Modal, MoneyField, NUM_FACE, NUM_LOCALE, NationalAddressFields, Num, OutputDialog, PAY_ADD_TYPES, PAY_GUESS, PEN_TYPES, POS_DEV_KEY, POS_SH_KEY, PROMO_IDEAS, PROMO_T, PT_SRC, PT_TYPE, PartnerChip, PdfTile, PhotoField, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, PriceAlerts, QR_ITEMS, QR_STATUS, QUOTA_MSG, QrBranchesView, QrComplaints, QrDashboard, RB_KIND_AR, RB_PM_AR, RB_SOURCES, REG_APPS, REG_CATS, REG_IX, ROLES, SC_KPIS, SIGN_DOC_AR, SIG_H, SIG_W, SectionNav, SigView, SignDocsModal, SignaturePad, SystemPanel, TAB_AR, TRAIN_STATUS_AR, UsageVariance, UserForm, WASTE_REASONS, WH_KIND, WH_MOVE, WH_ST, WarehousesPanel, WasteControl, WasteFields, WastePending, WhLines, _normName, _xe, aCountDone, aItemsOf, acctSecKey, activePriorCorrectives, activeTrainingRecord, aiHeaders, appCanSee, appOpenNow, appUseGet, appUseSet, arDT, arDate, arTime, bankOfBranch, bioEnroll, bookHidden, branchBanks, branchEntityId, browserName, bsLayout, bsRowsOf, buildAccounting, buildClosingA4, buildPartners, buildPayslipSignDocs, businessDay, canApproveCount, canApproveWaste, capOK, chartTone, closingInvoices, clr, compressImage, computeIncome, contactFields, contactOf, correctiveExpiry, correctiveSignDoc, countCfgOf, countDenoms, countFocus, countSchedule, countedClosing, customerAging, daysBetween, defaultHrPolicies, defaultPenaltySchedule, defaultPointsRules, defaultRewardTiers, defaultRoleKpis, defaultTrainingPrograms, deficitCfg, deficitPatterns, detectStmtMap, deviceType, emptyDenoms, entityById, entityList, eosAccrualLines, eosCumAt, eosState, eosYears, escH, expiringTraining, expiryLots, exportExcel, fineSuggest, fmtBalP, fmtNA, frozenSnapshotFor, gosiRatesFor, haversineMeters, hrAttendanceDetail, hrEmpStats, hrQrWindowCode, hrScoreFor, isCostCtl, isLayout, isPdfData, isRowsOf, isStocked, isoD, itemAvgCosts, itemType, kpiAchievement, leaveBalance, leaveDeductPlan, lockedThru, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, makeXlsx, missingRequiredTraining, mizanPlan, money, moneyP, monthEnd, monthLabel, monthLedger, multiEntityOn, mzNewCode, mzR2, naClean, naErr, naHas, naMissing, newBranchDraft, nextPartnerCode, nextWhAcc, normPhone, normalizeSupPays, nowISO, onLeave, openDocWin, openPdfData, otFromAttendance, otRateOf, overdueSignDocs, pFactor, parseCsvGrid, parseMt940, parseXlsxGrid, partGross, partYield, payCashPart, payLabel, paySplits, payTotal, payrollRowsOf, penTypeAr, pendShiftsGet, pendShiftsSet, periodLocked, piAggregate, piDetect, piNorm, pipTriggered, posCashNet, posClrOf, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posShiftHtml, posTotals, posZHtml, positionJdHtml, printA4, printClosingA4, printIncomeA4, printPartnerStatement, printReceipt, printSalesInvoice, programRequiredFor, promoActive, promoDesc, promoHits, purKey, pwStrength, q3, qrAnalyzeComments, qrAvg, qrBranchStats, qrDate, qrF1, qrFs, qrIsComplaint, qrMs, qrOverall, qrOverdue, qrPrintReport, qrRateUrl, qrSentBadge, qrStatusOf, qrSvg, rewardSignDoc, roleEdit, roleHasTab, roleKpisFor, rolePost, salesDaySource, sha, sha256Hex, short, siCredited, siRem, siSorted, siStamp, siVerify, sigBlockHtml, sigPoints, sigSvg, signDeclaration, signDocHtml, simplifySig, slimBranchDoc, snapAll, snapMonths, snapPut, stAddDays, stDate, stNum, stockByWh, submitWaste, suggestNextLevel, sum, supplierAging, supplierPrices, today, trainingExpiryOf, trainingStatusNow, uid, usageReport, useSecNav, verifyBackup, waNum, wasteCfg, wasteDaily, wasteReasonAr, wasteRows, webauthnSupported, whForBranch, whName, whOf, whOn, zatcaTLV };
+export { appOfTab, appTaskBadges, homeKpis, isLateWork, HUB_BASE, hubTabs, HR_TABS, refsApi, docxPages, textPages, xlsxPages, cfoDash, REC_PRI, REC_DEPT, finRecs, recRealized, CTL_SEV, CTL_ST, CTL_OPEN, CTL_CAT, CTL_FLOW, ctlScan, caseSync, caseMove, FA_RATIOS, faSnap, faQuality, finAnalyze, MCP_KINDS, mcpPlanJournal, mcpPlanReclass, mcpApplyReclass, mcpPlanExp, MCP_XI_HEAD, mcpApi, invPayments, INV_CLS, XI_CLS, accClsOf, invCls, PJ_PRE, IMP_PRE, pjNumber, pjStamp, pjBackfill, pjMissing, XI_KW, XI_AR, XI_TEMPLATE, xiDetect, xiPlan, xiRecords, xiNum, CAT_FOR, catListOf, catsFor, catOf, recDomains, DOMAIN_DEF, domCfgOf, domOk, domFilter, userBrIds, DomainChips, usersApi, closingImgs, closingArchiveOne, closingStripImgs, posKey, posYmOf, posSplitOn, posSplitDoc, posJoin, brRead, brWrite, posSplitBranch, posUnsplitBranch, LOY_AUDIT_WHY, loyAudit, AI_GROWTH_PRESETS, growthDigest, aiGrowthClean, aiGrowthAsk, COMMS_PROVIDERS, COMMS_CH, COMMS_VARS, COMMS_DEF, commsCfgOf, commsRender, smsParts, commsQuiet, commsTplErr, BRR_CH, brReport, dtLocal, REC_DEF, recCfgOf, recIndex, recFor, recStats, CAMP_ST, campNextNo, campStatusOf, campStats, AUTO_DEFAULTS, autoCfgOf, payrollAccrualApply, poSuggestions, autoAlerts, prevMonthOf, SecPager, recurApply, EDIT_KINDS, editPermOf, canEditRec, BrandSymbol, BrandLockup, ACCT_GROUPS, MYWORK_CATS, myWorkGroups, MyWork, rptShell, RPT_TEMPLATES, rptFmt, rptFlat, rptTotals, rptHtml, printReport, rptXlsxRows, makeRptXlsx, rptCsv, rptDownload, DEP_METHODS, depMethod, deprSchedule, glLedger, acctActivity, COST_METHODS, costMethod, stockCostingAvg, stockCostingFifo, costCompare, itemBin, binSort, binOrder, pmPeriod, profitMatrix, RFQ_ST, rfqNextNo, rfqCompare, rfqToPOs, DLV_ST, DLV_NEXT, posDrivers, dlvNeeded, dlvRecord, dlvMove, dlvSummary, posAreas, tableArea, areasErr, salesByArea, computeSmartAlerts, stockShortages, CV_KIND, cvNextNo, partyOpenDocs, applyCashVoucher, cashVoucherHtml, VCH_T, VCH_TRF, vchTypeOf, assignVouchers, voucherList, voucherHtml, saleDeductFrom, saleDeductOn, saleUse, saleRecipeItems, saleDayUse, syncSaleMoves, itemLedger, UOM_LIST, UOM_GROUPS, uomOf, uomConv, uomOk, uomNeeded, lineUnits, lineFac, UomSelect, Notifications, closeAlertsCfg, closeAlertEvents, closeAlertFor, shiftSumText, waShare, CLOSE_ALERT_ROLES, posDocView, printScreen, cutoutPixels, productThumb, prepWasteStats, normDigits, normScan, posPaper, posPaperDev, setPosPaperDev, prepShelfH, prepBatchState, PREP_ST, canBrPurchase, brSigCheck, BR_PURCHASERS, poWhOf, syncPoInbox, INV_BILLERS, ITEM_NEW_TYPES, itemsSeq, nextItemCode, vatNoOk, supVatOf, ItemPick, A4_CSS, posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim, prepItemId, prepItemOf, prodNeeds, prodCheck, prodMoves, clrMerge, clrRead, clrViewStats, ppvReport, invTurnover, dirOf, isMzbk, mzbkDecrypt, clrData, clrRecord, clrSigRef, clrDiff, clrCompare, clrOn, clrState, clrMirror, clrLoad, clrSeed, fjData, fjStatus, fjRecord, fjDiff, fjCompare, fjOn, fjState, fjMirror, fjLoad, fpLockedTo, fpOn, fpLoad, fmLoad, fmSet, fjSeed, fjLegacyRecord, dedupeSameId, findRecentDups, negStockChanges, negStockMsg, FD_KINDS, fdDate, fdData, fdProg, fdPaid, fdRecord, fdDiff, fdCompare, fdLoad, fdSeed, OdooBar, ACCT_SECTIONS, ACCT_SEC_AR, ACC_KIND, ALL_TABS, APPS, AdvanceForm, AppPermsPanel, AppsStrip, BR_COLS, Badge, BalCell, BlindCount, BranchForm, COUNT_FREQ, COUNT_ST, CameraModal, CategoriesPanel, ClosingView, CloudHealth, CountScheduleCard, DAYS_AR, DENOMS, DOC_LABEL, DOC_TYPES, DailyBranchReport, DeliveryAppsPanel, DisbursementForm, DupInvHint, EXP_CATS, FILE_CATS, Field, FinancialReports, GROWTH_MONTHS, HR_WEEK_DAYS, HrSignPad, ITEM_TYPES, Kpi, LAUNCH_APPS, LEAVE_TYPES, LOCK_MSG, MAIN_WH, MFA_DEFAULT_ROLES, MOVE_KINDS, MZ_FIXED, MZ_KIND_AR, MZ_LOGO_HTML, MZ_SUGGEST, MfaPolicyCard, MizanMerge, Modal, MoneyField, NUM_FACE, NUM_LOCALE, NationalAddressFields, Num, OutputDialog, PAY_ADD_TYPES, PAY_GUESS, PEN_TYPES, POS_DEV_KEY, POS_SH_KEY, PROMO_IDEAS, PROMO_T, PT_SRC, PT_TYPE, PartnerChip, PdfTile, PhotoField, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, PriceAlerts, QR_ITEMS, QR_STATUS, QUOTA_MSG, QrBranchesView, QrComplaints, QrDashboard, RB_KIND_AR, RB_PM_AR, RB_SOURCES, REG_APPS, REG_CATS, REG_IX, ROLES, SC_KPIS, SIGN_DOC_AR, SIG_H, SIG_W, SectionNav, SigView, SignDocsModal, SignaturePad, SystemPanel, TAB_AR, TRAIN_STATUS_AR, UsageVariance, UserForm, WASTE_REASONS, WH_KIND, WH_MOVE, WH_ST, WarehousesPanel, WasteControl, WasteFields, WastePending, WhLines, _normName, _xe, aCountDone, aItemsOf, acctSecKey, activePriorCorrectives, activeTrainingRecord, aiHeaders, appCanSee, appOpenNow, appUseGet, appUseSet, arDT, arDate, arTime, bankOfBranch, bioEnroll, bookHidden, branchBanks, branchEntityId, browserName, bsLayout, bsRowsOf, buildAccounting, buildClosingA4, buildPartners, buildPayslipSignDocs, businessDay, canApproveCount, canApproveWaste, capOK, chartTone, closingInvoices, clr, compressImage, computeIncome, contactFields, contactOf, correctiveExpiry, correctiveSignDoc, countCfgOf, countDenoms, countFocus, countSchedule, countedClosing, customerAging, daysBetween, defaultHrPolicies, defaultPenaltySchedule, defaultPointsRules, defaultRewardTiers, defaultRoleKpis, defaultTrainingPrograms, deficitCfg, deficitPatterns, detectStmtMap, deviceType, emptyDenoms, entityById, entityList, eosAccrualLines, eosCumAt, eosState, eosYears, escH, expiringTraining, expiryLots, exportExcel, fineSuggest, fmtBalP, fmtNA, frozenSnapshotFor, gosiRatesFor, haversineMeters, hrAttendanceDetail, hrEmpStats, hrQrWindowCode, hrScoreFor, isCostCtl, isLayout, isPdfData, isRowsOf, isStocked, isoD, itemAvgCosts, itemType, kpiAchievement, leaveBalance, leaveDeductPlan, lockedThru, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, makeXlsx, missingRequiredTraining, mizanPlan, money, moneyP, monthEnd, monthLabel, monthLedger, multiEntityOn, mzNewCode, mzR2, naClean, naErr, naHas, naMissing, newBranchDraft, nextPartnerCode, nextWhAcc, normPhone, normalizeSupPays, nowISO, onLeave, openDocWin, openPdfData, otFromAttendance, otRateOf, overdueSignDocs, pFactor, parseCsvGrid, parseMt940, parseXlsxGrid, partGross, partYield, payCashPart, payLabel, paySplits, payTotal, payrollRowsOf, penTypeAr, pendShiftsGet, pendShiftsSet, periodLocked, piAggregate, piDetect, piNorm, pipTriggered, posCashNet, posClrOf, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posShiftHtml, posTotals, posZHtml, positionJdHtml, printA4, printClosingA4, printIncomeA4, printPartnerStatement, printReceipt, printSalesInvoice, programRequiredFor, promoActive, promoDesc, promoHits, purKey, pwStrength, q3, qrAnalyzeComments, qrAvg, qrBranchStats, qrDate, qrF1, qrFs, qrIsComplaint, qrMs, qrOverall, qrOverdue, qrPrintReport, qrRateUrl, qrSentBadge, qrStatusOf, qrSvg, rewardSignDoc, roleEdit, roleHasTab, roleKpisFor, rolePost, salesDaySource, sha, sha256Hex, short, siCredited, siRem, siSorted, siStamp, siVerify, sigBlockHtml, sigPoints, sigSvg, signDeclaration, signDocHtml, simplifySig, slimBranchDoc, snapAll, snapMonths, snapPut, stAddDays, stDate, stNum, stockByWh, submitWaste, suggestNextLevel, sum, supplierAging, supplierPrices, today, trainingExpiryOf, trainingStatusNow, uid, usageReport, useSecNav, verifyBackup, waNum, wasteCfg, wasteDaily, wasteReasonAr, wasteRows, webauthnSupported, whForBranch, whName, whOf, whOn, zatcaTLV };
 export { ClosingForm };
 // v38.3 — للاختبارات الآلية (tests/): دوال المحرك والشاشات تُستورد من النواة مباشرة
 export { stockCosting, eosEntitledAmt, eosFullAmt, findDupInvoices, invNoNorm, promoLineDisc, tafqeet, MktGrowth, Hub, Launcher, PosApp, Inventory, Partners, SalesHub, QrFeedback, AppsCenter, BranchWarehouse, Admin, AuditView, Accounting, emptyOrg, emptyOps, HUBS };

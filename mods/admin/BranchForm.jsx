@@ -43,6 +43,14 @@ export function BranchForm({ b, org, say, onSave, onClose }) {
       <Field label="شعار الفرع (يظهر في تقارير هذا الفرع)">
         <PhotoField value={f.logoUrl} onChange={v => set('logoUrl', v)} say={say} />
       </Field>
+      {/* v56.0 — هوية الفرع: لون أساسي لمستندات هذا الفرع (يغلب لون المنشأة فيها) — اختياري */}
+      <Field label="لون مستندات الفرع (اختياري — يغلب لون المنشأة في تقارير هذا الفرع وفواتيره)">
+        <div className="row" style={{ gap: 6 }}>
+          <input type="color" value={/^#[0-9A-Fa-f]{6}$/.test(f.brandColor || '') ? f.brandColor : '#1F2A37'} onChange={e => set('brandColor', e.target.value.toUpperCase())} aria-label="لون مستندات الفرع" data-br-color style={{ width: 42, height: 36, padding: 2 }} />
+          <input className="inp n" value={f.brandColor || ''} placeholder="بلا — لون المنشأة" onChange={e => set('brandColor', e.target.value)} style={{ flex: 1 }} />
+          {f.brandColor && <button type="button" className="btn sm gh" onClick={() => set('brandColor', '')}>إزالة</button>}
+        </div>
+      </Field>
     </Modal>
   );
 }

@@ -269,7 +269,7 @@ export default {
 "عهدة افتتاحية": "Opening float",
 "الصندوق مطابق ✓": "Drawer matches ✓",
 "رقم ضريبي": "VAT no.",
-"صادر من مِثقال": "Issued from Mithqal",
+"صادر من مُكتسَب": "Issued from Muktasab",
 "إغلاق فرع": "Branch closing",
 "تحويل صادر": "Outgoing transfer",
 "تحويل وارد": "Incoming transfer",

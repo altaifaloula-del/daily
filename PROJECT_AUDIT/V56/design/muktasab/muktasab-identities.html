@@ -1,0 +1,142 @@
+<title>هويات مُكتسَب</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@500;700&family=Manrope:wght@600;800&family=Readex+Pro:wght@500;700&family=Reem+Kufi:wght@600;700&family=Tajawal:wght@700;800&display=swap">
+<style>
+/* التخطيط: معرض هويات؛ كل اتجاه بطاقة كاملة: الشعار على الفاتح والداكن، أيقونة التطبيق، شريط المنصة، الألوان والخطوط، والطابع */
+:root{
+  --bg:#F4F5F8; --card:#FFFFFF; --fg:#0F1626; --muted:#5A6477; --line:#DFE3EA; --chip:#EEF0F5;
+  --ar:'IBM Plex Sans Arabic','Noto Sans Arabic',system-ui,sans-serif; --en:Manrope,'Segoe UI',system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0B0F18;--card:#141A26;--fg:#E8ECF3;--muted:#9AA4B6;--line:#252E40;--chip:#1C2333;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0B0F18;--card:#141A26;--fg:#E8ECF3;--muted:#9AA4B6;--line:#252E40;--chip:#1C2333;color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--ar);font-size:15px;line-height:1.7}
+.wrap{max-width:1200px;margin:0 auto;padding-block:28px 64px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;grid-template-columns:minmax(0,1fr);gap:22px}
+h1{font-size:clamp(26px,4vw,36px);line-height:1.25;margin:0}
+.lead{color:var(--muted);margin:6px 0 0;max-width:72ch}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;overflow:hidden;display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);min-width:0}
+.vis{display:grid;grid-template-rows:auto auto auto;min-width:0}
+.hero{background:var(--l);display:flex;align-items:center;justify-content:center;gap:20px;padding:40px 16px;cursor:pointer;direction:rtl;--p:var(--c1);--a:var(--c2);--t:var(--c1);--w:#FFFFFF}
+.hero.dk{background:var(--c1);--p:#FFFFFF;--t:#FFFFFF;--w:var(--c1);padding:22px 16px}
+.hero:focus-visible{outline:2px solid var(--c2);outline-offset:-4px}
+.sym{width:104px;height:104px;flex:none;overflow:visible}
+.hero.dk .sym{width:60px;height:60px}
+.wm{display:grid;line-height:1;gap:4px;justify-items:var(--ji,center)}
+.wm b{font-family:var(--fa);font-weight:var(--fw,700);font-size:56px;color:var(--t);line-height:1.15;letter-spacing:var(--ls,0)}
+.wm small{font-family:var(--fe);font-weight:800;font-size:14px;letter-spacing:var(--els,.32em);color:var(--t);direction:ltr;text-transform:var(--tt,uppercase)}
+.hero.dk .wm b{font-size:34px} .hero.dk .wm small{font-size:10px}
+.wm i{display:block;height:4px;width:44px;border-radius:2px;background:var(--a);justify-self:center}
+.bar{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--c1);direction:rtl;--p:#FFFFFF;--a:var(--c2);--w:var(--c1)}
+.bar .sym{width:24px;height:24px}
+.bar b{font-family:var(--fa);font-weight:700;color:#FFFFFF;font-size:17px}
+.bar nav{display:flex;gap:14px;margin-inline-start:16px;font-size:12.5px;color:rgba(255,255,255,.72)}
+.bar nav span:first-child{color:#FFFFFF;border-bottom:2px solid var(--c2)}
+.meta{padding:18px;display:grid;gap:12px;align-content:start;min-width:0;border-inline-start:1px solid var(--line)}
+.meta h2{margin:0;font-size:20px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.num{font-family:var(--en);font-size:13px;font-weight:800;width:28px;height:28px;border-radius:8px;display:inline-grid;place-items:center;background:var(--c1);color:#FFFFFF}
+.rec{font-size:11.5px;border-radius:999px;padding:1px 9px;background:var(--c2);color:#14110A;font-weight:500}
+.meta p{margin:0;color:var(--muted);font-size:14px}
+.k{font-size:12.5px;color:var(--muted);margin-bottom:4px}
+.sw{display:flex;gap:6px;flex-wrap:wrap}
+.sw span{display:grid;gap:3px;justify-items:center;font-family:var(--en);font-size:10.5px;color:var(--muted)}
+.sw i{width:40px;height:34px;border-radius:9px;display:block;border:1px solid var(--line)}
+.icons{display:flex;gap:12px;align-items:end}
+.tile{width:64px;height:64px;border-radius:17px;background:var(--c1);display:flex;align-items:center;justify-content:center;--p:#FFFFFF;--a:var(--c2);--w:var(--c1);cursor:pointer}
+.tile .sym{width:40px;height:40px}
+.tile.lt{background:var(--l);border:1px solid var(--line);--p:var(--c1);--w:#FFFFFF}
+.tile.lt .glyph{color:var(--c1)}
+.tile .glyph{font-family:var(--fa);font-weight:800;font-size:36px;color:#FFFFFF;line-height:1}
+.fonts{font-size:13px}
+.fonts b{font-weight:700}
+.pc{transform-box:fill-box;transform-origin:center}
+.pc[data-o="b"]{transform-origin:50% 100%} .pc[data-o="v"]{transform-box:view-box;transform-origin:50% 50%}
+.play .pc{animation:var(--an,pop) .75s cubic-bezier(.2,.8,.2,1) calc(var(--i,0) * 110ms) backwards}
+.play .wm{animation:wmIn .7s cubic-bezier(.2,.8,.2,1) .45s backwards}
+@keyframes pop{from{transform:scale(0);opacity:0}}
+@keyframes grow{from{transform:scaleY(0)}}
+@keyframes draw{from{stroke-dashoffset:var(--len)}}
+@keyframes spin{from{transform:rotate(-90deg) scale(.6);opacity:0}}
+@keyframes fade{from{opacity:0}}
+@keyframes wmIn{from{transform:translateX(-12px);opacity:0}}
+@media (prefers-reduced-motion:reduce){.play .pc,.play .wm{animation:none}}
+.note{font-size:13px;color:var(--muted);border-top:1px solid var(--line);padding-top:14px;margin:0}
+@media (max-width:900px){.card{grid-template-columns:1fr}.meta{border-inline-start:0;border-top:1px solid var(--line)}}
+@media (max-width:520px){.hero{gap:12px;padding:28px 10px}.sym{width:70px;height:70px}.wm b{font-size:40px}.wm small{font-size:11px}.bar nav{display:none}}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>مُكتسَب — سبعة اتجاهات للهوية والشعار</h1>
+    <p class="lead">كل اتجاه هوية كاملة بطابع مختلف: رمزه وألوانه وخطوطه، والشعار على الفاتح والداكن، وأيقونة التطبيق، وشكله داخل المنصة. اضغط أي شعار لإعادة حركته.</p>
+  </header>
+  <div id="list" style="display:grid;gap:18px"></div>
+  <p class="note">الكتابة هنا نص حي بخطوط Google للمعاينة. بعد اختيار الاتجاه تُحوَّل حروف الشعار إلى مسارات وتُولَّد حزمة الإنتاج كاملة (SVG وPDF وPNG وأيقونات) كما في الهوية المعتمدة.</p>
+</div>
+
+<script>
+(() => {
+const P = a => a.map(p => p.join(',')).join(' ');
+const mx = a => a.map(([x, y]) => [100 - x, y]).reverse();
+const MQ = { l: [[8, 86], [26, 86], [26, 32], [8, 14]], a: [[33, 14], [50, 31], [50, 55], [33, 38]] };
+const sc = (pts, s, dx, dy) => pts.map(([x, y]) => [+(dx + x * s).toFixed(2), +(dy + y * s).toFixed(2)]);
+const D = [
+ { n: 'الهندسي الكلاسيكي', rec: true, c1: '#10294A', c2: '#D9A83E', l: '#FFFFFF', fa: "'IBM Plex Sans Arabic'", fe: 'Manrope', fn: 'IBM Plex Sans Arabic + Manrope',
+   mood: 'الرمز المعتمد كما هو: ساقان كحليتان وذراعان ذهبيان يلتقيان في القلب. رسمي وموثوق، ويناسب المحاسبين والمنشآت الكبيرة.', best: 'الشركات والمكاتب المحاسبية والجهات الرسمية',
+   sym: () => [ { pts: MQ.l, f: 'p', an: 'grow', o: 'b', i: 0 }, { pts: mx(MQ.l), f: 'p', an: 'grow', o: 'b', i: 1 }, { pts: MQ.a, f: 'a', i: 3 }, { pts: mx(MQ.a), f: 'a', i: 4 } ] },
+ { n: 'التقني العصري', c1: '#3B3FD9', c2: '#2FD3A0', l: '#FFFFFF', fa: "'Readex Pro'", fe: 'Manrope', fn: 'Readex Pro + Manrope (حروف صغيرة)', tt: 'none', els: '-.01em', small: 'muktasab',
+   mood: 'حرف m صغير بخطين مستديرين ونقطة نعناعية: طابع شركات التقنية الحديثة، خفيف وودود.', best: 'المنشآت الصغيرة والشركات الناشئة',
+   sym: () => [ { d: 'M20 82 V48 A15 15 0 0 1 50 48 V82 M50 48 A15 15 0 0 1 80 48 V82', st: 15, len: 200, f: 'p', an: 'draw', i: 0 }, { c: [80, 22, 9], f: 'a', i: 5 } ] },
+ { n: 'النمو', c1: '#0E7A5E', c2: '#F2B33D', l: '#FFFFFF', fa: "'Tajawal'", fe: 'Manrope', fn: 'Tajawal + Manrope', fw: 800,
+   mood: 'خط أداء صاعد يرسم حرف M وينتهي بنقطة ذهبية: المكتسبات تنمو. أخضر المال مع ذهب العائد.', best: 'التجزئة والمطاعم ونقاط البيع',
+   sym: () => [ { d: 'M12 82 L30 34 L50 64 L70 30 L88 16', st: 13, len: 260, f: 'p', an: 'draw', i: 0, join: 1 }, { c: [88, 16, 10], f: 'a', i: 6 } ] },
+ { n: 'الدرع والثقة', c1: '#0B1F3A', c2: '#C97B3D', l: '#FFFFFF', fa: "'IBM Plex Sans Arabic'", fe: 'Manrope', fn: 'IBM Plex Sans Arabic + Manrope',
+   mood: 'درع يحمي المكتسبات، وفي داخله حرف M النحاسي: أمان البيانات والامتثال. وقور كعلامات البنوك.', best: 'المنشآت الكبيرة والقطاع المالي',
+   sym: () => [ { d: 'M50 5 L89 17 V47 C89 71 72 88 50 96 C28 88 11 71 11 47 V17 Z', f: 'p', i: 0 },
+     { pts: sc(MQ.l, .46, 27, 26), f: 'w', i: 3 }, { pts: sc(mx(MQ.l), .46, 27, 26), f: 'w', i: 3 }, { pts: sc(MQ.a, .46, 27, 26), f: 'a', i: 5 }, { pts: sc(mx(MQ.a), .46, 27, 26), f: 'a', i: 5 } ] },
+ { n: 'الميم العربية', c1: '#1F2632', c2: '#FF6B4A', l: '#FFFFFF', fa: "'Readex Pro'", fe: 'Manrope', fn: 'Readex Pro + Manrope',
+   mood: 'حرف «م» العربي مبسّطًا: رأس دائري بقلب مرجاني، وذيل ينزل بثبات. عربي الهوية بشكل حديث.', best: 'جمهور عربي واسع وتطبيقات الجوال',
+   sym: () => [ { cr: [58, 38, 22, 14], f: 'p', i: 0 }, { d: 'M38 50 C24 62 22 80 26 94', st: 14, len: 60, f: 'p', an: 'draw', i: 2 }, { c: [58, 38, 8], f: 'a', i: 5 } ] },
+ { n: 'الكوفي التراثي', c1: '#0F5257', c2: '#D9B26F', l: '#FBF8F1', fa: "'Reem Kufi'", fe: 'Manrope', fn: 'Reem Kufi + Manrope',
+   mood: 'نجمة ثمانية من الزخرفة العربية بقلب رملي، مع كتابة كوفية: أصالة وتراث بلمسة رسمية.', best: 'السوق السعودي والهوية الوطنية',
+   sym: () => [ { pts: [[22, 22], [78, 22], [78, 78], [22, 78]], f: 'p', an: 'spin', o: 'v', i: 0 }, { pts: [[50, 10.4], [89.6, 50], [50, 89.6], [10.4, 50]], f: 'p', an: 'spin', o: 'v', i: 1 }, { pts: [[50, 34], [66, 50], [50, 66], [34, 50]], f: 'a', i: 5 } ] },
+ { n: 'الكتابة وحدها', c1: '#00634A', c2: '#C9A46A', l: '#FFFFFF', fa: "'Tajawal'", fe: 'Manrope', fn: 'Tajawal ثقيل + Manrope', fw: 800, words: true,
+   mood: 'بلا رمز منفصل: الاسم نفسه هو العلامة، بخط عريض وشريط ذهبي تحته. بسيط وواثق كعلامات الشركات الكبرى.', best: 'الحضور القوي في الإعلانات واللافتات',
+   sym: null },
+];
+function svg(parts, size) {
+  const b = parts.map(p => { const fill = p.f === 'a' ? 'var(--a)' : p.f === 'w' ? 'var(--w)' : 'var(--p)';
+    const st = `--an:${p.an || 'pop'};--i:${p.i || 0}${p.len ? ';--len:' + p.len : ''}`, o = p.o ? ` data-o="${p.o}"` : '';
+    if (p.c) return `<circle class="pc"${o} style="${st}" cx="${p.c[0]}" cy="${p.c[1]}" r="${p.c[2]}" fill="${fill}"/>`;
+    if (p.cr) return `<circle class="pc"${o} style="${st}" cx="${p.cr[0]}" cy="${p.cr[1]}" r="${p.cr[2]}" fill="none" stroke="${fill}" stroke-width="${p.cr[3]}"/>`;
+    if (p.pts) return `<polygon class="pc"${o} style="${st}" points="${P(p.pts)}" fill="${fill}"/>`;
+    if (p.st) return `<path class="pc"${o} style="${st}" d="${p.d}" fill="none" stroke="${fill}" stroke-width="${p.st}" stroke-linecap="round"${p.join ? ' stroke-linejoin="round"' : ''} stroke-dasharray="${p.len} 600"/>`;
+    return `<path class="pc"${o} style="${st}" d="${p.d}" fill="${fill}"/>`; }).join('');
+  return `<svg class="sym" viewBox="0 0 100 100"${size ? ` width="${size}" height="${size}"` : ''} aria-hidden="true">${b}</svg>`;
+}
+const wm = x => `<span class="wm"><b>مكتسب</b><small>${x.small || 'MUKTASAB'}</small>${x.words ? '<i></i>' : ''}</span>`;
+const lock = x => (x.sym ? svg(x.sym()) : '') + wm(x);
+const tile = (x, lt) => `<div class="tile${lt ? ' lt' : ''}" role="button" tabindex="0" aria-label="إعادة الحركة">${x.sym ? svg(x.sym()) : '<span class="glyph">م</span>'}</div>`;
+document.getElementById('list').innerHTML = D.map((x, k) => `
+  <article class="card" style="--c1:${x.c1};--c2:${x.c2};--l:${x.l};--fa:${x.fa};--fe:${x.fe};${x.fw ? '--fw:' + x.fw + ';' : ''}${x.tt ? '--tt:' + x.tt + ';' : ''}${x.els ? '--els:' + x.els + ';' : ''}">
+    <div class="vis">
+      <div class="hero" role="button" tabindex="0" aria-label="إعادة حركة ${x.n}">${lock(x)}</div>
+      <div class="hero dk" role="button" tabindex="0" aria-label="إعادة حركة ${x.n} على الداكن">${lock(x)}</div>
+      <div class="bar">${x.sym ? svg(x.sym()) : '<b style="font-size:20px">م</b>'}<b>مكتسب</b><nav><span>الرئيسية</span><span>المبيعات</span><span>المخزون</span><span>الحسابات</span></nav></div>
+    </div>
+    <div class="meta">
+      <h2><span class="num">${k + 1}</span>${x.n}${x.rec ? '<span class="rec">الهوية المعتمدة حاليًا</span>' : ''}</h2>
+      <p>${x.mood}</p>
+      <div><div class="k">يناسب</div><div style="font-size:14px">${x.best}</div></div>
+      <div><div class="k">الألوان</div><div class="sw"><span><i style="background:${x.c1}"></i>${x.c1}</span><span><i style="background:${x.c2}"></i>${x.c2}</span><span><i style="background:${x.l}"></i>${x.l}</span></div></div>
+      <div><div class="k">الخطوط</div><div class="fonts">${x.fn}</div></div>
+      <div><div class="k">أيقونة التطبيق</div><div class="icons">${tile(x)}${tile(x, true)}</div></div>
+    </div>
+  </article>`).join('');
+const play = el => { el.classList.remove('play'); void el.getBoundingClientRect(); el.classList.add('play'); };
+document.addEventListener('click', e => { const h = e.target.closest('.hero,.tile'); if (h) play(h); });
+document.addEventListener('keydown', e => { const h = e.target.closest('.hero,.tile'); if (h && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); play(h); } });
+requestAnimationFrame(() => setTimeout(() => document.querySelectorAll('.hero').forEach((el, n) => setTimeout(() => play(el), n * 90)), 250));
+})();
+</script>

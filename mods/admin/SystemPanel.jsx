@@ -5,6 +5,7 @@ import { Settings, Check, Clock, HardDrive, Download, ShieldCheck, Upload, X, Sh
 import { CloseAlertsCard } from './CloseAlertsCard.jsx';
 import { SubscriptionCard } from './SubscriptionCard.jsx';
 import { AutomationCard } from './AutomationCard.jsx';
+import { TenantBranding } from './TenantBranding.jsx';   // v56.0 الهوية التجارية للمنشأة
 import { CloudHealth, Field, MfaPolicyCard, Modal, NationalAddressFields, PhotoField, ROLES, fmtNA, isoD, lockedThru, money, naClean, naErr, naHas, nowISO, periodLocked, snapAll, snapPut, today, uid, verifyBackup, logAudit, isMzbk, mzbkDecrypt, dtLocal } from '../../App.jsx';
 
 export function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
@@ -345,6 +346,10 @@ export function SystemPanel({ org, ops, me, commit, commitOrg, say }) {
           <PhotoField value={c.logoUrl} onChange={v => set('logoUrl', v)} say={say} />
         </Field>
         <button className="btn pri" onClick={saveCompany}><Check size={14} />حفظ بيانات المنشأة</button>
+      </div>
+      {/* v56.0 — الهوية التجارية للمنشأة: بطاقة مستقلة بعرض الصفحة */}
+      <div style={{ gridColumn: '1 / -1' }}><TenantBranding org={org} me={me} commitOrg={commitOrg} say={say} /></div>
+      <div className="card">
 
         <SubscriptionCard branches={(org.branches || []).length} />
         <AutomationCard org={org} commitOrg={commitOrg} say={say} />

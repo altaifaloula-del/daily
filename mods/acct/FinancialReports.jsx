@@ -2,6 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { FileText, Download, FileBarChart, Receipt, TrendingUp, TrendingDown, Wallet } from 'lucide-react';
 import { Kpi, NUM_FACE, arDate, computeIncome, exportExcel, money, openDocWin, printIncomeA4, sum, today, buildAccounting, acctActivity, isLayout, DocLink } from '../../App.jsx';
+import { tbCss, tenantBrand } from '../../App.jsx';   // v56.0 ألوان مستندات المنشأة
 
 export function FinancialReports({ org, ops, myBranches, scoped, say }) {
   const [period, setPeriod] = useState('monthly');
@@ -85,20 +86,20 @@ export function FinancialReports({ org, ops, myBranches, scoped, say }) {
     if (!w) return;
     w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
       <title>إقرار ضريبة القيمة المضافة - ${range.label}</title>
-      <style>${NUM_FACE}
+      <style>${tbCss(tenantBrand(org))}${NUM_FACE}
         *{margin:0;padding:0;box-sizing:border-box;font-family:'MizanNum','IBM Plex Sans Arabic','Noto Sans Arabic','Segoe UI',Tahoma,sans-serif}
         body{padding:32px;color:#222}
         .head{text-align:center;border-bottom:3px solid #D9A83E;padding-bottom:16px;margin-bottom:8px}
-        .co-n{font-size:19px;font-weight:bold;color:#10294A}
+        .co-n{font-size:19px;font-weight:bold;color:var(--tb-p,#1F2A37)}
         .co-m{font-size:12px;color:#666;margin-top:4px}
         .title{text-align:center;font-size:17px;font-weight:bold;margin:18px 0 4px}
         .sub{text-align:center;font-size:13px;color:#666;margin-bottom:22px}
         table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13px}
-        th{background:#10294A;color:#fff;padding:10px;text-align:right}
+        th{background:var(--tb-p,#1F2A37);color:#fff;padding:10px;text-align:right}
         td{border:1px solid #ddd;padding:10px 12px}
         td.n{text-align:left;font-variant-numeric:tabular-nums;white-space:nowrap}
-        .sec{background:#F3F5F8;font-weight:bold;color:#10294A}
-        .due{background:#D9A83E;color:#10294A;font-weight:bold;font-size:15px}
+        .sec{background:#F3F5F8;font-weight:bold;color:var(--tb-p,#1F2A37)}
+        .due{background:#D9A83E;color:var(--tb-p,#1F2A37);font-weight:bold;font-size:15px}
         .note{font-size:11px;color:#888;margin-top:20px;line-height:1.7}
         .sign{display:flex;justify-content:space-between;margin-top:44px;gap:40px}
         .sign div{flex:1;text-align:center;border-top:1px solid #999;padding-top:8px;font-size:12px;color:#666}

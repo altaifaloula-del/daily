@@ -86,3 +86,26 @@ test('خزنة الأسرار: AES-256-GCM يُفك بمفتاح الخادم ف
   assert.throws(() => open(s, 'egs|simulation|b1'), 'مفتاح خادم مختلف لا يفك');
   process.env.ZATCA_ENC_KEY = k0;
 });
+
+test('v56.0 BUG-012: بصمة المفتاح في الحزمة — تغيّر مفتاح الخادم يُرفض برسالة صريحة، والحزم القديمة (بلا بصمة) تبقى تُفك', async () => {
+  const { seal, open, keyId, vaultCheck, sealedKeyId } = await import('../zatca/vault.js');
+  const A = { secret: 'a'.repeat(40), tenant: 'default' }, B = { secret: 'b'.repeat(40), tenant: 'default' };
+  const s = seal({ privateKeyPem: 'PEM' }, 'egs|sandbox|b1', A);
+  assert.equal(sealedKeyId(s), keyId(A)); assert.match(keyId(A), /^[0-9a-f]{16}$/);
+  assert.ok(!keyId(A).includes('a'.repeat(4)), 'البصمة لا تكشف السر');
+  assert.equal(open(s, 'egs|sandbox|b1', A).privateKeyPem, 'PEM');
+  assert.throws(() => open(s, 'egs|sandbox|b1', B), (e) => e.code === 'vault-key-mismatch' && e.sealedKid === keyId(A) && e.serverKid === keyId(B));
+  const legacy = s.split('.').slice(0, 4).join('.');   // حزمة ما قبل v56.0
+  assert.equal(open(legacy, 'egs|sandbox|b1', A).privateKeyPem, 'PEM');
+  assert.equal(vaultCheck(A, keyId(A)).ok, true);
+  assert.equal(vaultCheck(B, keyId(A)).why, 'mismatch');
+  assert.equal(vaultCheck({ secret: '', tenant: 'default' }).why, 'missing');
+  assert.equal(vaultCheck({ secret: 'short', tenant: 'default' }).why, 'short');
+  assert.notEqual(keyId({ secret: 'a'.repeat(40), tenant: 'c2' }), keyId(A), 'منشأة أخرى بالسر نفسه = بصمة أخرى');
+});
+
+test('v56.0 BUG-012: مخطط Render لا يولّد مفتاح الخزنة تلقائيًا (إعادة إنشاء الخدمة لا تفقده)', () => {
+  const y = fs.readFileSync(new URL('../render.yaml', import.meta.url), 'utf8');
+  const blk = y.slice(y.indexOf('- key: ZATCA_ENC_KEY'), y.indexOf('- key: ZATCA_KEY_ID'));
+  assert.ok(blk.includes('sync: false'), 'يُضبط يدويًا'); assert.ok(!blk.includes('generateValue'), 'لا توليد تلقائي');
+});
