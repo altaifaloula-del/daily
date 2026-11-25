@@ -10,7 +10,7 @@ import { EDIT_KINDS, editPermOf, ALL_TABS, AppPermsPanel, BranchForm, Categories
 
 export function Admin({ org, ops, me, commit, commitOrg, say }) {
   const [tab, setTab] = useState('branches');
-  // v51.5 (S6): «لوحة مِثقال» تظهر لمزوّد المنصة فقط — الخادم يقرر (والمسارات تفحصه من جديد)
+  // v51.5 (S6): «لوحة مُكتسَب» تظهر لمزوّد المنصة فقط — الخادم يقرر (والمسارات تفحصه من جديد)
   const [isProv, setIsProv] = useState(false);
   useEffect(() => { let on = true; if (TENANT.id === 'default' && authApi.enabled) probeProvider().then(v => { if (on) setIsProv(v); }); return () => { on = false; }; }, []);
   const [bEdit, setBEdit] = useState(null);
@@ -143,7 +143,7 @@ export function Admin({ org, ops, me, commit, commitOrg, say }) {
         </button>
         {me && me.role === 'system_admin' && <button className={'btn sm' + (tab === 'claude' ? ' pri' : ' gh')} data-tab-claude onClick={() => setTab('claude')}><Link2 size={14} />ربط Claude</button>}
         {isProv && <button className={'btn sm mq-prov-tab' + (tab === 'provider' ? ' pri' : ' gh')} onClick={() => setTab('provider')}>
-          <Store size={14} />لوحة مِثقال
+          <Store size={14} />لوحة مُكتسَب
         </button>}
         {(tab === 'branches' || tab === 'users') && <button className="btn pri" style={{ marginInlineStart: 'auto' }}
           onClick={() => tab === 'branches'
@@ -259,7 +259,7 @@ export function Admin({ org, ops, me, commit, commitOrg, say }) {
             </div>
             <div className="card" style={{ background: 'rgba(200,162,74,.04)', borderStyle: 'dashed' }}>
               <div style={{ fontSize: 11.5, color: 'var(--dim)', lineHeight: 2 }}>
-                <b style={{ color: 'var(--brass-l)' }}>صلاحيات الكتابة الحساسة (إضافة إلى رؤية الشاشات):</b><br />
+                <b style={{ color: 'var(--brass-t)' }}>صلاحيات الكتابة الحساسة (إضافة إلى رؤية الشاشات):</b><br />
                 • القيود اليدوية والأصول والتسوية البنكية وأوامر الشراء والمخزون: الأدوار كاملة النطاق (مسؤول النظام، الإدارة العليا، المكتب الرئيسي، المحاسب الرئيسي)<br />
                 • تفعيل الضريبة ونسبتها، إدارة المستخدمين والفروع، إدارة التطبيقات: أدوار الإدارة فقط (مسؤول النظام، الإدارة العليا)<br />
                 • الاعتماد النهائي للإغلاقات: أصحاب صفة «معتمِد» — والقيود التلقائية لا يعدّلها أحد: تصحيح المصدر يصحّح قيده<br />

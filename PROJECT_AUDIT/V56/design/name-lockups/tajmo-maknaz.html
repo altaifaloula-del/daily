@@ -1,0 +1,126 @@
+<title>تجمو ومكنز</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;700&family=Manrope:wght@500;700;800&display=swap">
+<style>
+/* التخطيط: لوحة مقارنة عربية — قسم لكل اسم، داخله بطاقتا رمز؛ كل بطاقة: الشعار الكامل بالعبارة الوصفية على الفاتح ثم الداكن ثم الأيقونات */
+:root{
+  --bg:#F4F6F9; --card:#FFFFFF; --fg:#101A2B; --muted:#5B677A; --line:#DCE2EA; --chip:#EEF1F5;
+  --navy:#10294A; --gold:#D9A83E;
+  --ar:'IBM Plex Sans Arabic','Noto Sans Arabic',system-ui,sans-serif; --en:Manrope,'Segoe UI',system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0C121C;--card:#141C29;--fg:#E8EDF4;--muted:#9AA6B8;--line:#26324A;--chip:#1C2636;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0C121C;--card:#141C29;--fg:#E8EDF4;--muted:#9AA6B8;--line:#26324A;--chip:#1C2636;color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--ar);font-size:15px;line-height:1.7}
+.wrap{max-width:1200px;margin:0 auto;padding-block:28px 64px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;grid-template-columns:minmax(0,1fr);gap:30px}
+h1{font-size:clamp(26px,4vw,36px);line-height:1.25;margin:0;text-wrap:balance}
+h2{font-size:24px;margin:0;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.lead{color:var(--muted);margin:6px 0 0;max-width:70ch}
+.tag{font-size:12px;border-radius:999px;padding:1px 10px;background:var(--chip);color:var(--fg);font-weight:500}
+.tag.g{background:var(--gold);color:#14110A}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;display:grid;gap:12px;min-width:0}
+.card h3{margin:0;font-size:17px}
+.card p{margin:0;color:var(--muted);font-size:14px}
+.stage{border-radius:10px;border:1px solid var(--line);background:#FFFFFF;display:flex;align-items:center;justify-content:center;padding:30px 14px;cursor:pointer;--pc:var(--navy);--ac:var(--gold);--tx:var(--navy);--tx2:#4A5A70;--tb:#FFFFFF}
+.stage.dk{background:var(--navy);border-color:var(--navy);--pc:#FFFFFF;--tx:#FFFFFF;--tx2:#C9D3E2;--tb:var(--navy)}
+.stage:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.lock{display:flex;align-items:center;gap:18px;direction:rtl}
+.lock .sym{width:96px;height:96px;flex:none;overflow:visible}
+.wm{display:grid;gap:2px;justify-items:start}
+.wm b{font-family:var(--ar);font-weight:700;font-size:48px;line-height:1.1;color:var(--tx)}
+.wm .en{font-family:var(--en);font-weight:800;font-size:15px;letter-spacing:.34em;color:var(--tx);direction:ltr}
+.wm .tl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--tx2);border-top:1px solid currentColor;padding-top:5px;margin-top:3px}
+.wm .tl i{font-style:normal;font-family:var(--en);font-weight:500;letter-spacing:.02em;direction:ltr}
+.icons{display:flex;gap:14px;align-items:end;flex-wrap:wrap}
+.app{width:72px;height:72px;border-radius:17px;background:var(--navy);display:flex;align-items:center;justify-content:center;--pc:#FFFFFF;--ac:var(--gold);--tb:var(--navy)}
+.app .sym{width:44px;height:44px}
+.sm{--pc:var(--navy);--ac:var(--gold);--tb:var(--card);display:flex;gap:10px;align-items:end}
+.cap{font-size:12px;color:var(--muted)}
+.why{margin:0;padding:0;list-style:none;display:grid;gap:4px;font-size:14px}
+.why li::before{content:"•";color:var(--gold);margin-inline-end:6px}
+.pc{transform-box:fill-box;transform-origin:center}
+.pc[data-o="bottom"]{transform-origin:50% 100%} .pc[data-o="top"]{transform-origin:50% 0}
+.play .pc{animation:var(--an) .7s cubic-bezier(.2,.8,.2,1) calc(var(--i) * 120ms) backwards}
+.play .wm{animation:wm .7s cubic-bezier(.2,.8,.2,1) .55s backwards}
+@keyframes fly{from{transform:translate(var(--dx,0px),var(--dy,0px));opacity:0}}
+@keyframes pop{from{transform:scale(0) rotate(-45deg);opacity:0}}
+@keyframes grow{from{transform:scaleY(0)}}
+@keyframes fade{from{opacity:0;transform:scale(.85)}}
+@keyframes wm{from{transform:translateX(12px);opacity:0}}
+@media (prefers-reduced-motion:reduce){.play .pc,.play .wm{animation:none}}
+.note{font-size:13px;color:var(--muted);border-top:1px solid var(--line);padding-top:14px;margin:0}
+@media (max-width:900px){.grid{grid-template-columns:1fr}}
+@media (max-width:520px){.lock{gap:12px}.lock .sym{width:64px;height:64px}.wm b{font-size:36px}.wm .en{font-size:12px}}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>تجمو ومكنز: الاسم والعبارة والرمز</h1>
+    <p class="lead">كل شعار يجمع ثلاثة عناصر: الرمز المبني على الحرف الأول، والاسم بالعربية والإنجليزية، وتحته العبارة الوصفية «منصة الأعمال الذكية — Smart Business Platform». اضغط أي شعار لإعادة تحريكه.</p>
+  </header>
+  <div id="root" style="display:grid;gap:30px"></div>
+  <p class="note">الكتابة هنا نص حي للمعاينة. بعد الاعتماد تُولَّد ملفات الإنتاج (SVG بلا نص حي، PDF، PNG، أيقونات) بالمولّد نفسه المستعمل في المنصة. العبارة الوصفية لا تدخل في العلامة المسجلة.</p>
+</div>
+
+<script>
+(() => {
+const P = a => a.map(p => p.join(',')).join(' ');
+const mx = a => a.map(([x, y]) => [100 - x, y]).reverse();
+const R = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+const pc = (pts, f, an, i, x = {}) => ({ pts, f, an, i, ...x });
+
+const NAMES = [
+ { ar: 'تَجمو', en: 'TAJMO', head: 'تَجمو — Tajmo', tag: 'الأعلى في التقييم: 87 من 100',
+   lead: 'من «تجمُّع». اسم مبتكر، نطقه واحد بالعربية والإنجليزية، ولم يظهر له منافس.',
+   concepts: [
+    { n: 'T التجمّع', d: 'ثلاث وحدات تلتقي في عارضة حرف T، والقطعة الذهبية في الوسط هي البيانات الموحدة، والساق هي المنصة التي تحمل كل شيء.',
+      m: 'الوحدتان الجانبيتان تنضمان إلى الوسط، ثم تنمو الساق.',
+      parts: () => [ pc([[10, 14], [33, 14], [33, 32], [18, 32], [10, 24]], 'p', 'fly', 1, { dx: '-16px' }), pc(mx([[10, 14], [33, 14], [33, 32], [18, 32], [10, 24]]), 'p', 'fly', 1, { dx: '16px' }),
+        pc(R(38, 14, 62, 32), 'a', 'pop', 0), pc([[38, 37], [62, 37], [62, 78], [54, 86], [46, 86], [38, 78]], 'p', 'grow', 3, { o: 'top' }) ] },
+    { n: 'T البلاطة', d: 'حرف T محفور في مربع كحلي، ونقطة ذهبية في الزاوية تمثل الرقم الذي تبحث عنه. أيقونة تطبيق قوية وبسيطة.',
+      m: 'المربع يظهر، ثم تنزل النقطة الذهبية في مكانها.',
+      parts: () => [ { d: 'M28 8H72A20 20 0 0 1 92 28V72A20 20 0 0 1 72 92H28A20 20 0 0 1 8 72V28A20 20 0 0 1 28 8Z M24 24V39H42.5V78H57.5V39H76V24Z', f: 'p', an: 'fade', i: 0 },
+        pc([[69, 58], [77, 66], [69, 74], [61, 66]], 'a', 'pop', 4) ] },
+   ] },
+ { ar: 'مَكنز', en: 'MAKNAZ', head: 'مَكنز — Maknaz', tag: 'يحتفظ بالرمز المعتمد',
+   lead: 'خزانة كل شيء. كلمة عربية أصيلة سهلة النطق في كل اللغات. ميزته الكبرى أن الرمز الهندسي M الذي اعتمدته سابقًا يصلح له كما هو.',
+   concepts: [
+    { n: 'M المعتمد', d: 'الرمز الهندسي الذي اعتمدته لمثقال يبقى كما هو: ساقان كحليتان وذراعان ذهبيان يلتقيان في المركز. لا حاجة لتصميم رمز جديد، وكل ملفات الإنتاج جاهزة.',
+      m: 'الساقان تنموان من الأسفل، ثم يلتقي الذراعان في المركز.',
+      parts: () => { const leg = [[8, 86], [26, 86], [26, 32], [8, 14]], arm = [[33, 14], [50, 31], [50, 55], [33, 38]];
+        return [ pc(leg, 'p', 'grow', 0, { o: 'bottom' }), pc(mx(leg), 'p', 'grow', 0, { o: 'bottom' }), pc(arm, 'a', 'fly', 3, { dx: '-12px', dy: '-12px' }), pc(mx(arm), 'a', 'fly', 3, { dx: '12px', dy: '-12px' }) ]; } },
+    { n: 'M الخزانة', d: 'صندوق بغطاء مشطوف، وعلى واجهته حرف M ذهبي: خزانة تحفظ كل بيانات منشأتك. يجمع معنى الاسم والحرف في شكل واحد.',
+      m: 'الغطاء ينزل على الصندوق، ثم يظهر الحرف على الواجهة.',
+      parts: () => [ pc([[20, 10], [80, 10], [90, 22], [10, 22]], 'p', 'fly', 2, { dy: '-14px' }), pc(R(10, 27, 90, 88), 'p', 'fade', 0),
+        pc([[25, 42], [37, 42], [50, 56], [63, 42], [75, 42], [75, 74], [64, 74], [64, 59], [50, 73], [36, 59], [36, 74], [25, 74]], 'a', 'pop', 4) ] },
+   ] },
+];
+
+function svg(parts, size) {
+  const body = parts.map(p => { const fill = p.f === 'a' ? 'var(--ac)' : 'var(--pc)';
+    const st = `--an:${p.an};--i:${p.i}${p.dx ? ';--dx:' + p.dx : ''}${p.dy ? ';--dy:' + p.dy : ''}`, o = p.o ? ` data-o="${p.o}"` : '';
+    return p.d ? `<path class="pc"${o} style="${st}" d="${p.d}" fill="${fill}" fill-rule="evenodd"/>` : `<polygon class="pc"${o} style="${st}" points="${P(p.pts)}" fill="${fill}"/>`; }).join('');
+  return `<svg class="sym" viewBox="0 0 100 100"${size ? ` width="${size}" height="${size}"` : ''} aria-hidden="true">${body}</svg>`;
+}
+const lock = (N, C) => `<div class="lock">${svg(C.parts())}<div class="wm"><b>${N.ar}</b><span class="en">${N.en}</span><span class="tl">منصة الأعمال الذكية<i>Smart Business Platform</i></span></div></div>`;
+document.getElementById('root').innerHTML = NAMES.map(N => `
+  <section style="display:grid;gap:14px" aria-label="${N.head}">
+    <div><h2>${N.head}<span class="tag g">${N.tag}</span></h2><p class="lead">${N.lead}</p></div>
+    <div class="grid">${N.concepts.map(C => `
+      <article class="card">
+        <h3>${C.n}</h3>
+        <div class="stage" role="button" tabindex="0" aria-label="إعادة تحريك ${C.n} على الفاتح">${lock(N, C)}</div>
+        <div class="stage dk" role="button" tabindex="0" aria-label="إعادة تحريك ${C.n} على الداكن">${lock(N, C)}</div>
+        <div class="icons"><div class="app">${svg(C.parts())}</div><div class="sm">${[48, 32, 16].map(s => svg(C.parts(), s)).join('')}</div><span class="cap">أيقونة التطبيق · 48 · 32 · 16</span></div>
+        <ul class="why"><li>${C.d}</li><li><b>الحركة:</b> ${C.m}</li></ul>
+      </article>`).join('')}</div>
+  </section>`).join('');
+const play = el => { el.classList.remove('play'); void el.getBoundingClientRect(); el.classList.add('play'); };
+document.addEventListener('click', e => { const s = e.target.closest('.stage'); if (s) play(s); });
+document.addEventListener('keydown', e => { const s = e.target.closest('.stage'); if (s && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); play(s); } });
+requestAnimationFrame(() => setTimeout(() => document.querySelectorAll('.stage,.app').forEach((el, n) => setTimeout(() => play(el), n * 90)), 250));
+})();
+</script>

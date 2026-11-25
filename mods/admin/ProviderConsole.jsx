@@ -1,4 +1,4 @@
-/* v51.5 — المرحلة 07 / S6: «لوحة مِثقال» — لمزوّد المنصة وحده (يفحصه الخادم: البريد + المنشأة الرئيسية + جلسة بخطوتين).
+/* v51.5 — المرحلة 07 / S6: «لوحة مُكتسَب» — لمزوّد المنصة وحده (يفحصه الخادم: البريد + المنشأة الرئيسية + جلسة بخطوتين).
    المنشآت وحالتها والتوصيات، الفترة التجريبية، تغيير حالة الاشتراك، تأكيد التحويلات البنكية، وطلبات التسجيل العام.
    كل إجراء يُنفَّذ على الخادم ويُسجَّل باسم المزوّد؛ الواجهة لا ترى أي سر. */
 import React, { useCallback, useEffect, useState } from 'react';
@@ -12,7 +12,7 @@ const apiBase = () => { const E = import.meta.env || {}; if (E.VITE_ZATCA_ENDPOI
 const STATE_AR = { ...SUB_STATE_AR, unconfigured: 'غير مهيأة على الخادم' };
 const SG_AR = { new: 'جديد', approved: 'مقبول', rejected: 'مرفوض' };
 
-/** هل المستخدم الحالي مزوّد مِثقال؟ (الخادم يقرر) */
+/** هل المستخدم الحالي مزوّد مُكتسَب؟ (الخادم يقرر) */
 export async function probeProvider() {
   const b = apiBase(); if (!b) return false;
   try { const r = await fetch(b + '/api/provider/me', { headers: await aiHeaders() }); const j = await r.json().catch(() => ({})); return !!(r.ok && j.provider); } catch { return false; }
@@ -38,11 +38,11 @@ export function ProviderConsole({ say }) {
     act(() => api('/api/provider/invoice/confirm', { no: v.no, ref, amount: amt }), 'تم تأكيد التحويل وتمديد الاشتراك').then(() => openInv(inv.t)); };
   const decide = (s, status) => { const tid = status === 'approved' ? prompt('معرّف المنشأة (أحرف إنجليزية صغيرة وأرقام وشرطة)', '') : ''; if (status === 'approved' && tid === null) return;
     act(() => api('/api/provider/signups/decide', { id: s.id, status, tenantId: tid || undefined }), status === 'approved' ? 'قُبل الطلب — نفّذ أمر التهيئة المعروض' : 'رُفض الطلب'); };
-  if (!ts) return <div className="note">جارٍ تحميل لوحة مِثقال…</div>;
+  if (!ts) return <div className="note">جارٍ تحميل لوحة مُكتسَب…</div>;
   return (
     <div className="mq-prov">
       <div className="row" style={{ gap: 8, alignItems: 'center', marginBottom: 10 }}>
-        <div className="card-t" style={{ margin: 0 }}>لوحة مِثقال — المنشآت المشتركة</div>
+        <div className="card-t" style={{ margin: 0 }}>لوحة مُكتسَب — المنشآت المشتركة</div>
         <button className="btn sm gh mq-auto-run" style={{ marginInlineStart: 'auto' }} onClick={() => act(() => api('/api/provider/automation/run', {}), j => (j.log || []).length ? 'الأتمتة: ' + j.log.map(x => x.tenant + ' ' + (x.action === 'invoice' ? 'فاتورة ' + x.no : x.action === 'status' ? '← ' + STATUS_AR[x.to] : x.action === 'status-skipped' ? '(بلا حساب خدمة)' : x.why || x.action)).join(' · ') : 'الأتمتة: لا شيء مستحق الآن')}>تشغيل الأتمتة الآن</button>
         <button className="btn sm gh" onClick={load}><RefreshCw size={13} />تحديث</button>
       </div>

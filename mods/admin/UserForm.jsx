@@ -54,7 +54,7 @@ export function UserForm({ u, org, onSave, onClose, canPw }) {
             onClick={() => setShowPw(s => !s)} tabIndex={-1}><Eye size={14} /></button>
         </div>
         {showPw && f.newPass && (
-          <div style={{ fontSize: 10.5, color: 'var(--brass-l)', marginTop: 4 }}>
+          <div style={{ fontSize: 10.5, color: 'var(--brass-t)', marginTop: 4 }}>
             تُكتب هكذا حرفاً بحرف: <b className="num" style={{ direction: 'ltr', unicodeBidi: 'isolate', letterSpacing: 2 }}>{f.newPass}</b>
             {f.newPass !== f.newPass.trim() && <span style={{ color: 'var(--rose)' }}> — ⚠ تحوي مسافة في البداية أو النهاية!</span>}
           </div>

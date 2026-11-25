@@ -337,13 +337,33 @@ service cloud.firestore {
     }
     // كتابة تشغيلية (بلا قرار): مسودة أو ترحيل، ولا اعتماد نهائي
     function clWorking(d) { return d.status in ['draft', 'submitted'] && d.gm in ['', 'pending']; }
+    /* v56.0 (GAP-003) — إقفال الفترات على الخادم للإغلاقات (fin_periods/locks.lockedTo): في الفترة المقفلة لا شيء يغيّر الدفتر —
+       لا إغلاق جديد، ولا تغيير أرقامه (البصمة) أو تاريخه أو فرعه، ولا انتقال بين «محتسب» (مرحّل/معتمد) و«غير محتسب».
+       يمر ما لا يمس القيود (حالة التوريد، تنظيف الصور، الاعتماد النهائي لمرحّل) — كما يفعل حارس التطبيق lockedLedgerChanged. يسري على المدير أيضًا. */
+    function clCounted(s) { return s in ['submitted', 'approved']; }
+    function clLockOk(d, old) {
+      let lt = finLockedTo();
+      return (d.date > lt && (old == null || old.date > lt))
+        || (old != null && d.date == old.date && d.branchId == old.branchId && d.digest == old.digest && clCounted(d.status) == clCounted(old.status));
+    }
+    function clDelLockOk(o) { return !clCounted(o.status) || o.date > finLockedTo(); }
+    /* v56.0 (GAP-002) — إغلاق واحد غير مرفوض لكل فرع ويوم على الخادم: مفتاح closing_keys/{فرع~تاريخ} يُكتب في الدفعة الذرية نفسها.
+       يصبح إلزاميًا متى رفع المدير الحد الأدنى للإصدار إلى v56.0 (minCv ≥ 560000) — قبلها لا تملك الأجهزة القديمة بروتوكول المفتاح. */
+    function clKeyPath(b, dt) { return /databases/$(database)/documents/closing_keys/$(b + '~' + dt); }
+    function clKeysOn(rel) { return rel != null && rel.minCv >= 560000; }
+    // يدخل السجل خانة يوم: إنشاء، أو عودة من «مرفوض»، أو تغيير التاريخ أو الفرع
+    function clEnters(d, old) { return d.status != 'rejected' && (old == null || old.status == 'rejected' || old.date != d.date || old.branchId != d.branchId); }
+    function clKeyOk(id, d, old) {
+      return !clEnters(d, old) || !clKeysOn(relOf())
+        || (existsAfter(clKeyPath(d.branchId, d.date)) && getAfter(clKeyPath(d.branchId, d.date)).data.id == id);
+    }
     function clWrite(id, d, old) {
       let m = memOf();
       let adm = admOf(m);
       let ro = m != null && m.get('role', '') in ['accountant_view'];
       let base = okUser(m, adm) && clShape(d, id) && branchOf(m, adm, d.branchId) && (adm || !ro);
       let mine = old == null || old.branchId == d.branchId;
-      return base && mine && (adm
+      return base && mine && clLockOk(d, old) && clKeyOk(id, d, old) && (adm
         // تشغيل: لا يلمس سجلًا معتمدًا، ولا يكتب حالة قرار
         || (clWorking(d) && (old == null || old.status in ['draft', 'submitted', 'rejected']))
         // تدقيق: مرحّل ← معتمد (بانتظار النهائي)
@@ -359,9 +379,36 @@ service cloud.firestore {
       allow read: if sigRead(resource.data.branchId);
       allow create: if clWrite(id, request.resource.data, null);
       allow update: if clWrite(id, request.resource.data, resource.data);
-      // الحذف: المدير، أو الفرع لمسودته فقط
-      allow delete: if (isAdmin() && mfaOk())
-        || (resource.data.status == 'draft' && sigRead(resource.data.branchId) && !readOnlyRole());
+      // الحذف: المدير، أو الفرع لمسودته فقط — v56.0: ولا يُحذف إغلاق محتسب في فترة مقفلة (حتى من المدير)
+      allow delete: if clDelLockOk(resource.data) && ((isAdmin() && mfaOk())
+        || (resource.data.status == 'draft' && sigRead(resource.data.branchId) && !readOnlyRole()));
+    }
+    /* v56.0 (GAP-002) — فهرس التفرد: مفتاح لكل فرع ويوم يشير إلى الإغلاق الشاغل. يُكتب مع الإغلاق نفسه في دفعة واحدة،
+       ولا يُنقل لإغلاق آخر إلا إن صار الشاغل مرفوضًا أو محذوفًا أو انتقل لخانة أخرى (بعد الدفعة). */
+    function clSlotFree(oldId, key) {
+      let p = /databases/$(database)/documents/closings/$(oldId);
+      return !existsAfter(p) || getAfter(p).data.status == 'rejected' || (getAfter(p).data.branchId + '~' + getAfter(p).data.date) != key;
+    }
+    function ckWrite(key, d, old) {
+      let m = memOf();
+      let adm = admOf(m);
+      let ro = m != null && m.get('role', '') in ['accountant_view'];
+      let p = /databases/$(database)/documents/closings/$(d.id);
+      return okUser(m, adm) && (adm || !ro)
+        && d.keys().hasOnly(['branchId', 'date', 'id', 'by', 'at']) && d.keys().hasAll(['branchId', 'date', 'id', 'by', 'at'])
+        && d.branchId is string && d.branchId.matches('^[A-Za-z0-9_-]{1,80}$')
+        && d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && d.id is string && d.id.matches('^[A-Za-z0-9_-]{1,120}$')
+        && key == d.branchId + '~' + d.date && d.by == userEmail() && d.at == request.time
+        && branchOf(m, adm, d.branchId)
+        && existsAfter(p) && getAfter(p).data.branchId == d.branchId && getAfter(p).data.date == d.date && getAfter(p).data.status != 'rejected'
+        && (old == null || old.id == d.id || clSlotFree(old.id, key));
+    }
+    match /closing_keys/{key} {
+      allow read: if sigRead(resource.data.branchId);
+      allow create: if ckWrite(key, request.resource.data, null);
+      allow update: if ckWrite(key, request.resource.data, resource.data);
+      allow delete: if (isAdmin() && mfaOk()) || (sigRead(resource.data.branchId) && !readOnlyRole() && clSlotFree(resource.data.id, key));
     }
 
     match /platform/{docId} {

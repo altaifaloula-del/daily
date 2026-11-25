@@ -2,7 +2,7 @@
    وشريط مخرجات موحد (طباعة بالقالب الموحد · Excel منسق بصيغ · CSV) مع اختيار اللغة والاتجاه والورق. */
 import React, { useMemo, useState } from 'react';
 import { Printer, Download, FileText, Search, Eye, ChevronDown } from 'lucide-react';
-import { rptFmt, rptFlat, rptTotals, printReport, makeRptXlsx, rptCsv, rptDownload, RPT_TEMPLATES } from '../../App.jsx';
+import { rptFmt, rptFlat, rptTotals, printReport, makeRptXlsx, rptCsv, rptDownload, RPT_TEMPLATES, rptPivot, rptTpl } from '../../App.jsx';
 
 const LS = 'mz-rpt:';
 const lsGet = (k) => { try { return JSON.parse(localStorage.getItem(LS + k) || 'null'); } catch (e) { return null; } };
@@ -10,7 +10,11 @@ const lsSet = (k, v) => { try { localStorage.setItem(LS + k, JSON.stringify(v));
 const isNum = (c) => ['money', 'qty', 'int', 'pct'].includes(c.type);
 
 /** spec: مواصفة التقرير الموحدة. onRow(row): تتبع السطر إلى مصدره (اختياري) */
-export function RptTable({ org, spec, onRow, me, extraTools }) {
+export function RptTable({ org, spec: spec0, onRow, me, extraTools }) {
+  // v56.0 — الجدول المحوري التفاعلي: المواصفة المحورية تُحوَّل بـ rptPivot نفسها التي تستعملها الطباعة، مع تبديل الصفوف والأعمدة
+  const [pvSwap, setPvSwap] = useState(false);
+  const isPv = !!(spec0 && spec0.pivot && rptTpl(spec0.template) === 'matrix');
+  const spec = useMemo(() => !isPv ? spec0 : rptPivot({ ...spec0, pivot: pvSwap ? { ...spec0.pivot, row: spec0.pivot.col, col: spec0.pivot.row, rowLabel: spec0.pivot.colLabel || spec0.pivot.col, colLabel: spec0.pivot.rowLabel } : spec0.pivot }), [spec0, isPv, pvSwap]);
   const key = (spec.id || 'rpt') + ':' + ((me && me.id) || '');
   const saved = lsGet(key) || {};
   const [sort, setSort] = useState(saved.sort || null);           // { key, dir: 1|-1 }
@@ -48,6 +52,7 @@ export function RptTable({ org, spec, onRow, me, extraTools }) {
         <button className="btn sm gh" onClick={saveView} data-rptsave>حفظ العرض</button>
         <span style={{ flex: 1 }} />
         {extraTools}
+        {isPv && <button type="button" className="btn sm gh" onClick={() => setPvSwap(v => !v)} data-pivot-swap title="تبديل الصفوف والأعمدة">⇄ تبديل الصفوف والأعمدة</button>}
         <select className="sel" style={{ width: 'auto' }} aria-label="لغة التقرير" value={opt.lang} onChange={e => setO({ lang: e.target.value })}><option value="ar">عربي</option><option value="en">English</option></select>
         <select className="sel" style={{ width: 'auto' }} aria-label="اتجاه الورق" value={opt.orientation} onChange={e => setO({ orientation: e.target.value })}><option value="portrait">طولي</option><option value="landscape">عرضي</option></select>
         <select className="sel" style={{ width: 'auto' }} aria-label="حجم الورق" value={opt.paper} onChange={e => setO({ paper: e.target.value })}><option>A4</option><option>A3</option><option>Letter</option></select>

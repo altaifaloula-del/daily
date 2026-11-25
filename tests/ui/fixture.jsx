@@ -4,7 +4,9 @@
  *   #live/<comp>/<who>/<view> — عرض حيّ بحالة قابلة للتغيير: window.cur (البيانات) · window.as(who) · window.lastSay
  */
 import React from 'react'; import { createRoot } from 'react-dom/client';
-import * as M from '../../App.jsx'; import { CSS } from '../../styles.js'; import { domI18n } from '../../i18n.js';
+import * as M0 from '../../App.jsx'; import { TenantBranding } from '../../mods/admin/TenantBranding.jsx';
+const M = { ...M0, TenantBranding };   /* v56.0: شاشة هوية المنشأة */
+import { CSS } from '../../styles.js'; import { domI18n } from '../../i18n.js';
 // تاريخ محلي (مثل today() في المنصة) — toISOString يعطي تاريخ UTC فيختلف اليوم بين منتصف الليل و3 فجرًا بتوقيت الرياض
 const iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); const dA = (k) => { const x = new Date(); x.setDate(x.getDate() - k); return iso(x); };
 const m = iso(new Date()).slice(0, 7);
@@ -17,7 +19,7 @@ const org = { ...M.emptyOrg({ name: 'شركة الطيف الأولى التجا
   suppliers: [{ id: 's1', name: 'مؤسسة اللحوم الطازجة للتجارة' }, { id: 's2', name: 'شركة الخضار' }],
   products: [{ id: 'p1', name: 'برجر لحم دبل', sellPrice: 23, cat: 'وجبات', parts: [] }, { id: 'p2', name: 'بطاطس', sellPrice: 8, cat: 'وجبات', parts: [] }, { id: 'p3', name: 'عصير برتقال طازج', sellPrice: 12, cat: 'مشروبات', parts: [] }],
   users: [{ id: 'u1', name: 'مجاهد', email: 'own@x.sa', role: 'system_admin' }, { id: 'u2', name: 'أحمد علي', email: 'c@x.sa', role: 'cashier', branchId: 'b1' }] };
-const cl = (id, b, k, rev, v, st) => ({ id, branchId: b, branchName: B.find(x => x.id === b).name, date: dA(k), status: st || 'approved', totalRevenue: rev, cashSales: rev * .6, networkSales: rev * .3, deliverySales: [{ appId: 'jahez', amount: rev * .1 }], expenses: [{ id: 'x' + id, categoryId: 'c1', categoryName: 'مشتريات خضار', amount: 120, isTaxable: true, paymentMethod: 'cash' }], totalExpenses: 120, variance: v, actualCashCount: 1000, expectedCashInSafe: 1000 - v, createdBy: 'أحمد علي', transferredToMainTreasury: 500, supplierPayments: [] });
+const cl = (id, b, k, rev, v, st) => ({ id, branchId: b, branchName: B.find(x => x.id === b).name, date: dA(k), status: st || 'approved', totalRevenue: rev, cashSales: rev * .6, cardSales: rev * .3, deliverySales: [{ appId: 'jahez', amount: rev * .1 }], expenses: [{ id: 'x' + id, categoryId: 'c1', categoryName: 'مشتريات خضار', amount: 120, isTaxable: true, paymentMethod: 'cash' }], totalExpenses: 120, variance: v, actualCashCount: 1000, expectedCashInSafe: 1000 - v, createdBy: 'أحمد علي', transferredToMainTreasury: 500, supplierPayments: [] });
 const ops0 = { ...M.emptyOps(),
   closings: [cl('c1', 'b1', 1, 9420, -70, 'submitted'), cl('c2', 'b2', 1, 8115.5, 0), cl('c3', 'b3', 2, 7324.5, -12), cl('c4', 'b1', 8, 9000, 0), cl('c5', 'b2', 30, 8000, 5)],
   invoices: [{ id: 'v1', supplierId: 's1', supplierName: 'مؤسسة اللحوم الطازجة للتجارة', amount: 4830, taxable: true, date: dA(10), dueDate: dA(3), invoiceNo: 'INV-1021', branchId: 'b1' }, { id: 'v2', supplierId: 's2', supplierName: 'شركة الخضار', amount: 920, date: dA(2), dueDate: dA(-5), invoiceNo: '7781', branchId: 'b2' }],
@@ -43,24 +45,27 @@ window.routes = [...Object.entries(M.HUBS).flatMap(([h, c]) => c.views.map(v => 
   ...['Launcher', 'PosApp', 'Inventory', 'Partners', 'SalesHub', 'QrFeedback', 'MktGrowth', 'AppsCenter', 'BranchWarehouse', 'Admin', 'AuditView'].map(c => 'comp/' + c)];
 const css = document.createElement('style'); css.textContent = CSS; document.head.appendChild(css);
 const dark = location.hash.includes('dark');
-document.body.innerHTML = '<div class="rms mode-' + (dark ? 'dark' : 'light') + ' thm-mizan' + (localStorage.getItem('rms8:lang') === 'en' ? ' lang-en" dir="ltr' : '') + '"><div class="page"><div class="page-inner" id=r></div></div></div>';
+document.body.innerHTML = '<div class="rms mode-' + (dark ? 'dark' : 'light') + ' thm-mizan' + (location.hash.includes('&rp') ? ' thm-restpro' : '') + (localStorage.getItem('rms8:lang') === 'en' ? ' lang-en" dir="ltr' : '') + '"><div class="page"><div class="page-inner" id=r></div></div></div>';
 if (localStorage.getItem('rms8:lang') === 'en') domI18n(true);
 window.__M = M;   // v45.6: لاختبار دوال الطباعة
 const ME = { admin: { id: 'u1', name: 'مجاهد', role: 'system_admin' }, ho: { id: 'u5', name: 'سارة', role: 'head_office' }, bm: { id: 'u3', name: 'خالد', role: 'branch_manager', branchId: 'b1' },
   bm2: { id: 'u4', name: 'سعد', role: 'branch_manager', branchId: 'b1' }, ctl: { id: 'u9', name: 'ريم', role: 'cost_controller' }, acc: { id: 'u7', name: 'منى', role: 'accountant' }, cs: { id: 'u8', name: 'نورة', role: 'cashier', branchId: 'b1' } };
-const [kind, a, b, c] = decodeURIComponent(location.hash.slice(1)).replace('&dark', '').split('/');
+const [kind, a, b, c] = decodeURIComponent(location.hash.slice(1)).replace('&dark', '').replace('&rp', '').split('/');
 const base = { org, myBranches: B, branches: B, commitOrg: async () => true, say: (x) => { window.lastSay = x; }, setTab: (t) => { window.__nav = 'tab:' + t; }, onClose: () => {}, onStartNew: () => {}, theme: 'mizan', online: [], pulse: {}, openAcctView: (v) => { window.__nav = 'acct:' + v; }, openInvView: () => {} };
 class EB extends React.Component { constructor(p) { super(p); this.state = { e: null }; } componentDidCatch(e) { window.__crash = String(e && e.message); this.setState({ e }); } render() { return this.state.e ? React.createElement('div', { id: 'crash' }, 'CRASH: ' + this.state.e.message) : this.props.children; } }
 function Live() {
-  const [o, setO] = React.useState(ops); window.cur = o; const [who, setWho] = React.useState(b || 'admin'); window.as = setWho;
-  const [g, setG] = React.useState(org); window.curOrg = g; window.setOps = setO; window.setOrg = setG;   // v39.0: حقن بيانات للاختبار
+  const [o, setO] = React.useState(ops); window.cur = o;
+  // v56.0: الحفظ يبني على أحدث حالة (كما يقرأ writeOps أحدث نسخة سحابية) — كان يبني على نسخة الرسم الأخيرة فيمحو حفظٌ تالٍ في الدورة نفسها سابقَه
+  const oRef = React.useRef(o); oRef.current = o; const setO2 = (v) => { oRef.current = typeof v === 'function' ? v(oRef.current) : v; setO(oRef.current); }; const [who, setWho] = React.useState(b || 'admin'); window.as = setWho;
+  const [g, setG] = React.useState(org); window.curOrg = g; window.setOps = setO2; window.setOrg = setG;   // v39.0: حقن بيانات للاختبار
   const [hv, setHv] = React.useState(c); window.hub = setHv;   // تنقّل بين المراكز مع بقاء البيانات
-  const commit = async (fn) => { try { const nx0 = fn(JSON.parse(JSON.stringify(o))); const nx1 = ME[who].branchId ? nx0 : M.syncPoInbox(g, nx0); const nx = M.dedupeSameId(o, M.assignVouchers(g, o, M.syncSaleMoves(g, o, nx1)));
+  // v56.0 (GAP-018): window.__cloudDown يحاكي تعذّر الوصول للسحابة (الحفظ يفشل بصدق كما في writeOps دون اتصال)
+  const commit = async (fn) => { if (window.__cloudDown) { window.__downTries = (window.__downTries || 0) + 1; return false; } const o = oRef.current; try { const nx0 = fn(JSON.parse(JSON.stringify(o))); const nx1 = ME[who].branchId ? nx0 : M.syncPoInbox(g, nx0); const nx = M.dedupeSameId(o, M.assignVouchers(g, o, M.syncSaleMoves(g, o, nx1)));
     // v49.1: الحارسان المركزيان كما في writeOps — الرصيد السالب والتكرار
     const ng = M.negStockChanges(g, o, nx); if (ng.length) { window.lastSay = 'لم يُحفظ — ' + M.negStockMsg(g, ng); return false; }
     const dp = M.findRecentDups(o, nx); if (dp.length) { window.lastSay = 'لم يُحفظ — ' + dp[0].msg; return false; }
-    setO(nx); return true; } catch (e) { window.lastErr = e.message; return false; } };
-  const commitOrg = async (fn) => { try { const nx = fn(JSON.parse(JSON.stringify(g))); setG(nx); return true; } catch (e) { window.lastErr = e.message; return false; } };
+    setO2(nx); return true; } catch (e) { window.lastErr = e.message; return false; } };
+  const commitOrg = async (fn, log) => { try { const nx = fn(JSON.parse(JSON.stringify(g))); setG(nx); if (log) (window.__orgLog = window.__orgLog || []).push(log); return true; } catch (e) { window.lastErr = e.message; return false; } };
   const myB = ME[who].branchId ? B.filter(x => x.id === ME[who].branchId) : B;   // فريق الفرع يرى فرعه فقط
   const P = { ...base, myBranches: myB, branches: myB, org: g, ops: o, scoped: o, me: ME[who], commit, commitOrg, invIntent: hv ? { v: hv, ts: 1 } : null, acctIntent: a === 'Accounting' && hv ? { v: hv, ts: 1 } : null };
   return React.createElement(React.Fragment, null, React.createElement(M[a], { key: who, ...P, ...(a === 'Hub' ? { hubId: hv.split(':')[0], view: hv.split(':')[1] } : {}) }),
@@ -69,7 +74,7 @@ function Live() {
 let el;
 // v51.4: بطاقة الاشتراك لمنشأة مشتركة (الخادم يُحاكى في الاختبار بالتقاط طلبات /api/billing)
 const SubCard = React.lazy(() => import('../../mods/admin/SubscriptionCard.jsx').then(m => ({ default: m.SubscriptionCard })));
-// v51.5: لوحة مِثقال وصفحة التسجيل العام (الخادم يُحاكى بالتقاط /api/provider و/api/signup)
+// v51.5: لوحة مُكتسَب وصفحة التسجيل العام (الخادم يُحاكى بالتقاط /api/provider و/api/signup)
 const ProvC = React.lazy(() => import('../../mods/admin/ProviderConsole.jsx').then(m => ({ default: m.ProviderConsole })));
 const SignupP = React.lazy(() => import('../../mods/signup/SignupPage.jsx').then(m => ({ default: m.SignupPage })));
 if (kind === 'live') el = React.createElement(Live);

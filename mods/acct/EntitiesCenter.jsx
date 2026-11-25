@@ -93,7 +93,7 @@ export function EntitiesCenter({ org, ops, me, myBranches, scoped, commitOrg, sa
                 <td>الإجمالي الموحّد</td><td /><td className="num" style={{ textAlign: 'center' }}>{tot.nb}</td>
                 <td className="num" style={{ textAlign: 'end' }}>{money(tot.rev)}</td>
                 <td className="num" style={{ textAlign: 'end' }}>{money(tot.exp)}</td>
-                <td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{money(tot.net)}</td>
+                <td className="num" style={{ textAlign: 'end', color: 'var(--brass-t)' }}>{money(tot.net)}</td>
               </tr>
             </tbody>
           </table>

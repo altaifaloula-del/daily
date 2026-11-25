@@ -1,0 +1,302 @@
+<title>هوية أشمل</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;700&family=Manrope:wght@500;700;800&display=swap">
+<style>
+/* التخطيط: لوحة عرض عربية — شريط ألوان ثابت المرجع في الأعلى، ثم بطاقات الشعارات (المرشّح بعرض كامل)، ثم صفوف الألوان */
+:root{
+  --bg:#F4F6F9; --card:#FFFFFF; --fg:#101A2B; --muted:#5B677A; --line:#DCE2EA; --chip:#EEF1F5;
+  --ar:'IBM Plex Sans Arabic','Noto Sans Arabic',system-ui,sans-serif; --en:Manrope,'Segoe UI',system-ui,sans-serif;
+  /* ألوان الشعار — تتغير بالنموذج اللوني المختار */
+  --lp:#10294A; --la:#D9A83E; --ld:#091A30; --ll:#F3F5F8;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0C121C;--card:#141C29;--fg:#E8EDF4;--muted:#9AA6B8;--line:#26324A;--chip:#1C2636;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0C121C;--card:#141C29;--fg:#E8EDF4;--muted:#9AA6B8;--line:#26324A;--chip:#1C2636;color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--ar);font-size:15px;line-height:1.7}
+.wrap{max-width:1200px;margin:0 auto;padding-block:28px 64px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;grid-template-columns:minmax(0,1fr);gap:28px}
+h1{font-size:clamp(26px,4vw,36px);line-height:1.25;margin:0;text-wrap:balance}
+h2{font-size:22px;margin:0;text-wrap:balance}
+.lead{color:var(--muted);margin:6px 0 0;max-width:68ch}
+.sec-h{display:flex;align-items:end;justify-content:space-between;gap:12px;flex-wrap:wrap}
+button{font:inherit;cursor:pointer}
+.btn{border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:999px;padding:6px 14px;font-size:13px}
+.btn:hover{border-color:var(--muted)} .btn:focus-visible,.chipb:focus-visible,.stage:focus-visible{outline:2px solid var(--la);outline-offset:2px}
+.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:10px;border-bottom:1px solid var(--line);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+.bar{flex-wrap:nowrap}.chips{display:flex;gap:8px;overflow-x:auto;min-width:0;flex:1;padding-block:2px;scrollbar-width:thin}.chips .chipb{flex:none}
+.bar .lbl{font-size:13px;color:var(--muted);margin-inline-end:4px}
+.chipb{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:999px;padding:4px 12px 4px 6px;font-size:13px}
+.chipb[aria-pressed="true"]{border-color:var(--fg);box-shadow:inset 0 0 0 1px var(--fg)}
+.dot2{display:inline-flex}.dot2 i{width:16px;height:16px;border-radius:50%;display:block}.dot2 i+i{margin-inline-start:-5px;box-shadow:0 0 0 2px var(--card)}
+/* بطاقات الشعار */
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;display:grid;gap:10px;min-width:0}
+.card.feat{grid-column:1/-1;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);align-items:center}
+.stage{background:#FFFFFF;border-radius:10px;display:flex;align-items:center;justify-content:center;gap:18px;padding:28px 16px;border:1px solid var(--line);--tb:#FFFFFF;--pc:var(--lp);--ac:var(--la);--tx:var(--lp);cursor:pointer}
+.stage.dk{background:var(--lp);border-color:var(--lp);--tb:var(--lp);--pc:#FFFFFF;--tx:#FFFFFF;padding:16px}
+.tiles{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px}
+.icon{width:76px;height:76px;border-radius:18px;background:var(--lp);display:flex;align-items:center;justify-content:center;--tb:var(--lp);--pc:#FFFFFF;--ac:var(--la)}
+.feat .stage{padding:44px 16px}
+.sym{width:92px;height:92px;flex:none;overflow:visible}
+.feat .stage .sym{width:150px;height:150px}
+.stage.dk .sym{width:54px;height:54px} .icon .sym{width:46px;height:46px}
+.wm{display:grid;justify-items:center;line-height:1}
+.wm b{font-family:var(--ar);font-weight:700;font-size:46px;color:var(--tx);line-height:1.15}
+.wm small{font-family:var(--en);font-weight:800;font-size:13px;letter-spacing:.32em;color:var(--tx);margin-inline-start:.32em;direction:ltr}
+.feat .wm b{font-size:72px} .feat .wm small{font-size:19px}
+.stage.dk .wm b{font-size:28px} .stage.dk .wm small{font-size:9px}
+.meta{display:grid;gap:4px;min-width:0}
+.meta h3{margin:0;font-size:17px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.meta p{margin:0;color:var(--muted);font-size:14px}
+.tag{font-size:11.5px;border-radius:999px;padding:1px 9px;background:var(--chip);color:var(--fg);font-weight:500}
+.tag.rec{background:var(--la);color:#14110A}
+.mo{font-size:13px;color:var(--fg)} .mo span{color:var(--muted)}
+.sizes{display:flex;gap:10px;align-items:end;--tb:var(--card);--pc:var(--lp);--ac:var(--la)}
+.sizes .sym{width:auto;height:auto}
+.foot{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+/* الحركة: الحالة الساكنة = الشكل النهائي؛ الحركة تعمل فقط مع .play */
+.pc{transform-box:fill-box;transform-origin:center}
+.pc[data-o="bottom"]{transform-origin:50% 100%} .pc[data-o="start"]{transform-origin:0 50%} .pc[data-o="view"]{transform-box:view-box;transform-origin:50% 50%}
+.play .pc{animation:var(--an) .75s cubic-bezier(.2,.8,.2,1) calc(var(--i) * 110ms) backwards}
+.play .wm{animation:wm .7s cubic-bezier(.2,.8,.2,1) .6s backwards}
+@keyframes fly{from{transform:translate(var(--dx,0px),var(--dy,0px));opacity:0}}
+@keyframes pop{from{transform:scale(0) rotate(-90deg);opacity:0}}
+@keyframes grow{from{transform:scaleY(0)}}
+@keyframes growx{from{transform:scaleX(0)}}
+@keyframes drop{from{transform:translateY(-26px);opacity:0}60%{transform:translateY(3px)}}
+@keyframes spin{from{transform:rotate(-90deg) scale(.8);opacity:0}}
+@keyframes twist{from{transform:rotate(-45deg)}}
+@keyframes draw{from{stroke-dashoffset:100}}
+@keyframes stamp{from{transform:scale(1.45);opacity:0}70%{transform:scale(.94);opacity:1}}
+@keyframes pop0{from{transform:scale(.6);opacity:0}}
+@keyframes wave{from{transform:scale(0);opacity:0}}
+@keyframes wm{from{transform:translateX(14px);opacity:0}}
+@media (prefers-reduced-motion:reduce){.play .pc,.play .wm{animation:none}}
+/* الألوان */
+.pals{display:grid;gap:12px}
+.pal{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1.3fr) auto;gap:18px;align-items:center}
+.pal[data-on="true"]{border-color:var(--fg)}
+.sw{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px}
+.sw div{border-radius:8px;height:54px;border:1px solid var(--line);display:flex;align-items:end;padding:4px 6px}
+.sw code{font-family:var(--en);font-size:10.5px;font-weight:700;letter-spacing:.02em}
+.swl{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;font-size:11.5px;color:var(--muted);margin-top:3px}
+.prev{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.prev .icon{width:58px;height:58px;border-radius:14px} .prev .icon .sym{width:34px;height:34px}
+.pbtn{border:0;border-radius:8px;padding:7px 14px;font-weight:700;font-size:13px}
+.bars{display:flex;align-items:end;gap:4px;height:44px}.bars i{width:9px;border-radius:2px 2px 0 0;display:block}
+.cr{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.cr span{font-family:var(--en);font-size:11.5px;border-radius:6px;padding:1px 7px;background:var(--chip)}
+.note{font-size:13px;color:var(--muted);border-top:1px solid var(--line);padding-top:14px;margin:0}
+@media (max-width:980px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.card.feat{grid-template-columns:1fr}.pal{grid-template-columns:1fr}}
+@media (max-width:640px){.grid{grid-template-columns:1fr}.feat .stage .sym{width:96px;height:96px}.feat .wm b{font-size:46px}.feat .wm small{font-size:13px}.wm b{font-size:38px}.sym{width:76px;height:76px}.tiles{grid-template-columns:1fr}.tiles .icon{justify-self:start}}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>أشمل — أربعة عشر رمزًا وأربعة عشر نموذج ألوان</h1>
+    <p class="lead">كل رمز يجمع بين معنى الاسم (الشمول والإحاطة) ومحتوى المنصة (المالية، المبيعات، المخزون، الموارد، التقارير). اضغط أي شعار لإعادة تحريكه، واختر نموذجًا لونيًا من الشريط ليُطبَّق على كل الرموز.</p>
+  </header>
+
+  <nav class="bar" aria-label="النماذج اللونية"><span class="lbl">الألوان:</span><div id="chips" class="chips"></div><button class="btn" id="replay" type="button" style="margin-inline-start:auto">تشغيل كل الحركات</button></nav>
+
+  <div id="allLogos" style="display:grid;gap:28px">
+  <section aria-labelledby="h-logos" style="display:grid;gap:14px">
+    <div class="sec-h"><div><h2 id="h-logos">الرموز الأربعة عشر</h2><p class="lead">الشعار الكامل على الفاتح، والنسخة المعكوسة على الداكن، وأيقونة التطبيق، والأحجام الصغيرة حتى 16 بكسل.</p></div></div>
+    <div class="grid" id="logos"></div>
+  </section>
+  </div>
+
+  <section aria-labelledby="h-pal" style="display:grid;gap:14px">
+    <div class="sec-h"><div><h2 id="h-pal">نماذج الألوان الأربعة عشر</h2><p class="lead">لكل نموذج: الأساسي، والإبراز، والداكن، والخلفية الفاتحة، والنص. نسب التباين محسوبة؛ ‎4.5 فأكثر صالح للنص، و‎3 فأكثر صالح للأشكال والأيقونات.</p></div></div>
+    <div class="pals" id="pals"></div>
+  </section>
+
+  <p class="note">الكتابة هنا نص حي بخطي IBM Plex Sans Arabic وManrope للمعاينة فقط. بعد اعتماد الرمز واللون تُولَّد ملفات الإنتاج (SVG بلا نص حي، PDF، PNG، أيقونات) بالمولّد نفسه المستعمل في المنصة.</p>
+</div>
+
+<script>
+(() => {
+const P = a => a.map(p => p.join(',')).join(' ');
+const mx = a => a.map(([x, y]) => [100 - x, y]).reverse(), my = a => a.map(([x, y]) => [x, 100 - y]).reverse();
+const R = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+// قطعة: f = p (أساسي) | a (إبراز)؛ an = الحركة؛ i = ترتيبها؛ o = مركز التحويل
+const poly = (pts, f, an, i, x = {}) => ({ k: 'polygon', pts, f, an, i, ...x });
+function arc(cx, cy, r, a0, a1) { const p = a => [cx + r * Math.cos(a * Math.PI / 180), cy + r * Math.sin(a * Math.PI / 180)].map(v => +v.toFixed(2));
+  const s = p(a0), e = p(a1); return `M${s} A${r} ${r} 0 0 1 ${e}`; }
+
+const LOGOS = [
+ { id: 3, name: 'شين الأعمال', rec: true,
+   idea: 'حرف الشين قلب كلمة «أشمل»: أسنانه الثلاثة أعمدة نمو فوق قاعدة واحدة (المنصة)، ونقاطه الثلاث بيانات ذهبية. يجمع الاسم والمحتوى في شكل واحد.',
+   motion: 'القاعدة تمتد، ثم تنمو الأعمدة كرسم بياني، ثم تهبط النقاط الثلاث.',
+   parts: () => [ poly(R(10, 76, 90, 88), 'p', 'growx', 0, { o: 'start' }),
+     poly(R(10, 54, 30, 71), 'p', 'grow', 1, { o: 'bottom' }), poly(R(40, 42, 60, 71), 'p', 'grow', 2, { o: 'bottom' }), poly(R(70, 30, 90, 71), 'p', 'grow', 3, { o: 'bottom' }),
+     poly([[42, 16], [48, 22], [42, 28], [36, 22]], 'a', 'drop', 5), poly([[58, 16], [64, 22], [58, 28], [52, 22]], 'a', 'drop', 6), poly([[50, 3], [56, 9], [50, 15], [44, 9]], 'a', 'drop', 7) ] },
+ { id: 1, name: 'المربع المكتمل',
+   idea: 'أربع وحدات (المالية، المبيعات، المخزون، الموارد) تدور حول نواة ذهبية وتكتمل في مربع واحد: كل أعمال المنشأة في كيان واحد.',
+   motion: 'الوحدات تأتي من الجهات الأربع وتنغلق، ثم تظهر النواة.',
+   parts: () => { const g = 2.5, k = 14;
+     return [ poly([[10 + k, 10 + g], [62 - g, 10 + g], [62 - g, 38 - g], [10 + g, 38 - g], [10 + g, 10 + k]], 'p', 'fly', 0, { dy: '-24px' }),
+       poly([[62 + g, 10 + g], [90 - k, 10 + g], [90 - g, 10 + k], [90 - g, 62 - g], [62 + g, 62 - g]], 'p', 'fly', 1, { dx: '24px' }),
+       poly([[38 + g, 62 + g], [90 - g, 62 + g], [90 - g, 90 - k], [90 - k, 90 - g], [38 + g, 90 - g]], 'p', 'fly', 2, { dy: '24px' }),
+       poly([[10 + g, 38 + g], [38 - g, 38 + g], [38 - g, 90 - g], [10 + k, 90 - g], [10 + g, 90 - k]], 'p', 'fly', 3, { dx: '-24px' }),
+       poly(R(40.5, 40.5, 59.5, 59.5), 'a', 'pop', 5) ]; } },
+ { id: 2, name: 'المحور',
+   idea: 'إطار مثمّن من أربعة أقسام يحيط بقلب ذهبي: الإحاطة الكاملة حول بيانات موحدة.',
+   motion: 'الإطار يدور ربع دورة وينغلق، ثم ينبض القلب.',
+   parts: () => { const ci = 24 - 14 * 0.4142, g = 3;
+     const q = [[50 - g, 8], [32, 8], [8, 32], [8, 50 - g], [22, 50 - g], [22, 22 + ci], [22 + ci, 22], [50 - g, 22]];
+     return [ ...[q, mx(q), my(mx(q)), my(q)].map((s, n) => poly(s, 'p', 'spin', n * .6, { o: 'view' })), poly([[50, 31], [69, 50], [50, 69], [31, 50]], 'a', 'pop', 4) ]; } },
+ { id: 4, name: 'النجمة الثمانية',
+   idea: 'النجمة الثمانية من الزخرفة العربية: مربعان متقاطعان يصنعان ثمانية أطراف (ثمانية أقسام) حول مركز ذهبي.',
+   motion: 'المربع الثاني يدور 45° فتتشكل النجمة، ثم يظهر المركز.',
+   parts: () => [ poly(R(22, 22, 78, 78), 'p', 'pop', 0, { o: 'view', an2: 1 }),
+     poly([[50, 10.4], [89.6, 50], [50, 89.6], [10.4, 50]], 'p', 'twist', 2, { o: 'view' }),
+     { k: 'polygon', pts: R(39, 39, 61, 61), f: 'a', an: 'pop', i: 5, gap: 4 } ] },
+ { id: 5, name: 'المدار',
+   idea: 'ست وحدات في مدار واحد حول قلب ذهبي: كل الأقسام تدور حول البيانات نفسها وتتصل بها.',
+   motion: 'أقسام المدار تُرسم واحدًا بعد الآخر حتى يكتمل، ثم يظهر القلب.',
+   parts: () => [ ...Array.from({ length: 6 }, (_, n) => ({ k: 'path', d: arc(50, 50, 33, -90 + n * 60 + 5, -90 + n * 60 + 55), f: 'p', stroke: 15, an: 'draw', i: n })),
+     { k: 'circle', cx: 50, cy: 50, r: 12, f: 'a', an: 'pop', i: 7 } ] },
+ { id: 6, name: 'الاحتضان',
+   idea: 'زاويتان تحتضنان المنشأة (المربع الذهبي): المنصة تحيط بالأعمال من كل جهة دون أن تقيّدها.',
+   motion: 'الزاويتان تقتربان من الأطراف وتنغلقان على النواة.',
+   parts: () => { const L = [[10, 10], [48, 10], [48, 24], [24, 24], [24, 48], [10, 48]];
+     return [ poly(L, 'p', 'fly', 0, { dx: '-18px', dy: '-18px' }), poly(my(mx(L)), 'p', 'fly', 0, { dx: '18px', dy: '18px' }),
+       poly([[30, 30], [70, 30], [70, 70], [30, 70]].map(([x, y]) => [x, y]), 'a', 'pop', 3) ]; } },
+ { id: 7, name: 'الشبكة الحية',
+   idea: 'تسع وحدات بلا فراغ متروك، قلبها ذهبي: تغطية شاملة لكل عمليات المنشأة.',
+   motion: 'موجة تضيء الوحدات من المركز إلى الأطراف.',
+   parts: () => { const u = 24, g = 4, X = i => 12 + i * (u + g), out = [];
+     for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) out.push({ k: 'rect', x: X(c), y: X(r), w: u, h: u, rx: 5, f: r === 1 && c === 1 ? 'a' : 'p', an: 'wave', i: Math.abs(r - 1) + Math.abs(c - 1) === 0 ? 0 : (Math.abs(r - 1) + Math.abs(c - 1)) * 1.6 });
+     return out; } },
+ // ===== الدفعة الثانية =====
+ { id: 8, b: 2, name: 'دورة الأعمال', rec: true, tagTxt: 'مرشّح: دورة العمل كاملة',
+   idea: 'ثلاث شفرات تدور حول مثلث ذهبي: الشراء ثم المخزون ثم البيع، وكلها تصب في الحسابات. «أشمل» يعني أن الدورة كلها في مكان واحد.',
+   motion: 'الشفرات تدخل تباعًا في اتجاه الدوران، ثم يظهر المثلث في المركز.',
+   parts: () => { const V = r => [-90, 30, 150].map(d => [50 + r * Math.cos(d * Math.PI / 180), 50 + r * Math.sin(d * Math.PI / 180)]);
+     const T = V(15), L = 34, W = 15, g = 3, f = v => v.map(([x, y]) => [+x.toFixed(2), +y.toFixed(2)]);
+     const blades = [0, 1, 2].map(k => { const A = T[k], B = T[(k + 1) % 3], len = Math.hypot(B[0] - A[0], B[1] - A[1]), d = [(B[0] - A[0]) / len, (B[1] - A[1]) / len];
+       let nx = d[1], ny = -d[0]; const mxp = (A[0] + B[0]) / 2 - 50, myp = (A[1] + B[1]) / 2 - 50; if (nx * mxp + ny * myp < 0) { nx = -nx; ny = -ny; }
+       const a0 = [A[0] + d[0] * g + nx * g, A[1] + d[1] * g + ny * g], a1 = [B[0] + d[0] * (L - len) + nx * g, B[1] + d[1] * (L - len) + ny * g];
+       const tip = [a1[0] + d[0] * W + nx * W, a1[1] + d[1] * W + ny * W].map((v, q) => q ? v : v);
+       return f([a0, [a1[0] + d[0] * W * .0 , a1[1]], [a1[0] + nx * W + d[0] * W, a1[1] + ny * W + d[1] * W], [a0[0] + nx * W + d[0] * W, a0[1] + ny * W + d[1] * W]]); });
+     return [ ...blades.map((b, n) => poly(b, 'p', 'spin', n * 1.4, { o: 'view' })), poly(f(V(11)), 'a', 'pop', 5) ]; } },
+ { id: 9, b: 2, name: 'الختم',
+   idea: 'ختم معتمد بعلامة صح ذهبية: فواتير مطابقة للزكاة والضريبة، وقيود معتمدة، وثقة في كل رقم.',
+   motion: 'الختم يُطبع بضغطة، ثم تُرسم علامة الصح.',
+   parts: () => { const pts = []; for (let n = 0; n < 32; n++) { const r = n % 2 ? 37 : 42, t = (n * 11.25 - 90) * Math.PI / 180; pts.push([+(50 + r * Math.cos(t)).toFixed(2), +(50 + r * Math.sin(t)).toFixed(2)]); }
+     return [ poly(pts, 'p', 'stamp', 0), { k: 'path', d: 'M33 51 L45 63 L68 38', f: 'a', stroke: 9, cap: 1, an: 'draw', i: 4 } ]; } },
+ { id: 10, b: 2, name: 'الدفتر',
+   idea: 'صفحات دفتر الأستاذ متراكبة بعلامة ذهبية: السجل المحاسبي الواحد الذي تُكتب فيه كل العمليات.',
+   motion: 'الصفحات تنفرد من خلف الصفحة الأمامية، ثم تنزل العلامة.',
+   parts: () => [ { k: 'rect', x: 14, y: 12, w: 54, h: 62, rx: 6, f: 'p', an: 'fly', i: 2, dx: '12px', dy: '12px', gap: 4 },
+     { k: 'rect', x: 22, y: 20, w: 54, h: 62, rx: 6, f: 'p', an: 'fly', i: 1, dx: '8px', dy: '8px', gap: 4 },
+     { k: 'rect', x: 30, y: 28, w: 54, h: 62, rx: 6, f: 'p', an: 'pop0', i: 0, gap: 4 },
+     poly([[66, 28], [76, 28], [76, 52], [71, 47], [66, 52]], 'a', 'drop', 4) ] },
+ { id: 11, b: 2, name: 'الهرم المتكامل',
+   idea: 'مثلث من أربعة أجزاء، قلبه ذهبي: أقسام المنصة الثلاثة تستند إلى قلب واحد، فيكتمل البناء.',
+   motion: 'الأركان الثلاثة تنضم من الخارج، ثم ينقلب القلب الذهبي إلى مكانه.',
+   parts: () => { const sh = (t, k = .86) => { const cx = (t[0][0] + t[1][0] + t[2][0]) / 3, cy = (t[0][1] + t[1][1] + t[2][1]) / 3; return t.map(([x, y]) => [+(cx + (x - cx) * k).toFixed(2), +(cy + (y - cy) * k).toFixed(2)]); };
+     const A = [50, 10], B = [90, 86], C = [10, 86], ab = [70, 48], ac = [30, 48], bc = [50, 86];
+     return [ poly(sh([A, ab, ac]), 'p', 'fly', 0, { dy: '-16px' }), poly(sh([ac, bc, C]), 'p', 'fly', 1, { dx: '-16px', dy: '10px' }), poly(sh([ab, B, bc]), 'p', 'fly', 2, { dx: '16px', dy: '10px' }),
+       poly(sh([ac, ab, bc]), 'a', 'pop', 4) ]; } },
+ { id: 12, b: 2, name: 'النقاط الثلاث',
+   idea: 'نقاط الشين الثلاث في «أشمل» داخل مربع واحد: علامة قصيرة جدًا تُعرف من بعيد، وتصلح أيقونة تطبيق مثالية.',
+   motion: 'المربع يظهر، ثم تهبط النقاط الثلاث تباعًا.',
+   parts: () => [ { k: 'rect', x: 8, y: 8, w: 84, h: 84, rx: 20, f: 'p', an: 'pop0', i: 0 },
+     poly([[50, 22], [63, 35], [50, 48], [37, 35]], 'a', 'drop', 2), poly([[35, 49], [48, 62], [35, 75], [22, 62]], 'a', 'drop', 3), poly([[65, 49], [78, 62], [65, 75], [52, 62]], 'a', 'drop', 4) ] },
+ { id: 13, b: 2, name: 'النبض',
+   idea: 'خط أداء صاعد داخل مربع، ينتهي بنقطة ذهبية: التقارير الحية ولوحات المتابعة التي ترى المنشأة كلها في لحظة.',
+   motion: 'المربع يظهر، ثم يُرسم الخط، ثم تضيء النقطة في القمة.',
+   parts: () => [ { k: 'rect', x: 8, y: 8, w: 84, h: 84, rx: 20, f: 'p', an: 'pop0', i: 0 },
+     { k: 'path', d: 'M22 68 L39 51 L53 60 L74 36', f: 'a', stroke: 8, cap: 1, an: 'draw', i: 2 }, { k: 'circle', cx: 75, cy: 35, r: 7.5, f: 'a', an: 'pop', i: 6 } ] },
+ { id: 14, b: 2, name: 'الخلية',
+   idea: 'سداسي من ستة أجزاء كخلية النحل: منظمة واحدة متكاملة، وجزء ذهبي يمثل القسم الذي تعمل عليه الآن.',
+   motion: 'الأجزاء تظهر واحدًا بعد الآخر مع عقارب الساعة.',
+   parts: () => { const V = Array.from({ length: 6 }, (_, k) => { const t = (-90 + 60 * k) * Math.PI / 180; return [50 + 42 * Math.cos(t), 50 + 42 * Math.sin(t)]; });
+     return V.map((v, k) => { const w = V[(k + 1) % 6], t = [[50, 50], v, w], cx = (50 + v[0] + w[0]) / 3, cy = (50 + v[1] + w[1]) / 3;
+       return poly(t.map(([x, y]) => [+(cx + (x - cx) * .84).toFixed(2), +(cy + (y - cy) * .84).toFixed(2)]), k === 0 ? 'a' : 'p', 'wave', k); }); } },
+];
+
+function svg(L, size) {
+  const parts = L.parts().map(p => {
+    const fill = p.f === 'a' ? 'var(--ac)' : 'var(--pc)';
+    const st = `--an:${p.an};--i:${p.i}${p.dx ? ';--dx:' + p.dx : ''}${p.dy ? ';--dy:' + p.dy : ''}`;
+    const o = p.o ? ` data-o="${p.o}"` : '';
+    const gap = p.gap ? ` stroke="var(--tb)" stroke-width="${p.gap}" paint-order="stroke"` : '';
+    if (p.k === 'polygon') return `<polygon class="pc"${o} style="${st}" points="${P(p.pts)}" fill="${fill}"${gap}/>`;
+    if (p.k === 'rect') return `<rect class="pc"${o} style="${st}" x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="${p.rx}" fill="${fill}"${gap}/>`;
+    if (p.k === 'circle') return `<circle class="pc"${o} style="${st}" cx="${p.cx}" cy="${p.cy}" r="${p.r}" fill="${fill}"/>`;
+    return `<path class="pc"${o} style="${st}" d="${p.d}" fill="none" stroke="${fill}" stroke-width="${p.stroke}"${p.cap ? ' stroke-linecap="round" stroke-linejoin="round"' : ''} pathLength="100" stroke-dasharray="100"/>`;
+  }).join('');
+  return `<svg class="sym" viewBox="0 0 100 100"${size ? ` width="${size}" height="${size}"` : ''} aria-hidden="true">${parts}</svg>`;
+}
+const wm = `<span class="wm"><b>أشمل</b><small>ASHMAL</small></span>`;
+const card = L => `
+ <article class="card${L.rec ? ' feat' : ''}">
+   <div class="stage" role="button" tabindex="0" aria-label="إعادة تحريك شعار ${L.name}">${svg(L)}${wm}</div>
+   <div style="display:grid;gap:10px;min-width:0">
+     <div class="meta"><h3><span class="tag">${L.n}</span>${L.name}${L.rec ? `<span class="tag rec">${L.tagTxt || 'الأقرب لطلبك: يدمج الاسم والمحتوى'}</span>` : ''}</h3><p>${L.idea}</p><p class="mo"><span>الحركة:</span> ${L.motion}</p></div>
+     <div class="tiles"><div class="stage dk" role="button" tabindex="0" aria-label="إعادة تحريك النسخة الداكنة">${svg(L)}${wm}</div><div class="icon">${svg(L)}</div></div>
+     <div class="foot"><div class="sizes">${[48, 32, 24, 16].map(s => svg(L, s)).join('')}<span style="font-size:12px;color:var(--muted)">48 · 32 · 24 · 16</span></div><button class="btn" type="button" data-replay>إعادة التحريك</button></div>
+   </div>
+ </article>`;
+LOGOS.forEach((L, k) => L.n = k + 1);
+document.getElementById('logos').innerHTML = LOGOS.map(card).join('');
+const logos = document.getElementById('allLogos');
+
+function play(el) { el.classList.remove('play'); void el.getBoundingClientRect(); el.classList.add('play'); }
+logos.addEventListener('click', e => { const s = e.target.closest('.stage'); if (s) return play(s);
+  const b = e.target.closest('[data-replay]'); if (b) b.closest('.card').querySelectorAll('.stage,.icon').forEach(play); });
+logos.addEventListener('keydown', e => { const s = e.target.closest('.stage'); if (s && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); play(s); } });
+const playAll = () => document.querySelectorAll('#allLogos .stage, #allLogos .icon').forEach((el, n) => setTimeout(() => play(el), n * 45));
+document.getElementById('replay').addEventListener('click', playAll);
+
+// ===== النماذج اللونية =====
+const PALS = [
+ { n: 'الكحلي الملكي والذهبي', m: 'وقار مالي وثقة؛ امتداد للهوية الحالية، فلا يحتاج العملاء الحاليون لتعوّد جديد.', c: ['#10294A', '#D9A83E', '#091A30', '#F3F5F8', '#1E2733'] },
+ { n: 'الزمردي والذهبي', m: 'المال والنمو والاستقرار؛ قريب من الذائقة الخليجية دون أن يكون أخضر حكوميًا.', c: ['#0D4A42', '#D4A24C', '#062B26', '#F1F6F4', '#16231F'] },
+ { n: 'الأزرق التقني والفيروزي', m: 'منصة سحابية حديثة وسريعة؛ مناسب لجمهور الشركات الناشئة والتقنية.', c: ['#1638A8', '#12B5A6', '#0B1C57', '#F2F5FC', '#141B33'] },
+ { n: 'الفحمي والبرتقالي', m: 'طاقة وحركة يومية؛ يناسب التجزئة والمطاعم ونقاط البيع المزدحمة.', c: ['#1F2632', '#F07F2E', '#11151C', '#F5F5F3', '#1F2632'] },
+ { n: 'البنفسجي العميق والكهرماني', m: 'مميز وغير مستهلك في سوق المحاسبة؛ طابع منتج برمجي عصري.', c: ['#34205E', '#F2B33D', '#1C1036', '#F6F3FB', '#221A33'] },
+ { n: 'الليلي والسماوي', m: 'بيانات وذكاء وتقارير؛ هادئ ومريح لساعات العمل الطويلة.', c: ['#0B1F3A', '#2F9BF0', '#06121F', '#F2F7FC', '#14202F'] },
+ { n: 'الأخضر السعودي والرملي', m: 'هوية محلية واضحة (الأخضر والرمل)؛ يخاطب السوق السعودي مباشرة.', c: ['#00634A', '#C9A46A', '#003A2B', '#F7F4EE', '#1C2520'] },
+ { n: 'العنابي والذهبي', m: 'فخامة وأصالة؛ يناسب المنشآت العائلية والقطاعات الراقية.', c: ['#6B1E2E', '#D9A83E', '#3D0F19', '#FAF4F2', '#2A1418'] },
+ { n: 'البترولي والمرجاني', m: 'دافئ وودود مع جدية مهنية؛ مختلف عن الأزرق المعتاد في برامج المحاسبة.', c: ['#0F5257', '#F26B5B', '#082F32', '#F1F7F7', '#14292B'] },
+ { n: 'الجرافيتي والليموني', m: 'تقني وحيوي؛ الليموني لون نمو وإنجاز، مع رمادي صلب.', c: ['#22262E', '#9BCB3C', '#121418', '#F4F6F2', '#22262E'] },
+ { n: 'الأزرق الملكي والذهبي', m: 'كلاسيكي واثق وأفتح من الكحلي؛ يقرأ جيدًا على الشاشات الصغيرة.', c: ['#1D3F8F', '#E8B547', '#0F2357', '#F3F6FC', '#16203A'] },
+ { n: 'الزيتوني والرملي', m: 'طبيعي وهادئ؛ يناسب الأغذية والزراعة والمطاعم.', c: ['#3E4A2C', '#D8B878', '#232A18', '#F6F5EF', '#232A1C'] },
+ { n: 'الأسود والذهبي', m: 'فاخر وحاد؛ أقوى حضور في الطباعة والواجهات الداكنة.', c: ['#141414', '#C9A24A', '#000000', '#F5F4F1', '#141414'] },
+ { n: 'النيلي والنعناعي', m: 'عصري ومنعش؛ طابع منتجات البرمجيات الحديثة.', c: ['#28306F', '#3FD0A4', '#151A42', '#F3F4FB', '#1A1F3D'] },
+];
+const lum = h => { const v = [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255).map(c => c <= .03928 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4); return .2126 * v[0] + .7152 * v[1] + .0722 * v[2]; };
+const cr = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + .05) / (y + .05); };
+const fmt = (r, need) => `${r.toFixed(1)}:1 ${r >= need ? '✓' : '✗'}`;
+const ink = h => lum(h) > .4 ? '#14110A' : '#FFFFFF';
+const LB = ['الأساسي', 'الإبراز', 'الداكن', 'الخلفية', 'النص'];
+const sample = LOGOS[0];
+document.getElementById('pals').innerHTML = PALS.map((p, k) => {
+  const [pr, ac, dk, lt, tx] = p.c;
+  return `<article class="pal" data-k="${k}" style="--lp:${pr};--la:${ac}">
+    <div style="min-width:0"><h3 style="margin:0;font-size:17px">${k + 1}. ${p.n}</h3><p style="margin:2px 0 0;color:var(--muted);font-size:14px">${p.m}</p>
+      <div class="cr"><span title="النص الأساسي على الأبيض">أساسي/أبيض ${fmt(cr(pr, '#FFFFFF'), 4.5)}</span><span title="الإبراز على الخلفية الفاتحة — للأشكال">إبراز/فاتح ${fmt(cr(ac, lt), 3)}</span><span title="الإبراز على الأساسي — في الأيقونة والنسخة الداكنة">إبراز/أساسي ${fmt(cr(ac, pr), 3)}</span></div></div>
+    <div style="min-width:0"><div class="sw">${p.c.map(c => `<div style="background:${c}"><code style="color:${ink(c)}">${c}</code></div>`).join('')}</div><div class="swl">${LB.map(l => `<span>${l}</span>`).join('')}</div></div>
+    <div class="prev"><div class="icon">${svg(sample)}</div><button class="pbtn" type="button" style="background:${pr};color:${ink(pr)}" data-apply="${k}">تطبيق على الرموز</button>
+      <div class="bars" aria-hidden="true">${[40, 62, 50, 82, 100].map((h, n) => `<i style="height:${h}%;background:${n === 4 ? ac : pr}"></i>`).join('')}</div></div>
+  </article>`; }).join('');
+const chips = document.getElementById('chips');
+chips.innerHTML = PALS.map((p, k) => `<button class="chipb" type="button" data-apply="${k}" aria-pressed="false"><span class="dot2"><i style="background:${p.c[0]}"></i><i style="background:${p.c[1]}"></i></span>${k + 1}. ${p.n}</button>`).join('');
+function apply(k, anim) { const p = PALS[k], r = document.documentElement.style;
+  r.setProperty('--lp', p.c[0]); r.setProperty('--la', p.c[1]); r.setProperty('--ld', p.c[2]); r.setProperty('--ll', p.c[3]);
+  document.querySelectorAll('.chipb').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.apply === k)));
+  document.querySelectorAll('.pal').forEach(a => a.dataset.on = String(+a.dataset.k === k));
+  try { localStorage.setItem('ashmal-pal', k); } catch (e) {}
+  if (anim) playAll(); }
+document.addEventListener('click', e => { const b = e.target.closest('[data-apply]'); if (b) { apply(+b.dataset.apply, true); if (b.classList.contains('pbtn')) document.getElementById('h-logos').scrollIntoView({ behavior: 'smooth' }); } });
+let k0 = 0; try { const s = +localStorage.getItem('ashmal-pal'); if (s >= 0 && s < PALS.length) k0 = s; } catch (e) {}
+apply(k0, false);
+requestAnimationFrame(() => setTimeout(playAll, 250));
+})();
+</script>

@@ -1,4 +1,4 @@
-# MITHQAL ERP (مِثقال) — تعليمات Claude Code
+# مُكتسَب — Muktasab (سابقًا MITHQAL ERP / مِثقال) — تعليمات Claude Code
 
 منصة SaaS عربية (RTL) مع الإنجليزية لإدارة المطاعم متعددة الفروع: الإغلاق اليومي، المحاسبة بالقيد المزدوج، المخزون والتكلفة، نقاط البيع، الموارد البشرية والرواتب، الفوترة الإلكترونية (ZATCA)، والتقارير.
 التقنية: React 18 + Vite 6، Firebase (Auth + Firestore)، Express على Render، Node ≥ 22. التفاصيل: `README.md`.

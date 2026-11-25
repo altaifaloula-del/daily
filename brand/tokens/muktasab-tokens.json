@@ -1,0 +1,32 @@
+{
+  "color": {
+    "navy": "#10294A",
+    "gold": "#D9A83E",
+    "deepNavy": "#091A30",
+    "blue": "#2671B9",
+    "lightGray": "#F3F5F8",
+    "white": "#FFFFFF"
+  },
+  "font": {
+    "arabic": "'IBM Plex Sans Arabic', 'Noto Sans Arabic', system-ui, sans-serif",
+    "latin": "Manrope, 'Segoe UI', system-ui, sans-serif",
+    "numeric": "'MizanNum', 'IBM Plex Mono', ui-monospace, monospace"
+  },
+  "logo": {
+    "geometry": {
+      "c": 50,
+      "R": 47,
+      "W": 9.5,
+      "r": 30,
+      "w": 6,
+      "h": 5.5,
+      "minorOpacity": 0.55
+    },
+    "clearSpacePct": 20,
+    "minSizePx": {
+      "symbol": 16,
+      "horizontal": 96,
+      "stacked": 64
+    }
+  }
+}

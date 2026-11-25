@@ -1,0 +1,121 @@
+<title>أسماء الهوية التقنية</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;700&family=Manrope:wght@500;700;800&display=swap">
+<style>
+/* التخطيط: معرض بطاقات؛ كل بطاقة = اسم كامل بهويته: أيقونة تطبيق، شعار أفقي بحروف صغيرة، شريط تطبيق تجريبي، ونسخة داكنة */
+:root{
+  --bg:#F5F6FA; --card:#FFFFFF; --fg:#0F1222; --muted:#5D6478; --line:#E1E4EC; --chip:#EEF0F6;
+  --ar:'IBM Plex Sans Arabic','Noto Sans Arabic',system-ui,sans-serif; --en:Manrope,'Segoe UI',system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0B0D16;--card:#141724;--fg:#E9ECF5;--muted:#9AA2B8;--line:#262B3D;--chip:#1C2031;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0B0D16;--card:#141724;--fg:#E9ECF5;--muted:#9AA2B8;--line:#262B3D;--chip:#1C2031;color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--ar);font-size:15px;line-height:1.7}
+.wrap{max-width:1200px;margin:0 auto;padding-block:28px 64px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;grid-template-columns:minmax(0,1fr);gap:26px}
+h1{font-size:clamp(26px,4vw,36px);line-height:1.25;margin:0;text-wrap:balance}
+.lead{color:var(--muted);margin:6px 0 0;max-width:72ch}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;overflow:hidden;display:grid;min-width:0}
+.hero{background:#FFFFFF;display:flex;align-items:center;justify-content:center;gap:16px;padding:34px 16px;cursor:pointer;direction:ltr;--p:var(--c1);--a:var(--c2);--t:#0F1222}
+.hero:focus-visible{outline:2px solid var(--c1);outline-offset:-4px}
+.tile{width:74px;height:74px;border-radius:22px;background:var(--c1);display:flex;align-items:center;justify-content:center;flex:none;--p:#FFFFFF;--a:var(--c2)}
+.tile .sym{width:46px;height:46px}
+.name{display:grid;line-height:1;gap:6px}
+.name b{font-family:var(--en);font-weight:800;font-size:40px;letter-spacing:-.03em;color:var(--t)}
+.name small{font-family:var(--ar);font-weight:500;font-size:15px;color:var(--muted);text-align:left}
+.bar{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--c1);direction:ltr;--p:#FFFFFF;--a:var(--c2)}
+.bar .sym{width:24px;height:24px}
+.bar b{font-family:var(--en);font-weight:800;color:#FFFFFF;letter-spacing:-.02em;font-size:17px}
+.bar .nav{display:flex;gap:6px;margin-inline-start:auto}
+.bar .nav i{display:block;height:8px;border-radius:9px;background:rgba(255,255,255,.35)}
+.bar .nav i:first-child{background:var(--c2)}
+.body{padding:14px;display:grid;gap:10px}
+.body h2{margin:0;font-size:18px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.body p{margin:0;font-size:14px;color:var(--muted)}
+.score{font-family:var(--en);font-size:12px;font-weight:700;border-radius:999px;padding:1px 9px;background:var(--chip);color:var(--fg)}
+.score.top{background:var(--c1);color:#FFFFFF}
+.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;--p:var(--c1);--a:var(--c2)}
+.sw{display:flex;gap:4px}.sw i{width:22px;height:22px;border-radius:7px;display:block}
+.warn{font-size:13px;color:var(--fg);background:var(--chip);border-radius:10px;padding:6px 10px}
+.pc{transform-box:fill-box;transform-origin:center}
+.pc[data-o="view"]{transform-box:view-box;transform-origin:50% 50%}
+.play .pc{animation:var(--an) .8s cubic-bezier(.2,.8,.2,1) calc(var(--i) * 110ms) backwards}
+.play .name{animation:nm .7s cubic-bezier(.2,.8,.2,1) .45s backwards}
+@keyframes pop{from{transform:scale(0);opacity:0}}
+@keyframes rise{from{transform:translateY(16px);opacity:0}}
+@keyframes spin{from{transform:rotate(-120deg);opacity:0}}
+@keyframes draw{from{stroke-dashoffset:var(--len)}}
+@keyframes nm{from{transform:translateX(-10px);opacity:0}}
+@media (prefers-reduced-motion:reduce){.play .pc,.play .name{animation:none}}
+.note{font-size:13px;color:var(--muted);border-top:1px solid var(--line);padding-top:14px;margin:0}
+@media (max-width:980px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:640px){.grid{grid-template-columns:1fr}}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>ستة أسماء بطابع تقني عصري</h1>
+    <p class="lead">أسماء مبتكرة من البحث المعمّق، كل منها بهوية كاملة: أيقونة تطبيق، وشعار بحروف صغيرة كشركات التقنية الحديثة، وشريط تطبيق تجريبي، ولون خاص. اضغط أي شعار لإعادة تحريكه. الدرجة من مقياس البحث (100 نقطة).</p>
+  </header>
+  <div class="grid" id="grid"></div>
+  <p class="note">الأسماء لم تُفحص بعد في سجل العلامات ولا في توفر النطاقات؛ هذه معاينة بصرية لتختار منها، ثم يُفحص الاسم المختار رسميًا قبل الاعتماد.</p>
+</div>
+
+<script>
+(() => {
+const arcPath = (cx, cy, r, a0, a1) => { const p = a => [cx + r * Math.cos(a * Math.PI / 180), cy + r * Math.sin(a * Math.PI / 180)].map(v => +v.toFixed(2)); const s = p(a0), e = p(a1); return `M${s} A${r} ${r} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${e}`; };
+const wedge = (a0, a1, r, g) => { const m = (a0 + a1) / 2 * Math.PI / 180, ox = 50 + g * Math.cos(m), oy = 50 + g * Math.sin(m), p = a => [ox + r * Math.cos(a * Math.PI / 180), oy + r * Math.sin(a * Math.PI / 180)].map(v => +v.toFixed(2));
+  return `M${ox.toFixed(2)} ${oy.toFixed(2)} L${p(a0)} A${r} ${r} 0 0 1 ${p(a1)} Z`; };
+const N = [
+ { en: 'telano', ar: 'تيلانو', c1: '#3B3FD9', c2: '#2FD3A0', score: 81, top: true,
+   idea: 'من اليونانية telos أي «الاكتمال». الرمز حلقة تقدّم تكتمل، ونقطتها الملونة هي اللحظة التي تُقفل فيها الحسابات.',
+   warn: 'قريب كتابةً من Telana وTalana (برنامج موارد بشرية)؛ يحتاج فحصًا دقيقًا.',
+   sym: () => [ { k: 'path', d: arcPath(50, 50, 32, -60, 230), stroke: 16, cap: 'round', f: 'p', an: 'draw', i: 0, len: 170 }, { k: 'circle', cx: +(50 + 32 * Math.cos(-90 * Math.PI / 180 + .0)).toFixed(2), cy: +(50 + 32 * Math.sin(-90 * Math.PI / 180)).toFixed(2), r: 9, f: 'a', an: 'pop', i: 6 } ] },
+ { en: 'kalmira', ar: 'كالميرا', c1: '#0F766E', c2: '#FF7A59', score: 81,
+   idea: 'kalos «الحسن» + mira «النظرة»، ويُسمع بالعربية قريبًا من «كالأميرة». الرمز عدسة ترى المنشأة كاملة، وفي قلبها نقطة التركيز.',
+   warn: 'النهاية ‎-mira شائعة في الأسماء الحديثة.',
+   sym: () => [ { k: 'path', d: 'M8 50 C26 18 74 18 92 50 C74 82 26 82 8 50 Z', f: 'p', an: 'pop', i: 0 }, { k: 'circle', cx: 50, cy: 50, r: 14, f: 'a', an: 'pop', i: 4 } ] },
+ { en: 'libena', ar: 'ليبينا', c1: '#1D4ED8', c2: '#FFB020', score: 80,
+   idea: 'من libra «الميزان»، ويُسمع بالعربية «لَبِنة». الرمز لبِنات تُبنى فوق بعضها، والذهبية في القمة هي القرار.',
+   warn: 'قريب من Libeo (مدفوعات فرنسية).',
+   sym: () => [ { k: 'rect', x: 8, y: 62, w: 40, h: 26, rx: 8, f: 'p', an: 'rise', i: 0 }, { k: 'rect', x: 52, y: 62, w: 40, h: 26, rx: 8, f: 'p', an: 'rise', i: 1 }, { k: 'rect', x: 30, y: 32, w: 40, h: 26, rx: 8, f: 'a', an: 'rise', i: 3 } ] },
+ { en: 'kanona', ar: 'كانونا', c1: '#1E293B', c2: '#38BDF8', score: 78,
+   idea: 'من kanon «القاعدة»، ويذكّر بـ«قانون»: يناسب الامتثال والفوترة الإلكترونية. الرمز أسطر دفتر منتظمة، وأقصرها ملوّن كرصيد يكتمل.',
+   warn: 'قريب من Kanova وKANNA.',
+   sym: () => [ { k: 'rect', x: 12, y: 18, w: 76, h: 16, rx: 8, f: 'p', an: 'rise', i: 0 }, { k: 'rect', x: 12, y: 42, w: 58, h: 16, rx: 8, f: 'p', an: 'rise', i: 1 }, { k: 'rect', x: 12, y: 66, w: 36, h: 16, rx: 8, f: 'a', an: 'rise', i: 2 } ] },
+ { en: 'jamlen', ar: 'جَملن', c1: '#7C2D92', c2: '#2EE6C5', score: 81,
+   idea: 'من «جُملة» أي المجموع. الرمز ثلاث وحدات تتصل بمركز واحد: البيع والمخزون والحسابات تلتقي في البيانات.',
+   warn: 'حرف J يُنطق «جيمًا قاهرية» في مصر.',
+   sym: () => [ { k: 'circle', cx: 50, cy: 20, r: 14, f: 'p', an: 'pop', i: 0 }, { k: 'circle', cx: 22, cy: 70, r: 14, f: 'p', an: 'pop', i: 1 }, { k: 'circle', cx: 78, cy: 70, r: 14, f: 'p', an: 'pop', i: 2 }, { k: 'circle', cx: 50, cy: 55, r: 11, f: 'a', an: 'pop', i: 5 } ] },
+ { en: 'intara', ar: 'إنتارا', c1: '#E85D1C', c2: '#1E1B4B', score: 79,
+   idea: 'من integer «الكل»، وبالإيطالية intera «كاملة»، ويذكّر بـ«عنترة». الرمز دائرة من أربعة أرباع، ربعها الداكن هو القسم الذي تعمل عليه.',
+   warn: 'يُكتب بالعربية بهمزة (إنتارا)، وكان هذا شرطًا مستبعدًا.',
+   sym: () => [ [-180, -90, 'p'], [-90, 0, 'a'], [0, 90, 'p'], [90, 180, 'p'] ].map(([a, b, f], i) => ({ k: 'path', d: wedge(a, b, 40, 3), f, an: 'spin', i, o: 'view' })) },
+];
+function svg(parts, size) {
+  const b = parts.map(p => { const fill = p.f === 'a' ? 'var(--a)' : 'var(--p)', st = `--an:${p.an};--i:${p.i}${p.len ? ';--len:' + p.len : ''}`, o = p.o ? ` data-o="${p.o}"` : '';
+    if (p.k === 'circle') return `<circle class="pc"${o} style="${st}" cx="${p.cx}" cy="${p.cy}" r="${p.r}" fill="${fill}"/>`;
+    if (p.k === 'rect') return `<rect class="pc"${o} style="${st}" x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="${p.rx}" fill="${fill}"/>`;
+    if (p.stroke) return `<path class="pc"${o} style="${st}" d="${p.d}" fill="none" stroke="${fill}" stroke-width="${p.stroke}" stroke-linecap="${p.cap || 'butt'}" stroke-dasharray="${p.len} 400"/>`;
+    return `<path class="pc"${o} style="${st}" d="${p.d}" fill="${fill}"/>`; }).join('');
+  return `<svg class="sym" viewBox="0 0 100 100"${size ? ` width="${size}" height="${size}"` : ''} aria-hidden="true">${b}</svg>`;
+}
+document.getElementById('grid').innerHTML = N.map(n => `
+  <article class="card" style="--c1:${n.c1};--c2:${n.c2}">
+    <div class="hero" role="button" tabindex="0" aria-label="إعادة تحريك شعار ${n.en}"><div class="tile">${svg(n.sym())}</div><div class="name"><b>${n.en}</b><small>${n.ar}</small></div></div>
+    <div class="bar">${svg(n.sym())}<b>${n.en}</b><span class="nav"><i style="width:34px"></i><i style="width:26px"></i><i style="width:30px"></i></span></div>
+    <div class="body">
+      <h2>${n.ar} · <span style="font-family:var(--en)">${n.en[0].toUpperCase() + n.en.slice(1)}</span><span class="score${n.top ? ' top' : ''}">${n.score}/100</span></h2>
+      <p>${n.idea}</p>
+      <div class="row"><span class="sw"><i style="background:${n.c1}"></i><i style="background:${n.c2}"></i></span>${[40, 28, 18].map(s => svg(n.sym(), s)).join('')}</div>
+      <div class="warn">⚠ ${n.warn}</div>
+    </div>
+  </article>`).join('');
+const play = el => { el.classList.remove('play'); void el.getBoundingClientRect(); el.classList.add('play'); };
+document.addEventListener('click', e => { const h = e.target.closest('.hero'); if (h) play(h); });
+document.addEventListener('keydown', e => { const h = e.target.closest('.hero'); if (h && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); play(h); } });
+requestAnimationFrame(() => setTimeout(() => document.querySelectorAll('.hero').forEach((el, n) => setTimeout(() => play(el), n * 140)), 250));
+})();
+</script>

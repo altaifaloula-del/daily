@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Fingerprint, ShieldCheck, Clock, Camera, Lock, Trash2, QrCode, Check } from 'lucide-react';
 import { Field, Modal, ROLES, arDT, escH, haversineMeters, nowISO, openDocWin, qrSvg, sha, today, uid } from '../../App.jsx';
+import { tbCss, tenantBrand } from '../../App.jsx';   // v56.0 ألوان مستندات المنشأة
 
 export function Attendance({ org, ops, me, myBranches, commit, say }) {
   const isCashier = me.role === 'cashier';
@@ -171,8 +172,8 @@ export function Attendance({ org, ops, me, myBranches, commit, say }) {
       const co = (org.company || {}).name || '';
       const svg = qrSvg(payload, { ecl: 2, px: 240 });
       const html = '<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>بطاقة حضور — ' + escH(e.name) + '</title>' +
-        '<style>body{font-family:Tahoma,sans-serif;margin:0;padding:24px;display:flex;justify-content:center}.card{width:320px;border:2px solid #10294A;border-radius:14px;padding:18px;text-align:center}' +
-        '.co{font-size:12px;color:#10294A;font-weight:700}.nm{font-size:20px;font-weight:800;margin:8px 0 2px}.br{font-size:12px;color:#666;margin-bottom:10px}.code{font-family:monospace;font-size:9px;color:#888;word-break:break-all;margin-top:8px;direction:ltr}.hint{font-size:10.5px;color:#666;margin-top:8px}@media print{body{padding:0}}</style></head><body><div class="card">' +
+        '<style>' + tbCss(tenantBrand(org)) + 'body{font-family:Tahoma,sans-serif;margin:0;padding:24px;display:flex;justify-content:center}.card{width:320px;border:2px solid var(--tb-p,#1F2A37);border-radius:14px;padding:18px;text-align:center}' +
+        '.co{font-size:12px;color:var(--tb-p,#1F2A37);font-weight:700}.nm{font-size:20px;font-weight:800;margin:8px 0 2px}.br{font-size:12px;color:#666;margin-bottom:10px}.code{font-family:monospace;font-size:9px;color:#888;word-break:break-all;margin-top:8px;direction:ltr}.hint{font-size:10.5px;color:#666;margin-top:8px}@media print{body{padding:0}}</style></head><body><div class="card">' +
         '<div class="co">' + escH(co) + '</div><div class="nm">' + escH(e.name) + '</div><div class="br">' + escH(branch ? branch.name : '') + ' · بطاقة حضور</div>' +
         (svg || '<div style="color:#b00;font-size:12px">تعذّر توليد رمز QR — استخدم الرمز النصّي أدناه.</div>') + '<div class="code">' + escH(payload) + '</div><div class="hint">امسح البطاقة على جهاز الفرع لتسجيل الحضور/الانصراف. البطاقة شخصية — لا تُعِرها لأحد.</div></div>' +
         '<script>setTimeout(function(){window.print()},400)<\/script></body></html>';

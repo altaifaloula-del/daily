@@ -114,7 +114,7 @@ export default {
 "الغرض": "Purpose",
 "لا فواتير متأخرة أو مستحقة خلال 7 أيام": "No invoices overdue or due within 7 days",
 "قبل أسبوع": "A week ago",
-"تقرير آلي من مِثقال — الأرقام من الإغلاقات والقيود الفعلية": "Automatic report from Mithqal — figures from actual closings and entries",
+"تقرير آلي من مُكتسَب — الأرقام من الإغلاقات والقيود الفعلية": "Automatic report from Muktasab — figures from actual closings and entries",
 "طباعة / PDF": "Print / PDF",
 "مشاركة واتساب": "Share on WhatsApp",
 "فروع لم تُغلق": "Branches not closed",

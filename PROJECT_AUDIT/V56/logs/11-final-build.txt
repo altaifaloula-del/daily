@@ -1,0 +1,37 @@
+
+> mithqal@56.0.0 build
+> vite build
+
+vite v6.4.5 building for production...
+transforming...
+✓ 2501 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                            4.48 kB │ gzip:   1.86 kB
+dist/assets/index-Ds8AWVvE.css             0.17 kB │ gzip:   0.13 kB
+dist/assets/index.esm-DFKtNgeY.js          1.35 kB │ gzip:   0.75 kB
+dist/assets/index-BLOobGdu.js              5.64 kB │ gzip:   2.79 kB
+dist/assets/mod-rpt-Dg9GcBh-.js            6.81 kB │ gzip:   2.78 kB
+dist/assets/mod-signup-1E6126hq.js         6.85 kB │ gzip:   2.99 kB
+dist/assets/vendor-icons-BBtHeNi9.js      46.51 kB │ gzip:   9.29 kB
+dist/assets/index.esm-DCOdOJb3.js         48.83 kB │ gzip:  11.50 kB
+dist/assets/index.esm-D9uS_eUc.js         57.86 kB │ gzip:   9.36 kB
+dist/assets/JsBarcode-CHTt_Bph.js         68.48 kB │ gzip:  14.75 kB
+dist/assets/mod-mkt-CGB1WJE9.js           78.32 kB │ gzip:  20.23 kB
+dist/assets/mod-closing-Cs4T1tLs.js      129.43 kB │ gzip:  33.74 kB
+dist/assets/vendor-react-ByBlkyf3.js     143.06 kB │ gzip:  45.82 kB
+dist/assets/index.esm-B3_14FIL.js        197.69 kB │ gzip:  39.38 kB
+dist/assets/mod-pos-CgmWqol1.js          220.50 kB │ gzip:  61.03 kB
+dist/assets/mod-admin-C9JNVqAE.js        222.40 kB │ gzip:  62.53 kB
+dist/assets/vendor-charts-BQMDZ-iZ.js    404.30 kB │ gzip: 109.80 kB
+dist/assets/mod-hr-CdJuSCtw.js           404.86 kB │ gzip:  93.53 kB
+dist/assets/mod-inv-C2nFSfFs.js          510.03 kB │ gzip: 133.74 kB
+dist/assets/index-Bm9PoSLM.js            549.27 kB │ gzip: 174.07 kB
+dist/assets/index.esm-FqHSSA9P.js        668.71 kB │ gzip: 173.20 kB
+dist/assets/mod-acct-CqK4J0mW.js         760.22 kB │ gzip: 194.45 kB
+dist/assets/core-Dn4iiqcm.js           1,337.20 kB │ gzip: 430.51 kB
+✓ built in 8.91s
+
+real	0m9.232s
+user	0m12.273s
+sys	0m1.005s

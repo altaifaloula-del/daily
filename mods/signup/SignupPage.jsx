@@ -1,5 +1,5 @@
-/* v51.5 — المرحلة 07 / S6: صفحة التسجيل العام في مِثقال (‎?signup‎) — مستقلة عن التطبيق (لا تحمّل بيانات أي منشأة).
-   الطلب يُرسل لخادم مِثقال ويُراجعه المزوّد؛ لا يُنشأ حساب ولا مشروع تلقائيًا. الحقل «website» مخفي للروبوتات. */
+/* v51.5 — المرحلة 07 / S6: صفحة التسجيل العام في مُكتسَب (‎?signup‎) — مستقلة عن التطبيق (لا تحمّل بيانات أي منشأة).
+   الطلب يُرسل لخادم مُكتسَب ويُراجعه المزوّد؛ لا يُنشأ حساب ولا مشروع تلقائيًا. الحقل «website» مخفي للروبوتات. */
 import React, { useState } from 'react';
 import { PLAN_AR, PLAN_FEATURES } from '../../plans.js';
 
@@ -25,12 +25,12 @@ export function SignupPage() {
   return (
     <div dir="rtl" className="mq-signup" style={{ position: 'relative', overflowX: 'hidden', minHeight: '100vh', background: C.soft, fontFamily: "'IBM Plex Sans Arabic','Noto Sans Arabic',sans-serif", padding: '28px 16px' }}>
       <div style={{ maxWidth: 620, margin: '0 auto' }}>
-        <img src="./brand/mithqal-logo-horizontal-bilingual.svg" alt="مِثقال — Mithqal ERP" style={{ height: 52, display: 'block', margin: '0 auto 18px' }} />
+        <img src="./brand/mithqal-logo-horizontal-bilingual.svg" alt="مُكتسَب — Muktasab ERP" style={{ height: 52, display: 'block', margin: '0 auto 18px' }} />
         <div style={{ background: '#fff', borderRadius: 18, padding: '22px 20px', boxShadow: '0 6px 24px rgba(16,41,74,.08)' }}>
-          <h1 style={{ fontSize: 22, margin: '0 0 6px', color: C.navy }}>اطلب اشتراكك في مِثقال</h1>
+          <h1 style={{ fontSize: 22, margin: '0 0 6px', color: C.navy }}>اطلب اشتراكك في مُكتسَب</h1>
           <p style={{ margin: '0 0 18px', color: '#5a6577', fontSize: 14 }}>نظام متكامل للمطاعم: الإغلاق اليومي، المحاسبة، المخزون، نقاط البيع، الموارد البشرية. بياناتك في مشروع مستقل داخل المملكة (الدمام).</p>
           {st.id ? <div className="mq-signup-ok" style={{ padding: 16, borderRadius: 12, background: 'rgba(46,139,98,.1)', color: '#1f6b4a' }}>
-            <b>استلمنا طلبك ({st.id}).</b> سيتواصل معك فريق مِثقال لتجهيز منشأتك وبدء الفترة التجريبية.
+            <b>استلمنا طلبك ({st.id}).</b> سيتواصل معك فريق مُكتسَب لتجهيز منشأتك وبدء الفترة التجريبية.
           </div> : <form onSubmit={send}>
             <L t="اسم المنشأة" req><input style={inp} value={f.company} onChange={set('company')} required minLength={3} /></L>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -55,7 +55,7 @@ export function SignupPage() {
             <input name="website" value={f.website} onChange={set('website')} tabIndex={-1} autoComplete="off" aria-hidden="true" style={{ position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, border: 0, overflow: 'hidden', clipPath: 'inset(50%)', whiteSpace: 'nowrap', opacity: 0 }} />
             {st.err && <div className="mq-signup-err" style={{ color: '#b03a2e', marginBottom: 10 }}>{st.err}</div>}
             <button type="submit" disabled={st.busy} style={{ width: '100%', padding: '12px 14px', border: 0, borderRadius: 12, background: C.navy, color: '#fff', fontSize: 16, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>{st.busy ? 'جارٍ الإرسال…' : 'أرسل الطلب'}</button>
-            <p style={{ fontSize: 12, color: '#7a8496', marginTop: 10 }}>بإرسال الطلب توافق على تواصل فريق مِثقال معك بخصوص الاشتراك.</p>
+            <p style={{ fontSize: 12, color: '#7a8496', marginTop: 10 }}>بإرسال الطلب توافق على تواصل فريق مُكتسَب معك بخصوص الاشتراك.</p>
           </form>}
         </div>
       </div>

@@ -1,0 +1,63 @@
+
+> mithqal@56.0.0 test:rules
+> node scripts/tenant-rules.mjs --check && firebase emulators:exec --only firestore "node --test tests/rules.test.mjs tests/security.rules.test.mjs tests/restore.emu.test.mjs tests/tenant.rules.test.mjs tests/v56.rules.test.mjs && RULES_FILE=firestore.tenant.rules node --test tests/rules.test.mjs tests/security.rules.test.mjs tests/v56.rules.test.mjs"
+
+✓ firestore.tenant.rules محدَّث (32 قاعدة كتابة)
+⚠  emulators: You are not currently authenticated so some features may not work correctly. Please run firebase login to authenticate the CLI.
+(node:1651) MetadataLookupWarning: received unexpected error = Request failed with status code 403 code = UNKNOWN
+(Use `node --trace-warnings ...` to show where the warning was created)
+MetadataLookupWarning: received unexpected error = Request failed with status code 403 code = UNKNOWN
+    at Object.isAvailable (/home/user/Archive/mithqal/node_modules/gcp-metadata/build/src/index.js:356:25)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async GoogleAuth._checkIsGCE (/home/user/Archive/mithqal/node_modules/google-auth-library/build/src/auth/googleauth.js:300:51)
+    at async GoogleAuth.getApplicationDefaultAsync (/home/user/Archive/mithqal/node_modules/google-auth-library/build/src/auth/googleauth.js:283:13)
+    at async GoogleAuth._GoogleAuth_determineClient (/home/user/Archive/mithqal/node_modules/google-auth-library/build/src/auth/googleauth.js:834:32)
+    at async GoogleAuth.getClient (/home/user/Archive/mithqal/node_modules/google-auth-library/build/src/auth/googleauth.js:698:20)
+    at async GoogleAuth.getAccessToken (/home/user/Archive/mithqal/node_modules/google-auth-library/build/src/auth/googleauth.js:722:24)
+    at async autoAuth (/home/user/Archive/mithqal/node_modules/firebase-tools/lib/requireAuth.js:38:19)
+    at async requireAuth (/home/user/Archive/mithqal/node_modules/firebase-tools/lib/requireAuth.js:100:20)
+    at async Object.beforeEmulatorCommand [as fn] (/home/user/Archive/mithqal/node_modules/firebase-tools/lib/emulator/commandUtils.js:119:13)
+⚠  Unable to fetch the CLI MOTD and remote config. This is not a fatal error, but may indicate an issue with your network connection.
+i  emulators: Starting emulators: firestore
+⚠  hub: Error when trying to check port 4400 on ::1: Error: listen EAFNOSUPPORT: address family not supported ::1:4400
+⚠  hub: Port 4400 is available on 127.0.0.1 but not ::1. This may cause issues with some clients.
+⚠  hub: If you encounter connectivity issues, consider switching to a different port or explicitly specifying "host": "<ip address>" instead of hostname in firebase.json
+⚠  logging: Error when trying to check port 4500 on ::1: Error: listen EAFNOSUPPORT: address family not supported ::1:4500
+⚠  logging: Port 4500 is available on 127.0.0.1 but not ::1. This may cause issues with some clients.
+⚠  logging: If you encounter connectivity issues, consider switching to a different port or explicitly specifying "host": "<ip address>" instead of hostname in firebase.json
+⚠  firestore: Error when trying to check port 8080 on ::1: Error: listen EAFNOSUPPORT: address family not supported ::1:8080
+⚠  firestore: Port 8080 is available on 127.0.0.1 but not ::1. This may cause issues with some clients.
+⚠  firestore: If you encounter connectivity issues, consider switching to a different port or explicitly specifying "host": "<ip address>" instead of hostname in firebase.json
+⚠  firestore.websocket: Error when trying to check port 9150 on ::1: Error: listen EAFNOSUPPORT: address family not supported ::1:9150
+⚠  firestore: Port 9150 is available on 127.0.0.1 but not ::1. This may cause issues with some clients.
+⚠  firestore: If you encounter connectivity issues, consider switching to a different port or explicitly specifying "host": "<ip address>" instead of hostname in firebase.json
+i  firestore: Firestore Emulator logging to firestore-debug.log
+✔  firestore: Firestore Emulator was started in standard edition.
+✔  firestore: Firestore Emulator UI websocket is running on 9150.
+i  Running script: node --test tests/rules.test.mjs tests/security.rules.test.mjs tests/restore.emu.test.mjs tests/tenant.rules.test.mjs tests/v56.rules.test.mjs && RULES_FILE=firestore.tenant.rules node --test tests/rules.test.mjs tests/security.rules.test.mjs tests/v56.rules.test.mjs
+TAP version 13
+# Subtest: تمرين الاستعادة في المحاكي: الاستعادة ثم القراءة ثم المطابقة بصمةً ببصمة
+ok 1 - تمرين الاستعادة في المحاكي: الاستعادة ثم القراءة ثم المطابقة بصمةً ببصمة
+  ---
+  duration_ms: 5874.261498
+  type: 'test'
+  ...
+# [2026-11-25T17:03:26.910Z]  @firebase/firestore: Firestore (12.19.0): GrpcConnection RPC 'Write' stream 0x373fc549 error. Code: 14 Message: 14 UNAVAILABLE: No connection established. Last error: Protocol error (2026-11-25T17:03:26.903Z). Resolution note: 
+# [2026-11-25T17:03:26.911Z]  @firebase/firestore: Firestore (12.19.0): GrpcConnection RPC 'Write' stream 0x373fc54a error. Code: 14 Message: 14 UNAVAILABLE: No connection established. Last error: Protocol error (2026-11-25T17:03:26.903Z). Resolution note: 
+# [2026-11-25T17:03:27.967Z]  @firebase/firestore: Firestore (12.19.0): GrpcConnection RPC 'Write' stream 0x373fc54b error. Code: 14 Message: 14 UNAVAILABLE: No connection established. Last error: Protocol error (2026-11-25T17:03:27.923Z). Resolution note: 
+# [2026-11-25T17:03:29.905Z]  @firebase/firestore: Firestore (12.19.0): GrpcConnection RPC 'Write' stream 0x373fc54c error. Code: 14 Message: 14 UNAVAILABLE: No connection established. Last error: Protocol error (2026-11-25T17:03:29.384Z). Resolution note: 
+# [2026-11-25T17:03:31.793Z]  @firebase/firestore: Firestore (12.19.0): GrpcConnection RPC 'Write' stream 0x373fc54d error. Code: 14 Message: 14 UNAVAILABLE: No connection established. Last error: Protocol error (2026-11-25T17:03:29.384Z). Resolution note: 
+# [2026-11-25T17:03:35.510Z]  @firebase/firestore: Firestore (12.19.0): GrpcConnection RPC 'Write' stream 0x373fc54e error. Code: 14 Message: 14 UNAVAILABLE: No connection established. Last error: Protocol error (2026-11-25T17:03:35.501Z). Resolution note: 
+# [2026-11-25T17:03:38.298Z]  @firebase/firestore: Firestore (12.19.0): GrpcConnection RPC 'Write' stream 0x373fc54f error. Code: 14 Message: 14 UNAVAILABLE: No connection established. Last error: Protocol error (2026-11-25T17:03:35.501Z). Resolution note: 
+# [2026-11-25T17:03:49.397Z]  @firebase/firestore: Firestore (12.19.0): GrpcConnection RPC 'Write' stream 0x373fc550 error. Code: 14 Message: 14 UNAVAILABLE: No connection established. Last error: Protocol error (2026-11-25T17:03:47.625Z). Resolution note: 
+# [2026-11-25T17:04:02.164Z]  @firebase/firestore: Firestore (12.19.0): GrpcConnection RPC 'Write' stream 0x373fc551 error. Code: 14 Message: 14 UNAVAILABLE: No connection established. Last error: Protocol error (2026-11-25T17:03:57.252Z). Resolution note: 
+# [2026-11-25T17:04:22.080Z]  @firebase/firestore: Firestore (12.19.0): GrpcConnection RPC 'Write' stream 0x373fc552 error. Code: 14 Message: 14 UNAVAILABLE: No connection established. Last error: Protocol error (2026-11-25T17:04:12.729Z). Resolution note: 
+# [2026-11-25T17:04:59.249Z]  @firebase/firestore: Firestore (12.19.0): GrpcConnection RPC 'Write' stream 0x373fc553 error. Code: 14 Message: 14 UNAVAILABLE: No connection established. Last error: Protocol error (2026-11-25T17:04:38.186Z). Resolution note: 
+ 
+i  emulators: Received SIGTERM for the first time. Starting a clean shutdown.
+i  emulators: Please wait for a clean shutdown or send the SIGTERM signal again to stop right now.
+i  emulators: Shutting down emulators.
+i  firestore: Stopping Firestore Emulator
+⚠  Script exited with signal: SIGTERM
+i  hub: Stopping emulator hub
+i  logging: Stopping Logging Emulator

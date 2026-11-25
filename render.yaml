@@ -20,7 +20,12 @@ services:
         sync: false
       - key: FIREBASE_API_KEY
         sync: false
-      - key: ZATCA_ENC_KEY       # مفتاح تشفير أسرار أجهزة الفوترة — يولّده Render عشوائيًا ولا يغادر الخادم
-        generateValue: true
+      # v56.0 (BUG-012): كان generateValue: true — إعادة إنشاء الخدمة من المخطط تولّد مفتاحًا جديدًا فتفقد المنشأة القدرة على فك
+      # أسرار أجهزة الفوترة المسجّلة. الآن يُضبط يدويًا مرة واحدة (32 حرفًا أو أكثر) ويُحفظ نسخة في خزنة المالك خارج Render.
+      # Render لا يمحو قيمة قائمة لمتغير sync:false عند مزامنة المخطط — الخدمة الحالية تحتفظ بمفتاحها.
+      - key: ZATCA_ENC_KEY       # مفتاح تشفير أسرار أجهزة الفوترة — لا يغادر الخادم
+        sync: false
+      - key: ZATCA_KEY_ID        # بصمة المفتاح (ليست سرًا) كما يطبعها سجل الإقلاع — الخادم يحذّر إن تغيّر المفتاح عنها
+        sync: false
       - key: ALLOWED_ORIGINS
         value: https://altaifaloula-del.github.io

@@ -1,7 +1,9 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useMemo } from 'react';
 import { Wallet, FileBarChart, ChevronDown, Printer, Check, Landmark, Banknote, Signature, Plus, TrendingDown, ShieldCheck, AlertTriangle, Users, PenLine, Receipt, Download } from 'lucide-react';
-import { ibanNorm, ibanStatus, loadIbanSigs, requestIban } from '../../App.jsx';   // v40.9
+import { ibanNorm, ibanStatus, loadIbanSigs, requestIban } from '../../App.jsx';
+import { tbCss, tenantBrand } from '../../App.jsx';   // v56.0 ألوان مستندات المنشأة
+import { tbLogo } from '../../App.jsx';   // v56.0 شعار المستند من هوية المنشأة   // v40.9
 import { gosiNewSched, gosiNewAuto } from '../../App.jsx';   // v47.2
 import { AdvanceForm, Field, Kpi, LOCK_MSG, MZ_LOGO_HTML, Modal, NUM_FACE, PAY_ADD_TYPES, ROLES, SignDocsModal, arDT, arDate, branchBanks, buildPayslipSignDocs, eosAccrualLines, eosCumAt, eosState, isoD, leaveBalance, lockedThru, makeXlsx, money, monthEnd, nowISO, openDocWin, payrollRowsOf, periodLocked, printA4, rolePost, sigBlockHtml, sigSvg, sum, today, uid } from '../../App.jsx';
 
@@ -169,33 +171,33 @@ export function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, s
     if (!w) return;
     w.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8">
       <title>قسيمة راتب - ${r.e.name} - ${monthName}</title>
-      <style>${NUM_FACE}
+      <style>${tbCss(tenantBrand(org))}${NUM_FACE}
         *{margin:0;padding:0;box-sizing:border-box;font-family:'MizanNum','IBM Plex Sans Arabic','Noto Sans Arabic','Segoe UI',Tahoma,sans-serif}
         body{padding:32px;color:#222;background:#fff}
         .head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #D9A83E;padding-bottom:16px;margin-bottom:20px}
         .logo{width:64px;height:64px;object-fit:contain}
-        .co-n{font-size:19px;font-weight:bold;color:#10294A}
+        .co-n{font-size:19px;font-weight:bold;color:var(--tb-p,#1F2A37)}
         .co-m{font-size:11px;color:#666;margin-top:3px}
         .title{text-align:center;font-size:16px;font-weight:bold;margin:8px 0}
         .sub{text-align:center;font-size:13px;color:#666;margin-bottom:20px}
         .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;margin-bottom:20px}
         .fld{display:flex;justify-content:space-between;padding:8px 12px;background:#F3F5F8;border-radius:6px;font-size:13px}
-        .fld b{color:#10294A}
+        .fld b{color:var(--tb-p,#1F2A37)}
         table{width:100%;border-collapse:collapse;margin:16px 0;font-size:12.5px}
-        th{background:#10294A;color:#fff;padding:8px;text-align:right}
+        th{background:var(--tb-p,#1F2A37);color:#fff;padding:8px;text-align:right}
         td{border:1px solid #ddd;padding:7px 10px}
         td.n{text-align:left;font-variant-numeric:tabular-nums}
         td.ce{text-align:center;color:#999}
         .totals{margin-top:20px;border:2px solid #D9A83E;border-radius:10px;overflow:hidden}
         .totals .row{display:flex;justify-content:space-between;padding:11px 16px;font-size:14px;border-bottom:1px solid #eee}
-        .totals .net{background:#10294A;color:#fff;font-size:17px;font-weight:bold;border:none}
+        .totals .net{background:var(--tb-p,#1F2A37);color:#fff;font-size:17px;font-weight:bold;border:none}
         .sign{display:flex;justify-content:space-between;margin-top:48px;gap:40px}
         .sign div{flex:1;text-align:center;border-top:1px solid #999;padding-top:8px;font-size:12px;color:#666}
         @media print{body{padding:16px}}
       </style></head><body>
       <div class="head">
         <div style="display:flex;gap:14px;align-items:center">
-          ${co.logoUrl ? `<img class="logo" src="${co.logoUrl}">` :MZ_LOGO_HTML}
+          ${tbLogo(org) ? `<img class="logo" src="${tbLogo(org)}">` :MZ_LOGO_HTML}
           <div><div class="co-n">${co.name || 'المنشأة'}</div>
           <div class="co-m">الرقم الضريبي: ${co.taxNumber || '—'} · س.تجاري: ${co.commercialReg || '—'}</div></div>
         </div>
@@ -511,7 +513,7 @@ export function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, s
               {emps.length > 0 && (() => { const tot = r2(sum(emps, e => eosFull(empGrossOf(e), tenureYears(e.hireDate, today())))); return (
                 <tr style={{ fontWeight: 800, background: 'rgba(200,162,74,.05)' }}>
                   <td colSpan={EOS.open ? 5 : 4}>مخصّص نهاية الخدمة التقديري (لو انتهت خدمة الجميع اليوم)</td>
-                  <td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{money(tot)}</td><td />
+                  <td className="num" style={{ textAlign: 'end', color: 'var(--brass-t)' }}>{money(tot)}</td><td />
                 </tr>
               ); })()}
             </tbody>
@@ -568,7 +570,7 @@ export function Payroll({ org, ops, me, myBranches, scoped, commit, commitOrg, s
                 {[['مدة الخدمة', fmtYears(years)], ['المكافأة الكاملة', money(full)], ['المستحق حسب السبب', money(entitled)], leaveDays ? ['بدل الإجازة المتبقية', money(leavePay)] : null].filter(Boolean).map((x, i) => (
                   <div key={i} className="row" style={{ justifyContent: 'space-between', fontSize: 12.5, padding: '3px 0' }}><span>{x[0]}</span><b className="num">{x[1]}</b></div>
                 ))}
-                <div className="row" style={{ justifyContent: 'space-between', fontWeight: 900, fontSize: 14, borderTop: '1px solid var(--frame-o)', marginTop: 6, paddingTop: 6 }}><span>إجمالي المخالصة</span><b className="num" style={{ color: 'var(--brass-l)' }}>{money(total)}</b></div>
+                <div className="row" style={{ justifyContent: 'space-between', fontWeight: 900, fontSize: 14, borderTop: '1px solid var(--frame-o)', marginTop: 6, paddingTop: 6 }}><span>إجمالي المخالصة</span><b className="num" style={{ color: 'var(--brass-t)' }}>{money(total)}</b></div>
               </div>
               {eosCentral && EOS.open && !EOS.paid[emp.id] && <div className="grid g2" style={{ marginTop: 10 }}>
                 <Field label="تاريخ الصرف"><input className="inp" type="date" value={eosF.payDate || today()} onChange={e => setEosF(f => ({ ...f, payDate: e.target.value }))} /></Field>

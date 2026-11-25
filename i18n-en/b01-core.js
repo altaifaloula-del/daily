@@ -46,7 +46,7 @@ export default {
   'مقارنة الطريقتين': 'Compare both methods', 'مقارنة من': 'Compare from', 'مقارنة إلى': 'Compare to', 'الحالية:': 'Current:', 'الافتراضي · موصى به': 'Default · recommended',
   'الافتراضي والموصى به — تكلفة كل صرف = متوسط تكلفة الرصيد لحظتها': 'Default and recommended — each issue costs the average cost of the balance at that moment',
   'الوارد أولًا يصرف أولًا (FIFO)': 'First in, first out (FIFO)', 'الصرف يستهلك أقدم الكميات بتكلفتها — يناسب الأصناف المتتبَّعة بالدفعات والصلاحية': 'Issues consume the oldest quantities at their cost — suits batch- and expiry-tracked items',
-  'مقارنة الطريقتين': 'Compare both methods', 'طريقة المخزون الحالية:': 'Current inventory method:', 'المتوسط المرجّح': 'Weighted average',
+  'طريقة المخزون الحالية:': 'Current inventory method:', 'المتوسط المرجّح': 'Weighted average',
   'المبيعات لا تُخصم من المخزون تلقائيًا (يمكن تفعيلها من إعدادات المشتريات).': 'Sales are not deducted from inventory automatically (enable it in purchasing settings).',
   'بحث بالاسم أو الرمز أو الباركود': 'Search by name, code or barcode', 'بحث الأصناف': 'Search items', 'حالة الصنف': 'Item status', 'حركة الصنف': 'Item movement',
   // الربحية

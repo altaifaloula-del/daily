@@ -87,7 +87,7 @@ export function ReportBuilder({ org, ops, me, myBranches, scoped, commitOrg, say
     await commitOrg(d => ({ ...d, reportTemplates: [...(d.reportTemplates || []).filter(t => t.name !== nm), { id, name: nm, cfg: { ...cfg } }] }), { actionType: 'create', targetType: 'report_template', targetId: id, need: 'post', title: 'حفظ قالب تقرير', details: nm });
     setTplName(''); say('حُفظ القالب «' + nm + '»', 'ok');
   };
-  const loadTpl = (t) => setCfg({ source: 'closings', from: '', to: '', branch: '', entity: '', groupBy: 'none', cols: [], sortBy: '', sortDir: 'desc', ...t.cfg, cols: (t.cfg.cols || []).slice() });
+  const loadTpl = (t) => setCfg({ source: 'closings', from: '', to: '', branch: '', entity: '', groupBy: 'none', sortBy: '', sortDir: 'desc', ...t.cfg, cols: (t.cfg.cols || []).slice() });
   const delTpl = async (t) => { await commitOrg(d => ({ ...d, reportTemplates: (d.reportTemplates || []).filter(x => x.id !== t.id) }), { actionType: 'delete', targetType: 'report_template', targetId: t.id, need: 'post', title: 'حذف قالب تقرير', details: t.name }); };
 
   const dlBlob = (name, blob) => { const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); document.body.removeChild(a); setTimeout(() => URL.revokeObjectURL(url), 1500); };

@@ -33,7 +33,7 @@ export function GeneralLedger({ org, ops, A, mode, code, setCode, from, to, bf, 
       <div className="card" data-actmv>
         <div className="card-h"><div className="card-t"><ArrowLeftRight size={15} color="var(--brass)" />حركة الحسابات — {per}</div>
           <div className="row" style={{ gap: 6 }}>{filters}<span className="badge b-mint" data-actbal>{M.balanced ? 'متوازن ✓' : 'غير متوازن!'}</span></div></div>
-        <RptTable org={org} me={me} onRow={(r) => { setCode(r.code); onMode('gl'); }} spec={{ id: 'actmv', title: 'حركة الحسابات', sub: per, template: 'list', meta: { user: (me && me.name) || '', source: 'مِثقال ' + APP_VER + ' — المحاسبة' },
+        <RptTable org={org} me={me} onRow={(r) => { setCode(r.code); onMode('gl'); }} spec={{ id: 'actmv', title: 'حركة الحسابات', sub: per, template: 'list', meta: { user: (me && me.name) || '', source: 'مُكتسَب ' + APP_VER + ' — المحاسبة' },
           filters: [['الفرع', bfName]], columns: [{ key: 'code', label: 'الرمز', en: 'Code', w: 10 }, { key: 'name', label: 'الحساب', en: 'Account', w: 34 }, { key: 'open', label: 'رصيد أول المدة', en: 'Opening', type: 'money' }, { key: 'debit', label: 'مدين', en: 'Debit', type: 'money', total: 'sum' }, { key: 'credit', label: 'دائن', en: 'Credit', type: 'money', total: 'sum' }, { key: 'close', label: 'رصيد آخر المدة', en: 'Closing', type: 'money' }],
           rows: M.rows, notes: [M.balanced ? 'المدين = الدائن — متوازن ✓' : 'تنبيه: غير متوازن'] }} />
         <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 8 }}>اضغط اسم أي حساب لفتح دفتر أستاذه بالفترة نفسها، ثم رقم أي قيد لاستعراضه.</div>
@@ -53,7 +53,7 @@ export function GeneralLedger({ org, ops, A, mode, code, setCode, from, to, bf, 
         <label className="row" style={{ gap: 5, fontSize: 12.5 }}><input type="checkbox" checked={sub} onChange={e => setSub(e.target.checked)} />مع الحسابات الفرعية</label>
       </div>
       {!L ? <div className="empty">اختر حسابًا لعرض كشفه برصيد جارٍ — أو اضغط اسم حساب في «ميزان المراجعة» أو «حركة الحسابات».</div> : <>
-        <RptTable org={org} me={me} onRow={(r) => r.id && peekDoc({ e: r.id })} spec={{ id: 'gl', title: 'دفتر الأستاذ — ' + L.acc.code + ' ' + L.acc.name, sub: per, template: 'ledger', meta: { user: (me && me.name) || '', source: 'مِثقال ' + APP_VER + ' — المحاسبة' },
+        <RptTable org={org} me={me} onRow={(r) => r.id && peekDoc({ e: r.id })} spec={{ id: 'gl', title: 'دفتر الأستاذ — ' + L.acc.code + ' ' + L.acc.name, sub: per, template: 'ledger', meta: { user: (me && me.name) || '', source: 'مُكتسَب ' + APP_VER + ' — المحاسبة' },
           filters: [['الفرع', bfName], ['الحسابات الفرعية', sub ? 'مشمولة' : 'غير مشمولة']], kpis: [{ label: 'رصيد أول المدة', value: fmt(L.open) }, { label: 'مدين الفترة', value: money(L.debit) }, { label: 'دائن الفترة', value: money(L.credit) }, { label: 'رصيد آخر المدة', value: fmt(L.close) }],
           columns: [{ key: 'date', label: 'التاريخ', en: 'Date', type: 'date' }, { key: 'no', label: 'القيد', en: 'Entry', w: 10 }, { key: 'title', label: 'البيان', en: 'Description', w: 36 }, { key: 'against', label: 'المقابل', en: 'Contra', w: 24 },
             { key: 'debit', label: 'مدين', en: 'Debit', type: 'money', total: 'sum' }, { key: 'credit', label: 'دائن', en: 'Credit', type: 'money', total: 'sum' }, { key: 'bal', label: 'الرصيد', en: 'Balance', type: 'money' }],

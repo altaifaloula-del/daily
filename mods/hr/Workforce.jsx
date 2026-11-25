@@ -175,7 +175,7 @@ export function Workforce({ org, ops, me, myBranches, scoped, commit, commitOrg,
                 <tr style={{ borderTop: '2px solid var(--line)', fontWeight: 700 }}>
                   <td>الإجمالي</td>
                   {D7.map(di => <td key={di} className="num" style={{ textAlign: 'center' }}>{dayHours(di) || '—'}</td>)}
-                  <td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{totHours}</td>
+                  <td className="num" style={{ textAlign: 'end', color: 'var(--brass-t)' }}>{totHours}</td>
                   <td className="num" style={{ textAlign: 'end' }}>{money(totCost)}</td>
                 </tr>
               </tbody>
@@ -196,7 +196,7 @@ export function Workforce({ org, ops, me, myBranches, scoped, commit, commitOrg,
                     <td className="num" style={{ textAlign: 'end' }}>{a.hours || '—'}</td>
                     <td className="num" style={{ textAlign: 'end', color: 'var(--dim)' }}>{a.cost ? money(a.cost) : '—'}</td>
                     <td className="num" style={{ textAlign: 'end', fontWeight: 700, color: a.pct == null ? 'var(--faint)' : a.pct > targetPct ? 'var(--rose)' : 'var(--mint)' }}>{a.pct != null ? a.pct + '%' : '—'}</td>
-                    <td className="num" style={{ textAlign: 'end', color: 'var(--brass-l)' }}>{a.recHours || '—'}</td>
+                    <td className="num" style={{ textAlign: 'end', color: 'var(--brass-t)' }}>{a.recHours || '—'}</td>
                     <td style={{ textAlign: 'center' }}><span className={'badge ' + sb.c}>{sb.t}</span></td>
                   </tr>
                 ); })}

@@ -6,7 +6,7 @@ self.addEventListener('push', function (e) {
   var d = {};
   try { d = e.data ? e.data.json() : {}; } catch (_) { d = { notification: { body: e.data ? e.data.text() : '' } }; }
   var n = d.notification || {}, x = d.data || {};
-  var title = n.title || x.title || 'مِثقال — Mithqal';
+  var title = n.title || x.title || 'مُكتسَب — Muktasab';
   var app = self.registration.scope.replace(/push\/$/, '');
   e.waitUntil(self.registration.showNotification(title, {
     body: n.body || x.body || '', icon: app + 'mithqal-192.png', badge: app + 'mithqal-badge-96.png',

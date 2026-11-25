@@ -48,6 +48,8 @@ html,body{margin:0;padding:0;width:100%;max-width:100%;overflow-x:hidden;positio
   --brass:var(--acc);
   --brass-d:color-mix(in srgb,var(--brass) 76%,#000);
   --brass-l:color-mix(in srgb,var(--brass) 70%,#fff);
+  /* v56.0 (DESIGN-V56-013): ذهبي آمن للنص — في الداكن الفاتح كما هو، وفي الفاتح الداكن (تباين ≥ 4.5:1)؛ كان --brass-l نصًا على أبيض بتباين ≈ 2.5:1 */
+  --brass-t:var(--brass-l);
   --line-g:color-mix(in srgb,var(--brass) 26%,var(--line));
   --num:var(--txt); --acc-soft:color-mix(in srgb,var(--brass) 11%,transparent);
   --frame:color-mix(in srgb,var(--brass) 45%,transparent); --frame-o:color-mix(in srgb,var(--brass) 17%,transparent);
@@ -838,7 +840,7 @@ body.lh-dragging *{cursor:grabbing !important}
 /* ===== v6.2: الدخول السريع (رقم سري) + محرّر الصورة ===== */
 .loginseg{display:flex;gap:6px;background:var(--ink3);border:1px solid var(--line);border-radius:12px;padding:4px;margin-bottom:14px}
 .loginseg-b{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px 6px;border-radius:9px;border:none;background:transparent;color:var(--dim);font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;transition:.15s}
-.loginseg-b.on{background:var(--ink);color:var(--brass-l);box-shadow:inset 0 0 0 1px var(--brass-d)}
+.loginseg-b.on{background:var(--ink);color:var(--brass-t);box-shadow:inset 0 0 0 1px var(--brass-d)}
 .gate-err{color:var(--rose);font-size:12px;text-align:center;margin-bottom:10px}
 .pin-dots{display:flex;gap:12px;justify-content:center;margin:4px 0 14px}
 .pin-dot{width:13px;height:13px;border-radius:50%;border:2px solid var(--faint);transition:.15s}
@@ -864,21 +866,21 @@ body.lh-dragging *{cursor:grabbing !important}
 .appc:hover{transform:translateY(-2px);box-shadow:var(--sh-3);border-color:var(--frame)}
 .appc.soon{opacity:.6}
 .appc-top{display:flex;align-items:flex-start;gap:10px;padding-inline-end:26px}
-.appc-ic{width:38px;height:38px;border-radius:11px;background:var(--acc-soft);border:1px solid var(--frame-o);display:grid;place-items:center;color:var(--brass-l);flex-shrink:0}
+.appc-ic{width:38px;height:38px;border-radius:11px;background:var(--acc-soft);border:1px solid var(--frame-o);display:grid;place-items:center;color:var(--brass-t);flex-shrink:0}
 .appc-n{font-weight:800;font-size:13.5px;line-height:1.3}
 .appc-e{font-size:9px;color:var(--faint);letter-spacing:.04em;direction:ltr}
 .appc-d{font-size:10.8px;color:var(--dim);line-height:1.6;flex:1}
 .appc-f{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .appc-star{position:absolute;inset-inline-end:7px;inset-block-start:7px;background:none;border:none;cursor:pointer;color:var(--faint);padding:4px;border-radius:8px;line-height:1}
-.appc-star.on{color:var(--brass-l)}
-.appc-star:hover{background:var(--acc-soft);color:var(--brass-l)}
+.appc-star.on{color:var(--brass-t)}
+.appc-star:hover{background:var(--acc-soft);color:var(--brass-t)}
 .appcat{display:flex;align-items:center;gap:9px;margin:14px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line)}
 .appcat .t{font-family:'MizanNum',var(--font-head,'Markazi Text',serif);font-size:18.5px;font-weight:700}
 .appcat .c{font-size:10px;color:var(--faint)}
 .appstrip{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-bottom:2px}
 .appchip{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;border:1px solid var(--line-g);background:var(--ink2);color:var(--txt);font-size:11.5px;cursor:pointer;font-family:inherit;transition:border-color var(--t-fast),background var(--t-fast)}
 .appchip:hover{border-color:var(--frame);background:var(--ink3)}
-.appchip .st{color:var(--brass-l)}
+.appchip .st{color:var(--brass-t)}
 @media(max-width:560px){.appgrid{grid-template-columns:repeat(2,minmax(0,1fr))}.appc{padding:11px}.appc-e{display:none}}
 @media(max-width:352px){.appgrid{grid-template-columns:1fr}}
 
@@ -952,7 +954,7 @@ td.num,th.num{display:table-cell}
 
 .is-tb .is-pct{color:var(--faint);font-size:11.5px;width:70px}
 .is-tb tr.is-line td:first-child{color:var(--dim);padding-inline-start:14px}
-.is-tb tr.is-head td{font-weight:800;color:var(--brass-l,var(--brass));padding-top:14px;border-bottom:0}
+.is-tb tr.is-head td{font-weight:800;color:var(--brass-t,var(--brass));padding-top:14px;border-bottom:0}
 .is-tb tr.is-grp td{font-weight:600}
 .is-tb tr.is-sub td{font-weight:700;border-top:1px solid var(--line)}
 .is-tb tr.is-total td{font-weight:800;background:rgba(201,162,77,.07);border-top:1px solid var(--line2,var(--line))}
@@ -1684,6 +1686,8 @@ table.tb.rc-tb{min-width:0}
 .ob-bd{background:var(--amber,#E0A458);color:#fff;border-radius:9px;font-size:10px;padding:0 6px;font-weight:700}
 .ob-sp{flex:1 1 auto}.ob .acct-mode{margin-inline-start:4px}
 @media (max-width:640px){.ob-it{padding:8px 9px;font-size:13px}}
+/* v56.0 (DESIGN-V56-008): على الجوال كان شريط أقسام المركز يلتف إلى نحو 5 أسطر فيدفع المحتوى تحت الشاشة الأولى — صار سطرًا واحدًا قابلًا للتمرير أفقيًا */
+@media (max-width:640px){.ob{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}.ob::-webkit-scrollbar{display:none}.ob-it{flex-shrink:0;white-space:nowrap}.ob .acct-mode{flex-shrink:0}.ob .acct-mode button{white-space:nowrap}.ob .acct-mode button span{display:none}}   /* المبدّل لا ينكمش (كان يتكدّس حرفًا فوق حرف) — أيقونات فقط على الجوال */
 
 /* v41.2 — جدول حجم البيانات */
 .tbl-wrap{overflow-x:auto;max-width:100%}
@@ -1699,7 +1703,7 @@ table.tb.tb-fp{min-width:520px}
 
 /* ══════════════ v42.1 — هوية RESTAURANT PRO (كحلي وذهبي) — الثيم الافتراضي المعتمد ══════════════
    يرث مكوّنات «ميزان 2» النظيفة (themeCls يضيف thm-mizan) ويبدّل الألوان والقائمة الجانبية والعلامة.
-   رموز التصميم (v50.3 — حزمة الهوية الرسمية MITHQAL ERP، brand/mithqal-brand-tokens.css): Midnight Navy #10294A · Royal Gold #D9A83E · Deep Navy #091A30 · Technology Blue #2671B9 · Soft Gray #F3F5F8. */
+   رموز التصميم (v50.3 — حزمة الهوية الرسمية MUKTASAB، brand/mithqal-brand-tokens.css): Midnight Navy #10294A · Royal Gold #D9A83E · Deep Navy #091A30 · Technology Blue #2671B9 · Soft Gray #F3F5F8. */
 .rms.thm-restpro{--acc:#9B7934;--brand-fill:var(--mithqal-navy,#10294A);--brand-ink:#FFFFFF;--gold:var(--mithqal-gold,#D9A83E);--gold-l:#E8C677;--navy:var(--mithqal-navy,#10294A);--navy2:#183660;
   --font-ui:'IBM Plex Sans Arabic','Noto Sans Arabic','Tajawal',system-ui,-apple-system,'Segoe UI',sans-serif;--font-head:'IBM Plex Sans Arabic','Noto Sans Arabic','Tajawal',system-ui,sans-serif;--font-en:Manrope,'Segoe UI',system-ui,sans-serif;
   --side-bg:linear-gradient(180deg,var(--mithqal-navy,#10294A),var(--mithqal-deep-navy,#091A30));--side-txt:#CBD3DF;--side-dim:#8491A7;--side-on:#FFFFFF;--side-hl:rgba(255,255,255,.08);--side-w:258px}
@@ -1727,7 +1731,7 @@ table.tb.tb-fp{min-width:520px}
 .rms.thm-restpro .rp-brand{display:flex;flex-direction:column;min-width:0;flex:1}
 .rms.thm-restpro .rp-brand b{overflow:hidden;text-overflow:ellipsis;font-size:17px;letter-spacing:1px;color:#FFFFFF;font-family:'MizanNum','IBM Plex Sans Arabic',sans-serif;font-weight:800;white-space:nowrap}
 .rms.thm-restpro .rp-brand span{color:var(--gold-l);font-size:10.5px;margin-top:5px;letter-spacing:.06em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-/* v46.8 شعار «مِثقال» تحت الاسم (يلتف على سطرين) واسم المنشأة تحته */
+/* v46.8 شعار «مُكتسَب» تحت الاسم (يلتف على سطرين) واسم المنشأة تحته */
 .rms.thm-restpro .rp-brand span.rp-tag{white-space:normal;line-height:1.4;letter-spacing:0}
 .rms.thm-restpro .side .brand>.rp-mark{display:none}
 .rms.thm-restpro .rp-brand .rp-lockup{display:block;margin-bottom:2px}
@@ -1916,6 +1920,8 @@ table.tb.tb-fp{min-width:520px}
 .gate.has-cover .mq-bhead{display:none}
 .gate.has-cover .gate-cover.mq-cover{box-shadow:none !important}
 .gate:has(.mq-cover){background:#FFFFFF !important}
+/* v56.0 (DESIGN-V56-001): الوضع الداكن — جانب النموذج داكن (كان أبيض مفروضًا فيختفي عنوان المنشأة بلون النص الفاتح)؛ لوحة MUKTASAB تبقى فاتحة كما قُرر */
+.rms.mode-dark .gate:has(.mq-cover),.mode-dark.gate:has(.mq-cover){background:var(--ink) !important}
 @media (max-width:959px){.gate.has-cover .gate-cover.mq-cover{aspect-ratio:auto;max-height:none;min-height:0;border-inline-end:0;border-bottom:1px solid #E3E7EE}.mq-cover-in{padding:22px 16px;gap:10px}.mq-cover-in .mq-lockup{transform:scale(.72);transform-origin:center}}
 @media (min-width:960px){
   .gate.has-cover{grid-template-columns:minmax(0,1.35fr) minmax(420px,1fr);place-items:stretch;padding:0 !important;gap:0}
@@ -1928,7 +1934,7 @@ table.tb.tb-fp{min-width:520px}
   .gate.has-cover .gate-c{width:calc(100% - 28px)}
 }
 
-/* v47.2 شعار الشركة يرافق اسمها (شعار النظام «مِثقال» ثابت في العلامة) */
+/* v47.2 شعار الشركة يرافق اسمها (شعار النظام «مُكتسَب» ثابت في العلامة) */
 .rms.thm-restpro .rp-brand span.rp-co{display:flex;align-items:center;gap:5px}
 .co-logo{width:16px;height:16px;border-radius:4px;object-fit:cover;flex-shrink:0;background:#fff;border:1px solid rgba(255,255,255,.25)}
 .co-logo-t{width:24px;height:24px;border-radius:6px;vertical-align:-6px;margin-inline-end:7px;border-color:var(--line)}
@@ -1978,4 +1984,47 @@ table.tb.tb-fp{min-width:520px}
 [data-rowi].row-drag{opacity:.55;outline:2px dashed var(--gold,#C8A24A);outline-offset:2px;border-radius:8px}
 [data-rowi].row-over{box-shadow:0 -3px 0 0 var(--gold,#C8A24A);border-radius:2px}
 @media(pointer:coarse){.rowgrip .rg-h{font-size:20px;padding:8px 6px}.rowgrip .rg-ab{display:none}}
+
+/* v56.0 — الهوية التجارية للمنشأة (إعدادات) */
+.tb-logo-box{width:88px;height:56px;border:1px dashed var(--line);border-radius:var(--r-sm);display:flex;align-items:center;justify-content:center;background:repeating-conic-gradient(var(--ink3) 0 25%,var(--ink2) 0 50%) 50%/12px 12px;overflow:hidden;color:var(--faint)}
+.tb-logo-box img{max-width:100%;max-height:100%;object-fit:contain}
+.tb-platform{display:inline-flex;align-items:center;gap:6px;margin-inline-start:8px;padding:2px 8px;border:1px solid var(--line);border-radius:var(--r-full);font:700 11px/1.6 Manrope,var(--font-ui);letter-spacing:.06em;vertical-align:middle}
+.tb-preview{display:grid;gap:10px}
+.tb-chip{display:inline-flex;align-items:center;gap:8px;padding:6px 12px 6px 6px;border-radius:var(--r-full);border:1px solid color-mix(in srgb,var(--tbp) 35%,var(--line));background:color-mix(in srgb,var(--tbp) 8%,var(--ink2));width:max-content;max-width:100%}
+.tb-chip img{height:28px;max-width:72px;object-fit:contain}.tb-chip b{color:var(--txt)}
+.tb-ini{width:28px;height:28px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:var(--tbp);color:#fff;font-weight:800}
+/* v56.0 — هوية المنشأة في الشريط العلوي (منفصلة عن رمز المنصة) */
+.tn-wrap{position:relative;display:inline-flex;min-width:0;flex-shrink:1}
+.tn-chip{cursor:pointer;font:inherit;color:inherit;display:inline-flex;align-items:center;gap:7px;height:34px;padding:3px 10px 3px 4px;border-radius:var(--r-full);border:1px solid color-mix(in srgb,var(--tbp) 35%,var(--line));background:color-mix(in srgb,var(--tbp) 7%,var(--ink2));max-width:240px;min-width:0;flex-shrink:1;align-self:center}
+.tn-chip img{height:26px;max-width:64px;object-fit:contain;border-radius:6px}.tn-name{font-weight:700;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--txt)}
+.tn-ini{width:26px;height:26px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:var(--tbp);color:#fff;font-weight:800;font-size:12px;flex-shrink:0}
+@media (max-width:720px){.tn-chip .tn-name{display:none}.tn-chip{padding:3px;flex-shrink:0;min-width:34px;justify-content:center}}
+/* v56.0 — البحث العام واختصارات لوحة المفاتيح */
+.gs-btn{display:inline-flex;align-items:center;gap:6px}.gs-hint{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--dim)}
+.gs-hint kbd,.gs-kb kbd{font:600 10.5px/1 Manrope,var(--font-ui);border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:2px 5px;background:var(--ink3);color:var(--txt)}
+@media (max-width:900px){.gs-hint{display:none}}
+.gs-back{position:fixed;inset:0;z-index:4000;background:rgba(9,26,48,.38);display:flex;justify-content:center;align-items:flex-start;padding:10vh 12px 12px}
+.gs-box{width:min(640px,100%);background:var(--ink2);color:var(--txt);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--sh-4);padding:10px;max-height:76vh;display:flex;flex-direction:column}
+.gs-in{font-size:15px;height:46px}.gs-list{overflow:auto;margin-top:8px;display:grid;gap:2px}
+.gs-r{display:flex;align-items:center;gap:10px;text-align:start;padding:8px 10px;border:0;border-radius:var(--r-sm);background:transparent;color:inherit;cursor:pointer;font:inherit;min-width:0}
+.gs-r.on,.gs-r:hover{background:var(--acc-soft)}.gs-k{font-size:11px;color:var(--dim);border:1px solid var(--line);border-radius:var(--r-full);padding:1px 8px;flex-shrink:0}
+.gs-l{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}.gs-s{font-size:11.5px;color:var(--faint);flex-shrink:0}
+.gs-empty{padding:16px;color:var(--faint);text-align:center;font-size:12.5px}.gs-h{font-weight:700;margin:4px 4px 10px}
+.gs-kb{width:100%;border-collapse:collapse}.gs-kb td{padding:6px 8px;border-bottom:1px solid var(--line)}
+.tn-menu{position:absolute;top:calc(100% + 6px);inset-inline-start:0;z-index:300;width:280px;background:var(--ink2);border:1px solid var(--line);border-radius:var(--r-md);box-shadow:var(--sh-3);padding:10px;display:grid;gap:6px}
+.tn-cur{display:flex;justify-content:space-between;gap:8px;padding-bottom:6px;border-bottom:1px solid var(--line)}.tn-cur .num,.tn-it .num{font-size:11px;color:var(--faint)}
+.tn-sec{font-size:11px;color:var(--dim);margin-top:4px}.tn-it{display:flex;justify-content:space-between;gap:8px;padding:6px 8px;border:1px solid var(--line);border-radius:var(--r-sm);background:transparent;color:inherit;font:inherit;cursor:pointer;text-align:start}
+.tn-it:hover{background:var(--acc-soft)}.tn-note{font-size:10.5px;color:var(--faint);line-height:1.6}
+/* v56.0 — لوحات الأدوار */
+.rd-h{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}.rd-sel{width:auto;min-width:180px;height:36px}
+.rd-k{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:10px}
+.rd-c{display:grid;gap:4px;text-align:start;padding:12px 14px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--ink2);color:var(--txt);font:inherit;cursor:pointer;border-inline-start:3px solid var(--brass)}
+.rd-c:disabled{cursor:default}.rd-c:hover:not(:disabled){box-shadow:var(--sh-2)}.rd-l{font-size:12px;color:var(--dim)}.rd-c b{font-size:19px;font-weight:800}
+.rd-d{font-size:11.5px;color:var(--faint);min-height:16px}.rd-d.ok{color:var(--mint)}.rd-d.bad{color:var(--rose)}.rd-d small{color:var(--faint)}
+.rd-t{margin-top:12px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-md);background:var(--ink2)}.rd-tl{font-size:12px;color:var(--dim);margin-bottom:6px}
+.rd-bars{display:flex;align-items:flex-end;gap:10px;height:76px}.rd-bar{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:4px;height:100%}
+.rd-bar i{display:block;width:100%;max-width:38px;background:var(--brass);border-radius:4px 4px 0 0;opacity:.85}.rd-bar i.neg{background:var(--rose)}.rd-bar span{font-size:10.5px;color:var(--faint)}
+/* v56.0 (DESIGN-V56-009): ملخص المحاسبة يتكرر أعلى كل أقسامها الـ31 — على الجوال صار شبكة 2×2 مضغوطة بلا أسطر فرعية فيظهر محتوى القسم مبكرًا */
+@media (max-width:640px){.rms .acct-sum{grid-template-columns:repeat(2,minmax(0,1fr)) !important;gap:6px !important}.rms .acct-sum .kpi{padding:8px 10px !important;min-height:0 !important}.rms .acct-sum .kpi-s,.rms .acct-sum .kpi::before,.rms .acct-sum .kpi::after,.rms .acct-sum .kpi-l svg{display:none !important}.rms .acct-sum .kpi-l{font-size:11.5px !important;margin:0 0 2px !important}.rms .acct-sum .kpi-v{font-size:17px !important;line-height:1.3 !important}}
+.rms.mode-light{--brass-t:var(--brass-d)}
 `;

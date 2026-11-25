@@ -36,12 +36,9 @@ jobs:
         run: npm ci
       - name: تشغيل الاختبارات
         run: npm run test:rules
-      - name: اختبارات المحرك المحاسبي (الميزان، الضريبة، المخزون، المخصصات، الفواتير)
-        run: npm run test:acct
-      - name: اختبارات الفاتورة الإلكترونية — المرحلة الثانية (التجزئة، التوقيع، QR، CSR)
-        run: npm run test:zatca
-      - name: اختبارات النسخ الاحتياطي الليلي (التجميع، الفحص، التشفير وفكّه في المتصفح)
-        run: npm run test:backup
+      # v56.0 (CI-V56-001): كانت البوابة تشغّل 3 ملفات من ~40 (المحاسبة والفوترة والنسخ) — الآن الحزمة كاملة كما يشغّلها npm test
+      - name: اختبارات المحرك والوحدات كاملة (npm test)
+        run: npm test
       # v55.1 — بوابة الجودة (قرار المالك 2026-11-25): التحقق المحاسبي المستقل، سلامة إطار الوكلاء، الهوية، الأسرار
       - name: بوابة الجودة — التحقق المحاسبي المستقل وسلامة الإطار والهوية والأسرار
         run: node scripts/quality-gate.mjs --only framework,accounting-validation,engine-validation,design-lint,secrets

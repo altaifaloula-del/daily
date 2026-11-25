@@ -2091,7 +2091,7 @@ test('v49.5 MQ-059 مسارات الاعتماد: مستويات بحدود مب
 
 test('v50.0 المرحلة 05 منظومة التقارير: مواصفة واحدة ⇒ طباعة وExcel بصيغ وCSV بأرقام متطابقة، والصيغ تغطي صفوف البيانات بالضبط', async () => {
   const org = baseOrg({ company: { name: 'مطعم الطائف', taxNumber: '300000000000003' } });
-  const spec = { id: 'demo', title: 'مصروفات الفروع', sub: 'نوفمبر 2026', template: 'statement', lang: 'ar', meta: { user: 'مجاهد', source: 'مِثقال v50.0', at: '2026-11-19T10:00:00Z' }, filters: [['الفرع', 'الكل']],
+  const spec = { id: 'demo', title: 'مصروفات الفروع', sub: 'نوفمبر 2026', template: 'statement', lang: 'ar', meta: { user: 'مجاهد', source: 'مُكتسَب v50.0', at: '2026-11-19T10:00:00Z' }, filters: [['الفرع', 'الكل']],
     columns: [{ key: 'name', label: 'البند' }, { key: 'q', label: 'الكمية', type: 'qty', total: 'sum' }, { key: 'amt', label: 'المبلغ', type: 'money', total: 'sum' }],
     groups: [{ label: 'طيبة', rows: [{ name: 'كهرباء', q: 1, amt: 1200.5 }, { name: 'ماء', q: 2, amt: 300 }] }, { label: 'النسيم', rows: [{ name: 'كهرباء', q: 1, amt: -50 }] }] };
   assert.deepEqual(E.rptTotals(spec), { q: 4, amt: 1450.5 });
@@ -2118,7 +2118,7 @@ test('v50.0 G2 التعميم: كل طباعة قديمة بالقالب الم�
   const org = baseOrg({ company: { name: 'مطعم', taxNumber: '3001', address: 'الطائف' } });
   const h = E.rptShell(org, 'كشف', 'نوفمبر', '<table><thead><tr><th>أ</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table>', { orientation: 'landscape' });
   assert.match(h, /counter\(page\)[\s\S]*counter\(pages\)/); assert.match(h, /thead\{display:table-header-group\}/); assert.match(h, /size:A4 landscape/);
-  assert.match(h, /الرقم الضريبي: 3001 · الطائف/); assert.match(h, /صادر من مِثقال v[\s\S]*طبعه:/);
+  assert.match(h, /الرقم الضريبي: 3001 · الطائف/); assert.match(h, /صادر من مُكتسَب v[\s\S]*طبعه:/);
   const xml = new TextDecoder().decode(new Uint8Array(await E.makeXlsx([{ name: 'قديم', rows: [['البند', 'المبلغ'], ['كهرباء طويلة الاسم جدًا', 1200]] }]).arrayBuffer()));
   assert.match(xml, /<pane ySplit="1"/); assert.match(xml, /<col min="1" max="1" width="\d+"/);
   assert.match(xml, /<c r="A1" s="1"/, 'الرأس عريض كما كان');
@@ -2143,13 +2143,13 @@ test('v50.2 المرحلة 06: تنظيم المحاسبة في خمس مجمو�
   assert.deepEqual(E.ACCT_GROUPS.map(g => g.id), ['daily', 'books', 'reports', 'close', 'setup']);
 });
 
-test('v50.3 الهوية: المطبوعات تحمل شعار المنشأة (الطيف) فقط — لا رمز لمِثقال، وخط IBM Plex Sans Arabic', () => {
-  assert.equal(E.MZ_LOGO_HTML, '', 'لا شعار بديل لمِثقال عند غياب شعار المنشأة');
+test('v50.3 الهوية: المطبوعات تحمل شعار المنشأة (الطيف) فقط — لا رمز لمُكتسَب، وخط IBM Plex Sans Arabic', () => {
+  assert.equal(E.MZ_LOGO_HTML, '', 'لا شعار بديل لمُكتسَب عند غياب شعار المنشأة');
   const withLogo = E.rptShell({ company: { name: 'شركة الطيف الأولى', logoUrl: 'data:image/png;base64,AAAA' } }, 'كشف', '', '<p>x</p>');
   assert.match(withLogo, /<img class="lg" src="data:image\/png;base64,AAAA"/);
   const noLogo = E.rptShell({ company: { name: 'شركة الطيف الأولى' } }, 'كشف', '', '<p>x</p>');
   for (const h of [withLogo, noLogo]) {
-    assert.doesNotMatch(h, /M18 82 L18 24|M86 22\.6|data-mq-symbol/, 'لا رمز لمِثقال في المطبوع');
+    assert.doesNotMatch(h, /M18 82 L18 24|M86 22\.6|data-mq-symbol/, 'لا رمز لمُكتسَب في المطبوع');
     assert.match(h, /IBM Plex Sans Arabic/);
   }
   assert.doesNotMatch(noLogo, /<img/);

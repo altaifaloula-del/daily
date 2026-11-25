@@ -1,5 +1,5 @@
 /**
- * v53.5 — موصل Claude (MCP) للقراءة فقط: يربط تطبيق Claude ببيانات مثقال الحية (طلب المالك 2026-11-23).
+ * v53.5 — موصل Claude (MCP) للقراءة فقط: يربط تطبيق Claude ببيانات مُكتسَب الحية (طلب المالك 2026-11-23).
  * • مسؤول النظام يُنشئ «رابط ربط» من الإعدادات ← ربط Claude. الرابط سرّي (رمز عشوائي 256 بت)، ويُخزَّن منه بصمته فقط (SHA-256)
  *   في mcp_tokens/{بصمة} بقاعدة المنشأة نفسها (قواعد Firestore تمنع العملاء من قراءتها — الخادم وحده بحساب الخدمة).
  * • كل طلب: الرمز صالح ونشط ⇒ صاحبه ما زال عضوًا نشطًا بدور «مسؤول النظام» ⇒ تُقرأ البيانات بحساب خدمة المنشأة.
@@ -84,9 +84,9 @@ export const MCP_TOOLS = [
   { name: 'journal_entries', title: 'قيود اليومية', description: 'قيود اليومية (الآلية واليدوية) لفترة مع بنودها. ابحث في البيان أو رقم القيد أو المرجع. limit الافتراضي 50.', inputSchema: { type: 'object', properties: { from: FROM, to: TO, q: { type: 'string' }, branch: BR, limit: { type: 'integer', minimum: 1, maximum: 300 } } } },
 ].map(t => ({ ...t, annotations: { ...RO, title: t.title } }));
 
-/* ===== v53.7 — كتابة مشروطة بالاعتماد: أدوات «اقتراح» تُسجّل مقترحًا في mcp_proposals ولا تمس بيانات المنشأة؛ التنفيذ عند اعتماد مسؤول النظام في مثقال ===== */
+/* ===== v53.7 — كتابة مشروطة بالاعتماد: أدوات «اقتراح» تُسجّل مقترحًا في mcp_proposals ولا تمس بيانات المنشأة؛ التنفيذ عند اعتماد مسؤول النظام في مُكتسَب ===== */
 const WR = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
-const PEND = ' لا يُنفَّذ شيء الآن: يُسجَّل «مقترحًا بانتظار الاعتماد» ويعتمده مسؤول النظام في مثقال (الإعدادات ← ربط Claude ← المقترحات). أخبر المستخدم بذلك.';
+const PEND = ' لا يُنفَّذ شيء الآن: يُسجَّل «مقترحًا بانتظار الاعتماد» ويعتمده مسؤول النظام في مُكتسَب (الإعدادات ← ربط Claude ← المقترحات). أخبر المستخدم بذلك.';
 export const MCP_WRITE_TOOLS = [
   { name: 'propose_journal_entry', title: 'اقتراح قيد يومية', description: 'اقتراح قيد يومية يدوي متوازن (حسابات من chart_of_accounts).' + PEND, inputSchema: { type: 'object', properties: {
     date: { type: 'string', description: 'YYYY-MM-DD' }, title: { type: 'string', description: 'بيان القيد' }, branch: BR,
@@ -103,7 +103,7 @@ export const MCP_WRITE_TOOLS = [
 ].map(t => ({ ...t, annotations: { ...(t.name === 'list_proposals' ? RO : WR), title: t.title } }));
 export const WRITE_NAMES = new Set(MCP_WRITE_TOOLS.filter(t => t.name !== 'list_proposals').map(t => t.name));
 
-/** يبني المقترح ويتحقق منه على البيانات الحالية (نفس دوال التطبيق في مثقال) — يرمي خطأ مفهومًا إن لم يصلح شيء */
+/** يبني المقترح ويتحقق منه على البيانات الحالية (نفس دوال التطبيق في مُكتسَب) — يرمي خطأ مفهومًا إن لم يصلح شيء */
 export function proposeTool(E, D, name, a = {}) {
   const C = ctxOf(E, D); const reason = String(a.reason || '').slice(0, 500);
   if (name === 'propose_journal_entry') {
@@ -260,8 +260,8 @@ export async function handleRpc(msg, { tools = [...MCP_TOOLS, ...MCP_WRITE_TOOLS
   const p = msg.params || {};
   switch (msg.method) {
     case 'initialize': return ok({ protocolVersion: MCP_PROTOCOLS.includes(p.protocolVersion) ? p.protocolVersion : MCP_PROTOCOLS[0], capabilities: { tools: { listChanged: false } },
-      serverInfo: { name: 'mithqal', title: 'مِثقال ERP', version: version || '1' },
-      instructions: 'موصل مثقال: قراءة مباشرة لبيانات المنشأة المحاسبية الحية (قيود، ميزان، قائمة دخل، مبيعات الفروع، فواتير الموردين وتصنيفها، أرصدة الموردين). ابدأ بـ mithqal_overview لمعرفة الفروع ونطاق التواريخ. الكتابة بأدوات propose_* فقط وهي مقترحات لا تُنفَّذ إلا باعتماد مسؤول النظام في مثقال — لا تقل إنها نُفّذت. المبالغ بالريال السعودي. أجب المستخدم بالعربية.' });
+      serverInfo: { name: 'mithqal', title: 'مُكتسَب ERP', version: version || '1' },
+      instructions: 'موصل مُكتسَب: قراءة مباشرة لبيانات المنشأة المحاسبية الحية (قيود، ميزان، قائمة دخل، مبيعات الفروع، فواتير الموردين وتصنيفها، أرصدة الموردين). ابدأ بـ mithqal_overview لمعرفة الفروع ونطاق التواريخ. الكتابة بأدوات propose_* فقط وهي مقترحات لا تُنفَّذ إلا باعتماد مسؤول النظام في مُكتسَب — لا تقل إنها نُفّذت. المبالغ بالريال السعودي. أجب المستخدم بالعربية.' });
     case 'ping': return ok({});
     case 'tools/list': return ok({ tools });
     case 'tools/call': {
@@ -345,7 +345,7 @@ export function mountMcp(app, { audit = null, refs = null, express, requireMembe
       payload: S(body), summary: S(JSON.stringify(P.summary)), by: S(v.email), link: S(v.h.slice(0, 12)), createdAt: S(new Date(now()).toISOString()) } }) });
     if (!w.ok) throw new Error('تعذّر حفظ المقترح');
     log.log('mcp: مقترح', v.t.id, id, P.kind);
-    return { proposal_id: id, status: 'pending', kind: P.kind, title: P.title, summary: P.summary, next: 'بانتظار اعتماد مسؤول النظام في مثقال: الإعدادات ← ربط Claude ← المقترحات. لم يُنفَّذ شيء بعد.' };
+    return { proposal_id: id, status: 'pending', kind: P.kind, title: P.title, summary: P.summary, next: 'بانتظار اعتماد مسؤول النظام في مُكتسَب: الإعدادات ← ربط Claude ← المقترحات. لم يُنفَّذ شيء بعد.' };
   };
   // v54.5 — المرحلة 6: قيد تصحيحي من «وكيل المراجعة» يمر بنفس تحقق propose_journal_entry ويُحفظ مقترحًا بانتظار اعتماد مسؤول النظام — لا ترحيل مباشر
   const REV_ROLES = new Set(['system_admin', 'finance_department', 'accountant', 'general_management', 'head_office']);
@@ -453,7 +453,7 @@ export function mountMcp(app, { audit = null, refs = null, express, requireMembe
     const v = r.v;
     // 403 لا 401: الرد 401 يجعل Claude يظن أن الخادم يطلب تسجيل دخول OAuth فيفتح /authorize (غير موجود)
     // السبب التفصيلي في سجل الخادم فقط — لا يُكشف للطالب (قد يتضمن بريد صاحب الرابط ودوره)
-    if (!v) { failed(req.ip || ''); log.error('mcp رفض:', r.why); return deny(res, 403, 'رابط ربط غير صالح أو أُلغي — أنشئ رابطًا جديدًا من مثقال: الإعدادات ← ربط Claude'); }
+    if (!v) { failed(req.ip || ''); log.error('mcp رفض:', r.why); return deny(res, 403, 'رابط ربط غير صالح أو أُلغي — أنشئ رابطًا جديدًا من مُكتسَب: الإعدادات ← ربط Claude'); }
     const msgs = Array.isArray(req.body) ? req.body : [req.body];
     if (msgs.length > 20) return deny(res, 400, 'دفعة طلبات كبيرة');
     let D = null; const call = async (name, args) => { const t0 = now(); try { const out = await call0(name, args); if (audit) audit(v.t.id, { by: v.email, role: 'system_admin', kind: WRITE_NAMES.has(name) ? 'proposal' : 'mcp', name, ok: true, ms: now() - t0, detail: (v.scope || []).length ? 'نطاق: ' + v.scope.length + ' فرع' : '' }); return out; }

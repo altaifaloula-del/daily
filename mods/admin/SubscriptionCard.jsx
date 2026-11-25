@@ -1,6 +1,6 @@
 /* v51.3 — المرحلة 07 / S4: «الاشتراك والمنشأة» — عرض فقط.
-   الخطة والحالة يحددهما مزوّد مِثقال (السجل + platform/release.sub في قاعدة المنشأة)، ولا يغيّرهما أي حساب داخل المنشأة.
-   التطبيق الفعلي على الخادم: قواعد Firestore (للقراءة فقط/موقوف) وخادم مِثقال (الذكاء والفوترة حسب الخطة).
+   الخطة والحالة يحددهما مزوّد مُكتسَب (السجل + platform/release.sub في قاعدة المنشأة)، ولا يغيّرهما أي حساب داخل المنشأة.
+   التطبيق الفعلي على الخادم: قواعد Firestore (للقراءة فقط/موقوف) وخادم مُكتسَب (الذكاء والفوترة حسب الخطة).
    v51.4 — S5: «الفواتير والدفع» للمنشآت المشتركة: مدى، فيزا/ماستركارد، Apple Pay، STC Pay عبر صفحة «ميسر» المستضافة، أو تحويل بنكي.
    الخادم وحده يصدر الفاتورة ويتحقق من الدفع من البوابة مباشرة؛ الواجهة تعرض وتطبع فقط. */
 import React, { useEffect, useState, useCallback } from 'react';
@@ -16,7 +16,7 @@ const apiBase = () => { const E = import.meta.env || {}; if (E.VITE_ZATCA_ENDPOI
   try { return E.VITE_AI_ENDPOINT ? new URL(E.VITE_AI_ENDPOINT).origin : ''; } catch { return ''; } };
 const GW_METHODS = PAYMENT_METHODS.filter(m => m.via === 'gateway').map(m => m.ar).join('، ');
 
-/** الفاتورة الضريبية لاشتراك مِثقال — البائع مِثقال والمشتري المنشأة (البيانات محفوظة في الفاتورة وقت إصدارها) */
+/** الفاتورة الضريبية لاشتراك مُكتسَب — البائع مُكتسَب والمشتري المنشأة (البيانات محفوظة في الفاتورة وقت إصدارها) */
 export function subInvoiceHtml(inv) {
   const e = (v) => escH(String(v == null ? '' : v));
   const std = !!(inv.buyer && inv.buyer.vatNo);
@@ -34,7 +34,7 @@ export function subInvoiceHtml(inv) {
       <tr><td>العنوان</td><td colspan="3">${e(inv.seller.address || '—')}</td></tr></table>
     <h3 style="margin:16px 0 6px">البيان</h3>
     <table><tr><th>الوصف</th><th>الفترة</th><th>المبلغ قبل الضريبة</th><th>الضريبة ${VAT_RATE}%</th><th>الإجمالي</th></tr>
-      <tr><td>اشتراك منصة مِثقال — خطة ${e(PLAN_AR[inv.plan] || inv.plan)} (${e(PERIOD_AR[inv.period] || inv.period)})</td><td>${e(inv.start)} — ${e(inv.end)}</td><td>${sar(inv.net)}</td><td>${sar(inv.vat)}</td><td><b>${sar(inv.total)}</b></td></tr></table>
+      <tr><td>اشتراك منصة مُكتسَب — خطة ${e(PLAN_AR[inv.plan] || inv.plan)} (${e(PERIOD_AR[inv.period] || inv.period)})</td><td>${e(inv.start)} — ${e(inv.end)}</td><td>${sar(inv.net)}</td><td>${sar(inv.vat)}</td><td><b>${sar(inv.total)}</b></td></tr></table>
     <table style="margin-top:12px;width:50%">${row('الإجمالي قبل الضريبة', sar(inv.net) + ' ر.س')}${row('ضريبة القيمة المضافة', sar(inv.vat) + ' ر.س')}${row('الإجمالي شامل الضريبة', sar(inv.total) + ' ر.س')}
       ${row('الحالة', `<span class="${inv.status === 'paid' ? 'paid' : ''}">${e(INV_ST_AR[inv.status] || inv.status)}</span>` + (inv.paidAt ? ' — ' + e(inv.paidAt.slice(0, 10)) : ''))}</table>
     </body></html>`;
@@ -48,7 +48,7 @@ function Billing({ tenant }) {
     try { const r = await fetch(base + '/api/billing/summary', { headers: await aiHeaders() }); const j = await r.json().catch(() => ({}));
       if (!r.ok) { setErr(j.error || 'تعذّر تحميل بيانات الاشتراك'); setD({ enabled: false, denied: r.status === 403 }); return; }
       setD(j); if (j.prices && !j.prices[period]) setPeriod(Object.keys(j.prices)[0] || 'monthly');
-    } catch { setErr('تعذّر الاتصال بخادم مِثقال'); setD({ enabled: false }); }
+    } catch { setErr('تعذّر الاتصال بخادم مُكتسَب'); setD({ enabled: false }); }
   }, [base]);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { (async () => {
     // العودة من صفحة الدفع: الخادم يتحقق من البوابة مباشرة ثم تُحدَّث البطاقة
@@ -58,7 +58,7 @@ function Billing({ tenant }) {
     load();
   })(); }, [load, base]);
   if (!d) return <div className="note" style={{ marginTop: 10 }}>جارٍ تحميل الفواتير…</div>;
-  if (!d.enabled) return <div className="note mq-bill-off" style={{ marginTop: 10 }}>{d.denied ? 'الاشتراك والدفع لمسؤول المنشأة فقط.' : 'الدفع الإلكتروني للاشتراك غير مفعّل بعد — تواصل مع مِثقال.'}</div>;
+  if (!d.enabled) return <div className="note mq-bill-off" style={{ marginTop: 10 }}>{d.denied ? 'الاشتراك والدفع لمسؤول المنشأة فقط.' : 'الدفع الإلكتروني للاشتراك غير مفعّل بعد — تواصل مع مُكتسَب.'}</div>;
   const price = d.prices && d.prices[period], A = price ? amounts(price) : null;
   const pay = async (method) => {
     setBusy(method); setErr(''); setBank(null);
@@ -66,7 +66,7 @@ function Billing({ tenant }) {
       if (!r.ok) { setErr(j.error || 'تعذّر بدء الدفع'); return; }
       if (method === 'bank') { setBank(j); load(); return; }
       if (j.url && /^https:\/\//.test(j.url)) location.assign(j.url);
-    } catch { setErr('تعذّر الاتصال بخادم مِثقال'); } finally { setBusy(''); }
+    } catch { setErr('تعذّر الاتصال بخادم مُكتسَب'); } finally { setBusy(''); }
   };
   const printInv = async (no) => {
     try { const r = await fetch(base + '/api/billing/invoice/' + encodeURIComponent(no), { headers: await aiHeaders() }); const j = await r.json().catch(() => ({}));
@@ -91,12 +91,12 @@ function Billing({ tenant }) {
         {(d.methods || []).includes('mada') && <button className="btn pri sm" disabled={!!busy || !price} onClick={() => pay('gateway')}><CreditCard size={14} />{busy === 'gateway' ? 'جارٍ التحويل لصفحة الدفع…' : 'ادفع إلكترونيًا'}</button>}
         {d.bank && (d.methods || []).includes('bank') && <button className="btn sm" disabled={!!busy || !price} onClick={() => pay('bank')}><Landmark size={14} />تحويل بنكي</button>}
       </div>
-      {(d.methods || []).includes('mada') && <div className="note" style={{ marginTop: 4 }}>الدفع الإلكتروني: {GW_METHODS} — عبر صفحة «ميسر» الآمنة؛ بيانات البطاقة لا تمر بمِثقال.</div>}
+      {(d.methods || []).includes('mada') && <div className="note" style={{ marginTop: 4 }}>الدفع الإلكتروني: {GW_METHODS} — عبر صفحة «ميسر» الآمنة؛ بيانات البطاقة لا تمر بمُكتسَب.</div>}
       {bank && <div className="card mq-bank" style={{ marginTop: 8, padding: 10 }}>
         <div>حوّل <b>{sar(bank.total)} ر.س</b> إلى:</div>
         <div>المستفيد: <b>{bank.bank.holder}</b>{bank.bank.name ? ' — ' + bank.bank.name : ''}</div>
         <div style={{ direction: 'ltr', textAlign: 'right' }}><b>{bank.bank.iban}</b></div>
-        <div>واكتب في وصف التحويل رقم الفاتورة: <b>{bank.reference}</b> — يُفعَّل الاشتراك بعد تأكيد مِثقال لاستلام المبلغ.</div>
+        <div>واكتب في وصف التحويل رقم الفاتورة: <b>{bank.reference}</b> — يُفعَّل الاشتراك بعد تأكيد مُكتسَب لاستلام المبلغ.</div>
       </div>}
       {err && <div className="note" style={{ color: 'var(--rose, #c0392b)', marginTop: 6 }}>{err}</div>}
       {(d.invoices || []).length > 0 && <table className="tbl" style={{ fontSize: 12, marginTop: 10 }}><thead><tr><th>الفاتورة</th><th>الفترة</th><th>الإجمالي</th><th>الحالة</th><th /></tr></thead><tbody>
@@ -130,8 +130,8 @@ export function SubscriptionCard({ branches = 0, tenant = TENANT }) {
         {['ai', 'zatca'].map(k => <span key={k} style={pill(F[k])}>{F[k] ? '✓' : '✕'} {FEATURE_AR[k]}</span>)}
         <span style={pill(true)}>{FEATURE_AR.maxBranches + ': ' + (F.maxBranches ? branches + ' / ' + F.maxBranches : branches + ' (بلا حد)')}</span>
       </div>
-      {over && <div className="note" style={{ marginTop: 8, color: 'var(--amber)' }}>عدد الفروع يتجاوز حد الخطة — تواصل مع مِثقال لترقية الاشتراك.</div>}
-      <div className="note" style={{ marginTop: 10 }}>الخطة والحالة يحددهما مزوّد مِثقال ولا تُعدَّل من داخل المنشأة. تغييرها يتم بطلب ترقية أو تجديد.</div>
+      {over && <div className="note" style={{ marginTop: 8, color: 'var(--amber)' }}>عدد الفروع يتجاوز حد الخطة — تواصل مع مُكتسَب لترقية الاشتراك.</div>}
+      <div className="note" style={{ marginTop: 10 }}>الخطة والحالة يحددهما مزوّد مُكتسَب ولا تُعدَّل من داخل المنشأة. تغييرها يتم بطلب ترقية أو تجديد.</div>
       {!isDef && <Billing tenant={tenant} />}
     </div>
   );

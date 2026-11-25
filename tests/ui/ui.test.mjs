@@ -2605,19 +2605,21 @@ test('v50.2 الواجهة العربية لا تحمّل حزمة الترجم�
   assert.deepEqual(errs, []); await ctx.close();
 });
 
-test('v50.3 الهوية الرسمية: الرمز المعتمد كما في الحزمة والشعار الثنائي بنص حيّ (عربي/إنجليزي)', async () => {
+test('v50.3→v56.0 (إعادة التسمية) الهوية الرسمية: رمز البوصلة لمُكتسَب (قرار المالك 2026-11-25) والشعار الثنائي بنص حيّ (عربي/إنجليزي)', async () => {
   for (const lang of ['ar', 'en']) {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } }); await ctx.addInitScript((l) => { try { localStorage.setItem('rms8:lang', l); } catch { } }, lang);
     const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
     await p.goto(base + 'comp/BrandLockup'); await p.waitForTimeout(800); await settle(p);
     const r = await p.evaluate(() => { const sv = document.querySelector('svg[data-mq-symbol]'); const lk = document.querySelector('[data-mq-lockup]');
-      return { v: sv && sv.dataset.mqSymbol, d: sv ? [...sv.querySelectorAll('path')].map(x => x.getAttribute('d')) : [], w: sv ? [...sv.querySelectorAll('path')].map(x => x.getAttribute('stroke-width')) : [],
-        c: sv ? [...sv.querySelectorAll('path')].map(x => getComputedStyle(x).stroke) : [], t: lk ? lk.innerText.replace(/\s+/g, ' ') : '' }; });
+      return { v: sv && sv.dataset.mqSymbol, d: sv ? [...sv.querySelectorAll('polygon')].map(x => x.getAttribute('points')) : [], paths: sv ? sv.querySelectorAll('path').length : -1,
+        c: sv ? [...sv.querySelectorAll('polygon')].map(x => getComputedStyle(x).fill) : [], t: lk ? lk.innerText.replace(/\s+/g, ' ') : '' }; });
     assert.equal(r.v, 'light');
-    assert.deepEqual(r.d, ['M18 82 L18 24 L50 55 L82 24 L82 82', 'M50 55 L50 82', 'M31 24 L50 42 L69 24'], 'مسارات الرمز مطابقة للحزمة');
-    assert.deepEqual(r.w, ['11', '11', '7']);
-    assert.deepEqual(r.c, ['rgb(16, 41, 74)', 'rgb(217, 168, 62)', 'rgb(217, 168, 62)'], 'ألوان الحزمة #10294A و#D9A83E');
-    assert.match(r.t, /MITHQAL/); assert.match(r.t, /مثقال/, 'الاسم العربي يبقى عربيًا في الوضعين'); assert.match(r.t, /ERP/);
+    // v56.0 (إعادة التسمية): الهندسة الموحّدة brand-geom.js — أربعة رؤوس قطرية خفيفة، ثم الجنوبي والشرقي والغربي (كحلي)، ثم الشمالي (ذهبي)
+    assert.deepEqual(r.d.slice(4), ['50,97 40.5,50 59.5,50', '97,50 50,40.5 50,59.5', '3,50 50,59.5 50,40.5', '50,3 59.5,50 40.5,50'], 'مضلعات الرمز مطابقة للحزمة');
+    assert.equal(r.d.length, 8, 'أربعة رؤوس قطرية + أربعة رئيسية');
+    assert.equal(r.paths, 0, 'بلا مسارات خطية');
+    assert.deepEqual(r.c, [...Array(7).fill('rgb(16, 41, 74)'), 'rgb(217, 168, 62)'], 'ألوان الحزمة #10294A و#D9A83E (الشمال ذهبي)');
+    assert.match(r.t, /MUKTASAB/); assert.match(r.t, /مكتسب/, 'الاسم العربي يبقى عربيًا في الوضعين');
     assert.deepEqual(errs, []); await ctx.close();
   }
 });
@@ -2640,13 +2642,13 @@ test('v51.4 الفواتير والدفع لمنشأة مشتركة: الأسع�
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
   const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
   const INV = { no: 'MQ-2026-000001', seq: 1, issuedAt: '2026-11-19T10:00:00.000Z', tenant: 'c2', plan: 'pro', period: 'monthly', start: '2026-11-19', end: '2026-12-18', net: 19900, vat: 2985, total: 22885, currency: 'SAR', status: 'paid', method: 'mada', paidAt: '2026-11-19T10:05:00.000Z',
-    seller: { name: 'مِثقال لتقنية المعلومات', vatNo: '311111111100003', crNo: '1010000000', address: 'الرياض' }, buyer: { name: 'مطعم تجريبي', vatNo: '300000000000003', address: 'الدمام' }, payments: [] };
+    seller: { name: 'مُكتسَب لتقنية المعلومات', vatNo: '311111111100003', crNo: '1010000000', address: 'الرياض' }, buyer: { name: 'مطعم تجريبي', vatNo: '300000000000003', address: 'الدمام' }, payments: [] };
   const calls = [];
   await p.route('http://zatca.test/api/billing/**', async (route) => { const u = new URL(route.request().url()); calls.push(route.request().method() + ' ' + u.pathname + ' ' + (route.request().postData() || ''));
     const J = (b) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(b) });
     if (u.pathname.endsWith('/summary')) return J({ enabled: true, plan: 'pro', prices: { monthly: 19900, yearly: 199000 }, sub: { paidThrough: '2026-12-18', state: 'active' }, invoices: [{ ...INV, payments: undefined }],
-      methods: ['mada', 'card', 'applepay', 'stcpay', 'bank'], bank: { iban: 'SA0380000000608010167519', name: 'الراجحي', holder: 'مِثقال لتقنية المعلومات' }, seller: { name: INV.seller.name, vatNo: INV.seller.vatNo } });
-    if (u.pathname.endsWith('/checkout')) return J({ no: 'MQ-2026-000002', total: 228850, bank: { iban: 'SA0380000000608010167519', name: 'الراجحي', holder: 'مِثقال لتقنية المعلومات' }, reference: 'MQ-2026-000002' });
+      methods: ['mada', 'card', 'applepay', 'stcpay', 'bank'], bank: { iban: 'SA0380000000608010167519', name: 'الراجحي', holder: 'مُكتسَب لتقنية المعلومات' }, seller: { name: INV.seller.name, vatNo: INV.seller.vatNo } });
+    if (u.pathname.endsWith('/checkout')) return J({ no: 'MQ-2026-000002', total: 228850, bank: { iban: 'SA0380000000608010167519', name: 'الراجحي', holder: 'مُكتسَب لتقنية المعلومات' }, reference: 'MQ-2026-000002' });
     if (u.pathname.includes('/invoice/')) return J(INV);
     return J({}); });
   await p.goto(base + 'subcard'); await p.waitForSelector('.mq-bill', { timeout: 15000 }); await settle(p);
@@ -2656,7 +2658,7 @@ test('v51.4 الفواتير والدفع لمنشأة مشتركة: الأسع�
   assert.match(t, /المتقدمة/); assert.match(t, /2 \/ 5/);
   await p.click('input[name="mq-period"] >> nth=1'); await p.click('button:has-text("تحويل بنكي")'); await p.waitForSelector('.mq-bank');
   const bk = (await p.locator('.mq-bank').innerText()).replace(/\s+/g, ' ');
-  assert.match(bk, /SA0380000000608010167519/); assert.match(bk, /MQ-2026-000002/); assert.match(bk, /مِثقال لتقنية المعلومات/);
+  assert.match(bk, /SA0380000000608010167519/); assert.match(bk, /MQ-2026-000002/); assert.match(bk, /مُكتسَب لتقنية المعلومات/);
   assert.ok(calls.some(c => c.startsWith('POST /api/billing/checkout') && c.includes('"period":"yearly"') && c.includes('"method":"bank"')), calls.join('\n'));
   await p.click('button[title="طباعة الفاتورة"]'); await p.waitForSelector('.mz-docv iframe', { timeout: 8000 }); await p.waitForTimeout(400);
   const html = await p.evaluate(() => document.querySelector('.mz-docv iframe').srcdoc);
@@ -2666,7 +2668,7 @@ test('v51.4 الفواتير والدفع لمنشأة مشتركة: الأسع�
   assert.deepEqual(errs, []); await ctx.close();
 });
 
-test('v51.5 لوحة مِثقال: المنشآت والتوصيات والمفاتيح، تأكيد التحويل، وقبول طلب تسجيل يعرض أمر التهيئة', async () => {
+test('v51.5 لوحة مُكتسَب: المنشآت والتوصيات والمفاتيح، تأكيد التحويل، وقبول طلب تسجيل يعرض أمر التهيئة', async () => {
   const ctx = await browser.newContext({ viewport: { width: 1360, height: 1000 } }); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
   p.on('dialog', d => d.accept(d.type() === 'prompt' ? (/مرجع/.test(d.message()) ? 'TRX-77' : /المبلغ/.test(d.message()) ? '228.85' : /معرّف/.test(d.message()) ? 'burger-house' : '14') : undefined));
   const posts = []; let confirmed = false;
@@ -2715,7 +2717,7 @@ test('v51.6 طباعة تقرير الإغلاق PDF: المستند وحده ب
   const ctx = await browser.newContext({ viewport: { width: 900, height: 1000 } }); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
   await p.goto(base + 'comp/Launcher'); await p.waitForTimeout(1200);
   const open = () => p.evaluate(() => { window.print = () => { window.__printed = (window.__printed || 0) + 1; };
-    window.__M.printClosingA4({ id: 'c1', branchId: 'b1', branchName: 'طيبة', date: '2026-11-18', status: 'approved', totalRevenue: 9420, cashSales: 5000, networkSales: 3000, deliverySales: [], expenses: [{ id: 'x', categoryName: 'خضار', amount: 120, paymentMethod: 'cash' }], totalExpenses: 120, variance: 0, actualCashCount: 1000, expectedCashInSafe: 1000, createdBy: 'أحمد علي' },
+    window.__M.printClosingA4({ id: 'c1', branchId: 'b1', branchName: 'طيبة', date: '2026-11-18', status: 'approved', totalRevenue: 9420, cashSales: 5000, cardSales: 3000, deliverySales: [], expenses: [{ id: 'x', categoryName: 'خضار', amount: 120, paymentMethod: 'cash' }], totalExpenses: 120, variance: 0, actualCashCount: 1000, expectedCashInSafe: 1000, createdBy: 'أحمد علي' },
       { company: { name: 'شركة الطيف الأولى' }, branches: [{ id: 'b1', name: 'طيبة' }] }); });
   const state = () => p.evaluate(() => { const h = document.getElementById('mz-print'), r = h && (h.shadowRoot || h);
     const kids = r ? [...r.querySelectorAll('.page > *')] : [];
@@ -3284,4 +3286,101 @@ test('v55.0 الرئيسية «التطبيقات أولًا»: شريط علو�
     const over = await p.evaluate(() => document.documentElement.scrollWidth - window.innerWidth); assert.ok(over <= 2, dev + ' تجاوز أفقي ' + over);
     assert.deepEqual(errs, []); await ctx.close();
   }
+});
+
+test('v56.0 GAP-018 العمل دون اتصال ثم المزامنة: فواتير بترقيم وسلسلة بصمة على الجهاز، تبقى بعد إعادة فتح الصفحة، وتُرفع مرة واحدة بلا تكرار', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosApp/cs');
+  await p.evaluate(() => {
+    localStorage.removeItem('mizan:posQueue'); localStorage.removeItem('mizan:posShiftLocal');
+    window.setOrg(g => ({ ...g, taxCfg: { enabled: false }, posCfg: { branches: ['b1'], autoPrint: false }, products: [{ id: 'k', name: 'كبسة', sellPrice: 100, cat: 'رئيسي' }] }));
+    window.setOps(o => ({ ...o, posOrders: [], posShifts: [] }));
+  }); await p.waitForTimeout(400);
+  // انقطاع فعلي: المتصفح دون شبكة، والسحابة لا تقبل الحفظ
+  await ctx.setOffline(true); await p.evaluate(() => { window.__cloudDown = true; });
+  const ob = p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await p.waitForTimeout(400); }
+  const sell = async () => { await p.locator('.pos-tile:has-text("كبسة")').click(); await p.click('.pos-cart button:has-text("نقدي")'); await p.waitForTimeout(200);
+    await p.click('.modal button:has-text("تأكيد")'); await p.waitForTimeout(500); };
+  await sell(); await sell(); await sell();
+  const q = await p.evaluate(() => JSON.parse(localStorage.getItem('mizan:posQueue') || '[]'));
+  assert.equal(q.length, 3, 'ثلاث فواتير في طابور الجهاز');
+  assert.equal(await p.evaluate(() => window.cur.posOrders.length), 0, 'لم يصل شيء للسحابة');
+  assert.ok(await p.evaluate(() => window.__downTries > 0), 'حاول الرفع وفشل بصدق');
+  assert.deepEqual(q.map(o => o.icv), [q[0].icv, q[0].icv + 1, q[0].icv + 2], 'عدّاد الفواتير متسلسل');
+  assert.equal(q[1].pih, q[0].hash); assert.equal(q[2].pih, q[1].hash, 'كل فاتورة تحمل بصمة سابقتها');
+  assert.equal(new Set(q.map(o => o.no)).size, 3, 'أرقام فريدة');
+  // إعادة فتح التطبيق والسحابة ما زالت غير متاحة: الطابور باقٍ على الجهاز
+  await ctx.setOffline(false); await ctx.addInitScript(() => { window.__cloudDown = true; });
+  await p.reload(); await p.waitForTimeout(500); await settle(p);
+  await p.evaluate(() => { window.setOrg(g => ({ ...g, taxCfg: { enabled: false }, posCfg: { branches: ['b1'], autoPrint: false }, products: [{ id: 'k', name: 'كبسة', sellPrice: 100, cat: 'رئيسي' }] })); }); await p.waitForTimeout(300);
+  assert.equal(await p.evaluate(() => JSON.parse(localStorage.getItem('mizan:posQueue') || '[]').length), 3, 'الطابور بعد إعادة الفتح');
+  // تعارض: الفاتورة الأولى وصلت السحابة سابقًا وضاع الرد (أو رفعها تبويب آخر) — لا تُكرَّر
+  await p.evaluate((first) => { window.setOps(o => ({ ...o, posOrders: [first], posShifts: [] })); }, q[0]); await p.waitForTimeout(200);
+  await p.evaluate(() => { window.__cloudDown = false; window.dispatchEvent(new Event('online')); });
+  await p.waitForFunction(() => JSON.parse(localStorage.getItem('mizan:posQueue') || '[]').length === 0, null, { timeout: 8000 });
+  const ids = await p.evaluate(() => window.cur.posOrders.map(o => o.id));
+  assert.equal(ids.length, 3, 'ثلاث فواتير بالضبط'); assert.deepEqual(new Set(ids), new Set(q.map(o => o.id)), 'نفس الفواتير');
+  assert.equal(await p.evaluate(() => window.cur.posOrders.reduce((s, o) => s + o.total, 0)), 300, 'المجموع 3 × 100');
+  assert.ok(await p.evaluate(() => (window.cur.posShifts || []).length >= 1), 'الوردية المحلية رُفعت');
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v56.0 GAP-007 تعليق فاتورة السفري واستدعاؤها: بلا رقم فاتورة قبل الدفع، تبقى بعد إعادة الفتح، وتُستدعى ثم تُدفع', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosApp/cs');
+  const setup = async () => { await p.evaluate(() => {
+    window.setOrg(g => ({ ...g, taxCfg: { enabled: false }, posCfg: { branches: ['b1'], autoPrint: false }, products: [{ id: 'k', name: 'كبسة', sellPrice: 100, cat: 'رئيسي' }, { id: 'm', name: 'مندي', sellPrice: 80, cat: 'رئيسي' }] }));
+    window.setOps(o => ({ ...o, posOrders: [] })); }); await p.waitForTimeout(400);
+    const ob = p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await p.waitForTimeout(400); } };
+  await p.evaluate(() => { localStorage.removeItem('mizan:posHold:b1'); localStorage.removeItem('mizan:posQueue'); }); await setup();
+  await p.locator('.pos-tile:has-text("كبسة")').click(); await p.locator('.pos-tile:has-text("كبسة")').click(); await p.locator('.pos-tile:has-text("مندي")').click();
+  await p.click('[data-hold]'); await p.waitForTimeout(250);
+  assert.match(await say(p), /عُلّق الطلب/);
+  const held = await p.evaluate(() => JSON.parse(localStorage.getItem('mizan:posHold:b1') || '[]'));
+  assert.equal(held.length, 1); assert.equal(held[0].cart.reduce((a, l) => a + l.qty, 0), 3);
+  assert.equal(await p.evaluate(() => window.cur.posOrders.length), 0, 'لا فاتورة');
+  assert.equal(await p.evaluate(() => JSON.parse(localStorage.getItem('mizan:posQueue') || '[]').length), 0, 'لا رقم ولا عدّاد مستهلك');
+  // عميل آخر يُخدم أثناء التعليق
+  await p.locator('.pos-tile:has-text("مندي")').click(); await p.click('.pos-cart button:has-text("نقدي")'); await p.waitForTimeout(200); await p.click('.modal button:has-text("تأكيد")'); await p.waitForTimeout(500);
+  // إعادة فتح الصفحة: المعلّق باقٍ على الجهاز
+  await p.reload(); await p.waitForTimeout(500); await settle(p); await setup();
+  await p.click('[data-holdlist]'); await p.waitForTimeout(200);
+  assert.match(await p.locator('[data-holds]').innerText(), /3 صنف/);
+  // السعر تغيّر بعد التعليق: يُستدعى بالسعر الحالي
+  await p.evaluate(() => window.setOrg(g => ({ ...g, products: g.products.map(x => x.id === 'k' ? { ...x, sellPrice: 110 } : x) }))); await p.waitForTimeout(250);
+  await p.click('[data-holds] button:has-text("استدعاء")'); await p.waitForTimeout(300);
+  assert.match(await say(p), /استُدعي الطلب[\s\S]*حُدّث سعر: كبسة/);
+  assert.equal(await p.evaluate(() => JSON.parse(localStorage.getItem('mizan:posHold:b1') || '[]').length), 0, 'خرج من المعلّقة');
+  await p.click('.pos-cart button:has-text("نقدي")'); await p.waitForTimeout(200); await p.click('.modal button:has-text("تأكيد")'); await p.waitForTimeout(600);
+  const tot = await p.evaluate(() => window.cur.posOrders.map(o => o.total).sort((a, b) => a - b));
+  assert.deepEqual(tot, [300], 'المعلّق دُفع بالسعر الحالي: 2×110 + 80 (سحابة الاختبار تبدأ فارغة بعد إعادة الفتح)');
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v56.0 هوية المنشأة: رفع شعار شفاف، الألوان والاسمان والتذييل، معاينة حيّة بالمحرك نفسه، حفظ بسجل تدقيق، عرض فقط لغير المسؤول، واستعادة الافتراضي', async () => {
+  const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFklEQVR42mNk+M9QzwAEjDAGNzYAAA2nAf9ex9uYAAAAAElFTkSuQmCC', 'base64');
+  { const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1200 } }, 'live/TenantBranding/admin');
+    const card = p.locator('[data-tenant-branding]');
+    assert.match(await card.innerText(), /هوية المنصة \(MUKTASAB\) ثابتة/);
+    await card.locator('[data-tb="nameAr"]').fill('مطاعم الواحة'); await card.locator('[data-tb="nameEn"]').fill('Oasis Restaurants');
+    await card.locator('[data-tb-file="logo"]').setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: PNG }); await p.waitForTimeout(300);
+    assert.match(await card.locator('[data-tb-logo="logo"] img').getAttribute('src'), /^data:image\/png;base64,/, 'الشعار PNG (الشفافية محفوظة)');
+    await card.locator('[data-tb-file="logoAlt"]').setInputFiles({ name: 'x.gif', mimeType: 'image/gif', buffer: PNG }); await p.waitForTimeout(200);
+    assert.match(await say(p), /PNG أو JPG أو WebP أو SVG/, 'صيغة مرفوضة');
+    await card.locator('[data-tb-color="primary"]').evaluate((el) => { const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; set.call(el, '#0b6e4f'); el.dispatchEvent(new Event('input', { bubbles: true })); });
+    await card.locator('[data-tb="footer"]').fill('شكرًا لتعاملكم مع الواحة'); await p.waitForTimeout(300);
+    const pv = await card.locator('[data-tb-preview]').getAttribute('srcdoc');
+    assert.ok(pv.includes('مطاعم الواحة') && pv.includes('Oasis Restaurants') && pv.includes('--tb-p:#0B6E4F') && pv.includes('شكرًا لتعاملكم مع الواحة'), 'المعاينة من المحرك بهوية المنشأة');
+    assert.doesNotMatch(pv, /#10294A/i, 'لا ألوان المنصة في مستند المنشأة');
+    await card.locator('button:has-text("English")').click(); await p.waitForTimeout(250);
+    assert.match(await card.locator('[data-tb-preview]').getAttribute('srcdoc'), /dir="ltr"[\s\S]*Oasis Restaurants/);
+    await card.locator('[data-tb-save]').click(); await p.waitForTimeout(300);
+    const b = await p.evaluate(() => window.curOrg.branding);
+    assert.equal(b.nameEn, 'Oasis Restaurants'); assert.equal(b.colors.primary, '#0B6E4F'); assert.match(b.logo, /^data:image\/png/); assert.equal(b.logoAlt, '');
+    assert.equal((await p.evaluate(() => window.__orgLog || [])).filter(l => l.targetType === 'tenant_branding').length, 1, 'قيد تدقيق');
+    await card.locator('[data-tb-reset]').click(); await p.waitForTimeout(300);
+    assert.equal(await p.evaluate(() => window.curOrg.branding), undefined, 'عادت للافتراضي');
+    assert.deepEqual(errs, []); await ctx.close(); }
+  { const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1200 } }, 'live/TenantBranding/acc');
+    assert.equal(await p.locator('[data-tb-readonly]').count(), 1, 'المحاسب للعرض فقط');
+    assert.equal(await p.locator('[data-tb-save]').count(), 0); assert.equal(await p.locator('[data-tb="nameAr"]').isDisabled(), true);
+    assert.deepEqual(errs, []); await ctx.close(); }
 });

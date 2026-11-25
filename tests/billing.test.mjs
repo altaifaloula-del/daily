@@ -5,10 +5,10 @@ import crypto from 'node:crypto';
 import { parsePrices, amounts, periodEnd, subscriptionState, applyPayment, buildInvoice, nextPeriod, sellerError, invoiceNo, PAYMENT_METHODS } from '../billing.js';
 import { billingConfig, mountBilling, memoryStore, hookSig, settleInvoice, saTokenSource, firestoreStore, gatewayMethod } from '../server-billing.js';
 
-const SELLER = { name: 'مِثقال لتقنية المعلومات', vatNo: '311111111100003' };
+const SELLER = { name: 'مُكتسَب لتقنية المعلومات', vatNo: '311111111100003' };
 const PR = JSON.stringify({ pro: { monthly: 199, yearly: 1990 }, basic: { monthly: 99 } });
 const ENV = { MQ_BILLING: '1', MOYASAR_SECRET_KEY: 'sk_test_abcdefghijklmnop', MQ_CONTROL_PROJECT: 'mithqal-control', MQ_CONTROL_SA: JSON.stringify({ client_email: 'b@x.iam.gserviceaccount.com', private_key: 'k' }),
-  MQ_SELLER_JSON: JSON.stringify(SELLER), MQ_PRICES_JSON: PR, MQ_BILLING_HOOK_KEY: 'h'.repeat(40), MQ_PUBLIC_API: 'https://api.mithqal.sa', MQ_APP_URL: 'https://app.mithqal.sa', MQ_BANK_IBAN: 'SA0380000000608010167519', MQ_BANK_NAME: 'الراجحي', MQ_BANK_HOLDER: 'مِثقال' };
+  MQ_SELLER_JSON: JSON.stringify(SELLER), MQ_PRICES_JSON: PR, MQ_BILLING_HOOK_KEY: 'h'.repeat(40), MQ_PUBLIC_API: 'https://api.mithqal.sa', MQ_APP_URL: 'https://app.mithqal.sa', MQ_BANK_IBAN: 'SA0380000000608010167519', MQ_BANK_NAME: 'الراجحي', MQ_BANK_HOLDER: 'مُكتسَب' };
 
 test('الأسعار من الإعداد بالهللة، والضريبة 15%، ولا كسور', () => {
   const P = parsePrices(PR); assert.deepEqual(P.prices, { pro: { monthly: 19900, yearly: 199000 }, basic: { monthly: 9900 } }); assert.equal(P.errors.length, 0);

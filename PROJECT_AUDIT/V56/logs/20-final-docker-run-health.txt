@@ -1,0 +1,28 @@
+== GET /api/health
+HTTP/1.1 200 OK
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+Referrer-Policy: strict-origin-when-cross-origin
+Content-Security-Policy: frame-ancestors 'none'; base-uri 'self'; object-src 'none'
+Strict-Transport-Security: max-age=31536000; includeSubDomains
+Content-Type: application/json; charset=utf-8
+Content-Length: 43
+ETag: W/"2b-DycyDl/nH0JSeNDYpYARoivgEWY"
+Date: Wed, 25 Nov 2026 04:06:54 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"ok":true,"at":"2026-11-25T04:06:54.141Z"}
+== GET / (frontend)
+200 4482B
+== /api/store disabled in production
+{"error":"التخزين عبر الخادم غير مفعّل"} [404]
+== /api/zatca/config without token
+{"error":"إعدادات Firebase غير مضبوطة على الخادم (FIREBASE_API_KEY)"} [503]
+== container user
+uid=1000(node) gid=1000(node) groups=1000(node)
+== logs
+[zatca] مفتاح تشفير أسرار الأجهزة: غير مضبوط (ZATCA_ENC_KEY)
+✅ خادم المنصة يعمل على http://localhost:18787
+== docker HEALTHCHECK status
+healthy

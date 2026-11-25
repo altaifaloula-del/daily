@@ -1,4 +1,4 @@
-/* v51.5 — المرحلة 07 / S6: لوحة مزوّد مِثقال والتسجيل العام — الصلاحية على الخادم، ولا أسرار للواجهة */
+/* v51.5 — المرحلة 07 / S6: لوحة مزوّد مُكتسَب والتسجيل العام — الصلاحية على الخادم، ولا أسرار للواجهة */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
@@ -32,7 +32,7 @@ function harness({ env = { MQ_PROVIDER_ADMINS: 'boss@mithqal.sa' }, controlReady
   return { call, store, fetched };
 }
 
-test('اللوحة لمزوّد مِثقال وحده: بريده، ومن المنشأة الرئيسية، وبجلسة بخطوتين — كله على الخادم', async () => {
+test('اللوحة لمزوّد مُكتسَب وحده: بريده، ومن المنشأة الرئيسية، وبجلسة بخطوتين — كله على الخادم', async () => {
   const H = harness();
   assert.equal((await H.call('GET /api/provider/me', { who: 'boss' })).json.provider, true);
   assert.equal((await H.call('GET /api/provider/me', { who: 'boss', mfa: false })).json.provider, false, 'بلا خطوة ثانية');
@@ -73,7 +73,7 @@ test('التجربة والتحويل البنكي من اللوحة', async () 
   const t = (await H.call('POST /api/provider/trial', { who: 'boss', body: { tenant: 'c2', days: 14 } })).json; assert.equal(t.paidThrough, '2026-12-02');
   assert.equal((await H.store.getSub('c2')).trial, true);
   assert.equal((await H.call('POST /api/provider/trial', { who: 'boss', body: { tenant: 'c2', days: 14 } })).status, 409, 'لا تجربة ثانية');
-  const SELLER = { name: 'مِثقال', vatNo: '311111111100003' };
+  const SELLER = { name: 'مُكتسَب', vatNo: '311111111100003' };
   const inv = { ...buildInvoice({ seq: 1, issuedAt: '2026-11-19T00:00:00Z', tenant: 'c3', plan: 'basic', period: 'monthly', start: '2026-11-19', prices: parsePrices('{"basic":{"monthly":99}}').prices, seller: SELLER }), status: 'pending_transfer' };
   await H.store.putInvoice(inv);
   assert.equal((await H.call('POST /api/provider/invoice/confirm', { who: 'boss', body: { no: inv.no, ref: 'TRX9', amount: '100' } })).status, 409, 'مبلغ مختلف');
