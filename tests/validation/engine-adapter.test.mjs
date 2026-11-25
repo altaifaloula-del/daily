@@ -16,8 +16,9 @@ export function normalizeFromEngine(A, tenant = 'default') {
   return {
     tenant, baseCurrency: 'SAR',
     accounts: (A.accounts || []).map(a => ({ code: a.code, kind: a.kind })),
+    // معرّف تسلسلي: المحرك قد يكرر معرّفات القيود المجمّعة، وفحص تكرار المعرّف هنا للدفاتر المرحّلة فقط
     entries: (A.entries || []).map((e, i) => ({
-      id: 'E' + i,   // معرّف تسلسلي: المحرك قد يكرر معرّفات القيود المجمّعة، وفحص التكرار هنا للدفاتر المرحّلة فقط date: e.date, tenant, status: 'posted',
+      id: 'E' + i, date: e.date, tenant, status: 'posted',
       lines: (e.lines || []).map(l => ({ acc: l.code, dr: l.debit || 0, cr: l.credit || 0 })),
     })),
   };
@@ -29,8 +30,7 @@ test('المحرك الحقيقي: فاتورة مورد 1,150 شاملة ⇐ م
   const lg = normalizeFromEngine(A);
   const r = validateLedger(lg, { reported: { balances: { 5198: 1000, 1501: 150, 2101: -1150 } } });
   const blocking = r.findings.filter(f => f.check !== 'posting.account-missing');
-  const raw = blocking.map(f => { const e = A.entries[Number(String(f.ref).slice(1))]; return e && { id: e.id, title: e.title, src: e.src, keys: Object.keys(e), lines: e.lines.map(l => l.code + ':' + l.debit + '/' + l.credit) }; });
-  assert.deepEqual(blocking, [], 'FINDINGS ' + JSON.stringify(blocking) + ' RAW ' + JSON.stringify(raw));
+  assert.deepEqual(blocking, [], 'FINDINGS ' + JSON.stringify(blocking));
   assert.equal(r.tb.balanced, true);
 });
 
