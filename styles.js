@@ -1090,6 +1090,31 @@ td.num,th.num{display:table-cell}
   background:var(--brass);color:#14110f;font-size:12px;font-weight:800;display:grid;place-items:center;padding:0 5px;
   border:2px solid var(--ink2);box-shadow:var(--sh-2)}
 .lh-empty{color:var(--faint);text-align:center;font-size:12px;padding:30px}
+/* v55.0 — الرئيسية «التطبيقات أولًا»: شريط علوي مضغوط، أرقام اليوم، شارات المهام، ولوحة «مهامي» الجانبية */
+.lh{max-width:1180px}
+.lh-top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:4px 0 12px}
+.lh-greet{flex:0 1 auto;min-width:0}
+.lh-top .lh-hi{text-align:start;margin:0;font-size:12.5px}
+.lh-top .lh-hi b{font-family:'MizanNum',var(--font-head,'Markazi Text',serif);font-size:20px}
+.lh-top .lh-role{text-align:start;margin:4px 0 0}
+.lh-top .lh-search{flex:1 1 280px;max-width:none;margin:0}
+.lh-tasks{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;border-radius:14px;border:0;background:var(--brass);color:#14110f;font:700 14px inherit;font-family:inherit;cursor:pointer;box-shadow:var(--sh-brass)}
+.lh-tasks .n{min-width:24px;height:24px;border-radius:12px;background:#14110f;color:var(--brass-l);display:inline-grid;place-items:center;font-size:12.5px;padding:0 6px}
+.lh-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 6px}
+.lh-kpi{display:flex;align-items:center;gap:12px;padding:10px 14px;min-height:56px;border-radius:14px;background:var(--ink2);border:1px solid var(--line);color:var(--txt);font:inherit;text-align:start;cursor:pointer;transition:.15s}
+.lh-kpi:hover{border-color:var(--frame)}
+.lh-kpi i{width:6px;align-self:stretch;border-radius:4px;background:var(--k,var(--brass))}
+.lh-kpi small{display:block;font-size:12px;color:var(--dim)}
+.lh-kpi b{font-size:19px;color:var(--num)}
+.lh-cnt.urg{background:var(--rose);color:#fff}
+.lh-drawer-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:80}
+.lh-drawer{position:fixed;top:0;bottom:0;inset-inline-end:0;width:min(440px,100vw);box-sizing:border-box;background:var(--ink2);border-inline-start:1px solid var(--line-g);z-index:81;overflow:auto;padding:18px;box-shadow:var(--sh-4)}
+.lh-tkg{margin-top:12px}.lh-tkg h4{margin:0 0 8px;font-size:13px}
+.lh-tk{display:flex;align-items:center;gap:10px;padding:9px 12px;margin-bottom:6px;border-radius:12px;background:var(--ink);border:1px solid var(--line)}
+.lh-tk .t{font-size:13.5px;font-weight:600;line-height:1.5}.lh-tk .s{font-size:11.5px;color:var(--dim)}
+@media(max-width:900px){.lh-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:560px){.rms .lh-top .lh-role{display:none}.rms .lh-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:10px 4px}.rms .lh-tile{padding:8px 2px 6px;gap:6px}.rms .lh-box{width:58px;height:58px;border-radius:16px}.rms .lh-nm{font-size:11px}.rms .lh-star{display:none}.lh-kpi{min-height:48px;padding:8px 10px}.lh-greet{flex-basis:100%}.lh-top .lh-search{flex-basis:calc(100% - 130px)}.lh-kpi b{font-size:16px}
+  .lh-drawer{top:auto;height:86vh;width:100vw;border-radius:18px 18px 0 0;border-inline-start:0;border-top:1px solid var(--line-g)}}
 .homebtn2{display:inline-grid;place-items:center;width:34px;height:34px;border-radius:9px;flex-shrink:0;
   border:1px solid var(--frame-o);background:var(--acc-soft);color:var(--brass);cursor:pointer}
 @media(max-width:560px){.lh-grid{grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:14px 8px}

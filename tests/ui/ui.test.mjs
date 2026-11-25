@@ -3268,3 +3268,20 @@ test('v54.8 نفاد رصيد Anthropic يظهر برسالة عربية واض�
   await p.waitForFunction(() => /رصيد Anthropic غير كافٍ/.test(window.lastSay || '')); assert.ok(!(await p.evaluate(() => window.cur.ctlCases[0].review)), 'لا نتيجة محفوظة');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v55.0 الرئيسية «التطبيقات أولًا»: شريط علوي، أرقام اليوم، شارات المهام، ولوحة «مهامي» الجانبية', async () => {
+  for (const [dev, opt] of [['لوحي', { viewport: { width: 1280, height: 860 } }], ['جوال', devices['iPhone 13']]]) {
+    const { p, errs, ctx } = await open(opt, 'comp/Launcher');
+    await p.waitForSelector('.lh-top'); assert.equal(await p.locator('[data-mywork]').count(), 0, 'لا بطاقة مهام كبيرة على الرئيسية');
+    const topY = await p.locator('.lh-top').evaluate(e => e.getBoundingClientRect().bottom); const gridY = await p.locator('.lh-grid').last().evaluate(e => e.getBoundingClientRect().top);
+    assert.ok(gridY < (dev === 'لوحي' ? 860 : 844), dev + ': التطبيقات تظهر في أول شاشة (' + Math.round(gridY) + ')'); assert.ok(gridY > topY);
+    const tdy = await p.locator('[data-hometoday]').evaluate(e => e.getBoundingClientRect().top); assert.ok(tdy > gridY, 'ملخص اليوم بعد التطبيقات');
+    const n = Number(await p.locator('[data-mywork-n]').innerText());
+    await p.click('[data-tasksbtn]'); await p.waitForSelector('.lh-drawer [data-mywork-drawer]');
+    assert.match(await p.locator('.lh-drawer').innerText(), /مهامي/);
+    if (n > 0) assert.ok(await p.locator('.lh-drawer [data-mywork-item]').count() > 0);
+    await p.click('.lh-drawer button[aria-label="إغلاق"]'); assert.equal(await p.locator('.lh-drawer').count(), 0);
+    const over = await p.evaluate(() => document.documentElement.scrollWidth - window.innerWidth); assert.ok(over <= 2, dev + ' تجاوز أفقي ' + over);
+    assert.deepEqual(errs, []); await ctx.close();
+  }
+});
