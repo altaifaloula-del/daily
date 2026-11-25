@@ -3291,12 +3291,18 @@ test('v55.1 — قيد المبيعات من فواتير نقطة البيع: �
     const { p, errs, ctx } = await open(opt, 'live/Accounting/admin/vat');
     const card = p.locator('[data-testid="pos-journal-card"]'); await card.waitFor();
     assert.ok((await card.innerText()).includes('غير مفعّل'), 'معطّل افتراضيًا');
-    await p.evaluate(() => window.setOrg(g => ({ ...g, periodLocks: { lockedThrough: '2026-02' } }))); await p.waitForTimeout(200);
-    await card.locator('input[type=checkbox]').check();
+    await card.locator('input[type=checkbox]').check(); await card.locator('input[type=date]').first().fill('2026-03-10'); await card.locator('button.btn.pri').click(); await p.waitForTimeout(200);
+    assert.ok(String(await p.evaluate(() => window.lastSay)).includes('لا توجد للفرع فواتير نقطة بيع'), 'يرفض فرعًا بلا فواتير نقطة بيع داخلية');
+    await p.evaluate(() => { window.setOrg(g => ({ ...g, periodLocks: { lockedThrough: '2026-02' } }));
+      window.setOps(o => ({ ...o, posOrders: [{ id: 'pj1', no: 'ف1-1', branchId: 'b1', date: '2026-03-12', total: 115, vat: 15, status: 'paid', payments: [{ m: 'cash', amount: 115 }] }],
+        journalManual: [...(o.journalManual || []), { id: 'vc1', date: '2026-03-15', vatClose: { from: '2026-03-01', to: '2026-03-15', out: 0, inn: 0, net: 0 }, lines: [] }] })); }); await p.waitForTimeout(300);
+    await card.locator('input[type=date]').first().fill('2026-03-10'); await card.locator('button.btn.pri').click(); await p.waitForTimeout(200);
+    assert.ok(String(await p.evaluate(() => window.lastSay)).includes('إقرار ضريبي مقفل'), 'يرفض تاريخًا داخل إقرار ضريبي مقفل');
     await card.locator('input[type=date]').first().fill('2026-02-10'); await card.locator('button.btn.pri').click(); await p.waitForTimeout(200);
     assert.ok(String(await p.evaluate(() => window.lastSay)).includes('فترة مقفلة'), 'يرفض تاريخًا داخل فترة مقفلة');
-    await card.locator('input[type=date]').first().fill('2026-03-10'); await card.locator('button.btn.pri').click(); await p.waitForTimeout(300);
-    assert.deepEqual(await p.evaluate(() => window.curOrg.posJournal), { enabled: true, from: { b1: '2026-03-10' } });
+    await card.locator('input[type=date]').first().fill('2026-03-16'); await card.locator('button.btn.pri').click(); await p.waitForTimeout(300);
+    assert.deepEqual(await p.evaluate(() => window.curOrg.posJournal), { enabled: true, from: { b1: '2026-03-16' } });
+    assert.equal(await p.locator('[data-testid="pos-journal-diffs"]').count(), 1, 'تقرير الفروق يظهر بعد التفعيل');
     assert.ok(!(await card.innerText()).includes('غير مفعّل') && (await card.innerText()).includes('مفعّل'), 'صار مفعّلًا');
     const over = await p.evaluate(() => document.documentElement.scrollWidth - window.innerWidth); assert.ok(over <= 2, dev + ' تجاوز أفقي ' + over);
     await card.scrollIntoViewIfNeeded(); await card.screenshot({ path: path.join(cache, 'pos-journal-' + dev + '.png') });

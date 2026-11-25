@@ -87,12 +87,11 @@ test('وسيط الشبكة يسري على فواتير نقطة البيع ك�
   const e = entry(A, 'pos:o1'); near(amt(e, '1801', 'debit'), 115, 'الشبكة إلى الوسيط'); assert.equal(e.balanced, true);
 });
 
-test('فاتورة مبيعات «مسجلة في الإغلاق» تأخذ قيدها بعد السريان فقط', () => {
+test('فاتورة مبيعات «مسجلة في الإغلاق» لا قيد لها قبل السريان ولا بعده (الخيار ممنوع للفروع السارية — قرار المالك)', () => {
   const si = { id: 's1', no: 'INV-1', date: '2026-03-10', branchId: 'b1', inClosing: true, total: 115, net: 100, vat: 15, fund: '1201' };
-  assert.ok(entry(E.buildAccounting(org(PJ), { salesInvoices: [si] }), 'si:s1'), 'بعد السريان لها قيد');
-  assert.equal(entry(E.buildAccounting(org(PJ), { salesInvoices: [{ ...si, date: '2026-03-09' }] }), 'si:s1'), undefined, 'قبل السريان لا قيد (يقيّدها الإغلاق)');
+  assert.equal(entry(E.buildAccounting(org(PJ), { salesInvoices: [si] }), 'si:s1'), undefined);
+  assert.equal(entry(E.buildAccounting(org(PJ), { salesInvoices: [{ ...si, date: '2026-03-09' }] }), 'si:s1'), undefined);
 });
-
 test('عمولة التطبيق: النسبة المحفوظة على الفاتورة وقت البيع تغلب الإعداد الحالي (لا أثر رجعي)', () => {
   const o = order({ id: 'oa', total: 230, vat: 30, net: 200, payments: [{ m: 'app', appId: 'appA', amount: 230, commPct: 20 }] });
   const A = E.buildAccounting(org(PJ, { deliveryApps: [{ id: 'appA', n: 'تطبيق أ', c: 25 }] }), { posOrders: [o] });
@@ -102,4 +101,25 @@ test('عمولة التطبيق: النسبة المحفوظة على الفات
 test('فاتورة بلا دفعات (بيانات تالفة) لا تولّد قيدًا غير متوازن', () => {
   const A = E.buildAccounting(org(PJ), { posOrders: [order({ payments: [] })] });
   assert.equal(entry(A, 'pos:o1'), undefined); assert.equal(A.balanced, true);
+});
+
+test('posJeOn: معطّل افتراضيًا، ولكل فرع تاريخه', () => {
+  assert.equal(E.posJeOn({}, 'b1', '2026-03-10'), false);
+  assert.equal(E.posJeOn(org(PJ), 'b1', '2026-03-09'), false); assert.equal(E.posJeOn(org(PJ), 'b1', '2026-03-10'), true);
+  assert.equal(E.posJeOn(org(PJ), 'b2', '2026-03-10'), false); assert.equal(E.posJeOn(org({ enabled: false, from: { b1: '2026-01-01' } }), 'b1', '2026-03-10'), false);
+});
+
+test('posCloseDiff: يكشف فرق الإغلاق عن نقطة البيع (نقد/شبكة/تحويل/تطبيقات) ويطابق عند التساوي', () => {
+  const os = [order({ payments: [{ m: 'cash', amount: 50 }, { m: 'card', amount: 65 }] }), order({ id: 'o2', total: 230, vat: 30, payments: [{ m: 'app', appId: 'appA', amount: 230 }] })];
+  const ok = E.posCloseDiff(os, closing({ cashSales: 50, cardSales: 65, deliverySales: [{ appId: 'appA', amount: 230 }] }));
+  assert.equal(ok.ok, true);
+  const bad = E.posCloseDiff(os, closing({ cashSales: 30, cardSales: 65, deliverySales: [] }));
+  assert.equal(bad.ok, false); near(bad.cash, -20); near(bad.apps, 230);
+});
+
+test('الأرشفة لا تشمل فواتير الفروع السارية (الدفاتر تقرؤها) — قرار المالك', () => {
+  const g = org({ enabled: true, from: { b1: '2024-01-01' } }, { periodLocks: { lockedThrough: '2024-12' } });
+  const ops = { posOrders: [order({ id: 'a1', date: '2024-03-01' }), order({ id: 'a2', branchId: 'b2', date: '2024-03-01' })] };
+  const P = E.archivePlan(g, ops, { today: '2026-03-10' });
+  assert.equal(P.journaled, 1); assert.equal(P.n, 1, 'فاتورة الفرع غير الساري فقط');
 });

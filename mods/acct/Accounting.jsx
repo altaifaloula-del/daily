@@ -5,7 +5,7 @@ import { EInvoiceOnboard } from './EInvoiceOnboard.jsx';
 import { RotateCcw, Scale, FileBarChart, ChevronDown, Printer, Settings, Receipt, BarChart3, Lock, Landmark, FileText, TrendingUp, ArrowLeftRight, Store, Users, QrCode, Building2, Truck, ClipboardCheck, ShieldCheck, CalendarDays, Download, Upload, Plus, Grid3x3, Check, Trash2, RefreshCw, Wallet, TrendingDown, AlertTriangle, ChevronRight, ShieldAlert, Eye, ChevronLeft, CircleDollarSign, X } from 'lucide-react';
 import { VatRegisters, SupplierPurchReport } from './TaxPurchReports.jsx';   // v39.1
 import { Suppliers } from '../inv/Suppliers.jsx';   // v44.0 «مستلم لم يُفوتر»
-import { OdooBar , SecPager, recurApply, canEditRec, dtLocal } from '../../App.jsx';   // v41.0
+import { posJeOn, posCloseDiff, OdooBar , SecPager, recurApply, canEditRec, dtLocal } from '../../App.jsx';   // v41.0
 import { GeneralLedger } from './GeneralLedger.jsx';   // v49.4 المرحلة 03
 import { makeRptXlsx } from '../../App.jsx';   // v50.0 منظومة التقارير
 import { DEP_METHODS, depMethod, deprSchedule, wfOn, wfRequired, wfState, wfCanAct, wfApprove } from '../../App.jsx';   // v49.4 طرق الإهلاك
@@ -492,12 +492,22 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
   // ===== v55.1: قيد المبيعات من فواتير نقطة البيع بدل الإغلاق اليومي (قرار المالك) — تاريخ سريان لكل فرع =====
   const pjCfgUi = org.posJournal || {};
   const [pjF, setPjF] = useState(() => ({ enabled: !!pjCfgUi.enabled, from: { ...(pjCfgUi.from || {}) } }));
+  // تقرير الفروق اليومي (قرار المالك): إغلاقات الفروع السارية التي تختلف مبيعاتها عن فواتير نقطة البيع
+  const pjDiffs = (org.posJournal || {}).enabled ? (ops.closings || []).filter(c => (c.status === 'submitted' || c.status === 'approved') && posJeOn(org, c.branchId, c.date))
+    .map(c => ({ c, d: posCloseDiff(ops.posOrders, c) })).filter(x => !x.d.ok).sort((a, b) => String(b.c.date).localeCompare(String(a.c.date))).slice(0, 60) : [];
   const savePj = async () => {
     const from = {}; Object.entries(pjF.from || {}).forEach(([k, v]) => { if (v) from[k] = v; });
     if (pjF.enabled && !Object.keys(from).length) return say('حدد تاريخ السريان لفرع واحد على الأقل', 'no');
     const lt = lockedThru(org); const bad = Object.values(from).find(v => lt && String(v).slice(0, 7) <= lt);
     if (pjF.enabled && bad) return say('تاريخ السريان ' + bad + ' داخل فترة مقفلة حتى ' + lt + ' — اختر تاريخًا بعدها', 'no');
     const brN = (id) => ((org.branches || []).find(b => b.id === id) || {}).name || id;
+    if (pjF.enabled) for (const [bid, d] of Object.entries(from)) {
+      // قرارات المالك 2026-11-25: لا سريان داخل إقرار ضريبي مقفل، ولا لفرع يستورد مبيعاته أو بلا فواتير نقطة بيع داخلية، ولا مع فواتير «مسجّلة في الإغلاق»
+      if (lastCloseTo && d <= lastCloseTo) return say(brN(bid) + ': تاريخ السريان ' + d + ' داخل إقرار ضريبي مقفل حتى ' + lastCloseTo + ' — اختر تاريخًا بعده', 'no');
+      if ((ops.posImports || []).some(x => x.branchId === bid && String(x.date || '') >= d)) return say(brN(bid) + ': للفرع مبيعات مستوردة من نقطة بيع خارجية بعد ' + d + ' — القيد من الفواتير للفروع التي تبيع بنقطة البيع الداخلية فقط', 'no');
+      if (!(ops.posOrders || []).some(o => o.branchId === bid && o.status !== 'void')) return say(brN(bid) + ': لا توجد للفرع فواتير نقطة بيع داخلية — لن تُسجَّل له مبيعات بعد السريان', 'no');
+      if ((ops.salesInvoices || []).some(x => x.branchId === bid && x.inClosing && String(x.date || '') >= d)) return say(brN(bid) + ': توجد فواتير مبيعات «مسجّلة في الإغلاق» بعد ' + d + ' — اختر تاريخًا بعدها', 'no');
+    }
     await commitOrg(d => ({ ...d, posJournal: { enabled: !!pjF.enabled, from } }), {
       actionType: 'update', targetType: 'settings', targetId: 'posJournal', need: 'edit',
       title: pjF.enabled ? 'فعّل قيد المبيعات من فواتير نقطة البيع' : 'أوقف قيد المبيعات من فواتير نقطة البيع',
@@ -3111,6 +3121,12 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                 <div><button className="btn pri" onClick={savePj}><Check size={14} />حفظ الإعداد</button></div>
               </div>
             ) : <div className="note">هذا الإعداد صلاحية للإدارة العليا/مسؤول النظام فقط.</div>}
+            {pjCfgUi.enabled && <div style={{ marginTop: 12 }} data-testid="pos-journal-diffs">
+              <div className="lbl" style={{ marginBottom: 6 }}>فروق الإغلاق عن فواتير نقطة البيع (الفروع السارية)</div>
+              {pjDiffs.length ? <div className="tbl-wrap"><table className="tbl"><thead><tr><th>التاريخ</th><th>الفرع</th><th>نقد</th><th>شبكة</th><th>تحويل</th><th>تطبيقات</th></tr></thead>
+                <tbody>{pjDiffs.map(({ c, d }) => <tr key={c.id}><td className="num">{c.date}</td><td>{c.branchName || c.branchId}</td><td className="num">{money(d.cash)}</td><td className="num">{money(d.card)}</td><td className="num">{money(d.transfer)}</td><td className="num">{money(d.apps)}</td></tr>)}</tbody></table></div>
+                : <div className="note">لا فروق — كل الإغلاقات المرحّلة مطابقة لفواتير نقطة البيع ✓</div>}
+            </div>}
           </div>
 
           {taxOn && <>

@@ -1,7 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useMemo, useState } from 'react';
 import { FileText, Wallet, AlertTriangle, ShieldCheck, Plus, Printer, Check, X, Banknote } from 'lucide-react';
-import { DocLink, RowGrip, moveIdx, projList, Field, Kpi, LOCK_MSG, Modal, Num, ROLES, branchBanks, buildPartners, entityList, isoD, money, naMissing, nowISO, periodLocked, printSalesInvoice, rolePost, siCredited, siRem, siSorted, siStamp, siVerify, sum, today, uid } from '../../App.jsx';
+import { posJeOn, DocLink, RowGrip, moveIdx, projList, Field, Kpi, LOCK_MSG, Modal, Num, ROLES, branchBanks, buildPartners, entityList, isoD, money, naMissing, nowISO, periodLocked, printSalesInvoice, rolePost, siCredited, siRem, siSorted, siStamp, siVerify, sum, today, uid } from '../../App.jsx';
 
 export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
   const all = ops.salesInvoices || [];
@@ -40,6 +40,7 @@ export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
     }
     if (x.terms === 'credit' && !c) return say('البيع الآجل يتطلب عميلًا من جهات الاتصال', 'no');
     if (x.terms === 'credit' && x.inClosing) return say('البيع الآجل لا يكون ضمن إغلاق وردية نقدي', 'no');
+    if (x.inClosing && x.branchId && posJeOn(org, x.branchId, x.date)) return say('هذا الفرع يُقيِّد مبيعاته من فواتير نقطة البيع — لا يُسمح بخيار «مسجّل في الإغلاق»؛ أصدرها بقيدها المستقل', 'no');   // v55.1 قرار المالك
     const L = lines.map(l => { const k = lineCalc(l); return { desc: l.desc.trim(), qty: Number(l.qty), price: r2(l.price), vatRate: Number(l.vatRate) || 0, net: k.net, vat: k.vat }; });
     const T = totals(lines);
     if (x.terms === 'credit') { const lim = Number(c.creditLimit) || 0; const owed = custOwed(c.key);
@@ -184,7 +185,7 @@ export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
             {Number(fc.creditLimit) > 0 && <span className={'badge ' + (custOwed(fc.key) + (T ? T.total : 0) > Number(fc.creditLimit) ? 'b-rose' : 'b-dim')}>حد الائتمان {money(fc.creditLimit)}</span>}
             {f.type === 'standard' && naMissing(fc.na).length > 0 && <span className="badge b-amber">العنوان الوطني ناقص: {naMissing(fc.na).join('، ')}</span>}
           </div>}
-          {f.terms === 'cash' && <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', margin: '4px 0 8px' }}>
+          {f.terms === 'cash' && !(f.branchId && posJeOn(org, f.branchId, f.date)) && <label className="row" style={{ gap: 7, fontSize: 12.5, cursor: 'pointer', margin: '4px 0 8px' }}>
             <input type="checkbox" checked={!!f.inClosing} onChange={e => setF(x => ({ ...x, inClosing: e.target.checked }))} />هذا البيع مسجّل في إغلاق الوردية (تُصدر الفاتورة وتُرقَّم فقط دون قيد ثانٍ)</label>}
           <div className="lbl" style={{ margin: '4px 0 6px' }}>البنود — السعر قبل الضريبة</div>
           {f.copyOf && <div className="hint" data-copyhint style={{ marginBottom: 6 }}>نسخة من فاتورة سابقة — راجع البنود والتاريخ قبل الإصدار</div>}

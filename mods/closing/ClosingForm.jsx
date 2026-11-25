@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { authApi, cloud, bfKey } from '../../storage';
 import { Check, ChevronDown, ClipboardCheck, FileText, Send, Banknote, CreditCard, Truck, Plus, Trash2, Receipt, Coins, Minus, Stamp, Landmark, ArrowLeftRight, Wallet, Lock, X, ScanFace, Users, CheckCircle2 } from 'lucide-react';
-import { APPS, CameraModal, DENOMS, EXP_CATS, Field, LOCK_MSG, Modal, MoneyField, Num, OutputDialog, PT_TYPE, PhotoField, ROLES, SignaturePad, arDate, buildPartners, businessDay, countDenoms, countedClosing, deficitCfg, deficitPatterns, emptyDenoms, isoD, money, nextPartnerCode, normalizeSupPays, nowISO, payCashPart, paySplits, payTotal, periodLocked, posR2, salesDaySource, sum, uid, signoff, sigFailMsg } from '../../App.jsx';
+import { posJeOn, posCloseDiff, APPS, CameraModal, DENOMS, EXP_CATS, Field, LOCK_MSG, Modal, MoneyField, Num, OutputDialog, PT_TYPE, PhotoField, ROLES, SignaturePad, arDate, buildPartners, businessDay, countDenoms, countedClosing, deficitCfg, deficitPatterns, emptyDenoms, isoD, money, nextPartnerCode, normalizeSupPays, nowISO, payCashPart, paySplits, payTotal, periodLocked, posR2, salesDaySource, sum, uid, signoff, sigFailMsg } from '../../App.jsx';
 
 export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say, onClose, onStartNew, existing = [], invoices = [], branchPartners = [], posOrders = [], posImports = [] }) {
   const [f, setF] = useState(() => {
@@ -182,6 +182,11 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
     // v40.2: تقسيم الشبكة حسب نوع البطاقة — إن أُدخل فمجموعه = إجمالي الجهاز (يُمنع الترحيل عند الاختلاف)
     const spl = f.cardSplit || {}; const splSum = r2c((Number(spl.mada) || 0) + (Number(spl.visa) || 0) + (Number(spl.mc) || 0));
     if (status === 'submitted' && splSum > 0 && Math.abs(splSum - (Number(f.cardSales) || 0)) > 0.009) { say('تقسيم الشبكة (' + money(splSum) + ') لا يساوي إجمالي جهاز الشبكة (' + money(Number(f.cardSales) || 0) + ') — صحّح قبل الترحيل', 'no'); return null; }
+    // v55.1 (قرار المالك): فرع سرى عليه قيد المبيعات من فواتير نقطة البيع — يُمنع الترحيل إن اختلفت مبيعات الإغلاق عن نقطة البيع
+    if (status === 'submitted' && posJeOn(org, f.branchId, f.date)) {
+      const pd = posCloseDiff(posOrders, { ...f, deliverySales: (f.deliverySales || []).filter(s => (Number(s.amount) || 0) > 0) });
+      if (!pd.ok) { say('مبيعات الإغلاق تختلف عن فواتير نقطة البيع (نقد ' + money(pd.cash) + ' · شبكة ' + money(pd.card) + ' · تحويل ' + money(pd.transfer) + ' · تطبيقات ' + money(pd.apps) + ') — اضغط «تعبئة من نقطة البيع» قبل الترحيل', 'no'); return null; }
+    }
     if (status === 'submitted') {
       // v16.8: كان يُشترط عدّ موجب دائمًا — فيوم كل مبيعاته شبكة (صندوق صفر) يستحيل إغلاقه.
       // الآن: لا نقد متوقع ← يمر مباشرة؛ نقد متوقع وصندوق فارغ فعلًا ← إقرار صريح + توثيق سبب العجز.
@@ -377,7 +382,8 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
     if (totalRevenue <= 0) add('block', 'لا مبيعات مُدخلة لهذه الوردية', ['sales']);
     numAnoms.forEach(x => add('warn', x.t, x.keys));
     const ps = f.branchId ? salesDaySource({ posOrders, posImports }, f.branchId, f.date) : { n: 0 };
-    if (ps.n || ps.total) {
+    if (f.branchId && posJeOn(org, f.branchId, f.date) && !posCloseDiff(posOrders, { ...f, deliverySales: (f.deliverySales || []).filter(s => (Number(s.amount) || 0) > 0) }).ok) add('block', 'المبيعات تختلف عن فواتير نقطة البيع — يُمنع الترحيل (القيد من الفواتير)', ['sales', 'network', 'delivery']);
+    else if (ps.n || ps.total) {
       const dCash = posR2((f.cashSales || 0) - (ps.cash || 0)), dCard = posR2((f.cardSales || 0) + (f.bankTransferSales || 0) - (ps.card || 0) - (ps.transfer || 0)),
         dApps = posR2(totalDelivery - Object.values(ps.apps || {}).reduce((a, x) => a + x.amount, 0));
       if (Math.abs(dCash) < 0.01 && Math.abs(dCard) < 0.01 && Math.abs(dApps) < 0.01) add('ok', 'المبيعات مطابقة لنقطة البيع' + (ps.n ? ' (' + ps.n + ' فاتورة)' : ''), ['sales']);
