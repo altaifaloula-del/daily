@@ -2,7 +2,7 @@
 id: release-v56.0
 type: نشر إصدار
 status: APPROVED
-approved_by: 
+approved_by: mujahed
 date: 2026-11-25
 scope: نشر الإصدار v56.0 (الإصلاحات التصحيحية + هوية «مُكتسَب — Muktasab») بدمج طلب الدمج altaifaloula-del/daily#237 في main، ومعه نشر قواعد Firestore تلقائيًا. لا تشمل ترحيل بيانات، ولا رفع الحد الأدنى للإصدار إلى v56.0 (قرار منفصل بعد تحديث كل الأجهزة).
 ---
