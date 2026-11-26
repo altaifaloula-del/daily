@@ -417,7 +417,7 @@ function LedgerCard({ org, ops, commitOrg, say, isAdm }) {
       <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />دفتر القيود المخزّن (أرقام ثابتة)</div>
         <span className={'badge ' + (rd ? 'b-mint' : on ? 'b-sky' : 'b-dim')}>{rd ? 'الميزان والقوائم من الدفتر' : on ? 'مفعّل — القراءة من المحرك' : 'غير مفعّل'}</span></div>
       <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>
-        كل قيد يُحفظ <b>مرة واحدة برقم ثابت</b> مثل JV-2026-000001 يبدأ من 1 كل سنة، ولا يُعدَّل محتواه ولا يُحذف — والخادم يرفض أي تعديل.
+        كل قيد يُحفظ <b>مرة واحدة برقم ثابت</b> مثل JV-2026-000001 يبدأ من 1 كل سنة، ولا يُعدَّل محتواه ولا يُحذف. <b>الترحيل من الخادم وحده</b>: يجمع السطور بالهللات ويتحقق من الصلاحية والفترة قبل الكتابة.
         النطاق الآن: <b>القيد الافتتاحي بأرصدة 2025-12-31</b> + المجموعات المفعّلة من {FL_START} ({scope.length} قيدًا):
         <span data-ledger-groups style={{ display: 'block', margin: '4px 0' }}>{FL_GROUPS.map((g, i) => <span key={g.id} style={{ display: 'block', color: i < lvl ? 'var(--mint)' : 'var(--dim)' }}>{i < lvl ? '✓' : '○'} {i + 1}. {g.label}</span>)}</span>
         {uncl.length > 0 && <span style={{ display: 'block', color: 'var(--amber)' }}>⚠ {uncl.length} قيدًا من مصدر غير مصنّف لا يدخل الدفتر بعد (مثل: {uncl.slice(0, 2).map(e => e.src || e.id).join('، ')}).</span>}
