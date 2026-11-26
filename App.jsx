@@ -2261,11 +2261,15 @@ function posGlLines(d) {
 function posLoyOpening(org, loyDoc, cutoff) {
   const r2 = (x) => Math.round((Number(x) || 0) * 100) / 100; const pv = posGlPv(org);
   const tx = (org && org.taxCfg) || {}; const rate = tx.enabled ? (Number(tx.rate) || 15) : 0;
-  const pts = r2(((loyDoc && loyDoc.tx) || []).filter(t => String(t.at || '').slice(0, 10) < cutoff).reduce((a, t) => a + (Number(t.pts) || 0), 0));
+  // (التحقق المستقل) المقارنة بالوقت المحلي: حركة الساعة 01:30 من يوم القطع (UTC في اليوم السابق) لا تُحتسب مرتين
+  const cut = new Date(cutoff + 'T00:00:00').getTime(); const before = (t) => { const ms = Date.parse(t.at || ''); return isNaN(ms) ? String(t.at || '').slice(0, 10) < cutoff : ms < cut; };
+  const pts = r2(((loyDoc && loyDoc.tx) || []).filter(before).reduce((a, t) => a + (Number(t.pts) || 0), 0));
   return { pts, pv, rate, cutoff, amt: r2(pts * pv * 100 / (100 + rate)) };
 }
-const posMisLoyFrom = (org) => { const m = (((org && org.posGl) || {}).misLoy || {}); return m.from && !m.to ? m.from : ''; };
-const posMisLoyAt = (org, d) => { const m = (((org && org.posGl) || {}).misLoy || {}); return !!m.from && String(d || '') >= m.from && (!m.to || String(d || '') <= m.to) && posGlAt(org, d); };   // الإيقاف يغلق النطاق ولا يغيّر الماضي
+// (التحقق المستقل) سجل نطاقات لا يُكتب فوقه — الإيقاف يغلق النطاق وإعادة التفعيل تضيف نطاقًا جديدًا (misLoy القديم = نطاق واحد)
+const posMisLoyRanges = (org) => { const g = (org && org.posGl) || {}; return Array.isArray(g.misLoyRanges) ? g.misLoyRanges : (g.misLoy && g.misLoy.from ? [g.misLoy] : []); };
+const posMisLoyFrom = (org) => (posMisLoyRanges(org).find(r => !r.to) || {}).from || '';
+const posMisLoyAt = (org, d) => posMisLoyRanges(org).some(r => String(d || '') >= r.from && (!r.to || String(d || '') <= r.to)) && posGlAt(org, d);
 const posGlNote = (org, id) => ((((org && org.posGl) || {}).notes) || {})[id] || '';
 /** تشخيص للصيانة: الإغلاقات في النطاق وهل طابقت فواتير اليوم */
 function posGlCheck(org, ops) {
@@ -2488,18 +2492,18 @@ function buildAccounting(org, ops) {
         if (net) lines.push(L(code, net, 0));
         if (comm) lines.push(L('5301', comm, 0));
       });
-      let sv = splitVat(tot); let pg = null, dMis = null;
+      let sv = splitVat(tot); let pg = null, dMis = null, posGlInv = false;
       if (posGlAt(org, c.date)) {   // v56.18 (POS 6a)
         const d = posGlDay(ops.posOrders || [], c.branchId, c.date, posGlPv(org), taxOn ? trate * 100 : 0);
         if ((d.n + d.retN) > 0 && Math.abs(tot - d.total) < 0.005) { d.net = Math.round((tot - d.vat) * 100) / 100; pg = d; sv = { net: d.net, vat: d.vat }; posGlLines(d).forEach(([code, dr, cr]) => lines.push(L(code, dr, cr))); }
-        else if ((d.n + d.retN) > 0 && posMisLoyAt(org, c.date)) dMis = d;   // v56.33 P2
+        else if ((d.n + d.retN) > 0) { posGlInv = true; if (posMisLoyAt(org, c.date)) dMis = d; }   // v56.33 P2 — غير مطابق وله فواتير
       }
       if (!pg) { lines.push(L('4101', 0, sv.net)); if (sv.vat) lines.push(L('2301', 0, sv.vat)); }
       if (dMis) {   // v56.33 P2: الإغلاق غير المطابق — حركة الولاء وحدها من الفواتير فيبقى 2106 مطابقًا لسجل النقاط
         if (dMis.earn) lines.push(L('4101', dMis.earn > 0 ? dMis.earn : 0, dMis.earn < 0 ? -dMis.earn : 0), L('2106', dMis.earn < 0 ? -dMis.earn : 0, dMis.earn > 0 ? dMis.earn : 0));
         if (dMis.redeem) lines.push(L('2106', dMis.redeem, 0), L('4101', 0, dMis.redeem));
       }
-      push({ id: 'rev:' + c.id, ...(posGlAt(org, c.date) ? { posGl: pg ? 'pos' : 'mismatch', ...(dMis ? { posLoy: true } : {}) } : {}), date: c.date, branchId: c.branchId, title: 'إيراد وردية — ' + (c.branchName || ''), src: 'إغلاق وردية', ref: c.id, lines,
+      push({ id: 'rev:' + c.id, ...(posGlAt(org, c.date) ? { posGl: pg ? 'pos' : 'mismatch', ...(dMis ? { posLoy: true } : {}), ...(!pg && posGlInv ? { posInv: true } : {}) } : {}), date: c.date, branchId: c.branchId, title: 'إيراد وردية — ' + (c.branchName || ''), src: 'إغلاق وردية', ref: c.id, lines,
         vat: sv.vat ? { out: sv.vat, inn: 0, netSales: sv.net, netPurch: 0 } : null,
         reg: { k: 's', doc: 'مبيعات الوردية (مبسطة)', party: 'عملاء أفراد — ' + (c.branchName || ''), net: sv.net, vat: sv.vat, gross: tot } });   // v39.1 سجل المبيعات
     }
@@ -3483,7 +3487,8 @@ function closeAutoChecks(A, ops, month, org) {
   const susp = r2((A.entries || []).filter(e => String(e.date || '') <= end).reduce((t, e) => t + (e.lines || []).filter(l => l.code === '9999').reduce((a, l) => a + l.debit - l.credit, 0), 0));
   const pj = (ops.journalManual || []).filter(j => j.status === 'pending' && String(j.date || '') <= end);
   const pcv = (ops.cashVouchers || []).filter(v => v.status === 'pending' && String(v.date || '') <= end);   // v56.32
-  const pmis = org ? (A.entries || []).filter(e => inM(e.date) && e.posGl === 'mismatch' && !posGlNote(org, String(e.id).replace(/^rev:/, ''))) : [];   // v56.33 P2
+  // v56.33 P2: غير المطابق وله فواتير، داخل نطاق «الإغلاق غير المطابق» فقط (معطّل افتراضيًا)، وبلا شرح
+  const pmis = org ? (A.entries || []).filter(e => inM(e.date) && e.posGl === 'mismatch' && e.posInv && posMisLoyAt(org, e.date) && !posGlNote(org, String(e.id).replace(/^rev:/, ''))) : [];
   const pds = (ops.disbursements || []).filter(x => x.status === 'pending' && String(x.date || '') <= end);   // v56.29
   return [
     { k: 'drafts', ar: 'لا إغلاقات مسودة أو مرفوضة حتى نهاية الشهر', n: cls.filter(c => c.status === 'draft' || c.status === 'rejected').length },
@@ -3785,7 +3790,7 @@ export { FL_START, flOn, flKey, flNo, flLines, flRecord, flScope, flCompare, flL
 export { FL_GROUPS, flLvl, flGroupOf, flUnclassified, flReversalOf, flCorrect };   // v56.11 D3
 export { flReadOn, flEntriesOf, flBalDiff, flDayBefore };   // v56.14 D4
 export { ctlBarOn };
-export { posLoyOpening, posMisLoyFrom, posMisLoyAt, posGlNote };   // v56.33
+export { posLoyOpening, posMisLoyRanges, posMisLoyFrom, posMisLoyAt, posGlNote };   // v56.33
 export { cvLive, cvApprRanges, cvApprAt, cvApprOpenFrom, cvNeedsAppr, cvApprove };   // v56.32
 export { DS_BLOCKED, dsRanges, dsRouteAt, dsRouteOpen, dsLive, dsBlockReason, dsOpenFrom, dsMapOf, dsAccOk, dsAccOf, dsPostDate, dsFundOf, dsCashOut, dsBankOk, lockedLedgerSig };   // v56.29
 export { DEPT_SHARED, deptOn, deptList, deptPL };   // v56.27 E4   // v56.23 G2

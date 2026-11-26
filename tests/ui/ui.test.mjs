@@ -3999,7 +3999,7 @@ test('v56.33 جاهزية 6a: معاينة رصيد النقاط القائم، 
   await p.click('button:has-text("صيانة النظام")'); await p.waitForSelector('[data-posgl-open]');
   await p.click('[data-posgl-openprev]'); await p.waitForSelector('[data-posgl-openres]');
   assert.match(await p.locator('[data-posgl-openres]').innerText(), /نقطة ×/);
-  await p.click('[data-posgl-mistoggle]'); await p.waitForFunction(() => !!(((window.curOrg.posGl || {}).misLoy) || {}).from);
+  await p.click("[data-posgl-mistoggle]"); await p.waitForFunction(() => (((window.curOrg.posGl || {}).misLoyRanges) || []).some(r => r.from && !r.to));
   assert.match(await p.locator('[data-posgl-mis]').innerText(), /مفعّل من/);
   assert.deepEqual(errs, []); await ctx.close();
 });

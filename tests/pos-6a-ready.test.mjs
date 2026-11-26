@@ -32,10 +32,25 @@ test('P2: الإغلاق غير المطابق — بلا تفعيل كما كا
   assert.equal(E.buildAccounting(org({ misLoy: { from: '2026-12-01', to: '2026-12-04' } }), { closings: [clo()], posOrders: [o1] }).entries.find(x => x.id === 'rev:c1').posLoy, undefined);
 });
 
-test('P2: قائمة الإقفال تكشف غير المطابق بلا شرح، والشرح يرفع المنع', () => {
-  const o = org(); const A = E.buildAccounting(o, { closings: [clo()], posOrders: [o1] });
+test('P2: قائمة الإقفال تكشف غير المطابق بلا شرح (داخل نطاق الولاء فقط)، والشرح يرفع المنع', () => {
+  assert.equal(E.closeAutoChecks(E.buildAccounting(org(), { closings: [clo()], posOrders: [o1] }), {}, '2026-12', org()).some(c => c.k === 'posmis'), false, 'بلا تفعيل لا منع');
+  const o = org({ misLoyRanges: [{ from: '2026-12-01' }] }); const A = E.buildAccounting(o, { closings: [clo()], posOrders: [o1] });
   const it = E.closeAutoChecks(A, {}, '2026-12', o).find(c => c.k === 'posmis'); assert.ok(it && it.n === 1 && !it.ok);
-  const o2 = org({ notes: { c1: 'فرق نقد مسلّم — محضر 12' } });
+  const o2 = org({ misLoyRanges: [{ from: '2026-12-01' }], notes: { c1: 'فرق نقد مسلّم — محضر 12' } });
   assert.equal(E.closeAutoChecks(A, {}, '2026-12', o2).some(c => c.k === 'posmis'), false);
   assert.equal(E.closeAutoChecks(A, {}, '2026-12').some(c => c.k === 'posmis'), false, 'بلا org كما كان');
+});
+
+test('(التحقق المستقل) نطاقات الولاء: الإيقاف ثم إعادة التفعيل لا يغيّر ما سبق؛ والإغلاق بلا فواتير لا يمنع القفل', () => {
+  const o = org({ misLoyRanges: [{ from: '2026-12-01', to: '2026-12-05' }, { from: '2026-12-20' }] });
+  assert.equal(E.buildAccounting(o, { closings: [clo()], posOrders: [o1] }).entries.find(x => x.id === 'rev:c1').posLoy, true, 'النطاق الأول باقٍ');
+  assert.equal(E.posMisLoyFrom(o), '2026-12-20');
+  const o3 = org({ misLoyRanges: [{ from: '2026-12-01' }] }); const A = E.buildAccounting(o3, { closings: [clo({ id: 'c9' })], posOrders: [] });
+  assert.equal(E.closeAutoChecks(A, {}, '2026-12', o3).some(c => c.k === 'posmis'), false, 'بلا فواتير لا منع');
+});
+
+test('(التحقق المستقل) P1 بالوقت المحلي: حركة فجر يوم القطع لا تُحتسب في الرصيد السابق', () => {
+  const local0130 = new Date('2026-12-01T01:30:00').toISOString();   // فجر يوم القطع بالتوقيت المحلي
+  const r = E.posLoyOpening(org(), { tx: [{ pts: 100, at: '2026-11-10T10:00:00Z' }, { pts: 10, at: local0130 }] }, '2026-12-01');
+  assert.equal(r.pts, 100);
 });

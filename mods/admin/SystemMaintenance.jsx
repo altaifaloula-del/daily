@@ -10,7 +10,7 @@ import { posrOn, posrCompare, posrLoad, posrSeed, posrState, posrRepair } from '
 import { MKT_BR_CV, mktBrOn } from '../../App.jsx';
 import { grrOn, mkcCompare, lytCompare, grrLoad, grrSeed, grrState } from '../../App.jsx';
 import { posGlOpen, posGlRanges, posGlCheck } from '../../App.jsx';
-import { posLoyOpening, posMisLoyFrom, posGlNote, jeOwner, posGlFrom } from '../../App.jsx';   // v56.33 (الدفعة 2 — P1/P2)
+import { posLoyOpening, posMisLoyRanges, posMisLoyFrom, posGlNote, jeOwner, posGlFrom } from '../../App.jsx';   // v56.33 (الدفعة 2 — P1/P2)
 import { ctlBarOn } from '../../App.jsx';
 import { DS_BLOCKED, dsRanges, dsRouteOpen, dsLive, dsMapOf, dsAccOk } from '../../App.jsx';
 import { cvApprRanges } from '../../App.jsx';   // v56.32 اعتماد سندات الصرف   // v56.29 أوامر الصرف   // v56.23 (G2) شريط التحكم   // v56.18 (POS 6a) أثر فواتير نقطة البيع في قيد الإغلاق   // v56.17 (GROWTH 2) سجلات الموافقة والولاء المحمية   // v56.12 (GROWTH G1) سجلات التسويق في الفروع
@@ -534,7 +534,7 @@ function PosGlCard({ org, ops, me, commit, commitOrg, say, isAdm }) {
     const ok = await commitOrg(o => { const rs = posGlRanges(o).map(r => ({ ...r }));
       if (on) { const x = rs.find(r => !r.to); if (x) { x.to = today(); x.offAt = nowISO(); } }
       else rs.push({ from, pv, at: nowISO() });
-      return { ...o, posGl: { ranges: rs, pv: (o.posGl || {}).pv != null ? o.posGl.pv : pv } }; },
+      return { ...o, posGl: { ...(o.posGl || {}), ranges: rs, pv: (o.posGl || {}).pv != null ? o.posGl.pv : pv } }; },   // (التحقق المستقل) لا يحذف الشروح ونطاقات الولاء
       { actionType: 'settings', targetType: 'system_settings', targetId: 'posGl', title: on ? 'أوقف قيد الإيراد من فواتير نقطة البيع' : 'فعّل قيد الإيراد من فواتير نقطة البيع', details: on ? 'حتى ' + today() : 'من ' + from + ' · قيمة النقطة ' + pv });
     if (ok) { setRows(null); say(on ? 'أُوقف من الغد — القيود السابقة كما هي' : 'فُعّل من ' + from + ' ✓'); }
   };
@@ -545,13 +545,16 @@ function PosGlCard({ org, ops, me, commit, commitOrg, say, isAdm }) {
     if (ok) say('حُفظ الشرح ✓'); };
   const misFrom = posMisLoyFrom(org); const [mFrom, setMFrom] = useState(today());
   const setMis = async () => { if (!isAdm) return;
-    if (!misFrom) { const pm = (org.posGl || {}).misLoy || {}; if (pm.to && mFrom <= pm.to) return say('تاريخ البدء بعد نهاية التفعيل السابق (' + pm.to + ')', 'no'); if (mFrom < today()) return say('تاريخ البدء لا يسبق اليوم', 'no'); if (lk && mFrom <= lk) return say('تاريخ البدء داخل فترة مقفلة', 'no');
+    if (!misFrom) { const lastTo = posMisLoyRanges(org).reduce((a, r) => (r.to && r.to > a ? r.to : a), ''); if (lastTo && mFrom <= lastTo) return say('تاريخ البدء بعد نهاية التفعيل السابق (' + lastTo + ')', 'no'); if (mFrom < today()) return say('تاريخ البدء لا يسبق اليوم', 'no'); if (lk && mFrom <= lk) return say('تاريخ البدء داخل فترة مقفلة', 'no');
       if (!window.confirm('من ' + mFrom + ': الإغلاق غير المطابق يُضاف إليه قيد حركة الولاء وحدها من الفواتير (منح: مدين 4101 دائن 2106 · استبدال: مدين 2106 دائن 4101). ما قبله كما هو.')) return; }
-    const ok = await commitOrg(o => ({ ...o, posGl: { ...(o.posGl || {}), misLoy: misFrom ? { ...((o.posGl || {}).misLoy || {}), to: today(), offAt: nowISO() } : { from: mFrom, at: nowISO() } } }), { actionType: 'settings', targetType: 'system_settings', targetId: 'posGl.misLoy', title: misFrom ? 'أوقف قيد الولاء للإغلاق غير المطابق' : 'فعّل قيد الولاء للإغلاق غير المطابق', details: misFrom ? '' : 'من ' + mFrom });
+    const ok = await commitOrg(o => { const rs = posMisLoyRanges(o).map(r => ({ ...r }));
+      if (misFrom) { const x = rs.find(r => !r.to); if (x) { x.to = today(); x.offAt = nowISO(); } } else rs.push({ from: mFrom, at: nowISO() });
+      const g = { ...(o.posGl || {}), misLoyRanges: rs }; delete g.misLoy; return { ...o, posGl: g }; }, { actionType: 'settings', targetType: 'system_settings', targetId: 'posGl.misLoy', title: misFrom ? 'أوقف قيد الولاء للإغلاق غير المطابق' : 'فعّل قيد الولاء للإغلاق غير المطابق', details: misFrom ? '' : 'من ' + mFrom });
     if (ok) say(misFrom ? 'أُوقف' : 'فُعّل من ' + mFrom + ' ✓'); };
   // v56.33 P1: رصيد النقاط القائم قبل التفعيل — معاينة ثم قيد تسوية بموافقة المالك
   const [op, setOp] = useState(null); const [opDr, setOpDr] = useState('');
-  const cutoff = posGlFrom(org) || (R[0] || {}).from || today();
+  // (التحقق المستقل) القطع = بداية أول نطاق لقيد نقطة البيع (لا الأخير) — فلا تُحتسب نقاط نطاق سابق مرتين
+  const cutoff = R.reduce((a, r) => (!a || r.from < a ? r.from : a), '') || today();
   const preview = async () => { const doc = await cloud.get(KEYS.loy, null).catch(() => null); setOp(posLoyOpening(org, doc || {}, cutoff)); };
   const opDone = (ops.journalManual || []).some(j => j.loyOpen && j.status !== 'rejected');
   const postOpening = async () => {
@@ -590,7 +593,8 @@ function PosGlCard({ org, ops, me, commit, commitOrg, say, isAdm }) {
       <b>رصيد النقاط القائم قبل {cutoff} (قرار المجلس P1):</b> يُحسب آليًا = النقاط × قيمة النقطة بعد استبعاد الضريبة، ويُسجَّل بقيد تسوية واحد بتاريخ اليوم بعد موافقتك — لا يُفتح شهر مقفل ولا يُعدَّل قيد سابق. الجوهرية يقدّرها المحاسب المختص.
       <div className="row" style={{ gap: 8, marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
         <button className="btn sm gh" onClick={preview} data-posgl-openprev>معاينة</button>
-        {op && <span data-posgl-openres>{op.pts} نقطة × {op.pv} ÷ (1 + {op.rate}%) = <b className="num">{op.amt}</b> ر.س</span>}
+        {op && <span data-posgl-openres>{op.pts} نقطة × {op.pv} ÷ (1 + {op.rate}%) = <b className="num">{op.amt}</b> ر.س <small style={{ color: 'var(--dim)' }}>(قيمة النقطة من إعداد الولاء{(org.posGl || {}).pv != null ? ' — لقطة يوم التفعيل' : ' الحالي'})</small></span>}
+        {R.length > 1 && <span className="badge b-amber" data-posgl-gap>تعدد نطاقات التفعيل: نقاط الفترات الفاصلة بين النطاقات لا يغطيها هذا القيد — تُعالج بقرار</span>}
         {opDone && <span className="badge b-sky">القيد مسجّل</span>}
         {op && op.amt > 0 && isAdm && !opDone && <><select className="sel" aria-label="الطرف المدين لقيد التسوية" value={opDr} onChange={e => setOpDr(e.target.value)} data-posgl-opendr>
           <option value="">— الطرف المدين —</option><option value="3201">3201 الأرباح المبقاة (إن كان جوهريًا — تصحيح خطأ سابق)</option><option value="4101">4101 إيراد الفترة (إن لم يكن جوهريًا)</option></select>
