@@ -5,7 +5,7 @@ import { EInvoiceOnboard } from './EInvoiceOnboard.jsx';
 import { RotateCcw, Scale, FileBarChart, ChevronDown, Printer, Settings, Receipt, BarChart3, Lock, Landmark, FileText, TrendingUp, ArrowLeftRight, Store, Users, QrCode, Building2, Truck, ClipboardCheck, ShieldCheck, CalendarDays, Download, Upload, Plus, Grid3x3, Check, Trash2, RefreshCw, Wallet, TrendingDown, AlertTriangle, ChevronRight, ShieldAlert, Eye, ChevronLeft, CircleDollarSign, X } from 'lucide-react';
 import { VatRegisters, SupplierPurchReport } from './TaxPurchReports.jsx';   // v39.1
 import { Suppliers } from '../inv/Suppliers.jsx';   // v44.0 «مستلم لم يُفوتر»
-import { OdooBar , SecPager, recurApply, canEditRec, dtLocal, yearEndNext } from '../../App.jsx';
+import { OdooBar , ctlBarOn, SecPager, recurApply, canEditRec, dtLocal, yearEndNext } from '../../App.jsx';
 import { tbCss, tenantBrand } from '../../App.jsx';   // v56.0 ألوان مستندات المنشأة   // v41.0
 import { GeneralLedger } from './GeneralLedger.jsx';   // v49.4 المرحلة 03
 import { makeRptXlsx } from '../../App.jsx';   // v50.0 منظومة التقارير
@@ -1579,7 +1579,9 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
         // v41.0: شريط القوائم بنمط أودو (موحّد مع بقية التطبيقات)
         // v56.16 (بلاغ المالك 2026-11-26: «عناصر المحاسبة غير ظاهرة ولا مرتبة»): أقسام المجموعة الحالية صف ظاهر تحت المجموعات،
         // والسابق/التالي باسم القسم في نهاية الصف نفسه بدل سطر مستقل، وحُذف مبدّل العرض المكرر (المبدّل الموحّد أعلى التطبيق يكفي)
-        return <OdooBar groups={GROUPS.map(g => ({ id: g.id, ar: g.ar, items: g.items.filter(ok).map(v => ({ id: v, ar: IT[v][0] })) }))} cur={view} onPick={go} extra={manualBtn} showSub subEnd={pagerC} />;
+        // v56.23 (G2): النموذج 2 — مسار الموقع والإجراءات في سطر واحد فوق صف الأقسام (معطّل افتراضيًا)
+        const ctl = ctlBarOn(org);
+        return <OdooBar groups={GROUPS.map(g => ({ id: g.id, ar: g.ar, items: g.items.filter(ok).map(v => ({ id: v, ar: IT[v][0] })) }))} cur={view} onPick={go} extra={ctl ? null : manualBtn} showSub subEnd={pagerC} crumb={ctl ? { app: 'المحاسبة', primary: manualBtn || null } : null} />;
       })()}
 
       {/* v15.11: لا قسم متاح (أُخفيت كل الأقسام لهذا المستخدم) — رسالة بدل تسريب اليومية */}

@@ -9,7 +9,8 @@ import { clrCompare, clrLoad, clrOn, clrSeed, clrState, logAudit, clrRead, clrVi
 import { posrOn, posrCompare, posrLoad, posrSeed, posrState, posrRepair } from '../../App.jsx';   // v56.4 (POS 2a) سجلات فواتير نقطة البيع
 import { MKT_BR_CV, mktBrOn } from '../../App.jsx';
 import { grrOn, mkcCompare, lytCompare, grrLoad, grrSeed, grrState } from '../../App.jsx';
-import { posGlOpen, posGlRanges, posGlCheck } from '../../App.jsx';   // v56.18 (POS 6a) أثر فواتير نقطة البيع في قيد الإغلاق   // v56.17 (GROWTH 2) سجلات الموافقة والولاء المحمية   // v56.12 (GROWTH G1) سجلات التسويق في الفروع
+import { posGlOpen, posGlRanges, posGlCheck } from '../../App.jsx';
+import { ctlBarOn } from '../../App.jsx';   // v56.23 (G2) شريط التحكم   // v56.18 (POS 6a) أثر فواتير نقطة البيع في قيد الإغلاق   // v56.17 (GROWTH 2) سجلات الموافقة والولاء المحمية   // v56.12 (GROWTH G1) سجلات التسويق في الفروع
 import { WorkflowsCard } from './Workflows.jsx';   // v49.5 MQ-059
 import { FL_START, flOn, flScope, flCompare, flLoad, flPost, FL_GROUPS, flLvl, flUnclassified, flCorrect, flReadOn } from '../../App.jsx';   // v56.9 D1 دفتر القيود المخزّن
 import { fjCompare, fjLoad, fjOn, fjState, fpLockedTo, fpLoad, fmLoad, fmSet, fjSeed, FD_KINDS, fdCompare, fdLoad, fdSeed } from '../../App.jsx';   // v49.0 المرحلة 01
@@ -317,6 +318,7 @@ export function SystemMaintenance({ org, ops, me, commit, commitOrg, say }) {
       <MktBranchCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <GrowthRecordsCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <PosGlCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
+      <CtlBarCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <FinStrictCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <LedgerCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <JournalRecordsCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
@@ -548,6 +550,25 @@ function PosGlCard({ org, ops, commitOrg, say, isAdm }) {
       {isAdm && <button className={'btn sm ' + (on ? 'gh' : 'pri')} onClick={toggle} data-posgl-toggle>{on ? 'إيقاف' : 'تفعيل'}</button>}
       {R.length > 0 && <button className="btn sm gh" onClick={() => setRows(posGlCheck(org, ops))} data-posgl-check>فحص المطابقة</button>}
     </div>
+  </div>);
+}
+
+/* v56.23 (G2 — النموذج 2، المرحلة 1): شريط التحكم في المحاسبة — مسار الموقع والإجراءات فوق صف الأقسام. واجهة فقط، لا أثر على البيانات. معطّل افتراضيًا. */
+function CtlBarCard({ org, commitOrg, say, isAdm }) {
+  const on = ctlBarOn(org);
+  const toggle = async () => {
+    if (!isAdm) return;
+    const ok = await commitOrg(o => ({ ...o, ctlBar: { ...(o.ctlBar || {}), on: !on, at: nowISO() } }),
+      { actionType: 'settings', targetType: 'system_settings', targetId: 'ctlBar', title: on ? 'أوقف شريط التحكم في المحاسبة' : 'فعّل شريط التحكم في المحاسبة', details: on ? 'عودة لشريط v56.16' : 'النموذج 2 — المرحلة 1' });
+    if (ok) say(on ? 'أُوقف — عاد الشريط السابق' : 'فُعّل شريط التحكم في المحاسبة ✓');
+  };
+  return (<div className="card" data-ctlbar-card>
+    <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />شريط التحكم في المحاسبة (النموذج 2 — تجريبي)</div>
+      <span className={'badge ' + (on ? 'b-sky' : 'b-dim')}>{on ? 'مفعّل' : 'غير مفعّل'}</span></div>
+    <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>
+      يُظهر سطرًا أعلى المحاسبة فيه مسار الموقع (المحاسبة › المجموعة › القسم الحالي) وأزرار الإجراء (قيد يدوي، القيود المعلّقة والدورية)، ويكبّر أزرار الأقسام للمس على التابلت والجوال.
+      تغيير في الشكل فقط — لا يمس أي قيد أو رصيد، ويمكن إيقافه في أي وقت. يسري على كل مستخدمي المنشأة.</div>
+    {isAdm && <button className={'btn sm ' + (on ? 'gh' : 'pri')} onClick={toggle} data-ctlbar-toggle>{on ? 'إيقاف' : 'تفعيل'}</button>}
   </div>);
 }
 
