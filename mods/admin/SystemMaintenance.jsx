@@ -371,7 +371,7 @@ function LedgerCard({ org, ops, commitOrg, say, isAdm }) {
       { actionType: 'settings', targetType: 'system_settings', targetId: 'ledger', title: 'وسّع نطاق الدفتر المخزّن', details: g.label });
     if (ok) { setRep(null); say('أُضيفت: ' + g.label); }
   };
-  // v56.13 (D4 — قرار المالك): ميزان المراجعة والقوائم من الدفتر — بعد ضم المجموعات الست ومطابقة كاملة فقط؛ والعودة فورية
+  // v56.14 (D4 — قرار المالك): ميزان المراجعة والقوائم من الدفتر — بعد ضم المجموعات الست ومطابقة كاملة فقط؛ والعودة فورية
   const rd = flReadOn(org);
   const setRead = async (v) => {
     if (!isAdm) return;
