@@ -43,3 +43,25 @@ test('المرفوض والمسحوب بلا قيد، والقديم بلا حا
   const A = E.buildAccounting(org, { cashVouchers: [{ ...pv('r', '2026-12-02', { status: 'rejected' }), alloc: [] }, { ...pv('o', '2026-11-10'), alloc: [] }] });
   assert.equal(A.entries.some(e => e.id.includes('r')) && A.entries.some(e => /cv:r/.test(e.id)), false); assert.ok(A.entries.some(e => /cv:o/.test(e.id)));
 });
+
+test('(التحقق المستقل) لا اعتماد لسند فاتورته حُذفت أو صارت إشعارًا دائنًا، ولا يعتمده منشئه', () => {
+  const d0 = E.applyCashVoucher({ invoices: [inv], cashVouchers: [] }, pv('p', '2026-12-02', { status: 'pending' }), me);
+  assert.match(E.cvApprove({ ...d0, invoices: [] }, 'p', me).err, /لم تعد قائمة/);
+  assert.match(E.cvApprove({ ...d0, invoices: [{ ...inv, creditNote: true, amount: -1000 }] }, 'p', me).err, /لم تعد قائمة/);
+  assert.match(E.cvApprove(d0, 'p', { name: 'أ', id: 'a', role: 'accountant' }).err, /من أنشأه/);
+});
+
+test('(التحقق المستقل) السجلات المحمية: سند الصرف يُنسخ عند ترحيله فقط', () => {
+  const p = pv('p', '2026-12-02', { status: 'pending', alloc: [] }), ok = { ...p, status: 'posted', approvedBy: 'ب' }, rj = { ...p, status: 'rejected' };
+  assert.equal(E.fdDiff('cv', [], [p]).create.length, 0, 'المعلّق لا يُنسخ');
+  const r = E.fdDiff('cv', [p], [ok]); assert.equal(r.create.length, 1); assert.equal(r.skip.length, 0, 'لا تخطٍّ بعد الاعتماد');
+  assert.equal(E.fdDiff('cv', [p], [rj]).create.length + E.fdDiff('cv', [p], [rj]).skip.length, 0, 'المرفوض لا يُنسخ');
+  assert.equal(E.fdDiff('cv', [], [{ ...p, status: undefined }]).create.length, 1, 'القديم بلا حالة كما كان');
+});
+
+test('(التحقق المستقل) قائمة الإقفال تكشف السندات والأوامر المعلّقة', () => {
+  const A = E.buildAccounting(base, {});
+  const ck = E.closeAutoChecks(A, { cashVouchers: [pv('p', '2026-12-02', { status: 'pending' })], disbursements: [{ id: 'x', date: '2026-12-03', status: 'pending', amount: 5 }] }, '2026-12');
+  const it = ck.find(c => c.k === 'pdocs'); assert.ok(it && it.n === 2 && !it.ok);
+  assert.equal(E.closeAutoChecks(A, {}, '2026-12').some(c => c.k === 'pdocs'), false, 'بلا معلّق لا بند جديد');
+});

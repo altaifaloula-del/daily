@@ -3464,10 +3464,13 @@ function closeAutoChecks(A, ops, month) {
   const unb = (A.entries || []).filter(e => inM(e.date) && e.balanced === false);
   const susp = r2((A.entries || []).filter(e => String(e.date || '') <= end).reduce((t, e) => t + (e.lines || []).filter(l => l.code === '9999').reduce((a, l) => a + l.debit - l.credit, 0), 0));
   const pj = (ops.journalManual || []).filter(j => j.status === 'pending' && String(j.date || '') <= end);
+  const pcv = (ops.cashVouchers || []).filter(v => v.status === 'pending' && String(v.date || '') <= end);   // v56.32
+  const pds = (ops.disbursements || []).filter(x => x.status === 'pending' && String(x.date || '') <= end);   // v56.29
   return [
     { k: 'drafts', ar: 'لا إغلاقات مسودة أو مرفوضة حتى نهاية الشهر', n: cls.filter(c => c.status === 'draft' || c.status === 'rejected').length },
     { k: 'pending', ar: 'كل الإغلاقات المرفوعة مدقَّقة (لا شيء بانتظار التدقيق)', n: cls.filter(c => c.status === 'submitted').length },
     { k: 'pj', ar: 'لا قيود يدوية بانتظار الاعتماد', n: pj.length },
+    ...(pcv.length || pds.length ? [{ k: 'pdocs', ar: 'لا سندات صرف ولا أوامر صرف بانتظار الاعتماد (المعلّق في شهر مقفل لا يُعتمد)', n: pcv.length + pds.length }] : []),
     { k: 'unb', ar: 'كل قيود الشهر متوازنة', n: unb.length },
     { k: 'susp', ar: 'الحساب المعلّق 9999 رصيده صفر', n: Math.abs(susp) > 0.004 ? 1 : 0, amt: susp },
   ].map(x => ({ ...x, ok: !x.n }));
@@ -11570,8 +11573,11 @@ const cvNeedsAppr = (org, v) => v && v.kind === 'pv' && cvApprAt(org, v.date);
 /** اعتماد سند معلّق: يُطبَّق أثره (السداد/السلفة) على أحدث نسخة، مع التحقق من متبقي الفواتير. يعيد { next } أو { err }. */
 function cvApprove(d, id, me) {
   const v = (d.cashVouchers || []).find(x => x.id === id); if (!v || v.status !== 'pending') return { err: 'تغيّرت حالة السند قبل الحفظ — حدّث الشاشة' };
+  if (!canApproveJe(me, v)) return { err: 'لا يعتمد السند من أنشأه — يعتمده المحاسب أو الإدارة المالية أو المالك' };   // (التحقق المستقل) الصلاحية داخل الدالة أيضًا
   const rem = (i) => Math.round(((Number(i.amount) || 0) - invPayments(i).reduce((t, p) => t + (Number(p.amount) || 0), 0)) * 100) / 100;   // كما في partyOpenDocs
-  if (v.party && v.party.t === 'sup') for (const x of (v.alloc || [])) { const i = (d.invoices || []).find(y => y.id === x.id); if (i && Number(x.amount) > rem(i) + 0.004) return { err: 'تغيّر متبقي الفاتورة ' + (x.no || x.id) + ' — أعد إصدار السند' }; }
+  if (v.party && v.party.t === 'sup') for (const x of (v.alloc || [])) { const i = (d.invoices || []).find(y => y.id === x.id);
+    if (!i || i.creditNote || !((Number(i.amount) || 0) > 0)) return { err: 'الفاتورة ' + (x.no || x.id) + ' لم تعد قائمة — ارفض السند وأعد إصداره' };   // (التحقق المستقل) وإلا خرج النقد بلا قيد
+    if (Number(x.amount) > rem(i) + 0.004) return { err: 'تغيّر متبقي الفاتورة ' + (x.no || x.id) + ' — أعد إصدار السند' }; }
   const posted = { ...v, status: 'posted', approvedBy: me.name, approvedAt: nowISO() };
   const base = { ...d, cashVouchers: (d.cashVouchers || []).filter(x => x.id !== id) };
   return { next: applyCashVoucher(base, posted, me) };
@@ -15103,7 +15109,10 @@ const fdPaid = (kind, x) => kind === 'pi' ? Math.max(0, Math.round((Number(x.pai
 const fdKey = (kind, id) => kind + '_' + String(id || '');
 const fdOk = (x) => /^[A-Za-z0-9_-]{1,110}$/.test(String((x && x.id) || '')) && fjOkDate(fdDate(x));
 function fdRecord(kind, x) { const data = fdData(kind, x); return { kind, date: fdDate(x), digest: sha256Hex(data), data, prog: fdProg(kind, x), paid: fdPaid(kind, x) }; }
+// v56.32 (التحقق المستقل): سند الصرف يُنسخ إلى السجلات المحمية عند ترحيله فقط (المعلّق والمرفوض والمسحوب لا يُنسخ) — بقرار المجلس
+const fdLive = (kind, L) => kind === 'cv' ? (L || []).filter(cvLive) : (L || []);
 function fdDiff(kind, before, after) {
+  before = fdLive(kind, before); after = fdLive(kind, after);
   const B = new Map((before || []).map(x => [x.id, x])), A = new Map((after || []).map(x => [x.id, x]));
   const create = [], upd = [], del = [], skip = [];
   A.forEach((x, id) => {
@@ -15118,6 +15127,7 @@ function fdDiff(kind, before, after) {
   return { create, upd, del, skip };
 }
 function fdCompare(kind, list, recs) {
+  list = fdLive(kind, list);
   const R = new Map((recs || []).filter(r => r.kind === kind).map(r => [r.id, r])), missing = [], differ = [], seen = new Set();
   (list || []).forEach(x => { if (!fdOk(x)) return; const k = fdKey(kind, x.id), r = R.get(k); seen.add(k);
     if (!r) missing.push(x); else { const d = fdData(kind, x); if (r.data !== d || r.digest !== sha256Hex(d) || r.date !== fdDate(x) || (kind !== 'cv' && r.prog !== fdProg(kind, x))) differ.push(x); } });
@@ -15147,7 +15157,7 @@ async function fdLoad() {
 }
 async function fdSeed(kind, missing, onProgress) {
   const c = await ctlIdentity(); if (!c) return { err: 'خارج Firestore' };
-  let ok = 0, fail = 0, lastErr = '', i = 0; const list = (missing || []).filter(fdOk);
+  let ok = 0, fail = 0, lastErr = '', i = 0; const list = fdLive(kind, missing).filter(fdOk);
   for (const x of list) {
     try { await ctlTimeout(c.f.setDoc(c.f.doc(c.f.db, 'fin_docs', fdKey(kind, x.id)), { ...fdRecord(kind, x), legacy: true, by: c.email, at: c.f.serverTimestamp(), cv: APP_CV })); ok++; }
     catch (e) { fail++; lastErr = (e && e.code) || 'error'; }
