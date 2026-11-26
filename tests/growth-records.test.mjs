@@ -1,5 +1,5 @@
 /**
- * v56.14 — MUKTASAB GROWTH الدفعة 2: سجلات الموافقة التسويقية وحركات الولاء المحمية (نسخ موازٍ) — المحرك.
+ * v56.15 — MUKTASAB GROWTH الدفعة 2: سجلات الموافقة التسويقية وحركات الولاء المحمية (نسخ موازٍ) — المحرك.
  */
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';

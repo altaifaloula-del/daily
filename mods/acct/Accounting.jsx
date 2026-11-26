@@ -9,6 +9,7 @@ import { OdooBar , SecPager, recurApply, canEditRec, dtLocal, yearEndNext } from
 import { tbCss, tenantBrand } from '../../App.jsx';   // v56.0 ألوان مستندات المنشأة   // v41.0
 import { GeneralLedger } from './GeneralLedger.jsx';   // v49.4 المرحلة 03
 import { makeRptXlsx } from '../../App.jsx';   // v50.0 منظومة التقارير
+import { FL_START, FL_GROUPS, flReadOn, flLoad, flEntriesOf, flBalDiff, flScope } from '../../App.jsx';   // v56.14 D4 الميزان والقوائم من الدفتر المخزّن
 import { DEP_METHODS, depMethod, deprSchedule, wfOn, wfRequired, wfState, wfCanAct, wfApprove } from '../../App.jsx';   // v49.4 طرق الإهلاك
 import { ACCT_GROUPS, DocLink, RowGrip, moveIdx, RECUR_AR, recurNext, recurDue, jeOwner, canApproveJe, jeAutoSt, vatCloseLive, projList, projectPL, projNextCode, ACCT_SECTIONS, ACC_KIND, Field, Kpi, LOCK_MSG, MizanMerge, Modal, NUM_FACE, Num, ROLES, _xe, acctSecKey, arDate, bankOfBranch, branchBanks, bsLayout, bsRowsOf, buildAccounting, buildPartners, capOK, countedClosing, customerAging, detectStmtMap, entityById, entityList, gosiRatesFor, isLayout, isRowsOf, isoD, lockedThru, makeXlsx, money, monthEnd, monthLedger, multiEntityOn, naMissing, nowISO, openDocWin, parseCsvGrid, parseMt940, parseXlsxGrid, payTotal, periodLocked, posClrOf, printA4, qrSvg, roleEdit, rolePost, snapMonths, stAddDays, stDate, stNum, sum, supplierAging, today, uid, useSecNav, zatcaTLV } from '../../App.jsx';
 
@@ -77,6 +78,15 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
   useEffect(() => { if (view === 'mclose') { setFrom(mcMonth + '-01'); setTo(mcLastDay(mcMonth)); } }, [view, mcMonth]);
 
   const A = useMemo(() => buildAccounting(org, ops), [org, ops]);
+  // v56.14 (D4 — قرار المالك): ميزان المراجعة والقوائم المالية من الدفتر المخزّن متى فُعّلت القراءة وكانت الفترة من بداية الدفتر فما بعد
+  const flRead = flReadOn(org); const [flRecs, setFlRecs] = useState(null);
+  useEffect(() => { if (!flRead) { setFlRecs(null); return; } let dead = false; flLoad().then(r => { if (!dead) setFlRecs(r == null ? { err: 'خارج Firestore' } : r); }); return () => { dead = true; }; }, [flRead]);
+  const flEnts = useMemo(() => Array.isArray(flRecs) ? flEntriesOf(flRecs) : null, [flRecs]);
+  const useFl = !!(flRead && flEnts && from && from >= FL_START);
+  const LE = useFl ? flEnts : A.entries;
+  const flDiff = useMemo(() => useFl ? flBalDiff(flScope(ops, A, FL_GROUPS.length), flEnts, to) : [], [useFl, ops, A, flEnts, to]);
+  const flSrcNote = !flRead ? null : useFl ? { ok: !flDiff.length, t: 'المصدر: الدفتر المخزّن (' + flEnts.length + ' قيدًا بأرقام ثابتة)' + (flDiff.length ? ' — ⚠ يختلف عن المحرك في ' + flDiff.length + ' حسابًا: ' + flDiff.slice(0, 3).map(d => d.code).join('، ') + ' — راجع «صيانة النظام ← مطابقة»' : ' — مطابق للمحرك ✓') }
+    : { ok: false, t: flRecs == null ? 'جارٍ تحميل الدفتر المخزّن…' : (flRecs && flRecs.err) ? 'تعذّر تحميل الدفتر (' + flRecs.err + ') — الأرقام من المحرك' : 'الفترة تبدأ قبل ' + FL_START + ' أو بلا «من» — الأرقام من المحرك (الدفتر يبدأ من ' + FL_START + ')' };
   const canPost = rolePost(me?.role);            // إدخال/ترحيل (قيود، أرصدة افتتاحية، إضافة حساب/أصل…)
   const canEdit = roleEdit(me?.role);            // v15.9: تعديل/حذف موجود (يُمنع على «محاسب — إدخال بلا تعديل»)
   // v15.10: تخصيص أقسام المحاسبة لكل مستخدم — يُخفى القسم إن أُخفي من «الإعدادات ← ظهور التطبيقات للمستخدمين ← أقسام المحاسبة»
@@ -112,19 +122,19 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
     }));
     return m;
   };
-  const tbEntries = A.entries.filter(e => inPeriod(e, from, to) && byBranch(e));
+  const tbEntries = LE.filter(e => inPeriod(e, from, to) && byBranch(e));
   const tbAgg = aggOf(tbEntries);
   const tbD = sum(tbEntries, e => e.debit), tbC = sum(tbEntries, e => e.credit);
   // v36.3: رصيد أول المدة (ما قبل «من») وآخرها — بنفس تصفية الفرع
-  const tbOpAgg = from ? aggOf(A.entries.filter(e => (e.date || '') < from && byBranch(e))) : {};
+  const tbOpAgg = from ? aggOf(LE.filter(e => (e.date || '') < from && byBranch(e))) : {};
   const TB_VAT = ['1501', '2301', '2302'];
   const tbShow = (a) => !!(tbAgg[a.code] || tbOpAgg[a.code] || ((org.taxCfg || {}).enabled && TB_VAT.includes(a.code)));
   const tbOpen = (a) => tbOpAgg[a.code] ? balOf(a, tbOpAgg) : 0;
   const tbMov = (a) => tbAgg[a.code] || { debit: 0, credit: 0 };
   const tbClose = (a) => { const m = tbMov(a); return Math.round((tbOpen(a) + ((a.kind === 'asset' || a.kind === 'exp') ? m.debit - m.credit : m.credit - m.debit)) * 100) / 100; };
-  const fsEntries = A.entries.filter(e => inPeriod(e, from, to) && !e.closing);  // قائمة الدخل بالفترة (تستثني قيد الإقفال السنوي)
+  const fsEntries = LE.filter(e => inPeriod(e, from, to) && !e.closing);  // قائمة الدخل بالفترة (تستثني قيد الإقفال السنوي)
   const fsAgg = aggOf(fsEntries);
-  const bsEntries = A.entries.filter(e => inPeriod(e, '', to));        // المركز المالي تراكمي حتى تاريخ
+  const bsEntries = LE.filter(e => inPeriod(e, '', to));        // المركز المالي تراكمي حتى تاريخ
   const bsAgg = aggOf(bsEntries);
   const balOf = (a, m) => {
     const x = m[a.code] || { debit: 0, credit: 0 };
@@ -1765,6 +1775,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
 
       {(view === 'gl' || view === 'actmv') && <><div className="card" style={{ padding: '10px 14px' }}>{periodBar}</div>
         <GeneralLedger me={me} org={org} ops={ops} A={A} mode={view === 'actmv' ? 'act' : 'gl'} code={glCode} setCode={setGlCode} from={from} to={to} bf={bf} setBf={setBf} onMode={(m) => setView(m === 'gl' ? 'gl' : 'actmv')} /></>}
+      {(view === 'tb' || view === 'fs') && flSrcNote && <div data-flsrc className="card" style={{ padding: '8px 12px', fontSize: 12, borderInlineStart: '3px solid ' + (flSrcNote.ok ? 'var(--mint)' : 'var(--amber)'), color: flSrcNote.ok ? 'var(--mint)' : 'var(--amber)' }}>{flSrcNote.t}</div>}
       {view === 'tb' && (
         <div className="card">
           <div className="card-h">

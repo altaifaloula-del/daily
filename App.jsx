@@ -3535,7 +3535,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.14';
+const APP_VER = 'v56.15';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3593,6 +3593,7 @@ export { FbGate };
 export { toHal, isHal, finStrictOn };   // v56.7 C4
 export { FL_START, flOn, flKey, flNo, flLines, flRecord, flScope, flCompare, flLoad, flPost, flOpening, flAutoPost };   // v56.9 D1 + v56.10 D2
 export { FL_GROUPS, flLvl, flGroupOf, flUnclassified, flReversalOf, flCorrect };   // v56.11 D3
+export { flReadOn, flEntriesOf, flBalDiff, flDayBefore };   // v56.14 D4
 export { ErrorBoundary, logClientError, lockedLedgerChanged };
 export { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, saleRetUse, posReturnLoyDed };
 export { jeLive, jeOwner, canApproveJe, jeAutoSt, vatCloseLive, WF_DOCS, wfTiers, wfOn, wfRequired, poNeedsAppr, wfState, wfCanAct, wfApprove };   // v47.1 اعتماد القيد اليدوي
@@ -3629,7 +3630,7 @@ function UpdateGate({ rel }) {
 function PlatformApp() {
   useEffect(() => { const h = setTimeout(prefetchMods, 2500); return () => clearTimeout(h); }, []);   // v38.3 جلب التطبيقات في الخلفية بعد ظهور الواجهة
   const [org, setOrg] = useState(null);
-  const orgNow = useRef(null); orgNow.current = org; grrSetOn(org);   // v56.14: مفتاح نسخ سجلات النمو لدفتر الولاء   // v29.5: للحارس المركزي للإقفال داخل writeOps
+  const orgNow = useRef(null); orgNow.current = org; grrSetOn(org);   // v56.15: مفتاح نسخ سجلات النمو لدفتر الولاء   // v29.5: للحارس المركزي للإقفال داخل writeOps
   const [opsRaw, setOps] = useState({ closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [] });
   // v42.2: القراءة من السجلات المستقلة — ops المعروضة = مستند الفرع مدموجًا بالسجلات (السجل يغلب) متى فُعّلت
   const [clRecs, setClRecs] = useState(null);
@@ -4387,7 +4388,7 @@ function PlatformApp() {
       fdB = { pi: d.invoices, si: d.salesInvoices, cv: d.cashVouchers }; fdA = r ? { pi: r.invoices, si: r.salesInvoices, cv: r.cashVouchers } : {}; return r; });
     if (ok && clAfter && clAfter !== clBefore && clrOn(orgNow.current)) clrQueue(clBefore, clAfter);   // بالخلفية وبالترتيب — لا يؤخر الحفظ
     if (ok && poAfter && poAfter !== poBefore && posrOn(orgNow.current)) posrQueue(poBefore, poAfter);
-    if (ok && mcAfter && mcAfter !== mcBefore && grrOn(orgNow.current)) { const nw = mkcDiff(mcBefore, mcAfter); if (nw.length) grrQueue('mkc', nw); }   // v56.14 الموافقات → mkt_consents   // v56.4 (POS 2a) نسخ الفواتير لسجلاتها المحمية — بالخلفية
+    if (ok && mcAfter && mcAfter !== mcBefore && grrOn(orgNow.current)) { const nw = mkcDiff(mcBefore, mcAfter); if (nw.length) grrQueue('mkc', nw); }   // v56.15 الموافقات → mkt_consents   // v56.4 (POS 2a) نسخ الفواتير لسجلاتها المحمية — بالخلفية
     if (ok && jmAfter && jmAfter !== jmBefore && fjOn(orgNow.current)) fjQueue(jmBefore, jmAfter);   // v49.0 القيود اليدوية → fin_journal
     if (ok && fjOn(orgNow.current) && ['pi', 'si', 'cv'].some(k => fdA[k] && fdA[k] !== fdB[k])) fdQueue(fdB, fdA);   // v49.0 الفواتير والسندات → fin_docs
     if (!ok) {
@@ -8775,7 +8776,7 @@ async function loyPost(txs) {
     const next = { ...cur, members: { ...(cur.members || {}) }, tx: [...(cur.tx || []), ...add] };
     add.forEach(t => { const m = next.members[t.phone] || {}; next.members[t.phone] = { ...m, name: t.name || m.name || '', since: m.since || t.at, last: t.at }; });
     const r = await cloud.setIfUnchanged(KEYS.loy, next);
-    if (r === 'ok') { if (_grrFlag) grrQueue('lyt', add.filter(t => t && t.id && grrPhone(t.phone))); return next; } if (r === 'fail') return null;   // v56.14: الحركات الجديدة → loy_tx
+    if (r === 'ok') { if (_grrFlag) grrQueue('lyt', add.filter(t => t && t.id && grrPhone(t.phone))); return next; } if (r === 'fail') return null;   // v56.15: الحركات الجديدة → loy_tx
   }
   return null;
 }
@@ -14465,7 +14466,7 @@ async function posrRepair(o, reason) {
 }
 export { posrOn, posrData, posrVoidData, posrRecord, posrDiff, posrCompare, posrState, posrLoad, posrSeed, posrRepair };   // v56.4 سجلات فواتير نقطة البيع
 
-/* ===== v56.14 — MUKTASAB GROWTH الدفعة 2: سجلات الموافقة التسويقية mkt_consents/{id} وحركات الولاء loy_tx/{id} (نسخ موازٍ) =====
+/* ===== v56.15 — MUKTASAB GROWTH الدفعة 2: سجلات الموافقة التسويقية mkt_consents/{id} وحركات الولاء loy_tx/{id} (نسخ موازٍ) =====
    التصميم: docs/growth/GROWTH_RECORDS_DESIGN.md. المصدر يبقى كما هو (مصفوفة الموافقات في المستند، ودفتر الولاء rms8_loy)؛ كل موافقة/إلغاء
    اشتراك وكل حركة نقاط جديدة تُنسخ بالخلفية بعد نجاح الحفظ إلى سجل تحرسه القواعد: إضافة فقط، لا تعديل ولا حذف، والكاتب والوقت من الخادم.
    يحل ملاحظتي الأمن (موظف الفرع يعدّل/يحذف موافقة) والمراقب (حركات الولاء بلا أثر محمي). مُطفأ افتراضيًا (org.growthRecords.on). */
@@ -14539,7 +14540,7 @@ async function grrSeed(kind, items, onProgress) {
     if (onProgress && (++i % 20 === 0)) onProgress(i, items.length); }
   return { ok, fail, lastErr, total: (items || []).length };
 }
-export { grrOn, grrSetOn, mkcRecord, lytRecord, lytDocId, mkcDiff, mkcCompare, lytCompare, grrState, grrLoad, grrSeed };   // v56.14 سجلات النمو المحمية
+export { grrOn, grrSetOn, mkcRecord, lytRecord, lytDocId, mkcDiff, mkcCompare, lytCompare, grrState, grrLoad, grrSeed };   // v56.15 سجلات النمو المحمية
 
 /* ===== v49.0 — المرحلة 01 (قرار G1-ب): القيود اليدوية سجلات مستقلة (fin_journal/{id}) — نسخ مطابق (mirror) =====
    الوثيقة الحالية (journalManual) تبقى المصدر في هذه المرحلة؛ كل إنشاء/اعتماد/رفض/حذف قبل الاعتماد يُنسخ إلى سجل تحرسه القواعد
@@ -14670,6 +14671,27 @@ async function flCorrect(rep, lockedTo, onProgress) {
     if (onProgress) onProgress(i + 1, jobs.length);
   }
   return { rev, neu, fail, locked, lastErr, total: jobs.length };
+}
+/* v56.14 (D4 — قرار المالك): ميزان المراجعة والقوائم المالية من الدفتر المخزّن فعليًا؛ الإقرار الضريبي وبقية التقارير من المحرك.
+   القراءة تُفعَّل فقط بعد ضم المجموعات الست ومطابقة كاملة (org.ledger.read). القيد الافتتاحي يُعرض بتاريخ 2025-12-31 ليظهر في «رصيد أول المدة».
+   كل السجلات تُحتسب — الأصل المعكوس وعكسه يتقابلان، فالأثر الصافي = القائم. */
+const flReadOn = (org) => flOn(org) && !!(org.ledger && org.ledger.read) && flLvl(org) === FL_GROUPS.length;
+const flDayBefore = (d) => { const t = new Date(d + 'T12:00:00Z'); t.setUTCDate(t.getUTCDate() - 1); return t.toISOString().slice(0, 10); };
+function flEntriesOf(recs) {
+  return (recs || []).filter(r => r && r.lines && r.date).map(r => {
+    let L = []; try { L = JSON.parse(r.lines) || []; } catch { L = []; }
+    const lines = L.map(l => ({ code: String(l[0]), debit: (Number(l[1]) || 0) / 100, credit: (Number(l[2]) || 0) / 100 }));
+    const src = String(r.src || '');
+    return { id: r.id, no: r.no, date: src.startsWith('open:') ? flDayBefore(FL_START) : r.date, title: r.title, src, ref: r.no, branchId: (L[0] && L[0][3]) || '',
+      closing: src.startsWith('yearend'), lines, debit: (Number(r.drH) || 0) / 100, credit: (Number(r.crH) || 0) / 100, fromLedger: true };
+  }).sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.no || '').localeCompare(String(b.no || '')));
+}
+/** فرق الحركة بين نطاق المحرك (flScope) والدفتر حتى تاريخ — بالهللات لكل حساب، دون القيد الافتتاحي المحسوب (للتنبيه في الشاشة) */
+function flBalDiff(scopeEntries, ledgerEntries, to) {
+  const agg = (ents) => { const m = {}; ents.forEach(e => { if (String(e.id || '').startsWith('open:') || String(e.src || '').startsWith('open:')) return; if (to && String(e.date) > to) return;
+    (e.lines || []).forEach(l => { const c = String(l.code); m[c] = (m[c] || 0) + toHal(l.debit) - toHal(l.credit); }); }); return m; };
+  const e = agg(scopeEntries || []), l = agg(ledgerEntries || []);
+  return [...new Set([...Object.keys(e), ...Object.keys(l)])].sort().filter(c => (e[c] || 0) !== (l[c] || 0)).map(c => ({ code: c, engine: (e[c] || 0) / 100, ledger: (l[c] || 0) / 100 }));
 }
 async function flAutoPost(org, ops, closingId) {
   if (!flOn(org)) return null;

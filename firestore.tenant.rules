@@ -472,7 +472,7 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    /* ===== v56.14 — MUKTASAB GROWTH الدفعة 2: سجلات الموافقة التسويقية وحركات الولاء للإضافة فقط (نسخ موازٍ — docs/growth/GROWTH_RECORDS_DESIGN.md) =====
+    /* ===== v56.15 — MUKTASAB GROWTH الدفعة 2: سجلات الموافقة التسويقية وحركات الولاء للإضافة فقط (نسخ موازٍ — docs/growth/GROWTH_RECORDS_DESIGN.md) =====
        السجل لا يُعدَّل ولا يُحذف أبدًا: إلغاء الاشتراك أو تصحيح النقاط حركة جديدة. الكاتب = الحساب، والوقت = وقت الخادم.
        رقم الفرع فارغ ⇒ سجل مركزي (للمركز وحده كتابةً وقراءةً)؛ وإلا فلعضو ذلك الفرع والمركز. */
     function grRole(m, adm) { return adm || (m != null && !(m.get('role', '') in ['accountant_view'])); }
