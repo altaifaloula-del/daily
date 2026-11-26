@@ -31,7 +31,9 @@ export const ENGINE_EXPORTS = ['promoEligible', 'couponWhy', 'promoDiscPct', 'pr
   // v56.4 — الدفعة 2a: سجلات فواتير نقطة البيع
   'posrOn', 'posrData', 'posrVoidData', 'posrRecord', 'posrDiff', 'posrCompare',
   // v56.7 — C4 التطابق التام بالهللات
-  'toHal', 'isHal', 'finStrictOn'];
+  'toHal', 'isHal', 'finStrictOn',
+  // v56.9 — D1 دفتر القيود المخزّن
+  'FL_START', 'flOn', 'flKey', 'flNo', 'flLines', 'flRecord', 'flScope', 'flCompare'];
 
 export async function buildEngine() {
   fs.mkdirSync(cache, { recursive: true });

@@ -3488,7 +3488,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.8';
+const APP_VER = 'v56.9';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3544,6 +3544,7 @@ class ErrorBoundary extends React.Component {
 }
 export { FbGate };
 export { toHal, isHal, finStrictOn };   // v56.7 C4
+export { FL_START, flOn, flKey, flNo, flLines, flRecord, flScope, flCompare, flLoad, flPost };   // v56.9 D1
 export { ErrorBoundary, logClientError, lockedLedgerChanged };
 export { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, saleRetUse, posReturnLoyDed };
 export { jeLive, jeOwner, canApproveJe, jeAutoSt, vatCloseLive, WF_DOCS, wfTiers, wfOn, wfRequired, poNeedsAppr, wfState, wfCanAct, wfApprove };   // v47.1 اعتماد القيد اليدوي
@@ -14404,6 +14405,64 @@ function fjCompare(list, recs) {
   const extra = (recs || []).filter(r => !seen.has(r.id));
   return { ok: !missing.length && !differ.length && !extra.length, missing, differ, extra, total: (list || []).length, recs: (recs || []).length };
 }
+/* ══════ v56.9 — MUKTASAB FINANCE D1: دفتر القيود المخزّن fin_ledger (قرارات المالك 2026-11-26) ══════
+   القيد الآلي يُحفظ مرة برقم ثابت JV-<السنة>-<تسلسل> يبدأ من 1 كل سنة؛ محتواه (السطور بالهللات) وبصمته لا يتغيران.
+   الدفعة D1: قيود الإغلاقات المعتمدة من 2026-01-01 — ترحيل يدوي من «صيانة النظام» ومطابقة مع المحرك. القراءة تبقى من المحرك.
+   المفتاح org.ledger.on — معطّل افتراضيًا. الفترة المقفلة تحتاج نافذة الترحيل (fin_periods/migration) وتُعلَّم legacy. */
+const FL_START = '2026-01-01';
+const flOn = (org) => !!(org && org.ledger && org.ledger.on);
+const flKey = (eid, ver) => String(eid || '').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 140) + '_v' + (ver || 1);
+const flNo = (year, n) => 'JV-' + year + '-' + String(n).padStart(6, '0');
+/** سطور القيد بالهللات: [رمز، مدين، دائن، فرع] — السطور الصفرية تُسقط */
+const flLines = (e) => (e.lines || []).map(l => [String(l.code), toHal(l.debit), toHal(l.credit), String(e.branchId || '')]).filter(l => l[1] || l[2]);
+function flRecord(e, ver) {
+  const L = flLines(e); const drH = L.reduce((a, l) => a + l[1], 0), crH = L.reduce((a, l) => a + l[2], 0);
+  return { date: String(e.date || ''), src: String(e.id || '').slice(0, 200), title: (String(e.title || '') + (e.src ? ' · ' + e.src : '')).slice(0, 300),
+    lines: JSON.stringify(L), drH, crH, digest: sha256Hex(JSON.stringify([String(e.date || ''), L])), ver: ver || 1 };
+}
+/** نطاق D1: قيود الإغلاقات المعتمدة (لا المرفوعة بانتظار التدقيق — قد تتغير) من تاريخ البداية */
+function flScope(ops, A) {
+  const ids = new Set((ops.closings || []).filter(c => c && c.status === 'approved').map(c => c.id));
+  return (A.entries || []).filter(e => e.ref && ids.has(e.ref) && String(e.date || '') >= FL_START);
+}
+/** المطابقة: المحرك مقابل الدفتر المخزّن — ناقص · مختلف (البصمة) · زائد (قيد مخزّن لا يقابله قيد) · غير قابل (لا يتطابق بالهللة) */
+function flCompare(entries, recs) {
+  const live = new Map(); (recs || []).forEach(r => { if (r.status !== 'posted' || r.reversalOf) return; const p = live.get(r.src); if (!p || (r.ver || 1) > (p.ver || 1)) live.set(r.src, r); });
+  const missing = [], differ = [], bad = [], seen = new Set();
+  (entries || []).forEach(e => { const R = flRecord(e); seen.add(R.src);
+    if (R.drH !== R.crH || !R.drH || (e.subHal || 0) > 0) { bad.push(e); return; }
+    const r = live.get(R.src); if (!r) missing.push(e); else if (r.digest !== R.digest) differ.push(e); });
+  const extra = [...live.values()].filter(r => !seen.has(r.src));
+  return { ok: !missing.length && !differ.length && !extra.length && !bad.length, missing, differ, extra, bad, total: (entries || []).length, recs: live.size };
+}
+async function flLoad() {
+  const c = await ctlIdentity(); if (!c) return null;
+  try { const s = await ctlTimeout(c.f.getDocs(c.f.collection(c.f.db, 'fin_ledger')), 30000); return s.docs.map(d => ({ id: d.id, ...(d.data() || {}) })); }
+  catch (e) { return { err: (e && e.code) || 'error' }; }
+}
+/** الترحيل بترتيب التاريخ: لكل قيد معاملة تقرأ عدّاد سنته وتكتب القيد والعدّاد معًا (القواعد تفرض +1 بالضبط) */
+async function flPost(entries, lockedTo, onProgress) {
+  const c = await ctlIdentity(); if (!c) return { err: 'خارج Firestore' };
+  const list = (entries || []).slice().sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.id).localeCompare(String(b.id)));
+  let ok = 0, fail = 0, lastErr = ''; const nos = [];
+  for (let i = 0; i < list.length; i++) {
+    const e = list[i], R = flRecord(e), key = flKey(e.id, R.ver), y = Number(R.date.slice(0, 4));
+    try {
+      await ctlTimeout(c.f.runTransaction(c.f.db, async (tx) => {
+        const sr = c.f.doc(c.f.db, 'fin_ledger_meta', 'seq_' + y), er = c.f.doc(c.f.db, 'fin_ledger', key);
+        const [ss, es] = [await tx.get(sr), await tx.get(er)];
+        if (es.exists()) throw Object.assign(new Error('exists'), { code: 'exists' });
+        const n = (ss.exists() ? Number((ss.data() || {}).n) || 0 : 0) + 1;
+        tx.set(er, { ...R, no: flNo(y, n), year: y, seq: n, status: 'posted', by: c.email, at: c.f.serverTimestamp(), cv: APP_CV, ...(R.date <= (lockedTo || '') ? { legacy: true } : {}) });
+        tx.set(sr, { n, last: key }); nos.push(flNo(y, n));
+      }));
+      ok++;
+    } catch (err) { fail++; lastErr = (err && err.code) || 'error'; }
+    if (onProgress && (i + 1) % 10 === 0) onProgress(i + 1, list.length);
+  }
+  return { ok, fail, lastErr, total: list.length, first: nos[0] || '', last: nos[nos.length - 1] || '' };
+}
+
 const fjOn = (org) => !!(org && org.finRecords && org.finRecords.on);
 let _fjState = { at: 0, ok: 0, fail: 0, skip: 0, lastErr: '' };
 const fjState = () => _fjState;

@@ -8,6 +8,7 @@ import { archKey, archivePlan, nowISO, printA4, uid, dtLocal, posSplitBranch, po
 import { clrCompare, clrLoad, clrOn, clrSeed, clrState, logAudit, clrRead, clrViewStats } from '../../App.jsx';   // v41.9 + v42.2
 import { posrOn, posrCompare, posrLoad, posrSeed, posrState, posrRepair } from '../../App.jsx';   // v56.4 (POS 2a) سجلات فواتير نقطة البيع
 import { WorkflowsCard } from './Workflows.jsx';   // v49.5 MQ-059
+import { FL_START, flOn, flScope, flCompare, flLoad, flPost } from '../../App.jsx';   // v56.9 D1 دفتر القيود المخزّن
 import { fjCompare, fjLoad, fjOn, fjState, fpLockedTo, fpLoad, fmLoad, fmSet, fjSeed, FD_KINDS, fdCompare, fdLoad, fdSeed } from '../../App.jsx';   // v49.0 المرحلة 01
 import { dataFootprint, recipeRaw, APP_CV, APP_VER, CloudHealth, ERRLOG_KEY, MAIN_WH, ROLES, SIG_BADGE, SIG_NAME, buildAccounting, finStrictOn, loadRelease, loadSignoffs, sigVerify, branchBanks, cashForecast, complianceItems, entityList, vatStatus, countedClosing, isoD, money, purKey, q3, qrFs, snapAll, stockByWh, today, whName, whOf } from '../../App.jsx';
 
@@ -311,6 +312,7 @@ export function SystemMaintenance({ org, ops, me, commit, commitOrg, say }) {
       <ClosingRecordsCard org={org} ops={ops} me={me} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <PosRecordsCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <FinStrictCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
+      <LedgerCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <JournalRecordsCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <WorkflowsCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <PosSplitCard org={org} ops={ops} me={me} say={say} isAdm={isAdm} commit={commit} />
@@ -351,6 +353,60 @@ export function SystemMaintenance({ org, ops, me, commit, commitOrg, say }) {
 
 /* v56.4 — MUKTASAB POS الدفعة 2a: فواتير نقطة البيع سجلات مستقلة محمية (نسخ موازٍ — docs/pos/POS_DATABASE_DESIGN.md)
    المستند يبقى المصدر؛ التفعيل ينسخ كل فاتورة جديدة/إلغاء بالخلفية، و«نسخ الفواتير القائمة» للتاريخ، و«مطابقة» تكشف أي فرق. */
+/* v56.9 (D1) — دفتر القيود المخزّن: قيود الإغلاقات المعتمدة من 2026-01-01 تُحفظ مرة برقم ثابت JV-<السنة>-<تسلسل>.
+   معطّل افتراضيًا. الترحيل يدوي هنا (الناقص فقط، بترتيب التاريخ)، والمطابقة تكشف الناقص والمختلف والزائد. القراءة تبقى من المحرك. */
+function LedgerCard({ org, ops, commitOrg, say, isAdm }) {
+  const on = flOn(org); const [busy, setBusy] = useState(''); const [rep, setRep] = useState(null);
+  const scope = useMemo(() => { try { return flScope(ops, buildAccounting(org, ops)); } catch { return []; } }, [org, ops]);
+  const toggle = async () => {
+    if (!isAdm) return;
+    const ok = await commitOrg(o => ({ ...o, ledger: on ? { ...(o.ledger || {}), on: false, offAt: nowISO() } : { ...(o.ledger || {}), on: true, since: (o.ledger || {}).since || nowISO() } }),
+      { actionType: 'settings', targetType: 'system_settings', targetId: 'ledger', title: on ? 'أوقف دفتر القيود المخزّن' : 'فعّل دفتر القيود المخزّن' });
+    if (ok) { setRep(null); say(on ? 'أُوقف الدفتر المخزّن — القيود المحفوظة باقية' : 'فُعّل — اضغط «مطابقة» ثم «ترحيل الناقص»'); }
+  };
+  const check = async () => {
+    setBusy('check'); const recs = await flLoad(); setBusy('');
+    if (recs == null) return say('المطابقة تعمل في وضع Firestore فقط', 'no');
+    if (recs.err) return say('تعذّر قراءة الدفتر: ' + recs.err, 'no');
+    setRep(flCompare(scope, recs));
+  };
+  const post = async () => {
+    if (!rep || !rep.missing.length) return;
+    const lk = fpLockedTo(org), old = rep.missing.filter(e => String(e.date) <= lk).length;
+    if (!window.confirm('ترحيل ' + rep.missing.length + ' قيدًا إلى الدفتر المخزّن بأرقام ثابتة؟' + (old ? '\n' + old + ' منها في فترة مقفلة — تحتاج نافذة الترحيل مفتوحة.' : '') + '\nالقيد المرحّل لا يُعدَّل ولا يُحذف.')) return;
+    setBusy('post'); const r = await flPost(rep.missing, lk, (i, t) => setBusy('post ' + i + '/' + t)); setBusy('');
+    if (r.err) return say(r.err, 'no');
+    await logAudit({ actionType: 'migrate', targetType: 'system_settings', targetId: 'ledger', title: 'رحّل قيود الإغلاقات إلى الدفتر المخزّن', details: r.ok + ' قيدًا' + (r.first ? ' (' + r.first + ' … ' + r.last + ')' : '') + (r.fail ? ' · تعذّر ' + r.fail + ' (' + r.lastErr + ')' : '') });
+    say(r.fail ? 'رُحّل ' + r.ok + ' وتعذّر ' + r.fail + ' (' + r.lastErr + ')' : 'رُحّل ' + r.ok + ' قيدًا ✓', r.fail ? 'no' : 'ok'); check();
+  };
+  const row = (e, why) => <div key={e.id || e.src} className="me-row"><span className="me-a"><b>{(e.date || '') + ' — ' + (e.title || e.src || '')}</b><small>{why}</small></span></div>;
+  return (
+    <div className="card" data-ledger>
+      <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />دفتر القيود المخزّن (أرقام ثابتة)</div>
+        <span className={'badge ' + (on ? 'b-sky' : 'b-dim')}>{on ? 'مفعّل — القراءة من المحرك' : 'غير مفعّل'}</span></div>
+      <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>
+        كل قيد يُحفظ <b>مرة واحدة برقم ثابت</b> مثل JV-2026-000001 يبدأ من 1 كل سنة، ولا يُعدَّل محتواه ولا يُحذف — والخادم يرفض أي تعديل.
+        هذه المرحلة: <b>قيود الإغلاقات المعتمدة من {FL_START}</b> ({scope.length} قيدًا الآن). التقارير ما زالت من المحرك حتى تثبت المطابقة.
+      </div>
+      {isAdm && <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        <button className={'btn sm' + (on ? ' gh' : ' pri')} disabled={!!busy} onClick={toggle}>{on ? 'إيقاف' : 'تفعيل'}</button>
+        {on && <button className="btn sm" disabled={!!busy} onClick={check}><RefreshCw size={13} />{busy === 'check' ? 'جارٍ المطابقة…' : 'مطابقة'}</button>}
+        {on && rep && rep.missing.length > 0 && <button className="btn sm pri" disabled={!!busy} onClick={post}>{busy.startsWith('post') ? 'جارٍ الترحيل… ' + busy.slice(5) : 'ترحيل الناقص (' + rep.missing.length + ')'}</button>}
+      </div>}
+      {rep && <div style={{ marginTop: 10 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: rep.ok ? 'var(--mint)' : 'var(--amber)' }}>
+          {rep.ok ? '✓ متطابق: ' + rep.total + ' قيدًا في المحرك = ' + rep.recs + ' في الدفتر' : 'ناقص ' + rep.missing.length + ' · مختلف ' + rep.differ.length + ' · زائد ' + rep.extra.length + (rep.bad.length ? ' · لا يتطابق بالهللة ' + rep.bad.length : '')}
+        </div>
+        {!rep.ok && <div className="me-list" style={{ marginTop: 6 }}>
+          {rep.differ.slice(0, 10).map(e => row(e, 'تغيّر مصدره بعد الترحيل — التصحيح بقيد عكسي في الدفعة القادمة'))}
+          {rep.bad.slice(0, 10).map(e => row(e, 'لا يتطابق بالهللة — لا يُرحَّل حتى يُصحَّح'))}
+          {rep.extra.slice(0, 10).map(r => row(r, 'قيد مخزّن لم يعد له مصدر معتمد (' + (r.no || '') + ')'))}
+          {rep.missing.slice(0, 5).map(e => row(e, 'لم يُرحَّل بعد'))}
+        </div>}
+      </div>}
+    </div>);
+}
+
 /* v56.7 (C4 — A2) — التطابق التام بالهللات: القيد متوازن فقط إذا تساوى المدين والدائن بالهللة الصحيحة.
    معطّل افتراضيًا؛ البطاقة تعرض أثر التفعيل قبله، والإيقاف يعيد السماح السابق (0.01) فورًا. */
 function FinStrictCard({ org, ops, commitOrg, say, isAdm }) {
