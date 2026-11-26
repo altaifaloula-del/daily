@@ -5,12 +5,15 @@ import { cloud, KEYS } from '../../storage';
 import { Target, Users, Grid3x3 as Layers, ShieldCheck, Settings, Download, Users as UserCheck, RefreshCw as GitMerge } from 'lucide-react';
 import { Field, Kpi, Modal, money, makeXlsx, today, nowISO, uid, normPhone, loyPost, ROLES,
   mktCfg, mktCanApprove, MKT_SEGS, MKT_SEG_ORDER, crmBuild, crmSegment, crmDupes, mktKpis, mktCanContact,
-  loyX, loyTier, loyPeriodicTx, mktProfiles, rewardCoupon, cpnKey, posR2, CAMP_ST, campNextNo, campStatusOf, campStats, buildAccounting, recCfgOf, recStats, dtLocal, brReport, printScreen, AI_GROWTH_PRESETS, growthDigest, aiGrowthAsk, COMMS_PROVIDERS, COMMS_CH, COMMS_VARS, commsCfgOf, commsRender, smsParts, commsTplErr, loyAudit, LOY_AUDIT_WHY } from '../../App.jsx';
+  loyX, loyTier, loyPeriodicTx, mktProfiles, rewardCoupon, cpnKey, posR2, CAMP_ST, campNextNo, campStatusOf, campStats, buildAccounting, recCfgOf, recStats, dtLocal, brReport, printScreen, AI_GROWTH_PRESETS, growthDigest, aiGrowthAsk, COMMS_PROVIDERS, COMMS_CH, COMMS_VARS, commsCfgOf, commsRender, smsParts, commsTplErr, loyAudit, LOY_AUDIT_WHY,
+  logAudit, MKT_RW_KEY, rwPendSplit, rwUndoTx, mktBrOn, mktRecBranch, mktMergesLive } from '../../App.jsx';
 import { Megaphone, Sparkles, Building2, Bot, MessageSquare } from 'lucide-react';
 import { Gift, Gift as Ticket } from 'lucide-react';
 
 const CH = { all: 'كل القنوات', whatsapp: 'واتساب', sms: 'رسائل SMS', email: 'البريد', app: 'إشعارات التطبيق' };
 const anDay = (iso, k) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + k); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+const rwPend = () => { try { const a = JSON.parse(localStorage.getItem(MKT_RW_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch { return []; } };
+const rwPendSet = (a) => { try { if (a.length) localStorage.setItem(MKT_RW_KEY, JSON.stringify(a)); else localStorage.removeItem(MKT_RW_KEY); } catch { } };
 const dl = (name, rows) => { try { const blob = makeXlsx([{ name: name.slice(0, 30), rows }]); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = name + '.xlsx'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000); } catch { /* */ } };
 
 export function MktGrowth({ org, ops, me, myBranches, commit, commitOrg, say }) {
@@ -23,6 +26,12 @@ export function MktGrowth({ org, ops, me, myBranches, commit, commitOrg, say }) 
   const list = useMemo(() => crmSegment(crmBuild(org, ops, loy, { branches: central ? null : brIds }), cfg, today()), [org, ops, loy, central, brIds.join(',')]);
   const brName = (id) => ((org.branches || []).find(b => b.id === id) || {}).name || id;
   const [sel, setSel] = useState(null);
+  // v56.10 (G1): رقم فرع سجل التسويق — فارغ والمفتاح معطّل ⇒ السلوك السابق (المستند المركزي)
+  const brOn = mktBrOn(org); const bTag = (c) => { const b = mktRecBranch(brOn, central, c, brIds); return b ? { branchId: b } : {}; };
+  // v56.10 (G5): استكمال استبدال جائزة انقطع بين خصم النقاط وإصدار الكوبون
+  useEffect(() => { if (!loy) return; const P = rwPend(); if (!P.length) return; const { done, refund, wait } = rwPendSplit(P, org.posPromos, Date.now());
+    (async () => { const left = [...wait]; if (refund.length) { const r = await loyPost(refund.map(x => rwUndoTx(x, nowISO()))); if (r) { setLoy(r); say('أُعيدت نقاط ' + refund.length + ' استبدال لم يصدر كوبونه ✓'); } else left.push(...refund); }
+      rwPendSet(left); void done; })(); }, [!!loy]);
   const V = [['dash', 'لوحة التسويق', Target], ['crm', 'ملفات العملاء', Users], ['seg', 'الشرائح', Layers], ['loy', 'الولاء والمكافآت', Gift], ['cpn', 'الكوبونات', Ticket], ['cmp', 'الحملات', Megaphone], ['rec', 'التوصيات', Sparkles], ['brr', 'تقارير الفروع', Building2], ['ai', 'المساعد الذكي', Bot], ['com', 'إعدادات التواصل', MessageSquare], ['gov', 'الموافقات والتكرار', ShieldCheck], ['cfg', 'الإعدادات', Settings]];
   return (
     <div className="grid" style={{ gap: 12 }} data-mkt>
@@ -30,11 +39,13 @@ export function MktGrowth({ org, ops, me, myBranches, commit, commitOrg, say }) 
         {V.map(([k, ar, I]) => <button key={k} role="tab" aria-selected={view === k} className={'btn sm' + (view === k ? ' pri' : ' gh')} data-mktv={k} onClick={() => setView(k)}><I size={14} />{ar}</button>)}
       </div>
       {!loy && <div className="empty">جارٍ تحميل دفتر الولاء…</div>}
+      {!central && !brOn && <div className="note" data-mktbr-off>تسجيل الموافقات وبيانات العملاء والإحالات من الفرع يتطلب تفعيل «سجلات التسويق في الفروع» من صيانة النظام (للمركز).</div>}
+      {!central && view === 'cmp' && <div className="note">الحملات تُخطط وتُعتمد من المركز.</div>}
       {loy && view === 'dash' && <Dash org={org} ops={ops} list={list} brIds={central ? null : brIds} myBranches={myBranches} brName={brName} />}
       {loy && view === 'crm' && <Crm list={list} brName={brName} onOpen={setSel} />}
       {loy && view === 'seg' && <Seg list={list} cfg={cfg} />}
-      {loy && view === 'gov' && <Gov list={list} ops={ops} me={me} canApp={canApp} commit={commit} say={say} setLoy={setLoy} />}
-      {loy && view === 'loy' && <Loy org={org} ops={ops} loy={loy} setLoy={setLoy} canApp={canApp} me={me} commit={commit} commitOrg={commitOrg} say={say} />}
+      {loy && view === 'gov' && <Gov list={list} ops={ops} me={me} canApp={canApp && central} commit={commit} say={say} setLoy={setLoy} />}
+      {loy && view === 'loy' && <Loy org={org} ops={ops} loy={loy} setLoy={setLoy} canApp={canApp} me={me} commit={commit} commitOrg={commitOrg} say={say} bTag={bTag} list={list} />}
       {loy && view === 'cpn' && <Cpn org={org} ops={ops} loy={loy} canApp={canApp} me={me} commitOrg={commitOrg} say={say} brName={brName} />}
       {loy && view === 'cmp' && <Cmp org={org} ops={ops} list={list} canApp={canApp} me={me} commit={commit} commitOrg={commitOrg} say={say} brName={brName} />}
       {loy && view === 'ai' && <Ai org={org} ops={ops} list={list} central={central} brIds={brIds} />}
@@ -42,7 +53,7 @@ export function MktGrowth({ org, ops, me, myBranches, commit, commitOrg, say }) 
       {view === 'brr' && <Brr org={org} ops={ops} central={central} brIds={brIds} />}
       {view === 'rec' && <Rec org={org} ops={ops} central={central} brIds={brIds} myBranches={myBranches} canApp={canApp} commitOrg={commitOrg} say={say} />}
       {view === 'cfg' && <Cfg cfg={cfg} canApp={canApp} commitOrg={commitOrg} say={say} />}
-      {sel && <Profile c={list.find(x => x.id === sel)} org={org} ops={ops} loy={loy} setLoy={setLoy} canApp={canApp} brName={brName} me={me} commit={commit} commitOrg={commitOrg} say={say} onClose={() => setSel(null)} />}
+      {sel && <Profile c={list.find(x => x.id === sel)} org={org} ops={ops} loy={loy} setLoy={setLoy} canApp={canApp} brName={brName} me={me} commit={commit} commitOrg={commitOrg} say={say} bTag={bTag} onClose={() => setSel(null)} />}
     </div>);
 }
 
@@ -107,25 +118,28 @@ function Crm({ list, brName, onOpen }) {
   </div>);
 }
 
-function Profile({ c, org, ops, loy, setLoy, canApp, brName, me, commit, commitOrg, say, onClose }) {
+function Profile({ c, org, ops, loy, setLoy, canApp, brName, me, commit, commitOrg, say, bTag, onClose }) {
   const [f, setF] = useState({ status: 'in', ch: 'all', src: 'نقطة البيع', note: '' });
   const P0 = c ? (mktProfiles(ops)[c.phone] || {}) : {}; const [pf, setPf] = useState({ bday: P0.bday || '', email: P0.email || '' }); const [rw, setRw] = useState('');
   if (!c) return null;
   const X = loyX(org); const T = loyTier(org, loy, c.phone, today());
   const saveProf = async () => { const b = String(pf.bday || '').trim(); if (b && !/^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(b)) return say('عيد الميلاد بصيغة شهر-يوم مثل 04-21', 'no');
     const e = String(pf.email || '').trim(); if (e && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) return say('بريد غير صحيح', 'no');
-    const ok = await commit(d => ({ ...d, mktProfiles: [...(d.mktProfiles || []), { id: uid('mp'), phone: c.phone, bday: b, email: e, by: me.name, at: nowISO() }] }), { actionType: 'update', targetType: 'customer', targetId: c.phone, need: 'edit', title: 'حدّث بيانات عميل', details: c.phone });
+    const ok = await commit(d => ({ ...d, mktProfiles: [...(d.mktProfiles || []), { id: uid('mp'), ...bTag(c), phone: c.phone, bday: b, email: e, by: me.name, at: nowISO() }] }), { actionType: 'update', targetType: 'customer', targetId: c.phone, need: 'edit', title: 'حدّث بيانات عميل', details: c.phone });
     if (ok) say('حُفظت بيانات العميل ✓'); };
   const redeem = async () => { const R0 = (X.rewards || []).find(r => r.id === rw); if (!R0) return say('اختر جائزة', 'no'); if (!canApp) return say('إصدار الجوائز لمن له صلاحية الاعتماد', 'no');
     if (c.pts < R0.pts) return say('الرصيد ' + c.pts + ' أقل من ' + R0.pts, 'no');
     const code = 'RW' + Math.random().toString(36).slice(2, 8).toUpperCase(); const txid = 'rw:' + uid('x');
-    const r = await loyPost([{ id: txid, phone: c.phone, name: c.name, pts: -R0.pts, at: nowISO(), br: '', ord: 'استبدال جائزة: ' + R0.name + ' (' + code + ')' }]); if (!r) return say('تعذّر خصم النقاط — لم تُصدر الجائزة', 'no'); setLoy(r);
+    const pend = { txid, code, phone: c.phone, pts: R0.pts, at: nowISO() }; rwPendSet([...rwPend(), pend]); const unPend = () => rwPendSet(rwPend().filter(x => x.txid !== txid));
+    const r = await loyPost([{ id: txid, phone: c.phone, name: c.name, pts: -R0.pts, at: nowISO(), br: '', ord: 'استبدال جائزة: ' + R0.name + ' (' + code + ')' }]); if (!r) { unPend(); return say('تعذّر خصم النقاط — لم تُصدر الجائزة', 'no'); } setLoy(r);
     const cp = rewardCoupon(R0, c.phone, today(), code);
     const ok = await commitOrg(g => ({ ...g, posPromos: [...(g.posPromos || []), cp] }), { actionType: 'create', targetType: 'settings', targetId: cp.id, need: 'edit', title: 'أصدر جائزة ولاء', details: c.phone + ' · ' + R0.name + ' · ' + code });
-    if (ok === false) { const back = await loyPost([{ id: txid + ':undo', phone: c.phone, pts: R0.pts, at: nowISO(), br: '', ord: 'إلغاء استبدال (تعذّر إصدار الكوبون)' }]); if (back) setLoy(back); return say('تعذّر إصدار الكوبون — أُعيدت النقاط', 'no'); }
+    if (ok === false) { const back = await loyPost([rwUndoTx(pend, nowISO())]); if (!back) return say('تعذّر إصدار الكوبون وتعذّر إرجاع النقاط الآن — ستُعاد تلقائيًا عند فتح التسويق التالي', 'no');
+      setLoy(back); unPend(); return say('تعذّر إصدار الكوبون — أُعيدت النقاط', 'no'); }
+    unPend();
     say('صدرت الجائزة بكوبون ' + code + ' (لهذا العميل، مرة واحدة، حتى ' + cp.to + ') ✓'); };
   const rec = async () => {
-    const x = { id: uid('mc'), phone: c.phone, status: f.status, ch: f.ch, src: f.src.trim() || '—', ...(f.note.trim() ? { note: f.note.trim() } : {}), by: me.name, byId: me.id || '', at: nowISO() };
+    const x = { id: uid('mc'), ...bTag(c), phone: c.phone, status: f.status, ch: f.ch, src: f.src.trim() || '—', ...(f.note.trim() ? { note: f.note.trim() } : {}), by: me.name, byId: me.id || '', at: nowISO() };
     const ok = await commit(d => ({ ...d, mktConsents: [...(d.mktConsents || []), x] }), { actionType: 'create', targetType: 'customer', targetId: c.phone, need: 'edit', title: x.status === 'in' ? 'سجّل موافقة تسويقية' : 'سجّل إلغاء اشتراك تسويقي', details: c.phone + ' · ' + CH[x.ch] + ' · ' + x.src });
     if (ok) say(x.status === 'in' ? 'سُجّلت الموافقة ✓' : 'سُجّل إلغاء الاشتراك فورًا ✓');
   };
@@ -173,6 +187,8 @@ function Seg({ list, cfg }) {
   const RULE = { vip: 'صافي مشترياته ≥ ' + money(S.vipSpend) + ' أو ضمن أعلى ' + S.vipTopPct + '% إنفاقًا', loyal: S.loyalVisits + ' زيارات فأكثر خلال ' + S.loyalDays + ' يومًا', risk: S.riskMinVisits + ' زيارات فأكثر وآخرها قبل أكثر من ' + S.riskDays + ' يومًا', inactive: 'لا شراء منذ أكثر من ' + S.inactiveDays + ' يومًا',
     potential: 'زيارة أو زيارتان ومتوسط فاتورته ≥ ' + S.potMult + '× المتوسط العام', new: 'أول ظهور خلال ' + S.newDays + ' يومًا', regular: 'ما عدا ذلك' };
   const exp = (k, onlyOk) => { const L = list.filter(c => (c.cls === k || c.tags.includes(k)) && (!onlyOk || mktCanContact(c.consent, 'any')));
+    // v56.10 (G6): تصدير أرقام العملاء يُسجَّل في سجل التدقيق (من، أي شريحة، كم رقمًا)
+    logAudit({ actionType: 'export', targetType: 'customer', targetId: 'seg:' + k, title: 'صدّر أرقام شريحة عملاء', details: MKT_SEGS[k].ar + ' · ' + L.length + ' رقم' + (onlyOk ? ' (الموافقون فقط)' : '') }).catch(() => { });
     dl('شريحة_' + MKT_SEGS[k].ar, [['الجوال', 'الاسم', 'الشريحة', 'الزيارات', 'صافي المشتريات', 'آخر شراء', 'الموافقة'], ...L.map(c => [c.phone, c.name, MKT_SEGS[c.cls].ar, c.n, c.net, c.last, mktCanContact(c.consent, 'any') ? 'موافق' : 'غير مسجّلة'])]); };
   return (<div className="card">
     <div className="card-t">الشرائح — تصنيف رئيسي واحد لكل عميل بالأولوية، وقد يحمل وسومًا أخرى</div>
@@ -184,7 +200,14 @@ function Seg({ list, cfg }) {
 }
 
 function Gov({ list, ops, me, canApp, commit, say, setLoy }) {
-  const groups = crmDupes(list); const [mg, setMg] = useState(null);
+  const groups = crmDupes(list, mktProfiles(ops)); const [mg, setMg] = useState(null); const live = mktMergesLive(ops);
+  const WHY = { name: 'اسم متطابق', email: 'بريد واحد', b2b: 'نفس العميل الآجل' };
+  const undo = async (x) => { if (!canApp) return; const why = window.prompt('سبب التراجع عن دمج ' + x.from + ' ← ' + x.to + ' (إلزامي):'); if (!why || !why.trim()) return;
+    const id = uid('mg'); const at = nowISO();
+    if (Number(x.pts) > 0) { const r = await loyPost([{ id: x.id + ':uo', phone: x.to, pts: -Number(x.pts), at, br: '', ord: 'تراجع عن دمج ' + x.from }, { id: x.id + ':ui', phone: x.from, pts: Number(x.pts), at, br: '', ord: 'تراجع عن دمج إلى ' + x.to }]);
+      if (!r) return say('تعذّر إرجاع النقاط — لم يتم التراجع', 'no'); setLoy(r); }
+    const ok = await commit(d => ({ ...d, mktMerges: [...(d.mktMerges || []), { id, undoOf: x.id, reason: why.trim(), by: me.name, byId: me.id || '', at }] }), { actionType: 'update', targetType: 'customer', targetId: x.to, need: 'edit', title: 'تراجع عن دمج ملف عميل', details: x.from + ' ← ' + x.to + ' · ' + why.trim() });
+    if (ok) say('أُلغي الدمج وعاد الملفان منفصلين ✓'); };
   const doMerge = async () => {
     if (!canApp) return say('دمج العملاء يتطلب صلاحية الاعتماد', 'no');
     const from = list.find(c => c.id === mg.from), to = list.find(c => c.id === mg.to);
@@ -204,11 +227,14 @@ function Gov({ list, ops, me, canApp, commit, say, setLoy }) {
     </div>
     <div className="card">
       <div className="card-t"><GitMerge size={15} />احتمالات التكرار — لا دمج تلقائي</div>
-      <div className="note" style={{ marginBottom: 8 }}>الهوية في نقطة البيع هي الجوال؛ هنا أسماء متطابقة بجوالات مختلفة. الدمج يدوي، بسبب مكتوب، لمن له صلاحية الاعتماد، وتنتقل النقاط بحركة في دفتر الولاء.</div>
+      <div className="note" style={{ marginBottom: 8 }}>الهوية في نقطة البيع هي الجوال؛ هنا جوالات مختلفة باسم متطابق أو بريد واحد أو لنفس العميل الآجل. الدمج يدوي، بسبب مكتوب، لمن له صلاحية الاعتماد، وتنتقل النقاط بحركة في دفتر الولاء.</div>
       {groups.map(g => <div key={g.key} className="mono-b" style={{ marginBottom: 6, flexWrap: 'wrap', gap: 6 }} data-dupe>
-        <span>{g.name}: {g.items.map(c => c.phone + ' (' + c.n + ' زيارة)').join(' · ')}</span>
+        <span>{g.name}{g.why !== 'name' ? ' (' + WHY[g.why] + ')' : ''}: {g.items.map(c => c.phone + ' (' + c.n + ' زيارة)').join(' · ')}</span>
         {canApp && <button className="btn sm gh" data-merge onClick={() => setMg({ from: g.items[1].id, to: g.items[0].id, reason: '' })}>دمج…</button>}</div>)}
       {!groups.length && <div className="empty">لا احتمالات تكرار.</div>}
+      {live.length > 0 && <div style={{ marginTop: 10 }} data-merges><div className="card-t" style={{ fontSize: 13 }}>عمليات الدمج القائمة</div>
+        {live.map(x => <div key={x.id} className="mono-b" style={{ marginBottom: 4, gap: 6, flexWrap: 'wrap' }}><span>{x.from} ← {x.to} · {String(x.at || '').slice(0, 10)} · {x.reason}</span>
+          {canApp && <button className="btn sm gh" data-unmerge onClick={() => undo(x)}>تراجع…</button>}</div>)}</div>}
     </div>
     {mg && <Modal title="دمج ملفي عميل" icon={GitMerge} onClose={() => setMg(null)} foot={<><button className="btn pri" data-merge-save onClick={doMerge}>دمج</button><button className="btn gh" onClick={() => setMg(null)}>إلغاء</button></>}>
       <div className="grid g2">
@@ -239,7 +265,7 @@ function Cfg({ cfg, canApp, commitOrg, say }) {
 }
 
 
-function Loy({ org, ops, loy, setLoy, canApp, me, commit, commitOrg, say }) {
+function Loy({ org, ops, loy, setLoy, canApp, me, commit, commitOrg, say, bTag, list }) {
   const X = loyX(org); const prods = (org.products || []).filter(p => !p.posOff); const brs = org.branches || [];
   const [F, setF] = useState(() => JSON.parse(JSON.stringify({ tiers: X.tiers, brMult: X.brMult || {}, prodPts: X.prodPts || {}, expireMonths: X.expireMonths || 0, bdayPts: X.bdayPts || 0, refPts: X.refPts || 0, rewards: X.rewards || [] })));
   const [nr, setNr] = useState({ name: '', productId: '', pts: '', days: '30' }); const [pp, setPp] = useState({ pid: '', pts: '' }); const [ref, setRef] = useState({ a: '', b: '' });
@@ -257,7 +283,7 @@ function Loy({ org, ops, loy, setLoy, canApp, me, commit, commitOrg, say }) {
   const addRef = async () => { const a = normPhone(ref.a), b = normPhone(ref.b); if (a.length < 9 || b.length < 9 || a === b) return say('أدخل جوالين صحيحين مختلفين', 'no');
     if ((ops.mktReferrals || []).some(r => r.referred === b)) return say('هذا العميل مُحال من قبل', 'no');
     if ((ops.posOrders || []).some(o => o.loyalty && o.loyalty.phone === b && o.status !== 'void' && o.kind !== 'return')) return say('العميل المُحال اشترى من قبل — الإحالة للعملاء الجدد فقط', 'no');
-    const ok = await commit(d => ({ ...d, mktReferrals: [...(d.mktReferrals || []), { id: uid('rf'), referrer: a, referred: b, by: me.name, at: nowISO() }] }), { actionType: 'create', targetType: 'customer', targetId: b, need: 'edit', title: 'سجّل إحالة عميل', details: a + ' ← ' + b });
+    const ok = await commit(d => ({ ...d, mktReferrals: [...(d.mktReferrals || []), { id: uid('rf'), ...bTag((list || []).find(c => c.phone === a) || null), referrer: a, referred: b, by: me.name, at: nowISO() }] }), { actionType: 'create', targetType: 'customer', targetId: b, need: 'edit', title: 'سجّل إحالة عميل', details: a + ' ← ' + b });
     if (ok) { setRef({ a: '', b: '' }); say('سُجّلت الإحالة — تُمنح المكافأة بعد أول شراء للمُحال ✓'); } };
   const dis = !canApp;
   return (<>
