@@ -3693,3 +3693,12 @@ test('v56.18 POS 6a: بطاقة قيد الإيراد من فواتير نقطة
   assert.match(await p.locator('[data-posgl-rep]').innerText(), /إغلاقات في النطاق/);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.19 FINANCE E1: قائمة التغيرات في حقوق الملكية — الصفوف السبعة، ومطابقة المركز المالي، وتصدير Excel', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Accounting/admin/eqs');
+  await p.waitForSelector('[data-eqs-table]');
+  assert.equal(await p.locator('[data-eqs-row]').count(), 7);
+  assert.match(await p.locator('[data-eqs-tie]').innerText(), /مطابق للمركز المالي ✓/);
+  const [dl] = await Promise.all([p.waitForEvent('download'), p.click('[data-eqs-xl]')]); const fp = await dl.path(); assert.ok(fp && (await import('node:fs')).statSync(fp).size > 1000, 'ملف Excel فعلي');
+  assert.deepEqual(errs, []); await ctx.close();
+});
