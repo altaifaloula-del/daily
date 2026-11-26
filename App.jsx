@@ -3474,7 +3474,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.1';
+const APP_VER = 'v56.2';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3533,6 +3533,7 @@ export { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, saleRetU
 export { jeLive, jeOwner, canApproveJe, jeAutoSt, vatCloseLive, WF_DOCS, wfTiers, wfOn, wfRequired, poNeedsAppr, wfState, wfCanAct, wfApprove };   // v47.1 اعتماد القيد اليدوي
 export { gosiNewSched, gosiNewAuto };   // v47.2 الرواتب   // v46.8 مرتجع نقطة البيع   // v46.8: للاختبارات الوظيفية (حارس الإقفال)
 export { findDupClosings, clDayKey, clrKeyId, yearEndDates, yearEndNext, payFactor, POS_HOLD_MAX, posHolds, posHoldsSet, posHoldPut, posHoldRecall };
+export { posVoidBlock, posSeqSeed, posChainSeed, posNextNo, posTabCuts };   // v56.2 حراس نقطة البيع (دفعة 1)
 export { rptPivot, rptTpl, RPT_TPL_ALIAS };
 export { tnRemember, tnHref, tnOkId, RD_DEF, RD_ROLE, roleDash, roleDashList, roleDashDefault };
 export { salesInvoiceHtml, gsearch, gsNorm, kbAction, KB_SHORTCUTS, GlobalSearch };
@@ -6796,7 +6797,7 @@ function importDraftClosing(org, x, by) {
 }
 // ملخص اليوم من نقطة البيع الداخلية أو من الاستيراد (الداخلية أولًا)
 function salesDaySource(ops, branchId, date) {
-  const ps = posDaySummary(ops.posOrders || [], branchId, date); if (ps.n) return { ...ps, src: 'pos' };
+  const ps = posDaySummary(ops.posOrders || [], branchId, date); if (ps.n || ps.retN) return { ...ps, src: 'pos' };   // v56.2 (B5): يوم فيه مرتجعات فقط يبقى من نقطة البيع
   const im = (ops.posImports || []).find(x => x.branchId === branchId && x.date === date);
   return im ? { n: im.n, total: im.total, vat: im.vat, cash: im.cash, card: im.card, transfer: im.transfer, apps: im.apps || {}, src: 'import', file: im.file } : { n: 0 };
 }
@@ -8598,7 +8599,7 @@ function Hub({ hubId, view, ...rest }) {
    الإيراد يُقيَّد من الإغلاق اليومي كما هو (الإغلاق يُعبّأ من نقطة البيع) فلا قيد مكرر.
    ============================================================ */
 const POS_DEV_KEY = 'mizan:posDev', POS_Q_KEY = 'mizan:posQueue';
-const posDev = () => { try { let d = JSON.parse(localStorage.getItem(POS_DEV_KEY) || 'null'); if (!d || !d.tag) { d = { tag: Math.random().toString(36).slice(2, 4).toUpperCase(), name: 'كاشير' }; localStorage.setItem(POS_DEV_KEY, JSON.stringify(d)); } return d; } catch { return { tag: 'X1', name: 'كاشير' }; } };
+const posDev = () => { try { let d = JSON.parse(localStorage.getItem(POS_DEV_KEY) || 'null'); if (!d || !d.tag) { d = { tag: Math.random().toString(36).slice(2, 6).toUpperCase().padEnd(4, '0'), name: 'كاشير' };   /* v56.2 (B4): 4 خانات للأجهزة الجديدة (كان حرفين: 1 من 1296 تصادم) — الأجهزة القائمة تحتفظ بوسمها */ localStorage.setItem(POS_DEV_KEY, JSON.stringify(d)); } return d; } catch { return { tag: 'X1', name: 'كاشير' }; } };
 const POS_SH_KEY = 'mizan:posShiftLocal';
 const POS_SC_KEY = 'mizan:posShiftClose';   // v34.14: ورديات أُغلقت على الجهاز ولم تُرسل بعد (قائمة)
 const pendShiftsGet = () => { try { const v = JSON.parse(localStorage.getItem(POS_SC_KEY) || '[]'); return Array.isArray(v) ? v : (v ? [v] : []); } catch { return []; } };
@@ -8635,6 +8636,47 @@ function posHoldPut(list, h) {
   return { list: [h, ...L] };
 }
 /** استدعاء: السلة بأسعار المنتجات الحالية، وما حُذف من المنتجات يُسقط ويُبلَّغ عنه */
+/* v56.2 (POS دفعة 1) — حراس نقطة البيع (دوال نقية مختبرة):
+   B1/B6: لا إلغاء لفاتورة لها مرتجع (كان المرتجع يُخصم مرة ثانية بعد إلغاء الأصل) ولا بعد إغلاق ورديتها (يختل تقرير Z) — يُستخدم المرتجع بدلًا منه.
+   B4: الترقيم وسلسلة البصمات يُستكملان من الفواتير المعروفة لهذا الجهاز إن فُقد التخزين المحلي (لا رقم مكرر بعد مسح المتصفح).
+   B7: دفع حساب الطاولة لا يُنقص صنفًا أُرسل للمطبخ إلا لمدير، ويُسجَّل النقص في الفاتورة. */
+function posVoidBlock(ops, o) {
+  if (!o) return 'الفاتورة غير موجودة';
+  if (o.kind === 'return') return 'المرتجع لا يُلغى';
+  if (o.status === 'void') return 'الفاتورة ملغاة سابقًا';
+  if ((ops.posOrders || []).some(r => r.kind === 'return' && r.refId === o.id && r.status !== 'void')) return 'للفاتورة مرتجع مسجَّل — لا تُلغى؛ أرجع الأصناف المتبقية بمرتجع';
+  const sh = o.shiftId ? (ops.posShifts || []).find(x => x.id === o.shiftId) : null;
+  if (sh && sh.status === 'closed') return 'وردية هذه الفاتورة مغلقة — لا تُلغى بعد تقرير Z؛ استخدم المرتجع';
+  return '';
+}
+// أكبر تسلسل معروف لفواتير هذا الجهاز في يومه (prefix: «ف» للبيع، «م» للمرتجع) — من السحابة والطابور المحلي
+function posSeqSeed(orders, branchId, devTag, date, prefix) {
+  const yy = String(date || '').replace(/-/g, '').slice(2); let mx = 0;
+  (orders || []).forEach(o => { if (!o || o.branchId !== branchId || o.dev !== devTag) return;
+    [[o.no, o.date], o.voidNote ? [o.voidNote.no, o.voidNote.date] : null].forEach(e => { if (!e || e[1] !== date) return; const m = String(e[0] || '').match(/^(.)\d+-(\d{6})-([A-Z0-9]+)-(\d+)$/); if (!m || m[1] !== prefix || m[2] !== yy || m[3] !== devTag) return;
+    const n = Number(m[4]) || 0; if (n > mx) mx = n; }); });
+  return mx;
+}
+// آخر حلقة معروفة في سلسلة بصمات هذا الجهاز للفرع (أعلى icv)
+function posChainSeed(orders, branchId, devTag) {
+  let best = { icv: 0, hash: '0' };
+  (orders || []).forEach(o => { if (!o || o.branchId !== branchId || o.dev !== devTag) return;
+    [o, o.voidNote].forEach(x => { if (x && x.hash && (Number(x.icv) || 0) > best.icv) best = { icv: Number(x.icv) || 0, hash: x.hash }; }); });
+  return best;
+}
+// التسلسل التالي والحلقة السابقة: الأكبر بين المحلي والمعروف (لا يرجع الرقم أبدًا)
+function posNextNo(localSeq, localPrev, known, branchId, devTag, date, prefix) {
+  const seq = Math.max(Number(localSeq) || 0, posSeqSeed(known, branchId, devTag, date, prefix)) + 1;
+  const c = posChainSeed(known, branchId, devTag), lp = localPrev || {};
+  const prev = (Number(lp.icv) || 0) >= c.icv ? { icv: Number(lp.icv) || 0, hash: lp.hash || '0' } : c;
+  return { seq, prev };
+}
+// الأصناف التي نقصت عن المُرسَل للمطبخ عند دفع حساب الطاولة: [{productId,name,sent,now}]
+function posTabCuts(sentLines, cart) {
+  const want = {}; (sentLines || []).forEach(l => { const k = l.productId + '|' + (l.note || ''); want[k] = (want[k] || { productId: l.productId, name: l.name, sent: 0 }); want[k].sent += Number(l.qty) || 0; });
+  const have = {}; (cart || []).forEach(l => { const k = l.productId + '|' + ((l.note || '').trim()); have[k] = (have[k] || 0) + (Number(l.qty) || 0); });
+  return Object.entries(want).filter(([k, w]) => (have[k] || 0) + 1e-9 < w.sent).map(([k, w]) => ({ productId: w.productId, name: w.name, sent: w.sent, now: have[k] || 0 }));
+}
 function posHoldRecall(h, prods) {
   const P = new Map((prods || []).map(p => [p.id, p])), cart = [], dropped = [], repriced = [];
   ((h && h.cart) || []).forEach(l => { const p = P.get(l.productId);
@@ -8796,7 +8838,7 @@ function posReturnHtml(org, r, br) {
   h1{font-size:15px;text-align:center;margin:2px 0} .c{text-align:center} .s{font-size:10px;color:#333} table{width:100%;border-collapse:collapse;margin-top:6px}
   td{padding:3px 0;border-bottom:1px dashed #999;vertical-align:top} td.n{text-align:left;white-space:nowrap;font-variant-numeric:tabular-nums} .tot td{font-weight:800;font-size:13px;border-bottom:2px solid #000} .qr{text-align:center;margin-top:8px} .qr svg{width:34mm;height:34mm}</style></head><body>
   <h1>${_xe(co.name || '')}</h1><div class="c s">${_xe(br ? br.name : '')}${svat ? '<br>الرقم الضريبي: ' + _xe(svat) : ''}</div>
-  <div class="c" style="font-weight:800;margin-top:6px">إشعار دائن — مرتجع</div>
+  <div class="c" style="font-weight:800;margin-top:6px">${r.cancel ? 'إشعار دائن — إلغاء فاتورة' : 'إشعار دائن — مرتجع'}</div>
   <div class="c s">رقم: ${_xe(r.no)} · ${_xe((r.at || '').slice(0, 10))}<br>عن الفاتورة: ${_xe(r.refNo || '')}<br>السبب: ${_xe(wasteReasonAr(r.reason))}${r.note ? ' — ' + _xe(r.note) : ''}</div>
   <table>${L}<tr><td colspan="2">المرتجع قبل الضريبة</td><td class="n">${m(r.net)}</td></tr><tr><td colspan="2">ضريبة القيمة المضافة</td><td class="n">${m(r.vat)}</td></tr>
   <tr class="tot"><td colspan="2">المبلغ المردود شامل الضريبة</td><td class="n">${m(r.total)}</td></tr><tr><td colspan="2">طريقة الرد</td><td class="n">${_xe(pmAr)}</td></tr></table>

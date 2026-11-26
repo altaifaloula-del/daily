@@ -3355,6 +3355,29 @@ test('v56.0 GAP-007 تعليق فاتورة السفري واستدعاؤها: �
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+test('v56.2 POS الدفعة 1 (B2/B4): نقرتان على «تأكيد» فاتورة واحدة، ومسح ترقيم الجهاز لا يكرر رقم الفاتورة ولا يكسر سلسلة البصمات', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosApp/cs');
+  await p.evaluate(() => {
+    localStorage.removeItem('mizan:posQueue'); localStorage.removeItem('mizan:posShiftLocal');
+    window.setOrg(g => ({ ...g, taxCfg: { enabled: false }, posCfg: { branches: ['b1'], autoPrint: false }, products: [{ id: 'k', name: 'كبسة', sellPrice: 100, cat: 'رئيسي' }] }));
+    window.setOps(o => ({ ...o, posOrders: [], posShifts: [] }));
+  }); await p.waitForTimeout(400);
+  await ctx.setOffline(true); await p.evaluate(() => { window.__cloudDown = true; });   // الفواتير تبقى في طابور الجهاز للفحص
+  const ob = p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await p.waitForTimeout(400); }
+  await p.locator('.pos-tile:has-text("كبسة")').click(); await p.click('.pos-cart button:has-text("نقدي")'); await p.waitForTimeout(200);
+  await p.locator('.modal button:has-text("تأكيد")').dblclick(); await p.waitForTimeout(600);
+  let q = await p.evaluate(() => JSON.parse(localStorage.getItem('mizan:posQueue') || '[]'));
+  assert.equal(q.length, 1, 'فاتورة واحدة رغم النقرتين');
+  // فقد ترقيم الجهاز (مسح جزئي للتخزين): الرقم التالي يُستكمل من الفواتير المعروفة
+  await p.evaluate(() => { Object.keys(localStorage).filter(k => /posSeq|posHash/.test(k)).forEach(k => localStorage.removeItem(k)); });
+  await p.locator('.pos-tile:has-text("كبسة")').click(); await p.click('.pos-cart button:has-text("نقدي")'); await p.waitForTimeout(200);
+  await p.click('.modal button:has-text("تأكيد")'); await p.waitForTimeout(600);
+  q = await p.evaluate(() => JSON.parse(localStorage.getItem('mizan:posQueue') || '[]'));
+  assert.equal(q.length, 2); assert.notEqual(q[1].no, q[0].no, 'رقم فاتورة غير مكرر');
+  assert.equal(q[1].icv, q[0].icv + 1, 'العدّاد يكمل'); assert.equal(q[1].pih, q[0].hash, 'السلسلة لا تنكسر');
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
 test('v56.0 هوية المنشأة: رفع شعار شفاف، الألوان والاسمان والتذييل، معاينة حيّة بالمحرك نفسه، حفظ بسجل تدقيق، عرض فقط لغير المسؤول، واستعادة الافتراضي', async () => {
   const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFklEQVR42mNk+M9QzwAEjDAGNzYAAA2nAf9ex9uYAAAAAElFTkSuQmCC', 'base64');
   { const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1200 } }, 'live/TenantBranding/admin');
