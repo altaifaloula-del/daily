@@ -33,7 +33,7 @@ export const ENGINE_EXPORTS = ['promoEligible', 'couponWhy', 'promoDiscPct', 'pr
   // v56.7 — C4 التطابق التام بالهللات
   'toHal', 'isHal', 'finStrictOn',
   // v56.9 — D1 دفتر القيود المخزّن
-  'FL_START', 'flOn', 'flKey', 'flNo', 'flLines', 'flRecord', 'flScope', 'flCompare'];
+  'FL_START', 'flOn', 'flKey', 'flNo', 'flLines', 'flRecord', 'flScope', 'flCompare', 'flOpening'];
 
 export async function buildEngine() {
   fs.mkdirSync(cache, { recursive: true });

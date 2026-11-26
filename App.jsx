@@ -3488,7 +3488,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.9';
+const APP_VER = 'v56.10';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3544,7 +3544,7 @@ class ErrorBoundary extends React.Component {
 }
 export { FbGate };
 export { toHal, isHal, finStrictOn };   // v56.7 C4
-export { FL_START, flOn, flKey, flNo, flLines, flRecord, flScope, flCompare, flLoad, flPost };   // v56.9 D1
+export { FL_START, flOn, flKey, flNo, flLines, flRecord, flScope, flCompare, flLoad, flPost, flOpening, flAutoPost };   // v56.9 D1 + v56.10 D2
 export { ErrorBoundary, logClientError, lockedLedgerChanged };
 export { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, saleRetUse, posReturnLoyDed };
 export { jeLive, jeOwner, canApproveJe, jeAutoSt, vatCloseLive, WF_DOCS, wfTiers, wfOn, wfRequired, poNeedsAppr, wfState, wfCanAct, wfApprove };   // v47.1 اعتماد القيد اليدوي
@@ -14408,6 +14408,7 @@ function fjCompare(list, recs) {
 /* ══════ v56.9 — MUKTASAB FINANCE D1: دفتر القيود المخزّن fin_ledger (قرارات المالك 2026-11-26) ══════
    القيد الآلي يُحفظ مرة برقم ثابت JV-<السنة>-<تسلسل> يبدأ من 1 كل سنة؛ محتواه (السطور بالهللات) وبصمته لا يتغيران.
    الدفعة D1: قيود الإغلاقات المعتمدة من 2026-01-01 — ترحيل يدوي من «صيانة النظام» ومطابقة مع المحرك. القراءة تبقى من المحرك.
+   D2 (v56.10): القيد الافتتاحي بأرصدة 2025-12-31 أول قيد في السنة، والترحيل التلقائي عند تدقيق الإغلاق.
    المفتاح org.ledger.on — معطّل افتراضيًا. الفترة المقفلة تحتاج نافذة الترحيل (fin_periods/migration) وتُعلَّم legacy. */
 const FL_START = '2026-01-01';
 const flOn = (org) => !!(org && org.ledger && org.ledger.on);
@@ -14420,10 +14421,36 @@ function flRecord(e, ver) {
   return { date: String(e.date || ''), src: String(e.id || '').slice(0, 200), title: (String(e.title || '') + (e.src ? ' · ' + e.src : '')).slice(0, 300),
     lines: JSON.stringify(L), drH, crH, digest: sha256Hex(JSON.stringify([String(e.date || ''), L])), ver: ver || 1 };
 }
-/** نطاق D1: قيود الإغلاقات المعتمدة (لا المرفوعة بانتظار التدقيق — قد تتغير) من تاريخ البداية */
+/** v56.10 (D2): القيد الافتتاحي (قرار المالك) — أرصدة الحسابات حتى اليوم السابق لتاريخ البداية من كل قيود المحرك،
+ *  بالهللات؛ حسابات الإيرادات والمصروفات (غير الأصول والخصوم وحقوق الملكية) تُرحَّل صافيًا إلى الأرباح المبقاة 3201.
+ *  يُعاد null إن لم تكن قبل البداية أي حركة. */
+function flOpening(A, start = FL_START) {
+  const kind = {}; (A.accounts || []).forEach(a => { kind[String(a.code)] = a.kind; });
+  const bal = {};
+  (A.entries || []).forEach(e => { if (!(String(e.date || '') < start)) return;
+    (e.lines || []).forEach(l => { const k = String(l.code); const bs = ['asset', 'liab', 'equity'].includes(kind[k]); const c = bs ? k : '3201';
+      bal[c] = (bal[c] || 0) + toHal(l.debit) - toHal(l.credit); }); });
+  const lines = Object.keys(bal).sort().filter(c => bal[c]).map(c => ({ code: c, debit: bal[c] > 0 ? bal[c] / 100 : 0, credit: bal[c] < 0 ? -bal[c] / 100 : 0 }));
+  if (!lines.length) return null;
+  const y = start.slice(0, 4), prev = String(Number(y) - 1);
+  return { id: 'open:' + y, date: start, title: 'القيد الافتتاحي — أرصدة ' + prev + '-12-31', src: 'قيد افتتاحي', lines, opening: true };
+}
+/** نطاق الدفتر: القيد الافتتاحي + الأرصدة الافتتاحية + قيود الإغلاقات المعتمدة (لا المرفوعة بانتظار التدقيق — قد تتغير) من تاريخ البداية */
 function flScope(ops, A) {
   const ids = new Set((ops.closings || []).filter(c => c && c.status === 'approved').map(c => c.id));
-  return (A.entries || []).filter(e => e.ref && ids.has(e.ref) && String(e.date || '') >= FL_START);
+  const op = flOpening(A);
+  // قيد «الأرصدة الافتتاحية» في المحرك (من الإعداد) إن كان تاريخه من البداية فما بعد — وإلا فهو داخل القيد الافتتاحي المحسوب
+  return [...(op ? [op] : []), ...(A.entries || []).filter(e => String(e.date || '') >= FL_START && (e.id === 'opening' || (e.ref && ids.has(e.ref))))];
+}
+/** v56.10 (D2): ترحيل قيود إغلاق عند تدقيقه (اعتماده) — لا يعطّل الاعتماد إن تعذّر؛ «ترحيل الناقص» في الصيانة يلحق به */
+async function flAutoPost(org, ops, closingId) {
+  if (!flOn(org)) return null;
+  try {
+    const A = buildAccounting(org, ops);
+    const list = flScope(ops, A).filter(e => e.ref === closingId && flRecord(e).drH === flRecord(e).crH && !(e.subHal > 0));
+    if (!list.length) return { ok: 0, fail: 0, skip: 0, total: 0 };
+    return await flPost(list, '0000-00-00');
+  } catch (e) { return { err: String((e && e.message) || e).slice(0, 80) }; }
 }
 /** المطابقة: المحرك مقابل الدفتر المخزّن — ناقص · مختلف (البصمة) · زائد (قيد مخزّن لا يقابله قيد) · غير قابل (لا يتطابق بالهللة) */
 function flCompare(entries, recs) {
@@ -14443,8 +14470,8 @@ async function flLoad() {
 /** الترحيل بترتيب التاريخ: لكل قيد معاملة تقرأ عدّاد سنته وتكتب القيد والعدّاد معًا (القواعد تفرض +1 بالضبط) */
 async function flPost(entries, lockedTo, onProgress) {
   const c = await ctlIdentity(); if (!c) return { err: 'خارج Firestore' };
-  const list = (entries || []).slice().sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.id).localeCompare(String(b.id)));
-  let ok = 0, fail = 0, lastErr = ''; const nos = [];
+  const list = (entries || []).slice().sort((a, b) => String(a.date).localeCompare(String(b.date)) || (b.opening ? 1 : 0) - (a.opening ? 1 : 0) || String(a.id).localeCompare(String(b.id)));
+  let ok = 0, fail = 0, skip = 0, lastErr = ''; const nos = [];
   for (let i = 0; i < list.length; i++) {
     const e = list[i], R = flRecord(e), key = flKey(e.id, R.ver), y = Number(R.date.slice(0, 4));
     try {
@@ -14457,10 +14484,10 @@ async function flPost(entries, lockedTo, onProgress) {
         tx.set(sr, { n, last: key }); nos.push(flNo(y, n));
       }));
       ok++;
-    } catch (err) { fail++; lastErr = (err && err.code) || 'error'; }
+    } catch (err) { if (err && err.code === 'exists') skip++; else { fail++; lastErr = (err && err.code) || 'error'; } }
     if (onProgress && (i + 1) % 10 === 0) onProgress(i + 1, list.length);
   }
-  return { ok, fail, lastErr, total: list.length, first: nos[0] || '', last: nos[nos.length - 1] || '' };
+  return { ok, fail, skip, lastErr, total: list.length, first: nos[0] || '', last: nos[nos.length - 1] || '' };
 }
 
 const fjOn = (org) => !!(org && org.finRecords && org.finRecords.on);
