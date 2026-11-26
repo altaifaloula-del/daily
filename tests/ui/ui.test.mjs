@@ -3852,7 +3852,7 @@ test('v56.27 FINANCE E4: بُعد القسم — معطّل افتراضيًا،
   await p.waitForFunction(() => (window.curOrg.costDepts.list || []).some(d => d.name === 'المطبخ'));
   await p.waitForSelector('[data-dept-table]');
   assert.ok(await p.locator('[data-dept-row]').count() >= 3, 'المطبخ + مشترك + بلا قسم');
-  assert.match(await p.locator("[data-dept-total]").innerText(), /إجمالي التكاليف والمصروفات/);
+  assert.match(await p.locator("[data-dept-total]").innerText(), /إجمالي المصروفات التشغيلية والأخرى/);
   // القسم على سطر القيد اليدوي
   await p.locator('.ob-it', { hasText: 'العمليات اليومية' }).first().click(); await p.locator('.ob-mi', { hasText: 'القيود اليومية' }).first().click();
   await p.locator('button:has-text("قيد يدوي")').first().click();
@@ -3871,5 +3871,23 @@ test('v56.27 E4: عكس قيد يدوي يحمل الفرع والمشروع و�
   await p.click('button:has-text("↺ عكس القيد")'); await p.waitForTimeout(400);
   const r = await p.evaluate(() => window.cur.journalManual.filter(j => j.reverses === 'jd1').map(j => [j.branchId || '', j.lines.map(l => l.code + ':' + (l.deptId || '')).join(',')]));
   assert.deepEqual(r, [['b1', '5901:dk,1201:']]);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v56.28 E4: قسم سند الصرف على حساب مصروف — يظهر بالتفعيل للمصروف فقط، ويُحفظ على السند', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Hub/admin/finhub:treasury');
+  await p.evaluate(() => { window.setOrg(g => ({ ...g, taxCfg: { enabled: false }, costDepts: { on: true, list: [{ id: 'dk', name: 'المطبخ' }] } })); window.setOps(o => ({ ...o, cashVouchers: [] })); });
+  await p.waitForTimeout(300);
+  await p.locator('[data-tabcv]').click(); await p.waitForTimeout(200);
+  await p.locator('[data-newcv="pv"]').click(); await p.waitForTimeout(150);
+  await p.locator('[data-cvpt="acc"]').click();
+  const exp = await p.evaluate(() => Array.from(document.querySelectorAll('select[aria-label="حساب السند"] option')).map(o => o.value).find(v => /^5199$/.test(v)) || Array.from(document.querySelectorAll('select[aria-label="حساب السند"] option')).map(o => o.value).find(v => /^5/.test(v)));
+  const nonExp = await p.evaluate(() => Array.from(document.querySelectorAll('select[aria-label="حساب السند"] option')).map(o => o.value).find(v => /^1[2-4]/.test(v)));
+  if (nonExp) { await p.selectOption('select[aria-label="حساب السند"]', nonExp); assert.equal(await p.locator('[data-cv-dept]').count(), 0, 'غير المصروف بلا قسم'); }
+  await p.selectOption('select[aria-label="حساب السند"]', exp);
+  await p.waitForSelector('[data-cv-dept]'); await p.selectOption('[data-cv-dept]', 'dk');
+  await p.fill('input[aria-label="مبلغ السند"]', '90'); await p.fill('input[aria-label="بيان السند"]', 'صيانة');
+  await p.locator('[data-cvsave]').click(); await p.waitForTimeout(500);
+  assert.deepEqual(await p.evaluate(() => window.cur.cashVouchers.map(v => [v.kind, v.deptId || ''])), [['pv', 'dk']]);
   assert.deepEqual(errs, []); await ctx.close();
 });
