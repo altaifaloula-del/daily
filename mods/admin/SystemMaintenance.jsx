@@ -8,7 +8,8 @@ import { archKey, archivePlan, nowISO, printA4, uid, dtLocal, posSplitBranch, po
 import { clrCompare, clrLoad, clrOn, clrSeed, clrState, logAudit, clrRead, clrViewStats } from '../../App.jsx';   // v41.9 + v42.2
 import { posrOn, posrCompare, posrLoad, posrSeed, posrState, posrRepair } from '../../App.jsx';   // v56.4 (POS 2a) سجلات فواتير نقطة البيع
 import { MKT_BR_CV, mktBrOn } from '../../App.jsx';
-import { grrOn, mkcCompare, lytCompare, grrLoad, grrSeed, grrState } from '../../App.jsx';   // v56.17 (GROWTH 2) سجلات الموافقة والولاء المحمية   // v56.12 (GROWTH G1) سجلات التسويق في الفروع
+import { grrOn, mkcCompare, lytCompare, grrLoad, grrSeed, grrState } from '../../App.jsx';
+import { posGlOpen, posGlRanges, posGlCheck } from '../../App.jsx';   // v56.18 (POS 6a) أثر فواتير نقطة البيع في قيد الإغلاق   // v56.17 (GROWTH 2) سجلات الموافقة والولاء المحمية   // v56.12 (GROWTH G1) سجلات التسويق في الفروع
 import { WorkflowsCard } from './Workflows.jsx';   // v49.5 MQ-059
 import { FL_START, flOn, flScope, flCompare, flLoad, flPost, FL_GROUPS, flLvl, flUnclassified, flCorrect, flReadOn } from '../../App.jsx';   // v56.9 D1 دفتر القيود المخزّن
 import { fjCompare, fjLoad, fjOn, fjState, fpLockedTo, fpLoad, fmLoad, fmSet, fjSeed, FD_KINDS, fdCompare, fdLoad, fdSeed } from '../../App.jsx';   // v49.0 المرحلة 01
@@ -315,6 +316,7 @@ export function SystemMaintenance({ org, ops, me, commit, commitOrg, say }) {
       <PosRecordsCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <MktBranchCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <GrowthRecordsCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
+      <PosGlCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <FinStrictCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <LedgerCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <JournalRecordsCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
@@ -505,6 +507,50 @@ function MktBranchCard({ org, commitOrg, say, isAdm }) {
 }
 /* v56.17 (GROWTH 2): الموافقات التسويقية وحركات الولاء سجلات للإضافة فقط يحرسها الخادم — نسخ موازٍ، معطّل افتراضيًا.
    المصدر لا يتغير؛ التفعيل ينسخ الجديد، و«نسخ التاريخ» ينسخ القائم، و«مطابقة» تكشف الناقص والمختلف والزائد. */
+/* v56.18 (POS 6a — قرارات المالك): قيد إيراد الوردية من فواتير نقطة البيع: الضريبة من الفواتير، المبيعات بالإجمالي والخصومات في 4104،
+   والولاء التزام 2106. معطّل افتراضيًا، ويسري من تاريخ يختاره المالك فقط (لا يغيّر قيودًا سابقة). الإغلاق غير المطابق لفواتيره يبقى كما كان. */
+function PosGlCard({ org, ops, commitOrg, say, isAdm }) {
+  const on = posGlOpen(org); const R = posGlRanges(org); const [from, setFrom] = useState(today()); const [rows, setRows] = useState(null);
+  const pv = Number((org.loyaltyCfg || {}).ptValue) || 0; const lk = fpLockedTo(org) || '';
+  const lastTo = R.reduce((a, r) => (r.to && r.to > a ? r.to : a), '');
+  const toggle = async () => {
+    if (!isAdm) return;
+    if (!on) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) return say('اختر تاريخ البدء', 'no');
+      if (lk && from <= lk) return say('تاريخ البدء داخل فترة مقفلة (حتى ' + lk + ')', 'no');
+      if (lastTo && from <= lastTo) return say('تاريخ البدء يجب أن يكون بعد نهاية التفعيل السابق (' + lastTo + ')', 'no');
+      if (!window.confirm('تفعيل قيد الإيراد من فواتير نقطة البيع من ' + from + '؟\nالإغلاقات من هذا التاريخ: الضريبة من الفواتير، المبيعات بالإجمالي والخصومات في 4104، ونقاط الولاء التزام في 2106 بقيمة النقطة المحفوظة في كل فاتورة (والأقدم بـ ' + pv + ').\nتنبيه: إن كان لدى العملاء رصيد نقاط قائم قبل هذا التاريخ فلا التزام افتتاحي له بعد — انتظر قرار معالجته.')) return;
+    } else {
+      const to = today(); if (lk && to <= lk) return say('لا إيقاف بتاريخ داخل فترة مقفلة', 'no');
+      if (!window.confirm('إيقاف من اليوم؟ الإغلاقات حتى اليوم تبقى بقيد نقطة البيع (لا تُعاد كتابتها)، وما بعده بالطريقة السابقة.')) return;
+    }
+    const ok = await commitOrg(o => { const rs = posGlRanges(o).map(r => ({ ...r }));
+      if (on) { const x = rs.find(r => !r.to); if (x) { x.to = today(); x.offAt = nowISO(); } }
+      else rs.push({ from, pv, at: nowISO() });
+      return { ...o, posGl: { ranges: rs, pv: (o.posGl || {}).pv != null ? o.posGl.pv : pv } }; },
+      { actionType: 'settings', targetType: 'system_settings', targetId: 'posGl', title: on ? 'أوقف قيد الإيراد من فواتير نقطة البيع' : 'فعّل قيد الإيراد من فواتير نقطة البيع', details: on ? 'حتى ' + today() : 'من ' + from + ' · قيمة النقطة ' + pv });
+    if (ok) { setRows(null); say(on ? 'أُوقف من الغد — القيود السابقة كما هي' : 'فُعّل من ' + from + ' ✓'); }
+  };
+  const cnt = (k) => (rows || []).filter(r => r.st === k).length;
+  return (<div className="card" data-posgl>
+    <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />قيد إيراد الوردية من فواتير نقطة البيع (الضريبة، الخصومات، التزام الولاء)</div>
+      <span className={'badge ' + (on ? 'b-sky' : 'b-dim')}>{on ? 'مفعّل من ' + posGlRanges(org).find(r => !r.to).from : 'غير مفعّل'}</span></div>
+    <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>
+      بقرارك: ضريبة كل فاتورة بدل النسبة الثابتة · المبيعات بالإجمالي والعروض والخصم اليدوي في <b>4104</b> · نقاط الولاء الممنوحة <b>التزام 2106</b> (النقاط × قيمة النقطة بعد الضريبة) ويُطفئه الاستبدال.
+      {!pv && <div style={{ color: 'var(--amber)' }}>قيمة النقطة غير مضبوطة في إعداد الولاء ⇒ لن يُسجَّل التزام للنقاط.</div>}
+      <div style={{ color: 'var(--amber)' }} data-posgl-warn>لا تفعّله إن كان لدى العملاء رصيد نقاط قائم قبل قرار معالجته (افتتاحي في الأرباح المبقاة أم إيراد الفترة) — وإلا صار 2106 مدينًا عند استبداله.</div>
+      <div>نقاط المناسبات وجوائز الكتالوج وانتهاء النقاط: خارج هذه الدفعة حتى قرارك.</div>
+      {R.filter(r => r.to).map((r, i) => <div key={i}>نطاق سابق: {r.from} ← {r.to}</div>)}</div>
+    {isAdm && !on && <div className="row" style={{ gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}><label style={{ fontSize: 12 }}>يسري من <input className="inp" type="date" aria-label="تاريخ بدء قيد نقطة البيع" value={from} onChange={e => setFrom(e.target.value)} /></label></div>}
+    {rows && <div data-posgl-rep style={{ fontSize: 12, marginTop: 6 }}>إغلاقات في النطاق: {rows.length} · مطابقة لفواتيرها: {cnt('ok')} · غير مطابقة: {cnt('diff')} · بلا فواتير نقطة بيع: {cnt('none')}
+      {rows.filter(r => r.st === 'diff').slice(0, 20).map(r => <div key={r.id} className="me-row"><span className="me-a"><b>{r.branchName} — {r.date}</b><small>الإغلاق {r.tot} · الفواتير {r.pos} ({r.n}) — بقي القيد بالطريقة السابقة</small></span></div>)}</div>}
+    <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+      {isAdm && <button className={'btn sm ' + (on ? 'gh' : 'pri')} onClick={toggle} data-posgl-toggle>{on ? 'إيقاف' : 'تفعيل'}</button>}
+      {R.length > 0 && <button className="btn sm gh" onClick={() => setRows(posGlCheck(org, ops))} data-posgl-check>فحص المطابقة</button>}
+    </div>
+  </div>);
+}
+
 function GrowthRecordsCard({ org, ops, commitOrg, say, isAdm }) {
   const on = grrOn(org); const [busy, setBusy] = useState(''); const [rep, setRep] = useState(null);
   const check = async () => {
