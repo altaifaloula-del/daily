@@ -3841,3 +3841,35 @@ test('v56.26 G2 التنقيب الموحّد: مبلغ في القوائم ال
   }
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.27 FINANCE E4: بُعد القسم — معطّل افتراضيًا، التفعيل وإضافة قسم، القسم على سطر القيد اليدوي، والتقرير يطابق الإجمالي', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Accounting/admin/cc');
+  await p.waitForSelector('[data-dept]');
+  assert.match(await p.locator('[data-dept]').innerText(), /غير مفعّل/);
+  assert.equal(await p.locator('[data-dept-table]').count(), 0);
+  await p.click('[data-dept-toggle]'); await p.waitForFunction(() => window.curOrg.costDepts && window.curOrg.costDepts.on === true);
+  await p.getByLabel('اسم القسم').fill('المطبخ'); await p.click('[data-dept-add]');
+  await p.waitForFunction(() => (window.curOrg.costDepts.list || []).some(d => d.name === 'المطبخ'));
+  await p.waitForSelector('[data-dept-table]');
+  assert.ok(await p.locator('[data-dept-row]').count() >= 3, 'المطبخ + مشترك + بلا قسم');
+  assert.match(await p.locator("[data-dept-total]").innerText(), /إجمالي التكاليف والمصروفات/);
+  // القسم على سطر القيد اليدوي
+  await p.locator('.ob-it', { hasText: 'العمليات اليومية' }).first().click(); await p.locator('.ob-mi', { hasText: 'القيود اليومية' }).first().click();
+  await p.locator('button:has-text("قيد يدوي")').first().click();
+  await p.waitForSelector('[data-jm-dept]');
+  assert.ok(await p.locator('[data-jm-dept]').count() >= 2, 'قسم لكل سطر');
+  assert.match(await p.locator('[data-jm-dept]').first().innerText(), /المطبخ/); assert.match(await p.locator('[data-jm-dept]').first().innerText(), /مشترك/);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v56.27 E4: عكس قيد يدوي يحمل الفرع والمشروع والقسم من الأصل (مراجعة رئيس المحاسبين)', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1280, height: 900 } }, 'live/Accounting/admin/jr');
+  await p.evaluate(() => window.setOps(o => ({ ...o, journalManual: [{ id: 'jd1', date: o.closings[0].date, title: 'قيد بقسم للعكس', by: 'منى', status: 'posted', branchId: 'b1', lines: [{ code: '5901', debit: 300, credit: 0, deptId: 'dk' }, { code: '1201', debit: 0, credit: 300 }] }] })));
+  await p.waitForTimeout(300);
+  await p.fill('input[placeholder="بحث في القيود…"]', 'قيد بقسم للعكس'); await p.waitForTimeout(200);
+  await p.locator('td', { hasText: 'قيد بقسم للعكس' }).first().click(); await p.waitForTimeout(250);
+  await p.click('button:has-text("↺ عكس القيد")'); await p.waitForTimeout(400);
+  const r = await p.evaluate(() => window.cur.journalManual.filter(j => j.reverses === 'jd1').map(j => [j.branchId || '', j.lines.map(l => l.code + ':' + (l.deptId || '')).join(',')]));
+  assert.deepEqual(r, [['b1', '5901:dk,1201:']]);
+  assert.deepEqual(errs, []); await ctx.close();
+});

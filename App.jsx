@@ -2567,7 +2567,7 @@ function buildAccounting(org, ops) {
         ...(Math.abs(restNet) > 0.004 ? [L(exC, restNet, 0)] : [])];
       const credPpv = ppv < -0.004 ? [L('5504', 0, -ppv)] : [];
       push({
-        id: 'inv:' + i.id, date: d, branchId: i.branchId, ...(i.projectId ? { projectId: i.projectId } : {}), title: (i.supDebit ? 'إشعار مدين من المورد (زيادة) — ' : 'فاتورة توريد آجلة — ') + (i.supplierName || 'مورد') + (stockNet > 0 ? ' (مخزون)' : ''),
+        id: 'inv:' + i.id, date: d, branchId: i.branchId, ...(i.projectId ? { projectId: i.projectId } : {}), ...(i.deptId ? { deptId: i.deptId } : {}), title: (i.supDebit ? 'إشعار مدين من المورد (زيادة) — ' : 'فاتورة توريد آجلة — ') + (i.supplierName || 'مورد') + (stockNet > 0 ? ' (مخزون)' : ''),
         src: 'فاتورة مورد', ref: i.invoiceNo || i.id, ...(i.jeNo ? { fix: i.jeNo } : {}),
         lines: ti.vat
           ? [...debit, L('1501', ti.vat, 0), ...credPpv, L('2101', 0, i.amount)]
@@ -2585,7 +2585,7 @@ function buildAccounting(org, ops) {
       const stockCr = (perpOn(d) && Array.isArray(i.lines)) ? Math.min(n, Math.round(i.lines.filter(l => l.stock).reduce((s2, l) => s2 + Math.abs(Number(l.net) || 0), 0) * 100) / 100) : 0;
       const restCr = Math.round((n - stockCr) * 100) / 100;
       push({
-        id: 'inv:' + i.id, date: d, branchId: i.branchId, ...(i.projectId ? { projectId: i.projectId } : {}), title: (i.debitNote ? 'إشعار مدين للمورد' + (i.disc ? ' (خصم مكتسب)' : '') + ' — ' : i.creditNote ? 'مرتجع مشتريات — إشعار دائن ' : 'إشعار دائن من مورد — ') + (i.supplierName || 'مورد'),
+        id: 'inv:' + i.id, date: d, branchId: i.branchId, ...(i.projectId ? { projectId: i.projectId } : {}), ...(i.deptId ? { deptId: i.deptId } : {}), title: (i.debitNote ? 'إشعار مدين للمورد' + (i.disc ? ' (خصم مكتسب)' : '') + ' — ' : i.creditNote ? 'مرتجع مشتريات — إشعار دائن ' : 'إشعار دائن من مورد — ') + (i.supplierName || 'مورد'),
         src: 'فاتورة مورد', ref: i.invoiceNo || i.id, ...(i.jeNo ? { fix: i.jeNo } : {}),
         lines: [L('2101', a, 0), ...(stockCr > 0 ? [L(whAccOf(i.whId), 0, stockCr)] : []), ...(restCr > 0.004 ? [L(exC, 0, restCr)] : []), ...(v ? [L('1501', 0, v)] : [])],
         vat: v ? { out: 0, inn: -v, netSales: 0, netPurch: -n } : null,
@@ -2939,7 +2939,7 @@ function buildAccounting(org, ops) {
       id: 'man:' + j.id, date: (j.date || '').slice(0, 10),
       title: j.title || 'قيد يدوي', src: j.opening ? 'قيد افتتاحي' : j.vatClose ? 'إقفال ضريبي' : j.vatPay ? 'سداد ضريبة' : (j.mizanSales ? 'مبيعات مستوردة' : 'قيد يدوي'),
       ref: j.by || '', manual: true, ...(j.branchId ? { branchId: j.branchId } : {}), ...(j.projectId ? { projectId: j.projectId } : {}), ...(j.vat ? { vat: j.vat, reg: { k: j.vat.out || j.vat.netSales ? 's' : 'p', doc: 'مستورد من نظام سابق', party: j.title || '', net: (j.vat.netSales || 0) + (j.vat.netPurch || 0), vat: (j.vat.out || 0) + (j.vat.inn || 0), gross: (j.vat.netSales || 0) + (j.vat.netPurch || 0) + (j.vat.out || 0) + (j.vat.inn || 0) } } : {}),   // v28.5: قيد مبيعات مستورد يحمل أثره الضريبي لشاشة الضريبة
-      lines: (j.lines || []).map(l => ({ ...L(l.code, l.debit || 0, l.credit || 0), ...(l.projectId ? { projectId: l.projectId } : {}) }))   // v47.4 مشروع لكل سطر
+      lines: (j.lines || []).map(l => ({ ...L(l.code, l.debit || 0, l.credit || 0), ...(l.projectId ? { projectId: l.projectId } : {}), ...(l.deptId ? { deptId: l.deptId } : {}) }))   // v56.27 E4 قسم لكل سطر   // v47.4 مشروع لكل سطر
     });
   });
 
@@ -3676,7 +3676,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.26';
+const APP_VER = 'v56.27';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3735,7 +3735,8 @@ export { toHal, isHal, finStrictOn };   // v56.7 C4
 export { FL_START, flOn, flKey, flNo, flLines, flRecord, flScope, flCompare, flLoad, flPost, flOpening, flAutoPost };   // v56.9 D1 + v56.10 D2
 export { FL_GROUPS, flLvl, flGroupOf, flUnclassified, flReversalOf, flCorrect };   // v56.11 D3
 export { flReadOn, flEntriesOf, flBalDiff, flDayBefore };   // v56.14 D4
-export { ctlBarOn };   // v56.23 G2
+export { ctlBarOn };
+export { DEPT_SHARED, deptOn, deptList, deptPL };   // v56.27 E4   // v56.23 G2
 export { ledgerApi };   // v56.15 D5
 export { ErrorBoundary, logClientError, lockedLedgerChanged };
 export { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, saleRetUse, posReturnLoyDed };
@@ -11152,6 +11153,23 @@ function projectPL(A, pid, from, to) {
     if (hit) n++; });
   const r = (x) => Math.round(x * 100) / 100;
   return { rev: r(rev), exp: r(exp), net: r(rev - exp), n, accs: Object.values(acc).map(a => ({ ...a, v: r(a.v) })).sort((a, b) => a.kind === b.kind ? b.v - a.v : a.kind === 'rev' ? -1 : 1) };
+}
+/* v56.27 (FINANCE E4 — بقرار المالك): بُعد «القسم» الإداري — قائمة مالية مستقلة org.costDepts = { on, list: [{ id, name, active }] }،
+   اختياري على سطر القيد اليدوي وعلى فاتورة الخدمات. «مشترك» (shared) يبقى بلا توزيع، والفارغ «بلا قسم». الرواتب لا تُقسَّم (قرار المالك). */
+const DEPT_SHARED = 'shared';
+const deptOn = (org) => !!(org && org.costDepts && org.costDepts.on);
+const deptList = (org, all) => ((org && org.costDepts && org.costDepts.list) || []).filter(d => all || d.active !== false);
+function deptPL(org, A, from, to, bf) {
+  const kind = {}; (A.accounts || []).forEach(a => { kind[String(a.code)] = a.kind; });
+  const r2 = (x) => Math.round(x * 100) / 100; const byId = {}; let tot = 0;
+  (A.entries || []).forEach(e => { if (e.closing || (from && e.date < from) || (to && e.date > to)) return;
+    if (bf && (bf === 'central' ? !!e.branchId : e.branchId !== bf)) return;
+    (e.lines || []).forEach(l => { if (kind[String(l.code)] !== 'exp') return; const v = (Number(l.debit) || 0) - (Number(l.credit) || 0);
+      const k = l.deptId || e.deptId || ''; byId[k] = (byId[k] || 0) + v; tot += v; }); });
+  const names = {}; deptList(org, true).forEach(d => { names[d.id] = d.name; });
+  const rows = deptList(org, true).filter(d => d.active !== false || Math.abs(byId[d.id] || 0) > 0.004).map(d => ({ id: d.id, name: d.name, v: r2(byId[d.id] || 0) }));
+  Object.keys(byId).filter(k => k && k !== DEPT_SHARED && !names[k]).forEach(k => rows.push({ id: k, name: 'قسم محذوف', v: r2(byId[k]) }));
+  return { rows, shared: r2(byId[DEPT_SHARED] || 0), none: r2(byId[''] || 0), total: r2(tot) };
 }
 const projNextCode = (org) => { let mx = 0; ((org && org.projects) || []).forEach(p => { const g = /^PRJ-(\d+)$/.exec(p.code || ''); if (g) mx = Math.max(mx, +g[1]); }); return 'PRJ-' + String(mx + 1).padStart(3, '0'); };
 

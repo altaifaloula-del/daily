@@ -2,6 +2,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Upload, Truck, FileBarChart, ChevronDown, Printer, FileText, Building2, ClipboardCheck, Users, Plus, AlertTriangle, CalendarDays, Trash2, Check, X, Banknote } from 'lucide-react';
 import { poNeedsAppr, wfOn, wfState, wfCanAct, wfApprove } from '../../App.jsx';   // v49.5 مسارات الاعتماد
+import { deptOn, deptList, DEPT_SHARED } from '../../App.jsx';   // v56.27 E4
 import { canEditRec, autoCfgOf, poSuggestions, DocLink, RowGrip, moveIdx, projList, uomOf, uomOk, lineUnits, lineFac, UomSelect, DupInvHint, Field, Kpi, LOCK_MSG, MAIN_WH, Modal, Num, ROLES, SectionNav, arDate, branchBanks, closingInvoices, isStocked, isoD, itemType, money, nowISO, pFactor, payTotal, periodLocked, printA4, purKey, q3, _xe, roleEdit, rolePost, buildAccounting, INV_BILLERS, itemsSeq, vatNoOk, supVatOf, ItemPick, roleHasTab, stockByWh, sum, supplierPrices, today, uid, whName, whOf, whOn, poWhOf, brSigCheck, signoff, signDecision, sigFailMsg, pjBackfill, pjMissing, INV_CLS, invCls } from '../../App.jsx';
 import { cloud, bfKey } from '../../storage';
 import { ExpImport } from './ExpImport.jsx';   // v53.1
@@ -179,7 +180,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
       ...(i.whId ? { whId: i.whId } : {}), ...(i.cur ? { cur: i.cur, rate: i.fxRate } : {}),
       lines: (i.lines || []).filter(l => l.itemId).map(l => { const q = Number(l.uomQty) || Number(l.qty) || 0; const base = l.fcNet != null ? l.fcNet : l.net;
         return { itemId: l.itemId, qty: String(q), price: q ? String(Math.round(base / q * 10000) / 10000) : '', uom: l.uomName || '', ...(l.note ? { note: l.note } : {}) }; }) }; };
-  const svcToForm = (i) => ({ supplierId: i.supplierId, invoiceNo: '', date: today(), dueDate: today(), branchId: i.branchId || '', copyOf: i.id, ...(i.projectId ? { projectId: i.projectId } : {}), ...(i.cur ? { cur: i.cur, rate: i.fxRate } : {}),
+  const svcToForm = (i) => ({ supplierId: i.supplierId, invoiceNo: '', date: today(), dueDate: today(), branchId: i.branchId || '', copyOf: i.id, ...(i.projectId ? { projectId: i.projectId } : {}), ...(i.deptId ? { deptId: i.deptId } : {}), ...(i.cur ? { cur: i.cur, rate: i.fxRate } : {}),
     lines: (i.expLines || []).map(l => ({ desc: l.desc, accCode: l.accCode, net: String(l.fcNet != null ? l.fcNet : l.net), taxable: Math.abs(l.vat || 0) > 0.004 })) });
   // v51.9 — تعديل فاتورة مورد غير مسددة في فترة مفتوحة: تُستبدل بفاتورة مصحّحة (بنودها وحركاتها المخزنية)، ويبقى أصلها في سجل التدقيق
   const invEditable = (i) => i && i.source === 'stored' && i.kind !== 'svc' && !i.creditNote && !i.supDebit && !i.cur && i.amount > 0
@@ -662,7 +663,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     if (!(await ensureVat(sp.id, k.vat, f.vatNo))) return;
     const autoNo = () => { const pre = 'SVC-' + today().replace(/-/g, '').slice(2) + '-'; let n = 1; while ((ops.invoices || []).some(i => i.invoiceNo === pre + String(n).padStart(3, '0'))) n++; return pre + String(n).padStart(3, '0'); };
     const br = org.branches.find(b => b.id === f.branchId);
-    const rec = { id: uid('inv'), kind: 'svc', ...(f.projectId ? { projectId: f.projectId } : {}), supplierId: sp.id, supplierName: sp.name, branchId: f.branchId || '', branchName: br ? br.name : 'المركز الرئيسي', invoiceNo: typedNo || autoNo(),
+    const rec = { id: uid('inv'), kind: 'svc', ...(f.projectId ? { projectId: f.projectId } : {}), ...(f.deptId ? { deptId: f.deptId } : {}), supplierId: sp.id, supplierName: sp.name, branchId: f.branchId || '', branchName: br ? br.name : 'المركز الرئيسي', invoiceNo: typedNo || autoNo(),
       amount: toS(k.gross), vatAmt: toS(k.vat), taxable: k.vat > 0, paidAmount: 0, date: f.date, dueDate: f.dueDate || f.date,
       expLines: ls.map(l => ({ desc: String(l.desc).trim(), accCode: l.accCode, net: toS(l.n), vat: toS(l.v), ...(isFx(f.cur) ? { fcNet: l.n } : {}) })), by: me.name, createdAt: nowISO(),
       ...(isFx(f.cur) ? { cur: f.cur, fxRate: fxR, fcAmount: k.gross } : {}) };
@@ -721,7 +722,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
   const pdnMk = (inv, f, me0) => { const net = Math.round((Number(f.net) || 0) * 100) / 100; const vat = f.taxable ? Math.round(net * vRate() / 100 * 100) / 100 : 0; const tot = Math.round((net + vat) * 100) / 100;
     const no = (f.no || '').trim() || ((f.dir === 'inc' ? 'SDN-' : 'PDN-') + (f.date || today()).replace(/-/g, '') + '-' + Math.random().toString(36).slice(2, 5).toUpperCase());
     const base = { id: uid('inv'), invoiceNo: no, supplierId: inv.supplierId, supplierName: inv.supplierName, branchId: inv.branchId || '', branchName: inv.branchName || '', date: f.date, dueDate: f.dir === 'inc' ? (inv.dueDate && inv.dueDate > f.date ? inv.dueDate : f.date) : f.date, paidAmount: 0,
-      appliesTo: inv.id, refNo: inv.invoiceNo, ...(inv.projectId ? { projectId: inv.projectId } : {}), reason: f.reason.trim(), taxable: !!f.taxable, accCode: f.acc, ...(inv.whId ? { whId: inv.whId } : {}), ...(f.disc ? { disc: true } : {}), by: me0.name, createdAt: nowISO() };
+      appliesTo: inv.id, refNo: inv.invoiceNo, ...(inv.projectId ? { projectId: inv.projectId } : {}), ...(inv.deptId ? { deptId: inv.deptId } : {}),   /* v56.27: الإشعار يرث قسم الفاتورة */ reason: f.reason.trim(), taxable: !!f.taxable, accCode: f.acc, ...(inv.whId ? { whId: inv.whId } : {}), ...(f.disc ? { disc: true } : {}), by: me0.name, createdAt: nowISO() };
     return f.dir === 'inc' ? { ...base, supDebit: true, amount: tot, vatAmt: vat } : { ...base, creditNote: true, debitNote: true, amount: -tot, vatAmt: -vat }; };
   const savePdn = async () => {
     const f = pdn, inv = f.inv; if (periodLocked(org, f.date)) return say(LOCK_MSG(f.date), 'no');
@@ -1296,6 +1297,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
             <Field label="المورد"><select className="sel" value={svc.supplierId} onChange={e => setSvc(f => ({ ...f, supplierId: e.target.value }))}>{suppliers.map(sp => <option key={sp.id} value={sp.id}>{sp.name}</option>)}</select></Field>
             <Field label="رقم فاتورة المورد (اختياري — يُولَّد تلقائيًا)"><input className="inp" value={svc.invoiceNo} onChange={e => setSvc(f => ({ ...f, invoiceNo: e.target.value }))} />
               <DupInvHint invoices={ops.invoices} supplierId={svc.supplierId} invoiceNo={svc.invoiceNo} /></Field>
+            {deptOn(org) && <Field label="القسم (اختياري)"><select className="sel" aria-label="قسم فاتورة الخدمات" data-svc-dept value={svc.deptId || ''} onChange={e => setSvc(x => ({ ...x, deptId: e.target.value }))}><option value="">بلا قسم</option>{deptList(org, true).filter(d => d.active !== false || d.id === svc.deptId).map(d => <option key={d.id} value={d.id}>{d.name}{d.active === false ? ' (موقوف)' : ''}</option>)}<option value={DEPT_SHARED}>مشترك</option></select></Field>}
             {projList(org).length > 0 && <Field label="المشروع (اختياري)"><select className="sel" aria-label="مشروع فاتورة الخدمات" value={svc.projectId || ''} onChange={e => setSvc(x => ({ ...x, projectId: e.target.value }))}><option value="">—</option>{projList(org).map(p => <option key={p.id} value={p.id}>{p.code} · {p.name}</option>)}</select></Field>}
             <Field label="الفرع / مركز التكلفة"><select className="sel" value={svc.branchId} onChange={e => setSvc(f => ({ ...f, branchId: e.target.value }))}><option value="">المركز الرئيسي</option>{myBranches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></Field>
             <Field label="تاريخ الفاتورة"><input type="date" className="inp" value={svc.date} onChange={e => setSvc(f => ({ ...f, date: e.target.value }))} /></Field>
