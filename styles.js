@@ -1818,6 +1818,7 @@ table.tb.rc-tb{min-width:0}
 @media (max-width:640px){.ob-sub .secpager{flex-wrap:nowrap}}
 @media (max-width:640px){.ob-path .obp-app,.ob-path .obp-grp,.ob-path .obp-sep{display:none}.ob-crumb{flex-wrap:nowrap}.ob-act{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.ob-act::-webkit-scrollbar{display:none}}
 @media print{.ob-crumb{display:none !important}}
+.ob-ctlwrap{display:block;flex:1 1 100%;width:100%;min-width:0}
 /* v56.24 (G2 المرحلة 2): مرشحات التقارير في شريط التحكم — سطر كامل تحت المسار؛ على الجوال خلف زر «تصفية (n)» */
 .ob-tools{flex:1 1 100%;padding:4px 0 2px}
 .ob-ftog{display:none}

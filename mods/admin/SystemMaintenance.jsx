@@ -563,10 +563,10 @@ function CtlBarCard({ org, commitOrg, say, isAdm }) {
     if (ok) say(on ? 'أُوقف — عاد الشريط السابق' : 'فُعّل شريط التحكم في المحاسبة ✓');
   };
   return (<div className="card" data-ctlbar-card>
-    <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />شريط التحكم في المحاسبة (النموذج 2 — تجريبي)</div>
+    <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />شريط التحكم في التطبيقات (النموذج 2 — تجريبي)</div>
       <span className={'badge ' + (on ? 'b-sky' : 'b-dim')}>{on ? 'مفعّل' : 'غير مفعّل'}</span></div>
     <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>
-      يُظهر سطرًا أعلى المحاسبة فيه مسار الموقع (المحاسبة › المجموعة › القسم الحالي) وأزرار الإجراء (قيد يدوي، القيود المعلّقة والدورية)، ويكبّر أزرار الأقسام للمس على التابلت والجوال.
+      يُظهر سطرًا أعلى المحاسبة والمبيعات والمخزون والموردين والإجازات ومراكز التطبيقات فيه مسار الموقع (التطبيق › المجموعة › القسم الحالي) وأزرار الإجراء، وصفًّا بأقسام المجموعة الحالية، ومرشحات تقارير المحاسبة، ويكبّر الأزرار للمس. يسري على وضع العرض «قوائم».
       تغيير في الشكل فقط — لا يمس أي قيد أو رصيد، ويمكن إيقافه في أي وقت. يسري على كل مستخدمي المنشأة.</div>
     {isAdm && <button className={'btn sm ' + (on ? 'gh' : 'pri')} onClick={toggle} data-ctlbar-toggle>{on ? 'إيقاف' : 'تفعيل'}</button>}
   </div>);
