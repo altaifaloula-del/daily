@@ -8758,7 +8758,7 @@ function useSecNav() {
 /* v41.0 — شريط القوائم بنمط أودو: عناوين رئيسية نصية؛ العنوان ذو القسم الواحد رابط مباشر، وذو الأقسام قائمة منسدلة بعناوين فرعية.
    groups: [{ id, ar, items: [{ id, ar, icon, badge, sub }] }] — sub: عنوان فرعي داخل القائمة (اختياري) */
 /* v56.23 (G2 — النموذج 2 «شريط التحكم»، المرحلة 1): سطر مسار الموقع (التطبيق › المجموعة › القسم) والإجراء الأساسي بين المجموعات وصف الأقسام.
-   معطّل افتراضيًا (org.ctlBar.on) — بدونه يبقى الشريط كما في v56.16 حرفيًا. */
+   معطّل افتراضيًا (org.ctlBar.on) — بدونه يبقى الشريط كما في v56.16 (عدا إصلاح تكدّس المرقّم على الجوال). */
 const ctlBarOn = (org) => !!(org && org.ctlBar && org.ctlBar.on);
 function OdooBar({ groups, cur, onPick, extra, sw, showSub, subEnd, crumb }) {
   const [open, setOpen] = useState(null);
