@@ -1535,7 +1535,7 @@ function buildPartners(org, ops) {
   const led = ops.ledgerEntries || [];
   // v46.6 — سندات القبض والصرف والمقاصّة في كشوف الجهات (الموزَّع على فواتير يظهر مع الفاتورة نفسها)
   const cvFor = (key) => { const t = [];
-    (ops.cashVouchers || []).forEach(v => { const a = Number(v.amount) || 0; if (!(a > 0)) return; const d = String(v.date || '').slice(0, 10);
+    (ops.cashVouchers || []).forEach(v => { const a = Number(v.amount) || 0; if (!(a > 0) || !cvLive(v)) return; const d = String(v.date || '').slice(0, 10);   // v56.32: المعلّق لا يظهر في الكشف
       if (v.kind === 'ov') { if (v.supKey === key) t.push({ date: d, desc: 'مقاصّة مع حساب العميل ' + v.no, ref: v.no, src: 'cv', debit: a, credit: 0 }); if (v.custKey === key) t.push({ date: d, desc: 'مقاصّة مع حساب المورد ' + v.no, ref: v.no, src: 'cv', debit: 0, credit: a }); return; }
       const p = v.party || {}; if (p.key !== key) return;
       const rest = Math.round((a - (v.alloc || []).reduce((s2, x) => s2 + (Number(x.amount) || 0), 0)) * 100) / 100;
@@ -2659,7 +2659,7 @@ function buildAccounting(org, ops) {
 
   // 6-ج) v46.6 سندات القبض والصرف والمقاصّة: الجزء الموزَّع على فواتير يُقيَّد مع الفاتورة (سدادها/تحصيلها)، والباقي «على الحساب» هنا
   (ops.cashVouchers || []).forEach(v => {
-    const a = Math.round((Number(v.amount) || 0) * 100) / 100; if (!(a > 0)) return;
+    const a = Math.round((Number(v.amount) || 0) * 100) / 100; if (!(a > 0) || !cvLive(v)) return;   // v56.32: المعلّق والمرفوض لا يُرحَّلان (القديم بلا حالة = مرحّل)
     const fund = (v.fund && accIx[v.fund]) ? v.fund : '1201'; const p = v.party || {};
     const rest = Math.round((a - (v.alloc || []).reduce((s2, x) => s2 + (Number(x.amount) || 0), 0)) * 100) / 100;
     const base = { id: 'cv:' + v.id, date: String(v.date || '').slice(0, 10), ...(v.branchId ? { branchId: v.branchId } : {}), src: v.kind === 'ov' ? 'سند مقاصّة' : v.kind === 'rv' ? 'سند قبض' : 'سند صرف', ref: v.no, ...(v.projectId ? { projectId: v.projectId } : {}), ...(v.deptId ? { deptId: v.deptId } : {}) };   // v56.28 قسم سند الصرف على حساب مصروف
@@ -3464,10 +3464,13 @@ function closeAutoChecks(A, ops, month) {
   const unb = (A.entries || []).filter(e => inM(e.date) && e.balanced === false);
   const susp = r2((A.entries || []).filter(e => String(e.date || '') <= end).reduce((t, e) => t + (e.lines || []).filter(l => l.code === '9999').reduce((a, l) => a + l.debit - l.credit, 0), 0));
   const pj = (ops.journalManual || []).filter(j => j.status === 'pending' && String(j.date || '') <= end);
+  const pcv = (ops.cashVouchers || []).filter(v => v.status === 'pending' && String(v.date || '') <= end);   // v56.32
+  const pds = (ops.disbursements || []).filter(x => x.status === 'pending' && String(x.date || '') <= end);   // v56.29
   return [
     { k: 'drafts', ar: 'لا إغلاقات مسودة أو مرفوضة حتى نهاية الشهر', n: cls.filter(c => c.status === 'draft' || c.status === 'rejected').length },
     { k: 'pending', ar: 'كل الإغلاقات المرفوعة مدقَّقة (لا شيء بانتظار التدقيق)', n: cls.filter(c => c.status === 'submitted').length },
     { k: 'pj', ar: 'لا قيود يدوية بانتظار الاعتماد', n: pj.length },
+    ...(pcv.length || pds.length ? [{ k: 'pdocs', ar: 'لا سندات صرف ولا أوامر صرف بانتظار الاعتماد (المعلّق في شهر مقفل لا يُعتمد)', n: pcv.length + pds.length }] : []),
     { k: 'unb', ar: 'كل قيود الشهر متوازنة', n: unb.length },
     { k: 'susp', ar: 'الحساب المعلّق 9999 رصيده صفر', n: Math.abs(susp) > 0.004 ? 1 : 0, amt: susp },
   ].map(x => ({ ...x, ok: !x.n }));
@@ -3702,7 +3705,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.31';
+const APP_VER = 'v56.32';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3762,6 +3765,7 @@ export { FL_START, flOn, flKey, flNo, flLines, flRecord, flScope, flCompare, flL
 export { FL_GROUPS, flLvl, flGroupOf, flUnclassified, flReversalOf, flCorrect };   // v56.11 D3
 export { flReadOn, flEntriesOf, flBalDiff, flDayBefore };   // v56.14 D4
 export { ctlBarOn };
+export { cvLive, cvApprRanges, cvApprAt, cvApprOpenFrom, cvNeedsAppr, cvApprove };   // v56.32
 export { DS_BLOCKED, dsRanges, dsRouteAt, dsRouteOpen, dsLive, dsBlockReason, dsOpenFrom, dsMapOf, dsAccOk, dsAccOf, dsPostDate, dsFundOf, dsCashOut, dsBankOk, lockedLedgerSig };   // v56.29
 export { DEPT_SHARED, deptOn, deptList, deptPL };   // v56.27 E4   // v56.23 G2
 export { ledgerApi };   // v56.15 D5
@@ -11559,8 +11563,28 @@ function partyOpenDocs(org, ops, party) {
   return [];
 }
 // تطبيق السند على السجلات: تخصيص الفواتير + سلفة الموظف (تُستقطع من الراتب) — يُستدعى داخل الحفظ على أحدث نسخة
+/* v56.32 (الدفعة 1ب — قرار المجلس T9 بتفويض المالك): اعتماد سندات الصرف بغير منشئها — org.cvAppr = { ranges: [{ from, to?, at }] } معطّل افتراضيًا.
+   داخل النطاق: سند الصرف الجديد «بانتظار الاعتماد» بلا أثر (لا قيد ولا سداد فاتورة ولا سلفة) حتى يُعتمد؛ سند المالك مباشر بوسم. السابق كما هو. */
+const cvLive = (v) => !v.status || v.status === 'posted';
+const cvApprRanges = (org) => ((org && org.cvAppr && org.cvAppr.ranges) || []);
+const cvApprAt = (org, d) => cvApprRanges(org).some(r => String(d || '') >= r.from && (!r.to || String(d || '') <= r.to));
+const cvApprOpenFrom = (org) => (cvApprRanges(org).find(r => !r.to) || {}).from || '';
+const cvNeedsAppr = (org, v) => v && v.kind === 'pv' && cvApprAt(org, v.date);
+/** اعتماد سند معلّق: يُطبَّق أثره (السداد/السلفة) على أحدث نسخة، مع التحقق من متبقي الفواتير. يعيد { next } أو { err }. */
+function cvApprove(d, id, me) {
+  const v = (d.cashVouchers || []).find(x => x.id === id); if (!v || v.status !== 'pending') return { err: 'تغيّرت حالة السند قبل الحفظ — حدّث الشاشة' };
+  if (!canApproveJe(me, v)) return { err: 'لا يعتمد السند من أنشأه — يعتمده المحاسب أو الإدارة المالية أو المالك' };   // (التحقق المستقل) الصلاحية داخل الدالة أيضًا
+  const rem = (i) => Math.round(((Number(i.amount) || 0) - invPayments(i).reduce((t, p) => t + (Number(p.amount) || 0), 0)) * 100) / 100;   // كما في partyOpenDocs
+  if (v.party && v.party.t === 'sup') for (const x of (v.alloc || [])) { const i = (d.invoices || []).find(y => y.id === x.id);
+    if (!i || i.creditNote || !((Number(i.amount) || 0) > 0)) return { err: 'الفاتورة ' + (x.no || x.id) + ' لم تعد قائمة — ارفض السند وأعد إصداره' };   // (التحقق المستقل) وإلا خرج النقد بلا قيد
+    if (Number(x.amount) > rem(i) + 0.004) return { err: 'تغيّر متبقي الفاتورة ' + (x.no || x.id) + ' — أعد إصدار السند' }; }
+  const posted = { ...v, status: 'posted', approvedBy: me.name, approvedAt: nowISO() };
+  const base = { ...d, cashVouchers: (d.cashVouchers || []).filter(x => x.id !== id) };
+  return { next: applyCashVoucher(base, posted, me) };
+}
 function applyCashVoucher(d, v, me) {
   let next = { ...d, cashVouchers: [v, ...(d.cashVouchers || [])] };
+  if (!cvLive(v)) return next;   // v56.32: المعلّق يُحفظ بلا أثر حتى يُعتمد
   const al = Object.fromEntries((v.alloc || []).map(x => [x.id, Number(x.amount) || 0]));
   if (v.party && v.party.t === 'sup' && v.kind === 'pv' && Object.keys(al).length) next.invoices = (next.invoices || []).map(i => al[i.id] ? { ...i, payments: [...(Array.isArray(i.payments) ? i.payments : []), { id: 'cv' + v.id, amount: al[i.id], date: v.date, fund: v.fund, pm: v.pm, ...(v.ref ? { ref: v.ref } : {}), cv: v.no, by: me.name, at: v.at }] } : i);
   if (v.party && v.party.t === 'cust' && v.kind === 'rv' && Object.keys(al).length) next.salesInvoices = (next.salesInvoices || []).map(x => al[x.id] ? { ...x, receipts: [...(x.receipts || []), { id: 'cv' + v.id + '_' + x.id, date: v.date, amount: al[x.id], fund: v.fund, cv: v.no, by: me.name, at: v.at }] } : x);
@@ -15085,7 +15109,10 @@ const fdPaid = (kind, x) => kind === 'pi' ? Math.max(0, Math.round((Number(x.pai
 const fdKey = (kind, id) => kind + '_' + String(id || '');
 const fdOk = (x) => /^[A-Za-z0-9_-]{1,110}$/.test(String((x && x.id) || '')) && fjOkDate(fdDate(x));
 function fdRecord(kind, x) { const data = fdData(kind, x); return { kind, date: fdDate(x), digest: sha256Hex(data), data, prog: fdProg(kind, x), paid: fdPaid(kind, x) }; }
+// v56.32 (التحقق المستقل): سند الصرف يُنسخ إلى السجلات المحمية عند ترحيله فقط (المعلّق والمرفوض والمسحوب لا يُنسخ) — بقرار المجلس
+const fdLive = (kind, L) => kind === 'cv' ? (L || []).filter(cvLive) : (L || []);
 function fdDiff(kind, before, after) {
+  before = fdLive(kind, before); after = fdLive(kind, after);
   const B = new Map((before || []).map(x => [x.id, x])), A = new Map((after || []).map(x => [x.id, x]));
   const create = [], upd = [], del = [], skip = [];
   A.forEach((x, id) => {
@@ -15100,6 +15127,7 @@ function fdDiff(kind, before, after) {
   return { create, upd, del, skip };
 }
 function fdCompare(kind, list, recs) {
+  list = fdLive(kind, list);
   const R = new Map((recs || []).filter(r => r.kind === kind).map(r => [r.id, r])), missing = [], differ = [], seen = new Set();
   (list || []).forEach(x => { if (!fdOk(x)) return; const k = fdKey(kind, x.id), r = R.get(k); seen.add(k);
     if (!r) missing.push(x); else { const d = fdData(kind, x); if (r.data !== d || r.digest !== sha256Hex(d) || r.date !== fdDate(x) || (kind !== 'cv' && r.prog !== fdProg(kind, x))) differ.push(x); } });
@@ -15129,7 +15157,7 @@ async function fdLoad() {
 }
 async function fdSeed(kind, missing, onProgress) {
   const c = await ctlIdentity(); if (!c) return { err: 'خارج Firestore' };
-  let ok = 0, fail = 0, lastErr = '', i = 0; const list = (missing || []).filter(fdOk);
+  let ok = 0, fail = 0, lastErr = '', i = 0; const list = fdLive(kind, missing).filter(fdOk);
   for (const x of list) {
     try { await ctlTimeout(c.f.setDoc(c.f.doc(c.f.db, 'fin_docs', fdKey(kind, x.id)), { ...fdRecord(kind, x), legacy: true, by: c.email, at: c.f.serverTimestamp(), cv: APP_CV })); ok++; }
     catch (e) { fail++; lastErr = (e && e.code) || 'error'; }

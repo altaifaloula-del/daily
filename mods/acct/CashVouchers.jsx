@@ -1,8 +1,9 @@
 /* v46.6 — سندات القبض والصرف والمقاصّة: على عميل/مورد (مع التوزيع على الفواتير المفتوحة)، أو أي حساب في الدليل، أو موظف (سلفة أو عهدة).
    الجهة التي هي عميل ومورد معًا: مقاصّة بين ذممها. ترقيم RV/PV/OV، طباعة A4 بالتفقيط، وتصدير Excel. */
 import React, { useMemo, useState } from 'react';
-import { deptOn, deptList, DEPT_SHARED } from '../../App.jsx';   // v56.28 E4: قسم سند الصرف على حساب مصروف (توصية المجلس)
-import { Receipt, Plus, Printer, Download, Check, Scale } from 'lucide-react';
+import { deptOn, deptList, DEPT_SHARED } from '../../App.jsx';
+import { cvLive, cvNeedsAppr, cvApprOpenFrom, cvApprove, jeOwner, canApproveJe } from '../../App.jsx';   // v56.32 اعتماد سندات الصرف (T9)   // v56.28 E4: قسم سند الصرف على حساب مصروف (توصية المجلس)
+import { Receipt, Plus, Printer, Download, Check, Scale, X } from 'lucide-react';
 import { DocLink, CV_KIND, cvNextNo, projList, partyOpenDocs, applyCashVoucher, cashVoucherHtml, buildAccounting, buildPartners, branchBanks, Field, Modal, LOCK_MSG, makeXlsx, money, nowISO, periodLocked, printA4, today, uid } from '../../App.jsx';
 
 const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
@@ -39,6 +40,7 @@ export function CashVouchers({ org, ops, me, commit, say }) {
     const a = r2(f.amount);
     if (!(a > 0)) return say('أدخل المبلغ', 'no');
     if (periodLocked(org, f.date)) return say(LOCK_MSG(f.date), 'no');
+    const st0 = f.kind === 'pv' ? cvApprOpenFrom(org) : ''; if (st0 && String(f.date) < st0) return say('تاريخ السند يسبق بداية اعتماد سندات الصرف (' + st0 + ')', 'no');   // v56.32
     let v = { id: uid('cv'), kind: f.kind, date: f.date, amount: a, note: String(f.note || '').trim(), by: me.name, at: nowISO(), ...(f.projectId && f.kind !== 'tv' ? { projectId: f.projectId } : {}), ...(deptOk && f.deptId ? { deptId: f.deptId } : {}) };   // v47.4 المشروع
     if (f.kind === 'tv') {   // v47.3 تحويل بين حسابين نقديين
       if (!f.fund || !f.toFund || f.fund === f.toFund) return say('اختر حسابين مختلفين للتحويل', 'no');
@@ -58,12 +60,30 @@ export function CashVouchers({ org, ops, me, commit, say }) {
       if (r2(alloc.reduce((s2, x) => s2 + x.amount, 0)) > a + 0.004) return say('مجموع التوزيع أكبر من مبلغ السند', 'no');
       v = { ...v, fund: f.pm === 'cash' ? '1101' : (f.fund && f.fund !== '1101' ? f.fund : '1201'), pm: f.pm, ...(String(f.ref || '').trim() ? { ref: String(f.ref).trim() } : {}), party, ...(alloc.length ? { alloc } : {}), ...(party.t === 'emp' && f.kind === 'pv' ? { empPurpose: f.empPurpose } : {}) };
     }
+    if (cvNeedsAppr(org, v)) v = jeOwner(me) ? { ...v, status: 'posted', approvedBy: me.name, approvedAt: nowISO(), selfPosted: true } : { ...v, status: 'pending', byId: me.id || '' };   // v56.32 T9
     let no = '';
     const ok = await commit(d => { no = cvNextNo(d, f.kind); return applyCashVoucher(d, { ...v, no }, me); },
       { actionType: 'create', targetType: 'cash_voucher', targetId: v.id, need: 'post', title: 'أصدر ' + CV_KIND[f.kind].ar, details: money(a) + (v.deptId ? ' · القسم: ' + ((deptList(org, true).find(d => d.id === v.deptId) || {}).name || (v.deptId === DEPT_SHARED ? 'مشترك' : v.deptId)) : '') + ' · ' + (f.kind === 'ov' ? v.supName + ' / ' + v.custName : f.kind === 'tv' ? fname(v.fund) + ' ← ' + fname(v.toFund) : party.name) });
     if (ok === false) return;
-    setF(null); say('صدر ' + CV_KIND[f.kind].ar + ' ' + no + ' ✓');
+    setF(null);
+    if (v.status === 'pending') return say('أُرسل ' + CV_KIND[f.kind].ar + ' ' + no + ' للاعتماد — لا أثر له قبل اعتماده');
+    say('صدر ' + CV_KIND[f.kind].ar + ' ' + no + ' ✓');
     const made = { ...v, no }; setTimeout(() => print(made), 50);
+  };
+
+  // v56.32 T9: اعتماد/رفض/سحب سند الصرف المعلّق — من «معلّق» فقط وعلى أحدث نسخة، وخارج فترة مقفلة
+  const decideCv = async (v, act) => {
+    const mine = v.byId ? v.byId === me.id : v.by === me.name;
+    if (act === 'wd' ? !mine : !canApproveJe(me, v)) return say(act === 'wd' ? 'يسحب السندَ منشئه فقط' : 'لا يعتمد السند من أنشأه — يعتمده المحاسب أو الإدارة المالية أو المالك', 'no');
+    if (act === 'ok' && periodLocked(org, v.date)) return say(LOCK_MSG(v.date), 'no');
+    const r = act === 'no' ? window.prompt('سبب الرفض:', '') : ''; if (act === 'no' && r === null) return;
+    let err = '';
+    const ok = await commit(d => { if (act === 'ok') { const x = cvApprove(d, v.id, me); if (x.err) { err = x.err; return d; } return x.next; }
+      const cur0 = (d.cashVouchers || []).find(x => x.id === v.id); if (!cur0 || cur0.status !== 'pending') { err = 'تغيّرت حالة السند قبل الحفظ — حدّث الشاشة'; return d; }
+      return { ...d, cashVouchers: (d.cashVouchers || []).map(x => x.id === v.id ? { ...x, status: act === 'wd' ? 'withdrawn' : 'rejected', [act === 'wd' ? 'withdrawnBy' : 'rejectedBy']: me.name, [act === 'wd' ? 'withdrawnAt' : 'rejectedAt']: nowISO(), ...(r ? { rejectReason: r } : {}) } : x) }; },
+      { actionType: act === 'ok' ? 'approve' : 'update', targetType: 'cash_voucher', targetId: v.id, need: 'post', title: act === 'ok' ? 'اعتمد سند صرف' : act === 'wd' ? 'سحب سند صرف معلّقًا' : 'رفض سند صرف', details: v.no + ' · ' + money(v.amount) + ' · المنشئ ' + v.by });
+    if (err) return say(err, 'no'); if (ok === false) return;
+    say(act === 'ok' ? 'اعتُمد السند ' + v.no + ' ✓' : act === 'wd' ? 'سُحب السند' : 'رُفض السند');
   };
 
   return (
@@ -91,7 +111,13 @@ export function CashVouchers({ org, ops, me, commit, say }) {
                 <td className="num" style={{ fontSize: 11.5 }}>{v.date}</td>
                 <td style={{ fontSize: 12 }}>{v.kind === 'tv' ? fname(v.fund) + ' ← ' + fname(v.toFund) : v.kind === 'ov' ? v.supName + ' ⇄ ' + v.custName : (v.party || {}).name}<div style={{ fontSize: 10, color: 'var(--faint)' }}>{v.kind === 'tv' ? 'تحويل بين الحسابات' : v.kind === 'ov' ? 'مقاصّة' : PT[(v.party || {}).t]}{(v.alloc || []).length ? ' · ' + v.alloc.map(x => x.no).join('، ') : ''}</div></td>
                 <td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{money(v.amount)}</td>
-                <td><button className="btn sm gh" data-cvprint onClick={() => print(v)}><Printer size={13} />طباعة</button></td>
+                <td>{cvLive(v) && <button className="btn sm gh" data-cvprint onClick={() => print(v)}><Printer size={13} />طباعة</button>}
+                  {v.status === 'pending' && <div className="row" style={{ gap: 4, marginTop: 4, flexWrap: 'wrap' }} data-cv-pending><span className="badge b-amber">بانتظار الاعتماد</span>
+                    {canApproveJe(me, v) && <><button className="btn sm" data-cv-ok onClick={() => decideCv(v, 'ok')}><Check size={12} />اعتماد</button><button className="btn sm gh" data-cv-no onClick={() => decideCv(v, 'no')}><X size={12} />رفض</button></>}
+                    {(v.byId ? v.byId === me.id : v.by === me.name) && <button className="btn sm gh" data-cv-wd onClick={() => decideCv(v, 'wd')}>سحب</button>}</div>}
+                  {v.status === 'rejected' && <span className="badge b-rose" title={v.rejectReason || ''}>مرفوض</span>}
+                  {v.status === 'withdrawn' && <span className="badge b-dim">مسحوب</span>}
+                  {v.selfPosted && <span className="badge b-sky" data-cv-self>رحّله المالك بنفسه</span>}</td>
               </tr>))}
             {!list.length && <tr><td colSpan={6}><div className="empty">لا سندات بعد</div></td></tr>}
           </tbody>
