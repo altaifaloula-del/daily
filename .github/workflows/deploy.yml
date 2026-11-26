@@ -61,6 +61,15 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: تشغيل اختبارات الواجهة
         run: npm run test:ui
+      # v56.5: لقطات Playwright الحقيقية لشاشة الدخول (تحقق بصري بلا تخمين) — مرفق للتشغيل لا يُنشر
+      - name: حفظ لقطات الواجهة
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-shots
+          path: tests/.cache/shots
+          if-no-files-found: ignore
+          retention-days: 14
 
   # ===== 2) بناء الواجهة =====
   build:
