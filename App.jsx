@@ -2211,9 +2211,11 @@ const dsAccOf = (org, x, accIx) => { const c = x && x.acc ? String(x.acc) : ''; 
 /* v56.31 (قرارات المجلس T1/T3، بتفويض المالك): داخل نطاق الضوابط — القيد بتاريخ الاعتماد (خروج النقد فعلًا) المحفوظ على الأمر postDate،
    والتحويل البنكي والشيك دائنهما البنك المختار fundAcc (12xx) لا الخزينة 1101. خارج النطاق أو بلا الحقلين ⇒ كما كان حرفيًا. */
 const dsPostDate = (org, x) => (x && x.postDate && dsRouteAt(org, x.date) && /^\d{4}-\d{2}-\d{2}$/.test(x.postDate)) ? x.postDate : x.date;
-const dsFundOf = (org, x, accIx) => { const c = x && x.fundAcc ? String(x.fundAcc) : ''; const a = c && accIx && accIx[c];
-  return (c && /^12/.test(c) && dsRouteAt(org, x.date) && (accIx ? !!a : true)) ? c : '1101'; };
-const dsCashOut = (x) => !x.fundAcc || String(x.fundAcc) === '1101';   // يخص نقد الخزينة 1101 (رصيد الشاشة)
+// (التحقق المستقل): شرط واحد للدفتر والشاشة — البنك صالح إن كان 1201 أو بنك فرع معرّفًا (branchBanks)
+const dsBankOk = (org, c) => !!c && (String(c) === '1201' || branchBanks(org).some(b => String(b.code) === String(c)));
+const dsFundOf = (org, x, accIx) => { const c = x && x.fundAcc ? String(x.fundAcc) : '';
+  return (c && dsRouteAt(org, x.date) && dsBankOk(org, c) && (accIx ? !!accIx[c] : true)) ? c : '1101'; };
+const dsCashOut = (org, x) => dsFundOf(org, x, null) === '1101';   // يخص نقد الخزينة 1101 (رصيد الشاشة) — نفس شرط الدفتر
 const dsOpenFrom = (org) => (dsRanges(org).find(r => !r.to) || {}).from || '';
 const dsBlockReason = (org, rec) => (rec && dsRouteAt(org, rec.date) && DS_BLOCKED[rec.category]) ? 'لا يُصرف «' + rec.category + '» من أوامر الصرف — استخدم: ' + DS_BLOCKED[rec.category] : '';
 const posGlOpen = (org) => posGlRanges(org).some(r => !r.to);
@@ -3760,7 +3762,7 @@ export { FL_START, flOn, flKey, flNo, flLines, flRecord, flScope, flCompare, flL
 export { FL_GROUPS, flLvl, flGroupOf, flUnclassified, flReversalOf, flCorrect };   // v56.11 D3
 export { flReadOn, flEntriesOf, flBalDiff, flDayBefore };   // v56.14 D4
 export { ctlBarOn };
-export { DS_BLOCKED, dsRanges, dsRouteAt, dsRouteOpen, dsLive, dsBlockReason, dsOpenFrom, dsMapOf, dsAccOk, dsAccOf, dsPostDate, dsFundOf, dsCashOut, lockedLedgerSig };   // v56.29
+export { DS_BLOCKED, dsRanges, dsRouteAt, dsRouteOpen, dsLive, dsBlockReason, dsOpenFrom, dsMapOf, dsAccOk, dsAccOf, dsPostDate, dsFundOf, dsCashOut, dsBankOk, lockedLedgerSig };   // v56.29
 export { DEPT_SHARED, deptOn, deptList, deptPL };   // v56.27 E4   // v56.23 G2
 export { ledgerApi };   // v56.15 D5
 export { ErrorBoundary, logClientError, lockedLedgerChanged };
@@ -9401,6 +9403,7 @@ function DisbursementForm({ org, me, balance, commit, say, onClose }) {
     const route = dsRouteAt(org, f.date || today()); const direct = !route || jeOwner(me);
     const mAcc = route ? String(dsMapOf(org)[f.category] || '') : '';   // v56.30: يُثبَّت حساب البند وقت الإنشاء
     const bank = route && f.method !== 'cash' ? String(f.fundAcc || '1201') : '';   // v56.31 T3
+    if (bank && !dsBankOk(org, bank)) return say('البنك المختار غير معرّف — اختر البنك التجميعي أو بنك فرع', 'no');
     const rec = { ...f, id: uid('ds'), by: me.name, byId: me.id || '', createdAt: nowISO(), ...(mAcc ? { acc: mAcc } : {}), ...(bank ? { fundAcc: bank } : { fundAcc: undefined }),
       ...(route ? { status: direct ? 'posted' : 'pending', ...(direct ? { approvedBy: me.name, approvedAt: nowISO(), postDate: today(), ...(jeOwner(me) ? { selfPosted: true } : {}) } : {}) } : {}) };
     if (!rec.fundAcc) delete rec.fundAcc;

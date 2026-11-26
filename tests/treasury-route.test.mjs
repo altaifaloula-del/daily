@@ -89,5 +89,14 @@ test('v56.31 (قرارات المجلس T1/T3): داخل النطاق القيد
   assert.equal(lines(ent(A, 'b')), '5901:200/0,1201:0/200');
   assert.equal(ent(A, 'c').date, '2026-11-20'); assert.equal(lines(ent(A, 'c')), '5901:300/0,1101:0/300');
   assert.equal(lines(ent(A, 'd')), '5901:40/0,1101:0/40');
-  assert.equal(E.dsCashOut({}), true); assert.equal(E.dsCashOut({ fundAcc: '1201' }), false);
+  assert.equal(E.dsCashOut(org, { date: '2026-12-02' }), true); assert.equal(E.dsCashOut(org, { date: '2026-12-02', fundAcc: '1201' }), false);
+  assert.equal(E.dsCashOut(org, { date: '2026-11-02', fundAcc: '1201' }), true, 'قبل النطاق = نقد الخزينة كما في الدفتر');
+});
+
+test('v56.31 (التحقق المستقل): شرط واحد للبنك بين الدفتر والشاشة — بنك فرع بحساب مخصص، وبنك محذوف', () => {
+  const org = { ...base, customAccounts: [{ code: '1150', name: 'بنك الفرع', kind: 'asset' }], branches: [{ id: 'b1', name: 'العليا', isActive: true, bankName: 'بنك', bankAcc: '1150' }], dsRoute: { ranges: [{ from: '2026-12-01' }] } };
+  const A = E.buildAccounting(org, { disbursements: [ds('s5', '2026-12-02', 'صيانة وتشغيل', 90, { status: 'posted', method: 'cheque', fundAcc: '1150' }), ds('s5b', '2026-12-02', 'صيانة وتشغيل', 30, { status: 'posted', method: 'cheque', fundAcc: '1299' })] });
+  const cr = (id) => ent(A, id).lines.find(l => l.credit > 0).code;
+  assert.equal(cr('s5') === '1150', !E.dsCashOut(org, { date: '2026-12-02', fundAcc: '1150' }), 'الدفتر والشاشة متفقان (s5)');
+  assert.equal(cr('s5b'), '1101'); assert.equal(E.dsCashOut(org, { date: '2026-12-02', fundAcc: '1299' }), true, 'بنك غير معرّف ⇒ نقد الخزينة في الاثنين');
 });

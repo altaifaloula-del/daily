@@ -2,7 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { Landmark, FileBarChart, ChevronDown, Printer, ArrowLeftRight, TrendingUp, TrendingDown, Banknote, FileText, Plus, Lock, Check, X, Receipt } from 'lucide-react';
 import { CashVouchers } from './CashVouchers.jsx';
-import { dsLive, dsCashOut, canApproveJe, jeOwner } from '../../App.jsx';   // v56.29 اعتماد أوامر الصرف
+import { dsLive, dsCashOut, dsPostDate, canApproveJe, jeOwner } from '../../App.jsx';   // v56.29 اعتماد أوامر الصرف
 import { Badge, DisbursementForm, Kpi, LOCK_MSG, ROLES, arDate, money, nowISO, periodLocked, printA4, sum, today } from '../../App.jsx';
 
 export function Treasury({ org, ops, me, myBranches, scoped, commit, say }) {
@@ -18,8 +18,8 @@ export function Treasury({ org, ops, me, myBranches, scoped, commit, say }) {
   const received = list.filter(t => t.status === 'received');
   const disb = isCentral ? [...(ops.disbursements || [])].sort((a, b) => b.date.localeCompare(a.date)) : [];
   const inflow = sum((ops.transfers || []).filter(t => t.status === 'received'), t => t.amount);
-  const outflow = sum((ops.disbursements || []).filter(d => dsLive(d) && dsCashOut(d)), d => d.amount);   // v56.29: المعلّق والمرفوض لا يُخصمان · v56.31: المصروف من البنك لا يمس نقد الخزينة
-  const pendCash = sum((ops.disbursements || []).filter(d => d.status === 'pending' && dsCashOut(d)), d => d.amount);   // v56.31 T2: المعلّق يحجز الرصيد للعرض والفحص
+  const outflow = sum((ops.disbursements || []).filter(d => dsLive(d) && dsCashOut(org, d)), d => d.amount);   // v56.29: المعلّق والمرفوض لا يُخصمان · v56.31: المصروف من البنك لا يمس نقد الخزينة
+  const pendCash = sum((ops.disbursements || []).filter(d => d.status === 'pending' && dsCashOut(org, d)), d => d.amount);   // v56.31 T2: المعلّق يحجز الرصيد للعرض والفحص
   const balance = inflow - outflow;
 
   const receive = async (t, ok) => {
@@ -44,7 +44,7 @@ export function Treasury({ org, ops, me, myBranches, scoped, commit, say }) {
     if (withdraw ? !mine : !canApproveJe(me, x)) return say(withdraw ? 'يسحب الأمرَ منشئه فقط' : 'لا يعتمد أمر الصرف من أنشأه — يعتمده المحاسب أو الإدارة المالية أو المالك', 'no');
     const td0 = today();   // v56.31 T1: القيد بتاريخ الاعتماد
     if (ok && periodLocked(org, td0)) return say(LOCK_MSG(td0), 'no');
-    if (ok && dsCashOut(x) && x.amount > balance - (pendCash - x.amount) + 0.004) return say('المبلغ يتجاوز رصيد الخزينة المتاح (بعد حجز الأوامر المعلّقة)', 'no');
+    if (ok && dsCashOut(org, x) && x.amount > balance - (pendCash - x.amount) + 0.004) return say('المبلغ يتجاوز رصيد الخزينة المتاح (بعد حجز الأوامر المعلّقة)', 'no');
     const r = ok || withdraw ? null : window.prompt('سبب الرفض:', ''); if (!ok && !withdraw && r === null) return;
     const st = ok ? 'posted' : withdraw ? 'withdrawn' : 'rejected'; let hit = false;
     // v56.29 (التحقق المستقل): الانتقال من «معلّق» فقط وعلى أحدث نسخة — فلا يُعاد اعتماد مرفوض ولا يُرفض مرحّل
@@ -58,8 +58,8 @@ export function Treasury({ org, ops, me, myBranches, scoped, commit, say }) {
     const items = [
       ...(ops.transfers || []).filter(t => t.status === 'received')
         .map(t => ({ id: t.id, date: t.date, kind: 'in', label: 'توريد من ' + t.branchName, ref: t.referenceNo, amount: t.amount })),
-      ...(ops.disbursements || []).filter(d => dsLive(d) && dsCashOut(d))
-        .map(x => ({ id: x.id, date: x.date, kind: 'out', label: x.category + ' — ' + x.beneficiary, ref: x.reference, amount: x.amount }))
+      ...(ops.disbursements || []).filter(d => dsLive(d) && dsCashOut(org, d))
+        .map(x => ({ id: x.id, date: dsPostDate(org, x), kind: 'out', label: x.category + ' — ' + x.beneficiary, ref: x.reference, amount: x.amount }))
     ].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
     let run = 0;
     return items.map(i => { run += i.kind === 'in' ? i.amount : -i.amount; return { ...i, run }; }).reverse();
