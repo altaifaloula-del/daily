@@ -7,9 +7,9 @@ import { ShieldCheck, RefreshCw, Trash2, AlertTriangle, Check, Server, Bug, Acti
 import { archKey, archivePlan, nowISO, printA4, uid, dtLocal, posSplitBranch, posUnsplitBranch, posSplitOn } from '../../App.jsx';   // v41.7 + v52.7
 import { clrCompare, clrLoad, clrOn, clrSeed, clrState, logAudit, clrRead, clrViewStats } from '../../App.jsx';   // v41.9 + v42.2
 import { posrOn, posrCompare, posrLoad, posrSeed, posrState, posrRepair } from '../../App.jsx';   // v56.4 (POS 2a) سجلات فواتير نقطة البيع
-import { MKT_BR_CV, mktBrOn } from '../../App.jsx';   // v56.11 (GROWTH G1) سجلات التسويق في الفروع
+import { MKT_BR_CV, mktBrOn } from '../../App.jsx';   // v56.12 (GROWTH G1) سجلات التسويق في الفروع
 import { WorkflowsCard } from './Workflows.jsx';   // v49.5 MQ-059
-import { FL_START, flOn, flScope, flCompare, flLoad, flPost } from '../../App.jsx';   // v56.9 D1 دفتر القيود المخزّن
+import { FL_START, flOn, flScope, flCompare, flLoad, flPost, FL_GROUPS, flLvl, flUnclassified, flCorrect } from '../../App.jsx';   // v56.9 D1 دفتر القيود المخزّن
 import { fjCompare, fjLoad, fjOn, fjState, fpLockedTo, fpLoad, fmLoad, fmSet, fjSeed, FD_KINDS, fdCompare, fdLoad, fdSeed } from '../../App.jsx';   // v49.0 المرحلة 01
 import { dataFootprint, recipeRaw, APP_CV, APP_VER, CloudHealth, ERRLOG_KEY, MAIN_WH, ROLES, SIG_BADGE, SIG_NAME, buildAccounting, finStrictOn, loadRelease, loadSignoffs, sigVerify, branchBanks, cashForecast, complianceItems, entityList, vatStatus, countedClosing, isoD, money, purKey, q3, qrFs, snapAll, stockByWh, today, whName, whOf } from '../../App.jsx';
 
@@ -359,7 +359,26 @@ export function SystemMaintenance({ org, ops, me, commit, commitOrg, say }) {
    معطّل افتراضيًا. الترحيل يدوي هنا (الناقص فقط، بترتيب التاريخ)، والمطابقة تكشف الناقص والمختلف والزائد. القراءة تبقى من المحرك. */
 function LedgerCard({ org, ops, commitOrg, say, isAdm }) {
   const on = flOn(org); const [busy, setBusy] = useState(''); const [rep, setRep] = useState(null);
-  const scope = useMemo(() => { try { return flScope(ops, buildAccounting(org, ops)); } catch { return []; } }, [org, ops]);
+  const lvl = flLvl(org);
+  const { scope, uncl } = useMemo(() => { try { const A = buildAccounting(org, ops); return { scope: flScope(ops, A, lvl), uncl: flUnclassified(A) }; } catch { return { scope: [], uncl: [] }; } }, [org, ops, lvl]);
+  // v56.11 (D3): توسيع النطاق مجموعةً بعد مجموعة بالترتيب المعتمد — فقط بعد مطابقة كاملة للمستوى الحالي
+  const widen = async () => {
+    if (!isAdm || lvl >= FL_GROUPS.length) return;
+    if (!rep || !rep.ok) return say('طابق المستوى الحالي أولًا حتى «✓ متطابق»', 'no');
+    const g = FL_GROUPS[lvl];
+    if (!window.confirm('إضافة «' + g.label + '» إلى الدفتر المخزّن؟ بعدها «مطابقة» ثم «ترحيل الناقص».')) return;
+    const ok = await commitOrg(o => ({ ...o, ledger: { ...(o.ledger || {}), lvl: lvl + 1 } }),
+      { actionType: 'settings', targetType: 'system_settings', targetId: 'ledger', title: 'وسّع نطاق الدفتر المخزّن', details: g.label });
+    if (ok) { setRep(null); say('أُضيفت: ' + g.label); }
+  };
+  const correct = async () => {
+    const n = (rep.pairs || []).length + rep.extra.length;
+    if (!window.confirm('تصحيح ' + n + ' قيدًا: يُعكس كل قيد مرحّل تغيّر مصدره (أو زال) بقيد عكسي برقم جديد، ثم يُرحَّل القيد الصحيح بالإصدار التالي.\nلا يُعدَّل ولا يُحذف أي قيد. الفترات المقفلة لا تُصحَّح حتى تُفتح.')) return;
+    setBusy('fix'); const r = await flCorrect(rep, fpLockedTo(org), (i, t) => setBusy('fix ' + i + '/' + t)); setBusy('');
+    if (r.err) return say(r.err, 'no');
+    await logAudit({ actionType: 'update', targetType: 'system_settings', targetId: 'ledger', title: 'صحّح قيودًا في الدفتر المخزّن بقيود عكسية', details: 'عكس ' + r.rev + ' · إصدار جديد ' + r.neu + (r.locked ? ' · في فترة مقفلة ' + r.locked : '') + (r.fail ? ' · تعذّر ' + r.fail + ' (' + r.lastErr + ')' : '') });
+    say('عُكس ' + r.rev + ' ورُحّل ' + r.neu + ' بالإصدار التالي' + (r.locked ? ' · ' + r.locked + ' في فترة مقفلة لم تُصحَّح' : '') + (r.fail ? ' · تعذّر ' + r.fail : ''), r.fail || r.locked ? 'no' : 'ok'); check();
+  };
   const toggle = async () => {
     if (!isAdm) return;
     const ok = await commitOrg(o => ({ ...o, ledger: on ? { ...(o.ledger || {}), on: false, offAt: nowISO() } : { ...(o.ledger || {}), on: true, since: (o.ledger || {}).since || nowISO() } }),
@@ -389,12 +408,16 @@ function LedgerCard({ org, ops, commitOrg, say, isAdm }) {
         <span className={'badge ' + (on ? 'b-sky' : 'b-dim')}>{on ? 'مفعّل — القراءة من المحرك' : 'غير مفعّل'}</span></div>
       <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>
         كل قيد يُحفظ <b>مرة واحدة برقم ثابت</b> مثل JV-2026-000001 يبدأ من 1 كل سنة، ولا يُعدَّل محتواه ولا يُحذف — والخادم يرفض أي تعديل.
-        النطاق الآن: <b>القيد الافتتاحي بأرصدة 2025-12-31</b> + <b>قيود الإغلاقات المعتمدة من {FL_START}</b> ({scope.length} قيدًا).
+        النطاق الآن: <b>القيد الافتتاحي بأرصدة 2025-12-31</b> + المجموعات المفعّلة من {FL_START} ({scope.length} قيدًا):
+        <span data-ledger-groups style={{ display: 'block', margin: '4px 0' }}>{FL_GROUPS.map((g, i) => <span key={g.id} style={{ display: 'block', color: i < lvl ? 'var(--mint)' : 'var(--dim)' }}>{i < lvl ? '✓' : '○'} {i + 1}. {g.label}</span>)}</span>
+        {uncl.length > 0 && <span style={{ display: 'block', color: 'var(--amber)' }}>⚠ {uncl.length} قيدًا من مصدر غير مصنّف لا يدخل الدفتر بعد (مثل: {uncl.slice(0, 2).map(e => e.src || e.id).join('، ')}).</span>}
         بعد التفعيل يُرحَّل قيد كل إغلاق <b>تلقائيًا عند تدقيقه</b>، و«ترحيل الناقص» يلحق بما تعذّر. التقارير ما زالت من المحرك حتى تثبت المطابقة.
       </div>
       {isAdm && <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
         <button className={'btn sm' + (on ? ' gh' : ' pri')} disabled={!!busy} onClick={toggle}>{on ? 'إيقاف' : 'تفعيل'}</button>
         {on && <button className="btn sm" disabled={!!busy} onClick={check}><RefreshCw size={13} />{busy === 'check' ? 'جارٍ المطابقة…' : 'مطابقة'}</button>}
+        {on && rep && ((rep.pairs || []).length + rep.extra.length) > 0 && <button className="btn sm" disabled={!!busy} onClick={correct}>{busy.startsWith('fix') ? 'جارٍ التصحيح… ' + busy.slice(4) : 'تصحيح بقيد عكسي (' + ((rep.pairs || []).length + rep.extra.length) + ')'}</button>}
+        {on && rep && rep.ok && lvl < FL_GROUPS.length && <button className="btn sm" disabled={!!busy} onClick={widen}>إضافة: {FL_GROUPS[lvl].label}</button>}
         {on && rep && rep.missing.length > 0 && <button className="btn sm pri" disabled={!!busy} onClick={post}>{busy.startsWith('post') ? 'جارٍ الترحيل… ' + busy.slice(5) : 'ترحيل الناقص (' + rep.missing.length + ')'}</button>}
       </div>}
       {rep && <div style={{ marginTop: 10 }}>
@@ -402,9 +425,9 @@ function LedgerCard({ org, ops, commitOrg, say, isAdm }) {
           {rep.ok ? '✓ متطابق: ' + rep.total + ' قيدًا في المحرك = ' + rep.recs + ' في الدفتر' : 'ناقص ' + rep.missing.length + ' · مختلف ' + rep.differ.length + ' · زائد ' + rep.extra.length + (rep.bad.length ? ' · لا يتطابق بالهللة ' + rep.bad.length : '')}
         </div>
         {!rep.ok && <div className="me-list" style={{ marginTop: 6 }}>
-          {rep.differ.slice(0, 10).map(e => row(e, 'تغيّر مصدره بعد الترحيل — التصحيح بقيد عكسي في الدفعة القادمة'))}
+          {rep.differ.slice(0, 10).map(e => row(e, 'تغيّر مصدره بعد الترحيل — «تصحيح بقيد عكسي»'))}
           {rep.bad.slice(0, 10).map(e => row(e, 'لا يتطابق بالهللة — لا يُرحَّل حتى يُصحَّح'))}
-          {rep.extra.slice(0, 10).map(r => row(r, 'قيد مخزّن لم يعد له مصدر معتمد (' + (r.no || '') + ')'))}
+          {rep.extra.slice(0, 10).map(r => row(r, 'لم يعد له مصدر معتمد (' + (r.no || '') + ') — «تصحيح بقيد عكسي» يعكسه'))}
           {rep.missing.slice(0, 5).map(e => row(e, why0(e)))}
         </div>}
       </div>}
@@ -444,7 +467,7 @@ function FinStrictCard({ org, ops, commitOrg, say, isAdm }) {
     </div>);
 }
 
-/* v56.11 (GROWTH G1): مدير الفرع يرى ويسجّل موافقات وبيانات عملاء فرعه — معطّل افتراضيًا، ولا يُفعَّل قبل أن يمنع الحد الأدنى للإصدار
+/* v56.12 (GROWTH G1): مدير الفرع يرى ويسجّل موافقات وبيانات عملاء فرعه — معطّل افتراضيًا، ولا يُفعَّل قبل أن يمنع الحد الأدنى للإصدار
    الأجهزة الأقدم (تمحو هذه السجلات من مستند الفرع لأنها لا تعرفها). الإيقاف آمن: السجلات تبقى وتُقرأ، والجديد يعود للمركز. */
 function MktBranchCard({ org, commitOrg, say, isAdm }) {
   const on = mktBrOn(org); const [rel, setRel] = useState(null);

@@ -33,7 +33,8 @@ export const ENGINE_EXPORTS = ['mktUnmergeBlock', 'splitOps', 'composeOps', 'out
   // v56.7 — C4 التطابق التام بالهللات
   'toHal', 'isHal', 'finStrictOn',
   // v56.9 — D1 دفتر القيود المخزّن
-  'FL_START', 'flOn', 'flKey', 'flNo', 'flLines', 'flRecord', 'flScope', 'flCompare', 'flOpening'];
+  'FL_START', 'flOn', 'flKey', 'flNo', 'flLines', 'flRecord', 'flScope', 'flCompare', 'flOpening',
+  'FL_GROUPS', 'flLvl', 'flGroupOf', 'flUnclassified', 'flReversalOf'];
 
 export async function buildEngine() {
   fs.mkdirSync(cache, { recursive: true });

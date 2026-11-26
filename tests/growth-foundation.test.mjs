@@ -1,5 +1,5 @@
 /**
- * v56.11 — MUKTASAB GROWTH الدفعة 1 (الأساس): إصلاح G1 وG3 وG4 وG5 وG6 في docs/growth/GROWTH_AUDIT_REPORT.md.
+ * v56.12 — MUKTASAB GROWTH الدفعة 1 (الأساس): إصلاح G1 وG3 وG4 وG5 وG6 في docs/growth/GROWTH_AUDIT_REPORT.md.
  * الأرقام المتوقعة محسوبة يدويًا.
  */
 import { test, before } from 'node:test';
@@ -33,7 +33,7 @@ test('G1: رقم الفرع — المفتاح المعطّل لا يضيف شي
   assert.equal(E.mktRecBranch(true, false, c, ['b1']), 'b1', 'الفرع لا يكتب لفرع آخر');
   assert.equal(E.mktRecBranch(true, false, c, ['b1', 'b2']), 'b2');
   assert.equal(E.mktBrOn({}), false); assert.equal(E.mktBrOn({ mktBranch: { on: true } }), true);
-  assert.equal(E.MKT_BR_CV, 561100, 'يساوي رقم هذا الإصدار v56.11');
+  assert.equal(E.MKT_BR_CV, 561200, 'يساوي رقم هذا الإصدار v56.12');
   // الفرع لا يستطيع إنشاء سجل تسويق بلا فرعه (يُرفض قبل الحفظ)
   assert.equal(E.outOfScopeRecords({ mktConsents: [{ id: 'x', phone: '5' }] }, {}, ['b1']).length, 1);
   assert.equal(E.outOfScopeRecords({ mktConsents: [{ id: 'x', phone: '5', branchId: 'b1' }] }, {}, ['b1']).length, 0);

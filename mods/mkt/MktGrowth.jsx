@@ -26,9 +26,9 @@ export function MktGrowth({ org, ops, me, myBranches, commit, commitOrg, say }) 
   const list = useMemo(() => crmSegment(crmBuild(org, ops, loy, { branches: central ? null : brIds }), cfg, today()), [org, ops, loy, central, brIds.join(',')]);
   const brName = (id) => ((org.branches || []).find(b => b.id === id) || {}).name || id;
   const [sel, setSel] = useState(null);
-  // v56.11 (G1): رقم فرع سجل التسويق — فارغ والمفتاح معطّل ⇒ السلوك السابق (المستند المركزي)
+  // v56.12 (G1): رقم فرع سجل التسويق — فارغ والمفتاح معطّل ⇒ السلوك السابق (المستند المركزي)
   const brOn = mktBrOn(org); const bTag = (c) => { const b = mktRecBranch(brOn, central, c, brIds); return b ? { branchId: b } : {}; };
-  // v56.11 (G5): استكمال استبدال جائزة انقطع بين خصم النقاط وإصدار الكوبون
+  // v56.12 (G5): استكمال استبدال جائزة انقطع بين خصم النقاط وإصدار الكوبون
   useEffect(() => { if (!loy || !canApp) return; const P = rwPend().filter(x => !x.uid || x.uid === (me.id || me.email || '')); if (!P.length) return; const { done, refund, wait } = rwPendSplit(P, org.posPromos, Date.now(), loy.tx);
     (async () => { const o2 = await cloud.get(KEYS.org, null).catch(() => null); const sp = o2 ? rwPendSplit(P, o2.posPromos, Date.now(), loy.tx) : { done, refund, wait }; const left = [...sp.wait]; const refund2 = sp.refund; if (refund2.length) { const r = await loyPost(refund2.map(x => rwUndoTx(x, nowISO()))); if (r) { setLoy(r); say('أُعيدت نقاط ' + refund2.length + ' استبدال لم يصدر كوبونه ✓'); logAudit({ actionType: 'update', targetType: 'customer', targetId: 'loyalty', title: 'أعاد نقاط استبدال لم يصدر كوبونه', details: refund2.map(x => x.phone + ' · ' + x.pts + ' · ' + x.code).join('، ') }).catch(() => { }); } else left.push(...refund2); }
       const others = rwPend().filter(x => !P.includes(x) && !P.some(y => y.txid === x.txid)); rwPendSet([...others, ...left]); void done; })(); }, [!!loy]);
@@ -187,7 +187,7 @@ function Seg({ list, cfg, say }) {
   const RULE = { vip: 'صافي مشترياته ≥ ' + money(S.vipSpend) + ' أو ضمن أعلى ' + S.vipTopPct + '% إنفاقًا', loyal: S.loyalVisits + ' زيارات فأكثر خلال ' + S.loyalDays + ' يومًا', risk: S.riskMinVisits + ' زيارات فأكثر وآخرها قبل أكثر من ' + S.riskDays + ' يومًا', inactive: 'لا شراء منذ أكثر من ' + S.inactiveDays + ' يومًا',
     potential: 'زيارة أو زيارتان ومتوسط فاتورته ≥ ' + S.potMult + '× المتوسط العام', new: 'أول ظهور خلال ' + S.newDays + ' يومًا', regular: 'ما عدا ذلك' };
   const exp = (k, onlyOk) => { const L = list.filter(c => (c.cls === k || c.tags.includes(k)) && (!onlyOk || mktCanContact(c.consent, 'any')));
-    // v56.11 (G6): تصدير أرقام العملاء يُسجَّل في سجل التدقيق (من، أي شريحة، كم رقمًا)
+    // v56.12 (G6): تصدير أرقام العملاء يُسجَّل في سجل التدقيق (من، أي شريحة، كم رقمًا)
     // لا تنزيل قبل نجاح التسجيل (المراجعة الأمنية 8أ)
     return logAudit({ actionType: 'export', targetType: 'customer', targetId: 'seg:' + k, title: 'صدّر أرقام شريحة عملاء', details: MKT_SEGS[k].ar + ' · ' + L.length + ' رقم' + (onlyOk ? ' (الموافقون فقط)' : '') })
       .then(ok => { if (ok === false) return say && say('تعذّر تسجيل التصدير في سجل التدقيق — لم يُنزَّل الملف', 'no');
