@@ -3429,7 +3429,7 @@ test('v56.0 هوية المنشأة: رفع شعار شفاف، الألوان �
 const SHOTS = path.join(cache, 'shots'); const shot = async (p, n) => { fs.mkdirSync(SHOTS, { recursive: true }); await p.screenshot({ path: path.join(SHOTS, n + '.jpg'), type: 'jpeg', quality: 72, fullPage: true }); };
 const gateState = (p) => p.evaluate(() => ({ calls: (window.__gate || {}).calls || [], mfa: (window.__gate || {}).mfaCalls || [],
   err: document.querySelector('.mq-err')?.innerText || '', btn: document.querySelector('.mq-btn')?.innerText || '', note: document.querySelector('.mq-note')?.innerText || '',
-  dir: document.querySelector('.mq-login')?.closest('[dir]')?.getAttribute('dir') || '', over: document.documentElement.scrollWidth - window.innerWidth,
+  dir: getComputedStyle(document.querySelector('.mq-card') || document.body).direction,   // الاتجاه المعروض فعلًا لا السمة over: document.documentElement.scrollWidth - window.innerWidth,
   card: (() => { const r = document.querySelector('.mq-card')?.getBoundingClientRect(); return r ? { l: Math.round(r.left), r: Math.round(r.right), w: Math.round(r.width) } : null; })(),
   cover: Math.round(document.querySelector('.gate-cover')?.getBoundingClientRect().width || 0), vw: window.innerWidth }));
 /** البطاقة كاملة داخل الشاشة (لا قص خفي خلف overflow) وآخر زر يصل إليه المستخدم */
@@ -3514,5 +3514,10 @@ test('v56.5 الدخول: الجوال بلا تجاوز وأهداف لمس ≥
   assert.deepEqual(anim, ['none', 'none']);
   assert.deepEqual(r.errs, []); await r.ctx.close();
   // سطح المكتب بالإنجليزية للصورة المرجعية
-  const d = await open({ viewport: { width: 1440, height: 900 } }, 'gate'); await d.p.click('.mq-lang'); await d.p.waitForTimeout(400); await shot(d.p, 'login-desktop-en'); await d.ctx.close();
+  const d = await open({ viewport: { width: 1440, height: 900 } }, 'gate'); assert.equal((await gateState(d.p)).dir, 'rtl');
+  await d.p.click('.mq-lang'); await d.p.waitForTimeout(400); assert.equal((await gateState(d.p)).dir, 'ltr');
+  // الحقل والزر يبدآن من اليسار في الإنجليزية
+  const x = await d.p.evaluate(() => { const c = document.querySelector('.mq-card').getBoundingClientRect(); const l = document.querySelector('label[for="mq-email"]').getBoundingClientRect(); return [Math.round(l.left - c.left), Math.round(c.right - l.right)]; });
+  assert.ok(x[0] < x[1], 'تسمية البريد على اليسار في الإنجليزية ' + x);
+  await shot(d.p, 'login-desktop-en'); await d.ctx.close();
 });

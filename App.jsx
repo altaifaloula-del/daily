@@ -5380,7 +5380,7 @@ function FbGate({ css, theme, fbLogin, fbMfa, fbFirstSetup, notice, onLang }) {
     </button>);
 
   return (
-    <div className={themeCls(theme, readMode())} dir={en ? 'ltr' : 'rtl'} lang={en ? 'en' : 'ar'}>
+    <div className={themeCls(theme, readMode()) + (en ? ' lang-en' : '')} dir={en ? 'ltr' : 'rtl'} lang={en ? 'en' : 'ar'}>{/* lang-en: ‎.rms يفرض rtl في CSS فيغلب سمة dir */}
       <style dangerouslySetInnerHTML={{ __html: css }} />
       <div className="gate has-cover mq-login" ref={host}>
         <div className="mq-aurora" aria-hidden="true" />
