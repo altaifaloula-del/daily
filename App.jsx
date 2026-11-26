@@ -3474,7 +3474,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.0';
+const APP_VER = 'v56.1';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -5271,8 +5271,8 @@ function MfaPanel({ me, required, inline, onDone, onLogout, say, info, reload })
     return 'تعذّر الإجراء (' + c.replace('auth/', '') + ')'; };
   const start = async () => { if (!pass || busy) return; setBusy(true); setErr('');
     try { const r = await authApi.mfaStart(pass); setSec(r); setStep('scan'); setPass(''); } catch (e) { const m = errOf(e); if (m === 'verify') setStep('verify'); else setErr(m); } setBusy(false); };
-  const finish = async () => { if (code.length !== 6 || busy) return; setBusy(true); setErr('');
-    try { await authApi.mfaFinish(code); setStep('done'); say('فُعّل التحقق بخطوتين ✓ — سجّل الدخول من جديد بالرمز'); setTimeout(() => onDone && onDone(), 2500); } catch (e) { setErr(errOf(e)); } setBusy(false); };
+  const finish = async (c = code) => { if (c.length !== 6 || busy) return; setBusy(true); setErr('');
+    try { await authApi.mfaFinish(c); setStep('done'); say('فُعّل التحقق بخطوتين ✓ — سجّل الدخول من جديد بالرمز'); setTimeout(() => onDone && onDone(), 2500); } catch (e) { setErr(errOf(e)); setCode(''); } setBusy(false); };
   const remove = async () => { if (!pass || busy) return; if (!window.confirm('إلغاء التحقق بخطوتين؟ يصبح حسابك محميًا بكلمة السر وحدها.')) return; setBusy(true); setErr('');
     if (code.length !== 6) { setBusy(false); return setErr('اكتب رمز تطبيق المصادقة الحالي'); }
     try { await authApi.mfaRemove(pass, code); say('أُلغي التحقق بخطوتين — سجّل الدخول من جديد'); setTimeout(() => onLogout && onLogout(), 1500); } catch (e) { setErr(errOf(e)); } setBusy(false); };
@@ -5308,8 +5308,8 @@ function MfaPanel({ me, required, inline, onDone, onLogout, say, info, reload })
           <div className="num" style={{ direction: 'ltr', fontSize: 15, fontWeight: 800, letterSpacing: 1, marginTop: 6, wordBreak: 'break-all' }}>{keyFmt(sec.key)}</div></div>
         <div style={{ fontSize: 12.5 }}>2) اكتب الرمز الظاهر في التطبيق:</div>
         <input className="inp n" inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000" style={{ fontSize: 22, letterSpacing: 6, textAlign: 'center', direction: 'ltr' }}
-          value={code} onChange={e => { setCode(e.target.value.replace(/\D/g, '').slice(0, 6)); setErr(''); }} onKeyDown={e => e.key === 'Enter' && finish()} />
-        <button className="btn pri" disabled={busy || code.length !== 6} onClick={finish}>{busy ? <RefreshCw size={14} className="spin" /> : <Check size={14} />}تأكيد التفعيل</button>
+          value={code} onChange={e => { const v = e.target.value.replace(/\D/g, '').slice(0, 6); setCode(v); setErr(''); if (v.length === 6) finish(v); }} onKeyDown={e => e.key === 'Enter' && finish()} />
+        <button className="btn pri" disabled={busy || code.length !== 6} onClick={() => finish()}>{busy ? <RefreshCw size={14} className="spin" /> : <Check size={14} />}تأكيد التفعيل</button>
       </>}
       {step === 'done' && <div className="note" style={{ color: 'var(--mint)' }}>✓ فُعّل التحقق بخطوتين. سيُسجَّل خروجك الآن — ادخل من جديد بكلمة السر ثم الرمز.</div>}
       {err && <div className="gate-err">{err}</div>}
@@ -5335,10 +5335,11 @@ function FbGate({ css, theme, fbLogin, fbMfa, fbFirstSetup, notice }) {
     if (r.mfa) { setMfa(true); setCode(''); return; }
     if (!r.ok) setErr(r.err || 'تعذّر الدخول');
   };
-  const goMfa = async () => {
-    if (code.length !== 6 || busy) return; setErr(''); setBusy(true);
-    const r = await fbMfa(code); setBusy(false);
-    if (!r.ok) { setErr(r.err || 'تعذّر التحقق'); if (/أعد إدخال كلمة السر/.test(r.err || '')) { setMfa(false); setPass(''); } }
+  // v56.1: يُرسل الرمز تلقائيًا عند اكتمال أرقامه الستة (كتابةً أو لصقًا أو تعبئةً من الهاتف) — Enter والزر يبقيان
+  const goMfa = async (c = code) => {
+    if (c.length !== 6 || busy) return; setErr(''); setBusy(true);
+    const r = await fbMfa(c); setBusy(false);
+    if (!r.ok) { setErr(r.err || 'تعذّر التحقق'); setCode(''); if (/أعد إدخال كلمة السر/.test(r.err || '')) { setMfa(false); setPass(''); } }
   };
 
   return (
@@ -5361,9 +5362,9 @@ function FbGate({ css, theme, fbLogin, fbMfa, fbFirstSetup, notice }) {
                 <div style={{ fontSize: 11.5, color: 'var(--dim)', marginTop: 4, lineHeight: 1.7 }}>افتح تطبيق المصادقة في هاتفك واكتب الرمز المكوّن من 6 أرقام لحساب «ميزان»</div></div>
               <input className="inp n" autoFocus inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000"
                 style={{ fontSize: 26, letterSpacing: 8, textAlign: 'center', direction: 'ltr' }} value={code}
-                onChange={e => { setCode(e.target.value.replace(/\D/g, '').slice(0, 6)); setErr(''); }} onKeyDown={e => e.key === 'Enter' && goMfa()} />
+                onChange={e => { const v = e.target.value.replace(/\D/g, '').slice(0, 6); setCode(v); setErr(''); if (v.length === 6) goMfa(v); }} onKeyDown={e => e.key === 'Enter' && goMfa()} />
               {err && <div className="gate-err" style={{ marginTop: 10 }}>{err}</div>}
-              <button className="btn pri" style={{ width: '100%', marginTop: 12 }} disabled={busy || code.length !== 6} onClick={goMfa}>
+              <button className="btn pri" style={{ width: '100%', marginTop: 12 }} disabled={busy || code.length !== 6} onClick={() => goMfa()}>
                 {busy ? <RefreshCw size={15} className="spin" /> : <Check size={15} />}تحقق ودخول</button>
               <button className="btn gh" style={{ width: '100%', marginTop: 10 }} onClick={() => { setMfa(false); setPass(''); setErr(''); }}>رجوع</button>
               <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 12, lineHeight: 1.7, textAlign: 'center' }}>فقدت هاتفك؟ أضف الحساب لهاتف جديد بالمفتاح الذي حفظته عند التفعيل، أو راجع مسؤول النظام.</div>
