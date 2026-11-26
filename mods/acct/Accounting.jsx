@@ -11,7 +11,7 @@ import { GeneralLedger } from './GeneralLedger.jsx';   // v49.4 المرحلة 0
 import { makeRptXlsx } from '../../App.jsx';   // v50.0 منظومة التقارير
 import { FL_START, FL_GROUPS, flReadOn, flLoad, flEntriesOf, flBalDiff, flScope } from '../../App.jsx';   // v56.14 D4 الميزان والقوائم من الدفتر المخزّن
 import { DEP_METHODS, depMethod, deprSchedule, wfOn, wfRequired, wfState, wfCanAct, wfApprove } from '../../App.jsx';   // v49.4 طرق الإهلاك
-import { equityStatement, EQS_ROWS } from '../../App.jsx';   // v56.19 (FINANCE E1)
+import { equityStatement, EQS_ROWS, closeListOn, closeAutoChecks, closeManualState, closeLockBlock } from '../../App.jsx';   // v56.20 (E2)   // v56.19 (FINANCE E1)
 import { ACCT_GROUPS, DocLink, RowGrip, moveIdx, RECUR_AR, recurNext, recurDue, jeOwner, canApproveJe, jeAutoSt, vatCloseLive, projList, projectPL, projNextCode, ACCT_SECTIONS, ACC_KIND, Field, Kpi, LOCK_MSG, MizanMerge, Modal, NUM_FACE, Num, ROLES, _xe, acctSecKey, arDate, bankOfBranch, branchBanks, bsLayout, bsRowsOf, buildAccounting, buildPartners, capOK, countedClosing, customerAging, detectStmtMap, entityById, entityList, gosiRatesFor, isLayout, isRowsOf, isoD, lockedThru, makeXlsx, money, monthEnd, monthLedger, multiEntityOn, naMissing, nowISO, openDocWin, parseCsvGrid, parseMt940, parseXlsxGrid, payTotal, periodLocked, posClrOf, printA4, qrSvg, roleEdit, rolePost, snapMonths, stAddDays, stDate, stNum, sum, supplierAging, today, uid, useSecNav, zatcaTLV } from '../../App.jsx';
 
 export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }) {
@@ -843,6 +843,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
   const doLock = async () => {
     const m = lockTo || prevYm;
     if (plCfg.lockedThrough && m <= plCfg.lockedThrough) return say('المقفل حاليًا يغطي هذا الشهر أصلًا', 'no');
+    const blk = closeLockBlock(org, A, ops, m, plCfg.lockedThrough); if (blk) return say('لا قفل قبل اكتمال قائمة الإقفال — ' + blk, 'no');   // v56.20 (E2 — قرار المالك)
     await savePl({ lockedThrough: m, logEntry: { action: 'lock', month: m } },
       'أقفل الفترات المحاسبية حتى ' + m, 'قفل تراكمي — كل ما قبله وضمنه محمي من التعديل');
     // v32.1: تجميد ميزان كل شهر مقفل لم يُجمَّد بعد (أو أُعيد قفله بعد فتح) مع بصمة قيوده
@@ -3006,6 +3007,24 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                   </Field>
                   <button className="btn pri" onClick={doLock}><Lock size={14} />قفل الفترات</button>
                 </div>
+                {(() => { const mm = lockTo || prevYm; const on = closeListOn(org); const AC = closeAutoChecks(A, ops, mm); const MS = closeManualState(ops, mm);
+                  const mark = async (k, ap) => { const cur = (ops.closeTasks || []).find(t => t.month === mm && t.key === k);
+                    if (ap && cur && (cur.doneById || cur.doneBy) === (me.id || me.name)) return say('يعتمد المهمة غير من أنجزها (فصل المهام)', 'no');
+                    const note = ap ? '' : (window.prompt('ملاحظة أو مرجع الدليل (اختياري):') || '');
+                    const ok = await commit(d => { const L = d.closeTasks || []; const x = L.find(t => t.month === mm && t.key === k);
+                      if (ap) return { ...d, closeTasks: L.map(t => t === x ? { ...t, apBy: me.name, apById: me.id || me.name, apAt: nowISO() } : t) };
+                      return { ...d, closeTasks: [...L.filter(t => t !== x), { id: uid('ct'), month: mm, key: k, doneBy: me.name, doneById: me.id || me.name, doneAt: nowISO(), ...(note.trim() ? { note: note.trim() } : {}) }] }; },
+                      { actionType: 'update', targetType: 'period_lock', targetId: 'closeTasks', need: 'post', title: ap ? 'اعتمد مهمة إقفال' : 'أنجز مهمة إقفال', details: mm + ' · ' + k });
+                    if (ok) say(ap ? 'اعتُمدت المهمة ✓' : 'سُجّل الإنجاز — يعتمده شخص آخر ✓'); };
+                  const tog = async () => { const ok = await commitOrg(o => ({ ...o, closeList: on ? { ...(o.closeList || {}), on: false } : { on: true, from: (o.closeList || {}).from || mm } }), { actionType: 'settings', targetType: 'period_lock', targetId: 'closeList', need: 'edit', title: on ? 'أوقف قائمة مهام الإقفال' : 'فعّل قائمة مهام الإقفال' }); if (ok) say(on ? 'أُوقفت القائمة' : 'فُعّلت — القفل يتطلب اكتمالها من ' + mm); };
+                  return <div className="card" style={{ marginTop: 10, padding: 10 }} data-closelist>
+                    <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}><b style={{ fontSize: 13 }}>قائمة مهام الإقفال — {mm}</b>
+                      <span className={'badge ' + (on ? 'b-sky' : 'b-dim')}>{on ? 'شرط للقفل منذ ' + ((org.closeList || {}).from || mm) : 'غير مفعّلة'}</span></div>
+                    {AC.map(c => <div key={c.k} className="row" style={{ gap: 6, fontSize: 12, marginBottom: 3 }} data-cl-auto={c.k}><span className={'badge ' + (c.ok ? 'b-mint' : 'b-rose')}>{c.ok ? '✓' : '✕'}</span><span>{c.ar}{!c.ok ? ' — ' + (c.k === 'susp' ? fmtBal(c.amt) : c.n) : ''}</span></div>)}
+                    {MS.map(x => <div key={x.k} className="row" style={{ gap: 6, fontSize: 12, marginBottom: 3, flexWrap: 'wrap' }} data-cl-task={x.k}><span className={'badge ' + (x.st === 'approved' ? 'b-mint' : x.st === 'done' ? 'b-amber' : 'b-dim')}>{x.st === 'approved' ? 'معتمدة' : x.st === 'done' ? 'منجزة' : 'لم تبدأ'}</span><span style={{ flex: 1 }}>{x.ar}{x.t ? ' · ' + x.t.doneBy + (x.t.note ? ' (' + x.t.note + ')' : '') + (x.t.apBy ? ' · اعتمدها ' + x.t.apBy : '') : ''}</span>
+                      {x.st === 'todo' && <button className="btn sm gh" onClick={() => mark(x.k, false)} data-cl-done>تم</button>}{x.st === 'done' && <button className="btn sm gh" onClick={() => mark(x.k, true)} data-cl-ap>اعتماد</button>}</div>)}
+                    <button className={'btn sm ' + (on ? 'gh' : 'pri')} style={{ marginTop: 6 }} onClick={tog} data-cl-toggle>{on ? 'إيقاف شرط القائمة' : 'تفعيل: لا قفل قبل اكتمال القائمة'}</button>
+                  </div>; })()}
                 {(() => { const c = lockChecks(lockTo || prevYm);
                   return (c.drafts > 0 || c.pending > 0) && (
                     <div className="note" style={{ marginTop: 10 }}>
