@@ -3702,3 +3702,15 @@ test('v56.19 FINANCE E1: قائمة التغيرات في حقوق الملكي�
   const [dl] = await Promise.all([p.waitForEvent('download'), p.click('[data-eqs-xl]')]); const fp = await dl.path(); assert.ok(fp && (await import('node:fs')).statSync(fp).size > 1000, 'ملف Excel فعلي');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.20 FINANCE E2: قائمة مهام الإقفال — الفحوص الآلية، وفصل المهام في الاعتماد، والتفعيل يمنع القفل قبل الاكتمال', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Accounting/admin/lock');
+  await p.waitForSelector('[data-closelist]');
+  assert.ok(await p.locator('[data-cl-auto]').count() >= 5); assert.equal(await p.locator('[data-cl-task]').count(), 5);
+  await p.click('[data-cl-toggle]'); await p.waitForFunction(() => window.curOrg.closeList && window.curOrg.closeList.on === true);
+  await p.click('button:has-text("قفل الفترات")'); await p.waitForFunction(() => /لا قفل قبل اكتمال قائمة الإقفال/.test(window.lastSay || ''));
+  await p.locator('[data-cl-done]').first().click(); await p.waitForFunction(() => (window.cur.closeTasks || []).length === 1);
+  await p.locator('[data-cl-ap]').first().click(); await p.waitForFunction(() => /غير من أنجزها/.test(window.lastSay || ''), null, { timeout: 5000 });
+  assert.equal(await p.evaluate(() => !!window.cur.closeTasks[0].apAt), false, 'المنفّذ لا يعتمد مهمته');
+  assert.deepEqual(errs, []); await ctx.close();
+});
