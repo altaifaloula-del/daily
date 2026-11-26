@@ -3726,3 +3726,13 @@ test('v56.21 FINANCE E3: فروق الصرف غير المحققة — سعر ا
   await p.click('[data-fx-toggle]'); await p.waitForFunction(() => window.curOrg.fxReval.on === true);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.22 FINANCE G1: الصورة المالية في لوحة المدير المالي — النقد والربحية والتكاليف بالفرع والضريبة، والتنقيب إلى الحساب', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1600 } }, 'live/Hub/admin/analytics:cfo');
+  await p.waitForSelector('[data-finpic]');
+  for (const k of ['cash', 'profit', 'costs', 'tax']) assert.equal(await p.locator('[data-fp="' + k + '"]').count(), 1, k);
+  assert.match(await p.locator('[data-fp="cash"]').innerText(), /صافي السيولة/);
+  assert.match(await p.locator('[data-fp="profit"]').innerText(), /مقابل/);
+  assert.ok(await p.locator('[data-fp="tax"] a, [data-fp="tax"] button').count() >= 2, 'روابط الحسابات للتنقيب');
+  assert.deepEqual(errs, []); await ctx.close();
+});
