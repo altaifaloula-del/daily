@@ -4003,3 +4003,12 @@ test('v56.33 جاهزية 6a: معاينة رصيد النقاط القائم، 
   assert.match(await p.locator('[data-posgl-mis]').innerText(), /مفعّل من/);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.34 ولاء 6ب: تسوية الولاء الشهرية — معاينة وإنشاء القيد مرة لكل شهر', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Admin/admin');
+  await p.evaluate(() => window.setOrg(o => ({ ...o, posGl: { ...(o.posGl || {}), ranges: [{ from: '2026-01-01' }] } })));
+  await p.click('button:has-text("صيانة النظام")'); await p.waitForSelector('[data-loymonth]');
+  await p.click('[data-loymonth-prev]'); await p.waitForSelector('[data-loymonth-res]');
+  assert.match(await p.locator('[data-loymonth-res]').innerText(), /منتهية/);
+  assert.deepEqual(errs, []); await ctx.close();
+});

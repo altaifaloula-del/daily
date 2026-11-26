@@ -2258,15 +2258,52 @@ function posGlLines(d) {
    P1 رصيد النقاط القائم قبل تفعيل 6a = النقاط (حركات قبل تاريخ القطع) × قيمة النقطة بعد استبعاد الضريبة — معاينة، والقيد بموافقة المالك.
    P2 الإغلاق غير المطابق: قيد حركة الولاء وحدها من الفواتير (منح: مدين 4101 دائن 2106؛ استبدال: مدين 2106 دائن 4101) من تاريخ يختاره المالك
    (org.posGl.misLoy.from — لا يغيّر الماضي)، وشرح بمستند لكل إغلاق غير مطابق (org.posGl.notes)، وفحص في قائمة الإقفال. */
-function posLoyOpening(org, loyDoc, cutoff) {
+function posLoyOpening(org, loyDoc, cutoff, ctx) {
   const r2 = (x) => Math.round((Number(x) || 0) * 100) / 100; const pv = posGlPv(org);
   const tx = (org && org.taxCfg) || {}; const rate = tx.enabled ? (Number(tx.rate) || 15) : 0;
   // (التحقق المستقل) المقارنة بالوقت المحلي: حركة الساعة 01:30 من يوم القطع (UTC في اليوم السابق) لا تُحتسب مرتين
   const cut = new Date(cutoff + 'T00:00:00').getTime(); const before = (t) => { const ms = Date.parse(t.at || ''); return isNaN(ms) ? String(t.at || '').slice(0, 10) < cutoff : ms < cut; };
-  const pts = r2(((loyDoc && loyDoc.tx) || []).filter(before).reduce((a, t) => a + (Number(t.pts) || 0), 0));
-  return { pts, pv, rate, cutoff, amt: r2(pts * pv * 100 / (100 + rate)) };
+  const pts0 = r2(((loyDoc && loyDoc.tx) || []).filter(before).reduce((a, t) => a + (Number(t.pts) || 0), 0));
+  // (التحقق المستقل — قرار المجلس: البديل أ) جوائز صدرت قبل القطع ولم تُسلَّم بعد جزء من الالتزام حتى تسليمها (P6) — وإلا أطفأتها التسوية الشهرية مرتين
+  ctx = ctx || {}; const ALL = (loyDoc && loyDoc.tx) || []; const used = {};
+  (ctx.orders || []).forEach(o => { if (o && o.coupon && o.status !== 'void' && o.kind !== 'return') { const c = String(o.coupon).toUpperCase(); if (!used[c] || o.date < used[c]) used[c] = o.date; } });
+  let rwOpen = 0; (ctx.promos || []).forEach(pm => { if (!pm || !pm.rwTx) return; const t = ALL.find(x => x.id === pm.rwTx); if (!t || !before(t) || ALL.some(u => u.id === pm.rwTx + ':undo')) return;
+    const u = used[String(pm.code || '').toUpperCase()]; if ((u && u < cutoff) || (pm.to && pm.to < cutoff)) return; rwOpen += -(Number(t.pts) || 0); });
+  const pts = r2(pts0 + rwOpen);
+  return { pts, rwOpen: r2(rwOpen), pv, rate, cutoff, amt: r2(pts * pv * 100 / (100 + rate)) };
 }
 // (التحقق المستقل) سجل نطاقات لا يُكتب فوقه — الإيقاف يغلق النطاق وإعادة التفعيل تضيف نطاقًا جديدًا (misLoy القديم = نطاق واحد)
+/* v56.34 (الدفعة 3 — ولاء 6ب، قرارات المجلس P5/P6/P7 بتفويض المالك): تسوية شهرية من سجل النقاط لما لا يأتي من الفواتير —
+   النقاط المنتهية (ex:) ← مدين 2106 دائن 4101 · نقاط المناسبات (bd: عيد الميلاد، rf: الإحالة) ← مدين حساب ترويجي يختاره المالك دائن 2106 ·
+   جوائز الكتالوج (rw: وإلغاؤها :undo) ← مدين 2106 دائن 4101. بالقيمة: النقاط × قيمة النقطة ÷ (1 + الضريبة). انتهاء الصلاحية خيار في إعداد الولاء (expireMonths، 0 = لا تنتهي). */
+function loyMonthAdj(org, loyDoc, month, ctx) {
+  // (التحقق المستقل) ctx = { orders, promos, from }: from = بداية أول نطاق 6a — ما قبله في الرصيد الافتتاحي (P1) فلا يُحتسب مرتين
+  ctx = ctx || {}; const r2 = (x) => Math.round((Number(x) || 0) * 100) / 100; const pv = posGlPv(org);
+  const tx = (org && org.taxCfg) || {}; const rate = tx.enabled ? (Number(tx.rate) || 15) : 0; const k = 100 / (100 + rate);
+  const ld = (t) => { const ms = Date.parse(t.at || ''); if (isNaN(ms)) return String(t.at || '').slice(0, 10); const d = new Date(ms); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+  const from = ctx.from || ''; const inM = (d) => String(d || '').slice(0, 7) === month && (!from || String(d) >= from);
+  const ALL = (loyDoc && loyDoc.tx) || []; const T = ALL.filter(t => inM(ld(t)));
+  const isOcc = (t) => /^(bd|rf):/.test(String(t.id || ''));
+  // P5: النقاط المنتهية تُقسم بحسب مصدرها (الأقدم يُستهلك أولًا كما في loyExpiring): المناسبات ← عكس المصروف، والبقية ← إيراد
+  let expRevPts = 0, expOccPts = 0;
+  T.filter(t => /^ex:/.test(String(t.id || ''))).forEach(ex => {
+    const ms = (t) => { const v = Date.parse(t.at || ''); return isNaN(v) ? 0 : v; };   // ترتيب بالزمن الفعلي لا بنص التاريخ
+    const H = ALL.filter(t => t.phone === ex.phone && t !== ex && ms(t) <= ms(ex)).slice().sort((a, b) => ms(a) - ms(b));
+    // مناسبة مُنحت قبل بداية 6a دخلت الرصيد الافتتاحي لا المصروف الترويجي ⇒ انتهاؤها إيراد
+    const lots = []; let neg = 0; H.forEach(t => { const p = Number(t.pts) || 0; if (p > 0) lots.push({ occ: isOcc(t) && (!from || ld(t) >= from), left: p }); else neg += -p; });
+    lots.forEach(l => { const u = Math.min(l.left, neg); l.left -= u; neg -= u; });
+    let left = -(Number(ex.pts) || 0); lots.forEach(l => { if (left <= 0) return; const u = Math.min(l.left, left); if (l.occ) expOccPts += u; else expRevPts += u; left -= u; });
+    if (left > 0) expRevPts += left; });
+  const occPts = T.filter(isOcc).reduce((a, t) => a + (Number(t.pts) || 0), 0);
+  // P6: الجائزة تُغلق عند تسليمها = استعمال كوبونها في نقطة البيع، أو انتهاء الكوبون بلا استعمال (المنتهي إيراد)
+  const rwTx = {}; ALL.forEach(t => { const id = String(t.id || ''); if (/^rw:/.test(id) && !/:undo$/.test(id)) rwTx[id] = { pts: -(Number(t.pts) || 0), undone: ALL.some(u => u.id === id + ':undo') }; });
+  const used = {}; (ctx.orders || []).forEach(o => { if (o && o.coupon && o.status !== 'void' && o.kind !== 'return') used[String(o.coupon).toUpperCase()] = used[String(o.coupon).toUpperCase()] || o.date; });
+  let rwPts = 0; (ctx.promos || []).forEach(pm => { if (!pm || !pm.rwTx || !rwTx[pm.rwTx] || rwTx[pm.rwTx].undone) return; const u = used[String(pm.code || '').toUpperCase()];
+    const when = u || (pm.to && pm.to < (month + '-32') ? pm.to : ''); if (when && inM(when)) rwPts += rwTx[pm.rwTx].pts; });
+  const manPts = T.filter(t => /^la/.test(String(t.id || ''))).length;   // تعديل يدوي للنقاط — خارج التسوية (ينبَّه عليه)
+  const val = (p) => r2(p * pv * k);
+  return { month, pv, rate, expPts: expRevPts, expOccPts, occPts, rwPts, exp: val(expRevPts), expOcc: val(expOccPts), occ: val(occPts), rw: val(rwPts), manPts };
+}
 const posMisLoyRanges = (org) => { const g = (org && org.posGl) || {}; return Array.isArray(g.misLoyRanges) ? g.misLoyRanges : (g.misLoy && g.misLoy.from ? [g.misLoy] : []); };
 const posMisLoyFrom = (org) => (posMisLoyRanges(org).find(r => !r.to) || {}).from || '';
 const posMisLoyAt = (org, d) => posMisLoyRanges(org).some(r => String(d || '') >= r.from && (!r.to || String(d || '') <= r.to)) && posGlAt(org, d);
@@ -3730,7 +3767,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.33';
+const APP_VER = 'v56.34';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3790,7 +3827,7 @@ export { FL_START, flOn, flKey, flNo, flLines, flRecord, flScope, flCompare, flL
 export { FL_GROUPS, flLvl, flGroupOf, flUnclassified, flReversalOf, flCorrect };   // v56.11 D3
 export { flReadOn, flEntriesOf, flBalDiff, flDayBefore };   // v56.14 D4
 export { ctlBarOn };
-export { posLoyOpening, posMisLoyRanges, posMisLoyFrom, posMisLoyAt, posGlNote };   // v56.33
+export { loyMonthAdj, posLoyOpening, posMisLoyRanges, posMisLoyFrom, posMisLoyAt, posGlNote };   // v56.33
 export { cvLive, cvApprRanges, cvApprAt, cvApprOpenFrom, cvNeedsAppr, cvApprove };   // v56.32
 export { DS_BLOCKED, dsRanges, dsRouteAt, dsRouteOpen, dsLive, dsBlockReason, dsOpenFrom, dsMapOf, dsAccOk, dsAccOf, dsPostDate, dsFundOf, dsCashOut, dsBankOk, lockedLedgerSig };   // v56.29
 export { DEPT_SHARED, deptOn, deptList, deptPL };   // v56.27 E4   // v56.23 G2
