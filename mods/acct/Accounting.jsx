@@ -5,6 +5,8 @@ import { EInvoiceOnboard } from './EInvoiceOnboard.jsx';
 import { RotateCcw, Scale, FileBarChart, ChevronDown, Printer, Settings, Receipt, BarChart3, Lock, Landmark, FileText, TrendingUp, ArrowLeftRight, Store, Users, QrCode, Building2, Truck, ClipboardCheck, ShieldCheck, CalendarDays, Download, Upload, Plus, Grid3x3, Check, Trash2, RefreshCw, Wallet, TrendingDown, AlertTriangle, ChevronRight, ShieldAlert, Eye, ChevronLeft, CircleDollarSign, X } from 'lucide-react';
 import { VatRegisters, SupplierPurchReport } from './TaxPurchReports.jsx';   // v39.1
 import { Suppliers } from '../inv/Suppliers.jsx';   // v44.0 «مستلم لم يُفوتر»
+import { DeptCard } from './DeptCard.jsx';   // v56.27 E4
+import { deptOn, deptList, DEPT_SHARED } from '../../App.jsx';
 import { OdooBar , ctlBarOn, SecPager, recurApply, canEditRec, dtLocal, yearEndNext } from '../../App.jsx';
 import { tbCss, tenantBrand } from '../../App.jsx';   // v56.0 ألوان مستندات المنشأة   // v41.0
 import { GeneralLedger } from './GeneralLedger.jsx';   // v49.4 المرحلة 03
@@ -1119,7 +1121,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
   // ===== القيد اليدوي/الافتتاحي =====
   const newJm = () => setJm({
     date: today(), title: '', opening: false, branchId: '', projectId: '',
-    lines: [{ code: '', debit: '', credit: '', projectId: '' }, { code: '', debit: '', credit: '', projectId: '' }]
+    lines: [{ code: '', debit: '', credit: '', projectId: '', deptId: '' }, { code: '', debit: '', credit: '', projectId: '', deptId: '' }]
   });
   const jmUp = (i, k, v) => setJm(m => ({ ...m, lines: m.lines.map((l, x) => x === i ? { ...l, [k]: v } : l) }));
   const jmD = jm ? sum(jm.lines, l => Number(l.debit) || 0) : 0;
@@ -1129,7 +1131,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
     jm.lines.filter(l => l.code && ((Number(l.debit) || 0) + (Number(l.credit) || 0)) > 0).length >= 2;
   // v47.8 — نسخة مطابقة من قيد يدوي (تاريخ اليوم، تُراجع ثم تُحفظ كقيد جديد)
   const copyJm = (j) => setJm({ date: today(), title: j.title || '', opening: false, branchId: j.branchId || '', projectId: j.projectId || '', copyOf: j.id,
-    lines: (j.lines || []).map(l => ({ code: l.code, debit: l.debit ? String(l.debit) : '', credit: l.credit ? String(l.credit) : '', projectId: l.projectId || '' })) });
+    lines: (j.lines || []).map(l => ({ code: l.code, debit: l.debit ? String(l.debit) : '', credit: l.credit ? String(l.credit) : '', projectId: l.projectId || '', deptId: l.deptId || '' })) });
   const jmMove = (a, b) => setJm(m => ({ ...m, lines: moveIdx(m.lines, a, b) }));
   // v51.9 — تعديل القيد اليدوي بصلاحية شخصية يحددها المسؤول: المعلّق يُستبدل، والمرحّل يُصحَّح بقيد عكسي + قيد جديد (لا يُمسح أثره)
   const jeEditable = (j) => !!j && !j.vatClose && !j.vatPay && !j.vatUndo && !j.closing && !j.reverses && !j.recurTplOnly && j.status !== 'rejected'
@@ -1137,7 +1139,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
   const editJm = (j) => { if (!jeEditable(j)) return say('لا تملك صلاحية تعديل هذا القيد', 'no');
     const lockedDate = periodLocked(org, j.date);
     setJm({ date: lockedDate ? today() : j.date, title: j.title || '', opening: !!j.opening, branchId: j.branchId || '', projectId: j.projectId || '', editOf: j.id, editPosted: j.status === 'posted',
-      lines: (j.lines || []).map(l => ({ code: l.code, debit: l.debit ? String(l.debit) : '', credit: l.credit ? String(l.credit) : '', projectId: l.projectId || '' })) });
+      lines: (j.lines || []).map(l => ({ code: l.code, debit: l.debit ? String(l.debit) : '', credit: l.credit ? String(l.credit) : '', projectId: l.projectId || '', deptId: l.deptId || '' })) });
     if (lockedDate) say('فترة القيد مقفلة — يُسجَّل التصحيح بتاريخ اليوم', 'no'); };
   // v47.8 — القيود الدورية: قالب يُكرَّر حسب الدورية؛ المستحق منها يُنشأ بضغطة (لا ترحيل خفي بلا علم المستخدم)
   const recurs = ops.jeRecurring || [];
@@ -1165,7 +1167,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
       status: direct ? 'posted' : 'pending', ...(direct ? { approvedBy: me?.name || '', approvedAt: nowISO() } : {}),
       ...(jm.branchId ? { branchId: jm.branchId } : {}), ...(jm.projectId ? { projectId: jm.projectId } : {}),   // v47.4 مركز التكلفة (الفرع) والمشروع
       lines: jm.lines.filter(l => l.code && ((Number(l.debit) || 0) + (Number(l.credit) || 0)) > 0)
-        .map(l => ({ code: l.code, debit: Number(l.debit) || 0, credit: Number(l.credit) || 0, ...(l.projectId && l.projectId !== jm.projectId ? { projectId: l.projectId } : {}) }))
+        .map(l => ({ code: l.code, debit: Number(l.debit) || 0, credit: Number(l.credit) || 0, ...(l.projectId && l.projectId !== jm.projectId ? { projectId: l.projectId } : {}), ...(l.deptId ? { deptId: l.deptId } : {}) }))
     };
     const tpl = jm.recur ? { id: uid('jr'), title: rec.title, every: jm.recurEvery || 'm', day: Number(rec.date.slice(8, 10)), next: recurNext(rec.date, jm.recurEvery || 'm', Number(rec.date.slice(8, 10))),
       ...(jm.recurEnd ? { end: jm.recurEnd } : {}), active: true, lines: rec.lines, ...(rec.branchId ? { branchId: rec.branchId } : {}), ...(rec.projectId ? { projectId: rec.projectId } : {}), by: me?.name || '', at: nowISO() } : null;
@@ -2560,6 +2562,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
       {view === 'cc' && (
         <div className="grid" style={{ gap: 12 }}>
           <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>{pbMoved ? null : periodBar}</div>
+          <DeptCard org={org} A={A} from={from} to={to} bf={bf} canPost={canPost} commitOrg={commitOrg} say={say} />
           <div className="grid g4">
             {centers.map(c => {
               const n = ccNet(c.id);
@@ -3998,11 +4001,12 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
               <input className="inp n jm-c" inputMode="decimal" style={{ flex: 1, minWidth: 110 }} placeholder="دائن 0.00" value={l.credit}
                 onChange={e => jmUp(i, 'credit', e.target.value.replace(/[^\d.]/g, ''))} />
               {projList(org).length > 0 && <select className="sel jm-prj" style={{ flex: 1, minWidth: 120 }} aria-label="مشروع السطر" value={l.projectId || ''} onChange={e => jmUp(i, 'projectId', e.target.value)}><option value="">{jm.projectId ? 'مشروع القيد' : 'بلا مشروع'}</option>{projList(org).map(p => <option key={p.id} value={p.id}>{p.code} · {p.name}</option>)}</select>}
+              {deptOn(org) && <select className="sel jm-dept" style={{ flex: 1, minWidth: 110 }} aria-label="قسم السطر" data-jm-dept value={l.deptId || ''} onChange={e => jmUp(i, 'deptId', e.target.value)}><option value="">بلا قسم</option>{deptList(org).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}<option value={DEPT_SHARED}>مشترك</option></select>}
               {jm.lines.length > 2 && <button className="btn sm gh" onClick={() => setJm(m => ({ ...m, lines: m.lines.filter((_, x) => x !== i) }))}><X size={13} /></button>}
             </div>
           ))}
           <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-            <button className="btn sm" onClick={() => setJm(m => ({ ...m, lines: [...m.lines, { code: '', debit: '', credit: '', projectId: '' }] }))}><Plus size={13} />سطر إضافي</button>
+            <button className="btn sm" onClick={() => setJm(m => ({ ...m, lines: [...m.lines, { code: '', debit: '', credit: '', projectId: '', deptId: '' }] }))}><Plus size={13} />سطر إضافي</button>
             <div className="row" style={{ gap: 10, fontSize: 12.5 }}>
               <span>مدين: <b className="num" style={{ color: 'var(--brass-t)' }}>{money(jmD)}</b></span>
               <span>دائن: <b className="num" style={{ color: 'var(--brass-t)' }}>{money(jmC)}</b></span>

@@ -3841,3 +3841,23 @@ test('v56.26 G2 التنقيب الموحّد: مبلغ في القوائم ال
   }
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.27 FINANCE E4: بُعد القسم — معطّل افتراضيًا، التفعيل وإضافة قسم، القسم على سطر القيد اليدوي، والتقرير يطابق الإجمالي', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Accounting/admin/cc');
+  await p.waitForSelector('[data-dept]');
+  assert.match(await p.locator('[data-dept]').innerText(), /غير مفعّل/);
+  assert.equal(await p.locator('[data-dept-table]').count(), 0);
+  await p.click('[data-dept-toggle]'); await p.waitForFunction(() => window.curOrg.costDepts && window.curOrg.costDepts.on === true);
+  await p.getByLabel('اسم القسم').fill('المطبخ'); await p.click('[data-dept-add]');
+  await p.waitForFunction(() => (window.curOrg.costDepts.list || []).some(d => d.name === 'المطبخ'));
+  await p.waitForSelector('[data-dept-table]');
+  assert.ok(await p.locator('[data-dept-row]').count() >= 3, 'المطبخ + مشترك + بلا قسم');
+  assert.match(await p.locator('[data-dept-total]').innerText(), /إجمالي المصروفات/);
+  // القسم على سطر القيد اليدوي
+  await p.locator('.ob-it', { hasText: 'العمليات اليومية' }).first().click(); await p.locator('.ob-mi', { hasText: 'القيود اليومية' }).first().click();
+  await p.locator('button:has-text("قيد يدوي")').first().click();
+  await p.waitForSelector('[data-jm-dept]');
+  assert.ok(await p.locator('[data-jm-dept]').count() >= 2, 'قسم لكل سطر');
+  assert.match(await p.locator('[data-jm-dept]').first().innerText(), /المطبخ/); assert.match(await p.locator('[data-jm-dept]').first().innerText(), /مشترك/);
+  assert.deepEqual(errs, []); await ctx.close();
+});
