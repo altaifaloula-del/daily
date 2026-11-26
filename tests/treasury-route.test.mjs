@@ -47,9 +47,16 @@ test('الاعتماد: المعلّق والمرفوض بلا قيد، والق
 
 test('التوازن، ومجموعة الدفتر المخزّن «dis:» مصنّفة، وبصمة الأشهر المقفلة لا تتغير بالتفعيل', () => {
   const ops = { disbursements: [ds('a', '2026-10-05', 'سداد موردين', 900), ds('b', '2026-12-04', 'مصاريف إدارية', 60)] };
-  const lockOrg = { ...base, periodLock: { lockedThrough: '2026-11' } };
+  const lockOrg = { ...base, periodLocks: { lockedThrough: '2026-11' } };
   const A1 = E.buildAccounting(lockOrg, ops), A2 = E.buildAccounting({ ...lockOrg, dsRoute: { ranges: [{ from: '2026-12-01' }] } }, ops);
   for (const A of [A1, A2]) for (const e of A.entries) assert.equal(Math.round(e.lines.reduce((t, l) => t + l.debit - l.credit, 0) * 100), 0, e.id);
   assert.ok(E.flGroupOf('dis:a') >= 0, 'مصنّف في مجموعة');
   assert.equal(E.lockedLedgerSig(lockOrg, ops, '2026-11'), E.lockedLedgerSig({ ...lockOrg, dsRoute: { ranges: [{ from: '2026-12-01' }] } }, ops, '2026-11'));
+});
+
+test('بداية الضوابط المفتوحة، والحالات غير «posted» لا تُرحَّل (مسحوب/مسودة)', () => {
+  const org = { ...base, dsRoute: { ranges: [{ from: '2026-12-01', to: '2026-12-10' }, { from: '2026-12-20' }] } };
+  assert.equal(E.dsOpenFrom(org), '2026-12-20'); assert.equal(E.dsOpenFrom(base), '');
+  const A = E.buildAccounting(org, { disbursements: [ds('w', '2026-12-21', 'صيانة وتشغيل', 10, { status: 'withdrawn' }), ds('d', '2026-12-21', 'صيانة وتشغيل', 10, { status: 'draft' })] });
+  assert.equal(ent(A, 'w'), undefined); assert.equal(ent(A, 'd'), undefined);
 });

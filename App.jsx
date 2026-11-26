@@ -2193,7 +2193,7 @@ function gosiRatesFor(e, gcfg, ym) {
    يُطبَّق فقط إن طابق إجمالي الإغلاق إجمالي فواتير اليوم (بالهللة)؛ وإلا يبقى القيد كما كان ويُعلَّم «غير مطابق» للمراجعة. */
 /* مراجعة رئيس المحاسبين (1): الإيقاف لا يعيد كتابة الماضي — كل تفعيل نطاق [from, to] محفوظ، والإيقاف يغلق النطاق المفتوح بتاريخ نهاية */
 const posGlRanges = (org) => { const g = (org && org.posGl) || {}; if (Array.isArray(g.ranges)) return g.ranges; return g.on && g.from ? [{ from: g.from }] : []; };
-const posGlOn = (org) => posGlRanges(org).length > 0;
+const posGlOn = (org) => posGlRanges(org).length > 0;   // سبق تفعيله ⇒ الحسابان 4104 و2106 في الدليل
 /* v56.29 (أوامر الصرف — توجيه المجلس بتفويض المالك): org.dsRoute = { ranges: [{ from, to?, at }] } — معطّل افتراضيًا، يسري من تاريخ لا يسبق اليوم ولا يقع في فترة مقفلة.
    داخل النطاق: (1) سداد الموردين والضريبة والرواتب لا تُصرف من أوامر الصرف بل من شاشاتها (فتُخفَّض الالتزامات وتتحدّث السجلات الفرعية)؛
    (2) الأمر الجديد «بانتظار الاعتماد» ويعتمده غير منشئه (نمط القيد اليدوي). ما قبل النطاق كما هو حرفيًا (5901). */
@@ -2201,8 +2201,9 @@ const DS_BLOCKED = { 'سداد موردين': 'سند صرف على المورد
 const dsRanges = (org) => ((org && org.dsRoute && org.dsRoute.ranges) || []);
 const dsRouteAt = (org, d) => dsRanges(org).some(r => String(d || '') >= r.from && (!r.to || String(d || '') <= r.to));
 const dsRouteOpen = (org) => dsRanges(org).some(r => !r.to);
-const dsLive = (x) => !x.status || x.status === 'posted';
-const dsBlockReason = (org, rec) => (rec && dsRouteAt(org, rec.date) && DS_BLOCKED[rec.category]) ? 'لا يُصرف «' + rec.category + '» من أوامر الصرف — استخدم: ' + DS_BLOCKED[rec.category] : '';   // سبق تفعيله ⇒ الحسابان 4104 و2106 في الدليل
+const dsLive = (x) => !x.status || x.status === 'posted';   // أي حالة أخرى (معلّق، مرفوض، مسحوب…) لا تُرحَّل
+const dsOpenFrom = (org) => (dsRanges(org).find(r => !r.to) || {}).from || '';
+const dsBlockReason = (org, rec) => (rec && dsRouteAt(org, rec.date) && DS_BLOCKED[rec.category]) ? 'لا يُصرف «' + rec.category + '» من أوامر الصرف — استخدم: ' + DS_BLOCKED[rec.category] : '';
 const posGlOpen = (org) => posGlRanges(org).some(r => !r.to);
 const posGlAt = (org, date) => posGlRanges(org).some(r => String(date) >= r.from && (!r.to || String(date) <= r.to));
 const posGlFrom = (org) => { const o = posGlRanges(org).find(r => !r.to); return o ? o.from : ''; };
@@ -3747,7 +3748,7 @@ export { FL_START, flOn, flKey, flNo, flLines, flRecord, flScope, flCompare, flL
 export { FL_GROUPS, flLvl, flGroupOf, flUnclassified, flReversalOf, flCorrect };   // v56.11 D3
 export { flReadOn, flEntriesOf, flBalDiff, flDayBefore };   // v56.14 D4
 export { ctlBarOn };
-export { DS_BLOCKED, dsRanges, dsRouteAt, dsRouteOpen, dsLive, dsBlockReason, lockedLedgerSig };   // v56.29
+export { DS_BLOCKED, dsRanges, dsRouteAt, dsRouteOpen, dsLive, dsBlockReason, dsOpenFrom, lockedLedgerSig };   // v56.29
 export { DEPT_SHARED, deptOn, deptList, deptPL };   // v56.27 E4   // v56.23 G2
 export { ledgerApi };   // v56.15 D5
 export { ErrorBoundary, logClientError, lockedLedgerChanged };
@@ -9382,7 +9383,9 @@ function DisbursementForm({ org, me, balance, commit, say, onClose }) {
     if (!f.beneficiary.trim()) return say('اكتب اسم المستفيد', 'no');
     if (f.amount > balance) return say('المبلغ يتجاوز رصيد الخزينة المتاح', 'no');
     if (periodLocked(org, f.date || today())) return say(LOCK_MSG(f.date || today()), 'no');
-    const why = dsBlockReason(org, { ...f, date: f.date || today() }); if (why) return say(why, 'no');   // v56.29
+    // v56.29 (التحقق المستقل): ما دامت الضوابط مفعّلة لا يُقبل تاريخ يسبق بدايتها — وإلا تجاوز الأمر الاعتماد والمنع بتاريخ قديم
+    const st0 = dsOpenFrom(org); if (st0 && String(f.date || today()) < st0) return say('تاريخ الأمر يسبق بداية ضوابط أوامر الصرف (' + st0 + ') — استخدم تاريخًا من ' + st0, 'no');
+    const why = dsBlockReason(org, { ...f, date: f.date || today() }); if (why) return say(why, 'no');
     const route = dsRouteAt(org, f.date || today()); const direct = !route || jeOwner(me);
     const rec = { ...f, id: uid('ds'), by: me.name, byId: me.id || '', createdAt: nowISO(), ...(route ? { status: direct ? 'posted' : 'pending', ...(direct ? { approvedBy: me.name, approvedAt: nowISO() } : {}) } : {}) };
     await commit(d => ({ ...d, disbursements: [rec, ...(d.disbursements || [])] }), {

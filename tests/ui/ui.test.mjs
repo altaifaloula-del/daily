@@ -3907,9 +3907,17 @@ test('v56.29 أوامر الصرف: بلا تفعيل كما كان؛ بالتف
   opts = await p.locator('.modal select.sel').first().locator('option').allInnerTexts();
   for (const c of ['سداد موردين', 'ضريبة القيمة المضافة', 'صرف رواتب']) assert.ok(!opts.includes(c), c);
   assert.ok(await p.locator('[data-ds-hint]').count() === 1);
+  // تاريخ يسبق بداية الضوابط مرفوض (التحقق المستقل)
+  await p.locator('.modal input[type="date"]').first().fill('2020-01-05');
+  await p.locator('.modal input.inp.n').first().fill('50'); await p.locator('.modal input[placeholder="اسم الجهة أو المورد"]').fill('ورشة');
+  await p.click('[data-ds-save]'); await p.waitForFunction(() => /يسبق بداية ضوابط أوامر الصرف/.test(window.lastSay || ''));
+  assert.equal(await p.evaluate(() => window.cur.disbursements.length), 1, 'لم يُحفظ');
   await p.locator('.modal button:has-text("إلغاء")').click();
   assert.ok(await p.locator('[data-ds-pending]').count() === 1, 'المعلّق ظاهر بشارته');
   await p.click('[data-ds-ok]'); await p.waitForFunction(() => (window.cur.disbursements.find(x => x.id === 'dp1') || {}).status === 'posted');
+  // لا يُعاد اعتماد غير المعلّق
+  await p.evaluate(() => window.setOps(o => ({ ...o, disbursements: [...o.disbursements, { id: 'dp2', date: o.disbursements[0].date, category: 'صيانة وتشغيل', amount: 10, beneficiary: 'س', method: 'cash', by: 'آخر', byId: 'x2', status: 'pending' }] })));
+  await p.waitForTimeout(200);
   assert.deepEqual(errs, []); await ctx.close();
   { const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Admin/admin');
     await p.click('button:has-text("صيانة النظام")'); await p.waitForSelector('[data-dsroute]');
