@@ -3488,7 +3488,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.10';
+const APP_VER = 'v56.11';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3545,6 +3545,7 @@ class ErrorBoundary extends React.Component {
 export { FbGate };
 export { toHal, isHal, finStrictOn };   // v56.7 C4
 export { FL_START, flOn, flKey, flNo, flLines, flRecord, flScope, flCompare, flLoad, flPost, flOpening, flAutoPost };   // v56.9 D1 + v56.10 D2
+export { FL_GROUPS, flLvl, flGroupOf, flUnclassified, flReversalOf, flCorrect };   // v56.11 D3
 export { ErrorBoundary, logClientError, lockedLedgerChanged };
 export { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, saleRetUse, posReturnLoyDed };
 export { jeLive, jeOwner, canApproveJe, jeAutoSt, vatCloseLive, WF_DOCS, wfTiers, wfOn, wfRequired, poNeedsAppr, wfState, wfCanAct, wfApprove };   // v47.1 اعتماد القيد اليدوي
@@ -14435,19 +14436,73 @@ function flOpening(A, start = FL_START) {
   const y = start.slice(0, 4), prev = String(Number(y) - 1);
   return { id: 'open:' + y, date: start, title: 'القيد الافتتاحي — أرصدة ' + prev + '-12-31', src: 'قيد افتتاحي', lines, opening: true };
 }
-/** نطاق الدفتر: القيد الافتتاحي + الأرصدة الافتتاحية + قيود الإغلاقات المعتمدة (لا المرفوعة بانتظار التدقيق — قد تتغير) من تاريخ البداية */
-function flScope(ops, A) {
-  const ids = new Set((ops.closings || []).filter(c => c && c.status === 'approved').map(c => c.id));
+/** v56.11 (D3): مجموعات المصادر بترتيب المالك المعتمد — النطاق يتسع مجموعةً مجموعة (org.ledger.lvl، الافتراضي 1).
+ *  المجموعة تُعرف ببادئة معرّف القيد في المحرك. قيود الإغلاق غير المعتمد (المرفوع بانتظار التدقيق) لا تدخل في أي مستوى. */
+const FL_GROUPS = [
+  { id: 'closings', label: 'الإغلاقات اليومية والخزينة وتسويات التطبيقات', pre: ['rev:', 'cashvar:', 'exp:', 'spay:', 'tr:', 'trs:', 'trr:', 'dis:', 'astl:'] },
+  { id: 'ap', label: 'فواتير الموردين والسداد والسندات وفواتير المبيعات', pre: ['inv:', 'invp:', 'cip:', 'cv:', 'si:', 'sir:'] },
+  { id: 'payroll', label: 'الرواتب والتأمينات والسلف ونهاية الخدمة والإجازات', pre: ['sal-acc:', 'sal-pay:', 'sal-set:', 'gosi-er:', 'adv:', 'eos:', 'eos-pay:', 'lv:'] },
+  { id: 'stock', label: 'المخزون وتكلفة المبيعات', pre: ['stk:', 'stk-open', 'stx:', 'srx:', 'invval'] },
+  { id: 'assets', label: 'الأصول الثابتة والإهلاك', pre: ['ast:', 'disp:', 'dep:'] },
+  { id: 'close', label: 'القيود اليدوية والإقفال السنوي', pre: ['man:', 'yearend'] }
+];
+const flLvl = (org) => Math.min(FL_GROUPS.length, Math.max(1, Number(((org || {}).ledger || {}).lvl) || 1));
+const flGroupOf = (eid) => { const k = String(eid || ''); const i = FL_GROUPS.findIndex(g => g.pre.some(p => k === p || k.startsWith(p))); return i < 0 ? null : i; };
+/** نطاق الدفتر: القيد الافتتاحي + الأرصدة الافتتاحية + قيود المجموعات المفعّلة من تاريخ البداية (lvl من 1 إلى 6).
+ *  قيود الإغلاقات غير المعتمدة تُستبعد دائمًا. القيد بلا مجموعة معروفة لا يدخل حتى يُصنَّف. */
+function flScope(ops, A, lvl = 1) {
+  const notOk = new Set((ops.closings || []).filter(c => c && c.status !== 'approved').map(c => c.id));
   const op = flOpening(A);
   // قيد «الأرصدة الافتتاحية» في المحرك (من الإعداد) إن كان تاريخه من البداية فما بعد — وإلا فهو داخل القيد الافتتاحي المحسوب
-  return [...(op ? [op] : []), ...(A.entries || []).filter(e => String(e.date || '') >= FL_START && (e.id === 'opening' || (e.ref && ids.has(e.ref))))];
+  return [...(op ? [op] : []), ...(A.entries || []).filter(e => { if (String(e.date || '') < FL_START) return false; if (e.id === 'opening') return true;
+    const g = flGroupOf(e.id); if (g == null || g >= lvl) return false;
+    return !(g === 0 && e.ref && notOk.has(e.ref)); })];
 }
+/** القيود التي لا تنتمي لأي مجموعة — للتنبيه قبل تحويل القراءة */
+const flUnclassified = (A) => (A.entries || []).filter(e => String(e.date || '') >= FL_START && e.id !== 'opening' && flGroupOf(e.id) == null);
 /** v56.10 (D2): ترحيل قيود إغلاق عند تدقيقه (اعتماده) — لا يعطّل الاعتماد إن تعذّر؛ «ترحيل الناقص» في الصيانة يلحق به */
+/** v56.11 (D3): قيد عكسي لسجل مخزّن — سطوره معكوسة من المخزّن نفسه (لا من المحرك)، بتاريخه، ويشير إليه */
+function flReversalOf(r) {
+  const L = JSON.parse(r.lines || '[]').map(l => [l[0], l[2], l[1], l[3]]);
+  return { date: r.date, src: r.src, title: ('عكس ' + (r.no || '') + ' — ' + (r.title || '')).slice(0, 300), lines: JSON.stringify(L),
+    drH: L.reduce((a, l) => a + l[1], 0), crH: L.reduce((a, l) => a + l[2], 0), digest: sha256Hex(JSON.stringify([r.date, L])), ver: r.ver || 1, reversalOf: r.id };
+}
+/** معاملة واحدة: قيد جديد + العدّاد، ومعه اختياريًا تعليم الأصل «معكوسًا» (القواعد: الأصل والعكس في الدفعة نفسها) */
+async function flTx(c, key, R, lockedTo, reverseId) {
+  const y = Number(String(R.date).slice(0, 4));
+  return ctlTimeout(c.f.runTransaction(c.f.db, async (tx) => {
+    const sr = c.f.doc(c.f.db, 'fin_ledger_meta', 'seq_' + y), er = c.f.doc(c.f.db, 'fin_ledger', key);
+    const [ss, es] = [await tx.get(sr), await tx.get(er)];
+    if (es.exists()) throw Object.assign(new Error('exists'), { code: 'exists' });
+    const n = (ss.exists() ? Number((ss.data() || {}).n) || 0 : 0) + 1;
+    tx.set(er, { ...R, no: flNo(y, n), year: y, seq: n, status: 'posted', by: c.email, at: c.f.serverTimestamp(), cv: APP_CV, ...(R.date <= (lockedTo || '') ? { legacy: true } : {}) });
+    tx.set(sr, { n, last: key });
+    if (reverseId) tx.update(c.f.doc(c.f.db, 'fin_ledger', reverseId), { status: 'reversed', reversedBy: key });
+    return flNo(y, n);
+  }));
+}
+/** التصحيح (قرار المالك: لا تعديل للمرحّل): «مختلف» ⇒ عكس الأصل ثم قيد بالإصدار التالي؛ «زائد» (زال مصدره) ⇒ عكس فقط.
+ *  الفترة المقفلة: لا تصحيح حتى يفتحها المدير (والقواعد ترفضه) — تُعدّ في locked. */
+async function flCorrect(rep, lockedTo, onProgress) {
+  const c = await ctlIdentity(); if (!c) return { err: 'خارج Firestore' };
+  const jobs = [...(rep.pairs || []).map(p => ({ r: p.r, e: p.e })), ...(rep.extra || []).map(r => ({ r, e: null }))];
+  let rev = 0, neu = 0, fail = 0, locked = 0, lastErr = '';
+  for (let i = 0; i < jobs.length; i++) {
+    const { r, e } = jobs[i];
+    if (String(r.date) <= (lockedTo || '')) { locked++; continue; }
+    try {
+      await flTx(c, r.id + 'r', flReversalOf(r), '', r.id); rev++;
+      if (e) { const ver = (r.ver || 1) + 1; await flTx(c, flKey(e.id, ver), flRecord(e, ver), lockedTo); neu++; }
+    } catch (err) { fail++; lastErr = (err && err.code) || 'error'; }
+    if (onProgress) onProgress(i + 1, jobs.length);
+  }
+  return { rev, neu, fail, locked, lastErr, total: jobs.length };
+}
 async function flAutoPost(org, ops, closingId) {
   if (!flOn(org)) return null;
   try {
     const A = buildAccounting(org, ops);
-    const list = flScope(ops, A).filter(e => e.ref === closingId && flRecord(e).drH === flRecord(e).crH && !(e.subHal > 0));
+    const list = flScope(ops, A, flLvl(org)).filter(e => e.ref === closingId && flRecord(e).drH === flRecord(e).crH && !(e.subHal > 0));
     if (!list.length) return { ok: 0, fail: 0, skip: 0, total: 0 };
     return await flPost(list, '0000-00-00');
   } catch (e) { return { err: String((e && e.message) || e).slice(0, 80) }; }
@@ -14455,12 +14510,12 @@ async function flAutoPost(org, ops, closingId) {
 /** المطابقة: المحرك مقابل الدفتر المخزّن — ناقص · مختلف (البصمة) · زائد (قيد مخزّن لا يقابله قيد) · غير قابل (لا يتطابق بالهللة) */
 function flCompare(entries, recs) {
   const live = new Map(); (recs || []).forEach(r => { if (r.status !== 'posted' || r.reversalOf) return; const p = live.get(r.src); if (!p || (r.ver || 1) > (p.ver || 1)) live.set(r.src, r); });
-  const missing = [], differ = [], bad = [], seen = new Set();
+  const missing = [], differ = [], bad = [], pairs = [], seen = new Set();
   (entries || []).forEach(e => { const R = flRecord(e); seen.add(R.src);
     if (R.drH !== R.crH || !R.drH || (e.subHal || 0) > 0) { bad.push(e); return; }
-    const r = live.get(R.src); if (!r) missing.push(e); else if (r.digest !== R.digest) differ.push(e); });
+    const r = live.get(R.src); if (!r) missing.push(e); else if (r.digest !== R.digest) { differ.push(e); pairs.push({ e, r }); } });
   const extra = [...live.values()].filter(r => !seen.has(r.src));
-  return { ok: !missing.length && !differ.length && !extra.length && !bad.length, missing, differ, extra, bad, total: (entries || []).length, recs: live.size };
+  return { ok: !missing.length && !differ.length && !extra.length && !bad.length, missing, differ, pairs, extra, bad, total: (entries || []).length, recs: live.size };
 }
 async function flLoad() {
   const c = await ctlIdentity(); if (!c) return null;

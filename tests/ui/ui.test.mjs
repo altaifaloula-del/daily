@@ -3580,6 +3580,10 @@ test('v56.9 D1 دفتر القيود المخزّن: معطّل افتراضيً
   assert.match(await card.innerText(), /غير مفعّل/);
   assert.match(await card.innerText(), /JV-2026-000001/);
   assert.equal(await card.locator('button:has-text("مطابقة")').count(), 0, 'لا مطابقة قبل التفعيل');
+  // v56.11 (D3): المجموعات الست بالترتيب المعتمد، والأولى فقط مفعّلة افتراضيًا
+  const gr = await card.locator('[data-ledger-groups]').innerText();
+  assert.match(gr, /✓ 1\. الإغلاقات اليومية/); assert.match(gr, /○ 2\. فواتير الموردين/); assert.match(gr, /○ 6\. القيود اليدوية/);
+  await card.scrollIntoViewIfNeeded(); await shot(p, 'ledger-card');
   await card.locator('button:has-text("تفعيل")').click(); await p.waitForTimeout(400);
   assert.equal(await p.evaluate(() => !!(window.curOrg.ledger || {}).on), true);
   assert.match(await card.innerText(), /القراءة من المحرك/);
