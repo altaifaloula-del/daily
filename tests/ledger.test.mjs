@@ -37,7 +37,7 @@ run('النطاق: الإغلاقات المعتمدة فقط ومن 2026-01-01 
   const ops = { closings: [cl('a', '2026-03-10', 'approved'), cl('s', '2026-03-11', 'submitted'), cl('d', '2026-03-12', 'draft'), cl('o', '2025-12-31', 'approved')],
     journalManual: [{ id: 'j', date: '2026-03-06', title: 'يدوي', lines: [{ code: '5901', debit: 25, credit: 0 }, { code: '1201', debit: 0, credit: 25 }] }] };
   const S = E.flScope(ops, E.buildAccounting(org(), ops));
-  assert.deepEqual([...new Set(S.map(e => e.ref))], ['a']);
+  assert.deepEqual([...new Set(S.filter(e => !e.opening).map(e => e.ref))], ['a']);
 });
 
 run('المطابقة: ناقص · مختلف · زائد · غير متطابق بالهللة، والمعكوس لا يُعدّ', () => {
@@ -52,4 +52,29 @@ run('المطابقة: ناقص · مختلف · زائد · غير متطابق
   C = E.flCompare(S, [rec(ea), rec(eb, { status: 'reversed' })]); assert.deepEqual(C.missing.map(e => e.id), ['rev:b'], 'المعكوس ليس قيدًا قائمًا');
   const odd = { ...ea, id: 'x:1', lines: [{ code: '5901', debit: 10.01, credit: 0 }, { code: '1201', debit: 0, credit: 10 }] };
   C = E.flCompare([odd], []); assert.equal(C.bad.length, 1); assert.equal(C.missing.length, 0, 'غير المتوازن بالهللة لا يُعرض للترحيل');
+});
+
+run('D2 القيد الافتتاحي: أرصدة ما قبل 2026 بالهللات، والإيرادات والمصروفات صافيًا إلى الأرباح المبقاة 3201، وأول القيود', () => {
+  const ops = { closings: [cl('o', '2025-12-20', 'approved'), cl('a', '2026-03-10', 'approved')],
+    journalManual: [{ id: 'j', date: '2025-12-28', title: 'مصروف', lines: [{ code: '5901', debit: 200, credit: 0 }, { code: '1201', debit: 0, credit: 200 }] }] };
+  const A = E.buildAccounting(org(), ops); const op = E.flOpening(A);
+  assert.equal(op.id, 'open:2026'); assert.equal(op.date, '2026-01-01'); assert.equal(op.opening, true);
+  const by = Object.fromEntries(op.lines.map(l => [l.code, Math.round((l.debit - l.credit) * 100)]));
+  assert.equal(by['3201'], -80000, 'صافي ربح 2025 = إيراد 1000 − مصروف 200، دائنًا في الأرباح المبقاة');
+  assert.equal(by['2301'], -15000, 'ضريبة المخرجات خصم يبقى بحسابه');
+  assert.equal(by['4101'], undefined); assert.equal(by['5901'], undefined, 'لا حسابات نتيجة في الافتتاحي');
+  const R = E.flRecord(op); assert.equal(R.drH, R.crH); assert.ok(R.drH > 0);
+  const S = E.flScope(ops, A); assert.equal(S[0].id, 'open:2026', 'أول النطاق');
+  assert.equal(S.filter(e => String(e.date) < '2026-01-01').length, 0, 'لا قيد من 2025 بنفسه');
+  assert.equal(E.flOpening(E.buildAccounting(org(), { closings: [cl('a', '2026-03-10', 'approved')] })), null, 'لا حركة قبل البداية ⇒ لا افتتاحي');
+});
+
+run('D2 الأرصدة الافتتاحية من الإعداد: بتاريخ 2026 تدخل النطاق كما هي، وبتاريخ 2025 تذوب في القيد الافتتاحي', () => {
+  const ob = (asOf) => ({ ...org(), openingBalances: { enabled: true, asOf, lines: [{ code: '1201', debit: 5000, credit: 0 }] } });
+  const A1 = E.buildAccounting(ob('2026-01-01'), { closings: [] });
+  assert.deepEqual(E.flScope({ closings: [] }, A1).map(e => e.id), ['opening']);
+  const A2 = E.buildAccounting(ob('2025-12-31'), { closings: [] });
+  const S2 = E.flScope({ closings: [] }, A2); assert.deepEqual(S2.map(e => e.id), ['open:2026']);
+  const by = Object.fromEntries(S2[0].lines.map(l => [l.code, Math.round((l.debit - l.credit) * 100)]));
+  assert.equal(by['1201'], 500000); assert.equal(by['3101'], -500000);
 });
