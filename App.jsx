@@ -724,8 +724,10 @@ const BR_COLS = ['posTabs', 'kdsTickets', 'posDeliveries', 'closings', 'transfer
   // v44.5 — دفعات التحضير اليومي بملصق باركود (إنتاج/انتهاء) يمسحها المطبخ بالقارئ
   'prepBatches',
   // v45.0 — جرد رف التحضير بالمسح (الموجود/المفقود/المنتهي/غير المتوقع)
-  'prepCounts'];
-const CORE_COLS = ['ctlCases', 'rfqs', 'cashVouchers', 'prodOrders', 'archLog', 'cardRecons', 'ledgerSnaps', 'salesInvoices', 'advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'jeRecurring', 'mktConsents', 'mktMerges', 'mktProfiles', 'mktReferrals', 'mktCampaigns', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules', 'hrScoreSnapshots'];
+  'prepCounts',
+  // v56.12 (G1) — سجلات التسويق برقم فرع العميل (القديمة بلا فرع تبقى مركزية عبر splitOps)
+  'mktConsents', 'mktProfiles', 'mktReferrals'];
+const CORE_COLS = ['ctlCases', 'rfqs', 'cashVouchers', 'prodOrders', 'archLog', 'cardRecons', 'ledgerSnaps', 'salesInvoices', 'advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'jeRecurring', 'mktMerges', 'mktCampaigns', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules', 'hrScoreSnapshots'];
 
 // تقسيم ops المدمجة إلى مستند مركزي + مستند لكل فرع
 function splitOps(ops, branchIds) {
@@ -3488,7 +3490,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.12';
+const APP_VER = 'v56.13';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3546,7 +3548,7 @@ export { FbGate };
 export { toHal, isHal, finStrictOn };   // v56.7 C4
 export { FL_START, flOn, flKey, flNo, flLines, flRecord, flScope, flCompare, flLoad, flPost, flOpening, flAutoPost };   // v56.9 D1 + v56.10 D2
 export { FL_GROUPS, flLvl, flGroupOf, flUnclassified, flReversalOf, flCorrect };   // v56.11 D3
-export { flReadOn, flEntriesOf, flBalDiff, flDayBefore };   // v56.12 D4
+export { flReadOn, flEntriesOf, flBalDiff, flDayBefore };   // v56.13 D4
 export { ErrorBoundary, logClientError, lockedLedgerChanged };
 export { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, saleRetUse, posReturnLoyDed };
 export { jeLive, jeOwner, canApproveJe, jeAutoSt, vatCloseLive, WF_DOCS, wfTiers, wfOn, wfRequired, poNeedsAppr, wfState, wfCanAct, wfApprove };   // v47.1 اعتماد القيد اليدوي
@@ -6895,7 +6897,18 @@ const MKT_SEGS = { vip: { ar: 'كبار العملاء (VIP)', c: 'b-brass' }, l
 const MKT_SEG_ORDER = ['vip', 'loyal', 'risk', 'inactive', 'potential', 'new', 'regular'];
 const mktDays = (a, b) => Math.round((new Date(String(b).slice(0, 10) + 'T12:00:00') - new Date(String(a).slice(0, 10) + 'T12:00:00')) / 864e5);
 // خريطة الدمج المعتمد: من ← إلى (تتبّع السلاسل)
-function mktAlias(ops) { const m = {}; (ops.mktMerges || []).filter(x => !x.undone).forEach(x => { m[x.from] = x.to; });
+/* v56.12 (G4): التراجع عن الدمج بسجل إلحاق {undoOf} — لا يُعدَّل سجل الدمج ولا يُحذف */
+function mktMergesLive(ops) { const M = (ops && ops.mktMerges) || []; const un = new Set(M.filter(x => x.undoOf).map(x => x.undoOf));
+  return M.filter(x => !x.undoOf && !x.undone && !un.has(x.id)); }
+/* v56.12 (المراقب المالي 3): التراجع عن الدمج يُمنع إن صُرفت النقاط المنقولة (رصيد المدموج إليه أقل منها) أو تلاه دمج يمس أحد الرقمين — فلا رصيد سالب ولا صرف مرتين */
+function mktUnmergeBlock(ops, loyTx, x) {
+  const later = mktMergesLive(ops).filter(m => m.id !== x.id && String(m.at || '') > String(x.at || '') && [m.from, m.to].some(p => p === x.from || p === x.to));
+  if (later.length) return 'تلاه دمج يخص أحد الرقمين — تراجع عن الأحدث أولًا';
+  const bal = (loyTx || []).filter(t => t.phone === x.to).reduce((a, t) => a + (Number(t.pts) || 0), 0);
+  if (Number(x.pts) > 0 && bal + 1e-9 < Number(x.pts)) return 'رصيد ' + x.to + ' (' + Math.round(bal * 100) / 100 + ') أقل من النقاط المنقولة (' + x.pts + ') — صُرف جزء منها';
+  return '';
+}
+function mktAlias(ops) { const m = {}; mktMergesLive(ops).forEach(x => { m[x.from] = x.to; });
   return (ph) => { let p = ph, k = 0; while (m[p] && k++ < 10) p = m[p]; return p; }; }
 // حالة الموافقة التسويقية: آخر حركة في السجل (إلحاق فقط) لكل قناة أو للكل
 function mktConsentOf(ops, phone) {
@@ -6978,9 +6991,9 @@ function campStats(org, ops, list, c, A) {
   const used = os.filter(o => o.coupon && codes.has(cpnKey(o.coupon)));
   const disc = used.reduce((a, o) => a + (o.lines || []).filter(l => pids.has(l.promoId)).reduce((b, l) => b + (Number(l.disc) || 0), 0) + (o.orderPromo && pids.has(o.orderPromo.id) ? Number(o.orderDisc) || 0 : 0), 0);
   const target = (list || []).filter(x => !c.segment || c.segment === 'all' || (x.tags || []).includes(c.segment) || x.cls === c.segment);
-  const tset = new Set(target.map(x => x.phone));
-  const buyers = new Set(os.filter(o => o.loyalty && o.loyalty.phone && tset.has(normPhone(o.loyalty.phone))).map(o => normPhone(o.loyalty.phone)));
-  const newC = new Set(used.filter(o => o.loyalty && o.loyalty.phone).map(o => normPhone(o.loyalty.phone)).filter(ph => { const x = (list || []).find(y => y.phone === ph); return x && x.first >= (c.from || '0000'); }));
+  const tset = new Set(target.map(x => x.phone)); const AL = mktAlias(ops || {}); const cph = (o) => AL(normPhone(o.loyalty.phone));   // v56.12 (G3): الرقم المدموج يُحتسب لعميله
+  const buyers = new Set(os.filter(o => o.loyalty && o.loyalty.phone && tset.has(cph(o))).map(cph));
+  const newC = new Set(used.filter(o => o.loyalty && o.loyalty.phone).map(cph).filter(ph => { const x = (list || []).find(y => y.phone === ph); return x && x.first >= (c.from || '0000'); }));
   const sales = posR2(used.reduce((a, o) => a + (Number(o.total) || 0), 0)), budget = Number(c.budget) || 0;
   const netSales = posR2(used.reduce((a, o) => a + (o.net != null ? Number(o.net) || 0 : (Number(o.total) || 0) - (Number(o.vat) || 0)), 0));
   const spend = c.acc ? campSpend(A, c.acc) : null;
@@ -7764,9 +7777,15 @@ function loyAudit(doc, ops, opt) {
 }
 // مرشّحو التكرار — لا دمج تلقائي: أسماء متطابقة بجوالات مختلفة، أو جوال يطابق عميل B2B
 const mktNameKey = (n) => String(n || '').trim().replace(/\s+/g, ' ').replace(/^(ال)/, '').replace(/[ةه]$/g, 'ه').replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').toLowerCase();
-function crmDupes(list) {
-  const g = {}; list.forEach(c => { const k = mktNameKey(c.name); if (k.length < 3) return; (g[k] = g[k] || []).push(c); });
-  return Object.values(g).filter(a => a.length > 1).map(a => ({ key: mktNameKey(a[0].name), name: a[0].name, items: a.slice().sort((x, y) => y.n - x.n) }));
+function crmDupes(list, profs) {
+  profs = profs || {}; const g = {}; const add = (k, why, c) => { const x = g[k] || (g[k] = { key: k, why, name: c.name, items: [] }); if (!x.items.includes(c)) x.items.push(c); };
+  list.forEach(c => { const k = mktNameKey(c.name); if (k.length >= 3) add('n:' + k, 'name', c);
+    // v56.12 (G4): بريد واحد لجوالين، أو عميل آجل (B2B) جواله مسجّل بأكثر من ملف
+    const e = String((profs[c.phone] || {}).email || c.email || '').trim().toLowerCase(); if (e.includes('@')) add('e:' + e, 'email', c);
+    if (c.b2b && c.b2b.id) add('b:' + c.b2b.id, 'b2b', c); });
+  const seen = new Set();
+  return Object.values(g).filter(x => x.items.length > 1).map(x => ({ ...x, items: x.items.slice().sort((a, b) => b.n - a.n) }))
+    .filter(x => { const s = x.items.map(c => c.id).sort().join('|'); if (seen.has(s)) return false; seen.add(s); return true; });
 }
 /** مؤشرات اللوحة من البيانات الفعلية فقط — ما لم يُبنَ بعد يُعاد null ولا يُختلق */
 function mktKpis(org, ops, list, opt) {
@@ -7899,9 +7918,34 @@ function loyPeriodicTx(org, ops, doc, td) {
 // ملف تكميلي للعميل (عيد الميلاد، البريد) — آخر قيمة تغلب
 function mktProfiles(ops) { const m = {}; (ops.mktProfiles || []).slice().sort((a, b) => String(a.at).localeCompare(String(b.at))).forEach(p => { m[p.phone] = { ...(m[p.phone] || {}), ...p }; }); return m; }
 // جائزة من الكتالوج ← كوبون شخصي لمرة واحدة عبر محرك العروض القائم (لا محرك ثانٍ)
-function rewardCoupon(rw, phone, td, code) {
+/* v56.12 (G5): استبدال الجائزة يمر بخطوتين (خصم النقاط ثم الكوبون). قبل الخصم يُحفظ «استبدال معلّق» على الجهاز؛
+   يُمسح بعد صدور الكوبون. إن أُغلق المتصفح بينهما أو تعذّر الكوبون وإرجاع النقاط معًا، يُستكمل عند فتح التسويق التالي:
+   كوبون موجود ⇒ تم · غير موجود بعد دقيقة ⇒ تُعاد النقاط بحركة معرّفها ثابت (لا تتكرر). */
+const MKT_RW_KEY = 'mizan:mktRwPend';
+function rwPendSplit(pend, promos, nowMs, loyTx) {
+  const codes = new Set((promos || []).map(p => cpnKey(p.code)).filter(Boolean)); const rws = new Set((promos || []).map(p => p.rwTx).filter(Boolean)); const done = [], refund = [], wait = [];
+  // v56.12 (مراجعة الأمن 7): لا إرجاع إلا لخصم موجود فعلًا في دفتر الولاء بنفس الجوال والقيمة، ولم يُرجَع من قبل
+  const T = {}; (loyTx || []).forEach(t => { if (t && t.id) T[t.id] = t; });
+  (pend || []).forEach(x => { if (!x || !x.txid) return; if (rws.has(x.txid) || codes.has(cpnKey(x.code))) return done.push(x);
+    const d = T[x.txid]; if (!d) return (nowMs || Date.now()) - Date.parse(x.at || 0) >= 600000 ? done.push(x) : wait.push(x);   // لم يُخصم ⇒ لا شيء يُعاد (يُنسى بعد 10 دقائق)
+    if (T[x.txid + ':undo'] || d.phone !== x.phone || Number(d.pts) !== -Math.abs(Number(x.pts))) return done.push(x);
+    if ((nowMs || Date.now()) - Date.parse(x.at || 0) >= 60000) refund.push(x); else wait.push(x); });
+  return { done, refund, wait };
+}
+const rwUndoTx = (x, at) => ({ id: x.txid + ':undo', phone: x.phone, pts: Math.abs(Number(x.pts) || 0), at, br: '', ord: 'إلغاء استبدال (لم يصدر الكوبون ' + x.code + ')' });
+/* v56.12 (G1): سجلات التسويق في مستند الفرع — قرار المالك «المدير يرى عملاء فرعه فقط».
+   الموافقات وبيانات العميل والإحالات تُكتب برقم فرع العميل فتصل لمستند فرعه، ويقرؤها المركز من كل الفروع.
+   المفتاح معطّل افتراضيًا، ولا يُفعَّل إلا بعد أن يصبح الحد الأدنى للإصدار ≥ هذا الإصدار، لأن الإصدارات الأقدم
+   لا تعرف هذه المصفوفات في مستند الفرع فتمحوها عند الحفظ. السجلات القديمة بلا رقم فرع تبقى في المستند المركزي كما هي. */
+const MKT_BR_CV = 561200;
+const mktBrOn = (org) => !!(org && org.mktBranch && org.mktBranch.on);
+function mktRecBranch(on, central, cust, brIds) {
+  if (!on) return ''; const ids = brIds || []; const home = cust && cust.branches && cust.branches[0] ? cust.branches[0].id : '';
+  if (central) return home; return home && ids.includes(home) ? home : (ids[0] || '');
+}
+function rewardCoupon(rw, phone, td, code, rwTx) {
   const to = (() => { const d = new Date((td || today()) + 'T12:00:00'); d.setDate(d.getDate() + (Number(rw.days) || 30)); return isoD(d); })();
-  return { id: uid('pm'), name: 'جائزة: ' + rw.name, type: 'pct', value: 100, scope: 'items', items: [rw.productId], cats: [], code, custPhone: phone, maxUses: 1, perCust: 1, maxQty: 1, from: td || today(), to, days: [], branches: [], active: true, reward: rw.id, at: nowISO() };
+  return { id: uid('pm'), name: 'جائزة: ' + rw.name, type: 'pct', value: 100, scope: 'items', items: [rw.productId], cats: [], code, custPhone: phone, ...(rwTx ? { rwTx } : {}), maxUses: 1, perCust: 1, maxQty: 1, from: td || today(), to, days: [], branches: [], active: true, reward: rw.id, at: nowISO() };
 }
 
 /* ══════ v47.8 — ترتيب صفوف القيد والفاتورة بالسحب (فأرة ولمس) أو بالأسهم، والقيود الدورية ══════ */
@@ -14499,7 +14543,7 @@ async function flCorrect(rep, lockedTo, onProgress) {
   }
   return { rev, neu, fail, locked, lastErr, total: jobs.length };
 }
-/* v56.12 (D4 — قرار المالك): ميزان المراجعة والقوائم المالية من الدفتر المخزّن فعليًا؛ الإقرار الضريبي وبقية التقارير من المحرك.
+/* v56.13 (D4 — قرار المالك): ميزان المراجعة والقوائم المالية من الدفتر المخزّن فعليًا؛ الإقرار الضريبي وبقية التقارير من المحرك.
    القراءة تُفعَّل فقط بعد ضم المجموعات الست ومطابقة كاملة (org.ledger.read). القيد الافتتاحي يُعرض بتاريخ 2025-12-31 ليظهر في «رصيد أول المدة».
    كل السجلات تُحتسب — الأصل المعكوس وعكسه يتقابلان، فالأثر الصافي = القائم. */
 const flReadOn = (org) => flOn(org) && !!(org.ledger && org.ledger.read) && flLvl(org) === FL_GROUPS.length;
@@ -15059,7 +15103,7 @@ async function qrAnalyzeComments(items) {
 
 // v38.3 — ما تحتاجه ملفات التطبيقات المنفصلة (mods/) من النواة
 export { promoEligible, couponWhy, cpnKey, cpnReserve, cpnRelease, promoDiscPct, promoMarginCheck, LOY_DEF, loyX, loyTier, loyEarnX, loyExpiring, loyPeriodicTx, mktProfiles, rewardCoupon };
-export { MKT_DEF, mktCfg, mktCanApprove, MKT_SEGS, MKT_SEG_ORDER, mktAlias, mktConsentOf, mktCanContact, crmBuild, crmSegment, crmDupes, mktNameKey, mktKpis };
+export { mktUnmergeBlock, splitOps, composeOps, outOfScopeRecords, MKT_RW_KEY, rwPendSplit, rwUndoTx, MKT_BR_CV, mktBrOn, mktRecBranch, mktMergesLive, MKT_DEF, mktCfg, mktCanApprove, MKT_SEGS, MKT_SEG_ORDER, mktAlias, mktConsentOf, mktCanContact, crmBuild, crmSegment, crmDupes, mktNameKey, mktKpis };
 export { moveIdx, RowGrip, RECUR_AR, recurNext, recurDue };
 export { peekDoc, DocLink, DocPeekHost, VoiceSearchHost, voiceNorm };
 export { fefoPick, lotsFor, projList, projectPL, projNextCode };

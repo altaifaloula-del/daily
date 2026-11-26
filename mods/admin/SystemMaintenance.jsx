@@ -7,6 +7,7 @@ import { ShieldCheck, RefreshCw, Trash2, AlertTriangle, Check, Server, Bug, Acti
 import { archKey, archivePlan, nowISO, printA4, uid, dtLocal, posSplitBranch, posUnsplitBranch, posSplitOn } from '../../App.jsx';   // v41.7 + v52.7
 import { clrCompare, clrLoad, clrOn, clrSeed, clrState, logAudit, clrRead, clrViewStats } from '../../App.jsx';   // v41.9 + v42.2
 import { posrOn, posrCompare, posrLoad, posrSeed, posrState, posrRepair } from '../../App.jsx';   // v56.4 (POS 2a) سجلات فواتير نقطة البيع
+import { MKT_BR_CV, mktBrOn } from '../../App.jsx';   // v56.12 (GROWTH G1) سجلات التسويق في الفروع
 import { WorkflowsCard } from './Workflows.jsx';   // v49.5 MQ-059
 import { FL_START, flOn, flScope, flCompare, flLoad, flPost, FL_GROUPS, flLvl, flUnclassified, flCorrect, flReadOn } from '../../App.jsx';   // v56.9 D1 دفتر القيود المخزّن
 import { fjCompare, fjLoad, fjOn, fjState, fpLockedTo, fpLoad, fmLoad, fmSet, fjSeed, FD_KINDS, fdCompare, fdLoad, fdSeed } from '../../App.jsx';   // v49.0 المرحلة 01
@@ -311,6 +312,7 @@ export function SystemMaintenance({ org, ops, me, commit, commitOrg, say }) {
       {showDocs && <CloudHealth org={org} say={say} commit={commit} me={me} auto />}
       <ClosingRecordsCard org={org} ops={ops} me={me} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <PosRecordsCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
+      <MktBranchCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <FinStrictCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <LedgerCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <JournalRecordsCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
@@ -369,7 +371,7 @@ function LedgerCard({ org, ops, commitOrg, say, isAdm }) {
       { actionType: 'settings', targetType: 'system_settings', targetId: 'ledger', title: 'وسّع نطاق الدفتر المخزّن', details: g.label });
     if (ok) { setRep(null); say('أُضيفت: ' + g.label); }
   };
-  // v56.12 (D4 — قرار المالك): ميزان المراجعة والقوائم من الدفتر — بعد ضم المجموعات الست ومطابقة كاملة فقط؛ والعودة فورية
+  // v56.13 (D4 — قرار المالك): ميزان المراجعة والقوائم من الدفتر — بعد ضم المجموعات الست ومطابقة كاملة فقط؛ والعودة فورية
   const rd = flReadOn(org);
   const setRead = async (v) => {
     if (!isAdm) return;
@@ -477,6 +479,28 @@ function FinStrictCard({ org, ops, commitOrg, say, isAdm }) {
     </div>);
 }
 
+/* v56.12 (GROWTH G1): مدير الفرع يرى ويسجّل موافقات وبيانات عملاء فرعه — معطّل افتراضيًا، ولا يُفعَّل قبل أن يمنع الحد الأدنى للإصدار
+   الأجهزة الأقدم (تمحو هذه السجلات من مستند الفرع لأنها لا تعرفها). الإيقاف آمن: السجلات تبقى وتُقرأ، والجديد يعود للمركز. */
+function MktBranchCard({ org, commitOrg, say, isAdm }) {
+  const on = mktBrOn(org); const [rel, setRel] = useState(null);
+  useEffect(() => { loadRelease().then(r => setRel(r || { minCv: 0 })).catch(() => setRel({ minCv: 0 })); }, []);
+  const ready = !!rel && (rel.minCv || 0) >= MKT_BR_CV;
+  const toggle = async () => {
+    if (!isAdm) return; if (!on && !ready) return say('ارفع الحد الأدنى للإصدار أولًا (يُرفع تلقائيًا عند دخول مسؤول النظام بالإصدار الجديد ثم إعادة فتح الصفحة)', 'no');
+    if (!on && !window.confirm('تفعيل سجلات التسويق في الفروع؟\nالموافقات وبيانات العملاء والإحالات الجديدة تُحفظ في مستند فرع العميل، فيراها موظفو ذلك الفرع ويراها المركز كلها. (تنبيه: دفتر نقاط الولاء — الجوالات والأسماء — ما زال مشتركًا بين الفروع حتى دفعة سجلات الولاء.) لا يُنقل ولا يُحذف شيء قائم.')) return;
+    const ok = await commitOrg(o => ({ ...o, mktBranch: on ? { ...(o.mktBranch || {}), on: false, offAt: nowISO() } : { ...(o.mktBranch || {}), on: true, since: (o.mktBranch || {}).since || nowISO() } }),
+      { actionType: 'settings', targetType: 'system_settings', targetId: 'mktBranch', title: on ? 'أوقف سجلات التسويق في الفروع' : 'فعّل سجلات التسويق في الفروع' });
+    if (ok) say(on ? 'أُوقف — السجلات القائمة تبقى وتُقرأ، والجديد يُحفظ مركزيًا' : 'فُعّل ✓');
+  };
+  return (<div className="card" data-mktbr>
+    <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />سجلات التسويق في الفروع (مدير الفرع يرى عملاء فرعه)</div>
+      <span className={'badge ' + (on ? 'b-sky' : 'b-dim')}>{on ? 'مفعّل' : 'غير مفعّل'}</span></div>
+    <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>
+      عند التفعيل تُحفظ الموافقات التسويقية وبيانات العميل والإحالات الجديدة برقم فرع العميل. الحملات ودمج الملفات تبقى للمركز. <b>توصية المراجعة الأمنية: لا تفعّله قبل دفعة «سجلات الموافقة المحمية»</b> — في مستند الفرع يستطيع أي موظف في الفرع تقنيًا تعديل سجل الموافقة أو حذفه، وإلغاء الاشتراك المسجّل في فرع لا يظهر لفرع آخر.
+      {!ready && <div data-mktbr-wait>يتطلب أن يكون الحد الأدنى للإصدار {Math.floor(MKT_BR_CV / 10000)}.{Math.floor(MKT_BR_CV / 100) % 100} فأعلى (الحالي: {rel ? rel.minCv || 0 : '…'}).</div>}</div>
+    {isAdm && <button className={'btn sm ' + (on ? 'gh' : 'pri')} disabled={!on && !ready} onClick={toggle} data-mktbr-toggle>{on ? 'إيقاف' : 'تفعيل'}</button>}
+  </div>);
+}
 function PosRecordsCard({ org, ops, commitOrg, say, isAdm }) {
   const on = posrOn(org);
   const [busy, setBusy] = useState(''); const [rep, setRep] = useState(null);

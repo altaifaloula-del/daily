@@ -9,7 +9,7 @@ import { OdooBar , SecPager, recurApply, canEditRec, dtLocal, yearEndNext } from
 import { tbCss, tenantBrand } from '../../App.jsx';   // v56.0 ألوان مستندات المنشأة   // v41.0
 import { GeneralLedger } from './GeneralLedger.jsx';   // v49.4 المرحلة 03
 import { makeRptXlsx } from '../../App.jsx';   // v50.0 منظومة التقارير
-import { FL_START, FL_GROUPS, flReadOn, flLoad, flEntriesOf, flBalDiff, flScope } from '../../App.jsx';   // v56.12 D4 الميزان والقوائم من الدفتر المخزّن
+import { FL_START, FL_GROUPS, flReadOn, flLoad, flEntriesOf, flBalDiff, flScope } from '../../App.jsx';   // v56.13 D4 الميزان والقوائم من الدفتر المخزّن
 import { DEP_METHODS, depMethod, deprSchedule, wfOn, wfRequired, wfState, wfCanAct, wfApprove } from '../../App.jsx';   // v49.4 طرق الإهلاك
 import { ACCT_GROUPS, DocLink, RowGrip, moveIdx, RECUR_AR, recurNext, recurDue, jeOwner, canApproveJe, jeAutoSt, vatCloseLive, projList, projectPL, projNextCode, ACCT_SECTIONS, ACC_KIND, Field, Kpi, LOCK_MSG, MizanMerge, Modal, NUM_FACE, Num, ROLES, _xe, acctSecKey, arDate, bankOfBranch, branchBanks, bsLayout, bsRowsOf, buildAccounting, buildPartners, capOK, countedClosing, customerAging, detectStmtMap, entityById, entityList, gosiRatesFor, isLayout, isRowsOf, isoD, lockedThru, makeXlsx, money, monthEnd, monthLedger, multiEntityOn, naMissing, nowISO, openDocWin, parseCsvGrid, parseMt940, parseXlsxGrid, payTotal, periodLocked, posClrOf, printA4, qrSvg, roleEdit, rolePost, snapMonths, stAddDays, stDate, stNum, sum, supplierAging, today, uid, useSecNav, zatcaTLV } from '../../App.jsx';
 
@@ -78,7 +78,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
   useEffect(() => { if (view === 'mclose') { setFrom(mcMonth + '-01'); setTo(mcLastDay(mcMonth)); } }, [view, mcMonth]);
 
   const A = useMemo(() => buildAccounting(org, ops), [org, ops]);
-  // v56.12 (D4 — قرار المالك): ميزان المراجعة والقوائم المالية من الدفتر المخزّن متى فُعّلت القراءة وكانت الفترة من بداية الدفتر فما بعد
+  // v56.13 (D4 — قرار المالك): ميزان المراجعة والقوائم المالية من الدفتر المخزّن متى فُعّلت القراءة وكانت الفترة من بداية الدفتر فما بعد
   const flRead = flReadOn(org); const [flRecs, setFlRecs] = useState(null);
   useEffect(() => { if (!flRead) { setFlRecs(null); return; } let dead = false; flLoad().then(r => { if (!dead) setFlRecs(r == null ? { err: 'خارج Firestore' } : r); }); return () => { dead = true; }; }, [flRead]);
   const flEnts = useMemo(() => Array.isArray(flRecs) ? flEntriesOf(flRecs) : null, [flRecs]);
