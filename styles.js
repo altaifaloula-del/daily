@@ -734,7 +734,7 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
 .mq-welcome-t{font-size:20px;font-weight:700;color:var(--tx,inherit)}
 @keyframes mqFade{0%{opacity:0}14%{opacity:1}72%{opacity:1}100%{opacity:0;visibility:hidden}}
 /* تخطيط ثابت لا يتبع المحتوى (لقطات CI 2026-11-26: العمود كان يتمدد فيقص البطاقة على الجوال ويدفع الغلاف عند ظهور الخطأ) */
-.mq-login.gate{overflow-x:clip;overflow-y:visible}
+.mq-login.gate{overflow:clip}/* الزخارف (الشفق inset:-35%) لا تمدّ منطقة التمرير؛ المحتوى لا يُقص لأن الشبكة تتمدد معه */
 /* حاوية تمرير مستقلة: قشرة الجوال تقفل تمرير الصفحة (html,body{overflow:hidden}) فيتعذّر الوصول لأسفل البطاقة باللمس */
 .mq-root{position:fixed;inset:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 .mq-root .mq-login.gate{min-height:100%}
