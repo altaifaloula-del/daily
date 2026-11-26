@@ -2270,14 +2270,31 @@ function posLoyOpening(org, loyDoc, cutoff) {
 /* v56.34 (الدفعة 3 — ولاء 6ب، قرارات المجلس P5/P6/P7 بتفويض المالك): تسوية شهرية من سجل النقاط لما لا يأتي من الفواتير —
    النقاط المنتهية (ex:) ← مدين 2106 دائن 4101 · نقاط المناسبات (bd: عيد الميلاد، rf: الإحالة) ← مدين حساب ترويجي يختاره المالك دائن 2106 ·
    جوائز الكتالوج (rw: وإلغاؤها :undo) ← مدين 2106 دائن 4101. بالقيمة: النقاط × قيمة النقطة ÷ (1 + الضريبة). انتهاء الصلاحية خيار في إعداد الولاء (expireMonths، 0 = لا تنتهي). */
-function loyMonthAdj(org, loyDoc, month) {
-  const r2 = (x) => Math.round((Number(x) || 0) * 100) / 100; const pv = posGlPv(org);
+function loyMonthAdj(org, loyDoc, month, ctx) {
+  // (التحقق المستقل) ctx = { orders, promos, from }: from = بداية أول نطاق 6a — ما قبله في الرصيد الافتتاحي (P1) فلا يُحتسب مرتين
+  ctx = ctx || {}; const r2 = (x) => Math.round((Number(x) || 0) * 100) / 100; const pv = posGlPv(org);
   const tx = (org && org.taxCfg) || {}; const rate = tx.enabled ? (Number(tx.rate) || 15) : 0; const k = 100 / (100 + rate);
-  const lm = (t) => { const ms = Date.parse(t.at || ''); if (isNaN(ms)) return String(t.at || '').slice(0, 7); const d = new Date(ms); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); };
-  const T = ((loyDoc && loyDoc.tx) || []).filter(t => lm(t) === month); const sumP = (re) => T.filter(t => re.test(String(t.id || ''))).reduce((a, t) => a + (Number(t.pts) || 0), 0);
-  const expPts = -sumP(/^ex:/), occPts = sumP(/^(bd|rf):/), rwPts = -sumP(/^rw:/);
+  const ld = (t) => { const ms = Date.parse(t.at || ''); if (isNaN(ms)) return String(t.at || '').slice(0, 10); const d = new Date(ms); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+  const from = ctx.from || ''; const inM = (d) => String(d || '').slice(0, 7) === month && (!from || String(d) >= from);
+  const ALL = (loyDoc && loyDoc.tx) || []; const T = ALL.filter(t => inM(ld(t)));
+  const isOcc = (t) => /^(bd|rf):/.test(String(t.id || ''));
+  // P5: النقاط المنتهية تُقسم بحسب مصدرها (الأقدم يُستهلك أولًا كما في loyExpiring): المناسبات ← عكس المصروف، والبقية ← إيراد
+  let expRevPts = 0, expOccPts = 0;
+  T.filter(t => /^ex:/.test(String(t.id || ''))).forEach(ex => {
+    const H = ALL.filter(t => t.phone === ex.phone && t !== ex && String(t.at || '') <= String(ex.at || '')).slice().sort((a, b) => String(a.at).localeCompare(String(b.at)));
+    const lots = []; let neg = 0; H.forEach(t => { const p = Number(t.pts) || 0; if (p > 0) lots.push({ occ: isOcc(t), left: p }); else neg += -p; });
+    lots.forEach(l => { const u = Math.min(l.left, neg); l.left -= u; neg -= u; });
+    let left = -(Number(ex.pts) || 0); lots.forEach(l => { if (left <= 0) return; const u = Math.min(l.left, left); if (l.occ) expOccPts += u; else expRevPts += u; left -= u; });
+    if (left > 0) expRevPts += left; });
+  const occPts = T.filter(isOcc).reduce((a, t) => a + (Number(t.pts) || 0), 0);
+  // P6: الجائزة تُغلق عند تسليمها = استعمال كوبونها في نقطة البيع، أو انتهاء الكوبون بلا استعمال (المنتهي إيراد)
+  const rwTx = {}; ALL.forEach(t => { const id = String(t.id || ''); if (/^rw:/.test(id) && !/:undo$/.test(id)) rwTx[id] = { pts: -(Number(t.pts) || 0), undone: ALL.some(u => u.id === id + ':undo') }; });
+  const used = {}; (ctx.orders || []).forEach(o => { if (o && o.coupon && o.status !== 'void' && o.kind !== 'return') used[String(o.coupon).toUpperCase()] = used[String(o.coupon).toUpperCase()] || o.date; });
+  let rwPts = 0; (ctx.promos || []).forEach(pm => { if (!pm || !pm.rwTx || !rwTx[pm.rwTx] || rwTx[pm.rwTx].undone) return; const u = used[String(pm.code || '').toUpperCase()];
+    const when = u || (pm.to && pm.to < (month + '-32') ? pm.to : ''); if (when && inM(when)) rwPts += rwTx[pm.rwTx].pts; });
+  const manPts = T.filter(t => /^la/.test(String(t.id || ''))).length;   // تعديل يدوي للنقاط — خارج التسوية (ينبَّه عليه)
   const val = (p) => r2(p * pv * k);
-  return { month, pv, rate, expPts, occPts, rwPts, exp: val(expPts), occ: val(occPts), rw: val(rwPts) };
+  return { month, pv, rate, expPts: expRevPts, expOccPts, occPts, rwPts, exp: val(expRevPts), expOcc: val(expOccPts), occ: val(occPts), rw: val(rwPts), manPts };
 }
 const posMisLoyRanges = (org) => { const g = (org && org.posGl) || {}; return Array.isArray(g.misLoyRanges) ? g.misLoyRanges : (g.misLoy && g.misLoy.from ? [g.misLoy] : []); };
 const posMisLoyFrom = (org) => (posMisLoyRanges(org).find(r => !r.to) || {}).from || '';
