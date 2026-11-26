@@ -10,11 +10,13 @@ import { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, posRetur
 import { posDocView, APPS, CloudHealth, Field, Modal, Num, POS_SH_KEY, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, QUOTA_MSG, ROLES, businessDay, isoD, logClientError, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, makeXlsx, money, normPhone, nowISO, pendShiftsGet, pendShiftsSet, posCashNet, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posTotals, posZHtml, promoActive, promoHits, sha256Hex, uid, recCfgOf, recIndex, recFor } from '../../App.jsx';
 
 import { posHolds, posHoldsSet, posHoldPut, posHoldRecall } from '../../App.jsx';   // v56.0 (GAP-007) تعليق الطلب واستدعاؤه
-import { posVoidBlock, posNextNo, posTabCuts, escH } from '../../App.jsx';   // v56.2 (POS دفعة 1) حراس الإلغاء والترقيم وحساب الطاولة
+import { posVoidBlock, posNextNo, posTabCuts, escH, POS_VOID_ROLES } from '../../App.jsx';   // v56.2 (POS دفعة 1) حراس الإلغاء والترقيم وحساب الطاولة
 
 export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const R = ROLES[me.role] || {};
   const isMgr = !!(R.admin || R.scope === 'all' || me.role === 'branch_manager' || me.role === 'regional_manager');
+  // v56.5 (قرار المالك 2026-11-26): الإلغاء والمرتجع للإدارة التشغيلية فقط — يطابق قواعد سجلات pos_orders (posMgrRoles) وفصل المهام: من يدقق لا يلغي
+  const canVoid = !!(R.admin || POS_VOID_ROLES.includes(me.role));
   const cfg = org.posCfg || {}; const enabled = cfg.branches || [];
   const brs = (myBranches || []).filter(b => b.isActive !== false && enabled.includes(b.id));
   const [brId, setBrId] = useState(() => (brs[0] || {}).id || '');
@@ -217,7 +219,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     if (payTab) { } else if (kds) commit(d => posTrim({ ...d, kdsTickets: [...(d.kdsTickets || []), kdsTicket({ branchId: br.id, src: 'order', ref: o.no, table: o.table || '', channel: o.channel, lines: o.lines, at: o.at, by: me.name })] }, today)).then(ok => { if (!ok) say('دُفعت الفاتورة، لكن لم تصل لشاشة المطبخ (لا اتصال) — أبلغ المطبخ يدويًا', 'no'); });
   };
   const voidOrder = async (o) => {
-    if (!isMgr) return say('إلغاء الفاتورة لمدير الفرع', 'no');
+    if (!canVoid) return say('إلغاء الفاتورة للإدارة التشغيلية (مدير الفرع فأعلى)', 'no');
     if (o.pending) return say('انتظر إرسال الفاتورة أولًا', 'no');
     const vb = posVoidBlock(ops, o); if (vb) return say(vb, 'no');   // v56.2 (B1/B6)
     const closed = (ops.closings || []).some(c => c.branchId === o.branchId && c.date === o.date && (c.status === 'submitted' || c.status === 'approved'));
@@ -250,7 +252,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   // v46.8 — مرتجع جزئي/كلي لفاتورة مدفوعة (قرار المالك): مدير الفرع فقط · الطبق المرتجع هدر بسبب من قائمة الهدر · الرد بطريقة الدفع الأصلية أو نقدًا
   const retOn = !!cfg.returns;
   const openReturn = (o) => {
-    if (!isMgr) return say('المرتجع لمدير الفرع', 'no');
+    if (!canVoid) return say('المرتجع للإدارة التشغيلية (مدير الفرع فأعلى)', 'no');
     if (o.pending) return say('انتظر إرسال الفاتورة أولًا', 'no');
     if (o.status === 'void') return say('الفاتورة ملغاة — لا مرتجع عليها', 'no');   // v56.2
     const left = posReturnable(ops, o); if (!left.some(x => x > 0)) return say('أُرجعت كل أصناف هذه الفاتورة سابقًا', 'no');

@@ -3533,7 +3533,8 @@ export { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, saleRetU
 export { jeLive, jeOwner, canApproveJe, jeAutoSt, vatCloseLive, WF_DOCS, wfTiers, wfOn, wfRequired, poNeedsAppr, wfState, wfCanAct, wfApprove };   // v47.1 اعتماد القيد اليدوي
 export { gosiNewSched, gosiNewAuto };   // v47.2 الرواتب   // v46.8 مرتجع نقطة البيع   // v46.8: للاختبارات الوظيفية (حارس الإقفال)
 export { findDupClosings, clDayKey, clrKeyId, yearEndDates, yearEndNext, payFactor, POS_HOLD_MAX, posHolds, posHoldsSet, posHoldPut, posHoldRecall };
-export { posVoidBlock, posSeqSeed, posChainSeed, posNextNo, posTabCuts };   // v56.2 حراس نقطة البيع (دفعة 1)
+const POS_VOID_ROLES = ['branch_manager', 'regional_manager', 'head_office', 'general_management', 'system_admin'];   // v56.5 = posMgrRoles() في القواعد
+export { posVoidBlock, posSeqSeed, posChainSeed, posNextNo, posTabCuts, POS_VOID_ROLES };   // v56.2 حراس نقطة البيع (دفعة 1)
 export { rptPivot, rptTpl, RPT_TPL_ALIAS };
 export { tnRemember, tnHref, tnOkId, RD_DEF, RD_ROLE, roleDash, roleDashList, roleDashDefault };
 export { salesInvoiceHtml, gsearch, gsNorm, kbAction, KB_SHORTCUTS, GlobalSearch };
@@ -14293,7 +14294,17 @@ async function posrSeed(orders, lockedTo, onProgress) {
   }
   return { ok, fail, locked, lastErr, total: list.length };
 }
-export { posrOn, posrData, posrVoidData, posrRecord, posrDiff, posrCompare, posrState, posrLoad, posrSeed };   // v56.4 سجلات فواتير نقطة البيع
+/** v56.5 (قرار المالك): إصلاح سجل خاطئ من فاتورة المستند الأصلية — لمسؤول النظام (القواعد porRepair)، بسبب مكتوب يُحفظ في السجل */
+async function posrRepair(o, reason) {
+  const c = await ctlIdentity(); if (!c) return { err: 'خارج Firestore' };
+  const r = String(reason || '').trim(); if (r.length < 5) return { err: 'اكتب سبب الإصلاح' };
+  try {
+    const rec = posrRecord(o, o.status === 'void');
+    await ctlTimeout(c.f.setDoc(c.f.doc(c.f.db, 'pos_orders', String(o.id)), { ...rec, repair: JSON.stringify({ reason: r.slice(0, 1500), by: c.email, at: new Date().toISOString() }), by: c.email, at: c.f.serverTimestamp(), cv: APP_CV }));
+    return { ok: true };
+  } catch (e) { return { err: (e && e.code) || 'error' }; }
+}
+export { posrOn, posrData, posrVoidData, posrRecord, posrDiff, posrCompare, posrState, posrLoad, posrSeed, posrRepair };   // v56.4 سجلات فواتير نقطة البيع
 
 /* ===== v49.0 — المرحلة 01 (قرار G1-ب): القيود اليدوية سجلات مستقلة (fin_journal/{id}) — نسخ مطابق (mirror) =====
    الوثيقة الحالية (journalManual) تبقى المصدر في هذه المرحلة؛ كل إنشاء/اعتماد/رفض/حذف قبل الاعتماد يُنسخ إلى سجل تحرسه القواعد

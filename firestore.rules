@@ -416,7 +416,7 @@ service cloud.firestore {
        والتعديل الوحيد المسموح إلغاء فاتورة بيع (paid → void) لأدوار الإدارة بحقلي status/voidData فقط. ولا كتابة في فترة مقفلة. */
     function posMgrRoles() { return ['branch_manager', 'regional_manager', 'head_office', 'general_management', 'system_admin']; }
     function porShape(d, id) {
-      return d.keys().hasOnly(['branchId', 'date', 'kind', 'status', 'no', 'dev', 'total', 'vat', 'digest', 'data', 'voidData', 'by', 'at', 'cv'])
+      return d.keys().hasOnly(['branchId', 'date', 'kind', 'status', 'no', 'dev', 'total', 'vat', 'digest', 'data', 'voidData', 'repair', 'by', 'at', 'cv'])
         && d.keys().hasAll(['branchId', 'date', 'kind', 'status', 'no', 'dev', 'total', 'vat', 'digest', 'data', 'by', 'at', 'cv'])
         && d.branchId is string && d.branchId.matches('^[A-Za-z0-9_-]{1,80}$')
         && d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
@@ -426,6 +426,7 @@ service cloud.firestore {
         && d.digest is string && d.digest.matches('^[0-9a-f]{64}$')
         && d.data is string && d.data.size() <= 200000
         && (!('voidData' in d) || shortStr(d.voidData, 4000))
+        && (!('repair' in d) || shortStr(d.repair, 2000))
         && d.by == userEmail() && d.at == request.time && cvOk(d)
         && id.matches('^[A-Za-z0-9_-]{1,120}$');
     }
@@ -434,7 +435,7 @@ service cloud.firestore {
       let adm = admOf(m);
       let ro = m != null && m.get('role', '') in ['accountant_view'];
       return okUser(m, adm) && (adm || !ro) && porShape(d, id) && branchOf(m, adm, d.branchId)
-        && d.status == 'paid' && !('voidData' in d) && d.date > finLockedTo()
+        && d.status == 'paid' && !('voidData' in d) && !('repair' in d) && d.date > finLockedTo()
         && (d.kind == 'sale' || adm || roleIn(posMgrRoles(), roleOf(m), adm));
     }
     function porVoid(id, d, old) {
@@ -446,10 +447,19 @@ service cloud.firestore {
         && d.diff(old).affectedKeys().hasOnly(['status', 'voidData', 'by', 'at', 'cv'])
         && old.date > finLockedTo();
     }
+    /* v56.5 (قرار المالك 2026-11-26) — إصلاح سجل خاطئ: لمسؤول النظام وحده، بسبب مكتوب (repair) يُسجَّل في السجل نفسه،
+       لنفس الفرع والنوع والتاريخ، وخارج الفترة المقفلة. لا حذف أبدًا. */
+    function porRepair(id, d, old) {
+      let m = memOf();
+      let adm = admOf(m);
+      return okUser(m, adm) && adm && porShape(d, id) && ('repair' in d) && d.repair.size() >= 10
+        && d.branchId == old.branchId && d.kind == old.kind && d.date == old.date && old.date > finLockedTo()
+        && (old.get('repair', '') != d.repair);
+    }
     match /pos_orders/{id} {
       allow read: if sigRead(resource.data.branchId);
       allow create: if porCreate(id, request.resource.data);
-      allow update: if porVoid(id, request.resource.data, resource.data);
+      allow update: if porVoid(id, request.resource.data, resource.data) || porRepair(id, request.resource.data, resource.data);
       allow delete: if false;
     }
 
