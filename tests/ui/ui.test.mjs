@@ -3530,3 +3530,22 @@ test('v56.5 الدخول: الجوال بلا تجاوز وأهداف لمس ≥
   assert.ok(x[0] < x[1], 'نص تسمية البريد على اليسار في الإنجليزية ' + x);
   await shot(d.p, 'login-desktop-en'); await d.ctx.close();
 });
+
+test('عائد التسويق: ربط الحملة بحساب مصروف خاص بها يعرض التكلفة الفعلية والعائد على المبيعات المنسوبة', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1200 } }, 'live/MktGrowth/admin');
+  await p.evaluate(() => { const td = new Date(); td.setHours(12); const d = td.toISOString().slice(0, 10);
+    window.setOrg(g => ({ ...g, posPromos: [{ id: 'cw', name: 'عودة', type: 'pct', value: 10, scope: 'all', code: 'BACK10', active: true }] }));
+    window.setOps(o => ({ ...o, posOrders: [{ id: 'o1', date: d, branchId: 'b1', coupon: 'BACK10', total: 230, vat: 30, net: 200, lines: [{ promoId: 'cw', disc: 10 }] }],
+      journalManual: [...(o.journalManual || []), { id: 'jm1', date: d, title: 'إعلانات', lines: [{ code: '5901', debit: 100, credit: 0 }, { code: '1201', debit: 0, credit: 100 }] }],
+      mktCampaigns: [{ id: 'k1', no: 'CMP-0001', name: 'حملة الشتاء', segment: 'all', promoIds: ['cw'], branches: [], from: d, to: d, budget: 0, status: 'active', createdAt: '2026-11-01' }] })); });
+  await p.waitForTimeout(300); await p.click('[data-mktv="cmp"]'); await p.waitForSelector('[data-cmp]');
+  const roi = p.locator('[data-camp="CMP-0001"] [data-camproi]');
+  assert.match(await roi.innerText(), /اربط حساب مصروف/);
+  await roi.locator('select').selectOption('5901'); await p.waitForTimeout(400);
+  assert.equal(await p.evaluate(() => window.cur.mktCampaigns[0].acc), '5901');
+  const s = (await roi.innerText()).replace(/\s+/g, ' ');
+  assert.match(s, /التكلفة الفعلية: 100\.00/); assert.match(s, /بلا ضريبة: 200\.00/); assert.match(s, /العائد: 100%/);
+  await p.locator('[data-camp="CMP-0001"]').scrollIntoViewIfNeeded(); await shot(p, 'mkt-roi');
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true);
+  assert.deepEqual(errs, []); await ctx.close();
+});
