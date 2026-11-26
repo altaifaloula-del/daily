@@ -2288,12 +2288,18 @@ function buildAccounting(org, ops) {
   Object.entries(org.accCls || {}).forEach(([c, v]) => { if (accIx[c] && INV_CLS[v]) accIx[c].cls = v; });
   // ===== محرك القيود =====
   const entries = [];
+  const strictHal = finStrictOn(org);
   const L = (code, debit, credit) => ({ code, name: (accIx[code] || { name: code }).name, debit: debit || 0, credit: credit || 0 });
   const push = (e) => {
     e.debit = sum(e.lines, l => l.debit); e.credit = sum(e.lines, l => l.credit);
     // v15.12: سماح توازن = هللة كاملة (0.01) بدل نصف هللة (0.005) — نصف الهللة هو نفسه أسوأ خطأ تقريب،
     //         فكان قد يُظهر قيدًا سليمًا كأنه غير متوازن عند مدخلٍ بكسور أدق من الهللة. لا يغيّر أي قيد فعلي.
     e.balanced = Math.abs(e.debit - e.credit) < 0.01;
+    // v56.7 (C4 — A2): الفرق بالهللات الصحيحة لكل قيد، وسطور بكسور أدق من الهللة. يُحسب دائمًا للتشخيص،
+    //   ويحكم التوازن فقط عند تفعيل «التطابق التام بالهللات» (org.finStrict.on — معطّل افتراضيًا).
+    e.halDiff = sum(e.lines, l => toHal(l.debit)) - sum(e.lines, l => toHal(l.credit));
+    e.subHal = e.lines.filter(l => !isHal(l.debit) || !isHal(l.credit)).length;
+    if (strictHal) e.balanced = e.halDiff === 0 && e.subHal === 0;
     entries.push(e);
   };
   const pmToAcc = (m, bCode, bkCode) => m === 'cash' ? bCode : (bkCode || '1201'); // شبكة/تحويل/شيك → بنك الفرع (إن وُجد) أو البنك التجميعي
@@ -2860,9 +2866,16 @@ function buildAccounting(org, ops) {
   return {
     accounts, entries: entries.slice().reverse(), cashCode, assetRows,
     totalDebit, totalCredit, unknownCodes: [...unknownCodes],
-    balanced: Math.abs(totalDebit - totalCredit) < 0.01 && entries.every(e => e.balanced)
+    balanced: (strictHal ? sum(entries, e => e.halDiff) === 0 : Math.abs(totalDebit - totalCredit) < 0.01) && entries.every(e => e.balanced),
+    strictHal, halIssues: entries.filter(e => e.halDiff !== 0 || e.subHal > 0).length
   };
 }
+/* v56.7 (C4 — A2): التطابق التام بالهللات. السطر يُقرَّب إلى هللة صحيحة، والقيد متوازن فقط إذا تساوى
+   مجموع الهللات في الجانبين ولم يحمل أي سطر كسرًا أدق من الهللة. بدل سماح 0.01 لكل قيد الذي قد يخفي
+   فروق تقريب متراكمة. مفتاح المنشأة org.finStrict.on — معطّل افتراضيًا ويُفعَّل من «صيانة النظام». */
+const toHal = (v) => Math.round((+v || 0) * 100);
+const isHal = (v) => Math.abs((+v || 0) * 100 - toHal(v)) < 1e-6;
+const finStrictOn = (org) => !!(org && org.finStrict && org.finStrict.on);
 
 const DENOMS = [
   { k: 'd500', v: 500, c: '#2B6CB0' }, { k: 'd200', v: 200, c: '#5F7A55' },
@@ -3475,7 +3488,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.6';
+const APP_VER = 'v56.7';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3529,7 +3542,8 @@ class ErrorBoundary extends React.Component {
     return full ? <div className="rms mode-dark thm-mizan" style={{ minHeight: '100vh', background: '#141210', padding: 16 }}>{box}</div> : box;
   }
 }
-export { FbGate };   // v56.5: لاختبار تجربة الدخول في Playwright
+export { FbGate };
+export { toHal, isHal, finStrictOn };   // v56.7 C4
 export { ErrorBoundary, logClientError, lockedLedgerChanged };
 export { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, saleRetUse, posReturnLoyDed };
 export { jeLive, jeOwner, canApproveJe, jeAutoSt, vatCloseLive, WF_DOCS, wfTiers, wfOn, wfRequired, poNeedsAppr, wfState, wfCanAct, wfApprove };   // v47.1 اعتماد القيد اليدوي
