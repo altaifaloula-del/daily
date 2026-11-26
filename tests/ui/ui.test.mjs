@@ -3925,3 +3925,24 @@ test('v56.29 أوامر الصرف: بلا تفعيل كما كان؛ بالتف
     await p.click('[data-dsroute-toggle]'); await p.waitForFunction(() => (((window.curOrg.dsRoute || {}).ranges) || []).length === 1);
     assert.deepEqual(errs, []); await ctx.close(); }
 });
+
+test('v56.30 أوامر الصرف حسب بنودها: المالك يختار حساب البند، والأمر الجديد يُثبَّت عليه حسابه', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Admin/admin');
+  await p.evaluate(() => window.setOrg(o => ({ ...o, customAccounts: [...(o.customAccounts || []), { code: '5610', name: 'مصروف الإيجار', kind: 'exp' }] })));
+  await p.click('button:has-text("صيانة النظام")'); await p.waitForSelector('[data-dsmap]');
+  await p.selectOption('[data-dsmap-item="إيجارات الفروع"]', '5610');
+  await p.waitForFunction(() => ((window.curOrg.dsRoute || {}).map || {})['إيجارات الفروع'] === '5610');
+  assert.deepEqual(errs, []); await ctx.close();
+  { const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Hub/admin/finhub:treasury');
+    const td = await p.evaluate(() => new Date().toISOString().slice(0, 10));
+    await p.evaluate((td) => { window.setOrg(o => ({ ...o, customAccounts: [...(o.customAccounts || []), { code: '5610', name: 'مصروف الإيجار', kind: 'exp' }], dsRoute: { ranges: [{ from: td }], map: { 'إيجارات الفروع': '5610' } } }));
+      window.setOps(o => ({ ...o, transfers: [...(o.transfers || []), { id: 'tin', date: td, status: 'received', amount: 9000, branchName: 'العليا', referenceNo: 'T1' }], disbursements: [] })); }, td);
+    await p.waitForTimeout(250);
+    await p.locator('button:has-text("أوامر الصرف")').first().click(); await p.locator('button:has-text("أمر صرف جديد")').click();
+    await p.locator('.modal select.sel').first().selectOption('إيجارات الفروع');
+    assert.match(await p.locator('[data-ds-acc]').innerText(), /5610/);
+    await p.locator('.modal input.inp.n').first().fill('3000'); await p.locator('.modal input[placeholder="اسم الجهة أو المورد"]').fill('مالك العقار');
+    await p.click('[data-ds-save]'); await p.waitForFunction(() => (window.cur.disbursements || []).length === 1);
+    assert.deepEqual(await p.evaluate(() => window.cur.disbursements.map(x => [x.category, x.acc || ''])), [['إيجارات الفروع', '5610']]);
+    assert.deepEqual(errs, []); await ctx.close(); }
+});

@@ -2202,6 +2202,12 @@ const dsRanges = (org) => ((org && org.dsRoute && org.dsRoute.ranges) || []);
 const dsRouteAt = (org, d) => dsRanges(org).some(r => String(d || '') >= r.from && (!r.to || String(d || '') <= r.to));
 const dsRouteOpen = (org) => dsRanges(org).some(r => !r.to);
 const dsLive = (x) => !x.status || x.status === 'posted';   // أي حالة أخرى (معلّق، مرفوض، مسحوب…) لا تُرحَّل
+/* v56.30 (قرار المالك: «أوامر الصرف تسجل حسب بنود الصرف»): خريطة البند ← الحساب org.dsRoute.map يختارها المالك من الدليل.
+   الحساب يُثبَّت على الأمر لحظة إنشائه (x.acc) فلا يغيّر تعديلُ الخريطة لاحقًا أمرًا مسجلًا؛ وبلا حساب صالح أو خارج النطاق ⇒ 5901 كما كان. */
+const dsMapOf = (org) => ((org && org.dsRoute && org.dsRoute.map) || {});
+const dsAccOk = (a) => !!a && (a.kind === 'exp' || /^16/.test(String(a.code)));
+const dsAccOf = (org, x, accIx) => { const c = x && x.acc ? String(x.acc) : ''; const a = c && accIx && accIx[c];
+  return (c && dsRouteAt(org, x.date) && !DS_BLOCKED[x.category] && (accIx ? dsAccOk(a) : true)) ? c : '5901'; };
 const dsOpenFrom = (org) => (dsRanges(org).find(r => !r.to) || {}).from || '';
 const dsBlockReason = (org, rec) => (rec && dsRouteAt(org, rec.date) && DS_BLOCKED[rec.category]) ? 'لا يُصرف «' + rec.category + '» من أوامر الصرف — استخدم: ' + DS_BLOCKED[rec.category] : '';
 const posGlOpen = (org) => posGlRanges(org).some(r => !r.to);
@@ -2548,7 +2554,7 @@ function buildAccounting(org, ops) {
       id: 'dis:' + x.id, date: x.date, ...(dsRouteAt(org, x.date) && DS_BLOCKED[x.category] ? { dsRoute: 'blocked' } : {}),
       title: 'أمر صرف — ' + (x.category || 'منصرف') + (x.beneficiary ? ' · ' + x.beneficiary : ''),
       src: 'الخزينة الرئيسية', ref: x.reference || x.id,
-      lines: [L('5901', x.amount, 0), L('1101', 0, x.amount)]
+      lines: [L(dsAccOf(org, x, accIx), x.amount, 0), L('1101', 0, x.amount)]   // v56.30: حساب البند المثبَّت على الأمر (قرار المالك) وإلا 5901
     });
   });
   // 6) فواتير التوريد الآجلة وسداداتها المركزية (سدادات الفروع تدخل من قيود الورديات)
@@ -3688,7 +3694,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.29';
+const APP_VER = 'v56.30';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3748,7 +3754,7 @@ export { FL_START, flOn, flKey, flNo, flLines, flRecord, flScope, flCompare, flL
 export { FL_GROUPS, flLvl, flGroupOf, flUnclassified, flReversalOf, flCorrect };   // v56.11 D3
 export { flReadOn, flEntriesOf, flBalDiff, flDayBefore };   // v56.14 D4
 export { ctlBarOn };
-export { DS_BLOCKED, dsRanges, dsRouteAt, dsRouteOpen, dsLive, dsBlockReason, dsOpenFrom, lockedLedgerSig };   // v56.29
+export { DS_BLOCKED, dsRanges, dsRouteAt, dsRouteOpen, dsLive, dsBlockReason, dsOpenFrom, dsMapOf, dsAccOk, dsAccOf, lockedLedgerSig };   // v56.29
 export { DEPT_SHARED, deptOn, deptList, deptPL };   // v56.27 E4   // v56.23 G2
 export { ledgerApi };   // v56.15 D5
 export { ErrorBoundary, logClientError, lockedLedgerChanged };
@@ -9387,7 +9393,8 @@ function DisbursementForm({ org, me, balance, commit, say, onClose }) {
     const st0 = dsOpenFrom(org); if (st0 && String(f.date || today()) < st0) return say('تاريخ الأمر يسبق بداية ضوابط أوامر الصرف (' + st0 + ') — استخدم تاريخًا من ' + st0, 'no');
     const why = dsBlockReason(org, { ...f, date: f.date || today() }); if (why) return say(why, 'no');
     const route = dsRouteAt(org, f.date || today()); const direct = !route || jeOwner(me);
-    const rec = { ...f, id: uid('ds'), by: me.name, byId: me.id || '', createdAt: nowISO(), ...(route ? { status: direct ? 'posted' : 'pending', ...(direct ? { approvedBy: me.name, approvedAt: nowISO() } : {}) } : {}) };
+    const mAcc = route ? String(dsMapOf(org)[f.category] || '') : '';   // v56.30: يُثبَّت حساب البند وقت الإنشاء
+    const rec = { ...f, id: uid('ds'), by: me.name, byId: me.id || '', createdAt: nowISO(), ...(mAcc ? { acc: mAcc } : {}), ...(route ? { status: direct ? 'posted' : 'pending', ...(direct ? { approvedBy: me.name, approvedAt: nowISO() } : {}) } : {}) };
     await commit(d => ({ ...d, disbursements: [rec, ...(d.disbursements || [])] }), {
       actionType: 'cash_transfer', targetType: 'cash_transfer', targetId: rec.id,
       title: 'أصدر أمر صرف من الخزينة',
@@ -9410,6 +9417,7 @@ function DisbursementForm({ org, me, balance, commit, say, onClose }) {
             {['توريد مواد خام مركزي', 'إيجارات الفروع', 'صرف رواتب', 'سداد موردين', 'صيانة وتشغيل',
               'ضريبة القيمة المضافة', 'مصاريف إدارية'].filter(c => !(dsRouteAt(org, f.date || today()) && DS_BLOCKED[c])).map(c => <option key={c} value={c}>{c}</option>)}
           </select>
+          {dsRouteAt(org, f.date || today()) && <div className="hint" data-ds-acc style={{ marginTop: 4 }}>يُسجَّل على الحساب: <b className="num">{dsMapOf(org)[f.category] || '5901'}</b></div>}
           {dsRouteAt(org, f.date || today()) && <div className="hint" data-ds-hint style={{ marginTop: 4 }}>سداد الموردين والضريبة والرواتب لا تُصرف من هنا: {Object.values(DS_BLOCKED).join(' · ')}</div>}
         </Field>
         <Field label="تاريخ الصرف">

@@ -11,7 +11,7 @@ import { MKT_BR_CV, mktBrOn } from '../../App.jsx';
 import { grrOn, mkcCompare, lytCompare, grrLoad, grrSeed, grrState } from '../../App.jsx';
 import { posGlOpen, posGlRanges, posGlCheck } from '../../App.jsx';
 import { ctlBarOn } from '../../App.jsx';
-import { DS_BLOCKED, dsRanges, dsRouteOpen, dsLive } from '../../App.jsx';   // v56.29 أوامر الصرف   // v56.23 (G2) شريط التحكم   // v56.18 (POS 6a) أثر فواتير نقطة البيع في قيد الإغلاق   // v56.17 (GROWTH 2) سجلات الموافقة والولاء المحمية   // v56.12 (GROWTH G1) سجلات التسويق في الفروع
+import { DS_BLOCKED, dsRanges, dsRouteOpen, dsLive, dsMapOf, dsAccOk } from '../../App.jsx';   // v56.29 أوامر الصرف   // v56.23 (G2) شريط التحكم   // v56.18 (POS 6a) أثر فواتير نقطة البيع في قيد الإغلاق   // v56.17 (GROWTH 2) سجلات الموافقة والولاء المحمية   // v56.12 (GROWTH G1) سجلات التسويق في الفروع
 import { WorkflowsCard } from './Workflows.jsx';   // v49.5 MQ-059
 import { FL_START, flOn, flScope, flCompare, flLoad, flPost, FL_GROUPS, flLvl, flUnclassified, flCorrect, flReadOn } from '../../App.jsx';   // v56.9 D1 دفتر القيود المخزّن
 import { fjCompare, fjLoad, fjOn, fjState, fpLockedTo, fpLoad, fmLoad, fmSet, fjSeed, FD_KINDS, fdCompare, fdLoad, fdSeed } from '../../App.jsx';   // v49.0 المرحلة 01
@@ -609,6 +609,29 @@ function DsRouteCard({ org, ops, commitOrg, say, isAdm }) {
       {byCat.filter(x => x.n).map(x => <div key={x.c} className="me-row"><span className="me-a"><b>{x.c}</b><small>{x.n} أمر · {x.amt.toLocaleString('en', { minimumFractionDigits: 2 })} ر.س — قارنها بسجلها في شاشتها؛ أي تصحيح بقيد يدوي معتمد بعد قرارك</small></span></div>)}</div>}
     {isAdm && !on && <div className="row" style={{ gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}><label style={{ fontSize: 12 }}>يسري من <input className="inp" type="date" aria-label="تاريخ بدء ضوابط أوامر الصرف" value={from} min={today()} onChange={e => setFrom(e.target.value)} /></label></div>}
     {isAdm && <div className="row" style={{ marginTop: 8 }}><button className={'btn sm ' + (on ? 'gh' : 'pri')} onClick={toggle} data-dsroute-toggle>{on ? 'إيقاف' : 'تفعيل'}</button></div>}
+    <DsMapEditor org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
+  </div>);
+}
+/* v56.30 (قرار المالك: «أوامر الصرف تسجل حسب بنود الصرف»): حساب لكل بند مسموح — يختاره المالك من الدليل (مصروف أو مخزون).
+   يُثبَّت على الأمر الجديد وقت إنشائه داخل نطاق الضوابط؛ تغيير الخريطة لا يمس أمرًا مسجلًا. */
+const DS_ITEMS = ['إيجارات الفروع', 'صيانة وتشغيل', 'مصاريف إدارية', 'توريد مواد خام مركزي'];
+function DsMapEditor({ org, commitOrg, say, isAdm }) {
+  const M = dsMapOf(org); const accs = useMemo(() => buildAccounting(org, {}).accounts.filter(dsAccOk).map(a => ({ code: String(a.code), name: a.name })).sort((x, y) => x.code.localeCompare(y.code)), [org]);
+  const set = async (item, code) => {
+    if (!isAdm) return;
+    const ok = await commitOrg(o => ({ ...o, dsRoute: { ...(o.dsRoute || {}), map: { ...((o.dsRoute || {}).map || {}), [item]: code || undefined } } }),
+      { actionType: 'settings', targetType: 'system_settings', targetId: 'dsRoute.map', title: 'حساب بند أمر الصرف', details: item + ' ← ' + (code || '5901 (عام)') });
+    if (ok) say('«' + item + '» ← ' + (code || '5901') + ' — يسري على الأوامر الجديدة فقط');
+  };
+  return (<div data-dsmap style={{ marginTop: 10, borderTop: '1px solid var(--line)', paddingTop: 8 }}>
+    <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 4 }}>حساب كل بند (بقرارك: تُسجَّل أوامر الصرف حسب بنودها)</div>
+    <div style={{ fontSize: 11.5, color: 'var(--dim)', marginBottom: 6 }}>يُثبَّت الحساب على الأمر لحظة إنشائه داخل نطاق الضوابط — تغيير الاختيار لاحقًا لا يغيّر أمرًا مسجلًا. بلا اختيار ⇒ 5901 كما كان. لإضافة حساب جديد (مثل «مصروف الإيجار») أضفه أولًا في دليل الحسابات.</div>
+    {DS_ITEMS.map(it => <div key={it} className="row" style={{ gap: 8, alignItems: 'center', marginBottom: 4, flexWrap: 'wrap' }}>
+      <span style={{ minWidth: 150, fontSize: 12.5 }}>{it}</span>
+      <select className="sel" style={{ minWidth: 240 }} aria-label={'حساب بند ' + it} data-dsmap-item={it} disabled={!isAdm} value={M[it] || ''} onChange={e => set(it, e.target.value)}>
+        <option value="">5901 — مصروفات الخزينة (عام)</option>
+        {accs.filter(a => a.code !== '5901').map(a => <option key={a.code} value={a.code}>{a.code} — {a.name}</option>)}
+      </select></div>)}
   </div>);
 }
 

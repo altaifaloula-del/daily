@@ -60,3 +60,20 @@ test('بداية الضوابط المفتوحة، والحالات غير «pos
   const A = E.buildAccounting(org, { disbursements: [ds('w', '2026-12-21', 'صيانة وتشغيل', 10, { status: 'withdrawn' }), ds('d', '2026-12-21', 'صيانة وتشغيل', 10, { status: 'draft' })] });
   assert.equal(ent(A, 'w'), undefined); assert.equal(ent(A, 'd'), undefined);
 });
+
+test('v56.30 (قرار المالك): أوامر الصرف حسب بنودها — الحساب المثبَّت على الأمر داخل النطاق، وإلا 5901', () => {
+  const org = { ...base, customAccounts: [{ code: '5610', name: 'مصروف الإيجار', kind: 'exp' }], dsRoute: { ranges: [{ from: '2026-12-01' }], map: { 'إيجارات الفروع': '5610' } } };
+  const A = E.buildAccounting(org, { disbursements: [
+    ds('r1', '2026-12-02', 'إيجارات الفروع', 3000, { acc: '5610' }),          // ضمن النطاق ومثبَّت ⇒ 5610
+    ds('r2', '2026-12-02', 'إيجارات الفروع', 100),                             // بلا تثبيت (قبل الخريطة) ⇒ 5901
+    ds('r3', '2026-11-20', 'إيجارات الفروع', 200, { acc: '5610' }),            // قبل النطاق ⇒ 5901 حرفيًا
+    ds('r4', '2026-12-03', 'صيانة وتشغيل', 50, { acc: '9999' }),               // حساب غير موجود ⇒ 5901
+    ds('r5', '2026-12-03', 'ضريبة القيمة المضافة', 40, { acc: '5610' }),       // بند ممنوع لا يُوجَّه ⇒ 5901 + وسم
+    ds('r6', '2026-12-03', 'صيانة وتشغيل', 60, { acc: '1101' }) ] });           // ليس مصروفًا ولا مخزونًا ⇒ 5901
+  assert.equal(lines(ent(A, 'r1')), '5610:3000/0,1101:0/3000');
+  for (const id of ['r2', 'r3', 'r4', 'r5', 'r6']) assert.equal(ent(A, id).lines[0].code, '5901', id);
+  for (const e of A.entries) assert.equal(Math.round(e.lines.reduce((t, l) => t + l.debit - l.credit, 0) * 100), 0, e.id);
+  // تغيير الخريطة لا يمس الأمر المسجل (الحساب على الأمر نفسه)
+  const A2 = E.buildAccounting({ ...org, dsRoute: { ...org.dsRoute, map: {} } }, { disbursements: [ds('r1', '2026-12-02', 'إيجارات الفروع', 3000, { acc: '5610' })] });
+  assert.equal(lines(ent(A2, 'r1')), '5610:3000/0,1101:0/3000');
+});
