@@ -2208,6 +2208,14 @@ const dsMapOf = (org) => ((org && org.dsRoute && org.dsRoute.map) || {});
 const dsAccOk = (a) => !!a && (a.kind === 'exp' || /^16/.test(String(a.code)));
 const dsAccOf = (org, x, accIx) => { const c = x && x.acc ? String(x.acc) : ''; const a = c && accIx && accIx[c];
   return (c && dsRouteAt(org, x.date) && !DS_BLOCKED[x.category] && (accIx ? dsAccOk(a) : true)) ? c : '5901'; };
+/* v56.31 (قرارات المجلس T1/T3، بتفويض المالك): داخل نطاق الضوابط — القيد بتاريخ الاعتماد (خروج النقد فعلًا) المحفوظ على الأمر postDate،
+   والتحويل البنكي والشيك دائنهما البنك المختار fundAcc (12xx) لا الخزينة 1101. خارج النطاق أو بلا الحقلين ⇒ كما كان حرفيًا. */
+const dsPostDate = (org, x) => (x && x.postDate && dsRouteAt(org, x.date) && /^\d{4}-\d{2}-\d{2}$/.test(x.postDate)) ? x.postDate : x.date;
+// (التحقق المستقل): شرط واحد للدفتر والشاشة — البنك صالح إن كان 1201 أو بنك فرع معرّفًا (branchBanks)
+const dsBankOk = (org, c) => !!c && (String(c) === '1201' || branchBanks(org).some(b => String(b.code) === String(c)));
+const dsFundOf = (org, x, accIx) => { const c = x && x.fundAcc ? String(x.fundAcc) : '';
+  return (c && dsRouteAt(org, x.date) && dsBankOk(org, c) && (accIx ? !!accIx[c] : true)) ? c : '1101'; };
+const dsCashOut = (org, x) => dsFundOf(org, x, null) === '1101';   // يخص نقد الخزينة 1101 (رصيد الشاشة) — نفس شرط الدفتر
 const dsOpenFrom = (org) => (dsRanges(org).find(r => !r.to) || {}).from || '';
 const dsBlockReason = (org, rec) => (rec && dsRouteAt(org, rec.date) && DS_BLOCKED[rec.category]) ? 'لا يُصرف «' + rec.category + '» من أوامر الصرف — استخدم: ' + DS_BLOCKED[rec.category] : '';
 const posGlOpen = (org) => posGlRanges(org).some(r => !r.to);
@@ -2551,10 +2559,10 @@ function buildAccounting(org, ops) {
   (ops.disbursements || []).forEach(x => {
     if (!(x.amount > 0) || !dsLive(x)) return;   // v56.29: المعلّق والمرفوض لا يُرحَّلان (القديم بلا حالة = مرحّل)
     push({
-      id: 'dis:' + x.id, date: x.date, ...(dsRouteAt(org, x.date) && DS_BLOCKED[x.category] ? { dsRoute: 'blocked' } : {}),
+      id: 'dis:' + x.id, date: dsPostDate(org, x), ...(dsRouteAt(org, x.date) && DS_BLOCKED[x.category] ? { dsRoute: 'blocked' } : {}),
       title: 'أمر صرف — ' + (x.category || 'منصرف') + (x.beneficiary ? ' · ' + x.beneficiary : ''),
       src: 'الخزينة الرئيسية', ref: x.reference || x.id,
-      lines: [L(dsAccOf(org, x, accIx), x.amount, 0), L('1101', 0, x.amount)]   // v56.30: حساب البند المثبَّت على الأمر (قرار المالك) وإلا 5901
+      lines: [L(dsAccOf(org, x, accIx), x.amount, 0), L(dsFundOf(org, x, accIx), 0, x.amount)]   // v56.30: حساب البند المثبَّت على الأمر (قرار المالك) وإلا 5901
     });
   });
   // 6) فواتير التوريد الآجلة وسداداتها المركزية (سدادات الفروع تدخل من قيود الورديات)
@@ -3694,7 +3702,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.30';
+const APP_VER = 'v56.31';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3754,7 +3762,7 @@ export { FL_START, flOn, flKey, flNo, flLines, flRecord, flScope, flCompare, flL
 export { FL_GROUPS, flLvl, flGroupOf, flUnclassified, flReversalOf, flCorrect };   // v56.11 D3
 export { flReadOn, flEntriesOf, flBalDiff, flDayBefore };   // v56.14 D4
 export { ctlBarOn };
-export { DS_BLOCKED, dsRanges, dsRouteAt, dsRouteOpen, dsLive, dsBlockReason, dsOpenFrom, dsMapOf, dsAccOk, dsAccOf, lockedLedgerSig };   // v56.29
+export { DS_BLOCKED, dsRanges, dsRouteAt, dsRouteOpen, dsLive, dsBlockReason, dsOpenFrom, dsMapOf, dsAccOk, dsAccOf, dsPostDate, dsFundOf, dsCashOut, dsBankOk, lockedLedgerSig };   // v56.29
 export { DEPT_SHARED, deptOn, deptList, deptPL };   // v56.27 E4   // v56.23 G2
 export { ledgerApi };   // v56.15 D5
 export { ErrorBoundary, logClientError, lockedLedgerChanged };
@@ -9387,14 +9395,18 @@ function DisbursementForm({ org, me, balance, commit, say, onClose }) {
   const save = async () => {
     if (f.amount <= 0) return say('أدخل مبلغ الصرف', 'no');
     if (!f.beneficiary.trim()) return say('اكتب اسم المستفيد', 'no');
-    if (f.amount > balance) return say('المبلغ يتجاوز رصيد الخزينة المتاح', 'no');
+    if ((!dsRouteAt(org, f.date || today()) || f.method === 'cash') && f.amount > balance) return say('المبلغ يتجاوز رصيد الخزينة المتاح', 'no');   // v56.31: الرصيد المتاح = الخزينة − المعلّق؛ والبنك لا يخص نقد الخزينة
     if (periodLocked(org, f.date || today())) return say(LOCK_MSG(f.date || today()), 'no');
     // v56.29 (التحقق المستقل): ما دامت الضوابط مفعّلة لا يُقبل تاريخ يسبق بدايتها — وإلا تجاوز الأمر الاعتماد والمنع بتاريخ قديم
     const st0 = dsOpenFrom(org); if (st0 && String(f.date || today()) < st0) return say('تاريخ الأمر يسبق بداية ضوابط أوامر الصرف (' + st0 + ') — استخدم تاريخًا من ' + st0, 'no');
     const why = dsBlockReason(org, { ...f, date: f.date || today() }); if (why) return say(why, 'no');
     const route = dsRouteAt(org, f.date || today()); const direct = !route || jeOwner(me);
     const mAcc = route ? String(dsMapOf(org)[f.category] || '') : '';   // v56.30: يُثبَّت حساب البند وقت الإنشاء
-    const rec = { ...f, id: uid('ds'), by: me.name, byId: me.id || '', createdAt: nowISO(), ...(mAcc ? { acc: mAcc } : {}), ...(route ? { status: direct ? 'posted' : 'pending', ...(direct ? { approvedBy: me.name, approvedAt: nowISO() } : {}) } : {}) };
+    const bank = route && f.method !== 'cash' ? String(f.fundAcc || '1201') : '';   // v56.31 T3
+    if (bank && !dsBankOk(org, bank)) return say('البنك المختار غير معرّف — اختر البنك التجميعي أو بنك فرع', 'no');
+    const rec = { ...f, id: uid('ds'), by: me.name, byId: me.id || '', createdAt: nowISO(), ...(mAcc ? { acc: mAcc } : {}), ...(bank ? { fundAcc: bank } : { fundAcc: undefined }),
+      ...(route ? { status: direct ? 'posted' : 'pending', ...(direct ? { approvedBy: me.name, approvedAt: nowISO(), postDate: today(), ...(jeOwner(me) ? { selfPosted: true } : {}) } : {}) } : {}) };
+    if (!rec.fundAcc) delete rec.fundAcc;
     await commit(d => ({ ...d, disbursements: [rec, ...(d.disbursements || [])] }), {
       actionType: 'cash_transfer', targetType: 'cash_transfer', targetId: rec.id,
       title: 'أصدر أمر صرف من الخزينة',
@@ -9432,6 +9444,8 @@ function DisbursementForm({ org, me, balance, commit, say, onClose }) {
             <option value="cash">نقداً</option>
             <option value="cheque">شيك</option>
           </select>
+          {dsRouteAt(org, f.date || today()) && f.method !== 'cash' && <select className="sel" style={{ marginTop: 4 }} aria-label="البنك المصروف منه" data-ds-bank value={f.fundAcc || '1201'} onChange={e => set('fundAcc', e.target.value)}>
+            {[{ code: '1201', name: 'البنك التجميعي' }, ...branchBanks(org).map(b => ({ code: b.code, name: b.name }))].map(b => <option key={b.code} value={b.code}>{b.code} — {b.name}</option>)}</select>}
         </Field>
       </div>
       <div className="grid g2">
