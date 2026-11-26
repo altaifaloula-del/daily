@@ -16,7 +16,7 @@ export function Leaves({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const [tab, setTab] = useState('req'); const [st, setSt] = useState('pending');
   const [f, setF] = useState(null); const [opF, setOpF] = useState(null); const [lvStart, setLvStart] = useState(null);
   const [month, setMonth] = useState(today().slice(0, 7));
-  // v56.12: تفاصيل الإجازة وتتبعها بعد الاعتماد، ودورة الإجازة الموقّعة (مباشرة العمل) — المفتاح في سياسات الموارد البشرية
+  // v56.13: تفاصيل الإجازة وتتبعها بعد الاعتماد، ودورة الإجازة الموقّعة (مباشرة العمل) — المفتاح في سياسات الموارد البشرية
   const flow = !!((org.hrPolicies || {}).leaveFlow);
   const isMgr = central || ['branch_manager', 'regional_manager'].includes(me.role);
   const [viewId, setViewId] = useState(null); const [rf, setRf] = useState(null);
@@ -91,7 +91,7 @@ export function Leaves({ org, ops, me, myBranches, commit, commitOrg, say }) {
       { actionType: 'update', targetType: 'leave', targetId: r.id, branchName: r.branchName, title: retPatch ? 'اعتمد مباشرة عمل مبكرة' : 'مباشرة مبكرة من إجازة', details: r.employeeName + ' · آخر يوم ' + back + ' بدل ' + r.to });
     if (ok !== false) say('سُجّلت المباشرة وعُدّل الرصيد والخصم ✓');
   };
-  // v56.12 (قرار المالك): مدير الفرع يسجّل مباشرة العمل ويوقّعها الموظف، والمركز يعتمدها؛ أيام التأخر تُخصم من رصيد الإجازات
+  // v56.13 (قرار المالك): مدير الفرع يسجّل مباشرة العمل ويوقّعها الموظف، والمركز يعتمدها؛ أيام التأخر تُخصم من رصيد الإجازات
   const saveReturn = async () => {
     const r = reqs.find(x => x.id === rf.id); if (!r || !isMgr) return; const P = lvReturnPlan(r, rf.date); if (P.err) return say(P.err, 'no');
     if (rf.date > td) return say('لا تُسجَّل مباشرة في تاريخ لاحق', 'no');
