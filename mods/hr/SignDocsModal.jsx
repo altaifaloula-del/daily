@@ -79,7 +79,12 @@ export function SignDocsModal({ org, ops, me, emp, docs, onClose, commit, say, v
             <span className={'badge ' + ((doc.docType === 'penalty' || doc.docType === 'corrective') ? 'b-rose' : doc.docType === 'reward' ? 'b-mint' : 'b-brass')}>{SIGN_DOC_AR[doc.docType]} · شهر {doc.month}</span>
             <span className="badge b-dim">المستند {idx + 1} من {list.length}</span>
           </div>
-          <div className="card" style={{ padding: 12, border: '1px solid var(--frame-o)' }}>
+          {(doc.docType === 'leave' || doc.docType === 'leave_return') ? <div className="card" style={{ padding: 12, border: '1px solid var(--frame-o)' }} data-sign-leave>
+            <div style={{ fontSize: 12.5, color: 'var(--dim)' }}>الإجازة</div>
+            <div className="num" style={{ fontSize: 18, fontWeight: 800 }}>{(doc.lines || {}).from} ← {(doc.lines || {}).to}</div>
+            {(doc.lines || {}).retDate && <div style={{ fontSize: 12.5, marginTop: 6 }}>تاريخ المباشرة: <b className="num">{doc.lines.retDate}</b>{doc.lines.lateDays > 0 && <span style={{ color: 'var(--rose)' }}> · تأخر {doc.lines.lateDays} يوم</span>}</div>}
+            {doc.reason && <div style={{ fontSize: 12.5, marginTop: 6 }}>{doc.docType === 'leave' ? 'السبب' : 'ملاحظة'}: <b>{doc.reason}</b></div>}
+          </div> : <div className="card" style={{ padding: 12, border: '1px solid var(--frame-o)' }}>
             <div style={{ fontSize: 12.5, color: 'var(--dim)' }}>{doc.docType === 'payslip' ? 'صافي المستلم' : doc.docType === 'corrective' ? 'الغرامة' : 'المبلغ'}</div>
             <div className="num" style={{ fontSize: 24, fontWeight: 800, color: (doc.docType === 'penalty' || doc.docType === 'corrective') ? 'var(--rose)' : 'var(--mint)' }}>{doc.docType === 'corrective' && !doc.amount ? <span style={{ fontSize: 15, fontWeight: 700 }}>بلا غرامة مالية</span> : <>{money(doc.amount)} <span style={{ fontSize: 12, fontWeight: 400 }}>ر.س</span></>}</div>
             {doc.docType === 'payslip' && (
@@ -94,7 +99,7 @@ export function SignDocsModal({ org, ops, me, emp, docs, onClose, commit, say, v
               </div>
             )}
             {doc.docType !== 'payslip' && <div style={{ fontSize: 12.5, marginTop: 6 }}>السبب: <b>{doc.reason || '—'}</b></div>}
-          </div>
+          </div>}
           <div className="card" style={{ padding: 10, background: 'rgba(200,162,74,.06)', fontSize: 12.5, lineHeight: 1.8 }}>{signDeclaration(doc)}</div>
           <label className="row" style={{ gap: 6, fontSize: 12.5, cursor: 'pointer' }}>
             <input type="checkbox" checked={agree} onChange={e => setAgree(e.target.checked)} />قرأتُ نص الإقرار وأوافق عليه
