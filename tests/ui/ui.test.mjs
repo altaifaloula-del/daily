@@ -3993,3 +3993,13 @@ test('v56.32 اعتماد سندات الصرف: المعلّق بلا أثر و
     await p.click('[data-cvappr-toggle]'); await p.waitForFunction(() => (((window.curOrg.cvAppr || {}).ranges) || []).length === 1);
     assert.deepEqual(errs, []); await ctx.close(); }
 });
+
+test('v56.33 جاهزية 6a: معاينة رصيد النقاط القائم، وتفعيل قيد الولاء للإغلاق غير المطابق', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Admin/admin');
+  await p.click('button:has-text("صيانة النظام")'); await p.waitForSelector('[data-posgl-open]');
+  await p.click('[data-posgl-openprev]'); await p.waitForSelector('[data-posgl-openres]');
+  assert.match(await p.locator('[data-posgl-openres]').innerText(), /نقطة ×/);
+  await p.click("[data-posgl-mistoggle]"); await p.waitForFunction(() => (((window.curOrg.posGl || {}).misLoyRanges) || []).some(r => r.from && !r.to));
+  assert.match(await p.locator('[data-posgl-mis]').innerText(), /مفعّل من/);
+  assert.deepEqual(errs, []); await ctx.close();
+});

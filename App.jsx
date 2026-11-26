@@ -2254,6 +2254,23 @@ function posGlLines(d) {
   if (d.earn) out.push(['4101', d.earn > 0 ? d.earn : 0, d.earn < 0 ? -d.earn : 0], ['2106', d.earn < 0 ? -d.earn : 0, d.earn > 0 ? d.earn : 0]);
   return out;
 }
+/* v56.33 (الدفعة 2 — قرارات المجلس P1/P2 بتفويض المالك):
+   P1 رصيد النقاط القائم قبل تفعيل 6a = النقاط (حركات قبل تاريخ القطع) × قيمة النقطة بعد استبعاد الضريبة — معاينة، والقيد بموافقة المالك.
+   P2 الإغلاق غير المطابق: قيد حركة الولاء وحدها من الفواتير (منح: مدين 4101 دائن 2106؛ استبدال: مدين 2106 دائن 4101) من تاريخ يختاره المالك
+   (org.posGl.misLoy.from — لا يغيّر الماضي)، وشرح بمستند لكل إغلاق غير مطابق (org.posGl.notes)، وفحص في قائمة الإقفال. */
+function posLoyOpening(org, loyDoc, cutoff) {
+  const r2 = (x) => Math.round((Number(x) || 0) * 100) / 100; const pv = posGlPv(org);
+  const tx = (org && org.taxCfg) || {}; const rate = tx.enabled ? (Number(tx.rate) || 15) : 0;
+  // (التحقق المستقل) المقارنة بالوقت المحلي: حركة الساعة 01:30 من يوم القطع (UTC في اليوم السابق) لا تُحتسب مرتين
+  const cut = new Date(cutoff + 'T00:00:00').getTime(); const before = (t) => { const ms = Date.parse(t.at || ''); return isNaN(ms) ? String(t.at || '').slice(0, 10) < cutoff : ms < cut; };
+  const pts = r2(((loyDoc && loyDoc.tx) || []).filter(before).reduce((a, t) => a + (Number(t.pts) || 0), 0));
+  return { pts, pv, rate, cutoff, amt: r2(pts * pv * 100 / (100 + rate)) };
+}
+// (التحقق المستقل) سجل نطاقات لا يُكتب فوقه — الإيقاف يغلق النطاق وإعادة التفعيل تضيف نطاقًا جديدًا (misLoy القديم = نطاق واحد)
+const posMisLoyRanges = (org) => { const g = (org && org.posGl) || {}; return Array.isArray(g.misLoyRanges) ? g.misLoyRanges : (g.misLoy && g.misLoy.from ? [g.misLoy] : []); };
+const posMisLoyFrom = (org) => (posMisLoyRanges(org).find(r => !r.to) || {}).from || '';
+const posMisLoyAt = (org, d) => posMisLoyRanges(org).some(r => String(d || '') >= r.from && (!r.to || String(d || '') <= r.to)) && posGlAt(org, d);
+const posGlNote = (org, id) => ((((org && org.posGl) || {}).notes) || {})[id] || '';
 /** تشخيص للصيانة: الإغلاقات في النطاق وهل طابقت فواتير اليوم */
 function posGlCheck(org, ops) {
   const pv = posGlPv(org), rate = (org.taxCfg || {}).enabled ? Number((org.taxCfg || {}).rate) || 15 : 0;
@@ -2475,13 +2492,18 @@ function buildAccounting(org, ops) {
         if (net) lines.push(L(code, net, 0));
         if (comm) lines.push(L('5301', comm, 0));
       });
-      let sv = splitVat(tot); let pg = null;
+      let sv = splitVat(tot); let pg = null, dMis = null, posGlInv = false;
       if (posGlAt(org, c.date)) {   // v56.18 (POS 6a)
         const d = posGlDay(ops.posOrders || [], c.branchId, c.date, posGlPv(org), taxOn ? trate * 100 : 0);
         if ((d.n + d.retN) > 0 && Math.abs(tot - d.total) < 0.005) { d.net = Math.round((tot - d.vat) * 100) / 100; pg = d; sv = { net: d.net, vat: d.vat }; posGlLines(d).forEach(([code, dr, cr]) => lines.push(L(code, dr, cr))); }
+        else if ((d.n + d.retN) > 0) { posGlInv = true; if (posMisLoyAt(org, c.date)) dMis = d; }   // v56.33 P2 — غير مطابق وله فواتير
       }
       if (!pg) { lines.push(L('4101', 0, sv.net)); if (sv.vat) lines.push(L('2301', 0, sv.vat)); }
-      push({ id: 'rev:' + c.id, ...(posGlAt(org, c.date) ? { posGl: pg ? 'pos' : 'mismatch' } : {}), date: c.date, branchId: c.branchId, title: 'إيراد وردية — ' + (c.branchName || ''), src: 'إغلاق وردية', ref: c.id, lines,
+      if (dMis) {   // v56.33 P2: الإغلاق غير المطابق — حركة الولاء وحدها من الفواتير فيبقى 2106 مطابقًا لسجل النقاط
+        if (dMis.earn) lines.push(L('4101', dMis.earn > 0 ? dMis.earn : 0, dMis.earn < 0 ? -dMis.earn : 0), L('2106', dMis.earn < 0 ? -dMis.earn : 0, dMis.earn > 0 ? dMis.earn : 0));
+        if (dMis.redeem) lines.push(L('2106', dMis.redeem, 0), L('4101', 0, dMis.redeem));
+      }
+      push({ id: 'rev:' + c.id, ...(posGlAt(org, c.date) ? { posGl: pg ? 'pos' : 'mismatch', ...(dMis ? { posLoy: true } : {}), ...(!pg && posGlInv ? { posInv: true } : {}) } : {}), date: c.date, branchId: c.branchId, title: 'إيراد وردية — ' + (c.branchName || ''), src: 'إغلاق وردية', ref: c.id, lines,
         vat: sv.vat ? { out: sv.vat, inn: 0, netSales: sv.net, netPurch: 0 } : null,
         reg: { k: 's', doc: 'مبيعات الوردية (مبسطة)', party: 'عملاء أفراد — ' + (c.branchName || ''), net: sv.net, vat: sv.vat, gross: tot } });   // v39.1 سجل المبيعات
     }
@@ -3458,18 +3480,21 @@ function equityStatement(A, from, to) {
    السجلات في ops.closeTasks: { id, month, key, doneBy, doneById, doneAt, note, apBy, apById, apAt } — إلحاق/تحديث بلا حذف. */
 const CLOSE_TASKS_DEF = [['cash', 'جرد الصناديق ومطابقة النقد'], ['bank', 'مطابقة كشف البنك'], ['apps', 'مطابقة كشوف تطبيقات التوصيل والشبكة'], ['stock', 'الجرد ومطابقة المخزون'], ['vat', 'مراجعة الضريبة (الإقرار عند نهاية الفترة)']];
 const closeListOn = (org) => !!(org && org.closeList && org.closeList.on);
-function closeAutoChecks(A, ops, month) {
+function closeAutoChecks(A, ops, month, org) {
   const end = month + '-31', inM = (d) => String(d || '').slice(0, 7) === month; const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
   const cls = (ops.closings || []).filter(c => String(c.date || '') <= end);
   const unb = (A.entries || []).filter(e => inM(e.date) && e.balanced === false);
   const susp = r2((A.entries || []).filter(e => String(e.date || '') <= end).reduce((t, e) => t + (e.lines || []).filter(l => l.code === '9999').reduce((a, l) => a + l.debit - l.credit, 0), 0));
   const pj = (ops.journalManual || []).filter(j => j.status === 'pending' && String(j.date || '') <= end);
   const pcv = (ops.cashVouchers || []).filter(v => v.status === 'pending' && String(v.date || '') <= end);   // v56.32
+  // v56.33 P2: غير المطابق وله فواتير، داخل نطاق «الإغلاق غير المطابق» فقط (معطّل افتراضيًا)، وبلا شرح
+  const pmis = org ? (A.entries || []).filter(e => inM(e.date) && e.posGl === 'mismatch' && e.posInv && posMisLoyAt(org, e.date) && !posGlNote(org, String(e.id).replace(/^rev:/, ''))) : [];
   const pds = (ops.disbursements || []).filter(x => x.status === 'pending' && String(x.date || '') <= end);   // v56.29
   return [
     { k: 'drafts', ar: 'لا إغلاقات مسودة أو مرفوضة حتى نهاية الشهر', n: cls.filter(c => c.status === 'draft' || c.status === 'rejected').length },
     { k: 'pending', ar: 'كل الإغلاقات المرفوعة مدقَّقة (لا شيء بانتظار التدقيق)', n: cls.filter(c => c.status === 'submitted').length },
     { k: 'pj', ar: 'لا قيود يدوية بانتظار الاعتماد', n: pj.length },
+    ...(pmis.length ? [{ k: 'posmis', ar: 'كل إغلاق لا يطابق فواتير نقطة البيع مصحَّح أو مشروح بمستند (صيانة النظام ← قيد الإيراد من نقطة البيع)', n: pmis.length }] : []),
     ...(pcv.length || pds.length ? [{ k: 'pdocs', ar: 'لا سندات صرف ولا أوامر صرف بانتظار الاعتماد (المعلّق في شهر مقفل لا يُعتمد)', n: pcv.length + pds.length }] : []),
     { k: 'unb', ar: 'كل قيود الشهر متوازنة', n: unb.length },
     { k: 'susp', ar: 'الحساب المعلّق 9999 رصيده صفر', n: Math.abs(susp) > 0.004 ? 1 : 0, amt: susp },
@@ -3486,7 +3511,7 @@ function closeLockBlock(org, A, ops, m, lockedThrough) {
   for (let i = 0; i < 24; i++) { const ym = y + '-' + String(mo).padStart(2, '0'); if (lockedThrough && ym <= lockedThrough) break; months.unshift(ym); mo--; if (!mo) { mo = 12; y--; } }
   const from = (org.closeList || {}).from || ''; const scope = months.filter(x => !from || x >= from);
   for (const ym of scope) {
-    const bad = closeAutoChecks(A, ops, ym).filter(c => !c.ok); if (bad.length) return ym + ': ' + bad.map(c => c.ar).join('، ');
+    const bad = closeAutoChecks(A, ops, ym, org).filter(c => !c.ok); if (bad.length) return ym + ': ' + bad.map(c => c.ar).join('، ');
     const todo = closeManualState(ops, ym).filter(x => x.st !== 'approved'); if (todo.length) return ym + ': مهام غير معتمدة — ' + todo.map(x => x.ar).join('، ');
   }
   return '';
@@ -3705,7 +3730,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.32';
+const APP_VER = 'v56.33';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3765,6 +3790,7 @@ export { FL_START, flOn, flKey, flNo, flLines, flRecord, flScope, flCompare, flL
 export { FL_GROUPS, flLvl, flGroupOf, flUnclassified, flReversalOf, flCorrect };   // v56.11 D3
 export { flReadOn, flEntriesOf, flBalDiff, flDayBefore };   // v56.14 D4
 export { ctlBarOn };
+export { posLoyOpening, posMisLoyRanges, posMisLoyFrom, posMisLoyAt, posGlNote };   // v56.33
 export { cvLive, cvApprRanges, cvApprAt, cvApprOpenFrom, cvNeedsAppr, cvApprove };   // v56.32
 export { DS_BLOCKED, dsRanges, dsRouteAt, dsRouteOpen, dsLive, dsBlockReason, dsOpenFrom, dsMapOf, dsAccOk, dsAccOf, dsPostDate, dsFundOf, dsCashOut, dsBankOk, lockedLedgerSig };   // v56.29
 export { DEPT_SHARED, deptOn, deptList, deptPL };   // v56.27 E4   // v56.23 G2
