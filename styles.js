@@ -1822,7 +1822,7 @@ table.tb.rc-tb{min-width:0}
 .ob-tools{flex:1 1 100%;padding:4px 0 2px}
 .ob-ftog{display:none}
 .ob-ftog.on{color:var(--brass);border-color:var(--brass)}
-@media (max-width:640px){.ob-crumb.ob-hasf{flex-wrap:wrap}.ob-crumb .ob-act{flex:0 1 auto;min-width:0}.ob-crumb .ob-path{flex:1 1 0;min-width:72px}.ob-ftog{display:inline-flex;margin-inline-start:auto;flex:0 0 auto}.ob-tools{display:none}.ob-tools.open{display:block}.ob-tools .row{flex-wrap:wrap !important}.ob-tools input[type=date]{width:100% !important;max-width:170px}}
+@media (max-width:640px){.ob-crumb.ob-hasf{flex-wrap:wrap}.ob-crumb .ob-act{flex:0 1 auto;min-width:0}.ob-crumb .ob-path{flex:1 1 0;min-width:72px}.ob-ftog{display:inline-flex;margin-inline-start:auto;flex:0 0 auto}.ob-tools{display:none}.ob-tools.open{display:block}.ob-tools .row{flex-wrap:wrap !important}.ob-tools input[type=date]{width:100% !important;max-width:170px}.ob-tools .sel{width:100% !important;max-width:240px}}
 @media (pointer:coarse){.rms .ob-ftog.btn.sm,.rms .ob-tools .btn.sm{min-height:44px}}
 @media (max-width:640px){.ob-it{padding:8px 9px;font-size:13px}}
 /* v56.0 (DESIGN-V56-008): على الجوال كان شريط أقسام المركز يلتف إلى نحو 5 أسطر فيدفع المحتوى تحت الشاشة الأولى — صار سطرًا واحدًا قابلًا للتمرير أفقيًا */
