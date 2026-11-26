@@ -741,17 +741,16 @@ service cloud.firestore {
         && !exists(flDoc(d.last)) && existsAfter(flDoc(d.last))
         && getAfter(flDoc(d.last)).data.seq == d.n && getAfter(flDoc(d.last)).data.year == int(id.split('_')[1]);
     }
+    // v56.14 (D5 — موافقة المالك): الكتابة من الخادم وحده (حساب الخدمة يتجاوز القواعد، وserver-ledger.js يجمع السطور بالهللات
+    // ويتحقق من الدور والفترة ويرقّم في معاملة). المتصفح يقرأ فقط. دوال flCreate/flReverse/flMetaOk أعلاه تبقى توثيقًا لشروط D1
+    // التي يطبّقها الخادم الآن بنفسه، ولا تُستدعى.
     match /fin_ledger/{id} {
       allow read: if (isAdmin() || isCentral()) && mfaOk();
-      allow create: if subOk() && (flCreate(id, request.resource.data));
-      allow update: if subOk() && (flReverse(id, request.resource.data, resource.data));
-      allow delete: if false;
+      allow create, update, delete: if false;
     }
     match /fin_ledger_meta/{id} {
       allow read: if (isAdmin() || isCentral()) && mfaOk();
-      allow create: if subOk() && (flMetaOk(id, request.resource.data, 0));
-      allow update: if subOk() && (flMetaOk(id, request.resource.data, resource.data.n));
-      allow delete: if false;
+      allow create, update, delete: if false;
     }
 
     match /fin_journal/{id} {

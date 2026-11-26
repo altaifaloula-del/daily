@@ -3490,7 +3490,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.13';
+const APP_VER = 'v56.14';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3549,6 +3549,7 @@ export { toHal, isHal, finStrictOn };   // v56.7 C4
 export { FL_START, flOn, flKey, flNo, flLines, flRecord, flScope, flCompare, flLoad, flPost, flOpening, flAutoPost };   // v56.9 D1 + v56.10 D2
 export { FL_GROUPS, flLvl, flGroupOf, flUnclassified, flReversalOf, flCorrect };   // v56.11 D3
 export { flReadOn, flEntriesOf, flBalDiff, flDayBefore };   // v56.13 D4
+export { ledgerApi };   // v56.14 D5
 export { ErrorBoundary, logClientError, lockedLedgerChanged };
 export { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, saleRetUse, posReturnLoyDed };
 export { jeLive, jeOwner, canApproveJe, jeAutoSt, vatCloseLive, WF_DOCS, wfTiers, wfOn, wfRequired, poNeedsAppr, wfState, wfCanAct, wfApprove };   // v47.1 اعتماد القيد اليدوي
@@ -14512,36 +14513,20 @@ function flReversalOf(r) {
   return { date: r.date, src: r.src, title: ('عكس ' + (r.no || '') + ' — ' + (r.title || '')).slice(0, 300), lines: JSON.stringify(L),
     drH: L.reduce((a, l) => a + l[1], 0), crH: L.reduce((a, l) => a + l[2], 0), digest: sha256Hex(JSON.stringify([r.date, L])), ver: r.ver || 1, reversalOf: r.id };
 }
-/** معاملة واحدة: قيد جديد + العدّاد، ومعه اختياريًا تعليم الأصل «معكوسًا» (القواعد: الأصل والعكس في الدفعة نفسها) */
-async function flTx(c, key, R, lockedTo, reverseId) {
-  const y = Number(String(R.date).slice(0, 4));
-  return ctlTimeout(c.f.runTransaction(c.f.db, async (tx) => {
-    const sr = c.f.doc(c.f.db, 'fin_ledger_meta', 'seq_' + y), er = c.f.doc(c.f.db, 'fin_ledger', key);
-    const [ss, es] = [await tx.get(sr), await tx.get(er)];
-    if (es.exists()) throw Object.assign(new Error('exists'), { code: 'exists' });
-    const n = (ss.exists() ? Number((ss.data() || {}).n) || 0 : 0) + 1;
-    tx.set(er, { ...R, no: flNo(y, n), year: y, seq: n, status: 'posted', by: c.email, at: c.f.serverTimestamp(), cv: APP_CV, ...(R.date <= (lockedTo || '') ? { legacy: true } : {}) });
-    tx.set(sr, { n, last: key });
-    if (reverseId) tx.update(c.f.doc(c.f.db, 'fin_ledger', reverseId), { status: 'reversed', reversedBy: key });
-    return flNo(y, n);
-  }));
-}
 /** التصحيح (قرار المالك: لا تعديل للمرحّل): «مختلف» ⇒ عكس الأصل ثم قيد بالإصدار التالي؛ «زائد» (زال مصدره) ⇒ عكس فقط.
- *  الفترة المقفلة: لا تصحيح حتى يفتحها المدير (والقواعد ترفضه) — تُعدّ في locked. */
+ *  الفترة المقفلة: لا تصحيح حتى يفتحها المدير (والخادم يرفضه) — تُعدّ في locked. */
 async function flCorrect(rep, lockedTo, onProgress) {
-  const c = await ctlIdentity(); if (!c) return { err: 'خارج Firestore' };
   const jobs = [...(rep.pairs || []).map(p => ({ r: p.r, e: p.e })), ...(rep.extra || []).map(r => ({ r, e: null }))];
-  let rev = 0, neu = 0, fail = 0, locked = 0, lastErr = '';
-  for (let i = 0; i < jobs.length; i++) {
-    const { r, e } = jobs[i];
-    if (String(r.date) <= (lockedTo || '')) { locked++; continue; }
-    try {
-      await flTx(c, r.id + 'r', flReversalOf(r), '', r.id); rev++;
-      if (e) { const ver = (r.ver || 1) + 1; await flTx(c, flKey(e.id, ver), flRecord(e, ver), lockedTo); neu++; }
-    } catch (err) { fail++; lastErr = (err && err.code) || 'error'; }
-    if (onProgress) onProgress(i + 1, jobs.length);
-  }
-  return { rev, neu, fail, locked, lastErr, total: jobs.length };
+  const items = []; let locked = 0;
+  jobs.forEach(({ r, e }) => {
+    if (String(r.date) <= (lockedTo || '')) { locked++; return; }
+    const rk = r.id + 'r'; items.push({ key: rk, rec: flReversalOf(r), reverseId: r.id });
+    if (e) { const ver = (r.ver || 1) + 1; items.push({ key: flKey(e.id, ver), rec: flRecord(e, ver), after: rk }); }
+  });
+  const R = await flSend(items, onProgress);
+  const revKeys = new Set(items.filter(x => x.reverseId).map(x => x.key));
+  const rev = R.res.filter(x => x.no && revKeys.has(x.key)).length, neu = R.res.filter(x => x.no && !revKeys.has(x.key)).length;
+  return { rev, neu, fail: R.fail, locked, lastErr: R.lastErr, total: jobs.length };
 }
 /* v56.13 (D4 — قرار المالك): ميزان المراجعة والقوائم المالية من الدفتر المخزّن فعليًا؛ الإقرار الضريبي وبقية التقارير من المحرك.
    القراءة تُفعَّل فقط بعد ضم المجموعات الست ومطابقة كاملة (org.ledger.read). القيد الافتتاحي يُعرض بتاريخ 2025-12-31 ليظهر في «رصيد أول المدة».
@@ -14588,27 +14573,28 @@ async function flLoad() {
   try { const s = await ctlTimeout(c.f.getDocs(c.f.collection(c.f.db, 'fin_ledger')), 30000); return s.docs.map(d => ({ id: d.id, ...(d.data() || {}) })); }
   catch (e) { return { err: (e && e.code) || 'error' }; }
 }
-/** الترحيل بترتيب التاريخ: لكل قيد معاملة تقرأ عدّاد سنته وتكتب القيد والعدّاد معًا (القواعد تفرض +1 بالضبط) */
-async function flPost(entries, lockedTo, onProgress) {
-  const c = await ctlIdentity(); if (!c) return { err: 'خارج Firestore' };
-  const list = (entries || []).slice().sort((a, b) => String(a.date).localeCompare(String(b.date)) || (b.opening ? 1 : 0) - (a.opening ? 1 : 0) || String(a.id).localeCompare(String(b.id)));
-  let ok = 0, fail = 0, skip = 0, lastErr = ''; const nos = [];
-  for (let i = 0; i < list.length; i++) {
-    const e = list[i], R = flRecord(e), key = flKey(e.id, R.ver), y = Number(R.date.slice(0, 4));
-    try {
-      await ctlTimeout(c.f.runTransaction(c.f.db, async (tx) => {
-        const sr = c.f.doc(c.f.db, 'fin_ledger_meta', 'seq_' + y), er = c.f.doc(c.f.db, 'fin_ledger', key);
-        const [ss, es] = [await tx.get(sr), await tx.get(er)];
-        if (es.exists()) throw Object.assign(new Error('exists'), { code: 'exists' });
-        const n = (ss.exists() ? Number((ss.data() || {}).n) || 0 : 0) + 1;
-        tx.set(er, { ...R, no: flNo(y, n), year: y, seq: n, status: 'posted', by: c.email, at: c.f.serverTimestamp(), cv: APP_CV, ...(R.date <= (lockedTo || '') ? { legacy: true } : {}) });
-        tx.set(sr, { n, last: key }); nos.push(flNo(y, n));
-      }));
-      ok++;
-    } catch (err) { if (err && err.code === 'exists') skip++; else { fail++; lastErr = (err && err.code) || 'error'; } }
-    if (onProgress && (i + 1) % 10 === 0) onProgress(i + 1, list.length);
+/** v56.14 (D5): الترحيل من الخادم وحده — يجمع السطور بالهللات ويتحقق من الدور والفترة ويرقّم في معاملة (server-ledger.js).
+ *  الطلب حتى 50 قيدًا بالترتيب؛ «after» يمنع ترحيل إصدار جديد إن لم يُرحَّل عكس أصله. */
+async function ledgerApi(items) {
+  const b = srvBase(); if (!b) throw Object.assign(new Error('الخادم غير مهيأ لهذه النسخة'), { code: 'no-server' });
+  const r = await fetch(b + '/api/ledger/post', { method: 'POST', headers: await aiHeaders(), body: JSON.stringify({ items }) });
+  const j = await r.json().catch(() => ({})); if (!r.ok) throw Object.assign(new Error(j.error || ('HTTP ' + r.status)), { code: 'http-' + r.status }); return j.results || [];
+}
+/** يرسل العناصر على دفعات ويجمع النتائج: رُحّل · موجود مسبقًا · تعذّر */
+async function flSend(items, onProgress) {
+  let ok = 0, fail = 0, skip = 0, lastErr = ''; const nos = [], res = [];
+  for (let i = 0; i < items.length; i += 50) {
+    const part = items.slice(i, i + 50);
+    try { (await ledgerApi(part)).forEach(x => { res.push(x); if (x.no) { ok++; nos.push(x.no); } else if (x.skip) skip++; else { fail++; lastErr = x.err || 'error'; } }); }
+    catch (e) { fail += part.length; lastErr = e.message || e.code || 'error'; }
+    if (onProgress) onProgress(Math.min(items.length, i + 50), items.length);
   }
-  return { ok, fail, skip, lastErr, total: list.length, first: nos[0] || '', last: nos[nos.length - 1] || '' };
+  return { ok, fail, skip, lastErr, total: items.length, first: nos[0] || '', last: nos[nos.length - 1] || '', res };
+}
+/** الترحيل بترتيب التاريخ (الافتتاحي أولًا) — رقم ثابت من الخادم لكل قيد */
+async function flPost(entries, lockedTo, onProgress) {
+  const list = (entries || []).slice().sort((a, b) => String(a.date).localeCompare(String(b.date)) || (b.opening ? 1 : 0) - (a.opening ? 1 : 0) || String(a.id).localeCompare(String(b.id)));
+  return flSend(list.map(e => { const R = flRecord(e); return { key: flKey(e.id, R.ver), rec: R, ...(R.date <= (lockedTo || '') ? { legacy: true } : {}) }; }), onProgress);
 }
 
 const fjOn = (org) => !!(org && org.finRecords && org.finRecords.on);

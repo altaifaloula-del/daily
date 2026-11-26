@@ -1,7 +1,7 @@
 /**
- * v56.9 — MUKTASAB FINANCE D1: قواعد دفتر القيود المخزّن fin_ledger على محاكي Firestore.
- * القيد يُنشأ مع العدّاد في الدفعة نفسها (+1 بالضبط)، متوازن بالهللات، لا يُعدَّل محتواه ولا يُحذف، ولا يُكتب في فترة مقفلة
- * إلا بنافذة الترحيل للمدير؛ والتغيير الوحيد «معكوس» مع قيد عكسي يشير إليه في فترة مفتوحة.
+ * v56.14 — MUKTASAB FINANCE D5: قواعد دفتر القيود المخزّن fin_ledger على محاكي Firestore.
+ * بعد D5 الكتابة من الخادم وحده (server-ledger.js بحساب الخدمة): أي إنشاء أو تعديل أو حذف من المتصفح مرفوض — حتى للمدير
+ * وحتى بقيد صحيح متوازن مع عدّاده؛ والقراءة للمدير والإدارة المركزية فقط. شروط D1 يطبّقها الخادم (tests/server-ledger.test.mjs).
  */
 import { test, before, after } from 'node:test';
 import fs from 'node:fs';
@@ -35,62 +35,23 @@ before(async () => {
 });
 after(async () => { if (env) await env.cleanup(); });
 
-test('FL-R1 المحاسب يرحّل القيد مع العدّاد +1 — ولا يرحّل بلا عدّاد أو بتسلسل خاطئ، والكاشير ودور العرض لا يرحّلان', async () => {
-  await assertSucceeds(post('acct', 'rev_c1_v1', 1), 'الأول: 1');
-  await assertSucceeds(post('acct', 'rev_c2_v1', 2), 'الثاني: 2');
-  await assertFails(setDoc(doc(as('acct'), 'fin_ledger', 'rev_c3_v1'), ent('acct', 3)), 'بلا عدّاد');
-  await assertFails(post('acct', 'rev_c4_v1', 4), 'قفز تسلسل');
-  await assertFails(post('acct', 'rev_c2b_v1', 2), 'تكرار رقم');
-  await assertFails(post('cash', 'rev_c3_v1', 3), 'الكاشير');
-  await assertFails(post('view', 'rev_c3_v1', 3), 'دور العرض');
-  await assertSucceeds(post('acct', 'rev_c3_v1', 3), 'التسلسل يكمل');
+test('FL-R1 لا كتابة من المتصفح: القيد الصحيح مع عدّاده مرفوض للمحاسب والمدير والكاشير', async () => {
+  await assertFails(post('acct', 'rev_c1_v1', 1), 'المحاسب');
+  await assertFails(post('owner', 'rev_c1_v1', 1), 'المدير');
+  await assertFails(post('cash', 'rev_c1_v1', 1), 'الكاشير');
+  await assertFails(setDoc(doc(as('owner'), 'fin_ledger', 'rev_c1_v1'), ent('owner', 1)), 'بلا عدّاد');
+  await assertFails(setDoc(doc(as('owner'), 'fin_ledger_meta', 'seq_2026'), { n: 1, last: 'rev_c1_v1' }), 'العدّاد');
 });
 
-test('FL-R2 الشكل على الخادم: التوازن بالهللات، الرقم يطابق السنة والتسلسل، والكاتب والوقت', async () => {
-  await assertFails(post('acct', 'bad1_v1', 4, { crH: 114999 }), 'غير متوازن');
-  await assertFails(post('acct', 'bad2_v1', 4, { drH: 0, crH: 0 }), 'صفري');
-  await assertFails(post('acct', 'bad3_v1', 4, { drH: 1150.5, crH: 1150.5 }), 'ليس هللات صحيحة');
-  await assertFails(post('acct', 'bad4_v1', 4, { no: 'JV-2026-000005' }), 'الرقم لا يطابق التسلسل');
-  await assertFails(post('acct', 'bad5_v1', 4, { no: 'JV-2025-000004' }), 'الرقم لسنة أخرى');
-  await assertFails(post('acct', 'bad6_v1', 4, { by: U.owner }), 'باسم غيره');
-  await assertFails(post('acct', 'bad7_v1', 4, { at: Timestamp.fromDate(new Date('2026-11-01')) }), 'وقت من العميل');
-  await assertFails(post('acct', 'bad8_v1', 4, { extra: 1 }), 'حقل زائد');
-  await assertFails(post('acct', 'bad9_v1', 4, { status: 'reversed' }), 'لا يُنشأ معكوسًا');
-});
-
-test('FL-R3 لا تعديل ولا حذف: السطور والمبلغ والرقم ثابتة — حتى للمدير', async () => {
+test('FL-R2 ما كتبه الخادم لا يُعدَّل ولا يُعكس ولا يُحذف من المتصفح', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => { const d = ctx.firestore();
+    await setDoc(doc(d, 'fin_ledger', 'rev_c1_v1'), { ...ent('acct', 1), at: Timestamp.now(), via: 'server' });
+    await setDoc(doc(d, 'fin_ledger_meta', 'seq_2026'), { n: 1, last: 'rev_c1_v1' }); });
   await assertFails(updateDoc(doc(as('owner'), 'fin_ledger', 'rev_c1_v1'), { lines: '[]' }), 'السطور');
-  await assertFails(updateDoc(doc(as('owner'), 'fin_ledger', 'rev_c1_v1'), { drH: 1, crH: 1 }), 'المبلغ');
-  await assertFails(updateDoc(doc(as('owner'), 'fin_ledger', 'rev_c1_v1'), { status: 'reversed' }), 'معكوس بلا قيد عكسي');
-  await assertFails(deleteDoc(doc(as('owner'), 'fin_ledger', 'rev_c1_v1')), 'حذف');
-  await assertFails(setDoc(doc(as('owner'), 'fin_ledger_meta', 'seq_2026'), { n: 1, last: 'rev_c1_v1' }), 'إنقاص العدّاد');
+  await assertFails(updateDoc(doc(as('owner'), 'fin_ledger', 'rev_c1_v1'), { status: 'reversed', reversedBy: 'x' }), 'العكس');
+  await assertFails(deleteDoc(doc(as('owner'), 'fin_ledger', 'rev_c1_v1')), 'الحذف');
+  await assertFails(updateDoc(doc(as('owner'), 'fin_ledger_meta', 'seq_2026'), { n: 2 }), 'العدّاد');
   await assertFails(deleteDoc(doc(as('owner'), 'fin_ledger_meta', 'seq_2026')), 'حذف العدّاد');
-});
-
-test('FL-R4 الفترة المقفلة: ممنوعة إلا بنافذة الترحيل للمدير وبعلامة legacy', async () => {
-  await assertFails(post('acct', 'old1_v1', 4, { date: '2026-10-15' }), 'المحاسب في أكتوبر المقفل');
-  await assertFails(post('owner', 'old1_v1', 4, { date: '2026-10-15' }), 'المدير بلا نافذة');
-  await env.withSecurityRulesDisabled(async (ctx) => setDoc(doc(ctx.firestore(), 'fin_periods', 'migration'), { open: true, until: Timestamp.fromDate(new Date(Date.now() + 3600e3)), by: U.owner }));
-  await assertFails(post('owner', 'old1_v1', 4, { date: '2026-10-15' }), 'بلا علامة legacy');
-  await assertFails(post('acct', 'old1_v1', 4, { date: '2026-10-15', legacy: true }), 'المحاسب لا يرحّل التاريخ');
-  await assertSucceeds(post('owner', 'old1_v1', 4, { date: '2026-10-15', legacy: true }), 'المدير في النافذة');
-  await env.withSecurityRulesDisabled(async (ctx) => setDoc(doc(ctx.firestore(), 'fin_periods', 'migration'), { open: false, until: Timestamp.now(), by: U.owner }));
-});
-
-test('FL-R5 العكس: القيد الأصلي «معكوس» مع قيد عكسي جديد يشير إليه في الدفعة نفسها — في فترة مفتوحة فقط', async () => {
-  const d = as('acct'); const b = writeBatch(d);
-  b.update(doc(d, 'fin_ledger', 'rev_c2_v1'), { status: 'reversed', reversedBy: 'rev_c2_r1' });
-  b.set(doc(d, 'fin_ledger', 'rev_c2_r1'), ent('acct', 5, { src: 'rev:c2', reversalOf: 'rev_c2_v1', lines: '[["1101",0,115000,"A"],["4101",100000,0,"A"],["2301",15000,0,"A"]]' }));
-  b.set(doc(d, 'fin_ledger_meta', 'seq_2026'), { n: 5, last: 'rev_c2_r1' });
-  await assertSucceeds(b.commit(), 'عكس في فترة مفتوحة');
-  const d2 = as('acct'); const b2 = writeBatch(d2);
-  b2.update(doc(d2, 'fin_ledger', 'rev_c3_v1'), { status: 'reversed', reversedBy: 'rev_c1_v1' });   // يشير إلى قيد ليس عكسًا له
-  await assertFails(b2.commit(), 'رابط لقيد لا يعكسه');
-  const d3 = as('owner'); const b3 = writeBatch(d3);
-  b3.update(doc(d3, 'fin_ledger', 'old1_v1'), { status: 'reversed', reversedBy: 'old1_r1' });
-  b3.set(doc(d3, 'fin_ledger', 'old1_r1'), ent('owner', 6, { src: 'rev:old1', reversalOf: 'old1_v1' }));
-  b3.set(doc(d3, 'fin_ledger_meta', 'seq_2026'), { n: 6, last: 'old1_r1' });
-  await assertFails(b3.commit(), 'قرار المالك: لا عكس لقيد في فترة مقفلة');
 });
 
 test('FL-R6 القراءة للمدير والإدارة المركزية فقط', async () => {
