@@ -3552,3 +3552,22 @@ test('v56.7 C4 التطابق التام بالهللات: معطّل افترا
   assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.9 D1 دفتر القيود المخزّن: معطّل افتراضيًا، يفعّله المدير، والمطابقة خارج Firestore لا تنهار، والإيقاف متاح', async () => {
+  const ctx = await browser.newContext(devices['iPad (gen 7)']); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'live/Admin/admin'); await p.reload(); await p.waitForTimeout(500); await settle(p);
+  await p.locator('button:has-text("صيانة")').first().click(); await p.waitForTimeout(500);
+  const card = p.locator('[data-ledger]');
+  assert.match(await card.innerText(), /غير مفعّل/);
+  assert.match(await card.innerText(), /JV-2026-000001/);
+  assert.equal(await card.locator('button:has-text("مطابقة")').count(), 0, 'لا مطابقة قبل التفعيل');
+  await card.locator('button:has-text("تفعيل")').click(); await p.waitForTimeout(400);
+  assert.equal(await p.evaluate(() => !!(window.curOrg.ledger || {}).on), true);
+  assert.match(await card.innerText(), /القراءة من المحرك/);
+  await card.locator('button:has-text("مطابقة")').click(); await p.waitForTimeout(400);
+  assert.match(await p.evaluate(() => window.lastSay || ''), /Firestore فقط/);
+  await card.locator('button:has-text("إيقاف")').click(); await p.waitForTimeout(400);
+  assert.equal(await p.evaluate(() => !!(window.curOrg.ledger || {}).on), false);
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true);
+  assert.deepEqual(errs, []); await ctx.close();
+});

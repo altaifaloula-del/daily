@@ -678,6 +678,72 @@ service cloud.firestore {
         && (resource == null || request.resource.data.lockedTo >= resource.data.lockedTo || (shortStr(request.resource.data.get('reason', ''), 500) && request.resource.data.get('reason', '').size() >= 5));
       allow delete: if false;
     }
+    /* v56.9 — MUKTASAB FINANCE D1: دفتر القيود المخزّن (docs/finance/03-PHASE-D-LEDGER-DESIGN.md، قرارات المالك 2026-11-26).
+       fin_ledger/{key}: قيد آلي برقم ثابت JV-<السنة>-<تسلسل>، يُنشأ مرة ولا يُعدَّل محتواه ولا يُحذف؛ المجموعان بالهللات متساويان.
+       التغيير الوحيد: «مرحّل» ⇒ «معكوس» مع رابط لقيد عكسي يشير إليه، في فترة مفتوحة فقط (لا تصحيح في المقفلة).
+       fin_ledger_meta/seq_<السنة>: العدّاد — يزيد بواحد بالضبط في الدفعة نفسها التي يُنشأ فيها القيد (getAfter).
+       حد معروف: القواعد لا تجمع سطور القيد (لا حلقات) — تفحص المجموعين المعلنين، والمطابقة مع المحرك تكشف أي فرق. */
+    function flDoc(k) { return /databases/$(database)/documents/fin_ledger/$(k); }
+    function flSeqPath(y) { return /databases/$(database)/documents/fin_ledger_meta/$('seq_' + string(y)); }
+    function flShape(d, id) {
+      return d.keys().hasOnly(['no', 'year', 'seq', 'date', 'src', 'title', 'lines', 'drH', 'crH', 'digest', 'ver', 'status', 'reversedBy', 'reversalOf', 'by', 'at', 'cv', 'legacy'])
+        && d.keys().hasAll(['no', 'year', 'seq', 'date', 'src', 'lines', 'drH', 'crH', 'digest', 'ver', 'status', 'by', 'at'])
+        && d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && d.year is int && d.year == int(d.date.split('-')[0])
+        && d.seq is int && d.seq >= 1 && d.no is string && d.no.matches('^JV-' + string(d.year) + '-[0-9]{6,9}$')
+        && int(d.no.split('-')[2]) == d.seq
+        && shortStr(d.src, 200) && (!('title' in d) || shortStr(d.title, 300))
+        && d.lines is string && d.lines.size() <= 100000
+        && d.drH is int && d.crH is int && d.drH == d.crH && d.drH > 0
+        && d.digest is string && d.digest.matches('^[0-9a-f]{64}$')
+        && d.ver is int && d.ver >= 1 && d.status in ['posted', 'reversed']
+        && (!('reversalOf' in d) || shortStr(d.reversalOf, 150))
+        && (!('reversedBy' in d) || shortStr(d.reversedBy, 150))
+        && (!('legacy' in d) || d.legacy == true)
+        && d.by is string && cvOk(d) && id.matches('^[A-Za-z0-9_-]{1,150}$');
+    }
+    function flSeqOk(d) {
+      let p = flSeqPath(d.year);
+      let prev = exists(p) ? get(p).data.n : 0;
+      return d.seq == prev + 1 && getAfter(p).data.n == d.seq;
+    }
+    function flCreate(id, d) {
+      let m = memOf();
+      let adm = admOf(m);
+      return okUser(m, adm) && finRole(m, adm) && flShape(d, id)
+        && d.by == userEmail() && d.at == request.time && d.status == 'posted' && !('reversedBy' in d)
+        && (d.get('legacy', false) == true ? (adm && finMigOpen()) : finOpen(d.date))
+        && flSeqOk(d);
+    }
+    function flReverse(id, d, o) {
+      let m = memOf();
+      let adm = admOf(m);
+      return okUser(m, adm) && finRole(m, adm) && o.status == 'posted' && d.status == 'reversed'
+        && d.diff(o).affectedKeys().hasOnly(['status', 'reversedBy'])
+        && shortStr(d.reversedBy, 150) && existsAfter(flDoc(d.reversedBy))
+        && getAfter(flDoc(d.reversedBy)).data.get('reversalOf', '') == id
+        && finOpen(o.date);
+    }
+    // العدّاد: {n, last} — n يزيد بواحد، وlast قيد جديد في الدفعة نفسها تسلسله n وسنته سنة العدّاد
+    function flMetaOk(id, d, prevN) {
+      return id.matches('^seq_[0-9]{4}$') && d.keys().hasOnly(['n', 'last']) && d.n is int && d.n == prevN + 1
+        && d.last is string && d.last.matches('^[A-Za-z0-9_-]{1,150}$')
+        && !exists(flDoc(d.last)) && existsAfter(flDoc(d.last))
+        && getAfter(flDoc(d.last)).data.seq == d.n && getAfter(flDoc(d.last)).data.year == int(id.split('_')[1]);
+    }
+    match /fin_ledger/{id} {
+      allow read: if (isAdmin() || isCentral()) && mfaOk();
+      allow create: if flCreate(id, request.resource.data);
+      allow update: if flReverse(id, request.resource.data, resource.data);
+      allow delete: if false;
+    }
+    match /fin_ledger_meta/{id} {
+      allow read: if (isAdmin() || isCentral()) && mfaOk();
+      allow create: if flMetaOk(id, request.resource.data, 0);
+      allow update: if flMetaOk(id, request.resource.data, resource.data.n);
+      allow delete: if false;
+    }
+
     match /fin_journal/{id} {
       allow read: if (isAdmin() || isCentral()) && mfaOk();
       allow create: if request.resource.data.get('legacy', false) == true ? fjLegacy(id, request.resource.data) : fjCreate(id, request.resource.data);
