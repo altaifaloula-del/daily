@@ -3488,7 +3488,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.11';
+const APP_VER = 'v56.12';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3546,6 +3546,7 @@ export { FbGate };
 export { toHal, isHal, finStrictOn };   // v56.7 C4
 export { FL_START, flOn, flKey, flNo, flLines, flRecord, flScope, flCompare, flLoad, flPost, flOpening, flAutoPost };   // v56.9 D1 + v56.10 D2
 export { FL_GROUPS, flLvl, flGroupOf, flUnclassified, flReversalOf, flCorrect };   // v56.11 D3
+export { flReadOn, flEntriesOf, flBalDiff, flDayBefore };   // v56.12 D4
 export { ErrorBoundary, logClientError, lockedLedgerChanged };
 export { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, saleRetUse, posReturnLoyDed };
 export { jeLive, jeOwner, canApproveJe, jeAutoSt, vatCloseLive, WF_DOCS, wfTiers, wfOn, wfRequired, poNeedsAppr, wfState, wfCanAct, wfApprove };   // v47.1 اعتماد القيد اليدوي
@@ -14497,6 +14498,27 @@ async function flCorrect(rep, lockedTo, onProgress) {
     if (onProgress) onProgress(i + 1, jobs.length);
   }
   return { rev, neu, fail, locked, lastErr, total: jobs.length };
+}
+/* v56.12 (D4 — قرار المالك): ميزان المراجعة والقوائم المالية من الدفتر المخزّن فعليًا؛ الإقرار الضريبي وبقية التقارير من المحرك.
+   القراءة تُفعَّل فقط بعد ضم المجموعات الست ومطابقة كاملة (org.ledger.read). القيد الافتتاحي يُعرض بتاريخ 2025-12-31 ليظهر في «رصيد أول المدة».
+   كل السجلات تُحتسب — الأصل المعكوس وعكسه يتقابلان، فالأثر الصافي = القائم. */
+const flReadOn = (org) => flOn(org) && !!(org.ledger && org.ledger.read) && flLvl(org) === FL_GROUPS.length;
+const flDayBefore = (d) => { const t = new Date(d + 'T12:00:00Z'); t.setUTCDate(t.getUTCDate() - 1); return t.toISOString().slice(0, 10); };
+function flEntriesOf(recs) {
+  return (recs || []).filter(r => r && r.lines && r.date).map(r => {
+    let L = []; try { L = JSON.parse(r.lines) || []; } catch { L = []; }
+    const lines = L.map(l => ({ code: String(l[0]), debit: (Number(l[1]) || 0) / 100, credit: (Number(l[2]) || 0) / 100 }));
+    const src = String(r.src || '');
+    return { id: r.id, no: r.no, date: src.startsWith('open:') ? flDayBefore(FL_START) : r.date, title: r.title, src, ref: r.no, branchId: (L[0] && L[0][3]) || '',
+      closing: src.startsWith('yearend'), lines, debit: (Number(r.drH) || 0) / 100, credit: (Number(r.crH) || 0) / 100, fromLedger: true };
+  }).sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.no || '').localeCompare(String(b.no || '')));
+}
+/** فرق الحركة بين نطاق المحرك (flScope) والدفتر حتى تاريخ — بالهللات لكل حساب، دون القيد الافتتاحي المحسوب (للتنبيه في الشاشة) */
+function flBalDiff(scopeEntries, ledgerEntries, to) {
+  const agg = (ents) => { const m = {}; ents.forEach(e => { if (String(e.id || '').startsWith('open:') || String(e.src || '').startsWith('open:')) return; if (to && String(e.date) > to) return;
+    (e.lines || []).forEach(l => { const c = String(l.code); m[c] = (m[c] || 0) + toHal(l.debit) - toHal(l.credit); }); }); return m; };
+  const e = agg(scopeEntries || []), l = agg(ledgerEntries || []);
+  return [...new Set([...Object.keys(e), ...Object.keys(l)])].sort().filter(c => (e[c] || 0) !== (l[c] || 0)).map(c => ({ code: c, engine: (e[c] || 0) / 100, ledger: (l[c] || 0) / 100 }));
 }
 async function flAutoPost(org, ops, closingId) {
   if (!flOn(org)) return null;

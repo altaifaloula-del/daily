@@ -3594,3 +3594,14 @@ test('v56.9 D1 دفتر القيود المخزّن: معطّل افتراضيً
   assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.12 D4 الميزان من الدفتر المخزّن: بلا تفعيل لا لافتة، ومع التفعيل خارج Firestore لافتة صريحة والأرقام من المحرك', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Accounting/admin/tb');
+  await p.waitForTimeout(300);
+  assert.equal(await p.locator('[data-flsrc]').count(), 0, 'القراءة غير مفعّلة ⇒ لا لافتة');
+  await p.evaluate(() => window.setOrg(g => ({ ...g, ledger: { on: true, read: true, lvl: 6 } }))); await p.waitForTimeout(500);
+  const t = await p.locator('[data-flsrc]').innerText();
+  assert.match(t, /تعذّر تحميل الدفتر \(خارج Firestore\) — الأرقام من المحرك|الفترة تبدأ قبل 2026-01-01/);
+  assert.ok(await p.locator('text=ميزان المراجعة').count() > 0);
+  assert.deepEqual(errs, []); await ctx.close();
+});
