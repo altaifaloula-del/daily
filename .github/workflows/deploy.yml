@@ -70,9 +70,6 @@ jobs:
           path: tests/.cache/shots
           if-no-files-found: ignore
           retention-days: 14
-      - name: مؤقت — طباعة اللقطات في السجل للتحقق البصري (يُحذف قبل الدمج)
-        if: always()
-        run: for f in tests/.cache/shots/finstrict*.jpg; do echo "SHOT_BEGIN $(basename $f)"; base64 -w0 "$f"; echo; echo "SHOT_END"; done
 
   # ===== 2) بناء الواجهة =====
   build:
