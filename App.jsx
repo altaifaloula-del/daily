@@ -3474,7 +3474,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.3';
+const APP_VER = 'v56.4';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -4314,12 +4314,13 @@ function PlatformApp() {
     // v51.9: صلاحية التعديل الشخصية (log.perm) تحل محل فحص الدور لهذا السجل بعينه
     if (log?.perm ? !(Array.isArray(log.perm.rec) ? log.perm.rec : [log.perm.rec]).every(r => canEditRec(me, log.perm.kind, r)) : (log?.need && !capOK(me?.role, log.need))) { say(log?.perm ? 'لا تملك صلاحية تعديل هذا السجل — يحددها مسؤول النظام لكل مستخدم' : 'لا تملك صلاحية هذا الإجراء — تواصل مع مدير النظام', 'no'); return false; }
     // v41.9: نلتقط قائمة الإغلاقات قبل/بعد آخر تطبيق للتعديل لنسخ الفرق إلى السجلات المستقلة (إن فُعّلت)
-    let clBefore = null, clAfter = null, jmBefore = null, jmAfter = null, fdB = {}, fdA = {};
+    let clBefore = null, clAfter = null, jmBefore = null, jmAfter = null, fdB = {}, fdA = {}, poBefore = null, poAfter = null;
     // v42.2: علامات العرض (_clr*) لا تُحفظ أبدًا — تُنزع من أي إغلاق قبل الكتابة
     const unflag = (c) => { if (!c || typeof c !== 'object' || !Object.keys(c).some(k => k.startsWith('_clr'))) return c; const o = {}; Object.keys(c).forEach(k => { if (!k.startsWith('_clr')) o[k] = c[k]; }); return o; };
-    const ok = await writeOps(d => { let r = mutator(d); if (r && Array.isArray(r.invoices) && r.invoices !== d.invoices) { const st = pjStamp(d.invoices, r.invoices); if (st !== r.invoices) r = { ...r, invoices: st }; } if (r && Array.isArray(r.closings)) r.closings = r.closings.map(unflag); clBefore = d.closings; clAfter = r && r.closings; jmBefore = d.journalManual; jmAfter = r && r.journalManual;
+    const ok = await writeOps(d => { let r = mutator(d); if (r && Array.isArray(r.invoices) && r.invoices !== d.invoices) { const st = pjStamp(d.invoices, r.invoices); if (st !== r.invoices) r = { ...r, invoices: st }; } if (r && Array.isArray(r.closings)) r.closings = r.closings.map(unflag); clBefore = d.closings; clAfter = r && r.closings; poBefore = d.posOrders; poAfter = r && r.posOrders; jmBefore = d.journalManual; jmAfter = r && r.journalManual;
       fdB = { pi: d.invoices, si: d.salesInvoices, cv: d.cashVouchers }; fdA = r ? { pi: r.invoices, si: r.salesInvoices, cv: r.cashVouchers } : {}; return r; });
     if (ok && clAfter && clAfter !== clBefore && clrOn(orgNow.current)) clrQueue(clBefore, clAfter);   // بالخلفية وبالترتيب — لا يؤخر الحفظ
+    if (ok && poAfter && poAfter !== poBefore && posrOn(orgNow.current)) posrQueue(poBefore, poAfter);   // v56.4 (POS 2a) نسخ الفواتير لسجلاتها المحمية — بالخلفية
     if (ok && jmAfter && jmAfter !== jmBefore && fjOn(orgNow.current)) fjQueue(jmBefore, jmAfter);   // v49.0 القيود اليدوية → fin_journal
     if (ok && fjOn(orgNow.current) && ['pi', 'si', 'cv'].some(k => fdA[k] && fdA[k] !== fdB[k])) fdQueue(fdB, fdA);   // v49.0 الفواتير والسندات → fin_docs
     if (!ok) {
@@ -14204,6 +14205,89 @@ async function clrSeed(closings, onProgress) {
   }
   return { ok, fail, lastErr, total: list.length };
 }
+/* ===== v56.4 — MUKTASAB POS الدفعة 2a: فواتير نقطة البيع سجلات مستقلة pos_orders/{id} (نسخ موازٍ) =====
+   التصميم: docs/pos/POS_DATABASE_DESIGN.md. مستند الفرع/الشهر يبقى المصدر؛ كل فاتورة جديدة أو إلغاء يُنسخ بالخلفية بعد نجاح الحفظ
+   إلى سجل تحرسه القواعد (لا تعديل للأرقام ولا حذف، والإلغاء للإدارة فقط). مُطفأ افتراضيًا (org.posRecords.on). حذف فاتورة من
+   المستند (أرشفة/قص) لا يحذف سجلها أبدًا. الإخفاق لا يُفشل البيع — يُعدّ ويظهر في «صيانة النظام» والمطابقة تكشفه. */
+const POSR_VOID_KEYS = ['status', 'voidBy', 'voidAt', 'voidReason', 'voidNote'];
+const posrOn = (org) => !!(org && org.posRecords && org.posRecords.on);
+const posrOkId = (id) => /^[A-Za-z0-9_-]{1,120}$/.test(String(id || ''));
+/** محتوى الفاتورة الثابت (بلا حقول الإلغاء ولا علامات العرض/الطابور) — عليه تُحسب البصمة */
+const posrData = (o) => { const x = {}; Object.keys(o || {}).forEach(k => { if (!POSR_VOID_KEYS.includes(k) && k !== 'pending' && !k.startsWith('_')) x[k] = o[k]; }); return clrData(x); };
+const posrVoidData = (o) => JSON.stringify({ by: o.voidBy || '', at: o.voidAt || '', reason: o.voidReason || '', ...(o.voidNote ? { note: o.voidNote } : {}) }).slice(0, 4000);
+/** حقول السجل كما تراها القواعد (بلا by/at/cv التي تضيفها طبقة الكتابة) — status:'paid' دائمًا عند الإنشاء */
+function posrRecord(o, voided) {
+  const data = posrData(o);
+  return { branchId: String(o.branchId || ''), date: String(o.date || '').slice(0, 10), kind: o.kind === 'return' ? 'return' : 'sale',
+    status: voided ? 'void' : 'paid', no: String(o.no || '').slice(0, 60), dev: String(o.dev || '').slice(0, 12),
+    total: Number(o.total) || 0, vat: Number(o.vat) || 0, digest: sha256Hex(data), data, ...(voided ? { voidData: posrVoidData(o) } : {}) };
+}
+/** ما يُنسخ: فاتورة جديدة (create؛ وإن وصلت ملغاة: create ثم void)، أو فاتورة أُلغيت (void). الحذف من المستند لا يحذف السجل */
+function posrDiff(before, after) {
+  const B = new Map((before || []).map(o => [o && o.id, o])), put = [];
+  (after || []).forEach(o => { if (!o || !posrOkId(o.id) || !o.branchId) return; const p = B.get(o.id);
+    if (!p) put.push({ o, mode: o.status === 'void' ? 'both' : 'create' });
+    else if (p.status !== 'void' && o.status === 'void') put.push({ o, mode: 'void' }); });
+  return put;
+}
+/** مطابقة فواتير المستند مع السجلات: ناقص · مختلف (البصمة أو الحالة) · زائد (سجل بلا فاتورة — طبيعي بعد الأرشفة، لا يُفشل المطابقة) */
+function posrCompare(orders, recs) {
+  const R = new Map((recs || []).map(r => [r.id, r])), missing = [], differ = [], seen = new Set();
+  (orders || []).forEach(o => { if (!o || !posrOkId(o.id) || !o.branchId) return; const r = R.get(o.id); seen.add(o.id);
+    if (!r) missing.push(o); else if (r.digest !== sha256Hex(posrData(o)) || r.status !== (o.status === 'void' ? 'void' : 'paid')) differ.push(o); });
+  const extra = (recs || []).filter(r => !seen.has(r.id));
+  return { ok: !missing.length && !differ.length, missing, differ, extra, total: (orders || []).length, recs: (recs || []).length };
+}
+let _posrState = { at: 0, ok: 0, fail: 0, lastErr: '' };
+const posrState = () => _posrState;
+async function posrPut(c, o, mode) {
+  const ref = c.f.doc(c.f.db, 'pos_orders', String(o.id));
+  const stamp = () => ({ by: c.email, at: c.f.serverTimestamp(), cv: APP_CV });
+  const create = async () => {
+    try { await ctlTimeout(c.f.setDoc(ref, { ...posrRecord(o, false), ...stamp() })); }
+    catch (e) {   // موجود سلفًا بالبيانات نفسها (إعادة محاولة بعد رد ضائع) ⇒ ليس خطأ
+      const snap = await ctlTimeout(c.f.getDoc(ref)).catch(() => null); const r = snap && snap.exists() ? snap.data() : null;
+      if (!(r && r.digest === sha256Hex(posrData(o)))) throw e; }
+  };
+  const voidIt = async () => {
+    try { await ctlTimeout(c.f.setDoc(ref, { ...posrRecord(o, true), ...stamp() })); }
+    catch (e) { const snap = await ctlTimeout(c.f.getDoc(ref)).catch(() => null); const r = snap && snap.exists() ? snap.data() : null;
+      if (!(r && r.status === 'void')) throw e; }
+  };
+  if (mode === 'create' || mode === 'both') await create();
+  if (mode === 'void' || mode === 'both') await voidIt();
+}
+async function posrMirror(before, after) {
+  const c = await ctlIdentity(); if (!c) return null;
+  const put = posrDiff(before, after); if (!put.length) return { ok: 0, fail: 0 };
+  let ok = 0, fail = 0, lastErr = '';
+  for (const { o, mode } of put) { try { await posrPut(c, o, mode); ok++; } catch (e) { fail++; lastErr = (e && e.code) || 'error'; } }
+  _posrState = { at: Date.now(), ok: _posrState.ok + ok, fail: _posrState.fail + fail, lastErr: lastErr || _posrState.lastErr };
+  return { ok, fail, lastErr };
+}
+let _posrChain = Promise.resolve();
+const posrQueue = (before, after) => { _posrChain = _posrChain.then(() => posrMirror(before, after)).catch(() => null); return _posrChain; };
+async function posrLoad(branchIds, central) {
+  const c = await ctlIdentity(); if (!c) return null;
+  try {
+    const qs = central ? [c.f.collection(c.f.db, 'pos_orders')] : (branchIds || []).filter(Boolean).slice(0, 30).map(b => c.f.query(c.f.collection(c.f.db, 'pos_orders'), c.f.where('branchId', '==', b)));
+    const snaps = await ctlTimeout(Promise.all(qs.map(q => c.f.getDocs(q))), 60000);
+    return snaps.flatMap(s => s.docs.map(d => ({ id: d.id, ...(d.data() || {}) })));
+  } catch (e) { return { err: (e && e.code) || 'error' }; }
+}
+/** نسخ الفواتير القائمة (المدير): الناقص فقط (حسب مطابقة سابقة)، وما في فترة مقفلة يُتخطى (القواعد ترفضه) */
+async function posrSeed(orders, lockedTo, onProgress) {
+  const c = await ctlIdentity(); if (!c) return { err: 'خارج Firestore' };
+  let ok = 0, fail = 0, locked = 0, lastErr = '', i = 0; const list = (orders || []).filter(o => o && posrOkId(o.id) && o.branchId);
+  for (const o of list) {
+    if (String(o.date || '') <= String(lockedTo || '0000-00-00')) { locked++; continue; }
+    try { await posrPut(c, o, o.status === 'void' ? 'both' : 'create'); ok++; } catch (e) { fail++; lastErr = (e && e.code) || 'error'; }
+    if (onProgress && (++i % 20 === 0)) onProgress(i, list.length);
+  }
+  return { ok, fail, locked, lastErr, total: list.length };
+}
+export { posrOn, posrData, posrRecord, posrDiff, posrCompare, posrState, posrLoad, posrSeed };   // v56.4 سجلات فواتير نقطة البيع
+
 /* ===== v49.0 — المرحلة 01 (قرار G1-ب): القيود اليدوية سجلات مستقلة (fin_journal/{id}) — نسخ مطابق (mirror) =====
    الوثيقة الحالية (journalManual) تبقى المصدر في هذه المرحلة؛ كل إنشاء/اعتماد/رفض/حذف قبل الاعتماد يُنسخ إلى سجل تحرسه القواعد
    على الخادم: الإنشاء لأدوار المحاسبة المركزية وبعد تاريخ الإقفال، «مرحّل مباشرة» للمدير فقط، والاعتماد لغير المنشئ،
