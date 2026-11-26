@@ -3676,7 +3676,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.23';
+const APP_VER = 'v56.24';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -8766,6 +8766,7 @@ function OdooBar({ groups, cur, onPick, extra, sw, showSub, subEnd, crumb }) {
   const obRef = useRef(null);
   useEffect(() => { const c = obRef.current; if (!c || c.scrollWidth <= c.clientWidth + 2) return; const el = c.querySelector('.ob-it.on'); if (el && el.scrollIntoView) { try { el.scrollIntoView({ inline: 'center', block: 'nearest' }); } catch { } } }, [cur]);
   const [vars, setVars] = useState({});
+  const [ftOpen, setFtOpen] = useState(false);   // v56.24: لوحة المرشحات على الجوال
   const [pos, setPos] = useState(null);   // القائمة تُرسم في جذر الصفحة (portal) لتعلو كل البطاقات، بموضع الزر
   const place = (el) => { if (!el) return; const r = el.getBoundingClientRect(), W = window.innerWidth;
     // ألوان الثيم من الشريط نفسه (القائمة خارج غلاف الثيم في جذر الصفحة)
@@ -8797,13 +8798,16 @@ function OdooBar({ groups, cur, onPick, extra, sw, showSub, subEnd, crumb }) {
       {/* v56.16 (بلاغ المالك: أقسام المحاسبة غير ظاهرة): صف ظاهر بأقسام المجموعة الحالية — القسم الحالي مميّز، بلا فتح قائمة.
           خارج .ob لأن الشريط على الجوال سطر واحد قابل للتمرير */}
       {crumb && (() => { const g = gs.find(x => x.items.some(y => y.id === cur)); const it = g && g.items.find(y => y.id === cur);
-        return <div className="ob-crumb" data-ctlbar>
+        return <div className={'ob-crumb' + (crumb.tools ? ' ob-hasf' : '')} data-ctlbar>
           <nav className="ob-path" aria-label={isEn() ? 'Location' : 'مسار الموقع'}>
             <span className="obp-app">{TX(crumb.app)}</span>
             {g && g.items.length > 1 && <><span className="obp-sep" aria-hidden="true">›</span><span className="obp-grp">{TX(g.ar)}</span></>}
             {it && <><span className="obp-sep" aria-hidden="true">›</span><b className="obp-cur" aria-current="page" data-ctlbar-cur>{TX(it.ar)}</b></>}
           </nav>
+          {crumb.tools ? <button className={'btn sm gh ob-ftog' + (ftOpen ? ' on' : '')} aria-expanded={ftOpen} onClick={() => setFtOpen(v => !v)} data-ctlbar-ftog>{isEn() ? 'Filter' : 'تصفية'}{crumb.nf ? ' (' + crumb.nf + ')' : ''}</button> : null}
           {crumb.primary ? <span className="ob-act" data-ctlbar-act>{crumb.primary}</span> : null}
+          {/* v56.24 (G2 المرحلة 2): مرشحات الشاشة (الفترة/الفرع) في شريط التحكم — على الجوال خلف زر «تصفية (n)» */}
+          {crumb.tools ? <div className={'ob-tools' + (ftOpen ? ' open' : '')} data-ctlbar-tools>{crumb.tools}</div> : null}
         </div>; })()}
       {showSub && (() => { const g = gs.find(x => x.items.some(y => y.id === cur)); if (!g || g.items.length < 2) return subEnd ? <div className={'ob-sub' + (crumb ? ' ctl2' : '')}>{subEnd}</div> : null;
         return <div className={'ob-sub' + (crumb ? ' ctl2' : '')} role="tablist" aria-label={TX(g.ar)}>

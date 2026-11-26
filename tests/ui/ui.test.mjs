@@ -3763,3 +3763,28 @@ test('v56.23 G2: شريط التحكم في المحاسبة — معطّل اف
     assert.ok(hs.length > 0 && hs.every(h => h >= 44), 'أهداف لمس ≥ 44px: ' + hs.join(','));
     assert.deepEqual(errs, []); await ctx.close(); }
 });
+
+test('v56.24 G2 المرحلة 2: مرشحات التقارير في شريط التحكم — مرة واحدة، تعمل، وعلى الجوال خلف «تصفية (n)»', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1190, height: 782 } }, 'live/Accounting/admin/tb');
+  await p.waitForSelector('.ob-sub');
+  assert.equal(await p.locator('[data-ctlbar-tools]').count(), 0, 'معطّل افتراضيًا');
+  const inCard0 = await p.locator('.card input[type="date"]').count(); assert.ok(inCard0 >= 2, 'المرشح داخل البطاقة بلا تفعيل');
+  await p.evaluate(() => window.setOrg(o => ({ ...o, ctlBar: { on: true } })));
+  await p.waitForSelector('[data-ctlbar-tools]');
+  assert.equal(await p.locator('[data-ctlbar-tools] input[type="date"]').count(), 2, 'الفترة في الشريط');
+  assert.equal(await p.locator('.card input[type="date"]').count(), 0, 'لا تكرار داخل البطاقة');
+  await p.locator('[data-ctlbar-tools] button:has-text("هذه السنة")').click();
+  assert.match(await p.locator('[data-ctlbar-ftog]').innerText(), /\(1\)/);
+  await p.locator('[data-ctlbar-tools] select').selectOption('central');
+  assert.match(await p.locator('[data-ctlbar-ftog]').innerText(), /\(2\)/);
+  // قسم بلا مرشح فترة: لا مكان مرشحات
+  await p.locator('.ob-sub .ob-si', { hasText: 'دليل الحسابات' }).click();
+  assert.equal(await p.locator('[data-ctlbar-tools]').count(), 0);
+  await p.locator('.ob-sub .ob-si', { hasText: 'ميزان المراجعة' }).click();
+  await p.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await p.locator('[data-ctlbar-tools]').isVisible(), false, 'الجوال: المرشحات مطوية');
+  await p.click('[data-ctlbar-ftog]');
+  assert.equal(await p.locator('[data-ctlbar-tools]').isVisible(), true);
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), true, 'بلا تمرير أفقي');
+  assert.deepEqual(errs, []); await ctx.close();
+});

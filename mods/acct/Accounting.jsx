@@ -1443,6 +1443,11 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
     dlFile('حزمة_المحاسب_' + expTag + '.csv', toCsv(all));
   };
 
+  // v56.24 (G2 المرحلة 2): مع شريط التحكم تنتقل مرشحات الفترة/الفرع من داخل البطاقة إلى الشريط (مرة واحدة، لا تكرار)
+  const ctlOn = ctlBarOn(org);
+  const PB_VIEWS = ['gl', 'actmv', 'tb', 'fs', 'cf', 'food', 'anl', 'prj', 'cc', 'export'];
+  const pbMoved = ctlOn && PB_VIEWS.includes(view);
+  const pbN = (from || to ? 1 : 0) + (bf && view === 'tb' ? 1 : 0);
   const periodBar = (
     <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
       <span style={{ fontSize: 11.5, color: 'var(--dim)' }}>من</span>
@@ -1581,7 +1586,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
         // والسابق/التالي باسم القسم في نهاية الصف نفسه بدل سطر مستقل، وحُذف مبدّل العرض المكرر (المبدّل الموحّد أعلى التطبيق يكفي)
         // v56.23 (G2): النموذج 2 — مسار الموقع والإجراءات في سطر واحد فوق صف الأقسام (معطّل افتراضيًا)
         const ctl = ctlBarOn(org);
-        return <OdooBar groups={GROUPS.map(g => ({ id: g.id, ar: g.ar, items: g.items.filter(ok).map(v => ({ id: v, ar: IT[v][0] })) }))} cur={view} onPick={go} extra={ctl ? null : manualBtn} showSub subEnd={pagerC} crumb={ctl ? { app: 'المحاسبة', primary: manualBtn || null } : null} />;
+        return <OdooBar groups={GROUPS.map(g => ({ id: g.id, ar: g.ar, items: g.items.filter(ok).map(v => ({ id: v, ar: IT[v][0] })) }))} cur={view} onPick={go} extra={ctl ? null : manualBtn} showSub subEnd={pagerC} crumb={ctl ? { app: 'المحاسبة', primary: manualBtn || null, tools: pbMoved ? periodBar : null, nf: pbN } : null} />;
       })()}
 
       {/* v15.11: لا قسم متاح (أُخفيت كل الأقسام لهذا المستخدم) — رسالة بدل تسريب اليومية */}
@@ -1666,7 +1671,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
       {view === 'export' && (
         <div className="grid" style={{ gap: 12 }}>
           <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-            {periodBar}
+            {pbMoved ? null : periodBar}
             <select className="sel" style={{ width: 200 }} value={bf} onChange={e => setBf(e.target.value)}>
               <option value="">كل الفروع والمركز</option>
               <option value="central">القيود المركزية فقط</option>
@@ -1780,14 +1785,14 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
         </div>
       )}
 
-      {(view === 'gl' || view === 'actmv') && <><div className="card" style={{ padding: '10px 14px' }}>{periodBar}</div>
+      {(view === 'gl' || view === 'actmv') && <>{!pbMoved && <div className="card" style={{ padding: '10px 14px' }}>{periodBar}</div>}
         <GeneralLedger me={me} org={org} ops={ops} A={A} mode={view === 'actmv' ? 'act' : 'gl'} code={glCode} setCode={setGlCode} from={from} to={to} bf={bf} setBf={setBf} onMode={(m) => setView(m === 'gl' ? 'gl' : 'actmv')} /></>}
       {(view === 'tb' || view === 'fs') && flSrcNote && <div data-flsrc className="card" style={{ padding: '8px 12px', fontSize: 12, borderInlineStart: '3px solid ' + (flSrcNote.ok ? 'var(--mint)' : 'var(--amber)'), color: flSrcNote.ok ? 'var(--mint)' : 'var(--amber)' }}>{flSrcNote.t}</div>}
       {view === 'tb' && (
         <div className="card">
           <div className="card-h">
             <div className="card-t"><Scale size={15} color="var(--brass)" />ميزان المراجعة</div>
-            <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>{periodBar}<button className="btn sm" onClick={printTB}><Printer size={13} />طباعة</button></div>
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>{pbMoved ? null : periodBar}<button className="btn sm" onClick={printTB}><Printer size={13} />طباعة</button></div>
           </div>
           <div className="tw">
             <table className="tb">
@@ -1882,7 +1887,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
               <div className="card-t"><TrendingUp size={15} color="var(--mint)" />قائمة الدخل {bfLabel ? '— ' + bfLabel : '(موحدة)'} {from || to ? '· الفترة المحددة' : ''}</div>
               <button className="btn sm" onClick={printFS}><Printer size={13} />طباعة القوائم A4</button>
             </div>
-            {periodBar}
+            {pbMoved ? null : periodBar}
             <div className="row" style={{ gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
               <select className="sel" style={{ width: 200 }} value={bf} onChange={e => setBf(e.target.value)}>
                 <option value="">قائمة دخل موحدة (كل الفروع)</option>
@@ -1962,7 +1967,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
         return (
           <div className="grid" style={{ gap: 12 }}>
             <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-              {periodBar}
+              {pbMoved ? null : periodBar}
               <div className="row" style={{ gap: 8 }}>
                 <select className="sel" style={{ width: 190 }} value={bf} onChange={e => setBf(e.target.value)}>
                   <option value="">تدفقات موحدة (كل الفروع)</option>
@@ -2182,7 +2187,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
         const pctTxt = (p) => p == null ? '—' : p.toFixed(1) + '%';
         return (
           <div className="grid" style={{ gap: 12 }}>
-            <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>{periodBar}</div>
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>{pbMoved ? null : periodBar}</div>
             <div className="grid g4">
               <Kpi label="تكلفة الطعام — الشركة" value={pctTxt(all.pct)} sub={money(all.cogs) + ' من مبيعات ' + money(all.ns)} icon={Store} color={all.pct != null && all.pct > tgt ? '#D9544D' : '#4FB286'} />
               <Kpi label="الهدف" value={tgt + '%'} sub={canPost ? 'قابل للتعديل أدناه' : 'تحدده الإدارة المالية'} icon={Scale} color="#D9A83E" />
@@ -2246,7 +2251,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
         return (
           <div className="grid" style={{ gap: 12 }}>
             <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-              {periodBar}
+              {pbMoved ? null : periodBar}
               <div className="row" style={{ gap: 8 }}>
                 <select className="sel" style={{ width: 190 }} value={bf} onChange={e => setBf(e.target.value)}>
                   <option value="">تحليل موحّد (كل الفروع)</option>
@@ -2526,7 +2531,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
         const rows = P.map(p => ({ p, R: projectPL(A, p.id, from, to) }));
         return (
         <div className="grid" style={{ gap: 12 }} data-prjview>
-          <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>{periodBar}</div>
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>{pbMoved ? null : periodBar}</div>
           <div className="card">
             <div className="card-t"><Grid3x3 size={15} color="var(--brass)" />المشاريع</div>
             <div className="note" style={{ marginBottom: 8 }}>المشروع بُعد تحليلي مستقل عن الفرع (عقد تموين، مناسبة، افتتاح فرع، تجهيز قاعة…). اختره في القيد اليدوي (للقيد كله أو لكل سطر)، وسندات القبض والصرف، وفواتير المبيعات، وفواتير الخدمات؛ وتظهر هنا ربحيته.</div>
@@ -2553,7 +2558,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
         </div>); })()}
       {view === 'cc' && (
         <div className="grid" style={{ gap: 12 }}>
-          <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>{periodBar}</div>
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>{pbMoved ? null : periodBar}</div>
           <div className="grid g4">
             {centers.map(c => {
               const n = ccNet(c.id);
@@ -3139,7 +3144,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
 
           {taxOn && <>
             <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              {periodBar}
+              {pbMoved ? null : periodBar}
               <button className="btn sm" onClick={setQuarter}><CalendarDays size={13} />الربع الحالي</button>
             </div>
             <div className="grid g3">
@@ -3479,7 +3484,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
         return (
           <div className="grid" style={{ gap: 12 }}>
             <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>{periodBar}<span className="badge b-dim">الفترة: {periodSub2}</span></div>
+              <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>{pbMoved ? null : periodBar}<span className="badge b-dim">الفترة: {periodSub2}</span></div>
               <div className="row" style={{ gap: 8 }}><button className="btn sm" onClick={printZakat}><Printer size={13} />طباعة</button><button className="btn sm" onClick={exportZakatXlsx}><Download size={13} />Excel</button></div>
             </div>
             <div className="grid g3">
