@@ -78,3 +78,39 @@ run('D2 الأرصدة الافتتاحية من الإعداد: بتاريخ 20
   const by = Object.fromEntries(S2[0].lines.map(l => [l.code, Math.round((l.debit - l.credit) * 100)]));
   assert.equal(by['1201'], 500000); assert.equal(by['3101'], -500000);
 });
+
+run('D3 المجموعات بترتيب المالك: البادئة تحدد المجموعة، والمستوى بين 1 و6', () => {
+  assert.deepEqual(E.FL_GROUPS.map(g => g.id), ['closings', 'ap', 'payroll', 'stock', 'assets', 'close']);
+  assert.equal(E.flGroupOf('rev:c1'), 0); assert.equal(E.flGroupOf('inv:p1'), 1); assert.equal(E.flGroupOf('sal-acc:2026-03'), 2);
+  assert.equal(E.flGroupOf('stk-open'), 3); assert.equal(E.flGroupOf('dep:2026-03'), 4); assert.equal(E.flGroupOf('yearend-2026-12-31'), 5); assert.equal(E.flGroupOf('man:j1'), 5);
+  assert.equal(E.flGroupOf('غريب:1'), null);
+  assert.equal(E.flLvl({}), 1); assert.equal(E.flLvl({ ledger: { lvl: 3 } }), 3); assert.equal(E.flLvl({ ledger: { lvl: 99 } }), 6); assert.equal(E.flLvl({ ledger: { lvl: 0 } }), 1);
+});
+
+run('D3 النطاق يتسع بالمستوى: الفاتورة من المستوى 2، والإغلاق غير المعتمد لا يدخل أبدًا، ولا قيد غير مصنّف في المحرك', () => {
+  const o = { ...org(), suppliers: [{ id: 's1', name: 'مورد' }] };
+  const inv = { id: 'p1', kind: 'svc', supplierId: 's1', supplierName: 'مورد', branchId: 'b1', amount: 115, vatAmt: 15, taxable: true, date: '2026-03-10', paidAmount: 0,
+    expLines: [{ desc: 'صيانة', accCode: '5101', net: 100, vat: 15 }] };
+  const ops = { closings: [cl('a', '2026-03-10', 'approved'), cl('s', '2026-03-11', 'submitted')], invoices: [inv],
+    journalManual: [{ id: 'j', date: '2026-03-06', title: 'يدوي', lines: [{ code: '5901', debit: 25, credit: 0 }, { code: '1201', debit: 0, credit: 25 }] }] };
+  const A = E.buildAccounting(o, ops);
+  const ids = (l) => E.flScope(ops, A, l).map(e => e.id);
+  assert.ok(ids(1).includes('rev:a')); assert.ok(!ids(1).includes('inv:p1'));
+  assert.ok(ids(2).includes('inv:p1')); assert.ok(!ids(5).includes('man:j')); assert.ok(ids(6).includes('man:j'));
+  assert.ok(!ids(6).includes('rev:s'), 'المرفوع بانتظار التدقيق لا يُرحَّل');
+  assert.deepEqual(E.flUnclassified(A).map(e => e.id), [], 'كل مصادر المحرك مصنّفة');
+});
+
+run('D3 القيد العكسي: من السطور المخزّنة نفسها معكوسة، متوازن، يشير للأصل، وبتاريخه وإصداره', () => {
+  const A = E.buildAccounting(org(), { closings: [cl('a', '2026-03-10', 'approved')] });
+  const e = A.entries.find(x => x.id === 'rev:a'); const r = { ...E.flRecord(e), id: 'rev_a_v1', no: 'JV-2026-000007', status: 'posted' };
+  const X = E.flReversalOf(r);
+  assert.equal(X.reversalOf, 'rev_a_v1'); assert.equal(X.date, r.date); assert.equal(X.ver, 1); assert.equal(X.src, 'rev:a');
+  assert.equal(X.drH, r.crH); assert.equal(X.crH, r.drH); assert.equal(X.drH, X.crH);
+  const L = JSON.parse(r.lines), Lx = JSON.parse(X.lines);
+  L.forEach((l, i) => { assert.equal(Lx[i][0], l[0]); assert.equal(Lx[i][1], l[2]); assert.equal(Lx[i][2], l[1]); });
+  assert.notEqual(X.digest, r.digest); assert.match(X.title, /عكس JV-2026-000007/);
+  const C = E.flCompare([e], [{ ...r, digest: 'f'.repeat(64) }]); assert.equal(C.pairs.length, 1); assert.equal(C.pairs[0].r.id, 'rev_a_v1');
+  const after = E.flCompare([e], [{ ...r, status: 'reversed' }, { ...X, id: 'rev_a_v1r', status: 'posted' }, { ...E.flRecord(e, 2), id: 'rev_a_v2', status: 'posted' }]);
+  assert.equal(after.ok, true, 'بعد التصحيح: الإصدار 2 هو القائم، والعكس والأصل خارج المقارنة');
+});
