@@ -9,7 +9,7 @@ import { clrCompare, clrLoad, clrOn, clrSeed, clrState, logAudit, clrRead, clrVi
 import { posrOn, posrCompare, posrLoad, posrSeed, posrState, posrRepair } from '../../App.jsx';   // v56.4 (POS 2a) سجلات فواتير نقطة البيع
 import { MKT_BR_CV, mktBrOn } from '../../App.jsx';   // v56.12 (GROWTH G1) سجلات التسويق في الفروع
 import { WorkflowsCard } from './Workflows.jsx';   // v49.5 MQ-059
-import { FL_START, flOn, flScope, flCompare, flLoad, flPost, FL_GROUPS, flLvl, flUnclassified, flCorrect } from '../../App.jsx';   // v56.9 D1 دفتر القيود المخزّن
+import { FL_START, flOn, flScope, flCompare, flLoad, flPost, FL_GROUPS, flLvl, flUnclassified, flCorrect, flReadOn } from '../../App.jsx';   // v56.9 D1 دفتر القيود المخزّن
 import { fjCompare, fjLoad, fjOn, fjState, fpLockedTo, fpLoad, fmLoad, fmSet, fjSeed, FD_KINDS, fdCompare, fdLoad, fdSeed } from '../../App.jsx';   // v49.0 المرحلة 01
 import { dataFootprint, recipeRaw, APP_CV, APP_VER, CloudHealth, ERRLOG_KEY, MAIN_WH, ROLES, SIG_BADGE, SIG_NAME, buildAccounting, finStrictOn, loadRelease, loadSignoffs, sigVerify, branchBanks, cashForecast, complianceItems, entityList, vatStatus, countedClosing, isoD, money, purKey, q3, qrFs, snapAll, stockByWh, today, whName, whOf } from '../../App.jsx';
 
@@ -371,6 +371,16 @@ function LedgerCard({ org, ops, commitOrg, say, isAdm }) {
       { actionType: 'settings', targetType: 'system_settings', targetId: 'ledger', title: 'وسّع نطاق الدفتر المخزّن', details: g.label });
     if (ok) { setRep(null); say('أُضيفت: ' + g.label); }
   };
+  // v56.14 (D4 — قرار المالك): ميزان المراجعة والقوائم من الدفتر — بعد ضم المجموعات الست ومطابقة كاملة فقط؛ والعودة فورية
+  const rd = flReadOn(org);
+  const setRead = async (v) => {
+    if (!isAdm) return;
+    if (v && !(lvl === FL_GROUPS.length && rep && rep.ok)) return say('ضمّ المجموعات الست وطابق حتى «✓ متطابق» أولًا', 'no');
+    if (v && !window.confirm('ميزان المراجعة والقوائم المالية (للفترات من ' + FL_START + ') ستُقرأ من الدفتر المخزّن بأرقامه الثابتة. بقية التقارير والإقرار الضريبي من المحرك كما هي. متابعة؟')) return;
+    const ok = await commitOrg(o => ({ ...o, ledger: { ...(o.ledger || {}), read: !!v, ...(v ? { readAt: nowISO() } : { readOffAt: nowISO() }) } }),
+      { actionType: 'settings', targetType: 'system_settings', targetId: 'ledger', title: v ? 'حوّل قراءة الميزان والقوائم إلى الدفتر المخزّن' : 'أعاد قراءة الميزان والقوائم إلى المحرك' });
+    if (ok) say(v ? 'الميزان والقوائم من الدفتر المخزّن ✓' : 'عادت القراءة إلى المحرك');
+  };
   const correct = async () => {
     const n = (rep.pairs || []).length + rep.extra.length;
     if (!window.confirm('تصحيح ' + n + ' قيدًا: يُعكس كل قيد مرحّل تغيّر مصدره (أو زال) بقيد عكسي برقم جديد، ثم يُرحَّل القيد الصحيح بالإصدار التالي.\nلا يُعدَّل ولا يُحذف أي قيد. الفترات المقفلة لا تُصحَّح حتى تُفتح.')) return;
@@ -405,9 +415,9 @@ function LedgerCard({ org, ops, commitOrg, say, isAdm }) {
   return (
     <div className="card" data-ledger>
       <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />دفتر القيود المخزّن (أرقام ثابتة)</div>
-        <span className={'badge ' + (on ? 'b-sky' : 'b-dim')}>{on ? 'مفعّل — القراءة من المحرك' : 'غير مفعّل'}</span></div>
+        <span className={'badge ' + (rd ? 'b-mint' : on ? 'b-sky' : 'b-dim')}>{rd ? 'الميزان والقوائم من الدفتر' : on ? 'مفعّل — القراءة من المحرك' : 'غير مفعّل'}</span></div>
       <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>
-        كل قيد يُحفظ <b>مرة واحدة برقم ثابت</b> مثل JV-2026-000001 يبدأ من 1 كل سنة، ولا يُعدَّل محتواه ولا يُحذف — والخادم يرفض أي تعديل.
+        كل قيد يُحفظ <b>مرة واحدة برقم ثابت</b> مثل JV-2026-000001 يبدأ من 1 كل سنة، ولا يُعدَّل محتواه ولا يُحذف. <b>الترحيل من الخادم وحده</b>: يجمع السطور بالهللات ويتحقق من الصلاحية والفترة قبل الكتابة.
         النطاق الآن: <b>القيد الافتتاحي بأرصدة 2025-12-31</b> + المجموعات المفعّلة من {FL_START} ({scope.length} قيدًا):
         <span data-ledger-groups style={{ display: 'block', margin: '4px 0' }}>{FL_GROUPS.map((g, i) => <span key={g.id} style={{ display: 'block', color: i < lvl ? 'var(--mint)' : 'var(--dim)' }}>{i < lvl ? '✓' : '○'} {i + 1}. {g.label}</span>)}</span>
         {uncl.length > 0 && <span style={{ display: 'block', color: 'var(--amber)' }}>⚠ {uncl.length} قيدًا من مصدر غير مصنّف لا يدخل الدفتر بعد (مثل: {uncl.slice(0, 2).map(e => e.src || e.id).join('، ')}).</span>}
@@ -418,6 +428,8 @@ function LedgerCard({ org, ops, commitOrg, say, isAdm }) {
         {on && <button className="btn sm" disabled={!!busy} onClick={check}><RefreshCw size={13} />{busy === 'check' ? 'جارٍ المطابقة…' : 'مطابقة'}</button>}
         {on && rep && ((rep.pairs || []).length + rep.extra.length) > 0 && <button className="btn sm" disabled={!!busy} onClick={correct}>{busy.startsWith('fix') ? 'جارٍ التصحيح… ' + busy.slice(4) : 'تصحيح بقيد عكسي (' + ((rep.pairs || []).length + rep.extra.length) + ')'}</button>}
         {on && rep && rep.ok && lvl < FL_GROUPS.length && <button className="btn sm" disabled={!!busy} onClick={widen}>إضافة: {FL_GROUPS[lvl].label}</button>}
+        {on && !rd && rep && rep.ok && lvl === FL_GROUPS.length && <button className="btn sm pri" disabled={!!busy} onClick={() => setRead(true)}>القراءة من الدفتر</button>}
+        {on && rd && <button className="btn sm gh" disabled={!!busy} onClick={() => setRead(false)}>إعادة القراءة إلى المحرك</button>}
         {on && rep && rep.missing.length > 0 && <button className="btn sm pri" disabled={!!busy} onClick={post}>{busy.startsWith('post') ? 'جارٍ الترحيل… ' + busy.slice(5) : 'ترحيل الناقص (' + rep.missing.length + ')'}</button>}
       </div>}
       {rep && <div style={{ marginTop: 10 }}>

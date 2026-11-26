@@ -114,3 +114,40 @@ run('D3 القيد العكسي: من السطور المخزّنة نفسها �
   const after = E.flCompare([e], [{ ...r, status: 'reversed' }, { ...X, id: 'rev_a_v1r', status: 'posted' }, { ...E.flRecord(e, 2), id: 'rev_a_v2', status: 'posted' }]);
   assert.equal(after.ok, true, 'بعد التصحيح: الإصدار 2 هو القائم، والعكس والأصل خارج المقارنة');
 });
+
+run('D4 القراءة من الدفتر: تُفعَّل فقط مع المجموعات الست، والميزان من السجلات = ميزان المحرك (حركة 2026 وأرصدة المركز المالي)', () => {
+  assert.equal(E.flReadOn({ ledger: { on: true, read: true, lvl: 5 } }), false, 'قبل ضم المجموعات الست');
+  assert.equal(E.flReadOn({ ledger: { on: false, read: true, lvl: 6 } }), false);
+  assert.equal(E.flReadOn({ ledger: { on: true, read: true, lvl: 6 } }), true);
+  const o = { ...org(), suppliers: [{ id: 's1', name: 'مورد' }] };
+  const inv = { id: 'p1', kind: 'svc', supplierId: 's1', supplierName: 'مورد', branchId: 'b1', amount: 115, vatAmt: 15, taxable: true, date: '2026-03-12', paidAmount: 0,
+    expLines: [{ desc: 'صيانة', accCode: '5101', net: 100, vat: 15 }] };
+  const ops = { closings: [cl('o', '2025-12-20', 'approved'), cl('a', '2026-03-10', 'approved'), cl('s', '2026-03-11', 'submitted')], invoices: [inv],
+    journalManual: [{ id: 'j', date: '2026-03-06', title: 'يدوي', lines: [{ code: '5901', debit: 25, credit: 0 }, { code: '1201', debit: 0, credit: 25 }] }] };
+  const A = E.buildAccounting(o, ops); const S = E.flScope(ops, A, 6);
+  const recs = S.map((e, i) => ({ ...E.flRecord(e), id: E.flKey(e.id), no: E.flNo(2026, i + 1), status: 'posted' }));
+  const LE = E.flEntriesOf(recs);
+  assert.equal(LE.find(e => e.src === 'open:2026').date, '2025-12-31', 'الافتتاحي في رصيد أول المدة');
+  assert.ok(LE.every(e => e.fromLedger && e.lines.length));
+  const eng = E.acctActivity({ ...A, entries: A.entries.filter(e => !(e.ref === 's')) }, { from: '2026-01-01', to: '2026-12-31' });
+  const led = E.acctActivity({ ...A, entries: LE }, { from: '2026-01-01', to: '2026-12-31' });
+  const mv = (T) => Object.fromEntries(T.rows.filter(r => r.debit || r.credit).map(r => [r.code, [r.debit, r.credit]]));
+  assert.deepEqual(mv(led), mv(eng), 'حركة الفترة متطابقة حسابًا حسابًا');
+  const bsClose = (T) => Object.fromEntries(T.rows.filter(r => r.kind === 'asset' || r.kind === 'liab').map(r => [r.code, r.close]));
+  assert.deepEqual(bsClose(led), bsClose(eng), 'أرصدة الأصول والخصوم الختامية متطابقة');
+  assert.equal(led.balanced, true);
+  assert.deepEqual(E.flBalDiff(S, LE, '2026-12-31'), [], 'لا فرق');
+  const tampered = LE.map(e => e.src === 'rev:a' ? { ...e, lines: e.lines.map(l => l.code === '4101' ? { ...l, credit: l.credit - 1 } : l) } : e);
+  assert.deepEqual(E.flBalDiff(S, tampered, '2026-12-31').map(d => d.code), ['4101'], 'أي عبث يظهر في التنبيه');
+  const withRev = [...recs.map(r => r.src === 'rev:a' ? { ...r, status: 'reversed' } : r),
+    { ...E.flReversalOf(recs.find(r => r.src === 'rev:a')), id: 'x_r', no: 'JV-2026-000090', status: 'posted' },
+    { ...recs.find(r => r.src === 'rev:a'), id: 'rev_a_v2', no: 'JV-2026-000091', ver: 2 }];
+  assert.deepEqual(E.flBalDiff(S, E.flEntriesOf(withRev), '2026-12-31'), [], 'الأصل المعكوس وعكسه يتقابلان');
+});
+
+run('D5 البصمة في المتصفح = بصمة الخادم (SHA-256 للنص نفسه) — فالمطابقة لا ترى فرقًا وهميًا بعد الترحيل من الخادم', async () => {
+  const crypto = await import('node:crypto');
+  const A = E.buildAccounting(org(), { closings: [cl('a', '2026-03-10', 'approved', 1234.56)] });
+  const R = E.flRecord(A.entries.find(x => x.id === 'rev:a'));
+  assert.equal(R.digest, crypto.createHash('sha256').update(JSON.stringify([R.date, JSON.parse(R.lines)]), 'utf8').digest('hex'));
+});

@@ -34,7 +34,8 @@ export const ENGINE_EXPORTS = ['signDeclaration', 'lvReturnPlan', 'lvTrack', 'le
   'toHal', 'isHal', 'finStrictOn',
   // v56.9 — D1 دفتر القيود المخزّن
   'FL_START', 'flOn', 'flKey', 'flNo', 'flLines', 'flRecord', 'flScope', 'flCompare', 'flOpening',
-  'FL_GROUPS', 'flLvl', 'flGroupOf', 'flUnclassified', 'flReversalOf'];
+  'FL_GROUPS', 'flLvl', 'flGroupOf', 'flUnclassified', 'flReversalOf',
+  'flReadOn', 'flEntriesOf', 'flBalDiff'];
 
 export async function buildEngine() {
   fs.mkdirSync(cache, { recursive: true });
