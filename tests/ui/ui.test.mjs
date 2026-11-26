@@ -3788,3 +3788,31 @@ test('v56.24 G2 المرحلة 2: مرشحات التقارير في شريط ا
   assert.equal(await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), true, 'بلا تمرير أفقي');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.25 G2 المرحلة 3: شريط التحكم في بقية التطبيقات (المخزون ومراكز التطبيقات) — معطّل افتراضيًا، والتفعيل يُظهر المسار وصف الأقسام', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1190, height: 782 } }, 'live/Inventory/admin/items');
+  await p.waitForSelector('.ob');
+  assert.equal(await p.locator('[data-ctlbar]').count(), 0, 'معطّل افتراضيًا');
+  const pagers0 = await p.locator('.secpager').count();
+  await p.evaluate(() => window.setOrg(o => ({ ...o, ctlBar: { on: true } })));
+  await p.waitForSelector('[data-ctlbar]');
+  assert.match(await p.locator('[data-ctlbar] .obp-app').first().innerText(), /المخزون/);
+  const cur = (await p.locator('[data-ctlbar-cur]').first().innerText()).trim(); assert.ok(cur.length > 0, 'اسم القسم الحالي');
+  assert.equal(await p.locator('.ob-sub .secpager').count() >= 1, true, 'السابق/التالي في نهاية صف الأقسام');
+  assert.ok(await p.locator('.secpager').count() <= pagers0, 'لا مرقّم مكرر');
+  await p.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), true, 'بلا تمرير أفقي');
+  assert.deepEqual(errs, []); await ctx.close();
+  { const { p, errs, ctx } = await open({ viewport: { width: 1190, height: 782 } }, 'live/Hub/admin/hr:leaves');
+    await p.waitForSelector('.ob'); await p.evaluate(() => window.setOrg(o => ({ ...o, ctlBar: { on: true } })));
+    await p.waitForSelector('[data-ctlbar]');
+    assert.ok(await p.locator('[data-ctlbar]').count() >= 1);
+    assert.deepEqual(errs, []); await ctx.close(); }
+  // المحاسبة داخل مركز المالية: شريط واحد (شريط المحاسبة) لا شريطان متراكبان (مراجعة التصميم المستقلة)
+  { const { p, errs, ctx } = await open({ viewport: { width: 1190, height: 782 } }, 'live/Hub/admin/finhub:acct');
+    await p.waitForSelector('.ob'); await p.evaluate(() => window.setOrg(o => ({ ...o, ctlBar: { on: true } })));
+    await p.waitForSelector('[data-ctlbar]'); await p.waitForTimeout(200);
+    assert.equal(await p.locator('[data-ctlbar]').count(), 1, 'مسار موقع واحد');
+    assert.match(await p.locator('[data-ctlbar]').innerText(), /المحاسبة/);
+    assert.deepEqual(errs, []); await ctx.close(); }
+});

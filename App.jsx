@@ -3676,7 +3676,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.24';
+const APP_VER = 'v56.25';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -7062,7 +7062,7 @@ function SalesHub(props) {
   const [v, setV] = useState('analysis');
   return (
     <div className="grid" style={{ gap: 12 }}>
-      <div className="card" style={{ padding: '9px 13px' }}><SectionNav label="أقسام المبيعات" cur={v} onPick={setV} items={[{ id: 'analysis', ar: 'تحليل المبيعات', icon: BarChart3 }, { id: 'invoices', ar: 'فواتير المبيعات', icon: FileText }, { id: 'posimp', ar: 'استيراد نقاط البيع', icon: Upload }]} /></div>
+      <div className="card" style={{ padding: '9px 13px' }}><SectionNav label="أقسام المبيعات" app="المبيعات" ctl={ctlBarOn(props.org)} cur={v} onPick={setV} items={[{ id: 'analysis', ar: 'تحليل المبيعات', icon: BarChart3 }, { id: 'invoices', ar: 'فواتير المبيعات', icon: FileText }, { id: 'posimp', ar: 'استيراد نقاط البيع', icon: Upload }]} /></div>
       {v === 'analysis' ? <Sales {...props} /> : v === 'posimp' ? <PosImport {...props} /> : <SalesInvoices {...props} />}
     </div>
   );
@@ -8692,7 +8692,7 @@ const HUBS = {
   finhub: {
     ar: 'المالية والمحاسبة', desc: 'القيود والقوائم والتسويات ← الخزينة والترحيل ← المنشآت', icon: Scale,
     views: [
-      { id: 'acct', ar: 'المحاسبة', icon: Scale, comp: Accounting },
+      { id: 'acct', ar: 'المحاسبة', icon: Scale, comp: Accounting, ownBar: true },   // v56.25: له شريط تحكم خاص — لا شريط للمركز فوقه
       { id: 'treasury', ar: 'الخزينة والترحيل', icon: Landmark, comp: Treasury },
       { id: 'entities', ar: 'المنشآت', icon: Building2, comp: EntitiesCenter },
       { id: 'cardrec', ar: 'مطابقة تسويات الشبكة', icon: CreditCard, comp: CardRecon, like: 'acct' },   // v40.6
@@ -8776,7 +8776,8 @@ function OdooBar({ groups, cur, onPick, extra, sw, showSub, subEnd, crumb }) {
   useEffect(() => { if (!open) return; const close = () => setOpen(null); window.addEventListener('resize', close); window.addEventListener('scroll', close, true); return () => { window.removeEventListener('resize', close); window.removeEventListener('scroll', close, true); }; }, [open]);
   const gs = (groups || []).map(g => ({ ...g, items: (g.items || []).filter(Boolean) })).filter(g => g.items.length);
   const pick = (id) => { setOpen(null); onPick(id); };
-  return (<>
+  const Wrap = crumb ? 'div' : React.Fragment;   // v56.25: مع شريط التحكم كتلة كاملة العرض (بعض الشاشات تضع التنقل داخل صف مرن)
+  return (<Wrap {...(crumb ? { className: 'ob-ctlwrap' } : {})}>
     <div className={'ob' + (crumb ? ' ctl2' : '')} role="navigation" aria-label="أقسام التطبيق" ref={obRef}>
       {gs.map(g => { const act = g.items.some(x => x.id === cur);
         if (g.items.length === 1) { const x = g.items[0]; return <button key={g.id} className={'ob-it' + (act ? ' on' : '')} onClick={() => pick(x.id)}>{TX(x.ar)}{x.badge ? <span className="ob-bd">{x.badge}</span> : null}</button>; }
@@ -8802,7 +8803,7 @@ function OdooBar({ groups, cur, onPick, extra, sw, showSub, subEnd, crumb }) {
         return <div className={'ob-crumb' + (crumb.tools ? ' ob-hasf' : '')} data-ctlbar>
           <nav className="ob-path" aria-label={isEn() ? 'Location' : 'مسار الموقع'}>
             <span className="obp-app">{TX(crumb.app)}</span>
-            {g && g.items.length > 1 && <><span className="obp-sep" aria-hidden="true">›</span><span className="obp-grp">{TX(g.ar)}</span></>}
+            {g && g.items.length > 1 && TX(g.ar) !== TX(crumb.app) && (!it || TX(g.ar) !== TX(it.ar)) && <><span className="obp-sep" aria-hidden="true">›</span><span className="obp-grp">{TX(g.ar)}</span></>}
             {it && <><span className="obp-sep" aria-hidden="true">›</span><b className="obp-cur" aria-current="page" data-ctlbar-cur>{TX(it.ar)}</b></>}
           </nav>
           {crumb.tools ? <button className={'btn sm gh ob-ftog' + (ftOpen ? ' on' : '')} aria-expanded={ftOpen} aria-controls="ob-tools" onClick={() => setFtOpen(v => !v)} data-ctlbar-ftog>{isEn() ? 'Filter' : 'تصفية'}{crumb.nf ? ' (' + crumb.nf + ')' : ''}</button> : null}
@@ -8815,7 +8816,7 @@ function OdooBar({ groups, cur, onPick, extra, sw, showSub, subEnd, crumb }) {
           {g.items.map(x => <button key={x.id} role="tab" aria-selected={x.id === cur} aria-current={crumb && x.id === cur ? 'page' : undefined} className={'ob-si' + (x.id === cur ? ' on' : '')} onClick={() => pick(x.id)}>{TX(x.ar)}{x.badge ? <span className="ob-bd">{x.badge}</span> : null}</button>)}
           {subEnd ? <span className="ob-subend">{subEnd}</span> : null}
         </div>; })()}
-    </>);
+    </Wrap>);
 }
 /** تجميع عناصر مسطّحة في قوائم: بحسب x.group؛ وما لا مجموعة له يصير رابطًا مباشرًا */
 const obGroups = (list) => { const out = []; list.forEach(x => { const k = x.group || ('_' + x.id); let g = out.find(y => y.id === k); if (!g) { g = { id: k, ar: x.group || x.ar, items: [] }; out.push(g); } g.items.push(x); }); return out; };
@@ -8840,11 +8841,15 @@ function SecPager({ items, cur, onPick, compact }) {
     </div>
   );
 }
+/* v56.25 (G2 المرحلة 3): ctl (ctlBarOn(org)) + app (اسم التطبيق) ⇒ في وضع «قوائم» شريط التحكم كما في المحاسبة:
+   مسار الموقع والإجراءات، وصف أقسام المجموعة الحالية والسابق/التالي في نهايته. بلا ctl: كما كان حرفيًا. */
 function SectionNav(props) {
   const list = (props.items || []).filter(Boolean);
-  return <><SectionNavCore {...props} />{!props.force && list.length >= 2 && <SecPager items={list} cur={props.cur} onPick={props.onPick} />}</>;
+  const [modeSel] = useSecNav();
+  const ctlMenu = !!props.ctl && !props.force && modeSel === 'menu' && list.length >= 2;
+  return <><SectionNavCore {...props} ctlMenu={ctlMenu} />{!props.force && list.length >= 2 && !ctlMenu && <SecPager items={list} cur={props.cur} onPick={props.onPick} />}</>;
 }
-function SectionNavCore({ items, cur, onPick, extra, label, force }) {
+function SectionNavCore({ items, cur, onPick, extra, label, force, ctlMenu, app }) {
   const [modeSel, setMode] = useSecNav();
   const mode = force || modeSel;   // force: نمط ثابت لشاشات تحتاج المساحة (نقطة البيع)
   const [open, setOpen] = useState(false);
@@ -8865,7 +8870,9 @@ function SectionNavCore({ items, cur, onPick, extra, label, force }) {
     </div>);
   const pick = (id) => { setOpen(false); onPick(id); };
   const bdg = (x) => x.badge ? <span className="badge b-amber" style={{ fontSize: 9.5, padding: '1px 6px' }}>{x.badge}</span> : null;
-  if (list.length >= 2 && mode === 'menu') return <OdooBar groups={obGroups(list)} cur={cur} onPick={pick} extra={extra} sw={sw} />;
+  if (list.length >= 2 && mode === 'menu') return ctlMenu
+    ? <OdooBar groups={obGroups(list)} cur={cur} onPick={pick} sw={sw} showSub subEnd={<SecPager compact items={list} cur={cur} onPick={onPick} />} crumb={{ app: app || String(label || '').replace(/^أقسام\s+/, ''), primary: extra || null }} />
+    : <OdooBar groups={obGroups(list)} cur={cur} onPick={pick} extra={extra} sw={sw} />;
   if (list.length >= 2 && mode === 'grid') return (
     <div className="secnav-grid" ref={navRef}>
       <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
@@ -8933,7 +8940,7 @@ function Hub({ hubId, view, ...rest }) {
             <span style={{ fontSize: 11, color: 'var(--dim)' }} className="hub-desc">· {TX(cfg.desc)}</span>
           </div>
         </div>
-        {views.length > 1 && <div style={{ marginTop: 8 }}><SectionNav items={views.map(v => ({ id: v.id, ar: v.ar, icon: v.icon, group: v.group || (MENU_GROUPS[hubId] || {})[v.id] }))} cur={cur} onPick={go} label={'أقسام ' + cfg.ar} /></div>}
+        {views.length > 1 && <div style={{ marginTop: 8 }}><SectionNav items={views.map(v => ({ id: v.id, ar: v.ar, icon: v.icon, group: v.group || (MENU_GROUPS[hubId] || {})[v.id] }))} cur={cur} onPick={go} label={'أقسام ' + cfg.ar} app={cfg.ar} ctl={ctlBarOn(rest.org) && !(views.find(v => v.id === cur) || {}).ownBar} /></div>}
       </div>
       {Cur ? <Cur {...rest} /> : <div className="card"><div className="empty">لا توجد أقسام متاحة لصلاحيتك.</div></div>}
     </div>
