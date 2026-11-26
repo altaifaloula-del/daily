@@ -2267,6 +2267,18 @@ function posLoyOpening(org, loyDoc, cutoff) {
   return { pts, pv, rate, cutoff, amt: r2(pts * pv * 100 / (100 + rate)) };
 }
 // (التحقق المستقل) سجل نطاقات لا يُكتب فوقه — الإيقاف يغلق النطاق وإعادة التفعيل تضيف نطاقًا جديدًا (misLoy القديم = نطاق واحد)
+/* v56.34 (الدفعة 3 — ولاء 6ب، قرارات المجلس P5/P6/P7 بتفويض المالك): تسوية شهرية من سجل النقاط لما لا يأتي من الفواتير —
+   النقاط المنتهية (ex:) ← مدين 2106 دائن 4101 · نقاط المناسبات (bd: عيد الميلاد، rf: الإحالة) ← مدين حساب ترويجي يختاره المالك دائن 2106 ·
+   جوائز الكتالوج (rw: وإلغاؤها :undo) ← مدين 2106 دائن 4101. بالقيمة: النقاط × قيمة النقطة ÷ (1 + الضريبة). انتهاء الصلاحية خيار في إعداد الولاء (expireMonths، 0 = لا تنتهي). */
+function loyMonthAdj(org, loyDoc, month) {
+  const r2 = (x) => Math.round((Number(x) || 0) * 100) / 100; const pv = posGlPv(org);
+  const tx = (org && org.taxCfg) || {}; const rate = tx.enabled ? (Number(tx.rate) || 15) : 0; const k = 100 / (100 + rate);
+  const lm = (t) => { const ms = Date.parse(t.at || ''); if (isNaN(ms)) return String(t.at || '').slice(0, 7); const d = new Date(ms); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); };
+  const T = ((loyDoc && loyDoc.tx) || []).filter(t => lm(t) === month); const sumP = (re) => T.filter(t => re.test(String(t.id || ''))).reduce((a, t) => a + (Number(t.pts) || 0), 0);
+  const expPts = -sumP(/^ex:/), occPts = sumP(/^(bd|rf):/), rwPts = -sumP(/^rw:/);
+  const val = (p) => r2(p * pv * k);
+  return { month, pv, rate, expPts, occPts, rwPts, exp: val(expPts), occ: val(occPts), rw: val(rwPts) };
+}
 const posMisLoyRanges = (org) => { const g = (org && org.posGl) || {}; return Array.isArray(g.misLoyRanges) ? g.misLoyRanges : (g.misLoy && g.misLoy.from ? [g.misLoy] : []); };
 const posMisLoyFrom = (org) => (posMisLoyRanges(org).find(r => !r.to) || {}).from || '';
 const posMisLoyAt = (org, d) => posMisLoyRanges(org).some(r => String(d || '') >= r.from && (!r.to || String(d || '') <= r.to)) && posGlAt(org, d);
@@ -3730,7 +3742,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.33';
+const APP_VER = 'v56.34';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3790,7 +3802,7 @@ export { FL_START, flOn, flKey, flNo, flLines, flRecord, flScope, flCompare, flL
 export { FL_GROUPS, flLvl, flGroupOf, flUnclassified, flReversalOf, flCorrect };   // v56.11 D3
 export { flReadOn, flEntriesOf, flBalDiff, flDayBefore };   // v56.14 D4
 export { ctlBarOn };
-export { posLoyOpening, posMisLoyRanges, posMisLoyFrom, posMisLoyAt, posGlNote };   // v56.33
+export { loyMonthAdj, posLoyOpening, posMisLoyRanges, posMisLoyFrom, posMisLoyAt, posGlNote };   // v56.33
 export { cvLive, cvApprRanges, cvApprAt, cvApprOpenFrom, cvNeedsAppr, cvApprove };   // v56.32
 export { DS_BLOCKED, dsRanges, dsRouteAt, dsRouteOpen, dsLive, dsBlockReason, dsOpenFrom, dsMapOf, dsAccOk, dsAccOf, dsPostDate, dsFundOf, dsCashOut, dsBankOk, lockedLedgerSig };   // v56.29
 export { DEPT_SHARED, deptOn, deptList, deptPL };   // v56.27 E4   // v56.23 G2
