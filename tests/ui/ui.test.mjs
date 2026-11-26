@@ -3946,3 +3946,26 @@ test('v56.30 أوامر الصرف حسب بنودها: المالك يختار 
     assert.deepEqual(await p.evaluate(() => window.cur.disbursements.map(x => [x.category, x.acc || ''])), [['إيجارات الفروع', '5610']]);
     assert.deepEqual(errs, []); await ctx.close(); }
 });
+
+test('v56.31 أوامر الصرف (قرارات المجلس): البنك للتحويل، تاريخ الاعتماد ووسم المالك، والمعلّق يحجز الرصيد', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Hub/admin/finhub:treasury');
+  const td = await p.evaluate(() => new Date().toISOString().slice(0, 10));
+  await p.evaluate((td) => { window.setOrg(o => ({ ...o, dsRoute: { ranges: [{ from: td }] } }));
+    window.setOps(o => ({ ...o, transfers: [...(o.transfers || []), { id: 'tin', date: td, status: 'received', amount: 1000, branchName: 'العليا', referenceNo: 'T1' }],
+      disbursements: [{ id: 'pp', date: td, category: 'صيانة وتشغيل', amount: 700, beneficiary: 'ورشة', method: 'cash', by: 'آخر', byId: 'x9', status: 'pending' }] })); }, td);
+  await p.waitForTimeout(250);
+  await p.locator('button:has-text("أوامر الصرف")').first().click();
+  assert.match(await p.locator('body').innerText(), /المتاح بعد المعلّق/);
+  await p.locator('button:has-text("أمر صرف جديد")').click();
+  // نقدًا يتجاوز المتاح (1000 − 700 المعلّق) ⇒ مرفوض
+  await p.locator('.modal select.sel').nth(1).selectOption('cash');
+  await p.locator('.modal input.inp.n').first().fill('500'); await p.locator('.modal input[placeholder="اسم الجهة أو المورد"]').fill('مورد خدمات');
+  await p.click('[data-ds-save]'); await p.waitForFunction(() => /يتجاوز رصيد الخزينة المتاح/.test(window.lastSay || ''));
+  // تحويل بنكي ⇒ البنك، والمالك يرحّل مباشرة بوسم وتاريخ اعتماد
+  await p.locator('.modal select.sel').nth(1).selectOption('bank_transfer'); await p.waitForSelector('[data-ds-bank]');
+  await p.click('[data-ds-save]'); await p.waitForFunction(() => (window.cur.disbursements || []).length === 2);
+  const r = await p.evaluate(() => window.cur.disbursements.filter(x => x.id !== 'pp').map(x => [x.fundAcc || '', x.status, !!x.selfPosted, !!x.postDate]));
+  assert.deepEqual(r, [['1201', 'posted', true, true]]);
+  assert.ok(await p.locator('[data-ds-self]').count() >= 1);
+  assert.deepEqual(errs, []); await ctx.close();
+});

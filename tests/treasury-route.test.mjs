@@ -77,3 +77,17 @@ test('v56.30 (قرار المالك): أوامر الصرف حسب بنودها 
   const A2 = E.buildAccounting({ ...org, dsRoute: { ...org.dsRoute, map: {} } }, { disbursements: [ds('r1', '2026-12-02', 'إيجارات الفروع', 3000, { acc: '5610' })] });
   assert.equal(lines(ent(A2, 'r1')), '5610:3000/0,1101:0/3000');
 });
+
+test('v56.31 (قرارات المجلس T1/T3): داخل النطاق القيد بتاريخ الاعتماد والتحويل البنكي على البنك؛ خارجه كما كان', () => {
+  const org = { ...base, dsRoute: { ranges: [{ from: '2026-12-01' }] } };
+  const A = E.buildAccounting(org, { disbursements: [
+    ds('a', '2026-12-02', 'صيانة وتشغيل', 100, { status: 'posted', postDate: '2026-12-05' }),
+    ds('b', '2026-12-02', 'صيانة وتشغيل', 200, { status: 'posted', method: 'bank_transfer', fundAcc: '1201' }),
+    ds('c', '2026-11-20', 'صيانة وتشغيل', 300, { postDate: '2026-12-09', fundAcc: '1201' }),     // قبل النطاق ⇒ كما كان
+    ds('d', '2026-12-03', 'صيانة وتشغيل', 40, { status: 'posted', fundAcc: '5201' }) ] });        // ليس بنكًا ⇒ 1101
+  assert.equal(ent(A, 'a').date, '2026-12-05'); assert.equal(lines(ent(A, 'a')), '5901:100/0,1101:0/100');
+  assert.equal(lines(ent(A, 'b')), '5901:200/0,1201:0/200');
+  assert.equal(ent(A, 'c').date, '2026-11-20'); assert.equal(lines(ent(A, 'c')), '5901:300/0,1101:0/300');
+  assert.equal(lines(ent(A, 'd')), '5901:40/0,1101:0/40');
+  assert.equal(E.dsCashOut({}), true); assert.equal(E.dsCashOut({ fundAcc: '1201' }), false);
+});
