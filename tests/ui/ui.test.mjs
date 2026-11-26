@@ -3754,5 +3754,12 @@ test('v56.23 G2: شريط التحكم في المحاسبة — معطّل اف
   await p.setViewportSize({ width: 390, height: 844 });
   assert.equal(await p.locator('.obp-app').isVisible(), false, 'الجوال: اسم القسم فقط');
   assert.equal(await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), true, 'بلا تمرير أفقي للصفحة');
+  assert.ok(await p.evaluate(() => document.querySelector('.ob-sub').getBoundingClientRect().height) < 70, 'المرقّم سطر واحد على الجوال');
   assert.deepEqual(errs, []); await ctx.close();
+  // أهداف اللمس 44px على أجهزة اللمس (مراجعة التصميم المستقلة)
+  { const { p, errs, ctx } = await open({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }, 'live/Accounting/admin/jr');
+    await p.waitForSelector('.ob-sub'); await p.evaluate(() => window.setOrg(o => ({ ...o, ctlBar: { on: true } }))); await p.waitForSelector('[data-ctlbar]');
+    const hs = await p.evaluate(() => [...document.querySelectorAll('[data-ctlbar-act] .btn, .ob-sub.ctl2 .btn, .ob-sub.ctl2 .ob-si')].map(b => Math.round(b.getBoundingClientRect().height)));
+    assert.ok(hs.length > 0 && hs.every(h => h >= 44), 'أهداف لمس ≥ 44px: ' + hs.join(','));
+    assert.deepEqual(errs, []); await ctx.close(); }
 });
