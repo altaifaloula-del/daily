@@ -353,7 +353,7 @@ export function SystemMaintenance({ org, ops, me, commit, commitOrg, say }) {
 
 /* v56.4 — MUKTASAB POS الدفعة 2a: فواتير نقطة البيع سجلات مستقلة محمية (نسخ موازٍ — docs/pos/POS_DATABASE_DESIGN.md)
    المستند يبقى المصدر؛ التفعيل ينسخ كل فاتورة جديدة/إلغاء بالخلفية، و«نسخ الفواتير القائمة» للتاريخ، و«مطابقة» تكشف أي فرق. */
-/* v56.9 (D1) — دفتر القيود المخزّن: قيود الإغلاقات المعتمدة من 2026-01-01 تُحفظ مرة برقم ثابت JV-<السنة>-<تسلسل>.
+/* v56.9 (D1) + v56.10 (D2) — دفتر القيود المخزّن: القيد الافتتاحي وقيود الإغلاقات المعتمدة من 2026-01-01 تُحفظ مرة برقم ثابت JV-<السنة>-<تسلسل>.
    معطّل افتراضيًا. الترحيل يدوي هنا (الناقص فقط، بترتيب التاريخ)، والمطابقة تكشف الناقص والمختلف والزائد. القراءة تبقى من المحرك. */
 function LedgerCard({ org, ops, commitOrg, say, isAdm }) {
   const on = flOn(org); const [busy, setBusy] = useState(''); const [rep, setRep] = useState(null);
@@ -377,8 +377,9 @@ function LedgerCard({ org, ops, commitOrg, say, isAdm }) {
     setBusy('post'); const r = await flPost(rep.missing, lk, (i, t) => setBusy('post ' + i + '/' + t)); setBusy('');
     if (r.err) return say(r.err, 'no');
     await logAudit({ actionType: 'migrate', targetType: 'system_settings', targetId: 'ledger', title: 'رحّل قيود الإغلاقات إلى الدفتر المخزّن', details: r.ok + ' قيدًا' + (r.first ? ' (' + r.first + ' … ' + r.last + ')' : '') + (r.fail ? ' · تعذّر ' + r.fail + ' (' + r.lastErr + ')' : '') });
-    say(r.fail ? 'رُحّل ' + r.ok + ' وتعذّر ' + r.fail + ' (' + r.lastErr + ')' : 'رُحّل ' + r.ok + ' قيدًا ✓', r.fail ? 'no' : 'ok'); check();
+    say(r.fail ? 'رُحّل ' + r.ok + ' وتعذّر ' + r.fail + ' (' + r.lastErr + ')' : 'رُحّل ' + r.ok + ' قيدًا ✓' + (r.skip ? ' (' + r.skip + ' مرحّل مسبقًا)' : ''), r.fail ? 'no' : 'ok'); check();
   };
+  const why0 = (e) => e.opening ? 'القيد الافتتاحي — لم يُرحَّل بعد (يُرحَّل أولًا)' : 'لم يُرحَّل بعد';
   const row = (e, why) => <div key={e.id || e.src} className="me-row"><span className="me-a"><b>{(e.date || '') + ' — ' + (e.title || e.src || '')}</b><small>{why}</small></span></div>;
   return (
     <div className="card" data-ledger>
@@ -386,7 +387,8 @@ function LedgerCard({ org, ops, commitOrg, say, isAdm }) {
         <span className={'badge ' + (on ? 'b-sky' : 'b-dim')}>{on ? 'مفعّل — القراءة من المحرك' : 'غير مفعّل'}</span></div>
       <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>
         كل قيد يُحفظ <b>مرة واحدة برقم ثابت</b> مثل JV-2026-000001 يبدأ من 1 كل سنة، ولا يُعدَّل محتواه ولا يُحذف — والخادم يرفض أي تعديل.
-        هذه المرحلة: <b>قيود الإغلاقات المعتمدة من {FL_START}</b> ({scope.length} قيدًا الآن). التقارير ما زالت من المحرك حتى تثبت المطابقة.
+        النطاق الآن: <b>القيد الافتتاحي بأرصدة 2025-12-31</b> + <b>قيود الإغلاقات المعتمدة من {FL_START}</b> ({scope.length} قيدًا).
+        بعد التفعيل يُرحَّل قيد كل إغلاق <b>تلقائيًا عند تدقيقه</b>، و«ترحيل الناقص» يلحق بما تعذّر. التقارير ما زالت من المحرك حتى تثبت المطابقة.
       </div>
       {isAdm && <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
         <button className={'btn sm' + (on ? ' gh' : ' pri')} disabled={!!busy} onClick={toggle}>{on ? 'إيقاف' : 'تفعيل'}</button>
@@ -401,7 +403,7 @@ function LedgerCard({ org, ops, commitOrg, say, isAdm }) {
           {rep.differ.slice(0, 10).map(e => row(e, 'تغيّر مصدره بعد الترحيل — التصحيح بقيد عكسي في الدفعة القادمة'))}
           {rep.bad.slice(0, 10).map(e => row(e, 'لا يتطابق بالهللة — لا يُرحَّل حتى يُصحَّح'))}
           {rep.extra.slice(0, 10).map(r => row(r, 'قيد مخزّن لم يعد له مصدر معتمد (' + (r.no || '') + ')'))}
-          {rep.missing.slice(0, 5).map(e => row(e, 'لم يُرحَّل بعد'))}
+          {rep.missing.slice(0, 5).map(e => row(e, why0(e)))}
         </div>}
       </div>}
     </div>);

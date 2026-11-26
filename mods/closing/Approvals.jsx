@@ -1,7 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useEffect, useState } from 'react';
 import { ClipboardCheck, ShieldCheck, AlertTriangle, Eye, Check, X, Lock } from 'lucide-react';
-import { Badge, ClosingView, Kpi, LOCK_MSG, ROLES, arDate, arTime, money, nowISO, periodLocked, uid, signDecision, sigFailMsg, loadRelease, loadSignoffs, sigVerify, SIG_BADGE, closingImgs, closingArchiveOne, closingStripImgs } from '../../App.jsx';
+import { Badge, ClosingView, Kpi, LOCK_MSG, ROLES, arDate, arTime, money, nowISO, periodLocked, uid, signDecision, sigFailMsg, loadRelease, loadSignoffs, sigVerify, SIG_BADGE, closingImgs, closingArchiveOne, closingStripImgs, flOn, flAutoPost } from '../../App.jsx';
 
 export function Approvals({ org, me, scoped, commit, say }) {
   const [note, setNote] = useState({});
@@ -49,6 +49,15 @@ export function Approvals({ org, me, scoped, commit, say }) {
     });
     say(kind === 'reject' ? 'أُرجع الإغلاق للفرع مع السبب' : 'تم الاعتماد بنجاح');
     setNote(p => ({ ...p, [c.id]: '' }));
+    // v56.10 (D2): ترحيل قيود الإغلاق المدقَّق إلى الدفتر المخزّن برقم ثابت — لا يعطّل الاعتماد إن تعذّر
+    if (kind === 'audit' && flOn(org)) {
+      const ops2 = { ...scoped, closings: scoped.closings.map(x => x.id === c.id ? { ...x, status: 'approved' } : x) };
+      flAutoPost(org, ops2, c.id).then(r => {
+        if (!r) return;
+        if (r.err || r.fail) say('اعتُمد الإغلاق، وتعذّر ترحيل قيده للدفتر المخزّن الآن — يُرحَّل من «صيانة النظام ← ترحيل الناقص»', 'no');
+        else if (r.ok) say('رُحّل قيد الإغلاق برقم ثابت ' + (r.first || ''));
+      });
+    }
   };
 
   return (
