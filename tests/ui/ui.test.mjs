@@ -3426,7 +3426,7 @@ test('v56.0 هوية المنشأة: رفع شعار شفاف، الألوان �
 });
 
 // ===== v56.5 — تجربة الدخول الفاخرة: كل التفاعلات مربوطة بدالة الدخول نفسها، بلا تجاوز للمصادقة =====
-const SHOTS = path.join(cache, 'shots'); const shot = async (p, n) => { fs.mkdirSync(SHOTS, { recursive: true }); await p.screenshot({ path: path.join(SHOTS, n + '.png'), fullPage: true }); };
+const SHOTS = path.join(cache, 'shots'); const shot = async (p, n) => { fs.mkdirSync(SHOTS, { recursive: true }); await p.screenshot({ path: path.join(SHOTS, n + '.jpg'), type: 'jpeg', quality: 72, fullPage: true }); };
 const gateState = (p) => p.evaluate(() => ({ calls: (window.__gate || {}).calls || [], mfa: (window.__gate || {}).mfaCalls || [],
   err: document.querySelector('.mq-err')?.innerText || '', btn: document.querySelector('.mq-btn')?.innerText || '', note: document.querySelector('.mq-note')?.innerText || '',
   dir: document.querySelector('.mq-login')?.closest('[dir]')?.getAttribute('dir') || '', over: document.documentElement.scrollWidth - window.innerWidth }));
