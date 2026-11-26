@@ -1546,7 +1546,8 @@ test('v44.3 طلب شراء الفرع ← أمر شراء لمستودع الف
   r = await b2.p.evaluate(() => ({ rc: window.cur.poReceipts.map(x => [x.status, x.supInvNo, x.lines[0].qty]), mv: window.cur.whMoves.map(m => [m.whId, m.qty, m.unitCost, !!m.grnRef]) }));
   assert.deepEqual(r, { rc: [['pending', 'SUP-900', 8]], mv: [['wh-b1', 8, undefined, true]] }, 'دخل مستودع الفرع فورًا — بلا سعر لدى الفرع');
   assert.equal(JSON.stringify(after.poInbox).includes('price'), false, 'نسخة الأمر في الفرع كميات فقط');
-  assert.doesNotMatch(await b2.p.locator('[data-brpo]').innerText(), /40|ر\.س/, 'لا أسعار في شاشة الفرع');
+  // v56.6: رقم سند الاستلام عشوائي (GRN-…-S40 مثلًا) فيُحذف قبل فحص السعر — كان الاختبار يفشل عشوائيًا حين يحوي الرقم «40»
+  assert.doesNotMatch((await b2.p.locator('[data-brpo]').innerText()).replace(/GRN-[A-Za-z0-9-]+/g, ''), /40|ر\.س/, 'لا أسعار في شاشة الفرع');
   assert.match(await b2.p.locator('[data-brpo]').innerText(), /لا أوامر شراء قيد التوريد/, 'المتبقي يُخصم منه الاستلام المعلّق');
   const brOps = await b2.p.evaluate(() => ({ poReceipts: window.cur.poReceipts, whMoves: window.cur.whMoves }));
   await b2.ctx.close();
@@ -3531,7 +3532,7 @@ test('v56.5 الدخول: الجوال بلا تجاوز وأهداف لمس ≥
   await shot(d.p, 'login-desktop-en'); await d.ctx.close();
 });
 
-test('v56.6 C4 التطابق التام بالهللات: معطّل افتراضيًا، يكشف القيد قبل التفعيل، ويفعّله المدير ويوقفه', async () => {
+test('v56.7 C4 التطابق التام بالهللات: معطّل افتراضيًا، يكشف القيد قبل التفعيل، ويفعّله المدير ويوقفه', async () => {
   const ctx = await browser.newContext(devices['iPad (gen 7)']); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
   p.on('dialog', d => d.accept());
   await p.goto(base + 'live/Admin/admin'); await p.reload(); await p.waitForTimeout(500); await settle(p);

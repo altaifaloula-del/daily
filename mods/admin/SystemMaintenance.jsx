@@ -6,7 +6,7 @@ import { cloud, KEYS, brKey } from '../../storage';
 import { ShieldCheck, RefreshCw, Trash2, AlertTriangle, Check, Server, Bug, Activity, HardDrive } from 'lucide-react';
 import { archKey, archivePlan, nowISO, printA4, uid, dtLocal, posSplitBranch, posUnsplitBranch, posSplitOn } from '../../App.jsx';   // v41.7 + v52.7
 import { clrCompare, clrLoad, clrOn, clrSeed, clrState, logAudit, clrRead, clrViewStats } from '../../App.jsx';   // v41.9 + v42.2
-import { posrOn, posrCompare, posrLoad, posrSeed, posrState } from '../../App.jsx';   // v56.4 (POS 2a) سجلات فواتير نقطة البيع
+import { posrOn, posrCompare, posrLoad, posrSeed, posrState, posrRepair } from '../../App.jsx';   // v56.4 (POS 2a) سجلات فواتير نقطة البيع
 import { WorkflowsCard } from './Workflows.jsx';   // v49.5 MQ-059
 import { fjCompare, fjLoad, fjOn, fjState, fpLockedTo, fpLoad, fmLoad, fmSet, fjSeed, FD_KINDS, fdCompare, fdLoad, fdSeed } from '../../App.jsx';   // v49.0 المرحلة 01
 import { dataFootprint, recipeRaw, APP_CV, APP_VER, CloudHealth, ERRLOG_KEY, MAIN_WH, ROLES, SIG_BADGE, SIG_NAME, buildAccounting, finStrictOn, loadRelease, loadSignoffs, sigVerify, branchBanks, cashForecast, complianceItems, entityList, vatStatus, countedClosing, isoD, money, purKey, q3, qrFs, snapAll, stockByWh, today, whName, whOf } from '../../App.jsx';
@@ -28,7 +28,7 @@ export function integrityChecks(org, ops, ctl) {
     const bad = A.entries.filter(e => !e.balanced);
     add('tb', A.balanced ? 'ok' : 'bad', 'توازن القيود وميزان المراجعة', A.balanced ? 'المدين = الدائن في ' + A.entries.length + ' قيدًا' : 'فرق ' + money(diff) + ' · ' + bad.length + ' قيد غير متوازن',
       bad.slice(0, 5).map(e => (e.date || '') + ' — ' + (e.title || e.id)), 'افتح القيد من «المحاسبة ← القيود اليومية» وصحّح سطوره');
-    // v56.6 (C4): فروق الهللات — تشخيص فقط ما دام التطابق التام غير مفعّل
+    // v56.7 (C4): فروق الهللات — تشخيص فقط ما دام التطابق التام غير مفعّل
     if (!A.strictHal && A.halIssues) add('hal', 'warn', 'فروق تقريب بالهللات', A.halIssues + ' قيدًا متوازنًا بسماح 0.01 لا بالهللات تمامًا',
       A.entries.filter(e => e.halDiff !== 0 || e.subHal > 0).slice(0, 5).map(e => (e.date || '') + ' — ' + (e.title || e.id) + ' (' + (e.halDiff ? 'فرق ' + e.halDiff + ' هللة' : 'كسر أدق من الهللة') + ')'),
       'راجعها قبل تفعيل «التطابق التام بالهللات» من بطاقته في هذه الصفحة');
@@ -351,7 +351,7 @@ export function SystemMaintenance({ org, ops, me, commit, commitOrg, say }) {
 
 /* v56.4 — MUKTASAB POS الدفعة 2a: فواتير نقطة البيع سجلات مستقلة محمية (نسخ موازٍ — docs/pos/POS_DATABASE_DESIGN.md)
    المستند يبقى المصدر؛ التفعيل ينسخ كل فاتورة جديدة/إلغاء بالخلفية، و«نسخ الفواتير القائمة» للتاريخ، و«مطابقة» تكشف أي فرق. */
-/* v56.6 (C4 — A2) — التطابق التام بالهللات: القيد متوازن فقط إذا تساوى المدين والدائن بالهللة الصحيحة.
+/* v56.7 (C4 — A2) — التطابق التام بالهللات: القيد متوازن فقط إذا تساوى المدين والدائن بالهللة الصحيحة.
    معطّل افتراضيًا؛ البطاقة تعرض أثر التفعيل قبله، والإيقاف يعيد السماح السابق (0.01) فورًا. */
 function FinStrictCard({ org, ops, commitOrg, say, isAdm }) {
   const on = finStrictOn(org); const [busy, setBusy] = useState(false);
@@ -412,8 +412,18 @@ function PosRecordsCard({ org, ops, commitOrg, say, isAdm }) {
     say(r.fail ? 'نُسخ ' + r.ok + ' وتعذّر ' + r.fail + ' (' + r.lastErr + ')' : 'نُسخت ' + r.ok + ' فاتورة ✓' + (r.locked ? ' · تُخطّي ' + r.locked + ' في فترة مقفلة' : ''), r.fail ? 'no' : 'ok');
     check();
   };
+  // v56.6 (قرار المالك): إصلاح سجل «مختلف» من الفاتورة الأصلية — لمسؤول النظام، بسبب مكتوب، ويُسجَّل في سجل التدقيق
+  const repair = async (o) => {
+    if (!isAdm) return;
+    const why = window.prompt('سبب إصلاح سجل الفاتورة ' + (o.no || o.id) + ' (يُحفظ في السجل وفي سجل التدقيق):'); if (!why || why.trim().length < 5) return say('اكتب سببًا واضحًا (5 أحرف على الأقل)', 'no');
+    setBusy('fix'); const r = await posrRepair(o, why.trim()); setBusy('');
+    if (r.err) return say('تعذّر الإصلاح (' + r.err + ')', 'no');
+    await logAudit({ actionType: 'update', targetType: 'pos_order', targetId: o.id, title: 'أصلح سجل فاتورة نقطة بيع محميًا', details: (o.no || o.id) + ' · ' + why.trim().slice(0, 300) });
+    say('أُصلح سجل الفاتورة ' + (o.no || o.id) + ' ✓'); check();
+  };
   const st = posrState();
-  const row = (o, why) => <div key={o.id} className="me-row"><span className="me-a"><b>{brName(o.branchId)} — {o.no || o.id} · {o.date || ''}</b><small>{why}</small></span></div>;
+  const row = (o, why, fix) => <div key={o.id} className="me-row"><span className="me-a"><b>{brName(o.branchId)} — {o.no || o.id} · {o.date || ''}</b><small>{why}</small></span>
+    {fix && isAdm && <button className="btn sm gh" disabled={!!busy} onClick={() => repair(o)}>إصلاح</button>}</div>;
   return (
     <div className="card" data-posr>
       <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />فواتير نقطة البيع سجلات مستقلة (حماية على مستوى الخادم)</div>
@@ -430,7 +440,7 @@ function PosRecordsCard({ org, ops, commitOrg, say, isAdm }) {
       {(st.ok > 0 || st.fail > 0) && <div style={{ fontSize: 12, marginTop: 8 }}>في هذه الجلسة: نُسخ {st.ok}{st.fail ? ' · تعذّر ' + st.fail + ' (' + st.lastErr + ')' : ''}</div>}
       {rep && <div style={{ marginTop: 10 }}>
         <div className={'note ' + (rep.ok ? 'ok' : 'warn')}>{rep.ok ? '✓ مطابقة كاملة: ' + rep.total + ' فاتورة و' + rep.recs + ' سجلًا' : 'فروق: ناقص ' + rep.missing.length + ' · مختلف ' + rep.differ.length}{rep.extra.length ? ' · سجلات بلا فاتورة في المستند (مؤرشفة) ' + rep.extra.length : ''}</div>
-        {rep.differ.slice(0, 8).map(o => row(o, 'مختلف عن السجل (الأرقام أو حالة الإلغاء)'))}
+        {rep.differ.slice(0, 8).map(o => row(o, 'مختلف عن السجل (الأرقام أو حالة الإلغاء)', true))}
         {rep.missing.slice(0, 8).map(o => row(o, 'لا سجل له بعد'))}
       </div>}
     </div>);
