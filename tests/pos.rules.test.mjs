@@ -89,3 +89,19 @@ test('POS-R6 القراءة: الفرع ومركز المنشأة فقط', async
   await assertFails(getDoc(doc(as('bmB'), 'pos_orders', x)), 'مدير فرع آخر');
   await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(), 'pos_orders', x)), 'زائر');
 });
+
+test('POS-R7 (v56.6) إصلاح سجل خاطئ: لمسؤول النظام وحده بسبب مكتوب، لنفس الفرع والنوع والتاريخ، ولا في فترة مقفلة', async () => {
+  const x = id('fix'); await seedPo(x, { total: 1, vat: 0.13 });   // سجل خاطئ (مبلغ مختلف عن الفاتورة)
+  const fixed = (k, x2 = {}) => ({ ...po(k), total: 115, vat: 15, repair: '{"reason":"سجل مخالف للفاتورة الأصلية"}', ...x2 });
+  await assertFails(setDoc(doc(as('bm'), 'pos_orders', x), fixed('bm')), 'مدير الفرع لا يصلح');
+  await assertFails(setDoc(doc(as('cash'), 'pos_orders', x), fixed('cash')), 'ولا الكاشير');
+  await assertFails(setDoc(doc(as('owner'), 'pos_orders', x), { ...fixed('owner'), repair: 'قصير' }), 'بلا سبب كافٍ');
+  await assertFails(setDoc(doc(as('owner'), 'pos_orders', x), fixed('owner', { branchId: 'B' })), 'لا نقل لفرع آخر');
+  await assertFails(setDoc(doc(as('owner'), 'pos_orders', x), fixed('owner', { date: '2026-11-25' })), 'ولا تغيير التاريخ');
+  await assertSucceeds(setDoc(doc(as('owner'), 'pos_orders', x), fixed('owner')), 'مسؤول النظام يصلح بسبب');
+  await assertFails(setDoc(doc(as('owner'), 'pos_orders', x), fixed('owner')), 'إصلاح ثانٍ يحتاج سببًا جديدًا');
+  await assertFails(deleteDoc(doc(as('owner'), 'pos_orders', x)), 'ولا حذف أبدًا');
+  const old = id('fix'); await seedPo(old, { date: '2026-10-20' });
+  await assertFails(setDoc(doc(as('owner'), 'pos_orders', old), fixed('owner', { date: '2026-10-20' })), 'لا إصلاح في فترة مقفلة');
+  await assertFails(setDoc(doc(as('cash'), 'pos_orders', id('fix')), { ...po('cash'), repair: '{"reason":"إنشاء بحقل إصلاح"}' }), 'لا إنشاء بحقل إصلاح');
+});
