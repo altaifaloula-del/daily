@@ -2743,7 +2743,8 @@ test('v51.6 طباعة تقرير الإغلاق PDF: المستند وحده ب
 test('v51.8 التنقل بين أقسام التطبيق: السابق / التالي / رجوع — في المخزون والمحاسبة', async () => {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } }); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
   await p.goto(base + 'comp/Inventory'); await p.waitForSelector('.secpager', { timeout: 15000 }); await settle(p);
-  const pos = async () => (await p.locator('.secpager .sp-pos').first().innerText()).trim();
+  // v56.16: الموضع بعد اسم القسم الحالي («الاسم · 2 / 9»)
+  const pos = async () => { const t = (await p.locator('.secpager .sp-pos').first().innerText()).trim(); assert.ok(/^.+ · \d+ \/ \d+$/.test(t), 'اسم القسم ظاهر: ' + t); return t.split(' · ').pop(); };
   const p0 = await pos(); assert.match(p0, /^1 \/ \d+$/); const n = Number(p0.split('/')[1]);
   assert.equal(await p.locator('.secpager .sp-prev').first().isDisabled(), true, 'لا سابق للقسم الأول');
   assert.equal(await p.locator('.secpager .sp-back').count(), 0, 'لا رجوع قبل أي تنقل');
@@ -3647,4 +3648,25 @@ test('v56.14 D4 الميزان من الدفتر المخزّن: بلا تفعي
   assert.match(t, /تعذّر تحميل الدفتر \(خارج Firestore\) — الأرقام من المحرك|الفترة تبدأ قبل 2026-01-01/);
   assert.ok(await p.locator('text=ميزان المراجعة').count() > 0);
   assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v56.16 أقسام المحاسبة ظاهرة (بلاغ المالك): صف بأقسام المجموعة الحالية، والقسم الحالي مسمّى، ولا مبدّل عرض مكرر — تابلت وجوال', async () => {
+  for (const [vp, tag] of [[{ width: 1190, height: 782 }, 'tablet'], [{ width: 390, height: 844 }, 'mobile']]) {
+    const ctx = await browser.newContext({ viewport: vp, deviceScaleFactor: 2, ...(tag === 'mobile' ? { isMobile: true, hasTouch: true } : {}) }); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+    await p.goto(base + 'acct/jr'); await p.waitForSelector('.ob-sub', { timeout: 15000 }); await settle(p);
+    const sub = p.locator('.ob-sub').first();
+    assert.equal((await sub.locator('.ob-si.on').innerText()).trim(), 'القيود اليومية', tag + ': القسم الحالي مميّز في الصف');
+    assert.ok(await sub.locator('.ob-si').count() >= 3, tag + ': أقسام المجموعة ظاهرة بلا فتح قائمة');
+    assert.match(await sub.locator('.sp-cur').innerText(), /القيود اليومية/, tag + ': السابق/التالي باسم القسم');
+    assert.equal(await p.locator('.ob .acct-mode').count(), 0, tag + ': لا مبدّل عرض مكرر داخل المحاسبة');
+    assert.ok(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, tag + ': بلا تجاوز أفقي');
+    await shot(p, 'acct-nav-' + tag);
+    const second = (await sub.locator('.ob-si').nth(1).innerText()).trim();
+    await sub.locator('.ob-si').nth(1).click(); await settle(p);
+    assert.equal((await p.locator('.ob-sub .ob-si.on').innerText()).trim(), second, tag + ': النقر ينقل القسم');
+    await p.locator('.ob-it', { hasText: 'التقارير' }).first().click(); await p.waitForTimeout(150);
+    await p.locator('.ob-mi').first().click(); await settle(p);
+    assert.ok(await p.locator('.ob-sub .ob-si.on').count() === 1, tag + ': بعد الانتقال لمجموعة أخرى يظهر صفها');
+    assert.deepEqual(errs, []); await ctx.close();
+  }
 });
