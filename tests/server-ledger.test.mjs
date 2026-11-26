@@ -1,4 +1,4 @@
-/* v56.14 — MUKTASAB FINANCE D5: الترحيل إلى الدفتر المخزّن من الخادم وحده (server-ledger.js).
+/* v56.15 — MUKTASAB FINANCE D5: الترحيل إلى الدفتر المخزّن من الخادم وحده (server-ledger.js).
    الخادم يجمع السطور بالهللات بنفسه، ويتحقق من الدور والفترة، ويرقّم في معاملة، ويعكس الأصل في الكتابة نفسها. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

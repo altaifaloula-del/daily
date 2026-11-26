@@ -3595,7 +3595,50 @@ test('v56.9 D1 دفتر القيود المخزّن: معطّل افتراضيً
   assert.deepEqual(errs, []); await ctx.close();
 });
 
-test('v56.13 D4 الميزان من الدفتر المخزّن: بلا تفعيل لا لافتة، ومع التفعيل خارج Firestore لافتة صريحة والأرقام من المحرك', async () => {
+test('v56.13 الإجازات: لوحة «مهامي» فوق الشريط العلوي، وتتبع الإجازة بعد الاعتماد، وتوقيع الطلب، ومباشرة العمل من الفرع باعتماد المركز', async () => {
+  // 1) اللوحة الجانبية تُرسم على مستوى الصفحة (كانت داخل طبقة الرئيسية فيغطّي الشريط العلوي رأسها)
+  { const { p, errs, ctx } = await open({ viewport: { width: 1280, height: 860 } }, 'comp/Launcher');
+    await p.click('[data-tasksbtn]'); await p.waitForSelector('.lh-drawer [data-mywork-drawer]');
+    assert.equal(await p.locator('.lh-drawer').evaluate(e => e.parentElement === document.body), true, 'اللوحة ابنة مباشرة للصفحة');
+    assert.equal(await p.locator('.lh .lh-drawer').count(), 0);
+    assert.deepEqual(errs, []); await ctx.close(); }
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Hub/admin/hr:leaves');
+  const D = await p.evaluate(() => { const iso = (k) => { const x = new Date(); x.setDate(x.getDate() + k); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); }; return { from: iso(-10), to: iso(-6), td: iso(0) }; });
+  await p.evaluate((D) => { window.setOrg(g => ({ ...g, hrPolicies: { ...(g.hrPolicies || {}), leaveFlow: true } }));
+    window.setOps(o => ({ ...o, hrSignDocs: [], leaveRequests: [{ id: 'lvX', employeeId: 'e1', employeeName: 'أحمد علي', branchId: 'b1', branchName: 'عم قاسم طيبة', type: 'annual', from: D.from, to: D.to, days: 5, status: 'approved', requestedBy: 'خالد', at: D.from + 'T08:00', decidedBy: 'سارة', decidedAt: D.from + 'T09:00' }] })); }, D);
+  await p.waitForTimeout(300);
+  // 2) الإجازة المعتمدة تُعرض وتُتبَّع: المراحل ومن اعتمد، والمباشرة غير المسجّلة تظهر متأخرة
+  await p.getByRole('button', { name: 'معتمدة', exact: true }).click();
+  await p.locator('[data-lvview]').first().click(); await p.waitForSelector('[data-lvdetail]');
+  const det = await p.locator('[data-lvtrack]').innerText(); assert.match(det, /الاعتماد/); assert.match(det, /سارة/); assert.match(det, /مباشرة العمل \(متوقعة/);
+  assert.equal(await p.locator('[data-lvprint]').count(), 1);
+  await p.getByRole('button', { name: 'إغلاق', exact: true }).last().click(); await p.waitForSelector('[data-lvdetail]', { state: 'detached' });
+  // 3) مدير الفرع يسجّل المباشرة المتأخرة — السبب إلزامي — ويُصدَر إقرار مباشرة يوقّعه الموظف
+  await p.evaluate(() => window.as('bm')); await p.waitForTimeout(300);
+  await p.getByRole('button', { name: 'معتمدة', exact: true }).click();
+  await p.locator('[data-lvret]').first().click();
+  assert.match(await p.locator('[data-lvret-plan]').innerText(), /متأخرة 5 يوم/);
+  await p.click('[data-lvret-save]'); await p.waitForFunction(() => /سبب التأخر/.test(window.lastSay || ''));
+  await p.getByLabel('ملاحظة المباشرة').fill('ظرف عائلي'); await p.click('[data-lvret-save]');
+  await p.waitForFunction(() => (window.cur.leaveRequests[0].ret || {}).status === 'pending');
+  const r1 = await p.evaluate(() => ({ ret: window.cur.leaveRequests[0].ret, sd: window.cur.hrSignDocs.map(d => d.docType + ':' + d.status) }));
+  assert.equal(r1.ret.lateDays, 5); assert.equal(r1.ret.date, D.td); assert.deepEqual(r1.sd, ['leave_return:pending']);
+  assert.equal(await p.locator('[data-lvret-ok]').count(), 0, 'مدير الفرع لا يعتمد المباشرة');
+  // 4) المركز يعتمد المباشرة ⇒ أيام التأخر تُخصم من الرصيد
+  await p.evaluate(() => window.as('admin')); await p.waitForTimeout(300);
+  await p.getByRole('button', { name: 'معتمدة', exact: true }).click();
+  p.once('dialog', d => d.accept());
+  await p.locator('[data-lvret-ok]').first().click();
+  await p.waitForFunction(() => window.cur.leaveRequests[0].ret.status === 'approved');
+  assert.match(await p.locator('[data-lvret-st]').first().innerText(), /باشر .* تأخر 5/);
+  // 5) طلب جديد مع تفعيل الدورة ⇒ إقرار «طلب إجازة» بانتظار توقيع الموظف
+  await p.getByRole('button', { name: 'طلب إجازة' }).first().click();
+  await p.getByRole('button', { name: 'إرسال للاعتماد' }).click();
+  await p.waitForFunction(() => window.cur.hrSignDocs.some(d => d.docType === 'leave'));
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v56.14 D4 الميزان من الدفتر المخزّن: بلا تفعيل لا لافتة، ومع التفعيل خارج Firestore لافتة صريحة والأرقام من المحرك', async () => {
   const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Accounting/admin/tb');
   await p.waitForTimeout(300);
   assert.equal(await p.locator('[data-flsrc]').count(), 0, 'القراءة غير مفعّلة ⇒ لا لافتة');

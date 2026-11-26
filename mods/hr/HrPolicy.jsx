@@ -92,6 +92,10 @@ export function HrPolicy({ org, me, commitOrg, say }) {
             <Num label="سماحية التأخير (دقائق) قبل احتساب تأخير" value={pf.lateToleranceMinutes} onChange={v => setPf(f => ({ ...f, lateToleranceMinutes: v }))} />
             <Num label="تنبيه بالإقرارات غير الموقَّعة بعد (أيام) من إصدارها" value={pf.signReminderDays} onChange={v => setPf(f => ({ ...f, signReminderDays: v }))} hint="م10 — إقرارات استلام الراتب وإشعارات المكافآت/الجزاءات التي لم يوقّعها الموظف من كشك الفرع" />
           </div>
+          <label className="row" style={{ gap: 8, fontSize: 12.5, cursor: 'pointer', margin: '6px 0 10px' }} data-leaveflow>
+            <input type="checkbox" checked={!!pf.leaveFlow} onChange={e => setPf(f => ({ ...f, leaveFlow: e.target.checked }))} />
+            <span><b>دورة الإجازة الموقّعة</b> — يوقّع الموظف على طلب الإجازة بالرمز، ويسجّل مدير الفرع مباشرة العمل ويوقّعها الموظف ويعتمدها المركز (أيام التأخر تُخصم من رصيد الإجازات).</span>
+          </label>
           <Field label="أيام الإجازة الأسبوعية الافتراضية">
             <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
               {HR_WEEK_DAYS.map(d => (
