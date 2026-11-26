@@ -1,17 +1,14 @@
-Id
-release-v56.0
-Type
-نشر إصدار
-Status
-APPROVED
-Approved by
-mujahed
-Date
-2026-11-25
-Scope
-نشر الإصدار v56.0 (الإصلاحات التصحيحية + هوية «مُكتسَب — Muktasab») بدمج طلب الدمج altaifaloula-del/daily#237 في main، ومعه نشر قواعد Firestore تلقائيًا. لا تشمل ترحيل بيانات، ولا رفع الحد الأدنى للإصدار إلى v56.0 (قرار منفصل بعد تحديث كل الأجهزة).
-موافقة المالك — نشر الإصدار v56.0
+---
+id: REQ-20261125-01
+type: نشر إصدار
+requested_by: Claude Code (جلسة نقل v56.0)
+status: APPROVED
+approved_by: mujahed
+date: 2026-11-25
+scope: تغيير هوية المنصة إلى «مُكتسَب — Muktasab» برمز البوصلة، وتحديث tests/ai-team/brand-baseline.json بالبصمات الجديدة، ونقل إصلاحات v56.0. لا تشمل ترحيل بيانات ولا تغيير المعرّفات الداخلية.
+---
 
+# طلب موافقة — إصدار v56.0 وتغيير هوية المنصة إلى «مُكتسَب — Muktasab»
 المرجع: docs/approvals/requests/REQ-20261125-01.md وPROJECT_AUDIT/V56/RELEASE_NOTES_V56.md.
 
 شروط تمت قبل الدمج (يضع المالك ✓)
