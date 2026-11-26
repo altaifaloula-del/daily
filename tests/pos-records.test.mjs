@@ -47,7 +47,7 @@ test('2a: المطابقة — ناقص، مختلف بالبصمة أو الح�
   c = E.posrCompare([a], [rec(a), rec(b)]); assert.equal(c.ok, true, 'زائد (مؤرشف) لا يُفشل'); assert.equal(c.extra.length, 1);
 });
 
-test('v56.5 (مراجعة 6): بيانات الإلغاء JSON صالح دائمًا ولا تتجاوز 4000 حرف مهما طال السبب', () => {
+test('v56.6 (مراجعة 6): بيانات الإلغاء JSON صالح دائمًا ولا تتجاوز 4000 حرف مهما طال السبب', () => {
   const long = 'سبب '.repeat(3000);
   const v = E.posrVoidData({ voidBy: 'مدير', voidAt: '2026-11-26T10:00', voidReason: long, voidNote: { no: 'م1', lines: Array(500).fill('x'.repeat(20)) } });
   assert.ok(v.length <= 4000); const j = JSON.parse(v); assert.equal(j.by, 'مدير'); assert.ok(j.reason.length <= 1000);

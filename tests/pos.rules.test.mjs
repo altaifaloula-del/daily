@@ -90,7 +90,7 @@ test('POS-R6 القراءة: الفرع ومركز المنشأة فقط', async
   await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(), 'pos_orders', x)), 'زائر');
 });
 
-test('POS-R7 (v56.5) إصلاح سجل خاطئ: لمسؤول النظام وحده بسبب مكتوب، لنفس الفرع والنوع والتاريخ، ولا في فترة مقفلة', async () => {
+test('POS-R7 (v56.6) إصلاح سجل خاطئ: لمسؤول النظام وحده بسبب مكتوب، لنفس الفرع والنوع والتاريخ، ولا في فترة مقفلة', async () => {
   const x = id('fix'); await seedPo(x, { total: 1, vat: 0.13 });   // سجل خاطئ (مبلغ مختلف عن الفاتورة)
   const fixed = (k, x2 = {}) => ({ ...po(k), total: 115, vat: 15, repair: '{"reason":"سجل مخالف للفاتورة الأصلية"}', ...x2 });
   await assertFails(setDoc(doc(as('bm'), 'pos_orders', x), fixed('bm')), 'مدير الفرع لا يصلح');

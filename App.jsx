@@ -14,13 +14,14 @@ import { Target,
   CreditCard, Coins, ChevronDown, ChevronRight,
   Crop, RotateCw, RotateCcw, EyeOff, Sun, Wand2, Delete, Scale, Home, Star, QrCode, Signature, PenLine,
   UtensilsCrossed, PiggyBank, Wrench,
-  Smartphone,
+  Smartphone, Mail, Languages,
 } from 'lucide-react';
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, LineChart, Line
 } from 'recharts';
 import { CSS } from './styles';
+import { LoginFx, WelcomeFx, markWelcome, clearWelcome } from './mods/login/LoginFx.jsx';   // v56.5 تجربة الدخول
 import { TX, getLang, setLangGlobal, isEn, domI18n } from './i18n';
 import { tenantFirebase, tenantFbReady, TENANT } from './tenant.js';
 import { cloud, KEYS, kb, authApi, brKey, bfKey, pushApi } from './storage';
@@ -3474,7 +3475,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.5';
+const APP_VER = 'v56.6';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3528,12 +3529,13 @@ class ErrorBoundary extends React.Component {
     return full ? <div className="rms mode-dark thm-mizan" style={{ minHeight: '100vh', background: '#141210', padding: 16 }}>{box}</div> : box;
   }
 }
+export { FbGate };   // v56.5: لاختبار تجربة الدخول في Playwright
 export { ErrorBoundary, logClientError, lockedLedgerChanged };
 export { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, saleRetUse, posReturnLoyDed };
 export { jeLive, jeOwner, canApproveJe, jeAutoSt, vatCloseLive, WF_DOCS, wfTiers, wfOn, wfRequired, poNeedsAppr, wfState, wfCanAct, wfApprove };   // v47.1 اعتماد القيد اليدوي
 export { gosiNewSched, gosiNewAuto };   // v47.2 الرواتب   // v46.8 مرتجع نقطة البيع   // v46.8: للاختبارات الوظيفية (حارس الإقفال)
 export { findDupClosings, clDayKey, clrKeyId, yearEndDates, yearEndNext, payFactor, POS_HOLD_MAX, posHolds, posHoldsSet, posHoldPut, posHoldRecall };
-const POS_VOID_ROLES = ['branch_manager', 'regional_manager', 'head_office', 'general_management', 'system_admin'];   // v56.5 = posMgrRoles() في القواعد
+const POS_VOID_ROLES = ['branch_manager', 'regional_manager', 'head_office', 'general_management', 'system_admin'];   // v56.6 = posMgrRoles() في القواعد
 export { posVoidBlock, posSeqSeed, posChainSeed, posNextNo, posTabCuts, POS_VOID_ROLES };   // v56.2 حراس نقطة البيع (دفعة 1)
 export { rptPivot, rptTpl, RPT_TPL_ALIAS };
 export { tnRemember, tnHref, tnOkId, RD_DEF, RD_ROLE, roleDash, roleDashList, roleDashDefault };
@@ -3797,7 +3799,7 @@ function PlatformApp() {
         const uu = ((o2 && o2.users) || []).find(x => (x.email || '').toLowerCase() === u.email && x.isActive);
         if (uu) {
           setMe(uu); setTab('home');
-          try { localStorage.setItem('rms8:lastEmail', uu.email || ''); } catch { }
+          try { if (localStorage.getItem('rms8:noRemember') !== '1') localStorage.setItem('rms8:lastEmail', uu.email || ''); } catch { }
         } else if (((o2 && o2.users) || []).length > 0) {
           // جلسة موثّقة لبريد لم يعد مسجّلًا/نشطًا بالمنصة (حساب حُذف مثلاً): خروج وبوابة
           // المصادقة — لا بوابة محلية عالقة بلا مخرج.
@@ -3847,7 +3849,7 @@ function PlatformApp() {
     setNeedAuth(false);
     if (u) {
       setMe(u); setTab('home');
-      try { localStorage.setItem('rms8:lastEmail', u.email || ''); } catch { }
+      try { if (localStorage.getItem('rms8:noRemember') !== '1') localStorage.setItem('rms8:lastEmail', u.email || ''); } catch { }
     }
     return { ok: true };   // لا مستخدمين بعد → شاشة التهيئة الأولى
   }, [loadAll]);
@@ -4342,7 +4344,7 @@ function PlatformApp() {
       else say('تعذّر الحفظ السحابي بعد عدة محاولات — تحقق من الاتصال وأعد المحاولة', 'no');
       return false;
     }
-    // v56.5: السجل قد يُقرَّر بعد الحفظ (دالة) — إجراء رُفض داخل الحفظ (إلغاء/نقل طاولة) لا يُكتب في سجل التدقيق
+    // v56.6: السجل قد يُقرَّر بعد الحفظ (دالة) — إجراء رُفض داخل الحفظ (إلغاء/نقل طاولة) لا يُكتب في سجل التدقيق
     const logNow = typeof log === 'function' ? log() : log;
     if (logNow && me) await appendAudit({
       id: uid('lg'), timestamp: nowISO(), at: Date.now(), userName: me.name, userRole: me.role,
@@ -4514,7 +4516,7 @@ function PlatformApp() {
 
   // مصادقة سحابية مفعّلة ولا جلسة: بوابة الدخول الحقيقية قبل تحميل أي بيانات
   if (needAuth && !me) {
-    return <FbGate css={CSS} theme={theme} fbLogin={fbLogin} fbMfa={fbMfa} fbFirstSetup={fbFirstSetup} notice={kickMsg} />;
+    return <FbGate css={CSS} theme={theme} fbLogin={fbLogin} fbMfa={fbMfa} fbFirstSetup={fbFirstSetup} notice={kickMsg} onLang={toggleLang} />;
   }
 
   // أول تشغيل: لا يوجد أي مستخدم بعد → شاشة التسجيل الأولي لإنشاء حساب المالك
@@ -4625,6 +4627,7 @@ function PlatformApp() {
       {needUpdate && <UpdateGate rel={needUpdate} />}
       <DocPeekHost org={org} ops={ops} />
       <VoiceSearchHost lang={lang} />
+      <WelcomeFx name={me && me.name} />
       <div className="shell" key={'lang-' + lang}
         onTouchStart={(e) => {
           if (window.innerWidth > 900) return;
@@ -5325,89 +5328,125 @@ function MfaPanel({ me, required, inline, onDone, onLogout, say, info, reload })
   return inline ? <div className="card">{body}</div> : body;
 }
 
-function FbGate({ css, theme, fbLogin, fbMfa, fbFirstSetup, notice }) {
+function FbGate({ css, theme, fbLogin, fbMfa, fbFirstSetup, notice, onLang }) {
+  // v56.5 — تجربة الدخول الفاخرة: الشكل والحركة فقط؛ المنطق والاستدعاءات كما هي (fbLogin/fbMfa/fbFirstSetup/resetPass)
   const [mfa, setMfa] = useState(false); const [code, setCode] = useState(''); const [note, setNote] = useState('');
-  const [email, setEmail] = useState(() => { try { return localStorage.getItem('rms8:lastEmail') || ''; } catch { return ''; } });
+  const [remember, setRemember] = useState(() => { try { return localStorage.getItem('rms8:noRemember') !== '1'; } catch { return true; } });
+  const [email, setEmail] = useState(() => { try { return localStorage.getItem('rms8:noRemember') === '1' ? '' : (localStorage.getItem('rms8:lastEmail') || ''); } catch { return ''; } });
   const [pass, setPass] = useState('');
-  const [err, setErr] = useState('');
+  const [err, setErr] = useState(''); const [errN, setErrN] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
   const [show, setShow] = useState(false);
   const [setup, setSetup] = useState(false);
+  const [touched, setTouched] = useState(false);
+  const [caps, setCaps] = useState(false);
+  const [rip, setRip] = useState([]);
+  const host = useRef(null);
+  const en = isEn();
+  const okMail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  const mailBad = touched && !!email && !okMail;
+  const fail = (m) => { setErr(m); setErrN(k => k + 1); clearWelcome(); };
+  const ripple = (e) => { const r = e.currentTarget.getBoundingClientRect(); const id = Date.now() + Math.random(); setRip(a => [...a, { id, x: e.clientX - r.left, y: e.clientY - r.top }]); setTimeout(() => setRip(a => a.filter(x => x.id !== id)), 650); };
+  const cardLight = (e) => { const r = e.currentTarget.getBoundingClientRect(); e.currentTarget.style.setProperty('--cx', (e.clientX - r.left) + 'px'); e.currentTarget.style.setProperty('--cy', (e.clientY - r.top) + 'px'); };
+  const keyCaps = (e) => { try { setCaps(!!(e.getModifierState && e.getModifierState('CapsLock'))); } catch { } };
+  const setRem = (v) => { setRemember(v); try { if (v) localStorage.removeItem('rms8:noRemember'); else { localStorage.setItem('rms8:noRemember', '1'); localStorage.removeItem('rms8:lastEmail'); } } catch { } };
 
   const go = async () => {
-    if (!email || !pass || busy) return;
-    setErr(''); setBusy(true);
+    if (busy) return;
+    if (!email || !pass) { setTouched(true); return fail(!email ? 'اكتب بريدك الإلكتروني' : 'اكتب كلمة السر'); }
+    if (!okMail) { setTouched(true); return fail('صيغة البريد غير صحيحة'); }
+    setErr(''); setBusy(true); markWelcome();
     const r = setup ? await fbFirstSetup(email, pass) : await fbLogin(email, pass);
     setBusy(false);
     if (r.mfa) { setMfa(true); setCode(''); return; }
-    if (!r.ok) setErr(r.err || 'تعذّر الدخول');
+    if (!r.ok) return fail(r.err || 'تعذّر الدخول');
+    setDone(true);
   };
   // v56.1: يُرسل الرمز تلقائيًا عند اكتمال أرقامه الستة (كتابةً أو لصقًا أو تعبئةً من الهاتف) — Enter والزر يبقيان
   const goMfa = async (c = code) => {
-    if (c.length !== 6 || busy) return; setErr(''); setBusy(true);
+    if (c.length !== 6 || busy) return; setErr(''); setBusy(true); markWelcome();
     const r = await fbMfa(c); setBusy(false);
-    if (!r.ok) { setErr(r.err || 'تعذّر التحقق'); setCode(''); if (/أعد إدخال كلمة السر/.test(r.err || '')) { setMfa(false); setPass(''); } }
+    if (!r.ok) { fail(r.err || 'تعذّر التحقق'); setCode(''); if (/أعد إدخال كلمة السر/.test(r.err || '')) { setMfa(false); setPass(''); } return; }
+    setDone(true);
   };
+  const forgot = async () => {
+    if (!okMail) { setTouched(true); return fail('اكتب بريدك الإلكتروني أولًا ثم اضغط «نسيت كلمة السر؟»'); }
+    setBusy(true); try { await authApi.resetPass(email); } catch { } setBusy(false);   // الرد نفسه دائمًا: لا كشف لوجود البريد
+    setErr(''); setNote('إن كان البريد مسجّلًا فسيصله رابط تعيين كلمة السر خلال دقائق. إن وجدته في البريد غير المرغوب فيه فاضغط «ليست رسالة مزعجة» ليعمل الرابط، أو انسخه والصقه في المتصفح.');
+  };
+  // دالة عرض لا مكوّن داخلي: المكوّن المعرَّف داخل المكوّن يُعاد إنشاؤه مع كل تحديث فيُفقد النقر أثناء التموّج
+  const btn = (children, { disabled, onClick, type = 'button' }) => (
+    <button type={type} className={'btn pri mq-btn' + (done ? ' ok' : '')} disabled={disabled} onClick={onClick} onPointerDown={ripple} aria-busy={busy ? 'true' : 'false'}>
+      {rip.map(x => <span key={x.id} className="mq-ripple" style={{ left: x.x, top: x.y }} aria-hidden="true" />)}
+      {children}
+    </button>);
 
   return (
-    <div className={themeCls(theme, readMode())}>
+    <div className={themeCls(theme, readMode()) + ' mq-root' + (en ? ' lang-en' : '')} dir={en ? 'ltr' : 'rtl'} lang={en ? 'en' : 'ar'}>{/* lang-en: ‎.rms يفرض rtl في CSS فيغلب سمة dir */}
       <style dangerouslySetInnerHTML={{ __html: css }} />
-      <div className="gate has-cover"><GateCover />
-        <div className="gate-c">
+      <div className="gate has-cover mq-login" ref={host}>
+        <div className="mq-aurora" aria-hidden="true" />
+        <LoginFx hostRef={host} />
+        <GateCover />
+        <main className="gate-c">
+          {onLang && <div className="mq-top"><button type="button" className="mq-lang" onClick={onLang} aria-label={en ? 'التبديل إلى العربية' : 'Switch to English'}><Languages size={14} aria-hidden="true" /><span data-noi18n="1">{en ? 'العربية' : 'English'}</span></button></div>}
           <BrandHead title={BRAND_AR} sub={TX(BRAND_SUB)} />
           <div className="row" style={{ justifyContent: 'center', marginBottom: 16 }}>
-            <span className="badge b-mint"><Lock size={10} />مصادقة سحابية مفعّلة</span>
+            <span className="badge b-mint"><Lock size={10} aria-hidden="true" />مصادقة سحابية مفعّلة</span>
           </div>
-          <div className="card">
-            {notice && <div style={{ border: '1px solid rgba(200,162,74,.45)', background: 'rgba(200,162,74,.10)', color: 'var(--brass-t)', borderRadius: 10, padding: '10px 12px', marginBottom: 12, fontSize: 12, lineHeight: 1.8, textAlign: 'center' }}>{notice}</div>}
-            {setup && <div style={{ border: '1px solid rgba(200,162,74,.4)', background: 'rgba(200,162,74,.08)', color: 'var(--brass-t)', borderRadius: 10, padding: '9px 12px', marginBottom: 12, fontSize: 11.5, lineHeight: 1.7 }}>
+          <section className="card mq-card" onPointerMove={cardLight} aria-label={mfa ? 'التحقق بخطوتين' : 'تسجيل الدخول'}>
+            {notice && <div className="mq-notice" role="alert"><AlertTriangle size={16} aria-hidden="true" /><span>{notice}</span></div>}
+            {setup && <div className="mq-notice soft">
               الإعداد الأول (مرة واحدة بعد الترقية): أدخل بريد المالك وكلمة سر جديدة — يُنشأ حساب المصادقة وتصبح مديرًا للمنصة.
             </div>}
-            {mfa ? (<>
-              <div style={{ textAlign: 'center', marginBottom: 12 }}><ShieldCheck size={30} color="var(--brass)" />
-                <div style={{ fontWeight: 800, marginTop: 6 }}>التحقق بخطوتين</div>
-                <div style={{ fontSize: 11.5, color: 'var(--dim)', marginTop: 4, lineHeight: 1.7 }}>افتح تطبيق المصادقة في هاتفك واكتب الرمز المكوّن من 6 أرقام لحساب «ميزان»</div></div>
-              <input className="inp n" autoFocus inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000"
-                style={{ fontSize: 26, letterSpacing: 8, textAlign: 'center', direction: 'ltr' }} value={code}
+            {mfa ? (<div className="mq-pane" key="mfa">
+              <div style={{ textAlign: 'center', marginBottom: 12 }}><span className="mq-shield"><ShieldCheck size={28} aria-hidden="true" /></span>
+                <div style={{ fontWeight: 800, marginTop: 8 }}>التحقق بخطوتين</div>
+                <div style={{ fontSize: 11.5, color: 'var(--dim)', marginTop: 4, lineHeight: 1.7 }}>افتح تطبيق المصادقة في هاتفك واكتب الرمز المكوّن من 6 أرقام لحساب «مُكتسَب»</div></div>
+              <label htmlFor="mq-otp" className="sr-only">رمز التحقق</label>
+              <input id="mq-otp" className="inp n mq-otp" autoFocus inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000"
+                value={code} aria-invalid={err ? 'true' : 'false'}
                 onChange={e => { const v = e.target.value.replace(/\D/g, '').slice(0, 6); setCode(v); setErr(''); if (v.length === 6) goMfa(v); }} onKeyDown={e => e.key === 'Enter' && goMfa()} />
-              {err && <div className="gate-err" style={{ marginTop: 10 }}>{err}</div>}
-              <button className="btn pri" style={{ width: '100%', marginTop: 12 }} disabled={busy || code.length !== 6} onClick={() => goMfa()}>
-                {busy ? <RefreshCw size={15} className="spin" /> : <Check size={15} />}تحقق ودخول</button>
+              {err && <div className="mq-err" role="alert" key={errN}><AlertTriangle size={15} aria-hidden="true" /><span>{err}</span></div>}
+              {btn(<>{done ? <Check size={16} aria-hidden="true" /> : busy ? <RefreshCw size={15} className="spin" aria-hidden="true" /> : <Check size={15} aria-hidden="true" />}{done ? 'تم التحقق' : busy ? 'جارٍ التحقق…' : 'تحقق ودخول'}</>,
+                { disabled: busy || code.length !== 6, onClick: () => goMfa() })}
               <button className="btn gh" style={{ width: '100%', marginTop: 10 }} onClick={() => { setMfa(false); setPass(''); setErr(''); }}>رجوع</button>
               <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 12, lineHeight: 1.7, textAlign: 'center' }}>فقدت هاتفك؟ أضف الحساب لهاتف جديد بالمفتاح الذي حفظته عند التفعيل، أو راجع مسؤول النظام.</div>
-            </>) : (<>
-            <Field label="البريد الإلكتروني">
-              <input className="inp" type="email" autoFocus style={{ direction: 'ltr', textAlign: 'right' }}
-                value={email} placeholder="you@company.com"
-                onChange={e => { setEmail(e.target.value); setErr(''); }}
-                onKeyDown={e => e.key === 'Enter' && go()} />
-            </Field>
-            <Field label={setup ? 'كلمة سر جديدة (6 أحرف فأكثر)' : 'كلمة السر'}>
-              <div style={{ position: 'relative' }}>
-                <input className="inp" type={show ? 'text' : 'password'} value={pass}
-                  onChange={e => { setPass(e.target.value); setErr(''); }}
-                  onKeyDown={e => e.key === 'Enter' && go()} />
-                <button className="btn sm gh" style={{ position: 'absolute', insetInlineEnd: 4, top: 4, padding: '4px 8px' }}
-                  onClick={() => setShow(s => !s)} tabIndex={-1}><Eye size={14} /></button>
+            </div>) : (<form className="mq-pane" key="pw" noValidate onSubmit={e => { e.preventDefault(); go(); }}>
+              <div className={'mq-field' + (mailBad ? ' bad' : '')}>
+                <label htmlFor="mq-email">البريد الإلكتروني</label>
+                <div className="mq-input"><Mail size={16} className="mq-ico" aria-hidden="true" />
+                  <input id="mq-email" type="email" autoFocus={!email} autoComplete="username" dir="ltr" style={{ textAlign: en ? 'left' : 'right' }}
+                    value={email} placeholder="you@company.com" aria-invalid={mailBad ? 'true' : 'false'} aria-describedby={mailBad ? 'mq-email-h' : undefined}
+                    onChange={e => { setEmail(e.target.value); setErr(''); }} onBlur={() => setTouched(true)} /></div>
+                {mailBad && <div className="mq-hint bad" id="mq-email-h">صيغة البريد غير صحيحة</div>}
               </div>
-            </Field>
-            {err && <div className="gate-err">{err}</div>}
-            <button className="btn pri" style={{ width: '100%' }} disabled={busy || !email || !pass} onClick={go}>
-              {busy ? <RefreshCw size={15} className="spin" /> : <Lock size={15} />}
-              {setup ? 'إنشاء حساب المصادقة والدخول' : 'دخول'}
-            </button>
-            <button className="btn gh" style={{ width: '100%', marginTop: 10 }} onClick={() => { setSetup(s => !s); setErr(''); }}>
-              {setup ? 'لديّ حساب — عودة للدخول' : 'الإعداد الأول بعد الترقية (للمالك)'}
-            </button>
-            {!setup && <button className="btn gh" style={{ width: '100%', marginTop: 10 }} disabled={busy} onClick={async () => {
-              if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return setErr('اكتب بريدك الإلكتروني أولًا ثم اضغط «نسيت كلمة السر؟»');
-              setBusy(true); try { await authApi.resetPass(email); } catch { } setBusy(false);
-              setErr(''); setNote('إن كان البريد مسجّلًا فسيصله رابط تعيين كلمة السر خلال دقائق. إن وجدته في البريد غير المرغوب فيه فاضغط «ليست رسالة مزعجة» ليعمل الرابط، أو انسخه والصقه في المتصفح.');
-            }}><Lock size={14} />نسيت كلمة السر؟</button>}
-            {note && <div style={{ fontSize: 11.5, color: 'var(--mint)', marginTop: 10, lineHeight: 1.7, textAlign: 'center' }}>{note}</div>}
-            </>)}
-          </div>
-        </div>
+              <div className="mq-field">
+                <label htmlFor="mq-pass">{setup ? 'كلمة سر جديدة (6 أحرف فأكثر)' : 'كلمة السر'}</label>
+                <div className="mq-input"><Lock size={16} className="mq-ico" aria-hidden="true" />
+                  <input id="mq-pass" type={show ? 'text' : 'password'} autoFocus={!!email} autoComplete={setup ? 'new-password' : 'current-password'} value={pass}
+                    aria-describedby={caps ? 'mq-caps' : undefined}
+                    onChange={e => { setPass(e.target.value); setErr(''); }} onKeyUp={keyCaps} onKeyDown={keyCaps} />
+                  <button type="button" className="mq-eye" onClick={() => setShow(s => !s)} aria-pressed={show ? 'true' : 'false'} aria-label={show ? 'إخفاء كلمة السر' : 'إظهار كلمة السر'} aria-controls="mq-pass">
+                    {show ? <EyeOff size={17} key="off" aria-hidden="true" /> : <Eye size={17} key="on" aria-hidden="true" />}</button>
+                </div>
+                {caps && <div className="mq-hint" id="mq-caps">مفتاح الأحرف الكبيرة (Caps Lock) مفعّل</div>}
+              </div>
+              {!setup && <div className="mq-row">
+                <label className="mq-check"><input type="checkbox" checked={remember} onChange={e => setRem(e.target.checked)} /><span>تذكّر بريدي على هذا الجهاز</span></label>
+                <button type="button" className="mq-link" disabled={busy} onClick={forgot}>نسيت كلمة السر؟</button>
+              </div>}
+              {err && <div className="mq-err" role="alert" key={errN}><AlertTriangle size={15} aria-hidden="true" /><span>{err}</span></div>}
+              {btn(<>{done ? <Check size={16} aria-hidden="true" /> : busy ? <RefreshCw size={15} className="spin" aria-hidden="true" /> : <Lock size={15} aria-hidden="true" />}
+                {done ? 'تم الدخول' : busy ? 'جارٍ التحقق…' : setup ? 'إنشاء حساب المصادقة والدخول' : 'دخول'}</>, { disabled: busy || done, type: 'submit' })}
+              {note && <div className="mq-note" role="status">{note}</div>}
+              <button type="button" className="btn gh mq-setup" onClick={() => { setSetup(s => !s); setErr(''); }}>
+                {setup ? 'لديّ حساب — عودة للدخول' : 'الإعداد الأول بعد الترقية (للمالك)'}
+              </button>
+            </form>)}
+          </section>
+        </main>
       </div>
     </div>
   );
@@ -6806,7 +6845,7 @@ function salesDaySource(ops, branchId, date) {
   const ps = posDaySummary(ops.posOrders || [], branchId, date); if (ps.n) return { ...ps, src: 'pos' };
   const im = (ops.posImports || []).find(x => x.branchId === branchId && x.date === date);
   if (im) return { n: im.n, total: im.total, vat: im.vat, cash: im.cash, card: im.card, transfer: im.transfer, apps: im.apps || {}, src: 'import', file: im.file };
-  return ps.retN ? { ...ps, src: 'pos' } : { n: 0 };   // v56.2 (B5) + v56.5: مرتجعات فقط ولا ملف استيراد ⇒ من نقطة البيع (الاستيراد لا يُتجاهَل)
+  return ps.retN ? { ...ps, src: 'pos' } : { n: 0 };   // v56.2 (B5) + v56.6: مرتجعات فقط ولا ملف استيراد ⇒ من نقطة البيع (الاستيراد لا يُتجاهَل)
 }
 
 /* PosImport: نُقل إلى mods/pos/PosImport.jsx (تحميل كسول) */
@@ -8659,7 +8698,7 @@ function posVoidBlock(ops, o) {
 // أكبر تسلسل معروف لفواتير هذا الجهاز في يومه (prefix: «ف» للبيع، «م» للمرتجع) — من السحابة والطابور المحلي
 function posSeqSeed(orders, branchId, devTag, date, prefix) {
   const yy = String(date || '').replace(/-/g, '').slice(2); let mx = 0;
-  (orders || []).forEach(o => { if (!o || o.branchId !== branchId) return;   // v56.5: إشعار الإلغاء لجهاز من ألغى (voidNote.dev)، لا لجهاز الفاتورة
+  (orders || []).forEach(o => { if (!o || o.branchId !== branchId) return;   // v56.6: إشعار الإلغاء لجهاز من ألغى (voidNote.dev)، لا لجهاز الفاتورة
     [o.dev === devTag ? [o.no, o.date] : null, o.voidNote && (o.voidNote.dev || o.dev) === devTag ? [o.voidNote.no, o.voidNote.date] : null].forEach(e => { if (!e || e[1] !== date) return; const m = String(e[0] || '').match(/^(.)\d+-(\d{6})-([A-Z0-9]+)-(\d+)$/); if (!m || m[1] !== prefix || m[2] !== yy || m[3] !== devTag) return;
     const n = Number(m[4]) || 0; if (n > mx) mx = n; }); });
   return mx;
@@ -14218,7 +14257,7 @@ const posrOn = (org) => !!(org && org.posRecords && org.posRecords.on);
 const posrOkId = (id) => /^[A-Za-z0-9_-]{1,120}$/.test(String(id || ''));
 /** محتوى الفاتورة الثابت (بلا حقول الإلغاء ولا علامات العرض/الطابور) — عليه تُحسب البصمة */
 const posrData = (o) => { const x = {}; Object.keys(o || {}).forEach(k => { if (!POSR_VOID_KEYS.includes(k) && k !== 'pending' && !k.startsWith('_')) x[k] = o[k]; }); return clrData(x); };
-const posrVoidData = (o) => { const base = { by: String(o.voidBy || '').slice(0, 200), at: String(o.voidAt || '').slice(0, 40), reason: String(o.voidReason || '').slice(0, 1000) };   // v56.5: JSON صالح دائمًا (القص قبل التحويل)
+const posrVoidData = (o) => { const base = { by: String(o.voidBy || '').slice(0, 200), at: String(o.voidAt || '').slice(0, 40), reason: String(o.voidReason || '').slice(0, 1000) };   // v56.6: JSON صالح دائمًا (القص قبل التحويل)
   const full = JSON.stringify({ ...base, ...(o.voidNote ? { note: o.voidNote } : {}) }); return full.length <= 4000 ? full : JSON.stringify(base); };
 /** حقول السجل كما تراها القواعد (بلا by/at/cv التي تضيفها طبقة الكتابة) — status:'paid' دائمًا عند الإنشاء */
 function posrRecord(o, voided) {
@@ -14258,7 +14297,7 @@ async function posrPut(c, o, mode) {
     try { await ctlTimeout(c.f.setDoc(ref, { ...posrRecord(o, true), ...stamp() })); }
     catch (e) { const snap = await ctlTimeout(c.f.getDoc(ref)).catch(() => null); const r = snap && snap.exists() ? snap.data() : null;
       if (r && r.status === 'void') return;
-      if (snap && !snap.exists() && !again) { await create(); return voidIt(true); }   // v56.5: لم يُنشأ السجل سابقًا (انقطاع) ⇒ إنشاء ثم إلغاء
+      if (snap && !snap.exists() && !again) { await create(); return voidIt(true); }   // v56.6: لم يُنشأ السجل سابقًا (انقطاع) ⇒ إنشاء ثم إلغاء
       throw e; }
   };
   if (mode === 'create' || mode === 'both') await create();
@@ -14267,7 +14306,7 @@ async function posrPut(c, o, mode) {
 async function posrMirror(before, after) {
   const put = posrDiff(before, after); if (!put.length) return { ok: 0, fail: 0 };
   const c = await ctlIdentity();
-  if (!c) { _posrState = { ..._posrState, at: Date.now(), fail: _posrState.fail + put.length, lastErr: 'no-identity' }; return { ok: 0, fail: put.length, lastErr: 'no-identity' }; }   // v56.5: يُعدّ إخفاقًا لا صمتًا
+  if (!c) { _posrState = { ..._posrState, at: Date.now(), fail: _posrState.fail + put.length, lastErr: 'no-identity' }; return { ok: 0, fail: put.length, lastErr: 'no-identity' }; }   // v56.6: يُعدّ إخفاقًا لا صمتًا
   let ok = 0, fail = 0, lastErr = '';
   for (const { o, mode } of put) { try { await posrPut(c, o, mode); ok++; } catch (e) { fail++; lastErr = (e && e.code) || 'error'; } }
   _posrState = { at: Date.now(), ok: _posrState.ok + ok, fail: _posrState.fail + fail, lastErr: lastErr || _posrState.lastErr };
@@ -14294,7 +14333,7 @@ async function posrSeed(orders, lockedTo, onProgress) {
   }
   return { ok, fail, locked, lastErr, total: list.length };
 }
-/** v56.5 (قرار المالك): إصلاح سجل خاطئ من فاتورة المستند الأصلية — لمسؤول النظام (القواعد porRepair)، بسبب مكتوب يُحفظ في السجل */
+/** v56.6 (قرار المالك): إصلاح سجل خاطئ من فاتورة المستند الأصلية — لمسؤول النظام (القواعد porRepair)، بسبب مكتوب يُحفظ في السجل */
 async function posrRepair(o, reason) {
   const c = await ctlIdentity(); if (!c) return { err: 'خارج Firestore' };
   const r = String(reason || '').trim(); if (r.length < 5) return { err: 'اكتب سبب الإصلاح' };

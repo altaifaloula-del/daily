@@ -15,7 +15,7 @@ import { posVoidBlock, posNextNo, posTabCuts, escH, POS_VOID_ROLES } from '../..
 export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const R = ROLES[me.role] || {};
   const isMgr = !!(R.admin || R.scope === 'all' || me.role === 'branch_manager' || me.role === 'regional_manager');
-  // v56.5 (قرار المالك 2026-11-26): الإلغاء والمرتجع للإدارة التشغيلية فقط — يطابق قواعد سجلات pos_orders (posMgrRoles) وفصل المهام: من يدقق لا يلغي
+  // v56.6 (قرار المالك 2026-11-26): الإلغاء والمرتجع للإدارة التشغيلية فقط — يطابق قواعد سجلات pos_orders (posMgrRoles) وفصل المهام: من يدقق لا يلغي
   const canVoid = !!(R.admin || POS_VOID_ROLES.includes(me.role));
   const cfg = org.posCfg || {}; const enabled = cfg.branches || [];
   const brs = (myBranches || []).filter(b => b.isActive !== false && enabled.includes(b.id));
@@ -238,7 +238,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     let blocked = '';
     const ok = await commit(d => { blocked = ''; const cur = (d.posOrders || []).find(x => x.id === o.id); const why = posVoidBlock(d, cur); if (why) { blocked = why; return d; }
       return { ...d, posOrders: (d.posOrders || []).map(x => x.id === o.id ? { ...x, status: 'void', voidBy: me.name, voidAt: at, voidReason: reason.trim(), voidNote: vn } : x) }; },
-      () => blocked ? null : { actionType: 'update', targetType: 'pos_order', targetId: o.id, branchName: br.name, title: 'ألغى فاتورة نقطة بيع', details: o.no + ' · ' + money(o.total) + ' · إشعار ' + vn.no + ' · ' + reason.trim() });   // v56.5: لا سجل تدقيق لإلغاء رُفض
+      () => blocked ? null : { actionType: 'update', targetType: 'pos_order', targetId: o.id, branchName: br.name, title: 'ألغى فاتورة نقطة بيع', details: o.no + ' · ' + money(o.total) + ' · إشعار ' + vn.no + ' · ' + reason.trim() });   // v56.6: لا سجل تدقيق لإلغاء رُفض
     if (blocked) return say(blocked, 'no');
     if (!ok) return say('تعذّر حفظ الإلغاء — أعد المحاولة', 'no');
     try { localStorage.setItem(sk, String(seq)); localStorage.setItem(hk, JSON.stringify({ icv: vn.icv, hash: vn.hash })); } catch { }

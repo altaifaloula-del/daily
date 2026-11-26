@@ -456,7 +456,7 @@ service cloud.firestore {
         && d.diff(old).affectedKeys().hasOnly(['status', 'voidData', 'by', 'at', 'cv'])
         && old.date > finLockedTo();
     }
-    /* v56.5 (قرار المالك 2026-11-26) — إصلاح سجل خاطئ: لمسؤول النظام وحده، بسبب مكتوب (repair) يُسجَّل في السجل نفسه،
+    /* v56.6 (قرار المالك 2026-11-26) — إصلاح سجل خاطئ: لمسؤول النظام وحده، بسبب مكتوب (repair) يُسجَّل في السجل نفسه،
        لنفس الفرع والنوع والتاريخ، وخارج الفترة المقفلة. لا حذف أبدًا. */
     function porRepair(id, d, old) {
       let m = memOf();
