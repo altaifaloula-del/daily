@@ -3891,3 +3891,29 @@ test('v56.28 E4: قسم سند الصرف على حساب مصروف — يظه�
   assert.deepEqual(await p.evaluate(() => window.cur.cashVouchers.map(v => [v.kind, v.deptId || ''])), [['pv', 'dk']]);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.29 أوامر الصرف: بلا تفعيل كما كان؛ بالتفعيل البنود الثلاثة غائبة، والمعلّق لا يُخصم ويعتمده غير منشئه، وبطاقة الإعداد', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Hub/admin/finhub:treasury');
+  await p.locator('button:has-text("أوامر الصرف")').first().click(); await p.locator('button:has-text("أمر صرف جديد")').click();
+  let opts = await p.locator('.modal select.sel').first().locator('option').allInnerTexts();
+  assert.ok(opts.includes('سداد موردين'), 'بلا تفعيل كما كان');
+  await p.locator('.modal button:has-text("إلغاء")').click();
+  const td = await p.evaluate(() => new Date().toISOString().slice(0, 10));
+  await p.evaluate((td) => { window.setOrg(o => ({ ...o, dsRoute: { ranges: [{ from: td }] } }));
+    window.setOps(o => ({ ...o, transfers: [...(o.transfers || []), { id: 'tin', date: td, status: 'received', amount: 5000, branchName: 'العليا', referenceNo: 'T1' }],
+      disbursements: [{ id: 'dp1', date: td, category: 'صيانة وتشغيل', amount: 200, beneficiary: 'ورشة', method: 'cash', by: 'محاسب آخر', byId: 'someone-else', status: 'pending' }] })); }, td);
+  await p.waitForTimeout(250);
+  await p.locator('button:has-text("أمر صرف جديد")').click();
+  opts = await p.locator('.modal select.sel').first().locator('option').allInnerTexts();
+  for (const c of ['سداد موردين', 'ضريبة القيمة المضافة', 'صرف رواتب']) assert.ok(!opts.includes(c), c);
+  assert.ok(await p.locator('[data-ds-hint]').count() === 1);
+  await p.locator('.modal button:has-text("إلغاء")').click();
+  assert.ok(await p.locator('[data-ds-pending]').count() === 1, 'المعلّق ظاهر بشارته');
+  await p.click('[data-ds-ok]'); await p.waitForFunction(() => (window.cur.disbursements.find(x => x.id === 'dp1') || {}).status === 'posted');
+  assert.deepEqual(errs, []); await ctx.close();
+  { const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Admin/admin');
+    await p.click('button:has-text("صيانة النظام")'); await p.waitForSelector('[data-dsroute]');
+    assert.match(await p.locator('[data-dsroute]').innerText(), /غير مفعّلة/);
+    await p.click('[data-dsroute-toggle]'); await p.waitForFunction(() => (((window.curOrg.dsRoute || {}).ranges) || []).length === 1);
+    assert.deepEqual(errs, []); await ctx.close(); }
+});

@@ -2,6 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { Landmark, FileBarChart, ChevronDown, Printer, ArrowLeftRight, TrendingUp, TrendingDown, Banknote, FileText, Plus, Lock, Check, X, Receipt } from 'lucide-react';
 import { CashVouchers } from './CashVouchers.jsx';
+import { dsLive, canApproveJe, jeOwner } from '../../App.jsx';   // v56.29 اعتماد أوامر الصرف
 import { Badge, DisbursementForm, Kpi, LOCK_MSG, ROLES, arDate, money, nowISO, periodLocked, printA4, sum, today } from '../../App.jsx';
 
 export function Treasury({ org, ops, me, myBranches, scoped, commit, say }) {
@@ -17,7 +18,7 @@ export function Treasury({ org, ops, me, myBranches, scoped, commit, say }) {
   const received = list.filter(t => t.status === 'received');
   const disb = isCentral ? [...(ops.disbursements || [])].sort((a, b) => b.date.localeCompare(a.date)) : [];
   const inflow = sum((ops.transfers || []).filter(t => t.status === 'received'), t => t.amount);
-  const outflow = sum(ops.disbursements || [], d => d.amount);
+  const outflow = sum((ops.disbursements || []).filter(dsLive), d => d.amount);   // v56.29: المعلّق والمرفوض لا يُخصمان
   const balance = inflow - outflow;
 
   const receive = async (t, ok) => {
@@ -36,11 +37,22 @@ export function Treasury({ org, ops, me, myBranches, scoped, commit, say }) {
     say(ok ? 'تم تأكيد استلام المبلغ في الخزينة الرئيسية' : 'تم رفض السند وإبلاغ الفرع');
   };
 
+  // v56.29: اعتماد أمر الصرف — غير منشئه، وبرصيد كافٍ، وخارج فترة مقفلة
+  const decideDs = async (x, ok) => {
+    if (!canApproveJe(me, x)) return say('لا يعتمد أمر الصرف من أنشأه — يعتمده المحاسب أو الإدارة المالية أو المالك', 'no');
+    if (ok && periodLocked(org, x.date)) return say(LOCK_MSG(x.date), 'no');
+    if (ok && x.amount > balance + 0.004) return say('المبلغ يتجاوز رصيد الخزينة المتاح', 'no');
+    const r = ok ? null : window.prompt('سبب الرفض:', ''); if (!ok && r === null) return;
+    await commit(d => ({ ...d, disbursements: (d.disbursements || []).map(y => y.id === x.id ? { ...y, status: ok ? 'posted' : 'rejected', [ok ? 'approvedBy' : 'rejectedBy']: me.name, [ok ? 'approvedAt' : 'rejectedAt']: nowISO(), ...(ok ? {} : { rejectReason: r || '' }) } : y) }), {
+      actionType: 'cash_transfer', targetType: 'cash_transfer', targetId: x.id, title: ok ? 'اعتمد أمر صرف من الخزينة' : 'رفض أمر صرف', details: `${x.category} · ${x.beneficiary} · ${money(x.amount)} ر.س · المنشئ ${x.by}` });
+    say(ok ? 'اعتُمد أمر الصرف وخُصم من الخزينة ✓' : 'رُفض أمر الصرف');
+  };
+
   const ledger = useMemo(() => {
     const items = [
       ...(ops.transfers || []).filter(t => t.status === 'received')
         .map(t => ({ id: t.id, date: t.date, kind: 'in', label: 'توريد من ' + t.branchName, ref: t.referenceNo, amount: t.amount })),
-      ...(ops.disbursements || [])
+      ...(ops.disbursements || []).filter(dsLive)
         .map(x => ({ id: x.id, date: x.date, kind: 'out', label: x.category + ' — ' + x.beneficiary, ref: x.reference, amount: x.amount }))
     ].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
     let run = 0;
@@ -157,7 +169,11 @@ export function Treasury({ org, ops, me, myBranches, scoped, commit, say }) {
                     <td><span className="badge b-dim">
                       {{ cash: 'نقداً', bank_transfer: 'تحويل بنكي', cheque: 'شيك' }[x.method] || x.method}</span></td>
                     <td className="num" style={{ color: 'var(--rose)', fontWeight: 600 }}>{money(x.amount)}</td>
-                    <td style={{ fontSize: 11.5, color: 'var(--dim)' }}>{x.by}</td>
+                    <td style={{ fontSize: 11.5, color: 'var(--dim)' }}>{x.by}
+                      {x.status === 'pending' && <div className="row" style={{ gap: 4, marginTop: 4 }} data-ds-pending><span className="badge b-amber">بانتظار الاعتماد</span>
+                        {canApproveJe(me, x) && <><button className="btn sm" data-ds-ok onClick={() => decideDs(x, true)}><Check size={12} />اعتماد</button><button className="btn sm gh" data-ds-no onClick={() => decideDs(x, false)}><X size={12} />رفض</button></>}</div>}
+                      {x.status === 'rejected' && <div><span className="badge b-rose" title={x.rejectReason || ''}>مرفوض</span></div>}
+                      {x.dsRoute === 'blocked' && <div><span className="badge b-amber">يحتاج مراجعة</span></div>}</td>
                   </tr>
                 ))}
                 {disb.length === 0 && <tr><td colSpan={7}><div className="empty">لا توجد أوامر صرف مسجلة.</div></td></tr>}
