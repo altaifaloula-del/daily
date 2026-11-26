@@ -3429,7 +3429,8 @@ test('v56.0 هوية المنشأة: رفع شعار شفاف، الألوان �
 const SHOTS = path.join(cache, 'shots'); const shot = async (p, n) => { fs.mkdirSync(SHOTS, { recursive: true }); await p.screenshot({ path: path.join(SHOTS, n + '.jpg'), type: 'jpeg', quality: 72, fullPage: true }); };
 const gateState = (p) => p.evaluate(() => ({ calls: (window.__gate || {}).calls || [], mfa: (window.__gate || {}).mfaCalls || [],
   err: document.querySelector('.mq-err')?.innerText || '', btn: document.querySelector('.mq-btn')?.innerText || '', note: document.querySelector('.mq-note')?.innerText || '',
-  dir: getComputedStyle(document.querySelector('.mq-card') || document.body).direction,   // الاتجاه المعروض فعلًا لا السمة over: document.documentElement.scrollWidth - window.innerWidth,
+  // dir = الاتجاه المعروض فعلًا لا السمة
+  dir: getComputedStyle(document.querySelector('.mq-card') || document.body).direction, over: document.documentElement.scrollWidth - window.innerWidth,
   card: (() => { const r = document.querySelector('.mq-card')?.getBoundingClientRect(); return r ? { l: Math.round(r.left), r: Math.round(r.right), w: Math.round(r.width) } : null; })(),
   cover: Math.round(document.querySelector('.gate-cover')?.getBoundingClientRect().width || 0), vw: window.innerWidth }));
 /** البطاقة كاملة داخل الشاشة (لا قص خفي خلف overflow) وآخر زر يصل إليه المستخدم */
