@@ -3437,7 +3437,11 @@ const gateState = (p) => p.evaluate(() => ({ calls: (window.__gate || {}).calls 
 const fitsGate = async (p, label) => { const s = await gateState(p);
   assert.ok(s.card && s.card.l >= 0 && s.card.r <= s.vw + 1, label + ': البطاقة خارج الشاشة ' + JSON.stringify(s.card) + ' عرض ' + s.vw);
   await p.locator('.mq-setup').scrollIntoViewIfNeeded(); const b = await p.locator('.mq-setup').boundingBox(); const vh = await p.evaluate(() => window.innerHeight);
-  assert.ok(b && b.y >= 0 && b.y + b.height <= vh + 1, label + ': زر الإعداد الأول غير ظاهر ' + JSON.stringify(b)); return s; };
+  assert.ok(b && b.y >= 0 && b.y + b.height <= vh + 1, label + ': زر الإعداد الأول غير ظاهر ' + JSON.stringify(b));
+  // الخلفية تغطي البطاقة حتى نهاية الصفحة (لا شريط أبيض أسفلها)
+  const g = await p.evaluate(() => { const r = (q) => document.querySelector(q).getBoundingClientRect(); const y = window.scrollY;
+    return { gate: Math.round(r('.mq-login').bottom + y), card: Math.round(r('.mq-card').bottom + y), doc: document.documentElement.scrollHeight }; });
+  assert.ok(g.gate >= g.card && g.gate >= g.doc - 2, label + ': الخلفية لا تغطي الصفحة ' + JSON.stringify(g)); return s; };
 
 test('v56.5 الدخول: التحقق من المدخلات، كلمة سر خاطئة، إظهار/إخفاء، تذكّرني، نسيت كلمة السر، نجاح حقيقي فقط', { timeout: 120000 }, async () => {
   const { p, errs, ctx } = await open({ viewport: { width: 1440, height: 900 } }, 'gate');
@@ -3518,7 +3522,7 @@ test('v56.5 الدخول: الجوال بلا تجاوز وأهداف لمس ≥
   const d = await open({ viewport: { width: 1440, height: 900 } }, 'gate'); assert.equal((await gateState(d.p)).dir, 'rtl');
   await d.p.click('.mq-lang'); await d.p.waitForTimeout(400); assert.equal((await gateState(d.p)).dir, 'ltr');
   // الحقل والزر يبدآن من اليسار في الإنجليزية
-  const x = await d.p.evaluate(() => { const c = document.querySelector('.mq-card').getBoundingClientRect(); const l = document.querySelector('label[for="mq-email"]').getBoundingClientRect(); return [Math.round(l.left - c.left), Math.round(c.right - l.right)]; });
-  assert.ok(x[0] < x[1], 'تسمية البريد على اليسار في الإنجليزية ' + x);
+  const x = await d.p.evaluate(() => { const c = document.querySelector('.mq-card').getBoundingClientRect(); const rg = document.createRange(); rg.selectNodeContents(document.querySelector('label[for="mq-email"]')); const l = rg.getBoundingClientRect(); return [Math.round(l.left - c.left), Math.round(c.right - l.right)]; });
+  assert.ok(x[0] < x[1], 'نص تسمية البريد على اليسار في الإنجليزية ' + x);
   await shot(d.p, 'login-desktop-en'); await d.ctx.close();
 });
