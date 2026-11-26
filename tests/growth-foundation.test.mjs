@@ -69,16 +69,35 @@ test('G5: الاستبدال المعلّق — كوبونه صدر ⇒ تم، �
   const now = Date.parse('2026-11-26T12:00:00Z');
   const P = [{ txid: 'rw:1', code: 'RWAAA', phone: '5', pts: 200, at: '2026-11-26T11:00:00Z' }, { txid: 'rw:2', code: 'RWBBB', phone: '6', pts: 50, at: '2026-11-26T11:00:00Z' },
     { txid: 'rw:3', code: 'RWCCC', phone: '7', pts: 10, at: '2026-11-26T11:59:30Z' }];
-  const r = E.rwPendSplit(P, [{ code: 'rwaaa' }], now);
+  const tx = [{ id: 'rw:2', phone: '6', pts: -50 }, { id: 'rw:3', phone: '7', pts: -10 }];
+  const r = E.rwPendSplit(P, [{ code: 'rwaaa' }], now, tx);
   assert.deepEqual(r.done.map(x => x.txid), ['rw:1']); assert.deepEqual(r.refund.map(x => x.txid), ['rw:2']); assert.deepEqual(r.wait.map(x => x.txid), ['rw:3'], 'أقل من دقيقة: ينتظر');
+  // مراجعة الأمن 7 / المراقب 1: لا إرجاع لخصم لم يحدث، ولا لخصم أُرجع، ولا لحركة لا تطابق الجوال والقيمة
+  assert.equal(E.rwPendSplit([P[1]], [], now, []).refund.length, 0, 'لم يُخصم ⇒ لا نقاط مجانية');
+  assert.equal(E.rwPendSplit([P[1]], [], now, [...tx, { id: 'rw:2:undo', phone: '6', pts: 50 }]).refund.length, 0, 'أُرجع من قبل');
+  assert.equal(E.rwPendSplit([P[1]], [], now, [{ id: 'rw:2', phone: '9', pts: -50 }]).refund.length, 0, 'جوال آخر');
+  assert.equal(E.rwPendSplit([{ ...P[1], pts: 5000 }], [], now, tx).refund.length, 0, 'قيمة معدّلة على الجهاز');
+  // الكوبون يحمل رقم حركة الخصم ⇒ يُعرف ولو تغيّر رمزه
+  assert.deepEqual(E.rwPendSplit([P[1]], [{ code: 'X', rwTx: 'rw:2' }], now, tx).done.map(x => x.txid), ['rw:2']);
   const u = E.rwUndoTx(P[1], '2026-11-26T12:00:00Z');
   assert.equal(u.id, 'rw:2:undo', 'نفس معرّف الإرجاع في الاستبدال ⇒ لا يتكرر في دفتر الولاء'); assert.equal(u.pts, 50); assert.equal(u.phone, '6');
 });
 
 test('G6 وG5: التصدير يُسجَّل في سجل التدقيق، والاستبدال يحفظ المعلّق قبل خصم النقاط', () => {
   const src = fs.readFileSync(new URL('../mods/mkt/MktGrowth.jsx', import.meta.url), 'utf8');
-  const exp = /const exp = \(k, onlyOk\) => \{[\s\S]*?dl\(/.exec(src)[0]; assert.match(exp, /logAudit\(\{ actionType: 'export'/);
+  const exp = /const exp = \(k, onlyOk\) => \{[\s\S]*?dl\(/.exec(src)[0]; assert.match(exp, /return logAudit\(\{ actionType: 'export'/); assert.match(exp, /ok === false\) return say/, 'لا تنزيل إن فشل التسجيل');
   const rd = /const redeem = async \(\) => \{[\s\S]*?\n  \};/.exec(src)[0];
   assert.ok(rd.indexOf('rwPendSet([...rwPend(), pend])') < rd.indexOf('await loyPost('), 'المعلّق يُحفظ قبل الخصم');
-  assert.match(rd, /if \(!back\) return say\(/, 'تعذّر الإرجاع ⇒ يبقى معلّقًا ليُستكمل');
+  assert.ok(!/ok === false\) \{ const back/.test(rd), 'لا إرجاع فوري عند خطأ غير مؤكد (قد يكون الكوبون حُفظ)');
+  assert.match(rd, /rewardCoupon\(R0, c\.phone, today\(\), code, txid\)/, 'الكوبون يحمل رقم حركة الخصم');
+});
+
+test('المراقب 3: التراجع عن الدمج يُمنع إن صُرفت النقاط المنقولة أو تلاه دمج يمس الرقمين', () => {
+  const x = { id: 'm1', from: 'A', to: 'B', pts: 200, at: '2026-11-20T10:00:00Z' };
+  const tx = [{ phone: 'B', pts: 100 }, { phone: 'B', pts: 200 }];
+  assert.equal(E.mktUnmergeBlock({ mktMerges: [x] }, tx, x), '', 'الرصيد يكفي');
+  assert.match(E.mktUnmergeBlock({ mktMerges: [x] }, [...tx, { phone: 'B', pts: -150 }], x), /صُرف/, '300−150=150 < 200');
+  const y = { id: 'm2', from: 'B', to: 'C', pts: 300, at: '2026-11-21T10:00:00Z' };
+  assert.match(E.mktUnmergeBlock({ mktMerges: [x, y] }, tx, x), /الأحدث/);
+  assert.equal(E.mktUnmergeBlock({ mktMerges: [x, y, { id: 'u', undoOf: 'm2' }] }, tx, x), '', 'بعد التراجع عن الأحدث');
 });

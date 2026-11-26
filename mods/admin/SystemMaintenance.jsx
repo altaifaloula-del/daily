@@ -450,7 +450,7 @@ function MktBranchCard({ org, commitOrg, say, isAdm }) {
   const ready = !!rel && (rel.minCv || 0) >= MKT_BR_CV;
   const toggle = async () => {
     if (!isAdm) return; if (!on && !ready) return say('ارفع الحد الأدنى للإصدار أولًا (يُرفع تلقائيًا عند دخول مسؤول النظام بالإصدار الجديد ثم إعادة فتح الصفحة)', 'no');
-    if (!on && !window.confirm('تفعيل سجلات التسويق في الفروع؟\nالموافقات وبيانات العملاء والإحالات الجديدة تُحفظ في مستند فرع العميل، فيراها مدير ذلك الفرع فقط ويراها المركز كلها. لا يُنقل ولا يُحذف شيء قائم.')) return;
+    if (!on && !window.confirm('تفعيل سجلات التسويق في الفروع؟\nالموافقات وبيانات العملاء والإحالات الجديدة تُحفظ في مستند فرع العميل، فيراها موظفو ذلك الفرع ويراها المركز كلها. (تنبيه: دفتر نقاط الولاء — الجوالات والأسماء — ما زال مشتركًا بين الفروع حتى دفعة سجلات الولاء.) لا يُنقل ولا يُحذف شيء قائم.')) return;
     const ok = await commitOrg(o => ({ ...o, mktBranch: on ? { ...(o.mktBranch || {}), on: false, offAt: nowISO() } : { ...(o.mktBranch || {}), on: true, since: (o.mktBranch || {}).since || nowISO() } }),
       { actionType: 'settings', targetType: 'system_settings', targetId: 'mktBranch', title: on ? 'أوقف سجلات التسويق في الفروع' : 'فعّل سجلات التسويق في الفروع' });
     if (ok) say(on ? 'أُوقف — السجلات القائمة تبقى وتُقرأ، والجديد يُحفظ مركزيًا' : 'فُعّل ✓');
@@ -459,7 +459,7 @@ function MktBranchCard({ org, commitOrg, say, isAdm }) {
     <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />سجلات التسويق في الفروع (مدير الفرع يرى عملاء فرعه)</div>
       <span className={'badge ' + (on ? 'b-sky' : 'b-dim')}>{on ? 'مفعّل' : 'غير مفعّل'}</span></div>
     <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>
-      عند التفعيل تُحفظ الموافقات التسويقية وبيانات العميل والإحالات الجديدة برقم فرع العميل. الحملات ودمج الملفات تبقى للمركز.
+      عند التفعيل تُحفظ الموافقات التسويقية وبيانات العميل والإحالات الجديدة برقم فرع العميل. الحملات ودمج الملفات تبقى للمركز. <b>توصية المراجعة الأمنية: لا تفعّله قبل دفعة «سجلات الموافقة المحمية»</b> — في مستند الفرع يستطيع أي موظف في الفرع تقنيًا تعديل سجل الموافقة أو حذفه، وإلغاء الاشتراك المسجّل في فرع لا يظهر لفرع آخر.
       {!ready && <div data-mktbr-wait>يتطلب أن يكون الحد الأدنى للإصدار {Math.floor(MKT_BR_CV / 10000)}.{Math.floor(MKT_BR_CV / 100) % 100} فأعلى (الحالي: {rel ? rel.minCv || 0 : '…'}).</div>}</div>
     {isAdm && <button className={'btn sm ' + (on ? 'gh' : 'pri')} disabled={!on && !ready} onClick={toggle} data-mktbr-toggle>{on ? 'إيقاف' : 'تفعيل'}</button>}
   </div>);

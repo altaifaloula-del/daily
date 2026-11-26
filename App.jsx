@@ -6898,6 +6898,14 @@ const mktDays = (a, b) => Math.round((new Date(String(b).slice(0, 10) + 'T12:00:
 /* v56.10 (G4): التراجع عن الدمج بسجل إلحاق {undoOf} — لا يُعدَّل سجل الدمج ولا يُحذف */
 function mktMergesLive(ops) { const M = (ops && ops.mktMerges) || []; const un = new Set(M.filter(x => x.undoOf).map(x => x.undoOf));
   return M.filter(x => !x.undoOf && !x.undone && !un.has(x.id)); }
+/* v56.10 (المراقب المالي 3): التراجع عن الدمج يُمنع إن صُرفت النقاط المنقولة (رصيد المدموج إليه أقل منها) أو تلاه دمج يمس أحد الرقمين — فلا رصيد سالب ولا صرف مرتين */
+function mktUnmergeBlock(ops, loyTx, x) {
+  const later = mktMergesLive(ops).filter(m => m.id !== x.id && String(m.at || '') > String(x.at || '') && [m.from, m.to].some(p => p === x.from || p === x.to));
+  if (later.length) return 'تلاه دمج يخص أحد الرقمين — تراجع عن الأحدث أولًا';
+  const bal = (loyTx || []).filter(t => t.phone === x.to).reduce((a, t) => a + (Number(t.pts) || 0), 0);
+  if (Number(x.pts) > 0 && bal + 1e-9 < Number(x.pts)) return 'رصيد ' + x.to + ' (' + Math.round(bal * 100) / 100 + ') أقل من النقاط المنقولة (' + x.pts + ') — صُرف جزء منها';
+  return '';
+}
 function mktAlias(ops) { const m = {}; mktMergesLive(ops).forEach(x => { m[x.from] = x.to; });
   return (ph) => { let p = ph, k = 0; while (m[p] && k++ < 10) p = m[p]; return p; }; }
 // حالة الموافقة التسويقية: آخر حركة في السجل (إلحاق فقط) لكل قناة أو للكل
@@ -7912,12 +7920,17 @@ function mktProfiles(ops) { const m = {}; (ops.mktProfiles || []).slice().sort((
    يُمسح بعد صدور الكوبون. إن أُغلق المتصفح بينهما أو تعذّر الكوبون وإرجاع النقاط معًا، يُستكمل عند فتح التسويق التالي:
    كوبون موجود ⇒ تم · غير موجود بعد دقيقة ⇒ تُعاد النقاط بحركة معرّفها ثابت (لا تتكرر). */
 const MKT_RW_KEY = 'mizan:mktRwPend';
-function rwPendSplit(pend, promos, nowMs) {
-  const codes = new Set((promos || []).map(p => cpnKey(p.code)).filter(Boolean)); const done = [], refund = [], wait = [];
-  (pend || []).forEach(x => { if (!x || !x.txid) return; if (codes.has(cpnKey(x.code))) done.push(x); else if ((nowMs || Date.now()) - Date.parse(x.at || 0) >= 60000) refund.push(x); else wait.push(x); });
+function rwPendSplit(pend, promos, nowMs, loyTx) {
+  const codes = new Set((promos || []).map(p => cpnKey(p.code)).filter(Boolean)); const rws = new Set((promos || []).map(p => p.rwTx).filter(Boolean)); const done = [], refund = [], wait = [];
+  // v56.10 (مراجعة الأمن 7): لا إرجاع إلا لخصم موجود فعلًا في دفتر الولاء بنفس الجوال والقيمة، ولم يُرجَع من قبل
+  const T = {}; (loyTx || []).forEach(t => { if (t && t.id) T[t.id] = t; });
+  (pend || []).forEach(x => { if (!x || !x.txid) return; if (rws.has(x.txid) || codes.has(cpnKey(x.code))) return done.push(x);
+    const d = T[x.txid]; if (!d) return (nowMs || Date.now()) - Date.parse(x.at || 0) >= 600000 ? done.push(x) : wait.push(x);   // لم يُخصم ⇒ لا شيء يُعاد (يُنسى بعد 10 دقائق)
+    if (T[x.txid + ':undo'] || d.phone !== x.phone || Number(d.pts) !== -Math.abs(Number(x.pts))) return done.push(x);
+    if ((nowMs || Date.now()) - Date.parse(x.at || 0) >= 60000) refund.push(x); else wait.push(x); });
   return { done, refund, wait };
 }
-const rwUndoTx = (x, at) => ({ id: x.txid + ':undo', phone: x.phone, pts: Number(x.pts) || 0, at, br: '', ord: 'إلغاء استبدال (لم يصدر الكوبون ' + x.code + ')' });
+const rwUndoTx = (x, at) => ({ id: x.txid + ':undo', phone: x.phone, pts: Math.abs(Number(x.pts) || 0), at, br: '', ord: 'إلغاء استبدال (لم يصدر الكوبون ' + x.code + ')' });
 /* v56.10 (G1): سجلات التسويق في مستند الفرع — قرار المالك «المدير يرى عملاء فرعه فقط».
    الموافقات وبيانات العميل والإحالات تُكتب برقم فرع العميل فتصل لمستند فرعه، ويقرؤها المركز من كل الفروع.
    المفتاح معطّل افتراضيًا، ولا يُفعَّل إلا بعد أن يصبح الحد الأدنى للإصدار ≥ هذا الإصدار، لأن الإصدارات الأقدم
@@ -7928,9 +7941,9 @@ function mktRecBranch(on, central, cust, brIds) {
   if (!on) return ''; const ids = brIds || []; const home = cust && cust.branches && cust.branches[0] ? cust.branches[0].id : '';
   if (central) return home; return home && ids.includes(home) ? home : (ids[0] || '');
 }
-function rewardCoupon(rw, phone, td, code) {
+function rewardCoupon(rw, phone, td, code, rwTx) {
   const to = (() => { const d = new Date((td || today()) + 'T12:00:00'); d.setDate(d.getDate() + (Number(rw.days) || 30)); return isoD(d); })();
-  return { id: uid('pm'), name: 'جائزة: ' + rw.name, type: 'pct', value: 100, scope: 'items', items: [rw.productId], cats: [], code, custPhone: phone, maxUses: 1, perCust: 1, maxQty: 1, from: td || today(), to, days: [], branches: [], active: true, reward: rw.id, at: nowISO() };
+  return { id: uid('pm'), name: 'جائزة: ' + rw.name, type: 'pct', value: 100, scope: 'items', items: [rw.productId], cats: [], code, custPhone: phone, ...(rwTx ? { rwTx } : {}), maxUses: 1, perCust: 1, maxQty: 1, from: td || today(), to, days: [], branches: [], active: true, reward: rw.id, at: nowISO() };
 }
 
 /* ══════ v47.8 — ترتيب صفوف القيد والفاتورة بالسحب (فأرة ولمس) أو بالأسهم، والقيود الدورية ══════ */
@@ -14986,7 +14999,7 @@ async function qrAnalyzeComments(items) {
 
 // v38.3 — ما تحتاجه ملفات التطبيقات المنفصلة (mods/) من النواة
 export { promoEligible, couponWhy, cpnKey, cpnReserve, cpnRelease, promoDiscPct, promoMarginCheck, LOY_DEF, loyX, loyTier, loyEarnX, loyExpiring, loyPeriodicTx, mktProfiles, rewardCoupon };
-export { splitOps, composeOps, outOfScopeRecords, MKT_RW_KEY, rwPendSplit, rwUndoTx, MKT_BR_CV, mktBrOn, mktRecBranch, mktMergesLive, MKT_DEF, mktCfg, mktCanApprove, MKT_SEGS, MKT_SEG_ORDER, mktAlias, mktConsentOf, mktCanContact, crmBuild, crmSegment, crmDupes, mktNameKey, mktKpis };
+export { mktUnmergeBlock, splitOps, composeOps, outOfScopeRecords, MKT_RW_KEY, rwPendSplit, rwUndoTx, MKT_BR_CV, mktBrOn, mktRecBranch, mktMergesLive, MKT_DEF, mktCfg, mktCanApprove, MKT_SEGS, MKT_SEG_ORDER, mktAlias, mktConsentOf, mktCanContact, crmBuild, crmSegment, crmDupes, mktNameKey, mktKpis };
 export { moveIdx, RowGrip, RECUR_AR, recurNext, recurDue };
 export { peekDoc, DocLink, DocPeekHost, VoiceSearchHost, voiceNorm };
 export { fefoPick, lotsFor, projList, projectPL, projNextCode };
