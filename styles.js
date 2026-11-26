@@ -735,6 +735,9 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
 @keyframes mqFade{0%{opacity:0}14%{opacity:1}72%{opacity:1}100%{opacity:0;visibility:hidden}}
 /* تخطيط ثابت لا يتبع المحتوى (لقطات CI 2026-11-26: العمود كان يتمدد فيقص البطاقة على الجوال ويدفع الغلاف عند ظهور الخطأ) */
 .mq-login.gate{overflow-x:clip;overflow-y:visible}
+/* حاوية تمرير مستقلة: قشرة الجوال تقفل تمرير الصفحة (html,body{overflow:hidden}) فيتعذّر الوصول لأسفل البطاقة باللمس */
+.mq-root{position:fixed;inset:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.mq-root .mq-login.gate{min-height:100%}
 .mq-login .gate-c,.mq-login .mq-pane,.mq-login .mq-card,.mq-login .mq-row,.mq-login .mq-field{min-width:0}
 .mq-err span,.mq-notice span,.mq-note{min-width:0;overflow-wrap:anywhere}
 @media (min-width:960px){.mq-login.gate.has-cover{grid-template-columns:minmax(0,1.35fr) minmax(0,1fr)}}

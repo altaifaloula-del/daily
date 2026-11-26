@@ -3436,12 +3436,16 @@ const gateState = (p) => p.evaluate(() => ({ calls: (window.__gate || {}).calls 
 /** البطاقة كاملة داخل الشاشة (لا قص خفي خلف overflow) وآخر زر يصل إليه المستخدم */
 const fitsGate = async (p, label) => { const s = await gateState(p);
   assert.ok(s.card && s.card.l >= 0 && s.card.r <= s.vw + 1, label + ': البطاقة خارج الشاشة ' + JSON.stringify(s.card) + ' عرض ' + s.vw);
-  await p.locator('.mq-setup').scrollIntoViewIfNeeded(); const b = await p.locator('.mq-setup').boundingBox(); const vh = await p.evaluate(() => window.innerHeight);
-  assert.ok(b && b.y >= 0 && b.y + b.height <= vh + 1, label + ': زر الإعداد الأول غير ظاهر ' + JSON.stringify(b));
-  // الخلفية تغطي البطاقة حتى نهاية الصفحة (لا شريط أبيض أسفلها)
-  const g = await p.evaluate(() => { const r = (q) => document.querySelector(q).getBoundingClientRect(); const y = window.scrollY;
-    return { gate: Math.round(r('.mq-login').bottom + y), card: Math.round(r('.mq-card').bottom + y), doc: document.documentElement.scrollHeight }; });
-  assert.ok(g.gate >= g.card && g.gate >= g.doc - 2, label + ': الخلفية لا تغطي الصفحة ' + JSON.stringify(g)); return s; };
+  // تمرير حقيقي بعجلة الفأرة فوق البطاقة (لا scrollIntoView البرمجي) حتى يظهر زر الإعداد الأول
+  const vh = await p.evaluate(() => window.innerHeight); const c = await p.locator('.mq-card').boundingBox();
+  await p.mouse.move(Math.max(5, c.x + 10), Math.min(vh - 5, Math.max(5, c.y + 10)));
+  let b; for (let k = 0; k < 12; k++) { b = await p.locator('.mq-setup').boundingBox(); if (b && b.y >= 0 && b.y + b.height <= vh + 1) break; await p.mouse.wheel(0, 300); await p.waitForTimeout(120); }
+  assert.ok(b && b.y >= 0 && b.y + b.height <= vh + 1, label + ': زر الإعداد الأول لا يُبلغ بالتمرير ' + JSON.stringify(b));
+  // الخلفية تغطي البطاقة حتى نهاية منطقة التمرير (لا شريط فارغ أسفلها)
+  const g = await p.evaluate(() => { const root = document.querySelector('.mq-root'); const t = root.scrollTop, r0 = root.getBoundingClientRect().top; const y = (q) => Math.round(document.querySelector(q).getBoundingClientRect().bottom - r0 + t);
+    return { gate: y('.mq-login'), card: y('.mq-card'), scroll: root.scrollHeight }; });
+  assert.ok(g.gate >= g.card && g.gate >= g.scroll - 2, label + ': الخلفية لا تغطي الصفحة ' + JSON.stringify(g));
+  await p.evaluate(() => { document.querySelector('.mq-root').scrollTop = 0; }); return s; };
 
 test('v56.5 الدخول: التحقق من المدخلات، كلمة سر خاطئة، إظهار/إخفاء، تذكّرني، نسيت كلمة السر، نجاح حقيقي فقط', { timeout: 120000 }, async () => {
   const { p, errs, ctx } = await open({ viewport: { width: 1440, height: 900 } }, 'gate');
@@ -3511,7 +3515,7 @@ test('v56.5 الدخول: الجوال بلا تجاوز وأهداف لمس ≥
   await m.p.click('.mq-lang'); await m.p.waitForTimeout(400);
   s = await gateState(m.p); assert.equal(s.dir, 'ltr');
   assert.match(await m.p.innerText('label[for="mq-email"]'), /Email/i);
-  assert.ok(s.over <= 2); await fitsGate(m.p, 'الجوال EN'); await m.p.evaluate(() => window.scrollTo(0, 0)); await shot(m.p, 'login-mobile-en');
+  assert.ok(s.over <= 2); await fitsGate(m.p, 'الجوال EN'); await shot(m.p, 'login-mobile-en');
   assert.deepEqual(m.errs, []); await m.ctx.close();
   // تقليل الحركة: لا حركة على البطاقة ولا لوحة جسيمات تُرسم
   const r = await open({ viewport: { width: 1280, height: 900 }, reducedMotion: 'reduce' }, 'gate');
