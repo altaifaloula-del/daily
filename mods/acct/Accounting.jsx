@@ -11,6 +11,7 @@ import { GeneralLedger } from './GeneralLedger.jsx';   // v49.4 المرحلة 0
 import { makeRptXlsx } from '../../App.jsx';   // v50.0 منظومة التقارير
 import { FL_START, FL_GROUPS, flReadOn, flLoad, flEntriesOf, flBalDiff, flScope } from '../../App.jsx';   // v56.14 D4 الميزان والقوائم من الدفتر المخزّن
 import { DEP_METHODS, depMethod, deprSchedule, wfOn, wfRequired, wfState, wfCanAct, wfApprove } from '../../App.jsx';   // v49.4 طرق الإهلاك
+import { equityStatement, EQS_ROWS } from '../../App.jsx';   // v56.19 (FINANCE E1)
 import { ACCT_GROUPS, DocLink, RowGrip, moveIdx, RECUR_AR, recurNext, recurDue, jeOwner, canApproveJe, jeAutoSt, vatCloseLive, projList, projectPL, projNextCode, ACCT_SECTIONS, ACC_KIND, Field, Kpi, LOCK_MSG, MizanMerge, Modal, NUM_FACE, Num, ROLES, _xe, acctSecKey, arDate, bankOfBranch, branchBanks, bsLayout, bsRowsOf, buildAccounting, buildPartners, capOK, countedClosing, customerAging, detectStmtMap, entityById, entityList, gosiRatesFor, isLayout, isRowsOf, isoD, lockedThru, makeXlsx, money, monthEnd, monthLedger, multiEntityOn, naMissing, nowISO, openDocWin, parseCsvGrid, parseMt940, parseXlsxGrid, payTotal, periodLocked, posClrOf, printA4, qrSvg, roleEdit, rolePost, snapMonths, stAddDays, stDate, stNum, sum, supplierAging, today, uid, useSecNav, zatcaTLV } from '../../App.jsx';
 
 export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }) {
@@ -1517,7 +1518,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
         const go = (v) => { setAcctNavOpen(null); setAcctGridOpen(false); setView(v); if (v === 'apage') setApSel(null); if (v === 'arage') setArSel(null); };
         const IT = {
           jr: ['القيود اليومية', FileText], coa: ['دليل الحسابات', Landmark], tb: ['ميزان المراجعة', Scale], gl: ['دفتر الأستاذ', FileText], actmv: ['حركة الحسابات', ArrowLeftRight], ob: ['الأرصدة الافتتاحية', Landmark],
-          fs: ['القوائم المالية', FileBarChart], cf: ['التدفقات النقدية', ArrowLeftRight], fcast: ['التوقّع النقدي', TrendingUp], bud: ['الموازنة', BarChart3], anl: ['التحليل والنِسَب', TrendingUp], cc: ['مراكز التكلفة', BarChart3],
+          fs: ['القوائم المالية', FileBarChart], eqs: ['التغيرات في حقوق الملكية', Scale], cf: ['التدفقات النقدية', ArrowLeftRight], fcast: ['التوقّع النقدي', TrendingUp], bud: ['الموازنة', BarChart3], anl: ['التحليل والنِسَب', TrendingUp], cc: ['مراكز التكلفة', BarChart3],
           prj: ['المشاريع', Grid3x3], food: ['تكلفة الطعام بالفروع', Store], apage: ['أعمار الموردين', Users], arage: ['أعمار العملاء', Users], unbilled: ['مستلم لم يُفوتر', Truck],
           vat: ['الضريبة (ق.م)', Receipt], vatreg: ['سجلات الضريبة المفصلة', FileText], suprep: ['مشتريات الموردين بطرق الدفع', Truck], einv: ['الفوترة (زاتكا)', QrCode], zakat: ['الزكاة وضريبة الدخل', Landmark],
           bank: ['التسوية البنكية', Landmark], ast: ['الأصول والإهلاك', Building2], astl: ['تسوية التطبيقات', Truck],
@@ -1854,6 +1855,23 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
         </div>
       )}
 
+      {view === 'eqs' && (() => {   /* v56.19 (FINANCE E1): قائمة التغيرات في حقوق الملكية — IFRS for SMEs 6.3 (قرار المالك) */
+        const S = equityStatement(A, from, to); const C = S.cols; const bsEq = Math.round((bsEquity + bsProfit) * 100) / 100;
+        const tie = !bf ? Math.abs(S.total.close - bsEq) < 0.01 : null;
+        const per = (from || 'البداية') + ' ← ' + (to || 'اليوم');
+        const rowsX = () => [['قائمة التغيرات في حقوق الملكية — ' + per], ['البيان', ...C.map(c => c.name), 'الإجمالي'], ...EQS_ROWS.map(([k, t]) => [t, ...C.map(c => S.rows[k][c.code]), S.total[k]])];
+        const xl = () => dlBlob('التغيرات_في_حقوق_الملكية.xlsx', makeXlsx([{ name: 'حقوق الملكية', rows: rowsX() }]));
+        const pr = () => printA4(org, 'قائمة التغيرات في حقوق الملكية', per, '<table><thead><tr><th>البيان</th>' + C.map(c => '<th>' + c.name + '</th>').join('') + '<th>الإجمالي</th></tr></thead><tbody>' + EQS_ROWS.map(([k, t]) => '<tr' + (k === 'open' || k === 'close' ? ' class="tot"' : '') + '><td>' + t + '</td>' + C.map(c => '<td class="n">' + fmtBal(S.rows[k][c.code]) + '</td>').join('') + '<td class="n">' + fmtBal(S.total[k]) + '</td></tr>').join('') + '</tbody></table>') || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
+        return <div className="card" data-eqs>
+          <div className="card-h"><div className="card-t"><Scale size={15} color="var(--brass)" />قائمة التغيرات في حقوق الملكية · {per}</div>
+            <div className="row" style={{ gap: 6 }}><button className="btn sm" onClick={xl} data-eqs-xl>Excel</button><button className="btn sm" onClick={pr}><Printer size={13} />طباعة A4</button></div></div>
+          {bf && <div className="note" style={{ marginBottom: 8 }}>القائمة للمنشأة كلها — فلتر الفرع لا ينطبق على حقوق الملكية.</div>}
+          <div className="tw"><table className="tb" data-eqs-table><thead><tr><th>البيان</th>{C.map(c => <th key={c.code} style={{ textAlign: 'end' }}>{c.name}</th>)}<th style={{ textAlign: 'end' }}>الإجمالي</th></tr></thead>
+            <tbody>{EQS_ROWS.map(([k, t]) => <tr key={k} className={k === 'open' || k === 'close' ? 'is-sub' : 'is-line'} data-eqs-row={k}><td style={{ fontWeight: k === 'close' || k === 'open' ? 700 : 400 }}>{t}</td>
+              {C.map(c => <td key={c.code} className={'num' + (S.rows[k][c.code] < 0 ? ' neg' : '')} style={{ textAlign: 'end' }}>{fmtBal(S.rows[k][c.code])}</td>)}<td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{fmtBal(S.total[k])}</td></tr>)}</tbody></table></div>
+          {tie != null && <div className={'note'} style={{ marginTop: 8, color: tie ? 'var(--mint)' : 'var(--rose)' }} data-eqs-tie>{tie ? 'مطابق للمركز المالي ✓ (حقوق الملكية + أرباح الفترة غير المقفلة = ' + fmtBal(bsEq) + ')' : 'غير مطابق للمركز المالي: ' + fmtBal(bsEq) + ' مقابل ' + fmtBal(S.total.close)}</div>}
+          <div className="hint" style={{ marginTop: 6 }}>إقفال السنة ينقل الربح من «أرباح الفترة غير المقفلة» إلى «الأرباح المبقاة» فمجموعه صفر — لا يُحسب الربح مرتين. المسحوبات والتوزيعات تُسجَّل بقيد يدوي على الحساب 3301.</div>
+        </div>; })()}
       {view === 'fs' && (
         <div className="grid g2" style={{ alignItems: 'start' }}>
           <div className="card">
