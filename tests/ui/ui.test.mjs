@@ -3824,6 +3824,8 @@ test('v56.26 G2 التنقيب الموحّد: مبلغ في القوائم ال
   await p.evaluate(() => window.setOrg(o => ({ ...o, ctlBar: { on: true } })));
   await p.waitForSelector('[data-drill]');
   assert.ok(await p.locator('[data-drill]').count() >= 4, 'بنود قائمة الدخل والمركز المالي');
+  const negOk = await p.evaluate(() => [...document.querySelectorAll('.is-tb .neg [data-drill]')].every(x => getComputedStyle(x.closest('.doclink')).color === getComputedStyle(x.closest('.neg')).color));
+  assert.ok(negOk, 'السالب يبقى أحمر في رابط التنقيب');
   const codes = await p.locator('[data-drill]').evaluateAll(xs => xs.map(x => x.getAttribute('data-drill')));
   const c = codes.includes('2101') ? '2101' : codes[0];
   await p.locator('[data-drill="' + c + '"]').first().click();

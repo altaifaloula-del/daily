@@ -2104,6 +2104,9 @@ table.tb.tb-fp{min-width:520px}
 .voicetoast{position:fixed;z-index:2147482001;bottom:calc(22px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);background:var(--mithqal-navy,#10294A);color:#fff;padding:9px 16px;border-radius:999px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.25);pointer-events:none}
 .doclink{background:none;border:0;padding:0;margin:0;font:inherit;color:var(--acc,#2C6BC4);cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;text-align:inherit}
 .doclink:hover{color:var(--gold,#C8A24A)}
+/* v56.26: السالب في القوائم يبقى أحمر حتى إن صار رابط تنقيب */
+.is-tb .neg .doclink,.is-tb .neg .doclink:hover{color:inherit}
+@media (pointer:coarse){.rms [data-peek-doc].btn.sm{min-height:44px}}
 @media (prefers-reduced-motion:reduce){.voicebtn.on{animation:none}}
 
 /* v47.6 — البحث بالصوت: هدف لمس أكبر ونص مسموع حيّ */

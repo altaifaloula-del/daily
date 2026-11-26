@@ -8417,7 +8417,7 @@ function DocPeekHost({ org, ops }) {
               <b className="num">قيد {e.no}</b>{e.fix && <span className="badge b-gold num" data-fixno>{e.fix}</span>}<span className="badge b-dim num">{e.date}</span><span className="badge b-sky" style={{ fontSize: 10 }}>{e.manual ? '' : 'تلقائي · '}{e.src}</span>
               {e.branchId && <span className="badge b-dim">{brn(e.branchId) || e.branchId}</span>}{e.projectId && <span className="badge b-amber">{prj(e.projectId) || 'مشروع'}</span>}
               {!e.balanced && <span className="badge b-rose">غير متوازن</span>}
-              {R.kind === 'acc' && /^(si|inv|cv):/.test(String(e.id)) && <button className="btn sm gh" data-peek-doc style={{ marginInlineStart: 'auto' }} onClick={() => { setBack(sp); setSp({ e: e.id }); }}>المستند المصدر</button>}
+              {R.kind === 'acc' && /^(si|inv|cv):/.test(String(e.id)) && <button className="btn sm" data-peek-doc style={{ marginInlineStart: 'auto' }} onClick={() => { setBack(sp); setSp({ e: e.id }); }}><FileText size={13} />المستند المصدر</button>}
             </div>
             <div style={{ fontSize: 12.5, marginBottom: 6 }}>{e.title}</div>
             <table className="tb" style={{ fontSize: 12 }}><thead><tr><th>الحساب</th><th style={{ textAlign: 'end' }}>مدين</th><th style={{ textAlign: 'end' }}>دائن</th></tr></thead>
