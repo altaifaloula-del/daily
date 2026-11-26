@@ -1177,7 +1177,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
       if (!jeEditable(orig)) return say('لا تملك صلاحية تعديل هذا القيد', 'no');
       rec.replaces = orig.id;
       const rev = orig.status === 'posted' ? { id: uid('jm'), date: rec.date, title: 'عكس للتصحيح: ' + (orig.title || 'قيد يدوي'), reverses: orig.id, opening: false, by: me?.name || '', byId: me?.id || '', createdAt: nowISO(),
-        status: rec.status, ...(direct ? { approvedBy: me?.name || '', approvedAt: nowISO() } : {}), lines: (orig.lines || []).map(l => ({ code: l.code, debit: Number(l.credit) || 0, credit: Number(l.debit) || 0 })) } : null;
+        status: rec.status, ...(direct ? { approvedBy: me?.name || '', approvedAt: nowISO() } : {}), ...revDims(orig), lines: revLines(orig.lines) } : null;
       const ok = await commit(d => ({ ...d, journalManual: [...(rev ? [rec, rev] : [rec]), ...(d.journalManual || []).filter(x => rev || !(x.id === orig.id && x.status === 'pending'))] }), {
         actionType: 'update', targetType: 'journal_entry', targetId: orig.id + ' → ' + rec.id, need: 'post', perm: { kind: 'je', rec: orig },
         title: orig.status === 'posted' ? 'صحّح قيدًا مرحّلًا (عكس + قيد مصحّح)' : 'عدّل قيدًا قبل اعتماده', details: (orig.title || '') + ' · ' + money(sum(orig.lines, l => l.debit)) + ' ← ' + money(sum(rec.lines, l => l.debit)) + ' ر.س' });
@@ -1225,7 +1225,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
     const direct = jeOwner(me);
     const rec = { id: uid('jm'), date: d0, title: 'عكس: ' + (j.title || 'قيد يدوي'), reverses: j.id, opening: false, by: me?.name || '', byId: me?.id || '', createdAt: nowISO(),
       status: direct ? 'posted' : 'pending', ...(direct ? { approvedBy: me?.name || '', approvedAt: nowISO() } : {}),
-      lines: (j.lines || []).map(l => ({ code: l.code, debit: Number(l.credit) || 0, credit: Number(l.debit) || 0 })) };
+      ...revDims(j), lines: revLines(j.lines) };
     const ok = await commit(d => ({ ...d, journalManual: [rec, ...(d.journalManual || [])] }), { actionType: 'create', targetType: 'journal_entry', targetId: rec.id, need: 'post',
       title: 'عكس قيدًا يدويًا' + (direct ? '' : ' (بانتظار الاعتماد)'), details: (j.title || '') + ' · ' + money(sum(rec.lines, l => l.debit)) + ' ر.س' });
     if (ok) say(direct ? 'سُجّل القيد العكسي ✓' : 'أُرسل القيد العكسي للاعتماد ✓');
@@ -1445,6 +1445,9 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
     dlFile('حزمة_المحاسب_' + expTag + '.csv', toCsv(all));
   };
 
+  // v56.27 (E4 — مراجعة رئيس المحاسبين): القيد العكسي يحمل أبعاد الأصل (الفرع والمشروع على القيد، والمشروع والقسم على كل سطر) فيصفّرها
+  const revLines = (ls) => (ls || []).map(l => ({ code: l.code, debit: Number(l.credit) || 0, credit: Number(l.debit) || 0, ...(l.projectId ? { projectId: l.projectId } : {}), ...(l.deptId ? { deptId: l.deptId } : {}) }));
+  const revDims = (o) => ({ ...(o.branchId ? { branchId: o.branchId } : {}), ...(o.projectId ? { projectId: o.projectId } : {}) });
   // v56.24 (G2 المرحلة 2): مع شريط التحكم تنتقل مرشحات الفترة/الفرع من داخل البطاقة إلى الشريط (مرة واحدة، لا تكرار)
   const ctlOn = ctlBarOn(org);
   const PB_VIEWS = ['gl', 'actmv', 'tb', 'fs', 'cf', 'food', 'anl', 'prj', 'cc', 'export'];
@@ -2562,7 +2565,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
       {view === 'cc' && (
         <div className="grid" style={{ gap: 12 }}>
           <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>{pbMoved ? null : periodBar}</div>
-          <DeptCard org={org} A={A} from={from} to={to} bf={bf} canPost={canPost} commitOrg={commitOrg} say={say} />
+          <DeptCard org={org} A={A} from={from} to={to} bf={bf} canPost={canPost} commitOrg={commitOrg} say={say} flNote={useFl} />
           <div className="grid g4">
             {centers.map(c => {
               const n = ccNet(c.id);
@@ -4001,7 +4004,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
               <input className="inp n jm-c" inputMode="decimal" style={{ flex: 1, minWidth: 110 }} placeholder="دائن 0.00" value={l.credit}
                 onChange={e => jmUp(i, 'credit', e.target.value.replace(/[^\d.]/g, ''))} />
               {projList(org).length > 0 && <select className="sel jm-prj" style={{ flex: 1, minWidth: 120 }} aria-label="مشروع السطر" value={l.projectId || ''} onChange={e => jmUp(i, 'projectId', e.target.value)}><option value="">{jm.projectId ? 'مشروع القيد' : 'بلا مشروع'}</option>{projList(org).map(p => <option key={p.id} value={p.id}>{p.code} · {p.name}</option>)}</select>}
-              {deptOn(org) && <select className="sel jm-dept" style={{ flex: 1, minWidth: 110 }} aria-label="قسم السطر" data-jm-dept value={l.deptId || ''} onChange={e => jmUp(i, 'deptId', e.target.value)}><option value="">بلا قسم</option>{deptList(org).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}<option value={DEPT_SHARED}>مشترك</option></select>}
+              {deptOn(org) && <select className="sel jm-dept" style={{ flex: 1, minWidth: 110 }} aria-label="قسم السطر" data-jm-dept value={l.deptId || ''} onChange={e => jmUp(i, 'deptId', e.target.value)}><option value="">بلا قسم</option>{deptList(org, true).filter(d => d.active !== false || d.id === l.deptId).map(d => <option key={d.id} value={d.id}>{d.name}{d.active === false ? ' (موقوف)' : ''}</option>)}<option value={DEPT_SHARED}>مشترك</option></select>}
               {jm.lines.length > 2 && <button className="btn sm gh" onClick={() => setJm(m => ({ ...m, lines: m.lines.filter((_, x) => x !== i) }))}><X size={13} /></button>}
             </div>
           ))}
