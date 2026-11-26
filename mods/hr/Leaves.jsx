@@ -1,7 +1,8 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useMemo } from 'react';
-import { ClipboardCheck, CalendarDays, Landmark, Plus, Bell, Users, Wallet, Check } from 'lucide-react';
-import { Field, Kpi, LEAVE_TYPES, LOCK_MSG, Modal, Num, ROLES, SectionNav, eosYears, isoD, leaveBalance, leaveDeductPlan, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, money, monthEnd, nowISO, periodLocked, sum, today, uid } from '../../App.jsx';
+import { ClipboardCheck, CalendarDays, Landmark, Plus, Bell, Users, Wallet, Check, Eye, Printer, LogIn } from 'lucide-react';
+import { Field, Kpi, LEAVE_TYPES, LOCK_MSG, Modal, Num, ROLES, SectionNav, eosYears, isoD, leaveBalance, leaveDeductPlan, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, money, monthEnd, nowISO, periodLocked, sum, today, uid,
+  lvReturnPlan, lvTrack, leaveSignDoc, sigBlockHtml, printA4, escH, SIGN_DOC_AR } from '../../App.jsx';
 
 export function Leaves({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const R = ROLES[me.role] || {};
@@ -15,6 +16,10 @@ export function Leaves({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const [tab, setTab] = useState('req'); const [st, setSt] = useState('pending');
   const [f, setF] = useState(null); const [opF, setOpF] = useState(null); const [lvStart, setLvStart] = useState(null);
   const [month, setMonth] = useState(today().slice(0, 7));
+  // v56.12: تفاصيل الإجازة وتتبعها بعد الاعتماد، ودورة الإجازة الموقّعة (مباشرة العمل) — المفتاح في سياسات الموارد البشرية
+  const flow = !!((org.hrPolicies || {}).leaveFlow);
+  const isMgr = central || ['branch_manager', 'regional_manager'].includes(me.role);
+  const [viewId, setViewId] = useState(null); const [rf, setRf] = useState(null);
   const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
   const td = today();
   const LV = useMemo(() => lvState(ops), [ops]);
@@ -38,8 +43,9 @@ export function Leaves({ org, ops, me, myBranches, commit, commitOrg, say }) {
     const x = f; const err = check(x); if (err) return say(err, 'no');
     const e = empOf(x.employeeId); const b = (org.branches || []).find(z => z.id === e.branchId) || {};
     const rec = { id: uid('lv'), employeeId: e.id, employeeName: e.name, branchId: e.branchId || '', branchName: b.name || '', type: x.type, from: x.from, to: x.to, days: lvDays(x.from, x.to), reason: (x.reason || '').trim(), status: 'pending', requestedBy: me.name, at: nowISO() };
-    const ok = await commit(d => ({ ...d, leaveRequests: [rec, ...(d.leaveRequests || [])] }), { actionType: 'create', targetType: 'leave', targetId: rec.id, branchName: rec.branchName, title: 'طلب إجازة', details: e.name + ' · ' + LEAVE_TYPES[x.type].ar + ' · ' + rec.days + ' يوم (' + x.from + ' ← ' + x.to + ')' });
-    if (ok) { setF(null); say('أُرسل طلب الإجازة للاعتماد ✓'); }
+    const sd = flow ? leaveSignDoc(rec, me, 'leave') : null;
+    const ok = await commit(d => ({ ...d, leaveRequests: [rec, ...(d.leaveRequests || [])], ...(sd ? { hrSignDocs: [sd, ...(d.hrSignDocs || [])] } : {}) }), { actionType: 'create', targetType: 'leave', targetId: rec.id, branchName: rec.branchName, title: 'طلب إجازة', details: e.name + ' · ' + LEAVE_TYPES[x.type].ar + ' · ' + rec.days + ' يوم (' + x.from + ' ← ' + x.to + ')' });
+    if (ok) { setF(null); say('أُرسل طلب الإجازة للاعتماد ✓' + (sd ? ' — يوقّعه الموظف بالرمز من «التوقيع الإلكتروني»' : '')); }
   };
   const decide = async (r, ok2) => {
     if (!canDecide) return;
@@ -56,7 +62,7 @@ export function Leaves({ org, ops, me, myBranches, commit, commitOrg, say }) {
       if (posted && !window.confirm('رواتب ' + posted.month + ' صُرفت مسبقًا — سيُسجَّل الخصم على ذلك الشهر لكنه لن يظهر إلا في التسوية. متابعة؟')) return;
     }
     const done = await commit(d => ({ ...d,
-      leaveRequests: (d.leaveRequests || []).map(x => x.id === r.id && x.status === 'pending' ? { ...x, status: ok2 ? 'approved' : 'rejected', decidedBy: me.name, decidedAt: nowISO(), ...(note ? { note } : {}), ...(advs.length ? { deduct: r2(sum(advs, a => a.amount)) } : {}) } : x),
+      leaveRequests: (d.leaveRequests || []).map(x => x.id === r.id && x.status === 'pending' ? { ...x, status: ok2 ? 'approved' : 'rejected', decidedBy: me.name, decidedById: me.id || '', decidedRole: me.role || '', decidedAt: nowISO(), ...(note ? { note } : {}), ...(advs.length ? { deduct: r2(sum(advs, a => a.amount)) } : {}) } : x),
       ...(advs.length ? { advances: [...advs, ...(d.advances || [])] } : {}) }),
       { actionType: 'update', targetType: 'leave', targetId: r.id, need: 'post', branchName: r.branchName, title: ok2 ? 'اعتمد إجازة' : 'رفض إجازة', details: r.employeeName + ' · ' + LEAVE_TYPES[r.type].ar + ' · ' + r.days + ' يوم' + (advs.length ? ' · خصم ' + money(sum(advs, a => a.amount)) : '') + (note ? ' · ' + note : '') });
     if (done) say(ok2 ? 'اعتُمدت الإجازة' + (advs.length ? ' وسُجّل خصمها على المسير' : '') + ' ✓' : 'رُفض الطلب');
@@ -73,14 +79,53 @@ export function Leaves({ org, ops, me, myBranches, commit, commitOrg, say }) {
   };
   const endEarly = async (r) => {
     if (!central) return; const back = window.prompt('تاريخ آخر يوم إجازة فعلي (YYYY-MM-DD) — المباشرة في اليوم التالي:', td); if (!back) return;
+    return applyEnd(r, back);
+  };
+  const applyEnd = async (r, back, retPatch) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(back) || back < r.from || back >= r.to) return say('التاريخ يجب أن يكون داخل الإجازة وقبل نهايتها', 'no');
     const e = empOf(r.employeeId); const nr = { ...r, to: back, days: lvDays(r.from, back) };
     const plan = leaveDeductPlan(ops, e, r.type, r.from, back, r.id); const daily = lvDaily(e);
     const advs = plan.map(p => ({ id: uid('ad'), employeeId: e.id, employeeName: e.name, branchId: e.branchId || '', branchName: r.branchName || '', type: r.type === 'sick' ? 'sick_leave_cut' : 'unpaid_leave', amount: r2(p.days * daily * p.pct / 100), month: p.month, date: p.month + '-01' > r.from ? p.month + '-01' : r.from, reason: 'إجازة ' + LEAVE_TYPES[r.type].ar + ' — ' + p.days + ' يوم', leaveId: r.id, createdByName: me.name, createdAt: nowISO() })).filter(a => a.amount > 0);
     const old = (ops.advances || []).filter(a => a.leaveId === r.id); const lk = [...old, ...advs].find(a => periodLocked(org, a.month + '-28')); if (lk) return say(LOCK_MSG(lk.month + '-28'), 'no');
-    await commit(d => ({ ...d, leaveRequests: (d.leaveRequests || []).map(x => x.id === r.id ? { ...x, to: back, days: nr.days, endedEarly: r.to, deduct: r2(sum(advs, a => a.amount)) } : x), advances: [...advs, ...(d.advances || []).filter(a => a.leaveId !== r.id)] }),
-      { actionType: 'update', targetType: 'leave', targetId: r.id, branchName: r.branchName, title: 'مباشرة مبكرة من إجازة', details: r.employeeName + ' · آخر يوم ' + back + ' بدل ' + r.to });
-    say('سُجّلت المباشرة وعُدّل الرصيد والخصم ✓');
+    const ok = await commit(d => ({ ...d, leaveRequests: (d.leaveRequests || []).map(x => x.id === r.id ? { ...x, to: back, days: nr.days, endedEarly: r.to, deduct: r2(sum(advs, a => a.amount)), ...(retPatch ? { ret: { ...(x.ret || {}), ...retPatch } } : {}) } : x), advances: [...advs, ...(d.advances || []).filter(a => a.leaveId !== r.id)] }),
+      { actionType: 'update', targetType: 'leave', targetId: r.id, branchName: r.branchName, title: retPatch ? 'اعتمد مباشرة عمل مبكرة' : 'مباشرة مبكرة من إجازة', details: r.employeeName + ' · آخر يوم ' + back + ' بدل ' + r.to });
+    if (ok !== false) say('سُجّلت المباشرة وعُدّل الرصيد والخصم ✓');
+  };
+  // v56.12 (قرار المالك): مدير الفرع يسجّل مباشرة العمل ويوقّعها الموظف، والمركز يعتمدها؛ أيام التأخر تُخصم من رصيد الإجازات
+  const saveReturn = async () => {
+    const r = reqs.find(x => x.id === rf.id); if (!r || !isMgr) return; const P = lvReturnPlan(r, rf.date); if (P.err) return say(P.err, 'no');
+    if (rf.date > td) return say('لا تُسجَّل مباشرة في تاريخ لاحق', 'no');
+    if (P.kind === 'late' && !(rf.note || '').trim()) return say('اكتب سبب التأخر عن المباشرة', 'no');
+    const ret = { date: rf.date, kind: P.kind, lastDay: P.lastDay, lateDays: P.lateDays, note: (rf.note || '').trim(), by: me.id || '', byName: me.name, at: nowISO(), status: 'pending' };
+    const sd = leaveSignDoc({ ...r, ret }, me, 'leave_return');
+    const ok = await commit(d => ({ ...d, leaveRequests: (d.leaveRequests || []).map(x => x.id === r.id && x.status === 'approved' && (!x.ret || x.ret.status === 'rejected') ? { ...x, ret } : x), hrSignDocs: [sd, ...(d.hrSignDocs || []).map(x => x.refId === r.id && x.docType === 'leave_return' && x.status === 'pending' ? { ...x, status: 'voided' } : x)] }),
+      { actionType: 'update', targetType: 'leave', targetId: r.id, branchName: r.branchName, title: 'سجّل مباشرة عمل', details: r.employeeName + ' · ' + rf.date + (P.kind === 'late' ? ' · تأخر ' + P.lateDays + ' يوم' : P.kind === 'early' ? ' · مبكرة' : '') + (ret.note ? ' · ' + ret.note : '') });
+    if (ok) { setRf(null); say('سُجّلت المباشرة — يوقّعها الموظف بالرمز، ثم يعتمدها المركز ✓'); }
+  };
+  const decideReturn = async (r, yes) => {
+    if (!(central && canDecide) || !r.ret || r.ret.status !== 'pending') return;
+    let apNote = ''; if (!yes) { apNote = window.prompt('سبب رفض المباشرة (يعيد المدير تسجيلها):'); if (!apNote) return; }
+    const patch = { status: yes ? 'approved' : 'rejected', apBy: me.id || '', apByName: me.name, apAt: nowISO(), ...(apNote ? { apNote } : {}) };
+    if (yes && r.ret.kind === 'early') return applyEnd(r, r.ret.lastDay, patch);
+    if (yes && r.ret.kind === 'late') { const e = empOf(r.employeeId); const b = leaveBalance(org, ops, e, r.ret.date);
+      if (b.ok && b.balance - r.ret.lateDays < 0 && !window.confirm('رصيد ' + r.employeeName + ' ' + Math.floor(b.balance) + ' يوم وأيام التأخر ' + r.ret.lateDays + ' — سيصبح الرصيد سالبًا. متابعة؟')) return; }
+    const ok = await commit(d => ({ ...d, leaveRequests: (d.leaveRequests || []).map(x => x.id === r.id && x.ret && x.ret.status === 'pending' ? { ...x, ret: { ...x.ret, ...patch } } : x) }),
+      { actionType: 'update', targetType: 'leave', targetId: r.id, need: 'post', branchName: r.branchName, title: yes ? 'اعتمد مباشرة عمل' : 'رفض مباشرة عمل', details: r.employeeName + ' · ' + r.ret.date + (r.ret.lateDays ? ' · تأخر ' + r.ret.lateDays + ' يوم يُخصم من الرصيد' : '') + (apNote ? ' · ' + apNote : '') });
+    if (ok) say(yes ? 'اعتُمدت المباشرة' + (r.ret.lateDays ? ' وخُصم التأخر من الرصيد' : '') + ' ✓' : 'رُفضت المباشرة');
+  };
+  const signs = ops.hrSignDocs || [];
+  const printLeave = (r) => {
+    const T = lvTrack(r, signs, td); const s1 = signs.find(d => d.refId === r.id && d.docType === 'leave' && d.status === 'signed'); const s2 = signs.find(d => d.refId === r.id && d.docType === 'leave_return' && d.status === 'signed');
+    const ST = { done: '✓', wait: '…', stop: '✕', late: '!' };
+    const box = (t, inner) => `<div style="flex:1;border:1px solid #ccc;border-radius:6px;padding:8px;min-height:90px;text-align:center"><div style="font-size:11px;color:#555;margin-bottom:6px">${t}</div>${inner}</div>`;
+    const apBox = (name, at) => name ? `<div style="font-size:11.5px"><b>${escH(name)}</b><div style="font-size:9.5px;color:#555">اعتُمد إلكترونيًا ${escH(String(at || '').replace('T', ' ').slice(0, 16))}</div></div>` : '<div style="color:#999;font-size:11px">—</div>';
+    const html = `<table><tbody><tr><td>الموظف</td><td>${escH(r.employeeName)} · ${escH(r.branchName || '')}</td></tr><tr><td>النوع</td><td>${escH((LEAVE_TYPES[r.type] || {}).ar || '')}</td></tr>
+      <tr><td>الفترة</td><td class="n">${escH(r.from)} ← ${escH(r.to)} (${escH(r.days)} يوم)${r.endedEarly ? ' — كانت حتى ' + escH(r.endedEarly) : ''}</td></tr>${r.reason ? `<tr><td>السبب</td><td>${escH(r.reason)}</td></tr>` : ''}${r.deduct ? `<tr><td>خصم المسير</td><td class="n">${money(r.deduct)}</td></tr>` : ''}
+      ${r.ret ? `<tr><td>مباشرة العمل</td><td class="n">${escH(r.ret.date)}${r.ret.lateDays ? ' — تأخر ' + escH(r.ret.lateDays) + ' يوم يُخصم من الرصيد' : ''}</td></tr>` : ''}</tbody></table>
+      <h3 style="font-size:13px;margin:12px 0 6px">مراحل الإجازة</h3><table><tbody>${T.map(x => `<tr><td style="width:28px">${ST[x.st] || ''}</td><td>${escH(x.ar)}</td><td>${escH(x.who)}</td><td class="n">${escH(String(x.at || '').replace('T', ' ').slice(0, 16))}</td></tr>`).join('')}</tbody></table>
+      <div style="display:flex;gap:10px;margin-top:14px">${box('توقيع الموظف على الطلب', s1 ? sigBlockHtml(s1, 140) : '<div style="color:#999;font-size:11px">—</div>')}${box('المعتمِد', apBox(r.status === 'approved' ? r.decidedBy : '', r.decidedAt))}
+      ${r.ret ? box('توقيع الموظف على المباشرة', s2 ? sigBlockHtml(s2, 140) : '<div style="color:#999;font-size:11px">—</div>') + box('اعتماد المباشرة', apBox(r.ret.status === 'approved' ? r.ret.apByName : '', r.ret.apAt)) : ''}</div>`;
+    printA4(org, 'نموذج إجازة — ' + r.employeeName, ((LEAVE_TYPES[r.type] || {}).ar || '') + ' · ' + r.from + ' ← ' + r.to, html) || say('اسمح بالنوافذ المنبثقة للطباعة', 'no');
   };
   const saveOpening = async () => {
     const x = opF; if (!/^\d{4}-\d{2}-\d{2}$/.test(x.date)) return say('التاريخ غير صحيح', 'no');
@@ -137,11 +182,14 @@ export function Leaves({ org, ops, me, myBranches, commit, commitOrg, say }) {
                 <td><span className="badge b-dim">{(LEAVE_TYPES[r.type] || {}).ar}</span>{r.deduct ? <div><span className="badge b-rose" style={{ marginTop: 3 }}>خصم {money(r.deduct)}</span></div> : null}</td>
                 <td className="num" style={{ fontSize: 11.5 }}>{r.from} ← {r.to}{r.endedEarly ? <div style={{ fontSize: 9.5, color: 'var(--faint)' }}>باشر مبكرًا (كانت حتى {r.endedEarly})</div> : null}</td>
                 <td className="num" style={{ textAlign: 'end' }}>{r.days}</td>
-                <td><span className={'badge ' + (SB[r.status] || SB.pending)[1]}>{(SB[r.status] || SB.pending)[0]}</span>{r.note ? <div style={{ fontSize: 10, color: 'var(--faint)' }}>{r.note}</div> : null}{r.reason ? <div style={{ fontSize: 10, color: 'var(--faint)' }}>{r.reason}</div> : null}</td>
+                <td><span className={'badge ' + (SB[r.status] || SB.pending)[1]}>{(SB[r.status] || SB.pending)[0]}</span>{r.status === 'approved' && r.ret ? <div><span className={'badge ' + (r.ret.status === 'approved' ? 'b-mint' : r.ret.status === 'rejected' ? 'b-rose' : 'b-amber')} style={{ marginTop: 3 }} data-lvret-st>{r.ret.status === 'approved' ? 'باشر ' + r.ret.date : r.ret.status === 'rejected' ? 'مباشرة مرفوضة' : 'مباشرة بانتظار الاعتماد'}{r.ret.lateDays ? ' · تأخر ' + r.ret.lateDays : ''}</span></div> : r.status === 'approved' && flow && lvAddD(r.to, 1) < td ? <div><span className="badge b-rose" style={{ marginTop: 3 }}>لم تُسجَّل المباشرة</span></div> : null}{r.note ? <div style={{ fontSize: 10, color: 'var(--faint)' }}>{r.note}</div> : null}{r.reason ? <div style={{ fontSize: 10, color: 'var(--faint)' }}>{r.reason}</div> : null}</td>
                 <td><div className="row" style={{ gap: 5, flexWrap: 'wrap' }}>
                   {canDecide && r.status === 'pending' && <><button className="btn sm pri" onClick={() => decide(r, true)}>اعتماد</button><button className="btn sm gh" onClick={() => decide(r, false)}>رفض</button></>}
                   {(r.status === 'pending' || (r.status === 'approved' && r.from > td && central)) && <button className="btn sm gh" onClick={() => cancel(r)}>إلغاء</button>}
-                  {central && r.status === 'approved' && r.from <= td && r.to > td && <button className="btn sm gh" onClick={() => endEarly(r)}>مباشرة مبكرة</button>}
+                  {!flow && central && r.status === 'approved' && r.from <= td && r.to > td && <button className="btn sm gh" onClick={() => endEarly(r)}>مباشرة مبكرة</button>}
+                  {flow && isMgr && r.status === 'approved' && r.from < td && (!r.ret || r.ret.status === 'rejected') && <button className="btn sm pri" data-lvret onClick={() => setRf({ id: r.id, date: td, note: '' })}><LogIn size={13} />مباشرة العمل</button>}
+                  {flow && central && canDecide && r.ret && r.ret.status === 'pending' && <><button className="btn sm pri" data-lvret-ok onClick={() => decideReturn(r, true)}>اعتماد المباشرة</button><button className="btn sm gh" onClick={() => decideReturn(r, false)}>رفض</button></>}
+                  <button className="btn sm gh" data-lvview onClick={() => setViewId(r.id)}><Eye size={13} />تفاصيل</button>
                 </div></td>
               </tr>))}
             {shown.length === 0 && <tr><td colSpan={6}><div className="empty">لا طلبات.</div></td></tr>}
@@ -180,6 +228,31 @@ export function Leaves({ org, ops, me, myBranches, commit, commitOrg, say }) {
         <div className="note">المخصص = رصيد أيام كل موظف × أجر يومه (الشامل ÷ 30). يُرحَّل شهريًا بالفرق: يرتفع بما يُستحق ويُرد بما يُؤخذ، فيُحمَّل المصروف وقت استحقاقه لا وقت أخذه.</div>
       </div>}
 
+      {viewId && (() => { const r = reqs.find(x => x.id === viewId); if (!r) return null; const T = lvTrack(r, signs, td);
+        const C = { done: ['b-mint', '✓'], wait: ['b-amber', '…'], stop: ['b-rose', '✕'], late: ['b-rose', '!'] };
+        return <Modal title={'إجازة ' + r.employeeName} icon={Eye} onClose={() => setViewId(null)} wide
+          foot={<><button className="btn pri" data-lvprint onClick={() => printLeave(r)}><Printer size={14} />طباعة النموذج</button><button className="btn gh" onClick={() => setViewId(null)}>إغلاق</button></>}>
+          <div data-lvdetail>
+            <div className="grid g3" style={{ marginBottom: 10 }}>
+              <Kpi label="النوع" value={(LEAVE_TYPES[r.type] || {}).ar || '—'} sub={r.branchName} />
+              <Kpi label="الأيام" value={String(r.days)} sub={r.from + ' ← ' + r.to + (r.endedEarly ? ' (كانت حتى ' + r.endedEarly + ')' : '')} />
+              <Kpi label="المباشرة" value={r.ret ? r.ret.date : (r.status === 'approved' ? lvAddD(r.to, 1) : '—')} sub={r.ret ? (r.ret.lateDays ? 'تأخر ' + r.ret.lateDays + ' يوم' : 'مسجّلة') + (r.ret.status === 'approved' ? ' · معتمدة' : r.ret.status === 'rejected' ? ' · مرفوضة' : ' · بانتظار الاعتماد') : r.status === 'approved' ? 'متوقعة — لم تُسجَّل بعد' : ''} />
+            </div>
+            <div className="card-t" style={{ fontSize: 13 }}>مراحل الإجازة</div>
+            <div className="tw"><table className="tb" data-lvtrack><tbody>{T.map(x => <tr key={x.k}><td style={{ width: 34 }}><span className={'badge ' + C[x.st][0]}>{C[x.st][1]}</span></td><td style={{ fontSize: 12.5 }}>{x.ar}{x.note ? <div style={{ fontSize: 10.5, color: 'var(--faint)' }}>{x.note}</div> : null}</td><td style={{ fontSize: 12 }}>{x.who}</td><td className="num" style={{ fontSize: 11 }}>{String(x.at || '').replace('T', ' ').slice(0, 16)}</td></tr>)}</tbody></table></div>
+            {!flow && <div className="note" style={{ marginTop: 8 }}>توقيع الموظف ومباشرة العمل يُفعَّلان من «سياسات الموارد البشرية ← دورة الإجازة الموقّعة».</div>}
+          </div>
+        </Modal>; })()}
+      {rf && (() => { const r = reqs.find(x => x.id === rf.id); if (!r) return null; const P = lvReturnPlan(r, rf.date);
+        return <Modal title={'مباشرة العمل — ' + r.employeeName} icon={LogIn} onClose={() => setRf(null)}
+          foot={<><button className="btn gh" onClick={() => setRf(null)}>إلغاء</button><button className="btn pri" data-lvret-save onClick={saveReturn}><Check size={14} />تسجيل المباشرة</button></>}>
+          <div className="note" style={{ marginBottom: 8 }}>الإجازة {r.from} ← {r.to} · المباشرة المتوقعة <b className="num">{lvAddD(r.to, 1)}</b></div>
+          <Field label="تاريخ المباشرة الفعلي (أول يوم عمل)"><input className="inp" type="date" aria-label="تاريخ المباشرة" value={rf.date} max={td} onChange={e => setRf(x => ({ ...x, date: e.target.value }))} /></Field>
+          {P.err ? <div className="note" style={{ color: 'var(--rose)' }}>{P.err}</div>
+            : <div className="note" data-lvret-plan style={{ color: P.kind === 'late' ? 'var(--rose)' : undefined }}>{P.kind === 'ontime' ? 'في موعدها ✓' : P.kind === 'early' ? 'مبكرة — آخر يوم إجازة ' + P.lastDay + '، ويُعاد حساب الأيام والخصم عند الاعتماد' : 'متأخرة ' + P.lateDays + ' يوم — تُخصم من رصيد الإجازات بعد اعتماد المركز'}</div>}
+          <Field label={P.kind === 'late' ? 'سبب التأخر (إلزامي)' : 'ملاحظة'}><input className="inp" aria-label="ملاحظة المباشرة" value={rf.note} onChange={e => setRf(x => ({ ...x, note: e.target.value }))} /></Field>
+          <div className="hint">بعد التسجيل يوقّع الموظف «إقرار مباشرة عمل» بالرمز من «التوقيع الإلكتروني»، ثم يعتمدها المركز.</div>
+        </Modal>; })()}
       {f && (
         <Modal title="طلب إجازة" icon={CalendarDays} onClose={() => setF(null)}
           foot={<><button className="btn gh" onClick={() => setF(null)}>إلغاء</button><button className="btn pri" onClick={submit}><Check size={14} />إرسال للاعتماد</button></>}>
