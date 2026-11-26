@@ -72,3 +72,18 @@ test('B3: إشعار الإلغاء يُطبع بعنوان «إلغاء فات�
   assert.match(E.posReturnHtml(org, { ...base, cancel: true }, br), /إشعار دائن — إلغاء فاتورة/);
   assert.match(E.posReturnHtml(org, base, br), /إشعار دائن — مرتجع/);
 });
+
+test('v56.5 (مراجعة 1): إشعار الإلغاء يتبع جهاز من ألغى — لا يلوّث سلسلة جهاز الفاتورة، ويُحتسب لجهاز المُلغي', () => {
+  // فاتورة الجهاز A (icv 10) ألغاها المدير على الجهاز B (إشعار icv 51)
+  const v = sale({ dev: 'A1', no: 'ف1-261126-A1-0001', icv: 10, hash: 'hA', status: 'void', voidNote: { no: 'م1-261126-B1-0007', dev: 'B1', date: '2026-11-26', icv: 51, hash: 'hB' } });
+  assert.deepEqual(E.posNextNo(10, { icv: 10, hash: 'hA' }, [v], 'b1', 'A1', '2026-11-26', 'ف').prev, { icv: 10, hash: 'hA' }, 'سلسلة A لا تأخذ حلقة B');
+  assert.deepEqual(E.posNextNo(0, null, [v], 'b1', 'B1', '2026-11-26', 'م'), { seq: 8, prev: { icv: 51, hash: 'hB' } }, 'B يرى إشعاره بعد مسح تخزينه');
+  assert.equal(E.posNextNo(0, null, [v], 'b1', 'A1', '2026-11-26', 'م').seq, 1, 'A لا يرث ترقيم إشعارات B');
+});
+
+test('v56.5 (مراجعة 7): يوم مرتجعات داخلية فقط مع ملف استيراد ⇒ يبقى الاستيراد (لا تختفي مبيعاته)', () => {
+  const im = { branchId: 'b1', date: '2026-11-26', n: 40, total: 4000, vat: 521.74, cash: 1000, card: 3000, transfer: 0, apps: {}, file: 'x.xlsx' };
+  const src = E.salesDaySource({ posOrders: [ret()], posImports: [im] }, 'b1', '2026-11-26');
+  assert.equal(src.src, 'import'); assert.equal(src.total, 4000);
+  assert.equal(E.salesDaySource({ posOrders: [ret()], posImports: [] }, 'b1', '2026-11-26').src, 'pos', 'بلا استيراد: من نقطة البيع');
+});

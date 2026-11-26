@@ -3474,7 +3474,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.4';
+const APP_VER = 'v56.5';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -4341,9 +4341,11 @@ function PlatformApp() {
       else say('تعذّر الحفظ السحابي بعد عدة محاولات — تحقق من الاتصال وأعد المحاولة', 'no');
       return false;
     }
-    if (log && me) await appendAudit({
+    // v56.5: السجل قد يُقرَّر بعد الحفظ (دالة) — إجراء رُفض داخل الحفظ (إلغاء/نقل طاولة) لا يُكتب في سجل التدقيق
+    const logNow = typeof log === 'function' ? log() : log;
+    if (logNow && me) await appendAudit({
       id: uid('lg'), timestamp: nowISO(), at: Date.now(), userName: me.name, userRole: me.role,
-      userRoleLabel: (ROLES[me.role] || {}).ar || me.role, ...log
+      userRoleLabel: (ROLES[me.role] || {}).ar || me.role, ...logNow
     });
     setLastSync(new Date());
     return true;
@@ -6800,9 +6802,10 @@ function importDraftClosing(org, x, by) {
 }
 // ملخص اليوم من نقطة البيع الداخلية أو من الاستيراد (الداخلية أولًا)
 function salesDaySource(ops, branchId, date) {
-  const ps = posDaySummary(ops.posOrders || [], branchId, date); if (ps.n || ps.retN) return { ...ps, src: 'pos' };   // v56.2 (B5): يوم فيه مرتجعات فقط يبقى من نقطة البيع
+  const ps = posDaySummary(ops.posOrders || [], branchId, date); if (ps.n) return { ...ps, src: 'pos' };
   const im = (ops.posImports || []).find(x => x.branchId === branchId && x.date === date);
-  return im ? { n: im.n, total: im.total, vat: im.vat, cash: im.cash, card: im.card, transfer: im.transfer, apps: im.apps || {}, src: 'import', file: im.file } : { n: 0 };
+  if (im) return { n: im.n, total: im.total, vat: im.vat, cash: im.cash, card: im.card, transfer: im.transfer, apps: im.apps || {}, src: 'import', file: im.file };
+  return ps.retN ? { ...ps, src: 'pos' } : { n: 0 };   // v56.2 (B5) + v56.5: مرتجعات فقط ولا ملف استيراد ⇒ من نقطة البيع (الاستيراد لا يُتجاهَل)
 }
 
 /* PosImport: نُقل إلى mods/pos/PosImport.jsx (تحميل كسول) */
@@ -8655,16 +8658,16 @@ function posVoidBlock(ops, o) {
 // أكبر تسلسل معروف لفواتير هذا الجهاز في يومه (prefix: «ف» للبيع، «م» للمرتجع) — من السحابة والطابور المحلي
 function posSeqSeed(orders, branchId, devTag, date, prefix) {
   const yy = String(date || '').replace(/-/g, '').slice(2); let mx = 0;
-  (orders || []).forEach(o => { if (!o || o.branchId !== branchId || o.dev !== devTag) return;
-    [[o.no, o.date], o.voidNote ? [o.voidNote.no, o.voidNote.date] : null].forEach(e => { if (!e || e[1] !== date) return; const m = String(e[0] || '').match(/^(.)\d+-(\d{6})-([A-Z0-9]+)-(\d+)$/); if (!m || m[1] !== prefix || m[2] !== yy || m[3] !== devTag) return;
+  (orders || []).forEach(o => { if (!o || o.branchId !== branchId) return;   // v56.5: إشعار الإلغاء لجهاز من ألغى (voidNote.dev)، لا لجهاز الفاتورة
+    [o.dev === devTag ? [o.no, o.date] : null, o.voidNote && (o.voidNote.dev || o.dev) === devTag ? [o.voidNote.no, o.voidNote.date] : null].forEach(e => { if (!e || e[1] !== date) return; const m = String(e[0] || '').match(/^(.)\d+-(\d{6})-([A-Z0-9]+)-(\d+)$/); if (!m || m[1] !== prefix || m[2] !== yy || m[3] !== devTag) return;
     const n = Number(m[4]) || 0; if (n > mx) mx = n; }); });
   return mx;
 }
 // آخر حلقة معروفة في سلسلة بصمات هذا الجهاز للفرع (أعلى icv)
 function posChainSeed(orders, branchId, devTag) {
   let best = { icv: 0, hash: '0' };
-  (orders || []).forEach(o => { if (!o || o.branchId !== branchId || o.dev !== devTag) return;
-    [o, o.voidNote].forEach(x => { if (x && x.hash && (Number(x.icv) || 0) > best.icv) best = { icv: Number(x.icv) || 0, hash: x.hash }; }); });
+  (orders || []).forEach(o => { if (!o || o.branchId !== branchId) return;
+    [o.dev === devTag ? o : null, o.voidNote && (o.voidNote.dev || o.dev) === devTag ? o.voidNote : null].forEach(x => { if (x && x.hash && (Number(x.icv) || 0) > best.icv) best = { icv: Number(x.icv) || 0, hash: x.hash }; }); });
   return best;
 }
 // التسلسل التالي والحلقة السابقة: الأكبر بين المحلي والمعروف (لا يرجع الرقم أبدًا)
@@ -14214,7 +14217,8 @@ const posrOn = (org) => !!(org && org.posRecords && org.posRecords.on);
 const posrOkId = (id) => /^[A-Za-z0-9_-]{1,120}$/.test(String(id || ''));
 /** محتوى الفاتورة الثابت (بلا حقول الإلغاء ولا علامات العرض/الطابور) — عليه تُحسب البصمة */
 const posrData = (o) => { const x = {}; Object.keys(o || {}).forEach(k => { if (!POSR_VOID_KEYS.includes(k) && k !== 'pending' && !k.startsWith('_')) x[k] = o[k]; }); return clrData(x); };
-const posrVoidData = (o) => JSON.stringify({ by: o.voidBy || '', at: o.voidAt || '', reason: o.voidReason || '', ...(o.voidNote ? { note: o.voidNote } : {}) }).slice(0, 4000);
+const posrVoidData = (o) => { const base = { by: String(o.voidBy || '').slice(0, 200), at: String(o.voidAt || '').slice(0, 40), reason: String(o.voidReason || '').slice(0, 1000) };   // v56.5: JSON صالح دائمًا (القص قبل التحويل)
+  const full = JSON.stringify({ ...base, ...(o.voidNote ? { note: o.voidNote } : {}) }); return full.length <= 4000 ? full : JSON.stringify(base); };
 /** حقول السجل كما تراها القواعد (بلا by/at/cv التي تضيفها طبقة الكتابة) — status:'paid' دائمًا عند الإنشاء */
 function posrRecord(o, voided) {
   const data = posrData(o);
@@ -14249,17 +14253,20 @@ async function posrPut(c, o, mode) {
       const snap = await ctlTimeout(c.f.getDoc(ref)).catch(() => null); const r = snap && snap.exists() ? snap.data() : null;
       if (!(r && r.digest === sha256Hex(posrData(o)))) throw e; }
   };
-  const voidIt = async () => {
+  const voidIt = async (again) => {
     try { await ctlTimeout(c.f.setDoc(ref, { ...posrRecord(o, true), ...stamp() })); }
     catch (e) { const snap = await ctlTimeout(c.f.getDoc(ref)).catch(() => null); const r = snap && snap.exists() ? snap.data() : null;
-      if (!(r && r.status === 'void')) throw e; }
+      if (r && r.status === 'void') return;
+      if (snap && !snap.exists() && !again) { await create(); return voidIt(true); }   // v56.5: لم يُنشأ السجل سابقًا (انقطاع) ⇒ إنشاء ثم إلغاء
+      throw e; }
   };
   if (mode === 'create' || mode === 'both') await create();
   if (mode === 'void' || mode === 'both') await voidIt();
 }
 async function posrMirror(before, after) {
-  const c = await ctlIdentity(); if (!c) return null;
   const put = posrDiff(before, after); if (!put.length) return { ok: 0, fail: 0 };
+  const c = await ctlIdentity();
+  if (!c) { _posrState = { ..._posrState, at: Date.now(), fail: _posrState.fail + put.length, lastErr: 'no-identity' }; return { ok: 0, fail: put.length, lastErr: 'no-identity' }; }   // v56.5: يُعدّ إخفاقًا لا صمتًا
   let ok = 0, fail = 0, lastErr = '';
   for (const { o, mode } of put) { try { await posrPut(c, o, mode); ok++; } catch (e) { fail++; lastErr = (e && e.code) || 'error'; } }
   _posrState = { at: Date.now(), ok: _posrState.ok + ok, fail: _posrState.fail + fail, lastErr: lastErr || _posrState.lastErr };
@@ -14286,7 +14293,7 @@ async function posrSeed(orders, lockedTo, onProgress) {
   }
   return { ok, fail, locked, lastErr, total: list.length };
 }
-export { posrOn, posrData, posrRecord, posrDiff, posrCompare, posrState, posrLoad, posrSeed };   // v56.4 سجلات فواتير نقطة البيع
+export { posrOn, posrData, posrVoidData, posrRecord, posrDiff, posrCompare, posrState, posrLoad, posrSeed };   // v56.4 سجلات فواتير نقطة البيع
 
 /* ===== v49.0 — المرحلة 01 (قرار G1-ب): القيود اليدوية سجلات مستقلة (fin_journal/{id}) — نسخ مطابق (mirror) =====
    الوثيقة الحالية (journalManual) تبقى المصدر في هذه المرحلة؛ كل إنشاء/اعتماد/رفض/حذف قبل الاعتماد يُنسخ إلى سجل تحرسه القواعد
