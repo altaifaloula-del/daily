@@ -3355,7 +3355,26 @@ test('v56.0 GAP-007 تعليق فاتورة السفري واستدعاؤها: �
   assert.deepEqual(errs, []); await ctx.close();
 });
 
-test('v56.2 POS الدفعة 1 (B2/B4): نقرتان على «تأكيد» فاتورة واحدة، ومسح ترقيم الجهاز لا يكرر رقم الفاتورة ولا يكسر سلسلة البصمات', async () => {
+test('v56.2 POS الدفعة 1 (B2): نقرتان على «تأكيد» مع كوبون محدود (انتظار حجز الكوبون) تُنشئان فاتورة واحدة', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosApp/bm');
+  await p.evaluate(() => {
+    localStorage.removeItem('mizan:posQueue');
+    window.setOrg(g => ({ ...g, taxCfg: { enabled: false }, posCfg: { branches: ['b1'], autoPrint: false }, loyaltyCfg: { enabled: true, earnPer: 10, ptValue: 0.5, minRedeem: 20, maxRedeemPct: 50 },
+      products: [{ id: 'k', name: 'كبسة', sellPrice: 50, cat: 'رئيسي' }], posPromos: [{ id: 'cp2', name: 'نقرتان', type: 'pct', value: 10, scope: 'all', code: 'TWICE', maxUses: 50, active: true }] }));
+    window.setOps(o => ({ ...o, posTabs: [], posOrders: [], closings: o.closings.filter(c => c.branchId !== 'b1') }));
+  }); await p.waitForTimeout(400);
+  const ob = p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await p.waitForTimeout(400); }
+  await p.locator('.pos-tile:has-text("كبسة")').click();
+  if (!(await p.locator('input[aria-label="رمز الكوبون"]').count())) await p.click('button:has-text("+ كوبون")');
+  await p.fill('input[aria-label="رمز الكوبون"]', 'twice'); await p.waitForTimeout(700);
+  await p.click('.pos-cart button:has-text("نقدي")'); await p.waitForTimeout(200);
+  await p.locator('.modal').getByRole('button', { name: 'تأكيد', exact: true }).dblclick(); await p.waitForTimeout(1500);
+  const n = await p.evaluate(() => [...(window.cur.posOrders || []), ...JSON.parse(localStorage.getItem('mizan:posQueue') || '[]')].filter((o, i, a) => a.findIndex(x => x.id === o.id) === i).length);
+  assert.equal(n, 1, 'فاتورة واحدة رغم النقرتين');
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v56.2 POS الدفعة 1 (B4): مسح ترقيم الجهاز لا يكرر رقم الفاتورة ولا يكسر سلسلة البصمات', async () => {
   const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosApp/cs');
   await p.evaluate(() => {
     localStorage.removeItem('mizan:posQueue'); localStorage.removeItem('mizan:posShiftLocal');
@@ -3364,15 +3383,13 @@ test('v56.2 POS الدفعة 1 (B2/B4): نقرتان على «تأكيد» فا�
   }); await p.waitForTimeout(400);
   await ctx.setOffline(true); await p.evaluate(() => { window.__cloudDown = true; });   // الفواتير تبقى في طابور الجهاز للفحص
   const ob = p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await p.waitForTimeout(400); }
-  await p.locator('.pos-tile:has-text("كبسة")').click(); await p.click('.pos-cart button:has-text("نقدي")'); await p.waitForTimeout(200);
-  await p.locator('.modal button:has-text("تأكيد")').dblclick(); await p.waitForTimeout(600);
-  let q = await p.evaluate(() => JSON.parse(localStorage.getItem('mizan:posQueue') || '[]'));
-  assert.equal(q.length, 1, 'فاتورة واحدة رغم النقرتين');
+  const sell = async () => { await p.locator('.pos-tile:has-text("كبسة")').click(); await p.click('.pos-cart button:has-text("نقدي")'); await p.waitForTimeout(200);
+    await p.locator('.modal').getByRole('button', { name: 'تأكيد', exact: true }).click(); await p.waitForTimeout(600); };
+  await sell();
   // فقد ترقيم الجهاز (مسح جزئي للتخزين): الرقم التالي يُستكمل من الفواتير المعروفة
   await p.evaluate(() => { Object.keys(localStorage).filter(k => /posSeq|posHash/.test(k)).forEach(k => localStorage.removeItem(k)); });
-  await p.locator('.pos-tile:has-text("كبسة")').click(); await p.click('.pos-cart button:has-text("نقدي")'); await p.waitForTimeout(200);
-  await p.click('.modal button:has-text("تأكيد")'); await p.waitForTimeout(600);
-  q = await p.evaluate(() => JSON.parse(localStorage.getItem('mizan:posQueue') || '[]'));
+  await sell();
+  const q = await p.evaluate(() => JSON.parse(localStorage.getItem('mizan:posQueue') || '[]'));
   assert.equal(q.length, 2); assert.notEqual(q[1].no, q[0].no, 'رقم فاتورة غير مكرر');
   assert.equal(q[1].icv, q[0].icv + 1, 'العدّاد يكمل'); assert.equal(q[1].pih, q[0].hash, 'السلسلة لا تنكسر');
   assert.deepEqual(errs, []); await ctx.close();
