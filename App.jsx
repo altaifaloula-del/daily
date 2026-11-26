@@ -8586,7 +8586,7 @@ function useSecNav() {
 // items: [{id, ar, icon, badge?}] · cur · onPick(id) · extra: أزرار إجراءات تُعرض بجانب التنقل
 /* v41.0 — شريط القوائم بنمط أودو: عناوين رئيسية نصية؛ العنوان ذو القسم الواحد رابط مباشر، وذو الأقسام قائمة منسدلة بعناوين فرعية.
    groups: [{ id, ar, items: [{ id, ar, icon, badge, sub }] }] — sub: عنوان فرعي داخل القائمة (اختياري) */
-function OdooBar({ groups, cur, onPick, extra, sw }) {
+function OdooBar({ groups, cur, onPick, extra, sw, showSub, subEnd }) {
   const [open, setOpen] = useState(null);
   // v56.0 (DESIGN-V56-008): على الجوال الشريط سطر قابل للتمرير — القسم الحالي يُمرَّر ليظهر
   const obRef = useRef(null);
@@ -8600,7 +8600,7 @@ function OdooBar({ groups, cur, onPick, extra, sw }) {
   useEffect(() => { if (!open) return; const close = () => setOpen(null); window.addEventListener('resize', close); window.addEventListener('scroll', close, true); return () => { window.removeEventListener('resize', close); window.removeEventListener('scroll', close, true); }; }, [open]);
   const gs = (groups || []).map(g => ({ ...g, items: (g.items || []).filter(Boolean) })).filter(g => g.items.length);
   const pick = (id) => { setOpen(null); onPick(id); };
-  return (
+  return (<>
     <div className="ob" role="navigation" aria-label="أقسام التطبيق" ref={obRef}>
       {gs.map(g => { const act = g.items.some(x => x.id === cur);
         if (g.items.length === 1) { const x = g.items[0]; return <button key={g.id} className={'ob-it' + (act ? ' on' : '')} onClick={() => pick(x.id)}>{TX(x.ar)}{x.badge ? <span className="ob-bd">{x.badge}</span> : null}</button>; }
@@ -8619,13 +8619,21 @@ function OdooBar({ groups, cur, onPick, extra, sw }) {
               </div></div>, document.body)}
           </div>); })}
       <span className="ob-sp" />{sw}{extra}
-    </div>);
+    </div>
+      {/* v56.16 (بلاغ المالك: أقسام المحاسبة غير ظاهرة): صف ظاهر بأقسام المجموعة الحالية — القسم الحالي مميّز، بلا فتح قائمة.
+          خارج .ob لأن الشريط على الجوال سطر واحد قابل للتمرير */}
+      {showSub && (() => { const g = gs.find(x => x.items.some(y => y.id === cur)); if (!g || g.items.length < 2) return subEnd ? <div className="ob-sub">{subEnd}</div> : null;
+        return <div className="ob-sub" role="tablist" aria-label={TX(g.ar)}>
+          {g.items.map(x => <button key={x.id} role="tab" aria-selected={x.id === cur} className={'ob-si' + (x.id === cur ? ' on' : '')} onClick={() => pick(x.id)}>{TX(x.ar)}{x.badge ? <span className="ob-bd">{x.badge}</span> : null}</button>)}
+          {subEnd ? <span className="ob-subend">{subEnd}</span> : null}
+        </div>; })()}
+    </>);
 }
 /** تجميع عناصر مسطّحة في قوائم: بحسب x.group؛ وما لا مجموعة له يصير رابطًا مباشرًا */
 const obGroups = (list) => { const out = []; list.forEach(x => { const k = x.group || ('_' + x.id); let g = out.find(y => y.id === k); if (!g) { g = { id: k, ar: x.group || x.ar, items: [] }; out.push(g); } g.items.push(x); }); return out; };
 /* v51.8 — «السابق / التالي / رجوع» عند استعراض أقسام أي تطبيق (طلب المالك 2026-11-19).
    items: قائمة الأقسام بترتيب ظهورها · cur · onPick(id). «رجوع» يعيد القسم الذي كنت فيه قبله (سجل لكل شريط). */
-function SecPager({ items, cur, onPick }) {
+function SecPager({ items, cur, onPick, compact }) {
   const list = (items || []).filter(Boolean);
   const [hist, setHist] = useState([]); const last = useRef(cur), viaBack = useRef(false);
   useEffect(() => { if (last.current !== cur) { const from = last.current; if (!viaBack.current && from != null) setHist(h => [...h, from].slice(-30)); viaBack.current = false; last.current = cur; } }, [cur]);
@@ -8635,9 +8643,10 @@ function SecPager({ items, cur, onPick }) {
   const en = isEn(), PrevI = en ? ChevronLeft : ChevronRight, NextI = en ? ChevronRight : ChevronLeft;
   const goBack = () => { const h = [...hist]; while (h.length) { const id = h.pop(); if (list.some(x => x.id === id) && id !== cur) { viaBack.current = true; setHist(h); onPick(id); return; } } setHist([]); };
   return (
-    <div className="secpager" role="navigation" aria-label={TX('التنقل بين الأقسام')}>
+    <div className={'secpager' + (compact ? ' sp-compact' : '')} role="navigation" aria-label={TX('التنقل بين الأقسام')}>
       {back && <button className="btn sm gh sp-back" onClick={goBack} title={TX('رجوع') + ': ' + TX((list.find(x => x.id === back) || {}).ar || '')}><RotateCcw size={13} />{TX('رجوع')}</button>}
-      <span className="sp-pos">{i >= 0 ? (i + 1) + ' / ' + list.length : ''}</span>
+      {/* v56.16: اسم القسم الحالي مع ترتيبه — بدل رقم مجرد «1 / 31» */}
+      <span className="sp-pos">{i >= 0 ? <><b className="sp-cur">{TX(list[i].ar)}</b> · {(i + 1) + ' / ' + list.length}</> : ''}</span>
       <button className="btn sm gh sp-prev" disabled={!prev} onClick={() => prev && onPick(prev.id)} title={prev ? TX(prev.ar) : ''}><PrevI size={14} />{TX('السابق')}</button>
       <button className="btn sm gh sp-next" disabled={!next} onClick={() => next && onPick(next.id)} title={next ? TX(next.ar) : ''}>{TX('التالي')}<NextI size={14} /></button>
     </div>
