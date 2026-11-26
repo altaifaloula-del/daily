@@ -6,6 +6,7 @@ import { cloud, KEYS, brKey } from '../../storage';
 import { ShieldCheck, RefreshCw, Trash2, AlertTriangle, Check, Server, Bug, Activity, HardDrive } from 'lucide-react';
 import { archKey, archivePlan, nowISO, printA4, uid, dtLocal, posSplitBranch, posUnsplitBranch, posSplitOn } from '../../App.jsx';   // v41.7 + v52.7
 import { clrCompare, clrLoad, clrOn, clrSeed, clrState, logAudit, clrRead, clrViewStats } from '../../App.jsx';   // v41.9 + v42.2
+import { posrOn, posrCompare, posrLoad, posrSeed, posrState } from '../../App.jsx';   // v56.3 (POS 2a) سجلات فواتير نقطة البيع
 import { WorkflowsCard } from './Workflows.jsx';   // v49.5 MQ-059
 import { fjCompare, fjLoad, fjOn, fjState, fpLockedTo, fpLoad, fmLoad, fmSet, fjSeed, FD_KINDS, fdCompare, fdLoad, fdSeed } from '../../App.jsx';   // v49.0 المرحلة 01
 import { dataFootprint, recipeRaw, APP_CV, APP_VER, CloudHealth, ERRLOG_KEY, MAIN_WH, ROLES, SIG_BADGE, SIG_NAME, buildAccounting, loadRelease, loadSignoffs, sigVerify, branchBanks, cashForecast, complianceItems, entityList, vatStatus, countedClosing, isoD, money, purKey, q3, qrFs, snapAll, stockByWh, today, whName, whOf } from '../../App.jsx';
@@ -304,6 +305,7 @@ export function SystemMaintenance({ org, ops, me, commit, commitOrg, say }) {
       </div>
       {showDocs && <CloudHealth org={org} say={say} commit={commit} me={me} auto />}
       <ClosingRecordsCard org={org} ops={ops} me={me} commitOrg={commitOrg} say={say} isAdm={isAdm} />
+      <PosRecordsCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <JournalRecordsCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <WorkflowsCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <PosSplitCard org={org} ops={ops} me={me} say={say} isAdm={isAdm} commit={commit} />
@@ -339,6 +341,60 @@ export function SystemMaintenance({ org, ops, me, commit, commitOrg, say }) {
         {local.length > 0 && <details style={{ marginTop: 8 }}><summary style={{ cursor: 'pointer', fontSize: 12.5 }}>أخطاء هذا الجهاز ({local.length})</summary>
           <div className="mt-list" style={{ marginTop: 6 }}>{local.slice(0, 10).map((x, i) => <div key={i} className="mt-err"><b dir="ltr" className="mt-msg">{x.msg}</b><small>{dtLocal(x.at || '')} · {x.where} · {x.v}</small></div>)}</div></details>}
       </div>
+    </div>);
+}
+
+/* v56.3 — MUKTASAB POS الدفعة 2a: فواتير نقطة البيع سجلات مستقلة محمية (نسخ موازٍ — docs/pos/POS_DATABASE_DESIGN.md)
+   المستند يبقى المصدر؛ التفعيل ينسخ كل فاتورة جديدة/إلغاء بالخلفية، و«نسخ الفواتير القائمة» للتاريخ، و«مطابقة» تكشف أي فرق. */
+function PosRecordsCard({ org, ops, commitOrg, say, isAdm }) {
+  const on = posrOn(org);
+  const [busy, setBusy] = useState(''); const [rep, setRep] = useState(null);
+  const orders = ops.posOrders || [];
+  const brName = (id) => ((org.branches || []).find(b => b.id === id) || { name: id }).name;
+  const check = async () => {
+    setBusy('check'); const recs = await posrLoad([], true); setBusy('');
+    if (!recs) return say('السجلات المستقلة تعمل على قاعدة Firestore فقط', 'no');
+    if (recs.err) return say('تعذّرت قراءة السجلات (' + recs.err + ') — قد تكون القواعد لم تُنشر بعد', 'no');
+    setRep(posrCompare(orders, recs));
+  };
+  const toggle = async () => {
+    if (!isAdm) return;
+    if (!on && !window.confirm('تفعيل نسخ كل فاتورة نقطة بيع إلى سجل مستقل يحرسه الخادم؟\nمستندات الفروع تبقى المصدر، ولا يتغير شيء في البيع اليومي. السجل لا تُعدَّل أرقامه ولا يُحذف.')) return;
+    const ok = await commitOrg(o => ({ ...o, posRecords: on ? { ...(o.posRecords || {}), on: false, offAt: nowISO() } : { ...(o.posRecords || {}), on: true, since: (o.posRecords || {}).since || nowISO() } }),
+      { actionType: 'settings', targetType: 'system_settings', targetId: 'posRecords', title: on ? 'أوقف نسخ فواتير نقطة البيع إلى السجلات المستقلة' : 'فعّل نسخ فواتير نقطة البيع إلى السجلات المستقلة' });
+    if (ok) say(on ? 'أُوقف النسخ — السجلات الموجودة تبقى' : 'فُعّل النسخ — اضغط «نسخ الفواتير القائمة» ثم «مطابقة»');
+  };
+  const seed = async () => {
+    if (!isAdm || !on) return;
+    const todo = rep ? [...rep.missing, ...rep.differ.filter(o => o.status === 'void')] : orders;
+    if (!window.confirm('نسخ ' + todo.length + ' فاتورة إلى السجلات المستقلة؟ (لا يُحذف ولا يتغير شيء في مستندات الفروع؛ ما في فترة مقفلة يُتخطى)')) return;
+    setBusy('seed'); const r = await posrSeed(todo, fpLockedTo(org), (i, t) => setBusy('seed ' + i + '/' + t)); setBusy('');
+    if (r.err) return say(r.err, 'no');
+    await logAudit({ actionType: 'migrate', targetType: 'system_settings', targetId: 'posRecords', title: 'نسخ فواتير نقطة البيع إلى السجلات المستقلة', details: r.ok + ' من ' + r.total + (r.locked ? ' · فترة مقفلة ' + r.locked : '') + (r.fail ? ' · تعذّر ' + r.fail + ' (' + r.lastErr + ')' : '') });
+    say(r.fail ? 'نُسخ ' + r.ok + ' وتعذّر ' + r.fail + ' (' + r.lastErr + ')' : 'نُسخت ' + r.ok + ' فاتورة ✓' + (r.locked ? ' · تُخطّي ' + r.locked + ' في فترة مقفلة' : ''), r.fail ? 'no' : 'ok');
+    check();
+  };
+  const st = posrState();
+  const row = (o, why) => <div key={o.id} className="me-row"><span className="me-a"><b>{brName(o.branchId)} — {o.no || o.id} · {o.date || ''}</b><small>{why}</small></span></div>;
+  return (
+    <div className="card" data-posr>
+      <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />فواتير نقطة البيع سجلات مستقلة (حماية على مستوى الخادم)</div>
+        <span className={'badge ' + (on ? 'b-sky' : 'b-dim')}>{on ? 'النسخ مفعّل' : 'غير مفعّل'}</span></div>
+      <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>
+        كل فاتورة تُنسخ إلى سجل مستقل يحرسه الخادم: <b>أرقامها لا تُعدَّل ولا تُحذف</b>، والإلغاء والمرتجع لمدير الفرع فقط، ولا كتابة في فترة مقفلة.
+        في هذه المرحلة يبقى مستند الفرع هو المصدر، والمطابقة تكشف أي فرق.
+      </div>
+      {isAdm && <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        <button className={'btn sm' + (on ? ' gh' : ' pri')} disabled={!!busy} onClick={toggle}>{on ? 'إيقاف النسخ' : 'تفعيل النسخ'}</button>
+        {on && <button className="btn sm" disabled={!!busy} onClick={seed}>{busy.startsWith('seed') ? 'جارٍ النسخ… ' + busy.slice(5) : (rep ? 'نسخ الناقص' : 'نسخ الفواتير القائمة')}</button>}
+        <button className="btn sm" disabled={!!busy} onClick={check}><RefreshCw size={13} />{busy === 'check' ? 'جارٍ المطابقة…' : 'مطابقة'}</button>
+      </div>}
+      {(st.ok > 0 || st.fail > 0) && <div style={{ fontSize: 12, marginTop: 8 }}>في هذه الجلسة: نُسخ {st.ok}{st.fail ? ' · تعذّر ' + st.fail + ' (' + st.lastErr + ')' : ''}</div>}
+      {rep && <div style={{ marginTop: 10 }}>
+        <div className={'note ' + (rep.ok ? 'ok' : 'warn')}>{rep.ok ? '✓ مطابقة كاملة: ' + rep.total + ' فاتورة و' + rep.recs + ' سجلًا' : 'فروق: ناقص ' + rep.missing.length + ' · مختلف ' + rep.differ.length}{rep.extra.length ? ' · سجلات بلا فاتورة في المستند (مؤرشفة) ' + rep.extra.length : ''}</div>
+        {rep.differ.slice(0, 8).map(o => row(o, 'مختلف عن السجل (الأرقام أو حالة الإلغاء)'))}
+        {rep.missing.slice(0, 8).map(o => row(o, 'لا سجل له بعد'))}
+      </div>}
     </div>);
 }
 
