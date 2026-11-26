@@ -3576,7 +3576,7 @@ const bsLayout = (accounts, balFn, profit) => {
 };
 const bsRowsOf = (Y, ok) => {
   const out = [];
-  const grp = (t, ls, subL, subV) => { if (!ls.length) return; out.push({ t: 'grp', label: t }); ls.forEach(l => out.push({ t: 'line', label: l.name, amt: l.amt })); out.push({ t: 'sub', label: subL, amt: subV }); };
+  const grp = (t, ls, subL, subV) => { if (!ls.length) return; out.push({ t: 'grp', label: t }); ls.forEach(l => out.push({ t: 'line', k: l.code, label: l.name, amt: l.amt })); out.push({ t: 'sub', label: subL, amt: subV }); };
   out.push({ t: 'head', label: 'الأصول' });
   grp('الأصول المتداولة', Y.ca, 'إجمالي الأصول المتداولة', Y.caT);
   grp('الأصول غير المتداولة', Y.nca, 'إجمالي الأصول غير المتداولة', Y.ncaT);
@@ -3676,7 +3676,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.25';
+const APP_VER = 'v56.26';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -8342,7 +8342,7 @@ function DocLink({ to, children, style, title }) {
 function peekResolve(org, ops, A, sp) {
   const E = (A && A.entries) || []; const out = { entries: [], doc: null, kind: '' };
   if (sp.acc) {   // v53.9: قيود حساب في فترة (من قائمة الدخل بالدفاتر) — أحدث 60 قيدًا
-    const c = String(sp.acc); const L = E.filter(e => (!sp.from || String(e.date) >= sp.from) && (!sp.to || String(e.date) <= sp.to) && (!sp.bf || e.branchId === sp.bf) && (e.lines || []).some(l => String(l.code) === c));
+    const c = String(sp.acc); const L = E.filter(e => (!sp.from || String(e.date) >= sp.from) && (!sp.to || String(e.date) <= sp.to) && (!sp.bf || (sp.bf === 'central' ? !e.branchId : e.branchId === sp.bf)) && (e.lines || []).some(l => String(l.code) === c));   // v56.26: «central» = القيود المركزية
     out.kind = 'acc'; out.acc = c; out.accTotal = L.length; out.entries = L.slice(-60).reverse(); return out;
   }
   const byId = (id) => E.filter(e => e.id === id);
@@ -8364,7 +8364,8 @@ function peekResolve(org, ops, A, sp) {
 }
 function DocPeekHost({ org, ops }) {
   const [sp, setSp] = useState(null);
-  useEffect(() => { const on = (ev) => setSp(ev.detail || {}); window.addEventListener('mz-peek', on); return () => window.removeEventListener('mz-peek', on); }, []);
+  const [back, setBack] = useState(null);   // v56.26 (التنقيب الموحّد): الرجوع من مستند القيد إلى قيود الحساب
+  useEffect(() => { const on = (ev) => { setBack(null); setSp(ev.detail || {}); }; window.addEventListener('mz-peek', on); return () => window.removeEventListener('mz-peek', on); }, []);
   const A = useMemo(() => (sp && org && ops ? buildAccounting(org, ops) : null), [sp, org, ops]);
   if (!sp || !org || !ops) return null;
   const R = peekResolve(org, ops, A, sp); const d = R.doc;
@@ -8379,8 +8380,8 @@ function DocPeekHost({ org, ops }) {
   const brn = (id) => (((org.branches || []).find(b => b.id === id)) || {}).name;
   const prj = (id) => (((org.projects || []).find(p => p.id === id)) || {}).name;
   return (
-    <Modal title={ttl} icon={FileText} onClose={() => setSp(null)}
-      foot={<>{(R.kind === 'si' || R.kind === 'cv') && <button className="btn pri" data-peek-print onClick={prn}><Printer size={14} />عرض المستند / طباعة</button>}<button className="btn gh" onClick={() => setSp(null)}>إغلاق</button></>}>
+    <Modal title={ttl} icon={FileText} onClose={() => { setBack(null); setSp(null); }}
+      foot={<>{back && <button className="btn gh" data-peek-back onClick={() => { setSp(back); setBack(null); }}>رجوع لقيود الحساب</button>}{(R.kind === 'si' || R.kind === 'cv') && <button className="btn pri" data-peek-print onClick={prn}><Printer size={14} />عرض المستند / طباعة</button>}<button className="btn gh" onClick={() => { setBack(null); setSp(null); }}>إغلاق</button></>}>
       <div data-peek>
         {R.kind === 'si' && <div className="grid g3" style={{ marginBottom: 10 }}>
           <div className="mono-b"><span>التاريخ</span><b className="num">{d.date}{d.time ? ' ' + d.time : ''}</b></div>
@@ -8416,6 +8417,7 @@ function DocPeekHost({ org, ops }) {
               <b className="num">قيد {e.no}</b>{e.fix && <span className="badge b-gold num" data-fixno>{e.fix}</span>}<span className="badge b-dim num">{e.date}</span><span className="badge b-sky" style={{ fontSize: 10 }}>{e.manual ? '' : 'تلقائي · '}{e.src}</span>
               {e.branchId && <span className="badge b-dim">{brn(e.branchId) || e.branchId}</span>}{e.projectId && <span className="badge b-amber">{prj(e.projectId) || 'مشروع'}</span>}
               {!e.balanced && <span className="badge b-rose">غير متوازن</span>}
+              {R.kind === 'acc' && /^(si|inv|cv):/.test(String(e.id)) && <button className="btn sm" data-peek-doc style={{ marginInlineStart: 'auto' }} onClick={() => { setBack(sp); setSp({ e: e.id }); }}><FileText size={13} />المستند المصدر</button>}
             </div>
             <div style={{ fontSize: 12.5, marginBottom: 6 }}>{e.title}</div>
             <table className="tb" style={{ fontSize: 12 }}><thead><tr><th>الحساب</th><th style={{ textAlign: 'end' }}>مدين</th><th style={{ textAlign: 'end' }}>دائن</th></tr></thead>

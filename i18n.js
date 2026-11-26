@@ -94,7 +94,7 @@ Object.assign(EN, {
   'نفدت حصة الكتابة اليومية في Firestore — تتجدد 11:00 صباحًا بتوقيت السعودية، والبيانات محفوظة على الجهاز': 'Daily Firestore write quota exhausted — resets at 11:00 AM KSA time; data is saved on the device',
   'فعّلها لفرع التجربة من الإعدادات أدناه.': 'Enable it for the pilot branch in the settings below.', 'يفعّلها مسؤول النظام لفرع التجربة.': 'The system admin enables it for the pilot branch.',
   'الطلب الحالي': 'Current order', 'منها ضريبة القيمة المضافة': 'incl. VAT',
-  'خطأ': 'Error', 'إغلاق': 'Close', 'إلى': 'to', 'بقي': 'left', 'ر.س': 'SAR', 'المستند المركزي': 'Central document'
+  'خطأ': 'Error', 'إغلاق': 'Close', 'المستند المصدر': 'Source document', 'رجوع لقيود الحساب': 'Back to account entries', 'قيود الحساب في الفترة': 'Account entries in the period', 'قيود الحساب حتى التاريخ': 'Account entries to date', 'إلى': 'to', 'بقي': 'left', 'ر.س': 'SAR', 'المستند المركزي': 'Central document'
 });
 
 // ===== v43.2 الإغلاق اليومي والتدقيق والاعتماد =====
