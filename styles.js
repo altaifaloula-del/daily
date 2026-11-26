@@ -643,6 +643,103 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
 .gate .btn.pri::after{content:'';position:absolute;top:0;bottom:0;inset-inline-start:0;width:38%;pointer-events:none;
   background:linear-gradient(105deg,transparent,rgba(255,255,255,.26),transparent);transform:translateX(-140%) skewX(-18deg)}
 .gate .btn.pri:hover::after{animation:btnSheen .8s ease}
+/* ===== v56.5 — تجربة الدخول الفاخرة (مُكتسَب) — ألوان الهوية عبر متغيرات السمة فقط ===== */
+.mq-login{--mx:50%;--my:38%;isolation:isolate}
+.mq-login .mq-fx{position:absolute;inset:0;pointer-events:none;z-index:0}
+.mq-login .mq-aurora{position:absolute;inset:0;pointer-events:none;z-index:0;
+  background:radial-gradient(520px circle at var(--mx) var(--my),color-mix(in srgb,var(--brass) 15%,transparent),transparent 62%)}
+.mq-login .mq-aurora::before{content:'';position:absolute;inset:-35%;opacity:.55;
+  background:conic-gradient(from 210deg at 50% 50%,transparent,color-mix(in srgb,var(--sky) 12%,transparent) 18%,transparent 36%,color-mix(in srgb,var(--brass) 10%,transparent) 58%,transparent 76%);
+  animation:mqSpin 48s linear infinite}
+@keyframes mqSpin{to{transform:rotate(360deg)}}
+.mq-login .gate-c{z-index:2}
+.mq-top{display:flex;justify-content:flex-end;margin-bottom:6px}
+.mq-lang{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 12px;border-radius:999px;border:1px solid var(--line);
+  background:color-mix(in srgb,var(--ink2) 70%,transparent);color:var(--dim);font:inherit;font-size:12px;cursor:pointer;transition:color .2s,border-color .2s,transform .2s}
+.mq-lang:hover,.mq-lang:focus-visible{color:var(--brass-t);border-color:var(--brass-d);transform:translateY(-1px)}
+/* دخول الشعار مع لمعة عابرة مرة واحدة */
+.mq-login .bhead-logo{position:relative;overflow:hidden;border-radius:14px;
+  animation:mqLogoIn .9s cubic-bezier(.2,.7,.2,1) both,logoFloat 5.5s .9s ease-in-out infinite,logoHalo 5.5s .9s ease-in-out infinite}
+.mq-login .bhead-logo::after{content:'';position:absolute;top:0;bottom:0;width:40%;inset-inline-start:0;pointer-events:none;
+  background:linear-gradient(105deg,transparent,rgba(255,255,255,.35),transparent);transform:translateX(-160%) skewX(-18deg);animation:btnSheen 1.3s 1s ease both}
+@keyframes mqLogoIn{from{opacity:0;transform:translateY(10px) scale(.92);filter:blur(4px)}to{opacity:1;transform:none;filter:none}}
+/* البطاقة: زجاج خفيف، ارتفاع عند المرور، ضوء يتبع المؤشر */
+.mq-card{position:relative;background:color-mix(in srgb,var(--ink2) 84%,transparent);-webkit-backdrop-filter:blur(14px) saturate(1.15);backdrop-filter:blur(14px) saturate(1.15);
+  transition:transform .3s cubic-bezier(.2,.7,.2,1),box-shadow .3s}
+.mq-card:hover{transform:translateY(-2px);box-shadow:var(--sh-3),0 22px 48px -18px rgba(0,0,0,.35)}
+.mq-card::before{content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;opacity:0;transition:opacity .35s;
+  background:radial-gradient(260px circle at var(--cx,50%) var(--cy,0),color-mix(in srgb,var(--brass) 11%,transparent),transparent 65%)}
+.mq-card:hover::before{opacity:1}
+.mq-card>*{position:relative}
+.mq-pane{animation:riseIn .35s cubic-bezier(.2,.7,.2,1) both}
+/* الحقول */
+.mq-field{margin-bottom:14px}
+.mq-field label{display:block;font-size:12px;font-weight:600;color:var(--dim);margin-bottom:6px;transition:color .2s}
+.mq-field:focus-within label{color:var(--brass-t)}
+.mq-input{position:relative;display:flex;align-items:center;min-height:46px;border:1px solid var(--line);border-radius:12px;background:var(--ink);
+  transition:border-color .2s,box-shadow .25s}
+.mq-input::after{content:'';position:absolute;inset-inline:14px;bottom:-1px;height:2px;border-radius:2px;pointer-events:none;
+  background:linear-gradient(90deg,transparent,var(--brass),transparent);transform:scaleX(0);transition:transform .4s cubic-bezier(.2,.7,.2,1)}
+.mq-input:focus-within{border-color:var(--brass-d);box-shadow:0 0 0 3px color-mix(in srgb,var(--brass) 20%,transparent)}
+.mq-input:focus-within::after{transform:scaleX(1)}
+.mq-input input{flex:1;min-width:0;border:0;background:transparent;outline:none;font:inherit;font-size:14.5px;color:var(--tx,inherit);padding:11px 12px}
+.mq-ico{flex:none;margin-inline-start:13px;color:var(--faint);transition:color .2s,transform .3s}
+.mq-input:focus-within .mq-ico{color:var(--brass);transform:scale(1.1)}
+.mq-field.bad .mq-input{border-color:var(--rose);box-shadow:0 0 0 3px color-mix(in srgb,var(--rose) 15%,transparent)}
+.mq-field.bad .mq-ico{color:var(--rose)}
+.mq-hint{font-size:11.5px;margin-top:6px;color:var(--dim)}
+.mq-hint.bad{color:var(--rose)}
+.mq-eye{flex:none;width:42px;height:42px;margin-inline-end:2px;display:grid;place-items:center;border:0;border-radius:10px;background:transparent;color:var(--dim);cursor:pointer;transition:color .2s,background .2s}
+.mq-eye:hover{color:var(--brass-t);background:color-mix(in srgb,var(--brass) 8%,transparent)}
+.mq-eye:focus-visible{outline:2px solid var(--brass);outline-offset:-2px}
+.mq-eye svg{animation:mqPop .28s cubic-bezier(.2,.7,.2,1.3)}
+@keyframes mqPop{from{opacity:0;transform:scale(.55) rotate(-25deg)}}
+.mq-otp{font-size:26px;letter-spacing:8px;text-align:center;direction:ltr}
+/* تذكّرني ونسيت كلمة السر */
+.mq-row{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:2px 0 14px}
+.mq-check{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--dim);cursor:pointer;user-select:none;min-height:32px}
+.mq-check input{appearance:none;-webkit-appearance:none;margin:0;width:18px;height:18px;flex:none;border:1.5px solid var(--line);border-radius:5px;display:grid;place-items:center;
+  background:var(--ink);transition:background .2s,border-color .2s;cursor:pointer}
+.mq-check input::after{content:'';width:5px;height:9px;margin-top:-2px;border:solid var(--ink);border-width:0 2px 2px 0;transform:rotate(45deg) scale(0);transition:transform .22s cubic-bezier(.2,.7,.2,1.5)}
+.mq-check input:checked{background:var(--brass);border-color:var(--brass)}
+.mq-check input:checked::after{transform:rotate(45deg) scale(1)}
+.mq-check input:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
+.mq-link{position:relative;border:0;background:none;padding:6px 2px;font:inherit;font-size:12.5px;font-weight:600;color:var(--brass-t);cursor:pointer}
+.mq-link::after{content:'';position:absolute;inset-inline:2px;bottom:3px;height:1px;background:currentColor;transform:scaleX(0);transform-origin:center;transition:transform .25s}
+.mq-link:hover::after,.mq-link:focus-visible::after{transform:scaleX(1)}
+.mq-link:focus-visible{outline:2px solid var(--brass);outline-offset:2px;border-radius:4px}
+/* الزر: تموّج، ضغط، تحميل، نجاح */
+.mq-btn{width:100%;min-height:46px;font-size:14.5px;gap:8px;transition:transform .12s,background .3s,box-shadow .3s}
+.mq-btn:active:not(:disabled){transform:scale(.98)}
+.mq-btn.ok{background:var(--mint) !important;border-color:var(--mint) !important;color:var(--ink) !important}
+.mq-ripple{position:absolute;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;background:rgba(255,255,255,.45);pointer-events:none;animation:mqRipple .6s ease-out forwards}
+@keyframes mqRipple{to{transform:scale(30);opacity:0}}
+.mq-setup{width:100%;margin-top:12px;font-size:12px}
+/* الرسائل */
+.mq-err,.mq-notice{display:flex;gap:9px;align-items:flex-start;border-radius:11px;padding:10px 12px;font-size:12.5px;line-height:1.7;margin-bottom:12px}
+.mq-err{border:1px solid color-mix(in srgb,var(--rose) 45%,transparent);background:color-mix(in srgb,var(--rose) 10%,transparent);color:var(--rose);animation:mqShake .42s}
+.mq-notice{border:1px solid color-mix(in srgb,var(--brass) 45%,transparent);background:color-mix(in srgb,var(--brass) 10%,transparent);color:var(--brass-t)}
+.mq-notice.soft{font-size:11.5px}
+.mq-err svg,.mq-notice svg{flex:none;margin-top:2px}
+@keyframes mqShake{20%,60%{transform:translateX(-5px)}40%,80%{transform:translateX(5px)}}
+.mq-note{font-size:11.5px;color:var(--mint);margin-top:12px;line-height:1.7;text-align:center}
+.mq-shield{display:inline-grid;place-items:center;width:58px;height:58px;border-radius:18px;color:var(--brass);
+  background:color-mix(in srgb,var(--brass) 12%,transparent);animation:logoHalo 3.5s ease-in-out infinite}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+/* الترحيب بعد الدخول: فوق المنصة ولا يحجب النقر */
+.mq-welcome{position:fixed;inset:0;z-index:9000;display:grid;place-items:center;pointer-events:none;
+  background:color-mix(in srgb,var(--ink) 50%,transparent);-webkit-backdrop-filter:blur(5px);backdrop-filter:blur(5px);animation:mqFade 1.7s ease forwards}
+.mq-welcome-in{display:flex;flex-direction:column;align-items:center;gap:12px;animation:riseIn .5s cubic-bezier(.2,.7,.2,1) both}
+.mq-welcome-ok{width:64px;height:64px;border-radius:50%;display:grid;place-items:center;background:var(--brass);color:var(--ink);box-shadow:0 10px 30px color-mix(in srgb,var(--brass) 40%,transparent);animation:mqPop .45s cubic-bezier(.2,.7,.2,1.4)}
+.mq-welcome-t{font-size:20px;font-weight:700;color:var(--tx,inherit)}
+@keyframes mqFade{0%{opacity:0}14%{opacity:1}72%{opacity:1}100%{opacity:0;visibility:hidden}}
+/* الجوال: خلفية أخف */
+@media(max-width:640px){.mq-login .mq-aurora::before{display:none}.mq-card{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--ink2)}.mq-card:hover{transform:none}}
+/* تقليل الحركة: بلا حركة إطلاقًا */
+@media(prefers-reduced-motion:reduce){
+  .mq-login .mq-aurora::before,.mq-login .bhead-logo,.mq-login .bhead-logo::after,.mq-pane,.mq-err,.mq-eye svg,.mq-shield,.mq-ripple,.mq-welcome,.mq-welcome-in,.mq-welcome-ok{animation:none !important}
+  .mq-card,.mq-input,.mq-input::after,.mq-btn,.mq-check input::after,.mq-link::after,.mq-lang{transition:none !important}
+  .mq-card:hover{transform:none}.mq-login .bhead-logo::after{display:none}}
 /* الرئيسية: ظهور متعاقب للتطبيقات + حيوية أعمق عند المرور */
 .lh-grid .lh-tile{animation:riseIn .45s cubic-bezier(.2,.7,.2,1) both}
 .lh-grid .lh-tile:nth-child(1){animation-delay:.02s}.lh-grid .lh-tile:nth-child(2){animation-delay:.05s}

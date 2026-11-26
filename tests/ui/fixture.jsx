@@ -6,7 +6,7 @@
 import React from 'react'; import { createRoot } from 'react-dom/client';
 import * as M0 from '../../App.jsx'; import { TenantBranding } from '../../mods/admin/TenantBranding.jsx';
 const M = { ...M0, TenantBranding };   /* v56.0: شاشة هوية المنشأة */
-import { CSS } from '../../styles.js'; import { domI18n } from '../../i18n.js';
+import { CSS } from '../../styles.js'; import { domI18n, setLangGlobal } from '../../i18n.js';
 // تاريخ محلي (مثل today() في المنصة) — toISOString يعطي تاريخ UTC فيختلف اليوم بين منتصف الليل و3 فجرًا بتوقيت الرياض
 const iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); const dA = (k) => { const x = new Date(); x.setDate(x.getDate() - k); return iso(x); };
 const m = iso(new Date()).slice(0, 7);
@@ -77,7 +77,19 @@ const SubCard = React.lazy(() => import('../../mods/admin/SubscriptionCard.jsx')
 // v51.5: لوحة مُكتسَب وصفحة التسجيل العام (الخادم يُحاكى بالتقاط /api/provider و/api/signup)
 const ProvC = React.lazy(() => import('../../mods/admin/ProviderConsole.jsx').then(m => ({ default: m.ProviderConsole })));
 const SignupP = React.lazy(() => import('../../mods/signup/SignupPage.jsx').then(m => ({ default: m.SignupPage })));
-if (kind === 'live') el = React.createElement(Live);
+// v56.5: بوابة الدخول — fbLogin بديلة تسجّل كل استدعاء ولا تنجح إلا بـ Right1234 (لا تجاوز للمصادقة)، وfbMfa بالرمز 123456 فقط
+function GateHost() {
+  const [, force] = React.useState(0);
+  window.__gate = window.__gate || { calls: [], mfaCalls: [] };
+  const fbLogin = async (email, pass) => { window.__gate.calls.push({ email, pass, t: performance.now() }); await new Promise(r => setTimeout(r, 120));
+    if (a === 'mfa' && pass === 'Right1234') return { ok: false, mfa: true };
+    return pass === 'Right1234' ? { ok: true } : { ok: false, err: 'كلمة السر غير صحيحة' }; };
+  const fbMfa = async (code) => { window.__gate.mfaCalls.push(code); await new Promise(r => setTimeout(r, 80)); return code === '123456' ? { ok: true } : { ok: false, err: 'الرمز غير صحيح' }; };
+  const onLang = () => { const en = localStorage.getItem('rms8:lang') === 'en'; setLangGlobal(en ? 'ar' : 'en'); domI18n(!en); force(x => x + 1); };
+  return React.createElement(M.FbGate, { css: '', theme: 'mizan', fbLogin, fbMfa, fbFirstSetup: fbLogin, notice: b === 'expired' ? 'انتهت جلستك — سجّل الدخول من جديد' : '', onLang });
+}
+if (kind === 'gate') el = React.createElement(GateHost);
+else if (kind === 'live') el = React.createElement(Live);
 else if (kind === 'provider') el = React.createElement(React.Suspense, { fallback: null }, React.createElement(ProvC, { say: (m) => { window.lastSay = m; } }));
 else if (kind === 'signup') el = React.createElement(React.Suspense, { fallback: null }, React.createElement(SignupP));
 else if (kind === 'subcard') el = React.createElement(React.Suspense, { fallback: null }, React.createElement(SubCard, { branches: 2, tenant: { id: 'c2', name: 'مطعم تجريبي', plan: 'pro', region: 'me-central2', status: 'active', firebase: { projectId: 'mithqal-c2' } } }));

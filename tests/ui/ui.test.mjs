@@ -3424,3 +3424,86 @@ test('v56.0 هوية المنشأة: رفع شعار شفاف، الألوان �
     assert.equal(await p.locator('[data-tb-save]').count(), 0); assert.equal(await p.locator('[data-tb="nameAr"]').isDisabled(), true);
     assert.deepEqual(errs, []); await ctx.close(); }
 });
+
+// ===== v56.5 — تجربة الدخول الفاخرة: كل التفاعلات مربوطة بدالة الدخول نفسها، بلا تجاوز للمصادقة =====
+const SHOTS = path.join(cache, 'shots'); const shot = async (p, n) => { fs.mkdirSync(SHOTS, { recursive: true }); await p.screenshot({ path: path.join(SHOTS, n + '.png'), fullPage: true }); };
+const gateState = (p) => p.evaluate(() => ({ calls: (window.__gate || {}).calls || [], mfa: (window.__gate || {}).mfaCalls || [],
+  err: document.querySelector('.mq-err')?.innerText || '', btn: document.querySelector('.mq-btn')?.innerText || '', note: document.querySelector('.mq-note')?.innerText || '',
+  dir: document.querySelector('.mq-login')?.closest('[dir]')?.getAttribute('dir') || '', over: document.documentElement.scrollWidth - window.innerWidth }));
+
+test('v56.5 الدخول: التحقق من المدخلات، كلمة سر خاطئة، إظهار/إخفاء، تذكّرني، نسيت كلمة السر، نجاح حقيقي فقط', { timeout: 120000 }, async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1440, height: 900 } }, 'gate');
+  await p.waitForSelector('#mq-email'); await shot(p, 'login-desktop-ar');
+  // فارغ ⇒ رسالة واضحة دون استدعاء الدخول
+  await p.click('.mq-btn'); let s = await gateState(p);
+  assert.match(s.err, /اكتب بريدك الإلكتروني/); assert.equal(s.calls.length, 0, 'لا استدعاء بلا بيانات');
+  // بريد بصيغة خاطئة ⇒ تلميح عند مغادرة الحقل
+  await p.fill('#mq-email', 'bad@'); await p.click('#mq-pass');
+  assert.equal(await p.getAttribute('#mq-email', 'aria-invalid'), 'true');
+  assert.ok(await p.isVisible('#mq-email-h'));
+  // إظهار/إخفاء كلمة السر
+  await p.fill('#mq-pass', 'Wrong999');
+  assert.equal(await p.getAttribute('#mq-pass', 'type'), 'password');
+  await p.click('.mq-eye'); assert.equal(await p.getAttribute('#mq-pass', 'type'), 'text'); assert.equal(await p.getAttribute('.mq-eye', 'aria-pressed'), 'true');
+  await p.click('.mq-eye'); assert.equal(await p.getAttribute('#mq-pass', 'type'), 'password');
+  // كلمة سر خاطئة ⇒ دالة الدخول تُستدعى مرة واحدة والخطأ يظهر ولا نجاح
+  await p.fill('#mq-email', 'own@x.sa');
+  const t0 = await p.evaluate(() => performance.now()); await p.click('.mq-btn');
+  await p.waitForSelector('.mq-err'); s = await gateState(p);
+  assert.equal(s.calls.length, 1); assert.equal(s.calls[0].email, 'own@x.sa'); assert.equal(s.calls[0].pass, 'Wrong999');
+  assert.ok(s.calls[0].t - t0 < 150, 'الحركة لا تؤخر الدخول: ' + Math.round(s.calls[0].t - t0) + 'ms');
+  assert.match(s.err, /كلمة السر غير صحيحة/); assert.doesNotMatch(s.btn, /تم الدخول/);
+  await shot(p, 'login-error-ar');
+  // Enter يرسل النموذج
+  await p.fill('#mq-pass', 'Wrong888'); await p.press('#mq-pass', 'Enter'); await p.waitForTimeout(300);
+  assert.equal((await gateState(p)).calls.length, 2);
+  // تذكّرني: الإلغاء يمسح البريد المحفوظ ولا يُحفظ لاحقًا
+  await p.evaluate(() => localStorage.setItem('rms8:lastEmail', 'own@x.sa'));
+  await p.click('.mq-check input');
+  assert.deepEqual(await p.evaluate(() => [localStorage.getItem('rms8:noRemember'), localStorage.getItem('rms8:lastEmail')]), ['1', null]);
+  await p.click('.mq-check input'); assert.equal(await p.evaluate(() => localStorage.getItem('rms8:noRemember')), null);
+  // نسيت كلمة السر: رسالة محايدة لا تكشف وجود البريد
+  await p.click('.mq-link'); await p.waitForSelector('.mq-note'); assert.match((await gateState(p)).note, /إن كان البريد مسجّلًا/);
+  // كلمة السر الصحيحة ⇒ نجاح من دالة الدخول نفسها + علامة الترحيب
+  await p.fill('#mq-pass', 'Right1234'); await p.click('.mq-btn');
+  await p.waitForFunction(() => /تم الدخول/.test(document.querySelector('.mq-btn')?.innerText || ''));
+  s = await gateState(p); assert.equal(s.calls.at(-1).pass, 'Right1234');
+  assert.ok(await p.evaluate(() => Number(sessionStorage.getItem('mq:welcome')) > 0));
+  await shot(p, 'login-success-ar');
+  // لا كلمة سر في التخزين المحلي
+  assert.ok(!(await p.evaluate(() => JSON.stringify(localStorage) + JSON.stringify(sessionStorage))).includes('Right1234'));
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v56.5 الدخول: التحقق بخطوتين يُرسل تلقائيًا ولا ينجح إلا بالرمز الصحيح، وإشعار انتهاء الجلسة', { timeout: 60000 }, async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1280, height: 900 } }, 'gate/mfa/expired');
+  assert.match(await p.innerText('.mq-notice'), /انتهت جلستك/);
+  await p.fill('#mq-email', 'own@x.sa'); await p.fill('#mq-pass', 'Right1234'); await p.click('.mq-btn');
+  await p.waitForSelector('#mq-otp'); await shot(p, 'login-mfa-ar');
+  await p.fill('#mq-otp', '111111'); await p.waitForSelector('.mq-err');
+  assert.equal(await p.inputValue('#mq-otp'), '', 'الحقل يُفرَّغ بعد رمز خاطئ');
+  await p.fill('#mq-otp', '123456'); await p.waitForFunction(() => /تم التحقق/.test(document.querySelector('.mq-btn')?.innerText || ''));
+  assert.deepEqual((await gateState(p)).mfa, ['111111', '123456']);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v56.5 الدخول: الجوال بلا تجاوز وأهداف لمس ≥ 44px، والإنجليزية LTR مع زر اللغة، وتقليل الحركة', { timeout: 90000 }, async () => {
+  const m = await open(devices['iPhone 13'], 'gate');
+  let s = await gateState(m.p); assert.ok(s.over <= 2, 'تجاوز أفقي ' + s.over);
+  const sizes = await m.p.evaluate(() => ['.mq-input', '.mq-btn', '.mq-eye', '.mq-lang'].map(q => Math.round(document.querySelector(q).getBoundingClientRect().height)));
+  sizes.forEach((h, i) => assert.ok(h >= 34 && (i === 3 || h >= 42), 'ارتفاع ' + ['الحقل', 'الزر', 'العين', 'اللغة'][i] + ' ' + h));
+  await shot(m.p, 'login-mobile-ar');
+  // زر اللغة ⇒ LTR وترجمة
+  await m.p.click('.mq-lang'); await m.p.waitForTimeout(400);
+  s = await gateState(m.p); assert.equal(s.dir, 'ltr');
+  assert.match(await m.p.innerText('label[for="mq-email"]'), /Email/i);
+  assert.ok(s.over <= 2); await shot(m.p, 'login-mobile-en');
+  assert.deepEqual(m.errs, []); await m.ctx.close();
+  // تقليل الحركة: لا حركة على البطاقة ولا لوحة جسيمات تُرسم
+  const r = await open({ viewport: { width: 1280, height: 900 }, reducedMotion: 'reduce' }, 'gate');
+  const anim = await r.p.evaluate(() => [getComputedStyle(document.querySelector('.mq-pane')).animationName, getComputedStyle(document.querySelector('.mq-login .bhead-logo')).animationName]);
+  assert.deepEqual(anim, ['none', 'none']);
+  assert.deepEqual(r.errs, []); await r.ctx.close();
+  // سطح المكتب بالإنجليزية للصورة المرجعية
+  const d = await open({ viewport: { width: 1440, height: 900 } }, 'gate'); await d.p.click('.mq-lang'); await d.p.waitForTimeout(400); await shot(d.p, 'login-desktop-en'); await d.ctx.close();
+});
