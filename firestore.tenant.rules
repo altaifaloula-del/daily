@@ -472,6 +472,52 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    /* ===== v56.17 — MUKTASAB GROWTH الدفعة 2: سجلات الموافقة التسويقية وحركات الولاء للإضافة فقط (نسخ موازٍ — docs/growth/GROWTH_RECORDS_DESIGN.md) =====
+       السجل لا يُعدَّل ولا يُحذف أبدًا: إلغاء الاشتراك أو تصحيح النقاط حركة جديدة. الكاتب = الحساب، والوقت = وقت الخادم.
+       رقم الفرع فارغ ⇒ سجل مركزي (للمركز وحده كتابةً وقراءةً)؛ وإلا فلعضو ذلك الفرع والمركز. */
+    function grRole(m, adm) { return adm || (m != null && !(m.get('role', '') in ['accountant_view'])); }
+    function grBranch(m, adm, b) { return b == '' ? (adm || centralOf(m)) : branchOf(m, adm, b); }
+    function mkcShape(d, id) {
+      return d.keys().hasOnly(['phone', 'status', 'ch', 'src', 'note', 'branchId', 'byName', 'by', 'at', 'cv'])
+        && d.keys().hasAll(['phone', 'status', 'ch', 'src', 'branchId', 'by', 'at', 'cv'])
+        && d.phone is string && d.phone.matches('^[0-9]{6,15}$')
+        && d.status in ['in', 'out'] && d.ch in ['all', 'whatsapp', 'sms', 'email', 'app']
+        && shortStr(d.src, 200) && (!('note' in d) || shortStr(d.note, 500)) && (!('byName' in d) || shortStr(d.byName, 120))
+        && d.branchId is string && (d.branchId == '' || d.branchId.matches('^[A-Za-z0-9_-]{1,80}$'))
+        && d.by == userEmail() && d.at == request.time && cvOk(d)
+        && id.matches('^[A-Za-z0-9_-]{1,120}$');
+    }
+    function mkcCreate(id, d) {
+      let m = memOf();
+      let adm = admOf(m);
+      return okUser(m, adm) && grRole(m, adm) && mkcShape(d, id) && grBranch(m, adm, d.branchId);
+    }
+    match /mkt_consents/{id} {
+      allow read: if sigRead(resource.data.branchId);
+      allow create: if subOk() && (mkcCreate(id, request.resource.data));
+      allow update, delete: if false;
+    }
+    function lytShape(d, id) {
+      return d.keys().hasOnly(['phone', 'pts', 'ord', 'br', 'name', 'byName', 'by', 'at', 'cv'])
+        && d.keys().hasAll(['phone', 'pts', 'br', 'by', 'at', 'cv'])
+        && d.phone is string && d.phone.matches('^[0-9]{6,15}$')
+        && (d.pts is int || d.pts is float) && d.pts >= -1000000 && d.pts <= 1000000
+        && (!('ord' in d) || shortStr(d.ord, 300)) && (!('name' in d) || shortStr(d.name, 120)) && (!('byName' in d) || shortStr(d.byName, 120))
+        && d.br is string && (d.br == '' || d.br.matches('^[A-Za-z0-9_-]{1,80}$'))
+        && d.by == userEmail() && d.at == request.time && cvOk(d)
+        && id.matches('^[A-Za-z0-9_:.-]{1,160}$');
+    }
+    function lytCreate(id, d) {
+      let m = memOf();
+      let adm = admOf(m);
+      return okUser(m, adm) && grRole(m, adm) && lytShape(d, id) && grBranch(m, adm, d.br);
+    }
+    match /loy_tx/{id} {
+      allow read: if sigRead(resource.data.br);
+      allow create: if subOk() && (lytCreate(id, request.resource.data));
+      allow update, delete: if false;
+    }
+
     match /platform/{docId} {
       allow read: if isMember()
         && mfaOk()

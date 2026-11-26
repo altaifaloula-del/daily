@@ -3535,7 +3535,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.16';
+const APP_VER = 'v56.17';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3631,7 +3631,7 @@ function UpdateGate({ rel }) {
 function PlatformApp() {
   useEffect(() => { const h = setTimeout(prefetchMods, 2500); return () => clearTimeout(h); }, []);   // v38.3 جلب التطبيقات في الخلفية بعد ظهور الواجهة
   const [org, setOrg] = useState(null);
-  const orgNow = useRef(null); orgNow.current = org;   // v29.5: للحارس المركزي للإقفال داخل writeOps
+  const orgNow = useRef(null); orgNow.current = org; grrSetOn(org);   // v56.17: مفتاح نسخ سجلات النمو لدفتر الولاء   // v29.5: للحارس المركزي للإقفال داخل writeOps
   const [opsRaw, setOps] = useState({ closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [] });
   // v42.2: القراءة من السجلات المستقلة — ops المعروضة = مستند الفرع مدموجًا بالسجلات (السجل يغلب) متى فُعّلت
   const [clRecs, setClRecs] = useState(null);
@@ -4382,13 +4382,14 @@ function PlatformApp() {
     // v51.9: صلاحية التعديل الشخصية (log.perm) تحل محل فحص الدور لهذا السجل بعينه
     if (log?.perm ? !(Array.isArray(log.perm.rec) ? log.perm.rec : [log.perm.rec]).every(r => canEditRec(me, log.perm.kind, r)) : (log?.need && !capOK(me?.role, log.need))) { say(log?.perm ? 'لا تملك صلاحية تعديل هذا السجل — يحددها مسؤول النظام لكل مستخدم' : 'لا تملك صلاحية هذا الإجراء — تواصل مع مدير النظام', 'no'); return false; }
     // v41.9: نلتقط قائمة الإغلاقات قبل/بعد آخر تطبيق للتعديل لنسخ الفرق إلى السجلات المستقلة (إن فُعّلت)
-    let clBefore = null, clAfter = null, jmBefore = null, jmAfter = null, fdB = {}, fdA = {}, poBefore = null, poAfter = null;
+    let clBefore = null, clAfter = null, jmBefore = null, jmAfter = null, fdB = {}, fdA = {}, poBefore = null, poAfter = null, mcBefore = null, mcAfter = null;
     // v42.2: علامات العرض (_clr*) لا تُحفظ أبدًا — تُنزع من أي إغلاق قبل الكتابة
     const unflag = (c) => { if (!c || typeof c !== 'object' || !Object.keys(c).some(k => k.startsWith('_clr'))) return c; const o = {}; Object.keys(c).forEach(k => { if (!k.startsWith('_clr')) o[k] = c[k]; }); return o; };
-    const ok = await writeOps(d => { let r = mutator(d); if (r && Array.isArray(r.invoices) && r.invoices !== d.invoices) { const st = pjStamp(d.invoices, r.invoices); if (st !== r.invoices) r = { ...r, invoices: st }; } if (r && Array.isArray(r.closings)) r.closings = r.closings.map(unflag); clBefore = d.closings; clAfter = r && r.closings; poBefore = d.posOrders; poAfter = r && r.posOrders; jmBefore = d.journalManual; jmAfter = r && r.journalManual;
+    const ok = await writeOps(d => { let r = mutator(d); if (r && Array.isArray(r.invoices) && r.invoices !== d.invoices) { const st = pjStamp(d.invoices, r.invoices); if (st !== r.invoices) r = { ...r, invoices: st }; } if (r && Array.isArray(r.closings)) r.closings = r.closings.map(unflag); clBefore = d.closings; clAfter = r && r.closings; poBefore = d.posOrders; poAfter = r && r.posOrders; mcBefore = d.mktConsents; mcAfter = r && r.mktConsents; jmBefore = d.journalManual; jmAfter = r && r.journalManual;
       fdB = { pi: d.invoices, si: d.salesInvoices, cv: d.cashVouchers }; fdA = r ? { pi: r.invoices, si: r.salesInvoices, cv: r.cashVouchers } : {}; return r; });
     if (ok && clAfter && clAfter !== clBefore && clrOn(orgNow.current)) clrQueue(clBefore, clAfter);   // بالخلفية وبالترتيب — لا يؤخر الحفظ
-    if (ok && poAfter && poAfter !== poBefore && posrOn(orgNow.current)) posrQueue(poBefore, poAfter);   // v56.4 (POS 2a) نسخ الفواتير لسجلاتها المحمية — بالخلفية
+    if (ok && poAfter && poAfter !== poBefore && posrOn(orgNow.current)) posrQueue(poBefore, poAfter);
+    if (ok && mcAfter && mcAfter !== mcBefore && grrOn(orgNow.current)) { const nw = mkcDiff(mcBefore, mcAfter); if (nw.length) grrQueue('mkc', nw); }   // v56.17 الموافقات → mkt_consents   // v56.4 (POS 2a) نسخ الفواتير لسجلاتها المحمية — بالخلفية
     if (ok && jmAfter && jmAfter !== jmBefore && fjOn(orgNow.current)) fjQueue(jmBefore, jmAfter);   // v49.0 القيود اليدوية → fin_journal
     if (ok && fjOn(orgNow.current) && ['pi', 'si', 'cv'].some(k => fdA[k] && fdA[k] !== fdB[k])) fdQueue(fdB, fdA);   // v49.0 الفواتير والسندات → fin_docs
     if (!ok) {
@@ -8785,7 +8786,7 @@ async function loyPost(txs) {
     const next = { ...cur, members: { ...(cur.members || {}) }, tx: [...(cur.tx || []), ...add] };
     add.forEach(t => { const m = next.members[t.phone] || {}; next.members[t.phone] = { ...m, name: t.name || m.name || '', since: m.since || t.at, last: t.at }; });
     const r = await cloud.setIfUnchanged(KEYS.loy, next);
-    if (r === 'ok') return next; if (r === 'fail') return null;
+    if (r === 'ok') { if (_grrFlag) grrQueue('lyt', add.filter(t => t && t.id && grrPhone(t.phone))); return next; } if (r === 'fail') return null;   // v56.17: الحركات الجديدة → loy_tx
   }
   return null;
 }
@@ -14474,6 +14475,82 @@ async function posrRepair(o, reason) {
   } catch (e) { return { err: (e && e.code) || 'error' }; }
 }
 export { posrOn, posrData, posrVoidData, posrRecord, posrDiff, posrCompare, posrState, posrLoad, posrSeed, posrRepair };   // v56.4 سجلات فواتير نقطة البيع
+
+/* ===== v56.17 — MUKTASAB GROWTH الدفعة 2: سجلات الموافقة التسويقية mkt_consents/{id} وحركات الولاء loy_tx/{id} (نسخ موازٍ) =====
+   التصميم: docs/growth/GROWTH_RECORDS_DESIGN.md. المصدر يبقى كما هو (مصفوفة الموافقات في المستند، ودفتر الولاء rms8_loy)؛ كل موافقة/إلغاء
+   اشتراك وكل حركة نقاط جديدة تُنسخ بالخلفية بعد نجاح الحفظ إلى سجل تحرسه القواعد: إضافة فقط، لا تعديل ولا حذف، والكاتب والوقت من الخادم.
+   يحل ملاحظتي الأمن (موظف الفرع يعدّل/يحذف موافقة) والمراقب (حركات الولاء بلا أثر محمي). مُطفأ افتراضيًا (org.growthRecords.on). */
+const grrOn = (org) => !!(org && org.growthRecords && org.growthRecords.on);
+let _grrFlag = false; const grrSetOn = (org) => { _grrFlag = grrOn(org); };
+const GRR_CH = ['all', 'whatsapp', 'sms', 'email', 'app'];
+const grrOkId = (id) => /^[A-Za-z0-9_-]{1,120}$/.test(String(id || ''));
+const lytDocId = (id) => /^[A-Za-z0-9_:.-]{1,160}$/.test(String(id || '')) ? String(id) : 'h_' + sha256Hex(String(id || '')).slice(0, 48);
+const grrPhone = (p) => { const x = String(p || '').replace(/\D/g, ''); return /^[0-9]{6,15}$/.test(x) ? x : ''; };
+/** حقول سجل الموافقة كما تراها القواعد (بلا by/at/cv التي تضيفها طبقة الكتابة) */
+function mkcRecord(x) {
+  return { phone: grrPhone(x.phone), status: x.status === 'out' ? 'out' : 'in', ch: GRR_CH.includes(x.ch) ? x.ch : 'all', src: String(x.src || '—').slice(0, 200),
+    ...(x.note ? { note: String(x.note).slice(0, 500) } : {}), branchId: String(x.branchId || ''), ...(x.by ? { byName: String(x.by).slice(0, 120) } : {}) };
+}
+function lytRecord(t) {
+  return { phone: grrPhone(t.phone), pts: Math.round((Number(t.pts) || 0) * 100) / 100, ...(t.ord ? { ord: String(t.ord).slice(0, 300) } : {}), br: String(t.br || ''),
+    ...(t.name ? { name: String(t.name).slice(0, 120) } : {}), ...(t.byName ? { byName: String(t.byName).slice(0, 120) } : {}) };
+}
+/** الجديد فقط (السجل للإضافة؛ ما حُذف أو عُدّل في المصدر لا يمس السجل) */
+function mkcDiff(before, after) { const B = new Set((before || []).map(x => x && x.id)); return (after || []).filter(x => x && grrOkId(x.id) && grrPhone(x.phone) && !B.has(x.id)); }
+/** مطابقة المصدر مع السجلات: ناقص · مختلف (الجوال أو الحالة أو القناة أو الفرع / الجوال أو النقاط) · زائد (سجل بلا أصل — يستحق المراجعة) */
+function mkcCompare(list, recs) {
+  const R = new Map((recs || []).map(r => [r.id, r])), missing = [], differ = [], seen = new Set();
+  (list || []).forEach(x => { if (!x || !grrOkId(x.id) || !grrPhone(x.phone)) return; seen.add(x.id); const r = R.get(x.id); const e = mkcRecord(x);
+    if (!r) missing.push(x); else if (r.phone !== e.phone || r.status !== e.status || r.ch !== e.ch || String(r.branchId || '') !== e.branchId) differ.push(x); });
+  const extra = (recs || []).filter(r => !seen.has(r.id));
+  return { ok: !missing.length && !differ.length && !extra.length, missing, differ, extra, total: (list || []).length, recs: (recs || []).length };
+}
+function lytCompare(txs, recs) {
+  const R = new Map((recs || []).map(r => [r.id, r])), missing = [], differ = [], seen = new Set();
+  (txs || []).forEach(t => { if (!t || !t.id || !grrPhone(t.phone)) return; const id = lytDocId(t.id); seen.add(id); const r = R.get(id); const e = lytRecord(t);
+    if (!r) missing.push(t); else if (r.phone !== e.phone || Math.abs((Number(r.pts) || 0) - e.pts) > 0.001) differ.push(t); });
+  const extra = (recs || []).filter(r => !seen.has(r.id));
+  return { ok: !missing.length && !differ.length && !extra.length, missing, differ, extra, total: (txs || []).length, recs: (recs || []).length };
+}
+let _grrState = { at: 0, ok: 0, fail: 0, lastErr: '' };
+const grrState = () => _grrState;
+async function grrPut(c, coll, id, rec, same) {
+  const ref = c.f.doc(c.f.db, coll, id);
+  try { await ctlTimeout(c.f.setDoc(ref, { ...rec, by: c.email, at: c.f.serverTimestamp(), cv: APP_CV })); }
+  catch (e) {   // موجود سلفًا بالمحتوى نفسه (إعادة محاولة بعد رد ضائع) ⇒ ليس خطأ
+    const snap = await ctlTimeout(c.f.getDoc(ref)).catch(() => null); const r = snap && snap.exists() ? snap.data() : null;
+    if (!(r && same(r))) throw e; }
+}
+const mkcPut = (c, x) => { const rec = mkcRecord(x); return grrPut(c, 'mkt_consents', String(x.id), rec, r => r.phone === rec.phone && r.status === rec.status && r.ch === rec.ch); };
+const lytPut = (c, t) => { const rec = lytRecord(t); return grrPut(c, 'loy_tx', lytDocId(t.id), rec, r => r.phone === rec.phone && Math.abs((Number(r.pts) || 0) - rec.pts) < 0.001); };
+async function grrMirror(kind, items) {
+  if (!items.length) return { ok: 0, fail: 0 };
+  const c = await ctlIdentity();
+  if (!c) { _grrState = { ..._grrState, at: Date.now(), fail: _grrState.fail + items.length, lastErr: 'no-identity' }; return { ok: 0, fail: items.length }; }
+  let ok = 0, fail = 0, lastErr = '';
+  for (const x of items) { try { await (kind === 'mkc' ? mkcPut(c, x) : lytPut(c, x)); ok++; } catch (e) { fail++; lastErr = (e && e.code) || 'error'; } }
+  _grrState = { at: Date.now(), ok: _grrState.ok + ok, fail: _grrState.fail + fail, lastErr: lastErr || _grrState.lastErr };
+  return { ok, fail, lastErr };
+}
+let _grrChain = Promise.resolve();
+const grrQueue = (kind, items) => { _grrChain = _grrChain.then(() => grrMirror(kind, items)).catch(() => null); return _grrChain; };
+async function grrLoad(coll, field, branchIds, central) {
+  const c = await ctlIdentity(); if (!c) return null;
+  try {
+    const qs = central ? [c.f.collection(c.f.db, coll)] : (branchIds || []).filter(Boolean).slice(0, 30).map(b => c.f.query(c.f.collection(c.f.db, coll), c.f.where(field, '==', b)));
+    const snaps = await ctlTimeout(Promise.all(qs.map(q => c.f.getDocs(q))), 60000);
+    return snaps.flatMap(s => s.docs.map(d => ({ id: d.id, ...(d.data() || {}) })));
+  } catch (e) { return { err: (e && e.code) || 'error' }; }
+}
+/** نسخ التاريخ القائم (المدير): الناقص فقط؛ سجل موجود بنفس المحتوى لا يُعاد */
+async function grrSeed(kind, items, onProgress) {
+  const c = await ctlIdentity(); if (!c) return { err: 'خارج Firestore' };
+  let ok = 0, fail = 0, lastErr = '', i = 0;
+  for (const x of items || []) { try { await (kind === 'mkc' ? mkcPut(c, x) : lytPut(c, x)); ok++; } catch (e) { fail++; lastErr = (e && e.code) || 'error'; }
+    if (onProgress && (++i % 20 === 0)) onProgress(i, items.length); }
+  return { ok, fail, lastErr, total: (items || []).length };
+}
+export { grrOn, grrSetOn, mkcRecord, lytRecord, lytDocId, mkcDiff, mkcCompare, lytCompare, grrState, grrLoad, grrSeed };   // v56.17 سجلات النمو المحمية
 
 /* ===== v49.0 — المرحلة 01 (قرار G1-ب): القيود اليدوية سجلات مستقلة (fin_journal/{id}) — نسخ مطابق (mirror) =====
    الوثيقة الحالية (journalManual) تبقى المصدر في هذه المرحلة؛ كل إنشاء/اعتماد/رفض/حذف قبل الاعتماد يُنسخ إلى سجل تحرسه القواعد

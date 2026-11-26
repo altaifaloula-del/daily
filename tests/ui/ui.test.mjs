@@ -3670,3 +3670,14 @@ test('v56.16 أقسام المحاسبة ظاهرة (بلاغ المالك): ص�
     assert.deepEqual(errs, []); await ctx.close();
   }
 });
+
+test('v56.17 GROWTH 2: بطاقة السجلات المحمية للموافقات والولاء — معطّلة افتراضيًا، والتفعيل يُسجَّل، والموافقة الجديدة تبقى في المصدر', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Admin/admin');
+  await p.click('button:has-text("صيانة النظام")'); await p.waitForSelector('[data-grr]');
+  assert.match(await p.locator('[data-grr]').innerText(), /غير مفعّل/);
+  await p.click('[data-grr-toggle]');   // النوافذ تُقبل تلقائيًا في هذه البيئة
+  await p.waitForFunction(() => window.curOrg.growthRecords && window.curOrg.growthRecords.on === true);
+  assert.match(await p.locator('[data-grr]').innerText(), /النسخ مفعّل/);
+  await p.click('[data-grr-check]'); await p.waitForFunction(() => /Firestore فقط/.test(window.lastSay || ''));
+  assert.deepEqual(errs, []); await ctx.close();
+});
