@@ -3474,7 +3474,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.2';
+const APP_VER = 'v56.3';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3819,6 +3819,8 @@ function PlatformApp() {
     if (c.includes('weak-password')) return 'كلمة السر ضعيفة — 6 أحرف على الأقل';
     if (c.includes('invalid-email')) return 'صيغة البريد غير صحيحة';
     if (c.includes('network')) return 'تعذّر الاتصال — تحقق من الشبكة';
+    // v56.3 (V56-019): التسجيل الذاتي موقوف في Firebase — الحسابات ينشئها مسؤول النظام
+    if (c.includes('admin-restricted-operation') || c.includes('operation-not-allowed')) return 'إنشاء الحسابات من شاشة الدخول موقوف — يُنشئ مسؤول النظام حسابك من «المستخدمون»';
     return 'تعذّر الدخول (' + c.replace('auth/', '') + ')';
   };
 

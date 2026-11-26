@@ -6,7 +6,7 @@ import { ClaudeLink } from './ClaudeLink.jsx';   // v53.5 ربط Claude (MCP)
 import { ProviderConsole, probeProvider } from './ProviderConsole.jsx';
 import { TENANT } from '../../tenant.js';
 import { Building2, Users, Receipt, Truck, ShieldCheck, Grid3x3, Settings, Plus, Store, Lock, Check, Trash2, Activity, Link2 } from 'lucide-react';
-import { EDIT_KINDS, editPermOf, ALL_TABS, AppPermsPanel, BranchForm, CategoriesPanel, DeliveryAppsPanel, ROLES, SystemPanel, TAB_AR, UserForm, clr, money, newBranchDraft, sha, today, uid, domCfgOf, catListOf, CAT_FOR, DomainChips, Field } from '../../App.jsx';
+import { EDIT_KINDS, editPermOf, usersApi, ALL_TABS, AppPermsPanel, BranchForm, CategoriesPanel, DeliveryAppsPanel, ROLES, SystemPanel, TAB_AR, UserForm, clr, money, newBranchDraft, sha, today, uid, domCfgOf, catListOf, CAT_FOR, DomainChips, Field } from '../../App.jsx';
 
 export function Admin({ org, ops, me, commit, commitOrg, say }) {
   const [tab, setTab] = useState('branches');
@@ -35,17 +35,24 @@ export function Admin({ org, ops, me, commit, commitOrg, say }) {
     // ما زال قائماً في Firebase من محاولة سابقة) يُبتلع بصمت وتظهر رسالة «تم إنشاء الحساب»
     // بينما كلمة السر الجديدة لم تصل لحساب الدخول إطلاقاً — فيفشل دخول الموظف للأبد بلا
     // تفسير. الصحيح: إنشاء حساب المصادقة أولاً، وعند فشله نوقف الحفظ ونشرح بدقة ماذا يُفعل.
+    // v56.3 (V56-019): عند إيقاف التسجيل الذاتي في Firebase يرفض المتصفح الإنشاء، فيُنشأ حساب الدخول
+    // من الخادم بحساب الخدمة «بعد» حفظ العضوية (الخادم يشترط أن يكون البريد عضوًا). مع التسجيل مفعّلًا: السلوك السابق كما هو.
+    let viaServer = false; const initPass = u.newPass;
     if (authApi.enabled && isNew && u.newPass) {
       try { await authApi.createUser(email, u.newPass); }
       catch (e) {
         const c = String((e && e.code) || '');
-        if (c.includes('email-already-in-use')) {
-          return say('يوجد حساب دخول قديم بهذا البريد في Firebase وكلمة سره القديمة هي التي ستبقى سارية — لن تُطبَّق كلمة السر الجديدة. الحل: احذف هذا البريد من لوحة Firebase (Authentication → Users) ثم أعد إنشاء المستخدم هنا.', 'no');
+        if (c.includes('admin-restricted-operation') || c.includes('operation-not-allowed')) {
+          const pw = String(u.newPass);
+          if (pw.length < 8 || !/[0-9]/.test(pw) || !/[^0-9]/.test(pw)) return say('كلمة سر الحساب الجديد 8 أحرف على الأقل وتجمع أرقامًا وحروفًا (سياسة الإنشاء من الخادم) — لم يُحفَظ شيء', 'no');
+          viaServer = true;
+        } else {
+          if (c.includes('email-already-in-use')) return say('يوجد حساب دخول قديم بهذا البريد في Firebase وكلمة سره القديمة هي التي ستبقى سارية — لن تُطبَّق كلمة السر الجديدة. الحل: احذف هذا البريد من لوحة Firebase (Authentication → Users) ثم أعد إنشاء المستخدم هنا.', 'no');
+          if (c.includes('weak-password')) return say('كلمة السر ضعيفة وفق سياسة Firebase — اختر كلمة أقوى ثم أعد المحاولة', 'no');
+          if (c.includes('invalid-email')) return say('البريد الإلكتروني غير مقبول لدى Firebase — تأكد من صياغته', 'no');
+          if (c.includes('network')) return say('تعذّر الاتصال بخادم المصادقة — تحقق من الشبكة وأعد المحاولة (لم يُحفَظ شيء)', 'no');
+          return say('تعذّر إنشاء حساب الدخول (' + c.replace('auth/', '') + ') — لم يُحفَظ المستخدم. أعد المحاولة', 'no');
         }
-        if (c.includes('weak-password')) return say('كلمة السر ضعيفة وفق سياسة Firebase — اختر كلمة أقوى ثم أعد المحاولة', 'no');
-        if (c.includes('invalid-email')) return say('البريد الإلكتروني غير مقبول لدى Firebase — تأكد من صياغته', 'no');
-        if (c.includes('network')) return say('تعذّر الاتصال بخادم المصادقة — تحقق من الشبكة وأعد المحاولة (لم يُحفَظ شيء)', 'no');
-        return say('تعذّر إنشاء حساب الدخول (' + c.replace('auth/', '') + ') — لم يُحفَظ المستخدم. أعد المحاولة', 'no');
       }
     }
     const rec = { ...u, email };
@@ -71,6 +78,13 @@ export function Admin({ org, ops, me, commit, commitOrg, say }) {
       const admOk = await authApi.syncAdmin(email, !!ROLES[rec.role]?.admin && rec.isActive !== false);   // v28.1: الموقوف يخرج من قائمة المدراء
       if (memOk && !admOk && ROLES[rec.role]?.admin) say('حُفظ المستخدم لكن تعذّر إدراجه في قائمة المدراء على الخادم — نفّذ الحفظ من حساب مسؤول النظام الأول', 'no');
     }
+    // v56.3: إنشاء حساب الدخول من الخادم بعد ثبوت العضوية (التسجيل الذاتي موقوف)
+    let srvErr = '';
+    if (viaServer && memOk) {
+      try { await usersApi('password', { email, password: initPass }); }
+      catch (e) { srvErr = (e && e.message) || 'خطأ غير معروف'; }
+    }
+    if (viaServer && memOk && srvErr) { setUEdit(null); return say('حُفظ المستخدم وعضويته، لكن تعذّر إنشاء حساب الدخول من الخادم (' + srvErr + ') — عالج السبب ثم افتح المستخدم واضغط «تعيين كلمة السر»', 'no'); }
     if (!memOk) say('حُفظ المستخدم في المنصة، لكن تعذّرت مزامنة عضويته على الخادم (حسابك ليس ضمن قائمة المدراء على الخادم) — لن يستطيع هذا المستخدم قراءة/كتابة بيانات فرعه حتى تُنفَّذ «مزامنة صلاحيات الأعضاء» من حساب مسؤول النظام الأول', 'no');
     else if (resetMail === 'sent') say('تم تحديث الحساب — كلمة السر لا تُغيَّر من هنا؛ أُرسل للمستخدم رابط تعيين كلمة سر جديدة على بريده ✓');
     else if (resetMail === 'failed') say('تم تحديث الحساب، لكن كلمة السر لم تتغير: تعذّر إرسال رابط التعيين إلى بريد المستخدم — أعد المحاولة', 'no');
