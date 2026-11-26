@@ -37,7 +37,7 @@ const needPw = () => needDeps() || (has('node_modules/playwright') && fs.existsS
 export const CHECKS = [
   { id: 'framework', title: 'سلامة إطار الوكلاء والمهارات والوثائق', cat: 'process', critical: true, mandatory: ['change', 'release'], cmd: ['node', '--test', 'tests/ai-team/*.test.mjs'] },
   { id: 'accounting-validation', title: 'محرك التحقق المحاسبي المستقل (سيناريوهات معروفة + أخطاء متعمدة)', cat: 'accounting', critical: true, mandatory: ['change', 'release'], cmd: ['node', '--test', 'tests/validation/validator.test.mjs'] },
-  { id: 'engine-validation', title: 'التحقق المستقل من مخرجات buildAccounting الحقيقي', cat: 'accounting', critical: true, mandatory: ['change', 'release'], needs: needDeps, cmd: ['node', '--test', 'tests/validation/engine-adapter.test.mjs'], skipIsNotRun: true },
+  { id: 'engine-validation', title: 'التحقق المستقل من مخرجات buildAccounting الحقيقي والسلامة المالية (POS/AP/AR/الأصول/الرواتب/القوائم)', cat: 'accounting', critical: true, mandatory: ['change', 'release'], needs: needDeps, cmd: ['node', '--test', 'tests/validation/engine-adapter.test.mjs', 'tests/validation/integrity.test.mjs'], skipIsNotRun: true },
   { id: 'design-lint', title: 'هوية MITHQAL وملفات SVG (ثابت)', cat: 'design', critical: true, mandatory: ['change', 'release'], cmd: ['node', 'tests/ai-team/design-lint.mjs'] },
   { id: 'secrets', title: 'فحص الأسرار في الملفات المتتبَّعة', cat: 'security', critical: true, mandatory: ['change', 'release'], fn: secretsScan },
   { id: 'build', title: 'بناء الواجهة (vite build)', cat: 'code', critical: true, mandatory: ['change', 'release'], needs: needDeps, cmd: ['npm', 'run', 'build'] },
