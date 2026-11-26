@@ -14,13 +14,14 @@ import { Target,
   CreditCard, Coins, ChevronDown, ChevronRight,
   Crop, RotateCw, RotateCcw, EyeOff, Sun, Wand2, Delete, Scale, Home, Star, QrCode, Signature, PenLine,
   UtensilsCrossed, PiggyBank, Wrench,
-  Smartphone,
+  Smartphone, Mail, Languages,
 } from 'lucide-react';
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, LineChart, Line
 } from 'recharts';
 import { CSS } from './styles';
+import { LoginFx, WelcomeFx, markWelcome, clearWelcome } from './mods/login/LoginFx.jsx';   // v56.5 تجربة الدخول
 import { TX, getLang, setLangGlobal, isEn, domI18n } from './i18n';
 import { tenantFirebase, tenantFbReady, TENANT } from './tenant.js';
 import { cloud, KEYS, kb, authApi, brKey, bfKey, pushApi } from './storage';
@@ -2287,12 +2288,18 @@ function buildAccounting(org, ops) {
   Object.entries(org.accCls || {}).forEach(([c, v]) => { if (accIx[c] && INV_CLS[v]) accIx[c].cls = v; });
   // ===== محرك القيود =====
   const entries = [];
+  const strictHal = finStrictOn(org);
   const L = (code, debit, credit) => ({ code, name: (accIx[code] || { name: code }).name, debit: debit || 0, credit: credit || 0 });
   const push = (e) => {
     e.debit = sum(e.lines, l => l.debit); e.credit = sum(e.lines, l => l.credit);
     // v15.12: سماح توازن = هللة كاملة (0.01) بدل نصف هللة (0.005) — نصف الهللة هو نفسه أسوأ خطأ تقريب،
     //         فكان قد يُظهر قيدًا سليمًا كأنه غير متوازن عند مدخلٍ بكسور أدق من الهللة. لا يغيّر أي قيد فعلي.
     e.balanced = Math.abs(e.debit - e.credit) < 0.01;
+    // v56.7 (C4 — A2): الفرق بالهللات الصحيحة لكل قيد، وسطور بكسور أدق من الهللة. يُحسب دائمًا للتشخيص،
+    //   ويحكم التوازن فقط عند تفعيل «التطابق التام بالهللات» (org.finStrict.on — معطّل افتراضيًا).
+    e.halDiff = sum(e.lines, l => toHal(l.debit)) - sum(e.lines, l => toHal(l.credit));
+    e.subHal = e.lines.filter(l => !isHal(l.debit) || !isHal(l.credit)).length;
+    if (strictHal) e.balanced = e.halDiff === 0 && e.subHal === 0;
     entries.push(e);
   };
   const pmToAcc = (m, bCode, bkCode) => m === 'cash' ? bCode : (bkCode || '1201'); // شبكة/تحويل/شيك → بنك الفرع (إن وُجد) أو البنك التجميعي
@@ -2859,9 +2866,16 @@ function buildAccounting(org, ops) {
   return {
     accounts, entries: entries.slice().reverse(), cashCode, assetRows,
     totalDebit, totalCredit, unknownCodes: [...unknownCodes],
-    balanced: Math.abs(totalDebit - totalCredit) < 0.01 && entries.every(e => e.balanced)
+    balanced: (strictHal ? sum(entries, e => e.halDiff) === 0 : Math.abs(totalDebit - totalCredit) < 0.01) && entries.every(e => e.balanced),
+    strictHal, halIssues: entries.filter(e => e.halDiff !== 0 || e.subHal > 0).length
   };
 }
+/* v56.7 (C4 — A2): التطابق التام بالهللات. السطر يُقرَّب إلى هللة صحيحة، والقيد متوازن فقط إذا تساوى
+   مجموع الهللات في الجانبين ولم يحمل أي سطر كسرًا أدق من الهللة. بدل سماح 0.01 لكل قيد الذي قد يخفي
+   فروق تقريب متراكمة. مفتاح المنشأة org.finStrict.on — معطّل افتراضيًا ويُفعَّل من «صيانة النظام». */
+const toHal = (v) => Math.round((+v || 0) * 100);
+const isHal = (v) => Math.abs((+v || 0) * 100 - toHal(v)) < 1e-6;
+const finStrictOn = (org) => !!(org && org.finStrict && org.finStrict.on);
 
 const DENOMS = [
   { k: 'd500', v: 500, c: '#2B6CB0' }, { k: 'd200', v: 200, c: '#5F7A55' },
@@ -3474,7 +3488,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.1';
+const APP_VER = 'v56.9';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3528,11 +3542,16 @@ class ErrorBoundary extends React.Component {
     return full ? <div className="rms mode-dark thm-mizan" style={{ minHeight: '100vh', background: '#141210', padding: 16 }}>{box}</div> : box;
   }
 }
+export { FbGate };
+export { toHal, isHal, finStrictOn };   // v56.7 C4
+export { FL_START, flOn, flKey, flNo, flLines, flRecord, flScope, flCompare, flLoad, flPost };   // v56.9 D1
 export { ErrorBoundary, logClientError, lockedLedgerChanged };
 export { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, saleRetUse, posReturnLoyDed };
 export { jeLive, jeOwner, canApproveJe, jeAutoSt, vatCloseLive, WF_DOCS, wfTiers, wfOn, wfRequired, poNeedsAppr, wfState, wfCanAct, wfApprove };   // v47.1 اعتماد القيد اليدوي
 export { gosiNewSched, gosiNewAuto };   // v47.2 الرواتب   // v46.8 مرتجع نقطة البيع   // v46.8: للاختبارات الوظيفية (حارس الإقفال)
 export { findDupClosings, clDayKey, clrKeyId, yearEndDates, yearEndNext, payFactor, POS_HOLD_MAX, posHolds, posHoldsSet, posHoldPut, posHoldRecall };
+const POS_VOID_ROLES = ['branch_manager', 'regional_manager', 'head_office', 'general_management', 'system_admin'];   // v56.6 = posMgrRoles() في القواعد
+export { posVoidBlock, posSeqSeed, posChainSeed, posNextNo, posTabCuts, POS_VOID_ROLES };   // v56.2 حراس نقطة البيع (دفعة 1)
 export { rptPivot, rptTpl, RPT_TPL_ALIAS };
 export { tnRemember, tnHref, tnOkId, RD_DEF, RD_ROLE, roleDash, roleDashList, roleDashDefault };
 export { salesInvoiceHtml, gsearch, gsNorm, kbAction, KB_SHORTCUTS, GlobalSearch };
@@ -3795,7 +3814,7 @@ function PlatformApp() {
         const uu = ((o2 && o2.users) || []).find(x => (x.email || '').toLowerCase() === u.email && x.isActive);
         if (uu) {
           setMe(uu); setTab('home');
-          try { localStorage.setItem('rms8:lastEmail', uu.email || ''); } catch { }
+          try { if (localStorage.getItem('rms8:noRemember') !== '1') localStorage.setItem('rms8:lastEmail', uu.email || ''); } catch { }
         } else if (((o2 && o2.users) || []).length > 0) {
           // جلسة موثّقة لبريد لم يعد مسجّلًا/نشطًا بالمنصة (حساب حُذف مثلاً): خروج وبوابة
           // المصادقة — لا بوابة محلية عالقة بلا مخرج.
@@ -3818,6 +3837,8 @@ function PlatformApp() {
     if (c.includes('weak-password')) return 'كلمة السر ضعيفة — 6 أحرف على الأقل';
     if (c.includes('invalid-email')) return 'صيغة البريد غير صحيحة';
     if (c.includes('network')) return 'تعذّر الاتصال — تحقق من الشبكة';
+    // v56.3 (V56-019): التسجيل الذاتي موقوف في Firebase — الحسابات ينشئها مسؤول النظام
+    if (c.includes('admin-restricted-operation') || c.includes('operation-not-allowed')) return 'إنشاء الحسابات من شاشة الدخول موقوف — يُنشئ مسؤول النظام حسابك من «المستخدمون»';
     return 'تعذّر الدخول (' + c.replace('auth/', '') + ')';
   };
 
@@ -3843,7 +3864,7 @@ function PlatformApp() {
     setNeedAuth(false);
     if (u) {
       setMe(u); setTab('home');
-      try { localStorage.setItem('rms8:lastEmail', u.email || ''); } catch { }
+      try { if (localStorage.getItem('rms8:noRemember') !== '1') localStorage.setItem('rms8:lastEmail', u.email || ''); } catch { }
     }
     return { ok: true };   // لا مستخدمين بعد → شاشة التهيئة الأولى
   }, [loadAll]);
@@ -4311,12 +4332,13 @@ function PlatformApp() {
     // v51.9: صلاحية التعديل الشخصية (log.perm) تحل محل فحص الدور لهذا السجل بعينه
     if (log?.perm ? !(Array.isArray(log.perm.rec) ? log.perm.rec : [log.perm.rec]).every(r => canEditRec(me, log.perm.kind, r)) : (log?.need && !capOK(me?.role, log.need))) { say(log?.perm ? 'لا تملك صلاحية تعديل هذا السجل — يحددها مسؤول النظام لكل مستخدم' : 'لا تملك صلاحية هذا الإجراء — تواصل مع مدير النظام', 'no'); return false; }
     // v41.9: نلتقط قائمة الإغلاقات قبل/بعد آخر تطبيق للتعديل لنسخ الفرق إلى السجلات المستقلة (إن فُعّلت)
-    let clBefore = null, clAfter = null, jmBefore = null, jmAfter = null, fdB = {}, fdA = {};
+    let clBefore = null, clAfter = null, jmBefore = null, jmAfter = null, fdB = {}, fdA = {}, poBefore = null, poAfter = null;
     // v42.2: علامات العرض (_clr*) لا تُحفظ أبدًا — تُنزع من أي إغلاق قبل الكتابة
     const unflag = (c) => { if (!c || typeof c !== 'object' || !Object.keys(c).some(k => k.startsWith('_clr'))) return c; const o = {}; Object.keys(c).forEach(k => { if (!k.startsWith('_clr')) o[k] = c[k]; }); return o; };
-    const ok = await writeOps(d => { let r = mutator(d); if (r && Array.isArray(r.invoices) && r.invoices !== d.invoices) { const st = pjStamp(d.invoices, r.invoices); if (st !== r.invoices) r = { ...r, invoices: st }; } if (r && Array.isArray(r.closings)) r.closings = r.closings.map(unflag); clBefore = d.closings; clAfter = r && r.closings; jmBefore = d.journalManual; jmAfter = r && r.journalManual;
+    const ok = await writeOps(d => { let r = mutator(d); if (r && Array.isArray(r.invoices) && r.invoices !== d.invoices) { const st = pjStamp(d.invoices, r.invoices); if (st !== r.invoices) r = { ...r, invoices: st }; } if (r && Array.isArray(r.closings)) r.closings = r.closings.map(unflag); clBefore = d.closings; clAfter = r && r.closings; poBefore = d.posOrders; poAfter = r && r.posOrders; jmBefore = d.journalManual; jmAfter = r && r.journalManual;
       fdB = { pi: d.invoices, si: d.salesInvoices, cv: d.cashVouchers }; fdA = r ? { pi: r.invoices, si: r.salesInvoices, cv: r.cashVouchers } : {}; return r; });
     if (ok && clAfter && clAfter !== clBefore && clrOn(orgNow.current)) clrQueue(clBefore, clAfter);   // بالخلفية وبالترتيب — لا يؤخر الحفظ
+    if (ok && poAfter && poAfter !== poBefore && posrOn(orgNow.current)) posrQueue(poBefore, poAfter);   // v56.4 (POS 2a) نسخ الفواتير لسجلاتها المحمية — بالخلفية
     if (ok && jmAfter && jmAfter !== jmBefore && fjOn(orgNow.current)) fjQueue(jmBefore, jmAfter);   // v49.0 القيود اليدوية → fin_journal
     if (ok && fjOn(orgNow.current) && ['pi', 'si', 'cv'].some(k => fdA[k] && fdA[k] !== fdB[k])) fdQueue(fdB, fdA);   // v49.0 الفواتير والسندات → fin_docs
     if (!ok) {
@@ -4337,9 +4359,11 @@ function PlatformApp() {
       else say('تعذّر الحفظ السحابي بعد عدة محاولات — تحقق من الاتصال وأعد المحاولة', 'no');
       return false;
     }
-    if (log && me) await appendAudit({
+    // v56.6: السجل قد يُقرَّر بعد الحفظ (دالة) — إجراء رُفض داخل الحفظ (إلغاء/نقل طاولة) لا يُكتب في سجل التدقيق
+    const logNow = typeof log === 'function' ? log() : log;
+    if (logNow && me) await appendAudit({
       id: uid('lg'), timestamp: nowISO(), at: Date.now(), userName: me.name, userRole: me.role,
-      userRoleLabel: (ROLES[me.role] || {}).ar || me.role, ...log
+      userRoleLabel: (ROLES[me.role] || {}).ar || me.role, ...logNow
     });
     setLastSync(new Date());
     return true;
@@ -4507,7 +4531,7 @@ function PlatformApp() {
 
   // مصادقة سحابية مفعّلة ولا جلسة: بوابة الدخول الحقيقية قبل تحميل أي بيانات
   if (needAuth && !me) {
-    return <FbGate css={CSS} theme={theme} fbLogin={fbLogin} fbMfa={fbMfa} fbFirstSetup={fbFirstSetup} notice={kickMsg} />;
+    return <FbGate css={CSS} theme={theme} fbLogin={fbLogin} fbMfa={fbMfa} fbFirstSetup={fbFirstSetup} notice={kickMsg} onLang={toggleLang} />;
   }
 
   // أول تشغيل: لا يوجد أي مستخدم بعد → شاشة التسجيل الأولي لإنشاء حساب المالك
@@ -4618,6 +4642,7 @@ function PlatformApp() {
       {needUpdate && <UpdateGate rel={needUpdate} />}
       <DocPeekHost org={org} ops={ops} />
       <VoiceSearchHost lang={lang} />
+      <WelcomeFx name={me && me.name} />
       <div className="shell" key={'lang-' + lang}
         onTouchStart={(e) => {
           if (window.innerWidth > 900) return;
@@ -5318,89 +5343,125 @@ function MfaPanel({ me, required, inline, onDone, onLogout, say, info, reload })
   return inline ? <div className="card">{body}</div> : body;
 }
 
-function FbGate({ css, theme, fbLogin, fbMfa, fbFirstSetup, notice }) {
+function FbGate({ css, theme, fbLogin, fbMfa, fbFirstSetup, notice, onLang }) {
+  // v56.5 — تجربة الدخول الفاخرة: الشكل والحركة فقط؛ المنطق والاستدعاءات كما هي (fbLogin/fbMfa/fbFirstSetup/resetPass)
   const [mfa, setMfa] = useState(false); const [code, setCode] = useState(''); const [note, setNote] = useState('');
-  const [email, setEmail] = useState(() => { try { return localStorage.getItem('rms8:lastEmail') || ''; } catch { return ''; } });
+  const [remember, setRemember] = useState(() => { try { return localStorage.getItem('rms8:noRemember') !== '1'; } catch { return true; } });
+  const [email, setEmail] = useState(() => { try { return localStorage.getItem('rms8:noRemember') === '1' ? '' : (localStorage.getItem('rms8:lastEmail') || ''); } catch { return ''; } });
   const [pass, setPass] = useState('');
-  const [err, setErr] = useState('');
+  const [err, setErr] = useState(''); const [errN, setErrN] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
   const [show, setShow] = useState(false);
   const [setup, setSetup] = useState(false);
+  const [touched, setTouched] = useState(false);
+  const [caps, setCaps] = useState(false);
+  const [rip, setRip] = useState([]);
+  const host = useRef(null);
+  const en = isEn();
+  const okMail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  const mailBad = touched && !!email && !okMail;
+  const fail = (m) => { setErr(m); setErrN(k => k + 1); clearWelcome(); };
+  const ripple = (e) => { const r = e.currentTarget.getBoundingClientRect(); const id = Date.now() + Math.random(); setRip(a => [...a, { id, x: e.clientX - r.left, y: e.clientY - r.top }]); setTimeout(() => setRip(a => a.filter(x => x.id !== id)), 650); };
+  const cardLight = (e) => { const r = e.currentTarget.getBoundingClientRect(); e.currentTarget.style.setProperty('--cx', (e.clientX - r.left) + 'px'); e.currentTarget.style.setProperty('--cy', (e.clientY - r.top) + 'px'); };
+  const keyCaps = (e) => { try { setCaps(!!(e.getModifierState && e.getModifierState('CapsLock'))); } catch { } };
+  const setRem = (v) => { setRemember(v); try { if (v) localStorage.removeItem('rms8:noRemember'); else { localStorage.setItem('rms8:noRemember', '1'); localStorage.removeItem('rms8:lastEmail'); } } catch { } };
 
   const go = async () => {
-    if (!email || !pass || busy) return;
-    setErr(''); setBusy(true);
+    if (busy) return;
+    if (!email || !pass) { setTouched(true); return fail(!email ? 'اكتب بريدك الإلكتروني' : 'اكتب كلمة السر'); }
+    if (!okMail) { setTouched(true); return fail('صيغة البريد غير صحيحة'); }
+    setErr(''); setBusy(true); markWelcome();
     const r = setup ? await fbFirstSetup(email, pass) : await fbLogin(email, pass);
     setBusy(false);
     if (r.mfa) { setMfa(true); setCode(''); return; }
-    if (!r.ok) setErr(r.err || 'تعذّر الدخول');
+    if (!r.ok) return fail(r.err || 'تعذّر الدخول');
+    setDone(true);
   };
   // v56.1: يُرسل الرمز تلقائيًا عند اكتمال أرقامه الستة (كتابةً أو لصقًا أو تعبئةً من الهاتف) — Enter والزر يبقيان
   const goMfa = async (c = code) => {
-    if (c.length !== 6 || busy) return; setErr(''); setBusy(true);
+    if (c.length !== 6 || busy) return; setErr(''); setBusy(true); markWelcome();
     const r = await fbMfa(c); setBusy(false);
-    if (!r.ok) { setErr(r.err || 'تعذّر التحقق'); setCode(''); if (/أعد إدخال كلمة السر/.test(r.err || '')) { setMfa(false); setPass(''); } }
+    if (!r.ok) { fail(r.err || 'تعذّر التحقق'); setCode(''); if (/أعد إدخال كلمة السر/.test(r.err || '')) { setMfa(false); setPass(''); } return; }
+    setDone(true);
   };
+  const forgot = async () => {
+    if (!okMail) { setTouched(true); return fail('اكتب بريدك الإلكتروني أولًا ثم اضغط «نسيت كلمة السر؟»'); }
+    setBusy(true); try { await authApi.resetPass(email); } catch { } setBusy(false);   // الرد نفسه دائمًا: لا كشف لوجود البريد
+    setErr(''); setNote('إن كان البريد مسجّلًا فسيصله رابط تعيين كلمة السر خلال دقائق. إن وجدته في البريد غير المرغوب فيه فاضغط «ليست رسالة مزعجة» ليعمل الرابط، أو انسخه والصقه في المتصفح.');
+  };
+  // دالة عرض لا مكوّن داخلي: المكوّن المعرَّف داخل المكوّن يُعاد إنشاؤه مع كل تحديث فيُفقد النقر أثناء التموّج
+  const btn = (children, { disabled, onClick, type = 'button' }) => (
+    <button type={type} className={'btn pri mq-btn' + (done ? ' ok' : '')} disabled={disabled} onClick={onClick} onPointerDown={ripple} aria-busy={busy ? 'true' : 'false'}>
+      {rip.map(x => <span key={x.id} className="mq-ripple" style={{ left: x.x, top: x.y }} aria-hidden="true" />)}
+      {children}
+    </button>);
 
   return (
-    <div className={themeCls(theme, readMode())}>
+    <div className={themeCls(theme, readMode()) + ' mq-root' + (en ? ' lang-en' : '')} dir={en ? 'ltr' : 'rtl'} lang={en ? 'en' : 'ar'}>{/* lang-en: ‎.rms يفرض rtl في CSS فيغلب سمة dir */}
       <style dangerouslySetInnerHTML={{ __html: css }} />
-      <div className="gate has-cover"><GateCover />
-        <div className="gate-c">
+      <div className="gate has-cover mq-login" ref={host}>
+        <div className="mq-aurora" aria-hidden="true" />
+        <LoginFx hostRef={host} />
+        <GateCover />
+        <main className="gate-c">
+          {onLang && <div className="mq-top"><button type="button" className="mq-lang" onClick={onLang} aria-label={en ? 'التبديل إلى العربية' : 'Switch to English'}><Languages size={14} aria-hidden="true" /><span data-noi18n="1">{en ? 'العربية' : 'English'}</span></button></div>}
           <BrandHead title={BRAND_AR} sub={TX(BRAND_SUB)} />
           <div className="row" style={{ justifyContent: 'center', marginBottom: 16 }}>
-            <span className="badge b-mint"><Lock size={10} />مصادقة سحابية مفعّلة</span>
+            <span className="badge b-mint"><Lock size={10} aria-hidden="true" />مصادقة سحابية مفعّلة</span>
           </div>
-          <div className="card">
-            {notice && <div style={{ border: '1px solid rgba(200,162,74,.45)', background: 'rgba(200,162,74,.10)', color: 'var(--brass-t)', borderRadius: 10, padding: '10px 12px', marginBottom: 12, fontSize: 12, lineHeight: 1.8, textAlign: 'center' }}>{notice}</div>}
-            {setup && <div style={{ border: '1px solid rgba(200,162,74,.4)', background: 'rgba(200,162,74,.08)', color: 'var(--brass-t)', borderRadius: 10, padding: '9px 12px', marginBottom: 12, fontSize: 11.5, lineHeight: 1.7 }}>
+          <section className="card mq-card" onPointerMove={cardLight} aria-label={mfa ? 'التحقق بخطوتين' : 'تسجيل الدخول'}>
+            {notice && <div className="mq-notice" role="alert"><AlertTriangle size={16} aria-hidden="true" /><span>{notice}</span></div>}
+            {setup && <div className="mq-notice soft">
               الإعداد الأول (مرة واحدة بعد الترقية): أدخل بريد المالك وكلمة سر جديدة — يُنشأ حساب المصادقة وتصبح مديرًا للمنصة.
             </div>}
-            {mfa ? (<>
-              <div style={{ textAlign: 'center', marginBottom: 12 }}><ShieldCheck size={30} color="var(--brass)" />
-                <div style={{ fontWeight: 800, marginTop: 6 }}>التحقق بخطوتين</div>
-                <div style={{ fontSize: 11.5, color: 'var(--dim)', marginTop: 4, lineHeight: 1.7 }}>افتح تطبيق المصادقة في هاتفك واكتب الرمز المكوّن من 6 أرقام لحساب «ميزان»</div></div>
-              <input className="inp n" autoFocus inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000"
-                style={{ fontSize: 26, letterSpacing: 8, textAlign: 'center', direction: 'ltr' }} value={code}
+            {mfa ? (<div className="mq-pane" key="mfa">
+              <div style={{ textAlign: 'center', marginBottom: 12 }}><span className="mq-shield"><ShieldCheck size={28} aria-hidden="true" /></span>
+                <div style={{ fontWeight: 800, marginTop: 8 }}>التحقق بخطوتين</div>
+                <div style={{ fontSize: 11.5, color: 'var(--dim)', marginTop: 4, lineHeight: 1.7 }}>افتح تطبيق المصادقة في هاتفك واكتب الرمز المكوّن من 6 أرقام لحساب «مُكتسَب»</div></div>
+              <label htmlFor="mq-otp" className="sr-only">رمز التحقق</label>
+              <input id="mq-otp" className="inp n mq-otp" autoFocus inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000"
+                value={code} aria-invalid={err ? 'true' : 'false'}
                 onChange={e => { const v = e.target.value.replace(/\D/g, '').slice(0, 6); setCode(v); setErr(''); if (v.length === 6) goMfa(v); }} onKeyDown={e => e.key === 'Enter' && goMfa()} />
-              {err && <div className="gate-err" style={{ marginTop: 10 }}>{err}</div>}
-              <button className="btn pri" style={{ width: '100%', marginTop: 12 }} disabled={busy || code.length !== 6} onClick={() => goMfa()}>
-                {busy ? <RefreshCw size={15} className="spin" /> : <Check size={15} />}تحقق ودخول</button>
+              {err && <div className="mq-err" role="alert" key={errN}><AlertTriangle size={15} aria-hidden="true" /><span>{err}</span></div>}
+              {btn(<>{done ? <Check size={16} aria-hidden="true" /> : busy ? <RefreshCw size={15} className="spin" aria-hidden="true" /> : <Check size={15} aria-hidden="true" />}{done ? 'تم التحقق' : busy ? 'جارٍ التحقق…' : 'تحقق ودخول'}</>,
+                { disabled: busy || code.length !== 6, onClick: () => goMfa() })}
               <button className="btn gh" style={{ width: '100%', marginTop: 10 }} onClick={() => { setMfa(false); setPass(''); setErr(''); }}>رجوع</button>
               <div style={{ fontSize: 11, color: 'var(--faint)', marginTop: 12, lineHeight: 1.7, textAlign: 'center' }}>فقدت هاتفك؟ أضف الحساب لهاتف جديد بالمفتاح الذي حفظته عند التفعيل، أو راجع مسؤول النظام.</div>
-            </>) : (<>
-            <Field label="البريد الإلكتروني">
-              <input className="inp" type="email" autoFocus style={{ direction: 'ltr', textAlign: 'right' }}
-                value={email} placeholder="you@company.com"
-                onChange={e => { setEmail(e.target.value); setErr(''); }}
-                onKeyDown={e => e.key === 'Enter' && go()} />
-            </Field>
-            <Field label={setup ? 'كلمة سر جديدة (6 أحرف فأكثر)' : 'كلمة السر'}>
-              <div style={{ position: 'relative' }}>
-                <input className="inp" type={show ? 'text' : 'password'} value={pass}
-                  onChange={e => { setPass(e.target.value); setErr(''); }}
-                  onKeyDown={e => e.key === 'Enter' && go()} />
-                <button className="btn sm gh" style={{ position: 'absolute', insetInlineEnd: 4, top: 4, padding: '4px 8px' }}
-                  onClick={() => setShow(s => !s)} tabIndex={-1}><Eye size={14} /></button>
+            </div>) : (<form className="mq-pane" key="pw" noValidate onSubmit={e => { e.preventDefault(); go(); }}>
+              <div className={'mq-field' + (mailBad ? ' bad' : '')}>
+                <label htmlFor="mq-email">البريد الإلكتروني</label>
+                <div className="mq-input"><Mail size={16} className="mq-ico" aria-hidden="true" />
+                  <input id="mq-email" type="email" autoFocus={!email} autoComplete="username" dir="ltr" style={{ textAlign: en ? 'left' : 'right' }}
+                    value={email} placeholder="you@company.com" aria-invalid={mailBad ? 'true' : 'false'} aria-describedby={mailBad ? 'mq-email-h' : undefined}
+                    onChange={e => { setEmail(e.target.value); setErr(''); }} onBlur={() => setTouched(true)} /></div>
+                {mailBad && <div className="mq-hint bad" id="mq-email-h">صيغة البريد غير صحيحة</div>}
               </div>
-            </Field>
-            {err && <div className="gate-err">{err}</div>}
-            <button className="btn pri" style={{ width: '100%' }} disabled={busy || !email || !pass} onClick={go}>
-              {busy ? <RefreshCw size={15} className="spin" /> : <Lock size={15} />}
-              {setup ? 'إنشاء حساب المصادقة والدخول' : 'دخول'}
-            </button>
-            <button className="btn gh" style={{ width: '100%', marginTop: 10 }} onClick={() => { setSetup(s => !s); setErr(''); }}>
-              {setup ? 'لديّ حساب — عودة للدخول' : 'الإعداد الأول بعد الترقية (للمالك)'}
-            </button>
-            {!setup && <button className="btn gh" style={{ width: '100%', marginTop: 10 }} disabled={busy} onClick={async () => {
-              if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return setErr('اكتب بريدك الإلكتروني أولًا ثم اضغط «نسيت كلمة السر؟»');
-              setBusy(true); try { await authApi.resetPass(email); } catch { } setBusy(false);
-              setErr(''); setNote('إن كان البريد مسجّلًا فسيصله رابط تعيين كلمة السر خلال دقائق. إن وجدته في البريد غير المرغوب فيه فاضغط «ليست رسالة مزعجة» ليعمل الرابط، أو انسخه والصقه في المتصفح.');
-            }}><Lock size={14} />نسيت كلمة السر؟</button>}
-            {note && <div style={{ fontSize: 11.5, color: 'var(--mint)', marginTop: 10, lineHeight: 1.7, textAlign: 'center' }}>{note}</div>}
-            </>)}
-          </div>
-        </div>
+              <div className="mq-field">
+                <label htmlFor="mq-pass">{setup ? 'كلمة سر جديدة (6 أحرف فأكثر)' : 'كلمة السر'}</label>
+                <div className="mq-input"><Lock size={16} className="mq-ico" aria-hidden="true" />
+                  <input id="mq-pass" type={show ? 'text' : 'password'} autoFocus={!!email} autoComplete={setup ? 'new-password' : 'current-password'} value={pass}
+                    aria-describedby={caps ? 'mq-caps' : undefined}
+                    onChange={e => { setPass(e.target.value); setErr(''); }} onKeyUp={keyCaps} onKeyDown={keyCaps} />
+                  <button type="button" className="mq-eye" onClick={() => setShow(s => !s)} aria-pressed={show ? 'true' : 'false'} aria-label={show ? 'إخفاء كلمة السر' : 'إظهار كلمة السر'} aria-controls="mq-pass">
+                    {show ? <EyeOff size={17} key="off" aria-hidden="true" /> : <Eye size={17} key="on" aria-hidden="true" />}</button>
+                </div>
+                {caps && <div className="mq-hint" id="mq-caps">مفتاح الأحرف الكبيرة (Caps Lock) مفعّل</div>}
+              </div>
+              {!setup && <div className="mq-row">
+                <label className="mq-check"><input type="checkbox" checked={remember} onChange={e => setRem(e.target.checked)} /><span>تذكّر بريدي على هذا الجهاز</span></label>
+                <button type="button" className="mq-link" disabled={busy} onClick={forgot}>نسيت كلمة السر؟</button>
+              </div>}
+              {err && <div className="mq-err" role="alert" key={errN}><AlertTriangle size={15} aria-hidden="true" /><span>{err}</span></div>}
+              {btn(<>{done ? <Check size={16} aria-hidden="true" /> : busy ? <RefreshCw size={15} className="spin" aria-hidden="true" /> : <Lock size={15} aria-hidden="true" />}
+                {done ? 'تم الدخول' : busy ? 'جارٍ التحقق…' : setup ? 'إنشاء حساب المصادقة والدخول' : 'دخول'}</>, { disabled: busy || done, type: 'submit' })}
+              {note && <div className="mq-note" role="status">{note}</div>}
+              <button type="button" className="btn gh mq-setup" onClick={() => { setSetup(s => !s); setErr(''); }}>
+                {setup ? 'لديّ حساب — عودة للدخول' : 'الإعداد الأول بعد الترقية (للمالك)'}
+              </button>
+            </form>)}
+          </section>
+        </main>
       </div>
     </div>
   );
@@ -6798,7 +6859,8 @@ function importDraftClosing(org, x, by) {
 function salesDaySource(ops, branchId, date) {
   const ps = posDaySummary(ops.posOrders || [], branchId, date); if (ps.n) return { ...ps, src: 'pos' };
   const im = (ops.posImports || []).find(x => x.branchId === branchId && x.date === date);
-  return im ? { n: im.n, total: im.total, vat: im.vat, cash: im.cash, card: im.card, transfer: im.transfer, apps: im.apps || {}, src: 'import', file: im.file } : { n: 0 };
+  if (im) return { n: im.n, total: im.total, vat: im.vat, cash: im.cash, card: im.card, transfer: im.transfer, apps: im.apps || {}, src: 'import', file: im.file };
+  return ps.retN ? { ...ps, src: 'pos' } : { n: 0 };   // v56.2 (B5) + v56.6: مرتجعات فقط ولا ملف استيراد ⇒ من نقطة البيع (الاستيراد لا يُتجاهَل)
 }
 
 /* PosImport: نُقل إلى mods/pos/PosImport.jsx (تحميل كسول) */
@@ -6902,7 +6964,10 @@ const CAMP_ST = { draft: 'مسودة', pending: 'بانتظار الاعتماد
 const campNextNo = (ops) => { const n = ((ops && ops.mktCampaigns) || []).reduce((m, c) => Math.max(m, parseInt(String(c.no || '').replace(/\D/g, ''), 10) || 0), 0) + 1; return 'CMP-' + String(n).padStart(4, '0'); };
 /** الحالة الفعلية: النشطة بعد نهايتها «منتهية»، وقبل بدايتها «مجدولة» (نشطة لم تبدأ) */
 function campStatusOf(c, td) { td = td || today(); if (c.status === 'active' && c.to && c.to < td) return 'ended'; return c.status || 'draft'; }
-function campStats(org, ops, list, c) {
+/* v56.x — عائد التسويق (قرار المالك 2026-11-26): تكلفة الحملة = رصيد حساب المصروف الخاص بها (c.acc) من القيود الفعلية،
+   والعائد على المبيعات المنسوبة لها (فواتير كوبوناتها) بلا ضريبة. ليس «مبيعات إضافية»: العميل ربما كان سيشتري دونها. */
+function campSpend(A, code) { if (!A || !code) return null; const a = (A.accounts || []).find(x => String(x.code) === String(code)); return a ? posR2(a.debit - a.credit) : null; }
+function campStats(org, ops, list, c, A) {
   const promos = ((org && org.posPromos) || []).filter(p => (c.promoIds || []).includes(p.id));
   const codes = new Set(promos.map(p => cpnKey(p.code)).filter(Boolean)), pids = new Set(promos.map(p => p.id));
   const brs = (c.branches || []).length ? new Set(c.branches) : null;
@@ -6915,8 +6980,12 @@ function campStats(org, ops, list, c) {
   const buyers = new Set(os.filter(o => o.loyalty && o.loyalty.phone && tset.has(normPhone(o.loyalty.phone))).map(o => normPhone(o.loyalty.phone)));
   const newC = new Set(used.filter(o => o.loyalty && o.loyalty.phone).map(o => normPhone(o.loyalty.phone)).filter(ph => { const x = (list || []).find(y => y.phone === ph); return x && x.first >= (c.from || '0000'); }));
   const sales = posR2(used.reduce((a, o) => a + (Number(o.total) || 0), 0)), budget = Number(c.budget) || 0;
-  return { redemptions: used.length, sales, disc: posR2(disc), target: target.length, responders: buyers.size, respRate: target.length ? Math.round(buyers.size / target.length * 1000) / 10 : null,
-    newCustomers: newC.size, budget, cost: posR2(disc + budget), costPerOrder: used.length ? posR2((disc + budget) / used.length) : null };
+  const netSales = posR2(used.reduce((a, o) => a + (o.net != null ? Number(o.net) || 0 : (Number(o.total) || 0) - (Number(o.vat) || 0)), 0));
+  const spend = c.acc ? campSpend(A, c.acc) : null;
+  const roas = spend > 0 ? Math.round(netSales / spend * 100) / 100 : null, roi = spend > 0 ? Math.round((netSales - spend) / spend * 1000) / 10 : null;
+  const base = spend != null ? spend : disc + budget;
+  return { redemptions: used.length, sales, netSales, disc: posR2(disc), target: target.length, responders: buyers.size, respRate: target.length ? Math.round(buyers.size / target.length * 1000) / 10 : null,
+    newCustomers: newC.size, budget, spend, roas, roi, cost: posR2(base), costPerOrder: used.length ? posR2(base / used.length) : null };
 }
 /* v52.2 — المرحلة G: توصيات عند الدفع — من سلال الطلبات الفعلية للفرع وطلبات العميل المعتادة، بلا ذكاء مختلق.
    الأحداث (عُرض/قُبل/أُغفل) تُحفظ داخل الطلب نفسه (recShown/recDismissed وسطر rec) بدل مجموعة mktRecEvents — لا كتابة إضافية لكل عرض ولا تضخيم لمستند الفرع */
@@ -8598,7 +8667,7 @@ function Hub({ hubId, view, ...rest }) {
    الإيراد يُقيَّد من الإغلاق اليومي كما هو (الإغلاق يُعبّأ من نقطة البيع) فلا قيد مكرر.
    ============================================================ */
 const POS_DEV_KEY = 'mizan:posDev', POS_Q_KEY = 'mizan:posQueue';
-const posDev = () => { try { let d = JSON.parse(localStorage.getItem(POS_DEV_KEY) || 'null'); if (!d || !d.tag) { d = { tag: Math.random().toString(36).slice(2, 4).toUpperCase(), name: 'كاشير' }; localStorage.setItem(POS_DEV_KEY, JSON.stringify(d)); } return d; } catch { return { tag: 'X1', name: 'كاشير' }; } };
+const posDev = () => { try { let d = JSON.parse(localStorage.getItem(POS_DEV_KEY) || 'null'); if (!d || !d.tag) { d = { tag: Math.random().toString(36).slice(2, 6).toUpperCase().padEnd(4, '0'), name: 'كاشير' };   /* v56.2 (B4): 4 خانات للأجهزة الجديدة (كان حرفين: 1 من 1296 تصادم) — الأجهزة القائمة تحتفظ بوسمها */ localStorage.setItem(POS_DEV_KEY, JSON.stringify(d)); } return d; } catch { return { tag: 'X1', name: 'كاشير' }; } };
 const POS_SH_KEY = 'mizan:posShiftLocal';
 const POS_SC_KEY = 'mizan:posShiftClose';   // v34.14: ورديات أُغلقت على الجهاز ولم تُرسل بعد (قائمة)
 const pendShiftsGet = () => { try { const v = JSON.parse(localStorage.getItem(POS_SC_KEY) || '[]'); return Array.isArray(v) ? v : (v ? [v] : []); } catch { return []; } };
@@ -8635,6 +8704,47 @@ function posHoldPut(list, h) {
   return { list: [h, ...L] };
 }
 /** استدعاء: السلة بأسعار المنتجات الحالية، وما حُذف من المنتجات يُسقط ويُبلَّغ عنه */
+/* v56.2 (POS دفعة 1) — حراس نقطة البيع (دوال نقية مختبرة):
+   B1/B6: لا إلغاء لفاتورة لها مرتجع (كان المرتجع يُخصم مرة ثانية بعد إلغاء الأصل) ولا بعد إغلاق ورديتها (يختل تقرير Z) — يُستخدم المرتجع بدلًا منه.
+   B4: الترقيم وسلسلة البصمات يُستكملان من الفواتير المعروفة لهذا الجهاز إن فُقد التخزين المحلي (لا رقم مكرر بعد مسح المتصفح).
+   B7: دفع حساب الطاولة لا يُنقص صنفًا أُرسل للمطبخ إلا لمدير، ويُسجَّل النقص في الفاتورة. */
+function posVoidBlock(ops, o) {
+  if (!o) return 'الفاتورة غير موجودة';
+  if (o.kind === 'return') return 'المرتجع لا يُلغى';
+  if (o.status === 'void') return 'الفاتورة ملغاة سابقًا';
+  if ((ops.posOrders || []).some(r => r.kind === 'return' && r.refId === o.id && r.status !== 'void')) return 'للفاتورة مرتجع مسجَّل — لا تُلغى؛ أرجع الأصناف المتبقية بمرتجع';
+  const sh = o.shiftId ? (ops.posShifts || []).find(x => x.id === o.shiftId) : null;
+  if (sh && sh.status === 'closed') return 'وردية هذه الفاتورة مغلقة — لا تُلغى بعد تقرير Z؛ استخدم المرتجع';
+  return '';
+}
+// أكبر تسلسل معروف لفواتير هذا الجهاز في يومه (prefix: «ف» للبيع، «م» للمرتجع) — من السحابة والطابور المحلي
+function posSeqSeed(orders, branchId, devTag, date, prefix) {
+  const yy = String(date || '').replace(/-/g, '').slice(2); let mx = 0;
+  (orders || []).forEach(o => { if (!o || o.branchId !== branchId) return;   // v56.6: إشعار الإلغاء لجهاز من ألغى (voidNote.dev)، لا لجهاز الفاتورة
+    [o.dev === devTag ? [o.no, o.date] : null, o.voidNote && (o.voidNote.dev || o.dev) === devTag ? [o.voidNote.no, o.voidNote.date] : null].forEach(e => { if (!e || e[1] !== date) return; const m = String(e[0] || '').match(/^(.)\d+-(\d{6})-([A-Z0-9]+)-(\d+)$/); if (!m || m[1] !== prefix || m[2] !== yy || m[3] !== devTag) return;
+    const n = Number(m[4]) || 0; if (n > mx) mx = n; }); });
+  return mx;
+}
+// آخر حلقة معروفة في سلسلة بصمات هذا الجهاز للفرع (أعلى icv)
+function posChainSeed(orders, branchId, devTag) {
+  let best = { icv: 0, hash: '0' };
+  (orders || []).forEach(o => { if (!o || o.branchId !== branchId) return;
+    [o.dev === devTag ? o : null, o.voidNote && (o.voidNote.dev || o.dev) === devTag ? o.voidNote : null].forEach(x => { if (x && x.hash && (Number(x.icv) || 0) > best.icv) best = { icv: Number(x.icv) || 0, hash: x.hash }; }); });
+  return best;
+}
+// التسلسل التالي والحلقة السابقة: الأكبر بين المحلي والمعروف (لا يرجع الرقم أبدًا)
+function posNextNo(localSeq, localPrev, known, branchId, devTag, date, prefix) {
+  const seq = Math.max(Number(localSeq) || 0, posSeqSeed(known, branchId, devTag, date, prefix)) + 1;
+  const c = posChainSeed(known, branchId, devTag), lp = localPrev || {};
+  const prev = (Number(lp.icv) || 0) >= c.icv ? { icv: Number(lp.icv) || 0, hash: lp.hash || '0' } : c;
+  return { seq, prev };
+}
+// الأصناف التي نقصت عن المُرسَل للمطبخ عند دفع حساب الطاولة: [{productId,name,sent,now}]
+function posTabCuts(sentLines, cart) {
+  const want = {}; (sentLines || []).forEach(l => { const k = l.productId + '|' + (l.note || ''); want[k] = (want[k] || { productId: l.productId, name: l.name, sent: 0 }); want[k].sent += Number(l.qty) || 0; });
+  const have = {}; (cart || []).forEach(l => { const k = l.productId + '|' + ((l.note || '').trim()); have[k] = (have[k] || 0) + (Number(l.qty) || 0); });
+  return Object.entries(want).filter(([k, w]) => (have[k] || 0) + 1e-9 < w.sent).map(([k, w]) => ({ productId: w.productId, name: w.name, sent: w.sent, now: have[k] || 0 }));
+}
 function posHoldRecall(h, prods) {
   const P = new Map((prods || []).map(p => [p.id, p])), cart = [], dropped = [], repriced = [];
   ((h && h.cart) || []).forEach(l => { const p = P.get(l.productId);
@@ -8796,7 +8906,7 @@ function posReturnHtml(org, r, br) {
   h1{font-size:15px;text-align:center;margin:2px 0} .c{text-align:center} .s{font-size:10px;color:#333} table{width:100%;border-collapse:collapse;margin-top:6px}
   td{padding:3px 0;border-bottom:1px dashed #999;vertical-align:top} td.n{text-align:left;white-space:nowrap;font-variant-numeric:tabular-nums} .tot td{font-weight:800;font-size:13px;border-bottom:2px solid #000} .qr{text-align:center;margin-top:8px} .qr svg{width:34mm;height:34mm}</style></head><body>
   <h1>${_xe(co.name || '')}</h1><div class="c s">${_xe(br ? br.name : '')}${svat ? '<br>الرقم الضريبي: ' + _xe(svat) : ''}</div>
-  <div class="c" style="font-weight:800;margin-top:6px">إشعار دائن — مرتجع</div>
+  <div class="c" style="font-weight:800;margin-top:6px">${r.cancel ? 'إشعار دائن — إلغاء فاتورة' : 'إشعار دائن — مرتجع'}</div>
   <div class="c s">رقم: ${_xe(r.no)} · ${_xe((r.at || '').slice(0, 10))}<br>عن الفاتورة: ${_xe(r.refNo || '')}<br>السبب: ${_xe(wasteReasonAr(r.reason))}${r.note ? ' — ' + _xe(r.note) : ''}</div>
   <table>${L}<tr><td colspan="2">المرتجع قبل الضريبة</td><td class="n">${m(r.net)}</td></tr><tr><td colspan="2">ضريبة القيمة المضافة</td><td class="n">${m(r.vat)}</td></tr>
   <tr class="tot"><td colspan="2">المبلغ المردود شامل الضريبة</td><td class="n">${m(r.total)}</td></tr><tr><td colspan="2">طريقة الرد</td><td class="n">${_xe(pmAr)}</td></tr></table>
@@ -14160,6 +14270,103 @@ async function clrSeed(closings, onProgress) {
   }
   return { ok, fail, lastErr, total: list.length };
 }
+/* ===== v56.4 — MUKTASAB POS الدفعة 2a: فواتير نقطة البيع سجلات مستقلة pos_orders/{id} (نسخ موازٍ) =====
+   التصميم: docs/pos/POS_DATABASE_DESIGN.md. مستند الفرع/الشهر يبقى المصدر؛ كل فاتورة جديدة أو إلغاء يُنسخ بالخلفية بعد نجاح الحفظ
+   إلى سجل تحرسه القواعد (لا تعديل للأرقام ولا حذف، والإلغاء للإدارة فقط). مُطفأ افتراضيًا (org.posRecords.on). حذف فاتورة من
+   المستند (أرشفة/قص) لا يحذف سجلها أبدًا. الإخفاق لا يُفشل البيع — يُعدّ ويظهر في «صيانة النظام» والمطابقة تكشفه. */
+const POSR_VOID_KEYS = ['status', 'voidBy', 'voidAt', 'voidReason', 'voidNote'];
+const posrOn = (org) => !!(org && org.posRecords && org.posRecords.on);
+const posrOkId = (id) => /^[A-Za-z0-9_-]{1,120}$/.test(String(id || ''));
+/** محتوى الفاتورة الثابت (بلا حقول الإلغاء ولا علامات العرض/الطابور) — عليه تُحسب البصمة */
+const posrData = (o) => { const x = {}; Object.keys(o || {}).forEach(k => { if (!POSR_VOID_KEYS.includes(k) && k !== 'pending' && !k.startsWith('_')) x[k] = o[k]; }); return clrData(x); };
+const posrVoidData = (o) => { const base = { by: String(o.voidBy || '').slice(0, 200), at: String(o.voidAt || '').slice(0, 40), reason: String(o.voidReason || '').slice(0, 1000) };   // v56.6: JSON صالح دائمًا (القص قبل التحويل)
+  const full = JSON.stringify({ ...base, ...(o.voidNote ? { note: o.voidNote } : {}) }); return full.length <= 4000 ? full : JSON.stringify(base); };
+/** حقول السجل كما تراها القواعد (بلا by/at/cv التي تضيفها طبقة الكتابة) — status:'paid' دائمًا عند الإنشاء */
+function posrRecord(o, voided) {
+  const data = posrData(o);
+  return { branchId: String(o.branchId || ''), date: String(o.date || '').slice(0, 10), kind: o.kind === 'return' ? 'return' : 'sale',
+    status: voided ? 'void' : 'paid', no: String(o.no || '').slice(0, 60), dev: String(o.dev || '').slice(0, 12),
+    total: Number(o.total) || 0, vat: Number(o.vat) || 0, digest: sha256Hex(data), data, ...(voided ? { voidData: posrVoidData(o) } : {}) };
+}
+/** ما يُنسخ: فاتورة جديدة (create؛ وإن وصلت ملغاة: create ثم void)، أو فاتورة أُلغيت (void). الحذف من المستند لا يحذف السجل */
+function posrDiff(before, after) {
+  const B = new Map((before || []).map(o => [o && o.id, o])), put = [];
+  (after || []).forEach(o => { if (!o || !posrOkId(o.id) || !o.branchId) return; const p = B.get(o.id);
+    if (!p) put.push({ o, mode: o.status === 'void' ? 'both' : 'create' });
+    else if (p.status !== 'void' && o.status === 'void') put.push({ o, mode: 'void' }); });
+  return put;
+}
+/** مطابقة فواتير المستند مع السجلات: ناقص · مختلف (البصمة أو الحالة) · زائد (سجل بلا فاتورة — طبيعي بعد الأرشفة، لا يُفشل المطابقة) */
+function posrCompare(orders, recs) {
+  const R = new Map((recs || []).map(r => [r.id, r])), missing = [], differ = [], seen = new Set();
+  (orders || []).forEach(o => { if (!o || !posrOkId(o.id) || !o.branchId) return; const r = R.get(o.id); seen.add(o.id);
+    if (!r) missing.push(o); else if (r.digest !== sha256Hex(posrData(o)) || r.status !== (o.status === 'void' ? 'void' : 'paid')) differ.push(o); });
+  const extra = (recs || []).filter(r => !seen.has(r.id));
+  return { ok: !missing.length && !differ.length, missing, differ, extra, total: (orders || []).length, recs: (recs || []).length };
+}
+let _posrState = { at: 0, ok: 0, fail: 0, lastErr: '' };
+const posrState = () => _posrState;
+async function posrPut(c, o, mode) {
+  const ref = c.f.doc(c.f.db, 'pos_orders', String(o.id));
+  const stamp = () => ({ by: c.email, at: c.f.serverTimestamp(), cv: APP_CV });
+  const create = async () => {
+    try { await ctlTimeout(c.f.setDoc(ref, { ...posrRecord(o, false), ...stamp() })); }
+    catch (e) {   // موجود سلفًا بالبيانات نفسها (إعادة محاولة بعد رد ضائع) ⇒ ليس خطأ
+      const snap = await ctlTimeout(c.f.getDoc(ref)).catch(() => null); const r = snap && snap.exists() ? snap.data() : null;
+      if (!(r && r.digest === sha256Hex(posrData(o)))) throw e; }
+  };
+  const voidIt = async (again) => {
+    try { await ctlTimeout(c.f.setDoc(ref, { ...posrRecord(o, true), ...stamp() })); }
+    catch (e) { const snap = await ctlTimeout(c.f.getDoc(ref)).catch(() => null); const r = snap && snap.exists() ? snap.data() : null;
+      if (r && r.status === 'void') return;
+      if (snap && !snap.exists() && !again) { await create(); return voidIt(true); }   // v56.6: لم يُنشأ السجل سابقًا (انقطاع) ⇒ إنشاء ثم إلغاء
+      throw e; }
+  };
+  if (mode === 'create' || mode === 'both') await create();
+  if (mode === 'void' || mode === 'both') await voidIt();
+}
+async function posrMirror(before, after) {
+  const put = posrDiff(before, after); if (!put.length) return { ok: 0, fail: 0 };
+  const c = await ctlIdentity();
+  if (!c) { _posrState = { ..._posrState, at: Date.now(), fail: _posrState.fail + put.length, lastErr: 'no-identity' }; return { ok: 0, fail: put.length, lastErr: 'no-identity' }; }   // v56.6: يُعدّ إخفاقًا لا صمتًا
+  let ok = 0, fail = 0, lastErr = '';
+  for (const { o, mode } of put) { try { await posrPut(c, o, mode); ok++; } catch (e) { fail++; lastErr = (e && e.code) || 'error'; } }
+  _posrState = { at: Date.now(), ok: _posrState.ok + ok, fail: _posrState.fail + fail, lastErr: lastErr || _posrState.lastErr };
+  return { ok, fail, lastErr };
+}
+let _posrChain = Promise.resolve();
+const posrQueue = (before, after) => { _posrChain = _posrChain.then(() => posrMirror(before, after)).catch(() => null); return _posrChain; };
+async function posrLoad(branchIds, central) {
+  const c = await ctlIdentity(); if (!c) return null;
+  try {
+    const qs = central ? [c.f.collection(c.f.db, 'pos_orders')] : (branchIds || []).filter(Boolean).slice(0, 30).map(b => c.f.query(c.f.collection(c.f.db, 'pos_orders'), c.f.where('branchId', '==', b)));
+    const snaps = await ctlTimeout(Promise.all(qs.map(q => c.f.getDocs(q))), 60000);
+    return snaps.flatMap(s => s.docs.map(d => ({ id: d.id, ...(d.data() || {}) })));
+  } catch (e) { return { err: (e && e.code) || 'error' }; }
+}
+/** نسخ الفواتير القائمة (المدير): الناقص فقط (حسب مطابقة سابقة)، وما في فترة مقفلة يُتخطى (القواعد ترفضه) */
+async function posrSeed(orders, lockedTo, onProgress) {
+  const c = await ctlIdentity(); if (!c) return { err: 'خارج Firestore' };
+  let ok = 0, fail = 0, locked = 0, lastErr = '', i = 0; const list = (orders || []).filter(o => o && posrOkId(o.id) && o.branchId);
+  for (const o of list) {
+    if (String(o.date || '') <= String(lockedTo || '0000-00-00')) { locked++; continue; }
+    try { await posrPut(c, o, o.status === 'void' ? 'both' : 'create'); ok++; } catch (e) { fail++; lastErr = (e && e.code) || 'error'; }
+    if (onProgress && (++i % 20 === 0)) onProgress(i, list.length);
+  }
+  return { ok, fail, locked, lastErr, total: list.length };
+}
+/** v56.6 (قرار المالك): إصلاح سجل خاطئ من فاتورة المستند الأصلية — لمسؤول النظام (القواعد porRepair)، بسبب مكتوب يُحفظ في السجل */
+async function posrRepair(o, reason) {
+  const c = await ctlIdentity(); if (!c) return { err: 'خارج Firestore' };
+  const r = String(reason || '').trim(); if (r.length < 5) return { err: 'اكتب سبب الإصلاح' };
+  try {
+    const rec = posrRecord(o, o.status === 'void');
+    await ctlTimeout(c.f.setDoc(c.f.doc(c.f.db, 'pos_orders', String(o.id)), { ...rec, repair: JSON.stringify({ reason: r.slice(0, 1500), by: c.email, at: new Date().toISOString() }), by: c.email, at: c.f.serverTimestamp(), cv: APP_CV }));
+    return { ok: true };
+  } catch (e) { return { err: (e && e.code) || 'error' }; }
+}
+export { posrOn, posrData, posrVoidData, posrRecord, posrDiff, posrCompare, posrState, posrLoad, posrSeed, posrRepair };   // v56.4 سجلات فواتير نقطة البيع
+
 /* ===== v49.0 — المرحلة 01 (قرار G1-ب): القيود اليدوية سجلات مستقلة (fin_journal/{id}) — نسخ مطابق (mirror) =====
    الوثيقة الحالية (journalManual) تبقى المصدر في هذه المرحلة؛ كل إنشاء/اعتماد/رفض/حذف قبل الاعتماد يُنسخ إلى سجل تحرسه القواعد
    على الخادم: الإنشاء لأدوار المحاسبة المركزية وبعد تاريخ الإقفال، «مرحّل مباشرة» للمدير فقط، والاعتماد لغير المنشئ،
@@ -14198,6 +14405,64 @@ function fjCompare(list, recs) {
   const extra = (recs || []).filter(r => !seen.has(r.id));
   return { ok: !missing.length && !differ.length && !extra.length, missing, differ, extra, total: (list || []).length, recs: (recs || []).length };
 }
+/* ══════ v56.9 — MUKTASAB FINANCE D1: دفتر القيود المخزّن fin_ledger (قرارات المالك 2026-11-26) ══════
+   القيد الآلي يُحفظ مرة برقم ثابت JV-<السنة>-<تسلسل> يبدأ من 1 كل سنة؛ محتواه (السطور بالهللات) وبصمته لا يتغيران.
+   الدفعة D1: قيود الإغلاقات المعتمدة من 2026-01-01 — ترحيل يدوي من «صيانة النظام» ومطابقة مع المحرك. القراءة تبقى من المحرك.
+   المفتاح org.ledger.on — معطّل افتراضيًا. الفترة المقفلة تحتاج نافذة الترحيل (fin_periods/migration) وتُعلَّم legacy. */
+const FL_START = '2026-01-01';
+const flOn = (org) => !!(org && org.ledger && org.ledger.on);
+const flKey = (eid, ver) => String(eid || '').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 140) + '_v' + (ver || 1);
+const flNo = (year, n) => 'JV-' + year + '-' + String(n).padStart(6, '0');
+/** سطور القيد بالهللات: [رمز، مدين، دائن، فرع] — السطور الصفرية تُسقط */
+const flLines = (e) => (e.lines || []).map(l => [String(l.code), toHal(l.debit), toHal(l.credit), String(e.branchId || '')]).filter(l => l[1] || l[2]);
+function flRecord(e, ver) {
+  const L = flLines(e); const drH = L.reduce((a, l) => a + l[1], 0), crH = L.reduce((a, l) => a + l[2], 0);
+  return { date: String(e.date || ''), src: String(e.id || '').slice(0, 200), title: (String(e.title || '') + (e.src ? ' · ' + e.src : '')).slice(0, 300),
+    lines: JSON.stringify(L), drH, crH, digest: sha256Hex(JSON.stringify([String(e.date || ''), L])), ver: ver || 1 };
+}
+/** نطاق D1: قيود الإغلاقات المعتمدة (لا المرفوعة بانتظار التدقيق — قد تتغير) من تاريخ البداية */
+function flScope(ops, A) {
+  const ids = new Set((ops.closings || []).filter(c => c && c.status === 'approved').map(c => c.id));
+  return (A.entries || []).filter(e => e.ref && ids.has(e.ref) && String(e.date || '') >= FL_START);
+}
+/** المطابقة: المحرك مقابل الدفتر المخزّن — ناقص · مختلف (البصمة) · زائد (قيد مخزّن لا يقابله قيد) · غير قابل (لا يتطابق بالهللة) */
+function flCompare(entries, recs) {
+  const live = new Map(); (recs || []).forEach(r => { if (r.status !== 'posted' || r.reversalOf) return; const p = live.get(r.src); if (!p || (r.ver || 1) > (p.ver || 1)) live.set(r.src, r); });
+  const missing = [], differ = [], bad = [], seen = new Set();
+  (entries || []).forEach(e => { const R = flRecord(e); seen.add(R.src);
+    if (R.drH !== R.crH || !R.drH || (e.subHal || 0) > 0) { bad.push(e); return; }
+    const r = live.get(R.src); if (!r) missing.push(e); else if (r.digest !== R.digest) differ.push(e); });
+  const extra = [...live.values()].filter(r => !seen.has(r.src));
+  return { ok: !missing.length && !differ.length && !extra.length && !bad.length, missing, differ, extra, bad, total: (entries || []).length, recs: live.size };
+}
+async function flLoad() {
+  const c = await ctlIdentity(); if (!c) return null;
+  try { const s = await ctlTimeout(c.f.getDocs(c.f.collection(c.f.db, 'fin_ledger')), 30000); return s.docs.map(d => ({ id: d.id, ...(d.data() || {}) })); }
+  catch (e) { return { err: (e && e.code) || 'error' }; }
+}
+/** الترحيل بترتيب التاريخ: لكل قيد معاملة تقرأ عدّاد سنته وتكتب القيد والعدّاد معًا (القواعد تفرض +1 بالضبط) */
+async function flPost(entries, lockedTo, onProgress) {
+  const c = await ctlIdentity(); if (!c) return { err: 'خارج Firestore' };
+  const list = (entries || []).slice().sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.id).localeCompare(String(b.id)));
+  let ok = 0, fail = 0, lastErr = ''; const nos = [];
+  for (let i = 0; i < list.length; i++) {
+    const e = list[i], R = flRecord(e), key = flKey(e.id, R.ver), y = Number(R.date.slice(0, 4));
+    try {
+      await ctlTimeout(c.f.runTransaction(c.f.db, async (tx) => {
+        const sr = c.f.doc(c.f.db, 'fin_ledger_meta', 'seq_' + y), er = c.f.doc(c.f.db, 'fin_ledger', key);
+        const [ss, es] = [await tx.get(sr), await tx.get(er)];
+        if (es.exists()) throw Object.assign(new Error('exists'), { code: 'exists' });
+        const n = (ss.exists() ? Number((ss.data() || {}).n) || 0 : 0) + 1;
+        tx.set(er, { ...R, no: flNo(y, n), year: y, seq: n, status: 'posted', by: c.email, at: c.f.serverTimestamp(), cv: APP_CV, ...(R.date <= (lockedTo || '') ? { legacy: true } : {}) });
+        tx.set(sr, { n, last: key }); nos.push(flNo(y, n));
+      }));
+      ok++;
+    } catch (err) { fail++; lastErr = (err && err.code) || 'error'; }
+    if (onProgress && (i + 1) % 10 === 0) onProgress(i + 1, list.length);
+  }
+  return { ok, fail, lastErr, total: list.length, first: nos[0] || '', last: nos[nos.length - 1] || '' };
+}
+
 const fjOn = (org) => !!(org && org.finRecords && org.finRecords.on);
 let _fjState = { at: 0, ok: 0, fail: 0, skip: 0, lastErr: '' };
 const fjState = () => _fjState;
@@ -14694,7 +14959,7 @@ export { MKT_DEF, mktCfg, mktCanApprove, MKT_SEGS, MKT_SEG_ORDER, mktAlias, mktC
 export { moveIdx, RowGrip, RECUR_AR, recurNext, recurDue };
 export { peekDoc, DocLink, DocPeekHost, VoiceSearchHost, voiceNorm };
 export { fefoPick, lotsFor, projList, projectPL, projNextCode };
-export { appOfTab, appTaskBadges, homeKpis, isLateWork, HUB_BASE, hubTabs, HR_TABS, refsApi, docxPages, textPages, xlsxPages, cfoDash, REC_PRI, REC_DEPT, finRecs, recRealized, CTL_SEV, CTL_ST, CTL_OPEN, CTL_CAT, CTL_FLOW, ctlScan, caseSync, caseMove, FA_RATIOS, faSnap, faQuality, finAnalyze, MCP_KINDS, mcpPlanJournal, mcpPlanReclass, mcpApplyReclass, mcpPlanExp, MCP_XI_HEAD, mcpApi, invPayments, INV_CLS, XI_CLS, accClsOf, invCls, PJ_PRE, IMP_PRE, pjNumber, pjStamp, pjBackfill, pjMissing, XI_KW, XI_AR, XI_TEMPLATE, xiDetect, xiPlan, xiRecords, xiNum, CAT_FOR, catListOf, catsFor, catOf, recDomains, DOMAIN_DEF, domCfgOf, domOk, domFilter, userBrIds, DomainChips, usersApi, closingImgs, closingArchiveOne, closingStripImgs, posKey, posYmOf, posSplitOn, posSplitDoc, posJoin, brRead, brWrite, posSplitBranch, posUnsplitBranch, LOY_AUDIT_WHY, loyAudit, AI_GROWTH_PRESETS, growthDigest, aiGrowthClean, aiGrowthAsk, COMMS_PROVIDERS, COMMS_CH, COMMS_VARS, COMMS_DEF, commsCfgOf, commsRender, smsParts, commsQuiet, commsTplErr, BRR_CH, brReport, dtLocal, REC_DEF, recCfgOf, recIndex, recFor, recStats, CAMP_ST, campNextNo, campStatusOf, campStats, AUTO_DEFAULTS, autoCfgOf, payrollAccrualApply, poSuggestions, autoAlerts, prevMonthOf, SecPager, recurApply, EDIT_KINDS, editPermOf, canEditRec, BrandSymbol, BrandLockup, ACCT_GROUPS, MYWORK_CATS, myWorkGroups, MyWork, rptShell, RPT_TEMPLATES, rptFmt, rptFlat, rptTotals, rptHtml, printReport, rptXlsxRows, makeRptXlsx, rptCsv, rptDownload, DEP_METHODS, depMethod, deprSchedule, glLedger, acctActivity, COST_METHODS, costMethod, stockCostingAvg, stockCostingFifo, costCompare, itemBin, binSort, binOrder, pmPeriod, profitMatrix, RFQ_ST, rfqNextNo, rfqCompare, rfqToPOs, DLV_ST, DLV_NEXT, posDrivers, dlvNeeded, dlvRecord, dlvMove, dlvSummary, posAreas, tableArea, areasErr, salesByArea, computeSmartAlerts, stockShortages, CV_KIND, cvNextNo, partyOpenDocs, applyCashVoucher, cashVoucherHtml, VCH_T, VCH_TRF, vchTypeOf, assignVouchers, voucherList, voucherHtml, saleDeductFrom, saleDeductOn, saleUse, saleRecipeItems, saleDayUse, syncSaleMoves, itemLedger, UOM_LIST, UOM_GROUPS, uomOf, uomConv, uomOk, uomNeeded, lineUnits, lineFac, UomSelect, Notifications, closeAlertsCfg, closeAlertEvents, closeAlertFor, shiftSumText, waShare, CLOSE_ALERT_ROLES, posDocView, printScreen, cutoutPixels, productThumb, prepWasteStats, normDigits, normScan, posPaper, posPaperDev, setPosPaperDev, prepShelfH, prepBatchState, PREP_ST, canBrPurchase, brSigCheck, BR_PURCHASERS, poWhOf, syncPoInbox, INV_BILLERS, ITEM_NEW_TYPES, itemsSeq, nextItemCode, vatNoOk, supVatOf, ItemPick, A4_CSS, posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim, prepItemId, prepItemOf, prodNeeds, prodCheck, prodMoves, clrMerge, clrRead, clrViewStats, ppvReport, invTurnover, dirOf, isMzbk, mzbkDecrypt, clrData, clrRecord, clrSigRef, clrDiff, clrCompare, clrOn, clrState, clrMirror, clrLoad, clrSeed, fjData, fjStatus, fjRecord, fjDiff, fjCompare, fjOn, fjState, fjMirror, fjLoad, fpLockedTo, fpOn, fpLoad, fmLoad, fmSet, fjSeed, fjLegacyRecord, dedupeSameId, findRecentDups, negStockChanges, negStockMsg, FD_KINDS, fdDate, fdData, fdProg, fdPaid, fdRecord, fdDiff, fdCompare, fdLoad, fdSeed, OdooBar, ACCT_SECTIONS, ACCT_SEC_AR, ACC_KIND, ALL_TABS, APPS, AdvanceForm, AppPermsPanel, AppsStrip, BR_COLS, Badge, BalCell, BlindCount, BranchForm, COUNT_FREQ, COUNT_ST, CameraModal, CategoriesPanel, ClosingView, CloudHealth, CountScheduleCard, DAYS_AR, DENOMS, DOC_LABEL, DOC_TYPES, DailyBranchReport, DeliveryAppsPanel, DisbursementForm, DupInvHint, EXP_CATS, FILE_CATS, Field, FinancialReports, GROWTH_MONTHS, HR_WEEK_DAYS, HrSignPad, ITEM_TYPES, Kpi, LAUNCH_APPS, LEAVE_TYPES, LOCK_MSG, MAIN_WH, MFA_DEFAULT_ROLES, MOVE_KINDS, MZ_FIXED, MZ_KIND_AR, MZ_LOGO_HTML, MZ_SUGGEST, MfaPolicyCard, MizanMerge, Modal, MoneyField, NUM_FACE, NUM_LOCALE, NationalAddressFields, Num, OutputDialog, PAY_ADD_TYPES, PAY_GUESS, PEN_TYPES, POS_DEV_KEY, POS_SH_KEY, PROMO_IDEAS, PROMO_T, PT_SRC, PT_TYPE, PartnerChip, PdfTile, PhotoField, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, PriceAlerts, QR_ITEMS, QR_STATUS, QUOTA_MSG, QrBranchesView, QrComplaints, QrDashboard, RB_KIND_AR, RB_PM_AR, RB_SOURCES, REG_APPS, REG_CATS, REG_IX, ROLES, SC_KPIS, SIGN_DOC_AR, SIG_H, SIG_W, SectionNav, SigView, SignDocsModal, SignaturePad, SystemPanel, TAB_AR, TRAIN_STATUS_AR, UsageVariance, UserForm, WASTE_REASONS, WH_KIND, WH_MOVE, WH_ST, WarehousesPanel, WasteControl, WasteFields, WastePending, WhLines, _normName, _xe, aCountDone, aItemsOf, acctSecKey, activePriorCorrectives, activeTrainingRecord, aiHeaders, appCanSee, appOpenNow, appUseGet, appUseSet, arDT, arDate, arTime, bankOfBranch, bioEnroll, bookHidden, branchBanks, branchEntityId, browserName, bsLayout, bsRowsOf, buildAccounting, buildClosingA4, buildPartners, buildPayslipSignDocs, businessDay, canApproveCount, canApproveWaste, capOK, chartTone, closingInvoices, clr, compressImage, computeIncome, contactFields, contactOf, correctiveExpiry, correctiveSignDoc, countCfgOf, countDenoms, countFocus, countSchedule, countedClosing, customerAging, daysBetween, defaultHrPolicies, defaultPenaltySchedule, defaultPointsRules, defaultRewardTiers, defaultRoleKpis, defaultTrainingPrograms, deficitCfg, deficitPatterns, detectStmtMap, deviceType, emptyDenoms, entityById, entityList, eosAccrualLines, eosCumAt, eosState, eosYears, escH, expiringTraining, expiryLots, exportExcel, fineSuggest, fmtBalP, fmtNA, frozenSnapshotFor, gosiRatesFor, haversineMeters, hrAttendanceDetail, hrEmpStats, hrQrWindowCode, hrScoreFor, isCostCtl, isLayout, isPdfData, isRowsOf, isStocked, isoD, itemAvgCosts, itemType, kpiAchievement, leaveBalance, leaveDeductPlan, lockedThru, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, makeXlsx, missingRequiredTraining, mizanPlan, money, moneyP, monthEnd, monthLabel, monthLedger, multiEntityOn, mzNewCode, mzR2, naClean, naErr, naHas, naMissing, newBranchDraft, nextPartnerCode, nextWhAcc, normPhone, normalizeSupPays, nowISO, onLeave, openDocWin, openPdfData, otFromAttendance, otRateOf, overdueSignDocs, pFactor, parseCsvGrid, parseMt940, parseXlsxGrid, partGross, partYield, payCashPart, payLabel, paySplits, payTotal, payrollRowsOf, penTypeAr, pendShiftsGet, pendShiftsSet, periodLocked, piAggregate, piDetect, piNorm, pipTriggered, posCashNet, posClrOf, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posShiftHtml, posTotals, posZHtml, positionJdHtml, printA4, printClosingA4, printIncomeA4, printPartnerStatement, printReceipt, printSalesInvoice, programRequiredFor, promoActive, promoDesc, promoHits, purKey, pwStrength, q3, qrAnalyzeComments, qrAvg, qrBranchStats, qrDate, qrF1, qrFs, qrIsComplaint, qrMs, qrOverall, qrOverdue, qrPrintReport, qrRateUrl, qrSentBadge, qrStatusOf, qrSvg, rewardSignDoc, roleEdit, roleHasTab, roleKpisFor, rolePost, salesDaySource, sha, sha256Hex, short, siCredited, siRem, siSorted, siStamp, siVerify, sigBlockHtml, sigPoints, sigSvg, signDeclaration, signDocHtml, simplifySig, slimBranchDoc, snapAll, snapMonths, snapPut, stAddDays, stDate, stNum, stockByWh, submitWaste, suggestNextLevel, sum, supplierAging, supplierPrices, today, trainingExpiryOf, trainingStatusNow, uid, usageReport, useSecNav, verifyBackup, waNum, wasteCfg, wasteDaily, wasteReasonAr, wasteRows, webauthnSupported, whForBranch, whName, whOf, whOn, zatcaTLV };
+export { appOfTab, appTaskBadges, homeKpis, isLateWork, HUB_BASE, hubTabs, HR_TABS, refsApi, docxPages, textPages, xlsxPages, cfoDash, REC_PRI, REC_DEPT, finRecs, recRealized, CTL_SEV, CTL_ST, CTL_OPEN, CTL_CAT, CTL_FLOW, ctlScan, caseSync, caseMove, FA_RATIOS, faSnap, faQuality, finAnalyze, MCP_KINDS, mcpPlanJournal, mcpPlanReclass, mcpApplyReclass, mcpPlanExp, MCP_XI_HEAD, mcpApi, invPayments, INV_CLS, XI_CLS, accClsOf, invCls, PJ_PRE, IMP_PRE, pjNumber, pjStamp, pjBackfill, pjMissing, XI_KW, XI_AR, XI_TEMPLATE, xiDetect, xiPlan, xiRecords, xiNum, CAT_FOR, catListOf, catsFor, catOf, recDomains, DOMAIN_DEF, domCfgOf, domOk, domFilter, userBrIds, DomainChips, usersApi, closingImgs, closingArchiveOne, closingStripImgs, posKey, posYmOf, posSplitOn, posSplitDoc, posJoin, brRead, brWrite, posSplitBranch, posUnsplitBranch, LOY_AUDIT_WHY, loyAudit, AI_GROWTH_PRESETS, growthDigest, aiGrowthClean, aiGrowthAsk, COMMS_PROVIDERS, COMMS_CH, COMMS_VARS, COMMS_DEF, commsCfgOf, commsRender, smsParts, commsQuiet, commsTplErr, BRR_CH, brReport, dtLocal, REC_DEF, recCfgOf, recIndex, recFor, recStats, CAMP_ST, campNextNo, campStatusOf, campStats, campSpend, AUTO_DEFAULTS, autoCfgOf, payrollAccrualApply, poSuggestions, autoAlerts, prevMonthOf, SecPager, recurApply, EDIT_KINDS, editPermOf, canEditRec, BrandSymbol, BrandLockup, ACCT_GROUPS, MYWORK_CATS, myWorkGroups, MyWork, rptShell, RPT_TEMPLATES, rptFmt, rptFlat, rptTotals, rptHtml, printReport, rptXlsxRows, makeRptXlsx, rptCsv, rptDownload, DEP_METHODS, depMethod, deprSchedule, glLedger, acctActivity, COST_METHODS, costMethod, stockCostingAvg, stockCostingFifo, costCompare, itemBin, binSort, binOrder, pmPeriod, profitMatrix, RFQ_ST, rfqNextNo, rfqCompare, rfqToPOs, DLV_ST, DLV_NEXT, posDrivers, dlvNeeded, dlvRecord, dlvMove, dlvSummary, posAreas, tableArea, areasErr, salesByArea, computeSmartAlerts, stockShortages, CV_KIND, cvNextNo, partyOpenDocs, applyCashVoucher, cashVoucherHtml, VCH_T, VCH_TRF, vchTypeOf, assignVouchers, voucherList, voucherHtml, saleDeductFrom, saleDeductOn, saleUse, saleRecipeItems, saleDayUse, syncSaleMoves, itemLedger, UOM_LIST, UOM_GROUPS, uomOf, uomConv, uomOk, uomNeeded, lineUnits, lineFac, UomSelect, Notifications, closeAlertsCfg, closeAlertEvents, closeAlertFor, shiftSumText, waShare, CLOSE_ALERT_ROLES, posDocView, printScreen, cutoutPixels, productThumb, prepWasteStats, normDigits, normScan, posPaper, posPaperDev, setPosPaperDev, prepShelfH, prepBatchState, PREP_ST, canBrPurchase, brSigCheck, BR_PURCHASERS, poWhOf, syncPoInbox, INV_BILLERS, ITEM_NEW_TYPES, itemsSeq, nextItemCode, vatNoOk, supVatOf, ItemPick, A4_CSS, posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim, prepItemId, prepItemOf, prodNeeds, prodCheck, prodMoves, clrMerge, clrRead, clrViewStats, ppvReport, invTurnover, dirOf, isMzbk, mzbkDecrypt, clrData, clrRecord, clrSigRef, clrDiff, clrCompare, clrOn, clrState, clrMirror, clrLoad, clrSeed, fjData, fjStatus, fjRecord, fjDiff, fjCompare, fjOn, fjState, fjMirror, fjLoad, fpLockedTo, fpOn, fpLoad, fmLoad, fmSet, fjSeed, fjLegacyRecord, dedupeSameId, findRecentDups, negStockChanges, negStockMsg, FD_KINDS, fdDate, fdData, fdProg, fdPaid, fdRecord, fdDiff, fdCompare, fdLoad, fdSeed, OdooBar, ACCT_SECTIONS, ACCT_SEC_AR, ACC_KIND, ALL_TABS, APPS, AdvanceForm, AppPermsPanel, AppsStrip, BR_COLS, Badge, BalCell, BlindCount, BranchForm, COUNT_FREQ, COUNT_ST, CameraModal, CategoriesPanel, ClosingView, CloudHealth, CountScheduleCard, DAYS_AR, DENOMS, DOC_LABEL, DOC_TYPES, DailyBranchReport, DeliveryAppsPanel, DisbursementForm, DupInvHint, EXP_CATS, FILE_CATS, Field, FinancialReports, GROWTH_MONTHS, HR_WEEK_DAYS, HrSignPad, ITEM_TYPES, Kpi, LAUNCH_APPS, LEAVE_TYPES, LOCK_MSG, MAIN_WH, MFA_DEFAULT_ROLES, MOVE_KINDS, MZ_FIXED, MZ_KIND_AR, MZ_LOGO_HTML, MZ_SUGGEST, MfaPolicyCard, MizanMerge, Modal, MoneyField, NUM_FACE, NUM_LOCALE, NationalAddressFields, Num, OutputDialog, PAY_ADD_TYPES, PAY_GUESS, PEN_TYPES, POS_DEV_KEY, POS_SH_KEY, PROMO_IDEAS, PROMO_T, PT_SRC, PT_TYPE, PartnerChip, PdfTile, PhotoField, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, PriceAlerts, QR_ITEMS, QR_STATUS, QUOTA_MSG, QrBranchesView, QrComplaints, QrDashboard, RB_KIND_AR, RB_PM_AR, RB_SOURCES, REG_APPS, REG_CATS, REG_IX, ROLES, SC_KPIS, SIGN_DOC_AR, SIG_H, SIG_W, SectionNav, SigView, SignDocsModal, SignaturePad, SystemPanel, TAB_AR, TRAIN_STATUS_AR, UsageVariance, UserForm, WASTE_REASONS, WH_KIND, WH_MOVE, WH_ST, WarehousesPanel, WasteControl, WasteFields, WastePending, WhLines, _normName, _xe, aCountDone, aItemsOf, acctSecKey, activePriorCorrectives, activeTrainingRecord, aiHeaders, appCanSee, appOpenNow, appUseGet, appUseSet, arDT, arDate, arTime, bankOfBranch, bioEnroll, bookHidden, branchBanks, branchEntityId, browserName, bsLayout, bsRowsOf, buildAccounting, buildClosingA4, buildPartners, buildPayslipSignDocs, businessDay, canApproveCount, canApproveWaste, capOK, chartTone, closingInvoices, clr, compressImage, computeIncome, contactFields, contactOf, correctiveExpiry, correctiveSignDoc, countCfgOf, countDenoms, countFocus, countSchedule, countedClosing, customerAging, daysBetween, defaultHrPolicies, defaultPenaltySchedule, defaultPointsRules, defaultRewardTiers, defaultRoleKpis, defaultTrainingPrograms, deficitCfg, deficitPatterns, detectStmtMap, deviceType, emptyDenoms, entityById, entityList, eosAccrualLines, eosCumAt, eosState, eosYears, escH, expiringTraining, expiryLots, exportExcel, fineSuggest, fmtBalP, fmtNA, frozenSnapshotFor, gosiRatesFor, haversineMeters, hrAttendanceDetail, hrEmpStats, hrQrWindowCode, hrScoreFor, isCostCtl, isLayout, isPdfData, isRowsOf, isStocked, isoD, itemAvgCosts, itemType, kpiAchievement, leaveBalance, leaveDeductPlan, lockedThru, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, makeXlsx, missingRequiredTraining, mizanPlan, money, moneyP, monthEnd, monthLabel, monthLedger, multiEntityOn, mzNewCode, mzR2, naClean, naErr, naHas, naMissing, newBranchDraft, nextPartnerCode, nextWhAcc, normPhone, normalizeSupPays, nowISO, onLeave, openDocWin, openPdfData, otFromAttendance, otRateOf, overdueSignDocs, pFactor, parseCsvGrid, parseMt940, parseXlsxGrid, partGross, partYield, payCashPart, payLabel, paySplits, payTotal, payrollRowsOf, penTypeAr, pendShiftsGet, pendShiftsSet, periodLocked, piAggregate, piDetect, piNorm, pipTriggered, posCashNet, posClrOf, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posShiftHtml, posTotals, posZHtml, positionJdHtml, printA4, printClosingA4, printIncomeA4, printPartnerStatement, printReceipt, printSalesInvoice, programRequiredFor, promoActive, promoDesc, promoHits, purKey, pwStrength, q3, qrAnalyzeComments, qrAvg, qrBranchStats, qrDate, qrF1, qrFs, qrIsComplaint, qrMs, qrOverall, qrOverdue, qrPrintReport, qrRateUrl, qrSentBadge, qrStatusOf, qrSvg, rewardSignDoc, roleEdit, roleHasTab, roleKpisFor, rolePost, salesDaySource, sha, sha256Hex, short, siCredited, siRem, siSorted, siStamp, siVerify, sigBlockHtml, sigPoints, sigSvg, signDeclaration, signDocHtml, simplifySig, slimBranchDoc, snapAll, snapMonths, snapPut, stAddDays, stDate, stNum, stockByWh, submitWaste, suggestNextLevel, sum, supplierAging, supplierPrices, today, trainingExpiryOf, trainingStatusNow, uid, usageReport, useSecNav, verifyBackup, waNum, wasteCfg, wasteDaily, wasteReasonAr, wasteRows, webauthnSupported, whForBranch, whName, whOf, whOn, zatcaTLV };
 export { ClosingForm };
 // v38.3 — للاختبارات الآلية (tests/): دوال المحرك والشاشات تُستورد من النواة مباشرة
 export { stockCosting, eosEntitledAmt, eosFullAmt, findDupInvoices, invNoNorm, promoLineDisc, tafqeet, MktGrowth, Hub, Launcher, PosApp, Inventory, Partners, SalesHub, QrFeedback, AppsCenter, BranchWarehouse, Admin, AuditView, Accounting, emptyOrg, emptyOps, HUBS };

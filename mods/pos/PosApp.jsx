@@ -10,13 +10,17 @@ import { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, posRetur
 import { posDocView, APPS, CloudHealth, Field, Modal, Num, POS_SH_KEY, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, QUOTA_MSG, ROLES, businessDay, isoD, logClientError, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, makeXlsx, money, normPhone, nowISO, pendShiftsGet, pendShiftsSet, posCashNet, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posTotals, posZHtml, promoActive, promoHits, sha256Hex, uid, recCfgOf, recIndex, recFor } from '../../App.jsx';
 
 import { posHolds, posHoldsSet, posHoldPut, posHoldRecall } from '../../App.jsx';   // v56.0 (GAP-007) تعليق الطلب واستدعاؤه
+import { posVoidBlock, posNextNo, posTabCuts, escH, POS_VOID_ROLES } from '../../App.jsx';   // v56.2 (POS دفعة 1) حراس الإلغاء والترقيم وحساب الطاولة
 
 export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const R = ROLES[me.role] || {};
   const isMgr = !!(R.admin || R.scope === 'all' || me.role === 'branch_manager' || me.role === 'regional_manager');
+  // v56.6 (قرار المالك 2026-11-26): الإلغاء والمرتجع للإدارة التشغيلية فقط — يطابق قواعد سجلات pos_orders (posMgrRoles) وفصل المهام: من يدقق لا يلغي
+  const canVoid = !!(R.admin || POS_VOID_ROLES.includes(me.role));
   const cfg = org.posCfg || {}; const enabled = cfg.branches || [];
   const brs = (myBranches || []).filter(b => b.isActive !== false && enabled.includes(b.id));
   const [brId, setBrId] = useState(() => (brs[0] || {}).id || '');
+  const payBusy = useRef(false); const tabSent = useRef(null);   // v56.2: B2 قفل إتمام البيع · B7 أصناف الطاولة المُرسلة للمطبخ
   const br = brs.find(b => b.id === brId) || brs[0];
   const dev = useMemo(posDev, []);
   const rate = (org.taxCfg || {}).enabled ? (Number((org.taxCfg || {}).rate) || 15) : 0;
@@ -119,14 +123,16 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     }, { actionType: 'create', targetType: 'pos_tab', targetId: br.id + ':' + no, branchName: br.name, title: 'أرسل طلب الطاولة ' + no + (kds ? ' للمطبخ' : ''), details: lines.map(l => l.name + ' ×' + l.qty).join('، ').slice(0, 160) });
     if (ok) { setCart([]); setShowCart(false); say('أُرسل طلب الطاولة ' + no + (kds ? ' للمطبخ' : '') + ' ✓'); }
   };
-  const startPayTab = (t) => { const S = tabSum(t); setCart(S.lines.map(l => ({ key: uid('l'), productId: l.productId, name: l.name, price: l.price, qty: l.qty, note: l.note || '' }))); setChannel('dinein'); setTbl(String(t.table)); setPayTab(t.id); setTblSel(null); setView('sell'); };
-  const cancelPayTab = () => { setPayTab(null); setCart([]); };
+  const startPayTab = (t) => { const S = tabSum(t); tabSent.current = S.lines; setCart(S.lines.map(l => ({ key: uid('l'), productId: l.productId, name: l.name, price: l.price, qty: l.qty, note: l.note || '' }))); setChannel('dinein'); setTbl(String(t.table)); setPayTab(t.id); setTblSel(null); setView('sell'); };
+  const cancelPayTab = () => { setPayTab(null); setCart([]); tabSent.current = null; };
   const printBill = async (t) => { const S = tabSum(t);
-    posPrint('<div style="font-family:sans-serif;direction:rtl;width:280px;font-size:13px"><h3 style="text-align:center;margin:4px 0">' + (org.company || {}).name + '</h3><div style="text-align:center">' + br.name + ' · طاولة ' + t.table + '</div><div style="text-align:center;font-size:11px;margin:4px 0">فاتورة مبدئية — ليست فاتورة ضريبية</div><hr>' +
-      S.lines.map(l => '<div style="display:flex;justify-content:space-between"><span>' + l.name + ' ×' + l.qty + '</span><span>' + (l.qty * l.price).toFixed(2) + '</span></div>').join('') + '<hr><div style="display:flex;justify-content:space-between;font-weight:700"><span>الإجمالي (شامل الضريبة)</span><span>' + S.total.toFixed(2) + '</span></div></div>');
+    posPrint('<div style="font-family:sans-serif;direction:rtl;width:280px;font-size:13px"><h3 style="text-align:center;margin:4px 0">' + escH((org.company || {}).name) + '</h3><div style="text-align:center">' + escH(br.name) + ' · طاولة ' + escH(t.table) + '</div><div style="text-align:center;font-size:11px;margin:4px 0">فاتورة مبدئية — ليست فاتورة ضريبية</div><hr>' +
+      S.lines.map(l => '<div style="display:flex;justify-content:space-between"><span>' + escH(l.name) + ' ×' + escH(l.qty) + '</span><span>' + (l.qty * l.price).toFixed(2) + '</span></div>').join('') + '<hr><div style="display:flex;justify-content:space-between;font-weight:700"><span>الإجمالي (شامل الضريبة)</span><span>' + S.total.toFixed(2) + '</span></div></div>');
     await commit(d => ({ ...d, posTabs: (d.posTabs || []).map(x => x.id === t.id ? { ...x, billAt: nowISO() } : x) })); setTblSel(null); };
   const moveTab = async (t, to) => { if (openTab(ops, br.id, to)) return say('الطاولة ' + to + ' مشغولة', 'no');
-    const ok = await commit(d => ({ ...d, posTabs: (d.posTabs || []).map(x => x.id === t.id ? { ...x, table: String(to), movedFrom: t.table } : x) }), { actionType: 'update', targetType: 'pos_tab', targetId: t.id, branchName: br.name, title: 'نقل الطاولة ' + t.table + ' إلى ' + to });
+    let busy = false;   // v56.2 (B8): الإشغال يُفحص على أحدث نسخة داخل الحفظ (جهازان لا ينقلان لطاولة واحدة)
+    const ok = await commit(d => { busy = false; if (openTab(d, br.id, to)) { busy = true; return d; } return { ...d, posTabs: (d.posTabs || []).map(x => x.id === t.id ? { ...x, table: String(to), movedFrom: t.table } : x) }; }, () => busy ? null : { actionType: 'update', targetType: 'pos_tab', targetId: t.id, branchName: br.name, title: 'نقل الطاولة ' + t.table + ' إلى ' + to });
+    if (busy) return say('الطاولة ' + to + ' شُغلت للتو من جهاز آخر', 'no');
     if (ok) { setTblSel(null); say('نُقل الحساب إلى الطاولة ' + to); } };
   const kdsMove = async (k) => { const nx = KDS_NEXT[k.status]; if (!nx) return;
     await commit(d => posTrim({ ...d, kdsTickets: (d.kdsTickets || []).map(x => x.id === k.id ? { ...x, status: nx, [nx + 'At']: nowISO() } : x) }, today)); };
@@ -164,7 +170,9 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     const ok = await commit(d => ({ ...d, posShifts: (d.posShifts || []).map(x => x.id === shift.id ? rec : x) }), { actionType: 'update', targetType: 'pos_shift', targetId: shift.id, branchName: br.name, title: 'إغلاق وردية نقطة بيع', details: dev.name + ' · متوقع ' + money(expected) + ' · فعلي ' + money(counted) + ' · فرق ' + money(rec.diff) });
     if (ok) { setShiftF(null); say('أُغلقت الوردية — الفرق ' + money(rec.diff)); posDocView(posZHtml(org, rec, shiftOrders(shift), br)); }
   };
-  const checkout = async (printNow) => {
+  // v56.2 (B2): قفل يمنع النقر المزدوج من إنشاء فاتورتين (الانتظار لحجز الكوبون كان يترك الزر نشطًا)
+  const checkout = async (printNow) => { if (payBusy.current) return; payBusy.current = true; try { await checkoutRun(printNow); } finally { payBusy.current = false; } };
+  const checkoutRun = async (printNow) => {
     const paid = posR2((pay.parts || []).reduce((a, x) => a + (Number(x.amount) || 0), 0));
     const cashGiven = posR2((pay.parts || []).filter(x => x.m === 'cash').reduce((a, x) => a + (Number(x.amount) || 0), 0));
     if (paid + 0.004 < T.total) return say('المدفوع أقل من الإجمالي', 'no');
@@ -173,6 +181,8 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     const maxPct = Number(cfg.maxDiscPct) || 0;
     if (manual > 0 && maxPct > 0 && !isMgr && base1 > 0 && manual / base1 * 100 > maxPct + 0.001) return say('الخصم اليدوي يتجاوز الحد المسموح للكاشير (' + maxPct + '%) — يلزم مدير الفرع', 'no');
     if (cust.phone.trim() && !phoneOk) return say('رقم جوال العميل غير صحيح', 'no');
+    const cuts = payTab ? posTabCuts(tabSent.current, cart) : [];   // v56.2 (B7)
+    if (cuts.length && !isMgr) return say('لا يُنقص صنف أُرسل للمطبخ إلا مدير الفرع: ' + cuts.map(c => c.name).join('، '), 'no');
     // v48.1: الكوبون المحدود يُحجز ذرّيًا قبل إتمام البيع (مفتاح عدم التكرار = معرّف الطلب)؛ إن تعذّر لا يُكمل البيع بالكوبون
     const oid = uid('po');
     if (priced.coupon && priced.coupon.limited) { const pr = (org.posPromos || []).find(x => x.id === priced.coupon.id) || {};
@@ -181,7 +191,8 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
       if (rv.doc) setLoy(rv.doc); }
     // ترقيم الجهاز اليومي وسلسلة البصمات (تعمل دون اتصال)
     const yy = today.replace(/-/g, '').slice(2); const sk = 'mizan:posSeq:' + br.id + ':' + today, hk = 'mizan:posHash:' + br.id;
-    let seq = 1, prev = { icv: 0, hash: '0' }; try { seq = (Number(localStorage.getItem(sk)) || 0) + 1; prev = JSON.parse(localStorage.getItem(hk) || '{"icv":0,"hash":"0"}'); } catch { }
+    let ls = 0, lp = null; try { ls = Number(localStorage.getItem(sk)) || 0; lp = JSON.parse(localStorage.getItem(hk) || 'null'); } catch { }
+    const { seq, prev } = posNextNo(ls, lp, [...(ops.posOrders || []), ...posQueue()], br.id, dev.tag, today, 'ف');   // v56.2 (B4): لا رقم مكرر بعد مسح التخزين المحلي
     const bi = (org.branches || []).findIndex(b => b.id === br.id) + 1;
     const o = { id: oid, no: 'ف' + bi + '-' + yy + '-' + dev.tag + '-' + String(seq).padStart(4, '0'), branchId: br.id, dev: dev.tag, shiftId: shift.id, date: today, at: nowISO(), by: me.name,
       channel, lines: priced.lines.map(l => ({ productId: l.productId, name: l.name, qty: l.qty, price: l.price, ...(l.note ? { note: l.note } : {}), ...(((cart.find(c => c.key === l.key) || {}).rec) ? { rec: (cart.find(c => c.key === l.key) || {}).rec } : {}), ...(l.disc ? { disc: l.disc, promoId: l.promoId, promoName: l.promoName } : {}) })),
@@ -191,7 +202,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
       total: T.total, vat: T.vat, net: T.net, rate,
       payments: pay.parts.filter(x => Number(x.amount) > 0).map(x => ({ m: x.m, amount: posR2(x.amount), ...(x.m === 'app' ? { appId: x.appId, appName: (apps.find(a => a.id === x.appId) || {}).n || 'تطبيق' } : {}), ...(x.pm ? { pm: x.pm, pmName: x.pmName } : {}) })),
       ...(recSeen.length ? { recShown: recSeen.slice(0, 30) } : {}), ...(recDis.length ? { recDismissed: recDis.slice(0, 30) } : {}),
-      change, status: 'paid', icv: (prev.icv || 0) + 1, pih: prev.hash || '0', ...(channel === 'dinein' && tbl ? { table: tbl, ...((ar) => ar ? { areaId: ar.id, areaName: ar.name } : {})(tableArea(org, br.id, tbl)) } : {}), ...(payTab ? { tabId: payTab } : {}) };
+      change, status: 'paid', icv: (prev.icv || 0) + 1, pih: prev.hash || '0', ...(channel === 'dinein' && tbl ? { table: tbl, ...((ar) => ar ? { areaId: ar.id, areaName: ar.name } : {})(tableArea(org, br.id, tbl)) } : {}), ...(payTab ? { tabId: payTab } : {}), ...(cuts.length ? { tabCuts: cuts, tabCutBy: me.name } : {}) };
     o.hash = sha256Hex(JSON.stringify([o.no, o.at, o.lines, o.total, o.vat, o.payments, o.icv, o.pih]));
     try { localStorage.setItem(sk, String(seq)); localStorage.setItem(hk, JSON.stringify({ icv: o.icv, hash: o.hash })); } catch { }
     const qn = [...posQueue(), o]; posQueueSet(qn); setQueue(qn);
@@ -208,22 +219,42 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     if (payTab) { } else if (kds) commit(d => posTrim({ ...d, kdsTickets: [...(d.kdsTickets || []), kdsTicket({ branchId: br.id, src: 'order', ref: o.no, table: o.table || '', channel: o.channel, lines: o.lines, at: o.at, by: me.name })] }, today)).then(ok => { if (!ok) say('دُفعت الفاتورة، لكن لم تصل لشاشة المطبخ (لا اتصال) — أبلغ المطبخ يدويًا', 'no'); });
   };
   const voidOrder = async (o) => {
-    if (!isMgr) return say('إلغاء الفاتورة لمدير الفرع', 'no');
+    if (!canVoid) return say('إلغاء الفاتورة للإدارة التشغيلية (مدير الفرع فأعلى)', 'no');
     if (o.pending) return say('انتظر إرسال الفاتورة أولًا', 'no');
+    const vb = posVoidBlock(ops, o); if (vb) return say(vb, 'no');   // v56.2 (B1/B6)
     const closed = (ops.closings || []).some(c => c.branchId === o.branchId && c.date === o.date && (c.status === 'submitted' || c.status === 'approved'));
     if (closed) return say('إغلاق هذا اليوم مُرحّل — لا تُلغى فواتيره', 'no');
     const reason = window.prompt('سبب إلغاء الفاتورة ' + o.no + ':'); if (!reason || !reason.trim()) return;
-    await commit(d => ({ ...d, posOrders: (d.posOrders || []).map(x => x.id === o.id ? { ...x, status: 'void', voidBy: me.name, voidAt: nowISO(), voidReason: reason.trim() } : x) }), { actionType: 'update', targetType: 'pos_order', targetId: o.id, branchName: br.name, title: 'ألغى فاتورة نقطة بيع', details: o.no + ' · ' + money(o.total) + ' · ' + reason.trim() });
+    /* v56.2 (B3): الفاتورة الصادرة بـ QR لا تُلغى بتغيير حالتها فقط — يصدر لها إشعار دائن مرقّم في سلسلة الجهاز.
+       الإشعار يُحفظ داخل الفاتورة الملغاة (voidNote) لا كمرتجع مستقل، فلا يُخصم من مبيعات اليوم مرة ثانية. */
+    const all = {}; (o.lines || []).forEach((l, i) => { all[i] = Number(l.qty) || 0; }); const C = posReturnCalc(o, all);
+    const yy = today.replace(/-/g, '').slice(2); const sk = 'mizan:posRetSeq:' + br.id + ':' + today, hk = 'mizan:posHash:' + br.id;
+    let ls = 0, lp = null; try { ls = Number(localStorage.getItem(sk)) || 0; lp = JSON.parse(localStorage.getItem(hk) || 'null'); } catch { }
+    const { seq, prev } = posNextNo(ls, lp, [...(ops.posOrders || []), ...posQueue()], br.id, dev.tag, today, 'م');
+    const bi = (org.branches || []).findIndex(b => b.id === br.id) + 1;
+    const at = nowISO();
+    const vn = { no: 'م' + bi + '-' + yy + '-' + dev.tag + '-' + String(seq).padStart(4, '0'), dev: dev.tag, date: today, at, by: me.name, total: -C.total, vat: -C.vat, net: -C.net, icv: (prev.icv || 0) + 1, pih: prev.hash || '0' };
+    vn.hash = sha256Hex(JSON.stringify([vn.no, vn.at, C.lines, vn.total, vn.vat, vn.icv, vn.pih, o.id]));
+    let blocked = '';
+    const ok = await commit(d => { blocked = ''; const cur = (d.posOrders || []).find(x => x.id === o.id); const why = posVoidBlock(d, cur); if (why) { blocked = why; return d; }
+      return { ...d, posOrders: (d.posOrders || []).map(x => x.id === o.id ? { ...x, status: 'void', voidBy: me.name, voidAt: at, voidReason: reason.trim(), voidNote: vn } : x) }; },
+      () => blocked ? null : { actionType: 'update', targetType: 'pos_order', targetId: o.id, branchName: br.name, title: 'ألغى فاتورة نقطة بيع', details: o.no + ' · ' + money(o.total) + ' · إشعار ' + vn.no + ' · ' + reason.trim() });   // v56.6: لا سجل تدقيق لإلغاء رُفض
+    if (blocked) return say(blocked, 'no');
+    if (!ok) return say('تعذّر حفظ الإلغاء — أعد المحاولة', 'no');
+    try { localStorage.setItem(sk, String(seq)); localStorage.setItem(hk, JSON.stringify({ icv: vn.icv, hash: vn.hash })); } catch { }
     if (o.loyalty && (o.loyalty.earned || o.loyalty.redeemed)) loyQSet([...loyQ(), ...(o.loyalty.earned ? [{ id: o.id + ':ve', phone: o.loyalty.phone, pts: -o.loyalty.earned, at: nowISO(), br: o.branchId, ord: o.no + ' (إلغاء)' }] : []), ...(o.loyalty.redeemed ? [{ id: o.id + ':vr', phone: o.loyalty.phone, pts: o.loyalty.redeemed, at: nowISO(), br: o.branchId, ord: o.no + ' (إلغاء)' }] : [])]);
     if (o.coupon && o.couponLtd) cpnRelease(o.coupon, o.id, 'إلغاء الفاتورة');   // v48.1 يعود حد الكوبون
-    say('أُلغيت الفاتورة ' + o.no); flush();
+    say('أُلغيت الفاتورة ' + o.no + ' — إشعار دائن ' + vn.no); flush();
+    posPrint(posReturnHtml(org, { ...vn, cancel: true, refNo: o.no, retLines: C.lines, payments: (o.payments || []).map(p => ({ ...p, amount: -p.amount })), reason: 'other', note: reason.trim() }, br));
   };
+
 
   // v46.8 — مرتجع جزئي/كلي لفاتورة مدفوعة (قرار المالك): مدير الفرع فقط · الطبق المرتجع هدر بسبب من قائمة الهدر · الرد بطريقة الدفع الأصلية أو نقدًا
   const retOn = !!cfg.returns;
   const openReturn = (o) => {
-    if (!isMgr) return say('المرتجع لمدير الفرع', 'no');
+    if (!canVoid) return say('المرتجع للإدارة التشغيلية (مدير الفرع فأعلى)', 'no');
     if (o.pending) return say('انتظر إرسال الفاتورة أولًا', 'no');
+    if (o.status === 'void') return say('الفاتورة ملغاة — لا مرتجع عليها', 'no');   // v56.2
     const left = posReturnable(ops, o); if (!left.some(x => x > 0)) return say('أُرجعت كل أصناف هذه الفاتورة سابقًا', 'no');
     setRet({ o, q: {}, reason: 'returned', note: '', k: (posRefundOptions(o)[0] || {}).k || 'cash' });
   };
@@ -241,7 +272,8 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     const C = posReturnCalc(o, qs); const loyDed = posReturnLoyDed(ops, o, C.total);
     if (opt.m === 'cash' && shift) { const drawer = posR2((Number(shift.openingCash) || 0) + posOrdersStats(shiftOrders(shift)).cash); if (C.total > drawer + 0.004) return say('النقد في الدرج (' + money(drawer) + ') أقل من المبلغ المردود', 'no'); }
     const yy = today.replace(/-/g, '').slice(2); const sk = 'mizan:posRetSeq:' + br.id + ':' + today, hk = 'mizan:posHash:' + br.id;
-    let seq = 1, prev = { icv: 0, hash: '0' }; try { seq = (Number(localStorage.getItem(sk)) || 0) + 1; prev = JSON.parse(localStorage.getItem(hk) || '{"icv":0,"hash":"0"}'); } catch { }
+    let ls = 0, lp = null; try { ls = Number(localStorage.getItem(sk)) || 0; lp = JSON.parse(localStorage.getItem(hk) || 'null'); } catch { }
+    const { seq, prev } = posNextNo(ls, lp, [...(ops.posOrders || []), ...posQueue()], br.id, dev.tag, today, 'م');   // v56.2 (B4): لا رقم مكرر بعد مسح التخزين المحلي
     const bi = (org.branches || []).findIndex(b => b.id === br.id) + 1;
     const r = { id: uid('pr'), kind: 'return', refId: o.id, refNo: o.no, no: 'م' + bi + '-' + yy + '-' + dev.tag + '-' + String(seq).padStart(4, '0'), branchId: br.id, dev: dev.tag, ...(shift ? { shiftId: shift.id } : {}),
       date: today, at: nowISO(), by: me.name, channel: o.channel, lines: [], retLines: C.lines, gross: -C.total, disc: 0, manualDisc: 0, total: -C.total, vat: -C.vat, net: -C.net, rate: o.rate,

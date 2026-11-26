@@ -1546,7 +1546,8 @@ test('v44.3 طلب شراء الفرع ← أمر شراء لمستودع الف
   r = await b2.p.evaluate(() => ({ rc: window.cur.poReceipts.map(x => [x.status, x.supInvNo, x.lines[0].qty]), mv: window.cur.whMoves.map(m => [m.whId, m.qty, m.unitCost, !!m.grnRef]) }));
   assert.deepEqual(r, { rc: [['pending', 'SUP-900', 8]], mv: [['wh-b1', 8, undefined, true]] }, 'دخل مستودع الفرع فورًا — بلا سعر لدى الفرع');
   assert.equal(JSON.stringify(after.poInbox).includes('price'), false, 'نسخة الأمر في الفرع كميات فقط');
-  assert.doesNotMatch(await b2.p.locator('[data-brpo]').innerText(), /40|ر\.س/, 'لا أسعار في شاشة الفرع');
+  // v56.6: رقم سند الاستلام عشوائي (GRN-…-S40 مثلًا) فيُحذف قبل فحص السعر — كان الاختبار يفشل عشوائيًا حين يحوي الرقم «40»
+  assert.doesNotMatch((await b2.p.locator('[data-brpo]').innerText()).replace(/GRN-[A-Za-z0-9-]+/g, ''), /40|ر\.س/, 'لا أسعار في شاشة الفرع');
   assert.match(await b2.p.locator('[data-brpo]').innerText(), /لا أوامر شراء قيد التوريد/, 'المتبقي يُخصم منه الاستلام المعلّق');
   const brOps = await b2.p.evaluate(() => ({ poReceipts: window.cur.poReceipts, whMoves: window.cur.whMoves }));
   await b2.ctx.close();
@@ -3355,6 +3356,46 @@ test('v56.0 GAP-007 تعليق فاتورة السفري واستدعاؤها: �
   assert.deepEqual(errs, []); await ctx.close();
 });
 
+test('v56.2 POS الدفعة 1 (B2): نقرتان على «تأكيد» مع كوبون محدود (انتظار حجز الكوبون) تُنشئان فاتورة واحدة', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosApp/bm');
+  await p.evaluate(() => {
+    localStorage.removeItem('mizan:posQueue');
+    window.setOrg(g => ({ ...g, taxCfg: { enabled: false }, posCfg: { branches: ['b1'], autoPrint: false }, loyaltyCfg: { enabled: true, earnPer: 10, ptValue: 0.5, minRedeem: 20, maxRedeemPct: 50 },
+      products: [{ id: 'k', name: 'كبسة', sellPrice: 50, cat: 'رئيسي' }], posPromos: [{ id: 'cp2', name: 'نقرتان', type: 'pct', value: 10, scope: 'all', code: 'TWICE', maxUses: 50, active: true }] }));
+    window.setOps(o => ({ ...o, posTabs: [], posOrders: [], closings: o.closings.filter(c => c.branchId !== 'b1') }));
+  }); await p.waitForTimeout(400);
+  const ob = p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await p.waitForTimeout(400); }
+  await p.locator('.pos-tile:has-text("كبسة")').click();
+  if (!(await p.locator('input[aria-label="رمز الكوبون"]').count())) await p.click('button:has-text("+ كوبون")');
+  await p.fill('input[aria-label="رمز الكوبون"]', 'twice'); await p.waitForTimeout(700);
+  await p.click('.pos-cart button:has-text("نقدي")'); await p.waitForTimeout(200);
+  await p.locator('.modal').getByRole('button', { name: 'تأكيد', exact: true }).dblclick(); await p.waitForTimeout(1500);
+  const n = await p.evaluate(() => [...(window.cur.posOrders || []), ...JSON.parse(localStorage.getItem('mizan:posQueue') || '[]')].filter((o, i, a) => a.findIndex(x => x.id === o.id) === i).length);
+  assert.equal(n, 1, 'فاتورة واحدة رغم النقرتين');
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v56.2 POS الدفعة 1 (B4): مسح ترقيم الجهاز لا يكرر رقم الفاتورة ولا يكسر سلسلة البصمات', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosApp/cs');
+  await p.evaluate(() => {
+    localStorage.removeItem('mizan:posQueue'); localStorage.removeItem('mizan:posShiftLocal');
+    window.setOrg(g => ({ ...g, taxCfg: { enabled: false }, posCfg: { branches: ['b1'], autoPrint: false }, products: [{ id: 'k', name: 'كبسة', sellPrice: 100, cat: 'رئيسي' }] }));
+    window.setOps(o => ({ ...o, posOrders: [], posShifts: [] }));
+  }); await p.waitForTimeout(400);
+  await ctx.setOffline(true); await p.evaluate(() => { window.__cloudDown = true; });   // الفواتير تبقى في طابور الجهاز للفحص
+  const ob = p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await p.waitForTimeout(400); }
+  const sell = async () => { await p.locator('.pos-tile:has-text("كبسة")').click(); await p.click('.pos-cart button:has-text("نقدي")'); await p.waitForTimeout(200);
+    await p.locator('.modal').getByRole('button', { name: 'تأكيد', exact: true }).click(); await p.waitForTimeout(600); };
+  await sell();
+  // فقد ترقيم الجهاز (مسح جزئي للتخزين): الرقم التالي يُستكمل من الفواتير المعروفة
+  await p.evaluate(() => { Object.keys(localStorage).filter(k => /posSeq|posHash/.test(k)).forEach(k => localStorage.removeItem(k)); });
+  await sell();
+  const q = await p.evaluate(() => JSON.parse(localStorage.getItem('mizan:posQueue') || '[]'));
+  assert.equal(q.length, 2); assert.notEqual(q[1].no, q[0].no, 'رقم فاتورة غير مكرر');
+  assert.equal(q[1].icv, q[0].icv + 1, 'العدّاد يكمل'); assert.equal(q[1].pih, q[0].hash, 'السلسلة لا تنكسر');
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
 test('v56.0 هوية المنشأة: رفع شعار شفاف، الألوان والاسمان والتذييل، معاينة حيّة بالمحرك نفسه، حفظ بسجل تدقيق، عرض فقط لغير المسؤول، واستعادة الافتراضي', async () => {
   const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFklEQVR42mNk+M9QzwAEjDAGNzYAAA2nAf9ex9uYAAAAAElFTkSuQmCC', 'base64');
   { const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1200 } }, 'live/TenantBranding/admin');
@@ -3383,4 +3424,169 @@ test('v56.0 هوية المنشأة: رفع شعار شفاف، الألوان �
     assert.equal(await p.locator('[data-tb-readonly]').count(), 1, 'المحاسب للعرض فقط');
     assert.equal(await p.locator('[data-tb-save]').count(), 0); assert.equal(await p.locator('[data-tb="nameAr"]').isDisabled(), true);
     assert.deepEqual(errs, []); await ctx.close(); }
+});
+
+// ===== v56.5 — تجربة الدخول الفاخرة: كل التفاعلات مربوطة بدالة الدخول نفسها، بلا تجاوز للمصادقة =====
+const SHOTS = path.join(cache, 'shots'); const shot = async (p, n) => { fs.mkdirSync(SHOTS, { recursive: true }); await p.screenshot({ path: path.join(SHOTS, n + '.jpg'), type: 'jpeg', quality: 72, fullPage: true }); };
+const gateState = (p) => p.evaluate(() => ({ calls: (window.__gate || {}).calls || [], mfa: (window.__gate || {}).mfaCalls || [],
+  err: document.querySelector('.mq-err')?.innerText || '', btn: document.querySelector('.mq-btn')?.innerText || '', note: document.querySelector('.mq-note')?.innerText || '',
+  // dir = الاتجاه المعروض فعلًا لا السمة
+  dir: getComputedStyle(document.querySelector('.mq-card') || document.body).direction, over: document.documentElement.scrollWidth - window.innerWidth,
+  card: (() => { const r = document.querySelector('.mq-card')?.getBoundingClientRect(); return r ? { l: Math.round(r.left), r: Math.round(r.right), w: Math.round(r.width) } : null; })(),
+  cover: Math.round(document.querySelector('.gate-cover')?.getBoundingClientRect().width || 0), vw: window.innerWidth }));
+/** البطاقة كاملة داخل الشاشة (لا قص خفي خلف overflow) وآخر زر يصل إليه المستخدم */
+const fitsGate = async (p, label) => { const s = await gateState(p);
+  assert.ok(s.card && s.card.l >= 0 && s.card.r <= s.vw + 1, label + ': البطاقة خارج الشاشة ' + JSON.stringify(s.card) + ' عرض ' + s.vw);
+  // تمرير حقيقي بعجلة الفأرة فوق البطاقة (لا scrollIntoView البرمجي) حتى يظهر زر الإعداد الأول
+  const vh = await p.evaluate(() => window.innerHeight); const c = await p.locator('.mq-card').boundingBox();
+  await p.mouse.move(Math.max(5, c.x + 10), Math.min(vh - 5, Math.max(5, c.y + 10)));
+  let b; for (let k = 0; k < 12; k++) { b = await p.locator('.mq-setup').boundingBox(); if (b && b.y >= 0 && b.y + b.height <= vh + 1) break; await p.mouse.wheel(0, 300); await p.waitForTimeout(120); }
+  assert.ok(b && b.y >= 0 && b.y + b.height <= vh + 1, label + ': زر الإعداد الأول لا يُبلغ بالتمرير ' + JSON.stringify(b));
+  // الخلفية تغطي البطاقة حتى نهاية منطقة التمرير (لا شريط فارغ أسفلها)
+  const g = await p.evaluate(() => { const root = document.querySelector('.mq-root'); const t = root.scrollTop, r0 = root.getBoundingClientRect().top; const y = (q) => Math.round(document.querySelector(q).getBoundingClientRect().bottom - r0 + t);
+    return { gate: y('.mq-login'), card: y('.mq-card'), scroll: root.scrollHeight }; });
+  assert.ok(g.gate >= g.card && g.gate >= g.scroll - 2, label + ': الخلفية لا تغطي الصفحة ' + JSON.stringify(g));
+  await p.evaluate(() => { document.querySelector('.mq-root').scrollTop = 0; }); return s; };
+
+test('v56.5 الدخول: التحقق من المدخلات، كلمة سر خاطئة، إظهار/إخفاء، تذكّرني، نسيت كلمة السر، نجاح حقيقي فقط', { timeout: 120000 }, async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1440, height: 900 } }, 'gate');
+  await p.waitForSelector('#mq-email'); await shot(p, 'login-desktop-ar');
+  const cover0 = (await fitsGate(p, 'سطح المكتب')).cover; assert.ok(cover0 > 500, 'الغلاف ' + cover0);
+  // فارغ ⇒ رسالة واضحة دون استدعاء الدخول
+  await p.click('.mq-btn'); let s = await gateState(p);
+  assert.match(s.err, /اكتب بريدك الإلكتروني/); assert.equal(s.calls.length, 0, 'لا استدعاء بلا بيانات');
+  // بريد بصيغة خاطئة ⇒ تلميح عند مغادرة الحقل
+  await p.fill('#mq-email', 'bad@'); await p.click('#mq-pass');
+  assert.equal(await p.getAttribute('#mq-email', 'aria-invalid'), 'true');
+  assert.ok(await p.isVisible('#mq-email-h'));
+  // إظهار/إخفاء كلمة السر
+  await p.fill('#mq-pass', 'Wrong999');
+  assert.equal(await p.getAttribute('#mq-pass', 'type'), 'password');
+  await p.click('.mq-eye'); assert.equal(await p.getAttribute('#mq-pass', 'type'), 'text'); assert.equal(await p.getAttribute('.mq-eye', 'aria-pressed'), 'true');
+  await p.click('.mq-eye'); assert.equal(await p.getAttribute('#mq-pass', 'type'), 'password');
+  // كلمة سر خاطئة ⇒ دالة الدخول تُستدعى مرة واحدة والخطأ يظهر ولا نجاح
+  await p.fill('#mq-email', 'own@x.sa');
+  const t0 = await p.evaluate(() => performance.now()); await p.click('.mq-btn');
+  await p.waitForSelector('.mq-err'); s = await gateState(p);
+  assert.equal(s.calls.length, 1); assert.equal(s.calls[0].email, 'own@x.sa'); assert.equal(s.calls[0].pass, 'Wrong999');
+  assert.ok(s.calls[0].t - t0 < 150, 'الحركة لا تؤخر الدخول: ' + Math.round(s.calls[0].t - t0) + 'ms');
+  assert.match(s.err, /كلمة السر غير صحيحة/); assert.doesNotMatch(s.btn, /تم الدخول/);
+  await p.waitForTimeout(700); await shot(p, 'login-error-ar');
+  assert.ok(Math.abs((await fitsGate(p, 'بعد الخطأ')).cover - cover0) <= 2, 'ظهور الخطأ لا يغيّر التخطيط');
+  // Enter يرسل النموذج
+  await p.fill('#mq-pass', 'Wrong888'); await p.press('#mq-pass', 'Enter'); await p.waitForTimeout(300);
+  assert.equal((await gateState(p)).calls.length, 2);
+  // تذكّرني: الإلغاء يمسح البريد المحفوظ ولا يُحفظ لاحقًا
+  await p.evaluate(() => localStorage.setItem('rms8:lastEmail', 'own@x.sa'));
+  await p.click('.mq-check input');
+  assert.deepEqual(await p.evaluate(() => [localStorage.getItem('rms8:noRemember'), localStorage.getItem('rms8:lastEmail')]), ['1', null]);
+  await p.click('.mq-check input'); assert.equal(await p.evaluate(() => localStorage.getItem('rms8:noRemember')), null);
+  // نسيت كلمة السر: رسالة محايدة لا تكشف وجود البريد
+  await p.click('.mq-link'); await p.waitForSelector('.mq-note'); assert.match((await gateState(p)).note, /إن كان البريد مسجّلًا/);
+  // كلمة السر الصحيحة ⇒ نجاح من دالة الدخول نفسها + علامة الترحيب
+  await p.fill('#mq-pass', 'Right1234'); await p.click('.mq-btn');
+  await p.waitForFunction(() => /تم الدخول/.test(document.querySelector('.mq-btn')?.innerText || ''));
+  s = await gateState(p); assert.equal(s.calls.at(-1).pass, 'Right1234');
+  assert.ok(await p.evaluate(() => Number(sessionStorage.getItem('mq:welcome')) > 0));
+  await shot(p, 'login-success-ar');
+  // لا كلمة سر في التخزين المحلي
+  assert.ok(!(await p.evaluate(() => JSON.stringify(localStorage) + JSON.stringify(sessionStorage))).includes('Right1234'));
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v56.5 الدخول: التحقق بخطوتين يُرسل تلقائيًا ولا ينجح إلا بالرمز الصحيح، وإشعار انتهاء الجلسة', { timeout: 60000 }, async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1280, height: 900 } }, 'gate/mfa/expired');
+  assert.match(await p.innerText('.mq-notice'), /انتهت جلستك/);
+  await p.fill('#mq-email', 'own@x.sa'); await p.fill('#mq-pass', 'Right1234'); await p.click('.mq-btn');
+  await p.waitForSelector('#mq-otp'); await shot(p, 'login-mfa-ar');
+  await p.fill('#mq-otp', '111111'); await p.waitForSelector('.mq-err');
+  assert.equal(await p.inputValue('#mq-otp'), '', 'الحقل يُفرَّغ بعد رمز خاطئ');
+  await p.fill('#mq-otp', '123456'); await p.waitForFunction(() => /تم التحقق/.test(document.querySelector('.mq-btn')?.innerText || ''));
+  assert.deepEqual((await gateState(p)).mfa, ['111111', '123456']);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v56.5 الدخول: الجوال بلا تجاوز وأهداف لمس ≥ 44px، والإنجليزية LTR مع زر اللغة، وتقليل الحركة', { timeout: 90000 }, async () => {
+  const m = await open(devices['iPhone 13'], 'gate');
+  let s = await fitsGate(m.p, 'الجوال'); assert.ok(s.over <= 2, 'تجاوز أفقي ' + s.over);
+  const sizes = await m.p.evaluate(() => ['.mq-input', '.mq-btn', '.mq-eye', '.mq-lang'].map(q => Math.round(document.querySelector(q).getBoundingClientRect().height)));
+  sizes.forEach((h, i) => assert.ok(h >= 34 && (i === 3 || h >= 42), 'ارتفاع ' + ['الحقل', 'الزر', 'العين', 'اللغة'][i] + ' ' + h));
+  await shot(m.p, 'login-mobile-ar');
+  // زر اللغة ⇒ LTR وترجمة
+  await m.p.click('.mq-lang'); await m.p.waitForTimeout(400);
+  s = await gateState(m.p); assert.equal(s.dir, 'ltr');
+  assert.match(await m.p.innerText('label[for="mq-email"]'), /Email/i);
+  assert.ok(s.over <= 2); await fitsGate(m.p, 'الجوال EN'); await shot(m.p, 'login-mobile-en');
+  assert.deepEqual(m.errs, []); await m.ctx.close();
+  // تقليل الحركة: لا حركة على البطاقة ولا لوحة جسيمات تُرسم
+  const r = await open({ viewport: { width: 1280, height: 900 }, reducedMotion: 'reduce' }, 'gate');
+  const anim = await r.p.evaluate(() => [getComputedStyle(document.querySelector('.mq-pane')).animationName, getComputedStyle(document.querySelector('.mq-login .bhead-logo')).animationName]);
+  assert.deepEqual(anim, ['none', 'none']);
+  assert.deepEqual(r.errs, []); await r.ctx.close();
+  // سطح المكتب بالإنجليزية للصورة المرجعية
+  const d = await open({ viewport: { width: 1440, height: 900 } }, 'gate'); assert.equal((await gateState(d.p)).dir, 'rtl');
+  await d.p.click('.mq-lang'); await d.p.waitForTimeout(400); assert.equal((await gateState(d.p)).dir, 'ltr');
+  // الحقل والزر يبدآن من اليسار في الإنجليزية
+  const x = await d.p.evaluate(() => { const c = document.querySelector('.mq-card').getBoundingClientRect(); const rg = document.createRange(); rg.selectNodeContents(document.querySelector('label[for="mq-email"]')); const l = rg.getBoundingClientRect(); return [Math.round(l.left - c.left), Math.round(c.right - l.right)]; });
+  assert.ok(x[0] < x[1], 'نص تسمية البريد على اليسار في الإنجليزية ' + x);
+  await shot(d.p, 'login-desktop-en'); await d.ctx.close();
+});
+
+test('v56.7 C4 التطابق التام بالهللات: معطّل افتراضيًا، يكشف القيد قبل التفعيل، ويفعّله المدير ويوقفه', async () => {
+  const ctx = await browser.newContext(devices['iPad (gen 7)']); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  p.on('dialog', d => d.accept());
+  await p.goto(base + 'live/Admin/admin'); await p.reload(); await p.waitForTimeout(500); await settle(p);
+  await p.evaluate(() => window.setOps(o => ({ ...o, journalManual: [...(o.journalManual || []),
+    { id: 'jh', date: '2026-03-06', title: 'قيد بكسر', lines: [{ code: '5901', debit: 10.005, credit: 0 }, { code: '1201', debit: 0, credit: 10 }] }] })));
+  await p.locator('button:has-text("صيانة")').first().click(); await p.waitForTimeout(500);
+  const card = p.locator('[data-finstrict]');
+  assert.match(await card.innerText(), /غير مفعّل/);
+  assert.match(await card.innerText(), /لا يتطابق بالهللة/, 'الأثر ظاهر قبل التفعيل');
+  assert.match(await card.innerText(), /قيد بكسر/);
+  await card.scrollIntoViewIfNeeded(); await shot(p, 'finstrict-off');
+  await card.locator('button:has-text("تفعيل التطابق التام")').click(); await p.waitForTimeout(400);
+  assert.equal(await p.evaluate(() => !!(window.curOrg.finStrict || {}).on), true);
+  assert.match(await card.innerText(), /مفعّل/);
+  await card.locator('button:has-text("إيقاف التطابق التام")').click(); await p.waitForTimeout(400);
+  assert.equal(await p.evaluate(() => !!(window.curOrg.finStrict || {}).on), false, 'الإيقاف متاح للتراجع');
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('عائد التسويق: ربط الحملة بحساب مصروف خاص بها يعرض التكلفة الفعلية والعائد على المبيعات المنسوبة', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1200 } }, 'live/MktGrowth/admin');
+  await p.evaluate(() => { const td = new Date(); td.setHours(12); const d = td.toISOString().slice(0, 10);
+    window.setOrg(g => ({ ...g, posPromos: [{ id: 'cw', name: 'عودة', type: 'pct', value: 10, scope: 'all', code: 'BACK10', active: true }] }));
+    window.setOps(o => ({ ...o, posOrders: [{ id: 'o1', date: d, branchId: 'b1', coupon: 'BACK10', total: 230, vat: 30, net: 200, lines: [{ promoId: 'cw', disc: 10 }] }],
+      journalManual: [...(o.journalManual || []), { id: 'jm1', date: d, title: 'إعلانات', lines: [{ code: '5901', debit: 100, credit: 0 }, { code: '1201', debit: 0, credit: 100 }] }],
+      mktCampaigns: [{ id: 'k1', no: 'CMP-0001', name: 'حملة الشتاء', segment: 'all', promoIds: ['cw'], branches: [], from: d, to: d, budget: 0, status: 'active', createdAt: '2026-11-01' }] })); });
+  await p.waitForTimeout(300); await p.click('[data-mktv="cmp"]'); await p.waitForSelector('[data-cmp]');
+  const roi = p.locator('[data-camp="CMP-0001"] [data-camproi]');
+  assert.match(await roi.innerText(), /اربط حساب مصروف/);
+  await roi.locator('select').selectOption('5901'); await p.waitForTimeout(400);
+  assert.equal(await p.evaluate(() => window.cur.mktCampaigns[0].acc), '5901');
+  const s = (await roi.innerText()).replace(/\s+/g, ' ');
+  assert.match(s, /التكلفة الفعلية: 100\.00/); assert.match(s, /بلا ضريبة: 200\.00/); assert.match(s, /العائد: 100%/);
+  await p.locator('[data-camp="CMP-0001"]').scrollIntoViewIfNeeded(); await shot(p, 'mkt-roi');
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v56.9 D1 دفتر القيود المخزّن: معطّل افتراضيًا، يفعّله المدير، والمطابقة خارج Firestore لا تنهار، والإيقاف متاح', async () => {
+  const ctx = await browser.newContext(devices['iPad (gen 7)']); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'live/Admin/admin'); await p.reload(); await p.waitForTimeout(500); await settle(p);
+  await p.locator('button:has-text("صيانة")').first().click(); await p.waitForTimeout(500);
+  const card = p.locator('[data-ledger]');
+  assert.match(await card.innerText(), /غير مفعّل/);
+  assert.match(await card.innerText(), /JV-2026-000001/);
+  assert.equal(await card.locator('button:has-text("مطابقة")').count(), 0, 'لا مطابقة قبل التفعيل');
+  await card.locator('button:has-text("تفعيل")').click(); await p.waitForTimeout(400);
+  assert.equal(await p.evaluate(() => !!(window.curOrg.ledger || {}).on), true);
+  assert.match(await card.innerText(), /القراءة من المحرك/);
+  await card.locator('button:has-text("مطابقة")').click(); await p.waitForTimeout(400);
+  assert.match(await p.evaluate(() => window.lastSay || ''), /Firestore فقط/);
+  await card.locator('button:has-text("إيقاف")').click(); await p.waitForTimeout(400);
+  assert.equal(await p.evaluate(() => !!(window.curOrg.ledger || {}).on), false);
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true);
+  assert.deepEqual(errs, []); await ctx.close();
 });

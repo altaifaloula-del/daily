@@ -41,3 +41,23 @@ test('النتائج: كوبونات الحملة داخل الفترة والف
   const none = E.campStats(org, { posOrders: [] }, [], { promoIds: [], from: '2026-11-01', to: '2026-11-30' });
   assert.equal(none.redemptions, 0); assert.equal(none.costPerOrder, null); assert.equal(none.respRate, null);
 });
+
+test('عائد التسويق (قرار المالك): التكلفة من رصيد حساب الحملة في القيود، والعائد على المبيعات المنسوبة بلا ضريبة', () => {
+  const org = { company: { name: 'ت' }, branches: [{ id: 'b1', name: 'فرع', isActive: true }], posPromos: [{ id: 'p1', code: 'WIN10' }] };
+  const ord = (id, total, vat) => ({ id, date: '2026-11-05', branchId: 'b1', coupon: 'WIN10', total, vat, net: total - vat, lines: [{ promoId: 'p1', disc: 5 }] });
+  const ops = { posOrders: [ord('a', 230, 30), ord('b', 115, 15)],
+    journalManual: [{ id: 'j1', date: '2026-11-01', title: 'إعلانات الحملة', lines: [{ code: '5901', debit: 200, credit: 0 }, { code: '1201', debit: 0, credit: 200 }] },
+      { id: 'j2', date: '2026-11-03', title: 'استرداد جزئي', lines: [{ code: '1201', debit: 50, credit: 0 }, { code: '5901', debit: 0, credit: 50 }] }] };
+  const A = E.buildAccounting(org, ops);
+  assert.equal(E.campSpend(A, '5901'), 150, 'المدين − الدائن');
+  assert.equal(E.campSpend(A, '0000'), null); assert.equal(E.campSpend(null, '5901'), null);
+  const c = { promoIds: ['p1'], from: '2026-11-01', to: '2026-11-30', segment: 'all', budget: 999, acc: '5901' };
+  const S = E.campStats(org, ops, [], c, A);
+  assert.equal(S.netSales, 300); assert.equal(S.spend, 150);
+  assert.equal(S.roas, 2); assert.equal(S.roi, 100);                      // (300 − 150) ÷ 150
+  assert.equal(S.cost, 150, 'مع الحساب: التكلفة الفعلية لا الميزانية'); assert.equal(S.costPerOrder, 75);
+  const N = E.campStats(org, ops, [], { ...c, acc: undefined }, A);
+  assert.equal(N.spend, null); assert.equal(N.roi, null); assert.equal(N.cost, 1009, 'بلا حساب: كما كان (الخصم + الميزانية)');
+  const Z = E.campStats(org, ops, [], { ...c, acc: '5902' }, A);   // حساب بلا حركة
+  assert.equal(Z.roi, null, 'لا قسمة على صفر');
+});
