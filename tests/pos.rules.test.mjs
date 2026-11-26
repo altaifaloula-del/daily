@@ -1,5 +1,5 @@
 /**
- * v56.3 — MUKTASAB POS الدفعة 2a: قواعد سجلات فواتير نقطة البيع pos_orders على محاكي Firestore (docs/pos/POS_DATABASE_DESIGN.md).
+ * v56.4 — MUKTASAB POS الدفعة 2a: قواعد سجلات فواتير نقطة البيع pos_orders على محاكي Firestore (docs/pos/POS_DATABASE_DESIGN.md).
  * يحل B10: الفاتورة لا تُعدَّل أرقامها ولا تُحذف، والكاشير لا يلغي ولا يرتجع، ولا كتابة في فترة مقفلة ولا لفرع آخر.
  */
 import { test, before, after } from 'node:test';

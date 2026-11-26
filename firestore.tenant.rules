@@ -420,7 +420,7 @@ service cloud.firestore {
       allow delete: if subOk() && ((isAdmin() && mfaOk()) || (sigRead(resource.data.branchId) && !readOnlyRole() && clSlotFree(resource.data.id, key)));
     }
 
-    /* ===== v56.3 — MUKTASAB POS الدفعة 2a: فواتير نقطة البيع سجلات مستقلة (نسخ موازٍ — docs/pos/POS_DATABASE_DESIGN.md) =====
+    /* ===== v56.4 — MUKTASAB POS الدفعة 2a: فواتير نقطة البيع سجلات مستقلة (نسخ موازٍ — docs/pos/POS_DATABASE_DESIGN.md) =====
        الفاتورة نفسها لا تُعدَّل ولا تُحذف أبدًا: الإنشاء «مدفوعة» من عضو الفرع، والمرتجع لأدوار الإدارة،
        والتعديل الوحيد المسموح إلغاء فاتورة بيع (paid → void) لأدوار الإدارة بحقلي status/voidData فقط. ولا كتابة في فترة مقفلة. */
     function posMgrRoles() { return ['branch_manager', 'regional_manager', 'head_office', 'general_management', 'system_admin']; }

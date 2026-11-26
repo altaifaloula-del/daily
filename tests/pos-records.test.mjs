@@ -1,5 +1,5 @@
 /**
- * v56.3 — MUKTASAB POS الدفعة 2a: محرك نسخ فواتير نقطة البيع إلى سجلاتها المحمية pos_orders (docs/pos/POS_DATABASE_DESIGN.md).
+ * v56.4 — MUKTASAB POS الدفعة 2a: محرك نسخ فواتير نقطة البيع إلى سجلاتها المحمية pos_orders (docs/pos/POS_DATABASE_DESIGN.md).
  */
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';

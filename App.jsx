@@ -3474,7 +3474,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.3';
+const APP_VER = 'v56.4';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3819,6 +3819,8 @@ function PlatformApp() {
     if (c.includes('weak-password')) return 'كلمة السر ضعيفة — 6 أحرف على الأقل';
     if (c.includes('invalid-email')) return 'صيغة البريد غير صحيحة';
     if (c.includes('network')) return 'تعذّر الاتصال — تحقق من الشبكة';
+    // v56.3 (V56-019): التسجيل الذاتي موقوف في Firebase — الحسابات ينشئها مسؤول النظام
+    if (c.includes('admin-restricted-operation') || c.includes('operation-not-allowed')) return 'إنشاء الحسابات من شاشة الدخول موقوف — يُنشئ مسؤول النظام حسابك من «المستخدمون»';
     return 'تعذّر الدخول (' + c.replace('auth/', '') + ')';
   };
 
@@ -4318,7 +4320,7 @@ function PlatformApp() {
     const ok = await writeOps(d => { let r = mutator(d); if (r && Array.isArray(r.invoices) && r.invoices !== d.invoices) { const st = pjStamp(d.invoices, r.invoices); if (st !== r.invoices) r = { ...r, invoices: st }; } if (r && Array.isArray(r.closings)) r.closings = r.closings.map(unflag); clBefore = d.closings; clAfter = r && r.closings; poBefore = d.posOrders; poAfter = r && r.posOrders; jmBefore = d.journalManual; jmAfter = r && r.journalManual;
       fdB = { pi: d.invoices, si: d.salesInvoices, cv: d.cashVouchers }; fdA = r ? { pi: r.invoices, si: r.salesInvoices, cv: r.cashVouchers } : {}; return r; });
     if (ok && clAfter && clAfter !== clBefore && clrOn(orgNow.current)) clrQueue(clBefore, clAfter);   // بالخلفية وبالترتيب — لا يؤخر الحفظ
-    if (ok && poAfter && poAfter !== poBefore && posrOn(orgNow.current)) posrQueue(poBefore, poAfter);   // v56.3 (POS 2a) نسخ الفواتير لسجلاتها المحمية — بالخلفية
+    if (ok && poAfter && poAfter !== poBefore && posrOn(orgNow.current)) posrQueue(poBefore, poAfter);   // v56.4 (POS 2a) نسخ الفواتير لسجلاتها المحمية — بالخلفية
     if (ok && jmAfter && jmAfter !== jmBefore && fjOn(orgNow.current)) fjQueue(jmBefore, jmAfter);   // v49.0 القيود اليدوية → fin_journal
     if (ok && fjOn(orgNow.current) && ['pi', 'si', 'cv'].some(k => fdA[k] && fdA[k] !== fdB[k])) fdQueue(fdB, fdA);   // v49.0 الفواتير والسندات → fin_docs
     if (!ok) {
@@ -14203,7 +14205,7 @@ async function clrSeed(closings, onProgress) {
   }
   return { ok, fail, lastErr, total: list.length };
 }
-/* ===== v56.3 — MUKTASAB POS الدفعة 2a: فواتير نقطة البيع سجلات مستقلة pos_orders/{id} (نسخ موازٍ) =====
+/* ===== v56.4 — MUKTASAB POS الدفعة 2a: فواتير نقطة البيع سجلات مستقلة pos_orders/{id} (نسخ موازٍ) =====
    التصميم: docs/pos/POS_DATABASE_DESIGN.md. مستند الفرع/الشهر يبقى المصدر؛ كل فاتورة جديدة أو إلغاء يُنسخ بالخلفية بعد نجاح الحفظ
    إلى سجل تحرسه القواعد (لا تعديل للأرقام ولا حذف، والإلغاء للإدارة فقط). مُطفأ افتراضيًا (org.posRecords.on). حذف فاتورة من
    المستند (أرشفة/قص) لا يحذف سجلها أبدًا. الإخفاق لا يُفشل البيع — يُعدّ ويظهر في «صيانة النظام» والمطابقة تكشفه. */
@@ -14284,7 +14286,7 @@ async function posrSeed(orders, lockedTo, onProgress) {
   }
   return { ok, fail, locked, lastErr, total: list.length };
 }
-export { posrOn, posrData, posrRecord, posrDiff, posrCompare, posrState, posrLoad, posrSeed };   // v56.3 سجلات فواتير نقطة البيع
+export { posrOn, posrData, posrRecord, posrDiff, posrCompare, posrState, posrLoad, posrSeed };   // v56.4 سجلات فواتير نقطة البيع
 
 /* ===== v49.0 — المرحلة 01 (قرار G1-ب): القيود اليدوية سجلات مستقلة (fin_journal/{id}) — نسخ مطابق (mirror) =====
    الوثيقة الحالية (journalManual) تبقى المصدر في هذه المرحلة؛ كل إنشاء/اعتماد/رفض/حذف قبل الاعتماد يُنسخ إلى سجل تحرسه القواعد
