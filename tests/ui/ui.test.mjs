@@ -3969,3 +3969,27 @@ test('v56.31 أوامر الصرف (قرارات المجلس): البنك لل�
   assert.ok(await p.locator('[data-ds-self]').count() >= 1);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.32 اعتماد سندات الصرف: المعلّق بلا أثر ويعتمده غير منشئه فيُسدَّد، وسند المالك مباشر بوسم، وبطاقة الإعداد', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Hub/admin/finhub:treasury');
+  const td = await p.evaluate(() => new Date().toISOString().slice(0, 10));
+  await p.evaluate((td) => { window.setOrg(g => ({ ...g, taxCfg: { enabled: false }, cvAppr: { ranges: [{ from: td }] } }));
+    window.setOps(o => ({ ...o, invoices: [{ id: 'iv9', supplierId: 's1', supplierName: 'مؤسسة اللحوم الطازجة للتجارة', amount: 800, date: td, invoiceNo: 'S-99', paidAmount: 0 }],
+      cashVouchers: [{ id: 'cvp', no: 'PV-000077', kind: 'pv', date: td, amount: 300, fund: '1101', pm: 'cash', party: { t: 'sup', key: 'sup:s1', name: 'مؤسسة اللحوم الطازجة للتجارة' }, alloc: [{ id: 'iv9', no: 'S-99', amount: 300 }], by: 'محاسب آخر', byId: 'z1', at: td + 'T09:00:00Z', status: 'pending' }] })); }, td);
+  await p.waitForTimeout(300);
+  await p.locator('[data-tabcv]').click(); await p.waitForSelector('[data-cv-pending]');
+  assert.equal(await p.evaluate(() => (window.cur.invoices[0].payments || []).length), 0, 'المعلّق بلا سداد');
+  await p.click('[data-cv-ok]'); await p.waitForFunction(() => (window.cur.cashVouchers.find(v => v.id === 'cvp') || {}).status === 'posted');
+  assert.equal(await p.evaluate(() => (window.cur.invoices[0].payments || []).length), 1, 'سُدّدت الفاتورة عند الاعتماد');
+  // سند المالك مباشر بوسم
+  await p.locator('[data-newcv="pv"]').click(); await p.waitForTimeout(150);
+  await p.locator('[data-cvpt="sup"]').click(); await p.selectOption('select[aria-label="جهة السند"]', 'sup:s1');
+  await p.fill('input[aria-label="مبلغ السند"]', '50'); await p.fill('input[aria-label="بيان السند"]', 'دفعة');
+  await p.locator('[data-cvsave]').click(); await p.waitForTimeout(500);
+  assert.ok(await p.evaluate(() => window.cur.cashVouchers.some(v => v.selfPosted && v.status === 'posted')));
+  assert.deepEqual(errs, []); await ctx.close();
+  { const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Admin/admin');
+    await p.click('button:has-text("صيانة النظام")'); await p.waitForSelector('[data-cvappr]');
+    await p.click('[data-cvappr-toggle]'); await p.waitForFunction(() => (((window.curOrg.cvAppr || {}).ranges) || []).length === 1);
+    assert.deepEqual(errs, []); await ctx.close(); }
+});

@@ -11,7 +11,8 @@ import { MKT_BR_CV, mktBrOn } from '../../App.jsx';
 import { grrOn, mkcCompare, lytCompare, grrLoad, grrSeed, grrState } from '../../App.jsx';
 import { posGlOpen, posGlRanges, posGlCheck } from '../../App.jsx';
 import { ctlBarOn } from '../../App.jsx';
-import { DS_BLOCKED, dsRanges, dsRouteOpen, dsLive, dsMapOf, dsAccOk } from '../../App.jsx';   // v56.29 أوامر الصرف   // v56.23 (G2) شريط التحكم   // v56.18 (POS 6a) أثر فواتير نقطة البيع في قيد الإغلاق   // v56.17 (GROWTH 2) سجلات الموافقة والولاء المحمية   // v56.12 (GROWTH G1) سجلات التسويق في الفروع
+import { DS_BLOCKED, dsRanges, dsRouteOpen, dsLive, dsMapOf, dsAccOk } from '../../App.jsx';
+import { cvApprRanges } from '../../App.jsx';   // v56.32 اعتماد سندات الصرف   // v56.29 أوامر الصرف   // v56.23 (G2) شريط التحكم   // v56.18 (POS 6a) أثر فواتير نقطة البيع في قيد الإغلاق   // v56.17 (GROWTH 2) سجلات الموافقة والولاء المحمية   // v56.12 (GROWTH G1) سجلات التسويق في الفروع
 import { WorkflowsCard } from './Workflows.jsx';   // v49.5 MQ-059
 import { FL_START, flOn, flScope, flCompare, flLoad, flPost, FL_GROUPS, flLvl, flUnclassified, flCorrect, flReadOn } from '../../App.jsx';   // v56.9 D1 دفتر القيود المخزّن
 import { fjCompare, fjLoad, fjOn, fjState, fpLockedTo, fpLoad, fmLoad, fmSet, fjSeed, FD_KINDS, fdCompare, fdLoad, fdSeed } from '../../App.jsx';   // v49.0 المرحلة 01
@@ -321,6 +322,7 @@ export function SystemMaintenance({ org, ops, me, commit, commitOrg, say }) {
       <PosGlCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <CtlBarCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <DsRouteCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
+      <CvApprCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <FinStrictCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <LedgerCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <JournalRecordsCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
@@ -632,6 +634,36 @@ function DsMapEditor({ org, commitOrg, say, isAdm }) {
         <option value="">5901 — مصروفات الخزينة (عام)</option>
         {accs.filter(a => a.code !== '5901').map(a => <option key={a.code} value={a.code}>{a.code} — {a.name}</option>)}
       </select></div>)}
+  </div>);
+}
+
+/* v56.32 (الدفعة 1ب — قرار المجلس T9): اعتماد سندات الصرف بغير منشئها. معطّل افتراضيًا، ويسري من تاريخ لا يسبق اليوم ولا يقع في فترة مقفلة. */
+function CvApprCard({ org, commitOrg, say, isAdm }) {
+  const R = cvApprRanges(org); const open0 = R.find(r => !r.to); const on = !!open0; const [from, setFrom] = useState(today()); const lk = fpLockedTo(org) || '';
+  const lastTo = R.reduce((a, r) => (r.to && r.to > a ? r.to : a), '');
+  const toggle = async () => {
+    if (!isAdm) return;
+    if (!on) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) return say('اختر تاريخ البدء', 'no');
+      if (from < today()) return say('تاريخ البدء لا يسبق اليوم', 'no');
+      if (lk && from <= lk) return say('تاريخ البدء داخل فترة مقفلة (حتى ' + lk + ')', 'no');
+      if (lastTo && from <= lastTo) return say('تاريخ البدء يجب أن يكون بعد نهاية التفعيل السابق (' + lastTo + ')', 'no');
+      if (!window.confirm('تفعيل اعتماد سندات الصرف من ' + from + '؟\nسند الصرف الجديد «بانتظار الاعتماد» بلا أثر حتى يعتمده غير منشئه (سند المالك مباشر بوسم). السندات السابقة كما هي.')) return;
+    } else if (!window.confirm('إيقاف من اليوم؟ السندات المسجلة تبقى كما هي.')) return;
+    const ok = await commitOrg(o => { const rs = cvApprRanges(o).map(r => ({ ...r }));
+      if (on) { const x = rs.find(r => !r.to); if (x) { x.to = today(); x.offAt = nowISO(); } } else rs.push({ from, at: nowISO() });
+      return { ...o, cvAppr: { ...(o.cvAppr || {}), ranges: rs } }; },
+      { actionType: 'settings', targetType: 'system_settings', targetId: 'cvAppr', title: on ? 'أوقف اعتماد سندات الصرف' : 'فعّل اعتماد سندات الصرف', details: on ? 'حتى ' + today() : 'من ' + from });
+    if (ok) say(on ? 'أُوقف — السندات المسجلة كما هي' : 'فُعّل من ' + from + ' ✓');
+  };
+  return (<div className="card" data-cvappr>
+    <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />اعتماد سندات الصرف</div>
+      <span className={'badge ' + (on ? 'b-sky' : 'b-dim')}>{on ? 'مفعّل من ' + open0.from : 'غير مفعّل'}</span></div>
+    <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>
+      بقرار المجلس: سند الصرف الجديد يُحفظ «بانتظار الاعتماد» بلا قيد ولا سداد فاتورة ولا سلفة، حتى يعتمده المحاسب أو الإدارة المالية أو المالك غير منشئه (ويُفحص متبقي الفواتير عند الاعتماد). سند المالك يُرحَّل مباشرة بوسم «رحّله المالك بنفسه». سندات القبض والتحويل والمقاصّة بلا تغيير.
+      {R.filter(r => r.to).map((r, i) => <div key={i}>نطاق سابق: {r.from} ← {r.to}</div>)}</div>
+    {isAdm && !on && <div className="row" style={{ gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}><label style={{ fontSize: 12 }}>يسري من <input className="inp" type="date" aria-label="تاريخ بدء اعتماد سندات الصرف" value={from} min={today()} onChange={e => setFrom(e.target.value)} /></label></div>}
+    {isAdm && <div className="row" style={{ marginTop: 8 }}><button className={'btn sm ' + (on ? 'gh' : 'pri')} onClick={toggle} data-cvappr-toggle>{on ? 'إيقاف' : 'تفعيل'}</button></div>}
   </div>);
 }
 

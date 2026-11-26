@@ -1535,7 +1535,7 @@ function buildPartners(org, ops) {
   const led = ops.ledgerEntries || [];
   // v46.6 — سندات القبض والصرف والمقاصّة في كشوف الجهات (الموزَّع على فواتير يظهر مع الفاتورة نفسها)
   const cvFor = (key) => { const t = [];
-    (ops.cashVouchers || []).forEach(v => { const a = Number(v.amount) || 0; if (!(a > 0)) return; const d = String(v.date || '').slice(0, 10);
+    (ops.cashVouchers || []).forEach(v => { const a = Number(v.amount) || 0; if (!(a > 0) || !cvLive(v)) return; const d = String(v.date || '').slice(0, 10);   // v56.32: المعلّق لا يظهر في الكشف
       if (v.kind === 'ov') { if (v.supKey === key) t.push({ date: d, desc: 'مقاصّة مع حساب العميل ' + v.no, ref: v.no, src: 'cv', debit: a, credit: 0 }); if (v.custKey === key) t.push({ date: d, desc: 'مقاصّة مع حساب المورد ' + v.no, ref: v.no, src: 'cv', debit: 0, credit: a }); return; }
       const p = v.party || {}; if (p.key !== key) return;
       const rest = Math.round((a - (v.alloc || []).reduce((s2, x) => s2 + (Number(x.amount) || 0), 0)) * 100) / 100;
@@ -2659,7 +2659,7 @@ function buildAccounting(org, ops) {
 
   // 6-ج) v46.6 سندات القبض والصرف والمقاصّة: الجزء الموزَّع على فواتير يُقيَّد مع الفاتورة (سدادها/تحصيلها)، والباقي «على الحساب» هنا
   (ops.cashVouchers || []).forEach(v => {
-    const a = Math.round((Number(v.amount) || 0) * 100) / 100; if (!(a > 0)) return;
+    const a = Math.round((Number(v.amount) || 0) * 100) / 100; if (!(a > 0) || !cvLive(v)) return;   // v56.32: المعلّق والمرفوض لا يُرحَّلان (القديم بلا حالة = مرحّل)
     const fund = (v.fund && accIx[v.fund]) ? v.fund : '1201'; const p = v.party || {};
     const rest = Math.round((a - (v.alloc || []).reduce((s2, x) => s2 + (Number(x.amount) || 0), 0)) * 100) / 100;
     const base = { id: 'cv:' + v.id, date: String(v.date || '').slice(0, 10), ...(v.branchId ? { branchId: v.branchId } : {}), src: v.kind === 'ov' ? 'سند مقاصّة' : v.kind === 'rv' ? 'سند قبض' : 'سند صرف', ref: v.no, ...(v.projectId ? { projectId: v.projectId } : {}), ...(v.deptId ? { deptId: v.deptId } : {}) };   // v56.28 قسم سند الصرف على حساب مصروف
@@ -3702,7 +3702,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.31';
+const APP_VER = 'v56.32';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3762,6 +3762,7 @@ export { FL_START, flOn, flKey, flNo, flLines, flRecord, flScope, flCompare, flL
 export { FL_GROUPS, flLvl, flGroupOf, flUnclassified, flReversalOf, flCorrect };   // v56.11 D3
 export { flReadOn, flEntriesOf, flBalDiff, flDayBefore };   // v56.14 D4
 export { ctlBarOn };
+export { cvLive, cvApprRanges, cvApprAt, cvApprOpenFrom, cvNeedsAppr, cvApprove };   // v56.32
 export { DS_BLOCKED, dsRanges, dsRouteAt, dsRouteOpen, dsLive, dsBlockReason, dsOpenFrom, dsMapOf, dsAccOk, dsAccOf, dsPostDate, dsFundOf, dsCashOut, dsBankOk, lockedLedgerSig };   // v56.29
 export { DEPT_SHARED, deptOn, deptList, deptPL };   // v56.27 E4   // v56.23 G2
 export { ledgerApi };   // v56.15 D5
@@ -11559,8 +11560,25 @@ function partyOpenDocs(org, ops, party) {
   return [];
 }
 // تطبيق السند على السجلات: تخصيص الفواتير + سلفة الموظف (تُستقطع من الراتب) — يُستدعى داخل الحفظ على أحدث نسخة
+/* v56.32 (الدفعة 1ب — قرار المجلس T9 بتفويض المالك): اعتماد سندات الصرف بغير منشئها — org.cvAppr = { ranges: [{ from, to?, at }] } معطّل افتراضيًا.
+   داخل النطاق: سند الصرف الجديد «بانتظار الاعتماد» بلا أثر (لا قيد ولا سداد فاتورة ولا سلفة) حتى يُعتمد؛ سند المالك مباشر بوسم. السابق كما هو. */
+const cvLive = (v) => !v.status || v.status === 'posted';
+const cvApprRanges = (org) => ((org && org.cvAppr && org.cvAppr.ranges) || []);
+const cvApprAt = (org, d) => cvApprRanges(org).some(r => String(d || '') >= r.from && (!r.to || String(d || '') <= r.to));
+const cvApprOpenFrom = (org) => (cvApprRanges(org).find(r => !r.to) || {}).from || '';
+const cvNeedsAppr = (org, v) => v && v.kind === 'pv' && cvApprAt(org, v.date);
+/** اعتماد سند معلّق: يُطبَّق أثره (السداد/السلفة) على أحدث نسخة، مع التحقق من متبقي الفواتير. يعيد { next } أو { err }. */
+function cvApprove(d, id, me) {
+  const v = (d.cashVouchers || []).find(x => x.id === id); if (!v || v.status !== 'pending') return { err: 'تغيّرت حالة السند قبل الحفظ — حدّث الشاشة' };
+  const rem = (i) => Math.round(((Number(i.amount) || 0) - invPayments(i).reduce((t, p) => t + (Number(p.amount) || 0), 0)) * 100) / 100;   // كما في partyOpenDocs
+  if (v.party && v.party.t === 'sup') for (const x of (v.alloc || [])) { const i = (d.invoices || []).find(y => y.id === x.id); if (i && Number(x.amount) > rem(i) + 0.004) return { err: 'تغيّر متبقي الفاتورة ' + (x.no || x.id) + ' — أعد إصدار السند' }; }
+  const posted = { ...v, status: 'posted', approvedBy: me.name, approvedAt: nowISO() };
+  const base = { ...d, cashVouchers: (d.cashVouchers || []).filter(x => x.id !== id) };
+  return { next: applyCashVoucher(base, posted, me) };
+}
 function applyCashVoucher(d, v, me) {
   let next = { ...d, cashVouchers: [v, ...(d.cashVouchers || [])] };
+  if (!cvLive(v)) return next;   // v56.32: المعلّق يُحفظ بلا أثر حتى يُعتمد
   const al = Object.fromEntries((v.alloc || []).map(x => [x.id, Number(x.amount) || 0]));
   if (v.party && v.party.t === 'sup' && v.kind === 'pv' && Object.keys(al).length) next.invoices = (next.invoices || []).map(i => al[i.id] ? { ...i, payments: [...(Array.isArray(i.payments) ? i.payments : []), { id: 'cv' + v.id, amount: al[i.id], date: v.date, fund: v.fund, pm: v.pm, ...(v.ref ? { ref: v.ref } : {}), cv: v.no, by: me.name, at: v.at }] } : i);
   if (v.party && v.party.t === 'cust' && v.kind === 'rv' && Object.keys(al).length) next.salesInvoices = (next.salesInvoices || []).map(x => al[x.id] ? { ...x, receipts: [...(x.receipts || []), { id: 'cv' + v.id + '_' + x.id, date: v.date, amount: al[x.id], fund: v.fund, cv: v.no, by: me.name, at: v.at }] } : x);
