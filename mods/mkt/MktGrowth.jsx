@@ -393,7 +393,7 @@ function Cmp({ org, ops, list, canApp, me, commit, commitOrg, say, brName }) {
         {c.acc ? <>
           <span>التكلفة الفعلية: <b className="num">{S.spend == null ? '—' : money(S.spend)}</b></span>
           <span>المبيعات المنسوبة بلا ضريبة: <b className="num">{money(S.netSales)}</b></span>
-          <span>كل ريال تسويق جلب: <b className="num">{S.roas == null ? '—' : S.roas + ' ر.س'}</b></span>
+          <span>كل ريال تسويق جلب: <b className="num">{S.roas == null ? '—' : S.roas}</b>{S.roas == null ? '' : ' ر.س'}</span>
           <span>العائد: <b className="num" style={{ color: S.roi == null ? undefined : S.roi >= 0 ? 'var(--mint)' : 'var(--rose)' }}>{S.roi == null ? '—' : S.roi + '%'}</b></span>
         </> : <span style={{ color: 'var(--dim)' }}>اربط حساب مصروف خاصًا بالحملة لحساب التكلفة الفعلية والعائد</span>}
       </div>
