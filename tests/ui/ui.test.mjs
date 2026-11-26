@@ -3808,4 +3808,11 @@ test('v56.25 G2 المرحلة 3: شريط التحكم في بقية التطب
     await p.waitForSelector('[data-ctlbar]');
     assert.ok(await p.locator('[data-ctlbar]').count() >= 1);
     assert.deepEqual(errs, []); await ctx.close(); }
+  // المحاسبة داخل مركز المالية: شريط واحد (شريط المحاسبة) لا شريطان متراكبان (مراجعة التصميم المستقلة)
+  { const { p, errs, ctx } = await open({ viewport: { width: 1190, height: 782 } }, 'live/Hub/admin/finhub:acct');
+    await p.waitForSelector('.ob'); await p.evaluate(() => window.setOrg(o => ({ ...o, ctlBar: { on: true } })));
+    await p.waitForSelector('[data-ctlbar]'); await p.waitForTimeout(200);
+    assert.equal(await p.locator('[data-ctlbar]').count(), 1, 'مسار موقع واحد');
+    assert.match(await p.locator('[data-ctlbar]').innerText(), /المحاسبة/);
+    assert.deepEqual(errs, []); await ctx.close(); }
 });

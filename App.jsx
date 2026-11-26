@@ -8692,7 +8692,7 @@ const HUBS = {
   finhub: {
     ar: 'المالية والمحاسبة', desc: 'القيود والقوائم والتسويات ← الخزينة والترحيل ← المنشآت', icon: Scale,
     views: [
-      { id: 'acct', ar: 'المحاسبة', icon: Scale, comp: Accounting },
+      { id: 'acct', ar: 'المحاسبة', icon: Scale, comp: Accounting, ownBar: true },   // v56.25: له شريط تحكم خاص — لا شريط للمركز فوقه
       { id: 'treasury', ar: 'الخزينة والترحيل', icon: Landmark, comp: Treasury },
       { id: 'entities', ar: 'المنشآت', icon: Building2, comp: EntitiesCenter },
       { id: 'cardrec', ar: 'مطابقة تسويات الشبكة', icon: CreditCard, comp: CardRecon, like: 'acct' },   // v40.6
@@ -8803,7 +8803,7 @@ function OdooBar({ groups, cur, onPick, extra, sw, showSub, subEnd, crumb }) {
         return <div className={'ob-crumb' + (crumb.tools ? ' ob-hasf' : '')} data-ctlbar>
           <nav className="ob-path" aria-label={isEn() ? 'Location' : 'مسار الموقع'}>
             <span className="obp-app">{TX(crumb.app)}</span>
-            {g && g.items.length > 1 && TX(g.ar) !== TX(crumb.app) && <><span className="obp-sep" aria-hidden="true">›</span><span className="obp-grp">{TX(g.ar)}</span></>}
+            {g && g.items.length > 1 && TX(g.ar) !== TX(crumb.app) && (!it || TX(g.ar) !== TX(it.ar)) && <><span className="obp-sep" aria-hidden="true">›</span><span className="obp-grp">{TX(g.ar)}</span></>}
             {it && <><span className="obp-sep" aria-hidden="true">›</span><b className="obp-cur" aria-current="page" data-ctlbar-cur>{TX(it.ar)}</b></>}
           </nav>
           {crumb.tools ? <button className={'btn sm gh ob-ftog' + (ftOpen ? ' on' : '')} aria-expanded={ftOpen} aria-controls="ob-tools" onClick={() => setFtOpen(v => !v)} data-ctlbar-ftog>{isEn() ? 'Filter' : 'تصفية'}{crumb.nf ? ' (' + crumb.nf + ')' : ''}</button> : null}
@@ -8940,7 +8940,7 @@ function Hub({ hubId, view, ...rest }) {
             <span style={{ fontSize: 11, color: 'var(--dim)' }} className="hub-desc">· {TX(cfg.desc)}</span>
           </div>
         </div>
-        {views.length > 1 && <div style={{ marginTop: 8 }}><SectionNav items={views.map(v => ({ id: v.id, ar: v.ar, icon: v.icon, group: v.group || (MENU_GROUPS[hubId] || {})[v.id] }))} cur={cur} onPick={go} label={'أقسام ' + cfg.ar} app={cfg.ar} ctl={ctlBarOn(rest.org)} /></div>}
+        {views.length > 1 && <div style={{ marginTop: 8 }}><SectionNav items={views.map(v => ({ id: v.id, ar: v.ar, icon: v.icon, group: v.group || (MENU_GROUPS[hubId] || {})[v.id] }))} cur={cur} onPick={go} label={'أقسام ' + cfg.ar} app={cfg.ar} ctl={ctlBarOn(rest.org) && !(views.find(v => v.id === cur) || {}).ownBar} /></div>}
       </div>
       {Cur ? <Cur {...rest} /> : <div className="card"><div className="empty">لا توجد أقسام متاحة لصلاحيتك.</div></div>}
     </div>
