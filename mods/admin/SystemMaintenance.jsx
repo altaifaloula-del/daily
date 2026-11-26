@@ -10,7 +10,8 @@ import { posrOn, posrCompare, posrLoad, posrSeed, posrState, posrRepair } from '
 import { MKT_BR_CV, mktBrOn } from '../../App.jsx';
 import { grrOn, mkcCompare, lytCompare, grrLoad, grrSeed, grrState } from '../../App.jsx';
 import { posGlOpen, posGlRanges, posGlCheck } from '../../App.jsx';
-import { ctlBarOn } from '../../App.jsx';   // v56.23 (G2) شريط التحكم   // v56.18 (POS 6a) أثر فواتير نقطة البيع في قيد الإغلاق   // v56.17 (GROWTH 2) سجلات الموافقة والولاء المحمية   // v56.12 (GROWTH G1) سجلات التسويق في الفروع
+import { ctlBarOn } from '../../App.jsx';
+import { DS_BLOCKED, dsRanges, dsRouteOpen, dsLive } from '../../App.jsx';   // v56.29 أوامر الصرف   // v56.23 (G2) شريط التحكم   // v56.18 (POS 6a) أثر فواتير نقطة البيع في قيد الإغلاق   // v56.17 (GROWTH 2) سجلات الموافقة والولاء المحمية   // v56.12 (GROWTH G1) سجلات التسويق في الفروع
 import { WorkflowsCard } from './Workflows.jsx';   // v49.5 MQ-059
 import { FL_START, flOn, flScope, flCompare, flLoad, flPost, FL_GROUPS, flLvl, flUnclassified, flCorrect, flReadOn } from '../../App.jsx';   // v56.9 D1 دفتر القيود المخزّن
 import { fjCompare, fjLoad, fjOn, fjState, fpLockedTo, fpLoad, fmLoad, fmSet, fjSeed, FD_KINDS, fdCompare, fdLoad, fdSeed } from '../../App.jsx';   // v49.0 المرحلة 01
@@ -319,6 +320,7 @@ export function SystemMaintenance({ org, ops, me, commit, commitOrg, say }) {
       <GrowthRecordsCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <PosGlCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <CtlBarCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
+      <DsRouteCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <FinStrictCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <LedgerCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <JournalRecordsCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
@@ -569,6 +571,44 @@ function CtlBarCard({ org, commitOrg, say, isAdm }) {
       يُظهر سطرًا أعلى المحاسبة والمبيعات والمخزون والموردين والإجازات ومراكز التطبيقات فيه مسار الموقع (التطبيق › المجموعة › القسم الحالي) وأزرار الإجراء، وصفًّا بأقسام المجموعة الحالية، ومرشحات تقارير المحاسبة، ويكبّر الأزرار للمس. يسري على وضع العرض «قوائم».
       تغيير في الشكل فقط — لا يمس أي قيد أو رصيد، ويمكن إيقافه في أي وقت. يسري على كل مستخدمي المنشأة.</div>
     {isAdm && <button className={'btn sm ' + (on ? 'gh' : 'pri')} onClick={toggle} data-ctlbar-toggle>{on ? 'إيقاف' : 'تفعيل'}</button>}
+  </div>);
+}
+
+/* v56.29 (توجيه المجلس بتفويض المالك): أوامر الصرف من الخزينة — منع سداد الموردين والضريبة والرواتب منها، واعتماد بغير المنشئ.
+   معطّل افتراضيًا، ويسري من تاريخ لا يسبق اليوم ولا يقع في فترة مقفلة (فلا يتغير قيد سابق ولا الدفتر المخزّن). مع مراجعة قراءة فقط للأوامر الماضية. */
+function DsRouteCard({ org, ops, commitOrg, say, isAdm }) {
+  const on = dsRouteOpen(org); const R = dsRanges(org); const [from, setFrom] = useState(today()); const lk = fpLockedTo(org) || '';
+  const lastTo = R.reduce((a, r) => (r.to && r.to > a ? r.to : a), '');
+  const start0 = (R.find(r => !r.to) || R[0] || {}).from || '9999-12-31';
+  const past = (ops.disbursements || []).filter(x => dsLive(x) && DS_BLOCKED[x.category] && String(x.date || '') < start0);
+  const byCat = Object.keys(DS_BLOCKED).map(c => { const L = past.filter(x => x.category === c); return { c, n: L.length, amt: Math.round(L.reduce((t, x) => t + (Number(x.amount) || 0), 0) * 100) / 100 }; });
+  const toggle = async () => {
+    if (!isAdm) return;
+    if (!on) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) return say('اختر تاريخ البدء', 'no');
+      if (from < today()) return say('تاريخ البدء لا يسبق اليوم — حتى لا يُعاد تصنيف أوامر مرحّلة', 'no');
+      if (lk && from <= lk) return say('تاريخ البدء داخل فترة مقفلة (حتى ' + lk + ')', 'no');
+      if (lastTo && from <= lastTo) return say('تاريخ البدء يجب أن يكون بعد نهاية التفعيل السابق (' + lastTo + ')', 'no');
+      if (!window.confirm('تفعيل ضوابط أوامر الصرف من ' + from + '؟\nمن هذا التاريخ: لا يُصرف سداد الموردين ولا الضريبة ولا الرواتب من أوامر الصرف (بل من شاشاتها)، والأمر الجديد يعتمده غير منشئه.\nالأوامر السابقة تبقى كما هي.')) return;
+    } else if (!window.confirm('إيقاف من اليوم؟ الأوامر حتى اليوم تبقى كما سُجّلت.')) return;
+    const ok = await commitOrg(o => { const rs = dsRanges(o).map(r => ({ ...r }));
+      if (on) { const x = rs.find(r => !r.to); if (x) { x.to = today(); x.offAt = nowISO(); } } else rs.push({ from, at: nowISO() });
+      return { ...o, dsRoute: { ...(o.dsRoute || {}), ranges: rs } }; },
+      { actionType: 'settings', targetType: 'system_settings', targetId: 'dsRoute', title: on ? 'أوقف ضوابط أوامر الصرف' : 'فعّل ضوابط أوامر الصرف', details: on ? 'حتى ' + today() : 'من ' + from });
+    if (ok) say(on ? 'أُوقفت — الأوامر السابقة كما هي' : 'فُعّلت من ' + from + ' ✓');
+  };
+  return (<div className="card" data-dsroute>
+    <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />ضوابط أوامر الصرف من الخزينة الرئيسية</div>
+      <span className={'badge ' + (on ? 'b-sky' : 'b-dim')}>{on ? 'مفعّلة من ' + (R.find(r => !r.to) || {}).from : 'غير مفعّلة'}</span></div>
+    <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>
+      بتوجيه المجلس: كل أمر صرف يُقيَّد اليوم مصروفًا على 5901 أيًّا كان بنده — فسداد المورد والضريبة والرواتب منه يضخّم المصروف ويُبقي الالتزام مفتوحًا.
+      عند التفعيل: هذه البنود الثلاثة تُصرف من شاشاتها ({Object.values(DS_BLOCKED).join(' · ')})، والأمر الجديد «بانتظار الاعتماد» يعتمده غير منشئه (المالك يرحّل أمره مباشرة كالقيد اليدوي).
+      <div>الإيجارات والصيانة والمصاريف الإدارية وتوريد المواد الخام تبقى على 5901 حتى قرارك في خريطة الحسابات.</div>
+      {R.filter(r => r.to).map((r, i) => <div key={i}>نطاق سابق: {r.from} ← {r.to}</div>)}</div>
+    {past.length > 0 && <div data-dsroute-past style={{ fontSize: 12, marginBottom: 8 }}><b>مراجعة الأوامر الماضية (قراءة فقط — لا تعديل):</b> أوامر مرحّلة على 5901 لبنود لها شاشات مخصصة:
+      {byCat.filter(x => x.n).map(x => <div key={x.c} className="me-row"><span className="me-a"><b>{x.c}</b><small>{x.n} أمر · {x.amt.toLocaleString('en', { minimumFractionDigits: 2 })} ر.س — قارنها بسجلها في شاشتها؛ أي تصحيح بقيد يدوي معتمد بعد قرارك</small></span></div>)}</div>}
+    {isAdm && !on && <div className="row" style={{ gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}><label style={{ fontSize: 12 }}>يسري من <input className="inp" type="date" aria-label="تاريخ بدء ضوابط أوامر الصرف" value={from} min={today()} onChange={e => setFrom(e.target.value)} /></label></div>}
+    {isAdm && <div className="row" style={{ marginTop: 8 }}><button className={'btn sm ' + (on ? 'gh' : 'pri')} onClick={toggle} data-dsroute-toggle>{on ? 'إيقاف' : 'تفعيل'}</button></div>}
   </div>);
 }
 
