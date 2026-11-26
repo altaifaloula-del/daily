@@ -10,6 +10,7 @@ import { posrOn, posrCompare, posrLoad, posrSeed, posrState, posrRepair } from '
 import { MKT_BR_CV, mktBrOn } from '../../App.jsx';
 import { grrOn, mkcCompare, lytCompare, grrLoad, grrSeed, grrState } from '../../App.jsx';
 import { posGlOpen, posGlRanges, posGlCheck } from '../../App.jsx';
+import { posLoyOpening, posMisLoyFrom, posGlNote, jeOwner, posGlFrom } from '../../App.jsx';   // v56.33 (الدفعة 2 — P1/P2)
 import { ctlBarOn } from '../../App.jsx';
 import { DS_BLOCKED, dsRanges, dsRouteOpen, dsLive, dsMapOf, dsAccOk } from '../../App.jsx';
 import { cvApprRanges } from '../../App.jsx';   // v56.32 اعتماد سندات الصرف   // v56.29 أوامر الصرف   // v56.23 (G2) شريط التحكم   // v56.18 (POS 6a) أثر فواتير نقطة البيع في قيد الإغلاق   // v56.17 (GROWTH 2) سجلات الموافقة والولاء المحمية   // v56.12 (GROWTH G1) سجلات التسويق في الفروع
@@ -319,7 +320,7 @@ export function SystemMaintenance({ org, ops, me, commit, commitOrg, say }) {
       <PosRecordsCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <MktBranchCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <GrowthRecordsCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
-      <PosGlCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
+      <PosGlCard org={org} ops={ops} me={me} commit={commit} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <CtlBarCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <DsRouteCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <CvApprCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
@@ -515,7 +516,7 @@ function MktBranchCard({ org, commitOrg, say, isAdm }) {
    المصدر لا يتغير؛ التفعيل ينسخ الجديد، و«نسخ التاريخ» ينسخ القائم، و«مطابقة» تكشف الناقص والمختلف والزائد. */
 /* v56.18 (POS 6a — قرارات المالك): قيد إيراد الوردية من فواتير نقطة البيع: الضريبة من الفواتير، المبيعات بالإجمالي والخصومات في 4104،
    والولاء التزام 2106. معطّل افتراضيًا، ويسري من تاريخ يختاره المالك فقط (لا يغيّر قيودًا سابقة). الإغلاق غير المطابق لفواتيره يبقى كما كان. */
-function PosGlCard({ org, ops, commitOrg, say, isAdm }) {
+function PosGlCard({ org, ops, me, commit, commitOrg, say, isAdm }) {
   const on = posGlOpen(org); const R = posGlRanges(org); const [from, setFrom] = useState(today()); const [rows, setRows] = useState(null);
   const pv = Number((org.loyaltyCfg || {}).ptValue) || 0; const lk = fpLockedTo(org) || '';
   const lastTo = R.reduce((a, r) => (r.to && r.to > a ? r.to : a), '');
@@ -538,6 +539,30 @@ function PosGlCard({ org, ops, commitOrg, say, isAdm }) {
     if (ok) { setRows(null); say(on ? 'أُوقف من الغد — القيود السابقة كما هي' : 'فُعّل من ' + from + ' ✓'); }
   };
   const cnt = (k) => (rows || []).filter(r => r.st === k).length;
+  // v56.33 P2: شرح الإغلاق غير المطابق بمستند (يرفع منع قفل الشهر)، وقيد حركة الولاء وحدها من تاريخ يختاره المالك
+  const noteFor = async (r) => { const t = window.prompt('شرح عدم المطابقة ورقم المستند المؤيِّد:', posGlNote(org, r.id)); if (t === null) return;
+    const ok = await commitOrg(o => ({ ...o, posGl: { ...(o.posGl || {}), notes: { ...((o.posGl || {}).notes || {}), [r.id]: String(t).trim() || undefined } } }), { actionType: 'settings', targetType: 'system_settings', targetId: 'posGl.notes', title: 'شرح إغلاق لا يطابق فواتير نقطة البيع', details: r.branchName + ' ' + r.date + ' — ' + String(t).trim() });
+    if (ok) say('حُفظ الشرح ✓'); };
+  const misFrom = posMisLoyFrom(org); const [mFrom, setMFrom] = useState(today());
+  const setMis = async () => { if (!isAdm) return;
+    if (!misFrom) { const pm = (org.posGl || {}).misLoy || {}; if (pm.to && mFrom <= pm.to) return say('تاريخ البدء بعد نهاية التفعيل السابق (' + pm.to + ')', 'no'); if (mFrom < today()) return say('تاريخ البدء لا يسبق اليوم', 'no'); if (lk && mFrom <= lk) return say('تاريخ البدء داخل فترة مقفلة', 'no');
+      if (!window.confirm('من ' + mFrom + ': الإغلاق غير المطابق يُضاف إليه قيد حركة الولاء وحدها من الفواتير (منح: مدين 4101 دائن 2106 · استبدال: مدين 2106 دائن 4101). ما قبله كما هو.')) return; }
+    const ok = await commitOrg(o => ({ ...o, posGl: { ...(o.posGl || {}), misLoy: misFrom ? { ...((o.posGl || {}).misLoy || {}), to: today(), offAt: nowISO() } : { from: mFrom, at: nowISO() } } }), { actionType: 'settings', targetType: 'system_settings', targetId: 'posGl.misLoy', title: misFrom ? 'أوقف قيد الولاء للإغلاق غير المطابق' : 'فعّل قيد الولاء للإغلاق غير المطابق', details: misFrom ? '' : 'من ' + mFrom });
+    if (ok) say(misFrom ? 'أُوقف' : 'فُعّل من ' + mFrom + ' ✓'); };
+  // v56.33 P1: رصيد النقاط القائم قبل التفعيل — معاينة ثم قيد تسوية بموافقة المالك
+  const [op, setOp] = useState(null); const [opDr, setOpDr] = useState('');
+  const cutoff = posGlFrom(org) || (R[0] || {}).from || today();
+  const preview = async () => { const doc = await cloud.get(KEYS.loy, null).catch(() => null); setOp(posLoyOpening(org, doc || {}, cutoff)); };
+  const opDone = (ops.journalManual || []).some(j => j.loyOpen && j.status !== 'rejected');
+  const postOpening = async () => {
+    if (!op || !(op.amt > 0)) return; if (!opDr) return say('اختر حساب الطرف المدين (الأرباح المبقاة إن كان المبلغ جوهريًا، أو إيراد الفترة)', 'no');
+    if (!R.length) return say('فعّل قيد نقطة البيع أولًا (يُنشئ حساب 2106)', 'no'); if (opDone) return say('قيد التسوية مسجّل سابقًا', 'no');
+    if (!window.confirm('إنشاء قيد تسوية التزام الولاء القائم: مدين ' + opDr + ' / دائن 2106 بمبلغ ' + op.amt + ' بتاريخ اليوم؟')) return;
+    const direct = jeOwner(me), dt = today(); if (lk && dt.slice(0, 7) <= lk) return say('اليوم داخل فترة مقفلة', 'no');
+    const rec = { id: uid('jm'), date: dt, title: 'تسوية التزام الولاء القائم قبل ' + cutoff + ' (' + op.pts + ' نقطة × ' + op.pv + ')', loyOpen: { pts: op.pts, pv: op.pv, cutoff, rate: op.rate }, opening: false, by: me.name, byId: me.id || '', createdAt: nowISO(),
+      status: direct ? 'posted' : 'pending', ...(direct ? { approvedBy: me.name, approvedAt: nowISO() } : {}), lines: [{ code: opDr, debit: op.amt, credit: 0 }, { code: '2106', debit: 0, credit: op.amt }] };
+    const ok = await commit(d => ({ ...d, journalManual: [rec, ...(d.journalManual || [])] }), { actionType: 'create', targetType: 'journal_entry', targetId: rec.id, need: 'post', title: 'قيد تسوية التزام الولاء القائم (قرار المجلس P1)', details: op.pts + ' نقطة · ' + op.amt + ' ر.س · مدين ' + opDr });
+    if (ok !== false) say(direct ? 'سُجّل قيد التسوية ✓' : 'أُرسل قيد التسوية للاعتماد ✓'); };
   return (<div className="card" data-posgl>
     <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />قيد إيراد الوردية من فواتير نقطة البيع (الضريبة، الخصومات، التزام الولاء)</div>
       <span className={'badge ' + (on ? 'b-sky' : 'b-dim')}>{on ? 'مفعّل من ' + posGlRanges(org).find(r => !r.to).from : 'غير مفعّل'}</span></div>
@@ -549,11 +574,27 @@ function PosGlCard({ org, ops, commitOrg, say, isAdm }) {
       {R.filter(r => r.to).map((r, i) => <div key={i}>نطاق سابق: {r.from} ← {r.to}</div>)}</div>
     {isAdm && !on && <div className="row" style={{ gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}><label style={{ fontSize: 12 }}>يسري من <input className="inp" type="date" aria-label="تاريخ بدء قيد نقطة البيع" value={from} onChange={e => setFrom(e.target.value)} /></label></div>}
     {rows && <div data-posgl-rep style={{ fontSize: 12, marginTop: 6 }}>إغلاقات في النطاق: {rows.length} · مطابقة لفواتيرها: {cnt('ok')} · غير مطابقة: {cnt('diff')} · بلا فواتير نقطة بيع: {cnt('none')}
-      {rows.filter(r => r.st === 'diff').slice(0, 20).map(r => <div key={r.id} className="me-row"><span className="me-a"><b>{r.branchName} — {r.date}</b><small>الإغلاق {r.tot} · الفواتير {r.pos} ({r.n}) — بقي القيد بالطريقة السابقة</small></span></div>)}</div>}
+      {rows.filter(r => r.st === 'diff').slice(0, 20).map(r => <div key={r.id} className="me-row" data-posgl-diff><span className="me-a"><b>{r.branchName} — {r.date}</b><small>الإغلاق {r.tot} · الفواتير {r.pos} ({r.n}) — بقي القيد بالطريقة السابقة{posGlNote(org, r.id) ? ' · الشرح: ' + posGlNote(org, r.id) : ' · بلا شرح (يمنع قفل الشهر)'}</small></span>
+        {isAdm && <button className="btn sm gh" data-posgl-note onClick={() => noteFor(r)}>{posGlNote(org, r.id) ? 'تعديل الشرح' : 'شرح بمستند'}</button>}</div>)}</div>}
     <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
       {isAdm && <button className={'btn sm ' + (on ? 'gh' : 'pri')} onClick={toggle} data-posgl-toggle>{on ? 'إيقاف' : 'تفعيل'}</button>}
       {R.length > 0 && <button className="btn sm gh" onClick={() => setRows(posGlCheck(org, ops))} data-posgl-check>فحص المطابقة</button>}
     </div>
+    <div data-posgl-mis style={{ marginTop: 10, borderTop: '1px solid var(--line)', paddingTop: 8, fontSize: 12 }}>
+      <b>الإغلاق غير المطابق (قرار المجلس P2):</b> لا يُمنع اعتماده، ويُضاف إليه قيد حركة الولاء وحدها من الفواتير فيبقى 2106 مطابقًا لسجل النقاط؛ ويمنع قفل الشهر حتى يُصحَّح أو يُشرح بمستند.
+      <div className="row" style={{ gap: 8, marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+        <span className={'badge ' + (misFrom ? 'b-sky' : 'b-dim')}>{misFrom ? 'قيد الولاء مفعّل من ' + misFrom : 'قيد الولاء غير مفعّل'}</span>
+        {isAdm && !misFrom && <input className="inp" type="date" aria-label="بدء قيد الولاء للإغلاق غير المطابق" value={mFrom} min={today()} onChange={e => setMFrom(e.target.value)} />}
+        {isAdm && <button className={'btn sm ' + (misFrom ? 'gh' : '')} onClick={setMis} data-posgl-mistoggle>{misFrom ? 'إيقاف' : 'تفعيل'}</button>}</div></div>
+    <div data-posgl-open style={{ marginTop: 10, borderTop: '1px solid var(--line)', paddingTop: 8, fontSize: 12 }}>
+      <b>رصيد النقاط القائم قبل {cutoff} (قرار المجلس P1):</b> يُحسب آليًا = النقاط × قيمة النقطة بعد استبعاد الضريبة، ويُسجَّل بقيد تسوية واحد بتاريخ اليوم بعد موافقتك — لا يُفتح شهر مقفل ولا يُعدَّل قيد سابق. الجوهرية يقدّرها المحاسب المختص.
+      <div className="row" style={{ gap: 8, marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+        <button className="btn sm gh" onClick={preview} data-posgl-openprev>معاينة</button>
+        {op && <span data-posgl-openres>{op.pts} نقطة × {op.pv} ÷ (1 + {op.rate}%) = <b className="num">{op.amt}</b> ر.س</span>}
+        {opDone && <span className="badge b-sky">القيد مسجّل</span>}
+        {op && op.amt > 0 && isAdm && !opDone && <><select className="sel" aria-label="الطرف المدين لقيد التسوية" value={opDr} onChange={e => setOpDr(e.target.value)} data-posgl-opendr>
+          <option value="">— الطرف المدين —</option><option value="3201">3201 الأرباح المبقاة (إن كان جوهريًا — تصحيح خطأ سابق)</option><option value="4101">4101 إيراد الفترة (إن لم يكن جوهريًا)</option></select>
+          <button className="btn sm pri" onClick={postOpening} data-posgl-openpost>إنشاء قيد التسوية</button></>}</div></div>
   </div>);
 }
 
