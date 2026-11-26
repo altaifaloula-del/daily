@@ -2258,13 +2258,19 @@ function posGlLines(d) {
    P1 رصيد النقاط القائم قبل تفعيل 6a = النقاط (حركات قبل تاريخ القطع) × قيمة النقطة بعد استبعاد الضريبة — معاينة، والقيد بموافقة المالك.
    P2 الإغلاق غير المطابق: قيد حركة الولاء وحدها من الفواتير (منح: مدين 4101 دائن 2106؛ استبدال: مدين 2106 دائن 4101) من تاريخ يختاره المالك
    (org.posGl.misLoy.from — لا يغيّر الماضي)، وشرح بمستند لكل إغلاق غير مطابق (org.posGl.notes)، وفحص في قائمة الإقفال. */
-function posLoyOpening(org, loyDoc, cutoff) {
+function posLoyOpening(org, loyDoc, cutoff, ctx) {
   const r2 = (x) => Math.round((Number(x) || 0) * 100) / 100; const pv = posGlPv(org);
   const tx = (org && org.taxCfg) || {}; const rate = tx.enabled ? (Number(tx.rate) || 15) : 0;
   // (التحقق المستقل) المقارنة بالوقت المحلي: حركة الساعة 01:30 من يوم القطع (UTC في اليوم السابق) لا تُحتسب مرتين
   const cut = new Date(cutoff + 'T00:00:00').getTime(); const before = (t) => { const ms = Date.parse(t.at || ''); return isNaN(ms) ? String(t.at || '').slice(0, 10) < cutoff : ms < cut; };
-  const pts = r2(((loyDoc && loyDoc.tx) || []).filter(before).reduce((a, t) => a + (Number(t.pts) || 0), 0));
-  return { pts, pv, rate, cutoff, amt: r2(pts * pv * 100 / (100 + rate)) };
+  const pts0 = r2(((loyDoc && loyDoc.tx) || []).filter(before).reduce((a, t) => a + (Number(t.pts) || 0), 0));
+  // (التحقق المستقل — قرار المجلس: البديل أ) جوائز صدرت قبل القطع ولم تُسلَّم بعد جزء من الالتزام حتى تسليمها (P6) — وإلا أطفأتها التسوية الشهرية مرتين
+  ctx = ctx || {}; const ALL = (loyDoc && loyDoc.tx) || []; const used = {};
+  (ctx.orders || []).forEach(o => { if (o && o.coupon && o.status !== 'void' && o.kind !== 'return') { const c = String(o.coupon).toUpperCase(); if (!used[c] || o.date < used[c]) used[c] = o.date; } });
+  let rwOpen = 0; (ctx.promos || []).forEach(pm => { if (!pm || !pm.rwTx) return; const t = ALL.find(x => x.id === pm.rwTx); if (!t || !before(t) || ALL.some(u => u.id === pm.rwTx + ':undo')) return;
+    const u = used[String(pm.code || '').toUpperCase()]; if ((u && u < cutoff) || (pm.to && pm.to < cutoff)) return; rwOpen += -(Number(t.pts) || 0); });
+  const pts = r2(pts0 + rwOpen);
+  return { pts, rwOpen: r2(rwOpen), pv, rate, cutoff, amt: r2(pts * pv * 100 / (100 + rate)) };
 }
 // (التحقق المستقل) سجل نطاقات لا يُكتب فوقه — الإيقاف يغلق النطاق وإعادة التفعيل تضيف نطاقًا جديدًا (misLoy القديم = نطاق واحد)
 /* v56.34 (الدفعة 3 — ولاء 6ب، قرارات المجلس P5/P6/P7 بتفويض المالك): تسوية شهرية من سجل النقاط لما لا يأتي من الفواتير —
@@ -2281,8 +2287,10 @@ function loyMonthAdj(org, loyDoc, month, ctx) {
   // P5: النقاط المنتهية تُقسم بحسب مصدرها (الأقدم يُستهلك أولًا كما في loyExpiring): المناسبات ← عكس المصروف، والبقية ← إيراد
   let expRevPts = 0, expOccPts = 0;
   T.filter(t => /^ex:/.test(String(t.id || ''))).forEach(ex => {
-    const H = ALL.filter(t => t.phone === ex.phone && t !== ex && String(t.at || '') <= String(ex.at || '')).slice().sort((a, b) => String(a.at).localeCompare(String(b.at)));
-    const lots = []; let neg = 0; H.forEach(t => { const p = Number(t.pts) || 0; if (p > 0) lots.push({ occ: isOcc(t), left: p }); else neg += -p; });
+    const ms = (t) => { const v = Date.parse(t.at || ''); return isNaN(v) ? 0 : v; };   // ترتيب بالزمن الفعلي لا بنص التاريخ
+    const H = ALL.filter(t => t.phone === ex.phone && t !== ex && ms(t) <= ms(ex)).slice().sort((a, b) => ms(a) - ms(b));
+    // مناسبة مُنحت قبل بداية 6a دخلت الرصيد الافتتاحي لا المصروف الترويجي ⇒ انتهاؤها إيراد
+    const lots = []; let neg = 0; H.forEach(t => { const p = Number(t.pts) || 0; if (p > 0) lots.push({ occ: isOcc(t) && (!from || ld(t) >= from), left: p }); else neg += -p; });
     lots.forEach(l => { const u = Math.min(l.left, neg); l.left -= u; neg -= u; });
     let left = -(Number(ex.pts) || 0); lots.forEach(l => { if (left <= 0) return; const u = Math.min(l.left, left); if (l.occ) expOccPts += u; else expRevPts += u; left -= u; });
     if (left > 0) expRevPts += left; });

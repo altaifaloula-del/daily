@@ -44,3 +44,17 @@ test('(التحقق المستقل) لا عدّ مزدوج في شهر بدء ا
 test('6ب: شهر بلا حركات ⇒ أصفار', () => {
   const r = E.loyMonthAdj(org, doc, '2027-02', { orders, promos }); assert.deepEqual([r.exp, r.occ, r.rw, r.expOcc], [0, 0, 0, 0]);
 });
+
+test('(التحقق المستقل B3) جائزة صدرت قبل بدء 6a وسُلّمت بعده: في الرصيد الافتتاحي حتى تسليمها — لا تُطفأ مرتين', () => {
+  const d = { tx: [{ id: 'o1:e', phone: '5', pts: 1000, at: at('2026-11-01') }, { id: 'rw:y1', phone: '5', pts: -200, at: at('2026-12-12') }] };
+  const pr = [{ code: 'RWY', rwTx: 'rw:y1', to: '2027-01-30' }], ord = [{ id: 'q', date: '2026-12-20', coupon: 'RWY', status: 'paid' }];
+  const op = E.posLoyOpening(org, d, '2026-12-15', { orders: ord, promos: pr });
+  assert.equal(op.pts, 1000, '800 صافي + 200 جائزة لم تُسلَّم'); assert.equal(op.rwOpen, 200);
+  const m = E.loyMonthAdj(org, d, '2026-12', { orders: ord, promos: pr, from: '2026-12-15' }); assert.equal(m.rwPts, 200, 'تُطفأ عند التسليم');
+  // ⇒ الرصيد بعد التسليم = 800 نقطة كما في السجل
+});
+
+test('(التحقق المستقل) انتهاء مناسبة مُنحت قبل بدء 6a ⇒ إيراد (دخلت الرصيد الافتتاحي لا المصروف)', () => {
+  const d = { tx: [{ id: 'bd:9:2025', phone: '9', pts: 50, at: at('2025-11-01') }, { id: 'ex:9:2026-12', phone: '9', pts: -50, at: at('2026-12-01') }] };
+  const r = E.loyMonthAdj(org, d, '2026-12', { from: '2026-11-01' }); assert.deepEqual([r.expOccPts, r.expPts], [0, 50]);
+});

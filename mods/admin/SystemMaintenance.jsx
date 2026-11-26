@@ -555,8 +555,9 @@ function PosGlCard({ org, ops, me, commit, commitOrg, say, isAdm }) {
   const [op, setOp] = useState(null); const [opDr, setOpDr] = useState('');
   // (التحقق المستقل) القطع = بداية أول نطاق لقيد نقطة البيع (لا الأخير) — فلا تُحتسب نقاط نطاق سابق مرتين
   const cutoff = R.reduce((a, r) => (!a || r.from < a ? r.from : a), '') || today();
-  const preview = async () => { const doc = await cloud.get(KEYS.loy, null).catch(() => null); setOp(posLoyOpening(org, doc || {}, cutoff)); };
+  const preview = async () => { const doc = await cloud.get(KEYS.loy, null).catch(() => null); setOp(posLoyOpening(org, doc || {}, cutoff, { orders: ops.posOrders || [], promos: org.posPromos || [] })); };
   const opDone = (ops.journalManual || []).some(j => j.loyOpen && j.status !== 'rejected');
+  const opPosted = (ops.journalManual || []).some(j => j.loyOpen && (!j.status || j.status === 'posted'));   // (التحقق المستقل) التسوية الشهرية بعد اعتماده
   const postOpening = async () => {
     if (!op || !(op.amt > 0)) return; if (!opDr) return say('اختر حساب الطرف المدين (الأرباح المبقاة إن كان المبلغ جوهريًا، أو إيراد الفترة)', 'no');
     if (!R.length) return say('فعّل قيد نقطة البيع أولًا (يُنشئ حساب 2106)', 'no'); if (opDone) return say('قيد التسوية مسجّل سابقًا', 'no');
@@ -578,7 +579,7 @@ function PosGlCard({ org, ops, me, commit, commitOrg, say, isAdm }) {
     const nowM = today().slice(0, 7); if (lm >= nowM) return say('التسوية لشهر منتهٍ فقط — حتى لا تسقط حركات بقية الشهر', 'no');
     const [yy, mm0] = lm.split('-').map(Number); const lastD = lm + '-' + String(new Date(yy, mm0, 0).getDate()).padStart(2, '0');
     if (!R.some(r => r.from <= lastD && (!r.to || r.to >= lm + '-01'))) return say('الشهر يقع في فجوة بين نطاقات قيد نقطة البيع — لا تسوية له', 'no');
-    if (!opDone) return say('سجّل أولًا قيد رصيد النقاط القائم (أعلاه) — وإلا أطفأت التسوية التزامًا لم يُسجَّل', 'no');
+    if (!opPosted) return say('سجّل أولًا قيد رصيد النقاط القائم (أعلاه) واعتمده — وإلا أطفأت التسوية التزامًا لم يُسجَّل', 'no');
     if (lmDone) return say('تسوية هذا الشهر مسجّلة سابقًا', 'no'); if (lk && lm <= lk) return say('الشهر مقفل', 'no');
     if ((la.occ || la.expOcc) && !promoAcc) return say('اختر حساب المصروف الترويجي لنقاط المناسبات', 'no');
     const L = []; const pair = (dr, cr, a) => { if (!a) return; if (a < 0) { [dr, cr] = [cr, dr]; a = -a; } L.push({ code: dr, debit: a, credit: 0 }, { code: cr, debit: 0, credit: a }); };   // بلا مبالغ سالبة
@@ -618,7 +619,7 @@ function PosGlCard({ org, ops, me, commit, commitOrg, say, isAdm }) {
       <b>رصيد النقاط القائم قبل {cutoff} (قرار المجلس P1):</b> يُحسب آليًا = النقاط × قيمة النقطة بعد استبعاد الضريبة، ويُسجَّل بقيد تسوية واحد بتاريخ اليوم بعد موافقتك — لا يُفتح شهر مقفل ولا يُعدَّل قيد سابق. الجوهرية يقدّرها المحاسب المختص.
       <div className="row" style={{ gap: 8, marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
         <button className="btn sm gh" onClick={preview} data-posgl-openprev>معاينة</button>
-        {op && <span data-posgl-openres>{op.pts} نقطة × {op.pv} ÷ (1 + {op.rate}%) = <b className="num">{op.amt}</b> ر.س <small style={{ color: 'var(--dim)' }}>(قيمة النقطة من إعداد الولاء{(org.posGl || {}).pv != null ? ' — لقطة يوم التفعيل' : ' الحالي'})</small></span>}
+        {op && <span data-posgl-openres>{op.pts} نقطة{op.rwOpen ? ' (منها ' + op.rwOpen + ' لجوائز لم تُسلَّم)' : ''} × {op.pv} ÷ (1 + {op.rate}%) = <b className="num">{op.amt}</b> ر.س <small style={{ color: 'var(--dim)' }}>(قيمة النقطة من إعداد الولاء{(org.posGl || {}).pv != null ? ' — لقطة يوم التفعيل' : ' الحالي'})</small></span>}
         {R.length > 1 && <span className="badge b-amber" data-posgl-gap>تعدد نطاقات التفعيل: نقاط الفترات الفاصلة بين النطاقات لا يغطيها هذا القيد — تُعالج بقرار</span>}
         {opDone && <span className="badge b-sky">القيد مسجّل</span>}
         {op && op.amt > 0 && isAdm && !opDone && <><select className="sel" aria-label="الطرف المدين لقيد التسوية" value={opDr} onChange={e => setOpDr(e.target.value)} data-posgl-opendr>
