@@ -2638,7 +2638,7 @@ function buildAccounting(org, ops) {
     const a = Math.round((Number(v.amount) || 0) * 100) / 100; if (!(a > 0)) return;
     const fund = (v.fund && accIx[v.fund]) ? v.fund : '1201'; const p = v.party || {};
     const rest = Math.round((a - (v.alloc || []).reduce((s2, x) => s2 + (Number(x.amount) || 0), 0)) * 100) / 100;
-    const base = { id: 'cv:' + v.id, date: String(v.date || '').slice(0, 10), ...(v.branchId ? { branchId: v.branchId } : {}), src: v.kind === 'ov' ? 'سند مقاصّة' : v.kind === 'rv' ? 'سند قبض' : 'سند صرف', ref: v.no, ...(v.projectId ? { projectId: v.projectId } : {}) };
+    const base = { id: 'cv:' + v.id, date: String(v.date || '').slice(0, 10), ...(v.branchId ? { branchId: v.branchId } : {}), src: v.kind === 'ov' ? 'سند مقاصّة' : v.kind === 'rv' ? 'سند قبض' : 'سند صرف', ref: v.no, ...(v.projectId ? { projectId: v.projectId } : {}), ...(v.deptId ? { deptId: v.deptId } : {}) };   // v56.28 قسم سند الصرف على حساب مصروف
     if (v.kind === 'ov') { push({ ...base, title: 'مقاصّة ذمم — ' + (v.supName || '') + ' / ' + (v.custName || ''), lines: [L('2101', a, 0), L('1380', 0, a)] }); return; }
     // v47.3 سند التحويل: من حساب نقدي إلى آخر (خزينة/بنك) — من الطرف الدائن إلى الطرف المدين، بلا أثر على الإيراد أو المصروف
     if (v.kind === 'tv') { const to = (v.toFund && accIx[v.toFund]) ? v.toFund : ''; if (!to || to === fund || !accIx[v.fund]) return;
@@ -3538,6 +3538,8 @@ const appUseSet = (uid, v) => { try { localStorage.setItem('rms8:appuse:' + uid,
    صافي المبيعات ← تكلفة المبيعات ← مجمل الربح ← مصروفات التشغيل (مجمّعة) ← الربح التشغيلي ← بنود أخرى ← صافي الربح.
    amt بإشارة الأثر على الربح: الإيراد موجب والمصروف سالب (يظهر بين قوسين). لا يغيّر أي قيد — عرض فقط، والمجموع = revP − expP. */
 const IS_COGS_RX = /مواد|مشتريات|بضاعة|خامات|طعام|لحوم|خضار|دواجن|أسماك|مخبوزات|ألبان/;
+// v56.28: تصنيف «تكلفة المبيعات» نفسه لقائمة الدخل ولتقرير الأقسام (بلا تغيير في القائمة)
+const isCogsAcc = (a) => a.cls === 'pur' ? true : a.cls === 'exp' ? false : ['5501', '5502', '5503', '5504', '5198', '5150'].includes(a.code) || (/^51/.test(a.code) && IS_COGS_RX.test(a.name || ''));
 const isLayout = (accounts, balFn, keep) => {
   const r2 = (n) => Math.round(n * 100) / 100;
   const L = (a, sg) => ({ code: a.code, name: a.name, amt: r2(sg * balFn(a)) });
@@ -3545,7 +3547,7 @@ const isLayout = (accounts, balFn, keep) => {
   const rev = accounts.filter(a => a.kind === 'rev'), exp = accounts.filter(a => a.kind === 'exp');
   const otherRev = (a) => /^42/.test(a.code);
   const otherExp = (a) => /^58/.test(a.code);
-  const cogsOf = (a) => a.cls === 'pur' ? true : a.cls === 'exp' ? false : ['5501', '5502', '5503', '5504', '5198', '5150'].includes(a.code) || (/^51/.test(a.code) && IS_COGS_RX.test(a.name || ''));
+  const cogsOf = isCogsAcc;
   const grpOf = (a) => /^52/.test(a.code) ? 'pay' : /^53/.test(a.code) ? 'apps' : a.code === '5701' ? 'dep' : 'oth';
   const sales = rev.filter(a => !otherRev(a)).map(a => L(a, 1)).filter(nz);
   const cogs = exp.filter(cogsOf).map(a => L(a, -1)).filter(nz);
@@ -3676,7 +3678,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.27';
+const APP_VER = 'v56.28';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -11160,16 +11162,17 @@ const DEPT_SHARED = 'shared';
 const deptOn = (org) => !!(org && org.costDepts && org.costDepts.on);
 const deptList = (org, all) => ((org && org.costDepts && org.costDepts.list) || []).filter(d => all || d.active !== false);
 function deptPL(org, A, from, to, bf) {
-  const kind = {}; (A.accounts || []).forEach(a => { kind[String(a.code)] = a.kind; });
-  const r2 = (x) => Math.round(x * 100) / 100; const byId = {}; let tot = 0;
+  const kind = {}, cg = {}; (A.accounts || []).forEach(a => { kind[String(a.code)] = a.kind; cg[String(a.code)] = isCogsAcc(a); });
+  const r2 = (x) => Math.round(x * 100) / 100; const byId = {}; let tot = 0, cogs = 0;   // v56.28 (قرار المالك): تكلفة المبيعات منفصلة خارج الأقسام
   (A.entries || []).forEach(e => { if (e.closing || (from && e.date < from) || (to && e.date > to)) return;
     if (bf && (bf === 'central' ? !!e.branchId : e.branchId !== bf)) return;
     (e.lines || []).forEach(l => { if (kind[String(l.code)] !== 'exp') return; const v = (Number(l.debit) || 0) - (Number(l.credit) || 0);
+      if (cg[String(l.code)]) { cogs += v; return; }
       const k = l.deptId || e.deptId || ''; byId[k] = (byId[k] || 0) + v; tot += v; }); });
   const names = {}; deptList(org, true).forEach(d => { names[d.id] = d.name; });
   const rows = deptList(org, true).filter(d => d.active !== false || Math.abs(byId[d.id] || 0) > 0.004).map(d => ({ id: d.id, name: d.name, v: r2(byId[d.id] || 0) }));
   Object.keys(byId).filter(k => k && k !== DEPT_SHARED && !names[k]).forEach(k => rows.push({ id: k, name: 'قسم محذوف', v: r2(byId[k]) }));
-  return { rows, shared: r2(byId[DEPT_SHARED] || 0), none: r2(byId[''] || 0), total: r2(tot) };
+  return { rows, shared: r2(byId[DEPT_SHARED] || 0), none: r2(byId[''] || 0), total: r2(tot), cogs: r2(cogs) };
 }
 const projNextCode = (org) => { let mx = 0; ((org && org.projects) || []).forEach(p => { const g = /^PRJ-(\d+)$/.exec(p.code || ''); if (g) mx = Math.max(mx, +g[1]); }); return 'PRJ-' + String(mx + 1).padStart(3, '0'); };
 

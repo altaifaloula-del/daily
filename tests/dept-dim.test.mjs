@@ -26,7 +26,7 @@ test('E4: المصروفات حسب القسم من سطور القيد اليد
   assert.equal(v.k, 300); assert.equal(v.h, 200); assert.equal(R.shared, 120);
   assert.equal(Math.round((R.rows.reduce((t, r) => t + r.v, 0) + R.shared + R.none) * 100) / 100, R.total, 'الأجزاء = الإجمالي');
   const expAll = (A.entries || []).reduce((t, e) => t + (e.lines || []).filter(l => (A.accounts.find(a => a.code === String(l.code)) || {}).kind === 'exp').reduce((s, l) => s + (l.debit || 0) - (l.credit || 0), 0), 0);
-  assert.equal(R.total, Math.round(expAll * 100) / 100, 'يطابق إجمالي المصروفات في الدفاتر');
+  assert.equal(Math.round((R.total + R.cogs) * 100) / 100, Math.round(expAll * 100) / 100, 'الأقسام + تكلفة المبيعات = إجمالي المصروفات في الدفاتر');
   assert.equal(R.rows.find(r => r.id === 'x'), undefined, 'الموقوف بلا حركة لا يظهر');
 });
 
@@ -68,4 +68,17 @@ test('E4: القيد الدوري يحمل قسم السطر', () => {
   const out = E.recurApply({ journalManual: [], jeRecurring: [tpl] }, { name: 'x', id: 'u', role: 'owner' }, base, '2026-11-02');
   const j = out.recs[0];
   assert.ok(j, 'قيد مولَّد'); assert.equal((j.lines || []).find(l => l.code === '5202').deptId, 'h');
+});
+
+test('E4 (v56.28 — قرار المالك): تكلفة المبيعات منفصلة خارج الأقسام و«بلا قسم»', () => {
+  const ops = { journalManual: [je('c1', [{ code: '5198', debit: 700, credit: 0, deptId: 'k' }, { code: '5201', debit: 100, credit: 0, deptId: 'k' }, { code: '1111', debit: 0, credit: 800 }])] };
+  const A = E.buildAccounting(base, ops); const R = E.deptPL(base, A, '', '', '');
+  assert.equal(R.cogs, 700); assert.equal((R.rows.find(r => r.id === 'k') || {}).v, 100); assert.equal(R.total, 100); assert.equal(R.none, 0);
+});
+
+test('E4 (v56.28 — توصية المجلس): قسم سند الصرف على حساب مصروف ينتقل إلى قيده', () => {
+  const ops = { cashVouchers: [{ id: 'v1', kind: 'pv', no: 'PV-1', date: '2026-11-09', amount: 90, fund: '1101', pm: 'cash', party: { t: 'acc', acc: '5199', name: 'مصروفات' }, deptId: 'k' }] };
+  const A = E.buildAccounting(base, ops); const e = A.entries.find(x => x.id === 'cv:v1');
+  assert.ok(e, 'قيد السند'); assert.equal(e.deptId, 'k');
+  assert.equal((E.deptPL(base, A, '', '', '').rows.find(r => r.id === 'k') || {}).v, 90);
 });

@@ -1,6 +1,7 @@
 /* v46.6 — سندات القبض والصرف والمقاصّة: على عميل/مورد (مع التوزيع على الفواتير المفتوحة)، أو أي حساب في الدليل، أو موظف (سلفة أو عهدة).
    الجهة التي هي عميل ومورد معًا: مقاصّة بين ذممها. ترقيم RV/PV/OV، طباعة A4 بالتفقيط، وتصدير Excel. */
 import React, { useMemo, useState } from 'react';
+import { deptOn, deptList, DEPT_SHARED } from '../../App.jsx';   // v56.28 E4: قسم سند الصرف على حساب مصروف (توصية المجلس)
 import { Receipt, Plus, Printer, Download, Check, Scale } from 'lucide-react';
 import { DocLink, CV_KIND, cvNextNo, projList, partyOpenDocs, applyCashVoucher, cashVoucherHtml, buildAccounting, buildPartners, branchBanks, Field, Modal, LOCK_MSG, makeXlsx, money, nowISO, periodLocked, printA4, today, uid } from '../../App.jsx';
 
@@ -12,7 +13,9 @@ export function CashVouchers({ org, ops, me, commit, say }) {
   const [f, setF] = useState(null);
   const P = useMemo(() => buildPartners(org, ops), [org, ops]);
   const bal = (key) => { const p = P.find(x => x.key === key); return p ? r2(p.txns.reduce((a, t) => a + (t.debit || 0) - (t.credit || 0), 0)) : 0; };
-  const accs = useMemo(() => buildAccounting(org, {}).accounts.map(a => ({ code: String(a.code), name: a.name })).sort((x, y) => x.code.localeCompare(y.code)), [org]);
+  const accs = useMemo(() => buildAccounting(org, {}).accounts.map(a => ({ code: String(a.code), name: a.name, kind: a.kind })).sort((x, y) => x.code.localeCompare(y.code)), [org]);
+  // v56.28 (توصية المجلس): القسم لسند الصرف على حساب مصروف فقط، بصلاحية الترحيل، ويُثبَّت لحظة الإنشاء (التصحيح بقيد يدوي معتمد)
+  const deptOk = !!(f && deptOn(org) && f.kind === 'pv' && f.pt === 'acc' && f.acc && (accs.find(a => a.code === f.acc) || {}).kind === 'exp');
   const ACC = useMemo(() => buildAccounting(org, ops), [org, ops]);
   const cashBal = (code) => r2(ACC.entries.reduce((t, e) => t + (e.lines || []).reduce((s, l) => s + (String(l.code) === String(code) ? (l.debit || 0) - (l.credit || 0) : 0), 0), 0));   // v47.3 رصيد الحساب النقدي قبل التحويل
   const funds = [{ code: '1101', name: 'الخزينة (نقدًا)' }, { code: '1201', name: 'البنك التجميعي' }, ...branchBanks(org).map(b => ({ code: b.code, name: b.name }))];
@@ -36,7 +39,7 @@ export function CashVouchers({ org, ops, me, commit, say }) {
     const a = r2(f.amount);
     if (!(a > 0)) return say('أدخل المبلغ', 'no');
     if (periodLocked(org, f.date)) return say(LOCK_MSG(f.date), 'no');
-    let v = { id: uid('cv'), kind: f.kind, date: f.date, amount: a, note: String(f.note || '').trim(), by: me.name, at: nowISO(), ...(f.projectId && f.kind !== 'tv' ? { projectId: f.projectId } : {}) };   // v47.4 المشروع
+    let v = { id: uid('cv'), kind: f.kind, date: f.date, amount: a, note: String(f.note || '').trim(), by: me.name, at: nowISO(), ...(f.projectId && f.kind !== 'tv' ? { projectId: f.projectId } : {}), ...(deptOk && f.deptId ? { deptId: f.deptId } : {}) };   // v47.4 المشروع
     if (f.kind === 'tv') {   // v47.3 تحويل بين حسابين نقديين
       if (!f.fund || !f.toFund || f.fund === f.toFund) return say('اختر حسابين مختلفين للتحويل', 'no');
       v = { ...v, fund: f.fund, toFund: f.toFund, ...(String(f.ref || '').trim() ? { ref: String(f.ref).trim() } : {}) };
@@ -57,7 +60,7 @@ export function CashVouchers({ org, ops, me, commit, say }) {
     }
     let no = '';
     const ok = await commit(d => { no = cvNextNo(d, f.kind); return applyCashVoucher(d, { ...v, no }, me); },
-      { actionType: 'create', targetType: 'cash_voucher', targetId: v.id, need: 'post', title: 'أصدر ' + CV_KIND[f.kind].ar, details: money(a) + ' · ' + (f.kind === 'ov' ? v.supName + ' / ' + v.custName : f.kind === 'tv' ? fname(v.fund) + ' ← ' + fname(v.toFund) : party.name) });
+      { actionType: 'create', targetType: 'cash_voucher', targetId: v.id, need: 'post', title: 'أصدر ' + CV_KIND[f.kind].ar, details: money(a) + (v.deptId ? ' · القسم: ' + ((deptList(org, true).find(d => d.id === v.deptId) || {}).name || (v.deptId === DEPT_SHARED ? 'مشترك' : v.deptId)) : '') + ' · ' + (f.kind === 'ov' ? v.supName + ' / ' + v.custName : f.kind === 'tv' ? fname(v.fund) + ' ← ' + fname(v.toFund) : party.name) });
     if (ok === false) return;
     setF(null); say('صدر ' + CV_KIND[f.kind].ar + ' ' + no + ' ✓');
     const made = { ...v, no }; setTimeout(() => print(made), 50);
@@ -131,6 +134,7 @@ export function CashVouchers({ org, ops, me, commit, say }) {
             {f.kind !== 'ov' && f.kind !== 'tv' && f.pm !== 'cash' && <Field label={f.pm === 'cheque' ? 'رقم الشيك *' : 'مرجع التحويل'}><input className="inp" aria-label="مرجع السند" value={f.ref} onChange={e => setF(x => ({ ...x, ref: e.target.value }))} /></Field>}
           </div>
           <Field label="البيان"><input className="inp" aria-label="بيان السند" value={f.note} onChange={e => setF(x => ({ ...x, note: e.target.value }))} /></Field>
+          {deptOk && <Field label="القسم (اختياري)"><select className="sel" aria-label="قسم سند الصرف" data-cv-dept value={f.deptId || ''} onChange={e => setF(x => ({ ...x, deptId: e.target.value }))}><option value="">بلا قسم</option>{deptList(org).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}<option value={DEPT_SHARED}>مشترك</option></select></Field>}
           {f.kind !== 'tv' && f.kind !== 'ov' && projList(org).length > 0 && <Field label="المشروع (اختياري)"><select className="sel" aria-label="مشروع السند" value={f.projectId || ''} onChange={e => setF(x => ({ ...x, projectId: e.target.value }))}><option value="">—</option>{projList(org).map(p => <option key={p.id} value={p.id}>{p.code} · {p.name}</option>)}</select></Field>}
           {docs.length > 0 && <div style={{ marginTop: 8 }} data-cvalloc>
             <div className="row" style={{ justifyContent: 'space-between', marginBottom: 6 }}><span className="lbl">التوزيع على الفواتير المفتوحة (والباقي على الحساب)</span><button className="btn sm gh" onClick={autoAlloc} data-cvauto>توزيع تلقائي (الأقدم أولًا)</button></div>
