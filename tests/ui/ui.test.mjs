@@ -3714,3 +3714,15 @@ test('v56.20 FINANCE E2: قائمة مهام الإقفال — الفحوص ا�
   assert.equal(await p.evaluate(() => !!window.cur.closeTasks[0].apAt), false, 'المنفّذ لا يعتمد مهمته');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.21 FINANCE E3: فروق الصرف غير المحققة — سعر الإقفال، المعاينة، والتفعيل يولّد قيد 5804/2109', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Accounting/admin/lock');
+  await p.evaluate(() => { window.setOps(o => ({ ...o, invoices: [...(o.invoices || []), { id: 'fxi', supplierId: 's1', supplierName: 'مورد أوروبي', date: '2020-01-10', amount: 40000, cur: 'EUR', fxRate: 4, fcAmount: 10000 }] })); });
+  const inp = p.locator('input[type="month"]').first(); await inp.fill('2020-01');
+  await p.waitForSelector('[data-fxreval]');
+  await p.evaluate(() => { window.prompt = () => '4.1'; }); await p.click('[data-fx-rate="EUR"]');   // المعالج العام يقبل النوافذ بقيمتها الافتراضية
+  await p.waitForFunction(() => ((window.curOrg.fxReval || {}).rates || {})['2020-01'] && window.curOrg.fxReval.rates['2020-01'].EUR === 4.1);
+  assert.match(await p.locator('[data-fx-rows]').innerText(), /1,000\.00/);
+  await p.click('[data-fx-toggle]'); await p.waitForFunction(() => window.curOrg.fxReval.on === true);
+  assert.deepEqual(errs, []); await ctx.close();
+});
