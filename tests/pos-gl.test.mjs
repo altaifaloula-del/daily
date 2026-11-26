@@ -51,3 +51,30 @@ test('المرتجع يخفض المبيعات والضريبة، والنقاط
   const A = E.buildAccounting(org({ posGl: { on: true, from: '2026-11-01' } }), { closings: [clo({ cashSales: 57.5 })], posOrders: [o1, r] });
   const e = A.entries.find(x => x.id === 'rev:c1'); assert.equal(e.balanced, true); assert.equal(tb(A)['2106'], -0.44);
 });
+
+test('مراجعة رئيس المحاسبين (1): الإيقاف يغلق النطاق ولا يعيد كتابة ما قبله — والتفعيل الثاني نطاق جديد', () => {
+  const ops = { closings: [clo(), clo({ id: 'c2', date: '2026-11-28', cashSales: 160 })], posOrders: [o1, o2, { ...o1, id: 'p1', date: '2026-11-28' }, { ...o2, id: 'p2', date: '2026-11-28' }] };
+  const A = E.buildAccounting(org({ posGl: { ranges: [{ from: '2026-11-01', to: '2026-11-25' }] } }), ops);
+  assert.equal(A.entries.find(x => x.id === 'rev:c1').posGl, 'pos', 'داخل النطاق المغلق يبقى بقيد نقطة البيع');
+  assert.equal(A.entries.find(x => x.id === 'rev:c2').posGl, undefined, 'بعد الإيقاف بالطريقة السابقة');
+  assert.ok(A.accounts.some(a => a.code === '4104'), 'الحسابان باقيان بعد الإيقاف');
+});
+
+test('مراجعة رئيس المحاسبين (2): قيمة النقطة من الفاتورة — تغيير الإعداد لا يغيّر الماضي', () => {
+  const p1 = { ...o1, loyalty: { ...o1.loyalty, pv: 0.1 } };
+  const g = { posGl: { ranges: [{ from: '2026-11-01' }] } };
+  const t1 = tb(E.buildAccounting(org({ ...g, loyaltyCfg: { ptValue: 0.1 } }), { closings: [clo({ cashSales: 115 })], posOrders: [p1] }));
+  const t2 = tb(E.buildAccounting(org({ ...g, loyaltyCfg: { ptValue: 0.5 } }), { closings: [clo({ cashSales: 115 })], posOrders: [p1] }));
+  assert.equal(t1['2106'], -0.87); assert.deepEqual(t2, t1, 'رفع قيمة النقطة لاحقًا لا يمس الفاتورة السابقة');
+  // فاتورة قديمة بلا قيمة: تُستعمل لقطة التفعيل لا الإعداد الحالي
+  const t3 = tb(E.buildAccounting(org({ posGl: { ranges: [{ from: '2026-11-01' }], pv: 0.1 }, loyaltyCfg: { ptValue: 0.5 } }), { closings: [clo({ cashSales: 115 })], posOrders: [o1] }));
+  assert.equal(t3['2106'], -0.87);
+  // المرتجع يأخذ قيمة نقطة فاتورته الأصلية
+  const r = { id: 'r1', kind: 'return', refId: 'o1', branchId: 'b1', date: D, status: 'paid', total: -57.5, vat: -7.5, loyalty: { phone: '5', ded: 5 } };
+  assert.equal(E.posGlDay([p1, r], 'b1', D, 0.5, 15).earn, 0.44);
+});
+
+test('فحص المطابقة يميّز «بلا فواتير» عن «غير مطابق»', () => {
+  const chk = E.posGlCheck(org({ posGl: { ranges: [{ from: '2026-11-01' }] } }), { closings: [clo(), clo({ id: 'c2', cashSales: 170 }), clo({ id: 'c3', branchId: 'b2', cashSales: 50 })], posOrders: [o1, o2] });
+  assert.deepEqual(chk.map(x => [x.id, x.st]), [['c1', 'ok'], ['c2', 'diff'], ['c3', 'none']]);
+});
