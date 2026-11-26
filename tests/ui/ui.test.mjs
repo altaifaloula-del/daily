@@ -3736,3 +3736,23 @@ test('v56.22 FINANCE G1: الصورة المالية في لوحة المدير 
   assert.ok(await p.locator('[data-fp="tax"] a, [data-fp="tax"] button').count() >= 2, 'روابط الحسابات للتنقيب');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.23 G2: شريط التحكم في المحاسبة — معطّل افتراضيًا، والتفعيل يُظهر مسار الموقع والإجراءات، والتنقل يحدّث القسم الحالي', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1190, height: 782 } }, 'live/Accounting/admin/jr');
+  await p.waitForSelector('.ob-sub');
+  assert.equal(await p.locator('[data-ctlbar]').count(), 0, 'معطّل افتراضيًا — الشريط السابق كما هو');
+  await p.evaluate(() => window.setOrg(o => ({ ...o, ctlBar: { on: true } })));
+  await p.waitForSelector('[data-ctlbar]');
+  assert.match(await p.locator('[data-ctlbar]').innerText(), /المحاسبة/);
+  assert.equal((await p.locator('[data-ctlbar-cur]').innerText()).trim(), 'القيود اليومية');
+  assert.ok(await p.locator('[data-ctlbar-act] button:has-text("قيد يدوي")').count() === 1, 'الإجراء الأساسي في سطر التحكم');
+  assert.equal(await p.locator('.ob button:has-text("قيد يدوي")').count(), 0, 'لا تكرار في شريط المجموعات');
+  await p.locator('.ob-sub .ob-si').nth(1).click();
+  const cur = (await p.locator('.ob-sub .ob-si.on').innerText()).trim();
+  assert.equal((await p.locator('[data-ctlbar-cur]').innerText()).trim(), cur);
+  assert.equal(await p.locator('.ob-sub .ob-si[aria-current="page"]').count(), 1);
+  await p.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await p.locator('.obp-app').isVisible(), false, 'الجوال: اسم القسم فقط');
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), true, 'بلا تمرير أفقي للصفحة');
+  assert.deepEqual(errs, []); await ctx.close();
+});

@@ -1806,6 +1806,16 @@ table.tb.rc-tb{min-width:0}
 .secpager.sp-compact{gap:2px}.secpager.sp-compact .btn{padding-inline:8px}
 @media (max-width:640px){.ob-sub{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:8px}.ob-sub::-webkit-scrollbar{display:none}.ob-subend{margin-inline-start:8px}.ob-sub .secpager .sp-pos{display:none}}
 @media print{.ob-sub{display:none !important}}
+/* v56.23 (G2 — النموذج 2، المرحلة 1، معطّل افتراضيًا): سطر مسار الموقع والإجراء الأساسي + أهداف لمس 44px على اللمس — ألوان من الرموز فقط */
+.ob-crumb{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 2px 2px;min-height:36px}
+.ob-path{display:flex;align-items:center;gap:6px;min-width:0;font-size:13px;color:var(--dim)}
+.ob-path .obp-sep{opacity:.6}
+.ob-path .obp-cur{color:var(--txt);font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ob-act{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-inline-start:auto}
+.ob-act .btn{margin-inline-start:0 !important}
+@media (pointer:coarse){.ob.ctl2 .ob-it,.ob-sub.ctl2 .ob-si,.ob-sub.ctl2 .btn,.ob-act .btn{min-height:44px}}
+@media (max-width:640px){.ob-path .obp-app,.ob-path .obp-grp,.ob-path .obp-sep{display:none}.ob-crumb{flex-wrap:nowrap}.ob-act{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.ob-act::-webkit-scrollbar{display:none}}
+@media print{.ob-crumb{display:none !important}}
 @media (max-width:640px){.ob-it{padding:8px 9px;font-size:13px}}
 /* v56.0 (DESIGN-V56-008): على الجوال كان شريط أقسام المركز يلتف إلى نحو 5 أسطر فيدفع المحتوى تحت الشاشة الأولى — صار سطرًا واحدًا قابلًا للتمرير أفقيًا */
 @media (max-width:640px){.ob{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}.ob::-webkit-scrollbar{display:none}.ob-it{flex-shrink:0;white-space:nowrap}.ob .acct-mode{flex-shrink:0}.ob .acct-mode button{white-space:nowrap}.ob .acct-mode button span{display:none}}   /* المبدّل لا ينكمش (كان يتكدّس حرفًا فوق حرف) — أيقونات فقط على الجوال */

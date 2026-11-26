@@ -3676,7 +3676,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.22';
+const APP_VER = 'v56.23';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3735,6 +3735,7 @@ export { toHal, isHal, finStrictOn };   // v56.7 C4
 export { FL_START, flOn, flKey, flNo, flLines, flRecord, flScope, flCompare, flLoad, flPost, flOpening, flAutoPost };   // v56.9 D1 + v56.10 D2
 export { FL_GROUPS, flLvl, flGroupOf, flUnclassified, flReversalOf, flCorrect };   // v56.11 D3
 export { flReadOn, flEntriesOf, flBalDiff, flDayBefore };   // v56.14 D4
+export { ctlBarOn };   // v56.23 G2
 export { ledgerApi };   // v56.15 D5
 export { ErrorBoundary, logClientError, lockedLedgerChanged };
 export { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, saleRetUse, posReturnLoyDed };
@@ -8756,7 +8757,10 @@ function useSecNav() {
 // items: [{id, ar, icon, badge?}] · cur · onPick(id) · extra: أزرار إجراءات تُعرض بجانب التنقل
 /* v41.0 — شريط القوائم بنمط أودو: عناوين رئيسية نصية؛ العنوان ذو القسم الواحد رابط مباشر، وذو الأقسام قائمة منسدلة بعناوين فرعية.
    groups: [{ id, ar, items: [{ id, ar, icon, badge, sub }] }] — sub: عنوان فرعي داخل القائمة (اختياري) */
-function OdooBar({ groups, cur, onPick, extra, sw, showSub, subEnd }) {
+/* v56.23 (G2 — النموذج 2 «شريط التحكم»، المرحلة 1): سطر مسار الموقع (التطبيق › المجموعة › القسم) والإجراء الأساسي بين المجموعات وصف الأقسام.
+   معطّل افتراضيًا (org.ctlBar.on) — بدونه يبقى الشريط كما في v56.16 حرفيًا. */
+const ctlBarOn = (org) => !!(org && org.ctlBar && org.ctlBar.on);
+function OdooBar({ groups, cur, onPick, extra, sw, showSub, subEnd, crumb }) {
   const [open, setOpen] = useState(null);
   // v56.0 (DESIGN-V56-008): على الجوال الشريط سطر قابل للتمرير — القسم الحالي يُمرَّر ليظهر
   const obRef = useRef(null);
@@ -8771,7 +8775,7 @@ function OdooBar({ groups, cur, onPick, extra, sw, showSub, subEnd }) {
   const gs = (groups || []).map(g => ({ ...g, items: (g.items || []).filter(Boolean) })).filter(g => g.items.length);
   const pick = (id) => { setOpen(null); onPick(id); };
   return (<>
-    <div className="ob" role="navigation" aria-label="أقسام التطبيق" ref={obRef}>
+    <div className={'ob' + (crumb ? ' ctl2' : '')} role="navigation" aria-label="أقسام التطبيق" ref={obRef}>
       {gs.map(g => { const act = g.items.some(x => x.id === cur);
         if (g.items.length === 1) { const x = g.items[0]; return <button key={g.id} className={'ob-it' + (act ? ' on' : '')} onClick={() => pick(x.id)}>{TX(x.ar)}{x.badge ? <span className="ob-bd">{x.badge}</span> : null}</button>; }
         const subs = [...new Set(g.items.map(x => x.sub || ''))];
@@ -8792,9 +8796,18 @@ function OdooBar({ groups, cur, onPick, extra, sw, showSub, subEnd }) {
     </div>
       {/* v56.16 (بلاغ المالك: أقسام المحاسبة غير ظاهرة): صف ظاهر بأقسام المجموعة الحالية — القسم الحالي مميّز، بلا فتح قائمة.
           خارج .ob لأن الشريط على الجوال سطر واحد قابل للتمرير */}
-      {showSub && (() => { const g = gs.find(x => x.items.some(y => y.id === cur)); if (!g || g.items.length < 2) return subEnd ? <div className="ob-sub">{subEnd}</div> : null;
-        return <div className="ob-sub" role="tablist" aria-label={TX(g.ar)}>
-          {g.items.map(x => <button key={x.id} role="tab" aria-selected={x.id === cur} className={'ob-si' + (x.id === cur ? ' on' : '')} onClick={() => pick(x.id)}>{TX(x.ar)}{x.badge ? <span className="ob-bd">{x.badge}</span> : null}</button>)}
+      {crumb && (() => { const g = gs.find(x => x.items.some(y => y.id === cur)); const it = g && g.items.find(y => y.id === cur);
+        return <div className="ob-crumb" data-ctlbar>
+          <nav className="ob-path" aria-label={isEn() ? 'Location' : 'مسار الموقع'}>
+            <span className="obp-app">{TX(crumb.app)}</span>
+            {g && g.items.length > 1 && <><span className="obp-sep" aria-hidden="true">›</span><span className="obp-grp">{TX(g.ar)}</span></>}
+            {it && <><span className="obp-sep" aria-hidden="true">›</span><b className="obp-cur" aria-current="page" data-ctlbar-cur>{TX(it.ar)}</b></>}
+          </nav>
+          {crumb.primary ? <span className="ob-act" data-ctlbar-act>{crumb.primary}</span> : null}
+        </div>; })()}
+      {showSub && (() => { const g = gs.find(x => x.items.some(y => y.id === cur)); if (!g || g.items.length < 2) return subEnd ? <div className={'ob-sub' + (crumb ? ' ctl2' : '')}>{subEnd}</div> : null;
+        return <div className={'ob-sub' + (crumb ? ' ctl2' : '')} role="tablist" aria-label={TX(g.ar)}>
+          {g.items.map(x => <button key={x.id} role="tab" aria-selected={x.id === cur} aria-current={crumb && x.id === cur ? 'page' : undefined} className={'ob-si' + (x.id === cur ? ' on' : '')} onClick={() => pick(x.id)}>{TX(x.ar)}{x.badge ? <span className="ob-bd">{x.badge}</span> : null}</button>)}
           {subEnd ? <span className="ob-subend">{subEnd}</span> : null}
         </div>; })()}
     </>);
