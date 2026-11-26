@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const rd = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8');
@@ -113,7 +114,29 @@ test('تقارير الرقابة السبعة تحوي البنود الإلز�
   for (const d of ['QUALITY_CONTROL_FRAMEWORK', 'HUMAN_APPROVAL_POLICY']) { const s = rd(`docs/${d}.md`); assert.ok(s.includes('قرار الاعتماد') && s.includes('النطاق')); }
 });
 
+/* v56.0: الموافقات الحقيقية يضعها المالك في docs/approvals/granted/، فالمجلد لم يعد فارغًا دائمًا.
+   الشرط الآن: لا يكتب ملف موافقة أو يعدّله أي وكيل Claude — يُفحص كل commit مسّ الملف في سجل git
+   (بريد الكاتب noreply@anthropic.com، أو توقيع Co-Authored-By: Claude / Claude-Session في الرسالة).
+   يحتاج سجلًا كاملًا: في نسخة سطحية (shallow) يفشل برسالة صريحة بدل أن ينجح دون فحص. */
+const CLAUDE_SIG = /noreply@anthropic\.com|Co-Authored-By:\s*Claude|Claude-Session:/i;
+export function claudeGrantCommits(log) {
+  return String(log || '').split('\u0000').map(s => s.trim()).filter(Boolean).filter(c => CLAUDE_SIG.test(c));
+}
 test('لا موافقة ممنوحة وضعها الإطار نفسه', () => {
   const g = fs.readdirSync(path.join(ROOT, 'docs/approvals/granted')).filter(f => f !== 'README.md');
-  assert.deepEqual(g, []);
+  if (!g.length) return;
+  const git = (...a) => execFileSync('git', ['-C', ROOT, ...a], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  assert.equal(git('rev-parse', '--is-shallow-repository').trim(), 'false', 'سجل git سطحي — فحص كاتب الموافقات يحتاج السجل كاملًا (git fetch --unshallow أو fetch-depth: 0)');
+  for (const f of g) {
+    const rel = 'docs/approvals/granted/' + f;
+    const log = git('log', '--format=%ae%n%B%x00', '--', rel);
+    assert.ok(log.trim(), rel + ': غير مسجّل في git — الموافقة يجب أن تكون commit من المالك');
+    assert.deepEqual(claudeGrantCommits(log), [], rel + ': كتبه أو عدّله وكيل Claude — الموافقة يكتبها المالك وحده');
+  }
+});
+test('فحص كاتب الموافقة يميّز توقيع Claude', () => {
+  assert.equal(claudeGrantCommits('owner@example.com\nAdd approval\n\u0000').length, 0);
+  assert.equal(claudeGrantCommits('noreply@anthropic.com\nx\n\u0000').length, 1);
+  assert.equal(claudeGrantCommits('owner@example.com\nmsg\n\nCo-Authored-By: Claude Opus <x@y>\n\u0000').length, 1);
+  assert.equal(claudeGrantCommits('owner@example.com\nmsg\nClaude-Session: https://claude.ai/code/s\n\u0000').length, 1);
 });
