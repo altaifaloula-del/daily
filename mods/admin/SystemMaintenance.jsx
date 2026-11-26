@@ -9,7 +9,7 @@ import { clrCompare, clrLoad, clrOn, clrSeed, clrState, logAudit, clrRead, clrVi
 import { posrOn, posrCompare, posrLoad, posrSeed, posrState } from '../../App.jsx';   // v56.4 (POS 2a) سجلات فواتير نقطة البيع
 import { WorkflowsCard } from './Workflows.jsx';   // v49.5 MQ-059
 import { fjCompare, fjLoad, fjOn, fjState, fpLockedTo, fpLoad, fmLoad, fmSet, fjSeed, FD_KINDS, fdCompare, fdLoad, fdSeed } from '../../App.jsx';   // v49.0 المرحلة 01
-import { dataFootprint, recipeRaw, APP_CV, APP_VER, CloudHealth, ERRLOG_KEY, MAIN_WH, ROLES, SIG_BADGE, SIG_NAME, buildAccounting, finStrictOn, loadRelease, loadSignoffs, sigVerify, branchBanks, cashForecast, complianceItems, entityList, vatStatus, countedClosing, isoD, money, purKey, q3, qrFs, snapAll, stockByWh, today, whName, whOf } from '../../App.jsx';
+import { dataFootprint, recipeRaw, APP_CV, APP_VER, CloudHealth, ERRLOG_KEY, MAIN_WH, ROLES, SIG_BADGE, SIG_NAME, buildAccounting, finStrictOn, posAcctOn, loadRelease, loadSignoffs, sigVerify, branchBanks, cashForecast, complianceItems, entityList, vatStatus, countedClosing, isoD, money, purKey, q3, qrFs, snapAll, stockByWh, today, whName, whOf } from '../../App.jsx';
 
 const ST = { ok: ['b-mint', 'سليم'], warn: ['b-amber', 'تنبيه'], bad: ['b-rose', 'خلل'] };
 const daysAgo = (d) => { const x = new Date(); x.setDate(x.getDate() - d); return isoD(x); };
@@ -311,6 +311,7 @@ export function SystemMaintenance({ org, ops, me, commit, commitOrg, say }) {
       <ClosingRecordsCard org={org} ops={ops} me={me} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <PosRecordsCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <FinStrictCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
+      <PosAcctCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <JournalRecordsCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <WorkflowsCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <PosSplitCard org={org} ops={ops} me={me} say={say} isAdm={isAdm} commit={commit} />
@@ -351,6 +352,43 @@ export function SystemMaintenance({ org, ops, me, commit, commitOrg, say }) {
 
 /* v56.4 — MUKTASAB POS الدفعة 2a: فواتير نقطة البيع سجلات مستقلة محمية (نسخ موازٍ — docs/pos/POS_DATABASE_DESIGN.md)
    المستند يبقى المصدر؛ التفعيل ينسخ كل فاتورة جديدة/إلغاء بالخلفية، و«نسخ الفواتير القائمة» للتاريخ، و«مطابقة» تكشف أي فرق. */
+/* v56.7 (POS-6a) — الأثر المحاسبي لفواتير نقطة البيع في قيد الإغلاق (قرارات المالك): ضريبة الفاتورة، 4104 للخصومات، 2401 للولاء.
+   معطّل افتراضيًا. البطاقة تعرض قبل التفعيل كم إغلاقًا سيأخذ أرقام نقطة البيع، وفرق الضريبة عن النسبة الثابتة. */
+function PosAcctCard({ org, ops, commitOrg, say, isAdm }) {
+  const on = posAcctOn(org); const [busy, setBusy] = useState(false);
+  const R = useMemo(() => { try {
+    const A0 = buildAccounting({ ...org, posAcct: { on: false } }, ops), A1 = buildAccounting({ ...org, posAcct: { on: true } }, ops);
+    const rev = A1.entries.filter(e => e.posAcct); const pos = rev.filter(e => e.posAcct === 'pos');
+    const bal = (A, c) => { const a = (A.accounts || []).find(x => x.code === c); return a ? a.credit - a.debit : 0; };
+    const r2 = (n) => Math.round(n * 100) / 100;
+    return { n: rev.length, pos: pos.length, dVat: r2(bal(A1, '2301') - bal(A0, '2301')), disc: r2(-bal(A1, '4104')), liab: r2(bal(A1, '2401')) };
+  } catch (e) { return { err: String(e.message || e).slice(0, 120) }; } }, [org, ops]);
+  const toggle = async () => {
+    if (!isAdm) return; setBusy(true);
+    const ok = await commitOrg(o => ({ ...o, posAcct: on ? { ...(o.posAcct || {}), on: false, offAt: nowISO() } : { ...(o.posAcct || {}), on: true, since: nowISO() } }),
+      { actionType: 'settings', targetType: 'system_settings', targetId: 'posAcct', title: on ? 'أوقف الأثر المحاسبي لفواتير نقطة البيع' : 'فعّل الأثر المحاسبي لفواتير نقطة البيع' });
+    setBusy(false); if (ok) say(on ? 'عادت قيود الإغلاق إلى النسبة الثابتة' : 'فُعّل: الضريبة والخصومات والولاء من فواتير نقطة البيع ✓');
+  };
+  const m = (x) => money(x);
+  return (
+    <div className="card" data-posacct>
+      <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />فواتير نقطة البيع في قيد الإغلاق</div>
+        <span className={'badge ' + (on ? 'b-mint' : 'b-dim')}>{on ? 'مفعّل' : 'غير مفعّل'}</span></div>
+      <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>
+        عند التفعيل يأخذ قيد إيراد الوردية: <b>الضريبة من ضريبة كل فاتورة</b> بدل 15% من الإجمالي، و<b>الخصومات في حساب 4104</b> والمبيعات بالإجمالي،
+        و<b>نقاط الولاء الممنوحة التزامًا في 2401</b> (النقاط × قيمة النقطة بلا ضريبة) يُعترف به إيرادًا عند الاستبدال.
+        يُطبَّق فقط على الإغلاق الذي يساوي إجماليه إجمالي فواتير اليوم؛ وغيره يبقى بالنسبة الثابتة.
+      </div>
+      {R.err ? <div style={{ fontSize: 12, color: 'var(--rose)' }}>تعذّر الفحص: {R.err}</div>
+        : <div style={{ fontSize: 12.5, lineHeight: 2, marginBottom: 8 }}>
+          الأثر لو فُعّل: <b>{R.pos}</b> من {R.n} إغلاقًا بأرقام نقطة البيع · فرق ضريبة المخرجات <b className="num">{m(R.dVat)}</b> ·
+          خصومات 4104 <b className="num">{m(R.disc)}</b> · التزام الولاء 2401 <b className="num">{m(R.liab)}</b>
+          <div style={{ fontSize: 11.5, color: 'var(--amber)' }}>انتهاء النقاط ونقاط المناسبات (بلا بيع) لم تُربط بعد بالالتزام — تُضاف في الدفعة التالية.</div>
+        </div>}
+      {isAdm && <button className={'btn sm' + (on ? ' gh' : ' pri')} disabled={busy || !!R.err} onClick={toggle}>{on ? 'إيقاف' : 'تفعيل'}</button>}
+    </div>);
+}
+
 /* v56.6 (C4 — A2) — التطابق التام بالهللات: القيد متوازن فقط إذا تساوى المدين والدائن بالهللة الصحيحة.
    معطّل افتراضيًا؛ البطاقة تعرض أثر التفعيل قبله، والإيقاف يعيد السماح السابق (0.01) فورًا. */
 function FinStrictCard({ org, ops, commitOrg, say, isAdm }) {

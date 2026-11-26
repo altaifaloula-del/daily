@@ -3551,3 +3551,19 @@ test('v56.6 C4 التطابق التام بالهللات: معطّل افترا
   assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true);
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.7 POS-6a فواتير نقطة البيع في قيد الإغلاق: معطّل افتراضيًا، يعرض الأثر قبل التفعيل، ويفعّله المدير ويوقفه', async () => {
+  const ctx = await browser.newContext(devices['iPad (gen 7)']); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  await p.goto(base + 'live/Admin/admin'); await p.reload(); await p.waitForTimeout(500); await settle(p);
+  await p.locator('button:has-text("صيانة")').first().click(); await p.waitForTimeout(500);
+  const card = p.locator('[data-posacct]');
+  assert.match(await card.innerText(), /غير مفعّل/);
+  assert.match(await card.innerText(), /الأثر لو فُعّل/);
+  assert.match(await card.innerText(), /2401/);
+  await card.locator('button:has-text("تفعيل")').click(); await p.waitForTimeout(400);
+  assert.equal(await p.evaluate(() => !!(window.curOrg.posAcct || {}).on), true);
+  await card.locator('button:has-text("إيقاف")').click(); await p.waitForTimeout(400);
+  assert.equal(await p.evaluate(() => !!(window.curOrg.posAcct || {}).on), false, 'الإيقاف متاح للتراجع');
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true);
+  assert.deepEqual(errs, []); await ctx.close();
+});

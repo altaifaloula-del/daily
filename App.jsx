@@ -2306,6 +2306,11 @@ function buildAccounting(org, ops) {
   const supNameOf = (pm) => pm.supplierName
     || ((org.suppliers || []).find(s => s.id === pm.supplierId) || {}).name || '';
 
+  const posAcct = posAcctOn(org);   // v56.7 (POS-6a)
+  if (posAcct) {
+    if (!accIx['4104']) addAcc('4104', 'خصومات نقاط البيع — عروض ويدوي (تُطرح من المبيعات)', 'rev', { link: 'فواتير نقطة البيع عبر الإغلاق' });
+    if (!accIx['2401']) addAcc('2401', 'التزام نقاط الولاء (إيراد مؤجل)', 'liab', { link: 'النقاط الممنوحة × قيمة النقطة بلا ضريبة' });
+  }
   const counted = (ops.closings || []).filter(countedClosing);
   counted.forEach(c => {
     const bCode = cashCode[c.branchId] || '1101';
@@ -2331,10 +2336,19 @@ function buildAccounting(org, ops) {
         if (net) lines.push(L(code, net, 0));
         if (comm) lines.push(L('5301', comm, 0));
       });
-      const sv = splitVat(tot);
-      lines.push(L('4101', 0, sv.net));
+      // v56.7 (POS-6a): أرقام نقطة البيع إن طابق إجمالي الإغلاق إجمالي فواتير اليوم (اللقطة عند التعبئة، وإلا الفواتير نفسها)
+      const pa = posAcct ? ((c.posFilled && c.posFilled.acct) || posAcctSummary(ops.posOrders, c.branchId, c.date, (org.loyaltyCfg || {}).ptValue)) : null;
+      const usePa = !!(pa && (pa.n || pa.total) && Math.abs((Number(pa.total) || 0) - tot) < 0.005);
+      const sv = usePa ? { vat: posR2(pa.vat), net: posR2(tot - pa.vat) } : splitVat(tot);
+      if (usePa) {
+        const D = posR2(pa.discX), R = posR2(pa.redeemX), Eg = posR2(pa.earnX), salesCr = posR2(sv.net + D + R - Eg);
+        if (D) lines.push(L('4104', D, 0));
+        if (R) lines.push(L('2401', R, 0));
+        lines.push(salesCr >= 0 ? L('4101', 0, salesCr) : L('4101', -salesCr, 0));
+        if (Eg) lines.push(Eg > 0 ? L('2401', 0, Eg) : L('2401', -Eg, 0));
+      } else lines.push(L('4101', 0, sv.net));
       if (sv.vat) lines.push(L('2301', 0, sv.vat));
-      push({ id: 'rev:' + c.id, date: c.date, branchId: c.branchId, title: 'إيراد وردية — ' + (c.branchName || ''), src: 'إغلاق وردية', ref: c.id, lines,
+      push({ id: 'rev:' + c.id, date: c.date, branchId: c.branchId, title: 'إيراد وردية — ' + (c.branchName || ''), src: 'إغلاق وردية', ref: c.id, lines, ...(posAcct ? { posAcct: usePa ? 'pos' : 'formula' } : {}),
         vat: sv.vat ? { out: sv.vat, inn: 0, netSales: sv.net, netPurch: 0 } : null,
         reg: { k: 's', doc: 'مبيعات الوردية (مبسطة)', party: 'عملاء أفراد — ' + (c.branchName || ''), net: sv.net, vat: sv.vat, gross: tot } });   // v39.1 سجل المبيعات
     }
@@ -3488,7 +3502,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.6';
+const APP_VER = 'v56.7';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3543,7 +3557,8 @@ class ErrorBoundary extends React.Component {
   }
 }
 export { FbGate };
-export { toHal, isHal, finStrictOn };   // v56.6 C4   // v56.5: لاختبار تجربة الدخول في Playwright
+export { toHal, isHal, finStrictOn };   // v56.6 C4
+export { posAcctOn, posAcctSummary, posExVat };   // v56.7 POS-6a   // v56.5: لاختبار تجربة الدخول في Playwright
 export { ErrorBoundary, logClientError, lockedLedgerChanged };
 export { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, saleRetUse, posReturnLoyDed };
 export { jeLive, jeOwner, canApproveJe, jeAutoSt, vatCloseLive, WF_DOCS, wfTiers, wfOn, wfRequired, poNeedsAppr, wfState, wfCanAct, wfApprove };   // v47.1 اعتماد القيد اليدوي
@@ -6856,6 +6871,27 @@ function salesDaySource(ops, branchId, date) {
   const ps = posDaySummary(ops.posOrders || [], branchId, date); if (ps.n || ps.retN) return { ...ps, src: 'pos' };   // v56.2 (B5): يوم فيه مرتجعات فقط يبقى من نقطة البيع
   const im = (ops.posImports || []).find(x => x.branchId === branchId && x.date === date);
   return im ? { n: im.n, total: im.total, vat: im.vat, cash: im.cash, card: im.card, transfer: im.transfer, apps: im.apps || {}, src: 'import', file: im.file } : { n: 0 };
+}
+
+/* v56.7 — MUKTASAB POS الدفعة 6a (قرارات المالك 2026-11-26): الأثر المحاسبي لفواتير نقطة البيع في قيد الإغلاق.
+   الضريبة من ضريبة كل فاتورة؛ الخصومات (عروض ويدوي) في 4104 والمبيعات بالإجمالي؛ نقاط الولاء التزام 2401 عند المنح
+   = النقاط × قيمة النقطة بعد استبعاد الضريبة (بلا تقدير لعدم الاستبدال)، ويُعترف بها إيرادًا عند الاستبدال.
+   المفتاح org.posAcct.on — معطّل افتراضيًا. المبالغ «بلا ضريبة» بنسبة كل فاتورة. */
+const posAcctOn = (org) => !!(org && org.posAcct && org.posAcct.on);
+const posRateOf = (o) => { const r = Number(o && o.rate); if (o && o.rate != null && r >= 0) return r; const n = Number(o && o.net) || 0; return n > 0 ? (Number(o.vat) || 0) / n * 100 : 0; };
+const posExVat = (x, o) => (Number(x) || 0) * 100 / (100 + posRateOf(o));
+function posAcctSummary(orders, branchId, date, ptValue) {
+  const pv = Number(ptValue) || 0; const out = { n: 0, total: 0, vat: 0, discX: 0, redeemX: 0, earnX: 0 };
+  (orders || []).filter(o => o && o.branchId === branchId && o.date === date && o.status !== 'void').forEach(o => {
+    const ly = o.loyalty || {}; out.total += Number(o.total) || 0; out.vat += Number(o.vat) || 0;
+    if (o.kind === 'return') { if (ly.ded) out.earnX -= posExVat((Number(ly.ded) || 0) * pv, o); return; }
+    out.n++; const red = Number(ly.redeemAmt) || 0;
+    out.discX += posExVat(Math.max(0, (Number(o.disc) || 0) - red), o);   // disc يشمل قيمة الاستبدال — تُفصل للالتزام
+    out.redeemX += posExVat(red, o);
+    out.earnX += posExVat((Number(ly.earned) || 0) * pv, o);
+  });
+  ['total', 'vat', 'discX', 'redeemX', 'earnX'].forEach(k => { out[k] = posR2(out[k]); });
+  return out;
 }
 
 /* PosImport: نُقل إلى mods/pos/PosImport.jsx (تحميل كسول) */

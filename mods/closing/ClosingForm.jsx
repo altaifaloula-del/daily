@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { authApi, cloud, bfKey } from '../../storage';
 import { Check, ChevronDown, ClipboardCheck, FileText, Send, Banknote, CreditCard, Truck, Plus, Trash2, Receipt, Coins, Minus, Stamp, Landmark, ArrowLeftRight, Wallet, Lock, X, ScanFace, Users, CheckCircle2 } from 'lucide-react';
+import { posAcctSummary } from '../../App.jsx';   // v56.7 POS-6a
 import { APPS, CameraModal, DENOMS, EXP_CATS, Field, LOCK_MSG, Modal, MoneyField, Num, OutputDialog, PT_TYPE, PhotoField, ROLES, SignaturePad, arDate, buildPartners, businessDay, countDenoms, countedClosing, deficitCfg, deficitPatterns, emptyDenoms, isoD, money, nextPartnerCode, normalizeSupPays, nowISO, payCashPart, paySplits, payTotal, periodLocked, posR2, salesDaySource, sum, uid, signoff, sigFailMsg } from '../../App.jsx';
 
 export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say, onClose, onStartNew, existing = [], invoices = [], branchPartners = [], posOrders = [], posImports = [] }) {
@@ -508,7 +509,7 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
                     <div className="note" style={{ gridColumn: '1 / -1', borderColor: 'rgba(79,178,134,.45)' }}>
                       <b>{ps.src === 'import' ? 'مبيعات مستوردة من نقطة البيع' : 'نقطة البيع'}:</b> {ps.n ? ps.n + ' فاتورة' : ''} بإجمالي <span className="num">{money(ps.total)}</span> — نقد <span className="num">{money(ps.cash)}</span> · شبكة <span className="num">{money(ps.card)}</span>{Object.keys(ps.apps).length ? ' · تطبيقات ' + money(Object.values(ps.apps).reduce((a, x) => a + x.amount, 0)) : ''}
                       <button type="button" className="btn sm pri" style={{ marginInlineStart: 8 }} onClick={() => setF(p => ({ ...p, cashSales: ps.cash, cardSales: ps.card, bankTransferSales: ps.transfer,
-                        deliverySales: (p.deliverySales || []).map(d => ps.apps[d.appId] ? { ...d, amount: ps.apps[d.appId].amount, orderCount: ps.apps[d.appId].n } : { ...d, amount: 0, orderCount: 0 }), posFilled: { at: nowISO(), n: ps.n, total: ps.total } }))}>تعبئة من نقطة البيع</button>
+                        deliverySales: (p.deliverySales || []).map(d => ps.apps[d.appId] ? { ...d, amount: ps.apps[d.appId].amount, orderCount: ps.apps[d.appId].n } : { ...d, amount: 0, orderCount: 0 }), posFilled: { at: nowISO(), n: ps.n, total: ps.total, ...(ps.src === 'pos' ? { acct: posAcctSummary(posOrders, f.branchId, f.date, (org.loyaltyCfg || {}).ptValue) } : {}) } }))}>تعبئة من نقطة البيع</button>
                       {f.posFilled && <span className="badge b-mint" style={{ marginInlineStart: 6 }}>عُبّئ ✓</span>}
                     </div>); })()}
                 </div>
