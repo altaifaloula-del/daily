@@ -29,7 +29,9 @@ export const ENGINE_EXPORTS = ['promoEligible', 'couponWhy', 'promoDiscPct', 'pr
   // v56.2 — MUKTASAB POS الدفعة 1 (حراس الإلغاء والترقيم وحساب الطاولة)
   'posVoidBlock', 'posSeqSeed', 'posChainSeed', 'posNextNo', 'posTabCuts', 'posReturnHtml',
   // v56.4 — الدفعة 2a: سجلات فواتير نقطة البيع
-  'posrOn', 'posrData', 'posrRecord', 'posrDiff', 'posrCompare'];
+  'posrOn', 'posrData', 'posrRecord', 'posrDiff', 'posrCompare',
+  // v56.6 — C4 التطابق التام بالهللات
+  'toHal', 'isHal', 'finStrictOn'];
 
 export async function buildEngine() {
   fs.mkdirSync(cache, { recursive: true });
