@@ -1794,6 +1794,18 @@ table.tb.rc-tb{min-width:0}
 .ob-mi:hover{background:var(--acc-soft)}.ob-mi.on{background:var(--acc-soft);font-weight:700;color:var(--brass)}
 .ob-bd{background:var(--amber,#E0A458);color:#fff;border-radius:9px;font-size:10px;padding:0 6px;font-weight:700}
 .ob-sp{flex:1 1 auto}.ob .acct-mode{margin-inline-start:4px}
+/* v56.16 — صف أقسام المجموعة الحالية (بلاغ المالك: أقسام المحاسبة غير ظاهرة) + السابق/التالي باسم القسم */
+.ob-sub{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 2px 6px;margin-top:2px;border-bottom:1px solid var(--line)}
+.ob-si{all:unset;box-sizing:border-box;cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:6px 12px;font-size:12.5px;font-weight:600;color:var(--dim);border:1px solid var(--line);border-radius:999px;background:var(--ink2,transparent);white-space:nowrap;min-height:32px}
+.ob-si:hover{color:var(--txt);border-color:var(--brass)}
+.ob-si.on{color:var(--brass);border-color:var(--brass);background:var(--acc-soft)}
+.ob-si:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
+.ob-subend{margin-inline-start:auto}
+.ob-sub .secpager{margin:0}
+.secpager .sp-cur{color:var(--txt);font-weight:700}
+.secpager.sp-compact{gap:2px}.secpager.sp-compact .btn{padding-inline:8px}
+@media (max-width:640px){.ob-sub{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:8px}.ob-sub::-webkit-scrollbar{display:none}.ob-subend{margin-inline-start:8px}.ob-sub .secpager .sp-pos{display:none}}
+@media print{.ob-sub{display:none !important}}
 @media (max-width:640px){.ob-it{padding:8px 9px;font-size:13px}}
 /* v56.0 (DESIGN-V56-008): على الجوال كان شريط أقسام المركز يلتف إلى نحو 5 أسطر فيدفع المحتوى تحت الشاشة الأولى — صار سطرًا واحدًا قابلًا للتمرير أفقيًا */
 @media (max-width:640px){.ob{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}.ob::-webkit-scrollbar{display:none}.ob-it{flex-shrink:0;white-space:nowrap}.ob .acct-mode{flex-shrink:0}.ob .acct-mode button{white-space:nowrap}.ob .acct-mode button span{display:none}}   /* المبدّل لا ينكمش (كان يتكدّس حرفًا فوق حرف) — أيقونات فقط على الجوال */

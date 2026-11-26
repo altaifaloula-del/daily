@@ -1,5 +1,5 @@
 /**
- * v56.15 — MUKTASAB GROWTH الدفعة 2: قواعد سجلات الموافقة التسويقية mkt_consents وحركات الولاء loy_tx على محاكي Firestore.
+ * v56.17 — MUKTASAB GROWTH الدفعة 2: قواعد سجلات الموافقة التسويقية mkt_consents وحركات الولاء loy_tx على محاكي Firestore.
  * يحل ملاحظة المراجعة الأمنية: موظف الفرع كان يستطيع تعديل موافقة أو حذف «إلغاء اشتراك» في مستند الفرع.
  */
 import { test, before, after } from 'node:test';
@@ -10,7 +10,7 @@ import { doc, getDoc, setDoc, deleteDoc, updateDoc, serverTimestamp, Timestamp }
 let env;
 const U = { owner: 'owner@test.com', view: 'view@test.com', cash: 'cash@test.com', bm: 'bm@test.com', bmB: 'bmb@test.com', acct: 'acct@test.com' };
 const as = (k) => env.authenticatedContext('u-' + k, { email: U[k] }).firestore();
-const CV = 561500;
+const CV = 561700;
 const mc = (k, x = {}) => ({ phone: '500000001', status: 'in', ch: 'all', src: 'نقطة البيع', branchId: 'A', by: U[k], at: serverTimestamp(), cv: CV, ...x });
 const ly = (k, x = {}) => ({ phone: '500000001', pts: 10, ord: 'ف1-0001', br: 'A', by: U[k], at: serverTimestamp(), cv: CV, ...x });
 let n = 0; const id = (p) => p + '-' + (++n);

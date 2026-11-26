@@ -144,3 +144,10 @@ run('D4 القراءة من الدفتر: تُفعَّل فقط مع المجم�
     { ...recs.find(r => r.src === 'rev:a'), id: 'rev_a_v2', no: 'JV-2026-000091', ver: 2 }];
   assert.deepEqual(E.flBalDiff(S, E.flEntriesOf(withRev), '2026-12-31'), [], 'الأصل المعكوس وعكسه يتقابلان');
 });
+
+run('D5 البصمة في المتصفح = بصمة الخادم (SHA-256 للنص نفسه) — فالمطابقة لا ترى فرقًا وهميًا بعد الترحيل من الخادم', async () => {
+  const crypto = await import('node:crypto');
+  const A = E.buildAccounting(org(), { closings: [cl('a', '2026-03-10', 'approved', 1234.56)] });
+  const R = E.flRecord(A.entries.find(x => x.id === 'rev:a'));
+  assert.equal(R.digest, crypto.createHash('sha256').update(JSON.stringify([R.date, JSON.parse(R.lines)]), 'utf8').digest('hex'));
+});

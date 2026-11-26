@@ -8,7 +8,7 @@ import { archKey, archivePlan, nowISO, printA4, uid, dtLocal, posSplitBranch, po
 import { clrCompare, clrLoad, clrOn, clrSeed, clrState, logAudit, clrRead, clrViewStats } from '../../App.jsx';   // v41.9 + v42.2
 import { posrOn, posrCompare, posrLoad, posrSeed, posrState, posrRepair } from '../../App.jsx';   // v56.4 (POS 2a) سجلات فواتير نقطة البيع
 import { MKT_BR_CV, mktBrOn } from '../../App.jsx';
-import { grrOn, mkcCompare, lytCompare, grrLoad, grrSeed, grrState } from '../../App.jsx';   // v56.15 (GROWTH 2) سجلات الموافقة والولاء المحمية   // v56.12 (GROWTH G1) سجلات التسويق في الفروع
+import { grrOn, mkcCompare, lytCompare, grrLoad, grrSeed, grrState } from '../../App.jsx';   // v56.17 (GROWTH 2) سجلات الموافقة والولاء المحمية   // v56.12 (GROWTH G1) سجلات التسويق في الفروع
 import { WorkflowsCard } from './Workflows.jsx';   // v49.5 MQ-059
 import { FL_START, flOn, flScope, flCompare, flLoad, flPost, FL_GROUPS, flLvl, flUnclassified, flCorrect, flReadOn } from '../../App.jsx';   // v56.9 D1 دفتر القيود المخزّن
 import { fjCompare, fjLoad, fjOn, fjState, fpLockedTo, fpLoad, fmLoad, fmSet, fjSeed, FD_KINDS, fdCompare, fdLoad, fdSeed } from '../../App.jsx';   // v49.0 المرحلة 01
@@ -419,7 +419,7 @@ function LedgerCard({ org, ops, commitOrg, say, isAdm }) {
       <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />دفتر القيود المخزّن (أرقام ثابتة)</div>
         <span className={'badge ' + (rd ? 'b-mint' : on ? 'b-sky' : 'b-dim')}>{rd ? 'الميزان والقوائم من الدفتر' : on ? 'مفعّل — القراءة من المحرك' : 'غير مفعّل'}</span></div>
       <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>
-        كل قيد يُحفظ <b>مرة واحدة برقم ثابت</b> مثل JV-2026-000001 يبدأ من 1 كل سنة، ولا يُعدَّل محتواه ولا يُحذف — والخادم يرفض أي تعديل.
+        كل قيد يُحفظ <b>مرة واحدة برقم ثابت</b> مثل JV-2026-000001 يبدأ من 1 كل سنة، ولا يُعدَّل محتواه ولا يُحذف. <b>الترحيل من الخادم وحده</b>: يجمع السطور بالهللات ويتحقق من الصلاحية والفترة قبل الكتابة.
         النطاق الآن: <b>القيد الافتتاحي بأرصدة 2025-12-31</b> + المجموعات المفعّلة من {FL_START} ({scope.length} قيدًا):
         <span data-ledger-groups style={{ display: 'block', margin: '4px 0' }}>{FL_GROUPS.map((g, i) => <span key={g.id} style={{ display: 'block', color: i < lvl ? 'var(--mint)' : 'var(--dim)' }}>{i < lvl ? '✓' : '○'} {i + 1}. {g.label}</span>)}</span>
         {uncl.length > 0 && <span style={{ display: 'block', color: 'var(--amber)' }}>⚠ {uncl.length} قيدًا من مصدر غير مصنّف لا يدخل الدفتر بعد (مثل: {uncl.slice(0, 2).map(e => e.src || e.id).join('، ')}).</span>}
@@ -503,7 +503,7 @@ function MktBranchCard({ org, commitOrg, say, isAdm }) {
     {isAdm && <button className={'btn sm ' + (on ? 'gh' : 'pri')} disabled={!on && !ready} onClick={toggle} data-mktbr-toggle>{on ? 'إيقاف' : 'تفعيل'}</button>}
   </div>);
 }
-/* v56.15 (GROWTH 2): الموافقات التسويقية وحركات الولاء سجلات للإضافة فقط يحرسها الخادم — نسخ موازٍ، معطّل افتراضيًا.
+/* v56.17 (GROWTH 2): الموافقات التسويقية وحركات الولاء سجلات للإضافة فقط يحرسها الخادم — نسخ موازٍ، معطّل افتراضيًا.
    المصدر لا يتغير؛ التفعيل ينسخ الجديد، و«نسخ التاريخ» ينسخ القائم، و«مطابقة» تكشف الناقص والمختلف والزائد. */
 function GrowthRecordsCard({ org, ops, commitOrg, say, isAdm }) {
   const on = grrOn(org); const [busy, setBusy] = useState(''); const [rep, setRep] = useState(null);

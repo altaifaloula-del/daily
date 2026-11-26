@@ -1541,6 +1541,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
         );
         // v51.8: السابق / التالي / رجوع بين أقسام المحاسبة بترتيب المجموعات الخمس
         const pager = <SecPager items={GROUPS.flatMap(g => g.items.filter(ok)).map(v => ({ id: v, ar: IT[v][0] }))} cur={view} onPick={go} />;
+        const pagerC = <SecPager compact items={GROUPS.flatMap(g => g.items.filter(ok)).map(v => ({ id: v, ar: IT[v][0] }))} cur={view} onPick={go} />;
         if (acctNavMode === 'grid') {
           const cur = IT[view];
           const CurI = cur ? cur[1] : FileText;
@@ -1552,7 +1553,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                   : <button className="btn sm pri" onClick={() => setAcctGridOpen(true)}><Grid3x3 size={14} />كل الأقسام</button>}
                 {!acctGridOpen && cur && <div className="acct-gcur"><CurI size={14} />{cur[0]}</div>}
                 {acctGridOpen && cur && <button className="btn sm gh" onClick={() => setAcctGridOpen(false)}>إخفاء الشبكة<ChevronDown size={13} style={{ transform: 'rotate(180deg)' }} /></button>}
-                {modeSw}
+                {modeSw /* في الشبكة فقط: للعودة إلى القوائم حتى لو لم يظهر المبدّل الموحّد */}
                 {manualBtn}
               </div>
               {acctGridOpen && GROUPS.map(g => {
@@ -1574,7 +1575,9 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
           );
         }
         // v41.0: شريط القوائم بنمط أودو (موحّد مع بقية التطبيقات)
-        return <><OdooBar groups={GROUPS.map(g => ({ id: g.id, ar: g.ar, items: g.items.filter(ok).map(v => ({ id: v, ar: IT[v][0] })) }))} cur={view} onPick={go} extra={manualBtn} sw={modeSw} />{pager}</>;
+        // v56.16 (بلاغ المالك 2026-11-26: «عناصر المحاسبة غير ظاهرة ولا مرتبة»): أقسام المجموعة الحالية صف ظاهر تحت المجموعات،
+        // والسابق/التالي باسم القسم في نهاية الصف نفسه بدل سطر مستقل، وحُذف مبدّل العرض المكرر (المبدّل الموحّد أعلى التطبيق يكفي)
+        return <OdooBar groups={GROUPS.map(g => ({ id: g.id, ar: g.ar, items: g.items.filter(ok).map(v => ({ id: v, ar: IT[v][0] })) }))} cur={view} onPick={go} extra={manualBtn} showSub subEnd={pagerC} />;
       })()}
 
       {/* v15.11: لا قسم متاح (أُخفيت كل الأقسام لهذا المستخدم) — رسالة بدل تسريب اليومية */}

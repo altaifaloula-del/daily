@@ -463,7 +463,7 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    /* ===== v56.15 — MUKTASAB GROWTH الدفعة 2: سجلات الموافقة التسويقية وحركات الولاء للإضافة فقط (نسخ موازٍ — docs/growth/GROWTH_RECORDS_DESIGN.md) =====
+    /* ===== v56.17 — MUKTASAB GROWTH الدفعة 2: سجلات الموافقة التسويقية وحركات الولاء للإضافة فقط (نسخ موازٍ — docs/growth/GROWTH_RECORDS_DESIGN.md) =====
        السجل لا يُعدَّل ولا يُحذف أبدًا: إلغاء الاشتراك أو تصحيح النقاط حركة جديدة. الكاتب = الحساب، والوقت = وقت الخادم.
        رقم الفرع فارغ ⇒ سجل مركزي (للمركز وحده كتابةً وقراءةً)؛ وإلا فلعضو ذلك الفرع والمركز. */
     function grRole(m, adm) { return adm || (m != null && !(m.get('role', '') in ['accountant_view'])); }
@@ -777,17 +777,16 @@ service cloud.firestore {
         && !exists(flDoc(d.last)) && existsAfter(flDoc(d.last))
         && getAfter(flDoc(d.last)).data.seq == d.n && getAfter(flDoc(d.last)).data.year == int(id.split('_')[1]);
     }
+    // v56.15 (D5 — موافقة المالك): الكتابة من الخادم وحده (حساب الخدمة يتجاوز القواعد، وserver-ledger.js يجمع السطور بالهللات
+    // ويتحقق من الدور والفترة ويرقّم في معاملة). المتصفح يقرأ فقط. دوال flCreate/flReverse/flMetaOk أعلاه تبقى توثيقًا لشروط D1
+    // التي يطبّقها الخادم الآن بنفسه، ولا تُستدعى.
     match /fin_ledger/{id} {
       allow read: if (isAdmin() || isCentral()) && mfaOk();
-      allow create: if flCreate(id, request.resource.data);
-      allow update: if flReverse(id, request.resource.data, resource.data);
-      allow delete: if false;
+      allow create, update, delete: if false;
     }
     match /fin_ledger_meta/{id} {
       allow read: if (isAdmin() || isCentral()) && mfaOk();
-      allow create: if flMetaOk(id, request.resource.data, 0);
-      allow update: if flMetaOk(id, request.resource.data, resource.data.n);
-      allow delete: if false;
+      allow create, update, delete: if false;
     }
 
     match /fin_journal/{id} {

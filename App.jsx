@@ -3535,7 +3535,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.15';
+const APP_VER = 'v56.17';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -3594,6 +3594,7 @@ export { toHal, isHal, finStrictOn };   // v56.7 C4
 export { FL_START, flOn, flKey, flNo, flLines, flRecord, flScope, flCompare, flLoad, flPost, flOpening, flAutoPost };   // v56.9 D1 + v56.10 D2
 export { FL_GROUPS, flLvl, flGroupOf, flUnclassified, flReversalOf, flCorrect };   // v56.11 D3
 export { flReadOn, flEntriesOf, flBalDiff, flDayBefore };   // v56.14 D4
+export { ledgerApi };   // v56.15 D5
 export { ErrorBoundary, logClientError, lockedLedgerChanged };
 export { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, saleRetUse, posReturnLoyDed };
 export { jeLive, jeOwner, canApproveJe, jeAutoSt, vatCloseLive, WF_DOCS, wfTiers, wfOn, wfRequired, poNeedsAppr, wfState, wfCanAct, wfApprove };   // v47.1 اعتماد القيد اليدوي
@@ -3630,7 +3631,7 @@ function UpdateGate({ rel }) {
 function PlatformApp() {
   useEffect(() => { const h = setTimeout(prefetchMods, 2500); return () => clearTimeout(h); }, []);   // v38.3 جلب التطبيقات في الخلفية بعد ظهور الواجهة
   const [org, setOrg] = useState(null);
-  const orgNow = useRef(null); orgNow.current = org; grrSetOn(org);   // v56.15: مفتاح نسخ سجلات النمو لدفتر الولاء   // v29.5: للحارس المركزي للإقفال داخل writeOps
+  const orgNow = useRef(null); orgNow.current = org; grrSetOn(org);   // v56.17: مفتاح نسخ سجلات النمو لدفتر الولاء   // v29.5: للحارس المركزي للإقفال داخل writeOps
   const [opsRaw, setOps] = useState({ closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [] });
   // v42.2: القراءة من السجلات المستقلة — ops المعروضة = مستند الفرع مدموجًا بالسجلات (السجل يغلب) متى فُعّلت
   const [clRecs, setClRecs] = useState(null);
@@ -4388,7 +4389,7 @@ function PlatformApp() {
       fdB = { pi: d.invoices, si: d.salesInvoices, cv: d.cashVouchers }; fdA = r ? { pi: r.invoices, si: r.salesInvoices, cv: r.cashVouchers } : {}; return r; });
     if (ok && clAfter && clAfter !== clBefore && clrOn(orgNow.current)) clrQueue(clBefore, clAfter);   // بالخلفية وبالترتيب — لا يؤخر الحفظ
     if (ok && poAfter && poAfter !== poBefore && posrOn(orgNow.current)) posrQueue(poBefore, poAfter);
-    if (ok && mcAfter && mcAfter !== mcBefore && grrOn(orgNow.current)) { const nw = mkcDiff(mcBefore, mcAfter); if (nw.length) grrQueue('mkc', nw); }   // v56.15 الموافقات → mkt_consents   // v56.4 (POS 2a) نسخ الفواتير لسجلاتها المحمية — بالخلفية
+    if (ok && mcAfter && mcAfter !== mcBefore && grrOn(orgNow.current)) { const nw = mkcDiff(mcBefore, mcAfter); if (nw.length) grrQueue('mkc', nw); }   // v56.17 الموافقات → mkt_consents   // v56.4 (POS 2a) نسخ الفواتير لسجلاتها المحمية — بالخلفية
     if (ok && jmAfter && jmAfter !== jmBefore && fjOn(orgNow.current)) fjQueue(jmBefore, jmAfter);   // v49.0 القيود اليدوية → fin_journal
     if (ok && fjOn(orgNow.current) && ['pi', 'si', 'cv'].some(k => fdA[k] && fdA[k] !== fdB[k])) fdQueue(fdB, fdA);   // v49.0 الفواتير والسندات → fin_docs
     if (!ok) {
@@ -8588,7 +8589,7 @@ function useSecNav() {
 // items: [{id, ar, icon, badge?}] · cur · onPick(id) · extra: أزرار إجراءات تُعرض بجانب التنقل
 /* v41.0 — شريط القوائم بنمط أودو: عناوين رئيسية نصية؛ العنوان ذو القسم الواحد رابط مباشر، وذو الأقسام قائمة منسدلة بعناوين فرعية.
    groups: [{ id, ar, items: [{ id, ar, icon, badge, sub }] }] — sub: عنوان فرعي داخل القائمة (اختياري) */
-function OdooBar({ groups, cur, onPick, extra, sw }) {
+function OdooBar({ groups, cur, onPick, extra, sw, showSub, subEnd }) {
   const [open, setOpen] = useState(null);
   // v56.0 (DESIGN-V56-008): على الجوال الشريط سطر قابل للتمرير — القسم الحالي يُمرَّر ليظهر
   const obRef = useRef(null);
@@ -8602,7 +8603,7 @@ function OdooBar({ groups, cur, onPick, extra, sw }) {
   useEffect(() => { if (!open) return; const close = () => setOpen(null); window.addEventListener('resize', close); window.addEventListener('scroll', close, true); return () => { window.removeEventListener('resize', close); window.removeEventListener('scroll', close, true); }; }, [open]);
   const gs = (groups || []).map(g => ({ ...g, items: (g.items || []).filter(Boolean) })).filter(g => g.items.length);
   const pick = (id) => { setOpen(null); onPick(id); };
-  return (
+  return (<>
     <div className="ob" role="navigation" aria-label="أقسام التطبيق" ref={obRef}>
       {gs.map(g => { const act = g.items.some(x => x.id === cur);
         if (g.items.length === 1) { const x = g.items[0]; return <button key={g.id} className={'ob-it' + (act ? ' on' : '')} onClick={() => pick(x.id)}>{TX(x.ar)}{x.badge ? <span className="ob-bd">{x.badge}</span> : null}</button>; }
@@ -8621,13 +8622,21 @@ function OdooBar({ groups, cur, onPick, extra, sw }) {
               </div></div>, document.body)}
           </div>); })}
       <span className="ob-sp" />{sw}{extra}
-    </div>);
+    </div>
+      {/* v56.16 (بلاغ المالك: أقسام المحاسبة غير ظاهرة): صف ظاهر بأقسام المجموعة الحالية — القسم الحالي مميّز، بلا فتح قائمة.
+          خارج .ob لأن الشريط على الجوال سطر واحد قابل للتمرير */}
+      {showSub && (() => { const g = gs.find(x => x.items.some(y => y.id === cur)); if (!g || g.items.length < 2) return subEnd ? <div className="ob-sub">{subEnd}</div> : null;
+        return <div className="ob-sub" role="tablist" aria-label={TX(g.ar)}>
+          {g.items.map(x => <button key={x.id} role="tab" aria-selected={x.id === cur} className={'ob-si' + (x.id === cur ? ' on' : '')} onClick={() => pick(x.id)}>{TX(x.ar)}{x.badge ? <span className="ob-bd">{x.badge}</span> : null}</button>)}
+          {subEnd ? <span className="ob-subend">{subEnd}</span> : null}
+        </div>; })()}
+    </>);
 }
 /** تجميع عناصر مسطّحة في قوائم: بحسب x.group؛ وما لا مجموعة له يصير رابطًا مباشرًا */
 const obGroups = (list) => { const out = []; list.forEach(x => { const k = x.group || ('_' + x.id); let g = out.find(y => y.id === k); if (!g) { g = { id: k, ar: x.group || x.ar, items: [] }; out.push(g); } g.items.push(x); }); return out; };
 /* v51.8 — «السابق / التالي / رجوع» عند استعراض أقسام أي تطبيق (طلب المالك 2026-11-19).
    items: قائمة الأقسام بترتيب ظهورها · cur · onPick(id). «رجوع» يعيد القسم الذي كنت فيه قبله (سجل لكل شريط). */
-function SecPager({ items, cur, onPick }) {
+function SecPager({ items, cur, onPick, compact }) {
   const list = (items || []).filter(Boolean);
   const [hist, setHist] = useState([]); const last = useRef(cur), viaBack = useRef(false);
   useEffect(() => { if (last.current !== cur) { const from = last.current; if (!viaBack.current && from != null) setHist(h => [...h, from].slice(-30)); viaBack.current = false; last.current = cur; } }, [cur]);
@@ -8637,9 +8646,10 @@ function SecPager({ items, cur, onPick }) {
   const en = isEn(), PrevI = en ? ChevronLeft : ChevronRight, NextI = en ? ChevronRight : ChevronLeft;
   const goBack = () => { const h = [...hist]; while (h.length) { const id = h.pop(); if (list.some(x => x.id === id) && id !== cur) { viaBack.current = true; setHist(h); onPick(id); return; } } setHist([]); };
   return (
-    <div className="secpager" role="navigation" aria-label={TX('التنقل بين الأقسام')}>
+    <div className={'secpager' + (compact ? ' sp-compact' : '')} role="navigation" aria-label={TX('التنقل بين الأقسام')}>
       {back && <button className="btn sm gh sp-back" onClick={goBack} title={TX('رجوع') + ': ' + TX((list.find(x => x.id === back) || {}).ar || '')}><RotateCcw size={13} />{TX('رجوع')}</button>}
-      <span className="sp-pos">{i >= 0 ? (i + 1) + ' / ' + list.length : ''}</span>
+      {/* v56.16: اسم القسم الحالي مع ترتيبه — بدل رقم مجرد «1 / 31» */}
+      <span className="sp-pos">{i >= 0 ? <><b className="sp-cur">{TX(list[i].ar)}</b> · {(i + 1) + ' / ' + list.length}</> : ''}</span>
       <button className="btn sm gh sp-prev" disabled={!prev} onClick={() => prev && onPick(prev.id)} title={prev ? TX(prev.ar) : ''}><PrevI size={14} />{TX('السابق')}</button>
       <button className="btn sm gh sp-next" disabled={!next} onClick={() => next && onPick(next.id)} title={next ? TX(next.ar) : ''}>{TX('التالي')}<NextI size={14} /></button>
     </div>
@@ -8776,7 +8786,7 @@ async function loyPost(txs) {
     const next = { ...cur, members: { ...(cur.members || {}) }, tx: [...(cur.tx || []), ...add] };
     add.forEach(t => { const m = next.members[t.phone] || {}; next.members[t.phone] = { ...m, name: t.name || m.name || '', since: m.since || t.at, last: t.at }; });
     const r = await cloud.setIfUnchanged(KEYS.loy, next);
-    if (r === 'ok') { if (_grrFlag) grrQueue('lyt', add.filter(t => t && t.id && grrPhone(t.phone))); return next; } if (r === 'fail') return null;   // v56.15: الحركات الجديدة → loy_tx
+    if (r === 'ok') { if (_grrFlag) grrQueue('lyt', add.filter(t => t && t.id && grrPhone(t.phone))); return next; } if (r === 'fail') return null;   // v56.17: الحركات الجديدة → loy_tx
   }
   return null;
 }
@@ -14466,7 +14476,7 @@ async function posrRepair(o, reason) {
 }
 export { posrOn, posrData, posrVoidData, posrRecord, posrDiff, posrCompare, posrState, posrLoad, posrSeed, posrRepair };   // v56.4 سجلات فواتير نقطة البيع
 
-/* ===== v56.15 — MUKTASAB GROWTH الدفعة 2: سجلات الموافقة التسويقية mkt_consents/{id} وحركات الولاء loy_tx/{id} (نسخ موازٍ) =====
+/* ===== v56.17 — MUKTASAB GROWTH الدفعة 2: سجلات الموافقة التسويقية mkt_consents/{id} وحركات الولاء loy_tx/{id} (نسخ موازٍ) =====
    التصميم: docs/growth/GROWTH_RECORDS_DESIGN.md. المصدر يبقى كما هو (مصفوفة الموافقات في المستند، ودفتر الولاء rms8_loy)؛ كل موافقة/إلغاء
    اشتراك وكل حركة نقاط جديدة تُنسخ بالخلفية بعد نجاح الحفظ إلى سجل تحرسه القواعد: إضافة فقط، لا تعديل ولا حذف، والكاتب والوقت من الخادم.
    يحل ملاحظتي الأمن (موظف الفرع يعدّل/يحذف موافقة) والمراقب (حركات الولاء بلا أثر محمي). مُطفأ افتراضيًا (org.growthRecords.on). */
@@ -14540,7 +14550,7 @@ async function grrSeed(kind, items, onProgress) {
     if (onProgress && (++i % 20 === 0)) onProgress(i, items.length); }
   return { ok, fail, lastErr, total: (items || []).length };
 }
-export { grrOn, grrSetOn, mkcRecord, lytRecord, lytDocId, mkcDiff, mkcCompare, lytCompare, grrState, grrLoad, grrSeed };   // v56.15 سجلات النمو المحمية
+export { grrOn, grrSetOn, mkcRecord, lytRecord, lytDocId, mkcDiff, mkcCompare, lytCompare, grrState, grrLoad, grrSeed };   // v56.17 سجلات النمو المحمية
 
 /* ===== v49.0 — المرحلة 01 (قرار G1-ب): القيود اليدوية سجلات مستقلة (fin_journal/{id}) — نسخ مطابق (mirror) =====
    الوثيقة الحالية (journalManual) تبقى المصدر في هذه المرحلة؛ كل إنشاء/اعتماد/رفض/حذف قبل الاعتماد يُنسخ إلى سجل تحرسه القواعد
@@ -14641,36 +14651,20 @@ function flReversalOf(r) {
   return { date: r.date, src: r.src, title: ('عكس ' + (r.no || '') + ' — ' + (r.title || '')).slice(0, 300), lines: JSON.stringify(L),
     drH: L.reduce((a, l) => a + l[1], 0), crH: L.reduce((a, l) => a + l[2], 0), digest: sha256Hex(JSON.stringify([r.date, L])), ver: r.ver || 1, reversalOf: r.id };
 }
-/** معاملة واحدة: قيد جديد + العدّاد، ومعه اختياريًا تعليم الأصل «معكوسًا» (القواعد: الأصل والعكس في الدفعة نفسها) */
-async function flTx(c, key, R, lockedTo, reverseId) {
-  const y = Number(String(R.date).slice(0, 4));
-  return ctlTimeout(c.f.runTransaction(c.f.db, async (tx) => {
-    const sr = c.f.doc(c.f.db, 'fin_ledger_meta', 'seq_' + y), er = c.f.doc(c.f.db, 'fin_ledger', key);
-    const [ss, es] = [await tx.get(sr), await tx.get(er)];
-    if (es.exists()) throw Object.assign(new Error('exists'), { code: 'exists' });
-    const n = (ss.exists() ? Number((ss.data() || {}).n) || 0 : 0) + 1;
-    tx.set(er, { ...R, no: flNo(y, n), year: y, seq: n, status: 'posted', by: c.email, at: c.f.serverTimestamp(), cv: APP_CV, ...(R.date <= (lockedTo || '') ? { legacy: true } : {}) });
-    tx.set(sr, { n, last: key });
-    if (reverseId) tx.update(c.f.doc(c.f.db, 'fin_ledger', reverseId), { status: 'reversed', reversedBy: key });
-    return flNo(y, n);
-  }));
-}
 /** التصحيح (قرار المالك: لا تعديل للمرحّل): «مختلف» ⇒ عكس الأصل ثم قيد بالإصدار التالي؛ «زائد» (زال مصدره) ⇒ عكس فقط.
- *  الفترة المقفلة: لا تصحيح حتى يفتحها المدير (والقواعد ترفضه) — تُعدّ في locked. */
+ *  الفترة المقفلة: لا تصحيح حتى يفتحها المدير (والخادم يرفضه) — تُعدّ في locked. */
 async function flCorrect(rep, lockedTo, onProgress) {
-  const c = await ctlIdentity(); if (!c) return { err: 'خارج Firestore' };
   const jobs = [...(rep.pairs || []).map(p => ({ r: p.r, e: p.e })), ...(rep.extra || []).map(r => ({ r, e: null }))];
-  let rev = 0, neu = 0, fail = 0, locked = 0, lastErr = '';
-  for (let i = 0; i < jobs.length; i++) {
-    const { r, e } = jobs[i];
-    if (String(r.date) <= (lockedTo || '')) { locked++; continue; }
-    try {
-      await flTx(c, r.id + 'r', flReversalOf(r), '', r.id); rev++;
-      if (e) { const ver = (r.ver || 1) + 1; await flTx(c, flKey(e.id, ver), flRecord(e, ver), lockedTo); neu++; }
-    } catch (err) { fail++; lastErr = (err && err.code) || 'error'; }
-    if (onProgress) onProgress(i + 1, jobs.length);
-  }
-  return { rev, neu, fail, locked, lastErr, total: jobs.length };
+  const items = []; let locked = 0;
+  jobs.forEach(({ r, e }) => {
+    if (String(r.date) <= (lockedTo || '')) { locked++; return; }
+    const rk = r.id + 'r'; items.push({ key: rk, rec: flReversalOf(r), reverseId: r.id });
+    if (e) { const ver = (r.ver || 1) + 1; items.push({ key: flKey(e.id, ver), rec: flRecord(e, ver), after: rk }); }
+  });
+  const R = await flSend(items, onProgress);
+  const revKeys = new Set(items.filter(x => x.reverseId).map(x => x.key));
+  const rev = R.res.filter(x => x.no && revKeys.has(x.key)).length, neu = R.res.filter(x => x.no && !revKeys.has(x.key)).length;
+  return { rev, neu, fail: R.fail, locked, lastErr: R.lastErr, total: jobs.length };
 }
 /* v56.14 (D4 — قرار المالك): ميزان المراجعة والقوائم المالية من الدفتر المخزّن فعليًا؛ الإقرار الضريبي وبقية التقارير من المحرك.
    القراءة تُفعَّل فقط بعد ضم المجموعات الست ومطابقة كاملة (org.ledger.read). القيد الافتتاحي يُعرض بتاريخ 2025-12-31 ليظهر في «رصيد أول المدة».
@@ -14717,27 +14711,28 @@ async function flLoad() {
   try { const s = await ctlTimeout(c.f.getDocs(c.f.collection(c.f.db, 'fin_ledger')), 30000); return s.docs.map(d => ({ id: d.id, ...(d.data() || {}) })); }
   catch (e) { return { err: (e && e.code) || 'error' }; }
 }
-/** الترحيل بترتيب التاريخ: لكل قيد معاملة تقرأ عدّاد سنته وتكتب القيد والعدّاد معًا (القواعد تفرض +1 بالضبط) */
-async function flPost(entries, lockedTo, onProgress) {
-  const c = await ctlIdentity(); if (!c) return { err: 'خارج Firestore' };
-  const list = (entries || []).slice().sort((a, b) => String(a.date).localeCompare(String(b.date)) || (b.opening ? 1 : 0) - (a.opening ? 1 : 0) || String(a.id).localeCompare(String(b.id)));
-  let ok = 0, fail = 0, skip = 0, lastErr = ''; const nos = [];
-  for (let i = 0; i < list.length; i++) {
-    const e = list[i], R = flRecord(e), key = flKey(e.id, R.ver), y = Number(R.date.slice(0, 4));
-    try {
-      await ctlTimeout(c.f.runTransaction(c.f.db, async (tx) => {
-        const sr = c.f.doc(c.f.db, 'fin_ledger_meta', 'seq_' + y), er = c.f.doc(c.f.db, 'fin_ledger', key);
-        const [ss, es] = [await tx.get(sr), await tx.get(er)];
-        if (es.exists()) throw Object.assign(new Error('exists'), { code: 'exists' });
-        const n = (ss.exists() ? Number((ss.data() || {}).n) || 0 : 0) + 1;
-        tx.set(er, { ...R, no: flNo(y, n), year: y, seq: n, status: 'posted', by: c.email, at: c.f.serverTimestamp(), cv: APP_CV, ...(R.date <= (lockedTo || '') ? { legacy: true } : {}) });
-        tx.set(sr, { n, last: key }); nos.push(flNo(y, n));
-      }));
-      ok++;
-    } catch (err) { if (err && err.code === 'exists') skip++; else { fail++; lastErr = (err && err.code) || 'error'; } }
-    if (onProgress && (i + 1) % 10 === 0) onProgress(i + 1, list.length);
+/** v56.15 (D5): الترحيل من الخادم وحده — يجمع السطور بالهللات ويتحقق من الدور والفترة ويرقّم في معاملة (server-ledger.js).
+ *  الطلب حتى 50 قيدًا بالترتيب؛ «after» يمنع ترحيل إصدار جديد إن لم يُرحَّل عكس أصله. */
+async function ledgerApi(items) {
+  const b = srvBase(); if (!b) throw Object.assign(new Error('الخادم غير مهيأ لهذه النسخة'), { code: 'no-server' });
+  const r = await fetch(b + '/api/ledger/post', { method: 'POST', headers: await aiHeaders(), body: JSON.stringify({ items }) });
+  const j = await r.json().catch(() => ({})); if (!r.ok) throw Object.assign(new Error(j.error || ('HTTP ' + r.status)), { code: 'http-' + r.status }); return j.results || [];
+}
+/** يرسل العناصر على دفعات ويجمع النتائج: رُحّل · موجود مسبقًا · تعذّر */
+async function flSend(items, onProgress) {
+  let ok = 0, fail = 0, skip = 0, lastErr = ''; const nos = [], res = [];
+  for (let i = 0; i < items.length; i += 50) {
+    const part = items.slice(i, i + 50);
+    try { (await ledgerApi(part)).forEach(x => { res.push(x); if (x.no) { ok++; nos.push(x.no); } else if (x.skip) skip++; else { fail++; lastErr = x.err || 'error'; } }); }
+    catch (e) { fail += part.length; lastErr = e.message || e.code || 'error'; }
+    if (onProgress) onProgress(Math.min(items.length, i + 50), items.length);
   }
-  return { ok, fail, skip, lastErr, total: list.length, first: nos[0] || '', last: nos[nos.length - 1] || '' };
+  return { ok, fail, skip, lastErr, total: items.length, first: nos[0] || '', last: nos[nos.length - 1] || '', res };
+}
+/** الترحيل بترتيب التاريخ (الافتتاحي أولًا) — رقم ثابت من الخادم لكل قيد */
+async function flPost(entries, lockedTo, onProgress) {
+  const list = (entries || []).slice().sort((a, b) => String(a.date).localeCompare(String(b.date)) || (b.opening ? 1 : 0) - (a.opening ? 1 : 0) || String(a.id).localeCompare(String(b.id)));
+  return flSend(list.map(e => { const R = flRecord(e); return { key: flKey(e.id, R.ver), rec: R, ...(R.date <= (lockedTo || '') ? { legacy: true } : {}) }; }), onProgress);
 }
 
 const fjOn = (org) => !!(org && org.finRecords && org.finRecords.on);
