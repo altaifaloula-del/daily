@@ -5,7 +5,7 @@ import { cloud, KEYS } from '../../storage';
 import { Target, Users, Grid3x3 as Layers, ShieldCheck, Settings, Download, Users as UserCheck, RefreshCw as GitMerge } from 'lucide-react';
 import { Field, Kpi, Modal, money, makeXlsx, today, nowISO, uid, normPhone, loyPost, ROLES,
   mktCfg, mktCanApprove, MKT_SEGS, MKT_SEG_ORDER, crmBuild, crmSegment, crmDupes, mktKpis, mktCanContact,
-  loyX, loyTier, loyPeriodicTx, mktProfiles, rewardCoupon, cpnKey, posR2, CAMP_ST, campNextNo, campStatusOf, campStats, recCfgOf, recStats, dtLocal, brReport, printScreen, AI_GROWTH_PRESETS, growthDigest, aiGrowthAsk, COMMS_PROVIDERS, COMMS_CH, COMMS_VARS, commsCfgOf, commsRender, smsParts, commsTplErr, loyAudit, LOY_AUDIT_WHY } from '../../App.jsx';
+  loyX, loyTier, loyPeriodicTx, mktProfiles, rewardCoupon, cpnKey, posR2, CAMP_ST, campNextNo, campStatusOf, campStats, buildAccounting, recCfgOf, recStats, dtLocal, brReport, printScreen, AI_GROWTH_PRESETS, growthDigest, aiGrowthAsk, COMMS_PROVIDERS, COMMS_CH, COMMS_VARS, commsCfgOf, commsRender, smsParts, commsTplErr, loyAudit, LOY_AUDIT_WHY } from '../../App.jsx';
 import { Megaphone, Sparkles, Building2, Bot, MessageSquare } from 'lucide-react';
 import { Gift, Gift as Ticket } from 'lucide-react';
 
@@ -343,14 +343,23 @@ function Cmp({ org, ops, list, canApp, me, commit, commitOrg, say, brName }) {
   const promos = (org.posPromos || []).filter(p => p.code);
   const linkedTo = (pid) => camps.find(c => (c.promoIds || []).includes(pid) && ['pending', 'active'].includes(campStatusOf(c)));
   const [f, setF] = useState(null);
-  const blank = () => ({ name: '', goal: '', segment: 'all', promoIds: [], branches: [], from: today(), to: anDay(today(), 30), budget: '' });
+  // عائد التسويق (قرار المالك): تكلفة الحملة من حساب مصروف خاص بها في الدليل
+  const A = useMemo(() => { try { return buildAccounting(org, ops); } catch { return null; } }, [org, ops]);
+  const expAccs = ((A && A.accounts) || []).filter(a => a.kind === 'exp').sort((a, b) => String(a.code).localeCompare(String(b.code)));
+  const accName = (code) => { const a = expAccs.find(x => String(x.code) === String(code)); return a ? a.code + ' — ' + a.name : code; };
+  const usedAcc = (code, self) => camps.find(c => c.acc && String(c.acc) === String(code) && c.id !== self);
+  const setAcc = (c, acc) => { const u = acc && usedAcc(acc, c.id); if (u) return say('الحساب مخصص لحملة أخرى: ' + u.no, 'no');
+    return commit(d => ({ ...d, mktCampaigns: (d.mktCampaigns || []).map(x => x.id === c.id ? { ...x, acc: acc || undefined } : x) }),
+      { actionType: 'update', targetType: 'settings', targetId: c.id, title: acc ? 'ربط حملة بحساب تكلفتها' : 'فك حساب تكلفة حملة', details: c.no + (acc ? ' · ' + accName(acc) : '') }).then(ok => { if (ok !== false) say(acc ? 'رُبط حساب التكلفة' : 'فُك الحساب'); }); };
+  const blank = () => ({ name: '', goal: '', segment: 'all', promoIds: [], branches: [], from: today(), to: anDay(today(), 30), budget: '', acc: '' });
   const save = async () => {
     if (String(f.name).trim().length < 3) return say('اسم الحملة مطلوب', 'no');
     if (!f.from || !f.to || f.to < f.from) return say('فترة الحملة غير صحيحة', 'no');
     const clash = f.promoIds.map(id => [id, linkedTo(id)]).find(([, c]) => c);
     if (clash) return say('الكوبون مرتبط بحملة قائمة: ' + clash[1].name, 'no');
+    if (f.acc && usedAcc(f.acc)) return say('حساب التكلفة مخصص لحملة أخرى: ' + usedAcc(f.acc).no, 'no');
     const rec = { id: uid('cmp'), no: campNextNo(ops), name: f.name.trim(), goal: String(f.goal || '').trim(), segment: f.segment, promoIds: f.promoIds, branches: f.branches, from: f.from, to: f.to,
-      budget: Math.max(0, Number(f.budget) || 0), status: canApp ? 'active' : 'pending', createdBy: me.name, createdById: me.id, createdAt: nowISO(), ...(canApp ? { apprBy: me.name, apprAt: nowISO() } : {}) };
+      budget: Math.max(0, Number(f.budget) || 0), ...(f.acc ? { acc: f.acc } : {}), status: canApp ? 'active' : 'pending', createdBy: me.name, createdById: me.id, createdAt: nowISO(), ...(canApp ? { apprBy: me.name, apprAt: nowISO() } : {}) };
     const ok = await commit(d => ({ ...d, mktCampaigns: [rec, ...(d.mktCampaigns || [])] }), { actionType: 'create', targetType: 'settings', targetId: rec.id, title: 'أنشأ حملة تسويقية', details: rec.no + ' · ' + rec.name + (canApp ? ' · نشطة' : ' · بانتظار الاعتماد') });
     if (ok === false) return;
     if (rec.promoIds.length) await commitOrg(d => ({ ...d, posPromos: (d.posPromos || []).map(p => rec.promoIds.includes(p.id) ? { ...p, campaignId: rec.id } : p) }), { actionType: 'update', targetType: 'settings', targetId: rec.id, title: 'ربط كوبونات بحملة', details: rec.no });
@@ -364,7 +373,7 @@ function Cmp({ org, ops, list, canApp, me, commit, commitOrg, say, brName }) {
       <button className="btn sm pri" style={{ marginInlineStart: 'auto' }} onClick={() => setF(blank())}>حملة جديدة</button></div>
     <div className="note" style={{ marginBottom: 8 }}>الحملة تربط شريحة مستهدفة بكوبونات من «نقطة البيع ← العروض» في فترة وفروع محددة، وتقيس نتيجتها من الطلبات الفعلية. «مبيعات الفواتير» إجمالي الفواتير التي استُخدم فيها كوبون الحملة — ليست إيرادًا إضافيًا بالضرورة. إرسال الرسائل للعملاء ليس هنا.</div>
     {!camps.length && <div className="empty">لا حملات بعد.</div>}
-    {camps.map(c => { const st = campStatusOf(c), S = campStats(org, ops, list, c); return <div key={c.id} className="card" data-camp={c.no} style={{ background: 'var(--ink)', marginBottom: 8 }}>
+    {camps.map(c => { const st = campStatusOf(c), S = campStats(org, ops, list, c, A); return <div key={c.id} className="card" data-camp={c.no} style={{ background: 'var(--ink)', marginBottom: 8 }}>
       <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}><b>{c.name}</b><span className="num" style={{ fontSize: 11, color: 'var(--dim)' }}>{c.no}</span><span className={'badge ' + ST_C[st]}>{CAMP_ST[st]}</span>
         <span style={{ fontSize: 12, color: 'var(--dim)' }}>{c.from} ← {c.to} · {c.segment === 'all' ? 'كل العملاء' : (MKT_SEGS[c.segment] || {}).ar || c.segment}{(c.branches || []).length ? ' · ' + c.branches.map(brName).join('، ') : ' · كل الفروع'}</span>
         <span style={{ marginInlineStart: 'auto' }} />
@@ -377,7 +386,19 @@ function Cmp({ org, ops, list, canApp, me, commit, commitOrg, say, brName }) {
         <span>الاستخدام: <b className="num">{S.redemptions}</b></span><span>مبيعات الفواتير: <b className="num">{money(S.sales)}</b></span><span>الخصم الممنوح: <b className="num">{money(S.disc)}</b></span>
         <span>المستهدفون: <b className="num">{S.target}</b></span><span>اشترى منهم: <b className="num">{S.responders}{S.respRate != null ? ' (' + S.respRate + '%)' : ''}</b></span>
         <span>عملاء جدد: <b className="num">{S.newCustomers}</b></span><span>الميزانية: <b className="num">{money(S.budget)}</b></span><span>التكلفة لكل طلب: <b className="num">{S.costPerOrder == null ? '—' : money(S.costPerOrder)}</b></span>
-      </div></div>; })}
+      </div>
+      <div className="row" style={{ gap: 14, flexWrap: 'wrap', marginTop: 6, fontSize: 12, alignItems: 'center' }} data-camproi>
+        <span>حساب التكلفة: {canApp ? <select className="sel" aria-label={'حساب تكلفة ' + c.no} style={{ height: 30, fontSize: 12, maxWidth: 260 }} value={c.acc || ''} onChange={e => setAcc(c, e.target.value)}>
+          <option value="">— غير مربوط —</option>{expAccs.map(a => <option key={a.code} value={a.code} disabled={!!usedAcc(a.code, c.id)}>{a.code} — {a.name}</option>)}</select> : <b>{c.acc ? accName(c.acc) : '—'}</b>}</span>
+        {c.acc ? <>
+          <span>التكلفة الفعلية: <b className="num">{S.spend == null ? '—' : money(S.spend)}</b></span>
+          <span>المبيعات المنسوبة بلا ضريبة: <b className="num">{money(S.netSales)}</b></span>
+          <span>كل ريال تسويق جلب: <b className="num">{S.roas == null ? '—' : S.roas}</b>{S.roas == null ? '' : ' ر.س'}</span>
+          <span>العائد: <b className="num" style={{ color: S.roi == null ? undefined : S.roi >= 0 ? 'var(--mint)' : 'var(--rose)' }}>{S.roi == null ? '—' : S.roi + '%'}</b></span>
+        </> : <span style={{ color: 'var(--dim)' }}>اربط حساب مصروف خاصًا بالحملة لحساب التكلفة الفعلية والعائد</span>}
+      </div>
+      {c.acc && <div style={{ fontSize: 11, color: 'var(--dim)', marginTop: 4 }}>العائد = (المبيعات المنسوبة بلا ضريبة − التكلفة الفعلية) ÷ التكلفة الفعلية. «منسوبة» = فواتير استخدمت كوبونات الحملة، وليست بالضرورة مبيعات إضافية.</div>}
+    </div>; })}
     {f && <Modal title="حملة جديدة" icon={Megaphone} onClose={() => setF(null)} wide foot={<><button className="btn gh" onClick={() => setF(null)}>إلغاء</button><button className="btn pri" onClick={save}>{canApp ? 'إطلاق الحملة' : 'إرسال للاعتماد'}</button></>}>
       <Field label="اسم الحملة"><input className="inp" aria-label="اسم الحملة" value={f.name} onChange={e => setF(x => ({ ...x, name: e.target.value }))} /></Field>
       <Field label="الهدف"><input className="inp" aria-label="هدف الحملة" placeholder="مثال: إعادة العملاء المعرّضين للانقطاع خلال شهر" value={f.goal} onChange={e => setF(x => ({ ...x, goal: e.target.value }))} /></Field>
@@ -386,6 +407,8 @@ function Cmp({ org, ops, list, canApp, me, commit, commitOrg, say, brName }) {
         <Field label="من"><input type="date" className="inp" aria-label="من" value={f.from} onChange={e => setF(x => ({ ...x, from: e.target.value }))} /></Field>
         <Field label="إلى"><input type="date" className="inp" aria-label="إلى" value={f.to} onChange={e => setF(x => ({ ...x, to: e.target.value }))} /></Field>
         <Field label="الميزانية (ر.س)"><input className="inp n" aria-label="الميزانية" inputMode="decimal" value={f.budget} onChange={e => setF(x => ({ ...x, budget: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+        <Field label="حساب تكلفة الحملة"><select className="sel" aria-label="حساب تكلفة الحملة" value={f.acc} onChange={e => setF(x => ({ ...x, acc: e.target.value }))}>
+          <option value="">— لاحقًا —</option>{expAccs.map(a => <option key={a.code} value={a.code} disabled={!!usedAcc(a.code)}>{a.code} — {a.name}</option>)}</select></Field>
       </div>
       <div className="lbl" style={{ margin: '8px 0 4px' }}>الكوبونات (من محرك العروض)</div>
       <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>{promos.length ? promos.map(p => { const L = linkedTo(p.id); return <label key={p.id} className="row" style={{ gap: 4, fontSize: 12, opacity: L ? .5 : 1 }}>

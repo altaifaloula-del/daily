@@ -12,8 +12,10 @@ permissions:
   pages: write
   id-token: write
 
+# طابور لكل فرع/طلب: فحص طلب لا يحل محل فحص طلب آخر (كان الطابور المشترك «pages» يُبقي فحصًا منتظرًا واحدًا فقط
+# لكل المستودع، فيُلغى فحص جلسة حين ترفع جلسة أخرى). النشر وحده يبقى في الطابور المشترك تحت.
 concurrency:
-  group: pages
+  group: ci-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -118,6 +120,9 @@ jobs:
     needs: build
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.pages.outputs.page_url }}
