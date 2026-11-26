@@ -8,7 +8,8 @@ import { archKey, archivePlan, nowISO, printA4, uid, dtLocal, posSplitBranch, po
 import { clrCompare, clrLoad, clrOn, clrSeed, clrState, logAudit, clrRead, clrViewStats } from '../../App.jsx';   // v41.9 + v42.2
 import { posrOn, posrCompare, posrLoad, posrSeed, posrState, posrRepair } from '../../App.jsx';   // v56.4 (POS 2a) سجلات فواتير نقطة البيع
 import { MKT_BR_CV, mktBrOn } from '../../App.jsx';
-import { grrOn, mkcCompare, lytCompare, grrLoad, grrSeed, grrState } from '../../App.jsx';   // v56.17 (GROWTH 2) سجلات الموافقة والولاء المحمية   // v56.12 (GROWTH G1) سجلات التسويق في الفروع
+import { grrOn, mkcCompare, lytCompare, grrLoad, grrSeed, grrState } from '../../App.jsx';
+import { posGlOn, posGlCheck } from '../../App.jsx';   // v56.18 (POS 6a) أثر فواتير نقطة البيع في قيد الإغلاق   // v56.17 (GROWTH 2) سجلات الموافقة والولاء المحمية   // v56.12 (GROWTH G1) سجلات التسويق في الفروع
 import { WorkflowsCard } from './Workflows.jsx';   // v49.5 MQ-059
 import { FL_START, flOn, flScope, flCompare, flLoad, flPost, FL_GROUPS, flLvl, flUnclassified, flCorrect, flReadOn } from '../../App.jsx';   // v56.9 D1 دفتر القيود المخزّن
 import { fjCompare, fjLoad, fjOn, fjState, fpLockedTo, fpLoad, fmLoad, fmSet, fjSeed, FD_KINDS, fdCompare, fdLoad, fdSeed } from '../../App.jsx';   // v49.0 المرحلة 01
@@ -315,6 +316,7 @@ export function SystemMaintenance({ org, ops, me, commit, commitOrg, say }) {
       <PosRecordsCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <MktBranchCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <GrowthRecordsCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
+      <PosGlCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <FinStrictCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <LedgerCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <JournalRecordsCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
@@ -505,6 +507,36 @@ function MktBranchCard({ org, commitOrg, say, isAdm }) {
 }
 /* v56.17 (GROWTH 2): الموافقات التسويقية وحركات الولاء سجلات للإضافة فقط يحرسها الخادم — نسخ موازٍ، معطّل افتراضيًا.
    المصدر لا يتغير؛ التفعيل ينسخ الجديد، و«نسخ التاريخ» ينسخ القائم، و«مطابقة» تكشف الناقص والمختلف والزائد. */
+/* v56.18 (POS 6a — قرارات المالك): قيد إيراد الوردية من فواتير نقطة البيع: الضريبة من الفواتير، المبيعات بالإجمالي والخصومات في 4104،
+   والولاء التزام 2106. معطّل افتراضيًا، ويسري من تاريخ يختاره المالك فقط (لا يغيّر قيودًا سابقة). الإغلاق غير المطابق لفواتيره يبقى كما كان. */
+function PosGlCard({ org, ops, commitOrg, say, isAdm }) {
+  const on = posGlOn(org); const [from, setFrom] = useState(today()); const [rows, setRows] = useState(null);
+  const pv = Number((org.loyaltyCfg || {}).ptValue) || 0;
+  const toggle = async () => {
+    if (!isAdm) return;
+    if (!on) { if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) return say('اختر تاريخ البدء', 'no'); if (fpLockedTo(org) && from <= fpLockedTo(org)) return say('تاريخ البدء داخل فترة مقفلة (حتى ' + fpLockedTo(org) + ')', 'no');
+      if (!window.confirm('تفعيل قيد الإيراد من فواتير نقطة البيع من ' + from + '؟\nالإغلاقات من هذا التاريخ: الضريبة من الفواتير، المبيعات بالإجمالي والخصومات في 4104، ونقاط الولاء التزام في 2106 (قيمة النقطة ' + pv + ').\nالقيود السابقة لا تتغير، والإغلاق غير المطابق لفواتيره يبقى كما كان.')) return; }
+    const ok = await commitOrg(o => ({ ...o, posGl: on ? { ...(o.posGl || {}), on: false, offAt: nowISO() } : { on: true, from, since: nowISO() } }),
+      { actionType: 'settings', targetType: 'system_settings', targetId: 'posGl', title: on ? 'أوقف قيد الإيراد من فواتير نقطة البيع' : 'فعّل قيد الإيراد من فواتير نقطة البيع', details: on ? '' : 'من ' + from + ' · قيمة النقطة ' + pv });
+    if (ok) { setRows(null); say(on ? 'أُوقف — القيود تعود للطريقة السابقة' : 'فُعّل من ' + from + ' ✓'); }
+  };
+  const bad = (rows || []).filter(r => !r.ok);
+  return (<div className="card" data-posgl>
+    <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />قيد إيراد الوردية من فواتير نقطة البيع (الضريبة، الخصومات، التزام الولاء)</div>
+      <span className={'badge ' + (on ? 'b-sky' : 'b-dim')}>{on ? 'مفعّل من ' + (org.posGl || {}).from : 'غير مفعّل'}</span></div>
+    <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>
+      بقرارك: ضريبة كل فاتورة بدل النسبة الثابتة · المبيعات بالإجمالي والعروض والخصم اليدوي في <b>4104</b> · نقاط الولاء الممنوحة <b>التزام 2106</b> (النقاط × قيمة النقطة بعد الضريبة) ويُطفئه الاستبدال.
+      {!pv && <div style={{ color: 'var(--amber)' }}>قيمة النقطة غير مضبوطة في إعداد الولاء ⇒ لن يُسجَّل التزام للنقاط.</div>}
+      <div>نقاط المناسبات (الميلاد والإحالة) وجوائز الكتالوج وانتهاء النقاط ورصيد النقاط القائم: خارج هذه الدفعة حتى قرارك.</div></div>
+    {isAdm && !on && <div className="row" style={{ gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}><label style={{ fontSize: 12 }}>يسري من <input className="inp" type="date" aria-label="تاريخ بدء قيد نقطة البيع" value={from} onChange={e => setFrom(e.target.value)} /></label></div>}
+    {rows && <div data-posgl-rep style={{ fontSize: 12, marginTop: 6 }}>إغلاقات في النطاق: {rows.length} · مطابقة لفواتيرها: {rows.length - bad.length} · غير مطابقة: {bad.length}
+      {bad.slice(0, 20).map(r => <div key={r.id} className="me-row"><span className="me-a"><b>{r.branchName} — {r.date}</b><small>الإغلاق {r.tot} · الفواتير {r.pos} ({r.n})</small></span></div>)}</div>}
+    <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+      {isAdm && <button className={'btn sm ' + (on ? 'gh' : 'pri')} onClick={toggle} data-posgl-toggle>{on ? 'إيقاف' : 'تفعيل'}</button>}
+      {on && <button className="btn sm gh" onClick={() => setRows(posGlCheck(org, ops))} data-posgl-check>فحص المطابقة</button>}
+    </div>
+  </div>);
+}
 function GrowthRecordsCard({ org, ops, commitOrg, say, isAdm }) {
   const on = grrOn(org); const [busy, setBusy] = useState(''); const [rep, setRep] = useState(null);
   const check = async () => {

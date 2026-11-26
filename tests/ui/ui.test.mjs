@@ -3681,3 +3681,15 @@ test('v56.17 GROWTH 2: بطاقة السجلات المحمية للموافقا
   await p.click('[data-grr-check]'); await p.waitForFunction(() => /Firestore فقط/.test(window.lastSay || ''));
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.18 POS 6a: بطاقة قيد الإيراد من فواتير نقطة البيع — معطّلة افتراضيًا، والتفعيل بتاريخ بدء، وفحص المطابقة', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1300 } }, 'live/Admin/admin');
+  await p.click('button:has-text("صيانة النظام")'); await p.waitForSelector('[data-posgl]');
+  assert.match(await p.locator('[data-posgl]').innerText(), /غير مفعّل/);
+  await p.getByLabel('تاريخ بدء قيد نقطة البيع').fill('2026-11-01');
+  await p.click('[data-posgl-toggle]');   // النوافذ تُقبل تلقائيًا في هذه البيئة
+  await p.waitForFunction(() => window.curOrg.posGl && window.curOrg.posGl.on === true && window.curOrg.posGl.from === '2026-11-01');
+  await p.click('[data-posgl-check]'); await p.waitForSelector('[data-posgl-rep]');
+  assert.match(await p.locator('[data-posgl-rep]').innerText(), /إغلاقات في النطاق/);
+  assert.deepEqual(errs, []); await ctx.close();
+});
