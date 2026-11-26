@@ -11,7 +11,7 @@ import { GeneralLedger } from './GeneralLedger.jsx';   // v49.4 المرحلة 0
 import { makeRptXlsx } from '../../App.jsx';   // v50.0 منظومة التقارير
 import { FL_START, FL_GROUPS, flReadOn, flLoad, flEntriesOf, flBalDiff, flScope } from '../../App.jsx';   // v56.14 D4 الميزان والقوائم من الدفتر المخزّن
 import { DEP_METHODS, depMethod, deprSchedule, wfOn, wfRequired, wfState, wfCanAct, wfApprove } from '../../App.jsx';   // v49.4 طرق الإهلاك
-import { equityStatement, EQS_ROWS, closeListOn, closeAutoChecks, closeManualState, closeLockBlock } from '../../App.jsx';   // v56.20 (E2)   // v56.19 (FINANCE E1)
+import { equityStatement, EQS_ROWS, closeListOn, closeAutoChecks, closeManualState, closeLockBlock, fxRevalOn, fxRevalRows } from '../../App.jsx';   // v56.20 (E2) + v56.21 (E3)   // v56.19 (FINANCE E1)
 import { ACCT_GROUPS, DocLink, RowGrip, moveIdx, RECUR_AR, recurNext, recurDue, jeOwner, canApproveJe, jeAutoSt, vatCloseLive, projList, projectPL, projNextCode, ACCT_SECTIONS, ACC_KIND, Field, Kpi, LOCK_MSG, MizanMerge, Modal, NUM_FACE, Num, ROLES, _xe, acctSecKey, arDate, bankOfBranch, branchBanks, bsLayout, bsRowsOf, buildAccounting, buildPartners, capOK, countedClosing, customerAging, detectStmtMap, entityById, entityList, gosiRatesFor, isLayout, isRowsOf, isoD, lockedThru, makeXlsx, money, monthEnd, monthLedger, multiEntityOn, naMissing, nowISO, openDocWin, parseCsvGrid, parseMt940, parseXlsxGrid, payTotal, periodLocked, posClrOf, printA4, qrSvg, roleEdit, rolePost, snapMonths, stAddDays, stDate, stNum, sum, supplierAging, today, uid, useSecNav, zatcaTLV } from '../../App.jsx';
 
 export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctIntent }) {
@@ -3024,6 +3024,22 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                     {MS.map(x => <div key={x.k} className="row" style={{ gap: 6, fontSize: 12, marginBottom: 3, flexWrap: 'wrap' }} data-cl-task={x.k}><span className={'badge ' + (x.st === 'approved' ? 'b-mint' : x.st === 'done' ? 'b-amber' : 'b-dim')}>{x.st === 'approved' ? 'معتمدة' : x.st === 'done' ? 'منجزة' : 'لم تبدأ'}</span><span style={{ flex: 1 }}>{x.ar}{x.t ? ' · ' + x.t.doneBy + (x.t.note ? ' (' + x.t.note + ')' : '') + (x.t.apBy ? ' · اعتمدها ' + x.t.apBy : '') : ''}</span>
                       {x.st === 'todo' && <button className="btn sm gh" onClick={() => mark(x.k, false)} data-cl-done>تم</button>}{x.st === 'done' && <button className="btn sm gh" onClick={() => mark(x.k, true)} data-cl-ap>اعتماد</button>}</div>)}
                     <button className={'btn sm ' + (on ? 'gh' : 'pri')} style={{ marginTop: 6 }} onClick={tog} data-cl-toggle>{on ? 'إيقاف شرط القائمة' : 'تفعيل: لا قفل قبل اكتمال القائمة'}</button>
+                  </div>; })()}
+                {(() => { /* v56.21 (E3): إعادة تقييم ذمم الموردين بالعملات — سعر الإقفال للشهر المعروض */
+                  const mm = lockTo || prevYm; const on = fxRevalOn(org); const curs = [...new Set((ops.invoices || []).filter(i => i.cur && i.cur !== 'SAR').map(i => i.cur))];
+                  if (!curs.length && !on) return null; const R = ((org.fxReval || {}).rates || {})[mm] || {}; const locked = !!(plCfg.lockedThrough && mm <= plCfg.lockedThrough);
+                  const rows = fxRevalRows({ ...org, fxReval: { on: true, rates: { [mm]: R } } }, ops, mm); const tot = Math.round(rows.reduce((t, r) => t + r.diff, 0) * 100) / 100;
+                  const setRate = async (cur) => { if (locked) return say('الشهر مقفل — لا تعديل لسعره', 'no'); const v = window.prompt('سعر إقفال ' + cur + ' بالريال في نهاية ' + mm + ':', R[cur] || ''); if (v === null) return; const n = Number(v); if (v !== '' && !(n > 0)) return say('سعر غير صالح', 'no');
+                    const ok = await commitOrg(o => { const fr = o.fxReval || {}; const rates = { ...(fr.rates || {}) }; const m0 = { ...(rates[mm] || {}) }; if (v === '') delete m0[cur]; else m0[cur] = n; rates[mm] = m0; return { ...o, fxReval: { ...fr, rates } }; },
+                      { actionType: 'settings', targetType: 'tax_settings', targetId: 'fxReval', need: 'post', title: 'سعر إقفال عملة', details: mm + ' · ' + cur + ' = ' + (v || 'حُذف') });
+                    if (ok) say('حُفظ سعر ' + cur + ' ✓'); };
+                  const tog = async () => { const ok = await commitOrg(o => ({ ...o, fxReval: { ...(o.fxReval || {}), on: !on } }), { actionType: 'settings', targetType: 'tax_settings', targetId: 'fxReval', need: 'edit', title: on ? 'أوقف إعادة تقييم العملات' : 'فعّل إعادة تقييم العملات' }); if (ok) say(on ? 'أُوقفت' : 'فُعّلت ✓'); };
+                  return <div className="card" style={{ marginTop: 10, padding: 10 }} data-fxreval>
+                    <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}><b style={{ fontSize: 13 }}>فروق الصرف غير المحققة — {mm}</b><span className={'badge ' + (on ? 'b-sky' : 'b-dim')}>{on ? 'مفعّلة' : 'غير مفعّلة'}</span></div>
+                    <div style={{ fontSize: 12, color: 'var(--dim)', marginBottom: 6 }}>ذمم الموردين بالعملات بسعر الإقفال: الفرق في 5804 مقابل 2109 (لا يمس ذمة المورد)، ويُعكس أول الشهر التالي.{locked ? ' الشهر مقفل.' : ''}</div>
+                    <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>{curs.map(c => <button key={c} className="btn sm gh" onClick={() => setRate(c)} data-fx-rate={c}>{c}: {R[c] || '—'}</button>)}</div>
+                    {rows.length > 0 && <div style={{ fontSize: 12 }} data-fx-rows>{rows.map(r => <div key={r.invId}>{r.supplierName} · متبقٍ {money(r.rem)} {r.cur} · {r.invRate} ← {r.rate} · <span className="num" style={{ color: r.diff > 0 ? 'var(--rose)' : 'var(--mint)' }}>{fmtBal(r.diff)}</span></div>)}<b>الإجمالي: {fmtBal(tot)} {tot > 0 ? '(خسارة)' : '(ربح)'}</b></div>}
+                    <button className={'btn sm ' + (on ? 'gh' : 'pri')} style={{ marginTop: 6 }} onClick={tog} data-fx-toggle>{on ? 'إيقاف' : 'تفعيل القيد'}</button>
                   </div>; })()}
                 {(() => { const c = lockChecks(lockTo || prevYm);
                   return (c.drafts > 0 || c.pending > 0) && (
