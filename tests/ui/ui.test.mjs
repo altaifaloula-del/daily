@@ -1546,7 +1546,8 @@ test('v44.3 طلب شراء الفرع ← أمر شراء لمستودع الف
   r = await b2.p.evaluate(() => ({ rc: window.cur.poReceipts.map(x => [x.status, x.supInvNo, x.lines[0].qty]), mv: window.cur.whMoves.map(m => [m.whId, m.qty, m.unitCost, !!m.grnRef]) }));
   assert.deepEqual(r, { rc: [['pending', 'SUP-900', 8]], mv: [['wh-b1', 8, undefined, true]] }, 'دخل مستودع الفرع فورًا — بلا سعر لدى الفرع');
   assert.equal(JSON.stringify(after.poInbox).includes('price'), false, 'نسخة الأمر في الفرع كميات فقط');
-  assert.doesNotMatch(await b2.p.locator('[data-brpo]').innerText(), /40|ر\.س/, 'لا أسعار في شاشة الفرع');
+  // v56.6: رقم سند الاستلام عشوائي (GRN-…-S40 مثلًا) فيُحذف قبل فحص السعر — كان الاختبار يفشل عشوائيًا حين يحوي الرقم «40»
+  assert.doesNotMatch((await b2.p.locator('[data-brpo]').innerText()).replace(/GRN-[A-Za-z0-9-]+/g, ''), /40|ر\.س/, 'لا أسعار في شاشة الفرع');
   assert.match(await b2.p.locator('[data-brpo]').innerText(), /لا أوامر شراء قيد التوريد/, 'المتبقي يُخصم منه الاستلام المعلّق');
   const brOps = await b2.p.evaluate(() => ({ poReceipts: window.cur.poReceipts, whMoves: window.cur.whMoves }));
   await b2.ctx.close();
@@ -3529,6 +3530,27 @@ test('v56.5 الدخول: الجوال بلا تجاوز وأهداف لمس ≥
   const x = await d.p.evaluate(() => { const c = document.querySelector('.mq-card').getBoundingClientRect(); const rg = document.createRange(); rg.selectNodeContents(document.querySelector('label[for="mq-email"]')); const l = rg.getBoundingClientRect(); return [Math.round(l.left - c.left), Math.round(c.right - l.right)]; });
   assert.ok(x[0] < x[1], 'نص تسمية البريد على اليسار في الإنجليزية ' + x);
   await shot(d.p, 'login-desktop-en'); await d.ctx.close();
+});
+
+test('v56.7 C4 التطابق التام بالهللات: معطّل افتراضيًا، يكشف القيد قبل التفعيل، ويفعّله المدير ويوقفه', async () => {
+  const ctx = await browser.newContext(devices['iPad (gen 7)']); const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
+  p.on('dialog', d => d.accept());
+  await p.goto(base + 'live/Admin/admin'); await p.reload(); await p.waitForTimeout(500); await settle(p);
+  await p.evaluate(() => window.setOps(o => ({ ...o, journalManual: [...(o.journalManual || []),
+    { id: 'jh', date: '2026-03-06', title: 'قيد بكسر', lines: [{ code: '5901', debit: 10.005, credit: 0 }, { code: '1201', debit: 0, credit: 10 }] }] })));
+  await p.locator('button:has-text("صيانة")').first().click(); await p.waitForTimeout(500);
+  const card = p.locator('[data-finstrict]');
+  assert.match(await card.innerText(), /غير مفعّل/);
+  assert.match(await card.innerText(), /لا يتطابق بالهللة/, 'الأثر ظاهر قبل التفعيل');
+  assert.match(await card.innerText(), /قيد بكسر/);
+  await card.scrollIntoViewIfNeeded(); await shot(p, 'finstrict-off');
+  await card.locator('button:has-text("تفعيل التطابق التام")').click(); await p.waitForTimeout(400);
+  assert.equal(await p.evaluate(() => !!(window.curOrg.finStrict || {}).on), true);
+  assert.match(await card.innerText(), /مفعّل/);
+  await card.locator('button:has-text("إيقاف التطابق التام")').click(); await p.waitForTimeout(400);
+  assert.equal(await p.evaluate(() => !!(window.curOrg.finStrict || {}).on), false, 'الإيقاف متاح للتراجع');
+  assert.equal(await p.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 2, true);
+  assert.deepEqual(errs, []); await ctx.close();
 });
 
 test('عائد التسويق: ربط الحملة بحساب مصروف خاص بها يعرض التكلفة الفعلية والعائد على المبيعات المنسوبة', async () => {
