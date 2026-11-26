@@ -3429,11 +3429,19 @@ test('v56.0 هوية المنشأة: رفع شعار شفاف، الألوان �
 const SHOTS = path.join(cache, 'shots'); const shot = async (p, n) => { fs.mkdirSync(SHOTS, { recursive: true }); await p.screenshot({ path: path.join(SHOTS, n + '.jpg'), type: 'jpeg', quality: 72, fullPage: true }); };
 const gateState = (p) => p.evaluate(() => ({ calls: (window.__gate || {}).calls || [], mfa: (window.__gate || {}).mfaCalls || [],
   err: document.querySelector('.mq-err')?.innerText || '', btn: document.querySelector('.mq-btn')?.innerText || '', note: document.querySelector('.mq-note')?.innerText || '',
-  dir: document.querySelector('.mq-login')?.closest('[dir]')?.getAttribute('dir') || '', over: document.documentElement.scrollWidth - window.innerWidth }));
+  dir: document.querySelector('.mq-login')?.closest('[dir]')?.getAttribute('dir') || '', over: document.documentElement.scrollWidth - window.innerWidth,
+  card: (() => { const r = document.querySelector('.mq-card')?.getBoundingClientRect(); return r ? { l: Math.round(r.left), r: Math.round(r.right), w: Math.round(r.width) } : null; })(),
+  cover: Math.round(document.querySelector('.gate-cover')?.getBoundingClientRect().width || 0), vw: window.innerWidth }));
+/** البطاقة كاملة داخل الشاشة (لا قص خفي خلف overflow) وآخر زر يصل إليه المستخدم */
+const fitsGate = async (p, label) => { const s = await gateState(p);
+  assert.ok(s.card && s.card.l >= 0 && s.card.r <= s.vw + 1, label + ': البطاقة خارج الشاشة ' + JSON.stringify(s.card) + ' عرض ' + s.vw);
+  await p.locator('.mq-setup').scrollIntoViewIfNeeded(); const b = await p.locator('.mq-setup').boundingBox(); const vh = await p.evaluate(() => window.innerHeight);
+  assert.ok(b && b.y >= 0 && b.y + b.height <= vh + 1, label + ': زر الإعداد الأول غير ظاهر ' + JSON.stringify(b)); return s; };
 
 test('v56.5 الدخول: التحقق من المدخلات، كلمة سر خاطئة، إظهار/إخفاء، تذكّرني، نسيت كلمة السر، نجاح حقيقي فقط', { timeout: 120000 }, async () => {
   const { p, errs, ctx } = await open({ viewport: { width: 1440, height: 900 } }, 'gate');
   await p.waitForSelector('#mq-email'); await shot(p, 'login-desktop-ar');
+  const cover0 = (await fitsGate(p, 'سطح المكتب')).cover; assert.ok(cover0 > 500, 'الغلاف ' + cover0);
   // فارغ ⇒ رسالة واضحة دون استدعاء الدخول
   await p.click('.mq-btn'); let s = await gateState(p);
   assert.match(s.err, /اكتب بريدك الإلكتروني/); assert.equal(s.calls.length, 0, 'لا استدعاء بلا بيانات');
@@ -3453,7 +3461,8 @@ test('v56.5 الدخول: التحقق من المدخلات، كلمة سر خ�
   assert.equal(s.calls.length, 1); assert.equal(s.calls[0].email, 'own@x.sa'); assert.equal(s.calls[0].pass, 'Wrong999');
   assert.ok(s.calls[0].t - t0 < 150, 'الحركة لا تؤخر الدخول: ' + Math.round(s.calls[0].t - t0) + 'ms');
   assert.match(s.err, /كلمة السر غير صحيحة/); assert.doesNotMatch(s.btn, /تم الدخول/);
-  await shot(p, 'login-error-ar');
+  await p.waitForTimeout(700); await shot(p, 'login-error-ar');
+  assert.ok(Math.abs((await fitsGate(p, 'بعد الخطأ')).cover - cover0) <= 2, 'ظهور الخطأ لا يغيّر التخطيط');
   // Enter يرسل النموذج
   await p.fill('#mq-pass', 'Wrong888'); await p.press('#mq-pass', 'Enter'); await p.waitForTimeout(300);
   assert.equal((await gateState(p)).calls.length, 2);
@@ -3489,7 +3498,7 @@ test('v56.5 الدخول: التحقق بخطوتين يُرسل تلقائيً�
 
 test('v56.5 الدخول: الجوال بلا تجاوز وأهداف لمس ≥ 44px، والإنجليزية LTR مع زر اللغة، وتقليل الحركة', { timeout: 90000 }, async () => {
   const m = await open(devices['iPhone 13'], 'gate');
-  let s = await gateState(m.p); assert.ok(s.over <= 2, 'تجاوز أفقي ' + s.over);
+  let s = await fitsGate(m.p, 'الجوال'); assert.ok(s.over <= 2, 'تجاوز أفقي ' + s.over);
   const sizes = await m.p.evaluate(() => ['.mq-input', '.mq-btn', '.mq-eye', '.mq-lang'].map(q => Math.round(document.querySelector(q).getBoundingClientRect().height)));
   sizes.forEach((h, i) => assert.ok(h >= 34 && (i === 3 || h >= 42), 'ارتفاع ' + ['الحقل', 'الزر', 'العين', 'اللغة'][i] + ' ' + h));
   await shot(m.p, 'login-mobile-ar');
@@ -3497,7 +3506,7 @@ test('v56.5 الدخول: الجوال بلا تجاوز وأهداف لمس ≥
   await m.p.click('.mq-lang'); await m.p.waitForTimeout(400);
   s = await gateState(m.p); assert.equal(s.dir, 'ltr');
   assert.match(await m.p.innerText('label[for="mq-email"]'), /Email/i);
-  assert.ok(s.over <= 2); await shot(m.p, 'login-mobile-en');
+  assert.ok(s.over <= 2); await fitsGate(m.p, 'الجوال EN'); await m.p.evaluate(() => window.scrollTo(0, 0)); await shot(m.p, 'login-mobile-en');
   assert.deepEqual(m.errs, []); await m.ctx.close();
   // تقليل الحركة: لا حركة على البطاقة ولا لوحة جسيمات تُرسم
   const r = await open({ viewport: { width: 1280, height: 900 }, reducedMotion: 'reduce' }, 'gate');

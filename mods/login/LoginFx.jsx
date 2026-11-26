@@ -19,7 +19,7 @@ export function LoginFx({ hostRef }) {
     const gv = (css.getPropertyValue('--brass') || '').trim();
     const gold = /^(#[0-9a-f]{3,8}|rgba?\([^)]*\))$/i.test(gv) ? gv : 'rgb(217,168,62)';   // قيمة لا يفهمها canvas (color-mix…) ⇐ ذهبي الهوية
     const size = () => {
-      W = host.clientWidth; Hh = host.clientHeight; c.width = W * dpr; c.height = Hh * dpr; c.style.width = W + 'px'; c.style.height = Hh + 'px';
+      W = host.clientWidth; Hh = host.clientHeight; c.width = Math.max(1, W * dpr); c.height = Math.max(1, Hh * dpr);   // العرض بالـ CSS (100%) لا بالبكسل
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       const n = W < 640 ? 12 : W < 1024 ? 24 : 40;
       pts = Array.from({ length: n }, () => ({ x: Math.random() * W, y: Math.random() * Hh, r: 0.6 + Math.random() * 1.6, vx: (Math.random() - 0.5) * 0.12, vy: -0.05 - Math.random() * 0.14, a: 0.12 + Math.random() * 0.33, d: 0.3 + Math.random() * 0.7, g: Math.random() < 0.55 }));
@@ -40,8 +40,8 @@ export function LoginFx({ hostRef }) {
     };
     const vis = () => { cancelAnimationFrame(raf); if (!document.hidden) raf = requestAnimationFrame(tick); };
     size(); raf = requestAnimationFrame(tick);
-    window.addEventListener('resize', size); window.addEventListener('pointermove', move, { passive: true }); document.addEventListener('visibilitychange', vis);
-    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', size); window.removeEventListener('pointermove', move); document.removeEventListener('visibilitychange', vis); };
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => size()) : null; if (ro) ro.observe(host); else window.addEventListener('resize', size); window.addEventListener('pointermove', move, { passive: true }); document.addEventListener('visibilitychange', vis);
+    return () => { cancelAnimationFrame(raf); if (ro) ro.disconnect(); else window.removeEventListener('resize', size); window.removeEventListener('pointermove', move); document.removeEventListener('visibilitychange', vis); };
   }, [hostRef]);
   return <canvas ref={cv} className="mq-fx" aria-hidden="true" />;
 }

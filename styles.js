@@ -645,7 +645,7 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
 .gate .btn.pri:hover::after{animation:btnSheen .8s ease}
 /* ===== v56.5 — تجربة الدخول الفاخرة (مُكتسَب) — ألوان الهوية عبر متغيرات السمة فقط ===== */
 .mq-login{--mx:50%;--my:38%;isolation:isolate}
-.mq-login .mq-fx{position:absolute;inset:0;pointer-events:none;z-index:0}
+.mq-login .mq-fx{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}
 .mq-login .mq-aurora{position:absolute;inset:0;pointer-events:none;z-index:0;
   background:radial-gradient(520px circle at var(--mx) var(--my),color-mix(in srgb,var(--brass) 15%,transparent),transparent 62%)}
 .mq-login .mq-aurora::before{content:'';position:absolute;inset:-35%;opacity:.55;
@@ -733,11 +733,20 @@ a:focus-visible,[role=button]:focus-visible,.nav-i:focus-visible,.botnav-i:focus
 .mq-welcome-ok{width:64px;height:64px;border-radius:50%;display:grid;place-items:center;background:var(--brass);color:var(--ink);box-shadow:0 10px 30px color-mix(in srgb,var(--brass) 40%,transparent);animation:mqPop .45s cubic-bezier(.2,.7,.2,1.4)}
 .mq-welcome-t{font-size:20px;font-weight:700;color:var(--tx,inherit)}
 @keyframes mqFade{0%{opacity:0}14%{opacity:1}72%{opacity:1}100%{opacity:0;visibility:hidden}}
+/* تخطيط ثابت لا يتبع المحتوى (لقطات CI 2026-11-26: العمود كان يتمدد فيقص البطاقة على الجوال ويدفع الغلاف عند ظهور الخطأ) */
+.mq-login.gate{overflow-x:clip;overflow-y:visible}
+.mq-login .gate-c,.mq-login .mq-pane,.mq-login .mq-card,.mq-login .mq-row,.mq-login .mq-field{min-width:0}
+.mq-err span,.mq-notice span,.mq-note{min-width:0;overflow-wrap:anywhere}
+@media (min-width:960px){.mq-login.gate.has-cover{grid-template-columns:minmax(0,1.35fr) minmax(0,1fr)}}
+@media (max-width:959px){.mq-login.gate.has-cover{grid-template-columns:minmax(0,1fr)}.mq-login.gate.has-cover .gate-c{width:calc(100% - 28px);max-width:440px;justify-self:center}}
+/* دخول الشعار في الغلاف الجانبي (سطح المكتب) */
+.mq-login .mq-cover-in{animation:mqLogoIn 1s .1s cubic-bezier(.2,.7,.2,1) both}
+.mq-login .mq-cover-in .mq-lockup{position:relative}
 /* الجوال: خلفية أخف */
 @media(max-width:640px){.mq-login .mq-aurora::before{display:none}.mq-card{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--ink2)}.mq-card:hover{transform:none}}
 /* تقليل الحركة: بلا حركة إطلاقًا */
 @media(prefers-reduced-motion:reduce){
-  .mq-login .mq-aurora::before,.mq-login .bhead-logo,.mq-login .bhead-logo::after,.mq-pane,.mq-err,.mq-eye svg,.mq-shield,.mq-ripple,.mq-welcome,.mq-welcome-in,.mq-welcome-ok{animation:none !important}
+  .mq-login .mq-aurora::before,.mq-login .bhead-logo,.mq-login .mq-cover-in,.mq-login .bhead-logo::after,.mq-pane,.mq-err,.mq-eye svg,.mq-shield,.mq-ripple,.mq-welcome,.mq-welcome-in,.mq-welcome-ok{animation:none !important}
   .mq-card,.mq-input,.mq-input::after,.mq-btn,.mq-check input::after,.mq-link::after,.mq-lang{transition:none !important}
   .mq-card:hover{transform:none}.mq-login .bhead-logo::after{display:none}}
 /* الرئيسية: ظهور متعاقب للتطبيقات + حيوية أعمق عند المرور */
