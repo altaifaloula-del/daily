@@ -3809,3 +3809,26 @@ test('v56.25 G2 المرحلة 3: شريط التحكم في بقية التطب
     assert.ok(await p.locator('[data-ctlbar]').count() >= 1);
     assert.deepEqual(errs, []); await ctx.close(); }
 });
+
+test('v56.26 G2 التنقيب الموحّد: مبلغ في القوائم المالية ← قيود الحساب ← المستند المصدر ← رجوع (مع شريط التحكم فقط)', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Accounting/admin/fs');
+  await p.waitForSelector('.is-tb');
+  assert.equal(await p.locator('[data-drill]').count(), 0, 'بلا تفعيل لا روابط تنقيب');
+  await p.evaluate(() => window.setOrg(o => ({ ...o, ctlBar: { on: true } })));
+  await p.waitForSelector('[data-drill]');
+  assert.ok(await p.locator('[data-drill]').count() >= 4, 'بنود قائمة الدخل والمركز المالي');
+  const codes = await p.locator('[data-drill]').evaluateAll(xs => xs.map(x => x.getAttribute('data-drill')));
+  const c = codes.includes('2101') ? '2101' : codes[0];
+  await p.locator('[data-drill="' + c + '"]').first().click();
+  await p.waitForSelector('[data-peek]');
+  assert.match(await p.locator('.modal, [role="dialog"]').last().innerText(), new RegExp('قيود الحساب ' + c));
+  assert.ok(await p.locator('[data-peek-je]').count() >= 1, 'قيود الحساب');
+  assert.ok(await p.locator('[data-peek-doc]').count() >= 1, 'رابط المستند المصدر');
+  {
+    await p.locator('[data-peek-doc]').first().click();
+    await p.waitForSelector('[data-peek-back]');
+    await p.click('[data-peek-back]');
+    await p.waitForFunction((c) => [...document.querySelectorAll('[data-peek-je]')].length >= 1 && document.body.innerText.includes('قيود الحساب ' + c), c);
+  }
+  assert.deepEqual(errs, []); await ctx.close();
+});

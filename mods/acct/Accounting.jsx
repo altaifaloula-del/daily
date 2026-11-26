@@ -1447,6 +1447,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
   const ctlOn = ctlBarOn(org);
   const PB_VIEWS = ['gl', 'actmv', 'tb', 'fs', 'cf', 'food', 'anl', 'prj', 'cc', 'export'];
   const pbMoved = ctlOn && PB_VIEWS.includes(view);
+  const drillOn = ctlOn;   // v56.26 (G2 — التنقيب الموحّد): مبالغ القوائم المالية تفتح قيود حسابها ← القيد ← المستند (مع شريط التحكم)
   const pbN = (from || to ? 1 : 0) + (bf && view === 'tb' ? 1 : 0);
   const periodBar = (
     <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -1913,7 +1914,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                     ? <tr key={i} className="is-head"><td colSpan={isPmap ? 5 : 3}>{r.label}</td></tr>
                     : <tr key={i} className={'is-' + r.t}>
                       <td style={r.ind ? { paddingInlineStart: 26 } : undefined}>{r.label}</td>
-                      <td className={'is-amt' + (r.amt < 0 ? ' neg' : '')}><span className="num">{fmtBal(r.amt)}</span></td>
+                      <td className={'is-amt' + (r.amt < 0 ? ' neg' : '')}>{drillOn && r.t === 'line' && /^\d+$/.test(String(r.k || '')) ? <DocLink to={{ acc: r.k, from, to, bf: bf || undefined }} title="قيود الحساب في الفترة"><span className="num" data-drill={r.k}>{fmtBal(r.amt)}</span></DocLink> : <span className="num">{fmtBal(r.amt)}</span>}</td>
                       <td className="is-pct"><span className="num">{isY.netSales && r.t !== 'line' ? (() => { const v = Math.round(r.amt / isY.netSales * 1000) / 10; return v < 0 ? '(' + (-v).toFixed(1) + '%)' : v.toFixed(1) + '%'; })() : ''}</span></td>
                       {isPmap && (() => { const pv = isPmap[r.k] || 0; const d = Math.round((r.amt - pv) * 100) / 100;
                         const pc = Math.abs(pv) > 0.004 ? Math.round(d / Math.abs(pv) * 1000) / 10 : null;
@@ -1941,7 +1942,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                     : r.t === 'grp' ? <tr key={i} className="is-grp"><td colSpan={2}>{r.label}</td></tr>
                       : <tr key={i} className={'is-' + r.t + (r.t === 'net' && !bsOk ? ' bad' : '')}>
                         <td>{r.label}</td>
-                        <td className={'is-amt' + (r.amt < 0 ? ' neg' : '')}><span className="num">{fmtBal(r.amt)}</span></td>
+                        <td className={'is-amt' + (r.amt < 0 ? ' neg' : '')}>{drillOn && r.t === 'line' && /^\d+$/.test(String(r.k || '')) ? <DocLink to={{ acc: r.k, to }} title="قيود الحساب حتى التاريخ"><span className="num" data-drill={r.k}>{fmtBal(r.amt)}</span></DocLink> : <span className="num">{fmtBal(r.amt)}</span>}</td>
                       </tr>)}
                 </tbody>
               </table>
