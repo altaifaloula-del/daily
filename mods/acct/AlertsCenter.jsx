@@ -2,6 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { Bell, AlertTriangle, Settings, Check, Clock, Sparkles, ChevronLeft } from 'lucide-react';
 import { DOC_LABEL, complianceItems, Field, Kpi, ROLES, buildAccounting, buildPartners, countedClosing, customerAging, defaultHrPolicies, defaultTrainingPrograms, deficitCfg, deficitPatterns, expiringTraining, hrEmpStats, hrScoreFor, isoD, missingRequiredTraining, money, overdueSignDocs, stockByWh, sum, supplierAging, today } from '../../App.jsx';
+import { budVOn, budActive, budMonthMap } from '../../App.jsx';   // v56.41
 
 export function AlertsCenter({ org, ops, me, myBranches, scoped, setTab, openAcctView, openInvView, commitOrg, say }) {
   const dcf = deficitCfg(org);
@@ -36,10 +37,12 @@ export function AlertsCenter({ org, ops, me, myBranches, scoped, setTab, openAcc
   if (arOver.length) push('high', 'customers', arOver.length + ' عميل تجاوز حد الائتمان', 'راجع حدودهم قبل بيع آجل إضافي.', { label: 'أعمار العملاء', go: () => goAcct('arage') });
 
   // موازنة
-  const budgetOn = !!(org.budget && org.budget.enabled);
+  // v56.41 (E5): مع الموازنة بالإصدارات يُقرأ الإصدار المعتمد الساري لهذا الشهر (كل الفروع)
+  const budB = budVOn(org) ? budActive(org, ops, ym.slice(0, 4)) : null; const budL = budB ? Object.entries(budMonthMap(budB, Number(ym.slice(5, 7)))).map(([code, amount]) => ({ code, amount })) : ((org.budget && org.budget.lines) || []);
+  const budgetOn = budVOn(org) ? !!budB : !!(org.budget && org.budget.enabled);
   if (budgetOn) {
     const monAgg = {}; A.entries.forEach(e => { if ((e.date || '').slice(0, 7) === ym && !e.closing) e.lines.forEach(l => { const x = monAgg[l.code] || (monAgg[l.code] = { d: 0, c: 0 }); x.d += l.debit; x.c += l.credit; }); });
-    (org.budget.lines || []).forEach(l => {
+    budL.forEach(l => {
       const a = accByCode[l.code]; if (!a || a.kind !== 'exp') return;
       const x = monAgg[l.code] || { d: 0, c: 0 }; const actual = r2(x.d - x.c);
       if (actual > (l.amount || 0) + 0.005) push('mid', 'budget', 'تجاوز موازنة: ' + a.name, 'الفعلي ' + money(actual) + ' مقابل موازنة ' + money(l.amount) + ' هذا الشهر.', { label: 'الموازنة', go: () => goAcct('bud') });

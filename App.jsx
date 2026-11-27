@@ -731,7 +731,7 @@ const BR_COLS = ['posTabs', 'kdsTickets', 'posDeliveries', 'closings', 'transfer
   'prepCounts',
   // v56.12 (G1) — سجلات التسويق برقم فرع العميل (القديمة بلا فرع تبقى مركزية عبر splitOps)
   'mktConsents', 'mktProfiles', 'mktReferrals'];
-const CORE_COLS = ['eclDocs', 'closeTasks', 'ctlCases', 'rfqs', 'cashVouchers', 'prodOrders', 'archLog', 'cardRecons', 'ledgerSnaps', 'salesInvoices', 'advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'jeRecurring', 'mktMerges', 'mktCampaigns', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules', 'hrScoreSnapshots'];
+const CORE_COLS = ['budgets', 'prepaids', 'eclDocs', 'closeTasks', 'ctlCases', 'rfqs', 'cashVouchers', 'prodOrders', 'archLog', 'cardRecons', 'ledgerSnaps', 'salesInvoices', 'advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'jeRecurring', 'mktMerges', 'mktCampaigns', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules', 'hrScoreSnapshots'];
 
 // تقسيم ops المدمجة إلى مستند مركزي + مستند لكل فرع
 function splitOps(ops, branchIds) {
@@ -2779,6 +2779,13 @@ function buildAccounting(org, ops) {
     push({ id: 'ecl:' + x.id, date: x.date, ...(sb ? { branchId: sb } : {}), title: (x.kind === 'prov' ? 'تكوين مخصص خسائر ائتمانية' : x.kind === 'rel' ? 'عكس مخصص خسائر ائتمانية' : x.kind === 'rec' ? 'استرداد دين مشطوب' : 'شطب دين معدوم') + ' — ' + (x.custName || x.customerKey) + (x.no ? ' (' + x.no + ')' : ''),
       src: 'مخصص الخسائر الائتمانية', ref: x.no || '', lines }); });
 
+  // 6-ب3) v56.41 (T4) المصروف المدفوع مقدمًا — المعتمد وحده: إعادة تصنيف بتاريخ الدفعة، ثم إطفاء بآخر كل شهر
+  (ops.prepaids || []).forEach(x => { if (!x || x.status !== 'approved' || !x.assetAcc || !x.expAcc) return; const a = budR2(x.amount); if (!(a > 0)) return;
+    const br = x.branchId ? { branchId: x.branchId } : {}, nm = String(x.desc || '').slice(0, 80) + (x.no ? ' (' + x.no + ')' : '');
+    push({ id: 'pp:' + x.id + ':r', date: x.date, ...br, title: 'مصروف مدفوع مقدمًا — ' + nm, src: 'المصروفات المدفوعة مقدمًا', ref: x.no || '', lines: [L(x.assetAcc, a, 0), L(x.expAcc, 0, a)] });
+    const curYm = today().slice(0, 7);   // (التحقق المحاسبي) لا قيد بتاريخ مستقبلي — يُولَّد إطفاء الشهر حين يحل، كالإهلاك
+    ppSchedule(x).forEach(s => s.ym <= curYm && s.amount > 0 && push({ id: 'pp:' + x.id + ':' + s.ym, date: s.date, ...br, title: 'إطفاء مصروف مدفوع مقدمًا ' + s.ym + ' — ' + nm, src: 'المصروفات المدفوعة مقدمًا', ref: x.no || '', lines: [L(x.expAcc, s.amount, 0), L(x.assetAcc, 0, s.amount)] })); });
+
   // 6-ج) v46.6 سندات القبض والصرف والمقاصّة: الجزء الموزَّع على فواتير يُقيَّد مع الفاتورة (سدادها/تحصيلها)، والباقي «على الحساب» هنا
   (ops.cashVouchers || []).forEach(v => {
     const a = Math.round((Number(v.amount) || 0) * 100) / 100; if (!(a > 0) || !cvLive(v)) return;   // v56.32: المعلّق والمرفوض لا يُرحَّلان (القديم بلا حالة = مرحّل)
@@ -3590,7 +3597,8 @@ function closeAutoChecks(A, ops, month, org) {
   // v56.33 P2: غير المطابق وله فواتير، داخل نطاق «الإغلاق غير المطابق» فقط (معطّل افتراضيًا)، وبلا شرح
   const pmis = org ? (A.entries || []).filter(e => inM(e.date) && e.posGl === 'mismatch' && e.posInv && posMisLoyAt(org, e.date) && !posGlNote(org, String(e.id).replace(/^rev:/, ''))) : [];
   const pds = (ops.disbursements || []).filter(x => x.status === 'pending' && String(x.date || '') <= end);   // v56.29
-  const pecl = (ops.eclDocs || []).filter(x => x.status === 'pending' && String(x.date || '') <= end);   // v56.40 (E6.3): مراجعة المخصص بند في الإقفال
+  const pecl = (ops.eclDocs || []).filter(x => x.status === 'pending' && String(x.date || '') <= end);
+  const ppp = (ops.prepaids || []).filter(x => x.status === 'pending' && String(x.date || '') <= end);   // v56.41   // v56.40 (E6.3): مراجعة المخصص بند في الإقفال
   return [
     { k: 'drafts', ar: 'لا إغلاقات مسودة أو مرفوضة حتى نهاية الشهر', n: cls.filter(c => c.status === 'draft' || c.status === 'rejected').length },
     { k: 'pending', ar: 'كل الإغلاقات المرفوعة مدقَّقة (لا شيء بانتظار التدقيق)', n: cls.filter(c => c.status === 'submitted').length },
@@ -3598,6 +3606,7 @@ function closeAutoChecks(A, ops, month, org) {
     ...(pmis.length ? [{ k: 'posmis', ar: 'كل إغلاق لا يطابق فواتير نقطة البيع مصحَّح أو مشروح بمستند (صيانة النظام ← قيد الإيراد من نقطة البيع)', n: pmis.length }] : []),
     ...(pcv.length || pds.length ? [{ k: 'pdocs', ar: 'لا سندات صرف ولا أوامر صرف بانتظار الاعتماد (المعلّق في شهر مقفل لا يُعتمد)', n: pcv.length + pds.length }] : []),
     ...(pecl.length || (org && eclOn(org)) ? [{ k: 'ecl', ar: 'مخصص الخسائر الائتمانية: رُوجعت ذمم العملاء المتأخرة ولا مستند مخصص أو شطب بانتظار الاعتماد', n: pecl.length }] : []),
+    ...(ppp.length || (org && ppOn(org)) ? [{ k: 'ppd', ar: 'المصروفات المدفوعة مقدمًا: لا مستند بانتظار الاعتماد (الإطفاء الشهري آلي بعد الاعتماد)', n: ppp.length }] : []),
     { k: 'unb', ar: 'كل قيود الشهر متوازنة', n: unb.length },
     { k: 'susp', ar: 'الحساب المعلّق 9999 رصيده صفر', n: Math.abs(susp) > 0.004 ? 1 : 0, amt: susp },
   ].map(x => ({ ...x, ok: !x.n }));
@@ -3821,7 +3830,7 @@ function emptyOrg(company) {
 }
 
 function emptyOps() {
-  return { eclDocs: [], rfqs: [], posDeliveries: [], cashVouchers: [], jeRecurring: [], mktConsents: [], mktMerges: [], mktProfiles: [], mktReferrals: [], actions: [], countSessions: [], wasteRequests: [], posImports: [], posOrders: [], posShifts: [], ledgerSnaps: [], stockCounts: [], leaveRequests: [], productSales: [], salesInvoices: [], closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
+  return { budgets: [], prepaids: [], eclDocs: [], rfqs: [], posDeliveries: [], cashVouchers: [], jeRecurring: [], mktConsents: [], mktMerges: [], mktProfiles: [], mktReferrals: [], actions: [], countSessions: [], wasteRequests: [], posImports: [], posOrders: [], posShifts: [], ledgerSnaps: [], stockCounts: [], leaveRequests: [], productSales: [], salesInvoices: [], closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
     attendanceEvents: [], hrPins: [], shiftTemplates: [], shiftAssignments: [], shiftSwapRequests: [], branchTransferRequests: [], taskTemplates: [], taskAssignments: [], taskCompletions: [], pointsEntries: [], qualityReviews: [], rewardRequests: [], hrSignDocs: [], hrCorrective: [], hrPips: [], hrTraining: [], hrKpiEntries: [], hrScoreSnapshots: [], purchaseReqs: [], poInbox: [], poReceipts: [] };
 }
 
@@ -3832,7 +3841,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.40';
+const APP_VER = 'v56.41';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -9273,6 +9282,84 @@ async function loyPiiStrip() {
   }
   return { err: 'تعارض متكرر — أعد المحاولة' };
 }
+/* ===== v56.41 — الدفعة 6 (قرارات المجلس E5 وT4) =====
+   E5 الموازنات بالإصدارات (ops.budgets، معطّلة افتراضيًا org.budgetV.on): { id, year, ver, status: draft|submitted|approved|superseded|rejected,
+   lines: [{ code, month 1..12, branchId? , projectId?, deptId?, amount }], by, byId, ... }. يعدّها المحاسب، ويعتمدها المالك أو الإدارة المالية غير المُعدّ؛
+   المعتمد لا يُعدَّل (التعديل إصدار جديد)، واعتماد إصدار يستبدل المعتمد قبله للسنة نفسها. التجاوز ينبّه ولا يمنع (E5.3).
+   org.budget القديمة تُقرأ «إصدارًا صفريًا» كما هي بلا نقل (E5.4). */
+const budVOn = (org) => !!(org && org.budgetV && org.budgetV.on);
+const BUD_ST = { draft: 'مسودة', submitted: 'بانتظار الاعتماد', approved: 'معتمدة', superseded: 'مُستبدلة', rejected: 'مرفوضة' };
+const budR2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+/** الإصدار المعتمد الساري للسنة، أو القديمة إصدارًا صفريًا (المبلغ الشهري نفسه لكل شهر، بلا فرع) */
+function budActive(org, ops, year) {
+  const L = ((ops && ops.budgets) || []).filter(b => String(b.year) === String(year) && b.status === 'approved').sort((a, b) => (Number(b.ver) || 0) - (Number(a.ver) || 0));
+  if (L[0]) return L[0];
+  const bg = org && org.budget; if (!(bg && bg.enabled)) return null;
+  const lines = []; (bg.lines || []).forEach(l => { for (let m = 1; m <= 12; m++) lines.push({ code: String(l.code), month: m, amount: Number(l.amount) || 0 }); });
+  return { id: 'legacy', year: String(year), ver: 0, status: 'approved', legacy: true, lines };
+}
+/** { الحساب: المبلغ } لشهر (1..12)؛ branchId غير محدد = كل السطور، '' = السطور بلا فرع، وإلا سطور الفرع */
+function budMonthMap(B, month, branchId) {
+  const M = {}; ((B && B.lines) || []).forEach(l => { if (Number(l.month) !== Number(month)) return; if (branchId !== undefined && String(l.branchId || '') !== String(branchId)) return;
+    M[l.code] = budR2((M[l.code] || 0) + (Number(l.amount) || 0)); }); return M;
+}
+const budCanApprove = (me, b) => !!me && (jeOwner(me) || me.role === 'finance_department') &&   // E5.2: المالك أو الإدارة المالية
+   (b && b.byId ? b.byId !== me.id : !!b && b.by !== me.name);
+/** إصدار جديد للسنة (مسودة) نسخةً من آخر إصدار أو فارغًا */
+function budNewVersion(ops, year, me, fromB) {
+  const vs = ((ops && ops.budgets) || []).filter(b => String(b.year) === String(year)); const ver = vs.reduce((m, b) => Math.max(m, Number(b.ver) || 0), 0) + 1;
+  return { id: uid('bud'), year: String(year), ver, status: 'draft', lines: ((fromB && fromB.lines) || []).map(l => ({ ...l })), by: me.name, byId: me.id || '', at: nowISO() };
+}
+/** الاعتماد: غير المُعدّ، والمرفوع وحده، ويستبدل المعتمد السابق للسنة نفسها */
+function budApprove(d, id, me) {
+  const b = (d.budgets || []).find(x => x.id === id); if (!b || b.status !== 'submitted') return { err: 'تغيّرت حالة الموازنة — حدّث الشاشة' };
+  if (!budCanApprove(me, b)) return { err: 'يعتمدها المالك أو الإدارة المالية، وغير من أعدّها' };
+  if (!(b.lines || []).some(l => Number(l.amount) > 0)) return { err: 'الموازنة بلا مبالغ' };
+  const at = nowISO();
+  return { next: { ...d, budgets: (d.budgets || []).map(x => x.id === id ? { ...x, status: 'approved', apprBy: me.name, apprById: me.id || '', apprAt: at }
+    : (String(x.year) === String(b.year) && x.status === 'approved') ? { ...x, status: 'superseded', supAt: at, supBy: id } : x) } };
+}
+/* T4 المصروف المدفوع مقدمًا (ops.prepaids، معطّل افتراضيًا org.prepaid.on) — الإصدار الثاني من IFRS for SMEs، القسم 20 (الإيجار التشغيلي):
+   الدفعة سُجّلت مصروفًا في شاشتها؛ المستند يعيد تصنيفها أصلًا متداولًا (مدين الأصل / دائن المصروف بتاريخ الدفعة) ثم يُطفأ شهريًا بآخر كل شهر (مدين المصروف / دائن الأصل).
+   ينشئه المحاسب ويعتمده غيره؛ القيود بعد الاعتماد وحده؛ تاريخ الدفعة لا يقع في فترة مقفلة ولا في المستقبل، وأول شهر إطفاء لا يسبق شهر الدفعة. */
+const ppOn = (org) => !!(org && org.prepaid && org.prepaid.on);
+const ppMonthEnd = (ym) => { const [y, m] = String(ym).split('-').map(Number); return isoD(new Date(y, m, 0)); };
+const ppAddM = (ym, k) => { const [y, m] = String(ym).split('-').map(Number); const d = new Date(y, m - 1 + k, 1); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); };
+/** جدول الإطفاء: مبلغ متساوٍ لكل شهر، والفرق بالهللات على الشهر الأخير */
+function ppSchedule(x) {
+  const n = Math.max(0, Math.floor(Number(x && x.months) || 0)), a = budR2(x && x.amount); if (!n || !(a > 0) || !/^\d{4}-\d{2}$/.test(String(x.start || ''))) return [];
+  const per = Math.floor(a / n * 100) / 100; const out = [];
+  for (let k = 0; k < n; k++) { const ym = ppAddM(x.start, k); out.push({ ym, date: ppMonthEnd(ym), amount: k === n - 1 ? budR2(a - per * (n - 1)) : per }); }
+  return out;
+}
+/** (التحقق المحاسبي) الأصل: متداول 14xx غير سلف الموظفين 1401؛ المصروف: 5xxx غير تسوية المخزون 5150 */
+const ppAssetOk = (c, A) => /^14\d{2,}$/.test(String(c || '')) && String(c) !== '1401' && (!A || (A.accounts || []).some(y => String(y.code) === String(c) && !y.cash));
+const ppExpOk = (c, A) => /^5\d+$/.test(String(c || '')) && String(c) !== '5150' && (!A || (A.accounts || []).some(y => String(y.code) === String(c)));
+function ppCheck(org, ops, x, A) {
+  if (!(budR2(x.amount) > 0)) return 'أدخل المبلغ';
+  const n = Number(x.months); if (!Number.isInteger(n) || n < 2 || n > 120) return 'عدد أشهر الإطفاء من 2 إلى 120';
+  if (budR2(x.amount) < n * 0.01) return 'المبلغ أصغر من أن يُقسَّط على هذه الأشهر';
+  if (!String(x.desc || '').trim()) return 'اكتب الوصف (مثال: إيجار فرع العليا سنة)';
+  if (!x.date || periodLocked(org, x.date)) return 'تاريخ الدفعة في فترة مقفلة أو غير محدد';
+  if (String(x.date) > today()) return 'لا يُقبل تاريخ مستقبلي';
+  if (!/^\d{4}-\d{2}$/.test(String(x.start || '')) || String(x.start) < String(x.date).slice(0, 7)) return 'أول شهر إطفاء لا يسبق شهر الدفعة';
+  const has = (c) => !A || (A.accounts || []).some(y => String(y.code) === String(c) && !y.cash);
+  // قرار المالك: «إيجارات كل فرع منفصلة» ثم «اجعل المصاريف اختيارية حسب مراكز التكلفة للرئيسي والفروع» ⇒ مركز التكلفة اختياري: المركز الرئيسي (افتراضي) أو فرع
+  if (x.branchId && !((org && org.branches) || []).some(b => b.id === x.branchId)) return 'الفرع غير موجود';
+  if (!ppAssetOk(x.assetAcc, A)) return 'اختر حساب المصروف المدفوع مقدمًا (أصل متداول 14xx غير سلف الموظفين 1401)';
+  if (!ppExpOk(x.expAcc, A)) return 'اختر حساب المصروف الذي سُجّلت عليه الدفعة (5xxx غير تسوية المخزون)';
+  // (التحقق المحاسبي) لا مستندان للدفعة نفسها: الحساب والتاريخ والمبلغ والفرع
+  const dup = ((ops && ops.prepaids) || []).find(y => y.id !== x.id && y.status !== 'rejected' && y.expAcc === x.expAcc && y.date === x.date && budR2(y.amount) === budR2(x.amount) && String(y.branchId || '') === String(x.branchId || ''));
+  if (dup) return 'يوجد مستند للدفعة نفسها (' + (dup.no || dup.desc) + ')';
+  return '';
+}
+function ppApprove(org, d, id, me, A) {
+  const x = (d.prepaids || []).find(y => y.id === id); if (!x || x.status !== 'pending') return { err: 'تغيّرت حالة المستند — حدّث الشاشة' };
+  if (!canApproveJe(me, x)) return { err: 'لا يعتمده من أنشأه — يعتمده المحاسب أو الإدارة المالية أو المالك' };
+  const e = ppCheck(org, d, x, A); if (e) return { err: e };
+  return { next: { ...d, prepaids: (d.prepaids || []).map(y => y.id === id ? { ...y, status: 'approved', approvedBy: me.name, approvedById: me.id || '', approvedAt: nowISO() } : y) } };
+}
+export { budVOn, BUD_ST, budActive, budMonthMap, budCanApprove, budNewVersion, budApprove, ppOn, ppSchedule, ppCheck, ppApprove, ppAssetOk, ppExpOk };   // v56.41 الدفعة 6
 export { eclOn, eclAccs, eclLive, eclAllowBal, eclWoOf, eclRecOf, eclAllowOk, eclCheck, eclApprove };   // v56.40 الدفعة 7 (E6)
 export { loyPiiOn, lypSetOn, lynReset, lypReleaseOk, loyNamesByBr, loyStrip, loyWithNames, loyPiiPlan, loyGet, loyPiiCopy, loyPiiStrip };
 const posQueue = () => { try { return JSON.parse(localStorage.getItem(POS_Q_KEY) || '[]'); } catch { return []; } };
@@ -15216,7 +15303,7 @@ const FL_GROUPS = [
   { id: 'payroll', label: 'الرواتب والتأمينات والسلف ونهاية الخدمة والإجازات', pre: ['sal-acc:', 'sal-pay:', 'sal-set:', 'gosi-er:', 'adv:', 'eos:', 'eos-pay:', 'lv:'] },
   { id: 'stock', label: 'المخزون وتكلفة المبيعات', pre: ['stk:', 'stk-open', 'stx:', 'srx:', 'invval'] },
   { id: 'assets', label: 'الأصول الثابتة والإهلاك', pre: ['ast:', 'disp:', 'dep:'] },
-  { id: 'close', label: 'القيود اليدوية والإقفال السنوي', pre: ['man:', 'yearend'] }
+  { id: 'close', label: 'القيود اليدوية والإقفال السنوي', pre: ['man:', 'yearend', 'pp:'] }   // v56.41 المدفوع مقدمًا
 ];
 const flLvl = (org) => Math.min(FL_GROUPS.length, Math.max(1, Number(((org || {}).ledger || {}).lvl) || 1));
 const flGroupOf = (eid) => { const k = String(eid || ''); const i = FL_GROUPS.findIndex(g => g.pre.some(p => k === p || k.startsWith(p))); return i < 0 ? null : i; };

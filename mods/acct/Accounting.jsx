@@ -7,6 +7,9 @@ import { VatRegisters, SupplierPurchReport } from './TaxPurchReports.jsx';   // 
 import { Suppliers } from '../inv/Suppliers.jsx';   // v44.0 «مستلم لم يُفوتر»
 import { DeptCard } from './DeptCard.jsx';   // v56.27 E4
 import { EclCard } from './EclCard.jsx';   // v56.40 الدفعة 7 (E6)
+import { BudgetV } from './BudgetV.jsx';   // v56.41 الدفعة 6 (E5)
+import { PrepaidCard } from './PrepaidCard.jsx';   // v56.41 الدفعة 6 (T4)
+import { budVOn, ppOn } from '../../App.jsx';
 import { eclOn } from '../../App.jsx';
 import { deptOn, deptList, DEPT_SHARED } from '../../App.jsx';
 import { OdooBar , ctlBarOn, SecPager, recurApply, canEditRec, dtLocal, yearEndNext } from '../../App.jsx';
@@ -2077,7 +2080,8 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
         );
       })()}
 
-      {view === 'bud' && (() => {
+      {view === 'bud' && budVOn(org) && <BudgetV org={org} ops={ops} A={A} me={me} commit={commit} say={say} canPost={canPost} />}
+      {view === 'bud' && !budVOn(org) && (() => {
         const setB = (code, v) => setBudD(s => ({ ...s, map: { ...s.map, [code]: v.replace(/[^\d.]/g, '') } }));
         const BudLine = (a) => (
           <div key={a.code} className="row" style={{ gap: 8, marginBottom: 6, alignItems: 'center' }}>
@@ -3551,6 +3555,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
 
       {view === 'ast' && (
         <div className="grid" style={{ gap: 12 }}>
+          {ppOn(org) && <PrepaidCard org={org} ops={ops} A={A} me={me} commit={commit} say={say} canPost={canPost} />}
           <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
             <div className="grid g3" style={{ flex: 1, minWidth: 280 }}>
               <Kpi label="تكلفة الأصول القائمة" value={money(sum(A.assetRows.filter(a => !a.disposed), a => a.cost))} sub={A.assetRows.filter(a => !a.disposed).length + ' أصلاً قائماً' + (A.assetRows.some(a => a.disposed) ? ' · ' + A.assetRows.filter(a => a.disposed).length + ' مُستبعَد' : '')} icon={Building2} color="#D9A83E" />

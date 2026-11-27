@@ -9,7 +9,8 @@ import { clrCompare, clrLoad, clrOn, clrSeed, clrState, logAudit, clrRead, clrVi
 import { posrOn, posrCompare, posrLoad, posrSeed, posrState, posrRepair } from '../../App.jsx';   // v56.4 (POS 2a) سجلات فواتير نقطة البيع
 import { MKT_BR_CV, mktBrOn } from '../../App.jsx';
 import { loyPiiOn, loyPiiPlan, loyPiiCopy, loyPiiStrip, lypReleaseOk } from '../../App.jsx';
-import { eclOn, eclAccs, eclAllowOk } from '../../App.jsx';   // v56.40 الدفعة 7 (E6)   // v56.37 فصل أسماء عملاء الولاء
+import { eclOn, eclAccs, eclAllowOk } from '../../App.jsx';
+import { budVOn, ppOn } from '../../App.jsx';   // v56.41 الدفعة 6   // v56.40 الدفعة 7 (E6)   // v56.37 فصل أسماء عملاء الولاء
 import { grrOn, mkcCompare, lytCompare, grrLoad, grrSeed, grrState, mkmOn, mkmCompare, mkmViolations, mkmSeed, mkmSrcOn } from '../../App.jsx';
 import { posGlOpen, posGlRanges, posGlCheck } from '../../App.jsx';
 import { loyMonthAdj, posLoyOpening, posMisLoyRanges, posMisLoyFrom, posGlNote, jeOwner, posGlFrom } from '../../App.jsx';   // v56.33 (الدفعة 2 — P1/P2)
@@ -327,6 +328,7 @@ export function SystemMaintenance({ org, ops, me, commit, commitOrg, say }) {
       <PosGlCard org={org} ops={ops} me={me} commit={commit} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <CtlBarCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <EclCfgCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
+      <Batch6Card org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <DsRouteCard org={org} ops={ops} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <CvApprCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
       <MktCtlCard org={org} commitOrg={commitOrg} say={say} isAdm={isAdm} />
@@ -640,6 +642,21 @@ function PosGlCard({ org, ops, me, commit, commitOrg, say, isAdm }) {
         {lmDone && <span className="badge b-sky">مسجّلة</span>}
         {la && isAdm && !lmDone && <>{(la.occ || la.expOcc) ? <select className="sel" aria-label="حساب المصروف الترويجي" value={promoAcc} onChange={e => setPromoAcc(e.target.value)} data-loymonth-acc><option value="">— حساب المصروف الترويجي —</option>{expAccs.map(a => <option key={a.code} value={a.code}>{a.code} — {a.name}</option>)}</select> : null}
           <button className="btn sm pri" onClick={lmPost} data-loymonth-post>إنشاء قيد التسوية</button></>}</div></div>
+  </div>);
+}
+
+/* v56.41 — الدفعة 6 (E5 وT4): الموازنات بالإصدارات، والمصروفات المدفوعة مقدمًا — مفتاحان مستقلان معطّلان افتراضيًا */
+function Batch6Card({ org, commitOrg, say, isAdm }) {
+  const bOn = budVOn(org), pOn = ppOn(org);
+  const flip = async (key, on, title) => { if (!isAdm) return;
+    const ok = await commitOrg(o => ({ ...o, [key]: { ...(o[key] || {}), on: !on, at: nowISO() } }), { actionType: 'settings', targetType: 'system_settings', targetId: key, title: (on ? 'أوقف ' : 'فعّل ') + title });
+    if (ok) say(on ? 'أُوقف — ما اعتُمد يبقى كما هو' : 'فُعّل ✓'); };
+  return (<div className="card" data-batch6>
+    <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />الموازنات بالإصدارات · المصروفات المدفوعة مقدمًا</div></div>
+    <div className="me-row"><span className="me-a"><b>الموازنات بالإصدارات</b><small>لكل سنة إصدارات بالحساب والشهر والفرع؛ يعدّها المحاسب ويعتمدها المالك أو الإدارة المالية غير المُعدّ؛ التعديل إصدار جديد؛ التجاوز ينبّه. الموازنة الحالية تبقى «إصدارًا صفريًا» بلا نقل. (المحاسبة ← الموازنة)</small></span>
+      <span className="row" style={{ gap: 6 }}><span className={'badge ' + (bOn ? 'b-sky' : 'b-dim')}>{bOn ? 'مفعّل' : 'غير مفعّل'}</span>{isAdm && <button className={'btn sm ' + (bOn ? 'gh' : 'pri')} onClick={() => flip('budgetV', bOn, 'الموازنات بالإصدارات')} data-budv-toggle>{bOn ? 'إيقاف' : 'تفعيل'}</button>}</span></div>
+    <div className="me-row"><span className="me-a"><b>المصروفات المدفوعة مقدمًا</b><small>الإيجار وما شابهه لعدة أشهر: أصل متداول يُطفأ شهريًا بعد اعتماد غير المنشئ. (المحاسبة ← الأصول والإهلاك)</small></span>
+      <span className="row" style={{ gap: 6 }}><span className={'badge ' + (pOn ? 'b-sky' : 'b-dim')}>{pOn ? 'مفعّل' : 'غير مفعّل'}</span>{isAdm && <button className={'btn sm ' + (pOn ? 'gh' : 'pri')} onClick={() => flip('prepaid', pOn, 'المصروفات المدفوعة مقدمًا')} data-pp-toggle>{pOn ? 'إيقاف' : 'تفعيل'}</button>}</span></div>
   </div>);
 }
 

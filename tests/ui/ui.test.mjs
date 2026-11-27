@@ -4154,3 +4154,38 @@ test('v56.40 الدفعة 7 (E6): مخصص الخسائر الائتمانية �
   assert.match(await p.locator('[data-ecl-row="cust:c9"]').innerText(), /600\.00[\s\S]*200\.00/, 'الذمة 600 والمخصص 200');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.41 الدفعة 6 (E5): الموازنة بالإصدارات — مسودة ← تعديل ← رفع ← اعتماد من غير المُعدّ، والانحراف من الإصدار الساري', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1200 } }, 'live/Accounting/acc/bud');
+  const yr = await p.evaluate(() => String(new Date().getFullYear()));
+  await p.evaluate(() => window.setOrg(o => ({ ...o, budgetV: { on: true } }))); await p.waitForSelector('[data-budv]');
+  await p.click('[data-budv-new]'); await p.waitForFunction(() => (window.cur.budgets || []).length === 1);
+  await p.click('[data-budv-edit]'); await p.waitForSelector('[data-budv-editor]');
+  const m = await p.evaluate(() => new Date().getMonth()); const MN = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+  const inp = p.locator('[data-budv-editor] input[aria-label$=" ' + MN[m] + '"]').first(); await inp.fill('1234');
+  await p.click('[data-budv-save]'); await p.waitForFunction(() => (window.cur.budgets[0].lines || []).length === 1);
+  await p.click('[data-budv-submit]'); await p.waitForFunction(() => window.cur.budgets[0].status === 'submitted');
+  assert.equal(await p.locator('[data-budv-wait]').count(), 1, 'المحاسب لا يعتمد');
+  await p.evaluate(() => window.as('admin')); await p.waitForSelector('[data-budv-ok]'); await p.click('[data-budv-ok]');
+  await p.waitForFunction(() => window.cur.budgets[0].status === 'approved');
+  assert.match(await p.locator('[data-budv]').innerText(), /الإصدار 1 المعتمد/); assert.match(await p.locator('[data-budv-table]').innerText(), /1,234\.00/);
+  assert.equal(await p.evaluate(() => window.cur.budgets[0].year), yr);
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v56.41 الدفعة 6 (T4): المصروف المدفوع مقدمًا — إنشاء ثم اعتماد غير المنشئ، والقيود في الدفتر', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1200 } }, 'live/Accounting/acc/ast');
+  await p.evaluate(() => window.setOrg(o => ({ ...o, prepaid: { on: true }, customAccounts: [...(o.customAccounts || []), { code: '1450', name: 'إيجار مدفوع مقدمًا', kind: 'asset' }] })));
+  await p.waitForSelector('[data-prepaid]'); await p.click('[data-pp-new]');
+  await p.getByLabel('وصف المدفوع مقدمًا').fill('إيجار سنة'); await p.getByLabel('مبلغ المدفوع مقدمًا').fill('12000');
+  await p.getByLabel('حساب المدفوع مقدمًا').selectOption('1450');
+  const exp = await p.evaluate(() => [...document.querySelectorAll('select[aria-label="حساب المصروف"] option')].map(o => o.value).find(v => /^5/.test(v)));
+  await p.getByLabel('حساب المصروف').selectOption(exp);
+  if (await p.locator('select[aria-label="فرع المدفوع مقدمًا"]').count()) await p.getByLabel('فرع المدفوع مقدمًا').selectOption('b1');   // إيجار كل فرع منفصل
+  await p.click('[data-pp-save]'); await p.waitForFunction(() => (window.cur.prepaids || []).length === 1);
+  assert.equal(await p.locator('[data-pp-wait]').count(), 1);
+  await p.evaluate(() => window.as('admin')); await p.waitForSelector('[data-pp-ok]'); await p.click('[data-pp-ok]');
+  await p.waitForFunction(() => window.cur.prepaids[0].status === 'approved');
+  assert.match(await p.locator('[data-prepaid]').innerText(), /PP-0001[\s\S]*12,000\.00[\s\S]*معتمد/);
+  assert.deepEqual(errs, []); await ctx.close();
+});
