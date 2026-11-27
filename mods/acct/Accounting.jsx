@@ -3033,7 +3033,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                   </Field>
                   <button className="btn pri" onClick={doLock}><Lock size={14} />قفل الفترات</button>
                 </div>
-                {(() => { const mm = lockTo || prevYm; const on = closeListOn(org); const AC = closeAutoChecks(A, ops, mm, org); const MS = closeManualState(ops, mm);
+                {(() => { const mm = lockTo || prevYm; const on = closeListOn(org); const AC = closeAutoChecks(A, ops, mm, org); const MS = closeManualState(ops, mm, org);
                   const mark = async (k, ap) => { const cur = (ops.closeTasks || []).find(t => t.month === mm && t.key === k);
                     if (ap && cur && (cur.doneById || cur.doneBy) === (me.id || me.name)) return say('يعتمد المهمة غير من أنجزها (فصل المهام)', 'no');
                     const note = ap ? '' : (window.prompt('ملاحظة أو مرجع الدليل (اختياري):') || '');

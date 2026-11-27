@@ -3786,9 +3786,11 @@ function closeAutoChecks(A, ops, month, org) {
     { k: 'susp', ar: 'الحساب المعلّق 9999 رصيده صفر', n: Math.abs(susp) > 0.004 ? 1 : 0, amt: susp },
   ].map(x => ({ ...x, ok: !x.n }));
 }
-function closeManualState(ops, month) {
+/* v56.46 (المراجعة الأمنية، قرار المجلس): مع البيع الآجل من الكاشير، مراجعة «فحص تفويض الآجل» مهمة إقفال يعتمدها غير منفذها — فيصير الضابط الكاشف شرطًا للإقفال */
+const CLOSE_TASK_POSCR = ['poscr', 'مراجعة «فحص تفويض الآجل» لنقطة البيع (فواتير المبيعات ← ذمم الكاشير) ومعالجة كل استثناء'];
+function closeManualState(ops, month, org) {
   const T = (ops.closeTasks || []).filter(t => t.month === month);
-  return CLOSE_TASKS_DEF.map(([k, ar]) => { const t = T.find(x => x.key === k) || null; return { k, ar, t, st: !t ? 'todo' : t.apAt ? 'approved' : 'done' }; });
+  return [...CLOSE_TASKS_DEF, ...(org && posCreditOn(org) ? [CLOSE_TASK_POSCR] : [])].map(([k, ar]) => { const t = T.find(x => x.key === k) || null; return { k, ar, t, st: !t ? 'todo' : t.apAt ? 'approved' : 'done' }; });
 }
 /** هل يجوز قفل الأشهر حتى m؟ كل شهر غير مقفل حتى m: الفحوص الآلية ناجحة والمهام اليدوية معتمدة */
 function closeLockBlock(org, A, ops, m, lockedThrough) {
@@ -3798,7 +3800,7 @@ function closeLockBlock(org, A, ops, m, lockedThrough) {
   const from = (org.closeList || {}).from || ''; const scope = months.filter(x => !from || x >= from);
   for (const ym of scope) {
     const bad = closeAutoChecks(A, ops, ym, org).filter(c => !c.ok); if (bad.length) return ym + ': ' + bad.map(c => c.ar).join('، ');
-    const todo = closeManualState(ops, ym).filter(x => x.st !== 'approved'); if (todo.length) return ym + ': مهام غير معتمدة — ' + todo.map(x => x.ar).join('، ');
+    const todo = closeManualState(ops, ym, org).filter(x => x.st !== 'approved'); if (todo.length) return ym + ': مهام غير معتمدة — ' + todo.map(x => x.ar).join('، ');
   }
   return '';
 }

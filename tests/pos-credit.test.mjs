@@ -309,3 +309,10 @@ test('المسار /api/pos/credit-exceptions: للأدوار المالية ا�
   const r = await X('fin', { from: D1, to: D2 }); assert.equal(r.status, 200); assert.equal(r.json.checked, 2);
   assert.deepEqual(r.json.exceptions.map(x => [x.orderId, x.why]), [['po_forged', 'noauth']]);
 });
+
+test('v56.46 (قرار المجلس): مع التفعيل مراجعة فحص التفويض مهمة إقفال، وبلا تفعيل كما كان', () => {
+  const ops = { closeTasks: [] };
+  assert.equal(E.closeManualState(ops, '2026-12').length, 5);
+  assert.equal(E.closeManualState(ops, '2026-12', { posCfg: {} }).length, 5);
+  const L = E.closeManualState(ops, '2026-12', { posCfg: { credit: true } }); assert.equal(L.length, 6); assert.equal(L[5].k, 'poscr'); assert.equal(L[5].st, 'todo');
+});
