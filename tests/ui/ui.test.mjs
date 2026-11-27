@@ -4272,3 +4272,26 @@ test('v56.45 الدفعة 11 (T1/T7): تسجيل تسليم النقد قبل ا
     await p.waitForSelector('[data-dsdup-fixed]');
     assert.deepEqual(errs, []); await ctx.close(); }
 });
+
+test('v56.46 الدفعة 12 (P9): «آجل» في الكاشير للعميل المؤهل فقط، والتفويض من الخادم شرط — بلا خادم لا تصدر فاتورة', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosApp/bm');
+  await p.evaluate(() => {
+    window.setOrg(g => ({ ...g, taxCfg: { enabled: true, rate: 15 }, posCfg: { branches: ['b1'], autoPrint: false },
+      products: [{ id: 'k', name: 'كبسة', sellPrice: 58, cat: 'رئيسي' }],
+      partners: [...(g.partners || []).filter(x => !['pc1', 'pc2'].includes(x.id)), { id: 'pc1', key: 'cust:pc1', type: 'customer', name: 'شركة مؤهلة', posCredit: true, creditLimit: 5000, terms: 30 },
+        { id: 'pc2', key: 'cust:pc2', type: 'customer', name: 'شركة مسجلة', posCredit: true, creditLimit: 5000, tax: '300000000000003' }] }));
+    window.setOps(o => ({ ...o, posTabs: [], kdsTickets: [], posOrders: [] }));
+  }); await p.waitForTimeout(400);
+  const ob = p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await p.waitForTimeout(400); }
+  await p.locator('.pos-tile:has-text("كبسة")').click();
+  assert.equal(await p.locator('[data-credit]').count(), 0, 'بلا تفعيل لا آجل');
+  await p.evaluate(() => window.setOrg(g => ({ ...g, posCfg: { ...g.posCfg, credit: true } }))); await p.waitForTimeout(300);
+  await p.click('[data-credit]'); await p.waitForSelector('select[aria-label="عميل الآجل"]');
+  const opts = await p.locator('select[aria-label="عميل الآجل"] option').allInnerTexts();
+  assert.ok(opts.includes('شركة مؤهلة')); assert.ok(!opts.includes('شركة مسجلة'), 'ذو الرقم الضريبي يُحال إلى فواتير المبيعات');
+  await p.click('.modal button:has-text("تأكيد")'); await p.waitForFunction(() => /اختر عميلًا مؤهلًا/.test(window.lastSay || ''));
+  await p.selectOption('select[aria-label="عميل الآجل"]', 'cust:pc1');
+  await p.click('.modal button:has-text("تأكيد")'); await p.waitForFunction(() => /البيع الآجل:/.test(window.lastSay || ''));
+  assert.equal(await p.evaluate(() => (window.cur.posOrders || []).length), 0, 'بلا تفويض الخادم لا تصدر فاتورة');
+  assert.deepEqual(errs, []); await ctx.close();
+});
