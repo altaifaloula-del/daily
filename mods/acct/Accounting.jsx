@@ -9,6 +9,7 @@ import { DeptCard } from './DeptCard.jsx';   // v56.27 E4
 import { EclCard } from './EclCard.jsx';   // v56.40 الدفعة 7 (E6)
 import { BudgetV } from './BudgetV.jsx';   // v56.41 الدفعة 6 (E5)
 import { PrepaidCard } from './PrepaidCard.jsx';   // v56.41 الدفعة 6 (T4)
+import { DeptShiftMap } from './DeptShiftMap.jsx';   // v56.42 الدفعة 8 (U3)
 import { budVOn, ppOn } from '../../App.jsx';
 import { eclOn } from '../../App.jsx';
 import { deptOn, deptList, DEPT_SHARED } from '../../App.jsx';
@@ -2574,6 +2575,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
         <div className="grid" style={{ gap: 12 }}>
           <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>{pbMoved ? null : periodBar}</div>
           <DeptCard org={org} A={A} from={from} to={to} bf={bf} canPost={canPost} commitOrg={commitOrg} say={say} flNote={useFl} />
+          {deptOn(org) && <DeptShiftMap org={org} ops={ops} me={me} commit={commit} commitOrg={commitOrg} say={say} canPost={canPost} from={from} to={to} />}
           <div className="grid g4">
             {centers.map(c => {
               const n = ccNet(c.id);

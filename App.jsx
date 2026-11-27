@@ -731,7 +731,7 @@ const BR_COLS = ['posTabs', 'kdsTickets', 'posDeliveries', 'closings', 'transfer
   'prepCounts',
   // v56.12 (G1) — سجلات التسويق برقم فرع العميل (القديمة بلا فرع تبقى مركزية عبر splitOps)
   'mktConsents', 'mktProfiles', 'mktReferrals'];
-const CORE_COLS = ['budgets', 'prepaids', 'eclDocs', 'closeTasks', 'ctlCases', 'rfqs', 'cashVouchers', 'prodOrders', 'archLog', 'cardRecons', 'ledgerSnaps', 'salesInvoices', 'advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'jeRecurring', 'mktMerges', 'mktCampaigns', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules', 'hrScoreSnapshots'];
+const CORE_COLS = ['expDeptPicks', 'budgets', 'prepaids', 'eclDocs', 'closeTasks', 'ctlCases', 'rfqs', 'cashVouchers', 'prodOrders', 'archLog', 'cardRecons', 'ledgerSnaps', 'salesInvoices', 'advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'jeRecurring', 'mktMerges', 'mktCampaigns', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules', 'hrScoreSnapshots'];
 
 // تقسيم ops المدمجة إلى مستند مركزي + مستند لكل فرع
 function splitOps(ops, branchIds) {
@@ -2614,7 +2614,7 @@ function buildAccounting(org, ops) {
       // السلف ليست مصروفًا خاضعًا — لا فصل ضريبي على حساب 1401
       const tx = (e.isTaxable && expCode !== '1401') ? splitVat(amt) : { net: amt, vat: 0 };
       push({
-        id: 'exp:' + c.id + ':' + (e.id || ix), date: c.date, branchId: c.branchId,
+        id: 'exp:' + c.id + ':' + (e.id || ix), date: c.date, branchId: c.branchId, ...((() => { const dp = expCode !== '1401' ? expDeptOf(org, ops, c, e, ix) : ''; return dp ? { deptId: dp } : {}; })()),   // v56.42 U3
         title: (e.categoryName || 'مصروف') + (e.paymentMethod === 'deferred' ? ' (آجل — على الحساب)' : '') + ' — ' + (c.branchName || ''),
         src: 'مصروف وردية', ref: c.id,
         lines: tx.vat
@@ -3598,7 +3598,8 @@ function closeAutoChecks(A, ops, month, org) {
   const pmis = org ? (A.entries || []).filter(e => inM(e.date) && e.posGl === 'mismatch' && e.posInv && posMisLoyAt(org, e.date) && !posGlNote(org, String(e.id).replace(/^rev:/, ''))) : [];
   const pds = (ops.disbursements || []).filter(x => x.status === 'pending' && String(x.date || '') <= end);   // v56.29
   const pecl = (ops.eclDocs || []).filter(x => x.status === 'pending' && String(x.date || '') <= end);
-  const ppp = (ops.prepaids || []).filter(x => x.status === 'pending' && String(x.date || '') <= end);   // v56.41   // v56.40 (E6.3): مراجعة المخصص بند في الإقفال
+  const ppp = (ops.prepaids || []).filter(x => x.status === 'pending' && String(x.date || '') <= end);   // v56.41
+  const pdp = org ? expDeptPending(org, ops, month + '-01', end) : [];   // v56.42 U3   // v56.40 (E6.3): مراجعة المخصص بند في الإقفال
   return [
     { k: 'drafts', ar: 'لا إغلاقات مسودة أو مرفوضة حتى نهاية الشهر', n: cls.filter(c => c.status === 'draft' || c.status === 'rejected').length },
     { k: 'pending', ar: 'كل الإغلاقات المرفوعة مدقَّقة (لا شيء بانتظار التدقيق)', n: cls.filter(c => c.status === 'submitted').length },
@@ -3607,6 +3608,7 @@ function closeAutoChecks(A, ops, month, org) {
     ...(pcv.length || pds.length ? [{ k: 'pdocs', ar: 'لا سندات صرف ولا أوامر صرف بانتظار الاعتماد (المعلّق في شهر مقفل لا يُعتمد)', n: pcv.length + pds.length }] : []),
     ...(pecl.length || (org && eclOn(org)) ? [{ k: 'ecl', ar: 'مخصص الخسائر الائتمانية: رُوجعت ذمم العملاء المتأخرة ولا مستند مخصص أو شطب بانتظار الاعتماد', n: pecl.length }] : []),
     ...(ppp.length || (org && ppOn(org)) ? [{ k: 'ppd', ar: 'المصروفات المدفوعة مقدمًا: لا مستند بانتظار الاعتماد (الإطفاء الشهري آلي بعد الاعتماد)', n: ppp.length }] : []),
+    ...(pdp.length ? [{ k: 'deptpick', ar: 'كل مصروفات الوردية التي يحدد المحاسب قسمها (الصيانة والكهرباء) محدَّدة القسم', n: pdp.length }] : []),
     { k: 'unb', ar: 'كل قيود الشهر متوازنة', n: unb.length },
     { k: 'susp', ar: 'الحساب المعلّق 9999 رصيده صفر', n: Math.abs(susp) > 0.004 ? 1 : 0, amt: susp },
   ].map(x => ({ ...x, ok: !x.n }));
@@ -3830,7 +3832,7 @@ function emptyOrg(company) {
 }
 
 function emptyOps() {
-  return { budgets: [], prepaids: [], eclDocs: [], rfqs: [], posDeliveries: [], cashVouchers: [], jeRecurring: [], mktConsents: [], mktMerges: [], mktProfiles: [], mktReferrals: [], actions: [], countSessions: [], wasteRequests: [], posImports: [], posOrders: [], posShifts: [], ledgerSnaps: [], stockCounts: [], leaveRequests: [], productSales: [], salesInvoices: [], closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
+  return { expDeptPicks: [], budgets: [], prepaids: [], eclDocs: [], rfqs: [], posDeliveries: [], cashVouchers: [], jeRecurring: [], mktConsents: [], mktMerges: [], mktProfiles: [], mktReferrals: [], actions: [], countSessions: [], wasteRequests: [], posImports: [], posOrders: [], posShifts: [], ledgerSnaps: [], stockCounts: [], leaveRequests: [], productSales: [], salesInvoices: [], closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
     attendanceEvents: [], hrPins: [], shiftTemplates: [], shiftAssignments: [], shiftSwapRequests: [], branchTransferRequests: [], taskTemplates: [], taskAssignments: [], taskCompletions: [], pointsEntries: [], qualityReviews: [], rewardRequests: [], hrSignDocs: [], hrCorrective: [], hrPips: [], hrTraining: [], hrKpiEntries: [], hrScoreSnapshots: [], purchaseReqs: [], poInbox: [], poReceipts: [] };
 }
 
@@ -3841,7 +3843,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.41';
+const APP_VER = 'v56.42';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -11562,6 +11564,44 @@ function deptPL(org, A, from, to, bf) {
   Object.keys(byId).filter(k => k && k !== DEPT_SHARED && !names[k]).forEach(k => rows.push({ id: k, name: 'قسم محذوف', v: r2(byId[k]) }));
   return { rows, shared: r2(byId[DEPT_SHARED] || 0), none: r2(byId[''] || 0), total: r2(tot), cogs: r2(cogs) };
 }
+/* v56.42 — الدفعة 8 (قرار المجلس U3 + المالك: «الصيانة والكهرباء يختار المحاسب قسمها»): قسم مصروفات الوردية من تصنيفها — الكاشير لا يختار.
+   org.costDepts.catMaps = [{ from: 'YYYY-MM-DD', map: { <تصنيف>: <قسم> | 'shared' | '' | 'pick' } }] — نطاقات بتاريخ بدء (لا يتغير تقرير ما قبلها).
+   'pick' ⇒ يحدده المحاسب لاحقًا لكل مصروف (ops.expDeptPicks: [{ key: '<الإغلاق>:<المصروف>', deptId, by, at }]، الأحدث يغلب). القسم بُعد إداري لا يمس القيود ولا بصمة الإقفال. */
+const DEPT_PICK = 'pick';
+/** (المراقب المالي) تصنيفات الوردية القابلة للتقسيم: لا السلف (1401) ولا تكلفة المبيعات (منفصلة خارج الأقسام) — بحسابها لا باسمها */
+function expCatsDeptable(org) {
+  const A = buildAccounting(org || {}, {}); const byCode = {}; (A.accounts || []).forEach(a => { byCode[String(a.code)] = a; });
+  return ((org && org.expenseCats) || []).map((c, i) => { const code = /سلف|مسحوبات/.test(c.n || '') ? '1401' : '51' + String(i + 1).padStart(2, '0'); const a = byCode[code] || { code, name: c.n };
+    return { ...c, code, kind: code === '1401' ? 'adv' : isCogsAcc(a) ? 'cogs' : /رواتب|أجور/.test(c.n || '') ? 'payroll' : 'exp' }; });
+}
+function deptMapSuggest(org) {
+  const L = deptList(org); const find = (re) => (L.find(d => re.test(d.name)) || {}).id || ''; const M = {};
+  const K = {}; expCatsDeptable(org).forEach(c => { K[c.id] = c.kind; });
+  ((org && org.expenseCats) || []).forEach(c => { const n = c.n || ''; if (K[c.id] === 'adv' || K[c.id] === 'cogs') return; if (K[c.id] === 'payroll') { M[c.id] = ''; return; }
+    M[c.id] = /مواد خام|مشتريات/.test(n) ? find(/مطبخ/) : /نظافة|مستهلكات/.test(n) ? find(/صالة/) : /صيانة|كهرباء|مياه/.test(n) ? DEPT_PICK : /إيجار|نثري/.test(n) ? DEPT_SHARED : ''; });
+  return M;
+}
+const deptMapAt = (org, date) => { const R = ((org && org.costDepts && org.costDepts.catMaps) || []).filter(r => r && r.from && String(r.from) <= String(date || '')).sort((a, b) => String(a.from).localeCompare(String(b.from)));
+  return R.length ? (R[R.length - 1].map || {}) : null; };
+const expDeptKey = (c, e, ix) => c.id + ':' + (e.id || ('i' + ix + ':' + (e.categoryId || '') + ':' + Math.round((Number(e.amount) || 0) * 100)));   // (المراقب) بلا معرّف: الترتيب مع التصنيف والمبلغ فلا ينتقل الاختيار لمصروف آخر
+const expDeptPick = (ops, key) => { const P = ((ops && ops.expDeptPicks) || []).filter(x => x && x.key === key); return P.length ? P[P.length - 1].deptId || '' : ''; };
+/** قسم مصروف الوردية: من نطاق الخريطة الساري بتاريخ الإغلاق؛ و«يحدده المحاسب» من اختياره (فارغ حتى يُحدَّد) */
+function expDeptOf(org, ops, c, e, ix) {
+  if (!deptOn(org)) return ''; const M = deptMapAt(org, c.date); if (!M) return '';
+  const v = M[e.categoryId]; if (/رواتب|أجور/.test(e.categoryName || '')) return '';   // الرواتب لا تُقسَّم (قرار المالك)
+  if (v === DEPT_PICK) return expDeptPick(ops, expDeptKey(c, e, ix)); return v || '';
+}
+/** مصروفات الوردية التي تنتظر تحديد المحاسب لقسمها (المعتمدة، في نطاق الخريطة) */
+function expDeptPending(org, ops, from, to, opts) {
+  if (!deptOn(org)) return []; const out = []; const K = {}; expCatsDeptable(org).forEach(c => { K[c.id] = c.kind; });
+  ((ops && ops.closings) || []).filter(c => c && c.status === 'approved' && (!from || c.date >= from) && (!to || c.date <= to)).forEach(c => { const M = deptMapAt(org, c.date); if (!M) return;
+    (c.expenses || []).forEach((e, ix) => { if (!(e.amount > 0) || M[e.categoryId] !== DEPT_PICK || K[e.categoryId] !== 'exp') return; const key = expDeptKey(c, e, ix);
+      const cur = expDeptPick(ops, key); if (opts && opts.all) { out.push({ key, date: c.date, branchId: c.branchId, branchName: c.branchName || '', cat: e.categoryName || '', amount: e.amount, note: e.note || e.desc || '', deptId: cur,
+        hist: ((ops && ops.expDeptPicks) || []).filter(x => x && x.key === key) }); return; }
+      if (!cur) out.push({ key, date: c.date, branchId: c.branchId, branchName: c.branchName || '', cat: e.categoryName || '', amount: e.amount, note: e.note || e.desc || '' }); }); });
+  return out;
+}
+export { DEPT_PICK, deptMapSuggest, deptMapAt, expDeptOf, expDeptPending, expDeptKey, expCatsDeptable };   // v56.42 الدفعة 8
 const projNextCode = (org) => { let mx = 0; ((org && org.projects) || []).forEach(p => { const g = /^PRJ-(\d+)$/.exec(p.code || ''); if (g) mx = Math.max(mx, +g[1]); }); return 'PRJ-' + String(mx + 1).padStart(3, '0'); };
 
 /* v47.3 FEFO عند الصرف: يوزّع الكمية على دفعات المستودع الأقرب انتهاءً أولًا (lots من expiryLots لنفس المستودع والصنف).
