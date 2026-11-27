@@ -1,15 +1,14 @@
 /**
- * v56.56 — نقطة البيع: قرارات المالك 2026-11-27 ومتابعات المراجعة الأمنية لـ v56.54.
- *   (1) فحص فجوات سلسلة الفوترة دائمًا لكل فرع (تنبيه لا منع) + لا إنذار كاذب عند إيقاف سجل الأجهزة (تبدّل الوسم).
+ * v56.56 — نقطة البيع: قرارات المالك 2026-11-27، وقرارات المجلس على المراجعات (A–G)، ومتابعات المراجعة الأمنية لـ v56.54.
+ *   (1) فحص فجوات سلسلة الفوترة دائمًا (تنبيه لا منع) + لا إنذار كاذب عند إيقاف سجل الأجهزة.
  *   (2) حد المرتجع «لكل وردية» بلا وردية مفتوحة ⇒ حد اليوم (في tests/pos-offline-b.test.mjs).
- *   (3) تقسيم فاتورة الطاولة بالتساوي (2–20 جزءًا).
- *   (4) تعارضات الفواتير بعد عودة الاتصال: يحسمها مدير الفرع («إبقاء» / «إلغاء بمرتجع») قبل الإغلاق اليومي.
- *   (5) إلغاء الجزء الذي يحمل الكوبون يعيده صالحًا لجزء آخر.
- *   ومتابعات v56.54: a (عامل الخدمة دون شبكة فورًا)، b (غياب posCfg)، c (مطابقة تامة لرابط pos-sw.js)، f (تسخين أصول هيكل نقطة البيع بحد).
+ *   (3/A/B/C) التقسيم بالتساوي: سطر ملخّص بكمية 1 لكل جزء، وضريبة كل جزء فاتورةً مستقلة، وتفصيل الأصناف الداخلي eqItems للمخزون والتقارير والمرتجع.
+ *   (D) الكوبون يُحجز عند حفظ التقسيم بالتساوي ويُحرَّر بشروط؛ والتقسيم بالأصناف ينقل الحجز نفسه (لا سباق).
+ *   (4/E/F) التعارضات: الحسم في سجل محمي pos_conflict_res (القواعد في tests/security.rules.test.mjs)، ووسم الإغلاق المرحّل، وعدم التقليم.
+ *   (a/b/c/f/G) عامل الخدمة.
  * كل الأرقام وهمية. الأسعار شاملة ضريبة 15%:
- *   طاولة: كبسة 2×57.50 + حمص 3×18.40 + شاي 1×4.60 = 174.80 (17,480 هللة)، ضريبتها 174.80×15÷115 = 22.80، صافيها 152.00.
- *   بالتساوي على 3: ⌊17480÷3⌋ = 5826 ⇒ 58.26 | 58.26 | 58.28 (الباقي 2 هللة على الأخير).
- *   الضريبة: round(2280×5826÷17480) = 760 ⇒ 7.60 | 7.60 | 7.60 (الأخير = 2280 − 1520) ⇒ الصافي 50.66 | 50.66 | 50.68.
+ *   طاولة: كبسة 2×57.50 + حمص 3×18.40 + شاي 1×4.60 = 174.80. بالتساوي على 3: ⌊17480÷3⌋ = 5826 ⇒ 58.26 | 58.26 | 58.28.
+ *   ضريبة كل جزء round(المبلغ×15÷115): 58.26 ⇒ 7.60 (7.599)، 58.28 ⇒ 7.60 (7.602)؛ الصافي 50.66 | 50.66 | 50.68.
  */
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
@@ -29,89 +28,175 @@ const items = [{ id: 'rice', type: 'stock' }, { id: 'chick', type: 'stock' }, { 
 const now = new Date('2026-11-20T12:00:00');
 const cart = (t) => E.tabRemain(t).lines.map((l, i) => ({ ...l, key: 'r' + i }));
 const price = (t, promos = [], x = {}) => E.posPriceCart(cart(t), products, promos, { now, ...x });
+const R2 = (v) => Math.round((Number(v) || 0) * 100) / 100;
 const H = (v) => E.toHal(v), sumH = (L, f) => L.reduce((a, p) => a + H(p[f]), 0);
 
-/* ---------------- (3) التقسيم بالتساوي ---------------- */
-test('(3) بالتساوي على 3: مبالغ متساوية والباقي بالهللة على الأخير، والضريبة بنسبة المبلغ، والمجموع = الفاتورة بالهللة تمامًا', () => {
+/* ---------------- (3) التقسيم بالتساوي — بقرارات المجلس A/B/C/D بعد المراجعة ---------------- */
+const fz = (p) => ({ gross: p.gross, total: p.total, vat: p.vat, net: p.net });
+const lt = (p) => { const T = E.posTotals(p.lines, 0, 15); return { gross: T.gross, total: T.total, vat: T.vat, net: T.net }; };
+test('(A/B) بالتساوي على 3: سطر ملخّص واحد بكمية 1 وسعر = مبلغ الجزء، والضريبة لكل جزء فاتورةً مستقلة، والأسطر = الإجماليات', () => {
   const S = E.tabSplitEqual(tab(), 3, price(tab()), 15);
   assert.equal(S.err, undefined);
   assert.deepEqual(S.parts.map(p => [p.no, p.eq.k, p.eq.n, p.total, p.vat, p.net]), [[1, 1, 3, 58.26, 7.6, 50.66], [2, 2, 3, 58.26, 7.6, 50.66], [3, 3, 3, 58.28, 7.6, 50.68]]);
-  assert.deepEqual([S.total, S.vat, S.net], [174.8, 22.8, 152]);
-  const W = E.posTotals(E.tabRemain(tab()).lines, 0, 15);
-  assert.deepEqual([sumH(S.parts, 'total'), sumH(S.parts, 'vat'), sumH(S.parts, 'net'), sumH(S.parts, 'gross')], [H(W.total), H(W.vat), H(W.net), H(W.gross)]);
+  assert.equal(S.total, 174.8);
+  assert.deepEqual(S.parts.map(p => p.lines), [1, 2, 3].map(k => [{ productId: '', name: 'حصة ' + k + ' من 3 — فاتورة الطاولة 2', qty: 1, price: k === 3 ? 58.28 : 58.26 }]));
+  for (const p of S.parts) { assert.deepEqual(lt(p), fz(p), 'posTotals(الأسطر) = المجمّد'); assert.deepEqual(E.tabPartTotals(p), { ...fz(p), ldisc: 0, disc: 0 });
+    assert.equal(p.vat, R2(p.total * 15 / 115)); assert.equal(H(p.lines[0].qty * p.lines[0].price), H(p.total), 'صافي السطر = الكمية × السعر'); }
   assert.equal(new Set(S.parts.map(p => p.id)).size, 3, 'معرّف فريد لكل جزء');
-  // الكميات كسرية بالألف ومجموعها = الطاولة تمامًا
-  assert.deepEqual(S.parts.map(p => p.lines.map(l => [l.name, l.qty])), [[['كبسة', 0.666], ['حمص', 1], ['شاي', 0.333]], [['كبسة', 0.666], ['حمص', 1], ['شاي', 0.333]], [['كبسة', 0.668], ['حمص', 1], ['شاي', 0.334]]]);
-  // إجماليات الدفع المجمّدة لكل جزء = الجزء نفسه (لا يُعاد حساب الضريبة من الأسطر)
-  assert.deepEqual(E.tabPartTotals(S.parts[2]), { gross: 58.28, ldisc: 0, disc: 0, total: 58.28, vat: 7.6, net: 50.68 });
+  // تفصيل الأصناف الكسري داخلي (eqItems)، مجموعه = الطاولة تمامًا
+  assert.deepEqual(S.parts.map(p => p.eqItems.map(l => [l.name, l.qty])), [[['كبسة', 0.666], ['حمص', 1], ['شاي', 0.333]], [['كبسة', 0.666], ['حمص', 1], ['شاي', 0.333]], [['كبسة', 0.668], ['حمص', 1], ['شاي', 0.334]]]);
   assert.equal(E.tabPartTotals({ lines: [] }), null, 'جزء بالأصناف ⇒ كما كان');
+  // الإيصال يطبع سطر الملخّص فقط
+  const html = E.posReceiptHtml({ company: {} }, { no: 'ف1', at: AT, lines: S.parts[0].lines, eqItems: S.parts[0].eqItems, total: 58.26, vat: 7.6, payments: [] }, { name: 'ف' });
+  assert.match(html, /حصة 1 من 3 — فاتورة الطاولة 2/); assert.doesNotMatch(html, /كبسة|حمص|شاي/);
 });
 
-test('(3) كل عدد من 2 إلى 20 يطابق الفاتورة بالهللة؛ خارج المدى أو بلا تسعير الطاولة ⇒ رفض', () => {
-  const P = price(tab()), W = E.posTotals(E.tabRemain(tab()).lines, 0, 15);
-  for (let n = 2; n <= 20; n++) { const S = E.tabSplitEqual(tab(), n, P, 15);
-    if (S.err) { assert.match(S.err, /أكبر من أن تُقسَّم/, 'n=' + n); continue; }
-    assert.equal(S.parts.length, n); assert.equal(sumH(S.parts, 'total'), H(W.total)); assert.equal(sumH(S.parts, 'vat'), H(W.vat)); assert.equal(sumH(S.parts, 'net'), H(W.net));
-    const a = H(S.parts[0].total); assert.ok(S.parts.slice(0, -1).every(p => H(p.total) === a)); assert.ok(H(S.parts[n - 1].total) - a >= 0 && H(S.parts[n - 1].total) - a < n, 'الباقي على الأخير'); }
+test('(B) لكل n من 2 إلى 20 وعلى مبالغ كثيرة: ضريبة كل جزء = round(المبلغ × 15 ÷ 115) تمامًا، والأسطر = الإجماليات، والمبالغ متساوية والباقي على الأخير', () => {
+  let seed = 7; const rnd = () => { seed = (seed * 48271) % 2147483647; return seed / 2147483647; };
+  let checked = 0;
+  for (let i = 0; i < 60; i++) {
+    const L = [{ productId: 'k', name: 'كبسة', qty: 1 + Math.floor(rnd() * 4), price: Math.round(rnd() * 9000 + 50) / 100 }, { productId: 't', name: 'شاي', qty: 1 + Math.floor(rnd() * 3), price: Math.round(rnd() * 900 + 1) / 100 }];
+    const t = tab({ rounds: [{ at: AT, lines: L }] }), P = E.posPriceCart(cart(t), [{ id: 'k' }, { id: 't' }], [], { now }), W = H(E.posTotals(P.lines, 0, 15).total);
+    for (let n = 2; n <= 20; n++) { const S = E.tabSplitEqual(t, n, P, 15); if (S.err) { assert.match(S.err, /أكبر من أن تُقسَّم|أصغر من أن يُقسَّم/); continue; }
+      assert.equal(sumH(S.parts, 'total'), W); const a = H(S.parts[0].total);
+      S.parts.forEach((p, k) => { assert.equal(p.vat, R2(p.total * 15 / 115)); assert.deepEqual(lt(p), fz(p)); assert.equal(H(p.net), H(p.total) - H(p.vat)); if (k < n - 1) assert.equal(H(p.total), a); });
+      assert.ok(H(S.parts[n - 1].total) - a >= 0 && H(S.parts[n - 1].total) - a < n); checked++; } }
+  assert.ok(checked > 900, 'فُحص ' + checked);
+  const P = price(tab());
   for (const n of [1, 21, 0, 2.5, 'x']) assert.match(E.tabSplitEqual(tab(), n, P, 15).err, /من 2 إلى 20/);
   assert.match(E.tabSplitEqual(tab(), 2, null, 15).err, /لا يطابق/);
   assert.match(E.tabSplitEqual(tab({ rounds: [] }), 2, { lines: [] }, 15).err, /لا أصناف/);
-  // بلا ضريبة (المنشأة غير مسجلة) ⇒ الضريبة صفر
-  const S0 = E.tabSplitEqual(tab(), 2, P, 0); assert.deepEqual(S0.parts.map(p => [p.total, p.vat]), [[87.4, 0], [87.4, 0]]);
+  const S0 = E.tabSplitEqual(tab(), 2, P, 0); assert.deepEqual(S0.parts.map(p => [p.total, p.vat]), [[87.4, 0], [87.4, 0]], 'بلا ضريبة');
 });
 
-test('(3) الطاولة تُسعَّر كاملة مرة واحدة: خصم الفاتورة وخصم السطر يُقسَّمان بالتساوي، والكوبون على الجزء الأول', () => {
+test('(A) الطاولة تُسعَّر كاملة مرة واحدة: الخصومات في التفصيل الداخلي، والمبلغ بعدها؛ والكوبون للتقسيم لا لجزء', () => {
   const T = (lines) => tab({ rounds: [{ at: AT, lines }] });
   const ta = T([{ productId: 'x', name: 'طبق', qty: 2, price: 50 }]);
   const od = [{ id: 'od', name: 'خصم 10', type: 'order', mode: 'amt', value: 10, minTotal: 40 }];
-  const PA = E.posPriceCart(cart(ta), [{ id: 'x' }], od, { now });
-  const SA = E.tabSplitEqual(ta, 3, PA, 15);
-  assert.deepEqual(SA.parts.map(p => [p.gross, p.orderDisc, p.total]), [[33.33, 3.33, 30], [33.33, 3.33, 30], [33.34, 3.34, 30]]);
+  const SA = E.tabSplitEqual(ta, 3, E.posPriceCart(cart(ta), [{ id: 'x' }], od, { now }), 15);
+  assert.deepEqual(SA.parts.map(p => [p.total, p.vat, p.eq.od]), [[30, 3.91, 3.33], [30, 3.91, 3.33], [30, 3.91, 3.34]]);
   assert.equal(SA.total, 90, 'الخصم 10 مرة واحدة');
-  // اشترِ 2 واحصل على 1 (خصم السطر 23) على جزأين
   const tb = T([{ productId: 'b', name: 'برجر', qty: 3, price: 23 }, { productId: 't', name: 'شاي', qty: 1, price: 4.6 }]);
   const PB = E.posPriceCart(cart(tb), [{ id: 'b' }, { id: 't' }], [{ id: 'bx', name: '2+1', type: 'bxgy', x: 2, y: 1, scope: 'items', items: ['b'] }], { now });
   const SB = E.tabSplitEqual(tb, 2, PB, 15);
-  assert.deepEqual(SB.parts.map(p => [p.total, p.ldisc, p.lines[0].disc, p.lines[0].promoName]), [[25.3, 11.5, 11.5, '2+1'], [25.3, 11.5, 11.5, '2+1']]);
-  assert.equal(SB.total, 50.6);
-  // الكوبون
+  assert.deepEqual(SB.parts.map(p => [p.total, p.eqItems[0].disc, p.eqItems[0].promoName, p.lines.length, p.lines[0].disc]), [[25.3, 11.5, '2+1', 1, undefined], [25.3, 11.5, '2+1', 1, undefined]]);
   const cp = [{ id: 'cp', name: 'كوبون', type: 'order', mode: 'amt', value: 6, code: 'T6', maxUses: 1 }];
   const SC = E.tabSplitEqual(ta, 2, E.posPriceCart(cart(ta), [{ id: 'x' }], cp, { now, code: 'T6', uses: {} }), 15);
-  assert.deepEqual(SC.parts.map(p => [p.total, !!p.coupon]), [[47, true], [47, false]]);
-  assert.deepEqual(SC.parts.map(p => E.tabPartPriced(p).codeOk), [true, false]);
+  assert.deepEqual(SC.parts.map(p => [p.total, !!p.coupon, E.tabPartPriced(p).codeOk]), [[47, false, false], [47, false, false]], 'لا حجز عند دفع الجزء');
+  assert.equal(SC.cp.id, 'cp');
 });
 
-const payO = (t, pt, id, x = {}) => ({ id, no: 'ف1-' + id, at: AT, total: pt.total, lines: pt.lines, tabSplitVer: t.split.ver, ...x });
+const payO = (t, pt, id, x = {}) => ({ id, no: 'ف1-' + id, at: AT, total: pt.total, vat: pt.vat, lines: pt.lines, ...(pt.eqItems ? { eqItems: pt.eqItems } : {}), tabSplitVer: t.split.ver, ...x });
 test('(3) دفع الأجزاء المتساوية بآلية v56.52: يُختم كل جزء، يُغلق الحساب بآخرها، ولا يُدفع جزء مرتين، وإعادة التقسيم ترفض الجزء القديم', () => {
   const S = E.tabSplitEqual(tab(), 3, price(tab()), 15);
   let t = E.tabSplitSet(tab(), S.parts, { at: AT, by: 'مدير' }); const [p1, p2, p3] = t.split.parts;
   let R = E.tabPayPart(t, p1.id, payO(t, p1, 'o1'), 'ك'); assert.equal(R.err, undefined); t = R.tab;
+  assert.deepEqual(E.tabRemain(t).lines.map(l => [l.name, l.qty]), [['كبسة', 1.334], ['حمص', 2], ['شاي', 0.667]], 'المتبقي من التفصيل');
   assert.match(E.tabPayPart(t, p1.id, payO(t, p1, 'oX'), 'ك').err, /مدفوع/);
-  // جهاز آخر أعاد التقسيم ⇒ دفع الجزء القديم يُرفض ويُسجَّل تعارضًا
-  const t2 = E.tabSplitSet(t, [], { at: AT });   // جهاز آخر أعاد التقسيم (الأجزاء غير المدفوعة سقطت)
-  assert.notEqual(t2.split.ver, t.split.ver);
-  const Rx = E.tabPayPart(t2, p2.id, payO(t, p2, 'oA'), 'أ'); assert.match(Rx.err, /أُعيد تقسيم/); assert.equal(Rx.tab.conflicts.length, 1);
+  const t2 = E.tabSplitSet(t, [], { at: AT });
+  const Rx = E.tabPayPart(t2, p2.id, payO(t, p2, 'oA'), 'أ', true); assert.match(Rx.err, /أُعيد تقسيم/); assert.deepEqual(Rx.tab.conflicts.map(c => c.off), [true], 'وسم دون اتصال');
   R = E.tabPayPart(t, p2.id, payO(t, p2, 'o2'), 'ك'); t = R.tab; assert.equal(t.status, 'open');
   R = E.tabPayPart(t, p3.id, payO(t, p3, 'o3'), 'ك'); t = R.tab;
   assert.deepEqual([R.err, t.status, t.orderNo], [undefined, 'paid', 'ف1-o3']); assert.deepEqual(E.tabRemain(t).lines, [], 'لا بقايا كسرية');
-  // بعد دفع جزء متساوٍ لا يُعاد التقسيم على متبقٍ كسري
   const tp = E.tabPayPart(E.tabSplitSet(tab(), S.parts, { at: AT }), S.parts[0].id, payO({ split: { ver: '' } }, S.parts[0], 'q'), 'ك').tab;
   const tr = E.tabSplitReset(tp); assert.match(E.tabSplitEqual(tr, 2, price(tr), 15).err, /تقسيم سابق بالتساوي/);
 });
 
-test('(3) المخزون: فواتير الأجزاء المتساوية تخصم مثل فاتورة الحساب كاملًا', () => {
+test('(A/C) المخزون والتقارير بالتفصيل الداخلي: الأجزاء = الحساب كاملًا؛ والمرتجع الكامل لجزء يعكس تفصيله كله، والإلغاء كذلك', () => {
   const S = E.tabSplitEqual(tab(), 3, price(tab()), 15); const org = { products, items };
-  const ord = (id, lines) => ({ id, branchId: 'b1', date: D, status: 'paid', lines });
-  const whole = E.saleDayUse(org, { posOrders: [ord('w', E.tabRemain(tab()).lines)] }, 'b1', D);
-  assert.deepEqual(E.saleDayUse(org, { posOrders: S.parts.map((p, i) => ord('p' + i, p.lines)) }, 'b1', D), whole);
+  const ord = (id, p, x = {}) => ({ id, no: 'ف-' + id, branchId: 'b1', date: D, status: 'paid', kind: 'sale', lines: p.lines, eqItems: p.eqItems, total: p.total, vat: p.vat, ...x });
+  const whole = E.saleDayUse(org, { posOrders: [{ id: 'w', branchId: 'b1', date: D, status: 'paid', lines: E.tabRemain(tab()).lines }] }, 'b1', D);
+  const os = S.parts.map((p, i) => ord('p' + i, p));
+  assert.deepEqual(E.saleDayUse(org, { posOrders: os }, 'b1', D), whole);
+  // مرتجع كامل للجزء 1 من شاشة المرتجع العادية (سطر الملخّص بكمية 1)
+  assert.deepEqual(E.posReturnable({ posOrders: os }, os[0]), [1]);
+  const C = E.posReturnCalc(os[0], { 0: 1 }); assert.deepEqual([C.total, C.vat], [58.26, 7.6], 'المبلغ والضريبة كاملان');
+  const r = { id: 'r1', kind: 'return', refId: 'p0', branchId: 'b1', date: D, status: 'paid', lines: [], retLines: C.lines, ...E.posRetEqItems(os[0], C), total: -C.total, vat: -C.vat };
+  assert.deepEqual(r.eqItems, os[0].eqItems.map(l => ({ productId: l.productId, name: l.name, qty: l.qty })));
+  const after = E.saleDayUse(org, { posOrders: [...os, r] }, 'b1', D), two = E.saleDayUse(org, { posOrders: os.slice(1) }, 'b1', D);
+  assert.deepEqual(after, two, 'المرتجع الكامل يعكس تفصيل الجزء كله');
+  assert.deepEqual(E.saleRetUse(org, r), E.saleDayUse(org, { posOrders: [os[0]] }, 'b1', D), 'هدر المرتجع = تفصيل الجزء');
+  assert.deepEqual(E.posReturnable({ posOrders: [...os, r] }, os[0]), [0]);
+  assert.deepEqual(E.saleDayUse(org, { posOrders: [{ ...os[0], status: 'void' }, ...os.slice(1)] }, 'b1', D), two, 'الإلغاء يعكسه كله');
+  // مرتجع جزئي بالمبلغ (من مسار آخر) ⇒ بالنسبة
+  assert.deepEqual(E.posRetEqItems(os[0], { total: 29.13 }).eqItems.map(l => l.qty), [0.333, 0.5, 0.167]);
+  assert.deepEqual(E.posRetEqItems({ lines: [] }, C), {}, 'فاتورة عادية ⇒ كما كان');
+  assert.deepEqual(E.posItemLines(os[0]), os[0].eqItems); assert.deepEqual(E.posItemLines({ lines: [1] }), [1]);
 });
 
-test('(3) الواجهة: زر «تقسيم الفاتورة بالتساوي» خلف مفتاح التقسيم نفسه، والجزء المتساوي يُدفع بإجمالياته المجمّدة بلا خصم يدوي', () => {
+test('(3) الواجهة: زر «تقسيم الفاتورة بالتساوي» خلف مفتاح التقسيم نفسه، والجزء المتساوي يُدفع بإجمالياته بلا خصم يدوي ويحمل تفصيله الداخلي', () => {
   const src = fs.readFileSync(new URL('../mods/pos/PosApp.jsx', import.meta.url), 'utf8');
   assert.match(src, /\{RC\.split && <button className="btn" data-spliteqbtn/);
   assert.match(src, /const T = tabPartTotals\(partNow\) \|\| posTotals\(/);
   assert.match(src, /partNow\.eq && \(manual > 0 \|\| redeemPts > 0\)/);
-  assert.match(src, /tabSplitEqual\(cur, n, splitPrice\(cur, eqF\.code\), rate\)/, 'الحفظ على أحدث نسخة');
+  assert.match(src, /\.\.\.\(prt && prt\.eqItems \? \{ eqItems: prt\.eqItems \} : \{\}\)/);
+  assert.match(src, /retLines: C\.lines, \.\.\.posRetEqItems\(o, C\)/);
+  assert.match(src, /tabSplitEqual\(cur, n, splitPrice\(cur, code\), rate\)/, 'الحفظ على أحدث نسخة');
+});
+
+/* ---------------- (D) الكوبون مع التقسيم بالتساوي ---------------- */
+test('(D) الكوبون يُحجز مرة عند حفظ التقسيم (مفتاح النسخة)؛ يُحرَّر بإعادة التقسيم قبل أي دفع فقط، أو بعد إلغاء/إرجاع كل الأجزاء', () => {
+  const ta = tab({ rounds: [{ at: AT, lines: [{ productId: 'x', name: 'طبق', qty: 2, price: 50 }] }] });
+  const prs = [{ id: 'cp', name: 'كوبون', type: 'order', mode: 'amt', value: 6, code: 'T6', maxUses: 1 }];
+  // سيناريو المراجع: 100 على جزأين بكوبون 6 ⇒ 47 + 47 والخصم موزّع على الجزأين
+  const S = E.tabSplitEqual(ta, 2, E.posPriceCart(cart(ta), [{ id: 'x' }], prs, { now, code: 'T6', uses: {} }), 15);
+  const cp = { code: 'T6', id: 'cp', limited: true, use: E.EQ_CP_USE('sv1') };
+  let t = E.tabSplitSet(ta, S.parts, { at: AT, ver: 'sv1', cp }); assert.deepEqual(t.split.cp, cp); assert.equal(cp.use, 'eqs_sv1');
+  // إعادة التقسيم قبل أي دفع ⇒ يُحرَّر القديم
+  const t2 = E.tabSplitSet(t, E.tabSplitEqual(t, 2, E.posPriceCart(cart(t), [{ id: 'x' }], [], { now }), 15).parts, { at: AT, ver: 'sv2' });
+  assert.deepEqual(E.tabEqCpRelease(t, t2), cp); assert.equal(E.tabEqCpRelease(t, E.tabSplitReset(t)), cp, 'جولة جديدة قبل الدفع');
+  assert.equal(E.tabEqCpRelease(t, t), null, 'النسخة نفسها');
+  // دُفع الجزء 1 ⇒ لا تحرير بإعادة التقسيم (حصته من الخصم في فاتورة صادرة) والحجز يبقى على التقسيم
+  const [p1, p2] = t.split.parts; let tp = E.tabPayPart(t, p1.id, payO(t, p1, 'o1'), 'ك').tab;
+  assert.equal(E.tabEqCpRelease(tp, E.tabSplitReset(tp)), null); assert.deepEqual(E.tabSplitReset(tp).split.cp, cp); assert.deepEqual(E.tabSplitSet(tp, [], { at: AT }).split.cp, cp);
+  tp = E.tabPayPart(tp, p2.id, payO(tp, p2, 'o2'), 'ك').tab;
+  const o = (id, p, x = {}) => ({ id, no: 'ف-' + id, branchId: 'b1', date: D, kind: 'sale', status: 'paid', lines: p.lines, total: p.total, vat: p.vat, ...x });
+  const ops1 = { posOrders: [o('o1', p1, { status: 'void', voidNote: { no: 'م1' } }), o('o2', p2)] };
+  assert.equal(E.tabEqCpAllVoid(tp, ops1), null, 'إلغاء جزء واحد والآخر يحمل حصته ⇒ لا تحرير');
+  const ops2 = { posOrders: [...ops1.posOrders, { id: 'r2', kind: 'return', refId: 'o2', status: 'paid', retLines: [{ i: 0, qty: 1 }] }] };
+  assert.deepEqual(E.tabEqCpAllVoid(tp, ops2), cp, 'كل الأجزاء أُلغيت أو أُرجعت ⇒ يُحرَّر');
+  const tm = E.tabEqCpMark(tp, cp.use, AT); assert.equal(tm.split.cp.rel, AT); assert.equal(E.tabEqCpAllVoid(tm, ops2), null, 'مرة واحدة');
+  assert.equal(E.tabEqCpMark(tm, cp.use, 'X'), tm);
+  // جزء غير مدفوع ⇒ لا تحرير حتى لو أُلغي المدفوع
+  const tq = E.tabPayPart(t, p1.id, payO(t, p1, 'o1'), 'ك').tab; assert.equal(E.tabEqCpAllVoid(tq, ops1), null);
+  // نقل الكوبون (التقسيم بالأصناف) لا يعمل على تقسيم بالتساوي
+  assert.equal(E.tabCouponMove(tq, 'o1').to, '');
+});
+
+test('(D) سيناريو المراجع: كوبون محدود باستخدام واحد ودُفعت أجزاء قبل الجزء 1 ⇒ لا جزء عالق (الحجز عند الحفظ)، ولا استخدام مزدوج', () => {
+  const pr = [{ id: 'cp', name: 'كوبون', type: 'order', mode: 'amt', value: 6, code: 'T6', maxUses: 1 }];
+  const why = (uses) => E.couponWhy(pr, 'T6', { uses, sub: 100 }, now, 'b1');
+  const ta = tab({ rounds: [{ at: AT, lines: [{ productId: 'x', name: 'طبق', qty: 3, price: 50 }] }] });
+  const S = E.tabSplitEqual(ta, 3, E.posPriceCart(cart(ta), [{ id: 'x' }], pr, { now, code: 'T6', uses: {} }), 15);
+  // الحجز عند الحفظ باسم التقسيم ⇒ بيع آخر لا يأخذه
+  const uses = { t6: [{ id: 'eqs_sv1' }] }; assert.match(why(uses), /استُنفد/);
+  let t = E.tabSplitSet(ta, S.parts, { at: AT, ver: 'sv1', cp: { code: 'T6', id: 'cp', limited: true, use: 'eqs_sv1' } });
+  // تُدفع الأجزاء 3 ثم 2 ثم 1 بلا أي حجز للجزء (لا كوبون على جزء)
+  for (const k of [2, 1, 0]) { const p = t.split.parts[k]; assert.equal(E.tabPartPriced(p).codeOk, false); t = E.tabPayPart(t, p.id, payO(t, p, 'o' + k), 'ك').tab; }
+  assert.equal(t.status, 'paid'); assert.equal(uses.t6.filter(u => !u.rel).length, 1, 'استخدام واحد حي');
+});
+
+test('(5/D) التقسيم بالأصناف كما كان مع إغلاق السباق: الكوبون ينتقل بحجزه الحي نفسه (cpHeld) ولا تحرير ثم حجز', () => {
+  const ta = tab({ rounds: [{ at: AT, lines: [{ productId: 'x', name: 'طبق', qty: 3, price: 50 }] }] });
+  const cp = [{ id: 'cp', name: 'كوبون', type: 'order', mode: 'amt', value: 6, code: 'T6', maxUses: 1 }];
+  const S = E.tabSplitItems(ta, { 0: [1, 1, 1] }, 3, E.posPriceCart(cart(ta), [{ id: 'x' }], cp, { now, code: 'T6', uses: {} }));
+  let t = E.tabSplitSet(ta, S.parts, { at: AT }); const [p1, p2] = t.split.parts;
+  t = E.tabPayPart(t, p1.id, payO(t, p1, 'o1'), 'ك').tab;
+  const M = E.tabCouponMove(t, 'o1', AT, 'o1');
+  assert.equal(M.to, p2.id);
+  assert.deepEqual(M.tab.split.parts.map(p => [p.no, !!p.coupon, p.cpHeld || '']), [[1, false, ''], [2, true, 'o1'], [3, false, '']]);
+  assert.equal(E.tabPartPriced(M.tab.split.parts[1]).codeOk, true);
+  assert.equal(E.tabCouponMove(M.tab, 'o1', AT).to, '', 'مرة واحدة');
+  // إلغاء الجزء 2 بعد دفعه بالحجز المنقول ⇒ ينتقل الحجز نفسه مرة أخرى
+  let t2 = E.tabPayPart(M.tab, p2.id, payO(M.tab, M.tab.split.parts[1], 'o2'), 'ك').tab;
+  assert.equal(E.tabCouponMove(t2, 'o2', AT, 'o1').tab.split.parts[2].cpHeld, 'o1');
+  let tAll = E.tabSplitSet(ta, S.parts, { at: AT }); for (const [i, p] of tAll.split.parts.entries()) tAll = E.tabPayPart(tAll, p.id, payO(tAll, p, 'q' + i), 'ك').tab;
+  assert.equal(E.tabCouponMove({ ...tAll, status: 'open' }, 'q0').to, '', 'لا جزء متبقٍ ⇒ يحرّره المستدعي');
+  const src = fs.readFileSync(new URL('../mods/pos/PosApp.jsx', import.meta.url), 'utf8');
+  assert.match(src, /if \(priced\.coupon && priced\.coupon\.limited && !cpHeld\)/, 'لا حجز جديد للحجز المنقول');
+  assert.match(src, /else if \(o\.couponLtd\) cpnRelease\(o\.coupon, useId/, 'التحرير فقط حين لا نقل');
+  assert.doesNotMatch(src, /cpRel\.then\(okR/, 'لا تحرير ثم نقل');
+  assert.match(src, /const rv = await cpnReserve\(code, \{ id: cp0\.use/, 'الحجز عند حفظ التقسيم بالتساوي');
 });
 
 /* ---------------- (1) فجوات السلسلة دائمًا + تبدّل وسم الجهاز ---------------- */
@@ -141,103 +226,97 @@ test('(1) الفحص دائمًا لكل الفروع: تنبيه في الور�
   assert.match(cf, /posChainGapsDay\(posOrders, f\.branchId, f\.date\); if \(gp\.length\) add\('warn'/, 'تنبيه لا منع');
 });
 
-/* ---------------- (4) التعارضات ---------------- */
-const bm = { id: 'u-bm', name: 'مدير الفرع', role: 'branch_manager' }, cash = { id: 'u-c', name: 'كاشير ب', role: 'cashier' };
+/* ---------------- (4/E/F) التعارضات والسجل المحمي ---------------- */
+const bm = { id: 'u-bm', name: 'مدير الفرع', role: 'branch_manager', email: 'bm@t.sa' };
 const ops0 = () => {
-  const o1 = { id: 'o1', no: 'ف1-A-0001', branchId: 'b1', date: D, at: AT, status: 'paid', by: 'كاشير أ', total: 50, lines: [{ productId: 'k', name: 'كبسة', qty: 1, price: 50 }] };
-  const o2 = { id: 'o2', no: 'ف1-B-0001', branchId: 'b1', date: D, at: AT, status: 'paid', by: 'كاشير ب', byId: 'u-c', total: 50, lines: [{ productId: 'k', name: 'كبسة', qty: 1, price: 50 }] };
-  const t = { id: 't9', branchId: 'b1', table: '9', status: 'paid', orderId: 'o1', orderNo: o1.no, closedAt: AT, conflicts: [{ orderId: 'o2', orderNo: o2.no, at: AT, total: 50, partId: '', why: 'الحساب لم يعد مفتوحًا' }] };
+  const o1 = { id: 'o1', no: 'ف1-A-0001', branchId: 'b1', date: D, at: AT, kind: 'sale', status: 'paid', by: 'كاشير أ', total: 50, lines: [{ productId: 'k', name: 'كبسة', qty: 1, price: 50 }] };
+  const o2 = { id: 'o2', no: 'ف1-B-0001', branchId: 'b1', date: D, at: AT, kind: 'sale', status: 'paid', by: 'كاشير ب', byId: 'u-c', byEmail: 'c@t.sa', total: 50, lines: [{ productId: 'k', name: 'كبسة', qty: 1, price: 50 }] };
+  const t = { id: 't9', branchId: 'b1', table: '9', status: 'paid', orderId: 'o1', orderNo: o1.no, closedAt: AT, conflicts: [{ orderId: 'o2', orderNo: o2.no, at: AT, total: 50, partId: '', why: 'الحساب لم يعد مفتوحًا', off: true }] };
   return { posOrders: [o1, o2], posTabs: [t] };
 };
 const offOrg = { posCfg: { offline: true } };
+const R0 = (x = {}) => ({ branchId: 'b1', orderId: 'o2', tabId: 't9', act: 'keep', by: 'bm@t.sa', byName: 'مدير الفرع', at: AT, ...x });
 
-test('(4) دفع الحساب كاملًا من جهازين دون اتصال: الثاني يُسجَّل تعارضًا ولا يستبدل الختم؛ بلا العمل دون اتصال كما كان حرفيًا', () => {
+test('(4) دفع الحساب كاملًا من جهازين دون اتصال: الثاني يُسجَّل تعارضًا (موسومًا) ولا يستبدل الختم؛ بلا العمل دون اتصال كما كان حرفيًا', () => {
   const open = { id: 't9', branchId: 'b1', table: '9', status: 'open' }, o = { id: 'o2', no: 'N2', at: AT, total: 50 };
   assert.deepEqual(E.tabPayWhole(open, o, 'ك', true), { tab: { ...open, status: 'paid', orderId: 'o2', orderNo: 'N2', closedAt: AT, closedBy: 'ك' } });
   const paid = { ...open, status: 'paid', orderId: 'o1', orderNo: 'N1' };
   const R = E.tabPayWhole(paid, o, 'ك', true); assert.match(R.err, /لم يعد مفتوحًا/);
-  assert.deepEqual([R.tab.orderId, R.tab.conflicts.map(c => c.orderNo)], ['o1', ['N2']]);
+  assert.deepEqual([R.tab.orderId, R.tab.conflicts.map(c => [c.orderNo, c.off])], ['o1', [['N2', true]]]);
   assert.deepEqual(E.tabPayWhole(paid, o, 'ك', false), { tab: { ...paid, status: 'paid', orderId: 'o2', orderNo: 'N2', closedAt: AT, closedBy: 'ك' } }, 'بلا تفعيل: السلوك السابق');
 });
 
-test('(4) قائمة التعارضات ومانع الإغلاق: مع العمل دون اتصال فقط، ليوم الإغلاق، حتى يحسمها مدير الفرع', () => {
+test('(E) الحسم يُقرأ من السجل المحمي وحده — لا من مستند الفرع؛ ومانع الإغلاق فاشل مغلق؛ والمسجّل دون اتصال يبقى معتبرًا ولو أُطفئ المفتاح', () => {
   const ops = ops0();
-  assert.deepEqual(E.posConflicts(ops, 'b1').map(c => [c.table, c.orderNo, c.by, c.date, c.res]), [['9', 'ف1-B-0001', 'كاشير ب', D, null]]);
-  assert.equal(E.posConflicts(ops, 'b2').length, 0); assert.equal(E.posConflicts(ops, 'b1', '2026-11-21').length, 0);
-  assert.deepEqual(E.posConflictBlock({}, ops, 'b1', D), [], 'بلا العمل دون اتصال لا يمنع شيئًا');
-  assert.equal(E.posConflictBlock(offOrg, ops, 'b1', D).length, 1);
-  assert.equal(E.posConflictBlock(offOrg, ops, 'b1', '2026-11-21').length, 0, 'يوم آخر');
-  const R = E.posConflictResolve(ops, 't9', 'o2', 'keep', bm); assert.equal(R.err, undefined);
-  assert.deepEqual([R.res.act, R.res.by, R.res.byId, typeof R.res.at], ['keep', 'مدير الفرع', 'u-bm', 'string']);
-  const ops2 = { ...ops, posTabs: ops.posTabs.map(t => E.tabConflictSet(t, 'o2', R.res)) };
-  assert.equal(E.posConflictBlock(offOrg, ops2, 'b1', D).length, 0, 'بعد الحسم يُرحَّل الإغلاق');
-  assert.match(E.posConflictResolve(ops2, 't9', 'o2', 'void', bm).err, /سابقًا/);
-  assert.deepEqual(E.tabConflictSet(ops2.posTabs[0], 'o2', { act: 'void' }).conflicts[0].res.act, 'keep', 'المحسوم لا يُستبدل');
-  // الإغلاق اليومي يمنع الترحيل ويعرضه في الفحوص
-  const cf = fs.readFileSync(new URL('../mods/closing/ClosingForm.jsx', import.meta.url), 'utf8');
-  assert.match(cf, /if \(status === 'submitted'\) \{ const cf = posConflictBlock\(org, \{ posOrders, posTabs \}, f\.branchId, f\.date\);\s+if \(cf\.length\) \{ say\(/);
-  assert.match(cf, /if \(cf\.length\) add\('block'/);
-  assert.match(fs.readFileSync(new URL('../mods/closing/Closing.jsx', import.meta.url), 'utf8'), /posTabs=\{ops\.posTabs \|\| \[\]\}/);
+  assert.deepEqual(E.posConflicts(ops, 'b1', null, []).map(c => [c.table, c.orderNo, c.by, c.byEmail, c.date, c.off, c.res]), [['9', 'ف1-B-0001', 'كاشير ب', 'c@t.sa', D, true, null]]);
+  // حسم مزوّر في مستند الفرع لا يُعتد به
+  const forged = { ...ops, posTabs: [{ ...ops.posTabs[0], conflicts: [{ ...ops.posTabs[0].conflicts[0], res: { act: 'keep' }, resAt: AT }] }] };
+  assert.equal(E.posConflictBlock(offOrg, forged, 'b1', D, []).length, 1, 'res في مستند الفرع لا يحسم');
+  assert.equal(E.posConflictBlock(offOrg, ops, 'b1', D, null).length, 1, 'تعذّر قراءة السجل ⇒ غير محسوم');
+  assert.equal(E.posConflictBlock(offOrg, ops, 'b1', D, [R0()]).length, 0, 'محسوم في السجل المحمي');
+  assert.equal(E.posConflictBlock(offOrg, ops, 'b1', D, [R0({ branchId: 'b2' })]).length, 1, 'حسم بفرع آخر لا يُعتد به');
+  assert.equal(E.posConflictBlock({}, ops, 'b1', D, []).length, 1, 'المسجّل دون اتصال يبقى ظاهرًا ولو أُطفئ المفتاح');
+  const legacy = { ...ops, posTabs: [{ ...ops.posTabs[0], conflicts: [{ ...ops.posTabs[0].conflicts[0], off: undefined }] }] };
+  assert.equal(E.posConflictBlock({}, legacy, 'b1', D, []).length, 0, 'تعارض v56.52 القديم بلا وسم وبلا تفعيل ⇒ لا منع جديد');
+  assert.equal(E.posConflictBlock(offOrg, legacy, 'b1', D, []).length, 1);
+  assert.equal(E.posConflictBlock(offOrg, ops, 'b1', '2026-11-21', []).length, 0, 'يوم آخر');
 });
 
-test('(4) من يحسم: مدير الفرع ومسؤول النظام فقط، ولا يحسمه من أصدر الفاتورة؛ «إلغاء بمرتجع» يتطلب مستند مرتجع (لا حذف)', () => {
+test('(E) posConflictResolve: مدير الفرع ومسؤول النظام فقط، ولا يحسمه المُصدِر (المعرّف ثم البريد ثم الاسم)، و«إلغاء بمرتجع» بمستند؛ ويعيد محتوى السجل المحمي', () => {
   const ops = ops0();
-  for (const role of ['cashier', 'regional_manager', 'head_office', 'accountant', 'general_management']) assert.match(E.posConflictResolve(ops, 't9', 'o2', 'keep', { id: 'x', name: 'س', role }).err, /لمدير الفرع/, role);
-  assert.equal(E.posConflictResolve(ops, 't9', 'o2', 'keep', { id: 'sa', name: 'مسؤول', role: 'system_admin' }).err, undefined);
-  assert.match(E.posConflictResolve(ops, 't9', 'o2', 'keep', { id: 'u-c', name: 'آخر', role: 'branch_manager' }).err, /من أصدر الفاتورة/, 'بالمعرّف');
-  assert.match(E.posConflictResolve({ ...ops, posTabs: [{ ...ops.posTabs[0], conflicts: [{ ...ops.posTabs[0].conflicts[0], orderId: 'o1' }] }] }, 't9', 'o1', 'keep', { id: 'z', name: 'كاشير أ', role: 'branch_manager' }).err, /من أصدر/, 'بالاسم حين لا معرّف');
-  assert.match(E.posConflictResolve(ops, 't9', 'o2', 'delete', bm).err, /إبقاء/);
-  assert.match(E.posConflictResolve(ops, 't9', 'oZ', 'keep', bm).err, /غير موجود/);
-  assert.match(E.posConflictResolve({ ...ops, posOrders: [ops.posOrders[0]] }, 't9', 'o2', 'keep', bm).err, /لم تصل/);
-  // إلغاء بمرتجع: بلا مرتجع ⇒ رفض؛ مرتجع جزئي ⇒ رفض؛ مرتجع كامل أو إشعار دائن ⇒ يُسجَّل رقم المستند
-  assert.match(E.posConflictResolve(ops, 't9', 'o2', 'void', bm).err, /مرتجعًا كاملًا/);
+  for (const role of ['cashier', 'regional_manager', 'head_office', 'accountant', 'general_management']) assert.match(E.posConflictResolve(ops, 't9', 'o2', 'keep', { id: 'x', name: 'س', role }, []).err, /لمدير الفرع/, role);
+  const R = E.posConflictResolve(ops, 't9', 'o2', 'keep', bm, []);
+  assert.deepEqual(R.rec, { branchId: 'b1', orderId: 'o2', tabId: 't9', act: 'keep', byName: 'مدير الفرع' }, 'by/at/cv يضيفها الكاتب والقواعد');
+  assert.match(E.posConflictResolve(ops, 't9', 'o2', 'keep', bm, [R0()]).err, /سابقًا/);
+  assert.equal(E.posConflictResolve(ops, 't9', 'o2', 'keep', { id: 'sa', name: 'مسؤول', role: 'system_admin' }, []).err, undefined);
+  assert.match(E.posConflictResolve(ops, 't9', 'o2', 'keep', { id: 'u-c', name: 'آخر', role: 'branch_manager' }, []).err, /من أصدر/, 'بالمعرّف');
+  const noId = { ...ops, posOrders: [ops.posOrders[0], { ...ops.posOrders[1], byId: undefined }] };
+  assert.match(E.posConflictResolve(noId, 't9', 'o2', 'keep', { id: 'z', name: 'آخر', role: 'branch_manager', email: 'C@t.sa' }, []).err, /من أصدر/, 'بالبريد');
+  const byName = { ...ops, posTabs: [{ ...ops.posTabs[0], conflicts: [{ ...ops.posTabs[0].conflicts[0], orderId: 'o1' }] }] };
+  assert.match(E.posConflictResolve(byName, 't9', 'o1', 'keep', { id: 'z', name: 'كاشير أ', role: 'branch_manager' }, []).err, /من أصدر/, 'بالاسم حين لا معرّف ولا بريد');
+  assert.match(E.posConflictResolve(ops, 't9', 'o2', 'delete', bm, []).err, /إبقاء/);
+  assert.match(E.posConflictResolve(ops, 't9', 'oZ', 'keep', bm, []).err, /غير موجود/);
+  assert.match(E.posConflictResolve({ ...ops, posOrders: [ops.posOrders[0]] }, 't9', 'o2', 'keep', bm, []).err, /لم تصل/);
+  assert.match(E.posConflictResolve(ops, 't9', 'o2', 'void', bm, []).err, /مرتجعًا كاملًا/);
   const o2 = ops.posOrders[1];
-  const twoQ = { ...ops, posOrders: [ops.posOrders[0], { ...o2, lines: [{ ...o2.lines[0], qty: 2 }] }, { id: 'r1', kind: 'return', refId: 'o2', no: 'م1-B-0001', status: 'paid', retLines: [{ i: 0, qty: 1 }] }] };
-  assert.match(E.posConflictResolve(twoQ, 't9', 'o2', 'void', bm).err, /مرتجعًا كاملًا/, 'مرتجع جزئي');
+  const part = { ...ops, posOrders: [ops.posOrders[0], { ...o2, lines: [{ ...o2.lines[0], qty: 2 }] }, { id: 'r1', kind: 'return', refId: 'o2', no: 'م1-B-0001', status: 'paid', retLines: [{ i: 0, qty: 1 }] }] };
+  assert.match(E.posConflictResolve(part, 't9', 'o2', 'void', bm, []).err, /مرتجعًا كاملًا/, 'مرتجع جزئي');
   const full = { ...ops, posOrders: [...ops.posOrders, { id: 'r1', kind: 'return', refId: 'o2', no: 'م1-B-0001', status: 'paid', retLines: [{ i: 0, qty: 1 }] }] };
-  assert.deepEqual([E.posConflictResolve(full, 't9', 'o2', 'void', bm).res.act, E.posConflictResolve(full, 't9', 'o2', 'void', bm).res.doc], ['void', 'م1-B-0001']);
+  assert.deepEqual(E.posConflictResolve(full, 't9', 'o2', 'void', bm, []).rec, { branchId: 'b1', orderId: 'o2', tabId: 't9', act: 'void', byName: 'مدير الفرع', doc: 'م1-B-0001', retId: 'r1' });
   const vd = { ...ops, posOrders: [ops.posOrders[0], { ...o2, status: 'void', voidNote: { no: 'م1-B-0002' } }] };
-  assert.equal(E.posConflictResolve(vd, 't9', 'o2', 'void', bm).res.doc, 'م1-B-0002');
+  assert.deepEqual([E.posConflictResolve(vd, 't9', 'o2', 'void', bm, []).rec.doc, 'retId' in E.posConflictResolve(vd, 't9', 'o2', 'void', bm, []).rec], ['م1-B-0002', false]);
   assert.deepEqual(E.POS_CONFLICT_ROLES, ['branch_manager', 'system_admin']);
 });
 
-test('(4) التقليم: حساب عليه تعارض لم يُحسم يبقى حتى 60 يومًا، والمحسوم يُقلَّم بعد 7 كما كان', () => {
-  const t = (id, closedAt, res) => ({ id, branchId: 'b1', status: 'paid', closedAt, conflicts: [{ orderId: 'o', ...(res ? { res: { act: 'keep' } } : {}) }] });
-  const d = E.posTrim({ posTabs: [t('a', '2026-11-01T10:00:00Z'), t('b', '2026-11-01T10:00:00Z', true), t('c', '2026-09-01T10:00:00Z'), { id: 'd', status: 'paid', closedAt: '2026-11-01T10:00:00Z' }] }, '2026-11-27');
-  assert.deepEqual(d.posTabs.map(x => x.id), ['a']);
+test('(E) الكتابة والقراءة المحمية: pos_conflict_res/{orderId} ببريد الحساب ووقت الخادم؛ بلا هوية ⇒ رفض صريح؛ ورفض القواعد برسالة', async () => {
+  const W = []; const mk = (fail) => ({ email: 'bm@t.sa', f: { db: 'DB', doc: (db, c, id) => ({ c, id }), serverTimestamp: () => 'TS', collection: (db, c) => ({ c }), query: (col, w) => ({ ...col, w }), where: (k, op, v) => [k, op, v],
+    setDoc: async (ref, data) => { if (fail) { const e = new Error('x'); e.code = 'permission-denied'; throw e; } W.push([ref, data]); },
+    getDocs: async (q) => ({ docs: [{ id: 'o2', data: () => ({ branchId: 'b1', act: 'keep', by: 'bm@t.sa', at: { toDate: () => new Date(AT) } }) }] }) } });
+  const rec = { branchId: 'b1', orderId: 'o2', tabId: 't9', act: 'keep', byName: 'م' };
+  assert.deepEqual(await E.pcrWrite(rec, mk()), { ok: true });
+  assert.deepEqual(W[0][0], { c: 'pos_conflict_res', id: 'o2' }); assert.equal(W[0][1].by, 'bm@t.sa'); assert.equal(W[0][1].at, 'TS'); assert.equal(typeof W[0][1].cv, 'number');
+  assert.match((await E.pcrWrite(rec, mk(true))).err, /رفضت القواعد/);
+  const L = await E.pcrLoad(['b1'], false, mk()); assert.deepEqual(L, [{ id: 'o2', branchId: 'b1', act: 'keep', by: 'bm@t.sa', at: AT, orderId: 'o2' }]);
+  assert.deepEqual(E.pcrCached(), L);
+  const shifts = fs.readFileSync(new URL('../mods/pos/PosShifts.jsx', import.meta.url), 'utf8');
+  assert.match(shifts, /const W = await pcrWrite\(pre\.rec\); if \(W\.err\) return say\(W\.err, 'no'\);/, 'لا حسم بلا السجل المحمي');
+  assert.doesNotMatch(shifts, /tabConflictSet/);
+  const rules = fs.readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
+  assert.match(rules, /match \/pos_conflict_res\/\{id\} \{\s+allow read: if sigRead\(resource\.data\.branchId\);\s+allow create: if pcrCreate\(id, request\.resource\.data\);\s+allow update, delete: if false;/);
+  assert.match(rules, /get\(op\)\.data\.by != userEmail\(\)/, 'فصل المهام بالبريد من السجل المحمي');
 });
 
-/* ---------------- (5) الكوبون على جزء ملغى ---------------- */
-test('(5) إلغاء الجزء الذي يحمل الكوبون: ينتقل إلى أول جزء غير مدفوع (فيُستهلك عند دفعه)، مرة واحدة، ولا نقل بلا جزء متبقٍ', () => {
-  const ta = tab({ rounds: [{ at: AT, lines: [{ productId: 'x', name: 'طبق', qty: 3, price: 50 }] }] });
-  const cp = [{ id: 'cp', name: 'كوبون', type: 'order', mode: 'amt', value: 6, code: 'T6', maxUses: 1 }];
-  const S = E.tabSplitEqual(ta, 3, E.posPriceCart(cart(ta), [{ id: 'x' }], cp, { now, code: 'T6', uses: {} }), 15);
-  let t = E.tabSplitSet(ta, S.parts, { at: AT }); const [p1, p2, p3] = t.split.parts;
-  t = E.tabPayPart(t, p1.id, payO(t, p1, 'o1'), 'ك').tab;
-  const M = E.tabCouponMove(t, 'o1', AT);
-  assert.equal(M.to, p2.id);
-  assert.deepEqual(M.tab.split.parts.map(p => [p.no, !!p.coupon, !!p.orderId]), [[1, false, true], [2, true, false], [3, false, false]]);
-  assert.deepEqual(M.tab.split.parts[0].cpMoved, { to: p2.id, at: AT });
-  assert.equal(E.tabPartPriced(M.tab.split.parts[1]).codeOk, true, 'يُحجز الكوبون عند دفع الجزء 2');
-  assert.deepEqual(M.tab.split.parts.map(p => p.total), t.split.parts.map(p => p.total), 'المبالغ لا تتغيّر');
-  // التكرار لا يغيّر شيئًا
-  const M2 = E.tabCouponMove(M.tab, 'o1', AT); assert.equal(M2.to, ''); assert.equal(M2.tab, M.tab);
-  // جزء بلا كوبون أو حساب مغلق أو لا جزء متبقٍ ⇒ لا نقل
-  assert.equal(E.tabCouponMove(M.tab, 'oX').to, '');
-  assert.equal(E.tabCouponMove({ ...t, status: 'paid' }, 'o1').to, '');
-  let tAll = E.tabSplitSet(ta, S.parts, { at: AT }); for (const [i, p] of tAll.split.parts.entries()) tAll = E.tabPayPart(tAll, p.id, payO(tAll, p, 'q' + i), 'ك').tab;
-  assert.equal(E.tabCouponMove({ ...tAll, status: 'open' }, 'q0').to, '', 'كل الأجزاء مدفوعة ⇒ يبقى الكوبون محرّرًا فقط');
-});
-
-test('(5) لا استخدام مزدوج: الحجز المحرَّر لا يُحتسب، والحجز الحي الثاني يُرفض؛ والنقل بعد نجاح التحرير فقط', () => {
-  const pr = [{ id: 'cp', name: 'كوبون', type: 'order', mode: 'amt', value: 6, code: 'T6', maxUses: 1 }];
-  const why = (uses) => E.couponWhy(pr, 'T6', { uses, sub: 100 }, now, 'b1');
-  assert.match(why({ t6: [{ id: 'o1' }] }), /استُنفد/, 'الجزء 1 يستهلكه');
-  assert.equal(why({ t6: [{ id: 'o1', rel: AT }] }), null, 'بعد إلغاء الجزء 1 وتحريره صالح من جديد');
-  assert.match(why({ t6: [{ id: 'o1', rel: AT }, { id: 'o2' }] }), /استُنفد/, 'الجزء 2 استهلكه ⇒ لا ثالث');
-  const src = fs.readFileSync(new URL('../mods/pos/PosApp.jsx', import.meta.url), 'utf8');
-  assert.match(src, /cpRel\.then\(okR => \{ if \(!okR\) return say\(/, 'لا نقل إن فشل التحرير');
-  assert.match(src, /const M = tabCouponMove\(t, o\.id\)/);
+test('(F) تعارض وصل بعد ترحيل إغلاق يومه يوسم الإغلاق، ويظهر في مهام الإقفال، ولا يُقلَّم أبدًا ما لم يُحسم', () => {
+  const ops = { ...ops0(), closings: [{ id: 'c1', branchId: 'b1', date: D, status: 'submitted' }, { id: 'c0', branchId: 'b1', date: '2026-11-19', status: 'approved' }, { id: 'c2', branchId: 'b1', date: D, status: 'draft' }] };
+  assert.deepEqual(E.posConflictLate({}, ops, []), [{ closingId: 'c1', branchId: 'b1', date: D, n: 1 }]);
+  assert.deepEqual(E.posConflictLate({}, ops, [R0()]), []);
+  const ck = (res) => E.closeAutoChecks({ entries: [] }, { ...ops, posConflictRes: res }, '2026-11', {}).find(x => x.k === 'posconf');
+  assert.deepEqual([ck([]).n, ck([]).ok], [1, false]); assert.equal(ck([R0()]), undefined);
+  assert.equal(E.closeAutoChecks({ entries: [] }, { ...ops, posTabs: [] }, '2026-11', {}).find(x => x.k === 'posconf'), undefined, 'بلا تعارضات لا بند');
+  const t = (id, closedAt, c) => ({ id, branchId: 'b1', status: 'paid', closedAt, conflicts: [{ orderId: 'o', ...c }] });
+  const d = E.posTrim({ posTabs: [t('a', '2025-01-01T10:00:00Z', { off: true }), t('b', '2026-11-01T10:00:00Z', { off: true, resAt: AT }), t('c', '2026-11-01T10:00:00Z', {}), t('d', '2026-09-01T10:00:00Z', {}), { id: 'e', status: 'paid', closedAt: '2026-11-01T10:00:00Z' }] }, '2026-11-27');
+  assert.deepEqual(d.posTabs.map(x => x.id), ['a', 'c'], 'دون اتصال غير محسوم: أبدًا؛ القديم بلا وسم: 60 يومًا؛ المحسوم: 7 كما كان');
+  assert.match(fs.readFileSync(new URL('../mods/closing/Closing.jsx', import.meta.url), 'utf8'), /data-lateconf/);
 });
 
 /* ---------------- متابعات v56.54 ---------------- */
@@ -309,4 +388,18 @@ test('(a) دون شبكة ظاهرًا عند فتح الصفحة ⇒ المخز
   await S3.fire('fetch', { url: 'https://pos.example/assets/new-AbC123xy.js', method: 'GET', mode: 'cors' }); await new Promise(r => setTimeout(r, 10));
   assert.equal(S3.store.get('muktasab-pos-shell-v56.56').size, 80);
   const src = fs.readFileSync(new URL('../public/pos-sw.js', import.meta.url), 'utf8'); assert.match(src, /var MAX_ENTRIES = 80;/);
+});
+
+test('(G) حد الكاش يشمل الصفحات: الممتلئ لا يُضاف إليه صفحة جديدة ويُحدَّث الموجود؛ والقائمة المقصوصة تُعلَّم ولا تُسقط بصمت', async () => {
+  const full = () => new Map(Array.from({ length: 80 }, (_, i) => ['https://pos.example/assets/f' + i + '-AbC123xy.js', 'x']));
+  const S = loadSw({ fetch: async (r, res) => res('NET') }); S.store.set('muktasab-pos-shell-v56.56', full());
+  await S.fire('fetch', { url: 'https://pos.example/', method: 'GET', mode: 'navigate' }); await new Promise(r => setTimeout(r, 15));
+  assert.equal(S.store.get('muktasab-pos-shell-v56.56').has('https://pos.example/'), false, 'صفحة جديدة فوق الحد لا تُخزَّن');
+  const m = full(); m.delete('https://pos.example/assets/f0-AbC123xy.js'); m.set('https://pos.example/', 'OLD'); S.store.set('muktasab-pos-shell-v56.56', m);
+  await S.fire('fetch', { url: 'https://pos.example/', method: 'GET', mode: 'navigate' }); await new Promise(r => setTimeout(r, 15));
+  assert.equal(S.store.get('muktasab-pos-shell-v56.56').get('https://pos.example/').body, 'NET', 'الموجود يُحدَّث'); assert.equal(S.store.get('muktasab-pos-shell-v56.56').size, 80);
+  const warn = console.warn; const W = []; console.warn = (x) => W.push(x);
+  try { assert.deepEqual(await E.posSwShellList(async () => ({ ok: true, json: async () => ({ files: ['/assets/a-AbC123xy.js'], truncated: true, total: 75 }) }), '/p'), ['/assets/a-AbC123xy.js']); } finally { console.warn = warn; }
+  assert.match(W.join(' '), /مقصوص \(75/);
+  assert.match(fs.readFileSync(new URL('../vite.config.js', import.meta.url), 'utf8'), /truncated: true, total: all\.length/);
 });

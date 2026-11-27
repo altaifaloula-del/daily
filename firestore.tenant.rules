@@ -475,6 +475,44 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    /* ===== v56.56 (قرار المجلس E) — حسم تعارضات فواتير نقطة البيع بعد عودة الاتصال: سجل للإضافة فقط pos_conflict_res/{orderId} =====
+       الحاسم مدير الفرع أو مسؤول النظام لفرعه، والكاتب = الحساب ووقت الخادم، ولا تعديل ولا حذف (المعرّف = الفاتورة ⇒ حسم واحد).
+       فصل المهام: الحاسم ليس من أنشأ السجل المحمي للفاتورة (pos_orders.by). «إلغاء بمرتجع»: الفاتورة ملغاة في سجلها المحمي،
+       أو مرتجع محمي غير ملغى من الفرع نفسه يشير إليها (refId في محتواه) — لا حذف أبدًا. */
+    function pcrShape(d, id) {
+      return d.keys().hasOnly(['branchId', 'orderId', 'tabId', 'act', 'doc', 'retId', 'byName', 'by', 'at', 'cv'])
+        && d.keys().hasAll(['branchId', 'orderId', 'tabId', 'act', 'by', 'at', 'cv'])
+        && d.branchId is string && d.branchId.matches('^[A-Za-z0-9_-]{1,80}$')
+        && id.matches('^[A-Za-z0-9_-]{1,120}$') && d.orderId == id
+        && shortStr(d.tabId, 120) && d.act in ['keep', 'void']
+        && (!('doc' in d) || shortStr(d.doc, 200)) && (!('byName' in d) || shortStr(d.byName, 200))
+        && (!('retId' in d) || (d.retId is string && d.retId.matches('^[A-Za-z0-9_-]{1,120}$')))
+        && d.by == userEmail() && d.at == request.time && cvOk(d);
+    }
+    function pcrRetOk(d, id) {
+      return ('retId' in d)
+        && exists(/databases/$(database)/documents/pos_orders/$(d.retId))
+        && get(/databases/$(database)/documents/pos_orders/$(d.retId)).data.kind == 'return'
+        && get(/databases/$(database)/documents/pos_orders/$(d.retId)).data.status == 'paid'
+        && get(/databases/$(database)/documents/pos_orders/$(d.retId)).data.branchId == d.branchId
+        && get(/databases/$(database)/documents/pos_orders/$(d.retId)).data.data.matches('.*"refId":"' + id + '".*');
+    }
+    function pcrCreate(id, d) {
+      let m = memOf();
+      let adm = admOf(m);
+      let op = /databases/$(database)/documents/pos_orders/$(id);
+      return okUser(m, adm) && pcrShape(d, id) && branchOf(m, adm, d.branchId)
+        && roleIn(['branch_manager', 'system_admin'], roleOf(m), adm)
+        && exists(op) && get(op).data.branchId == d.branchId && get(op).data.kind == 'sale'
+        && get(op).data.by != userEmail()
+        && (d.act == 'keep' || get(op).data.status == 'void' || pcrRetOk(d, id));
+    }
+    match /pos_conflict_res/{id} {
+      allow read: if sigRead(resource.data.branchId);
+      allow create: if subOk() && (pcrCreate(id, request.resource.data));
+      allow update, delete: if false;
+    }
+
     /* ===== v56.17 — MUKTASAB GROWTH الدفعة 2: سجلات الموافقة التسويقية وحركات الولاء للإضافة فقط (نسخ موازٍ — docs/growth/GROWTH_RECORDS_DESIGN.md) =====
        السجل لا يُعدَّل ولا يُحذف أبدًا: إلغاء الاشتراك أو تصحيح النقاط حركة جديدة. الكاتب = الحساب، والوقت = وقت الخادم.
        رقم الفرع فارغ ⇒ سجل مركزي (للمركز وحده كتابةً وقراءةً)؛ وإلا فلعضو ذلك الفرع والمركز. */

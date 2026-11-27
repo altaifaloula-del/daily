@@ -15,4 +15,8 @@ export default {
 "المتبقي من تقسيم سابق بالتساوي — ادفعه كاملًا": "The remainder is from a previous equal split — pay it in full",
 "عدد الأجزاء من 2 إلى 20": "Number of parts must be 2 to 20",
 "تعذّر تحرير الكوبون الآن — لم يُنقل إلى جزء آخر": "Could not release the coupon now — it was not moved to another part",
+"يتطلب الحسم الاتصال بالسجلات المحمية (Firestore)": "Resolution requires a connection to the protected records (Firestore)",
+"تعذّر حفظ الحسم — أعد المحاولة": "Could not save the resolution — try again",
+"كل تعارضات فواتير نقطة البيع بعد عودة الاتصال حُسمت من مدير الفرع (نقطة البيع ← الورديات والتقارير)": "All POS invoice conflicts after reconnect were resolved by the branch manager (POS → Shifts & reports)",
+"المبلغ أصغر من أن يُقسَّم على هذا العدد": "The amount is too small to split into this many parts",
 };

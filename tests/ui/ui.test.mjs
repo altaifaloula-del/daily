@@ -4882,7 +4882,7 @@ test('v56.55 البند F الرقم الضريبي المقروء: للمورد
   assert.deepEqual(errs, []); await ctx.close();
 });
 
-test('v56.56 قرارات المالك: فحص الفجوات بلا العمل دون اتصال، التقسيم بالتساوي ودفع أجزائه، وحسم مدير الفرع للتعارض', async () => {
+test('v56.56 قرارات المالك والمجلس: فحص الفجوات بلا العمل دون اتصال، التقسيم بالتساوي بسطر ملخّص ودفع أجزائه ومرتجع جزء بعد Z، وحسم التعارض من السجل المحمي', async () => {
   const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/PosApp/bm');
   const d = await p.evaluate(() => new Date().toISOString().slice(0, 10)), AT = d + 'T10:00:00Z';
   await p.evaluate(() => { window.setOrg(g => ({ ...g, posCfg: { branches: ['b1'], autoPrint: false, tables: { b1: 6 }, rest: { split: true } }, posPromos: [],
@@ -4897,11 +4897,18 @@ test('v56.56 قرارات المالك: فحص الفجوات بلا العمل 
   assert.deepEqual(await p.locator('[data-eqtotal]').allInnerTexts(), ['58.26', '58.26', '58.28']);
   await p.click('[data-spliteqsave]'); await p.waitForTimeout(300);
   assert.deepEqual(await p.evaluate(() => window.cur.posTabs[0].split.parts.map(x => [x.no, x.total, x.vat, x.eq.n])), [[1, 58.26, 7.6, 3], [2, 58.26, 7.6, 3], [3, 58.28, 7.6, 3]]);
-  const payPart = async (n) => { await p.click('.pos-tabs button:has-text("الطاولات")'); await p.waitForTimeout(200); await p.click('[aria-label="طاولة 2"]'); await p.waitForTimeout(150);
-    await p.click('[data-part="' + n + '"] button'); await p.waitForTimeout(200); await p.click('.pos-cart button:has-text("نقدي")'); await p.waitForTimeout(200); await p.click('.modal button:has-text("تأكيد")'); await p.waitForTimeout(500); };
-  await payPart(1); await payPart(2); await payPart(3);
-  const r = await p.evaluate(() => ({ o: window.cur.posOrders.map(o => [o.tabPart, o.total, o.vat, o.net, (o.tabEq || {}).n]).sort((a, b) => a[0] - b[0]), tab: window.cur.posTabs[0].status, h: window.cur.posOrders.every(o => o.hash && o.icv) }));
-  assert.deepEqual(r, { o: [[1, 58.26, 7.6, 50.66, 3], [2, 58.26, 7.6, 50.66, 3], [3, 58.28, 7.6, 50.68, 3]], tab: 'paid', h: true }, 'المجموع 174.80 وضريبته 22.80 تمامًا');
+  const payPart = async (n, m = 'نقدي') => { await p.click('.pos-tabs button:has-text("الطاولات")'); await p.waitForTimeout(200); await p.click('[aria-label="طاولة 2"]'); await p.waitForTimeout(150);
+    await p.click('[data-part="' + n + '"] button'); await p.waitForTimeout(200); await p.click('.pos-cart button:has-text("' + m + '")'); await p.waitForTimeout(200); await p.click('.modal button:has-text("تأكيد")'); await p.waitForTimeout(500); };
+  await payPart(1, 'شبكة'); await payPart(2); await payPart(3);
+  const r = await p.evaluate(() => ({ o: window.cur.posOrders.map(o => [o.tabPart, o.total, o.vat, o.net, (o.tabEq || {}).n, o.lines.map(l => [l.name, l.qty, l.price]), (o.eqItems || []).length, !!o.byId]).sort((a, b) => a[0] - b[0]), tab: window.cur.posTabs[0].status, h: window.cur.posOrders.every(o => o.hash && o.icv) }));
+  assert.deepEqual(r, { o: [[1, 58.26, 7.6, 50.66, 3, [['حصة 1 من 3 — فاتورة الطاولة 2', 1, 58.26]], 3, true], [2, 58.26, 7.6, 50.66, 3, [['حصة 2 من 3 — فاتورة الطاولة 2', 1, 58.26]], 3, true], [3, 58.28, 7.6, 50.68, 3, [['حصة 3 من 3 — فاتورة الطاولة 2', 1, 58.28]], 3, true]], tab: 'paid', h: true }, 'سطر ملخّص واحد، وضريبة كل جزء round(المبلغ×15÷115)');
+  // (C) مرتجع كامل للجزء 1 من شاشة المرتجع العادية بعد تقرير Z (الوردية مغلقة) — يُرد بالشبكة ويعكس تفصيل أصنافه
+  await p.evaluate(() => { localStorage.removeItem('mizan:posShiftLocal'); window.setOrg(g => ({ ...g, posCfg: { ...g.posCfg, returns: true } })); window.setOps(o => ({ ...o, posShifts: (o.posShifts || []).map(s => ({ ...s, status: 'closed' })) })); }); await p.waitForTimeout(400);
+  await p.click('.pos-tabs button:has-text("الفواتير")'); await p.waitForTimeout(300);
+  await p.locator('tr:has-text("حصة 1 من 3") button:has-text("مرتجع")').first().click(); await p.waitForTimeout(250);
+  await p.fill('input[aria-label="كمية مرتجع حصة 1 من 3 — فاتورة الطاولة 2"]', '1'); await p.locator('.modal button:has-text("حفظ")').last().click(); await p.waitForTimeout(500);
+  const rt = await p.evaluate(() => { const r = window.cur.posOrders.find(o => o.kind === 'return'); return r && [r.total, r.vat, r.payments[0].m, r.eqItems.map(l => [l.productId, l.qty])]; });
+  assert.deepEqual(rt, [-58.26, -7.6, 'card', [['k', 0.666], ['h', 1], ['t', 0.333]]], 'مرتجع الجزء كاملًا بعد Z');
   // (1) فجوات السلسلة تظهر بلا العمل دون اتصال (تنبيه)
   await p.evaluate((d) => { const o = (no, icv, pih, hash) => ({ id: 'g' + icv, no, branchId: 'b1', dev: 'ZZ99', date: d, at: d + 'T09:0' + icv + ':00Z', kind: 'sale', status: 'paid', total: 10, vat: 1.3, lines: [], payments: [{ m: 'cash', amount: 10 }], icv, pih, hash });
     window.setOps(x => ({ ...x, posOrders: [...x.posOrders, o('ف1-A', 1, '0', 'h1'), o('ف1-C', 3, 'h2', 'h3')] })); }, d); await p.waitForTimeout(300);
@@ -4917,8 +4924,8 @@ test('v56.56 قرارات المالك: فحص الفجوات بلا العمل 
   await p.click('[data-conflict="ف1-X-0001"] [data-conflictvoid]'); await p.waitForTimeout(300);
   assert.match(await say(p), /مرتجعًا كاملًا/, 'إلغاء بمرتجع بلا مستند مرتجع ⇒ رفض');
   await p.click('[data-conflict="ف1-X-0001"] [data-conflictkeep]'); await p.waitForTimeout(400);
-  const res = await p.evaluate(() => window.cur.posTabs.find(t => t.id === 'tc').conflicts[0].res);
-  assert.deepEqual([res.act, res.by, !!res.at], ['keep', 'خالد', true]);
-  assert.equal(await p.locator('[data-conflictres="keep"]').count(), 1);
+  assert.match(await say(p), /يتطلب الحسم الاتصال بالسجلات المحمية/, '(E) لا حسم بلا السجل المحمي pos_conflict_res — ولا يُكتب في مستند الفرع');
+  assert.equal(await p.evaluate(() => JSON.stringify(window.cur.posTabs.find(t => t.id === 'tc').conflicts[0])).then(x => /"res"|resAt/.test(x)), false);
+  assert.equal(await p.locator('[data-conflictres]').count(), 0);
   assert.deepEqual(errs, []); await ctx.close();
 });

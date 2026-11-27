@@ -397,3 +397,39 @@ test('v56.46 حجوزات البيع الآجل وسجل تفويضه للخاد
     }
   }
 });
+
+test('v56.56 (قرار المجلس E) حسم تعارضات نقطة البيع pos_conflict_res: مدير الفرع غير المُصدِر لفرعه فقط، للإضافة فقط، و«إلغاء بمرتجع» بمستند محمي', async () => {
+  const po = (by, x = {}) => ({ branchId: 'A', date: '2026-11-26', kind: 'sale', status: 'paid', no: 'ف1-X', dev: 'AB', total: 50, vat: 6.52, digest: HEX, data: '{"id":"x"}', by: U[by], at: Timestamp.now(), cv: 400000, ...x });
+  await env.withSecurityRulesDisabled(async (ctx) => { const d = ctx.firestore();
+    await setDoc(doc(d, 'pos_orders', 'pc1'), po('cash')); await setDoc(doc(d, 'pos_orders', 'pc2'), po('bm')); await setDoc(doc(d, 'pos_orders', 'pc3'), po('cash'));
+    await setDoc(doc(d, 'pos_orders', 'pc4'), po('cash', { status: 'void', voidData: '{}' })); await setDoc(doc(d, 'pos_orders', 'pc6'), po('cash'));
+    await setDoc(doc(d, 'pos_orders', 'pr3'), po('bm', { kind: 'return', total: -50, vat: -6.52, data: '{"id":"pr3","kind":"return","refId":"pc3"}' }));
+    await setDoc(doc(d, 'pos_orders', 'pr9'), po('bm', { kind: 'return', total: -50, vat: -6.52, data: '{"id":"pr9","kind":"return","refId":"other"}' })); });
+  const rec = (k, oid, x = {}) => ({ branchId: 'A', orderId: oid, tabId: 't9', act: 'keep', byName: 'م', by: U[k], at: serverTimestamp(), cv: 400000, ...x });
+  const put = (k, oid, x) => setDoc(doc(as(k), 'pos_conflict_res', oid), rec(k, oid, x));
+  await assertFails(put('cash', 'pc1'), 'الكاشير لا يحسم');
+  await assertFails(put('reg', 'pc1'), 'المدير الإقليمي لا يحسم');
+  await assertFails(put('bm', 'pc2'), 'المدير الذي أصدر الفاتورة لا يحسمها');
+  await assertFails(put('bmB', 'pc1', { branchId: 'B' }), 'مدير فرع آخر');
+  await assertFails(put('bmB', 'pc1'), 'مدير فرع آخر لفرع A');
+  await assertFails(put('bm2', 'pc1', { by: U.bm }), 'باسم غيره');
+  await assertFails(put('bm2', 'pc1', { at: Timestamp.now() }), 'وقت من الجهاز');
+  await assertFails(put('bm2', 'pcX'), 'بلا سجل محمي للفاتورة');
+  await assertFails(put('bm2', 'pc1', { orderId: 'pc3' }), 'المعرّف = الفاتورة');
+  await assertSucceeds(put('bm2', 'pc2'), 'مدير آخر للفرع نفسه يحسم فاتورة المدير');
+  await assertSucceeds(put('bm', 'pc1'), 'مدير الفرع يحسم فاتورة الكاشير');
+  await assertFails(updateDoc(doc(as('bm'), 'pos_conflict_res', 'pc1'), { act: 'void' }), 'لا تعديل');
+  await assertFails(setDoc(doc(as('bm'), 'pos_conflict_res', 'pc1'), rec('bm', 'pc1', { act: 'void' })), 'لا استبدال');
+  await assertFails(deleteDoc(doc(as('bm'), 'pos_conflict_res', 'pc1')), 'لا حذف');
+  await assertFails(deleteDoc(doc(as('owner'), 'pos_conflict_res', 'pc1')), 'ولا للمدير');
+  // «إلغاء بمرتجع»
+  await assertFails(put('bm', 'pc3', { act: 'void' }), 'بلا مرتجع ولا إلغاء');
+  await assertFails(put('bm', 'pc3', { act: 'void', retId: 'pr9' }), 'مرتجع لفاتورة أخرى');
+  await assertSucceeds(put('bm', 'pc3', { act: 'void', retId: 'pr3', doc: 'م1-X' }), 'مرتجع محمي يشير إليها');
+  await assertSucceeds(put('bm', 'pc4', { act: 'void' }), 'فاتورة ملغاة في سجلها المحمي');
+  await assertSucceeds(put('owner', 'pc6'), 'مسؤول النظام (مدير المنصة)');
+  // القراءة: الفرع والمركز
+  await assertSucceeds(getDoc(doc(as('bm'), 'pos_conflict_res', 'pc1')));
+  await assertSucceeds(getDoc(doc(as('fin'), 'pos_conflict_res', 'pc1')));
+  await assertFails(getDoc(doc(as('bmB'), 'pos_conflict_res', 'pc1')), 'فرع آخر لا يقرأ');
+});

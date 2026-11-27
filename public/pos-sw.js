@@ -48,15 +48,22 @@ self.addEventListener('message', function (e) {
       var key = r === 'shell' ? shellKey(abs) : abs;
       return c.match(key).then(function (hit) {
         if (hit && r === 'asset') return null;
-        return fetch(abs, { cache: 'no-cache', credentials: 'same-origin' }).then(function (res) { if (res && res.ok && res.type === 'basic') return c.put(key, res); }).catch(function () { });
+        return fetch(abs, { cache: 'no-cache', credentials: 'same-origin' }).then(function (res) { if (res && res.ok && res.type === 'basic') return putBounded(c, key, res); }).catch(function () { });
       });
     }));
   }));
 });
+// v56.56 (قرار المجلس G): كل عناصر الكاش — الصفحات والأصول والتسخين — ضمن MAX_ENTRIES؛ تحديث عنصر موجود مسموح دائمًا
+function putBounded(c, key, res) {
+  var url = typeof key === 'string' ? key : key.url;
+  return Promise.resolve(c.keys ? c.keys() : []).then(function (ks) { ks = ks || [];
+    var has = ks.some(function (k) { return (typeof k === 'string' ? k : k.url) === url; });
+    if (has || ks.length < MAX_ENTRIES) return c.put(key, res); });
+}
 function shell(req) {
   var key = shellKey(req.url);
   var net = fetch(req).then(function (res) {
-    if (res && res.ok && res.type === 'basic') { var cp = res.clone(); caches.open(CACHE).then(function (c) { return c.put(key, cp); }).catch(function () { }); }
+    if (res && res.ok && res.type === 'basic') { var cp = res.clone(); caches.open(CACHE).then(function (c) { return putBounded(c, key, cp); }).catch(function () { }); }
     return res;
   });
   var cached = function () { return caches.open(CACHE).then(function (c) { return c.match(key); }); };
@@ -78,7 +85,7 @@ function asset(req) {
     return c.match(req).then(function (hit) {
       if (hit) return hit;
       return fetch(req).then(function (res) {
-        if (res && res.ok && res.type === 'basic') { var cp = res.clone(); Promise.resolve(c.keys ? c.keys() : []).then(function (ks) { if ((ks || []).length < MAX_ENTRIES) return c.put(req, cp); }).catch(function () { }); }
+        if (res && res.ok && res.type === 'basic') putBounded(c, req, res.clone()).catch(function () { });
         return res; });
     });
   });

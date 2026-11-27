@@ -15,8 +15,10 @@ function posShellList() {
         if (/^mod-/.test(c.name) && c.name !== 'mod-pos') continue;   // تطبيقات أخرى تُحمَّل عند الطلب — ليست من هيكل نقطة البيع
         want.add(f); [...(c.imports || []), ...(c.dynamicImports || [])].forEach(x => q.push(x));
         ((c.viteMetadata && c.viteMetadata.importedCss) || []).forEach(x => want.add(x)); }
-      const files = [...want].filter(f => /\.(js|css)$/.test(f)).sort().slice(0, 60).map(f => base + f);
-      this.emitFile({ type: 'asset', fileName: 'pos-shell.json', source: JSON.stringify({ files }) });
+      const all = [...want].filter(f => /\.(js|css)$/.test(f)).sort(), files = all.slice(0, 60).map(f => base + f);
+      // v56.56 (قرار المجلس G): لا إسقاط صامت — القائمة المقصوصة تُعلَّم في الملف ويُنبَّه عند البناء
+      if (all.length > 60) this.warn('pos-shell.json مقصوص: ' + all.length + ' ملفًا > 60 — ارفع الحد أو قلّل حزم هيكل نقطة البيع');
+      this.emitFile({ type: 'asset', fileName: 'pos-shell.json', source: JSON.stringify({ files, ...(all.length > 60 ? { truncated: true, total: all.length } : {}) }) });
     }
   };
 }

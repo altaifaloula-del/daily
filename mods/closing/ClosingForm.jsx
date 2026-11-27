@@ -1,12 +1,15 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { authApi, cloud, bfKey } from '../../storage';
 import { Check, ChevronDown, ClipboardCheck, FileText, Send, Banknote, CreditCard, Truck, Plus, Trash2, Receipt, Coins, Minus, Stamp, Landmark, ArrowLeftRight, Wallet, Lock, X, ScanFace, Users, CheckCircle2 } from 'lucide-react';
 import { APPS, CameraModal, DENOMS, EXP_CATS, Field, LOCK_MSG, Modal, MoneyField, Num, OutputDialog, PT_TYPE, PhotoField, ROLES, SignaturePad, arDate, buildPartners, businessDay, countDenoms, countedClosing, deficitCfg, deficitPatterns, emptyDenoms, isoD, money, nextPartnerCode, normalizeSupPays, nowISO, payCashPart, paySplits, payTotal, periodLocked, posR2, salesDaySource, sum, uid, signoff, sigFailMsg } from '../../App.jsx';
 
 import { whtPayBlock } from '../../App.jsx';   // v56.47 (E7)
-import { posChainGapsDay, posConflictBlock } from '../../App.jsx';   // v56.56 قرارا المالك: فحص فجوات السلسلة دائمًا (تنبيه)، وتعارضات دون اتصال تمنع الإغلاق حتى يحسمها مدير الفرع
+import { posChainGapsDay, posConflictBlock, pcrLoad } from '../../App.jsx';   // v56.56 قرارا المالك: فحص فجوات السلسلة دائمًا (تنبيه)، وتعارضات دون اتصال تمنع الإغلاق حتى يحسمها مدير الفرع
 export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say, onClose, onStartNew, existing = [], invoices = [], branchPartners = [], posOrders = [], posImports = [], posTabs = [] }) {
+  // v56.56 (قرار المجلس E): حسم التعارضات من السجل المحمي pos_conflict_res وحده — لا يُحمَّل إلا إن وُجدت تعارضات؛ تعذّر القراءة ⇒ تبقى غير محسومة (فشل مغلق)
+  const [pcr, setPcr] = useState(null); const hasConf = posTabs.some(t => (t.conflicts || []).length);
+  useEffect(() => { if (!hasConf) return; let on = true; pcrLoad((branches || []).map(b => b.id), false).then(L => { if (on) setPcr(L); }); return () => { on = false; }; }, [hasConf]);   // eslint-disable-line react-hooks/exhaustive-deps
   const [f, setF] = useState(() => {
     const blank = {
       date: businessDay(), branchId: branches[0]?.id || '',
@@ -192,7 +195,7 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
     const dup = existing.find(c => c.branchId === f.branchId && c.date === f.date && c.id !== initial?.id && c.status !== 'rejected');
     if (dup) { say('يوجد إغلاق مسجّل لهذا الفرع بنفس التاريخ — عدّل الإغلاق القائم بدل إنشاء نسخة ثانية', 'no'); return null; }
     // v56.56 (قرار المالك): مع العمل دون اتصال لا يُرحَّل اليوم وفيه تعارض فواتير لم يحسمه مدير الفرع
-    if (status === 'submitted') { const cf = posConflictBlock(org, { posOrders, posTabs }, f.branchId, f.date);
+    if (status === 'submitted') { const cf = posConflictBlock(org, { posOrders, posTabs }, f.branchId, f.date, pcr);
       if (cf.length) { say('لا يُرحَّل الإغلاق: ' + cf.length + ' تعارض فواتير بعد عودة الاتصال لم يحسمه مدير الفرع (' + cf.map(c => c.orderNo).join('، ') + ') — نقطة البيع ← الورديات والتقارير', 'no'); return null; } }
     // v40.2: تقسيم الشبكة حسب نوع البطاقة — إن أُدخل فمجموعه = إجمالي الجهاز (يُمنع الترحيل عند الاختلاف)
     const spl = f.cardSplit || {}; const splSum = r2c((Number(spl.mada) || 0) + (Number(spl.visa) || 0) + (Number(spl.mc) || 0));
@@ -421,7 +424,7 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
     if (me.role !== 'cashier' && sPhotos.length === 0) add('block', 'صورة توثيق المسؤول مطلوبة', ['notes']);
     // v56.56 (قرار المالك): فجوات سلسلة فواتير نقطة البيع لليوم — تنبيه دائم لكل الفروع (لا يمنع)؛ وتعارضات دون اتصال غير محسومة — تمنع
     if (f.branchId) { const gp = posChainGapsDay(posOrders, f.branchId, f.date); if (gp.length) add('warn', gp.length + ' خلل في سلسلة فواتير نقطة البيع لهذا اليوم (' + gp.slice(0, 3).map(g => g.prevNo + ' ← ' + g.no).join('، ') + ') — راجعه في نقطة البيع ← الورديات والتقارير', ['sales']);
-      const cf = posConflictBlock(org, { posOrders, posTabs }, f.branchId, f.date); if (cf.length) add('block', cf.length + ' تعارض فواتير بعد عودة الاتصال بانتظار حسم مدير الفرع («إبقاء» أو «إلغاء بمرتجع»)', ['sales']); }
+      const cf = posConflictBlock(org, { posOrders, posTabs }, f.branchId, f.date, pcr); if (cf.length) add('block', cf.length + ' تعارض فواتير بعد عودة الاتصال بانتظار حسم مدير الفرع («إبقاء» أو «إلغاء بمرتجع»)', ['sales']); }
     return L;
   })();
   const auditBlocks = auditChecks.filter(x => x.lvl === 'block').length, auditWarns = auditChecks.filter(x => x.lvl === 'warn').length;

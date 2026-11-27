@@ -14,7 +14,7 @@ import { posHolds, posHoldsSet, posHoldPut, posHoldRecall } from '../../App.jsx'
 import { posVoidBlock, posNextNo, posTabCuts, escH, POS_VOID_ROLES } from '../../App.jsx';   // v56.2 (POS دفعة 1) حراس الإلغاء والترقيم وحساب الطاولة
 import { posCreditList, posCreditAuthApi, posArRefundMax } from '../../App.jsx';   // v56.46 البيع الآجل
 import { restCfg, coversOf, posWaiters, salesByWaiter, tabRemain, tabSplitItems, tabSplitSet, tabPartPriced, tabSplitReset, tabPayPart, tabMerge, kdsStations, kdsSplit, kdsPrepReport, kdsPrepSheets } from '../../App.jsx';   // v56.52 المطعم (مُطفأة افتراضيًا)
-import { tabSplitEqual, tabPartTotals, tabPayWhole, tabCouponMove } from '../../App.jsx';   // v56.56 التقسيم بالتساوي، تعارض دفع الحساب كاملًا، نقل الكوبون من الجزء الملغى
+import { tabSplitEqual, tabPartTotals, tabPayWhole, tabCouponMove, EQ_CP_USE, tabEqCpRelease, tabEqCpAllVoid, tabEqCpMark, posRetEqItems } from '../../App.jsx';   // v56.56 التقسيم بالتساوي، تعارض دفع الحساب كاملًا، نقل الكوبون من الجزء الملغى
 import { posDevRegOn, posDevNoGet, posDevNoSet, posDevSrvTag, posDevKey, posDevTagPick, posDevRegApi, posShellOn, posSwSync, POS_SW_FLAG } from '../../App.jsx';   // v56.54 سجل الأجهزة وفتح التطبيق دون إنترنت (مُطفآن افتراضيًا)
 import { posOffOn, POS_OB_USED, posObItem, posObSort, posStoreOpen, posLegacyQ, posObMigrate, posObRestore, posSyncRun, posSyncLogList, posSyncDelay, posSyncErr, posOffRetCheck, posOffRetPending, posOffRetReview, posLockRun, posOnMark, posOnFresh, posOnClear, posRetHashSrc, posOffRetAudit, posChainGaps } from '../../App.jsx';   // v56.53 العمل دون اتصال (مُطفأ افتراضيًا)
 
@@ -227,11 +227,13 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     const at = nowISO(), no = tbl;
     const cv = RC.covers ? coversOf(tmeta.covers) : 0, wt = RC.waiters ? waiters.find(w => w.id === tmeta.waiterId) : null;   // v56.52
     const meta = { ...(cv ? { covers: cv } : {}), ...(wt ? { waiterId: wt.id, waiterName: wt.name } : {}) };
-    const ok = await commit(d => { const t0 = openTab(d, br.id, no);
-      const tabs = t0 ? (d.posTabs || []).map(t => t.id === t0.id ? { ...tabSplitReset(t), ...meta, billAt: '', rounds: [...(t.rounds || []), { at, by: me.name, lines }] } : t)
+    let cpRel = null;   // v56.56 (D): جولة جديدة تسقط تقسيمًا بالتساوي لم يُدفع منه شيء ⇒ يُحرَّر حجز كوبونه
+    const ok = await commit(d => { const t0 = openTab(d, br.id, no); cpRel = null;
+      const tabs = t0 ? (d.posTabs || []).map(t => { if (t.id !== t0.id) return t; const t1 = { ...tabSplitReset(t), ...meta, billAt: '', rounds: [...(t.rounds || []), { at, by: me.name, lines }] }; cpRel = tabEqCpRelease(t, t1); return t1; })
         : [{ id: uid('tab'), branchId: br.id, table: no, status: 'open', openedAt: at, openedBy: me.name, ...meta, rounds: [{ at, by: me.name, lines }] }, ...(d.posTabs || [])];
       return posTrim({ ...d, posTabs: tabs, kdsTickets: kds ? [...(d.kdsTickets || []), ...kdsSplit(org, br.id, { branchId: br.id, src: 'tab', table: no, channel: 'dinein', lines, at, by: me.name, rush: RC.rush && rush }, org.products)] : (d.kdsTickets || []) }, today);
     }, { actionType: 'create', targetType: 'pos_tab', targetId: br.id + ':' + no, branchName: br.name, title: 'أرسل طلب الطاولة ' + no + (kds ? ' للمطبخ' : ''), details: lines.map(l => l.name + ' ×' + l.qty).join('، ').slice(0, 160) });
+    if (ok && cpRel && cpRel.limited) cpnRelease(cpRel.code, cpRel.use, 'أُعيد تقسيم الطاولة');
     if (ok) { setCart([]); setShowCart(false); setTmeta({ covers: '', waiterId: '' }); setRush(false); say('أُرسل طلب الطاولة ' + no + (kds ? ' للمطبخ' : '') + ' ✓'); }
   };
   const startPayTab = (t, part) => { const S = part ? { lines: part.lines } : tabRemain(t); tabSent.current = S.lines; setPayPart(part ? part.id : null);   /* v56.52: جزء من فاتورة مقسّمة، أو المتبقي (بلا تقسيم = tabSum) */ setCart(S.lines.map(l => ({ key: uid('l'), productId: l.productId, name: l.name, price: l.price, qty: l.qty, note: l.note || '' }))); setChannel('dinein'); setTbl(String(t.table)); setPayTab(t.id); setTblSel(null); setView('sell'); };
@@ -262,18 +264,27 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     if (err) return say(err, 'no'); if (ok) say('دُمج حساب الطاولة ' + fromNo + ' في الطاولة ' + dst.table + ' ✓'); };
   // v56.52 (قرار المجلس بعد التحقق): الطاولة تُسعَّر كاملة مرة واحدة (العروض التلقائية + كوبون الطاولة) ثم تُوزَّع على الأجزاء
   const splitPrice = (t, cpc) => posPriceCart(tabRemain(t).lines.map((l, i) => ({ ...l, key: 'r' + i })), org.products, org.posPromos, { branchId: br.id, code: cpc || '', phone: '', isMember: false, uses: loy ? (loy.cpn || {}) : null });
-  const saveSplit = async () => { const { tab: t, n, alloc } = splitF; let err = '', parts = null; const at = nowISO();
-    const ok = await commit(d => { err = ''; const cur = (d.posTabs || []).find(x => x.id === t.id); if (!cur || cur.status !== 'open') { err = 'الحساب لم يعد مفتوحًا'; return d; }
+  const saveSplit = async () => { const { tab: t, n, alloc } = splitF; let err = '', parts = null, cpRel = null; const at = nowISO();
+    const ok = await commit(d => { err = ''; cpRel = null; const cur = (d.posTabs || []).find(x => x.id === t.id); if (!cur || cur.status !== 'open') { err = 'الحساب لم يعد مفتوحًا'; return d; }
       const S = tabSplitItems(cur, alloc, n, splitPrice(cur, splitF.code)); if (S.err) { err = S.err; return d; } parts = S.parts;
-      return { ...d, posTabs: (d.posTabs || []).map(x => x.id === t.id ? tabSplitSet(x, S.parts, { at, by: me.name }) : x) }; },
+      const nx = tabSplitSet(cur, S.parts, { at, by: me.name }); cpRel = tabEqCpRelease(cur, nx);
+      return { ...d, posTabs: (d.posTabs || []).map(x => x.id === t.id ? nx : x) }; },
       () => err ? null : { actionType: 'update', targetType: 'pos_tab', targetId: t.id, branchName: br.name, title: 'تقسيم فاتورة الطاولة ' + t.table + ' إلى ' + n + ' أجزاء', details: (parts || []).map(p => 'جزء ' + p.no + ': ' + money(p.total)).join(' · ') });
-    if (err) return say(err, 'no'); if (ok) { setSplitF(null); say('قُسّمت فاتورة الطاولة ' + t.table + ' ✓ — ادفع كل جزء من نافذة الطاولة'); } };
+    if (err) return say(err, 'no'); if (ok && cpRel && cpRel.limited) cpnRelease(cpRel.code, cpRel.use, 'أُعيد تقسيم الطاولة');   // v56.56 (D)
+    if (ok) { setSplitF(null); say('قُسّمت فاتورة الطاولة ' + t.table + ' ✓ — ادفع كل جزء من نافذة الطاولة'); } };
   // v56.56 (قرار المالك): التقسيم بالتساوي — الطاولة تُسعَّر كاملة مرة واحدة ثم تُقسَّم مبالغ متساوية (الباقي بالهللة على الأخير)، والحفظ على أحدث نسخة بنسخة تقسيم جديدة
-  const saveEq = async () => { const { tab: t, n } = eqF; let err = '', parts = null; const at = nowISO();
-    const ok = await commit(d => { err = ''; const cur = (d.posTabs || []).find(x => x.id === t.id); if (!cur || cur.status !== 'open') { err = 'الحساب لم يعد مفتوحًا'; return d; }
-      const S = tabSplitEqual(cur, n, splitPrice(cur, eqF.code), rate); if (S.err) { err = S.err; return d; } parts = S.parts;
-      return { ...d, posTabs: (d.posTabs || []).map(x => x.id === t.id ? tabSplitSet(x, S.parts, { at, by: me.name }) : x) }; },
-      () => err ? null : { actionType: 'update', targetType: 'pos_tab', targetId: t.id, branchName: br.name, title: 'تقسيم فاتورة الطاولة ' + t.table + ' بالتساوي إلى ' + n + ' أجزاء', details: (parts || []).map(p => 'جزء ' + p.no + ': ' + money(p.total)).join(' · ') });
+  const saveEq = async () => { const { tab: t, n } = eqF; let err = '', parts = null, cpRel = null; const at = nowISO(), ver = uid('sv'), code = String(eqF.code || '').trim();
+    // v56.56 (D، قرار المجلس): خصم الكوبون موزّع على كل الأجزاء ⇒ يُحجز ذرّيًا مرة واحدة عند الحفظ بمفتاح نسخة التقسيم (لا عند دفع جزء)
+    const P0 = splitPrice(t, code); const cp0 = P0.coupon ? { code, id: P0.coupon.id, limited: !!P0.coupon.limited, use: EQ_CP_USE(ver) } : null;
+    if (cp0 && cp0.limited) { const pr = (org.posPromos || []).find(x => x.id === cp0.id) || {};
+      const rv = await cpnReserve(code, { id: cp0.use, phone: '', at, br: br.id }, pr); if (!rv.ok) { reloadLoy(); return say('الكوبون: ' + rv.why + ' — احذف الرمز للتقسيم بدونه', 'no'); } if (rv.doc) setLoy(rv.doc); }
+    const ok = await commit(d => { err = ''; cpRel = null; const cur = (d.posTabs || []).find(x => x.id === t.id); if (!cur || cur.status !== 'open') { err = 'الحساب لم يعد مفتوحًا'; return d; }
+      const S = tabSplitEqual(cur, n, splitPrice(cur, code), rate); if (S.err) { err = S.err; return d; } if (!!S.cp !== !!cp0) { err = 'تغيّر حال الكوبون — أعد المحاولة'; return d; } parts = S.parts;
+      const nx = tabSplitSet(cur, S.parts, { at, by: me.name, ver, ...(cp0 ? { cp: cp0 } : {}) }); cpRel = tabEqCpRelease(cur, nx);
+      return { ...d, posTabs: (d.posTabs || []).map(x => x.id === t.id ? nx : x) }; },
+      () => err ? null : { actionType: 'update', targetType: 'pos_tab', targetId: t.id, branchName: br.name, title: 'تقسيم فاتورة الطاولة ' + t.table + ' بالتساوي إلى ' + n + ' أجزاء', details: (parts || []).map(p => 'جزء ' + p.no + ': ' + money(p.total)).join(' · ') + (cp0 ? ' · كوبون ' + code : '') });
+    if ((err || !ok) && cp0 && cp0.limited) cpnRelease(code, cp0.use, 'لم يُحفظ التقسيم');   // لا حجز معلّق بلا تقسيم
+    if (ok && !err && cpRel && cpRel.limited) cpnRelease(cpRel.code, cpRel.use, 'أُعيد تقسيم الطاولة');
     if (err) return say(err, 'no'); if (ok) { setEqF(null); say('قُسّمت فاتورة الطاولة ' + t.table + ' بالتساوي ✓ — ادفع كل جزء من نافذة الطاولة'); } };
   // شارة العرض على بطاقة الصنف (العروض الفعّالة الآن بلا كوبون، وخصم بطاقة الصنف)
   const nowT = new Date(); const actP = (org.posPromos || []).filter(pr => pr.type !== 'order' && !pr.code && promoActive(pr, nowT, (br || {}).id));
@@ -340,7 +351,8 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     }
     // v48.1: الكوبون المحدود يُحجز ذرّيًا قبل إتمام البيع (مفتاح عدم التكرار = معرّف الطلب)؛ إن تعذّر لا يُكمل البيع بالكوبون
     const oid = uid('po');
-    if (priced.coupon && priced.coupon.limited) { const pr = (org.posPromos || []).find(x => x.id === priced.coupon.id) || {};
+    const cpHeld = partNow && partNow.cpHeld ? String(partNow.cpHeld) : '';   // v56.56: كوبون انتقل بحجزه الحي من جزء ملغى — لا حجز جديد
+    if (priced.coupon && priced.coupon.limited && !cpHeld) { const pr = (org.posPromos || []).find(x => x.id === priced.coupon.id) || {};
       const rv = await cpnReserve(cpCode, { id: oid, phone: phoneOk ? phoneN : '', at: nowISO(), br: br.id }, pr);
       if (!rv.ok) { setSending(false); reloadLoy(); return say('الكوبون: ' + rv.why + ' — احذف الرمز لإكمال البيع بدونه', 'no'); }
       if (rv.doc) setLoy(rv.doc); }
@@ -361,7 +373,9 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     const o = { id: oid, no: 'ف' + bi + '-' + yy + '-' + devTag + '-' + String(seq).padStart(4, '0'), branchId: br.id, dev: devTag, shiftId: shift.id, date: today, at: nowISO(), by: me.name,
       channel, ...(plId ? { priceList: plId } : {}), lines: priced.lines.map(l => ({ productId: l.productId, name: l.name, qty: l.qty, price: l.price, ...(l.note ? { note: l.note } : {}), ...(((cart.find(c => c.key === l.key) || {}).rec) ? { rec: (cart.find(c => c.key === l.key) || {}).rec } : {}), ...(l.disc ? { disc: l.disc, promoId: l.promoId, promoName: l.promoName } : {}) })),
       gross: T.gross, disc: T.disc, ...(priced.orderDisc ? { orderDisc: priced.orderDisc, orderPromo: priced.orderPromo } : {}), manualDisc: manual, ...(manual ? { discReason: disc.reason.trim() } : {}),
-      ...(cpCode.trim() && priced.codeOk ? { coupon: cpCode.trim(), ...(priced.coupon ? { couponId: priced.coupon.id, ...(priced.coupon.limited ? { couponLtd: true } : {}) } : {}) } : {}),
+      ...(cpCode.trim() && priced.codeOk ? { coupon: cpCode.trim(), ...(priced.coupon ? { couponId: priced.coupon.id, ...(priced.coupon.limited ? { couponLtd: true } : {}) } : {}), ...(cpHeld ? { couponUse: cpHeld } : {}) } : {}),
+      ...(prt && prt.eqItems ? { eqItems: prt.eqItems } : {}),   // v56.56 (A): تفصيل أصناف الجزء المتساوي — داخلي للمخزون والتقارير، لا يُطبع
+      ...(me.id ? { byId: me.id } : {}), ...(me.email ? { byEmail: String(me.email).toLowerCase() } : {}),   // v56.56 (E): هوية المُصدِر لفصل المهام
       ...(phoneOk ? { loyalty: { phone: phoneN, name: (cust.name || custName).trim(), earned: earnPts, redeemed: redeemPts, redeemAmt, pv: Number(loyCfg.ptValue) || 0, balAfter: posR2(loyBalance - redeemPts + earnPts) } } : {}),
       total: T.total, vat: T.vat, net: T.net, rate,
       payments: pay.parts.filter(x => Number(x.amount) > 0).map(x => ({ m: x.m, amount: posR2(x.amount), ...(x.m === 'app' ? { appId: x.appId, appName: (apps.find(a => a.id === x.appId) || {}).n || 'تطبيق' } : {}), ...(x.pm ? { pm: x.pm, pmName: x.pmName } : {}), ...(x.m === 'credit' && ar ? { custKey: ar.key, custName: ar.name } : {}) })),
@@ -380,12 +394,15 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     if (payTab) { const tid = payTab, pid = payPart; setPayTab(null); setPayPart(null); setTbl('');   // v56.52: دفع جزء يختمه، والحساب يُغلق بآخر جزء
       let clash = '';   // v56.52: ختم الجزء على أحدث نسخة — إن أُعيد التقسيم أو تغيّر الجزء يُرفض ويُسجَّل تعارضًا للمراجعة
       commit(d => { clash = ''; return posTrim({ ...d, posTabs: (d.posTabs || []).map(t => { if (t.id !== tid) return t; if (!pid) { const W = tabPayWhole(t, o, me.name, offOn); if (W.err) clash = W.err; return W.tab; }   /* v56.56: دون اتصال لا يُستبدل ختم حساب دُفع من جهاز آخر */
-        const P = tabPayPart(t, pid, o, me.name); if (P.err) clash = P.err; return P.tab; }) }, today); }).then(ok => { if (ok && clash) say('صدرت الفاتورة ' + o.no + ' لكن لم ' + (pid ? 'يُختم الجزء' : 'تُختم على الحساب') + ': ' + clash + ' — سُجّلت «تعارضًا» على الطاولة ليراجعها مدير الفرع (إلغاء الفاتورة أو تسوية الحساب)', 'no'); else if (!ok) say('دُفعت الفاتورة، لكن تعذّر إغلاق حساب الطاولة الآن — أغلقه من «الطاولات» عند عودة الاتصال', 'no'); }); }
+        const P = tabPayPart(t, pid, o, me.name, offOn); if (P.err) clash = P.err; return P.tab; }) }, today); }).then(ok => { if (ok && clash) say('صدرت الفاتورة ' + o.no + ' لكن لم ' + (pid ? 'يُختم الجزء' : 'تُختم على الحساب') + ': ' + clash + ' — سُجّلت «تعارضًا» على الطاولة ليراجعها مدير الفرع (إلغاء الفاتورة أو تسوية الحساب)', 'no'); else if (!ok) say('دُفعت الفاتورة، لكن تعذّر إغلاق حساب الطاولة الآن — أغلقه من «الطاولات» عند عودة الاتصال', 'no'); }); }
     // v49.2 — MQ-006: طلب توصيل ذاتي ⇒ سجل توصيل (بالخلفية، مستقل عن الفاتورة)
     if (dlvNeeded(o)) { const rec = dlvRecord(o, { phone: dlv.phone || (phoneOk ? phoneN : ''), addr: dlv.addr }); setDlv({ phone: '', addr: '' });
       commit(d => posTrim({ ...d, posDeliveries: [rec, ...(d.posDeliveries || []).filter(x => x.id !== rec.id)] }, today)).then(ok => { if (!ok) say('دُفعت الفاتورة، لكن تعذّر تسجيل التوصيل الآن — أعد المحاولة من «التوصيل»', 'no'); }); }
     if (payTab) { } else if (kds) commit(d => posTrim({ ...d, kdsTickets: [...(d.kdsTickets || []), ...kdsSplit(org, br.id, { branchId: br.id, src: 'order', ref: o.no, table: o.table || '', channel: o.channel, lines: o.lines, at: o.at, by: me.name, rush: RC.rush && rush }, org.products)] }, today)).then(ok => { if (!ok) say('دُفعت الفاتورة، لكن لم تصل لشاشة المطبخ (لا اتصال) — أبلغ المطبخ يدويًا', 'no'); });
   };
+  // v56.56 (D): بعد إلغاء/إرجاع جزء — إن أُلغيت أو أُرجعت كل أجزاء التقسيم بالتساوي (محسوبًا على الحالة بعد الحفظ نفسه) يُحرَّر حجز كوبونه مرة واحدة: التحرير أولًا ثم الوسم
+  const eqCpFree = (tabId, cp) => { if (!cp) return; (cp.limited ? cpnRelease(cp.code, cp.use, 'أُلغيت كل أجزاء التقسيم') : Promise.resolve(true)).then(okR => { if (!okR) return;
+    commit(d => ({ ...d, posTabs: (d.posTabs || []).map(x => x.id === tabId ? tabEqCpMark(x, cp.use) : x) })); }).catch(() => { }); };
   const voidOrder = async (o) => {
     if (!canVoid) return say('إلغاء الفاتورة للإدارة التشغيلية (مدير الفرع فأعلى)', 'no');
     if (o.pending) return say('انتظر إرسال الفاتورة أولًا', 'no');
@@ -403,20 +420,23 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     const at = nowISO();
     const vn = { no: 'م' + bi + '-' + yy + '-' + devTag + '-' + String(seq).padStart(4, '0'), dev: devTag, date: today, at, by: me.name, total: -C.total, vat: -C.vat, net: -C.net, icv: (prev.icv || 0) + 1, pih: prev.hash || '0' };
     vn.hash = sha256Hex(JSON.stringify([vn.no, vn.at, C.lines, vn.total, vn.vat, vn.icv, vn.pih, o.id]));
-    let blocked = '';
-    const ok = await commit(d => { blocked = ''; const cur = (d.posOrders || []).find(x => x.id === o.id); const why = posVoidBlock(d, cur); if (why) { blocked = why; return d; }
-      return { ...d, posOrders: (d.posOrders || []).map(x => x.id === o.id ? { ...x, status: 'void', voidBy: me.name, voidAt: at, voidReason: reason.trim(), voidNote: vn } : x) }; },
+    let blocked = '', eqCp = null;
+    const ok = await commit(d => { blocked = ''; eqCp = null; const cur = (d.posOrders || []).find(x => x.id === o.id); const why = posVoidBlock(d, cur); if (why) { blocked = why; return d; }
+      const d2 = { ...d, posOrders: (d.posOrders || []).map(x => x.id === o.id ? { ...x, status: 'void', voidBy: me.name, voidAt: at, voidReason: reason.trim(), voidNote: vn } : x) }; eqCp = o.tabId ? tabEqCpAllVoid((d2.posTabs || []).find(t => t.id === o.tabId), d2) : null; return d2; },
       () => blocked ? null : { actionType: 'update', targetType: 'pos_order', targetId: o.id, branchName: br.name, title: 'ألغى فاتورة نقطة بيع', details: o.no + ' · ' + money(o.total) + ' · إشعار ' + vn.no + ' · ' + reason.trim() });   // v56.6: لا سجل تدقيق لإلغاء رُفض
     if (blocked) return say(blocked, 'no');
     if (!ok) return say('تعذّر حفظ الإلغاء — أعد المحاولة', 'no');
     try { localStorage.setItem(sk, String(seq)); localStorage.setItem(hk, JSON.stringify({ icv: vn.icv, hash: vn.hash })); } catch { }
     if (o.loyalty && (o.loyalty.earned || o.loyalty.redeemed)) loyAdd([...(o.loyalty.earned ? [{ id: o.id + ':ve', phone: o.loyalty.phone, pts: -o.loyalty.earned, at: nowISO(), br: o.branchId, ord: o.no + ' (إلغاء)' }] : []), ...(o.loyalty.redeemed ? [{ id: o.id + ':vr', phone: o.loyalty.phone, pts: o.loyalty.redeemed, at: nowISO(), br: o.branchId, ord: o.no + ' (إلغاء)' }] : [])]);
-    // v48.1 يعود حد الكوبون — v56.56 (قرار المالك): جزء مقسّم يحمل الكوبون ⇒ بعد نجاح التحرير ينتقل الكوبون إلى أول جزء غير مدفوع (لا استخدام مزدوج)
-    const cpRel = o.coupon && o.couponLtd ? cpnRelease(o.coupon, o.id, 'إلغاء الفاتورة') : Promise.resolve(true);
-    if (o.coupon && o.tabId && o.tabPartId) cpRel.then(okR => { if (!okR) return say('تعذّر تحرير الكوبون الآن — لم يُنقل إلى جزء آخر', 'no'); let to = '';
-      return commit(d => { to = ''; return { ...d, posTabs: (d.posTabs || []).map(t => { if (t.id !== o.tabId) return t; const M = tabCouponMove(t, o.id); to = M.to; return M.tab; }) }; },
+    // v48.1 يعود حد الكوبون. v56.56 (قرار المجلس D): جزء التقسيم بالأصناف الذي يحمل الكوبون ⇒ ينتقل الكوبون بحجزه نفسه إلى أول جزء غير مدفوع
+    // (لا تحرير ثم حجز — لا سباق ولا جزء عالق)، ولا جزء غير مدفوع ⇒ يُحرَّر. التقسيم بالتساوي: الحجز على التقسيم ويُحرَّر بعد إلغاء/إرجاع كل أجزائه فقط.
+    const useId = o.couponUse || o.id;
+    if (o.tabId) eqCpFree(o.tabId, eqCp);
+    if (o.coupon && o.tabId && o.tabPartId) { let to = '';
+      commit(d => { to = ''; return { ...d, posTabs: (d.posTabs || []).map(t => { if (t.id !== o.tabId) return t; const M = tabCouponMove(t, o.id, nowISO(), useId); to = M.to; return M.tab; }) }; },
         () => to ? { actionType: 'update', targetType: 'pos_tab', targetId: o.tabId, branchName: br.name, title: 'نقل كوبون الجزء الملغى ' + o.no + ' إلى جزء آخر', details: o.coupon } : null)
-        .then(ok => { if (ok && to) say('الكوبون ' + o.coupon + ' صار صالحًا لجزء آخر من الطاولة'); }); }).catch(() => { });
+        .then(ok => { if (ok && to) say('الكوبون ' + o.coupon + ' صار صالحًا لجزء آخر من الطاولة'); else if (o.couponLtd) cpnRelease(o.coupon, useId, 'إلغاء الفاتورة'); }).catch(() => { });
+    } else if (o.coupon && o.couponLtd) cpnRelease(o.coupon, useId, 'إلغاء الفاتورة');
     say('أُلغيت الفاتورة ' + o.no + ' — إشعار دائن ' + vn.no); flush();
     posPrint(posReturnHtml(org, { ...vn, cancel: true, refNo: o.no, retLines: C.lines, payments: (o.payments || []).map(p => ({ ...p, amount: -p.amount })), reason: 'other', note: reason.trim() }, br));
   };
@@ -457,13 +477,15 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     const { seq, prev } = posNextNo(ls, lp, [...(ops.posOrders || []), ...qNow()], br.id, devTag, today, 'م');   // v56.2 (B4): لا رقم مكرر بعد مسح التخزين المحلي
     const bi = (org.branches || []).findIndex(b => b.id === br.id) + 1;
     const r = { id: uid('pr'), kind: 'return', refId: o.id, refNo: o.no, no: 'م' + bi + '-' + yy + '-' + devTag + '-' + String(seq).padStart(4, '0'), branchId: br.id, dev: devTag, ...(shift ? { shiftId: shift.id } : {}),
-      date: today, at: nowISO(), by: me.name, channel: o.channel, lines: [], retLines: C.lines, gross: -C.total, disc: 0, manualDisc: 0, total: -C.total, vat: -C.vat, net: -C.net, rate: o.rate,
+      date: today, at: nowISO(), by: me.name, channel: o.channel, lines: [], retLines: C.lines, ...posRetEqItems(o, C), gross: -C.total, disc: 0, manualDisc: 0, total: -C.total, vat: -C.vat, net: -C.net, rate: o.rate,
       payments: [{ m: opt.m, amount: -C.total, ...(opt.appId ? { appId: opt.appId, appName: opt.appName } : {}), ...(opt.pm ? { pm: opt.pm, pmName: opt.pmName } : {}), ...(opt.m === 'credit' ? { custKey: opt.custKey, custName: opt.custName } : {}) }], change: 0, status: 'paid',
       ...(opt.m === 'credit' ? { ar: { key: opt.custKey, name: opt.custName || '' } } : {}),
       reason: ret.reason, ...(ret.note.trim() ? { note: ret.note.trim() } : {}), ...(offRet ? { offline: true, byId: me.id || '' } : {}), ...(o.waiterId ? { waiterId: o.waiterId, waiterName: o.waiterName || '' } : {}) /* v56.52: المرتجع يُخصم من نادل الفاتورة */, ...(RC.covers && o.table ? { retArea: o.areaId ? { id: o.areaId, name: o.areaName || o.areaId } : (tableArea(org, br.id, o.table) || { id: '', name: 'بلا صالة' }) } : {}) /* وصالته */, ...(loyDed ? { loyalty: { phone: o.loyalty.phone, ded: loyDed } } : {}), icv: (prev.icv || 0) + 1, pih: prev.hash || '0' };
     r.hash = sha256Hex(JSON.stringify(posRetHashSrc(r)));   // v56.53 (المراجعة): كما كانت حرفيًا، ومع offline وbyId للمرتجع دون اتصال فقط
-    const ok = offRet ? (await OB.add('order', [r]), true) : await commit(d => ({ ...d, posOrders: [...(d.posOrders || []), r] }), { actionType: 'create', targetType: 'pos_order', targetId: r.id, branchName: br.name, title: 'مرتجع ' + r.no + ' عن الفاتورة ' + o.no, details: C.lines.map(l => l.name + ' ×' + l.qty).join('، ') + ' · ' + money(C.total) + ' · ' + WASTE_REASONS[ret.reason] });
+    let eqCp = null;
+    const ok = offRet ? (await OB.add('order', [r]), true) : await commit(d => { const d2 = { ...d, posOrders: [...(d.posOrders || []), r] }; eqCp = o.tabId ? tabEqCpAllVoid((d2.posTabs || []).find(t => t.id === o.tabId), d2) : null; return d2; }, { actionType: 'create', targetType: 'pos_order', targetId: r.id, branchName: br.name, title: 'مرتجع ' + r.no + ' عن الفاتورة ' + o.no, details: C.lines.map(l => l.name + ' ×' + l.qty).join('، ') + ' · ' + money(C.total) + ' · ' + WASTE_REASONS[ret.reason] });
     if (!ok) return say('تعذّر حفظ المرتجع', 'no');
+    if (o.tabId && !offRet) eqCpFree(o.tabId, eqCp);   // v56.56 (D)
     try { localStorage.setItem(sk, String(seq)); localStorage.setItem(hk, JSON.stringify({ icv: r.icv, hash: r.hash })); } catch { }
     if (loyDed) { loyAdd([{ id: r.id + ':rd', phone: o.loyalty.phone, name: o.loyalty.name || '', pts: -loyDed, at: r.at, br: br.id, ord: r.no + ' (مرتجع عن ' + o.no + ')' }]); flush(); }   // v46.9 خصم نقاط الولاء
     setRet(null); say((offRet ? 'سُجّل المرتجع دون اتصال ' : 'سُجّل المرتجع ') + r.no + ' — رُدّ ' + money(C.total) + (loyDed ? ' · خُصم ' + loyDed + ' نقطة ولاء' : '') + (offRet ? ' · للمراجعة بعد الاتصال' : ''));

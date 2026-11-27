@@ -1,7 +1,7 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ClipboardCheck, Printer, Lock } from 'lucide-react';
-import { posDocView, Field, Modal, Num, _xe, businessDay, money, nowISO, posOrdersStats, posPrint, posR2, posShiftHtml, posZHtml, printA4, dtLocal, posOffOn, posChainGaps, posConflicts, posConflictResolve, tabConflictSet, POS_CONFLICT_ROLES } from '../../App.jsx';
+import { posDocView, Field, Modal, Num, _xe, businessDay, money, nowISO, posOrdersStats, posPrint, posR2, posShiftHtml, posZHtml, printA4, dtLocal, posOffOn, posChainGaps, posConflicts, posConflictResolve, tabConflictMark, POS_CONFLICT_ROLES, posConflictOn, pcrWrite, pcrLoad } from '../../App.jsx';
 
 export function PosShifts({ org, ops, me, brs, commit, say }) {
   const [bid, setBid] = useState('all'); const [d, setD] = useState(businessDay()); const [rc, setRc] = useState(null);
@@ -39,17 +39,20 @@ export function PosShifts({ org, ops, me, brs, commit, say }) {
   const KIND = { gap: 'فجوة في الترقيم', dup: 'رقم تسلسل مكرر', pih: 'بصمة سابقة لا تطابق' };
   const gaps = posChainGaps(ops.posOrders, null).filter(g => ids.includes(g.branchId) && (bid === 'all' || g.branchId === bid));
   // v56.56 (قرار المالك): تعارضات الفواتير بعد عودة الاتصال (مع العمل دون اتصال) — يحسمها مدير الفرع قبل الإغلاق اليومي: «إبقاء» أو «إلغاء بمرتجع»
-  const offOn = posOffOn(org);
-  const confl = offOn ? posConflicts(ops, null).filter(c => ids.includes(c.branchId) && (bid === 'all' || c.branchId === bid) && (!c.res || c.date === d)) : [];
+  // v56.56 (قرار المجلس E/F): الحسم في سجل محمي للإضافة فقط (pos_conflict_res) يُقرأ منه وحده؛ التعارض المسجّل دون اتصال يبقى ظاهرًا ولو أُطفئ المفتاح
+  const [resList, setResList] = useState(null); const [resVer, setResVer] = useState(0);
+  const anyConf = (ops.posTabs || []).some(t => (t.conflicts || []).length);
+  useEffect(() => { if (!anyConf) return; let on = true; pcrLoad(ids, brs.length > 1 && (me || {}).role === 'system_admin').then(L => { if (on) setResList(L); }); return () => { on = false; }; }, [anyConf, resVer, ids.join(',')]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const confl = posConflicts(ops, null, null, resList).filter(c => posConflictOn(org, c) && ids.includes(c.branchId) && (bid === 'all' || c.branchId === bid) && (!c.res || c.date === d));
   const canRes = POS_CONFLICT_ROLES.includes((me || {}).role);
   const resolve = async (c, act) => {
-    const pre = posConflictResolve(ops, c.tabId, c.orderId, act, me); if (pre.err) return say(pre.err, 'no');
-    if (!window.confirm((act === 'keep' ? 'إبقاء الفاتورة ' + c.orderNo + ' صحيحة مع فاتورة الحساب الأخرى؟' : 'تسجيل حسم الفاتورة ' + c.orderNo + ' «إلغاء بمرتجع» (' + (pre.res.doc || '') + ')؟') + '\nيُسجَّل اسمك والوقت.')) return;
-    let err = '', res = null;
-    const ok = await commit(dd => { err = ''; const R = posConflictResolve(dd, c.tabId, c.orderId, act, me); if (R.err) { err = R.err; return dd; } res = R.res;
-      return { ...dd, posTabs: (dd.posTabs || []).map(t => t.id === c.tabId ? tabConflictSet(t, c.orderId, R.res) : t) }; },
-      () => err ? null : { actionType: 'update', targetType: 'pos_tab', targetId: c.tabId, branchName: bOf(c.branchId).name, title: 'حسم تعارض فاتورة نقطة البيع ' + c.orderNo + ': ' + (act === 'keep' ? 'إبقاء' : 'إلغاء بمرتجع'), details: 'الطاولة ' + c.table + ' · ' + money(c.total) + (res && res.doc ? ' · ' + res.doc : '') });
-    if (err) return say(err, 'no'); if (ok) say('حُسم التعارض ✓'); };
+    const pre = posConflictResolve(ops, c.tabId, c.orderId, act, me, resList || []); if (pre.err) return say(pre.err, 'no');
+    if (!window.confirm((act === 'keep' ? 'إبقاء الفاتورة ' + c.orderNo + ' صحيحة مع فاتورة الحساب الأخرى؟' : 'تسجيل حسم الفاتورة ' + c.orderNo + ' «إلغاء بمرتجع» (' + (pre.rec.doc || '') + ')؟') + '\nيُسجَّل بريدك والوقت في سجل محمي لا يُعدَّل.')) return;
+    const W = await pcrWrite(pre.rec); if (W.err) return say(W.err, 'no');
+    // مرآة للتقليم فقط + سطر في سجل التدقيق (الحسم نفسه في السجل المحمي)
+    await commit(dd => ({ ...dd, posTabs: (dd.posTabs || []).map(t => t.id === c.tabId ? tabConflictMark(t, c.orderId) : t) }),
+      { actionType: 'update', targetType: 'pos_tab', targetId: c.tabId, branchName: bOf(c.branchId).name, title: 'حسم تعارض فاتورة نقطة البيع ' + c.orderNo + ': ' + (act === 'keep' ? 'إبقاء' : 'إلغاء بمرتجع'), details: 'الطاولة ' + c.table + ' · ' + money(c.total) + (pre.rec.doc ? ' · ' + pre.rec.doc : '') });
+    setResVer(v => v + 1); say('حُسم التعارض ✓'); };
   return (
     <div className="grid" style={{ gap: 12 }}>
       {gaps.length > 0 && <div className="note" role="alert" data-chaingaps style={{ borderColor: 'var(--rose)' }}><b>تنبيه: {gaps.length} خلل في سلسلة فواتير نقطة البيع</b> — قد يدل على فاتورة لم تصل أو مسح لبيانات جهاز. راجعه قبل اعتماد الإغلاق.
@@ -58,7 +61,7 @@ export function PosShifts({ org, ops, me, brs, commit, say }) {
         <div className="hint">فاتورة صدرت لحساب طاولة لم تُختم عليه (دُفع الحساب أو الجزء من جهاز آخر، أو أُعيد التقسيم). «إبقاء»: الفاتورتان صحيحتان. «إلغاء بمرتجع»: بعد إصدار مرتجع كامل للفاتورة (أو إلغائها بإشعار دائن) من «المبيعات» — لا تُحذف فاتورة. لا يحسمه من أصدر الفاتورة.</div>
         {confl.map(c => <div key={c.tabId + c.orderId} className="row" data-conflict={c.orderNo} style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap', fontSize: 12.5, marginTop: 6 }}>
           <span>{bOf(c.branchId).name} · الطاولة <b className="num">{c.table}</b> · <span className="num">{c.orderNo}</span> · {money(c.total)} · {c.why}{c.by ? ' · أصدرها ' + c.by : ''}</span>
-          {c.res ? <span className="badge b-mint" data-conflictres={c.res.act}>{c.res.act === 'keep' ? 'أُبقيت' : 'أُلغيت بمرتجع' + (c.res.doc ? ' ' + c.res.doc : '')} — {c.res.by} · <span className="num">{dtLocal(c.res.at)}</span></span>
+          {c.res ? <span className="badge b-mint" data-conflictres={c.res.act}>{c.res.act === 'keep' ? 'أُبقيت' : 'أُلغيت بمرتجع' + (c.res.doc ? ' ' + c.res.doc : '')} — {c.res.byName || c.res.by} · <span className="num">{dtLocal(c.res.at)}</span></span>
             : canRes ? <><button className="btn sm" data-conflictkeep onClick={() => resolve(c, 'keep')}>إبقاء</button><button className="btn sm gh" data-conflictvoid onClick={() => resolve(c, 'void')}>إلغاء بمرتجع</button></> : <span className="badge b-amber">بانتظار مدير الفرع</span>}</div>)}</div>}
       <div className="card">
         <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'end', marginBottom: 8 }}>
