@@ -44,7 +44,7 @@ export function FinancialReports({ org, ops, myBranches, scoped, say }) {
     const rows = [
       ['قائمة الدخل', range.type, range.label, scopeLabel],
       ['مبيعات نقدية', data.R.cash], ['مبيعات الشبكة', data.R.card], ['تحويل بنكي', data.R.bank],
-      ['تطبيقات التوصيل', data.R.del], ['إجمالي الإيراد', data.grossRevenue],
+      ['تطبيقات التوصيل', data.R.del], ...(data.R.credit ? [['مبيعات آجلة من نقطة البيع', data.R.credit]] : []), ['إجمالي الإيراد', data.grossRevenue],
       ['عمولات التطبيقات', -data.commissions], ['صافي الإيراد', data.netRevenue],
       ...data.byCat.map(x => ['مصروف: ' + x.n, -x.v]),
       ['الالتزامات الثابتة', -data.fixedTotal], ['الرواتب غير المصروفة', -data.payrollRemaining],
@@ -62,7 +62,7 @@ export function FinancialReports({ org, ops, myBranches, scoped, say }) {
   const exportXlsx = () => {
     const rows = [
       ['مبيعات نقدية', +data.R.cash.toFixed(2)], ['مبيعات الشبكة', +data.R.card.toFixed(2)], ['تحويل بنكي', +data.R.bank.toFixed(2)],
-      ['تطبيقات التوصيل', +data.R.del.toFixed(2)], ['إجمالي الإيراد', +data.grossRevenue.toFixed(2)],
+      ['تطبيقات التوصيل', +data.R.del.toFixed(2)], ...(data.R.credit ? [['مبيعات آجلة من نقطة البيع', +data.R.credit.toFixed(2)]] : []), ['إجمالي الإيراد', +data.grossRevenue.toFixed(2)],
       ['عمولات التطبيقات', -+data.commissions.toFixed(2)], ['صافي الإيراد', +data.netRevenue.toFixed(2)],
       ...data.byCat.map(x => ['مصروف: ' + x.n, -+x.v.toFixed(2)]),
       ['الالتزامات الثابتة', -+data.fixedTotal.toFixed(2)], ['الرواتب غير المصروفة', -+data.payrollRemaining.toFixed(2)],
@@ -204,6 +204,7 @@ export function FinancialReports({ org, ops, myBranches, scoped, say }) {
         <L k="مبيعات الشبكة (مدى/POS)" v={data.R.card} c="var(--brass)" ind />
         <L k="تحويل بنكي مباشر" v={data.R.bank} c="var(--brass)" ind />
         <L k="مبيعات تطبيقات التوصيل" v={data.R.del} c="var(--brass)" ind />
+        {!!data.R.credit && <L k="مبيعات آجلة من نقطة البيع" v={data.R.credit} c="var(--brass)" ind />}
         <L k="إجمالي الإيرادات" v={data.grossRevenue} bold sub />
         <L k="عمولات منصات التوصيل" v={-data.commissions} c="var(--rose)" ind />
         <L k="صافي الإيرادات" v={data.netRevenue} c="var(--brass)" bold sub />

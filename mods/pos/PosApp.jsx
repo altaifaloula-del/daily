@@ -11,6 +11,7 @@ import { posDocView, APPS, CloudHealth, Field, Modal, Num, POS_SH_KEY, PosLoyalt
 
 import { posHolds, posHoldsSet, posHoldPut, posHoldRecall } from '../../App.jsx';   // v56.0 (GAP-007) تعليق الطلب واستدعاؤه
 import { posVoidBlock, posNextNo, posTabCuts, escH, POS_VOID_ROLES } from '../../App.jsx';   // v56.2 (POS دفعة 1) حراس الإلغاء والترقيم وحساب الطاولة
+import { posCreditList, posCreditAuthApi, posArRefundMax } from '../../App.jsx';   // v56.46 البيع الآجل
 
 export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const R = ROLES[me.role] || {};
@@ -18,6 +19,8 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   // v56.6 (قرار المالك 2026-11-26): الإلغاء والمرتجع للإدارة التشغيلية فقط — يطابق قواعد سجلات pos_orders (posMgrRoles) وفصل المهام: من يدقق لا يلغي
   const canVoid = !!(R.admin || POS_VOID_ROLES.includes(me.role));
   const cfg = org.posCfg || {}; const enabled = cfg.branches || [];
+  // v56.46: البيع الآجل — المفتاح من إعداد المنشأة، والعملاء المؤهلون (على الفرع: الاسم والمفتاح فقط)
+  const creditOn = !!cfg.credit; const crCusts = creditOn ? posCreditList(org).map(c => ({ key: c.key || ('cust:' + c.id), name: c.name || '' })) : [];
   const brs = (myBranches || []).filter(b => b.isActive !== false && enabled.includes(b.id));
   const [brId, setBrId] = useState(() => (brs[0] || {}).id || '');
   const payBusy = useRef(false); const tabSent = useRef(null);   // v56.2: B2 قفل إتمام البيع · B7 أصناف الطاولة المُرسلة للمطبخ
@@ -106,7 +109,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     <div className="grid" style={{ gap: 12 }}>
       <div className="card"><div className="card-t" style={{ marginBottom: 8 }}><Store size={16} color="var(--brass)" />نقطة البيع — تجربة</div>
         <div className="note">نقطة البيع غير مفعّلة لفرعك بعد.{R.admin || R.scope === 'all' ? ' فعّلها لفرع التجربة من الإعدادات أدناه.' : ' يفعّلها مسؤول النظام لفرع التجربة.'}</div></div>
-      {(R.admin || R.scope === 'all') && <PosSettings org={org} commitOrg={commitOrg} say={say} />}
+      {(R.admin || R.scope === 'all') && <PosSettings org={org} commitOrg={commitOrg} say={say} me={me} />}
     </div>);
 
   const add = (p) => setCart(c => { const i = c.findIndex(l => l.productId === p.id && !l.note); if (i >= 0) return c.map((l, k) => k === i ? { ...l, qty: l.qty + 1 } : l); return [...c, { key: uid('l'), productId: p.id, name: p.name, price: Number(p.sellPrice), qty: 1, note: '' }]; });
@@ -184,12 +187,26 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     if (cust.phone.trim() && !phoneOk) return say('رقم جوال العميل غير صحيح', 'no');
     const cuts = payTab ? posTabCuts(tabSent.current, cart) : [];   // v56.2 (B7)
     if (cuts.length && !isMgr) return say('لا يُنقص صنف أُرسل للمطبخ إلا مدير الفرع: ' + cuts.map(c => c.name).join('، '), 'no');
+    // v56.46: البيع الآجل — دفعة آجلة واحدة لعميل مؤهل، لا مع تطبيق توصيل، والتفويض من الخادم قبل الترقيم (دون اتصال يُمنع)
+    const crParts = (pay.parts || []).filter(x => x.m === 'credit' && Number(x.amount) > 0); let crCu = null, crAmt = 0;
+    if (crParts.length) {
+      if (!creditOn) return say('البيع الآجل غير مفعّل', 'no');
+      if (crParts.length > 1) return say('دفعة آجلة واحدة فقط لعميل واحد', 'no');
+      if ((pay.parts || []).some(x => x.m === 'app' && Number(x.amount) > 0)) return say('لا يُجمع الآجل مع تطبيق توصيل', 'no');
+      crCu = crCusts.find(c => c.key === crParts[0].custKey); if (!crCu) return say('اختر عميلًا مؤهلًا للبيع الآجل', 'no');
+      crAmt = posR2(crParts[0].amount); if (crAmt > T.total + 0.004) return say('المبلغ الآجل أكبر من إجمالي الفاتورة', 'no');
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return say('البيع الآجل يتطلب اتصالًا', 'no');
+    }
     // v48.1: الكوبون المحدود يُحجز ذرّيًا قبل إتمام البيع (مفتاح عدم التكرار = معرّف الطلب)؛ إن تعذّر لا يُكمل البيع بالكوبون
     const oid = uid('po');
     if (priced.coupon && priced.coupon.limited) { const pr = (org.posPromos || []).find(x => x.id === priced.coupon.id) || {};
       const rv = await cpnReserve(code, { id: oid, phone: phoneOk ? phoneN : '', at: nowISO(), br: br.id }, pr);
       if (!rv.ok) { setSending(false); reloadLoy(); return say('الكوبون: ' + rv.why + ' — احذف الرمز لإكمال البيع بدونه', 'no'); }
       if (rv.doc) setLoy(rv.doc); }
+    let ar = null;
+    if (crCu) { const a = await posCreditAuthApi({ orderId: oid, branchId: br.id, customerKey: crCu.key, amount: crAmt, date: today });
+      if (!a || !a.ok) { if (priced.coupon && priced.coupon.limited) cpnRelease(code, oid, 'رُفض البيع الآجل'); return say('البيع الآجل: ' + ((a && (a.why || a.error)) || 'تعذّر التفويض'), 'no'); }
+      ar = { key: crCu.key, name: crCu.name, dueDate: a.dueDate || '', authId: a.authId || '' }; }
     // ترقيم الجهاز اليومي وسلسلة البصمات (تعمل دون اتصال)
     const yy = today.replace(/-/g, '').slice(2); const sk = 'mizan:posSeq:' + br.id + ':' + today, hk = 'mizan:posHash:' + br.id;
     let ls = 0, lp = null; try { ls = Number(localStorage.getItem(sk)) || 0; lp = JSON.parse(localStorage.getItem(hk) || 'null'); } catch { }
@@ -201,10 +218,11 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
       ...(code.trim() && priced.codeOk ? { coupon: code.trim(), ...(priced.coupon ? { couponId: priced.coupon.id, ...(priced.coupon.limited ? { couponLtd: true } : {}) } : {}) } : {}),
       ...(phoneOk ? { loyalty: { phone: phoneN, name: (cust.name || custName).trim(), earned: earnPts, redeemed: redeemPts, redeemAmt, pv: Number(loyCfg.ptValue) || 0, balAfter: posR2(loyBalance - redeemPts + earnPts) } } : {}),
       total: T.total, vat: T.vat, net: T.net, rate,
-      payments: pay.parts.filter(x => Number(x.amount) > 0).map(x => ({ m: x.m, amount: posR2(x.amount), ...(x.m === 'app' ? { appId: x.appId, appName: (apps.find(a => a.id === x.appId) || {}).n || 'تطبيق' } : {}), ...(x.pm ? { pm: x.pm, pmName: x.pmName } : {}) })),
+      payments: pay.parts.filter(x => Number(x.amount) > 0).map(x => ({ m: x.m, amount: posR2(x.amount), ...(x.m === 'app' ? { appId: x.appId, appName: (apps.find(a => a.id === x.appId) || {}).n || 'تطبيق' } : {}), ...(x.pm ? { pm: x.pm, pmName: x.pmName } : {}), ...(x.m === 'credit' && ar ? { custKey: ar.key, custName: ar.name } : {}) })),
+      ...(ar ? { ar } : {}),   // v56.46: العميل والاستحقاق ورقم التفويض — قبل البصمة
       ...(recSeen.length ? { recShown: recSeen.slice(0, 30) } : {}), ...(recDis.length ? { recDismissed: recDis.slice(0, 30) } : {}),
       change, status: 'paid', icv: (prev.icv || 0) + 1, pih: prev.hash || '0', ...(channel === 'dinein' && tbl ? { table: tbl, ...((ar) => ar ? { areaId: ar.id, areaName: ar.name } : {})(tableArea(org, br.id, tbl)) } : {}), ...(payTab ? { tabId: payTab } : {}), ...(cuts.length ? { tabCuts: cuts, tabCutBy: me.name } : {}) };
-    o.hash = sha256Hex(JSON.stringify([o.no, o.at, o.lines, o.total, o.vat, o.payments, o.icv, o.pih]));
+    o.hash = sha256Hex(JSON.stringify([o.no, o.at, o.lines, o.total, o.vat, o.payments, o.icv, o.pih, ...(o.ar ? [o.ar] : [])]));   // v56.46: الآجل ضمن البصمة متى وُجد
     try { localStorage.setItem(sk, String(seq)); localStorage.setItem(hk, JSON.stringify({ icv: o.icv, hash: o.hash })); } catch { }
     const qn = [...posQueue(), o]; posQueueSet(qn); setQueue(qn);
     if (phoneOk && (earnPts || redeemPts)) loyQSet([...loyQ(), ...(redeemPts ? [{ id: o.id + ':r', phone: phoneN, name: (cust.name || custName).trim(), pts: -redeemPts, at: o.at, br: br.id, ord: o.no }] : []), ...(earnPts ? [{ id: o.id + ':e', phone: phoneN, name: (cust.name || custName).trim(), pts: earnPts, at: o.at, br: br.id, ord: o.no }] : [])]);
@@ -271,6 +289,8 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     const opt = posRefundOptions(o).find(x => x.k === ret.k) || { m: 'cash' };
     if (opt.m === 'cash' && !shift) return say('الرد نقدًا يحتاج وردية مفتوحة على هذا الجهاز', 'no');
     const C = posReturnCalc(o, qs); const loyDed = posReturnLoyDed(ops, o, C.total);
+    // v56.46: «إلى حساب العميل» — لا يمس الدرج، ولا يتجاوز متبقي الذمة (أو الآجل ناقص المرتجعات السابقة إلى الحساب)
+    if (opt.m === 'credit') { const mx = posArRefundMax({ ...ops, posOrders: allOrders }, o); if (C.total > mx + 0.004) return say('المرتجع إلى حساب العميل لا يتجاوز ' + money(mx) + ' — رُدّ الباقي بطريقة أخرى', 'no'); }
     if (opt.m === 'cash' && shift) { const drawer = posR2((Number(shift.openingCash) || 0) + posOrdersStats(shiftOrders(shift)).cash); if (C.total > drawer + 0.004) return say('النقد في الدرج (' + money(drawer) + ') أقل من المبلغ المردود', 'no'); }
     const yy = today.replace(/-/g, '').slice(2); const sk = 'mizan:posRetSeq:' + br.id + ':' + today, hk = 'mizan:posHash:' + br.id;
     let ls = 0, lp = null; try { ls = Number(localStorage.getItem(sk)) || 0; lp = JSON.parse(localStorage.getItem(hk) || 'null'); } catch { }
@@ -278,7 +298,8 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     const bi = (org.branches || []).findIndex(b => b.id === br.id) + 1;
     const r = { id: uid('pr'), kind: 'return', refId: o.id, refNo: o.no, no: 'م' + bi + '-' + yy + '-' + dev.tag + '-' + String(seq).padStart(4, '0'), branchId: br.id, dev: dev.tag, ...(shift ? { shiftId: shift.id } : {}),
       date: today, at: nowISO(), by: me.name, channel: o.channel, lines: [], retLines: C.lines, gross: -C.total, disc: 0, manualDisc: 0, total: -C.total, vat: -C.vat, net: -C.net, rate: o.rate,
-      payments: [{ m: opt.m, amount: -C.total, ...(opt.appId ? { appId: opt.appId, appName: opt.appName } : {}), ...(opt.pm ? { pm: opt.pm, pmName: opt.pmName } : {}) }], change: 0, status: 'paid',
+      payments: [{ m: opt.m, amount: -C.total, ...(opt.appId ? { appId: opt.appId, appName: opt.appName } : {}), ...(opt.pm ? { pm: opt.pm, pmName: opt.pmName } : {}), ...(opt.m === 'credit' ? { custKey: opt.custKey, custName: opt.custName } : {}) }], change: 0, status: 'paid',
+      ...(opt.m === 'credit' ? { ar: { key: opt.custKey, name: opt.custName || '' } } : {}),
       reason: ret.reason, ...(ret.note.trim() ? { note: ret.note.trim() } : {}), ...(loyDed ? { loyalty: { phone: o.loyalty.phone, ded: loyDed } } : {}), icv: (prev.icv || 0) + 1, pih: prev.hash || '0' };
     r.hash = sha256Hex(JSON.stringify([r.no, r.at, r.retLines, r.total, r.vat, r.payments, r.icv, r.pih, r.refId]));
     const ok = await commit(d => ({ ...d, posOrders: [...(d.posOrders || []), r] }), { actionType: 'create', targetType: 'pos_order', targetId: r.id, branchName: br.name, title: 'مرتجع ' + r.no + ' عن الفاتورة ' + o.no, details: C.lines.map(l => l.name + ' ×' + l.qty).join('، ') + ' · ' + money(C.total) + ' · ' + WASTE_REASONS[ret.reason] });
@@ -482,6 +503,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
           <button className="btn" onClick={() => setPay({ parts: [{ m: 'cash', amount: '' }, { m: 'card', amount: '' }] })}>تقسيم</button>
           {payMs.slice(0, 3).map(pm => <button key={pm.id} className="btn" onClick={() => setPay({ parts: [{ m: pm.kind || 'card', pm: pm.id, pmName: pm.n, amount: String(T.total) }] })}>{pm.n}</button>)}
           <button className="btn" onClick={() => setPay({ parts: [{ m: 'app', appId: (apps[0] || {}).id, amount: String(T.total) }] })}>تطبيق توصيل</button>
+          {creditOn && crCusts.length > 0 && <button className="btn" data-credit onClick={() => setPay({ parts: [{ m: 'credit', custKey: '', amount: String(T.total) }] })}>آجل</button>}
         </div>
       </>}
     </div>);
@@ -540,7 +562,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
 
       {view === 'orders' && (() => {
         // v34.4: سجل الفواتير — بالتاريخ ونوع السداد والبحث، مع مجموع كل نوع وتصدير Excel
-        const payAr = (p) => p.pmName ? p.pmName : p.m === 'cash' ? 'نقدي' : p.m === 'card' ? 'شبكة' : p.m === 'transfer' ? 'تحويل' : (p.appName || 'تطبيق');
+        const payAr = (p) => p.pmName ? p.pmName : p.m === 'cash' ? 'نقدي' : p.m === 'card' ? 'شبكة' : p.m === 'transfer' ? 'تحويل' : p.m === 'credit' ? 'آجل' + (p.custName ? ' — ' + p.custName : '') : (p.appName || 'تطبيق');
         const list = allOrders.filter(o => o.branchId === br.id && o.date === ordF.d)
           .filter(o => ordF.pay === 'all' || (ordF.pay === 'void' ? o.status === 'void' : o.status !== 'void' && (o.payments || []).some(p => p.m === ordF.pay)))
           .filter(o => !ordF.q.trim() || String(o.no).includes(ordF.q.trim()) || (o.loyalty && String(o.loyalty.phone || '').includes(normPhone(ordF.q))) || (o.lines || []).some(l => (l.name || '').includes(ordF.q.trim())))
@@ -657,14 +679,14 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
         <div className="note" style={{ marginTop: 8 }}>بعد إغلاق ورديات اليوم: افتح «الإغلاق اليومي» واضغط «تعبئة من نقطة البيع» فتُملأ المبيعات النقدية والشبكة والتطبيقات تلقائيًا.</div>
       </div>}
 
-      {view === 'cfg' && <PosSettings org={org} commitOrg={commitOrg} say={say} dev={dev} />}
+      {view === 'cfg' && <PosSettings org={org} commitOrg={commitOrg} say={say} dev={dev} me={me} />}
       {view === 'promos' && <PosPromos org={org} ops={ops} me={me} commitOrg={commitOrg} say={say} />}
       {view === 'loyalty' && <PosLoyalty org={org} commitOrg={commitOrg} say={say} canCfg={!!(R.admin || R.scope === 'all')} me={me} />}
       {view === 'shifts' && <PosShifts org={org} ops={ops} me={me} brs={brs} commit={commit} say={say} />}
 
       {ret && (() => { const o = ret.o; const left = posReturnable(ops, o); const qs = {}; Object.entries(ret.q).forEach(([i, v]) => { const n = Number(v) || 0; if (n > 0) qs[i] = Math.min(n, left[i] || 0); });
         const C = posReturnCalc(o, qs); const opts = posRefundOptions(o);
-        const optAr = (x) => x.pmName || (x.m === 'cash' ? 'نقدي' : x.m === 'card' ? 'شبكة' : x.m === 'transfer' ? 'تحويل' : (x.appName || 'تطبيق'));
+        const optAr = (x) => x.pmName || (x.m === 'cash' ? 'نقدي' : x.m === 'card' ? 'شبكة' : x.m === 'transfer' ? 'تحويل' : x.m === 'credit' ? 'إلى حساب العميل' + (x.custName ? ' — ' + x.custName : '') + ' (حتى ' + money(posArRefundMax({ ...ops, posOrders: allOrders }, o)) + ')' : (x.appName || 'تطبيق'));
         return <Modal title={'مرتجع عن الفاتورة ' + o.no} icon={FileText} onClose={() => setRet(null)}
           foot={<><button className="btn pri" disabled={!(C.total > 0)} onClick={() => saveReturn(true)}><Printer size={14} />حفظ وطباعة الإشعار</button><button className="btn" disabled={!(C.total > 0)} onClick={() => saveReturn(false)}>حفظ</button><button className="btn gh" onClick={() => setRet(null)}>إلغاء</button></>}>
           <div className="note" style={{ marginBottom: 8 }}>الأطباق المرتجعة تُسجَّل <b>هدرًا</b> ولا ترجع للمخزون. يُصدر «إشعار دائن» ويُخصم المبلغ والضريبة من مبيعات اليوم.</div>
@@ -683,15 +705,17 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
         foot={<><button className="btn pri" style={{ flex: 1, minHeight: 50, fontSize: 16 }} onClick={() => checkout(cfg.autoPrint !== false)}><Check size={16} />{cfg.autoPrint !== false ? 'تأكيد وطباعة' : 'تأكيد'}</button>
           <button className="btn" style={{ minHeight: 50 }} onClick={() => checkout(cfg.autoPrint === false)}>{cfg.autoPrint !== false ? 'بلا طباعة' : 'تأكيد وطباعة'}</button></>}>
         {pay.parts.map((x, i) => <div key={i} className="row" style={{ gap: 8, marginBottom: 8, alignItems: 'end', flexWrap: 'wrap' }}>
-          <Field label="الطريقة" style={{ marginBottom: 0 }}><select className="sel" value={x.pm ? 'pm:' + x.pm : x.m} onChange={e => { const v = e.target.value; const pm = v.startsWith('pm:') ? payMs.find(z => 'pm:' + z.id === v) : null; setPay(pp => ({ ...pp, parts: pp.parts.map((y, k) => k === i ? (pm ? { ...y, m: pm.kind || 'card', pm: pm.id, pmName: pm.n } : { ...y, m: v, pm: undefined, pmName: undefined, ...(v === 'app' && !y.appId ? { appId: (apps[0] || {}).id } : {}) }) : y) })); }}>{payMs.map(pm => <option key={pm.id} value={'pm:' + pm.id}>{pm.n}</option>)}<option value="cash">نقدي</option><option value="card">شبكة (مدى/بطاقة)</option><option value="transfer">تحويل بنكي</option><option value="app">تطبيق توصيل</option></select></Field>
+          <Field label="الطريقة" style={{ marginBottom: 0 }}><select className="sel" value={x.pm ? 'pm:' + x.pm : x.m} onChange={e => { const v = e.target.value; const pm = v.startsWith('pm:') ? payMs.find(z => 'pm:' + z.id === v) : null; setPay(pp => ({ ...pp, parts: pp.parts.map((y, k) => k === i ? (pm ? { ...y, m: pm.kind || 'card', pm: pm.id, pmName: pm.n } : { ...y, m: v, pm: undefined, pmName: undefined, ...(v === 'app' && !y.appId ? { appId: (apps[0] || {}).id } : {}) }) : y) })); }}>{payMs.map(pm => <option key={pm.id} value={'pm:' + pm.id}>{pm.n}</option>)}<option value="cash">نقدي</option><option value="card">شبكة (مدى/بطاقة)</option><option value="transfer">تحويل بنكي</option><option value="app">تطبيق توصيل</option>{creditOn && crCusts.length > 0 && <option value="credit">آجل (على حساب عميل)</option>}</select></Field>
+          {x.m === 'credit' && <Field label="العميل (مؤهل للآجل)" style={{ marginBottom: 0 }}><select className="sel" aria-label="عميل الآجل" value={x.custKey || ''} onChange={e => setPay(pp => ({ ...pp, parts: pp.parts.map((y, k) => k === i ? { ...y, custKey: e.target.value } : y) }))}><option value="">— اختر العميل —</option>{crCusts.map(c => <option key={c.key} value={c.key}>{c.name}</option>)}</select></Field>}
           {x.m === 'app' && <Field label="التطبيق" style={{ marginBottom: 0 }}><select className="sel" value={x.appId} onChange={e => setPay(pp => ({ ...pp, parts: pp.parts.map((y, k) => k === i ? { ...y, appId: e.target.value } : y) }))}>{apps.map(a => <option key={a.id} value={a.id}>{a.n}</option>)}</select></Field>}
           <Field label="المبلغ" style={{ marginBottom: 0 }}><input className="inp n" style={{ fontSize: 18, width: 140 }} inputMode="decimal" autoFocus={i === 0} value={x.amount} onChange={e => setPay(pp => ({ ...pp, parts: pp.parts.map((y, k) => k === i ? { ...y, amount: e.target.value.replace(/[^\d.]/g, '') } : y) }))} /></Field>
           {pay.parts.length > 1 && <button className="btn sm gh" title="حذف هذه الدفعة" onClick={() => setPay(pp => ({ ...pp, parts: pp.parts.filter((_, k) => k !== i) }))}><X size={14} /></button>}
         </div>)}
         {/* v34.13: دفعات متعددة بلا حد — المتبقي يُقترح تلقائيًا للدفعة الجديدة */}
-        <div className="pos-addpay"><span>إضافة دفعة:</span>{[['cash', 'نقدي'], ['card', 'شبكة'], ['transfer', 'تحويل'], ...payMs.map(pm => ['pm:' + pm.id, pm.n]), ['app', 'تطبيق توصيل']].map(([k, t]) => <button key={k} onClick={() => setPay(pp => { const rem = posR2(T.total - pp.parts.reduce((a, y) => a + (Number(y.amount) || 0), 0)); const pm = k.startsWith('pm:') ? payMs.find(z => 'pm:' + z.id === k) : null;
+        <div className="pos-addpay"><span>إضافة دفعة:</span>{[['cash', 'نقدي'], ['card', 'شبكة'], ['transfer', 'تحويل'], ...payMs.map(pm => ['pm:' + pm.id, pm.n]), ['app', 'تطبيق توصيل'], ...(creditOn && crCusts.length && !pay.parts.some(y => y.m === 'credit') ? [['credit', 'آجل']] : [])].map(([k, t]) => <button key={k} onClick={() => setPay(pp => { const rem = posR2(T.total - pp.parts.reduce((a, y) => a + (Number(y.amount) || 0), 0)); const pm = k.startsWith('pm:') ? payMs.find(z => 'pm:' + z.id === k) : null;
           return { ...pp, parts: [...pp.parts, { ...(pm ? { m: pm.kind || 'card', pm: pm.id, pmName: pm.n } : { m: k, ...(k === 'app' ? { appId: (apps[0] || {}).id } : {}) }), amount: rem > 0 ? String(rem) : '' }] }; })}>+ {t}</button>)}</div>
         {pay.parts.some(x => x.m === 'cash') && <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>{[...new Set([T.total, Math.ceil(T.total / 10) * 10, Math.ceil(T.total / 50) * 50, Math.ceil(T.total / 100) * 100, 500])].filter(v => v >= T.total).slice(0, 5).map(v => <button key={v} className="btn sm" onClick={() => setPay(pp => ({ ...pp, parts: pp.parts.map(y => y.m === 'cash' ? { ...y, amount: String(v) } : y) }))}>{money(v)}</button>)}</div>}
+        {pay.parts.some(x => x.m === 'credit') && <div className="note" style={{ margin: '6px 0' }}>البيع الآجل يتطلب اتصالًا: يتحقق الخادم من حد ائتمان العميل قبل إصدار الفاتورة. الباقي يُرد من النقد فقط، ولا يُجمع الآجل مع تطبيق توصيل. اطلب توقيع المستلم على الإيصال.</div>}
         {(() => { const paid = posR2(pay.parts.reduce((a, x) => a + (Number(x.amount) || 0), 0)); const ch = posR2(paid - T.total); const st = ch < -0.004 ? 'rem' : ch > 0.004 ? 'chg' : 'ok';
           return <div className={'pos-paystat ' + st}><span>{st === 'rem' ? 'المتبقي' : st === 'chg' ? 'الباقي للعميل' : 'مكتمل — لا باقٍ'}</span><span className="num">{money(Math.abs(ch))}</span></div>; })()}
       </Modal>}

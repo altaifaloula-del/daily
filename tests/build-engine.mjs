@@ -35,7 +35,9 @@ export const ENGINE_EXPORTS = ['DS_PRE_ACC', 'dsPreRanges', 'dsPreAt', 'dsPreOpe
   // v56.9 — D1 دفتر القيود المخزّن
   'FL_START', 'flOn', 'flKey', 'flNo', 'flLines', 'flRecord', 'flScope', 'flCompare', 'flOpening',
   'FL_GROUPS', 'flLvl', 'flGroupOf', 'flUnclassified', 'flReversalOf',
-  'flReadOn', 'flEntriesOf', 'flBalDiff'];
+  'flReadOn', 'flEntriesOf', 'flBalDiff',
+  // v56.46 — البيع الآجل من نقطة البيع
+  'posCreditOn', 'posCreditOk', 'posCreditList', 'posCreditAmt', 'posCreditDue', 'posArCust', 'posArDayKeys', 'arDocs', 'posArRem', 'posArRefundMax', 'posCreditSnap', 'computeIncome'];
 
 export async function buildEngine() {
   fs.mkdirSync(cache, { recursive: true });

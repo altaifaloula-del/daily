@@ -2,16 +2,17 @@
    المحاسب يُنشئ (تكوين/عكس/شطب) بدليل، ويعتمده غيره؛ القيد بعد الاعتماد وحده. الشطب على المخصص وعلى فاتورة بعينها. */
 import React, { useState } from 'react';
 import { ShieldAlert, Check, X } from 'lucide-react';
-import { eclAllowBal, eclCheck, eclApprove, eclWoOf, eclRecOf, canApproveJe, siRem, Field, Modal, money, uid, nowISO, today } from '../../App.jsx';
+import { eclAllowBal, eclCheck, eclApprove, eclWoOf, eclRecOf, canApproveJe, siRem, arDocs, Field, Modal, money, uid, nowISO, today } from '../../App.jsx';
 
 const KIND = { prov: 'تكوين مخصص', rel: 'عكس مخصص زائد', wo: 'شطب دين معدوم', rec: 'استرداد دين مشطوب' };
 
 export function EclCard({ org, ops, A, me, commit, say, arRows, canPost }) {
   const [f, setF] = useState(null);
   const docs = ops.eclDocs || []; const pend = docs.filter(x => x.status === 'pending');
-  const invs = (key) => (ops.salesInvoices || []).filter(x => x.customerKey === key && siRem(ops, x) > 0.004);
-  const woInvs = (key) => (ops.salesInvoices || []).filter(x => x.customerKey === key && eclWoOf(ops, x.id) - eclRecOf(ops, x.id) > 0.004);
-  const allRows = [...arRows]; (ops.salesInvoices || []).forEach(x => { if (woInvs(x.customerKey).length && !allRows.some(r => r.p.key === x.customerKey)) allRows.push({ p: { key: x.customerKey, name: (x.buyer || {}).name || x.customerKey }, total: 0, b90: 0 }); });
+  const AR = arDocs(ops, org);   // v56.46: فواتير المبيعات + مستندات ذمم الكاشير المرحّلة (pos:)
+  const invs = (key) => AR.filter(x => x.customerKey === key && siRem(ops, x) > 0.004);
+  const woInvs = (key) => AR.filter(x => x.customerKey === key && eclWoOf(ops, x.id) - eclRecOf(ops, x.id) > 0.004);
+  const allRows = [...arRows]; AR.forEach(x => { if (woInvs(x.customerKey).length && !allRows.some(r => r.p.key === x.customerKey)) allRows.push({ p: { key: x.customerKey, name: (x.buyer || {}).name || x.customerKey }, total: 0, b90: 0 }); });
   const rows = allRows.filter(r => r.total > 0.004 || eclAllowBal(ops, r.p.key) > 0.004 || woInvs(r.p.key).length).map(r => ({ ...r, allow: eclAllowBal(ops, r.p.key) }));
   const r2 = (n) => Math.round(n * 100) / 100; const totAllow = r2(rows.reduce((t, r) => t + r.allow, 0));
   const open = (r, kind) => setF({ kind, customerKey: r.p.key, custName: r.p.name, amount: '', date: today(), reason: '', siId: '', branchId: '' });

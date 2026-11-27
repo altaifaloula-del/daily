@@ -1,9 +1,9 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useEffect, useState } from 'react';
 import { ClipboardCheck, ShieldCheck, AlertTriangle, Eye, Check, X, Lock } from 'lucide-react';
-import { Badge, ClosingView, Kpi, LOCK_MSG, ROLES, arDate, arTime, money, nowISO, periodLocked, uid, signDecision, sigFailMsg, loadRelease, loadSignoffs, sigVerify, SIG_BADGE, closingImgs, closingArchiveOne, closingStripImgs, flOn, flAutoPost } from '../../App.jsx';
+import { Badge, ClosingView, Kpi, LOCK_MSG, ROLES, arDate, arTime, money, nowISO, periodLocked, uid, signDecision, sigFailMsg, loadRelease, loadSignoffs, sigVerify, SIG_BADGE, closingImgs, closingArchiveOne, closingStripImgs, flOn, flAutoPost, posDaySummary } from '../../App.jsx';
 
-export function Approvals({ org, me, scoped, commit, say }) {
+export function Approvals({ org, ops, me, scoped, commit, say }) {
   const [note, setNote] = useState({});
   const [view, setView] = useState(null);
   const isGM = !!ROLES[me.role]?.approver;
@@ -17,6 +17,9 @@ export function Approvals({ org, me, scoped, commit, say }) {
     const reason = note[c.id] || '';
     if ((kind === 'audit' || kind === 'reject') && periodLocked(org, c.date)) return say(LOCK_MSG(c.date), 'no');
     if (kind === 'reject' && !reason) return say('اكتب سبب الرفض قبل الإرجاع', 'no');
+    // v56.46 (قرار المجلس 11): التدقيق لا يمر إن كان الآجل في الإغلاق لا يطابق آجل نقطة البيع لليوم (فواتير وصلت بعد الترحيل مثلًا)
+    if (kind === 'audit') { const psC = Math.round(((posDaySummary((ops && ops.posOrders) || [], c.branchId, c.date) || {}).credit || 0) * 100) / 100, cC = Math.round((Number(c.creditSales) || 0) * 100) / 100;
+      if (Math.abs(cC - psC) >= 0.01) return say('الآجل على العملاء في الإغلاق (' + money(cC) + ') لا يطابق نقطة البيع (' + money(psC) + ') — ارفضه ليعيد الفرع «تعبئة من نقطة البيع»', 'no'); }
     // v40.0: توقيع موثّق قبل الحفظ — القواعد ترفض غير المؤهل، ومن قدّم الإغلاق لا يدققه (قرار المالك)
     const sg = await signDecision('closing', kind, c);
     if (!sg.ok) return say(sigFailMsg(sg, kind === 'audit' ? 'التدقيق' : kind === 'gm' ? 'الاعتماد النهائي' : 'الرفض'), 'no');

@@ -58,7 +58,9 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
   // v29.4: المجاميع تُقرَّب للهللة — جمع الكسور العشرية في JavaScript يترك بواقي (0.1+0.2 = 0.30000000000000004)
   const r2c = (n) => Math.round((Number(n) || 0) * 100) / 100;
   const totalDelivery = r2c(sum(f.deliverySales, d => d.amount));
-  const totalRevenue = r2c((Number(f.cashSales) || 0) + (Number(f.cardSales) || 0) + (Number(f.bankTransferSales) || 0) + totalDelivery);
+  // v56.46: الآجل على العملاء من نقطة البيع (للقراءة فقط — يُعبّأ من «تعبئة من نقطة البيع») ضمن الإجمالي ولا يمس النقد المتوقع
+  const creditSales = r2c(f.creditSales);
+  const totalRevenue = r2c((Number(f.cashSales) || 0) + (Number(f.cardSales) || 0) + (Number(f.bankTransferSales) || 0) + totalDelivery + creditSales);
   const cashExp = r2c(sum(f.expenses.filter(e => e.paymentMethod === 'cash'), e => e.amount));
   const totalExp = r2c(sum(f.expenses, e => e.amount));
   const supPays = f.supplierPayments || [];
@@ -175,7 +177,10 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
   // بناء سجل الإغلاق بعد التحقّق (يعيد null عند فشل التحقّق)
   const buildRecord = (status) => {
     if (!f.branchId) { say('اختر الفرع أولاً', 'no'); return null; }
-    if (totalRevenue <= 0) { say('أدخل مبيعات الوردية قبل الحفظ', 'no'); return null; }
+    if (totalRevenue <= 0 && !creditSales) { say('أدخل مبيعات الوردية قبل الحفظ', 'no'); return null; }   // v56.46: يوم مرتجعات آجلة فقط مسموح
+    // v56.46 (قرار المجلس 11): الآجل يطابق آجل نقطة البيع لليوم — فحص مانع للترحيل
+    if (status !== 'draft') { const psC = r2c(   /* v56.46: كل حفظ محتسب لا المسودة */(salesDaySource({ posOrders, posImports }, f.branchId, f.date) || {}).credit);
+      if (Math.abs(creditSales - psC) >= 0.01) { say('الآجل على العملاء (' + money(creditSales) + ') لا يطابق آجل نقطة البيع لليوم (' + money(psC) + ') — اضغط «تعبئة من نقطة البيع» قبل الترحيل', 'no'); return null; } }
     // المرفوض لا يمنع إعادة إغلاق اليوم — حتى لا يُقفل اليوم نهائيًا بعد الرفض
     const dup = existing.find(c => c.branchId === f.branchId && c.date === f.date && c.id !== initial?.id && c.status !== 'rejected');
     if (dup) { say('يوجد إغلاق مسجّل لهذا الفرع بنفس التاريخ — عدّل الإغلاق القائم بدل إنشاء نسخة ثانية', 'no'); return null; }
@@ -196,9 +201,11 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
     }
     const id = initial?.id || 'cl-' + f.branchId + '-' + f.date + '-' + Math.random().toString(36).slice(2, 5);
     const ref = 'TR-' + f.date.replace(/-/g, '') + '-' + f.branchId.slice(-2);
-    const { cardSplit: _spl, ...fNoSplit } = f;
+    const { cardSplit: _spl, creditSales: _cs, creditRows: _cr, ...fNoSplit } = f;
+    // الحقل يُحفظ فقط إن وُجد آجل (أو كان في الإغلاق أصلًا) — فلا تتغير بصمة الإغلاقات بلا آجل
+    const hasCredit = f.creditSales != null && (creditSales !== 0 || (initial && initial.creditSales != null));
     const rec = {
-      ...fNoSplit, ...(splSum > 0 ? { cardSplit: { mada: r2c(Number(spl.mada) || 0), visa: r2c(Number(spl.visa) || 0), mc: r2c(Number(spl.mc) || 0) } } : {}), id, branchName: branch?.name || '', managerName: me.name,
+      ...fNoSplit, ...(hasCredit ? { creditSales, creditRows: (f.creditRows || []).map(r => ({ customerKey: r.customerKey, name: r.name || '', amount: r2c(r.amount), n: Number(r.n) || 0 })) } : {}), ...(splSum > 0 ? { cardSplit: { mada: r2c(Number(spl.mada) || 0), visa: r2c(Number(spl.visa) || 0), mc: r2c(Number(spl.mc) || 0) } } : {}), id, branchName: branch?.name || '', managerName: me.name,
       sessionPhotos: sPhotos, sessionPhoto: sPhotos[0] || '',
       deliverySales: f.deliverySales.map(d => ({ ...d, commissionAmount: Math.round(d.amount * (d.commissionPercentage || 0)) / 100 })),
       totalDeliverySales: totalDelivery, otherRevenues: [], totalOtherRevenues: 0,
@@ -374,12 +381,15 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
   })();
   const auditChecks = (() => {
     const L = []; const add = (lvl, t, keys) => L.push({ lvl, t, keys });
-    if (totalRevenue <= 0) add('block', 'لا مبيعات مُدخلة لهذه الوردية', ['sales']);
+    if (totalRevenue <= 0 && !creditSales) add('block', 'لا مبيعات مُدخلة لهذه الوردية', ['sales']);
     numAnoms.forEach(x => add('warn', x.t, x.keys));
     const ps = f.branchId ? salesDaySource({ posOrders, posImports }, f.branchId, f.date) : { n: 0 };
     if (ps.n || ps.total) {
       const dCash = posR2((f.cashSales || 0) - (ps.cash || 0)), dCard = posR2((f.cardSales || 0) + (f.bankTransferSales || 0) - (ps.card || 0) - (ps.transfer || 0)),
         dApps = posR2(totalDelivery - Object.values(ps.apps || {}).reduce((a, x) => a + x.amount, 0));
+      const dCr = posR2(creditSales - (Number(ps.credit) || 0));   // v56.46
+      if (Math.abs(dCr) >= 0.01) add('block', 'الآجل على العملاء لا يطابق نقطة البيع (الفرق ' + money(dCr) + ') — اضغط «تعبئة من نقطة البيع»', ['sales']);
+      else if (ps.credit) add('ok', 'الآجل على العملاء مطابق لنقطة البيع (' + money(ps.credit) + ')', ['sales']);
       if (Math.abs(dCash) < 0.01 && Math.abs(dCard) < 0.01 && Math.abs(dApps) < 0.01) add('ok', 'المبيعات مطابقة لنقطة البيع' + (ps.n ? ' (' + ps.n + ' فاتورة)' : ''), ['sales']);
       else add('warn', 'فرق عن نقطة البيع —' + (Math.abs(dCash) >= 0.01 ? ' نقدي ' + money(dCash) : '') + (Math.abs(dCard) >= 0.01 ? ' شبكة ' + money(dCard) : '') + (Math.abs(dApps) >= 0.01 ? ' تطبيقات ' + money(dApps) : ''), ['sales', 'network', 'delivery']);
     }
@@ -421,6 +431,7 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
       <div className="esum-row"><span className="k">المبيعات</span><span className="v num" style={{ color: 'var(--brass)' }}>{money(totalRevenue)}</span></div>
       <div className="esum-row sub"><span className="k">— نقدي</span><span className="v num">{money(f.cashSales)}</span></div>
       <div className="esum-row sub"><span className="k">— شبكة وتحويل</span><span className="v num">{money(f.cardSales + (f.bankTransferSales || 0))}</span></div>
+      {creditSales ? <div className="esum-row sub"><span className="k">— آجل على العملاء</span><span className="v num">{money(creditSales)}</span></div> : null}
       <div className="esum-row sub"><span className="k">— توصيل</span><span className="v num">{money(totalDelivery)}</span></div>
       <div className="esum-row"><span className="k">المصروفات</span><span className="v num" style={{ color: 'var(--rose)' }}>{money(totalExp)}</span></div>
       <div className="esum-row"><span className="k">المتوقع بالصندوق</span><span className="v num">{money(expected)}</span></div>
@@ -508,9 +519,16 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
                     <div className="note" style={{ gridColumn: '1 / -1', borderColor: 'rgba(79,178,134,.45)' }}>
                       <b>{ps.src === 'import' ? 'مبيعات مستوردة من نقطة البيع' : 'نقطة البيع'}:</b> {ps.n ? ps.n + ' فاتورة' : ''} بإجمالي <span className="num">{money(ps.total)}</span> — نقد <span className="num">{money(ps.cash)}</span> · شبكة <span className="num">{money(ps.card)}</span>{Object.keys(ps.apps).length ? ' · تطبيقات ' + money(Object.values(ps.apps).reduce((a, x) => a + x.amount, 0)) : ''}
                       <button type="button" className="btn sm pri" style={{ marginInlineStart: 8 }} onClick={() => setF(p => ({ ...p, cashSales: ps.cash, cardSales: ps.card, bankTransferSales: ps.transfer,
-                        deliverySales: (p.deliverySales || []).map(d => ps.apps[d.appId] ? { ...d, amount: ps.apps[d.appId].amount, orderCount: ps.apps[d.appId].n } : { ...d, amount: 0, orderCount: 0 }), posFilled: { at: nowISO(), n: ps.n, total: ps.total } }))}>تعبئة من نقطة البيع</button>
+                        deliverySales: (p.deliverySales || []).map(d => ps.apps[d.appId] ? { ...d, amount: ps.apps[d.appId].amount, orderCount: ps.apps[d.appId].n } : { ...d, amount: 0, orderCount: 0 }), posFilled: { at: nowISO(), n: ps.n, total: ps.total },
+                        // v56.46: الآجل ولقطة العملاء من نقطة البيع (يُزال إن لم يعد في اليوم آجل)
+                        creditSales: ps.creditBy ? ps.credit : (p.creditSales != null ? 0 : undefined), creditRows: ps.creditBy ? Object.values(ps.creditBy) : (p.creditSales != null ? [] : undefined) }))}>تعبئة من نقطة البيع</button>
                       {f.posFilled && <span className="badge b-mint" style={{ marginInlineStart: 6 }}>عُبّئ ✓</span>}
+                      {ps.credit ? <span style={{ display: 'block', marginTop: 4 }}>منها آجل على العملاء: <span className="num">{money(ps.credit)}</span></span> : null}
                     </div>); })()}
+                  {f.creditSales != null && <div className="note" style={{ gridColumn: '1 / -1' }}>
+                    <b>آجل على العملاء</b> (من نقطة البيع — للقراءة فقط، يُقيَّد على ذمم العملاء 1380 ولا يدخل الصندوق): <span className="num" style={{ fontWeight: 700 }}>{money(creditSales)}</span>
+                    {(f.creditRows || []).length > 0 && <div style={{ fontSize: 12, marginTop: 4 }}>{f.creditRows.map((r, i) => <span key={i} className="badge b-dim" style={{ marginInlineEnd: 6 }}>{r.name || r.customerKey}: <span className="num">{money(r.amount)}</span></span>)}</div>}
+                  </div>}
                 </div>
               </>
             ))}

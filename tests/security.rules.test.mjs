@@ -341,3 +341,16 @@ test('ث35 رموز الإشعارات: العضو يسجّل رمز جهازه 
   await assertSucceeds(getDoc(doc(as('owner'), 'pushTokens', tid('a'))), 'المدير يقرأ');
   await assertSucceeds(deleteDoc(doc(as('fin'), 'pushTokens', tid('a'))), 'العضو يحذف رمزه');
 });
+
+test('v56.46 حجوزات البيع الآجل وسجل تفويضه للخادم وحده: لا قراءة ولا كتابة ولا حذف لعضو ولا لمدير', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => { const d = ctx.firestore();
+    await setDoc(doc(d, 'pos_credit', 'x'), { key: 'cust:c1', holds: '[]' }); await setDoc(doc(d, 'pos_credit_log', 'x'), { orderId: 'x', amount: 10 }); });
+  for (const k of ['cash', 'bm', 'fin', 'acct', 'owner']) {
+    for (const c of ['pos_credit', 'pos_credit_log']) {
+      await assertFails(getDoc(doc(as(k), c, 'x')), k + ' يقرأ ' + c);
+      await assertFails(setDoc(doc(as(k), c, 'y_' + k), { orderId: 'y', amount: 1 }), k + ' يكتب ' + c);
+      await assertFails(updateDoc(doc(as(k), c, 'x'), { amount: 0 }), k + ' يعدّل ' + c);
+      await assertFails(deleteDoc(doc(as(k), c, 'x')), k + ' يحذف ' + c);
+    }
+  }
+});
