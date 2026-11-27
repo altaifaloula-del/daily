@@ -35,12 +35,15 @@
           navigator.serviceWorker.getRegistrations().then(function (regs) {
             // v45.9: عامل إشعارات الإغلاق (push-sw.js) يبقى — لا كاش فيه ولا يتحكم في الصفحات
             var isPush = function (r) { var w = r.active || r.waiting || r.installing; return !!(w && /push-sw\.js$/.test(w.scriptURL)); };
-            regs = regs.filter(function (r) { return !isPush(r); });
+            // v56.54: عامل نقطة البيع (pos-sw.js) وكاشه يُستثنيان فقط على جهاز موسوم محليًا (mizan:posSwOn) — بلا العلامة يُزالان كبقية العوامل
+            var posOn = false; try { posOn = localStorage.getItem('mizan:posSwOn') === '1'; } catch (_) { }
+            var isPos = function (r) { var w = r.active || r.waiting || r.installing; return !!(posOn && w && /\/pos-sw\.js(\?|$)/.test(w.scriptURL)); };
+            regs = regs.filter(function (r) { return !isPush(r) && !isPos(r); });
             var had = regs.length > 0;
             regs.forEach(function (r) { r.unregister(); });
             if ('caches' in window) {
               caches.keys().then(function (keys) {
-                return Promise.all(keys.map(function (k) { return caches.delete(k); }));
+                return Promise.all(keys.filter(function (k) { return !(posOn && k.indexOf('muktasab-pos-shell-') === 0); }).map(function (k) { return caches.delete(k); }));
               }).then(function () {
                 // إن كان هناك عامل خدمة قديم، أعد التحميل مرة واحدة لعرض النسخة النظيفة
                 if (had && !sessionStorage.getItem('sw_purged')) {

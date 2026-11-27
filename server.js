@@ -25,6 +25,7 @@ import { mountUserAdmin } from './server-users.js';
 import { mountLedger } from './server-ledger.js';
 import { mountComms } from './server-comms.js';   // v56.50 إرسال الرسائل للعملاء (المحوّل التجريبي وحده)
 import { mountPosCredit } from './server-poscredit.js';   // v56.46 تفويض البيع الآجل من نقطة البيع   // v56.15 D5 الترحيل إلى الدفتر المخزّن من الخادم
+import { mountPosDevices } from './server-posdev.js';   // v56.54 سجل أجهزة نقطة البيع بأرقام فريدة
 import { mountMcp } from './server-mcp.js';
 import { mountRefs } from './server-refs.js';   // v54.4 مكتبة المراجع
 import { mountAiLog } from './server-ailog.js';   // v54.6 سجل الذكاء الاصطناعي
@@ -289,6 +290,7 @@ mountUserAdmin(app, { express, requireMember, rateLimit, T: TENANTS });
 // v56.15 (D5): الترحيل إلى دفتر القيود المخزّن من الخادم وحده — يجمع السطور بالهللات ويتحقق من الدور والفترة قبل الكتابة
 mountLedger(app, { express, requireMember, rateLimit, T: TENANTS, cv: (() => { try { const v = JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'package.json'), 'utf8')).version.split('.').map(Number); return v[0] * 10000 + v[1] * 100 + (v[2] || 0); } catch { return 0; } })() });
 mountPosCredit(app, { express, requireMember, rateLimit, T: TENANTS });
+mountPosDevices(app, { express, requireMember, rateLimit, T: TENANTS });   // v56.54 — يعمل فقط حين يفعّل مسؤول النظام org.posCfg.devReg
 mountComms(app, { express, requireMember, rateLimit, T: TENANTS });   // v56.50 — يعمل فقط حين يفعّل مسؤول النظام org.mkt.comms.sendOn، والمحوّل dryrun لا يرسل شيئًا   // v56.46 — يعمل فقط حين يفعّل المالك org.posCfg.credit
 const AILOG = mountAiLog(app, { requireMember, rateLimit, T: TENANTS });   // v54.6 — قبل مسارات /api/ai و/api/refs و/api/mcp
 const REFS = mountRefs(app, { express, requireMember, rateLimit, T: TENANTS, aiClient: ANTHROPIC_KEY ? aiClient : null, refModel: process.env.REF_MODEL || 'claude-haiku-5-5' });
