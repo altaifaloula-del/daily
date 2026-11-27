@@ -2484,7 +2484,7 @@ function loyMonthAdj(org, loyDoc, month, ctx) {
     const ms = (t) => { const v = Date.parse(t.at || ''); return isNaN(v) ? 0 : v; };   // ترتيب بالزمن الفعلي لا بنص التاريخ
     const H = ALL.filter(t => t.phone === ex.phone && t !== ex && ms(t) <= ms(ex)).slice().sort((a, b) => ms(a) - ms(b));
     // مناسبة مُنحت قبل بداية 6a دخلت الرصيد الافتتاحي لا المصروف الترويجي ⇒ انتهاؤها إيراد
-    const lots = []; let neg = 0; H.forEach(t => { const p = Number(t.pts) || 0; if (p > 0) lots.push({ occ: isOcc(t) && (!from || ld(t) >= from), left: p }); else neg += -p; });
+    const lots = []; let neg = 0; H.forEach(t => { const p = Number(t.pts) || 0; if (p > 0) lots.push({ occ: (isOcc(t) && (!from || ld(t) >= from)) || (!!ctx.manFrom && /^la/.test(String(t.id || '')) && ld(t).slice(0, 7) >= ctx.manFrom), left: p }); else neg += -p; });   // v56.47: انتهاء نقاط يدوية قُيّدت مصروفًا يعكسه
     lots.forEach(l => { const u = Math.min(l.left, neg); l.left -= u; neg -= u; });
     let left = -(Number(ex.pts) || 0); lots.forEach(l => { if (left <= 0) return; const u = Math.min(l.left, left); if (l.occ) expOccPts += u; else expRevPts += u; left -= u; });
     if (left > 0) expRevPts += left; });
@@ -2494,9 +2494,11 @@ function loyMonthAdj(org, loyDoc, month, ctx) {
   const used = {}; (ctx.orders || []).forEach(o => { if (o && o.coupon && o.status !== 'void' && o.kind !== 'return') used[String(o.coupon).toUpperCase()] = used[String(o.coupon).toUpperCase()] || o.date; });
   let rwPts = 0; (ctx.promos || []).forEach(pm => { if (!pm || !pm.rwTx || !rwTx[pm.rwTx] || rwTx[pm.rwTx].undone) return; const u = used[String(pm.code || '').toUpperCase()];
     const when = u || (pm.to && pm.to < (month + '-32') ? pm.to : ''); if (when && inM(when)) rwPts += rwTx[pm.rwTx].pts; });
-  const manPts = T.filter(t => /^la/.test(String(t.id || ''))).length;   // تعديل يدوي للنقاط — خارج التسوية (ينبَّه عليه)
+  const manPts = T.filter(t => /^la/.test(String(t.id || ''))).length;   // تعديل يدوي للنقاط — خارج التسوية (ينبَّه عليه) ما لم يُفعَّل ctx.manOn
+  // v56.47 (قرار المالك: «مصروف تسويق مقابل 2106»): صافي النقاط اليدوية (هدية +، تصحيح −) ⇒ مدين حساب ترويجي / دائن 2106 (والسالب يعكسه)
+  const manNet = ctx.manOn ? T.filter(t => /^la/.test(String(t.id || ''))).reduce((a, t) => a + (Number(t.pts) || 0), 0) : 0;
   const val = (p) => r2(p * pv * k);
-  return { month, pv, rate, expPts: expRevPts, expOccPts, occPts, rwPts, exp: val(expRevPts), expOcc: val(expOccPts), occ: val(occPts), rw: val(rwPts), manPts };
+  return { month, pv, rate, expPts: expRevPts, expOccPts, occPts, rwPts, exp: val(expRevPts), expOcc: val(expOccPts), occ: val(occPts), rw: val(rwPts), manPts, ...(ctx.manOn ? { manNetPts: manNet, man: val(manNet) } : {}) };
 }
 const posMisLoyRanges = (org) => { const g = (org && org.posGl) || {}; return Array.isArray(g.misLoyRanges) ? g.misLoyRanges : (g.misLoy && g.misLoy.from ? [g.misLoy] : []); };
 const posMisLoyFrom = (org) => (posMisLoyRanges(org).find(r => !r.to) || {}).from || '';
@@ -4018,7 +4020,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.46';
+const APP_VER = 'v56.47';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
