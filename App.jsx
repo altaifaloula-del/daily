@@ -3767,7 +3767,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.37';
+const APP_VER = 'v56.38';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -8867,7 +8867,8 @@ function useSecNav() {
    groups: [{ id, ar, items: [{ id, ar, icon, badge, sub }] }] — sub: عنوان فرعي داخل القائمة (اختياري) */
 /* v56.23 (G2 — النموذج 2 «شريط التحكم»، المرحلة 1): سطر مسار الموقع (التطبيق › المجموعة › القسم) والإجراء الأساسي بين المجموعات وصف الأقسام.
    معطّل افتراضيًا (org.ctlBar.on) — بدونه يبقى الشريط كما في v56.16 (عدا إصلاح تكدّس المرقّم على الجوال). */
-const ctlBarOn = (org) => !!(org && org.ctlBar && org.ctlBar.on);
+/* v56.38 (قرار المالك U1 بعد التجربة: «اجعله افتراضيًا»): مفعّل افتراضيًا؛ ويبقى الإيقاف الصريح (on: false) من «صيانة النظام» للرجوع إلى الشكل السابق */
+const ctlBarOn = (org) => !(org && org.ctlBar && org.ctlBar.on === false);
 function OdooBar({ groups, cur, onPick, extra, sw, showSub, subEnd, crumb }) {
   const [open, setOpen] = useState(null);
   // v56.0 (DESIGN-V56-008): على الجوال الشريط سطر قابل للتمرير — القسم الحالي يُمرَّر ليظهر

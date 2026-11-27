@@ -647,16 +647,16 @@ function CtlBarCard({ org, commitOrg, say, isAdm }) {
   const toggle = async () => {
     if (!isAdm) return;
     const ok = await commitOrg(o => ({ ...o, ctlBar: { ...(o.ctlBar || {}), on: !on, at: nowISO() } }),
-      { actionType: 'settings', targetType: 'system_settings', targetId: 'ctlBar', title: on ? 'أوقف شريط التحكم في المحاسبة' : 'فعّل شريط التحكم في المحاسبة', details: on ? 'عودة لشريط v56.16' : 'النموذج 2 — المرحلة 1' });
-    if (ok) say(on ? 'أُوقف — عاد الشريط السابق' : 'فُعّل شريط التحكم في المحاسبة ✓');
+      { actionType: 'settings', targetType: 'system_settings', targetId: 'ctlBar', title: on ? 'أوقف شريط التحكم (رجوع للشكل السابق)' : 'أعاد تشغيل شريط التحكم', details: on ? 'عودة لشريط v56.16' : 'الوضع الافتراضي' });
+    if (ok) say(on ? 'أُوقف — عاد الشكل السابق' : 'عاد شريط التحكم ✓');
   };
   return (<div className="card" data-ctlbar-card>
-    <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />شريط التحكم في التطبيقات (النموذج 2 — تجريبي)</div>
-      <span className={'badge ' + (on ? 'b-sky' : 'b-dim')}>{on ? 'مفعّل' : 'غير مفعّل'}</span></div>
+    <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />شريط التحكم في التطبيقات</div>
+      <span className={'badge ' + (on ? 'b-sky' : 'b-dim')}>{on ? 'مفعّل' : 'موقوف (الشكل السابق)'}</span></div>
     <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>
-      يُظهر سطرًا أعلى المحاسبة والمبيعات والمخزون والموردين والإجازات ومراكز التطبيقات فيه مسار الموقع (التطبيق › المجموعة › القسم الحالي) وأزرار الإجراء، وصفًّا بأقسام المجموعة الحالية، ومرشحات تقارير المحاسبة، ويكبّر الأزرار للمس. يسري على وضع العرض «قوائم».
+      الوضع الافتراضي بقرار المالك بعد التجربة. يُظهر سطرًا أعلى المحاسبة والمبيعات والمخزون والموردين والإجازات ومراكز التطبيقات فيه مسار الموقع (التطبيق › المجموعة › القسم الحالي) وأزرار الإجراء، وصفًّا بأقسام المجموعة الحالية، ومرشحات تقارير المحاسبة، ويكبّر الأزرار للمس. يسري على وضع العرض «قوائم».
       تغيير في الشكل فقط — لا يمس أي قيد أو رصيد، ويمكن إيقافه في أي وقت. يسري على كل مستخدمي المنشأة.</div>
-    {isAdm && <button className={'btn sm ' + (on ? 'gh' : 'pri')} onClick={toggle} data-ctlbar-toggle>{on ? 'إيقاف' : 'تفعيل'}</button>}
+    {isAdm && <button className={'btn sm ' + (on ? 'gh' : 'pri')} onClick={toggle} data-ctlbar-toggle>{on ? 'إيقاف (الشكل السابق)' : 'إعادة التشغيل'}</button>}
   </div>);
 }
 
