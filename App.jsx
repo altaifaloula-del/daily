@@ -731,7 +731,7 @@ const BR_COLS = ['posTabs', 'kdsTickets', 'posDeliveries', 'closings', 'transfer
   'prepCounts',
   // v56.12 (G1) — سجلات التسويق برقم فرع العميل (القديمة بلا فرع تبقى مركزية عبر splitOps)
   'mktConsents', 'mktProfiles', 'mktReferrals'];
-const CORE_COLS = ['expDeptPicks', 'budgets', 'prepaids', 'eclDocs', 'closeTasks', 'ctlCases', 'rfqs', 'cashVouchers', 'prodOrders', 'archLog', 'cardRecons', 'ledgerSnaps', 'salesInvoices', 'advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'jeRecurring', 'mktMerges', 'mktCampaigns', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules', 'hrScoreSnapshots'];
+const CORE_COLS = ['impairDocs', 'impairTests', 'expDeptPicks', 'budgets', 'prepaids', 'eclDocs', 'closeTasks', 'ctlCases', 'rfqs', 'cashVouchers', 'prodOrders', 'archLog', 'cardRecons', 'ledgerSnaps', 'salesInvoices', 'advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'jeRecurring', 'mktMerges', 'mktCampaigns', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules', 'hrScoreSnapshots'];
 
 // تقسيم ops المدمجة إلى مستند مركزي + مستند لكل فرع
 function splitOps(ops, branchIds) {
@@ -1425,7 +1425,7 @@ function leaveBalance(org, ops, e, D) {
   (ops.leaveRequests || []).filter(r => r.employeeId === e.id && r.status === 'approved' && r.type === 'annual' && (!op || r.from > op.date)).forEach(r => {
     if (r.from > D) return; used += lvDays(r.from, r.to < D ? r.to : D); });
   // v56.13 (قرار المالك): أيام التأخر عن المباشرة بعد إجازة (أي نوع) تُخصم من رصيد الإجازات السنوية بعد اعتماد المركز
-  (ops.leaveRequests || []).forEach(r => { const x = r.ret; if (r.employeeId !== e.id || r.status !== 'approved' || !x || x.status !== 'approved' || !(x.lateDays > 0) || (op && r.from <= op.date) || x.date > D) return; used += x.lateDays; });
+  (ops.leaveRequests || []).forEach(r => { const x = r.ret; if (r.employeeId !== e.id || r.status !== 'approved' || !x || x.status !== 'approved' || !(x.lateDays > 0) || (op && r.from <= op.date) || x.date > D) return; used += (x.lateBal != null ? Number(x.lateBal) || 0 : x.lateDays); });   // v56.44 H1: ما زاد على الرصيد غياب بلا أجر لا يُخصم من الرصيد
   const r2 = (n) => Math.round(n * 100) / 100;
   const yrs = e.hireDate ? eosYears(e.hireDate, D) : 0;
   return { ok: true, accrued: r2(accrued), used, balance: r2(accrued - used), rate: yrs >= 5 ? C.after5 : C.annual };
@@ -1440,6 +1440,35 @@ function lvReturnPlan(r, date) {
   if (date < due) return { kind: 'early', lastDay: lvAddD(date, -1), lateDays: 0, due };
   return { kind: 'late', lastDay: r.to, lateDays: lvDays(due, lvAddD(date, -1)), due };
 }
+/* v56.44 — الدفعة 9 (قرار المجلس H1 بتفويض المالك: «اترك المستشار يوضحها ويقوم بما يتناسب مع نظام العمل ولوائحه») — معطّل افتراضيًا (org.lateRet.unpaid):
+   أيام التأخر عن المباشرة تُخصم من رصيد السنوية بقدر المتاح (قرار المالك v56.13)، وما زاد عليه **غياب بلا أجر** بدل الرصيد السالب (الرصيد السالب إجازة مسبقة لم يوافق عليها أحد؛
+   والغياب بلا عذر مقبول بلا أجر وفق نظام العمل ولائحة تنظيم العمل النموذجية). لا خصم آلي من الراتب: يُعرض لمُعدّ الرواتب ليراجعه؛ وتنبيه عند 15 يومًا متصلة (المادة 80 — إنذار كتابي، لا إجراء آلي). */
+const lrUnpaidOn = (org) => !!(org && org.lateRet && org.lateRet.unpaid);
+/** تقسيم أيام التأخر عند اعتماد المباشرة: من الرصيد بقدر المتاح، والباقي بلا أجر */
+function lvLateSplit(org, ops, e, r) {
+  const x = r && r.ret; const late = Number(x && x.lateDays) || 0; if (!(late > 0)) return { lateBal: 0, unpaidDays: 0 };
+  if (!lrUnpaidOn(org)) return { lateBal: late, unpaidDays: 0 };
+  const b = leaveBalance(org, ops, e, x.date); if (!(b && b.ok)) return { lateBal: late, unpaidDays: 0 };   // (الجودة) رصيد غير معروف ⇒ كما كان، لا يُفترض الغياب
+  const avail = Math.max(0, Math.floor(Number(b.balance) || 0));   // قرار المجلس: الكسر لا يغطي يومًا
+  const lateBal = Math.min(late, avail); return { lateBal, unpaidDays: late - lateBal };
+}
+/** أيام الغياب بلا أجر المعتمدة في شهر (لمراجعة مُعدّ الرواتب) — من اليوم التالي لاستنفاد الرصيد حتى اليوم السابق للمباشرة.
+ *  daysInMonth = ما يقع في الشهر وحده (يُخصم يدويًا)، days = إجمالي الفترة. المادة 80 من نظام العمل: الغياب المتصل إنذار كتابي عند 10 أيام ويجيز الفصل فوق 15،
+ *  والمتفرق في السنة إنذار عند 20 ويجيز الفصل فوق 30 — تنبيه فقط بلا إجراء آلي. أيام التأخر المغطاة من الرصيد إجازة لا غياب. branchIds: تصفية الفروع (null = الكل). */
+function lvUnpaidFor(ops, month, branchIds) {
+  const out = []; const L = ((ops && ops.leaveRequests) || []).filter(r => r.status === 'approved' && r.ret && r.ret.status === 'approved' && Number(r.ret.unpaidDays) > 0 && (!branchIds || branchIds.includes(r.branchId)));
+  const yr = month ? String(month).slice(0, 4) : ''; const perYear = {};
+  L.forEach(r => { const from = lvAddD(r.to, 1 + (Number(r.ret.lateBal) || 0)); if (String(from).slice(0, 4) === yr) perYear[r.employeeId] = (perYear[r.employeeId] || 0) + Number(r.ret.unpaidDays); });
+  L.forEach(r => { const x = r.ret; const from = lvAddD(r.to, 1 + (Number(x.lateBal) || 0)), to = lvAddD(x.date, -1); if (month && String(from).slice(0, 7) > month) return; if (month && String(to).slice(0, 7) < month) return;
+    const ms = month ? month + '-01' : from, me = month ? lvAddD(String(Number(month.slice(0, 4)) + (month.slice(5) === '12' ? 1 : 0)) + '-' + (month.slice(5) === '12' ? '01' : String(Number(month.slice(5)) + 1).padStart(2, '0')) + '-01', -1) : to;
+    const a = from > ms ? from : ms, b = to < me ? to : me; const days = Number(x.unpaidDays), yearDays = perYear[r.employeeId] || days;
+    const art80 = days > 15 || yearDays > 30 ? 'exceed' : days >= 10 || yearDays >= 20 ? 'warn' : '';
+    out.push({ leaveId: r.id, employeeId: r.employeeId, employeeName: r.employeeName, branchId: r.branchId || '', branchName: r.branchName || '', from, to, days, daysInMonth: a <= b ? lvDays(a, b) : 0, yearDays, art80 }); });
+  return out;
+}
+const lvArt80Txt = (x) => x.art80 === 'exceed' ? 'تجاوز حد المادة 80 (أكثر من 15 يومًا متصلة أو 30 متفرقة في السنة) — يجيز الفصل إن سبقه إنذار كتابي؛ لا إجراء آلي'
+  : x.art80 === 'warn' ? 'بلغ حد الإنذار الكتابي في المادة 80 (10 أيام متصلة أو 20 متفرقة في السنة)' : '';
+export { lrUnpaidOn, lvLateSplit, lvUnpaidFor, lvArt80Txt };   // v56.44 الدفعة 9 (H1)
 /** مراحل الإجازة للعرض والتتبع: الطلب ← توقيع الموظف ← القرار ← البدء ← المباشرة ← اعتمادها */
 function lvTrack(r, signDocs, td) {
   const sd = (t) => (signDocs || []).find(d => d.refId === r.id && d.docType === t && d.status !== 'voided') || null;
@@ -2922,19 +2951,24 @@ function buildAccounting(org, ops) {
     const dispYm = a.disposedDate ? a.disposedDate.slice(0, 7) : '';   // يتوقف الإهلاك عند شهر الاستبعاد
     let accum = 0, monthsDone = 0;
     // v15.11: الإهلاك التلقائي فقط للأصول المرسملة بقيد شراء (funded). أصل «بلا قيد شراء» (none) يسوّيه المحاسب يدويًا — فلا إهلاك تلقائي يخلق مجمّع إهلاك بلا أصل.
+    const aImps = funded ? impDocsOf(ops, a.id).filter(x => x.lossAcc && x.accAcc && (!a.disposedDate || String(x.date) < String(a.disposedDate).slice(0, 10))) : [];   // v56.43 E8
     if (funded && (Number(a.lifeYears) || 0) > 0 && a.buyDate) {
-      const sched = deprSchedule(a);                       // v49.4: حسب طريقة الأصل (القسط الثابت افتراضيًا)
-      const start = ymAdd(a.buyDate.slice(0, 7), 1);       // الإهلاك من الشهر التالي للشراء
-      for (let k = 0; k < sched.length; k++) {
-        const ym = ymAdd(start, k);
+      const plan = assetDepPlan(a, aImps);                 // v49.4 جدول الطريقة؛ v56.43: بعد الهبوط قسط ثابت على المتبقي (للمستقبل فقط)
+      for (let k = 0; k < plan.length; k++) {
+        const ym = plan[k].ym;
         if (ym > nowYm) break;
         if (dispYm && ym >= dispYm) break;                 // لا إهلاك في شهر الاستبعاد وما بعده
-        const amt = sched[k]; if (!(amt > 0)) continue;
+        const amt = plan[k].amt; if (!(amt > 0)) continue;
         depByMonth[ym] = Math.round(((depByMonth[ym] || 0) + amt) * 100) / 100;
         accum = Math.round((accum + amt) * 100) / 100; monthsDone++;
       }
     }
-    const book = Math.round((cost - accum) * 100) / 100;
+    // v56.43 (E8): قيود الهبوط وعكسه المعتمدة، ورصيد الهبوط لكل حساب مجمع
+    const impBy = {}; let impBal = 0;
+    aImps.forEach(x => { const v = impR2(x.amount); const s = x.kind === 'rev' ? -1 : 1; impBal = impR2(impBal + s * v); impBy[x.accAcc] = impR2((impBy[x.accAcc] || 0) + s * v);
+      /* (قرار المجلس) على المركز الرئيسي كالإهلاك المجمّع — فلا تتحمل قائمة الفرع الهبوط دون إهلاكه */ push({ id: 'imp:' + x.id, date: x.date, title: (x.kind === 'rev' ? 'عكس هبوط قيمة أصل — ' : 'هبوط قيمة أصل — ') + (a.name || '') + (x.no ? ' (' + x.no + ')' : ''),
+        src: 'الأصول الثابتة', ref: a.id, lines: x.kind === 'rev' ? [L(x.accAcc, v, 0), L(x.lossAcc, 0, v)] : [L(x.lossAcc, v, 0), L(x.accAcc, 0, v)] }); });
+    const book = Math.round((cost - accum - impBal) * 100) / 100;
     // بيع/استبعاد الأصل: إخراجه بالتكلفة + إقفال مجمّع إهلاكه، والفرق مع سعر البيع ربح (4201) أو خسارة (5801)
     // القيد متوازن دائمًا: مدين (المقبوض + المجمّع + خسارة) = دائن (التكلفة + ربح)
     let disposed = false, gain = 0, salePrice = 0;
@@ -2946,6 +2980,7 @@ function buildAccounting(org, ops) {
       const lines = [];
       if (salePrice > 0) lines.push(L(saleFund, salePrice, 0));   // المقبوض من البيع (بنك/خزينة)
       if (accum > 0) lines.push(L('1791', accum, 0));            // إقفال مجمّع الإهلاك
+      Object.entries(impBy).forEach(([c, v]) => { if (v > 0.004) lines.push(L(c, v, 0)); });   // v56.43: إقفال مجمع الهبوط
       lines.push(L('1701', 0, cost));                           // إخراج الأصل بتكلفته
       if (gain > 0.005) lines.push(L('4201', 0, gain));          // ربح بيع
       else if (gain < -0.005) lines.push(L('5801', -gain, 0));   // خسارة بيع/استبعاد
@@ -2955,7 +2990,7 @@ function buildAccounting(org, ops) {
         src: 'الأصول الثابتة', ref: a.id, lines
       });
     }
-    return { ...a, cost, nM, monthly: Math.floor(cost / nM * 100) / 100, accum, book, monthsDone, done: monthsDone >= nM, disposed, gain, salePrice };
+    return { ...a, cost, nM, monthly: Math.floor(cost / nM * 100) / 100, accum, impBal, book, monthsDone, done: monthsDone >= nM, disposed, gain, salePrice };
   });
   Object.keys(depByMonth).sort().forEach(ym => {
     if (depByMonth[ym] <= 0) return;
@@ -3599,7 +3634,9 @@ function closeAutoChecks(A, ops, month, org) {
   const pds = (ops.disbursements || []).filter(x => x.status === 'pending' && String(x.date || '') <= end);   // v56.29
   const pecl = (ops.eclDocs || []).filter(x => x.status === 'pending' && String(x.date || '') <= end);
   const ppp = (ops.prepaids || []).filter(x => x.status === 'pending' && String(x.date || '') <= end);   // v56.41
-  const pdp = org ? expDeptPending(org, ops, month + '-01', end) : [];   // v56.42 U3   // v56.40 (E6.3): مراجعة المخصص بند في الإقفال
+  const pdp = org ? expDeptPending(org, ops, month + '-01', end) : [];   // v56.42 U3
+  const pimp = (ops.impairDocs || []).filter(x => x.status === 'pending' && String(x.date || '') <= end);   // v56.43 E8
+  const impYear = org && impOn(org) && month.slice(5, 7) === '12' ? !(ops.impairTests || []).some(t => String(t.year) === month.slice(0, 4)) : false;   // 27.7: اختبار المؤشرات في كل إقفال سنوي   // v56.40 (E6.3): مراجعة المخصص بند في الإقفال
   return [
     { k: 'drafts', ar: 'لا إغلاقات مسودة أو مرفوضة حتى نهاية الشهر', n: cls.filter(c => c.status === 'draft' || c.status === 'rejected').length },
     { k: 'pending', ar: 'كل الإغلاقات المرفوعة مدقَّقة (لا شيء بانتظار التدقيق)', n: cls.filter(c => c.status === 'submitted').length },
@@ -3608,6 +3645,7 @@ function closeAutoChecks(A, ops, month, org) {
     ...(pcv.length || pds.length ? [{ k: 'pdocs', ar: 'لا سندات صرف ولا أوامر صرف بانتظار الاعتماد (المعلّق في شهر مقفل لا يُعتمد)', n: pcv.length + pds.length }] : []),
     ...(pecl.length || (org && eclOn(org)) ? [{ k: 'ecl', ar: 'مخصص الخسائر الائتمانية: رُوجعت ذمم العملاء المتأخرة ولا مستند مخصص أو شطب بانتظار الاعتماد', n: pecl.length }] : []),
     ...(ppp.length || (org && ppOn(org)) ? [{ k: 'ppd', ar: 'المصروفات المدفوعة مقدمًا: لا مستند بانتظار الاعتماد (الإطفاء الشهري آلي بعد الاعتماد)', n: ppp.length }] : []),
+    ...(pimp.length || impYear ? [{ k: 'impair', ar: 'هبوط قيمة الأصول: سُجّل اختبار مؤشرات السنة ولا مستند هبوط بانتظار الاعتماد', n: pimp.length + (impYear ? 1 : 0) }] : []),
     ...(pdp.length ? [{ k: 'deptpick', ar: 'كل مصروفات الوردية التي يحدد المحاسب قسمها (الصيانة والكهرباء) محدَّدة القسم', n: pdp.length }] : []),
     { k: 'unb', ar: 'كل قيود الشهر متوازنة', n: unb.length },
     { k: 'susp', ar: 'الحساب المعلّق 9999 رصيده صفر', n: Math.abs(susp) > 0.004 ? 1 : 0, amt: susp },
@@ -3832,7 +3870,7 @@ function emptyOrg(company) {
 }
 
 function emptyOps() {
-  return { expDeptPicks: [], budgets: [], prepaids: [], eclDocs: [], rfqs: [], posDeliveries: [], cashVouchers: [], jeRecurring: [], mktConsents: [], mktMerges: [], mktProfiles: [], mktReferrals: [], actions: [], countSessions: [], wasteRequests: [], posImports: [], posOrders: [], posShifts: [], ledgerSnaps: [], stockCounts: [], leaveRequests: [], productSales: [], salesInvoices: [], closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
+  return { impairDocs: [], impairTests: [], expDeptPicks: [], budgets: [], prepaids: [], eclDocs: [], rfqs: [], posDeliveries: [], cashVouchers: [], jeRecurring: [], mktConsents: [], mktMerges: [], mktProfiles: [], mktReferrals: [], actions: [], countSessions: [], wasteRequests: [], posImports: [], posOrders: [], posShifts: [], ledgerSnaps: [], stockCounts: [], leaveRequests: [], productSales: [], salesInvoices: [], closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
     attendanceEvents: [], hrPins: [], shiftTemplates: [], shiftAssignments: [], shiftSwapRequests: [], branchTransferRequests: [], taskTemplates: [], taskAssignments: [], taskCompletions: [], pointsEntries: [], qualityReviews: [], rewardRequests: [], hrSignDocs: [], hrCorrective: [], hrPips: [], hrTraining: [], hrKpiEntries: [], hrScoreSnapshots: [], purchaseReqs: [], poInbox: [], poReceipts: [] };
 }
 
@@ -3843,7 +3881,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.42';
+const APP_VER = 'v56.44';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -7857,7 +7895,7 @@ function ctlScan(org, ops, opts = {}) {
   });
   // 7) أرصدة بعكس طبيعة الحساب (من الدفاتر حتى اليوم)
   try { const A = opts.A || buildAccounting(org, ops); const T = acctActivity(A, { from: '', to: td });
-    const eclA = String(((org && org.ecl) || {}).allowAcc || ''); const eclUsed = new Set((ops.eclDocs || []).filter(eclLive).map(x => String(x.allowAcc || '')));   // v56.40: حساب المخصص مقابل بطبيعته
+    const eclA = String(((org && org.ecl) || {}).allowAcc || ''); const eclUsed = new Set([...(ops.eclDocs || []).filter(eclLive).map(x => String(x.allowAcc || '')), ...(ops.impairDocs || []).filter(x => x && x.status === 'approved').map(x => String(x.accAcc || '')), String(((org && org.impair) || {}).accAcc || '')]);   // v56.43 مجمع الهبوط مقابل   // v56.40: حساب المخصص مقابل بطبيعته
     T.rows.forEach(r => { if (CTL_CONTRA.has(String(r.code)) || String(r.code) === eclA || eclUsed.has(String(r.code)) || r.close >= -1) return;
       add({ key: 'nature|' + r.code, cat: 'nature', sev: Math.abs(r.close) > 1000 ? 'high' : 'medium', branchId: '', ref: { kind: 'acc', id: r.code, no: r.code }, title: 'الحساب ' + r.code + ' ' + (r.name || '') + ' رصيده بعكس طبيعته', evidence: 'الرصيد الختامي ' + r2(r.close) + ' (' + (r.kind === 'asset' || r.kind === 'exp' ? 'دائن' : 'مدين') + ')', impact: Math.abs(r.close), fix: 'راجع قيود الحساب: قيد معكوس أو تصنيف خاطئ أو مرتجع بلا أصل.' }); }); } catch { }
   // 8) الأنماط الشاذة الإحصائية القائمة (تكامل لا تكرار)
@@ -12683,6 +12721,63 @@ const DEP_METHODS = { sl: { ar: 'القسط الثابت', rec: true, desc: 'م�
   ddb: { ar: 'القسط المتناقص (المضاعف)', desc: 'إهلاك أعلى في السنوات الأولى — للمعدات سريعة التقادم' },
   syd: { ar: 'مجموع أرقام السنين', desc: 'متناقص تدريجيًا بنسب ثابتة' } };
 const depMethod = (a) => (DEP_METHODS[a && a.depMethod] ? a.depMethod : 'sl');
+/* ===== v56.43 — الدفعة 10 (قرارات المجلس E8، IFRS for SMEs القسم 27): هبوط قيمة الأصول الثابتة — معطّل افتراضيًا (org.impair.on) =====
+   ops.impairDocs: { id, no, kind: 'imp' هبوط | 'rev' عكس, assetId, amount, date, reason, status: pending|approved|rejected, by, byId, approvedBy, lossAcc, accAcc (مثبّتان عند الاعتماد) }.
+   المحاسب يُدخل المبلغ بمستنده (لا يحسب النظام القيمة القابلة للاسترداد — E8.2) ويعتمده غيره؛ القيد imp:<id> بتاريخه: الهبوط مدين الخسارة / دائن مجمع الهبوط، والعكس عكسه
+   في حدود القيمة الدفترية لو لم يقع هبوط (27.30). بعد الهبوط يُعاد قسط الإهلاك ثابتًا على المتبقي القابل للإهلاك والأشهر المتبقية — للمستقبل فقط (E8.4).
+   ops.impairTests: سجل اختبار المؤشرات { id, year, date, result: 'none'|'indicator', notes, by, at } — مرة كل إقفال سنوي على الأقل (27.7). */
+const impOn = (org) => !!(org && org.impair && org.impair.on);
+const impAccs = (org) => { const x = (org && org.impair) || {}; return { loss: String(x.lossAcc || ''), acc: String(x.accAcc || '') }; };
+const impR2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+const impAccOk = (c) => /^17\d{2,}$/.test(String(c || '')) && !['1701', '1791'].includes(String(c));
+const impLossOk = (c) => /^5\d+$/.test(String(c || '')) && !['5150', '5701'].includes(String(c));
+const impDocsOf = (ops, assetId, exceptId) => ((ops && ops.impairDocs) || []).filter(x => x && x.status === 'approved' && x.assetId === assetId && x.id !== exceptId).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+const impYmAdd = (ym, k) => { const pr = String(ym).split('-').map(Number); const t = pr[0] * 12 + (pr[1] - 1) + k; return String(Math.floor(t / 12)).padStart(4, '0') + '-' + String((t % 12) + 1).padStart(2, '0'); };
+/** خطة الإهلاك الشهرية للأصل بعد الهبوط وعكسه: [{ ym, amt }] — قبل أي هبوط جدول الطريقة كما هو؛ بعد كل تغيير في رصيد الهبوط قسط ثابت على المتبقي */
+function assetDepPlan(a, imps) {
+  const cost = Number(a && a.cost) || 0, salv = Math.min(cost, Math.max(0, Number(a && a.salvage) || 0)); const sched = deprSchedule(a); const n = sched.length; if (!n || !(a && a.buyDate)) return [];
+  const start = impYmAdd(String(a.buyDate).slice(0, 7), 1); const I = (imps || []).slice(); let ii = 0, impBal = 0, accum = 0, per = null; const out = [];
+  for (let k = 0; k < n; k++) { const ym = impYmAdd(start, k); let ch = false;
+    while (ii < I.length && String(I[ii].date).slice(0, 7) < ym) { impBal = impR2(impBal + (I[ii].kind === 'rev' ? -1 : 1) * (Number(I[ii].amount) || 0)); ii++; ch = true; }
+    if (ch) { const rem = impR2(cost - salv - accum - impBal); per = Math.max(0, Math.floor(rem / (n - k) * 100) / 100); }
+    let amt = per == null ? sched[k] : (k === n - 1 ? impR2(cost - salv - accum - impBal) : per); amt = Math.max(0, impR2(amt));
+    out.push({ ym, amt }); accum = impR2(accum + amt); }
+  return out;
+}
+/** القيمة الدفترية في تاريخ (الإهلاك حتى الشهر السابق لشهر التاريخ + الهبوط المعتمد حتى التاريخ) — وبدون الهبوط للمقارنة (27.30) */
+function assetBookOn(a, ops, date, exceptId) {
+  const cost = Number(a && a.cost) || 0; const imps = impDocsOf(ops, a.id, exceptId).filter(x => String(x.date) <= String(date)); const ym = String(date).slice(0, 7);
+  const dep = (P) => impR2(P.filter(p => p.ym <= ym).reduce((t, p) => t + p.amt, 0));   // (التحقق المحاسبي) شهر المستند يُحمَّل بالقسط القديم، فيدخل في الدفتري
+  const impBal = impR2(imps.reduce((t, x) => t + (x.kind === 'rev' ? -1 : 1) * (Number(x.amount) || 0), 0));
+  const accum = dep(assetDepPlan(a, imps)), accum0 = dep(assetDepPlan(a, []));
+  return { cost, accum, impBal, book: impR2(cost - accum - impBal), book0: impR2(cost - accum0) };
+}
+function impCheck(org, ops, x, A) {
+  const a = ((org && org.assets) || []).find(y => y.id === x.assetId); if (!a) return 'اختر الأصل';
+  if (!(Number(a.cost) > 0) || !a.fund || a.fund === 'none') return 'الأصل بلا قيد شراء — لا هبوط عليه';
+  const amt = impR2(x.amount); if (!(amt > 0)) return 'أدخل المبلغ'; if (!['imp', 'rev'].includes(x.kind)) return 'نوع غير معروف';
+  if (!String(x.reason || '').trim()) return 'اكتب المؤشر والمستند (تلف، إغلاق، فرع خاسر، تقييم…)';
+  if (!x.date || periodLocked(org, x.date)) return 'التاريخ في فترة مقفلة أو غير محدد';
+  if (String(x.date) > today()) return 'لا يُقبل تاريخ مستقبلي';
+  // E8.4 «للمستقبل فقط ولا يمس قيدًا سابقًا» (قرار المجلس بعد التحقق المحاسبي): الهبوط وعكسه بتاريخ في الشهر الجاري، فيبدأ القسط الجديد من الشهر التالي ولا يتغير إهلاك مضى
+  if (String(x.date).slice(0, 7) !== today().slice(0, 7)) return 'تاريخ الهبوط في الشهر الجاري — لا يُعدَّل إهلاك سابق (E8.4)';
+  if (String(x.date) < String(a.buyDate || '')) return 'التاريخ قبل شراء الأصل';
+  if (a.disposedDate && String(x.date) >= String(a.disposedDate).slice(0, 10)) return 'الأصل مستبعد';
+  const ac = impAccs(org), has = (c) => !A || (A.accounts || []).some(y => String(y.code) === String(c));
+  if (!impAccOk(ac.acc) || !impLossOk(ac.loss) || !has(ac.acc) || !has(ac.loss)) return 'حدّد حسابي خسارة الهبوط (5xxx) ومجمع الهبوط (17xx غير 1701 و1791) في «صيانة النظام»';
+  const B = assetBookOn(a, ops, x.date, x.id);
+  if (x.kind === 'imp' && amt > B.book + 0.004) return 'المبلغ أكبر من القيمة الدفترية (' + B.book + ')';
+  if (x.kind === 'rev') { if (amt > B.impBal + 0.004) return 'المبلغ أكبر من رصيد الهبوط (' + B.impBal + ')';
+    if (B.book + amt > B.book0 + 0.004) return 'العكس يتجاوز القيمة الدفترية لو لم يقع هبوط (' + B.book0 + ') — 27.30'; }
+  return '';
+}
+function impApprove(org, d, id, me, A) {
+  const x = (d.impairDocs || []).find(y => y.id === id); if (!x || x.status !== 'pending') return { err: 'تغيّرت حالة المستند — حدّث الشاشة' };
+  if (!canApproveJe(me, x)) return { err: 'لا يعتمده من أنشأه — يعتمده المحاسب أو الإدارة المالية أو المالك' };
+  const e = impCheck(org, d, x, A); if (e) return { err: e }; const ac = impAccs(org);
+  return { next: { ...d, impairDocs: (d.impairDocs || []).map(y => y.id === id ? { ...y, status: 'approved', approvedBy: me.name, approvedById: me.id || '', approvedAt: nowISO(), lossAcc: ac.loss, accAcc: ac.acc } : y) } };
+}
+export { impOn, impAccs, impAccOk, impLossOk, assetDepPlan, assetBookOn, impCheck, impApprove };   // v56.43 الدفعة 10 (E8)
 function deprSchedule(a) {
   const cost = Number(a && a.cost) || 0, salv = Math.min(cost, Math.max(0, Number(a && a.salvage) || 0)), D = Math.round((cost - salv) * 100) / 100;
   const nM = Math.max(1, Math.round((Number(a && a.lifeYears) || 0) * 12)), m = depMethod(a), out = [];
@@ -15342,7 +15437,7 @@ const FL_GROUPS = [
   { id: 'ap', label: 'فواتير الموردين والسداد والسندات وفواتير المبيعات', pre: ['inv:', 'invp:', 'cip:', 'cv:', 'si:', 'sir:', 'fxr:', 'ecl:'] },   // v56.40 مخصص الخسائر الائتمانية
   { id: 'payroll', label: 'الرواتب والتأمينات والسلف ونهاية الخدمة والإجازات', pre: ['sal-acc:', 'sal-pay:', 'sal-set:', 'gosi-er:', 'adv:', 'eos:', 'eos-pay:', 'lv:'] },
   { id: 'stock', label: 'المخزون وتكلفة المبيعات', pre: ['stk:', 'stk-open', 'stx:', 'srx:', 'invval'] },
-  { id: 'assets', label: 'الأصول الثابتة والإهلاك', pre: ['ast:', 'disp:', 'dep:'] },
+  { id: 'assets', label: 'الأصول الثابتة والإهلاك', pre: ['ast:', 'disp:', 'dep:', 'imp:'] },   // v56.43 الهبوط
   { id: 'close', label: 'القيود اليدوية والإقفال السنوي', pre: ['man:', 'yearend', 'pp:'] }   // v56.41 المدفوع مقدمًا
 ];
 const flLvl = (org) => Math.min(FL_GROUPS.length, Math.max(1, Number(((org || {}).ledger || {}).lvl) || 1));

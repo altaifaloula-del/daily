@@ -1,8 +1,9 @@
 /* نُقل من App.jsx (v38.3) — يُحمَّل عند فتح التطبيق فقط */
 import React, { useState, useMemo } from 'react';
-import { ClipboardCheck, CalendarDays, Landmark, Plus, Bell, Users, Wallet, Check, Eye, Printer, LogIn } from 'lucide-react';
+import { ClipboardCheck, CalendarDays, Landmark, Plus, Bell, Users, Wallet, Check, Eye, Printer, LogIn , AlertTriangle } from 'lucide-react';
 import { Field, Kpi, LEAVE_TYPES, LOCK_MSG, Modal, Num, ROLES, SectionNav, eosYears, isoD, leaveBalance, leaveDeductPlan, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, money, monthEnd, nowISO, periodLocked, sum, today, uid,
   lvReturnPlan, lvTrack, leaveSignDoc, sigBlockHtml, printA4, escH, SIGN_DOC_AR } from '../../App.jsx';
+import { lrUnpaidOn, lvLateSplit, lvUnpaidFor, lvArt80Txt } from '../../App.jsx';   // v56.44 H1
 
 export function Leaves({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const R = ROLES[me.role] || {};
@@ -108,10 +109,12 @@ export function Leaves({ org, ops, me, myBranches, commit, commitOrg, say }) {
     const patch = { status: yes ? 'approved' : 'rejected', apBy: me.id || '', apByName: me.name, apAt: nowISO(), ...(apNote ? { apNote } : {}) };
     if (yes && r.ret.kind === 'early') return applyEnd(r, r.ret.lastDay, patch);
     if (yes && r.ret.kind === 'late') { const e = empOf(r.employeeId); const b = leaveBalance(org, ops, e, r.ret.date);
-      if (b.ok && b.balance - r.ret.lateDays < 0 && !window.confirm('رصيد ' + r.employeeName + ' ' + Math.floor(b.balance) + ' يوم وأيام التأخر ' + r.ret.lateDays + ' — سيصبح الرصيد سالبًا. متابعة؟')) return; }
+      if (lrUnpaidOn(org)) { const sp = lvLateSplit(org, ops, e, r); Object.assign(patch, sp);   // v56.44 H1: ما زاد على الرصيد غياب بلا أجر
+        if (sp.unpaidDays > 0 && !window.confirm('رصيد ' + r.employeeName + ' يغطي ' + sp.lateBal + ' يوم من ' + r.ret.lateDays + ' — الباقي ' + sp.unpaidDays + ' يوم غياب بلا أجر يراجعه مُعدّ الرواتب' + (sp.unpaidDays >= 15 ? ' (15 يومًا فأكثر: راجع المادة 80 — إنذار كتابي)' : '') + '. متابعة؟')) return; }
+      else if (b.ok && b.balance - r.ret.lateDays < 0 && !window.confirm('رصيد ' + r.employeeName + ' ' + Math.floor(b.balance) + ' يوم وأيام التأخر ' + r.ret.lateDays + ' — سيصبح الرصيد سالبًا. متابعة؟')) return; }
     const ok = await commit(d => ({ ...d, leaveRequests: (d.leaveRequests || []).map(x => x.id === r.id && x.ret && x.ret.status === 'pending' ? { ...x, ret: { ...x.ret, ...patch } } : x) }),
-      { actionType: 'update', targetType: 'leave', targetId: r.id, need: 'post', branchName: r.branchName, title: yes ? 'اعتمد مباشرة عمل' : 'رفض مباشرة عمل', details: r.employeeName + ' · ' + r.ret.date + (r.ret.lateDays ? ' · تأخر ' + r.ret.lateDays + ' يوم يُخصم من الرصيد' : '') + (apNote ? ' · ' + apNote : '') });
-    if (ok) say(yes ? 'اعتُمدت المباشرة' + (r.ret.lateDays ? ' وخُصم التأخر من الرصيد' : '') + ' ✓' : 'رُفضت المباشرة');
+      { actionType: 'update', targetType: 'leave', targetId: r.id, need: 'post', branchName: r.branchName, title: yes ? 'اعتمد مباشرة عمل' : 'رفض مباشرة عمل', details: r.employeeName + ' · ' + r.ret.date + (r.ret.lateDays ? ' · تأخر ' + r.ret.lateDays + ' يوم' + (patch.unpaidDays > 0 ? ': ' + patch.lateBal + ' من الرصيد و' + patch.unpaidDays + ' غياب بلا أجر' : ' يُخصم من الرصيد') : '') + (apNote ? ' · ' + apNote : '') });
+    if (ok) say(yes ? 'اعتُمدت المباشرة' + (r.ret.lateDays ? (patch.unpaidDays > 0 ? ' — ' + patch.lateBal + ' يوم من الرصيد و' + patch.unpaidDays + ' غياب بلا أجر لمراجعة الرواتب' : ' وخُصم التأخر من الرصيد') : '') + ' ✓' : 'رُفضت المباشرة');
   };
   const signs = ops.hrSignDocs || [];
   const printLeave = (r) => {
@@ -164,6 +167,10 @@ export function Leaves({ org, ops, me, myBranches, commit, commitOrg, say }) {
     <div className="grid" style={{ gap: 12 }}>
       <SectionNav label="أقسام الإجازات" cur={tab} onPick={setTab} items={[{ id: 'req', ar: 'الطلبات', icon: ClipboardCheck, badge: pendN || null }, { id: 'bal', ar: 'الأرصدة', icon: CalendarDays }, central && { id: 'prov', ar: 'المخصص في الدفاتر', icon: Landmark }]}
         extra={<button className="btn sm pri" onClick={() => setF({ employeeId: (emps[0] || {}).id || '', type: 'annual', from: td, to: td, reason: '' })}><Plus size={14} />طلب إجازة</button>} />
+      {(() => { const U = lvUnpaidFor(ops, td.slice(0, 7), central ? null : brIds); return U.length ? <div className="card" data-lr-unpaid>
+        <div className="card-t" style={{ marginBottom: 6 }}><AlertTriangle size={15} color="var(--amber)" />غياب بلا أجر — لمراجعة مُعدّ الرواتب (لا خصم آلي)</div>
+        {U.map(x => <div key={x.leaveId} className="me-row"><span className="me-a"><b>{x.employeeName} · هذا الشهر {x.daysInMonth} يوم (الإجمالي {x.days})</b><small>{x.from} ← {x.to} · {x.branchName}{x.art80 ? ' · ' + lvArt80Txt(x) : ''}</small></span>{x.art80 && <span className={'badge ' + (x.art80 === 'exceed' ? 'b-rose' : 'b-amber')}>المادة 80</span>}</div>)}
+      </div> : null; })()}
       <div className="grid g4">
         <Kpi label="طلبات بانتظار الاعتماد" value={String(pendN)} sub={canDecide ? 'قرارك مطلوب' : 'لدى الإدارة'} icon={Bell} color="#E0A458" />
         <Kpi label="في إجازة اليوم" value={String(onNow.length)} sub={onNow.slice(0, 3).map(r => r.employeeName).join('، ') || '—'} icon={CalendarDays} color="#5B93C4" />
