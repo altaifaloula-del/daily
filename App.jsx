@@ -2956,7 +2956,7 @@ function buildAccounting(org, ops) {
     // v56.43 (E8): قيود الهبوط وعكسه المعتمدة، ورصيد الهبوط لكل حساب مجمع
     const impBy = {}; let impBal = 0;
     aImps.forEach(x => { const v = impR2(x.amount); const s = x.kind === 'rev' ? -1 : 1; impBal = impR2(impBal + s * v); impBy[x.accAcc] = impR2((impBy[x.accAcc] || 0) + s * v);
-      push({ id: 'imp:' + x.id, date: x.date, ...(a.branchId ? { branchId: a.branchId } : {}), title: (x.kind === 'rev' ? 'عكس هبوط قيمة أصل — ' : 'هبوط قيمة أصل — ') + (a.name || '') + (x.no ? ' (' + x.no + ')' : ''),
+      /* (قرار المجلس) على المركز الرئيسي كالإهلاك المجمّع — فلا تتحمل قائمة الفرع الهبوط دون إهلاكه */ push({ id: 'imp:' + x.id, date: x.date, title: (x.kind === 'rev' ? 'عكس هبوط قيمة أصل — ' : 'هبوط قيمة أصل — ') + (a.name || '') + (x.no ? ' (' + x.no + ')' : ''),
         src: 'الأصول الثابتة', ref: a.id, lines: x.kind === 'rev' ? [L(x.accAcc, v, 0), L(x.lossAcc, 0, v)] : [L(x.lossAcc, v, 0), L(x.accAcc, 0, v)] }); });
     const book = Math.round((cost - accum - impBal) * 100) / 100;
     // بيع/استبعاد الأصل: إخراجه بالتكلفة + إقفال مجمّع إهلاكه، والفرق مع سعر البيع ربح (4201) أو خسارة (5801)
@@ -12737,7 +12737,7 @@ function assetDepPlan(a, imps) {
 /** القيمة الدفترية في تاريخ (الإهلاك حتى الشهر السابق لشهر التاريخ + الهبوط المعتمد حتى التاريخ) — وبدون الهبوط للمقارنة (27.30) */
 function assetBookOn(a, ops, date, exceptId) {
   const cost = Number(a && a.cost) || 0; const imps = impDocsOf(ops, a.id, exceptId).filter(x => String(x.date) <= String(date)); const ym = String(date).slice(0, 7);
-  const dep = (P) => impR2(P.filter(p => p.ym < ym).reduce((t, p) => t + p.amt, 0));
+  const dep = (P) => impR2(P.filter(p => p.ym <= ym).reduce((t, p) => t + p.amt, 0));   // (التحقق المحاسبي) شهر المستند يُحمَّل بالقسط القديم، فيدخل في الدفتري
   const impBal = impR2(imps.reduce((t, x) => t + (x.kind === 'rev' ? -1 : 1) * (Number(x.amount) || 0), 0));
   const accum = dep(assetDepPlan(a, imps)), accum0 = dep(assetDepPlan(a, []));
   return { cost, accum, impBal, book: impR2(cost - accum - impBal), book0: impR2(cost - accum0) };
@@ -12749,6 +12749,8 @@ function impCheck(org, ops, x, A) {
   if (!String(x.reason || '').trim()) return 'اكتب المؤشر والمستند (تلف، إغلاق، فرع خاسر، تقييم…)';
   if (!x.date || periodLocked(org, x.date)) return 'التاريخ في فترة مقفلة أو غير محدد';
   if (String(x.date) > today()) return 'لا يُقبل تاريخ مستقبلي';
+  // E8.4 «للمستقبل فقط ولا يمس قيدًا سابقًا» (قرار المجلس بعد التحقق المحاسبي): الهبوط وعكسه بتاريخ في الشهر الجاري، فيبدأ القسط الجديد من الشهر التالي ولا يتغير إهلاك مضى
+  if (String(x.date).slice(0, 7) !== today().slice(0, 7)) return 'تاريخ الهبوط في الشهر الجاري — لا يُعدَّل إهلاك سابق (E8.4)';
   if (String(x.date) < String(a.buyDate || '')) return 'التاريخ قبل شراء الأصل';
   if (a.disposedDate && String(x.date) >= String(a.disposedDate).slice(0, 10)) return 'الأصل مستبعد';
   const ac = impAccs(org), has = (c) => !A || (A.accounts || []).some(y => String(y.code) === String(c));
