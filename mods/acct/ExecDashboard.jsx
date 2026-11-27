@@ -2,6 +2,7 @@
 import React, { useMemo } from 'react';
 import { Compass, CircleDollarSign, Wallet, TrendingUp, ArrowLeftRight, BarChart3, ChevronLeft, Users, Bell, FileBarChart } from 'lucide-react';
 import { Kpi, buildAccounting, buildPartners, businessDay, countedClosing, money, stockByWh, sum, supplierAging, today } from '../../App.jsx';
+import { budVOn, budActive, budMonthMap } from '../../App.jsx';   // v56.41
 
 export function ExecDashboard({ org, ops, me, myBranches, scoped, setTab, openAcctView, openInvView }) {
   const A = useMemo(() => buildAccounting(org, ops), [org, ops]);
@@ -20,8 +21,10 @@ export function ExecDashboard({ org, ops, me, myBranches, scoped, setTab, openAc
   const monNet = r2(monRev - monExp);
   const monCash = r2(sum(A.accounts.filter(a => a.cash), mbal));
 
-  const budgetOn = !!(org.budget && org.budget.enabled);
-  const budLines = (org.budget && org.budget.lines) || [];
+  // v56.41 (E5): مع الموازنة بالإصدارات يُقرأ الإصدار المعتمد الساري لهذا الشهر (كل الفروع)
+  const budB = budVOn(org) ? budActive(org, ops, ym.slice(0, 4)) : null;
+  const budgetOn = budVOn(org) ? !!budB : !!(org.budget && org.budget.enabled);
+  const budLines = budB ? Object.entries(budMonthMap(budB, Number(ym.slice(5, 7)))).map(([code, amount]) => ({ code, amount })) : ((org.budget && org.budget.lines) || []);
   const budExp = r2(sum(budLines.filter(l => (accByCode[l.code] || {}).kind === 'exp'), l => l.amount));
   const budRev = r2(sum(budLines.filter(l => (accByCode[l.code] || {}).kind === 'rev'), l => l.amount));
   const budNet = r2(budRev - budExp);
