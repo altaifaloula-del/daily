@@ -6,6 +6,7 @@ import { StockVouchers } from './StockVouchers.jsx';   // v46.5   // v46.2
 import { PrepList } from './PrepList.jsx';   // v40.8
 import { TurnoverPpv } from './TurnoverPpv.jsx';   // v42.0
 import { Production } from './Production.jsx';   // v42.8
+import { APPS, posAppPricesOn } from '../../App.jsx';   // v56.47 (P4) قوائم أسعار التطبيقات
 import { itemBin, binOrder, costMethod } from '../../App.jsx';
 import { domFilter, domOk, userBrIds, DomainChips, ROLES as ROLES_D, catsFor, catOf } from '../../App.jsx';   // v53.0 مجالات النشاط   // v49.2 MQ-013 · v49.3
 import { CostPolicy } from './CostPolicy.jsx';   // v49.3 سياسة التكلفة
@@ -330,6 +331,9 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
       ...(f.kcalDeclared !== '' && f.kcalDeclared != null && Number(f.kcalDeclared) >= 0 ? { kcalDeclared: Number(f.kcalDeclared) } : {}),   // v41.1
       ...(dv > 0 ? { disc: { t: (f.disc || {}).t === 'amt' ? 'amt' : 'pct', v: dv, ...((f.disc || {}).to ? { to: f.disc.to } : {}) } } : {}),
       ...(Array.isArray(f.domains) && f.domains.length ? { domains: f.domains } : {}) };   // v53.0
+    // v56.47 (P4): سعر لكل تطبيق توصيل (اختياري — فارغ = سعر المطعم)؛ يُحفظ فقط إن وُجد
+    const apx = {}; Object.entries(f.appPrices || {}).forEach(([k, v]) => { const n = Math.round((Number(v) || 0) * 100) / 100; if (n > 0) apx[k] = n; });
+    if (Object.keys(apx).length) rec.appPrices = apx;
     await commitOrg(d => ({ ...d, products: f.id ? (d.products || []).map(x => x.id === f.id ? rec : x) : [...(d.products || []), rec] }), {
       actionType: f.id ? 'update' : 'create', targetType: 'product', targetId: rec.id,
       title: f.id ? 'عدّل وصفة منتج' : 'أضاف منتجًا بوصفته', details: rec.name + ' · تكلفة ' + money(prodCost(rec))
@@ -757,6 +761,9 @@ export function Inventory({ org, ops, me, commit, commitOrg, say, invIntent }) {
             <div className="hint">تُصغَّر تلقائيًا لتبقى خفيفة على أجهزة الفروع</div></Field>
             <Field label={'سعر البيع' + ((org.taxCfg || {}).enabled ? ' (شامل الضريبة)' : '')}>
               <input className="inp n" inputMode="decimal" value={prodF.sellPrice} onChange={e => setProdF(f => ({ ...f, sellPrice: e.target.value.replace(/[^\d.]/g, '') }))} /></Field>
+            {(posAppPricesOn(org) || Object.keys(prodF.appPrices || {}).length > 0) && <Field label="أسعار تطبيقات التوصيل (اختياري — فارغ = سعر المطعم)"><div className="row" style={{ gap: 6, flexWrap: 'wrap' }} data-appprices>
+              {(org.deliveryApps || APPS).map(a => <label key={a.id} className="row" style={{ gap: 4, fontSize: 12, alignItems: 'center' }}>{a.n}
+                <input className="inp n" style={{ width: 80 }} inputMode="decimal" aria-label={'سعر ' + a.n} value={(prodF.appPrices || {})[a.id] ?? ''} placeholder={String(prodF.sellPrice || '')} onChange={e => { const v = e.target.value.replace(/[^\d.]/g, ''); setProdF(f => ({ ...f, appPrices: { ...(f.appPrices || {}), [a.id]: v } })); }} /></label>)}</div></Field>}
             <Field label="فئة المنتج"><input className="inp" list="pos-cats" aria-label="فئة المنتج" value={prodF.cat || ''} placeholder="وجبات، مشروبات، حلويات…" onChange={e => setProdF(f => ({ ...f, cat: e.target.value }))} />
               <datalist id="pos-cats">{[...new Set([...catsFor(org, 'prod').map(c => c.name), ...(org.products || []).map(p => p.cat).filter(Boolean)])].map(c => <option key={c} value={c} />)}</datalist>
               {catOf(org, prodF) && <div style={{ fontSize: 10.5, color: 'var(--faint)', marginTop: 3 }} data-catinh>مجال الفئة: {catOf(org, prodF).domains.join('، ') || 'كل المجالات'}{(prodF.domains || []).length ? ' — يتقدّم عليه مجال المنتج الخاص' : ' — يرثه المنتج'}</div>}</Field>

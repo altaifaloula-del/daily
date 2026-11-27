@@ -3,6 +3,7 @@
 import React, { useMemo, useState } from 'react';
 import { deptOn, deptList, DEPT_SHARED } from '../../App.jsx';
 import { cvLive, cvNeedsAppr, cvApprOpenFrom, cvApprove, jeOwner, canApproveJe } from '../../App.jsx';   // v56.32 اعتماد سندات الصرف (T9)   // v56.28 E4: قسم سند الصرف على حساب مصروف (توصية المجلس)
+import { whtNonRes, whtOkTypes, whtApply, whtAmtOf } from '../../App.jsx';   // v56.47 (E7) ضريبة الاستقطاع
 import { Receipt, Plus, Printer, Download, Check, Scale, X } from 'lucide-react';
 import { DocLink, CV_KIND, cvNextNo, projList, partyOpenDocs, applyCashVoucher, cashVoucherHtml, buildAccounting, buildPartners, branchBanks, Field, Modal, LOCK_MSG, makeXlsx, money, nowISO, periodLocked, printA4, today, uid } from '../../App.jsx';
 
@@ -30,6 +31,11 @@ export function CashVouchers({ org, ops, me, commit, say }) {
   const party = f && f.kind !== 'ov' ? (f.pt === 'acc' ? (f.acc ? { t: 'acc', acc: f.acc, name: (accs.find(a => a.code === f.acc) || {}).name || f.acc } : null) : (f.key ? { t: f.pt, key: f.key, name: (P.find(p => p.key === f.key) || {}).name || '' } : null)) : null;
   const docs = f && party && ((f.kind === 'pv' && party.t === 'sup') || (f.kind === 'rv' && party.t === 'cust')) ? partyOpenDocs(org, ops, party) : [];
   const allocSum = r2(Object.values((f && f.alloc) || {}).reduce((a, x) => a + (Number(x) || 0), 0));
+  // v56.47 (E7): سند صرف لمورد غير مقيم والميزة مفعّلة ⇒ نوع استقطاع مؤكَّد إلزامي (الافتراضي من بطاقة المورد إن كان مؤكَّدًا)
+  const whtSup = f && f.kind === 'pv' && f.pt === 'sup' && f.key ? whtNonRes(org, f.key) : null;
+  const whtTs = whtSup ? whtOkTypes(org) : [];
+  const whtSel = whtSup ? (f.whtType != null ? f.whtType : (whtTs.some(t => t.id === whtSup.whtType) ? whtSup.whtType : '')) : '';
+  const whtT = whtTs.find(t => t.id === whtSel); const whtPrev = whtT ? whtAmtOf(r2(f.amount), whtT.rate) : 0;
   const autoAlloc = () => { let left = r2(f.amount); const al = {}; docs.forEach(d => { if (left <= 0) return; const a = Math.min(left, d.rem); al[d.id] = String(r2(a)); left = r2(left - a); }); setF(x => ({ ...x, alloc: al })); };
 
   const print = (v) => printA4(org, CV_KIND[v.kind].ar + ' — ' + v.no, '', cashVoucherHtml(org, v));
@@ -60,6 +66,7 @@ export function CashVouchers({ org, ops, me, commit, say }) {
       if (r2(alloc.reduce((s2, x) => s2 + x.amount, 0)) > a + 0.004) return say('مجموع التوزيع أكبر من مبلغ السند', 'no');
       v = { ...v, fund: f.pm === 'cash' ? '1101' : (f.fund && f.fund !== '1101' ? f.fund : '1201'), pm: f.pm, ...(String(f.ref || '').trim() ? { ref: String(f.ref).trim() } : {}), party, ...(alloc.length ? { alloc } : {}), ...(party.t === 'emp' && f.kind === 'pv' ? { empPurpose: f.empPurpose } : {}) };
     }
+    if (whtSup) { const w = whtApply(org, v, whtSel); if (w.err) return say(w.err, 'no'); v = w.v; }   // v56.47 (E7)
     if (cvNeedsAppr(org, v)) v = jeOwner(me) ? { ...v, status: 'posted', approvedBy: me.name, approvedAt: nowISO(), selfPosted: true } : { ...v, status: 'pending', byId: me.id || '' };   // v56.32 T9
     let no = '';
     const ok = await commit(d => { no = cvNextNo(d, f.kind); return applyCashVoucher(d, { ...v, no }, me); },
@@ -110,7 +117,7 @@ export function CashVouchers({ org, ops, me, commit, say }) {
                 <td><span className={'badge ' + (v.kind === 'rv' ? 'b-mint' : v.kind === 'pv' ? 'b-rose' : v.kind === 'tv' ? 'b-sky' : 'b-amber')}>{CV_KIND[v.kind].ar}</span></td>
                 <td className="num" style={{ fontSize: 11.5 }}>{v.date}</td>
                 <td style={{ fontSize: 12 }}>{v.kind === 'tv' ? fname(v.fund) + ' ← ' + fname(v.toFund) : v.kind === 'ov' ? v.supName + ' ⇄ ' + v.custName : (v.party || {}).name}<div style={{ fontSize: 10, color: 'var(--faint)' }}>{v.kind === 'tv' ? 'تحويل بين الحسابات' : v.kind === 'ov' ? 'مقاصّة' : PT[(v.party || {}).t]}{(v.alloc || []).length ? ' · ' + v.alloc.map(x => x.no).join('، ') : ''}</div></td>
-                <td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{money(v.amount)}</td>
+                <td className="num" style={{ textAlign: 'end', fontWeight: 700 }}>{money(v.amount)}{(Number(v.whtAmt) || 0) > 0 && <div style={{ fontSize: 10, fontWeight: 400, color: 'var(--faint)' }} data-cv-wht>استقطاع {money(v.whtAmt)} · صافٍ {money(r2(v.amount - v.whtAmt))}</div>}</td>
                 <td>{cvLive(v) && <button className="btn sm gh" data-cvprint onClick={() => print(v)}><Printer size={13} />طباعة</button>}
                   {v.status === 'pending' && <div className="row" style={{ gap: 4, marginTop: 4, flexWrap: 'wrap' }} data-cv-pending><span className="badge b-amber">بانتظار الاعتماد</span>
                     {canApproveJe(me, v) && <><button className="btn sm" data-cv-ok onClick={() => decideCv(v, 'ok')}><Check size={12} />اعتماد</button><button className="btn sm gh" data-cv-no onClick={() => decideCv(v, 'no')}><X size={12} />رفض</button></>}
@@ -148,8 +155,14 @@ export function CashVouchers({ org, ops, me, commit, say }) {
             <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>{Object.entries(PT).map(([k, t]) => <button key={k} className={'btn sm' + (f.pt === k ? ' pri' : ' gh')} data-cvpt={k} onClick={() => setF(x => ({ ...x, pt: k, key: '', acc: '', alloc: {} }))}>{t}</button>)}</div>
             {f.pt === 'acc'
               ? <Field label="الحساب"><select className="sel" aria-label="حساب السند" value={f.acc} onChange={e => setF(x => ({ ...x, acc: e.target.value }))}><option value="">— اختر الحساب —</option>{accs.map(a => <option key={a.code} value={a.code}>{a.code} · {a.name}</option>)}</select></Field>
-              : <Field label={PT[f.pt]}><select className="sel" aria-label="جهة السند" value={f.key} onChange={e => setF(x => ({ ...x, key: e.target.value, alloc: {} }))}><option value="">— اختر —</option>{parties(f.pt).map(p => <option key={p.key} value={p.key}>{p.name}</option>)}</select>
+              : <Field label={PT[f.pt]}><select className="sel" aria-label="جهة السند" value={f.key} onChange={e => setF(x => ({ ...x, key: e.target.value, alloc: {}, whtType: undefined }))}><option value="">— اختر —</option>{parties(f.pt).map(p => <option key={p.key} value={p.key}>{p.name}</option>)}</select>
                 {f.key && <div className="hint">الرصيد: <b className="num">{money(Math.abs(bal(f.key)))}</b> {bal(f.key) > 0 ? '(لنا)' : bal(f.key) < 0 ? '(علينا)' : ''}</div>}</Field>}
+            {whtSup && <div className="note" style={{ margin: '6px 0' }} data-cv-whtbox>
+              <div style={{ marginBottom: 6 }}>المورد <b>غير مقيم</b>{whtSup.country ? ' (' + whtSup.country + ')' : ''} — المبلغ أدناه هو <b>الإجمالي</b> الذي يخفض ذمته، ويُخصم الاستقطاع ويُدفع الصافي.</div>
+              <Field label="نوع ضريبة الاستقطاع (المؤكَّد من المختص)"><select className="sel" aria-label="نوع ضريبة الاستقطاع" data-cv-whttype value={whtSel} onChange={e => setF(x => ({ ...x, whtType: e.target.value }))}><option value="">— اختر —</option>{whtTs.map(t => <option key={t.id} value={t.id}>{t.name} — {t.rate}%</option>)}</select></Field>
+              {!whtTs.length && <div className="hint" style={{ color: 'var(--rose)' }}>لا نوع مؤكَّد — يضيفه المحاسب أو مسؤول النظام في «المحاسبة ← الزكاة وضريبة الدخل» بعد تأكيد المختص</div>}
+              {whtT && r2(f.amount) > 0 && <div className="hint" data-cv-whtcalc>الإجمالي <b className="num">{money(r2(f.amount))}</b> · الاستقطاع {whtT.rate}% = <b className="num">{money(whtPrev)}</b> · الصافي المدفوع <b className="num">{money(r2(r2(f.amount) - whtPrev))}</b></div>}
+            </div>}
             {f.pt === 'emp' && f.kind === 'pv' && <div className="row" style={{ gap: 6, margin: '6px 0' }}>{[['custody', 'عهدة'], ['advance', 'سلفة تُستقطع من الراتب']].map(([k, t]) => <button key={k} className={'btn sm' + (f.empPurpose === k ? ' pri' : ' gh')} data-emppurpose={k} onClick={() => setF(x => ({ ...x, empPurpose: k }))}>{t}</button>)}</div>}
             <div className="row" style={{ gap: 6, flexWrap: 'wrap', margin: '8px 0' }}>{[['cash', 'نقدًا'], ['bank', 'تحويل بنكي'], ['cheque', 'شيك']].map(([k, t]) => <button key={k} className={'btn sm' + (f.pm === k ? ' pri' : ' gh')} data-cvpm={k} onClick={() => setF(x => ({ ...x, pm: k, fund: k === 'cash' ? '1101' : (x.fund === '1101' ? '1201' : x.fund) }))}>{t}</button>)}</div>
           </>}

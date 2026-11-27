@@ -1158,7 +1158,7 @@ function invPayments(i) {
   const listed = Math.round(list.reduce((s, p) => s + (Number(p.amount) || 0), 0) * 100) / 100;
   const legacy = Math.round(((i.paidAmount || 0) - listed) * 100) / 100;
   // v43.9: دفعة بعملة أجنبية — amount = ما خفّض ذمة المورد بسعر الفاتورة (ر.س)، وpaid = ما خرج من البنك بسعر يوم السداد (ر.س)
-  const out = list.map((p, k) => ({ id: p.id || String(k), amount: Number(p.amount) || 0, paid: p.paid != null ? Number(p.paid) || 0 : Number(p.amount) || 0, date: (p.date || d || '').slice(0, 10), fund: p.fund || '', ...(p.fc ? { fc: Number(p.fc) || 0, rate: Number(p.rate) || 0 } : {}) }));
+  const out = list.map((p, k) => ({ id: p.id || String(k), amount: Number(p.amount) || 0, paid: p.paid != null ? Number(p.paid) || 0 : Number(p.amount) || 0, date: (p.date || d || '').slice(0, 10), fund: p.fund || '', ...(p.fc ? { fc: Number(p.fc) || 0, rate: Number(p.rate) || 0 } : {}), ...((Number(p.wht) || 0) > 0 ? { wht: Number(p.wht) } : {}) }));   // v56.47 (E7) حصة الاستقطاع من سند الصرف
   if (legacy > 0.004) out.unshift({ id: 'legacy', amount: legacy, paid: legacy, date: (i.paidDate || d || '').slice(0, 10), fund: i.payFund || '' });
   return out;
 }
@@ -2484,7 +2484,12 @@ function loyMonthAdj(org, loyDoc, month, ctx) {
     const ms = (t) => { const v = Date.parse(t.at || ''); return isNaN(v) ? 0 : v; };   // ترتيب بالزمن الفعلي لا بنص التاريخ
     const H = ALL.filter(t => t.phone === ex.phone && t !== ex && ms(t) <= ms(ex)).slice().sort((a, b) => ms(a) - ms(b));
     // مناسبة مُنحت قبل بداية 6a دخلت الرصيد الافتتاحي لا المصروف الترويجي ⇒ انتهاؤها إيراد
-    const lots = []; let neg = 0; H.forEach(t => { const p = Number(t.pts) || 0; if (p > 0) lots.push({ occ: isOcc(t) && (!from || ld(t) >= from), left: p }); else neg += -p; });
+    // v56.47: نقاط يدوية في نطاق تفعيل قيدها (سجل نطاقات لا يُمحى) قُيّدت مصروفًا ⇒ انتهاؤها يعكسه؛ والتصحيح اليدوي السالب يُنقص الهدايا اليدوية أولًا (قرار المجلس)
+    const manR = Array.isArray(ctx.manRanges) ? ctx.manRanges : (ctx.manFrom ? [{ from: ctx.manFrom }] : []);
+    const manIn = (t) => /^la/.test(String(t.id || '')) && manR.some(r => { const m = ld(t).slice(0, 7); return m >= r.from && (!r.to || m <= r.to); });
+    const lots = []; let neg = 0, negMan = 0; H.forEach(t => { const p = Number(t.pts) || 0; const mi = manIn(t);
+      if (p > 0) lots.push({ occ: (isOcc(t) && (!from || ld(t) >= from)) || mi, man: mi, left: p }); else if (mi) negMan += -p; else neg += -p; });
+    lots.filter(l => l.man).forEach(l => { const u = Math.min(l.left, negMan); l.left -= u; negMan -= u; }); neg += negMan;
     lots.forEach(l => { const u = Math.min(l.left, neg); l.left -= u; neg -= u; });
     let left = -(Number(ex.pts) || 0); lots.forEach(l => { if (left <= 0) return; const u = Math.min(l.left, left); if (l.occ) expOccPts += u; else expRevPts += u; left -= u; });
     if (left > 0) expRevPts += left; });
@@ -2494,9 +2499,11 @@ function loyMonthAdj(org, loyDoc, month, ctx) {
   const used = {}; (ctx.orders || []).forEach(o => { if (o && o.coupon && o.status !== 'void' && o.kind !== 'return') used[String(o.coupon).toUpperCase()] = used[String(o.coupon).toUpperCase()] || o.date; });
   let rwPts = 0; (ctx.promos || []).forEach(pm => { if (!pm || !pm.rwTx || !rwTx[pm.rwTx] || rwTx[pm.rwTx].undone) return; const u = used[String(pm.code || '').toUpperCase()];
     const when = u || (pm.to && pm.to < (month + '-32') ? pm.to : ''); if (when && inM(when)) rwPts += rwTx[pm.rwTx].pts; });
-  const manPts = T.filter(t => /^la/.test(String(t.id || ''))).length;   // تعديل يدوي للنقاط — خارج التسوية (ينبَّه عليه)
+  const manPts = T.filter(t => /^la/.test(String(t.id || ''))).length;   // تعديل يدوي للنقاط — خارج التسوية (ينبَّه عليه) ما لم يُفعَّل ctx.manOn
+  // v56.47 (قرار المالك: «مصروف تسويق مقابل 2106»): صافي النقاط اليدوية (هدية +، تصحيح −) ⇒ مدين حساب ترويجي / دائن 2106 (والسالب يعكسه)
+  const manNet = ctx.manOn ? T.filter(t => /^la/.test(String(t.id || ''))).reduce((a, t) => a + (Number(t.pts) || 0), 0) : 0;
   const val = (p) => r2(p * pv * k);
-  return { month, pv, rate, expPts: expRevPts, expOccPts, occPts, rwPts, exp: val(expRevPts), expOcc: val(expOccPts), occ: val(occPts), rw: val(rwPts), manPts };
+  return { month, pv, rate, expPts: expRevPts, expOccPts, occPts, rwPts, exp: val(expRevPts), expOcc: val(expOccPts), occ: val(occPts), rw: val(rwPts), manPts, ...(ctx.manOn ? { manNetPts: manNet, man: val(manNet) } : {}) };
 }
 const posMisLoyRanges = (org) => { const g = (org && org.posGl) || {}; return Array.isArray(g.misLoyRanges) ? g.misLoyRanges : (g.misLoy && g.misLoy.from ? [g.misLoy] : []); };
 const posMisLoyFrom = (org) => (posMisLoyRanges(org).find(r => !r.to) || {}).from || '';
@@ -2630,6 +2637,7 @@ function buildAccounting(org, ops) {
   addAcc('2202', 'تأمينات اجتماعية مستحقة (GOSI)', 'liab', { link: 'حصتا الموظف وصاحب العمل — تُحوّل للتأمينات' });
   addAcc('2301', 'ضريبة القيمة المضافة — مخرجات', 'liab', { link: 'مخرجات الفترة الجارية — تُقفل في 2302 مع الإقرار' });
   addAcc('2302', 'ضريبة القيمة المضافة المستحقة — صافي الإقرار', 'liab', { link: 'قيد إقفال الفترة الضريبية ← السداد للهيئة' });
+  if (whtOn(org) || (ops.cashVouchers || []).some(v => v && (Number(v.whtAmt) || 0) > 0)) addAcc(WHT_ACC, 'ضريبة استقطاع مستحقة', 'liab', { link: 'سندات الصرف للموردين غير المقيمين — تُورَّد للهيئة بقيد يدوي (مدين 2107 / دائن البنك)' });   // v56.47 (E7)
   // — حقوق الملكية (تُفعَّل بالقيد الافتتاحي في المرحلة التالية) —
   addAcc('3101', 'رأس المال والأرصدة الافتتاحية', 'equity', { link: 'الأرصدة الافتتاحية — من شاشة المحاسبة' });
   addAcc('3301', 'مسحوبات المالك وتوزيعات الأرباح', 'equity', { link: 'قيد يدوي — قرار المالك 2026-11-26 (رصيده مدين بطبيعته)' });   // v56.19 (E1)
@@ -2884,12 +2892,12 @@ function buildAccounting(org, ops) {
       });
     }
     // v29.4: قيد لكل دفعة بتاريخها ومصدرها (الدفعة القديمة المجمّعة تبقى بمعرّفها السابق invp:)
-    invPayments(i).forEach((p, pi) => { const fx = Math.round((p.paid - p.amount) * 100) / 100; push({ ...(i.jeNo ? { fix: i.jeNo + '/س' + (pi + 1) } : {}),
+    invPayments(i).forEach((p, pi) => { const fx = Math.round((p.paid - p.amount) * 100) / 100; const wh = Math.round((Number(p.wht) || 0) * 100) / 100; push({ ...(i.jeNo ? { fix: i.jeNo + '/س' + (pi + 1) } : {}),
       id: p.id === 'legacy' ? 'invp:' + i.id : 'invp:' + i.id + ':' + p.id, date: p.date,
-      title: 'سداد مركزي لفاتورة توريد — ' + (i.supplierName || 'مورد') + (p.fund === '1101' ? ' (نقداً من الخزينة)' : '') + (p.fc ? ' — ' + p.fc + ' ' + (i.cur || '') + ' @ ' + p.rate : ''),
+      title: 'سداد مركزي لفاتورة توريد — ' + (i.supplierName || 'مورد') + (p.fund === '1101' ? ' (نقداً من الخزينة)' : '') + (p.fc ? ' — ' + p.fc + ' ' + (i.cur || '') + ' @ ' + p.rate : '') + (wh > 0 ? ' — ضريبة استقطاع ' + wh : ''),
       src: 'سداد مركزي', ref: i.invoiceNo || i.id,
-      // v15.19/v15.20: المصدر المختار (خزينة أو أي بنك — تجميعي/فرع) · v43.9: فرق الصرف إلى 5803
-      lines: [L('2101', p.amount, 0), ...(fx > 0.004 ? [L('5803', fx, 0)] : []), L((p.fund && accIx[p.fund]) ? p.fund : '1201', 0, p.paid), ...(fx < -0.004 ? [L('5803', 0, -fx)] : [])]
+      // v15.19/v15.20: المصدر المختار (خزينة أو أي بنك — تجميعي/فرع) · v43.9: فرق الصرف إلى 5803 · v56.47 (E7): الاستقطاع من سند الصرف يُخصم من النقدية إلى 2107
+      lines: [L('2101', p.amount, 0), ...(fx > 0.004 ? [L('5803', fx, 0)] : []), L((p.fund && accIx[p.fund]) ? p.fund : '1201', 0, wh > 0 ? Math.round((p.paid - wh) * 100) / 100 : p.paid), ...(wh > 0 ? [L(WHT_ACC, 0, wh)] : []), ...(fx < -0.004 ? [L('5803', 0, -fx)] : [])]
     }); });
   });
   // 6مكرر) السداد المركزي لفواتير الورديات المشتقة (v8.1): مدين ذمم الموردين / دائن البنك
@@ -2957,8 +2965,9 @@ function buildAccounting(org, ops) {
     const posA = PS.ok;
     const amt = (p.t === 'sup' || p.t === 'cust') ? Math.round((rest + posA) * 100) / 100 : (p.t === 'emp' && v.kind === 'pv' && v.empPurpose === 'advance') ? 0 : a;   // السلفة تُقيَّد من سجل السلف المرتبط
     if (!side || !(amt > 0.004)) return;
-    push({ ...base, title: (v.kind === 'rv' ? 'سند قبض ' : 'سند صرف ') + v.no + ' — ' + (p.name || '') + (rest + posA < a && (p.t === 'sup' || p.t === 'cust') ? ' (على الحساب)' : ''),
-      lines: v.kind === 'rv' ? [L(fund, amt, 0), L(side, 0, amt)] : [L(side, amt, 0), L(fund, 0, amt)] });
+    const wr = (v.kind === 'pv' && p.t === 'sup' && (Number(v.whtAmt) || 0) > 0) ? ((whtShares(v) || {})._rest || 0) : 0;   // v56.47 (E7) حصة الباقي «على الحساب» من الاستقطاع
+    push({ ...base, title: (v.kind === 'rv' ? 'سند قبض ' : 'سند صرف ') + v.no + ' — ' + (p.name || '') + (rest + posA < a && (p.t === 'sup' || p.t === 'cust') ? ' (على الحساب)' : '') + (wr > 0 ? ' — ضريبة استقطاع ' + wr : ''),
+      lines: v.kind === 'rv' ? [L(fund, amt, 0), L(side, 0, amt)] : wr > 0 ? [L(side, amt, 0), L(fund, 0, Math.round((amt - wr) * 100) / 100), L(WHT_ACC, 0, wr)] : [L(side, amt, 0), L(fund, 0, amt)] });
   });
 
   // 7) الرواتب: الاستحقاق كما رُحِّل، والصرف كما سُجِّل، وتسوية فرق السلف والخصومات
@@ -4018,7 +4027,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.46';
+const APP_VER = 'v56.47';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -4081,6 +4090,8 @@ export { ctlBarOn };
 export { mktCtlOn, mktCanExport, mktCanExportAll, mktUndoPending };   // v56.35
 export { loyMonthAdj, posLoyOpening, posMisLoyRanges, posMisLoyFrom, posMisLoyAt, posGlNote };   // v56.33
 export { cvLive, cvApprRanges, cvApprAt, cvApprOpenFrom, cvNeedsAppr, cvApprove };   // v56.32
+export { posAppPricesOn, posAppPrice, posListPrice, posAppHasPrices, posPriceListErr };   // v56.47 (P4)
+export { WHT_ACC, whtOn, whtTypes, whtRateOk, whtTypeOk, whtOkTypes, whtSupOf, whtNonRes, whtPayBlock, whtAmtOf, whtApply, whtShares, whtRows };   // v56.47 (E7) ضريبة الاستقطاع
 export { DS_PRE_ACC, dsPreRanges, dsPreAt, dsPreOpen, dsPreFrom, dsHanded, dsPreOpenItem, dsCashMoves, dsHandCheck, dsDupScan };   // v56.45 T1/T7
 export { DS_BLOCKED, dsRanges, dsRouteAt, dsRouteOpen, dsLive, dsBlockReason, dsOpenFrom, dsMapOf, dsAccOk, dsAccOf, dsPostDate, dsFundOf, dsCashOut, dsBankOk, lockedLedgerSig };   // v56.29
 export { DEPT_SHARED, deptOn, deptList, deptPL };   // v56.27 E4   // v56.23 G2
@@ -9657,11 +9668,29 @@ function promoLineDisc(pr, unit, qty) {
   if (pr.type === 'bxgy') { const x = Math.floor(Number(pr.x) || 0), y = Math.floor(Number(pr.y) || 0); if (x < 1 || y < 1) return 0; return posR2(Math.floor(qty / (x + y)) * y * unit); }
   return 0;
 }
+/* v56.47 (P4) قوائم أسعار تطبيقات التوصيل — حقيقة المالك: المطعم يحدد السعر ويختلف حسب التطبيق (المبيعات بالإجمالي كما هي).
+   product.appPrices = { [appId]: price } اختياري (فارغ = سعر المطعم)، ومفتاح org.posCfg.appPrices معطّل افتراضيًا. */
+const posAppPricesOn = (org) => !!((org && org.posCfg) || {}).appPrices;
+const posAppPrice = (p, listId) => { const v = Number(((p && p.appPrices) || {})[listId]); return listId && Number.isFinite(v) && v > 0 ? v : 0; };
+/** سعر المنتج في قائمة أسعار: سعر التطبيق إن حُدّد، وإلا سعر المطعم (sellPrice) */
+const posListPrice = (p, listId, fallback) => posAppPrice(p, listId) || (Number(p && p.sellPrice) > 0 ? Number(p.sellPrice) : (Number(fallback) || 0));
+const posAppHasPrices = (products, appId) => !!appId && (products || []).some(p => posAppPrice(p, appId) > 0);
+/** تطابق قائمة الأسعار مع طريقة الدفع (مع التفعيل فقط) — '' أو رسالة المنع */
+function posPriceListErr(org, listId, parts, apps) {
+  if (!posAppPricesOn(org)) return '';
+  const nm = (id) => ((apps || []).find(a => a.id === id) || {}).n || 'التطبيق';
+  const ap = (parts || []).filter(x => x && x.m === 'app' && (Number(x.amount) || 0) > 0);
+  if (listId) { if (!ap.length) return 'قائمة أسعار «' + nm(listId) + '» تُستخدم مع الدفع بالتطبيق نفسه — اختر الدفع بـ' + nm(listId) + ' أو أعد القائمة إلى «المطعم»';
+    const bad = ap.find(x => x.appId !== listId); return bad ? 'قائمة الأسعار «' + nm(listId) + '» لا تطابق تطبيق الدفع «' + nm(bad.appId) + '» — اختر القائمة المطابقة' : ''; }
+  const hp = ap.find(x => posAppHasPrices((org && org.products) || [], x.appId));
+  return hp ? 'لـ«' + nm(hp.appId) + '» أسعار خاصة — اختر قائمة الأسعار «' + nm(hp.appId) + '» من السلة قبل الدفع' : '';
+}
 function posPriceCart(cart, products, promos, opt) {
   opt = opt || {}; const now = opt.now || new Date(); const code = String(opt.code || '').trim().toLowerCase();
   const act = (promos || []).filter(pr => promoActive(pr, now, opt.branchId) && (!pr.code || String(pr.code).trim().toLowerCase() === code) && promoEligible(pr, opt));
-  const lines = (cart || []).map(l => {
-    const p = (products || []).find(x => x.id === l.productId) || { id: l.productId };
+  const lines = (cart || []).map(l0 => {
+    const p = (products || []).find(x => x.id === l0.productId) || { id: l0.productId };
+    const l = opt.priceList ? { ...l0, price: posListPrice(p, opt.priceList, l0.price) } : l0;   // v56.47 (P4): السعر الأساسي من القائمة المختارة قبل العروض — بلا قائمة كما كان
     const cands = [];
     if (p.disc && Number(p.disc.v) > 0 && (!p.disc.to || isoD(now) <= p.disc.to)) cands.push({ id: 'card:' + p.id, name: 'خصم الصنف', type: p.disc.t === 'amt' ? 'amt' : 'pct', value: p.disc.v });
     act.filter(pr => pr.type !== 'order' && promoHits(pr, p)).forEach(pr => cands.push(pr));
@@ -12163,11 +12192,59 @@ function cvApprove(d, id, me) {
   const base = { ...d, cashVouchers: (d.cashVouchers || []).filter(x => x.id !== id) };
   return { next: applyCashVoucher(base, posted, me) };
 }
+/* v56.47 (E7) ضريبة الاستقطاع على المدفوعات لغير المقيمين — قرار المجلس (docs/finance/04-PHASE-E-ANALYSIS.md §البند 4) وحقائق المالك (العقود بالإجمالي).
+   org.wht = { on, types: [{ id, name, rate, ok }] } معطّل افتراضيًا. لا نسبة ولا موعد في الكود: النوع لا يُستخدم إلا إن وسمه المحاسب «أكّده المختص» بنسبة صحيحة.
+   سند الصرف على مورد غير مقيم: المبلغ = الإجمالي (يخفض الذمة والفواتير)، ويُثبَّت على السند { whtType, whtRate, whtAmt }؛ القيد: مدين 2101 الإجمالي / دائن النقدية الصافي / دائن 2107 الاستقطاع.
+   التوريد للهيئة بقيد يدوي (مدين 2107 / دائن البنك). سند بلا هذه الحقول كما كان حرفيًا. */
+const WHT_ACC = '2107';
+const whtOn = (org) => !!(org && org.wht && org.wht.on);
+const whtTypes = (org) => ((org && org.wht && Array.isArray(org.wht.types)) ? org.wht.types : []).filter(t => t && t.id);
+const whtRateOk = (r) => { const n = Number(r); return r !== '' && r != null && Number.isFinite(n) && n > 0 && n < 100; };
+const whtTypeOk = (t) => !!t && t.ok === true && whtRateOk(t.rate);
+const whtOkTypes = (org) => whtTypes(org).filter(whtTypeOk);
+const whtSupOf = (org, idOrKey) => { const k = String(idOrKey || ''), id = k.replace(/^sup:/, ''); return ((org && org.suppliers) || []).find(s => s && (s.id === id || (s.key && s.key === k))) || null; };
+/** المورد غير المقيم والميزة مفعّلة — وإلا null (فلا أثر) */
+const whtNonRes = (org, idOrKey) => { if (!whtOn(org)) return null; const s = whtSupOf(org, idOrKey); return s && s.nonResident ? s : null; };
+/** رسالة منع السداد من غير سند الصرف لمورد غير مقيم (لا توجيه صامت) — '' إن لم ينطبق */
+const whtPayBlock = (org, idOrKey) => { const s = whtNonRes(org, idOrKey); return s ? 'المورد «' + (s.name || '') + '» غير مقيم وضريبة الاستقطاع مفعّلة — سدّده بسند صرف (المحاسبة ← سندات القبض والصرف) ليُحتسب الاستقطاع' : ''; };
+const whtAmtOf = (gross, rate) => Math.round((Number(gross) || 0) * (Number(rate) || 0)) / 100;
+/** يُثبّت الاستقطاع على سند صرف لمورد غير مقيم. يعيد { v } (كما هو إن لم ينطبق) أو { err }. */
+function whtApply(org, v, typeId) {
+  if (!v || v.kind !== 'pv' || !v.party || v.party.t !== 'sup') return { v };
+  const s = whtNonRes(org, v.party.key); if (!s) return { v };
+  if (!typeId) return { err: 'المورد غير مقيم — اختر نوع ضريبة الاستقطاع (المؤكَّد من المختص)' };
+  const t = whtTypes(org).find(x => x.id === typeId); if (!t) return { err: 'نوع الاستقطاع غير موجود' };
+  if (!whtTypeOk(t)) return { err: 'نوع الاستقطاع «' + (t.name || '') + '» لم يؤكّده المختص — لا يُستخدم' };
+  const rate = Number(t.rate), gross = Math.round((Number(v.amount) || 0) * 100) / 100, amt = whtAmtOf(gross, rate);
+  if (!(amt > 0) || amt >= gross) return { err: 'مبلغ السند صغير على احتساب الاستقطاع' };
+  return { v: { ...v, whtType: t.id, whtName: String(t.name || ''), whtRate: rate, whtAmt: amt, ...(s.country ? { whtCountry: String(s.country) } : {}) } };
+}
+/** توزيع استقطاع السند على تخصيصاته (لكل فاتورة) والباقي «على الحساب» بالهللة (أكبر باقٍ) — المجموع = whtAmt تمامًا */
+function whtShares(v) {
+  const W = Math.round((Number(v && v.whtAmt) || 0) * 100); if (!(W > 0)) return null;
+  const a = Number(v.amount) || 0; const al = (v.alloc || []).filter(x => x && (Number(x.amount) || 0) > 0);
+  const rest = Math.round((a - al.reduce((s, x) => s + (Number(x.amount) || 0), 0)) * 100) / 100;
+  const B = [...al.map(x => ({ k: x.id, b: Number(x.amount) || 0 })), ...(rest > 0.004 ? [{ k: '_rest', b: rest }] : [])]; if (!B.length || !(a > 0)) return { _rest: W / 100 };
+  const tot = B.reduce((s, x) => s + x.b, 0); const raw = B.map(x => W * x.b / tot); const fl = raw.map(Math.floor); let left = W - fl.reduce((s, x) => s + x, 0);
+  raw.map((x, i) => [x - fl[i], i]).sort((p, q) => q[0] - p[0] || p[1] - q[1]).forEach(([, i]) => { if (left > 0) { fl[i]++; left--; } });
+  const out = { _rest: 0 }; B.forEach((x, i) => { out[x.k] = (out[x.k] || 0) + fl[i] / 100; }); return out;
+}
+/** سجل الاستقطاع الشهري (للإقرار اليدوي): سندات الصرف المرحّلة ذات الاستقطاع في الشهر */
+function whtRows(org, ops, ym) {
+  const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+  const rows = ((ops && ops.cashVouchers) || []).filter(v => v && v.kind === 'pv' && cvLive(v) && (Number(v.whtAmt) || 0) > 0 && (!ym || String(v.date || '').slice(0, 7) === ym))
+    .map(v => { const s = whtSupOf(org, (v.party || {}).key) || {}; const g = r2(v.amount), w = r2(v.whtAmt);
+      return { id: v.id, no: v.no || '', date: String(v.date || '').slice(0, 10), sup: (v.party || {}).name || s.name || '', country: v.whtCountry || s.country || '', type: v.whtName || ((whtTypes(org).find(t => t.id === v.whtType) || {}).name) || v.whtType || '', rate: Number(v.whtRate) || 0, gross: g, wht: w, net: r2(g - w) }; })
+    .sort((a, b) => a.date.localeCompare(b.date) || a.no.localeCompare(b.no));
+  const tot = rows.reduce((t, x) => ({ gross: r2(t.gross + x.gross), wht: r2(t.wht + x.wht), net: r2(t.net + x.net) }), { gross: 0, wht: 0, net: 0 });
+  return { rows, tot };
+}
 function applyCashVoucher(d, v, me) {
   let next = { ...d, cashVouchers: [v, ...(d.cashVouchers || [])] };
   if (!cvLive(v)) return next;   // v56.32: المعلّق يُحفظ بلا أثر حتى يُعتمد
   const al = Object.fromEntries((v.alloc || []).map(x => [x.id, Number(x.amount) || 0]));
-  if (v.party && v.party.t === 'sup' && v.kind === 'pv' && Object.keys(al).length) next.invoices = (next.invoices || []).map(i => al[i.id] ? { ...i, payments: [...(Array.isArray(i.payments) ? i.payments : []), { id: 'cv' + v.id, amount: al[i.id], date: v.date, fund: v.fund, pm: v.pm, ...(v.ref ? { ref: v.ref } : {}), cv: v.no, by: me.name, at: v.at }] } : i);
+  const wsh = v.kind === 'pv' && v.party && v.party.t === 'sup' ? whtShares(v) : null;   // v56.47 (E7) حصة كل فاتورة من الاستقطاع — بلا استقطاع: null فلا حقل
+  if (v.party && v.party.t === 'sup' && v.kind === 'pv' && Object.keys(al).length) next.invoices = (next.invoices || []).map(i => al[i.id] ? { ...i, payments: [...(Array.isArray(i.payments) ? i.payments : []), { id: 'cv' + v.id, amount: al[i.id], date: v.date, fund: v.fund, pm: v.pm, ...(v.ref ? { ref: v.ref } : {}), cv: v.no, by: me.name, at: v.at, ...(wsh && wsh[i.id] > 0 ? { wht: wsh[i.id] } : {}) }] } : i);
   if (v.party && v.party.t === 'cust' && v.kind === 'rv' && Object.keys(al).length) next.salesInvoices = (next.salesInvoices || []).map(x => al[x.id] ? { ...x, receipts: [...(x.receipts || []), { id: 'cv' + v.id + '_' + x.id, date: v.date, amount: al[x.id], fund: v.fund, cv: v.no, by: me.name, at: v.at }] } : x);
   if (v.party && v.party.t === 'emp' && v.kind === 'pv' && v.empPurpose === 'advance') next.advances = [{ id: 'cvadv_' + v.id, employeeId: String(v.party.key).replace(/^emp:/, ''), type: 'advance', amount: v.amount, date: v.date, month: String(v.date).slice(0, 7), reason: 'سند صرف ' + v.no + (v.note ? ' — ' + v.note : ''), cvFund: v.fund, cv: v.no, by: me.name, at: v.at, ...(v.branchId ? { branchId: v.branchId } : {}) }, ...(next.advances || [])];
   return next;
@@ -12183,7 +12260,9 @@ function cashVoucherHtml(org, v) {
   const sig = (a) => `<div style="flex:1;text-align:center"><div style="height:46px;border-bottom:1px solid #999"></div><div style="font-size:11px;margin-top:4px">${a}</div></div>`;
   return `<div class="sub">رقم السند: <b>${_xe(v.no)}</b> · التاريخ: ${_xe(v.date)}${v.by ? ' · أعدّه: ' + _xe(v.by) : ''}</div>
   <table><tbody><tr><td style="width:30%">${v.kind === 'ov' ? 'الطرفان' : 'الجهة'}</td><td>${who}</td></tr>
-  <tr><td>المبلغ</td><td class="n"><b>${money(v.amount)} ر.س</b> — ${_xe(tafqeet(v.amount))}</td></tr>
+  <tr><td>${(Number(v.whtAmt) || 0) > 0 ? 'المبلغ الإجمالي' : 'المبلغ'}</td><td class="n"><b>${money(v.amount)} ر.س</b> — ${_xe(tafqeet(v.amount))}</td></tr>${(Number(v.whtAmt) || 0) > 0 ? `
+  <tr><td>ضريبة الاستقطاع</td><td class="n">${money(v.whtAmt)} ر.س — ${_xe(v.whtName || v.whtType || '')} ${_xe(String(v.whtRate))}%${v.whtCountry ? ' · ' + _xe(v.whtCountry) : ''}</td></tr>
+  <tr><td>الصافي المدفوع</td><td class="n"><b>${money(Math.round((Number(v.amount) - Number(v.whtAmt)) * 100) / 100)} ر.س</b> — ${_xe(tafqeet(Math.round((Number(v.amount) - Number(v.whtAmt)) * 100) / 100))}</td></tr>` : ''}
   ${v.kind !== 'ov' ? `<tr><td>${v.kind === 'rv' ? 'إلى' : 'من'}</td><td>${_xe(fundN(v.fund))}${v.pm === 'cheque' ? ' · شيك رقم ' + _xe(v.ref || '') : v.ref ? ' · مرجع ' + _xe(v.ref) : ''}</td></tr>` : ''}
   ${p.t === 'emp' && v.kind === 'pv' ? `<tr><td>الغرض</td><td>${v.empPurpose === 'advance' ? 'سلفة تُستقطع من الراتب' : 'عهدة'}</td></tr>` : ''}
   <tr><td>البيان</td><td>${_xe(v.note || '')}</td></tr></tbody></table>${al}

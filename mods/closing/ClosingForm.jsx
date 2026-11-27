@@ -4,6 +4,7 @@ import { authApi, cloud, bfKey } from '../../storage';
 import { Check, ChevronDown, ClipboardCheck, FileText, Send, Banknote, CreditCard, Truck, Plus, Trash2, Receipt, Coins, Minus, Stamp, Landmark, ArrowLeftRight, Wallet, Lock, X, ScanFace, Users, CheckCircle2 } from 'lucide-react';
 import { APPS, CameraModal, DENOMS, EXP_CATS, Field, LOCK_MSG, Modal, MoneyField, Num, OutputDialog, PT_TYPE, PhotoField, ROLES, SignaturePad, arDate, buildPartners, businessDay, countDenoms, countedClosing, deficitCfg, deficitPatterns, emptyDenoms, isoD, money, nextPartnerCode, normalizeSupPays, nowISO, payCashPart, paySplits, payTotal, periodLocked, posR2, salesDaySource, sum, uid, signoff, sigFailMsg } from '../../App.jsx';
 
+import { whtPayBlock } from '../../App.jsx';   // v56.47 (E7)
 export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say, onClose, onStartNew, existing = [], invoices = [], branchPartners = [], posOrders = [], posImports = [] }) {
   const [f, setF] = useState(() => {
     const blank = {
@@ -181,6 +182,11 @@ export function ClosingForm({ org, me, branches, initial, commit, commitOrg, say
     // v56.46 (قرار المجلس 11): الآجل يطابق آجل نقطة البيع لليوم — فحص مانع للترحيل
     if (status !== 'draft') { const psC = r2c(   /* v56.46: كل حفظ محتسب لا المسودة */(salesDaySource({ posOrders, posImports }, f.branchId, f.date) || {}).credit);
       if (Math.abs(creditSales - psC) >= 0.01) { say('الآجل على العملاء (' + money(creditSales) + ') لا يطابق آجل نقطة البيع لليوم (' + money(psC) + ') — اضغط «تعبئة من نقطة البيع» قبل الترحيل', 'no'); return null; } }
+    // v56.47 (E7): المورد غير المقيم (والاستقطاع مفعّل) لا يُسدَّد من الوردية — مشترياته آجلة وسداده بسند الصرف (لا توجيه صامت)
+    if (status !== 'draft') { const supOf = (x) => x.supplierId || (/^sup:/.test(String(x.partnerKey || '')) ? x.partnerKey : '');
+      const wE = f.expenses.find(e => e.paymentMethod !== 'deferred' && (Number(e.amount) || 0) > 0 && supOf(e) && whtPayBlock(org, supOf(e)));
+      const wP = (f.supplierPayments || []).find(pm => payTotal(pm) > 0 && supOf(pm) && whtPayBlock(org, supOf(pm)));
+      if (wE || wP) { say(whtPayBlock(org, supOf(wE || wP)) + (wE ? ' — سجّل مشترياته في الوردية «آجل»' : ' — احذف السداد من الوردية'), 'no'); return null; } }
     // المرفوض لا يمنع إعادة إغلاق اليوم — حتى لا يُقفل اليوم نهائيًا بعد الرفض
     const dup = existing.find(c => c.branchId === f.branchId && c.date === f.date && c.id !== initial?.id && c.status !== 'rejected');
     if (dup) { say('يوجد إغلاق مسجّل لهذا الفرع بنفس التاريخ — عدّل الإغلاق القائم بدل إنشاء نسخة ثانية', 'no'); return null; }

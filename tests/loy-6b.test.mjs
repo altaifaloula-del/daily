@@ -58,3 +58,26 @@ test('(التحقق المستقل) انتهاء مناسبة مُنحت قبل 
   const d = { tx: [{ id: 'bd:9:2025', phone: '9', pts: 50, at: at('2025-11-01') }, { id: 'ex:9:2026-12', phone: '9', pts: -50, at: at('2026-12-01') }] };
   const r = E.loyMonthAdj(org, d, '2026-12', { from: '2026-11-01' }); assert.deepEqual([r.expOccPts, r.expPts], [0, 50]);
 });
+
+test('v56.47 (قرار المالك): النقاط اليدوية مصروف تسويق — بلا تفعيل تنبيه فقط، ومع التفعيل الصافي (هدية − تصحيح)، وانتهاؤها يعكس المصروف', () => {
+  const d = { tx: [{ id: 'la1', phone: '5', pts: 80, at: at('2026-12-02') }, { id: 'la2', phone: '5', pts: -20, at: at('2026-12-09') }] };
+  const off = E.loyMonthAdj(org, d, '2026-12', { from: '2026-11-01' });
+  assert.equal(off.manPts, 2); assert.equal(off.man, undefined);
+  const on = E.loyMonthAdj(org, d, '2026-12', { from: '2026-11-01', manOn: true, manFrom: '2026-12' });
+  assert.equal(on.manNetPts, 60); assert.equal(on.man, v(60));
+  const d2 = { tx: [{ id: 'la1', phone: '5', pts: 80, at: at('2026-12-02') }, { id: 'ex:5:2027-01', phone: '5', pts: -80, at: at('2027-01-05') }] };
+  const j = E.loyMonthAdj(org, d2, '2027-01', { from: '2026-11-01', manOn: true, manFrom: '2026-12' });
+  assert.equal(j.expOccPts, 80, 'انتهاء اليدوية يعكس المصروف لا إيراد'); assert.equal(j.expPts, 0);
+  const k = E.loyMonthAdj(org, d2, '2027-01', { from: '2026-11-01' });
+  assert.equal(k.expPts, 80, 'بلا تفعيل كما كان: المنتهي إيراد');
+});
+
+test('v56.47 (التحقق المستقل): الإيقاف لا يمحو النطاق — انتهاء ما قُيّد مصروفًا يعكسه؛ والتصحيح السالب يُنقص الهدايا اليدوية أولًا', () => {
+  const d = { tx: [{ id: 'la1', phone: '5', pts: 80, at: at('2026-12-02') }, { id: 'ex:5:2027-02', phone: '5', pts: -80, at: at('2027-02-05') }] };
+  const j = E.loyMonthAdj(org, d, '2027-02', { from: '2026-11-01', manRanges: [{ from: '2026-12', to: '2027-01' }] });
+  assert.equal(j.expOccPts, 80); assert.equal(j.expPts, 0);
+  const d2 = { tx: [{ id: 'o1:e', phone: '5', pts: 100, at: at('2026-12-01') }, { id: 'la1', phone: '5', pts: 50, at: at('2026-12-02') }, { id: 'la2', phone: '5', pts: -30, at: at('2026-12-03') },
+    { id: 'ex:5:2027-01', phone: '5', pts: -120, at: at('2027-01-05') }] };
+  const k = E.loyMonthAdj(org, d2, '2027-01', { from: '2026-11-01', manRanges: [{ from: '2026-12' }] });
+  assert.equal(k.expOccPts, 20, 'صافي الهدية 20 يعكس المصروف'); assert.equal(k.expPts, 100);
+});

@@ -9,6 +9,7 @@ import { domFilter, domOk, userBrIds, DomainChips, ROLES as ROLES_D } from '../.
 import { posReturnable, posReturnCalc, posRefundOptions, posReturnHtml, posReturnLoyDed, WASTE_REASONS } from '../../App.jsx';   // v46.8 المرتجع
 import { posDocView, APPS, CloudHealth, Field, Modal, Num, POS_SH_KEY, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, QUOTA_MSG, ROLES, businessDay, isoD, logClientError, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, makeXlsx, money, normPhone, nowISO, pendShiftsGet, pendShiftsSet, posCashNet, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posTotals, posZHtml, promoActive, promoHits, sha256Hex, uid, recCfgOf, recIndex, recFor } from '../../App.jsx';
 
+import { posAppPricesOn, posAppHasPrices, posPriceListErr } from '../../App.jsx';   // v56.47 (P4) قوائم أسعار التطبيقات
 import { posHolds, posHoldsSet, posHoldPut, posHoldRecall } from '../../App.jsx';   // v56.0 (GAP-007) تعليق الطلب واستدعاؤه
 import { posVoidBlock, posNextNo, posTabCuts, escH, POS_VOID_ROLES } from '../../App.jsx';   // v56.2 (POS دفعة 1) حراس الإلغاء والترقيم وحساب الطاولة
 import { posCreditList, posCreditAuthApi, posArRefundMax } from '../../App.jsx';   // v56.46 البيع الآجل
@@ -32,6 +33,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const cats = [...new Set(prods.map(p => p.cat || 'أخرى'))];
   const [cat, setCat] = useState(''); const [q, setQ] = useState('');
   const [cart, setCart] = useState([]); const [channel, setChannel] = useState('takeaway');
+  const [priceList, setPriceList] = useState('');   // v56.47 (P4) قائمة الأسعار: '' = المطعم، أو معرّف التطبيق
   // v56.0 (GAP-007): الطلبات المعلّقة على هذا الجهاز لهذا الفرع — الخطافات هنا قبل أي «return» مبكر (قاعدة React)
   const [holds, setHolds] = useState(() => posHolds((br || {}).id)); const [holdOpen, setHoldOpen] = useState(false);
   useEffect(() => { setHolds(posHolds((br || {}).id)); setHoldOpen(false); }, [(br || {}).id]);   // eslint-disable-line react-hooks/exhaustive-deps
@@ -51,6 +53,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   useEffect(() => { if (!useTabs && !kds) return; const t = setInterval(() => setTick(x => x + 1), 30000); return () => clearInterval(t); }, [useTabs, kds]);   // تحديث الدقائق المنقضية (قبل أي عودة مبكرة — قاعدة الخطافات)
   const [queue, setQueue] = useState(posQueue); const [cfgF, setCfgF] = useState(null); const [shiftF, setShiftF] = useState(null);
   const apps = org.deliveryApps || APPS;
+  const apOn = posAppPricesOn(org); const plApps = apOn ? apps.filter(a => posAppHasPrices(org.products, a.id)) : []; const plId = apOn && !payTab && plApps.some(a => a.id === priceList) ? priceList : '';   // v56.47 (P4)
   const today = businessDay();
   // الطلبات = المتزامنة + المعلّقة على الجهاز
   const allOrders = useMemo(() => { const m = {}; (ops.posOrders || []).forEach(o => { m[o.id] = o; }); queue.forEach(o => { if (!m[o.id]) m[o.id] = { ...o, pending: true }; }); return Object.values(m); }, [ops.posOrders, queue]);
@@ -63,7 +66,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   // v34.0: التسعير = العروض وخصم الصنف (لكل سطر) ← عرض الفاتورة ← الخصم اليدوي (مبلغ أو نسبة) ← استبدال النقاط
   const phoneN0 = normPhone(cust.phone); const phone0 = phoneN0.length >= 9 ? phoneN0 : '';
   const cpOpt = { branchId: (br || {}).id, code, phone: phone0, isMember: !!(phone0 && loy && (loy.members || {})[phone0]), uses: loy ? (loy.cpn || {}) : null };
-  const priced = posPriceCart(cart, org.products, org.posPromos, cpOpt);
+  const priced = posPriceCart(cart, org.products, org.posPromos, plId ? { ...cpOpt, priceList: plId } : cpOpt);   // v56.47 (P4): بلا قائمة كما كان
   const base1 = posR2(priced.sub - priced.orderDisc);
   const manual = disc.mode === 'pct' ? posR2(base1 * Math.min(100, Number(disc.amt) || 0) / 100) : Math.min(base1, posR2(disc.amt));
   const phoneN = normPhone(cust.phone); const phoneOk = phoneN.length >= 9;
@@ -80,7 +83,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
   const recs = recIdx && cart.length && !payTab ? recFor(recIdx, cart, prods, { cfg: recCfg, phone: phoneOk ? phoneN : '', dismissed: recDis }) : [];
   const recKey = recs.map(r => r.productId).join(',');
   useEffect(() => { if (recKey) setRecSeen(s => { const add = recKey.split(',').filter(x => !s.includes(x)); return add.length ? [...s, ...add] : s; }); }, [recKey]);
-  useEffect(() => { if (!cart.length) { setRecSeen([]); setRecDis([]); } }, [cart.length]);
+  useEffect(() => { if (!cart.length) { setRecSeen([]); setRecDis([]); setPriceList(''); } }, [cart.length]);
   const addRec = (r) => setCart(c => c.some(l => l.productId === r.productId) ? c : [...c, { key: uid('l'), productId: r.productId, name: r.name, price: r.price, qty: 1, note: '', rec: r.kind }]);
   // المزامنة: إرسال المعلّق ثم إزالته من الجهاز
   const flushRaw = useCallback(async () => {
@@ -185,6 +188,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     const maxPct = Number(cfg.maxDiscPct) || 0;
     if (manual > 0 && maxPct > 0 && !isMgr && base1 > 0 && manual / base1 * 100 > maxPct + 0.001) return say('الخصم اليدوي يتجاوز الحد المسموح للكاشير (' + maxPct + '%) — يلزم مدير الفرع', 'no');
     if (cust.phone.trim() && !phoneOk) return say('رقم جوال العميل غير صحيح', 'no');
+    if (!payTab) { const ple = posPriceListErr(org, plId, pay.parts, apps); if (ple) return say(ple, 'no'); }   // v56.47 (P4) قائمة الأسعار تطابق تطبيق الدفع
     const cuts = payTab ? posTabCuts(tabSent.current, cart) : [];   // v56.2 (B7)
     if (cuts.length && !isMgr) return say('لا يُنقص صنف أُرسل للمطبخ إلا مدير الفرع: ' + cuts.map(c => c.name).join('، '), 'no');
     // v56.46: البيع الآجل — دفعة آجلة واحدة لعميل مؤهل، لا مع تطبيق توصيل، والتفويض من الخادم قبل الترقيم (دون اتصال يُمنع)
@@ -213,7 +217,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
     const { seq, prev } = posNextNo(ls, lp, [...(ops.posOrders || []), ...posQueue()], br.id, dev.tag, today, 'ف');   // v56.2 (B4): لا رقم مكرر بعد مسح التخزين المحلي
     const bi = (org.branches || []).findIndex(b => b.id === br.id) + 1;
     const o = { id: oid, no: 'ف' + bi + '-' + yy + '-' + dev.tag + '-' + String(seq).padStart(4, '0'), branchId: br.id, dev: dev.tag, shiftId: shift.id, date: today, at: nowISO(), by: me.name,
-      channel, lines: priced.lines.map(l => ({ productId: l.productId, name: l.name, qty: l.qty, price: l.price, ...(l.note ? { note: l.note } : {}), ...(((cart.find(c => c.key === l.key) || {}).rec) ? { rec: (cart.find(c => c.key === l.key) || {}).rec } : {}), ...(l.disc ? { disc: l.disc, promoId: l.promoId, promoName: l.promoName } : {}) })),
+      channel, ...(plId ? { priceList: plId } : {}), lines: priced.lines.map(l => ({ productId: l.productId, name: l.name, qty: l.qty, price: l.price, ...(l.note ? { note: l.note } : {}), ...(((cart.find(c => c.key === l.key) || {}).rec) ? { rec: (cart.find(c => c.key === l.key) || {}).rec } : {}), ...(l.disc ? { disc: l.disc, promoId: l.promoId, promoName: l.promoName } : {}) })),
       gross: T.gross, disc: T.disc, ...(priced.orderDisc ? { orderDisc: priced.orderDisc, orderPromo: priced.orderPromo } : {}), manualDisc: manual, ...(manual ? { discReason: disc.reason.trim() } : {}),
       ...(code.trim() && priced.codeOk ? { coupon: code.trim(), ...(priced.coupon ? { couponId: priced.coupon.id, ...(priced.coupon.limited ? { couponLtd: true } : {}) } : {}) } : {}),
       ...(phoneOk ? { loyalty: { phone: phoneN, name: (cust.name || custName).trim(), earned: earnPts, redeemed: redeemPts, redeemAmt, pv: Number(loyCfg.ptValue) || 0, balAfter: posR2(loyBalance - redeemPts + earnPts) } } : {}),
@@ -435,6 +439,8 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
         </div>)}
       </div>}
       <div className="pos-seg" role="group" aria-label="نوع الطلب">{[['takeaway', 'سفري'], ['dinein', 'محلي'], ['delivery', 'توصيل']].map(([k, t]) => <button key={k} className={channel === k ? 'on' : ''} onClick={() => setChannel(k)}>{t}</button>)}</div>
+      {plApps.length > 0 && !payTab && <div className="row" style={{ gap: 6, alignItems: 'center', margin: '0 0 8px' }} data-pricelist><span style={{ fontSize: 13, fontWeight: 600 }}>قائمة الأسعار</span>
+        <select className="sel" style={{ width: 'auto', minWidth: 130 }} aria-label="قائمة الأسعار" value={plId} onChange={e => setPriceList(e.target.value)}><option value="">المطعم</option>{plApps.map(a => <option key={a.id} value={a.id}>{a.n}</option>)}</select></div>}
       {channel === 'delivery' && <div className="row" style={{ gap: 6, flexWrap: 'wrap', margin: '0 0 8px' }} data-dlvform>
         <input className="inp" style={{ width: 130 }} inputMode="tel" aria-label="جوال التوصيل" placeholder="جوال العميل" value={dlv.phone || cust.phone || ''} onChange={e => setDlv(x => ({ ...x, phone: e.target.value }))} />
         <input className="inp" style={{ flex: 1, minWidth: 160 }} aria-label="عنوان التوصيل" placeholder="العنوان / الحي / وصف الموقع" value={dlv.addr} onChange={e => setDlv(x => ({ ...x, addr: e.target.value }))} />
@@ -448,12 +454,12 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
         <div key={l.key} className="pos-line">
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 14.5, fontWeight: 600 }}>{l.name}</div>
-            <div style={{ fontSize: 12, color: 'var(--dim)' }}><span className="num">{money(l.price)} × {l.qty}</span>{pl(l).disc ? <span style={{ color: 'var(--mint)', fontWeight: 600 }}> · {pl(l).promoName} −<span className="num">{money(pl(l).disc)}</span></span> : null}
+            <div style={{ fontSize: 12, color: 'var(--dim)' }}><span className="num">{money(pl(l).price != null ? pl(l).price : l.price)} × {l.qty}</span>{pl(l).disc ? <span style={{ color: 'var(--mint)', fontWeight: 600 }}> · {pl(l).promoName} −<span className="num">{money(pl(l).disc)}</span></span> : null}
               {!(l.showNote || l.note) && <button className="pos-link" onClick={() => setCart(c => c.map(x => x.key === l.key ? { ...x, showNote: true } : x))}>+ ملاحظة</button>}</div>
             {(l.showNote || l.note) && <input className="inp" style={{ minHeight: 34, padding: '4px 8px', fontSize: 12.5, marginTop: 4 }} autoFocus={!l.note} placeholder="بدون بصل، حار…" value={l.note} onChange={e => setCart(c => c.map(x => x.key === l.key ? { ...x, note: e.target.value } : x))} />}
           </div>
           <button className="pos-qb" aria-label="إنقاص" onClick={() => setQty(l.key, -1)}>−</button><b className="num" style={{ minWidth: 22, textAlign: 'center' }}>{l.qty}</b><button className="pos-qb" aria-label="زيادة" onClick={() => setQty(l.key, 1)}>+</button>
-          <b className="num" style={{ minWidth: 60, textAlign: 'end' }}>{money(l.qty * l.price - (pl(l).disc || 0))}</b>
+          <b className="num" style={{ minWidth: 60, textAlign: 'end' }}>{money(l.qty * (pl(l).price != null ? pl(l).price : l.price) - (pl(l).disc || 0))}</b>
         </div>))}
       {!cart.length && <div className="empty">اضغط الأصناف لإضافتها</div>}
       {recs.length > 0 && <div className="pos-recs" data-recs style={{ margin: '8px 0 2px', padding: '8px 10px', border: '1px dashed var(--line)', borderRadius: 12 }}>
@@ -502,7 +508,7 @@ export function PosApp({ org, ops, me, myBranches, commit, commitOrg, say }) {
         <div className="pos-more-pay">
           <button className="btn" onClick={() => setPay({ parts: [{ m: 'cash', amount: '' }, { m: 'card', amount: '' }] })}>تقسيم</button>
           {payMs.slice(0, 3).map(pm => <button key={pm.id} className="btn" onClick={() => setPay({ parts: [{ m: pm.kind || 'card', pm: pm.id, pmName: pm.n, amount: String(T.total) }] })}>{pm.n}</button>)}
-          <button className="btn" onClick={() => setPay({ parts: [{ m: 'app', appId: (apps[0] || {}).id, amount: String(T.total) }] })}>تطبيق توصيل</button>
+          <button className="btn" onClick={() => setPay({ parts: [{ m: 'app', appId: plId || (apps[0] || {}).id, amount: String(T.total) }] })}>تطبيق توصيل</button>
           {creditOn && crCusts.length > 0 && <button className="btn" data-credit onClick={() => setPay({ parts: [{ m: 'credit', custKey: '', amount: String(T.total) }] })}>آجل</button>}
         </div>
       </>}

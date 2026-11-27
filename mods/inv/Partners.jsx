@@ -3,6 +3,11 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { authApi } from '../../storage';
 import { Trash2, ChevronRight, Plus, Printer, Settings, ArrowUp, Check, Bell, X, TrendingUp, TrendingDown, ArrowLeftRight, Users, Search } from 'lucide-react';
 import { DocLink, ibanNorm, requestIban } from '../../App.jsx';   // v40.9
+import { whtOn, whtTypes } from '../../App.jsx';   // v56.47 (E7) ضريبة الاستقطاع
+// v56.47 (E7): وسم «غير مقيم» والدولة ونوع الاستقطاع الافتراضي على بطاقة المورد — يُحفظ فقط إن وُسم (البطاقة بلا وسم كما كانت)
+const whtOfSup = (s) => (s && s.nonResident ? { nonResident: true, country: s.country || '', whtType: s.whtType || '' } : {});
+const whtPatch = (c) => (c.nonResident ? { nonResident: true, ...(String(c.country || '').trim() ? { country: String(c.country).trim().slice(0, 60) } : {}), ...(c.whtType ? { whtType: c.whtType } : {}) } : {});
+const whtStrip = (s) => { const { nonResident: _a, country: _b, whtType: _c, ...r } = s; return r; };
 import { ContactsImport } from './ContactsImport.jsx';   // v46.6
 import { BalCell, Field, Kpi, LOCK_MSG, Modal, MoneyField, NationalAddressFields, PT_SRC, PT_TYPE, PartnerChip, ROLES, buildPartners, contactFields, contactOf, money, naErr, naHas, naMissing, nextPartnerCode, nowISO, periodLocked, printPartnerStatement, today, uid, waNum } from '../../App.jsx';
 
@@ -146,7 +151,7 @@ export function Partners({ org, ops, me, commit, commitOrg, say }) {
       const supOld = c.isSup ? ibanNorm(((org.suppliers || []).find(s => s.id === c.id) || {}).iban) : '';
       const supNew = c.isSup ? ibanNorm(c.iban) : '';
       const supReq = c.isSup && supNew && supNew !== supOld; if (supReq) patch.iban = supOld;
-      if (c.isSup) await commitOrg(d => ({ ...d, suppliers: (d.suppliers || []).map(s => s.id === c.id ? { ...s, ...patch, category: c.cat || '', vatNo: c.tax || '' } : s) }), { actionType: 'update', targetType: 'user_account', targetId: c.id, title: 'حدّث بيانات كرت مورد', details: c.name });
+      if (c.isSup) await commitOrg(d => ({ ...d, suppliers: (d.suppliers || []).map(s => s.id === c.id ? { ...((c.nonResident || s.nonResident) ? whtStrip(s) : s), ...patch, category: c.cat || '', vatNo: c.tax || '', ...whtPatch(c) } : s) }), { actionType: 'update', targetType: 'user_account', targetId: c.id, title: 'حدّث بيانات كرت مورد', details: c.name });
       else await commitOrg(d => ({ ...d, partners: (d.partners || []).map(p => { if (p.id !== c.id) return p; const { posCredit: _pc, ...p0 } = p; return { ...p0, ...patch, tax: c.tax || '', vatNo: c.tax || '', ...(pcFlag(c, p) ? { posCredit: true } : {}) }; }) }), { actionType: 'update', targetType: 'user_account', targetId: c.id, title: 'حدّث بيانات كرت عميل', details: c.name });
       if (supReq) { const r = await requestIban(me, commitOrg, { ent: 'sup:' + c.id, name: c.name.trim(), iban: supOld }, supNew); say(r.ok ? 'حُدّثت بيانات الكرت ✓ — وتغيير الآيبان أُرسل للاعتماد (يعتمده شخص آخر من المالية/الإدارة)' : (r.msg || 'تعذّر طلب الآيبان'), r.ok ? undefined : 'no'); setAddP(null); return; }
       say('حُدّثت بيانات الكرت ✓'); setAddP(null); return;
@@ -172,7 +177,7 @@ export function Partners({ org, ops, me, commit, commitOrg, say }) {
     const id = uid(isSupNew ? 'sp' : 'pt'); const key = (isSupNew ? 'sup:' : 'cust:') + id;
     const code = nextPartnerCode(partners, c.type || 'customer');
     const rec = isSupNew
-      ? { id, code, name: c.name.trim(), category: c.cat || '', phone: c.phone || '', vatNo: c.tax || '', address: c.address || '', taxable: !!c.taxable, terms: Number(c.terms) || 0, ...contactFields(c), iban: '' }   // v40.9: الآيبان بطلب اعتماد
+      ? { id, code, name: c.name.trim(), category: c.cat || '', phone: c.phone || '', vatNo: c.tax || '', address: c.address || '', taxable: !!c.taxable, terms: Number(c.terms) || 0, ...contactFields(c), iban: '', ...whtPatch(c) }   // v40.9: الآيبان بطلب اعتماد
       : { id, key, code, name: c.name.trim(), type: c.type || 'customer', cat: c.cat || '', phone: c.phone || '', tax: c.tax || '', vatNo: c.tax || '', address: c.address || '', taxable: !!c.taxable, terms: Number(c.terms) || 0, ...contactFields(c), ...(pcFlag(c, null) ? { posCredit: true } : {}) };
     await commitOrg(d => (isSupNew ? { ...d, suppliers: [...(d.suppliers || []), rec] } : { ...d, partners: [...(d.partners || []), rec] }),
       { actionType: 'create', targetType: 'user_account', targetId: id, title: 'أضاف جهة اتصال', details: rec.name + ' — ' + (PT_TYPE[c.type || 'customer']?.ar || '') });
@@ -285,7 +290,7 @@ export function Partners({ org, ops, me, commit, commitOrg, say }) {
           {canEdit && <button className="btn pri" onClick={() => setTx({ side: 'debit', date: today(), amount: '', desc: '' })}><Plus size={14} />إضافة حركة يدوية</button>}
           <button className="btn" onClick={() => printPartnerStatement(cur, org)}><Printer size={14} />طباعة كشف الحساب</button>
           {canEdit && cur.type === 'employee' && (org.employees || []).some(e => e.id === cur.id) && <button className="btn" onClick={() => { const e0 = (org.employees || []).find(e => e.id === cur.id) || {}; setAddP({ edit: true, id: cur.id, type: 'employee', name: e0.name || cur.name, cat: e0.jobTitle || '', phone: e0.phone || '', email: e0.email || '', notes: e0.notes || '', branchId: e0.branchId || '' }); }}><Settings size={14} />تعديل بيانات الموظف</button>}
-          {canEdit && (cur.type === 'customer' || cur.type === 'supplier') && <button className="btn" onClick={() => setAddP({ edit: true, id: cur.id, isSup: (org.suppliers || []).some(x => x.id === cur.id), type: cur.type, name: cur.name, cat: (cur.cat === 'مورد' || cur.cat === 'عميل') ? '' : (cur.cat || ''), phone: cur.phone || '', tax: cur.tax || '', address: cur.address || '', taxable: !!cur.taxable, terms: cur.terms || '', ...contactOf(cur), creditLimit: cur.creditLimit || '', posCredit: !!cur.posCredit })}><Settings size={14} />تعديل بيانات الكرت</button>}
+          {canEdit && (cur.type === 'customer' || cur.type === 'supplier') && <button className="btn" onClick={() => setAddP({ edit: true, id: cur.id, isSup: (org.suppliers || []).some(x => x.id === cur.id), type: cur.type, name: cur.name, cat: (cur.cat === 'مورد' || cur.cat === 'عميل') ? '' : (cur.cat || ''), phone: cur.phone || '', tax: cur.tax || '', address: cur.address || '', taxable: !!cur.taxable, terms: cur.terms || '', ...contactOf(cur), creditLimit: cur.creditLimit || '', posCredit: !!cur.posCredit, ...whtOfSup((org.suppliers || []).find(x => x.id === cur.id)) })}><Settings size={14} />تعديل بيانات الكرت</button>}
           {cur.type === 'employee' && <span className="badge b-dim" style={{ alignSelf: 'center' }}>بيانات الموظف تُعدَّل من «شؤون الموظفين ← البيانات الرئيسية»</span>}
           {canWriteOrgP && cur.source === 'branch' && <button className="btn pri" onClick={() => promotePartner(cur)}><ArrowUp size={14} />ترقية للسجل المركزي</button>}
         </div>
@@ -442,6 +447,12 @@ export function Partners({ org, ops, me, commit, commitOrg, say }) {
               ? <Field label="حد الائتمان (ر.س)"><input className="inp n" inputMode="decimal" value={addP.creditLimit || ''} onChange={e => setAddP({ ...addP, creditLimit: e.target.value.replace(/[^\d.]/g, '') })} /></Field>
               : <Field label="البنك"><input className="inp" value={addP.bankName || ''} onChange={e => setAddP({ ...addP, bankName: e.target.value })} /></Field>}
           </div>
+          {addP.type === 'supplier' && (whtOn(org) || addP.nonResident) && <div className="note" style={{ margin: '4px 0 8px' }} data-sup-wht>
+            <label className="row" style={{ gap: 6, fontSize: 12.5, cursor: 'pointer' }}><input type="checkbox" aria-label="مورد غير مقيم" checked={!!addP.nonResident} onChange={e => setAddP({ ...addP, nonResident: e.target.checked })} />مورد غير مقيم (ضريبة الاستقطاع — يُسدَّد بسند صرف فقط)</label>
+            {addP.nonResident && <div className="grid g2" style={{ marginTop: 6 }}>
+              <Field label="الدولة"><input className="inp" aria-label="دولة المورد" value={addP.country || ''} onChange={e => setAddP({ ...addP, country: e.target.value })} /></Field>
+              <Field label="نوع الاستقطاع الافتراضي (اختياري)"><select className="sel" aria-label="نوع الاستقطاع الافتراضي" value={addP.whtType || ''} onChange={e => setAddP({ ...addP, whtType: e.target.value })}><option value="">—</option>{whtTypes(org).map(t => <option key={t.id} value={t.id}>{t.name}{t.rate !== '' && t.rate != null ? ' — ' + t.rate + '%' : ''}{t.ok ? '' : ' (غير مؤكَّد)'}</option>)}</select></Field>
+            </div>}</div>}
           {addP.type === 'supplier' && <Field label="الآيبان (للسداد بالتحويل)"><input className="inp n" style={{ direction: 'ltr', textAlign: 'right' }} value={addP.iban || ''} placeholder="SA…" onChange={e => setAddP({ ...addP, iban: e.target.value.toUpperCase().replace(/\s/g, '') })} /></Field>}
           <Field label="ملاحظات"><input className="inp" value={addP.notes || ''} onChange={e => setAddP({ ...addP, notes: e.target.value })} /></Field>
           <NationalAddressFields value={addP.na} legacy={addP.address} onChange={na => setAddP(a => ({ ...a, na }))} />
