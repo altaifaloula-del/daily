@@ -3,11 +3,13 @@
 // • الصفحة (index.html): الشبكة أولًا، والنسخة المخزّنة عند انقطاع الشبكة فقط (لا عند البطء والجهاز متصل) — فلا يعلق جهاز متصل على نسخة قديمة.
 // • الأصول المجزّأة الأسماء (/assets/*-<hash>.js|css…): الكاش أولًا (اسمها يتغيّر مع كل إصدار فلا تتقادم).
 // • لا يُخزَّن ولا يُعترض أي طلب بيانات: Firestore وGoogle و/api وأي أصل خارجي وأي طلب غير GET — كلها تمر للشبكة كما هي.
-// • الكاش باسم يحمل الإصدار (?v=) ويُحذف القديم عند التفعيل. سكربت الشفاء في index.html يمسحه ويلغيه إن زالت العلامة.
+// • الكاش باسم يحمل الإصدار (?v=) ويُحذف القديم عند التفعيل، وبحد أعلى MAX_ENTRIES. سكربت الشفاء في index.html يمسحه ويلغيه إن زالت العلامة.
+// • v56.56: الجهاز دون شبكة ظاهرًا ⇒ الصفحة المخزّنة فورًا؛ والتسخين يشمل أصول هيكل نقطة البيع من البناء (pos-shell.json).
 var VER = (function () { try { return new URL(self.location.href).searchParams.get('v') || 'dev'; } catch (_) { return 'dev'; } })();
 var PREFIX = 'muktasab-pos-shell-';
 var CACHE = PREFIX + VER;
 var SOFT_MS = 3000, HARD_MS = 12000;
+var MAX_ENTRIES = 80;   // v56.56 (f): حد أعلى لعناصر الكاش (إصدار واحد فقط يبقى — القديم يُحذف عند التفعيل)
 var ASSET_RE = /\/assets\/[^/]+-[A-Za-z0-9_-]{6,}\.(js|css|woff2?|png|svg|jpg|jpeg|webp)$/;
 
 /** اختيار الاستراتيجية لطلب (دالة نقية — مختبرة في tests/pos-offline-b.test.mjs): 'shell' | 'asset' | 'pass' */
@@ -39,7 +41,7 @@ self.addEventListener('message', function (e) {
   var d = e.data || {}; if (d.type !== 'warm' || !Array.isArray(d.urls)) return;
   var scope = new URL(self.registration.scope);
   e.waitUntil(caches.open(CACHE).then(function (c) {
-    return Promise.all(d.urls.slice(0, 300).map(function (url) {
+    return Promise.all(d.urls.slice(0, MAX_ENTRIES).map(function (url) {
       var abs; try { abs = new URL(url, scope).href; } catch (_) { return null; }
       var r = posSwRoute({ url: abs, method: 'GET', mode: /\/assets\//.test(abs) ? 'cors' : 'navigate' }, scope.origin, scope.pathname);
       if (r === 'pass') return null;
@@ -64,6 +66,8 @@ function shell(req) {
     var finish = function (r) { if (!done) { stop(); ok(r); } };
     var fallback = function (err) { cached().then(function (hit) { if (hit) finish(hit); else if (err && !done) { stop(); no(err); } }); };
     net.then(finish, function (err) { fallback(err || new Error('offline')); });
+    // v56.56 (a): الجهاز دون شبكة ظاهرًا عند الطلب ⇒ المخزّن فورًا (بلا انتظار مهلة)؛ بلا نسخة مخزّنة يبقى انتظار الشبكة
+    if (self.navigator && self.navigator.onLine === false) fallback(null);
     // انقطاع ظاهر (الجهاز دون شبكة) بعد مهلة قصيرة ⇒ المخزّن؛ متصل وبطيء ⇒ ننتظر الشبكة حتى المهلة القصوى
     t1 = setTimeout(function () { if (!done && self.navigator && self.navigator.onLine === false) fallback(null); }, SOFT_MS);
     t2 = setTimeout(function () { if (!done) fallback(null); }, HARD_MS);
@@ -73,7 +77,9 @@ function asset(req) {
   return caches.open(CACHE).then(function (c) {
     return c.match(req).then(function (hit) {
       if (hit) return hit;
-      return fetch(req).then(function (res) { if (res && res.ok && res.type === 'basic') c.put(req, res.clone()).catch(function () { }); return res; });
+      return fetch(req).then(function (res) {
+        if (res && res.ok && res.type === 'basic') { var cp = res.clone(); Promise.resolve(c.keys ? c.keys() : []).then(function (ks) { if ((ks || []).length < MAX_ENTRIES) return c.put(req, cp); }).catch(function () { }); }
+        return res; });
     });
   });
 }

@@ -185,7 +185,7 @@ export function Closing({ org, ops, me, myBranches, scoped, commit, commitOrg, s
 
       {open && (
         <ClosingForm key={formKey} org={org} me={me} branches={myBranches} initial={edit} commit={commit} commitOrg={commitOrg} say={say}
-          existing={ops.closings || []} invoices={ops.invoices || []} branchPartners={ops.branchPartners || []} posOrders={ops.posOrders || []} posImports={ops.posImports || []}
+          existing={ops.closings || []} invoices={ops.invoices || []} branchPartners={ops.branchPartners || []} posOrders={ops.posOrders || []} posImports={ops.posImports || []} posTabs={ops.posTabs || []}
           onStartNew={() => { setEdit(null); setFormKey(k => k + 1); }}
           onClose={() => { setOpen(false); setEdit(null); }} />
       )}

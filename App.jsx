@@ -4062,7 +4062,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.55';
+const APP_VER = 'v56.56';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -4171,7 +4171,7 @@ function PlatformApp() {
   const [org, setOrg] = useState(null);
   const orgNow = useRef(null); orgNow.current = org; grrSetOn(org); lypSetOn(org);   // v56.17: مفتاح نسخ سجلات النمو لدفتر الولاء   // v29.5: للحارس المركزي للإقفال داخل writeOps
   // v56.54: جهاز موسوم لفتح نقطة البيع دون إنترنت والمفتاح أُطفئ ⇒ يُلغى عامل pos-sw ويُمسح كاشه (متصلًا وبإعدادات منشأة محمّلة فقط)
-  const shellOff = !!(org && org.posCfg && !posShellOn(org));
+  const shellOff = posShellOff(org);   // v56.56 (b): غياب posCfg في منشأة محمّلة = مطفأ
   useEffect(() => { if (!shellOff || (typeof navigator !== 'undefined' && navigator.onLine === false)) return; let f = null; try { f = localStorage.getItem(POS_SW_FLAG); } catch { } if (f) posSwSync(false).catch(() => { }); }, [shellOff]);
   const [opsRaw, setOps] = useState({ closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [] });
   // v42.2: القراءة من السجلات المستقلة — ops المعروضة = مستند الفرع مدموجًا بالسجلات (السجل يغلب) متى فُعّلت
@@ -9534,27 +9534,42 @@ async function posDevRegApi(body, opt) {
    الإيقاف يزيل العلامة ويلغي تسجيله ويمسح كاشه — فيعود الشفاء العام كما كان. */
 const POS_SW_FLAG = 'mizan:posSwOn', POS_SW_CACHE = 'muktasab-pos-shell-';
 const posShellOn = (org) => posOffOn(org) && !!org.posCfg.offShell;
-const posSwIsPos = (reg) => { const w = reg && (reg.active || reg.waiting || reg.installing); return !!(w && /\/pos-sw\.js(\?|$)/.test(String(w.scriptURL || ''))); };
-/** قائمة التسخين: الصفحة الحالية + الأصول المجزّأة المحمّلة فعلًا من الأصل نفسه (لا بيانات) */
-const posSwWarmList = (page, entries, origin) => [page, ...(entries || []).map(x => String((x && x.name) || x || '')).filter(u => { try { const U = new URL(u); return U.origin === origin && /\/assets\/[^/]+-[A-Za-z0-9_-]{6,}\.(js|css|woff2?|png|svg|jpg|jpeg|webp)$/.test(U.pathname); } catch { return false; } })].filter(Boolean);
+/* v56.56 (ملاحظة أمنية c): مطابقة تامة لرابط العامل — الأصل والمسار = pos-sw.js بجانب الصفحة (base)، والاستعلام ?v= وحده أو لا شيء؛
+   بلا base (اختبار/بيئة بلا صفحة) ⇒ المسار /pos-sw.js تمامًا */
+const posSwUrlOk = (url, base) => { try { const U = new URL(String(url || '')); if (U.search && !/^\?v=[^&]*$/.test(U.search)) return false;
+  if (base) { const W = new URL('pos-sw.js', base); return U.origin === W.origin && U.pathname === W.pathname; } return U.pathname === '/pos-sw.js'; } catch { return false; } };
+const posSwIsPos = (reg, base) => { const w = reg && (reg.active || reg.waiting || reg.installing); return !!(w && posSwUrlOk(w.scriptURL, base)); };
+/** قائمة التسخين: الصفحة الحالية + الأصول المجزّأة المحمّلة فعلًا من الأصل نفسه (لا بيانات)
+    v56.56 (f): + قائمة الأصول التي يحتاجها هيكل نقطة البيع من البناء (pos-shell.json) وإن لم تُحمَّل بعد — بلا تكرار وبحد أعلى */
+const POS_SW_WARM_MAX = 60;
+const posSwWarmList = (page, entries, origin, extra) => { const seen = new Set();
+  return [page, ...[...(entries || []), ...(extra || [])].map(x => String((x && x.name) || x || '')).map(u => { try { return new URL(u, origin + '/').href; } catch { return ''; } }).filter(u => { try { const U = new URL(u); return U.origin === origin && /\/assets\/[^/]+-[A-Za-z0-9_-]{6,}\.(js|css|woff2?|png|svg|jpg|jpeg|webp)$/.test(U.pathname); } catch { return false; } })]
+    .filter(u => u && !seen.has(u) && (seen.add(u), true)).slice(0, POS_SW_WARM_MAX); };
+/** v56.56 (b): متى يُلغى عامل pos-sw على جهاز موسوم والمفتاح أُطفئ — منشأة محمّلة فعلًا (لها فروع) بلا تفعيل، ولو غاب posCfg كله؛
+    منشأة فارغة (تعذّر قراءة الدليل ⇒ emptyOrg بلا فروع) لا تُلغيه بخطأ عابر */
+const posShellOff = (org) => !!(org && typeof org === 'object' && (org.posCfg ? !posShellOn(org) : ((org.branches || []).length > 0)));
+/** يقرأ قائمة أصول هيكل نقطة البيع من البناء (pos-shell.json) — فشلها لا يمنع التسخين */
+async function posSwShellList(fetchFn, url) { try { const r = await fetchFn(url, { cache: 'no-store', credentials: 'same-origin' }); if (!r || !r.ok) return [];
+  const j = await r.json(); return Array.isArray(j && j.files) ? j.files.filter(x => typeof x === 'string').slice(0, POS_SW_WARM_MAX) : []; } catch { return []; } }
 async function posSwSync(on, env) {
-  const e = env || (typeof window !== 'undefined' ? { sw: navigator.serviceWorker, caches: typeof caches !== 'undefined' ? caches : null, ls: window.localStorage, ver: APP_VER, url: 'pos-sw.js', scope: './',
-    warm: () => posSwWarmList(location.pathname, (performance.getEntriesByType ? performance.getEntriesByType('resource') : []), location.origin) } : {});
+  const e = env || (typeof window !== 'undefined' ? { sw: navigator.serviceWorker, caches: typeof caches !== 'undefined' ? caches : null, ls: window.localStorage, ver: APP_VER, url: 'pos-sw.js', scope: './', base: location.href,
+    shellList: () => posSwShellList(fetch, new URL('pos-shell.json', location.href).href),
+    warm: (extra) => posSwWarmList(location.pathname, [...(performance.getEntriesByType ? performance.getEntriesByType('resource') : []), ...Array.from(document.querySelectorAll('script[src],link[rel="modulepreload"][href],link[rel="stylesheet"][href]')).map(x => x.src || x.href)], location.origin, extra) } : {});
   if (!e.sw || !e.ls) return { on: false, why: 'no-sw' };
   if (on) {
     try { e.ls.setItem(POS_SW_FLAG, '1'); } catch { return { on: false, why: 'no-ls' }; }
     try { const reg = await e.sw.register(e.url + '?v=' + encodeURIComponent(e.ver || ''), { scope: e.scope });
       let tm = 0; const ready = e.sw.ready ? await Promise.race([e.sw.ready, new Promise(r => { tm = setTimeout(() => r(null), e.readyMs || 8000); })]).finally(() => clearTimeout(tm)) : reg;
-      const w = (ready || reg || {}).active; if (w && e.warm) w.postMessage({ type: 'warm', urls: e.warm() });
+      const w = (ready || reg || {}).active; if (w && e.warm) { const extra = e.shellList ? await e.shellList() : []; w.postMessage({ type: 'warm', urls: e.warm(extra) }); }
       return { on: true }; }
     catch (err) { return { on: false, why: String((err && err.message) || err).slice(0, 80) }; }
   }
   let had = false; try { had = !!e.ls.getItem(POS_SW_FLAG); e.ls.removeItem(POS_SW_FLAG); } catch { }
-  let n = 0; try { const regs = await e.sw.getRegistrations(); for (const r of regs) if (posSwIsPos(r)) { await r.unregister(); n++; } } catch { }
+  let n = 0; try { const regs = await e.sw.getRegistrations(); for (const r of regs) if (posSwIsPos(r, e.base)) { await r.unregister(); n++; } } catch { }
   let c = 0; try { if (e.caches) { for (const k of await e.caches.keys()) if (String(k).startsWith(POS_SW_CACHE)) { await e.caches.delete(k); c++; } } } catch { }
   return { on: false, had, unreg: n, cleared: c };
 }
-export { POS_DEVNO_KEY, POS_DEVKEY_KEY, POS_SRV_TAG, posDevRegOn, posDevNoGet, posDevNoSet, posDevSrvTag, posDevKey, posDevTagPick, posDevRegApi, POS_SW_FLAG, POS_SW_CACHE, posShellOn, posSwIsPos, posSwWarmList, posSwSync };
+export { POS_DEVNO_KEY, POS_DEVKEY_KEY, POS_SRV_TAG, posDevRegOn, posDevNoGet, posDevNoSet, posDevSrvTag, posDevKey, posDevTagPick, posDevRegApi, POS_SW_FLAG, POS_SW_CACHE, posShellOn, posSwIsPos, posSwWarmList, posSwSync, posSwUrlOk, POS_SW_WARM_MAX, posShellOff, posSwShellList };
 const POS_SH_KEY = 'mizan:posShiftLocal';
 const POS_SC_KEY = 'mizan:posShiftClose';   // v34.14: ورديات أُغلقت على الجهاز ولم تُرسل بعد (قائمة)
 const pendShiftsGet = () => { try { const v = JSON.parse(localStorage.getItem(POS_SC_KEY) || '[]'); return Array.isArray(v) ? v : (v ? [v] : []); } catch { return []; } };
@@ -9881,25 +9896,32 @@ const posOffRetAudit = (r, branchName) => ({ actionType: 'create', targetType: '
 /** فحص كاشف لسلسلة الفوترة لكل فرع/جهاز: icv متتالٍ وpih = بصمة الحلقة السابقة (الفواتير والمرتجعات وإشعارات الإلغاء). تنبيه لا منع.
     أول حلقة معروفة لا تُفحص (ما قبلها قد يكون مؤرشفًا)، والسجلات القديمة بلا icv خارج الفحص. [{ branchId, dev, kind:'gap'|'dup'|'pih', no, icv, prevIcv, prevNo }] */
 function posChainGaps(orders, branchId) {
-  const G = {};
+  const G = {}, H = {};   // H: بصمة ⇒ حلقة (لكل فرع) — لربط تبديل وسم الجهاز
   (orders || []).forEach(o => { if (!o || (branchId && o.branchId !== branchId)) return;
     [o.dev ? { dev: o.dev, x: o } : null, o.voidNote ? { dev: o.voidNote.dev || o.dev, x: o.voidNote } : null].forEach(e => { if (!e || !e.x.hash || !(Number(e.x.icv) > 0)) return;
-      const k = o.branchId + '|' + e.dev; (G[k] = G[k] || []).push({ branchId: o.branchId, dev: e.dev, no: e.x.no || '', icv: Number(e.x.icv), pih: String(e.x.pih || ''), hash: e.x.hash }); }); });
+      const k = o.branchId + '|' + e.dev, r = { branchId: o.branchId, dev: e.dev, no: e.x.no || '', icv: Number(e.x.icv), pih: String(e.x.pih || ''), hash: e.x.hash, date: String(e.x.date || o.date || '') };
+      (G[k] = G[k] || []).push(r); H[o.branchId + '|' + e.x.hash] = r; }); });
+  /* v56.56 (v56.54 ملاحظة 5): سلسلة الجهاز واحدة على الجهاز مهما تبدّل وسمه (سجل الأجهزة يُفعَّل ثم يُطفأ) — الحلقة التي تشير بصمتها السابقة
+     إلى حلقة الرقم السابق مباشرة بوسم آخر في الفرع نفسه استمرارٌ صحيح لا فجوة (تطابق البصمة دليل؛ لا يُخفى خلل حقيقي) */
+  const linked = (b) => { const p = H[b.branchId + '|' + b.pih]; return !!p && p.dev !== b.dev && p.icv === b.icv - 1; };
   const out = [];
   Object.values(G).forEach(L => { L.sort((a, b) => a.icv - b.icv || String(a.no).localeCompare(String(b.no)));
-    for (let i = 1; i < L.length; i++) { const a = L[i - 1], b = L[i]; const base = { branchId: b.branchId, dev: b.dev, no: b.no, icv: b.icv, prevIcv: a.icv, prevNo: a.no };
+    for (let i = 1; i < L.length; i++) { const a = L[i - 1], b = L[i]; const base = { branchId: b.branchId, dev: b.dev, no: b.no, icv: b.icv, prevIcv: a.icv, prevNo: a.no, date: b.date };
       if (b.icv === a.icv) { out.push({ ...base, kind: 'dup' }); continue; }
+      if (linked(b)) continue;
       if (b.icv !== a.icv + 1) { out.push({ ...base, kind: 'gap' }); continue; }
       if (b.pih !== a.hash) out.push({ ...base, kind: 'pih' }); } });
   return out;
 }
+/** v56.56 (قرار المالك 2026-11-27): فحص فجوات سلسلة الفوترة دائمًا لكل فرع (لا مع العمل دون اتصال فقط) — تنبيه لا منع؛ اختياريًا لفرع ويوم */
+const posChainGapsDay = (orders, branchId, date) => posChainGaps(orders, branchId).filter(g => !date || g.date === date);
 /* المرتجع دون اتصال (قرار المالك): مسموح حتى حد يحدده المدير لكل فرع (org.posCfg.offRetLimit[فرع])، والافتراضي صفر = ممنوع.
    الحد على مجموع مرتجعات الفرع دون اتصال التي لم تُراجَع بعد (لا لكل مرتجع وحده) — يُوسم offline:true ويظهر للمدير «للمراجعة بعد الاتصال». */
 const posOffRetLimit = (org, brId) => { const v = Number(((((org || {}).posCfg || {}).offRetLimit) || {})[brId]); return v > 0 && isFinite(v) ? posR2(v) : 0; };
 const posOffRetPending = (orders, revs, brId) => (orders || []).filter(o => o && o.kind === 'return' && o.offline === true && (!brId || o.branchId === brId) && !(revs || []).some(r => r && r.retId === o.id));
 /* v56.54 (قرار المالك: «اترك خيار لتحديد حد المرتجع»): نوع الحد لكل فرع — offRetMode[فرع]: 'total' (مجموع غير المراجَع، الافتراضي) أو 'each' (لكل مرتجع وحده)؛
    وفترة اختيارية لنوع المجموع offRetPeriod[فرع]: 'none' (الافتراضي) أو 'day' (يوم العمل) أو 'shift' (وردية هذا الجهاز). بلا الإعداد الجديد ⇒ كما في v56.53 حرفيًا.
-   الوردية غير معروفة (مرتجع بلا وردية) ⇒ يُرجَع إلى مجموع كل غير المراجَع (الأشد) — لا يُمنح حد أوسع بلا دليل. */
+   الوردية غير معروفة (مرتجع بلا وردية) ⇒ v56.56 بقرار المالك: حد اليوم (كان في v56.54: مجموع كل غير المراجَع). */
 const POS_ORET_MODES = ['total', 'each'], POS_ORET_PERIODS = ['none', 'day', 'shift'];
 const posOffRetRule = (org, brId) => { const c = (org || {}).posCfg || {}; const m = (c.offRetMode || {})[brId], p = (c.offRetPeriod || {})[brId];
   const mode = POS_ORET_MODES.includes(m) ? m : 'total'; return { lim: posOffRetLimit(org, brId), mode, period: mode === 'total' && POS_ORET_PERIODS.includes(p) ? p : 'none' }; };
@@ -9909,7 +9931,8 @@ function posOffRetCheck(org, orders, revs, brId, amt, ctx) {
   const R = posOffRetRule(org, brId), x = ctx || {};
   if (R.mode === 'each') { if (a > lim + 0.004) return { err: 'يتجاوز حد المرتجع الواحد دون اتصال لهذا الفرع (' + lim.toFixed(2) + ')؛ انتظر عودة الاتصال', lim, used: 0, mode: 'each' };
     return { ok: true, lim, used: 0, left: posR2(lim - a), mode: 'each' }; }
-  const per = R.period === 'day' && x.date ? 'day' : R.period === 'shift' && x.shiftId ? 'shift' : 'none';
+  // v56.56 (قرار المالك): «لكل وردية» بلا وردية مفتوحة ⇒ على مستوى اليوم (كان: كل غير المراجَع)؛ بلا تاريخ ⇒ الأشد كما كان
+  const per = R.period === 'day' && x.date ? 'day' : R.period === 'shift' && x.shiftId ? 'shift' : R.period === 'shift' && x.date ? 'day' : 'none';
   if (R.period !== 'none') {
     const pend = posOffRetPending(orders, revs, brId).filter(o => per === 'day' ? String(o.date || '') === String(x.date) : per === 'shift' ? o.shiftId === x.shiftId : true);
     const used = posR2(pend.reduce((s, o) => s + Math.abs(Number(o.total) || 0), 0)); const PT = { day: ' لهذا اليوم', shift: ' لهذه الوردية', none: '' }[per];
@@ -9929,7 +9952,7 @@ function posOffRetReview(ops, ret, me) {
   if (ret.byId ? ret.byId === me.id : ret.by === me.name) return { err: 'لا يعتمد المرتجع من سجّله — يعتمده مدير آخر' };
   return { rev: { id: uid('orv'), branchId: ret.branchId, retId: ret.id, retNo: ret.no || '', amount: posR2(Math.abs(Number(ret.total) || 0)), by: me.name, byId: me.id || '', at: nowISO() } };
 }
-export { posLockRun, posOnMark, posOnFresh, posOnClear, POS_ON_LS, posRetHashSrc, posOffRetAudit, posChainGaps };
+export { posLockRun, posOnMark, posOnFresh, posOnClear, POS_ON_LS, posRetHashSrc, posOffRetAudit, posChainGaps, posChainGapsDay };
 export { posOffOn, POS_IDB, POS_OB_KINDS, POS_OB_USED, posObKey, posObItem, posObSort, posSyncErr, posSyncDelay, posStoreIdb, posStoreLs, posStoreMem, posStoreOpen, posLegacyQ, posObMigrate, posObRestore, posSyncLog, posSyncLogList, posSyncRun, posOffRetLimit, posOffRetPending, posOffRetCheck, posOffRetReview };
 export { POS_ORET_MODES, POS_ORET_PERIODS, posOffRetRule };   // v56.54
 /* v56.0 (GAP-007): تعليق طلب سفري واستدعاؤه — مسودة على الجهاز لكل فرع (تعمل دون اتصال)، لا رقم فاتورة ولا عدّاد ولا بصمة
@@ -12485,7 +12508,8 @@ const kdsTicket = (x) => ({ id: uid('kt'), branchId: x.branchId, src: x.src, ref
 function posTrim(d, td) {
   const cut2 = anDay(td || today(), -2), cut7 = anDay(td || today(), -7);
   return { ...d, kdsTickets: (d.kdsTickets || []).filter(k => k.status !== 'served' || String(k.at || '').slice(0, 10) >= cut2),
-    posTabs: (d.posTabs || []).filter(t => t.status === 'open' || String(t.closedAt || t.openedAt || '').slice(0, 10) >= cut7),
+    posTabs: (d.posTabs || []).filter(t => t.status === 'open' || String(t.closedAt || t.openedAt || '').slice(0, 10) >= cut7
+      || ((t.conflicts || []).some(c => c && !c.res) && String(t.closedAt || t.openedAt || '').slice(0, 10) >= anDay(td || today(), -60))),   // v56.56: حساب عليه تعارض لم يُحسم يبقى حتى 60 يومًا
     // v49.2: التوصيلات المنتهية والمسوّاة تُقلَّم بعد 60 يومًا (الفاتورة نفسها باقية في posOrders)
     ...(d.posDeliveries ? { posDeliveries: d.posDeliveries.filter(x => !(x.settledAt || x.st === 'fail') || String(x.at || '').slice(0, 10) >= anDay(td || today(), -60)) } : {}) };
 }
@@ -12535,7 +12559,8 @@ function tabRemain(tab) {
   const S = tabSum(tab), paid = (((tab && tab.split) || {}).parts || []).filter(p => p.orderId);
   if (!paid.length) return S;
   const used = {}; paid.forEach(p => (p.lines || []).forEach(l => { used[tabKey(l)] = (used[tabKey(l)] || 0) + (Number(l.qty) || 0); }));
-  const lines = S.lines.map(l => ({ ...l, qty: Math.max(0, l.qty - (used[tabKey(l)] || 0)) })).filter(l => l.qty > 0);
+  // v56.56: أجزاء التقسيم بالتساوي كسرية (بالألف) — التقريب لستة أرقام يمنع بقايا الفاصلة العائمة (الأعداد الصحيحة كما كانت حرفيًا)
+  const lines = S.lines.map(l => ({ ...l, qty: Math.max(0, Math.round((l.qty - (used[tabKey(l)] || 0)) * 1e6) / 1e6) })).filter(l => l.qty > 0);
   return { lines, total: tabHal(lines) / 100, rounds: S.rounds, paidParts: paid.length };
 }
 // توزيع مبلغ (هللات) على أوزان بالتناسب، والفرق على آخر وزن غير صفري
@@ -12607,6 +12632,92 @@ function tabMerge(src, dst, meta = {}) {
     mergeLog: [...(dst.mergeLog || []), { at, by, from: String(src.table), tabId: src.id, total: S.total }] };
   const { split: _s2, ...s0 } = src;
   return { into, from: { ...s0, status: 'merged', mergedInto: dst.id, mergedTo: String(dst.table), closedAt: at, closedBy: by } };
+}
+/* ============================================================
+   v56.56 — قرارات المالك 2026-11-27 على المطعم ونقطة البيع دون اتصال
+   ============================================================ */
+/** (3) تقسيم فاتورة الطاولة بالتساوي إلى n أجزاء (2–20) — خلف مفتاح التقسيم نفسه (posCfg.rest.split).
+    الطاولة تُسعَّر كاملة مرة واحدة (priced من posPriceCart كما في v56.52)، والأجزاء مبالغ: كل جزء ⌊الإجمالي ÷ n⌋ بالهللة والباقي على الأخير؛
+    الضريبة لكل جزء بنسبة مبلغه والباقي على الأخير، فمجموع الأجزاء = إجمالي الفاتورة وضريبتها وصافيها بالهللة تمامًا.
+    كل جزء يحمل أسطر الطاولة بكميات كسرية (بالألف، الباقي على الأخير) فمجموع الكميات = الطاولة تمامًا (المخزون والتقارير بالصنف)،
+    وخصم كل سطر وخصم الفاتورة يُقسَّمان كذلك؛ إجمالي الجزء قبل الخصم = مبلغه + خصومه. الكوبون على الجزء الأول (كما في v56.52).
+    يعيد { parts:[{ id, no, eq:{k,n}, lines, gross, ldisc, orderDisc?, total, vat, net, coupon? }], total, vat, net } أو { err } */
+function tabSplitEqual(tab, n, priced, rate) {
+  const R = tabRemain(tab), N = Math.floor(Number(n) || 0);
+  if (!(N >= 2 && N <= 20) || Number(n) !== N) return { err: 'عدد الأجزاء من 2 إلى 20' };
+  if (!R.lines.length) return { err: 'لا أصناف متبقية للتقسيم' };
+  if (R.lines.some(l => !Number.isInteger(l.qty))) return { err: 'المتبقي من تقسيم سابق بالتساوي — ادفعه كاملًا' };
+  const PL = (priced && priced.lines) || null;
+  if (!PL || PL.length !== R.lines.length || PL.some((l, i) => l.productId !== R.lines[i].productId || Number(l.qty) !== R.lines[i].qty)) return { err: 'تسعير الطاولة لا يطابق أسطر الحساب — أعد المحاولة' };
+  const T = posTotals(PL, Number(priced.orderDisc) || 0, rate);
+  const W = toHal(T.total), V = toHal(T.vat), OD = toHal(priced.orderDisc);
+  if (!(W > 0)) return { err: 'لا مبلغ للتقسيم' };
+  const eqH = (H) => { const a = Math.floor(H / N); return Array.from({ length: N }, (_, k) => k === N - 1 ? H - a * (N - 1) : a); };   // بالتساوي والباقي على الأخير
+  const A = eqH(W), VA = A.map((a, k) => k === N - 1 ? 0 : Math.round(V * a / W)); VA[N - 1] = V - VA.reduce((x, y) => x + y, 0);
+  const ODk = eqH(OD), LQ = PL.map(l => eqH(Math.round((Number(l.qty) || 0) * 1000))), LD = PL.map(l => eqH(toHal(l.disc)));
+  if (VA.some(v => v < 0)) return { err: 'تعذّر توزيع الضريبة — قلّل عدد الأجزاء' };
+  const off = (((tab && tab.split) || {}).parts || []).filter(p => p.orderId).length;
+  const parts = A.map((a, k) => { const lines = PL.map((l, i) => ({ productId: l.productId, name: l.name, price: Number(l.price) || 0, qty: LQ[i][k] / 1000, ...(l.note ? { note: l.note } : {}),
+      ...(LD[i][k] ? { disc: LD[i][k] / 100, ...(l.promoId ? { promoId: l.promoId, promoName: l.promoName } : {}) } : {}) })).filter(l => l.qty > 0);
+    const ld = PL.reduce((x, l, i) => x + LD[i][k], 0);
+    return { id: uid('sp'), no: off + k + 1, eq: { k: k + 1, n: N }, lines, gross: (a + ld + ODk[k]) / 100, ldisc: ld / 100, ...(ODk[k] ? { orderDisc: ODk[k] / 100, ...(priced.orderPromo ? { orderPromo: priced.orderPromo } : {}) } : {}),
+      total: a / 100, vat: VA[k] / 100, net: (a - VA[k]) / 100, ...(k === 0 && priced.coupon ? { coupon: priced.coupon } : {}) }; });
+  if (parts.some(p => !p.lines.length)) return { err: 'عدد الأجزاء أكبر من أن تُقسَّم عليه الأصناف — قلّل العدد' };
+  const sum = (f) => parts.reduce((x, p) => x + toHal(p[f]), 0);
+  if (sum('total') !== W || sum('vat') !== V || sum('net') !== W - V || sum('gross') !== toHal(T.gross)) return { err: 'مجموع الأجزاء لا يطابق إجمالي الحساب' };
+  return { parts, total: W / 100, vat: V / 100, net: (W - V) / 100 };
+}
+/** إجماليات جزء التقسيم بالتساوي المجمّدة (بديل posTotals لشاشة الدفع) — null لغيره */
+const tabPartTotals = (pt) => pt && pt.eq ? { gross: Number(pt.gross) || 0, ldisc: Number(pt.ldisc) || 0, disc: posR2((Number(pt.ldisc) || 0) + (Number(pt.orderDisc) || 0)), total: Number(pt.total) || 0, vat: Number(pt.vat) || 0, net: Number(pt.net) || 0 } : null;
+/** دفع حساب الطاولة كاملًا: كما كان (يُغلق الحساب)، ومع العمل دون اتصال: إن لم يعد الحساب مفتوحًا (دُفع من جهاز آخر) تُسجَّل الفاتورة «تعارضًا» ولا يُستبدل ختمه */
+function tabPayWhole(tab, o, by, off) {
+  if (off && tab && tab.status !== 'open') return { err: 'الحساب لم يعد مفتوحًا (دُفع أو أُغلق من جهاز آخر)', tab: { ...tab, conflicts: [...(tab.conflicts || []), { orderId: o.id, orderNo: o.no, at: o.at, total: o.total, partId: '', why: 'الحساب لم يعد مفتوحًا (دُفع أو أُغلق من جهاز آخر)' }] } };
+  return { tab: { ...tab, status: 'paid', orderId: o.id, orderNo: o.no, closedAt: o.at, closedBy: by || '' } };
+}
+/** (4) تعارضات الفواتير بعد عودة الاتصال (فاتورة صدرت لحساب طاولة لم تُختم عليه — الجهاز الآخر دفعه، أو أُعيد التقسيم، أو أُغلق):
+    من حسابات الطاولات (tab.conflicts) لفرع، واختياريًا ليوم الفاتورة. [{ tabId, table, orderId, orderNo, total, why, at, date, by, byId, res }] */
+function posConflicts(ops, brId, date) {
+  const O = new Map((((ops || {}).posOrders) || []).map(o => [o.id, o])), out = [];
+  ((((ops || {}).posTabs) || [])).forEach(t => { if (!t || (brId && t.branchId !== brId)) return;
+    (t.conflicts || []).forEach(c => { if (!c || !c.orderId) return; const o = O.get(c.orderId) || null; const d = String((o && o.date) || c.at || '').slice(0, 10);
+      if (date && d !== date) return;
+      out.push({ tabId: t.id, table: String(t.table || ''), branchId: t.branchId, orderId: c.orderId, orderNo: c.orderNo || (o && o.no) || '', total: Number(c.total) || 0, why: c.why || '', at: c.at || '', date: d,
+        by: (o && o.by) || '', byId: (o && o.byId) || '', status: o ? o.status : '', res: c.res || null }); }); });
+  return out;
+}
+const POS_CONFLICT_ROLES = ['branch_manager', 'system_admin'];
+/** حسم تعارض: مدير الفرع (أو مسؤول النظام) وحده، ولا يحسمه من أصدر الفاتورة (بالمعرّف إن وُجد وإلا بالاسم)، ومرة واحدة.
+    'keep' = إبقاء الفاتورتين صحيحتين؛ 'void' = إلغاء بمستند مرتجع — يُشترط أن تكون الفاتورة أُلغيت بإشعار دائن أو أُرجعت كاملة بمرتجع (لا حذف أبدًا).
+    يعيد { res } أو { err } */
+function posConflictResolve(ops, tabId, orderId, act, me) {
+  const M = me || {}; if (!POS_CONFLICT_ROLES.includes(M.role)) return { err: 'حسم التعارض لمدير الفرع' };
+  if (act !== 'keep' && act !== 'void') return { err: 'اختر «إبقاء» أو «إلغاء بمرتجع»' };
+  const t = (((ops || {}).posTabs) || []).find(x => x && x.id === tabId); const c = t && (t.conflicts || []).find(x => x && x.orderId === orderId);
+  if (!c) return { err: 'التعارض غير موجود' }; if (c.res) return { err: 'حُسم هذا التعارض سابقًا' };
+  const o = (((ops || {}).posOrders) || []).find(x => x && x.id === orderId);
+  if (!o) return { err: 'الفاتورة لم تصل للسحابة بعد' };
+  if (o.byId ? o.byId === M.id : (o.by && o.by === M.name)) return { err: 'لا يحسم التعارض من أصدر الفاتورة — يحسمه مدير آخر' };
+  let doc = '';
+  if (act === 'void') {
+    const rets = (ops.posOrders || []).filter(r => r && r.kind === 'return' && r.refId === o.id && r.status !== 'void');
+    if (o.status === 'void' && o.voidNote) doc = o.voidNote.no || '';
+    else if (rets.length && posReturnable(ops, o).every(q => !(q > 0))) doc = rets.map(r => r.no).join('، ');
+    else return { err: 'أصدر أولًا مرتجعًا كاملًا للفاتورة ' + (o.no || '') + ' (أو ألغِها بإشعار دائن) ثم اختر «إلغاء بمرتجع» — لا تُحذف الفاتورة' };
+  }
+  return { res: { act, by: M.name || '', byId: M.id || '', at: nowISO(), ...(doc ? { doc } : {}) } };
+}
+/** تسجيل الحسم على الحساب (على أحدث نسخة؛ المحسوم لا يُستبدل) */
+const tabConflictSet = (tab, orderId, res) => !tab ? tab : { ...tab, conflicts: (tab.conflicts || []).map(c => c && c.orderId === orderId && !c.res ? { ...c, res } : c) };
+/** مانع الإغلاق اليومي (مع العمل دون اتصال فقط): تعارضات يوم الإغلاق لم يحسمها مدير الفرع */
+const posConflictBlock = (org, ops, brId, date) => posOffOn(org) ? posConflicts(ops, brId, date).filter(c => !c.res) : [];
+/** (5) إلغاء الجزء الذي يحمل الكوبون: بعد تحرير استخدام الكوبون (cpnRelease) ينتقل الكوبون إلى أول جزء غير مدفوع من التقسيم نفسه
+    (فيُستهلك عند دفعه بحجز ذرّي جديد)؛ لا جزء غير مدفوع ⇒ يبقى محرّرًا صالحًا للاستخدام. مكرر التنفيذ لا يغيّر شيئًا. يعيد { tab, to } */
+function tabCouponMove(tab, orderId, at) {
+  const sp = (tab && tab.split) || null; if (!sp || tab.status !== 'open') return { tab, to: '' };
+  const src = (sp.parts || []).find(p => p.orderId === orderId && p.coupon); if (!src) return { tab, to: '' };
+  if ((sp.parts || []).some(p => p !== src && p.coupon && !p.orderId)) return { tab, to: '' };
+  const dst = (sp.parts || []).filter(p => !p.orderId).sort((a, b) => (a.no || 0) - (b.no || 0))[0]; if (!dst) return { tab, to: '' };
+  return { to: dst.id, tab: { ...tab, split: { ...sp, parts: sp.parts.map(p => p.id === src.id ? (({ coupon: _c, ...y }) => ({ ...y, cpMoved: { to: dst.id, at: at || nowISO() } }))(p) : p.id === dst.id ? { ...p, coupon: src.coupon } : p) } } };
 }
 /* محطات المطبخ: المنتج المربوط بمحطة أولًا، ثم تصنيفه؛ غير المربوط ⇒ «عام» */
 function kdsStations(org, brId) {
@@ -17135,7 +17246,7 @@ export { mktUnmergeBlock, splitOps, composeOps, outOfScopeRecords, MKT_RW_KEY, r
 export { moveIdx, RowGrip, RECUR_AR, recurNext, recurDue };
 export { peekDoc, DocLink, DocPeekHost, VoiceSearchHost, voiceNorm };
 export { fefoPick, lotsFor, projList, projectPL, projNextCode };
-export { finPicture, fxRevalOn, fxRevalRows, CLOSE_TASKS_DEF, closeListOn, closeAutoChecks, closeManualState, closeLockBlock, equityStatement, EQS_ROWS, posGlOpen, posGlAt, posGlRanges, posGlFrom, posGlPv, posGlOn, posGlDay, posGlLines, posGlCheck, lvReturnPlan, lvTrack, leaveSignDoc, appOfTab, appTaskBadges, homeKpis, isLateWork, HUB_BASE, hubTabs, HR_TABS, refsApi, docxPages, textPages, xlsxPages, cfoDash, REC_PRI, REC_DEPT, finRecs, recRealized, CTL_SEV, CTL_ST, CTL_OPEN, CTL_CAT, CTL_FLOW, ctlScan, caseSync, caseMove, FA_RATIOS, faSnap, faQuality, finAnalyze, MCP_KINDS, mcpPlanJournal, mcpPlanReclass, mcpApplyReclass, mcpPlanExp, MCP_XI_HEAD, mcpApi, invPayments, INV_CLS, XI_CLS, accClsOf, invCls, PJ_PRE, IMP_PRE, pjNumber, pjStamp, pjBackfill, pjMissing, XI_KW, XI_AR, XI_TEMPLATE, xiDetect, xiPlan, xiRecords, xiNum, CAT_FOR, catListOf, catsFor, catOf, recDomains, DOMAIN_DEF, domCfgOf, domOk, domFilter, userBrIds, DomainChips, usersApi, closingImgs, closingArchiveOne, closingStripImgs, posKey, posYmOf, posSplitOn, posSplitDoc, posJoin, brRead, brWrite, posSplitBranch, posUnsplitBranch, LOY_AUDIT_WHY, loyAudit, AI_GROWTH_PRESETS, growthDigest, aiGrowthClean, aiGrowthAsk, COMMS_PROVIDERS, COMMS_CH, COMMS_VARS, COMMS_DEF, commsCfgOf, commsRender, smsParts, commsQuiet, commsTplErr, BRR_CH, brReport, dtLocal, REC_DEF, recCfgOf, recIndex, recFor, recStats, CAMP_ST, campNextNo, campStatusOf, campStats, campSpend, AUTO_DEFAULTS, autoCfgOf, payrollAccrualApply, poSuggestions, autoAlerts, prevMonthOf, SecPager, recurApply, EDIT_KINDS, editPermOf, canEditRec, BrandSymbol, BrandLockup, ACCT_GROUPS, MYWORK_CATS, myWorkGroups, MyWork, rptShell, RPT_TEMPLATES, rptFmt, rptFlat, rptTotals, rptHtml, printReport, rptXlsxRows, makeRptXlsx, rptCsv, rptDownload, DEP_METHODS, depMethod, deprSchedule, glLedger, acctActivity, COST_METHODS, costMethod, stockCostingAvg, stockCostingFifo, costCompare, itemBin, binSort, binOrder, pmPeriod, profitMatrix, RFQ_ST, rfqNextNo, rfqCompare, rfqToPOs, DLV_ST, DLV_NEXT, posDrivers, dlvNeeded, dlvRecord, dlvMove, dlvSummary, posAreas, tableArea, areasErr, salesByArea, computeSmartAlerts, stockShortages, CV_KIND, cvNextNo, partyOpenDocs, applyCashVoucher, cashVoucherHtml, VCH_T, VCH_TRF, vchTypeOf, assignVouchers, voucherList, voucherHtml, saleDeductFrom, saleDeductOn, saleUse, saleRecipeItems, saleDayUse, syncSaleMoves, itemLedger, UOM_LIST, UOM_GROUPS, uomOf, uomConv, uomOk, uomNeeded, lineUnits, lineFac, UomSelect, Notifications, closeAlertsCfg, closeAlertEvents, closeAlertFor, shiftSumText, waShare, CLOSE_ALERT_ROLES, posDocView, printScreen, cutoutPixels, productThumb, prepWasteStats, normDigits, normScan, posPaper, posPaperDev, setPosPaperDev, prepShelfH, prepBatchState, PREP_ST, canBrPurchase, brSigCheck, BR_PURCHASERS, poWhOf, syncPoInbox, INV_BILLERS, ITEM_NEW_TYPES, itemsSeq, nextItemCode, vatNoOk, supVatOf, ItemPick, A4_CSS, posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim, restCfg, coversOf, posWaiters, coversEff, salesByWaiter, tabRemain, tabSplitItems, tabSplitSet, tabPartPriced, tabSplitReset, tabPayPart, tabMerge, kdsStations, kdsStationOf, kdsStationsErr, kdsSplit, kdsPrepReport, kdsPrepSheets, prepItemId, prepItemOf, prodNeeds, prodCheck, prodMoves, clrMerge, clrRead, clrViewStats, ppvReport, invTurnover, dirOf, isMzbk, mzbkDecrypt, clrData, clrRecord, clrSigRef, clrDiff, clrCompare, clrOn, clrState, clrMirror, clrLoad, clrSeed, fjData, fjStatus, fjRecord, fjDiff, fjCompare, fjOn, fjState, fjMirror, fjLoad, fpLockedTo, fpOn, fpLoad, fmLoad, fmSet, fjSeed, fjLegacyRecord, dedupeSameId, findRecentDups, negStockChanges, negStockMsg, FD_KINDS, fdDate, fdData, fdProg, fdPaid, fdRecord, fdDiff, fdCompare, fdLoad, fdSeed, OdooBar, ACCT_SECTIONS, ACCT_SEC_AR, ACC_KIND, ALL_TABS, APPS, AdvanceForm, AppPermsPanel, AppsStrip, BR_COLS, Badge, BalCell, BlindCount, BranchForm, COUNT_FREQ, COUNT_ST, CameraModal, CategoriesPanel, ClosingView, CloudHealth, CountScheduleCard, DAYS_AR, DENOMS, DOC_LABEL, DOC_TYPES, DailyBranchReport, DeliveryAppsPanel, DisbursementForm, DupInvHint, EXP_CATS, FILE_CATS, Field, FinancialReports, GROWTH_MONTHS, HR_WEEK_DAYS, HrSignPad, ITEM_TYPES, Kpi, LAUNCH_APPS, LEAVE_TYPES, LOCK_MSG, MAIN_WH, MFA_DEFAULT_ROLES, MOVE_KINDS, MZ_FIXED, MZ_KIND_AR, MZ_LOGO_HTML, MZ_SUGGEST, MfaPolicyCard, MizanMerge, Modal, MoneyField, NUM_FACE, NUM_LOCALE, NationalAddressFields, Num, OutputDialog, PAY_ADD_TYPES, PAY_GUESS, PEN_TYPES, POS_DEV_KEY, POS_SH_KEY, PROMO_IDEAS, PROMO_T, PT_SRC, PT_TYPE, PartnerChip, PdfTile, PhotoField, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, PriceAlerts, QR_ITEMS, QR_STATUS, QUOTA_MSG, QrBranchesView, QrComplaints, QrDashboard, RB_KIND_AR, RB_PM_AR, RB_SOURCES, REG_APPS, REG_CATS, REG_IX, ROLES, SC_KPIS, SIGN_DOC_AR, SIG_H, SIG_W, SectionNav, SigView, SignDocsModal, SignaturePad, SystemPanel, TAB_AR, TRAIN_STATUS_AR, UsageVariance, UserForm, WASTE_REASONS, WH_KIND, WH_MOVE, WH_ST, WarehousesPanel, WasteControl, WasteFields, WastePending, WhLines, _normName, _xe, aCountDone, aItemsOf, acctSecKey, activePriorCorrectives, activeTrainingRecord, aiHeaders, appCanSee, appOpenNow, appUseGet, appUseSet, arDT, arDate, arTime, bankOfBranch, bioEnroll, bookHidden, branchBanks, branchEntityId, browserName, bsLayout, bsRowsOf, buildAccounting, buildClosingA4, buildPartners, buildPayslipSignDocs, businessDay, canApproveCount, canApproveWaste, capOK, chartTone, closingInvoices, clr, compressImage, computeIncome, contactFields, contactOf, correctiveExpiry, correctiveSignDoc, countCfgOf, countDenoms, countFocus, countSchedule, countedClosing, customerAging, daysBetween, defaultHrPolicies, defaultPenaltySchedule, defaultPointsRules, defaultRewardTiers, defaultRoleKpis, defaultTrainingPrograms, deficitCfg, deficitPatterns, detectStmtMap, deviceType, emptyDenoms, entityById, entityList, eosAccrualLines, eosCumAt, eosState, eosYears, escH, expiringTraining, expiryLots, exportExcel, fineSuggest, fmtBalP, fmtNA, frozenSnapshotFor, gosiRatesFor, haversineMeters, hrAttendanceDetail, hrEmpStats, hrQrWindowCode, hrScoreFor, isCostCtl, isLayout, isPdfData, isRowsOf, isStocked, isoD, itemAvgCosts, itemType, kpiAchievement, leaveBalance, leaveDeductPlan, lockedThru, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, makeXlsx, missingRequiredTraining, mizanPlan, money, moneyP, monthEnd, monthLabel, monthLedger, multiEntityOn, mzNewCode, mzR2, naClean, naErr, naHas, naMissing, newBranchDraft, nextPartnerCode, nextWhAcc, normPhone, normalizeSupPays, nowISO, onLeave, openDocWin, openPdfData, otFromAttendance, otRateOf, overdueSignDocs, pFactor, parseCsvGrid, parseMt940, parseXlsxGrid, partGross, partYield, payCashPart, payLabel, paySplits, payTotal, payrollRowsOf, penTypeAr, pendShiftsGet, pendShiftsSet, periodLocked, piAggregate, piDetect, piNorm, pipTriggered, posCashNet, posClrOf, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posShiftHtml, posTotals, posZHtml, positionJdHtml, printA4, printClosingA4, printIncomeA4, printPartnerStatement, printReceipt, printSalesInvoice, programRequiredFor, promoActive, promoDesc, promoHits, purKey, pwStrength, q3, qrAnalyzeComments, qrAvg, qrBranchStats, qrDate, qrF1, qrFs, qrIsComplaint, qrMs, qrOverall, qrOverdue, qrPrintReport, qrRateUrl, qrSentBadge, qrStatusOf, qrSvg, rewardSignDoc, roleEdit, roleHasTab, roleKpisFor, rolePost, salesDaySource, sha, sha256Hex, short, siCredited, siRem, siSorted, siStamp, siVerify, sigBlockHtml, sigPoints, sigSvg, signDeclaration, signDocHtml, simplifySig, slimBranchDoc, snapAll, snapMonths, snapPut, stAddDays, stDate, stNum, stockByWh, submitWaste, suggestNextLevel, sum, supplierAging, supplierPrices, today, trainingExpiryOf, trainingStatusNow, uid, usageReport, useSecNav, verifyBackup, waNum, wasteCfg, wasteDaily, wasteReasonAr, wasteRows, webauthnSupported, whForBranch, whName, whOf, whOn, zatcaTLV };
+export { finPicture, fxRevalOn, fxRevalRows, CLOSE_TASKS_DEF, closeListOn, closeAutoChecks, closeManualState, closeLockBlock, equityStatement, EQS_ROWS, posGlOpen, posGlAt, posGlRanges, posGlFrom, posGlPv, posGlOn, posGlDay, posGlLines, posGlCheck, lvReturnPlan, lvTrack, leaveSignDoc, appOfTab, appTaskBadges, homeKpis, isLateWork, HUB_BASE, hubTabs, HR_TABS, refsApi, docxPages, textPages, xlsxPages, cfoDash, REC_PRI, REC_DEPT, finRecs, recRealized, CTL_SEV, CTL_ST, CTL_OPEN, CTL_CAT, CTL_FLOW, ctlScan, caseSync, caseMove, FA_RATIOS, faSnap, faQuality, finAnalyze, MCP_KINDS, mcpPlanJournal, mcpPlanReclass, mcpApplyReclass, mcpPlanExp, MCP_XI_HEAD, mcpApi, invPayments, INV_CLS, XI_CLS, accClsOf, invCls, PJ_PRE, IMP_PRE, pjNumber, pjStamp, pjBackfill, pjMissing, XI_KW, XI_AR, XI_TEMPLATE, xiDetect, xiPlan, xiRecords, xiNum, CAT_FOR, catListOf, catsFor, catOf, recDomains, DOMAIN_DEF, domCfgOf, domOk, domFilter, userBrIds, DomainChips, usersApi, closingImgs, closingArchiveOne, closingStripImgs, posKey, posYmOf, posSplitOn, posSplitDoc, posJoin, brRead, brWrite, posSplitBranch, posUnsplitBranch, LOY_AUDIT_WHY, loyAudit, AI_GROWTH_PRESETS, growthDigest, aiGrowthClean, aiGrowthAsk, COMMS_PROVIDERS, COMMS_CH, COMMS_VARS, COMMS_DEF, commsCfgOf, commsRender, smsParts, commsQuiet, commsTplErr, BRR_CH, brReport, dtLocal, REC_DEF, recCfgOf, recIndex, recFor, recStats, CAMP_ST, campNextNo, campStatusOf, campStats, campSpend, AUTO_DEFAULTS, autoCfgOf, payrollAccrualApply, poSuggestions, autoAlerts, prevMonthOf, SecPager, recurApply, EDIT_KINDS, editPermOf, canEditRec, BrandSymbol, BrandLockup, ACCT_GROUPS, MYWORK_CATS, myWorkGroups, MyWork, rptShell, RPT_TEMPLATES, rptFmt, rptFlat, rptTotals, rptHtml, printReport, rptXlsxRows, makeRptXlsx, rptCsv, rptDownload, DEP_METHODS, depMethod, deprSchedule, glLedger, acctActivity, COST_METHODS, costMethod, stockCostingAvg, stockCostingFifo, costCompare, itemBin, binSort, binOrder, pmPeriod, profitMatrix, RFQ_ST, rfqNextNo, rfqCompare, rfqToPOs, DLV_ST, DLV_NEXT, posDrivers, dlvNeeded, dlvRecord, dlvMove, dlvSummary, posAreas, tableArea, areasErr, salesByArea, computeSmartAlerts, stockShortages, CV_KIND, cvNextNo, partyOpenDocs, applyCashVoucher, cashVoucherHtml, VCH_T, VCH_TRF, vchTypeOf, assignVouchers, voucherList, voucherHtml, saleDeductFrom, saleDeductOn, saleUse, saleRecipeItems, saleDayUse, syncSaleMoves, itemLedger, UOM_LIST, UOM_GROUPS, uomOf, uomConv, uomOk, uomNeeded, lineUnits, lineFac, UomSelect, Notifications, closeAlertsCfg, closeAlertEvents, closeAlertFor, shiftSumText, waShare, CLOSE_ALERT_ROLES, posDocView, printScreen, cutoutPixels, productThumb, prepWasteStats, normDigits, normScan, posPaper, posPaperDev, setPosPaperDev, prepShelfH, prepBatchState, PREP_ST, canBrPurchase, brSigCheck, BR_PURCHASERS, poWhOf, syncPoInbox, INV_BILLERS, ITEM_NEW_TYPES, itemsSeq, nextItemCode, vatNoOk, supVatOf, ItemPick, A4_CSS, posTables, kdsOn, openTab, tabSum, tableStates, KDS_NEXT, KDS_ST, kdsLive, kdsTicket, posTrim, restCfg, coversOf, posWaiters, coversEff, salesByWaiter, tabRemain, tabSplitItems, tabSplitSet, tabPartPriced, tabSplitReset, tabPayPart, tabMerge, tabSplitEqual, tabPartTotals, tabPayWhole, posConflicts, POS_CONFLICT_ROLES, posConflictResolve, tabConflictSet, posConflictBlock, tabCouponMove, kdsStations, kdsStationOf, kdsStationsErr, kdsSplit, kdsPrepReport, kdsPrepSheets, prepItemId, prepItemOf, prodNeeds, prodCheck, prodMoves, clrMerge, clrRead, clrViewStats, ppvReport, invTurnover, dirOf, isMzbk, mzbkDecrypt, clrData, clrRecord, clrSigRef, clrDiff, clrCompare, clrOn, clrState, clrMirror, clrLoad, clrSeed, fjData, fjStatus, fjRecord, fjDiff, fjCompare, fjOn, fjState, fjMirror, fjLoad, fpLockedTo, fpOn, fpLoad, fmLoad, fmSet, fjSeed, fjLegacyRecord, dedupeSameId, findRecentDups, negStockChanges, negStockMsg, FD_KINDS, fdDate, fdData, fdProg, fdPaid, fdRecord, fdDiff, fdCompare, fdLoad, fdSeed, OdooBar, ACCT_SECTIONS, ACCT_SEC_AR, ACC_KIND, ALL_TABS, APPS, AdvanceForm, AppPermsPanel, AppsStrip, BR_COLS, Badge, BalCell, BlindCount, BranchForm, COUNT_FREQ, COUNT_ST, CameraModal, CategoriesPanel, ClosingView, CloudHealth, CountScheduleCard, DAYS_AR, DENOMS, DOC_LABEL, DOC_TYPES, DailyBranchReport, DeliveryAppsPanel, DisbursementForm, DupInvHint, EXP_CATS, FILE_CATS, Field, FinancialReports, GROWTH_MONTHS, HR_WEEK_DAYS, HrSignPad, ITEM_TYPES, Kpi, LAUNCH_APPS, LEAVE_TYPES, LOCK_MSG, MAIN_WH, MFA_DEFAULT_ROLES, MOVE_KINDS, MZ_FIXED, MZ_KIND_AR, MZ_LOGO_HTML, MZ_SUGGEST, MfaPolicyCard, MizanMerge, Modal, MoneyField, NUM_FACE, NUM_LOCALE, NationalAddressFields, Num, OutputDialog, PAY_ADD_TYPES, PAY_GUESS, PEN_TYPES, POS_DEV_KEY, POS_SH_KEY, PROMO_IDEAS, PROMO_T, PT_SRC, PT_TYPE, PartnerChip, PdfTile, PhotoField, PosLoyalty, PosPromos, PosQuickProducts, PosSettings, PosShifts, PriceAlerts, QR_ITEMS, QR_STATUS, QUOTA_MSG, QrBranchesView, QrComplaints, QrDashboard, RB_KIND_AR, RB_PM_AR, RB_SOURCES, REG_APPS, REG_CATS, REG_IX, ROLES, SC_KPIS, SIGN_DOC_AR, SIG_H, SIG_W, SectionNav, SigView, SignDocsModal, SignaturePad, SystemPanel, TAB_AR, TRAIN_STATUS_AR, UsageVariance, UserForm, WASTE_REASONS, WH_KIND, WH_MOVE, WH_ST, WarehousesPanel, WasteControl, WasteFields, WastePending, WhLines, _normName, _xe, aCountDone, aItemsOf, acctSecKey, activePriorCorrectives, activeTrainingRecord, aiHeaders, appCanSee, appOpenNow, appUseGet, appUseSet, arDT, arDate, arTime, bankOfBranch, bioEnroll, bookHidden, branchBanks, branchEntityId, browserName, bsLayout, bsRowsOf, buildAccounting, buildClosingA4, buildPartners, buildPayslipSignDocs, businessDay, canApproveCount, canApproveWaste, capOK, chartTone, closingInvoices, clr, compressImage, computeIncome, contactFields, contactOf, correctiveExpiry, correctiveSignDoc, countCfgOf, countDenoms, countFocus, countSchedule, countedClosing, customerAging, daysBetween, defaultHrPolicies, defaultPenaltySchedule, defaultPointsRules, defaultRewardTiers, defaultRoleKpis, defaultTrainingPrograms, deficitCfg, deficitPatterns, detectStmtMap, deviceType, emptyDenoms, entityById, entityList, eosAccrualLines, eosCumAt, eosState, eosYears, escH, expiringTraining, expiryLots, exportExcel, fineSuggest, fmtBalP, fmtNA, frozenSnapshotFor, gosiRatesFor, haversineMeters, hrAttendanceDetail, hrEmpStats, hrQrWindowCode, hrScoreFor, isCostCtl, isLayout, isPdfData, isRowsOf, isStocked, isoD, itemAvgCosts, itemType, kpiAchievement, leaveBalance, leaveDeductPlan, lockedThru, loyBal, loyEarn, loyPost, loyQ, loyQSet, loyRedeemMax, lvAccrualLines, lvAddD, lvCfg, lvDaily, lvDays, lvRequired, lvState, makeXlsx, missingRequiredTraining, mizanPlan, money, moneyP, monthEnd, monthLabel, monthLedger, multiEntityOn, mzNewCode, mzR2, naClean, naErr, naHas, naMissing, newBranchDraft, nextPartnerCode, nextWhAcc, normPhone, normalizeSupPays, nowISO, onLeave, openDocWin, openPdfData, otFromAttendance, otRateOf, overdueSignDocs, pFactor, parseCsvGrid, parseMt940, parseXlsxGrid, partGross, partYield, payCashPart, payLabel, paySplits, payTotal, payrollRowsOf, penTypeAr, pendShiftsGet, pendShiftsSet, periodLocked, piAggregate, piDetect, piNorm, pipTriggered, posCashNet, posClrOf, posDaySummary, posDev, posOrdersStats, posPriceCart, posPrint, posQueue, posQueueSet, posR2, posReceiptHtml, posShiftHtml, posTotals, posZHtml, positionJdHtml, printA4, printClosingA4, printIncomeA4, printPartnerStatement, printReceipt, printSalesInvoice, programRequiredFor, promoActive, promoDesc, promoHits, purKey, pwStrength, q3, qrAnalyzeComments, qrAvg, qrBranchStats, qrDate, qrF1, qrFs, qrIsComplaint, qrMs, qrOverall, qrOverdue, qrPrintReport, qrRateUrl, qrSentBadge, qrStatusOf, qrSvg, rewardSignDoc, roleEdit, roleHasTab, roleKpisFor, rolePost, salesDaySource, sha, sha256Hex, short, siCredited, siRem, siSorted, siStamp, siVerify, sigBlockHtml, sigPoints, sigSvg, signDeclaration, signDocHtml, simplifySig, slimBranchDoc, snapAll, snapMonths, snapPut, stAddDays, stDate, stNum, stockByWh, submitWaste, suggestNextLevel, sum, supplierAging, supplierPrices, today, trainingExpiryOf, trainingStatusNow, uid, usageReport, useSecNav, verifyBackup, waNum, wasteCfg, wasteDaily, wasteReasonAr, wasteRows, webauthnSupported, whForBranch, whName, whOf, whOn, zatcaTLV };
 export { ClosingForm };
 // v38.3 — للاختبارات الآلية (tests/): دوال المحرك والشاشات تُستورد من النواة مباشرة
 export { stockCosting, eosEntitledAmt, eosFullAmt, findDupInvoices, invNoNorm, promoLineDisc, tafqeet, MktGrowth, Hub, Launcher, PosApp, Inventory, Partners, SalesHub, QrFeedback, AppsCenter, BranchWarehouse, Admin, AuditView, Accounting, emptyOrg, emptyOps, HUBS };

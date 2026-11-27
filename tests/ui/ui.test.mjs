@@ -4772,17 +4772,18 @@ test('v56.54 سجل الأجهزة: بلا تفعيل لا طلب للخادم �
 
 test('v56.54 فتح التطبيق دون إنترنت: بلا تفعيل لا عامل خدمة؛ مع التفعيل يُسجَّل pos-sw وتُفتح الصفحة دون شبكة من المخزّن؛ والإيقاف يلغيه ويمسح كاشه', async () => {
   fs.copyFileSync(path.join(cache, 'ui', 'pos-sw.js'), path.join(cache, 'ui', 'tests', 'ui', 'pos-sw.js'));   // النطاق نسبي لمسار الصفحة (كما في الإنتاج: الجذر)
+  const V = /const APP_VER = '(v[\d.]+)'/.exec(fs.readFileSync(new URL('../../App.jsx', import.meta.url), 'utf8'))[1];   // v56.56: اسم الكاش ورابط العامل يتبعان رقم الإصدار (لا تعديل يدوي لكل إصدار)
   const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/PosApp/bm');
   const regs = () => p.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).map(r => (r.active || r.waiting || r.installing || {}).scriptURL || ''));
   const ck = () => p.evaluate(async () => (await caches.keys()).filter(k => k.startsWith('muktasab-pos-shell-')));
   await p.evaluate(() => window.setOrg(g => ({ ...g, posCfg: { branches: ['b1'], autoPrint: false, offline: true } }))); await p.waitForTimeout(500);
   assert.deepEqual(await regs(), [], 'العمل دون اتصال وحده لا يسجّل عامل خدمة'); assert.equal(await p.evaluate(() => localStorage.getItem('mizan:posSwOn')), null);
   await p.evaluate(() => window.setOrg(g => ({ ...g, posCfg: { ...g.posCfg, offShell: true } })));
-  const until = async (fn, ms = 15000) => { const t0 = Date.now(); for (;;) { if (await p.evaluate(fn)) return true; if (Date.now() - t0 > ms) return false; await p.waitForTimeout(200); } };   // (شرط غير متزامن — waitForFunction يعدّ الوعد صحيحًا)
-  assert.ok(await until(async () => (await navigator.serviceWorker.getRegistrations()).some(r => r.active && /pos-sw\.js\?v=v56\.55$/.test(r.active.scriptURL))), 'سُجّل pos-sw');
+  const until = async (fn, arg, ms = 15000) => { const t0 = Date.now(); for (;;) { if (await p.evaluate(fn, arg)) return true; if (Date.now() - t0 > ms) return false; await p.waitForTimeout(200); } };   // (شرط غير متزامن — waitForFunction يعدّ الوعد صحيحًا)
+  assert.ok(await until(async (v) => (await navigator.serviceWorker.getRegistrations()).some(r => r.active && r.active.scriptURL.endsWith('pos-sw.js?v=' + v)), V), 'سُجّل pos-sw');
   assert.equal(await p.evaluate(() => localStorage.getItem('mizan:posSwOn')), '1');
-  assert.ok(await until(async () => { const k = (await caches.keys()).find(x => x === 'muktasab-pos-shell-v56.55'); if (!k) return false; const c = await caches.open(k); return (await c.keys()).length >= 3; }), 'التسخين');
-  const cached = await p.evaluate(async () => (await (await caches.open('muktasab-pos-shell-v56.55')).keys()).map(r => new URL(r.url).pathname));
+  assert.ok(await until(async (v) => { const k = (await caches.keys()).find(x => x === 'muktasab-pos-shell-' + v); if (!k) return false; const c = await caches.open(k); return (await c.keys()).length >= 3; }, V), 'التسخين');
+  const cached = await p.evaluate(async (v) => (await (await caches.open('muktasab-pos-shell-' + v)).keys()).map(r => new URL(r.url).pathname), V);
   assert.ok(cached.some(u => /fixture\.html$/.test(u)), 'الصفحة: ' + cached.join(' ')); assert.ok(cached.some(u => /\/assets\/.+-[A-Za-z0-9_-]{6,}\.js$/.test(u)), 'الأصول المجزّأة');
   assert.ok(cached.every(u => /fixture\.html$/.test(u) || /\/assets\//.test(u)), 'لا شيء غير الصفحة والأصول: ' + cached.join(' '));
   // دون شبكة: إعادة فتح الصفحة تعمل من المخزّن
@@ -4878,5 +4879,46 @@ test('v56.55 البند F الرقم الضريبي المقروء: للمورد
   await p.locator('[data-aivatok] input').check(); await p.locator('.modal button', { hasText: 'تسجيل الفاتورة' }).click(); await p.waitForTimeout(300);
   const r = await p.evaluate(() => ({ n: window.cur.invoices.length, sup: window.cur.invoices[0].supplierId, vat: window.curOrg.suppliers.find(x => x.id === 's2').vatNo, other: window.curOrg.suppliers.find(x => x.id === 's1').vatNo, ai: window.cur.invoices[0].aiRead.applied }));
   assert.deepEqual(r, { n: 1, sup: 's2', vat: '311111111111113', other: '', ai: ['supplierId', 'invoiceNo', 'date', 'taxable', 'vatNo'] });
+  assert.deepEqual(errs, []); await ctx.close();
+});
+
+test('v56.56 قرارات المالك: فحص الفجوات بلا العمل دون اتصال، التقسيم بالتساوي ودفع أجزائه، وحسم مدير الفرع للتعارض', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/PosApp/bm');
+  const d = await p.evaluate(() => new Date().toISOString().slice(0, 10)), AT = d + 'T10:00:00Z';
+  await p.evaluate(() => { window.setOrg(g => ({ ...g, posCfg: { branches: ['b1'], autoPrint: false, tables: { b1: 6 }, rest: { split: true } }, posPromos: [],
+    products: [{ id: 'k', name: 'كبسة', sellPrice: 57.5, cat: 'رئيسي' }, { id: 'h', name: 'حمص', sellPrice: 18.4, cat: 'مقبلات' }, { id: 't', name: 'شاي', sellPrice: 4.6, cat: 'مشروبات' }] }));
+    window.setOps(o => ({ ...o, posTabs: [], posOrders: [], closings: o.closings.filter(c => c.branchId !== 'b1') })); }); await p.waitForTimeout(300);
+  const ob = p.locator('button:has-text("فتح الوردية")'); if (await ob.count()) { await ob.click(); await p.waitForTimeout(400); }
+  // (3) التقسيم بالتساوي على 3: 174.80 ⇒ 58.26 | 58.26 | 58.28
+  await p.evaluate((AT) => window.setOps(o => ({ ...o, posTabs: [{ id: 'tq', branchId: 'b1', table: '2', status: 'open', openedAt: AT, rounds: [{ at: AT, by: 'خالد', lines: [{ productId: 'k', name: 'كبسة', qty: 2, price: 57.5 }, { productId: 'h', name: 'حمص', qty: 3, price: 18.4 }, { productId: 't', name: 'شاي', qty: 1, price: 4.6 }] }] }] })), AT);
+  await p.click('.pos-tabs button:has-text("الطاولات")'); await p.waitForTimeout(200); await p.click('[aria-label="طاولة 2"]'); await p.waitForTimeout(150);
+  await p.click('[data-spliteqbtn]'); await p.waitForSelector('[data-spliteq]');
+  await p.selectOption('select[aria-label="عدد الأجزاء بالتساوي"]', '3'); await p.waitForTimeout(100);
+  assert.deepEqual(await p.locator('[data-eqtotal]').allInnerTexts(), ['58.26', '58.26', '58.28']);
+  await p.click('[data-spliteqsave]'); await p.waitForTimeout(300);
+  assert.deepEqual(await p.evaluate(() => window.cur.posTabs[0].split.parts.map(x => [x.no, x.total, x.vat, x.eq.n])), [[1, 58.26, 7.6, 3], [2, 58.26, 7.6, 3], [3, 58.28, 7.6, 3]]);
+  const payPart = async (n) => { await p.click('.pos-tabs button:has-text("الطاولات")'); await p.waitForTimeout(200); await p.click('[aria-label="طاولة 2"]'); await p.waitForTimeout(150);
+    await p.click('[data-part="' + n + '"] button'); await p.waitForTimeout(200); await p.click('.pos-cart button:has-text("نقدي")'); await p.waitForTimeout(200); await p.click('.modal button:has-text("تأكيد")'); await p.waitForTimeout(500); };
+  await payPart(1); await payPart(2); await payPart(3);
+  const r = await p.evaluate(() => ({ o: window.cur.posOrders.map(o => [o.tabPart, o.total, o.vat, o.net, (o.tabEq || {}).n]).sort((a, b) => a[0] - b[0]), tab: window.cur.posTabs[0].status, h: window.cur.posOrders.every(o => o.hash && o.icv) }));
+  assert.deepEqual(r, { o: [[1, 58.26, 7.6, 50.66, 3], [2, 58.26, 7.6, 50.66, 3], [3, 58.28, 7.6, 50.68, 3]], tab: 'paid', h: true }, 'المجموع 174.80 وضريبته 22.80 تمامًا');
+  // (1) فجوات السلسلة تظهر بلا العمل دون اتصال (تنبيه)
+  await p.evaluate((d) => { const o = (no, icv, pih, hash) => ({ id: 'g' + icv, no, branchId: 'b1', dev: 'ZZ99', date: d, at: d + 'T09:0' + icv + ':00Z', kind: 'sale', status: 'paid', total: 10, vat: 1.3, lines: [], payments: [{ m: 'cash', amount: 10 }], icv, pih, hash });
+    window.setOps(x => ({ ...x, posOrders: [...x.posOrders, o('ف1-A', 1, '0', 'h1'), o('ف1-C', 3, 'h2', 'h3')] })); }, d); await p.waitForTimeout(300);
+  await p.selectOption('select[aria-label="المزيد"]', 'shifts'); await p.waitForSelector('[data-chaingaps]');
+  assert.match(await p.locator('[data-chaingaps]').innerText(), /جهاز ZZ99 · فجوة في الترقيم: ف1-A \(#1\) ← ف1-C \(#3\)/);
+  assert.equal(await p.locator('[data-conflictlist]').count(), 0, 'التعارضات مع العمل دون اتصال فقط');
+  // (4) تعارض: الحساب دُفع من جهاز آخر — يحسمه مدير الفرع («إبقاء») ويُسجَّل من ومتى
+  await p.evaluate(({ d, AT }) => { window.setOrg(g => ({ ...g, posCfg: { ...g.posCfg, offline: true } }));
+    window.setOps(x => ({ ...x, posOrders: [...x.posOrders, { id: 'cx', no: 'ف1-X-0001', branchId: 'b1', date: d, at: AT, kind: 'sale', status: 'paid', by: 'كاشير ب', total: 50, vat: 6.52, lines: [], payments: [{ m: 'cash', amount: 50 }] }],
+      posTabs: [...x.posTabs, { id: 'tc', branchId: 'b1', table: '5', status: 'paid', closedAt: AT, orderId: 'g1', conflicts: [{ orderId: 'cx', orderNo: 'ف1-X-0001', at: AT, total: 50, partId: '', why: 'الحساب لم يعد مفتوحًا' }] }] })); }, { d, AT });
+  await p.waitForSelector('[data-conflictlist]');
+  assert.match(await p.locator('[data-conflict="ف1-X-0001"]').innerText(), /الطاولة 5[\s\S]*أصدرها كاشير ب/);
+  await p.click('[data-conflict="ف1-X-0001"] [data-conflictvoid]'); await p.waitForTimeout(300);
+  assert.match(await say(p), /مرتجعًا كاملًا/, 'إلغاء بمرتجع بلا مستند مرتجع ⇒ رفض');
+  await p.click('[data-conflict="ف1-X-0001"] [data-conflictkeep]'); await p.waitForTimeout(400);
+  const res = await p.evaluate(() => window.cur.posTabs.find(t => t.id === 'tc').conflicts[0].res);
+  assert.deepEqual([res.act, res.by, !!res.at], ['keep', 'خالد', true]);
+  assert.equal(await p.locator('[data-conflictres="keep"]').count(), 1);
   assert.deepEqual(errs, []); await ctx.close();
 });
