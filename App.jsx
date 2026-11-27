@@ -2873,7 +2873,7 @@ function buildAccounting(org, ops) {
           ? [...debit, L('1501', ti.vat, 0), ...credPpv, L('2101', 0, i.amount)]
           : [...debit, ...credPpv, L('2101', 0, i.amount)],
         vat: ti.vat ? { out: 0, inn: ti.vat, netSales: 0, netPurch: ti.net } : null,
-        reg: { k: 'p', doc: i.supDebit ? 'إشعار مدين من المورد' : 'فاتورة مورد', party: i.supplierName || '', pvat: ((org.suppliers || []).find(x => x.id === i.supplierId) || {}).vatNo || '', supplierId: i.supplierId || '', no: i.invoiceNo || '', pm: 'deferred', net: ti.net, vat: ti.vat, gross: i.amount }
+        reg: { k: 'p', doc: i.supDebit ? 'إشعار مدين من المورد' : 'فاتورة مورد', party: i.supplierName || '', pvat: ((org.suppliers || []).find(x => x.id === i.supplierId) || {}).vatNo || '', supplierId: i.supplierId || '', no: i.invoiceNo || '', pm: 'deferred', net: ti.net, vat: ti.vat, gross: i.amount, ...(i.rcm ? { rc: true } : {}) }   // v56.51: فاتورة احتساب عكسي — تُستبعد من بند 10–11 (تظهر في بند 9)
       });
       // v56.51 (1) الاحتساب العكسي المثبّت على الفاتورة — قيد منفصل بتاريخها وبلا أثر نقدي (الفاتورة بلا الحقل كما هي)
       const rk = i.rcm ? rcmLines(i.rcm, c => !!accIx[c]) : null;
@@ -2896,6 +2896,12 @@ function buildAccounting(org, ops) {
         vat: v ? { out: 0, inn: -v, netSales: 0, netPurch: -n } : null,
         reg: { k: 'p', doc: i.debitNote ? 'إشعار مدين للمورد' : 'إشعار دائن من مورد', party: i.supplierName || '', pvat: ((org.suppliers || []).find(x => x.id === i.supplierId) || {}).vatNo || '', supplierId: i.supplierId || '', no: i.invoiceNo || '', pm: 'deferred', net: -n, vat: -v, gross: -a }
       });
+      // v56.51 (مراجعة المجلس 4): إشعار على فاتورة احتساب عكسي (appliesTo) يعكس قيده بنسبة الإشعار إلى الفاتورة — الإشعار على فاتورة بلا الحقل كما هو
+      const ro = i.appliesTo ? (ops.invoices || []).find(x => x && x.id === i.appliesTo && x.rcm && (Number(x.amount) || 0) > 0) : null;
+      if (ro && (Number(ro.rcm.vat) || 0) > 0) { const k = Math.min(1, a / ro.amount), rv = t4R2(ro.rcm.vat * k), rb = t4R2(ro.rcm.base * k); const rk = rv > 0 ? rcmLines({ ...ro.rcm, vat: rv, base: rb }, c => !!accIx[c]) : null;
+        if (rk) push({ id: 'inv:' + i.id + ':rcm', date: d, branchId: i.branchId, title: 'عكس احتساب عكسي — إشعار ' + (i.invoiceNo || '') + ' عن ' + (ro.invoiceNo || '') + ' — ' + (i.supplierName || ''),
+          src: 'احتساب عكسي', ref: i.invoiceNo || i.id, lines: rk.lines.map(([c, dr, cr]) => L(c, cr, dr)), vat: { out: -rk.vat.out, inn: -rk.vat.inn, netSales: 0, netPurch: 0, rc: -rk.vat.rc },
+          reg: { k: 'rc', doc: 'عكس احتساب عكسي — إشعار مورد', party: i.supplierName || '', pvat: '', supplierId: i.supplierId || '', no: i.invoiceNo || '', net: -rb, vat: -rv, gross: -t4R2(rb + rv), ...(ro.rcm.nr ? { nr: true } : {}) } }); }
     }
     // v29.4: قيد لكل دفعة بتاريخها ومصدرها (الدفعة القديمة المجمّعة تبقى بمعرّفها السابق invp:)
     invPayments(i).forEach((p, pi) => { const fx = Math.round((p.paid - p.amount) * 100) / 100; const wh = Math.round((Number(p.wht) || 0) * 100) / 100; push({ ...(i.jeNo ? { fix: i.jeNo + '/س' + (pi + 1) } : {}),
@@ -4117,7 +4123,7 @@ export { loyMonthAdj, posLoyOpening, posMisLoyRanges, posMisLoyFrom, posMisLoyAt
 export { cvLive, cvApprRanges, cvApprAt, cvApprOpenFrom, cvNeedsAppr, cvApprove };   // v56.32
 export { posAppPricesOn, posAppPrice, posListPrice, posAppHasPrices, posPriceListErr };   // v56.47 (P4)
 export { WHT_ACC, whtOn, whtTypes, whtRateOk, whtTypeOk, whtOkTypes, whtSupOf, whtNonRes, whtPayBlock, whtAmtOf, whtApply, whtShares, whtRows };   // v56.47 (E7) ضريبة الاستقطاع
-export { rcmOn, rcmRate, rcmSupOf, rcmInvAcc, rcmApply, rcmLines, whtSummary, whtDueDay, whtUnpaidAt, whtDueAlert, whtSettleWarn, siConvOn, SI_CONV_REASON, siConvOf, siConvCheck, siConvert, bdvOn, bdvMonths, bdvAddMonths, bdvDocOf, bdvAmtOf, bdvCheck, bdvRecOf };   // v56.51 المقترحات الضريبية الأربعة
+export { rcmOn, rcmRate, rcmSupOf, rcmInvAcc, rcmPrepaidAvail, rcmApply, rcmLines, whtSummary, whtDueDay, whtUnpaidAt, whtDueAlert, whtSettleWarn, siConvOn, SI_CONV_REASON, siConvOf, siConvCheck, siConvert, bdvOn, bdvMonths, bdvBasis, bdvStartOf, bdvAddMonths, bdvDocOf, bdvAmtOf, bdvCheck, bdvRecOf };   // v56.51 المقترحات الضريبية الأربعة
 export { DS_PRE_ACC, dsPreRanges, dsPreAt, dsPreOpen, dsPreFrom, dsHanded, dsPreOpenItem, dsCashMoves, dsHandCheck, dsDupScan };   // v56.45 T1/T7
 export { DS_BLOCKED, dsRanges, dsRouteAt, dsRouteOpen, dsLive, dsBlockReason, dsOpenFrom, dsMapOf, dsAccOk, dsAccOf, dsPostDate, dsFundOf, dsCashOut, dsBankOk, lockedLedgerSig };   // v56.29
 export { DEPT_SHARED, deptOn, deptList, deptPL };   // v56.27 E4   // v56.23 G2
@@ -12387,23 +12393,37 @@ const rcmSupOf = (org, idOrKey) => { if (!rcmOn(org)) return null; const s = wht
 /** حساب المصروف «غير القابل للاسترداد» لفاتورة: حساب أكبر بند خدمات، وإلا حساب الفاتورة، وإلا 5198 */
 const rcmInvAcc = (i) => { const xl = (Array.isArray(i && i.expLines) ? i.expLines : []).filter(l => l && l.accCode && (Number(l.net) || 0) > 0).sort((a, b) => (Number(b.net) || 0) - (Number(a.net) || 0));
   return String((xl[0] && xl[0].accCode) || (i && i.accCode) || '5198'); };
-/** يثبّت الاحتساب العكسي على فاتورة مورد (kind:'inv') أو سند صرف (kind:'pv'). opt = { on (الافتراضي true), nr, acc }.
- *  يعيد { doc } (كما هو إن لم ينطبق) أو { err }. «on:false» = خدمة مؤدّاة خارج المملكة ⇒ يُوسم rcmSkip ولا قيد. */
+/** المورد في السند/الفاتورة بمعرّفه */
+const rcmSupIdOf = (org, key) => { const s = whtSupOf(org, key); return s ? s.id : String(key || '').replace(/^sup:/, ''); };
+/** (مراجعة المجلس 1) وعاء الدفعات المقدمة المحتسَب عكسيًا ولم تستهلكه فاتورة بعد — للمورد، حتى تاريخ الفاتورة.
+ *  = مجموع rcm.base لسندات الصرف المرحّلة على الحساب (بتاريخ ≤ التاريخ) − مجموع rcm.pre المستهلَك على فواتيره الأخرى. حتمي من البيانات. */
+function rcmPrepaidAvail(org, ops, supId, upTo, exceptInvId) {
+  const vs = ((ops && ops.cashVouchers) || []).filter(v => v && v.kind === 'pv' && cvLive(v) && v.rcm && v.party && v.party.t === 'sup' && rcmSupIdOf(org, v.party.key) === supId && String(v.date || '') <= String(upTo || '9999'));
+  const got = vs.reduce((a, v) => a + (Number(v.rcm.base) || 0), 0);
+  const used = ((ops && ops.invoices) || []).filter(i => i && i.id !== exceptInvId && i.supplierId === supId && i.rcm).reduce((a, i) => a + (Number(i.rcm.pre) || 0), 0);
+  return Math.max(0, t4R2(got - used));
+}
+/** يثبّت الاحتساب العكسي على فاتورة مورد أو سند صرف. opt = { on (الافتراضي true), goods, nr, acc, ops, owed }.
+ *  يعيد { doc } (كما هو إن لم ينطبق) أو { err }. «on:false» = خدمة مؤدّاة خارج المملكة ⇒ rcmSkip:'out'؛ «goods» = سلع مستوردة (ضريبتها في الجمارك) ⇒ rcmSkip:'goods'؛ بلا قيد.
+ *  الفاتورة: يُخصم من وعائها ما احتُسب على دفعاته المقدمة ولم يُستهلك (rcm.pre — نقطة الاستحقاق الأسبق من الدفع أو الفاتورة)، دون تجاوز مبلغها.
+ *  السند: الوعاء = الجزء «على الحساب» بما يزيد على المستحق للمورد (owed) — ما يقابل فواتير قائمة سداد لها لا دفعة مقدمة. */
 function rcmApply(org, doc, opt = {}) {
   if (!doc) return { doc };
   const isCv = doc.kind === 'pv' || doc.kind === 'rv' || doc.kind === 'ov' || doc.kind === 'tv';
   if (isCv && (doc.kind !== 'pv' || !doc.party || doc.party.t !== 'sup')) return { doc };
   const s = rcmSupOf(org, isCv ? doc.party.key : doc.supplierId); if (!s) return { doc };
-  if (opt.on === false) return { doc: { ...doc, rcmSkip: true } };
+  if (opt.goods) return { doc: { ...doc, rcmSkip: 'goods' } };
+  if (opt.on === false) return { doc: { ...doc, rcmSkip: 'out' } };
   const rate = rcmRate(org); if (!rate) return { err: 'حدّد نسبة ضريبة القيمة المضافة في إعدادها (أو نسبة الاحتساب العكسي) قبل الاحتساب العكسي' };
-  let base;
-  if (isCv) base = t4R2((Number(doc.amount) || 0) - (doc.alloc || []).reduce((a, x) => a + (Number(x && x.amount) || 0), 0));   // الجزء «على الحساب» — الموزَّع على فواتير احتُسب عند الفاتورة
-  else { if (!((Number(doc.amount) || 0) > 0)) return { doc }; if (Math.abs(Number(doc.vatAmt) || 0) > 0.004) return { err: 'فاتورة المورد غير المقيم تحمل ضريبة مدخلات — لا يجتمع معها الاحتساب العكسي' }; base = t4R2(doc.amount); }
-  if (!(base > 0.004)) return { doc };
-  const vat = t4R2(base * rate / 100); if (!(vat > 0)) return { doc };
+  let base, pre = 0;
+  if (isCv) base = Math.max(0, t4R2((Number(doc.amount) || 0) - (doc.alloc || []).reduce((a, x) => a + (Number(x && x.amount) || 0), 0) - Math.max(0, Number(opt.owed) || 0)));   // الجزء «على الحساب» الزائد على المستحق — الموزَّع على فواتير احتُسب عند الفاتورة
+  else { if (!((Number(doc.amount) || 0) > 0)) return { doc }; if (Math.abs(Number(doc.vatAmt) || 0) > 0.004) return { err: 'فاتورة المورد غير المقيم تحمل ضريبة مدخلات — لا يجتمع معها الاحتساب العكسي' };
+    const g = t4R2(doc.amount); pre = opt.ops ? Math.min(g, rcmPrepaidAvail(org, opt.ops, s.id, String(doc.date || '').slice(0, 10), doc.id)) : 0; base = t4R2(g - pre); }
+  if (!(base > 0.004) && !(pre > 0)) return { doc };
+  const vat = t4R2(base * rate / 100);
   let acc = '';
-  if (opt.nr) { acc = isCv ? String(opt.acc || (org.rcm || {}).nrAcc || '') : String(opt.acc || rcmInvAcc(doc)); if (!/^5\d+$/.test(acc)) return { err: 'اختر حساب مصروف (5xxx) للضريبة غير القابلة للاسترداد' }; }
-  return { doc: { ...doc, rcm: { rate, base, vat, ...(opt.nr ? { nr: true, acc } : {}) } } };
+  if (opt.nr && vat > 0) { acc = isCv ? String(opt.acc || (org.rcm || {}).nrAcc || '') : String(opt.acc || rcmInvAcc(doc)); if (!/^5\d+$/.test(acc)) return { err: 'اختر حساب مصروف (5xxx) للضريبة غير القابلة للاسترداد' }; }
+  return { doc: { ...doc, rcm: { rate, base, vat, ...(pre > 0 ? { pre } : {}), ...(opt.nr && vat > 0 ? { nr: true, acc } : {}) } } };
 }
 /** سطور قيد الاحتساب العكسي وأثره الضريبي — accOk: هل الحساب موجود في الدليل */
 function rcmLines(r, accOk) {
@@ -12423,11 +12443,18 @@ const whtDueDay = (org) => { const w = (org && org.wht) || {}; const n = Number(
 const whtUnpaidAt = (A, upTo, asOf) => { let cr = 0, dr = 0; ((A && A.entries) || []).forEach(e => { const d = String(e.date || ''); (e.lines || []).forEach(l => { if (String(l.code) !== WHT_ACC) return; if (d <= upTo) cr += (Number(l.credit) || 0); if (d <= asOf) dr += (Number(l.debit) || 0); }); });
   return Math.max(0, t4R2(cr - dr)); };
 const t4PrevYm = (ym) => { let y = Number(ym.slice(0, 4)), m = Number(ym.slice(5, 7)) - 1; if (!m) { m = 12; y--; } return y + '-' + String(m).padStart(2, '0'); };
-/** تنبيه التوريد: استقطاع الشهر السابق (وما قبله) غير مورَّد — null إن لم ينطبق */
+/** تنبيه التوريد (مراجعة المجلس 3): الأشهر حتى الشهر السابق التي بقي استقطاعها غير مورَّد — التوريد (مدين 2107) يُطفئ الأقدم أولًا.
+ *  يعيد { ym, due, amt, late, months:[{ ym, amt, due, late }] } — ym/due/late لأقدم شهر، وamt مجموع غير المورَّد؛ أو null. */
 function whtDueAlert(org, A, td) {
   const day = whtDueDay(org); if (!day) return null;
-  const ym = String(td).slice(0, 7), prev = t4PrevYm(ym); const amt = whtUnpaidAt(A, prev + '-31', td); if (!(amt > 0.004)) return null;
-  return { ym: prev, due: ym + '-' + String(day).padStart(2, '0'), amt, late: Number(String(td).slice(8, 10)) > day };
+  const ym = String(td).slice(0, 7), prev = t4PrevYm(ym); const C = {}; let dr = 0;
+  ((A && A.entries) || []).forEach(e => { const d = String(e.date || ''); (e.lines || []).forEach(l => { if (String(l.code) !== WHT_ACC) return;
+    if (d.slice(0, 7) <= prev && (Number(l.credit) || 0) > 0) C[d.slice(0, 7)] = (C[d.slice(0, 7)] || 0) + Number(l.credit); if (d <= td) dr += Number(l.debit) || 0; }); });
+  const nx = (m) => { let y = Number(m.slice(0, 4)), mo = Number(m.slice(5, 7)) + 1; if (mo > 12) { mo = 1; y++; } return y + '-' + String(mo).padStart(2, '0'); };
+  const months = []; Object.keys(C).sort().forEach(m => { const c = t4R2(C[m]); const used = Math.min(c, dr); dr = t4R2(dr - used); const left = t4R2(c - used);
+    if (left > 0.004) { const due = nx(m) + '-' + String(day).padStart(2, '0'); months.push({ ym: m, amt: left, due, late: String(td) > due }); } });
+  if (!months.length) return null;
+  return { ym: months[0].ym, due: months[0].due, amt: t4R2(months.reduce((a, x) => a + x.amt, 0)), late: months[0].late, months };
 }
 /** تحذير (لا منع): تسوية رصيد مورد غير مقيم بمقاصّة أو قيد يدوي على 2101 بلا سند صرف — '' إن لم ينطبق */
 function whtSettleWarn(org, doc) {
@@ -12492,10 +12519,13 @@ const bdvAddMonths = (d, n) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(Strin
 function bdvDocOf(ops, org, siId) {
   const id = String(siId || '');
   if (/^pos:/.test(id)) { const o = ((ops && ops.posOrders) || []).find(y => y && y.id === id.slice(4)); if (!o) return null;
-    return { no: o.no || o.id, date: String(o.date || '').slice(0, 10), vat: Number(o.vat) || 0, total: Number(o.total) || 0, party: posArCust(o).name || '' }; }
+    return { no: o.no || o.id, date: String(o.date || '').slice(0, 10), due: String((o.ar && o.ar.dueDate) || o.date || '').slice(0, 10), vat: Number(o.vat) || 0, total: Number(o.total) || 0, party: posArCust(o).name || '' }; }
   const x = ((ops && ops.salesInvoices) || []).find(y => y && y.id === id); if (!x) return null;
-  return { no: x.no || '', date: String(x.date || '').slice(0, 10), vat: Number(x.vat) || 0, total: Number(x.total) || 0, party: (x.buyer || {}).name || '', pvat: (x.buyer || {}).vat || '' };
+  return { no: x.no || '', date: String(x.date || '').slice(0, 10), due: String(x.dueDate || x.date || '').slice(0, 10), vat: Number(x.vat) || 0, total: Number(x.total) || 0, party: (x.buyer || {}).name || '', pvat: (x.buyer || {}).vat || '' };
 }
+/** (مراجعة المجلس 6 — للمختص) بداية المدة: 'invoice' تاريخ الفاتورة (الافتراضي) أو 'due' تاريخ الاستحقاق — يختارها المالك مع الوسم */
+const bdvBasis = (org) => ((org && org.badDebtVat) || {}).basis === 'due' ? 'due' : 'invoice';
+const bdvStartOf = (org, s) => (s ? (bdvBasis(org) === 'due' ? (s.due || s.date) : s.date) : '');
 /** ضريبة الجزء المشطوب = ضريبة الفاتورة × المشطوب ÷ إجماليها */
 const bdvAmtOf = (ops, org, x) => { const s = bdvDocOf(ops, org, x && x.siId); return s && s.total > 0 ? t4R2(s.vat * (Number(x.amount) || 0) / s.total) : 0; };
 /** فحص تعديل الضريبة على مستند الشطب — '' إن لم يُطلب أو جاز */
@@ -12505,7 +12535,8 @@ function bdvCheck(org, ops, x) {
   if (!bdvOn(org)) return 'تعديل ضريبة الدين المعدوم غير مفعّل';
   const mm = bdvMonths(org); if (!mm) return 'المدة النظامية لتعديل ضريبة الدين المعدوم لم تُدخل أو لم يؤكّدها المختص';
   const s = bdvDocOf(ops, org, x.siId); if (!s) return 'الفاتورة غير موجودة';
-  const from = bdvAddMonths(s.date, mm); if (!from || String(x.date || '') < from) return 'لم تمضِ ' + mm + ' شهرًا من تاريخ الفاتورة ' + s.date + ' — التعديل متاح من ' + from;
+  const st = bdvStartOf(org, s), lb = bdvBasis(org) === 'due' ? 'تاريخ الاستحقاق ' : 'تاريخ الفاتورة ';
+  const from = bdvAddMonths(st, mm); if (!from || String(x.date || '') < from) return 'لم تمضِ ' + mm + ' شهرًا من ' + lb + st + ' — التعديل متاح من ' + from;
   if (!String(x.bdvRef || '').trim()) return 'أرفق مرجع شهادة المحاسب القانوني أو المستند البديل';
   const want = bdvAmtOf(ops, org, x); if (!(want > 0) || Math.abs(t4R2(x.bdv) - want) > 0.004) return 'تعديل الضريبة = ضريبة الجزء المشطوب (' + want + ')';
   return '';
@@ -15180,7 +15211,7 @@ function vatRegister(org, ops, opts = {}) {
   const inP = (e) => (e.date || '') >= from && (e.date || '') <= to && inBr(e);
   const rows = A.entries.filter(e => e.reg && inP(e)).map(e => ({ id: e.id, date: e.date, k: e.reg.k, doc: e.reg.doc, no: e.reg.no || '', party: e.reg.party || '', pvat: e.reg.pvat || '',
     branchId: e.branchId || '', cat: e.reg.cat || '', pm: e.reg.pm || '', supplierId: e.reg.supplierId || '', net: anR(e.reg.net), vat: anR(e.reg.vat), gross: anR(e.reg.gross),
-    ...(e.reg.adj ? { adj: e.reg.adj } : {}), ...(e.reg.nr ? { nr: true } : {}) }))   // v56.51: تعديل الدين المعدوم والاحتساب العكسي غير القابل للاسترداد — يُضافان فقط إن وُجدا
+    ...(e.reg.adj ? { adj: e.reg.adj } : {}), ...(e.reg.nr ? { nr: true } : {}), ...(e.reg.rc ? { rc: true } : {}) }))   // v56.51: تعديل الدين المعدوم والاحتساب العكسي غير القابل للاسترداد — يُضافان فقط إن وُجدا
     .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
   const sales = rows.filter(r => r.k === 's'), purch = rows.filter(r => r.k === 'p'), rcm = rows.filter(r => r.k === 'rc');   // v56.51 (1) الاحتساب العكسي
   const t = (arr, f) => anR(sum(arr, f));
@@ -15196,8 +15227,8 @@ function vatRegister(org, ops, opts = {}) {
     { n: '3–5', ar: 'مبيعات بلا ضريبة (صفرية/معفاة/صادرات)', net: t(non(sales), r => r.net), vat: 0, note: 'غير مصنفة في المنصة — صنّفها عند تعبئة الإقرار' },
     { n: '6', ar: 'إجمالي المبيعات', net: t(sales, r => r.net), vat: sOut, tot: true },
     { n: '7', ar: 'المشتريات الخاضعة للنسبة الأساسية', net: t(std(purch), r => r.net), vat: t(std(purch), r => r.vat) },
-    { n: '10–11', ar: 'مشتريات بلا ضريبة مدخلات (صفرية/معفاة/من غير مسجّل)', net: t(non(purch), r => r.net), vat: 0, note: 'غير مصنفة في المنصة' },
-    { n: '12', ar: 'إجمالي المشتريات', net: t(purch, r => r.net), vat: pIn, tot: true },
+    { n: '10–11', ar: 'مشتريات بلا ضريبة مدخلات (صفرية/معفاة/من غير مسجّل)', net: t(non(purch).filter(r => !r.rc), r => r.net), vat: 0, note: 'غير مصنفة في المنصة' },   // v56.51: فاتورة الاحتساب العكسي في بند 9 لا هنا
+    { n: '12', ar: 'إجمالي المشتريات', net: t(purch.filter(r => !r.rc), r => r.net), vat: pIn, tot: true },
     { n: '13', ar: 'صافي الضريبة المستحقة للفترة', net: null, vat: anR(sOut - pIn), tot: true }
   ];
   if (bdA.length) { const ad = { adj: t(bdA, r => r.vat), adjNet: t(bdA, r => r.net) }; Object.assign(boxes[0], ad); Object.assign(boxes[2], ad); }

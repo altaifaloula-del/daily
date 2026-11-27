@@ -71,7 +71,7 @@ export function WhtCard({ org, ops, me, commitOrg, say }) {
         <label className="row" style={{ gap: 5, fontSize: 12 }}><input type="checkbox" aria-label="موعد التوريد أكّده المختص" disabled={!can} checked={!!dD.ok} onChange={e => setDd({ ...dD, ok: e.target.checked })} />أكّده المختص</label>
         {can && dd && <button className="btn sm pri" onClick={saveDue} data-wht-due-save><Check size={12} />حفظ</button>}
         <span className="hint">{whtDueDay(org) ? 'التنبيه وفحص الإقفال مفعّلان' : 'لا تنبيه حتى يُدخل اليوم ويؤكّده المختص'}</span></div>
-      {due && <div className={'cf-note ' + (due.late ? 'bad' : 'warn')} style={{ marginTop: 6 }} data-wht-duealert>استقطاع {due.ym} غير مورَّد: <b className="num">{money(due.amt)}</b> — {due.late ? 'تجاوز الموعد ' : 'الموعد '}{due.due}. وُرِّده بقيد (مدين 2107 / دائن البنك).</div>}
+      {due && <div className={'cf-note ' + (due.late ? 'bad' : 'warn')} style={{ marginTop: 6 }} data-wht-duealert>استقطاع غير مورَّد: <b className="num">{money(due.amt)}</b> — {due.months.map(m => m.ym + ' ' + money(m.amt) + ' (' + (m.late ? 'متأخر — الموعد ' : 'الموعد ') + m.due + ')').join(' · ')}. وُرِّده بقيد (مدين 2107 / دائن البنك).</div>}
       <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 10 }}>
         <span className="lbl" style={{ margin: 0 }}>السجل الشهري</span>
         <input className="inp" type="month" aria-label="شهر سجل الاستقطاع" value={ym} onChange={e => setYm(e.target.value)} />

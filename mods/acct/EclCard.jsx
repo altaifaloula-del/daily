@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { ShieldAlert, Check, X } from 'lucide-react';
 import { eclAllowBal, eclCheck, eclApprove, eclWoOf, eclRecOf, canApproveJe, siRem, arDocs, Field, Modal, money, uid, nowISO, today } from '../../App.jsx';
-import { bdvOn, bdvMonths, bdvAmtOf, bdvDocOf, bdvAddMonths, bdvRecOf } from '../../App.jsx';   // v56.51 (4) تعديل ضريبة الدين المعدوم
+import { bdvOn, bdvMonths, bdvAmtOf, bdvDocOf, bdvAddMonths, bdvRecOf, bdvBasis, bdvStartOf } from '../../App.jsx';   // v56.51 (4) تعديل ضريبة الدين المعدوم
 
 const KIND = { prov: 'تكوين مخصص', rel: 'عكس مخصص زائد', wo: 'شطب دين معدوم', rec: 'استرداد دين مشطوب' };
 
@@ -66,10 +66,10 @@ export function EclCard({ org, ops, A, me, commit, say, arRows, canPost }) {
       {f.kind === 'wo' && <Field label="الفاتورة المشطوبة"><select className="sel" aria-label="الفاتورة المشطوبة" value={f.siId} onChange={e => setF({ ...f, siId: e.target.value, amount: f.amount || String(siRem(ops, (ops.salesInvoices || []).find(x => x.id === e.target.value) || {})) })}>
         <option value="">— اختر —</option>{invs(f.customerKey).map(x => <option key={x.id} value={x.id}>{x.no} · {x.date} · متبقٍّ {money(siRem(ops, x))}</option>)}</select></Field>}
       {f.kind === 'wo' && bdvOn(org) && f.siId && (() => { const mm = bdvMonths(org); const sd = bdvDocOf(ops, org, f.siId); const amt = Math.round((Number(String(f.amount).replace(/[^\d.]/g, '')) || 0) * 100) / 100;
-        const from = mm && sd ? bdvAddMonths(sd.date, mm) : ''; const ok = !!from && f.date >= from; const v = bdvAmtOf(ops, org, { siId: f.siId, amount: amt });
+        const from = mm && sd ? bdvAddMonths(bdvStartOf(org, sd), mm) : ''; const lb = bdvBasis(org) === 'due' ? 'تاريخ الاستحقاق ' : 'تاريخ الفاتورة '; const ok = !!from && f.date >= from; const v = bdvAmtOf(ops, org, { siId: f.siId, amount: amt });
         return (<div className="note" style={{ marginBottom: 6 }} data-ecl-bdv>
           <label className="row" style={{ gap: 6, fontSize: 12.5 }}><input type="checkbox" aria-label="تعديل ضريبة المخرجات" disabled={!ok} checked={!!f.bdvOn && ok} onChange={e => setF({ ...f, bdvOn: e.target.checked })} />تعديل ضريبة المخرجات = ضريبة الجزء المشطوب <b className="num">{money(v)}</b></label>
-          <div className="hint">{!mm ? 'المدة لم تُدخل أو لم يؤكّدها المختص — التعديل غير متاح' : ok ? 'مضت ' + mm + ' شهرًا من تاريخ الفاتورة ' + sd.date : 'متاح من ' + from + ' (بعد ' + mm + ' شهرًا من تاريخ الفاتورة)'}. القيد الإضافي بعد الاعتماد: مدين 2301 / دائن مصروف الخسائر الائتمانية، ويُعكس بنسبته عند الاسترداد.</div>
+          <div className="hint">{!mm ? 'المدة لم تُدخل أو لم يؤكّدها المختص — التعديل غير متاح' : ok ? 'مضت ' + mm + ' شهرًا من ' + lb + bdvStartOf(org, sd) : 'متاح من ' + from + ' (بعد ' + mm + ' شهرًا من ' + lb + ')'}. القيد الإضافي بعد الاعتماد: مدين 2301 / دائن مصروف الخسائر الائتمانية، ويُعكس بنسبته عند الاسترداد.</div>
           {f.bdvOn && ok && <Field label="مرجع شهادة المحاسب القانوني أو المستند البديل"><input className="inp" aria-label="مرجع شهادة الدين المعدوم" value={f.bdvRef || ''} onChange={e => setF({ ...f, bdvRef: e.target.value })} /></Field>}
         </div>); })()}
       {f.kind === 'rec' && f.siId && (() => { const amt = Math.round((Number(String(f.amount).replace(/[^\d.]/g, '')) || 0) * 100) / 100; const rv = amt > 0 ? bdvRecOf({ ...ops, eclDocs: [...(ops.eclDocs || []), { id: '_new', kind: 'rec', siId: f.siId, amount: amt, date: f.date, status: 'approved' }] }, { id: '_new', kind: 'rec', siId: f.siId }) : 0;

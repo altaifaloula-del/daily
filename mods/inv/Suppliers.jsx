@@ -674,7 +674,7 @@ export function Suppliers({ org, ops, me, myBranches, commit, commitOrg, say, se
     // تقريب التحويل: الإجمالي بالريال = مجموع البنود + الضريبة (لا فرق تقريب في القيد)
     rec.amount = Math.round((sum(rec.expLines, l => l.net) + rec.vatAmt) * 100) / 100;
     rec.pm = pyS.pm; if (pyS.payments.length) { const pp = { ...pyS.payments[0], amount: Math.min(pyS.payments[0].amount, rec.amount) }; if (pp.paid != null) pp.paid = pp.amount; rec.payments = [pp]; rec.paidAmount = pp.amount; }
-    if (rcmSupOf(org, sp.id)) { const rk = rcmApply(org, rec, { on: f.rcmOn !== false, nr: !!f.rcmNr }); if (rk.err) return say(rk.err, 'no'); Object.assign(rec, rk.doc); }   // v56.51 (1) — الفاتورة بلا الحقل إن لم ينطبق
+    if (rcmSupOf(org, sp.id)) { const rk = rcmApply(org, rec, { on: f.rcmOn !== false, nr: !!f.rcmNr, ops }); if (rk.err) return say(rk.err, 'no'); Object.assign(rec, rk.doc); }   // v56.51 (1) — الفاتورة بلا الحقل إن لم ينطبق
     const ok = await commit(d => ({ ...d, invoices: [rec, ...(d.invoices || [])] }), { actionType: 'create', targetType: 'expense', targetId: rec.id, title: 'سجّل فاتورة خدمات ومصروفات',
       details: sp.name + ' · ' + rec.invoiceNo + ' · ' + ls.length + ' بند · ' + money(rec.amount) });
     if (ok === false) return;

@@ -4451,6 +4451,7 @@ test('v56.51 المقترحات الضريبية: تحويل المبسّطة إ
   assert.equal(await p.evaluate(() => window.cur.salesInvoices[1].convTo === window.cur.salesInvoices[2].id), true, 'مرتبطتان');
   await p.locator('.mz-docv button', { hasText: 'إغلاق' }).click().catch(() => {}); await p.waitForTimeout(200);
   assert.equal(await p.locator('[data-siconv]').count(), 0, 'لا تُحوَّل مرتين'); assert.equal(await p.locator('[data-siconv-tag]').count(), 3);
+  assert.equal(await p.locator('[data-siconv-printcn]').count(), 1, 'زر طباعة الإشعار الدائن بعد التحويل');
   assert.deepEqual(errs, []); await ctx.close();
   // الاحتساب العكسي على سند صرف لمورد غير مقيم (مع الاستقطاع): الأساس الإجمالي قبل الاستقطاع
   { const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1100 } }, 'live/Hub/admin/finhub:treasury');
@@ -4462,6 +4463,7 @@ test('v56.51 المقترحات الضريبية: تحويل المبسّطة إ
     await p.locator('[data-cvpt="sup"]').click(); await p.selectOption('select[aria-label="جهة السند"]', 'sup:s1');
     await p.locator('[data-cvpm="bank"]').click(); await p.fill('input[aria-label="مبلغ السند"]', '10000'); await p.fill('input[aria-label="بيان السند"]', 'خدمة تجريبية');
     await p.waitForSelector('[data-cv-rcm]'); assert.match(await p.locator('[data-cv-rcmcalc]').innerText(), /1,500/);
+    await p.click('[data-cv-rcmkind="goods"]'); assert.equal(await p.locator('[data-cv-rcmcalc]').count(), 0, 'السلع المستوردة بلا احتساب'); await p.click('[data-cv-rcmkind="svc"]');
     await p.selectOption('[data-cv-whttype]', 'wt1');
     await p.locator('[data-cvsave]').click(); await p.waitForFunction(() => (window.cur.cashVouchers || []).length === 1);
     assert.deepEqual(await p.evaluate(() => { const v = window.cur.cashVouchers[0]; return [v.whtAmt, v.rcm]; }), [500, { rate: 15, base: 10000, vat: 1500 }]);

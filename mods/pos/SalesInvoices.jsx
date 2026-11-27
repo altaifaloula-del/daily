@@ -22,6 +22,7 @@ export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
   const [q, setQ] = useState(''); const [flt, setFlt] = useState('all');
   const [f, setF] = useState(null); const [rc, setRc] = useState(null); const [cn, setCn] = useState(null); const [dn, setDn] = useState(null);
   const [cv, setCv] = useState(null);   // v56.51 (3) { id, key, date }
+  const [cvDone, setCvDone] = useState(null);   // (مراجعة المجلس 5) طباعة الإشعار والفاتورة بعد التحويل
   const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
   const byId = (id) => all.find(x => x.id === id);
   const custOf = (key) => customers.find(c => c.key === key);
@@ -103,7 +104,7 @@ export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
     const ok = await commit(d => { const r = siConvert(org, d, x.id, c, me, { date, time }); if (r.err) { err = r.err; return d; } made = r; return r.next; },
       { actionType: 'create', targetType: 'sales_invoice', targetId: x.id, need: 'post', title: 'حوّل فاتورة مبسّطة إلى ضريبية', details: x.no + ' · ' + money(x.total) + ' · ' + (c.name || '') + ' (' + (c.tax || '') + ')' });
     if (err) return say(err, 'no');
-    if (ok && made) { setCv(null); say('صدر الإشعار الدائن ' + made.cn.no + ' والفاتورة الضريبية ' + made.inv.no + ' ✓'); printSalesInvoice(org, made.inv); }
+    if (ok && made) { setCv(null); setCvDone({ cn: made.cn, inv: made.inv, orig: x }); say('صدر الإشعار الدائن ' + made.cn.no + ' والفاتورة الضريبية ' + made.inv.no + ' ✓'); printSalesInvoice(org, made.inv); }
   };
 
   // v47.3 الإشعار المدين: زيادة على فاتورة صادرة (فرق سعر، رسوم إضافية، خطأ بالنقص) — يرفع الإيراد والضريبة والذمة أو يُحصَّل نقدًا
@@ -159,6 +160,11 @@ export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
         <div className="tw"><table className="tb"><thead><tr><th>فاتورة الكاشير</th><th>العميل</th><th>التاريخ</th><th>الاستحقاق</th><th>الآجل</th><th>المتبقي</th></tr></thead><tbody>
           {posAr.slice(0, 200).map(x => <tr key={x.id}><td className="num">{x.no}</td><td>{(x.buyer || {}).name || x.customerKey}</td><td className="num">{x.date}</td><td className="num">{x.dueDate}</td><td className="num">{money(x.total)}</td><td className="num">{money(siRem(ops, x))}</td></tr>)}
         </tbody></table></div></div>}
+      {cvDone && <div className="note row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }} data-siconv-done>
+        <span>حُوّلت {cvDone.orig.no}: الإشعار الدائن <b className="num">{cvDone.cn.no}</b> والفاتورة الضريبية <b className="num">{cvDone.inv.no}</b> — سلّم الاثنين للعميل.</span>
+        <button className="btn sm" data-siconv-printcn onClick={() => printSalesInvoice(org, cvDone.cn, cvDone.orig)}><Printer size={12} />طباعة الإشعار الدائن</button>
+        <button className="btn sm" onClick={() => printSalesInvoice(org, cvDone.inv)}><Printer size={12} />طباعة الفاتورة الضريبية</button>
+        <button className="btn sm gh" aria-label="إخفاء" onClick={() => setCvDone(null)}><X size={12} /></button></div>}
       <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         {[['all', 'الكل'], ['open', 'مفتوحة'], ['credit', 'آجلة'], ['cash', 'نقدية'], ['cn', 'إشعارات دائنة'], ['dn', 'إشعارات مدينة']].map(([k, t]) => (
           <button key={k} className={'btn sm' + (flt === k ? ' pri' : ' gh')} onClick={() => setFlt(k)}>{t}</button>))}

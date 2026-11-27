@@ -106,7 +106,8 @@ test('(1) سند صرف على الحساب مع استقطاع 5%: الاحتس
 
 test('(1) الحدود: الخدمة خارج المملكة تُلغى بوسم، والفاتورة ذات الضريبة مرفوضة، وبلا نسبة مرفوض، وغير القابل على السند يتطلب حسابًا، والمورد المقيم بلا أثر', () => {
   const o = ON();
-  const sk = E.rcmApply(o, inv(), { on: false }).doc; assert.equal(sk.rcmSkip, true); assert.equal('rcm' in sk, false);
+  const sk = E.rcmApply(o, inv(), { on: false }).doc; assert.equal(sk.rcmSkip, 'out'); assert.equal('rcm' in sk, false);
+  const gd = E.rcmApply(o, pv(), { goods: true }).doc; assert.equal(gd.rcmSkip, 'goods'); assert.equal('rcm' in gd, false, 'السلع المستوردة: لا احتساب عكسي');
   assert.equal(E.buildAccounting(o, { invoices: [sk] }).entries.some(isRcm), false);
   assert.match(E.rcmApply(o, inv({ vatAmt: 150 })).err, /ضريبة مدخلات/);
   assert.match(E.rcmApply(ON({ taxCfg: { enabled: true } }), inv()).err, /نسبة/);
@@ -135,7 +136,7 @@ test('(2-أ) تنبيه التوريد: لا يظهر بلا يوم مؤكَّد
   assert.equal(E.whtDueAlert(ON({ wht: { on: true, types: [T5] } }), A, '2026-04-05'), null, 'بلا يوم');
   assert.equal(E.whtDueAlert(ON({ wht: { on: true, types: [T5], dueDay: 10 } }), A, '2026-04-05'), null, 'يوم غير مؤكَّد');
   assert.equal(E.whtDueAlert(ON({ wht: { on: true, types: [T5], dueDay: 31, dueOk: true } }), A, '2026-04-05'), null, 'يوم خارج 1–28');
-  assert.deepEqual(E.whtDueAlert(o, A, '2026-04-05'), { ym: '2026-03', due: '2026-04-10', amt: 500, late: false });
+  assert.deepEqual(E.whtDueAlert(o, A, '2026-04-05'), { ym: '2026-03', due: '2026-04-10', amt: 500, late: false, months: [{ ym: '2026-03', amt: 500, due: '2026-04-10', late: false }] });
   assert.equal(E.whtDueAlert(o, A, '2026-04-11').late, true);
   assert.equal(E.whtDueAlert(o, A, '2026-03-20'), null, 'استقطاع الشهر الجاري لم يحن موعده');
   assert.equal(E.closeAutoChecks(A, ops, '2026-04', o).find(c => c.k === 'whtdue').ok, false);
@@ -254,4 +255,64 @@ test('سيناريو مركّب بالبنود الأربعة: الميزان م
   assert.equal(R.checks.find(c => c.sev !== 'warn').sev, 'ok', 'السجل = الدفاتر');
   assert.deepEqual(R.boxes.find(b => b.n === '9').vat, 3000);
   assert.equal(E.bdvRecOf(ops, ops.eclDocs[2]), 30);
+});
+
+/* ———————— معالجة ملاحظات المراجعتين (التحقق المحاسبي ومراجعة الزكاة والضريبة) ———————— */
+test('مراجعة 1: الدفعة المقدمة ثم الفاتورة — نقطة الاستحقاق الأسبق: 4,000 على الحساب ثم فاتورة 4,000 ⇒ 600 مرة واحدة؛ وفاتورة 6,000 ⇒ 600 + 300', () => {
+  const o = ON();
+  const v = E.rcmApply(o, pv({ amount: 4000, date: '2026-03-01' })).doc; assert.deepEqual(v.rcm, { rate: 15, base: 4000, vat: 600 });
+  const ops0 = E.applyCashVoucher({ invoices: [], cashVouchers: [] }, { ...v, no: 'PV-1' }, ME);
+  assert.equal(E.rcmPrepaidAvail(o, ops0, 's1', '2026-03-31'), 4000);
+  const i4 = E.rcmApply(o, inv({ amount: 4000, date: '2026-03-20', expLines: [{ desc: 'خدمة', accCode: '5310', net: 4000, vat: 0 }] }), { ops: ops0 }).doc;
+  assert.deepEqual(i4.rcm, { rate: 15, base: 0, vat: 0, pre: 4000 }, 'الاستهلاك مسجّل صراحةً على الفاتورة');
+  const opsA = { ...ops0, invoices: [i4] }; const A = E.buildAccounting(o, opsA);
+  assert.equal(A.entries.filter(isRcm).length, 1, 'قيد احتساب واحد (عند الدفع)'); assert.equal(tb(A)['2301'], -600);
+  assert.equal(E.rcmPrepaidAvail(o, opsA, 's1', '2026-12-31'), 0, 'استُهلكت الدفعة');
+  const i6 = E.rcmApply(o, inv({ amount: 6000, date: '2026-03-20', expLines: [{ desc: 'خدمة', accCode: '5310', net: 6000, vat: 0 }] }), { ops: ops0 }).doc;
+  assert.deepEqual(i6.rcm, { rate: 15, base: 2000, vat: 300, pre: 4000 });
+  const A6 = E.buildAccounting(o, { ...ops0, invoices: [i6] }); assert.equal(tb(A6)['2301'], -900); assert.equal(tb(A6)['1501'], 900);
+  const R = E.vatRegister(o, { ...ops0, invoices: [i6] }, { A: A6 }); assert.equal(R.boxes.find(b => b.n === '9').net, 6000, 'الوعاء الكلي = الفاتورة'); assert.equal(R.checks.find(c => c.sev !== 'warn').sev, 'ok');
+  // دفعة بتاريخ لاحق للفاتورة لا تُستهلك فيها
+  assert.equal(E.rcmApply(o, inv({ amount: 4000, date: '2026-02-20' }), { ops: ops0 }).doc.rcm.pre, undefined);
+  // السند على الحساب بما لا يزيد على المستحق للمورد = سداد لا دفعة مقدمة ⇒ لا احتساب؛ والزائد وحده دفعة مقدمة
+  assert.equal('rcm' in E.rcmApply(o, pv({ amount: 4000 }), { owed: 4000 }).doc, false);
+  assert.equal(E.rcmApply(o, pv({ amount: 4000 }), { owed: 1000 }).doc.rcm.base, 3000);
+  // الحالة المعاكسة (قرار موثّق): سند موزَّع على فاتورة سُجّلت قبل التفعيل أو بوسم «خارج المملكة» — لا احتساب على السند
+  assert.equal('rcm' in E.rcmApply(o, pv({ amount: 4000, alloc: [{ id: 'old', no: 'X', amount: 4000 }] })).doc, false);
+});
+
+test('مراجعة 2: vatRegister — فاتورة الاحتساب العكسي في بند 9 وحده: بند 10–11 صفر وبند 12 = 10,000 لا 20,000', () => {
+  const o = ON(); const ops = { invoices: [E.rcmApply(o, inv()).doc] }; const R = E.vatRegister(o, ops);
+  assert.equal(R.boxes.find(b => b.n === '10–11').net, 0); assert.equal(R.boxes.find(b => b.n === '12').net, 10000); assert.equal(R.boxes.find(b => b.n === '9').net, 10000);
+  assert.equal(R.purch.length, 1, 'الصف باقٍ في سجل المشتريات للاطلاع'); assert.equal(R.purch[0].rc, true);
+  // فاتورة بلا احتساب عكسي من مورد محلي بلا ضريبة تبقى في 10–11 كما كانت
+  const R2 = E.vatRegister(o, { invoices: [inv({ supplierId: 's2' })] }); assert.equal(R2.boxes.find(b => b.n === '10–11').net, 10000); assert.equal('rc' in R2.purch[0], false);
+});
+
+test('مراجعة 3: تنبيه التوريد يعرض أقدم شهر بموعده ووسم «متأخر»، وأكثر من شهر، والتوريد يُطفئ الأقدم أولًا', () => {
+  const o = ON(); const mk = (id, date) => ({ ...E.whtApply(o, pv({ id, date }), 'wt1').v, no: 'PV-' + id });
+  const ops = { cashVouchers: [mk('m', '2026-03-10'), mk('a', '2026-04-10')] }; const A = E.buildAccounting(o, ops);
+  const w = E.whtDueAlert(o, A, '2026-05-05');
+  assert.deepEqual([w.ym, w.due, w.late, w.amt], ['2026-03', '2026-04-10', true, 1000]);
+  assert.deepEqual(w.months, [{ ym: '2026-03', amt: 500, due: '2026-04-10', late: true }, { ym: '2026-04', amt: 500, due: '2026-05-10', late: false }]);
+  const paid = { ...ops, journalManual: [{ id: 'j', date: '2026-05-01', title: 'توريد', status: 'posted', lines: [{ code: '2107', debit: 500, credit: 0 }, { code: '1201', debit: 0, credit: 500 }] }] };
+  const w2 = E.whtDueAlert(o, E.buildAccounting(o, paid), '2026-05-05'); assert.deepEqual([w2.ym, w2.late, w2.months.length], ['2026-04', false, 1]);
+});
+
+test('مراجعة 4: إشعار دائن من المورد على فاتورة احتساب عكسي يعكس قيدها بنسبته — والإشعار على فاتورة بلا احتساب كما كان', () => {
+  const o = ON(); const i = E.rcmApply(o, inv()).doc;
+  const cn = { id: 'cn1', creditNote: true, invoiceNo: 'CN-1', supplierId: 's1', supplierName: 'مورد خارجي تجريبي', amount: -2500, vatAmt: 0, date: '2026-03-15', appliesTo: 'i1', accCode: '5310', reason: 'خصم' };
+  const A = E.buildAccounting(o, { invoices: [i, cn] }); const e = A.entries.find(x => x.id === 'inv:cn1:rcm');
+  assert.deepEqual(LN(e), [['1501', 0, 375], ['2301', 375, 0]]); assert.equal(tb(A)['2301'], -1125); assert.equal(sumDr(A), sumCr(A));
+  const R = E.vatRegister(o, { invoices: [i, cn] }, { A }); assert.equal(R.boxes.find(b => b.n === '9').vat, 1125); assert.equal(R.checks.find(c => c.sev !== 'warn').sev, 'ok');
+  assert.equal(E.buildAccounting(o, { invoices: [inv(), cn] }).entries.some(isRcm), false);
+});
+
+test('مراجعة 6: بداية مدة الدين المعدوم من الاستحقاق (basis:due) إعداد يختاره المالك — والافتراضي من تاريخ الفاتورة', () => {
+  const list = stamped([si()]); const ops0 = { salesInvoices: list, eclDocs: [ecl('p', 'prov', 1150)] };
+  const wo = { id: 'w', kind: 'wo', customerKey: CK, siId: 'si1', amount: 1150, date: '2026-07-20', reason: 'تعثر', bdv: 150, bdvRef: 'ش-1', status: 'pending' };
+  assert.equal(E.bdvBasis(ON()), 'invoice'); assert.equal(E.eclCheck(ON(), ops0, wo), '');
+  const od = ON({ badDebtVat: { on: true, minMonths: 6, ok: true, basis: 'due' } });
+  assert.match(E.eclCheck(od, ops0, wo), /تاريخ الاستحقاق 2026-02-14 — التعديل متاح من 2026-08-14/);
+  assert.equal(E.eclCheck(od, ops0, { ...wo, date: '2026-08-14' }), '');
 });

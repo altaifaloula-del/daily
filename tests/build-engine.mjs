@@ -41,7 +41,7 @@ export const ENGINE_EXPORTS = ['depBrRanges', 'depBrAt', 'depBrFrom', 'depBrOf',
   // v56.50 — إرسال الرسائل للعملاء
   'COMMS_KINDS', 'COMMS_JOB_ST', 'commsSendOn', 'commsCanApprove', 'commsRiy', 'commsQuietRiy', 'commsPhoneOk', 'commsMask', 'commsFilterOf', 'commsApprCanon', 'commsJobErr', 'commsAudience', 'commsJobMove', 'commsNextNo',
   // v56.51 — المقترحات الضريبية الأربعة
-  'rcmOn', 'rcmRate', 'rcmSupOf', 'rcmInvAcc', 'rcmApply', 'rcmLines', 'whtSummary', 'whtDueDay', 'whtUnpaidAt', 'whtDueAlert', 'whtSettleWarn', 'siConvOn', 'SI_CONV_REASON', 'siConvOf', 'siConvCheck', 'siConvert', 'bdvOn', 'bdvMonths', 'bdvAddMonths', 'bdvDocOf', 'bdvAmtOf', 'bdvCheck', 'bdvRecOf'];
+  'rcmOn', 'rcmRate', 'rcmSupOf', 'rcmInvAcc', 'rcmPrepaidAvail', 'rcmApply', 'rcmLines', 'whtSummary', 'whtDueDay', 'whtUnpaidAt', 'whtDueAlert', 'whtSettleWarn', 'siConvOn', 'SI_CONV_REASON', 'siConvOf', 'siConvCheck', 'siConvert', 'bdvOn', 'bdvMonths', 'bdvBasis', 'bdvStartOf', 'bdvAddMonths', 'bdvDocOf', 'bdvAmtOf', 'bdvCheck', 'bdvRecOf'];
 
 export async function buildEngine() {
   fs.mkdirSync(cache, { recursive: true });
