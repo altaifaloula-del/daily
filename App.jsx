@@ -14912,7 +14912,7 @@ function mkmRecord(x, seed) {
   return { kind: k, ref: String(k === 'undoReq' ? x.undoReq : k === 'rej' ? x.rejOf : k === 'undo' ? x.undoOf : x.id), reason: String(x.reason || '').slice(0, 500),
     ...(f ? { from: f } : {}), ...(t ? { to: t } : {}), ...(k === 'merge' ? { pts: Math.max(0, Math.round((Number(x.pts) || 0) * 100) / 100) } : {}),
     ...(k === 'undo' && x.reqId ? { reqId: String(x.reqId) } : {}), ...(x.by ? { byName: String(x.by).slice(0, 120) } : {}),
-    ...(seed ? { seed: true, origBy: String(x.byEmail || x.by || '').slice(0, 200), origAt: String(x.at || '').slice(0, 40) } : {}) };
+    ...(seed ? { seed: true, origBy: String(x.byEmail || x.by || '').toLowerCase().slice(0, 200), origAt: String(x.at || '').slice(0, 40) } : {}) };
 }
 const mkmOk = (x) => !!(x && grrOkId(x.id) && grrOkId(mkmRecord(x).ref));
 function mkmDiff(before, after) { const B = new Set((before || []).map(x => x && x.id)); return (after || []).filter(x => mkmOk(x) && !B.has(x.id)); }
@@ -14920,9 +14920,19 @@ function mkmDiff(before, after) { const B = new Set((before || []).map(x => x &&
 function mkmCompare(list, recs) {
   const R = new Map((recs || []).map(r => [r.id, r])), missing = [], differ = [], seen = new Set();
   [...(list || [])].sort((a, b) => String((a && a.at) || '').localeCompare(String((b && b.at) || ''))).forEach(x => { if (!mkmOk(x)) return; seen.add(x.id); const r = R.get(x.id), e = mkmRecord(x);
-    if (!r) missing.push(x); else if (r.kind !== e.kind || r.ref !== e.ref || String(r.from || '') !== String(e.from || '') || String(r.to || '') !== String(e.to || '')) differ.push(x); });
+    if (!r) missing.push(x); else if (r.kind !== e.kind || r.ref !== e.ref || String(r.from || '') !== String(e.from || '') || String(r.to || '') !== String(e.to || '')
+      || Math.abs((Number(r.pts) || 0) - (Number(e.pts) || 0)) > 0.001 || String(r.reqId || '') !== String(e.reqId || '')) differ.push(x); });   // النقاط ورقم الطلب: سجل محمي بنقاط أقل يفتح تراجعًا بلا طلب
   const extra = (recs || []).filter(r => !seen.has(r.id));
   return { ok: !missing.length && !differ.length && !extra.length, missing, differ, extra, total: (list || []).length, recs: (recs || []).length };
+}
+/** نسخ التاريخ لا يمرّر مخالفة: اعتماد أو رفض كتبه صاحب الطلب نفسه، أو تراجع بلا طلب عن دمج نقل نقاطًا ⇒ يُعرض «مخالف» ولا يُنسخ */
+function mkmViolations(list) {
+  const M = new Map((list || []).filter(x => x && x.id).map(x => [x.id, x]));
+  const same = (q, x) => (q.byEmail && x.byEmail) ? String(q.byEmail).toLowerCase() === String(x.byEmail).toLowerCase() : (q.byId && x.byId) ? q.byId === x.byId : !!q.by && q.by === x.by;   // كما في الواجهة: البريد ثم المعرّف ثم الاسم
+  return (list || []).filter(x => { if (!x) return false; const k = mkmKind(x);
+    if (k === 'rej') { const q = M.get(x.rejOf); return !!q && same(q, x); }
+    if (k === 'undo') { if (x.reqId) { const q = M.get(x.reqId); return !q || same(q, x); } const g = M.get(x.undoOf); return !!g && (Number(g.pts) || 0) > 0; }
+    return false; });
 }
 const mkmPut = (c, x, seed) => { const rec = mkmRecord(x, seed); return grrPut(c, 'mkt_merges', String(x.id), rec, r => r.kind === rec.kind && r.ref === rec.ref); };
 async function mkmMirror(items, seed, onProgress) {
@@ -14935,7 +14945,7 @@ async function mkmMirror(items, seed, onProgress) {
 }
 const mkmQueue = (items) => { _grrChain = _grrChain.then(() => mkmMirror(items, false)).catch(() => null); return _grrChain; };
 const mkmSeed = (items, onProgress) => mkmMirror(items || [], true, onProgress);
-export { mkmOn, mkmRecord, mkmDiff, mkmCompare, mkmSeed };
+export { mkmOn, mkmRecord, mkmDiff, mkmCompare, mkmViolations, mkmSeed };
 
 /* ===== v49.0 — المرحلة 01 (قرار G1-ب): القيود اليدوية سجلات مستقلة (fin_journal/{id}) — نسخ مطابق (mirror) =====
    الوثيقة الحالية (journalManual) تبقى المصدر في هذه المرحلة؛ كل إنشاء/اعتماد/رفض/حذف قبل الاعتماد يُنسخ إلى سجل تحرسه القواعد

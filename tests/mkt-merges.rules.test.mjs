@@ -78,6 +78,21 @@ test('MKM-5 نسخ التاريخ: لمسؤول النظام وحده، ويحم
   await assertFails(put('acct', id('mg'), { kind: 'undo', ref: g, seed: true }), 'غير المسؤول لا ينسخ');
 });
 
+test('MKM-7 الطلب المنسوخ من التاريخ: صاحبه الأصلي (origBy) لا يعتمده ولا يرفضه بعد نسخه', async () => {
+  const g = id('mg'); await assertSucceeds(put('owner', g, { kind: 'merge', ref: g, from: '500000001', to: '500000002', pts: 30, seed: true, origBy: U.acct }));
+  const r = id('mg'); await assertSucceeds(put('owner', r, { kind: 'undoReq', ref: g, seed: true, origBy: U.acct }));
+  await assertFails(put('acct', id('mg'), { kind: 'undo', ref: g, reqId: r }), 'صاحبه الأصلي يعتمد');
+  await assertFails(put('acct', id('mg'), { kind: 'rej', ref: r }), 'صاحبه الأصلي يرفض');
+  await assertSucceeds(put('acct2', id('mg'), { kind: 'undo', ref: g, reqId: r }), 'غيره يعتمد');
+});
+
+test('MKM-8 القراءة تمر بفحص التحقق الثنائي حين تفرضه السياسة', async () => {
+  const g = id('mg'); await assertSucceeds(merge('acct', g));
+  await env.withSecurityRulesDisabled(async (ctx) => { await setDoc(doc(ctx.firestore(), 'platform', 'security'), { roles: ['head_office'] }); });
+  await assertFails(getDoc(doc(as('acct2'), 'mkt_merges', g)), 'دور مركزي بلا تحقق ثنائي');
+  await env.withSecurityRulesDisabled(async (ctx) => { await deleteDoc(doc(ctx.firestore(), 'platform', 'security')); });
+});
+
 test('MKM-6 القراءة: المركز والمسؤول فقط', async () => {
   const g = id('mg'); await assertSucceeds(merge('acct', g));
   await assertSucceeds(getDoc(doc(as('acct2'), 'mkt_merges', g)));

@@ -521,7 +521,8 @@ service cloud.firestore {
     /* ===== v56.36 — الحماية على الخادم لسجلات دمج العملاء (تكميل ضابط التسويق M4) =====
        نسخة محمية من mktMerges: إضافة فقط (لا تعديل ولا حذف)، الكاتب = الحساب ووقت الخادم، للمركز وحده (لا دور العرض).
        فصل المهام على الخادم: الرفض أو التراجع المعتمد يشير إلى طلب قائم لنفس الدمج ولا يكتبه صاحب الطلب؛ والتراجع بلا طلب لدمج بلا نقاط فقط.
-       نسخ التاريخ (seed) لمسؤول النظام وحده ويحمل الكاتب الأصلي نصًا (origBy) — يُعفى من فصل المهام لأن الطلب المنسوخ يحمل حسابه هو. */
+       نسخ التاريخ (seed) لمسؤول النظام وحده ويحمل الكاتب الأصلي (origBy) — يُعفى من فصل المهام لأن الطلب المنسوخ يحمل حسابه هو، ويبقى origBy صاحب الطلب.
+       تنبيه: المصدر (rms8_core.mktMerges) ما زال يُكتب من المركز؛ هذا السجل يكشف المخالفة (تظهر ناقصة في المطابقة) ولا يمنع وقوعها في المصدر. */
     function mkmDoc(x) { return /databases/$(database)/documents/mkt_merges/$(x); }
     function mkmShape(d, id) {
       return d.keys().hasOnly(['kind', 'from', 'to', 'pts', 'ref', 'reqId', 'reason', 'byName', 'origBy', 'origAt', 'seed', 'by', 'at', 'cv'])
@@ -538,11 +539,13 @@ service cloud.firestore {
         && id.matches('^[A-Za-z0-9_-]{1,120}$');
     }
     function mkmIs(x, k) { return exists(mkmDoc(x)) && get(mkmDoc(x)).data.kind == k; }
-    function mkmOtherReq(x, mg, seed) { return mkmIs(x, 'undoReq') && get(mkmDoc(x)).data.ref == mg && (seed || get(mkmDoc(x)).data.by != userEmail()); }
+    // صاحب الطلب = كاتبه، أو كاتبه الأصلي إن كان منسوخًا من التاريخ (origBy) — فلا يعتمده صاحبه بعد نسخه باسم المسؤول
+    function mkmReqBy(x) { return get(mkmDoc(x)).data.get('origBy', get(mkmDoc(x)).data.by); }
+    function mkmOtherReq(x, mg, seed) { return mkmIs(x, 'undoReq') && get(mkmDoc(x)).data.ref == mg && (seed || (get(mkmDoc(x)).data.by != userEmail() && mkmReqBy(x) != userEmail())); }
     function mkmLinkOk(d, seed) {
       return d.kind == 'merge'
         || (d.kind == 'undoReq' && mkmIs(d.ref, 'merge'))
-        || (d.kind == 'rej' && mkmIs(d.ref, 'undoReq') && (seed || get(mkmDoc(d.ref)).data.by != userEmail()))
+        || (d.kind == 'rej' && mkmIs(d.ref, 'undoReq') && (seed || (get(mkmDoc(d.ref)).data.by != userEmail() && mkmReqBy(d.ref) != userEmail())))
         || (d.kind == 'undo' && mkmIs(d.ref, 'merge')
             && (('reqId' in d) ? mkmOtherReq(d.reqId, d.ref, seed) : (seed || get(mkmDoc(d.ref)).data.get('pts', 0) <= 0)));
     }
@@ -553,7 +556,7 @@ service cloud.firestore {
       return okUser(m, adm) && grRole(m, adm) && (adm || centralOf(m)) && (!seed || adm) && mkmShape(d, id) && mkmLinkOk(d, seed);
     }
     match /mkt_merges/{id} {
-      allow read: if realUser() && (admOf(memOf()) || centralOf(memOf()));
+      allow read: if sigRead('');   // المركز والمسؤول، مع فحص العضوية والتحقق الثنائي
       allow create: if subOk() && (mkmCreate(id, request.resource.data));
       allow update, delete: if false;
     }

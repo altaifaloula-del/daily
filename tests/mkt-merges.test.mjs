@@ -30,6 +30,21 @@ test('MKM: الجديد فقط، والمطابقة بالترتيب الزمن�
   assert.deepEqual(E.mkmDiff([g], [g, r, { id: 'bad id', undoOf: 'mg-1' }]).map(x => x.id), ['mg-2'], 'المعرّف غير الصالح يُتجاهل');
   const c = E.mkmCompare([r, g], [{ id: 'mg-9', kind: 'merge', ref: 'mg-9' }]);
   assert.deepEqual(c.missing.map(x => x.id), ['mg-1', 'mg-2']); assert.equal(c.extra.length, 1); assert.equal(c.ok, false);
-  const ok = E.mkmCompare([g], [{ id: 'mg-1', kind: 'merge', ref: 'mg-1', from: '500000001', to: '500000002' }]); assert.equal(ok.ok, true);
+  const ok = E.mkmCompare([g], [{ id: 'mg-1', kind: 'merge', ref: 'mg-1', from: '500000001', to: '500000002', pts: 5 }]); assert.equal(ok.ok, true);
   const df = E.mkmCompare([g], [{ id: 'mg-1', kind: 'merge', ref: 'mg-1', from: '500000001', to: '500000003' }]); assert.equal(df.differ.length, 1);
+});
+
+test('MKM (مراجعة الأمن): المطابقة تكشف النقاط ورقم الطلب، والمخالف لفصل المهام لا يُنسخ', () => {
+  const g = { id: 'mg-1', from: '500000001', to: '500000002', pts: 40, at: '1' };
+  assert.equal(E.mkmCompare([g], [{ id: 'mg-1', kind: 'merge', ref: 'mg-1', from: '500000001', to: '500000002', pts: 0 }]).differ.length, 1, 'سجل محمي بنقاط أقل');
+  const u = { id: 'mg-3', undoOf: 'mg-1', reqId: 'mg-2', at: '3' };
+  assert.equal(E.mkmCompare([u], [{ id: 'mg-3', kind: 'undo', ref: 'mg-1', reqId: 'mg-9' }]).differ.length, 1, 'رقم طلب آخر');
+  const req = { id: 'mg-2', undoReq: 'mg-1', by: 'أ', byEmail: 'a@x.com', at: '2' };
+  const self = { ...u, by: 'أ', byEmail: 'A@x.com' }, other = { ...u, by: 'ب', byEmail: 'b@x.com' };
+  assert.deepEqual(E.mkmViolations([g, req, self]).map(x => x.id), ['mg-3'], 'اعتماد ذاتي');
+  assert.deepEqual(E.mkmViolations([g, req, other]), [], 'اعتماد غيره');
+  assert.deepEqual(E.mkmViolations([g, { id: 'mg-4', undoOf: 'mg-1' }]).map(x => x.id), ['mg-4'], 'تراجع بلا طلب عن دمج فيه نقاط');
+  assert.deepEqual(E.mkmViolations([{ ...g, pts: 0 }, { id: 'mg-4', undoOf: 'mg-1' }]), []);
+  assert.deepEqual(E.mkmViolations([g, req, { id: 'mg-5', rejOf: 'mg-2', by: 'أ', byEmail: 'a@x.com' }]).map(x => x.id), ['mg-5'], 'رفض ذاتي');
+  assert.equal(E.mkmRecord({ ...req, byEmail: 'A@X.com' }, true).origBy, 'a@x.com');
 });
