@@ -6,6 +6,8 @@ import { RotateCcw, Scale, FileBarChart, ChevronDown, Printer, Settings, Receipt
 import { VatRegisters, SupplierPurchReport } from './TaxPurchReports.jsx';   // v39.1
 import { Suppliers } from '../inv/Suppliers.jsx';   // v44.0 «مستلم لم يُفوتر»
 import { DeptCard } from './DeptCard.jsx';   // v56.27 E4
+import { EclCard } from './EclCard.jsx';   // v56.40 الدفعة 7 (E6)
+import { eclOn } from '../../App.jsx';
 import { deptOn, deptList, DEPT_SHARED } from '../../App.jsx';
 import { OdooBar , ctlBarOn, SecPager, recurApply, canEditRec, dtLocal, yearEndNext } from '../../App.jsx';
 import { tbCss, tenantBrand } from '../../App.jsx';   // v56.0 ألوان مستندات المنشأة   // v41.0
@@ -288,7 +290,7 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
   const [arToday, setArToday] = useState(today()); // v15.5: أعمار العملاء كما في تاريخ (قابل للاختيار)
   const arCustomers = buildPartners(org, ops).filter(p => p.type === 'customer');
   const custRec = (id) => (org.partners || []).find(x => x.id === id) || {};
-  const arRows = arCustomers.map(p => { const ag = customerAging(p, arToday); const limit = Number(custRec(p.id).creditLimit) || 0; return { p, ...ag, limit, over: limit > 0 && ag.total > limit + 0.004 }; }).filter(r => r.total > 0.004 || r.credit > 0.004);
+  const arRows = arCustomers.map(p => { const ag = customerAging(p, arToday, eclOn(org));   /* v56.40 (E6.5): بتاريخ الاستحقاق مع المخصص */ const limit = Number(custRec(p.id).creditLimit) || 0; return { p, ...ag, limit, over: limit > 0 && ag.total > limit + 0.004 }; }).filter(r => r.total > 0.004 || r.credit > 0.004);
   const arTot = { owed: r2(sum(arRows, r => r.total)), b0: r2(sum(arRows, r => r.b0)), b30: r2(sum(arRows, r => r.b30)), b60: r2(sum(arRows, r => r.b60)), b90: r2(sum(arRows, r => r.b90)), credit: r2(sum(arRows, r => r.credit)), debtors: arRows.filter(r => r.total > 0.004).length, over: arRows.filter(r => r.over).length };
   const arStmt = (p) => { let run = 0; return (p.txns || []).filter(t => !t.date || t.date <= arToday).map(t => { run = r2(run + (t.debit || 0) - (t.credit || 0)); return { ...t, run }; }); };
   const saveArLimit = async () => {
@@ -2512,8 +2514,10 @@ export function Accounting({ org, ops, me, commit, commitOrg, say, setTab, acctI
                   </tbody>
                 </table>
               </div>
+              {eclOn(org) && <div className="note" data-ar-bydue style={{ marginTop: 10 }}>الأعمار محسوبة من <b>تاريخ الاستحقاق</b> (الفاتورة القديمة بلا استحقاق تُقرأ بتاريخها).</div>}
               <div className="note" style={{ marginTop: 10 }}>مرآة أعمار الموردين: «على العميل» (بيع آجل) يرفع ذمّته المدينة، والتحصيلات تُطبَّق على الأقدم أولًا. تُسجَّل حركات العملاء من «دفتر الشركاء» (نوع: عميل). حدّ الائتمان اختياري؛ عند تجاوزه يُميَّز العميل بالأحمر.</div>
             </div>
+            {eclOn(org) && <EclCard org={org} ops={ops} A={A} me={me} commit={commit} say={say} arRows={arRows} canPost={canPost} />}
             {arLimitF && (
               <Modal title={'حد ائتمان — ' + arLimitF.name} icon={ShieldCheck} onClose={() => setArLimitF(null)}
                 foot={<><button className="btn gh" onClick={() => setArLimitF(null)}>إلغاء</button><button className="btn pri" onClick={saveArLimit}><Check size={14} />حفظ</button></>}>

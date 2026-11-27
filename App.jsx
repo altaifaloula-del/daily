@@ -731,7 +731,7 @@ const BR_COLS = ['posTabs', 'kdsTickets', 'posDeliveries', 'closings', 'transfer
   'prepCounts',
   // v56.12 (G1) — سجلات التسويق برقم فرع العميل (القديمة بلا فرع تبقى مركزية عبر splitOps)
   'mktConsents', 'mktProfiles', 'mktReferrals'];
-const CORE_COLS = ['closeTasks', 'ctlCases', 'rfqs', 'cashVouchers', 'prodOrders', 'archLog', 'cardRecons', 'ledgerSnaps', 'salesInvoices', 'advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'jeRecurring', 'mktMerges', 'mktCampaigns', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules', 'hrScoreSnapshots'];
+const CORE_COLS = ['eclDocs', 'closeTasks', 'ctlCases', 'rfqs', 'cashVouchers', 'prodOrders', 'archLog', 'cardRecons', 'ledgerSnaps', 'salesInvoices', 'advances', 'invoices', 'fixedExpenses', 'disbursements', 'ledgerEntries', 'journalManual', 'jeRecurring', 'mktMerges', 'mktCampaigns', 'purchaseOrders', 'stockMoves', 'bankRecs', 'closingInvPays', 'appSettlements', 'schedules', 'hrScoreSnapshots'];
 
 // تقسيم ops المدمجة إلى مستند مركزي + مستند لكل فرع
 function splitOps(ops, branchIds) {
@@ -1319,7 +1319,54 @@ function siVerify(list) {
 }
 const siPaid = (x) => Math.round((x.receipts || []).reduce((a, r) => a + (Number(r.amount) || 0), 0) * 100) / 100;
 const siCredited = (ops, x) => Math.round((ops.salesInvoices || []).filter(c => c.kind === 'credit' && c.refId === x.id).reduce((a, c) => a + (Number(c.total) || 0), 0) * 100) / 100;
-const siRem = (ops, x) => x.kind === 'credit' || x.terms !== 'credit' ? 0 : Math.max(0, Math.round((x.total - siPaid(x) - siCredited(ops, x)) * 100) / 100);
+const siRem = (ops, x) => x.kind === 'credit' || x.terms !== 'credit' ? 0 : Math.max(0, Math.round((x.total - siPaid(x) - siCredited(ops, x) - eclWoOf(ops, x.id) + eclRecOf(ops, x.id)) * 100) / 100);
+/* ===== v56.40 — الدفعة 7 (قرارات المجلس E6): مخصص الخسائر الائتمانية المحدد لكل عميل، وتاريخ الاستحقاق للأعمار =====
+   مستند ops.eclDocs: { id, no, kind: 'prov' تكوين | 'rel' عكس الزائد | 'wo' شطب دين معدوم (على فاتورة siId), customerKey, amount, date, reason, status: pending|approved|rejected,
+   by, byId, ... approvedBy, approvedAt, expAcc, allowAcc (يُثبَّتان عند الاعتماد فلا يغيّر تبديل الإعداد قيدًا سابقًا) }.
+   القيد ecl:<id> بعد الاعتماد وحده، وبتاريخ المستند (لا في فترة مقفلة): التكوين مدين المصروف دائن المخصص؛ العكس عكسه؛ الشطب مدين المخصص دائن 1380 بطرف العميل.
+   الشطب لا يتجاوز رصيد مخصص العميل ولا متبقي الفاتورة (الشطب على المخصص لا على المصروف مباشرة). لا ضريبة (E6.6). معطّل افتراضيًا (org.ecl.on). */
+const eclOn = (org) => !!(org && org.ecl && org.ecl.on);
+const eclAccs = (org) => { const e = (org && org.ecl) || {}; return { exp: String(e.expAcc || ''), allow: String(e.allowAcc || '') }; };
+const eclLive = (x) => !!x && x.status === 'approved';
+const eclR2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+const eclSumOf = (ops, siId, k, exceptId) => eclR2(((ops && ops.eclDocs) || []).filter(x => eclLive(x) && x.kind === k && x.siId === siId && x.id !== exceptId).reduce((a, x) => a + (Number(x.amount) || 0), 0));
+const eclWoOf = (ops, siId) => eclSumOf(ops, siId, 'wo');
+const eclRecOf = (ops, siId) => eclSumOf(ops, siId, 'rec');   // استرداد دين مشطوب (يعيد الذمة)
+/** رصيد مخصص العميل (المعتمد): التكوين − العكس − الشطب (الاسترداد لا يمس المخصص) */
+const eclAllowBal = (ops, key, exceptId) => eclR2(((ops && ops.eclDocs) || []).filter(x => eclLive(x) && x.customerKey === key && x.id !== exceptId && x.kind !== 'rec')
+  .reduce((a, x) => a + (x.kind === 'prov' ? 1 : -1) * (Number(x.amount) || 0), 0));
+/** حساب المخصص المقبول: فرعي من 13xx (مع الذمم، متداول) غير الحساب الرقابي 1380 وغير النقد؛ والمصروف 5xxx (مراجعة التحقق المحاسبي) */
+const eclAllowOk = (code, A) => /^13\d{2,}$/.test(String(code || '')) && String(code) !== '1380' && (!A || (A.accounts || []).some(y => String(y.code) === String(code) && !y.cash));
+/** فحص المستند (عند الإنشاء والاعتماد): الحسابات، المبلغ، السبب، الفترة، الحدود */
+function eclCheck(org, ops, x, A) {
+  const a = eclR2(x.amount); if (!(a > 0)) return 'أدخل المبلغ';
+  if (!['prov', 'rel', 'wo', 'rec'].includes(x.kind)) return 'نوع غير معروف';
+  if (!String(x.reason || '').trim()) return 'اكتب الدليل أو السبب (تعثر، نزاع، إفلاس…)';
+  if (!x.customerKey) return 'اختر العميل';
+  if (!x.date || periodLocked(org, x.date)) return 'التاريخ في فترة مقفلة أو غير محدد';
+  if (String(x.date) > today()) return 'لا يُقبل تاريخ مستقبلي';
+  const ac = eclAccs(org), has = (c) => !A || (A.accounts || []).some(y => String(y.code) === c);
+  // المخصص حساب أصول مقابل (1xxx — يبقى متداولًا مع الذمم)، والمصروف من المصروفات (5xxx)
+  if (!eclAllowOk(ac.allow, A) || !/^5\d+$/.test(ac.exp) || !has(ac.exp) || !has(ac.allow)) return 'حدّد حسابي المصروف والمخصص من دليل الحسابات في «صيانة النظام» (المخصص حساب فرعي من 13xx غير 1380)';
+  const bal = eclAllowBal(ops, x.customerKey, x.id);
+  if (x.kind === 'rec') { const si = ((ops && ops.salesInvoices) || []).find(y => y.id === x.siId);
+    if (!si || si.customerKey !== x.customerKey) return 'اختر الفاتورة المشطوبة المسترَدة';
+    const can = eclR2(eclWoOf(ops, si.id) - eclSumOf(ops, si.id, 'rec', x.id)); if (a > can + 0.004) return 'المبلغ أكبر من المشطوب غير المسترد على الفاتورة (' + can + ')';
+    return ''; }
+  if (x.kind !== 'prov' && a > bal + 0.004) return 'المبلغ أكبر من رصيد مخصص العميل (' + bal + ') — كوّن المخصص أولًا';
+  if (x.kind === 'wo') { const si = ((ops && ops.salesInvoices) || []).find(y => y.id === x.siId);
+    if (!si || si.customerKey !== x.customerKey) return 'اختر فاتورة العميل المشطوبة';
+    if (a > siRem(ops, si) + 0.004) return 'المبلغ أكبر من متبقي الفاتورة (' + siRem(ops, si) + ')'; }
+  return '';
+}
+/** الاعتماد: غير المنشئ (المحاسب أو الإدارة المالية أو المالك)، وإعادة الفحص على أحدث البيانات، وتثبيت الحسابات */
+function eclApprove(org, d, id, me, A) {
+  const x = (d.eclDocs || []).find(y => y.id === id); if (!x || x.status !== 'pending') return { err: 'تغيّرت حالة المستند — حدّث الشاشة' };
+  if (!canApproveJe(me, x)) return { err: 'لا يعتمده من أنشأه — يعتمده المحاسب أو الإدارة المالية أو المالك' };
+  const e = eclCheck(org, d, x, A); if (e) return { err: e };
+  const ac = eclAccs(org);
+  return { next: { ...d, eclDocs: (d.eclDocs || []).map(y => y.id === id ? { ...y, status: 'approved', approvedBy: me.name, approvedById: me.id || '', approvedAt: nowISO(), expAcc: ac.exp, allowAcc: ac.allow } : y) } };
+}
 
 /* v31.4 — الجرد الدوري المجدول: لكل مستودع موعد جرد حسب التكرار، وآخر جرد من سجل الجلسات أو تسويات الجرد */
 const COUNT_FREQ = { weekly: { ar: 'أسبوعي', d: 7 }, biweekly: { ar: 'كل أسبوعين', d: 14 }, monthly: { ar: 'شهري', d: 30 } };
@@ -1607,9 +1654,13 @@ function buildPartners(org, ops) {
     (ops.salesInvoices || []).filter(x => x.customerKey === key && !x.inClosing).forEach(x => {
       if (x.kind === 'credit') { if (x.terms === 'credit') t.push({ date: x.date, desc: 'إشعار دائن ' + x.no, ref: x.no, src: 'si', debit: 0, credit: x.total }); return; }
       if (x.terms !== 'credit') return;
-      t.push({ date: x.date, desc: (x.kind === 'debit' ? 'إشعار مدين ' : 'فاتورة مبيعات ') + x.no, ref: x.no, src: 'si', debit: x.total, credit: 0, due: x.dueDate });
+      t.push({ date: x.date, desc: (x.kind === 'debit' ? 'إشعار مدين ' : 'فاتورة مبيعات ') + x.no, ref: x.no, src: 'si', debit: x.total, credit: 0, due: x.dueDate, sid: x.id });
       (x.receipts || []).forEach(r => t.push({ date: r.date, desc: 'تحصيل عن ' + x.no, ref: x.no, src: 'si', debit: 0, credit: Number(r.amount) || 0 }));
-    }); return t; };
+    });
+    (ops.eclDocs || []).filter(d => eclLive(d) && (d.kind === 'wo' || d.kind === 'rec') && d.customerKey === key).forEach(d => t.push(d.kind === 'wo'
+      ? { date: d.date, desc: 'شطب دين معدوم ' + (d.no || ''), ref: d.no || '', src: 'ecl', debit: 0, credit: eclR2(d.amount), sid: d.siId }   // v56.40: يُخصم من فاتورته في الأعمار
+      : { date: d.date, desc: 'استرداد دين مشطوب ' + (d.no || ''), ref: d.no || '', src: 'ecl', debit: eclR2(d.amount), credit: 0, due: ((ops.salesInvoices || []).find(y => y.id === d.siId) || {}).dueDate || d.date }));   // يُعمَّر بتاريخ استحقاق فاتورته
+    return t; };
 
   // الموظفون — استحقاق وصرف الرواتب قيود دائمة تُرحَّل من شاشة الرواتب (لا سطر اصطناعي يتغيّر بالشهر)
   (org.employees || []).forEach(em => {
@@ -1682,15 +1733,19 @@ function supplierAging(p, todayStr) {
 }
 
 // v12.2 — أعمار ذمّة عميل (مدينة): الأعباء (مدين فقط = على العميل) تُطبَّق عليها التحصيلات (دائن فقط) بالأقدم أولًا، والمتبقّي المفتوح يُصنَّف بعُمره. مرآة أعمار الموردين باتجاه معاكس.
-function customerAging(p, todayStr) {
+function customerAging(p, todayStr, byDue) {
   const upto = (t) => !todayStr || !t.date || t.date <= todayStr; // v15.5: أعمار كما في تاريخ
-  const charges = (p.txns || []).filter(t => upto(t) && (t.debit || 0) > 0 && !((t.credit || 0) > 0)).map(t => ({ date: t.date, open: t.debit }));
+  // v56.40 (E6.5): مع byDue يُحسب العمر من تاريخ الاستحقاق (القديم بلا استحقاق يُقرأ بتاريخه) — التخصيص FIFO بتاريخ الفاتورة كما هو
+  const charges = (p.txns || []).filter(t => upto(t) && (t.debit || 0) > 0 && !((t.credit || 0) > 0)).map(t => ({ date: t.date, age: byDue && t.due ? t.due : t.date, open: t.debit, sid: t.sid || '' }));
   charges.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
-  let pay = (p.txns || []).reduce((s, t) => s + ((upto(t) && (t.credit || 0) > 0 && !((t.debit || 0) > 0)) ? t.credit : 0), 0);
+  // v56.40 (التحقق المحاسبي): الشطب يُخصم من فاتورته أولًا (sid)، ثم الباقي والتحصيلات بالأقدم أولًا كما كان
+  const targeted = (p.txns || []).filter(t => upto(t) && t.sid && (t.credit || 0) > 0 && !((t.debit || 0) > 0));
+  let pay = (p.txns || []).reduce((s, t) => s + ((upto(t) && !t.sid && (t.credit || 0) > 0 && !((t.debit || 0) > 0)) ? t.credit : 0), 0);
+  targeted.forEach(t => { const ch = charges.find(c => c.sid === t.sid); let left = t.credit; if (ch) { const ap = Math.min(left, ch.open); ch.open -= ap; left -= ap; } pay += left; });
   for (const ch of charges) { if (pay <= 0.004) break; const ap = Math.min(pay, ch.open); ch.open -= ap; pay -= ap; }
   const dd = (a, b) => { const x = Date.parse(a), y = Date.parse(b); return (isNaN(x) || isNaN(y)) ? 0 : Math.max(0, Math.floor((y - x) / 86400000)); };
   const bk = { b0: 0, b30: 0, b60: 0, b90: 0 };
-  charges.forEach(ch => { if (ch.open <= 0.004) return; const d = dd(ch.date, todayStr); if (d <= 30) bk.b0 += ch.open; else if (d <= 60) bk.b30 += ch.open; else if (d <= 90) bk.b60 += ch.open; else bk.b90 += ch.open; });
+  charges.forEach(ch => { if (ch.open <= 0.004) return; const d = dd(ch.age || ch.date, todayStr); if (d <= 30) bk.b0 += ch.open; else if (d <= 60) bk.b30 += ch.open; else if (d <= 90) bk.b60 += ch.open; else bk.b90 += ch.open; });
   const r = (n) => Math.round(n * 100) / 100;
   return { b0: r(bk.b0), b30: r(bk.b30), b60: r(bk.b60), b90: r(bk.b90), total: r(bk.b0 + bk.b30 + bk.b60 + bk.b90), credit: r(pay) };
 }
@@ -2716,6 +2771,14 @@ function buildAccounting(org, ops) {
       push({ id: 'sir:' + r.id, date: r.date, ...(x.branchId ? { branchId: x.branchId } : {}), title: 'تحصيل من عميل — ' + ((x.buyer || {}).name || '') + ' عن ' + x.no, src: 'فواتير المبيعات', ref: x.no, lines: [L(fundOf(r.fund), a, 0), L('1380', 0, a)] }); });
   });
 
+  // 6-ب2) v56.40 (E6) مخصص الخسائر الائتمانية — المعتمد وحده، بحسابيه المثبّتين عند الاعتماد
+  (ops.eclDocs || []).forEach(x => { if (!eclLive(x) || !x.expAcc || !x.allowAcc) return; const a = eclR2(x.amount); if (!(a > 0)) return;
+    // الاسترداد (IFRS for SMEs 11.26 — عكس الخسارة عبر الربح والخسارة): مدين 1380 بطرف العميل / دائن مصروف الخسائر الائتمانية
+    const lines = x.kind === 'prov' ? [L(x.expAcc, a, 0), L(x.allowAcc, 0, a)] : x.kind === 'rel' ? [L(x.allowAcc, a, 0), L(x.expAcc, 0, a)] : x.kind === 'rec' ? [L('1380', a, 0), L(x.expAcc, 0, a)] : [L(x.allowAcc, a, 0), L('1380', 0, a)];
+    const sb = (x.kind === 'wo' || x.kind === 'rec') ? ((ops.salesInvoices || []).find(y => y.id === x.siId) || {}).branchId : x.branchId;   // فرع الفاتورة للشطب والاسترداد؛ اختياري للتكوين والعكس
+    push({ id: 'ecl:' + x.id, date: x.date, ...(sb ? { branchId: sb } : {}), title: (x.kind === 'prov' ? 'تكوين مخصص خسائر ائتمانية' : x.kind === 'rel' ? 'عكس مخصص خسائر ائتمانية' : x.kind === 'rec' ? 'استرداد دين مشطوب' : 'شطب دين معدوم') + ' — ' + (x.custName || x.customerKey) + (x.no ? ' (' + x.no + ')' : ''),
+      src: 'مخصص الخسائر الائتمانية', ref: x.no || '', lines }); });
+
   // 6-ج) v46.6 سندات القبض والصرف والمقاصّة: الجزء الموزَّع على فواتير يُقيَّد مع الفاتورة (سدادها/تحصيلها)، والباقي «على الحساب» هنا
   (ops.cashVouchers || []).forEach(v => {
     const a = Math.round((Number(v.amount) || 0) * 100) / 100; if (!(a > 0) || !cvLive(v)) return;   // v56.32: المعلّق والمرفوض لا يُرحَّلان (القديم بلا حالة = مرحّل)
@@ -3527,12 +3590,14 @@ function closeAutoChecks(A, ops, month, org) {
   // v56.33 P2: غير المطابق وله فواتير، داخل نطاق «الإغلاق غير المطابق» فقط (معطّل افتراضيًا)، وبلا شرح
   const pmis = org ? (A.entries || []).filter(e => inM(e.date) && e.posGl === 'mismatch' && e.posInv && posMisLoyAt(org, e.date) && !posGlNote(org, String(e.id).replace(/^rev:/, ''))) : [];
   const pds = (ops.disbursements || []).filter(x => x.status === 'pending' && String(x.date || '') <= end);   // v56.29
+  const pecl = (ops.eclDocs || []).filter(x => x.status === 'pending' && String(x.date || '') <= end);   // v56.40 (E6.3): مراجعة المخصص بند في الإقفال
   return [
     { k: 'drafts', ar: 'لا إغلاقات مسودة أو مرفوضة حتى نهاية الشهر', n: cls.filter(c => c.status === 'draft' || c.status === 'rejected').length },
     { k: 'pending', ar: 'كل الإغلاقات المرفوعة مدقَّقة (لا شيء بانتظار التدقيق)', n: cls.filter(c => c.status === 'submitted').length },
     { k: 'pj', ar: 'لا قيود يدوية بانتظار الاعتماد', n: pj.length },
     ...(pmis.length ? [{ k: 'posmis', ar: 'كل إغلاق لا يطابق فواتير نقطة البيع مصحَّح أو مشروح بمستند (صيانة النظام ← قيد الإيراد من نقطة البيع)', n: pmis.length }] : []),
     ...(pcv.length || pds.length ? [{ k: 'pdocs', ar: 'لا سندات صرف ولا أوامر صرف بانتظار الاعتماد (المعلّق في شهر مقفل لا يُعتمد)', n: pcv.length + pds.length }] : []),
+    ...(pecl.length || (org && eclOn(org)) ? [{ k: 'ecl', ar: 'مخصص الخسائر الائتمانية: رُوجعت ذمم العملاء المتأخرة ولا مستند مخصص أو شطب بانتظار الاعتماد', n: pecl.length }] : []),
     { k: 'unb', ar: 'كل قيود الشهر متوازنة', n: unb.length },
     { k: 'susp', ar: 'الحساب المعلّق 9999 رصيده صفر', n: Math.abs(susp) > 0.004 ? 1 : 0, amt: susp },
   ].map(x => ({ ...x, ok: !x.n }));
@@ -3756,7 +3821,7 @@ function emptyOrg(company) {
 }
 
 function emptyOps() {
-  return { rfqs: [], posDeliveries: [], cashVouchers: [], jeRecurring: [], mktConsents: [], mktMerges: [], mktProfiles: [], mktReferrals: [], actions: [], countSessions: [], wasteRequests: [], posImports: [], posOrders: [], posShifts: [], ledgerSnaps: [], stockCounts: [], leaveRequests: [], productSales: [], salesInvoices: [], closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
+  return { eclDocs: [], rfqs: [], posDeliveries: [], cashVouchers: [], jeRecurring: [], mktConsents: [], mktMerges: [], mktProfiles: [], mktReferrals: [], actions: [], countSessions: [], wasteRequests: [], posImports: [], posOrders: [], posShifts: [], ledgerSnaps: [], stockCounts: [], leaveRequests: [], productSales: [], salesInvoices: [], closings: [], transfers: [], advances: [], notifications: [], invoices: [], fixedExpenses: [], disbursements: [], ledgerEntries: [], partnerRequests: [], journalManual: [], purchaseOrders: [], stockMoves: [], bankRecs: [], closingInvPays: [], appSettlements: [], schedules: [], branchPartners: [],
     attendanceEvents: [], hrPins: [], shiftTemplates: [], shiftAssignments: [], shiftSwapRequests: [], branchTransferRequests: [], taskTemplates: [], taskAssignments: [], taskCompletions: [], pointsEntries: [], qualityReviews: [], rewardRequests: [], hrSignDocs: [], hrCorrective: [], hrPips: [], hrTraining: [], hrKpiEntries: [], hrScoreSnapshots: [], purchaseReqs: [], poInbox: [], poReceipts: [] };
 }
 
@@ -3767,7 +3832,7 @@ function emptyOps() {
    ويُحفظ آخر 20 خطأ على الجهاز (للإرسال للدعم) — لا تتوقف المنصة كلها بسبب قسم واحد */
 const ERRLOG_KEY = 'mizan:errlog';
 // v38.5 — رقم الإصدار في مكان واحد (الشريط العلوي وسجل الأخطاء)
-const APP_VER = 'v56.39';
+const APP_VER = 'v56.40';
 // سياق المستخدم الحالي لسجل الأخطاء (يُضبط عند الدخول) — بلا بيانات تشغيل
 const ERR_CTX = { role: '', branchId: '' };
 const errSig = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16); };
@@ -7781,7 +7846,8 @@ function ctlScan(org, ops, opts = {}) {
   });
   // 7) أرصدة بعكس طبيعة الحساب (من الدفاتر حتى اليوم)
   try { const A = opts.A || buildAccounting(org, ops); const T = acctActivity(A, { from: '', to: td });
-    T.rows.forEach(r => { if (CTL_CONTRA.has(String(r.code)) || r.close >= -1) return;
+    const eclA = String(((org && org.ecl) || {}).allowAcc || ''); const eclUsed = new Set((ops.eclDocs || []).filter(eclLive).map(x => String(x.allowAcc || '')));   // v56.40: حساب المخصص مقابل بطبيعته
+    T.rows.forEach(r => { if (CTL_CONTRA.has(String(r.code)) || String(r.code) === eclA || eclUsed.has(String(r.code)) || r.close >= -1) return;
       add({ key: 'nature|' + r.code, cat: 'nature', sev: Math.abs(r.close) > 1000 ? 'high' : 'medium', branchId: '', ref: { kind: 'acc', id: r.code, no: r.code }, title: 'الحساب ' + r.code + ' ' + (r.name || '') + ' رصيده بعكس طبيعته', evidence: 'الرصيد الختامي ' + r2(r.close) + ' (' + (r.kind === 'asset' || r.kind === 'exp' ? 'دائن' : 'مدين') + ')', impact: Math.abs(r.close), fix: 'راجع قيود الحساب: قيد معكوس أو تصنيف خاطئ أو مرتجع بلا أصل.' }); }); } catch { }
   // 8) الأنماط الشاذة الإحصائية القائمة (تكامل لا تكرار)
   if (opts.anomalies !== false) { try { (detectAnomalies(org, ops, { today: td }) || []).forEach(a => add({ key: 'anomaly|' + anomKey(a), cat: 'anomaly', sev: a.sev === 'high' ? 'high' : 'medium', module: 'anomalies', type: 'operational', branchId: a.branchId || '', ref: { kind: 'anomaly', id: a.id, no: '' },
@@ -9207,6 +9273,7 @@ async function loyPiiStrip() {
   }
   return { err: 'تعارض متكرر — أعد المحاولة' };
 }
+export { eclOn, eclAccs, eclLive, eclAllowBal, eclWoOf, eclRecOf, eclAllowOk, eclCheck, eclApprove };   // v56.40 الدفعة 7 (E6)
 export { loyPiiOn, lypSetOn, lynReset, lypReleaseOk, loyNamesByBr, loyStrip, loyWithNames, loyPiiPlan, loyGet, loyPiiCopy, loyPiiStrip };
 const posQueue = () => { try { return JSON.parse(localStorage.getItem(POS_Q_KEY) || '[]'); } catch { return []; } };
 const posQueueSet = (a) => { try { localStorage.setItem(POS_Q_KEY, JSON.stringify(a)); } catch { } };
@@ -15145,7 +15212,7 @@ function flOpening(A, start = FL_START) {
  *  المجموعة تُعرف ببادئة معرّف القيد في المحرك. قيود الإغلاق غير المعتمد (المرفوع بانتظار التدقيق) لا تدخل في أي مستوى. */
 const FL_GROUPS = [
   { id: 'closings', label: 'الإغلاقات اليومية والخزينة وتسويات التطبيقات', pre: ['rev:', 'cashvar:', 'exp:', 'spay:', 'tr:', 'trs:', 'trr:', 'dis:', 'astl:'] },
-  { id: 'ap', label: 'فواتير الموردين والسداد والسندات وفواتير المبيعات', pre: ['inv:', 'invp:', 'cip:', 'cv:', 'si:', 'sir:', 'fxr:'] },
+  { id: 'ap', label: 'فواتير الموردين والسداد والسندات وفواتير المبيعات', pre: ['inv:', 'invp:', 'cip:', 'cv:', 'si:', 'sir:', 'fxr:', 'ecl:'] },   // v56.40 مخصص الخسائر الائتمانية
   { id: 'payroll', label: 'الرواتب والتأمينات والسلف ونهاية الخدمة والإجازات', pre: ['sal-acc:', 'sal-pay:', 'sal-set:', 'gosi-er:', 'adv:', 'eos:', 'eos-pay:', 'lv:'] },
   { id: 'stock', label: 'المخزون وتكلفة المبيعات', pre: ['stk:', 'stk-open', 'stx:', 'srx:', 'invval'] },
   { id: 'assets', label: 'الأصول الثابتة والإهلاك', pre: ['ast:', 'disp:', 'dep:'] },
