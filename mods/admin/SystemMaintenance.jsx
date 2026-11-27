@@ -9,7 +9,7 @@ import { clrCompare, clrLoad, clrOn, clrSeed, clrState, logAudit, clrRead, clrVi
 import { posrOn, posrCompare, posrLoad, posrSeed, posrState, posrRepair } from '../../App.jsx';   // v56.4 (POS 2a) سجلات فواتير نقطة البيع
 import { MKT_BR_CV, mktBrOn } from '../../App.jsx';
 import { loyPiiOn, loyPiiPlan, loyPiiCopy, loyPiiStrip, lypReleaseOk } from '../../App.jsx';   // v56.37 فصل أسماء عملاء الولاء
-import { grrOn, mkcCompare, lytCompare, grrLoad, grrSeed, grrState, mkmOn, mkmCompare, mkmViolations, mkmSeed } from '../../App.jsx';
+import { grrOn, mkcCompare, lytCompare, grrLoad, grrSeed, grrState, mkmOn, mkmCompare, mkmViolations, mkmSeed, mkmSrcOn } from '../../App.jsx';
 import { posGlOpen, posGlRanges, posGlCheck } from '../../App.jsx';
 import { loyMonthAdj, posLoyOpening, posMisLoyRanges, posMisLoyFrom, posGlNote, jeOwner, posGlFrom } from '../../App.jsx';   // v56.33 (الدفعة 2 — P1/P2)
 import { ctlBarOn } from '../../App.jsx';
@@ -830,18 +830,28 @@ function GrowthRecordsCard({ org, ops, commitOrg, say, isAdm }) {
     await logAudit({ actionType: 'migrate', targetType: 'system_settings', targetId: 'growthRecords', title: 'نسخ الموافقات وحركات الولاء إلى السجلات المحمية', details: 'موافقات ' + a0.ok + '/' + a0.total + ' · ولاء ' + b.ok + '/' + b.total + (m.total ? ' · دمج ' + m.ok + '/' + m.total : '') + ((a.fail || b.fail) ? ' · تعذّر ' + (a.fail + b.fail) + ' (' + (a.lastErr || b.lastErr) + ')' : '') });
     say((a.fail || b.fail) ? 'نُسخ ' + (a.ok + b.ok) + ' وتعذّر ' + (a.fail + b.fail) : 'نُسخ ' + (a.ok + b.ok) + ' سجلًا ✓', (a.fail || b.fail) ? 'no' : 'ok'); check();
   };
+  /* v56.39: مصدر الدمج على الخادم — يُفعَّل بعد مطابقة لا ناقص فيها (غير المخالف)، فلا يسقط دمج تاريخي من الحساب */
+  const srcOn = mkmSrcOn(org);
+  const toggleSrc = async () => { if (!isAdm) return;
+    if (!srcOn) { if (!rep || !rep.mm) return say('اضغط «مطابقة» أولًا', 'no');
+      const bad = new Set((rep.mmBad || []).map(x => x.id)); const miss = rep.mm.missing.filter(x => !bad.has(x.id)).length; if (miss) return say('انسخ التاريخ أولًا: ' + miss + ' سجل دمج ناقص', 'no');
+      if (!window.confirm('جعل الخادم مصدر الدمج؟\nكل دمج أو طلب تراجع أو اعتماد أو رفض يُسجَّل في الخادم أولًا، ويرفض الخادم اعتماد صاحب الطلب لطلبه والتراجع بلا طلب عن دمج نقل نقاطًا — فلا تقع العملية أصلًا.' + (bad.size ? '\nتنبيه: ' + bad.size + ' سجل مخالف في المصدر لن يُعتدّ به.' : ''))) return; }
+    const ok = await commitOrg(o => ({ ...o, mkmSrc: { ...(o.mkmSrc || {}), on: !srcOn, at: nowISO() } }), { actionType: 'settings', targetType: 'system_settings', targetId: 'mkmSrc', title: srcOn ? 'أوقف مصدر الدمج على الخادم' : 'فعّل مصدر الدمج على الخادم' });
+    if (ok) say(srcOn ? 'أُوقف — عاد المصدر المركزي' : 'فُعّل — الخادم مصدر الدمج ✓'); };
   const st = grrState(); const line = (t, r) => r && <div className="me-row"><span className="me-a"><b>{t}</b><small>في المصدر {r.total} · في السجلات {r.recs} · ناقص {r.missing.length} · مختلف {r.differ.length} · زائد {r.extra.length}</small></span><span className={'badge ' + (r.ok ? 'b-mint' : 'b-amber')}>{r.ok ? 'مطابق' : 'غير مطابق'}</span></div>;
   return (<div className="card" data-grr>
     <div className="card-h"><div className="card-t"><ShieldCheck size={15} color="var(--brass)" />الموافقات التسويقية وحركات الولاء سجلات محمية</div>
       <span className={'badge ' + (on ? 'b-sky' : 'b-dim')}>{on ? 'النسخ مفعّل' : 'غير مفعّل'}</span></div>
     <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>
       كل موافقة أو إلغاء اشتراك وكل حركة نقاط تُنسخ إلى سجل يحرسه الخادم: <b>يُضاف ولا يُعدَّل ولا يُحذف</b>، والكاتب والوقت من الخادم. المصدر يبقى كما هو في هذه المرحلة.
+      {srcOn && <div data-grr-mkmsrc-on><b>الخادم مصدر الدمج:</b> لا تقع عملية دمج أو تراجع يرفضها الخادم، ولا يُعتدّ بسجل لا مقابل له في الخادم.</div>}
       {mkmOn(org) && <div data-grr-mkm>ومع ضوابط التسويق تُنسخ سجلات دمج ملفات العملاء أيضًا: يرفض الخادم تسجيل اعتماد صاحب طلب التراجع أو رفضه بنفسه، والتراجع بلا طلب عن دمج نقل نقاطًا — فتظهر المخالفة في المطابقة. المنع الفعلي للعملية نفسها عند نقل المصدر إلى الخادم (مرحلة لاحقة).</div>}
       {on && st.at ? <div>منذ فتح الصفحة: نُسخ {st.ok}{st.fail ? ' · تعذّر ' + st.fail + ' (' + st.lastErr + ')' : ''}</div> : null}</div>
     {rep && <div data-grr-rep>{line('الموافقات التسويقية', rep.mc)}{line('حركات الولاء', rep.ly)}{rep.mm && line('دمج ملفات العملاء', rep.mm)}{rep.mmBad && rep.mmBad.length > 0 && <div className="me-row" data-grr-mkmbad><span className="me-a"><b>مخالف لفصل المهام في المصدر</b><small>{rep.mmBad.length} سجل (اعتماد أو رفض بيد صاحب الطلب، أو تراجع بلا طلب عن دمج نقل نقاطًا) — لا يُنسخ، ويستحق المراجعة</small></span><span className="badge b-rose">مخالف</span></div>}</div>}
     <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
       {isAdm && <button className={'btn sm ' + (on ? 'gh' : 'pri')} onClick={toggle} data-grr-toggle>{on ? 'إيقاف' : 'تفعيل'}</button>}
       <button className="btn sm gh" disabled={!!busy} onClick={check} data-grr-check>{busy === 'check' ? 'جارٍ…' : 'مطابقة'}</button>
+      {isAdm && mkmOn(org) && <button className={'btn sm ' + (srcOn ? 'gh' : 'pri')} disabled={!!busy} onClick={toggleSrc} data-grr-mkmsrc>{srcOn ? 'إيقاف مصدر الدمج على الخادم' : 'الخادم مصدر الدمج'}</button>}
       {isAdm && on && rep && <button className="btn sm gh" disabled={!!busy} onClick={seed} data-grr-seed>{busy && busy !== 'check' ? busy : 'نسخ التاريخ'}</button>}
     </div>
   </div>);

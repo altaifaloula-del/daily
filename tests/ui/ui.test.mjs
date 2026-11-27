@@ -4113,3 +4113,18 @@ test('v56.37 (مراجعة الأمن): أسماء نطاق المستخدم و�
   assert.deepEqual(q, [null, 'من الطابور'], 'الطابور يُفرَّغ بعد الحفظ');
   assert.deepEqual(errs, []); await ctx.close();
 });
+
+test('v56.39 مصدر الدمج على الخادم: يُكتب السجل المحمي أولًا — تعذّره يوقف التراجع قبل أي أثر على النقاط أو المصدر', async () => {
+  const { p, errs, ctx } = await open({ viewport: { width: 1300, height: 1000 } }, 'live/MktGrowth/admin');
+  await p.evaluate(() => { try { localStorage.setItem('rms8:loy', JSON.stringify({ members: {}, tx: [{ id: 'm1:i', phone: '511111111', pts: 30, at: new Date().toISOString() }] })); } catch { } });
+  await p.reload(); await p.waitForTimeout(400);
+  await p.evaluate(() => { const td = new Date(); td.setHours(12); window.setOrg(o => ({ ...o, growthRecords: { on: true }, mktCtl: { on: true }, mkmSrc: { on: true } }));
+    window.setOps(o => ({ ...o, mktConsents: [], mktMerges: [{ id: 'm1', from: '522222222', to: '511111111', pts: 0, reason: 'تحقق', by: 'آخر', byId: 'z', at: td.toISOString() }], posOrders: window.__spg(td.toISOString().slice(0, 10)) })); });
+  await p.waitForTimeout(400);
+  await p.click('[data-mktv="gov"]'); await p.waitForTimeout(200);
+  await p.evaluate(() => { window.prompt = () => 'خطأ في الدمج'; }); await p.locator('[data-unmerge]').first().click();
+  await p.waitForFunction(() => /Firestore فقط/.test(window.lastSay || ''));
+  assert.equal(await p.evaluate(() => window.cur.mktMerges.length), 1, 'لم يُكتب شيء في المصدر');
+  assert.equal(await p.evaluate(() => JSON.parse(localStorage.getItem('rms8:loy')).tx.length), 1, 'لم تتحرك النقاط');
+  assert.deepEqual(errs, []); await ctx.close();
+});

@@ -6,7 +6,7 @@ import { Target, Users, Grid3x3 as Layers, ShieldCheck, Settings, Download, User
 import { Field, Kpi, Modal, money, makeXlsx, today, nowISO, uid, normPhone, loyPost, ROLES,
   mktCfg, mktCanApprove, MKT_SEGS, MKT_SEG_ORDER, crmBuild, crmSegment, crmDupes, mktKpis, mktCanContact,
   loyX, loyTier, loyPeriodicTx, mktProfiles, rewardCoupon, cpnKey, posR2, CAMP_ST, campNextNo, campStatusOf, campStats, buildAccounting, recCfgOf, recStats, dtLocal, brReport, printScreen, AI_GROWTH_PRESETS, growthDigest, aiGrowthAsk, COMMS_PROVIDERS, COMMS_CH, COMMS_VARS, commsCfgOf, commsRender, smsParts, commsTplErr, loyAudit, LOY_AUDIT_WHY,
-  logAudit, MKT_RW_KEY, rwPendSplit, rwUndoTx, mktUnmergeBlock, mktBrOn, mktRecBranch, mktMergesLive, loyGet } from '../../App.jsx';
+  logAudit, MKT_RW_KEY, rwPendSplit, rwUndoTx, mktUnmergeBlock, mktBrOn, mktRecBranch, mktMergesLive, loyGet, mkmSrcOn, mkmWrite } from '../../App.jsx';
 import { mktCtlOn, mktCanExport, mktCanExportAll, mktUndoPending } from '../../App.jsx';   // v56.35 الدفعة 4
 import { Megaphone, Sparkles, Building2, Bot, MessageSquare } from 'lucide-react';
 import { Gift, Gift as Ticket } from 'lucide-react';
@@ -211,29 +211,35 @@ function Gov({ list, ops, org, me, canApp, commit, say, setLoy, loyD }) {
   const WHY = { name: 'اسم متطابق', email: 'بريد واحد', b2b: 'نفس العميل الآجل' };
   // v56.35 M4: مع ضوابط التسويق، التراجع الذي يحرّك نقاطًا يصبح طلبًا يعتمده غير صاحبه
   const pend = mktUndoPending(ops);
+  // v56.39: مع «مصدر الدمج على الخادم» يُكتب السجل المحمي أولًا — رفض الخادم (فصل المهام) يوقف العملية قبل أي أثر
+  const gate = async (rec) => { if (!mkmSrcOn(org)) return true; const r = await mkmWrite(rec); if (r.err) { say(r.err, 'no'); return false; } return true; };
   const requestUndo = async (x) => { const blk = mktUnmergeBlock(ops, (loyD || {}).tx, x); if (blk) return say('لا يمكن التراجع: ' + blk, 'no');
     if (pend.some(r => r.undoReq === x.id)) return say('يوجد طلب تراجع قائم لهذا الدمج', 'no');
     const why = window.prompt('سبب طلب التراجع عن دمج ' + x.from + ' ← ' + x.to + ' (إلزامي):'); if (!why || !why.trim()) return;
-    const ok = await commit(d => ({ ...d, mktMerges: [...(d.mktMerges || []), { id: uid('mg'), undoReq: x.id, reason: why.trim(), by: me.name, byId: me.id || '', ...(me.email ? { byEmail: me.email } : {}), at: nowISO() }] }), { actionType: 'create', targetType: 'customer', targetId: x.to, need: 'edit', title: 'طلب تراجع عن دمج يمس النقاط', details: x.from + ' ← ' + x.to + ' · ' + x.pts + ' نقطة · ' + why.trim() });
+    const rq = { id: uid('mg'), undoReq: x.id, reason: why.trim(), by: me.name, byId: me.id || '', ...(me.email ? { byEmail: me.email } : {}), at: nowISO() }; if (!(await gate(rq))) return;
+    const ok = await commit(d => ({ ...d, mktMerges: [...(d.mktMerges || []), rq] }), { actionType: 'create', targetType: 'customer', targetId: x.to, need: 'edit', title: 'طلب تراجع عن دمج يمس النقاط', details: x.from + ' ← ' + x.to + ' · ' + x.pts + ' نقطة · ' + why.trim() });
     if (ok) say('أُرسل الطلب — يعتمده شخص آخر ✓'); };
   const decideReq = async (r, okd) => { if (!canApp) return; const x = live.find(m => m.id === r.undoReq);
     const mine = (r.byEmail && me.email && r.byEmail === me.email) || (r.byId ? r.byId === me.id : r.by === me.name);   // (مراجعة الأمن) البريد أولًا
     if (mine) return say('لا يعتمد الطلب صاحبه', 'no');
-    if (!okd) { const why = window.prompt('سبب الرفض (إلزامي):', ''); if (!why || !why.trim()) return; const ok = await commit(d => ({ ...d, mktMerges: [...(d.mktMerges || []), { id: uid('mg'), rejOf: r.id, reason: why, by: me.name, byId: me.id || '', ...(me.email ? { byEmail: me.email } : {}), at: nowISO() }] }), { actionType: 'update', targetType: 'customer', targetId: r.undoReq, need: 'edit', title: 'رفض طلب تراجع عن دمج', details: why }); if (ok) say('رُفض الطلب'); return; }
+    if (!okd) { const why = window.prompt('سبب الرفض (إلزامي):', ''); if (!why || !why.trim()) return; const rj = { id: uid('mg'), rejOf: r.id, reason: why, by: me.name, byId: me.id || '', ...(me.email ? { byEmail: me.email } : {}), at: nowISO() }; if (!(await gate(rj))) return; const ok = await commit(d => ({ ...d, mktMerges: [...(d.mktMerges || []), rj] }), { actionType: 'update', targetType: 'customer', targetId: r.undoReq, need: 'edit', title: 'رفض طلب تراجع عن دمج', details: why }); if (ok) say('رُفض الطلب'); return; }
     if (!x) return say('الدمج لم يعد قائمًا', 'no'); return undo(x, r); };
   const undo = async (x, req) => { if (!canApp) return; const blk = mktUnmergeBlock(ops, (loyD || {}).tx, x); if (blk) return say('لا يمكن التراجع: ' + blk, 'no');
     if (!req && mktCtlOn(org) && Number(x.pts) > 0) return requestUndo(x);
     const why = req ? req.reason : window.prompt('سبب التراجع عن دمج ' + x.from + ' ← ' + x.to + ' (إلزامي):'); if (!why || !why.trim()) return;
-    const id = uid('mg'); const at = nowISO();
+    const id = mkmSrcOn(org) ? x.id + '-u' : uid('mg'); const at = nowISO();   // v56.39: معرّف ثابت للتراجع فإعادة المحاولة لا تُنشئ سجلًا ثانيًا
+    const ux = { id, undoOf: x.id, reason: why.trim(), by: me.name, byId: me.id || '', ...(me.email ? { byEmail: me.email } : {}), at, ...(req ? { reqId: req.id, reqBy: req.by } : {}) };
+    if (!(await gate(ux))) return;
     if (Number(x.pts) > 0) { const r = await loyPost([{ id: x.id + ':uo', phone: x.to, pts: -Number(x.pts), at, br: '', ord: 'تراجع عن دمج ' + x.from }, { id: x.id + ':ui', phone: x.from, pts: Number(x.pts), at, br: '', ord: 'تراجع عن دمج إلى ' + x.to }]);
       if (!r) return say('تعذّر إرجاع النقاط — لم يتم التراجع', 'no'); setLoy(r); }
-    const ok = await commit(d => ({ ...d, mktMerges: [...(d.mktMerges || []), { id, undoOf: x.id, reason: why.trim(), by: me.name, byId: me.id || '', ...(me.email ? { byEmail: me.email } : {}), at, ...(req ? { reqId: req.id, reqBy: req.by } : {}) }] }), { actionType: 'update', targetType: 'customer', targetId: x.to, need: 'edit', title: 'تراجع عن دمج ملف عميل', details: x.from + ' ← ' + x.to + ' · ' + (Number(x.pts) || 0) + ' نقطة · ' + why.trim() });
+    const ok = await commit(d => ({ ...d, mktMerges: [...(d.mktMerges || []).filter(m => m.id !== id), ux] }), { actionType: 'update', targetType: 'customer', targetId: x.to, need: 'edit', title: 'تراجع عن دمج ملف عميل', details: x.from + ' ← ' + x.to + ' · ' + (Number(x.pts) || 0) + ' نقطة · ' + why.trim() });
     if (ok) say('أُلغي الدمج وعاد الملفان منفصلين ✓'); else say('نُقلت النقاط ولم يُحفظ سجل التراجع — أعد المحاولة (لن تتحرك النقاط مرة ثانية)', 'no'); };
   const doMerge = async () => {
     if (!canApp) return say('دمج العملاء يتطلب صلاحية الاعتماد', 'no');
     const from = list.find(c => c.id === mg.from), to = list.find(c => c.id === mg.to);
     if (!from || !to || from.id === to.id) return say('اختر عميلين مختلفين', 'no'); if (!(mg.reason || '').trim()) return say('اكتب سبب الدمج والتحقق', 'no');
-    const id = uid('mg'); const x = { id, from: from.phone, to: to.phone, reason: mg.reason.trim(), pts: from.pts, by: me.name, byId: me.id || '', at: nowISO() };
+    const id = uid('mg'); const x = { id, from: from.phone, to: to.phone, reason: mg.reason.trim(), pts: from.pts, by: me.name, byId: me.id || '', ...(me.email ? { byEmail: me.email } : {}), at: nowISO() };
+    if (!(await gate(x))) return;
     if (from.pts) { const r = await loyPost([{ id: id + ':o', phone: from.phone, pts: -from.pts, at: x.at, br: '', ord: 'دمج إلى ' + to.phone }, { id: id + ':i', phone: to.phone, name: to.name, pts: from.pts, at: x.at, br: '', ord: 'دمج من ' + from.phone }]);
       if (!r) return say('تعذّر نقل النقاط — تحقق من الاتصال ولم يتم الدمج', 'no'); setLoy(r); }
     const ok = await commit(d => ({ ...d, mktMerges: [...(d.mktMerges || []), x] }), { actionType: 'approve', targetType: 'customer', targetId: to.phone, need: 'edit', title: 'دمج ملف عميل مكرر', details: from.phone + ' ← ' + to.phone + ' · ' + x.reason });

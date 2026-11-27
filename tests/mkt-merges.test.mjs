@@ -48,3 +48,15 @@ test('MKM (مراجعة الأمن): المطابقة تكشف النقاط ور
   assert.deepEqual(E.mkmViolations([g, req, { id: 'mg-5', rejOf: 'mg-2', by: 'أ', byEmail: 'a@x.com' }]).map(x => x.id), ['mg-5'], 'رفض ذاتي');
   assert.equal(E.mkmRecord({ ...req, byEmail: 'A@X.com' }, true).origBy, 'a@x.com');
 });
+
+test('MKM v56.39: مصدر الدمج على الخادم — بلا تفعيل كما كان؛ ومع التحميل لا يُعتدّ إلا بما في الخادم', () => {
+  const on = { growthRecords: { on: true }, mktCtl: { on: true } };
+  assert.equal(E.mkmSrcOn(on), false); assert.equal(E.mkmSrcOn({ mkmSrc: { on: true } }), false, 'يلزم نسخ السجلات وضوابط التسويق');
+  assert.equal(E.mkmSrcOn({ ...on, mkmSrc: { on: true } }), true);
+  const ops = { mktMerges: [{ id: 'mg-1', from: '1', to: '2', pts: 5, at: '1' }, { id: 'mg-x', from: '3', to: '4', pts: 9, at: '2' }, { id: 'mg-r', undoReq: 'mg-1', at: '3' }, { id: 'mg-f', undoOf: 'mg-1', at: '4' }] };
+  E.mkmSrvSet(null); assert.equal(E.mkmEff(ops).length, 4, 'بلا تحميل كما كان'); assert.deepEqual(E.mktMergesLive(ops).map(x => x.id), ['mg-x'], 'التراجع المزوّر يسري بلا الخادم');
+  E.mkmSrvSet(['mg-1', 'mg-r']);
+  assert.deepEqual(E.mktMergesLive(ops).map(x => x.id), ['mg-1'], 'الدمج المكتوب مباشرةً والتراجع بلا سجل محمي لا أثر لهما');
+  assert.deepEqual(E.mktUndoPending(ops).map(x => x.id), ['mg-r'], 'الطلب قائم لأن التراجع بلا سجل محمي لا يُغلقه');
+  E.mkmSrvSet(null);
+});
