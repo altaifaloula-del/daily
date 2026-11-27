@@ -71,3 +71,28 @@ test('E6.3: بند الإقفال — المعلّق في الشهر يُظهر 
   const it = C.find(x => x.k === 'ecl'); assert.ok(it); assert.equal(it.n, 1);
   assert.equal(E.closeAutoChecks(E.buildAccounting({}, { closings: [] }), { closings: [] }, '2026-11', {}).some(x => x.k === 'ecl'), false, 'بلا تفعيل لا بند');
 });
+
+test('E6 (التحقق المحاسبي): الشطب يُخصم من فاتورته في الأعمار لا من الأقدم', () => {
+  const ops = { salesInvoices: [si('i1', '2026-06-01', 1000, '2026-07-01'), si('i2', '2026-11-01', 1000, '2026-12-01')], eclDocs: [doc('d1', 'prov', 1000), doc('d2', 'wo', 1000, { siId: 'i2' })] };
+  const P = E.buildPartners(org, ops).find(p => p.key === 'cust:c1'); const g = E.customerAging(P, '2026-11-25', true);
+  assert.deepEqual([g.b0, g.b90, g.total], [0, 1000, 1000], 'المتأخر القديم يبقى متأخرًا');
+});
+
+test('E6 (التحقق المحاسبي): الاسترداد بعد الشطب — يعيد الذمة ويعكس المصروف (11.26) ويقبل التحصيل، ولا يتجاوز المشطوب', () => {
+  const base = { salesInvoices: [{ ...si('i1', '2026-09-01', 1000, '2026-10-01'), branchId: 'b1' }], eclDocs: [doc('d1', 'prov', 1000), doc('d2', 'wo', 1000, { siId: 'i1' })] };
+  const A0 = E.buildAccounting(org, base);
+  assert.match(E.eclCheck(org, base, doc('r', 'rec', 1200, { siId: 'i1', status: 'pending' }), A0), /المشطوب غير المسترد/);
+  const ops = { ...base, eclDocs: [...base.eclDocs, doc('d3', 'rec', 400, { siId: 'i1' })] };
+  const A = E.buildAccounting(org, ops); assert.equal(bal(A, '1380'), 400); assert.equal(bal(A, '5805'), 600, 'المصروف بعد العكس'); assert.equal(bal(A, '1389'), 0, 'المخصص لا يتأثر');
+  assert.equal(E.siRem(ops, ops.salesInvoices[0]), 400, 'الفاتورة مستحقة بالمسترد'); assert.equal(E.eclAllowBal(ops, 'cust:c1'), 0);
+  const P = E.buildPartners(org, ops).find(p => p.key === 'cust:c1'); assert.equal(Math.round(P.txns.reduce((t, x) => t + (x.debit || 0) - (x.credit || 0), 0) * 100) / 100, 400, 'المساعد = 1380');
+  assert.equal(A.entries.find(e => e.id === 'ecl:d2').branchId, 'b1', 'الشطب بفرع الفاتورة'); assert.equal(A.entries.find(e => e.id === 'ecl:d3').branchId, 'b1');
+});
+
+test('E6 (التحقق المحاسبي): حساب المخصص فرعي من 13xx غير 1380 وغير النقد، ولا تاريخ مستقبلي، وفرع التكوين اختياري', () => {
+  const ops = { salesInvoices: [si('i1', '2026-09-01', 1000, '2026-10-01')], eclDocs: [] }; const A = E.buildAccounting(org, ops);
+  for (const bad of ['1380', '1111', '1601']) assert.match(E.eclCheck({ ...org, ecl: { on: true, expAcc: '5805', allowAcc: bad } }, ops, doc('n', 'prov', 100, { status: 'pending' }), A), /حسابي/, bad);
+  assert.match(E.eclCheck(org, ops, doc('n', 'prov', 100, { status: 'pending', date: '2999-01-01' }), A), /مستقبلي/);
+  const A2 = E.buildAccounting(org, { ...ops, eclDocs: [doc('d1', 'prov', 100, { branchId: 'b1' }), doc('d2', 'prov', 50)] });
+  assert.equal(A2.entries.find(e => e.id === 'ecl:d1').branchId, 'b1'); assert.equal(A2.entries.find(e => e.id === 'ecl:d2').branchId, undefined, 'بلا فرع = مركزي');
+});

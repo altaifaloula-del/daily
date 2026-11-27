@@ -2,6 +2,7 @@
 import React, { useMemo, useState } from 'react';
 import { FileText, Wallet, AlertTriangle, ShieldCheck, Plus, Printer, Check, X, Banknote } from 'lucide-react';
 import { DocLink, RowGrip, moveIdx, projList, Field, Kpi, LOCK_MSG, Modal, Num, ROLES, branchBanks, buildPartners, entityList, isoD, money, naMissing, nowISO, periodLocked, printSalesInvoice, rolePost, siCredited, siRem, siSorted, siStamp, siVerify, sum, today, uid } from '../../App.jsx';
+import { eclWoOf } from '../../App.jsx';   // v56.40
 
 export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
   const all = ops.salesInvoices || [];
@@ -72,6 +73,7 @@ export function SalesInvoices({ org, ops, me, myBranches, commit, say }) {
   const saveCn = async () => {
     const o = byId(cn.id); const reason = (cn.reason || '').trim(); if (!reason) return say('اكتب سبب الإشعار الدائن', 'no');
     if (periodLocked(org, cn.date)) return say(LOCK_MSG(cn.date), 'no');
+    if (eclWoOf(ops, o.id) > 0.004) return say('على الفاتورة شطب دين معدوم — لا إشعار دائن عليها (أثره الضريبي لم يُقرَّر)', 'no');   // v56.40 (التحقق المحاسبي)
     const already = all.filter(c => c.kind === 'credit' && c.refId === o.id);
     const L = o.lines.map((l, i) => { const back = sum(already, c => ((c.lines || []).find(z => z.src === i) || {}).qty || 0); const can = Math.max(0, l.qty - back); const q2 = Math.min(Number(cn.qtys[i]) || 0, can);
       if (!(q2 > 0)) return null; const net = r2(q2 * l.price), vt = r2(net * l.vatRate / 100); return { src: i, desc: l.desc, qty: q2, price: l.price, vatRate: l.vatRate, net, vat: vt }; }).filter(Boolean);

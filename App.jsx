@@ -1319,7 +1319,7 @@ function siVerify(list) {
 }
 const siPaid = (x) => Math.round((x.receipts || []).reduce((a, r) => a + (Number(r.amount) || 0), 0) * 100) / 100;
 const siCredited = (ops, x) => Math.round((ops.salesInvoices || []).filter(c => c.kind === 'credit' && c.refId === x.id).reduce((a, c) => a + (Number(c.total) || 0), 0) * 100) / 100;
-const siRem = (ops, x) => x.kind === 'credit' || x.terms !== 'credit' ? 0 : Math.max(0, Math.round((x.total - siPaid(x) - siCredited(ops, x) - eclWoOf(ops, x.id)) * 100) / 100);
+const siRem = (ops, x) => x.kind === 'credit' || x.terms !== 'credit' ? 0 : Math.max(0, Math.round((x.total - siPaid(x) - siCredited(ops, x) - eclWoOf(ops, x.id) + eclRecOf(ops, x.id)) * 100) / 100);
 /* ===== v56.40 — الدفعة 7 (قرارات المجلس E6): مخصص الخسائر الائتمانية المحدد لكل عميل، وتاريخ الاستحقاق للأعمار =====
    مستند ops.eclDocs: { id, no, kind: 'prov' تكوين | 'rel' عكس الزائد | 'wo' شطب دين معدوم (على فاتورة siId), customerKey, amount, date, reason, status: pending|approved|rejected,
    by, byId, ... approvedBy, approvedAt, expAcc, allowAcc (يُثبَّتان عند الاعتماد فلا يغيّر تبديل الإعداد قيدًا سابقًا) }.
@@ -1329,21 +1329,30 @@ const eclOn = (org) => !!(org && org.ecl && org.ecl.on);
 const eclAccs = (org) => { const e = (org && org.ecl) || {}; return { exp: String(e.expAcc || ''), allow: String(e.allowAcc || '') }; };
 const eclLive = (x) => !!x && x.status === 'approved';
 const eclR2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
-const eclWoOf = (ops, siId) => eclR2(((ops && ops.eclDocs) || []).filter(x => eclLive(x) && x.kind === 'wo' && x.siId === siId).reduce((a, x) => a + (Number(x.amount) || 0), 0));
-/** رصيد مخصص العميل (المعتمد): التكوين − العكس − الشطب */
-const eclAllowBal = (ops, key, exceptId) => eclR2(((ops && ops.eclDocs) || []).filter(x => eclLive(x) && x.customerKey === key && x.id !== exceptId)
+const eclSumOf = (ops, siId, k, exceptId) => eclR2(((ops && ops.eclDocs) || []).filter(x => eclLive(x) && x.kind === k && x.siId === siId && x.id !== exceptId).reduce((a, x) => a + (Number(x.amount) || 0), 0));
+const eclWoOf = (ops, siId) => eclSumOf(ops, siId, 'wo');
+const eclRecOf = (ops, siId) => eclSumOf(ops, siId, 'rec');   // استرداد دين مشطوب (يعيد الذمة)
+/** رصيد مخصص العميل (المعتمد): التكوين − العكس − الشطب (الاسترداد لا يمس المخصص) */
+const eclAllowBal = (ops, key, exceptId) => eclR2(((ops && ops.eclDocs) || []).filter(x => eclLive(x) && x.customerKey === key && x.id !== exceptId && x.kind !== 'rec')
   .reduce((a, x) => a + (x.kind === 'prov' ? 1 : -1) * (Number(x.amount) || 0), 0));
+/** حساب المخصص المقبول: فرعي من 13xx (مع الذمم، متداول) غير الحساب الرقابي 1380 وغير النقد؛ والمصروف 5xxx (مراجعة التحقق المحاسبي) */
+const eclAllowOk = (code, A) => /^13\d{2,}$/.test(String(code || '')) && String(code) !== '1380' && (!A || (A.accounts || []).some(y => String(y.code) === String(code) && !y.cash));
 /** فحص المستند (عند الإنشاء والاعتماد): الحسابات، المبلغ، السبب، الفترة، الحدود */
 function eclCheck(org, ops, x, A) {
   const a = eclR2(x.amount); if (!(a > 0)) return 'أدخل المبلغ';
-  if (!['prov', 'rel', 'wo'].includes(x.kind)) return 'نوع غير معروف';
+  if (!['prov', 'rel', 'wo', 'rec'].includes(x.kind)) return 'نوع غير معروف';
   if (!String(x.reason || '').trim()) return 'اكتب الدليل أو السبب (تعثر، نزاع، إفلاس…)';
   if (!x.customerKey) return 'اختر العميل';
   if (!x.date || periodLocked(org, x.date)) return 'التاريخ في فترة مقفلة أو غير محدد';
+  if (String(x.date) > today()) return 'لا يُقبل تاريخ مستقبلي';
   const ac = eclAccs(org), has = (c) => !A || (A.accounts || []).some(y => String(y.code) === c);
   // المخصص حساب أصول مقابل (1xxx — يبقى متداولًا مع الذمم)، والمصروف من المصروفات (5xxx)
-  if (!/^1\d+$/.test(ac.allow) || !/^5\d+$/.test(ac.exp) || !has(ac.exp) || !has(ac.allow)) return 'حدّد حسابي المصروف والمخصص من دليل الحسابات في «صيانة النظام»';
+  if (!eclAllowOk(ac.allow, A) || !/^5\d+$/.test(ac.exp) || !has(ac.exp) || !has(ac.allow)) return 'حدّد حسابي المصروف والمخصص من دليل الحسابات في «صيانة النظام» (المخصص حساب فرعي من 13xx غير 1380)';
   const bal = eclAllowBal(ops, x.customerKey, x.id);
+  if (x.kind === 'rec') { const si = ((ops && ops.salesInvoices) || []).find(y => y.id === x.siId);
+    if (!si || si.customerKey !== x.customerKey) return 'اختر الفاتورة المشطوبة المسترَدة';
+    const can = eclR2(eclWoOf(ops, si.id) - eclSumOf(ops, si.id, 'rec', x.id)); if (a > can + 0.004) return 'المبلغ أكبر من المشطوب غير المسترد على الفاتورة (' + can + ')';
+    return ''; }
   if (x.kind !== 'prov' && a > bal + 0.004) return 'المبلغ أكبر من رصيد مخصص العميل (' + bal + ') — كوّن المخصص أولًا';
   if (x.kind === 'wo') { const si = ((ops && ops.salesInvoices) || []).find(y => y.id === x.siId);
     if (!si || si.customerKey !== x.customerKey) return 'اختر فاتورة العميل المشطوبة';
@@ -1645,10 +1654,12 @@ function buildPartners(org, ops) {
     (ops.salesInvoices || []).filter(x => x.customerKey === key && !x.inClosing).forEach(x => {
       if (x.kind === 'credit') { if (x.terms === 'credit') t.push({ date: x.date, desc: 'إشعار دائن ' + x.no, ref: x.no, src: 'si', debit: 0, credit: x.total }); return; }
       if (x.terms !== 'credit') return;
-      t.push({ date: x.date, desc: (x.kind === 'debit' ? 'إشعار مدين ' : 'فاتورة مبيعات ') + x.no, ref: x.no, src: 'si', debit: x.total, credit: 0, due: x.dueDate });
+      t.push({ date: x.date, desc: (x.kind === 'debit' ? 'إشعار مدين ' : 'فاتورة مبيعات ') + x.no, ref: x.no, src: 'si', debit: x.total, credit: 0, due: x.dueDate, sid: x.id });
       (x.receipts || []).forEach(r => t.push({ date: r.date, desc: 'تحصيل عن ' + x.no, ref: x.no, src: 'si', debit: 0, credit: Number(r.amount) || 0 }));
     });
-    (ops.eclDocs || []).filter(d => eclLive(d) && d.kind === 'wo' && d.customerKey === key).forEach(d => t.push({ date: d.date, desc: 'شطب دين معدوم ' + (d.no || ''), ref: d.no || '', src: 'ecl', debit: 0, credit: eclR2(d.amount) }));   // v56.40
+    (ops.eclDocs || []).filter(d => eclLive(d) && (d.kind === 'wo' || d.kind === 'rec') && d.customerKey === key).forEach(d => t.push(d.kind === 'wo'
+      ? { date: d.date, desc: 'شطب دين معدوم ' + (d.no || ''), ref: d.no || '', src: 'ecl', debit: 0, credit: eclR2(d.amount), sid: d.siId }   // v56.40: يُخصم من فاتورته في الأعمار
+      : { date: d.date, desc: 'استرداد دين مشطوب ' + (d.no || ''), ref: d.no || '', src: 'ecl', debit: eclR2(d.amount), credit: 0, due: d.date }));
     return t; };
 
   // الموظفون — استحقاق وصرف الرواتب قيود دائمة تُرحَّل من شاشة الرواتب (لا سطر اصطناعي يتغيّر بالشهر)
@@ -1725,9 +1736,12 @@ function supplierAging(p, todayStr) {
 function customerAging(p, todayStr, byDue) {
   const upto = (t) => !todayStr || !t.date || t.date <= todayStr; // v15.5: أعمار كما في تاريخ
   // v56.40 (E6.5): مع byDue يُحسب العمر من تاريخ الاستحقاق (القديم بلا استحقاق يُقرأ بتاريخه) — التخصيص FIFO بتاريخ الفاتورة كما هو
-  const charges = (p.txns || []).filter(t => upto(t) && (t.debit || 0) > 0 && !((t.credit || 0) > 0)).map(t => ({ date: t.date, age: byDue && t.due ? t.due : t.date, open: t.debit }));
+  const charges = (p.txns || []).filter(t => upto(t) && (t.debit || 0) > 0 && !((t.credit || 0) > 0)).map(t => ({ date: t.date, age: byDue && t.due ? t.due : t.date, open: t.debit, sid: t.sid || '' }));
   charges.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
-  let pay = (p.txns || []).reduce((s, t) => s + ((upto(t) && (t.credit || 0) > 0 && !((t.debit || 0) > 0)) ? t.credit : 0), 0);
+  // v56.40 (التحقق المحاسبي): الشطب يُخصم من فاتورته أولًا (sid)، ثم الباقي والتحصيلات بالأقدم أولًا كما كان
+  const targeted = (p.txns || []).filter(t => upto(t) && t.sid && (t.credit || 0) > 0 && !((t.debit || 0) > 0));
+  let pay = (p.txns || []).reduce((s, t) => s + ((upto(t) && !t.sid && (t.credit || 0) > 0 && !((t.debit || 0) > 0)) ? t.credit : 0), 0);
+  targeted.forEach(t => { const ch = charges.find(c => c.sid === t.sid); let left = t.credit; if (ch) { const ap = Math.min(left, ch.open); ch.open -= ap; left -= ap; } pay += left; });
   for (const ch of charges) { if (pay <= 0.004) break; const ap = Math.min(pay, ch.open); ch.open -= ap; pay -= ap; }
   const dd = (a, b) => { const x = Date.parse(a), y = Date.parse(b); return (isNaN(x) || isNaN(y)) ? 0 : Math.max(0, Math.floor((y - x) / 86400000)); };
   const bk = { b0: 0, b30: 0, b60: 0, b90: 0 };
@@ -2759,8 +2773,10 @@ function buildAccounting(org, ops) {
 
   // 6-ب2) v56.40 (E6) مخصص الخسائر الائتمانية — المعتمد وحده، بحسابيه المثبّتين عند الاعتماد
   (ops.eclDocs || []).forEach(x => { if (!eclLive(x) || !x.expAcc || !x.allowAcc) return; const a = eclR2(x.amount); if (!(a > 0)) return;
-    const lines = x.kind === 'prov' ? [L(x.expAcc, a, 0), L(x.allowAcc, 0, a)] : x.kind === 'rel' ? [L(x.allowAcc, a, 0), L(x.expAcc, 0, a)] : [L(x.allowAcc, a, 0), L('1380', 0, a)];
-    push({ id: 'ecl:' + x.id, date: x.date, title: (x.kind === 'prov' ? 'تكوين مخصص خسائر ائتمانية' : x.kind === 'rel' ? 'عكس مخصص خسائر ائتمانية' : 'شطب دين معدوم') + ' — ' + (x.custName || x.customerKey) + (x.no ? ' (' + x.no + ')' : ''),
+    // الاسترداد (IFRS for SMEs 11.26 — عكس الخسارة عبر الربح والخسارة): مدين 1380 بطرف العميل / دائن مصروف الخسائر الائتمانية
+    const lines = x.kind === 'prov' ? [L(x.expAcc, a, 0), L(x.allowAcc, 0, a)] : x.kind === 'rel' ? [L(x.allowAcc, a, 0), L(x.expAcc, 0, a)] : x.kind === 'rec' ? [L('1380', a, 0), L(x.expAcc, 0, a)] : [L(x.allowAcc, a, 0), L('1380', 0, a)];
+    const sb = (x.kind === 'wo' || x.kind === 'rec') ? ((ops.salesInvoices || []).find(y => y.id === x.siId) || {}).branchId : x.branchId;   // فرع الفاتورة للشطب والاسترداد؛ اختياري للتكوين والعكس
+    push({ id: 'ecl:' + x.id, date: x.date, ...(sb ? { branchId: sb } : {}), title: (x.kind === 'prov' ? 'تكوين مخصص خسائر ائتمانية' : x.kind === 'rel' ? 'عكس مخصص خسائر ائتمانية' : x.kind === 'rec' ? 'استرداد دين مشطوب' : 'شطب دين معدوم') + ' — ' + (x.custName || x.customerKey) + (x.no ? ' (' + x.no + ')' : ''),
       src: 'مخصص الخسائر الائتمانية', ref: x.no || '', lines }); });
 
   // 6-ج) v46.6 سندات القبض والصرف والمقاصّة: الجزء الموزَّع على فواتير يُقيَّد مع الفاتورة (سدادها/تحصيلها)، والباقي «على الحساب» هنا
@@ -9257,7 +9273,7 @@ async function loyPiiStrip() {
   }
   return { err: 'تعارض متكرر — أعد المحاولة' };
 }
-export { eclOn, eclAccs, eclLive, eclAllowBal, eclWoOf, eclCheck, eclApprove };   // v56.40 الدفعة 7 (E6)
+export { eclOn, eclAccs, eclLive, eclAllowBal, eclWoOf, eclRecOf, eclAllowOk, eclCheck, eclApprove };   // v56.40 الدفعة 7 (E6)
 export { loyPiiOn, lypSetOn, lynReset, lypReleaseOk, loyNamesByBr, loyStrip, loyWithNames, loyPiiPlan, loyGet, loyPiiCopy, loyPiiStrip };
 const posQueue = () => { try { return JSON.parse(localStorage.getItem(POS_Q_KEY) || '[]'); } catch { return []; } };
 const posQueueSet = (a) => { try { localStorage.setItem(POS_Q_KEY, JSON.stringify(a)); } catch { } };

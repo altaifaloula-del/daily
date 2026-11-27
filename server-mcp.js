@@ -17,7 +17,7 @@ export const MCP_DOC_RE = /^rms8_(org|core|br_[^_].*?)(__.+)?$/;
 
 // مصفوفات العمليات التي يقرؤها محرك المحاسبة (buildAccounting وما يستدعيه) ودوال المقترحات وأدوات الموصل — مُستخرجة من App.jsx.
 // أي مصفوفة أخرى (نقطة البيع، التسويق، الموارد البشرية…) تُحذف فور فك مستندها توفيرًا للذاكرة.
-export const MCP_OPS_KEYS = new Set(['advances', 'appSettlements', 'cashVouchers', 'closingInvPays', 'closings', 'disbursements', 'invoices',
+export const MCP_OPS_KEYS = new Set(['advances', 'appSettlements', 'cashVouchers', 'closingInvPays', 'closings', 'disbursements', 'eclDocs', 'invoices',
   'journalManual', 'ledgerEntries', 'salesInvoices', 'stockMoves', 'transfers', 'whMoves', 'whTransfers']);
 // الملفات المضمّنة (صور/مرفقات data:…) لا تلزم المحاسبة — تُسقط أثناء الفك نفسه فلا تبقى في الذاكرة
 const DROP_BLOBS = (k, v) => (typeof v === 'string' && v.length > 1024 && v.startsWith('data:')) ? undefined : v;
