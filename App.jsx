@@ -9346,9 +9346,7 @@ function ppCheck(org, ops, x, A) {
   if (String(x.date) > today()) return 'لا يُقبل تاريخ مستقبلي';
   if (!/^\d{4}-\d{2}$/.test(String(x.start || '')) || String(x.start) < String(x.date).slice(0, 7)) return 'أول شهر إطفاء لا يسبق شهر الدفعة';
   const has = (c) => !A || (A.accounts || []).some(y => String(y.code) === String(c) && !y.cash);
-  // قرار المالك: «إيجارات كل فرع منفصلة» ⇒ مع أكثر من فرع يُختار فرع المستند صراحةً (أو «الإدارة العامة» صراحةً)، ولكل فرع مستنده
-  const nBr = ((org && org.branches) || []).filter(b => b && b.isActive !== false).length;
-  if (nBr > 1 && !x.branchId && x.central !== true) return 'اختر فرع المصروف (إيجار كل فرع مستند مستقل) أو «الإدارة العامة»';
+  // قرار المالك: «إيجارات كل فرع منفصلة» ثم «اجعل المصاريف اختيارية حسب مراكز التكلفة للرئيسي والفروع» ⇒ مركز التكلفة اختياري: المركز الرئيسي (افتراضي) أو فرع
   if (x.branchId && !((org && org.branches) || []).some(b => b.id === x.branchId)) return 'الفرع غير موجود';
   if (!ppAssetOk(x.assetAcc, A)) return 'اختر حساب المصروف المدفوع مقدمًا (أصل متداول 14xx غير سلف الموظفين 1401)';
   if (!ppExpOk(x.expAcc, A)) return 'اختر حساب المصروف الذي سُجّلت عليه الدفعة (5xxx غير تسوية المخزون)';

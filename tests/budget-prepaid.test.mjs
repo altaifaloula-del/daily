@@ -81,10 +81,9 @@ test('E5.2: المعتمد المالك أو الإدارة المالية فق�
   assert.equal(E.budCanApprove(fin, b), true); assert.equal(E.budCanApprove(own, b), true); assert.equal(E.budCanApprove({ ...fin, id: 'u1' }, b), false);
 });
 
-test('T4 (قرار المالك): إيجارات كل فرع منفصلة — مع أكثر من فرع يُختار الفرع أو الإدارة العامة صراحةً', () => {
+test('T4 (قرار المالك): مركز التكلفة اختياري — المركز الرئيسي افتراضيًا أو فرع، والفرع غير الموجود يُرفض', () => {
   const o2 = { ...org, branches: [{ id: 'b1', name: 'العليا', isActive: true }, { id: 'b2', name: 'النخيل', isActive: true }] }; const A = E.buildAccounting(o2, {});
   const x = { id: 'n', desc: 'إيجار', date: '2026-01-15', start: '2026-01', months: 12, amount: 1200, assetAcc: '1450', expAcc: '5301', status: 'pending', by: 'أحمد', byId: 'u1' };
-  assert.match(E.ppCheck(o2, {}, x, A), /اختر فرع/); assert.equal(E.ppCheck(o2, {}, { ...x, branchId: 'b2' }, A), ''); assert.equal(E.ppCheck(o2, {}, { ...x, central: true }, A), '');
+  assert.equal(E.ppCheck(o2, {}, x, A), '', 'المركز الرئيسي'); assert.equal(E.ppCheck(o2, {}, { ...x, branchId: 'b2' }, A), '');
   assert.match(E.ppCheck(o2, {}, { ...x, branchId: 'zz' }, A), /غير موجود/);
-  assert.equal(E.ppCheck(org, {}, x, E.buildAccounting(org, {})), '', 'فرع واحد: كما كان');
 });

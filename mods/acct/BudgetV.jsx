@@ -46,7 +46,7 @@ export function BudgetV({ org, ops, A, me, commit, say, canPost }) {
         <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
           <input className="inp n" style={{ width: 80 }} aria-label="سنة الموازنة" value={year} onChange={e => setYear(e.target.value.replace(/\D/g, '').slice(0, 4))} />
           <select className="sel" aria-label="شهر المقارنة" value={mon} onChange={e => setMon(Number(e.target.value))}>{MN.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}</select>
-          <select className="sel" aria-label="فرع الموازنة" value={br} onChange={e => setBr(e.target.value)}><option value="*">كل الفروع</option><option value="">مركزي (بلا فرع)</option>{brs.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
+          <select className="sel" aria-label="فرع الموازنة" value={br} onChange={e => setBr(e.target.value)}><option value="*">كل الفروع</option><option value="">المركز الرئيسي</option>{brs.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
           <button className="btn sm" onClick={xl}><Download size={13} />Excel</button>
         </div></div>
       <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 1.9, marginBottom: 8 }}>
@@ -61,14 +61,14 @@ export function BudgetV({ org, ops, A, me, commit, say, canPost }) {
       <div className="card-h"><div className="card-t">إصدارات {year}</div>{canPost && !draft && <button className="btn sm pri" onClick={newV} data-budv-new><Plus size={13} />إصدار جديد</button>}</div>
       {vs.map(b => <div key={b.id} className="me-row" data-budv-ver={b.ver}><span className="me-a"><b>الإصدار {b.ver} · {BUD_ST[b.status] || b.status}</b><small>أعدّه {b.by}{b.apprBy ? ' · اعتمده ' + b.apprBy : ''}{b.rejWhy ? ' · أُعيد: ' + b.rejWhy : ''} · {(b.lines || []).length} سطر</small></span>
         <span className="row" style={{ gap: 4 }}>
-          {b.status === 'draft' && canPost && <><button className="btn sm gh" onClick={() => openEd(b)} data-budv-edit>تعديل ({br === '*' || br === '' ? 'مركزي' : (brs.find(x => x.id === br) || {}).name})</button><button className="btn sm" onClick={() => submit(b)} data-budv-submit><Send size={13} />رفع للاعتماد</button></>}
+          {b.status === 'draft' && canPost && <><button className="btn sm gh" onClick={() => openEd(b)} data-budv-edit>تعديل ({br === '*' || br === '' ? 'المركز الرئيسي' : (brs.find(x => x.id === br) || {}).name})</button><button className="btn sm" onClick={() => submit(b)} data-budv-submit><Send size={13} />رفع للاعتماد</button></>}
           {b.status === 'submitted' && (budCanApprove(me, b) ? <><button className="btn sm pri" onClick={() => decide(b, true)} data-budv-ok><Check size={13} />اعتماد</button><button className="btn sm gh" onClick={() => decide(b, false)} data-budv-no><X size={13} />إعادة</button></>
             : <span className="badge b-amber" data-budv-wait>بانتظار اعتماد المالك أو الإدارة المالية</span>)}
         </span></div>)}
       {!vs.length && <div className="empty">لا إصدارات بعد — «إصدار جديد» يبدأ مسودة{B && !B.legacy ? ' منسوخة من المعتمد' : ''}.</div>}
     </div>
     {ed && <div className="card" data-budv-editor>
-      <div className="card-h"><div className="card-t">تعديل المسودة — {ed.br ? (brs.find(x => x.id === ed.br) || {}).name : 'مركزي (بلا فرع)'}</div>
+      <div className="card-h"><div className="card-t">تعديل المسودة — {ed.br ? (brs.find(x => x.id === ed.br) || {}).name : 'المركز الرئيسي'}</div>
         <span className="row" style={{ gap: 4 }}><button className="btn sm gh" onClick={() => setEd(null)}>إلغاء</button><button className="btn sm pri" onClick={saveEd} data-budv-save><Check size={13} />حفظ المسودة</button></span></div>
       <div className="tw"><table className="tb"><thead><tr><th>الحساب</th>{MN.map(m => <th key={m} style={{ textAlign: 'end' }}>{m}</th>)}</tr></thead>
         <tbody>{accs.map(a => <tr key={a.code}><td style={{ whiteSpace: 'nowrap', fontSize: 12 }}>{a.code} · {a.name}</td>{MN.map((m, i) => <td key={m}><input className="inp n" style={{ width: 76 }} aria-label={'موازنة ' + a.code + ' ' + m} inputMode="decimal"
